@@ -13,8 +13,13 @@
 
 using namespace ABI::Windows::Foundation;
 using namespace ABI::Windows::Foundation::Collections;
+#if defined(ANGLE_ENABLE_WINDOWS_APP_SDK)
+using namespace ABI::Microsoft::UI::Dispatching;
+using namespace ABI::Microsoft::UI::Xaml;
+#else
 using namespace ABI::Windows::UI::Core;
 using namespace ABI::Windows::UI::Xaml;
+#endif
 using namespace Microsoft::WRL;
 
 namespace rx
@@ -37,7 +42,13 @@ HRESULT RunOnUIThread(CODE &&code, const ComPtr<ICoreDispatcher> &dispatcher)
     HRESULT result = S_OK;
 
     boolean hasThreadAccess;
+#if defined(ANGLE_ENABLE_WINDOWS_APP_SDK)
+    ComPtr<IDispatcherQueue2> dispatcher2;
+    dispatcher.As(&dispatcher2);
+    result = dispatcher2->get_HasThreadAccess(&hasThreadAccess);
+#else
     result = dispatcher->get_HasThreadAccess(&hasThreadAccess);
+#endif
     if (FAILED(result))
     {
         return result;
@@ -64,8 +75,13 @@ HRESULT RunOnUIThread(CODE &&code, const ComPtr<ICoreDispatcher> &dispatcher)
                 return S_OK;
             });
 
-        result = dispatcher->RunAsync(CoreDispatcherPriority_Normal, handler.Get(),
-                                      asyncAction.GetAddressOf());
+#if defined(ANGLE_ENABLE_WINDOWS_APP_SDK)
+        boolean enqueued;
+        result = dispatcher->TryEnqueueWithPriority(DispatcherQueuePriority_Normal, handler.Get(),
+                                                    &enqueued);
+#else
+        result = dispatcher->RunAsync(CoreDispatcherPriority_Normal, handler.Get(), &asyncAction);
+#endif
         if (FAILED(result))
         {
             return result;
@@ -91,7 +107,7 @@ HRESULT RunOnUIThread(CODE &&code, const ComPtr<ICoreDispatcher> &dispatcher)
 bool SwapChainPanelNativeWindow::initialize(EGLNativeWindowType window, IPropertySet *propertySet)
 {
     ComPtr<IPropertySet> props = propertySet;
-    ComPtr<IInspectable> win   = window;
+    ComPtr<IInspectable> win   = reinterpret_cast<IInspectable *>(window);
     SIZE swapChainSize         = {};
     HRESULT result             = S_OK;
 
@@ -155,8 +171,12 @@ bool SwapChainPanelNativeWindow::initialize(EGLNativeWindowType window, IPropert
 
     if (SUCCEEDED(result))
     {
+#if defined(ANGLE_ENABLE_WINDOWS_APP_SDK)
+        result = swapChainPanelDependencyObject->get_DispatcherQueue(
+#else
         result = swapChainPanelDependencyObject->get_Dispatcher(
-            mSwapChainPanelDispatcher.GetAddressOf());
+#endif
+            &mSwapChainPanelDispatcher);
     }
 
     if (SUCCEEDED(result))
@@ -201,7 +221,7 @@ bool SwapChainPanelNativeWindow::registerForSizeChangeEvents()
     ComPtr<ISizeChangedEventHandler> sizeChangedHandler;
     ComPtr<IFrameworkElement> frameworkElement;
     HRESULT result = Microsoft::WRL::MakeAndInitialize<SwapChainPanelSizeChangedHandler>(
-        sizeChangedHandler.ReleaseAndGetAddressOf(), this->shared_from_this());
+        &sizeChangedHandler, this->shared_from_this());
 
     if (SUCCEEDED(result))
     {
@@ -247,7 +267,7 @@ HRESULT SwapChainPanelNativeWindow::createSwapChain(ID3D11Device *device,
                                                     unsigned int width,
                                                     unsigned int height,
                                                     bool containsAlpha,
-                                                    IDXGISwapChain1 **swapChain)
+                                                    ComPtr<IDXGISwapChain1> *swapChain)
 {
     if (device == nullptr || factory == nullptr || swapChain == nullptr || width == 0 ||
         height == 0)
@@ -270,14 +290,12 @@ HRESULT SwapChainPanelNativeWindow::createSwapChain(ID3D11Device *device,
     swapChainDesc.AlphaMode =
         containsAlpha ? DXGI_ALPHA_MODE_PREMULTIPLIED : DXGI_ALPHA_MODE_IGNORE;
 
-    *swapChain = nullptr;
-
     ComPtr<IDXGISwapChain1> newSwapChain;
     ComPtr<ISwapChainPanelNative> swapChainPanelNative;
     Size currentPanelSize = {};
 
-    HRESULT result = factory->CreateSwapChainForComposition(device, &swapChainDesc, nullptr,
-                                                            newSwapChain.ReleaseAndGetAddressOf());
+    HRESULT result =
+        factory->CreateSwapChainForComposition(device, &swapChainDesc, nullptr, &newSwapChain);
 
     if (SUCCEEDED(result))
     {
@@ -299,7 +317,7 @@ HRESULT SwapChainPanelNativeWindow::createSwapChain(ID3D11Device *device,
         // to perform the runtime-scale behavior.  This swapchain is cached here because there are
         // no methods for retreiving the currently configured on from ISwapChainPanelNative.
         mSwapChain = newSwapChain;
-        result     = newSwapChain.CopyTo(swapChain);
+        *swapChain = std::move(newSwapChain);
     }
 
     // If the host is responsible for scaling the output of the swapchain, then
@@ -325,8 +343,8 @@ HRESULT SwapChainPanelNativeWindow::createSwapChain(ID3D11Device *device,
 
 HRESULT SwapChainPanelNativeWindow::scaleSwapChain(const Size &windowSize, const RECT &clientRect)
 {
-    Size renderScale = {windowSize.Width / (float)clientRect.right,
-                        windowSize.Height / (float)clientRect.bottom};
+    Size renderScale = {windowSize.Width / std::max(LONG(1), clientRect.right),
+                        windowSize.Height / std::max(LONG(1), clientRect.bottom)};
     // Setup a scale matrix for the swap chain
     DXGI_MATRIX_3X2_F scaleMatrix = {};
     scaleMatrix._11               = renderScale.Width;
@@ -342,10 +360,9 @@ HRESULT SwapChainPanelNativeWindow::scaleSwapChain(const Size &windowSize, const
     return result;
 }
 
-HRESULT GetSwapChainPanelSize(
-    const ComPtr<ABI::Windows::UI::Xaml::Controls::ISwapChainPanel> &swapChainPanel,
-    const ComPtr<ICoreDispatcher> &dispatcher,
-    Size *windowSize)
+HRESULT GetSwapChainPanelSize(const ComPtr<ISwapChainPanel> &swapChainPanel,
+                              const ComPtr<ICoreDispatcher> &dispatcher,
+                              Size *windowSize)
 {
     ComPtr<IUIElement> uiElement;
     HRESULT result = swapChainPanel.As(&uiElement);

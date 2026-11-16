@@ -20,15 +20,16 @@
           android:versionName="100"
           package="com.android.angle">
 
+   <uses-sdk
+        android:minSdkVersion="35"
+        android:targetSdkVersion="37" />
+
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
-    <uses-sdk android:minSdkVersion="26"
-              android:targetSdkVersion="28">
-    </uses-sdk>
-
-    <application android:label="Android System Angle"
+    <application android:allowBackup="false"
+                 android:label="Android System Angle"
                  android:icon="@drawable/icon"
                  android:extractNativeLibs="false"
                  android:forceQueryable="true"
@@ -37,9 +38,10 @@
         <activity android:name="com.android.angle.MainActivity"
                   android:label="@string/angle_preferences"
                   android:description="@string/angle_preferences_summary"
-                  android:theme="@style/Theme.Settings"
+                  android:theme="@style/Theme.AppCompat.DayNight"
                   android:visibleToInstantApps="true"
-                  android:launchMode="singleTask">
+                  android:launchMode="singleTask"
+                  android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.INFO"/>

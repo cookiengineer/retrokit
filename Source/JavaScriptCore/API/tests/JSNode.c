@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,6 +33,8 @@
 #include "Node.h"
 #include "NodeList.h"
 #include <wtf/Assertions.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 static JSValueRef JSNode_appendChild(JSContextRef context, JSObjectRef function, JSObjectRef thisObject, size_t argumentCount, const JSValueRef arguments[], JSValueRef* exception)
 {
@@ -97,7 +99,7 @@ static JSValueRef JSNode_replaceChild(JSContextRef context, JSObjectRef function
     return JSValueMakeUndefined(context);
 }
 
-static JSStaticFunction JSNode_staticFunctions[] = {
+static const JSStaticFunction JSNode_staticFunctions[] = {
     { "appendChild", JSNode_appendChild, kJSPropertyAttributeDontDelete },
     { "removeChild", JSNode_removeChild, kJSPropertyAttributeDontDelete },
     { "replaceChild", JSNode_replaceChild, kJSPropertyAttributeDontDelete },
@@ -139,7 +141,7 @@ static JSValueRef JSNode_getFirstChild(JSContextRef context, JSObjectRef object,
     return JSValueMakeUndefined(context);
 }
 
-static JSStaticValue JSNode_staticValues[] = {
+static const JSStaticValue JSNode_staticValues[] = {
     { "nodeType", JSNode_getNodeType, NULL, kJSPropertyAttributeDontDelete | kJSPropertyAttributeReadOnly },
     { "childNodes", JSNode_getChildNodes, NULL, kJSPropertyAttributeDontDelete | kJSPropertyAttributeReadOnly },
     { "firstChild", JSNode_getFirstChild, NULL, kJSPropertyAttributeDontDelete | kJSPropertyAttributeReadOnly },
@@ -195,3 +197,5 @@ JSObjectRef JSNode_construct(JSContextRef context, JSObjectRef object, size_t ar
 
     return JSNode_new(context, Node_new());
 }
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

@@ -14,6 +14,7 @@
 #include "libANGLE/Error.h"
 #include "libANGLE/Framebuffer.h"
 #include "libANGLE/State.h"
+#include "libANGLE/angletypes.h"
 
 namespace gl
 {
@@ -21,8 +22,6 @@ class Buffer;
 class Framebuffer;
 class FramebufferAttachment;
 struct PixelPackState;
-struct Rectangle;
-class State;
 }  // namespace gl
 
 namespace rx
@@ -82,7 +81,12 @@ class FramebufferImpl : angle::NonCopyable
                                GLbitfield mask,
                                GLenum filter) = 0;
 
-    virtual bool checkStatus(const gl::Context *context) const = 0;
+    virtual gl::FramebufferStatus checkStatus(const gl::Context *context) const = 0;
+
+    virtual angle::Result ensureAttachmentsInitialized(const gl::Context *context,
+                                                       const gl::DrawBufferMask &colorAttachments,
+                                                       bool depth,
+                                                       bool stencil);
 
     virtual angle::Result syncState(const gl::Context *context,
                                     GLenum binding,
@@ -99,6 +103,12 @@ class FramebufferImpl : angle::NonCopyable
     // D3D back-ends to skip syncState lets us do more work in the syncState call.
     virtual bool shouldSyncStateBeforeCheckStatus() const;
 
+    virtual angle::Result onLabelUpdate(const gl::Context *context);
+
+    virtual angle::Result onAttachmentLayerCountChange(gl::FramebufferAttachment *attachment);
+
+    virtual void onAttachmentDetached(const gl::Context *context, size_t dirtyBit);
+
     const gl::FramebufferState &getState() const { return mState; }
 
   protected:
@@ -109,6 +119,14 @@ inline bool FramebufferImpl::shouldSyncStateBeforeCheckStatus() const
 {
     return false;
 }
+
+inline angle::Result FramebufferImpl::onAttachmentLayerCountChange(
+    gl::FramebufferAttachment *attachment)
+{
+    return angle::Result::Continue;
+}
+
+inline void FramebufferImpl::onAttachmentDetached(const gl::Context *context, size_t dirtyBit) {}
 
 // Default implementation returns the format specified in the attachment.
 inline const gl::InternalFormat &FramebufferImpl::getImplementationColorReadFormat(

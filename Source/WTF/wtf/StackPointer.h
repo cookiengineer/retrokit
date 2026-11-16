@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,11 +23,15 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <wtf/Compiler.h>
+#include <wtf/ExportMacros.h>
+#include <wtf/Platform.h>
+
 #pragma once
 
 namespace WTF {
 
-#if defined(NDEBUG) && COMPILER(GCC_COMPATIBLE) \
+#if defined(NDEBUG) \
     && (CPU(X86_64) || CPU(X86) || CPU(ARM64) || CPU(ARM_THUMB2) || CPU(ARM_TRADITIONAL))
 
 // We can only use the inline asm implementation on release builds because it
@@ -48,6 +52,11 @@ ALWAYS_INLINE void* currentStackPointer()
 #endif
     return stackPointer;
 }
+
+#elif !ENABLE(C_LOOP)
+
+#define USE_ASM_CURRENT_STACK_POINTER 1
+extern "C" WTF_EXPORT_PRIVATE void* CDECL currentStackPointer(void);
 
 #else
 

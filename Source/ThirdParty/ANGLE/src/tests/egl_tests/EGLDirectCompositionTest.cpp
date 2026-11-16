@@ -7,22 +7,24 @@
 // EGLDirectCompositionTest.cpp:
 //   Tests pertaining to DirectComposition and WindowsUIComposition.
 
-#include <d3d11.h>
-#include "test_utils/ANGLETest.h"
+#include "common/unsafe_buffers.h"
+#ifdef ANGLE_ENABLE_D3D11_COMPOSITOR_NATIVE_WINDOW
 
-#include <DispatcherQueue.h>
-#include <VersionHelpers.h>
-#include <Windows.Foundation.h>
-#include <windows.ui.composition.Desktop.h>
-#include <windows.ui.composition.h>
-#include <windows.ui.composition.interop.h>
-#include <wrl.h>
-#include <memory>
+#    include <d3d11.h>
+#    include "test_utils/ANGLETest.h"
 
-#include "libANGLE/renderer/d3d/d3d11/converged/CompositorNativeWindow11.h"
-#include "util/OSWindow.h"
-#include "util/com_utils.h"
-#include "util/test_utils.h"
+#    include <DispatcherQueue.h>
+#    include <VersionHelpers.h>
+#    include <Windows.Foundation.h>
+#    include <windows.ui.composition.desktop.h>
+#    include <windows.ui.composition.h>
+#    include <windows.ui.composition.interop.h>
+#    include <wrl.h>
+#    include <memory>
+
+#    include "libANGLE/renderer/d3d/d3d11/converged/CompositorNativeWindow11.h"
+#    include "util/OSWindow.h"
+#    include "util/test_utils.h"
 
 using namespace angle;
 using namespace ABI::Windows::System;
@@ -34,7 +36,7 @@ using namespace Microsoft::WRL::Wrappers;
 
 const int WINDOWWIDTH = 200, WINDOWHEIGHT = 200;
 
-class EGLDirectCompositionTest : public ANGLETest
+class EGLDirectCompositionTest : public ANGLETest<>
 {
   protected:
     EGLDirectCompositionTest() : mOSWindow(nullptr) {}
@@ -64,13 +66,9 @@ class EGLDirectCompositionTest : public ANGLETest
 
         ASSERT_TRUE(SUCCEEDED(hr));
 
-        void *fac = nullptr;
-        hr        = mRoHelper.GetActivationFactory(act, __uuidof(IActivationFactory), &fac);
-        ASSERT_TRUE(SUCCEEDED(hr));
-
         ComPtr<IActivationFactory> compositorFactory;
-
-        compositorFactory.Attach((IActivationFactory *)fac);
+        hr = mRoHelper.GetActivationFactory(act, IID_PPV_ARGS(&compositorFactory));
+        ASSERT_TRUE(SUCCEEDED(hr));
 
         hr = compositorFactory->ActivateInstance(&mCompositor);
         ASSERT_TRUE(SUCCEEDED(hr));
@@ -78,7 +76,7 @@ class EGLDirectCompositionTest : public ANGLETest
         // Create a DesktopWindowTarget against native window (HWND)
         CreateDesktopWindowTarget(mCompositor, static_cast<HWND>(nativeWindow), mDesktopTarget);
 
-        ASSERT_TRUE(SUCCEEDED(mCompositor->CreateSpriteVisual(mAngleHost.GetAddressOf())));
+        ASSERT_TRUE(SUCCEEDED(mCompositor->CreateSpriteVisual(&mAngleHost)));
 
         ComPtr<IVisual> angleVis;
         ASSERT_TRUE(SUCCEEDED(mAngleHost.As(&angleVis)));
@@ -100,7 +98,7 @@ class EGLDirectCompositionTest : public ANGLETest
         DispatcherQueueOptions options{sizeof(DispatcherQueueOptions), DQTYPE_THREAD_CURRENT,
                                        DQTAT_COM_STA};
 
-        auto hr = mRoHelper.CreateDispatcherQueueController(options, controller.GetAddressOf());
+        auto hr = mRoHelper.CreateDispatcherQueueController(options, &controller);
 
         ASSERT_TRUE(SUCCEEDED(hr));
     }
@@ -114,8 +112,7 @@ class EGLDirectCompositionTest : public ANGLETest
         ComPtr<ICompositorDesktopInterop> interop;
         ASSERT_TRUE(SUCCEEDED(compositor.As(&interop)));
 
-        ASSERT_TRUE(SUCCEEDED(interop->CreateDesktopWindowTarget(
-            window, true, reinterpret_cast<abi::IDesktopWindowTarget **>(target.GetAddressOf()))));
+        ASSERT_TRUE(SUCCEEDED(interop->CreateDesktopWindowTarget(window, true, &target)));
     }
 
     void Init()
@@ -144,20 +141,22 @@ class EGLDirectCompositionTest : public ANGLETest
             EGL_RED_SIZE,   8, EGL_GREEN_SIZE,   8, EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8,
             EGL_DEPTH_SIZE, 8, EGL_STENCIL_SIZE, 8, EGL_NONE};
 
-        const EGLint defaultDisplayAttributes[] = {
+        const EGLAttrib defaultDisplayAttributes[] = {
             EGL_PLATFORM_ANGLE_TYPE_ANGLE,
             EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE,
+            EGL_PLATFORM_ANGLE_NATIVE_PLATFORM_TYPE_ANGLE,
+            static_cast<EGLAttrib>(mOSWindow->getNativeDisplayPlatformType()),
             EGL_NONE,
         };
 
-        PFNEGLGETPLATFORMDISPLAYEXTPROC eglGetPlatformDisplayEXT =
-            reinterpret_cast<PFNEGLGETPLATFORMDISPLAYEXTPROC>(
-                eglGetProcAddress("eglGetPlatformDisplayEXT"));
-        ASSERT_TRUE(eglGetPlatformDisplayEXT != nullptr);
+        PFNEGLGETPLATFORMDISPLAYPROC eglGetPlatformDisplay =
+            reinterpret_cast<PFNEGLGETPLATFORMDISPLAYPROC>(
+                eglGetProcAddress("eglGetPlatformDisplay"));
+        ASSERT_TRUE(eglGetPlatformDisplay != nullptr);
 
-        mEglDisplay = eglGetPlatformDisplayEXT(EGL_PLATFORM_ANGLE_ANGLE,
-                                               reinterpret_cast<void *>(EGL_DEFAULT_DISPLAY),
-                                               defaultDisplayAttributes);
+        mEglDisplay =
+            eglGetPlatformDisplay(GetEglPlatform(), reinterpret_cast<void *>(EGL_DEFAULT_DISPLAY),
+                                  defaultDisplayAttributes);
         ASSERT_TRUE(mEglDisplay != EGL_NO_DISPLAY);
 
         ASSERT_EGL_TRUE(eglInitialize(mEglDisplay, nullptr, nullptr));
@@ -176,7 +175,8 @@ class EGLDirectCompositionTest : public ANGLETest
         auto displayExtensions = eglQueryString(mEglDisplay, EGL_EXTENSIONS);
 
         // Check that the EGL_ANGLE_windows_ui_composition display extension is available
-        ASSERT_TRUE(strstr(displayExtensions, "EGL_ANGLE_windows_ui_composition") != nullptr);
+        ASSERT_TRUE(ANGLE_UNSAFE_TODO(
+                        strstr(displayExtensions, "EGL_ANGLE_windows_ui_composition")) != nullptr);
 
         const EGLint contextAttributes[] = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
 
@@ -198,7 +198,11 @@ class EGLDirectCompositionTest : public ANGLETest
         {
             return;
         }
-        ASSERT_EGL_TRUE(eglTerminate(mEglDisplay));
+        if (mEglDisplay != EGL_NO_DISPLAY)
+        {
+            ASSERT_EGL_TRUE(eglTerminate(mEglDisplay));
+            mEglDisplay = EGL_NO_DISPLAY;
+        }
 
         OSWindow::Delete(&mOSWindow);
     }
@@ -245,8 +249,11 @@ TEST_P(EGLDirectCompositionTest, SurfaceSizeFromSpriteSize)
     ASSERT_TRUE(surfacewidth == static_cast<int>(visualsize.X));
     ASSERT_TRUE(surfaceheight == static_cast<int>(visualsize.Y));
 
+    ASSERT_TRUE(eglMakeCurrent(mEglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT) !=
+                EGL_FALSE);
     ASSERT_EGL_TRUE(eglDestroySurface(mEglDisplay, s));
     ASSERT_EGL_TRUE(eglDestroyContext(mEglDisplay, mEglContext));
+    mEglContext = EGL_NO_CONTEXT;
 }
 
 // This tests that a WindowSurface can be created using a SpriteVisual as the containing window
@@ -255,9 +262,6 @@ TEST_P(EGLDirectCompositionTest, RenderSolidColor)
 {
     // Only attempt this test when on Windows 10 1803+
     ANGLE_SKIP_TEST_IF(!mRoHelper.SupportedWindowsRelease());
-
-    // http://crbug.com/1063962
-    ANGLE_SKIP_TEST_IF(isD3D11Renderer() && IsIntel());
 
     EGLSurface s{nullptr};
     CreateSurface(mAngleHost, s);
@@ -275,7 +279,7 @@ TEST_P(EGLDirectCompositionTest, RenderSolidColor)
     mOSWindow->messageLoop();
 
     uint8_t *pixelBuffer = static_cast<uint8_t *>(malloc(WINDOWWIDTH * WINDOWHEIGHT * 4));
-    ZeroMemory(pixelBuffer, WINDOWWIDTH * WINDOWHEIGHT * 4);
+    ANGLE_UNSAFE_TODO(ZeroMemory(pixelBuffer, WINDOWWIDTH * WINDOWHEIGHT * 4));
 
     // In order to accurately capture a bitmap, we need to temporarily shift into per-monitor DPI
     // mode in order to get the window offset from desktop correct
@@ -284,13 +288,18 @@ TEST_P(EGLDirectCompositionTest, RenderSolidColor)
     mFpSetThreadDpiAwarenessContext(previous);
     ASSERT_EGL_TRUE(success);
 
-    ASSERT_EGL_TRUE(pixelBuffer[(50 * 50 * 4)] == 255);
-    ASSERT_EGL_TRUE(pixelBuffer[(50 * 50 * 4) + 1] == 0);
-    ASSERT_EGL_TRUE(pixelBuffer[(50 * 50 * 4) + 2] == 0);
-    ASSERT_EGL_TRUE(pixelBuffer[(50 * 50 * 4) + 3] == 255);
+    ASSERT_EGL_TRUE(ANGLE_UNSAFE_TODO(pixelBuffer[(50 * 50 * 4)]) == 255);
+    ASSERT_EGL_TRUE(ANGLE_UNSAFE_TODO(pixelBuffer[(50 * 50 * 4) + 1]) == 0);
+    ASSERT_EGL_TRUE(ANGLE_UNSAFE_TODO(pixelBuffer[(50 * 50 * 4) + 2]) == 0);
+    ASSERT_EGL_TRUE(ANGLE_UNSAFE_TODO(pixelBuffer[(50 * 50 * 4) + 3]) == 255);
 
+    ASSERT_TRUE(eglMakeCurrent(mEglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT) !=
+                EGL_FALSE);
     ASSERT_EGL_TRUE(eglDestroySurface(mEglDisplay, s));
     ASSERT_EGL_TRUE(eglDestroyContext(mEglDisplay, mEglContext));
+    mEglContext = EGL_NO_CONTEXT;
 }
 
 ANGLE_INSTANTIATE_TEST(EGLDirectCompositionTest, WithNoFixture(ES2_D3D11()));
+
+#endif  // ANGLE_ENABLE_D3D11_COMPOSITOR_NATIVE_WINDOW

@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2010 Google, Inc. All Rights Reserved.
- * Copyright (C) 2013 Apple, Inc. All Rights Reserved.
+ * Copyright (C) 2010 Google, Inc. All rights reserved.
+ * Copyright (C) 2013 Apple, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,15 +27,22 @@
 #include "config.h"
 #include "HTMLParserScheduler.h"
 
-#include "Document.h"
-#include "FrameView.h"
+#include "DocumentPage.h"
+#include "DocumentView.h"
+#include "ElementInlines.h"
 #include "HTMLDocumentParser.h"
-#include "Page.h"
+#include "LocalFrame.h"
+#include "LocalFrameView.h"
+#include "ScriptController.h"
 #include "ScriptElement.h"
+#include <wtf/TZoneMallocInlines.h>
+#include "FrameDestructionObserverInlines.h"
 
 namespace WebCore {
 
-static Seconds parserTimeLimit(Page* page)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLParserScheduler);
+
+static Seconds NODELETE parserTimeLimit(Page* page)
 {
     // Always yield after exceeding this.
     constexpr auto defaultParserTimeLimit = 500_ms;
@@ -69,9 +76,14 @@ PumpSession::PumpSession(unsigned& nestingLevel, Document* document)
 
 PumpSession::~PumpSession() = default;
 
+Ref<HTMLParserScheduler> HTMLParserScheduler::create(HTMLDocumentParser& parser)
+{
+    return adoptRef(*new HTMLParserScheduler(parser));
+}
+
 HTMLParserScheduler::HTMLParserScheduler(HTMLDocumentParser& parser)
-    : m_parser(parser)
-    , m_parserTimeLimit(parserTimeLimit(m_parser.document()->page()))
+    : m_parser(&parser)
+    , m_parserTimeLimit(parserTimeLimit(parser.document()->page()))
     , m_continueNextChunkTimer(*this, &HTMLParserScheduler::continueNextChunkTimerFired)
     , m_isSuspendedWithActiveTimer(false)
 #if ASSERT_ENABLED
@@ -80,40 +92,66 @@ HTMLParserScheduler::HTMLParserScheduler(HTMLDocumentParser& parser)
 {
 }
 
-HTMLParserScheduler::~HTMLParserScheduler()
+HTMLParserScheduler::~HTMLParserScheduler() = default;
+
+void HTMLParserScheduler::detach()
 {
     m_continueNextChunkTimer.stop();
+    m_parser = nullptr;
 }
 
 void HTMLParserScheduler::continueNextChunkTimerFired()
 {
     ASSERT(!m_suspended);
+    ASSERT(m_parser);
+
+    // If yield tokens are active, don't resume parsing. didEndYieldingParser()
+    // will schedule a new resume when the tokens are released.
+    if (m_documentHasActiveParserYieldTokens)
+        return;
 
     // FIXME: The timer class should handle timer priorities instead of this code.
     // If a layout is scheduled, wait again to let the layout timer run first.
-    if (m_parser.document()->isLayoutPending()) {
+    if (m_parser->document()->isLayoutPending()) {
         m_continueNextChunkTimer.startOneShot(0_s);
         return;
     }
-    m_parser.resumeParsingAfterYield();
+    Ref { *m_parser }->resumeParsingAfterYield();
+}
+
+static bool NODELETE parsingProgressedSinceLastYield(PumpSession& session)
+{
+    // Only yield if there has been progress since last yield.
+    if (session.processedTokens > session.processedTokensOnLastYieldBeforeScript) {
+        session.processedTokensOnLastYieldBeforeScript = session.processedTokens;
+        return true;
+    }
+    return false;
 }
 
 bool HTMLParserScheduler::shouldYieldBeforeExecutingScript(const ScriptElement* scriptElement, PumpSession& session)
 {
     // If we've never painted before and a layout is pending, yield prior to running
     // scripts to give the page a chance to paint earlier.
-    RefPtr<Document> document = m_parser.document();
+    RefPtr<Document> document = m_parser->document();
 
     session.didSeeScript = true;
 
     if (!document->body())
         return false;
 
+    if (!document->frame() || !document->frame()->script().canExecuteScripts(ReasonForCallingCanExecuteScripts::NotAboutToExecuteScript))
+        return false;
+
     if (!document->haveStylesheetsLoaded())
         return false;
 
-    if (UNLIKELY(m_documentHasActiveParserYieldTokens))
+    if (m_documentHasActiveParserYieldTokens) [[unlikely]]
         return true;
+
+    // Yield if we have never painted and there is meaningful content
+    if (document->view() && !document->view()->hasEverPainted() && document->view()->isVisuallyNonEmpty())
+        return parsingProgressedSinceLastYield(session);
 
     auto elapsedTime = MonotonicTime::now() - session.startTime;
 

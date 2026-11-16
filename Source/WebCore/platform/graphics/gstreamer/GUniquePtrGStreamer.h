@@ -24,18 +24,17 @@
 #include <gst/audio/audio.h>
 #include <gst/base/gstbytereader.h>
 #include <gst/base/gstflowcombiner.h>
+#include <gst/fft/gstfftf32.h>
 #include <gst/gstsegment.h>
 #include <gst/gststructure.h>
 #include <gst/pbutils/install-plugins.h>
 #include <gst/video/video.h>
 #include <wtf/glib/GUniquePtr.h>
 
-#if USE(WPE_VIDEO_PLANE_DISPLAY_DMABUF)
-#include <wpe/extensions/video-plane-display-dmabuf.h>
-#endif
-
-#if defined(BUILDING_WebCore) && PLATFORM(WPE) && USE(WPEBACKEND_FDO_AUDIO_EXTENSION)
-#include <wpe/extensions/audio.h>
+#if defined(BUILDING_WebCore) && USE(GSTREAMER_WEBRTC)
+#define GST_USE_UNSTABLE_API
+#include <gst/webrtc/webrtc.h>
+#undef GST_USE_UNSTABLE_API
 #endif
 
 namespace WTF {
@@ -48,13 +47,19 @@ WTF_DEFINE_GPTR_DELETER(GstFlowCombiner, gst_flow_combiner_free)
 WTF_DEFINE_GPTR_DELETER(GstByteReader, gst_byte_reader_free)
 WTF_DEFINE_GPTR_DELETER(GstVideoConverter, gst_video_converter_free)
 WTF_DEFINE_GPTR_DELETER(GstAudioConverter, gst_audio_converter_free)
+WTF_DEFINE_GPTR_DELETER(GstAudioInfo, gst_audio_info_free)
+WTF_DEFINE_GPTR_DELETER(GstVideoInfo, gst_video_info_free)
+WTF_DEFINE_GPTR_DELETER(GstFFTF32, gst_fft_f32_free)
 
-#if USE(WPE_VIDEO_PLANE_DISPLAY_DMABUF)
-WTF_DEFINE_GPTR_DELETER(struct wpe_video_plane_display_dmabuf_source, wpe_video_plane_display_dmabuf_source_destroy)
-#endif
+#if defined(BUILDING_WebCore) && USE(GSTREAMER_WEBRTC)
+WTF_DEFINE_GPTR_DELETER(GstWebRTCSessionDescription, gst_webrtc_session_description_free)
+WTF_DEFINE_GPTR_DELETER(GstSDPMessage, gst_sdp_message_free)
+WTF_DEFINE_GPTR_DELETER(GstSDPMedia, gst_sdp_media_free)
 
-#if defined(BUILDING_WebCore) && PLATFORM(WPE) && USE(WPEBACKEND_FDO_AUDIO_EXTENSION)
-WTF_DEFINE_GPTR_DELETER(struct wpe_audio_source, wpe_audio_source_destroy)
+#if GST_CHECK_VERSION(1, 28, 0)
+WTF_DEFINE_GPTR_DELETER(GstWebRTCICECandidate, gst_webrtc_ice_candidate_free)
+WTF_DEFINE_GPTR_DELETER(GstWebRTCICECandidatePair, gst_webrtc_ice_candidate_pair_free)
+#endif // GST_CHECK_VERSION(1, 28, 0)
 #endif
 }
 

@@ -25,6 +25,7 @@
 #include "Path.h"
 #include "SVGGraphicsElement.h"
 #include "SVGNames.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -32,7 +33,8 @@ struct DOMPointInit;
 class SVGPoint;
 
 class SVGGeometryElement : public SVGGraphicsElement {
-    WTF_MAKE_ISO_ALLOCATED(SVGGeometryElement);
+    WTF_MAKE_TZONE_ALLOCATED(SVGGeometryElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGGeometryElement);
 public:
     virtual float getTotalLength() const;
     virtual ExceptionOr<Ref<SVGPoint>> getPointAtLength(float distance) const;
@@ -46,20 +48,27 @@ public:
     SVGAnimatedNumber& pathLengthAnimated() { return m_pathLength; }
 
 protected:
-    SVGGeometryElement(const QualifiedName&, Document&);
+    SVGGeometryElement(const QualifiedName&, Document&, UniqueRef<SVGPropertyRegistry>&&);
 
-    void parseAttribute(const QualifiedName&, const AtomString&) override;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
     void svgAttributeChanged(const QualifiedName&) override;
 
 private:
     bool isSVGGeometryElement() const override { return true; }
 
-    Ref<SVGAnimatedNumber> m_pathLength { SVGAnimatedNumber::create(this) };
+    float calculateTotalLength() const;
+    ExceptionOr<Ref<SVGPoint>> calculatePointAtLength(float distance) const;
+
+    const Ref<SVGAnimatedNumber> m_pathLength { SVGAnimatedNumber::create(this) };
 };
 
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::SVGGeometryElement)
     static bool isType(const WebCore::SVGElement& element) { return element.isSVGGeometryElement(); }
-    static bool isType(const WebCore::Node& node) { return is<WebCore::SVGElement>(node) && isType(downcast<WebCore::SVGElement>(node)); }
+    static bool isType(const WebCore::Node& node)
+    {
+        auto* svgElement = dynamicDowncast<WebCore::SVGElement>(node);
+        return svgElement && isType(*svgElement);
+    }
 SPECIALIZE_TYPE_TRAITS_END()

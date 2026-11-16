@@ -38,16 +38,16 @@ public:
     CachedXSLStyleSheet(CachedResourceRequest&&, PAL::SessionID, const CookieJar*);
     virtual ~CachedXSLStyleSheet();
 
-    const String& sheet() const { return m_sheet; }
+    const String& sheet() const LIFETIME_BOUND { return m_sheet; }
 
 private:
-    void checkNotify(const NetworkLoadMetrics&) final;
+    void checkNotify(const NetworkLoadMetrics&, LoadWillContinueInAnotherProcess = LoadWillContinueInAnotherProcess::No) final;
     bool mayTryReplaceEncodedData() const final { return true; }
     void didAddClient(CachedResourceClient&) final;
     void setEncoding(const String&) final;
-    String encoding() const final;
+    ASCIILiteral encoding() const final;
     const TextResourceDecoder* textResourceDecoder() const final { return m_decoder.get(); }
-    void finishLoading(SharedBuffer*, const NetworkLoadMetrics&) final;
+    void finishLoading(const FragmentedSharedBuffer*, const NetworkLoadMetrics&) final;
 
     String m_sheet;
     RefPtr<TextResourceDecoder> m_decoder;

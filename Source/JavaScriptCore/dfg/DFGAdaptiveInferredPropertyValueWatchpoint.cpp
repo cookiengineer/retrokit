@@ -29,9 +29,13 @@
 #if ENABLE(DFG_JIT)
 
 #include "CodeBlock.h"
+#include "CodeBlockInlines.h"
 #include "DFGCommon.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC { namespace DFG {
+
+WTF_MAKE_SEQUESTERED_ARENA_ALLOCATED_IMPL(AdaptiveInferredPropertyValueWatchpoint);
 
 AdaptiveInferredPropertyValueWatchpoint::AdaptiveInferredPropertyValueWatchpoint(const ObjectPropertyCondition& key, CodeBlock* codeBlock)
     : Base(key)
@@ -47,21 +51,22 @@ void AdaptiveInferredPropertyValueWatchpoint::initialize(const ObjectPropertyCon
 
 void AdaptiveInferredPropertyValueWatchpoint::handleFire(VM&, const FireDetail& detail)
 {
-    if (DFG::shouldDumpDisassembly())
-        dataLog("Firing watchpoint ", RawPointer(this), " (", key(), ") on ", *m_codeBlock, "\n");
+    dataLogLnIf(DFG::shouldDumpDisassembly(), "Firing watchpoint ", RawPointer(this), " (", key(), ") on ", *m_codeBlock);
 
 
-    auto lazyDetail = createLazyFireDetail("Adaptation of ", key(), " failed: ", detail);
-
+    auto lambda = scopedLambda<void(PrintStream&)>([&](PrintStream& out) {
+        out.print("Adaptation of ", key(), " failed: ", detail);
+    });
+    LazyFireDetail lazyDetail(lambda);
     m_codeBlock->jettison(Profiler::JettisonDueToUnprofiledWatchpoint, CountReoptimization, &lazyDetail);
 }
 
 bool AdaptiveInferredPropertyValueWatchpoint::isValid() const
 {
-    return m_codeBlock->isLive();
+    ASSERT(!m_codeBlock->wasDestructed());
+    return !m_codeBlock->isPendingDestruction();
 }
 
 } } // namespace JSC::DFG
 
 #endif // ENABLE(DFG_JIT)
-

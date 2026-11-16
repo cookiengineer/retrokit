@@ -29,6 +29,7 @@
 #include "pas_heap_table.h"
 #include "pas_large_map_entry.h"
 #include "pas_utils.h"
+#include "pas_zero_memory.h"
 
 PAS_BEGIN_EXTERN_C;
 
@@ -90,6 +91,13 @@ static inline pas_large_heap* pas_tiny_large_map_entry_heap(pas_tiny_large_map_e
     return pas_heap_table[(uintptr_t)entry.bytes[3] | ((uintptr_t)entry.bytes[4] << 8)];
 }
 
+static inline bool pas_tiny_large_map_entry_delegated_to_system_malloc(
+    pas_tiny_large_map_entry entry)
+{
+    PAS_UNUSED_PARAM(entry);
+    return false;
+}
+
 static inline pas_large_map_entry pas_tiny_large_map_entry_get_entry(pas_tiny_large_map_entry entry,
                                                                      uintptr_t base)
 {
@@ -97,6 +105,7 @@ static inline pas_large_map_entry pas_tiny_large_map_entry_get_entry(pas_tiny_la
     result.begin = pas_tiny_large_map_entry_begin(entry, base);
     result.end = pas_tiny_large_map_entry_end(entry, base);
     result.heap = pas_tiny_large_map_entry_heap(entry);
+    result.delegated_to_system_malloc = pas_tiny_large_map_entry_delegated_to_system_malloc(entry);
     return result;
 }
 
@@ -113,7 +122,7 @@ static inline bool pas_tiny_large_map_entry_can_create(pas_large_map_entry entry
     }
     base = pas_tiny_large_map_entry_base(entry.begin);
     if (verbose)
-        pas_log("base = %p.\n", base);
+        pas_log("base = %p.\n", (void*)base);
     result = pas_tiny_large_map_entry_create(entry);
     if (verbose) {
         pas_log("encoded: %u, %u, %u, %u, %u\n",
@@ -123,13 +132,14 @@ static inline bool pas_tiny_large_map_entry_can_create(pas_large_map_entry entry
                 (unsigned)result.bytes[3],
                 (unsigned)result.bytes[4]);
         pas_log("round tripped: %p...%p, heap = %p.\n",
-                pas_tiny_large_map_entry_begin(result, base),
-                pas_tiny_large_map_entry_end(result, base),
-                pas_tiny_large_map_entry_heap(result));
+                (void*)pas_tiny_large_map_entry_begin(result, base),
+                (void*)pas_tiny_large_map_entry_end(result, base),
+                (void*)pas_tiny_large_map_entry_heap(result));
     }
     return entry.begin == pas_tiny_large_map_entry_begin(result, base)
         && entry.end == pas_tiny_large_map_entry_end(result, base)
-        && entry.heap == pas_tiny_large_map_entry_heap(result);
+        && entry.heap == pas_tiny_large_map_entry_heap(result)
+        && entry.delegated_to_system_malloc == pas_tiny_large_map_entry_delegated_to_system_malloc(result);
 }
 
 static inline pas_tiny_large_map_entry pas_tiny_large_map_entry_create_empty(void)

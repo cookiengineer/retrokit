@@ -9,7 +9,7 @@
 
 using namespace angle;
 
-class DiscardFramebufferEXTTest : public ANGLETest
+class DiscardFramebufferEXTTest : public ANGLETest<>
 {
   protected:
     DiscardFramebufferEXTTest()
@@ -29,7 +29,7 @@ TEST_P(DiscardFramebufferEXTTest, DefaultFramebuffer)
 {
     ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_EXT_discard_framebuffer"));
 
-    // TODO: fix crash issue. http://anglebug.com/4141
+    // TODO: fix crash issue. http://anglebug.com/42262774
     ANGLE_SKIP_TEST_IF(IsD3D11());
 
     // These should succeed on the default framebuffer
@@ -81,7 +81,7 @@ TEST_P(DiscardFramebufferEXTTest, NonDefaultFramebuffer)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex2D, 0);
-    ASSERT_GLENUM_EQ(GL_FRAMEBUFFER_COMPLETE, glCheckFramebufferStatus(GL_FRAMEBUFFER));
+    ASSERT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
 
     // These should fail on the non-default framebuffer
     const GLenum discards1[] = {GL_COLOR_EXT};
@@ -119,7 +119,7 @@ TEST_P(DiscardFramebufferEXTTest, NonDefaultFramebuffer)
 TEST_P(DiscardFramebufferEXTTest, ClearDepthThenDrawWithoutDepthTestThenDiscard)
 {
     ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_EXT_discard_framebuffer"));
-    // TODO: fix crash issue. http://anglebug.com/4141
+    // TODO: fix crash issue. http://anglebug.com/42262774
     ANGLE_SKIP_TEST_IF(IsD3D11());
 
     ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Passthrough(), essl1_shaders::fs::UniformColor());
@@ -154,7 +154,7 @@ TEST_P(DiscardFramebufferEXTTest, ClearDepthThenDrawWithoutDepthTestThenDiscard)
 TEST_P(DiscardFramebufferEXTTest, ClearDepthThenDrawWithDepthTestThenDiscard)
 {
     ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_EXT_discard_framebuffer"));
-    // http://anglebug.com/4914
+    // http://anglebug.com/42263489
     ANGLE_SKIP_TEST_IF(IsVulkan() && IsIntel() && IsWindows());
 
     GLTexture texture;
@@ -180,7 +180,7 @@ TEST_P(DiscardFramebufferEXTTest, ClearDepthThenDrawWithDepthTestThenDiscard)
     glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, renderbuffer);
-    ASSERT_GLENUM_EQ(GL_FRAMEBUFFER_COMPLETE, glCheckFramebufferStatus(GL_FRAMEBUFFER));
+    ASSERT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
     ASSERT_GL_NO_ERROR();
 
     ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Passthrough(), essl1_shaders::fs::UniformColor());

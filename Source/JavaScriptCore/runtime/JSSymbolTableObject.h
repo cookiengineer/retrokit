@@ -28,11 +28,11 @@
 
 #pragma once
 
-#include "JSScope.h"
-#include "PropertyDescriptor.h"
-#include "SymbolTable.h"
-#include "ThrowScope.h"
-#include "VariableWriteFireDetail.h"
+#include <JavaScriptCore/JSScope.h>
+#include <JavaScriptCore/PropertyDescriptor.h>
+#include <JavaScriptCore/SymbolTable.h>
+#include <JavaScriptCore/ThrowScope.h>
+#include <JavaScriptCore/VariableWriteFireDetail.h>
 
 namespace JSC {
 
@@ -41,37 +41,27 @@ public:
     using Base = JSScope;
     static constexpr unsigned StructureFlags = Base::StructureFlags | OverridesGetOwnSpecialPropertyNames;
 
-    SymbolTable* symbolTable() const { return m_symbolTable.get(); }
+    SymbolTable* symbolTable() const LIFETIME_BOUND { return m_symbolTable.get(); }
     
     JS_EXPORT_PRIVATE static bool deleteProperty(JSCell*, JSGlobalObject*, PropertyName, DeletePropertySlot&);
-    JS_EXPORT_PRIVATE static void getOwnSpecialPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArray&, DontEnumPropertiesMode);
+    JS_EXPORT_PRIVATE static void getOwnSpecialPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArrayBuilder&, DontEnumPropertiesMode);
     
-    static ptrdiff_t offsetOfSymbolTable() { return OBJECT_OFFSETOF(JSSymbolTableObject, m_symbolTable); }
+    static constexpr ptrdiff_t offsetOfSymbolTable() { return OBJECT_OFFSETOF(JSSymbolTableObject, m_symbolTable); }
 
     DECLARE_EXPORT_INFO;
+
+    DECLARE_VISIT_CHILDREN;
 
 protected:
     JSSymbolTableObject(VM& vm, Structure* structure, JSScope* scope)
         : Base(vm, structure, scope)
     {
     }
-    
-    JSSymbolTableObject(VM& vm, Structure* structure, JSScope* scope, SymbolTable* symbolTable)
-        : Base(vm, structure, scope)
-    {
-        ASSERT(symbolTable);
-        setSymbolTable(vm, symbolTable);
-    }
-    
-    void setSymbolTable(VM& vm, SymbolTable* symbolTable)
-    {
-        ASSERT(!m_symbolTable);
-        symbolTable->notifyCreation(vm, this, "Allocated a scope");
-        m_symbolTable.set(vm, this, symbolTable);
-    }
-    
-    DECLARE_VISIT_CHILDREN;
-    
+
+    JSSymbolTableObject(VM&, Structure*, JSScope*, SymbolTable*);
+
+    void setSymbolTable(VM&, SymbolTable*);
+
 private:
     WriteBarrier<SymbolTable> m_symbolTable;
 };
@@ -151,7 +141,7 @@ inline bool symbolTablePut(SymbolTableObjectType* object, JSGlobalObject* global
         SymbolTable& symbolTable = *object->symbolTable();
         // FIXME: This is very suspicious. We shouldn't need a GC-safe lock here.
         // https://bugs.webkit.org/show_bug.cgi?id=134601
-        GCSafeConcurrentJSLocker locker(symbolTable.m_lock, vm.heap);
+        GCSafeConcurrentJSLocker locker(symbolTable.m_lock, vm);
         SymbolTable::Map::iterator iter = symbolTable.find(locker, propertyName.uid());
         if (iter == symbolTable.end(locker))
             return false;

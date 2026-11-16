@@ -29,12 +29,13 @@
 #include "Options.h"
 #include <wtf/DataLog.h>
 #include <wtf/Lock.h>
+#include <wtf/Seconds.h>
 #include <wtf/Threading.h>
 
 namespace JSC {
 
-volatile uint32_t g_superSamplerCount;
-volatile bool g_superSamplerEnabled;
+std::atomic<uint32_t> g_superSamplerCount;
+std::atomic<bool> g_superSamplerEnabled;
 
 static Lock lock;
 static double in WTF_GUARDED_BY_LOCK(lock);
@@ -46,7 +47,7 @@ void initializeSuperSampler()
         return;
 
     Thread::create(
-        "JSC Super Sampler",
+        "JSC Super Sampler"_s,
         [] () {
             const int sleepQuantum = 3;
             const int printingPeriod = 3000;
@@ -59,7 +60,8 @@ void initializeSuperSampler()
                         else
                             out++;
                     }
-                    sleep(Seconds::fromMilliseconds(sleepQuantum));
+                    if (sleepQuantum)
+                        sleep(Seconds::fromMilliseconds(sleepQuantum));
                 }
                 printSuperSamplerState();
                 if (static_cast<int32_t>(g_superSamplerCount) < 0)
@@ -84,7 +86,7 @@ void printSuperSamplerState()
     double percentage = 100.0 * in / (in + out);
     if (percentage != percentage)
         percentage = 0.0;
-    dataLog("Percent time behind super sampler flag: ", percentage, "\n");
+    dataLog("Percent time behind super sampler flag: ", percentage, "%\n");
 }
 
 void enableSuperSampler()

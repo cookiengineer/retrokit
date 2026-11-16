@@ -25,7 +25,7 @@
 
 #pragma once
 
-#if ENABLE(GPU_PROCESS) && USE(AUDIO_SESSION)
+#if USE(AUDIO_SESSION)
 
 #include <WebCore/AudioSession.h>
 
@@ -34,80 +34,15 @@ namespace WebKit {
 struct RemoteAudioSessionConfiguration {
     String routingContextUID;
     float sampleRate { 0 };
-    size_t bufferSize { 0 };
-    size_t numberOfOutputChannels { 0 };
-    size_t maximumNumberOfOutputChannels { 0 };
-    size_t preferredBufferSize { 0 };
+    uint64_t bufferSize { 0 };
+    uint64_t numberOfOutputChannels { 0 };
+    uint64_t maximumNumberOfOutputChannels { 0 };
+    uint64_t preferredBufferSize { 0 };
+    uint64_t outputLatency { 0 };
     bool isMuted { false };
-    bool isActive { false };
-
-    template<class Encoder>
-    void encode(Encoder& encoder) const
-    {
-        encoder << routingContextUID;
-        encoder << sampleRate;
-        encoder << bufferSize;
-        encoder << numberOfOutputChannels;
-        encoder << maximumNumberOfOutputChannels;
-        encoder << preferredBufferSize;
-        encoder << isMuted;
-        encoder << isActive;
-    }
-
-    template <class Decoder>
-    static std::optional<RemoteAudioSessionConfiguration> decode(Decoder& decoder)
-    {
-        std::optional<String> routingContextUID;
-        decoder >> routingContextUID;
-        if (!routingContextUID)
-            return std::nullopt;
-
-        std::optional<float> sampleRate;
-        decoder >> sampleRate;
-        if (!sampleRate)
-            return std::nullopt;
-
-        std::optional<size_t> bufferSize;
-        decoder >> bufferSize;
-        if (!bufferSize)
-            return std::nullopt;
-
-        std::optional<size_t> numberOfOutputChannels;
-        decoder >> numberOfOutputChannels;
-        if (!numberOfOutputChannels)
-            return std::nullopt;
-
-        std::optional<size_t> maximumNumberOfOutputChannels;
-        decoder >> maximumNumberOfOutputChannels;
-        if (!maximumNumberOfOutputChannels)
-            return std::nullopt;
-
-        std::optional<size_t> preferredBufferSize;
-        decoder >> preferredBufferSize;
-        if (!preferredBufferSize)
-            return std::nullopt;
-
-        std::optional<bool> isMuted;
-        decoder >> isMuted;
-        if (!isMuted)
-            return std::nullopt;
-
-        std::optional<bool> isActive;
-        decoder >> isActive;
-        if (!isActive)
-            return std::nullopt;
-
-        return {{
-            WTFMove(*routingContextUID),
-            *sampleRate,
-            *bufferSize,
-            *numberOfOutputChannels,
-            *maximumNumberOfOutputChannels,
-            *preferredBufferSize,
-            *isMuted,
-            *isActive,
-        }};
-    }
+    String sceneIdentifier;
+    WebCore::AudioSessionSoundStageSize soundStageSize { WebCore::AudioSessionSoundStageSize::Automatic };
+    WebCore::AudioSessionCategory categoryOverride { WebCore::AudioSession::CategoryType::None };
 };
 
 } // namespace WebKit

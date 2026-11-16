@@ -33,6 +33,7 @@
 #include "WKDictionary.h"
 #include "WKRetainPtr.h"
 #include "WebsiteDataStore.h"
+#include <WebCore/DocumentLoader.h>
 
 using namespace WebKit;
 
@@ -43,40 +44,27 @@ WKTypeID WKWebsitePoliciesGetTypeID()
 
 WKWebsitePoliciesRef WKWebsitePoliciesCreate()
 {
-    return toAPI(&API::WebsitePolicies::create().leakRef());
+    return toAPILeakingRef(API::WebsitePolicies::create());
 }
 
 void WKWebsitePoliciesSetContentBlockersEnabled(WKWebsitePoliciesRef websitePolicies, bool enabled)
 {
-    toImpl(websitePolicies)->setContentBlockersEnabled(enabled);
+    auto defaultEnablement = enabled ? WebCore::ContentExtensionDefaultEnablement::Enabled : WebCore::ContentExtensionDefaultEnablement::Disabled;
+    protect(toImpl(websitePolicies))->setContentExtensionEnablement({ defaultEnablement, { } });
 }
 
 bool WKWebsitePoliciesGetContentBlockersEnabled(WKWebsitePoliciesRef websitePolicies)
 {
-    return toImpl(websitePolicies)->contentBlockersEnabled();
+    return toImpl(websitePolicies)->contentExtensionEnablement().first == WebCore::ContentExtensionDefaultEnablement::Enabled;
 }
 
-WK_EXPORT WKDictionaryRef WKWebsitePoliciesCopyCustomHeaderFields(WKWebsitePoliciesRef websitePolicies)
+WK_EXPORT WKDictionaryRef WKWebsitePoliciesCopyCustomHeaderFields(WKWebsitePoliciesRef)
 {
-    HashMap<WTF::String, RefPtr<API::Object>> fields;
-    for (const auto& field : toImpl(websitePolicies)->legacyCustomHeaderFields())
-        fields.add(field.name(), API::String::create(field.value()));
-    return toAPI(API::Dictionary::create(WTFMove(fields)).ptr());
+    return nullptr;
 }
 
-WK_EXPORT void WKWebsitePoliciesSetCustomHeaderFields(WKWebsitePoliciesRef websitePolicies, WKDictionaryRef dictionary)
+WK_EXPORT void WKWebsitePoliciesSetCustomHeaderFields(WKWebsitePoliciesRef, WKDictionaryRef)
 {
-    auto keys = adoptWK(WKDictionaryCopyKeys(dictionary));
-    size_t length = WKArrayGetSize(keys.get());
-    Vector<WebCore::HTTPHeaderField> fields;
-    fields.reserveInitialCapacity(length);
-    for (size_t i = 0; i < length; ++i) {
-        WKStringRef name = static_cast<WKStringRef>(WKArrayGetItemAtIndex(keys.get(), i));
-        auto field = WebCore::HTTPHeaderField::create(toImpl(name)->string(), toImpl(static_cast<WKStringRef>(WKDictionaryGetItemForKey(dictionary, name)))->string());
-        if (field && startsWithLettersIgnoringASCIICase(field->name(), "x-"))
-            fields.uncheckedAppend(WTFMove(*field));
-    }
-    toImpl(websitePolicies)->setLegacyCustomHeaderFields(WTFMove(fields));
 }
 
 void WKWebsitePoliciesSetAllowedAutoplayQuirks(WKWebsitePoliciesRef websitePolicies, WKWebsiteAutoplayQuirk allowedQuirks)
@@ -184,11 +172,20 @@ void WKWebsitePoliciesSetPopUpPolicy(WKWebsitePoliciesRef websitePolicies, WKWeb
 
 WKWebsiteDataStoreRef WKWebsitePoliciesGetDataStore(WKWebsitePoliciesRef websitePolicies)
 {
-    return toAPI(toImpl(websitePolicies)->websiteDataStore());
+    return toAPI(protect(toImpl(websitePolicies)->websiteDataStore()).get());
 }
 
 void WKWebsitePoliciesSetDataStore(WKWebsitePoliciesRef websitePolicies, WKWebsiteDataStoreRef websiteDataStore)
 {
-    toImpl(websitePolicies)->setWebsiteDataStore(toImpl(websiteDataStore));
+    protect(toImpl(websitePolicies))->setWebsiteDataStore(protect(toImpl(websiteDataStore)));
 }
 
+bool WKWebsitePoliciesGetAllowsJSHandleCreationInPageWorld(WKWebsitePoliciesRef websitePolicies)
+{
+    return toImpl(websitePolicies)->allowsJSHandleCreationInPageWorld();
+}
+
+void WKWebsitePoliciesSetAllowsJSHandleCreationInPageWorld(WKWebsitePoliciesRef websitePolicies, bool allows)
+{
+    toImpl(websitePolicies)->setAllowsJSHandleCreationInPageWorld(allows);
+}

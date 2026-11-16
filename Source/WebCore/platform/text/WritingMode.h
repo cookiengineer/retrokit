@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2012, Google Inc. All rights reserved.
- * Copyright (C) 2015, Apple Inc. All rights reserved.
+ * Copyright (c) 2012 Google Inc. All rights reserved.
+ * Copyright (C) 2015-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -31,189 +31,475 @@
 
 #pragma once
 
-#include "TextDirection.h"
-#include <array>
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
-enum class WritingMode : uint8_t {
-    TopToBottom = 0, // horizontal-tb
-    BottomToTop = 1, // horizontal-bt
-    LeftToRight = 2, // vertical-lr
-    RightToLeft = 3, // vertical-rl
+/**
+ * WritingMode efficiently stores a writing mode and can rapidly compute
+ * interesting things about it for use in layout. It fits in 1 byte,
+ * and can be cheaply copied or passed around by value.
+ *
+ * Writing modes are computed from the CSS 'writing-mode', 'direction', and
+ * 'text-orientation' properties. See CSS Writing Modes for more information.
+ *   http://www.w3.org/TR/css-writing-modes/
+ *
+ * Be careful with the distinctions among these:
+ *   - isBidiLTR/RTL (for typesetting, i.e. within a line box)
+ *   - isInlineLeftToRight/TopToBottom (absolute physical directions)
+ *   - isLogicalLeftInlineStart (flow-relative cmp coordinate-relative)
+ *   - isLogicalLeftLineLeft (line-relative cmp coordinate-relative)
+ *   - computedTextDirection (style computation / element directionality)
+ */
+
+enum class StyleWritingMode : uint8_t;
+enum class TextDirection : bool;
+enum class TextOrientation : uint8_t;
+enum class FlowDirection : uint8_t;
+enum class BoxAxis : uint8_t;
+enum class LogicalBoxAxis : uint8_t;
+class FlowMode;
+
+class WritingMode final {
+public:
+    constexpr WritingMode(StyleWritingMode, TextDirection, TextOrientation);
+
+    // Writing axis.
+    constexpr bool isHorizontal() const;
+    constexpr bool isVertical() const;
+
+    // (Mis)Matching.
+    constexpr bool isOrthogonal(WritingMode) const;
+    constexpr bool isBlockOpposing(WritingMode) const;
+    constexpr bool isInlineOpposing(WritingMode) const;
+    constexpr bool isBlockMatchingAny(WritingMode) const;
+    constexpr bool isInlineMatchingAny(WritingMode) const;
+
+    // Text directionality. (FOR TYPESETTING ONLY)
+    constexpr bool isBidiRTL() const; // line-right to line-left
+    constexpr bool isBidiLTR() const; // line-left to line-right
+
+    // Physical flow directions.
+    constexpr bool isBlockTopToBottom() const;
+    constexpr bool isBlockLeftToRight() const;
+    constexpr bool isInlineTopToBottom() const;
+    constexpr bool isInlineLeftToRight() const;
+    // Block OR inline flow is top-to-bottom.
+    constexpr bool isAnyTopToBottom() const;
+    // Block OR inline flow is left-to-right.
+    constexpr bool isAnyLeftToRight() const;
+
+    // Typesetting modes.
+    constexpr bool isVerticalTypographic() const;
+    constexpr bool prefersCentralBaseline() const;
+    constexpr bool isMixedOrientation() const;
+    constexpr bool isUprightOrientation() const;
+    constexpr bool isSidewaysOrientation() const;
+
+    // Line orientation.
+    constexpr bool isLineInverted() const;  // line-over != block-start
+    constexpr bool isLineOverRight() const; // line-over == right
+    constexpr bool isLineOverLeft() const;  // line-over == left
+
+    // Coordinate flow queries.
+    constexpr bool isLogicalLeftLineLeft() const; // Not true for sideways-lr.
+    constexpr bool isLogicalLeftInlineStart() const; // == !isInlineFlipped()
+    constexpr bool isInlineFlipped() const; // Inline direction is RTL or BTT.
+    constexpr bool isBlockFlipped() const;  // Block direction is RL or BT.
+
+    // Directions as enums. Prefer booleans if doing boolean checks.
+    constexpr FlowDirection blockDirection() const;
+    constexpr TextDirection bidiDirection() const;
+    constexpr FlowDirection inlineDirection() const;
+
+    // Axes as enums. Prefer booleans if doing boolean checks.
+    constexpr BoxAxis blockAxis() const;
+    constexpr BoxAxis inlineAxis() const;
+    constexpr LogicalBoxAxis horizontalAxis() const;
+    constexpr LogicalBoxAxis verticalAxis() const;
+
+    // FIXME: Callers need to be audited to determine which of the "is it LTR?" WritingMode methods is the right one for that instance.
+    constexpr bool deprecatedIsLeftToRightDirection() const { return isBidiLTR(); }
+
+    // Computed values. May differ from used values above.
+    constexpr StyleWritingMode computedWritingMode() const;
+    constexpr TextDirection computedTextDirection() const;
+    constexpr TextOrientation computedTextOrientation() const;
+    // ^ USE THESE FOR STYLE COMPUTATION ^ //
+
+    // Setters.
+    inline void setWritingMode(StyleWritingMode);
+    inline void setTextOrientation(TextOrientation);
+    inline void setTextDirection(TextDirection);
+
+    // To aid in packing.
+    using Data = uint8_t;
+    Data toData() const { return m_bits; }
+    constexpr WritingMode(Data bits = 0) { m_bits = bits; }
+
+    friend bool operator==(WritingMode, WritingMode) = default;
+
+private:
+    Data m_bits { 0 };
+    friend FlowMode;
+
+public: // Private except StyleWritingMode, FlowDirection, and FlowMode are friends
+    enum Bits : Data {
+        kIsVerticalText  = 1 << 0, // Vertical writing modes.
+        kIsFlippedBlock  = 1 << 1, // RL or BT block flow directions.
+        kIsVerticalType  = 1 << 2, // Vertical typographic mode.
+        kIsBidiRTL       = 1 << 3, // Bidi directionality.
+        kIsUprightType   = 1 << 4, // Upright text orientation.
+        kIsSidewaysType  = 1 << 5, // Sideways text orientation.
+
+        kBlockFlowMask   = kIsVerticalText | kIsFlippedBlock,
+        kWritingModeMask = kBlockFlowMask  | kIsVerticalType,
+        kOrientationMask = kIsSidewaysType | kIsUprightType, // Both is an error.
+        kOrientationShift = 4,
+
+        kIsMainBlock     = 1 << 5, // Alternate use in FlowMode.
+        kIsMainReverse   = 1 << 6, // Reserved for FlowMode.
+        kIsCrossReverse  = 1 << 7, // Reserved for FlowMode.
+        kFlowModeMask    = kIsMainBlock | kIsMainReverse | kIsCrossReverse,
+    };
 };
 
-constexpr unsigned makeTextFlowInitalizer(WritingMode writingMode, TextDirection direction)
-{
-    return static_cast<unsigned>(writingMode) << 1 | static_cast<unsigned>(direction);
-}
-
-// Define the text flow in terms of the writing mode and the text direction. The first
-// part is the line growing direction and the second part is the block growing direction.
-enum TextFlow {
-    InlineEastBlockSouth = makeTextFlowInitalizer(WritingMode::TopToBottom, TextDirection::LTR),
-    InlineWestBlockSouth = makeTextFlowInitalizer(WritingMode::TopToBottom, TextDirection::RTL),
-    InlineEastBlockNorth = makeTextFlowInitalizer(WritingMode::BottomToTop, TextDirection::LTR),
-    InlineWestBlockNorth = makeTextFlowInitalizer(WritingMode::BottomToTop, TextDirection::RTL),
-    InlineSouthBlockEast = makeTextFlowInitalizer(WritingMode::LeftToRight, TextDirection::LTR),
-    InlineSouthBlockWest = makeTextFlowInitalizer(WritingMode::LeftToRight, TextDirection::RTL),
-    InlineNorthBlockEast = makeTextFlowInitalizer(WritingMode::RightToLeft, TextDirection::LTR),
-    InlineNorthBlockWest = makeTextFlowInitalizer(WritingMode::RightToLeft, TextDirection::RTL)
+enum class StyleWritingMode : uint8_t {
+    HorizontalTb = 0,
+    HorizontalBt = WritingMode::kIsFlippedBlock, // Non-standard.
+    VerticalLr   = WritingMode::kIsVerticalText | WritingMode::kIsVerticalType,
+    VerticalRl   = WritingMode::kIsVerticalText | WritingMode::kIsVerticalType | WritingMode::kIsFlippedBlock,
+    SidewaysLr   = WritingMode::kIsVerticalText,
+    SidewaysRl   = WritingMode::kIsVerticalText | WritingMode::kIsFlippedBlock,
 };
 
-constexpr inline TextFlow makeTextFlow(WritingMode writingMode, TextDirection direction)
-{
-    return static_cast<TextFlow>(makeTextFlowInitalizer(writingMode, direction));
-}
-
-constexpr unsigned TextFlowReversedMask = 1;
-constexpr unsigned TextFlowFlippedMask = 2;
-constexpr unsigned TextFlowVerticalMask = 4;
-
-constexpr inline bool isReversedTextFlow(TextFlow textflow)
-{
-    return textflow & TextFlowReversedMask;
-}
-
-constexpr inline bool isFlippedTextFlow(TextFlow textflow)
-{
-    return textflow & TextFlowFlippedMask;
-}
-
-constexpr inline bool isVerticalTextFlow(TextFlow textflow)
-{
-    return textflow & TextFlowVerticalMask;
-}
-
-constexpr inline bool isFlippedLinesTextFlow(TextFlow textflow)
-{
-    return isFlippedTextFlow(textflow) != isVerticalTextFlow(textflow);
-}
-
-// Lines have vertical orientation; modes vertical-lr or vertical-rl.
-constexpr inline bool isVerticalWritingMode(WritingMode writingMode)
-{
-    return isVerticalTextFlow(makeTextFlow(writingMode, TextDirection::LTR));
-}
-
-// Block progression increases in the opposite direction to normal; modes vertical-rl or horizontal-bt.
-constexpr inline bool isFlippedWritingMode(WritingMode writingMode)
-{
-    return isFlippedTextFlow(makeTextFlow(writingMode, TextDirection::LTR));
-}
-
-// Lines have horizontal orientation; modes horizontal-tb or horizontal-bt.
-constexpr inline bool isHorizontalWritingMode(WritingMode writingMode)
-{
-    return !isVerticalWritingMode(writingMode);
-}
-
-// Bottom of the line occurs earlier in the block; modes vertical-lr or horizontal-bt.
-constexpr inline bool isFlippedLinesWritingMode(WritingMode writingMode)
-{
-    return isFlippedLinesTextFlow(makeTextFlow(writingMode, TextDirection::LTR));
-}
-
-enum class LogicalBoxSide : uint8_t {
-    BlockStart,
-    InlineEnd,
-    BlockEnd,
-    InlineStart
+enum class TextDirection : bool {
+    LTR = 0,
+    RTL = 1
 };
 
-enum class BoxSide : uint8_t {
-    Top,
-    Right,
-    Bottom,
-    Left
+enum class TextOrientation : uint8_t {
+    Mixed = 0,
+    Upright = 1,
+    Sideways = 2,
 };
 
-enum class LogicalBoxCorner : uint8_t {
-    StartStart,
-    StartEnd,
-    EndStart,
-    EndEnd
+enum class FlowDirection : uint8_t {
+    TopToBottom = 0,
+    BottomToTop = WritingMode::kIsFlippedBlock,
+    LeftToRight = WritingMode::kIsVerticalText,
+    RightToLeft = WritingMode::kIsVerticalText | WritingMode::kIsFlippedBlock,
 };
 
-// The mapping is with the first start/end giving the block axis side,
-// and the second the inline-axis side, i.e. patterned as 'border-block-inline-radius'.
-enum class BoxCorner : uint8_t {
-    TopLeft,
-    TopRight,
-    BottomRight,
-    BottomLeft
-};
+/** Implementation Below **********************************************/
 
-enum class LogicalBoxAxis : uint8_t {
-    Inline,
-    Block
-};
-
-enum class BoxAxis : uint8_t {
-    Horizontal,
-    Vertical
-};
-
-constexpr std::array<BoxSide, 4> allBoxSides = { BoxSide::Top, BoxSide::Right, BoxSide::Bottom, BoxSide::Left };
-
-constexpr inline bool isHorizontalPhysicalSide(BoxSide physicalSide)
+constexpr WritingMode::WritingMode(StyleWritingMode writingMode, TextDirection bidiDirection, TextOrientation verticalOrientation)
+    : m_bits(static_cast<Data>(writingMode)
+        | (bidiDirection == TextDirection::RTL ? kIsBidiRTL : 0)
+        | (static_cast<Data>(verticalOrientation) << kOrientationShift))
 {
-    return physicalSide == BoxSide::Left || physicalSide == BoxSide::Right;
 }
 
-constexpr inline BoxSide mirrorPhysicalSide(BoxSide physicalSide)
+/* Writing axis and direction */
+
+constexpr bool WritingMode::isHorizontal() const
 {
-    // top <-> bottom and left <-> right conversion
-    return static_cast<BoxSide>((static_cast<int>(physicalSide) + 2) % 4);
+    return !(m_bits & kIsVerticalText);
 }
 
-constexpr inline BoxSide rotatePhysicalSide(BoxSide physicalSide)
+constexpr bool WritingMode::isVertical() const
 {
-    // top <-> left and right <-> bottom conversion
-    bool horizontalSide = isHorizontalPhysicalSide(physicalSide);
-    return static_cast<BoxSide>((static_cast<int>(physicalSide) + (horizontalSide ? 1 : 3)) % 4);
+    return m_bits & kIsVerticalText;
 }
 
-constexpr inline BoxSide mapLogicalSideToPhysicalSide(TextFlow textflow, LogicalBoxSide logicalSide)
+/* Text directionality */
+
+constexpr bool WritingMode::isBidiRTL() const
 {
-    BoxSide physicalSide = static_cast<BoxSide>(logicalSide);
-    bool horizontalSide = isHorizontalPhysicalSide(physicalSide);
-
-    if (isVerticalTextFlow(textflow))
-        physicalSide = rotatePhysicalSide(physicalSide);
-
-    if ((horizontalSide && isReversedTextFlow(textflow)) || (!horizontalSide && isFlippedTextFlow(textflow)))
-        physicalSide = mirrorPhysicalSide(physicalSide);
-
-    return physicalSide;
+    // FIXME: https://bugs.webkit.org/show_bug.cgi?id=164507
+    return m_bits & kIsBidiRTL;
 }
 
-constexpr inline BoxSide mapLogicalSideToPhysicalSide(WritingMode writingMode, LogicalBoxSide logicalSide)
+constexpr bool WritingMode::isBidiLTR() const
 {
-    // Set the direction such that side is mirrored if isFlippedWritingMode() is true
-    TextDirection direction = isFlippedWritingMode(writingMode) ? TextDirection::RTL : TextDirection::LTR;
-    return mapLogicalSideToPhysicalSide(makeTextFlow(writingMode, direction), logicalSide);
+    return !isBidiRTL();
 }
 
-constexpr inline BoxCorner mapLogicalCornerToPhysicalCorner(TextFlow textflow, LogicalBoxCorner logicalBoxCorner)
+constexpr TextDirection WritingMode::bidiDirection() const
 {
-    bool isBlockStart = logicalBoxCorner == LogicalBoxCorner::StartStart || logicalBoxCorner == LogicalBoxCorner::StartEnd;
-    bool isInlineStart = logicalBoxCorner == LogicalBoxCorner::StartStart || logicalBoxCorner == LogicalBoxCorner::EndStart;
-    if (isBlockStart == isFlippedTextFlow(textflow)) {
-        if (isInlineStart == isReversedTextFlow(textflow))
-            return BoxCorner::BottomRight;
-    } else if (isInlineStart != isReversedTextFlow(textflow))
-        return BoxCorner::TopLeft;
-    if (isBlockStart == isFlippedLinesTextFlow(textflow))
-        return BoxCorner::BottomLeft;
-    return BoxCorner::TopRight;
+    return computedTextDirection();
 }
 
-constexpr inline BoxAxis mapLogicalAxisToPhysicalAxis(TextFlow textflow, LogicalBoxAxis logicalAxis)
+/* Absolute flow directions */
+
+constexpr bool WritingMode::isBlockTopToBottom() const
 {
-    if (isVerticalTextFlow(textflow))
-        return logicalAxis == LogicalBoxAxis::Inline ? BoxAxis::Vertical : BoxAxis::Horizontal;
-    return logicalAxis == LogicalBoxAxis::Inline ? BoxAxis::Horizontal : BoxAxis::Vertical;
+    return !(m_bits & kBlockFlowMask);
+}
+
+constexpr bool WritingMode::isBlockLeftToRight() const
+{
+    return (m_bits & (kIsVerticalText | kIsFlippedBlock)) == kIsVerticalText;
+}
+
+constexpr bool WritingMode::isInlineTopToBottom() const
+{
+    // Using bitwise operators to avoid conditionals due to short-circuiting...
+    return static_cast<unsigned>(isVertical())
+        & (static_cast<unsigned>(isBidiRTL())
+        ^ (static_cast<unsigned>(isVerticalTypographic()) | static_cast<unsigned>(isBlockFlipped())));
+}
+
+constexpr bool WritingMode::isInlineLeftToRight() const
+{
+    return !(m_bits & (kIsVerticalText | kIsBidiRTL));
+}
+
+constexpr bool WritingMode::isAnyTopToBottom() const
+{
+    return isBlockTopToBottom() || isInlineTopToBottom();
+}
+
+constexpr bool WritingMode::isAnyLeftToRight() const
+{
+    return isInlineLeftToRight() || isBlockLeftToRight();
+}
+
+constexpr FlowDirection WritingMode::blockDirection() const
+{
+    return static_cast<FlowDirection>(m_bits & kBlockFlowMask);
+}
+
+constexpr FlowDirection WritingMode::inlineDirection() const
+{
+    if (isHorizontal())
+        return isInlineLeftToRight() ? FlowDirection::LeftToRight : FlowDirection::RightToLeft;
+    return isInlineTopToBottom() ? FlowDirection::TopToBottom : FlowDirection::BottomToTop;
+}
+
+/* Typesetting modes */
+
+constexpr bool WritingMode::isVerticalTypographic() const
+{
+    return m_bits & kIsVerticalType;
+}
+
+constexpr bool WritingMode::prefersCentralBaseline() const
+{
+    return isVerticalTypographic() && !isSidewaysOrientation();
+}
+
+constexpr bool WritingMode::isMixedOrientation() const
+{
+    return !(m_bits & kOrientationMask);
+}
+
+constexpr bool WritingMode::isUprightOrientation() const
+{
+    return m_bits & kIsUprightType;
+}
+
+constexpr bool WritingMode::isSidewaysOrientation() const
+{
+    return m_bits & kIsSidewaysType;
+}
+
+/* Line orientation */
+
+constexpr bool WritingMode::isLineInverted() const
+{
+    auto bits = m_bits & kWritingModeMask;
+    bool isHorizontalBt = kIsFlippedBlock == bits;
+    bool isVerticalLr = (kIsVerticalText | kIsVerticalType) == bits;
+    return isHorizontalBt | isVerticalLr;
+}
+
+constexpr bool WritingMode::isLineOverRight() const
+{
+    return isVerticalTypographic()
+        || (m_bits & kWritingModeMask) == (kIsVerticalText | kIsFlippedBlock); // sideways-rl
+}
+
+constexpr bool WritingMode::isLineOverLeft() const
+{
+    return (m_bits & kWritingModeMask) == kIsVerticalText; // sideways-lr
+}
+
+constexpr bool WritingMode::isLogicalLeftLineLeft() const
+{
+    return computedWritingMode() != StyleWritingMode::SidewaysLr;
+}
+
+constexpr bool WritingMode::isLogicalLeftInlineStart() const
+{
+    return !isInlineFlipped();
+}
+
+/* Coordinate flow directions */
+constexpr bool WritingMode::isBlockFlipped() const
+{
+    return m_bits & kIsFlippedBlock;
+}
+
+constexpr bool WritingMode::isInlineFlipped() const
+{
+    if (isHorizontal())
+        return isBidiRTL();
+    return !isInlineTopToBottom();
+}
+
+/* (Mis)Matching */
+
+constexpr bool WritingMode::isOrthogonal(WritingMode writingMode) const
+{
+    return isVertical() != (writingMode.isVertical());
+}
+
+constexpr bool WritingMode::isBlockOpposing(WritingMode writingMode) const
+{
+    Data self = (m_bits & (kIsVerticalText | kIsFlippedBlock));
+    Data other = (writingMode.m_bits & (kIsVerticalText | kIsFlippedBlock));
+    return (self ^ other) == kIsFlippedBlock;
+}
+
+constexpr bool WritingMode::isInlineOpposing(WritingMode writingMode) const
+{
+    return isHorizontal()
+        ? isBidiRTL() != writingMode.isBidiRTL()
+        : isInlineTopToBottom() != writingMode.isInlineTopToBottom();
+}
+
+constexpr bool WritingMode::isBlockMatchingAny(WritingMode writingMode) const
+{
+    return isHorizontal()
+        ? isBlockTopToBottom() == writingMode.isAnyTopToBottom()
+        : isBlockLeftToRight() == writingMode.isAnyLeftToRight();
+}
+
+constexpr bool WritingMode::isInlineMatchingAny(WritingMode writingMode) const
+{
+    return isHorizontal()
+        ? isBidiLTR() == writingMode.isAnyLeftToRight()
+        : isInlineTopToBottom() == writingMode.isAnyTopToBottom();
+}
+
+/* Computed values */
+
+constexpr StyleWritingMode WritingMode::computedWritingMode() const
+{
+    return static_cast<StyleWritingMode>(m_bits & kWritingModeMask);
+}
+
+constexpr TextDirection WritingMode::computedTextDirection() const
+{
+    return static_cast<TextDirection>(isBidiRTL());
+}
+
+constexpr TextOrientation WritingMode::computedTextOrientation() const
+{
+    Data data = (m_bits & kOrientationMask) >> kOrientationShift;
+    return static_cast<TextOrientation>(data);
+}
+
+/* Setters */
+
+inline void WritingMode::setWritingMode(StyleWritingMode writingMode)
+{
+    m_bits &= ~kWritingModeMask;
+    m_bits |= static_cast<Data>(writingMode);
+}
+
+inline void WritingMode::setTextDirection(TextDirection bidiDirection)
+{
+    if (bidiDirection == TextDirection::RTL)
+        m_bits |= kIsBidiRTL;
+    else
+        m_bits &= ~kIsBidiRTL;
+}
+
+inline void WritingMode::setTextOrientation(TextOrientation verticalOrientation)
+{
+    m_bits &= ~kOrientationMask;
+    m_bits |= static_cast<Data>(verticalOrientation) << kOrientationShift;
+}
+
+/** Logging ***********************************************************/
+
+inline TextStream& operator<<(TextStream& stream, StyleWritingMode writingMode)
+{
+    switch (writingMode) {
+    case StyleWritingMode::HorizontalTb:
+        stream << "horizontal-tb";
+        break;
+    case StyleWritingMode::HorizontalBt:
+        stream << "horizontal-bt";
+        break;
+    case StyleWritingMode::VerticalLr:
+        stream << "vertical-lr";
+        break;
+    case StyleWritingMode::VerticalRl:
+        stream << "vertical-rl";
+        break;
+    case StyleWritingMode::SidewaysLr:
+        stream << "sideways-lr";
+        break;
+    case StyleWritingMode::SidewaysRl:
+        stream << "sideways-rl";
+        break;
+    }
+    return stream;
+}
+
+inline TextStream& operator<<(TextStream& ts, TextDirection textDirection)
+{
+    switch (textDirection) {
+    case TextDirection::LTR: ts << "ltr"_s; break;
+    case TextDirection::RTL: ts << "rtl"_s; break;
+    }
+    return ts;
+}
+
+inline TextStream& operator<<(TextStream& stream, TextOrientation orientation)
+{
+    switch (orientation) {
+    case TextOrientation::Mixed:
+        stream << "mixed";
+        break;
+    case TextOrientation::Upright:
+        stream << "upright";
+        break;
+    case TextOrientation::Sideways:
+        stream << "sideways";
+        break;
+    }
+    return stream;
+}
+
+inline TextStream& operator<<(TextStream& stream, FlowDirection direction)
+{
+    switch (direction) {
+    case FlowDirection::TopToBottom:
+        stream << "top-to-bottom";
+        break;
+    case FlowDirection::BottomToTop:
+        stream << "bottom-to-top";
+        break;
+    case FlowDirection::LeftToRight:
+        stream << "left-to-right";
+        break;
+    case FlowDirection::RightToLeft:
+        stream << "right-to-left";
+        break;
+    }
+    return stream;
+}
+
+inline TextStream& operator<<(TextStream& stream, WritingMode writingMode)
+{
+    stream << "(" << writingMode.computedWritingMode()
+        << ", " << writingMode.computedTextDirection()
+        << ", " << writingMode.computedTextOrientation() << ")";
+    return stream;
 }
 
 } // namespace WebCore

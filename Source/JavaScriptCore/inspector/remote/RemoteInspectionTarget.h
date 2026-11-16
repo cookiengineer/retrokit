@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013, 2015 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2013-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,9 +25,14 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if ENABLE(REMOTE_INSPECTOR)
 
-#include "RemoteControllableTarget.h"
+#include <JavaScriptCore/JSExportMacros.h>
+#include <JavaScriptCore/JSRemoteInspector.h>
+#include <JavaScriptCore/RemoteControllableTarget.h>
+#include <wtf/ProcessID.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/TypeCasts.h>
 #include <wtf/text/WTFString.h>
@@ -36,10 +41,14 @@ namespace Inspector {
 
 class FrontendChannel;
 
-class JS_EXPORT_PRIVATE RemoteInspectionTarget : public RemoteControllableTarget {
+class RemoteInspectionTarget : public RemoteControllableTarget {
 public:
-    bool remoteDebuggingAllowed() const { return m_allowed; }
-    void setRemoteDebuggingAllowed(bool);
+    JS_EXPORT_PRIVATE RemoteInspectionTarget();
+    JS_EXPORT_PRIVATE ~RemoteInspectionTarget() override;
+    JS_EXPORT_PRIVATE bool NODELETE inspectable() const;
+    JS_EXPORT_PRIVATE void setInspectable(bool);
+
+    bool allowsInspectionByPolicy() const;
 
 #if USE(CF)
     CFRunLoopRef targetRunLoop() const final { return m_runLoop.get(); }
@@ -48,22 +57,43 @@ public:
 
     virtual String name() const { return String(); } // ITML JavaScript Page ServiceWorker WebPage
     virtual String url() const { return String(); } // Page ServiceWorker WebPage
+    virtual const String& nameOverride() const { return nullString(); }
     virtual bool hasLocalDebugger() const = 0;
 
     virtual void setIndicating(bool) { } // Default is to do nothing.
 
     virtual bool automaticInspectionAllowed() const { return false; }
-    virtual void pauseWaitingForAutomaticInspection();
-    virtual void unpauseForInitializedInspector();
+    virtual bool automaticInspectionAllowedInSameProcess() const { return false; }
+    JS_EXPORT_PRIVATE virtual void pauseWaitingForAutomaticInspection();
+    JS_EXPORT_PRIVATE virtual void unpauseForResolvedAutomaticInspection();
 
     // RemoteControllableTarget overrides.
-    bool remoteControlAllowed() const final;
+    JS_EXPORT_PRIVATE bool remoteControlAllowed() const final;
+
+    std::optional<ProcessID> presentingApplicationPID() const { return m_presentingApplicationPID; }
+    JS_EXPORT_PRIVATE void setPresentingApplicationPID(std::optional<ProcessID>&&);
+
+    virtual std::optional<ProcessID> webContentProcessPID() const { return std::nullopt; }
+
+protected:
+    bool m_isPausedWaitingForAutomaticInspection { false };
 
 private:
-    bool m_allowed { false };
+    enum class Inspectable : uint8_t {
+        Yes,
+        No,
+
+        // For WebKit internal proxies and wrappers, we want to always disable inspection even when internal policies
+        // would otherwise enable inspection.
+        NoIgnoringInternalPolicies,
+    };
+    Inspectable m_inspectable { JSRemoteInspectorGetInspectionFollowsInternalPolicies() ? Inspectable::No : Inspectable::NoIgnoringInternalPolicies };
+
 #if USE(CF)
     RetainPtr<CFRunLoopRef> m_runLoop;
 #endif
+
+    std::optional<ProcessID> m_presentingApplicationPID;
 };
 
 } // namespace Inspector

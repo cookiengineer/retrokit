@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc.  All rights reserved.
+ * Copyright (C) 2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,6 +26,7 @@
 #pragma once
 
 #include "SVGProperty.h"
+#include "SVGPropertyTraits.h"
 
 namespace WebCore {
 
@@ -40,8 +41,8 @@ public:
     }
 
     // Getter/Setter for the value.
-    const PropertyType& value() const { return m_value; }
-    PropertyType& value() { return m_value; }
+    const PropertyType& value() const LIFETIME_BOUND { return m_value; }
+    PropertyType& value() LIFETIME_BOUND { return m_value; }
     void setValue(const PropertyType& value) { m_value = value; }
 
     String valueAsString() const override

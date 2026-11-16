@@ -24,21 +24,22 @@
  */
 
 #include "config.h"
-#include "Logger.h"
+#include <wtf/Logger.h>
 
-#include <mutex>
 #include <wtf/HexNumber.h>
+#include <wtf/NeverDestroyed.h>
 #include <wtf/text/WTFString.h>
 
 namespace WTF {
 
 Lock loggerObserverLock;
+Lock messageHandlerLoggerObserverLock;
 
 String Logger::LogSiteIdentifier::toString() const
 {
     if (className)
-        return makeString(className, "::", methodName, '(', hex(objectPtr), ") ");
-    return makeString(methodName, '(', hex(objectPtr), ") ");
+        return makeString(className, "::"_s, unsafeSpan(methodName), '(', hex(objectIdentifier), ") "_s);
+    return makeString(unsafeSpan(methodName), '(', hex(objectIdentifier), ") "_s);
 }
 
 String LogArgument<const void*>::toString(const void* argument)
@@ -48,12 +49,43 @@ String LogArgument<const void*>::toString(const void* argument)
 
 Vector<std::reference_wrapper<Logger::Observer>>& Logger::observers()
 {
-    static LazyNeverDestroyed<Vector<std::reference_wrapper<Observer>>> observers;
-    static std::once_flag onceKey;
-    std::call_once(onceKey, [&] {
-        observers.construct();
-    });
+    static NeverDestroyed<Vector<std::reference_wrapper<Observer>>> observers;
     return observers;
 }
+
+void Logger::Observer::assertIsNotRegistered() const
+{
+    Locker locker { observerLock() };
+    RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(!observers().containsIf([this](auto& observer) {
+        return &observer.get() == this;
+    }));
+}
+
+Vector<std::reference_wrapper<Logger::MessageHandlerObserver>>& Logger::messageHandlerObservers()
+{
+    static NeverDestroyed<Vector<std::reference_wrapper<MessageHandlerObserver>>> observers;
+    return observers;
+}
+
+const Logger& emptyLogger()
+{
+    static NeverDestroyed<Ref<Logger>> emptyLogger = [&] {
+        // Passing the wrapper as the "owner" of the logger ensures
+        // no caller will every be able to enable this logger.
+        auto logger = Logger::create(&emptyLogger);
+        logger->setEnabled(&emptyLogger, false);
+        return logger;
+    }();
+    return emptyLogger->get();
+}
+
+#if USE(OS_LOG)
+void Logger::osLog(WTFLogChannel& channel, const CString& message)
+{
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+    SUPPRESS_UNRETAINED_LOCAL os_log(channel.osLogChannel, "%{public}s", message.data());
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+}
+#endif // USE(OS_LOG)
 
 } // namespace WTF

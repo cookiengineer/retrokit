@@ -29,68 +29,73 @@
 #include "WebFrame.h"
 #include "WebPage.h"
 #include <WebCore/GraphicsLayer.h>
+#include <WebCore/LocalFrame.h>
 #include <WebCore/PageOverlay.h>
+#include <wtf/CheckedPtr.h>
 #include <wtf/NeverDestroyed.h>
 
 namespace WebKit {
 using namespace WebCore;
 
-static HashMap<PageOverlay*, WebPageOverlay*>& overlayMap()
+static HashMap<WeakRef<PageOverlay>, WeakRef<WebPageOverlay>>& NODELETE overlayMap()
 {
-    static NeverDestroyed<HashMap<PageOverlay*, WebPageOverlay*>> map;
+    static NeverDestroyed<HashMap<WeakRef<PageOverlay>, WeakRef<WebPageOverlay>>> map;
     return map;
 }
 
 Ref<WebPageOverlay> WebPageOverlay::create(std::unique_ptr<WebPageOverlay::Client> client, PageOverlay::OverlayType overlayType)
 {
-    return adoptRef(*new WebPageOverlay(WTFMove(client), overlayType));
+    return adoptRef(*new WebPageOverlay(WTF::move(client), overlayType));
 }
 
 WebPageOverlay::WebPageOverlay(std::unique_ptr<WebPageOverlay::Client> client, PageOverlay::OverlayType overlayType)
     : m_overlay(PageOverlay::create(*this, overlayType))
-    , m_client(WTFMove(client))
+    , m_client(WTF::move(client))
 {
     ASSERT(m_client);
-    overlayMap().add(m_overlay.get(), this);
+    overlayMap().add(*m_overlay, *this);
 }
 
 WebPageOverlay::~WebPageOverlay()
 {
-    if (!m_overlay)
+    RefPtr overlay = m_overlay;
+    if (!overlay)
         return;
 
-    overlayMap().remove(m_overlay.get());
+    overlayMap().remove(*overlay);
     m_overlay = nullptr;
 }
 
 WebPageOverlay* WebPageOverlay::fromCoreOverlay(PageOverlay& overlay)
 {
-    return overlayMap().get(&overlay);
+    return overlayMap().get(overlay);
 }
 
 void WebPageOverlay::setNeedsDisplay(const IntRect& dirtyRect)
 {
-    m_overlay->setNeedsDisplay(dirtyRect);
+    protect(coreOverlay())->setNeedsDisplay(dirtyRect);
 }
 
 void WebPageOverlay::setNeedsDisplay()
 {
-    m_overlay->setNeedsDisplay();
+    protect(coreOverlay())->setNeedsDisplay();
 }
 
 void WebPageOverlay::clear()
 {
-    m_overlay->clear();
+    protect(coreOverlay())->clear();
 }
 
 void WebPageOverlay::willMoveToPage(PageOverlay&, Page* page)
 {
-    m_client->willMoveToPage(*this, page ? &WebPage::fromCorePage(*page) : nullptr);
+    RefPtr webPage = page ? WebPage::fromCorePage(*page) : nullptr;
+    m_client->willMoveToPage(*this, webPage.get());
 }
 
 void WebPageOverlay::didMoveToPage(PageOverlay&, Page* page)
 {
-    m_client->didMoveToPage(*this, page ? &WebPage::fromCorePage(*page) : nullptr);
+    RefPtr webPage = page ? WebPage::fromCorePage(*page) : nullptr;
+    m_client->didMoveToPage(*this, webPage.get());
 }
 
 void WebPageOverlay::drawRect(PageOverlay&, GraphicsContext& context, const IntRect& dirtyRect)
@@ -103,9 +108,10 @@ bool WebPageOverlay::mouseEvent(PageOverlay&, const PlatformMouseEvent& event)
     return m_client->mouseEvent(*this, event);
 }
 
-void WebPageOverlay::didScrollFrame(PageOverlay&, Frame& frame)
+void WebPageOverlay::didScrollFrame(PageOverlay&, LocalFrame& frame)
 {
-    m_client->didScrollFrame(*this, WebFrame::fromCoreFrame(frame));
+    RefPtr webFrame = WebFrame::fromCoreFrame(frame);
+    m_client->didScrollFrame(*this, webFrame.get());
 }
 
 #if PLATFORM(MAC)

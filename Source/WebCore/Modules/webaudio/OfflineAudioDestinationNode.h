@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2011, Google Inc. All rights reserved.
- * Copyright (C) 2020-2021, Apple Inc. All rights reserved.
+ * Copyright (C) 2011 Google Inc. All rights reserved.
+ * Copyright (C) 2020-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,7 +27,10 @@
 
 #include "AudioDestinationNode.h"
 #include <wtf/RefPtr.h>
-#include <wtf/Threading.h>
+
+namespace WTF {
+class Thread;
+}
 
 namespace WebCore {
 
@@ -36,7 +39,8 @@ class AudioBus;
 class OfflineAudioContext;
     
 class OfflineAudioDestinationNode final : public AudioDestinationNode {
-    WTF_MAKE_ISO_ALLOCATED(OfflineAudioDestinationNode);
+    WTF_MAKE_TZONE_ALLOCATED(OfflineAudioDestinationNode);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(OfflineAudioDestinationNode);
 public:
     OfflineAudioDestinationNode(OfflineAudioContext&, unsigned numberOfChannels, float sampleRate, RefPtr<AudioBuffer>&& renderTarget);
     ~OfflineAudioDestinationNode();
@@ -66,13 +70,13 @@ private:
     unsigned m_numberOfChannels;
 
     // This AudioNode renders into this AudioBuffer.
-    RefPtr<AudioBuffer> m_renderTarget;
+    const RefPtr<AudioBuffer> m_renderTarget;
     
     // Temporary AudioBus for each render quantum.
-    RefPtr<AudioBus> m_renderBus;
+    const Ref<AudioBus> m_renderBus;
     
     // Rendering thread.
-    RefPtr<Thread> m_renderThread;
+    RefPtr<WTF::Thread> m_renderThread;
     size_t m_framesToProcess;
     size_t m_destinationOffset { 0 };
     bool m_startedRendering { false };

@@ -9,6 +9,7 @@
 
 #include "libANGLE/renderer/ContextImpl.h"
 
+#include "common/base/anglebase/no_destructor.h"
 #include "libANGLE/Context.h"
 
 namespace rx
@@ -19,12 +20,31 @@ ContextImpl::ContextImpl(const gl::State &state, gl::ErrorSet *errorSet)
 
 ContextImpl::~ContextImpl() {}
 
-void ContextImpl::invalidateTexture(gl::TextureType target)
+angle::Result ContextImpl::startTiling(const gl::Context *context,
+                                       const gl::Rectangle &area,
+                                       GLbitfield preserveMask)
 {
     UNREACHABLE();
+    return angle::Result::Stop;
+}
+
+angle::Result ContextImpl::endTiling(const gl::Context *context, GLbitfield preserveMask)
+{
+    UNREACHABLE();
+    return angle::Result::Stop;
 }
 
 angle::Result ContextImpl::onUnMakeCurrent(const gl::Context *context)
+{
+    return angle::Result::Continue;
+}
+
+angle::Result ContextImpl::handleNoopDrawEvent()
+{
+    return angle::Result::Continue;
+}
+
+angle::Result ContextImpl::handleNoopMultiDrawEvent()
 {
     return angle::Result::Continue;
 }
@@ -58,6 +78,51 @@ egl::Error ContextImpl::releaseHighPowerGPU(gl::Context *)
 egl::Error ContextImpl::reacquireHighPowerGPU(gl::Context *)
 {
     return egl::NoError();
+}
+
+void ContextImpl::acquireExternalContext(const gl::Context *context) {}
+
+void ContextImpl::releaseExternalContext(const gl::Context *context) {}
+
+angle::Result ContextImpl::acquireTextures(const gl::Context *context,
+                                           const gl::TextureBarrierVector &textureBarriers)
+{
+    UNREACHABLE();
+    return angle::Result::Stop;
+}
+
+angle::Result ContextImpl::releaseTextures(const gl::Context *context,
+                                           gl::TextureBarrierVector *textureBarriers)
+{
+    UNREACHABLE();
+    return angle::Result::Stop;
+}
+
+const angle::PerfMonitorCounterGroupsInfo &ContextImpl::getPerfMonitorCountersInfo() const
+{
+    static angle::base::NoDestructor<angle::PerfMonitorCounterGroupsInfo> sCountersInfo;
+    return *sCountersInfo;
+}
+
+const angle::PerfMonitorCounterGroups &ContextImpl::getPerfMonitorCounters()
+{
+    static angle::base::NoDestructor<angle::PerfMonitorCounterGroups> sCounters;
+    return *sCounters;
+}
+
+const angle::ShadingRateMap &ContextImpl::getSupportedFragmentShadingRateEXTSampleCounts() const
+{
+    UNREACHABLE();
+    static angle::ShadingRateMap empty;
+    return empty;
+}
+
+angle::Result ContextImpl::bindMetalRasterizationRateMap(gl::Context *,
+                                                         RenderbufferImpl *renderbuffer,
+                                                         GLMTLRasterizationRateMapANGLE map)
+{
+    UNREACHABLE();
+    return angle::Result::Stop;
 }
 
 }  // namespace rx

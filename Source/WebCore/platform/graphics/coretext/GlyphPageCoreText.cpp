@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,47 +31,41 @@
 
 #include "Font.h"
 #include "FontCascade.h"
-#include <pal/spi/cg/CoreGraphicsSPI.h>
-
-#if PLATFORM(COCOA)
 #include <pal/spi/cf/CoreTextSPI.h>
-#else
-#include <pal/spi/win/CoreTextSPIWin.h>
-#endif
+#include <pal/spi/cg/CoreGraphicsSPI.h>
 
 namespace WebCore {
 
-static bool shouldFillWithVerticalGlyphs(const UChar* buffer, unsigned bufferLength, const Font& font)
+static bool NODELETE shouldFillWithVerticalGlyphs(std::span<const char16_t> buffer, const Font& font)
 {
     if (!font.hasVerticalGlyphs())
         return false;
-    for (unsigned i = 0; i < bufferLength; ++i) {
-        if (!FontCascade::isCJKIdeograph(buffer[i]))
+    for (auto character : buffer) {
+        if (!FontCascade::isCJKIdeograph(character))
             return true;
     }
     return false;
 }
 
-static const constexpr CGGlyph deletedGlyph = 0xFFFF;
 
-bool GlyphPage::fill(UChar* buffer, unsigned bufferLength)
+bool GlyphPage::fill(std::span<const char16_t> buffer)
 {
-    ASSERT(bufferLength == GlyphPage::size || bufferLength == 2 * GlyphPage::size);
+    ASSERT(buffer.size() == GlyphPage::size || buffer.size() == 2 * GlyphPage::size);
 
-    const Font& font = this->font();
-    Vector<CGGlyph, 512> glyphs(bufferLength);
-    unsigned glyphStep = bufferLength / GlyphPage::size;
+    Ref<const Font> font = this->font();
+    Vector<CGGlyph, 512> glyphs(buffer.size());
+    unsigned glyphStep = buffer.size() / GlyphPage::size;
 
-    if (shouldFillWithVerticalGlyphs(buffer, bufferLength, font))
-        CTFontGetVerticalGlyphsForCharacters(font.platformData().ctFont(), reinterpret_cast<UniChar*>(buffer), glyphs.data(), bufferLength);
+    if (shouldFillWithVerticalGlyphs(buffer, font))
+        CTFontGetVerticalGlyphsForCharacters(protect(font->platformData().ctFont()).get(), reinterpret_cast<const UniChar*>(buffer.data()), glyphs.mutableSpan().data(), buffer.size());
     else
-        CTFontGetGlyphsForCharacters(font.platformData().ctFont(), reinterpret_cast<UniChar*>(buffer), glyphs.data(), bufferLength);
+        CTFontGetGlyphsForCharacters(protect(font->platformData().ctFont()).get(), reinterpret_cast<const UniChar*>(buffer.data()), glyphs.mutableSpan().data(), buffer.size());
 
     bool haveGlyphs = false;
     for (unsigned i = 0; i < GlyphPage::size; ++i) {
         auto theGlyph = glyphs[i * glyphStep];
         if (theGlyph && theGlyph != deletedGlyph) {
-            setGlyphForIndex(i, theGlyph);
+            setGlyphForIndex(i, theGlyph, font->colorGlyphType(theGlyph));
             haveGlyphs = true;
         }
     }

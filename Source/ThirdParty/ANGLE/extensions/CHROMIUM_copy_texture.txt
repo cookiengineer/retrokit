@@ -8,7 +8,7 @@ Name Strings
 
 Version
 
-    Last Modifed Date: March 24, 2017
+    Last Modified Date: May 6, 2026
 
 Dependencies
 
@@ -17,6 +17,7 @@ Dependencies
     EXT_texture_format_BGRA8888 affects the definition of this extension.
     ARB_texture_rg affects the definition of this extension.
     CHROMIUM_ycbcr_422_image affects the definition of this extension.
+    ANGLE_yuv_internal_format affects the definition of this extension.
 
 Overview
 
@@ -81,18 +82,27 @@ Additions to the OpenGL ES 2.0 Specification
 
        source format           color components
        ----------------------------------------
-       ALPHA                   (0, 0, 0, A)
-       RED                     (R, 0, 0, 1)
-       LUMINANCE               (L, L, L, 1)
-       LUMINANCE_ALPHA         (L, L, L, A)
-       RGB                     (R, G, B, 1)
-       RGB8                    (R, G, B, 1)
-       RGBA                    (R, G, B, A)
-       RGBA8                   (R, G, B, A)
-       BGRA_EXT                (R, G, B, A)
-       BGRA8_EXT               (R, G, B, A)
-       RGB_YCBCR_420V_CHROMIUM (R, G, B, 1)
-       RGB_YCBCR_422_CHROMIUM  (R, G, B, 1)
+       ALPHA                                            (0, 0, 0, A)
+       RED                                              (R, 0, 0, 1)
+       LUMINANCE                                        (L, L, L, 1)
+       LUMINANCE_ALPHA                                  (L, L, L, A)
+       RGB                                              (R, G, B, 1)
+       RGB8                                             (R, G, B, 1)
+       RGBA                                             (R, G, B, A)
+       RGBA8                                            (R, G, B, A)
+       BGRA_EXT                                         (R, G, B, A)
+       BGRA8_EXT                                        (R, G, B, A)
+       RGB_YCBCR_420V_CHROMIUM                          (R, G, B, 1)
+       RGB_YCBCR_422_CHROMIUM                           (R, G, B, 1)
+       G8_B8R8_2PLANE_420_UNORM_ANGLE                   (R, G, B, 1)
+       G8_B8_R8_3PLANE_420_UNORM_ANGLE                  (R, G, B, 1)
+       G10X6_B10X6R10X6_2PLANE_420_UNORM_3PACK16_ANGLE  (R, G, B, 1)
+       G10X6_B10X6_R10X6_3PLANE_420_UNORM_3PACK16_ANGLE (R, G, B, 1)
+       G12X4_B12X4R12X4_2PLANE_420_UNORM_3PACK16_ANGLE  (R, G, B, 1)
+       G12X4_B12X4_R12X4_3PLANE_420_UNORM_3PACK16_ANGLE (R, G, B, 1)
+       G16_B16R16_2PLANE_420_UNORM_ANGLE                (R, G, B, 1)
+       G16_B16_R16_3PLANE_420_UNORM_ANGLE               (R, G, B, 1)
+
 
     The format type of the destination texture is converted to that specified
     by <destType>.
@@ -114,6 +124,12 @@ Additions to the OpenGL ES 2.0 Specification
 
     INVALID_VALUE is generated if <sourceId> or <destId> are not valid texture
     objects.
+
+    INVALID_OPERATION is generated if <sourceId> refers to a texture that is
+    not complete according to Framebuffer Attachment Completeness rules.
+
+    INVALID_OPERATION is generated if <sourceId> and <destId> refer to the same
+    texture objects and <sourceLevel> is the same as <destLevel>.
 
     INVALID_ENUM is generated if <destTarget> is not one of the valid targets
     described above.
@@ -165,6 +181,9 @@ Additions to the OpenGL ES 2.0 Specification
     INVALID_OPERATION is generated if the destination texture array has not
     been defined.
 
+    INVALID_OPERATION is generated if <sourceId> refers to a texture that is
+    not complete according to Framebuffer Attachment Completeness rules.
+
     INVALID_VALUE is generated if <destId> texture is not bound as
     TEXTURE_2D or TEXTURE_RECTANGLE_ARB.
 
@@ -174,39 +193,50 @@ Additions to the OpenGL ES 2.0 Specification
     INVALID_VALUE is generated if (<xoffset> + <width>) > destWidth,
     or (<yoffset> + <height>) > destHeight.
 
+    INVALID_VALUE is generated if <sourceLevel> is not 0 for ES 2.0, or if
+    <sourceLevel> or <destLevel> is less than 0 for ES 3.0.
+
+    INVALID_VALUE is generated if <sourceLevel> of the source texture is not
+    defined.
+
     Table 1.0 Valid internal formats for CopyTextureCHROMIUM:
 
         <internalFormat>
         ---------------
-        RGB
-        RGBA
-        RGB8
-        RGBA8
-        BGRA_EXT
+        ALPHA
         BGRA8_EXT
-        SRGB_EXT
-        SRGB_ALPHA_EXT
-        R8
-        R8UI
-        RG8
-        RG8UI
-        SRGB8
-        RGB565
-        RGB8UI
-        SRGB8_ALPHA8
-        RGB5_A1
-        RGBA4
-        RGBA8UI
-        RGB9_E5
+        BGRA_EXT
+        LUMINANCE
+        LUMINANCE_ALPHA
+        R11F_G11F_B10F
         R16F
         R32F
+        R8
+        R8UI
         RG16F
         RG32F
+        RG8
+        RG8UI
+        RGB
+        RGB10_A2
         RGB16F
         RGB32F
+        RGB565
+        RGB5_A1
+        RGB8
+        RGB8UI
+        RGB9_E5
+        RGBA
         RGBA16F
         RGBA32F
-        R11F_G11F_B10F
+        RGBA4
+        RGBA8
+        RGBA8UI
+        RGBX8_ANGLE
+        SRGB8
+        SRGB8_ALPHA8
+        SRGB_ALPHA_EXT
+        SRGB_EXT
 
     Table 1.1 Valid source texture internal formats for CopyTextureCHROMIUM and
     source and destination formats for CopySubTextureCHROMIUM:
@@ -225,6 +255,15 @@ Additions to the OpenGL ES 2.0 Specification
         BGRA8_EXT
         RGB_YCBCR_420V_CHROMIUM
         RGB_YCBCR_422_CHROMIUM
+        G8_B8R8_2PLANE_420_UNORM_ANGLE
+        G8_B8_R8_3PLANE_420_UNORM_ANGLE
+        G10X6_B10X6R10X6_2PLANE_420_UNORM_3PACK16_ANGLE
+        G10X6_B10X6_R10X6_3PLANE_420_UNORM_3PACK16_ANGLE
+        G12X4_B12X4R12X4_2PLANE_420_UNORM_3PACK16_ANGLE
+        G12X4_B12X4_R12X4_3PLANE_420_UNORM_3PACK16_ANGLE
+        G16_B16R16_2PLANE_420_UNORM_ANGLE
+        G16_B16_R16_3PLANE_420_UNORM_ANGLE
+
 
 Dependencies on ARB_texture_rg
 
@@ -235,6 +274,18 @@ Dependencies on CHROMIUM_ycbcr_422_image
 
     If CHROMIUM_ycbcr_422_image is not supported:
      * delete any reference to the RGB_YCBCR_422_CHROMIUM format.
+
+Dependencies on ANGLE_yuv_internal_format
+
+   If ANGLE_yuv_internal_format is not supported:
+     * Delete references to the G8_B8R8_2PLANE_420_UNORM_ANGLE,
+        G8_B8_R8_3PLANE_420_UNORM_ANGLE,
+        G10X6_B10X6R10X6_2PLANE_420_UNORM_3PACK16_ANGLE,
+        G10X6_B10X6_R10X6_3PLANE_420_UNORM_3PACK16_ANGLE,
+        G12X4_B12X4R12X4_2PLANE_420_UNORM_3PACK16_ANGLE,
+        G12X4_B12X4_R12X4_3PLANE_420_UNORM_3PACK16_ANGLE,
+        G16_B16R16_2PLANE_420_UNORM_ANGLE, and
+        G16_B16_R16_3PLANE_420_UNORM_ANGLE formats.
 
 Errors
 
@@ -261,3 +312,7 @@ Revision History
     18/1/2017   Supported source_level and dest_level.
     19/1/2017   Added TEXTURE_CUBE_MAP as valid dest_id target.
     24/3/2017   Clean up naming and move formats into tables.
+    3/9/2025    Add source copy formats from ANGLE_yuv_internal_format
+    9/4/2026    Add restriction that sourceLevel is in [BASE, MAX] range
+    6/5/2026    Add restriction that source must be
+                framebuffer-attachment-complete

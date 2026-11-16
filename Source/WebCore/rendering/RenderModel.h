@@ -31,23 +31,29 @@
 
 namespace WebCore {
 
+namespace Style {
+struct Difference;
+}
+
 class HTMLModelElement;
 
 class RenderModel final : public RenderReplaced {
-    WTF_MAKE_ISO_ALLOCATED(RenderModel);
+    WTF_MAKE_TZONE_ALLOCATED(RenderModel);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderModel);
 public:
-    RenderModel(HTMLModelElement&, RenderStyle&&);
+    RenderModel(HTMLModelElement&, Style::ComputedStyle&&);
     virtual ~RenderModel();
 
-    HTMLModelElement& modelElement() const;
+    HTMLModelElement& NODELETE modelElement() const;
 
 private:
     void element() const = delete;
-    const char* renderName() const final { return "RenderModel"; }
-    bool isRenderModel() const final { return true; }
+    ASCIILiteral renderName() const final { return "RenderModel"_s; }
 
-    bool requiresLayer() const final;
+    bool NODELETE requiresLayer() const final;
     void updateFromElement() final;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) final;
+    void paintReplaced(PaintInfo&, const LayoutPoint&) final;
 
     void update();
 };

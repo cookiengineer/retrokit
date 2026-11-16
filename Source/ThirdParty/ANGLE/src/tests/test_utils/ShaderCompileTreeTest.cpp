@@ -9,7 +9,7 @@
 
 #include "tests/test_utils/ShaderCompileTreeTest.h"
 
-#include "compiler/translator/TranslatorESSL.h"
+#include "compiler/translator/glsl/TranslatorESSL.h"
 #include "compiler/translator/tree_util/IntermTraverse.h"
 
 namespace sh
@@ -111,7 +111,6 @@ class OnlyContainsZeroConstantsTraverser final : public TIntermTraverser
 
 void ShaderCompileTreeTest::SetUp()
 {
-    mAllocator.push();
     SetGlobalPoolAllocator(&mAllocator);
 
     ShBuiltInResources resources;
@@ -128,13 +127,13 @@ void ShaderCompileTreeTest::TearDown()
     delete mTranslator;
 
     SetGlobalPoolAllocator(nullptr);
-    mAllocator.pop();
+    mAllocator.reset();
 }
 
 bool ShaderCompileTreeTest::compile(const std::string &shaderString)
 {
     const char *shaderStrings[] = {shaderString.c_str()};
-    mASTRoot = mTranslator->compileTreeForTesting(shaderStrings, 1, mExtraCompileOptions);
+    mASTRoot            = mTranslator->compileTreeForTesting(shaderStrings, mCompileOptions);
     TInfoSink &infoSink = mTranslator->getInfoSink();
     mInfoLog            = infoSink.info.c_str();
     return mASTRoot != nullptr;
@@ -155,13 +154,11 @@ bool ShaderCompileTreeTest::hasWarning() const
 
 const std::vector<sh::ShaderVariable> &ShaderCompileTreeTest::getUniforms() const
 {
-    ASSERT(mExtraCompileOptions & SH_VARIABLES);
     return mTranslator->getUniforms();
 }
 
 const std::vector<sh::ShaderVariable> &ShaderCompileTreeTest::getAttributes() const
 {
-    ASSERT(mExtraCompileOptions & SH_VARIABLES);
     return mTranslator->getAttributes();
 }
 

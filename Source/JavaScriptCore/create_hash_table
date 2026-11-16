@@ -5,7 +5,7 @@
 # (c) 2000-2002 by Harri Porten <porten@kde.org> and
 #                  David Faure <faure@kde.org>
 # Modified (c) 2004 by Nikolas Zimmermann <wildfox@kde.org>
-# Copyright (C) 2007-2018 Apple Inc. All rights reserved.
+# Copyright (C) 2007-2023 Apple Inc. All rights reserved.
 #
 # This library is free software; you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public
@@ -24,6 +24,7 @@
  
 use strict;
 use warnings;
+use bigint;
 use Getopt::Long qw(:config pass_through);
 
 my $file = shift @ARGV or die("Must provide source file as final argument.");
@@ -33,7 +34,6 @@ open(IN, $file) or die "No such file $file";
 my @keys = ();
 my @attrs = ();
 my @values = ();
-my @hashes = ();
 my @table = ();
 my @links = ();
 
@@ -42,10 +42,12 @@ my $hasSetter = "false";
 my $includeBuiltin = 0;
 my $inside = 0;
 my $name;
-my $pefectHashSize;
+my $perfectHashSize;
 my $compactSize;
 my $compactHashSizeMask;
 my $banner = 0;
+my $mask64 = 2**64 - 1;
+my $mask32 = 2**32 - 1;
 sub calcPerfectHashSize();
 sub calcCompactHashSize();
 sub output();
@@ -56,28 +58,23 @@ while (<IN>) {
     chomp;
     s/^\s+//;
     next if /^\#|^$/; # Comment or blank line. Do nothing.
-    if (/^\@begin/ && !$inside) {
+    if (!$inside && /^\@begin/) {
         if (/^\@begin\s*([:_\w]+)\s*\d*\s*$/) {
             $inside = 1;
             $name = $1;
         } else {
             print STDERR "WARNING: \@begin without table name, skipping $_\n";
         }
-    } elsif (/^\@end\s*$/ && $inside) {
-        calcPerfectHashSize();
-        calcCompactHashSize();
+    } elsif ($inside && /^\@end\s*$/) {
         output();
 
         @keys = ();
         @attrs = ();
         @values = ();
-        @hashes = ();
-        @table = ();
-        @links = ();
         $includeBuiltin = 0;
 
         $inside = 0;
-    } elsif (/^(\S+)\s*(\S+)\s*([\w\|]*)\s*(\w*)\s*(\w*)\s*$/ && $inside) {
+    } elsif ($inside && /^(\S+)\s*(\S+)\s*([\w\|]*)\s*(\w*)\s*(\w*)\s*$/) {
         my $key = $1;
         my $val = $2;
         my $att = $3;
@@ -114,7 +111,6 @@ while (<IN>) {
         } else {
             push(@values, { "type" => "Lexer", "value" => $val });
         }
-        push(@hashes, hashValue($key));
     } elsif ($inside) {
         die "invalid data {" . $_ . "}";
     }
@@ -137,10 +133,10 @@ sub jsc_ucfirst($)
 
 sub ceilingToPowerOf2
 {
-    my ($pefectHashSize) = @_;
+    my ($perfectHashSize) = @_;
 
     my $powerOf2 = 1;
-    while ($pefectHashSize > $powerOf2) {
+    while ($perfectHashSize > $powerOf2) {
         $powerOf2 <<= 1;
     }
 
@@ -150,20 +146,18 @@ sub ceilingToPowerOf2
 sub calcPerfectHashSize()
 {
 tableSizeLoop:
-    for ($pefectHashSize = ceilingToPowerOf2(scalar @keys); ; $pefectHashSize += $pefectHashSize) {
+    for ($perfectHashSize = ceilingToPowerOf2(scalar @keys); ; $perfectHashSize += $perfectHashSize) {
+        if ($perfectHashSize > 2**15) {
+            die "The hash size is far too big. This should not be reached.";
+        }
         my @table = ();
         foreach my $key (@keys) {
-            my $h = hashValue($key) % $pefectHashSize;
+            my $h = hashValue($key) % $perfectHashSize;
             next tableSizeLoop if $table[$h];
             $table[$h] = 1;
         }
         last;
     }
-}
-
-sub leftShift($$) {
-    my ($value, $distance) = @_;
-    return (($value << $distance) & 0xFFFFFFFF);
 }
 
 sub calcCompactHashSize()
@@ -178,6 +172,12 @@ sub calcCompactHashSize()
         my $depth = 0;
         my $h = hashValue($key) % $compactHashSize;
         while (defined($table[$h])) {
+            if ($compactSize > 1000) {
+                die "The hash size is far too big. This should not be reached.";
+            }
+            if ($depth > 100) {
+                die "The depth is far too big. This should not be reached.";
+            }
             if (defined($links[$h])) {
                 $h = $links[$h];
                 $depth++;
@@ -190,70 +190,162 @@ sub calcCompactHashSize()
         }
         $table[$h] = $i;
         $i++;
-        $maxdepth = $depth if ( $depth > $maxdepth);
+        $maxdepth = $depth if ($depth > $maxdepth);
     }
 }
 
-# Paul Hsieh's SuperFastHash
-# http://www.azillionmonkeys.com/qed/hash.html
+sub maskTop8BitsAndAvoidZero($) {
+    my ($value) = @_;
+
+    $value &= $mask32;
+
+    # Save 8 bits for StringImpl to use as flags.
+    $value &= 0xffffff;
+
+    # This avoids ever returning a hash code of 0, since that is used to
+    # signal "hash not computed yet". Setting the high bit maintains
+    # reasonable fidelity to a hash code of 0 because it is likely to yield
+    # exactly 0 when hash lookup masks out the high bits.
+    $value = (0x80000000 >> 8) if ($value == 0);
+
+    return $value;
+}
+
+sub uint64_add($$) {
+    my ($a, $b) = @_;
+    my $sum = $a + $b;
+    return $sum & $mask64;
+}
+
+sub uint64_multi($$) {
+    my ($a, $b) = @_;
+    my $product = $a * $b;
+    return $product & $mask64;
+}
+
+sub rapid_mul128($$) {
+    my ($A, $B) = @_;
+
+    my $ha = $A >> 32;
+    my $hb = $B >> 32;
+    my $la = $A & $mask32;
+    my $lb = $B & $mask32;
+    my $hi;
+    my $lo;
+    my $rh = uint64_multi($ha, $hb);
+    my $rm0 = uint64_multi($ha, $lb);
+    my $rm1 = uint64_multi($hb, $la);
+    my $rl = uint64_multi($la, $lb);
+    my $t = uint64_add($rl, ($rm0 << 32));
+    my $c = int($t < $rl);
+
+    $lo = uint64_add($t, ($rm1 << 32));
+    $c += int($lo < $t);
+    $hi = uint64_add($rh, uint64_add(($rm0 >> 32), uint64_add(($rm1 >> 32), $c)));
+
+    return ($lo, $hi);
+};
+
+sub rapid_mix($$) {
+    my ($A, $B) = @_;
+    ($A, $B) = rapid_mul128($A, $B);
+    return $A ^ $B;
+}
+
+sub rapidhash {
+    # https://github.com/Nicoshev/rapidhash
+    # Hashes raw ASCII bytes (1 byte per character).
+    my @chars = @_;
+    my $len = scalar @chars;
+    my @secret = ( 3257665815644502181, 10067880064238660809, 5418857496715711651 );
+
+    my $seed = rapid_mix(0 ^ $secret[0], $secret[1]) ^ $len;
+    my $a = 0;
+    my $b = 0;
+
+    local *read64 = sub {
+        my ($i) = @_;
+        return ord($chars[$i])
+            | (ord($chars[$i + 1]) << 8)
+            | (ord($chars[$i + 2]) << 16)
+            | (ord($chars[$i + 3]) << 24)
+            | (ord($chars[$i + 4]) << 32)
+            | (ord($chars[$i + 5]) << 40)
+            | (ord($chars[$i + 6]) << 48)
+            | (ord($chars[$i + 7]) << 56);
+    };
+
+    local *read32 = sub {
+        my ($i) = @_;
+        return ord($chars[$i])
+            | (ord($chars[$i + 1]) << 8)
+            | (ord($chars[$i + 2]) << 16)
+            | (ord($chars[$i + 3]) << 24);
+    };
+
+    local *readSmall = sub {
+        my ($i, $k) = @_;
+        return (ord($chars[$i]) << 56)
+            | (ord($chars[$i + ($k >> 1)]) << 32)
+            | ord($chars[$i + $k - 1]);
+    };
+
+    if ($len <= 16) {
+        if ($len >= 4) {
+            my $delta = ($len >= 8) ? 4 : 0;
+            $a = (read32(0) << 32) | read32($len - 4);
+            $b = (read32($delta) << 32) | read32($len - 4 - $delta);
+        } elsif ($len > 0) {
+            $a = readSmall(0, $len);
+            $b = 0;
+        } else {
+            $a = $b = 0;
+        }
+    } else {
+        my $i = $len;
+        my $off = 0;
+        if ($i > 48) {
+            my $see1 = $seed;
+            my $see2 = $seed;
+            do {
+                $seed = rapid_mix(read64($off) ^ $secret[0], read64($off + 8) ^ $seed);
+                $see1 = rapid_mix(read64($off + 16) ^ $secret[1], read64($off + 24) ^ $see1);
+                $see2 = rapid_mix(read64($off + 32) ^ $secret[2], read64($off + 40) ^ $see2);
+                $off += 48;
+                $i -= 48;
+            } while ($i >= 48);
+            $seed ^= $see1 ^ $see2;
+        }
+        if ($i > 16) {
+            $seed = rapid_mix(read64($off) ^ $secret[2], read64($off + 8) ^ $seed ^ $secret[1]);
+            if ($i > 32) {
+                $seed = rapid_mix(read64($off + 16) ^ $secret[2], read64($off + 24) ^ $seed);
+            }
+        }
+        $a = read64($off + $i - 16);
+        $b = read64($off + $i - 8);
+    }
+    $a ^= $secret[1];
+    $b ^= $seed;
+
+    ($a, $b) = rapid_mul128($a, $b);
+    my $hash = rapid_mix($a ^ $secret[0] ^ $len, $b ^ $secret[1]) & $mask32;
+
+    return maskTop8BitsAndAvoidZero($hash);
+}
+
 sub hashValue($) {
-  my @chars = split(/ */, $_[0]);
-
-  # This hash is designed to work on 16-bit chunks at a time. But since the normal case
-  # (above) is to hash UTF-16 characters, we just treat the 8-bit chars as if they
-  # were 16-bit chunks, which should give matching results
-
-  my $EXP2_32 = 4294967296;
-
-  my $hash = 0x9e3779b9;
-  my $l    = scalar @chars; #I wish this was in Ruby --- Maks
-  my $rem  = $l & 1;
-  $l = $l >> 1;
-
-  my $s = 0;
-
-  # Main loop
-  for (; $l > 0; $l--) {
-    $hash   += ord($chars[$s]);
-    my $tmp = leftShift(ord($chars[$s+1]), 11) ^ $hash;
-    $hash   = (leftShift($hash, 16)% $EXP2_32) ^ $tmp;
-    $s += 2;
-    $hash += $hash >> 11;
-    $hash %= $EXP2_32;
-  }
-
-  # Handle end case
-  if ($rem != 0) {
-    $hash += ord($chars[$s]);
-    $hash ^= (leftShift($hash, 11)% $EXP2_32);
-    $hash += $hash >> 17;
-  }
-
-  # Force "avalanching" of final 127 bits
-  $hash ^= leftShift($hash, 3);
-  $hash += ($hash >> 5);
-  $hash = ($hash% $EXP2_32);
-  $hash ^= (leftShift($hash, 2)% $EXP2_32);
-  $hash += ($hash >> 15);
-  $hash = $hash% $EXP2_32;
-  $hash ^= (leftShift($hash, 10)% $EXP2_32);
-
-  # Save 8 bits for StringImpl to use as flags.
-  $hash &= 0xffffff;
-
-  # This avoids ever returning a hash code of 0, since that is used to
-  # signal "hash not computed yet". Setting the high bit maintains
-  # reasonable fidelity to a hash code of 0 because it is likely to yield
-  # exactly 0 when hash lookup masks out the high bits.
-  $hash = (0x80000000 >> 8) if ($hash == 0);
-
-  return $hash;
+    my ($string) = @_;
+    my @chars = split(/ */, $string);
+    return rapidhash(@chars);
 }
 
 sub output() {
     if (!$banner) {
         $banner = 1;
-        print "// Automatically generated from $file using $0. DO NOT EDIT!\n";
+        my ($srcName) = $file =~ m|([^/]+)$|;
+        my ($selfName) = $0 =~ m|([^/]+)$|;
+        print "// Automatically generated from $srcName using $selfName. DO NOT EDIT!\n";
     }
 
     my $nameEntries = "${name}Values";
@@ -267,79 +359,86 @@ sub output() {
     print "\n";
     print "namespace JSC {\n";
     print "\n";
-    if ($compactSize != 0) {
-        print "static const struct CompactHashIndex ${nameIndex}\[$compactSize\] = {\n";
+
+    local *generateHashTableHelper = sub {
+        calcCompactHashSize();
+
+        my $hashTableString = "";
+
+        $hashTableString .= "static constinit const struct CompactHashIndex ${nameIndex}\[$compactSize\] = {\n";
         for (my $i = 0; $i < $compactSize; $i++) {
             my $T = -1;
             if (defined($table[$i])) { $T = $table[$i]; }
             my $L = -1;
             if (defined($links[$i])) { $L = $links[$i]; }
-            print "    { $T, $L },\n";
-        }
-    } else {
-        # MSVC dislikes empty arrays.
-        print "static const struct CompactHashIndex ${nameIndex}\[1\] = {\n";
-        print "    { 0, 0 }\n";
-    }
-    print "};\n";
-    print "\n";
-
-    my $packedSize = scalar @keys;
-    if ($packedSize != 0) {
-        print "static const struct HashTableValue ${nameEntries}\[$packedSize\] = {\n";
-    } else {
-        # MSVC dislikes empty arrays.
-        print "static const struct HashTableValue ${nameEntries}\[1\] = {\n";
-        print "    { nullptr, 0, NoIntrinsic, { 0, 0 } }\n";
-    }
-    my $i = 0;
-    foreach my $key (@keys) {
-        my $firstValue = "";
-        my $secondValue = "";
-        my $firstCastStr = "";
-        my $secondCastStr = "";
-        my $intrinsic = "NoIntrinsic";
-
-        if ($values[$i]{"type"} eq "PropertyAttribute::Function") {
-            $firstCastStr = "static_cast<RawNativeFunction>";
-            $firstValue = $values[$i]{"function"};
-            $secondValue = $values[$i]{"params"};
-            $intrinsic = $values[$i]{"intrinsic"};
-        } elsif ($values[$i]{"type"} eq "PropertyAttribute::Property") {
-            $firstCastStr = "static_cast<PropertySlot::GetValueFunc>";
-            $secondCastStr = "static_cast<PutPropertySlot::PutValueFunc>";
-            $firstValue = $values[$i]{"get"};
-            $secondValue = $values[$i]{"put"};
-        } elsif ($values[$i]{"type"} eq "Lexer") {
-            $firstValue = $values[$i]{"value"};
-            $secondValue = "0";
-        } elsif ($values[$i]{"type"} eq "PropertyAttribute::CellProperty" || $values[$i]{"type"} eq "PropertyAttribute::ClassStructure") {
-            $values[$i]{"property"} =~ /\A([a-zA-Z0-9_]+)::(.*)\Z/ or die;
-            $firstValue = "OBJECT_OFFSETOF($1, $2)";
-            $secondValue = "0";
-        } elsif ($values[$i]{"type"} eq "PropertyAttribute::PropertyCallback") {
-            $firstCastStr = "static_cast<LazyPropertyCallback>";
-            $firstValue = $values[$i]{"cback"};
-            $secondValue = "0";
+            $hashTableString .= "    { $T, $L },\n";
         }
 
-        my $attributes = "PropertyAttribute::" . $attrs[$i];
-        $attributes =~ s/\|/\|PropertyAttribute::/g;
-        $attributes = "static_cast<unsigned>(" . $attributes . ")";
-        if ($values[$i]{"type"} eq "PropertyAttribute::Function" && $firstValue eq "JSBuiltin")  {
-            my $tableHead = $name;
-            $tableHead =~ s/Table$//;
-            print "   { \"$key\", (($attributes) & ~PropertyAttribute::Function) | PropertyAttribute::Builtin, $intrinsic, { (intptr_t)static_cast<BuiltinGenerator>(" . $tableHead . ucfirst($key) . "CodeGenerator), (intptr_t)$secondValue } },\n";
+        $hashTableString .= "};\n";
+        $hashTableString .= "\n";
+
+        my $packedSize = scalar @keys;
+	$hashTableString .= "static constinit const struct HashTableValue ${nameEntries}\[$packedSize\] = {\n";
+
+        my $i = 0;
+        foreach my $key (@keys) {
+            my $typeTag = "";
+            my $firstValue = "";
+            my $secondValue = "";
+            my $hasSecondValue = 1;
+            my $intrinsic = "NoIntrinsic";
+
+            if ($values[$i]{"type"} eq "PropertyAttribute::Function") {
+                $typeTag = "NativeFunction";
+                $firstValue = $values[$i]{"function"};
+                $secondValue = $values[$i]{"params"};
+                $intrinsic = $values[$i]{"intrinsic"};
+            } elsif ($values[$i]{"type"} eq "PropertyAttribute::Property") {
+                $typeTag = "GetterSetter";
+                $firstValue = $values[$i]{"get"};
+                $secondValue = $values[$i]{"put"};
+            } elsif ($values[$i]{"type"} eq "Lexer") {
+                $typeTag = "Lexer";
+                $firstValue = $values[$i]{"value"};
+                $hasSecondValue = 0;
+            } elsif ($values[$i]{"type"} eq "PropertyAttribute::CellProperty" || $values[$i]{"type"} eq "PropertyAttribute::ClassStructure") {
+                $typeTag = ($values[$i]{"type"} eq "PropertyAttribute::CellProperty") ? "LazyCellProperty" : "LazyClassStructure";
+                $values[$i]{"property"} =~ /\A([a-zA-Z0-9_]+)::(.*)\Z/ or die;
+                $firstValue = "OBJECT_OFFSETOF($1, $2)";
+                $hasSecondValue = 0;
+            } elsif ($values[$i]{"type"} eq "PropertyAttribute::PropertyCallback") {
+                $typeTag = "LazyProperty";
+                $firstValue = $values[$i]{"cback"};
+                $hasSecondValue = 0;
+            }
+
+            my $attributes = "PropertyAttribute::" . $attrs[$i];
+            $attributes =~ s/\|/\|PropertyAttribute::/g;
+            $attributes = "static_cast<unsigned>(" . $attributes . ")";
+            if ($values[$i]{"type"} eq "PropertyAttribute::Function" && $firstValue eq "JSBuiltin")  {
+                $typeTag = "BuiltinGenerator";
+                my $tableHead = $name;
+                $tableHead =~ s/Table$//;
+                $hashTableString .= "   { \"$key\"_s, (($attributes) & ~PropertyAttribute::Function) | PropertyAttribute::Builtin, $intrinsic, { HashTableValue::" . $typeTag . "Type, " . $tableHead . ucfirst($key) . "CodeGenerator, $secondValue } },\n";
+            }
+            else {
+                $hashTableString .= "   { \"$key\"_s, $attributes, $intrinsic, { HashTableValue::" . $typeTag . "Type, $firstValue" . ($hasSecondValue ? ", " . $secondValue : "") . " } },\n";
+            }
+            $i++;
         }
-        else {
-            print "   { \"$key\", $attributes, $intrinsic, { (intptr_t)" . $firstCastStr . "($firstValue), (intptr_t)" . $secondCastStr . "($secondValue) } },\n";
-        }
-        $i++;
-    }
-    print "};\n";
-    print "\n";
-    print "static const struct HashTable $name =\n";
-    print "    \{ $packedSize, $compactHashSizeMask, $hasSetter, nullptr, $nameEntries, $nameIndex \};\n";
-    print "\n";
+        $hashTableString .= "};\n";
+        $hashTableString .= "\n";
+        $hashTableString .= "static constinit const struct HashTable $name =\n";
+        $hashTableString .= "    \{ $packedSize, $compactHashSizeMask, $hasSetter, nullptr, $nameEntries, $nameIndex \};\n";
+        $hashTableString .= "\n";
+
+        @table = ();
+        @links = ();
+        return $hashTableString;
+    };
+
+    my $hashTableToWrite = generateHashTableHelper();
+    print $hashTableToWrite;
+
     print "} // namespace JSC\n";
 }

@@ -42,12 +42,14 @@
 namespace WebCore {
 
 struct RTCConfiguration {
-    std::optional<Vector<RTCIceServer>> iceServers;
+    Vector<RTCIceServer> iceServers;
     RTCIceTransportPolicy iceTransportPolicy;
     RTCBundlePolicy bundlePolicy;
     RTCPMuxPolicy rtcpMuxPolicy;
+    Vector<Ref<RTCCertificate>> certificates;
     unsigned short iceCandidatePoolSize;
-    Vector<RefPtr<RTCCertificate>> certificates;
+    enum class TargetLatency { Lowest, None };
+    TargetLatency targetLatency { TargetLatency::Lowest };
 };
 
 } // namespace WebCore

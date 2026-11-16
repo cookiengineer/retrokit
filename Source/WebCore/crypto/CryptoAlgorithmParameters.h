@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,18 +25,17 @@
 
 #pragma once
 
-#include "CryptoAlgorithmIdentifier.h"
+#include <WebCore/CryptoAlgorithmIdentifier.h>
+#include <WebCore/CryptoAlgorithmParametersInit.h>
 #include <wtf/TypeCasts.h>
 #include <wtf/text/WTFString.h>
-
-#if ENABLE(WEB_CRYPTO)
 
 namespace WebCore {
 
 class CryptoAlgorithmParameters {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(CryptoAlgorithmParameters, WEBCORE_EXPORT);
 public:
-    enum class Class {
+    enum class Class : uint8_t {
         None,
         AesCbcCfbParams,
         AesCtrParams,
@@ -53,7 +52,26 @@ public:
         RsaKeyGenParams,
         RsaOaepParams,
         RsaPssParams,
+        X25519Params,
     };
+
+    CryptoAlgorithmParameters(CryptoAlgorithmIdentifier identifier, CryptoAlgorithmParametersInit init)
+        : name { WTF::move(init.name) }
+        , identifier { WTF::move(identifier) }
+    {
+    }
+
+    CryptoAlgorithmParameters(CryptoAlgorithmIdentifier identifier)
+        : name { }
+        , identifier { identifier }
+    {
+    }
+
+    CryptoAlgorithmParameters()
+        : name { }
+        , identifier { 0 }
+    {
+    }
 
     // FIXME: Consider merging name and identifier.
     String name;
@@ -70,5 +88,3 @@ public:
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::CryptoAlgorithm##ToClassName) \
 static bool isType(const WebCore::CryptoAlgorithmParameters& parameters) { return parameters.parametersClass() == WebCore::CryptoAlgorithmParameters::Class::ToClassName; } \
 SPECIALIZE_TYPE_TRAITS_END()
-
-#endif // ENABLE(WEB_CRYPTO)

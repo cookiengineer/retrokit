@@ -25,39 +25,21 @@
 
 #pragma once
 
-#include "ArgumentCoders.h"
+#include <wtf/Platform.h>
+
+#if !PLATFORM(COCOA) || !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
+
 #include "FrameInfoData.h"
+#include <wtf/URL.h>
 
 namespace WebKit {
 
 struct FrameTreeNodeData {
-
     FrameInfoData info;
     Vector<FrameTreeNodeData> children;
-
-    void encode(IPC::Encoder& encoder) const
-    {
-        encoder << info;
-        encoder << children;
-    }
-
-    static std::optional<FrameTreeNodeData> decode(IPC::Decoder& decoder)
-    {
-        std::optional<FrameInfoData> info;
-        decoder >> info;
-        if (!info)
-            return std::nullopt;
-        
-        std::optional<Vector<FrameTreeNodeData>> children;
-        decoder >> children;
-        if (!children)
-            return std::nullopt;
-        
-        return {{
-            WTFMove(*info),
-            WTFMove(*children)
-        }};
-    }
+    WTF::URL topDocumentURLForTesting;
 };
 
 }
+
+#endif // !PLATFORM(COCOA) || !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)

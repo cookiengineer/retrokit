@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Google Inc.  All rights reserved.
+ * Copyright (C) 2012 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -38,30 +38,32 @@ namespace WebCore {
 
 class WebSocketExtensionParser {
 public:
-    explicit WebSocketExtensionParser(const char* start, const char* end)
-        : m_current(start)
-        , m_end(end)
+    // FIXME: What character encoding are we parsing? Specify Latin1Character, char8_t, char16_t, or something else here.
+    explicit WebSocketExtensionParser(std::span<const uint8_t> data)
+        : m_data(data)
     {
     }
-    bool finished();
-    bool parsedSuccessfully();
+    bool NODELETE finished();
+    bool NODELETE parsedSuccessfully();
+
+    // FIXME: What character encoding are we parsing? Specify Latin1Character, char8_t, char16_t, or something else here.
     bool parseExtension(String& extensionToken, HashMap<String, String>& parameters);
 
 private:
-    const String& currentToken() { return m_currentToken; }
+    const String& currentToken() LIFETIME_BOUND { return m_currentToken; }
 
     // The following member functions basically follow the grammar defined
     // in Section 2.2 of RFC 2616.
     bool consumeToken();
     bool consumeQuotedString();
     bool consumeQuotedStringOrToken();
-    bool consumeCharacter(char);
+    bool NODELETE consumeCharacter(char);
 
-    void skipSpaces();
+    void NODELETE skipSpaces();
 
-    const char* m_current;
-    const char* m_end;
+    std::span<const uint8_t> m_data;
     String m_currentToken;
+    bool m_didFailParsing { false };
 };
 
 } // namespace WebCore

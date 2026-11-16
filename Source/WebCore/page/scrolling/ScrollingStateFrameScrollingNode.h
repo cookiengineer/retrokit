@@ -27,19 +27,22 @@
 
 #if ENABLE(ASYNC_SCROLLING)
 
-#include "EventTrackingRegions.h"
-#include "ScrollTypes.h"
-#include "ScrollbarThemeComposite.h"
-#include "ScrollingCoordinator.h"
-#include "ScrollingStateScrollingNode.h"
+#include <WebCore/BoxExtents.h>
+#include <WebCore/EventTrackingRegions.h>
+#include <WebCore/ScrollTypes.h>
+#include <WebCore/ScrollbarThemeComposite.h>
+#include <WebCore/ScrollingCoordinator.h>
+#include <WebCore/ScrollingStateScrollingNode.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 class Scrollbar;
 
 class ScrollingStateFrameScrollingNode final : public ScrollingStateScrollingNode {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(ScrollingStateFrameScrollingNode, WEBCORE_EXPORT);
 public:
-    static Ref<ScrollingStateFrameScrollingNode> create(ScrollingStateTree&, ScrollingNodeType, ScrollingNodeID);
+    template<typename... Args> static Ref<ScrollingStateFrameScrollingNode> create(Args&&... args) { return adoptRef(*new ScrollingStateFrameScrollingNode(std::forward<Args>(args)...)); }
 
     Ref<ScrollingStateNode> clone(ScrollingStateTree&) override;
 
@@ -48,7 +51,7 @@ public:
     float frameScaleFactor() const { return m_frameScaleFactor; }
     WEBCORE_EXPORT void setFrameScaleFactor(float);
 
-    const EventTrackingRegions& eventTrackingRegions() const { return m_eventTrackingRegions; }
+    const EventTrackingRegions& eventTrackingRegions() const LIFETIME_BOUND { return m_eventTrackingRegions; }
     WEBCORE_EXPORT void setEventTrackingRegions(const EventTrackingRegions&);
 
     ScrollBehaviorForFixedElements scrollBehaviorForFixedElements() const { return m_behaviorForFixed; }
@@ -56,6 +59,9 @@ public:
 
     FloatRect layoutViewport() const { return m_layoutViewport; };
     WEBCORE_EXPORT void setLayoutViewport(const FloatRect&);
+
+    FloatSize sizeForVisibleContent() const { return m_sizeForVisibleContent; }
+    WEBCORE_EXPORT void setSizeForVisibleContent(const FloatSize&);
 
     FloatPoint minLayoutViewportOrigin() const { return m_minLayoutViewportOrigin; }
     WEBCORE_EXPORT void setMinLayoutViewportOrigin(const FloatPoint&);
@@ -72,54 +78,120 @@ public:
     int footerHeight() const { return m_footerHeight; }
     WEBCORE_EXPORT void setFooterHeight(int);
 
-    float topContentInset() const { return m_topContentInset; }
-    WEBCORE_EXPORT void setTopContentInset(float);
+    FloatBoxExtent obscuredContentInsets() const { return m_obscuredContentInsets; }
+    WEBCORE_EXPORT void setObscuredContentInsets(const FloatBoxExtent&);
 
-    const LayerRepresentation& rootContentsLayer() const { return m_rootContentsLayer; }
+    // The target offset for rubber band animations when refresh controller is present.
+    // When non-zero, rubber banding will snap to this offset instead of the edge.
+#if HAVE(NSREFRESHCONTROLLER)
+    float topScrollStretchForRefreshController() const { return m_topScrollStretchForRefreshController; }
+    WEBCORE_EXPORT void setTopScrollStretchForRefreshController(float);
+#endif
+
+    const LayerRepresentation& rootContentsLayer() const LIFETIME_BOUND { return m_rootContentsLayer; }
     WEBCORE_EXPORT void setRootContentsLayer(const LayerRepresentation&);
 
     // This is a layer moved in the opposite direction to scrolling, for example for background-attachment:fixed
-    const LayerRepresentation& counterScrollingLayer() const { return m_counterScrollingLayer; }
+    const LayerRepresentation& counterScrollingLayer() const LIFETIME_BOUND { return m_counterScrollingLayer; }
     WEBCORE_EXPORT void setCounterScrollingLayer(const LayerRepresentation&);
 
     // This is a clipping layer that will scroll with the page for all y-delta scroll values between 0
-    // and topContentInset(). Once the y-deltas get beyond the content inset point, this layer no longer
-    // needs to move. If the topContentInset() is 0, this layer does not need to move at all. This is
+    // and obscuredInset().top. Once the y-deltas get beyond the content inset point, this layer no longer
+    // needs to move. If the obscuredInset().top is 0, this layer does not need to move at all. This is
     // only used on the Mac.
-    const LayerRepresentation& insetClipLayer() const { return m_insetClipLayer; }
+    const LayerRepresentation& insetClipLayer() const LIFETIME_BOUND { return m_insetClipLayer; }
     WEBCORE_EXPORT void setInsetClipLayer(const LayerRepresentation&);
 
-    const LayerRepresentation& contentShadowLayer() const { return m_contentShadowLayer; }
+    const LayerRepresentation& contentShadowLayer() const LIFETIME_BOUND { return m_contentShadowLayer; }
     WEBCORE_EXPORT void setContentShadowLayer(const LayerRepresentation&);
 
     // The header and footer layers scroll vertically with the page, they should remain fixed when scrolling horizontally.
-    const LayerRepresentation& headerLayer() const { return m_headerLayer; }
+    const LayerRepresentation& headerLayer() const LIFETIME_BOUND { return m_headerLayer; }
     WEBCORE_EXPORT void setHeaderLayer(const LayerRepresentation&);
 
     // The header and footer layers scroll vertically with the page, they should remain fixed when scrolling horizontally.
-    const LayerRepresentation& footerLayer() const { return m_footerLayer; }
+    const LayerRepresentation& footerLayer() const LIFETIME_BOUND { return m_footerLayer; }
     WEBCORE_EXPORT void setFooterLayer(const LayerRepresentation&);
 
     // True when the visual viewport is smaller than the layout viewport, indicating that panning should be possible.
     bool visualViewportIsSmallerThanLayoutViewport() const { return m_visualViewportIsSmallerThanLayoutViewport; }
     WEBCORE_EXPORT void setVisualViewportIsSmallerThanLayoutViewport(bool);
 
-    // These are more like Settings, and should probably move to the Scrolling{State}Tree itself.
-    bool fixedElementsLayoutRelativeToFrame() const { return m_fixedElementsLayoutRelativeToFrame; }
-    WEBCORE_EXPORT void setFixedElementsLayoutRelativeToFrame(bool);
-
     bool asyncFrameOrOverflowScrollingEnabled() const { return m_asyncFrameOrOverflowScrollingEnabled; }
-    void setAsyncFrameOrOverflowScrollingEnabled(bool);
+    WEBCORE_EXPORT void setAsyncFrameOrOverflowScrollingEnabled(bool);
 
     bool scrollingPerformanceTestingEnabled() const { return m_scrollingPerformanceTestingEnabled; }
     WEBCORE_EXPORT void setScrollingPerformanceTestingEnabled(bool);
 
     bool wheelEventGesturesBecomeNonBlocking() const { return m_wheelEventGesturesBecomeNonBlocking; }
     WEBCORE_EXPORT void setWheelEventGesturesBecomeNonBlocking(bool);
+    
+    bool overlayScrollbarsEnabled() const { return m_overlayScrollbarsEnabled; }
+    WEBCORE_EXPORT void setOverlayScrollbarsEnabled(bool);
 
-    void dumpProperties(WTF::TextStream&, ScrollingStateTreeAsTextBehavior) const override;
+    WEBCORE_EXPORT bool NODELETE isMainFrame() const;
+    
+    void dumpProperties(WTF::TextStream&, OptionSet<ScrollingStateTreeAsTextBehavior>) const override;
 
 private:
+    WEBCORE_EXPORT ScrollingStateFrameScrollingNode(
+        bool isMainFrame,
+        ScrollingNodeID,
+        Vector<Ref<WebCore::ScrollingStateNode>>&& children,
+        OptionSet<ScrollingStateNodeProperty> changedProperties,
+        std::optional<WebCore::PlatformLayerIdentifier>,
+        FloatSize scrollableAreaSize,
+        FloatSize totalContentsSize,
+        FloatSize reachableContentsSize,
+        FloatPoint scrollPosition,
+        IntPoint scrollOrigin,
+        ScrollableAreaParameters&&,
+#if ENABLE(SCROLLING_THREAD)
+        OptionSet<SynchronousScrollingReason> synchronousScrollingReasons,
+#endif
+        ScrollRequestData&&,
+        FloatScrollSnapOffsetsInfo&&,
+        std::optional<unsigned> currentHorizontalSnapPointIndex,
+        std::optional<unsigned> currentVerticalSnapPointIndex,
+        bool isMonitoringWheelEvents,
+        std::optional<PlatformLayerIdentifier> scrollContainerLayer,
+        std::optional<PlatformLayerIdentifier> scrolledContentsLayer,
+        std::optional<PlatformLayerIdentifier> horizontalScrollbarLayer,
+        std::optional<PlatformLayerIdentifier> verticalScrollbarLayer,
+        bool mouseIsOverContentArea,
+        MouseLocationState&&,
+        ScrollbarHoverState&&,
+        ScrollbarEnabledState&&,
+        std::optional<ScrollbarColor>&&,
+        UserInterfaceLayoutDirection,
+        ScrollbarWidth,
+        bool useDarkAppearanceForScrollbars,
+        RequestedKeyboardScrollData&&,
+        float frameScaleFactor,
+        EventTrackingRegions&&,
+        std::optional<PlatformLayerIdentifier> rootContentsLayer,
+        std::optional<PlatformLayerIdentifier> counterScrollingLayer,
+        std::optional<PlatformLayerIdentifier> insetClipLayer,
+        std::optional<PlatformLayerIdentifier> contentShadowLayer,
+        int headerHeight,
+        int footerHeight,
+        ScrollBehaviorForFixedElements&&,
+        FloatBoxExtent&& obscuredContentInsets,
+#if HAVE(NSREFRESHCONTROLLER)
+        float topScrollStretchForRefreshController,
+#endif
+        bool visualViewportIsSmallerThanLayoutViewport,
+        bool asyncFrameOrOverflowScrollingEnabled,
+        bool wheelEventGesturesBecomeNonBlocking,
+        bool scrollingPerformanceTestingEnabled,
+        FloatRect layoutViewport,
+        FloatSize sizeForVisibleContent,
+        FloatPoint minLayoutViewportOrigin,
+        FloatPoint maxLayoutViewportOrigin,
+        std::optional<FloatSize> overrideVisualViewportSize,
+        bool overlayScrollbarsEnabled
+    );
+
     ScrollingStateFrameScrollingNode(ScrollingStateTree&, ScrollingNodeType, ScrollingNodeID);
     ScrollingStateFrameScrollingNode(const ScrollingStateFrameScrollingNode&, ScrollingStateTree&);
 
@@ -135,20 +207,24 @@ private:
     EventTrackingRegions m_eventTrackingRegions;
 
     FloatRect m_layoutViewport;
+    FloatSize m_sizeForVisibleContent;
     FloatPoint m_minLayoutViewportOrigin;
     FloatPoint m_maxLayoutViewportOrigin;
     std::optional<FloatSize> m_overrideVisualViewportSize;
 
     float m_frameScaleFactor { 1 };
-    float m_topContentInset { 0 };
+    FloatBoxExtent m_obscuredContentInsets;
+#if HAVE(NSREFRESHCONTROLLER)
+    float m_topScrollStretchForRefreshController { 0 };
+#endif
     int m_headerHeight { 0 };
     int m_footerHeight { 0 };
-    ScrollBehaviorForFixedElements m_behaviorForFixed { StickToDocumentBounds };
-    bool m_fixedElementsLayoutRelativeToFrame { false };
+    ScrollBehaviorForFixedElements m_behaviorForFixed { ScrollBehaviorForFixedElements::StickToDocumentBounds };
     bool m_visualViewportIsSmallerThanLayoutViewport { false };
     bool m_asyncFrameOrOverflowScrollingEnabled { false };
     bool m_wheelEventGesturesBecomeNonBlocking { false };
     bool m_scrollingPerformanceTestingEnabled { false };
+    bool m_overlayScrollbarsEnabled { false };
 };
 
 } // namespace WebCore

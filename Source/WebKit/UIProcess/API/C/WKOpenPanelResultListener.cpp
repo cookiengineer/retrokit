@@ -48,9 +48,9 @@ static Vector<String> filePathsFromFileURLs(const API::Array& fileURLs)
     filePaths.reserveInitialCapacity(size);
 
     for (size_t i = 0; i < size; ++i) {
-        API::URL* apiURL = fileURLs.at<API::URL>(i);
+        RefPtr apiURL = fileURLs.at<API::URL>(i);
         if (apiURL)
-            filePaths.uncheckedAppend(URL(URL(), apiURL->string()).fileSystemPath());
+            filePaths.append(URL { apiURL->string() }.fileSystemPath());
     }
 
     return filePaths;
@@ -59,16 +59,16 @@ static Vector<String> filePathsFromFileURLs(const API::Array& fileURLs)
 #if PLATFORM(IOS_FAMILY)
 void WKOpenPanelResultListenerChooseMediaFiles(WKOpenPanelResultListenerRef listenerRef, WKArrayRef fileURLsRef, WKStringRef displayString, WKDataRef iconImageDataRef)
 {
-    toImpl(listenerRef)->chooseFiles(filePathsFromFileURLs(*toImpl(fileURLsRef)), toImpl(displayString)->string(), toImpl(iconImageDataRef));
+    protect(toImpl(listenerRef))->chooseFiles(filePathsFromFileURLs(*protect(toImpl(fileURLsRef))), protect(toImpl(displayString))->string(), protect(toImpl(iconImageDataRef)).get());
 }
 #endif
 
 void WKOpenPanelResultListenerChooseFiles(WKOpenPanelResultListenerRef listenerRef, WKArrayRef fileURLsRef, WKArrayRef allowedMimeTypesRef)
 {
-    toImpl(listenerRef)->chooseFiles(filePathsFromFileURLs(*toImpl(fileURLsRef)), toImpl(allowedMimeTypesRef)->toStringVector());
+    protect(toImpl(listenerRef))->chooseFiles(filePathsFromFileURLs(*protect(toImpl(fileURLsRef))), protect(toImpl(allowedMimeTypesRef))->toStringVector());
 }
 
 void WKOpenPanelResultListenerCancel(WKOpenPanelResultListenerRef listenerRef)
 {
-    toImpl(listenerRef)->cancel();
+    protect(toImpl(listenerRef))->cancel();
 }

@@ -24,10 +24,10 @@
  */
 
 #include "config.h"
-
-#if ENABLE(SERVICE_WORKER)
 #include "ServiceWorkerClient.h"
 
+#include "ContextDestructionObserverInlines.h"
+#include "ExceptionOr.h"
 #include "MessagePort.h"
 #include "SWContextManager.h"
 #include "ScriptExecutionContext.h"
@@ -39,29 +39,21 @@
 
 namespace WebCore {
 
-Ref<ServiceWorkerClient> ServiceWorkerClient::getOrCreate(ServiceWorkerGlobalScope& context, ServiceWorkerClientData&& data)
+Ref<ServiceWorkerClient> ServiceWorkerClient::create(ServiceWorkerGlobalScope& context, ServiceWorkerClientData&& data)
 {
-    if (auto* client = context.serviceWorkerClient(data.identifier))
-        return *client;
-
     if (data.type == ServiceWorkerClientType::Window)
-        return ServiceWorkerWindowClient::create(context, WTFMove(data));
+        return ServiceWorkerWindowClient::create(context, WTF::move(data));
 
-    return adoptRef(*new ServiceWorkerClient { context, WTFMove(data) });
+    return adoptRef(*new ServiceWorkerClient { context, WTF::move(data) });
 }
 
 ServiceWorkerClient::ServiceWorkerClient(ServiceWorkerGlobalScope& context, ServiceWorkerClientData&& data)
     : ContextDestructionObserver(&context)
-    , m_data(WTFMove(data))
+    , m_data(WTF::move(data))
 {
-    context.addServiceWorkerClient(*this);
 }
 
-ServiceWorkerClient::~ServiceWorkerClient()
-{
-    if (auto* context = scriptExecutionContext())
-        downcast<ServiceWorkerGlobalScope>(*context).removeServiceWorkerClient(*this);
-}
+ServiceWorkerClient::~ServiceWorkerClient() = default;
 
 const URL& ServiceWorkerClient::url() const
 {
@@ -85,27 +77,30 @@ String ServiceWorkerClient::id() const
 
 ExceptionOr<void> ServiceWorkerClient::postMessage(JSC::JSGlobalObject& globalObject, JSC::JSValue messageValue, StructuredSerializeOptions&& options)
 {
-    Vector<RefPtr<MessagePort>> ports;
-    auto messageData = SerializedScriptValue::create(globalObject, messageValue, WTFMove(options.transfer), ports, SerializationContext::WorkerPostMessage);
+    Vector<Ref<MessagePort>> ports;
+    auto messageData = SerializedScriptValue::create(globalObject, messageValue, WTF::move(options.transfer), ports, SerializationForStorage::No);
     if (messageData.hasException())
         return messageData.releaseException();
 
     // Disentangle the port in preparation for sending it to the remote context.
-    auto portsOrException = MessagePort::disentanglePorts(WTFMove(ports));
+    auto portsOrException = MessagePort::disentanglePorts(WTF::move(ports));
     if (portsOrException.hasException())
         return portsOrException.releaseException();
 
     MessageWithMessagePorts message = { messageData.releaseReturnValue(), portsOrException.releaseReturnValue() };
-    auto& context = downcast<ServiceWorkerGlobalScope>(*scriptExecutionContext());
-    auto sourceIdentifier = context.thread().identifier();
-    callOnMainThread([message = WTFMove(message), destinationIdentifier = identifier(), sourceIdentifier, sourceOrigin = context.origin().isolatedCopy()] {
-        if (auto* connection = SWContextManager::singleton().connection())
+    Ref context = downcast<ServiceWorkerGlobalScope>(*scriptExecutionContext());
+    auto sourceIdentifier = context->thread()->identifier();
+    callOnMainThread([message = WTF::move(message), destinationIdentifier = identifier(), sourceIdentifier, sourceOrigin = context->securityOrigin()->data().isolatedCopy()] {
+        if (RefPtr connection = SWContextManager::singleton().connection())
             connection->postMessageToServiceWorkerClient(destinationIdentifier, message, sourceIdentifier, sourceOrigin);
     });
 
     return { };
 }
 
-} // namespace WebCore
+ExceptionOr<void> ServiceWorkerClient::postMessage(JSC::JSGlobalObject& globalObject, JSC::JSValue messageValue, Vector<JSC::Strong<JSC::JSObject>>&& transfer)
+{
+    return postMessage(globalObject, messageValue, StructuredSerializeOptions { WTF::move(transfer) });
+}
 
-#endif // ENABLE(SERVICE_WORKER)
+} // namespace WebCore

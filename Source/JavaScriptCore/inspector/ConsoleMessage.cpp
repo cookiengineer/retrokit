@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007, 2008, 2014, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2023 Apple Inc. All rights reserved.
  * Copyright (C) 2008 Matt Lilek <webkit@mattlilek.com>
  * Copyright (C) 2009, 2010 Google Inc. All rights reserved.
  *
@@ -35,14 +35,21 @@
 #include "InjectedScript.h"
 #include "InjectedScriptManager.h"
 #include "InspectorFrontendDispatchers.h"
+#include "JSCellInlines.h"
+#include "JSGlobalObject.h"
+#include "JSString.h"
 #include "ScriptArguments.h"
 #include "ScriptCallFrame.h"
 #include "ScriptCallStack.h"
 #include "ScriptCallStackFactory.h"
+#include "StrongInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace Inspector {
 
-ConsoleMessage::ConsoleMessage(MessageSource source, MessageType type, MessageLevel level, const String& message, unsigned long requestIdentifier)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ConsoleMessage);
+
+ConsoleMessage::ConsoleMessage(MessageSource source, MessageType type, MessageLevel level, const String& message, unsigned long requestIdentifier, WallTime timestamp)
     : m_source(source)
     , m_type(type)
     , m_level(level)
@@ -50,9 +57,10 @@ ConsoleMessage::ConsoleMessage(MessageSource source, MessageType type, MessageLe
     , m_url()
     , m_requestId(IdentifiersFactory::requestId(requestIdentifier))
 {
+    m_timestamp = timestamp ? timestamp : WallTime::now();
 }
 
-ConsoleMessage::ConsoleMessage(MessageSource source, MessageType type, MessageLevel level, const String& message, const String& url, unsigned line, unsigned column, JSC::JSGlobalObject* globalObject, unsigned long requestIdentifier)
+ConsoleMessage::ConsoleMessage(MessageSource source, MessageType type, MessageLevel level, const String& message, const String& url, unsigned line, unsigned column, JSC::JSGlobalObject* globalObject, unsigned long requestIdentifier, WallTime timestamp)
     : m_source(source)
     , m_type(type)
     , m_level(level)
@@ -62,18 +70,20 @@ ConsoleMessage::ConsoleMessage(MessageSource source, MessageType type, MessageLe
     , m_column(column)
     , m_requestId(IdentifiersFactory::requestId(requestIdentifier))
 {
+    m_timestamp = timestamp ? timestamp : WallTime::now();
     autogenerateMetadata(globalObject);
 }
 
-ConsoleMessage::ConsoleMessage(MessageSource source, MessageType type, MessageLevel level, const String& message, Ref<ScriptCallStack>&& callStack, unsigned long requestIdentifier)
+ConsoleMessage::ConsoleMessage(MessageSource source, MessageType type, MessageLevel level, const String& message, Ref<ScriptCallStack>&& callStack, unsigned long requestIdentifier, WallTime timestamp)
     : m_source(source)
     , m_type(type)
     , m_level(level)
     , m_message(message)
-    , m_callStack(WTFMove(callStack))
+    , m_callStack(WTF::move(callStack))
     , m_url()
     , m_requestId(IdentifiersFactory::requestId(requestIdentifier))
 {
+    m_timestamp = timestamp ? timestamp : WallTime::now();
     const ScriptCallFrame* frame = m_callStack ? m_callStack->firstNonNativeCallFrame() : nullptr;
     if (frame) {
         m_url = frame->sourceURL();
@@ -82,16 +92,17 @@ ConsoleMessage::ConsoleMessage(MessageSource source, MessageType type, MessageLe
     }
 }
 
-ConsoleMessage::ConsoleMessage(MessageSource source, MessageType type, MessageLevel level, const String& message, Ref<ScriptArguments>&& arguments, Ref<ScriptCallStack>&& callStack, unsigned long requestIdentifier)
+ConsoleMessage::ConsoleMessage(MessageSource source, MessageType type, MessageLevel level, const String& message, Ref<ScriptArguments>&& arguments, Ref<ScriptCallStack>&& callStack, unsigned long requestIdentifier, WallTime timestamp)
     : m_source(source)
     , m_type(type)
     , m_level(level)
     , m_message(message)
-    , m_arguments(WTFMove(arguments))
-    , m_callStack(WTFMove(callStack))
+    , m_arguments(WTF::move(arguments))
+    , m_callStack(WTF::move(callStack))
     , m_url()
     , m_requestId(IdentifiersFactory::requestId(requestIdentifier))
 {
+    m_timestamp = timestamp ? timestamp : WallTime::now();
     const ScriptCallFrame* frame = m_callStack ? m_callStack->firstNonNativeCallFrame() : nullptr;
     if (frame) {
         m_url = frame->sourceURL();
@@ -100,25 +111,27 @@ ConsoleMessage::ConsoleMessage(MessageSource source, MessageType type, MessageLe
     }
 }
 
-ConsoleMessage::ConsoleMessage(MessageSource source, MessageType type, MessageLevel level, const String& message, Ref<ScriptArguments>&& arguments, JSC::JSGlobalObject* globalObject, unsigned long requestIdentifier)
+ConsoleMessage::ConsoleMessage(MessageSource source, MessageType type, MessageLevel level, const String& message, Ref<ScriptArguments>&& arguments, JSC::JSGlobalObject* globalObject, unsigned long requestIdentifier, WallTime timestamp)
     : m_source(source)
     , m_type(type)
     , m_level(level)
     , m_message(message)
-    , m_arguments(WTFMove(arguments))
+    , m_arguments(WTF::move(arguments))
     , m_url()
     , m_requestId(IdentifiersFactory::requestId(requestIdentifier))
 {
+    m_timestamp = timestamp ? timestamp : WallTime::now();
     autogenerateMetadata(globalObject);
 }
 
-ConsoleMessage::ConsoleMessage(MessageSource source, MessageType type, MessageLevel level, Vector<JSONLogValue>&& messages, JSC::JSGlobalObject* globalObject, unsigned long requestIdentifier)
+ConsoleMessage::ConsoleMessage(MessageSource source, MessageType type, MessageLevel level, Vector<JSONLogValue>&& messages, JSC::JSGlobalObject* globalObject, unsigned long requestIdentifier, WallTime timestamp)
     : m_source(source)
     , m_type(type)
     , m_level(level)
     , m_url()
     , m_requestId(IdentifiersFactory::requestId(requestIdentifier))
 {
+    m_timestamp = timestamp ? timestamp : WallTime::now();
     if (globalObject)
         m_globalObject = { globalObject->vm(), globalObject };
 
@@ -151,9 +164,7 @@ ConsoleMessage::ConsoleMessage(MessageSource source, MessageType type, MessageLe
         m_message = m_jsonLogValues[0].value;
 }
 
-ConsoleMessage::~ConsoleMessage()
-{
-}
+ConsoleMessage::~ConsoleMessage() = default;
 
 void ConsoleMessage::autogenerateMetadata(JSC::JSGlobalObject* globalObject)
 {
@@ -174,7 +185,7 @@ void ConsoleMessage::autogenerateMetadata(JSC::JSGlobalObject* globalObject)
     }
 }
 
-static Protocol::Console::ChannelSource messageSourceValue(MessageSource source)
+static Protocol::Console::ChannelSource NODELETE messageSourceValue(MessageSource source)
 {
     switch (source) {
     case MessageSource::XML: return Protocol::Console::ChannelSource::XML;
@@ -182,9 +193,9 @@ static Protocol::Console::ChannelSource messageSourceValue(MessageSource source)
     case MessageSource::Network: return Protocol::Console::ChannelSource::Network;
     case MessageSource::ConsoleAPI: return Protocol::Console::ChannelSource::ConsoleAPI;
     case MessageSource::Storage: return Protocol::Console::ChannelSource::Storage;
-    case MessageSource::AppCache: return Protocol::Console::ChannelSource::Appcache;
     case MessageSource::Rendering: return Protocol::Console::ChannelSource::Rendering;
     case MessageSource::CSS: return Protocol::Console::ChannelSource::CSS;
+    case MessageSource::Accessibility: return Protocol::Console::ChannelSource::Accessibility;
     case MessageSource::Security: return Protocol::Console::ChannelSource::Security;
     case MessageSource::ContentBlocker: return Protocol::Console::ChannelSource::ContentBlocker;
     case MessageSource::Media: return Protocol::Console::ChannelSource::Media;
@@ -198,7 +209,7 @@ static Protocol::Console::ChannelSource messageSourceValue(MessageSource source)
     return Protocol::Console::ChannelSource::Other;
 }
 
-static Protocol::Console::ConsoleMessage::Type messageTypeValue(MessageType type)
+static Protocol::Console::ConsoleMessage::Type NODELETE messageTypeValue(MessageType type)
 {
     switch (type) {
     case MessageType::Log: return Protocol::Console::ConsoleMessage::Type::Log;
@@ -219,7 +230,7 @@ static Protocol::Console::ConsoleMessage::Type messageTypeValue(MessageType type
     return Protocol::Console::ConsoleMessage::Type::Log;
 }
 
-static Protocol::Console::ConsoleMessage::Level messageLevelValue(MessageLevel level)
+static Protocol::Console::ConsoleMessage::Level NODELETE messageLevelValue(MessageLevel level)
 {
     switch (level) {
     case MessageLevel::Log: return Protocol::Console::ConsoleMessage::Level::Log;
@@ -248,6 +259,9 @@ void ConsoleMessage::addToFrontend(ConsoleFrontendDispatcher& consoleFrontendDis
 
     if (m_source == MessageSource::Network && !m_requestId.isEmpty())
         messageObject->setNetworkRequestId(m_requestId);
+
+    if (m_timestamp)
+        messageObject->setTimestamp(m_timestamp.secondsSinceEpoch().value());
 
     if ((m_arguments && m_arguments->argumentCount()) || m_jsonLogValues.size()) {
         InjectedScript injectedScript = injectedScriptManager.injectedScriptFor(globalObject());
@@ -301,14 +315,14 @@ void ConsoleMessage::addToFrontend(ConsoleFrontendDispatcher& consoleFrontendDis
             }
 
             if (argumentsObject->length())
-                messageObject->setParameters(WTFMove(argumentsObject));
+                messageObject->setParameters(WTF::move(argumentsObject));
         }
     }
 
     if (m_callStack)
-        messageObject->setStackTrace(m_callStack->buildInspectorArray());
+        messageObject->setStackTrace(m_callStack->buildInspectorObject());
 
-    consoleFrontendDispatcher.messageAdded(WTFMove(messageObject));
+    consoleFrontendDispatcher.messageAdded(WTF::move(messageObject));
 }
 
 String ConsoleMessage::toString() const
@@ -324,11 +338,28 @@ String ConsoleMessage::toString() const
 
 void ConsoleMessage::updateRepeatCountInConsole(ConsoleFrontendDispatcher& consoleFrontendDispatcher)
 {
-    consoleFrontendDispatcher.messageRepeatCountUpdated(m_repeatCount);
+    auto timestamp = WallTime::now();
+    consoleFrontendDispatcher.messageRepeatCountUpdated(m_repeatCount, timestamp.secondsSinceEpoch().value());
+}
+
+static bool NODELETE isGroupMessage(MessageType type)
+{
+    return type == MessageType::StartGroup
+        || type == MessageType::StartGroupCollapsed
+        || type == MessageType::EndGroup;
 }
 
 bool ConsoleMessage::isEqual(ConsoleMessage* msg) const
 {
+    // `console.clear()` might not always clear the console if the frontend doesn't allow it to, so
+    // ensure that the repeat count is never updated by treating each `console.clear()` as unique.
+    if (m_type == MessageType::Clear || msg->m_type == MessageType::Clear)
+        return false;
+
+    // Groups should always be considered unique.
+    if (isGroupMessage(m_type) || isGroupMessage(msg->m_type))
+        return false;
+
     if (m_arguments) {
         if (!msg->m_arguments || !m_arguments->isEqual(*msg->m_arguments))
             return false;

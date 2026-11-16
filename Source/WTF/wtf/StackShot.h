@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Apple Inc.  All rights reserved.
+ * Copyright (C) 2017-2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,7 +32,7 @@
 namespace WTF {
 
 class StackShot {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(StackShot);
 public:
     StackShot() { }
     
@@ -59,10 +59,12 @@ public:
     StackShot& operator=(const StackShot& other)
     {
         auto newArray = makeUniqueArray<void*>(other.m_size);
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         for (size_t i = other.m_size; i--;)
             newArray[i] = other.m_array[i];
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         m_size = other.m_size;
-        m_array = WTFMove(newArray);
+        m_array = WTF::move(newArray);
         return *this;
     }
     
@@ -71,8 +73,10 @@ public:
         *this = other;
     }
     
-    void** array() const { return m_array.get(); }
+    void** array() const LIFETIME_BOUND { return m_array.get(); }
     size_t size() const { return m_size; }
+
+    std::span<void*> span() const LIFETIME_BOUND { return unsafeMakeSpan(m_array.get(), m_size); }
     
     explicit operator bool() const { return !!m_array; }
     
@@ -80,22 +84,26 @@ public:
     {
         if (m_size != other.m_size)
             return false;
-        
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         for (size_t i = m_size; i--;) {
             if (m_array[i] != other.m_array[i])
                 return false;
         }
-        
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+
         return true;
     }
     
     unsigned hash() const
     {
         unsigned result = m_size;
-        
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         for (size_t i = m_size; i--;)
             result ^= PtrHash<void*>::hash(m_array[i]);
-        
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+
         return result;
     }
     
@@ -108,7 +116,7 @@ public:
     bool operator>(const StackShot&) const { return false; }
     
 private:
-    static void** deletedValueArray() { return bitwise_cast<void**>(static_cast<uintptr_t>(1)); }
+    static void** deletedValueArray() { return std::bit_cast<void**>(static_cast<uintptr_t>(1)); }
 
     UniqueArray<void*> m_array;
     size_t m_size { 0 };

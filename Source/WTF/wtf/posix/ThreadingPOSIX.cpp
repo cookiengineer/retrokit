@@ -3,6 +3,7 @@
  * Copyright (C) 2007 Justin Haygood <jhaygood@reaktix.com>
  * Copyright (C) 2011 Research In Motion Limited. All rights reserved.
  * Copyright (C) 2017 Yusuke Suzuki <utatane.tea@gmail.com>
+ * Copyright (C) 2026 Igalia S.L.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,20 +36,41 @@
 #if USE(PTHREADS)
 
 #include <errno.h>
+#include <time.h>
+#include <wtf/Logging.h>
+#include <wtf/MonotonicTime.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/SafeStrerror.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/ThreadingPrimitives.h>
 #include <wtf/WTFConfig.h>
-#include <wtf/WordLock.h>
 
-#if OS(LINUX)
-#include <sys/prctl.h>
+#if OS(HAIKU)
+#include <OS.h>
 #endif
 
-#if !COMPILER(MSVC)
-#include <limits.h>
+#if OS(LINUX)
 #include <sched.h>
-#include <sys/time.h>
+#include <sys/prctl.h>
+#include <sys/resource.h>
+#include <sys/syscall.h>
+#include <wtf/linux/HighPriorityThreads.h>
+
+// See the NOTES section of
+// https://man7.org/linux/man-pages/man2/sched_setattr.2.html
+#if defined(SYS_sched_setattr)
+#define HAVE_SCHED_SETATTR 1
+#endif
+
+#ifndef SCHED_FLAG_RESET_ON_FORK
+#define SCHED_FLAG_RESET_ON_FORK 0x01
+#endif
+#ifndef SCHED_FLAG_UTIL_CLAMP_MIN
+#define SCHED_FLAG_UTIL_CLAMP_MIN 0x20
+#endif
+#ifndef SCHED_RESET_ON_FORK
+#define SCHED_RESET_ON_FORK 0x40000000
+#endif
 #endif
 
 #if !OS(DARWIN) && OS(UNIX)
@@ -69,22 +91,18 @@
 #include <mach/thread_switch.h>
 #endif
 
-#if OS(LINUX)
-#include <sys/syscall.h>
+#if OS(QNX)
+#define SA_RESTART 0
 #endif
 
 namespace WTF {
 
-static Lock globalSuspendLock;
-
-Thread::~Thread()
-{
-}
+Thread::~Thread() = default;
 
 #if !OS(DARWIN)
 class Semaphore final {
     WTF_MAKE_NONCOPYABLE(Semaphore);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(Semaphore);
 public:
     explicit Semaphore(unsigned initialValue)
     {
@@ -180,8 +198,10 @@ void Thread::initializePlatformThreading()
         g_wtfConfig.sigThreadSuspendResume = SIGUSR1;
         if (const char* string = getenv("JSC_SIGNAL_FOR_GC")) {
             int32_t value = 0;
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
             if (sscanf(string, "%d", &value) == 1)
                 g_wtfConfig.sigThreadSuspendResume = value;
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         }
     }
     g_wtfConfig.isThreadSuspendResumeSignalConfigured = true;
@@ -208,7 +228,7 @@ void Thread::initializePlatformThreading()
         if (sigaction(signal, nullptr, &oldAction))
             return false;
         // It has signal already.
-        if (oldAction.sa_handler != SIG_DFL || bitwise_cast<void*>(oldAction.sa_sigaction) != bitwise_cast<void*>(SIG_DFL))
+        if (oldAction.sa_handler != SIG_DFL || std::bit_cast<void*>(oldAction.sa_sigaction) != std::bit_cast<void*>(SIG_DFL))
             WTFLogAlways("Overriding existing handler for signal %d. Set JSC_SIGNAL_FOR_GC if you want WebKit to use a different signal", signal);
         return !sigaction(signal, &action, 0);
     };
@@ -260,32 +280,192 @@ dispatch_qos_class_t Thread::dispatchQOSClass(QOS qos)
 }
 #endif
 
-bool Thread::establishHandle(NewThreadContext* context, std::optional<size_t> stackSize, QOS qos)
+#if HAVE(SCHEDULING_POLICIES)
+static int NODELETE schedPolicy(Thread::SchedulingPolicy schedulingPolicy)
+{
+    switch (schedulingPolicy) {
+    case Thread::SchedulingPolicy::FIFO:
+        return SCHED_FIFO;
+    case Thread::SchedulingPolicy::Realtime:
+        return SCHED_RR;
+    case Thread::SchedulingPolicy::Other:
+        return SCHED_OTHER;
+    }
+    ASSERT_NOT_REACHED();
+    return SCHED_OTHER;
+}
+#endif
+
+#if OS(LINUX)
+#if HAVE(SCHED_SETATTR)
+// SCHED_ATTR_SIZE_VER1
+struct SchedAttr {
+    uint32_t size;
+    uint32_t policy;
+    uint64_t flags;
+    int32_t nice;
+    uint32_t priority;
+    uint64_t runtime;
+    uint64_t deadline;
+    uint64_t period;
+    uint32_t utilMin;
+    uint32_t utilMax;
+};
+static_assert(sizeof(SchedAttr) == 56);
+#endif
+
+struct SchedulingAttributes {
+    int policy;
+    int niceLevel;
+    // DVFS floor, see s_utilizationScale
+    uint32_t minUtil;
+};
+
+// The kernel's utilization scale, on which 1024 means a fully utilized CPU.
+static constexpr uint32_t s_utilizationScale = 1024;
+
+static SchedulingAttributes schedulingAttributesForQOS(Thread::QOS qos)
+{
+    switch (qos) {
+    case Thread::QOS::UserInteractive:
+    case Thread::QOS::UserInitiated:
+        return { SCHED_OTHER, 0, s_utilizationScale };
+    case Thread::QOS::Default:
+        return { SCHED_OTHER, 0, s_utilizationScale * 20 / 100 };
+    case Thread::QOS::Utility:
+        return { SCHED_BATCH, 10, 0 };
+    case Thread::QOS::Background:
+        return { SCHED_IDLE, 19, 0 };
+    }
+    RELEASE_ASSERT_NOT_REACHED();
+}
+
+static void logSchedulingAttributesFailure(ThreadIdentifier id)
+{
+    // A thread that exited before its attributes were applied is expected, not a failure.
+    if (errno != ESRCH)
+        RELEASE_LOG_ERROR(Threading, "Failed to apply scheduling attributes to thread %d: %s", id, safeStrerror(errno).data());
+    UNUSED_PARAM(id);
+}
+#endif
+
+bool Thread::establishHandle(NewThreadContext& context, StackAllocationSpecification stackSpec, QOS qos, SchedulingPolicy schedulingPolicy)
 {
     pthread_t threadHandle;
     pthread_attr_t attr;
     pthread_attr_init(&attr);
 #if HAVE(QOS_CLASSES)
     pthread_attr_set_qos_class_np(&attr, dispatchQOSClass(qos), 0);
-#else
-    UNUSED_PARAM(qos);
 #endif
-    if (stackSize)
-        pthread_attr_setstacksize(&attr, stackSize.value());
-    int error = pthread_create(&threadHandle, &attr, wtfThreadEntryPoint, context);
+#if HAVE(SCHEDULING_POLICIES)
+    pthread_attr_setschedpolicy(&attr, schedPolicy(schedulingPolicy));
+#endif
+
+    switch (stackSpec.kind()) {
+    case StackAllocationSpecification::Kind::Default:
+        break;
+    case StackAllocationSpecification::Kind::SizeOnly:
+        pthread_attr_setstacksize(&attr, stackSpec.sizeBytes());
+        break;
+    case StackAllocationSpecification::Kind::SizeAndLocation: {
+        auto bounds = stackSpec.stackSpan();
+        int result = pthread_attr_setstack(&attr, bounds.data(), bounds.size_bytes());
+        if (result) {
+            LOG_ERROR("Failed to set custom stack at %p size %zu: %s",
+                bounds.data(), bounds.size_bytes(), safeStrerror(result).data());
+            pthread_attr_destroy(&attr);
+            return false;
+        } } break;
+    }
+
+    int error = pthread_create(&threadHandle, &attr, wtfThreadEntryPoint, &context);
     pthread_attr_destroy(&attr);
     if (error) {
-        LOG_ERROR("Failed to create pthread at entry point %p with context %p", wtfThreadEntryPoint, context);
+        LOG_ERROR("Failed to create pthread at entry point %p with context %p", wtfThreadEntryPoint, &context);
         return false;
     }
+
+#if !HAVE(QOS_CLASSES)
+    UNUSED_PARAM(qos);
+#endif
+#if !HAVE(SCHEDULING_POLICIES)
+    UNUSED_PARAM(schedulingPolicy);
+#endif
+
     establishPlatformSpecificHandle(threadHandle);
     return true;
+}
+
+void Thread::updateSchedulingAttributes(SchedulingState state) const
+{
+#if OS(LINUX)
+    ASSERT(m_schedulingPolicy == SchedulingPolicy::Other);
+
+    const auto attributes = schedulingAttributesForQOS(state == SchedulingState::Demoted ? QOS::Default : m_qos);
+
+#if HAVE(SCHED_SETATTR)
+    static std::atomic<bool> utilizationClampSupported { true };
+
+    SchedAttr schedAttr { };
+    schedAttr.size = sizeof(schedAttr);
+    schedAttr.policy = attributes.policy;
+    schedAttr.flags = SCHED_FLAG_RESET_ON_FORK;
+    schedAttr.nice = attributes.niceLevel;
+
+    auto setAttributes = [&] {
+        return !syscall(SYS_sched_setattr, m_id, &schedAttr, 0);
+    };
+
+    if (utilizationClampSupported.load(std::memory_order_relaxed)) {
+        schedAttr.flags |= SCHED_FLAG_UTIL_CLAMP_MIN;
+        schedAttr.utilMin = attributes.minUtil;
+        if (setAttributes())
+            return;
+
+        // Did we fail because uclamp was rejected?
+        schedAttr.flags = SCHED_FLAG_RESET_ON_FORK;
+        schedAttr.utilMin = 0;
+        if (!setAttributes()) {
+            // No
+            logSchedulingAttributesFailure(m_id);
+            return;
+        }
+
+        // Yes, don't try uclamp again.
+        if (utilizationClampSupported.exchange(false, std::memory_order_relaxed))
+            RELEASE_LOG_WITH_LEVEL(Threading, WTFLogLevel::Info, "Utilization clamping is unavailable, scheduling every thread without it: %s", safeStrerror(errno).data());
+        return;
+    }
+
+    if (!setAttributes())
+        logSchedulingAttributesFailure(m_id);
+#else
+    struct sched_param param = { };
+    if (sched_setscheduler(m_id, attributes.policy | SCHED_RESET_ON_FORK, &param)
+        || setpriority(PRIO_PROCESS, m_id, attributes.niceLevel))
+        logSchedulingAttributesFailure(m_id);
+#endif // HAVE(SCHED_SETATTR)
+#else
+    UNUSED_PARAM(state);
+#endif // OS(LINUX)
+}
+
+void Thread::initializeSchedulingAttributes()
+{
+    updateSchedulingAttributes(SchedulingState::Full);
+
+#if OS(LINUX)
+    if (m_qos == QOS::UserInteractive)
+        HighPriorityThreads::singleton().registerThread(*this);
+#endif
 }
 
 void Thread::initializeCurrentThreadInternal(const char* threadName)
 {
 #if HAVE(PTHREAD_SETNAME_NP)
     pthread_setname_np(normalizeThreadName(threadName));
+#elif OS(HAIKU)
+    rename_thread(find_thread(nullptr), normalizeThreadName(threadName));
 #elif OS(LINUX)
     prctl(PR_SET_NAME, normalizeThreadName(threadName));
 #else
@@ -310,6 +490,25 @@ void Thread::changePriority(int delta)
     pthread_setschedparam(m_handle, policy, &param);
 #endif
 }
+
+#if HAVE(THREAD_TIME_CONSTRAINTS)
+void Thread::setThreadTimeConstraints(MonotonicTime period, MonotonicTime nominalComputation, MonotonicTime constraint, bool isPreemptable)
+{
+#if OS(DARWIN)
+    thread_time_constraint_policy policy { };
+    policy.period = period.toMachAbsoluteTime();
+    policy.computation = nominalComputation.toMachAbsoluteTime();
+    policy.constraint = constraint.toMachAbsoluteTime();
+    policy.preemptible = isPreemptable;
+    if (auto error = thread_policy_set(machThread(), THREAD_TIME_CONSTRAINT_POLICY, (thread_policy_t)&policy, THREAD_TIME_CONSTRAINT_POLICY_COUNT)) {
+        UNUSED_VARIABLE(error);
+        LOG_ERROR("Thread %p failed to set time constraints with error %d", this, error);
+    }
+#else
+    ASSERT_NOT_REACHED();
+#endif
+}
+#endif
 
 int Thread::waitForCompletion()
 {
@@ -352,12 +551,16 @@ Thread& Thread::initializeCurrentTLS()
 {
     // Not a WTF-created thread, Thread is not established yet.
     WTF::initialize();
-    Ref<Thread> thread = adoptRef(*new Thread());
+#if PLATFORM(COCOA)
+    Ref thread = adoptRef(*new Thread(defaultQOS, SchedulingPolicy::Other, pthread_main_np() ? IsMain::Yes : IsMain::No));
+#else
+    Ref thread = adoptRef(*new Thread(defaultQOS, SchedulingPolicy::Other));
+#endif
     thread->establishPlatformSpecificHandle(pthread_self());
     thread->initializeInThread();
     initializeCurrentThreadEvenIfNonWTFCreated();
 
-    return initializeTLS(WTFMove(thread));
+    return initializeTLS(WTF::move(thread));
 }
 
 bool Thread::signal(int signalNumber)
@@ -369,21 +572,9 @@ bool Thread::signal(int signalNumber)
     return !errNo; // A 0 errNo means success.
 }
 
-auto Thread::suspend() -> Expected<void, PlatformSuspendError>
+auto Thread::suspend(const ThreadSuspendLocker&) -> Expected<void, PlatformSuspendError>
 {
-    RELEASE_ASSERT_WITH_MESSAGE(this != &Thread::current(), "We do not support suspending the current thread itself.");
-    // During suspend, suspend or resume should not be executed from the other threads.
-    // We use global lock instead of per thread lock.
-    // Consider the following case, there are threads A and B.
-    // And A attempt to suspend B and B attempt to suspend A.
-    // A and B send signals. And later, signals are delivered to A and B.
-    // In that case, both will be suspended.
-    //
-    // And it is important to use a global lock to suspend and resume. Let's consider using per-thread lock.
-    // Your issuing thread (A) attempts to suspend the target thread (B). Then, you will suspend the thread (C) additionally.
-    // This case frequently happens if you stop threads to perform stack scanning. But thread (B) may hold the lock of thread (C).
-    // In that case, dead lock happens. Using global lock here avoids this dead lock.
-    Locker locker { globalSuspendLock };
+    RELEASE_ASSERT_WITH_MESSAGE(this != &Thread::currentSingleton(), "We do not support suspending the current thread itself.");
 #if OS(DARWIN)
     kern_return_t result = thread_suspend(m_platformThread);
     if (result != KERN_SUCCESS)
@@ -411,10 +602,8 @@ auto Thread::suspend() -> Expected<void, PlatformSuspendError>
 #endif
 }
 
-void Thread::resume()
+void Thread::resume(const ThreadSuspendLocker&)
 {
-    // During resume, suspend or resume should not be executed from the other threads.
-    Locker locker { globalSuspendLock };
 #if OS(DARWIN)
     thread_resume(m_platformThread);
 #else
@@ -438,12 +627,12 @@ void Thread::resume()
 
 #if OS(DARWIN)
 struct ThreadStateMetadata {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(ThreadStateMetadata);
     unsigned userCount;
     thread_state_flavor_t flavor;
 };
 
-static ThreadStateMetadata threadStateMetadata()
+static ThreadStateMetadata NODELETE threadStateMetadata()
 {
 #if CPU(X86)
     unsigned userCount = sizeof(PlatformRegisters) / sizeof(int);
@@ -470,15 +659,14 @@ static ThreadStateMetadata threadStateMetadata()
 }
 #endif // OS(DARWIN)
 
-size_t Thread::getRegisters(PlatformRegisters& registers)
+size_t Thread::getRegisters(const ThreadSuspendLocker&, PlatformRegisters& registers)
 {
-    Locker locker { globalSuspendLock };
 #if OS(DARWIN)
     auto metadata = threadStateMetadata();
     kern_return_t result = thread_get_state(m_platformThread, metadata.flavor, (thread_state_t)&registers, &metadata.userCount);
     if (result != KERN_SUCCESS) {
         WTFReportFatalError(__FILE__, __LINE__, WTF_PRETTY_FUNCTION, "JavaScript garbage collection failed because thread_get_state returned an error (%d). This is probably the result of running inside Rosetta, which is not supported.", result);
-        CRASH();
+        CRASH_WITH_INFO(result, KERN_SUCCESS);
     }
     return metadata.userCount * sizeof(uintptr_t);
 #else
@@ -508,7 +696,7 @@ void Thread::initializeTLSKey()
 Thread& Thread::initializeTLS(Ref<Thread>&& thread)
 {
     // We leak the ref to keep the Thread alive while it is held in TLS. destructTLS will deref it later at thread destruction time.
-    auto& threadInTLS = thread.leakRef();
+    SUPPRESS_UNCOUNTED_LOCAL auto& threadInTLS = thread.leakRef();
 #if !HAVE(FAST_TLS)
     ASSERT(s_key != InvalidThreadSpecificKey);
     threadSpecificSet(s_key, &threadInTLS);
@@ -539,6 +727,10 @@ void Thread::destructTLS(void* data)
     _pthread_setspecific_direct(WTF_THREAD_DATA_KEY, thread);
     pthread_key_init_np(WTF_THREAD_DATA_KEY, &destructTLS);
 #endif
+    // Destructor of ClientData can rely on Thread::currentSingleton() (e.g. AtomStringTable).
+    // We destroy it after re-setting Thread::currentSingleton() so that we can ensure destruction
+    // can still access to it.
+    thread->m_clientData = nullptr;
 }
 
 Mutex::~Mutex()
@@ -585,18 +777,25 @@ void ThreadCondition::wait(Mutex& mutex)
 
 bool ThreadCondition::timedWait(Mutex& mutex, WallTime absoluteTime)
 {
+    if (absoluteTime.isInfinity()) {
+        if (absoluteTime == -WallTime::infinity())
+            return false;
+        wait(mutex);
+        return true;
+    }
+
     if (absoluteTime < WallTime::now())
         return false;
 
-    if (absoluteTime > WallTime::fromRawSeconds(INT_MAX)) {
+    if (absoluteTime > WallTime::fromRawSeconds(static_cast<double>(std::numeric_limits<time_t>::max()))) {
         wait(mutex);
         return true;
     }
 
     double rawSeconds = absoluteTime.secondsSinceEpoch().value();
 
-    int timeSeconds = static_cast<int>(rawSeconds);
-    int timeNanoseconds = static_cast<int>((rawSeconds - timeSeconds) * 1E9);
+    time_t timeSeconds = static_cast<time_t>(rawSeconds);
+    long timeNanoseconds = static_cast<long>((rawSeconds - timeSeconds) * 1E9);
 
     timespec targetTime;
     targetTime.tv_sec = timeSeconds;
@@ -623,7 +822,9 @@ void Thread::yield()
     constexpr mach_msg_timeout_t timeoutInMS = 1;
     thread_switch(MACH_PORT_NULL, SWITCH_OPTION_DEPRESS, timeoutInMS);
 #else
-    sched_yield();
+    // A one nanosecond sleep costs a whole timer slack period, 50us by default on Linux (see PR_SET_TIMERSLACK)
+    struct timespec minimalSleep { 0, 1 };
+    nanosleep(&minimalSleep, nullptr);
 #endif
 }
 

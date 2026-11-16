@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,50 +26,50 @@
 #include "config.h"
 #include "TableWrapperBlockFormattingContext.h"
 
-#if ENABLE(LAYOUT_FORMATTING_CONTEXT)
-
 #include "BlockFormattingGeometry.h"
 #include "BlockFormattingState.h"
 #include "BlockMarginCollapse.h"
-#include "InvalidationState.h"
+#include "LayoutBoxInlines.h"
 #include "LayoutBoxGeometry.h"
 #include "LayoutChildIterator.h"
 #include "LayoutContext.h"
 #include "LayoutInitialContainingBlock.h"
+#include "RenderObject.h"
 #include "TableFormattingConstraints.h"
 #include "TableFormattingContext.h"
 #include "TableFormattingState.h"
 #include "TableWrapperBlockFormattingQuirks.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 namespace Layout {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(TableWrapperBlockFormattingContext);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(TableWrapperBlockFormattingContext);
 
-TableWrapperBlockFormattingContext::TableWrapperBlockFormattingContext(const ContainerBox& formattingContextRoot, BlockFormattingState& formattingState)
+TableWrapperBlockFormattingContext::TableWrapperBlockFormattingContext(const ElementBox& formattingContextRoot, BlockFormattingState& formattingState)
     : BlockFormattingContext(formattingContextRoot, formattingState)
     , m_tableWrapperFormattingQuirks(*this)
 {
 }
 
-void TableWrapperBlockFormattingContext::layoutInFlowContent(InvalidationState&, const ConstraintsForInFlowContent& constraints)
+void TableWrapperBlockFormattingContext::layoutInFlowContent(const ConstraintsForInFlowContent& constraints)
 {
     // The table generates a principal block container box called the table wrapper box that contains the table box itself and any caption boxes
     // (in document order). The table box is a block-level box that contains the table's internal table boxes.
     // The caption boxes are principal block-level boxes that retain their own content, padding, margin, and border areas, and are rendered
     // as normal block boxes inside the table wrapper box. Whether the caption boxes are placed before or after the table box is decided by
     // the 'caption-side' property, as described below.
-    for (auto& child : childrenOfType<ContainerBox>(root())) {
-        if (child.isTableBox())
+    for (CheckedRef child : childrenOfType<ElementBox>(root())) {
+        if (child->isTableBox())
             layoutTableBox(child, constraints);
-        else if (child.isTableCaption())
+        else if (child->isTableCaption())
             ASSERT_NOT_IMPLEMENTED_YET();
         else
             ASSERT_NOT_REACHED();
     }
 }
 
-void TableWrapperBlockFormattingContext::layoutTableBox(const ContainerBox& tableBox, const ConstraintsForInFlowContent& constraints)
+void TableWrapperBlockFormattingContext::layoutTableBox(const ElementBox& tableBox, const ConstraintsForInFlowContent& constraints)
 {
     layoutState().ensureTableFormattingState(tableBox);
 
@@ -80,15 +80,14 @@ void TableWrapperBlockFormattingContext::layoutTableBox(const ContainerBox& tabl
 
     if (tableBox.hasChild()) {
         auto& formattingGeometry = this->formattingGeometry();
-        auto invalidationState = InvalidationState { };
         auto constraints = ConstraintsForTableContent { formattingGeometry.constraintsForInFlowContent(tableBox), formattingGeometry.computedHeight(tableBox) };
-        LayoutContext::createFormattingContext(tableBox, layoutState())->layoutInFlowContent(invalidationState, constraints);
+        LayoutContext::createFormattingContext(tableBox, layoutState())->layoutInFlowContent(constraints);
     }
 
     computeHeightAndMarginForTableBox(tableBox, constraints);
 }
 
-void TableWrapperBlockFormattingContext::computeBorderAndPaddingForTableBox(const ContainerBox& tableBox, const HorizontalConstraints& horizontalConstraints)
+void TableWrapperBlockFormattingContext::computeBorderAndPaddingForTableBox(const ElementBox& tableBox, const HorizontalConstraints& horizontalConstraints)
 {
     ASSERT(tableBox.isTableBox());
     if (!tableBox.hasChild() || tableBox.style().borderCollapse() == BorderCollapse::Separate) {
@@ -103,57 +102,57 @@ void TableWrapperBlockFormattingContext::computeBorderAndPaddingForTableBox(cons
     // borders with the top border of the table. The top border width of the table is equal to half of the
     // maximum collapsed top border. The bottom border width is computed by examining all cells whose bottom borders collapse
     // with the bottom of the table. The bottom border width is equal to half of the maximum collapsed bottom border.
-    auto& grid = layoutState().establishedTableFormattingState(tableBox).tableGrid();
+    auto& grid = layoutState().formattingStateForTableFormattingContext(tableBox).tableGrid();
     auto tableBorder = formattingGeometry().computedBorder(tableBox);
 
-    auto& firstColumnFirstRowBox = grid.slot({ 0 , 0 })->cell().box();
-    auto leftBorder = std::max(tableBorder.horizontal.left, formattingGeometry().computedBorder(firstColumnFirstRowBox).horizontal.left);
+    CheckedRef firstColumnFirstRowBox = grid.slot({ 0 , 0 })->cell().box();
+    auto leftBorder = std::max(tableBorder.horizontal.start, formattingGeometry().computedBorder(firstColumnFirstRowBox).horizontal.start);
 
-    auto& lastColumnFirstRow = grid.slot({ grid.columns().size() - 1, 0 })->cell().box();
-    auto rightBorder = std::max(tableBorder.horizontal.right, formattingGeometry().computedBorder(lastColumnFirstRow).horizontal.right);
+    CheckedRef lastColumnFirstRow = grid.slot({ grid.columns().size() - 1, 0 })->cell().box();
+    auto rightBorder = std::max(tableBorder.horizontal.end, formattingGeometry().computedBorder(lastColumnFirstRow).horizontal.end);
 
-    auto topBorder = tableBorder.vertical.top;
-    auto bottomBorder = tableBorder.vertical.bottom;
+    auto topBorder = tableBorder.vertical.before;
+    auto bottomBorder = tableBorder.vertical.after;
     auto lastRowIndex = grid.rows().size() - 1;
     for (size_t columnIndex = 0; columnIndex < grid.columns().size(); ++columnIndex) {
-        auto& boxInFirstRox = grid.slot({ columnIndex, 0 })->cell().box();
-        auto& boxInLastRow = grid.slot({ columnIndex, lastRowIndex })->cell().box();
+        CheckedRef boxInFirstRox = grid.slot({ columnIndex, 0 })->cell().box();
+        CheckedRef boxInLastRow = grid.slot({ columnIndex, lastRowIndex })->cell().box();
 
-        topBorder = std::max(topBorder, formattingGeometry().computedBorder(boxInFirstRox).vertical.top);
-        bottomBorder = std::max(bottomBorder, formattingGeometry().computedBorder(boxInLastRow).vertical.bottom);
+        topBorder = std::max(topBorder, formattingGeometry().computedBorder(boxInFirstRox).vertical.before);
+        bottomBorder = std::max(bottomBorder, formattingGeometry().computedBorder(boxInLastRow).vertical.after);
     }
 
-    topBorder = std::max(topBorder, formattingGeometry().computedBorder(*tableBox.firstChild()).vertical.top);
-    for (auto& section : childrenOfType<ContainerBox>(tableBox)) {
-        auto horiztonalBorder = formattingGeometry().computedBorder(section).horizontal;
-        leftBorder = std::max(leftBorder, horiztonalBorder.left);
-        rightBorder = std::max(rightBorder, horiztonalBorder.right);
+    topBorder = std::max(topBorder, formattingGeometry().computedBorder(*tableBox.firstChild()).vertical.before);
+    for (CheckedRef section : childrenOfType<ElementBox>(tableBox)) {
+        auto horizontalBorder = formattingGeometry().computedBorder(section).horizontal;
+        leftBorder = std::max(leftBorder, horizontalBorder.start);
+        rightBorder = std::max(rightBorder, horizontalBorder.end);
     }
-    bottomBorder = std::max(bottomBorder, formattingGeometry().computedBorder(*tableBox.lastChild()).vertical.bottom);
+    bottomBorder = std::max(bottomBorder, formattingGeometry().computedBorder(*tableBox.lastChild()).vertical.after);
 
     auto& rows = grid.rows().list();
-    topBorder = std::max(topBorder, formattingGeometry().computedBorder(rows.first().box()).vertical.top);
+    topBorder = std::max(topBorder, formattingGeometry().computedBorder(rows.first().box()).vertical.before);
     for (auto& row : rows) {
-        auto horiztonalBorder = formattingGeometry().computedBorder(row.box()).horizontal;
-        leftBorder = std::max(leftBorder, horiztonalBorder.left);
-        rightBorder = std::max(rightBorder, horiztonalBorder.right);
+        auto horizontalBorder = formattingGeometry().computedBorder(row.box()).horizontal;
+        leftBorder = std::max(leftBorder, horizontalBorder.start);
+        rightBorder = std::max(rightBorder, horizontalBorder.end);
     }
-    bottomBorder = std::max(bottomBorder, formattingGeometry().computedBorder(rows.last().box()).vertical.bottom);
+    bottomBorder = std::max(bottomBorder, formattingGeometry().computedBorder(rows.last().box()).vertical.after);
 
-    auto collapsedBorder = Edges { { leftBorder, rightBorder }, { topBorder, bottomBorder } };
+    auto collapsedBorder = BoxGeometry::Edges { { leftBorder, rightBorder }, { topBorder, bottomBorder } };
     grid.setCollapsedBorder(collapsedBorder);
 
     auto& boxGeometry = formattingState().boxGeometry(tableBox);
-    boxGeometry.setBorder(collapsedBorder / 2);
+    boxGeometry.setBorder({ { collapsedBorder.horizontal.start / 2, collapsedBorder.horizontal.end / 2 }, { collapsedBorder.vertical.before / 2, collapsedBorder.vertical.after / 2 } });
     boxGeometry.setPadding(formattingGeometry().computedPadding(tableBox, horizontalConstraints.logicalWidth));
 }
 
-void TableWrapperBlockFormattingContext::computeWidthAndMarginForTableBox(const ContainerBox& tableBox, const HorizontalConstraints& horizontalConstraints)
+void TableWrapperBlockFormattingContext::computeWidthAndMarginForTableBox(const ElementBox& tableBox, const HorizontalConstraints& horizontalConstraints)
 {
     ASSERT(tableBox.isTableBox());
     // This is a special table "fit-content size" behavior handling. Not in the spec though.
     // Table returns its final width as min/max. Use this final width value to computed horizontal margins etc.
-    auto& formattingStateForTableBox = layoutState().establishedTableFormattingState(tableBox);
+    auto& formattingStateForTableBox = layoutState().formattingStateForTableFormattingContext(tableBox);
     auto intrinsicWidthConstraints = IntrinsicWidthConstraints { };
     if (auto precomputedIntrinsicWidthConstraints = formattingStateForTableBox.intrinsicWidthConstraints())
         intrinsicWidthConstraints = *precomputedIntrinsicWidthConstraints;
@@ -219,7 +218,7 @@ void TableWrapperBlockFormattingContext::computeWidthAndMarginForTableBox(const 
     boxGeometry.setHorizontalMargin({ contentWidthAndMargin.usedMargin.start, contentWidthAndMargin.usedMargin.end });
 }
 
-void TableWrapperBlockFormattingContext::computeHeightAndMarginForTableBox(const ContainerBox& tableBox, const ConstraintsForInFlowContent& constraints)
+void TableWrapperBlockFormattingContext::computeHeightAndMarginForTableBox(const ElementBox& tableBox, const ConstraintsForInFlowContent& constraints)
 {
     ASSERT(tableBox.isTableBox());
     // Table is a special BFC content. Its height is mainly driven by the content. Computed height, min-height and max-height are all
@@ -238,7 +237,7 @@ void TableWrapperBlockFormattingContext::computeHeightAndMarginForTableBox(const
     formattingState().setUsedVerticalMargin(tableBox, verticalMargin);
 
     auto& boxGeometry = formattingState().boxGeometry(tableBox);
-    boxGeometry.setLogicalTop(verticalPositionWithMargin(tableBox, verticalMargin, constraints.logicalTop()));
+    boxGeometry.setTop(verticalPositionWithMargin(tableBox, verticalMargin, constraints.logicalTop()));
     boxGeometry.setContentBoxHeight(heightAndMargin.contentHeight);
     boxGeometry.setVerticalMargin({ marginBefore(verticalMargin), marginAfter(verticalMargin) });
     // Adjust the previous sibling's margin bottom now that this box's vertical margin is computed.
@@ -248,4 +247,3 @@ void TableWrapperBlockFormattingContext::computeHeightAndMarginForTableBox(const
 }
 }
 
-#endif

@@ -27,69 +27,78 @@
 
 #if ENABLE(VIDEO)
 
-#include "TrackPrivateBase.h"
+#include <WebCore/PlatformVideoTrackConfiguration.h>
+#include <WebCore/TrackPrivateBase.h>
+#include <WebCore/VideoTrackPrivateClient.h>
 #include <wtf/Function.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-class VideoTrackPrivateClient : public TrackPrivateBaseClient {
-public:
-    virtual void selectedChanged(bool) = 0;
-};
+class VideoInfo;
 
 class VideoTrackPrivate : public TrackPrivateBase {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(VideoTrackPrivate);
 public:
-    void setClient(VideoTrackPrivateClient* client) { m_client = client; }
-    VideoTrackPrivateClient* client() const override { return m_client; }
-
     virtual void setSelected(bool selected)
     {
         if (m_selected == selected)
             return;
         m_selected = selected;
-        if (m_client)
-            m_client->selectedChanged(m_selected);
+        notifyClients([selected](auto& client) {
+            downcast<VideoTrackPrivateClient>(client).selectedChanged(selected);
+        });
         if (m_selectedChangedCallback)
             m_selectedChangedCallback(*this, m_selected);
     }
     virtual bool selected() const { return m_selected; }
 
-    enum Kind { Alternative, Captions, Main, Sign, Subtitles, Commentary, None };
-    virtual Kind kind() const { return None; }
+    enum class Kind : uint8_t { Alternative, Captions, Main, Sign, Subtitles, Commentary, None };
+    virtual Kind kind() const { return Kind::None; }
 
 #if !RELEASE_LOG_DISABLED
-    const char* logClassName() const final { return "VideoTrackPrivate"; }
+    ASCIILiteral logClassName() const final { return "VideoTrackPrivate"_s; }
 #endif
 
     using SelectedChangedCallback = Function<void(VideoTrackPrivate&, bool selected)>;
-    void setSelectedChangedCallback(SelectedChangedCallback&& callback) { m_selectedChangedCallback = WTFMove(callback); }
+    void setSelectedChangedCallback(SelectedChangedCallback&& callback) { m_selectedChangedCallback = WTF::move(callback); }
+
+    const PlatformVideoTrackConfiguration& configuration() const LIFETIME_BOUND { return m_configuration; }
+    void setConfiguration(PlatformVideoTrackConfiguration&& configuration)
+    {
+        if (configuration == m_configuration)
+            return;
+        m_configuration = WTF::move(configuration);
+        notifyClients([configuration = m_configuration](auto& client) {
+            downcast<VideoTrackPrivateClient>(client).configurationChanged(configuration);
+        });
+    }
+    
+    bool operator==(const VideoTrackPrivate& track) const
+    {
+        return TrackPrivateBase::operator==(track)
+            && configuration() == track.configuration()
+            && kind() == track.kind();
+    }
+
+    Type type() const final { return Type::Video; }
+
+    virtual void setFormatDescription(Ref<VideoInfo>&&) { }
 
 protected:
     VideoTrackPrivate() = default;
 
 private:
-    VideoTrackPrivateClient* m_client { nullptr };
     bool m_selected { false };
+    PlatformVideoTrackConfiguration m_configuration;
+
     SelectedChangedCallback m_selectedChangedCallback;
 };
 
 } // namespace WebCore
 
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::VideoTrackPrivate::Kind> {
-    using values = EnumValues<
-        WebCore::VideoTrackPrivate::Kind,
-        WebCore::VideoTrackPrivate::Kind::Alternative,
-        WebCore::VideoTrackPrivate::Kind::Captions,
-        WebCore::VideoTrackPrivate::Kind::Main,
-        WebCore::VideoTrackPrivate::Kind::Sign,
-        WebCore::VideoTrackPrivate::Kind::Subtitles,
-        WebCore::VideoTrackPrivate::Kind::Commentary,
-        WebCore::VideoTrackPrivate::Kind::None
-    >;
-};
-
-} // namespace WTF
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::VideoTrackPrivate)
+static bool isType(const WebCore::TrackPrivateBase& track) { return track.type() == WebCore::TrackPrivateBase::Type::Video; }
+SPECIALIZE_TYPE_TRAITS_END()
 
 #endif

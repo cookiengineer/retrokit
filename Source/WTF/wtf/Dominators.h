@@ -25,7 +25,9 @@
 
 #pragma once
 
+#include <ranges>
 #include <wtf/CommaPrinter.h>
+#include <wtf/DataLog.h>
 #include <wtf/FastBitVector.h>
 #include <wtf/GraphNodeWorklist.h>
 #include <wtf/Vector.h>
@@ -39,31 +41,51 @@ namespace WTF {
 
 template<typename Graph>
 class Dominators {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(Dominators);
 public:
     using List = typename Graph::List;
+
+    // Above this many nodes we switch from Semi-NCA to Lengauer-Tarjan. Semi-NCA has better
+    // constant factors on real CFGs, but uses 16-bit DFS numbering, so it is also bounded by that.
+    constexpr static unsigned maxNodesForSemiNCADominance = 20000;
 
     Dominators(Graph& graph, bool selfCheck = false)
         : m_graph(graph)
         , m_data(graph.template newMap<BlockData>())
     {
-        LengauerTarjan lengauerTarjan(m_graph);
-        lengauerTarjan.compute();
+        if (m_graph.numNodes() <= maxNodesForSemiNCADominance) [[likely]] {
+            SemiNCA semiNCA(m_graph);
+            semiNCA.compute();
+
+            for (unsigned blockIndex = m_graph.numNodes(); blockIndex--;) {
+                typename Graph::Node block = m_graph.node(blockIndex);
+                if (!block)
+                    continue;
+
+                typename Graph::Node idomBlock = semiNCA.immediateDominator(block);
+                m_data[block].idomParent = idomBlock;
+                if (idomBlock)
+                    m_data[idomBlock].idomKids.append(block);
+            }
+        } else {
+            LengauerTarjan lengauerTarjan(m_graph);
+            lengauerTarjan.compute();
+
+            for (unsigned blockIndex = m_graph.numNodes(); blockIndex--;) {
+                typename Graph::Node block = m_graph.node(blockIndex);
+                if (!block)
+                    continue;
+
+                typename Graph::Node idomBlock = lengauerTarjan.immediateDominator(block);
+                m_data[block].idomParent = idomBlock;
+                if (idomBlock)
+                    m_data[idomBlock].idomKids.append(block);
+            }
+        }
 
         // From here we want to build a spanning tree with both upward and downward links and we want
         // to do a search over this tree to compute pre and post numbers that can be used for dominance
         // tests.
-    
-        for (unsigned blockIndex = m_graph.numNodes(); blockIndex--;) {
-            typename Graph::Node block = m_graph.node(blockIndex);
-            if (!block)
-                continue;
-        
-            typename Graph::Node idomBlock = lengauerTarjan.immediateDominator(block);
-            m_data[block].idomParent = idomBlock;
-            if (idomBlock)
-                m_data[idomBlock].idomKids.append(block);
-        }
     
         unsigned nextPreNumber = 0;
         unsigned nextPostNumber = 0;
@@ -104,9 +126,9 @@ public:
                         continue;
                 
                     if (dominates(fromBlock, toBlock) != naiveDominates(fromBlock, toBlock))
-                        context.reportError(fromBlock, toBlock, "Range-based domination check is broken");
+                        context.reportError(fromBlock, toBlock, "Range-based domination check is broken"_s);
                     if (dominates(fromBlock, toBlock) != context.naiveDominators.dominates(fromBlock, toBlock))
-                        context.reportError(fromBlock, toBlock, "Lengauer-Tarjan domination is broken");
+                        context.reportError(fromBlock, toBlock, "Lengauer-Tarjan domination is broken"_s);
                 }
             }
         
@@ -285,15 +307,164 @@ public:
             if (m_data[blockIndex].preNumber == UINT_MAX)
                 continue;
             
-            out.print("    Block #", blockIndex, ": idom = ", m_graph.dump(m_data[blockIndex].idomParent), ", idomKids = [");
+            out.print("    Block #"_s, blockIndex, ": idom = "_s, m_graph.dump(m_data[blockIndex].idomParent), ", idomKids = ["_s);
             CommaPrinter comma;
             for (unsigned i = 0; i < m_data[blockIndex].idomKids.size(); ++i)
                 out.print(comma, m_graph.dump(m_data[blockIndex].idomKids[i]));
-            out.print("], pre/post = ", m_data[blockIndex].preNumber, "/", m_data[blockIndex].postNumber, "\n");
+            out.print("], pre/post = "_s, m_data[blockIndex].preNumber, "/"_s, m_data[blockIndex].postNumber, "\n"_s);
         }
     }
     
 private:
+    // This implements the Semi-NCA dominator algorithm, the same approach used by LLVM.
+    // Like Lengauer-Tarjan it computes semidominators using a depth-first spanning tree and
+    // a path-compressing EVAL, but it replaces Lengauer-Tarjan's bucket/LINK machinery for
+    // deriving immediate dominators with a simple "nearest common ancestor" walk over the
+    // partially-built dominator tree. This is near-linear in practice, and due to simplicity,
+    // this is in general faster than Lengauer-Tarjan. However since this is *near-linear*,
+    // pathological graph can explode the computation. Thus for large graph, we fall back to
+    // Lengauer-Tarjan to avoid too-long computation time.
+    //
+    // Semi-NCA is described in "Linear-Time Algorithms for Dominators and Related Problems", 2005, Georgiadis, Loukas.
+    // https://www.cs.princeton.edu/research/techreps/432
+
+    class SemiNCA {
+        WTF_DEPRECATED_MAKE_FAST_ALLOCATED(SemiNCA);
+        // 0 is reserved as "no DFS number" / "no ancestor", so DFS numbers are 1-based.
+        constexpr static uint16_t noDFSNumber = 0;
+    public:
+        SemiNCA(Graph& graph)
+            : m_graph(graph)
+        {
+            // We only use this for small-ish graphs (Lengauer-Tarjan handles the rest), so we can use
+            // 16-bit DFS numbers. With 1-based numbering we need numNodes() + 1 to be representable.
+            RELEASE_ASSERT(graph.numNodes() < std::numeric_limits<uint16_t>::max());
+        }
+
+        void compute()
+        {
+            unsigned numNodes = m_graph.numNodes();
+            // node index -> DFS number, initialized to noDFSNumber (0) for every node.
+            m_nodeToDFS.fill(noDFSNumber, numNodes);
+            // All per-DFS-number state lives in one array for locality. noDFSNumber is 0, so a
+            // zero-initialized BlockData is the correct starting state for every field.
+            m_data.fill(BlockData { }, numNodes + 1);
+
+            // Step 1: assign DFS numbers and record each node's parent in the DFS spanning tree.
+            uint16_t count = 0;
+            {
+                struct WorklistItem {
+                    uint16_t nodeIndex;
+                    uint16_t parentDFS;
+                };
+                uint16_t nextDFSNumber = 0;
+                Vector<WorklistItem, 64> worklist;
+                worklist.append({ static_cast<uint16_t>(m_graph.index(m_graph.root())), noDFSNumber });
+                while (!worklist.isEmpty()) {
+                    auto item = worklist.takeLast();
+                    if (m_nodeToDFS[item.nodeIndex] != noDFSNumber)
+                        continue;
+                    uint16_t dfs = ++nextDFSNumber;
+                    m_nodeToDFS[item.nodeIndex] = dfs;
+                    BlockData& data = m_data[dfs];
+                    data.nodeIndex = item.nodeIndex;
+                    data.parent = item.parentDFS;
+                    data.semi = dfs;
+                    data.label = dfs;
+                    for (auto successor : m_graph.successors(m_graph.node(item.nodeIndex))) {
+                        uint16_t successorIndex = m_graph.index(successor);
+                        if (m_nodeToDFS[successorIndex] == noDFSNumber)
+                            worklist.append({ successorIndex, dfs });
+                    }
+                }
+                count = nextDFSNumber;
+            }
+
+            // Step 2: compute semidominators in reverse DFS order, then LINK each node to its parent.
+            // Semidominator means, let's avoid the normal dfs path, and what the earliest (small DFS num)
+            // point can start reaching to the node without using the normal dfs path, like a shortcut.
+            //
+            // The intent of Semi-NCA algorithm is, idom(w) = NearestCommonAncestor(parent(w), semi(w)).
+            {
+                // Path-compressing EVAL: returns the node on the ancestor path from v with minimum
+                // semidominator. We compress the path iteratively to avoid deep recursion.
+                Vector<uint16_t, 64> compressStack;
+                auto eval = [&](uint16_t v) -> uint16_t {
+                    if (m_data[v].ancestor == noDFSNumber)
+                        return m_data[v].label;
+
+                    compressStack.shrink(0);
+                    uint16_t u = v;
+                    while (m_data[m_data[u].ancestor].ancestor != noDFSNumber) {
+                        compressStack.append(u);
+                        u = m_data[u].ancestor;
+                    }
+                    for (unsigned i = compressStack.size(); i--;) {
+                        BlockData& data = m_data[compressStack[i]];
+                        uint16_t ancestor = data.ancestor;
+                        if (m_data[m_data[ancestor].label].semi < m_data[data.label].semi)
+                            data.label = m_data[ancestor].label;
+                        data.ancestor = m_data[ancestor].ancestor;
+                    }
+                    return m_data[v].label;
+                };
+
+                for (uint16_t w = count; w >= 2; --w) {
+                    BlockData& wData = m_data[w];
+                    for (auto predecessor : m_graph.predecessors(m_graph.node(wData.nodeIndex))) {
+                        uint16_t v = m_nodeToDFS[m_graph.index(predecessor)];
+                        if (v == noDFSNumber)
+                            continue; // Predecessor not reachable from the root.
+                        uint16_t u = eval(v);
+                        wData.semi = std::min(wData.semi, m_data[u].semi);
+                    }
+                    wData.ancestor = wData.parent;
+                }
+            }
+
+            // Step 3: derive immediate dominators. Start each node's idom at its DFS parent and walk
+            // it up the (already-computed) dominator tree until it is an ancestor of the node's
+            // semidominator. This is the "nearest common ancestor" refinement.
+            //
+            // We do not need to walk up in semidominator side. This is because semidominator is guaranteed
+            // to be on the path between idom(w) -> ... -> parent(w).
+            if (count >= 1)
+                m_data[1].idom = 1;
+            for (uint16_t w = 2; w <= count; ++w) {
+                uint16_t idom = m_data[w].parent;
+                while (idom > m_data[w].semi)
+                    idom = m_data[idom].idom;
+                m_data[w].idom = idom;
+            }
+        }
+
+        typename Graph::Node immediateDominator(typename Graph::Node block)
+        {
+            uint16_t dfs = m_nodeToDFS[m_graph.index(block)];
+            // The root (DFS number 1) and any node unreachable from the root have no idom.
+            if (dfs <= 1)
+                return nullptr;
+            return m_graph.node(m_data[m_data[dfs].idom].nodeIndex);
+        }
+
+    private:
+        // All numeric fields are indexed by DFS number. noDFSNumber (0) is the value-initialized
+        // default. We keep nodeIndex as a uint16_t (not a Graph::Node pointer) so BlockData stays
+        // compact at 12 bytes; the node is reconstructed via m_graph.node() at the few boundaries.
+        struct BlockData {
+            uint16_t nodeIndex { 0 };  // DFS number -> node index
+            uint16_t parent { 0 };     // DFS-tree parent's DFS number
+            uint16_t semi { 0 };       // semidominator (DFS number)
+            uint16_t label { 0 };      // EVAL label
+            uint16_t ancestor { 0 };   // forest ancestor (noDFSNumber if none)
+            uint16_t idom { 0 };       // immediate dominator (DFS number)
+        };
+
+        Graph& m_graph;
+        Vector<uint16_t, 64> m_nodeToDFS;  // node index -> DFS number (noDFSNumber if unreachable)
+        Vector<BlockData, 64> m_data;      // DFS number -> per-node Semi-NCA state
+    };
+
     // This implements Lengauer and Tarjan's "A Fast Algorithm for Finding Dominators in a Flowgraph"
     // (TOPLAS 1979). It uses the "simple" implementation of LINK and EVAL, which yields an O(n log n)
     // solution. The full paper is linked below; this code attempts to closely follow the algorithm as
@@ -310,7 +481,7 @@ private:
     // list" (see http://dl.acm.org/citation.cfm?id=802184).
 
     class LengauerTarjan {
-        WTF_MAKE_FAST_ALLOCATED;
+        WTF_DEPRECATED_MAKE_FAST_ALLOCATED(LengauerTarjan);
     public:
         LengauerTarjan(Graph& graph)
             : m_graph(graph)
@@ -478,7 +649,7 @@ private:
         }
 
         struct BlockData {
-            WTF_MAKE_STRUCT_FAST_ALLOCATED;
+            WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(BlockData);
 
             BlockData()
                 : parent(nullptr)
@@ -505,7 +676,7 @@ private:
     };
 
     class NaiveDominators {
-        WTF_MAKE_FAST_ALLOCATED;
+        WTF_DEPRECATED_MAKE_FAST_ALLOCATED(NaiveDominators);
     public:
         NaiveDominators(Graph& graph)
             : m_graph(graph)
@@ -519,7 +690,7 @@ private:
             // Allocate storage for the dense dominance matrix. 
             m_results.grow(numBlocks);
             for (unsigned i = numBlocks; i--;)
-                m_results[i].resize(numBlocks);
+                m_results[i].grow(numBlocks);
             m_scratch.resize(numBlocks);
 
             // We know that the entry block is only dominated by itself.
@@ -611,7 +782,7 @@ private:
     };
 
     struct ValidationContext {
-        WTF_MAKE_STRUCT_FAST_ALLOCATED;
+        WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(ValidationContext);
 
         ValidationContext(Graph& graph, Dominators& dominators)
             : graph(graph)
@@ -620,7 +791,7 @@ private:
         {
         }
     
-        void reportError(typename Graph::Node from, typename Graph::Node to, const char* message)
+        void reportError(typename Graph::Node from, typename Graph::Node to, ASCIILiteral message)
         {
             Error error;
             error.from = from;
@@ -677,11 +848,11 @@ private:
         NaiveDominators naiveDominators;
     
         struct Error {
-            WTF_MAKE_STRUCT_FAST_ALLOCATED;
+            WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(Error);
 
             typename Graph::Node from;
             typename Graph::Node to;
-            const char* message;
+            ASCIILiteral message;
         };
     
         Vector<Error> errors;
@@ -736,7 +907,7 @@ private:
     }
     
     struct BlockData {
-        WTF_MAKE_STRUCT_FAST_ALLOCATED;
+        WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(BlockData);
 
         BlockData()
             : idomParent(nullptr)

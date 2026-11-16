@@ -29,14 +29,15 @@
 #if ENABLE(USER_MESSAGE_HANDLERS)
 
 #include "DOMWrapperWorld.h"
-#include "Frame.h"
+#include "FrameDestructionObserverInlines.h"
+#include "LocalFrame.h"
 #include "Page.h"
 #include "UserContentController.h"
 #include "UserMessageHandler.h"
 
 namespace WebCore {
 
-UserMessageHandlersNamespace::UserMessageHandlersNamespace(Frame& frame, UserContentProvider& userContentProvider)
+UserMessageHandlersNamespace::UserMessageHandlersNamespace(LocalFrame& frame, UserContentProvider& userContentProvider)
     : FrameDestructionObserver(&frame)
     , m_userContentProvider(userContentProvider)
 {
@@ -50,12 +51,11 @@ UserMessageHandlersNamespace::~UserMessageHandlersNamespace()
 
 void UserMessageHandlersNamespace::didInvalidate(UserContentProvider& provider)
 {
-    auto oldMap = WTFMove(m_messageHandlers);
+    auto oldMap = WTF::move(m_messageHandlers);
 
     provider.forEachUserMessageHandler([&](const UserMessageHandlerDescriptor& descriptor) {
-        auto userMessageHandler = oldMap.take(std::make_pair(descriptor.name(), const_cast<DOMWrapperWorld*>(&descriptor.world())));
-        if (userMessageHandler) {
-            m_messageHandlers.add(std::make_pair(descriptor.name(), const_cast<DOMWrapperWorld*>(&descriptor.world())), userMessageHandler);
+        if (RefPtr userMessageHandler = oldMap.take({ descriptor.name(), descriptor.world() })) {
+            m_messageHandlers.add({ descriptor.name(), descriptor.world() }, userMessageHandler.releaseNonNull());
             return;
         }
     });
@@ -71,27 +71,34 @@ Vector<AtomString> UserMessageHandlersNamespace::supportedPropertyNames() const
     return { };
 }
 
-UserMessageHandler* UserMessageHandlersNamespace::namedItem(DOMWrapperWorld& world, const AtomString& name)
+bool UserMessageHandlersNamespace::isSupportedPropertyName(const AtomString&)
 {
-    Frame* frame = this->frame();
+    // FIXME: Consider adding support for this. It would require adding support for passing the
+    // DOMWrapperWorld to isSupportedPropertyName().
+    return false;
+}
+
+RefPtr<UserMessageHandler> UserMessageHandlersNamespace::namedItem(DOMWrapperWorld& world, const AtomString& name)
+{
+    RefPtr frame = this->frame();
     if (!frame)
         return nullptr;
 
-    Page* page = frame->page();
-    if (!page)
+    RefPtr userContentProvider = frame->userContentProvider();
+    if (!userContentProvider)
         return nullptr;
 
-    UserMessageHandler* handler = m_messageHandlers.get(std::pair<AtomString, RefPtr<DOMWrapperWorld>>(name, &world));
+    RefPtr handler = m_messageHandlers.get({ name, world });
     if (handler)
         return handler;
 
-    page->userContentProvider().forEachUserMessageHandler([&](const UserMessageHandlerDescriptor& descriptor) {
+    userContentProvider->forEachUserMessageHandler([&](const UserMessageHandlerDescriptor& descriptor) {
         if (descriptor.name() != name || &descriptor.world() != &world)
             return;
-        
+
         ASSERT(!handler);
 
-        auto addResult = m_messageHandlers.add(std::make_pair(descriptor.name(), const_cast<DOMWrapperWorld*>(&descriptor.world())), UserMessageHandler::create(*frame, const_cast<UserMessageHandlerDescriptor&>(descriptor)));
+        auto addResult = m_messageHandlers.add({ descriptor.name(), descriptor.world() }, UserMessageHandler::create(*frame, descriptor));
         handler = addResult.iterator->value.get();
     });
 

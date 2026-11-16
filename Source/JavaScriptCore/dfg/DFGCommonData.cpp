@@ -42,13 +42,12 @@ namespace JSC { namespace DFG {
 void CommonData::shrinkToFit()
 {
     codeOrigins->shrinkToFit();
-    m_jumpReplacements.shrinkToFit();
 }
 
 static Lock pcCodeBlockMapLock;
-inline HashMap<void*, CodeBlock*>& pcCodeBlockMap() WTF_REQUIRES_LOCK(pcCodeBlockMapLock)
+inline UncheckedKeyHashMap<void*, CodeBlock*>& pcCodeBlockMap() WTF_REQUIRES_LOCK(pcCodeBlockMapLock)
 {
-    static LazyNeverDestroyed<HashMap<void*, CodeBlock*>> pcCodeBlockMap;
+    static LazyNeverDestroyed<UncheckedKeyHashMap<void*, CodeBlock*>> pcCodeBlockMap;
     static std::once_flag onceKey;
     std::call_once(onceKey, [&] {
         pcCodeBlockMap.construct();
@@ -56,28 +55,36 @@ inline HashMap<void*, CodeBlock*>& pcCodeBlockMap() WTF_REQUIRES_LOCK(pcCodeBloc
     return pcCodeBlockMap;
 }
 
-bool CommonData::invalidate()
+bool CommonData::invalidateLinkedCode()
 {
-    if (!isStillValid)
+    if (m_isUnlinked) {
+        ASSERT(m_jumpReplacements.isEmpty());
+        return true;
+    }
+
+    if (!m_isStillValid)
         return false;
 
-    if (UNLIKELY(hasVMTrapsBreakpointsInstalled)) {
+    if (m_hasVMTrapsBreakpointsInstalled) [[unlikely]] {
         Locker locker { pcCodeBlockMapLock };
         auto& map = pcCodeBlockMap();
         for (auto& jumpReplacement : m_jumpReplacements)
             map.remove(jumpReplacement.dataLocation());
-        hasVMTrapsBreakpointsInstalled = false;
+        m_hasVMTrapsBreakpointsInstalled = false;
     }
 
     for (unsigned i = m_jumpReplacements.size(); i--;)
         m_jumpReplacements[i].fire();
-    isStillValid = false;
+
+    m_isStillValid = false;
     return true;
 }
 
 CommonData::~CommonData()
 {
-    if (UNLIKELY(hasVMTrapsBreakpointsInstalled)) {
+    if (m_isUnlinked)
+        return;
+    if (m_hasVMTrapsBreakpointsInstalled) [[unlikely]] {
         Locker locker { pcCodeBlockMapLock };
         auto& map = pcCodeBlockMap();
         for (auto& jumpReplacement : m_jumpReplacements)
@@ -87,16 +94,17 @@ CommonData::~CommonData()
 
 void CommonData::installVMTrapBreakpoints(CodeBlock* owner)
 {
+    ASSERT(!m_isUnlinked);
     Locker locker { pcCodeBlockMapLock };
-    if (!isStillValid || hasVMTrapsBreakpointsInstalled)
+    if (!m_isStillValid || m_hasVMTrapsBreakpointsInstalled)
         return;
-    hasVMTrapsBreakpointsInstalled = true;
+    m_hasVMTrapsBreakpointsInstalled = true;
 
     auto& map = pcCodeBlockMap();
 #if !defined(NDEBUG)
     // We need to be able to handle more than one invalidation point at the same pc
     // but we want to make sure we don't forget to remove a pc from the map.
-    HashSet<void*> newReplacements;
+    UncheckedKeyHashSet<void*> newReplacements;
 #endif
     for (auto& jumpReplacement : m_jumpReplacements) {
         jumpReplacement.installVMTrapBreakpoint();
@@ -119,17 +127,6 @@ CodeBlock* codeBlockForVMTrapPC(void* pc)
     if (result == map.end())
         return nullptr;
     return result->value;
-}
-
-bool CommonData::isVMTrapBreakpoint(void* address)
-{
-    if (!isStillValid)
-        return false;
-    for (unsigned i = m_jumpReplacements.size(); i--;) {
-        if (address == m_jumpReplacements[i].dataLocation())
-            return true;
-    }
-    return false;
 }
 
 void CommonData::validateReferences(const TrackedReferences& trackedReferences)
@@ -155,10 +152,9 @@ void CommonData::validateReferences(const TrackedReferences& trackedReferences)
 
 void CommonData::finalizeCatchEntrypoints(Vector<CatchEntrypointData>&& catchEntrypoints)
 {
-    std::sort(catchEntrypoints.begin(), catchEntrypoints.end(),
-        [] (const CatchEntrypointData& a, const CatchEntrypointData& b) { return a.bytecodeIndex < b.bytecodeIndex; });
+    std::ranges::sort(catchEntrypoints, { }, &CatchEntrypointData::bytecodeIndex);
     ASSERT(m_catchEntrypoints.isEmpty());
-    m_catchEntrypoints = WTFMove(catchEntrypoints);
+    m_catchEntrypoints = WTF::move(catchEntrypoints);
 
 #if ASSERT_ENABLED
     for (unsigned i = 0; i + 1 < m_catchEntrypoints.size(); ++i)

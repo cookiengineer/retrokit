@@ -26,7 +26,21 @@
 #include "config.h"
 #include "MediaStrategy.h"
 
+#include "AudioVideoRenderer.h"
+#if USE(AVFOUNDATION)
+#include "AudioVideoRendererAVFObjC.h"
+#endif
+#include "MediaPlayer.h"
+#include <wtf/TZoneMallocInlines.h>
+
+#if ENABLE(MEDIA_SOURCE)
+#include "DeprecatedGlobalSettings.h"
+#include "MockMediaPlayerMediaSource.h"
+#endif
+
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MediaStrategy);
 
 MediaStrategy::MediaStrategy() = default;
 
@@ -37,4 +51,71 @@ std::unique_ptr<NowPlayingManager> MediaStrategy::createNowPlayingManager() cons
     return makeUnique<NowPlayingManager>();
 }
 
+void MediaStrategy::resetMediaEngines()
+{
+#if ENABLE(VIDEO)
+    MediaPlayer::resetMediaEngines();
+#endif
+    m_mockMediaSourceEnabled = false;
 }
+
+bool MediaStrategy::hasThreadSafeMediaSourceSupport() const
+{
+    return false;
+}
+
+#if ENABLE(MEDIA_SOURCE)
+void MediaStrategy::enableMockMediaSource()
+{
+#if USE(AVFOUNDATION)
+    WebCore::DeprecatedGlobalSettings::setAVFoundationEnabled(false);
+#endif
+#if USE(GSTREAMER)
+    WebCore::DeprecatedGlobalSettings::setGStreamerEnabled(false);
+#endif
+    addMockMediaSourceEngine();
+}
+
+bool MediaStrategy::mockMediaSourceEnabled() const
+{
+    return m_mockMediaSourceEnabled;
+}
+
+void MediaStrategy::addMockMediaSourceEngine()
+{
+    MediaPlayerFactorySupport::callRegisterMediaEngine(MockMediaPlayerMediaSource::registerMediaEngine);
+}
+#endif
+
+#if ENABLE(VIDEO)
+RefPtr<AudioVideoRenderer> MediaStrategy::createAudioVideoRenderer(WTF::LoggerHelper* loggerHelper, HTMLMediaElementIdentifier, MediaPlayerIdentifier) const
+{
+#if USE(AVFOUNDATION)
+    ASSERT(loggerHelper);
+    return AudioVideoRendererAVFObjC::create(Ref { loggerHelper->logger() }, loggerHelper->logIdentifier());
+#else
+    UNUSED_PARAM(loggerHelper);
+    return nullptr;
+#endif
+}
+#endif
+
+#if ENABLE(WIRELESS_PLAYBACK_MEDIA_PLAYER)
+void MediaStrategy::setWirelessPlaybackMediaPlayerEnabled(bool enabled)
+{
+    if (m_wirelessPlaybackMediaPlayerEnabled == enabled)
+        return;
+
+    m_wirelessPlaybackMediaPlayerEnabled = enabled;
+#if ENABLE(VIDEO)
+    MediaPlayer::resetMediaEngines();
+#endif
+}
+
+bool MediaStrategy::wirelessPlaybackMediaPlayerEnabled() const
+{
+    return m_wirelessPlaybackMediaPlayerEnabled;
+}
+#endif
+
+} // namespace WebCore

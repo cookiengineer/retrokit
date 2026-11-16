@@ -27,15 +27,17 @@
 #include "config.h"
 #include "ReadableStreamSink.h"
 
-#include "BufferSource.h"
 #include "DOMException.h"
+#include "ExceptionOr.h"
+#include "JSDOMGlobalObject.h"
 #include "ReadableStream.h"
 #include "SharedBuffer.h"
+#include <JavaScriptCore/Uint8Array.h>
 
 namespace WebCore {
 
 ReadableStreamToSharedBufferSink::ReadableStreamToSharedBufferSink(Callback&& callback)
-    : m_callback { WTFMove(callback) }
+    : m_callback { WTF::move(callback) }
 {
 }
 
@@ -44,27 +46,33 @@ void ReadableStreamToSharedBufferSink::pipeFrom(ReadableStream& stream)
     stream.pipeTo(*this);
 }
 
-void ReadableStreamToSharedBufferSink::enqueue(const BufferSource& buffer)
+void ReadableStreamToSharedBufferSink::enqueue(const Ref<JSC::Uint8Array>& buffer)
 {
-    if (!buffer.length())
+    if (!buffer->byteLength())
         return;
 
     if (m_callback) {
-        Span chunk { buffer.data(), buffer.length() };
+        auto chunk = buffer->span();
         m_callback(&chunk);
     }
 }
 
 void ReadableStreamToSharedBufferSink::close()
 {
-    if (m_callback)
-        m_callback(nullptr);
+    if (!m_callback)
+        return;
+
+    auto callback = std::exchange(m_callback, { });
+    callback(nullptr);
 }
 
 void ReadableStreamToSharedBufferSink::error(String&& message)
 {
-    if (auto callback = WTFMove(m_callback))
-        callback(Exception { TypeError, WTFMove(message) });
+    if (!m_callback)
+        return;
+
+    auto callback = std::exchange(m_callback, { });
+    callback(Exception { ExceptionCode::TypeError, WTF::move(message) });
 }
 
 } // namespace WebCore

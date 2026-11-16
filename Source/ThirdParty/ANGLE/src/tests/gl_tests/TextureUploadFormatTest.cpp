@@ -3,11 +3,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
-// Texture upload format tests:
+// TextureUploadFormatTest.cpp:
 //   Test all texture unpack/upload formats for sampling correctness.
 //
 
 #include "common/mathutil.h"
+#include "common/unsafe_buffers.h"
 #include "image_util/copyimage.h"
 #include "test_utils/ANGLETest.h"
 #include "test_utils/gl_raii.h"
@@ -16,8 +17,19 @@ using namespace angle;
 
 namespace
 {
+enum class UploadSource
+{
+    ClientMemory,
+    PBO,
+};
 
-class TextureUploadFormatTest : public ANGLETest
+class TextureUploadFormatTest : public ANGLETest<>
+{
+  protected:
+    void TestAll(UploadSource uploadSource);
+};
+
+class TextureUploadFormatTest_ES3 : public TextureUploadFormatTest
 {};
 
 struct TexFormat final
@@ -27,6 +39,9 @@ struct TexFormat final
     GLenum unpackType;
 
     TexFormat() = delete;
+    TexFormat(GLenum internalFormat, GLenum unpackFormat, GLenum unpackType)
+        : internalFormat(internalFormat), unpackFormat(unpackFormat), unpackType(unpackType)
+    {}
 
     uint8_t bytesPerPixel() const
     {
@@ -102,7 +117,8 @@ struct TexFormat final
 template <const uint8_t bits>
 constexpr uint32_t EncodeNormUint(const float val)
 {
-    return static_cast<uint32_t>(val * (UINT32_MAX >> (32 - bits)) + 0.5);  // round-half-up
+    return static_cast<uint32_t>(val * static_cast<float>(UINT32_MAX >> (32 - bits)) +
+                                 0.5f);  // round-half-up
 }
 
 }  // anonymous namespace
@@ -114,7 +130,7 @@ template <typename DestT, typename SrcT, size_t SrcN>
 void ZeroAndCopy(DestT &dest, const SrcT (&src)[SrcN])
 {
     dest.fill(0);
-    memcpy(dest.data(), src, sizeof(SrcT) * SrcN);
+    ANGLE_UNSAFE_TODO(memcpy(dest.data(), src, sizeof(SrcT) * SrcN));
 }
 
 std::string EnumStr(const GLenum v)
@@ -127,23 +143,21 @@ std::string EnumStr(const GLenum v)
 template <typename ColorT, typename DestT>
 void EncodeThenZeroAndCopy(DestT &dest, const float srcVals[4])
 {
-    ColorF srcValsF(srcVals[0], srcVals[1], srcVals[2], srcVals[3]);
+    ColorF srcValsF = ANGLE_UNSAFE_TODO(ColorF(srcVals[0], srcVals[1], srcVals[2], srcVals[3]));
 
     ColorT encoded;
     ColorT::writeColor(&encoded, &srcValsF);
 
     dest.fill(0);
-    memcpy(dest.data(), &encoded, sizeof(ColorT));
+    ANGLE_UNSAFE_TODO(memcpy(dest.data(), &encoded, sizeof(ColorT)));
 }
 }  // anonymous namespace
 
 // Upload (1,2,5,3) to integer formats, and (1,2,5,3)/8.0 to float formats.
 // Draw a point into a 1x1 renderbuffer and readback the result for comparison with expectations.
 // Test all internalFormat/unpackFormat/unpackType combinations from ES3.0.
-TEST_P(TextureUploadFormatTest, All)
+void TextureUploadFormatTest::TestAll(UploadSource uploadSource)
 {
-    ANGLE_SKIP_TEST_IF(IsD3D9() || IsD3D11_FL93());
-
     constexpr char kVertShaderES2[]     = R"(
         void main()
         {
@@ -175,7 +189,7 @@ TEST_P(TextureUploadFormatTest, All)
     glBindFramebuffer(GL_FRAMEBUFFER, backbufferFB);
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, backbufferRB);
     ASSERT_GL_NO_ERROR();
-    ASSERT_GLENUM_EQ(GL_FRAMEBUFFER_COMPLETE, glCheckFramebufferStatus(GL_FRAMEBUFFER));
+    ASSERT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
 
     glViewport(0, 0, 1, 1);
 
@@ -220,6 +234,7 @@ TEST_P(TextureUploadFormatTest, All)
         const auto actual = ReadColor(0, 0);
 
         GLColor expected;
+        std::optional<GLColor> alternativeExpected;
         switch (format.unpackFormat)
         {
             case GL_RGBA:
@@ -234,20 +249,10 @@ TEST_P(TextureUploadFormatTest, All)
                 break;
             case GL_DEPTH_COMPONENT:
             case GL_DEPTH_STENCIL:
-                // Metal back-end requires swizzle feature to return (depth, 0, 0, 1) from sampling
-                // a depth texture.
-                // http://anglebug.com/5243
-                if (IsMetal() && !IsMetalTextureSwizzleAvailable())
-                {
-                    // If texture swizzle is not supported, we should only compare the first
-                    // component.
-                    expected = {refVals[0], actual[1], actual[2], actual[3]};
-                }
-                else
-                {
-
-                    expected = {refVals[0], 0, 0, 255};
-                }
+                expected = {refVals[0], 0, 0, 255};
+                // The green and blue channels are undefined. Some backends treat these textures are
+                // luminance while others return 0 in g/b channels.
+                alternativeExpected = {refVals[0], refVals[0], refVals[0], 255};
                 break;
             case GL_RED:
                 expected = {refVals[0], 0, 0, 255};
@@ -279,12 +284,13 @@ TEST_P(TextureUploadFormatTest, All)
 
         ASSERT_GL_NO_ERROR();
         auto result = actual.ExpectNear(expected, err);
-        if (!result)
+        if (!result && alternativeExpected.has_value())
         {
-            result << " [" << EnumStr(format.internalFormat) << "/" << EnumStr(format.unpackFormat)
-                   << "/" << EnumStr(format.unpackType) << " " << info << "]";
+            result = actual.ExpectNear(*alternativeExpected, err);
         }
-        EXPECT_TRUE(result);
+        EXPECT_TRUE(result) << " [" << EnumStr(format.internalFormat) << "/"
+                            << EnumStr(format.unpackFormat) << "/" << EnumStr(format.unpackType)
+                            << " " << info << "]";
     };
 
     // Provide buffers for test data, and a func to run the test on both the data directly, and on
@@ -294,8 +300,25 @@ TEST_P(TextureUploadFormatTest, All)
     std::array<uint8_t, sizeof(float) * 4> srcBuffer;
 
     std::array<uint8_t, srcBuffer.size() * 2> subrectBuffer;
+
+    GLBuffer pboBuffer;
+    const bool usePBO = uploadSource == UploadSource::PBO;
+    if (usePBO)
+    {
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pboBuffer);
+        glBufferData(GL_PIXEL_UNPACK_BUFFER, subrectBuffer.size(), nullptr, GL_DYNAMIC_DRAW);
+    }
+
     const auto fnTest = [&](const TexFormat &format, const GLColor &err) {
-        fnTestData(format, srcBuffer.data(), err, "simple");
+        if (usePBO)
+        {
+            glBufferSubData(GL_PIXEL_UNPACK_BUFFER, 0, srcBuffer.size(), srcBuffer.data());
+            fnTestData(format, nullptr, err, "simple");
+        }
+        else
+        {
+            fnTestData(format, srcBuffer.data(), err, "simple");
+        }
 
         if (!hasSubrectUploads)
             return;
@@ -305,8 +328,17 @@ TEST_P(TextureUploadFormatTest, All)
         glPixelStorei(GL_UNPACK_SKIP_PIXELS, 1);
 
         subrectBuffer.fill(0);
-        memcpy(subrectBuffer.data() + bytesPerPixel, srcBuffer.data(), bytesPerPixel);
-        fnTestData(format, subrectBuffer.data(), err, "subrect");
+        ANGLE_UNSAFE_TODO(
+            memcpy(subrectBuffer.data() + bytesPerPixel, srcBuffer.data(), bytesPerPixel));
+        if (usePBO)
+        {
+            glBufferSubData(GL_PIXEL_UNPACK_BUFFER, 0, subrectBuffer.size(), subrectBuffer.data());
+            fnTestData(format, nullptr, err, "simple");
+        }
+        else
+        {
+            fnTestData(format, subrectBuffer.data(), err, "subrect");
+        }
 
         glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
     };
@@ -326,22 +358,31 @@ TEST_P(TextureUploadFormatTest, All)
                                    static_cast<uint8_t>(EncodeNormUint<8>(srcVals[3]))};
         ZeroAndCopy(srcBuffer, src);
 
-        fnTest({GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE}, {1, 1, 1, 1});
-        fnTest({GL_RGB5_A1, GL_RGBA, GL_UNSIGNED_BYTE}, {8, 8, 8, 255});
-        fnTest({GL_RGBA4, GL_RGBA, GL_UNSIGNED_BYTE}, {16, 16, 16, 16});
+        fnTest(TexFormat(GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE), {1, 1, 1, 1});
+        fnTest(TexFormat(GL_RGB5_A1, GL_RGBA, GL_UNSIGNED_BYTE), {8, 8, 8, 255});
+        fnTest(TexFormat(GL_RGBA4, GL_RGBA, GL_UNSIGNED_BYTE), {16, 16, 16, 16});
 
-        fnTest({GL_RGB8, GL_RGB, GL_UNSIGNED_BYTE}, {1, 1, 1, 0});
-        fnTest({GL_RGB565, GL_RGB, GL_UNSIGNED_BYTE}, {8, 4, 8, 0});
+        fnTest(TexFormat(GL_RGB8, GL_RGB, GL_UNSIGNED_BYTE), {1, 1, 1, 0});
+        fnTest(TexFormat(GL_RGB565, GL_RGB, GL_UNSIGNED_BYTE), {8, 4, 8, 0});
 
-        fnTest({GL_RG8, GL_RG, GL_UNSIGNED_BYTE}, {1, 1, 0, 0});
+        fnTest(TexFormat(GL_RG8, GL_RG, GL_UNSIGNED_BYTE), {1, 1, 0, 0});
 
-        fnTest({GL_R8, GL_RED, GL_UNSIGNED_BYTE}, {1, 0, 0, 0});
+        fnTest(TexFormat(GL_R8, GL_RED, GL_UNSIGNED_BYTE), {1, 0, 0, 0});
 
-        fnTest({GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE}, {1, 1, 1, 1});
-        fnTest({GL_RGB, GL_RGB, GL_UNSIGNED_BYTE}, {1, 1, 1, 0});
-        fnTest({GL_LUMINANCE_ALPHA, GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE}, {1, 1, 1, 1});
-        fnTest({GL_LUMINANCE, GL_LUMINANCE, GL_UNSIGNED_BYTE}, {1, 1, 1, 0});
-        fnTest({GL_ALPHA, GL_ALPHA, GL_UNSIGNED_BYTE}, {0, 0, 0, 1});
+        fnTest(TexFormat(GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE), {1, 1, 1, 1});
+        fnTest(TexFormat(GL_RGB, GL_RGB, GL_UNSIGNED_BYTE), {1, 1, 1, 0});
+        fnTest(TexFormat(GL_LUMINANCE_ALPHA, GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE), {1, 1, 1, 1});
+        fnTest(TexFormat(GL_LUMINANCE, GL_LUMINANCE, GL_UNSIGNED_BYTE), {1, 1, 1, 0});
+        fnTest(TexFormat(GL_ALPHA, GL_ALPHA, GL_UNSIGNED_BYTE), {0, 0, 0, 1});
+        if (IsGLExtensionEnabled("GL_OES_required_internalformat"))
+        {
+            fnTest(TexFormat(GL_LUMINANCE4_ALPHA4_OES, GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE),
+                   {4, 4, 4, 4});
+            fnTest(TexFormat(GL_LUMINANCE8_ALPHA8_OES, GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE),
+                   {1, 1, 1, 1});
+            fnTest(TexFormat(GL_LUMINANCE8_OES, GL_LUMINANCE, GL_UNSIGNED_BYTE), {1, 1, 1, 0});
+            fnTest(TexFormat(GL_ALPHA8_OES, GL_ALPHA, GL_UNSIGNED_BYTE), {0, 0, 0, 1});
+        }
     }
 
     // RGBA+BYTE
@@ -352,10 +393,10 @@ TEST_P(TextureUploadFormatTest, All)
                                    static_cast<uint8_t>(EncodeNormUint<7>(srcVals[3]))};
         ZeroAndCopy(srcBuffer, src);
 
-        fnTest({GL_RGBA8_SNORM, GL_RGBA, GL_BYTE}, {2, 2, 2, 2});
-        fnTest({GL_RGB8_SNORM, GL_RGB, GL_BYTE}, {2, 2, 2, 0});
-        fnTest({GL_RG8_SNORM, GL_RG, GL_BYTE}, {2, 2, 0, 0});
-        fnTest({GL_R8_SNORM, GL_RED, GL_BYTE}, {2, 0, 0, 0});
+        fnTest(TexFormat(GL_RGBA8_SNORM, GL_RGBA, GL_BYTE), {2, 2, 2, 2});
+        fnTest(TexFormat(GL_RGB8_SNORM, GL_RGB, GL_BYTE), {2, 2, 2, 0});
+        fnTest(TexFormat(GL_RG8_SNORM, GL_RG, GL_BYTE), {2, 2, 0, 0});
+        fnTest(TexFormat(GL_R8_SNORM, GL_RED, GL_BYTE), {2, 0, 0, 0});
     }
 
     // RGB+UNSIGNED_SHORT_5_6_5
@@ -365,8 +406,8 @@ TEST_P(TextureUploadFormatTest, All)
                                                           (EncodeNormUint<5>(srcVals[2]) << 0))};
         ZeroAndCopy(srcBuffer, src);
 
-        fnTest({GL_RGB565, GL_RGB, GL_UNSIGNED_SHORT_5_6_5}, {8, 4, 8, 0});
-        fnTest({GL_RGB, GL_RGB, GL_UNSIGNED_SHORT_5_6_5}, {8, 4, 8, 0});
+        fnTest(TexFormat(GL_RGB565, GL_RGB, GL_UNSIGNED_SHORT_5_6_5), {8, 4, 8, 0});
+        fnTest(TexFormat(GL_RGB, GL_RGB, GL_UNSIGNED_SHORT_5_6_5), {8, 4, 8, 0});
     }
 
     // RGBA+UNSIGNED_SHORT_4_4_4_4
@@ -376,8 +417,8 @@ TEST_P(TextureUploadFormatTest, All)
             (EncodeNormUint<4>(srcVals[2]) << 4) | (EncodeNormUint<4>(srcVals[3]) << 0))};
         ZeroAndCopy(srcBuffer, src);
 
-        fnTest({GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4}, {16, 16, 16, 16});
-        fnTest({GL_RGBA, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4}, {16, 16, 16, 16});
+        fnTest(TexFormat(GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4), {16, 16, 16, 16});
+        fnTest(TexFormat(GL_RGBA, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4), {16, 16, 16, 16});
     }
 
     // RGBA+UNSIGNED_SHORT_5_5_5_1
@@ -387,7 +428,8 @@ TEST_P(TextureUploadFormatTest, All)
             (EncodeNormUint<5>(srcVals[2]) << 1) | (EncodeNormUint<1>(srcVals[3]) << 0))};
         ZeroAndCopy(srcBuffer, src);
 
-        fnTest({GL_RGBA, GL_RGBA, GL_UNSIGNED_SHORT_5_5_5_1}, {8, 8, 8, 255});
+        fnTest(TexFormat(GL_RGBA, GL_RGBA, GL_UNSIGNED_SHORT_5_5_5_1), {8, 8, 8, 255});
+        fnTest(TexFormat(GL_RGB5_A1, GL_RGBA, GL_UNSIGNED_SHORT_5_5_5_1), {8, 8, 8, 255});
     }
 
     // RGBA+UNSIGNED_INT_2_10_10_10_REV
@@ -397,9 +439,9 @@ TEST_P(TextureUploadFormatTest, All)
             (EncodeNormUint<10>(srcVals[2]) << 20) | (EncodeNormUint<2>(srcVals[3]) << 30)};
         ZeroAndCopy(srcBuffer, src);
 
-        fnTest({GL_RGB10_A2, GL_RGBA, GL_UNSIGNED_INT_2_10_10_10_REV}, {1, 1, 1, 128});
-        fnTest({GL_RGB5_A1, GL_RGBA, GL_UNSIGNED_INT_2_10_10_10_REV}, {8, 8, 8, 255});
-        fnTest({GL_RGBA, GL_RGBA, GL_UNSIGNED_INT_2_10_10_10_REV}, {1, 1, 1, 128});
+        fnTest(TexFormat(GL_RGB10_A2, GL_RGBA, GL_UNSIGNED_INT_2_10_10_10_REV), {1, 1, 1, 128});
+        fnTest(TexFormat(GL_RGB5_A1, GL_RGBA, GL_UNSIGNED_INT_2_10_10_10_REV), {8, 8, 8, 255});
+        fnTest(TexFormat(GL_RGBA, GL_RGBA, GL_UNSIGNED_INT_2_10_10_10_REV), {1, 1, 1, 128});
     }
 
     // RGB+UNSIGNED_INT_2_10_10_10_REV
@@ -409,7 +451,7 @@ TEST_P(TextureUploadFormatTest, All)
             (EncodeNormUint<10>(srcVals[2]) << 20) | (EncodeNormUint<2>(srcVals[3]) << 30)};
         ZeroAndCopy(srcBuffer, src);
 
-        fnTest({GL_RGB, GL_RGB, GL_UNSIGNED_INT_2_10_10_10_REV}, {1, 1, 1, 0});
+        fnTest(TexFormat(GL_RGB, GL_RGB, GL_UNSIGNED_INT_2_10_10_10_REV), {1, 1, 1, 0});
     }
 
     // DEPTH_COMPONENT+UNSIGNED_SHORT
@@ -417,7 +459,8 @@ TEST_P(TextureUploadFormatTest, All)
         const uint16_t src[] = {static_cast<uint16_t>(EncodeNormUint<16>(srcVals[0]))};
         ZeroAndCopy(srcBuffer, src);
 
-        fnTest({GL_DEPTH_COMPONENT16, GL_DEPTH_COMPONENT, GL_UNSIGNED_SHORT}, {1, 0, 0, 0});
+        fnTest(TexFormat(GL_DEPTH_COMPONENT16, GL_DEPTH_COMPONENT, GL_UNSIGNED_SHORT),
+               {1, 0, 0, 0});
     }
 
     // DEPTH_COMPONENT+UNSIGNED_INT
@@ -425,8 +468,8 @@ TEST_P(TextureUploadFormatTest, All)
         constexpr uint32_t src[] = {EncodeNormUint<32>(srcVals[0])};
         ZeroAndCopy(srcBuffer, src);
 
-        fnTest({GL_DEPTH_COMPONENT24, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT}, {1, 0, 0, 0});
-        fnTest({GL_DEPTH_COMPONENT16, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT}, {1, 0, 0, 0});
+        fnTest(TexFormat(GL_DEPTH_COMPONENT24, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT), {1, 0, 0, 0});
+        fnTest(TexFormat(GL_DEPTH_COMPONENT16, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT), {1, 0, 0, 0});
     }
 
     // DEPTH_STENCIL+UNSIGNED_INT_24_8
@@ -435,7 +478,8 @@ TEST_P(TextureUploadFormatTest, All)
         constexpr uint32_t src[] = {EncodeNormUint<24>(srcVals[0]) << 8};
         ZeroAndCopy(srcBuffer, src);
 
-        fnTest({GL_DEPTH24_STENCIL8, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8}, {1, 0, 0, 0});
+        fnTest(TexFormat(GL_DEPTH24_STENCIL8, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8),
+               {1, 0, 0, 0});
     }
 
     if (getClientMajorVersion() < 3)
@@ -476,10 +520,10 @@ TEST_P(TextureUploadFormatTest, All)
         constexpr uint8_t src[4] = {srcIntVals[0], srcIntVals[1], srcIntVals[2], srcIntVals[3]};
         ZeroAndCopy(srcBuffer, src);
 
-        fnTest({GL_RGBA8I, GL_RGBA_INTEGER, GL_BYTE}, {1, 1, 1, 1});
-        fnTest({GL_RGB8I, GL_RGB_INTEGER, GL_BYTE}, {1, 1, 1, 1});
-        fnTest({GL_RG8I, GL_RG_INTEGER, GL_BYTE}, {1, 1, 1, 1});
-        fnTest({GL_R8I, GL_RED_INTEGER, GL_BYTE}, {1, 1, 1, 1});
+        fnTest(TexFormat(GL_RGBA8I, GL_RGBA_INTEGER, GL_BYTE), {1, 1, 1, 1});
+        fnTest(TexFormat(GL_RGB8I, GL_RGB_INTEGER, GL_BYTE), {1, 1, 1, 1});
+        fnTest(TexFormat(GL_RG8I, GL_RG_INTEGER, GL_BYTE), {1, 1, 1, 1});
+        fnTest(TexFormat(GL_R8I, GL_RED_INTEGER, GL_BYTE), {1, 1, 1, 1});
     }
 
     // RGBA_INTEGER+UNSIGNED_SHORT
@@ -487,10 +531,10 @@ TEST_P(TextureUploadFormatTest, All)
         constexpr uint16_t src[4] = {srcIntVals[0], srcIntVals[1], srcIntVals[2], srcIntVals[3]};
         ZeroAndCopy(srcBuffer, src);
 
-        fnTest({GL_RGBA16I, GL_RGBA_INTEGER, GL_SHORT}, {1, 1, 1, 1});
-        fnTest({GL_RGB16I, GL_RGB_INTEGER, GL_SHORT}, {1, 1, 1, 1});
-        fnTest({GL_RG16I, GL_RG_INTEGER, GL_SHORT}, {1, 1, 1, 1});
-        fnTest({GL_R16I, GL_RED_INTEGER, GL_SHORT}, {1, 1, 1, 1});
+        fnTest(TexFormat(GL_RGBA16I, GL_RGBA_INTEGER, GL_SHORT), {1, 1, 1, 1});
+        fnTest(TexFormat(GL_RGB16I, GL_RGB_INTEGER, GL_SHORT), {1, 1, 1, 1});
+        fnTest(TexFormat(GL_RG16I, GL_RG_INTEGER, GL_SHORT), {1, 1, 1, 1});
+        fnTest(TexFormat(GL_R16I, GL_RED_INTEGER, GL_SHORT), {1, 1, 1, 1});
     }
 
     // RGBA_INTEGER+UNSIGNED_INT
@@ -498,10 +542,10 @@ TEST_P(TextureUploadFormatTest, All)
         constexpr uint32_t src[4] = {srcIntVals[0], srcIntVals[1], srcIntVals[2], srcIntVals[3]};
         ZeroAndCopy(srcBuffer, src);
 
-        fnTest({GL_RGBA32I, GL_RGBA_INTEGER, GL_INT}, {1, 1, 1, 1});
-        fnTest({GL_RGB32I, GL_RGB_INTEGER, GL_INT}, {1, 1, 1, 1});
-        fnTest({GL_RG32I, GL_RG_INTEGER, GL_INT}, {1, 1, 1, 1});
-        fnTest({GL_R32I, GL_RED_INTEGER, GL_INT}, {1, 1, 1, 1});
+        fnTest(TexFormat(GL_RGBA32I, GL_RGBA_INTEGER, GL_INT), {1, 1, 1, 1});
+        fnTest(TexFormat(GL_RGB32I, GL_RGB_INTEGER, GL_INT), {1, 1, 1, 1});
+        fnTest(TexFormat(GL_RG32I, GL_RG_INTEGER, GL_INT), {1, 1, 1, 1});
+        fnTest(TexFormat(GL_R32I, GL_RED_INTEGER, GL_INT), {1, 1, 1, 1});
     }
 
     // Non-normalized uints
@@ -512,10 +556,10 @@ TEST_P(TextureUploadFormatTest, All)
         constexpr uint8_t src[4] = {srcIntVals[0], srcIntVals[1], srcIntVals[2], srcIntVals[3]};
         ZeroAndCopy(srcBuffer, src);
 
-        fnTest({GL_RGBA8UI, GL_RGBA_INTEGER, GL_UNSIGNED_BYTE}, {1, 1, 1, 1});
-        fnTest({GL_RGB8UI, GL_RGB_INTEGER, GL_UNSIGNED_BYTE}, {1, 1, 1, 1});
-        fnTest({GL_RG8UI, GL_RG_INTEGER, GL_UNSIGNED_BYTE}, {1, 1, 1, 1});
-        fnTest({GL_R8UI, GL_RED_INTEGER, GL_UNSIGNED_BYTE}, {1, 1, 1, 1});
+        fnTest(TexFormat(GL_RGBA8UI, GL_RGBA_INTEGER, GL_UNSIGNED_BYTE), {1, 1, 1, 1});
+        fnTest(TexFormat(GL_RGB8UI, GL_RGB_INTEGER, GL_UNSIGNED_BYTE), {1, 1, 1, 1});
+        fnTest(TexFormat(GL_RG8UI, GL_RG_INTEGER, GL_UNSIGNED_BYTE), {1, 1, 1, 1});
+        fnTest(TexFormat(GL_R8UI, GL_RED_INTEGER, GL_UNSIGNED_BYTE), {1, 1, 1, 1});
     }
 
     // RGBA_INTEGER+UNSIGNED_SHORT
@@ -523,10 +567,10 @@ TEST_P(TextureUploadFormatTest, All)
         constexpr uint16_t src[4] = {srcIntVals[0], srcIntVals[1], srcIntVals[2], srcIntVals[3]};
         ZeroAndCopy(srcBuffer, src);
 
-        fnTest({GL_RGBA16UI, GL_RGBA_INTEGER, GL_UNSIGNED_SHORT}, {1, 1, 1, 1});
-        fnTest({GL_RGB16UI, GL_RGB_INTEGER, GL_UNSIGNED_SHORT}, {1, 1, 1, 1});
-        fnTest({GL_RG16UI, GL_RG_INTEGER, GL_UNSIGNED_SHORT}, {1, 1, 1, 1});
-        fnTest({GL_R16UI, GL_RED_INTEGER, GL_UNSIGNED_SHORT}, {1, 1, 1, 1});
+        fnTest(TexFormat(GL_RGBA16UI, GL_RGBA_INTEGER, GL_UNSIGNED_SHORT), {1, 1, 1, 1});
+        fnTest(TexFormat(GL_RGB16UI, GL_RGB_INTEGER, GL_UNSIGNED_SHORT), {1, 1, 1, 1});
+        fnTest(TexFormat(GL_RG16UI, GL_RG_INTEGER, GL_UNSIGNED_SHORT), {1, 1, 1, 1});
+        fnTest(TexFormat(GL_R16UI, GL_RED_INTEGER, GL_UNSIGNED_SHORT), {1, 1, 1, 1});
     }
 
     // RGBA_INTEGER+UNSIGNED_INT
@@ -534,10 +578,10 @@ TEST_P(TextureUploadFormatTest, All)
         constexpr uint32_t src[4] = {srcIntVals[0], srcIntVals[1], srcIntVals[2], srcIntVals[3]};
         ZeroAndCopy(srcBuffer, src);
 
-        fnTest({GL_RGBA32UI, GL_RGBA_INTEGER, GL_UNSIGNED_INT}, {1, 1, 1, 1});
-        fnTest({GL_RGB32UI, GL_RGB_INTEGER, GL_UNSIGNED_INT}, {1, 1, 1, 1});
-        fnTest({GL_RG32UI, GL_RG_INTEGER, GL_UNSIGNED_INT}, {1, 1, 1, 1});
-        fnTest({GL_R32UI, GL_RED_INTEGER, GL_UNSIGNED_INT}, {1, 1, 1, 1});
+        fnTest(TexFormat(GL_RGBA32UI, GL_RGBA_INTEGER, GL_UNSIGNED_INT), {1, 1, 1, 1});
+        fnTest(TexFormat(GL_RGB32UI, GL_RGB_INTEGER, GL_UNSIGNED_INT), {1, 1, 1, 1});
+        fnTest(TexFormat(GL_RG32UI, GL_RG_INTEGER, GL_UNSIGNED_INT), {1, 1, 1, 1});
+        fnTest(TexFormat(GL_R32UI, GL_RED_INTEGER, GL_UNSIGNED_INT), {1, 1, 1, 1});
     }
 
     // RGBA_INTEGER+UNSIGNED_INT_2_10_10_10_REV
@@ -548,7 +592,8 @@ TEST_P(TextureUploadFormatTest, All)
                                     static_cast<uint32_t>(srcIntVals[3] << 30)};
         ZeroAndCopy(srcBuffer, src);
 
-        fnTest({GL_RGB10_A2UI, GL_RGBA_INTEGER, GL_UNSIGNED_INT_2_10_10_10_REV}, {1, 1, 1, 1});
+        fnTest(TexFormat(GL_RGB10_A2UI, GL_RGBA_INTEGER, GL_UNSIGNED_INT_2_10_10_10_REV),
+               {1, 1, 1, 1});
     }
 
     // True floats
@@ -558,54 +603,54 @@ TEST_P(TextureUploadFormatTest, All)
     {
         EncodeThenZeroAndCopy<R16G16B16A16F>(srcBuffer, srcVals);
 
-        fnTest({GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT}, {1, 1, 1, 1});
+        fnTest(TexFormat(GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT), {1, 1, 1, 1});
 
-        fnTest({GL_RGB16F, GL_RGB, GL_HALF_FLOAT}, {1, 1, 1, 0});
-        fnTest({GL_R11F_G11F_B10F, GL_RGB, GL_HALF_FLOAT}, {1, 1, 1, 0});
-        fnTest({GL_RGB9_E5, GL_RGB, GL_HALF_FLOAT}, {1, 1, 1, 0});
+        fnTest(TexFormat(GL_RGB16F, GL_RGB, GL_HALF_FLOAT), {1, 1, 1, 0});
+        fnTest(TexFormat(GL_R11F_G11F_B10F, GL_RGB, GL_HALF_FLOAT), {1, 1, 1, 0});
+        fnTest(TexFormat(GL_RGB9_E5, GL_RGB, GL_HALF_FLOAT), {1, 1, 1, 0});
 
-        fnTest({GL_RG16F, GL_RG, GL_HALF_FLOAT}, {1, 1, 0, 0});
+        fnTest(TexFormat(GL_RG16F, GL_RG, GL_HALF_FLOAT), {1, 1, 0, 0});
 
-        fnTest({GL_R16F, GL_RED, GL_HALF_FLOAT}, {1, 0, 0, 0});
+        fnTest(TexFormat(GL_R16F, GL_RED, GL_HALF_FLOAT), {1, 0, 0, 0});
 
-        fnTest({GL_RGBA, GL_RGBA, GL_HALF_FLOAT_OES}, {1, 1, 1, 1});
-        fnTest({GL_RGB, GL_RGB, GL_HALF_FLOAT_OES}, {1, 1, 1, 0});
-        fnTest({GL_LUMINANCE_ALPHA, GL_LUMINANCE_ALPHA, GL_HALF_FLOAT_OES}, {1, 1, 1, 1});
-        fnTest({GL_LUMINANCE, GL_LUMINANCE, GL_HALF_FLOAT_OES}, {1, 1, 1, 0});
-        fnTest({GL_ALPHA, GL_ALPHA, GL_HALF_FLOAT_OES}, {0, 0, 0, 1});
+        fnTest(TexFormat(GL_RGBA, GL_RGBA, GL_HALF_FLOAT_OES), {1, 1, 1, 1});
+        fnTest(TexFormat(GL_RGB, GL_RGB, GL_HALF_FLOAT_OES), {1, 1, 1, 0});
+        fnTest(TexFormat(GL_LUMINANCE_ALPHA, GL_LUMINANCE_ALPHA, GL_HALF_FLOAT_OES), {1, 1, 1, 1});
+        fnTest(TexFormat(GL_LUMINANCE, GL_LUMINANCE, GL_HALF_FLOAT_OES), {1, 1, 1, 0});
+        fnTest(TexFormat(GL_ALPHA, GL_ALPHA, GL_HALF_FLOAT_OES), {0, 0, 0, 1});
     }
 
     // RGBA+FLOAT
     {
         ZeroAndCopy(srcBuffer, srcVals);
 
-        fnTest({GL_RGBA32F, GL_RGBA, GL_FLOAT}, {1, 1, 1, 1});
-        fnTest({GL_RGBA16F, GL_RGBA, GL_FLOAT}, {1, 1, 1, 1});
+        fnTest(TexFormat(GL_RGBA32F, GL_RGBA, GL_FLOAT), {1, 1, 1, 1});
+        fnTest(TexFormat(GL_RGBA16F, GL_RGBA, GL_FLOAT), {1, 1, 1, 1});
 
-        fnTest({GL_RGB32F, GL_RGB, GL_FLOAT}, {1, 1, 1, 0});
-        fnTest({GL_RGB16F, GL_RGB, GL_FLOAT}, {1, 1, 1, 0});
-        fnTest({GL_R11F_G11F_B10F, GL_RGB, GL_FLOAT}, {1, 1, 1, 0});
-        fnTest({GL_RGB9_E5, GL_RGB, GL_FLOAT}, {1, 1, 1, 0});
+        fnTest(TexFormat(GL_RGB32F, GL_RGB, GL_FLOAT), {1, 1, 1, 0});
+        fnTest(TexFormat(GL_RGB16F, GL_RGB, GL_FLOAT), {1, 1, 1, 0});
+        fnTest(TexFormat(GL_R11F_G11F_B10F, GL_RGB, GL_FLOAT), {1, 1, 1, 0});
+        fnTest(TexFormat(GL_RGB9_E5, GL_RGB, GL_FLOAT), {1, 1, 1, 0});
 
-        fnTest({GL_RG32F, GL_RG, GL_FLOAT}, {1, 1, 0, 0});
-        fnTest({GL_RG16F, GL_RG, GL_FLOAT}, {1, 1, 0, 0});
+        fnTest(TexFormat(GL_RG32F, GL_RG, GL_FLOAT), {1, 1, 0, 0});
+        fnTest(TexFormat(GL_RG16F, GL_RG, GL_FLOAT), {1, 1, 0, 0});
 
-        fnTest({GL_R32F, GL_RED, GL_FLOAT}, {1, 0, 0, 0});
-        fnTest({GL_R16F, GL_RED, GL_FLOAT}, {1, 0, 0, 0});
+        fnTest(TexFormat(GL_R32F, GL_RED, GL_FLOAT), {1, 0, 0, 0});
+        fnTest(TexFormat(GL_R16F, GL_RED, GL_FLOAT), {1, 0, 0, 0});
     }
 
     // UNSIGNED_INT_10F_11F_11F_REV
     {
         EncodeThenZeroAndCopy<R11G11B10F>(srcBuffer, srcVals);
 
-        fnTest({GL_R11F_G11F_B10F, GL_RGB, GL_UNSIGNED_INT_10F_11F_11F_REV}, {1, 1, 1, 0});
+        fnTest(TexFormat(GL_R11F_G11F_B10F, GL_RGB, GL_UNSIGNED_INT_10F_11F_11F_REV), {1, 1, 1, 0});
     }
 
     // UNSIGNED_INT_5_9_9_9_REV
     {
         EncodeThenZeroAndCopy<R9G9B9E5>(srcBuffer, srcVals);
 
-        fnTest({GL_RGB9_E5, GL_RGB, GL_UNSIGNED_INT_5_9_9_9_REV}, {1, 1, 1, 0});
+        fnTest(TexFormat(GL_RGB9_E5, GL_RGB, GL_UNSIGNED_INT_5_9_9_9_REV), {1, 1, 1, 0});
     }
 
     // DEPTH_COMPONENT+FLOAT
@@ -614,12 +659,53 @@ TEST_P(TextureUploadFormatTest, All)
         constexpr float src[] = {srcVals[0], 0};
         ZeroAndCopy(srcBuffer, src);
 
-        fnTest({GL_DEPTH_COMPONENT32F, GL_DEPTH_COMPONENT, GL_FLOAT}, {1, 0, 0, 0});
-        fnTest({GL_DEPTH32F_STENCIL8, GL_DEPTH_STENCIL, GL_FLOAT_32_UNSIGNED_INT_24_8_REV},
+        fnTest(TexFormat(GL_DEPTH_COMPONENT32F, GL_DEPTH_COMPONENT, GL_FLOAT), {1, 0, 0, 0});
+        fnTest(TexFormat(GL_DEPTH32F_STENCIL8, GL_DEPTH_STENCIL, GL_FLOAT_32_UNSIGNED_INT_24_8_REV),
                {1, 0, 0, 0});
     }
 
     EXPECT_GL_NO_ERROR();
 }
 
+// Test uploadings without PBO
+TEST_P(TextureUploadFormatTest, All)
+{
+    TestAll(UploadSource::ClientMemory);
+}
+
+// Test uploadings with PBO
+TEST_P(TextureUploadFormatTest_ES3, AllWithPBO)
+{
+    TestAll(UploadSource::PBO);
+}
+
+// Test invalid upload format combinations in ES2
+TEST_P(TextureUploadFormatTest, InvalidTypeAndFormat)
+{
+    constexpr std::array<uint32_t, 16> kData{};
+
+    GLTexture texture;
+    glBindTexture(GL_TEXTURE_2D, texture);
+
+    if (IsGLExtensionEnabled("GL_OES_rgb8_rgba8") && IsGLExtensionEnabled("GL_OES_texture_float"))
+    {
+        // Regression test for when the format check for GL_UNSIGNED_INT_2_10_10_10_REV_EXT
+        // accidentally allowed all formats.
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, 1, 1, 0, GL_RGB, GL_FLOAT, kData.data());
+        EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+    }
+
+    if (IsGLExtensionEnabled("GL_OES_required_internalformat") &&
+        IsGLExtensionEnabled("GL_OES_texture_float"))
+    {
+        // Regression test for when the format check for GL_UNSIGNED_INT_2_10_10_10_REV_EXT
+        // accidentally allowed all formats.
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB565_OES, 1, 1, 0, GL_RGB, GL_FLOAT, kData.data());
+        EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+    }
+}
+
 ANGLE_INSTANTIATE_TEST_ES2_AND_ES3(TextureUploadFormatTest);
+
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(TextureUploadFormatTest_ES3);
+ANGLE_INSTANTIATE_TEST_ES3(TextureUploadFormatTest_ES3);

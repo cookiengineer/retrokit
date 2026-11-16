@@ -59,9 +59,10 @@ body:not(.window-inactive, .window-docked-inactive) .tree-outline:focus-within .
     fill: var(--selected-foreground-color);
 }
 
-.tree-outline .item.call-frame.async-boundary {
+.call-frame:is(.async-boundary, .truncated-boundary) {
     cursor: default;
     color: var(--text-color-gray-medium);
+    text-overflow: clip;
 }
 
 .tree-outline:not(.single-thread) > .children > .item.call-frame.async-boundary {
@@ -79,8 +80,7 @@ body:not(.window-inactive, .window-docked-inactive) .tree-outline:focus-within .
     content: "";
     display: inline-block;
     height: 0;
-    margin-top: 2px;
-    vertical-align: middle;
+    margin-bottom: 4px;
     border-bottom: solid 0.5px var(--border-color);
 }
 
@@ -90,14 +90,18 @@ body:not(.window-inactive, .window-docked-inactive) .tree-outline:focus-within .
 }
 
 .tree-outline .item.call-frame.async-boundary::before {
-    width: 30px;
+    width: 4px;
     margin-inline: -5px 1px;
 }
 
-.tree-outline.single-thread .item.call-frame.async-boundary::before {
+.tree-outline .children .item.call-frame.async-boundary::before {
+    width: 30px;
+}
+
+.tree-outline.single-thread .children .item.call-frame.async-boundary::before {
     width: 20px;
 }
 
 .tree-outline .item.call-frame.blackboxed:not(.selected) {
-    opacity: var(--blackboxed-tree-item-opacity);
+    opacity: var(--blackboxed-opacity);
 }

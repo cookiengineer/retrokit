@@ -27,28 +27,38 @@
 
 #if ENABLE(GAMEPAD)
 
-#include "SharedGamepadValue.h"
-#include <wtf/Forward.h>
+#include <WebCore/GamepadHapticEffectType.h>
+#include <wtf/CanMakeWeakPtr.h>
+#include <wtf/CheckedRef.h>
+#include <wtf/CompletionHandler.h>
 #include <wtf/MonotonicTime.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
-class PlatformGamepad {
-    WTF_MAKE_FAST_ALLOCATED;
+class SharedGamepadValue;
+struct GamepadEffectParameters;
+
+class PlatformGamepad : public CanMakeWeakPtr<PlatformGamepad>, public CanMakeCheckedPtr<PlatformGamepad> {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(PlatformGamepad);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(PlatformGamepad);
 public:
     virtual ~PlatformGamepad() = default;
 
-    const String& id() const { return m_id; }
-    const String& mapping() const { return m_mapping; }
+    const String& id() const LIFETIME_BOUND { return m_id; }
+    const String& mapping() const LIFETIME_BOUND { return m_mapping; }
     unsigned index() const { return m_index; }
     virtual MonotonicTime lastUpdateTime() const { return m_lastUpdateTime; }
     MonotonicTime connectTime() const { return m_connectTime; }
+    const GamepadHapticEffectTypeSet& supportedEffectTypes() const LIFETIME_BOUND { return m_supportedEffectTypes; }
     
     virtual const Vector<SharedGamepadValue>& axisValues() const = 0;
     virtual const Vector<SharedGamepadValue>& buttonValues() const = 0;
+    virtual void playEffect(GamepadHapticEffectType, const GamepadEffectParameters&, CompletionHandler<void(bool)>&& completionHandler) { completionHandler(false); }
+    virtual void stopEffects(CompletionHandler<void()>&& completionHandler) { completionHandler(); }
 
-    virtual const char* source() const { return "Unknown"_s; }
+    virtual ASCIILiteral source() const { return "Unknown"_s; }
 
 protected:
     explicit PlatformGamepad(unsigned index)
@@ -61,6 +71,7 @@ protected:
     unsigned m_index;
     MonotonicTime m_lastUpdateTime;
     MonotonicTime m_connectTime;
+    GamepadHapticEffectTypeSet m_supportedEffectTypes;
 };
 
 } // namespace WebCore

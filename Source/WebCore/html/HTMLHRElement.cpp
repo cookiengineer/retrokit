@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
- * Copyright (C) 2003, 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2025 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -26,14 +26,18 @@
 #include "CSSPropertyNames.h"
 #include "CSSValueKeywords.h"
 #include "CSSValuePool.h"
+#include "ElementInlines.h"
 #include "HTMLNames.h"
 #include "HTMLParserIdioms.h"
-#include "StyleProperties.h"
-#include <wtf/IsoMallocInlines.h>
+#include "HTMLSelectElement.h"
+#include "MutableStyleProperties.h"
+#include "NodeName.h"
+#include "Settings.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLHRElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLHRElement);
 
 using namespace HTMLNames;
 
@@ -53,51 +57,92 @@ Ref<HTMLHRElement> HTMLHRElement::create(const QualifiedName& tagName, Document&
     return adoptRef(*new HTMLHRElement(tagName, document));
 }
 
+auto HTMLHRElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree) -> NeedsPostConnectionSteps
+{
+    auto result = HTMLElement::insertionSteps(insertionType, parentOfInsertedTree);
+
+    if (!document().settings().htmlEnhancedSelectParsingEnabled() || m_ownerSelect)
+        return result;
+
+    if (RefPtr select = HTMLSelectElement::findOwnerSelect(parentNode(), HTMLSelectElement::ExcludeOptGroup::Yes)) {
+        m_ownerSelect = select.get();
+        select->setRecalcListItems();
+    }
+
+    return result;
+}
+
+void HTMLHRElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+{
+    HTMLElement::removingSteps(removalType, oldParentOfRemovedTree);
+
+    if (!document().settings().htmlEnhancedSelectParsingEnabled() || !m_ownerSelect)
+        return;
+
+    if (auto* select = HTMLSelectElement::findOwnerSelect(parentNode(), HTMLSelectElement::ExcludeOptGroup::Yes)) {
+        ASSERT_UNUSED(select, select == m_ownerSelect.get());
+        return;
+    }
+
+    if (RefPtr select = std::exchange(m_ownerSelect, nullptr).get())
+        select->setRecalcListItems();
+}
+
 bool HTMLHRElement::hasPresentationalHintsForAttribute(const QualifiedName& name) const
 {
-    if (name == widthAttr || name == colorAttr || name == noshadeAttr || name == sizeAttr)
+    switch (name.nodeName()) {
+    case AttributeNames::widthAttr:
+    case AttributeNames::colorAttr:
+    case AttributeNames::noshadeAttr:
+    case AttributeNames::sizeAttr:
         return true;
+    default:
+        break;
+    }
     return HTMLElement::hasPresentationalHintsForAttribute(name);
 }
 
 void HTMLHRElement::collectPresentationalHintsForAttribute(const QualifiedName& name, const AtomString& value, MutableStyleProperties& style)
 {
-    if (name == alignAttr) {
-        if (equalLettersIgnoringASCIICase(value, "left")) {
+    switch (name.nodeName()) {
+    case AttributeNames::alignAttr:
+        if (equalLettersIgnoringASCIICase(value, "left"_s)) {
             addPropertyToPresentationalHintStyle(style, CSSPropertyMarginLeft, 0, CSSUnitType::CSS_PX);
             addPropertyToPresentationalHintStyle(style, CSSPropertyMarginRight, CSSValueAuto);
-        } else if (equalLettersIgnoringASCIICase(value, "right")) {
+        } else if (equalLettersIgnoringASCIICase(value, "right"_s)) {
             addPropertyToPresentationalHintStyle(style, CSSPropertyMarginLeft, CSSValueAuto);
             addPropertyToPresentationalHintStyle(style, CSSPropertyMarginRight, 0, CSSUnitType::CSS_PX);
         } else {
             addPropertyToPresentationalHintStyle(style, CSSPropertyMarginLeft, CSSValueAuto);
             addPropertyToPresentationalHintStyle(style, CSSPropertyMarginRight, CSSValueAuto);
         }
-    } else if (name == widthAttr) {
-        if (auto valueInteger = parseHTMLInteger(value); valueInteger && !*valueInteger)
-            addPropertyToPresentationalHintStyle(style, CSSPropertyWidth, 1, CSSUnitType::CSS_PX);
-        else
-            addHTMLLengthToStyle(style, CSSPropertyWidth, value);
-    } else if (name == colorAttr) {
+        break;
+    case AttributeNames::widthAttr:
+        addHTMLLengthToStyle(style, CSSPropertyWidth, value);
+        break;
+    case AttributeNames::colorAttr:
         addPropertyToPresentationalHintStyle(style, CSSPropertyBorderStyle, CSSValueSolid);
         addHTMLColorToStyle(style, CSSPropertyBorderColor, value);
         addHTMLColorToStyle(style, CSSPropertyBackgroundColor, value);
-    } else if (name == noshadeAttr) {
+        break;
+    case AttributeNames::noshadeAttr:
         if (!hasAttributeWithoutSynchronization(colorAttr)) {
             addPropertyToPresentationalHintStyle(style, CSSPropertyBorderStyle, CSSValueSolid);
-
-            RefPtr<CSSPrimitiveValue> darkGrayValue = CSSValuePool::singleton().createColorValue(Color::darkGray);
+            auto darkGrayValue = CSSValuePool::singleton().createColorValue(Color::darkGray);
             style.setProperty(CSSPropertyBorderColor, darkGrayValue);
-            style.setProperty(CSSPropertyBackgroundColor, darkGrayValue);
+            style.setProperty(CSSPropertyBackgroundColor, WTF::move(darkGrayValue));
         }
-    } else if (name == sizeAttr) {
-        int size = parseHTMLInteger(value).value_or(0);
-        if (size <= 1)
-            addPropertyToPresentationalHintStyle(style, CSSPropertyBorderBottomWidth, 0, CSSUnitType::CSS_PX);
-        else
+        break;
+    case AttributeNames::sizeAttr:
+        if (int size = parseHTMLInteger(value).value_or(0); size > 1)
             addPropertyToPresentationalHintStyle(style, CSSPropertyHeight, size - 2, CSSUnitType::CSS_PX);
-    } else
+        else
+            addPropertyToPresentationalHintStyle(style, CSSPropertyBorderBottomWidth, 0, CSSUnitType::CSS_PX);
+        break;
+    default:
         HTMLElement::collectPresentationalHintsForAttribute(name, value, style);
+        break;
+    }
 }
 
 bool HTMLHRElement::canContainRangeEndPoint() const

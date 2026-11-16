@@ -27,11 +27,11 @@
 
 #if ENABLE(CONTEXT_MENUS)
 
+#include "GtkVersioning.h"
 #include "WebContextMenuItemGlib.h"
 #include "WebContextMenuProxy.h"
-#include <WebCore/GtkVersioning.h>
 #include <WebCore/IntPoint.h>
-#include <wtf/HashMap.h>
+#include <wtf/HashSet.h>
 #include <wtf/glib/GRefPtr.h>
 
 typedef struct _GMenu GMenu;
@@ -44,9 +44,9 @@ class WebPageProxy;
 
 class WebContextMenuProxyGtk final : public WebContextMenuProxy {
 public:
-    static auto create(GtkWidget* widget, WebPageProxy& page, ContextMenuContextData&& context, const UserData& userData)
+    static auto create(GtkWidget* widget, WebPageProxy& page, FrameInfoData&& frameInfo, ContextMenuContextData&& context, const UserData& userData)
     {
-        return adoptRef(*new WebContextMenuProxyGtk(widget, page, WTFMove(context), userData));
+        return adoptRef(*new WebContextMenuProxyGtk(widget, page, WTF::move(frameInfo), WTF::move(context), userData));
     }
     ~WebContextMenuProxyGtk();
 
@@ -55,7 +55,8 @@ public:
     static const char* widgetDismissedSignal;
 
 private:
-    WebContextMenuProxyGtk(GtkWidget*, WebPageProxy&, ContextMenuContextData&&, const UserData&);
+    WebContextMenuProxyGtk(GtkWidget*, WebPageProxy&, FrameInfoData&&, ContextMenuContextData&&, const UserData&);
+    void show() override;
     Vector<Ref<WebContextMenuItem>> proposedItems() const override;
     void showContextMenuWithItems(Vector<Ref<WebContextMenuItem>>&&) override;
     void append(GMenu*, const WebContextMenuItemGlib&);
@@ -65,7 +66,7 @@ private:
 
     GtkWidget* m_webView;
     GtkWidget* m_menu;
-    HashMap<unsigned long, void*> m_signalHandlers;
+    HashSet<GRefPtr<GAction>> m_actions;
     GRefPtr<GSimpleActionGroup> m_actionGroup { adoptGRef(g_simple_action_group_new()) };
 };
 

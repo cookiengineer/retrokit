@@ -42,9 +42,10 @@ WI.LayoutTimelineDataGridNode = class LayoutTimelineDataGridNode extends WI.Time
         this._cachedData = super.data;
         this._cachedData.type = this.record.eventType;
         this._cachedData.name = this.displayName();
+        this._cachedData.node = this.record.domNodeOrInfo;
         this._cachedData.width = this.record.width;
         this._cachedData.height = this.record.height;
-        this._cachedData.area = this.record.width * this.record.height;
+        this._cachedData.area = this.record.area;
         this._cachedData.startTime = this.record.startTime - (this.graphDataSource ? this.graphDataSource.zeroTime : 0);
         this._cachedData.totalTime = this.record.duration;
         this._cachedData.initiator = this.record.initiatorCallFrame;
@@ -77,6 +78,18 @@ WI.LayoutTimelineDataGridNode = class LayoutTimelineDataGridNode extends WI.Time
 
         case "source": // Timeline Overview
             return super.createCellContent("initiator", cell);
+
+        case "node":
+            if (!value)
+                return emDash;
+
+            if (value instanceof WI.DOMNode) {
+                cell.classList.add(WI.DOMTreeElementPathComponent.iconClassNameForNode(value));
+                return WI.linkifyNodeReference(value);
+            }
+
+            cell.classList.add(WI.DOMTreeElementPathComponent.DOMNodeIconStyleClassName);
+            return value.displayName;
         }
 
         return super.createCellContent(columnIdentifier, cell);

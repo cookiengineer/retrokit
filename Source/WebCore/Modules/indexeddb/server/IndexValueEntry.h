@@ -25,7 +25,9 @@
 
 #pragma once
 
-#include "IDBKeyData.h"
+#include <WebCore/IDBKeyData.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/Variant.h>
 
 namespace WebCore {
 
@@ -36,17 +38,17 @@ enum class CursorDuplicity;
 namespace IDBServer {
 
 class IndexValueEntry {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(IndexValueEntry);
 public:
     explicit IndexValueEntry(bool unique);
-    ~IndexValueEntry();
 
     void addKey(const IDBKeyData&);
 
     // Returns true if a key was actually removed.
     bool removeKey(const IDBKeyData&);
+    bool contains(const IDBKeyData&);
 
-    const IDBKeyData* getLowest() const;
+    const IDBKeyData* getLowest() const LIFETIME_BOUND;
 
     uint64_t getCount() const;
 
@@ -60,8 +62,8 @@ public:
         Iterator(IndexValueEntry&, IDBKeyDataSet::iterator);
         Iterator(IndexValueEntry&, IDBKeyDataSet::reverse_iterator);
 
-        bool isValid() const;
-        void invalidate();
+        bool NODELETE isValid() const;
+        void NODELETE invalidate();
 
         const IDBKeyData& key() const;
         const ThreadSafeDataBuffer& value() const;
@@ -75,23 +77,19 @@ public:
         IDBKeyDataSet::reverse_iterator m_reverseIterator;
     };
 
-    Iterator begin();
-    Iterator reverseBegin(CursorDuplicity);
+    Iterator begin() LIFETIME_BOUND;
+    Iterator reverseBegin(CursorDuplicity) LIFETIME_BOUND;
 
     // Finds the key, or the next higher record after the key.
-    Iterator find(const IDBKeyData&);
+    Iterator find(const IDBKeyData&) LIFETIME_BOUND;
     // Finds the key, or the next lowest record before the key.
-    Iterator reverseFind(const IDBKeyData&, CursorDuplicity);
+    Iterator reverseFind(const IDBKeyData&, CursorDuplicity) LIFETIME_BOUND;
 
-    bool unique() const { return m_unique; }
+    bool isUnique() const { return std::holds_alternative<std::optional<IDBKeyData>>(m_keys); }
+    Vector<IDBKeyData> keys() const;
 
 private:
-    union {
-        IDBKeyDataSet* m_orderedKeys;
-        IDBKeyData* m_key;
-    };
-
-    bool m_unique;
+    Variant<std::optional<IDBKeyData>, IDBKeyDataSet> m_keys;
 };
 
 } // namespace IDBServer

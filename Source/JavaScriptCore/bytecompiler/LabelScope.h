@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -44,8 +44,8 @@ public:
         , m_type(type)
         , m_name(name)
         , m_scopeDepth(scopeDepth)
-        , m_breakTarget(WTFMove(breakTarget))
-        , m_continueTarget(WTFMove(continueTarget))
+        , m_breakTarget(WTF::move(breakTarget))
+        , m_continueTarget(WTF::move(continueTarget))
     {
     }
 
@@ -79,8 +79,8 @@ private:
     Type m_type;
     const Identifier* m_name;
     int m_scopeDepth;
-    Ref<Label> m_breakTarget;
-    RefPtr<Label> m_continueTarget;
+    const Ref<Label> m_breakTarget;
+    const RefPtr<Label> m_continueTarget;
 };
 
 } // namespace JSC

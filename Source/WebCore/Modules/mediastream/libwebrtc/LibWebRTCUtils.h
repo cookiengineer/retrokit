@@ -24,55 +24,80 @@
 
 #pragma once
 
-#if USE(LIBWEBRTC)
+#if ENABLE(WEB_RTC) && USE(LIBWEBRTC)
 
-#include "ExceptionCode.h"
+#include <WebCore/ExceptionCode.h>
+#include <WebCore/RTCIceCandidateFields.h>
+// FIXME: Modularize WebRTC
+IGNORE_CLANG_WARNINGS_BEGIN("non-modular-include-in-module")
 #include <webrtc/api/media_types.h>
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <webrtc/api/media_stream_interface.h>
+#include <webrtc/api/stats/rtcstats_objects.h>
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
+IGNORE_CLANG_WARNINGS_END
+#include <wtf/TypeCasts.h>
 #include <wtf/text/WTFString.h>
 
 namespace webrtc {
+
+class Candidate;
+class PriorityValue;
+class RTCError;
+
 struct RtpParameters;
 struct RtpTransceiverInit;
-
-class RTCError;
 
 enum class DtlsTransportState;
 enum class Priority;
 enum class RTCErrorType;
 enum class RtpTransceiverDirection;
+
 }
 
 namespace WebCore {
 
 class Exception;
+class RTCError;
 
 struct RTCRtpParameters;
 struct RTCRtpSendParameters;
 struct RTCRtpTransceiverInit;
 
-enum class RTCPriorityType;
+enum class RTCPriorityType : uint8_t;
 enum class RTCRtpTransceiverDirection;
 
 RTCRtpParameters toRTCRtpParameters(const webrtc::RtpParameters&);
-void updateRTCRtpSendParameters(const RTCRtpSendParameters&, webrtc::RtpParameters&);
-RTCRtpSendParameters toRTCRtpSendParameters(const webrtc::RtpParameters&);
+void updateRTCRtpSendParameters(const RTCRtpSendParameters&, webrtc::RtpParameters&, webrtc::MediaType);
+RTCRtpSendParameters toRTCRtpSendParameters(const webrtc::RtpParameters&, bool isAudio);
 webrtc::RtpParameters fromRTCRtpSendParameters(const RTCRtpSendParameters&, const webrtc::RtpParameters& currentParameters);
 
 RTCRtpTransceiverDirection toRTCRtpTransceiverDirection(webrtc::RtpTransceiverDirection);
 webrtc::RtpTransceiverDirection fromRTCRtpTransceiverDirection(RTCRtpTransceiverDirection);
-webrtc::RtpTransceiverInit fromRtpTransceiverInit(const RTCRtpTransceiverInit&, cricket::MediaType);
+webrtc::RtpTransceiverInit fromRtpTransceiverInit(const RTCRtpTransceiverInit&, webrtc::MediaType);
 
-ExceptionCode toExceptionCode(webrtc::RTCErrorType);
+ExceptionCode NODELETE toExceptionCode(webrtc::RTCErrorType);
 Exception toException(const webrtc::RTCError&);
+RefPtr<RTCError> toRTCError(const webrtc::RTCError&);
 
-RTCPriorityType toRTCPriorityType(webrtc::Priority);
-webrtc::Priority fromRTCPriorityType(RTCPriorityType);
+RTCPriorityType toRTCPriorityType(webrtc::PriorityValue);
+RTCPriorityType NODELETE toRTCPriorityType(webrtc::Priority);
+webrtc::Priority NODELETE fromRTCPriorityType(RTCPriorityType);
+
+enum class MediaStreamTrackHintValue : uint8_t;
+webrtc::VideoTrackInterface::ContentHint toWebRTCContentHint(MediaStreamTrackHintValue);
 
 inline String fromStdString(const std::string& value)
 {
-    return String::fromUTF8(value.data(), value.length());
+    return String::fromUTF8(value);
 }
+
+RTCIceCandidateFields convertIceCandidate(const webrtc::Candidate&);
 
 } // namespace WebCore
 
-#endif // USE(LIBWEBRTC)
+SPECIALIZE_TYPE_TRAITS_BEGIN(webrtc::RTCInboundRtpStreamStats)
+    static bool isType(const webrtc::RTCStats& rtcStats) { return rtcStats.type() == webrtc::RTCInboundRtpStreamStats::kType; }
+SPECIALIZE_TYPE_TRAITS_END()
+
+#endif // ENABLE(WEB_RTC) && USE(LIBWEBRTC)

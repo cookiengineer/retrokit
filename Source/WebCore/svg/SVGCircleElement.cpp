@@ -22,25 +22,32 @@
 #include "config.h"
 #include "SVGCircleElement.h"
 
+#include "LegacyRenderSVGEllipse.h"
+#include "LegacyRenderSVGResource.h"
+#include "NodeName.h"
 #include "RenderSVGEllipse.h"
-#include "RenderSVGResource.h"
-#include <wtf/IsoMallocInlines.h>
+#include "SVGElementInlines.h"
+#include "SVGParsingError.h"
+#include "SVGPropertyOwnerRegistry.h"
+#include "Settings.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(SVGCircleElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGCircleElement);
 
 inline SVGCircleElement::SVGCircleElement(const QualifiedName& tagName, Document& document)
-    : SVGGeometryElement(tagName, document)
+    : SVGGeometryElement(tagName, document, makeUniqueRef<PropertyRegistry>(*this))
 {
     ASSERT(hasTagName(SVGNames::circleTag));
 
-    static std::once_flag onceFlag;
-    std::call_once(onceFlag, [] {
+    static bool didRegistration = false;
+    if (!didRegistration) [[unlikely]] {
+        didRegistration = true;
         PropertyRegistry::registerProperty<SVGNames::cxAttr, &SVGCircleElement::m_cx>();
         PropertyRegistry::registerProperty<SVGNames::cyAttr, &SVGCircleElement::m_cy>();
         PropertyRegistry::registerProperty<SVGNames::rAttr, &SVGCircleElement::m_r>();
-    });
+    }
 }
 
 Ref<SVGCircleElement> SVGCircleElement::create(const QualifiedName& tagName, Document& document)
@@ -48,36 +55,56 @@ Ref<SVGCircleElement> SVGCircleElement::create(const QualifiedName& tagName, Doc
     return adoptRef(*new SVGCircleElement(tagName, document));
 }
 
-void SVGCircleElement::parseAttribute(const QualifiedName& name, const AtomString& value)
+SVGAnimatedPropertyBase* SVGCircleElement::propertyForAttribute(const QualifiedName& name) const
 {
-    SVGParsingError parseError = NoError;
-
     if (name == SVGNames::cxAttr)
-        m_cx->setBaseValInternal(SVGLengthValue::construct(SVGLengthMode::Width, value, parseError));
-    else if (name == SVGNames::cyAttr)
-        m_cy->setBaseValInternal(SVGLengthValue::construct(SVGLengthMode::Height, value, parseError));
-    else if (name == SVGNames::rAttr)
-        m_r->setBaseValInternal(SVGLengthValue::construct(SVGLengthMode::Other, value, parseError, SVGLengthNegativeValuesMode::Forbid));
+        return m_cx.ptr();
+    if (name == SVGNames::cyAttr)
+        return m_cy.ptr();
+    if (name == SVGNames::rAttr)
+        return m_r.ptr();
+    return nullptr;
+}
 
-    reportAttributeParsingError(parseError, name, value);
+void SVGCircleElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
+{
+    auto parseError = SVGParsingError::None;
 
-    SVGGeometryElement::parseAttribute(name, value);
+    switch (name.nodeName()) {
+    case AttributeNames::cxAttr:
+        m_cx->setBaseValInternal(SVGLengthValue::construct(SVGLengthMode::Width, newValue, parseError));
+        break;
+    case AttributeNames::cyAttr:
+        m_cy->setBaseValInternal(SVGLengthValue::construct(SVGLengthMode::Height, newValue, parseError));
+        break;
+    case AttributeNames::rAttr:
+        m_r->setBaseValInternal(SVGLengthValue::construct(SVGLengthMode::Other, newValue, parseError, SVGLengthNegativeValuesMode::Forbid));
+        break;
+    default:
+        break;
+    }
+    reportAttributeParsingError(parseError, name, newValue);
+
+    SVGGeometryElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
 }
 
 void SVGCircleElement::svgAttributeChanged(const QualifiedName& attrName)
 {
     if (PropertyRegistry::isKnownAttribute(attrName)) {
         InstanceInvalidationGuard guard(*this);
-        invalidateSVGPresentationalHintStyle();
+        setPresentationalHintStyleIsDirty();
+        invalidateResourceImageBuffersIfNeeded();
         return;
     }
 
     SVGGeometryElement::svgAttributeChanged(attrName);
 }
 
-RenderPtr<RenderElement> SVGCircleElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> SVGCircleElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
-    return createRenderer<RenderSVGEllipse>(*this, WTFMove(style));
+    if (document().settings().layerBasedSVGEngineEnabled())
+        return createRenderer<RenderSVGEllipse>(*this, WTF::move(style));
+    return createRenderer<LegacyRenderSVGEllipse>(*this, WTF::move(style));
 }
 
 }

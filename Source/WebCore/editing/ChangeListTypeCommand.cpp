@@ -26,28 +26,32 @@
 #include "config.h"
 #include "ChangeListTypeCommand.h"
 
+#include "DOMTokenList.h"
 #include "Editing.h"
-#include "ElementAncestorIterator.h"
-#include "Frame.h"
+#include "ElementAncestorIteratorInlines.h"
+#include "FrameDestructionObserverInlines.h"
 #include "FrameSelection.h"
 #include "HTMLElement.h"
+#include "HTMLInterchange.h"
 #include "HTMLOListElement.h"
 #include "HTMLUListElement.h"
+#include "LocalFrameInlines.h"
+#include "StylePropertiesInlines.h"
 #include <wtf/RefPtr.h>
 
 namespace WebCore {
 
 static std::optional<std::pair<ChangeListTypeCommand::Type, Ref<HTMLElement>>> listConversionTypeForSelection(const VisibleSelection& selection)
 {
-    auto startNode = selection.start().containerNode();
-    auto endNode = selection.end().containerNode();
+    RefPtr startNode = selection.start().containerNode();
+    RefPtr endNode = selection.end().containerNode();
     if (!startNode || !endNode)
         return { };
-    auto commonAncestor = commonInclusiveAncestor<ComposedTree>(*startNode, *endNode);
+    RefPtr commonAncestor = commonInclusiveAncestor<ComposedTree>(*startNode, *endNode);
 
     RefPtr<HTMLElement> listToReplace;
-    if (is<HTMLUListElement>(commonAncestor) || is<HTMLOListElement>(commonAncestor))
-        listToReplace = downcast<HTMLElement>(commonAncestor);
+    if (RefPtr htmlElement = dynamicDowncast<HTMLElement>(commonAncestor); isAnyOf<HTMLUListElement, HTMLOListElement>(htmlElement))
+        listToReplace = htmlElement;
     else
         listToReplace = enclosingList(commonAncestor);
 
@@ -62,11 +66,35 @@ static std::optional<std::pair<ChangeListTypeCommand::Type, Ref<HTMLElement>>> l
 
 std::optional<ChangeListTypeCommand::Type> ChangeListTypeCommand::listConversionType(Document& document)
 {
-    if (auto frame = makeRefPtr(document.frame())) {
+    if (RefPtr frame = document.frame()) {
         if (auto typeAndElement = listConversionTypeForSelection(frame->selection().selection()))
             return typeAndElement->first;
     }
     return std::nullopt;
+}
+
+static void removeSourceListAttributes(const HTMLElement& listToReplace, HTMLElement& list, ChangeListTypeCommand::Type type)
+{
+    bool convertToUnorderedList = type == ChangeListTypeCommand::Type::ConvertToUnorderedList;
+    if (convertToUnorderedList) {
+        list.removeAttribute(HTMLNames::startAttr);
+        list.removeAttribute(HTMLNames::typeAttr);
+        list.removeAttribute(HTMLNames::reversedAttr);
+    }
+    list.removeInlineStyleProperty(CSSPropertyListStyleType);
+
+    Ref classList = list.classList();
+    bool sourceHasClassNameForSmartList = classList->contains(AppleDecimalListClass) || classList->contains(AppleDiscListClass) || classList->contains(AppleDashListClass);
+
+    if (sourceHasClassNameForSmartList) {
+        FixedVector<AtomString> classNamesToRemove { AppleDashListClass, (convertToUnorderedList ? AppleDecimalListClass : AppleDiscListClass) };
+        classList->remove(classNamesToRemove);
+        classList->add(convertToUnorderedList ? AppleDiscListClass : AppleDecimalListClass);
+    }
+
+    RefPtr existingInlineStyle = listToReplace.inlineStyle();
+    if (existingInlineStyle && !existingInlineStyle->getPropertyValue(CSSPropertyListStyleType).isEmpty())
+        list.setInlineStyleProperty(CSSPropertyListStyleType, (convertToUnorderedList ? CSSValueDisc : CSSValueDecimal));
 }
 
 Ref<HTMLElement> ChangeListTypeCommand::createNewList(const HTMLElement& listToReplace)
@@ -77,6 +105,9 @@ Ref<HTMLElement> ChangeListTypeCommand::createNewList(const HTMLElement& listToR
     else
         list = HTMLUListElement::create(document());
     list->cloneDataFromElement(listToReplace);
+
+    removeSourceListAttributes(listToReplace, *list, m_type);
+
     return list.releaseNonNull();
 }
 
@@ -86,10 +117,10 @@ void ChangeListTypeCommand::doApply()
     if (!typeAndElement || typeAndElement->first != m_type)
         return;
 
-    auto listToReplace = WTFMove(typeAndElement->second);
-    auto newList = createNewList(listToReplace);
+    Ref listToReplace = WTF::move(typeAndElement->second);
+    Ref newList = createNewList(listToReplace);
     insertNodeBefore(newList.copyRef(), listToReplace);
-    moveRemainingSiblingsToNewParent(listToReplace->firstChild(), nullptr, newList);
+    moveRemainingSiblingsToNewParent(protect(listToReplace->firstChild()).get(), nullptr, newList);
     removeNode(listToReplace);
     setEndingSelection({ Position { newList.ptr(), Position::PositionIsAfterChildren }});
 }

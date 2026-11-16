@@ -25,52 +25,59 @@
 
 #pragma once
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
 #include "RemoteMediaResourceIdentifier.h"
 #include <WebCore/PlatformMediaResourceLoader.h>
+#include <atomic>
+#include <wtf/Ref.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 class NetworkLoadMetrics;
+class FragmentedSharedBuffer;
+class SharedBuffer;
 }
 
 namespace WebKit {
 
 class RemoteMediaPlayerProxy;
-class RemoteMediaResourceManager;
+class RemoteMediaResourceLoader;
 
 class RemoteMediaResource : public WebCore::PlatformMediaResource {
+    WTF_MAKE_TZONE_ALLOCATED(RemoteMediaResource);
 public:
-    static Ref<RemoteMediaResource> create(RemoteMediaResourceManager&, RemoteMediaPlayerProxy&, RemoteMediaResourceIdentifier);
+    // Called on the main thread.
+    static Ref<RemoteMediaResource> create(RemoteMediaResourceLoader&, RemoteMediaResourceIdentifier);
+
+    // Thread-safe
     ~RemoteMediaResource();
+    void shutdown() final;
 
-    bool ready() const { return m_ready; }
-    void setReady(bool ready) { m_ready = ready; }
+    // PlatformMediaResource, called on the main thread.
+    bool didPassAccessControlCheck() const final { return m_didPassAccessControlCheck; }
 
-    // PlatformMediaResource
-    void stop() final;
-    bool didPassAccessControlCheck() const final;
-
+    // Called on MediaResourceLoader's WorkQueue.
     void responseReceived(const WebCore::ResourceResponse&, bool, CompletionHandler<void(WebCore::ShouldContinuePolicyCheck)>&&);
     void redirectReceived(WebCore::ResourceRequest&&, const WebCore::ResourceResponse&, CompletionHandler<void(WebCore::ResourceRequest&&)>&&);
     void dataSent(uint64_t, uint64_t);
-    void dataReceived(const uint8_t*, int64_t);
+    void dataReceived(const WebCore::SharedBuffer&);
     void accessControlCheckFailed(const WebCore::ResourceError&);
     void loadFailed(const WebCore::ResourceError&);
     void loadFinished(const WebCore::NetworkLoadMetrics&);
 
 private:
-    RemoteMediaResource(RemoteMediaResourceManager&, RemoteMediaPlayerProxy&, RemoteMediaResourceIdentifier);
+    RemoteMediaResource(RemoteMediaResourceLoader&, RemoteMediaResourceIdentifier);
 
-    WeakPtr<RemoteMediaResourceManager> m_remoteMediaResourceManager;
+    const ThreadSafeWeakPtr<RemoteMediaResourceLoader> m_remoteMediaResourceLoader;
     WeakPtr<RemoteMediaPlayerProxy> m_remoteMediaPlayerProxy;
     RemoteMediaResourceIdentifier m_id;
-    bool m_didPassAccessControlCheck { false };
-    bool m_ready { false };
+    std::atomic<bool> m_didPassAccessControlCheck { false };
+    std::atomic<bool> m_shutdown { false };
 };
 
 } // namespace WebKit
 
 
-#endif
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

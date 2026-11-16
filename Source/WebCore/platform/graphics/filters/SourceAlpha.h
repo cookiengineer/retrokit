@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2009 Dirk Schulze <krit@webkit.org>
+ * Copyright (C) 2021-2022 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -17,30 +18,30 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef SourceAlpha_h
-#define SourceAlpha_h
+#pragma once
 
-#include "FilterEffect.h"
+#include <WebCore/FilterEffect.h>
 
 namespace WebCore {
 
-class SourceAlpha : public FilterEffect {
-public:        
-    static Ref<SourceAlpha> create(FilterEffect&);
+class SourceAlpha final : public FilterEffect {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(SourceAlpha);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SourceAlpha);
+public:
+    WEBCORE_EXPORT static Ref<SourceAlpha> create(const DestinationColorSpace& = DestinationColorSpace::SRGB());
 
-    static const AtomString& effectName();
+    static AtomString effectName() { return FilterEffect::sourceAlphaName(); }
 
 private:
-    explicit SourceAlpha(FilterEffect&);
-    FilterEffectType filterEffectType() const override { return FilterEffectTypeSourceInput; }
+    explicit SourceAlpha(DestinationColorSpace);
 
-    const char* filterName() const final { return "SourceAlpha"; }
+    OptionSet<FilterRenderingMode> supportedFilterRenderingModes(OptionSet<FilterRenderingMode> preferredFilterRenderingModes) const override;
+    std::unique_ptr<FilterEffectApplier> createSoftwareApplier() const override;
+    std::unique_ptr<FilterEffectApplier> createAcceleratedApplier() const override;
 
-    void platformApplySoftware() override;
-    void determineAbsolutePaintRect() override;
-    WTF::TextStream& externalRepresentation(WTF::TextStream&, RepresentationType) const override;
+    WTF::TextStream& externalRepresentation(WTF::TextStream&, FilterRepresentation) const override;
 };
 
 } //namespace WebCore
 
-#endif // SourceAlpha_h
+SPECIALIZE_TYPE_TRAITS_FILTER_FUNCTION(SourceAlpha)

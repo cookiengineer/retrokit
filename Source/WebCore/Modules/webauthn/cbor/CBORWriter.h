@@ -31,7 +31,7 @@
 
 #if ENABLE(WEB_AUTHN)
 
-#include "CBORValue.h"
+#include <WebCore/CBORValue.h>
 #include <stddef.h>
 
 // A basic Concise Binary Object Representation (CBOR) encoder as defined by
@@ -100,14 +100,14 @@ private:
     void startItem(CBORValue::Type, uint64_t size);
 
     // Encodes the additional information for the data.
-    void setAdditionalInformation(uint8_t);
+    void NODELETE setAdditionalInformation(uint8_t);
 
     // Encodes an unsigned integer value. This is used to both write
     // unsigned integers and to encode the lengths of other major types.
     void setUint(uint64_t value);
 
     // Get the number of bytes needed to store the unsigned integer.
-    size_t getNumUintBytes(uint64_t value);
+    size_t NODELETE getNumUintBytes(uint64_t value);
 
     // Holds the encoded CBOR data.
     Vector<uint8_t>* m_encodedCBOR;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,74 +26,122 @@
 #include "config.h"
 #include "GenericCachedHTMLCollection.h"
 
-#include "HTMLFieldSetElement.h"
+#include "CachedHTMLCollectionInlines.h"
 #include "HTMLNames.h"
-#include "HTMLObjectElement.h"
 #include "HTMLOptionElement.h"
-#include <wtf/IsoMallocInlines.h>
+#include "Settings.h"
 
 namespace WebCore {
 
 using namespace HTMLNames;
 
-using GenericDescendantsCachedHTMLCollection = GenericCachedHTMLCollection<CollectionTraversalType::Descendants>;
-using GenericChildrenOnlyCachedHTMLCollection = GenericCachedHTMLCollection<CollectionTraversalType::ChildrenOnly>;
+template <CollectionType type>
+GenericCachedHTMLCollection<type>::GenericCachedHTMLCollection(ContainerNode& base, CollectionType collectionType)
+    : CachedHTMLCollection<GenericCachedHTMLCollection<type>>(base, collectionType)
+{ }
+// Explicit template instantiations for each CollectionType.
+template GenericCachedHTMLCollection<CollectionType::NodeChildren>::GenericCachedHTMLCollection(ContainerNode&, CollectionType);
+template GenericCachedHTMLCollection<CollectionType::TRCells>::GenericCachedHTMLCollection(ContainerNode&, CollectionType);
+template GenericCachedHTMLCollection<CollectionType::TSectionRows>::GenericCachedHTMLCollection(ContainerNode&, CollectionType);
+template GenericCachedHTMLCollection<CollectionType::TableTBodies>::GenericCachedHTMLCollection(ContainerNode&, CollectionType);
+template GenericCachedHTMLCollection<CollectionType::SelectedOptions>::GenericCachedHTMLCollection(ContainerNode&, CollectionType);
+template GenericCachedHTMLCollection<CollectionType::MapAreas>::GenericCachedHTMLCollection(ContainerNode&, CollectionType);
+template GenericCachedHTMLCollection<CollectionType::DocImages>::GenericCachedHTMLCollection(ContainerNode&, CollectionType);
+template GenericCachedHTMLCollection<CollectionType::DocScripts>::GenericCachedHTMLCollection(ContainerNode&, CollectionType);
+template GenericCachedHTMLCollection<CollectionType::DocForms>::GenericCachedHTMLCollection(ContainerNode&, CollectionType);
+template GenericCachedHTMLCollection<CollectionType::DocEmbeds>::GenericCachedHTMLCollection(ContainerNode&, CollectionType);
+template GenericCachedHTMLCollection<CollectionType::DocLinks>::GenericCachedHTMLCollection(ContainerNode&, CollectionType);
+template GenericCachedHTMLCollection<CollectionType::DocAnchors>::GenericCachedHTMLCollection(ContainerNode&, CollectionType);
+template GenericCachedHTMLCollection<CollectionType::DataListOptions>::GenericCachedHTMLCollection(ContainerNode&, CollectionType);
+template GenericCachedHTMLCollection<CollectionType::FieldSetElements>::GenericCachedHTMLCollection(ContainerNode&, CollectionType);
 
-WTF_MAKE_ISO_ALLOCATED_IMPL_TEMPLATE(GenericDescendantsCachedHTMLCollection);
-WTF_MAKE_ISO_ALLOCATED_IMPL_TEMPLATE(GenericChildrenOnlyCachedHTMLCollection);
+template <CollectionType type>
+GenericCachedHTMLCollection<type>::~GenericCachedHTMLCollection() = default;
+template GenericCachedHTMLCollection<CollectionType::NodeChildren>::~GenericCachedHTMLCollection();
+template GenericCachedHTMLCollection<CollectionType::TRCells>::~GenericCachedHTMLCollection();
+template GenericCachedHTMLCollection<CollectionType::TSectionRows>::~GenericCachedHTMLCollection();
+template GenericCachedHTMLCollection<CollectionType::TableTBodies>::~GenericCachedHTMLCollection();
+template GenericCachedHTMLCollection<CollectionType::SelectedOptions>::~GenericCachedHTMLCollection();
+template GenericCachedHTMLCollection<CollectionType::MapAreas>::~GenericCachedHTMLCollection();
+template GenericCachedHTMLCollection<CollectionType::DocImages>::~GenericCachedHTMLCollection();
+template GenericCachedHTMLCollection<CollectionType::DocScripts>::~GenericCachedHTMLCollection();
+template GenericCachedHTMLCollection<CollectionType::DocForms>::~GenericCachedHTMLCollection();
+template GenericCachedHTMLCollection<CollectionType::DocEmbeds>::~GenericCachedHTMLCollection();
+template GenericCachedHTMLCollection<CollectionType::DocLinks>::~GenericCachedHTMLCollection();
+template GenericCachedHTMLCollection<CollectionType::DocAnchors>::~GenericCachedHTMLCollection();
+template GenericCachedHTMLCollection<CollectionType::DataListOptions>::~GenericCachedHTMLCollection();
+template GenericCachedHTMLCollection<CollectionType::FieldSetElements>::~GenericCachedHTMLCollection();
 
-template <CollectionTraversalType traversalType>
-bool GenericCachedHTMLCollection<traversalType>::elementMatches(Element& element) const
+template <CollectionType type>
+bool GenericCachedHTMLCollection<type>::elementMatches(Element& element) const
 {
-    switch (this->type()) {
-    case NodeChildren:
+    switch (type) {
+    case CollectionType::NodeChildren:
         return true;
-    case DocImages:
+    case CollectionType::DocImages:
         return element.hasTagName(imgTag);
-    case DocScripts:
+    case CollectionType::DocScripts:
         return element.hasTagName(scriptTag);
-    case DocForms:
+    case CollectionType::DocForms:
         return element.hasTagName(formTag);
-    case TableTBodies:
+    case CollectionType::TableTBodies:
         return element.hasTagName(tbodyTag);
-    case TRCells:
+    case CollectionType::TRCells:
         return element.hasTagName(tdTag) || element.hasTagName(thTag);
-    case TSectionRows:
+    case CollectionType::TSectionRows:
         return element.hasTagName(trTag);
-    case SelectedOptions:
-        return is<HTMLOptionElement>(element) && downcast<HTMLOptionElement>(element).selected();
-    case DataListOptions:
+    case CollectionType::SelectedOptions: {
+        auto* optionElement = dynamicDowncast<HTMLOptionElement>(element);
+        if (!optionElement)
+            return false;
+        if (!element.document().settings().htmlEnhancedSelectParsingEnabled())
+            return optionElement->selected();
+        return optionElement->selected() && optionElement->ownerSelectElement() == &this->ownerNode();
+    }
+    case CollectionType::DataListOptions:
         return is<HTMLOptionElement>(element);
-    case MapAreas:
+    case CollectionType::MapAreas:
         return element.hasTagName(areaTag);
-    case DocApplets:
-        return is<HTMLObjectElement>(element) && downcast<HTMLObjectElement>(element).containsJavaApplet();
-    case DocEmbeds:
+    case CollectionType::DocEmbeds:
         return element.hasTagName(embedTag);
-    case DocLinks:
+    case CollectionType::DocLinks:
         return (element.hasTagName(aTag) || element.hasTagName(areaTag)) && element.hasAttributeWithoutSynchronization(hrefAttr);
-    case DocAnchors:
+    case CollectionType::DocAnchors:
         return element.hasTagName(aTag) && element.hasAttributeWithoutSynchronization(nameAttr);
-    case FieldSetElements:
-        return is<HTMLObjectElement>(element) || is<HTMLFormControlElement>(element);
-    case ByClass:
-    case ByTag:
-    case ByHTMLTag:
-    case AllDescendants:
-    case DocAll:
-    case DocumentAllNamedItems:
-    case DocumentNamedItems:
-    case FormControls:
-    case SelectOptions:
-    case TableRows:
-    case WindowNamedItems:
+    case CollectionType::FieldSetElements:
+        return element.isFormListedElement();
+    case CollectionType::ByClass:
+    case CollectionType::ByTag:
+    case CollectionType::ByHTMLTag:
+    case CollectionType::AllDescendants:
+    case CollectionType::DocAll:
+    case CollectionType::DocEmpty:
+    case CollectionType::DocumentAllNamedItems:
+    case CollectionType::DocumentNamedItems:
+    case CollectionType::FormControls:
+    case CollectionType::SelectOptions:
+    case CollectionType::TableRows:
+    case CollectionType::WindowNamedItems:
         break;
     }
     // Remaining collection types have their own CachedHTMLCollection subclasses and are not using GenericCachedHTMLCollection.
     ASSERT_NOT_REACHED();
     return false;
 }
-template bool GenericCachedHTMLCollection<CollectionTraversalType::Descendants>::elementMatches(Element&) const;
-template bool GenericCachedHTMLCollection<CollectionTraversalType::ChildrenOnly>::elementMatches(Element&) const;
+
+template bool GenericCachedHTMLCollection<CollectionType::NodeChildren>::elementMatches(Element&) const;
+template bool GenericCachedHTMLCollection<CollectionType::TRCells>::elementMatches(Element&) const;
+template bool GenericCachedHTMLCollection<CollectionType::TSectionRows>::elementMatches(Element&) const;
+template bool GenericCachedHTMLCollection<CollectionType::TableTBodies>::elementMatches(Element&) const;
+template bool GenericCachedHTMLCollection<CollectionType::SelectedOptions>::elementMatches(Element&) const;
+template bool GenericCachedHTMLCollection<CollectionType::MapAreas>::elementMatches(Element&) const;
+template bool GenericCachedHTMLCollection<CollectionType::DocImages>::elementMatches(Element&) const;
+template bool GenericCachedHTMLCollection<CollectionType::DocScripts>::elementMatches(Element&) const;
+template bool GenericCachedHTMLCollection<CollectionType::DocForms>::elementMatches(Element&) const;
+template bool GenericCachedHTMLCollection<CollectionType::DocEmbeds>::elementMatches(Element&) const;
+template bool GenericCachedHTMLCollection<CollectionType::DocLinks>::elementMatches(Element&) const;
+template bool GenericCachedHTMLCollection<CollectionType::DocAnchors>::elementMatches(Element&) const;
+template bool GenericCachedHTMLCollection<CollectionType::DataListOptions>::elementMatches(Element&) const;
+template bool GenericCachedHTMLCollection<CollectionType::FieldSetElements>::elementMatches(Element&) const;
 
 } // namespace WebCore

@@ -21,7 +21,8 @@
 
 #pragma once
 
-#include "CSSStyleSheet.h"
+#include <WebCore/CSSStyleSheet.h>
+#include <WebCore/StyleScope.h>
 #include <wtf/text/TextPosition.h>
 
 namespace WebCore {
@@ -49,9 +50,7 @@ public:
     void childrenChanged(Element&);
     void finishParsingChildren(Element&);
 
-    Style::Scope* styleScope() { return m_styleScope; }
-
-    static void clearCache();
+    Style::Scope* styleScope() { return m_styleScope.get(); }
 
 private:
     void createSheet(Element&, const String& text);
@@ -60,11 +59,11 @@ private:
 
     bool m_isParsingChildren;
     bool m_loading;
-    WTF::TextPosition m_startTextPosition;
+    TextPosition m_startTextPosition;
     AtomString m_contentType;
     AtomString m_media;
     RefPtr<CSSStyleSheet> m_sheet;
-    Style::Scope* m_styleScope { nullptr };
+    WeakPtr<Style::Scope> m_styleScope;
 };
 
 } // namespace WebCore

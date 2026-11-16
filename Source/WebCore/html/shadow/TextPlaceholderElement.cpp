@@ -26,13 +26,16 @@
 #include "config.h"
 #include "TextPlaceholderElement.h"
 
-#include "HTMLNames.h"
+#include "CSSPropertyNames.h"
+#include "CSSUnits.h"
+#include "CSSValueKeywords.h"
 #include "HTMLTextFormControlElement.h"
-#include <wtf/IsoMallocInlines.h>
+#include "LayoutSize.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(TextPlaceholderElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(TextPlaceholderElement);
 
 Ref<TextPlaceholderElement> TextPlaceholderElement::create(Document& document, const LayoutSize& size)
 {
@@ -40,32 +43,33 @@ Ref<TextPlaceholderElement> TextPlaceholderElement::create(Document& document, c
 }
 
 TextPlaceholderElement::TextPlaceholderElement(Document& document, const LayoutSize& size)
-    : HTMLDivElement { HTMLNames::divTag, document }
+    : HTMLDivElement(document)
 {
     // FIXME: Move to User Agent stylesheet. See <https://webkit.org/b/208745>.
-    setInlineStyleProperty(CSSPropertyDisplay, size.width() ? CSSValueInlineBlock : CSSValueBlock, false);
-    setInlineStyleProperty(CSSPropertyVerticalAlign, CSSValueTop, false);
-    setInlineStyleProperty(CSSPropertyVisibility, CSSValueHidden, true);
-    setInlineStyleProperty(CSSPropertyWidth, size.width(), CSSUnitType::CSS_PX);
+    setInlineStyleProperty(CSSPropertyDisplay, size.width() ? CSSValueInlineBlock : CSSValueBlock);
+    setInlineStyleProperty(CSSPropertyVerticalAlign, CSSValueTop);
+    setInlineStyleProperty(CSSPropertyVisibility, CSSValueHidden, IsImportant::Yes);
+    if (size.width())
+        setInlineStyleProperty(CSSPropertyWidth, size.width(), CSSUnitType::CSS_PX);
     setInlineStyleProperty(CSSPropertyHeight, size.height(), CSSUnitType::CSS_PX);
 }
 
-auto TextPlaceholderElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree) -> InsertedIntoAncestorResult
+auto TextPlaceholderElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree) -> NeedsPostConnectionSteps
 {
     if (insertionType.treeScopeChanged) {
-        if (auto shadowHost = makeRefPtr(parentOfInsertedTree.shadowHost()); is<HTMLTextFormControlElement>(shadowHost))
-            downcast<HTMLTextFormControlElement>(*shadowHost).setCanShowPlaceholder(false);
+        if (RefPtr shadowHost = dynamicDowncast<HTMLTextFormControlElement>(parentOfInsertedTree.shadowHost()))
+            shadowHost->setCanShowPlaceholder(false);
     }
-    return HTMLDivElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    return HTMLDivElement::insertionSteps(insertionType, parentOfInsertedTree);
 }
 
-void TextPlaceholderElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void TextPlaceholderElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
     if (removalType.treeScopeChanged) {
-        if (auto shadowHost = makeRefPtr(oldParentOfRemovedTree.shadowHost()); is<HTMLTextFormControlElement>(shadowHost))
-            downcast<HTMLTextFormControlElement>(*shadowHost).setCanShowPlaceholder(true);
+        if (RefPtr shadowHost = dynamicDowncast<HTMLTextFormControlElement>(oldParentOfRemovedTree.shadowHost()))
+            shadowHost->setCanShowPlaceholder(true);
     }
-    HTMLDivElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    HTMLDivElement::removingSteps(removalType, oldParentOfRemovedTree);
 }
 
 } // namespace WebCore

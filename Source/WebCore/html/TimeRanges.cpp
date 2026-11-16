@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007, 2009, 2010 Apple Inc.  All rights reserved.
+ * Copyright (C) 2007, 2009, 2010 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,6 +26,8 @@
 #include "config.h"
 #include "TimeRanges.h"
 
+#include "ExceptionOr.h"
+
 namespace WebCore {
 
 Ref<TimeRanges> TimeRanges::create()
@@ -43,9 +45,7 @@ Ref<TimeRanges> TimeRanges::create(const PlatformTimeRanges& other)
     return adoptRef(*new TimeRanges(other));
 }
 
-TimeRanges::TimeRanges()
-{
-}
+TimeRanges::TimeRanges() = default;
 
 TimeRanges::TimeRanges(double start, double end)
     : m_ranges(PlatformTimeRanges(MediaTime::createWithDouble(start), MediaTime::createWithDouble(end)))
@@ -62,7 +62,7 @@ ExceptionOr<double> TimeRanges::start(unsigned index) const
     bool valid;
     MediaTime result = m_ranges.start(index, valid);
     if (!valid)
-        return Exception { IndexSizeError };
+        return Exception { ExceptionCode::IndexSizeError };
     return result.toDouble();
 }
 
@@ -71,7 +71,7 @@ ExceptionOr<double> TimeRanges::end(unsigned index) const
     bool valid;
     MediaTime result = m_ranges.end(index, valid);
     if (!valid)
-        return Exception { IndexSizeError };
+        return Exception { ExceptionCode::IndexSizeError };
     return result.toDouble();
 }
 
@@ -100,9 +100,9 @@ unsigned TimeRanges::length() const
     return m_ranges.length();
 }
 
-void TimeRanges::add(double start, double end)
+void TimeRanges::add(double start, double end, AddTimeRangeOption addTimeRangeOption)
 {
-    m_ranges.add(MediaTime::createWithDouble(start), MediaTime::createWithDouble(end));
+    m_ranges.add(MediaTime::createWithDouble(start), MediaTime::createWithDouble(end), addTimeRangeOption);
 }
 
 bool TimeRanges::contain(double time) const

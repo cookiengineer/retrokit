@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2025 Apple Inc. All rights reserved.
  * Copyright (C) 2010 Google Inc. All rights reserved.
  * Copyright (C) 2012 Samsung Electronics. All rights reserved.
  *
@@ -24,7 +24,9 @@
 #include "ImageInputType.h"
 
 #include "CachedImage.h"
+#include "ContainerNodeInlines.h"
 #include "DOMFormData.h"
+#include "ElementInlines.h"
 #include "HTMLFormElement.h"
 #include "HTMLImageLoader.h"
 #include "HTMLInputElement.h"
@@ -32,10 +34,17 @@
 #include "HTMLParserIdioms.h"
 #include "InputTypeNames.h"
 #include "MouseEvent.h"
+#include "RenderBoxInlines.h"
+#include "RenderElementStyleInlines.h"
 #include "RenderImage.h"
+#include "StyleZoomPrimitivesInlines.h"
 #include <wtf/NeverDestroyed.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ImageInputType);
 
 using namespace HTMLNames;
 
@@ -54,25 +63,22 @@ bool ImageInputType::isFormDataAppendable() const
     return true;
 }
 
-bool ImageInputType::appendFormData(DOMFormData& formData, bool) const
+bool ImageInputType::appendFormData(DOMFormData& formData) const
 {
     ASSERT(element());
-    if (!element()->isActivatedSubmit())
+    Ref element = *this->element();
+    if (!element->isActivatedSubmit())
         return false;
 
-    auto& name = element()->name();
+    auto& name = element->name();
     if (name.isEmpty()) {
         formData.append("x"_s, String::number(m_clickLocation.x()));
         formData.append("y"_s, String::number(m_clickLocation.y()));
         return true;
     }
 
-    formData.append(makeString(name, ".x"), String::number(m_clickLocation.x()));
-    formData.append(makeString(name, ".y"), String::number(m_clickLocation.y()));
-
-    auto value = element()->value();
-    if (!value.isEmpty())
-        formData.append(name, value);
+    formData.append(makeString(name, ".x"_s), String::number(m_clickLocation.x()));
+    formData.append(makeString(name, ".y"_s), String::number(m_clickLocation.y()));
 
     return true;
 }
@@ -80,53 +86,46 @@ bool ImageInputType::appendFormData(DOMFormData& formData, bool) const
 void ImageInputType::handleDOMActivateEvent(Event& event)
 {
     ASSERT(element());
-    Ref<HTMLInputElement> protectedElement(*element());
-    if (protectedElement->isDisabledFormControl() || !protectedElement->form())
+    Ref element = *this->element();
+    if (element->isDisabledFormControl() || !element->form())
         return;
 
-    Ref<HTMLFormElement> protectedForm(*protectedElement->form());
-
-    protectedElement->setActivatedSubmit(true);
+    Ref protectedForm = *element->form();
 
     m_clickLocation = IntPoint();
-    if (event.underlyingEvent()) {
-        Event& underlyingEvent = *event.underlyingEvent();
-        if (is<MouseEvent>(underlyingEvent)) {
-            MouseEvent& mouseEvent = downcast<MouseEvent>(underlyingEvent);
-            if (!mouseEvent.isSimulated())
-                m_clickLocation = IntPoint(mouseEvent.offsetX(), mouseEvent.offsetY());
-        }
+    if (RefPtr mouseEvent = dynamicDowncast<MouseEvent>(event.underlyingEvent())) {
+        if (!mouseEvent->isSimulated())
+            m_clickLocation = IntPoint(mouseEvent->offsetX(), mouseEvent->offsetY());
     }
 
     // Update layout before processing form actions in case the style changes
     // the Form or button relationships.
-    protectedElement->document().updateLayoutIgnorePendingStylesheets();
+    protect(element->document())->updateLayoutIgnorePendingStylesheets();
 
-    if (auto currentForm = protectedElement->form())
-        currentForm->submitIfPossible(&event); // Event handlers can run.
+    if (RefPtr currentForm = element->form())
+        currentForm->submitIfPossible(&event, element.ptr()); // Event handlers can run.
 
-    protectedElement->setActivatedSubmit(false);
     event.setDefaultHandled();
 }
 
-RenderPtr<RenderElement> ImageInputType::createInputRenderer(RenderStyle&& style)
+RenderPtr<RenderElement> ImageInputType::createInputRenderer(Style::ComputedStyle&& style)
 {
     ASSERT(element());
-    return createRenderer<RenderImage>(*element(), WTFMove(style));
+    // FIXME: https://github.com/llvm/llvm-project/pull/142471 Moving style is not unsafe.
+    SUPPRESS_UNCOUNTED_ARG return createRenderer<RenderImage>(RenderObject::Type::Image, *protect(element()), WTF::move(style));
 }
 
 void ImageInputType::attributeChanged(const QualifiedName& name)
 {
     if (name == altAttr) {
-        if (auto* element = this->element()) {
-            auto* renderer = element->renderer();
-            if (is<RenderImage>(renderer))
-                downcast<RenderImage>(*renderer).updateAltText();
+        if (RefPtr element = this->element()) {
+            if (CheckedPtr renderImage = dynamicDowncast<RenderImage>(element->renderer()))
+                renderImage->updateAltText();
         }
     } else if (name == srcAttr) {
-        if (auto* element = this->element()) {
+        if (RefPtr element = this->element()) {
             if (element->renderer())
-                element->ensureImageLoader().updateFromElementIgnoringPreviousError();
+                protect(element->ensureImageLoader())->updateFromElementIgnoringPreviousError();
         }
     }
     BaseButtonInputType::attributeChanged(name);
@@ -137,22 +136,22 @@ void ImageInputType::attach()
     BaseButtonInputType::attach();
 
     ASSERT(element());
-    HTMLImageLoader& imageLoader = element()->ensureImageLoader();
-    imageLoader.updateFromElement();
+    Ref imageLoader = protect(element())->ensureImageLoader();
+    imageLoader->updateFromElement();
 
-    auto* renderer = downcast<RenderImage>(element()->renderer());
+    CheckedPtr renderer = downcast<RenderImage>(element()->renderer());
     if (!renderer)
         return;
 
-    if (imageLoader.hasPendingBeforeLoadEvent())
+    if (imageLoader->hasPendingBeforeLoadEvent())
         return;
 
-    auto& imageResource = renderer->imageResource();
-    imageResource.setCachedImage(imageLoader.image());
+    CheckedRef imageResource = renderer->imageResource();
+    imageResource->setCachedImage(protect(imageLoader->image()));
 
     // If we have no image at all because we have no src attribute, set
     // image height and width for the alt text instead.
-    if (!imageLoader.image() && !imageResource.cachedImage())
+    if (!imageLoader->image() && !imageResource->cachedImage())
         renderer->setImageSizeForAltText();
 }
 
@@ -174,21 +173,22 @@ bool ImageInputType::shouldRespectHeightAndWidthAttributes()
 unsigned ImageInputType::height() const
 {
     ASSERT(element());
-    Ref<HTMLInputElement> element(*this->element());
+    Ref element = *this->element();
 
-    element->document().updateLayout();
+    protect(element->document())->updateLayout({ LayoutOptions::TreatContentVisibilityHiddenAsVisible, LayoutOptions::TreatContentVisibilityAutoAsVisible }, element.ptr());
 
-    if (auto* renderer = element->renderer())
-        return adjustForAbsoluteZoom(downcast<RenderBox>(*renderer).contentHeight(), *renderer);
+    CheckedPtr renderer = element->renderer();
+    if (renderer)
+        return Style::adjustForAbsoluteZoom(downcast<RenderBox>(*renderer).contentBoxHeight(), *renderer);
 
     // Check the attribute first for an explicit pixel value.
     if (auto optionalHeight = parseHTMLNonNegativeInteger(element->attributeWithoutSynchronization(heightAttr)))
         return optionalHeight.value();
 
     // If the image is available, use its height.
-    auto* imageLoader = element->imageLoader();
+    RefPtr imageLoader = element->imageLoader();
     if (imageLoader && imageLoader->image())
-        return imageLoader->image()->imageSizeForRenderer(element->renderer(), 1).height().toUnsigned();
+        return protect(imageLoader->image())->imageSizeForRenderer(renderer.get(), 1).height().toUnsigned();
 
     return 0;
 }
@@ -196,21 +196,22 @@ unsigned ImageInputType::height() const
 unsigned ImageInputType::width() const
 {
     ASSERT(element());
-    Ref<HTMLInputElement> element(*this->element());
+    Ref element = *this->element();
 
-    element->document().updateLayout();
+    protect(element->document())->updateLayout({ LayoutOptions::TreatContentVisibilityHiddenAsVisible, LayoutOptions::TreatContentVisibilityAutoAsVisible }, element.ptr());
 
-    if (auto* renderer = element->renderer())
-        return adjustForAbsoluteZoom(downcast<RenderBox>(*renderer).contentWidth(), *renderer);
+    CheckedPtr renderer = element->renderer();
+    if (renderer)
+        return Style::adjustForAbsoluteZoom(downcast<RenderBox>(*renderer).contentBoxWidth(), *renderer);
 
     // Check the attribute first for an explicit pixel value.
     if (auto optionalWidth = parseHTMLNonNegativeInteger(element->attributeWithoutSynchronization(widthAttr)))
         return optionalWidth.value();
 
     // If the image is available, use its width.
-    auto* imageLoader = element->imageLoader();
+    RefPtr imageLoader = element->imageLoader();
     if (imageLoader && imageLoader->image())
-        return imageLoader->image()->imageSizeForRenderer(element->renderer(), 1).width().toUnsigned();
+        return protect(imageLoader->image())->imageSizeForRenderer(renderer.get(), 1).width().toUnsigned();
 
     return 0;
 }
@@ -218,6 +219,11 @@ unsigned ImageInputType::width() const
 String ImageInputType::resultForDialogSubmit() const
 {
     return makeString(m_clickLocation.x(), ',', m_clickLocation.y());
+}
+
+bool ImageInputType::dirAutoUsesValue() const
+{
+    return false;
 }
 
 } // namespace WebCore

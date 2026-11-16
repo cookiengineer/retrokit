@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc.  All rights reserved.
+ * Copyright (C) 2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,8 +30,40 @@
 
 namespace WebCore {
 
-using SVGColorAnimator = SVGPrimitivePropertyAnimator<Color, SVGAnimationColorFunction>;
-using SVGNumberAnimator = SVGPrimitivePropertyAnimator<float, SVGAnimationNumberFunction>;
-using SVGStringAnimator = SVGPrimitivePropertyAnimator<String, SVGAnimationStringFunction>;
+class SVGColorAnimator final : public SVGPrimitivePropertyAnimator<Color, SVGAnimationColorFunction> {
+    using Base = SVGPrimitivePropertyAnimator<Color, SVGAnimationColorFunction>;
+public:
+    using Base::Base;
+    static auto create(const QualifiedName& attributeName, Ref<SVGProperty>&& property, AnimationMode animationMode, CalcMode calcMode, bool isAccumulated, bool isAdditive)
+    {
+        return adoptRef(*new SVGColorAnimator(attributeName, WTF::move(property), animationMode, calcMode, isAccumulated, isAdditive));
+    }
+private:
+    SVGAnimatorType animatorType() const final { return SVGAnimatorType::Color; }
+};
+
+class SVGNumberAnimator final : public SVGPrimitivePropertyAnimator<float, SVGAnimationNumberFunction> {
+    using Base = SVGPrimitivePropertyAnimator<float, SVGAnimationNumberFunction>;
+public:
+    using Base::Base;
+    static auto create(const QualifiedName& attributeName, Ref<SVGProperty>&& property, AnimationMode animationMode, CalcMode calcMode, bool isAccumulated, bool isAdditive)
+    {
+        return adoptRef(*new SVGNumberAnimator(attributeName, WTF::move(property), animationMode, calcMode, isAccumulated, isAdditive));
+    }
+private:
+    SVGAnimatorType animatorType() const final { return SVGAnimatorType::CSSNumber; }
+};
+
+class SVGStringAnimator final : public SVGPrimitivePropertyAnimator<String, SVGAnimationStringFunction> {
+    using Base = SVGPrimitivePropertyAnimator<String, SVGAnimationStringFunction>;
+public:
+    using Base::Base;
+    static auto create(const QualifiedName& attributeName, Ref<SVGProperty>&& property, AnimationMode animationMode, CalcMode calcMode, bool isAccumulated, bool isAdditive)
+    {
+        return adoptRef(*new SVGStringAnimator(attributeName, WTF::move(property), animationMode, calcMode, isAccumulated, isAdditive));
+    }
+private:
+    SVGAnimatorType animatorType() const final { return SVGAnimatorType::CSSString; }
+};
 
 }

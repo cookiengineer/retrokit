@@ -19,14 +19,17 @@
 
 #pragma once
 
-#include "ScrollLogicalPosition.h"
-#include "ScrollOptions.h"
+#include <WebCore/ScrollLogicalPosition.h>
+#include <WebCore/ScrollOptions.h>
 
 namespace WebCore {
 
 struct ScrollIntoViewOptions : ScrollOptions {
-    std::optional<ScrollLogicalPosition> blockPosition { ScrollLogicalPosition::Start };
-    std::optional<ScrollLogicalPosition> inlinePosition { ScrollLogicalPosition::Nearest };
+    // These are std::optional so that we can tell whether the author explicitly requested an
+    // alignment for an axis. An unspecified axis defaults to "start" (block) / "nearest" (inline),
+    // and is eligible to be adjusted to honor the target's scroll-snap-align.
+    std::optional<ScrollLogicalPosition> blockPosition;
+    std::optional<ScrollLogicalPosition> inlinePosition;
 };
 
 } // namespace WebCore

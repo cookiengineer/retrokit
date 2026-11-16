@@ -147,7 +147,8 @@ DirectiveParser::DirectiveParser(Tokenizer *tokenizer,
                                  Diagnostics *diagnostics,
                                  DirectiveHandler *directiveHandler,
                                  const PreprocessorSettings &settings)
-    : mPastFirstStatement(false),
+    : mHandledVersion(false),
+      mPastFirstStatement(false),
       mSeenNonPreprocessorToken(false),
       mTokenizer(tokenizer),
       mMacroSet(macroSet),
@@ -170,9 +171,15 @@ void DirectiveParser::lex(Token *token)
             parseDirective(token);
             mPastFirstStatement = true;
         }
-        else if (!isEOD(token))
+        else if (!isEOD(token) && !skipping())
         {
             mSeenNonPreprocessorToken = true;
+            if (!mHandledVersion)
+            {
+                // If #version does not appear before first token, then this is
+                // an ESSL1 shader without a version directive
+                handleVersion(token->location);
+            }
         }
 
         if (token->type == Token::LAST)
@@ -203,6 +210,13 @@ void DirectiveParser::parseDirective(Token *token)
     }
 
     DirectiveType directive = getDirective(token);
+
+    if (!mHandledVersion && directive != DIRECTIVE_VERSION)
+    {
+        // If first directive is not #version, then this is an ESSL1 shader
+        // without a version directive
+        handleVersion(token->location);
+    }
 
     // While in an excluded conditional block/group,
     // we only parse conditional directives.
@@ -679,14 +693,20 @@ void DirectiveParser::parseExtension(Token *token)
         {
             if (mSettings.shaderSpec == SH_WEBGL_SPEC)
             {
-                mDiagnostics->report(Diagnostics::PP_NON_PP_TOKEN_BEFORE_EXTENSION_WEBGL,
-                                     token->location, token->text);
+                // Can't disable extensions late, the shader might have already used them and passed
+                // validation.
+                valid = behavior != "disable" || (mSettings.webglExtensionDisableBehavior ==
+                                                  WebGLExtensionDisableBehavior::AnywhereInShader);
+                mDiagnostics->report(
+                    valid ? Diagnostics::PP_NON_PP_TOKEN_BEFORE_EXTENSION_WEBGL
+                          : Diagnostics::PP_NON_PP_TOKEN_BEFORE_EXTENSION_DISABLE_WEBGL,
+                    token->location, token->text);
             }
             else
             {
                 mDiagnostics->report(Diagnostics::PP_NON_PP_TOKEN_BEFORE_EXTENSION_ESSL1,
                                      token->location, token->text);
-                // This is just a warning on CHROME OS http://anglebug.com/4023
+                // This is just a warning on CHROME OS http://anglebug.com/42262661
 #if !defined(ANGLE_PLATFORM_CHROMEOS)
                 valid = false;
 #endif
@@ -713,7 +733,6 @@ void DirectiveParser::parseVersion(Token *token)
     {
         VERSION_NUMBER,
         VERSION_PROFILE_ES,
-        VERSION_PROFILE_GL,
         VERSION_ENDLINE
     };
 
@@ -741,11 +760,7 @@ void DirectiveParser::parseVersion(Token *token)
                 }
                 if (valid)
                 {
-                    if (sh::IsDesktopGLSpec(mSettings.shaderSpec))
-                    {
-                        state = VERSION_PROFILE_GL;
-                    }
-                    else if (version < 300)
+                    if (version < 300)
                     {
                         state = VERSION_ENDLINE;
                     }
@@ -756,18 +771,7 @@ void DirectiveParser::parseVersion(Token *token)
                 }
                 break;
             case VERSION_PROFILE_ES:
-                ASSERT(!sh::IsDesktopGLSpec(mSettings.shaderSpec));
                 if (token->type != Token::IDENTIFIER || token->text != "es")
-                {
-                    mDiagnostics->report(Diagnostics::PP_INVALID_VERSION_DIRECTIVE, token->location,
-                                         token->text);
-                    valid = false;
-                }
-                state = VERSION_ENDLINE;
-                break;
-            case VERSION_PROFILE_GL:
-                ASSERT(sh::IsDesktopGLSpec(mSettings.shaderSpec));
-                if (token->type != Token::IDENTIFIER || token->text != "core")
                 {
                     mDiagnostics->report(Diagnostics::PP_INVALID_VERSION_DIRECTIVE, token->location,
                                          token->text);
@@ -783,11 +787,6 @@ void DirectiveParser::parseVersion(Token *token)
         }
 
         mTokenizer->lex(token);
-
-        if (token->type == '\n' && state == VERSION_PROFILE_GL)
-        {
-            state = VERSION_ENDLINE;
-        }
     }
 
     if (valid && (state != VERSION_ENDLINE))
@@ -806,9 +805,8 @@ void DirectiveParser::parseVersion(Token *token)
 
     if (valid)
     {
-        mDirectiveHandler->handleVersion(token->location, version, mSettings.shaderSpec);
         mShaderVersion = version;
-        PredefineMacro(mMacroSet, "__VERSION__", version);
+        handleVersion(token->location);
     }
 }
 
@@ -974,6 +972,13 @@ int DirectiveParser::parseExpressionIfdef(Token *token)
         skipUntilEOD(mTokenizer, token);
     }
     return expression;
+}
+
+void DirectiveParser::handleVersion(const SourceLocation &location)
+{
+    PredefineMacro(mMacroSet, "__VERSION__", mShaderVersion);
+    mDirectiveHandler->handleVersion(location, mShaderVersion, mSettings.shaderSpec, mMacroSet);
+    mHandledVersion = true;
 }
 
 }  // namespace pp

@@ -28,16 +28,17 @@
 #include "JSResizeObserverEntry.h"
 
 #include "JSNodeCustom.h"
+#include "WebCoreOpaqueRootInlines.h"
 
 namespace WebCore {
 
 template<typename Visitor>
-void JSResizeObserverEntry::visitAdditionalChildren(Visitor& visitor)
+void JSResizeObserverEntry::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    visitor.addOpaqueRoot(root(wrapped().target()));
-    visitor.addOpaqueRoot(wrapped().contentRect());
+    addWebCoreOpaqueRoot(visitor, wrapped().target());
+    addWebCoreOpaqueRoot(visitor, wrapped().contentRect());
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSResizeObserverEntry);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSResizeObserverEntry);
 
 } // namespace WebCore

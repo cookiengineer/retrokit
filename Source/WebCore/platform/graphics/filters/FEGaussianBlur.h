@@ -2,6 +2,7 @@
  * Copyright (C) 2004, 2005, 2006, 2007 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005 Rob Buis <buis@kde.org>
  * Copyright (C) 2005 Eric Seidel <eric@webkit.org>
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -21,60 +22,54 @@
 
 #pragma once
 
-#include "FEConvolveMatrix.h"
-#include "Filter.h"
-#include "FilterEffect.h"
+#include <WebCore/FEConvolveMatrix.h>
+#include <WebCore/FilterEffect.h>
 
 namespace WebCore {
 
-class FEGaussianBlur : public FilterEffect {
+enum class FilterRenderingOption : uint8_t;
+
+class FEGaussianBlur final : public FilterEffect {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(FEGaussianBlur);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(FEGaussianBlur);
 public:
-    static Ref<FEGaussianBlur> create(Filter&, float, float, EdgeModeType);
+    WEBCORE_EXPORT static Ref<FEGaussianBlur> create(float x, float y, EdgeModeType, DestinationColorSpace = DestinationColorSpace::SRGB());
+
+    bool operator==(const FEGaussianBlur&) const;
 
     float stdDeviationX() const { return m_stdX; }
-    void setStdDeviationX(float);
+    bool NODELETE setStdDeviationX(float);
 
     float stdDeviationY() const { return m_stdY; }
-    void setStdDeviationY(float);
+    bool NODELETE setStdDeviationY(float);
 
     EdgeModeType edgeMode() const { return m_edgeMode; }
-    void setEdgeMode(EdgeModeType);
+    bool NODELETE setEdgeMode(EdgeModeType);
+
+    FloatSize effectiveStdDeviation(OptionSet<FilterRenderingOption> = { }) const;
 
     static IntSize calculateKernelSize(const Filter&, FloatSize stdDeviation);
     static IntSize calculateUnscaledKernelSize(FloatSize stdDeviation);
     static IntSize calculateOutsetSize(FloatSize stdDeviation);
 
+    static IntOutsets calculateOutsets(const FloatSize& stdDeviation);
+
 private:
-    FEGaussianBlur(Filter&, float, float, EdgeModeType);
+    FEGaussianBlur(float x, float y, EdgeModeType, DestinationColorSpace);
 
-    const char* filterName() const final { return "FEGaussianBlur"; }
+    bool operator==(const FilterEffect& other) const override { return areEqual<FEGaussianBlur>(*this, other); }
 
-    static const int s_minimalRectDimension = 100 * 100; // Empirical data limit for parallel jobs
+    FloatRect calculateImageRect(const Filter&, std::span<const FloatRect> inputImageRects, const FloatRect& primitiveSubregion) const override;
 
-    template<typename Type>
-    friend class ParallelJobs;
+    bool resultIsAlphaImage(std::span<const Ref<FilterImage>> inputs) const override;
 
-    struct PlatformApplyParameters {
-        FEGaussianBlur* filter;
-        RefPtr<Uint8ClampedArray> ioPixelArray;
-        RefPtr<Uint8ClampedArray> tmpPixelArray;
-        int width;
-        int height;
-        unsigned kernelSizeX;
-        unsigned kernelSizeY;
-    };
+    OptionSet<FilterRenderingMode> supportedFilterRenderingModes(OptionSet<FilterRenderingMode> preferredFilterRenderingModes) const override;
 
-    void platformApplySoftware() override;
+    std::unique_ptr<FilterEffectApplier> createAcceleratedApplier() const override;
+    std::unique_ptr<FilterEffectApplier> createSoftwareApplier() const override;
+    std::optional<GraphicsStyle> createGraphicsStyle(GraphicsContext&, const Filter&) const override;
 
-    void determineAbsolutePaintRect() override;
-
-    IntOutsets outsets() const override;
-
-    WTF::TextStream& externalRepresentation(WTF::TextStream&, RepresentationType) const override;
-
-    static void platformApplyWorker(PlatformApplyParameters*);
-    void platformApply(Uint8ClampedArray& ioBuffer, Uint8ClampedArray& tempBuffer, unsigned kernelSizeX, unsigned kernelSizeY, IntSize& paintSize);
-    void platformApplyGeneric(Uint8ClampedArray& ioBuffer, Uint8ClampedArray& tempBuffer, unsigned kernelSizeX, unsigned kernelSizeY, IntSize& paintSize);
+    WTF::TextStream& externalRepresentation(WTF::TextStream&, FilterRepresentation) const override;
 
     float m_stdX;
     float m_stdY;
@@ -83,3 +78,4 @@ private:
 
 } // namespace WebCore
 
+SPECIALIZE_TYPE_TRAITS_FILTER_FUNCTION(FEGaussianBlur)

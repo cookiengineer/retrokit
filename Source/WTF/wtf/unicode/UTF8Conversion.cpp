@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2024 Apple Inc. All rights reserved.
  * Copyright (C) 2010 Patrick Gansterer <paroga@paroga.com>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,185 +27,177 @@
 #include "config.h"
 #include <wtf/unicode/UTF8Conversion.h>
 
+#include <unicode/uchar.h>
 #include <wtf/ASCIICType.h>
-#include <wtf/text/StringHasher.h>
+#include <wtf/SIMDUTF.h>
+#include <wtf/text/icu/UnicodeExtras.h>
 #include <wtf/unicode/CharacterNames.h>
 
-namespace WTF {
-namespace Unicode {
+namespace WTF::Unicode {
 
-bool convertLatin1ToUTF8(const LChar** sourceStart, const LChar* sourceEnd, char** targetStart, char* targetEnd)
+static constexpr char32_t sentinelCodePoint = U_SENTINEL;
+
+enum class Replacement : bool { None, ReplaceInvalidSequences };
+
+template<Replacement = Replacement::None, typename CharacterType> static char32_t next(std::span<const CharacterType>, size_t& offset);
+template<typename CharacterType> static bool append(std::span<CharacterType>, size_t& offset, char32_t character);
+
+template<> char32_t NODELETE next<Replacement::None, Latin1Character>(std::span<const Latin1Character> characters, size_t& offset)
 {
-    const LChar* source;
-    char* target = *targetStart;
-    int i = 0;
-    for (source = *sourceStart; source < sourceEnd; ++source) {
-        UBool sawError = false;
-        // Work around bug in either Windows compiler or old version of ICU, where passing a uint8_t to
-        // U8_APPEND warns, by converting from uint8_t to a wider type.
-        UChar32 character = *source;
-        U8_APPEND(reinterpret_cast<uint8_t*>(target), i, targetEnd - *targetStart, character, sawError);
-        if (sawError)
-            return false;
-    }
-    *sourceStart = source;
-    *targetStart = target + i;
-    return true;
+    return characters[offset++];
 }
 
-ConversionResult convertUTF16ToUTF8(const UChar** sourceStart, const UChar* sourceEnd, char** targetStart, char* targetEnd, bool strict)
+template<> char32_t next<Replacement::None, char8_t>(std::span<const char8_t> characters, size_t& offset)
 {
-    ConversionResult result = ConversionOK;
-    const UChar* source = *sourceStart;
-    char* target = *targetStart;
+    char32_t character;
+    U8_NEXT_SPAN(characters, offset, character);
+    return U_IS_SURROGATE(character) ? sentinelCodePoint : character;
+}
+
+template<> char32_t next<Replacement::ReplaceInvalidSequences, char8_t>(std::span<const char8_t> characters, size_t& offset)
+{
+    char32_t character;
+    U8_NEXT_OR_FFFD_SPAN(characters, offset, character);
+    return character;
+}
+
+template<> char32_t NODELETE next<Replacement::None, char16_t>(std::span<const char16_t> characters, size_t& offset)
+{
+    char32_t character;
+    U16_NEXT(characters, offset, characters.size(), character);
+    return U_IS_SURROGATE(character) ? sentinelCodePoint : character;
+}
+
+template<> char32_t NODELETE next<Replacement::ReplaceInvalidSequences, char16_t>(std::span<const char16_t> characters, size_t& offset)
+{
+    char32_t character;
+    U16_NEXT_OR_FFFD(characters, offset, characters.size(), character);
+    return character;
+}
+
+template<> bool NODELETE append<char8_t>(std::span<char8_t> characters, size_t& offset, char32_t character)
+{
     UBool sawError = false;
-    int i = 0;
-    while (source < sourceEnd) {
-        UChar32 ch;
-        int j = 0;
-        U16_NEXT(source, j, sourceEnd - source, ch);
-        if (U_IS_SURROGATE(ch)) {
-            if (source + j == sourceEnd && U_IS_SURROGATE_LEAD(ch)) {
-                result = SourceExhausted;
-                break;
-            }
-            if (strict) {
-                result = SourceIllegal;
-                break;
-            }
-            ch = replacementCharacter;
-        }
-        U8_APPEND(reinterpret_cast<uint8_t*>(target), i, targetEnd - target, ch, sawError);
-        if (sawError) {
-            result = TargetExhausted;
+    U8_APPEND(characters, offset, characters.size(), character, sawError);
+    return sawError;
+}
+
+template<> bool NODELETE append<char16_t>(std::span<char16_t> characters, size_t& offset, char32_t character)
+{
+    UBool sawError = false;
+    U16_APPEND(characters, offset, characters.size(), character, sawError);
+    return sawError;
+}
+
+template<Replacement replacement = Replacement::None, typename SourceCharacterType, typename BufferCharacterType> static ConversionResult<BufferCharacterType> convertInternal(std::span<const SourceCharacterType> source, std::span<BufferCharacterType> buffer)
+{
+    auto resultCode = ConversionResultCode::Success;
+    size_t bufferOffset = 0;
+    char32_t orAllData = 0;
+    for (size_t sourceOffset = 0; sourceOffset < source.size(); ) {
+        char32_t character = next<replacement>(source, sourceOffset);
+        if (character == sentinelCodePoint) {
+            resultCode = ConversionResultCode::SourceInvalid;
             break;
         }
-        source += j;
-    }
-    *sourceStart = source;
-    *targetStart = target + i;
-    return result;
-}
-
-template<bool replaceInvalidSequences>
-bool convertUTF8ToUTF16Impl(const char* source, const char* sourceEnd, UChar** targetStart, UChar* targetEnd, bool* sourceAllASCII)
-{
-    RELEASE_ASSERT(sourceEnd - source <= std::numeric_limits<int>::max());
-    UBool error = false;
-    UChar* target = *targetStart;
-    RELEASE_ASSERT(targetEnd - target <= std::numeric_limits<int>::max());
-    UChar32 orAllData = 0;
-    int targetOffset = 0;
-    for (int sourceOffset = 0; sourceOffset < sourceEnd - source; ) {
-        UChar32 character;
-        if constexpr (replaceInvalidSequences) {
-            U8_NEXT_OR_FFFD(reinterpret_cast<const uint8_t*>(source), sourceOffset, sourceEnd - source, character);
-        } else {
-            U8_NEXT(reinterpret_cast<const uint8_t*>(source), sourceOffset, sourceEnd - source, character);
+        if (bufferOffset == buffer.size()) {
+            resultCode = ConversionResultCode::TargetExhausted;
+            break;
         }
-        if (character < 0)
-            return false;
-        U16_APPEND(target, targetOffset, targetEnd - target, character, error);
-        if (error)
-            return false;
+        bool sawError = append(buffer, bufferOffset, character);
+        if (sawError) {
+            resultCode = ConversionResultCode::TargetExhausted;
+            break;
+        }
         orAllData |= character;
     }
-    RELEASE_ASSERT(target + targetOffset <= targetEnd);
-    *targetStart = target + targetOffset;
-    if (sourceAllASCII)
-        *sourceAllASCII = isASCII(orAllData);
-    return true;
+    return { resultCode, buffer.first(bufferOffset), isASCII(orAllData) };
 }
 
-bool convertUTF8ToUTF16(const char* source, const char* sourceEnd, UChar** targetStart, UChar* targetEnd, bool* sourceAllASCII)
+ConversionResult<char8_t> convert(std::span<const char16_t> source, std::span<char8_t> buffer)
 {
-    return convertUTF8ToUTF16Impl<false>(source, sourceEnd, targetStart, targetEnd, sourceAllASCII);
-}
+#if CPU(BIG_ENDIAN)
+    size_t requiredLength = simdutf::utf8_length_from_utf16be(source);
+#else
+    size_t requiredLength = simdutf::utf8_length_from_utf16le(source);
+#endif
 
-bool convertUTF8ToUTF16ReplacingInvalidSequences(const char* source, const char* sourceEnd, UChar** targetStart, UChar* targetEnd, bool* sourceAllASCII)
-{
-    return convertUTF8ToUTF16Impl<true>(source, sourceEnd, targetStart, targetEnd, sourceAllASCII);
-}
+    if (buffer.size() < requiredLength)
+        return convertInternal(source, buffer);
 
-unsigned calculateStringHashAndLengthFromUTF8MaskingTop8Bits(const char* data, const char* dataEnd, unsigned& dataLength, unsigned& utf16Length)
-{
-    StringHasher stringHasher;
-    utf16Length = 0;
+#if CPU(BIG_ENDIAN)
+    auto result = simdutf::convert_utf16be_to_utf8_with_errors(source, buffer);
+#else
+    auto result = simdutf::convert_utf16le_to_utf8_with_errors(source, buffer);
+#endif
 
-    int inputOffset = 0;
-    int inputLength = dataEnd - data;
-    while (inputOffset < inputLength) {
-        UChar32 character;
-        U8_NEXT(reinterpret_cast<const uint8_t*>(data), inputOffset, inputLength, character);
-        if (character < 0)
-            return 0;
-
-        if (U_IS_BMP(character)) {
-            ASSERT(!U_IS_SURROGATE(character));
-            stringHasher.addCharacter(character);
-            utf16Length++;
-        } else {
-            ASSERT(U_IS_SUPPLEMENTARY(character));
-            stringHasher.addCharacters(U16_LEAD(character), U16_TRAIL(character));
-            utf16Length += 2;
-        }
+    if (result.error == simdutf::error_code::SUCCESS) {
+        bool isAllASCII = result.count == source.size();
+        return { ConversionResultCode::Success, buffer.first(result.count), isAllASCII };
     }
 
-    dataLength = inputOffset;
-    return stringHasher.hashWithTop8BitsMasked();
+    return convertInternal(source, buffer);
 }
 
-bool equalUTF16WithUTF8(const UChar* a, const char* b, const char* bEnd)
+ConversionResult<char16_t> convert(std::span<const char8_t> source, std::span<char16_t> buffer)
 {
-    while (b < bEnd) {
-        int offset = 0;
-        UChar32 character;
-        U8_NEXT(reinterpret_cast<const uint8_t*>(b), offset, bEnd - b, character);
-        if (character < 0)
-            return false;
-        b += offset;
-
-        if (U_IS_BMP(character)) {
-            ASSERT(!U_IS_SURROGATE(character));
-            if (*a++ != character)
-                return false;
-        } else {
-            ASSERT(U_IS_SUPPLEMENTARY(character));
-            if (*a++ != U16_LEAD(character))
-                return false;
-            if (*a++ != U16_TRAIL(character))
-                return false;
-        }
-    }
-
-    return true;
+    return convertInternal(source, buffer);
 }
 
-bool equalLatin1WithUTF8(const LChar* a, const char* b, const char* bEnd)
+ConversionResult<char8_t> convert(std::span<const Latin1Character> source, std::span<char8_t> buffer)
 {
-    while (b < bEnd) {
-        if (isASCII(*a) || isASCII(*b)) {
-            if (*a++ != *b++)
-                return false;
-            continue;
-        }
-
-        if (b + 1 == bEnd)
-            return false;
-
-        if ((b[0] & 0xE0) != 0xC0 || (b[1] & 0xC0) != 0x80)
-            return false;
-
-        LChar character = ((b[0] & 0x1F) << 6) | (b[1] & 0x3F);
-
-        b += 2;
-
-        if (*a++ != character)
-            return false;
-    }
-
-    return true;
+    return convertInternal(source, buffer);
 }
 
-} // namespace Unicode
-} // namespace WTF
+ConversionResult<char8_t> convertReplacingInvalidSequences(std::span<const char16_t> source, std::span<char8_t> buffer)
+{
+    return convertInternal<Replacement::ReplaceInvalidSequences>(source, buffer);
+}
+
+ConversionResult<char16_t> convertReplacingInvalidSequences(std::span<const char8_t> source, std::span<char16_t> buffer)
+{
+    return convertInternal<Replacement::ReplaceInvalidSequences>(source, buffer);
+}
+
+std::span<const char8_t> checkUTF8WithoutUTF16Length(std::span<const char8_t> source)
+{
+    auto result = simdutf::validate_utf8_with_errors(source);
+    size_t validLength = result.error == simdutf::error_code::SUCCESS ? source.size() : result.count;
+    return source.first(validLength);
+}
+
+CheckedUTF8 checkUTF8(std::span<const char8_t> source)
+{
+    auto result = simdutf::validate_utf8_with_errors(source);
+    size_t validLength = result.error == simdutf::error_code::SUCCESS ? source.size() : result.count;
+    auto validSpan = source.first(validLength);
+    size_t lengthUTF16 = simdutf::utf16_length_from_utf8(validSpan);
+    return { validSpan, lengthUTF16, validLength == lengthUTF16 };
+}
+
+template<typename CharacterTypeA, typename CharacterTypeB> bool equalInternal(std::span<CharacterTypeA> a, std::span<CharacterTypeB> b)
+{
+    size_t offsetA = 0;
+    size_t offsetB = 0;
+    while (offsetA < a.size() && offsetB < b.size()) {
+        auto characterA = next(a, offsetA);
+        // sentinelCodePoint is U_SENTINEL (not U+FFFD), meaning decoding failed
+        // without producing any code point. Two unrelated decoding failures
+        // should not compare as equal.
+        if (characterA == sentinelCodePoint || characterA != next(b, offsetB))
+            return false;
+    }
+    return offsetA == a.size() && offsetB == b.size();
+}
+
+bool equal(std::span<const char16_t> a, std::span<const char8_t> b)
+{
+    return equalInternal(a, b);
+}
+
+bool equal(std::span<const Latin1Character> a, std::span<const char8_t> b)
+{
+    return equalInternal(a, b);
+}
+
+} // namespace WTF::Unicode

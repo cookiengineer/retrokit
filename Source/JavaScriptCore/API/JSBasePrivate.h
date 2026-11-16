@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc.  All rights reserved.
+ * Copyright (C) 2008 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -71,6 +71,7 @@ JS_EXPORT bool JSConfigureSignalForGC(int signal);
  protectedObjectCount: current count of protected GC objects
  globalObjectCount: current count of global GC objects
  protectedGlobalObjectCount: current count of protected global GC objects
+ objectTypeCounts: object with GC object types as keys and their current counts as values
 */
 JS_EXPORT JSObjectRef JSGetMemoryUsageStatistics(JSContextRef ctx);
 

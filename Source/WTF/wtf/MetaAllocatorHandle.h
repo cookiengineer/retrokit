@@ -29,8 +29,9 @@
 #pragma once
 
 #include <wtf/Assertions.h>
-#include <wtf/MetaAllocatorPtr.h>
+#include <wtf/CodePtr.h>
 #include <wtf/RedBlackTree.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeRefCounted.h>
 
 namespace WTF {
@@ -38,12 +39,11 @@ namespace WTF {
 class MetaAllocator;
 class PrintStream;
 
-DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(MetaAllocatorHandle);
-class MetaAllocatorHandle : public ThreadSafeRefCounted<MetaAllocatorHandle>, public RedBlackTree<MetaAllocatorHandle, void*>::Node {
-    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(MetaAllocatorHandle);
-
+class MetaAllocatorHandle final : public ThreadSafeRefCounted<MetaAllocatorHandle>, public RedBlackTree<MetaAllocatorHandle, void*>::ThreadSafeNode {
+    WTF_MAKE_COMPACT_TZONE_ALLOCATED(MetaAllocatorHandle);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(MetaAllocatorHandle);
 public:
-    using MemoryPtr = MetaAllocatorPtr<HandleMemoryPtrTag>;
+    using MemoryPtr = CodePtr<HandleMemoryPtrTag>;
 
     WTF_EXPORT_PRIVATE ~MetaAllocatorHandle();
 

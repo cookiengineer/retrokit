@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 Apple Inc.  All rights reserved.
+ * Copyright (C) 2011 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,11 +28,11 @@
 #if ENABLE(VIDEO)
 
 #include "TrackEvent.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(TrackEvent);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(TrackEvent);
 
 static inline std::optional<TrackEvent::TrackEventTrack> convertToTrackEventTrack(Ref<TrackBase>&& track)
 {
@@ -40,11 +40,11 @@ static inline std::optional<TrackEvent::TrackEventTrack> convertToTrackEventTrac
     case TrackBase::BaseTrack:
         return std::nullopt;
     case TrackBase::TextTrack:
-        return TrackEvent::TrackEventTrack { RefPtr<TextTrack>(&downcast<TextTrack>(track.get())) };
+        return TrackEvent::TrackEventTrack { uncheckedDowncast<TextTrack>(WTF::move(track)) };
     case TrackBase::AudioTrack:
-        return TrackEvent::TrackEventTrack { RefPtr<AudioTrack>(&downcast<AudioTrack>(track.get())) };
+        return TrackEvent::TrackEventTrack { uncheckedDowncast<AudioTrack>(WTF::move(track)) };
     case TrackBase::VideoTrack:
-        return TrackEvent::TrackEventTrack { RefPtr<VideoTrack>(&downcast<VideoTrack>(track.get())) };
+        return TrackEvent::TrackEventTrack { uncheckedDowncast<VideoTrack>(WTF::move(track)) };
     }
     
     ASSERT_NOT_REACHED();
@@ -52,23 +52,18 @@ static inline std::optional<TrackEvent::TrackEventTrack> convertToTrackEventTrac
 }
 
 TrackEvent::TrackEvent(const AtomString& type, CanBubble canBubble, IsCancelable cancelable, Ref<TrackBase>&& track)
-    : Event(type, canBubble, cancelable)
-    , m_track(convertToTrackEventTrack(WTFMove(track)))
+    : Event(EventInterfaceType::TrackEvent, type, canBubble, cancelable)
+    , m_track(convertToTrackEventTrack(WTF::move(track)))
 {
 }
 
 TrackEvent::TrackEvent(const AtomString& type, Init&& initializer, IsTrusted isTrusted)
-    : Event(type, initializer, isTrusted)
-    , m_track(WTFMove(initializer.track))
+    : Event(EventInterfaceType::TrackEvent, type, initializer, isTrusted)
+    , m_track(WTF::move(initializer.track))
 {
 }
 
 TrackEvent::~TrackEvent() = default;
-
-EventInterface TrackEvent::eventInterface() const
-{
-    return TrackEventInterfaceType;
-}
 
 } // namespace WebCore
 

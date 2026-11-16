@@ -1,6 +1,6 @@
 /*
  *  Copyright (C) 1999-2000 Harri Porten (porten@kde.org)
- *  Copyright (C) 2007-2019 Apple Inc. All rights reserved.
+ *  Copyright (C) 2007-2022 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -20,8 +20,8 @@
 
 #pragma once
 
-#include "JSWrapperObject.h"
-#include "JSString.h"
+#include <JavaScriptCore/JSString.h>
+#include <JavaScriptCore/JSWrapperObject.h>
 
 namespace JSC {
 
@@ -31,21 +31,21 @@ public:
     static constexpr unsigned StructureFlags = Base::StructureFlags | OverridesGetOwnPropertySlot | OverridesGetOwnPropertyNames | OverridesPut | InterceptsGetOwnPropertySlotByIndexEvenWhenLengthIsNotZero;
 
     template<typename, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
-        return &vm.stringObjectSpace;
+        return &vm.stringObjectSpace();
     }
 
     static StringObject* create(VM& vm, Structure* structure)
     {
         JSString* string = jsEmptyString(vm);
-        StringObject* object = new (NotNull, allocateCell<StringObject>(vm.heap)) StringObject(vm, structure);
+        StringObject* object = new (NotNull, allocateCell<StringObject>(vm)) StringObject(vm, structure);
         object->finishCreation(vm, string);
         return object;
     }
     static StringObject* create(VM& vm, Structure* structure, JSString* string)
     {
-        StringObject* object = new (NotNull, allocateCell<StringObject>(vm.heap)) StringObject(vm, structure);
+        StringObject* object = new (NotNull, allocateCell<StringObject>(vm)) StringObject(vm, structure);
         object->finishCreation(vm, string);
         return object;
     }
@@ -59,17 +59,14 @@ public:
 
     JS_EXPORT_PRIVATE static bool deleteProperty(JSCell*, JSGlobalObject*, PropertyName, DeletePropertySlot&);
     JS_EXPORT_PRIVATE static bool deletePropertyByIndex(JSCell*, JSGlobalObject*, unsigned propertyName);
-    JS_EXPORT_PRIVATE static void getOwnPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArray&, DontEnumPropertiesMode);
+    JS_EXPORT_PRIVATE static void getOwnPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArrayBuilder&, DontEnumPropertiesMode);
     JS_EXPORT_PRIVATE static bool defineOwnProperty(JSObject*, JSGlobalObject*, PropertyName, const PropertyDescriptor&, bool shouldThrow);
 
     DECLARE_EXPORT_INFO;
 
     JSString* internalValue() const { return asString(JSWrapperObject::internalValue()); }
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(StringObjectType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
 protected:
     JS_EXPORT_PRIVATE void finishCreation(VM&, JSString*);

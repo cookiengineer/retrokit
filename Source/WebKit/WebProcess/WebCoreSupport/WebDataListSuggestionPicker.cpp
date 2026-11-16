@@ -26,13 +26,11 @@
 #include "config.h"
 #include "WebDataListSuggestionPicker.h"
 
-#if ENABLE(DATALIST_ELEMENT)
-
-#include "WebCoreArgumentCoders.h"
 #include "WebPage.h"
 #include "WebPageProxyMessages.h"
 #include "WebProcess.h"
 #include <WebCore/DataListSuggestionsClient.h>
+#include <WebCore/LocalFrameView.h>
 
 namespace WebKit {
 
@@ -42,40 +40,75 @@ WebDataListSuggestionPicker::WebDataListSuggestionPicker(WebPage& page, WebCore:
 {
 }
 
+WebDataListSuggestionPicker::~WebDataListSuggestionPicker() = default;
+
 void WebDataListSuggestionPicker::handleKeydownWithIdentifier(const String& key)
 {
-    WebProcess::singleton().parentProcessConnection()->send(Messages::WebPageProxy::HandleKeydownInDataList(key), m_page.identifier());
+    if (key == "U+001B"_s) {
+        close();
+        return;
+    }
+
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+
+    protect(WebProcess::singleton().parentProcessConnection())->send(Messages::WebPageProxy::HandleKeydownInDataList(key), page->identifier());
 }
 
 void WebDataListSuggestionPicker::didSelectOption(const String& selectedOption)
 {
-    m_client.didSelectDataListOption(selectedOption);
+    if (CheckedPtr client = m_client)
+        client->didSelectDataListOption(selectedOption);
 }
 
 void WebDataListSuggestionPicker::didCloseSuggestions()
 {
-    m_client.didCloseSuggestions();
+    if (CheckedPtr client = m_client)
+        client->didCloseSuggestions();
 }
 
 void WebDataListSuggestionPicker::close()
 {
-    WebProcess::singleton().parentProcessConnection()->send(Messages::WebPageProxy::EndDataListSuggestions(), m_page.identifier());
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+
+    protect(WebProcess::singleton().parentProcessConnection())->send(Messages::WebPageProxy::EndDataListSuggestions(), page->identifier());
 }
 
 void WebDataListSuggestionPicker::displayWithActivationType(WebCore::DataListSuggestionActivationType type)
 {
-    auto suggestions = m_client.suggestions();
+    CheckedPtr client = m_client;
+    if (!client)
+        return;
+
+    auto suggestions = client->suggestions();
     if (suggestions.isEmpty()) {
         close();
         return;
     }
 
-    m_page.setActiveDataListSuggestionPicker(*this);
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
 
-    WebCore::DataListSuggestionInformation info { type, WTFMove(suggestions), m_client.elementRectInRootViewCoordinates() };
-    WebProcess::singleton().parentProcessConnection()->send(Messages::WebPageProxy::ShowDataListSuggestions(info), m_page.identifier());
+    auto elementRectInRootViewCoordinates = client->elementRectInRootViewCoordinates();
+    if (RefPtr view = page->localMainFrameView()) {
+        auto unobscuredRootViewRect = view->contentsToRootView(view->unobscuredContentRect());
+        if (!unobscuredRootViewRect.intersects(elementRectInRootViewCoordinates))
+            return close();
+    }
+
+    page->setActiveDataListSuggestionPicker(*this);
+
+    WebCore::DataListSuggestionInformation info { type, WTF::move(suggestions), WTF::move(elementRectInRootViewCoordinates), client->rootFrameID() };
+    protect(WebProcess::singleton().parentProcessConnection())->send(Messages::WebPageProxy::ShowDataListSuggestions(info), page->identifier());
+}
+
+void WebDataListSuggestionPicker::detach()
+{
+    m_client = nullptr;
 }
 
 } // namespace WebKit
-
-#endif

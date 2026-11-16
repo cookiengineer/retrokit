@@ -26,10 +26,9 @@
 #include "config.h"
 #include "CryptoAlgorithmRSA_OAEP.h"
 
-#if ENABLE(WEB_CRYPTO)
-
 #include "CryptoAlgorithmRsaOaepParams.h"
 #include "CryptoKeyRSA.h"
+#include "ExceptionOr.h"
 #include "GCryptUtilities.h"
 #include "NotImplemented.h"
 
@@ -42,11 +41,11 @@ static std::optional<Vector<uint8_t>> gcryptEncrypt(CryptoAlgorithmIdentifier ha
     PAL::GCrypt::Handle<gcry_sexp_t> dataSexp;
     {
         auto shaAlgorithm = hashAlgorithmName(hashAlgorithmIdentifier);
-        if (!shaAlgorithm)
+        if (shaAlgorithm.isNull())
             return std::nullopt;
 
         gcry_error_t error = gcry_sexp_build(&dataSexp, nullptr, "(data(flags oaep)(hash-algo %s)(label %b)(value %b))",
-            *shaAlgorithm, labelVector.size(), labelVector.data(), plainText.size(), plainText.data());
+            shaAlgorithm.characters(), labelVector.size(), labelVector.span().data(), plainText.size(), plainText.span().data());
         if (error != GPG_ERR_NO_ERROR) {
             PAL::GCrypt::logError(error);
             return std::nullopt;
@@ -80,11 +79,11 @@ static std::optional<Vector<uint8_t>> gcryptDecrypt(CryptoAlgorithmIdentifier ha
     PAL::GCrypt::Handle<gcry_sexp_t> encValSexp;
     {
         auto shaAlgorithm = hashAlgorithmName(hashAlgorithmIdentifier);
-        if (!shaAlgorithm)
+        if (shaAlgorithm.isNull())
             return std::nullopt;
 
         gcry_error_t error = gcry_sexp_build(&encValSexp, nullptr, "(enc-val(flags oaep)(hash-algo %s)(label %b)(rsa(a %b)))",
-            *shaAlgorithm, labelVector.size(), labelVector.data(), cipherText.size(), cipherText.data());
+            shaAlgorithm.characters(), labelVector.size(), labelVector.span().data(), cipherText.size(), cipherText.span().data());
         if (error != GPG_ERR_NO_ERROR) {
             PAL::GCrypt::logError(error);
             return std::nullopt;
@@ -102,12 +101,17 @@ static std::optional<Vector<uint8_t>> gcryptDecrypt(CryptoAlgorithmIdentifier ha
         return std::nullopt;
     }
 
-    // Return MPI data of the embedded value integer.
+    // Return the embedded value data.
     PAL::GCrypt::Handle<gcry_sexp_t> valueSexp(gcry_sexp_find_token(plainSexp, "value", 0));
     if (!valueSexp)
         return std::nullopt;
 
-    return mpiData(valueSexp);
+    size_t dataLength = 0;
+    const char* data = gcry_sexp_nth_data(valueSexp, 1, &dataLength);
+    if (!data)
+        return std::nullopt;
+
+    return Vector<uint8_t>(unsafeMakeSpan(byteCast<uint8_t>(data), dataLength));
 }
 
 ExceptionOr<Vector<uint8_t>> CryptoAlgorithmRSA_OAEP::platformEncrypt(const CryptoAlgorithmRsaOaepParams& parameters, const CryptoKeyRSA& key, const Vector<uint8_t>& plainText)
@@ -115,18 +119,16 @@ ExceptionOr<Vector<uint8_t>> CryptoAlgorithmRSA_OAEP::platformEncrypt(const Cryp
     RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(!(key.keySizeInBits() % 8));
     auto output = gcryptEncrypt(key.hashAlgorithmIdentifier(), key.platformKey(), parameters.labelVector(), plainText, key.keySizeInBits() / 8);
     if (!output)
-        return Exception { OperationError };
-    return WTFMove(*output);
+        return Exception { ExceptionCode::OperationError };
+    return WTF::move(*output);
 }
 
 ExceptionOr<Vector<uint8_t>> CryptoAlgorithmRSA_OAEP::platformDecrypt(const CryptoAlgorithmRsaOaepParams& parameters, const CryptoKeyRSA& key, const Vector<uint8_t>& cipherText)
 {
     auto output = gcryptDecrypt(key.hashAlgorithmIdentifier(), key.platformKey(), parameters.labelVector(), cipherText);
     if (!output)
-        return Exception { OperationError };
-    return WTFMove(*output);
+        return Exception { ExceptionCode::OperationError };
+    return WTF::move(*output);
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(WEB_CRYPTO)

@@ -25,13 +25,17 @@
 #include <glib/gi18n-lib.h>
 #include <wtf/glib/WTFGType.h>
 
+#if !ENABLE(2022_GLIB_API)
+typedef WebKitPermissionRequestIface WebKitPermissionRequestInterface;
+#endif
+
 using namespace WebKit;
 
 /**
- * SECTION: WebKitUserMediaPermissionRequest
- * @Short_description: A permission request for accessing user's audio/video devices.
- * @Title: WebKitUserMediaPermissionRequest
+ * WebKitUserMediaPermissionRequest:
  * @See_also: #WebKitPermissionRequest, #WebKitWebView
+ *
+ * A permission request for accessing user's audio/video devices.
  *
  * WebKitUserMediaPermissionRequest represents a request for
  * permission to decide whether WebKit should be allowed to access the user's
@@ -49,15 +53,15 @@ enum {
     PROP_IS_FOR_VIDEO_DEVICE
 };
 
-static void webkit_permission_request_interface_init(WebKitPermissionRequestIface*);
+static void webkit_permission_request_interface_init(WebKitPermissionRequestInterface*);
 
 struct _WebKitUserMediaPermissionRequestPrivate {
     RefPtr<UserMediaPermissionRequestProxy> request;
     bool madeDecision;
 };
 
-WEBKIT_DEFINE_TYPE_WITH_CODE(
-    WebKitUserMediaPermissionRequest, webkit_user_media_permission_request, G_TYPE_OBJECT,
+WEBKIT_DEFINE_FINAL_TYPE_WITH_CODE(
+    WebKitUserMediaPermissionRequest, webkit_user_media_permission_request, G_TYPE_OBJECT, GObject,
     G_IMPLEMENT_INTERFACE(WEBKIT_TYPE_PERMISSION_REQUEST, webkit_permission_request_interface_init))
 
 static void webkitUserMediaPermissionRequestAllow(WebKitPermissionRequest* request)
@@ -95,7 +99,7 @@ static void webkitUserMediaPermissionRequestDeny(WebKitPermissionRequest* reques
     priv->request->deny(UserMediaPermissionRequestProxy::UserMediaAccessDenialReason::PermissionDenied);
 }
 
-static void webkit_permission_request_interface_init(WebKitPermissionRequestIface* iface)
+static void webkit_permission_request_interface_init(WebKitPermissionRequestInterface* iface)
 {
     iface->allow = webkitUserMediaPermissionRequestAllow;
     iface->deny = webkitUserMediaPermissionRequestDeny;
@@ -112,6 +116,8 @@ static void webkitUserMediaPermissionRequestDispose(GObject* object)
  * webkit_user_media_permission_is_for_audio_device:
  * @request: a #WebKitUserMediaPermissionRequest
  *
+ * Check whether the permission request is for an audio device.
+ *
  * Returns: %TRUE if access to an audio device was requested.
  *
  * Since: 2.8
@@ -126,6 +132,8 @@ gboolean webkit_user_media_permission_is_for_audio_device(WebKitUserMediaPermiss
  * webkit_user_media_permission_is_for_video_device:
  * @request: a #WebKitUserMediaPermissionRequest
  *
+ * Check whether the permission request is for a video device.
+ *
  * Returns: %TRUE if access to a video device was requested.
  *
  * Since: 2.8
@@ -139,6 +147,8 @@ gboolean webkit_user_media_permission_is_for_video_device(WebKitUserMediaPermiss
 /**
  * webkit_user_media_permission_is_for_display_device:
  * @request: a #WebKitUserMediaPermissionRequest
+ *
+ * Check whether the permission request is for a display device.
  *
  * Returns: %TRUE if access to a display device was requested.
  *
@@ -173,28 +183,28 @@ static void webkit_user_media_permission_request_class_init(WebKitUserMediaPermi
     objectClass->get_property = webkitUserMediaPermissionRequestGetProperty;
 
     /**
-     * WebKitUserPermissionRequest:is-for-audio-device:
+     * WebKitUserMediaPermissionRequest:is-for-audio-device:
      *
      * Whether the media device to which the permission was requested has a microphone or not.
      *
      * Since: 2.8
      */
     g_object_class_install_property(objectClass, PROP_IS_FOR_AUDIO_DEVICE,
-        g_param_spec_boolean("is-for-audio-device", _("Is for audio device"),
-            _("Whether the media device to which the permission was requested has a microphone or not."),
+        g_param_spec_boolean("is-for-audio-device",
+            nullptr, nullptr,
             FALSE,
             WEBKIT_PARAM_READABLE));
 
     /**
-     * WebKitUserPermissionRequest:is-for-video-device:
+     * WebKitUserMediaPermissionRequest:is-for-video-device:
      *
      * Whether the media device to which the permission was requested has a video capture capability or not.
      *
      * Since: 2.8
      */
     g_object_class_install_property(objectClass, PROP_IS_FOR_VIDEO_DEVICE,
-        g_param_spec_boolean("is-for-video-device", _("Is for video device"),
-            _("Whether the media device to which the permission was requested has a video capture capability or not."),
+        g_param_spec_boolean("is-for-video-device",
+            nullptr, nullptr,
             FALSE,
             WEBKIT_PARAM_READABLE));
 }

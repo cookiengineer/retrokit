@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005, 2006, 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2005-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,9 +25,9 @@
 
 #pragma once
 
-#include "AXTextStateChangeIntent.h"
-#include "EditAction.h"
-#include "VisibleSelection.h"
+#include <WebCore/AXTextStateChangeIntent.h>
+#include <WebCore/EditAction.h>
+#include <WebCore/VisibleSelection.h>
 #include <wtf/WeakPtr.h>
 
 #ifndef NDEBUG
@@ -40,18 +40,23 @@ class CompositeEditCommand;
 class Document;
 class Element;
 
-String inputTypeNameForEditingAction(EditAction);
+ASCIILiteral inputTypeNameForEditingAction(EditAction);
+bool NODELETE isInputMethodComposingForEditingAction(EditAction);
+
+using NodeSet = HashSet<Ref<Node>>;
+
+enum class AllowPasswordEcho : bool { No, Yes };
 
 class EditCommand : public RefCounted<EditCommand> {
 public:
     virtual ~EditCommand();
 
-    void setParent(CompositeEditCommand*);
+    void setParent(RefPtr<CompositeEditCommand>&&);
 
     virtual EditAction editingAction() const;
 
-    const VisibleSelection& startingSelection() const { return m_startingSelection; }
-    const VisibleSelection& endingSelection() const { return m_endingSelection; }
+    const VisibleSelection& startingSelection() const LIFETIME_BOUND { return m_startingSelection; }
+    const VisibleSelection& endingSelection() const LIFETIME_BOUND { return m_endingSelection; }
 
     virtual bool isInsertTextCommand() const { return false; }    
     virtual bool isSimpleEditCommand() const { return false; }
@@ -61,8 +66,8 @@ public:
     virtual void doApply() = 0;
 
 protected:
-    explicit EditCommand(Document&, EditAction = EditAction::Unspecified);
-    EditCommand(Document&, const VisibleSelection&, const VisibleSelection&);
+    explicit EditCommand(Ref<Document>&&, EditAction = EditAction::Unspecified);
+    EditCommand(Ref<Document>&&, const VisibleSelection&, const VisibleSelection&);
 
     const Document& document() const { return m_document; }
     Document& document() { return m_document; }
@@ -76,7 +81,7 @@ protected:
     void postTextStateChangeNotification(AXTextEditType, const String&, const VisiblePosition&);
 
 private:
-    Ref<Document> m_document;
+    const Ref<Document> m_document;
     VisibleSelection m_startingSelection;
     VisibleSelection m_endingSelection;
     WeakPtr<CompositeEditCommand> m_parent;
@@ -94,25 +99,22 @@ public:
     virtual void doReapply(); // calls doApply()
 
 #ifndef NDEBUG
-    virtual void getNodesInCommand(HashSet<Ref<Node>>&) = 0;
+    virtual void getNodesInCommand(NodeSet&) = 0;
 #endif
 
 protected:
-    explicit SimpleEditCommand(Document&, EditAction = EditAction::Unspecified);
+    explicit SimpleEditCommand(Ref<Document>&&, EditAction = EditAction::Unspecified);
 
 #ifndef NDEBUG
-    void addNodeAndDescendants(Node*, HashSet<Ref<Node>>&);
+    void addNodeAndDescendants(Node*, NodeSet&);
 #endif
 
 private:
     bool isSimpleEditCommand() const override { return true; }
 };
 
-inline SimpleEditCommand* toSimpleEditCommand(EditCommand* command)
-{
-    ASSERT(command);
-    ASSERT_WITH_SECURITY_IMPLICATION(command->isSimpleEditCommand());
-    return static_cast<SimpleEditCommand*>(command);
-}
-
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::SimpleEditCommand)
+    static bool isType(const WebCore::EditCommand& command) { return command.isSimpleEditCommand(); }
+SPECIALIZE_TYPE_TRAITS_END()

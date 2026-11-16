@@ -343,24 +343,8 @@ WI.TimelineRuler = class TimelineRuler extends WI.View
 
         marker.addEventListener(WI.TimelineMarker.Event.TimeChanged, this._timelineMarkerTimeChanged, this);
 
-        let markerTime = marker.time - this._startTime;
         let markerElement = document.createElement("div");
         markerElement.classList.add(marker.type, "marker");
-
-        switch (marker.type) {
-        case WI.TimelineMarker.Type.LoadEvent:
-            markerElement.title = WI.UIString("Load \u2014 %s").format(Number.secondsToString(markerTime));
-            break;
-        case WI.TimelineMarker.Type.DOMContentEvent:
-            markerElement.title = WI.UIString("DOM Content Loaded \u2014 %s").format(Number.secondsToString(markerTime));
-            break;
-        case WI.TimelineMarker.Type.TimeStamp:
-            if (marker.details)
-                markerElement.title = WI.UIString("%s \u2014 %s").format(marker.details, Number.secondsToString(markerTime));
-            else
-                markerElement.title = WI.UIString("Timestamp \u2014 %s").format(Number.secondsToString(markerTime));
-            break;
-        }
 
         this._markerElementMap.set(marker, markerElement);
 
@@ -648,9 +632,24 @@ WI.TimelineRuler = class TimelineRuler extends WI.View
                 continue;
             }
 
-            let newPosition = (marker.time - this._startTime) / duration;
+            let markerTime = marker.time - this._startTime;
             let property = WI.resolvedLayoutDirection() === WI.LayoutDirection.RTL ? "right" : "left";
-            this._updatePositionOfElement(markerElement, newPosition, visibleWidth, property);
+            this._updatePositionOfElement(markerElement, markerTime / duration, visibleWidth, property);
+
+            switch (marker.type) {
+            case WI.TimelineMarker.Type.LoadEvent:
+                markerElement.title = WI.UIString("Load \u2014 %s").format(Number.secondsToString(markerTime));
+                break;
+            case WI.TimelineMarker.Type.DOMContentEvent:
+                markerElement.title = WI.UIString("DOM Content Loaded \u2014 %s").format(Number.secondsToString(markerTime));
+                break;
+            case WI.TimelineMarker.Type.TimeStamp:
+                if (marker.details)
+                    markerElement.title = WI.UIString("%s \u2014 %s").format(marker.details, Number.secondsToString(markerTime));
+                else
+                    markerElement.title = WI.UIString("Timestamp \u2014 %s").format(Number.secondsToString(markerTime));
+                break;
+            }
 
             if (!markerElement.parentNode)
                 this._markersElement.appendChild(markerElement);

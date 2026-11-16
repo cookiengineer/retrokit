@@ -29,14 +29,13 @@
 
 #include "ActiveDOMObject.h"
 #include "EventTarget.h"
-#include "ExceptionOr.h"
+#include "EventTargetInterfaces.h"
 #include "IDLTypes.h"
 #include "PaymentDetailsInit.h"
 #include "PaymentMethodChangeEvent.h"
 #include "PaymentOptions.h"
 #include "PaymentResponse.h"
 #include <wtf/URL.h>
-#include <wtf/Variant.h>
 
 namespace WebCore {
 
@@ -51,26 +50,31 @@ enum class PaymentShippingType;
 struct PaymentDetailsUpdate;
 struct PaymentMethodData;
 template<typename IDLType> class DOMPromiseDeferred;
+template<typename> class ExceptionOr;
 
-class PaymentRequest final : public ActiveDOMObject, public EventTargetWithInlineData, public RefCounted<PaymentRequest> {
-    WTF_MAKE_ISO_ALLOCATED(PaymentRequest);
+class PaymentRequest final : public ActiveDOMObject, public EventTarget, public RefCounted<PaymentRequest> {
+    WTF_MAKE_TZONE_ALLOCATED(PaymentRequest);
 public:
     using AbortPromise = DOMPromiseDeferred<void>;
     using CanMakePaymentPromise = DOMPromiseDeferred<IDLBoolean>;
     using ShowPromise = DOMPromiseDeferred<IDLInterface<PaymentResponse>>;
 
     static ExceptionOr<Ref<PaymentRequest>> create(Document&, Vector<PaymentMethodData>&&, PaymentDetailsInit&&, PaymentOptions&&);
-    static bool enabledForContext(ScriptExecutionContext&);
     ~PaymentRequest();
+
+    // ContextDestructionObserver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+    USING_CAN_MAKE_WEAKPTR(EventTarget);
 
     void show(Document&, RefPtr<DOMPromise>&& detailsPromise, ShowPromise&&);
     void abort(AbortPromise&&);
     void canMakePayment(Document&, CanMakePaymentPromise&&);
 
-    const String& id() const;
+    const String& NODELETE id() const;
     PaymentAddress* shippingAddress() const { return m_shippingAddress.get(); }
-    const String& shippingOption() const { return m_shippingOption; }
-    std::optional<PaymentShippingType> shippingType() const;
+    const String& shippingOption() const LIFETIME_BOUND { return m_shippingOption; }
+    std::optional<PaymentShippingType> NODELETE shippingType() const;
 
     enum class State {
         Created,
@@ -87,23 +91,23 @@ public:
 
     State state() const { return m_state; }
 
-    const PaymentOptions& paymentOptions() const { return m_options; }
-    const PaymentDetailsInit& paymentDetails() const { return m_details; }
-    const Vector<String>& serializedModifierData() const { return m_serializedModifierData; }
+    const PaymentOptions& paymentOptions() const LIFETIME_BOUND { return m_options; }
+    const PaymentDetailsInit& paymentDetails() const LIFETIME_BOUND { return m_details; }
+    const Vector<String>& serializedModifierData() const LIFETIME_BOUND { return m_serializedModifierData; }
 
     void shippingAddressChanged(Ref<PaymentAddress>&&);
     void shippingOptionChanged(const String& shippingOption);
     void paymentMethodChanged(const String& methodName, PaymentMethodChangeEvent::MethodDetailsFunction&&);
     ExceptionOr<void> updateWith(UpdateReason, Ref<DOMPromise>&&);
     ExceptionOr<void> completeMerchantValidation(Event&, Ref<DOMPromise>&&);
+    void accept(const String& methodName, PaymentResponse::DetailsFunction&&);
     void accept(const String& methodName, PaymentResponse::DetailsFunction&&, Ref<PaymentAddress>&& shippingAddress, const String& payerName, const String& payerEmail, const String& payerPhone);
-    ExceptionOr<void> complete(std::optional<PaymentComplete>&&);
+    void reject(Exception&&);
+    ExceptionOr<void> complete(Document&, std::optional<PaymentComplete>&&, String&& serializedData);
     ExceptionOr<void> retry(PaymentValidationErrors&&);
     void cancel();
 
     using MethodIdentifier = Variant<String, URL>;
-    using RefCounted<PaymentRequest>::ref;
-    using RefCounted<PaymentRequest>::deref;
 
 private:
     struct Method {
@@ -127,13 +131,12 @@ private:
     void closeActivePaymentHandler();
 
     // ActiveDOMObject
-    const char* activeDOMObjectName() const final { return "PaymentRequest"; }
     void stop() final;
     void suspend(ReasonForSuspension) final;
 
     // EventTarget
-    EventTargetInterface eventTargetInterface() const final { return PaymentRequestEventTargetInterfaceType; }
-    ScriptExecutionContext* scriptExecutionContext() const final { return ActiveDOMObject::scriptExecutionContext(); }
+    enum EventTargetInterfaceType eventTargetInterface() const final { return EventTargetInterfaceType::PaymentRequest; }
+    ScriptExecutionContext* NODELETE scriptExecutionContext() const final;
     bool isPaymentRequest() const final { return true; }
     void refEventTarget() final { ref(); }
     void derefEventTarget() final { deref(); }

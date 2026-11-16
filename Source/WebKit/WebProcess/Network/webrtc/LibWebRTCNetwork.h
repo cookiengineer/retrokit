@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,70 +25,63 @@
 
 #pragma once
 
+#if USE(LIBWEBRTC)
+
 #include "Connection.h"
-#include "DataReference.h"
 #include "LibWebRTCProvider.h"
 #include "LibWebRTCSocketFactory.h"
-#include "WebMDNSRegister.h"
 #include "WebRTCMonitor.h"
+#include "WebRTCNetworkBase.h"
 #include "WebRTCResolver.h"
 #include <WebCore/LibWebRTCSocketIdentifier.h>
+#include <wtf/FunctionDispatcher.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/UniqueRef.h>
 
 namespace WebKit {
+class WebProcess;
 
-class LibWebRTCNetwork : public IPC::Connection::ThreadMessageReceiverRefCounted {
-    WTF_MAKE_FAST_ALLOCATED;
+class LibWebRTCNetwork final : public WebRTCNetworkBase, private FunctionDispatcher {
+    WTF_MAKE_TZONE_ALLOCATED(LibWebRTCNetwork);
 public:
+    explicit LibWebRTCNetwork(WebProcess&);
     ~LibWebRTCNetwork();
 
     IPC::Connection* connection() { return m_connection.get(); }
     void setConnection(RefPtr<IPC::Connection>&&);
 
-    void networkProcessCrashed();
+    void networkProcessCrashed() final;
+    void setAsActive() final;
 
-    bool isActive() const { return m_isActive; }
-
-#if USE(LIBWEBRTC)
-    void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
-
-    WebRTCMonitor& monitor() { return m_webNetworkMonitor; }
+    WebRTCMonitor& monitor() LIFETIME_BOUND { return m_webNetworkMonitor; }
     LibWebRTCSocketFactory& socketFactory() { return m_socketFactory; }
 
     void disableNonLocalhostConnections() { socketFactory().disableNonLocalhostConnections(); }
 
-    WebRTCResolver resolver(LibWebRTCResolverIdentifier identifier) { return WebRTCResolver(socketFactory(), identifier); }
-#endif
-
-#if ENABLE(WEB_RTC)
-    WebMDNSRegister& mdnsRegister() { return m_mdnsRegister; }
-#endif
-
-    void setAsActive();
+    Ref<WebRTCResolver> resolver(LibWebRTCResolverIdentifier identifier) { return WebRTCResolver::create(protect(socketFactory()), identifier); }
 
 private:
-#if USE(LIBWEBRTC)
     void setSocketFactoryConnection();
 
-    void signalReadPacket(WebCore::LibWebRTCSocketIdentifier, const IPC::DataReference&, const RTCNetwork::IPAddress&, uint16_t port, int64_t);
-    void signalSentPacket(WebCore::LibWebRTCSocketIdentifier, int, int64_t);
+    void signalReadPacket(WebCore::LibWebRTCSocketIdentifier, std::span<const uint8_t>, const RTCNetwork::IPAddress&, uint16_t port, int64_t, WebRTCNetwork::EcnMarking);
+    void signalSentPacket(WebCore::LibWebRTCSocketIdentifier, int64_t, int64_t);
     void signalAddressReady(WebCore::LibWebRTCSocketIdentifier, const RTCNetwork::SocketAddress&);
     void signalConnect(WebCore::LibWebRTCSocketIdentifier);
     void signalClose(WebCore::LibWebRTCSocketIdentifier, int);
-    void signalNewConnection(WebCore::LibWebRTCSocketIdentifier socketIdentifier, WebCore::LibWebRTCSocketIdentifier newSocketIdentifier, const WebKit::RTCNetwork::SocketAddress&);
-#endif
+    void signalUsedInterface(WebCore::LibWebRTCSocketIdentifier, String&&);
 
-    // IPC::Connection::ThreadMessageReceiver
-    void dispatchToThread(Function<void()>&&) final;
+    // FunctionDispatcher
+    void dispatch(Function<void()>&&) final;
 
-#if USE(LIBWEBRTC)
+    // IPC::MessageReceiver
+    void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
+
     LibWebRTCSocketFactory m_socketFactory;
     WebRTCMonitor m_webNetworkMonitor;
-#endif
-#if ENABLE(WEB_RTC)
-    WebMDNSRegister m_mdnsRegister;
-#endif
-    bool m_isActive { false };
+
     RefPtr<IPC::Connection> m_connection;
 };
 
 } // namespace WebKit
+
+#endif // USE(LIBWEBRTC)

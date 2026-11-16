@@ -27,28 +27,40 @@
 
 #include <memory>
 #include <wtf/Assertions.h>
+#include <wtf/GetPtr.h>
+#include <wtf/StdLibExtras.h>
+#include <wtf/TypeCasts.h>
+#include <wtf/TypeTraits.h>
 
 namespace WTF {
 
 template<typename T> class UniqueRef;
 
 template<typename T, class... Args>
-UniqueRef<T> makeUniqueRefWithoutFastMallocCheck(Args&&... args)
+[[nodiscard]] UniqueRef<T> makeUniqueRefWithoutFastMallocCheck(Args&&... args)
 {
     return UniqueRef<T>(*new T(std::forward<Args>(args)...));
 }
 
-template<typename T, class... Args>
-UniqueRef<T> makeUniqueRef(Args&&... args)
+template<class T, class... Args>
+[[nodiscard]] UniqueRef<T> makeUniqueRefWithoutRefCountedCheck(Args&&... args)
 {
-    static_assert(std::is_same<typename T::webkitFastMalloced, int>::value, "T is FastMalloced");
+    static_assert(std::is_same<typename T::WTFIsFastMallocAllocated, int>::value, "T should use TZoneMalloc (WTF_MAKE_TZONE_ALLOCATED or one of its variants)");
+    return makeUniqueRefWithoutFastMallocCheck<T>(std::forward<Args>(args)...);
+}
+
+template<typename T, class... Args>
+[[nodiscard]] UniqueRef<T> makeUniqueRef(Args&&... args)
+{
+    static_assert(std::is_same<typename T::WTFIsFastMallocAllocated, int>::value, "T should use TZoneMalloc (WTF_MAKE_TZONE_ALLOCATED or one of its variants)");
+    static_assert(!HasRefPtrMemberFunctions<T>::value, "T should not be RefCounted");
     return makeUniqueRefWithoutFastMallocCheck<T>(std::forward<Args>(args)...);
 }
 
 template<typename T>
 UniqueRef<T> makeUniqueRefFromNonNullUniquePtr(std::unique_ptr<T>&& ptr)
 {
-    return UniqueRef<T>(WTFMove(ptr));
+    return UniqueRef<T>(WTF::move(ptr));
 }
 
 template<typename T>
@@ -67,22 +79,18 @@ public:
         ASSERT(m_ref);
     }
 
-    T* ptr() RETURNS_NONNULL { ASSERT(m_ref); return m_ref.get(); }
-    T* ptr() const RETURNS_NONNULL { ASSERT(m_ref); return m_ref.get(); }
+    T* ptr() const LIFETIME_BOUND RETURNS_NONNULL { ASSERT(m_ref); return m_ref.get(); }
+    T& get() const LIFETIME_BOUND { ASSERT(m_ref); return *m_ref; }
 
-    T& get() { ASSERT(m_ref); return *m_ref; }
-    const T& get() const { ASSERT(m_ref); return *m_ref; }
+    T* operator&() const LIFETIME_BOUND { ASSERT(m_ref); return m_ref.get(); }
+    T* operator->() const LIFETIME_BOUND { ASSERT(m_ref); return m_ref.get(); }
 
-    T* operator&() { ASSERT(m_ref); return m_ref.get(); }
-    const T* operator&() const { ASSERT(m_ref); return m_ref.get(); }
+    operator T&() const LIFETIME_BOUND { ASSERT(m_ref); return *m_ref; }
 
-    T* operator->() { ASSERT(m_ref); return m_ref.get(); }
-    const T* operator->() const { ASSERT(m_ref); return m_ref.get(); }
-    
-    operator T&() { ASSERT(m_ref); return *m_ref; }
-    operator const T&() const { ASSERT(m_ref); return *m_ref; }
+    std::unique_ptr<T> moveToUniquePtr() { return WTF::move(m_ref); }
 
-    std::unique_ptr<T> moveToUniquePtr() { return WTFMove(m_ref); }
+    explicit UniqueRef(HashTableEmptyValueType) { }
+    bool isHashTableEmptyValue() const { return !m_ref; }
 
 private:
     template<class U, class... Args> friend UniqueRef<U> makeUniqueRefWithoutFastMallocCheck(Args&&...);
@@ -90,7 +98,7 @@ private:
     template<class U> friend class UniqueRef;
 
     explicit UniqueRef(std::unique_ptr<T>&& ptr)
-        : m_ref(WTFMove(ptr))
+        : m_ref(WTF::move(ptr))
     {
         ASSERT(m_ref);
     }
@@ -98,9 +106,54 @@ private:
     std::unique_ptr<T> m_ref;
 };
 
+template<typename T>
+struct GetPtrHelper<UniqueRef<T>> {
+    using PtrType = T*;
+    using UnderlyingType = T;
+    static T* getPtr(const UniqueRef<T>& p LIFETIME_BOUND) { return const_cast<T*>(p.ptr()); }
+};
+
+template<typename T>
+struct IsSmartPtr<UniqueRef<T>> {
+    static constexpr bool value = true;
+    static constexpr bool isNullable = false;
+};
+
+template<typename ExpectedType, typename ArgType>
+inline bool is(UniqueRef<ArgType>& source)
+{
+    return is<ExpectedType>(source.get());
+}
+
+template<typename ExpectedType, typename ArgType>
+inline bool is(const UniqueRef<ArgType>& source)
+{
+    return is<ExpectedType>(source.get());
+}
+
+template<typename... ExpectedTypes, typename ArgType>
+inline bool isAnyOf(UniqueRef<ArgType>& source)
+{
+    return isAnyOf<ExpectedTypes...>(source.get());
+}
+
+template<typename... ExpectedTypes, typename ArgType>
+inline bool is(const UniqueRef<ArgType>& source)
+{
+    return isAnyOf<ExpectedTypes...>(source.get());
+}
+
+template<typename T>
+inline bool arePointingToEqualData(const UniqueRef<T>& a, const UniqueRef<T>& b)
+{
+    return a.ptr() == b.ptr() || a.get() == b.get();
+}
+
 } // namespace WTF
 
 using WTF::UniqueRef;
+using WTF::arePointingToEqualData;
 using WTF::makeUniqueRef;
 using WTF::makeUniqueRefWithoutFastMallocCheck;
+using WTF::makeUniqueRefWithoutRefCountedCheck;
 using WTF::makeUniqueRefFromNonNullUniquePtr;

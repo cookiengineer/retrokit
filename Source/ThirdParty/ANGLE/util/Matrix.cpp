@@ -8,6 +8,7 @@
 //
 
 #include "Matrix.h"
+#include "common/unsafe_buffers.h"
 
 #define _USE_MATH_DEFINES
 #include <math.h>

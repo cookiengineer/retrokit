@@ -4,6 +4,7 @@
 // found in the LICENSE file.
 //
 
+#include "common/unsafe_buffers.h"
 #include "test_utils/ANGLETest.h"
 
 using namespace angle;
@@ -29,7 +30,7 @@ void main()
 })";
 }  // namespace
 
-class PBOExtensionTest : public ANGLETest
+class PBOExtensionTest : public ANGLETest<>
 {
   protected:
     PBOExtensionTest()
@@ -68,9 +69,9 @@ class PBOExtensionTest : public ANGLETest
         glDeleteProgram(mProgram);
     }
 
-    GLuint mPBO;
-    GLuint mProgram;
-    GLuint mPositionVBO;
+    GLuint mPBO         = 0;
+    GLuint mProgram     = 0;
+    GLuint mPositionVBO = 0;
 };
 
 TEST_P(PBOExtensionTest, PBOWithOtherTarget)
@@ -92,9 +93,9 @@ TEST_P(PBOExtensionTest, PBOWithOtherTarget)
         EXPECT_GL_NO_ERROR();
 
         EXPECT_EQ(255, dataPtr[0]);
-        EXPECT_EQ(0, dataPtr[1]);
-        EXPECT_EQ(0, dataPtr[2]);
-        EXPECT_EQ(255, dataPtr[3]);
+        ANGLE_UNSAFE_TODO(EXPECT_EQ(0, dataPtr[1]));
+        ANGLE_UNSAFE_TODO(EXPECT_EQ(0, dataPtr[2]));
+        ANGLE_UNSAFE_TODO(EXPECT_EQ(255, dataPtr[3]));
 
         glUnmapBufferOES(GL_ARRAY_BUFFER);
     }
@@ -127,15 +128,15 @@ TEST_P(PBOExtensionTest, PBOWithExistingData)
 
         // Test pixel 0 is red (existing data)
         EXPECT_EQ(255, dataPtr[0]);
-        EXPECT_EQ(0, dataPtr[1]);
-        EXPECT_EQ(0, dataPtr[2]);
-        EXPECT_EQ(255, dataPtr[3]);
+        ANGLE_UNSAFE_TODO(EXPECT_EQ(0, dataPtr[1]));
+        ANGLE_UNSAFE_TODO(EXPECT_EQ(0, dataPtr[2]));
+        ANGLE_UNSAFE_TODO(EXPECT_EQ(255, dataPtr[3]));
 
         // Test pixel 16 is green (new data)
-        EXPECT_EQ(0, dataPtr[16 * 4 + 0]);
-        EXPECT_EQ(255, dataPtr[16 * 4 + 1]);
-        EXPECT_EQ(0, dataPtr[16 * 4 + 2]);
-        EXPECT_EQ(255, dataPtr[16 * 4 + 3]);
+        ANGLE_UNSAFE_TODO(EXPECT_EQ(0, dataPtr[16 * 4 + 0]));
+        ANGLE_UNSAFE_TODO(EXPECT_EQ(255, dataPtr[16 * 4 + 1]));
+        ANGLE_UNSAFE_TODO(EXPECT_EQ(0, dataPtr[16 * 4 + 2]));
+        ANGLE_UNSAFE_TODO(EXPECT_EQ(255, dataPtr[16 * 4 + 3]));
 
         glUnmapBufferOES(GL_PIXEL_PACK_BUFFER);
     }

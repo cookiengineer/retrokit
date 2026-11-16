@@ -21,6 +21,14 @@ namespace rx
 namespace vk
 {
 
+// When command buffer gets collected, we have the option to call reset right away, or we can defer
+// the reset call until the command buffer is going to be recycled for use again by allocate call.
+enum class WhenToResetCommandBuffer
+{
+    Now,
+    Defer,
+};
+
 class PersistentCommandPool final
 {
   public:
@@ -28,19 +36,26 @@ class PersistentCommandPool final
     ~PersistentCommandPool();
 
     void destroy(VkDevice device);
-    angle::Result init(vk::Context *context, uint32_t queueFamilyIndex);
+    angle::Result init(ErrorContext *context,
+                       ProtectionType protectionType,
+                       uint32_t queueFamilyIndex);
 
-    angle::Result allocate(vk::Context *context, vk::PrimaryCommandBuffer *commandBufferOut);
-    angle::Result collect(vk::Context *context, vk::PrimaryCommandBuffer &&buffer);
+    angle::Result allocate(ErrorContext *context, PrimaryCommandBuffer *commandBufferOut);
+    angle::Result collect(ErrorContext *context,
+                          PrimaryCommandBuffer &&buffer,
+                          WhenToResetCommandBuffer whenToReset);
 
     bool valid() const { return mCommandPool.valid(); }
 
   private:
-    angle::Result allocateCommandBuffer(vk::Context *context);
+    angle::Result allocateCommandBuffer(ErrorContext *context);
 
-    std::vector<vk::PrimaryCommandBuffer> mFreeBuffers;
+    // command buffers that are free and ready to use
+    std::deque<PrimaryCommandBuffer> mFreeBuffers;
+    // command buffers that are free but needs reset before use
+    std::deque<PrimaryCommandBuffer> mFreeBuffersNeedReset;
 
-    vk::CommandPool mCommandPool;
+    CommandPool mCommandPool;
 
     static const int kInitBufferNum = 2;
 };

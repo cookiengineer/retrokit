@@ -45,13 +45,17 @@ class InspectorExtension final : public API::ObjectImpl<Object::Type::InspectorE
 public:
     static Ref<InspectorExtension> create(const WTF::String& identifier, WebKit::WebInspectorUIExtensionControllerProxy&);
 
-    const WTF::String& identifier() const { return m_identifier; }
+    const WTF::String& identifier() const LIFETIME_BOUND { return m_identifier; }
 
     void createTab(const WTF::String& tabName, const WTF::URL& tabIconURL, const WTF::URL& sourceURL, WTF::CompletionHandler<void(Expected<Inspector::ExtensionTabID, Inspector::ExtensionError>)>&&);
     void evaluateScript(const WTF::String& scriptSource, const std::optional<WTF::URL>& frameURL, const std::optional<WTF::URL>& contextSecurityOrigin, const std::optional<bool>& useContentScriptContext, WTF::CompletionHandler<void(Inspector::ExtensionEvaluationResult)>&&);
-    void reloadIgnoringCache(const std::optional<bool>& ignoreCache, const std::optional<WTF::String>& userAgent, const std::optional<WTF::String>& injectedScript,  WTF::CompletionHandler<void(Inspector::ExtensionEvaluationResult)>&&);
+    void navigateTab(const Inspector::ExtensionTabID&, const WTF::URL& sourceURL, WTF::CompletionHandler<void(const std::optional<Inspector::ExtensionError>)>&&);
+    void reloadIgnoringCache(const std::optional<bool>& ignoreCache, const std::optional<WTF::String>& userAgent, const std::optional<WTF::String>& injectedScript, WTF::CompletionHandler<void(Inspector::ExtensionVoidResult)>&&);
 
-    InspectorExtensionClient* client() const { return m_client.get(); }
+    // For testing.
+    void evaluateScriptInExtensionTab(const Inspector::ExtensionTabID&, const WTF::String& scriptSource, WTF::CompletionHandler<void(Inspector::ExtensionEvaluationResult)>&&);
+
+    InspectorExtensionClient* client() const LIFETIME_BOUND { return m_client.get(); }
     void setClient(UniqueRef<InspectorExtensionClient>&&);
 
 private:
@@ -63,5 +67,7 @@ private:
 };
 
 } // namespace API
+
+SPECIALIZE_TYPE_TRAITS_API_OBJECT(InspectorExtension);
 
 #endif // ENABLE(INSPECTOR_EXTENSIONS)

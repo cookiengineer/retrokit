@@ -25,24 +25,23 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
-#include "ServiceWorkerIdentifier.h"
+#include <WebCore/ServiceWorkerIdentifier.h>
 
 namespace WebCore {
 
 class SWClientConnection;
-struct SecurityOriginData;
+class SecurityOriginData;
 class ServiceWorkerJob;
 
 class WEBCORE_EXPORT ServiceWorkerProvider {
 public:
     virtual ~ServiceWorkerProvider();
 
-    static ServiceWorkerProvider& singleton();
-    static void setSharedProvider(ServiceWorkerProvider&);
+    static ServiceWorkerProvider& NODELETE singleton();
+    static void NODELETE setSharedProvider(ServiceWorkerProvider&);
 
     virtual SWClientConnection& serviceWorkerConnection() = 0;
+    virtual SWClientConnection* existingServiceWorkerConnection() = 0;
     virtual void terminateWorkerForTesting(ServiceWorkerIdentifier, CompletionHandler<void()>&&) = 0;
 
     void setMayHaveRegisteredServiceWorkers() { m_mayHaveRegisteredServiceWorkers = true; }
@@ -52,5 +51,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)

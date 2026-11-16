@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Apple Inc.  All rights reserved.
+ * Copyright (C) 2018-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -39,8 +39,11 @@ class SVGLengthListAnimator final : public SVGValuePropertyListAnimator<SVGLengt
 public:
     static auto create(const QualifiedName& attributeName, Ref<SVGProperty>&& property, AnimationMode animationMode, CalcMode calcMode, bool isAccumulated, bool isAdditive)
     {
-        return adoptRef(*new SVGLengthListAnimator(attributeName, WTFMove(property), animationMode, calcMode, isAccumulated, isAdditive, SVGLengthMode::Other));
+        return adoptRef(*new SVGLengthListAnimator(attributeName, WTF::move(property), animationMode, calcMode, isAccumulated, isAdditive, SVGLengthMode::Other));
     }
+
+private:
+    SVGAnimatorType animatorType() const final { return SVGAnimatorType::CSSLengthList; }
 
     void start(SVGElement& targetElement) final
     {

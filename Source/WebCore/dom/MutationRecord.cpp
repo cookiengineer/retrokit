@@ -35,6 +35,8 @@
 #include "CharacterData.h"
 #include "JSNode.h"
 #include "StaticNodeList.h"
+#include "WebCoreOpaqueRootInlines.h"
+#include <JavaScriptCore/AbstractSlotVisitorInlines.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/StdLibExtras.h>
 
@@ -42,47 +44,51 @@ namespace WebCore {
 
 namespace {
 
-static void visitNodeList(JSC::AbstractSlotVisitor& visitor, NodeList& nodeList)
+static void visitNodeListInGCThread(JSC::AbstractSlotVisitor& visitor, NodeList& nodeList)
 {
     ASSERT(!nodeList.isLiveNodeList());
     unsigned length = nodeList.length();
-    for (unsigned i = 0; i < length; ++i)
-        visitor.addOpaqueRoot(root(nodeList.item(i)));
+    for (unsigned i = 0; i < length; ++i) {
+        // We cannot ref the item here as this function may get called from a GC thread.
+        SUPPRESS_UNRETAINED_ARG addWebCoreOpaqueRoot(visitor, nodeList.item(i));
+    }
 }
 
 class ChildListRecord final : public MutationRecord {
 public:
     ChildListRecord(ContainerNode& target, Ref<NodeList>&& added, Ref<NodeList>&& removed, RefPtr<Node>&& previousSibling, RefPtr<Node>&& nextSibling)
         : m_target(target)
-        , m_addedNodes(WTFMove(added))
-        , m_removedNodes(WTFMove(removed))
-        , m_previousSibling(WTFMove(previousSibling))
-        , m_nextSibling(WTFMove(nextSibling))
+        , m_addedNodes(WTF::move(added))
+        , m_removedNodes(WTF::move(removed))
+        , m_previousSibling(WTF::move(previousSibling))
+        , m_nextSibling(WTF::move(nextSibling))
     {
     }
 
 private:
     const AtomString& type() override;
-    Node* target() override { return m_target.ptr(); }
-    NodeList* addedNodes() override { return m_addedNodes.get(); }
-    NodeList* removedNodes() override { return m_removedNodes.get(); }
+    Node& target() override { return m_target; }
+    NodeList& addedNodes() override { return m_addedNodes; }
+    NodeList& removedNodes() override { return m_removedNodes; }
     Node* previousSibling() override { return m_previousSibling.get(); }
     Node* nextSibling() override { return m_nextSibling.get(); }
 
-    void visitNodesConcurrently(JSC::AbstractSlotVisitor& visitor) const final
+    void visitNodesInGCThread(JSC::AbstractSlotVisitor& visitor) const final
     {
-        visitor.addOpaqueRoot(root(m_target.ptr()));
-        if (m_addedNodes)
-            visitNodeList(visitor, *m_addedNodes);
-        if (m_removedNodes)
-            visitNodeList(visitor, *m_removedNodes);
+        addWebCoreOpaqueRoot(visitor, m_target.get());
+        addWebCoreOpaqueRoot(visitor, m_previousSibling.get());
+        addWebCoreOpaqueRoot(visitor, m_nextSibling.get());
+        // We cannot ref m_addedNodes here as this function may get called from a GC thread.
+        SUPPRESS_UNRETAINED_ARG visitNodeListInGCThread(visitor, m_addedNodes.get());
+        // We cannot ref m_removedNodes here as this function may get called from a GC thread.
+        SUPPRESS_UNRETAINED_ARG visitNodeListInGCThread(visitor, m_removedNodes.get());
     }
     
-    Ref<ContainerNode> m_target;
-    RefPtr<NodeList> m_addedNodes;
-    RefPtr<NodeList> m_removedNodes;
-    RefPtr<Node> m_previousSibling;
-    RefPtr<Node> m_nextSibling;
+    const Ref<ContainerNode> m_target;
+    const Ref<NodeList> m_addedNodes;
+    const Ref<NodeList> m_removedNodes;
+    const RefPtr<Node> m_previousSibling;
+    const RefPtr<Node> m_nextSibling;
 };
 
 class RecordWithEmptyNodeLists : public MutationRecord {
@@ -94,24 +100,24 @@ public:
     }
 
 private:
-    Node* target() override { return m_target.ptr(); }
+    Node& target() override { return m_target; }
     String oldValue() override { return m_oldValue; }
-    NodeList* addedNodes() override { return lazilyInitializeEmptyNodeList(m_addedNodes); }
-    NodeList* removedNodes() override { return lazilyInitializeEmptyNodeList(m_removedNodes); }
+    NodeList& addedNodes() override { return lazilyInitializeEmptyNodeList(m_addedNodes); }
+    NodeList& removedNodes() override { return lazilyInitializeEmptyNodeList(m_removedNodes); }
 
-    static NodeList* lazilyInitializeEmptyNodeList(RefPtr<NodeList>& nodeList)
+    static NodeList& lazilyInitializeEmptyNodeList(RefPtr<NodeList>& nodeList)
     {
         if (!nodeList)
             nodeList = StaticNodeList::create();
-        return nodeList.get();
+        return *nodeList;
     }
 
-    void visitNodesConcurrently(JSC::AbstractSlotVisitor& visitor) const final
+    void visitNodesInGCThread(JSC::AbstractSlotVisitor& visitor) const final
     {
-        visitor.addOpaqueRoot(root(m_target.ptr()));
+        addWebCoreOpaqueRoot(visitor, m_target.get());
     }
 
-    Ref<Node> m_target;
+    const Ref<Node> m_target;
     String m_oldValue;
     RefPtr<NodeList> m_addedNodes;
     RefPtr<NodeList> m_removedNodes;
@@ -155,9 +161,9 @@ public:
 
 private:
     const AtomString& type() override { return m_record->type(); }
-    Node* target() override { return m_record->target(); }
-    NodeList* addedNodes() override { return m_record->addedNodes(); }
-    NodeList* removedNodes() override { return m_record->removedNodes(); }
+    Node& target() override { return m_record->target(); }
+    NodeList& addedNodes() override { return m_record->addedNodes(); }
+    NodeList& removedNodes() override { return m_record->removedNodes(); }
     Node* previousSibling() override { return m_record->previousSibling(); }
     Node* nextSibling() override { return m_record->nextSibling(); }
     const AtomString& attributeName() override { return m_record->attributeName(); }
@@ -165,29 +171,29 @@ private:
 
     String oldValue() override { return String(); }
 
-    void visitNodesConcurrently(JSC::AbstractSlotVisitor& visitor) const final
+    void visitNodesInGCThread(JSC::AbstractSlotVisitor& visitor) const final
     {
-        m_record->visitNodesConcurrently(visitor);
+        m_record->visitNodesInGCThread(visitor);
     }
 
-    Ref<MutationRecord> m_record;
+    const Ref<MutationRecord> m_record;
 };
 
 const AtomString& ChildListRecord::type()
 {
-    static MainThreadNeverDestroyed<const AtomString> childList("childList", AtomString::ConstructFromLiteral);
+    static MainThreadNeverDestroyed<const AtomString> childList("childList"_s);
     return childList;
 }
 
 const AtomString& AttributesRecord::type()
 {
-    static MainThreadNeverDestroyed<const AtomString> attributes("attributes", AtomString::ConstructFromLiteral);
+    static MainThreadNeverDestroyed<const AtomString> attributes("attributes"_s);
     return attributes;
 }
 
 const AtomString& CharacterDataRecord::type()
 {
-    static MainThreadNeverDestroyed<const AtomString> characterData("characterData", AtomString::ConstructFromLiteral);
+    static MainThreadNeverDestroyed<const AtomString> characterData("characterData"_s);
     return characterData;
 }
 
@@ -195,7 +201,7 @@ const AtomString& CharacterDataRecord::type()
 
 Ref<MutationRecord> MutationRecord::createChildList(ContainerNode& target, Ref<NodeList>&& added, Ref<NodeList>&& removed, RefPtr<Node>&& previousSibling, RefPtr<Node>&& nextSibling)
 {
-    return adoptRef(static_cast<MutationRecord&>(*new ChildListRecord(target, WTFMove(added), WTFMove(removed), WTFMove(previousSibling), WTFMove(nextSibling))));
+    return adoptRef(static_cast<MutationRecord&>(*new ChildListRecord(target, WTF::move(added), WTF::move(removed), WTF::move(previousSibling), WTF::move(nextSibling))));
 }
 
 Ref<MutationRecord> MutationRecord::createAttributes(Element& target, const QualifiedName& name, const AtomString& oldValue)

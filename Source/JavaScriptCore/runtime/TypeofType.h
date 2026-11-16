@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include <wtf/PrintStream.h>
+#include <wtf/Forward.h>
 
 namespace JSC {
 

@@ -33,7 +33,15 @@
 #include "B3Type.h"
 #include <wtf/HashTable.h>
 
-namespace JSC { namespace B3 {
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
+namespace JSC {
+
+namespace Wasm {
+class RTT;
+}
+
+namespace B3 {
 
 class Procedure;
 class Value;
@@ -56,13 +64,13 @@ public:
     {
     }
 
-    ValueKey(Value* child, int64_t value);
-
     ValueKey(Kind, Type, Value* child);
 
     ValueKey(Kind, Type, Value* left, Value* right);
 
     ValueKey(Kind, Type, Value* a, Value* b, Value* c);
+
+    ValueKey(Kind, Type, Value*, int32_t value);
 
     ValueKey(Kind kind, Type type, int64_t value)
         : m_kind(kind)
@@ -86,8 +94,25 @@ public:
         u.floatValue = value;
     }
 
-    static ValueKey intConstant(Type type, int64_t value);
+    ValueKey(Kind kind, Type type, v128_t value)
+        : m_kind(kind)
+        , m_type(type)
+    {
+        u.vectorValue = value;
+    }
 
+    ValueKey(Kind, Type, SIMDInfo, Value*);
+    ValueKey(Kind, Type, SIMDInfo, Value*, Value*);
+    ValueKey(Kind, Type, SIMDInfo, Value*, Value*, Value*);
+    ValueKey(Kind, Type, SIMDInfo, Value*, uint8_t);
+    ValueKey(Kind, Type, SIMDInfo, Value*, Value*, uint8_t);
+
+    ValueKey(Kind, Type, Value* child, Value* optionalChild2, unsigned packedFlags, const Wasm::RTT*);
+    ValueKey(Kind, Type, Value* child, Value* optionalChild2, unsigned packedFlags, int32_t targetHeapType);
+
+    static ValueKey NODELETE intConstant(Type type, int64_t value);
+
+    SIMDInfo simdInfo() const { return m_simdInfo; }
     Kind kind() const { return m_kind; }
     Opcode opcode() const { return kind().opcode(); }
     Type type() const { return m_type; }
@@ -96,22 +121,19 @@ public:
     int64_t value() const { return u.value; }
     double doubleValue() const { return u.doubleValue; }
     float floatValue() const { return u.floatValue; }
+    v128_t vectorValue() const { return u.vectorValue; }
 
     bool operator==(const ValueKey& other) const
     {
-        return m_kind == other.m_kind
+        return m_simdInfo == other.m_simdInfo
+            && m_kind == other.m_kind
             && m_type == other.m_type
             && u == other.u;
     }
 
-    bool operator!=(const ValueKey& other) const
-    {
-        return !(*this == other);
-    }
-
     unsigned hash() const
     {
-        return m_kind.hash() + m_type.hash() + WTF::IntHash<int32_t>::hash(u.indices[0]) + u.indices[1] + u.indices[2];
+        return m_kind.hash() + m_type.hash() + WTF::IntHash<int32_t>::hash(u.indices[0]) + u.indices[1] + u.indices[2] + u.indices[3];
     }
 
     explicit operator bool() const { return *this != ValueKey(); }
@@ -151,44 +173,43 @@ public:
     {
         return *this == ValueKey(WTF::HashTableDeletedValue);
     }
-        
+
+    static constexpr bool safeToCompareToHashTableEmptyOrDeletedValue = true;
+
 private:
-    Kind m_kind;
+    SIMDInfo m_simdInfo { };
+    Kind m_kind { };
     Type m_type { Void };
     union U {
-        unsigned indices[3];
+        unsigned indices[4];
         int64_t value;
         double doubleValue;
         float floatValue;
+        v128_t vectorValue;
 
         U()
         {
             indices[0] = 0;
             indices[1] = 0;
             indices[2] = 0;
+            indices[3] = 0;
         }
 
         bool operator==(const U& other) const
         {
             return indices[0] == other.indices[0]
                 && indices[1] == other.indices[1]
-                && indices[2] == other.indices[2];
+                && indices[2] == other.indices[2]
+                && indices[3] == other.indices[3];
         }
     } u;
 };
 
-struct ValueKeyHash {
-    static unsigned hash(const ValueKey& key) { return key.hash(); }
-    static bool equal(const ValueKey& a, const ValueKey& b) { return a == b; }
-    static constexpr bool safeToCompareToEmptyOrDeleted = true;
-};
 
-} } // namespace JSC::B3
+} // namespace B3
+} // namespace JSC
 
 namespace WTF {
-
-template<typename T> struct DefaultHash;
-template<> struct DefaultHash<JSC::B3::ValueKey> : JSC::B3::ValueKeyHash { };
 
 template<typename T> struct HashTraits;
 template<> struct HashTraits<JSC::B3::ValueKey> : public SimpleClassHashTraits<JSC::B3::ValueKey> {
@@ -196,5 +217,7 @@ template<> struct HashTraits<JSC::B3::ValueKey> : public SimpleClassHashTraits<J
 };
 
 } // namespace WTF
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(B3_JIT)

@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 Apple Inc. All rights reserved.
- * Copyright (c) 2008, Google Inc. All rights reserved.
+ * Copyright (c) 2008 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -39,23 +39,22 @@ Ref<ScriptCallStack> ScriptCallStack::create()
     return adoptRef(*new ScriptCallStack);
 }
 
-Ref<ScriptCallStack> ScriptCallStack::create(Vector<ScriptCallFrame>& frames)
+Ref<ScriptCallStack> ScriptCallStack::create(Vector<ScriptCallFrame>&& frames, bool truncated, AsyncStackTrace* parentStackTrace)
 {
-    return adoptRef(*new ScriptCallStack(frames));
+    return adoptRef(*new ScriptCallStack(WTF::move(frames), truncated, parentStackTrace));
 }
 
-ScriptCallStack::ScriptCallStack()
+ScriptCallStack::ScriptCallStack() = default;
+
+ScriptCallStack::ScriptCallStack(Vector<ScriptCallFrame>&& frames, bool truncated, AsyncStackTrace* parentStackTrace)
+    : m_frames(WTF::move(frames))
+    , m_truncated(truncated)
+    , m_parentStackTrace(parentStackTrace)
 {
+    ASSERT(m_frames.size() <= maxCallStackSizeToCapture);
 }
 
-ScriptCallStack::ScriptCallStack(Vector<ScriptCallFrame>& frames)
-{
-    m_frames.swap(frames);
-}
-
-ScriptCallStack::~ScriptCallStack()
-{
-}
+ScriptCallStack::~ScriptCallStack() = default;
 
 const ScriptCallFrame& ScriptCallStack::at(size_t index) const
 {
@@ -86,6 +85,11 @@ void ScriptCallStack::append(const ScriptCallFrame& frame)
     m_frames.append(frame);
 }
 
+void ScriptCallStack::removeParentStackTrace()
+{
+    m_parentStackTrace = nullptr;
+}
+
 bool ScriptCallStack::isEqual(ScriptCallStack* o) const
 {
     if (!o)
@@ -109,6 +113,27 @@ Ref<JSON::ArrayOf<Protocol::Console::CallFrame>> ScriptCallStack::buildInspector
     for (size_t i = 0; i < m_frames.size(); i++)
         frames->addItem(m_frames.at(i).buildInspectorObject());
     return frames;
+}
+
+Ref<Protocol::Console::StackTrace> ScriptCallStack::buildInspectorObject() const
+{
+    auto frames = JSON::ArrayOf<Protocol::Console::CallFrame>::create();
+    for (const auto& item : m_frames)
+        frames->addItem(item.buildInspectorObject());
+
+    auto stackTrace = Protocol::Console::StackTrace::create()
+        .setCallFrames(WTF::move(frames))
+        .release();
+
+    if (m_truncated)
+        stackTrace->setTruncated(true);
+
+    if (m_parentStackTrace) {
+        if (auto parentStackTrace = m_parentStackTrace->buildInspectorObject())
+            stackTrace->setParentStackTrace(parentStackTrace.releaseNonNull());
+    }
+
+    return stackTrace;
 }
 
 } // namespace Inspector

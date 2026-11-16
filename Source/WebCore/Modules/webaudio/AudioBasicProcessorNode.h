@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010, Google Inc. All rights reserved.
+ * Copyright (C) 2010 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,9 +35,11 @@ class AudioProcessor;
     
 // AudioBasicProcessorNode is an AudioNode with one input and one output where the input and output have the same number of channels.
 class AudioBasicProcessorNode : public AudioNode {
-    WTF_MAKE_ISO_ALLOCATED(AudioBasicProcessorNode);
+    WTF_MAKE_TZONE_ALLOCATED(AudioBasicProcessorNode);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(AudioBasicProcessorNode);
 public:
     AudioBasicProcessorNode(BaseAudioContext&, NodeType);
+    virtual ~AudioBasicProcessorNode();
 
     // AudioNode
     void process(size_t framesToProcess) override;
@@ -50,15 +52,17 @@ public:
     void checkNumberOfChannelsForInput(AudioNodeInput*) override;
 
     // Returns the number of channels for both the input and the output.
-    unsigned numberOfChannels();
+    unsigned NODELETE numberOfChannels();
 
 protected:
     double tailTime() const override;
     double latencyTime() const override;
     bool requiresTailProcessing() const override;
 
-    AudioProcessor* processor() { return m_processor.get(); }
-    const AudioProcessor* processor() const { return m_processor.get(); }
+    AudioProcessor* processor() LIFETIME_BOUND { return m_processor.get(); }
+    const AudioProcessor* processor() const LIFETIME_BOUND { return m_processor.get(); }
+
+    float noiseInjectionMultiplier() const override { return 0.01; }
 
     std::unique_ptr<AudioProcessor> m_processor;
 };

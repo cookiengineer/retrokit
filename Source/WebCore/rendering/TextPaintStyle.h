@@ -28,44 +28,46 @@
 #include "Color.h"
 #include "GraphicsTypes.h"
 #include "RenderStyleConstants.h"
+#include "StyleSVGPaintOrder.h"
+#include <wtf/Forward.h>
 
 namespace WebCore {
 
-class Frame;
 class GraphicsContext;
+class LocalFrame;
 class RenderText;
-class RenderStyle;
-class ShadowData;
 struct PaintInfo;
 
+namespace Style {
+class ComputedStyle;
+struct TextShadow;
+template<typename> struct Shadows;
+using TextShadows = Shadows<TextShadow>;
+}
+
 struct TextPaintStyle {
-    TextPaintStyle() { }
+    TextPaintStyle() = default;
     TextPaintStyle(const Color&);
 
-    bool operator==(const TextPaintStyle&) const;
-    bool operator!=(const TextPaintStyle& other) const { return !(*this == other); }
+    bool NODELETE operator==(const TextPaintStyle&) const;
 
     Color fillColor;
     Color strokeColor;
     Color emphasisMarkColor;
     float strokeWidth { 0 };
-#if ENABLE(LETTERPRESS)
-    bool useLetterpressEffect { false };
-#endif
-#if HAVE(OS_DARK_MODE_SUPPORT)
-    bool useDarkAppearance { false };
-#endif
-    PaintOrder paintOrder { PaintOrder::Normal };
-    LineJoin lineJoin { MiterJoin };
-    LineCap lineCap { ButtCap };
+    // This is not set for -webkit-text-fill-color.
+    bool hasExplicitlySetFillColor { false };
+    Style::SVGPaintOrder paintOrder { CSS::Keyword::Normal { } };
+    LineJoin lineJoin { LineJoin::Miter };
+    LineCap lineCap { LineCap::Butt };
     float miterLimit { defaultMiterLimit };
 };
 
 bool textColorIsLegibleAgainstBackgroundColor(const Color& textColor, const Color& backgroundColor);
-TextPaintStyle computeTextPaintStyle(const Frame&, const RenderStyle&, const PaintInfo&);
-TextPaintStyle computeTextSelectionPaintStyle(const TextPaintStyle&, const RenderText&, const RenderStyle&, const PaintInfo&, std::optional<ShadowData>& selectionShadow);
+TextPaintStyle computeTextPaintStyle(const RenderText&, const Style::ComputedStyle&, const PaintInfo&);
+TextPaintStyle computeTextSelectionPaintStyle(const TextPaintStyle&, const RenderText&, const Style::ComputedStyle&, const PaintInfo&, Style::TextShadows& selectionShadow);
 
-enum FillColorType { UseNormalFillColor, UseEmphasisMarkColor };
-void updateGraphicsContext(GraphicsContext&, const TextPaintStyle&, FillColorType = UseNormalFillColor);
+enum class FillColorType : bool { Normal, EmphasisMark };
+void updateGraphicsContext(GraphicsContext&, const TextPaintStyle&, FillColorType = FillColorType::Normal);
 
 } // namespace WebCore

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,10 +25,11 @@
 
 #pragma once
 
-#include "ResourceErrorBase.h"
+#include <WebCore/ResourceErrorBase.h>
 
 #if USE(SOUP)
 
+#include <WebCore/CertificateInfo.h>
 #include <wtf/glib/GRefPtr.h>
 
 typedef struct _GTlsCertificate GTlsCertificate;
@@ -43,10 +44,19 @@ public:
     {
     }
 
-    ResourceError(const String& domain, int errorCode, const URL& failingURL, const String& localizedDescription, Type type = Type::General, IsSanitized isSanitized = IsSanitized::No)
-        : ResourceErrorBase(domain, errorCode, failingURL, localizedDescription, type, isSanitized)
-    {
-    }
+    ResourceError(const String& domain, int errorCode, const URL& failingURL, const String& localizedDescription, Type = Type::General, IsSanitized = IsSanitized::No);
+
+    struct IPCData {
+        Type type;
+        String domain;
+        int errorCode;
+        URL failingURL;
+        String localizedDescription;
+        IsSanitized isSanitized;
+        CertificateInfo certificateInfo;
+    };
+    WEBCORE_EXPORT static ResourceError fromIPCData(std::optional<IPCData>&&);
+    WEBCORE_EXPORT std::optional<IPCData> ipcData() const;
 
     static ResourceError httpError(SoupMessage*, GError*);
     static ResourceError transportError(const URL&, int statusCode, const String& reasonPhrase);
@@ -59,6 +69,8 @@ public:
     void setTLSErrors(unsigned tlsErrors) { m_tlsErrors = tlsErrors; }
     GTlsCertificate* certificate() const { return m_certificate.get(); }
     void setCertificate(GTlsCertificate* certificate) { m_certificate = certificate; }
+
+    ErrorRecoveryMethod errorRecoveryMethod() const { return ErrorRecoveryMethod::NoRecovery; }
 
     static bool platformCompare(const ResourceError& a, const ResourceError& b);
 

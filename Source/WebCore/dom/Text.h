@@ -17,26 +17,28 @@
  * along with this library; see the file COPYING.LIB.  If not, write to
  * the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
  * Boston, MA 02110-1301, USA.
- *
  */
 
 #pragma once
 
-#include "CharacterData.h"
-#include "RenderPtr.h"
+#include <WebCore/CharacterData.h>
+#include <WebCore/RenderPtr.h>
 
 namespace WebCore {
 
 class RenderText;
 
 class Text : public CharacterData {
-    WTF_MAKE_ISO_ALLOCATED(Text);
+    WTF_MAKE_TZONE_ALLOCATED(Text);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(Text);
 public:
     static const unsigned defaultLengthLimit = 1 << 16;
 
-    static Ref<Text> create(Document&, const String&);
-    static Ref<Text> createWithLengthLimit(Document&, const String&, unsigned positionInString, unsigned lengthLimit = defaultLengthLimit);
-    static Ref<Text> createEditingText(Document&, const String&);
+    static Ref<Text> create(Document& document, String&& data)
+    {
+        return adoptRef(*new Text(document, WTF::move(data), NodeType::Text, { }));
+    }
+    static Ref<Text> createEditingText(Document&, String&&);
 
     virtual ~Text();
 
@@ -45,9 +47,9 @@ public:
     // DOM Level 3: http://www.w3.org/TR/DOM-Level-3-Core/core.html#ID-1312295772
 
     WEBCORE_EXPORT String wholeText() const;
-    WEBCORE_EXPORT RefPtr<Text> replaceWholeText(const String&);
+    WEBCORE_EXPORT void replaceWholeText(const String&);
     
-    RenderPtr<RenderText> createTextRenderer(const RenderStyle&);
+    RenderPtr<RenderText> createTextRenderer(const Style::ComputedStyle&);
     
     bool canContainRangeEndPoint() const final { return true; }
 
@@ -59,19 +61,19 @@ public:
     String debugDescription() const final;
 
 protected:
-    Text(Document& document, const String& data, ConstructionType type)
-        : CharacterData(document, data, type)
+    Text(Document& document, String&& data, NodeType type, OptionSet<TypeFlag> typeFlags)
+        : CharacterData(document, WTF::move(data), type, typeFlags | TypeFlag::IsText)
     {
+        ASSERT(!isContainerNode());
     }
 
 private:
     String nodeName() const override;
-    NodeType nodeType() const override;
-    Ref<Node> cloneNodeInternal(Document&, CloningOperation) override;
-    bool childTypeAllowed(NodeType) const override;
+    Ref<Node> cloneNodeInternal(Document&, CloningOperation, CustomElementRegistry*) const override;
+    SerializedNode serializeNode(CloningOperation) const override;
     void setDataAndUpdate(const String&, unsigned offsetOfReplacedData, unsigned oldLength, unsigned newLength, UpdateLiveRanges) final;
 
-    virtual Ref<Text> virtualCreate(const String&);
+    virtual Ref<Text> virtualCreate(String&&);
 };
 
 } // namespace WebCore

@@ -25,70 +25,64 @@
 
 #pragma once
 
-#include <WebCore/IntRect.h>
+#if !PLATFORM(WPE) && !PLATFORM(GTK)
+
+#include <WebCore/IntSize.h>
+#include <WebCore/PlatformImage.h>
+#include <pal/HysteresisActivity.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMallocInlines.h>
 
 #if USE(CAIRO)
-#include <WebCore/BackingStoreBackendCairo.h>
-#elif USE(DIRECT2D)
-#include <WebCore/BackingStoreBackendDirect2D.h>
+#include <WebCore/RefPtrCairo.h>
+#elif USE(SKIA)
+class SkCanvas;
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <skia/core/SkSurface.h>
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 #endif
 
-#if USE(DIRECT2D)
-interface ID2D1RenderTarget;
-interface ID3D11Device1;
-interface ID3D11DeviceContext1;
-interface ID3D11Texture2D;
-#endif
+namespace WebCore {
+class IntRect;
+}
 
 namespace WebKit {
+struct UpdateInfo;
 
-class ShareableBitmap;
-class UpdateInfo;
-class WebPageProxy;
+#if USE(CAIRO)
+typedef struct _cairo cairo_t;
+using PlatformPaintContextPtr = cairo_t*;
+#elif USE(SKIA)
+using PlatformPaintContextPtr = SkCanvas*;
+#endif
 
 class BackingStore {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(BackingStore);
     WTF_MAKE_NONCOPYABLE(BackingStore);
-
 public:
-    BackingStore(const WebCore::IntSize&, float deviceScaleFactor, WebPageProxy&);
+    BackingStore(const WebCore::IntSize&, float deviceScaleFactor);
     ~BackingStore();
 
-    const WebCore::IntSize& size() const { return m_size; }
+    const WebCore::IntSize& size() const LIFETIME_BOUND { return m_size; }
     float deviceScaleFactor() const { return m_deviceScaleFactor; }
 
-#if USE(CAIRO)
-    typedef cairo_t* PlatformGraphicsContext;
-#elif USE(DIRECT2D)
-    struct DXConnections {
-        ID3D11DeviceContext1* immediateContext { nullptr };
-        ID3D11Texture2D* backBuffer { nullptr };
-    };
-    typedef DXConnections PlatformGraphicsContext;
-#endif
-
-    void paint(PlatformGraphicsContext, const WebCore::IntRect&);
-    void incorporateUpdate(const UpdateInfo&);
+    void paint(PlatformPaintContextPtr, const WebCore::IntRect&);
+    void incorporateUpdate(UpdateInfo&&);
 
 private:
-    void incorporateUpdate(ShareableBitmap*, const UpdateInfo&);
-    void scroll(const WebCore::IntRect& scrollRect, const WebCore::IntSize& scrollOffset);
-
-#if USE(CAIRO)
-    std::unique_ptr<WebCore::BackingStoreBackendCairo> createBackend();
-#elif USE(DIRECT2D)
-    std::unique_ptr<WebCore::BackingStoreBackendDirect2D> createBackend();
-#endif
+    void scroll(const WebCore::IntRect&, const WebCore::IntSize&);
 
     WebCore::IntSize m_size;
-    float m_deviceScaleFactor;
-    WebPageProxy& m_webPageProxy;
+    float m_deviceScaleFactor { 1 };
 #if USE(CAIRO)
-    std::unique_ptr<WebCore::BackingStoreBackendCairo> m_backend;
-#elif USE(DIRECT2D)
-    std::unique_ptr<WebCore::BackingStoreBackendDirect2D> m_backend;
+    RefPtr<cairo_surface_t> m_surface;
+    RefPtr<cairo_surface_t> m_scrollSurface;
+    PAL::HysteresisActivity m_scrolledHysteresis;
+#elif USE(SKIA)
+    sk_sp<SkSurface> m_surface;
 #endif
 };
 
 } // namespace WebKit
+
+#endif // !PLATFORM(WPE) && !PLATFORM(GTK)

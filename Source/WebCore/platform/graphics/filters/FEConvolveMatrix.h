@@ -3,6 +3,7 @@
  * Copyright (C) 2004, 2005 Rob Buis <buis@kde.org>
  * Copyright (C) 2005 Eric Seidel <eric@webkit.org>
  * Copyright (C) 2010 Zoltan Herczeg <zherczeg@webkit.org>
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -22,86 +23,63 @@
 
 #pragma once
 
-#include "FilterEffect.h"
-#include "FloatPoint.h"
-#include "Filter.h"
+#include <WebCore/FilterEffect.h>
+#include <WebCore/FloatPoint.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
 
-enum EdgeModeType {
-    EDGEMODE_UNKNOWN   = 0,
-    EDGEMODE_DUPLICATE = 1,
-    EDGEMODE_WRAP      = 2,
-    EDGEMODE_NONE      = 3
+enum class EdgeModeType : uint8_t {
+    Unknown,
+    Duplicate,
+    Wrap,
+    None
 };
 
-class FEConvolveMatrix : public FilterEffect {
+class FEConvolveMatrix final : public FilterEffect {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(FEConvolveMatrix);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(FEConvolveMatrix);
 public:
-    static Ref<FEConvolveMatrix> create(Filter&, const IntSize&,
-            float, float, const IntPoint&, EdgeModeType, const FloatPoint&,
-            bool, const Vector<float>&);
+    WEBCORE_EXPORT static Ref<FEConvolveMatrix> create(const IntSize& kernelSize, float divisor, float bias, const IntPoint& targetOffset, EdgeModeType, const FloatPoint& kernelUnitLength, bool preserveAlpha, const Vector<float>& kernelMatrix, DestinationColorSpace = DestinationColorSpace::SRGB());
+
+    bool operator==(const FEConvolveMatrix&) const;
 
     IntSize kernelSize() const { return m_kernelSize; }
-    void setKernelSize(const IntSize&);
+    void NODELETE setKernelSize(const IntSize&);
 
-    const Vector<float>& kernel() const { return m_kernelMatrix; }
+    const Vector<float>& kernel() const LIFETIME_BOUND { return m_kernelMatrix; }
     void setKernel(const Vector<float>&);
 
     float divisor() const { return m_divisor; }
-    bool setDivisor(float);
+    bool NODELETE setDivisor(float);
 
     float bias() const { return m_bias; }
-    bool setBias(float);
+    bool NODELETE setBias(float);
 
     IntPoint targetOffset() const { return m_targetOffset; }
-    bool setTargetOffset(const IntPoint&);
+    bool NODELETE setTargetOffset(const IntPoint&);
 
     EdgeModeType edgeMode() const { return m_edgeMode; }
-    bool setEdgeMode(EdgeModeType);
+    bool NODELETE setEdgeMode(EdgeModeType);
 
     FloatPoint kernelUnitLength() const { return m_kernelUnitLength; }
-    bool setKernelUnitLength(const FloatPoint&);
+    bool NODELETE setKernelUnitLength(const FloatPoint&);
 
     bool preserveAlpha() const { return m_preserveAlpha; }
-    bool setPreserveAlpha(bool);
+    bool NODELETE setPreserveAlpha(bool);
 
 private:
+    FEConvolveMatrix(const IntSize& kernelSize, float divisor, float bias, const IntPoint& targetOffset, EdgeModeType, const FloatPoint& kernelUnitLength, bool preserveAlpha, const Vector<float>& kernelMatrix, DestinationColorSpace);
 
-    struct PaintingData {
-        const Uint8ClampedArray& srcPixelArray;
-        Uint8ClampedArray& dstPixelArray;
-        int width;
-        int height;
-        float bias;
-        Vector<float> kernelMatrix;
-    };
+    bool operator==(const FilterEffect& other) const override { return areEqual<FEConvolveMatrix>(*this, other); }
 
-    FEConvolveMatrix(Filter&, const IntSize&, float, float,
-            const IntPoint&, EdgeModeType, const FloatPoint&, bool, const Vector<float>&);
+    FloatRect calculateImageRect(const Filter&, std::span<const FloatRect> inputImageRects, const FloatRect& primitiveSubregion) const override;
 
-    const char* filterName() const final { return "FEConvolveMatrix"; }
+    OptionSet<FilterRenderingMode> supportedFilterRenderingModes(OptionSet<FilterRenderingMode>) const override;
+    std::unique_ptr<FilterEffectApplier> createAcceleratedApplier() const override;
+    std::unique_ptr<FilterEffectApplier> createSoftwareApplier() const override;
 
-    void determineAbsolutePaintRect() override { setAbsolutePaintRect(enclosingIntRect(maxEffectRect())); }
-
-    void platformApplySoftware() override;
-
-    WTF::TextStream& externalRepresentation(WTF::TextStream&, RepresentationType) const override;
-
-    template<bool preserveAlphaValues>
-    ALWAYS_INLINE void fastSetInteriorPixels(PaintingData&, int clipRight, int clipBottom, int yStart, int yEnd);
-
-    ALWAYS_INLINE int getPixelValue(PaintingData&, int x, int y);
-
-    template<bool preserveAlphaValues>
-    void fastSetOuterPixels(PaintingData&, int x1, int y1, int x2, int y2);
-
-    // Wrapper functions
-    ALWAYS_INLINE void setInteriorPixels(PaintingData&, int clipRight, int clipBottom, int yStart, int yEnd);
-    ALWAYS_INLINE void setOuterPixels(PaintingData&, int x1, int y1, int x2, int y2);
-
-    // Parallelization parts
-    static const int s_minimalRectDimension = (100 * 100); // Empirical data limit for parallel jobs
+    WTF::TextStream& externalRepresentation(WTF::TextStream&, FilterRepresentation) const override;
 
     IntSize m_kernelSize;
     float m_divisor;
@@ -115,3 +93,4 @@ private:
 
 } // namespace WebCore
 
+SPECIALIZE_TYPE_TRAITS_FILTER_FUNCTION(FEConvolveMatrix)

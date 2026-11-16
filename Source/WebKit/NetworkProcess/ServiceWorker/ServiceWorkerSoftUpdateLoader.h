@@ -25,20 +25,20 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
 #include "NetworkCacheEntry.h"
 #include "NetworkLoadClient.h"
 #include <WebCore/ContentSecurityPolicyResponseHeaders.h>
 #include <WebCore/CrossOriginEmbedderPolicy.h>
 #include <WebCore/FetchOptions.h>
 #include <WebCore/ServiceWorkerJobData.h>
+#include <wtf/CheckedPtr.h>
 #include <wtf/CompletionHandler.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
-struct ServiceWorkerFetchResult;
 struct ServiceWorkerJobData;
+struct WorkerFetchResult;
 class TextResourceDecoder;
 }
 
@@ -47,24 +47,27 @@ namespace WebKit {
 class NetworkLoad;
 class NetworkSession;
 
-class ServiceWorkerSoftUpdateLoader final : public NetworkLoadClient, public CanMakeWeakPtr<ServiceWorkerSoftUpdateLoader> {
-    WTF_MAKE_FAST_ALLOCATED;
+class ServiceWorkerSoftUpdateLoader final : public NetworkLoadClient, public RefCounted<ServiceWorkerSoftUpdateLoader> {
+    WTF_MAKE_TZONE_ALLOCATED(ServiceWorkerSoftUpdateLoader);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(ServiceWorkerSoftUpdateLoader);
 public:
-    using Handler = CompletionHandler<void(const WebCore::ServiceWorkerFetchResult&)>;
-    static void start(NetworkSession*, WebCore::ServiceWorkerJobData&&, bool shouldRefreshCache, WebCore::ResourceRequest&&, Handler&&);
-
+    using Handler = CompletionHandler<void(WebCore::WorkerFetchResult&&)>;
+    static Ref<ServiceWorkerSoftUpdateLoader> create(NetworkSession&, WebCore::ServiceWorkerJobData&&, bool shouldRefreshCache, WebCore::ResourceRequest&&, Handler&&);
     ~ServiceWorkerSoftUpdateLoader();
+
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
     
 private:
     ServiceWorkerSoftUpdateLoader(NetworkSession&, WebCore::ServiceWorkerJobData&&, bool shouldRefreshCache, WebCore::ResourceRequest&&, Handler&&);
 
     // NetworkLoadClient.
-    void didSendData(unsigned long long bytesSent, unsigned long long totalBytesToBeSent) final { }
+    void didSendData(uint64_t bytesSent, uint64_t totalBytesToBeSent) final { }
     bool isSynchronous() const final { return false; }
     bool isAllowedToAskUserForCredentials() const final { return false; }
-    void willSendRedirectedRequest(WebCore::ResourceRequest&&, WebCore::ResourceRequest&& redirectRequest, WebCore::ResourceResponse&& redirectResponse) final;
-    void didReceiveResponse(WebCore::ResourceResponse&&, ResponseCompletionHandler&&) final;
-    void didReceiveBuffer(Ref<WebCore::SharedBuffer>&&, int reportedEncodedDataLength) final;
+    void willSendRedirectedRequest(WebCore::ResourceRequest&&, WebCore::ResourceRequest&& redirectRequest, WebCore::ResourceResponse&& redirectResponse, CompletionHandler<void(WebCore::ResourceRequest&&)>&&) final;
+    void didReceiveResponse(WebCore::ResourceResponse&&, PrivateRelayed, ResponseCompletionHandler&&) final;
+    void didReceiveBuffer(const WebCore::FragmentedSharedBuffer&) final;
     void didFinishLoading(const WebCore::NetworkLoadMetrics&) final;
     void didFailLoading(const WebCore::ResourceError&) final;
 
@@ -76,7 +79,7 @@ private:
 
     Handler m_completionHandler;
     WebCore::ServiceWorkerJobData m_jobData;
-    std::unique_ptr<NetworkLoad> m_networkLoad;
+    RefPtr<NetworkLoad> m_networkLoad;
     WeakPtr<NetworkSession> m_session;
 
     String m_responseEncoding;
@@ -91,6 +94,3 @@ private:
 };
 
 } // namespace WebKit
-
-#endif // ENABLE(SERVICE_WORKER)
-

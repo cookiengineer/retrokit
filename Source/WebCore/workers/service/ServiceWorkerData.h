@@ -25,65 +25,22 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
-#include "ServiceWorkerIdentifier.h"
-#include "ServiceWorkerTypes.h"
+#include <WebCore/ServiceWorkerIdentifier.h>
+#include <WebCore/ServiceWorkerTypes.h>
+#include <WebCore/WorkerType.h>
 #include <wtf/URL.h>
-#include "WorkerType.h"
 
 namespace WebCore {
 
 struct ServiceWorkerData {
     ServiceWorkerIdentifier identifier;
+    ServiceWorkerRegistrationIdentifier registrationIdentifier;
     URL scriptURL;
     ServiceWorkerState state;
     WorkerType type;
-    ServiceWorkerRegistrationIdentifier registrationIdentifier;
 
-    ServiceWorkerData isolatedCopy() const;
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<ServiceWorkerData> decode(Decoder&);
+    WEBCORE_EXPORT ServiceWorkerData isolatedCopy() const &;
+    WEBCORE_EXPORT ServiceWorkerData isolatedCopy() &&;
 };
 
-template<class Encoder>
-void ServiceWorkerData::encode(Encoder& encoder) const
-{
-    encoder << identifier << scriptURL << state << type << registrationIdentifier;
-}
-
-template<class Decoder>
-std::optional<ServiceWorkerData> ServiceWorkerData::decode(Decoder& decoder)
-{
-    std::optional<ServiceWorkerIdentifier> identifier;
-    decoder >> identifier;
-    if (!identifier)
-        return std::nullopt;
-
-    std::optional<URL> scriptURL;
-    decoder >> scriptURL;
-    if (!scriptURL)
-        return std::nullopt;
-
-    std::optional<ServiceWorkerState> state;
-    decoder >> state;
-    if (!state)
-        return std::nullopt;
-
-    std::optional<WorkerType> type;
-    decoder >> type;
-    if (!type)
-        return std::nullopt;
-
-    std::optional<ServiceWorkerRegistrationIdentifier> registrationIdentifier;
-    decoder >> registrationIdentifier;
-    if (!registrationIdentifier)
-        return std::nullopt;
-
-    return { { WTFMove(*identifier), WTFMove(*scriptURL), WTFMove(*state), WTFMove(*type), WTFMove(*registrationIdentifier) } };
-}
-
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)

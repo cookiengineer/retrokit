@@ -25,16 +25,40 @@
 
 #pragma once
 
+#include <wtf/spi/darwin/XPCSPI.h>
+
 #ifdef __cplusplus
+
+#if !defined(__swift__)
+// IPC::MessageLog accessor functions for TAPI verification
+namespace IPC {
+template<size_t> class MessageLog;
+struct MessageLogMetadata;
+MessageLog<256>& messageLog();
+const MessageLogMetadata& messageLogMetadata();
+}
+#endif
+
 extern "C" {
 #endif
 
 // FIXME: Remove these after <rdar://problem/30772033> is fixed.
 void NetworkServiceInitializer();
-void PluginServiceInitializer();
 void WebContentServiceInitializer();
 void GPUServiceInitializer();
-void WebAuthnServiceInitializer();
+void ModelServiceInitializer();
+
+void ExtensionEventHandler(xpc_connection_t);
+
+#if USE(EXTENSIONKIT)
+// Declared in WKProcessExtension.h for use in extension targets. Must be declared in project
+//  headers because the extension targets cannot import the entire WebKit module (rdar://119162443).
+@interface WKGrant : NSObject
+@end
+
+@interface WKProcessExtension : NSObject
+@end
+#endif
 
 #ifdef __cplusplus
 }

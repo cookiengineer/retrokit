@@ -36,37 +36,39 @@
 #include "CDMInstance.h"
 #include "Document.h"
 #include "EventLoop.h"
+#include "JSDOMConvertBoolean.h"
 #include "JSDOMPromiseDeferred.h"
 #include "Logging.h"
 #include "MediaKeySession.h"
 #include "SharedBuffer.h"
+#include <ranges>
 #include <wtf/Logger.h>
 #include <wtf/LoggerHelper.h>
 
 namespace WebCore {
 
 #if !RELEASE_LOG_DISABLED
-static WTFLogChannel& logChannel() { return LogEME; }
-static const char* logClassName() { return "MediaKeys"; }
+static WTFLogChannel& NODELETE logChannel() { return LogEME; }
+static ASCIILiteral logClassName() { return "MediaKeys"_s; }
 #endif
 
 MediaKeys::MediaKeys(Document& document, bool useDistinctiveIdentifier, bool persistentStateAllowed, const Vector<MediaKeySessionType>& supportedSessionTypes, Ref<CDM>&& implementation, Ref<CDMInstance>&& instance)
     : m_useDistinctiveIdentifier(useDistinctiveIdentifier)
     , m_persistentStateAllowed(persistentStateAllowed)
     , m_supportedSessionTypes(supportedSessionTypes)
-    , m_implementation(WTFMove(implementation))
-    , m_instance(WTFMove(instance))
+    , m_implementation(WTF::move(implementation))
+    , m_instance(WTF::move(instance))
 #if !RELEASE_LOG_DISABLED
     , m_logger(document.logger())
     , m_logIdentifier(LoggerHelper::uniqueLogIdentifier())
 #endif
 {
 #if !RELEASE_LOG_DISABLED
-    m_instance->setLogger(document.logger(), m_logIdentifier);
+    m_instance->setLogIdentifier(m_logIdentifier);
 #else
     UNUSED_PARAM(document);
 #endif
-    m_instance->setClient(makeWeakPtr(this));
+    m_instance->setClient(*this);
 }
 
 MediaKeys::~MediaKeys() = default;
@@ -76,32 +78,31 @@ ExceptionOr<Ref<MediaKeySession>> MediaKeys::createSession(Document& document, M
     // https://w3c.github.io/encrypted-media/#dom-mediakeys-setservercertificate
     // W3C Editor's Draft 09 November 2016
     auto identifier = LOGIDENTIFIER;
-    INFO_LOG(identifier, "EME - check if a new session can be created");
 
     // When this method is invoked, the user agent must run the following steps:
     // 1. If this object's supported session types value does not contain sessionType, throw [WebIDL] a NotSupportedError.
     if (!m_supportedSessionTypes.contains(sessionType)) {
-        INFO_LOG(identifier, "Exception: unsupported sessionType: ", sessionType);
-        return Exception(NotSupportedError);
+        ERROR_LOG(identifier, "Exception: unsupported sessionType: "_s, sessionType);
+        return Exception(ExceptionCode::NotSupportedError);
     }
 
     // 2. If the implementation does not support MediaKeySession operations in the current state, throw [WebIDL] an InvalidStateError.
     if (!m_implementation->supportsSessions()) {
-        INFO_LOG(identifier, "Exception: implementation does not support sessions");
-        return Exception(InvalidStateError);
+        ERROR_LOG(identifier, "Exception: implementation does not support sessions");
+        return Exception(ExceptionCode::InvalidStateError);
     }
 
     auto instanceSession = m_instance->createSession();
     if (!instanceSession) {
-        INFO_LOG(identifier, "Exception: could not create session");
-        return Exception(InvalidStateError);
+        ERROR_LOG(identifier, "Exception: could not create session");
+        return Exception(ExceptionCode::InvalidStateError);
     }
 
     // 3. Let session be a new MediaKeySession object, and initialize it as follows:
     // NOTE: Continued in MediaKeySession.
     // 4. Return session.
-    auto session = MediaKeySession::create(document, makeWeakPtr(*this), sessionType, m_useDistinctiveIdentifier, m_implementation.copyRef(), instanceSession.releaseNonNull());
-    INFO_LOG(identifier, "Created session");
+    ALWAYS_LOG(identifier);
+    auto session = MediaKeySession::create(document, *this, sessionType, m_useDistinctiveIdentifier, m_implementation.copyRef(), instanceSession.releaseNonNull());
     m_sessions.append(session.copyRef());
     return session;
 }
@@ -116,35 +117,39 @@ void MediaKeys::setServerCertificate(const BufferSource& serverCertificate, Ref<
     // 1. If the Key System implementation represented by this object's cdm implementation value does not support
     //    server certificates, return a promise resolved with false.
     if (!m_implementation->supportsServerCertificates()) {
-        INFO_LOG(identifier, "Rejected: !supportsServerCertificates()");
+        ALWAYS_LOG(identifier, "Resolved: !supportsServerCertificates()");
         promise->resolve<IDLBoolean>(false);
         return;
     }
 
     // 2. If serverCertificate is an empty array, return a promise rejected with a new a newly created TypeError.
-    if (!serverCertificate.length()) {
-        INFO_LOG(identifier, "Rejected: empty serverCertificate");
-        promise->reject(TypeError);
+    if (!serverCertificate.byteLength()) {
+        ERROR_LOG(identifier, "Rejected: empty serverCertificate");
+        promise->reject(ExceptionCode::TypeError);
         return;
     }
 
     // 3. Let certificate be a copy of the contents of the serverCertificate parameter.
-    auto certificate = SharedBuffer::create(serverCertificate.data(), serverCertificate.length());
+    auto certificate = SharedBuffer::create(serverCertificate.span());
 
     // 4. Let promise be a new promise.
     // 5. Run the following steps in parallel:
 
     // 5.1. Use this object's cdm instance to process certificate.
-    m_instance->setServerCertificate(WTFMove(certificate), [this, protectedThis = makeRef(*this), promise = WTFMove(promise), identifier = WTFMove(identifier)] (auto success) {
+    ALWAYS_LOG(identifier);
+    m_instance->setServerCertificate(WTF::move(certificate), [this, protectedThis = Ref { *this }, promise = WTF::move(promise), identifier = WTF::move(identifier)] (auto success) {
+#if RELEASE_LOG_DISABLED
+        UNUSED_PARAM(this);
+#endif
         // 5.2. If the preceding step failed, resolve promise with a new DOMException whose name is the appropriate error name.
         // 5.1. [Else,] Resolve promise with true.
-        if (success == CDMInstance::Failed) {
-            INFO_LOG(identifier, "::task() - Rejected, setServerCertificate() failed");
-            promise->reject(InvalidStateError);
+        if (success == CDMInstanceSuccessValue::Failed) {
+            ERROR_LOG(identifier, "::task() - Rejected, setServerCertificate() failed");
+            promise->reject(ExceptionCode::InvalidStateError);
             return;
         }
 
-        INFO_LOG(identifier, "::task() - Resolved");
+        ALWAYS_LOG(identifier, "::task() - Resolved");
         promise->resolve<IDLBoolean>(true);
     });
 
@@ -165,26 +170,35 @@ void MediaKeys::detachCDMClient(CDMClient& client)
 
 void MediaKeys::attemptToResumePlaybackOnClients()
 {
-    for (auto& cdmClient : m_cdmClients)
-        cdmClient.cdmClientAttemptToResumePlaybackIfNecessary();
+    for (Ref cdmClient : m_cdmClients)
+        cdmClient->cdmClientAttemptToResumePlaybackIfNecessary();
 }
 
 bool MediaKeys::hasOpenSessions() const
 {
-    return std::any_of(m_sessions.begin(), m_sessions.end(),
+    return std::ranges::any_of(m_sessions,
         [](auto& session) {
             return !session->isClosed();
         });
 }
 
+bool MediaKeys::hasOpenSessionWithIdForOrigin(const String& sessionId, const String& origin) const
+{
+    return std::any_of(m_sessions.begin(), m_sessions.end(),
+        [&sessionId, &origin](auto& session) {
+            return session->sessionId() == sessionId && !session->isClosed()
+                && session->hasSecurityOrigin(origin);
+        });
+}
+
 void MediaKeys::unrequestedInitializationDataReceived(const String& initDataType, Ref<SharedBuffer>&& initData)
 {
-    for (auto& cdmClient : m_cdmClients)
-        cdmClient.cdmClientUnrequestedInitializationDataReceived(initDataType, initData.copyRef());
+    for (Ref cdmClient : m_cdmClients)
+        cdmClient->cdmClientUnrequestedInitializationDataReceived(initDataType, initData.copyRef());
 }
 
 #if !RELEASE_LOG_DISABLED
-const void* MediaKeys::nextChildIdentifier() const
+uint64_t MediaKeys::nextChildIdentifier() const
 {
     return LoggerHelper::childLogIdentifier(m_logIdentifier, ++m_childIdentifierSeed);
 }

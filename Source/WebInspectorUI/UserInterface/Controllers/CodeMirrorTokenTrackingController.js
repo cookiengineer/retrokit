@@ -337,6 +337,9 @@ WI.CodeMirrorTokenTrackingController = class CodeMirrorTokenTrackingController e
     {
         // Get the position in the text and the token at that position.
         var position = this._codeMirror.coordsChar(mouseCoords);
+        if (WI.settings.experimentalLimitSourceCodeHighlighting.value && position.ch > 120)
+            return;
+
         var token = this._codeMirror.getTokenAt(position);
 
         if (!token || !token.type || !token.string) {
@@ -360,10 +363,10 @@ WI.CodeMirrorTokenTrackingController = class CodeMirrorTokenTrackingController e
         var tokenInfo = this._previousTokenInfo = this._getTokenInfoForPosition(position);
 
         if (/\bmeta\b/.test(token.type)) {
-            let nextTokenPosition = Object.shallowCopy(position);
-            nextTokenPosition.ch = tokenInfo.token.end + 1;
-
-            let nextToken = this._codeMirror.getTokenAt(nextTokenPosition);
+            let nextToken = this._codeMirror.getTokenAt({
+                ...position,
+                ch: tokenInfo.token.end + 1,
+            });
             if (nextToken && nextToken.type && !/\bmeta\b/.test(nextToken.type)) {
                 console.assert(tokenInfo.token.end === nextToken.start);
 
@@ -372,10 +375,10 @@ WI.CodeMirrorTokenTrackingController = class CodeMirrorTokenTrackingController e
                 tokenInfo.token.end = nextToken.end;
             }
         } else {
-            let previousTokenPosition = Object.shallowCopy(position);
-            previousTokenPosition.ch = tokenInfo.token.start - 1;
-
-            let previousToken = this._codeMirror.getTokenAt(previousTokenPosition);
+            let previousToken = this._codeMirror.getTokenAt({
+                ...position,
+                ch: tokenInfo.token.start - 1,
+            });
             if (previousToken && previousToken.type && /\bmeta\b/.test(previousToken.type)) {
                 console.assert(tokenInfo.token.start === previousToken.end);
 

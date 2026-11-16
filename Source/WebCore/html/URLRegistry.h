@@ -30,25 +30,35 @@
 
 #pragma once
 
+#include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
 class ScriptExecutionContext;
+class SecurityOriginData;
 class URLRegistry;
 
 class URLRegistrable {
 public:
     virtual ~URLRegistrable() = default;
     virtual URLRegistry& registry() const = 0;
+    enum class RegistrableType : uint8_t { Blob, MediaSource };
+    virtual RegistrableType registrableType() const = 0;
 };
 
 class URLRegistry {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(URLRegistry);
 public:
-    virtual ~URLRegistry() = default;
-    virtual void registerURL(ScriptExecutionContext&, const URL&, URLRegistrable&) = 0;
-    virtual void unregisterURL(const URL&) = 0;
+    static void forEach(NOESCAPE const Function<void(URLRegistry&)>&);
+
+    URLRegistry();
+
+    virtual ~URLRegistry();
+    virtual void registerURL(const ScriptExecutionContext&, const URL&, URLRegistrable&) = 0;
+    virtual void unregisterURL(const URL&, const SecurityOriginData& topOrigin) = 0;
+    virtual void unregisterURLsForContext(const ScriptExecutionContext&) = 0;
 
     // This is an optional API
     virtual URLRegistrable* lookup(const String&) const { ASSERT_NOT_REACHED(); return 0; }

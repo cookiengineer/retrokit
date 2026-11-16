@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,48 +25,117 @@
 
 #pragma once
 
-#include "Options.h"
+#include <JavaScriptCore/Options.h>
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/Platform.h>
 #include <wtf/PtrTag.h>
 
 namespace JSC {
 
-#if ENABLE(JIT_OPERATION_VALIDATION)
+#if ENABLE(JIT_OPERATION_VALIDATION) || ENABLE(JIT_OPERATION_DISASSEMBLY)
+
+// This indirection is provided so that we can manually force on assertions for
+// testing even on release builds.
+#if ENABLE(JIT_OPERATION_VALIDATION) && ASSERT_ENABLED
+#define ENABLE_JIT_OPERATION_VALIDATION_ASSERT 1
+#endif
+
+struct JITOperationAnnotation;
 
 class JITOperationList {
 public:
-    static JITOperationList& instance();
+    static JITOperationList& singleton();
     static void initialize();
 
-    void* map(void* pointer) const
+#if ENABLE(JIT_OPERATION_VALIDATION)
+    template<typename PtrType>
+    void* map(PtrType pointer) const
     {
-        return m_validatedOperations.get(removeCodePtrTag(pointer));
+        return m_validatedOperations.get(removeCodePtrTag(std::bit_cast<void*>(pointer)));
     }
+
+#if ENABLE(JIT_OPERATION_VALIDATION_ASSERT)
+    template<typename PtrType>
+    void* inverseMap(PtrType pointer) const
+    {
+        return m_validatedOperationsInverseMap.get(std::bit_cast<void*>(pointer));
+    }
+#endif
+
+    JS_EXPORT_PRIVATE static void populatePointersInEmbedder(const JITOperationAnnotation* beginOperations, const JITOperationAnnotation* endOperations);
+#endif // ENABLE(JIT_OPERATION_VALIDATION)
 
     static void populatePointersInJavaScriptCore();
     static void populatePointersInJavaScriptCoreForLLInt();
 
-    JS_EXPORT_PRIVATE static void populatePointersInEmbedder(const uintptr_t* beginOperations, const uintptr_t* endOperations);
+#if ENABLE(JIT_OPERATION_DISASSEMBLY)
+    JS_EXPORT_PRIVATE static void populateDisassemblyLabelsInEmbedder(const JITOperationAnnotation* beginOperations, const JITOperationAnnotation* endOperations);
+#endif
 
     template<typename T> static void assertIsJITOperation(T function)
     {
         UNUSED_PARAM(function);
-        ASSERT(!Options::useJIT() || JITOperationList::instance().map(bitwise_cast<void*>(function)));
+#if ENABLE(JIT_OPERATION_VALIDATION_ASSERT)
+        RELEASE_ASSERT(!Options::useJIT() || JITOperationList::singleton().map(function));
+#endif
+    }
+
+    template<typename T> static void assertIsJITOperationWithValidation(T function)
+    {
+        UNUSED_PARAM(function);
+#if ENABLE(JIT_OPERATION_VALIDATION_ASSERT)
+        RELEASE_ASSERT(!Options::useJIT() || JITOperationList::singleton().inverseMap(function));
+#endif
     }
 
 private:
-    HashMap<void*, void*> m_validatedOperations;
+#if ENABLE(JIT_OPERATION_DISASSEMBLY)
+    static void populateDisassemblyLabelsInJavaScriptCore();
+    static void populateDisassemblyLabelsInJavaScriptCoreForLLInt();
+    static void addDisassemblyLabels(const JITOperationAnnotation* begin, const JITOperationAnnotation* end);
+#endif
+
+#if ENABLE(JIT_OPERATION_VALIDATION)
+    ALWAYS_INLINE void addPointers(const JITOperationAnnotation* begin, const JITOperationAnnotation* end);
+
+#if ENABLE(JIT_OPERATION_VALIDATION_ASSERT)
+    void addInverseMap(void* validationEntry, void* pointer);
+#endif
+
+    UncheckedKeyHashMap<void*, void*> m_validatedOperations;
+#if ENABLE(JIT_OPERATION_VALIDATION_ASSERT)
+    UncheckedKeyHashMap<void*, void*> m_validatedOperationsInverseMap;
+#endif
+#endif // ENABLE(JIT_OPERATION_VALIDATION)
 };
+
+#if ENABLE(JIT_OPERATION_VALIDATION)
 
 JS_EXPORT_PRIVATE extern LazyNeverDestroyed<JITOperationList> jitOperationList;
 
-inline JITOperationList& JITOperationList::instance()
+inline JITOperationList& JITOperationList::singleton()
 {
     return jitOperationList.get();
 }
 
 #else // not ENABLE(JIT_OPERATION_VALIDATION)
+
+ALWAYS_INLINE void JITOperationList::populatePointersInJavaScriptCore()
+{
+    if (Options::needDisassemblySupport()) [[unlikely]]
+        populateDisassemblyLabelsInJavaScriptCore();
+}
+
+ALWAYS_INLINE void JITOperationList::populatePointersInJavaScriptCoreForLLInt()
+{
+    if (Options::needDisassemblySupport()) [[unlikely]]
+        populateDisassemblyLabelsInJavaScriptCoreForLLInt();
+}
+
+#endif // ENABLE(JIT_OPERATION_VALIDATION)
+
+#else // not ENABLE(JIT_OPERATION_VALIDATION) || ENABLE(JIT_OPERATION_DISASSEMBLY)
 
 class JITOperationList {
 public:
@@ -76,8 +145,9 @@ public:
     static void populatePointersInJavaScriptCoreForLLInt() { }
 
     template<typename T> static void assertIsJITOperation(T) { }
+    template<typename T> static void assertIsJITOperationWithValidation(T) { }
 };
 
-#endif // ENABLE(JIT_OPERATION_VALIDATION)
+#endif // ENABLE(JIT_OPERATION_VALIDATION) || ENABLE(JIT_OPERATION_DISASSEMBLY)
 
 } // namespace JSC

@@ -75,8 +75,12 @@ WI.LayerTreeDetailsSidebarPanel = class LayerTreeDetailsSidebarPanel extends WI.
         if (!this.domNode || this.domNode.destroyed)
             return;
 
-        WI.layerTreeManager.layersForNode(this.domNode, (layers) => {
-            let layerForNode = layers[0] && layers[0].nodeId === this.domNode.id && !layers[0].isGeneratedContent ? layers[0] : null;
+        let domNode = this.domNode;
+        WI.layerTreeManager.layersForNode(domNode, (layers) => {
+            if (this.domNode !== domNode)
+                return;
+
+            let layerForNode = layers[0]?.nodeId === domNode.id && !layers[0].isGeneratedContent ? layers[0] : null;
             let childLayers = layers.slice(layerForNode ? 1 : 0);
             this._unfilteredChildLayers = childLayers;
             this._updateDisplayWithLayers(layerForNode, childLayers);
@@ -248,7 +252,7 @@ WI.LayerTreeDetailsSidebarPanel = class LayerTreeDetailsSidebarPanel extends WI.
         if (!layer)
             return;
 
-        this._layerInfoRows["Memory"].value = Number.bytesToString(layer.memory);
+        this._layerInfoRows["Memory"].value = Number.bytesToString(layer.memory || 0);
         this._layerInfoRows["Width"].value = layer.compositedBounds.width + "px";
         this._layerInfoRows["Height"].value = layer.compositedBounds.height + "px";
         this._layerInfoRows["Paints"].value = layer.paintCount + "";
@@ -435,5 +439,7 @@ WI.LayerTreeDetailsSidebarPanel = class LayerTreeDetailsSidebarPanel extends WI.
             addReason(WI.UIString("Element is the root element"));
         if (compositingReasons.blending)
             addReason(WI.UIString("Element has \u201Cblend-mode\u201D style"));
+        if (compositingReasons.backdropRoot)
+            addReason(WI.UIString("Element is a backdrop root"));
     }
 };

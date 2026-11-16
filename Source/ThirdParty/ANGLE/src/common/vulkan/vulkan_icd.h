@@ -20,6 +20,11 @@ namespace angle
 namespace vk
 {
 
+// The minimum version of Vulkan that ANGLE requires.  If an instance or device below this version
+// is encountered, initialization will skip the device if possible, or if no other suitable device
+// is available then initialization will fail.
+constexpr uint32_t kMinimumVulkanAPIVersion = VK_API_VERSION_1_1;
+
 enum class ICD
 {
     Default,
@@ -33,32 +38,41 @@ struct SimpleDisplayWindow
     uint16_t height;
 };
 
-class ScopedVkLoaderEnvironment : angle::NonCopyable
+class [[nodiscard]] ScopedVkLoaderEnvironment : angle::NonCopyable
 {
   public:
-    ScopedVkLoaderEnvironment(bool enableValidationLayers, vk::ICD icd);
+    ScopedVkLoaderEnvironment(bool enableDebugLayers, vk::ICD icd);
     ~ScopedVkLoaderEnvironment();
 
-    bool canEnableValidationLayers() const { return mEnableValidationLayers; }
+    bool canEnableDebugLayers() const { return mEnableDebugLayers; }
     vk::ICD getEnabledICD() const { return mICD; }
 
   private:
     bool setICDEnvironment(const char *icd);
-    bool setCustomExtensionsEnvironment();
 
-    bool mEnableValidationLayers;
+    bool mEnableDebugLayers;
     vk::ICD mICD;
     bool mChangedCWD;
     Optional<std::string> mPreviousCWD;
     bool mChangedICDEnv;
     Optional<std::string> mPreviousICDEnv;
     Optional<std::string> mPreviousCustomExtensionsEnv;
+    bool mChangedNoDeviceSelect;
+    Optional<std::string> mPreviousNoDeviceSelectEnv;
 };
 
-void ChoosePhysicalDevice(const std::vector<VkPhysicalDevice> &physicalDevices,
+void ChoosePhysicalDevice(PFN_vkGetPhysicalDeviceProperties2 pGetPhysicalDeviceProperties2,
+                          const std::vector<VkPhysicalDevice> &physicalDevices,
                           vk::ICD preferredICD,
+                          uint32_t preferredVendorID,
+                          uint32_t preferredDeviceID,
+                          const uint8_t *preferredDeviceUUID,
+                          const uint8_t *preferredDriverUUID,
+                          VkDriverId preferredDriverID,
                           VkPhysicalDevice *physicalDeviceOut,
-                          VkPhysicalDeviceProperties *physicalDevicePropertiesOut);
+                          VkPhysicalDeviceProperties2 *physicalDeviceProperties2Out,
+                          VkPhysicalDeviceIDProperties *physicalDeviceIDPropertiesOut,
+                          VkPhysicalDeviceDriverProperties *physicalDeviceDriverPropertiesOut);
 
 }  // namespace vk
 

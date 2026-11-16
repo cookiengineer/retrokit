@@ -31,7 +31,7 @@
 
 #pragma once
 
-#include "ContextDestructionObserver.h"
+#include <WebCore/ContextDestructionObserver.h>
 
 namespace JSC {
 class AbstractSlotVisitor;
@@ -52,13 +52,13 @@ public:
     WEBCORE_EXPORT ActiveDOMCallback(ScriptExecutionContext*);
     WEBCORE_EXPORT virtual ~ActiveDOMCallback();
 
-    WEBCORE_EXPORT bool canInvokeCallback() const;
+    WEBCORE_EXPORT bool NODELETE canInvokeCallback() const;
 
-    WEBCORE_EXPORT bool activeDOMObjectsAreSuspended() const;
-    WEBCORE_EXPORT bool activeDOMObjectAreStopped() const;
+    WEBCORE_EXPORT bool NODELETE activeDOMObjectsAreSuspended() const;
+    WEBCORE_EXPORT bool NODELETE activeDOMObjectAreStopped() const;
     
-    virtual void visitJSFunction(JSC::AbstractSlotVisitor&) { }
-    virtual void visitJSFunction(JSC::SlotVisitor&) { }
+    virtual void visitJSFunctionInGCThread(JSC::AbstractSlotVisitor&) { }
+    virtual void visitJSFunctionInGCThread(JSC::SlotVisitor&) { }
 };
 
 } // namespace WebCore

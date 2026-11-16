@@ -25,7 +25,7 @@
 
 #pragma once
 
-#if ENABLE(AVF_CAPTIONS)
+#if ENABLE(VIDEO)
 
 #include <wtf/RefCounted.h>
 #include <wtf/text/WTFString.h>
@@ -76,80 +76,7 @@ struct PlatformTextTrackData {
     TrackType m_type;
     int m_uniqueId;
     bool m_isDefault;
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<PlatformTextTrackData> decode(Decoder&);
 };
-
-template <class Decoder>
-std::optional<PlatformTextTrackData> PlatformTextTrackData::decode(Decoder& decoder)
-{
-    std::optional<String> label;
-    decoder >> label;
-    if (!label)
-        return std::nullopt;
-
-    std::optional<String> language;
-    decoder >> language;
-    if (!language)
-        return std::nullopt;
-
-    std::optional<String> url;
-    decoder >> url;
-    if (!url)
-        return std::nullopt;
-
-    std::optional<TrackMode> mode;
-    decoder >> mode;
-    if (!mode)
-        return std::nullopt;
-
-    std::optional<TrackKind> kind;
-    decoder >> kind;
-    if (!kind)
-        return std::nullopt;
-
-    std::optional<TrackType> type;
-    decoder >> type;
-    if (!type)
-        return std::nullopt;
-
-    std::optional<int> uniqueId;
-    decoder >> uniqueId;
-    if (!uniqueId)
-        return std::nullopt;
-
-    std::optional<bool> isDefault;
-    decoder >> isDefault;
-    if (!isDefault)
-        return std::nullopt;
-
-    PlatformTextTrackData data = {
-        WTFMove(*label),
-        WTFMove(*language),
-        WTFMove(*url),
-        WTFMove(*mode),
-        WTFMove(*kind),
-        WTFMove(*type),
-        WTFMove(*uniqueId),
-        WTFMove(*isDefault),
-    };
-
-    return data;
-}
-
-template<class Encoder>
-void PlatformTextTrackData::encode(Encoder& encoder) const
-{
-    encoder << m_label;
-    encoder << m_language;
-    encoder << m_url;
-    encoder << m_mode;
-    encoder << m_kind;
-    encoder << m_type;
-    encoder << m_uniqueId;
-    encoder << m_isDefault;
-}
 
 class PlatformTextTrackClient {
 public:
@@ -173,7 +100,7 @@ public:
     
     static Ref<PlatformTextTrack> create(PlatformTextTrackData&& data)
     {
-        return adoptRef(*new PlatformTextTrack(WTFMove(data)));
+        return adoptRef(*new PlatformTextTrack(WTF::move(data)));
     }
 
     virtual ~PlatformTextTrack() = default;
@@ -181,9 +108,9 @@ public:
     PlatformTextTrackData::TrackType type() const { return m_trackData.m_type; }
     PlatformTextTrackData::TrackKind kind() const { return m_trackData.m_kind; }
     PlatformTextTrackData::TrackMode mode() const { return m_trackData.m_mode; }
-    const String& label() const { return m_trackData.m_label; }
-    const String& language() const { return m_trackData.m_language; }
-    const String& url() const { return m_trackData.m_url; }
+    const String& label() const LIFETIME_BOUND { return m_trackData.m_label; }
+    const String& language() const LIFETIME_BOUND { return m_trackData.m_language; }
+    const String& url() const LIFETIME_BOUND { return m_trackData.m_url; }
     int uniqueId() const { return m_trackData.m_uniqueId; }
     bool isDefault() const { return m_trackData.m_isDefault; }
     PlatformTextTrackClient* client() const { return m_client; }
@@ -207,7 +134,7 @@ protected:
     }
     
     PlatformTextTrack(PlatformTextTrackData&& data)
-        : m_trackData(WTFMove(data))
+        : m_trackData(WTF::move(data))
     {
     }
 
@@ -217,40 +144,4 @@ protected:
 
 } // namespace WebCore
 
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::PlatformTextTrackData::TrackKind> {
-    using values = EnumValues<
-        WebCore::PlatformTextTrackData::TrackKind,
-        WebCore::PlatformTextTrackData::TrackKind::Subtitle,
-        WebCore::PlatformTextTrackData::TrackKind::Caption,
-        WebCore::PlatformTextTrackData::TrackKind::Description,
-        WebCore::PlatformTextTrackData::TrackKind::Chapter,
-        WebCore::PlatformTextTrackData::TrackKind::MetaData,
-        WebCore::PlatformTextTrackData::TrackKind::Forced
-    >;
-};
-
-template<> struct EnumTraits<WebCore::PlatformTextTrackData::TrackType> {
-    using values = EnumValues<
-        WebCore::PlatformTextTrackData::TrackType,
-        WebCore::PlatformTextTrackData::TrackType::InBand,
-        WebCore::PlatformTextTrackData::TrackType::OutOfBand,
-        WebCore::PlatformTextTrackData::TrackType::Script
-    >;
-};
-
-template<> struct EnumTraits<WebCore::PlatformTextTrackData::TrackMode> {
-    using values = EnumValues<
-        WebCore::PlatformTextTrackData::TrackMode,
-        WebCore::PlatformTextTrackData::TrackMode::Disabled,
-        WebCore::PlatformTextTrackData::TrackMode::Hidden,
-        WebCore::PlatformTextTrackData::TrackMode::Showing
-    >;
-};
-
-} // namespace WTF
-
-#endif // ENABLE(AVF_CAPTIONS)
-
-
+#endif // ENABLE(VIDEO)

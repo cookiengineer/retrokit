@@ -29,6 +29,9 @@
 #include "config.h"
 #include "SQLResultSetRowList.h"
 
+#include "ExceptionCode.h"
+#include "ExceptionOr.h"
+
 namespace WebCore {
 
 unsigned SQLResultSetRowList::length() const
@@ -41,12 +44,12 @@ unsigned SQLResultSetRowList::length() const
     return m_result.size() / m_columns.size();
 }
 
-ExceptionOr<Vector<WTF::KeyValuePair<String, SQLValue>>> SQLResultSetRowList::item(unsigned index) const
+ExceptionOr<Vector<KeyValuePair<String, SQLValue>>> SQLResultSetRowList::item(unsigned index) const
 {
     if (index >= length())
-        return Exception { IndexSizeError };
+        return Exception { ExceptionCode::IndexSizeError };
 
-    Vector<WTF::KeyValuePair<String, SQLValue>> result;
+    Vector<KeyValuePair<String, SQLValue>> result;
 
     unsigned numberOfColumns = m_columns.size();
     unsigned valuesIndex = index * numberOfColumns;

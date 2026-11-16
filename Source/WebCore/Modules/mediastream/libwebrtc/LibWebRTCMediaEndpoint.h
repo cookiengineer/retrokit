@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,33 +24,38 @@
 
 #pragma once
 
-#if USE(LIBWEBRTC)
+#if ENABLE(WEB_RTC) && USE(LIBWEBRTC)
 
 #include "LibWebRTCObservers.h"
 #include "LibWebRTCProvider.h"
+#include "LibWebRTCRefWrappers.h"
+#include "LibWebRTCRtpReceiverBackend.h"
 #include "LibWebRTCRtpSenderBackend.h"
 #include "RTCRtpReceiver.h"
-#include <Timer.h>
+#include "Timer.h"
+#include <wtf/WeakRef.h>
 
-ALLOW_UNUSED_PARAMETERS_BEGIN
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 
 #include <webrtc/api/jsep.h>
 #include <webrtc/api/peer_connection_interface.h>
+// See Bug 274508: Disable thread-safety-reference-return warnings in libwebrtc
+IGNORE_CLANG_WARNINGS_BEGIN("thread-safety-reference-return")
+IGNORE_CLANG_WARNINGS_BEGIN("nullability-completeness")
 #include <webrtc/pc/peer_connection_factory.h>
 #include <webrtc/pc/rtc_stats_collector.h>
+IGNORE_CLANG_WARNINGS_END
+IGNORE_CLANG_WARNINGS_END
 
-ALLOW_DEPRECATED_DECLARATIONS_END
-ALLOW_UNUSED_PARAMETERS_END
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 
 #include <wtf/LoggerHelper.h>
+#include <wtf/RobinHoodHashMap.h>
 #include <wtf/ThreadSafeRefCounted.h>
 
 namespace webrtc {
 class CreateSessionDescriptionObserver;
 class DataChannelInterface;
-class IceCandidateInterface;
-class MediaStreamInterface;
 class PeerConnectionObserver;
 class SessionDescriptionInterface;
 class SetSessionDescriptionObserver;
@@ -65,8 +70,10 @@ class LibWebRTCStatsCollector;
 class MediaStreamTrack;
 class RTCSessionDescription;
 
-class LibWebRTCMediaEndpoint
-    : public ThreadSafeRefCounted<LibWebRTCMediaEndpoint, WTF::DestructionThread::Main>
+struct LibWebRTCMediaEndpointTransceiverState;
+
+class LibWebRTCMediaEndpoint final
+    : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<LibWebRTCMediaEndpoint, WTF::DestructionThread::Main>
     , private webrtc::PeerConnectionObserver
     , private webrtc::RTCStatsCollectorCallback
 #if !RELEASE_LOG_DISABLED
@@ -74,69 +81,69 @@ class LibWebRTCMediaEndpoint
 #endif
 {
 public:
-    static Ref<LibWebRTCMediaEndpoint> create(LibWebRTCPeerConnectionBackend& peerConnection, LibWebRTCProvider& client) { return adoptRef(*new LibWebRTCMediaEndpoint(peerConnection, client)); }
-    virtual ~LibWebRTCMediaEndpoint() = default;
+    static RefPtr<LibWebRTCMediaEndpoint> create(RTCPeerConnection&, LibWebRTCProvider&, Document&, webrtc::PeerConnectionInterface::RTCConfiguration&&, bool shouldEnableServiceClass);
+    ~LibWebRTCMediaEndpoint();
 
     void restartIce();
-    bool setConfiguration(LibWebRTCProvider&, webrtc::PeerConnectionInterface::RTCConfiguration&&);
+    bool setConfiguration(webrtc::PeerConnectionInterface::RTCConfiguration&&);
 
     webrtc::PeerConnectionInterface& backend() const { ASSERT(m_backend); return *m_backend.get(); }
     void doSetLocalDescription(const RTCSessionDescription*);
     void doSetRemoteDescription(const RTCSessionDescription&);
     void doCreateOffer(const RTCOfferOptions&);
     void doCreateAnswer();
+    void gatherDecoderImplementationName(Function<void(String&&)>&&);
     void getStats(Ref<DeferredPromise>&&);
     void getStats(webrtc::RtpReceiverInterface&, Ref<DeferredPromise>&&);
     void getStats(webrtc::RtpSenderInterface&, Ref<DeferredPromise>&&);
     std::unique_ptr<RTCDataChannelHandler> createDataChannel(const String&, const RTCDataChannelInit&);
-    bool addIceCandidate(webrtc::IceCandidateInterface& candidate) { return m_backend->AddIceCandidate(&candidate); }
+    void addIceCandidate(std::unique_ptr<webrtc::IceCandidate>&&, PeerConnectionBackend::AddIceCandidateCallback&&);
 
     void close();
     void stop();
-    bool isStopped() const { return !m_backend; }
+    bool isStopped() const { return m_isStopped; }
 
-    RefPtr<RTCSessionDescription> localDescription() const;
-    RefPtr<RTCSessionDescription> remoteDescription() const;
-    RefPtr<RTCSessionDescription> currentLocalDescription() const;
-    RefPtr<RTCSessionDescription> currentRemoteDescription() const;
-    RefPtr<RTCSessionDescription> pendingLocalDescription() const;
-    RefPtr<RTCSessionDescription> pendingRemoteDescription() const;
-
-    bool addTrack(LibWebRTCRtpSenderBackend&, MediaStreamTrack&, const Vector<String>&);
+    bool addTrack(LibWebRTCRtpSenderBackend&, MediaStreamTrack&, const FixedVector<String>&);
     void removeTrack(LibWebRTCRtpSenderBackend&);
 
     struct Backends {
-        std::unique_ptr<LibWebRTCRtpSenderBackend> senderBackend;
-        std::unique_ptr<LibWebRTCRtpReceiverBackend> receiverBackend;
-        std::unique_ptr<LibWebRTCRtpTransceiverBackend> transceiverBackend;
+        Ref<LibWebRTCRtpSenderBackend> senderBackend;
+        LibWebRTCRtpReceiverBackendAndSource receiverBackendAndSource;
+        UniqueRef<LibWebRTCRtpTransceiverBackend> transceiverBackend;
     };
-    ExceptionOr<Backends> addTransceiver(const String& trackKind, const RTCRtpTransceiverInit&);
-    ExceptionOr<Backends> addTransceiver(MediaStreamTrack&, const RTCRtpTransceiverInit&);
+    ExceptionOr<Backends> addTransceiver(const String& trackKind, const RTCRtpTransceiverInit&, PeerConnectionBackend::IgnoreNegotiationNeededFlag);
+    ExceptionOr<Backends> addTransceiver(MediaStreamTrack&, const RTCRtpTransceiverInit&, PeerConnectionBackend::IgnoreNegotiationNeededFlag);
     std::unique_ptr<LibWebRTCRtpTransceiverBackend> transceiverBackendFromSender(LibWebRTCRtpSenderBackend&);
 
     void setSenderSourceFromTrack(LibWebRTCRtpSenderBackend&, MediaStreamTrack&);
-    void collectTransceivers();
+    void collectTransceivers(Vector<Ref<RTCRtpTransceiver>>&&);
 
     std::optional<bool> canTrickleIceCandidates() const;
 
     void suspend();
     void resume();
-    LibWebRTCProvider::SuspendableSocketFactory* rtcSocketFactory() { return m_rtcSocketFactory.get(); }
+    void disableSocketRelay();
+
+    bool isNegotiationNeeded(uint32_t) const;
+
+    void startRTCLogs();
+    void NODELETE stopRTCLogs();
+
+    void NODELETE setPeerConnectionBackend(LibWebRTCPeerConnectionBackend&);
+
+    bool shouldEnableServiceClass() const { return m_rtcSocketFactory && m_rtcSocketFactory->shouldEnableServiceClass(); }
 
 private:
-    LibWebRTCMediaEndpoint(LibWebRTCPeerConnectionBackend&, LibWebRTCProvider&);
+    LibWebRTCMediaEndpoint(RTCPeerConnection&, LibWebRTCProvider&, Document&, bool shouldEnableServiceClass);
 
     // webrtc::PeerConnectionObserver API
-    void OnSignalingChange(webrtc::PeerConnectionInterface::SignalingState) final;
-    void OnDataChannel(rtc::scoped_refptr<webrtc::DataChannelInterface>) final;
-    void OnTrack(rtc::scoped_refptr<webrtc::RtpTransceiverInterface>) final;
-    void OnRemoveTrack(rtc::scoped_refptr<webrtc::RtpReceiverInterface>) final;
+    void NODELETE OnSignalingChange(webrtc::PeerConnectionInterface::SignalingState) final;
+    void OnDataChannel(webrtc::scoped_refptr<webrtc::DataChannelInterface>) final;
 
-    void OnRenegotiationNeeded() final;
-    void OnIceConnectionChange(webrtc::PeerConnectionInterface::IceConnectionState) final;
+    void OnNegotiationNeededEvent(uint32_t) final;
+    void OnStandardizedIceConnectionChange(webrtc::PeerConnectionInterface::IceConnectionState) final;
     void OnIceGatheringChange(webrtc::PeerConnectionInterface::IceGatheringState) final;
-    void OnIceCandidate(const webrtc::IceCandidateInterface*) final;
-    void OnIceCandidatesRemoved(const std::vector<cricket::Candidate>&) final;
+    void OnIceCandidate(const webrtc::IceCandidate*) final;
 
     void createSessionDescriptionSucceeded(std::unique_ptr<webrtc::SessionDescriptionInterface>&&);
     void createSessionDescriptionFailed(ExceptionCode, const char*);
@@ -144,47 +151,43 @@ private:
     void setLocalSessionDescriptionFailed(ExceptionCode, const char*);
     void setRemoteSessionDescriptionSucceeded();
     void setRemoteSessionDescriptionFailed(ExceptionCode, const char*);
-    void newTransceiver(rtc::scoped_refptr<webrtc::RtpTransceiverInterface>&&);
-    void removeRemoteTrack(rtc::scoped_refptr<webrtc::RtpReceiverInterface>&&);
-
-    void addPendingTrackEvent(Ref<RTCRtpReceiver>&&, MediaStreamTrack&, const std::vector<rtc::scoped_refptr<webrtc::MediaStreamInterface>>&, RefPtr<RTCRtpTransceiver>&&);
 
     template<typename T>
-    ExceptionOr<Backends> createTransceiverBackends(T&&, webrtc::RtpTransceiverInit&&, LibWebRTCRtpSenderBackend::Source&&);
+    ExceptionOr<Backends> createTransceiverBackends(T&&, webrtc::RtpTransceiverInit&&, LibWebRTCRtpSenderBackend::Source&&, PeerConnectionBackend::IgnoreNegotiationNeededFlag);
 
-    void OnStatsDelivered(const rtc::scoped_refptr<const webrtc::RTCStatsReport>&) final;
+    void OnStatsDelivered(const webrtc::scoped_refptr<const webrtc::RTCStatsReport>&) final;
     void gatherStatsForLogging();
     void startLoggingStats();
     void stopLoggingStats();
 
-    rtc::scoped_refptr<LibWebRTCStatsCollector> createStatsCollector(Ref<DeferredPromise>&&);
+    webrtc::scoped_refptr<LibWebRTCStatsCollector> createStatsCollector(Ref<DeferredPromise>&&);
 
-    MediaStream& mediaStreamFromRTCStream(webrtc::MediaStreamInterface&);
+    Vector<Ref<MediaStream>> mediaStreamsFromRTCStreamIds(const Vector<String>&);
+    PeerConnectionBackend::TransceiverStates generateTransceiverStates(const Vector<LibWebRTCMediaEndpointTransceiverState>&);
 
     void AddRef() const { ref(); }
-    rtc::RefCountReleaseStatus Release() const
+    webrtc::RefCountReleaseStatus Release() const
     {
         auto result = refCount() - 1;
         deref();
-        return result ? rtc::RefCountReleaseStatus::kOtherRefsRemained
-        : rtc::RefCountReleaseStatus::kDroppedLastRef;
+        return result ? webrtc::RefCountReleaseStatus::kOtherRefsRemained : webrtc::RefCountReleaseStatus::kDroppedLastRef;
     }
 
-    std::pair<LibWebRTCRtpSenderBackend::Source, rtc::scoped_refptr<webrtc::MediaStreamTrackInterface>> createSourceAndRTCTrack(MediaStreamTrack&);
+    std::pair<LibWebRTCRtpSenderBackend::Source, webrtc::scoped_refptr<webrtc::MediaStreamTrackInterface>> createSourceAndRTCTrack(MediaStreamTrack&);
     RefPtr<RealtimeMediaSource> sourceFromNewReceiver(webrtc::RtpReceiverInterface&);
 
 #if !RELEASE_LOG_DISABLED
     const Logger& logger() const final { return m_logger.get(); }
-    const void* logIdentifier() const final { return m_logIdentifier; }
-    const char* logClassName() const final { return "LibWebRTCMediaEndpoint"; }
-    WTFLogChannel& logChannel() const final;
+    uint64_t logIdentifier() const final { return m_logIdentifier; }
+    ASCIILiteral logClassName() const final { return "LibWebRTCMediaEndpoint"_s; }
+    WTFLogChannel& NODELETE logChannel() const final;
 
     Seconds statsLogInterval(int64_t) const;
 #endif
 
-    LibWebRTCPeerConnectionBackend& m_peerConnectionBackend;
-    rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> m_peerConnectionFactory;
-    rtc::scoped_refptr<webrtc::PeerConnectionInterface> m_backend;
+    WeakPtr<LibWebRTCPeerConnectionBackend> m_peerConnectionBackend;
+    const Ref<webrtc::PeerConnectionFactoryInterface> m_peerConnectionFactory;
+    const RefPtr<webrtc::PeerConnectionInterface> m_backend;
 
     friend CreateSessionDescriptionObserver<LibWebRTCMediaEndpoint>;
     friend SetLocalSessionDescriptionObserver<LibWebRTCMediaEndpoint>;
@@ -194,22 +197,23 @@ private:
     SetLocalSessionDescriptionObserver<LibWebRTCMediaEndpoint> m_setLocalSessionDescriptionObserver;
     SetRemoteSessionDescriptionObserver<LibWebRTCMediaEndpoint> m_setRemoteSessionDescriptionObserver;
 
-    HashMap<String, RefPtr<MediaStream>> m_remoteStreamsById;
-    HashMap<MediaStreamTrack*, Vector<String>> m_remoteStreamsFromRemoteTrack;
+    MemoryCompactRobinHoodHashMap<String, Ref<MediaStream>> m_remoteStreamsById;
 
     bool m_isInitiator { false };
     Timer m_statsLogTimer;
 
-    HashMap<String, rtc::scoped_refptr<webrtc::MediaStreamInterface>> m_localStreams;
-
-    std::unique_ptr<LibWebRTCProvider::SuspendableSocketFactory> m_rtcSocketFactory;
+    const std::unique_ptr<LibWebRTCProvider::SuspendableSocketFactory> m_rtcSocketFactory;
 #if !RELEASE_LOG_DISABLED
     int64_t m_statsFirstDeliveredTimestamp { 0 };
-    Ref<const Logger> m_logger;
-    const void* m_logIdentifier;
+    const Ref<const Logger> m_logger;
+    const uint64_t m_logIdentifier;
 #endif
+    bool m_isGatheringRTCLogs { false };
+    bool m_shouldIgnoreNegotiationNeededSignal { false };
+    bool m_isClosed { false };
+    bool m_isStopped { false };
 };
 
 } // namespace WebCore
 
-#endif // USE(LIBWEBRTC)
+#endif // ENABLE(WEB_RTC) && USE(LIBWEBRTC)

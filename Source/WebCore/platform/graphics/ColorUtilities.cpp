@@ -30,13 +30,13 @@ namespace WebCore {
 
 SRGBA<float> premultiplied(const SRGBA<float>& color)
 {
-    auto [r, g, b, a] = color;
+    auto [r, g, b, a] = color.resolved();
     return { r * a, g * a, b * a, a };
 }
 
 SRGBA<float> unpremultiplied(const SRGBA<float>& color)
 {
-    auto [r, g, b, a] = color;
+    auto [r, g, b, a] = color.resolved();
     if (!a)
         return color;
     return makeFromComponentsClampingExceptAlpha<SRGBA<float>>(r / a, g / a, b / a, a);
@@ -44,7 +44,7 @@ SRGBA<float> unpremultiplied(const SRGBA<float>& color)
 
 SRGBA<uint8_t> premultipliedFlooring(SRGBA<uint8_t> color)
 {
-    auto [r, g, b, a] = color;
+    auto [r, g, b, a] = color.resolved();
     if (!a)
         return { 0, 0, 0, 0 };
     if (a == 255)
@@ -54,7 +54,7 @@ SRGBA<uint8_t> premultipliedFlooring(SRGBA<uint8_t> color)
 
 SRGBA<uint8_t> premultipliedCeiling(SRGBA<uint8_t> color)
 {
-    auto [r, g, b, a] = color;
+    auto [r, g, b, a] = color.resolved();
     if (!a)
         return { 0, 0, 0, 0 };
     if (a == 255)
@@ -62,14 +62,14 @@ SRGBA<uint8_t> premultipliedCeiling(SRGBA<uint8_t> color)
     return makeFromComponentsClampingExceptAlpha<SRGBA<uint8_t>>(fastDivideBy255(r * a + 254), fastDivideBy255(g * a + 254), fastDivideBy255(b * a + 254), a);
 }
 
-static inline uint16_t unpremultipliedComponentByte(uint8_t c, uint8_t a)
+static inline uint16_t NODELETE unpremultipliedComponentByte(uint8_t c, uint8_t a)
 {
     return (fastMultiplyBy255(c) + a - 1) / a;
 }
 
 SRGBA<uint8_t> unpremultiplied(SRGBA<uint8_t> color)
 {
-    auto [r, g, b, a] = color;
+    auto [r, g, b, a] = color.resolved();
     if (!a || a == 255)
         return color;
     return makeFromComponentsClampingExceptAlpha<SRGBA<uint8_t>>(unpremultipliedComponentByte(r, a), unpremultipliedComponentByte(g, a), unpremultipliedComponentByte(b, a), a);

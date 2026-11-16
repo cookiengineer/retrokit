@@ -30,16 +30,11 @@
 #include "B3Procedure.h"
 #include "B3Value.h"
 #include "B3ValueKey.h"
+#include "WasmTypeDefinition.h"
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC { namespace B3 {
-
-inline ValueKey::ValueKey(Value* child, int64_t value)
-{
-    m_kind = Oops;
-    m_type = Void;
-    u.indices[0] = child->index();
-    u.value = value;
-}
 
 inline ValueKey::ValueKey(Kind kind, Type type, Value* child)
     : m_kind(kind)
@@ -65,11 +60,95 @@ inline ValueKey::ValueKey(Kind kind, Type type, Value* a, Value* b, Value* c)
     u.indices[2] = c->index();
 }
 
+inline ValueKey::ValueKey(Kind kind, Type type, Value* a, int32_t value)
+    : m_kind(kind)
+    , m_type(type)
+{
+    u.indices[0] = a->index();
+    u.indices[1] = value;
+    u.indices[2] = UINT32_MAX;
+}
+
+inline ValueKey::ValueKey(Kind kind, Type type, SIMDInfo simdInfo, Value* a)
+    : m_simdInfo(simdInfo)
+    , m_kind(kind)
+    , m_type(type)
+{
+    u.indices[0] = a ? a->index() : UINT32_MAX;
+}
+
+inline ValueKey::ValueKey(Kind kind, Type type, SIMDInfo simdInfo, Value* a, Value* b)
+    : m_simdInfo(simdInfo)
+    , m_kind(kind)
+    , m_type(type)
+{
+    u.indices[0] = a ? a->index() : UINT32_MAX;
+    u.indices[1] = b ? b->index() : UINT32_MAX;
+}
+
+inline ValueKey::ValueKey(Kind kind, Type type, SIMDInfo simdInfo, Value* a, Value* b, Value* c)
+    : m_simdInfo(simdInfo)
+    , m_kind(kind)
+    , m_type(type)
+{
+    u.indices[0] = a ? a->index() : UINT32_MAX;
+    u.indices[1] = b ? b->index() : UINT32_MAX;
+    u.indices[2] = c ? c->index() : UINT32_MAX;
+}
+
+inline ValueKey::ValueKey(Kind kind, Type type, SIMDInfo simdInfo, Value* a, uint8_t immediate)
+    : m_simdInfo(simdInfo)
+    , m_kind(kind)
+    , m_type(type)
+{
+    u.indices[0] = a ? a->index() : UINT32_MAX;
+    u.indices[1] = immediate;
+}
+
+inline ValueKey::ValueKey(Kind kind, Type type, SIMDInfo simdInfo, Value* a, Value* b, uint8_t immediate)
+    : m_simdInfo(simdInfo)
+    , m_kind(kind)
+    , m_type(type)
+{
+    u.indices[0] = a ? a->index() : UINT32_MAX;
+    u.indices[1] = b ? b->index() : UINT32_MAX;
+    u.indices[2] = immediate;
+}
+
+inline ValueKey::ValueKey(Kind kind, Type type, Value* child, Value* optionalChild2, unsigned packedFlags, const Wasm::RTT* rtt)
+    : m_kind(kind)
+    , m_type(type)
+{
+    u.indices[0] = child->index();
+    u.indices[1] = optionalChild2 ? optionalChild2->index() : UINT_MAX;
+    static_assert(::allowCompactPointers<Wasm::RTT*>());
+    if (rtt) {
+        uint64_t rttPtr = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(rtt));
+        u.indices[2] = static_cast<unsigned>(rttPtr);
+        u.indices[3] = static_cast<unsigned>(rttPtr >> 32) | (packedFlags << 16);
+    } else {
+        u.indices[2] = 0;
+        u.indices[3] = packedFlags << 16;
+    }
+}
+
+inline ValueKey::ValueKey(Kind kind, Type type, Value* child, Value* optionalChild2, unsigned packedFlags, int32_t targetHeapType)
+    : m_kind(kind)
+    , m_type(type)
+{
+    u.indices[0] = child->index();
+    u.indices[1] = optionalChild2 ? optionalChild2->index() : UINT_MAX;
+    u.indices[2] = static_cast<unsigned>(targetHeapType);
+    u.indices[3] = packedFlags << 16;
+}
+
 inline Value* ValueKey::child(Procedure& proc, unsigned index) const
 {
-    return proc.values()[index];
+    return proc.values()[u.indices[index]];
 }
 
 } } // namespace JSC::B3
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(B3_JIT)

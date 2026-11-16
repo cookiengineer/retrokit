@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,12 +25,16 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if ENABLE(WEBASSEMBLY)
 
-#include "JSObject.h"
-#include "JSPromise.h"
+#include <JavaScriptCore/JSObject.h>
+#include <JavaScriptCore/JSPromise.h>
 
 namespace JSC {
+
+class WebAssemblyCompileOptions;
 
 class JSWebAssembly final : public JSNonFinalObject {
 public:
@@ -38,10 +42,10 @@ public:
     static constexpr unsigned StructureFlags = Base::StructureFlags | HasStaticPropertyTable;
 
     template<typename CellType, SubspaceAccess>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(JSWebAssembly, Base);
-        return &vm.plainObjectSpace;
+        return &vm.plainObjectSpace();
     }
 
     static JSWebAssembly* create(VM&, JSGlobalObject*, Structure*);
@@ -49,19 +53,15 @@ public:
 
     DECLARE_INFO;
 
-    JS_EXPORT_PRIVATE static void webAssemblyModuleValidateAsync(JSGlobalObject*, JSPromise*, Vector<uint8_t>&&);
-    JS_EXPORT_PRIVATE static void webAssemblyModuleInstantinateAsync(JSGlobalObject*, JSPromise*, Vector<uint8_t>&&, JSObject*);
-    static JSValue instantiate(JSGlobalObject*, JSPromise*, const Identifier&, JSValue);
+    JS_EXPORT_PRIVATE static void webAssemblyModuleValidateAsync(JSGlobalObject*, JSPromise*, Vector<uint8_t>&&, std::optional<WebAssemblyCompileOptions>&&);
+    static JSValue instantiate(JSGlobalObject*, JSPromise*, RefPtr<SourceProvider>&&, const Identifier&, JSValue);
 
-    static void instantiateForStreaming(VM&, JSGlobalObject*, JSPromise*, JSWebAssemblyModule*, JSObject*);
+    static void instantiateForStreaming(VM&, JSGlobalObject*, JSPromise*, JSWebAssemblyModule*, JSObject*, RefPtr<SourceProvider>&&);
 
 private:
     JSWebAssembly(VM&, Structure*);
     void finishCreation(VM&, JSGlobalObject*);
 };
-
-JSC_DECLARE_HOST_FUNCTION(webAssemblyCompileStreamingInternal);
-JSC_DECLARE_HOST_FUNCTION(webAssemblyInstantiateStreamingInternal);
 
 } // namespace JSC
 

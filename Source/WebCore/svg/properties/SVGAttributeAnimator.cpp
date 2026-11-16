@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Apple Inc.  All rights reserved.
+ * Copyright (C) 2018-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,11 +28,15 @@
 
 #include "CSSComputedStyleDeclaration.h"
 #include "CSSPropertyParser.h"
-#include "SVGElement.h"
+#include "MutableStyleProperties.h"
+#include "SVGElementInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-bool SVGAttributeAnimator::isAnimatedStylePropertyAniamtor(const SVGElement& targetElement) const
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGAttributeAnimator);
+
+bool SVGAttributeAnimator::isAnimatedStylePropertyAnimator(const SVGElement& targetElement) const
 {
     return targetElement.isAnimatedStyleAttribute(m_attributeName);
 }
@@ -40,15 +44,15 @@ bool SVGAttributeAnimator::isAnimatedStylePropertyAniamtor(const SVGElement& tar
 void SVGAttributeAnimator::invalidateStyle(SVGElement& targetElement)
 {
     SVGElement::InstanceInvalidationGuard guard(targetElement);
-    targetElement.invalidateSVGPresentationalHintStyle();
+    targetElement.setPresentationalHintStyleIsDirty();
 }
 
 void SVGAttributeAnimator::applyAnimatedStylePropertyChange(SVGElement& element, CSSPropertyID id, const String& value)
 {
-    ASSERT(!element.m_deletionHasBegun);
+    ASSERT(!element.deletionHasBegun());
     ASSERT(id != CSSPropertyInvalid);
     
-    if (!element.ensureAnimatedSMILStyleProperties().setProperty(id, value, false))
+    if (!protect(element.ensureAnimatedSMILStyleProperties())->setProperty(id, value))
         return;
     element.invalidateStyle();
 }
@@ -73,10 +77,10 @@ void SVGAttributeAnimator::applyAnimatedStylePropertyChange(SVGElement& targetEl
     
 void SVGAttributeAnimator::removeAnimatedStyleProperty(SVGElement& element, CSSPropertyID id)
 {
-    ASSERT(!element.m_deletionHasBegun);
+    ASSERT(!element.deletionHasBegun());
     ASSERT(id != CSSPropertyInvalid);
 
-    element.ensureAnimatedSMILStyleProperties().removeProperty(id);
+    protect(element.ensureAnimatedSMILStyleProperties())->removeProperty(id);
     element.invalidateStyle();
 }
 
@@ -100,7 +104,7 @@ void SVGAttributeAnimator::removeAnimatedStyleProperty(SVGElement& targetElement
     
 void SVGAttributeAnimator::applyAnimatedPropertyChange(SVGElement& element, const QualifiedName& attributeName)
 {
-    ASSERT(!element.m_deletionHasBegun);
+    ASSERT(!element.deletionHasBegun());
     element.svgAttributeChanged(attributeName);
 }
 

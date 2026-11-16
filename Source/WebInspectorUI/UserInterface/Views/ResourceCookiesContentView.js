@@ -29,11 +29,16 @@ WI.ResourceCookiesContentView = class ResourceCookiesContentView extends WI.Cont
     {
         super(null);
 
-        console.assert(resource instanceof WI.Resource);
+        console.assert(resource instanceof WI.Resource || resource instanceof WI.Redirect, "Expected WI.Resource or WI.Redirect, got:", resource);
 
         this._resource = resource;
-        this._resource.addEventListener(WI.Resource.Event.RequestHeadersDidChange, this._resourceRequestHeadersDidChange, this);
-        this._resource.addEventListener(WI.Resource.Event.ResponseReceived, this._resourceResponseReceived, this);
+
+        // Only Resources have events to listen to
+        // FIXME: <https://webkit.org/b/190214> Web Inspector: expose full load metrics for redirect requests
+        if (this._resource instanceof WI.Resource) {
+            this._resource.addEventListener(WI.Resource.Event.RequestHeadersDidChange, this._resourceRequestHeadersDidChange, this);
+            this._resource.addEventListener(WI.Resource.Event.ResponseReceived, this._resourceResponseReceived, this);
+        }
 
         this.element.classList.add("resource-details", "resource-cookies");
     }
@@ -108,6 +113,9 @@ WI.ResourceCookiesContentView = class ResourceCookiesContentView extends WI.Cont
             break;
         case "httpOnly":
             cell.textContent = cookie.httpOnly ? checkmark : zeroWidthSpace;
+            break;
+        case "partitioned":
+            cell.textContent = cookie.partitioned ? checkmark : zeroWidthSpace;
             break;
         case "sameSite":
             cell.textContent = cookie.sameSite === WI.Cookie.SameSiteType.None ? emDash : WI.Cookie.displayNameForSameSiteType(cookie.sameSite);
@@ -203,7 +211,8 @@ WI.ResourceCookiesContentView = class ResourceCookiesContentView extends WI.Cont
         let detailsElement = this._requestCookiesSection.detailsElement;
         detailsElement.removeChildren();
 
-        if (this._resource.responseSource === WI.Resource.ResponseSource.MemoryCache) {
+        // Redirects don't have responseSource, so only check for Resources
+        if (this._resource instanceof WI.Resource && this._resource.responseSource === WI.Resource.ResponseSource.MemoryCache) {
             this._requestCookiesSection.markIncompleteSectionWithMessage(WI.UIString("No request, served from the memory cache."));
             return;
         }
@@ -238,7 +247,8 @@ WI.ResourceCookiesContentView = class ResourceCookiesContentView extends WI.Cont
         let detailsElement = this._responseCookiesSection.detailsElement;
         detailsElement.removeChildren();
 
-        if (!this._resource.hasResponse()) {
+        // Redirects always have a response, Resources may not
+        if (this._resource instanceof WI.Resource && !this._resource.hasResponse()) {
             this._responseCookiesSection.markIncompleteSectionWithLoadingIndicator();
             return;
         }
@@ -251,6 +261,7 @@ WI.ResourceCookiesContentView = class ResourceCookiesContentView extends WI.Cont
             this._responseCookiesTable.addColumn(new WI.TableColumn("value", WI.UIString("Value"), {minWidth: 150, hideable: false}));
             this._responseCookiesTable.addColumn(new WI.TableColumn("domain", WI.unlocalizedString("Domain"), {}));
             this._responseCookiesTable.addColumn(new WI.TableColumn("path", WI.unlocalizedString("Path"), {}));
+            this._responseCookiesTable.addColumn(new WI.TableColumn("partitioned", WI.unlocalizedString("Partitioned"), {}));
             this._responseCookiesTable.addColumn(new WI.TableColumn("expires", WI.unlocalizedString("Expires"), {maxWidth: 150}));
             this._responseCookiesTable.addColumn(new WI.TableColumn("maxAge", WI.unlocalizedString("Max-Age"), {maxWidth: 90, align: "right"}));
             this._responseCookiesTable.addColumn(new WI.TableColumn("secure", WI.unlocalizedString("Secure"), {minWidth: 55, maxWidth: 65, align: "center"}));
@@ -293,3 +304,5 @@ WI.ResourceCookiesContentView = class ResourceCookiesContentView extends WI.Cont
         this._refreshResponseCookiesSection();
     }
 };
+
+WI.ResourceCookiesContentView.ReferencePage = WI.ReferencePage.NetworkTab.CookiesPane;

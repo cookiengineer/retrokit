@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004 Apple Inc.  All rights reserved.
+ * Copyright (C) 2004 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,25 +25,26 @@
 
 #pragma once
 
-#include "EditingBoundary.h"
-#include "VisibleSelection.h"
+#include <WebCore/EditingBoundary.h>
+#include <WebCore/VisibleSelection.h>
 
 namespace WebCore {
 
 class Node;
+class LayoutUnit;
 class VisiblePosition;
 class SimplifiedBackwardsTextIterator;
 class TextIterator;
 
-enum EWordSide { RightWordIfOnBoundary = false, LeftWordIfOnBoundary = true };
+enum class WordSide : bool { RightWordIfOnBoundary, LeftWordIfOnBoundary };
 
 // words
-WEBCORE_EXPORT VisiblePosition startOfWord(const VisiblePosition&, EWordSide = RightWordIfOnBoundary);
-WEBCORE_EXPORT VisiblePosition endOfWord(const VisiblePosition&, EWordSide = RightWordIfOnBoundary);
+WEBCORE_EXPORT VisiblePosition startOfWord(const VisiblePosition&, WordSide = WordSide::RightWordIfOnBoundary);
+WEBCORE_EXPORT VisiblePosition endOfWord(const VisiblePosition&, WordSide = WordSide::RightWordIfOnBoundary);
 WEBCORE_EXPORT VisiblePosition previousWordPosition(const VisiblePosition&);
 WEBCORE_EXPORT VisiblePosition nextWordPosition(const VisiblePosition&);
-VisiblePosition rightWordPosition(const VisiblePosition&, bool skipsSpaceWhenMovingRight);
-VisiblePosition leftWordPosition(const VisiblePosition&, bool skipsSpaceWhenMovingRight);
+WEBCORE_EXPORT VisiblePosition rightWordPosition(const VisiblePosition&, bool skipsSpaceWhenMovingRight);
+WEBCORE_EXPORT VisiblePosition leftWordPosition(const VisiblePosition&, bool skipsSpaceWhenMovingRight);
 bool isStartOfWord(const VisiblePosition&);
 
 // sentences
@@ -55,8 +56,8 @@ WEBCORE_EXPORT VisiblePosition nextSentencePosition(const VisiblePosition&);
 // lines
 WEBCORE_EXPORT VisiblePosition startOfLine(const VisiblePosition&);
 WEBCORE_EXPORT VisiblePosition endOfLine(const VisiblePosition&);
-WEBCORE_EXPORT VisiblePosition previousLinePosition(const VisiblePosition&, int lineDirectionPoint, EditableType = ContentIsEditable);
-WEBCORE_EXPORT VisiblePosition nextLinePosition(const VisiblePosition&, int lineDirectionPoint, EditableType = ContentIsEditable);
+WEBCORE_EXPORT VisiblePosition previousLinePosition(const VisiblePosition&, LayoutUnit lineDirectionPoint, EditableType = ContentIsEditable);
+WEBCORE_EXPORT VisiblePosition nextLinePosition(const VisiblePosition&, LayoutUnit lineDirectionPoint, EditableType = ContentIsEditable);
 WEBCORE_EXPORT bool inSameLine(const VisiblePosition&, const VisiblePosition&);
 WEBCORE_EXPORT bool isStartOfLine(const VisiblePosition&);
 WEBCORE_EXPORT bool isEndOfLine(const VisiblePosition&);
@@ -70,8 +71,8 @@ VisiblePosition rightBoundaryOfLine(const VisiblePosition&, TextDirection, bool*
 WEBCORE_EXPORT VisiblePosition startOfParagraph(const VisiblePosition&, EditingBoundaryCrossingRule = CannotCrossEditingBoundary);
 WEBCORE_EXPORT VisiblePosition endOfParagraph(const VisiblePosition&, EditingBoundaryCrossingRule = CannotCrossEditingBoundary);
 VisiblePosition startOfNextParagraph(const VisiblePosition&);
-WEBCORE_EXPORT VisiblePosition previousParagraphPosition(const VisiblePosition&, int x);
-WEBCORE_EXPORT VisiblePosition nextParagraphPosition(const VisiblePosition&, int x);
+WEBCORE_EXPORT VisiblePosition previousParagraphPosition(const VisiblePosition&, LayoutUnit x);
+WEBCORE_EXPORT VisiblePosition nextParagraphPosition(const VisiblePosition&, LayoutUnit x);
 WEBCORE_EXPORT bool isStartOfParagraph(const VisiblePosition&, EditingBoundaryCrossingRule = CannotCrossEditingBoundary);
 WEBCORE_EXPORT bool isEndOfParagraph(const VisiblePosition&, EditingBoundaryCrossingRule = CannotCrossEditingBoundary);
 bool inSameParagraph(const VisiblePosition&, const VisiblePosition&, EditingBoundaryCrossingRule = CannotCrossEditingBoundary);
@@ -89,7 +90,6 @@ WEBCORE_EXPORT VisiblePosition startOfDocument(const Node*);
 WEBCORE_EXPORT VisiblePosition endOfDocument(const Node*);
 WEBCORE_EXPORT VisiblePosition startOfDocument(const VisiblePosition&);
 WEBCORE_EXPORT VisiblePosition endOfDocument(const VisiblePosition&);
-bool inSameDocument(const VisiblePosition&, const VisiblePosition&);
 WEBCORE_EXPORT bool isStartOfDocument(const VisiblePosition&);
 WEBCORE_EXPORT bool isEndOfDocument(const VisiblePosition&);
 
@@ -105,8 +105,9 @@ WEBCORE_EXPORT std::optional<SimpleRange> enclosingTextUnitOfGranularity(const V
 WEBCORE_EXPORT std::ptrdiff_t distanceBetweenPositions(const VisiblePosition&, const VisiblePosition&);
 WEBCORE_EXPORT std::optional<SimpleRange> wordRangeFromPosition(const VisiblePosition&);
 WEBCORE_EXPORT VisiblePosition closestWordBoundaryForPosition(const VisiblePosition& position);
-WEBCORE_EXPORT void charactersAroundPosition(const VisiblePosition&, UChar32& oneAfter, UChar32& oneBefore, UChar32& twoBefore);
+WEBCORE_EXPORT void charactersAroundPosition(const VisiblePosition&, char32_t& oneAfter, char32_t& oneBefore, char32_t& twoBefore);
 WEBCORE_EXPORT std::optional<SimpleRange> rangeExpandedAroundPositionByCharacters(const VisiblePosition&, int numberOfCharactersToExpand);
+WEBCORE_EXPORT std::optional<SimpleRange> rangeExpandedAroundRangeByCharacters(const VisibleSelection&, uint64_t numberOfCharactersToExpandBackwards, uint64_t numberOfCharactersToExpandForwards);
 WEBCORE_EXPORT std::optional<SimpleRange> rangeExpandedByCharactersInDirectionAtWordBoundary(const VisiblePosition&, int numberOfCharactersToExpand, SelectionDirection);
 enum class WithinWordBoundary : bool { No, Yes };
 WEBCORE_EXPORT std::pair<VisiblePosition, WithinWordBoundary> wordBoundaryForPositionWithoutCrossingLine(const VisiblePosition&);
@@ -118,11 +119,11 @@ unsigned startWordBoundary(StringView, unsigned, BoundarySearchContextAvailabili
 unsigned endWordBoundary(StringView, unsigned, BoundarySearchContextAvailability, bool&);
 unsigned startSentenceBoundary(StringView, unsigned, BoundarySearchContextAvailability, bool&);
 unsigned endSentenceBoundary(StringView, unsigned, BoundarySearchContextAvailability, bool&);
-unsigned suffixLengthForRange(const SimpleRange&, Vector<UChar, 1024>&);
-unsigned prefixLengthForRange(const SimpleRange&, Vector<UChar, 1024>&);
-unsigned backwardSearchForBoundaryWithTextIterator(SimplifiedBackwardsTextIterator&, Vector<UChar, 1024>&, unsigned, BoundarySearchFunction);
-unsigned forwardSearchForBoundaryWithTextIterator(TextIterator&, Vector<UChar, 1024>&, unsigned, BoundarySearchFunction);
-Node* findStartOfParagraph(Node*, Node*, Node*, int&, Position::AnchorType&, EditingBoundaryCrossingRule);
-Node* findEndOfParagraph(Node*, Node*, Node*, int&, Position::AnchorType&, EditingBoundaryCrossingRule);
+unsigned suffixLengthForRange(const SimpleRange&, Vector<char16_t, 1024>&);
+unsigned prefixLengthForRange(const SimpleRange&, Vector<char16_t, 1024>&);
+unsigned backwardSearchForBoundaryWithTextIterator(SimplifiedBackwardsTextIterator&, Vector<char16_t, 1024>&, unsigned, BoundarySearchFunction);
+unsigned forwardSearchForBoundaryWithTextIterator(TextIterator&, Vector<char16_t, 1024>&, unsigned, BoundarySearchFunction);
+RefPtr<Node> findStartOfParagraph(Node*, Node*, Node*, int&, Position::AnchorType&, EditingBoundaryCrossingRule);
+RefPtr<Node> findEndOfParagraph(Node*, Node*, Node*, int&, Position::AnchorType&, EditingBoundaryCrossingRule);
 
 } // namespace WebCore

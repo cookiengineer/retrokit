@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003, 2006, 2013, 2017 Apple Inc.  All rights reserved.
+ * Copyright (C) 2003, 2006, 2013, 2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,15 +31,16 @@
 #if PLATFORM(COCOA)
 #include <notify.h>
 #include <wtf/BlockPtr.h>
+#include <wtf/darwin/DispatchExtras.h>
 #endif
 
 namespace PAL {
 
-void registerNotifyCallback(const String& notifyID, WTF::Function<void()>&& callback)
+void registerNotifyCallback(ASCIILiteral notifyID, Function<void()>&& callback)
 {
 #if PLATFORM(COCOA)
     int token;
-    notify_register_dispatch(notifyID.utf8().data(), &token, dispatch_get_main_queue(), makeBlockPtr([callback = WTFMove(callback)](int) {
+    notify_register_dispatch(notifyID.characters(), &token, mainDispatchQueueSingleton(), makeBlockPtr([callback = WTF::move(callback)](int) {
         callback();
     }).get());
 #else
@@ -47,5 +48,11 @@ void registerNotifyCallback(const String& notifyID, WTF::Function<void()>&& call
     UNUSED_PARAM(callback);
 #endif
 }
+
+#if !LOG_DISABLED || !RELEASE_LOG_DISABLED
+
+PAL_LOG_CHANNELS(DEFINE_LOG_CHANNEL)
+
+#endif // !LOG_DISABLED || !RELEASE_LOG_DISABLED
 
 } // namespace WebCore

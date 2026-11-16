@@ -26,25 +26,29 @@
 #include "RenderTextControl.h"
 
 namespace WebCore {
+class RenderTextControlInnerBlock;
 
 class RenderTextControlSingleLine : public RenderTextControl {
-    WTF_MAKE_ISO_ALLOCATED(RenderTextControlSingleLine);
+    WTF_MAKE_TZONE_ALLOCATED(RenderTextControlSingleLine);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderTextControlSingleLine);
 public:
-    RenderTextControlSingleLine(HTMLInputElement&, RenderStyle&&);
+    RenderTextControlSingleLine(Type, HTMLInputElement&, Style::ComputedStyle&&);
     virtual ~RenderTextControlSingleLine();
 
+    RenderTextControlInnerBlock* innerTextRenderer() const;
+
+    bool innerTextElementHasNonVisibleOverflow() const;
+
 protected:
-    void centerRenderer(RenderBox& renderer) const;
     HTMLElement* containerElement() const;
     HTMLElement* innerBlockElement() const;
-    HTMLInputElement& inputElement() const;
+    HTMLInputElement& NODELETE inputElement() const;
 
 private:
     void textFormControlElement() const = delete;
 
     bool hasControlClip() const override;
     LayoutRect controlClipRect(const LayoutPoint&) const override;
-    bool isTextField() const final { return true; }
 
     void layout() override;
 
@@ -59,15 +63,16 @@ private:
     int scrollHeight() const override;
     void setScrollLeft(int, const ScrollPositionChangeOptions&) override;
     void setScrollTop(int, const ScrollPositionChangeOptions&) override;
-    bool scroll(ScrollDirection, ScrollGranularity, float multiplier = 1, Element** stopElement = nullptr, RenderBox* startBox = nullptr, const IntPoint& wheelEventAbsolutePoint = IntPoint()) final;
-    bool logicalScroll(ScrollLogicalDirection, ScrollGranularity, float multiplier = 1, Element** stopElement = 0) final;
+    void setScrollPosition(const ScrollPosition&, const ScrollPositionChangeOptions&) override;
+    bool scroll(ScrollDirection, ScrollGranularity, unsigned stepCount = 1, Element** stopElement = nullptr, RenderBox* startBox = nullptr, const IntPoint& wheelEventAbsolutePoint = IntPoint()) final;
+    bool logicalScroll(ScrollLogicalDirection, ScrollGranularity, unsigned stepCount = 1, Element** stopElement = nullptr) final;
 
     int textBlockWidth() const;
     float getAverageCharWidth() override;
     LayoutUnit preferredContentLogicalWidth(float charWidth) const override;
     LayoutUnit computeControlLogicalHeight(LayoutUnit lineHeight, LayoutUnit nonContentHeight) const override;
     
-    void styleDidChange(StyleDifference, const RenderStyle* oldStyle) override;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) override;
 
     HTMLElement* innerSpinButtonElement() const;
 };
@@ -85,26 +90,18 @@ inline HTMLElement* RenderTextControlSingleLine::innerBlockElement() const
 // ----------------------------
 
 class RenderTextControlInnerBlock final : public RenderBlockFlow {
-    WTF_MAKE_ISO_ALLOCATED(RenderTextControlInnerBlock);
+    WTF_MAKE_TZONE_ALLOCATED(RenderTextControlInnerBlock);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderTextControlInnerBlock);
 public:
-    RenderTextControlInnerBlock(Element& element, RenderStyle&& style)
-        : RenderBlockFlow(element, WTFMove(style))
-    {
-    }
+    RenderTextControlInnerBlock(Element&, Style::ComputedStyle&&);
+    virtual ~RenderTextControlInnerBlock();
 
 private:
     bool hasLineIfEmpty() const override { return true; }
-    bool isTextControlInnerBlock() const override { return true; }
-    bool canBeProgramaticallyScrolled() const override
-    {
-        auto* shadowHost = element()->shadowHost();
-        if (is<HTMLInputElement>(shadowHost))
-            return !downcast<HTMLInputElement>(*shadowHost).hasAutoFillStrongPasswordButton();
-        return true;
-    }
+    bool canBeProgramaticallyScrolled() const override;
 };
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderTextControlSingleLine, isTextField())
-SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderTextControlInnerBlock, isTextControlInnerBlock())
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderTextControlSingleLine, isRenderTextControlSingleLine())
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderTextControlInnerBlock, isRenderTextControlInnerBlock())

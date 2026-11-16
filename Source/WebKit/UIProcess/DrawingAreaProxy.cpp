@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,36 +30,79 @@
 #include "DrawingAreaProxyMessages.h"
 #include "WebPageProxy.h"
 #include "WebProcessProxy.h"
+#include <WebCore/ScrollView.h>
+#include <wtf/TZoneMallocInlines.h>
 
 #if PLATFORM(COCOA)
+#include "MessageSenderInlines.h"
 #include <wtf/MachSendRight.h>
 #endif
 
 namespace WebKit {
 using namespace WebCore;
 
-DrawingAreaProxy::DrawingAreaProxy(DrawingAreaType type, WebPageProxy& webPageProxy, WebProcessProxy& process)
-    : m_type(type)
-    , m_identifier(DrawingAreaIdentifier::generate())
-    , m_webPageProxy(webPageProxy)
-    , m_process(makeRef(process))
+WTF_MAKE_TZONE_ALLOCATED_IMPL(DrawingAreaProxy);
+
+DrawingAreaProxy::DrawingAreaProxy(WebPageProxy& webPageProxy, WebProcessProxy& webProcessProxy)
+    : m_webPageProxy(webPageProxy)
+    , m_webProcessProxy(webProcessProxy)
     , m_size(webPageProxy.viewSize())
 #if PLATFORM(MAC)
-    , m_viewExposedRectChangedTimer(RunLoop::main(), this, &DrawingAreaProxy::viewExposedRectChangedTimerFired)
+    , m_viewExposedRectChangedTimer(RunLoop::mainSingleton(), "DrawingAreaProxy::ViewExposedRectChangedTimer"_s, this, &DrawingAreaProxy::viewExposedRectChangedTimerFired)
 #endif
 {
 }
 
-DrawingAreaProxy::~DrawingAreaProxy()
+DrawingAreaProxy::~DrawingAreaProxy() = default;
+
+void DrawingAreaProxy::startReceivingMessages(WebProcessProxy& process)
 {
-    if (m_startedReceivingMessages)
-        process().removeMessageReceiver(Messages::DrawingAreaProxy::messageReceiverName(), m_identifier);
+    for (auto& name : messageReceiverNames())
+        process.addMessageReceiver(name, identifier(), *this);
 }
 
-void DrawingAreaProxy::startReceivingMessages()
+void DrawingAreaProxy::stopReceivingMessages(WebProcessProxy& process)
 {
-    m_startedReceivingMessages = true;
-    process().addMessageReceiver(Messages::DrawingAreaProxy::messageReceiverName(), m_identifier, *this);
+    for (auto& name : messageReceiverNames())
+        process.removeMessageReceiver(name, identifier());
+
+    for (auto [connectionID, callbackID] : m_outstandingPresentationUpdateCallbacks) {
+        if (RefPtr connection = IPC::Connection::connection(connectionID)) {
+            if (auto callback = connection->takeAsyncReplyHandler(callbackID))
+                callback(nullptr, nullptr);
+        }
+    }
+}
+
+std::span<IPC::ReceiverName> DrawingAreaProxy::messageReceiverNames() const
+{
+    static std::array<IPC::ReceiverName, 1> name { Messages::DrawingAreaProxy::messageReceiverName() };
+    return { name };
+}
+
+IPC::Connection* DrawingAreaProxy::messageSenderConnection() const
+{
+    return &m_webProcessProxy->connection();
+}
+
+bool DrawingAreaProxy::sendMessage(UniqueRef<IPC::Encoder>&& encoder, OptionSet<IPC::SendOption> sendOptions)
+{
+    return m_webProcessProxy->sendMessage(WTF::move(encoder), sendOptions);
+}
+
+bool DrawingAreaProxy::sendMessageWithAsyncReply(UniqueRef<IPC::Encoder>&& encoder, AsyncReplyHandler handler, OptionSet<IPC::SendOption> sendOptions)
+{
+    return m_webProcessProxy->sendMessage(WTF::move(encoder), sendOptions, WTF::move(handler));
+}
+
+uint64_t DrawingAreaProxy::messageSenderDestinationID() const
+{
+    return identifier().toUInt64();
+}
+
+DelegatedScrollingMode DrawingAreaProxy::delegatedScrollingMode() const
+{
+    return DelegatedScrollingMode::NotDelegated;
 }
 
 bool DrawingAreaProxy::setSize(const IntSize& size, const IntSize& scrollDelta)
@@ -73,6 +116,11 @@ bool DrawingAreaProxy::setSize(const IntSize& size, const IntSize& scrollDelta)
     return true;
 }
 
+WebPageProxy* DrawingAreaProxy::page() const
+{
+    return m_webPageProxy.get();
+}
+
 #if PLATFORM(COCOA)
 MachSendRight DrawingAreaProxy::createFence()
 {
@@ -80,20 +128,10 @@ MachSendRight DrawingAreaProxy::createFence()
 }
 #endif
 
-IPC::Connection* DrawingAreaProxy::messageSenderConnection() const
-{
-    return process().connection();
-}
-
-bool DrawingAreaProxy::sendMessage(UniqueRef<IPC::Encoder>&& encoder, OptionSet<IPC::SendOption> sendOptions, std::optional<std::pair<CompletionHandler<void(IPC::Decoder*)>, uint64_t>>&& asyncReplyInfo)
-{
-    return process().sendMessage(WTFMove(encoder), sendOptions, WTFMove(asyncReplyInfo));
-}
-
 #if PLATFORM(MAC)
 void DrawingAreaProxy::didChangeViewExposedRect()
 {
-    if (!m_webPageProxy.hasRunningProcess())
+    if (!page()->hasRunningProcess())
         return;
 
     if (!m_viewExposedRectChangedTimer.isActive())
@@ -102,10 +140,11 @@ void DrawingAreaProxy::didChangeViewExposedRect()
 
 void DrawingAreaProxy::viewExposedRectChangedTimerFired()
 {
-    if (!m_webPageProxy.hasRunningProcess())
+    RefPtr webPageProxy = m_webPageProxy.get();
+    if (!webPageProxy || !webPageProxy->hasRunningProcess())
         return;
 
-    auto viewExposedRect = m_webPageProxy.viewExposedRect();
+    auto viewExposedRect = webPageProxy->viewExposedRect();
     if (viewExposedRect == m_lastSentViewExposedRect)
         return;
 
@@ -113,5 +152,15 @@ void DrawingAreaProxy::viewExposedRectChangedTimerFired()
     m_lastSentViewExposedRect = viewExposedRect;
 }
 #endif // PLATFORM(MAC)
+
+void DrawingAreaProxy::addOutstandingPresentationUpdateCallback(IPC::Connection& connection, AsyncReplyID callbackID)
+{
+    m_outstandingPresentationUpdateCallbacks.add({ connection.uniqueID(), callbackID });
+}
+
+void DrawingAreaProxy::removeOutstandingPresentationUpdateCallback(IPC::Connection& connection, AsyncReplyID callbackID)
+{
+    m_outstandingPresentationUpdateCallbacks.remove({ connection.uniqueID(), callbackID });
+}
 
 } // namespace WebKit

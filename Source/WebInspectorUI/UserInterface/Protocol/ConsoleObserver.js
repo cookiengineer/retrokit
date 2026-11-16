@@ -29,30 +29,30 @@ WI.ConsoleObserver = class ConsoleObserver extends InspectorBackend.Dispatcher
 
     messageAdded(message)
     {
-        if (message.source === "console-api" && message.type === "clear")
+        if (message.type === "clear")
             return;
 
         if (message.type === "assert" && !message.text)
             message.text = WI.UIString("Assertion");
 
-        WI.consoleManager.messageWasAdded(this._target, message.source, message.level, message.text, message.type, message.url, message.line, message.column || 0, message.repeatCount, message.parameters, message.stackTrace, message.networkRequestId);
+        WI.consoleManager.messageWasAdded(this._target, message.source, message.level, message.text, message.type, message.url, message.line, message.column || 0, message.repeatCount, message.parameters, message.stackTrace, message.networkRequestId, message.timestamp);
     }
 
-    messageRepeatCountUpdated(count)
+    messageRepeatCountUpdated(count, timestamp)
     {
-        WI.consoleManager.messageRepeatCountUpdated(count);
+        WI.consoleManager.messageRepeatCountUpdated(this._target, count, timestamp);
     }
 
-    messagesCleared()
+    messagesCleared(reason)
     {
-        WI.consoleManager.messagesCleared();
+        WI.consoleManager.messagesCleared(reason);
     }
 
     heapSnapshot(timestamp, snapshotStringData, title)
     {
         let workerProxy = WI.HeapSnapshotWorkerProxy.singleton();
-        workerProxy.createSnapshot(snapshotStringData, title || null, ({objectId, snapshot: serializedSnapshot}) => {
-            let snapshot = WI.HeapSnapshotProxy.deserialize(objectId, serializedSnapshot);
+        workerProxy.createSnapshot(this._target.identifier, snapshotStringData, title || null, ({objectId, snapshot: serializedSnapshot}) => {
+            let snapshot = WI.HeapSnapshotProxy.deserialize(this._target, objectId, serializedSnapshot);
             snapshot.snapshotStringData = snapshotStringData;
             WI.timelineManager.heapSnapshotAdded(timestamp, snapshot);
         });

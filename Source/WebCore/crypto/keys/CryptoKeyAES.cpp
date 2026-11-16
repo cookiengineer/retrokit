@@ -26,8 +26,6 @@
 #include "config.h"
 #include "CryptoKeyAES.h"
 
-#if ENABLE(WEB_CRYPTO)
-
 #include "CryptoAesKeyAlgorithm.h"
 #include "CryptoAlgorithmAesKeyParams.h"
 #include "CryptoAlgorithmRegistry.h"
@@ -38,7 +36,7 @@
 
 namespace WebCore {
 
-static inline bool lengthIsValid(size_t length)
+static inline bool NODELETE lengthIsValid(size_t length)
 {
     return (length == CryptoKeyAES::s_length128) || (length == CryptoKeyAES::s_length192) || (length == CryptoKeyAES::s_length256);
 }
@@ -52,7 +50,7 @@ CryptoKeyAES::CryptoKeyAES(CryptoAlgorithmIdentifier algorithm, const Vector<uin
 
 CryptoKeyAES::CryptoKeyAES(CryptoAlgorithmIdentifier algorithm, Vector<uint8_t>&& key, bool extractable, CryptoKeyUsageBitmap usage)
     : CryptoKey(algorithm, CryptoKeyType::Secret, extractable, usage)
-    , m_key(WTFMove(key))
+    , m_key(WTF::move(key))
 {
     ASSERT(isValidAESAlgorithm(algorithm));
 }
@@ -79,12 +77,12 @@ RefPtr<CryptoKeyAES> CryptoKeyAES::importRaw(CryptoAlgorithmIdentifier algorithm
 {
     if (!lengthIsValid(keyData.size() * 8))
         return nullptr;
-    return adoptRef(new CryptoKeyAES(algorithm, WTFMove(keyData), extractable, usages));
+    return adoptRef(new CryptoKeyAES(algorithm, WTF::move(keyData), extractable, usages));
 }
 
 RefPtr<CryptoKeyAES> CryptoKeyAES::importJwk(CryptoAlgorithmIdentifier algorithm, JsonWebKey&& keyData, bool extractable, CryptoKeyUsageBitmap usages, CheckAlgCallback&& callback)
 {
-    if (keyData.kty != "oct")
+    if (keyData.kty != "oct"_s)
         return nullptr;
     if (keyData.k.isNull())
         return nullptr;
@@ -93,31 +91,32 @@ RefPtr<CryptoKeyAES> CryptoKeyAES::importJwk(CryptoAlgorithmIdentifier algorithm
         return nullptr;
     if (!callback(octetSequence->size() * 8, keyData.alg))
         return nullptr;
-    if (usages && !keyData.use.isNull() && keyData.use != "enc")
+    if (usages && !keyData.use.isNull() && keyData.use != "enc"_s)
         return nullptr;
     if (keyData.key_ops && ((keyData.usages & usages) != usages))
         return nullptr;
     if (keyData.ext && !keyData.ext.value() && extractable)
         return nullptr;
 
-    return adoptRef(new CryptoKeyAES(algorithm, WTFMove(*octetSequence), extractable, usages));
+    return adoptRef(new CryptoKeyAES(algorithm, WTF::move(*octetSequence), extractable, usages));
 }
 
 JsonWebKey CryptoKeyAES::exportJwk() const
 {
     JsonWebKey result;
-    result.kty = "oct";
+    result.kty = "oct"_s;
     result.k = base64URLEncodeToString(m_key);
     result.key_ops = usages();
+    result.usages = usagesBitmap();
     result.ext = extractable();
     return result;
 }
 
-ExceptionOr<size_t> CryptoKeyAES::getKeyLength(const CryptoAlgorithmParameters& parameters)
+ExceptionOr<std::optional<size_t>> CryptoKeyAES::getKeyLength(const CryptoAlgorithmParameters& parameters)
 {
     auto& aesParameters = downcast<CryptoAlgorithmAesKeyParams>(parameters);
     if (!lengthIsValid(aesParameters.length))
-        return Exception { OperationError };
+        return Exception { ExceptionCode::OperationError };
     return aesParameters.length;
 }
 
@@ -129,6 +128,16 @@ auto CryptoKeyAES::algorithm() const -> KeyAlgorithm
     return result;
 }
 
-} // namespace WebCore
+CryptoKey::Data CryptoKeyAES::data() const
+{
+    return CryptoKey::Data {
+        CryptoKeyClass::AES,
+        algorithmIdentifier(),
+        extractable(),
+        usagesBitmap(),
+        std::nullopt,
+        exportJwk()
+    };
+}
 
-#endif // ENABLE(WEB_CRYPTO)
+} // namespace WebCore

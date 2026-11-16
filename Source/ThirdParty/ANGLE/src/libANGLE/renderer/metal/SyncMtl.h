@@ -10,8 +10,7 @@
 #ifndef LIBANGLE_RENDERER_METAL_SYNCMTL_H_
 #define LIBANGLE_RENDERER_METAL_SYNCMTL_H_
 
-#include <condition_variable>
-#include <mutex>
+#include <optional>
 
 #include "libANGLE/renderer/EGLSyncImpl.h"
 #include "libANGLE/renderer/FenceNVImpl.h"
@@ -30,67 +29,7 @@ class ContextMtl;
 
 namespace mtl
 {
-
-// Common class to be used by both SyncImpl and EGLSyncImpl.
-// NOTE: SharedEvent is only declared on iOS 12.0+ or mac 10.14+
-#if defined(__IPHONE_12_0) || defined(__MAC_10_14)
-class Sync
-{
-  public:
-    Sync();
-    ~Sync();
-
-    void onDestroy();
-
-    angle::Result initialize(ContextMtl *contextMtl);
-
-    angle::Result set(ContextMtl *contextMtl, GLenum condition, GLbitfield flags);
-    angle::Result clientWait(ContextMtl *contextMtl,
-                             bool flushCommands,
-                             uint64_t timeout,
-                             GLenum *outResult);
-    void serverWait(ContextMtl *contextMtl);
-    angle::Result getStatus(bool *signaled);
-
-  private:
-    SharedEventRef mMetalSharedEvent;
-    uint64_t mSetCounter = 0;
-
-    std::shared_ptr<std::condition_variable> mCv;
-    std::shared_ptr<std::mutex> mLock;
-};
-#else   // #if defined(__IPHONE_12_0) || defined(__MAC_10_14)
-class Sync
-{
-  public:
-    void onDestroy() { UNREACHABLE(); }
-
-    angle::Result initialize(ContextMtl *context)
-    {
-        UNREACHABLE();
-        return angle::Result::Stop;
-    }
-    angle::Result set(ContextMtl *contextMtl, GLenum condition, GLbitfield flags)
-    {
-        UNREACHABLE();
-        return angle::Result::Stop;
-    }
-    angle::Result clientWait(ContextMtl *context,
-                             bool flushCommands,
-                             uint64_t timeout,
-                             GLenum *outResult)
-    {
-        UNREACHABLE();
-        return angle::Result::Stop;
-    }
-    void serverWait(ContextMtl *contextMtl) { UNREACHABLE(); }
-    angle::Result getStatus(bool *signaled)
-    {
-        UNREACHABLE();
-        return angle::Result::Stop;
-    }
-};
-#endif  // #if defined(__IPHONE_12_0) || defined(__MAC_10_14)
+class SyncImpl;
 }  // namespace mtl
 
 class FenceNVMtl : public FenceNVImpl
@@ -104,7 +43,7 @@ class FenceNVMtl : public FenceNVImpl
     angle::Result finish(const gl::Context *context) override;
 
   private:
-    mtl::Sync mSync;
+    std::unique_ptr<mtl::SyncImpl> mSync;
 };
 
 class SyncMtl : public SyncImpl
@@ -126,34 +65,40 @@ class SyncMtl : public SyncImpl
     angle::Result getStatus(const gl::Context *context, GLint *outResult) override;
 
   private:
-    mtl::Sync mSync;
+    std::unique_ptr<mtl::SyncImpl> mSync;
 };
 
 class EGLSyncMtl final : public EGLSyncImpl
 {
   public:
-    EGLSyncMtl(const egl::AttributeMap &attribs);
+    EGLSyncMtl();
     ~EGLSyncMtl() override;
 
-    void onDestroy(const egl::Display *display) override;
+    void onDestroy(const egl::ThreadSafeDisplay *display) override;
 
-    egl::Error initialize(const egl::Display *display,
+    egl::Error initialize(const egl::ThreadSafeDisplay *display,
                           const gl::Context *context,
-                          EGLenum type) override;
-    egl::Error clientWait(const egl::Display *display,
+                          EGLenum type,
+                          const egl::AttributeMap &attribs) override;
+    egl::Error clientWait(const egl::ThreadSafeDisplay *display,
                           const gl::Context *context,
                           EGLint flags,
                           EGLTime timeout,
                           EGLint *outResult) override;
-    egl::Error serverWait(const egl::Display *display,
+    egl::Error serverWait(const egl::ThreadSafeDisplay *display,
                           const gl::Context *context,
                           EGLint flags) override;
-    egl::Error getStatus(const egl::Display *display, EGLint *outStatus) override;
+    egl::Error getStatus(const egl::ThreadSafeDisplay *display, EGLint *outStatus) override;
 
-    egl::Error dupNativeFenceFD(const egl::Display *display, EGLint *result) const override;
+    egl::Error copyMetalSharedEventANGLE(const egl::ThreadSafeDisplay *display,
+                                         void **result) const override;
+    egl::Error dupNativeFenceFD(const egl::ThreadSafeDisplay *display,
+                                EGLint *result) const override;
 
   private:
-    mtl::Sync mSync;
+    angle::ObjCPtr<id<MTLSharedEvent>> mSharedEvent;
+    EGLenum mType = EGL_NONE;
+    std::unique_ptr<mtl::SyncImpl> mSync;
 };
 
 }  // namespace rx

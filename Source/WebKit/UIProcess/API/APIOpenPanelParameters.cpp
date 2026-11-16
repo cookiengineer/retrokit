@@ -45,9 +45,7 @@ OpenPanelParameters::OpenPanelParameters(const FileChooserSettings& settings)
 {
 }
 
-OpenPanelParameters::~OpenPanelParameters()
-{
-}
+OpenPanelParameters::~OpenPanelParameters() = default;
 
 Ref<API::Array> OpenPanelParameters::acceptMIMETypes() const
 {

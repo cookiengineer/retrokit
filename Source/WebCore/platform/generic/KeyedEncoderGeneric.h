@@ -33,7 +33,7 @@
 
 namespace WebCore {
 
-class SharedBuffer;
+class FragmentedSharedBuffer;
 
 class KeyedEncoderGeneric final : public KeyedEncoder {
 public:
@@ -59,7 +59,7 @@ public:
 private:
     RefPtr<SharedBuffer> finishEncoding() override;
 
-    void encodeBytes(const String& key, const uint8_t*, size_t) override;
+    void encodeBytes(const String& key, std::span<const uint8_t>) override;
     void encodeBool(const String& key, bool) override;
     void encodeUInt32(const String& key, uint32_t) override;
     void encodeUInt64(const String& key, uint64_t) override;
@@ -85,7 +85,7 @@ private:
 } // namespace WebCore
 
 namespace WTF {
-template<> struct EnumTraits<WebCore::KeyedEncoderGeneric::Type> {
+template<> struct EnumTraitsForPersistence<WebCore::KeyedEncoderGeneric::Type> {
     using values = EnumValues<
         WebCore::KeyedEncoderGeneric::Type,
         WebCore::KeyedEncoderGeneric::Type::Bytes,

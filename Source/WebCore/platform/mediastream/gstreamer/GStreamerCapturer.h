@@ -26,44 +26,60 @@
 
 #include "GStreamerCaptureDevice.h"
 #include "GStreamerCommon.h"
+#include "PipeWireCaptureDevice.h"
 
-#include <gst/gst.h>
-#include <wtf/ThreadSafeRefCounted.h>
+#include <wtf/Lock.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/WeakHashSet.h>
 
 namespace WebCore {
 
-class GStreamerCapturer
-    : public ThreadSafeRefCounted<GStreamerCapturer, WTF::DestructionThread::MainRunLoop> {
-
+class GStreamerCapturerObserver : public CanMakeWeakPtr<GStreamerCapturerObserver> {
 public:
-    class Observer : public CanMakeWeakPtr<Observer> {
-    public:
-        virtual ~Observer();
+    virtual ~GStreamerCapturerObserver();
 
-        virtual void sourceCapsChanged(const GstCaps*) { }
-    };
+    void ref() const { virtualRef(); }
+    void deref() const { virtualDeref(); }
+    virtual void virtualRef() const = 0;
+    virtual void virtualDeref() const = 0;
 
-    GStreamerCapturer(GStreamerCaptureDevice, GRefPtr<GstCaps>);
-    GStreamerCapturer(const char* sourceFactory, GRefPtr<GstCaps>, CaptureDevice::DeviceType);
+    virtual void sourceCapsChanged(const GstCaps*) { }
+    virtual void captureEnded() { }
+    virtual void captureDeviceUpdated(const GStreamerCaptureDevice&) { }
+};
+
+class GStreamerCapturer : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<GStreamerCapturer> {
+public:
+    GStreamerCapturer(GStreamerCaptureDevice&&, GRefPtr<GstCaps>&&);
+    GStreamerCapturer(const PipeWireCaptureDevice&);
     virtual ~GStreamerCapturer();
 
-    void addObserver(Observer&);
-    void removeObserver(Observer&);
-    void forEachObserver(const Function<void(Observer&)>&);
+    virtual void tearDown(bool disconnectSignals);
 
-    void setupPipeline();
-    void play();
+    void setDevice(std::optional<GStreamerCaptureDevice>&&);
+
+    void addObserver(GStreamerCapturerObserver&);
+    void removeObserver(GStreamerCapturerObserver&);
+    void forEachObserver(NOESCAPE const Function<void(GStreamerCapturerObserver&)>&);
+
+    virtual void setupPipeline();
+    void start();
     void stop();
-    GstCaps* caps();
-    void addSink(GstElement *newSink);
-    GstElement* makeElement(const char* factoryName);
+    bool isStopped() const;
+    [[nodiscard]] GRefPtr<GstCaps> caps();
+
+    std::pair<GstClockTime, GstClockTime> queryLatency();
+
+    GstElement* makeElement(ASCIILiteral factoryName);
     virtual GstElement* createSource();
-    GstElement* source() { return m_src.get();  }
-    virtual const char* name() = 0;
+    GRefPtr<GstElement> source()
+    {
+        Locker locker { m_lock };
+        return m_src;
+    }
+    virtual ASCIILiteral name() = 0;
 
     GstElement* sink() const { return m_sink.get(); }
-    void setSink(GstElement* sink) { m_sink = adoptGRef(sink); };
 
     GstElement* pipeline() const { return m_pipeline.get(); }
     virtual GstElement* createConverter() = 0;
@@ -72,21 +88,29 @@ public:
     void setInterrupted(bool);
 
     CaptureDevice::DeviceType deviceType() const { return m_deviceType; }
+    const String& devicePersistentId() const { return m_device ? m_device->persistentId() : emptyString(); }
+
+    void stopDevice(bool disconnectSignals);
+
+    struct SinkSignalsHolder {
+        unsigned long newSampleSignalId;
+    };
 
 protected:
     GRefPtr<GstElement> m_sink;
-    GRefPtr<GstElement> m_src;
+    GRefPtr<GstElement> m_src WTF_GUARDED_BY_LOCK(m_lock);
     GRefPtr<GstElement> m_valve;
-    GRefPtr<GstElement> m_tee;
     GRefPtr<GstElement> m_capsfilter;
-    GRefPtr<GstDevice> m_device;
+    std::optional<GStreamerCaptureDevice> m_device { };
+    std::optional<PipeWireCaptureDevice> m_pipewireDevice { };
     GRefPtr<GstCaps> m_caps;
     GRefPtr<GstElement> m_pipeline;
-    const char* m_sourceFactory;
 
 private:
+    Lock m_lock;
     CaptureDevice::DeviceType m_deviceType;
-    WeakHashSet<Observer> m_observers;
+    WeakHashSet<GStreamerCapturerObserver> m_observers;
+    RefPtr<PadProbeHandle<GStreamerCapturer>> m_pipewireProbe;
 };
 
 } // namespace WebCore

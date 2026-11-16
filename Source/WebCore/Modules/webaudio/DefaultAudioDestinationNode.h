@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2011, Google Inc. All rights reserved.
- * Copyright (C) 2020-2021, Apple Inc. All rights reserved.
+ * Copyright (C) 2011 Google Inc. All rights reserved.
+ * Copyright (C) 2020-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,13 +28,18 @@
 #include "AudioDestinationNode.h"
 #include "AudioIOCallback.h"
 
+namespace WTF {
+class MediaTime;
+}
+
 namespace WebCore {
 
 class AudioContext;
 class AudioDestination;
     
 class DefaultAudioDestinationNode final : public AudioDestinationNode, public AudioIOCallback {
-    WTF_MAKE_ISO_ALLOCATED(DefaultAudioDestinationNode);
+    WTF_MAKE_TZONE_ALLOCATED(DefaultAudioDestinationNode);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(DefaultAudioDestinationNode);
 public:
     explicit DefaultAudioDestinationNode(AudioContext&, std::optional<float> sampleRate = std::nullopt);
     ~DefaultAudioDestinationNode();
@@ -43,7 +48,8 @@ public:
     const AudioContext& context() const;
 
     unsigned framesPerBuffer() const;
-    
+    WTF::MediaTime outputLatency() const;
+
     void startRendering(CompletionHandler<void(std::optional<Exception>&&)>&&) final;
     void resume(CompletionHandler<void(std::optional<Exception>&&)>&&);
     void suspend(CompletionHandler<void(std::optional<Exception>&&)>&&);
@@ -51,6 +57,11 @@ public:
 
     void setMuted(bool muted) { m_muted = muted; }
     bool isPlayingAudio() const { return m_isEffectivelyPlayingAudio; }
+    bool NODELETE isConnected() const;
+
+#if PLATFORM(IOS_FAMILY)
+    void setSceneIdentifier(const String&) final;
+#endif
 
 private:
     void createDestination();
@@ -60,7 +71,7 @@ private:
     // AudioIOCallback
     // The audio hardware calls render() to get the next render quantum of audio into destinationBus.
     // It will optionally give us local/live audio input in sourceBus (if it's not 0).
-    void render(AudioBus* sourceBus, AudioBus* destinationBus, size_t numberOfFrames, const AudioIOPosition& outputPosition) final;
+    void render(AudioBus& destinationBus, size_t numberOfFrames, const AudioIOPosition& outputPosition) final;
     void isPlayingDidChange() final;
 
     void setIsSilent(bool);

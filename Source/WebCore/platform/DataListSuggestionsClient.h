@@ -25,8 +25,8 @@
 
 #pragma once
 
-#if ENABLE(DATALIST_ELEMENT)
-
+#include <WebCore/FrameIdentifier.h>
+#include <wtf/CheckedPtr.h>
 #include <wtf/Forward.h>
 
 namespace WebCore {
@@ -34,17 +34,18 @@ namespace WebCore {
 class IntRect;
 struct DataListSuggestion;
 
-class DataListSuggestionsClient {
+class DataListSuggestionsClient : public CanMakeCheckedPtr<DataListSuggestionsClient> {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(DataListSuggestionsClient);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(DataListSuggestionsClient);
 public:
     virtual ~DataListSuggestionsClient() = default;
 
     virtual IntRect elementRectInRootViewCoordinates() const = 0;
     virtual Vector<DataListSuggestion> suggestions() = 0;
+    virtual std::optional<FrameIdentifier> rootFrameID() const = 0;
 
     virtual void didSelectDataListOption(const String&) = 0;
     virtual void didCloseSuggestions() = 0;
 };
 
 }
-
-#endif // ENABLE(DATALIST_ELEMENT)

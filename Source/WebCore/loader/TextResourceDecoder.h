@@ -17,18 +17,20 @@
     along with this library; see the file COPYING.LIB.  If not, write to
     the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
     Boston, MA 02110-1301, USA.
-
 */
 
 #pragma once
 
-#include "TextEncoding.h"
+#include <pal/text/TextEncoding.h>
 #include <wtf/RefCounted.h>
+
+namespace PAL {
+class TextCodec;
+}
 
 namespace WebCore {
 
 class HTMLMetaCharsetParser;
-class TextCodec;
 
 class TextResourceDecoder : public RefCounted<TextResourceDecoder> {
 public:
@@ -43,56 +45,61 @@ public:
         EncodingFromParentFrame
     };
 
-    WEBCORE_EXPORT static Ref<TextResourceDecoder> create(const String& mimeType, const TextEncoding& defaultEncoding = { }, bool usesEncodingDetector = false);
+    enum ContentType { PlainText, HTML, XML, CSS }; // PlainText only checks for BOM.
+
+    WEBCORE_EXPORT static Ref<TextResourceDecoder> create(const String& mimeType, const PAL::TextEncoding& defaultEncoding = { }, bool usesEncodingDetector = false);
+    WEBCORE_EXPORT static Ref<TextResourceDecoder> create(ContentType, const PAL::TextEncoding&, bool usesEncodingDetector);
     WEBCORE_EXPORT ~TextResourceDecoder();
 
-    static String textFromUTF8(const unsigned char* data, unsigned length);
+    static String textFromUTF8(std::span<const uint8_t>);
 
-    void setEncoding(const TextEncoding&, EncodingSource);
-    const TextEncoding& encoding() const { return m_encoding; }
-    const TextEncoding* encodingForURLParsing();
+    void setEncoding(const PAL::TextEncoding&, EncodingSource);
+    const PAL::TextEncoding& encoding() const LIFETIME_BOUND { return m_encoding; }
+    ContentType contentType() const { return m_contentType; }
+    const PAL::TextEncoding* encodingForURLParsing();
 
     bool hasEqualEncodingForCharset(const String& charset) const;
 
-    WEBCORE_EXPORT String decode(const char* data, size_t length);
-    String decode(const uint8_t* data, size_t length) { return decode(reinterpret_cast<const char*>(data), length); }
+    WEBCORE_EXPORT String decode(std::span<const uint8_t>);
     WEBCORE_EXPORT String flush();
-
-    WEBCORE_EXPORT String decodeAndFlush(const char* data, size_t length);
-    String decodeAndFlush(const uint8_t* data, size_t length) { return decodeAndFlush(reinterpret_cast<const char*>(data), length); }
+    WEBCORE_EXPORT String decodeAndFlush(std::span<const uint8_t>);
 
     void setHintEncoding(const TextResourceDecoder* parentFrameDecoder);
    
     void useLenientXMLDecoding() { m_useLenientXMLDecoding = true; }
     bool sawError() const { return m_sawError; }
 
+    void setAlwaysUseUTF8() { ASSERT(m_encoding.name() == "UTF-8"_s); m_alwaysUseUTF8 = true; }
+
+    bool usesEncodingDetector() const { return m_usesEncodingDetector; }
+
 private:
-    TextResourceDecoder(const String& mimeType, const TextEncoding& defaultEncoding, bool usesEncodingDetector);
+    TextResourceDecoder(ContentType, const PAL::TextEncoding&, bool usesEncodingDetector);
 
-    enum ContentType { PlainText, HTML, XML, CSS }; // PlainText only checks for BOM.
     static ContentType determineContentType(const String& mimeType);
-    static const TextEncoding& defaultEncoding(ContentType, const TextEncoding& defaultEncoding);
+    static const PAL::TextEncoding& defaultEncoding(ContentType, const PAL::TextEncoding& defaultEncoding);
 
-    size_t checkForBOM(const char*, size_t);
-    bool checkForCSSCharset(const char*, size_t, bool& movedDataToBuffer);
-    bool checkForHeadCharset(const char*, size_t, bool& movedDataToBuffer);
-    bool checkForMetaCharset(const char*, size_t);
-    void detectJapaneseEncoding(const char*, size_t);
-    bool shouldAutoDetect() const;
+    size_t checkForBOM(std::span<const uint8_t>);
+    bool checkForCSSCharset(std::span<const uint8_t>, bool& movedDataToBuffer);
+    bool checkForHeadCharset(std::span<const uint8_t>, bool& movedDataToBuffer);
+    bool checkForMetaCharset(std::span<const uint8_t>);
+    void detectJapaneseEncoding(std::span<const uint8_t>);
+    bool NODELETE shouldAutoDetect() const;
 
     ContentType m_contentType;
-    TextEncoding m_encoding;
-    std::unique_ptr<TextCodec> m_codec;
+    PAL::TextEncoding m_encoding;
+    std::unique_ptr<PAL::TextCodec> m_codec;
     std::unique_ptr<HTMLMetaCharsetParser> m_charsetParser;
     EncodingSource m_source { DefaultEncoding };
-    const char* m_parentFrameAutoDetectedEncoding { nullptr };
-    Vector<char> m_buffer;
+    ASCIILiteral m_parentFrameAutoDetectedEncoding;
+    Vector<uint8_t> m_buffer;
     bool m_checkedForBOM { false };
     bool m_checkedForCSSCharset { false };
     bool m_checkedForHeadCharset { false };
     bool m_useLenientXMLDecoding { false }; // Don't stop on XML decoding errors.
     bool m_sawError { false };
     bool m_usesEncodingDetector { false };
+    bool m_alwaysUseUTF8 { false };
 };
 
 inline void TextResourceDecoder::setHintEncoding(const TextResourceDecoder* parentFrameDecoder)

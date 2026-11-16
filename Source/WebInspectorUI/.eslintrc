@@ -100,10 +100,12 @@
         "isWebInspectorInternalScript": true,
         "isWebKitInternalScript": true,
         "multiplicationSign": true,
+        "nullish": true,
         "parseMIMEType": true,
         "resolveDotsInPath": true,
         "simpleGlobStringToRegExp": true,
         "timestamp": true,
+        "xor": true,
         "zeroWidthSpace": true,
 
         // DOM Utilities
@@ -128,9 +130,11 @@
 
         // CodeMirror
         "createCodeMirrorColorTextMarkers": true,
-        "createCodeMirrorCubicBezierTextMarkers": true,
+        "createCodeMirrorCubicBezierTimingFunctionTextMarkers": true,
         "createCodeMirrorGradientTextMarkers": true,
-        "createCodeMirrorSpringTextMarkers": true,
+        "createCodeMirrorLinearTimingFunctionTextMarkers": true,
+        "createCodeMirrorSpringTimingFunctionTextMarkers": true,
+        "createCodeMirrorStepsTimingFunctionTextMarkers": true,
     },
     "rules": {
         "array-bracket-spacing": [2, "never"],

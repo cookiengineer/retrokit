@@ -27,6 +27,7 @@
 
 #if ENABLE(WEBASSEMBLY)
 
+#include "WasmModuleDebugInfo.h"
 #include "WasmModuleInformation.h"
 #include "WasmPlan.h"
 #include "WasmStreamingParser.h"
@@ -34,6 +35,7 @@
 #include <wtf/SharedTask.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/Vector.h>
+#include <wtf/text/MakeString.h>
 
 namespace JSC {
 
@@ -41,36 +43,51 @@ class CallLinkInfo;
 
 namespace Wasm {
 
+enum class BindingFailure;
+
 class EntryPlan : public Plan, public StreamingParserClient {
 public:
     using Base = Plan;
 
     // Note: CompletionTask should not hold a reference to the Plan otherwise there will be a reference cycle.
-    EntryPlan(Context*, Ref<ModuleInformation>, CompilerMode, CompletionTask&&);
-    JS_EXPORT_PRIVATE EntryPlan(Context*, Vector<uint8_t>&&, CompilerMode, CompletionTask&&);
+    EntryPlan(VM&, Ref<ModuleInformation>, CompilerMode, CompletionTask&&);
+    JS_EXPORT_PRIVATE EntryPlan(VM&, Vector<uint8_t>&&, CompilerMode, CompletionTask&&);
 
     ~EntryPlan() override = default;
 
     void prepare();
 
-    void compileFunctions(CompilationEffort);
+    void compileFunctions();
 
     Ref<ModuleInformation>&& takeModuleInformation()
     {
         RELEASE_ASSERT(!failed() && !hasWork());
-        return WTFMove(m_moduleInformation);
+#if ENABLE(WEBASSEMBLY_DEBUGGER)
+        if (Options::enableWasmDebugger()) [[unlikely]] {
+            // Skip if already populated by the streaming path (StreamingCompiler::addBytes).
+            if (m_moduleInformation->debugInfo->source.isEmpty())
+                m_moduleInformation->debugInfo->takeSource(WTF::move(m_source));
+        }
+#endif
+        return WTF::move(m_moduleInformation);
     }
 
     Vector<MacroAssemblerCodeRef<WasmEntryPtrTag>>&& takeWasmToWasmExitStubs()
     {
         RELEASE_ASSERT(!failed() && !hasWork());
-        return WTFMove(m_wasmToWasmExitStubs);
+        return WTF::move(m_wasmToWasmExitStubs);
     }
 
     Vector<Vector<UnlinkedWasmToWasmCall>> takeWasmToWasmCallsites()
     {
         RELEASE_ASSERT(!failed() && !hasWork());
-        return WTFMove(m_unlinkedWasmToWasmCalls);
+        return WTF::move(m_unlinkedWasmToWasmCalls);
+    }
+
+    Vector<MacroAssemblerCodeRef<WasmEntryPtrTag>> takeWasmToJSExitStubs()
+    {
+        RELEASE_ASSERT(!failed() && !hasWork());
+        return WTF::move(m_wasmToJSExitStubs);
     }
 
     enum class State : uint8_t {
@@ -81,46 +98,64 @@ public:
         Completed // We should only move to Completed if we are holding the lock.
     };
 
+    // FIXME: This seems like it should be `m_state == State::Prepared`?
     bool multiThreaded() const override { return m_state >= State::Prepared; }
+
+    bool completeSyncIfPossible();
+
+    virtual void completeInStreaming() = 0;
+    virtual void didCompileFunctionInStreaming() = 0;
+    virtual void didFailInStreaming(String&&) = 0;
 
 private:
     class ThreadCountHolder;
     friend class ThreadCountHolder;
+    friend class StreamingPlan;
 
 protected:
     // For some reason friendship doesn't extend to parent classes...
     using Base::m_lock;
 
-    bool parseAndValidateModule(const uint8_t*, size_t);
+    bool parseAndValidateModule(std::span<const uint8_t>);
 
-    const char* stateString(State);
+    const char* NODELETE stateString(State);
     void moveToState(State);
     bool isComplete() const override { return m_state == State::Completed; }
     void complete() WTF_REQUIRES_LOCK(m_lock) override;
 
+    bool failIfMixedExceptionHandlingProposals() WTF_REQUIRES_LOCK(m_lock);
+
     virtual bool prepareImpl() = 0;
-    virtual void compileFunction(uint32_t functionIndex) = 0;
+    virtual void compileFunction(FunctionCodeIndex functionIndex) = 0;
     virtual void didCompleteCompilation() WTF_REQUIRES_LOCK(m_lock) = 0;
 
     template<typename T>
-    bool tryReserveCapacity(Vector<T>& vector, size_t size, const char* what)
+    bool tryReserveCapacity(Vector<T>& vector, size_t size, ASCIILiteral what)
     {
-        if (UNLIKELY(!vector.tryReserveCapacity(size))) {
+        if (!vector.tryReserveCapacity(size)) [[unlikely]] {
             Locker locker { m_lock };
-            fail(WTF::makeString("Failed allocating enough space for ", size, what));
+            fail(WTF::makeString("Failed allocating enough space for "_s, size, what));
             return false;
         }
         return true;
     }
 
+    bool generateWasmToJSStubs();
+    bool generateWasmToWasmStubs();
+
+    void generateStubsIfNecessary() WTF_REQUIRES_LOCK(m_lock);
+
     Vector<uint8_t> m_source;
     Vector<MacroAssemblerCodeRef<WasmEntryPtrTag>> m_wasmToWasmExitStubs;
-    HashSet<uint32_t, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>> m_exportedFunctionIndices;
+    Vector<MacroAssemblerCodeRef<WasmEntryPtrTag>> m_wasmToJSExitStubs;
+    UncheckedKeyHashSet<uint32_t, DefaultHash<uint32_t>, WTF::UnsignedWithZeroKeyHashTraits<uint32_t>> m_exportedFunctionIndices;
 
     Vector<Vector<UnlinkedWasmToWasmCall>> m_unlinkedWasmToWasmCalls;
     StreamingParser m_streamingParser;
     State m_state;
 
+    bool m_areWasmToWasmStubsCompiled { false };
+    bool m_areWasmToJSStubsCompiled { false };
     const CompilerMode m_compilerMode;
     uint8_t m_numberOfActiveThreads { 0 };
     uint32_t m_currentIndex { 0 };

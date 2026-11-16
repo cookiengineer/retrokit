@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007 Apple Inc.  All rights reserved.
+ * Copyright (C) 2007 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,21 +35,24 @@
 
 namespace WebCore {
 
-    template<typename T>
-    float narrowPrecisionToFloat(T);
+    template<typename T> constexpr float narrowPrecisionToFloat(T);
 
-    template<>
-    inline float narrowPrecisionToFloat(double number)
+    template<> constexpr float narrowPrecisionToFloat(double number)
     {
         return static_cast<float>(number);
     }
 
 #if USE(CG)
-    template<typename T>
-    CGFloat narrowPrecisionToCGFloat(T);
+    template<typename T> constexpr CGFloat narrowPrecisionToCGFloat(T);
 
-    template<>
-    inline CGFloat narrowPrecisionToCGFloat(double number)
+    template<> constexpr CGFloat narrowPrecisionToCGFloat(double number)
+    {
+        return static_cast<CGFloat>(number);
+    }
+
+    template<typename T> constexpr float narrowPrecisionToFloatFromCGFloat(T);
+
+    template<> constexpr float narrowPrecisionToFloatFromCGFloat(CGFloat number)
     {
         return static_cast<CGFloat>(number);
     }

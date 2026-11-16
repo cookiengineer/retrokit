@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2011 Google Inc. All rights reserved.
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,7 +30,6 @@
 #pragma once
 
 #include "ContextDestructionObserver.h"
-#include "ExceptionOr.h"
 
 namespace JSC {
 class ArrayBufferView;
@@ -39,25 +38,26 @@ class ArrayBufferView;
 namespace WebCore {
 
 class SubtleCrypto;
+template<typename> class ExceptionOr;
 
 class Crypto : public ContextDestructionObserver, public RefCounted<Crypto> {
 public:
     static Ref<Crypto> create(ScriptExecutionContext* context) { return adoptRef(*new Crypto(context)); }
     virtual ~Crypto();
 
+    // ContextDestructionObserver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     ExceptionOr<void> getRandomValues(JSC::ArrayBufferView&);
     String randomUUID() const;
 
-#if ENABLE(WEB_CRYPTO)
-    SubtleCrypto& subtle();
-#endif
+    SubtleCrypto& subtle() { return m_subtle; }
 
 private:
     Crypto(ScriptExecutionContext*);
 
-#if ENABLE(WEB_CRYPTO)
-    Ref<SubtleCrypto> m_subtle;
-#endif
+    const Ref<SubtleCrypto> m_subtle;
 };
 
 }

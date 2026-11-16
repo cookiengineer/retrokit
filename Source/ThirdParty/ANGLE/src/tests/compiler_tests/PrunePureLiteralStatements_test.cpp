@@ -20,7 +20,7 @@ class PrunePureLiteralStatementsTest : public MatchOutputCodeTest
 {
   public:
     // The PrunePureLiteralStatements pass is used when outputting ESSL
-    PrunePureLiteralStatementsTest() : MatchOutputCodeTest(GL_FRAGMENT_SHADER, 0, SH_ESSL_OUTPUT) {}
+    PrunePureLiteralStatementsTest() : MatchOutputCodeTest(GL_FRAGMENT_SHADER, SH_ESSL_OUTPUT) {}
 };
 
 // Most basic test for the pruning
@@ -143,9 +143,10 @@ TEST_F(PrunePureLiteralStatementsTest, SwitchLiteralExpressionOnlyLastCase)
         "    }\n"
         "}\n";
     compile(shaderString);
-    ASSERT_TRUE(foundInCode("default"));
-    ASSERT_TRUE(foundInCode("case"));
+    ASSERT_TRUE(notFoundInCode("default"));
+    ASSERT_TRUE(notFoundInCode("case"));
     ASSERT_TRUE(notFoundInCode("42"));
+    ASSERT_TRUE(notFoundInCode("switch"));
 }
 
 // Test that the pruning correctly handles the pruning inside switch statements - pruning isn't

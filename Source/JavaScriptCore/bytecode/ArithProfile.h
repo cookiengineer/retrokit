@@ -25,10 +25,10 @@
 
 #pragma once
 
-#include "GPRInfo.h"
-#include "JSCJSValue.h"
-#include "ResultType.h"
-#include "TagRegistersMode.h"
+#include <JavaScriptCore/GPRInfo.h>
+#include <JavaScriptCore/JSCJSValue.h>
+#include <JavaScriptCore/ResultType.h>
+#include <JavaScriptCore/TagRegistersMode.h>
 
 namespace JSC {
 
@@ -53,7 +53,7 @@ struct ObservedType {
     constexpr ObservedType withNonNumber() const { return ObservedType(m_bits | TypeNonNumber); }
     constexpr ObservedType withoutNonNumber() const { return ObservedType(m_bits & ~TypeNonNumber); }
 
-    constexpr bool operator==(const ObservedType& other) const { return m_bits == other.m_bits; }
+    friend constexpr bool operator==(const ObservedType&, const ObservedType&) = default;
 
     static constexpr uint8_t TypeEmpty = 0x0;
     static constexpr uint8_t TypeInt32 = 0x1;
@@ -144,7 +144,7 @@ public:
         m_bits |= ObservedResults::NonNumeric;
     }
 
-    const void* addressOfBits() const { return &m_bits; }
+    const void* addressOfBits() const LIFETIME_BOUND { return &m_bits; }
 
 #if ENABLE(JIT)
     // Sets (Int32Overflow | Int52Overflow | NonNegZeroDouble | NegZeroDouble) if it sees a
@@ -152,21 +152,22 @@ public:
     void emitObserveResult(CCallHelpers&, JSValueRegs, GPRReg tempGPR, TagRegistersMode = HaveTagRegisters);
 
     // Sets (Int32Overflow | Int52Overflow | NonNegZeroDouble | NegZeroDouble).
-    bool shouldEmitSetDouble() const;
-    void emitSetDouble(CCallHelpers&) const;
+    bool NODELETE shouldEmitSetDouble() const;
+    void emitSetDouble(CCallHelpers&, GPRReg scratchGPR) const;
 
     void emitSetNonNumeric(CCallHelpers&) const;
-    bool shouldEmitSetNonNumeric() const;
+    bool NODELETE shouldEmitSetNonNumeric() const;
 
-    bool shouldEmitSetHeapBigInt() const;
+    bool NODELETE shouldEmitSetHeapBigInt() const;
     void emitSetHeapBigInt(CCallHelpers&) const;
 
-    bool shouldEmitSetBigInt32() const;
+    bool NODELETE shouldEmitSetBigInt32() const;
 #if USE(BIGINT32)
     void emitSetBigInt32(CCallHelpers&) const;
 #endif
 
     void emitUnconditionalSet(CCallHelpers&, BitfieldType) const;
+    void emitUnconditionalSet(CCallHelpers&, GPRReg) const;
 #endif // ENABLE(JIT)
 
     constexpr uint32_t bits() const { return m_bits; }
@@ -179,6 +180,10 @@ protected:
 
     BitfieldType m_bits { 0 }; // We take care to update m_bits only in a single operation. We don't ever store an inconsistent bit representation to it.
 };
+
+#if ENABLE(JIT)
+extern template class ArithProfile<uint16_t>;
+#endif
 
 /* This class stores the following components in 16 bits:
  * - ObservedResults
@@ -211,6 +216,12 @@ public:
     static constexpr UnaryArithProfileBase observedNumberBits()
     {
         constexpr ObservedType observedNumber { ObservedType().withNumber() };
+        constexpr UnaryArithProfileBase bits = observedNumber.bits() << argObservedTypeShift;
+        return bits;
+    }
+    static constexpr UnaryArithProfileBase observedNonNumberBits()
+    {
+        constexpr ObservedType observedNumber { ObservedType().withNonNumber() };
         constexpr UnaryArithProfileBase bits = observedNumber.bits() << argObservedTypeShift;
         return bits;
     }
@@ -248,7 +259,7 @@ public:
         return argObservedType().isEmpty();
     }
 
-    friend class JSC::LLIntOffsetsExtractor;
+    friend class LLIntOffsetsExtractor;
 };
 
 /* This class stores the following components in 16 bits:
@@ -373,7 +384,7 @@ public:
         return lhsObservedType().isEmpty() && rhsObservedType().isEmpty();
     }
 
-    friend class JSC::LLIntOffsetsExtractor;
+    friend class LLIntOffsetsExtractor;
 };
 
 } // namespace JSC

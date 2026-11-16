@@ -27,26 +27,28 @@
 #include "SVGNames.h"
 #include "SVGPreserveAspectRatio.h"
 #include "SVGPropertyOwnerRegistry.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class AffineTransform;
 
 class SVGFitToViewBox {
+    WTF_MAKE_TZONE_ALLOCATED(SVGFitToViewBox);
     WTF_MAKE_NONCOPYABLE(SVGFitToViewBox);
 public:
     static AffineTransform viewBoxToViewTransform(const FloatRect& viewBoxRect, const SVGPreserveAspectRatioValue&, float viewWidth, float viewHeight);
 
     using PropertyRegistry = SVGPropertyOwnerRegistry<SVGFitToViewBox>;
 
-    const FloatRect& viewBox() const { return m_viewBox->currentValue(); }
-    const SVGPreserveAspectRatioValue& preserveAspectRatio() const { return m_preserveAspectRatio->currentValue(); }
+    const FloatRect& viewBox() const LIFETIME_BOUND { return m_viewBox->currentValue(); }
+    const SVGPreserveAspectRatioValue& preserveAspectRatio() const LIFETIME_BOUND { return m_preserveAspectRatio->currentValue(); }
 
     SVGAnimatedRect& viewBoxAnimated() { return m_viewBox; }
     SVGAnimatedPreserveAspectRatio& preserveAspectRatioAnimated() { return m_preserveAspectRatio; }
 
-    void setViewBox(const FloatRect&);
-    void resetViewBox();
+    void NODELETE setViewBox(const FloatRect&);
+    void NODELETE resetViewBox();
 
     void setPreserveAspectRatio(const SVGPreserveAspectRatioValue& preserveAspectRatio) { m_preserveAspectRatio->setBaseValInternal(preserveAspectRatio); }
     void resetPreserveAspectRatio() { m_preserveAspectRatio->setBaseValInternal({ }); }
@@ -54,25 +56,25 @@ public:
     String viewBoxString() const { return SVGPropertyTraits<FloatRect>::toString(viewBox()); }
     String preserveAspectRatioString() const { return preserveAspectRatio().valueAsString(); }
 
-    bool hasValidViewBox() const { return m_isViewBoxValid; }
-    bool hasEmptyViewBox() const { return m_isViewBoxValid && viewBox().isEmpty(); }
+    bool hasValidViewBox() const { return m_isViewBoxValid && viewBox().width() >= 0 && viewBox().height() >= 0; }
+    bool hasEmptyViewBox() const { return hasValidViewBox() && viewBox().isEmpty(); }
 
 protected:
     SVGFitToViewBox(SVGElement* contextElement, SVGPropertyAccess = SVGPropertyAccess::ReadWrite);
 
     static bool isKnownAttribute(const QualifiedName& attributeName) { return PropertyRegistry::isKnownAttribute(attributeName); }
 
-    void reset();
+    void NODELETE reset();
     bool parseAttribute(const QualifiedName&, const AtomString&);
     std::optional<FloatRect> parseViewBox(StringView);
-    std::optional<FloatRect> parseViewBox(StringParsingBuffer<LChar>&, bool validate = true);
-    std::optional<FloatRect> parseViewBox(StringParsingBuffer<UChar>&, bool validate = true);
+    std::optional<FloatRect> parseViewBox(StringParsingBuffer<Latin1Character>&, bool validate = true);
+    std::optional<FloatRect> parseViewBox(StringParsingBuffer<char16_t>&, bool validate = true);
 
 private:
     template<typename CharacterType> std::optional<FloatRect> parseViewBoxGeneric(StringParsingBuffer<CharacterType>&, bool validate = true);
 
-    Ref<SVGAnimatedRect> m_viewBox;
-    Ref<SVGAnimatedPreserveAspectRatio> m_preserveAspectRatio;
+    const Ref<SVGAnimatedRect> m_viewBox;
+    const Ref<SVGAnimatedPreserveAspectRatio> m_preserveAspectRatio;
     bool m_isViewBoxValid { false };
 };
 

@@ -25,10 +25,11 @@
 
 #pragma once
 
-#include "IDBConnectionToClientDelegate.h"
+#include <WebCore/IDBConnectionToClientDelegate.h>
 #include <wtf/HashSet.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
+#include <wtf/WeakHashSet.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -47,7 +48,7 @@ class IDBConnectionToClient : public RefCounted<IDBConnectionToClient> {
 public:
     WEBCORE_EXPORT static Ref<IDBConnectionToClient> create(IDBConnectionToClientDelegate&);
 
-    IDBConnectionIdentifier identifier() const;
+    WEBCORE_EXPORT IDBConnectionIdentifier identifier() const;
 
     void didDeleteDatabase(const IDBResultData&);
     void didOpenDatabase(const IDBResultData&);
@@ -69,25 +70,30 @@ public:
     void didIterateCursor(const IDBResultData&);
 
     void fireVersionChangeEvent(UniqueIDBDatabaseConnection&, const IDBResourceIdentifier& requestIdentifier, uint64_t requestedVersion);
+    void generateIndexKeyForRecord(const IDBResourceIdentifier& requestIdentifier, const IDBIndexInfo&, const std::optional<IDBKeyPath>&, const IDBKeyData&, const IDBValue&, std::optional<int64_t> recordID);
     void didStartTransaction(const IDBResourceIdentifier& transactionIdentifier, const IDBError&);
     void didCloseFromServer(UniqueIDBDatabaseConnection&, const IDBError&);
 
     void notifyOpenDBRequestBlocked(const IDBResourceIdentifier& requestIdentifier, uint64_t oldVersion, uint64_t newVersion);
 
-    void didGetAllDatabaseNamesAndVersions(const IDBResourceIdentifier&, Vector<IDBDatabaseNameAndVersion>&&);
+    WEBCORE_EXPORT void didGetAllDatabaseNamesAndVersions(const IDBResourceIdentifier&, Vector<IDBDatabaseNameAndVersion>&&);
 
     void registerDatabaseConnection(UniqueIDBDatabaseConnection&);
     void unregisterDatabaseConnection(UniqueIDBDatabaseConnection&);
-    void connectionToClientClosed();
+    WEBCORE_EXPORT void connectionToClientClosed();
     bool isClosed() { return m_isClosed; }
     void clearDelegate() { m_delegate = nullptr; }
+
+    WEBCORE_EXPORT void setClientProcessSuspended(bool);
+    bool isClientProcessSuspended() const { return m_isClientProcessSuspended; }
 
 private:
     IDBConnectionToClient(IDBConnectionToClientDelegate&);
     
-    IDBConnectionToClientDelegate* m_delegate;
-    HashSet<UniqueIDBDatabaseConnection*> m_databaseConnections;
+    CheckedPtr<IDBConnectionToClientDelegate> m_delegate;
+    WeakHashSet<UniqueIDBDatabaseConnection> m_databaseConnections;
     bool m_isClosed { false };
+    bool m_isClientProcessSuspended { false };
 };
 
 } // namespace IDBServer

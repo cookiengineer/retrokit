@@ -26,18 +26,21 @@
 #pragma once
 
 #include "WebGLExtension.h"
+#include "WebGLRenderingContextBase.h"
+#include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
-class OESTextureHalfFloat final : public WebGLExtension {
-    WTF_MAKE_ISO_ALLOCATED(OESTextureHalfFloat);
+class OESTextureHalfFloat final : public WebGLExtension<WebGLRenderingContextBase> {
+    WTF_MAKE_TZONE_ALLOCATED(OESTextureHalfFloat);
 public:
-    OESTextureHalfFloat(WebGLRenderingContextBase&);
-    virtual ~OESTextureHalfFloat();
+    explicit OESTextureHalfFloat(WebGLRenderingContextBase&);
+    ~OESTextureHalfFloat();
 
-    ExtensionName getName() const override;
-
-    static bool supported(const WebGLRenderingContextBase&);
+    static bool supported(GraphicsContextGL&);
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_WEBGL_EXTENSION(OESTextureHalfFloat)

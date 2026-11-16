@@ -31,6 +31,7 @@
 #include <WebCore/ActiveDOMObject.h>
 #include <wtf/Forward.h>
 #include <wtf/RefPtr.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 class IntRect;
@@ -53,7 +54,7 @@ public:
 
     virtual ~InjectedBundleNodeHandle();
 
-    WebCore::Node* coreNode();
+    WebCore::Node* NODELETE coreNode();
 
     // Convenience DOM Operations
     RefPtr<InjectedBundleNodeHandle> document();
@@ -61,15 +62,17 @@ public:
     // Additional DOM Operations
     // Note: These should only be operations that are not exposed to JavaScript.
     WebCore::IntRect elementBounds();
-    WebCore::IntRect renderRect(bool*);
+    WebCore::IntRect absoluteBoundingRect(bool*);
     RefPtr<WebImage> renderedImage(SnapshotOptions, bool shouldExcludeOverflow, const std::optional<float>& bitmapWidth = std::nullopt);
     RefPtr<InjectedBundleRangeHandle> visibleRange();
     void setHTMLInputElementValueForUser(const String&);
     void setHTMLInputElementSpellcheckEnabled(bool);
     bool isHTMLInputElementAutoFilled() const;
     bool isHTMLInputElementAutoFilledAndViewable() const;
+    bool isHTMLInputElementAutoFilledAndObscured() const;
     void setHTMLInputElementAutoFilled(bool);
     void setHTMLInputElementAutoFilledAndViewable(bool);
+    void setHTMLInputElementAutoFilledAndObscured(bool);
     bool isHTMLInputElementAutoFillButtonEnabled() const;
     void setHTMLInputElementAutoFillButtonEnabled(WebCore::AutoFillButtonType);
     WebCore::AutoFillButtonType htmlInputElementAutoFillButtonType() const;
@@ -80,14 +83,17 @@ public:
     bool htmlInputElementLastChangeWasUserEdit();
     bool htmlTextAreaElementLastChangeWasUserEdit();
     bool isTextField() const;
-    bool isSelectElement() const;
-    bool isSelectableTextNode() const;
+    bool NODELETE isSelectElement() const;
+    bool NODELETE isSelectableTextNode() const;
     
     RefPtr<InjectedBundleNodeHandle> htmlTableCellElementCellAbove();
 
     RefPtr<WebFrame> documentFrame();
-    RefPtr<WebFrame> htmlFrameElementContentFrame();
     RefPtr<WebFrame> htmlIFrameElementContentFrame();
+
+    // ActiveDOMObject.
+    void ref() const final { API::ObjectImpl<API::Object::Type::BundleNodeHandle>::ref(); }
+    void deref() const final { API::ObjectImpl<API::Object::Type::BundleNodeHandle>::deref(); }
 
 private:
     static Ref<InjectedBundleNodeHandle> create(WebCore::Node&);
@@ -95,9 +101,12 @@ private:
 
     // ActiveDOMObject.
     void stop() final;
-    const char* activeDOMObjectName() const final;
 
     RefPtr<WebCore::Node> m_node;
 };
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::InjectedBundleNodeHandle)
+static bool isType(const API::Object& object) { return object.type() == API::Object::Type::BundleNodeHandle; }
+SPECIALIZE_TYPE_TRAITS_END()

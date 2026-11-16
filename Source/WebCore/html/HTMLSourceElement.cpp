@@ -26,15 +26,19 @@
 #include "config.h"
 #include "HTMLSourceElement.h"
 
+#include "CSSSerializationContext.h"
+#include "ElementInlines.h"
 #include "Event.h"
 #include "EventNames.h"
 #include "HTMLImageElement.h"
 #include "HTMLNames.h"
 #include "HTMLPictureElement.h"
+#include "HTMLSrcsetParser.h"
 #include "Logging.h"
-#include "MediaList.h"
 #include "MediaQueryParser.h"
-#include <wtf/IsoMallocInlines.h>
+#include "MediaQueryParserContext.h"
+#include "NodeName.h"
+#include <wtf/TZoneMallocInlines.h>
 
 #if ENABLE(VIDEO)
 #include "HTMLMediaElement.h"
@@ -46,14 +50,13 @@
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLSourceElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLSourceElement);
 
 using namespace HTMLNames;
 
 inline HTMLSourceElement::HTMLSourceElement(const QualifiedName& tagName, Document& document)
-    : HTMLElement(tagName, document)
+    : HTMLElement(tagName, document, TypeFlag::HasDidMoveToNewDocument)
     , ActiveDOMObject(document)
-    , m_errorEventTimer(*this, &HTMLSourceElement::errorEventTimerFired)
 {
     LOG(Media, "HTMLSourceElement::HTMLSourceElement - %p", this);
     ASSERT(hasTagName(sourceTag));
@@ -71,22 +74,22 @@ Ref<HTMLSourceElement> HTMLSourceElement::create(Document& document)
     return create(sourceTag, document);
 }
 
-Node::InsertedIntoAncestorResult HTMLSourceElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+Node::NeedsPostConnectionSteps HTMLSourceElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    HTMLElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    HTMLElement::insertionSteps(insertionType, parentOfInsertedTree);
     RefPtr<Element> parent = parentElement();
     if (parent == &parentOfInsertedTree) {
 #if ENABLE(VIDEO)
-        if (is<HTMLMediaElement>(*parent))
-            downcast<HTMLMediaElement>(*parent).sourceWasAdded(*this);
+        if (RefPtr mediaElement = dynamicDowncast<HTMLMediaElement>(*parent))
+            mediaElement->sourceWasAdded(*this);
         else
 #endif
 #if ENABLE(MODEL_ELEMENT)
-        if (is<HTMLModelElement>(*parent))
-            downcast<HTMLModelElement>(*parent).sourcesChanged();
+        if (RefPtr modelElement = dynamicDowncast<HTMLModelElement>(*parent))
+            modelElement->sourcesChanged();
         else
 #endif
-        if (is<HTMLPictureElement>(*parent)) {
+        if (RefPtr pictureElement = dynamicDowncast<HTMLPictureElement>(*parent)) {
             // The new source element only is a relevant mutation if it precedes any img element.
             m_shouldCallSourcesChanged = true;
             for (const Node* node = previousSibling(); node; node = node->previousSibling()) {
@@ -94,24 +97,24 @@ Node::InsertedIntoAncestorResult HTMLSourceElement::insertedIntoAncestor(Inserti
                     m_shouldCallSourcesChanged = false;
             }
             if (m_shouldCallSourcesChanged)
-                downcast<HTMLPictureElement>(*parent).sourcesChanged();
+                pictureElement->sourcesChanged();
         }
     }
-    return InsertedIntoAncestorResult::Done;
+    return NeedsPostConnectionSteps::No;
 }
 
-void HTMLSourceElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void HTMLSourceElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {        
-    HTMLElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    HTMLElement::removingSteps(removalType, oldParentOfRemovedTree);
     if (!parentNode() && is<Element>(oldParentOfRemovedTree)) {
 #if ENABLE(VIDEO)
-        if (is<HTMLMediaElement>(oldParentOfRemovedTree))
-            downcast<HTMLMediaElement>(oldParentOfRemovedTree).sourceWasRemoved(*this);
+        if (RefPtr medialElement = dynamicDowncast<HTMLMediaElement>(oldParentOfRemovedTree))
+            medialElement->sourceWasRemoved(*this);
         else
 #endif
 #if ENABLE(MODEL_ELEMENT)
-        if (is<HTMLModelElement>(oldParentOfRemovedTree))
-            downcast<HTMLModelElement>(oldParentOfRemovedTree).sourcesChanged();
+        if (RefPtr model = dynamicDowncast<HTMLModelElement>(oldParentOfRemovedTree))
+            model->sourcesChanged();
         else
 #endif
         if (m_shouldCallSourcesChanged) {
@@ -121,25 +124,25 @@ void HTMLSourceElement::removedFromAncestor(RemovalType removalType, ContainerNo
     }
 }
 
+void HTMLSourceElement::didMoveToNewDocument(Document& oldDocument, Document& newDocument)
+{
+    HTMLElement::didMoveToNewDocument(oldDocument, newDocument);
+    ActiveDOMObject::didMoveToNewDocument(newDocument);
+}
+
 void HTMLSourceElement::scheduleErrorEvent()
 {
     LOG(Media, "HTMLSourceElement::scheduleErrorEvent - %p", this);
-    if (m_errorEventTimer.isActive())
+    if (m_errorEventCancellationGroup.hasPendingTask())
         return;
 
-    m_errorEventTimer.startOneShot(0_s);
+    queueCancellableTaskToDispatchEvent(*this, TaskSource::MediaElement, m_errorEventCancellationGroup, Event::create(eventNames().errorEvent, Event::CanBubble::No, Event::IsCancelable::Yes));
 }
 
 void HTMLSourceElement::cancelPendingErrorEvent()
 {
     LOG(Media, "HTMLSourceElement::cancelPendingErrorEvent - %p", this);
-    m_errorEventTimer.stop();
-}
-
-void HTMLSourceElement::errorEventTimerFired()
-{
-    LOG(Media, "HTMLSourceElement::errorEventTimerFired - %p", this);
-    dispatchEvent(Event::create(eventNames().errorEvent, Event::CanBubble::No, Event::IsCancelable::Yes));
+    m_errorEventCancellationGroup.cancel();
 }
 
 bool HTMLSourceElement::isURLAttribute(const Attribute& attribute) const
@@ -147,26 +150,10 @@ bool HTMLSourceElement::isURLAttribute(const Attribute& attribute) const
     return attribute.name() == srcAttr || HTMLElement::isURLAttribute(attribute);
 }
 
-const char* HTMLSourceElement::activeDOMObjectName() const
+bool HTMLSourceElement::attributeContainsURL(const Attribute& attribute) const
 {
-    return "HTMLSourceElement";
-}
-
-void HTMLSourceElement::suspend(ReasonForSuspension reason)
-{
-    // FIXME: Shouldn't this also stop the timer for PageWillBeSuspended?
-    if (reason == ReasonForSuspension::BackForwardCache) {
-        m_shouldRescheduleErrorEventOnResume = m_errorEventTimer.isActive();
-        m_errorEventTimer.stop();
-    }
-}
-
-void HTMLSourceElement::resume()
-{
-    if (m_shouldRescheduleErrorEventOnResume) {
-        m_errorEventTimer.startOneShot(0_s);
-        m_shouldRescheduleErrorEventOnResume = false;
-    }
+    return attribute.name() == srcsetAttr
+        || HTMLElement::attributeContainsURL(attribute);
 }
 
 void HTMLSourceElement::stop()
@@ -174,44 +161,94 @@ void HTMLSourceElement::stop()
     cancelPendingErrorEvent();
 }
 
-void HTMLSourceElement::parseAttribute(const QualifiedName& name, const AtomString& value)
+void HTMLSourceElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
-    HTMLElement::parseAttribute(name, value);
-    if (name == srcsetAttr || name == sizesAttr || name == mediaAttr || name == typeAttr) {
+    HTMLElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
+
+    switch (name.nodeName()) {
+    case AttributeNames::typeAttr: {
+        RefPtr parent = parentElement();
+        if (m_shouldCallSourcesChanged && parent)
+            downcast<HTMLPictureElement>(*parent).sourcesChanged();
+#if ENABLE(MODEL_ELEMENT)
+        if (RefPtr parentModelElement = dynamicDowncast<HTMLModelElement>(parent.get()))
+            parentModelElement->sourcesChanged();
+#endif
+        break;
+    }
+    case AttributeNames::srcsetAttr:
+    case AttributeNames::sizesAttr:
+    case AttributeNames::mediaAttr: {
         if (name == mediaAttr)
             m_cachedParsedMediaAttribute = std::nullopt;
-        auto parent = makeRefPtr(parentNode());
-        if (m_shouldCallSourcesChanged)
+        RefPtr parent = parentElement();
+        if (m_shouldCallSourcesChanged && parent)
             downcast<HTMLPictureElement>(*parent).sourcesChanged();
-    }
 #if ENABLE(MODEL_ELEMENT)
-    if (name == srcAttr ||  name == typeAttr) {
-        RefPtr<Element> parent = parentElement();
-        if (is<HTMLModelElement>(parent))
-            downcast<HTMLModelElement>(*parent).sourcesChanged();
-    }
+        if (name == mediaAttr) {
+            if (RefPtr parentModelElement = dynamicDowncast<HTMLModelElement>(parent.get()))
+                parentModelElement->sourcesChanged();
+        }
 #endif
+        break;
+    }
+    case AttributeNames::widthAttr:
+    case AttributeNames::heightAttr:
+        if (RefPtr parent = dynamicDowncast<HTMLPictureElement>(parentElement()))
+            parent->sourceDimensionAttributesChanged(*this);
+        break;
+#if ENABLE(MODEL_ELEMENT)
+    case AttributeNames::srcAttr:
+        if (RefPtr parent = dynamicDowncast<HTMLModelElement>(parentElement()))
+            parent->sourcesChanged();
+        break;
+#endif
+    default:
+        break;
+    }
 }
 
-const MediaQuerySet* HTMLSourceElement::parsedMediaAttribute(Document& document) const
+const MQ::MediaQueryList& HTMLSourceElement::parsedMediaAttribute(Document& document) const
 {
     if (!m_cachedParsedMediaAttribute) {
-        RefPtr<const MediaQuerySet> parsedAttribute;
         auto& value = attributeWithoutSynchronization(mediaAttr);
-        if (!value.isNull())
-            parsedAttribute = MediaQuerySet::create(value, MediaQueryParserContext(document));
-        m_cachedParsedMediaAttribute = WTFMove(parsedAttribute);
+        m_cachedParsedMediaAttribute = MQ::MediaQueryParser::parse(value, document.cssParserContext());
     }
-    return m_cachedParsedMediaAttribute.value().get();
+    return m_cachedParsedMediaAttribute.value();
 }
 
-void HTMLSourceElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason reason)
+Attribute HTMLSourceElement::replaceURLsInAttributeValue(const Attribute& attribute, const CSS::SerializationContext& serializationContext) const
 {
-    if (name == widthAttr || name == heightAttr) {
-        if (RefPtr parent = parentNode(); is<HTMLPictureElement>(parent))
-            downcast<HTMLPictureElement>(*parent).sourceDimensionAttributesChanged(*this);
-    }
-    HTMLElement::attributeChanged(name, oldValue, newValue, reason);
+    if (attribute.name() != srcsetAttr)
+        return attribute;
+
+    if (serializationContext.replacementURLStrings.isEmpty())
+        return attribute;
+
+    return Attribute { srcsetAttr, AtomString { replaceURLsInSrcsetAttribute(*this, StringView(attribute.value()), serializationContext) } };
+}
+
+void HTMLSourceElement::addCandidateSubresourceURLs(OrderedHashSet<URL>& urls) const
+{
+    getURLsFromSrcsetAttribute(*this, attributeWithoutSynchronization(srcsetAttr), urls);
+}
+
+Ref<Element> HTMLSourceElement::cloneElementWithoutAttributesAndChildren(Document& document, CustomElementRegistry*) const
+{
+    Ref clone = create(document);
+#if ENABLE(ATTACHMENT_ELEMENT)
+    cloneAttachmentAssociatedElementWithoutAttributesAndChildren(clone, document);
+#endif
+    return clone;
+}
+
+void HTMLSourceElement::copyNonAttributePropertiesFromElement(const Element& source)
+{
+#if ENABLE(ATTACHMENT_ELEMENT)
+    auto& sourceElement = downcast<HTMLSourceElement>(source);
+    copyAttachmentAssociatedPropertiesFromElement(sourceElement);
+#endif
+    Element::copyNonAttributePropertiesFromElement(source);
 }
 
 }

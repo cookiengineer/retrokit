@@ -28,9 +28,10 @@
 #if ENABLE(DEVICE_ORIENTATION)
 
 #include "DeviceOrientationOrMotionPermissionState.h"
-#include "ExceptionOr.h"
 #include "SecurityOriginData.h"
+#include <wtf/CheckedRef.h>
 #include <wtf/Function.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
 
@@ -39,16 +40,18 @@ namespace WebCore {
 class Document;
 class Page;
 
-class DeviceOrientationAndMotionAccessController : public CanMakeWeakPtr<DeviceOrientationAndMotionAccessController> {
-    WTF_MAKE_FAST_ALLOCATED;
+class DeviceOrientationAndMotionAccessController final : public CanMakeWeakPtr<DeviceOrientationAndMotionAccessController>, public CanMakeCheckedPtr<DeviceOrientationAndMotionAccessController> {
+    WTF_MAKE_TZONE_ALLOCATED(DeviceOrientationAndMotionAccessController);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(DeviceOrientationAndMotionAccessController);
 public:
-    explicit DeviceOrientationAndMotionAccessController(Document& topDocument);
+    explicit DeviceOrientationAndMotionAccessController(Page&);
 
     DeviceOrientationOrMotionPermissionState accessState(const Document&) const;
     void shouldAllowAccess(const Document&, Function<void(DeviceOrientationOrMotionPermissionState)>&&);
+    void clearPermissions() { m_accessStatePerOrigin.clear(); }
 
 private:
-    Document& m_topDocument;
+    WeakPtr<Page> m_page;
     HashMap<SecurityOriginData, DeviceOrientationOrMotionPermissionState> m_accessStatePerOrigin;
 };
 

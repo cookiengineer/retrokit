@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2010 Google Inc. All rights reserved.
+ * Copyright (C) 2019-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -30,42 +31,47 @@
 
 #pragma once
 
-#include "Timer.h"
+#include <WebCore/Timer.h>
 #include <memory>
 #include <wtf/Noncopyable.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
+class WeakPtrImplWithEventTargetData;
 class HTMLElement;
-class HTMLFormControlElement;
 class Node;
 class ValidationMessageClient;
 
 // FIXME: We should remove the code for !validationMessageClient() when all
 // ports supporting interactive validation switch to ValidationMessageClient.
-class ValidationMessage : public CanMakeWeakPtr<ValidationMessage> {
-    WTF_MAKE_NONCOPYABLE(ValidationMessage); WTF_MAKE_FAST_ALLOCATED;
+class ValidationMessage : public RefCountedAndCanMakeWeakPtr<ValidationMessage> {
+    WTF_MAKE_TZONE_ALLOCATED(ValidationMessage);
+    WTF_MAKE_NONCOPYABLE(ValidationMessage);
 public:
-    explicit ValidationMessage(HTMLFormControlElement*);
+    static Ref<ValidationMessage> create(HTMLElement&);
     ~ValidationMessage();
 
-    void updateValidationMessage(const String&);
+    void updateValidationMessage(HTMLElement&, const String&);
     void requestToHideMessage();
     bool isVisible() const;
-    bool shadowTreeContains(const Node&) const;
+    bool NODELETE shadowTreeContains(const Node&) const;
+    void adjustBubblePosition();
 
 private:
-    ValidationMessageClient* validationMessageClient() const;
-    void setMessage(const String&);
+    explicit ValidationMessage(HTMLElement&);
+
+    ValidationMessageClient* NODELETE validationMessageClient() const;
+    void setMessage(String&&);
     void setMessageDOMAndStartTimer();
-    void adjustBubblePosition();
     void buildBubbleTree();
     void deleteBubbleTree();
 
-    HTMLFormControlElement* m_element;
+    WeakPtr<HTMLElement, WeakPtrImplWithEventTargetData> m_element;
     String m_message;
     std::unique_ptr<Timer> m_timer;
     RefPtr<HTMLElement> m_bubble;

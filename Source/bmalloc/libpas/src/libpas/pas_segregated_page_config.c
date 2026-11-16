@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020 Apple Inc. All rights reserved.
+ * Copyright (c) 2018-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -20,7 +20,7 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "pas_config.h"
@@ -31,7 +31,6 @@
 
 #include "pas_config.h"
 #include "pas_page_malloc.h"
-#include "pas_segregated_page.h"
 
 bool pas_segregated_page_config_do_validate = false;
 
@@ -40,19 +39,17 @@ bool pas_small_segregated_page_config_variant_is_enabled_override =
 bool pas_medium_segregated_page_config_variant_is_enabled_override =
     PAS_USE_MEDIUM_SEGREGATED_OVERRIDE;
 
-void pas_segregated_page_config_validate(pas_segregated_page_config* config)
+void pas_segregated_page_config_validate(const pas_segregated_page_config* config)
 {
     if (!pas_segregated_page_config_do_validate)
         return;
-    
-    PAS_ASSERT(config->base.page_object_payload_size <= config->base.page_size);
+
+    PAS_ASSERT(config->exclusive_payload_size <= config->base.page_size);
     PAS_ASSERT(pas_segregated_page_config_min_align(*config) < config->base.max_object_size);
-    PAS_ASSERT(config->base.page_object_payload_offset < config->base.page_size);
-    PAS_ASSERT(config->base.max_object_size <= config->base.page_object_payload_size);
-    PAS_ASSERT(config->num_alloc_bits >=
-               (config->base.page_object_payload_size >> config->base.min_align_shift));
-    PAS_ASSERT((config->base.page_object_payload_offset +
-                config->base.page_object_payload_size) <= config->base.page_size);
+    PAS_ASSERT(config->exclusive_payload_offset < config->base.page_size);
+    PAS_ASSERT(config->base.max_object_size <= config->exclusive_payload_size);
+    PAS_ASSERT(pas_segregated_page_config_payload_end_offset(
+                   *config) <= config->base.page_size);
     PAS_ASSERT(!(config->base.page_size % config->base.granule_size));
     PAS_ASSERT(config->base.page_size >= config->base.granule_size);
     PAS_ASSERT(!(config->base.granule_size % pas_page_malloc_alignment()));

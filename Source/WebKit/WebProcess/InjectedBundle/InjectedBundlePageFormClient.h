@@ -29,6 +29,7 @@
 #include "APIClient.h"
 #include "APIInjectedBundleFormClient.h"
 #include "WKBundlePageFormClient.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace API {
 
@@ -40,18 +41,19 @@ template<> struct ClientTraits<WKBundlePageFormClientBase> {
 namespace WebKit {
 
 class InjectedBundlePageFormClient : public API::Client<WKBundlePageFormClientBase>, public API::InjectedBundle::FormClient {
+    WTF_MAKE_TZONE_ALLOCATED(InjectedBundlePageFormClient);
 public:
     explicit InjectedBundlePageFormClient(const WKBundlePageFormClientBase*);
 
-    void didFocusTextField(WebPage*, WebCore::HTMLInputElement*, WebFrame*) override;
-    void textFieldDidBeginEditing(WebPage*, WebCore::HTMLInputElement*, WebFrame*) override;
-    void textFieldDidEndEditing(WebPage*, WebCore::HTMLInputElement*, WebFrame*) override;
-    void textDidChangeInTextField(WebPage*, WebCore::HTMLInputElement*, WebFrame*, bool initiatedByUserTyping) override;
-    void textDidChangeInTextArea(WebPage*, WebCore::HTMLTextAreaElement*, WebFrame*) override;
-    bool shouldPerformActionInTextField(WebPage*, WebCore::HTMLInputElement*, InputFieldAction, WebFrame*) override;    
+    void didFocusTextField(WebPage*, WebCore::HTMLInputElement&, WebFrame*) override;
+    void textFieldDidBeginEditing(WebPage*, WebCore::HTMLInputElement&, WebFrame*) override;
+    void textFieldDidEndEditing(WebPage*, WebCore::HTMLInputElement&, WebFrame*) override;
+    void textDidChangeInTextField(WebPage*, WebCore::HTMLInputElement&, WebFrame*, bool initiatedByUserTyping) override;
+    void textDidChangeInTextArea(WebPage*, WebCore::HTMLTextAreaElement&, WebFrame*) override;
+    bool shouldPerformActionInTextField(WebPage*, WebCore::HTMLInputElement&, InputFieldAction, WebFrame*) override;
     void willSubmitForm(WebPage*, WebCore::HTMLFormElement*, WebFrame*, WebFrame* sourceFrame, const Vector<std::pair<String, String>>&, RefPtr<API::Object>& userData) override;
     void willSendSubmitEvent(WebPage*, WebCore::HTMLFormElement*, WebFrame*, WebFrame* sourceFrame, const Vector<std::pair<String, String>>&) override;
-    void didAssociateFormControls(WebPage*, const Vector<RefPtr<WebCore::Element>>&, WebFrame*) override;
+    void didAssociateFormControls(WebPage*, const Vector<Ref<WebCore::Element>>&, WebFrame*) override;
     bool shouldNotifyOnFormChanges(WebPage*) override;
 };
 

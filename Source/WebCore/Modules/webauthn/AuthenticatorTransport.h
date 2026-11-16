@@ -27,31 +27,18 @@
 
 #if ENABLE(WEB_AUTHN)
 
-#include <wtf/Forward.h>
-
 namespace WebCore {
 
-enum class AuthenticatorTransport {
+enum class AuthenticatorTransport : uint8_t {
     Usb,
     Nfc,
     Ble,
-    Internal
+    Internal,
+    Cable,
+    Hybrid,
+    SmartCard
 };
 
 } // namespace WebCore
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::AuthenticatorTransport> {
-    using values = EnumValues<
-        WebCore::AuthenticatorTransport,
-        WebCore::AuthenticatorTransport::Usb,
-        WebCore::AuthenticatorTransport::Nfc,
-        WebCore::AuthenticatorTransport::Ble,
-        WebCore::AuthenticatorTransport::Internal
-    >;
-};
-
-} // namespace WTF
 
 #endif // ENABLE(WEB_AUTHN)

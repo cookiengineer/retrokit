@@ -26,11 +26,12 @@
 #pragma once
 
 #include "CryptoAlgorithmIdentifier.h"
+#include "OpenSSLCryptoUniquePtr.h"
+#include <openssl/aes.h>
 #include <openssl/evp.h>
 #include <stdint.h>
+#include <wtf/Noncopyable.h>
 #include <wtf/Vector.h>
-
-#if ENABLE(WEB_CRYPTO)
 
 namespace WebCore {
 
@@ -42,10 +43,19 @@ Vector<uint8_t> convertToBytes(const BIGNUM*);
 
 Vector<uint8_t> convertToBytesExpand(const BIGNUM*, size_t bufferSize);
 
-// If a null pointer is given as the first argument, this function internally allocates a new BIGNUM
-// and returns its pointer. Otherwise this function uses the given BIGNUM and doesn't allocate a new one.
-BIGNUM* convertToBigNumber(BIGNUM*, const Vector<uint8_t>& bytes);
+BIGNUMPtr convertToBigNumber(const Vector<uint8_t>& bytes);
+
+class AESKey {
+    WTF_MAKE_NONCOPYABLE(AESKey);
+public:
+    AESKey() = default;
+    ~AESKey();
+
+    bool setKey(const Vector<uint8_t>& key, int enc /* AES_ENCRYPT or AES_DECRYPT */);
+
+    AES_KEY* key() LIFETIME_BOUND { return &m_key; }
+private:
+    AES_KEY m_key;
+};
 
 } // namespace WebCore
-
-#endif // ENABLE(WEB_CRYPTO)

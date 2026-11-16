@@ -25,8 +25,9 @@
 
 #pragma once
 
-#include <JavaScriptCore/JSGlobalObject.h>
 #include <JavaScriptCore/TypedArrayController.h>
+#include <JavaScriptCore/WeakHandleOwner.h>
+#include <wtf/TypeCasts.h>
 
 namespace JSC {
 class WeakHandleOwner;
@@ -34,21 +35,23 @@ class WeakHandleOwner;
 
 namespace WebCore {
 
-class WebCoreTypedArrayController : public JSC::TypedArrayController {
+class WebCoreTypedArrayController final : public JSC::TypedArrayController {
 public:
     WebCoreTypedArrayController(bool allowAtomicsWait);
     virtual ~WebCoreTypedArrayController();
     
-    JSC::JSArrayBuffer* toJS(JSC::JSGlobalObject*, JSC::JSGlobalObject*, JSC::ArrayBuffer*) override;
-    void registerWrapper(JSC::JSGlobalObject*, ArrayBuffer*, JSC::JSArrayBuffer*) override;
+    JSC::JSArrayBuffer* toJS(JSC::JSGlobalObject*, JSC::JSGlobalObject*, JSC::ArrayBuffer&) override;
+    void registerWrapper(JSC::JSGlobalObject*, JSC::ArrayBuffer&, JSC::JSArrayBuffer&) override;
     bool isAtomicsWaitAllowedOnCurrentThread() override;
 
-    JSC::WeakHandleOwner* wrapperOwner() { return &m_owner; }
+    JSC::WeakHandleOwner* wrapperOwner() LIFETIME_BOUND { return &m_owner; }
 
 private:
+    bool isWebCoreTypedArrayController() const final { return true; }
+
     class JSArrayBufferOwner : public JSC::WeakHandleOwner {
     public:
-        bool isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown>, void* context, JSC::AbstractSlotVisitor&, const char**) override;
+        bool isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown>, void* context, JSC::AbstractSlotVisitor&, ASCIILiteral*) override;
         void finalize(JSC::Handle<JSC::Unknown>, void* context) override;
     };
 
@@ -57,3 +60,7 @@ private:
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::WebCoreTypedArrayController)
+    static bool isType(const JSC::TypedArrayController& controller) { return controller.isWebCoreTypedArrayController(); }
+SPECIALIZE_TYPE_TRAITS_END()

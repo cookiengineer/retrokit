@@ -34,6 +34,7 @@
 
 namespace WebCore {
 
+class RenderElement;
 class RenderFragmentedFlow;
 class RenderLayer;
 class RenderLayerModelObject;
@@ -73,15 +74,10 @@ struct RenderGeometryMapStep {
 class RenderGeometryMap {
     WTF_MAKE_NONCOPYABLE(RenderGeometryMap);
 public:
-    explicit RenderGeometryMap(OptionSet<MapCoordinatesMode> = UseTransforms);
+    explicit RenderGeometryMap(OptionSet<MapCoordinatesMode> = MapCoordinatesMode::UseTransforms);
     ~RenderGeometryMap();
 
     OptionSet<MapCoordinatesMode> mapCoordinatesFlags() const { return m_mapCoordinatesFlags; }
-
-    FloatPoint absolutePoint(const FloatPoint& p) const
-    {
-        return mapToContainer(p, nullptr);
-    }
 
     FloatRect absoluteRect(const FloatRect& rect) const
     {
@@ -96,8 +92,8 @@ public:
     
     // Called by code walking the renderer or layer trees.
     void pushMappingsToAncestor(const RenderLayer*, const RenderLayer* ancestorLayer, bool respectTransforms = true);
-    void popMappingsToAncestor(const RenderLayer*);
-    void pushMappingsToAncestor(const RenderObject*, const RenderLayerModelObject* ancestorRenderer);
+    void NODELETE popMappingsToAncestor(const RenderLayer*);
+    void pushMappingsToAncestor(const RenderElement*, const RenderLayerModelObject* ancestorRenderer);
     void popMappingsToAncestor(const RenderLayerModelObject*);
     
     // The following methods should only be called by renderers inside a call to pushMappingsToAncestor().
@@ -114,8 +110,8 @@ public:
 private:
     void mapToContainer(TransformState&, const RenderLayerModelObject* container = nullptr) const;
 
-    void stepInserted(const RenderGeometryMapStep&);
-    void stepRemoved(const RenderGeometryMapStep&);
+    void NODELETE stepInserted(const RenderGeometryMapStep&);
+    void NODELETE stepRemoved(const RenderGeometryMapStep&);
     
     bool hasNonUniformStep() const { return m_nonUniformStepsCount; }
     bool hasTransformStep() const { return m_transformedStepsCount; }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,47 +33,59 @@
 #include "RemoteLegacyCDM.h"
 #include "RemoteLegacyCDMFactoryProxyMessages.h"
 #include "RemoteLegacyCDMSession.h"
+#include "RemoteLegacyCDMSessionMessages.h"
 #include "WebProcess.h"
 #include <WebCore/LegacyCDM.h>
 #include <WebCore/Settings.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 
 using namespace WebCore;
 
-RemoteLegacyCDMFactory::RemoteLegacyCDMFactory(WebProcess& process)
-    : m_process(process)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteLegacyCDMFactory);
+
+RemoteLegacyCDMFactory::RemoteLegacyCDMFactory(WebProcess& webProcess)
+    : m_webProcess(webProcess)
 {
 }
 
 RemoteLegacyCDMFactory::~RemoteLegacyCDMFactory() = default;
 
+void RemoteLegacyCDMFactory::ref() const
+{
+    m_webProcess->ref();
+}
+
+void RemoteLegacyCDMFactory::deref() const
+{
+    m_webProcess->deref();
+}
+
 void RemoteLegacyCDMFactory::registerFactory()
 {
     LegacyCDM::clearFactories();
     LegacyCDM::registerCDMFactory(
-        [weakThis = makeWeakPtr(this)] (LegacyCDM* privateCDM) -> std::unique_ptr<WebCore::CDMPrivateInterface> {
-            if (weakThis)
-                return weakThis->createCDM(privateCDM);
-            return nullptr;
+        [protectedThis = Ref { *this }] (LegacyCDM& privateCDM) -> std::unique_ptr<WebCore::CDMPrivateInterface> {
+            return protectedThis->createCDM(privateCDM);
         },
-        [weakThis = makeWeakPtr(this)] (const String& keySystem) {
-            return weakThis ? weakThis->supportsKeySystem(keySystem) : false;
+        [protectedThis = Ref { *this }] (const String& keySystem) {
+            return protectedThis->supportsKeySystem(keySystem);
         },
-        [weakThis = makeWeakPtr(this)] (const String& keySystem, const String& mimeType) {
-            return weakThis ? weakThis->supportsKeySystemAndMimeType(keySystem, mimeType) : false;
+        [protectedThis = Ref { *this }] (const String& keySystem, const String& mimeType) {
+            return protectedThis->supportsKeySystemAndMimeType(keySystem, mimeType);
         }
     );
 }
 
-const char* RemoteLegacyCDMFactory::supplementName()
+ASCIILiteral RemoteLegacyCDMFactory::supplementName()
 {
-    return "RemoteLegacyCDMFactory";
+    return "RemoteLegacyCDMFactory"_s;
 }
 
 GPUProcessConnection& RemoteLegacyCDMFactory::gpuProcessConnection()
 {
-    return m_process.ensureGPUProcessConnection();
+    return WebProcess::singleton().ensureGPUProcessConnection();
 }
 
 bool RemoteLegacyCDMFactory::supportsKeySystem(const String& keySystem)
@@ -82,8 +94,8 @@ bool RemoteLegacyCDMFactory::supportsKeySystem(const String& keySystem)
     if (foundInCache != m_supportsKeySystemCache.end())
         return foundInCache->value;
 
-    bool supported = false;
-    gpuProcessConnection().connection().sendSync(Messages::RemoteLegacyCDMFactoryProxy::SupportsKeySystem(keySystem, std::nullopt), Messages::RemoteLegacyCDMFactoryProxy::SupportsKeySystem::Reply(supported), { });
+    auto sendResult = gpuProcessConnection().connection().sendSync(Messages::RemoteLegacyCDMFactoryProxy::SupportsKeySystem(keySystem, std::nullopt), { });
+    auto [supported] = sendResult.takeReplyOr(false);
     m_supportsKeySystemCache.set(keySystem, supported);
     return supported;
 }
@@ -95,42 +107,46 @@ bool RemoteLegacyCDMFactory::supportsKeySystemAndMimeType(const String& keySyste
     if (foundInCache != m_supportsKeySystemAndMimeTypeCache.end())
         return foundInCache->value;
 
-    bool supported = false;
-    gpuProcessConnection().connection().sendSync(Messages::RemoteLegacyCDMFactoryProxy::SupportsKeySystem(keySystem, mimeType), Messages::RemoteLegacyCDMFactoryProxy::SupportsKeySystem::Reply(supported), { });
+    auto sendResult = gpuProcessConnection().connection().sendSync(Messages::RemoteLegacyCDMFactoryProxy::SupportsKeySystem(keySystem, mimeType), { });
+    auto [supported] = sendResult.takeReplyOr(false);
     m_supportsKeySystemAndMimeTypeCache.set(key, supported);
     return supported;
 }
 
-std::unique_ptr<CDMPrivateInterface> RemoteLegacyCDMFactory::createCDM(WebCore::LegacyCDM* cdm)
+std::unique_ptr<CDMPrivateInterface> RemoteLegacyCDMFactory::createCDM(WebCore::LegacyCDM& cdm)
 {
-    if (!cdm) {
-        ASSERT_NOT_REACHED();
-        return nullptr;
-    }
-
     std::optional<MediaPlayerIdentifier> playerId;
-    if (auto player = cdm->mediaPlayer())
-        playerId = gpuProcessConnection().mediaPlayerManager().findRemotePlayerId(player->playerPrivate());
+    Ref gpuProcessConnection = this->gpuProcessConnection();
+    if (auto player = cdm.mediaPlayer())
+        playerId = protect(gpuProcessConnection->mediaPlayerManager())->findRemotePlayerId(protect(player->playerPrivate()));
 
-    RemoteLegacyCDMIdentifier identifier;
-    gpuProcessConnection().connection().sendSync(Messages::RemoteLegacyCDMFactoryProxy::CreateCDM(cdm->keySystem(), WTFMove(playerId)), Messages::RemoteLegacyCDMFactoryProxy::CreateCDM::Reply(identifier), { });
+    auto sendResult = gpuProcessConnection->connection().sendSync(Messages::RemoteLegacyCDMFactoryProxy::CreateCDM(cdm.keySystem(), WTF::move(playerId)), { });
+    auto [identifier] = sendResult.takeReplyOr(std::nullopt);
     if (!identifier)
         return nullptr;
-    auto remoteCDM = RemoteLegacyCDM::create(makeWeakPtr(this), identifier);
-    m_cdms.set(identifier, makeWeakPtr(remoteCDM.get()));
-    return remoteCDM;
+    auto remoteCDM = makeUniqueRefWithoutRefCountedCheck<RemoteLegacyCDM>(*this, *identifier);
+    m_cdms.set(*identifier, Ref { remoteCDM.get() }.get());
+    return remoteCDM.moveToUniquePtr();
 }
 
-void RemoteLegacyCDMFactory::addSession(RemoteLegacyCDMSessionIdentifier identifier, std::unique_ptr<RemoteLegacyCDMSession>&& session)
+void RemoteLegacyCDMFactory::addSession(RemoteLegacyCDMSessionIdentifier identifier, RemoteLegacyCDMSession& session)
 {
     ASSERT(!m_sessions.contains(identifier));
-    m_sessions.set(identifier, WTFMove(session));
+    m_sessions.set(identifier, WeakPtr { session });
+
+    gpuProcessConnection().messageReceiverMap().addMessageReceiver(Messages::RemoteLegacyCDMSession::messageReceiverName(), identifier.toUInt64(), session);
 }
 
 void RemoteLegacyCDMFactory::removeSession(RemoteLegacyCDMSessionIdentifier identifier)
 {
     ASSERT(m_sessions.contains(identifier));
-    m_sessions.remove(identifier);
+    RefPtr session = m_sessions.get(identifier);
+    gpuProcessConnection().connection().sendWithAsyncReply(Messages::RemoteLegacyCDMFactoryProxy::RemoveSession(identifier), [protectedThis = Ref { *this }, identifier, session = WTF::move(session)] {
+        ASSERT(protectedThis->m_sessions.contains(identifier));
+        protectedThis->m_sessions.remove(identifier);
+        protectedThis->gpuProcessConnection().messageReceiverMap().removeMessageReceiver(Messages::RemoteLegacyCDMSession::messageReceiverName(), identifier.toUInt64());
+        UNUSED_PARAM(session);
+    }, { });
 }
 
 RemoteLegacyCDM* RemoteLegacyCDMFactory::findCDM(CDMPrivateInterface* privateInterface) const
@@ -140,12 +156,6 @@ RemoteLegacyCDM* RemoteLegacyCDMFactory::findCDM(CDMPrivateInterface* privateInt
             return cdm.get();
     }
     return nullptr;
-}
-
-void RemoteLegacyCDMFactory::didReceiveSessionMessage(IPC::Connection& connection, IPC::Decoder& decoder)
-{
-    if (auto* session = m_sessions.get(makeObjectIdentifier<RemoteLegacyCDMSessionIdentifierType>(decoder.destinationID())))
-        session->didReceiveMessage(connection, decoder);
 }
 
 }

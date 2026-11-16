@@ -28,13 +28,15 @@
 #if ENABLE(INSPECTOR_EXTENSIONS)
 
 #include "Connection.h"
-#include "DataReference.h"
 #include "InspectorExtensionTypes.h"
 #include "MessageReceiver.h"
+#include <WebCore/FrameIdentifier.h>
 #include <WebCore/InspectorFrontendAPIDispatcher.h>
 #include <WebCore/PageIdentifier.h>
 #include <wtf/Forward.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/RefCounted.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/URL.h>
 #include <wtf/WeakPtr.h>
 
@@ -52,32 +54,47 @@ namespace WebKit {
 class WebInspectorUI;
 
 class WebInspectorUIExtensionController
-    : public IPC::MessageReceiver {
-    WTF_MAKE_FAST_ALLOCATED;
+    : public IPC::MessageReceiver
+    , public RefCounted<WebInspectorUIExtensionController> {
+    WTF_MAKE_TZONE_ALLOCATED(WebInspectorUIExtensionController);
     WTF_MAKE_NONCOPYABLE(WebInspectorUIExtensionController);
 public:
-    explicit WebInspectorUIExtensionController(WebCore::InspectorFrontendClient&);
+    static Ref<WebInspectorUIExtensionController> create(WebCore::InspectorFrontendClient& inspectorFrontend, WebCore::PageIdentifier pageIdentifier)
+    {
+        return adoptRef(*new WebInspectorUIExtensionController(inspectorFrontend, pageIdentifier));
+    }
+
     ~WebInspectorUIExtensionController();
+
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
 
     // Implemented in generated WebInspectorUIExtensionControllerMessageReceiver.cpp
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
 
     // WebInspectorUIExtensionController IPC messages.
-    void registerExtension(const Inspector::ExtensionID&, const String& displayName, CompletionHandler<void(Expected<bool, Inspector::ExtensionError>)>&&);
-    void unregisterExtension(const Inspector::ExtensionID&, CompletionHandler<void(Expected<bool, Inspector::ExtensionError>)>&&);
+    void registerExtension(const Inspector::ExtensionID&, const String& extensionBundleIdentifier, const String& displayName, CompletionHandler<void(Expected<void, Inspector::ExtensionError>)>&&);
+    void unregisterExtension(const Inspector::ExtensionID&, CompletionHandler<void(Expected<void, Inspector::ExtensionError>)>&&);
     void createTabForExtension(const Inspector::ExtensionID&, const String& tabName, const URL& tabIconURL, const URL& sourceURL, CompletionHandler<void(Expected<Inspector::ExtensionTabID, Inspector::ExtensionError>)>&&);
-    void evaluateScriptForExtension(const Inspector::ExtensionID&, const String& scriptSource, const std::optional<URL>& frameURL, const std::optional<URL>& contextSecurityOrigin, const std::optional<bool>& useContentScriptContext, CompletionHandler<void(const IPC::DataReference&, const std::optional<WebCore::ExceptionDetails>&, const std::optional<Inspector::ExtensionError>&)>&&);
+    void evaluateScriptForExtension(const Inspector::ExtensionID&, const String& scriptSource, const std::optional<URL>& frameURL, const std::optional<URL>& contextSecurityOrigin, const std::optional<bool>& useContentScriptContext, CompletionHandler<void(Expected<WebKit::JavaScriptEvaluationResult, std::optional<WebCore::ExceptionDetails>>&&, const std::optional<Inspector::ExtensionError>&)>&&);
     void reloadForExtension(const Inspector::ExtensionID&, const std::optional<bool>& ignoreCache, const std::optional<String>& userAgent, const std::optional<String>& injectedScript, CompletionHandler<void(const std::optional<Inspector::ExtensionError>&)>&&);
+    void showExtensionTab(const Inspector::ExtensionTabID&, CompletionHandler<void(Expected<void, Inspector::ExtensionError>)>&&);
+    void navigateTabForExtension(const Inspector::ExtensionTabID&, const URL& sourceURL, CompletionHandler<void(const std::optional<Inspector::ExtensionError>&)>&&);
+
+    // WebInspectorUIExtensionController IPC messages for testing.
+    void evaluateScriptInExtensionTab(const Inspector::ExtensionTabID&, const String& scriptSource, CompletionHandler<void(Expected<JavaScriptEvaluationResult, std::optional<WebCore::ExceptionDetails>>&&, const std::optional<Inspector::ExtensionError>&)>&&);
 
     // Callbacks from the frontend.
-#if ENABLE(INSPECTOR_EXTENSIONS)
-    void didShowExtensionTab(const Inspector::ExtensionID&, const Inspector::ExtensionTabID&);
+    void didShowExtensionTab(const Inspector::ExtensionID&, const Inspector::ExtensionTabID&, WebCore::FrameIdentifier);
     void didHideExtensionTab(const Inspector::ExtensionID&, const Inspector::ExtensionTabID&);
-#endif
+    void didNavigateExtensionTab(const Inspector::ExtensionID&, const Inspector::ExtensionTabID&, const URL&);
+    void inspectedPageDidNavigate(const URL&);
 
 private:
-    JSC::JSObject* unwrapEvaluationResultAsObject(WebCore::InspectorFrontendAPIDispatcher::EvaluationResult);
-    std::optional<Inspector::ExtensionError> parseExtensionErrorFromEvaluationResult(WebCore::InspectorFrontendAPIDispatcher::EvaluationResult);
+    WebInspectorUIExtensionController(WebCore::InspectorFrontendClient&, WebCore::PageIdentifier);
+
+    JSC::JSObject* unwrapEvaluationResultAsObject(WebCore::InspectorFrontendAPIDispatcher::EvaluationResult) const;
+    std::optional<Inspector::ExtensionError> parseExtensionErrorFromEvaluationResult(WebCore::InspectorFrontendAPIDispatcher::EvaluationResult) const;
 
     WeakPtr<WebCore::InspectorFrontendClient> m_frontendClient;
     WebCore::PageIdentifier m_inspectorPageIdentifier;

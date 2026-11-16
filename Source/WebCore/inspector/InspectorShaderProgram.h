@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc.  All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,31 +28,21 @@
 #if ENABLE(WEBGL)
 
 #include <JavaScriptCore/InspectorProtocolObjects.h>
-#include <wtf/Forward.h>
-#include <wtf/RefCounted.h>
-#include <wtf/Variant.h>
+#include <wtf/Ref.h>
+#include <wtf/WeakRef.h>
 
 namespace WebCore {
 
 class InspectorCanvas;
-
-#if ENABLE(WEBGL)
 class WebGLProgram;
-class WebGLRenderingContextBase;
-#endif
 
 class InspectorShaderProgram final : public RefCounted<InspectorShaderProgram> {
 public:
-#if ENABLE(WEBGL)
     static Ref<InspectorShaderProgram> create(WebGLProgram&, InspectorCanvas&);
-#endif
 
-    const String& identifier() const { return m_identifier; }
+    const String& identifier() const LIFETIME_BOUND { return m_identifier; }
     InspectorCanvas& canvas() const { return m_canvas; }
-
-#if ENABLE(WEBGL)
-    WebGLProgram* program() const;
-#endif
+    WebGLProgram& program() const { return m_program; }
 
     String requestShaderSource(Inspector::Protocol::Canvas::ShaderType);
     bool updateShader(Inspector::Protocol::Canvas::ShaderType, const String& source);
@@ -66,20 +56,11 @@ public:
     Ref<Inspector::Protocol::Canvas::ShaderProgram> buildObjectForShaderProgram();
 
 private:
-#if ENABLE(WEBGL)
     InspectorShaderProgram(WebGLProgram&, InspectorCanvas&);
-#endif
 
     String m_identifier;
-    InspectorCanvas& m_canvas;
-
-    Variant<
-#if ENABLE(WEBGL)
-        std::reference_wrapper<WebGLProgram>,
-#endif
-        WTF::Monostate
-    > m_program;
-
+    WeakRef<InspectorCanvas> m_canvas;
+    WeakRef<WebGLProgram> m_program;
     bool m_disabled { false };
     bool m_highlighted { false };
 };

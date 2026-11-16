@@ -34,7 +34,7 @@ namespace TextNodeTraversal {
 
 void appendContents(const ContainerNode& root, StringBuilder& result)
 {
-    for (Text* text = TextNodeTraversal::firstWithin(root); text; text = TextNodeTraversal::next(*text, &root))
+    for (RefPtr text = TextNodeTraversal::firstWithin(root); text; text = TextNodeTraversal::next(*text, &root))
         result.append(text->data());
 }
 
@@ -47,17 +47,17 @@ String contentsAsString(const ContainerNode& root)
 
 String contentsAsString(const Node& root)
 {
-    if (is<Text>(root))
-        return downcast<Text>(root).data();
-    if (is<ContainerNode>(root))
-        return contentsAsString(downcast<ContainerNode>(root));
+    if (auto text = dynamicDowncast<Text>(root))
+        return text->data();
+    if (auto containerNode = dynamicDowncast<ContainerNode>(root))
+        return contentsAsString(*containerNode);
     return String();
 }
 
 String childTextContent(const ContainerNode& root)
 {
     StringBuilder result;
-    for (Text* text = TextNodeTraversal::firstChild(root); text; text = TextNodeTraversal::nextSibling(*text))
+    for (RefPtr text = TextNodeTraversal::firstChild(root); text; text = TextNodeTraversal::nextSibling(*text))
         result.append(text->data());
     return result.toString();
 }

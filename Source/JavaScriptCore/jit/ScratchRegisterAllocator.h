@@ -25,10 +25,12 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if ENABLE(JIT)
 
-#include "RegisterSet.h"
-#include "TempRegisterSet.h"
+#include <JavaScriptCore/FPRInfo.h>
+#include <JavaScriptCore/RegisterSet.h>
 
 namespace JSC {
 
@@ -39,19 +41,19 @@ struct ScratchBuffer;
 
 class ScratchRegisterAllocator {
 public:
-    ScratchRegisterAllocator() { }
+    ScratchRegisterAllocator() = default;
     ScratchRegisterAllocator(const RegisterSet& usedRegisters);
     ~ScratchRegisterAllocator();
 
-    void lock(GPRReg);
+    void NODELETE lock(GPRReg);
     void lock(FPRReg);
     void lock(JSValueRegs);
     
     template<typename BankInfo>
-    typename BankInfo::RegisterType allocateScratch();
+    typename BankInfo::RegisterType NODELETE allocateScratch();
     
-    GPRReg allocateScratchGPR();
-    FPRReg allocateScratchFPR();
+    GPRReg NODELETE allocateScratchGPR();
+    FPRReg NODELETE allocateScratchFPR();
     
     bool didReuseRegisters() const
     {
@@ -86,19 +88,15 @@ public:
 
     PreservedState preserveReusedRegistersByPushing(AssemblyHelpers& jit, ExtraStackSpace);
     void restoreReusedRegistersByPopping(AssemblyHelpers& jit, const PreservedState&);
-    
-    RegisterSet usedRegistersForCall() const;
-    
-    unsigned desiredScratchBufferSizeForCall() const;
 
     static unsigned preserveRegistersToStackForCall(AssemblyHelpers& jit, const RegisterSet& usedRegisters, unsigned extraPaddingInBytes);
     static void restoreRegistersFromStackForCall(AssemblyHelpers& jit, const RegisterSet& usedRegisters, const RegisterSet& ignore, unsigned numberOfStackBytesUsedForRegisterPreservation, unsigned extraPaddingInBytes);
 
 private:
-    RegisterSet m_usedRegisters;
-    TempRegisterSet m_lockedRegisters;
-    TempRegisterSet m_scratchRegisters;
-    unsigned m_numberOfReusedRegisters;
+    RegisterSet m_usedRegisters { };
+    RegisterSet m_scratchRegisters { };
+    ScalarRegisterSet m_lockedRegisters { };
+    unsigned m_numberOfReusedRegisters { 0 };
 };
 
 } // namespace JSC

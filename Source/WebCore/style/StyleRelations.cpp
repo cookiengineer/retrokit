@@ -28,17 +28,15 @@
 
 #include "Element.h"
 #include "NodeRenderStyle.h"
-#include "RenderStyle.h"
+#include "StyleComputedStyle+GettersInlines.h"
+#include "StyleComputedStyle+SettersInlines.h"
 #include "StyleUpdate.h"
 
 namespace WebCore {
 namespace Style {
 
-std::unique_ptr<Relations> commitRelationsToRenderStyle(RenderStyle& style, const Element& element, const Relations& relations)
+std::unique_ptr<Relations> commitRelationsToRenderStyle(Style::ComputedStyle& style, const Element& element, const Relations& relations)
 {
-    if (!relations.isEmpty())
-        style.setUnique();
-
     std::unique_ptr<Relations> remainingRelations;
 
     auto appendStyleRelation = [&remainingRelations] (const Relation& relation) {
@@ -54,7 +52,6 @@ std::unique_ptr<Relations> commitRelationsToRenderStyle(RenderStyle& style, cons
         }
         switch (relation.type) {
         case Relation::AffectedByEmpty:
-            style.setEmptyState(relation.value);
             appendStyleRelation(relation);
             break;
         case Relation::FirstChild:
@@ -62,8 +59,6 @@ std::unique_ptr<Relations> commitRelationsToRenderStyle(RenderStyle& style, cons
             break;
         case Relation::LastChild:
             style.setLastChildState();
-            break;
-        case Relation::Unique:
             break;
         case Relation::AffectedByPreviousSibling:
         case Relation::DescendantsAffectedByPreviousSibling:
@@ -73,9 +68,11 @@ std::unique_ptr<Relations> commitRelationsToRenderStyle(RenderStyle& style, cons
         case Relation::ChildrenAffectedByBackwardPositionalRules:
         case Relation::DescendantsAffectedByBackwardPositionalRules:
         case Relation::ChildrenAffectedByFirstChildRules:
-        case Relation::ChildrenAffectedByPropertyBasedBackwardPositionalRules:
         case Relation::ChildrenAffectedByLastChildRules:
         case Relation::NthChildIndex:
+        case Relation::AffectedByHasWithBackwardSiblingRelationship:
+        case Relation::AffectedByHasWithForwardSiblingRelationship:
+        case Relation::AffectedByHasWithAdjacentSiblingRelationship:
             appendStyleRelation(relation);
             break;
         }
@@ -88,44 +85,49 @@ void commitRelations(std::unique_ptr<Relations> relations, Update& update)
     if (!relations)
         return;
     for (auto& relation : *relations) {
-        auto& element = const_cast<Element&>(*relation.element);
+        Ref element = const_cast<Element&>(*relation.element);
         switch (relation.type) {
         case Relation::AffectedByEmpty:
-            element.setStyleAffectedByEmpty();
+            element->setStyleAffectedByEmpty();
             break;
         case Relation::AffectedByPreviousSibling:
-            element.setStyleIsAffectedByPreviousSibling();
+            element->setStyleIsAffectedByPreviousSibling();
             break;
         case Relation::DescendantsAffectedByPreviousSibling:
-            element.setDescendantsAffectedByPreviousSibling();
+            element->setDescendantsAffectedByPreviousSibling();
             break;
         case Relation::AffectsNextSibling: {
-            auto* sibling = &element;
+            auto* sibling = element.ptr();
             for (unsigned i = 0; i < relation.value && sibling; ++i, sibling = sibling->nextElementSibling())
                 sibling->setAffectsNextSiblingElementStyle();
             break;
         }
         case Relation::ChildrenAffectedByForwardPositionalRules:
-            element.setChildrenAffectedByForwardPositionalRules();
+            element->setChildrenAffectedByForwardPositionalRules();
             break;
         case Relation::DescendantsAffectedByForwardPositionalRules:
-            element.setDescendantsAffectedByForwardPositionalRules();
+            element->setDescendantsAffectedByForwardPositionalRules();
             break;
         case Relation::ChildrenAffectedByBackwardPositionalRules:
-            element.setChildrenAffectedByBackwardPositionalRules();
+            element->setChildrenAffectedByBackwardPositionalRules();
             break;
         case Relation::DescendantsAffectedByBackwardPositionalRules:
-            element.setDescendantsAffectedByBackwardPositionalRules();
+            element->setDescendantsAffectedByBackwardPositionalRules();
             break;
         case Relation::ChildrenAffectedByFirstChildRules:
-            element.setChildrenAffectedByFirstChildRules();
-            break;
-        case Relation::ChildrenAffectedByPropertyBasedBackwardPositionalRules:
-            element.setChildrenAffectedByBackwardPositionalRules();
-            element.setChildrenAffectedByPropertyBasedBackwardPositionalRules();
+            element->setChildrenAffectedByFirstChildRules();
             break;
         case Relation::ChildrenAffectedByLastChildRules:
-            element.setChildrenAffectedByLastChildRules();
+            element->setChildrenAffectedByLastChildRules();
+            break;
+        case Relation::AffectedByHasWithBackwardSiblingRelationship:
+            element->setAffectedByHasWithBackwardSiblingRelationship();
+            break;
+        case Relation::AffectedByHasWithForwardSiblingRelationship:
+            element->setAffectedByHasWithForwardSiblingRelationship();
+            break;
+        case Relation::AffectedByHasWithAdjacentSiblingRelationship:
+            element->setAffectedByHasWithAdjacentSiblingRelationship();
             break;
         case Relation::FirstChild:
             if (auto* style = update.elementStyle(element))
@@ -136,16 +138,18 @@ void commitRelations(std::unique_ptr<Relations> relations, Update& update)
                 style->setLastChildState();
             break;
         case Relation::NthChildIndex:
-            if (auto* style = update.elementStyle(element))
-                style->setUnique();
-            element.setChildIndex(relation.value);
-            break;
-        case Relation::Unique:
-            if (auto* style = update.elementStyle(element))
-                style->setUnique();
+            element->setChildIndex(relation.value);
             break;
         }
     }
+}
+
+void copyRelations(Style::ComputedStyle& to, const Style::ComputedStyle& from)
+{
+    if (from.firstChildState())
+        to.setFirstChildState();
+    if (from.lastChildState())
+        to.setLastChildState();
 }
 
 }

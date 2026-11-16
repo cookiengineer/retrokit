@@ -28,8 +28,8 @@
 
 #include "CachedResource.h"
 #include "DocumentLoadTiming.h"
+#include "OriginAccessPatterns.h"
 #include "PerformanceServerTiming.h"
-#include "RuntimeEnabledFeatures.h"
 #include "SecurityOrigin.h"
 #include "ServerTimingParser.h"
 #include <wtf/CrossThreadCopier.h>
@@ -51,32 +51,80 @@ ResourceTiming ResourceTiming::fromSynchronousLoad(const URL& url, const String&
     return ResourceTiming(url, initiator, loadTiming, networkLoadMetrics, response, securityOrigin);
 }
 
-ResourceTiming::ResourceTiming(const URL& url, const String& initiator, const ResourceLoadTiming& timing, const NetworkLoadMetrics& networkLoadMetrics, const ResourceResponse& response, const SecurityOrigin&)
+ResourceTiming::ResourceTiming(const URL& url, const String& initiatorType, const ResourceLoadTiming& timing, const NetworkLoadMetrics& networkLoadMetrics, const ResourceResponse& response, const SecurityOrigin& origin)
     : m_url(url)
-    , m_initiator(initiator)
+    , m_initiatorType(initiatorType)
     , m_resourceLoadTiming(timing)
     , m_networkLoadMetrics(networkLoadMetrics)
+    , m_serverTiming(ServerTimingParser::parseServerTiming(response.httpHeaderField(HTTPHeaderName::ServerTiming)))
+    , m_isLoadedFromServiceWorker(response.source() == ResourceResponse::Source::ServiceWorker)
+    , m_isSameOriginRequest(!m_networkLoadMetrics.hasCrossOriginRedirect
+        && origin.protocol() == url.protocol()
+        && origin.host() == url.host()
+        && origin.port() == url.port())
 {
-    if (RuntimeEnabledFeatures::sharedFeatures().serverTimingEnabled() && !m_networkLoadMetrics.failsTAOCheck)
-        m_serverTiming = ServerTimingParser::parseServerTiming(response.httpHeaderField(HTTPHeaderName::ServerTiming));
+}
+
+ResourceTiming::ResourceTiming(URL&& url, String&& initiatorType, ResourceLoadTiming&& resourceLoadTiming, NetworkLoadMetrics&& networkLoadMetrics, Vector<ServerTiming>&& serverTiming, bool isLoadedFromServiceWorker, bool isSameOriginRequest)
+    : m_url(WTF::move(url))
+    , m_initiatorType(WTF::move(initiatorType))
+    , m_resourceLoadTiming(WTF::move(resourceLoadTiming))
+    , m_networkLoadMetrics(WTF::move(networkLoadMetrics))
+    , m_serverTiming(WTF::move(serverTiming))
+    , m_isLoadedFromServiceWorker(isLoadedFromServiceWorker)
+    , m_isSameOriginRequest(isSameOriginRequest)
+{
+}
+
+void ResourceTiming::updateExposure(const SecurityOrigin& origin)
+{
+    m_isSameOriginRequest = m_isSameOriginRequest && origin.canRequest(m_url, OriginAccessPatternsForWebProcess::singleton());
+}
+
+String ResourceTiming::deliveryType() const
+{
+    if (m_networkLoadMetrics.fromPrefetch)
+        return "navigational-prefetch"_s;
+    if (m_networkLoadMetrics.fromCache)
+        return "cache"_s;
+    return emptyString();
 }
 
 Vector<Ref<PerformanceServerTiming>> ResourceTiming::populateServerTiming() const
 {
+    // To increase privacy, this additional check was proposed at https://github.com/w3c/resource-timing/issues/342 .
+    if (!m_isSameOriginRequest)
+        return { };
+
     return WTF::map(m_serverTiming, [] (auto& entry) {
         return PerformanceServerTiming::create(String(entry.name), entry.duration, String(entry.description));
     });
 }
 
-ResourceTiming ResourceTiming::isolatedCopy() const
+ResourceTiming ResourceTiming::isolatedCopy() const &
 {
-    return ResourceTiming(
+    return ResourceTiming {
         m_url.isolatedCopy(),
-        m_initiator.isolatedCopy(),
+        m_initiatorType.isolatedCopy(),
         m_resourceLoadTiming.isolatedCopy(),
         m_networkLoadMetrics.isolatedCopy(),
-        crossThreadCopy(m_serverTiming)
-    );
+        crossThreadCopy(m_serverTiming),
+        m_isLoadedFromServiceWorker,
+        m_isSameOriginRequest
+    };
+}
+
+ResourceTiming ResourceTiming::isolatedCopy() &&
+{
+    return ResourceTiming {
+        WTF::move(m_url).isolatedCopy(),
+        WTF::move(m_initiatorType).isolatedCopy(),
+        WTF::move(m_resourceLoadTiming).isolatedCopy(),
+        WTF::move(m_networkLoadMetrics).isolatedCopy(),
+        crossThreadCopy(WTF::move(m_serverTiming)),
+        m_isLoadedFromServiceWorker,
+        m_isSameOriginRequest
+    };
 }
 
 } // namespace WebCore

@@ -26,34 +26,77 @@
 #include "config.h"
 #include "WebKitInitialize.h"
 
+#include "RemoteInspectorHTTPServer.h"
 #include "WebKit2Initialize.h"
+#include <JavaScriptCore/RemoteInspector.h>
 #include <JavaScriptCore/RemoteInspectorServer.h>
+#include <limits>
 #include <mutex>
+#include <skia/core/SkGraphics.h>
+#include <wtf/glib/GRefPtr.h>
 #include <wtf/glib/GUniquePtr.h>
+#include <wtf/text/StringToIntegerConversion.h>
+
+#if USE(SYSPROF_CAPTURE)
+#include <wtf/SystemTracing.h>
+#endif
 
 namespace WebKit {
 
 #if ENABLE(REMOTE_INSPECTOR)
-static void initializeRemoteInspectorServer(const char* address)
+static void initializeRemoteInspectorServer()
 {
+    const char* address = g_getenv("WEBKIT_INSPECTOR_SERVER");
+    const char* httpAddress = g_getenv("WEBKIT_INSPECTOR_HTTP_SERVER");
+    if (!address && !httpAddress)
+        return;
+
     if (Inspector::RemoteInspectorServer::singleton().isRunning())
         return;
 
-    if (!address[0])
+    auto parseAddress = [](const char* address) -> GRefPtr<GSocketAddress> {
+        if (!address || !address[0])
+            return nullptr;
+
+        auto inspectorAddress = StringView::fromLatin1(address);
+        auto hostLength = inspectorAddress.reverseFind(':');
+        if (!hostLength || hostLength == notFound)
+            return nullptr;
+        auto portString = inspectorAddress.substring(hostLength + 1);
+        auto port = parseInteger<uint16_t>(portString, 10, WTF::ParseIntegerWhitespacePolicy::Disallow);
+
+        if (!port || !*port)
+            return nullptr;
+
+        auto ipAddress = inspectorAddress.left(hostLength);
+
+        if (ipAddress[0] == '[' && ipAddress[hostLength - 1] == ']') {
+            // Strip the square brackets.
+            ipAddress = ipAddress.substring(1, hostLength - 2);
+        }
+
+        return adoptGRef(g_inet_socket_address_new_from_string(ipAddress.toString().utf8().data(), *port));
+    };
+
+    auto inspectorHTTPAddress = parseAddress(httpAddress);
+    GRefPtr<GSocketAddress> inspectorAddress;
+    if (inspectorHTTPAddress)
+        inspectorAddress = adoptGRef(G_SOCKET_ADDRESS(g_inet_socket_address_new(g_inet_socket_address_get_address(G_INET_SOCKET_ADDRESS(inspectorHTTPAddress.get())), 0)));
+    else
+        inspectorAddress = parseAddress(address);
+    if (!inspectorHTTPAddress && !inspectorAddress) {
+        g_warning("Failed to start remote inspector server on %s: invalid address", address ? address : httpAddress);
+        return;
+    }
+
+    if (!Inspector::RemoteInspectorServer::singleton().start(WTF::move(inspectorAddress)))
         return;
 
-    GUniquePtr<char> inspectorAddress(g_strdup(address));
-    char* portPtr = g_strrstr(inspectorAddress.get(), ":");
-    if (!portPtr)
-        return;
-
-    *portPtr = '\0';
-    portPtr++;
-    guint64 port = g_ascii_strtoull(portPtr, nullptr, 10);
-    if (!port)
-        return;
-
-    Inspector::RemoteInspectorServer::singleton().start(inspectorAddress.get(), port);
+    if (inspectorHTTPAddress) {
+        if (RemoteInspectorHTTPServer::singleton().start(WTF::move(inspectorHTTPAddress), Inspector::RemoteInspectorServer::singleton().port()))
+            Inspector::RemoteInspector::setInspectorServerAddress(RemoteInspectorHTTPServer::singleton().inspectorServerAddress().utf8());
+    } else
+        Inspector::RemoteInspector::setInspectorServerAddress(address);
 }
 #endif
 
@@ -62,10 +105,15 @@ void webkitInitialize()
     static std::once_flag onceFlag;
 
     std::call_once(onceFlag, [] {
+#if USE(SYSPROF_CAPTURE)
+        SysprofAnnotator::createIfNeeded("WebKit (UI)"_s);
+#endif
         InitializeWebKit2();
+
+        SkGraphics::Init();
+
 #if ENABLE(REMOTE_INSPECTOR)
-        if (const char* address = g_getenv("WEBKIT_INSPECTOR_SERVER"))
-            initializeRemoteInspectorServer(address);
+        initializeRemoteInspectorServer();
 #endif
     });
 }

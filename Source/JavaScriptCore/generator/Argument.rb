@@ -54,10 +54,6 @@ class Argument
         Fits::check size, @name, @type
     end
 
-    def fits_write(size)
-        Fits::write size, @name, @type
-    end
-
     def assert_fits(size)
         "ASSERT((#{fits_check size}));"
     end
@@ -71,9 +67,9 @@ class Argument
     template<typename Functor>
     void set#{capitalized_name}(#{@type.to_s} value, Functor func)
     {
-        if (isWide32<#{traits}>())
+        if (isWide32())
             set#{capitalized_name}<OpcodeSize::Wide32>(value, func);
-        else if (isWide16<#{traits}>())
+        else if (isWide16())
             set#{capitalized_name}<OpcodeSize::Wide16>(value, func);
         else
             set#{capitalized_name}<OpcodeSize::Narrow>(value, func);
@@ -84,7 +80,7 @@ class Argument
     {
         if (!#{Fits::check "size", "value", @type})
             value = func();
-        auto* stream = bitwise_cast<typename TypeBySize<size>::unsignedType*>(reinterpret_cast<uint8_t*>(this) + #{@index} * size + PaddingBySize<size>::value + /* Opcode size */ 1);
+        auto* stream = std::bit_cast<typename TypeBySize<size>::unsignedType*>(reinterpret_cast<uint8_t*>(this) + #{@index} * size + PaddingBySize<size>::value + OpcodeIDWidthBySize<#{traits}, size>::opcodeIDSize);
         *stream = #{Fits::convert "size", "value", @type};
     }
 EOF

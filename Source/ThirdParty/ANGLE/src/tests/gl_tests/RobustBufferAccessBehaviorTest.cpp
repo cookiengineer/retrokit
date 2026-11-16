@@ -10,6 +10,7 @@
 #include "test_utils/ANGLETest.h"
 #include "test_utils/gl_raii.h"
 #include "util/EGLWindow.h"
+#include "util/OSWindow.h"
 
 #include <array>
 
@@ -18,33 +19,77 @@ using namespace angle;
 namespace
 {
 
-class RobustBufferAccessBehaviorTest : public ANGLETest
+class RobustBufferAccessBehaviorTest : public ANGLETest<>
 {
   protected:
-    RobustBufferAccessBehaviorTest() : mProgram(0), mTestAttrib(-1)
+    RobustBufferAccessBehaviorTest()
     {
         setWindowWidth(128);
         setWindowHeight(128);
-        setConfigRedBits(8);
-        setConfigGreenBits(8);
-        setConfigBlueBits(8);
-        setConfigAlphaBits(8);
-
-        // Test flakiness was noticed when reusing displays.
-        forceNewDisplay();
     }
 
-    void testTearDown() override { glDeleteProgram(mProgram); }
+    void testTearDown() override
+    {
+        glDeleteProgram(mProgram);
+        EGLWindow::Delete(&mEGLWindow);
+        OSWindow::Delete(&mOSWindow);
+    }
 
     bool initExtension()
     {
-        EGLWindow *window  = getEGLWindow();
-        EGLDisplay display = window->getDisplay();
+        mOSWindow = OSWindow::New();
+        if (!mOSWindow->initialize("RobustBufferAccessBehaviorTest", getWindowWidth(),
+                                   getWindowHeight()))
+        {
+            return false;
+        }
+        setWindowVisible(mOSWindow, shouldShowWindow());
+
+        Library *driverLib = ANGLETestEnvironment::GetDriverLibrary(getDriverType());
+
+        if (!driverLib)
+        {
+            std::cout << "Error: Failed to load driver library!";
+            return false;
+        }
+
+        const PlatformParameters &params = GetParam();
+        mEGLWindow                       = EGLWindow::New(params.majorVersion, params.minorVersion);
+        if (!mEGLWindow->initializeDisplay(mOSWindow, driverLib, GLESDriverType::AngleEGL,
+                                           GetParam().eglParameters))
+        {
+            return false;
+        }
+
+        EGLDisplay display = mEGLWindow->getDisplay();
         if (!IsEGLDisplayExtensionEnabled(display, "EGL_EXT_create_context_robustness"))
         {
             return false;
         }
-        setRobustAccess(true);
+
+        ConfigParameters configParams;
+        configParams.redBits      = 8;
+        configParams.greenBits    = 8;
+        configParams.blueBits     = 8;
+        configParams.alphaBits    = 8;
+        configParams.robustAccess = true;
+
+        if (mEGLWindow->initializeSurface(mOSWindow, driverLib, configParams) !=
+            GLWindowResult::NoError)
+        {
+            return false;
+        }
+
+        if (!mEGLWindow->initializeContext())
+        {
+            return false;
+        }
+
+        if (!mEGLWindow->makeCurrent())
+        {
+            return false;
+        }
+
         if (!IsGLExtensionEnabled("GL_KHR_robust_buffer_access_behavior"))
         {
             return false;
@@ -138,8 +183,10 @@ class RobustBufferAccessBehaviorTest : public ANGLETest
         }
     }
 
-    GLuint mProgram;
-    GLint mTestAttrib;
+    OSWindow *mOSWindow   = nullptr;
+    EGLWindow *mEGLWindow = nullptr;
+    GLuint mProgram       = 0;
+    GLint mTestAttrib     = 0;
 };
 
 // Test that static draw with out-of-bounds reads will not read outside of the data store of the
@@ -147,12 +194,6 @@ class RobustBufferAccessBehaviorTest : public ANGLETest
 // GL_KHR_robust_buffer_access_behavior is supported.
 TEST_P(RobustBufferAccessBehaviorTest, DrawElementsIndexOutOfRangeWithStaticDraw)
 {
-    ANGLE_SKIP_TEST_IF(IsNVIDIA() && IsWindows() && IsOpenGL());
-
-    // Failing on NV after changing shard count of angle_end2end_tests. http://anglebug.com/2799
-    // Also failing on AMD after a validation change. http://anglebug.com/3042
-    ANGLE_SKIP_TEST_IF(IsD3D11_FL93());
-
     ANGLE_SKIP_TEST_IF(!initExtension());
 
     runIndexOutOfRangeTests(GL_STATIC_DRAW);
@@ -163,7 +204,6 @@ TEST_P(RobustBufferAccessBehaviorTest, DrawElementsIndexOutOfRangeWithStaticDraw
 // GL_KHR_robust_buffer_access_behavior is supported.
 TEST_P(RobustBufferAccessBehaviorTest, DrawElementsIndexOutOfRangeWithDynamicDraw)
 {
-    ANGLE_SKIP_TEST_IF(IsNVIDIA() && IsWindows() && IsOpenGL());
     ANGLE_SKIP_TEST_IF(!initExtension());
 
     runIndexOutOfRangeTests(GL_DYNAMIC_DRAW);
@@ -202,14 +242,14 @@ TEST_P(RobustBufferAccessBehaviorTest, D3D11StateSynchronizationOrderBug)
     glBindBuffer(GL_ARRAY_BUFFER, vb);
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices.data(), GL_STATIC_DRAW);
 
-    const std::array<GLushort, 12> indicies{
+    const std::array<GLushort, 12> indices{
         0, 1, 2, 0, 2, 3,  // quad0
         4, 5, 6, 4, 6, 7,  // quad1
     };
 
     GLBuffer ib;
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ib);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indicies), indicies.data(), GL_STATIC_DRAW);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices.data(), GL_STATIC_DRAW);
 
     constexpr char kVS[] = R"(
 precision highp float;
@@ -260,6 +300,104 @@ void main()
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
 }
 
+// Tests that the test draws correctly after a larger size has been copied to the array buffer from
+// another location of the same source data.
+TEST_P(RobustBufferAccessBehaviorTest, ChangeBufferDataSizeWithSameAttribPointer)
+{
+    ANGLE_SKIP_TEST_IF(!initExtension());
+    constexpr size_t kWindowWidth  = 128;
+    constexpr size_t kWindowHeight = 128;
+    glViewport(0, 0, kWindowWidth, kWindowHeight);
+    glClearColor(0.0, 0.0, 0.0, 1.0);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+
+    constexpr char kVS[] = R"(#version 300 es
+in highp vec2 a_position;
+in mediump vec3 a_color;
+out mediump vec3 v_color;
+void main()
+{
+    gl_Position = vec4(a_position, 0.0, 1.0);
+    v_color = a_color;
+})";
+    constexpr char kFS[] = R"(#version 300 es
+in mediump vec3 v_color;
+layout(location = 0) out mediump vec4 o_color;
+void main()
+{
+    o_color = vec4(v_color, 1.0);
+})";
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    glUseProgram(program);
+
+    GLVertexArray vao;
+    glBindVertexArray(vao);
+
+    const std::array<angle::Vector2, 8> vertices{
+        angle::Vector2(-1.0f, 1.0f), angle::Vector2(-1.0f, -1.0f), angle::Vector2(1.0f, -1.0f),
+        angle::Vector2(1.0f, 1.0f),  angle::Vector2(-0.5f, 0.5f),  angle::Vector2(-0.5f, -0.5f),
+        angle::Vector2(0.5f, -0.5f), angle::Vector2(0.5f, 0.5f),
+    };
+
+    GLBuffer positionBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, positionBuffer);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices.data(), GL_STATIC_DRAW);
+
+    const std::array<GLushort, 12> indices{
+        0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7,
+    };
+
+    GLint locPos = glGetAttribLocation(program, "a_position");
+    glEnableVertexAttribArray(locPos);
+    glVertexAttribPointer(locPos, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
+
+    GLBuffer indexBuffer;
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices.data(), GL_STATIC_DRAW);
+
+    const std::array<angle::Vector3, 16> colors{
+        angle::Vector3(1.0f, 0.0f, 0.0f), angle::Vector3(1.0f, 0.0f, 0.0f),
+        angle::Vector3(1.0f, 0.0f, 0.0f), angle::Vector3(1.0f, 0.0f, 0.0f),
+
+        angle::Vector3(1.0f, 0.0f, 0.0f), angle::Vector3(1.0f, 0.0f, 0.0f),
+        angle::Vector3(1.0f, 0.0f, 0.0f), angle::Vector3(1.0f, 0.0f, 0.0f),
+
+        angle::Vector3(1.0f, 0.0f, 0.0f), angle::Vector3(1.0f, 0.0f, 0.0f),
+        angle::Vector3(1.0f, 0.0f, 0.0f), angle::Vector3(1.0f, 0.0f, 0.0f),
+
+        angle::Vector3(0.0f, 1.0f, 0.0f), angle::Vector3(0.0f, 1.0f, 0.0f),
+        angle::Vector3(0.0f, 1.0f, 0.0f), angle::Vector3(0.0f, 1.0f, 0.0f),
+    };
+
+    GLBuffer colorBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, colorBuffer);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(angle::Vector3) * 4, &colors[0], GL_STREAM_DRAW);
+
+    GLint locColor = glGetAttribLocation(program, "a_color");
+    glEnableVertexAttribArray(locColor);
+    glVertexAttribPointer(locColor, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
+    EXPECT_PIXEL_RECT_EQ(0, 0, kWindowWidth, kWindowHeight, GLColor::red);
+    glBindVertexArray(0);
+
+    // Copy a larger amount of data to the same buffer containing the colors from another location
+    // while using the same args for the vertex attribute pointer. The larger draw should be able to
+    // use the new data copied into the bound buffer.
+    glBindBuffer(GL_ARRAY_BUFFER, colorBuffer);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(angle::Vector3) * 8, &colors[8], GL_STREAM_DRAW);
+    glBindVertexArray(vao);
+    glEnableVertexAttribArray(locColor);
+    glVertexAttribPointer(locColor, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+    glDrawElements(GL_TRIANGLES, 12, GL_UNSIGNED_SHORT, nullptr);
+    EXPECT_PIXEL_RECT_EQ(0, 0, kWindowWidth, kWindowHeight / 4, GLColor::red);
+    EXPECT_PIXEL_RECT_EQ(0, 0, kWindowWidth / 4, kWindowHeight, GLColor::red);
+    EXPECT_PIXEL_RECT_EQ(0, 3 * kWindowHeight / 4, kWindowWidth, kWindowHeight / 4, GLColor::red);
+    EXPECT_PIXEL_RECT_EQ(3 * kWindowWidth / 4, 0, kWindowWidth / 4, kWindowHeight, GLColor::red);
+    EXPECT_PIXEL_RECT_EQ(kWindowWidth / 4, kWindowHeight / 4, kWindowWidth / 2, kWindowHeight / 2,
+                         GLColor::green);
+}
+
 // Covers drawing with a very large vertex range which overflows GLsizei. http://crbug.com/842028
 TEST_P(RobustBufferAccessBehaviorTest, VeryLargeVertexCountWithDynamicVertexData)
 {
@@ -303,10 +441,6 @@ TEST_P(RobustBufferAccessBehaviorTest, VeryLargeVertexCountWithDynamicVertexData
 // Test that robust access works even if there's no data uploaded to the vertex buffer at all.
 TEST_P(RobustBufferAccessBehaviorTest, NoBufferData)
 {
-    // http://crbug.com/889303: Possible driver bug on NVIDIA Shield TV.
-    // http://anglebug.com/2861: Fails abnormally on Android
-    ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGLES());
-
     ANGLE_SKIP_TEST_IF(!initExtension());
     ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), essl1_shaders::fs::Red());
     glUseProgram(program);
@@ -433,12 +567,6 @@ TEST_P(RobustBufferAccessBehaviorTest, EmptyBuffer)
 {
     ANGLE_SKIP_TEST_IF(!initExtension());
 
-    // AMD GL does not support robustness. http://anglebug.com/3099
-    ANGLE_SKIP_TEST_IF(IsAMD() && IsOpenGL());
-
-    // http://anglebug.com/2861: Fails abnormally on Android
-    ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGLES());
-
     ANGLE_GL_PROGRAM(program, kWebGLVS, kWebGLFS);
     glUseProgram(program);
 
@@ -564,6 +692,549 @@ TEST_P(RobustBufferAccessBehaviorTest, DynamicBuffer)
     }
 }
 
-ANGLE_INSTANTIATE_TEST_ES2_AND_ES3_AND_ES31(RobustBufferAccessBehaviorTest);
+// Tests out of bounds read by divisor emulation due to a user-provided offset.
+// Adapted from https://crbug.com/1285885.
+TEST_P(RobustBufferAccessBehaviorTest, IndexOutOfBounds)
+{
+    ANGLE_SKIP_TEST_IF(!initExtension());
+
+    constexpr char kVS[] = R"(precision highp float;
+attribute vec4 a_position;
+void main(void) {
+   gl_Position = a_position;
+})";
+
+    constexpr char kFS[] = R"(precision highp float;
+uniform sampler2D oTexture;
+uniform float oColor[3];
+void main(void) {
+   gl_FragData[0] = texture2DProj(oTexture, vec3(0.1,0.1,0.1));
+})";
+
+    GLfloat singleFloat = 1.0f;
+
+    GLBuffer buf;
+    glBindBuffer(GL_ARRAY_BUFFER, buf);
+    glBufferData(GL_ARRAY_BUFFER, 4, &singleFloat, GL_STATIC_DRAW);
+
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    glBindAttribLocation(program, 0, "a_position");
+    glLinkProgram(program);
+    ASSERT_TRUE(CheckLinkStatusAndReturnProgram(program, true));
+
+    glEnableVertexAttribArray(0);
+
+    // Trying to exceed renderer->getMaxVertexAttribDivisor()
+    GLuint constexpr kDivisor = 4096;
+    glVertexAttribDivisor(0, kDivisor);
+
+    size_t outOfBoundsOffset = 0x50000000;
+    glVertexAttribPointer(0, 1, GL_FLOAT, false, 8, reinterpret_cast<void *>(outOfBoundsOffset));
+
+    glUseProgram(program);
+
+    glDrawArrays(GL_TRIANGLES, 0, 32);
+
+    // No assertions, just checking for crashes.
+}
+
+// Similar to the test above but index is first within bounds then goes out of bounds.
+TEST_P(RobustBufferAccessBehaviorTest, IndexGoingOutOfBounds)
+{
+    ANGLE_SKIP_TEST_IF(!initExtension());
+
+    constexpr char kVS[] = R"(precision highp float;
+attribute vec4 a_position;
+void main(void) {
+   gl_Position = a_position;
+})";
+
+    constexpr char kFS[] = R"(precision highp float;
+uniform sampler2D oTexture;
+uniform float oColor[3];
+void main(void) {
+   gl_FragData[0] = texture2DProj(oTexture, vec3(0.1,0.1,0.1));
+})";
+
+    GLBuffer buf;
+    glBindBuffer(GL_ARRAY_BUFFER, buf);
+    std::array<GLfloat, 2> buffer = {{0.2f, 0.2f}};
+    glBufferData(GL_ARRAY_BUFFER, sizeof(GLfloat) * buffer.size(), buffer.data(), GL_STATIC_DRAW);
+
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    glBindAttribLocation(program, 0, "a_position");
+    glLinkProgram(program);
+    ASSERT_TRUE(CheckLinkStatusAndReturnProgram(program, true));
+
+    glEnableVertexAttribArray(0);
+
+    // Trying to exceed renderer->getMaxVertexAttribDivisor()
+    GLuint constexpr kDivisor = 4096;
+    glVertexAttribDivisor(0, kDivisor);
+
+    // 6 bytes remaining in the buffer from offset so only a single vertex can be read
+    glVertexAttribPointer(0, 1, GL_FLOAT, false, 8, reinterpret_cast<void *>(2));
+
+    glUseProgram(program);
+
+    // Each vertex is read `kDivisor` times so the last read goes out of bounds
+    GLsizei instanceCount = kDivisor + 1;
+    glDrawArraysInstanced(GL_TRIANGLES, 0, 32, instanceCount);
+
+    // No assertions, just checking for crashes.
+}
+
+// Draw out-of-bounds beginning with the start offset passed in.
+// Ensure that drawArrays flags either no error or INVALID_OPERATION. In the case of
+// INVALID_OPERATION, no canvas pixels can be touched.  In the case of NO_ERROR, all written values
+// must either be the zero vertex or a value in the vertex buffer.  See vsCheckOutOfBounds shader.
+void DrawAndVerifyOutOfBoundsArrays(int first, int count)
+{
+    glClearColor(0.0, 0.0, 1.0, 1.0);  // Start with blue to indicate no pixels touched.
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    glDrawArrays(GL_TRIANGLES, first, count);
+    GLenum error = glGetError();
+    if (error == GL_INVALID_OPERATION)
+    {
+        // testPassed. drawArrays flagged INVALID_OPERATION, which is valid so long as all canvas
+        // pixels were not touched.
+        EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::blue);
+    }
+    else
+    {
+        ASSERT_GL_NO_ERROR();
+        // testPassed. drawArrays flagged NO_ERROR, which is valid so long as all canvas pixels are
+        // green.
+        EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+    }
+}
+
+// Adapted from WebGL test
+// conformance/rendering/out-of-bounds-array-buffers.html
+// This test verifies that out-of-bounds array buffers behave according to spec.
+TEST_P(RobustBufferAccessBehaviorTest, OutOfBoundsArrayBuffers)
+{
+    ANGLE_SKIP_TEST_IF(!initExtension());
+
+    constexpr char vsCheckOutOfBounds[] =
+        "precision mediump float;\n"
+        "attribute vec2 position;\n"
+        "attribute vec4 vecRandom;\n"
+        "varying vec4 v_color;\n"
+        "\n"
+        "// Per the spec, each component can either contain existing contents\n"
+        "// of the buffer or 0.\n"
+        "bool testFloatComponent(float component) {\n"
+        "   return (component == 0.2 || component == 0.0);\n"
+        "}\n"
+        ""  // The last component is additionally allowed to be 1.0.\n"
+        "bool testLastFloatComponent(float component) {\n"
+        "   return testFloatComponent(component) || component == 1.0;\n"
+        "}\n"
+        "\n"
+        "void main() {\n"
+        "   if (testFloatComponent(vecRandom.x) &&\n"
+        "       testFloatComponent(vecRandom.y) &&\n"
+        "       testFloatComponent(vecRandom.z) &&\n"
+        "       testLastFloatComponent(vecRandom.w)) {\n"
+        "           v_color = vec4(0.0, 1.0, 0.0, 1.0); // green -- We're good\n"
+        "       } else {\n"
+        "           v_color = vec4(1.0, 0.0, 0.0, 1.0); // red -- Unexpected value\n"
+        "       }\n"
+        "   gl_Position = vec4(position, 0.0, 1.0);\n"
+        "}\n";
+
+    constexpr char simpleVertexColorFragmentShader[] =
+        "precision mediump float;\n"
+        "varying vec4 v_color;\n"
+        "void main() {\n"
+        "    gl_FragColor = v_color;\n"
+        "}";
+
+    // Setup the verification program.
+    ANGLE_GL_PROGRAM(program, vsCheckOutOfBounds, simpleVertexColorFragmentShader);
+    glUseProgram(program);
+
+    GLint kPosLoc = glGetAttribLocation(program, "position");
+    ASSERT_NE(kPosLoc, -1);
+    GLint kRandomLoc = glGetAttribLocation(program, "vecRandom");
+    ASSERT_NE(kRandomLoc, -1);
+
+    // Create a buffer of 200 valid sets of quad lists.
+    constexpr size_t numberOfQuads = 200;
+    // Create a vertex buffer with 200 properly formed triangle quads. These quads will cover the
+    // canvas texture such that every single pixel is touched by the fragment shader.
+    GLBuffer glQuadBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, glQuadBuffer);
+    std::array<float, numberOfQuads * 2 * 6> quadPositions;
+    for (unsigned int i = 0; i < quadPositions.size(); i += 2 * 6)
+    {
+        quadPositions[i + 0]  = -1.0;  // upper left
+        quadPositions[i + 1]  = 1.0;
+        quadPositions[i + 2]  = 1.0;  // upper right
+        quadPositions[i + 3]  = 1.0;
+        quadPositions[i + 4]  = -1.0;  // lower left
+        quadPositions[i + 5]  = -1.0;
+        quadPositions[i + 6]  = 1.0;  // upper right
+        quadPositions[i + 7]  = 1.0;
+        quadPositions[i + 8]  = 1.0;  // lower right
+        quadPositions[i + 9]  = -1.0;
+        quadPositions[i + 10] = -1.0;  // lower left
+        quadPositions[i + 11] = -1.0;
+    }
+    glBufferData(GL_ARRAY_BUFFER, quadPositions.size() * sizeof(float), quadPositions.data(),
+                 GL_STATIC_DRAW);
+    glEnableVertexAttribArray(kPosLoc);
+    glVertexAttribPointer(kPosLoc, 2, GL_FLOAT, false, 0, 0);
+
+    // Create a small vertex buffer with determined-ahead-of-time "random" values (0.2). This buffer
+    // will be the one read past the end.
+    GLBuffer glVertexBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, glVertexBuffer);
+    std::array<float, 6> vertexData = {0.2, 0.2, 0.2, 0.2, 0.2, 0.2};
+    glBufferData(GL_ARRAY_BUFFER, vertexData.size() * sizeof(float), vertexData.data(),
+                 GL_STATIC_DRAW);
+    glEnableVertexAttribArray(kRandomLoc);
+    glVertexAttribPointer(kRandomLoc, 4, GL_FLOAT, false, 0, 0);
+
+    // Test -- Draw off the end of the vertex buffer near the beginning of the out of bounds area.
+    DrawAndVerifyOutOfBoundsArrays(/*first*/ 6, /*count*/ 6);
+
+    // Test -- Draw off the end of the vertex buffer near the end of the out of bounds area.
+    DrawAndVerifyOutOfBoundsArrays(/*first*/ (numberOfQuads - 1) * 6, /*count*/ 6);
+}
+
+// Regression test for glBufferData with slightly increased size. Implementation may decided to
+// reuse the buffer storage if underline storage is big enough (due to alignment, implementation may
+// allocate more storage than data size.) This tests ensure it works correctly when this reuse
+// happens.
+TEST_P(RobustBufferAccessBehaviorTest, BufferDataWithIncreasedSize)
+{
+    ANGLE_SKIP_TEST_IF(!initExtension());
+
+    ANGLE_GL_PROGRAM(drawGreen, essl1_shaders::vs::Passthrough(), essl1_shaders::fs::Green());
+
+    // Clear to red and draw one triangle on the bottom left with green. The right top half should
+    // be red.
+    glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    std::array<float, 2 * 3> quadVertices = {-1, 1, -1, -1, 1, -1};
+    constexpr size_t kBufferSize          = sizeof(quadVertices[0]) * quadVertices.size();
+    GLBuffer vertexBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+    glBufferData(GL_ARRAY_BUFFER, kBufferSize, quadVertices.data(), GL_STATIC_DRAW);
+    glUseProgram(drawGreen);
+    const GLint positionLocation = glGetAttribLocation(drawGreen, essl1_shaders::PositionAttrib());
+    ASSERT_NE(-1, positionLocation);
+    glVertexAttribPointer(positionLocation, 2, GL_FLOAT, GL_FALSE, 0, 0);
+    glEnableVertexAttribArray(positionLocation);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    EXPECT_PIXEL_COLOR_EQ(1, 1, GLColor::green);
+    EXPECT_PIXEL_COLOR_EQ(getWindowWidth() - 1, getWindowHeight() - 1, GLColor::red);
+    EXPECT_GL_NO_ERROR();
+
+    // Clear to blue and call glBufferData with two triangles and draw the entire window with green.
+    // Both bottom left and top right should be green.
+    glClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    std::array<float, 2 * 3 * 2> twoQuadVertices = {-1, 1, -1, -1, 1, -1, -1, 1, 1, -1, 1, 1};
+    glBufferData(GL_ARRAY_BUFFER, kBufferSize * 2, twoQuadVertices.data(), GL_STATIC_DRAW);
+    glUseProgram(drawGreen);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    EXPECT_PIXEL_COLOR_EQ(1, 1, GLColor::green);
+    EXPECT_PIXEL_COLOR_EQ(getWindowWidth() - 1, getWindowHeight() - 1, GLColor::green);
+    EXPECT_GL_NO_ERROR();
+}
+
+// Similar to BufferDataWithIncreasedSize. But this time the buffer is bound to two VAOs. The change
+// in the buffer should be picked up by both VAOs.
+TEST_P(RobustBufferAccessBehaviorTest, BufferDataWithIncreasedSizeAndUseWithVAOs)
+{
+    ANGLE_SKIP_TEST_IF(!initExtension());
+
+    ANGLE_GL_PROGRAM(drawGreen, essl1_shaders::vs::Passthrough(), essl1_shaders::fs::Green());
+
+    // Clear to red and draw one triangle with VAO1 on the bottom left with green. The right top
+    // half should be red.
+    glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    std::array<float, 2 * 3> quadVertices = {-1, 1, -1, -1, 1, -1};
+    constexpr size_t kBufferSize          = sizeof(quadVertices[0]) * quadVertices.size();
+    GLBuffer vertexBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+    glBufferData(GL_ARRAY_BUFFER, kBufferSize, quadVertices.data(), GL_STATIC_DRAW);
+    glUseProgram(drawGreen);
+    const GLint positionLocation = glGetAttribLocation(drawGreen, essl1_shaders::PositionAttrib());
+    ASSERT_NE(-1, positionLocation);
+    GLVertexArray vao1;
+    glBindVertexArray(vao1);
+    glVertexAttribPointer(positionLocation, 2, GL_FLOAT, GL_FALSE, 0, 0);
+    glEnableVertexAttribArray(positionLocation);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    EXPECT_PIXEL_COLOR_EQ(2, 2, GLColor::green);
+    EXPECT_PIXEL_COLOR_EQ(getWindowWidth() - 1, getWindowHeight() - 1, GLColor::red);
+    EXPECT_GL_NO_ERROR();
+
+    // Now use the same buffer on VAO2
+    GLVertexArray vao2;
+    glBindVertexArray(vao2);
+    glVertexAttribPointer(positionLocation, 2, GL_FLOAT, GL_FALSE, 0, 0);
+    glEnableVertexAttribArray(positionLocation);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    EXPECT_PIXEL_COLOR_EQ(2, 2, GLColor::green);
+    // Clear to blue and call glBufferData with two triangles and draw the entire window with green.
+    // Both bottom left and top right should be green.
+    glClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    std::array<float, 2 * 3 * 2> twoQuadVertices = {-1, 1, -1, -1, 1, -1, -1, 1, 1, -1, 1, 1};
+    glBufferData(GL_ARRAY_BUFFER, kBufferSize * 2, twoQuadVertices.data(), GL_STATIC_DRAW);
+    glUseProgram(drawGreen);
+    glVertexAttribPointer(positionLocation, 2, GL_FLOAT, GL_FALSE, 0, 0);
+    glEnableVertexAttribArray(positionLocation);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    EXPECT_PIXEL_COLOR_EQ(2, 2, GLColor::green);
+    EXPECT_PIXEL_COLOR_EQ(getWindowWidth() - 1, getWindowHeight() - 1, GLColor::green);
+    EXPECT_GL_NO_ERROR();
+
+    // Buffer's change should be piked by VAO1 as well. If not, then we should get validation error.
+    glBindVertexArray(vao1);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    EXPECT_PIXEL_COLOR_EQ(2, 2, GLColor::green);
+    EXPECT_PIXEL_COLOR_EQ(getWindowWidth() - 1, getWindowHeight() - 1, GLColor::green);
+    EXPECT_GL_NO_ERROR();
+}
+
+// Prepare an element array buffer that indexes out-of-bounds beginning with the start index passed
+// in. Ensure that drawElements flags either no error or INVALID_OPERATION. In the case of
+// INVALID_OPERATION, no canvas pixels can be touched.  In the case of NO_ERROR, all written values
+// must either be the zero vertex or a value in the vertex buffer.  See vsCheckOutOfBounds shader.
+void DrawAndVerifyOutOfBoundsIndex(int startIndex)
+{
+    glClearColor(0.0, 0.0, 1.0, 1.0);  // Start with blue to indicate no pixels touched.
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    // Create an element array buffer with a tri-strip that starts at startIndex and make
+    // it the active element array buffer.
+    GLBuffer glElementArrayBuffer;
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, glElementArrayBuffer);
+    std::array<uint16_t, 4> quadIndices;
+    for (unsigned int i = 0; i < quadIndices.size(); i++)
+    {
+        quadIndices[i] = startIndex + i;
+    }
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, quadIndices.size() * sizeof(uint16_t), quadIndices.data(),
+                 GL_STATIC_DRAW);
+
+    glDrawElements(GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_SHORT, /*offset*/ 0);
+    GLenum error = glGetError();
+    if (error == GL_INVALID_OPERATION)
+    {
+        // testPassed. drawElements flagged INVALID_OPERATION, which is valid so long as all canvas
+        // pixels were not touched.
+        EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::blue);
+    }
+    else
+    {
+        ASSERT_GL_NO_ERROR();
+        // testPassed. drawElements flagged NO_ERROR, which is valid so long as all canvas pixels
+        // are green.
+        EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+    }
+}
+
+// Adapted from WebGL test
+// conformance/rendering/out-of-bounds-index-buffers.html
+// This test verifies that out-of-bounds index buffers behave according to spec.
+TEST_P(RobustBufferAccessBehaviorTest, OutOfBoundsIndexBuffers)
+{
+    ANGLE_SKIP_TEST_IF(!initExtension());
+
+    constexpr char vsCheckOutOfBounds[] =
+        "precision mediump float;\n"
+        "attribute vec2 position;\n"
+        "attribute vec4 vecRandom;\n"
+        "varying vec4 v_color;\n"
+        "\n"
+        "// Per the spec, each component can either contain existing contents\n"
+        "// of the buffer or 0.\n"
+        "bool testFloatComponent(float component) {\n"
+        "   return (component == 0.2 || component == 0.0);\n"
+        "}\n"
+        ""  // The last component is additionally allowed to be 1.0.\n"
+        "bool testLastFloatComponent(float component) {\n"
+        "   return testFloatComponent(component) || component == 1.0;\n"
+        "}\n"
+        "\n"
+        "void main() {\n"
+        "   if (testFloatComponent(vecRandom.x) &&\n"
+        "       testFloatComponent(vecRandom.y) &&\n"
+        "       testFloatComponent(vecRandom.z) &&\n"
+        "       testLastFloatComponent(vecRandom.w)) {\n"
+        "           v_color = vec4(0.0, 1.0, 0.0, 1.0); // green -- We're good\n"
+        "       } else {\n"
+        "           v_color = vec4(1.0, 0.0, 0.0, 1.0); // red -- Unexpected value\n"
+        "       }\n"
+        "   gl_Position = vec4(position, 0.0, 1.0);\n"
+        "}\n";
+
+    constexpr char simpleVertexColorFragmentShader[] =
+        "precision mediump float;\n"
+        "varying vec4 v_color;\n"
+        "void main() {\n"
+        "    gl_FragColor = v_color;\n"
+        "}";
+
+    // Setup the verification program.
+    ANGLE_GL_PROGRAM(program, vsCheckOutOfBounds, simpleVertexColorFragmentShader);
+    glUseProgram(program);
+
+    GLint kPosLoc = glGetAttribLocation(program, "position");
+    ASSERT_NE(kPosLoc, -1);
+    GLint kRandomLoc = glGetAttribLocation(program, "vecRandom");
+    ASSERT_NE(kRandomLoc, -1);
+
+    // Create a buffer of 200 valid sets of quad lists.
+    constexpr size_t numberOfQuads = 200;
+    // Create a vertex buffer with 200 properly formed tri-strip quads. These quads will cover the
+    // canvas texture such that every single pixel is touched by the fragment shader.
+    GLBuffer glQuadBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, glQuadBuffer);
+    std::array<float, numberOfQuads * 2 * 4> quadPositions;
+    for (unsigned int i = 0; i < quadPositions.size(); i += 2 * 4)
+    {
+        quadPositions[i + 0] = -1.0;  // upper left
+        quadPositions[i + 1] = 1.0;
+        quadPositions[i + 2] = 1.0;  // upper right
+        quadPositions[i + 3] = 1.0;
+        quadPositions[i + 4] = -1.0;  // lower left
+        quadPositions[i + 5] = -1.0;
+        quadPositions[i + 6] = 1.0;  // lower right
+        quadPositions[i + 7] = -1.0;
+    }
+    glBufferData(GL_ARRAY_BUFFER, quadPositions.size() * sizeof(float), quadPositions.data(),
+                 GL_STATIC_DRAW);
+    glEnableVertexAttribArray(kPosLoc);
+    glVertexAttribPointer(kPosLoc, 2, GL_FLOAT, false, 0, 0);
+
+    // Create a small vertex buffer with determined-ahead-of-time "random" values (0.2). This buffer
+    // will be the one indexed off the end.
+    GLBuffer glVertexBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, glVertexBuffer);
+    std::array<float, 4> vertexData = {0.2, 0.2, 0.2, 0.2};
+    glBufferData(GL_ARRAY_BUFFER, vertexData.size() * sizeof(float), vertexData.data(),
+                 GL_STATIC_DRAW);
+    glEnableVertexAttribArray(kRandomLoc);
+    glVertexAttribPointer(kRandomLoc, 4, GL_FLOAT, false, 0, 0);
+
+    // Test -- Index off the end of the vertex buffer near the beginning of the out of bounds area.
+    DrawAndVerifyOutOfBoundsIndex(/*StartIndex*/ 4);
+
+    // Test -- Index off the end of the vertex buffer near the end of the out of bounds area.
+    DrawAndVerifyOutOfBoundsIndex(/*StartIndex*/ numberOfQuads - 4);
+}
+
+// DrawArray with both color and position attribute data interleaved in the same buffer.
+TEST_P(RobustBufferAccessBehaviorTest, DrawArraysWithInterleavedAttributeData)
+{
+    ANGLE_SKIP_TEST_IF(!initExtension());
+
+    constexpr char vert[] =
+        "attribute vec2 v_position;\n"
+        "attribute vec4 a_color;\n"
+        "varying vec4 v_color;\n"
+        "void main() {\n"
+        "    gl_Position = vec4(v_position, 0.0, 1.0);\n"
+        "    v_color = a_color;\n"
+        "}\n";
+
+    constexpr char frag[] =
+        "precision mediump float;\n"
+        "varying vec4 v_color;\n"
+        "void main() {\n"
+        "    gl_FragColor = v_color;\n"
+        "}\n";
+
+    ANGLE_GL_PROGRAM(prog, vert, frag);
+
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // Draw a red quad covering the whole screen. On Xclipse devices this is
+    // rendered as if the final vertex is transparent black rather than red.
+    std::array<std::pair<Vector2, GLColor32F>, 6> vertices = {{{{-1.0f, 1.0f}, kFloatRed},
+                                                               {{-1.0f, -1.0f}, kFloatRed},
+                                                               {{1.0f, -1.0f}, kFloatRed},
+                                                               {{-1.0f, 1.0f}, kFloatRed},
+                                                               {{1.0f, -1.0f}, kFloatRed},
+                                                               {{1.0f, 1.0f}, kFloatRed}}};
+
+    GLBuffer vertexBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices[0]) * vertices.size(), vertices.data(),
+                 GL_STATIC_DRAW);
+    glUseProgram(prog);
+    const GLint positionLocation = glGetAttribLocation(prog, "v_position");
+    ASSERT_NE(-1, positionLocation);
+    glVertexAttribPointer(positionLocation, 2, GL_FLOAT, GL_FALSE, sizeof(vertices[0]), 0);
+    glEnableVertexAttribArray(positionLocation);
+    const GLint colorLocation = glGetAttribLocation(prog, "a_color");
+    ASSERT_NE(-1, colorLocation);
+    glVertexAttribPointer(colorLocation, 4, GL_FLOAT, GL_FALSE, sizeof(vertices[0]),
+                          reinterpret_cast<const void *>(sizeof(Vector2)));
+    glEnableVertexAttribArray(colorLocation);
+
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+
+    EXPECT_PIXEL_COLOR_EQ(0, getWindowHeight() - 1, GLColor::red);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+    EXPECT_PIXEL_COLOR_EQ(getWindowWidth() - 1, 0, GLColor::red);
+    EXPECT_PIXEL_COLOR_EQ(getWindowWidth() - 1, getWindowHeight() - 1, GLColor::red);
+    EXPECT_GL_NO_ERROR();
+}
+
+// Test dynamic buffer crash when context created with robust buffer access enabled
+TEST_P(RobustBufferAccessBehaviorTest, DynamicBufferCrash)
+{
+    ANGLE_SKIP_TEST_IF(!initExtension());
+
+    constexpr char kVS[] = R"(
+attribute vec4 position;
+attribute vec2 texCoord;
+varying vec2 v_texCoord;
+void main(void) {
+  v_texCoord = texCoord;
+})";
+
+    constexpr char kFS[] = R"(precision mediump float;
+varying vec2 v_texCoord;
+uniform vec4 colorMult;
+uniform sampler2D colorMap;
+void main(void) {
+  gl_FragColor = texture2D(colorMap, v_texCoord) * colorMult;
+})";
+
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    glLinkProgram(program);
+    ASSERT_TRUE(CheckLinkStatusAndReturnProgram(program, true));
+    glUseProgram(program);
+
+    GLBuffer buffer;
+    glBindBuffer(GL_ARRAY_BUFFER, buffer);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, false, 0, 0);
+    glVertexAttribDivisor(0, 65537);
+    glDrawArraysInstanced(GL_TRIANGLE_FAN, 0x4141, 65, 536870912);
+    // Either no error or invalid operation is okay, but test should not crash or hang.
+    GLenum glError = glGetError();
+    ASSERT_EQ(true, glError == GL_NO_ERROR || glError == GL_OUT_OF_MEMORY);
+}
+
+ANGLE_INSTANTIATE_TEST(RobustBufferAccessBehaviorTest,
+                       WithNoFixture(ES3_VULKAN()),
+                       WithNoFixture(ES3_OPENGL()),
+                       WithNoFixture(ES3_OPENGLES()),
+                       WithNoFixture(ES3_D3D11()),
+                       WithNoFixture(ES3_METAL()));
 
 }  // namespace

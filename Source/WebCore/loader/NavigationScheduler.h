@@ -30,35 +30,45 @@
 
 #pragma once
 
-#include "FrameLoaderTypes.h"
-#include "Timer.h"
+#include <WebCore/FrameLoaderTypes.h>
+#include <WebCore/LoaderMalloc.h>
+#include <WebCore/Timer.h>
+#include <wtf/CanMakeWeakPtr.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/Forward.h>
+#include <wtf/WeakRef.h>
 
 namespace WebCore {
 
 class Document;
 class FormSubmission;
 class Frame;
+class LocalFrame;
 class ScheduledNavigation;
 class SecurityOrigin;
 
 enum class NewLoadInProgress : bool { No, Yes };
-    
-class NavigationScheduler {
-    WTF_MAKE_FAST_ALLOCATED;
+enum class ScheduleLocationChangeResult : uint8_t { Stopped, Completed, Started };
+enum class ScheduleHistoryNavigationResult : bool { Completed, Aborted };
+
+class NavigationScheduler final : public CanMakeWeakPtr<NavigationScheduler> {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(NavigationScheduler, Loader);
 public:
     explicit NavigationScheduler(Frame&);
     ~NavigationScheduler();
 
-    bool redirectScheduledDuringLoad();
+    void NODELETE ref() const;
+    void deref() const;
+
+    bool NODELETE redirectScheduledDuringLoad();
     bool locationChangePending();
 
     void scheduleRedirect(Document& initiatingDocument, double delay, const URL&, IsMetaRefresh);
-    void scheduleLocationChange(Document& initiatingDocument, SecurityOrigin&, const URL&, const String& referrer, LockHistory = LockHistory::Yes, LockBackForwardList = LockBackForwardList::Yes, CompletionHandler<void()>&& = [] { });
+    void scheduleLocationChange(Document& initiatingDocument, SecurityOrigin&, const URL&, const String& referrer, LockHistory = LockHistory::Yes, LockBackForwardList = LockBackForwardList::Yes, NavigationHistoryBehavior historyHandling = NavigationHistoryBehavior::Auto, CompletionHandler<void(ScheduleLocationChangeResult)>&& = [] (ScheduleLocationChangeResult) { });
     void scheduleFormSubmission(Ref<FormSubmission>&&);
     void scheduleRefresh(Document& initiatingDocument);
     void scheduleHistoryNavigation(int steps);
+    void scheduleHistoryNavigationByKey(const String&key, CompletionHandler<void(ScheduleHistoryNavigationResult)>&&);
     void schedulePageBlock(Document& originDocument);
 
     void startTimer();
@@ -66,16 +76,22 @@ public:
     void cancel(NewLoadInProgress = NewLoadInProgress::No);
     void clear();
 
+    void adjustPendingHistoryNavigationForNewBackForwardEntry();
+
+    bool NODELETE hasQueuedNavigation() const;
+
 private:
-    bool shouldScheduleNavigation() const;
+    bool NODELETE shouldScheduleNavigation() const;
     bool shouldScheduleNavigation(const URL&) const;
+
+    void scheduleHistoryNavigation(Frame& originatingFrame, int steps);
 
     void timerFired();
     void schedule(std::unique_ptr<ScheduledNavigation>);
 
     static LockBackForwardList mustLockBackForwardList(Frame& targetFrame);
 
-    Frame& m_frame;
+    WeakRef<Frame> m_frame;
     Timer m_timer;
     std::unique_ptr<ScheduledNavigation> m_redirect;
 };

@@ -37,17 +37,19 @@
 
 namespace WebCore {
 
+enum class EventHandlerRemovalReason : bool;
 class HTMLInputElement;
 class TouchEvent;
 
 class SliderThumbElement final : public HTMLDivElement {
-    WTF_MAKE_ISO_ALLOCATED(SliderThumbElement);
+    WTF_MAKE_TZONE_ALLOCATED(SliderThumbElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SliderThumbElement);
 public:
     static Ref<SliderThumbElement> create(Document&);
 
     void setPositionFromValue();
     void dragFrom(const LayoutPoint&);
-    RefPtr<HTMLInputElement> hostInput() const;
+    RefPtr<HTMLInputElement> NODELETE hostInput() const;
     void setPositionFromPoint(const LayoutPoint&);
 
 #if ENABLE(IOS_TOUCH_EVENTS)
@@ -57,26 +59,24 @@ public:
     void hostDisabledStateChanged();
 
 private:
-    SliderThumbElement(Document&);
+    explicit SliderThumbElement(Document&);
 
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
+    bool NODELETE isSliderThumbElement() const final { return true; }
 
-    Ref<Element> cloneElementWithoutAttributesAndChildren(Document&) final;
+    Ref<Element> cloneElementWithoutAttributesAndChildren(Document&, CustomElementRegistry*) const final;
     bool isDisabledFormControl() const final;
     bool matchesReadWritePseudoClass() const final;
-    RefPtr<Element> focusDelegate() final;
 
     void defaultEventHandler(Event&) final;
-    bool willRespondToMouseMoveEvents() final;
-    bool willRespondToMouseClickEvents() final;
+    bool willRespondToMouseMoveEvents() const final;
+    bool willRespondToMouseClickEventsWithEditability(Editability) const final;
 
 #if ENABLE(IOS_TOUCH_EVENTS)
     void didAttachRenderers() final;
 #endif
     void willDetachRenderers() final;
 
-    std::optional<Style::ElementStyle> resolveCustomStyle(const RenderStyle&, const RenderStyle*) final;
-    const AtomString& shadowPseudoId() const final;
+    std::optional<Style::UnadjustedStyle> resolveCustomStyle(const Style::ResolutionContext&, const Style::ComputedStyle*) final;
 
     void startDragging();
     void stopDragging();
@@ -90,12 +90,11 @@ private:
     void handleTouchMove(TouchEvent&);
     void handleTouchEndAndCancel(TouchEvent&);
 
-    bool shouldAcceptTouchEvents();
     void registerForTouchEvents();
-    void unregisterForTouchEvents();
+    void unregisterForTouchEvents(); // EventHandlerRemovalReason::Other
+    void unregisterForTouchEvents(EventHandlerRemovalReason);
 #endif
 
-    AtomString m_shadowPseudoId;
     bool m_inDragMode { false };
 
 #if ENABLE(IOS_TOUCH_EVENTS)
@@ -107,43 +106,36 @@ private:
 #endif
 };
 
-inline Ref<SliderThumbElement> SliderThumbElement::create(Document& document)
-{
-    return adoptRef(*new SliderThumbElement(document));
-}
-
-// --------------------------------
-
-class RenderSliderThumb final : public RenderBlockFlow {
-    WTF_MAKE_ISO_ALLOCATED(RenderSliderThumb);
-public:
-    RenderSliderThumb(SliderThumbElement&, RenderStyle&&);
-    void updateAppearance(const RenderStyle* parentStyle);
-
-private:
-    bool isSliderThumb() const final;
-};
-
 // --------------------------------
 
 class SliderContainerElement final : public HTMLDivElement {
-    WTF_MAKE_ISO_ALLOCATED(SliderContainerElement);
+    WTF_MAKE_TZONE_ALLOCATED(SliderContainerElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SliderContainerElement);
 public:
     static Ref<SliderContainerElement> create(Document&);
 
 private:
-    SliderContainerElement(Document&);
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
-    std::optional<Style::ElementStyle> resolveCustomStyle(const RenderStyle&, const RenderStyle*) final;
-    const AtomString& shadowPseudoId() const final;
-    bool isSliderContainerElement() const final { return true; }
-
-    AtomString m_shadowPseudoId;
+    explicit SliderContainerElement(Document&);
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) final;
+    bool NODELETE isSliderContainerElement() const final { return true; }
 };
 
 } // namespace WebCore
 
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::SliderThumbElement)
+    static bool isType(const WebCore::Element& element) { return element.isSliderThumbElement(); }
+    static bool isType(const WebCore::Node& node)
+    {
+        auto* element = dynamicDowncast<WebCore::Element>(node);
+        return element && isType(*element);
+    }
+SPECIALIZE_TYPE_TRAITS_END()
+
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::SliderContainerElement)
     static bool isType(const WebCore::Element& element) { return element.isSliderContainerElement(); }
-    static bool isType(const WebCore::Node& node) { return is<WebCore::Element>(node) && isType(downcast<WebCore::Element>(node)); }
+    static bool isType(const WebCore::Node& node)
+    {
+        auto* element = dynamicDowncast<WebCore::Element>(node);
+        return element && isType(*element);
+    }
 SPECIALIZE_TYPE_TRAITS_END()

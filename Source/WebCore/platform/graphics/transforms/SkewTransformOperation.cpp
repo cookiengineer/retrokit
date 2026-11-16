@@ -27,6 +27,19 @@
 
 namespace WebCore {
 
+Ref<SkewTransformOperation> SkewTransformOperation::create(double angleX, double angleY, TransformOperation::Type type)
+{
+    return adoptRef(*new SkewTransformOperation(angleX, angleY, type));
+}
+
+SkewTransformOperation::SkewTransformOperation(double angleX, double angleY, TransformOperation::Type type)
+    : TransformOperation(type)
+    , m_angleX(angleX)
+    , m_angleY(angleY)
+{
+    RELEASE_ASSERT(isSkewTransformOperationType(type));
+}
+
 bool SkewTransformOperation::operator==(const TransformOperation& other) const
 {
     if (!isSameType(other))
@@ -35,23 +48,24 @@ bool SkewTransformOperation::operator==(const TransformOperation& other) const
     return m_angleX == s.m_angleX && m_angleY == s.m_angleY;
 }
 
-Ref<TransformOperation> SkewTransformOperation::blend(const TransformOperation* from, const BlendingContext& context, bool blendToIdentity)
+Ref<TransformOperation> SkewTransformOperation::blend(const TransformOperation* from, const BlendingContext& context, bool blendToIdentity) const
 {
-    if (from && !from->isSameType(*this))
-        return *this;
-    
     if (blendToIdentity)
         return SkewTransformOperation::create(WebCore::blend(m_angleX, 0.0, context), WebCore::blend(m_angleY, 0.0, context), type());
-    
+
+    auto outputType = sharedPrimitiveType(from);
+    if (!outputType)
+        return const_cast<SkewTransformOperation&>(*this);
+
     const SkewTransformOperation* fromOp = downcast<SkewTransformOperation>(from);
     double fromAngleX = fromOp ? fromOp->m_angleX : 0;
     double fromAngleY = fromOp ? fromOp->m_angleY : 0;
-    return SkewTransformOperation::create(WebCore::blend(fromAngleX, m_angleX, context), WebCore::blend(fromAngleY, m_angleY, context), type());
+    return SkewTransformOperation::create(WebCore::blend(fromAngleX, m_angleX, context), WebCore::blend(fromAngleY, m_angleY, context), *outputType);
 }
 
 void SkewTransformOperation::dump(TextStream& ts) const
 {
-    ts << type() << "(" << TextStream::FormatNumberRespectingIntegers(m_angleX) << "deg, " << TextStream::FormatNumberRespectingIntegers(m_angleY) << "deg)";
+    ts << type() << '(' << TextStream::FormatNumberRespectingIntegers(m_angleX) << "deg, "_s << TextStream::FormatNumberRespectingIntegers(m_angleY) << "deg)"_s;
 }
 
 } // namespace WebCore

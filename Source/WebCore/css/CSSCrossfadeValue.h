@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,76 +25,49 @@
 
 #pragma once
 
-#include "CachedImageClient.h"
-#include "CachedResourceHandle.h"
-#include "CSSImageGeneratorValue.h"
+#include "CSSPrimitiveNumericTypes.h"
+#include "CSSValue.h"
 #include <wtf/Function.h>
 
 namespace WebCore {
 
 namespace Style {
 class BuilderState;
+class Image;
 }
 
-struct BlendingContext;
-class CSSPrimitiveValue;
-
-namespace Style {
-class BuilderState;
-} // namespace Style
-
-class CSSCrossfadeValue final : public CSSImageGeneratorValue {
+class CSSCrossfadeValue final : public CSSValue {
 public:
-    static Ref<CSSCrossfadeValue> create(Ref<CSSValue>&& fromValue, Ref<CSSValue>&& toValue, Ref<CSSPrimitiveValue>&& percentageValue, bool prefixed = false);
+    using Progress = CSS::NumberOrPercentageResolvedToNumber<CSS::ClosedUnitRangeClampBoth, CSS::ClosedPercentageRangeClampBoth>;
+
+    static Ref<CSSCrossfadeValue> create(Ref<CSSValue>&& fromValueOrNone, Ref<CSSValue>&& toValueOrNone, Progress&&, bool isPrefixed);
 
     ~CSSCrossfadeValue();
-
-    String customCSSText() const;
-
-    Image* image(RenderElement&, const FloatSize&);
-    bool isFixedSize() const { return true; }
-    FloatSize fixedSize(const RenderElement&);
-
-    bool isPrefixed() const { return m_isPrefixed; }
-    bool isPending() const;
-    bool knownToBeOpaque(const RenderElement&) const;
-
-    void loadSubimages(CachedResourceLoader&, const ResourceLoaderOptions&);
-
-    bool traverseSubresources(const WTF::Function<bool (const CachedResource&)>& handler) const;
-
-    RefPtr<CSSCrossfadeValue> blend(const CSSCrossfadeValue&, const BlendingContext&) const;
 
     bool equals(const CSSCrossfadeValue&) const;
     bool equalInputImages(const CSSCrossfadeValue&) const;
 
-    Ref<CSSCrossfadeValue> valueWithStylesResolved(Style::BuilderState&);
+    String customCSSText(const CSS::SerializationContext&) const;
+    bool isPrefixed() const { return m_isPrefixed; }
+
+    RefPtr<Style::Image> createStyleImage(const Style::BuilderState&) const;
+
+    IterationStatus customVisitChildren(NOESCAPE const Function<IterationStatus(CSSValue&)>& func) const
+    {
+        if (func(m_fromValueOrNone.get()) == IterationStatus::Done)
+            return IterationStatus::Done;
+        if (func(m_toValueOrNone.get()) == IterationStatus::Done)
+            return IterationStatus::Done;
+        return IterationStatus::Continue;
+    }
 
 private:
-    CSSCrossfadeValue(Ref<CSSValue>&& fromValue, Ref<CSSValue>&& toValue, Ref<CSSPrimitiveValue>&& percentageValue, bool prefixed);
+    CSSCrossfadeValue(Ref<CSSValue>&& fromValueOrNone, Ref<CSSValue>&& toValueOrNone, Progress&&, bool isPrefixed);
 
-    class SubimageObserver final : public CachedImageClient {
-    public:
-        SubimageObserver(CSSCrossfadeValue&);
-    private:
-        void imageChanged(CachedImage*, const IntRect*) final;
-        CSSCrossfadeValue& m_owner;
-    };
-
-    void crossfadeChanged();
-
-    Ref<CSSValue> m_fromValue;
-    Ref<CSSValue> m_toValue;
-    Ref<CSSPrimitiveValue> m_percentageValue;
-
-    CachedResourceHandle<CachedImage> m_cachedFromImage;
-    CachedResourceHandle<CachedImage> m_cachedToImage;
-
-    RefPtr<Image> m_generatedImage;
-
-    SubimageObserver m_subimageObserver;
-    bool m_isPrefixed { false };
-    bool m_subimagesAreReady { false };
+    const Ref<CSSValue> m_fromValueOrNone;
+    const Ref<CSSValue> m_toValueOrNone;
+    const Progress m_progress;
+    bool m_isPrefixed;
 };
 
 } // namespace WebCore

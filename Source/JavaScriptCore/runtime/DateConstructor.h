@@ -1,6 +1,6 @@
 /*
  *  Copyright (C) 1999-2000 Harri Porten (porten@kde.org)
- *  Copyright (C) 2008-2019 Apple Inc. All rights reserved.
+ *  Copyright (C) 2008-2021 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -32,19 +32,16 @@ public:
     typedef InternalFunction Base;
     static constexpr unsigned StructureFlags = Base::StructureFlags | HasStaticPropertyTable;
 
-    static DateConstructor* create(VM& vm, Structure* structure, DatePrototype* datePrototype, GetterSetter*)
+    static DateConstructor* create(VM& vm, Structure* structure, DatePrototype* datePrototype)
     {
-        DateConstructor* constructor = new (NotNull, allocateCell<DateConstructor>(vm.heap)) DateConstructor(vm, structure);
+        DateConstructor* constructor = new (NotNull, allocateCell<DateConstructor>(vm)) DateConstructor(vm, structure);
         constructor->finishCreation(vm, datePrototype);
         return constructor;
     }
 
     DECLARE_INFO;
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(InternalFunctionType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
 private:
     DateConstructor(VM&, Structure*);
@@ -55,4 +52,37 @@ STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(DateConstructor, InternalFunction);
 JSObject* constructDate(JSGlobalObject*, JSValue newTarget, const ArgList&);
 JSValue dateNowImpl();
 
+// https://tc39.es/ecma262/#sec-makeday
+constexpr static inline double makeDay(double year, double month, double date)
+{
+    double additionalYears = std::floor(month / 12);
+    double ym = year + additionalYears;
+    if (!std::isfinite(ym))
+        return PNaN;
+    double mm = month - additionalYears * 12;
+    int32_t yearInt32 = toInt32(ym);
+    int32_t monthInt32 = toInt32(mm);
+    if (yearInt32 != ym || monthInt32 != mm)
+        return PNaN;
+    double days = dateToDaysFrom1970(yearInt32, monthInt32, 1);
+    return days + date - 1;
+}
+
+// https://tc39.es/ecma262/#sec-makedate
+constexpr static inline double makeDate(double day, double time)
+{
+#if COMPILER(CLANG)
+#pragma STDC FP_CONTRACT OFF
+#endif
+    return (day * msPerDay) + time;
+}
+
+// https://tc39.es/ecma262/#sec-maketime
+constexpr static inline double makeTime(double hour, double min, double sec, double ms)
+{
+#if COMPILER(CLANG)
+#pragma STDC FP_CONTRACT OFF
+#endif
+    return (((hour * msPerHour) + min * msPerMinute) + sec * msPerSecond) + ms;
+}
 } // namespace JSC

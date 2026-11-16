@@ -4,11 +4,14 @@
 // found in the LICENSE file.
 //
 
+#include <array>
+
+#include "common/unsafe_buffers.h"
 #include "test_utils/ANGLETest.h"
 
 using namespace angle;
 
-class BlendMinMaxTest : public ANGLETest
+class BlendMinMaxTest : public ANGLETest<>
 {
   protected:
     BlendMinMaxTest()
@@ -29,7 +32,7 @@ class BlendMinMaxTest : public ANGLETest
 
     struct Color
     {
-        float values[4];
+        std::array<float, 4> values;
     };
 
     static float getExpected(bool blendMin, float curColor, float prevColor)
@@ -53,7 +56,7 @@ class BlendMinMaxTest : public ANGLETest
         }
 
         const size_t colorCount = 128;
-        Color colors[colorCount];
+        std::array<Color, colorCount> colors;
         for (size_t i = 0; i < colorCount; i++)
         {
             for (size_t j = 0; j < 4; j++)
@@ -63,7 +66,7 @@ class BlendMinMaxTest : public ANGLETest
             }
         }
 
-        float prevColor[4];
+        std::array<float, 4> prevColor;
         for (size_t i = 0; i < colorCount; i++)
         {
             const Color &color = colors[i];
@@ -76,19 +79,19 @@ class BlendMinMaxTest : public ANGLETest
 
             drawQuad(mProgram, essl1_shaders::PositionAttrib(), 0.5f);
 
-            float pixel[4];
+            std::array<float, 4> pixel;
             if (type == GL_UNSIGNED_BYTE)
             {
-                GLubyte ubytePixel[4];
-                glReadPixels(0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, ubytePixel);
-                for (size_t componentIdx = 0; componentIdx < ArraySize(pixel); componentIdx++)
+                std::array<GLubyte, 4> ubytePixel;
+                glReadPixels(0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, ubytePixel.data());
+                for (size_t componentIdx = 0; componentIdx < pixel.size(); componentIdx++)
                 {
                     pixel[componentIdx] = ubytePixel[componentIdx] / 255.0f;
                 }
             }
             else if (type == GL_FLOAT)
             {
-                glReadPixels(0, 0, 1, 1, GL_RGBA, GL_FLOAT, pixel);
+                glReadPixels(0, 0, 1, 1, GL_RGBA, GL_FLOAT, pixel.data());
             }
             else
             {
@@ -98,7 +101,7 @@ class BlendMinMaxTest : public ANGLETest
             if (i > 0)
             {
                 const float errorRange = 1.0f / 255.0f;
-                for (size_t componentIdx = 0; componentIdx < ArraySize(pixel); componentIdx++)
+                for (size_t componentIdx = 0; componentIdx < pixel.size(); componentIdx++)
                 {
                     EXPECT_NEAR(
                         getExpected(blendMin, color.values[componentIdx], prevColor[componentIdx]),
@@ -115,7 +118,7 @@ class BlendMinMaxTest : public ANGLETest
                 }
             }
 
-            memcpy(prevColor, pixel, sizeof(pixel));
+            prevColor = pixel;
         }
     }
 
@@ -180,9 +183,6 @@ TEST_P(BlendMinMaxTest, RGBA32F)
     ANGLE_SKIP_TEST_IF(getClientMajorVersion() < 3 || !IsGLExtensionEnabled("GL_EXT_float_blend") ||
                        !IsGLExtensionEnabled("GL_EXT_color_buffer_float"));
 
-    // Ignore SDK layers messages on D3D11 FL 9.3 (http://anglebug.com/1284)
-    ANGLE_SKIP_TEST_IF(IsD3D11_FL93());
-
     runTest(GL_RGBA32F, GL_FLOAT);
 }
 
@@ -190,11 +190,6 @@ TEST_P(BlendMinMaxTest, RGBA16F)
 {
     ANGLE_SKIP_TEST_IF(getClientMajorVersion() < 3 &&
                        !IsGLExtensionEnabled("GL_EXT_color_buffer_half_float"));
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF((IsAndroid() && IsVulkan()) || isSwiftshader());
-
-    // http://anglebug.com/4185
-    ANGLE_SKIP_TEST_IF(IsMetal());
 
     runTest(GL_RGBA16F, GL_FLOAT);
 }

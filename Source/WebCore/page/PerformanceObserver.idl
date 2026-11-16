@@ -23,24 +23,26 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// https://w3c.github.io/performance-timeline/
+typedef double DOMHighResTimeStamp;
 
+// https://w3c.github.io/performance-timeline/#dom-performanceobserver
 [
     CustomIsReachable,
-    Exposed=(Window,Worker),
-    ImplementationLacksVTable,
+    Exposed=*,
     JSCustomMarkFunction,
 ] interface PerformanceObserver {
-    [CallWith=ScriptExecutionContext] constructor(PerformanceObserverCallback callback);
+    [CallWith=CurrentScriptExecutionContext] constructor(PerformanceObserverCallback callback);
 
-    undefined observe(optional PerformanceObserverInit options);
+    undefined observe(optional PerformanceObserverInit options = {});
     undefined disconnect();
     sequence<PerformanceEntry> takeRecords();
-    [CallWith=ScriptExecutionContext] static readonly attribute FrozenArray<DOMString> supportedEntryTypes;
+    [CallWith=CurrentScriptExecutionContext] static readonly attribute FrozenArray<DOMString> supportedEntryTypes;
 };
 
+// https://w3c.github.io/performance-timeline/#dom-performanceobserverinit
 dictionary PerformanceObserverInit {
     sequence<DOMString> entryTypes;
     DOMString type;
     boolean buffered = false;
+    [EnabledBySetting=EventTimingEnabled] DOMHighResTimeStamp durationThreshold;
 };

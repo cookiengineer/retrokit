@@ -28,7 +28,7 @@
 
 #if ENABLE(DFG_JIT)
 
-#include "CodeBlock.h"
+#include "CodeBlockInlines.h"
 #include "JSCellInlines.h"
 
 namespace JSC { namespace DFG {
@@ -56,16 +56,17 @@ void AdaptiveStructureWatchpoint::initialize(const ObjectPropertyCondition& key,
     RELEASE_ASSERT(!key.watchingRequiresReplacementWatchpoint());
 }
 
-void AdaptiveStructureWatchpoint::install(VM& vm)
+void AdaptiveStructureWatchpoint::install(VM&)
 {
-    RELEASE_ASSERT(m_key.isWatchable());
+    RELEASE_ASSERT(m_key.isWatchable(PropertyCondition::MakeNoChanges));
     
-    m_key.object()->structure(vm)->addTransitionWatchpoint(this);
+    m_key.object()->structure()->addTransitionWatchpoint(this);
 }
 
 void AdaptiveStructureWatchpoint::fireInternal(VM& vm, const FireDetail& detail)
 {
-    if (!m_codeBlock->isLive())
+    ASSERT(!m_codeBlock->wasDestructed());
+    if (m_codeBlock->isPendingDestruction())
         return;
 
     if (m_key.isWatchable(PropertyCondition::EnsureWatchability)) {
@@ -73,15 +74,13 @@ void AdaptiveStructureWatchpoint::fireInternal(VM& vm, const FireDetail& detail)
         return;
     }
     
-    if (DFG::shouldDumpDisassembly()) {
-        dataLog(
-            "Firing watchpoint ", RawPointer(this), " (", m_key, ") on ", *m_codeBlock, "\n");
-    }
+    dataLogLnIf(DFG::shouldDumpDisassembly(), "Firing watchpoint ", RawPointer(this), " (", m_key, ") on ", *m_codeBlock);
 
-    auto lazyDetail = createLazyFireDetail("Adaptation of ", m_key, " failed: ", detail);
-
-    m_codeBlock->jettison(
-        Profiler::JettisonDueToUnprofiledWatchpoint, CountReoptimization, &lazyDetail);
+    auto lambda = scopedLambda<void(PrintStream&)>([&](PrintStream& out) {
+        out.print("Adaptation of ", m_key, " failed: ", detail);
+    });
+    LazyFireDetail lazyDetail(lambda);
+    m_codeBlock->jettison(Profiler::JettisonDueToUnprofiledWatchpoint, CountReoptimization, &lazyDetail);
 }
 
 } } // namespace JSC::DFG

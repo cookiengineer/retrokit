@@ -6,10 +6,15 @@
 
 // test_utils_win32.cpp: Implementation of OS-specific functions for Win32 (Windows)
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include "util/test_utils.h"
 
 #include <windows.h>
 #include <array>
+#include <cstdlib>
 
 #include "util/windows/third_party/StackWalker/src/StackWalker.h"
 
@@ -75,6 +80,11 @@ class CustomStackWalker : public StackWalker
 
 void PrintBacktrace(CONTEXT *c)
 {
+    if (IsStackTraceDisabled())
+    {
+        return;
+    }
+
     printf("Backtrace:\n");
     OutputDebugStringA("Backtrace:\n");
 
@@ -86,11 +96,11 @@ LONG WINAPI StackTraceCrashHandler(EXCEPTION_POINTERS *e)
 {
     const DWORD code = e->ExceptionRecord->ExceptionCode;
     printf("\nCaught exception %lu", code);
-    for (size_t i = 0; i < ArraySize(kExceptions); i++)
+    for (const auto &knownException : kExceptions)
     {
-        if (kExceptions[i].code == code)
+        if (knownException.code == code)
         {
-            printf(" %s", kExceptions[i].name);
+            printf(" %s", knownException.name);
         }
     }
     printf("\n");
@@ -141,6 +151,11 @@ bool StabilizeCPUForBenchmarking()
 
 void PrintStackBacktrace()
 {
+    if (IsStackTraceDisabled())
+    {
+        return;
+    }
+
     CONTEXT context;
     ZeroMemory(&context, sizeof(CONTEXT));
     RtlCaptureContext(&context);

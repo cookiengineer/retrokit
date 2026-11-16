@@ -1,14 +1,21 @@
 # -----------------------------------------------------------------------------
 # Add module directories
 # -----------------------------------------------------------------------------
-if (NOT USE_SYSTEM_MALLOC)
-    add_subdirectory(bmalloc)
+if (USE_APPLE_INTERNAL_SDK)
+    add_subdirectory(../../Internal/WebKit/WebKitAdditions ${CMAKE_BINARY_DIR}/WebKitAdditions)
 endif ()
 
+add_subdirectory(bmalloc)
 add_subdirectory(WTF)
 
 if (USE_CAPSTONE)
     add_subdirectory(ThirdParty/capstone)
+endif ()
+
+if (USE_SYSTEM_UNIFDEF)
+  find_package(Unifdef REQUIRED)
+else ()
+  add_subdirectory(ThirdParty/unifdef)
 endif ()
 
 add_subdirectory(JavaScriptCore)
@@ -25,9 +32,28 @@ if (USE_XDGMIME)
     add_subdirectory(ThirdParty/xdgmime)
 endif ()
 
+# dav1d must be declared before libwebrtc and WebCore so target_link_libraries can resolve it.
+if (ENABLE_AV1)
+    add_subdirectory(ThirdParty/dav1d)
+endif ()
+
 if (USE_LIBWEBRTC)
     add_subdirectory(ThirdParty/libwebrtc)
     include_directories(${CMAKE_CURRENT_BINARY_DIR}/ThirdParty/libwebrtc)
+endif ()
+
+if (USE_SKIA)
+    add_subdirectory(ThirdParty/skia)
+endif ()
+
+if (USE_SYSTEM_SYSPROF_CAPTURE)
+    find_package(SysProfCapture)
+    if (NOT SysProfCapture_FOUND)
+        message(FATAL_ERROR "system libsysprof-capture-4 not found, "
+                            "consider using USE_SYSTEM_SYSPROF_CAPTURE=NO")
+    endif ()
+elseif (USE_SYSPROF_CAPTURE)
+    add_subdirectory(ThirdParty/libsysprof-capture)
 endif ()
 
 if (ENABLE_WEBINSPECTORUI)
@@ -48,6 +74,10 @@ endif ()
 
 if (ENABLE_WEBDRIVER)
     add_subdirectory(WebDriver)
+endif ()
+
+if (ENABLE_WEBGPU)
+    add_subdirectory(WebGPU)
 endif ()
 
 WEBKIT_INCLUDE_CONFIG_FILES_IF_EXISTS()

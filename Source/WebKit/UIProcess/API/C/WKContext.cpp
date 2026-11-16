@@ -35,6 +35,7 @@
 #include "APIURLRequest.h"
 #include "AuthenticationChallengeProxy.h"
 #include "DownloadProxy.h"
+#include "GPUProcessProxy.h"
 #include "LegacyGlobalSettings.h"
 #include "WKAPICast.h"
 #include "WKArray.h"
@@ -42,15 +43,17 @@
 #include "WKRetainPtr.h"
 #include "WKString.h"
 #include "WKWebsiteDataStoreRef.h"
-#include "WebCertificateInfo.h"
 #include "WebContextInjectedBundleClient.h"
+#include "WebFrameProxy.h"
 #include "WebPageProxy.h"
 #include "WebProcessPool.h"
+#include <WebCore/GamepadProvider.h>
+#include <wtf/Borrow.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/WTFString.h>
 
 // Supplements
-#include "WebCookieManagerProxy.h"
 #include "WebGeolocationManagerProxy.h"
 #include "WebNotificationManagerProxy.h"
 
@@ -71,7 +74,7 @@ WKTypeID WKContextGetTypeID()
 WKContextRef WKContextCreate()
 {
     auto configuration = API::ProcessPoolConfiguration::create();
-    return WebKit::toAPI(&WebKit::WebProcessPool::create(configuration).leakRef());
+    return WebKit::toAPILeakingRef(WebKit::WebProcessPool::create(configuration));
 }
 
 WKContextRef WKContextCreateWithInjectedBundlePath(WKStringRef pathRef)
@@ -79,7 +82,7 @@ WKContextRef WKContextCreateWithInjectedBundlePath(WKStringRef pathRef)
     auto configuration = API::ProcessPoolConfiguration::create();
     configuration->setInjectedBundlePath(WebKit::toWTFString(pathRef));
 
-    return WebKit::toAPI(&WebKit::WebProcessPool::create(configuration).leakRef());
+    return WebKit::toAPILeakingRef(WebKit::WebProcessPool::create(configuration));
 }
 
 WKContextRef WKContextCreateWithConfiguration(WKContextConfigurationRef configuration)
@@ -87,22 +90,23 @@ WKContextRef WKContextCreateWithConfiguration(WKContextConfigurationRef configur
     RefPtr<API::ProcessPoolConfiguration> apiConfiguration = WebKit::toImpl(configuration);
     if (!apiConfiguration)
         apiConfiguration = API::ProcessPoolConfiguration::create();
-    return WebKit::toAPI(&WebKit::WebProcessPool::create(*apiConfiguration).leakRef());
+    return WebKit::toAPILeakingRef(WebKit::WebProcessPool::create(*apiConfiguration));
 }
 
 void WKContextSetClient(WKContextRef contextRef, const WKContextClientBase* wkClient)
 {
-    WebKit::toImpl(contextRef)->initializeClient(wkClient);
+    protect(WebKit::toImpl(contextRef))->initializeClient(wkClient);
 }
 
 void WKContextSetInjectedBundleClient(WKContextRef contextRef, const WKContextInjectedBundleClientBase* wkClient)
 {
-    WebKit::toImpl(contextRef)->setInjectedBundleClient(makeUnique<WebKit::WebContextInjectedBundleClient>(wkClient));
+    protect(WebKit::toImpl(contextRef))->setInjectedBundleClient(makeUnique<WebKit::WebContextInjectedBundleClient>(wkClient));
 }
 
 void WKContextSetHistoryClient(WKContextRef contextRef, const WKContextHistoryClientBase* wkClient)
 {
     class HistoryClient final : public API::Client<WKContextHistoryClientBase>, public API::LegacyContextHistoryClient {
+        WTF_MAKE_TZONE_ALLOCATED_INLINE(HistoryClient);
     public:
         explicit HistoryClient(const WKContextHistoryClientBase* client)
         {
@@ -157,17 +161,18 @@ void WKContextSetHistoryClient(WKContextRef contextRef, const WKContextHistoryCl
         }
     };
 
-    WebKit::WebProcessPool& processPool = *WebKit::toImpl(contextRef);
-    processPool.setHistoryClient(makeUnique<HistoryClient>(wkClient));
+    Ref processPool = *WebKit::toImpl(contextRef);
+    processPool->setHistoryClient(makeUnique<HistoryClient>(wkClient));
 
-    bool addsVisitedLinks = processPool.historyClient().addsVisitedLinks();
+    bool addsVisitedLinks = processPool->historyClient().addsVisitedLinks();
 
-    for (auto& process : processPool.processes()) {
-        for (auto& page : process->pages())
+    for (Ref process : borrow(processPool->processes()).get()) {
+        for (Ref page : process->pages())
             page->setAddsVisitedLinks(addsVisitedLinks);
     }
 }
 
+// FIXME: Remove when rdar://133503931 is complete.
 void WKContextSetDownloadClient(WKContextRef context, const WKContextDownloadClientBase* wkClient)
 {
     class LegacyDownloadClient final : public API::Client<WKContextDownloadClientBase>, public API::DownloadClient {
@@ -245,36 +250,21 @@ void WKContextSetDownloadClient(WKContextRef context, const WKContextDownloadCli
         {
             if (m_client.didReceiveServerRedirect)
                 m_client.didReceiveServerRedirect(m_context, WebKit::toAPI(&downloadProxy), WebKit::toURLRef(request.url().string().impl()), m_client.base.clientInfo);
-            completionHandler(WTFMove(request));
+            completionHandler(WTF::move(request));
         }
         WKContextRef m_context;
     };
-    WebKit::toImpl(context)->setLegacyDownloadClient(adoptRef(*new LegacyDownloadClient(wkClient, context)));
-}
-
-void WKContextSetConnectionClient(WKContextRef contextRef, const WKContextConnectionClientBase* wkClient)
-{
-    WebKit::toImpl(contextRef)->initializeConnectionClient(wkClient);
-}
-
-WKDownloadRef WKContextDownloadURLRequest(WKContextRef, WKURLRequestRef)
-{
-    return nullptr;
-}
-
-WKDownloadRef WKContextResumeDownload(WKContextRef, WKDataRef, WKStringRef)
-{
-    return nullptr;
+    protect(WebKit::toImpl(context))->setLegacyDownloadClient(adoptRef(*new LegacyDownloadClient(wkClient, context)));
 }
 
 void WKContextSetInitializationUserDataForInjectedBundle(WKContextRef contextRef,  WKTypeRef userDataRef)
 {
-    WebKit::toImpl(contextRef)->setInjectedBundleInitializationUserData(WebKit::toImpl(userDataRef));
+    protect(WebKit::toImpl(contextRef))->setInjectedBundleInitializationUserData(WebKit::toImpl(userDataRef));
 }
 
 void WKContextPostMessageToInjectedBundle(WKContextRef contextRef, WKStringRef messageNameRef, WKTypeRef messageBodyRef)
 {
-    WebKit::toImpl(contextRef)->postMessageToInjectedBundle(WebKit::toImpl(messageNameRef)->string(), WebKit::toImpl(messageBodyRef));
+    protect(WebKit::toImpl(contextRef))->postMessageToInjectedBundle(protect(WebKit::toImpl(messageNameRef))->string(), protect(WebKit::toImpl(messageBodyRef)).get());
 }
 
 void WKContextGetGlobalStatistics(WKContextStatistics* statistics)
@@ -288,7 +278,7 @@ void WKContextGetGlobalStatistics(WKContextStatistics* statistics)
 
 void WKContextAddVisitedLink(WKContextRef contextRef, WKStringRef visitedURL)
 {
-    String visitedURLString = WebKit::toImpl(visitedURL)->string();
+    String visitedURLString = protect(WebKit::toImpl(visitedURL))->string();
     if (visitedURLString.isEmpty())
         return;
 
@@ -323,61 +313,58 @@ unsigned WKContextGetMaximumNumberOfProcesses(WKContextRef)
 
 void WKContextSetAlwaysUsesComplexTextCodePath(WKContextRef contextRef, bool alwaysUseComplexTextCodePath)
 {
-    WebKit::toImpl(contextRef)->setAlwaysUsesComplexTextCodePath(alwaysUseComplexTextCodePath);
+    protect(WebKit::toImpl(contextRef))->setAlwaysUsesComplexTextCodePath(alwaysUseComplexTextCodePath);
 }
 
-void WKContextSetShouldUseFontSmoothing(WKContextRef contextRef, bool useFontSmoothing)
+void WKContextSetDisableFontSubpixelAntialiasingForTesting(WKContextRef contextRef, bool disable)
 {
-    WebKit::toImpl(contextRef)->setShouldUseFontSmoothing(useFontSmoothing);
+    protect(WebKit::toImpl(contextRef))->setDisableFontSubpixelAntialiasingForTesting(disable);
+}
+
+void WKContextSetAllowAXAuthenticationForTesting(WKContextRef contextRef, bool allow)
+{
+    protect(WebKit::toImpl(contextRef))->setAllowAXAuthenticationForTesting(allow);
 }
 
 void WKContextSetAdditionalPluginsDirectory(WKContextRef contextRef, WKStringRef pluginsDirectory)
 {
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    WebKit::toImpl(contextRef)->setAdditionalPluginsDirectory(WebKit::toImpl(pluginsDirectory)->string());
-#else
     UNUSED_PARAM(contextRef);
     UNUSED_PARAM(pluginsDirectory);
-#endif
 }
 
 void WKContextRefreshPlugIns(WKContextRef context)
 {
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    WebKit::toImpl(context)->refreshPlugins();
-#else
     UNUSED_PARAM(context);
-#endif
 }
 
 void WKContextRegisterURLSchemeAsEmptyDocument(WKContextRef contextRef, WKStringRef urlScheme)
 {
-    WebKit::toImpl(contextRef)->registerURLSchemeAsEmptyDocument(WebKit::toImpl(urlScheme)->string());
+    protect(WebKit::toImpl(contextRef))->registerURLSchemeAsEmptyDocument(protect(WebKit::toImpl(urlScheme))->string());
 }
 
 void WKContextRegisterURLSchemeAsSecure(WKContextRef contextRef, WKStringRef urlScheme)
 {
-    WebKit::toImpl(contextRef)->registerURLSchemeAsSecure(WebKit::toImpl(urlScheme)->string());
+    protect(WebKit::toImpl(contextRef))->registerURLSchemeAsSecure(protect(WebKit::toImpl(urlScheme))->string());
 }
 
 void WKContextRegisterURLSchemeAsBypassingContentSecurityPolicy(WKContextRef contextRef, WKStringRef urlScheme)
 {
-    WebKit::toImpl(contextRef)->registerURLSchemeAsBypassingContentSecurityPolicy(WebKit::toImpl(urlScheme)->string());
+    protect(WebKit::toImpl(contextRef))->registerURLSchemeAsBypassingContentSecurityPolicy(protect(WebKit::toImpl(urlScheme))->string());
 }
 
 void WKContextRegisterURLSchemeAsCachePartitioned(WKContextRef contextRef, WKStringRef urlScheme)
 {
-    WebKit::toImpl(contextRef)->registerURLSchemeAsCachePartitioned(WebKit::toImpl(urlScheme)->string());
+    protect(WebKit::toImpl(contextRef))->registerURLSchemeAsCachePartitioned(protect(WebKit::toImpl(urlScheme))->string());
 }
 
 void WKContextRegisterURLSchemeAsCanDisplayOnlyIfCanRequest(WKContextRef contextRef, WKStringRef urlScheme)
 {
-    WebKit::toImpl(contextRef)->registerURLSchemeAsCanDisplayOnlyIfCanRequest(WebKit::toImpl(urlScheme)->string());
+    protect(WebKit::toImpl(contextRef))->registerURLSchemeAsCanDisplayOnlyIfCanRequest(protect(WebKit::toImpl(urlScheme))->string());
 }
 
 void WKContextSetDomainRelaxationForbiddenForURLScheme(WKContextRef contextRef, WKStringRef urlScheme)
 {
-    WebKit::toImpl(contextRef)->setDomainRelaxationForbiddenForURLScheme(WebKit::toImpl(urlScheme)->string());
+    protect(WebKit::toImpl(contextRef))->setDomainRelaxationForbiddenForURLScheme(protect(WebKit::toImpl(urlScheme))->string());
 }
 
 void WKContextSetCanHandleHTTPSServerTrustEvaluation(WKContextRef contextRef, bool value)
@@ -399,9 +386,8 @@ bool WKContextGetUsesSingleWebProcess(WKContextRef contextRef)
     return WebKit::toImpl(contextRef)->configuration().usesSingleWebProcess();
 }
 
-void WKContextSetCustomWebContentServiceBundleIdentifier(WKContextRef contextRef, WKStringRef name)
+void WKContextSetCustomWebContentServiceBundleIdentifier(WKContextRef, WKStringRef)
 {
-    WebKit::toImpl(contextRef)->setCustomWebContentServiceBundleIdentifier(WebKit::toImpl(name)->string());
 }
 
 void WKContextSetDiskCacheSpeculativeValidationEnabled(WKContextRef, bool)
@@ -417,14 +403,9 @@ WKWebsiteDataStoreRef WKContextGetWebsiteDataStore(WKContextRef)
     return WKWebsiteDataStoreGetDefaultDataStore();
 }
 
-WKApplicationCacheManagerRef WKContextGetApplicationCacheManager(WKContextRef context)
-{
-    return reinterpret_cast<WKApplicationCacheManagerRef>(WKWebsiteDataStoreGetDefaultDataStore());
-}
-
 WKGeolocationManagerRef WKContextGetGeolocationManager(WKContextRef contextRef)
 {
-    return WebKit::toAPI(WebKit::toImpl(contextRef)->supplement<WebKit::WebGeolocationManagerProxy>());
+    return WebKit::toAPI(protect(protect(WebKit::toImpl(contextRef))->supplement<WebKit::WebGeolocationManagerProxy>()).get());
 }
 
 WKIconDatabaseRef WKContextGetIconDatabase(WKContextRef)
@@ -439,7 +420,7 @@ WKKeyValueStorageManagerRef WKContextGetKeyValueStorageManager(WKContextRef cont
 
 WKNotificationManagerRef WKContextGetNotificationManager(WKContextRef contextRef)
 {
-    return WebKit::toAPI(WebKit::toImpl(contextRef)->supplement<WebKit::WebNotificationManagerProxy>());
+    return WebKit::toAPI(protect(protect(WebKit::toImpl(contextRef))->supplement<WebKit::WebNotificationManagerProxy>()).get());
 }
 
 WKResourceCacheManagerRef WKContextGetResourceCacheManager(WKContextRef context)
@@ -449,12 +430,12 @@ WKResourceCacheManagerRef WKContextGetResourceCacheManager(WKContextRef context)
 
 void WKContextStartMemorySampler(WKContextRef contextRef, WKDoubleRef interval)
 {
-    WebKit::toImpl(contextRef)->startMemorySampler(WebKit::toImpl(interval)->value());
+    protect(WebKit::toImpl(contextRef))->startMemorySampler(WebKit::toImpl(interval)->value());
 }
 
 void WKContextStopMemorySampler(WKContextRef contextRef)
 {
-    WebKit::toImpl(contextRef)->stopMemorySampler();
+    protect(WebKit::toImpl(contextRef))->stopMemorySampler();
 }
 
 void WKContextSetIconDatabasePath(WKContextRef, WKStringRef)
@@ -467,22 +448,22 @@ void WKContextAllowSpecificHTTPSCertificateForHost(WKContextRef, WKCertificateIn
 
 void WKContextDisableProcessTermination(WKContextRef contextRef)
 {
-    WebKit::toImpl(contextRef)->disableProcessTermination();
+    protect(WebKit::toImpl(contextRef))->disableProcessTermination();
 }
 
 void WKContextEnableProcessTermination(WKContextRef contextRef)
 {
-    WebKit::toImpl(contextRef)->enableProcessTermination();
+    protect(WebKit::toImpl(contextRef))->enableProcessTermination();
 }
 
 void WKContextSetHTTPPipeliningEnabled(WKContextRef contextRef, bool enabled)
 {
-    WebKit::toImpl(contextRef)->setHTTPPipeliningEnabled(enabled);
+    protect(WebKit::toImpl(contextRef))->setHTTPPipeliningEnabled(enabled);
 }
 
 void WKContextWarmInitialProcess(WKContextRef contextRef)
 {
-    WebKit::toImpl(contextRef)->prewarmProcess();
+    protect(WebKit::toImpl(contextRef))->prewarmProcess();
 }
 
 void WKContextGetStatistics(WKContextRef contextRef, void* context, WKContextGetStatisticsFunction callback)
@@ -505,12 +486,12 @@ void WKContextSetJavaScriptConfigurationFileEnabled(WKContextRef contextRef, boo
 
 void WKContextGarbageCollectJavaScriptObjects(WKContextRef contextRef)
 {
-    WebKit::toImpl(contextRef)->garbageCollectJavaScriptObjects();
+    protect(WebKit::toImpl(contextRef))->garbageCollectJavaScriptObjects();
 }
 
 void WKContextSetJavaScriptGarbageCollectorTimerEnabled(WKContextRef contextRef, bool enable)
 {
-    WebKit::toImpl(contextRef)->setJavaScriptGarbageCollectorTimerEnabled(enable);
+    protect(WebKit::toImpl(contextRef))->setJavaScriptGarbageCollectorTimerEnabled(enable);
 }
 
 WKDictionaryRef WKContextCopyPlugInAutoStartOriginHashes(WKContextRef)
@@ -537,46 +518,38 @@ void WKContextSetInvalidMessageFunction(WKContextInvalidMessageFunction invalidM
 
 void WKContextSetMemoryCacheDisabled(WKContextRef contextRef, bool disabled)
 {
-    WebKit::toImpl(contextRef)->setMemoryCacheDisabled(disabled);
+    protect(WebKit::toImpl(contextRef))->setMemoryCacheDisabled(disabled);
 }
 
 void WKContextSetFontAllowList(WKContextRef contextRef, WKArrayRef arrayRef)
 {
-    WebKit::toImpl(contextRef)->setFontAllowList(WebKit::toImpl(arrayRef));
+    protect(WebKit::toImpl(contextRef))->setFontAllowList(protect(WebKit::toImpl(arrayRef)).get());
+}
+
+void WKContextTerminateGPUProcess(WKContextRef)
+{
+#if ENABLE(GPU_PROCESS)
+    if (RefPtr gpuProcess = WebKit::GPUProcessProxy::singletonIfCreated())
+        gpuProcess->terminateForTesting();
+#endif
 }
 
 void WKContextTerminateServiceWorkers(WKContextRef context)
 {
-    WebKit::toImpl(context)->terminateServiceWorkers();
+    protect(WebKit::toImpl(context))->terminateServiceWorkers();
 }
 
 void WKContextAddSupportedPlugin(WKContextRef contextRef, WKStringRef domainRef, WKStringRef nameRef, WKArrayRef mimeTypesRef, WKArrayRef extensionsRef)
 {
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    HashSet<String> mimeTypes;
-    HashSet<String> extensions;
-
-    size_t count = WKArrayGetSize(mimeTypesRef);
-    for (size_t i = 0; i < count; ++i)
-        mimeTypes.add(WebKit::toWTFString(static_cast<WKStringRef>(WKArrayGetItemAtIndex(mimeTypesRef, i))));
-    count = WKArrayGetSize(extensionsRef);
-    for (size_t i = 0; i < count; ++i)
-        extensions.add(WebKit::toWTFString(static_cast<WKStringRef>(WKArrayGetItemAtIndex(extensionsRef, i))));
-
-    WebKit::toImpl(contextRef)->addSupportedPlugin(WebKit::toWTFString(domainRef), WebKit::toWTFString(nameRef), WTFMove(mimeTypes), WTFMove(extensions));
-#endif
 }
 
 void WKContextClearSupportedPlugins(WKContextRef contextRef)
 {
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    WebKit::toImpl(contextRef)->clearSupportedPlugins();
-#endif
 }
 
 void WKContextClearCurrentModifierStateForTesting(WKContextRef contextRef)
 {
-    WebKit::toImpl(contextRef)->clearCurrentModifierStateForTesting();
+    protect(WebKit::toImpl(contextRef))->clearCurrentModifierStateForTesting();
 }
 
 void WKContextSetUseSeparateServiceWorkerProcess(WKContextRef, bool useSeparateServiceWorkerProcess)
@@ -586,4 +559,36 @@ void WKContextSetUseSeparateServiceWorkerProcess(WKContextRef, bool useSeparateS
 
 void WKContextSetPrimaryWebsiteDataStore(WKContextRef, WKWebsiteDataStoreRef)
 {
+}
+
+WKArrayRef WKContextCopyLocalhostAliases(WKContextRef)
+{
+    return WebKit::toAPILeakingRef(API::Array::createStringArray(copyToVector(WebKit::LegacyGlobalSettings::singleton().hostnamesToRegisterAsLocal())));
+}
+
+void WKContextSetLocalhostAliases(WKContextRef, WKArrayRef localhostAliases)
+{
+    for (const auto& hostname : protect(WebKit::toImpl(localhostAliases))->toStringVector())
+        WebKit::LegacyGlobalSettings::singleton().registerHostnameAsLocal(hostname);
+}
+
+void WKContextClearMockGamepadsForTesting(WKContextRef)
+{
+#if ENABLE(GAMEPAD)
+    if (WebCore::GamepadProvider::singleton().isMockGamepadProvider())
+        WebCore::GamepadProvider::singleton().clearGamepadsForTesting();
+#endif
+}
+
+void WKContextSetResourceMonitorURLsForTesting(WKContextRef contextRef, WKStringRef rulesText, void* context, WKContextSetResourceMonitorURLsFunction callback)
+{
+#if ENABLE(CONTENT_EXTENSIONS) && PLATFORM(COCOA)
+    protect(WebKit::toImpl(contextRef))->setResourceMonitorURLsForTesting(WebKit::toWTFString(rulesText), [context, callback] {
+        if (callback)
+            callback(context);
+    });
+#else
+    if (callback)
+        callback(context);
+#endif
 }

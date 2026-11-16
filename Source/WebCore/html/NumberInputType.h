@@ -32,36 +32,52 @@
 #pragma once
 
 #include "TextFieldInputType.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class NumberInputType final : public TextFieldInputType {
-    template<typename DowncastedType> friend bool isInvalidInputType(const InputType&, const String&);
+    WTF_MAKE_TZONE_ALLOCATED(NumberInputType);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(NumberInputType);
 public:
-    explicit NumberInputType(HTMLInputElement& element) : TextFieldInputType(Type::Number, element) { }
+    static Ref<NumberInputType> create(HTMLInputElement& element)
+    {
+        return adoptRef(*new NumberInputType(element));
+    }
+
+    bool typeMismatchFor(StringView) const final;
+    bool typeMismatch() const final;
+    bool hasBadInput() const final;
 
 private:
+    explicit NumberInputType(HTMLInputElement& element)
+        : TextFieldInputType(Type::Number, element)
+    {
+    }
+
     const AtomString& formControlType() const final;
-    void setValue(const String&, bool valueChanged, TextFieldEventBehavior) final;
+    void setValue(const String&, bool valueChanged, TextFieldEventBehavior, TextControlSetValueSelection) final;
     double valueAsDouble() const final;
     ExceptionOr<void> setValueAsDouble(double, TextFieldEventBehavior) const final;
     ExceptionOr<void> setValueAsDecimal(const Decimal&, TextFieldEventBehavior) const final;
-    bool typeMismatchFor(const String&) const final;
-    bool typeMismatch() const final;
     bool sizeShouldIncludeDecoration(int defaultSize, int& preferredSize) const final;
-    float decorationWidth() const final;
+    float decorationWidth(float inputWidth) const final;
+    static ValueOrReference<String> stripInvalidNumberCharacters(const String&);
+    ValueOrReference<String> normalizeFullWidthNumberChars(const String&) const;
     StepRange createStepRange(AnyStepHandling) const final;
     ShouldCallBaseEventHandler handleKeydownEvent(KeyboardEvent&) final;
-    Decimal parseToNumber(const String&, const Decimal&) const final;
+    void handleBeforeTextInsertedEvent(BeforeTextInsertedEvent&) final;
+    Decimal parseToNumber(StringView, const Decimal&) const final;
     String serialize(const Decimal&) const final;
     String localizeValue(const String&) const final;
     String visibleValue() const final;
     String convertFromVisibleValue(const String&) const final;
-    String sanitizeValue(const String&) const final;
-    bool hasBadInput() const final;
+    ValueOrReference<String> sanitizeValue(const String& value LIFETIME_BOUND) const final;
     String badInputText() const final;
     bool supportsPlaceholder() const final;
     void attributeChanged(const QualifiedName&) final;
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_INPUT_TYPE(NumberInputType, Type::Number)

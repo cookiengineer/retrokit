@@ -10,6 +10,7 @@
 
 #include "common/string_utils.h"
 #include "libANGLE/renderer/d3d/ProgramD3D.h"
+#include "libANGLE/renderer/d3d/ProgramExecutableD3D.h"
 #include "libANGLE/renderer/d3d/ShaderD3D.h"
 
 using namespace gl;
@@ -132,7 +133,9 @@ std::string Image2DHLSLGroupSuffix(Image2DHLSLGroup group)
     return "<unknown group type>";
 }
 
-std::string Image2DHLSLTextureString(Image2DHLSLGroup group, gl::TextureType type)
+std::string Image2DHLSLTextureString(Image2DHLSLGroup group,
+                                     gl::TextureType type,
+                                     bool rasterOrdered)
 {
     std::string textureString;
     switch (group)
@@ -148,7 +151,7 @@ std::string Image2DHLSLTextureString(Image2DHLSLGroup group, gl::TextureType typ
         case IMAGE2D_W_SNORM:
         case IMAGE2D_W_UINT4:
         case IMAGE2D_W_INT4:
-            textureString += "RW";
+            textureString += rasterOrdered ? "RasterizerOrdered" : "RW";
             break;
         default:
             UNREACHABLE();
@@ -246,6 +249,28 @@ std::string Image2DHLSLGroupDeclarationPrefix(Image2DHLSLGroup group)
     return "<unknown group type>";
 }
 
+bool IsReadOnlyImage2DHLSLGroup(Image2DHLSLGroup group)
+{
+    switch (group)
+    {
+        case IMAGE2D_R_FLOAT4:
+        case IMAGE2D_R_UNORM:
+        case IMAGE2D_R_SNORM:
+        case IMAGE2D_R_UINT4:
+        case IMAGE2D_R_INT4:
+            return true;
+        case IMAGE2D_W_FLOAT4:
+        case IMAGE2D_W_UNORM:
+        case IMAGE2D_W_SNORM:
+        case IMAGE2D_W_UINT4:
+        case IMAGE2D_W_INT4:
+            return false;
+        default:
+            UNREACHABLE();
+    }
+    return false;
+}
+
 std::string Image2DHLSLGroupRegisterSuffix(Image2DHLSLGroup group)
 {
     switch (group)
@@ -325,28 +350,6 @@ std::string getImage2DGroupReturnType(Image2DHLSLGroup group, Image2DMethod meth
     }
 }
 
-std::string getImageMetadata(Image2DHLSLGroup group)
-{
-    switch (group)
-    {
-        case IMAGE2D_R_FLOAT4:
-        case IMAGE2D_R_UNORM:
-        case IMAGE2D_R_SNORM:
-        case IMAGE2D_R_UINT4:
-        case IMAGE2D_R_INT4:
-            return "readonlyImageMetadata[imageIndex - readonlyImageIndexStart]";
-        case IMAGE2D_W_FLOAT4:
-        case IMAGE2D_W_UNORM:
-        case IMAGE2D_W_SNORM:
-        case IMAGE2D_W_UINT4:
-        case IMAGE2D_W_INT4:
-            return "imageMetadata[imageIndex - imageIndexStart]";
-        default:
-            UNREACHABLE();
-            return "unknown image method";
-    }
-}
-
 void OutputImage2DFunctionArgumentList(std::ostringstream &out,
                                        Image2DHLSLGroup group,
                                        Image2DMethod method)
@@ -390,8 +393,7 @@ void OutputImage2DSizeFunction(std::ostringstream &out,
                                unsigned int texture3DCount,
                                unsigned int texture2DArrayCount,
                                const std::string &offsetStr,
-                               const std::string &declarationStr,
-                               bool getDimensionsIgnoresBaseLevel)
+                               const std::string &declarationStr)
 {
     out << getImage2DGroupReturnType(textureGroup, IMAGE2DSIZE) << " "
         << Image2DHLSLGroupFunctionName(textureGroup, IMAGE2DSIZE) << "(";
@@ -405,17 +407,7 @@ void OutputImage2DSizeFunction(std::ostringstream &out,
         if (texture2DCount == totalCount)
         {
             out << "    const uint index = imageIndex -  " << offsetStr << "2D;\n";
-            if (getDimensionsIgnoresBaseLevel)
-            {
-                out << "    uint levelCount;\n";
-                out << "    const uint level = " << getImageMetadata(textureGroup) << ".level;\n";
-                out << "    " << declarationStr
-                    << "2D[index].GetDimensions(level, width, height, levelCount);\n";
-            }
-            else
-            {
-                out << "    " << declarationStr << "2D[index].GetDimensions(width, height);\n";
-            }
+            out << "    " << declarationStr << "2D[index].GetDimensions(width, height);\n";
         }
         else
         {
@@ -529,8 +521,7 @@ void OutputImage2DLoadFunction(std::ostringstream &out,
         if (texture3DCount == totalCount)
         {
             out << "    const uint index = imageIndex -  " << offsetStr << "3D;\n";
-            out << "    result = " << declarationStr << "3D[index][uint3(p.x, p.y, "
-                << getImageMetadata(textureGroup) << ".layer)];\n";
+            out << "    result = " << declarationStr << "3D[index][uint3(p.x, p.y, 0)];\n";
         }
         else
         {
@@ -553,8 +544,7 @@ void OutputImage2DLoadFunction(std::ostringstream &out,
             }
             out << "    {\n";
             out << "        const uint index = imageIndex -  " << offsetStr << "3D;\n";
-            out << "        result = " << declarationStr << "3D[index][uint3(p.x, p.y, "
-                << getImageMetadata(textureGroup) << ".layer)];\n";
+            out << "        result = " << declarationStr << "3D[index][uint3(p.x, p.y, 0)];\n";
             out << "    }\n";
         }
     }
@@ -564,16 +554,14 @@ void OutputImage2DLoadFunction(std::ostringstream &out,
         if (texture2DArrayCount == totalCount)
         {
             out << "    const uint index = imageIndex -  " << offsetStr << "2DArray;\n";
-            out << "    result = " << declarationStr << "2DArray[index][uint3(p.x, p.y, "
-                << getImageMetadata(textureGroup) << ".layer)];\n";
+            out << "    result = " << declarationStr << "2DArray[index][uint3(p.x, p.y, 0)];\n";
         }
         else
         {
             out << "    else\n";
             out << "    {\n";
             out << "        const uint index = imageIndex -  " << offsetStr << "2DArray;\n";
-            out << "        result = " << declarationStr << "2DArray[index][uint3(p.x, p.y, "
-                << getImageMetadata(textureGroup) << ".layer)];\n";
+            out << "        result = " << declarationStr << "2DArray[index][uint3(p.x, p.y, 0)];\n";
             out << "    }\n";
         }
     }
@@ -620,8 +608,7 @@ void OutputImage2DStoreFunction(std::ostringstream &out,
         if (texture3DCount == totalCount)
         {
             out << "    const uint index = imageIndex -  " << offsetStr << "3D;\n";
-            out << "    " << declarationStr << "3D[index][uint3(p.x, p.y, "
-                << getImageMetadata(textureGroup) << ".layer)] = data;\n";
+            out << "    " << declarationStr << "3D[index][uint3(p.x, p.y, 0)] = data;\n";
         }
         else
         {
@@ -644,8 +631,7 @@ void OutputImage2DStoreFunction(std::ostringstream &out,
             }
             out << "    {\n";
             out << "        const uint index = imageIndex -  " << offsetStr << "3D;\n";
-            out << "        " << declarationStr << "3D[index][uint3(p.x, p.y, "
-                << getImageMetadata(textureGroup) << ".layer)] = data;\n";
+            out << "        " << declarationStr << "3D[index][uint3(p.x, p.y, 0)] = data;\n";
             out << "    }\n";
         }
     }
@@ -655,16 +641,14 @@ void OutputImage2DStoreFunction(std::ostringstream &out,
         if (texture2DArrayCount == totalCount)
         {
             out << "    const uint index = imageIndex -  " << offsetStr << "2DArray;\n";
-            out << "    " << declarationStr << "2DArray[index][uint3(p.x, p.y, "
-                << getImageMetadata(textureGroup) << ".layer)] = data;\n";
+            out << "    " << declarationStr << "2DArray[index][uint3(p.x, p.y, 0)] = data;\n";
         }
         else
         {
             out << "    else\n";
             out << "    {\n";
             out << "        const uint index = imageIndex -  " << offsetStr << "2DArray;\n";
-            out << "        " << declarationStr << "2DArray[index][uint3(p.x, p.y, "
-                << getImageMetadata(textureGroup) << ".layer)] = data;\n";
+            out << "        " << declarationStr << "2DArray[index][uint3(p.x, p.y, 0)] = data;\n";
             out << "    }\n";
         }
     }
@@ -696,13 +680,14 @@ unsigned int *GetImage2DRegisterIndex(Image2DHLSLGroup textureGroup,
     }
 }
 
-void OutputHLSLImage2DUniformGroup(ProgramD3D &programD3D,
-                                   const gl::ProgramState &programData,
+void OutputHLSLImage2DUniformGroup(ProgramExecutableD3D &executableD3D,
                                    gl::ShaderType shaderType,
+                                   const SharedCompiledShaderStateD3D &shaderData,
                                    std::ostringstream &out,
                                    const Image2DHLSLGroup textureGroup,
                                    const std::vector<sh::ShaderVariable> &group,
                                    const gl::ImageUnitTextureTypeMap &image2DBindLayout,
+                                   unsigned int baseUAVRegister,
                                    unsigned int *groupTextureRegisterIndex,
                                    unsigned int *groupRWTextureRegisterIndex,
                                    unsigned int *image2DTexture3D,
@@ -715,9 +700,11 @@ void OutputHLSLImage2DUniformGroup(ProgramD3D &programD3D,
     }
 
     unsigned int texture2DCount = 0, texture3DCount = 0, texture2DArrayCount = 0;
+    bool texture2DRasterOrdered = false, texture3DRasterOrdered = false,
+         texture2DArrayRasterOrdered = false;
     for (const sh::ShaderVariable &uniform : group)
     {
-        if (!programD3D.hasNamedUniform(uniform.name))
+        if (!executableD3D.hasNamedUniform(uniform.name))
         {
             continue;
         }
@@ -727,13 +714,16 @@ void OutputHLSLImage2DUniformGroup(ProgramD3D &programD3D,
             {
                 case gl::TextureType::_2D:
                     texture2DCount++;
+                    texture2DRasterOrdered |= uniform.rasterOrdered;
                     break;
                 case gl::TextureType::_3D:
                     texture3DCount++;
+                    texture3DRasterOrdered |= uniform.rasterOrdered;
                     break;
                 case gl::TextureType::_2DArray:
                 case gl::TextureType::CubeMap:
                     texture2DArrayCount++;
+                    texture2DArrayRasterOrdered |= uniform.rasterOrdered;
                     break;
                 default:
                     UNREACHABLE();
@@ -749,6 +739,8 @@ void OutputHLSLImage2DUniformGroup(ProgramD3D &programD3D,
     unsigned int texture2DArrayRegisterIndex = texture3DRegisterIndex + texture3DCount;
     *image2DRegisterIndex += totalCount;
 
+    unsigned int baseRegister = IsReadOnlyImage2DHLSLGroup(textureGroup) ? 0 : baseUAVRegister;
+
     std::string offsetStr =
         Image2DHLSLGroupOffsetPrefix(textureGroup) + Image2DHLSLGroupSuffix(textureGroup);
     std::string declarationStr =
@@ -757,28 +749,33 @@ void OutputHLSLImage2DUniformGroup(ProgramD3D &programD3D,
     if (texture2DCount > 0)
     {
         out << "static const uint " << offsetStr << "2D = " << texture2DRegisterIndex << ";\n";
-        out << "uniform " << Image2DHLSLTextureString(textureGroup, gl::TextureType::_2D) << " "
-            << declarationStr << "2D[" << texture2DCount << "]"
-            << " : register(" << registerStr << texture2DRegisterIndex << ");\n";
+        out << "uniform "
+            << Image2DHLSLTextureString(textureGroup, gl::TextureType::_2D, texture2DRasterOrdered)
+            << " " << declarationStr << "2D[" << texture2DCount << "]"
+            << " : register(" << registerStr << baseRegister + texture2DRegisterIndex << ");\n";
     }
     if (texture3DCount > 0)
     {
         out << "static const uint " << offsetStr << "3D = " << texture3DRegisterIndex << ";\n";
-        out << "uniform " << Image2DHLSLTextureString(textureGroup, gl::TextureType::_3D) << " "
-            << declarationStr << "3D[" << texture3DCount << "]"
-            << " : register(" << registerStr << texture3DRegisterIndex << ");\n";
+        out << "uniform "
+            << Image2DHLSLTextureString(textureGroup, gl::TextureType::_3D, texture3DRasterOrdered)
+            << " " << declarationStr << "3D[" << texture3DCount << "]"
+            << " : register(" << registerStr << baseRegister + texture3DRegisterIndex << ");\n";
     }
     if (texture2DArrayCount > 0)
     {
         out << "static const uint " << offsetStr << "2DArray = " << texture2DArrayRegisterIndex
             << ";\n";
-        out << "uniform " << Image2DHLSLTextureString(textureGroup, gl::TextureType::_2DArray)
+        out << "uniform "
+            << Image2DHLSLTextureString(textureGroup, gl::TextureType::_2DArray,
+                                        texture2DArrayRasterOrdered)
             << " " << declarationStr << "2DArray[" << texture2DArrayCount << "]"
-            << " : register(" << registerStr << texture2DArrayRegisterIndex << ");\n";
+            << " : register(" << registerStr << baseRegister + texture2DArrayRegisterIndex
+            << ");\n";
     }
     for (const sh::ShaderVariable &uniform : group)
     {
-        if (!programD3D.hasNamedUniform(uniform.name))
+        if (!executableD3D.hasNamedUniform(uniform.name))
         {
             continue;
         }
@@ -796,16 +793,16 @@ void OutputHLSLImage2DUniformGroup(ProgramD3D &programD3D,
                 case gl::TextureType::_2D:
                 {
                     out << texture2DRegisterIndex;
-                    programD3D.assignImage2DRegisters(texture2DRegisterIndex,
-                                                      uniform.binding + index, uniform.readonly);
+                    executableD3D.assignImage2DRegisters(shaderType, texture2DRegisterIndex,
+                                                         uniform.binding + index, uniform.readonly);
                     texture2DRegisterIndex++;
                     break;
                 }
                 case gl::TextureType::_3D:
                 {
                     out << texture3DRegisterIndex;
-                    programD3D.assignImage2DRegisters(texture3DRegisterIndex,
-                                                      uniform.binding + index, uniform.readonly);
+                    executableD3D.assignImage2DRegisters(shaderType, texture3DRegisterIndex,
+                                                         uniform.binding + index, uniform.readonly);
                     texture3DRegisterIndex++;
                     break;
                 }
@@ -813,8 +810,8 @@ void OutputHLSLImage2DUniformGroup(ProgramD3D &programD3D,
                 case gl::TextureType::CubeMap:
                 {
                     out << texture2DArrayRegisterIndex;
-                    programD3D.assignImage2DRegisters(texture2DArrayRegisterIndex,
-                                                      uniform.binding + index, uniform.readonly);
+                    executableD3D.assignImage2DRegisters(shaderType, texture2DArrayRegisterIndex,
+                                                         uniform.binding + index, uniform.readonly);
                     texture2DArrayRegisterIndex++;
                     break;
                 }
@@ -825,22 +822,17 @@ void OutputHLSLImage2DUniformGroup(ProgramD3D &programD3D,
         out << "};\n";
     }
 
-    gl::Shader *shaderGL                     = programData.getAttachedShader(shaderType);
-    const ShaderD3D *shaderD3D               = GetImplAs<ShaderD3D>(shaderGL);
-    const bool getDimensionsIgnoresBaseLevel = programD3D.usesGetDimensionsIgnoresBaseLevel();
-
-    if (shaderD3D->useImage2DFunction(Image2DHLSLGroupFunctionName(textureGroup, IMAGE2DSIZE)))
+    if (shaderData->useImage2DFunction(Image2DHLSLGroupFunctionName(textureGroup, IMAGE2DSIZE)))
     {
         OutputImage2DSizeFunction(out, textureGroup, totalCount, texture2DCount, texture3DCount,
-                                  texture2DArrayCount, offsetStr, declarationStr,
-                                  getDimensionsIgnoresBaseLevel);
+                                  texture2DArrayCount, offsetStr, declarationStr);
     }
-    if (shaderD3D->useImage2DFunction(Image2DHLSLGroupFunctionName(textureGroup, IMAGE2DLOAD)))
+    if (shaderData->useImage2DFunction(Image2DHLSLGroupFunctionName(textureGroup, IMAGE2DLOAD)))
     {
         OutputImage2DLoadFunction(out, textureGroup, totalCount, texture2DCount, texture3DCount,
                                   texture2DArrayCount, offsetStr, declarationStr);
     }
-    if (shaderD3D->useImage2DFunction(Image2DHLSLGroupFunctionName(textureGroup, IMAGE2DSTORE)))
+    if (shaderData->useImage2DFunction(Image2DHLSLGroupFunctionName(textureGroup, IMAGE2DSTORE)))
     {
         OutputImage2DStoreFunction(out, textureGroup, totalCount, texture2DCount, texture3DCount,
                                    texture2DArrayCount, offsetStr, declarationStr);
@@ -851,17 +843,17 @@ void OutputHLSLImage2DUniformGroup(ProgramD3D &programD3D,
 constexpr const char kImage2DFunctionString[] = "// @@ IMAGE2D DECLARATION FUNCTION STRING @@";
 }  // anonymous namespace
 
-std::string generateShaderForImage2DBindSignature(
-    const d3d::Context *context,
-    ProgramD3D &programD3D,
-    const gl::ProgramState &programData,
+std::string GenerateShaderForImage2DBindSignatureImpl(
+    ProgramExecutableD3D &executableD3D,
     gl::ShaderType shaderType,
+    const SharedCompiledShaderStateD3D &shaderData,
+    const std::string &shaderHLSL,
     std::vector<sh::ShaderVariable> &image2DUniforms,
-    const gl::ImageUnitTextureTypeMap &image2DBindLayout)
+    const gl::ImageUnitTextureTypeMap &image2DBindLayout,
+    unsigned int baseUAVRegister)
 {
     std::vector<std::vector<sh::ShaderVariable>> groupedImage2DUniforms(IMAGE2D_MAX + 1);
-    unsigned int image2DTexture2DCount = 0, image2DTexture3DCount = 0,
-                 image2DTexture2DArrayCount = 0;
+    unsigned int image2DTexture3DCount = 0, image2DTexture2DArrayCount = 0;
     for (sh::ShaderVariable &image2D : image2DUniforms)
     {
         for (unsigned int index = 0; index < image2D.getArraySizeProduct(); index++)
@@ -875,7 +867,6 @@ std::string generateShaderForImage2DBindSignature(
             switch (image2DBindLayout.at(image2D.binding + index))
             {
                 case gl::TextureType::_2D:
-                    image2DTexture2DCount++;
                     break;
                 case gl::TextureType::_3D:
                     image2DTexture3DCount++;
@@ -892,10 +883,8 @@ std::string generateShaderForImage2DBindSignature(
         groupedImage2DUniforms[group].push_back(image2D);
     }
 
-    gl::Shader *shaderGL                     = programData.getAttachedShader(shaderType);
-    const ShaderD3D *shaderD3D               = GetImplAs<ShaderD3D>(shaderGL);
-    unsigned int groupTextureRegisterIndex   = shaderD3D->getReadonlyImage2DRegisterIndex();
-    unsigned int groupRWTextureRegisterIndex = shaderD3D->getImage2DRegisterIndex();
+    unsigned int groupTextureRegisterIndex   = shaderData->readonlyImage2DRegisterIndex;
+    unsigned int groupRWTextureRegisterIndex = shaderData->image2DRegisterIndex;
     unsigned int image2DTexture3DIndex       = 0;
     unsigned int image2DTexture2DArrayIndex  = image2DTexture3DCount;
     unsigned int image2DTexture2DIndex       = image2DTexture3DCount + image2DTexture2DArrayCount;
@@ -903,18 +892,18 @@ std::string generateShaderForImage2DBindSignature(
 
     for (int groupId = IMAGE2D_MIN; groupId < IMAGE2D_MAX; ++groupId)
     {
-        OutputHLSLImage2DUniformGroup(programD3D, programData, shaderType, out,
-                                      Image2DHLSLGroup(groupId), groupedImage2DUniforms[groupId],
-                                      image2DBindLayout, &groupTextureRegisterIndex,
-                                      &groupRWTextureRegisterIndex, &image2DTexture3DIndex,
-                                      &image2DTexture2DArrayIndex, &image2DTexture2DIndex);
+        OutputHLSLImage2DUniformGroup(
+            executableD3D, shaderType, shaderData, out, Image2DHLSLGroup(groupId),
+            groupedImage2DUniforms[groupId], image2DBindLayout, baseUAVRegister,
+            &groupTextureRegisterIndex, &groupRWTextureRegisterIndex, &image2DTexture3DIndex,
+            &image2DTexture2DArrayIndex, &image2DTexture2DIndex);
     }
 
-    std::string shaderHLSL(programData.getAttachedShader(shaderType)->getTranslatedSource());
-    bool success = angle::ReplaceSubstring(&shaderHLSL, kImage2DFunctionString, out.str());
+    std::string result = shaderHLSL;
+    bool success       = angle::ReplaceSubstring(&result, kImage2DFunctionString, out.str());
     ASSERT(success);
 
-    return shaderHLSL;
+    return result;
 }
 
 }  // namespace rx

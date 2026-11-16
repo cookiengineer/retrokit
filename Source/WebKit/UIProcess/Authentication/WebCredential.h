@@ -32,8 +32,6 @@
 
 namespace WebKit {
 
-class WebCertificateInfo;
-
 class WebCredential : public API::ObjectImpl<API::Object::Type::Credential> {
 public:
     ~WebCredential();
@@ -42,21 +40,19 @@ public:
     {
         return adoptRef(*new WebCredential(credential));
     }
-    
-    static Ref<WebCredential> create(WebCertificateInfo* certificateInfo)
-    {
-        return adoptRef(*new WebCredential(certificateInfo));
-    }
 
-    const WebCore::Credential& credential();
+    const WebCore::Credential& NODELETE credential();
 
 private:
     explicit WebCredential(const WebCore::Credential&);
-    explicit WebCredential(WebCertificateInfo*);
 
     WebCore::Credential m_coreCredential;
 };
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebCredential)
+static bool isType(const API::Object& object) { return object.type() == API::Object::Type::Credential; }
+SPECIALIZE_TYPE_TRAITS_END()
 
 #endif // WebCredential_h

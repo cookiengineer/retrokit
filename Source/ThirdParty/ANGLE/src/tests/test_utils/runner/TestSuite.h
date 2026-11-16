@@ -16,8 +16,12 @@
 #include <string>
 #include <thread>
 
-#include "HistogramWriter.h"
+#include "tests/test_expectations/GPUTestExpectationsParser.h"
 #include "util/test_utils.h"
+
+#if defined(ANGLE_HAS_RAPIDJSON)
+#    include "HistogramWriter.h"
+#endif
 
 namespace angle
 {
@@ -33,7 +37,7 @@ struct TestIdentifier
     static bool ParseFromString(const std::string &str, TestIdentifier *idOut);
 
     bool valid() const { return !testName.empty(); }
-    void sprintfName(char *outBuffer) const;
+    std::string fullName() const;
 
     std::string testSuiteName;
     std::string testName;
@@ -60,6 +64,7 @@ enum class TestResultType
     Fail,
     NoResult,
     Pass,
+    Skip,
     Timeout,
     Unknown,
 };
@@ -68,9 +73,9 @@ const char *TestResultTypeToString(TestResultType type);
 
 struct TestResult
 {
-    TestResultType type       = TestResultType::NoResult;
-    double elapsedTimeSeconds = 0.0;
-    uint32_t flakyFailures    = 0;
+    TestResultType type                    = TestResultType::NoResult;
+    std::vector<double> elapsedTimeSeconds = std::vector<double>({0.0});
+    uint32_t flakyFailures                 = 0;
 };
 
 inline bool operator==(const TestResult &a, const TestResult &b)
@@ -92,7 +97,10 @@ struct TestResults
     std::mutex currentTestMutex;
     TestIdentifier currentTest;
     Timer currentTestTimer;
-    bool allDone = false;
+    double currentTestTimeout = 0.0;
+    bool allDone              = false;
+    std::string testArtifactsFakeTestName;
+    std::vector<std::string> testArtifactPaths;
 };
 
 struct FileLine
@@ -118,10 +126,34 @@ struct ProcessInfo : angle::NonCopyable
 
 using TestQueue = std::queue<std::vector<TestIdentifier>>;
 
+class MetricWriter
+{
+  public:
+    MetricWriter() {}
+
+    void enable(const std::string &testArtifactDirectory);
+
+    void writeInfo(const std::string &name,
+                   const std::string &backend,
+                   const std::string &story,
+                   const std::string &metric,
+                   const std::string &units);
+
+    void writeDoubleValue(double value);
+    void writeIntegerValue(size_t value);
+
+    void close();
+
+  private:
+    std::string mPath;
+    FILE *mFile = nullptr;
+};
+
 class TestSuite
 {
   public:
     TestSuite(int *argc, char **argv);
+    TestSuite(int *argc, char **argv, std::function<void()> registerTestsCallback);
     ~TestSuite();
 
     int run();
@@ -132,23 +164,51 @@ class TestSuite
                             const std::string &units);
 
     static TestSuite *GetInstance() { return mInstance; }
+    static MetricWriter &GetMetricWriter() { return GetInstance()->mMetricWriter; }
+
+    // Returns the path to the artifact in the output directory.
+    bool hasTestArtifactsDirectory() const;
+    std::string reserveTestArtifactPath(const std::string &artifactName);
+
+    int getShardIndex() const { return mShardIndex; }
+    int getBatchId() const { return mBatchId; }
+
+    // Test expectation processing.
+    bool loadTestExpectationsFromFileWithConfig(const GPUTestConfig &config,
+                                                const std::string &fileName);
+    bool loadAllTestExpectationsFromFile(const std::string &fileName);
+    int32_t getTestExpectation(const std::string &testName);
+    void maybeUpdateTestTimeout(uint32_t testExpectation);
+    int32_t getTestExpectationWithConfigAndUpdateTimeout(const GPUTestConfig &config,
+                                                         const std::string &testName);
+    bool logAnyUnusedTestExpectations();
+    void setTestExpectationsAllowMask(uint32_t mask)
+    {
+        mTestExpectationsParser.setTestExpectationsAllowMask(mask);
+    }
+
+    const std::string &getTestExecutableName() const { return mTestExecutableName; }
 
   private:
-    bool parseSingleArg(const char *argument);
+    bool parseSingleArg(int *argc, char **argv, int argIndex);
     bool launchChildTestProcess(uint32_t batchId, const std::vector<TestIdentifier> &testsInBatch);
     bool finishProcess(ProcessInfo *processInfo);
     int printFailuresAndReturnCount() const;
     void startWatchdog();
+    void dumpTestExpectationsErrorMessages();
+    int getSlowTestTimeout() const;
+    void writeOutputFiles(bool interrupted);
+    void WriteTestListJSON(const std::string &path) const;
 
     static TestSuite *mInstance;
 
     std::string mTestExecutableName;
-    std::string mTestSuiteName;
     TestQueue mTestQueue;
     std::string mFilterString;
     std::string mFilterFile;
     std::string mResultsDirectory;
     std::string mResultsFile;
+    std::string mGTestOutput;
     std::string mHistogramJsonFile;
     int mShardCount;
     int mShardIndex;
@@ -160,6 +220,7 @@ class TestSuite
     bool mListTests;
     bool mPrintTestStdout;
     bool mDisableCrashHandler;
+    bool mDisableDebugLayers{false};
     int mBatchSize;
     int mCurrentResultCount;
     int mTotalResultCount;
@@ -168,13 +229,24 @@ class TestSuite
     int mBatchTimeout;
     int mBatchId;
     int mFlakyRetries;
+    int mMaxFailures;
+    int mFailureCount;
+    bool mModifiedPreferredDevice;
     std::vector<std::string> mChildProcessArgs;
     std::map<TestIdentifier, FileLine> mTestFileLines;
     std::vector<ProcessInfo> mCurrentProcesses;
     std::thread mWatchdogThread;
+#if defined(ANGLE_HAS_RAPIDJSON)
     HistogramWriter mHistogramWriter;
+#endif
+    MetricWriter mMetricWriter;
+    std::string mTestArtifactDirectory;
+    GPUTestExpectationsParser mTestExpectationsParser;
+
+    class TestEventListener;
 };
 
+std::string ReplaceDashesWithQuestionMark(std::string dashesString);
 bool GetTestResultsFromFile(const char *fileName, TestResults *resultsOut);
 }  // namespace angle
 

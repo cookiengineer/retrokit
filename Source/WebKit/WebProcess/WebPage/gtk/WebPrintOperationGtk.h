@@ -23,16 +23,24 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WebPrintOperationGtk_h
-#define WebPrintOperationGtk_h
+#pragma once
 
-#include "CallbackID.h"
 #include "PrintInfo.h"
-#include <WebCore/RefPtrCairo.h>
+#include <WebCore/SharedBuffer.h>
 #include <wtf/CompletionHandler.h>
-#include <wtf/RefCounted.h>
-#include <wtf/RefPtr.h>
+#include <wtf/FastMalloc.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/Vector.h>
 #include <wtf/glib/GRefPtr.h>
+#include <wtf/glib/GSpanExtras.h>
+
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <skia/core/SkCanvas.h>
+#include <skia/core/SkDocument.h>
+#include <skia/core/SkPicture.h>
+#include <skia/core/SkPictureRecorder.h>
+#include <skia/core/SkStream.h>
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 
 typedef struct _GtkPrintSettings GtkPrintSettings;
 typedef struct _GtkPageSetup GtkPageSetup;
@@ -45,88 +53,90 @@ class ResourceError;
 
 namespace WebKit {
 
-class WebPage;
-
-class WebPrintOperationGtk : public RefCounted<WebPrintOperationGtk> {
+class WebPrintOperationGtk {
+    WTF_MAKE_TZONE_ALLOCATED(WebPrintOperationGtk);
 public:
-    static RefPtr<WebPrintOperationGtk> create(WebPage*, const PrintInfo&);
-    virtual ~WebPrintOperationGtk();
+    explicit WebPrintOperationGtk(const PrintInfo&);
+    ~WebPrintOperationGtk();
 
-    WebCore::PrintContext* printContext() const { return m_printContext; }
-    GtkPrintSettings* printSettings() const { return m_printSettings.get(); }
-    GtkPageSetup* pageSetup() const { return m_pageSetup.get(); }
-    PrintInfo::PrintMode printMode() const { return m_printMode; }
-    void setNumberOfPagesToPrint(size_t numberOfPages) { m_numberOfPagesToPrint = numberOfPages; }
-    unsigned int pagesToPrint() const { return m_pagesToPrint; }
-    int pageCount() const;
-    bool currentPageIsFirstPageOfSheet() const;
-    bool currentPageIsLastPageOfSheet() const;
-    size_t pagePosition() const { return m_pagePosition; }
-    void setPagePosition(size_t position) { m_pagePosition = position; }
-    GtkPageRange* pageRanges() const { return m_pageRanges; }
-    size_t pageRangesCount() const { return m_pageRangesCount; }
+    void startPrint(WebCore::PrintContext*, CompletionHandler<void(RefPtr<WebCore::FragmentedSharedBuffer>&&, WebCore::ResourceError&&)>&&);
 
-    unsigned int numberUp() const { return m_numberUp; }
-    unsigned int numberUpLayout() const { return m_numberUpLayout; }
-    unsigned int pageSet() const { return m_pageSet; }
-    bool reverse() const { return m_reverse; }
-    unsigned int copies() const { return m_copies; }
-    bool collateCopies() const { return m_collateCopies; }
-    double scale() const { return m_scale; }
+private:
+    void startPage(SkPictureRecorder&);
+    void endPage(SkPictureRecorder&);
+    void endPrint();
 
-    void disconnectFromPage();
+    struct PrintPagesData {
+        WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(PrintPagesData);
+        explicit PrintPagesData(WebPrintOperationGtk*);
 
-    virtual void startPrint(WebCore::PrintContext*, CompletionHandler<void(const WebCore::ResourceError&)>&&) = 0;
+        size_t collatedCopiesLeft() const { return collatedCopies > 1 ? collatedCopies - collated - 1 : 0; }
+        size_t uncollatedCopiesLeft() const { return uncollatedCopies > 1 ? uncollatedCopies - uncollated - 1 : 0; }
+        size_t copiesLeft() const { return collatedCopiesLeft() + uncollatedCopiesLeft(); }
 
-protected:
-    WebPrintOperationGtk(WebPage*, const PrintInfo&);
+        void incrementPageSequence();
 
-    virtual void startPage(cairo_t*) = 0;
-    virtual void endPage(cairo_t*) = 0;
-    virtual void endPrint() = 0;
+        WebPrintOperationGtk* printOperation { nullptr };
+        GRefPtr<GMainLoop> mainLoop;
+        int totalPrinted { -1 };
+        int pageNumber { 0 };
+        Vector<size_t> pages;
+        size_t sheetNumber { 0 };
+        size_t firstSheetNumber { 0 };
+        size_t numberOfSheets { 0 };
+        size_t firstPagePosition { 0 };
+        size_t lastPagePosition { 0 };
+        size_t collated { 0 };
+        size_t uncollated { 0 };
+        size_t collatedCopies { 0 };
+        size_t uncollatedCopies { 0 };
+        bool isDone { false };
+        bool isValid { true };
+
+    };
 
     static gboolean printPagesIdle(gpointer);
     static void printPagesIdleDone(gpointer);
 
-    void print(cairo_surface_t*, double xDPI, double yDPI);
+    int pageCount() const;
+    bool currentPageIsFirstPageOfSheet() const;
+    bool currentPageIsLastPageOfSheet() const;
+    void print(double xDPI, double yDPI);
     void renderPage(int pageNumber);
     void rotatePageIfNeeded();
     void getRowsAndColumnsOfPagesPerSheet(size_t& rows, size_t& columns);
     void getPositionOfPageInSheet(size_t rows, size_t columns, int& x, int&y);
     void prepareContextToDraw();
     void printPagesDone();
-    void printDone(const WebCore::ResourceError&);
-    void sendPrintFinished(const WebCore::ResourceError&);
+    void printDone(RefPtr<WebCore::FragmentedSharedBuffer>&&, WebCore::ResourceError&&);
     URL frameURL() const;
 
-    WebPage* m_webPage;
     GRefPtr<GtkPrintSettings> m_printSettings;
     GRefPtr<GtkPageSetup> m_pageSetup;
-    PrintInfo::PrintMode m_printMode;
-    WebCore::PrintContext* m_printContext;
-    CompletionHandler<void(const WebCore::ResourceError&)> m_completionHandler;
-    RefPtr<cairo_t> m_cairoContext;
-    double m_xDPI;
-    double m_yDPI;
+    PrintInfo::PrintMode m_printMode { PrintInfo::PrintMode::Async };
+    WebCore::PrintContext* m_printContext { nullptr };
+    CompletionHandler<void(RefPtr<WebCore::FragmentedSharedBuffer>&&, WebCore::ResourceError&&)> m_completionHandler;
+    double m_xDPI { 1 };
+    double m_yDPI { 1 };
 
-    unsigned int m_printPagesIdleId;
-    size_t m_numberOfPagesToPrint;
-    unsigned int m_pagesToPrint;
-    size_t m_pagePosition;
-    GtkPageRange* m_pageRanges;
-    size_t m_pageRangesCount;
-    bool m_needsRotation;
+    Vector<sk_sp<SkPicture>> m_pages;
+    SkCanvas* m_pageCanvas { nullptr };
+
+    unsigned m_printPagesIdleId { 0 };
+    size_t m_numberOfPagesToPrint { 0 };
+    unsigned m_pagesToPrint { 0 };
+    size_t m_pagePosition { 0 };
+    GMallocSpan<GtkPageRange> m_pageRanges;
+    bool m_needsRotation { false };
 
     // Manual capabilities.
-    unsigned int m_numberUp;
-    unsigned int m_numberUpLayout;
-    unsigned int m_pageSet;
-    bool m_reverse;
-    unsigned int m_copies;
-    bool m_collateCopies;
-    double m_scale;
+    unsigned m_numberUp { 1 };
+    unsigned m_numberUpLayout { 0 };
+    unsigned m_pageSet { 0 };
+    bool m_reverse { false };
+    unsigned m_copies { 1 };
+    bool m_collateCopies { false };
+    double m_scale { 1 };
 };
 
-}
-
-#endif // WebPrintOperationGtk_h
+} // namespace WebKit

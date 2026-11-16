@@ -24,11 +24,10 @@
 
 #pragma once
 
-#include "CSSValue.h"
-#include "ExceptionOr.h"
-#include <wtf/EnumTraits.h>
+#include <wtf/NeverDestroyed.h>
 #include <wtf/Ref.h>
-#include <wtf/RefCounted.h>
+#include <wtf/ThreadSafeRefCounted.h>
+#include <wtf/Vector.h>
 
 namespace WTF {
 class TextStream;
@@ -36,137 +35,127 @@ class TextStream;
 
 namespace WebCore {
 
-class TimingFunction : public RefCounted<TimingFunction> {
+class TimingFunction : public ThreadSafeRefCounted<TimingFunction> {
 public:
     virtual Ref<TimingFunction> clone() const = 0;
 
     virtual ~TimingFunction() = default;
 
-    enum TimingFunctionType { LinearFunction, CubicBezierFunction, StepsFunction, SpringFunction };
-    TimingFunctionType type() const { return m_type; }
+    enum class Type { LinearFunction, CubicBezierFunction, StepsFunction, SpringFunction };
+    virtual Type type() const = 0;
 
-    bool isLinearTimingFunction() const { return m_type == LinearFunction; }
-    bool isCubicBezierTimingFunction() const { return m_type == CubicBezierFunction; }
-    bool isStepsTimingFunction() const { return m_type == StepsFunction; }
-    bool isSpringTimingFunction() const { return m_type == SpringFunction; }
+    bool isLinearTimingFunction() const { return type() == Type::LinearFunction; }
+    bool isCubicBezierTimingFunction() const { return type() == Type::CubicBezierFunction; }
+    bool isStepsTimingFunction() const { return type() == Type::StepsFunction; }
+    bool isSpringTimingFunction() const { return type() == Type::SpringFunction; }
 
     virtual bool operator==(const TimingFunction&) const = 0;
-    bool operator!=(const TimingFunction& other) const { return !(*this == other); }
 
-    static ExceptionOr<RefPtr<TimingFunction>> createFromCSSText(const String&);
-    static RefPtr<TimingFunction> createFromCSSValue(const CSSValue&);
-    double transformTime(double, double, bool before = false) const;
-    String cssText() const;
-
-protected:
-    explicit TimingFunction(TimingFunctionType type)
-        : m_type(type)
-    {
-    }
-
-private:
-    TimingFunctionType m_type;
+    enum class Before : bool { No, Yes };
+    double transformProgress(double progress, double duration, Before = Before::No) const;
+    WEBCORE_EXPORT String cssText() const;
 };
 
 class LinearTimingFunction final : public TimingFunction {
 public:
+    struct Point {
+        double value;
+        double progress;
+
+        bool operator==(const Point& other) const
+        {
+            return value == other.value && progress == other.progress;
+        }
+    };
+
     static Ref<LinearTimingFunction> create()
     {
-        return adoptRef(*new LinearTimingFunction);
+        return create({ });
+    }
+
+    static Ref<LinearTimingFunction> create(const Vector<Point>& points)
+    {
+        return adoptRef(*new LinearTimingFunction(points));
     }
     
     bool operator==(const TimingFunction& other) const final
     {
-        return is<LinearTimingFunction>(other);
+        auto* otherLinear = dynamicDowncast<LinearTimingFunction>(other);
+        return otherLinear && m_points == otherLinear->m_points;
     }
 
-    static const LinearTimingFunction& sharedLinearTimingFunction()
+    const Vector<Point>& points() const LIFETIME_BOUND { return m_points; }
+
+    static const LinearTimingFunction& identity()
     {
-        static const LinearTimingFunction& function = create().leakRef();
-        return function;
+        static NeverDestroyed<Ref<LinearTimingFunction>> function { create() };
+        return function.get();
     }
 
 private:
-    LinearTimingFunction()
-        : TimingFunction(LinearFunction)
+    LinearTimingFunction(const Vector<Point>& points)
+        : m_points(points)
     {
+        ASSERT(m_points.isEmpty() || m_points.size() >= 2);
     }
 
+    Type type() const final { return Type::LinearFunction; }
     Ref<TimingFunction> clone() const final
     {
-        return adoptRef(*new LinearTimingFunction);
+        return adoptRef(*new LinearTimingFunction(m_points));
     }
+
+    const Vector<Point> m_points;
 };
 
 class CubicBezierTimingFunction final : public TimingFunction {
 public:
-    enum TimingFunctionPreset { Ease, EaseIn, EaseOut, EaseInOut, Custom };
-    
-    static Ref<CubicBezierTimingFunction> create(double x1, double y1, double x2, double y2)
-    {
-        return adoptRef(*new CubicBezierTimingFunction(Custom, x1, y1, x2, y2));
-    }
+    enum class TimingFunctionPreset : uint8_t { Ease, EaseIn, EaseOut, EaseInOut, Custom };
 
     static Ref<CubicBezierTimingFunction> create()
     {
-        return adoptRef(*new CubicBezierTimingFunction());
+        return create(TimingFunctionPreset::Ease, 0.25, 0.1, 0.25, 1.0);
     }
-    
-    static Ref<CubicBezierTimingFunction> create(TimingFunctionPreset preset)
+
+    static Ref<CubicBezierTimingFunction> create(double x1, double y1, double x2, double y2)
     {
-        switch (preset) {
-        case Ease:
-            return adoptRef(*new CubicBezierTimingFunction);
-        case EaseIn:
-            return adoptRef(*new CubicBezierTimingFunction(EaseIn, 0.42, 0.0, 1.0, 1.0));
-        case EaseOut:
-            return adoptRef(*new CubicBezierTimingFunction(EaseOut, 0.0, 0.0, 0.58, 1.0));
-        case EaseInOut:
-            return adoptRef(*new CubicBezierTimingFunction(EaseInOut, 0.42, 0.0, 0.58, 1.0));
-        case Custom:
-            break;
-        }
-        ASSERT_NOT_REACHED();
-        return adoptRef(*new CubicBezierTimingFunction);
+        return adoptRef(*new CubicBezierTimingFunction(TimingFunctionPreset::Custom, x1, y1, x2, y2));
     }
+
+    static Ref<CubicBezierTimingFunction> create(TimingFunctionPreset preset, double x1, double y1, double x2, double y2)
+    {
+        return adoptRef(*new CubicBezierTimingFunction(preset, x1, y1, x2, y2));
+    }
+
+    WEBCORE_EXPORT static Ref<CubicBezierTimingFunction> create(TimingFunctionPreset);
 
     bool operator==(const TimingFunction& other) const final
     {
-        if (!is<CubicBezierTimingFunction>(other))
+        auto* otherCubic = dynamicDowncast<CubicBezierTimingFunction>(other);
+        if (!otherCubic || m_timingFunctionPreset != otherCubic->m_timingFunctionPreset)
             return false;
-        auto& otherCubic = downcast<CubicBezierTimingFunction>(other);
-        if (m_timingFunctionPreset != otherCubic.m_timingFunctionPreset)
-            return false;
-        if (m_timingFunctionPreset != Custom)
+        if (m_timingFunctionPreset != TimingFunctionPreset::Custom)
             return true;
-        return m_x1 == otherCubic.m_x1 && m_y1 == otherCubic.m_y1 && m_x2 == otherCubic.m_x2 && m_y2 == otherCubic.m_y2;
+        return m_x1 == otherCubic->m_x1 && m_y1 == otherCubic->m_y1 && m_x2 == otherCubic->m_x2 && m_y2 == otherCubic->m_y2;
     }
 
     double x1() const { return m_x1; }
     double y1() const { return m_y1; }
     double x2() const { return m_x2; }
     double y2() const { return m_y2; }
-    
-    void setValues(double x1, double y1, double x2, double y2)
-    {
-        m_x1 = x1;
-        m_y1 = y1;
-        m_x2 = x2;
-        m_y2 = y2;
-    }
 
     TimingFunctionPreset timingFunctionPreset() const { return m_timingFunctionPreset; }
     void setTimingFunctionPreset(TimingFunctionPreset preset) { m_timingFunctionPreset = preset; }
 
     static const CubicBezierTimingFunction& defaultTimingFunction()
     {
-        static const CubicBezierTimingFunction& function = create().leakRef();
-        return function;
+        static NeverDestroyed<Ref<CubicBezierTimingFunction>> function { create() };
+        return function.get();
     }
 
     Ref<CubicBezierTimingFunction> createReversed() const
     {
-        return create(1.0 - m_x2, 1.0 - m_y2, 1.0 - m_x1, 1.0 - m_y1);
+        return create(TimingFunctionPreset::Custom, 1.0 - m_x2, 1.0 - m_y2, 1.0 - m_x1, 1.0 - m_y1);
     }
 
     bool isLinear() const
@@ -175,9 +164,8 @@ public:
     }
 
 private:
-    explicit CubicBezierTimingFunction(TimingFunctionPreset preset = Ease, double x1 = 0.25, double y1 = 0.1, double x2 = 0.25, double y2 = 1.0)
-        : TimingFunction(CubicBezierFunction)
-        , m_x1(x1)
+    explicit CubicBezierTimingFunction(TimingFunctionPreset preset, double x1, double y1, double x2, double y2)
+        : m_x1(x1)
         , m_y1(y1)
         , m_x2(x2)
         , m_y2(y2)
@@ -185,21 +173,22 @@ private:
     {
     }
 
+    Type type() const final { return Type::CubicBezierFunction; }
     Ref<TimingFunction> clone() const final
     {
         return adoptRef(*new CubicBezierTimingFunction(m_timingFunctionPreset, m_x1, m_y1, m_x2, m_y2));
     }
 
-    double m_x1;
-    double m_y1;
-    double m_x2;
-    double m_y2;
+    const double m_x1;
+    const double m_y1;
+    const double m_x2;
+    const double m_y2;
     TimingFunctionPreset m_timingFunctionPreset;
 };
 
 class StepsTimingFunction final : public TimingFunction {
 public:
-    enum class StepPosition {
+    enum class StepPosition : uint8_t {
         JumpStart,
         JumpEnd,
         JumpNone,
@@ -219,33 +208,41 @@ public:
     
     bool operator==(const TimingFunction& other) const final
     {
-        if (!is<StepsTimingFunction>(other))
+        auto* otherSteps = dynamicDowncast<StepsTimingFunction>(other);
+        if (!otherSteps || m_steps != otherSteps->m_steps)
             return false;
-        auto& otherSteps = downcast<StepsTimingFunction>(other);
-        return m_steps == otherSteps.m_steps && m_stepPosition == otherSteps.m_stepPosition;
+
+        if (m_stepPosition == otherSteps->m_stepPosition)
+            return true;
+
+        if (!m_stepPosition && *otherSteps->m_stepPosition == StepPosition::End)
+            return true;
+
+        if (!otherSteps->m_stepPosition && *m_stepPosition == StepPosition::End)
+            return true;
+
+        return false;
     }
     
     int numberOfSteps() const { return m_steps; }
-    void setNumberOfSteps(int steps) { m_steps = steps; }
 
     std::optional<StepPosition> stepPosition() const { return m_stepPosition; }
-    void setStepPosition(std::optional<StepPosition> stepPosition) { m_stepPosition = stepPosition; }
 
 private:
     StepsTimingFunction(int steps, std::optional<StepPosition> stepPosition)
-        : TimingFunction(StepsFunction)
-        , m_steps(steps)
+        : m_steps(steps)
         , m_stepPosition(stepPosition)
     {
     }
 
+    Type type() const final { return Type::StepsFunction; }
     Ref<TimingFunction> clone() const final
     {
         return adoptRef(*new StepsTimingFunction(m_steps, m_stepPosition));
     }
     
-    int m_steps;
-    std::optional<StepPosition> m_stepPosition;
+    const int m_steps;
+    const std::optional<StepPosition> m_stepPosition;
 };
 
 class SpringTimingFunction final : public TimingFunction {
@@ -264,44 +261,34 @@ public:
     
     bool operator==(const TimingFunction& other) const final
     {
-        if (!is<SpringTimingFunction>(other))
-            return false;
-        auto& otherSpring = downcast<SpringTimingFunction>(other);
-        return m_mass == otherSpring.m_mass && m_stiffness == otherSpring.m_stiffness && m_damping == otherSpring.m_damping && m_initialVelocity == otherSpring.m_initialVelocity;
+        auto* otherSpring = dynamicDowncast<SpringTimingFunction>(other);
+        return otherSpring && m_mass == otherSpring->m_mass && m_stiffness == otherSpring->m_stiffness && m_damping == otherSpring->m_damping && m_initialVelocity == otherSpring->m_initialVelocity;
     }
 
     double mass() const { return m_mass; }
     double stiffness() const { return m_stiffness; }
     double damping() const { return m_damping; }
     double initialVelocity() const { return m_initialVelocity; }
-    
-    void setValues(double mass, double stiffness, double damping, double initialVelocity)
-    {
-        m_mass = mass;
-        m_stiffness = stiffness;
-        m_damping = damping;
-        m_initialVelocity = initialVelocity;
-    }
 
 private:
     explicit SpringTimingFunction(double mass, double stiffness, double damping, double initialVelocity)
-        : TimingFunction(SpringFunction)
-        , m_mass(mass)
+        : m_mass(mass)
         , m_stiffness(stiffness)
         , m_damping(damping)
         , m_initialVelocity(initialVelocity)
     {
     }
 
+    Type type() const final { return Type::SpringFunction; }
     Ref<TimingFunction> clone() const final
     {
         return adoptRef(*new SpringTimingFunction(m_mass, m_stiffness, m_damping, m_initialVelocity));
     }
 
-    double m_mass;
-    double m_stiffness;
-    double m_damping;
-    double m_initialVelocity;
+    const double m_mass;
+    const double m_stiffness;
+    const double m_damping;
+    const double m_initialVelocity;
 };
 
 WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const TimingFunction&);
@@ -317,40 +304,3 @@ SPECIALIZE_TYPE_TRAITS_TIMINGFUNCTION(WebCore::LinearTimingFunction, isLinearTim
 SPECIALIZE_TYPE_TRAITS_TIMINGFUNCTION(WebCore::CubicBezierTimingFunction, isCubicBezierTimingFunction())
 SPECIALIZE_TYPE_TRAITS_TIMINGFUNCTION(WebCore::StepsTimingFunction, isStepsTimingFunction())
 SPECIALIZE_TYPE_TRAITS_TIMINGFUNCTION(WebCore::SpringTimingFunction, isSpringTimingFunction())
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::CubicBezierTimingFunction::TimingFunctionPreset> {
-    using values = EnumValues<
-        WebCore::CubicBezierTimingFunction::TimingFunctionPreset,
-        WebCore::CubicBezierTimingFunction::TimingFunctionPreset::Ease,
-        WebCore::CubicBezierTimingFunction::TimingFunctionPreset::EaseIn,
-        WebCore::CubicBezierTimingFunction::TimingFunctionPreset::EaseOut,
-        WebCore::CubicBezierTimingFunction::TimingFunctionPreset::EaseInOut,
-        WebCore::CubicBezierTimingFunction::TimingFunctionPreset::Custom
-    >;
-};
-
-template<> struct EnumTraits<WebCore::StepsTimingFunction::StepPosition> {
-    using values = EnumValues<
-        WebCore::StepsTimingFunction::StepPosition,
-        WebCore::StepsTimingFunction::StepPosition::JumpStart,
-        WebCore::StepsTimingFunction::StepPosition::JumpEnd,
-        WebCore::StepsTimingFunction::StepPosition::JumpNone,
-        WebCore::StepsTimingFunction::StepPosition::JumpBoth,
-        WebCore::StepsTimingFunction::StepPosition::Start,
-        WebCore::StepsTimingFunction::StepPosition::End
-    >;
-};
-
-template<> struct EnumTraits<WebCore::TimingFunction::TimingFunctionType> {
-    using values = EnumValues<
-        WebCore::TimingFunction::TimingFunctionType,
-        WebCore::TimingFunction::TimingFunctionType::LinearFunction,
-        WebCore::TimingFunction::TimingFunctionType::CubicBezierFunction,
-        WebCore::TimingFunction::TimingFunctionType::StepsFunction,
-        WebCore::TimingFunction::TimingFunctionType::SpringFunction
-    >;
-};
-
-} // namespace WTF

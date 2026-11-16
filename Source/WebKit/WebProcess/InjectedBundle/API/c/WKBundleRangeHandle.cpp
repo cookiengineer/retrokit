@@ -27,9 +27,11 @@
 #include "WKBundleRangeHandle.h"
 #include "WKBundleRangeHandlePrivate.h"
 
+#include "InjectedBundleNodeHandle.h"
 #include "InjectedBundleRangeHandle.h"
 #include "WKAPICast.h"
 #include "WKBundleAPICast.h"
+#include "WebFrame.h"
 #include "WebImage.h"
 #include <WebCore/IntRect.h>
 
@@ -41,17 +43,23 @@ WKTypeID WKBundleRangeHandleGetTypeID()
 WKBundleRangeHandleRef WKBundleRangeHandleCreate(JSContextRef contextRef, JSObjectRef objectRef)
 {
     RefPtr<WebKit::InjectedBundleRangeHandle> rangeHandle = WebKit::InjectedBundleRangeHandle::getOrCreate(contextRef, objectRef);
-    return toAPI(rangeHandle.leakRef());
+    return toAPILeakingRef(WTF::move(rangeHandle));
 }
 
 WKRect WKBundleRangeHandleGetBoundingRectInWindowCoordinates(WKBundleRangeHandleRef rangeHandleRef)
 {
-    WebCore::IntRect boundingRect = WebKit::toImpl(rangeHandleRef)->boundingRectInWindowCoordinates();
+    WebCore::IntRect boundingRect = protect(WebKit::toImpl(rangeHandleRef))->boundingRectInWindowCoordinates();
     return WKRectMake(boundingRect.x(), boundingRect.y(), boundingRect.width(), boundingRect.height());
 }
 
 WKImageRef WKBundleRangeHandleCopySnapshotWithOptions(WKBundleRangeHandleRef rangeHandleRef, WKSnapshotOptions options)
 {
-    RefPtr<WebKit::WebImage> image = WebKit::toImpl(rangeHandleRef)->renderedImage(WebKit::toSnapshotOptions(options));
-    return toAPI(image.leakRef());
+    RefPtr<WebKit::WebImage> image = protect(WebKit::toImpl(rangeHandleRef))->renderedImage(WebKit::toSnapshotOptions(options));
+    return toAPILeakingRef(WTF::move(image));
+}
+
+WKBundleFrameRef WKBundleRangeHandleCopyDocumentFrame(WKBundleRangeHandleRef rangeHandleRef)
+{
+    RefPtr frame = protect(WebKit::toImpl(rangeHandleRef))->document()->documentFrame();
+    return toAPILeakingRef(WTF::move(frame));
 }

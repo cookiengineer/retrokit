@@ -23,98 +23,99 @@
 
 #include "CSSPropertyNames.h"
 #include "Document.h"
+#include "ElementInlinesLight.h"
 #include "Event.h"
-#include "Frame.h"
 #include "HTMLInputElement.h"
 #include "HTMLNames.h"
 #include "HTMLParserIdioms.h"
+#include "LocalFrame.h"
 #include "MouseEvent.h"
 #include "Node.h"
+#include "RenderBoxInlines.h"
+#include "RenderBoxModelObjectInlines.h"
+#include "RenderElementStyleInlines.h"
+#include "RenderElementInlines.h"
 #include "RenderLayer.h"
 #include "RenderTheme.h"
 #include "RenderView.h"
 #include "ShadowRoot.h"
 #include "SliderThumbElement.h"
 #include "StepRange.h"
+#include "StylePrimitiveNumericTypes+Evaluation.h"
 #include "StyleResolver.h"
-#include <wtf/IsoMallocInlines.h>
 #include <wtf/MathExtras.h>
+#include <wtf/Ref.h>
+#include <wtf/RefPtr.h>
 #include <wtf/StackStats.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(RenderSlider);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderSlider);
 
 const int RenderSlider::defaultTrackLength = 129;
 
-RenderSlider::RenderSlider(HTMLInputElement& element, RenderStyle&& style)
-    : RenderFlexibleBox(element, WTFMove(style))
+RenderSlider::RenderSlider(HTMLInputElement& element, Style::ComputedStyle&& style)
+    : RenderFlexibleBox(Type::Slider, element, WTF::move(style))
 {
     // We assume RenderSlider works only with <input type=range>.
     ASSERT(element.isRangeControl());
+    ASSERT(isRenderSlider());
 }
 
 RenderSlider::~RenderSlider() = default;
 
-HTMLInputElement& RenderSlider::element() const
+HTMLInputElement& NODELETE RenderSlider::element() const
 {
     return downcast<HTMLInputElement>(nodeForNonAnonymous());
 }
 
-LayoutUnit RenderSlider::baselinePosition(FontBaseline, bool /*firstLine*/, LineDirectionMode, LinePositionMode) const
+std::pair<LayoutUnit, LayoutUnit> RenderSlider::computeIntrinsicLogicalWidths() const
 {
-    // FIXME: Patch this function for writing-mode.
-    return height() + marginTop();
-}
-
-void RenderSlider::computeIntrinsicLogicalWidths(LayoutUnit& minLogicalWidth, LayoutUnit& maxLogicalWidth) const
-{
-    if (shouldApplySizeContainment(*this))
-        return;
-    maxLogicalWidth = defaultTrackLength * style().effectiveZoom();
-    if (!style().width().isPercentOrCalculated())
+    if (shouldApplySizeOrInlineSizeContainment()) {
+        if (auto width = explicitIntrinsicInnerLogicalWidth())
+            return { width.value(), width.value() };
+        return { };
+    }
+    auto minLogicalWidth = LayoutUnit { };
+    auto maxLogicalWidth = LayoutUnit { defaultTrackLength * style().usedZoom() };
+    auto& logicalWidth = style().logicalWidth();
+    if (logicalWidth.isCalculated())
+        minLogicalWidth = std::max(0_lu, Style::evaluate<LayoutUnit>(logicalWidth, 0_lu, style().usedZoomForLength()));
+    else if (!logicalWidth.isPercent())
         minLogicalWidth = maxLogicalWidth;
+
+    return { minLogicalWidth, maxLogicalWidth };
 }
 
-void RenderSlider::computePreferredLogicalWidths()
+void RenderSlider::computeIntrinsicLogicalWidthContributions()
 {
-    m_minPreferredLogicalWidth = 0;
-    m_maxPreferredLogicalWidth = 0;
+    m_minContentLogicalWidthContribution = 0_lu;
+    m_maxContentLogicalWidthContribution = 0_lu;
 
-    if (style().width().isFixed() && style().width().value() > 0)
-        m_minPreferredLogicalWidth = m_maxPreferredLogicalWidth = adjustContentBoxLogicalWidthForBoxSizing(style().width());
-    else
-        computeIntrinsicLogicalWidths(m_minPreferredLogicalWidth, m_maxPreferredLogicalWidth);
+    if (auto fixedLogicalWidth = style().logicalWidth().tryFixed()) {
+        m_maxContentLogicalWidthContribution = adjustContentBoxLogicalWidthForBoxSizing(*fixedLogicalWidth);
+        m_minContentLogicalWidthContribution = m_maxContentLogicalWidthContribution;
+    } else
+        std::tie(m_minContentLogicalWidthContribution, m_maxContentLogicalWidthContribution) = computeIntrinsicLogicalWidths();
 
-    RenderBox::computePreferredLogicalWidths(style().minWidth(), style().maxWidth(), horizontalBorderAndPaddingExtent());
+    constrainIntrinsicLogicalWidthsByMinMax(m_minContentLogicalWidthContribution, m_maxContentLogicalWidthContribution);
 
-    setPreferredLogicalWidthsDirty(false); 
-}
-
-void RenderSlider::layout()
-{
-    StackStats::LayoutCheckPoint layoutCheckPoint;
-
-    // FIXME: Find a way to cascade appearance. http://webkit.org/b/62535
-    RenderBox* thumbBox = element().sliderThumbElement()->renderBox();
-    if (thumbBox && thumbBox->isSliderThumb())
-        static_cast<RenderSliderThumb*>(thumbBox)->updateAppearance(&style());
-
-    RenderFlexibleBox::layout();
+    clearContentLogicalWidthsInvalidation();
 }
 
 bool RenderSlider::inDragMode() const
 {
-    return element().sliderThumbElement()->active();
+    return protect(protect(element())->sliderThumbElement())->active();
 }
 
 double RenderSlider::valueRatio() const
 {
-    auto& element = this->element();
+    Ref element = this->element();
 
-    auto min = element.minimum();
-    auto max = element.maximum();
-    auto value = element.valueAsNumber();
+    auto min = element->minimum();
+    auto max = element->maximum();
+    auto value = element->valueAsNumber();
 
     if (max <= min)
         return 0;

@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2,1 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -20,6 +20,7 @@
 #include "config.h"
 #include "WebKitWebEditor.h"
 
+#include "APIInjectedBundleEditorClient.h"
 #include "WebKitWebEditorPrivate.h"
 #include "WebKitWebPagePrivate.h"
 #include <wtf/glib/WTFGType.h>
@@ -28,13 +29,13 @@ using namespace WebKit;
 using namespace WebCore;
 
 /**
- * SECTION: WebKitWebEditor
- * @Short_description: Access to editing capabilities of a #WebKitWebPage
- * @Title: WebKitWebEditor
+ * WebKitWebEditor:
  * @See_also: #WebKitWebPage
  *
+ * Access to editing capabilities of a #WebKitWebPage.
+ *
  * The WebKitWebEditor provides access to various editing capabilities of
- * a #WebKitWebPage such as a possibility to react to the current selection in
+ * a #WebKitWebPage such as the possibility to react to the current selection in
  * #WebKitWebPage.
  *
  * Since: 2.10
@@ -49,9 +50,9 @@ struct _WebKitWebEditorPrivate {
     WebKitWebPage* webPage;
 };
 
-static guint signals[LAST_SIGNAL] = { 0, };
+static std::array<unsigned, LAST_SIGNAL> signals;
 
-WEBKIT_DEFINE_TYPE(WebKitWebEditor, webkit_web_editor, G_TYPE_OBJECT)
+WEBKIT_DEFINE_FINAL_TYPE(WebKitWebEditor, webkit_web_editor, G_TYPE_OBJECT, GObject)
 
 static void webkit_web_editor_class_init(WebKitWebEditorClass* klass)
 {
@@ -102,8 +103,7 @@ WebKitWebEditor* webkitWebEditorCreate(WebKitWebPage* webPage)
  * webkit_web_editor_get_page:
  * @editor: a #WebKitWebEditor
  *
- * Gets the #WebKitWebPage that is associated with the #WebKitWebEditor that can
- * be used to access the #WebKitDOMDocument currently loaded into it.
+ * Gets the #WebKitWebPage that is associated with the #WebKitWebEditor.
  *
  * Returns: (transfer none): the associated #WebKitWebPage
  *

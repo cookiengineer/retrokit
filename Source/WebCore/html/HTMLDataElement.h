@@ -30,9 +30,12 @@
 namespace WebCore {
 
 class HTMLDataElement final : public HTMLElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLDataElement);
+    WTF_MAKE_TZONE_ALLOCATED(HTMLDataElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLDataElement);
 public:
     static Ref<HTMLDataElement> create(const QualifiedName&, Document&);
+
+    ~HTMLDataElement();
 
 private:
     HTMLDataElement(const QualifiedName&, Document&);

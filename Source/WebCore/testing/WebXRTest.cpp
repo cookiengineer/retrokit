@@ -28,38 +28,50 @@
 
 #if ENABLE(WEBXR)
 
+#include "ContextDestructionObserverInlines.h"
+#include "JSDOMConvertInterface.h"
+#include "JSDOMPromiseDeferred.h"
 #include "JSWebFakeXRDevice.h"
 #include "JSXRReferenceSpaceType.h"
+#include "PlatformXR.h"
 #include "UserGestureIndicator.h"
 #include "WebXRSystem.h"
 #include "XRSessionMode.h"
 
 namespace WebCore {
 
+WebXRTest::WebXRTest(WeakPtr<WebXRSystem, WeakPtrImplWithEventTargetData>&& system)
+    : m_context(WTF::move(system))
+{
+}
+
 WebXRTest::~WebXRTest() = default;
+
+static PlatformXR::Device::FeatureList parseFeatures(const Vector<String>& featureList)
+{
+    PlatformXR::Device::FeatureList features;
+    for (auto& feature : featureList) {
+        if (auto sessionFeature = PlatformXR::parseSessionFeatureDescriptor(feature))
+            features.append(*sessionFeature);
+    }
+    return features;
+}
 
 void WebXRTest::simulateDeviceConnection(ScriptExecutionContext& context, const FakeXRDeviceInit& init, WebFakeXRDevicePromise&& promise)
 {
     // https://immersive-web.github.io/webxr-test-api/#dom-xrtest-simulatedeviceconnection
-    context.postTask([this, protectedThis = makeRef(*this), init, promise = WTFMove(promise)] (ScriptExecutionContext& context) mutable {
+    context.postTask([this, protectedThis = protect(*this), init, promise = WTF::move(promise)](auto&) mutable {
         auto device = WebFakeXRDevice::create();
         auto& simulatedDevice = device->simulatedXRDevice();
 
         device->setViews(init.views);
 
-        Vector<XRReferenceSpaceType> features;
-        if (init.supportedFeatures) {
-            if (auto* globalObject = context.globalObject()) {
-                for (auto& feature : init.supportedFeatures.value()) {
-                    if (auto referenceSpaceType = parseEnumeration<XRReferenceSpaceType>(*globalObject, feature))
-                        features.append(referenceSpaceType.value());
-                }
-            }
-        }
+        auto supportedFeatures = parseFeatures(init.supportedFeatures);
+        auto enabledFeatures = parseFeatures(init.enabledFeatures);
 
         if (init.boundsCoordinates) {
             if (init.boundsCoordinates->size() < 3) {
-                promise.reject(Exception { TypeError });
+                promise.reject(Exception { ExceptionCode::TypeError });
                 return;
             }
             simulatedDevice.setNativeBoundsGeometry(init.boundsCoordinates.value());
@@ -70,6 +82,11 @@ void WebXRTest::simulateDeviceConnection(ScriptExecutionContext& context, const 
 
         if (init.floorOrigin)
             device->setFloorOrigin(init.floorOrigin.value());
+
+#if ENABLE(WEBXR_HIT_TEST)
+        if (init.world)
+            device->setWorld(init.world.value());
+#endif
 
         Vector<XRSessionMode> supportedModes;
         if (init.supportedModes) {
@@ -82,13 +99,15 @@ void WebXRTest::simulateDeviceConnection(ScriptExecutionContext& context, const 
                 supportedModes.append(XRSessionMode::ImmersiveVr);
         }
 
-        for (auto& mode : supportedModes)
-            simulatedDevice.setSupportedFeatures(mode, features);
+        for (auto& mode : supportedModes) {
+            simulatedDevice.setSupportedFeatures(mode, supportedFeatures);
+            simulatedDevice.setEnabledFeatures(mode, enabledFeatures);
+        }
 
         m_context->registerSimulatedXRDeviceForTesting(simulatedDevice);
 
         promise.resolve(device.get());
-        m_devices.append(WTFMove(device));
+        m_devices.append(WTF::move(device));
     });
 }
 
@@ -96,8 +115,8 @@ void WebXRTest::simulateUserActivation(Document& document, XRSimulateUserActivat
 {
     // https://immersive-web.github.io/webxr-test-api/#dom-xrtest-simulateuseractivation
     // Invoke function as if it had transient activation.
-    UserGestureIndicator gestureIndicator(ProcessingUserGesture, &document);
-    function.handleEvent();
+    UserGestureIndicator gestureIndicator(IsProcessingUserGesture::Yes, &document);
+    function.invoke();
 }
 
 void WebXRTest::disconnectAllDevices(DOMPromiseDeferred<void>&& promise)

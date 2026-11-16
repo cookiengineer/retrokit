@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -20,20 +20,16 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #pragma once
 
-#include "DisplayListItemBuffer.h"
-#include "DisplayListItemType.h"
-#include "FloatRect.h"
-#include "Font.h"
-#include "GraphicsContext.h"
-#include "ImageBuffer.h"
-#include <wtf/FastMalloc.h>
-#include <wtf/HashSet.h>
+#include <WebCore/DisplayListItems.h>
+#include <wtf/CheckedRef.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
@@ -42,114 +38,39 @@ class TextStream;
 }
 
 namespace WebCore {
-
 namespace DisplayList {
 
-enum AsTextFlag {
-    None                            = 0,
-    IncludesPlatformOperations      = 1 << 0,
-};
-
-typedef unsigned AsTextFlags;
-
-class DisplayList {
-    WTF_MAKE_NONCOPYABLE(DisplayList); WTF_MAKE_FAST_ALLOCATED;
-    friend class Recorder;
-    friend class Replayer;
+// Note: currently this class is not usable from multiple threads due to the underlying objects, such
+// Font instances, not being thread-safe.
+class DisplayList final : public ThreadSafeRefCounted<DisplayList>, public CanMakeThreadSafeCheckedPtr<DisplayList> {
+    WTF_MAKE_TZONE_ALLOCATED(DisplayList);
+    WTF_MAKE_NONCOPYABLE(DisplayList);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(DisplayList);
 public:
-    WEBCORE_EXPORT DisplayList();
-    WEBCORE_EXPORT DisplayList(DisplayList&&);
-    WEBCORE_EXPORT DisplayList(ItemBufferHandles&&);
-
+    static Ref<const DisplayList> create(Vector<Item>&& items)
+    {
+        return adoptRef(*new DisplayList(WTF::move(items)));
+    }
     WEBCORE_EXPORT ~DisplayList();
 
-    WEBCORE_EXPORT DisplayList& operator=(DisplayList&&);
+    std::span<const Item> items() const LIFETIME_BOUND { return m_items.span(); }
 
+    WEBCORE_EXPORT String asText(OptionSet<AsTextFlag>) const;
     void dump(WTF::TextStream&) const;
 
-    WEBCORE_EXPORT void clear();
-    WEBCORE_EXPORT bool isEmpty() const;
-    WEBCORE_EXPORT size_t sizeInBytes() const;
-
-    String asText(AsTextFlags) const;
-
-    const ImageBufferHashMap& imageBuffers() const { return m_imageBuffers; }
-    const NativeImageHashMap& nativeImages() const { return m_nativeImages; }
-    const FontRenderingResourceMap& fonts() const { return m_fonts; }
-
-    WEBCORE_EXPORT void setItemBufferReadingClient(ItemBufferReadingClient*);
-    WEBCORE_EXPORT void setItemBufferWritingClient(ItemBufferWritingClient*);
-    WEBCORE_EXPORT void prepareToAppend(ItemBufferHandle&&);
-
-    void shrinkToFit();
-
-#if !defined(NDEBUG) || !LOG_DISABLED
-    WTF::CString description() const;
-    WEBCORE_EXPORT void dump() const;
-#endif
-
-    WEBCORE_EXPORT void forEachItemBuffer(Function<void(const ItemBufferHandle&)>&&) const;
-
-    template<typename T, class... Args> void append(Args&&... args);
-    void append(ItemHandle);
-
-    bool tracksDrawingItemExtents() const { return m_tracksDrawingItemExtents; }
-    WEBCORE_EXPORT void setTracksDrawingItemExtents(bool);
-
-    class Iterator;
-
-    WEBCORE_EXPORT Iterator begin() const;
-    WEBCORE_EXPORT Iterator end() const;
+    void addObserver(WeakRef<RenderingResourceObserver>&& observer) const
+    {
+        m_observers.add(WTF::move(observer));
+    }
 
 private:
-    ItemBuffer* itemBufferIfExists() const { return m_items.get(); }
-    WEBCORE_EXPORT ItemBuffer& itemBuffer();
+    WEBCORE_EXPORT DisplayList(Vector<Item>&& items);
 
-    void addDrawingItemExtent(std::optional<FloatRect>&& extent)
-    {
-        ASSERT(m_tracksDrawingItemExtents);
-        m_drawingItemExtents.append(WTFMove(extent));
-    }
-
-    void cacheImageBuffer(WebCore::ImageBuffer& imageBuffer)
-    {
-        m_imageBuffers.ensure(imageBuffer.renderingResourceIdentifier(), [&]() {
-            return makeRef(imageBuffer);
-        });
-    }
-
-    void cacheNativeImage(NativeImage& image)
-    {
-        m_nativeImages.ensure(image.renderingResourceIdentifier(), [&]() {
-            return makeRef(image);
-        });
-    }
-
-    void cacheFont(Font& font)
-    {
-        m_fonts.ensure(font.renderingResourceIdentifier(), [&]() {
-            return makeRef(font);
-        });
-    }
-
-    static bool shouldDumpForFlags(AsTextFlags, ItemHandle);
-
-    ImageBufferHashMap m_imageBuffers;
-    NativeImageHashMap m_nativeImages;
-    FontRenderingResourceMap m_fonts;
-    std::unique_ptr<ItemBuffer> m_items;
-    Vector<std::optional<FloatRect>> m_drawingItemExtents;
-    bool m_tracksDrawingItemExtents { true };
+    Vector<Item> m_items;
+    mutable WeakHashSet<RenderingResourceObserver> m_observers;
 };
 
-template<typename T, class... Args>
-void DisplayList::append(Args&&... args)
-{
-    itemBuffer().append<T>(std::forward<Args>(args)...);
-}
-
-WTF::TextStream& operator<<(WTF::TextStream&, const DisplayList&);
+WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const DisplayList&);
 
 } // DisplayList
-
 } // WebCore

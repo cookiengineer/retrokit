@@ -18,12 +18,11 @@
  */
 
 [
-    CustomToJSObject,
     JSGenerateToNativeObject,
     DOMJIT,
     Exposed=Window
 ] interface DocumentFragment : Node {
-    [CallWith=Document] constructor();
+    [CallWith=CurrentDocument] constructor();
 };
 
 DocumentFragment includes ParentNode;

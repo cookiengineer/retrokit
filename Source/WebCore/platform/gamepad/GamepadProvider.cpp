@@ -52,7 +52,7 @@ void GamepadProvider::setSharedProvider(GamepadProvider& newProvider)
 
 void GamepadProvider::dispatchPlatformGamepadInputActivity()
 {
-    for (auto& client : m_clients)
+    for (Ref client : m_clients)
         client->platformGamepadInputActivity(m_shouldMakeGamepadsVisible ? EventMakesGamepadsVisible::Yes : EventMakesGamepadsVisible::No);
 
     m_shouldMakeGamepadsVisible = false;

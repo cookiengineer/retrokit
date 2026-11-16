@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,6 +33,8 @@
 #include "TypedArrayAdaptors.h"
 #include <wtf/FlipBytes.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 /* Source for JSDataViewPrototype.lut.h
@@ -43,22 +45,23 @@ namespace JSC {
   getUint16             dataViewProtoFuncGetUint16           DontEnum|Function       1  DataViewGetUint16
   getInt32              dataViewProtoFuncGetInt32            DontEnum|Function       1  DataViewGetInt32
   getUint32             dataViewProtoFuncGetUint32           DontEnum|Function       1  DataViewGetUint32
+  getFloat16            dataViewProtoFuncGetFloat16          DontEnum|Function       1  DataViewGetFloat16
   getFloat32            dataViewProtoFuncGetFloat32          DontEnum|Function       1  DataViewGetFloat32
   getFloat64            dataViewProtoFuncGetFloat64          DontEnum|Function       1  DataViewGetFloat64
-  getBigInt64           dataViewProtoFuncGetBigInt64         DontEnum|Function       1
-  getBigUint64          dataViewProtoFuncGetBigUint64        DontEnum|Function       1
+  getBigInt64           dataViewProtoFuncGetBigInt64         DontEnum|Function       1  DataViewGetBigInt64
+  getBigUint64          dataViewProtoFuncGetBigUint64        DontEnum|Function       1  DataViewGetBigUint64
   setInt8               dataViewProtoFuncSetInt8             DontEnum|Function       2  DataViewSetInt8
   setUint8              dataViewProtoFuncSetUint8            DontEnum|Function       2  DataViewSetUint8
   setInt16              dataViewProtoFuncSetInt16            DontEnum|Function       2  DataViewSetInt16
   setUint16             dataViewProtoFuncSetUint16           DontEnum|Function       2  DataViewSetUint16
   setInt32              dataViewProtoFuncSetInt32            DontEnum|Function       2  DataViewSetInt32
   setUint32             dataViewProtoFuncSetUint32           DontEnum|Function       2  DataViewSetUint32
+  setFloat16            dataViewProtoFuncSetFloat16          DontEnum|Function       2  DataViewSetFloat16
   setFloat32            dataViewProtoFuncSetFloat32          DontEnum|Function       2  DataViewSetFloat32
   setFloat64            dataViewProtoFuncSetFloat64          DontEnum|Function       2  DataViewSetFloat64
-  setBigInt64           dataViewProtoFuncSetBigInt64         DontEnum|Function       2
-  setBigUint64          dataViewProtoFuncSetBigUint64        DontEnum|Function       2
+  setBigInt64           dataViewProtoFuncSetBigInt64         DontEnum|Function       2  DataViewSetBigInt64
+  setBigUint64          dataViewProtoFuncSetBigUint64        DontEnum|Function       2  DataViewSetBigUint64
   buffer                dataViewProtoGetterBuffer            DontEnum|ReadOnly|CustomAccessor
-  byteLength            dataViewProtoGetterByteLength        DontEnum|ReadOnly|CustomAccessor
   byteOffset            dataViewProtoGetterByteOffset        DontEnum|ReadOnly|CustomAccessor
 @end
 */
@@ -69,6 +72,7 @@ static JSC_DECLARE_HOST_FUNCTION(dataViewProtoFuncGetInt32);
 static JSC_DECLARE_HOST_FUNCTION(dataViewProtoFuncGetUint8);
 static JSC_DECLARE_HOST_FUNCTION(dataViewProtoFuncGetUint16);
 static JSC_DECLARE_HOST_FUNCTION(dataViewProtoFuncGetUint32);
+static JSC_DECLARE_HOST_FUNCTION(dataViewProtoFuncGetFloat16);
 static JSC_DECLARE_HOST_FUNCTION(dataViewProtoFuncGetFloat32);
 static JSC_DECLARE_HOST_FUNCTION(dataViewProtoFuncGetFloat64);
 static JSC_DECLARE_HOST_FUNCTION(dataViewProtoFuncGetBigInt64);
@@ -79,12 +83,13 @@ static JSC_DECLARE_HOST_FUNCTION(dataViewProtoFuncSetInt32);
 static JSC_DECLARE_HOST_FUNCTION(dataViewProtoFuncSetUint8);
 static JSC_DECLARE_HOST_FUNCTION(dataViewProtoFuncSetUint16);
 static JSC_DECLARE_HOST_FUNCTION(dataViewProtoFuncSetUint32);
+static JSC_DECLARE_HOST_FUNCTION(dataViewProtoFuncSetFloat16);
 static JSC_DECLARE_HOST_FUNCTION(dataViewProtoFuncSetFloat32);
 static JSC_DECLARE_HOST_FUNCTION(dataViewProtoFuncSetFloat64);
 static JSC_DECLARE_HOST_FUNCTION(dataViewProtoFuncSetBigInt64);
 static JSC_DECLARE_HOST_FUNCTION(dataViewProtoFuncSetBigUint64);
+static JSC_DECLARE_HOST_FUNCTION(dataViewProtoGetterByteLength);
 static JSC_DECLARE_CUSTOM_GETTER(dataViewProtoGetterBuffer);
-static JSC_DECLARE_CUSTOM_GETTER(dataViewProtoGetterByteLength);
 static JSC_DECLARE_CUSTOM_GETTER(dataViewProtoGetterByteOffset);
 
 }
@@ -94,7 +99,7 @@ static JSC_DECLARE_CUSTOM_GETTER(dataViewProtoGetterByteOffset);
 namespace JSC {
 
 const ClassInfo JSDataViewPrototype::s_info = {
-    "DataView", &Base::s_info, &dataViewTable, nullptr,
+    "DataView"_s, &Base::s_info, &dataViewTable, nullptr,
     CREATE_METHOD_TABLE(JSDataViewPrototype)
 };
 
@@ -103,20 +108,22 @@ JSDataViewPrototype::JSDataViewPrototype(VM& vm, Structure* structure)
 {
 }
 
-JSDataViewPrototype* JSDataViewPrototype::create(VM& vm, Structure* structure)
+JSDataViewPrototype* JSDataViewPrototype::create(VM& vm, JSGlobalObject* globalObject, Structure* structure)
 {
     JSDataViewPrototype* prototype =
-        new (NotNull, allocateCell<JSDataViewPrototype>(vm.heap))
+        new (NotNull, allocateCell<JSDataViewPrototype>(vm))
         JSDataViewPrototype(vm, structure);
-    prototype->finishCreation(vm);
+    prototype->finishCreation(vm, globalObject);
     return prototype;
 }
 
-void JSDataViewPrototype::finishCreation(JSC::VM& vm)
+void JSDataViewPrototype::finishCreation(VM& vm, JSGlobalObject* globalObject)
 {
     Base::finishCreation(vm);
-    ASSERT(inherits(vm, info()));
+    ASSERT(inherits(info()));
     JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+
+    JSC_NATIVE_INTRINSIC_GETTER_WITHOUT_TRANSITION(vm.propertyNames->byteLength, dataViewProtoGetterByteLength, PropertyAttribute::DontEnum | PropertyAttribute::ReadOnly, DataViewByteLengthIntrinsic);
 }
 
 Structure* JSDataViewPrototype::createStructure(
@@ -132,44 +139,42 @@ EncodedJSValue getData(JSGlobalObject* globalObject, CallFrame* callFrame)
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    JSDataView* dataView = jsDynamicCast<JSDataView*>(vm, callFrame->thisValue());
+    JSDataView* dataView = dynamicDowncast<JSDataView>(callFrame->thisValue());
     if (!dataView)
         return throwVMTypeError(globalObject, scope, "Receiver of DataView method must be a DataView"_s);
     
-    unsigned byteOffset = callFrame->argument(0).toIndex(globalObject, "byteOffset");
+    uint64_t byteOffset = callFrame->argument(0).toIndex(globalObject, "byteOffset"_s);
     RETURN_IF_EXCEPTION(scope, encodedJSValue());
     
     bool littleEndian = false;
-    unsigned elementSize = sizeof(typename Adaptor::Type);
+    size_t elementSize = sizeof(typename Adaptor::Type);
     if (elementSize > 1 && callFrame->argumentCount() >= 2) {
         littleEndian = callFrame->uncheckedArgument(1).toBoolean(globalObject);
         RETURN_IF_EXCEPTION(scope, encodedJSValue());
     }
 
-    if (dataView->isDetached())
-        return throwVMTypeError(globalObject, scope, "Underlying ArrayBuffer has been detached from the view"_s);
+    IdempotentArrayBufferByteLengthGetter<std::memory_order_relaxed> getter;
+    auto byteLengthValue = dataView->viewByteLength(getter);
+    if (!byteLengthValue) [[unlikely]]
+        return throwVMTypeError(globalObject, scope, typedArrayBufferHasBeenDetachedErrorMessage);
 
-    unsigned byteLength = dataView->length();
+    size_t byteLength = byteLengthValue.value();
     if (elementSize > byteLength || byteOffset > byteLength - elementSize)
         return throwVMRangeError(globalObject, scope, "Out of bounds access"_s);
 
-    const unsigned dataSize = sizeof(typename Adaptor::Type);
-    union {
-        typename Adaptor::Type value;
-        uint8_t rawBytes[dataSize];
-    } u = { };
-
+    constexpr unsigned dataSize = sizeof(typename Adaptor::Type);
+    std::array<uint8_t, dataSize> rawBytes { };
     uint8_t* dataPtr = static_cast<uint8_t*>(dataView->vector()) + byteOffset;
 
     if (needToFlipBytesIfLittleEndian(littleEndian)) {
         for (unsigned i = dataSize; i--;)
-            u.rawBytes[i] = *dataPtr++;
+            rawBytes[i] = *dataPtr++;
     } else {
         for (unsigned i = 0; i < dataSize; i++)
-            u.rawBytes[i] = *dataPtr++;
+            rawBytes[i] = *dataPtr++;
     }
 
-    RELEASE_AND_RETURN(scope, JSValue::encode(Adaptor::toJSValue(globalObject, u.value)));
+    RELEASE_AND_RETURN(scope, JSValue::encode(Adaptor::toJSValue(globalObject, std::bit_cast<typename Adaptor::Type>(rawBytes))));
 }
 
 template<typename Adaptor>
@@ -178,33 +183,30 @@ EncodedJSValue setData(JSGlobalObject* globalObject, CallFrame* callFrame)
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    JSDataView* dataView = jsDynamicCast<JSDataView*>(vm, callFrame->thisValue());
+    JSDataView* dataView = dynamicDowncast<JSDataView>(callFrame->thisValue());
     if (!dataView)
         return throwVMTypeError(globalObject, scope, "Receiver of DataView method must be a DataView"_s);
     
-    unsigned byteOffset = callFrame->argument(0).toIndex(globalObject, "byteOffset");
+    uint64_t byteOffset = callFrame->argument(0).toIndex(globalObject, "byteOffset"_s);
     RETURN_IF_EXCEPTION(scope, encodedJSValue());
 
-    const unsigned dataSize = sizeof(typename Adaptor::Type);
-    union {
-        typename Adaptor::Type value;
-        uint8_t rawBytes[dataSize];
-    } u;
-
-    u.value = toNativeFromValue<Adaptor>(globalObject, callFrame->argument(1));
+    constexpr unsigned dataSize = sizeof(typename Adaptor::Type);
+    auto rawBytes = std::bit_cast<std::array<uint8_t, dataSize>>(toNativeFromValue<Adaptor>(globalObject, callFrame->argument(1)));
     RETURN_IF_EXCEPTION(scope, encodedJSValue());
     
     bool littleEndian = false;
-    unsigned elementSize = sizeof(typename Adaptor::Type);
+    size_t elementSize = sizeof(typename Adaptor::Type);
     if (elementSize > 1 && callFrame->argumentCount() >= 3) {
         littleEndian = callFrame->uncheckedArgument(2).toBoolean(globalObject);
         RETURN_IF_EXCEPTION(scope, encodedJSValue());
     }
 
-    if (dataView->isDetached())
-        return throwVMTypeError(globalObject, scope, "Underlying ArrayBuffer has been detached from the view"_s);
+    IdempotentArrayBufferByteLengthGetter<std::memory_order_relaxed> getter;
+    auto byteLengthValue = dataView->viewByteLength(getter);
+    if (!byteLengthValue) [[unlikely]]
+        return throwVMTypeError(globalObject, scope, typedArrayBufferHasBeenDetachedErrorMessage);
 
-    unsigned byteLength = dataView->length();
+    size_t byteLength = byteLengthValue.value();
     if (elementSize > byteLength || byteOffset > byteLength - elementSize)
         return throwVMRangeError(globalObject, scope, "Out of bounds access"_s);
 
@@ -212,41 +214,42 @@ EncodedJSValue setData(JSGlobalObject* globalObject, CallFrame* callFrame)
 
     if (needToFlipBytesIfLittleEndian(littleEndian)) {
         for (unsigned i = dataSize; i--;)
-            *dataPtr++ = u.rawBytes[i];
+            *dataPtr++ = rawBytes[i];
     } else {
         for (unsigned i = 0; i < dataSize; i++)
-            *dataPtr++ = u.rawBytes[i];
+            *dataPtr++ = rawBytes[i];
     }
 
     return JSValue::encode(jsUndefined());
 }
-
-IGNORE_CLANG_WARNINGS_BEGIN("missing-prototypes")
 
 JSC_DEFINE_CUSTOM_GETTER(dataViewProtoGetterBuffer, (JSGlobalObject* globalObject, EncodedJSValue thisValue, PropertyName))
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    JSDataView* view = jsDynamicCast<JSDataView*>(vm, JSValue::decode(thisValue));
+    JSDataView* view = dynamicDowncast<JSDataView>(JSValue::decode(thisValue));
     if (!view)
-        return throwVMTypeError(globalObject, scope, "DataView.prototype.buffer expects |this| to be a DataView object");
+        return throwVMTypeError(globalObject, scope, "DataView.prototype.buffer expects |this| to be a DataView object"_s);
 
     RELEASE_AND_RETURN(scope, JSValue::encode(view->possiblySharedJSBuffer(globalObject)));
 }
 
-JSC_DEFINE_CUSTOM_GETTER(dataViewProtoGetterByteLength, (JSGlobalObject* globalObject, EncodedJSValue thisValue, PropertyName))
+JSC_DEFINE_HOST_FUNCTION(dataViewProtoGetterByteLength, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    JSDataView* view = jsDynamicCast<JSDataView*>(vm, JSValue::decode(thisValue));
-    if (!view)
-        return throwVMTypeError(globalObject, scope, "DataView.prototype.byteLength expects |this| to be a DataView object");
-    if (view->isDetached())
-        return throwVMTypeError(globalObject, scope, "Underlying ArrayBuffer has been detached from the view"_s);
+    JSDataView* view = dynamicDowncast<JSDataView>(callFrame->thisValue());
+    if (!view) [[unlikely]]
+        return throwVMTypeError(globalObject, scope, "DataView.prototype.byteLength expects |this| to be a DataView object"_s);
 
-    return JSValue::encode(jsNumber(view->length()));
+    IdempotentArrayBufferByteLengthGetter<std::memory_order_seq_cst> getter;
+    auto byteLengthValue = view->viewByteLength(getter);
+    if (!byteLengthValue) [[unlikely]]
+        return throwVMTypeError(globalObject, scope, typedArrayBufferHasBeenDetachedErrorMessage);
+
+    return JSValue::encode(jsNumber(byteLengthValue.value()));
 }
 
 JSC_DEFINE_CUSTOM_GETTER(dataViewProtoGetterByteOffset, (JSGlobalObject* globalObject, EncodedJSValue thisValue, PropertyName))
@@ -254,13 +257,16 @@ JSC_DEFINE_CUSTOM_GETTER(dataViewProtoGetterByteOffset, (JSGlobalObject* globalO
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    JSDataView* view = jsDynamicCast<JSDataView*>(vm, JSValue::decode(thisValue));
+    JSDataView* view = dynamicDowncast<JSDataView>(JSValue::decode(thisValue));
     if (!view)
-        return throwVMTypeError(globalObject, scope, "DataView.prototype.byteOffset expects |this| to be a DataView object");
-    if (view->isDetached())
-        return throwVMTypeError(globalObject, scope, "Underlying ArrayBuffer has been detached from the view"_s);
+        return throwVMTypeError(globalObject, scope, "DataView.prototype.byteOffset expects |this| to be a DataView object"_s);
 
-    return JSValue::encode(jsNumber(view->byteOffset()));
+    IdempotentArrayBufferByteLengthGetter<std::memory_order_seq_cst> getter;
+    auto byteLengthValue = view->viewByteLength(getter);
+    if (!byteLengthValue) [[unlikely]]
+        return throwVMTypeError(globalObject, scope, typedArrayBufferHasBeenDetachedErrorMessage);
+
+    return JSValue::encode(jsNumber(view->byteOffsetRaw()));
 }
 
 JSC_DEFINE_HOST_FUNCTION(dataViewProtoFuncGetInt8, (JSGlobalObject* globalObject, CallFrame* callFrame))
@@ -291,6 +297,11 @@ JSC_DEFINE_HOST_FUNCTION(dataViewProtoFuncGetUint16, (JSGlobalObject* globalObje
 JSC_DEFINE_HOST_FUNCTION(dataViewProtoFuncGetUint32, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
     return getData<Uint32Adaptor>(globalObject, callFrame);
+}
+
+JSC_DEFINE_HOST_FUNCTION(dataViewProtoFuncGetFloat16, (JSGlobalObject* globalObject, CallFrame* callFrame))
+{
+    return getData<Float16Adaptor>(globalObject, callFrame);
 }
 
 JSC_DEFINE_HOST_FUNCTION(dataViewProtoFuncGetFloat32, (JSGlobalObject* globalObject, CallFrame* callFrame))
@@ -343,6 +354,11 @@ JSC_DEFINE_HOST_FUNCTION(dataViewProtoFuncSetUint32, (JSGlobalObject* globalObje
     return setData<Uint32Adaptor>(globalObject, callFrame);
 }
 
+JSC_DEFINE_HOST_FUNCTION(dataViewProtoFuncSetFloat16, (JSGlobalObject* globalObject, CallFrame* callFrame))
+{
+    return setData<Float16Adaptor>(globalObject, callFrame);
+}
+
 JSC_DEFINE_HOST_FUNCTION(dataViewProtoFuncSetFloat32, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
     return setData<Float32Adaptor>(globalObject, callFrame);
@@ -362,6 +378,7 @@ JSC_DEFINE_HOST_FUNCTION(dataViewProtoFuncSetBigUint64, (JSGlobalObject* globalO
 {
     return setData<BigUint64Adaptor>(globalObject, callFrame);
 }
-IGNORE_CLANG_WARNINGS_END
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

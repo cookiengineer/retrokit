@@ -3,7 +3,7 @@
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2001 Dirk Mueller (mueller@kde.org)
  *           (C) 2006 Alexey Proskuryakov (ap@webkit.org)
- * Copyright (C) 2004-2010, 2012-2013, 2015-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2025 Apple Inc. All rights reserved.
  * Copyright (C) 2008, 2009 Torch Mobile Inc. All rights reserved. (http://www.torchmobile.com/)
  * Copyright (C) 2010 Nokia Corporation and/or its subsidiary(-ies)
  * Copyright (C) 2011 Google Inc. All rights reserved.
@@ -27,80 +27,93 @@
 
 #pragma once
 
-#include "StyleScopeOrdinal.h"
-#include "Timer.h"
+#include <WebCore/AnchorPositionEvaluator.h>
+#include <WebCore/Document.h>
+#include <WebCore/LayoutRect.h>
+#include <WebCore/LayoutSize.h>
+#include <WebCore/StyleScopeIdentifier.h>
+#include <WebCore/StyleScopeOrdinal.h>
+#include <WebCore/Styleable.h>
+#include <WebCore/Timer.h>
 #include <memory>
 #include <wtf/CheckedPtr.h>
-#include <wtf/FastMalloc.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
-#include <wtf/ListHashSet.h>
+#include <wtf/Identified.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/UniqueRef.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakHashMap.h>
+#include <wtf/WeakHashSet.h>
+#include <wtf/WeakListHashSet.h>
+#include <wtf/text/AtomStringHash.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
+class CSSCounterStyleRegistry;
 class CSSStyleSheet;
-class Document;
 class Element;
+class HTMLSlotElement;
 class Node;
 class ProcessingInstruction;
+class RenderBoxModelObject;
 class StyleSheet;
 class StyleSheetContents;
 class StyleSheetList;
 class ShadowRoot;
 class TreeScope;
+class WeakPtrImplWithEventTargetData;
 
 namespace Style {
 
+class CustomPropertyRegistry;
+class DocumentScope;
+class MatchResultCache;
 class Resolver;
+class RuleSet;
 
-class Scope : public CanMakeCheckedPtr {
-    WTF_MAKE_FAST_ALLOCATED;
+class Scope : public CanMakeWeakPtr<Scope>, public CanMakeCheckedPtr<Scope>, public Identified<ScopeIdentifier> {
+    WTF_MAKE_TZONE_ALLOCATED(Scope);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(Scope);
 public:
-    explicit Scope(Document&);
     explicit Scope(ShadowRoot&);
 
     ~Scope();
 
-    const Vector<RefPtr<CSSStyleSheet>>& activeStyleSheets() const { return m_activeStyleSheets; }
+    const Vector<Ref<CSSStyleSheet>>& activeStyleSheets() const LIFETIME_BOUND { return m_activeStyleSheets; }
 
-    const Vector<RefPtr<StyleSheet>>& styleSheetsForStyleSheetList();
-    const Vector<RefPtr<CSSStyleSheet>> activeStyleSheetsForInspector();
+    const Vector<Ref<StyleSheet>>& styleSheetsForStyleSheetList() LIFETIME_BOUND;
+    const Vector<Ref<CSSStyleSheet>> activeStyleSheetsForInspector();
 
     void addStyleSheetCandidateNode(Node&, bool createdByParser);
     void removeStyleSheetCandidateNode(Node&);
 
-    String preferredStylesheetSetName() const { return m_preferredStylesheetSetName; }
-    void setPreferredStylesheetSetName(const String&);
+    void establishPreferredStylesheetSetName(const Element&, const CSSStyleSheet&);
 
     void addPendingSheet(const Element&);
     void removePendingSheet(const Element&);
     void addPendingSheet(const ProcessingInstruction&);
     void removePendingSheet(const ProcessingInstruction&);
-    bool hasPendingSheets() const;
-    bool hasPendingSheetsBeforeBody() const;
-    bool hasPendingSheetsInBody() const;
-    bool hasPendingSheet(const Element&) const;
-    bool hasPendingSheetInBody(const Element&) const;
-    bool hasPendingSheet(const ProcessingInstruction&) const;
+    bool NODELETE hasPendingSheets() const;
+    bool NODELETE hasPendingSheetsBeforeBody() const;
+    bool NODELETE hasPendingSheetsInBody() const;
+    bool NODELETE hasPendingSheet(const Element&) const;
+    bool NODELETE hasPendingSheetInBody(const Element&) const;
+    bool NODELETE hasPendingSheet(const ProcessingInstruction&) const;
 
-    bool usesStyleBasedEditability() { return m_usesStyleBasedEditability; }
+    bool usesStyleBasedEditability() const { return m_usesStyleBasedEditability; }
+    bool usesHasPseudoClass() const { return m_usesHasPseudoClass; }
 
-    bool activeStyleSheetsContains(const CSSStyleSheet*) const;
-
-    void evaluateMediaQueriesForViewportChange();
-    void evaluateMediaQueriesForAccessibilitySettingsChange();
-    void evaluateMediaQueriesForAppearanceChange();
+    bool activeStyleSheetsContains(const CSSStyleSheet&) const;
 
     // This is called when some stylesheet becomes newly enabled or disabled.
     void didChangeActiveStyleSheetCandidates();
     // This is called when contents of a stylesheet is mutated.
     void didChangeStyleSheetContents();
-    // This is called when the environment where we intrepret the stylesheets changes (for example switching to printing).
-    // The change is assumed to potentially affect all author and user stylesheets including shadow roots.
-    WEBCORE_EXPORT void didChangeStyleSheetEnvironment();
+
+    void didChangeViewportSize();
 
     void invalidateMatchedDeclarationsCache();
 
@@ -113,6 +126,7 @@ public:
 
     WEBCORE_EXPORT Resolver& resolver();
     Resolver* resolverIfExists() { return m_resolver.get(); }
+    const Resolver* resolverIfExists() const { return m_resolver.get(); }
     void clearResolver();
     void releaseMemory();
 
@@ -121,27 +135,44 @@ public:
     const ShadowRoot* shadowRoot() const { return m_shadowRoot; }
     ShadowRoot* shadowRoot() { return m_shadowRoot; }
 
-    static Scope& forNode(Node&);
+    // The document scope for this scope's tree (itself if this is the document scope).
+    DocumentScope& NODELETE documentScope();
+
+    CheckedPtr<const Scope> NODELETE hostScope() const;
+
+    static Scope& NODELETE forNode(Node&);
+    static const Scope& forNode(const Node&);
     static Scope* forOrdinal(Element&, ScopeOrdinal);
+    static const Scope* forOrdinal(const Element&, ScopeOrdinal);
+
+    const CustomPropertyRegistry& customPropertyRegistry() const LIFETIME_BOUND { return m_customPropertyRegistry.get(); }
+    CustomPropertyRegistry& customPropertyRegistry() LIFETIME_BOUND { return m_customPropertyRegistry.get(); }
+    const CSSCounterStyleRegistry& counterStyleRegistry() const LIFETIME_BOUND { return m_counterStyleRegistry.get(); }
+    CSSCounterStyleRegistry& counterStyleRegistry() LIFETIME_BOUND { return m_counterStyleRegistry.get(); }
+
+protected:
+    explicit Scope(Document&);
 
 private:
-    Scope& documentScope();
-    bool isForUserAgentShadowTree() const;
+    friend class DocumentScope;
+
+    bool NODELETE isForUserAgentShadowTree() const;
 
     void didRemovePendingStylesheet();
 
-    enum class UpdateType : uint8_t { ActiveSet, ContentsOrInterpretation };
+    enum class UpdateType : uint8_t { ActiveSet, FullForExtensionStyleSheets, ContentsOrInterpretation };
     void updateActiveStyleSheets(UpdateType);
     void scheduleUpdate(UpdateType);
-
-    using ResolverScopes = HashMap<Ref<Resolver>, Vector<CheckedPtr<Scope>>>;
-    ResolverScopes collectResolverScopes();
-    template <typename TestFunction> void evaluateMediaQueries(TestFunction&&);
 
     WEBCORE_EXPORT void flushPendingSelfUpdate();
     WEBCORE_EXPORT void flushPendingDescendantUpdates();
 
-    void collectActiveStyleSheets(Vector<RefPtr<StyleSheet>>&);
+    struct ActiveStyleSheetCollection {
+        Vector<Ref<StyleSheet>> activeStyleSheets;
+        Vector<Ref<StyleSheet>> styleSheetsForStyleSheetList;
+    };
+
+    ActiveStyleSheetCollection collectActiveStyleSheets();
 
     enum class ResolverUpdateType {
         Reconstruct,
@@ -150,13 +181,12 @@ private:
     };
     struct StyleSheetChange {
         ResolverUpdateType resolverUpdateType;
-        Vector<StyleSheetContents*> addedSheets { };
+        Vector<Ref<StyleSheetContents>> addedSheets { };
     };
-    StyleSheetChange analyzeStyleSheetChange(const Vector<RefPtr<CSSStyleSheet>>& newStylesheets);
+    StyleSheetChange analyzeStyleSheetChange(const Vector<Ref<CSSStyleSheet>>& newStylesheets);
     void invalidateStyleAfterStyleSheetChange(const StyleSheetChange&);
 
-    void updateResolver(Vector<RefPtr<CSSStyleSheet>>&, ResolverUpdateType);
-    void createDocumentResolver();
+    void updateResolver(std::span<const Ref<CSSStyleSheet>>, ResolverUpdateType);
     void createOrFindSharedShadowTreeResolver();
     void unshareShadowTreeResolverBeforeMutation();
 
@@ -166,54 +196,43 @@ private:
     void pendingUpdateTimerFired();
     void clearPendingUpdate();
 
-    Document& m_document;
+    TreeScope& NODELETE treeScope();
+
+    const CheckedRef<Document> m_document;
     ShadowRoot* m_shadowRoot { nullptr };
 
     RefPtr<Resolver> m_resolver;
 
-    Vector<RefPtr<StyleSheet>> m_styleSheetsForStyleSheetList;
-    Vector<RefPtr<CSSStyleSheet>> m_activeStyleSheets;
+    Vector<Ref<StyleSheet>> m_styleSheetsForStyleSheetList;
+    Vector<Ref<CSSStyleSheet>> m_activeStyleSheets;
 
     Timer m_pendingUpdateTimer;
 
-    mutable std::unique_ptr<HashSet<const CSSStyleSheet*>> m_weakCopyOfActiveStyleSheetListForFastLookup;
+    mutable HashSet<SingleThreadWeakRef<const CSSStyleSheet>> m_weakCopyOfActiveStyleSheetListForFastLookup;
 
     // Track the currently loading top-level stylesheets needed for rendering.
     // Sheets loaded using the @import directive are not included in this count.
     // We use this count of pending sheets to detect when we can begin attaching
     // elements and when it is safe to execute scripts.
-    HashSet<const ProcessingInstruction*> m_processingInstructionsWithPendingSheets;
-    HashSet<const Element*> m_elementsInHeadWithPendingSheets;
-    HashSet<const Element*> m_elementsInBodyWithPendingSheets;
+    WeakHashSet<const ProcessingInstruction, WeakPtrImplWithEventTargetData> m_processingInstructionsWithPendingSheets;
+    WeakHashSet<const Element, WeakPtrImplWithEventTargetData> m_elementsInHeadWithPendingSheets;
+    WeakHashSet<const Element, WeakPtrImplWithEventTargetData> m_elementsInBodyWithPendingSheets;
 
-    ListHashSet<Node*> m_styleSheetCandidateNodes;
-
-    String m_preferredStylesheetSetName;
+    WeakListHashSet<Node, WeakPtrImplWithEventTargetData> m_styleSheetCandidateNodes;
 
     std::optional<UpdateType> m_pendingUpdate;
 
     bool m_hasDescendantWithPendingUpdate { false };
     bool m_usesStyleBasedEditability { false };
+    bool m_usesHasPseudoClass { false };
     bool m_isUpdatingStyleResolver { false };
 
-    // FIXME: These (and some things above) are only relevant for the root scope.
-    HashMap<ResolverSharingKey, Ref<Resolver>> m_sharedShadowTreeResolvers;
+    const UniqueRef<CustomPropertyRegistry> m_customPropertyRegistry;
+    const UniqueRef<CSSCounterStyleRegistry> m_counterStyleRegistry;
 };
 
-inline bool Scope::hasPendingSheets() const
-{
-    return hasPendingSheetsBeforeBody() || !m_elementsInBodyWithPendingSheets.isEmpty();
-}
-
-inline bool Scope::hasPendingSheetsBeforeBody() const
-{
-    return !m_elementsInHeadWithPendingSheets.isEmpty() || !m_processingInstructionsWithPendingSheets.isEmpty();
-}
-
-inline bool Scope::hasPendingSheetsInBody() const
-{
-    return !m_elementsInBodyWithPendingSheets.isEmpty();
-}
+RefPtr<HTMLSlotElement> assignedSlotForScopeOrdinal(const Element&, ScopeOrdinal);
+RefPtr<Element> hostForScopeOrdinal(const Element&, ScopeOrdinal);
 
 inline void Scope::flushPendingUpdate()
 {
@@ -221,6 +240,33 @@ inline void Scope::flushPendingUpdate()
         flushPendingDescendantUpdates();
     if (m_pendingUpdate)
         flushPendingSelfUpdate();
+}
+
+// Resolves a tree-scoped reference per https://drafts.csswg.org/css-scoping-1/#shadow-names.
+// The provided function is called, for each relevant scope, with the scope and the reference's name
+// paired with that scope's ordinal (as a ScopedName), until it returns a truthy value.
+template<std::invocable<const Scope&, ScopedName> F>
+auto resolveTreeScopedReference(const Element& element, const ScopedName& reference, const F&& function)
+{
+    using ReturnType = std::invoke_result_t<F, Scope, ScopedName>;
+
+    // "Whenever a tree-scoped reference is dereferenced to find the CSS construct it is referencing,
+    // first search only the tree-scoped names associated with the same root as the tree-scoped reference must be searched."
+    CheckedPtr firstScope = Scope::forOrdinal(element, reference.scopeOrdinal);
+    if (!firstScope)
+        return ReturnType { };
+
+    auto scopeOrdinal = reference.scopeOrdinal;
+    if (auto result = function(*firstScope, ScopedName { reference.name, scopeOrdinal }))
+        return result;
+
+    // "If no relevant tree-scoped name is found, and the root is a shadow root, then repeat this search in the root’s host’s node tree."
+    for (CheckedPtr hostScope = firstScope->hostScope(); hostScope; hostScope = hostScope->hostScope()) {
+        --scopeOrdinal;
+        if (auto result = function(*hostScope, ScopedName { reference.name, scopeOrdinal }))
+            return result;
+    }
+    return ReturnType { };
 }
 
 }

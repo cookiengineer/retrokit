@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "PrewarmInformation.h"
+#include <WebCore/PrewarmInformation.h>
 
 namespace WebCore {
 
@@ -35,7 +35,7 @@ public:
     static void prewarmGlobally();
 
     static PrewarmInformation collectPrewarmInformation();
-    static void prewarmWithInformation(const PrewarmInformation&);
+    static void prewarmWithInformation(PrewarmInformation&&);
 };
 
 }

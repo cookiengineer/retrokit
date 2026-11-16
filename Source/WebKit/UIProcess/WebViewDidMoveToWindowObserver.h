@@ -25,11 +25,11 @@
 
 #pragma once
 
-#include <wtf/WeakPtr.h>
+#include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 
 namespace WebKit {
 
-class WebViewDidMoveToWindowObserver : public CanMakeWeakPtr<WebViewDidMoveToWindowObserver> {
+class WebViewDidMoveToWindowObserver : public AbstractRefCountedAndCanMakeWeakPtr<WebViewDidMoveToWindowObserver> {
 public:
     virtual ~WebViewDidMoveToWindowObserver() = default;
 

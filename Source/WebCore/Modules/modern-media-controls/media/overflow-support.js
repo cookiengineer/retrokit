@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -59,14 +59,18 @@ class OverflowSupport extends MediaControllerSupport
 
     buttonWasPressed(control)
     {
-        this.mediaController.showMediaControlsContextMenu(control);
+        this.mediaController.showMediaControlsContextMenu(control, {
+            includeSubtitles: !this.mediaController.isAudio,
+        });
     }
 
     syncControl()
     {
         this.control.enabled = this.mediaController.canShowMediaControlsContextMenu;
 
-        let defaultContextMenuOptions = {};
+        let defaultContextMenuOptions = {
+            includeShowMediaStats: true,
+        };
 
         if (this._includePlaybackRates)
             defaultContextMenuOptions.includePlaybackRates = true;
@@ -92,7 +96,7 @@ class OverflowSupport extends MediaControllerSupport
 
         let media = this.mediaController.media;
 
-        if (media.duration === Number.POSITIVE_INFINITY && media.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+        if (media.duration > maxNonLiveDuration && media.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
             // Do not allow adjustment of the playback rate for live broadcasts.
             return false;
         }

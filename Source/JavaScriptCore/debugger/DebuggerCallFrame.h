@@ -28,10 +28,10 @@
  
 #pragma once
 
-#include "CallFrame.h"
-#include "DebuggerPrimitives.h"
-#include "ShadowChicken.h"
-#include "Strong.h"
+#include <JavaScriptCore/CallFrame.h>
+#include <JavaScriptCore/DebuggerPrimitives.h>
+#include <JavaScriptCore/ShadowChicken.h>
+#include <JavaScriptCore/Strong.h>
 #include <wtf/NakedPtr.h>
 #include <wtf/RefCounted.h>
 #include <wtf/text/TextPosition.h>
@@ -47,22 +47,21 @@ public:
 
     static Ref<DebuggerCallFrame> create(VM&, CallFrame*);
 
-    JS_EXPORT_PRIVATE RefPtr<DebuggerCallFrame> callerFrame();
-    JSGlobalObject* globalObject();
+    JS_EXPORT_PRIVATE RefPtr<DebuggerCallFrame> NODELETE callerFrame();
+    JSGlobalObject* globalObject(VM&);
     JS_EXPORT_PRIVATE SourceID sourceID() const;
 
     // line and column are in base 0 e.g. the first line is line 0.
-    int line() const { return m_position.m_line.zeroBasedInt(); }
-    int column() const { return m_position.m_column.zeroBasedInt(); }
-    JS_EXPORT_PRIVATE const TextPosition& position() const { return m_position; }
+    int NODELETE line() const { return m_position.m_line.zeroBasedInt(); }
+    int NODELETE column() const { return m_position.m_column.zeroBasedInt(); }
+    JS_EXPORT_PRIVATE const TextPosition& position() const LIFETIME_BOUND { return m_position; }
 
-    JS_EXPORT_PRIVATE JSGlobalObject* deprecatedVMEntryGlobalObject() const;
-    JS_EXPORT_PRIVATE DebuggerScope* scope();
-    JS_EXPORT_PRIVATE String functionName() const;
-    JS_EXPORT_PRIVATE Type type() const;
+    JS_EXPORT_PRIVATE DebuggerScope* scope(VM&);
+    JS_EXPORT_PRIVATE String functionName(VM&) const;
+    JS_EXPORT_PRIVATE Type NODELETE type(VM&) const;
     JS_EXPORT_PRIVATE JSValue thisValue(VM&) const;
 
-    JSValue evaluateWithScopeExtension(const String&, JSObject* scopeExtensionObject, NakedPtr<Exception>&);
+    JSValue evaluateWithScopeExtension(VM&, const String&, JSObject* scopeExtensionObject, NakedPtr<Exception>&);
 
     bool isValid() const { return !!m_validMachineFrame || isTailDeleted(); }
     JS_EXPORT_PRIVATE void invalidate();

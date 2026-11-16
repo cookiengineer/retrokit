@@ -25,23 +25,36 @@
 
 #pragma once
 
-#include "PermissionState.h"
+#include <WebCore/PermissionDescriptor.h>
 #include <wtf/CompletionHandler.h>
+#include <wtf/RefPtr.h>
 #include <wtf/ThreadSafeRefCounted.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
+enum class PermissionName : uint8_t;
+enum class PermissionQuerySource : uint8_t;
+enum class PermissionState : uint8_t;
+class Page;
 class PermissionObserver;
+class RegistrableDomain;
+class SecurityOriginData;
 struct ClientOrigin;
-struct PermissionDescriptor;
 
 class PermissionController : public ThreadSafeRefCounted<PermissionController> {
 public:
+    WEBCORE_EXPORT static PermissionController& singleton();
+    WEBCORE_EXPORT static void setSharedController(Ref<PermissionController>&&);
+    
     virtual ~PermissionController() = default;
-    virtual PermissionState query(ClientOrigin&&, PermissionDescriptor&&) = 0;
-    virtual void request(ClientOrigin&&, PermissionDescriptor&&, CompletionHandler<void(PermissionState)>&&) = 0;
+    virtual void query(ClientOrigin&&, PermissionDescriptor, const WeakPtr<Page>&, PermissionQuerySource, CompletionHandler<void(std::optional<PermissionState>)>&&) = 0;
     virtual void addObserver(PermissionObserver&) = 0;
     virtual void removeObserver(PermissionObserver&) = 0;
+    virtual void storageAccessPermissionChanged(const RegistrableDomain&, const RegistrableDomain&) = 0;
+    virtual void permissionChanged(PermissionName, const SecurityOriginData&) = 0;
+    virtual void addChangeListener(PermissionName, const RegistrableDomain& topFrameDomain, const RegistrableDomain& subFrameDomain) = 0;
+    virtual void removeChangeListener(PermissionName, const RegistrableDomain& topFrameDomain, const RegistrableDomain& subFrameDomain) = 0;
 protected:
     PermissionController() = default;
 };
@@ -51,10 +64,13 @@ public:
     static Ref<DummyPermissionController> create() { return adoptRef(*new DummyPermissionController); }
 private:
     DummyPermissionController() = default;
-    PermissionState query(ClientOrigin&&, PermissionDescriptor&&) final { return PermissionState::Denied; }
-    void request(ClientOrigin&&, PermissionDescriptor&&, CompletionHandler<void(PermissionState)>&& completionHandler) final { completionHandler(PermissionState::Denied); }
+    void query(ClientOrigin&&, PermissionDescriptor, const WeakPtr<Page>&, PermissionQuerySource, CompletionHandler<void(std::optional<PermissionState>)>&& callback) final { callback({ }); }
     void addObserver(PermissionObserver&) final { }
     void removeObserver(PermissionObserver&) final { }
+    void storageAccessPermissionChanged(const RegistrableDomain&, const RegistrableDomain&) final { }
+    void permissionChanged(PermissionName, const SecurityOriginData&) final { }
+    void addChangeListener(PermissionName, const RegistrableDomain&, const RegistrableDomain&) final { }
+    void removeChangeListener(PermissionName, const RegistrableDomain&, const RegistrableDomain&) final { }
 };
 
 } // namespace WebCore

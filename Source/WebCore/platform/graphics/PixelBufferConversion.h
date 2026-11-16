@@ -25,7 +25,8 @@
 
 #pragma once
 
-#include "PixelBufferFormat.h"
+#include <WebCore/PixelBufferFormat.h>
+#include <span>
 
 namespace WebCore {
 
@@ -34,15 +35,38 @@ class IntSize;
 struct PixelBufferConversionView {
     PixelBufferFormat format;
     unsigned bytesPerRow;
-    uint8_t* rows;
+    std::span<uint8_t> rows;
 };
 
 struct ConstPixelBufferConversionView {
     PixelBufferFormat format;
     unsigned bytesPerRow;
-    const uint8_t* rows;
+    std::span<const uint8_t> rows;
 };
 
-void convertImagePixels(const ConstPixelBufferConversionView& source, const PixelBufferConversionView& destination, const IntSize&);
+WEBCORE_EXPORT void convertImagePixels(const ConstPixelBufferConversionView& source, const PixelBufferConversionView& destination, const IntSize&);
+
+WEBCORE_EXPORT void copyRowsInternal(unsigned sourceBytesPerRow, std::span<const uint8_t> source, unsigned destinationBytesPerRow, std::span<uint8_t> destination, unsigned rows, unsigned copyBytesPerRow);
+
+inline void copyRows(unsigned sourceBytesPerRow, std::span<const uint8_t> source, unsigned destinationBytesPerRow, std::span<uint8_t> destination, unsigned rows, unsigned copyBytesPerRow)
+{
+    if (!rows || !copyBytesPerRow)
+        return;
+    unsigned requiredSourceBytes = sourceBytesPerRow * (rows - 1) + copyBytesPerRow;
+    if (source.size() < requiredSourceBytes) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+    unsigned requiredDestinationBytes = destinationBytesPerRow * (rows - 1) + copyBytesPerRow;
+    if (destination.size() < requiredDestinationBytes) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+    if (rows > 1 && (sourceBytesPerRow < copyBytesPerRow || destinationBytesPerRow < copyBytesPerRow)) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+    copyRowsInternal(sourceBytesPerRow, source, destinationBytesPerRow, destination, rows, copyBytesPerRow);
+}
 
 }

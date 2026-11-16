@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,19 +30,9 @@ class IOSLayoutTraits extends LayoutTraits
         return IOSInlineMediaControls;
     }
 
-    overridenSupportingObjectClasses()
-    {
-        return null;
-    }
-
     resourceDirectory()
     {
         return "iOS";
-    }
-
-    controlsAlwaysAvailable()
-    {
-        return false;
     }
 
     controlsNeverAvailable()
@@ -55,19 +45,19 @@ class IOSLayoutTraits extends LayoutTraits
         return false;
     }
 
-    knobStyleForScrubber()
-    {
-        return Slider.KnobStyle.Circle;
-    }
-
     supportsDurationTimeLabel()
     {
         return false;
     }
 
-    playPauseButtonScaleFactor()
+    supportsAirPlay()
     {
-        return 1;
+        return true;
+    }
+
+    supportsPiP()
+    {
+        return true;
     }
 
     controlsDependOnPageScaleFactor()
@@ -75,9 +65,19 @@ class IOSLayoutTraits extends LayoutTraits
         return true;
     }
 
+    skipDuration()
+    {
+        return 10;
+    }
+
     promoteSubMenusWhenShowingMediaControlsContextMenu()
     {
         return false;
+    }
+
+    inheritsBorderRadius()
+    {
+        return true;
     }
 
     toString()

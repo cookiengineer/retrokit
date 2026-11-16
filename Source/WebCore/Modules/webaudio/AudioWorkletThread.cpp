@@ -37,10 +37,10 @@
 
 namespace WebCore {
 
-AudioWorkletThread::AudioWorkletThread(AudioWorkletMessagingProxy& messagingProxy, const WorkletParameters& parameters)
+AudioWorkletThread::AudioWorkletThread(AudioWorkletMessagingProxy& messagingProxy, WorkletParameters&& parameters)
     : WorkerOrWorkletThread(parameters.identifier.isolatedCopy())
-    , m_messagingProxy(messagingProxy)
-    , m_parameters(parameters.isolatedCopy())
+    , m_messagingProxy(&messagingProxy)
+    , m_parameters(WTF::move(parameters).isolatedCopy())
 {
 }
 
@@ -51,9 +51,14 @@ RefPtr<WorkerOrWorkletGlobalScope> AudioWorkletThread::createGlobalScope()
     return AudioWorkletGlobalScope::tryCreate(*this, m_parameters);
 }
 
-WorkerLoaderProxy& AudioWorkletThread::workerLoaderProxy()
+void AudioWorkletThread::clearProxies()
 {
-    return m_messagingProxy;
+    m_messagingProxy = nullptr;
+}
+
+WorkerLoaderProxy* AudioWorkletThread::workerLoaderProxy() const
+{
+    return m_messagingProxy.get();
 }
 
 WorkerDebuggerProxy* AudioWorkletThread::workerDebuggerProxy() const
@@ -64,8 +69,12 @@ WorkerDebuggerProxy* AudioWorkletThread::workerDebuggerProxy() const
 
 Ref<Thread> AudioWorkletThread::createThread()
 {
-    return Thread::create("WebCore: AudioWorklet", [this] {
-        workerOrWorkletThread();
+    return Thread::create("WebCore: AudioWorklet"_s, [weakThis = ThreadSafeWeakPtr { *this }] {
+        RefPtr protectedThis = weakThis.get();
+        if (!protectedThis)
+            return;
+
+        protectedThis->workerOrWorkletThread();
     }, ThreadType::Audio, m_parameters.isAudioContextRealTime ? Thread::QOS::UserInteractive : Thread::QOS::Default);
 }
 

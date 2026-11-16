@@ -27,11 +27,13 @@
 
 #include "ConstructAbility.h"
 #include "ConstructorKind.h"
+#include "ImplementationVisibility.h"
+#include "InlineAttribute.h"
 #include "ParserModes.h"
 #include "SourceCode.h"
 
 namespace JSC {
 
-JS_EXPORT_PRIVATE UnlinkedFunctionExecutable* createBuiltinExecutable(VM&, const SourceCode&, const Identifier&, ConstructorKind, ConstructAbility);
+JS_EXPORT_PRIVATE UnlinkedFunctionExecutable* createBuiltinExecutable(VM&, const SourceCode&, const Identifier&, ImplementationVisibility, ConstructorKind, ConstructAbility, InlineAttribute);
 
 } // namespace JSC

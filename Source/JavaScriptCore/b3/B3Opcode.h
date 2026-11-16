@@ -54,6 +54,7 @@ enum Opcode : uint8_t {
     Const64,
     ConstDouble,
     ConstFloat,
+    Const128,
 
     // Tuple filled with zeros. This appears when Tuple Patchpoints are replaced with Bottom values.
     BottomTuple,
@@ -89,6 +90,8 @@ enum Opcode : uint8_t {
     UDiv,
     Mod, // All bets are off as to what will happen when you execute this for -2^31%-1 and x%0.
     UMod,
+    MulHigh,
+    UMulHigh,
 
     // Polymorphic negation. Note that we only need this for floating point, since integer negation
     // is exactly like Sub(0, x). But that's not true for floating point. Sub(0, 0) is 0, while
@@ -110,7 +113,10 @@ enum Opcode : uint8_t {
     Abs,
     Ceil,
     Floor,
+    FTrunc,
     Sqrt,
+    FMax,
+    FMin,
 
     // Casts and such.
     // Bitwise Cast of Double->Int64 or Int64->Double
@@ -119,10 +125,17 @@ enum Opcode : uint8_t {
     SExt8,
     SExt16,
     // Takes Int32 and returns Int64:
+    SExt8To64,
+    SExt16To64,
     SExt32,
     ZExt32,
     // Does a bitwise truncation of Int64->Int32 and Double->Float:
     Trunc,
+    // On JSVALUE32_64 platforms only: gets the high 32-bits of an Int64.
+    TruncHigh,
+    // On JSVALUE32_64 platforms only: puts together an Int32 from two Int32s.
+    // High bits come from the first child.
+    Stitch,
     // Takes ints and returns floating point value. Note that we don't currently provide the opposite operation,
     // because double-to-int conversions have weirdly different semantics on different platforms. Use
     // a patchpoint if you need to do that.
@@ -131,6 +144,8 @@ enum Opcode : uint8_t {
     // Convert between double and float.
     FloatToDouble,
     DoubleToFloat,
+
+    PurifyNaN,
 
     // Polymorphic comparisons, usable with any value type. Returns int32 0 or 1. Note that "Not"
     // is just Equal(x, 0), and "ToBoolean" is just NotEqual(x, 0).
@@ -279,7 +294,13 @@ enum Opcode : uint8_t {
     // Wasm it is important that the first child initially be a ZExt32 so the top bits are cleared.
     // We do WasmAddress(ZExt32(ptr), ...) so that we can avoid generating extraneous moves in Air.
     WasmAddress,
-    
+
+    // This is used for Wasm bulk memory operation `memory.copy`
+    MemoryCopy,
+
+    // This is used for Wasm bulk memory operation `memory.fill`
+    MemoryFill,
+
     // This is used to represent standalone fences - i.e. fences that are not part of other
     // instructions. It's expressive enough to expose mfence on x86 and dmb ish/ishst on ARM. On
     // x86, it also acts as a compiler store-store fence in those cases where it would have been a
@@ -335,11 +356,121 @@ enum Opcode : uint8_t {
     // WarmAny. It will not have an output constraint.
     Check,
 
-    // Special Wasm opcode that takes a Int32, a special pinned gpr and an offset. This node exists
-    // to allow us to CSE WasmBoundsChecks if both use the same pointer and one dominates the other.
-    // Without some such node B3 would not have enough information about the inner workings of wasm
-    // to be able to perform such optimizations.
+    // Special Wasm opcode that takes an Int32 or an Int64 in the memory64 case, a special pinned gpr and an
+    // offset. This node exists to allow us to CSE WasmBoundsChecks if both use the same pointer and one
+    // dominates the other. Without some such node B3 would not have enough information about the inner
+    // workings of wasm to be able to perform such optimizations.
     WasmBoundsCheck,
+
+    WasmArrayGet,
+    WasmArraySet,
+    WasmArrayNew,
+    WasmArrayLength,
+    WasmStructGet,
+    WasmStructSet,
+    WasmStructNew,
+    WasmRefCast,
+    WasmRefTest,
+
+    // SIMD instructions
+    VectorExtractLane,
+    VectorReplaceLane,
+
+    // Currently only some architectures support this.
+    // FIXME: Expand this to identical instructions for the other architectures as a macro.
+    VectorDupElement,
+
+    VectorSplat,
+
+    VectorEqual,
+    VectorNotEqual,
+    VectorLessThan,
+    VectorLessThanOrEqual,
+    VectorBelow,
+    VectorBelowOrEqual,
+    VectorGreaterThan,
+    VectorGreaterThanOrEqual,
+    VectorAbove,
+    VectorAboveOrEqual,
+
+    VectorAdd,
+    VectorSub,
+    VectorAddSat,
+    VectorSubSat,
+    VectorMul,
+    VectorMulHigh,
+    VectorMulLow,
+    VectorDotProduct,
+    VectorDiv,
+    VectorMin,
+    VectorMax,
+    VectorPmin,
+    VectorPmax,
+
+    VectorNarrow,
+
+    VectorNot,
+    VectorAnd,
+    VectorAndnot,
+    VectorOr,
+    VectorXor,
+
+    VectorShl,
+    VectorShr,
+
+    VectorAbs,
+    VectorNeg,
+    VectorPopcnt,
+    VectorCeil,
+    VectorFloor,
+    VectorTrunc,
+    VectorTruncSat,
+    VectorConvert,
+    VectorConvertLow,
+    VectorNearest,
+    VectorSqrt,
+
+    VectorExtendLow,
+    VectorExtendHigh,
+
+    VectorPromote,
+    VectorDemote,
+
+    VectorAnyTrue,
+    VectorAllTrue,
+    VectorAvgRound,
+    VectorBitmask,
+    VectorBitwiseSelect,
+    VectorExtaddPairwise,
+    VectorMulSat,
+    VectorSwizzle,
+
+    // Canonical shuffle patterns, lowered from VectorSwizzle in strength reduction.
+    VectorUnzipEven,     // UZP1: extract even-indexed elements from two vectors
+    VectorUnzipOdd,      // UZP2: extract odd-indexed elements from two vectors
+    VectorZipLower,      // ZIP1: interleave low halves of two vectors
+    VectorZipHigher,     // ZIP2: interleave high halves of two vectors
+    VectorTransposeEven, // TRN1: transpose even elements of two vectors
+    VectorTransposeOdd,  // TRN2: transpose odd elements of two vectors
+    VectorReverse,       // REV16/REV32/REV64: reverse elements within groups (unary)
+    VectorExtractPair,   // EXT: extract bytes from concatenation of two vectors (binary + imm)
+
+    // Relaxed SIMD
+
+    VectorRelaxedSwizzle,
+    VectorRelaxedTruncSat,
+    VectorRelaxedMAdd,
+    VectorRelaxedNMAdd,
+    VectorRelaxedLaneSelect,
+    VectorRelaxedMin,
+    VectorRelaxedMax,
+    VectorRelaxedQ15Mulr,
+    VectorRelaxedDotI8x16I7x16,
+    VectorRelaxedDotI8x16I7x16Add,
+
+    // Currently only some architectures support this.
+    // FIXME: Expand this to identical instructions for the other architectures as a macro.
+    VectorMulByElement,
 
     // SSA support, in the style of DFG SSA.
     Upsilon, // This uses the UpsilonValue class.
@@ -347,14 +478,14 @@ enum Opcode : uint8_t {
 
     // Jump.
     Jump,
-    
+
     // Polymorphic branch, usable with any integer type. Branches if not equal to zero. The 0-index
     // successor is the true successor.
     Branch,
 
     // Switch. Switches over either Int32 or Int64. Uses the SwitchValue class.
     Switch,
-    
+
     // Multiple entrypoints are supported via the EntrySwitch operation. Place this in the root
     // block and list the entrypoints as the successors. All blocks backwards-reachable from
     // EntrySwitch are duplicated for each entrypoint.
@@ -380,7 +511,7 @@ inline bool isCheckMath(Opcode opcode)
     }
 }
 
-std::optional<Opcode> invertedCompare(Opcode, Type);
+std::optional<Opcode> NODELETE invertedCompare(Opcode, Type);
 
 inline Opcode constPtrOpcode()
 {
@@ -396,6 +527,7 @@ inline bool isConstant(Opcode opcode)
     case Const64:
     case ConstDouble:
     case ConstFloat:
+    case Const128:
         return true;
     default:
         return false;
@@ -409,6 +541,7 @@ inline Opcode opcodeForConstant(Type type)
     case Int64: return Const64;
     case Float: return ConstFloat;
     case Double: return ConstDouble;
+    case V128: return Const128;
     default:
         RELEASE_ASSERT_NOT_REACHED();
     }
@@ -532,16 +665,7 @@ inline Opcode signExtendOpcode(Width width)
     }
 }
 
-JS_EXPORT_PRIVATE Opcode storeOpcode(Bank bank, Width width);
+JS_EXPORT_PRIVATE Opcode NODELETE storeOpcode(Bank bank, Width width);
 
 } } // namespace JSC::B3
-
-namespace WTF {
-
-class PrintStream;
-
-JS_EXPORT_PRIVATE void printInternal(PrintStream&, JSC::B3::Opcode);
-
-} // namespace WTF
-
 #endif // ENABLE(B3_JIT)

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,18 +32,16 @@ namespace WebKit {
 
 Ref<WebScriptMessageHandler> WebScriptMessageHandler::create(std::unique_ptr<Client> client, const String& name, API::ContentWorld& world)
 {
-    return adoptRef(*new WebScriptMessageHandler(WTFMove(client), name, world));
+    return adoptRef(*new WebScriptMessageHandler(WTF::move(client), name, world));
 }
 
 WebScriptMessageHandler::WebScriptMessageHandler(std::unique_ptr<Client> client, const String& name, API::ContentWorld& world)
-    : m_client(WTFMove(client))
+    : m_client(WTF::move(client))
     , m_name(name)
     , m_world(world)
 {
 }
 
-WebScriptMessageHandler::~WebScriptMessageHandler()
-{
-}
+WebScriptMessageHandler::~WebScriptMessageHandler() = default;
 
 } // namespace WebKit

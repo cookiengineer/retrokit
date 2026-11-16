@@ -20,29 +20,37 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-messages -> NetworkProcessConnection LegacyReceiver {
+[
+    DispatchedFrom=Networking,
+    DispatchedTo=WebContent
+]
+messages -> NetworkProcessConnection WantsDispatchMessage {
 
 #if ENABLE(SHAREABLE_RESOURCE)
-    DidCacheResource(WebCore::ResourceRequest request, WebKit::ShareableResource::Handle resource)
+    DidCacheResource(WebCore::ResourceRequest request, WebCore::ShareableResourceHandle resource)
 #endif
 
-    DidFinishPingLoad(uint64_t pingLoadIdentifier, WebCore::ResourceError error, WebCore::ResourceResponse response)
-    DidFinishPreconnection(uint64_t preconnectionIdentifier, WebCore::ResourceError error)
+    DidFinishPingLoad(WebCore::ResourceLoaderIdentifier pingLoadIdentifier, WebCore::ResourceError error, WebCore::ResourceResponse response)
+    DidFinishPreconnection(WebCore::ResourceLoaderIdentifier preconnectionIdentifier, WebCore::ResourceError error)
     SetOnLineState(bool isOnLine);
     CookieAcceptPolicyChanged(enum:uint8_t WebCore::HTTPCookieAcceptPolicy policy);
+    UpdateCachedCookiesEnabled();
 
 #if HAVE(COOKIE_CHANGE_LISTENER_API)
-    CookiesAdded(String host, Vector<struct WebCore::Cookie> cookies);
-    CookiesDeleted(String host, Vector<struct WebCore::Cookie> cookies);
+    CookiesAdded(String host, Vector<WebCore::Cookie> cookies);
+    CookiesDeleted(String host, Vector<WebCore::Cookie> cookies);
     AllCookiesDeleted();
 #endif
 
 #if ENABLE(WEB_RTC)
-    ConnectToRTCDataChannelRemoteSource(struct WebCore::RTCDataChannelIdentifier source, struct WebCore::RTCDataChannelIdentifier handler) -> (std::optional<bool> result) Async
+    ConnectToRTCDataChannelRemoteSource(struct WebCore::RTCDataChannelIdentifier source, struct WebCore::RTCDataChannelIdentifier handler) -> (std::optional<bool> result)
 #endif
 
-    CheckProcessLocalPortForActivity(struct WebCore::MessagePortIdentifier port) -> (WebCore::MessagePortChannelProvider::HasActivity hasActivity) Async
     MessagesAvailableForPort(struct WebCore::MessagePortIdentifier port)
+    DropNonSerializableInProcessCache(WebCore::NonSerializedDataIdentifier identifier)
 
     BroadcastConsoleMessage(enum:uint8_t JSC::MessageSource messageSource, enum:uint8_t JSC::MessageLevel messageLevel, String message)
+    LoadCancelledDownloadRedirectRequestInFrame(WebCore::ResourceRequest request, WebCore::FrameIdentifier frameID, WebCore::PageIdentifier pageID)
+
+    StorageAccessPermissionChanged(WebCore::RegistrableDomain topFrameDomain, WebCore::RegistrableDomain subFrameDomain)
 }

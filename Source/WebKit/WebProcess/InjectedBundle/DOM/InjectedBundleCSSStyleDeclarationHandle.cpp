@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,19 +26,29 @@
 #include "config.h"
 #include "InjectedBundleCSSStyleDeclarationHandle.h"
 
+#include <JavaScriptCore/APICast.h>
+#include <JavaScriptCore/JSCellInlines.h>
 #include <WebCore/CSSStyleDeclaration.h>
+#include <WebCore/JSCSSStyleDeclaration.h>
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/WeakRef.h>
 
 namespace WebKit {
 using namespace WebCore;
 
-typedef HashMap<CSSStyleDeclaration*, InjectedBundleCSSStyleDeclarationHandle*> DOMStyleDeclarationHandleCache;
+using DOMStyleDeclarationHandleCache = HashMap<SingleThreadWeakRef<CSSStyleDeclaration>, WeakRef<InjectedBundleCSSStyleDeclarationHandle>>;
 
-static DOMStyleDeclarationHandleCache& domStyleDeclarationHandleCache()
+static DOMStyleDeclarationHandleCache& NODELETE domStyleDeclarationHandleCache()
 {
     static NeverDestroyed<DOMStyleDeclarationHandleCache> cache;
     return cache;
+}
+
+RefPtr<InjectedBundleCSSStyleDeclarationHandle> InjectedBundleCSSStyleDeclarationHandle::getOrCreate(JSContextRef, JSObjectRef object)
+{
+    RefPtr cssStyleDeclaration = JSCSSStyleDeclaration::toWrapped(toJS(object)->vm(), toJS(object));
+    return getOrCreate(cssStyleDeclaration.get());
 }
 
 RefPtr<InjectedBundleCSSStyleDeclarationHandle> InjectedBundleCSSStyleDeclarationHandle::getOrCreate(CSSStyleDeclaration* styleDeclaration)
@@ -46,13 +56,12 @@ RefPtr<InjectedBundleCSSStyleDeclarationHandle> InjectedBundleCSSStyleDeclaratio
     if (!styleDeclaration)
         return nullptr;
 
-    DOMStyleDeclarationHandleCache::AddResult result = domStyleDeclarationHandleCache().add(styleDeclaration, nullptr);
-    if (!result.isNewEntry)
-        return result.iterator->value;
-
-    auto styleDeclarationHandle = adoptRef(*new InjectedBundleCSSStyleDeclarationHandle(*styleDeclaration));
-    result.iterator->value = styleDeclarationHandle.ptr();
-    return styleDeclarationHandle;
+    RefPtr<InjectedBundleCSSStyleDeclarationHandle> newHandle;
+    auto result = domStyleDeclarationHandleCache().ensure(*styleDeclaration, [&] {
+        newHandle = adoptRef(*new InjectedBundleCSSStyleDeclarationHandle(*styleDeclaration));
+        return WeakRef { *newHandle };
+    });
+    return newHandle ? newHandle.releaseNonNull() : Ref { result.iterator->value.get() };
 }
 
 InjectedBundleCSSStyleDeclarationHandle::InjectedBundleCSSStyleDeclarationHandle(CSSStyleDeclaration& styleDeclaration)
@@ -62,7 +71,7 @@ InjectedBundleCSSStyleDeclarationHandle::InjectedBundleCSSStyleDeclarationHandle
 
 InjectedBundleCSSStyleDeclarationHandle::~InjectedBundleCSSStyleDeclarationHandle()
 {
-    domStyleDeclarationHandleCache().remove(m_styleDeclaration.ptr());
+    domStyleDeclarationHandleCache().remove(m_styleDeclaration.get());
 }
 
 } // namespace WebKit

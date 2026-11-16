@@ -30,19 +30,22 @@
 
 #include "WebCompiledContentRuleList.h"
 #include <WebCore/CombinedURLFilters.h>
+#include <WebCore/ContentExtensionParser.h>
 #include <WebCore/URLFilterParser.h>
 
 namespace API {
 
-ContentRuleList::ContentRuleList(const WTF::String& name, Ref<WebKit::WebCompiledContentRuleList>&& contentRuleList, WebKit::NetworkCache::Data&& mappedFile)
-    : m_name(name)
-    , m_compiledRuleList(WTFMove(contentRuleList))
-    , m_mappedFile(WTFMove(mappedFile))
+ContentRuleList::ContentRuleList(Ref<WebKit::WebCompiledContentRuleList>&& contentRuleList, WebKit::NetworkCache::Data&& mappedFile)
+    : m_compiledRuleList(WTF::move(contentRuleList))
+    , m_mappedFile(WTF::move(mappedFile))
 {
 }
 
-ContentRuleList::~ContentRuleList()
+ContentRuleList::~ContentRuleList() = default;
+
+const WTF::String& ContentRuleList::name() const
 {
+    return m_compiledRuleList->data().identifier;
 }
 
 bool ContentRuleList::supportsRegularExpression(const WTF::String& regex)
@@ -71,6 +74,15 @@ bool ContentRuleList::supportsRegularExpression(const WTF::String& regex)
         break;
     }
     return false;
+}
+
+std::error_code ContentRuleList::parseRuleList(const WTF::String& ruleList, WebCore::ContentExtensions::CSSSelectorsAllowed cssSelectorsAllowed)
+{
+    auto result = WebCore::ContentExtensions::parseRuleList(ruleList, cssSelectorsAllowed);
+    if (result.has_value())
+        return { };
+
+    return result.error();
 }
 
 } // namespace API

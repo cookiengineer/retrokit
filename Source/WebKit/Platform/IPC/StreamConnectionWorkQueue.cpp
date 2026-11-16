@@ -26,52 +26,86 @@
 #include "config.h"
 #include "StreamConnectionWorkQueue.h"
 
+#if USE(FOUNDATION)
+#include <wtf/AutodrainedPool.h>
+#endif
+
 namespace IPC {
 
-StreamConnectionWorkQueue::StreamConnectionWorkQueue(const char* name)
+StreamConnectionWorkQueue::StreamConnectionWorkQueue(ASCIILiteral name)
     : m_name(name)
 {
+}
+
+StreamConnectionWorkQueue::~StreamConnectionWorkQueue()
+{
+    // `StreamConnectionWorkQueue::stopAndWaitForCompletion()` should be called if anything has been dispatched or listened to.
+    ASSERT(!m_processingThread);
 }
 
 void StreamConnectionWorkQueue::dispatch(WTF::Function<void()>&& function)
 {
     {
         Locker locker { m_lock };
-        m_functions.append(WTFMove(function));
-        ASSERT(!m_shouldQuit); // Re-entering during shutdown not supported.
+        // Currently stream IPC::Connection::Client::didClose is delivered after
+        // scheduling the work queue stop. This is ignored, as the client function
+        // is not used at the moment. Later on, the closure signal should be set synchronously,
+        // not dispatched as a function.
+        if (m_shouldQuit)
+            return;
+        m_functions.append(WTF::move(function));
+        if (!m_shouldQuit && !m_processingThread) {
+            startProcessingThread();
+            return;
+        }
     }
-    wakeUpProcessingThread();
-
+    wakeUp();
 }
-void StreamConnectionWorkQueue::addStreamConnection(StreamServerConnectionBase& connection)
+
+void StreamConnectionWorkQueue::addStreamConnection(StreamServerConnection& connection)
 {
     {
         Locker locker { m_lock };
-        m_connections.add(connection);
-        ASSERT(!m_shouldQuit); // Re-entering during shutdown not supported.
+        ASSERT(m_connections.findIf([&connection](StreamServerConnection& other) { return &other == &connection; }) == notFound); // NOLINT
+        m_connections.append(connection);
+        if (!m_shouldQuit && !m_processingThread) {
+            startProcessingThread();
+            return;
+        }
     }
-    wakeUpProcessingThread();
+    wakeUp();
 }
 
-void StreamConnectionWorkQueue::removeStreamConnection(StreamServerConnectionBase& connection)
+void StreamConnectionWorkQueue::removeStreamConnection(StreamServerConnection& connection)
 {
-    ASSERT(m_processingThread);
     {
         Locker locker { m_lock };
-        m_connections.remove(connection);
-        ASSERT(!m_shouldQuit); // Re-entering during shutdown not supported.
+        bool didRemove = m_connections.removeFirstMatching([&connection](StreamServerConnection& other) {
+            return &other == &connection;
+        });
+        ASSERT_UNUSED(didRemove, didRemove);
     }
-    m_wakeUpSemaphore.signal();
+    wakeUp();
 }
 
-void StreamConnectionWorkQueue::stop()
+void StreamConnectionWorkQueue::stopAndWaitForCompletion(NOESCAPE WTF::Function<void()>&& cleanupFunction)
 {
-    m_shouldQuit = true;
-    if (!m_processingThread)
+    RefPtr<Thread> processingThread;
+    {
+        Locker locker { m_lock };
+        m_cleanupFunction = WTF::move(cleanupFunction);
+        processingThread = m_processingThread;
+        m_shouldQuit = true;
+    }
+    if (!processingThread)
         return;
-    m_wakeUpSemaphore.signal();
-    m_processingThread->waitForCompletion();
-    m_processingThread = nullptr;
+    ASSERT(Thread::currentSingleton().uid() != processingThread->uid());
+    wakeUp();
+    processingThread->waitForCompletion();
+    {
+        Locker locker { m_lock };
+        m_processingThread = nullptr;
+    }
 }
 
 void StreamConnectionWorkQueue::wakeUp()
@@ -79,29 +113,27 @@ void StreamConnectionWorkQueue::wakeUp()
     m_wakeUpSemaphore.signal();
 }
 
-IPC::Semaphore& StreamConnectionWorkQueue::wakeUpSemaphore()
+void StreamConnectionWorkQueue::startProcessingThread()
 {
-    return m_wakeUpSemaphore;
-}
-
-void StreamConnectionWorkQueue::wakeUpProcessingThread()
-{
-    if (m_processingThread) {
-        m_wakeUpSemaphore.signal();
-        return;
-    }
-
-    auto task = [this]() mutable {
+    SUPPRESS_UNCOUNTED_LAMBDA_CAPTURE auto task = [this]() mutable {
         for (;;) {
             processStreams();
             if (m_shouldQuit) {
                 processStreams();
+                WTF::Function<void()> cleanup = nullptr;
+                {
+                    Locker locker { m_lock };
+                    cleanup = WTF::move(m_cleanupFunction);
+
+                }
+                if (cleanup)
+                    cleanup();
                 return;
             }
             m_wakeUpSemaphore.wait();
         }
     };
-    m_processingThread = Thread::create(m_name, WTFMove(task), ThreadType::Graphics, Thread::QOS::UserInteractive);
+    m_processingThread = Thread::create(m_name, WTF::move(task), ThreadType::Graphics, Thread::QOS::UserInteractive);
 }
 
 void StreamConnectionWorkQueue::processStreams()
@@ -109,20 +141,29 @@ void StreamConnectionWorkQueue::processStreams()
     constexpr size_t defaultMessageLimit = 1000;
     bool hasMoreToProcess = false;
     do {
+#if USE(FOUNDATION)
+        AutodrainedPool perProcessingIterationPool;
+#endif
         Deque<WTF::Function<void()>> functions;
-        HashSet<Ref<StreamServerConnectionBase>> connections;
+        Vector<Ref<StreamServerConnection>> connections;
         {
             Locker locker { m_lock };
             functions.swap(m_functions);
             connections = m_connections;
         }
         for (auto& function : functions)
-            WTFMove(function)();
+            WTF::move(function)();
 
         hasMoreToProcess = false;
         for (auto& connection : connections)
-            hasMoreToProcess |= connection->dispatchStreamMessages(defaultMessageLimit) == StreamServerConnectionBase::HasMoreMessages;
+            hasMoreToProcess |= connection->dispatchStreamMessages(defaultMessageLimit) == StreamServerConnection::HasMoreMessages;
     } while (hasMoreToProcess);
+}
+
+bool StreamConnectionWorkQueue::isCurrent() const
+{
+    Locker locker { m_lock };
+    return m_processingThread ? m_processingThread->uid() == Thread::currentSingleton().uid() : false;
 }
 
 }

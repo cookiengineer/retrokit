@@ -25,10 +25,12 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if ENABLE(JIT)
 
-#include "GPRInfo.h"
-#include "MacroAssembler.h"
+#include <JavaScriptCore/GPRInfo.h>
+#include <JavaScriptCore/MacroAssembler.h>
 #include <wtf/WeakRandom.h>
 
 namespace JSC {
@@ -65,7 +67,7 @@ public:
         IntPtr
     };
     
-    BinarySwitch(GPRReg value, const Vector<int64_t>& cases, Type);
+    BinarySwitch(GPRReg value, std::span<const int64_t> cases, Type);
     ~BinarySwitch();
     
     unsigned caseIndex() const { return m_cases[m_caseIndex].index; }
@@ -73,13 +75,10 @@ public:
     
     bool advance(MacroAssembler&);
     
-    MacroAssembler::JumpList& fallThrough() { return m_fallThrough; }
+    MacroAssembler::JumpList& fallThrough() LIFETIME_BOUND { return m_fallThrough; }
     
 private:
     void build(unsigned start, bool hardStart, unsigned end);
-    
-    Type m_type;
-    GPRReg m_value;
     
     struct Case {
         Case() { }
@@ -90,7 +89,7 @@ private:
         {
         }
         
-        bool operator<(const Case& other) const
+        bool NODELETE operator<(const Case& other) const
         {
             return value < other.value;
         }
@@ -100,8 +99,6 @@ private:
         int64_t value;
         unsigned index;
     };
-    
-    Vector<Case> m_cases;
     
     enum BranchKind {
         NotEqualToFallThrough,
@@ -125,16 +122,16 @@ private:
         BranchKind kind;
         unsigned index;
     };
-    
-    WeakRandom m_weakRandom;
-    
-    Vector<BranchCode> m_branches;
 
-    unsigned m_index;
-    unsigned m_caseIndex;
-    Vector<MacroAssembler::Jump> m_jumpStack;
-    
+    WeakRandom m_weakRandom;
+    Vector<Case, 16> m_cases;
+    Vector<BranchCode, 32> m_branches;
+    Vector<MacroAssembler::Jump, 32> m_jumpStack;
     MacroAssembler::JumpList m_fallThrough;
+    Type m_type;
+    GPRReg m_value;
+    unsigned m_index { 0 };
+    unsigned m_caseIndex { UINT_MAX };
 };
 
 } // namespace JSC

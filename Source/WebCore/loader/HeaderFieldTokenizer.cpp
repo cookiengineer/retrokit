@@ -27,7 +27,7 @@
 #include "config.h"
 #include "HeaderFieldTokenizer.h"
 
-#include "HTTPHeaderField.h"
+#include "RFC7230.h"
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
@@ -38,9 +38,9 @@ HeaderFieldTokenizer::HeaderFieldTokenizer(const String& headerField)
     skipSpaces();
 }
 
-bool HeaderFieldTokenizer::consume(UChar c)
+bool HeaderFieldTokenizer::consume(char16_t c)
 {
-    ASSERT(c != ' ' && c != '\t');
+    ASSERT(!isTabOrSpace(c));
 
     if (isConsumed() || m_input[m_index] != c)
         return false;
@@ -102,11 +102,11 @@ String HeaderFieldTokenizer::consumeTokenOrQuotedString()
 
 void HeaderFieldTokenizer::skipSpaces()
 {
-    while (!isConsumed() && RFC7230::isWhitespace(m_input[m_index]))
+    while (!isConsumed() && isTabOrSpace(m_input[m_index]))
         ++m_index;
 }
 
-void HeaderFieldTokenizer::consumeBeforeAnyCharMatch(const Vector<UChar>& chars)
+void HeaderFieldTokenizer::consumeBeforeAnyCharMatch(const Vector<char16_t>& chars)
 {
     ASSERT(chars.size() > 0U && chars.size() < 3U);
 

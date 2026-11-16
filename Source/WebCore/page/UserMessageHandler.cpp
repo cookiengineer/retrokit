@@ -28,45 +28,76 @@
 
 #if ENABLE(USER_MESSAGE_HANDLERS)
 
-#include "Frame.h"
+#include "Document.h"
+#include "JSDOMConvertAny.h"
 #include "JSDOMPromiseDeferred.h"
+#include "LocalFrameInlines.h"
 #include "SerializedScriptValue.h"
+#include <JavaScriptCore/HeapCellInlines.h>
 #include <JavaScriptCore/JSCJSValue.h>
 
 namespace WebCore {
 
-UserMessageHandler::UserMessageHandler(Frame& frame, UserMessageHandlerDescriptor& descriptor)
+UserMessageHandler::UserMessageHandler(LocalFrame& frame, const UserMessageHandlerDescriptor& descriptor)
     : FrameDestructionObserver(&frame)
-    , m_descriptor(&descriptor)
+    , m_descriptor(descriptor)
 {
 }
 
 UserMessageHandler::~UserMessageHandler() = default;
 
-ExceptionOr<void> UserMessageHandler::postMessage(RefPtr<SerializedScriptValue>&& value, Ref<DeferredPromise>&& promise)
+static bool passesSameOriginCheck(JSC::JSGlobalObject& globalObject, RefPtr<LocalFrame> frame)
+{
+    if (!frame)
+        return false;
+    RefPtr document = frame->document();
+    if (!document)
+        return false;
+    Ref frameSecurityOrigin = document->securityOrigin();
+    if (!globalObject.inherits<JSDOMGlobalObject>())
+        return false;
+    RefPtr scriptExecutionContext = downcast<JSDOMGlobalObject>(globalObject).scriptExecutionContext();
+    if (!scriptExecutionContext)
+        return false;
+    RefPtr securityOrigin = scriptExecutionContext->securityOrigin();
+    if (!securityOrigin)
+        return false;
+    return securityOrigin->isSameOriginAs(frameSecurityOrigin);
+}
+
+void UserMessageHandler::postMessage(JSC::JSGlobalObject& globalObject, JSC::JSValue value, Ref<DeferredPromise>&& promise)
 {
     // Check to see if the descriptor has been removed. This can happen if the host application has
     // removed the named message handler at the WebKit2 API level.
-    if (!m_descriptor) {
-        promise->reject(Exception { InvalidAccessError });
-        return Exception { InvalidAccessError };
-    }
+    RefPtr descriptor = m_descriptor;
+    if (!descriptor)
+        return promise->reject(Exception { ExceptionCode::InvalidAccessError });
 
-    m_descriptor->didPostMessage(*this, value.get(), [promise = WTFMove(promise)](SerializedScriptValue* result, const String& errorMessage) {
+    if (!passesSameOriginCheck(globalObject, m_frame.get()))
+        return promise->reject(Exception { ExceptionCode::InvalidAccessError, "Failed same-origin check."_s });
+
+    descriptor->didPostMessage(*this, globalObject, value, [promise = WTF::move(promise)](JSC::JSValue result, const String& errorMessage) {
+        if (errorMessage.isNull())
+            return promise->resolveWithJSValue(result);
+
         auto* globalObject = promise->globalObject();
         if (!globalObject)
             return;
-
-        if (!errorMessage.isNull()) {
-            JSC::JSLockHolder lock(globalObject);
-            promise->reject<IDLAny>(JSC::createError(globalObject, errorMessage));
-            return;
-        }
-
-        ASSERT(result);
-        promise->resolve<IDLAny>(result->deserialize(*globalObject, globalObject));
+        JSC::JSLockHolder lock(globalObject);
+        promise->reject<IDLAny>(JSC::createError(globalObject, errorMessage));
     });
-    return { };
+}
+
+ExceptionOr<JSC::JSValue> UserMessageHandler::postLegacySynchronousMessage(JSC::JSGlobalObject& globalObject, JSC::JSValue value)
+{
+    RefPtr descriptor = m_descriptor;
+    if (!descriptor)
+        return Exception { ExceptionCode::InvalidAccessError };
+
+    if (!passesSameOriginCheck(globalObject, m_frame.get()))
+        return Exception { ExceptionCode::InvalidAccessError, "Failed same-origin check."_s };
+
+    return descriptor->didPostLegacySynchronousMessage(*this, globalObject, value);
 }
 
 } // namespace WebCore

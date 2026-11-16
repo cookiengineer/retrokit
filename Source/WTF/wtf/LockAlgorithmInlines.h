@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2015-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Igalia S.L.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,6 +29,8 @@
 #include <wtf/DataLog.h>
 #include <wtf/LockAlgorithm.h>
 #include <wtf/ParkingLot.h>
+#include <wtf/Platform.h>
+#include <wtf/SpinBackoff.h>
 #include <wtf/Threading.h>
 
 // It's a good idea to avoid including this header in too many places, so that it's possible to change
@@ -39,10 +42,7 @@ namespace WTF {
 template<typename LockType, LockType isHeldBit, LockType hasParkedBit, typename Hooks>
 void LockAlgorithm<LockType, isHeldBit, hasParkedBit, Hooks>::lockSlow(Atomic<LockType>& lock)
 {
-    // This magic number turns out to be optimal based on past JikesRVM experiments.
-    static constexpr unsigned spinLimit = 40;
-    
-    unsigned spinCount = 0;
+    SpinBackoff backoff;
     
     for (;;) {
         LockType currentValue = lock.load();
@@ -55,11 +55,8 @@ void LockAlgorithm<LockType, isHeldBit, hasParkedBit, Hooks>::lockSlow(Atomic<Lo
         }
 
         // If there is nobody parked and we haven't spun too much, we can just try to spin around.
-        if (!(currentValue & hasParkedBit) && spinCount < spinLimit) {
-            spinCount++;
-            Thread::yield();
+        if (!(currentValue & hasParkedBit) && !backoff.shouldParkAfterSpinOnce())
             continue;
-        }
 
         // Need to park. We do this by setting the parked bit first, and then parking. We spin around
         // if the parked bit wasn't set and we failed at setting it.

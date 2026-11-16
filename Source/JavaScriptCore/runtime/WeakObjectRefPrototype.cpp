@@ -31,17 +31,17 @@
 
 namespace JSC {
 
-const ClassInfo WeakObjectRefPrototype::s_info = { "WeakRef", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(WeakObjectRefPrototype) };
+const ClassInfo WeakObjectRefPrototype::s_info = { "WeakRef"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(WeakObjectRefPrototype) };
 
 static JSC_DECLARE_HOST_FUNCTION(protoFuncWeakRefDeref);
 
 void WeakObjectRefPrototype::finishCreation(VM& vm, JSGlobalObject* globalObject)
 {
     Base::finishCreation(vm);
-    ASSERT(inherits(vm, info()));
+    ASSERT(inherits(info()));
 
     // FIXME: It wouldn't be hard to make this an intrinsic.
-    JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->deref, protoFuncWeakRefDeref, static_cast<unsigned>(PropertyAttribute::DontEnum), 0);
+    JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->deref, protoFuncWeakRefDeref, static_cast<unsigned>(PropertyAttribute::DontEnum), 0, ImplementationVisibility::Public);
 
     JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
 }
@@ -51,13 +51,12 @@ ALWAYS_INLINE static JSWeakObjectRef* getWeakRef(JSGlobalObject* globalObject, J
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    if (UNLIKELY(!value.isObject())) {
+    if (!value.isObject()) [[unlikely]] {
         throwTypeError(globalObject, scope, "Called WeakRef function on non-object"_s);
         return nullptr;
     }
 
-    auto* ref = jsDynamicCast<JSWeakObjectRef*>(vm, asObject(value));
-    if (LIKELY(ref))
+    if (auto* ref = dynamicDowncast<JSWeakObjectRef>(asObject(value))) [[likely]]
         return ref;
 
     throwTypeError(globalObject, scope, "Called WeakRef function on a non-WeakRef object"_s);
@@ -72,7 +71,7 @@ JSC_DEFINE_HOST_FUNCTION(protoFuncWeakRefDeref, (JSGlobalObject* globalObject, C
         return JSValue::encode(jsUndefined());
 
     auto* value = ref->deref(vm);
-    return value ? JSValue::encode(value) : JSValue::encode(jsNull());
+    return value ? JSValue::encode(value) : JSValue::encode(jsUndefined());
 }
 
 }

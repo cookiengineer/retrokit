@@ -32,12 +32,13 @@
 namespace WebCore {
 
 class MathMLAnnotationElement final : public MathMLPresentationElement {
-    WTF_MAKE_ISO_ALLOCATED(MathMLAnnotationElement);
+    WTF_MAKE_TZONE_ALLOCATED(MathMLAnnotationElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(MathMLAnnotationElement);
 public:
     static Ref<MathMLAnnotationElement> create(const QualifiedName& tagName, Document&);
 private:
     MathMLAnnotationElement(const QualifiedName& tagName, Document&);
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) final;
 
     bool isSemanticAnnotation() const final { return true; }
 

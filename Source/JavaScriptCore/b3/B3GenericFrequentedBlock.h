@@ -45,16 +45,7 @@ public:
     {
     }
 
-    bool operator==(const GenericFrequentedBlock& other) const
-    {
-        return m_block == other.m_block
-            && m_frequency == other.m_frequency;
-    }
-
-    bool operator!=(const GenericFrequentedBlock& other) const
-    {
-        return !(*this == other);
-    }
+    friend bool operator==(const GenericFrequentedBlock&, const GenericFrequentedBlock&) = default;
 
     explicit operator bool() const
     {
@@ -64,7 +55,7 @@ public:
     BasicBlock* block() const { return m_block; }
     BasicBlock*& block() { return m_block; }
     FrequencyClass frequency() const { return m_frequency; }
-    FrequencyClass& frequency() { return m_frequency; }
+    FrequencyClass& frequency() LIFETIME_BOUND { return m_frequency; }
 
     bool isRare() const { return frequency() == FrequencyClass::Rare; }
 

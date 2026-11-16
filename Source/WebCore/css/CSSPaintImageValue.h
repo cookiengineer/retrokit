@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,49 +26,40 @@
 
 #pragma once
 
-#if ENABLE(CSS_PAINTING_API)
-
-#include "CSSImageGeneratorValue.h"
+#include "CSSCustomIdent.h"
+#include "CSSValue.h"
 
 namespace WebCore {
+
 class CSSVariableData;
 
-class CSSPaintImageValue final : public CSSImageGeneratorValue {
+namespace Style {
+class BuilderState;
+class Image;
+}
+
+class CSSPaintImageValue final : public CSSValue {
 public:
-    static Ref<CSSPaintImageValue> create(const String& name, Ref<CSSVariableData>&& arguments)
+    static Ref<CSSPaintImageValue> create(CSS::CustomIdent&& name, Ref<CSSVariableData> arguments)
     {
-        return adoptRef(*new CSSPaintImageValue(name, WTFMove(arguments)));
+        return adoptRef(*new CSSPaintImageValue(WTF::move(name), WTF::move(arguments)));
     }
+    ~CSSPaintImageValue();
 
-    const String& name() const { return m_name; }
-
-    RefPtr<Image> image(RenderElement&, const FloatSize&);
+    const CSS::CustomIdent& name() const LIFETIME_BOUND { return m_name; }
 
     bool equals(const CSSPaintImageValue& other) const { return m_name == other.m_name; }
-    String customCSSText() const;
+    String customCSSText(const CSS::SerializationContext&) const;
 
-    bool isFixedSize() const { return false; }
-    FloatSize fixedSize(const RenderElement&) const { return FloatSize(); }
-
-    bool isPending() const { return false; }
-    bool knownToBeOpaque(const RenderElement&) const { return false; }
-
-    void loadSubimages(CachedResourceLoader&, const ResourceLoaderOptions&) { }
+    RefPtr<Style::Image> createStyleImage(const Style::BuilderState&) const;
 
 private:
-    CSSPaintImageValue(const String& name, Ref<CSSVariableData>&& arguments)
-        : CSSImageGeneratorValue(PaintImageClass)
-        , m_name(name)
-        , m_arguments(WTFMove(arguments))
-    {
-    }
+    explicit CSSPaintImageValue(CSS::CustomIdent&&, Ref<CSSVariableData>&&);
 
-    const String m_name;
-    Ref<CSSVariableData> m_arguments;
+    CSS::CustomIdent m_name;
+    const Ref<CSSVariableData> m_arguments;
 };
 
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_CSS_VALUE(CSSPaintImageValue, isPaintImageValue())
-
-#endif

@@ -20,16 +20,24 @@
 #include "config.h"
 #include "WebKitJavascriptResult.h"
 
+#if !ENABLE(2022_GLIB_API)
+
 #include "APISerializedScriptValue.h"
+#include "JavaScriptEvaluationResult.h"
 #include "WebKitJavascriptResultPrivate.h"
 #include <jsc/JSCContextPrivate.h>
 #include <jsc/JSCValuePrivate.h>
 
+/**
+ * WebKitJavascriptResult: (ref-func webkit_javascript_result_ref) (unref-func webkit_javascript_result_unref)
+ *
+ * Result of JavaScript evaluation in a web view.
+ */
+
 struct _WebKitJavascriptResult {
-    explicit _WebKitJavascriptResult(WebCore::SerializedScriptValue& serializedScriptValue)
+    explicit _WebKitJavascriptResult(WebKit::JavaScriptEvaluationResult&& result)
     {
-        auto* jsContext = SharedJavascriptContext::singleton().getOrCreateContext();
-        jsValue = jscContextGetOrCreateValue(jsContext, serializedScriptValue.deserialize(jscContextGetJSContext(jsContext), nullptr));
+        jsValue = result.toJSC();
     }
 
     GRefPtr<JSCValue> jsValue;
@@ -39,10 +47,10 @@ struct _WebKitJavascriptResult {
 
 G_DEFINE_BOXED_TYPE(WebKitJavascriptResult, webkit_javascript_result, webkit_javascript_result_ref, webkit_javascript_result_unref)
 
-WebKitJavascriptResult* webkitJavascriptResultCreate(WebCore::SerializedScriptValue& serializedScriptValue)
+WebKitJavascriptResult* webkitJavascriptResultCreate(WebKit::JavaScriptEvaluationResult&& scriptResult)
 {
     WebKitJavascriptResult* result = static_cast<WebKitJavascriptResult*>(fastMalloc(sizeof(WebKitJavascriptResult)));
-    new (result) WebKitJavascriptResult(serializedScriptValue);
+    new (result) WebKitJavascriptResult(WTF::move(scriptResult));
     return result;
 }
 
@@ -50,8 +58,9 @@ WebKitJavascriptResult* webkitJavascriptResultCreate(WebCore::SerializedScriptVa
  * webkit_javascript_result_ref:
  * @js_result: a #WebKitJavascriptResult
  *
- * Atomically increments the reference count of @js_result by one. This
- * function is MT-safe and may be called from any thread.
+ * Atomically increments the reference count of @js_result by one.
+ *
+ * This function is MT-safe and may be called from any thread.
  *
  * Returns: The passed in #WebKitJavascriptResult
  */
@@ -65,8 +74,10 @@ WebKitJavascriptResult* webkit_javascript_result_ref(WebKitJavascriptResult* jav
  * webkit_javascript_result_unref:
  * @js_result: a #WebKitJavascriptResult
  *
- * Atomically decrements the reference count of @js_result by one. If the
- * reference count drops to 0, all memory allocated by the #WebKitJavascriptResult is
+ * Atomically decrements the reference count of @js_result by one.
+ *
+ * If the reference count drops to 0,
+ * all memory allocated by the #WebKitJavascriptResult is
  * released. This function is MT-safe and may be called from any
  * thread.
  */
@@ -83,10 +94,12 @@ void webkit_javascript_result_unref(WebKitJavascriptResult* javascriptResult)
  * webkit_javascript_result_get_global_context: (skip)
  * @js_result: a #WebKitJavascriptResult
  *
- * Get the global Javascript context that should be used with the
- * <function>JSValueRef</function> returned by webkit_javascript_result_get_value().
+ * Get the global Javascript context.
  *
- * Returns: the <function>JSGlobalContextRef</function> for the #WebKitJavascriptResult
+ * Get the global Javascript context that should be used with the
+ * `JSValueRef` returned by webkit_javascript_result_get_value().
+ *
+ * Returns: the `JSGlobalContextRef` for the #WebKitJavascriptResult
  *
  * Deprecated: 2.22: Use jsc_value_get_context() instead.
  */
@@ -100,10 +113,12 @@ JSGlobalContextRef webkit_javascript_result_get_global_context(WebKitJavascriptR
  * webkit_javascript_result_get_value: (skip)
  * @js_result: a #WebKitJavascriptResult
  *
- * Get the value of @js_result. You should use the <function>JSGlobalContextRef</function>
- * returned by webkit_javascript_result_get_global_context() to use the <function>JSValueRef</function>.
+ * Get the value of @js_result.
  *
- * Returns: the <function>JSValueRef</function> of the #WebKitJavascriptResult
+ * You should use the `JSGlobalContextRef`
+ * returned by webkit_javascript_result_get_global_context() to use the `JSValueRef`.
+ *
+ * Returns: the `JSValueRef` of the #WebKitJavascriptResult
  *
  * Deprecated: 2.22: Use webkit_javascript_result_get_js_value() instead.
  */
@@ -129,3 +144,5 @@ JSCValue* webkit_javascript_result_get_js_value(WebKitJavascriptResult* javascri
     g_return_val_if_fail(javascriptResult, nullptr);
     return javascriptResult->jsValue.get();
 }
+
+#endif

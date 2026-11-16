@@ -28,13 +28,15 @@
 
 #if !USE(GTK4)
 
+#include "GRefPtrGtk.h"
+#include "GtkUtilities.h"
 #include "WebPasteboardProxy.h"
-#include <WebCore/GRefPtrGtk.h>
 #include <WebCore/PasteboardCustomData.h>
 #include <WebCore/SelectionData.h>
 #include <WebCore/SharedBuffer.h>
 #include <gtk/gtk.h>
 #include <wtf/SetForScope.h>
+#include <wtf/glib/GSpanExtras.h>
 #include <wtf/glib/GUniquePtr.h>
 
 namespace WebKit {
@@ -42,6 +44,15 @@ namespace WebKit {
 Clipboard::Clipboard(Type type)
     : m_clipboard(gtk_clipboard_get_for_display(gdk_display_get_default(), type == Type::Clipboard ? GDK_SELECTION_CLIPBOARD : GDK_SELECTION_PRIMARY))
 {
+    g_signal_connect(m_clipboard, "owner-change", G_CALLBACK(+[](GtkClipboard*, GdkEvent*, gpointer userData) {
+        auto& clipboard = *static_cast<Clipboard*>(userData);
+        clipboard.m_changeCount++;
+    }), this);
+}
+
+Clipboard::~Clipboard()
+{
+    g_signal_handlers_disconnect_by_data(m_clipboard, this);
 }
 
 static bool isPrimaryClipboard(GtkClipboard* clipboard)
@@ -55,10 +66,10 @@ Clipboard::Type Clipboard::type() const
 }
 
 struct FormatsAsyncData {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(FormatsAsyncData);
 
     explicit FormatsAsyncData(CompletionHandler<void(Vector<String>&&)>&& handler)
-        : completionHandler(WTFMove(handler))
+        : completionHandler(WTF::move(handler))
     {
     }
 
@@ -71,84 +82,103 @@ void Clipboard::formats(CompletionHandler<void(Vector<String>&&)>&& completionHa
         std::unique_ptr<FormatsAsyncData> data(static_cast<FormatsAsyncData*>(userData));
 
         Vector<String> result;
-        for (int i = 0; i < atomsCount; ++i) {
-            GUniquePtr<char> atom(gdk_atom_name(atoms[i]));
-            result.append(String::fromUTF8(atom.get()));
+        for (auto* atom : unsafeMakeSpan<GdkAtom>(atoms, static_cast<size_t>(std::max(0, atomsCount)))) {
+            GUniquePtr<char> atomName(gdk_atom_name(atom));
+            result.append(String::fromUTF8(atomName.get()));
         }
-        data->completionHandler(WTFMove(result));
-    }, new FormatsAsyncData(WTFMove(completionHandler)));
+        data->completionHandler(WTF::move(result));
+    }, new FormatsAsyncData(WTF::move(completionHandler)));
 }
 
 struct ReadTextAsyncData {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(ReadTextAsyncData);
 
     explicit ReadTextAsyncData(CompletionHandler<void(String&&)>&& handler)
-        : completionHandler(WTFMove(handler))
+        : completionHandler(WTF::move(handler))
     {
     }
 
     CompletionHandler<void(String&&)> completionHandler;
 };
 
-void Clipboard::readText(CompletionHandler<void(String&&)>&& completionHandler)
+void Clipboard::readText(CompletionHandler<void(String&&)>&& completionHandler, ReadMode)
 {
     gtk_clipboard_request_text(m_clipboard, [](GtkClipboard*, const char* text, gpointer userData) {
         std::unique_ptr<ReadTextAsyncData> data(static_cast<ReadTextAsyncData*>(userData));
         data->completionHandler(String::fromUTF8(text));
-    }, new ReadTextAsyncData(WTFMove(completionHandler)));
+    }, new ReadTextAsyncData(WTF::move(completionHandler)));
 }
 
 struct ReadFilePathsAsyncData {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(ReadFilePathsAsyncData);
 
     explicit ReadFilePathsAsyncData(CompletionHandler<void(Vector<String>&&)>&& handler)
-        : completionHandler(WTFMove(handler))
+        : completionHandler(WTF::move(handler))
     {
     }
 
     CompletionHandler<void(Vector<String>&&)> completionHandler;
 };
 
-void Clipboard::readFilePaths(CompletionHandler<void(Vector<String>&&)>&& completionHandler)
+void Clipboard::readFilePaths(CompletionHandler<void(Vector<String>&&)>&& completionHandler, ReadMode)
 {
     gtk_clipboard_request_uris(m_clipboard, [](GtkClipboard*, char** uris, gpointer userData) {
         std::unique_ptr<ReadFilePathsAsyncData> data(static_cast<ReadFilePathsAsyncData*>(userData));
         Vector<String> result;
-        for (unsigned i = 0; uris && uris[i]; ++i) {
-            GUniquePtr<gchar> filename(g_filename_from_uri(uris[i], nullptr, nullptr));
+        for (const auto* uri : span(uris)) {
+            GUniquePtr<gchar> filename(g_filename_from_uri(uri, nullptr, nullptr));
             if (filename)
                 result.append(String::fromUTF8(filename.get()));
         }
-        data->completionHandler(WTFMove(result));
-    }, new ReadFilePathsAsyncData(WTFMove(completionHandler)));
+        data->completionHandler(WTF::move(result));
+    }, new ReadFilePathsAsyncData(WTF::move(completionHandler)));
 }
 
 struct ReadBufferAsyncData {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(ReadBufferAsyncData);
 
     explicit ReadBufferAsyncData(CompletionHandler<void(Ref<WebCore::SharedBuffer>&&)>&& handler)
-        : completionHandler(WTFMove(handler))
+        : completionHandler(WTF::move(handler))
     {
     }
 
     CompletionHandler<void(Ref<WebCore::SharedBuffer>&&)> completionHandler;
 };
 
-void Clipboard::readBuffer(const char* format, CompletionHandler<void(Ref<WebCore::SharedBuffer>&&)>&& completionHandler)
+struct ReadURLAsyncData {
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(ReadURLAsyncData);
+
+    explicit ReadURLAsyncData(CompletionHandler<void(String&& url, String&& title)>&& handler)
+        : completionHandler(WTF::move(handler))
+    {
+    }
+
+    CompletionHandler<void(String&& url, String&& title)> completionHandler;
+};
+
+void Clipboard::readURL(CompletionHandler<void(String&& url, String&& title)>&& completionHandler, ReadMode)
+{
+    gtk_clipboard_request_uris(m_clipboard, [](GtkClipboard*, char** uris, gpointer userData) {
+        std::unique_ptr<ReadURLAsyncData> data(static_cast<ReadURLAsyncData*>(userData));
+        data->completionHandler(uris && uris[0] ? String::fromUTF8(uris[0]) : String(), { });
+    }, new ReadURLAsyncData(WTF::move(completionHandler)));
+}
+
+void Clipboard::readBuffer(const char* format, CompletionHandler<void(Ref<WebCore::SharedBuffer>&&)>&& completionHandler, ReadMode)
 {
     gtk_clipboard_request_contents(m_clipboard, gdk_atom_intern(format, TRUE), [](GtkClipboard*, GtkSelectionData* selection, gpointer userData) {
         std::unique_ptr<ReadBufferAsyncData> data(static_cast<ReadBufferAsyncData*>(userData));
         int contentsLength;
         const auto* contents = gtk_selection_data_get_data_with_length(selection, &contentsLength);
-        data->completionHandler(WebCore::SharedBuffer::create(contents, contentsLength > 0 ? static_cast<size_t>(contentsLength) : 0));
-    }, new ReadBufferAsyncData(WTFMove(completionHandler)));
+        data->completionHandler(WebCore::SharedBuffer::create(unsafeMakeSpan(contents, static_cast<size_t>(std::max(0, contentsLength)))));
+    }, new ReadBufferAsyncData(WTF::move(completionHandler)));
 }
 
 struct WriteAsyncData {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(WriteAsyncData);
 
     WriteAsyncData(WebCore::SelectionData&& selection, Clipboard& clipboard)
-        : selectionData(WTFMove(selection))
+        : selectionData(WTF::move(selection))
         , clipboard(clipboard)
     {
     }
@@ -157,11 +187,11 @@ struct WriteAsyncData {
     Clipboard& clipboard;
 };
 
-enum ClipboardTargetType { Markup, Text, Image, URIList, SmartPaste, Custom };
+enum ClipboardTargetType { Markup, Text, Image, URIList, SmartPaste, Custom, Buffer };
 
-void Clipboard::write(WebCore::SelectionData&& selectionData)
+void Clipboard::write(WebCore::SelectionData&& selectionData, CompletionHandler<void(int64_t)>&& completionHandler)
 {
-    SetForScope<WebFrameProxy*> frameWritingToClipboard(m_frameWritingToClipboard, WebPasteboardProxy::singleton().primarySelectionOwner());
+    SetForScope frameWritingToClipboard(m_frameWritingToClipboard, WebPasteboardProxy::singleton().primarySelectionOwner());
 
     GRefPtr<GtkTargetList> list = adoptGRef(gtk_target_list_new(nullptr, 0));
     if (selectionData.hasURIList())
@@ -175,16 +205,19 @@ void Clipboard::write(WebCore::SelectionData&& selectionData)
     if (selectionData.canSmartReplace())
         gtk_target_list_add(list.get(), gdk_atom_intern_static_string("application/vnd.webkitgtk.smartpaste"), 0, ClipboardTargetType::SmartPaste);
     if (selectionData.hasCustomData())
-        gtk_target_list_add(list.get(), gdk_atom_intern_static_string(WebCore::PasteboardCustomData::gtkType()), 0, ClipboardTargetType::Custom);
+        gtk_target_list_add(list.get(), gdk_atom_intern_static_string(WebCore::PasteboardCustomData::gtkType().characters()), 0, ClipboardTargetType::Custom);
+    for (const auto& type : selectionData.buffers().keys())
+        gtk_target_list_add(list.get(), gdk_atom_intern(type.utf8().data(), FALSE), 0, ClipboardTargetType::Buffer);
 
     int numberOfTargets;
     GtkTargetEntry* table = gtk_target_table_new_from_list(list.get(), &numberOfTargets);
     if (!numberOfTargets) {
         gtk_clipboard_clear(m_clipboard);
+        completionHandler(m_changeCount + 1);
         return;
     }
 
-    auto data = WTF::makeUnique<WriteAsyncData>(WTFMove(selectionData), *this);
+    auto data = WTF::makeUnique<WriteAsyncData>(WTF::move(selectionData), *this);
     gboolean succeeded = gtk_clipboard_set_with_data(m_clipboard, table, numberOfTargets,
         [](GtkClipboard*, GtkSelectionData* selection, guint info, gpointer userData) {
             auto& data = *static_cast<WriteAsyncData*>(userData);
@@ -199,7 +232,7 @@ void Clipboard::write(WebCore::SelectionData&& selectionData)
                 break;
             case ClipboardTargetType::Image: {
                 if (data.selectionData.hasImage()) {
-                    GRefPtr<GdkPixbuf> pixbuf = adoptGRef(data.selectionData.image()->getGdkPixbuf());
+                    auto pixbuf = selectionDataImageAsGdkPixbuf(data.selectionData);
                     gtk_selection_data_set_pixbuf(selection, pixbuf.get());
                 }
                 break;
@@ -214,10 +247,19 @@ void Clipboard::write(WebCore::SelectionData&& selectionData)
                 break;
             case ClipboardTargetType::Custom:
                 if (data.selectionData.hasCustomData()) {
-                    auto* buffer = data.selectionData.customData();
-                    gtk_selection_data_set(selection, gdk_atom_intern_static_string(WebCore::PasteboardCustomData::gtkType()), 8, reinterpret_cast<const guchar*>(buffer->data()), buffer->size());
+                    auto buffer = data.selectionData.customData()->span();
+                    gtk_selection_data_set(selection, gdk_atom_intern_static_string(WebCore::PasteboardCustomData::gtkType().characters()), 8, reinterpret_cast<const guchar*>(buffer.data()), buffer.size());
                 }
                 break;
+            case ClipboardTargetType::Buffer: {
+                auto* atom = gtk_selection_data_get_target(selection);
+                GUniquePtr<char> type(gdk_atom_name(atom));
+                if (auto* buffer = data.selectionData.buffer(String::fromUTF8(type.get()))) {
+                    auto span = buffer->span();
+                    gtk_selection_data_set(selection, atom, 8, reinterpret_cast<const guchar*>(span.data()), span.size());
+                }
+                break;
+            }
             }
         },
         [](GtkClipboard* clipboard, gpointer userData) {
@@ -233,6 +275,7 @@ void Clipboard::write(WebCore::SelectionData&& selectionData)
         gtk_clipboard_set_can_store(m_clipboard, nullptr, 0);
     }
     gtk_target_table_free(table, numberOfTargets);
+    completionHandler(succeeded ? m_changeCount + 1 : m_changeCount);
 }
 
 void Clipboard::clear()

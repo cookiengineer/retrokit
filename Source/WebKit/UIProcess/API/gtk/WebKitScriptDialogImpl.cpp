@@ -20,9 +20,9 @@
 #include "config.h"
 #include "WebKitScriptDialogImpl.h"
 
+#include "GtkUtilities.h"
+#include "GtkVersioning.h"
 #include "WebKitScriptDialogPrivate.h"
-#include <WebCore/GtkUtilities.h>
-#include <WebCore/GtkVersioning.h>
 #include <glib/gi18n-lib.h>
 #include <wtf/glib/WTFGType.h>
 #include <wtf/text/CString.h>
@@ -74,11 +74,25 @@ static gboolean webkitScriptDialogImplKeyPressEvent(GtkWidget* widget, GdkEventK
 }
 #endif
 
+#if USE(GTK4)
+static void webkitScriptDialogImplUnmap(GtkWidget* widget)
+{
+    if (!gtk_widget_get_mapped(widget))
+        return;
+
+    auto* toplevel = gtk_widget_get_toplevel(GTK_WIDGET(widget));
+    if (WebKit::widgetIsOnscreenToplevelWindow(toplevel))
+        gtk_window_set_default(GTK_WINDOW(toplevel), nullptr);
+
+    GTK_WIDGET_CLASS(webkit_script_dialog_impl_parent_class)->unmap(widget);
+}
+#endif
+
 static void webkitScriptDialogImplMap(GtkWidget* widget)
 {
     WebKitScriptDialogImplPrivate* priv = WEBKIT_SCRIPT_DIALOG_IMPL(widget)->priv;
     auto* toplevel = gtk_widget_get_toplevel(widget);
-    if (WebCore::widgetIsOnscreenToplevelWindow(toplevel))
+    if (WebKit::widgetIsOnscreenToplevelWindow(toplevel))
         gtk_window_set_default(GTK_WINDOW(toplevel), priv->defaultButton);
 
     switch (priv->dialog->type) {
@@ -235,6 +249,9 @@ static void webkit_script_dialog_impl_class_init(WebKitScriptDialogImplClass* kl
     widgetClass->key_press_event = webkitScriptDialogImplKeyPressEvent;
 #endif
     widgetClass->map = webkitScriptDialogImplMap;
+#if USE(GTK4)
+    widgetClass->unmap = webkitScriptDialogImplUnmap;
+#endif
 #if !USE(GTK4)
     gtk_widget_class_set_accessible_role(widgetClass, ATK_ROLE_ALERT);
 #endif
@@ -298,7 +315,7 @@ GtkWidget* webkitScriptDialogImplNew(WebKitScriptDialog* scriptDialog, const cha
         gtk_entry_set_activates_default(GTK_ENTRY(dialog->priv->entry), TRUE);
         gtk_widget_show(dialog->priv->entry);
 
-        FALLTHROUGH;
+        [[fallthrough]];
     case WEBKIT_SCRIPT_DIALOG_CONFIRM: {
         gtk_label_set_text(GTK_LABEL(dialog->priv->title), title);
 

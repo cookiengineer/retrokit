@@ -3,8 +3,10 @@
 // found in the LICENSE file.
 
 #include "perf_test.h"
+#include "common/unsafe_buffers.h"
 
-#include "common/third_party/base/anglebase/no_destructor.h"
+#include "common/angleutils.h"
+#include "common/base/anglebase/no_destructor.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -18,20 +20,21 @@ std::string FormatString(const char *fmt, va_list vararg)
     static angle::base::NoDestructor<std::vector<char>> buffer(512);
 
     // Attempt to just print to the current buffer
-    int len = vsnprintf(buffer->data(), buffer->size(), fmt, vararg);
+    int len = ANGLE_UNSAFE_TODO(vsnprintf(buffer->data(), buffer->size(), fmt, vararg));
     if (len < 0 || static_cast<size_t>(len) >= buffer->size())
     {
         // Buffer was not large enough, calculate the required size and resize the buffer
-        len = vsnprintf(NULL, 0, fmt, vararg);
+        len = ANGLE_UNSAFE_TODO(vsnprintf(NULL, 0, fmt, vararg));
         buffer->resize(len + 1);
 
         // Print again
-        vsnprintf(buffer->data(), buffer->size(), fmt, vararg);
+        ANGLE_UNSAFE_TODO(vsnprintf(buffer->data(), buffer->size(), fmt, vararg));
     }
 
     return std::string(buffer->data(), len);
 }
 
+ANGLE_FORMAT_PRINTF(1, 2)
 std::string StringPrintf(const char *fmt, ...)
 {
     va_list vararg;
@@ -43,7 +46,7 @@ std::string StringPrintf(const char *fmt, ...)
 
 std::string NumberToString(size_t value)
 {
-    return StringPrintf("%u", value);
+    return StringPrintf("%zu", value);
 }
 
 std::string NumberToString(double value)

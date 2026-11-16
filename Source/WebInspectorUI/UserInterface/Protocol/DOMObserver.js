@@ -29,107 +29,161 @@ WI.DOMObserver = class DOMObserver extends InspectorBackend.Dispatcher
 
     documentUpdated()
     {
+        if (this._target instanceof WI.FrameTarget) {
+            WI.domManager._frameTargetDocumentUpdated(this._target);
+            return;
+        }
         WI.domManager._documentUpdated();
     }
 
     inspect(nodeId)
     {
+        if (this._target instanceof WI.FrameTarget)
+            return;
         WI.domManager.inspectElement(nodeId);
     }
 
     setChildNodes(parentId, nodes)
     {
+        if (this._target instanceof WI.FrameTarget) {
+            WI.domManager._frameTargetSetChildNodes(this._target, parentId, nodes);
+            return;
+        }
         WI.domManager._setChildNodes(parentId, nodes);
     }
 
     attributeModified(nodeId, name, value)
     {
+        if (this._target instanceof WI.FrameTarget) {
+            WI.domManager._frameTargetAttributeModified(this._target, nodeId, name, value);
+            return;
+        }
         WI.domManager._attributeModified(nodeId, name, value);
     }
 
     attributeRemoved(nodeId, name)
     {
+        if (this._target instanceof WI.FrameTarget) {
+            WI.domManager._frameTargetAttributeRemoved(this._target, nodeId, name);
+            return;
+        }
         WI.domManager._attributeRemoved(nodeId, name);
     }
 
     inlineStyleInvalidated(nodeIds)
     {
+        if (this._target instanceof WI.FrameTarget) {
+            WI.domManager._frameTargetInlineStyleInvalidated(this._target, nodeIds);
+            return;
+        }
         WI.domManager._inlineStyleInvalidated(nodeIds);
     }
 
     characterDataModified(nodeId, characterData)
     {
+        if (this._target instanceof WI.FrameTarget) {
+            WI.domManager._frameTargetCharacterDataModified(this._target, nodeId, characterData);
+            return;
+        }
         WI.domManager._characterDataModified(nodeId, characterData);
     }
 
     childNodeCountUpdated(nodeId, childNodeCount)
     {
+        if (this._target instanceof WI.FrameTarget) {
+            WI.domManager._frameTargetChildNodeCountUpdated(this._target, nodeId, childNodeCount);
+            return;
+        }
         WI.domManager._childNodeCountUpdated(nodeId, childNodeCount);
     }
 
     childNodeInserted(parentNodeId, previousNodeId, node)
     {
+        if (this._target instanceof WI.FrameTarget) {
+            WI.domManager._frameTargetChildNodeInserted(this._target, parentNodeId, previousNodeId, node);
+            return;
+        }
         WI.domManager._childNodeInserted(parentNodeId, previousNodeId, node);
     }
 
     childNodeRemoved(parentNodeId, nodeId)
     {
+        if (this._target instanceof WI.FrameTarget) {
+            WI.domManager._frameTargetChildNodeRemoved(this._target, parentNodeId, nodeId);
+            return;
+        }
         WI.domManager._childNodeRemoved(parentNodeId, nodeId);
     }
 
     willDestroyDOMNode(nodeId)
     {
+        if (this._target instanceof WI.FrameTarget) {
+            WI.domManager._frameTargetWillDestroyDOMNode(this._target, nodeId);
+            return;
+        }
         WI.domManager.willDestroyDOMNode(nodeId);
     }
 
     shadowRootPushed(hostId, root)
     {
+        if (this._target instanceof WI.FrameTarget)
+            return; // FIXME: <https://webkit.org/b/298980> Route to frame-target handler.
         WI.domManager._childNodeInserted(hostId, 0, root);
     }
 
     shadowRootPopped(hostId, rootId)
     {
+        if (this._target instanceof WI.FrameTarget)
+            return; // FIXME: <https://webkit.org/b/298980> Route to frame-target handler.
         WI.domManager._childNodeRemoved(hostId, rootId);
     }
 
     customElementStateChanged(nodeId, customElementState)
     {
+        if (this._target instanceof WI.FrameTarget)
+            return; // FIXME: <https://webkit.org/b/298980> Route to frame-target handler.
         WI.domManager._customElementStateChanged(nodeId, customElementState);
     }
 
     pseudoElementAdded(parentNodeId, pseudoElement)
     {
+        if (this._target instanceof WI.FrameTarget)
+            return; // FIXME: <https://webkit.org/b/298980> Route to frame-target handler.
         WI.domManager._pseudoElementAdded(parentNodeId, pseudoElement);
     }
 
     pseudoElementRemoved(parentNodeId, pseudoElementId)
     {
+        if (this._target instanceof WI.FrameTarget)
+            return; // FIXME: <https://webkit.org/b/298980> Route to frame-target handler.
         WI.domManager._pseudoElementRemoved(parentNodeId, pseudoElementId);
     }
 
     didAddEventListener(nodeId)
     {
+        if (this._target instanceof WI.FrameTarget)
+            return;
         WI.domManager.didAddEventListener(nodeId);
     }
 
     willRemoveEventListener(nodeId)
     {
+        if (this._target instanceof WI.FrameTarget)
+            return;
         WI.domManager.willRemoveEventListener(nodeId);
     }
 
     didFireEvent(nodeId, eventName, timestamp, data)
     {
+        if (this._target instanceof WI.FrameTarget)
+            return;
         WI.domManager.didFireEvent(nodeId, eventName, timestamp, data);
-    }
-
-    videoLowPowerChanged(nodeId, timestamp, isLowPower)
-    {
-        // COMPATIBILITY (iOS 12.2): DOM.videoLowPowerChanged was renamed to DOM.powerEfficientPlaybackStateChanged.
-        WI.domManager.powerEfficientPlaybackStateChanged(nodeId, timestamp, isLowPower);
     }
 
     powerEfficientPlaybackStateChanged(nodeId, timestamp, isPowerEfficient)
     {
+        if (this._target instanceof WI.FrameTarget)
+            return;
         WI.domManager.powerEfficientPlaybackStateChanged(nodeId, timestamp, isPowerEfficient);
     }
 };

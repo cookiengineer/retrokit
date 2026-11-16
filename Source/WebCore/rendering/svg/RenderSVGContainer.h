@@ -1,8 +1,9 @@
 /*
  * Copyright (C) 2004, 2005, 2007 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2007 Rob Buis <buis@kde.org>
- * Copyright (C) 2009 Google, Inc.  All rights reserved.
+ * Copyright (C) 2009 Google, Inc. All rights reserved.
  * Copyright (C) 2009 Apple Inc. All rights reserved.
+ * Copyright (C) 2020, 2021, 2022 Igalia S.L.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -23,63 +24,78 @@
 #pragma once
 
 #include "RenderSVGModelObject.h"
+#include "SVGBoundingBoxComputation.h"
 
 namespace WebCore {
 
 class SVGElement;
 
 class RenderSVGContainer : public RenderSVGModelObject {
-    WTF_MAKE_ISO_ALLOCATED(RenderSVGContainer);
+    WTF_MAKE_TZONE_ALLOCATED(RenderSVGContainer);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderSVGContainer);
 public:
     virtual ~RenderSVGContainer();
 
     void paint(PaintInfo&, const LayoutPoint&) override;
-    void setNeedsBoundariesUpdate() final { m_needsBoundariesUpdate = true; }
-    bool needsBoundariesUpdate() final { return m_needsBoundariesUpdate; }
-    virtual bool didTransformToRootUpdate() { return false; }
-    bool isObjectBoundingBoxValid() const { return m_objectBoundingBoxValid; }
+
+    bool isObjectBoundingBoxValid() const
+    {
+        updateSVGTransformDependentBoundingBoxesIfNeeded();
+        return m_objectBoundingBoxValid;
+    }
+    bool isLayoutSizeChanged() const { return m_isLayoutSizeChanged; }
+    bool didTransformToRootUpdate() const { return m_didTransformToRootUpdate; }
+
+    FloatRect objectBoundingBox() const final
+    {
+        updateSVGTransformDependentBoundingBoxesIfNeeded();
+        return m_objectBoundingBox;
+    }
+    FloatRect objectBoundingBoxWithoutTransformations() const final { return m_objectBoundingBoxWithoutTransformations; }
+    // A viewport-establishing container (inner <svg>, <marker>) overrides this to return its viewport
+    // rectangle, so that it contributes its viewport (not its clipped descendant geometry) to an
+    // ancestor's "without transformations" object bounding box. Public so SVGBoundingBoxComputation
+    // can honor it while recursing.
+    virtual std::optional<FloatRect> overridenObjectBoundingBoxWithoutTransformations() const { return std::nullopt; }
+    FloatRect strokeBoundingBox() const final;
+
+    void invalidateCachedSVGTransformDependentBoundingBoxes() final { m_transformDependentBoundingBoxesDirty = true; }
+    FloatRect repaintRectInLocalCoordinates(RepaintRectCalculation = RepaintRectCalculation::Fast) const final { return SVGBoundingBoxComputation::computeRepaintBoundingBox(*this); }
+    FloatRect decoratedBoundingBox() const final { return SVGBoundingBoxComputation::computeDecoratedBoundingBox(*this); }
 
 protected:
-    RenderSVGContainer(SVGElement&, RenderStyle&&);
+    RenderSVGContainer(Type, Document&, Style::ComputedStyle&&, OptionSet<SVGModelObjectFlag> = { });
+    RenderSVGContainer(Type, SVGElement&, Style::ComputedStyle&&, OptionSet<SVGModelObjectFlag> = { });
 
-    const char* renderName() const override { return "RenderSVGContainer"; }
-
+    ASCIILiteral renderName() const override { return "RenderSVGContainer"_s; }
     bool canHaveChildren() const final { return true; }
 
     void layout() override;
 
-    void addFocusRingRects(Vector<LayoutRect>&, const LayoutPoint& additionalOffset, const RenderLayerModelObject* paintContainer = 0) final;
+    virtual void layoutChildren();
+    virtual bool pointIsInsideViewportClip(const FloatPoint&) { return true; }
+    virtual bool updateLayoutSizeIfNeeded() { return false; }
+    bool nodeAtPoint(const HitTestRequest&, HitTestResult&, const HitTestLocation& locationInContainer, const LayoutPoint& accumulatedOffset, HitTestAction) override;
+    void addFocusRingRects(Vector<LayoutRect>& rects, const LayoutPoint& additionalOffset, const RenderLayerModelObject* container) const override;
 
-    FloatRect objectBoundingBox() const final { return m_objectBoundingBox; }
-    FloatRect strokeBoundingBox() const final { return m_strokeBoundingBox; }
-    FloatRect repaintRectInLocalCoordinates() const final { return m_repaintBoundingBox; }
-
-    bool nodeAtFloatPoint(const HitTestRequest&, HitTestResult&, const FloatPoint& pointInParent, HitTestAction) override;
-
-    // Allow RenderSVGTransformableContainer to hook in at the right time in layout()
-    virtual bool calculateLocalTransform() { return false; }
-
-    // Allow RenderSVGViewportContainer to hook in at the right times in layout(), paint() and nodeAtFloatPoint()
-    virtual void calcViewport() { }
-    virtual void applyViewportClip(PaintInfo&) { }
-    virtual bool pointIsInsideViewportClip(const FloatPoint& /*pointInParent*/) { return true; }
-
-    virtual void determineIfLayoutSizeChanged() { }
-
-    bool selfWillPaint();
-    void updateCachedBoundaries();
+    bool m_isLayoutSizeChanged { false };
+    bool m_didTransformToRootUpdate { false };
 
 private:
-    bool isSVGContainer() const final { return true; }
+    // Recompute m_objectBoundingBox / m_strokeBoundingBox lazily after a descendant transform
+    // changes via the deferred (layout-free) flush. Both fold in descendant transforms and go
+    // stale, unlike the without-transform and visual-overflow caches. Kept private so every read
+    // funnels through the getters above, which honor m_transformDependentBoundingBoxesDirty.
+    void updateSVGTransformDependentBoundingBoxesIfNeeded() const;
 
-    FloatRect m_objectBoundingBox;
-    FloatRect m_strokeBoundingBox;
-    FloatRect m_repaintBoundingBox;
-
-    bool m_objectBoundingBoxValid { false };
-    bool m_needsBoundariesUpdate { true };
+    mutable bool m_objectBoundingBoxValid { false };
+    mutable bool m_transformDependentBoundingBoxesDirty { false };
+    mutable FloatRect m_objectBoundingBox;
+    FloatRect m_objectBoundingBoxWithoutTransformations;
+    mutable Markable<FloatRect> m_strokeBoundingBox;
 };
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderSVGContainer, isSVGContainer())
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderSVGContainer, isRenderSVGContainer())
+

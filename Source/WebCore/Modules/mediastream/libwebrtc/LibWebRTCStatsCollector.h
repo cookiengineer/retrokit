@@ -24,41 +24,46 @@
 
 #pragma once
 
-#if USE(LIBWEBRTC)
+#if ENABLE(WEB_RTC) && USE(LIBWEBRTC)
 
 #include "LibWebRTCMacros.h"
 #include <wtf/CompletionHandler.h>
 #include <wtf/RefPtr.h>
 
-ALLOW_UNUSED_PARAMETERS_BEGIN
-ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 
+// See Bug 274508: Disable thread-safety-reference-return warnings in libwebrtc
+IGNORE_CLANG_WARNINGS_BEGIN("thread-safety-reference-return")
+IGNORE_CLANG_WARNINGS_BEGIN("nullability-completeness")
 #include <webrtc/pc/rtc_stats_collector.h>
+IGNORE_CLANG_WARNINGS_END
+IGNORE_CLANG_WARNINGS_END
 
-ALLOW_DEPRECATED_DECLARATIONS_END
-ALLOW_UNUSED_PARAMETERS_END
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 
 namespace WebCore {
 
 class DOMMapAdapter;
 class RTCStatsReport;
 
-void initializeRTCStatsReportBackingMap(RTCStatsReport&);
+void initializeRTCStatsReportBackingMap(RTCStatsReport&, const HashMap<String, String>&);
 
 class LibWebRTCStatsCollector : public webrtc::RTCStatsCollectorCallback {
 public:
-    using CollectorCallback = CompletionHandler<void(RefPtr<RTCStatsReport>&&)>;
-    static rtc::scoped_refptr<LibWebRTCStatsCollector> create(CollectorCallback&& callback) { return new rtc::RefCountedObject<LibWebRTCStatsCollector>(WTFMove(callback)); }
+    using CollectorCallback = CompletionHandler<void(webrtc::scoped_refptr<const webrtc::RTCStatsReport>&&)>;
+    static webrtc::scoped_refptr<LibWebRTCStatsCollector> create(CollectorCallback&& callback) { return webrtc::make_ref_counted<LibWebRTCStatsCollector>(WTF::move(callback)); }
+
+    static Ref<RTCStatsReport> createReport(webrtc::scoped_refptr<const webrtc::RTCStatsReport>&&, HashMap<String, String>&&);
 
     explicit LibWebRTCStatsCollector(CollectorCallback&&);
     ~LibWebRTCStatsCollector();
 
 private:
-    void OnStatsDelivered(const rtc::scoped_refptr<const webrtc::RTCStatsReport>&) final;
+    void OnStatsDelivered(const webrtc::scoped_refptr<const webrtc::RTCStatsReport>&) final;
 
     CollectorCallback m_callback;
 };
 
 } // namespace WebCore
 
-#endif // USE(LIBWEBRTC)
+#endif // ENABLE(WEB_RTC) && USE(LIBWEBRTC)

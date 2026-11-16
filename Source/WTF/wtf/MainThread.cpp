@@ -30,10 +30,6 @@
 #include <wtf/MainThread.h>
 
 #include <mutex>
-#include <wtf/Deque.h>
-#include <wtf/Lock.h>
-#include <wtf/MonotonicTime.h>
-#include <wtf/NeverDestroyed.h>
 #include <wtf/RunLoop.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/Threading.h>
@@ -48,13 +44,19 @@ void initializeMainThread()
         initialize();
         initializeMainThreadPlatform();
         RunLoop::initializeMain();
+        RELEASE_ASSERT(!isMainThread() || Thread::currentSingleton().uid() == 1);
     });
 }
 
 #if !USE(WEB_THREAD)
 bool canCurrentThreadAccessThreadLocalData(Thread& thread)
 {
-    return &thread == &Thread::current();
+    return &thread == &Thread::currentSingleton();
+}
+
+bool canCurrentThreadIDAccessThreadLocalData(uint32_t threadID)
+{
+    return threadID == currentThreadID();
 }
 #endif
 
@@ -65,7 +67,7 @@ bool isMainRunLoop()
 
 void callOnMainRunLoop(Function<void()>&& function)
 {
-    RunLoop::main().dispatch(WTFMove(function));
+    RunLoop::mainSingleton().dispatch(WTF::move(function));
 }
 
 void ensureOnMainRunLoop(Function<void()>&& function)
@@ -73,19 +75,19 @@ void ensureOnMainRunLoop(Function<void()>&& function)
     if (RunLoop::isMain())
         function();
     else
-        RunLoop::main().dispatch(WTFMove(function));
+        RunLoop::mainSingleton().dispatch(WTF::move(function));
 }
 
 void callOnMainThread(Function<void()>&& function)
 {
 #if USE(WEB_THREAD)
-    if (auto* webRunLoop = RunLoop::webIfExists()) {
-        webRunLoop->dispatch(WTFMove(function));
+    SUPPRESS_UNCOUNTED_LOCAL if (auto* webRunLoop = RunLoop::webIfExists()) { // WebRunLoop is a singleton.
+        webRunLoop->dispatch(WTF::move(function));
         return;
     }
 #endif
 
-    RunLoop::main().dispatch(WTFMove(function));
+    RunLoop::mainSingleton().dispatch(WTF::move(function));
 }
 
 void ensureOnMainThread(Function<void()>&& function)
@@ -93,7 +95,7 @@ void ensureOnMainThread(Function<void()>&& function)
     if (isMainThread())
         function();
     else
-        callOnMainThread(WTFMove(function));
+        callOnMainThread(WTF::move(function));
 }
 
 bool isMainThreadOrGCThread()
@@ -110,7 +112,7 @@ enum class MainStyle : bool {
 };
 
 template <MainStyle mainStyle>
-static void callOnMainAndWait(Function<void()>&& function)
+static void callOnMainAndWait(NOESCAPE Function<void()>&& function)
 {
 
     if (mainStyle == MainStyle::Thread ? isMainThread() : isMainRunLoop()) {
@@ -119,29 +121,29 @@ static void callOnMainAndWait(Function<void()>&& function)
     }
 
     BinarySemaphore semaphore;
-    auto functionImpl = [&semaphore, function = WTFMove(function)] {
+    auto functionImpl = [&semaphore, function = WTF::move(function)] {
         function();
         semaphore.signal();
     };
 
     switch (mainStyle) {
     case MainStyle::Thread:
-        callOnMainThread(WTFMove(functionImpl));
+        callOnMainThread(WTF::move(functionImpl));
         break;
     case MainStyle::RunLoop:
-        callOnMainRunLoop(WTFMove(functionImpl));
+        callOnMainRunLoop(WTF::move(functionImpl));
     };
     semaphore.wait();
 }
 
-void callOnMainRunLoopAndWait(Function<void()>&& function)
+void callOnMainRunLoopAndWait(NOESCAPE Function<void()>&& function)
 {
-    callOnMainAndWait<MainStyle::RunLoop>(WTFMove(function));
+    callOnMainAndWait<MainStyle::RunLoop>(WTF::move(function));
 }
 
-void callOnMainThreadAndWait(Function<void()>&& function)
+void callOnMainThreadAndWait(NOESCAPE Function<void()>&& function)
 {
-    callOnMainAndWait<MainStyle::Thread>(WTFMove(function));
+    callOnMainAndWait<MainStyle::Thread>(WTF::move(function));
 }
 
 } // namespace WTF

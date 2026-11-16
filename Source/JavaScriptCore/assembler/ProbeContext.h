@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,10 +25,14 @@
 
 #pragma once
 
-#include "MacroAssembler.h"
-#include "ProbeStack.h"
+#include <JavaScriptCore/MacroAssembler.h>
+#include <JavaScriptCore/ProbeStack.h>
+#include <wtf/Platform.h>
+#include <wtf/TZoneMalloc.h>
 
 #if ENABLE(ASSEMBLER)
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 namespace Probe {
@@ -38,12 +42,15 @@ struct CPUState {
     using SPRegisterID = MacroAssembler::SPRegisterID;
     using FPRegisterID = MacroAssembler::FPRegisterID;
 
-    static inline const char* gprName(RegisterID id) { return MacroAssembler::gprName(id); }
-    static inline const char* sprName(SPRegisterID id) { return MacroAssembler::sprName(id); }
-    static inline const char* fprName(FPRegisterID id) { return MacroAssembler::fprName(id); }
+    static ASCIILiteral gprName(RegisterID id) { return MacroAssembler::gprName(id); }
+    static ASCIILiteral sprName(SPRegisterID id) { return MacroAssembler::sprName(id); }
+    static ASCIILiteral fprName(FPRegisterID id) { return MacroAssembler::fprName(id); }
     inline UCPURegister& gpr(RegisterID);
     inline UCPURegister& spr(SPRegisterID);
     inline double& fpr(FPRegisterID);
+#if CPU(X86_64) || CPU(ARM64)
+    inline v128_t& vector(FPRegisterID);
+#endif
 
     template<typename T> T gpr(RegisterID) const;
     template<typename T> T spr(SPRegisterID) const;
@@ -58,7 +65,14 @@ struct CPUState {
 
     UCPURegister gprs[MacroAssembler::numberOfRegisters()];
     UCPURegister sprs[MacroAssembler::numberOfSPRegisters()];
-    double fprs[MacroAssembler::numberOfFPRegisters()];
+    struct {
+#if CPU(X86_64) || CPU(ARM64)
+        // These platforms always save vector-width FPRs
+        v128_t vectors[MacroAssembler::numberOfFPRegisters()] = { };
+#else
+        double fprs[MacroAssembler::numberOfFPRegisters()];
+#endif
+    } fprs;
 };
 
 inline UCPURegister& CPUState::gpr(RegisterID id)
@@ -76,8 +90,20 @@ inline UCPURegister& CPUState::spr(SPRegisterID id)
 inline double& CPUState::fpr(FPRegisterID id)
 {
     ASSERT(id >= MacroAssembler::firstFPRegister() && id <= MacroAssembler::lastFPRegister());
-    return fprs[id];
+#if CPU(X86_64) || CPU(ARM64)
+    return fprs.vectors[id].f64x2[0];
+#else
+    return fprs.fprs[id];
+#endif
 }
+
+#if CPU(X86_64) || CPU(ARM64)
+inline v128_t& CPUState::vector(FPRegisterID id)
+{
+    ASSERT(id >= MacroAssembler::firstFPRegister() && id <= MacroAssembler::lastFPRegister());
+    return fprs.vectors[id];
+}
+#endif
 
 template<typename T>
 T CPUState::gpr(RegisterID id) const
@@ -103,19 +129,17 @@ template<typename T>
 T CPUState::fpr(FPRegisterID id) const
 {
     CPUState* cpu = const_cast<CPUState*>(this);
-    return bitwise_cast<T>(cpu->fpr(id));
+    return std::bit_cast<T>(cpu->fpr(id));
 }
 
 inline void*& CPUState::pc()
 {
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
     return *reinterpret_cast<void**>(&spr(X86Registers::eip));
 #elif CPU(ARM64)
     return *reinterpret_cast<void**>(&spr(ARM64Registers::pc));
 #elif CPU(ARM_THUMB2)
     return *reinterpret_cast<void**>(&gpr(ARMRegisters::pc));
-#elif CPU(MIPS)
-    return *reinterpret_cast<void**>(&spr(MIPSRegisters::pc));
 #elif CPU(RISCV64)
     return *reinterpret_cast<void**>(&spr(RISCV64Registers::pc));
 #else
@@ -125,14 +149,12 @@ inline void*& CPUState::pc()
 
 inline void*& CPUState::fp()
 {
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
     return *reinterpret_cast<void**>(&gpr(X86Registers::ebp));
 #elif CPU(ARM64)
     return *reinterpret_cast<void**>(&gpr(ARM64Registers::fp));
 #elif CPU(ARM_THUMB2)
     return *reinterpret_cast<void**>(&gpr(ARMRegisters::fp));
-#elif CPU(MIPS)
-    return *reinterpret_cast<void**>(&gpr(MIPSRegisters::fp));
 #elif CPU(RISCV64)
     return *reinterpret_cast<void**>(&gpr(RISCV64Registers::fp));
 #else
@@ -142,14 +164,12 @@ inline void*& CPUState::fp()
 
 inline void*& CPUState::sp()
 {
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
     return *reinterpret_cast<void**>(&gpr(X86Registers::esp));
 #elif CPU(ARM64)
     return *reinterpret_cast<void**>(&gpr(ARM64Registers::sp));
 #elif CPU(ARM_THUMB2)
     return *reinterpret_cast<void**>(&gpr(ARMRegisters::sp));
-#elif CPU(MIPS)
-    return *reinterpret_cast<void**>(&gpr(MIPSRegisters::sp));
 #elif CPU(RISCV64)
     return *reinterpret_cast<void**>(&gpr(RISCV64Registers::sp));
 #else
@@ -179,7 +199,7 @@ T CPUState::sp() const
 }
 
 struct State;
-typedef void (*StackInitializationFunction)(State*);
+typedef void (SYSV_ABI *StackInitializationFunction)(State*);
 
 #if CPU(ARM64E)
 #define PROBE_FUNCTION_PTRAUTH __ptrauth(ptrauth_key_process_dependent_code, 0, JITProbePtrTag)
@@ -198,7 +218,7 @@ struct State {
 };
 
 class Context {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_NON_HEAP_ALLOCATABLE(Context);
 public:
     using RegisterID = MacroAssembler::RegisterID;
     using SPRegisterID = MacroAssembler::SPRegisterID;
@@ -215,9 +235,12 @@ public:
     UCPURegister& gpr(RegisterID id) { return cpu.gpr(id); }
     UCPURegister& spr(SPRegisterID id) { return cpu.spr(id); }
     double& fpr(FPRegisterID id) { return cpu.fpr(id); }
-    const char* gprName(RegisterID id) { return cpu.gprName(id); }
-    const char* sprName(SPRegisterID id) { return cpu.sprName(id); }
-    const char* fprName(FPRegisterID id) { return cpu.fprName(id); }
+#if CPU(X86_64) || CPU(ARM64)
+    v128_t& vector(FPRegisterID id) { return cpu.vector(id); }
+#endif
+    ASCIILiteral gprName(RegisterID id) { return cpu.gprName(id); }
+    ASCIILiteral sprName(SPRegisterID id) { return cpu.sprName(id); }
+    ASCIILiteral fprName(FPRegisterID id) { return cpu.fprName(id); }
 
     template<typename T> T gpr(RegisterID id) const { return cpu.gpr<T>(id); }
     template<typename T> T spr(SPRegisterID id) const { return cpu.spr<T>(id); }
@@ -238,7 +261,7 @@ public:
     };
 
     bool hasWritesToFlush() { return m_stack.hasWritesToFlush(); }
-    Stack* releaseStack() { return new Stack(WTFMove(m_stack)); }
+    Stack* releaseStack() { return new Stack(WTF::move(m_stack)); }
 
     CPUState& cpu;
 
@@ -246,12 +269,14 @@ private:
     State* m_state;
     Stack m_stack;
 
-    friend JS_EXPORT_PRIVATE void* probeStateForContext(Context&); // Not for general use. This should only be for writing tests.
+    friend JS_EXPORT_PRIVATE void* NODELETE probeStateForContext(Context&); // Not for general use. This should only be for writing tests.
 };
 
-extern "C" void executeJSCJITProbe(State*);
+extern "C" void SYSV_ABI executeJSCJITProbe(State*) REFERENCED_FROM_ASM WTF_INTERNAL;
 
 } // namespace Probe
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(ASSEMBLER)

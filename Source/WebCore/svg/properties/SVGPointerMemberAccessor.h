@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Apple Inc.  All rights reserved.
+ * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,12 +34,12 @@ class SVGPointerMemberAccessor : public SVGMemberAccessor<OwnerType> {
     using Base = SVGMemberAccessor<OwnerType>;
 
 public:
-    SVGPointerMemberAccessor(Ref<PropertyType> OwnerType::*property)
+    SVGPointerMemberAccessor(const Ref<PropertyType> OwnerType::*property)
         : m_property(property)
     {
     }
 
-    Ref<PropertyType>& property(OwnerType& owner) const { return owner.*m_property; }
+    const Ref<PropertyType>& property(OwnerType& owner) const { return owner.*m_property; }
     const Ref<PropertyType>& property(const OwnerType& owner) const { return owner.*m_property; }
 
     void detach(const OwnerType& owner) const override
@@ -53,14 +53,14 @@ public:
     }
 
 protected:
-    template<typename AccessorType, Ref<PropertyType> OwnerType::*property>
+    template<typename AccessorType, auto property>
     static const SVGMemberAccessor<OwnerType>& singleton()
     {
         static NeverDestroyed<AccessorType> propertyAccessor { property };
         return propertyAccessor;
     }
 
-    Ref<PropertyType> OwnerType::*m_property;
+    const Ref<PropertyType> OwnerType::*m_property;
 };
 
 }

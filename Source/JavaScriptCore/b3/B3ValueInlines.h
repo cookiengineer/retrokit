@@ -30,8 +30,10 @@
 #include "B3ArgumentRegValue.h"
 #include "B3AtomicValue.h"
 #include "B3BottomTupleValue.h"
+#include "B3BulkMemoryValue.h"
 #include "B3CCallValue.h"
 #include "B3CheckValue.h"
+#include "B3Const128Value.h"
 #include "B3Const32Value.h"
 #include "B3Const64Value.h"
 #include "B3ConstDoubleValue.h"
@@ -42,16 +44,49 @@
 #include "B3PatchpointValue.h"
 #include "B3PhiChildren.h"
 #include "B3Procedure.h"
+#include "B3SIMDValue.h"
 #include "B3SlotBaseValue.h"
 #include "B3SwitchValue.h"
 #include "B3UpsilonValue.h"
 #include "B3Value.h"
 #include "B3VariableValue.h"
 #include "B3WasmAddressValue.h"
+#include "B3WasmArrayElementValue.h"
+#include "B3WasmArrayGetValue.h"
+#include "B3WasmArrayLengthValue.h"
+#include "B3WasmArrayNewValue.h"
+#include "B3WasmArraySetValue.h"
 #include "B3WasmBoundsCheckValue.h"
+#include "B3WasmRefTypeCheckValue.h"
+#include "B3WasmStructGetValue.h"
+#include "B3WasmStructNewValue.h"
+#include "B3WasmStructSetValue.h"
+#include <array>
 #include <wtf/GraphNodeWorklist.h>
 
 namespace JSC { namespace B3 {
+
+inline constexpr unsigned numberOfB3Opcodes = static_cast<unsigned>(Oops) + 1;
+
+// Effects for opcodes whose effects are a pure function of the opcode. Invalid entries are
+// value-dependent and handled by Value::effectsSlow(). Defined once in B3Value.cpp.
+JS_EXPORT_PRIVATE extern const std::array<Effects, numberOfB3Opcodes> constantEffectsTable;
+
+ALWAYS_INLINE Effects Value::effects() const
+{
+    const Effects& entry = constantEffectsTable[opcode()];
+    if (entry.isValid()) [[likely]]
+        return entry;
+    return effectsSlow();
+}
+
+ALWAYS_INLINE bool Value::mustExecute() const
+{
+    const Effects& entry = constantEffectsTable[opcode()];
+    if (entry.isValid()) [[likely]]
+        return entry.mustExecute();
+    return effectsSlow().mustExecute();
+}
 
 #define DISPATCH_ON_KIND(MACRO) \
     switch (kind().opcode()) { \
@@ -65,14 +100,20 @@ namespace JSC { namespace B3 {
     case Identity: \
     case Opaque: \
     case Neg: \
+    case PurifyNaN: \
     case Clz: \
     case Abs: \
     case Ceil: \
     case Floor: \
+    case FTrunc: \
     case Sqrt: \
     case SExt8: \
     case SExt16: \
     case Trunc: \
+    case TruncHigh: \
+    case Stitch: \
+    case SExt8To64: \
+    case SExt16To64: \
     case SExt32: \
     case ZExt32: \
     case FloatToDouble: \
@@ -85,10 +126,14 @@ namespace JSC { namespace B3 {
     case Add: \
     case Sub: \
     case Mul: \
+    case MulHigh: \
+    case UMulHigh: \
     case Div: \
     case UDiv: \
     case Mod: \
     case UMod: \
+    case FMax: \
+    case FMin: \
     case BitAnd: \
     case BitOr: \
     case BitXor: \
@@ -110,12 +155,16 @@ namespace JSC { namespace B3 {
     case EqualOrUnordered: \
     case Select: \
         return MACRO(Value); \
+    case WasmArrayLength: \
+        return MACRO(WasmArrayLengthValue); \
     case ArgumentReg: \
         return MACRO(ArgumentRegValue); \
     case Const32: \
         return MACRO(Const32Value); \
     case Const64: \
         return MACRO(Const64Value); \
+    case Const128: \
+        return MACRO(Const128Value); \
     case ConstFloat: \
         return MACRO(ConstFloatValue); \
     case ConstDouble: \
@@ -138,6 +187,9 @@ namespace JSC { namespace B3 {
     case Store16: \
     case Store: \
         return MACRO(MemoryValue); \
+    case MemoryCopy: \
+    case MemoryFill: \
+        return MACRO(BulkMemoryValue); \
     case Switch: \
         return MACRO(SwitchValue); \
     case Upsilon: \
@@ -148,6 +200,21 @@ namespace JSC { namespace B3 {
         return MACRO(WasmAddressValue); \
     case WasmBoundsCheck: \
         return MACRO(WasmBoundsCheckValue); \
+    case WasmStructGet: \
+        return MACRO(WasmStructGetValue); \
+    case WasmStructSet: \
+        return MACRO(WasmStructSetValue); \
+    case WasmStructNew: \
+        return MACRO(WasmStructNewValue); \
+    case WasmArrayGet: \
+        return MACRO(WasmArrayGetValue); \
+    case WasmArraySet: \
+        return MACRO(WasmArraySetValue); \
+    case WasmArrayNew: \
+        return MACRO(WasmArrayNewValue); \
+    case WasmRefCast: \
+    case WasmRefTest: \
+        return MACRO(WasmRefTypeCheckValue); \
     case AtomicXchgAdd: \
     case AtomicXchgAnd: \
     case AtomicXchgOr: \
@@ -166,11 +233,89 @@ namespace JSC { namespace B3 {
         return MACRO(CheckValue); \
     case Patchpoint: \
         return MACRO(PatchpointValue); \
+    case VectorExtractLane: \
+    case VectorReplaceLane: \
+    case VectorDupElement: \
+    case VectorEqual: \
+    case VectorNotEqual: \
+    case VectorLessThan: \
+    case VectorLessThanOrEqual: \
+    case VectorBelow: \
+    case VectorBelowOrEqual: \
+    case VectorGreaterThan: \
+    case VectorGreaterThanOrEqual: \
+    case VectorAbove: \
+    case VectorAboveOrEqual: \
+    case VectorAdd: \
+    case VectorSub: \
+    case VectorAddSat: \
+    case VectorSubSat: \
+    case VectorMul: \
+    case VectorMulHigh: \
+    case VectorMulLow: \
+    case VectorDotProduct: \
+    case VectorDiv: \
+    case VectorMin: \
+    case VectorMax: \
+    case VectorPmin: \
+    case VectorPmax: \
+    case VectorNarrow: \
+    case VectorNot: \
+    case VectorAnd: \
+    case VectorAndnot: \
+    case VectorOr: \
+    case VectorXor: \
+    case VectorShl: \
+    case VectorShr: \
+    case VectorAbs: \
+    case VectorNeg: \
+    case VectorPopcnt: \
+    case VectorCeil: \
+    case VectorFloor: \
+    case VectorTrunc: \
+    case VectorTruncSat: \
+    case VectorRelaxedTruncSat: \
+    case VectorConvert: \
+    case VectorConvertLow: \
+    case VectorNearest: \
+    case VectorSqrt: \
+    case VectorExtendLow: \
+    case VectorExtendHigh: \
+    case VectorPromote: \
+    case VectorDemote: \
+    case VectorSplat: \
+    case VectorAnyTrue: \
+    case VectorAllTrue: \
+    case VectorAvgRound: \
+    case VectorBitmask: \
+    case VectorBitwiseSelect: \
+    case VectorExtaddPairwise: \
+    case VectorMulSat: \
+    case VectorSwizzle: \
+    case VectorUnzipEven: \
+    case VectorUnzipOdd: \
+    case VectorZipLower: \
+    case VectorZipHigher: \
+    case VectorTransposeEven: \
+    case VectorTransposeOdd: \
+    case VectorReverse: \
+    case VectorExtractPair: \
+    case VectorRelaxedSwizzle: \
+    case VectorMulByElement: \
+    case VectorRelaxedMAdd: \
+    case VectorRelaxedNMAdd: \
+    case VectorRelaxedLaneSelect: \
+    case VectorRelaxedQ15Mulr: \
+    case VectorRelaxedMin: \
+    case VectorRelaxedMax: \
+    case VectorRelaxedDotI8x16I7x16: \
+    case VectorRelaxedDotI8x16I7x16Add: \
+        return MACRO(SIMDValue); \
     default: \
         RELEASE_ASSERT_NOT_REACHED(); \
     }
 
-ALWAYS_INLINE size_t Value::adjacencyListOffset() const
+ALWAYS_INLINE size_t Value::computeAdjacencyListOffset() const
 {
 #define VALUE_TYPE_SIZE(ValueType) sizeof(ValueType)
     DISPATCH_ON_KIND(VALUE_TYPE_SIZE);
@@ -179,6 +324,7 @@ ALWAYS_INLINE size_t Value::adjacencyListOffset() const
 
 ALWAYS_INLINE Value* Value::cloneImpl() const
 {
+    ASSERT(!kind().isCloningForbidden());
 #define VALUE_TYPE_CLONE(ValueType) allocate<ValueType>(*static_cast<const ValueType*>(this))
     DISPATCH_ON_KIND(VALUE_TYPE_CLONE);
 #undef VALUE_TYPE_CLONE
@@ -220,6 +366,11 @@ inline bool Value::isConstant() const
 inline bool Value::isInteger() const
 {
     return type() == Int32 || type() == Int64;
+}
+
+inline bool Value::isFP() const
+{
+    return type() == Float || type() == Double;
 }
 
 inline bool Value::hasInt32() const
@@ -311,6 +462,21 @@ inline float Value::asFloat() const
     return as<ConstFloatValue>()->value();
 }
 
+inline bool Value::hasV128() const
+{
+    return !!as<Const128Value>();
+}
+
+inline v128_t Value::asV128() const
+{
+    return as<Const128Value>()->value();
+}
+
+inline bool Value::isV128(v128_t value) const
+{
+    return hasV128() && bitEquals(asV128(), value);
+}
+
 inline bool Value::hasNumber() const
 {
     return hasInt() || hasDouble() || hasFloat();
@@ -320,11 +486,11 @@ inline bool Value::isNegativeZero() const
 {
     if (hasDouble()) {
         double value = asDouble();
-        return !value && std::signbit(value);
+        return value == 0.0 && std::signbit(value);
     }
     if (hasFloat()) {
         float value = asFloat();
-        return !value && std::signbit(value);
+        return value == 0.0f && std::signbit(value);
     }
     return false;
 }
@@ -334,13 +500,13 @@ inline bool Value::isRepresentableAs() const
 {
     switch (opcode()) {
     case Const32:
-        return B3::isRepresentableAs<T>(asInt32());
+        return WTF::isRepresentableAs<T>(asInt32());
     case Const64:
-        return B3::isRepresentableAs<T>(asInt64());
+        return WTF::isRepresentableAs<T>(asInt64());
     case ConstDouble:
-        return B3::isRepresentableAs<T>(asDouble());
+        return WTF::isRepresentableAs<T>(asDouble());
     case ConstFloat:
-        return B3::isRepresentableAs<T>(asFloat());
+        return WTF::isRepresentableAs<T>(asFloat());
     default:
         return false;
     }
@@ -384,6 +550,16 @@ void Value::walk(const Functor& functor, PhiChildren* phiChildren)
             return;
         }
     }
+}
+
+inline bool Value::isSIMDValue() const
+{
+    return !!as<SIMDValue>();
+}
+
+inline SIMDValue* Value::asSIMDValue()
+{
+    return as<SIMDValue>();
 }
 
 } } // namespace JSC::B3

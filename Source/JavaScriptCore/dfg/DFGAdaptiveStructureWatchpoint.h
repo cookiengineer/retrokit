@@ -39,7 +39,7 @@ public:
     AdaptiveStructureWatchpoint(const ObjectPropertyCondition&, CodeBlock*);
     AdaptiveStructureWatchpoint();
     
-    const ObjectPropertyCondition& key() const { return m_key; }
+    const ObjectPropertyCondition& key() const LIFETIME_BOUND { return m_key; }
 
     void initialize(const ObjectPropertyCondition&, CodeBlock*);
 
@@ -48,9 +48,8 @@ public:
     void fireInternal(VM&, const FireDetail&);
 
 private:
-    // Own destructor may not be called. Keep members trivially destructible.
-    JSC_WATCHPOINT_FIELD(PackedCellPtr<CodeBlock>, m_codeBlock);
-    JSC_WATCHPOINT_FIELD(ObjectPropertyCondition, m_key);
+    PackedCellPtr<CodeBlock> m_codeBlock;
+    ObjectPropertyCondition m_key;
 };
 
 } } // namespace JSC::DFG

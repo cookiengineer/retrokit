@@ -25,14 +25,15 @@
 
 #include "config.h"
 #include "ContextMenu.h"
+#include <wtf/TZoneMallocInlines.h>
 
 #if ENABLE(CONTEXT_MENUS)
 
 namespace WebCore {
 
-ContextMenu::ContextMenu()
-{
-}
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ContextMenu);
+
+ContextMenu::ContextMenu() = default;
 
 } // namespace WebCore
 

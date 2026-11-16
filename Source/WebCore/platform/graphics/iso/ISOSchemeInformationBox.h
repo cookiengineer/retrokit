@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,19 +25,22 @@
 
 #pragma once
 
-#include "ISOBox.h"
+#include <WebCore/ISOBox.h>
 
 namespace WebCore {
 
 class WEBCORE_EXPORT ISOSchemeInformationBox final : public ISOBox {
 public:
-    static FourCC boxTypeName() { return "schi"; }
+    ISOSchemeInformationBox();
+    ~ISOSchemeInformationBox();
 
-    const ISOBox* schemeSpecificData() const { return m_schemeSpecificData.get(); }
+    static FourCC boxTypeName() { return std::span { "schi" }; }
 
-private:
+    const ISOBox* schemeSpecificData() const LIFETIME_BOUND { return m_schemeSpecificData.get(); }
+
     bool parse(JSC::DataView&, unsigned& offset) override;
 
+private:
     std::unique_ptr<ISOBox> m_schemeSpecificData;
 };
 

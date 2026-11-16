@@ -12,6 +12,7 @@
 #include <json/json.h>
 #include <string.h>
 #include "common/platform.h"
+#include "common/unsafe_buffers.h"
 #if defined(ANGLE_PLATFORM_ANDROID)
 #    include <android/log.h>
 #    include <unistd.h>
@@ -37,7 +38,8 @@ namespace angle
 #    define INFO(...) __android_log_print(ANDROID_LOG_INFO, "ANGLE", __VA_ARGS__)
 #    define DEBUG(...) __android_log_print(ANDROID_LOG_DEBUG, "ANGLE", __VA_ARGS__)
 #    ifdef ANGLE_FEATURE_UTIL_LOG_VERBOSE
-#        define VERBOSE(...) __android_log_print(ANDROID_LOG_VERBOSE, "ANGLE", __VA_ARGS__)
+#        define VERBOSE(...) \
+            ANGLE_UNSAFE_TODO(__android_log_print(ANDROID_LOG_VERBOSE, "ANGLE", __VA_ARGS__))
 #    else
 #        define VERBOSE(...) ((void)0)
 #    endif
@@ -47,7 +49,7 @@ namespace angle
 #    define INFO(...) printf(__VA_ARGS__)
 #    define DEBUG(...) printf(__VA_ARGS__)
 // Uncomment for debugging.
-//#    define VERBOSE(...) printf(__VA_ARGS__)
+// #    define VERBOSE(...) printf(__VA_ARGS__)
 #    define VERBOSE(...)
 #endif  // defined(ANDROID)
 
@@ -130,7 +132,11 @@ class StringPart
 {
   public:
     StringPart() = default;
-    explicit StringPart(const std::string part) : mPart(part), mWildcard(false) {}
+    explicit StringPart(const std::string &part) : mPart(part), mWildcard(false) {}
+    StringPart(const StringPart &)            = default;
+    StringPart(StringPart &&)                 = default;
+    StringPart &operator=(const StringPart &) = default;
+    StringPart &operator=(StringPart &&)      = default;
     ~StringPart() = default;
 
     static StringPart FromJson(const Json::Value &parent, const char *key)
@@ -268,12 +274,12 @@ class Version
         : mMajor(major), mMinor(minor), mSubminor(subminor), mPatch(patch)
     {}
 
-    Version()                = default;
-    Version(const Version &) = default;
-    Version(Version &&)      = default;
+    Version()                           = default;
+    Version(const Version &)            = default;
+    Version(Version &&)                 = default;
     Version &operator=(const Version &) = default;
-    Version &operator=(Version &&) = default;
-    ~Version()                     = default;
+    Version &operator=(Version &&)      = default;
+    ~Version()                          = default;
 
     static Version FromJson(const Json::Value &jObject)
     {
@@ -807,7 +813,7 @@ ANGLE_EXPORT bool ANGLEGetSystemInfo(SystemInfoHandle *systemInfoHandle)
         return false;
     }
 
-    // TODO (http://anglebug.com/3036): Restore the real code
+    // TODO (http://anglebug.com/42261721): Restore the real code
     angle::SystemInfo *systemInfo = new angle::SystemInfo;
     systemInfo->gpus.resize(1);
     GPUDeviceInfo &gpu = systemInfo->gpus[0];

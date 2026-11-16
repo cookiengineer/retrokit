@@ -26,26 +26,27 @@
 
 #pragma once
 
+#include "BytecodeBasicBlock.h"
 #include "BytecodeGeneratorBase.h"
 #include "CallLinkInfo.h"
 #include "ICStatusMap.h"
+#include "Instruction.h"
 #include "InstructionStream.h"
-#include "StructureStubInfo.h"
+#include "PropertyInlineCache.h"
 #include "WasmOps.h"
 
 namespace JSC {
 
 class BytecodeGraph;
 
-struct Instruction;
-
+template<typename InstructionStreamType>
 class BytecodeDumperBase {
 public:
     virtual ~BytecodeDumperBase()
     {
     }
 
-    void printLocationAndOp(InstructionStream::Offset location, const char* op);
+    void printLocationAndOp(typename InstructionStreamType::Offset location, const char* op);
 
     template<typename T>
     void dumpOperand(const char* operandName, T operand, bool isFirst = false)
@@ -67,7 +68,7 @@ public:
 
 protected:
     virtual CString registerName(VirtualRegister) const = 0;
-    virtual int outOfLineJumpOffset(InstructionStream::Offset) const = 0;
+    virtual int outOfLineJumpOffset(typename InstructionStreamType::Offset) const = 0;
 
     BytecodeDumperBase(PrintStream& out)
         : m_out(out)
@@ -75,13 +76,15 @@ protected:
     }
 
     PrintStream& m_out;
-    InstructionStream::Offset m_currentLocation { 0 };
+    typename InstructionStreamType::Offset m_currentLocation { 0 };
 };
 
+extern template class BytecodeDumperBase<JSInstructionStream>;
+
 template<class Block>
-class BytecodeDumper : public BytecodeDumperBase {
+class BytecodeDumper : public BytecodeDumperBase<JSInstructionStream> {
 public:
-    static void dumpBytecode(Block*, PrintStream& out, const InstructionStream::Ref& it, const ICStatusMap& = ICStatusMap());
+    static void dumpBytecode(Block*, PrintStream& out, const JSInstructionStream::Ref& it, const ICStatusMap& = ICStatusMap());
 
     BytecodeDumper(Block* block, PrintStream& out)
         : BytecodeDumperBase(out)
@@ -94,10 +97,10 @@ public:
 protected:
     Block* block() const { return m_block; }
 
-    void dumpBytecode(const InstructionStream::Ref& it, const ICStatusMap&);
+    void dumpBytecode(const JSInstructionStream::Ref& it, const ICStatusMap&);
 
     CString registerName(VirtualRegister) const override;
-    int outOfLineJumpOffset(InstructionStream::Offset offset) const override;
+    int outOfLineJumpOffset(JSInstructionStream::Offset) const override;
 
 private:
     virtual CString constantName(VirtualRegister) const;
@@ -105,11 +108,13 @@ private:
     Block* m_block;
 };
 
+extern template class BytecodeDumper<CodeBlock>;
+
 template<class Block>
 class CodeBlockBytecodeDumper final : public BytecodeDumper<Block> {
 public:
-    static void dumpBlock(Block*, const InstructionStream&, PrintStream& out, const ICStatusMap& = ICStatusMap());
-    static void dumpGraph(Block*, const InstructionStream&, BytecodeGraph&, PrintStream& out = WTF::dataFile(), const ICStatusMap& = ICStatusMap());
+    static void dumpBlock(Block*, const JSInstructionStream&, PrintStream& out, const ICStatusMap& = ICStatusMap());
+    static void dumpGraph(Block*, const JSInstructionStream&, BytecodeGraph&, PrintStream& out = WTF::dataFile(), const ICStatusMap& = ICStatusMap());
 
     void dumpIdentifiers();
     void dumpConstants();
@@ -120,32 +125,12 @@ public:
 private:
     using BytecodeDumper<Block>::BytecodeDumper;
 
-    ALWAYS_INLINE VM& vm() const;
+    ALWAYS_INLINE VM& NODELETE vm() const;
 
     const Identifier& identifier(int index) const;
 };
 
-#if ENABLE(WEBASSEMBLY)
-
-namespace Wasm {
-
-class FunctionCodeBlock;
-struct ModuleInformation;
-
-class BytecodeDumper final : public JSC::BytecodeDumper<FunctionCodeBlock> {
-public:
-    static void dumpBlock(FunctionCodeBlock*, const ModuleInformation&, PrintStream& out);
-
-private:
-    using JSC::BytecodeDumper<FunctionCodeBlock>::BytecodeDumper;
-
-    void dumpConstants();
-    CString constantName(VirtualRegister index) const final;
-    CString formatConstant(Type, uint64_t) const;
-};
-
-} // namespace Wasm
-
-#endif // ENABLE(WEBASSEMBLY)
+extern template class CodeBlockBytecodeDumper<UnlinkedCodeBlockGenerator>;
+extern template class CodeBlockBytecodeDumper<CodeBlock>;
 
 }

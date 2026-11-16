@@ -29,15 +29,17 @@
 #if ENABLE(DFG_JIT)
 
 #include "DFGAbstractInterpreterInlines.h"
-#include "DFGBlockMapInlines.h"
+#include "DFGClobberize.h"
 #include "DFGDoesGC.h"
 #include "DFGGraph.h"
 #include "DFGInPlaceAbstractState.h"
 #include "DFGInsertionSet.h"
 #include "DFGPhase.h"
 #include "JSCInlines.h"
+#include "StructureID.h"
 #include <wtf/CommaPrinter.h>
 #include <wtf/HashSet.h>
+#include <wtf/IndexMap.h>
 
 namespace JSC { namespace DFG {
 
@@ -66,21 +68,20 @@ enum class PhaseMode {
     Global
 };
 
+// FIXME(rdar://177100632): Document barrier placement invariants expected of nodes for this phase
+// and improve barrier-related phases overall.
 template<PhaseMode mode>
 class StoreBarrierInsertionPhase : public Phase {
 public:
     StoreBarrierInsertionPhase(Graph& graph)
-        : Phase(graph, mode == PhaseMode::Fast ? "fast store barrier insertion" : "global store barrier insertion")
+        : Phase(graph, mode == PhaseMode::Fast ? "fast store barrier insertion"_s : "global store barrier insertion"_s)
         , m_insertionSet(graph)
     {
     }
     
     bool run()
     {
-        if (DFGStoreBarrierInsertionPhaseInternal::verbose) {
-            dataLog("Starting store barrier insertion:\n");
-            m_graph.dump();
-        }
+        dataLogIf(DFGStoreBarrierInsertionPhaseInternal::verbose, "Starting store barrier insertion:\n", m_graph);
         
         switch (mode) {
         case PhaseMode::Fast: {
@@ -95,8 +96,8 @@ public:
         case PhaseMode::Global: {
             DFG_ASSERT(m_graph, nullptr, m_graph.m_form == SSA);
 
-            m_state = makeUnique<InPlaceAbstractState>(m_graph);
-            m_interpreter = makeUnique<AbstractInterpreter<InPlaceAbstractState>>(m_graph, *m_state);
+            m_state = makeUniqueWithoutFastMallocCheck<InPlaceAbstractState>(m_graph);
+            m_interpreter = makeUniqueWithoutFastMallocCheck<AbstractInterpreter<InPlaceAbstractState>>(m_graph, *m_state);
             
             m_isConverged = false;
             
@@ -107,8 +108,8 @@ public:
             // towards believing that all nodes need barriers. "Needing a barrier" is like
             // saying that the node is in a past epoch. "Not needing a barrier" is like saying
             // that the node is in the current epoch.
-            m_stateAtHead = makeUnique<BlockMap<HashSet<Node*>>>(m_graph);
-            m_stateAtTail = makeUnique<BlockMap<HashSet<Node*>>>(m_graph);
+            m_stateAtHead = makeUniqueWithoutFastMallocCheck<IndexMap<BasicBlock*, UncheckedKeyHashSet<Node*>>>(m_graph.numBlocks());
+            m_stateAtTail = makeUniqueWithoutFastMallocCheck<IndexMap<BasicBlock*, UncheckedKeyHashSet<Node*>>>(m_graph.numBlocks());
             
             BlockList postOrder = m_graph.blocksInPostOrder();
             
@@ -170,9 +171,8 @@ private:
     bool handleBlock(BasicBlock* block)
     {
         if (DFGStoreBarrierInsertionPhaseInternal::verbose) {
-            dataLog("Dealing with block ", pointerDump(block), "\n");
-            if (reallyInsertBarriers())
-                dataLog("    Really inserting barriers.\n");
+            dataLogLn("Dealing with block ", pointerDump(block));
+            dataLogLnIf(reallyInsertBarriers(), "    Really inserting barriers.");
         }
         
         m_currentEpoch = Epoch::first();
@@ -204,20 +204,34 @@ private:
         }
 
         bool result = true;
-        
+
+        UncheckedKeyHashMap<AbstractHeap, Node*> potentialStackEscapes;
+        auto escape = [&](Node* node) {
+            if (mode == PhaseMode::Global) {
+                m_interpreter->phiChildren()->forAllTransitiveIncomingValues(
+                    node,
+                    [&](Node* incoming) {
+                        incoming->setEpoch(Epoch());
+                    });
+            } else
+                node->setEpoch(Epoch());
+        };
+
         for (m_nodeIndex = 0; m_nodeIndex < block->size(); ++m_nodeIndex) {
             m_node = block->at(m_nodeIndex);
             
             if (DFGStoreBarrierInsertionPhaseInternal::verbose) {
-                dataLog(
-                    "    ", m_currentEpoch, ": Looking at node ", m_node, " with children: ");
-                CommaPrinter comma;
-                m_graph.doToChildren(
-                    m_node,
-                    [&] (Edge edge) {
-                        dataLog(comma, edge, " (", edge->epoch(), ")");
-                    });
-                dataLog("\n");
+                WTF::dataFile().atomically([&](auto&) {
+                    dataLog(
+                        "    ", m_currentEpoch, ": Looking at node ", m_node, " with children: ");
+                    CommaPrinter comma;
+                    m_graph.doToChildren(
+                        m_node,
+                        [&] (Edge edge) {
+                            dataLog(comma, edge, " (", edge->epoch(), ")");
+                        });
+                    dataLogLn();
+                });
             }
             
             if (mode == PhaseMode::Global) {
@@ -231,15 +245,16 @@ private:
             switch (m_node->op()) {
             case PutByValDirect:
             case PutByVal:
-            case PutByValAlias: {
+            case PutByValDirectResolved: {
                 switch (m_node->arrayMode().modeForPut().type()) {
                 case Array::Generic:
+                case Array::Float16Array:
                 case Array::BigInt64Array:
                 case Array::BigUint64Array: {
                     Edge child1 = m_graph.varArgChild(m_node, 0);
-                    Edge child3 = m_graph.varArgChild(m_node, 2);
                     if (!m_graph.m_slowPutByVal.contains(m_node) && (child1.useKind() == CellUse || child1.useKind() == KnownCellUse))
-                        considerBarrier(child1, child3);
+                        // FIXME: there are some cases where we can avoid a store barrier by considering the value https://bugs.webkit.org/show_bug.cgi?id=230377
+                        considerBarrier(child1);
                     break;
                 }
                 case Array::Contiguous:
@@ -255,11 +270,14 @@ private:
                 }
                 break;
             }
-                
-            case ArrayPush: {
+
+            case ArrayPush:
+            case ArrayUnshift: {
                 switch (m_node->arrayMode().type()) {
                 case Array::Contiguous:
-                case Array::ArrayStorage: {
+                case Array::ArrayStorage:
+                case Array::SlowPutArrayStorage:
+                case Array::ForceExit: {
                     unsigned elementOffset = 2;
                     unsigned elementCount = m_node->numChildren() - elementOffset;
                     Edge& arrayEdge = m_graph.varArgChild(m_node, 1);
@@ -274,10 +292,19 @@ private:
                 }
                 break;
             }
-                
+
+            case ArraySortCommit: {
+                considerBarrier(m_node->child1());
+                break;
+            }
+            case ArraySortCompact: {
+                considerBarrier(Edge(m_node, KnownCellUse));
+                break;
+            }
             case PutPrivateName: {
                 if (!m_graph.m_slowPutByVal.contains(m_node) && (m_node->child1().useKind() == CellUse || m_node->child1().useKind() == KnownCellUse))
-                    considerBarrier(m_node->child1(), m_node->child3());
+                    // FIXME: there are some cases where we can avoid a store barrier by considering the value https://bugs.webkit.org/show_bug.cgi?id=230377
+                    considerBarrier(m_node->child1());
                 break;
             }
 
@@ -292,7 +319,8 @@ private:
             case PutById:
             case PutByIdFlush:
             case PutByIdDirect:
-            case PutStructure: {
+            case PutStructure:
+            case PutByIdMegamorphic: {
                 considerBarrier(m_node->child1());
                 break;
             }
@@ -304,6 +332,11 @@ private:
                 // https://bugs.webkit.org/show_bug.cgi?id=209396
                 if (isCell(m_node->child1().useKind()))
                     considerBarrier(m_node->child1());
+                break;
+            }
+
+            case RegExpTestInline: {
+                considerBarrier(m_node->child1());
                 break;
             }
 
@@ -319,9 +352,39 @@ private:
                 considerBarrier(m_node->child1(), m_node->child2());
                 break;
             }
+
+            case PerformPromiseThenOneHandler: {
+                considerBarrier(m_node->child1(), m_node->child2());
+                considerBarrier(m_node->child1(), m_node->child3());
+                break;
+            }
+
+            case PutCellButterflySlot: {
+                considerBarrier(m_node->child1(), m_node->child3());
+                break;
+            }
+
+            case EnumeratorPutByVal:
+            case PutByValMegamorphic: {
+                Edge child1 = m_graph.varArgChild(m_node, 0);
+                considerBarrier(child1);
+                break;
+            }
                 
-            case MultiPutByOffset:
+            case MultiPutByOffset: {
+                // This node may cause a transition before performing a store if it reallocates
+                // storage. This is different from the usual assumption in this phase a node's fast
+                // path either does GC or performs a store, but not both within the same node (a
+                // slow path call to an operation always performs its own barrier). In this special
+                // case, bump the epoch before considering the barrier.
+                if (m_node->multiPutByOffsetData().reallocatesStorage())
+                    m_currentEpoch.bump();
+                considerBarrier(m_node->child1());
+                break;
+            }
+
             case MultiDeleteByOffset: {
+                // This node may cause a transition but does not GC.
                 considerBarrier(m_node->child1());
                 break;
             }
@@ -340,7 +403,7 @@ private:
                 considerBarrier(m_node->child1(), m_node->child2());
                 break;
             }
-                
+
             case NukeStructureAndSetButterfly: {
                 considerBarrier(m_node->child1());
                 break;
@@ -350,33 +413,45 @@ private:
                 break;
             }
             
-            if (doesGC(m_graph, m_node))
+            if (doesGC(m_graph, m_node)) {
                 m_currentEpoch.bump();
+                potentialStackEscapes.clear();
+            }
             
             switch (m_node->op()) {
             case NewObject:
-            case NewGenerator:
-            case NewAsyncGenerator:
             case NewArray:
             case NewArrayWithSize:
+            case NewArrayWithButterfly:
+            case NewButterflyWithSize:
+            case NewArrayWithSizeAndStructure:
             case NewArrayBuffer:
             case NewInternalFieldObject:
+            case NewPromise:
             case NewTypedArray:
-            case NewRegexp:
+            case NewTypedArrayBuffer:
+            case NewRegExp:
+            case NewRegExpUntyped:
             case NewStringObject:
+            case NewMap:
+            case NewSet:
+            case NewWeakMap:
+            case NewWeakSet:
             case NewSymbol:
             case MaterializeNewObject:
+            case MaterializeNewArrayWithButterfly:
             case MaterializeCreateActivation:
             case MakeRope:
+            case MakeAtomString:
             case CreateActivation:
             case CreateDirectArguments:
             case CreateScopedArguments:
             case CreateClonedArguments:
-            case CreateArgumentsButterfly:
             case NewFunction:
             case NewGeneratorFunction:
             case NewAsyncGeneratorFunction:
             case NewAsyncFunction:
+            case NewBoundFunction:
             case AllocatePropertyStorage:
             case ReallocatePropertyStorage:
                 // Nodes that allocate get to set their epoch because for those nodes we know
@@ -396,18 +471,116 @@ private:
                 m_node->setEpoch(Epoch());
                 break;
             }
+
+            {
+                // We need to consider nodes that might leak objects we've allocated into the heap.
+                // Once an object is leaked, we can no longer elide barriers on it.
+                // Let's motivate this requirement with an example:
+                // D@30: JSConstant(Int32: 42)
+                // D@35: GetStack(arg1)
+                // D@21: CheckStructure(Cell:D@35, [%ED:Object])
+                // D@23: GetStack(arg2)
+                // D@25: NewObject()
+                // D@33: PutByOffset(KnownCell:D@25, KnownCell:D@25, Check:Untyped:Kill:D@30, id0{x})
+                // D@34: PutStructure(KnownCell:D@25, %DN:Object -> %Ch:Object)
+                // D@40: PutByOffset(KnownCell:D@35, KnownCell:D@35, Check:Untyped:D@25, id1{p})
+                // D@45: FencedStoreBarrier(Check:KnownCell:Kill:D@35)
+                // <-- P1
+                // D@41: PutByOffset(KnownCell:D@25, KnownCell:D@25, Check:Untyped:Kill:D@23, id2{y})
+                // <-- P2
+                //
+                // Let's say at the program point P1, the barrier @45 didn't fire because @35 is already grey.
+                // Because @35 is grey, at P1, let's say the concurrent marker marks and traces @35, and also
+                // marks and traces @25. So at P1, the concurrent marker blackens @35 and @25.
+                // Now, let's consider program point P2.
+                // If we didn't barrier @25 at P2, we will never see that @25 points to @23, because @25 is already
+                // black. This is because after @25 was allocated, it escaped into the heap (at @40). Once an allocation
+                // escapes into the heap, it can be blackened at any point by the concurrent marker.
+                // So this analysis must mark an allocation that escapes to the heap as being part of the primordial
+                // epoch.
+
+                auto readFunc = [&] (const AbstractHeap& heap) {
+                    if (!heap.overlaps(Stack))
+                        return;
+                    potentialStackEscapes.removeIf([&] (const auto& entry) {
+                        if (entry.key.overlaps(heap)) {
+                            escape(entry.value);
+                            return true;
+                        }
+                        return false;
+                    });
+                };
+
+                bool wroteHeapOrStack = false;
+                unsigned numberOfPreciseStackWrites = 0;
+                AbstractHeap preciseStackWrite;
+                auto writeFunc = [&] (const AbstractHeap& heap) {
+                    wroteHeapOrStack |= heap.overlaps(Heap) || heap.overlaps(Stack);
+                    if (heap.kind() == Stack && !heap.payload().isTop()) {
+                        ++numberOfPreciseStackWrites;
+                        preciseStackWrite = heap;
+                    }
+                };
+                clobberize(m_graph, m_node, readFunc, writeFunc, NoOpClobberize());
+
+                if (wroteHeapOrStack) {
+                    auto escapeToTheStack = [&] (Node* node) {
+                        if (node->epoch() == m_currentEpoch) {
+                            RELEASE_ASSERT(!!preciseStackWrite);
+                            RELEASE_ASSERT(numberOfPreciseStackWrites == 1);
+                            potentialStackEscapes.set(preciseStackWrite, node);
+                        }
+                    };
+
+                    switch (m_node->op()) {
+                    case PutStructure:
+                    case MultiDeleteByOffset:
+                        break;
+                    case PutInternalField:
+                        escape(m_node->child2().node());
+                        break;
+                    case PutByOffset:
+                        escape(m_node->child3().node());
+                        break;
+                    case MultiPutByOffset:
+                        escape(m_node->child2().node());
+                        break;
+                    case PutClosureVar:
+                        escape(m_node->child2().node());
+                        break;
+                    case NukeStructureAndSetButterfly:
+                        escape(m_node->child2().node());
+                        break;
+                    case PerformPromiseThenOneHandler:
+                        escape(m_node->child2().node());
+                        escape(m_node->child3().node());
+                        break;
+                    case SetLocal:
+                    case PutStack:
+                        escapeToTheStack(m_node->child1().node());
+                        break;
+                    default:
+                        m_graph.doToChildren(m_node, [&] (Edge edge) {
+                            escape(edge.node());
+                        });
+                        break;
+                    }
+                }
+            }
             
             if (DFGStoreBarrierInsertionPhaseInternal::verbose) {
-                dataLog(
-                    "    ", m_currentEpoch, ": Done with node ", m_node, " (", m_node->epoch(),
-                    ") with children: ");
-                CommaPrinter comma;
-                m_graph.doToChildren(
-                    m_node,
-                    [&] (Edge edge) {
-                        dataLog(comma, edge, " (", edge->epoch(), ")");
-                    });
-                dataLog("\n");
+                WTF::dataFile().atomically([&](auto&) {
+                    dataLog(
+                        "    ", m_currentEpoch, ": Done with node ", m_node, " (", m_node->epoch(),
+                        ") with children: ");
+                    CommaPrinter comma;
+                    m_graph.doToChildren(
+                        m_node,
+                        [&] (Edge edge) {
+                            dataLog(comma, edge, " (", edge->epoch(), ")");
+                        });
+                    dataLogLn();
+                });
             }
             
             if (mode == PhaseMode::Global) {
@@ -416,6 +589,12 @@ private:
                     break;
                 }
             }
+        }
+
+        {
+            for (auto* node : potentialStackEscapes.values())
+                escape(node);
+            potentialStackEscapes.clear();
         }
         
         if (mode == PhaseMode::Global)
@@ -429,8 +608,7 @@ private:
     
     void considerBarrier(Edge base, Edge child)
     {
-        if (DFGStoreBarrierInsertionPhaseInternal::verbose)
-            dataLog("        Considering adding barrier ", base, " => ", child, "\n");
+        dataLogLnIf(DFGStoreBarrierInsertionPhaseInternal::verbose, "        Considering adding barrier ", base, " => ", child);
         
         // We don't need a store barrier if the child is guaranteed to not be a cell.
         switch (mode) {
@@ -438,8 +616,7 @@ private:
             // Don't try too hard because it's too expensive to run AI.
             if (child->hasConstant()) {
                 if (!child->asJSValue().isCell()) {
-                    if (DFGStoreBarrierInsertionPhaseInternal::verbose)
-                        dataLog("            Rejecting because of constant type.\n");
+                    dataLogLnIf(DFGStoreBarrierInsertionPhaseInternal::verbose, "            Rejecting because of constant type.");
                     return;
                 }
             } else {
@@ -449,8 +626,7 @@ private:
                 case NodeResultInt32:
                 case NodeResultInt52:
                 case NodeResultBoolean:
-                    if (DFGStoreBarrierInsertionPhaseInternal::verbose)
-                        dataLog("            Rejecting because of result type.\n");
+                    dataLogLnIf(DFGStoreBarrierInsertionPhaseInternal::verbose, "            Rejecting because of result type.");
                     return;
                 default:
                     break;
@@ -463,8 +639,7 @@ private:
             // Go into rage mode to eliminate any chance of a barrier with a non-cell child. We
             // can afford to keep around AI in Global mode.
             if (!m_interpreter->needsTypeCheck(child, ~SpecCell)) {
-                if (DFGStoreBarrierInsertionPhaseInternal::verbose)
-                    dataLog("            Rejecting because of AI type.\n");
+                dataLogLnIf(DFGStoreBarrierInsertionPhaseInternal::verbose, "            Rejecting because of AI type.");
                 return;
             }
             break;
@@ -475,21 +650,18 @@ private:
     
     void considerBarrier(Edge base)
     {
-        if (DFGStoreBarrierInsertionPhaseInternal::verbose)
-            dataLog("        Considering adding barrier on ", base, "\n");
+        dataLogLnIf(DFGStoreBarrierInsertionPhaseInternal::verbose, "        Considering adding barrier on ", base);
         
         // We don't need a store barrier if the epoch of the base is identical to the current
         // epoch. That means that we either just allocated the object and so it's guaranteed to
         // be in newgen, or we just ran a barrier on it so it's guaranteed to be remembered
         // already.
         if (base->epoch() == m_currentEpoch) {
-            if (DFGStoreBarrierInsertionPhaseInternal::verbose)
-                dataLog("            Rejecting because it's in the current epoch.\n");
+            dataLogLnIf(DFGStoreBarrierInsertionPhaseInternal::verbose, "            Rejecting because it's in the current epoch.");
             return;
         }
         
-        if (DFGStoreBarrierInsertionPhaseInternal::verbose)
-            dataLog("            Inserting barrier.\n");
+        dataLogLnIf(DFGStoreBarrierInsertionPhaseInternal::verbose, "            Inserting barrier.");
         insertBarrier(m_nodeIndex + 1, base);
     }
 
@@ -521,7 +693,7 @@ private:
         m_insertionSet.insertNode(nodeIndex, SpecNone, FencedStoreBarrier, origin, base);
     }
     
-    bool reallyInsertBarriers()
+    bool NODELETE reallyInsertBarriers()
     {
         return mode == PhaseMode::Fast || m_isConverged;
     }
@@ -534,8 +706,8 @@ private:
     // Things we only use in Global mode.
     std::unique_ptr<InPlaceAbstractState> m_state;
     std::unique_ptr<AbstractInterpreter<InPlaceAbstractState>> m_interpreter;
-    std::unique_ptr<BlockMap<HashSet<Node*>>> m_stateAtHead;
-    std::unique_ptr<BlockMap<HashSet<Node*>>> m_stateAtTail;
+    std::unique_ptr<IndexMap<BasicBlock*, UncheckedKeyHashSet<Node*>>> m_stateAtHead;
+    std::unique_ptr<IndexMap<BasicBlock*, UncheckedKeyHashSet<Node*>>> m_stateAtTail;
     bool m_isConverged;
 };
 

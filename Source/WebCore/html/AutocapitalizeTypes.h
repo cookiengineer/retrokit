@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2020 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2011-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,8 +25,6 @@
 
 #pragma once
 
-#include <wtf/EnumTraits.h>
-
 namespace WebCore {
 
 enum class AutocapitalizeType : uint8_t {
@@ -38,18 +36,3 @@ enum class AutocapitalizeType : uint8_t {
 };
 
 } // namespace WebCore
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::AutocapitalizeType> {
-    using values = EnumValues<
-        WebCore::AutocapitalizeType,
-        WebCore::AutocapitalizeType::Default,
-        WebCore::AutocapitalizeType::None,
-        WebCore::AutocapitalizeType::Words,
-        WebCore::AutocapitalizeType::Sentences,
-        WebCore::AutocapitalizeType::AllCharacters
-    >;
-};
-
-} // namespace WTF

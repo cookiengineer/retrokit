@@ -23,17 +23,26 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef NetworkCacheSpeculativeLoadManager_h
-#define NetworkCacheSpeculativeLoadManager_h
-
-#if ENABLE(NETWORK_CACHE_SPECULATIVE_REVALIDATION)
+#pragma once
 
 #include "NetworkCache.h"
 #include "NetworkCacheStorage.h"
 #include <WebCore/ResourceRequest.h>
+#include <wtf/CheckedPtr.h>
 #include <wtf/HashMap.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
+
+namespace WebKit {
+namespace NetworkCache {
+class SpeculativeLoadManager;
+}
+}
+
+namespace WebCore {
+enum class AdvancedPrivacyProtections : uint16_t;
+}
 
 namespace WebKit {
 
@@ -44,13 +53,14 @@ class SpeculativeLoad;
 class SubresourceInfo;
 class SubresourcesEntry;
 
-class SpeculativeLoadManager : public CanMakeWeakPtr<SpeculativeLoadManager> {
-    WTF_MAKE_FAST_ALLOCATED;
+class SpeculativeLoadManager final : public CanMakeWeakPtr<SpeculativeLoadManager>, public CanMakeCheckedPtr<SpeculativeLoadManager> {
+    WTF_MAKE_TZONE_ALLOCATED(SpeculativeLoadManager);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SpeculativeLoadManager);
 public:
     explicit SpeculativeLoadManager(Cache&, Storage&);
     ~SpeculativeLoadManager();
 
-    void registerLoad(const GlobalFrameID&, const WebCore::ResourceRequest&, const Key& resourceKey, std::optional<NavigatingToAppBoundDomain>);
+    void registerLoad(GlobalFrameID, const WebCore::ResourceRequest&, const Key& resourceKey, std::optional<NavigatingToAppBoundDomain>, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections>);
     void registerMainResourceLoadResponse(const GlobalFrameID&, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&);
 
     typedef Function<void (std::unique_ptr<Entry>)> RetrieveCompletionHandler;
@@ -63,24 +73,24 @@ private:
 
     static bool shouldRegisterLoad(const WebCore::ResourceRequest&);
     void addPreloadedEntry(std::unique_ptr<Entry>, const GlobalFrameID&, std::optional<WebCore::ResourceRequest>&& revalidationRequest = std::nullopt);
-    void preloadEntry(const Key&, const SubresourceInfo&, const GlobalFrameID&, std::optional<NavigatingToAppBoundDomain>);
+    void preloadEntry(const Key&, const SubresourceInfo&, const GlobalFrameID&, std::optional<NavigatingToAppBoundDomain>, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections>);
     void retrieveEntryFromStorage(const SubresourceInfo&, RetrieveCompletionHandler&&);
-    void revalidateSubresource(const SubresourceInfo&, std::unique_ptr<Entry>, const GlobalFrameID&, std::optional<NavigatingToAppBoundDomain>);
+    void revalidateSubresource(const SubresourceInfo&, std::unique_ptr<Entry>, const GlobalFrameID&, std::optional<NavigatingToAppBoundDomain>, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections>);
     void preconnectForSubresource(const SubresourceInfo&, Entry*, const GlobalFrameID&, std::optional<NavigatingToAppBoundDomain>);
     bool satisfyPendingRequests(const Key&, Entry*);
     void retrieveSubresourcesEntry(const Key& storageKey, WTF::Function<void (std::unique_ptr<SubresourcesEntry>)>&&);
-    void startSpeculativeRevalidation(const GlobalFrameID&, SubresourcesEntry&, bool, std::optional<NavigatingToAppBoundDomain>);
+    void startSpeculativeRevalidation(const GlobalFrameID&, SubresourcesEntry&, bool, std::optional<NavigatingToAppBoundDomain>, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections>);
 
     static bool canUsePreloadedEntry(const PreloadedEntry&, const WebCore::ResourceRequest& actualRequest);
     static bool canUsePendingPreload(const SpeculativeLoad&, const WebCore::ResourceRequest& actualRequest);
 
-    Cache& m_cache;
-    Storage& m_storage;
+    const WeakRef<Cache> m_cache;
+    ThreadSafeWeakRef<Storage> m_storage;
 
     class PendingFrameLoad;
-    HashMap<GlobalFrameID, RefPtr<PendingFrameLoad>> m_pendingFrameLoads;
+    HashMap<GlobalFrameID, Ref<PendingFrameLoad>> m_pendingFrameLoads;
 
-    HashMap<Key, std::unique_ptr<SpeculativeLoad>> m_pendingPreloads;
+    HashMap<Key, RefPtr<SpeculativeLoad>> m_pendingPreloads;
     HashMap<Key, std::unique_ptr<Vector<RetrieveCompletionHandler>>> m_pendingRetrieveRequests;
 
     HashMap<Key, std::unique_ptr<PreloadedEntry>> m_preloadedEntries;
@@ -92,7 +102,3 @@ private:
 } // namespace NetworkCache
 
 } // namespace WebKit
-
-#endif // ENABLE(NETWORK_CACHE_SPECULATIVE_REVALIDATION)
-
-#endif // NetworkCacheSpeculativeLoadManager_h

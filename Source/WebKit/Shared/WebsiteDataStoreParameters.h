@@ -28,48 +28,27 @@
 #include "NetworkSessionCreationParameters.h"
 #include "SandboxExtension.h"
 #include <WebCore/Cookie.h>
-#include <WebCore/StorageQuotaManager.h>
 #include <pal/SessionID.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
-namespace IPC {
-class Decoder;
-class Encoder;
-}
-
 namespace WebKit {
 
 struct WebsiteDataStoreParameters {
-    WebsiteDataStoreParameters() = default;
-    WebsiteDataStoreParameters(WebsiteDataStoreParameters&&) = default;
-    WebsiteDataStoreParameters& operator=(WebsiteDataStoreParameters&&) = default;
-    ~WebsiteDataStoreParameters();
-
-    void encode(IPC::Encoder&) const;
-    static std::optional<WebsiteDataStoreParameters> decode(IPC::Decoder&);
-
     Vector<uint8_t> uiProcessCookieStorageIdentifier;
+    String cookieStoragePath;
     SandboxExtension::Handle cookieStoragePathExtensionHandle;
     NetworkSessionCreationParameters networkSessionParameters;
 
-    String indexedDatabaseDirectory;
-    SandboxExtension::Handle indexedDatabaseDirectoryExtensionHandle;
-
-#if ENABLE(SERVICE_WORKER)
-    String serviceWorkerRegistrationDirectory;
-    SandboxExtension::Handle serviceWorkerRegistrationDirectoryExtensionHandle;
-    bool serviceWorkerProcessTerminationDelayEnabled { true };
+#if PLATFORM(IOS_FAMILY)
+    std::optional<SandboxExtension::Handle> cookieStorageDirectoryExtensionHandle;
+    String containerCachesDirectory;
+    std::optional<SandboxExtension::Handle> containerCachesDirectoryExtensionHandle;
+    std::optional<SandboxExtension::Handle> parentBundleDirectoryExtensionHandle;
+    std::optional<SandboxExtension::Handle> tempDirectoryExtensionHandle;
+    // FIXME: this extension should be removed
+    std::optional<SandboxExtension::Handle> tempDirectoryRootExtensionHandle;
 #endif
-
-    String localStorageDirectory;
-    SandboxExtension::Handle localStorageDirectoryExtensionHandle;
-
-    String cacheStorageDirectory;
-    SandboxExtension::Handle cacheStorageDirectoryExtensionHandle;
-
-    uint64_t perOriginStorageQuota { WebCore::StorageQuotaManager::defaultQuota() };
-    uint64_t perThirdPartyOriginStorageQuota { WebCore::StorageQuotaManager::defaultThirdPartyQuota() };
 };
 
 } // namespace WebKit

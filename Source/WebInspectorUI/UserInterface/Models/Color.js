@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009, 2013 Apple Inc.  All rights reserved.
+ * Copyright (C) 2009-2022 Apple Inc. All rights reserved.
  * Copyright (C) 2009 Joseph Pecoraro
  *
  * Redistribution and use in source and binary forms, with or without
@@ -207,6 +207,75 @@ WI.Color = class Color
         }
 
         return null;
+    }
+
+    static fromStringBestMatchingSuggestedFormatAndGamut(colorString, {suggestedFormat, suggestedGamut, forceSuggestedFormatAndGamut} = {})
+    {
+        let newColor = WI.Color.fromString(colorString);
+
+        if (forceSuggestedFormatAndGamut) {
+            newColor.format = suggestedFormat;
+            newColor.gamut = suggestedGamut;
+            return newColor;
+        }
+
+        // Match the suggested gamut if we can do so losslessly.
+        if (suggestedGamut === WI.Color.Gamut.DisplayP3 && newColor.gamut !== WI.Color.Gamut.DisplayP3)
+            newColor.gamut = WI.Color.Gamut.DisplayP3;
+        else if (suggestedGamut !== WI.Color.Gamut.DisplayP3 && newColor.gamut === WI.Color.Gamut.DisplayP3 && !newColor.isOutsideSRGB())
+            newColor.gamut = WI.Color.Gamut.SRGB;
+
+        // Non-sRGB gamuts can only be expressed in the Color Function format.
+        if (newColor.gamut !== WI.Color.Gamut.SRGB)
+            return newColor;
+
+        // Match as closely as possible the suggested format, and progressively adjust the format (e.g. ShortHEX -> HEX
+        // -> HEXAlpha) if an exact match would be lossy.
+        switch (suggestedFormat) {
+        case WI.Color.Format.Original:
+            console.assert(false, "No color should have a format of 'Original'.");
+            break;
+
+        case WI.Color.Format.Keyword:
+            // Use the format of the color string as-provided.
+            break;
+
+        case WI.Color.Format.HEX:
+            newColor.format = newColor.simple ? WI.Color.Format.HEX : WI.Color.Format.HEXAlpha;
+            break;
+
+        case WI.Color.Format.ShortHEX:
+            if (newColor.canBeSerializedAsShortHEX())
+                newColor.format = newColor.simple ? WI.Color.Format.ShortHEX : WI.Color.Format.ShortHEXAlpha;
+            else
+                newColor.format = newColor.simple ? WI.Color.Format.HEX : WI.Color.Format.HEXAlpha;
+            break;
+
+        case WI.Color.Format.ShortHEXAlpha:
+            newColor.format = newColor.canBeSerializedAsShortHEX() ? WI.Color.Format.ShortHEXAlpha : WI.Color.Format.HEXAlpha;
+            break;
+
+        case WI.Color.Format.RGB:
+            newColor.format = newColor.simple ? WI.Color.Format.RGB : WI.Color.Format.RGBA;
+            break;
+
+        case WI.Color.Format.HSL:
+            newColor.format = newColor.simple ? WI.Color.Format.HSL : WI.Color.Format.HSLA;
+            break;
+
+        case WI.Color.Format.HEXAlpha:
+        case WI.Color.Format.RGBA:
+        case WI.Color.Format.HSLA:
+        case WI.Color.Format.ColorFunction:
+            newColor.format = suggestedFormat;
+            break;
+
+        default:
+            console.assert(false, "Should not be reached.", suggestedFormat);
+            break;
+        }
+
+        return newColor;
     }
 
     static rgb2hsl(r, g, b)
@@ -467,6 +536,19 @@ WI.Color = class Color
         return Number.constrain(Math.round(value), 0, 255);
     }
 
+    static contrastComplianceForRatio(ratio, {isLargeText} = {})
+    {
+        let aaaThreshold = isLargeText ? WI.Color.ContrastThreshold.AA : WI.Color.ContrastThreshold.AAA;
+        if (ratio >= aaaThreshold)
+            return WI.Color.ContrastCompliance.AAA;
+
+        let aaThreshold = isLargeText ? WI.Color.ContrastThreshold.AALargeText : WI.Color.ContrastThreshold.AA;
+        if (ratio >= aaThreshold)
+            return WI.Color.ContrastCompliance.AA;
+
+        return WI.Color.ContrastCompliance.Fail;
+    }
+
     // Public
 
     nextFormat(format)
@@ -700,6 +782,43 @@ WI.Color = class Color
         return true;
     }
 
+    getNextValidHEXFormat()
+    {
+        const hexFormats = [
+            {format: WI.Color.Format.ShortHEX, title: WI.UIString("Format: Short Hex")},
+            {format: WI.Color.Format.ShortHEXAlpha, title: WI.UIString("Format: Short Hex with Alpha")},
+            {format: WI.Color.Format.HEX, title: WI.UIString("Format: Hex")},
+            {format: WI.Color.Format.HEXAlpha, title: WI.UIString("Format: Hex with Alpha")},
+        ];
+
+        let hexMatchesColor = (hexInfo) => {
+            let nextIsSimple = hexInfo.format === WI.Color.Format.ShortHEX || hexInfo.format === WI.Color.Format.HEX;
+            if (nextIsSimple && !this.simple)
+                return false;
+
+            let nextIsShort = hexInfo.format === WI.Color.Format.ShortHEX || hexInfo.format === WI.Color.Format.ShortHEXAlpha;
+            if (nextIsShort && !this.canBeSerializedAsShortHEX())
+                return false;
+
+            return true;
+        };
+
+        let currentColorIsHEX = hexFormats.some((info) => info.format === this.format);
+
+        for (let i = 0; i < hexFormats.length; ++i) {
+            if (currentColorIsHEX && this.format !== hexFormats[i].format)
+                continue;
+
+            for (let j = ~~currentColorIsHEX; j < hexFormats.length; ++j) {
+                let nextIndex = (i + j) % hexFormats.length;
+                if (hexMatchesColor(hexFormats[nextIndex]))
+                    return hexFormats[nextIndex];
+            }
+            return null;
+        }
+        return hexFormats[0];
+    }
+
     // Private
 
     _toOriginalString()
@@ -813,6 +932,53 @@ WI.Color = class Color
             hex = "0" + hex;
         return hex;
     }
+
+    // https://www.w3.org/TR/WCAG20/#relativeluminancedef
+    relativeLuminance()
+    {
+        let [r, g, b] = WI.Color._toLinearLight(this.normalizedRGB);
+        return (0.2126729 * r) + (0.7151522 * g) + (0.0721750 * b);
+    }
+
+    contrastRatio(other)
+    {
+        console.assert(other instanceof WI.Color, other);
+
+        let l1 = this.relativeLuminance();
+        let l2 = other.relativeLuminance();
+
+        if (l1 < l2)
+            [l1, l2] = [l2, l1];
+
+        return (l1 + 0.05) / (l2 + 0.05);
+    }
+
+    contrastCompliance(other, {isLargeText} = {})
+    {
+        let ratio = this.contrastRatio(other);
+        return WI.Color.contrastComplianceForRatio(ratio, {isLargeText});
+    }
+
+    blendOverBackground(backgroundColor)
+    {
+        console.assert(backgroundColor instanceof WI.Color, backgroundColor);
+
+        if (this.alpha === 1)
+            return this.copy();
+
+        let foregroundRGB = this.normalizedRGB;
+        let backgroundRGB = backgroundColor.normalizedRGB;
+        let alpha = this.alpha;
+
+        let blendedRGB = [
+            (foregroundRGB[0] * alpha) + (backgroundRGB[0] * (1 - alpha)),
+            (foregroundRGB[1] * alpha) + (backgroundRGB[1] * (1 - alpha)),
+            (foregroundRGB[2] * alpha) + (backgroundRGB[2] * (1 - alpha)),
+        ];
+
+        return new WI.Color(WI.Color.Format.ColorFunction, blendedRGB, this.gamut);
+    }
+
 };
 
 WI.Color.Format = {
@@ -840,7 +1006,20 @@ WI.Color.FunctionNames = new Set([
     "hsl",
     "hsla",
     "color",
+    "color-mix",
 ]);
+
+WI.Color.ContrastThreshold = {
+    AAA: 7,
+    AA: 4.5,
+    AALargeText: 3,
+};
+
+WI.Color.ContrastCompliance = {
+    AAA: "AAA",
+    AA: "AA",
+    Fail: "Fail",
+};
 
 WI.Color.Keywords = {
     "aliceblue": [240, 248, 255, 1],
@@ -862,7 +1041,7 @@ WI.Color.Keywords = {
     "coral": [255, 127, 80, 1],
     "cornflowerblue": [100, 149, 237, 1],
     "cornsilk": [255, 248, 220, 1],
-    "crimson": [237, 164, 61, 1],
+    "crimson": [220, 20, 60, 1],
     "cyan": [0, 255, 255, 1],
     "darkblue": [0, 0, 139, 1],
     "darkcyan": [0, 139, 139, 1],

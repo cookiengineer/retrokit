@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003, 2008, 2009 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2024 Apple Inc. All rights reserved.
  * Copyright 2010, The Android Open Source Project
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,9 +26,10 @@
 
 #pragma once
 
-#include "Bridge.h"
 #include <JavaScriptCore/JSString.h>
+#include <wtf/Noncopyable.h>
 #include <wtf/RefCounted.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 
 namespace JSC  {
@@ -36,7 +37,7 @@ namespace JSC  {
 class ArgList;
 class Identifier;
 class JSGlobalObject;
-class PropertyNameArray;
+class PropertyNameArrayBuilder;
 class RuntimeMethod;
 
 namespace Bindings {
@@ -47,7 +48,7 @@ class RootObject;
 class RuntimeObject;
 
 class Field {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(Field);
 public:
     virtual JSValue valueFromInstance(JSGlobalObject*, const Instance*) const = 0;
     virtual bool setValueToInstance(JSGlobalObject*, const Instance*, JSValue) const = 0;
@@ -55,8 +56,21 @@ public:
     virtual ~Field() = default;
 };
 
+class Method {
+    WTF_MAKE_TZONE_ALLOCATED(Method);
+    WTF_MAKE_NONCOPYABLE(Method);
+public:
+    Method() = default;
+    virtual int numParameters() const = 0;
+
+    virtual ~Method() = default;
+
+    virtual bool isObjcMethod() const { return false; }
+};
+
 class Class {
-    WTF_MAKE_NONCOPYABLE(Class); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(Class);
+    WTF_MAKE_NONCOPYABLE(Class);
 public:
     Class() = default;
     virtual Method* methodNamed(PropertyName, Instance*) const = 0;
@@ -64,6 +78,8 @@ public:
     virtual JSValue fallbackObject(JSGlobalObject*, Instance*, PropertyName) { return jsUndefined(); }
 
     virtual ~Class() = default;
+
+    virtual bool isObjcClass() const { return false; }
 };
 
 class Instance : public RefCounted<Instance> {
@@ -78,7 +94,7 @@ public:
 
     virtual Class* getClass() const = 0;
     WEBCORE_EXPORT JSObject* createRuntimeObject(JSGlobalObject*);
-    void willInvalidateRuntimeObject();
+    void NODELETE willInvalidateRuntimeObject();
 
     // Returns false if the value was not set successfully.
     virtual bool setValueOfUndefinedField(JSGlobalObject*, PropertyName, JSValue) { return false; }
@@ -92,18 +108,20 @@ public:
     virtual bool supportsConstruct() const { return false; }
     virtual JSValue invokeConstruct(JSGlobalObject*, CallFrame*, const ArgList&) { return JSValue(); }
 
-    virtual void getPropertyNames(JSGlobalObject*, PropertyNameArray&) { }
+    virtual void getPropertyNames(JSGlobalObject*, PropertyNameArrayBuilder&) { }
 
     virtual JSValue defaultValue(JSGlobalObject*, PreferredPrimitiveType) const = 0;
 
     virtual JSValue valueOf(JSGlobalObject* exec) const = 0;
 
-    RootObject* rootObject() const;
+    RootObject* NODELETE rootObject() const;
 
     WEBCORE_EXPORT virtual ~Instance();
 
     virtual bool getOwnPropertySlot(JSObject*, JSGlobalObject*, PropertyName, PropertySlot&) { return false; }
     virtual bool put(JSObject*, JSGlobalObject*, PropertyName, JSValue, PutPropertySlot&) { return false; }
+
+    virtual bool isObjcInstance() const { return false; }
 
 protected:
     virtual void virtualBegin() { }

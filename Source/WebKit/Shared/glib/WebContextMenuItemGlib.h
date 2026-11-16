@@ -25,9 +25,10 @@
 
 #pragma once
 
+#if ENABLE(CONTEXT_MENUS)
 #include "WebContextMenuItemData.h"
+#include <wtf/TZoneMalloc.h>
 #include <wtf/glib/GRefPtr.h>
-#include <wtf/glib/GUniquePtr.h>
 
 #if PLATFORM(GTK) && !USE(GTK4)
 typedef struct _GtkAction GtkAction;
@@ -37,7 +38,7 @@ typedef struct _GAction GAction;
 namespace WebKit {
 
 class WebContextMenuItemGlib final : public WebContextMenuItemData {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(WebContextMenuItemGlib);
 public:
     WebContextMenuItemGlib(WebCore::ContextMenuItemType, WebCore::ContextMenuAction, const String& title, bool enabled = true, bool checked = false);
     WebContextMenuItemGlib(const WebContextMenuItemData&);
@@ -49,17 +50,16 @@ public:
     ~WebContextMenuItemGlib();
 
     // We don't use the SubmenuType internally, so check if we have submenu items.
-    WebCore::ContextMenuItemType type() const { return m_submenuItems.isEmpty() ? WebContextMenuItemData::type() : WebCore::SubmenuType; }
+    WebCore::ContextMenuItemType type() const { return m_submenuItems.isEmpty() ? WebContextMenuItemData::type() : WebCore::ContextMenuItemType::Submenu; }
     GAction* gAction() const { return m_gAction.get(); }
     GVariant* gActionTarget() const { return m_gActionTarget.get(); }
-    const Vector<WebContextMenuItemGlib>& submenuItems() const { return m_submenuItems; }
+    const Vector<WebContextMenuItemGlib>& submenuItems() const LIFETIME_BOUND { return m_submenuItems; }
 
 #if PLATFORM(GTK) && !USE(GTK4)
     GtkAction* gtkAction() const { return m_gtkAction; }
 #endif
 
 private:
-    GUniquePtr<char> buildActionName() const;
     void createActionIfNeeded();
 
     GRefPtr<GAction> m_gAction;
@@ -71,3 +71,5 @@ private:
 };
 
 } // namespace WebKit
+
+#endif // ENABLE(CONTEXT_MENUS)

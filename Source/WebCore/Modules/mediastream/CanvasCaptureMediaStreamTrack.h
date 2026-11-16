@@ -27,61 +27,82 @@
 #if ENABLE(MEDIA_STREAM)
 
 #include "CanvasBase.h"
+#include "CanvasObserver.h"
 #include "MediaStreamTrack.h"
 #include "Timer.h"
+#include <wtf/CheckedRef.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/TypeCasts.h>
+#include <wtf/WeakPtr.h>
+
+#if USE(GSTREAMER)
+#include "GRefPtrGStreamer.h"
+#endif
 
 namespace WebCore {
 
 class Document;
 class HTMLCanvasElement;
-class Image;
 
 class CanvasCaptureMediaStreamTrack final : public MediaStreamTrack {
-    WTF_MAKE_ISO_ALLOCATED(CanvasCaptureMediaStreamTrack);
+    WTF_MAKE_TZONE_ALLOCATED(CanvasCaptureMediaStreamTrack);
 public:
     static Ref<CanvasCaptureMediaStreamTrack> create(Document&, Ref<HTMLCanvasElement>&&, std::optional<double>&& frameRequestRate);
 
     HTMLCanvasElement& canvas() { return m_canvas.get(); }
     void requestFrame() { static_cast<Source&>(source()).requestFrame(); }
 
+    RefPtr<VideoFrame> grabFrame();
+
     RefPtr<MediaStreamTrack> clone() final;
 
 private:
-    const char* activeDOMObjectName() const override;
-
-    class Source final : public RealtimeMediaSource, private CanvasObserver {
+    class Source final : public RealtimeMediaSource, private CanvasObserver, private CanvasDisplayBufferObserver, public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<Source, WTF::DestructionThread::MainRunLoop>, public CanMakeThreadSafeCheckedPtr<Source> {
+        WTF_MAKE_TZONE_ALLOCATED(Source);
+        WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(Source);
     public:
         static Ref<Source> create(HTMLCanvasElement&, std::optional<double>&& frameRequestRate);
         
         void requestFrame() { m_shouldEmitFrame = true; }
         std::optional<double> frameRequestRate() const { return m_frameRequestRate; }
+        RefPtr<VideoFrame> grabFrame();
+
+        WTF_ABSTRACT_THREAD_SAFE_REF_COUNTED_AND_CAN_MAKE_WEAK_PTR_IMPL;
+
+        // CanvasObserver.
+        OVERRIDE_ABSTRACT_CAN_MAKE_CHECKEDPTR(CanMakeThreadSafeCheckedPtr);
 
     private:
         Source(HTMLCanvasElement&, std::optional<double>&&);
 
-        // CanvasObserver API
-        void canvasChanged(CanvasBase&, const std::optional<FloatRect>&) final;
+        // CanvasObserver overrides.
+        void canvasChanged(CanvasBase&, const FloatRect&) final;
         void canvasResized(CanvasBase&) final;
         void canvasDestroyed(CanvasBase&) final;
 
-        // RealtimeMediaSource API
+        // CanvasDisplayBufferObserver overrides.
+        void canvasDisplayBufferPrepared(CanvasBase&) final;
+
+        // RealtimeMediaSource overrides.
         void startProducingData() final;
         void stopProducingData()  final;
         const RealtimeMediaSourceCapabilities& capabilities() final { return RealtimeMediaSourceCapabilities::emptyCapabilities(); }
         const RealtimeMediaSourceSettings& settings() final;
         void settingsDidChange(OptionSet<RealtimeMediaSourceSettings::Flag>) final;
-
+        void scheduleCaptureCanvas();
         void captureCanvas();
-        void requestFrameTimerFired();
+        void NODELETE requestFrameTimerFired();
+        CaptureDevice::DeviceType deviceType() const final { return CaptureDevice::DeviceType::Canvas; }
 
         bool m_shouldEmitFrame { true };
         std::optional<double> m_frameRequestRate;
         Timer m_requestFrameTimer;
         Timer m_captureCanvasTimer;
         std::optional<RealtimeMediaSourceSettings> m_currentSettings;
-        HTMLCanvasElement* m_canvas;
-        RefPtr<Image> m_currentImage;
+        WeakPtr<HTMLCanvasElement, WeakPtrImplWithEventTargetData> m_canvas;
+#if USE(GSTREAMER)
+        GRefPtr<GstClock> m_clock;
+#endif
     };
 
     CanvasCaptureMediaStreamTrack(Document&, Ref<HTMLCanvasElement>&&, Ref<Source>&&);
@@ -89,7 +110,7 @@ private:
 
     bool isCanvas() const final { return true; }
 
-    Ref<HTMLCanvasElement> m_canvas;
+    const Ref<HTMLCanvasElement> m_canvas;
 };
 
 }

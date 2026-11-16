@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -36,28 +36,26 @@ class SetConstructor final : public InternalFunction {
 public:
     typedef InternalFunction Base;
 
-    static SetConstructor* create(VM& vm, Structure* structure, SetPrototype* setPrototype, GetterSetter* speciesSymbol)
+    static SetConstructor* create(VM& vm, Structure* structure, SetPrototype* setPrototype)
     {
-        SetConstructor* constructor = new (NotNull, allocateCell<SetConstructor>(vm.heap)) SetConstructor(vm, structure);
-        constructor->finishCreation(vm, setPrototype, speciesSymbol);
+        SetConstructor* constructor = new (NotNull, allocateCell<SetConstructor>(vm)) SetConstructor(vm, structure);
+        constructor->finishCreation(vm, setPrototype);
         return constructor;
     }
 
     DECLARE_INFO;
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(InternalFunctionType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
 private:
     SetConstructor(VM&, Structure*);
-    void finishCreation(VM&, SetPrototype*, GetterSetter* speciesSymbol);
+    void finishCreation(VM&, SetPrototype*);
 };
 STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(SetConstructor, InternalFunction);
 
-JSC_DECLARE_HOST_FUNCTION(setPrivateFuncSetBucketHead);
-JSC_DECLARE_HOST_FUNCTION(setPrivateFuncSetBucketNext);
-JSC_DECLARE_HOST_FUNCTION(setPrivateFuncSetBucketKey);
+JSC_DECLARE_HOST_FUNCTION(setPrivateFuncSetStorage);
+JSC_DECLARE_HOST_FUNCTION(setPrivateFuncSetIterationNext);
+JSC_DECLARE_HOST_FUNCTION(setPrivateFuncSetIterationEntry);
+JSC_DECLARE_HOST_FUNCTION(setPrivateFuncSetIterationEntryKey);
 
 } // namespace JSC

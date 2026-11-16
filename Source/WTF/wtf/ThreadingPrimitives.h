@@ -72,7 +72,7 @@ using ThreadSpecificKey = DWORD;
 
 class Mutex final {
     WTF_MAKE_NONCOPYABLE(Mutex);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(Mutex);
 public:
     constexpr Mutex() = default;
     WTF_EXPORT_PRIVATE ~Mutex();
@@ -81,7 +81,7 @@ public:
     WTF_EXPORT_PRIVATE bool tryLock();
     WTF_EXPORT_PRIVATE void unlock();
 
-    PlatformMutex& impl() { return m_mutex; }
+    PlatformMutex& impl() LIFETIME_BOUND { return m_mutex; }
 
 private:
 #if USE(PTHREADS)
@@ -95,7 +95,7 @@ typedef Locker<Mutex> MutexLocker;
 
 class ThreadCondition final {
     WTF_MAKE_NONCOPYABLE(ThreadCondition);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(ThreadCondition);
 public:
     constexpr ThreadCondition() = default;
     WTF_EXPORT_PRIVATE ~ThreadCondition();

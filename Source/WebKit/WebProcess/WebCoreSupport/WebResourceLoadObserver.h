@@ -25,8 +25,6 @@
 
 #pragma once
 
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
-
 #include <WebCore/PageIdentifier.h>
 #include <WebCore/ResourceLoadObserver.h>
 #include <WebCore/ResourceLoadStatistics.h>
@@ -45,18 +43,18 @@ public:
     WebResourceLoadObserver(WebCore::ResourceLoadStatistics::IsEphemeral);
     ~WebResourceLoadObserver();
 
-    void logSubresourceLoading(const WebCore::Frame*, const WebCore::ResourceRequest& newRequest, const WebCore::ResourceResponse& redirectResponse, FetchDestinationIsScriptLike) final;
+    void logSubresourceLoading(const WebCore::LocalFrame*, const WebCore::ResourceRequest& newRequest, const WebCore::ResourceResponse& redirectResponse, FetchDestinationIsScriptLike) final;
     void logWebSocketLoading(const URL& targetURL, const URL& mainFrameURL) final;
     void logUserInteractionWithReducedTimeResolution(const WebCore::Document&) final;
     void logFontLoad(const WebCore::Document&, const String& familyName, bool loadStatus) final;
     void logCanvasRead(const WebCore::Document&) final;
     void logCanvasWriteOrMeasure(const WebCore::Document&, const String& textWritten) final;
-    void logNavigatorAPIAccessed(const WebCore::Document&, const WebCore::ResourceLoadStatistics::NavigatorAPI) final;
-    void logScreenAPIAccessed(const WebCore::Document&, const WebCore::ResourceLoadStatistics::ScreenAPI) final;
+    void logNavigatorAPIAccessed(const WebCore::Document&, const WebCore::NavigatorAPIsAccessed) final;
+    void logScreenAPIAccessed(const WebCore::Document&, const WebCore::ScreenAPIsAccessed) final;
     void logSubresourceLoadingForTesting(const WebCore::RegistrableDomain& firstPartyDomain, const WebCore::RegistrableDomain& thirdPartyDomain, bool shouldScheduleNotification);
 
 #if !RELEASE_LOG_DISABLED
-    static void setShouldLogUserInteraction(bool);
+    static void NODELETE setShouldLogUserInteraction(bool);
 #endif
 
     String statisticsForURL(const URL&) final;
@@ -65,8 +63,8 @@ public:
     
     bool hasStatistics() const final { return !m_resourceStatisticsMap.isEmpty(); }
 
-    void setDomainsWithUserInteraction(HashSet<WebCore::RegistrableDomain>&& domains) final { m_domainsWithUserInteraction = WTFMove(domains); }
-    void setDomainsWithCrossPageStorageAccess(HashMap<TopFrameDomain, SubFrameDomain>&&, CompletionHandler<void()>&&) final;
+    void setDomainsWithUserInteraction(HashSet<WebCore::RegistrableDomain>&& domains) final { m_domainsWithUserInteraction = WTF::move(domains); }
+    void setDomainsWithCrossPageStorageAccess(HashMap<TopFrameDomain, Vector<SubFrameDomain>>&&, CompletionHandler<void()>&&) final;
     bool hasHadUserInteraction(const WebCore::RegistrableDomain&) const final;
     bool hasCrossPageStorageAccess(const SubFrameDomain&, const TopFrameDomain&) const final;
 
@@ -95,5 +93,3 @@ private:
 };
 
 } // namespace WebKit
-
-#endif // ENABLE(RESOURCE_LOAD_STATISTICS)

@@ -27,44 +27,78 @@
 
 #include "PropertyCascade.h"
 #include "StyleBuilderState.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
+class CSSCustomPropertyValue;
+enum class CSSWideKeyword : uint8_t;
+struct CSSRegisteredCustomProperty;
+
 namespace Style {
 
+class CustomProperty;
+
 class Builder {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(Builder);
 public:
-    Builder(RenderStyle&, BuilderContext&&, const MatchResult&, OptionSet<CascadeLevel>, PropertyCascade::IncludedProperties = PropertyCascade::IncludedProperties::All);
+    Builder(Style::ComputedStyle&, BuilderContext&&, const MatchResult&, PropertyCascade::IncludedProperties&& = PropertyCascade::normalProperties(), const HashMap<AnimatableCSSProperty, EnumSet<PropertyCascade::AnimationSource>>* animatedProperties = nullptr);
     ~Builder();
 
     void applyAllProperties();
+    void applyTopPriorityProperties();
     void applyHighPriorityProperties();
-    void applyLowPriorityProperties();
+    void applyNonHighPriorityProperties();
+    void adjustAfterApplying();
 
     void applyProperty(CSSPropertyID propertyID) { applyProperties(propertyID, propertyID); }
-    void applyCustomProperty(const String& name);
+    void applyCustomProperty(const AtomString& name);
 
-    void applyPropertyValue(CSSPropertyID, CSSValue*);
+    using CustomPropertyOrKeyword = Variant<Ref<const Style::CustomProperty>, CSSWideKeyword>;
+
+    RefPtr<const CustomProperty> resolveCustomPropertyForContainerQueries(const CSSCustomPropertyValue&);
+    std::optional<CustomPropertyOrKeyword> resolveFunctionResult();
 
     BuilderState& state() { return m_state; }
+    const MatchResult& matchResult() const { return m_cascade.matchResult(); }
+
+    ValueOrReference<HashSet<AnimatableCSSProperty>> overriddenAnimatedProperties() const { return m_cascade.overriddenAnimatedProperties(); }
 
 private:
     void applyProperties(int firstProperty, int lastProperty);
-    void applyDeferredProperties();
+    void applyLogicalGroupProperties();
     void applyCustomProperties();
+    void applyCustomPropertyImpl(const AtomString&, const PropertyCascade::Property&);
+    void applyCustomPropertyFromCallingContext(const AtomString&);
 
     enum CustomPropertyCycleTracking { Enabled = 0, Disabled };
     template<CustomPropertyCycleTracking trackCycles>
     void applyPropertiesImpl(int firstProperty, int lastProperty);
     void applyCascadeProperty(const PropertyCascade::Property&);
-    void applyProperty(CSSPropertyID, CSSValue&, SelectorChecker::LinkMatchMask);
+    bool applyRollbackCascadeProperty(const PropertyCascade&, CSSPropertyID, SelectorChecker::LinkMatchMask);
+    bool applyRollbackCascadeCustomProperty(const PropertyCascade&, const AtomString&);
+    void applyProperty(CSSPropertyID, CSSValue&, SelectorChecker::LinkMatchMask, PropertyCascade::Origin);
+    void applyCustomProperty(const AtomString& name, CustomPropertyOrKeyword&&);
 
-    Ref<CSSValue> resolveValue(CSSPropertyID, CSSValue&);
-    RefPtr<CSSValue> resolvedVariableValue(CSSPropertyID, const CSSValue&);
+    Ref<CSSValue> resolveSubstitutionFunctions(CSSPropertyID, CSSValue&);
+    std::optional<CustomPropertyOrKeyword> resolveCustomPropertyValue(CSSCustomPropertyValue&);
+
+    void applyPageSizeDescriptor(CSSValue&);
+
+    const PropertyCascade* ensureRollbackCascadeForRevert() LIFETIME_BOUND;
+    const PropertyCascade* ensureRollbackCascadeForRevertLayer() LIFETIME_BOUND;
+    const PropertyCascade* ensureRollbackCascadeForRevertRule() LIFETIME_BOUND;
+    const PropertyCascade& parentCascadeForRollback() LIFETIME_BOUND;
+
+    using RollbackCascadeKey = std::tuple<const PropertyCascade*, unsigned, unsigned, unsigned, bool>;
+    RollbackCascadeKey makeRollbackCascadeKey(const PropertyCascade& parentCascade, PropertyCascade::Origin, ScopeOrdinal = ScopeOrdinal::Element, CascadeLayerPriority = 0);
+    RollbackCascadeKey makeRollbackCascadeKeyForRevertRule(const PropertyCascade& parentCascade);
 
     const PropertyCascade m_cascade;
-    BuilderState m_state;
+    // Rollback cascades are build on demand to resolve 'revert' and 'revert-layer' keywords.
+    HashMap<RollbackCascadeKey, std::unique_ptr<const PropertyCascade>> m_rollbackCascades;
+
+    const UniqueRef<BuilderState> m_state;
 };
 
 }

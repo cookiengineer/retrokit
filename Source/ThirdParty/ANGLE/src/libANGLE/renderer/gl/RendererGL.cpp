@@ -7,10 +7,13 @@
 // RendererGL.cpp: Implements the class methods for RendererGL.
 
 #include "libANGLE/renderer/gl/RendererGL.h"
+#include "common/unsafe_buffers.h"
 
 #include <EGL/eglext.h>
+#include <thread>
 
 #include "common/debug.h"
+#include "common/system_utils.h"
 #include "libANGLE/AttributeMap.h"
 #include "libANGLE/Context.h"
 #include "libANGLE/Display.h"
@@ -57,10 +60,15 @@ void SetMaxShaderCompilerThreads(const rx::FunctionsGL *functions, GLuint count)
 
 #if defined(ANGLE_PLATFORM_ANDROID)
 const char *kIgnoredErrors[] = {
-    // Wrong error message on Android Q Pixel 2. http://anglebug.com/3491
+    // Wrong error message on Android Q Pixel 2. http://anglebug.com/42262155
     "FreeAllocationOnTimestamp - Reference to buffer created from "
     "different context without a share list. Application failed to pass "
     "share_context to eglCreateContext. Results are undefined.",
+    // http://crbug.com/1348684
+    "UpdateTimestamp - Reference to buffer created from different context without a share list. "
+    "Application failed to pass share_context to eglCreateContext. Results are undefined.",
+    "Attempt to use resource over contexts without enabling context sharing. App must pass a "
+    "share_context to eglCreateContext() to share resources.",
 };
 #endif  // defined(ANGLE_PLATFORM_ANDROID)
 
@@ -91,7 +99,7 @@ static void INTERNAL_GL_APIENTRY LogGLDebugMessage(GLenum source,
     {
         for (const char *&err : kIgnoredErrors)
         {
-            if (strncmp(err, message, length) == 0)
+            if (ANGLE_UNSAFE_TODO(strncmp(err, message, length)) == 0)
             {
                 // There is only one ignored message right now and it is quite spammy, around 3MB
                 // for a complete end2end tests run, so don't print it even as a warning.
@@ -117,7 +125,7 @@ static void INTERNAL_GL_APIENTRY LogGLDebugMessage(GLenum source,
 
         for (const char *&warn : kIgnoredWarnings)
         {
-            if (strstr(message, warn) != nullptr)
+            if (ANGLE_UNSAFE_TODO(strstr(message, warn)) != nullptr)
             {
                 return;
             }
@@ -146,16 +154,15 @@ RendererGL::RendererGL(std::unique_ptr<FunctionsGL> functions,
       mMultiviewClearer(nullptr),
       mUseDebugOutput(false),
       mCapsInitialized(false),
-      mMultiviewImplementationType(MultiviewImplementationTypeGL::UNSPECIFIED),
       mNativeParallelCompileEnabled(false),
       mNeedsFlushBeforeDeleteTextures(false)
 {
     ASSERT(mFunctions);
-    if (!display->getState().featuresAllDisabled)
+    ApplyFeatureOverrides(&mFeatures, display->getState().featureOverrides);
+    if (!display->getState().featureOverrides.allDisabled)
     {
         nativegl_gl::InitializeFeatures(mFunctions.get(), &mFeatures);
     }
-    ApplyFeatureOverrides(&mFeatures, display->getState());
     mStateManager =
         new StateManagerGL(mFunctions.get(), getNativeCaps(), getNativeExtensions(), mFeatures);
     mBlitter          = new BlitGL(mFunctions.get(), mFeatures, mStateManager);
@@ -206,17 +213,18 @@ RendererGL::~RendererGL()
     SafeDelete(mBlitter);
     SafeDelete(mMultiviewClearer);
     SafeDelete(mStateManager);
-
-    std::lock_guard<std::mutex> lock(mWorkerMutex);
-
-    ASSERT(mCurrentWorkerContexts.empty());
-    mWorkerContextPool.clear();
 }
 
 angle::Result RendererGL::flush()
 {
+    if (!mWorkDoneSinceLastFlush && !mNeedsFlushBeforeDeleteTextures)
+    {
+        return angle::Result::Continue;
+    }
+
     mFunctions->flush();
     mNeedsFlushBeforeDeleteTextures = false;
+    mWorkDoneSinceLastFlush         = false;
     return angle::Result::Continue;
 }
 
@@ -229,6 +237,9 @@ angle::Result RendererGL::finish()
 
     mFunctions->finish();
     mNeedsFlushBeforeDeleteTextures = false;
+    mWorkDoneSinceLastFlush         = false;
+    mStateManager->onSyncedFlushOrFinish();
+    mStateManager->onFinish();
 
     if (mFeatures.finishDoesNotCauseQueriesToBeAvailable.enabled && mUseDebugOutput)
     {
@@ -253,42 +264,6 @@ void RendererGL::pushDebugGroup(GLenum source, GLuint id, const std::string &mes
 
 void RendererGL::popDebugGroup() {}
 
-std::string RendererGL::getVendorString() const
-{
-    return std::string(reinterpret_cast<const char *>(mFunctions->getString(GL_VENDOR)));
-}
-
-std::string RendererGL::getRendererDescription() const
-{
-    std::string nativeVendorString(
-        reinterpret_cast<const char *>(mFunctions->getString(GL_VENDOR)));
-    std::string nativeRendererString(
-        reinterpret_cast<const char *>(mFunctions->getString(GL_RENDERER)));
-
-    std::ostringstream rendererString;
-    rendererString << nativeVendorString << ", " << nativeRendererString << ", OpenGL";
-    if (mFunctions->standard == STANDARD_GL_ES)
-    {
-        rendererString << " ES";
-    }
-    rendererString << " " << mFunctions->version.major << "." << mFunctions->version.minor;
-    if (mFunctions->standard == STANDARD_GL_DESKTOP)
-    {
-        // Some drivers (NVIDIA) use a profile mask of 0 when in compatibility profile.
-        if ((mFunctions->profile & GL_CONTEXT_COMPATIBILITY_PROFILE_BIT) != 0 ||
-            (mFunctions->isAtLeastGL(gl::Version(3, 2)) && mFunctions->profile == 0))
-        {
-            rendererString << " compatibility";
-        }
-        else if ((mFunctions->profile & GL_CONTEXT_CORE_PROFILE_BIT) != 0)
-        {
-            rendererString << " core";
-        }
-    }
-
-    return rendererString.str();
-}
-
 const gl::Version &RendererGL::getMaxSupportedESVersion() const
 {
     // Force generation of caps
@@ -300,10 +275,10 @@ const gl::Version &RendererGL::getMaxSupportedESVersion() const
 void RendererGL::generateCaps(gl::Caps *outCaps,
                               gl::TextureCapsMap *outTextureCaps,
                               gl::Extensions *outExtensions,
-                              gl::Limitations * /* outLimitations */) const
+                              gl::Limitations *outLimitations) const
 {
     nativegl_gl::GenerateCaps(mFunctions.get(), mFeatures, outCaps, outTextureCaps, outExtensions,
-                              &mMaxSupportedESVersion, &mMultiviewImplementationType);
+                              outLimitations, &mMaxSupportedESVersion, &mNativePLSOptions);
 }
 
 GLint RendererGL::getGPUDisjoint()
@@ -352,10 +327,9 @@ const gl::Limitations &RendererGL::getNativeLimitations() const
     return mNativeLimitations;
 }
 
-MultiviewImplementationTypeGL RendererGL::getMultiviewImplementationType() const
+const ShPixelLocalStorageOptions &RendererGL::getNativePixelLocalStorageOptions() const
 {
-    ensureCapsInitialized();
-    return mMultiviewImplementationType;
+    return mNativePLSOptions;
 }
 
 void RendererGL::initializeFrontendFeatures(angle::FrontendFeatures *features) const
@@ -370,77 +344,34 @@ angle::Result RendererGL::dispatchCompute(const gl::Context *context,
                                           GLuint numGroupsZ)
 {
     mFunctions->dispatchCompute(numGroupsX, numGroupsY, numGroupsZ);
+    mWorkDoneSinceLastFlush = true;
     return angle::Result::Continue;
 }
 
 angle::Result RendererGL::dispatchComputeIndirect(const gl::Context *context, GLintptr indirect)
 {
     mFunctions->dispatchComputeIndirect(indirect);
+    mWorkDoneSinceLastFlush = true;
     return angle::Result::Continue;
 }
 
 angle::Result RendererGL::memoryBarrier(GLbitfield barriers)
 {
     mFunctions->memoryBarrier(barriers);
+    mWorkDoneSinceLastFlush = true;
     return angle::Result::Continue;
 }
 angle::Result RendererGL::memoryBarrierByRegion(GLbitfield barriers)
 {
     mFunctions->memoryBarrierByRegion(barriers);
+    mWorkDoneSinceLastFlush = true;
     return angle::Result::Continue;
 }
 
-bool RendererGL::bindWorkerContext(std::string *infoLog)
+void RendererGL::framebufferFetchBarrier()
 {
-    if (mFeatures.disableWorkerContexts.enabled)
-    {
-        return false;
-    }
-
-    std::thread::id threadID = std::this_thread::get_id();
-    std::lock_guard<std::mutex> lock(mWorkerMutex);
-    std::unique_ptr<WorkerContext> workerContext;
-    if (!mWorkerContextPool.empty())
-    {
-        auto it       = mWorkerContextPool.begin();
-        workerContext = std::move(*it);
-        mWorkerContextPool.erase(it);
-    }
-    else
-    {
-        WorkerContext *newContext = createWorkerContext(infoLog);
-        if (newContext == nullptr)
-        {
-            return false;
-        }
-        workerContext.reset(newContext);
-    }
-
-    if (!workerContext->makeCurrent())
-    {
-        mWorkerContextPool.push_back(std::move(workerContext));
-        return false;
-    }
-    mCurrentWorkerContexts[threadID] = std::move(workerContext);
-    return true;
-}
-
-void RendererGL::unbindWorkerContext()
-{
-    std::thread::id threadID = std::this_thread::get_id();
-    std::lock_guard<std::mutex> lock(mWorkerMutex);
-
-    auto it = mCurrentWorkerContexts.find(threadID);
-    ASSERT(it != mCurrentWorkerContexts.end());
-    (*it).second->unmakeCurrent();
-    mWorkerContextPool.push_back(std::move((*it).second));
-    mCurrentWorkerContexts.erase(it);
-}
-
-unsigned int RendererGL::getMaxWorkerContexts()
-{
-    // No more than 16 worker contexts.
-    return std::min(16u, std::thread::hardware_concurrency());
+    mFunctions->framebufferFetchBarrierEXT();
+    mWorkDoneSinceLastFlush = true;
 }
 
 bool RendererGL::hasNativeParallelCompile()
@@ -466,6 +397,11 @@ void RendererGL::setNeedsFlushBeforeDeleteTextures()
     mNeedsFlushBeforeDeleteTextures = true;
 }
 
+void RendererGL::markWorkSubmitted()
+{
+    mWorkDoneSinceLastFlush = true;
+}
+
 void RendererGL::flushIfNecessaryBeforeDeleteTextures()
 {
     if (mNeedsFlushBeforeDeleteTextures)
@@ -474,23 +410,9 @@ void RendererGL::flushIfNecessaryBeforeDeleteTextures()
     }
 }
 
-ScopedWorkerContextGL::ScopedWorkerContextGL(RendererGL *renderer, std::string *infoLog)
-    : mRenderer(renderer)
+void RendererGL::handleGPUSwitch()
 {
-    mValid = mRenderer->bindWorkerContext(infoLog);
-}
-
-ScopedWorkerContextGL::~ScopedWorkerContextGL()
-{
-    if (mValid)
-    {
-        mRenderer->unbindWorkerContext();
-    }
-}
-
-bool ScopedWorkerContextGL::operator()() const
-{
-    return mValid;
+    nativegl_gl::ReInitializeFeaturesAtGPUSwitch(mFunctions.get(), &mFeatures);
 }
 
 }  // namespace rx

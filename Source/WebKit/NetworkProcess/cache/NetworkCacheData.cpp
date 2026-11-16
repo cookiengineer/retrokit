@@ -27,8 +27,10 @@
 #include "NetworkCacheData.h"
 
 #include <fcntl.h>
-#include <wtf/CryptographicallyRandomNumber.h>
 #include <wtf/FileSystem.h>
+#include <wtf/HashMap.h>
+#include <wtf/Lock.h>
+#include <wtf/StdLibExtras.h>
 
 #if !OS(WINDOWS)
 #include <sys/mman.h>
@@ -39,58 +41,56 @@
 namespace WebKit {
 namespace NetworkCache {
 
+#if !USE(GLIB) && USE(CURL)
+Data::Data(Vector<uint8_t>&& data)
+    : Data(Variant<Vector<uint8_t>, FileSystem::MappedFileData> { WTF::move(data) })
+{
+}
+#elif !PLATFORM(COCOA)
+Data::Data(Vector<uint8_t>&& data)
+    : Data(data.span())
+{
+}
+#endif
+
 Data Data::mapToFile(const String& path) const
 {
-    FileSystem::PlatformFileHandle handle;
-    auto applyData = [&](const Function<bool(Span<const uint8_t>)>& applier) {
+    FileSystem::FileHandle handle;
+    auto applyData = [&](NOESCAPE const Function<bool(std::span<const uint8_t>)>& applier) {
         apply(applier);
     };
-    auto mappedFile = FileSystem::mapToFile(path, size(), WTFMove(applyData), &handle);
+    auto mappedFile = FileSystem::mapToFile(path, size(), WTF::move(applyData), &handle);
     if (!mappedFile)
         return { };
-    return Data::adoptMap(WTFMove(mappedFile), handle);
-}
-
-Data mapFile(const char* path)
-{
-    auto file = FileSystem::openFile(path, FileSystem::FileOpenMode::Read);
-    if (!FileSystem::isHandleValid(file))
-        return { };
-    auto size = FileSystem::fileSize(file);
-    if (!size) {
-        FileSystem::closeFile(file);
-        return { };
-    }
-    return adoptAndMapFile(file, 0, *size);
+    return Data::adoptMap(WTF::move(mappedFile), WTF::move(handle));
 }
 
 Data mapFile(const String& path)
 {
-    return mapFile(FileSystem::fileSystemRepresentation(path).data());
-}
-
-Data adoptAndMapFile(FileSystem::PlatformFileHandle handle, size_t offset, size_t size)
-{
-    if (!size) {
-        FileSystem::closeFile(handle);
-        return Data::empty();
-    }
-    bool success;
-    FileSystem::MappedFileData mappedFile(handle, FileSystem::FileOpenMode::Read, FileSystem::MappedFileMode::Private, success);
-    if (!success) {
-        FileSystem::closeFile(handle);
+    auto handle = FileSystem::openFile(path, FileSystem::FileOpenMode::Read);
+    if (!handle)
         return { };
-    }
 
-    return Data::adoptMap(WTFMove(mappedFile), handle);
+    auto size = handle.size();
+    if (!size)
+        return { };
+
+    if (!*size)
+        return Data::empty();
+
+    auto mappedFile = handle.map(FileSystem::MappedFileMode::Private);
+    if (!mappedFile)
+        return { };
+
+    return Data::adoptMap(WTF::move(*mappedFile), WTF::move(handle));
 }
 
 SHA1::Digest computeSHA1(const Data& data, const Salt& salt)
 {
     SHA1 sha1;
-    sha1.addBytes(salt.data(), salt.size());
-    data.apply([&sha1](Span<const uint8_t> span) {
-        sha1.addBytes(span.data(), span.size());
+    sha1.addBytes(salt);
+    data.apply([&sha1](std::span<const uint8_t> span) {
+        sha1.addBytes(span);
         return true;
     });
 
@@ -103,9 +103,7 @@ bool bytesEqual(const Data& a, const Data& b)
 {
     if (a.isNull() || b.isNull())
         return false;
-    if (a.size() != b.size())
-        return false;
-    return !memcmp(a.data(), b.data(), a.size());
+    return equalSpans(a.span(), b.span());
 }
 
 } // namespace NetworkCache

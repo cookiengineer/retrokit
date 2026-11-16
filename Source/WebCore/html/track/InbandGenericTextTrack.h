@@ -44,20 +44,21 @@ public:
 
 private:
     using CueToDataMap = HashMap<TextTrackCue*, InbandGenericCueIdentifier>;
-    using CueDataToCueMap = HashMap<InbandGenericCueIdentifier, RefPtr<TextTrackCueGeneric>>;
+    using CueDataToCueMap = HashMap<InbandGenericCueIdentifier, Ref<TextTrackCueGeneric>>;
 
     CueToDataMap m_cueToDataMap;
     CueDataToCueMap m_dataToCueMap;
 };
 
 class InbandGenericTextTrack final : public InbandTextTrack, private WebVTTParserClient {
-    WTF_MAKE_ISO_ALLOCATED(InbandGenericTextTrack);
+    WTF_MAKE_TZONE_ALLOCATED(InbandGenericTextTrack);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(InbandGenericTextTrack);
 public:
-    static Ref<InbandGenericTextTrack> create(Document&, TextTrackClient&, InbandTextTrackPrivate&);
+    static Ref<InbandGenericTextTrack> create(ScriptExecutionContext&, InbandTextTrackPrivate&);
     virtual ~InbandGenericTextTrack();
 
 private:
-    InbandGenericTextTrack(Document&, TextTrackClient&, InbandTextTrackPrivate&);
+    InbandGenericTextTrack(ScriptExecutionContext&, InbandTextTrackPrivate&);
 
     void addGenericCue(InbandGenericCue&) final;
     void updateGenericCue(InbandGenericCue&) final;
@@ -65,6 +66,8 @@ private:
     ExceptionOr<void> removeCue(TextTrackCue&) final;
 
     void updateCueFromCueData(TextTrackCueGeneric&, InbandGenericCue&);
+
+    RefPtr<TextTrackCue> cueToExtend(TextTrackCue&);
 
     WebVTTParser& parser();
     void parseWebVTTCueData(ISOWebVTTCue&&) final;
@@ -78,7 +81,7 @@ private:
     bool shouldPurgeCuesFromUnbufferedRanges() const final { return true; }
 
 #if !RELEASE_LOG_DISABLED
-    const char* logClassName() const final { return "InbandGenericTextTrack"; }
+    ASCIILiteral logClassName() const final { return "InbandGenericTextTrack"_s; }
 #endif
 
     GenericTextTrackCueMap m_cueMap;

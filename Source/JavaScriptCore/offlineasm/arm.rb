@@ -1,4 +1,4 @@
-# Copyright (C) 2011-2020 Apple Inc. All rights reserved.
+# Copyright (C) 2011-2022 Apple Inc. All rights reserved.
 # Copyright (C) 2013 University of Szeged. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -31,35 +31,50 @@ require "risc"
 #
 #  x0 => t0, a0, r0
 #  x1 => t1, a1, r1
-#  x2 => t2, a2, r2
-#  x3 => t3, a3, r3
-#  x6 =>            (callee-save scratch)
+#  x2 => t2, a2
+#  x3 => t3, a3
+#  x4 => t4                 (callee-save, PC)
+#  x5 => t5                 (callee-save)
+#  x6 => scratch            (callee-save)
 #  x7 => cfr
-#  x8 => t4         (callee-save)
-#  x9 => t5         (callee-save)
-# x10 => csr1       (callee-save, PB)
-# x11 => cfr, csr0  (callee-save, metadataTable)
-# x12 =>            (callee-save scratch)
-#  lr => lr
+#  x8 => t6                 (callee-save)
+#  x9 => t7, scratch        (callee-save)
+# x10 => csr0               (callee-save, metadataTable)
+# x11 => csr1               (callee-save, PB)
+# x12 => csr2               (callee-save)
+#  lr => lr, scratch
 #  sp => sp
 #  pc => pc
 #
 # FPR conventions, to match the baseline JIT
 #
-# d0 => ft0, fa0, fr
-# d1 => ft1, fa1
-# d2 => ft2
-# d3 => ft3
-# d4 => ft4
-# d5 => ft5
-# d6 =>              (scratch)
-# d7 =>              (scratch)
+#  d0 => ft0, fa0, fr
+#  d1 => ft1, fa1
+#  d2 => ft2
+#  d3 => ft3
+#  d4 => ft4
+#  d5 => ft5
+#  d6 => ft6
+#  d7 => ft7
+#  d8 => csfr0
+#  d9 => csfr1
+# d10 => csfr2
+# d11 => csfr3
+# d12 => csfr4
+# d13 => csfr5
+# d14 => scratch
+# d15 => scratch
 
 class Node
     def armSingle
         doubleOperand = armOperand
         raise "Bogus register name #{doubleOperand}" unless doubleOperand =~ /^d/
         "s" + ($~.post_match.to_i * 2).to_s
+    end
+    def armSingleHi
+        doubleOperand = armOperand
+        raise "Bogus register name #{doubleOperand}" unless doubleOperand =~ /^d/
+        "s" + ($~.post_match.to_i * 2 + 1).to_s
     end
 end
 
@@ -69,9 +84,10 @@ class SpecialRegister
     end
 end
 
-ARM_EXTRA_GPRS = [SpecialRegister.new("r6"), SpecialRegister.new("r4"), SpecialRegister.new("r12")]
-ARM_EXTRA_FPRS = [SpecialRegister.new("d7")]
-ARM_SCRATCH_FPR = SpecialRegister.new("d6")
+# These are allocated from the end. Use the low order r6 first, as it's often
+# cheaper to encode.
+ARM_EXTRA_GPRS = [SpecialRegister.new("r9"), SpecialRegister.new("lr"), SpecialRegister.new("r6")]
+ARM_SCRATCH_FPR = SpecialRegister.new("d7")
 OS_DARWIN = ((RUBY_PLATFORM =~ /darwin/i) != nil)
 
 def armMoveImmediate(value, register)
@@ -93,26 +109,30 @@ end
 class RegisterID
     def armOperand
         case name
-        when "t0", "a0", "r0"
+        when "t0"
             "r0"
-        when "t1", "a1", "r1"
+        when "t1"
             "r1"
-        when "t2", "a2"
+        when "t2"
             "r2"
-        when "a3"
-            "r3"
         when "t3"
             "r3"
         when "t4"
-            "r8"
+            "r4"
         when "t5"
-            "r9"
+            "r5"
         when "cfr"
             "r7"
+        when "t6"
+            "r8"
+        when "t7"
+            "r9" # Also scratch, be careful!
         when "csr0"
-            "r11"
-        when "csr1"
             "r10"
+        when "csr1"
+            "r11"
+        when "csr2"
+            "r12"
         when "lr"
             "lr"
         when "sp"
@@ -128,9 +148,9 @@ end
 class FPRegisterID
     def armOperand
         case name
-        when "ft0", "fr", "fa0"
+        when "ft0"
             "d0"
-        when "ft1", "fa1"
+        when "ft1"
             "d1"
         when "ft2"
             "d2"
@@ -140,6 +160,26 @@ class FPRegisterID
             "d4"
         when "ft5"
             "d5"
+        when "ft6"
+            "d6"
+        when "ft7"
+            "d7"
+        when "csfr0"
+            "d8"
+        when "csfr1"
+            "d9"
+        when "csfr2"
+            "d10"
+        when "csfr3"
+            "d11"
+        when "csfr4"
+            "d12"
+        when "csfr5"
+            "d13"
+        when "csfr6"
+            "d14"
+        when "csfr7" # This is a scratch, be careful!
+            "d15"
         else
             raise "Bad register #{name} for ARM at #{codeOriginString}"
         end
@@ -156,7 +196,11 @@ end
 class Address
     def armOperand
         raise "Bad offset at #{codeOriginString}" if offset.value < -0xff or offset.value > 0xfff
-        "[#{base.armOperand}, \##{offset.value}]"
+        if offset.value == 0
+          "[#{base.armOperand}]"
+        else
+          "[#{base.armOperand}, \##{offset.value}]"
+        end
     end
 end
 
@@ -293,27 +337,36 @@ class Sequence
 
     def getModifiedListARMCommon
         result = @list
+        result = riscDropTags(result)
         result = riscLowerSimpleBranchOps(result)
         result = riscLowerHardBranchOps(result)
         result = riscLowerShiftOps(result)
         result = armLowerLabelReferences(result)
         result = riscLowerMalformedAddresses(result) {
             | node, address |
-            if address.is_a? BaseIndex
-                address.offset.value == 0
-            elsif address.is_a? Address
-                (-0xff..0xfff).include? address.offset.value
+            case node.opcode
+            when "load2ia", "store2ia"
+                if address.is_a? Address
+                    (address.offset.value % 4 == 0) && ((-1023..1023).include? address.offset.value)
+                else
+                    false
+                end
             else
-                false
+                if address.is_a? BaseIndex
+                    address.offset.value == 0 && node.opcode
+                elsif address.is_a? Address
+                    (-0xff..0xfff).include? address.offset.value
+                else
+                    false
+                end
             end
         }
         result = riscLowerMalformedAddressesDouble(result)
-        result = riscLowerMisplacedImmediates(result, ["storeb", "storeh", "storei", "storep", "storeq"])
+        result = riscLowerMisplacedImmediates(result, ["storeb", "storeh", "storei", "storep", "storeq", "store2ia"])
         result = riscLowerMalformedImmediates(result, 0..0xff, 0..0x0ff)
         result = riscLowerMisplacedAddresses(result)
         result = riscLowerRegisterReuse(result)
         result = assignRegistersToTemporaries(result, :gpr, ARM_EXTRA_GPRS)
-        result = assignRegistersToTemporaries(result, :fpr, ARM_EXTRA_FPRS)
         result = armLowerStackPointerInComparison(result)
         return result
     end
@@ -325,6 +378,10 @@ end
 
 def armFlippedOperands(operands)
     armOperands([operands[-1]] + operands[0..-2])
+end
+
+def armFlippedOperandsPair(operands)
+    armOperands([operands[-2], operands[-1]] + operands[0..-3])
 end
 
 def emitArmCompact(opcode2, opcode3, operands)
@@ -356,6 +413,12 @@ def emitArmDoubleBranch(branchOpcode, operands)
     $asm.puts "#{branchOpcode} #{operands[2].asmLabel}"
 end
 
+def emitArmSingleBranch(branchOpcode, operands)
+    $asm.puts "vcmpe.f32 #{operands[0].armSingle}, #{operands[1].armSingle}"
+    $asm.puts "vmrs apsr_nzcv, fpscr"
+    $asm.puts "#{branchOpcode} #{operands[2].asmLabel}"
+end
+
 def emitArmTest(operands)
     value = operands[0]
     case operands.size
@@ -376,7 +439,15 @@ end
 
 def emitArmDoubleCompare(operands, code)
     $asm.puts "mov #{operands[2].armOperand}, \#0"
-    $asm.puts "vcmpe.f64 #{armOperands(operands[0..1])}"
+    $asm.puts "vcmp.f64 #{armOperands(operands[0..1])}"
+    $asm.puts "vmrs APSR_nzcv, FPSCR"
+    $asm.puts "it #{code}"
+    $asm.puts "mov#{code} #{operands[2].armOperand}, \#1"
+end
+
+def emitArmFloatCompare(operands, code)
+    $asm.puts "mov #{operands[2].armOperand}, \#0"
+    $asm.puts "vcmp.f32 #{operands[0].armSingle}, #{operands[1].armSingle}"
     $asm.puts "vmrs APSR_nzcv, FPSCR"
     $asm.puts "it #{code}"
     $asm.puts "mov#{code} #{operands[2].armOperand}, \#1"
@@ -394,6 +465,19 @@ def emitArmTestSet(operands, code)
     emitArmTest(operands)
     $asm.puts "it #{code}"
     $asm.puts "mov#{code} #{operands[-1].armOperand}, \#1"
+end
+
+def rawInstruction(codeOrigin, text)
+    return Instruction.new(codeOrigin, "emit", [StringLiteral.new(codeOrigin, "\"#{text}\"")])
+end
+
+def emitArmTruncateFloat(codeOrigin, to, from, operands)
+    tmp = ARM_SCRATCH_FPR
+    src = from == "f32" ? operands[0].armSingle : operands[0].armOperand
+    Sequence.new(codeOrigin, [
+        rawInstruction(codeOrigin, "vcvt.#{to}.#{from} #{tmp.armSingle}, #{src}"),
+        rawInstruction(codeOrigin, "vmov #{operands[1].armOperand}, #{tmp.armSingle}")
+    ]).lower($activeBackend)
 end
 
 class Instruction
@@ -433,6 +517,10 @@ class Instruction
                     $asm.puts "add#{suffix} #{armFlippedOperands(operands)}"
                 end
             end
+        when "adci"
+            emitArm("adc", operands)
+        when "absd"
+          $asm.puts "vabs.f64 #{armFlippedOperands(operands)}"
         when "andi", "andp"
             emitArmCompact("ands", "and", operands)
         when "ori", "orp", "orh"
@@ -451,14 +539,34 @@ class Instruction
             emitArm("mul", operands)
         when "subi", "subp", "subis"
             emitArmCompact("subs", "subs", operands)
+        when "sbci"
+            emitArm("sbc", operands)
         when "negi", "negp"
             $asm.puts "rsbs #{operands[0].armOperand}, #{operands[0].armOperand}, \#0"
         when "noti"
             $asm.puts "mvns #{operands[0].armOperand}, #{operands[0].armOperand}"
+        when "lrotatei"
+            tmp = Tmp.new(codeOrigin, :gpr)
+            Sequence.new(codeOrigin, [
+                Instruction.new(codeOrigin, "move", [operands[0], tmp]),
+                Instruction.new(codeOrigin, "negi", [tmp]),
+                Instruction.new(codeOrigin, "rrotatei", [tmp, operands[1]]),
+            ]).lower($activeBackend)
+        when "rrotatei"
+            $asm.puts "ror #{armFlippedOperands(operands)}"
+        when "tzcnti"
+            $asm.puts "rbit #{armFlippedOperands(operands)}"
+            $asm.puts "clz #{operands[1].armOperand}, #{operands[1].armOperand}"
+        when "lzcnti"
+            $asm.puts "clz #{armFlippedOperands(operands)}"
         when "loadi", "loadis", "loadp"
             $asm.puts "ldr #{armFlippedOperands(operands)}"
         when "storei", "storep"
             $asm.puts "str #{armOperands(operands)}"
+        when "load2ia"
+            $asm.puts "ldrd #{armFlippedOperandsPair(operands)}"
+        when "store2ia"
+            $asm.puts "strd #{armOperands(operands)}"
         when "loadb"
             $asm.puts "ldrb #{armFlippedOperands(operands)}"
         when "loadbsi"
@@ -471,20 +579,118 @@ class Instruction
             $asm.puts "ldrsh.w #{armFlippedOperands(operands)}"
         when "storeh"
             $asm.puts "strh #{armOperands(operands)}"
+        when "transferi", "transferp"
+            tmp = ARM_EXTRA_GPRS[-1]
+            $asm.puts "ldr #{tmp.armOperand}, #{operands[0].armOperand}"
+            $asm.puts "str #{tmp.armOperand}, #{operands[1].armOperand}"
+        when "transferq"
+            tmp1, tmp2 = ARM_EXTRA_GPRS[-2..-1]
+            $asm.puts "ldp #{tmp1.armOperand}, #{tmp2.armOperand}, #{operands[0].armOperand}"
+            $asm.puts "stp #{tmp1.armOperand}, #{tmp2.armOperand}, #{operands[1].armOperand}"
+        when "loadlinkb"
+            $asm.puts "ldrexb #{armFlippedOperands(operands)}"
+        when "loadlinkh"
+            $asm.puts "ldrexh #{armFlippedOperands(operands)}"
+        when "loadlinki"
+            $asm.puts "ldrex #{armFlippedOperands(operands)}"
+        when "loadlink2i"
+            $asm.puts "ldrexd #{armFlippedOperandsPair(operands)}"
+        when "storecondb"
+            $asm.puts "strexb #{armOperands(operands)}"
+        when "storecondh"
+            $asm.puts "strexh #{armOperands(operands)}"
+        when "storecondi"
+            $asm.puts "strex #{armOperands(operands)}"
+        when "storecond2i"
+            $asm.puts "strexd #{armOperands(operands)}"
         when "loadd"
             $asm.puts "vldr.64 #{armFlippedOperands(operands)}"
         when "stored"
             $asm.puts "vstr.64 #{armOperands(operands)}"
+        when "loadf"
+            $asm.puts "vldr.32 #{operands[-1].armSingle}, #{armOperands(operands[0..-2])}"
+        when "storef"
+            $asm.puts "vstr.32 #{operands[0].armSingle}, #{armOperands(operands[1..-1])}"
+        when "addf"
+            $asm.puts "vadd.f32 #{operands[1].armSingle}, #{operands[1].armSingle}, #{operands[0].armSingle}"
+        when "subf"
+            $asm.puts "vsub.f32 #{operands[1].armSingle}, #{operands[1].armSingle}, #{operands[0].armSingle}"
+        when "mulf"
+            $asm.puts "vmul.f32 #{operands[1].armSingle}, #{operands[1].armSingle}, #{operands[0].armSingle}"
+        when "divf"
+            $asm.puts "vdiv.f32 #{operands[1].armSingle}, #{operands[1].armSingle}, #{operands[0].armSingle}"
+        when "sqrtf"
+            $asm.puts "vsqrt.f32 #{operands[1].armSingle}, #{operands[0].armSingle}"
+        when "absf"
+            $asm.puts "vabs.f32 #{operands[1].armSingle}, #{operands[0].armSingle}"
+        when "negf"
+            $asm.puts "vneg.f32 #{operands[1].armSingle}, #{operands[0].armSingle}"
+        when "bflt"
+            emitArmSingleBranch("bmi", operands)
+        when "bfltun"
+            emitArmSingleBranch("blt", operands)
+        when "bfltequn"
+            emitArmSingleBranch("ble", operands)
+        when "bfeq"
+            emitArmSingleBranch("beq", operands)
+        when "bfgt"
+            emitArmSingleBranch("bgt", operands)
+        when "bfgtequn"
+            emitArmSingleBranch("bpl", operands)
+        when "bdltun"
+            emitArmDoubleBranch("blt", operands)
         when "addd"
             emitArm("vadd.f64", operands)
-        when "divd"
-            emitArm("vdiv.f64", operands)
         when "subd"
             emitArm("vsub.f64", operands)
         when "muld"
             emitArm("vmul.f64", operands)
+        when "divd"
+            emitArm("vdiv.f64", operands)
         when "sqrtd"
             $asm.puts "vsqrt.f64 #{armFlippedOperands(operands)}"
+        when "negd"
+            $asm.puts "vneg.f64 #{armFlippedOperands(operands)}"
+        when "orf"
+            (tmpLhs, tmpRhs) = ARM_EXTRA_GPRS[-2..-1]
+            Sequence.new(codeOrigin, [
+              rawInstruction(codeOrigin,  "vmov #{tmpLhs.armOperand}, #{operands[0].armSingle}"),
+              rawInstruction(codeOrigin,  "vmov #{tmpRhs.armOperand}, #{operands[1].armSingle}"),
+              Instruction.new(codeOrigin, "ori", [tmpLhs, tmpRhs]),
+              rawInstruction(codeOrigin,  "vmov #{operands[1].armSingle}, #{tmpRhs.armOperand}")
+            ]).lower($activeBackend)
+        when "andf"
+            (tmpLhs, tmpRhs) = ARM_EXTRA_GPRS[-2..-1]
+            Sequence.new(codeOrigin, [
+              rawInstruction(codeOrigin,  "vmov #{tmpLhs.armOperand}, #{operands[0].armSingle}"),
+              rawInstruction(codeOrigin,  "vmov #{tmpRhs.armOperand}, #{operands[1].armSingle}"),
+              Instruction.new(codeOrigin, "andi", [tmpLhs, tmpRhs]),
+              rawInstruction(codeOrigin,  "vmov #{operands[1].armSingle}, #{tmpRhs.armOperand}")
+            ]).lower($activeBackend)
+        when "ord"
+            (tmpLhs, tmpRhs) = ARM_EXTRA_GPRS[-2..-1]
+            Sequence.new(codeOrigin, [
+              rawInstruction(codeOrigin,  "vmov #{tmpLhs.armOperand}, #{operands[0].armSingle}"),
+              rawInstruction(codeOrigin,  "vmov #{tmpRhs.armOperand}, #{operands[1].armSingle}"),
+              Instruction.new(codeOrigin, "ori", [tmpLhs, tmpRhs]),
+              rawInstruction(codeOrigin,  "vmov #{operands[1].armSingle}, #{tmpRhs.armOperand}"),
+              rawInstruction(codeOrigin,  "vmov #{tmpLhs.armOperand}, #{operands[0].armSingleHi}"),
+              rawInstruction(codeOrigin,  "vmov #{tmpRhs.armOperand}, #{operands[1].armSingleHi}"),
+              Instruction.new(codeOrigin, "ori", [tmpLhs, tmpRhs]),
+              rawInstruction(codeOrigin,  "vmov #{operands[1].armSingleHi}, #{tmpRhs.armOperand}")
+            ]).lower($activeBackend)
+        when "andd"
+            (tmpLhs, tmpRhs) = ARM_EXTRA_GPRS[-2..-1]
+            Sequence.new(codeOrigin, [
+              rawInstruction(codeOrigin,  "vmov #{tmpLhs.armOperand}, #{operands[0].armSingle}"),
+              rawInstruction(codeOrigin,  "vmov #{tmpRhs.armOperand}, #{operands[1].armSingle}"),
+              Instruction.new(codeOrigin, "andi", [tmpLhs, tmpRhs]),
+              rawInstruction(codeOrigin,  "vmov #{operands[1].armSingle}, #{tmpRhs.armOperand}"),
+              rawInstruction(codeOrigin,  "vmov #{tmpLhs.armOperand}, #{operands[0].armSingleHi}"),
+              rawInstruction(codeOrigin,  "vmov #{tmpRhs.armOperand}, #{operands[1].armSingleHi}"),
+              Instruction.new(codeOrigin, "andi", [tmpLhs, tmpRhs]),
+              rawInstruction(codeOrigin,  "vmov #{operands[1].armSingleHi}, #{tmpRhs.armOperand}")
+            ]).lower($activeBackend)
         when "ci2ds"
             $asm.puts "vmov #{operands[1].armSingle}, #{operands[0].armOperand}"
             $asm.puts "vcvt.f64.s32 #{operands[1].armOperand}, #{operands[1].armSingle}"
@@ -493,7 +699,7 @@ class Instruction
         when "bdneq"
             $asm.puts "vcmpe.f64 #{armOperands(operands[0..1])}"
             $asm.puts "vmrs apsr_nzcv, fpscr"
-            isUnordered = LocalLabel.unique("bdneq")
+            isUnordered = LocalLabel.unique(codeOrigin, "bdneq")
             $asm.puts "bvs #{LocalLabelReference.new(codeOrigin, isUnordered).asmLabel}"
             $asm.puts "bne #{operands[2].asmLabel}"
             isUnordered.lower("ARM")
@@ -537,6 +743,8 @@ class Instruction
         when "movdz"
             # FIXME: either support this or remove it.
             raise "ARM does not support this opcode yet, #{codeOrigin}"
+        when "moved"
+            $asm.puts "vmov.f64 #{armFlippedOperands(operands)}"
         when "pop"
             operands.each {
                 | op |
@@ -553,9 +761,23 @@ class Instruction
             else
                 $asm.puts "mov #{armFlippedOperands(operands)}"
             end
+        when "moveii"
+            raise "First operand of moveii must be an immediate" unless operands[0].immediate?
+            armMoveImmediate(operands[0].value >> 32, operands[1])
+            armMoveImmediate(operands[0].value & 0xffffffff, operands[2])
         when "mvlbl"
-                $asm.puts "movw #{operands[1].armOperand}, \#:lower16:#{operands[0].value}"
-                $asm.puts "movt #{operands[1].armOperand}, \#:upper16:#{operands[0].value}"
+            afterData = LocalLabel.unique(codeOrigin, "mvlbl")
+            data = LocalLabel.unique(codeOrigin, "mvlbl")
+            $asm.puts "b #{LocalLabelReference.new(codeOrigin, afterData).asmLabel}"
+            $asm.puts ".align 1"
+            data.lower("ARM")
+            $asm.puts ".word #{operands[0].value}"
+            afterData.lower("ARM")
+            $asm.puts "ldr #{operands[1].armOperand}, #{LocalLabelReference.new(codeOrigin, data).asmLabel}"
+        when "sxb2i"
+            $asm.puts "sxtb #{armFlippedOperands(operands)}"
+        when "sxh2i"
+            $asm.puts "sxth #{armFlippedOperands(operands)}"
         when "nop"
             $asm.puts "nop"
         when "bieq", "bpeq", "bbeq"
@@ -626,7 +848,7 @@ class Instruction
                 $asm.puts "blx #{operands[0].armOperand}"
             end
         when "break"
-            $asm.puts "bkpt #0"
+            $asm.puts "udf #0"
         when "ret"
             $asm.puts "bx lr"
         when "cieq", "cpeq", "cbeq"
@@ -649,14 +871,46 @@ class Instruction
             emitArmCompare(operands, "lt")
         when "cilteq", "cplteq", "cblteq"
             emitArmCompare(operands, "le")
-        when "cdgt"
-            emitArmDoubleCompare(operands, "gt")
-        when "cdgteq"
-            emitArmDoubleCompare(operands, "ge")
+        when "cfeq"
+            emitArmFloatCompare(operands, "eq")
+        when "cfnequn"
+            emitArmFloatCompare(operands, "ne")
+        when "cflt"
+            emitArmFloatCompare(operands, "mi")
+        when "cflteq"
+            emitArmFloatCompare(operands, "ls")
+        when "cfgt"
+            emitArmFloatCompare(operands, "gt")
+        when "cfgteq"
+            emitArmFloatCompare(operands, "ge")
+        when "cdeq"
+            emitArmDoubleCompare(operands, "eq")
+        when "cdnequn"
+            emitArmDoubleCompare(operands, "ne")
         when "cdlt"
             emitArmDoubleCompare(operands, "mi")
         when "cdlteq"
             emitArmDoubleCompare(operands, "ls")
+        when "cdgt"
+            emitArmDoubleCompare(operands, "gt")
+        when "cdgteq"
+            emitArmDoubleCompare(operands, "ge")
+        when "cf2d"
+            $asm.puts "vcvt.f64.f32 #{operands[1].armOperand}, #{operands[0].armSingle}"
+        when "cd2f"
+            $asm.puts "vcvt.f32.f64 #{operands[1].armSingle}, #{operands[0].armOperand}"
+        when "ci2f"
+            $asm.puts "vmov #{operands[1].armSingle}, #{operands[0].armOperand}"
+            $asm.puts "vcvt.f32.u32 #{operands[1].armSingle}, #{operands[1].armSingle}"
+        when "ci2fs"
+            $asm.puts "vmov #{operands[1].armSingle}, #{operands[0].armOperand}"
+            $asm.puts "vcvt.f32.s32 #{operands[1].armSingle}, #{operands[1].armSingle}"
+        when "ci2d"
+            $asm.puts "vmov #{operands[1].armSingle}, #{operands[0].armOperand}"
+            $asm.puts "vcvt.f64.u32 #{operands[1].armOperand}, #{operands[1].armSingle}"
+        when "ci2ds"
+            $asm.puts "vmov #{operands[1].armSingle}, #{operands[0].armOperand}"
+            $asm.puts "vcvt.f64.s32 #{operands[1].armOperand}, #{operands[1].armSingle}"
         when "tis", "tbs", "tps"
             emitArmTestSet(operands, "mi")
         when "tiz", "tbz", "tpz"
@@ -667,10 +921,22 @@ class Instruction
             $asm.puts "ldr #{operands[1].armOperand}, [sp, \##{operands[0].value * 4}]"
         when "poke"
             $asm.puts "str #{operands[1].armOperand}, [sp, \##{operands[0].value * 4}]"
+        when "fi2f"
+            $asm.puts "vmov #{operands[1].armSingle}, #{operands[0].armOperand}"
+        when "ff2i"
+            $asm.puts "vmov #{operands[1].armOperand}, #{operands[0].armSingle}"
         when "fii2d"
             $asm.puts "vmov #{operands[2].armOperand}, #{operands[0].armOperand}, #{operands[1].armOperand}"
         when "fd2ii"
             $asm.puts "vmov #{operands[1].armOperand}, #{operands[2].armOperand}, #{operands[0].armOperand}"
+        when "truncatef2i"
+            emitArmTruncateFloat(codeOrigin, "u32", "f32", operands)
+        when "truncatef2is"
+            emitArmTruncateFloat(codeOrigin, "s32", "f32", operands)
+        when "truncated2i"
+            emitArmTruncateFloat(codeOrigin, "u32", "f64", operands)
+        when "truncated2is"
+            emitArmTruncateFloat(codeOrigin, "s32", "f64", operands)
         when "bo"
             $asm.puts "bvs #{operands[0].asmLabel}"
         when "bs"
@@ -679,33 +945,40 @@ class Instruction
             $asm.puts "beq #{operands[0].asmLabel}"
         when "bnz"
             $asm.puts "bne #{operands[0].asmLabel}"
+        when "bcs"
+            $asm.puts "bcs #{operands[0].asmLabel}"
         when "leai", "leap"
             operands[0].armEmitLea(operands[1])
-        when "smulli"
+        when "smulli", "umulli"
             raise "Wrong number of arguments to smull in #{self.inspect} at #{codeOriginString}" unless operands.length == 4
-            $asm.puts "smull #{operands[2].armOperand}, #{operands[3].armOperand}, #{operands[0].armOperand}, #{operands[1].armOperand}"
+            $asm.puts "#{opcode[0..-2]} #{operands[2].armOperand}, #{operands[3].armOperand}, #{operands[0].armOperand}, #{operands[1].armOperand}"
         when "memfence"
             $asm.puts "dmb sy"
+        when "fence"
+            $asm.puts "dmb ish"
+        when "writefence"
+            $asm.puts "dmb ishst"
         when "clrbp"
             $asm.puts "bic #{operands[2].armOperand}, #{operands[0].armOperand}, #{operands[1].armOperand}"
         when "globaladdr"
             labelRef = operands[0]
             dest = operands[1]
             temp = operands[2]
+            raise "Destination interferes with scratch in #{self.inspect} at #{codeOriginString}" unless dest.armOperand != temp.armOperand
 
             uid = $asm.newUID
 
             $asm.putStr("#if OS(DARWIN)")
-            $asm.puts "movw #{operands[1].armOperand}, :lower16:(L#{operands[0].asmLabel}_#{uid}$non_lazy_ptr-(L_offlineasm_#{uid}+4))"
-            $asm.puts "movt #{operands[1].armOperand}, :upper16:(L#{operands[0].asmLabel}_#{uid}$non_lazy_ptr-(L_offlineasm_#{uid}+4))"
-            $asm.puts "L_offlineasm_#{uid}:"
+            $asm.puts "movw #{operands[1].armOperand}, :lower16:(L#{operands[0].asmLabel}_#{uid}$non_lazy_ptr-(Ljsc_llint_#{uid}+4))"
+            $asm.puts "movt #{operands[1].armOperand}, :upper16:(L#{operands[0].asmLabel}_#{uid}$non_lazy_ptr-(Ljsc_llint_#{uid}+4))"
+            $asm.puts "Ljsc_llint_#{uid}:"
             $asm.puts "add #{operands[1].armOperand}, pc"
             $asm.puts "ldr #{operands[1].armOperand}, [#{operands[1].armOperand}]"
 
             # On Linux, use ELF GOT relocation specifiers.
             $asm.putStr("#elif OS(LINUX)")
-            gotLabel = Assembler.localLabelReference("offlineasm_arm_got_#{uid}")
-            offsetLabel = Assembler.localLabelReference("offlineasm_arm_got_offset_#{uid}")
+            gotLabel = Assembler.localLabelReference("jsc_llint_arm_got_#{uid}")
+            offsetLabel = Assembler.localLabelReference("jsc_llint_arm_got_offset_#{uid}")
 
             $asm.puts "ldr #{dest.armOperand}, #{gotLabel}"
             $asm.puts "ldr #{temp.armOperand}, #{gotLabel}+4"
@@ -729,7 +1002,7 @@ class Instruction
                 $asm.puts ".indirect_symbol #{operands[0].asmLabel}"
                 $asm.puts ".long 0"
                 
-                $asm.puts ".text"
+                $asm.puts "OFFLINE_ASM_TEXT_SECTION"
                 $asm.puts ".align 4"
 
                 $asm.putStr("#elif OS(LINUX)")
@@ -744,4 +1017,3 @@ class Instruction
         end
     end
 end
-

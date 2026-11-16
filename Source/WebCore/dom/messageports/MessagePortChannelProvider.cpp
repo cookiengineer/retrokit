@@ -31,37 +31,40 @@
 #include "WorkerGlobalScope.h"
 #include "WorkletGlobalScope.h"
 #include <wtf/MainThread.h>
+#include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
 
-static MessagePortChannelProvider* globalProvider;
+static RefPtr<MessagePortChannelProvider>& NODELETE globalProvider()
+{
+    static MainThreadNeverDestroyed<RefPtr<MessagePortChannelProvider>> globalProvider;
+    return globalProvider;
+}
 
 MessagePortChannelProvider& MessagePortChannelProvider::singleton()
 {
     ASSERT(isMainThread());
-    static std::once_flag onceFlag;
-    std::call_once(onceFlag, [] {
-        if (!globalProvider)
-            globalProvider = new MessagePortChannelProviderImpl;
-    });
-
+    auto& globalProvider = WebCore::globalProvider();
+    if (!globalProvider)
+        globalProvider = MessagePortChannelProviderImpl::create();
     return *globalProvider;
 }
 
 void MessagePortChannelProvider::setSharedProvider(MessagePortChannelProvider& provider)
 {
     RELEASE_ASSERT(isMainThread());
+    auto& globalProvider = WebCore::globalProvider();
     RELEASE_ASSERT(!globalProvider);
-    globalProvider = &provider;
+    globalProvider = provider;
 }
 
 MessagePortChannelProvider& MessagePortChannelProvider::fromContext(ScriptExecutionContext& context)
 {
-    if (is<Document>(context))
-        return downcast<Document>(context).messagePortChannelProvider();
+    if (auto document = dynamicDowncast<Document>(context))
+        return document->messagePortChannelProvider();
 
-    if (is<WorkletGlobalScope>(context))
-        return downcast<WorkletGlobalScope>(context).messagePortChannelProvider();
+    if (auto workletScope = dynamicDowncast<WorkletGlobalScope>(context))
+        return workletScope->messagePortChannelProvider();
 
     return downcast<WorkerGlobalScope>(context).messagePortChannelProvider();
 }

@@ -60,7 +60,24 @@ WI.SourceCodeLocation = class SourceCodeLocation extends WI.Object
     {
         if (!other)
             return false;
-        return this._sourceCode === other._sourceCode && this._lineNumber === other._lineNumber && this._columnNumber === other._columnNumber;
+
+        if (this.lineNumber !== other.lineNumber)
+            return false;
+
+        if (this.columnNumber !== other.columnNumber)
+            return false;
+
+        function resolveSourceCode(sourceCode) {
+            if (sourceCode instanceof WI.Script)
+                return sourceCode.resource;
+            return sourceCode;
+        }
+        let thisSourceCode = resolveSourceCode(this.sourceCode);
+        let otherSourceCode = resolveSourceCode(other.sourceCode);
+        if (thisSourceCode !== otherSourceCode)
+            return false;
+
+        return true;
     }
 
     get sourceCode()
@@ -144,7 +161,7 @@ WI.SourceCodeLocation = class SourceCodeLocation extends WI.Object
 
     formattedLocationString(columnStyle, nameStyle, prefix)
     {
-        return this._locationString(this.sourceCode, this.formattedLineNumber, this.formattedColumn, columnStyle, nameStyle, prefix);
+        return this._locationString(this.sourceCode, this.formattedLineNumber, this.formattedColumnNumber, columnStyle, nameStyle, prefix);
     }
 
     displayLocationString(columnStyle, nameStyle, prefix)
@@ -259,10 +276,10 @@ WI.SourceCodeLocation = class SourceCodeLocation extends WI.Object
 
     setSourceCode(sourceCode)
     {
-        console.assert((this._sourceCode === null && sourceCode instanceof WI.SourceCode) || (this._sourceCode instanceof WI.SourceCode && sourceCode === null));
-
         if (sourceCode === this._sourceCode)
             return;
+
+        console.assert((this._sourceCode === null && sourceCode instanceof WI.SourceCode) || (this._sourceCode instanceof WI.SourceCode && sourceCode === null) || this._sourceCode?.contentIdentifier === sourceCode?.contentIdentifier);
 
         this._makeChangeAndDispatchChangeEventIfNeeded(function() {
             if (this._sourceCode) {
@@ -293,24 +310,12 @@ WI.SourceCodeLocation = class SourceCodeLocation extends WI.Object
         if (!this._sourceCode)
             return;
 
-        var sourceMaps = this._sourceCode.sourceMaps;
-        if (!sourceMaps.length)
-            return;
-
-        for (var i = 0; i < sourceMaps.length; ++i) {
-            var sourceMap = sourceMaps[i];
-            var entry = sourceMap.findEntry(this._lineNumber, this._columnNumber);
-            if (!entry || entry.length === 2)
-                continue;
-            console.assert(entry.length === 5);
-            var url = entry[2];
-            var sourceMapResource = sourceMap.resourceForURL(url);
-            if (!sourceMapResource)
-                return;
-            this._mappedResource = sourceMapResource;
-            this._mappedLineNumber = entry[3];
-            this._mappedColumnNumber = entry[4];
-            return;
+        for (let sourceMap of this._sourceCode.sourceMaps) {
+            let originalPosition = sourceMap.findOriginalPosition(this._lineNumber, this._columnNumber);
+            if (originalPosition) {
+                [this._mappedResource, this._mappedLineNumber, this._mappedColumnNumber] = originalPosition;
+                break;
+            }
         }
     }
 

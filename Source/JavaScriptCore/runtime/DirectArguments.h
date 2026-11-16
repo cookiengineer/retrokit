@@ -25,10 +25,13 @@
 
 #pragma once
 
-#include "CagedBarrierPtr.h"
-#include "DirectArgumentsOffset.h"
-#include "GenericArguments.h"
+#include <JavaScriptCore/CagedBarrierPtr.h>
+#include <JavaScriptCore/CommonIdentifiers.h>
+#include <JavaScriptCore/DirectArgumentsOffset.h>
+#include <JavaScriptCore/GenericArgumentsImpl.h>
 #include <wtf/CagedPtr.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
@@ -41,7 +44,7 @@ namespace JSC {
 //
 // To speed allocation, this object will hold all of the arguments in-place. The arguments as well
 // as a table of flags saying which arguments were overridden.
-class DirectArguments final : public GenericArguments<DirectArguments> {
+class DirectArguments final : public GenericArgumentsImpl<DirectArguments> {
 private:
     DirectArguments(VM&, Structure*, unsigned length, unsigned capacity);
     
@@ -49,8 +52,8 @@ public:
     template<typename CellType, SubspaceAccess>
     static CompleteSubspace* subspaceFor(VM& vm)
     {
-        static_assert(!CellType::needsDestruction, "");
-        return &vm.variableSizedCellSpace;
+        static_assert(CellType::needsDestruction == DoesNotNeedDestruction);
+        return &vm.heap.cellSpace;
     }
 
     // Creates an arguments object but leaves it uninitialized. This is dangerous if we GC right
@@ -72,21 +75,11 @@ public:
         return m_length;
     }
     
-    uint32_t length(JSGlobalObject* globalObject) const
-    {
-        if (UNLIKELY(m_mappedArguments)) {
-            VM& vm = getVM(globalObject);
-            auto scope = DECLARE_THROW_SCOPE(vm);
-            JSValue value = get(globalObject, vm.propertyNames->length);
-            RETURN_IF_EXCEPTION(scope, 0);
-            RELEASE_AND_RETURN(scope, value.toUInt32(globalObject));
-        }
-        return m_length;
-    }
+    uint32_t length(JSGlobalObject*) const;
     
     bool isMappedArgument(uint32_t i) const
     {
-        return i < m_length && (!m_mappedArguments || !m_mappedArguments.at(i, m_length));
+        return i < m_length && (!m_mappedArguments || !m_mappedArguments.at(i));
     }
 
     bool isMappedArgumentInDFG(uint32_t i) const
@@ -123,7 +116,7 @@ public:
         return storage()[offset.offset()];
     }
     
-    // Methods intended for use by the GenericArguments mixin.
+    // Methods intended for use by the GenericArgumentsImpl mixin.
     bool overrodeThings() const { return !!m_mappedArguments; }
     void overrideThings(JSGlobalObject*);
     void overrideThingsIfNecessary(JSGlobalObject*);
@@ -131,30 +124,34 @@ public:
 
     void initModifiedArgumentsDescriptorIfNecessary(JSGlobalObject* globalObject)
     {
-        GenericArguments<DirectArguments>::initModifiedArgumentsDescriptorIfNecessary(globalObject, m_length);
+        GenericArgumentsImpl<DirectArguments>::initModifiedArgumentsDescriptorIfNecessary(globalObject, m_length);
     }
 
     void setModifiedArgumentDescriptor(JSGlobalObject* globalObject, unsigned index)
     {
-        GenericArguments<DirectArguments>::setModifiedArgumentDescriptor(globalObject, index, m_length);
+        GenericArgumentsImpl<DirectArguments>::setModifiedArgumentDescriptor(globalObject, index, m_length);
     }
 
     bool isModifiedArgumentDescriptor(unsigned index)
     {
-        return GenericArguments<DirectArguments>::isModifiedArgumentDescriptor(index, m_length);
+        return GenericArgumentsImpl<DirectArguments>::isModifiedArgumentDescriptor(index, m_length);
     }
 
     void copyToArguments(JSGlobalObject*, JSValue* firstElementDest, unsigned offset, unsigned length);
+
+    static JSArray* fastSlice(JSGlobalObject*, DirectArguments*, uint64_t startIndex, uint64_t count);
+
+    JS_EXPORT_PRIVATE bool isIteratorProtocolFastAndNonObservable();
 
     DECLARE_INFO;
     
     static Structure* createStructure(VM&, JSGlobalObject*, JSValue prototype);
     
-    static ptrdiff_t offsetOfCallee() { return OBJECT_OFFSETOF(DirectArguments, m_callee); }
-    static ptrdiff_t offsetOfLength() { return OBJECT_OFFSETOF(DirectArguments, m_length); }
-    static ptrdiff_t offsetOfMinCapacity() { return OBJECT_OFFSETOF(DirectArguments, m_minCapacity); }
-    static ptrdiff_t offsetOfMappedArguments() { return OBJECT_OFFSETOF(DirectArguments, m_mappedArguments); }
-    static ptrdiff_t offsetOfModifiedArgumentsDescriptor() { return OBJECT_OFFSETOF(DirectArguments, m_modifiedArgumentsDescriptor); }
+    static constexpr ptrdiff_t offsetOfCallee() { return OBJECT_OFFSETOF(DirectArguments, m_callee); }
+    static constexpr ptrdiff_t offsetOfLength() { return OBJECT_OFFSETOF(DirectArguments, m_length); }
+    static constexpr ptrdiff_t offsetOfMinCapacity() { return OBJECT_OFFSETOF(DirectArguments, m_minCapacity); }
+    static constexpr ptrdiff_t offsetOfMappedArguments() { return OBJECT_OFFSETOF(DirectArguments, m_mappedArguments); }
+    static constexpr ptrdiff_t offsetOfModifiedArgumentsDescriptor() { return OBJECT_OFFSETOF(DirectArguments, m_modifiedArgumentsDescriptor); }
     
     static size_t storageOffset()
     {
@@ -174,10 +171,10 @@ public:
 private:
     WriteBarrier<Unknown>* storage()
     {
-        return bitwise_cast<WriteBarrier<Unknown>*>(bitwise_cast<char*>(this) + storageOffset());
+        return std::bit_cast<WriteBarrier<Unknown>*>(std::bit_cast<char*>(this) + storageOffset());
     }
     
-    unsigned mappedArgumentsSize();
+    unsigned NODELETE mappedArgumentsSize();
     
     WriteBarrier<JSFunction> m_callee;
     uint32_t m_length; // Always the actual length of captured arguments and never what was stored into the length property.
@@ -185,7 +182,9 @@ private:
     using MappedArguments = CagedBarrierPtr<Gigacage::Primitive, bool>;
     MappedArguments m_mappedArguments; // If non-null, it means that length, callee, and caller are fully materialized properties.
 
-    friend size_t cellSize(VM&, JSCell*);
+    friend size_t cellSize(JSCell*);
 };
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

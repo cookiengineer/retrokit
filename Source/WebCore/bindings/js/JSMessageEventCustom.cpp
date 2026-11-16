@@ -34,10 +34,13 @@
 
 #include "JSBlob.h"
 #include "JSDOMBinding.h"
-#include "JSDOMConvert.h"
-#include "JSDOMWindow.h"
+#include "JSDOMConvertBufferSource.h"
+#include "JSDOMConvertInterface.h"
+#include "JSDOMConvertSequences.h"
+#include "JSDOMConvertStrings.h"
 #include "JSEventTarget.h"
 #include "JSMessagePort.h"
+#include "JSValueInWrappedObjectInlines.h"
 #include <JavaScriptCore/JSArray.h>
 #include <JavaScriptCore/JSArrayBuffer.h>
 
@@ -46,45 +49,35 @@ namespace WebCore {
 JSC::JSValue JSMessageEvent::ports(JSC::JSGlobalObject& lexicalGlobalObject) const
 {
     auto throwScope = DECLARE_THROW_SCOPE(lexicalGlobalObject.vm());
-    return cachedPropertyValue(lexicalGlobalObject, *this, wrapped().cachedPorts(), [&] {
-        JSC::JSValue ports = toJS<IDLFrozenArray<IDLInterface<MessagePort>>>(lexicalGlobalObject, *globalObject(), throwScope, wrapped().ports());
-        return ports;
+    return cachedPropertyValue(throwScope, lexicalGlobalObject, *this, wrapped().cachedPorts(), [&](JSC::ThrowScope& throwScope) {
+        return toJS<IDLFrozenArray<IDLInterface<MessagePort>>>(lexicalGlobalObject, *realm(), throwScope, wrapped().ports());
     });
 }
 
 JSC::JSValue JSMessageEvent::data(JSC::JSGlobalObject& lexicalGlobalObject) const
 {
-    return cachedPropertyValue(lexicalGlobalObject, *this, wrapped().cachedData(), [this, &lexicalGlobalObject] {
-        return WTF::switchOn(wrapped().data(), [] (JSC::JSValue data) {
-            return data ? data : JSC::jsNull();
-        }, [this, &lexicalGlobalObject] (const Ref<SerializedScriptValue>& data) {
-            // FIXME: Is it best to handle errors by returning null rather than throwing an exception?
-            return data->deserialize(lexicalGlobalObject, globalObject(), wrapped().ports(), SerializationErrorMode::NonThrowing);
+    auto throwScope = DECLARE_THROW_SCOPE(lexicalGlobalObject.vm());
+    return cachedPropertyValue(throwScope, lexicalGlobalObject, *this, wrapped().cachedData(), [this, &lexicalGlobalObject](JSC::ThrowScope&) {
+        return WTF::switchOn(wrapped().data(), [this] (MessageEvent::JSValueTag) -> JSC::JSValue {
+            return wrapped().jsData().getValue(JSC::jsNull());
         }, [&lexicalGlobalObject] (const String& data) {
             return toJS<IDLDOMString>(lexicalGlobalObject, data);
         }, [this, &lexicalGlobalObject] (const Ref<Blob>& data) {
-            return toJS<IDLInterface<Blob>>(lexicalGlobalObject, *globalObject(), data);
+            return toJS<IDLInterface<Blob>>(lexicalGlobalObject, *realm(), data);
         }, [this, &lexicalGlobalObject] (const Ref<ArrayBuffer>& data) {
-            return toJS<IDLInterface<ArrayBuffer>>(lexicalGlobalObject, *globalObject(), data);
+            return toJS<IDLInterface<ArrayBuffer>>(lexicalGlobalObject, *realm(), data);
         });
     });
 }
 
 template<typename Visitor>
-void JSMessageEvent::visitAdditionalChildren(Visitor& visitor)
+void JSMessageEvent::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    WTF::switchOn(wrapped().data(), [&visitor] (const JSValueInWrappedObject& data) {
-        data.visit(visitor);
-    }, [] (const Ref<SerializedScriptValue>&) {
-    }, [] (const String&) {
-    }, [] (const Ref<Blob>&) {
-    }, [] (const Ref<ArrayBuffer>&) {
-    });
-
-    wrapped().cachedData().visit(visitor);
-    wrapped().cachedPorts().visit(visitor);
+    wrapped().jsData().visitInGCThread(visitor);
+    wrapped().cachedData().visitInGCThread(visitor);
+    wrapped().cachedPorts().visitInGCThread(visitor);
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSMessageEvent);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSMessageEvent);
 
 } // namespace WebCore

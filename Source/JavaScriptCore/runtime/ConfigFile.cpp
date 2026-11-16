@@ -42,6 +42,8 @@
 #include <unistd.h>
 #endif
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 static const size_t s_processNameMax = 128;
@@ -69,12 +71,12 @@ public:
         return true;
     }
 
-    unsigned lineNumber()
+    unsigned NODELETE lineNumber()
     {
         return m_lineNumber;
     }
 
-    const char* currentBuffer()
+    const char* NODELETE currentBuffer()
     {
         if (!m_srcPtr || m_srcPtr == m_bufferEnd)
             return "";
@@ -190,7 +192,7 @@ private:
             return false;
 
         while (true) {
-            while (m_srcPtr != m_bufferEnd && isASCIISpace(*m_srcPtr))
+            while (m_srcPtr != m_bufferEnd && isUnicodeCompatibleASCIIWhitespace(*m_srcPtr))
                 m_srcPtr++;
 
             if (m_srcPtr != m_bufferEnd)
@@ -243,7 +245,9 @@ ConfigFile::ConfigFile(const char* filename)
     if (!filename)
         m_filename[0] = '\0';
     else {
+        IGNORE_WARNINGS_BEGIN("stringop-truncation")
         strncpy(m_filename, filename, s_maxPathLength);
+        IGNORE_WARNINGS_END
         m_filename[s_maxPathLength] = '\0';
     }
 
@@ -310,12 +314,12 @@ void ConfigFile::parse()
 
                     char* optionNameStart = p;
 
-                    while (*p && !isASCIISpace(*p) && *p != '=')
+                    while (*p && !isUnicodeCompatibleASCIIWhitespace(*p) && *p != '=')
                         p++;
 
-                    builder.appendCharacters(optionNameStart, p - optionNameStart);
+                    builder.append(std::span { optionNameStart, p });
 
-                    while (*p && isASCIISpace(*p) && *p != '=')
+                    while (*p && isUnicodeCompatibleASCIIWhitespace(*p) && *p != '=')
                         p++;
 
                     if (!*p)
@@ -324,7 +328,7 @@ void ConfigFile::parse()
 
                     builder.append('=');
 
-                    while (*p && isASCIISpace(*p))
+                    while (*p && isUnicodeCompatibleASCIIWhitespace(*p))
                         p++;
 
                     if (!*p)
@@ -332,13 +336,12 @@ void ConfigFile::parse()
 
                     char* optionValueStart = p;
 
-                    while (*p && !isASCIISpace(*p))
+                    while (*p && !isUnicodeCompatibleASCIIWhitespace(*p))
                         p++;
 
-                    builder.appendCharacters(optionValueStart, p - optionValueStart);
-                    builder.append('\n');
+                    builder.append(std::span { optionValueStart, p }, '\n');
 
-                    while (*p && isASCIISpace(*p))
+                    while (*p && isUnicodeCompatibleASCIIWhitespace(*p))
                         p++;
                 } while (*p);
 
@@ -487,28 +490,20 @@ void ConfigFile::canonicalizePaths()
             if (sizeof(filenameBuffer) - 1  >= pathnameLength + shouldAddPathSeparator) {
                 if (shouldAddPathSeparator)
                     strncat(filenameBuffer, "/", 2); // Room for '/' plus NUL
-#if COMPILER(GCC)
-#if GCC_VERSION_AT_LEAST(8, 0, 0)
                 IGNORE_WARNINGS_BEGIN("stringop-truncation")
-#endif
-#endif
                 strncat(filenameBuffer, m_filename, sizeof(filenameBuffer) - strlen(filenameBuffer) - 1);
-#if COMPILER(GCC)
-#if GCC_VERSION_AT_LEAST(8, 0, 0)
-                IGNORE_WARNINGS_END
-#endif
-#endif
                 strncpy(m_filename, filenameBuffer, s_maxPathLength);
+                IGNORE_WARNINGS_END
                 m_filename[s_maxPathLength] = '\0';
             }
         }
     }
 #endif
 
-    char* lastPathSeperator = strrchr(m_filename, '/');
+    char* lastPathSeparator = strrchr(m_filename, '/');
 
-    if (lastPathSeperator) {
-        unsigned dirnameLength = lastPathSeperator - &m_filename[0];
+    if (lastPathSeparator) {
+        unsigned dirnameLength = lastPathSeparator - &m_filename[0];
         strncpy(m_configDirectory, m_filename, dirnameLength);
         m_configDirectory[dirnameLength] = '\0';
     } else {
@@ -536,3 +531,5 @@ void processConfigFile(const char* configFilename, const char* processName, cons
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

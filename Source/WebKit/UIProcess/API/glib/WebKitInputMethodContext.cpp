@@ -30,10 +30,10 @@
 using namespace WebCore;
 
 /**
- * SECTION: WebKitInputMethodContext
- * @Short_description: Base class for input method contexts
- * @Title: WebKitInputMethodContext
+ * WebKitInputMethodContext:
  * @See_also: #WebKitWebView
+ *
+ * Base class for input method contexts.
  *
  * WebKitInputMethodContext defines the interface to implement WebKit input methods.
  * The input methods are used by WebKit, when editable content is focused, to map from
@@ -54,7 +54,7 @@ enum {
     N_PROPERTIES,
 };
 
-static GParamSpec* sObjProperties[N_PROPERTIES] = { nullptr, };
+static std::array<GParamSpec*, N_PROPERTIES> sObjProperties;
 
 enum {
     PREEDIT_STARTED,
@@ -67,6 +67,14 @@ enum {
 
     LAST_SIGNAL
 };
+
+/**
+ * WebKitInputMethodUnderline:
+ *
+ * Range of text in a preedit string to be shown underlined.
+ *
+ * Since: 2.28
+ */
 
 G_DEFINE_BOXED_TYPE(WebKitInputMethodUnderline, webkit_input_method_underline, webkit_input_method_underline_copy, webkit_input_method_underline_free)
 
@@ -134,7 +142,7 @@ struct _WebKitInputMethodContextPrivate {
     WebKitInputHints hints;
 };
 
-static guint signals[LAST_SIGNAL] = { 0, };
+static std::array<unsigned, LAST_SIGNAL> signals;
 
 WEBKIT_DEFINE_ABSTRACT_TYPE(WebKitInputMethodContext, webkit_input_method_context, G_TYPE_OBJECT)
 
@@ -213,7 +221,7 @@ static void webkit_input_method_context_class_init(WebKitInputMethodContextClass
     gObjectClass->get_property = webkitInputMethodContextGetProperty;
 
     /**
-     * WebKitInputMethodContext::input-purpose:
+     * WebKitInputMethodContext:input-purpose:
      *
      * The #WebKitInputPurpose of the input associated with this context.
      *
@@ -222,14 +230,13 @@ static void webkit_input_method_context_class_init(WebKitInputMethodContextClass
     sObjProperties[PROP_INPUT_PURPOSE] =
         g_param_spec_enum(
             "input-purpose",
-            _("Input Purpose"),
-            _("The purpose of the input associated"),
+            nullptr, nullptr,
             WEBKIT_TYPE_INPUT_PURPOSE,
             WEBKIT_INPUT_PURPOSE_FREE_FORM,
             WEBKIT_PARAM_READWRITE);
 
     /**
-     * WebKitInputMethodContext::input-hints:
+     * WebKitInputMethodContext:input-hints:
      *
      * The #WebKitInputHints of the input associated with this context.
      *
@@ -238,13 +245,12 @@ static void webkit_input_method_context_class_init(WebKitInputMethodContextClass
     sObjProperties[PROP_INPUT_HINTS] =
         g_param_spec_flags(
             "input-hints",
-            _("Input Hints"),
-            _("The hints of the input associated"),
+            nullptr, nullptr,
             WEBKIT_TYPE_INPUT_HINTS,
             WEBKIT_INPUT_HINT_NONE,
             WEBKIT_PARAM_READWRITE);
 
-    g_object_class_install_properties(gObjectClass, N_PROPERTIES, sObjProperties);
+    g_object_class_install_properties(gObjectClass, N_PROPERTIES, sObjProperties.data());
 
     /**
      * WebKitInputMethodContext::preedit-started:
@@ -323,11 +329,18 @@ static void webkit_input_method_context_class_init(WebKitInputMethodContextClass
     /**
      * WebKitInputMethodContext::delete-surrounding:
      * @context: the #WebKitInputMethodContext on which the signal is emitted
-     * @offset: the character offset from the cursor position of the text to be deleted.
-     * @n_chars: the number of characters to be deleted
+     * @offset: the offset of the text to be deleted from the start of the selection, in UTF-16 code units
+     * @n_chars: the number of UTF-16 code units to be deleted
      *
      * Emitted when the input method wants to delete the context surrounding the cursor.
-     * If @offset is a negative value, it means a position before the cursor.
+     * If @offset is a negative value, it means a position before the start of the selection,
+     * or before the cursor if there is no selection. The text to be deleted can include
+     * part of the selection. If @n_chars is 0, nothing is deleted and the cursor is moved
+     * by @offset.
+     *
+     * Both @offset and @n_chars are counted in UTF-16 code units, not in characters:
+     * a character outside the Basic Multilingual Plane, like most emoji, counts as 2.
+     * Note that the indexes passed to webkit_input_method_context_notify_surrounding() are in bytes instead.
      *
      * Since: 2.28
      */
@@ -375,10 +388,12 @@ void webkit_input_method_context_set_enable_preedit(WebKitInputMethodContext* co
  * webkit_input_method_context_get_preedit:
  * @context: a #WebKitInputMethodContext
  * @text: (out) (transfer full) (nullable): location to store the preedit string
- * @underlines: (out) (transfer full) (nullable) (element-type WebKit2.InputMethodUnderline): location to store the underlines as a #GList of #WebKitInputMethodUnderline
+ * @underlines: (out) (transfer full) (nullable) (element-type WebKitInputMethodUnderline): location to store the underlines as a #GList of #WebKitInputMethodUnderline
  * @cursor_offset: (out) (nullable): location to store the position of cursor in preedit string
  *
- * Get the current preedit string for the @context, and a list of WebKitInputMethodUnderline to apply to the string.
+ * Get the pre-edit string and a list of WebKitInputMethodUnderline.
+ *
+ * Get the current pre-edit string for the @context, and a list of WebKitInputMethodUnderline to apply to the string.
  * The string will be displayed inserted at @cursor_offset.
  *
  * Since: 2.28
@@ -465,6 +480,7 @@ void webkit_input_method_context_notify_cursor_area(WebKitInputMethodContext* co
  * @selection_index: the byte index of the selection cursor within @text.
  *
  * Notify @context that the context surrounding the cursor has changed.
+ *
  * If there's no selection @selection_index is the same as @cursor_index.
  *
  * Since: 2.28
@@ -474,11 +490,13 @@ void webkit_input_method_context_notify_surrounding(WebKitInputMethodContext* co
     g_return_if_fail(WEBKIT_IS_INPUT_METHOD_CONTEXT(context));
     g_return_if_fail(text || !length);
 
+    IGNORE_CLANG_WARNINGS_BEGIN("unsafe-buffer-usage-in-libc-call")
     if (!text)
         text = "";
     if (length < 0)
         length = strlen(text);
     g_return_if_fail(cursorIndex <= static_cast<unsigned>(length));
+    IGNORE_CLANG_WARNINGS_END
 
     auto* imClass = WEBKIT_INPUT_METHOD_CONTEXT_GET_CLASS(context);
     if (imClass->notify_surrounding)
@@ -489,7 +507,9 @@ void webkit_input_method_context_notify_surrounding(WebKitInputMethodContext* co
  * webkit_input_method_context_reset:
  * @context: a #WebKitInputMethodContext
  *
- * Reset the @context. This will typically cause the input to clear the preedit state.
+ * Reset the @context.
+ *
+ * This will typically cause the input to clear the preedit state.
  *
  * Since: 2.28
  */
@@ -556,7 +576,7 @@ WebKitInputHints webkit_input_method_context_get_input_hints(WebKitInputMethodCo
     return context->priv->hints;
 }
 
-/*
+/**
  * webkit_input_method_context_set_input_hints:
  * @context: a #WebKitInputMethodContext
  * @hints: a #WebKitInputHints

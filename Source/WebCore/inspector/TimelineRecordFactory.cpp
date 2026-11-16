@@ -51,7 +51,7 @@ Ref<JSON::Object> TimelineRecordFactory::createGenericRecord(double startTime, i
     if (maxCallStackDepth) {
         Ref<ScriptCallStack> stackTrace = createScriptCallStack(JSExecState::currentState(), maxCallStackDepth);
         if (stackTrace->size())
-            record->setValue("stackTrace"_s, stackTrace->buildInspectorArray());
+            record->setValue("stackTrace"_s, stackTrace->buildInspectorObject());
     }
     return record;
 }
@@ -126,6 +126,15 @@ Ref<JSON::Object> TimelineRecordFactory::createTimeStampData(const String& messa
     return data;
 }
 
+Ref<JSON::Object> TimelineRecordFactory::createLargestContentfulPaintData(Inspector::Protocol::DOM::NodeId nodeId, unsigned area)
+{
+    Ref<JSON::Object> data = JSON::Object::create();
+    data->setInteger("area"_s, area);
+    if (nodeId)
+        data->setInteger("nodeId"_s, nodeId);
+    return data;
+}
+
 Ref<JSON::Object> TimelineRecordFactory::createAnimationFrameData(int callbackId)
 {
     Ref<JSON::Object> data = JSON::Object::create();
@@ -161,9 +170,21 @@ Ref<JSON::Object> TimelineRecordFactory::createPaintData(const FloatQuad& quad)
     return data;
 }
 
+Ref<JSON::Object> TimelineRecordFactory::createScreenshotData(const String& imageData)
+{
+    Ref<JSON::Object> data = JSON::Object::create();
+    data->setString("imageData"_s, imageData);
+    return data;
+}
+
 void TimelineRecordFactory::appendLayoutRoot(JSON::Object& data, const FloatQuad& quad)
 {
     data.setArray("root"_s, createQuad(quad));
+}
+
+void TimelineRecordFactory::appendNodeId(JSON::Object& data, Inspector::Protocol::DOM::NodeId nodeId)
+{
+    data.setInteger("nodeId"_s, nodeId);
 }
 
 } // namespace WebCore

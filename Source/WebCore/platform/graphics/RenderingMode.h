@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,16 +25,34 @@
 
 #pragma once
 
+namespace WTF {
+class TextStream;
+}
+
 namespace WebCore {
 
 enum class RenderingPurpose : uint8_t {
     Unspecified,
     Canvas,
     DOM,
-    MediaPainting
+    LayerBacking,
+    Snapshot,
+    ShareableSnapshot,
+    ShareableLocalSnapshot,
+    MediaPainting,
 };
 
-enum class ShouldUseDisplayList : bool { No, Yes };
-enum class RenderingMode : bool { Unaccelerated, Accelerated };
+enum class RenderingMode : uint8_t {
+    Unaccelerated,
+    Accelerated,
+    PDFDocument,
+    DisplayList,
+};
+
+enum class RenderingMethod : bool { Local };
+
+WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, RenderingPurpose);
+WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, RenderingMode);
+WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, RenderingMethod);
 
 } // namespace WebCore

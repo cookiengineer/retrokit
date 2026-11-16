@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,20 +31,19 @@
 #include "AirCode.h"
 #include "AirGenerationContext.h"
 #include "B3ValueInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC { namespace B3 {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(StackmapSpecial);
 
 using Arg = Air::Arg;
 using Inst = Air::Inst;
 using Tmp = Air::Tmp;
 
-StackmapSpecial::StackmapSpecial()
-{
-}
+StackmapSpecial::StackmapSpecial() = default;
 
-StackmapSpecial::~StackmapSpecial()
-{
-}
+StackmapSpecial::~StackmapSpecial() = default;
 
 void StackmapSpecial::reportUsedRegisters(Inst& inst, const RegisterSet& usedRegisters)
 {
@@ -82,24 +81,24 @@ void StackmapSpecial::forEachArgImpl(
     ASSERT(value);
 
     // Check that insane things have not happened.
-    ASSERT(inst.args.size() >= numIgnoredAirArgs);
+    ASSERT(inst.args().size() >= numIgnoredAirArgs);
     ASSERT(value->numChildren() >= numIgnoredB3Args);
-    ASSERT(inst.args.size() - numIgnoredAirArgs >= value->numChildren() - numIgnoredB3Args);
-    ASSERT(inst.args[0].kind() == Arg::Kind::Special);
+    ASSERT(inst.args().size() - numIgnoredAirArgs >= value->numChildren() - numIgnoredB3Args);
+    ASSERT(inst.args()[0].kind() == Arg::Kind::Special);
 
     for (unsigned i = 0; i < value->numChildren() - numIgnoredB3Args; ++i) {
-        Arg& arg = inst.args[i + numIgnoredAirArgs];
+        Arg& arg = inst.args()[i + numIgnoredAirArgs];
         ConstrainedValue child = value->constrainedChild(i + numIgnoredB3Args);
 
         Arg::Role role;
         switch (roleMode) {
         case ForceLateUseUnlessRecoverable:
             ASSERT(firstRecoverableIndex);
-            if (arg != inst.args[*firstRecoverableIndex] && arg != inst.args[*firstRecoverableIndex + 1]) {
+            if (arg != inst.args()[*firstRecoverableIndex] && arg != inst.args()[*firstRecoverableIndex + 1]) {
                 role = Arg::LateColdUse;
                 break;
             }
-            FALLTHROUGH;
+            [[fallthrough]];
         case SameAsRep:
             switch (child.rep().kind()) {
             case ValueRep::WarmAny:
@@ -123,7 +122,10 @@ void StackmapSpecial::forEachArgImpl(
             case ValueRep::LateColdAny:
                 role = Arg::LateColdUse;
                 break;
-            default:
+#if USE(JSVALUE32_64)
+            case ValueRep::RegisterPair:
+#endif
+            case ValueRep::SomeEarlyRegister:
                 RELEASE_ASSERT_NOT_REACHED();
                 break;
             }
@@ -135,7 +137,6 @@ void StackmapSpecial::forEachArgImpl(
                 // The role can only be some kind of def if we did SomeRegisterWithClobber, which is
                 // only allowed for patchpoints. Patchpoints don't use the defArgWidth feature.
                 RELEASE_ASSERT(!Arg::isAnyDef(role));
-                
                 if (Arg::isWarmUse(role))
                     role = Arg::LateUse;
                 else
@@ -160,11 +161,11 @@ bool StackmapSpecial::isValidImpl(
     ASSERT(value);
 
     // Check that insane things have not happened.
-    ASSERT(inst.args.size() >= numIgnoredAirArgs);
+    ASSERT(inst.args().size() >= numIgnoredAirArgs);
     ASSERT(value->numChildren() >= numIgnoredB3Args);
 
     // For the Inst to be valid, it needs to have the right number of arguments.
-    if (inst.args.size() - numIgnoredAirArgs < value->numChildren() - numIgnoredB3Args)
+    if (inst.args().size() - numIgnoredAirArgs < value->numChildren() - numIgnoredB3Args)
         return false;
 
     // Regardless of constraints, stackmaps have some basic requirements for their arguments. For
@@ -172,7 +173,7 @@ bool StackmapSpecial::isValidImpl(
     // argument types.
     for (unsigned i = 0; i < value->numChildren() - numIgnoredB3Args; ++i) {
         Value* child = value->child(i + numIgnoredB3Args);
-        Arg& arg = inst.args[i + numIgnoredAirArgs];
+        Arg& arg = inst.args()[i + numIgnoredAirArgs];
 
         if (!isArgValidForType(arg, child->type()))
             return false;
@@ -184,7 +185,7 @@ bool StackmapSpecial::isValidImpl(
     // Verify any explicitly supplied constraints.
     for (unsigned i = numIgnoredB3Args; i < value->m_reps.size(); ++i) {
         ValueRep& rep = value->m_reps[i];
-        Arg& arg = inst.args[i - numIgnoredB3Args + numIgnoredAirArgs];
+        Arg& arg = inst.args()[i - numIgnoredB3Args + numIgnoredAirArgs];
 
         if (!isArgValidForRep(code(), arg, rep))
             return false;
@@ -224,7 +225,7 @@ Vector<ValueRep> StackmapSpecial::repsImpl(Air::GenerationContext& context, unsi
 {
     Vector<ValueRep> result;
     for (unsigned i = 0; i < inst.origin->numChildren() - numIgnoredB3Args; ++i)
-        result.append(repForArg(*context.code, inst.args[i + numIgnoredAirArgs]));
+        result.append(repForArg(*context.code, inst.args()[i + numIgnoredAirArgs]));
     return result;
 }
 
@@ -272,10 +273,15 @@ bool StackmapSpecial::isArgValidForRep(Air::Code& code, const Air::Arg& arg, con
                 return true;
         }
         return false;
-    default:
+#if USE(JSVALUE32_64)
+    case ValueRep::RegisterPair:
+#endif
+    case ValueRep::Stack:
+    case ValueRep::Constant:
         RELEASE_ASSERT_NOT_REACHED();
         return false;
     }
+    RELEASE_ASSERT_NOT_REACHED();
 }
 
 ValueRep StackmapSpecial::repForArg(Air::Code& code, const Arg& arg)
@@ -290,7 +296,7 @@ ValueRep StackmapSpecial::repForArg(Air::Code& code, const Arg& arg)
         break;
     case Arg::ExtendedOffsetAddr:
         ASSERT(arg.base() == Tmp(GPRInfo::callFrameRegister));
-        FALLTHROUGH;
+        [[fallthrough]];
     case Arg::Addr:
         if (arg.base() == Tmp(GPRInfo::callFrameRegister))
             return ValueRep::stack(arg.offset());

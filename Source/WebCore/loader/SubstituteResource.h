@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,9 +25,9 @@
 
 #pragma once
 
-#include "ResourceLoader.h"
-#include "ResourceResponse.h"
-#include "SharedBuffer.h"
+#include <WebCore/ResourceLoader.h>
+#include <WebCore/ResourceResponse.h>
+#include <WebCore/SharedBuffer.h>
 
 namespace WebCore {
 
@@ -35,24 +35,27 @@ class SubstituteResource : public RefCounted<SubstituteResource> {
 public:
     virtual ~SubstituteResource() = default;
 
-    const URL& url() const { return m_url; }
-    const ResourceResponse& response() const { return m_response; }
-    SharedBuffer& data() const { return static_reference_cast<SharedBuffer>(m_data); }
+    const URL& url() const LIFETIME_BOUND { return m_url; }
+    const ResourceResponse& response() const LIFETIME_BOUND { return m_response; }
+    FragmentedSharedBuffer& data() const LIFETIME_BOUND { return *m_data.buffer(); }
+    Ref<FragmentedSharedBuffer> dataForSerialization() const { return m_data.copyBuffer(); }
+    void append(const SharedBuffer& buffer) { m_data.append(buffer); }
+    void clear() { m_data.empty(); }
 
-    virtual void deliver(ResourceLoader& loader) { loader.deliverResponseAndData(m_response, m_data->copy()); }
+    virtual void deliver(ResourceLoader& loader) { loader.deliverResponseAndData(ResourceResponse { m_response }, m_data.copyBuffer()); }
 
 protected:
-    SubstituteResource(URL&& url, ResourceResponse&& response, Ref<SharedBuffer>&& data)
-        : m_url(WTFMove(url))
-        , m_response(WTFMove(response))
-        , m_data(WTFMove(data))
+    SubstituteResource(URL&& url, ResourceResponse&& response, Ref<FragmentedSharedBuffer>&& data)
+        : m_url(WTF::move(url))
+        , m_response(WTF::move(response))
+        , m_data(data)
     {
     }
 
 private:
     URL m_url;
     ResourceResponse m_response;
-    Ref<SharedBuffer> m_data;
+    SharedBufferBuilder m_data;
 };
 
 } // namespace WebCore

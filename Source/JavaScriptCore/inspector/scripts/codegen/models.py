@@ -1,6 +1,6 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
-# Copyright (c) 2014 Apple Inc. All rights reserved.
+# Copyright (c) 2014-2025 Apple Inc. All rights reserved.
 # Copyright (c) 2014 University of Washington. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -47,14 +47,14 @@ def validate_target_types(debuggable_types, target_types):
         elif target_type == 'javascript':
             if 'javascript' not in debuggable_types:
                 return False
-        elif target_type == 'page' or target_type == 'worker':
-            if 'page' not in debuggable_types:
-                return False
         elif target_type == 'service-worker':
             if 'service-worker' not in debuggable_types:
                 return False
-        elif target_type == 'web-page':
+        elif target_type in ('web-page', 'page', 'frame', 'worker'):
             if 'web-page' not in debuggable_types:
+                return False
+        elif target_type == 'wasm-debugger':
+            if 'wasm-debugger' not in debuggable_types:
                 return False
     return True
 
@@ -66,11 +66,19 @@ _FRAMEWORK_CONFIG_MAP = {
         "cpp_protocol_group": "Inspector",
         "export_macro": "JS_EXPORT_PRIVATE",
         "alternate_dispatchers": True,
+        # FIXME: Remove legacy_async_callbacks when IndexedDBAgent moves off of it. <rdar://143782962>
+        "legacy_async_callbacks": True,
     },
     "WebKit": {
         "cpp_protocol_group": "Automation",
         "objc_protocol_group": "WD",
         "objc_prefix": "WD",
+    },
+    "WebDriverBidi": {
+        "cpp_protocol_group": "WebDriverBidi",
+        "objc_protocol_group": "WD",
+        "objc_prefix": "WD",
+        "enum_invalid_value_error_code": "InvalidParams",
     },
     "WebInspector": {
         "objc_protocol_group": "RWI",
@@ -84,11 +92,12 @@ _FRAMEWORK_CONFIG_MAP = {
         "cpp_protocol_group": "Test",
         "objc_protocol_group": "Test",
         "objc_prefix": "Test",
+        "enum_invalid_value_error_code": "InvalidParams",
     }
 }
 
-_ALLOWED_DEBUGGABLE_TYPE_STRINGS = frozenset(['itml', 'javascript', 'page', 'service-worker', 'web-page'])
-_ALLOWED_TARGET_TYPE_STRINGS = frozenset(['itml', 'javascript', 'page', 'service-worker', 'web-page', 'worker'])
+_ALLOWED_DEBUGGABLE_TYPE_STRINGS = ['itml', 'javascript', 'service-worker', 'web-page', 'wasm-debugger']
+_ALLOWED_TARGET_TYPE_STRINGS = ['itml', 'javascript', 'page', 'service-worker', 'web-page', 'wasm-debugger', 'frame', 'worker']
 
 
 class ParseException(Exception):
@@ -118,6 +127,9 @@ class Framework:
         if frameworkString == "WebKit":
             return Frameworks.WebKit
 
+        if frameworkString == "WebDriverBidi":
+            return Frameworks.WebDriverBidi
+
         if frameworkString == "WebInspector":
             return Frameworks.WebInspector
 
@@ -134,6 +146,7 @@ class Frameworks:
     Global = Framework("Global")
     JavaScriptCore = Framework("JavaScriptCore")
     WebKit = Framework("WebKit")
+    WebDriverBidi = Framework("WebDriverBidi")
     WebInspector = Framework("WebInspector")
     WebInspectorUI = Framework("WebInspectorUI")
     Test = Framework("Test")
@@ -339,19 +352,30 @@ def check_for_required_properties(props, obj, what):
 class Protocol:
     def __init__(self, framework_name):
         self.domains = []
+        self.condition_flags = ""
         self.types_by_name = {}
         self.framework = Framework.fromString(framework_name)
 
     def parse_specification(self, json, isSupplemental):
         log.debug("parse toplevel")
 
-        if isinstance(json, dict) and 'domains' in json:
-            json = json['domains']
-        if not isinstance(json, list):
-            json = [json]
+        domains = json  # Tests don't have a "domains".
+        condition_flags = ""
 
-        for domain in json:
+        if isinstance(json, dict):
+            if 'domains' in json:
+                domains = json['domains']
+            if 'conditionFlags' in json:
+                condition_flags = json['conditionFlags']
+
+        if not isinstance(domains, list):
+            domains = [domains]
+
+        for domain in domains:
             self.parse_domain(domain, isSupplemental)
+
+        if isinstance(condition_flags, str):
+            self.condition_flags = condition_flags
 
     def parse_domain(self, json, isSupplemental):
         check_for_required_properties(['domain'], json, "domain")
@@ -407,7 +431,8 @@ class Protocol:
                 raise ParseException("Malformed domain specification: events is not an array")
             events.extend([self.parse_event(event, debuggable_types) for event in json['events']])
 
-        self.domains.append(Domain(json['domain'], json.get('description', ''), json.get('condition'), debuggable_types, target_types, isSupplemental, version, types, commands, events))
+        domain_name_exposed_as = json.get('exposedAs', json['domain'])
+        self.domains.append(Domain(json['domain'], domain_name_exposed_as, json.get('description', ''), json.get('condition'), debuggable_types, target_types, isSupplemental, version, types, commands, events))
 
     def parse_type_declaration(self, json):
         check_for_required_properties(['id', 'type'], json, "type")
@@ -432,7 +457,7 @@ class Protocol:
         log.debug("parse type member %s" % json['name'])
 
         type_ref = TypeReference(json.get('type'), json.get('$ref'), json.get('enum'), json.get('items'))
-        return TypeMember(json['name'], type_ref, json.get('optional', False), json.get('description', ""))
+        return TypeMember(json['name'], type_ref, json.get('optional', False), json.get('nullable', False), json.get('description', ""))
 
     def parse_command(self, json, debuggable_types):
         check_for_required_properties(['name'], json, "command")
@@ -608,8 +633,9 @@ class Protocol:
 
 
 class Domain:
-    def __init__(self, domain_name, description, condition, debuggable_types, target_types, isSupplemental, version, type_declarations, commands, events):
+    def __init__(self, domain_name, domain_exposed_as, description, condition, debuggable_types, target_types, isSupplemental, version, type_declarations, commands, events):
         self.domain_name = domain_name
+        self.domain_exposed_as = domain_exposed_as
         self.description = description
         self.condition = condition
         self.debuggable_types = debuggable_types
@@ -647,7 +673,7 @@ class Domain:
 
 
 class Domains:
-    GLOBAL = Domain("", "The global domain, in which primitive types are implicitly declared.", None, None, None, False, None, [], [], [])
+    GLOBAL = Domain("", "", "The global domain, in which primitive types are implicitly declared.", None, None, None, False, None, [], [], [])
 
 
 class TypeDeclaration:
@@ -669,10 +695,11 @@ class TypeDeclaration:
 
 
 class TypeMember:
-    def __init__(self, member_name, type_ref, is_optional, description):
+    def __init__(self, member_name, type_ref, is_optional, is_nullable, description):
         self.member_name = member_name
         self.type_ref = type_ref
         self.is_optional = is_optional
+        self.is_nullable = is_nullable
         self.description = description
 
         if not isinstance(self.is_optional, bool):

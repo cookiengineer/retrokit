@@ -25,7 +25,6 @@
 
 #pragma once
 
-#include <JavaScriptCore/JSCJSValueInlines.h>
 #include <JavaScriptCore/JSObject.h>
 #include <JavaScriptCore/Weak.h>
 #include <wtf/RefCounted.h>

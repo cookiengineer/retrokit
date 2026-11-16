@@ -27,50 +27,60 @@
 #include "MediaCapabilities.h"
 
 #include "ContentType.h"
-#include "Document.h"
+#include "DocumentPage.h"
 #include "EventLoop.h"
+#include "JSDOMConvertDictionary.h"
 #include "JSDOMPromiseDeferred.h"
 #include "JSMediaCapabilitiesDecodingInfo.h"
 #include "JSMediaCapabilitiesEncodingInfo.h"
 #include "Logging.h"
 #include "MediaCapabilitiesDecodingInfo.h"
 #include "MediaCapabilitiesEncodingInfo.h"
-#include "MediaCapabilitiesLogging.h"
 #include "MediaDecodingConfiguration.h"
 #include "MediaEncodingConfiguration.h"
-#include "MediaEngineConfigurationFactory.h"
+#include "NavigatorBase.h"
+#include "PlatformMediaCapabilitiesLogging.h"
+#include "PlatformMediaEngineConfigurationFactory.h"
 #include "Settings.h"
+#include "WebRTCProvider.h"
+#include <JavaScriptCore/HeapCellInlines.h>
 #include <wtf/Logger.h>
-#include <wtf/RobinHoodHashSet.h>
+#include <wtf/SortedArrayMap.h>
 
 namespace WebCore {
 
-static const MemoryCompactLookupOnlyRobinHoodHashSet<String>& bucketMIMETypes()
+MediaCapabilities::MediaCapabilities(NavigatorBase& navigator)
+    : m_navigator(navigator)
 {
-    // A "bucket" MIME types is one whose container type does not uniquely specify a codec.
-    // See: https://tools.ietf.org/html/rfc6381
-    static NeverDestroyed<MemoryCompactLookupOnlyRobinHoodHashSet<String>> bucketMIMETypes(std::initializer_list<String> {
-        "audio/3gpp"_s,
-        "video/3gpp"_s,
-        "audio/3gpp2"_s,
-        "video/3gpp2"_s,
-        "audio/mp4"_s,
-        "video/mp4"_s,
-        "application/mp4"_s,
-        "video/quicktime"_s,
-        "application/mp21"_s,
-        "audio/vnd.apple.mpegurl"_s,
-        "video/vnd.apple.mpegurl"_s,
-        "audio/ogg"_s,
-        "video/ogg"_s,
-        "video/webm"_s,
-        "audio/webm"_s,
-    });
-    return bucketMIMETypes;
+}
+
+NavigatorBase* MediaCapabilities::navigator()
+{
+    return m_navigator.get();
 }
 
 static bool isValidMediaMIMEType(const ContentType& contentType)
 {
+    // A "bucket" MIME types is one whose container type does not uniquely specify a codec.
+    // See: https://tools.ietf.org/html/rfc6381
+    static constexpr SortedArraySet bucketMIMETypes { WTF::toArray<ComparableASCIILiteral>({
+        "application/mp21"_s,
+        "application/mp4"_s,
+        "audio/3gpp"_s,
+        "audio/3gpp2"_s,
+        "audio/mp4"_s,
+        "audio/ogg"_s,
+        "audio/vnd.apple.mpegurl"_s,
+        "audio/webm"_s,
+        "video/3gpp"_s,
+        "video/3gpp2"_s,
+        "video/mp4"_s,
+        "video/ogg"_s,
+        "video/quicktime"_s,
+        "video/vnd.apple.mpegurl"_s,
+        "video/webm"_s,
+    }) };
+
     // 2.1.4. MIME types
     // https://wicg.github.io/media-capabilities/#valid-media-mime-type
     // A valid media MIME type is a string that is a valid MIME type per [mimesniff]. If the MIME type does
@@ -82,7 +92,7 @@ static bool isValidMediaMIMEType(const ContentType& contentType)
     auto codecs = contentType.codecs();
 
     // FIXME: The spec requires that the "codecs" parameter is the only parameter present.
-    if (bucketMIMETypes().contains(contentType.containerType()))
+    if (bucketMIMETypes.contains(contentType.containerType()))
         return codecs.size() == 1;
     return !codecs.size();
 }
@@ -97,7 +107,7 @@ static bool isValidVideoMIMEType(const ContentType& contentType)
         return false;
 
     auto containerType = contentType.containerType();
-    if (!startsWithLettersIgnoringASCIICase(containerType, "video/") && !startsWithLettersIgnoringASCIICase(containerType, "application/"))
+    if (!startsWithLettersIgnoringASCIICase(containerType, "video/"_s) && !startsWithLettersIgnoringASCIICase(containerType, "application/"_s))
         return false;
 
     return true;
@@ -113,7 +123,7 @@ static bool isValidAudioMIMEType(const ContentType& contentType)
         return false;
 
     auto containerType = contentType.containerType();
-    if (!startsWithLettersIgnoringASCIICase(containerType, "audio/") && !startsWithLettersIgnoringASCIICase(containerType, "application/"))
+    if (!startsWithLettersIgnoringASCIICase(containerType, "audio/"_s) && !startsWithLettersIgnoringASCIICase(containerType, "application/"_s))
         return false;
 
     return true;
@@ -166,61 +176,113 @@ static bool isValidMediaConfiguration(const MediaConfiguration& configuration)
     return true;
 }
 
-void MediaCapabilities::decodingInfo(Document& document, MediaDecodingConfiguration&& configuration, Ref<DeferredPromise>&& promise)
+static void gatherDecodingInfo(Document& document, PlatformMediaDecodingConfiguration&& configuration, PlatformMediaEngineConfigurationFactory::DecodingConfigurationCallback&& callback)
 {
-    // 2.4 Media Capabilities Interface
-    // https://wicg.github.io/media-capabilities/#media-capabilities-interface
-
-    auto identifier = WTF::Logger::LogSiteIdentifier("MediaCapabilities", __func__, this);
-    Ref<Logger> logger = document.logger();
-
-    // 1. If configuration is not a valid MediaConfiguration, return a Promise rejected with a TypeError.
-    // 2. If configuration.video is present and is not a valid video configuration, return a Promise rejected with a TypeError.
-    // 3. If configuration.audio is present and is not a valid audio configuration, return a Promise rejected with a TypeError.
-    if (!isValidMediaConfiguration(configuration)) {
-#if !RELEASE_LOG_DISABLED
-        logger->info(LogMedia, identifier, " - Rejected. configuration: ", configuration);
-#endif
-        promise->reject(TypeError);
-        return;
-    }
+    RELEASE_LOG_INFO(Media, "Gathering decoding MediaCapabilities");
+    PlatformMediaEngineConfigurationFactory::DecodingConfigurationCallback decodingCallback = [callback = WTF::move(callback)](PlatformMediaCapabilitiesDecodingInfo&& result) mutable {
+        RELEASE_LOG_INFO(Media, "Finished gathering decoding MediaCapabilities");
+        callback(WTF::move(result));
+    };
 
     if (!document.settings().mediaCapabilitiesExtensionsEnabled() && configuration.video)
         configuration.video.value().alphaChannel.reset();
+
+    configuration.allowedMediaContainerTypes = document.settings().allowedMediaContainerTypes();
+    configuration.allowedMediaCodecTypes = document.settings().allowedMediaCodecTypes();
 
 #if ENABLE(VP9)
     configuration.canExposeVP9 = document.settings().vp9DecoderEnabled();
 #endif
 
+    RefPtr page = document.page();
+    if (page)
+        configuration.pageIdentifier = page->identifier();
+
+#if ENABLE(WEB_RTC)
+    if (configuration.type == PlatformMediaDecodingType::MediaStream) {
+        if (page)
+            page->webRTCProvider().createDecodingConfiguration(WTF::move(configuration), WTF::move(decodingCallback));
+        return;
+    }
+#endif
+    PlatformMediaEngineConfigurationFactory::createDecodingConfiguration(WTF::move(configuration), WTF::move(decodingCallback));
+}
+
+static void gatherEncodingInfo(Document& document, PlatformMediaEncodingConfiguration&& configuration, PlatformMediaEngineConfigurationFactory::EncodingConfigurationCallback&& callback)
+{
+    RELEASE_LOG_INFO(Media, "Gathering encoding MediaCapabilities");
+    PlatformMediaEngineConfigurationFactory::EncodingConfigurationCallback encodingCallback = [callback = WTF::move(callback)](auto&& result) mutable {
+        RELEASE_LOG_INFO(Media, "Finished gathering encoding MediaCapabilities");
+        callback(WTF::move(result));
+    };
+
+#if ENABLE(WEB_RTC)
+    if (configuration.type == PlatformMediaEncodingType::WebRTC) {
+        if (RefPtr page = document.page())
+            page->webRTCProvider().createEncodingConfiguration(WTF::move(configuration), WTF::move(encodingCallback));
+        return;
+    }
+#else
+    UNUSED_PARAM(document);
+#endif
+    PlatformMediaEngineConfigurationFactory::createEncodingConfiguration(WTF::move(configuration), WTF::move(encodingCallback));
+}
+
+void MediaCapabilities::decodingInfo(ScriptExecutionContext& context, MediaDecodingConfiguration&& configuration, Ref<DeferredPromise>&& promise)
+{
+    // 2.4 Media Capabilities Interface
+    // https://wicg.github.io/media-capabilities/#media-capabilities-interface
+
+    // 1. If configuration is not a valid MediaConfiguration, return a Promise rejected with a TypeError.
+    // 2. If configuration.video is present and is not a valid video configuration, return a Promise rejected with a TypeError.
+    // 2.2.3 If configuration is of type MediaDecodingConfiguration, run the following substeps:
+    // 2.2.3.1. If the user agent is able to decode the media represented by
+    // configuration, set supported to true. Otherwise set it to false.
+    // 2.2.3.2. If the user agent is able to decode the media represented by
+    // configuration at a pace that allows a smooth playback, set smooth to
+    // true. Otherwise set it to false.
+    // 2.2.3.3. If the user agent is able to decode the media represented by
+    // configuration in a power efficient manner, set powerEfficient to
+    // true. Otherwise set it to false. The user agent SHOULD NOT take into
+    // consideration the current power source in order to determine the
+    // decoding power efficiency unless the device’s power source has side
+    // effects such as enabling different decoding modules.
+    // 3. If configuration.audio is present and is not a valid audio configuration, return a Promise rejected with a TypeError.
+    if (!isValidMediaConfiguration(configuration)) {
+        RELEASE_LOG_INFO(Media, "Invalid decoding media configuration");
+        promise->reject(ExceptionCode::TypeError);
+        return;
+    }
+
     // 4. Let p be a new promise.
     // 5. In parallel, run the create a MediaCapabilitiesInfo algorithm with configuration and resolve p with its result.
     // 6. Return p.
-    document.eventLoop().queueTask(TaskSource::MediaElement, [configuration = WTFMove(configuration), promise = WTFMove(promise), logger = WTFMove(logger), identifier = WTFMove(identifier)] () mutable {
 
-        // 2.2.3 If configuration is of type MediaDecodingConfiguration, run the following substeps:
-        MediaEngineConfigurationFactory::DecodingConfigurationCallback callback = [promise = WTFMove(promise), logger = WTFMove(logger), identifier = WTFMove(identifier)] (auto info) mutable {
-            // 2.2.3.1. If the user agent is able to decode the media represented by
-            // configuration, set supported to true. Otherwise set it to false.
-            // 2.2.3.2. If the user agent is able to decode the media represented by
-            // configuration at a pace that allows a smooth playback, set smooth to
-            // true. Otherwise set it to false.
-            // 2.2.3.3. If the user agent is able to decode the media represented by
-            // configuration in a power efficient manner, set powerEfficient to
-            // true. Otherwise set it to false. The user agent SHOULD NOT take into
-            // consideration the current power source in order to determine the
-            // decoding power efficiency unless the device’s power source has side
-            // effects such as enabling different decoding modules.
-#if !RELEASE_LOG_DISABLED
-            logger->info(LogMedia, identifier, "::callback() - Resolved. info: ", info);
-#endif
-            promise->resolve<IDLDictionary<MediaCapabilitiesDecodingInfo>>(WTFMove(info));
-        };
+    PlatformMediaEngineConfigurationFactory::DecodingConfigurationCallback callback = [promise = WTF::move(promise), context = protect(context)](PlatformMediaCapabilitiesDecodingInfo&& info) mutable {
+        context->eventLoop().queueTask(TaskSource::MediaElement, [promise = WTF::move(promise), info = WTF::move(info)] mutable {
+            promise->resolve<IDLDictionary<MediaCapabilitiesDecodingInfo>>(fromPlatform(WTF::move(info)));
+        });
+    };
 
-        MediaEngineConfigurationFactory::createDecodingConfiguration(WTFMove(configuration), WTFMove(callback));
+    if (RefPtr document = dynamicDowncast<Document>(context)) {
+        gatherDecodingInfo(*document, toPlatform(WTF::move(configuration)), WTF::move(callback));
+        return;
+    }
+
+    m_decodingTasks.add(++m_nextTaskIdentifier, WTF::move(callback));
+    context.postTaskToResponsibleDocument([configuration = WTF::move(configuration).isolatedCopy(), contextIdentifier = context.identifier(), weakThis = WeakPtr { this }, taskIdentifier = m_nextTaskIdentifier](auto& document) mutable {
+        gatherDecodingInfo(document, toPlatform(WTF::move(configuration)), [contextIdentifier, weakThis = WTF::move(weakThis), taskIdentifier](auto&& result) mutable {
+            ScriptExecutionContext::postTaskTo(contextIdentifier, [weakThis = WTF::move(weakThis), taskIdentifier, result = WTF::move(result).isolatedCopy()](auto&) mutable {
+                if (!weakThis)
+                    return;
+                if (auto callback = weakThis->m_decodingTasks.take(taskIdentifier))
+                    callback(WTF::move(result));
+            });
+        });
     });
 }
 
-void MediaCapabilities::encodingInfo(Document& document, MediaEncodingConfiguration&& configuration, Ref<DeferredPromise>&& promise)
+void MediaCapabilities::encodingInfo(ScriptExecutionContext& context, MediaEncodingConfiguration&& configuration, Ref<DeferredPromise>&& promise)
 {
     // 2.4 Media Capabilities Interface
     // https://wicg.github.io/media-capabilities/#media-capabilities-interface
@@ -228,37 +290,52 @@ void MediaCapabilities::encodingInfo(Document& document, MediaEncodingConfigurat
     // 1. If configuration is not a valid MediaConfiguration, return a Promise rejected with a TypeError.
     // 2. If configuration.video is present and is not a valid video configuration, return a Promise rejected with a TypeError.
     // 3. If configuration.audio is present and is not a valid audio configuration, return a Promise rejected with a TypeError.
+    // 2.2.4. If configuration is of type MediaEncodingConfiguration, run the following substeps:
+    // 2.2.4.1. If the user agent is able to encode the media
+    // represented by configuration, set supported to true. Otherwise
+    // set it to false.
+    // 2.2.4.2. If the user agent is able to encode the media
+    // represented by configuration at a pace that allows encoding
+    // frames at the same pace as they are sent to the encoder, set
+    // smooth to true. Otherwise set it to false.
+    // 2.2.4.3. If the user agent is able to encode the media
+    // represented by configuration in a power efficient manner, set
+    // powerEfficient to true. Otherwise set it to false. The user agent
+    // SHOULD NOT take into consideration the current power source in
+    // order to determine the encoding power efficiency unless the
+    // device’s power source has side effects such as enabling different
+    // encoding modules.
     if (!isValidMediaConfiguration(configuration)) {
-        promise->reject(TypeError);
+        RELEASE_LOG_INFO(Media, "Invalid encoding media configuration");
+        promise->reject(ExceptionCode::TypeError);
         return;
     }
 
     // 4. Let p be a new promise.
     // 5. In parallel, run the create a MediaCapabilitiesInfo algorithm with configuration and resolve p with its result.
     // 6. Return p.
-    document.eventLoop().queueTask(TaskSource::MediaElement, [configuration = WTFMove(configuration), promise = WTFMove(promise)] () mutable {
 
-        // 2.2.4. If configuration is of type MediaEncodingConfiguration, run the following substeps:
-        MediaEngineConfigurationFactory::EncodingConfigurationCallback callback = [promise = WTFMove(promise)] (auto info) mutable {
-            // 2.2.4.1. If the user agent is able to encode the media
-            // represented by configuration, set supported to true. Otherwise
-            // set it to false.
-            // 2.2.4.2. If the user agent is able to encode the media
-            // represented by configuration at a pace that allows encoding
-            // frames at the same pace as they are sent to the encoder, set
-            // smooth to true. Otherwise set it to false.
-            // 2.2.4.3. If the user agent is able to encode the media
-            // represented by configuration in a power efficient manner, set
-            // powerEfficient to true. Otherwise set it to false. The user agent
-            // SHOULD NOT take into consideration the current power source in
-            // order to determine the encoding power efficiency unless the
-            // device’s power source has side effects such as enabling different
-            // encoding modules.
-            promise->resolve<IDLDictionary<MediaCapabilitiesEncodingInfo>>(WTFMove(info));
-        };
+    PlatformMediaEngineConfigurationFactory::EncodingConfigurationCallback callback = [promise = WTF::move(promise), context = protect(context)](PlatformMediaCapabilitiesEncodingInfo&& info) mutable {
+        context->eventLoop().queueTask(TaskSource::MediaElement, [promise = WTF::move(promise), info = WTF::move(info)] () mutable {
+            promise->resolve<IDLDictionary<MediaCapabilitiesEncodingInfo>>(fromPlatform(WTF::move(info)));
+        });
+    };
 
-        MediaEngineConfigurationFactory::createEncodingConfiguration(WTFMove(configuration), WTFMove(callback));
+    if (RefPtr document = dynamicDowncast<Document>(context)) {
+        gatherEncodingInfo(*document, toPlatform(WTF::move(configuration)), WTF::move(callback));
+        return;
+    }
 
+    m_encodingTasks.add(++m_nextTaskIdentifier, WTF::move(callback));
+    context.postTaskToResponsibleDocument([configuration = WTF::move(configuration).isolatedCopy(), contextIdentifier = context.identifier(), weakThis = WeakPtr { this }, taskIdentifier = m_nextTaskIdentifier](auto& document) mutable {
+        gatherEncodingInfo(document, toPlatform(WTF::move(configuration)), [contextIdentifier, weakThis = WTF::move(weakThis), taskIdentifier](auto&& result) mutable {
+            ScriptExecutionContext::postTaskTo(contextIdentifier, [weakThis = WTF::move(weakThis), taskIdentifier, result = WTF::move(result).isolatedCopy()](auto&) mutable {
+                if (!weakThis)
+                    return;
+                if (auto callback = weakThis->m_encodingTasks.take(taskIdentifier))
+                    callback(WTF::move(result));
+            });
+        });
     });
 }
 

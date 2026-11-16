@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,6 +33,8 @@
 #include <wtf/FastMalloc.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/PrintStream.h>
+#include <wtf/SequesteredMalloc.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC { namespace B3 {
 
@@ -42,7 +44,7 @@ namespace Air {
 
 class StackSlot {
     WTF_MAKE_NONCOPYABLE(StackSlot);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_SEQUESTERED_ARENA_ALLOCATED(StackSlot);
 public:
     unsigned byteSize() const { return m_byteSize; }
     StackSlotKind kind() const { return m_kind; }
@@ -65,7 +67,9 @@ public:
             return 2;
         if (byteSize() <= 4)
             return 4;
-        return 8;
+        if (byteSize() <= 8)
+            return 8;
+        return 16;
     }
 
     // Zero means that it's not yet assigned.
@@ -73,10 +77,10 @@ public:
 
     // This should usually just be called from phases that do stack allocation. But you can
     // totally force a stack slot to land at some offset.
-    void setOffsetFromFP(intptr_t);
+    void NODELETE setOffsetFromFP(intptr_t);
     
     // This computes a hash for comparing this to JSAir's StackSlot.
-    unsigned jsHash() const;
+    unsigned NODELETE jsHash() const;
 
     void dump(PrintStream&) const;
     void deepDump(PrintStream&) const;

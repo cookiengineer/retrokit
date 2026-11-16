@@ -25,10 +25,12 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if ENABLE(FTL_JIT)
 
-#include "FTLExitArgument.h"
-#include "VirtualRegister.h"
+#include <JavaScriptCore/FTLExitArgument.h>
+#include <JavaScriptCore/VirtualRegister.h>
 
 namespace JSC { namespace FTL {
 
@@ -47,7 +49,7 @@ public:
     
     bool operator!() const { return !m_exitArgument; }
     
-    const ExitArgument& exitArgument() const { return m_exitArgument; }
+    const ExitArgument& exitArgument() const LIFETIME_BOUND { return m_exitArgument; }
     VirtualRegister operand() const { return m_operand; }
     
     void dump(PrintStream&) const;

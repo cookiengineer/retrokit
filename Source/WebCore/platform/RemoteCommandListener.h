@@ -23,44 +23,42 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef RemoteCommandListener_h
-#define RemoteCommandListener_h
+#pragma once
 
-#include "DeferrableTask.h"
-#include "PlatformMediaSession.h"
+#include <WebCore/DeferrableTask.h>
+#include <WebCore/PlatformMediaSession.h>
+#include <wtf/AbstractRefCounted.h>
 
 namespace WebCore {
 
 class RemoteCommandListenerClient {
-    WTF_MAKE_FAST_ALLOCATED;
 public:
     virtual ~RemoteCommandListenerClient() = default;
-    virtual void didReceiveRemoteControlCommand(PlatformMediaSession::RemoteControlCommandType, const PlatformMediaSession::RemoteCommandArgument&) = 0;
+    virtual void didReceiveRemoteControlCommand(PlatformMediaSessionRemoteControlCommandType, const PlatformMediaSessionRemoteCommandArgument&) = 0;
 };
 
-class WEBCORE_EXPORT RemoteCommandListener {
-    WTF_MAKE_FAST_ALLOCATED;
+class WEBCORE_EXPORT RemoteCommandListener : public AbstractRefCounted {
 public:
-    static std::unique_ptr<RemoteCommandListener> create(RemoteCommandListenerClient&);
+    static RefPtr<RemoteCommandListener> create(RemoteCommandListenerClient&);
     RemoteCommandListener(RemoteCommandListenerClient&);
     virtual ~RemoteCommandListener();
 
-    using CreationFunction = Function<std::unique_ptr<RemoteCommandListener>(RemoteCommandListenerClient&)>;
+    using CreationFunction = Function<RefPtr<RemoteCommandListener>(RemoteCommandListenerClient&)>;
     static void setCreationFunction(CreationFunction&&);
     static void resetCreationFunction();
 
-    void addSupportedCommand(PlatformMediaSession::RemoteControlCommandType);
-    void removeSupportedCommand(PlatformMediaSession::RemoteControlCommandType);
+    void addSupportedCommand(PlatformMediaSessionRemoteControlCommandType);
+    void removeSupportedCommand(PlatformMediaSessionRemoteControlCommandType);
 
-    using RemoteCommandsSet = HashSet<PlatformMediaSession::RemoteControlCommandType, WTF::IntHash<PlatformMediaSession::RemoteControlCommandType>, WTF::StrongEnumHashTraits<PlatformMediaSession::RemoteControlCommandType>>;
+    using RemoteCommandsSet = PlatformMediaSessionRemoteCommandsSet;
     void setSupportedCommands(const RemoteCommandsSet&);
-    const RemoteCommandsSet& supportedCommands() const;
+    const RemoteCommandsSet& NODELETE supportedCommands() const;
 
     virtual void updateSupportedCommands();
     void scheduleSupportedCommandsUpdate();
 
     void setSupportsSeeking(bool);
-    bool supportsSeeking() const;
+    bool NODELETE supportsSeeking() const;
 
     RemoteCommandListenerClient& client() const { return m_client; }
 
@@ -72,5 +70,3 @@ private:
 };
 
 }
-
-#endif

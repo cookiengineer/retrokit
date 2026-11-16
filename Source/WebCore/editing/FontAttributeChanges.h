@@ -25,9 +25,14 @@
 
 #pragma once
 
-#include "Color.h"
-#include "FontShadow.h"
+#include <WebCore/Color.h>
+#include <WebCore/FontShadow.h>
+#include <wtf/ArgumentCoder.h>
 #include <wtf/Forward.h>
+
+namespace IPC {
+template<typename> struct ArgumentCoder;
+}
 
 namespace WebCore {
 
@@ -39,9 +44,8 @@ enum class VerticalAlignChange : uint8_t { Superscript, Baseline, Subscript };
 
 class FontChanges {
 public:
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static WARN_UNUSED_RETURN bool decode(Decoder&, FontChanges&);
-
+    FontChanges() = default;
+    WEBCORE_EXPORT FontChanges(String&& fontName, String&& fontFamily, std::optional<double>&& fontSize, std::optional<double>&& fontSizeDelta, std::optional<bool>&& bold, std::optional<bool>&& italic);
     void setFontName(const String& fontName) { m_fontName = fontName; }
     void setFontFamily(const String& fontFamily) { m_fontFamily = fontFamily; }
     void setFontSize(double fontSize) { m_fontSize = fontSize; }
@@ -58,7 +62,8 @@ public:
     Ref<MutableStyleProperties> createStyleProperties() const;
 
 private:
-    const String& platformFontFamilyNameForCSS() const;
+    friend struct IPC::ArgumentCoder<FontChanges>;
+    const String& platformFontFamilyNameForCSS() const LIFETIME_BOUND;
 
     String m_fontName;
     String m_fontFamily;
@@ -70,8 +75,8 @@ private:
 
 class FontAttributeChanges {
 public:
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static WARN_UNUSED_RETURN bool decode(Decoder&, FontAttributeChanges&);
+    FontAttributeChanges() = default;
+    WEBCORE_EXPORT FontAttributeChanges(std::optional<VerticalAlignChange>&&, std::optional<Color>&& backgroundColor, std::optional<Color>&& foregroundColor, std::optional<FontShadow>&&, std::optional<bool>&& strikeThrough, std::optional<bool>&& underline, FontChanges&&);
 
     void setVerticalAlign(VerticalAlignChange align) { m_verticalAlign = align; }
     void setBackgroundColor(const Color& color) { m_backgroundColor = color; }
@@ -82,9 +87,10 @@ public:
     void setFontChanges(const FontChanges& fontChanges) { m_fontChanges = fontChanges; }
 
     WEBCORE_EXPORT Ref<EditingStyle> createEditingStyle() const;
-    WEBCORE_EXPORT EditAction editAction() const;
+    WEBCORE_EXPORT EditAction NODELETE editAction() const;
 
 private:
+    friend struct IPC::ArgumentCoder<FontAttributeChanges>;
     std::optional<VerticalAlignChange> m_verticalAlign;
     std::optional<Color> m_backgroundColor;
     std::optional<Color> m_foregroundColor;
@@ -94,80 +100,4 @@ private:
     FontChanges m_fontChanges;
 };
 
-template<class Encoder>
-void FontChanges::encode(Encoder& encoder) const
-{
-    ASSERT(!m_fontSize || !m_fontSizeDelta);
-    encoder << m_fontName << m_fontFamily << m_fontSize << m_fontSizeDelta << m_bold << m_italic;
-}
-
-template<class Decoder>
-bool FontChanges::decode(Decoder& decoder, FontChanges& changes)
-{
-    if (!decoder.decode(changes.m_fontName))
-        return false;
-
-    if (!decoder.decode(changes.m_fontFamily))
-        return false;
-
-    if (!decoder.decode(changes.m_fontSize))
-        return false;
-
-    if (!decoder.decode(changes.m_fontSizeDelta))
-        return false;
-
-    if (!decoder.decode(changes.m_bold))
-        return false;
-
-    if (!decoder.decode(changes.m_italic))
-        return false;
-
-    ASSERT(!changes.m_fontSize || !changes.m_fontSizeDelta);
-    return true;
-}
-
-template<class Encoder>
-void FontAttributeChanges::encode(Encoder& encoder) const
-{
-    encoder << m_verticalAlign << m_backgroundColor << m_foregroundColor << m_shadow << m_strikeThrough << m_underline << m_fontChanges;
-}
-
-template<class Decoder>
-bool FontAttributeChanges::decode(Decoder& decoder, FontAttributeChanges& changes)
-{
-    if (!decoder.decode(changes.m_verticalAlign))
-        return false;
-
-    if (!decoder.decode(changes.m_backgroundColor))
-        return false;
-
-    if (!decoder.decode(changes.m_foregroundColor))
-        return false;
-
-    if (!decoder.decode(changes.m_shadow))
-        return false;
-
-    if (!decoder.decode(changes.m_strikeThrough))
-        return false;
-
-    if (!decoder.decode(changes.m_underline))
-        return false;
-
-    if (!decoder.decode(changes.m_fontChanges))
-        return false;
-
-    return true;
-}
-
 } // namespace WebCore
-
-namespace WTF {
-template<> struct EnumTraits<WebCore::VerticalAlignChange> {
-    using values = EnumValues<
-        WebCore::VerticalAlignChange,
-        WebCore::VerticalAlignChange::Superscript,
-        WebCore::VerticalAlignChange::Baseline,
-        WebCore::VerticalAlignChange::Subscript
-    >;
-};
-}

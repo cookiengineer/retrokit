@@ -1,15 +1,15 @@
-# DerivedBinaryProperties-13.0.0.txt
-# Date: 2019-09-08, 23:31:04 GMT
-# © 2019 Unicode®, Inc.
+# DerivedBinaryProperties-17.0.0.txt
+# Date: 2025-01-27, 18:09:10 GMT
+# © 2025 Unicode®, Inc.
 # Unicode and the Unicode Logo are registered trademarks of Unicode, Inc. in the U.S. and other countries.
-# For terms of use, see http://www.unicode.org/terms_of_use.html
+# For terms of use and license, see https://www.unicode.org/terms_of_use.html
 #
 # Unicode Character Database
-#   For documentation, see http://www.unicode.org/reports/tr44/
+#   For documentation, see https://www.unicode.org/reports/tr44/
 
 # ================================================
 
-# Bidi_Mirrored (listing UnicodeData.txt, field 9: see UAX #44: http://www.unicode.org/reports/tr44/)
+# Bidi_Mirrored (listing UnicodeData.txt, field 9: see UAX #44: https://www.unicode.org/reports/tr44/)
 
 0028          ; Bidi_Mirrored # Ps       LEFT PARENTHESIS
 0029          ; Bidi_Mirrored # Pe       RIGHT PARENTHESIS
@@ -51,7 +51,7 @@
 225F..2260    ; Bidi_Mirrored # Sm   [2] QUESTIONED EQUAL TO..NOT EQUAL TO
 2262          ; Bidi_Mirrored # Sm       NOT IDENTICAL TO
 2264..226B    ; Bidi_Mirrored # Sm   [8] LESS-THAN OR EQUAL TO..MUCH GREATER-THAN
-226E..228C    ; Bidi_Mirrored # Sm  [31] NOT LESS-THAN..MULTISET
+226D..228C    ; Bidi_Mirrored # Sm  [32] NOT EQUIVALENT TO..MULTISET
 228F..2292    ; Bidi_Mirrored # Sm   [4] SQUARE IMAGE OF..SQUARE ORIGINAL OF OR EQUAL TO
 2298          ; Bidi_Mirrored # Sm       CIRCLED DIVISION SLASH
 22A2..22A3    ; Bidi_Mirrored # Sm   [2] RIGHT TACK..LEFT TACK
@@ -185,6 +185,14 @@
 2E27          ; Bidi_Mirrored # Pe       RIGHT SIDEWAYS U BRACKET
 2E28          ; Bidi_Mirrored # Ps       LEFT DOUBLE PARENTHESIS
 2E29          ; Bidi_Mirrored # Pe       RIGHT DOUBLE PARENTHESIS
+2E55          ; Bidi_Mirrored # Ps       LEFT SQUARE BRACKET WITH STROKE
+2E56          ; Bidi_Mirrored # Pe       RIGHT SQUARE BRACKET WITH STROKE
+2E57          ; Bidi_Mirrored # Ps       LEFT SQUARE BRACKET WITH DOUBLE STROKE
+2E58          ; Bidi_Mirrored # Pe       RIGHT SQUARE BRACKET WITH DOUBLE STROKE
+2E59          ; Bidi_Mirrored # Ps       TOP HALF LEFT PARENTHESIS
+2E5A          ; Bidi_Mirrored # Pe       TOP HALF RIGHT PARENTHESIS
+2E5B          ; Bidi_Mirrored # Ps       BOTTOM HALF LEFT PARENTHESIS
+2E5C          ; Bidi_Mirrored # Pe       BOTTOM HALF RIGHT PARENTHESIS
 3008          ; Bidi_Mirrored # Ps       LEFT ANGLE BRACKET
 3009          ; Bidi_Mirrored # Pe       RIGHT ANGLE BRACKET
 300A          ; Bidi_Mirrored # Ps       LEFT DOUBLE ANGLE BRACKET
@@ -228,6 +236,6 @@ FF63          ; Bidi_Mirrored # Pe       HALFWIDTH RIGHT CORNER BRACKET
 1D789         ; Bidi_Mirrored # Sm       MATHEMATICAL SANS-SERIF BOLD PARTIAL DIFFERENTIAL
 1D7C3         ; Bidi_Mirrored # Sm       MATHEMATICAL SANS-SERIF BOLD ITALIC PARTIAL DIFFERENTIAL
 
-# Total code points: 545
+# Total code points: 554
 
 # EOF

@@ -28,11 +28,15 @@
 #include "WeakMapImpl.h"
 
 #include "AuxiliaryBarrierInlines.h"
+#include "JSCJSValueInlines.h"
 #include "SlotVisitorInlines.h"
-#include "StructureInlines.h"
 #include "WeakMapImplInlines.h"
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
+
+const uint64_t emptyWeakMapBuffer[2] = { 0, 0 };
 
 template <typename WeakMapBucket>
 void WeakMapImpl<WeakMapBucket>::destroy(JSCell* cell)
@@ -44,7 +48,7 @@ template<typename WeakMapBucket>
 template<typename Visitor>
 void WeakMapImpl<WeakMapBucket>::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    WeakMapImpl* thisObject = jsCast<WeakMapImpl*>(cell);
+    WeakMapImpl* thisObject = uncheckedDowncast<WeakMapImpl>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
     visitor.reportExtraMemoryVisited(thisObject->m_capacity * sizeof(WeakMapBucket));
@@ -79,8 +83,7 @@ ALWAYS_INLINE void WeakMapImpl<BucketType>::visitOutputConstraints(JSCell* cell,
 {
     static_assert(std::is_same<BucketType, WeakMapBucket<WeakMapBucketDataKeyValue>>::value);
 
-    auto* thisObject = jsCast<WeakMapImpl*>(cell);
-    Locker locker { thisObject->cellLock() };
+    auto* thisObject = uncheckedDowncast<WeakMapImpl>(cell);
     auto* buffer = thisObject->buffer();
     for (uint32_t index = 0; index < thisObject->m_capacity; ++index) {
         auto* bucket = buffer + index;
@@ -99,9 +102,9 @@ template <typename WeakMapBucket>
 template<typename Appender>
 void WeakMapImpl<WeakMapBucket>::takeSnapshotInternal(unsigned limit, Appender appender)
 {
-    DisallowGC disallowGC;
+    AssertNoGC assertNoGC;
     unsigned fetched = 0;
-    forEach([&] (JSObject* key, JSValue value) {
+    forEach([&](JSCell* key, JSValue value) {
         appender(key, value);
         ++fetched;
         if (limit && fetched >= limit)
@@ -114,7 +117,7 @@ void WeakMapImpl<WeakMapBucket>::takeSnapshotInternal(unsigned limit, Appender a
 template <>
 void WeakMapImpl<WeakMapBucket<WeakMapBucketDataKey>>::takeSnapshot(MarkedArgumentBuffer& buffer, unsigned limit)
 {
-    takeSnapshotInternal(limit, [&] (JSObject* key, JSValue) {
+    takeSnapshotInternal(limit, [&](JSCell* key, JSValue) {
         buffer.append(key);
     });
 }
@@ -122,7 +125,7 @@ void WeakMapImpl<WeakMapBucket<WeakMapBucketDataKey>>::takeSnapshot(MarkedArgume
 template <>
 void WeakMapImpl<WeakMapBucket<WeakMapBucketDataKeyValue>>::takeSnapshot(MarkedArgumentBuffer& buffer, unsigned limit)
 {
-    takeSnapshotInternal(limit, [&] (JSObject* key, JSValue value) {
+    takeSnapshotInternal(limit, [&](JSCell* key, JSValue value) {
         buffer.append(key);
         buffer.append(value);
     });
@@ -132,3 +135,5 @@ template class WeakMapImpl<WeakMapBucket<WeakMapBucketDataKeyValue>>;
 template class WeakMapImpl<WeakMapBucket<WeakMapBucketDataKey>>;
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

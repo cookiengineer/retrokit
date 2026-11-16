@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,15 +29,16 @@
 #include "BackForwardCache.h"
 #include "DOMWrapperWorld.h"
 #include "Document.h"
-#include "Frame.h"
+#include "LocalFrame.h"
 #include "Page.h"
 #include "StorageNamespace.h"
 #include <JavaScriptCore/HeapInlines.h>
 #include <JavaScriptCore/StructureInlines.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 
 #if ENABLE(VIDEO)
-#if PLATFORM(MAC) || HAVE(MEDIA_ACCESSIBILITY_FRAMEWORK)
+#if HAVE(MEDIA_ACCESSIBILITY_FRAMEWORK)
 #include "CaptionUserPreferencesMediaAF.h"
 #else
 #include "CaptionUserPreferences.h"
@@ -46,13 +47,25 @@
 
 namespace WebCore {
 
-static unsigned getUniqueIdentifier()
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PageGroup);
+
+static unsigned NODELETE getUniqueIdentifier()
 {
     static unsigned currentIdentifier = 0;
     return ++currentIdentifier;
 }
 
 // --------
+
+UniqueRef<PageGroup> PageGroup::create(const String& name)
+{
+    return UniqueRef<PageGroup>(*new PageGroup(name));
+}
+
+UniqueRef<PageGroup> PageGroup::create(Page& page)
+{
+    return UniqueRef<PageGroup>(*new PageGroup(page));
+}
 
 PageGroup::PageGroup(const String& name)
     : m_name(name)
@@ -68,25 +81,21 @@ PageGroup::PageGroup(Page& page)
 
 PageGroup::~PageGroup() = default;
 
-typedef HashMap<String, PageGroup*> PageGroupMap;
-static PageGroupMap* pageGroups = nullptr;
+using PageGroupMap = HashMap<String, UniqueRef<PageGroup>>;
+
+static PageGroupMap& NODELETE pageGroups()
+{
+    static NeverDestroyed<PageGroupMap> pageGroupsMap;
+    return pageGroupsMap;
+}
 
 PageGroup* PageGroup::pageGroup(const String& groupName)
 {
     ASSERT(!groupName.isEmpty());
-    
-    if (!pageGroups)
-        pageGroups = new PageGroupMap;
 
-    PageGroupMap::AddResult result = pageGroups->add(groupName, nullptr);
-
-    if (result.isNewEntry) {
-        ASSERT(!result.iterator->value);
-        result.iterator->value = new PageGroup(groupName);
-    }
-
-    ASSERT(result.iterator->value);
-    return result.iterator->value;
+    return pageGroups().ensure(groupName, [&] {
+        return PageGroup::create(groupName);
+    }).iterator->value.ptr();
 }
 
 void PageGroup::addPage(Page& page)
@@ -104,22 +113,23 @@ void PageGroup::removePage(Page& page)
 #if ENABLE(VIDEO)
 void PageGroup::captionPreferencesChanged()
 {
-    for (auto& page : m_pages)
+    m_pages.forEach([](auto& page) {
         page.captionPreferencesChanged();
+    });
     BackForwardCache::singleton().markPagesForCaptionPreferencesChanged();
 }
 
 CaptionUserPreferences& PageGroup::ensureCaptionPreferences()
 {
     if (!m_captionPreferences) {
-#if PLATFORM(MAC) || HAVE(MEDIA_ACCESSIBILITY_FRAMEWORK)
-        m_captionPreferences = makeUnique<CaptionUserPreferencesMediaAF>(*this);
+#if HAVE(MEDIA_ACCESSIBILITY_FRAMEWORK)
+        lazyInitialize(m_captionPreferences, CaptionUserPreferencesMediaAF::create(*this));
 #else
-        m_captionPreferences = makeUnique<CaptionUserPreferences>(*this);
+        lazyInitialize(m_captionPreferences, CaptionUserPreferences::create(*this));
 #endif
     }
 
-    return *m_captionPreferences.get();
+    return *m_captionPreferences;
 }
 #endif
 

@@ -36,9 +36,12 @@
 
 #include <optional>
 #include <type_traits>
+#include <wtf/Hasher.h>
 #include <wtf/StdLibExtras.h>
 
 namespace WTF {
+
+template<typename> struct MarkableTraits { };
 
 // Example:
 //     enum class Type { Value1, Value2, Value3 };
@@ -47,7 +50,7 @@ template<
     typename EnumType,
     typename std::underlying_type<EnumType>::type constant = std::numeric_limits<typename std::underlying_type<EnumType>::type>::max()>
 struct EnumMarkableTraits {
-    static_assert(std::is_enum<EnumType>::value, "");
+    static_assert(std::is_enum<EnumType>::value);
     using UnderlyingType = typename std::underlying_type<EnumType>::type;
 
     constexpr static bool isEmptyValue(EnumType value)
@@ -61,9 +64,13 @@ struct EnumMarkableTraits {
     }
 };
 
-template<typename IntegralType, IntegralType constant = 0>
+template<typename T>
+requires(std::is_enum_v<T>)
+struct MarkableTraits<T> : EnumMarkableTraits<T> { };
+
+template<typename IntegralType, IntegralType constant>
 struct IntegralMarkableTraits {
-    static_assert(std::is_integral<IntegralType>::value, "");
+    static_assert(std::is_integral<IntegralType>::value);
     constexpr static bool isEmptyValue(IntegralType value)
     {
         return value == constant;
@@ -75,6 +82,24 @@ struct IntegralMarkableTraits {
     }
 };
 
+template<typename T>
+requires(std::is_integral_v<T>)
+struct MarkableTraits<T> : IntegralMarkableTraits<T, static_cast<T>(-1)> { };
+
+template<typename T>
+requires(std::is_floating_point_v<T>)
+struct MarkableTraits<T> {
+    constexpr static bool isEmptyValue(T value)
+    {
+        return std::isnan(value);
+    }
+
+    constexpr static T emptyValue()
+    {
+        return std::numeric_limits<T>::quiet_NaN();
+    }
+};
+
 // The goal of Markable is offering Optional without sacrificing storage efficiency.
 // Markable takes Traits, which should have isEmptyValue and emptyValue functions. By using
 // one value of T as an empty value, we can remove bool flag in Optional. This strategy is
@@ -83,7 +108,7 @@ struct IntegralMarkableTraits {
 // Otherwise, you should use Optional.
 template<typename T, typename Traits>
 class Markable {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(Markable);
 public:
     constexpr Markable()
         : m_value(Traits::emptyValue())
@@ -94,7 +119,7 @@ public:
     { }
 
     constexpr Markable(T&& value)
-        : m_value(WTFMove(value))
+        : m_value(WTF::move(value))
     { }
 
     constexpr Markable(const T& value)
@@ -111,27 +136,38 @@ public:
     { }
 
     constexpr Markable(std::optional<T>&& value)
-        : m_value(bool(value) ? WTFMove(*value) : Traits::emptyValue())
+        : m_value(bool(value) ? WTF::move(*value) : Traits::emptyValue())
     { }
 
     constexpr explicit operator bool() const { return !Traits::isEmptyValue(m_value); }
 
     void reset() { m_value = Traits::emptyValue(); }
 
-    constexpr const T& value() const& { return m_value; }
-    constexpr T& value() & { return m_value; }
-    constexpr T&& value() && { return WTFMove(m_value); }
+    constexpr const T& value() const& LIFETIME_BOUND { RELEASE_ASSERT(bool(*this)); return m_value; }
+    constexpr T& value() & LIFETIME_BOUND { RELEASE_ASSERT(bool(*this)); return m_value; }
+    constexpr T&& value() && { RELEASE_ASSERT(bool(*this)); return WTF::move(m_value); }
 
-    constexpr const T* operator->() const { return std::addressof(m_value); }
-    constexpr T* operator->() { return std::addressof(m_value); }
+    constexpr const T& unsafeValue() const& LIFETIME_BOUND { return m_value; }
+    constexpr T& unsafeValue() & LIFETIME_BOUND { return m_value; }
+    constexpr T&& unsafeValue() && { return WTF::move(m_value); }
 
-    constexpr const T& operator*() const& { return m_value; }
-    constexpr T& operator*() & { return m_value; }
+    constexpr const T* operator->() const LIFETIME_BOUND { RELEASE_ASSERT(bool(*this)); return std::addressof(m_value); }
+    constexpr T* operator->() LIFETIME_BOUND { RELEASE_ASSERT(bool(*this)); return std::addressof(m_value); }
+
+    constexpr const T& operator*() const& LIFETIME_BOUND { RELEASE_ASSERT(bool(*this)); return m_value; }
+    constexpr T& operator*() & LIFETIME_BOUND { RELEASE_ASSERT(bool(*this)); return m_value; }
+
+    template <class U> constexpr T value_or(U&& fallback) const
+    {
+        if (bool(*this))
+            return m_value;
+        return static_cast<T>(std::forward<U>(fallback));
+    }
 
     operator std::optional<T>() &&
     {
         if (bool(*this))
-            return WTFMove(m_value);
+            return WTF::move(m_value);
         return std::nullopt;
     }
 
@@ -151,6 +187,11 @@ private:
     T m_value;
 };
 
+template <typename T, typename Traits> inline void add(Hasher& hasher, const Markable<T, Traits>& value)
+{
+    add(hasher, value.asOptional());
+}
+
 template <typename T, typename Traits> constexpr bool operator==(const Markable<T, Traits>& x, const Markable<T, Traits>& y)
 {
     if (bool(x) != bool(y))
@@ -160,11 +201,6 @@ template <typename T, typename Traits> constexpr bool operator==(const Markable<
     return x.value() == y.value();
 }
 template <typename T, typename Traits> constexpr bool operator==(const Markable<T, Traits>& x, const T& v) { return bool(x) && x.value() == v; }
-template <typename T, typename Traits> constexpr bool operator==(const T& v, const Markable<T, Traits>& x) { return bool(x) && v == x.value(); }
-
-template <typename T, typename Traits> constexpr bool operator!=(const Markable<T, Traits>& x, const Markable<T, Traits>& y) { return !(x == y); }
-template <typename T, typename Traits> constexpr bool operator!=(const Markable<T, Traits>& x, const T& v) { return !(x == v); }
-template <typename T, typename Traits> constexpr bool operator!=(const T& v, const Markable<T, Traits>& x) { return !(v == x); }
 
 } // namespace WTF
 

@@ -152,13 +152,35 @@ WI.ObjectTreePropertyTreeElement = class ObjectTreePropertyTreeElement extends W
         // Property name.
         var nameElement = document.createElement("span");
         nameElement.className = "property-name";
-        nameElement.textContent = this.property.name + ": ";
         nameElement.title = this.propertyPathString(this.thisPropertyPath());
+
+        let shouldAddColon = true;
 
         // Property attributes.
         if (this._mode === WI.ObjectTreeView.Mode.Properties) {
-            if (!this.property.enumerable)
-                nameElement.classList.add("not-enumerable");
+            if (this.property.isPrivateProperty)
+                nameElement.classList.add("private");
+
+            if (this.property.isInternalProperty)
+                nameElement.classList.add("internal");
+            else {
+                nameElement.title += "\n";
+
+                if (this.property.configurable)
+                    nameElement.title += "\n" + WI.UIString("Configurable", "Configurable @ Object Tree Property", "Part of the tooltip indicating that the hovered property is configurable.");
+                else
+                    nameElement.title += "\n" + WI.UIString("Not configurable", "Not configurable @ Object Tree Property", "Part of the tooltip indicating that the hovered property is not configurable.");
+
+                if (this.property.enumerable)
+                    nameElement.title += "\n" + WI.UIString("Enumerable", "Enumerable @ Object Tree Property", "Part of the tooltip indicating that the hovered property is enumerable.");
+                else
+                    nameElement.title += "\n" + WI.UIString("Not enumerable", "Not enumerable @ Object Tree Property", "Part of the tooltip indicating that the hovered property is not enumerable.");
+
+                if (this.property.writable)
+                    nameElement.title += "\n" + WI.UIString("Writable", "Writable @ Object Tree Property", "Part of the tooltip indicating that the hovered property is writable.");
+                else
+                    nameElement.title += "\n" + WI.UIString("Not writable", "Not writable @ Object Tree Property", "Part of the tooltip indicating that the hovered property is not writable.");
+            }
         }
 
         // Value / Getter Value / Getter.
@@ -174,8 +196,10 @@ WI.ObjectTreePropertyTreeElement = class ObjectTreePropertyTreeElement extends W
                 valueOrGetterElement = WI.FormattedValue.createElementForRemoteObject(resolvedValue, this.hadError());
 
                 // Special case a function property string.
-                if (resolvedValue.type === "function")
-                    valueOrGetterElement.textContent = this._functionPropertyString();
+                if (resolvedValue.type === "function") {
+                    shouldAddColon = false;
+                    valueOrGetterElement.textContent = this._functionParameterString();
+                }
             }
         } else {
             valueOrGetterElement = document.createElement("span");
@@ -184,6 +208,8 @@ WI.ObjectTreePropertyTreeElement = class ObjectTreePropertyTreeElement extends W
             if (this.property.hasSetter())
                 valueOrGetterElement.appendChild(this.createSetterElement());
         }
+
+        nameElement.textContent = this.property.name + (shouldAddColon ? ": " : "");
 
         valueOrGetterElement.classList.add("value");
         if (this.hadError())
@@ -264,11 +290,6 @@ WI.ObjectTreePropertyTreeElement = class ObjectTreePropertyTreeElement extends W
         return false;
     }
 
-    _functionPropertyString()
-    {
-        return "function" + this._functionParameterString();
-    }
-
     _functionParameterString()
     {
         var resolvedValue = this.resolvedValue();
@@ -277,9 +298,10 @@ WI.ObjectTreePropertyTreeElement = class ObjectTreePropertyTreeElement extends W
         // For Native methods, the toString is poor. We try to provide good function parameter strings.
         if (isFunctionStringNativeCode(resolvedValue.description)) {
             // Native function on a prototype, likely "Foo.prototype.method".
-            if (this._prototypeName) {
-                if (WI.NativePrototypeFunctionParameters[this._prototypeName]) {
-                    var params = WI.NativePrototypeFunctionParameters[this._prototypeName][this._property.name];
+            let prototypeName = this._prototypeName || this._sanitizedPrototypeString(this._propertyPath.object);
+            if (prototypeName) {
+                if (WI.NativePrototypeFunctionParameters[prototypeName]) {
+                    let params = WI.NativePrototypeFunctionParameters[prototypeName][this._property.name];
                     return params ? "(" + params + ")" : "()";
                 }
             }
@@ -308,8 +330,7 @@ WI.ObjectTreePropertyTreeElement = class ObjectTreePropertyTreeElement extends W
             }
         }
 
-        var match = resolvedValue.functionDescription.match(/^function.*?(\([^)]*?\))/);
-        return match ? match[1] : "()";
+        return resolvedValue.functionDescription.match(/^(?:function)?.*?(\([^)]*?\))\s*(?:\{|=>)?/)?.[1] || "()";
     }
 
     _sanitizedPrototypeString(value)

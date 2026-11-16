@@ -19,11 +19,29 @@
 
 #pragma once
 
+#if ENABLE(CONTEXT_MENUS)
 #include "WebContextMenuItemGlib.h"
 #include "WebKitContextMenu.h"
+#include "WebPageProxy.h"
+#include <WebCore/IntPoint.h>
+
+#if PLATFORM(GTK)
+#include "GRefPtrGtk.h"
+#include "GUniquePtrGtk.h"
+#endif
 
 WebKitContextMenu* webkitContextMenuCreate(const Vector<WebKit::WebContextMenuItemData>&);
 void webkitContextMenuPopulate(WebKitContextMenu*, Vector<WebKit::WebContextMenuItemGlib>&);
 void webkitContextMenuPopulate(WebKitContextMenu*, Vector<WebKit::WebContextMenuItemData>&);
+void webkitContextMenuSetPage(WebKitContextMenu*, WebKit::WebPageProxy*);
 void webkitContextMenuSetParentItem(WebKitContextMenu*, WebKitContextMenuItem*);
 WebKitContextMenuItem* webkitContextMenuGetParentItem(WebKitContextMenu*);
+void webkitContextMenuSetPosition(WebKitContextMenu*, const WebCore::IntPoint&);
+#if PLATFORM(GTK)
+#if USE(GTK4)
+void webkitContextMenuSetEvent(WebKitContextMenu*, GRefPtr<GdkEvent>&&);
+#else
+void webkitContextMenuSetEvent(WebKitContextMenu*, GUniquePtr<GdkEvent>&&);
+#endif
+#endif
+#endif // ENABLE(CONTEXT_MENUS)

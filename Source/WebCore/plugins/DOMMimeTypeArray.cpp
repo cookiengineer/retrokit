@@ -22,21 +22,22 @@
 
 #include "DOMMimeType.h"
 #include "Navigator.h"
-#include <wtf/IsoMallocInlines.h>
+#include "ScriptWrappableInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/AtomString.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(DOMMimeTypeArray);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(DOMMimeTypeArray);
 
 Ref<DOMMimeTypeArray> DOMMimeTypeArray::create(Navigator& navigator, Vector<Ref<DOMMimeType>>&& types)
 {
-    return adoptRef(*new DOMMimeTypeArray(navigator, WTFMove(types)));
+    return adoptRef(*new DOMMimeTypeArray(navigator, WTF::move(types)));
 }
 
 DOMMimeTypeArray::DOMMimeTypeArray(Navigator& navigator, Vector<Ref<DOMMimeType>>&& types)
-    : m_navigator(makeWeakPtr(navigator))
-    , m_types(WTFMove(types))
+    : m_navigator(navigator)
+    , m_types(WTF::move(types))
 {
 }
 
@@ -63,13 +64,16 @@ RefPtr<DOMMimeType> DOMMimeTypeArray::namedItem(const AtomString& propertyName)
     return nullptr;
 }
 
-Vector<AtomString> DOMMimeTypeArray::supportedPropertyNames()
+bool DOMMimeTypeArray::isSupportedPropertyName(const AtomString& propertyName) const
 {
-    Vector<AtomString> result;
-    result.reserveInitialCapacity(m_types.size());
-    for (auto& type : m_types)
-        result.uncheckedAppend(type->type());
-    return result;
+    return m_types.containsIf([&](auto& type) { return type->type() == propertyName; });
+}
+
+Vector<AtomString> DOMMimeTypeArray::supportedPropertyNames() const
+{
+    return m_types.map([](auto& type) -> AtomString {
+        return type->type();
+    });
 }
 
 } // namespace WebCore

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013, 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,14 +25,14 @@
 
 #pragma once
 
-#include "DeferGC.h"
+#include <JavaScriptCore/DeferGC.h>
 #include <wtf/Lock.h>
-#include <wtf/NoLock.h>
+#include <wtf/Locker.h>
 
 namespace JSC {
 
 using ConcurrentJSLock = Lock;
-using ConcurrentJSLockerImpl = LockHolder;
+using ConcurrentJSLockerImpl = Locker<Lock>;
 
 static_assert(sizeof(ConcurrentJSLock) == 1, "Regardless of status of concurrent JS flag, size of ConurrentJSLock is always one byte.");
 
@@ -69,15 +69,15 @@ private:
 
 class GCSafeConcurrentJSLocker : public ConcurrentJSLockerBase {
 public:
-    GCSafeConcurrentJSLocker(ConcurrentJSLock& lockable, Heap& heap)
+    GCSafeConcurrentJSLocker(ConcurrentJSLock& lockable, VM& vm)
         : ConcurrentJSLockerBase(lockable)
-        , m_deferGC(heap)
+        , m_deferGC(vm)
     {
     }
 
-    GCSafeConcurrentJSLocker(ConcurrentJSLock* lockable, Heap& heap)
+    GCSafeConcurrentJSLocker(ConcurrentJSLock* lockable, VM& vm)
         : ConcurrentJSLockerBase(lockable)
-        , m_deferGC(heap)
+        , m_deferGC(vm)
     {
     }
 
@@ -99,7 +99,7 @@ public:
     ConcurrentJSLocker(ConcurrentJSLock& lockable)
         : ConcurrentJSLockerBase(lockable)
 #if !defined(NDEBUG)
-        , m_disallowGC(std::in_place)
+        , m_assertNoGC(std::in_place)
 #endif
     {
     }
@@ -107,7 +107,7 @@ public:
     ConcurrentJSLocker(ConcurrentJSLock* lockable)
         : ConcurrentJSLockerBase(lockable)
 #if !defined(NDEBUG)
-        , m_disallowGC(std::in_place)
+        , m_assertNoGC(std::in_place)
 #endif
     {
     }
@@ -115,7 +115,7 @@ public:
     ConcurrentJSLocker(NoLockingNecessaryTag)
         : ConcurrentJSLockerBase(NoLockingNecessary)
 #if !defined(NDEBUG)
-        , m_disallowGC(std::nullopt)
+        , m_assertNoGC(std::nullopt)
 #endif
     {
     }
@@ -124,7 +124,7 @@ public:
 
 #if !defined(NDEBUG)
 private:
-    std::optional<DisallowGC> m_disallowGC;
+    std::optional<AssertNoGC> m_assertNoGC;
 #endif
 };
 

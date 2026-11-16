@@ -29,6 +29,8 @@
 #include <wtf/ASCIICType.h>
 #include <wtf/StringPrintStream.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 CString reduceWhitespace(const CString& input)
@@ -38,8 +40,8 @@ CString reduceWhitespace(const CString& input)
     const char* data = input.data();
     
     for (unsigned i = 0; i < input.length();) {
-        if (isASCIISpace(data[i])) {
-            while (i < input.length() && isASCIISpace(data[i]))
+        if (isUnicodeCompatibleASCIIWhitespace(data[i])) {
+            while (i < input.length() && isUnicodeCompatibleASCIIWhitespace(data[i]))
                 ++i;
             out.print(CharacterDump(' '));
             continue;
@@ -52,3 +54,5 @@ CString reduceWhitespace(const CString& input)
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

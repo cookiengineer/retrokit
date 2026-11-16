@@ -1,6 +1,6 @@
 /*
  *  Copyright (C) 1999-2000 Harri Porten (porten@kde.org)
- *  Copyright (C) 2003-2021 Apple Inc. All rights reserved.
+ *  Copyright (C) 2003-2024 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -22,16 +22,18 @@
 #include "ErrorInstance.h"
 
 #include "CodeBlock.h"
+#include "ErrorInstanceInlines.h"
 #include "InlineCallFrame.h"
 #include "IntegrityInlines.h"
 #include "Interpreter.h"
 #include "JSCInlines.h"
 #include "ParseInt.h"
 #include "StackFrame.h"
+#include <wtf/text/MakeString.h>
 
 namespace JSC {
 
-const ClassInfo ErrorInstance::s_info = { "Error", &JSNonFinalObject::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(ErrorInstance) };
+const ClassInfo ErrorInstance::s_info = { "Error"_s, &JSNonFinalObject::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(ErrorInstance) };
 
 ErrorInstance::ErrorInstance(VM& vm, Structure* structure, ErrorType errorType)
     : Base(vm, structure)
@@ -39,11 +41,25 @@ ErrorInstance::ErrorInstance(VM& vm, Structure* structure, ErrorType errorType)
     , m_stackOverflowError(false)
     , m_outOfMemoryError(false)
     , m_errorInfoMaterialized(false)
+    , m_stackPropertyAlreadyMaterialized(false)
     , m_nativeGetterTypeError(false)
+    , m_parseError(false)
+#if ENABLE(WEBASSEMBLY)
+    , m_catchableFromWasm(true)
+#endif // ENABLE(WEBASSEMBLY)
 {
 }
 
-ErrorInstance* ErrorInstance::create(JSGlobalObject* globalObject, Structure* structure, JSValue message, JSValue options, SourceAppender appender, RuntimeType type, ErrorType errorType, bool useCurrentFrame)
+ErrorInstance* ErrorInstance::create(JSGlobalObject* globalObject, String&& message, ErrorType errorType, LineColumn lineColumn, String&& sourceURL, String&& stackString, String&& cause)
+{
+    VM& vm = globalObject->vm();
+    Structure* structure = globalObject->errorStructure(errorType);
+    ErrorInstance* instance = new (NotNull, allocateCell<ErrorInstance>(vm)) ErrorInstance(vm, structure, errorType);
+    instance->finishCreation(vm, WTF::move(message), lineColumn, WTF::move(sourceURL), WTF::move(stackString), WTF::move(cause));
+    return instance;
+}
+
+ErrorInstance* ErrorInstance::create(JSGlobalObject* globalObject, Structure* structure, JSValue message, JSValue options, SourceAppender appender, RuntimeType type, ErrorType errorType, bool useCurrentFrame, JSCell* subclassCaller)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
@@ -58,43 +74,24 @@ ErrorInstance* ErrorInstance::create(JSGlobalObject* globalObject, Structure* st
         RETURN_IF_EXCEPTION(scope, nullptr);
     }
 
-    return create(globalObject, vm, structure, messageString, cause, appender, type, errorType, useCurrentFrame);
+    return create(vm, structure, messageString, cause, appender, type, errorType, useCurrentFrame, subclassCaller);
 }
 
-static String appendSourceToErrorMessage(CallFrame* callFrame, ErrorInstance* exception, BytecodeIndex bytecodeIndex, const String& message)
+String appendSourceToErrorMessage(CodeBlock* codeBlock, BytecodeIndex bytecodeIndex, const String& message, RuntimeType type, ErrorInstance::SourceAppender appender)
 {
-    ErrorInstance::SourceAppender appender = exception->sourceAppender();
-    exception->clearSourceAppender();
-    RuntimeType type = exception->runtimeTypeForCause();
-    exception->clearRuntimeTypeForCause();
-
-    if (!callFrame->codeBlock()->hasExpressionInfo() || message.isNull())
+    if (!codeBlock->hasExpressionInfo() || message.isNull())
         return message;
-    
-    int startOffset = 0;
-    int endOffset = 0;
-    int divotPoint = 0;
-    unsigned line = 0;
-    unsigned column = 0;
 
-    CodeBlock* codeBlock;
-    CodeOrigin codeOrigin = callFrame->codeOrigin();
-    if (codeOrigin && codeOrigin.inlineCallFrame())
-        codeBlock = baselineCodeBlockForInlineCallFrame(codeOrigin.inlineCallFrame());
-    else
-        codeBlock = callFrame->codeBlock();
-
-    codeBlock->expressionRangeForBytecodeIndex(bytecodeIndex, divotPoint, startOffset, endOffset, line, column);
-    
-    int expressionStart = divotPoint - startOffset;
-    int expressionStop = divotPoint + endOffset;
+    auto info = codeBlock->expressionInfoForBytecodeIndex(bytecodeIndex);
+    int expressionStart = info.divot - info.startOffset;
+    int expressionStop = info.divot + info.endOffset;
 
     StringView sourceString = codeBlock->source().provider()->source();
     if (!expressionStop || expressionStart > static_cast<int>(sourceString.length()))
         return message;
     
     if (expressionStart < expressionStop)
-        return appender(message, codeBlock->source().provider()->getRange(expressionStart, expressionStop).toString(), type, ErrorInstance::FoundExactSource);
+        return appender(message, codeBlock->source().provider()->getRange(expressionStart, expressionStop), type, ErrorInstance::SourceTextWhereErrorOccurred::FoundExactSource);
 
     // No range information, so give a few characters of context.
     int dataLength = sourceString.length();
@@ -110,38 +107,73 @@ static String appendSourceToErrorMessage(CallFrame* callFrame, ErrorInstance* ex
         stop++;
     while (stop > expressionStart && isStrWhiteSpace(sourceString[stop - 1]))
         stop--;
-    return appender(message, codeBlock->source().provider()->getRange(start, stop).toString(), type, ErrorInstance::FoundApproximateSource);
+    return appender(message, codeBlock->source().provider()->getRange(start, stop), type, ErrorInstance::SourceTextWhereErrorOccurred::FoundApproximateSource);
 }
 
-void ErrorInstance::finishCreation(VM& vm, JSGlobalObject* globalObject, const String& message, JSValue cause, SourceAppender appender, RuntimeType type, bool useCurrentFrame)
+void ErrorInstance::finishCreation(VM& vm, const String& message, JSValue cause, SourceAppender appender, RuntimeType type, bool useCurrentFrame, JSCell* subclassCaller)
 {
     Base::finishCreation(vm);
-    ASSERT(inherits(vm, info()));
+    ASSERT(inherits(info()));
 
     m_sourceAppender = appender;
     m_runtimeTypeForCause = type;
 
-    std::unique_ptr<Vector<StackFrame>> stackTrace = getStackTrace(globalObject, vm, this, useCurrentFrame);
+    std::unique_ptr<Vector<StackFrame>> stackTrace = getStackTrace(vm, this, useCurrentFrame, nullptr, nullptr, subclassCaller);
     {
         Locker locker { cellLock() };
-        m_stackTrace = WTFMove(stackTrace);
+        m_stackTrace = WTF::move(stackTrace);
     }
-    vm.heap.writeBarrier(this);
+    vm.writeBarrier(this);
 
     String messageWithSource = message;
     if (m_stackTrace && !m_stackTrace->isEmpty() && hasSourceAppender()) {
-        BytecodeIndex bytecodeIndex;
-        CallFrame* callFrame;
-        getBytecodeIndex(vm, vm.topCallFrame, m_stackTrace.get(), callFrame, bytecodeIndex);
-        if (callFrame && callFrame->codeBlock() && !callFrame->callee().isWasm())
-            messageWithSource = appendSourceToErrorMessage(callFrame, this, bytecodeIndex, message);
+        auto [codeBlock, bytecodeIndex] = getBytecodeIndex(vm, vm.topCallFrame);
+        if (codeBlock) {
+            ErrorInstance::SourceAppender appender = sourceAppender();
+            clearSourceAppender();
+            RuntimeType type = runtimeTypeForCause();
+            clearRuntimeTypeForCause();
+            messageWithSource = appendSourceToErrorMessage(codeBlock, bytecodeIndex, message, type, appender);
+        }
     }
 
     if (!messageWithSource.isNull())
-        putDirect(vm, vm.propertyNames->message, jsString(vm, messageWithSource), static_cast<unsigned>(PropertyAttribute::DontEnum));
+        putDirect(vm, vm.propertyNames->message, jsString(vm, WTF::move(messageWithSource)), static_cast<unsigned>(PropertyAttribute::DontEnum));
 
     if (!cause.isEmpty())
         putDirect(vm, vm.propertyNames->cause, cause, static_cast<unsigned>(PropertyAttribute::DontEnum));
+}
+
+void ErrorInstance::finishCreation(VM& vm, const String& message, JSValue cause, JSCell* owner, CallLinkInfo* callLinkInfo)
+{
+    Base::finishCreation(vm);
+    ASSERT(inherits(info()));
+
+    std::unique_ptr<Vector<StackFrame>> stackTrace = getStackTrace(vm, this, /* useCurrentFrame */ true, owner, callLinkInfo);
+    {
+        Locker locker { cellLock() };
+        m_stackTrace = WTF::move(stackTrace);
+    }
+    vm.writeBarrier(this);
+    if (!message.isNull())
+        putDirect(vm, vm.propertyNames->message, jsString(vm, message), static_cast<unsigned>(PropertyAttribute::DontEnum));
+
+    if (!cause.isEmpty())
+        putDirect(vm, vm.propertyNames->cause, cause, static_cast<unsigned>(PropertyAttribute::DontEnum));
+}
+
+void ErrorInstance::finishCreation(VM& vm, String&& message, LineColumn lineColumn, String&& sourceURL, String&& stackString, String&& cause)
+{
+    Base::finishCreation(vm);
+    ASSERT(inherits(info()));
+
+    m_lineColumn = lineColumn;
+    m_sourceURL = WTF::move(sourceURL);
+    m_stackString = WTF::move(stackString);
+    if (!message.isNull())
+        putDirect(vm, vm.propertyNames->message, jsString(vm, WTF::move(message)), static_cast<unsigned>(PropertyAttribute::DontEnum));
+    if (!cause.isNull())
+        putDirect(vm, vm.propertyNames->cause, jsString(vm, WTF::move(cause)), static_cast<unsigned>(PropertyAttribute::DontEnum));
 }
 
 // Based on ErrorPrototype's errorProtoFuncToString(), but is modified to
@@ -151,7 +183,7 @@ String ErrorInstance::sanitizedMessageString(JSGlobalObject* globalObject)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
-    Integrity::auditStructureID(vm, structureID());
+    Integrity::auditStructureID(structureID());
 
     JSValue messageValue;
     auto messagePropertName = vm.propertyNames->message;
@@ -160,8 +192,9 @@ String ErrorInstance::sanitizedMessageString(JSGlobalObject* globalObject)
         messageValue = messageSlot.getValue(globalObject, messagePropertName);
     RETURN_IF_EXCEPTION(scope, { });
 
-    if (!messageValue)
+    if (!messageValue || !messageValue.isPrimitive())
         return { };
+
     RELEASE_AND_RETURN(scope, messageValue.toWTFString(globalObject));
 }
 
@@ -169,7 +202,7 @@ String ErrorInstance::sanitizedNameString(JSGlobalObject* globalObject)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
-    Integrity::auditStructureID(vm, structureID());
+    Integrity::auditStructureID(structureID());
 
     JSValue nameValue;
     auto namePropertName = vm.propertyNames->name;
@@ -182,16 +215,16 @@ String ErrorInstance::sanitizedNameString(JSGlobalObject* globalObject)
     // Error objects may have a name property, and if not, its prototype should have
     // a name property for the type of error e.g. "SyntaxError".
     while (currentObj.isCell() && prototypeDepth++ < 2) {
-        JSObject* obj = jsCast<JSObject*>(currentObj);
+        JSObject* obj = uncheckedDowncast<JSObject>(currentObj);
         if (JSObject::getOwnPropertySlot(obj, globalObject, namePropertName, nameSlot) && nameSlot.isValue()) {
             nameValue = nameSlot.getValue(globalObject, namePropertName);
             break;
         }
-        currentObj = obj->getPrototypeDirect(vm);
+        currentObj = obj->getPrototypeDirect();
     }
     RETURN_IF_EXCEPTION(scope, { });
 
-    if (!nameValue)
+    if (!nameValue || !nameValue.isPrimitive())
         return "Error"_s;
     RELEASE_AND_RETURN(scope, nameValue.toWTFString(globalObject));
 }
@@ -200,7 +233,7 @@ String ErrorInstance::sanitizedToString(JSGlobalObject* globalObject)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
-    Integrity::auditStructureID(vm, structureID());
+    Integrity::auditStructureID(structureID());
 
     String nameString = sanitizedNameString(globalObject);
     RETURN_IF_EXCEPTION(scope, String());
@@ -208,10 +241,25 @@ String ErrorInstance::sanitizedToString(JSGlobalObject* globalObject)
     String messageString = sanitizedMessageString(globalObject);
     RETURN_IF_EXCEPTION(scope, String());
 
-    return makeString(nameString, nameString.isEmpty() || messageString.isEmpty() ? "" : ": ", messageString);
+    return makeString(nameString, nameString.isEmpty() || messageString.isEmpty() ? ""_s : ": "_s, messageString);
 }
 
-void ErrorInstance::finalizeUnconditionally(VM& vm)
+String ErrorInstance::tryGetMessageForDebugging()
+{
+    VM& vm = this->vm();
+
+    JSValue messageValue;
+    auto messagePropertName = vm.propertyNames->message;
+    PropertySlot messageSlot(this, PropertySlot::InternalMethodType::VMInquiry, &vm);
+    if (JSObject::getOwnNonIndexPropertySlot(vm, structure(), messagePropertName, messageSlot))
+        messageValue = messageSlot.getPureResult();
+
+    if (JSString* string = dynamicDowncast<JSString>(messageValue))
+        return string->tryGetValue();
+    return emptyString();
+}
+
+void ErrorInstance::finalizeUnconditionally(VM& vm, CollectionScope)
 {
     if (!m_stackTrace)
         return;
@@ -230,10 +278,19 @@ void ErrorInstance::finalizeUnconditionally(VM& vm)
 void ErrorInstance::computeErrorInfo(VM& vm)
 {
     ASSERT(!m_errorInfoMaterialized);
+    // Here we use DeferGCForAWhile instead of DeferGC since GC's Heap::runEndPhase can trigger this function. In
+    // that case, DeferGC's destructor might trigger another GC cycle which is unexpected.
+    DeferGCForAWhile deferGC(vm);
 
     if (m_stackTrace && !m_stackTrace->isEmpty()) {
-        getLineColumnAndSource(m_stackTrace.get(), m_line, m_column, m_sourceURL);
-        m_stackString = Interpreter::stackTraceAsString(vm, *m_stackTrace.get());
+        getLineColumnAndSource(vm, m_stackTrace.get(), m_lineColumn, m_sourceURL);
+        // If the stack property was already materialized by Error.captureStackString,
+        // use emptyString as a placeholder to materialize the other properties in
+        // materializeErrorInfoIfNeeded below.
+        if (m_stackPropertyAlreadyMaterialized)
+            m_stackString = emptyString();
+        else
+            m_stackString = Interpreter::stackTraceAsString(vm, *m_stackTrace.get());
         m_stackTrace = nullptr;
     }
 }
@@ -248,12 +305,13 @@ bool ErrorInstance::materializeErrorInfoIfNeeded(VM& vm)
     if (!m_stackString.isNull()) {
         auto attributes = static_cast<unsigned>(PropertyAttribute::DontEnum);
 
-        putDirect(vm, vm.propertyNames->line, jsNumber(m_line), attributes);
-        putDirect(vm, vm.propertyNames->column, jsNumber(m_column), attributes);
+        putDirect(vm, vm.propertyNames->line, jsNumber(m_lineColumn.line), attributes);
+        putDirect(vm, vm.propertyNames->column, jsNumber(m_lineColumn.column), attributes);
         if (!m_sourceURL.isEmpty())
-            putDirect(vm, vm.propertyNames->sourceURL, jsString(vm, WTFMove(m_sourceURL)), attributes);
+            putDirect(vm, vm.propertyNames->sourceURL, jsString(vm, WTF::move(m_sourceURL)), attributes);
 
-        putDirect(vm, vm.propertyNames->stack, jsString(vm, WTFMove(m_stackString)), attributes);
+        if (!m_stackPropertyAlreadyMaterialized)
+            putDirect(vm, vm.propertyNames->stack, jsString(vm, WTF::move(m_stackString)), attributes);
     }
 
     m_errorInfoMaterialized = true;
@@ -273,15 +331,15 @@ bool ErrorInstance::materializeErrorInfoIfNeeded(VM& vm, PropertyName propertyNa
 bool ErrorInstance::getOwnPropertySlot(JSObject* object, JSGlobalObject* globalObject, PropertyName propertyName, PropertySlot& slot)
 {
     VM& vm = globalObject->vm();
-    ErrorInstance* thisObject = jsCast<ErrorInstance*>(object);
+    ErrorInstance* thisObject = uncheckedDowncast<ErrorInstance>(object);
     thisObject->materializeErrorInfoIfNeeded(vm, propertyName);
     return Base::getOwnPropertySlot(thisObject, globalObject, propertyName, slot);
 }
 
-void ErrorInstance::getOwnSpecialPropertyNames(JSObject* object, JSGlobalObject* globalObject, PropertyNameArray&, DontEnumPropertiesMode mode)
+void ErrorInstance::getOwnSpecialPropertyNames(JSObject* object, JSGlobalObject* globalObject, PropertyNameArrayBuilder&, DontEnumPropertiesMode mode)
 {
     VM& vm = globalObject->vm();
-    ErrorInstance* thisObject = jsCast<ErrorInstance*>(object);
+    ErrorInstance* thisObject = uncheckedDowncast<ErrorInstance>(object);
     if (mode == DontEnumPropertiesMode::Include)
         thisObject->materializeErrorInfoIfNeeded(vm);
 }
@@ -289,7 +347,7 @@ void ErrorInstance::getOwnSpecialPropertyNames(JSObject* object, JSGlobalObject*
 bool ErrorInstance::defineOwnProperty(JSObject* object, JSGlobalObject* globalObject, PropertyName propertyName, const PropertyDescriptor& descriptor, bool shouldThrow)
 {
     VM& vm = globalObject->vm();
-    ErrorInstance* thisObject = jsCast<ErrorInstance*>(object);
+    ErrorInstance* thisObject = uncheckedDowncast<ErrorInstance>(object);
     thisObject->materializeErrorInfoIfNeeded(vm, propertyName);
     return Base::defineOwnProperty(thisObject, globalObject, propertyName, descriptor, shouldThrow);
 }
@@ -297,7 +355,7 @@ bool ErrorInstance::defineOwnProperty(JSObject* object, JSGlobalObject* globalOb
 bool ErrorInstance::put(JSCell* cell, JSGlobalObject* globalObject, PropertyName propertyName, JSValue value, PutPropertySlot& slot)
 {
     VM& vm = globalObject->vm();
-    ErrorInstance* thisObject = jsCast<ErrorInstance*>(cell);
+    ErrorInstance* thisObject = uncheckedDowncast<ErrorInstance>(cell);
     bool materializedProperties = thisObject->materializeErrorInfoIfNeeded(vm, propertyName);
     if (materializedProperties)
         slot.disableCaching();
@@ -307,8 +365,10 @@ bool ErrorInstance::put(JSCell* cell, JSGlobalObject* globalObject, PropertyName
 bool ErrorInstance::deleteProperty(JSCell* cell, JSGlobalObject* globalObject, PropertyName propertyName, DeletePropertySlot& slot)
 {
     VM& vm = globalObject->vm();
-    ErrorInstance* thisObject = jsCast<ErrorInstance*>(cell);
-    thisObject->materializeErrorInfoIfNeeded(vm, propertyName);
+    ErrorInstance* thisObject = uncheckedDowncast<ErrorInstance>(cell);
+    bool materializedProperties = thisObject->materializeErrorInfoIfNeeded(vm, propertyName);
+    if (materializedProperties)
+        slot.disableCaching();
     return Base::deleteProperty(thisObject, globalObject, propertyName, slot);
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -38,7 +38,9 @@ class AudioWorklet;
 class AudioWorkletThread;
 class Document;
 
-class AudioWorkletMessagingProxy : public WorkletGlobalScopeProxy, public WorkerLoaderProxy {
+class AudioWorkletMessagingProxy final : public WorkletGlobalScopeProxy, public WorkerLoaderProxy, public CanMakeThreadSafeCheckedPtr<AudioWorkletMessagingProxy> {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(AudioWorkletMessagingProxy);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(AudioWorkletMessagingProxy);
 public:
     static Ref<AudioWorkletMessagingProxy> create(AudioWorklet& worklet)
     {
@@ -53,21 +55,29 @@ public:
     AudioWorkletThread& workletThread() { return m_workletThread.get(); }
 
     void postTaskToAudioWorklet(Function<void(AudioWorklet&)>&&);
+    ScriptExecutionContextIdentifier NODELETE loaderContextIdentifier() const final;
+
+    uint32_t checkedPtrCount() const final { return CanMakeThreadSafeCheckedPtr<AudioWorkletMessagingProxy>::checkedPtrCount(); }
+    uint32_t checkedPtrCountWithoutThreadCheck() const final { return CanMakeThreadSafeCheckedPtr<AudioWorkletMessagingProxy>::checkedPtrCountWithoutThreadCheck(); }
+    void incrementCheckedPtrCount() const final { CanMakeThreadSafeCheckedPtr<AudioWorkletMessagingProxy>::incrementCheckedPtrCount(); }
+    void decrementCheckedPtrCount() const final { CanMakeThreadSafeCheckedPtr<AudioWorkletMessagingProxy>::decrementCheckedPtrCount(); }
+    void setDidBeginCheckedPtrDeletion() final { CanMakeThreadSafeCheckedPtr<AudioWorkletMessagingProxy>::setDidBeginCheckedPtrDeletion(); }
 
 private:
     explicit AudioWorkletMessagingProxy(AudioWorklet&);
 
     // WorkerLoaderProxy.
     RefPtr<CacheStorageConnection> createCacheStorageConnection() final;
+    RefPtr<FileSystemStorageConnection> createFileSystemStorageConnection() final;
     RefPtr<RTCDataChannelRemoteHandlerConnection> createRTCDataChannelRemoteHandlerConnection() final;
+    RefPtr<IDBClient::IDBConnectionProxy> createIDBConnectionProxy() final;
     void postTaskToLoader(ScriptExecutionContext::Task&&) final;
-    bool postTaskForModeToWorkerOrWorkletGlobalScope(ScriptExecutionContext::Task&&, const String& mode) final;
 
     bool isAudioWorkletMessagingProxy() const final { return true; }
 
     WeakPtr<AudioWorklet> m_worklet;
-    Ref<Document> m_document;
-    Ref<AudioWorkletThread> m_workletThread;
+    const ScriptExecutionContextIdentifier m_documentIdentifier;
+    const Ref<AudioWorkletThread> m_workletThread;
 };
 
 } // namespace WebCore

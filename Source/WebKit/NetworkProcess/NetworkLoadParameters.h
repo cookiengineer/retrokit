@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "NavigationActionData.h"
 #include "NetworkActivityTracker.h"
 #include "PolicyDecision.h"
 #include "WebPageProxyIdentifier.h"
@@ -34,40 +35,43 @@
 #include <WebCore/ResourceLoaderOptions.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/SecurityOrigin.h>
-#include <WebCore/ShouldRelaxThirdPartyCookieBlocking.h>
-#include <wtf/EnumTraits.h>
 #include <wtf/ProcessID.h>
 
 namespace WebKit {
 
 enum class PreconnectOnly : bool { No, Yes };
 
-class NetworkLoadParameters {
-public:
-    WebPageProxyIdentifier webPageProxyID;
-    WebCore::PageIdentifier webPageID;
-    WebCore::FrameIdentifier webFrameID;
+struct NetworkLoadParameters {
+    Markable<WebPageProxyIdentifier> webPageProxyID;
+    Markable<WebCore::PageIdentifier> webPageID;
+    Markable<WebCore::FrameIdentifier> webFrameID;
     RefPtr<WebCore::SecurityOrigin> topOrigin;
     RefPtr<WebCore::SecurityOrigin> sourceOrigin;
     WTF::ProcessID parentPID { 0 };
-#if HAVE(AUDIT_TOKEN)
-    std::optional<audit_token_t> networkProcessAuditToken;
-#endif
     WebCore::ResourceRequest request;
     WebCore::ContentSniffingPolicy contentSniffingPolicy { WebCore::ContentSniffingPolicy::SniffContent };
-    WebCore::ContentEncodingSniffingPolicy contentEncodingSniffingPolicy { WebCore::ContentEncodingSniffingPolicy::Sniff };
+    WebCore::ContentEncodingSniffingPolicy contentEncodingSniffingPolicy { WebCore::ContentEncodingSniffingPolicy::Default };
     WebCore::StoredCredentialsPolicy storedCredentialsPolicy { WebCore::StoredCredentialsPolicy::DoNotUse };
     WebCore::ClientCredentialPolicy clientCredentialPolicy { WebCore::ClientCredentialPolicy::CannotAskClientForCredentials };
     bool shouldClearReferrerOnHTTPSToHTTPRedirect { true };
     bool needsCertificateInfo { false };
     bool isMainFrameNavigation { false };
-    bool isMainResourceNavigationForAnyFrame { false };
-    WebCore::ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking { WebCore::ShouldRelaxThirdPartyCookieBlocking::No };
-    Vector<RefPtr<WebCore::BlobDataFileReference>> blobFileReferences;
+    std::optional<NavigationActionData> mainResourceNavigationDataForAnyFrame;
+    Vector<Ref<WebCore::BlobDataFileReference>> blobFileReferences;
     PreconnectOnly shouldPreconnectOnly { PreconnectOnly::No };
     std::optional<NetworkActivityTracker> networkActivityTracker;
     std::optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain { NavigatingToAppBoundDomain::No };
-    std::optional<WebCore::PrivateClickMeasurement::PcmDataCarried> pcmDataCarried;
+    bool hadMainFrameMainResourcePrivateRelayed { false };
+    bool allowPrivacyProxy { true };
+    OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections;
+    bool isInitiatedByDedicatedWorker { false };
+
+    uint64_t requiredCookiesVersion { 0 };
+
+    // The navigation initiator lost the navigated frame's Storage Access API grant (computed in
+    // the WebProcess). We should block storage access cookies on this load's network requests without
+    // revoking the frame's storage from JS until the navigation load commits.
+    bool navigationLosesFrameSpecificStorageAccess { false };
 };
 
 } // namespace WebKit

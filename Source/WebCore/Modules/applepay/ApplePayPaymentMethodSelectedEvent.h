@@ -35,7 +35,7 @@ namespace WebCore {
 class PaymentMethod;
 
 class ApplePayPaymentMethodSelectedEvent final : public Event {
-    WTF_MAKE_ISO_ALLOCATED(ApplePayPaymentMethodSelectedEvent);
+    WTF_MAKE_TZONE_ALLOCATED(ApplePayPaymentMethodSelectedEvent);
 public:
     static Ref<ApplePayPaymentMethodSelectedEvent> create(const AtomString& type, const PaymentMethod& paymentMethod)
     {
@@ -44,13 +44,10 @@ public:
 
     virtual ~ApplePayPaymentMethodSelectedEvent();
 
-    const ApplePayPaymentMethod& paymentMethod() { return m_paymentMethod; }
+    const ApplePayPaymentMethod& paymentMethod() LIFETIME_BOUND { return m_paymentMethod; }
 
 private:
     ApplePayPaymentMethodSelectedEvent(const AtomString& type, const PaymentMethod&);
-
-    // Event.
-    EventInterface eventInterface() const override;
 
     const ApplePayPaymentMethod m_paymentMethod;
 };

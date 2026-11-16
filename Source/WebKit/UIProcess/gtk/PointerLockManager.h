@@ -28,6 +28,7 @@
 #include "WebMouseEvent.h"
 #include <WebCore/FloatPoint.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
 
 typedef struct _GdkDevice GdkDevice;
 #if USE(GTK4)
@@ -41,10 +42,11 @@ namespace WebKit {
 class WebPageProxy;
 
 class PointerLockManager {
-    WTF_MAKE_NONCOPYABLE(PointerLockManager); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(PointerLockManager);
+    WTF_MAKE_NONCOPYABLE(PointerLockManager);
 public:
-    static std::unique_ptr<PointerLockManager> create(WebPageProxy&, const WebCore::FloatPoint&, const WebCore::FloatPoint&, WebMouseEvent::Button, unsigned short, OptionSet<WebEvent::Modifier>);
-    PointerLockManager(WebPageProxy&, const WebCore::FloatPoint&, const WebCore::FloatPoint&, WebMouseEvent::Button, unsigned short, OptionSet<WebEvent::Modifier>);
+    static std::unique_ptr<PointerLockManager> create(WebPageProxy&, const WebCore::FloatPoint&, const WebCore::FloatPoint&, WebMouseEventButton, unsigned short, OptionSet<WebEventModifier>);
+    PointerLockManager(WebPageProxy&, const WebCore::FloatPoint&, const WebCore::FloatPoint&, WebMouseEventButton, unsigned short, OptionSet<WebEventModifier>);
     virtual ~PointerLockManager();
 
     virtual bool lock();
@@ -52,13 +54,13 @@ public:
     virtual void didReceiveMotionEvent(const WebCore::FloatPoint&) { };
 
 protected:
-    void handleMotion(WebCore::FloatSize&&);
+    void handleMotion(const WebCore::FloatSize&);
 
     WebPageProxy& m_webPage;
     WebCore::FloatPoint m_position;
-    WebMouseEvent::Button m_button { WebMouseEvent::NoButton };
+    WebMouseEventButton m_button { WebMouseEventButton::None };
     unsigned short m_buttons { 0 };
-    OptionSet<WebEvent::Modifier> m_modifiers;
+    OptionSet<WebEventModifier> m_modifiers;
     WebCore::FloatPoint m_initialPoint;
     GdkDevice* m_device { nullptr };
 };

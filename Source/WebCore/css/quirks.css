@@ -2,7 +2,7 @@
  * Additonal style sheet used to render HTML pages in quirks mode.
  *
  * Copyright (C) 2000-2003 Lars Knoll (knoll@kde.org)
- * Copyright (C) 2004, 2006, 2007 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2025 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -21,6 +21,30 @@
  *
  */
 
+@namespace "http://www.w3.org/1999/xhtml";
+
+/* Force inside position for orphaned lis */
+li {
+    list-style-position: inside;
+}
+
+/* Restore outside position for lists inside lis */
+li dir,
+li menu,
+li ol,
+li ul {
+    list-style-position: outside;
+}
+
+/* Undo previous two rules for properly nested lists */
+:is(dir, menu, ol, ul) dir,
+:is(dir, menu, ol, ul) menu,
+:is(dir, menu, ol, ul) ol,
+:is(dir, menu, ol, ul) ul,
+:is(dir, menu, ol, ul) li {
+    list-style-position: unset;
+}
+
 /* Give floated images margins of 3px */
 img[align="left"] {
     margin-right: 3px;
@@ -38,7 +62,7 @@ table {
     font-size: medium;
     font-variant: normal;
     font-style: normal;
-    color: -webkit-text;
+    color: -internal-document-text-color;
     text-align: start;
 }
 

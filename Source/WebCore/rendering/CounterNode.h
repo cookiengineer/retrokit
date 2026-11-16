@@ -21,8 +21,11 @@
 
 #pragma once
 
+#include <wtf/CheckedPtr.h>
 #include <wtf/Forward.h>
+#include <wtf/OptionSet.h>
 #include <wtf/RefCounted.h>
+#include <wtf/WeakPtr.h>
 
 // This implements a counter tree that is used for finding parents in counters() lookup,
 // and for propagating count changes when nodes are added or removed.
@@ -38,54 +41,57 @@ namespace WebCore {
 class RenderCounter;
 class RenderElement;
 
-class CounterNode : public RefCounted<CounterNode> {
+class CounterNode : public RefCounted<CounterNode>, public CanMakeSingleThreadWeakPtr<CounterNode> {
 public:
-    static Ref<CounterNode> create(RenderElement&, bool isReset, int value);
+    enum class Type : uint8_t { Increment, Reset, Set };
+
+    static Ref<CounterNode> create(RenderElement&, OptionSet<Type>, int value);
     ~CounterNode();
-    bool actsAsReset() const { return m_hasResetType || !m_parent; }
-    bool hasResetType() const { return m_hasResetType; }
+    bool actsAsReset() const { return hasResetType() || !m_parent; }
+    bool hasResetType() const { return m_type.contains(Type::Reset); }
+    bool hasSetType() const { return m_type.contains(Type::Set); }
     int value() const { return m_value; }
     int countInParent() const { return m_countInParent; }
-    RenderElement& owner() const { return m_owner; }
-    void addRenderer(RenderCounter&);
-    void removeRenderer(RenderCounter&);
+    RenderElement& NODELETE owner() const;
+    void NODELETE addRenderer(RenderCounter&);
+    void NODELETE removeRenderer(RenderCounter&);
 
     // Invalidates the text in the renderers of this counter, if any.
     void resetRenderers();
 
-    CounterNode* parent() const { return m_parent; }
-    CounterNode* previousSibling() const { return m_previousSibling; }
-    CounterNode* nextSibling() const { return m_nextSibling; }
-    CounterNode* firstChild() const { return m_firstChild; }
-    CounterNode* lastChild() const { return m_lastChild; }
-    CounterNode* lastDescendant() const;
-    CounterNode* previousInPreOrder() const;
-    CounterNode* nextInPreOrder(const CounterNode* stayWithin = nullptr) const;
-    CounterNode* nextInPreOrderAfterChildren(const CounterNode* stayWithin = nullptr) const;
+    CounterNode* parent() const { return const_cast<CounterNode*>(m_parent.get()); }
+    CounterNode* previousSibling() const { return const_cast<CounterNode*>(m_previousSibling.get()); }
+    CounterNode* nextSibling() const { return const_cast<CounterNode*>(m_nextSibling.get()); }
+    CounterNode* firstChild() const { return const_cast<CounterNode*>(m_firstChild.get()); }
+    CounterNode* lastChild() const { return const_cast<CounterNode*>(m_lastChild.get()); }
+    CounterNode* NODELETE lastDescendant() const;
+    CounterNode* NODELETE previousInPreOrder() const;
+    CounterNode* NODELETE nextInPreOrder(const CounterNode* stayWithin = nullptr) const;
+    CounterNode* NODELETE nextInPreOrderAfterChildren(const CounterNode* stayWithin = nullptr) const;
 
     void insertAfter(CounterNode& newChild, CounterNode* beforeChild, const AtomString& identifier);
     // identifier must match the identifier of this counter.
     void removeChild(CounterNode&);
 
 private:
-    CounterNode(RenderElement&, bool isReset, int value);
-    int computeCountInParent() const;
+    CounterNode(RenderElement&, OptionSet<Type>, int value);
+    int NODELETE computeCountInParent() const;
     // Invalidates the text in the renderer of this counter, if any,
     // and in the renderers of all descendants of this counter, if any.
     void resetThisAndDescendantsRenderers();
     void recount();
 
-    bool m_hasResetType;
+    OptionSet<Type> m_type { };
     int m_value;
-    int m_countInParent;
-    RenderElement& m_owner;
-    RenderCounter* m_rootRenderer { nullptr };
+    int m_countInParent { 0 };
+    SingleThreadWeakRef<RenderElement> m_owner;
+    SingleThreadWeakPtr<RenderCounter> m_rootRenderer;
 
-    CounterNode* m_parent { nullptr };
-    CounterNode* m_previousSibling { nullptr };
-    CounterNode* m_nextSibling { nullptr };
-    CounterNode* m_firstChild { nullptr };
-    CounterNode* m_lastChild { nullptr };
+    SingleThreadWeakPtr<CounterNode> m_parent;
+    SingleThreadWeakPtr<CounterNode> m_previousSibling;
+    SingleThreadWeakPtr<CounterNode> m_nextSibling;
+    SingleThreadWeakPtr<CounterNode> m_firstChild;
+    SingleThreadWeakPtr<CounterNode> m_lastChild;
 };
 
 } // namespace WebCore

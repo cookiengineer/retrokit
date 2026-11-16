@@ -35,34 +35,42 @@
 namespace WebKit {
 
 class NetworkLoad;
-class NetworkLoadParameters;
 class NetworkProcess;
 class NetworkSession;
 
-class PreconnectTask final : public NetworkLoadClient {
+struct NetworkLoadParameters;
+
+class PreconnectTask final : public RefCounted<PreconnectTask>, public NetworkLoadClient {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(PreconnectTask);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(PreconnectTask);
 public:
-    PreconnectTask(NetworkSession&, NetworkLoadParameters&&, CompletionHandler<void(const WebCore::ResourceError&)>&&);
+    static Ref<PreconnectTask> create(NetworkSession&, NetworkLoadParameters&&);
     ~PreconnectTask();
 
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     void setH2PingCallback(const URL&, CompletionHandler<void(Expected<WTF::Seconds, WebCore::ResourceError>&&)>&&);
-    void start();
+    void start(CompletionHandler<void(const WebCore::ResourceError&, const WebCore::NetworkLoadMetrics&)>&& = { }, Seconds timeout = 60_s);
 
 private:
+    PreconnectTask(NetworkSession&, NetworkLoadParameters&&);
+
+    void didTimeout();
+
     // NetworkLoadClient.
     bool isSynchronous() const final { return false; }
     bool isAllowedToAskUserForCredentials() const final { return false; }
-    void didSendData(unsigned long long bytesSent, unsigned long long totalBytesToBeSent) final;
-    void willSendRedirectedRequest(WebCore::ResourceRequest&&, WebCore::ResourceRequest&& redirectRequest, WebCore::ResourceResponse&& redirectResponse) final;
-    void didReceiveResponse(WebCore::ResourceResponse&&, ResponseCompletionHandler&&) final;
-    void didReceiveBuffer(Ref<WebCore::SharedBuffer>&&, int reportedEncodedDataLength) final;
+    void didSendData(uint64_t bytesSent, uint64_t totalBytesToBeSent) final;
+    void willSendRedirectedRequest(WebCore::ResourceRequest&&, WebCore::ResourceRequest&& redirectRequest, WebCore::ResourceResponse&& redirectResponse, CompletionHandler<void(WebCore::ResourceRequest&&)>&&) final;
+    void didReceiveResponse(WebCore::ResourceResponse&&, PrivateRelayed, ResponseCompletionHandler&&) final;
+    void didReceiveBuffer(const WebCore::FragmentedSharedBuffer&) final;
     void didFinishLoading(const WebCore::NetworkLoadMetrics&) final;
     void didFailLoading(const WebCore::ResourceError&) final;
 
-    void didFinish(const WebCore::ResourceError&);
-
-    std::unique_ptr<NetworkLoad> m_networkLoad;
-    CompletionHandler<void(const WebCore::ResourceError&)> m_completionHandler;
-    WebCore::Timer m_timeoutTimer;
+    const Ref<NetworkLoad> m_networkLoad;
+    CompletionHandler<void(const WebCore::ResourceError&, const WebCore::NetworkLoadMetrics&)> m_completionHandler;
+    std::unique_ptr<WebCore::Timer> m_timeoutTimer;
 };
 
 } // namespace WebKit

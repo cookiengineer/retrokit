@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,23 +31,34 @@
 #include "AirAllocateRegistersAndStackAndGenerateCode.h"
 #include "AirCCallSpecial.h"
 #include "AirCFG.h"
+#include "AirDominators.h"
+#include "AirNaturalLoops.h"
 #include "AllowMacroScratchRegisterUsageIf.h"
 #include "B3BasicBlockUtils.h"
 #include "B3Procedure.h"
 #include "CCallHelpers.h"
 #include <wtf/ListDump.h>
 #include <wtf/MathExtras.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/MakeString.h>
 
 namespace JSC { namespace B3 { namespace Air {
 
-const char* const tierName = "Air ";
+WTF_MAKE_SEQUESTERED_ARENA_ALLOCATED_IMPL(CFG);
+WTF_MAKE_SEQUESTERED_ARENA_ALLOCATED_IMPL(Code);
+WTF_MAKE_SEQUESTERED_ARENA_ALLOCATED_IMPL(Dominators);
+WTF_MAKE_SEQUESTERED_ARENA_ALLOCATED_IMPL(NaturalLoops);
 
 static void defaultPrologueGenerator(CCallHelpers& jit, Code& code)
 {
     jit.emitFunctionPrologue();
+
+    // NOTE: on ARM64, if the callee saves have bigger offsets due to a potential tail call,
+    // the macro assembler might assert scratch register usage on store operations emitted by emitSave.
+    AllowMacroScratchRegisterUsageIf allowScratch(jit, isARM64() || isARM_THUMB2());
+
     if (code.frameSize()) {
-        AllowMacroScratchRegisterUsageIf allowScratch(jit, isARM64());
-        jit.addPtr(MacroAssembler::TrustedImm32(-code.frameSize()), MacroAssembler::framePointerRegister,  MacroAssembler::stackPointerRegister);
+        jit.subPtr(MacroAssembler::TrustedImm32(code.frameSize()), MacroAssembler::stackPointerRegister);
     }
     
     jit.emitSave(code.calleeSaveRegisterAtOffsetList());
@@ -56,49 +67,70 @@ static void defaultPrologueGenerator(CCallHelpers& jit, Code& code)
 Code::Code(Procedure& proc)
     : m_proc(proc)
     , m_cfg(new CFG(*this))
-    , m_preserveB3Origins(proc.needsPCToOriginMap() || Options::dumpAirGraphAtEachPhase() || Options::dumpFTLDisassembly())
+    , m_preserveB3Origins(Options::dumpAirGraphAtEachPhase() || Options::dumpFTLDisassembly())
     , m_lastPhaseName("initial")
     , m_defaultPrologueGenerator(createSharedTask<PrologueGeneratorFunction>(&defaultPrologueGenerator))
 {
     // Come up with initial orderings of registers. The user may replace this with something else.
+    std::optional<WeakRandom> weakRandom;
+    if (Options::airRandomizeRegs())
+        weakRandom.emplace();
     forEachBank(
-        [&] (Bank bank) {
+        [&](Bank bank) {
             Vector<Reg> volatileRegs;
+            Vector<Reg> fullCalleeSaveRegs;
             Vector<Reg> calleeSaveRegs;
             RegisterSet all = bank == GP ? RegisterSet::allGPRs() : RegisterSet::allFPRs();
             all.exclude(RegisterSet::stackRegisters());
             all.exclude(RegisterSet::reservedHardwareRegisters());
-            RegisterSet calleeSave = RegisterSet::calleeSaveRegisters();
+#if CPU(ARM)
+            // FIXME https://bugs.webkit.org/show_bug.cgi?id=243888
+            // Unfortunately, the extra registers provided by the neon/vfpv3
+            // extensions can't be used by Air right now, because they are
+            // invalid as f32 operands, and Air doesn't know about anything
+            // other than a single class of FP registers.
+#if CPU(ARM_NEON) || CPU(ARM_VFP_V3_D32)
+            if (bank == FP) {
+                for (auto reg = ARMRegisters::d16; reg <= ARMRegisters::d31; reg = MacroAssembler::nextFPRegister(reg))
+                    all.remove(reg);
+            }
+#endif
+            all.remove(MacroAssembler::fpTempRegister);
+            // FIXME We should allow this to be used. See the note
+            // in https://commits.webkit.org/257808@main for more
+            // info about why masm is using scratch registers on
+            // ARM-only.
+            all.remove(MacroAssembler::addressTempRegister);
+#endif // CPU(ARM)
+            auto calleeSave = RegisterSet::calleeSaveRegisters();
             all.forEach(
                 [&] (Reg reg) {
-                    if (!calleeSave.get(reg))
+                    if (!calleeSave.contains(reg, IgnoreVectors))
                         volatileRegs.append(reg);
-                });
-            all.forEach(
-                [&] (Reg reg) {
-                    if (calleeSave.get(reg))
+                    if (calleeSave.contains(reg, conservativeWidth(reg)))
+                        fullCalleeSaveRegs.append(reg);
+                    else if (calleeSave.contains(reg, conservativeWidthWithoutVectors(reg)))
                         calleeSaveRegs.append(reg);
                 });
-            if (Options::airRandomizeRegs()) {
-                WeakRandom random(Options::airRandomizeRegsSeed() ? Options::airRandomizeRegsSeed() : m_weakRandom.getUint32());
-                shuffleVector(volatileRegs, [&] (unsigned limit) { return random.getUint32(limit); });
-                shuffleVector(calleeSaveRegs, [&] (unsigned limit) { return random.getUint32(limit); });
-            }
             Vector<Reg> result;
             result.appendVector(volatileRegs);
+            result.appendVector(fullCalleeSaveRegs);
             result.appendVector(calleeSaveRegs);
+            if (Options::airRandomizeRegs()) {
+                WeakRandom random(Options::airRandomizeRegsSeed() ? Options::airRandomizeRegsSeed() : weakRandom->getUint32());
+                shuffleVector(result, [&] (unsigned limit) { return random.getUint32(limit); });
+            }
             setRegsInPriorityOrder(bank, result);
         });
 
-    if (auto reg = pinnedExtendedOffsetAddrRegister())
-        pinRegister(*reg);
-
-    m_pinnedRegs.set(MacroAssembler::framePointerRegister);
+#if CPU(ARM_THUMB2)
+    if (auto reg = extendedOffsetAddrRegister())
+        pinRegister(reg);
+#endif
+    m_pinnedRegs.add(MacroAssembler::framePointerRegister, IgnoreVectors);
 }
 
-Code::~Code()
-{
-}
+Code::~Code() = default;
 
 void Code::emitDefaultPrologue(CCallHelpers& jit)
 {
@@ -108,6 +140,9 @@ void Code::emitDefaultPrologue(CCallHelpers& jit)
 void Code::emitEpilogue(CCallHelpers& jit)
 {
     if (frameSize()) {
+        // NOTE: on ARM64, if the callee saves have bigger offsets due to a potential tail call,
+        // the macro assembler might assert scratch register usage on load operations emitted by emitRestore.
+        AllowMacroScratchRegisterUsageIf allowScratch(jit, isARM64());
         jit.emitRestore(calleeSaveRegisterAtOffsetList());
         jit.emitFunctionEpilogue();
     } else
@@ -122,7 +157,7 @@ void Code::setRegsInPriorityOrder(Bank bank, const Vector<Reg>& regs)
     forEachBank(
         [&] (Bank bank) {
             for (Reg reg : regsInPriorityOrder(bank))
-                m_mutableRegs.set(reg);
+                m_mutableRegs.add(reg, IgnoreVectors);
         });
 }
 
@@ -131,22 +166,15 @@ void Code::pinRegister(Reg reg)
     Vector<Reg>& regs = regsInPriorityOrderImpl(Arg(Tmp(reg)).bank());
     ASSERT(regs.contains(reg));
     regs.removeFirst(reg);
-    m_mutableRegs.clear(reg);
+    m_mutableRegs.remove(reg);
     ASSERT(!regs.contains(reg));
-    m_pinnedRegs.set(reg);
+    m_pinnedRegs.add(reg, IgnoreVectors);
 }
 
 RegisterSet Code::mutableGPRs()
 {
-    RegisterSet result = m_mutableRegs;
+    RegisterSet result = m_mutableRegs.toRegisterSet();
     result.filter(RegisterSet::allGPRs());
-    return result;
-}
-
-RegisterSet Code::mutableFPRs()
-{
-    RegisterSet result = m_mutableRegs;
-    result.filter(RegisterSet::allFPRs());
     return result;
 }
 
@@ -159,7 +187,7 @@ BasicBlock* Code::addBlock(double frequency)
 {
     std::unique_ptr<BasicBlock> block(new BasicBlock(m_blocks.size(), frequency));
     BasicBlock* result = block.get();
-    m_blocks.append(WTFMove(block));
+    m_blocks.append(WTF::move(block));
     return result;
 }
 
@@ -168,9 +196,9 @@ StackSlot* Code::addStackSlot(uint64_t byteSize, StackSlotKind kind)
     StackSlot* result = m_stackSlots.addNew(byteSize, kind);
     if (m_stackIsAllocated) {
         // FIXME: This is unnecessarily awful. Fortunately, it doesn't run often.
-        unsigned extent = WTF::roundUpToMultipleOf(result->alignment(), frameSize() + byteSize);
+        unsigned extent = WTF::roundUpToMultipleOf(result->alignment(), frameSize() - stackAdjustmentForAlignment() + byteSize);
         result->setOffsetFromFP(-static_cast<ptrdiff_t>(extent));
-        setFrameSize(WTF::roundUpToMultipleOf(stackAlignmentBytes(), extent));
+        setFrameSize(WTF::roundUpToMultipleOf<stackAlignmentBytes()>(extent) + stackAdjustmentForAlignment());
     }
     return result;
 }
@@ -178,14 +206,14 @@ StackSlot* Code::addStackSlot(uint64_t byteSize, StackSlotKind kind)
 Special* Code::addSpecial(std::unique_ptr<Special> special)
 {
     special->m_code = this;
-    return m_specials.add(WTFMove(special));
+    return m_specials.add(WTF::move(special));
 }
 
 CCallSpecial* Code::cCallSpecial()
 {
     if (!m_cCallSpecial) {
         m_cCallSpecial = static_cast<CCallSpecial*>(
-            addSpecial(makeUnique<CCallSpecial>()));
+            addSpecial(makeUnique<CCallSpecial>(usesSIMD())));
     }
 
     return m_cCallSpecial;
@@ -217,23 +245,19 @@ std::optional<unsigned> Code::entrypointIndex(BasicBlock* block) const
 
 void Code::setCalleeSaveRegisterAtOffsetList(RegisterAtOffsetList&& registerAtOffsetList, StackSlot* slot)
 {
-    m_uncorrectedCalleeSaveRegisterAtOffsetList = WTFMove(registerAtOffsetList);
-    for (const RegisterAtOffset& registerAtOffset : m_uncorrectedCalleeSaveRegisterAtOffsetList)
-        m_calleeSaveRegisters.set(registerAtOffset.reg());
+    m_uncorrectedCalleeSaveRegisterAtOffsetList = WTF::move(registerAtOffsetList);
+    for (const RegisterAtOffset& registerAtOffset : m_uncorrectedCalleeSaveRegisterAtOffsetList) {
+        ASSERT(registerAtOffset.width() <= Width64);
+        m_calleeSaveRegisters.add(registerAtOffset.reg(), registerAtOffset.width());
+    }
     m_calleeSaveStackSlot = slot;
 }
 
 RegisterAtOffsetList Code::calleeSaveRegisterAtOffsetList() const
 {
     RegisterAtOffsetList result = m_uncorrectedCalleeSaveRegisterAtOffsetList;
-    if (StackSlot* slot = m_calleeSaveStackSlot) {
-        ptrdiff_t offset = slot->byteSize() + slot->offsetFromFP();
-        for (size_t i = result.size(); i--;) {
-            result.at(i) = RegisterAtOffset(
-                result.at(i).reg(),
-                result.at(i).offset() + offset);
-        }
-    }
+    if (StackSlot* slot = m_calleeSaveStackSlot)
+        result.adjustOffsets(slot->byteSize() + slot->offsetFromFP());
     return result;
 }
 
@@ -274,7 +298,7 @@ void Code::dump(PrintStream& out) const
     if (m_callArgAreaSize)
         out.print(tierName, "Call arg area size: ", m_callArgAreaSize, "\n");
     RegisterAtOffsetList calleeSaveRegisters = this->calleeSaveRegisterAtOffsetList();
-    if (calleeSaveRegisters.size())
+    if (calleeSaveRegisters.registerCount())
         out.print(tierName, "Callee saves: ", calleeSaveRegisters, "\n");
 }
 
@@ -333,11 +357,85 @@ unsigned Code::jsHash() const
 
 void Code::setNumEntrypoints(unsigned numEntrypoints)
 {
-    m_prologueGenerators.clear();
-    m_prologueGenerators.reserveCapacity(numEntrypoints);
-    for (unsigned i = 0; i < numEntrypoints; ++i)
-        m_prologueGenerators.uncheckedAppend(m_defaultPrologueGenerator.copyRef());
+    m_prologueGenerators = { FillWith { }, numEntrypoints, m_defaultPrologueGenerator.copyRef() };
 }
+
+bool Code::usesSIMD() const
+{
+    return m_proc.usesSIMD();
+}
+
+void Code::setIonGraphPasses(Ref<JSON::Array>&& array)
+{
+    m_ionGraphPasses = WTF::move(array);
+}
+
+void Code::appendIonGraphPass(ASCIILiteral passName)
+{
+    // Right now, IonGraph cannot handle LIR visualization well: it is assuming MIR <-> LIR one on one, but B3/Air has ability to optimize and change Air after lowering from B3.
+    // For now, we render Air as MIR too.
+    auto pass = JSON::Object::create();
+    pass->setString("name"_s, makeString("Air: "_s, passName));
+    {
+        auto ionGraph = JSON::Object::create();
+        auto ionBlocks = JSON::Array::create();
+        ionGraph->setArray("blocks"_s, ionBlocks);
+        unsigned globalIndex = 0;
+
+        for (auto* block : *this) {
+            if (!block)
+                continue;
+
+            auto ionBlock = JSON::Object::create();
+            auto attributes = JSON::Array::create();
+            auto predecessors = JSON::Array::create();
+            auto successors = JSON::Array::create();
+            auto instructions = JSON::Array::create();
+
+            for (const auto& inst : *block) {
+                unsigned index = globalIndex++;
+                auto instruction = JSON::Object::create();
+
+                StringPrintStream stream;
+                inst.dump(stream);
+                instruction->setInteger("ptr"_s, index + 1);
+                instruction->setInteger("id"_s, index);
+                instruction->setArray("attributes"_s, JSON::Array::create());
+                instruction->setArray("inputs"_s, JSON::Array::create());
+                instruction->setString("opcode"_s, stream.toString());
+                instruction->setArray("uses"_s, JSON::Array::create());
+                instruction->setArray("memInputs"_s, JSON::Array::create());
+                instruction->setString("type"_s, ""_s);
+
+                instructions->pushObject(WTF::move(instruction));
+            }
+
+            for (auto* predecessor : block->predecessors())
+                predecessors->pushInteger(predecessor->index());
+
+            for (auto successor : block->successors())
+                successors->pushInteger(successor.block()->index());
+
+            ionBlock->setInteger("ptr"_s, block->index() + 1);
+            ionBlock->setInteger("id"_s, block->index());
+            ionBlock->setInteger("loopDepth"_s, 0);
+            ionBlock->setArray("attributes"_s, JSON::Array::create());
+            ionBlock->setArray("predecessors"_s, WTF::move(predecessors));
+            ionBlock->setArray("successors"_s, WTF::move(successors));
+            ionBlock->setArray("instructions"_s, WTF::move(instructions));
+            ionBlocks->pushObject(ionBlock);
+        }
+
+        pass->setObject("mir"_s, WTF::move(ionGraph)); // MIR stands for SpiderMonkey's middle-level IR.
+    }
+    {
+        auto ionGraph = JSON::Object::create();
+        ionGraph->setArray("blocks"_s, JSON::Array::create());
+        pass->setObject("lir"_s, WTF::move(ionGraph)); // LIR stands for SpiderMonkey's low-level IR.
+    }
+    RefPtr { m_ionGraphPasses }->pushObject(pass);
+}
+
 
 } } } // namespace JSC::B3::Air
 

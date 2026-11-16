@@ -24,16 +24,17 @@
 #include "Document.h"
 #include "SVGAnimateMotionElement.h"
 #include "SVGDocumentExtensions.h"
+#include "SVGElementTypeHelpers.h"
 #include "SVGNames.h"
 #include "SVGPathElement.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(SVGMPathElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGMPathElement);
 
 inline SVGMPathElement::SVGMPathElement(const QualifiedName& tagName, Document& document)
-    : SVGElement(tagName, document)
+    : SVGElement(tagName, document, makeUniqueRef<PropertyRegistry>(*this))
     , SVGURIReference(this)
 {
     ASSERT(hasTagName(SVGNames::mpathTag));
@@ -55,18 +56,19 @@ void SVGMPathElement::buildPendingResource()
     if (!isConnected())
         return;
 
-    auto target = SVGURIReference::targetElementFromIRIString(href(), treeScope());
+    auto target = SVGURIReference::targetElementFromIRIString(href(), protect(treeScopeForSVGReferences()));
     if (!target.element) {
         // Do not register as pending if we are already pending this resource.
-        if (document().accessSVGExtensions().isPendingResource(*this, target.identifier))
+        Ref treeScope = treeScopeForSVGReferences();
+        if (treeScope->isPendingSVGResource(*this, target.identifier))
             return;
 
         if (!target.identifier.isEmpty()) {
-            document().accessSVGExtensions().addPendingResource(target.identifier, *this);
+            treeScope->addPendingSVGResource(target.identifier, *this);
             ASSERT(hasPendingResources());
         }
-    } else if (is<SVGElement>(*target.element))
-        downcast<SVGElement>(*target.element).addReferencingElement(*this);
+    } else if (RefPtr svgElement = dynamicDowncast<SVGElement>(*target.element))
+        svgElement->addReferencingElement(*this);
 
     targetPathChanged();
 }
@@ -76,31 +78,31 @@ void SVGMPathElement::clearResourceReferences()
     removeElementReference();
 }
 
-Node::InsertedIntoAncestorResult SVGMPathElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+Node::NeedsPostConnectionSteps SVGMPathElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    SVGElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    auto result = SVGElement::insertionSteps(insertionType, parentOfInsertedTree);
     if (insertionType.connectedToDocument)
-        return InsertedIntoAncestorResult::NeedsPostInsertionCallback;
-    return InsertedIntoAncestorResult::Done;
+        return NeedsPostConnectionSteps::Yes;
+    return result;
 }
 
-void SVGMPathElement::didFinishInsertingNode()
+void SVGMPathElement::postConnectionSteps()
 {
+    SVGElement::postConnectionSteps();
     buildPendingResource();
 }
 
-void SVGMPathElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void SVGMPathElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
-    SVGElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
-    notifyParentOfPathChange(&oldParentOfRemovedTree);
+    SVGElement::removingSteps(removalType, oldParentOfRemovedTree);
     if (removalType.disconnectedFromDocument)
         clearResourceReferences();
 }
 
-void SVGMPathElement::parseAttribute(const QualifiedName& name, const AtomString& value)
+void SVGMPathElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
-    SVGElement::parseAttribute(name, value);
-    SVGURIReference::parseAttribute(name, value);
+    SVGURIReference::parseAttribute(name, newValue);
+    SVGElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
 }
 
 void SVGMPathElement::svgAttributeChanged(const QualifiedName& attrName)
@@ -116,21 +118,14 @@ void SVGMPathElement::svgAttributeChanged(const QualifiedName& attrName)
 
 RefPtr<SVGPathElement> SVGMPathElement::pathElement()
 {
-    auto target = targetElementFromIRIString(href(), treeScope());
-    if (is<SVGPathElement>(target.element))
-        return downcast<SVGPathElement>(target.element.get());
-    return nullptr;
+    auto target = targetElementFromIRIString(href(), protect(treeScopeForSVGReferences()));
+    return dynamicDowncast<SVGPathElement>(target.element);
 }
 
 void SVGMPathElement::targetPathChanged()
 {
-    notifyParentOfPathChange(parentNode());
-}
-
-void SVGMPathElement::notifyParentOfPathChange(ContainerNode* parent)
-{
-    if (is<SVGAnimateMotionElement>(parent))
-        downcast<SVGAnimateMotionElement>(*parent).updateAnimationPath();
+    if (RefPtr animateMotionElement = dynamicDowncast<SVGAnimateMotionElement>(parentNode()))
+        animateMotionElement->updateAnimationPath();
 }
 
 } // namespace WebCore

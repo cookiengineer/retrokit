@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Apple Inc. All rights reserved.
  * Copyright (c) 2010 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -34,18 +34,24 @@
 
 namespace Inspector {
 
-ScriptCallFrame::ScriptCallFrame(const String& functionName, const String& scriptName, JSC::SourceID sourceID, unsigned lineNumber, unsigned column)
+ScriptCallFrame::ScriptCallFrame(const String& functionName, const String& scriptName, JSC::SourceID sourceID, JSC::LineColumn lineColumn)
     : m_functionName(functionName)
     , m_scriptName(scriptName)
     , m_sourceID(sourceID)
-    , m_lineNumber(lineNumber)
-    , m_column(column)
+    , m_lineColumn(lineColumn)
 {
 }
 
-ScriptCallFrame::~ScriptCallFrame()
+ScriptCallFrame::ScriptCallFrame(const String& functionName, const String& scriptName, const String& preRedirectURL, JSC::SourceID sourceID, JSC::LineColumn lineColumn)
+    : m_functionName(functionName)
+    , m_scriptName(scriptName)
+    , m_preRedirectURL(preRedirectURL)
+    , m_sourceID(sourceID)
+    , m_lineColumn(lineColumn)
 {
 }
+
+ScriptCallFrame::~ScriptCallFrame() = default;
 
 bool ScriptCallFrame::isEqual(const ScriptCallFrame& o) const
 {
@@ -53,13 +59,13 @@ bool ScriptCallFrame::isEqual(const ScriptCallFrame& o) const
     // that would get different script identifiers, but are otherwise the same.
     return m_functionName == o.m_functionName
         && m_scriptName == o.m_scriptName
-        && m_lineNumber == o.m_lineNumber
-        && m_column == o.m_column;
+        && m_preRedirectURL == o.m_preRedirectURL
+        && m_lineColumn == o.m_lineColumn;
 }
 
 bool ScriptCallFrame::isNative() const
 {
-    return m_scriptName == "[native code]";
+    return m_scriptName == "[native code]"_s;
 }
 
 Ref<Protocol::Console::CallFrame> ScriptCallFrame::buildInspectorObject() const
@@ -68,8 +74,8 @@ Ref<Protocol::Console::CallFrame> ScriptCallFrame::buildInspectorObject() const
         .setFunctionName(m_functionName)
         .setUrl(m_scriptName)
         .setScriptId(String::number(m_sourceID))
-        .setLineNumber(m_lineNumber)
-        .setColumnNumber(m_column)
+        .setLineNumber(m_lineColumn.line)
+        .setColumnNumber(m_lineColumn.column)
         .release();
 }
 

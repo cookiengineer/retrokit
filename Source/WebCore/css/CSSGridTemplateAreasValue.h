@@ -31,34 +31,28 @@
 
 #pragma once
 
+#include "CSSGridTemplateAreas.h"
 #include "CSSValue.h"
-#include "GridArea.h"
 
 namespace WebCore {
 
 class CSSGridTemplateAreasValue final : public CSSValue {
 public:
-    static Ref<CSSGridTemplateAreasValue> create(const NamedGridAreaMap& gridAreaMap, size_t rowCount, size_t columnCount)
-    {
-        return adoptRef(*new CSSGridTemplateAreasValue(gridAreaMap, rowCount, columnCount));
-    }
+    static Ref<CSSGridTemplateAreasValue> NODELETE create(CSS::GridTemplateAreas&&);
+    static Ref<CSSGridTemplateAreasValue> create(const CSS::GridTemplateAreas&);
 
-    ~CSSGridTemplateAreasValue() = default;
+    const CSS::GridTemplateAreas& areas() const LIFETIME_BOUND { return m_areas; }
 
-    String customCSSText() const;
-
-    const NamedGridAreaMap& gridAreaMap() const { return m_gridAreaMap; }
-    size_t rowCount() const { return m_rowCount; }
-    size_t columnCount() const { return m_columnCount; }
-
+    String customCSSText(const CSS::SerializationContext&) const;
     bool equals(const CSSGridTemplateAreasValue&) const;
 
-private:
-    CSSGridTemplateAreasValue(const NamedGridAreaMap&, size_t rowCount, size_t columnCount);
+    String stringForRow(size_t row) const;
 
-    NamedGridAreaMap m_gridAreaMap;
-    size_t m_rowCount;
-    size_t m_columnCount;
+private:
+    explicit CSSGridTemplateAreasValue(CSS::GridTemplateAreas&&);
+    explicit CSSGridTemplateAreasValue(const CSS::GridTemplateAreas&);
+
+    CSS::GridTemplateAreas m_areas;
 };
 
 } // namespace WebCore

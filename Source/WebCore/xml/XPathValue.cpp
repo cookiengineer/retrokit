@@ -1,17 +1,17 @@
 /*
  * Copyright 2005 Frerich Raabe <raabe@kde.org>
- * Copyright (C) 2006, 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
- * 
+ *
  * 1. Redistributions of source code must retain the above copyright
  *    notice, this list of conditions and the following disclaimer.
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
  * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
@@ -27,6 +27,7 @@
 #include "config.h"
 #include "XPathValue.h"
 
+#include "CommonAtomStrings.h"
 #include "XPathExpressionNode.h"
 #include "XPathUtil.h"
 #include <limits>
@@ -34,106 +35,100 @@
 #include <wtf/NeverDestroyed.h>
 #include <wtf/StdLibExtras.h>
 
-namespace WebCore {
-namespace XPath {
+namespace WebCore::XPath {
 
 const NodeSet& Value::toNodeSet() const
 {
-    if (!isNodeSet())
+    if (!isNodeSet()) {
         Expression::evaluationContext().hadTypeConversionError = true;
-
-    if (!m_data) {
         static NeverDestroyed<NodeSet> emptyNodeSet;
         return emptyNodeSet;
     }
 
-    return m_data->nodeSet;
-}    
+    return std::get<Ref<NodeSetHolder>>(m_value)->nodeSet;
+}
 
 NodeSet& Value::modifiableNodeSet()
 {
-    if (!isNodeSet())
+    if (!isNodeSet()) {
         Expression::evaluationContext().hadTypeConversionError = true;
+        m_value = NodeSetHolder::create(NodeSet { });
+    }
 
-    if (!m_data)
-        m_data = Data::create();
-
-    m_type = NodeSetValue;
-    return m_data->nodeSet;
+    return std::get<Ref<NodeSetHolder>>(m_value)->nodeSet;
 }
 
 bool Value::toBoolean() const
 {
-    switch (m_type) {
-        case NodeSetValue:
-            return !m_data->nodeSet.isEmpty();
-        case BooleanValue:
-            return m_bool;
-        case NumberValue:
-            return m_number && !std::isnan(m_number);
-        case StringValue:
-            return !m_data->string.isEmpty();
-    }
-    ASSERT_NOT_REACHED();
-    return false;
+    return switchOn(
+        [](bool value) {
+            return value;
+        },
+        [](double value) {
+            return value && !std::isnan(value);
+        },
+        [](const String& string) {
+            return !string.isEmpty();
+        },
+        [](const NodeSet& nodeSet) {
+            return !nodeSet.isEmpty();
+        }
+    );
 }
 
 double Value::toNumber() const
 {
-    switch (m_type) {
-        case NodeSetValue:
-            return Value(toString()).toNumber();
-        case NumberValue:
-            return m_number;
-        case StringValue: {
-            const String& str = m_data->string.simplifyWhiteSpace();
+    return switchOn(
+        [](bool value) -> double {
+            return value;
+        },
+        [](double value) {
+            return value;
+        },
+        [](const String& string) -> double {
+            auto simplified = string.simplifyWhiteSpace(deprecatedIsSpaceOrNewline);
 
-            // String::toDouble() supports exponential notation, which is not allowed in XPath.
-            unsigned len = str.length();
-            for (unsigned i = 0; i < len; ++i) {
-                UChar c = str[i];
-                if (!isASCIIDigit(c) && c != '.'  && c != '-')
-                    return std::numeric_limits<double>::quiet_NaN();
-            }
-
+            // XPath does not allow exponential notation in numbers, so use fixed parsing.
             bool canConvert;
-            double value = str.toDouble(&canConvert);
+            double value;
+            if (simplified.is8Bit())
+                value = charactersToFixedDouble(simplified.span8(), &canConvert);
+            else
+                value = charactersToFixedDouble(simplified.span16(), &canConvert);
             if (canConvert)
                 return value;
             return std::numeric_limits<double>::quiet_NaN();
+        },
+        [this](const NodeSet&) {
+            return Value(toString()).toNumber();
         }
-        case BooleanValue:
-            return m_bool;
-    }
-
-    ASSERT_NOT_REACHED();
-    return 0.0;
+    );
 }
 
 String Value::toString() const
 {
-    switch (m_type) {
-        case NodeSetValue:
-            if (m_data->nodeSet.isEmpty())
-                return emptyString();
-            return stringValue(m_data->nodeSet.firstNode());
-        case StringValue:
-            return m_data->string;
-        case NumberValue:
-            if (std::isnan(m_number))
+    return switchOn(
+        [](bool value) -> String {
+            return value ? trueAtom() : falseAtom();
+        },
+        [](double value) -> String {
+            if (std::isnan(value))
                 return "NaN"_s;
-            if (m_number == 0)
+            if (!value)
                 return "0"_s;
-            if (std::isinf(m_number))
-                return std::signbit(m_number) ? "-Infinity"_s : "Infinity"_s;
-            return String::number(m_number);
-        case BooleanValue:
-            return m_bool ? "true"_s : "false"_s;
-    }
-
-    ASSERT_NOT_REACHED();
-    return String();
+            if (std::isinf(value))
+                return std::signbit(value) ? "-Infinity"_s : "Infinity"_s;
+            return String::number(value);
+        },
+        [](const String& string) {
+            return string;
+        },
+        [](const NodeSet& nodeSet) -> String {
+            if (nodeSet.isEmpty())
+                return emptyString();
+            return stringValue(protect(*nodeSet.firstNode()));
+        }
+    );
 }
 
-}
-}
+} // namespace WebCore::XPath

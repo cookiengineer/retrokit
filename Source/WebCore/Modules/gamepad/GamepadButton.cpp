@@ -30,10 +30,7 @@
 
 namespace WebCore {
 
-GamepadButton::GamepadButton()
-    : m_value(0)
-{
-}
+GamepadButton::GamepadButton() = default;
 
 bool GamepadButton::pressed() const
 {

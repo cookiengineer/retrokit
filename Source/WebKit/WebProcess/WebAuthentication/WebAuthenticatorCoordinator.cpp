@@ -30,95 +30,106 @@
 
 #include "DefaultWebBrowserChecks.h"
 #include "FrameInfoData.h"
+#include "MessageSenderInlines.h"
 #include "WebAuthenticatorCoordinatorProxyMessages.h"
-#include "WebAuthnConnectionToWebProcess.h"
-#include "WebAuthnProcessConnection.h"
 #include "WebFrame.h"
 #include "WebPage.h"
 #include "WebProcess.h"
 #include <JavaScriptCore/ConsoleTypes.h>
+#include <WebCore/AllAcceptedCredentialsOptions.h>
 #include <WebCore/AuthenticatorAttachment.h>
 #include <WebCore/AuthenticatorResponseData.h>
-#include <WebCore/Frame.h>
+#include <WebCore/CurrentUserDetailsOptions.h>
+#include <WebCore/LocalFrame.h>
+#include <WebCore/MediationRequirement.h>
 #include <WebCore/PublicKeyCredentialCreationOptions.h>
 #include <WebCore/PublicKeyCredentialRequestOptions.h>
 #include <WebCore/Quirks.h>
-#include <WebCore/RuntimeEnabledFeatures.h>
 #include <WebCore/SecurityOrigin.h>
+#include <WebCore/UnknownCredentialOptions.h>
 #include <WebCore/UserGestureIndicator.h>
+#include <WebCore/WebAuthenticationConstants.h>
+#include <wtf/TZoneMallocInlines.h>
+
+#undef WEBAUTHN_RELEASE_LOG
+#define PAGE_ID (m_webPage->identifier().toUInt64())
+#define FRAME_ID (webFrame->frameID().toUInt64())
+#define WEBAUTHN_RELEASE_LOG_ERROR(fmt, ...) RELEASE_LOG_ERROR(WebAuthn, "%p - [webPageID=%" PRIu64 ", webFrameID=%" PRIu64 "] WebAuthenticatorCoordinator::" fmt, this, PAGE_ID, FRAME_ID, ##__VA_ARGS__)
+#define WEBAUTHN_RELEASE_LOG_ERROR_NO_FRAME(fmt, ...) RELEASE_LOG_ERROR(WebAuthn, "%p - [webPageID=%" PRIu64 "] WebAuthenticatorCoordinator::" fmt, this, PAGE_ID, ##__VA_ARGS__)
 
 namespace WebKit {
 using namespace WebCore;
 
-namespace {
-inline bool isWebBrowser()
-{
-    return isParentProcessAFullWebBrowser(WebProcess::singleton());
-}
-}
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebAuthenticatorCoordinator);
 
 WebAuthenticatorCoordinator::WebAuthenticatorCoordinator(WebPage& webPage)
     : m_webPage(webPage)
 {
 }
 
-void WebAuthenticatorCoordinator::makeCredential(const Frame& frame, const SecurityOrigin&, const Vector<uint8_t>& hash, const PublicKeyCredentialCreationOptions& options, RequestCompletionHandler&& handler)
+void WebAuthenticatorCoordinator::makeCredential(const LocalFrame& frame, const PublicKeyCredentialCreationOptions& options, MediationRequirement mediation, RequestCompletionHandler&& handler)
 {
-    auto* webFrame = WebFrame::fromCoreFrame(frame);
-    if (!webFrame)
-        return;
-
-    auto isProcessingUserGesture = processingUserGesture(frame, webFrame->frameID());
-    if (!RuntimeEnabledFeatures::sharedFeatures().webAuthenticationModernEnabled()) {
-        m_webPage.sendWithAsyncReply(Messages::WebAuthenticatorCoordinatorProxy::MakeCredential(webFrame->frameID(), webFrame->info(), hash, options, isProcessingUserGesture), WTFMove(handler));
+    RefPtr webFrame = WebFrame::fromCoreFrame(frame);
+    if (!webFrame) {
+        handler({ }, (AuthenticatorAttachment)0, ExceptionData { ExceptionCode::NotAllowedError, "Operation failed."_s });
         return;
     }
 
-    if (!isWebBrowser())
-        return;
-    WebProcess::singleton().ensureWebAuthnProcessConnection().connection().sendWithAsyncReply(Messages::WebAuthnConnectionToWebProcess::MakeCredential(hash, options, isProcessingUserGesture), WTFMove(handler));
+    protect(m_webPage)->sendWithAsyncReply(Messages::WebAuthenticatorCoordinatorProxy::MakeCredential(webFrame->frameID(), webFrame->info(), options, mediation), WTF::move(handler));
 }
 
-void WebAuthenticatorCoordinator::getAssertion(const Frame& frame, const SecurityOrigin&, const Vector<uint8_t>& hash, const PublicKeyCredentialRequestOptions& options, RequestCompletionHandler&& handler)
+void WebAuthenticatorCoordinator::getAssertion(const LocalFrame& frame, const PublicKeyCredentialRequestOptions& options, MediationRequirement mediation, const ScopeAndCrossOriginParent& scopeAndCrossOriginParent, RequestCompletionHandler&& handler)
 {
-    auto* webFrame = WebFrame::fromCoreFrame(frame);
-    if (!webFrame)
-        return;
-
-    auto isProcessingUserGesture = processingUserGesture(frame, webFrame->frameID());
-    if (!RuntimeEnabledFeatures::sharedFeatures().webAuthenticationModernEnabled()) {
-        m_webPage.sendWithAsyncReply(Messages::WebAuthenticatorCoordinatorProxy::GetAssertion(webFrame->frameID(), webFrame->info(), hash, options, isProcessingUserGesture), WTFMove(handler));
+    RefPtr webFrame = WebFrame::fromCoreFrame(frame);
+    if (!webFrame) {
+        handler({ }, (AuthenticatorAttachment)0, ExceptionData { ExceptionCode::NotAllowedError, "Operation failed."_s });
         return;
     }
 
-    if (!isWebBrowser())
-        return;
-    WebProcess::singleton().ensureWebAuthnProcessConnection().connection().sendWithAsyncReply(Messages::WebAuthnConnectionToWebProcess::GetAssertion(hash, options, isProcessingUserGesture), WTFMove(handler));
+    protect(m_webPage)->sendWithAsyncReply(Messages::WebAuthenticatorCoordinatorProxy::GetAssertion(webFrame->frameID(), webFrame->info(), options, mediation, scopeAndCrossOriginParent.second), WTF::move(handler));
 }
 
-void WebAuthenticatorCoordinator::isUserVerifyingPlatformAuthenticatorAvailable(QueryCompletionHandler&& handler)
+void WebAuthenticatorCoordinator::isConditionalMediationAvailable(const SecurityOrigin& origin, QueryCompletionHandler&& handler)
 {
-    if (!RuntimeEnabledFeatures::sharedFeatures().webAuthenticationModernEnabled()) {
-        m_webPage.sendWithAsyncReply(Messages::WebAuthenticatorCoordinatorProxy::IsUserVerifyingPlatformAuthenticatorAvailable(), WTFMove(handler));
-        return;
-    }
+    protect(m_webPage)->sendWithAsyncReply(Messages::WebAuthenticatorCoordinatorProxy::isConditionalMediationAvailable(origin.data()), WTF::move(handler));
+};
 
-    if (!isWebBrowser())
-        return;
-    WebProcess::singleton().ensureWebAuthnProcessConnection().connection().sendWithAsyncReply(Messages::WebAuthnConnectionToWebProcess::IsUserVerifyingPlatformAuthenticatorAvailable(), WTFMove(handler));
-}
-
-bool WebAuthenticatorCoordinator::processingUserGesture(const Frame& frame, const FrameIdentifier& frameID)
+void WebAuthenticatorCoordinator::isUserVerifyingPlatformAuthenticatorAvailable(const SecurityOrigin& origin, QueryCompletionHandler&& handler)
 {
-    bool needsQuirk = frame.document() && frame.document()->quirks().shouldBypassUserGestureRequirementForWebAuthn();
-    auto processingUserGesture = UserGestureIndicator::processingUserGestureForMedia() || (!m_requireUserGesture && needsQuirk);
-    if (!processingUserGesture)
-        m_webPage.addConsoleMessage(frameID, MessageSource::Other, MessageLevel::Warning, "User gesture is not detected. To use the WebAuthn API, call 'navigator.credentials.create' within user activated events."_s);
-
-    m_requireUserGesture = true;
-    return processingUserGesture;
+    protect(m_webPage)->sendWithAsyncReply(Messages::WebAuthenticatorCoordinatorProxy::IsUserVerifyingPlatformAuthenticatorAvailable(origin.data()), WTF::move(handler));
 }
+
+void WebAuthenticatorCoordinator::cancel(CompletionHandler<void()>&& handler)
+{
+    protect(m_webPage)->sendWithAsyncReply(Messages::WebAuthenticatorCoordinatorProxy::Cancel(), WTF::move(handler));
+}
+
+void WebAuthenticatorCoordinator::getClientCapabilities(const SecurityOrigin& origin, CapabilitiesCompletionHandler&& handler)
+{
+    protect(m_webPage)->sendWithAsyncReply(Messages::WebAuthenticatorCoordinatorProxy::GetClientCapabilities(origin.data()), WTF::move(handler));
+}
+
+void WebAuthenticatorCoordinator::signalUnknownCredential(const SecurityOrigin& origin, UnknownCredentialOptions&& options, CompletionHandler<void(std::optional<WebCore::ExceptionData>)>&& handler)
+{
+    protect(m_webPage)->sendWithAsyncReply(Messages::WebAuthenticatorCoordinatorProxy::SignalUnknownCredential(origin.data(), WTF::move(options)), WTF::move(handler));
+}
+
+void WebAuthenticatorCoordinator::signalAllAcceptedCredentials(const SecurityOrigin& origin, AllAcceptedCredentialsOptions&& options, CompletionHandler<void(std::optional<WebCore::ExceptionData>)>&& handler)
+{
+    protect(m_webPage)->sendWithAsyncReply(Messages::WebAuthenticatorCoordinatorProxy::SignalAllAcceptedCredentials(origin.data(), WTF::move(options)), WTF::move(handler));
+}
+
+void WebAuthenticatorCoordinator::signalCurrentUserDetails(const SecurityOrigin& origin, CurrentUserDetailsOptions&& options, CompletionHandler<void(std::optional<WebCore::ExceptionData>)>&& handler)
+{
+    protect(m_webPage)->sendWithAsyncReply(Messages::WebAuthenticatorCoordinatorProxy::SignalCurrentUserDetails(origin.data(), WTF::move(options)), WTF::move(handler));
+}
+
 
 } // namespace WebKit
+
+#undef WEBAUTHN_RELEASE_LOG_ERROR_NO_FRAME
+#undef WEBAUTHN_RELEASE_LOG_ERROR
+#undef FRAME_ID
+#undef PAGE_ID
 
 #endif // ENABLE(WEB_AUTHN)

@@ -38,6 +38,8 @@
 
 namespace Inspector {
 
+CString RemoteInspector::s_inspectorServerAddress;
+
 RemoteInspector& RemoteInspector::singleton()
 {
     static LazyNeverDestroyed<RemoteInspector> shared;
@@ -50,7 +52,7 @@ RemoteInspector& RemoteInspector::singleton()
 
 RemoteInspector::RemoteInspector()
 {
-    if (g_getenv("WEBKIT_INSPECTOR_SERVER"))
+    if (!s_inspectorServerAddress.isNull())
         start();
 }
 
@@ -65,14 +67,14 @@ void RemoteInspector::start()
     m_cancellable = adoptGRef(g_cancellable_new());
 
     GRefPtr<GSocketClient> socketClient = adoptGRef(g_socket_client_new());
-    g_socket_client_connect_to_host_async(socketClient.get(), g_getenv("WEBKIT_INSPECTOR_SERVER"), 0, m_cancellable.get(),
+    g_socket_client_connect_to_host_async(socketClient.get(), s_inspectorServerAddress.data(), 0, m_cancellable.get(),
         [](GObject* client, GAsyncResult* result, gpointer userData) {
             RemoteInspector* inspector = static_cast<RemoteInspector*>(userData);
             GUniqueOutPtr<GError> error;
             if (GRefPtr<GSocketConnection> connection = adoptGRef(g_socket_client_connect_to_host_finish(G_SOCKET_CLIENT(client), result, &error.outPtr())))
-                inspector->setupConnection(SocketConnection::create(WTFMove(connection), messageHandlers(), inspector));
+                inspector->setupConnection(SocketConnection::create(WTF::move(connection), messageHandlers(), inspector));
             else if (!g_error_matches(error.get(), G_IO_ERROR, G_IO_ERROR_CANCELLED))
-                g_warning("RemoteInspector failed to connect to inspector server at: %s: %s", g_getenv("WEBKIT_INSPECTOR_SERVER"), error->message);
+                g_warning("RemoteInspector failed to connect to inspector server at: %s: %s", s_inspectorServerAddress.data(), error->message);
         }, this);
 }
 
@@ -92,7 +94,7 @@ void RemoteInspector::stopInternal(StopSource)
 
     updateHasActiveDebugSession();
 
-    m_automaticInspectionPaused = false;
+    m_automaticInspectionCandidates.clear();
     m_socketConnection = nullptr;
 }
 
@@ -145,7 +147,7 @@ void RemoteInspector::setupConnection(Ref<SocketConnection>&& connection)
     Locker locker { m_mutex };
 
     ASSERT(!m_socketConnection);
-    m_socketConnection = WTFMove(connection);
+    m_socketConnection = WTF::move(connection);
     if (!m_targetMap.isEmpty())
         pushListingsSoon();
 }
@@ -159,6 +161,8 @@ static const char* targetDebuggableType(RemoteInspectionTarget::Type type)
         return "ServiceWorker";
     case RemoteInspectionTarget::Type::WebPage:
         return "WebPage";
+    case RemoteInspectionTarget::Type::WasmDebugger:
+        return "wasm-debugger";
     default:
         break;
     }
@@ -168,7 +172,7 @@ static const char* targetDebuggableType(RemoteInspectionTarget::Type type)
 
 TargetListing RemoteInspector::listingForInspectionTarget(const RemoteInspectionTarget& target) const
 {
-    if (!target.remoteDebuggingAllowed())
+    if (!target.allowsInspectionByPolicy())
         return nullptr;
 
     return g_variant_new("(tsssb)", static_cast<guint64>(target.targetIdentifier()),
@@ -210,19 +214,17 @@ void RemoteInspector::pushListingsSoon()
 
     m_pushScheduled = true;
 
-    RunLoop::current().dispatch([this] {
+    RunLoop::currentSingleton().dispatch([this] {
         Locker locker { m_mutex };
         if (m_pushScheduled)
             pushListingsNow();
     });
 }
 
-void RemoteInspector::sendAutomaticInspectionCandidateMessage()
+void RemoteInspector::sendAutomaticInspectionCandidateMessage(TargetID)
 {
     ASSERT(m_enabled);
     ASSERT(m_automaticInspectionEnabled);
-    ASSERT(m_automaticInspectionPaused);
-    ASSERT(m_automaticInspectionCandidateTargetIdentifier);
     ASSERT(m_socketConnection);
     // FIXME: Implement automatic inspection.
 }
@@ -281,6 +283,9 @@ void RemoteInspector::setup(TargetID targetIdentifier)
     RemoteControllableTarget* target;
     {
         Locker locker { m_mutex };
+        if (m_targetConnectionMap.contains(targetIdentifier))
+            return;
+
         target = m_targetMap.get(targetIdentifier);
         if (!target)
             return;
@@ -294,14 +299,14 @@ void RemoteInspector::setup(TargetID targetIdentifier)
     }
 
     Locker locker { m_mutex };
-    m_targetConnectionMap.set(targetIdentifier, WTFMove(connectionToTarget));
+    m_targetConnectionMap.set(targetIdentifier, WTF::move(connectionToTarget));
 
     updateHasActiveDebugSession();
 }
 
 void RemoteInspector::sendMessageToTarget(TargetID targetIdentifier, const char* message)
 {
-    if (auto connectionToTarget = m_targetConnectionMap.get(targetIdentifier))
+    if (RefPtr connectionToTarget = m_targetConnectionMap.get(targetIdentifier))
         connectionToTarget->sendMessageToTarget(String::fromUTF8(message));
 }
 
@@ -318,6 +323,23 @@ void RemoteInspector::requestAutomationSession(const char* sessionID, const Clie
 
     m_client->requestAutomationSession(String::fromUTF8(sessionID), capabilities);
     updateClientCapabilities();
+}
+
+void RemoteInspector::automationConnectionDidClose()
+{
+    if (!m_client)
+        return;
+    m_client->closeAutomationSession();
+}
+
+void RemoteInspector::setInspectorServerAddress(CString&& address)
+{
+    s_inspectorServerAddress = WTF::move(address);
+}
+
+const CString& RemoteInspector::inspectorServerAddress()
+{
+    return s_inspectorServerAddress;
 }
 
 } // namespace Inspector

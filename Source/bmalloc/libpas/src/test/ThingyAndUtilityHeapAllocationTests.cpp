@@ -47,11 +47,12 @@
 #include "pas_megapage_cache.h"
 #include "pas_page_malloc.h"
 #include "pas_scavenger.h"
-#include "pas_segregated_global_size_directory.h"
+#include "pas_segregated_size_directory.h"
 #include "pas_segregated_size_directory_inlines.h"
 #include "pas_thread_local_cache.h"
 #include "pas_utility_heap.h"
 #include "thingy_heap.h"
+#include <mutex>
 #include <set>
 #include <thread>
 #include <vector>
@@ -81,10 +82,10 @@ void flushDeallocationLogAndStopAllocators()
 // FIXME: Once we add real scavenging, we will want to add a shrinkHeaps() function that does
 // flushDeallocationLogAndStopAllocators() plus the actual scavenging.
 
-pas_segregated_global_size_directory* sizeClassFor(void* object)
+pas_segregated_size_directory* sizeClassFor(void* object)
 {
 #if SEGHEAP
-    return pas_segregated_global_size_directory_for_object(
+    return pas_segregated_size_directory_for_object(
         reinterpret_cast<uintptr_t>(object), &thingy_heap_config);
 #else
     return nullptr;
@@ -113,7 +114,7 @@ void forEachLiveUtilityObject(function<bool(void*, size_t)> callback)
 
 #if SEGHEAP
 bool forEachCommittedViewAdapter(pas_segregated_heap* heap,
-                                 pas_segregated_global_size_directory* sizeClass,
+                                 pas_segregated_size_directory* sizeClass,
                                  pas_segregated_view view,
                                  void* arg)
 {
@@ -249,6 +250,8 @@ void verifyObjectSet(const map<void*, size_t>& objectByPtr,
 
 void verifyHeapEmpty(pas_heap* heap)
 {
+    pas_scavenger_suspend();
+    
     flushDeallocationLogAndStopAllocators();
     
     forEachLiveObject(
@@ -262,13 +265,15 @@ void verifyHeapEmpty(pas_heap* heap)
     forEachCommittedView(
         heap,
         [&] (pas_segregated_view view) -> bool {
-            CHECK(pas_segregated_view_is_eligible_or_biased(view));
+            CHECK(pas_segregated_view_is_eligible(view));
 #if TLC
-            CHECK(pas_segregated_view_is_empty_or_biased(view));
+            CHECK(pas_segregated_view_is_empty(view));
 #endif
             return true;
         });
 #endif // SEGHEAP
+
+    pas_scavenger_resume();
 }
 
 class Allocator {
@@ -290,7 +295,7 @@ public:
     
     void* allocate() const override
     {
-        return thingy_try_allocate_primitive(m_objectSize);
+        return thingy_try_allocate_primitive(m_objectSize, pas_non_compact_allocation_mode);
     }
 
     pas_heap* heap() const override
@@ -319,7 +324,7 @@ public:
     
     void* allocate() const override
     {
-        return thingy_try_reallocate_primitive(nullptr, m_objectSize);
+        return thingy_try_reallocate_primitive(nullptr, m_objectSize, pas_non_compact_allocation_mode);
     }
 
     pas_heap* heap() const override
@@ -349,7 +354,7 @@ public:
     
     void* allocate() const override
     {
-        void* result = thingy_try_allocate_primitive_with_alignment(m_objectSize, m_alignment);
+        void* result = thingy_try_allocate_primitive_with_alignment(m_objectSize, m_alignment, pas_non_compact_allocation_mode);
         CHECK(pas_is_aligned(reinterpret_cast<uintptr_t>(result), m_alignment));
         return result;
     }
@@ -375,10 +380,10 @@ private:
 pas_heap_ref* createIsolatedHeapRef(size_t size, size_t alignment)
 {
     pas_heap_ref* heapRef = new pas_heap_ref;
-    heapRef->type = reinterpret_cast<pas_heap_type*>(PAS_SIMPLE_TYPE_CREATE(size, alignment));
+    heapRef->type = reinterpret_cast<const pas_heap_type*>(PAS_SIMPLE_TYPE_CREATE(size, alignment));
     heapRef->heap = nullptr;
 #if TLC
-    heapRef->allocator_index = UINT_MAX;
+    heapRef->allocator_index = 0;
 #endif
     
     return heapRef;
@@ -398,7 +403,7 @@ public:
     
     void* allocate() const override
     {
-        void* result = thingy_try_allocate(m_heapRef);
+        void* result = thingy_try_allocate(m_heapRef, pas_non_compact_allocation_mode);
         CHECK(pas_is_aligned(reinterpret_cast<uintptr_t>(result),
                              pas_simple_type_alignment(reinterpret_cast<pas_simple_type>(m_heapRef->type))));
         return result;
@@ -437,7 +442,7 @@ public:
     
     void* allocate() const override
     {
-        void* result = thingy_try_allocate_array(m_heapRef, m_count, m_alignment);
+        void* result = thingy_try_allocate_array(m_heapRef, m_count, m_alignment, pas_non_compact_allocation_mode);
         CHECK(pas_is_aligned(reinterpret_cast<uintptr_t>(result),
                              pas_simple_type_alignment(reinterpret_cast<pas_simple_type>(m_heapRef->type))));
         CHECK(pas_is_aligned(reinterpret_cast<uintptr_t>(result), m_alignment));
@@ -734,7 +739,7 @@ void testFreeListRefillSpans(unsigned prewarmObjectSize,
 
     if (prewarmObjectSize) {
         // Need this to skip the weird page at the start of the megapage.
-        thingy_try_allocate_primitive(prewarmObjectSize);
+        thingy_try_allocate_primitive(prewarmObjectSize, pas_non_compact_allocation_mode);
 
 #if PAS_ENABLE_TESTING
         thingy_allocator_counts.slow_paths = 0;
@@ -759,14 +764,14 @@ void testFreeListRefillSpans(unsigned prewarmObjectSize,
         unsigned numberOfObjectsInThisSpan = span ? numberOfObjectsPerSpan : numberOfObjectsInLastSpan;
         vector<void*> objectsInThisSpan;
         for (unsigned objectIndex = numberOfObjectsInThisSpan; objectIndex--;) {
-            void* ptr = thingy_try_allocate_primitive(objectSize);
+            void* ptr = thingy_try_allocate_primitive(objectSize, pas_non_compact_allocation_mode);
             CHECK(ptr);
             CHECK_EQUAL(pas_get_object_kind(ptr, THINGY_HEAP_CONFIG),
                         pas_object_kind_for_segregated_variant(variant));
             objectsInThisSpan.push_back(ptr);
             actualNumberOfObjects++;
         }
-        objects.push_back(move(objectsInThisSpan));
+        objects.push_back(std::move(objectsInThisSpan));
     }
 
 #if PAS_ENABLE_TESTING
@@ -777,11 +782,9 @@ void testFreeListRefillSpans(unsigned prewarmObjectSize,
     CHECK_EQUAL(objects.size(), numberOfSpans);
     CHECK_EQUAL(actualNumberOfObjects, numberOfObjects);
     
-    unsigned numberOfSpansFreed = 0;
     unsigned numberOfObjectsFreed = 0;
     set<void*> freedObject;
     for (unsigned span = firstSpanToFree; span < objects.size(); span += 2) {
-        numberOfSpansFreed++;
         for (void* object : objects[span]) {
             thingy_deallocate(object);
             freedObject.insert(object);
@@ -792,7 +795,7 @@ void testFreeListRefillSpans(unsigned prewarmObjectSize,
     flushDeallocationLogAndStopAllocators();
     
     for (unsigned objectIndex = numberOfObjectsFreed; objectIndex--;) {
-        void* ptr = thingy_try_allocate_primitive(objectSize);
+        void* ptr = thingy_try_allocate_primitive(objectSize, pas_non_compact_allocation_mode);
         CHECK(ptr);
         CHECK(freedObject.count(ptr));
         freedObject.erase(ptr);
@@ -845,7 +848,7 @@ void testInternalScavenge(unsigned firstObjectSize,
         pas_page_sharing_pool_verify(
             &pas_physical_page_sharing_pool,
             pas_lock_is_not_held);
-        void* object = thingy_try_allocate_primitive(firstObjectSize);
+        void* object = thingy_try_allocate_primitive(firstObjectSize, pas_non_compact_allocation_mode);
         CHECK(object);
         CHECK(!objects.count(object));
         objects.insert(object);
@@ -892,7 +895,7 @@ void testInternalScavenge(unsigned firstObjectSize,
             // reusing pages from the first size class.
             CHECK(pas_page_sharing_pool_has_current_participant(&pas_physical_page_sharing_pool));
         }
-        void* object = thingy_try_allocate_primitive(secondObjectSize);
+        void* object = thingy_try_allocate_primitive(secondObjectSize, pas_non_compact_allocation_mode);
     
         CHECK(object);
         CHECK(!objects.count(object));
@@ -926,7 +929,7 @@ void testInternalScavenge(unsigned firstObjectSize,
         pas_page_sharing_pool_verify(
             &pas_physical_page_sharing_pool,
             pas_lock_is_not_held);
-        void* object = thingy_try_allocate_primitive(firstObjectSize);
+        void* object = thingy_try_allocate_primitive(firstObjectSize, pas_non_compact_allocation_mode);
         CHECK(object);
         CHECK(!objects.count(object));
         objects.insert(object);
@@ -960,81 +963,77 @@ void testInternalScavengeFromCorrectDirectory(size_t firstSize, size_t secondSiz
     pas_physical_page_sharing_pool_balancing_enabled_for_utility = false;
     pas_large_utility_free_heap_talks_to_large_sharing_pool = false;
 
-    void* object1 = thingy_try_allocate_primitive(firstSize);
+    void* object1 = thingy_try_allocate_primitive(firstSize, pas_non_compact_allocation_mode);
     CHECK(object1);
 
     pas_segregated_view view1 = pas_segregated_view_for_object(reinterpret_cast<uintptr_t>(object1),
                                                                &thingy_heap_config);
     
-    pas_segregated_directory* directory1 = pas_segregated_size_directory_for_object(
+    pas_segregated_size_directory* directory1 = pas_segregated_size_directory_for_object(
         reinterpret_cast<uintptr_t>(object1), &thingy_heap_config);
-    pas_segregated_global_size_directory* globalDirectory1 =
-        pas_segregated_size_directory_get_global(directory1);
     
-    CHECK_EQUAL(globalDirectory1->object_size, firstSize);
-    CHECK_EQUAL(pas_segregated_directory_size(directory1), 1);
-    CHECK(!pas_segregated_directory_is_eligible(directory1, 0));
-    CHECK(!pas_segregated_directory_is_empty(&globalDirectory1->base, 0));
-    CHECK(pas_segregated_directory_is_committed(directory1, 0));
+    CHECK_EQUAL(directory1->object_size, firstSize);
+    CHECK_EQUAL(pas_segregated_directory_size(&directory1->base), 1);
+    CHECK(!pas_segregated_directory_is_eligible(&directory1->base, 0));
+    CHECK(!pas_segregated_directory_is_empty(&directory1->base, 0));
+    CHECK(pas_segregated_directory_is_committed(&directory1->base, 0));
     CHECK_EQUAL(
-        pas_segregated_directory_get(directory1, 0),
+        pas_segregated_directory_get(&directory1->base, 0),
         view1);
     
     flushDeallocationLogAndStopAllocators();
 
-    CHECK_EQUAL(pas_segregated_directory_size(directory1), 1);
-    CHECK(pas_segregated_directory_is_eligible(directory1, 0));
-    CHECK(!pas_segregated_directory_is_empty(&globalDirectory1->base, 0));
-    CHECK(pas_segregated_directory_is_committed(directory1, 0));
+    CHECK_EQUAL(pas_segregated_directory_size(&directory1->base), 1);
+    CHECK(pas_segregated_directory_is_eligible(&directory1->base, 0));
+    CHECK(!pas_segregated_directory_is_empty(&directory1->base, 0));
+    CHECK(pas_segregated_directory_is_committed(&directory1->base, 0));
     CHECK_EQUAL(
-        pas_segregated_directory_get(directory1, 0),
+        pas_segregated_directory_get(&directory1->base, 0),
         view1);
     
-    void* object2 = thingy_try_allocate_primitive(secondSize);
+    void* object2 = thingy_try_allocate_primitive(secondSize, pas_non_compact_allocation_mode);
     CHECK(object2);
 
     pas_segregated_view view2 = pas_segregated_view_for_object(reinterpret_cast<uintptr_t>(object2),
                                                                &thingy_heap_config);
     
-    pas_segregated_directory* directory2 = pas_segregated_size_directory_for_object(
+    pas_segregated_size_directory* directory2 = pas_segregated_size_directory_for_object(
         reinterpret_cast<uintptr_t>(object2), &thingy_heap_config);
-    pas_segregated_global_size_directory* globalDirectory2 =
-        pas_segregated_size_directory_get_global(directory2);
     
-    CHECK_EQUAL(globalDirectory2->object_size, secondSize);
+    CHECK_EQUAL(directory2->object_size, secondSize);
 
-    CHECK_EQUAL(pas_segregated_directory_size(directory1), 1);
-    CHECK(pas_segregated_directory_is_eligible(directory1, 0));
-    CHECK(!pas_segregated_directory_is_empty(&globalDirectory1->base, 0));
-    CHECK(pas_segregated_directory_is_committed(directory1, 0));
+    CHECK_EQUAL(pas_segregated_directory_size(&directory1->base), 1);
+    CHECK(pas_segregated_directory_is_eligible(&directory1->base, 0));
+    CHECK(!pas_segregated_directory_is_empty(&directory1->base, 0));
+    CHECK(pas_segregated_directory_is_committed(&directory1->base, 0));
     CHECK_EQUAL(
-        pas_segregated_directory_get(directory1, 0),
+        pas_segregated_directory_get(&directory1->base, 0),
         view1);
     
-    CHECK_EQUAL(pas_segregated_directory_size(directory2), 1);
-    CHECK(!pas_segregated_directory_is_eligible(directory2, 0));
-    CHECK(!pas_segregated_directory_is_empty(&globalDirectory2->base, 0));
-    CHECK(pas_segregated_directory_is_committed(directory2, 0));
+    CHECK_EQUAL(pas_segregated_directory_size(&directory2->base), 1);
+    CHECK(!pas_segregated_directory_is_eligible(&directory2->base, 0));
+    CHECK(!pas_segregated_directory_is_empty(&directory2->base, 0));
+    CHECK(pas_segregated_directory_is_committed(&directory2->base, 0));
     CHECK_EQUAL(
-        pas_segregated_directory_get(directory2, 0),
+        pas_segregated_directory_get(&directory2->base, 0),
         view2);
     
     flushDeallocationLogAndStopAllocators();
 
-    CHECK_EQUAL(pas_segregated_directory_size(directory1), 1);
-    CHECK(pas_segregated_directory_is_eligible(directory1, 0));
-    CHECK(!pas_segregated_directory_is_empty(&globalDirectory1->base, 0));
-    CHECK(pas_segregated_directory_is_committed(directory1, 0));
+    CHECK_EQUAL(pas_segregated_directory_size(&directory1->base), 1);
+    CHECK(pas_segregated_directory_is_eligible(&directory1->base, 0));
+    CHECK(!pas_segregated_directory_is_empty(&directory1->base, 0));
+    CHECK(pas_segregated_directory_is_committed(&directory1->base, 0));
     CHECK_EQUAL(
-        pas_segregated_directory_get(directory1, 0),
+        pas_segregated_directory_get(&directory1->base, 0),
         view1);
     
-    CHECK_EQUAL(pas_segregated_directory_size(directory2), 1);
-    CHECK(pas_segregated_directory_is_eligible(directory2, 0));
-    CHECK(!pas_segregated_directory_is_empty(&globalDirectory2->base, 0));
-    CHECK(pas_segregated_directory_is_committed(directory2, 0));
+    CHECK_EQUAL(pas_segregated_directory_size(&directory2->base), 1);
+    CHECK(pas_segregated_directory_is_eligible(&directory2->base, 0));
+    CHECK(!pas_segregated_directory_is_empty(&directory2->base, 0));
+    CHECK(pas_segregated_directory_is_committed(&directory2->base, 0));
     CHECK_EQUAL(
-        pas_segregated_directory_get(directory2, 0),
+        pas_segregated_directory_get(&directory2->base, 0),
         view2);
     
     thingy_deallocate(object1);
@@ -1042,53 +1041,51 @@ void testInternalScavengeFromCorrectDirectory(size_t firstSize, size_t secondSiz
 
     flushDeallocationLogAndStopAllocators();
 
-    CHECK_EQUAL(pas_segregated_directory_size(directory1), 1);
-    CHECK(pas_segregated_directory_is_eligible(directory1, 0));
-    CHECK(pas_segregated_directory_is_empty(&globalDirectory1->base, 0));
-    CHECK(pas_segregated_directory_is_committed(directory1, 0));
+    CHECK_EQUAL(pas_segregated_directory_size(&directory1->base), 1);
+    CHECK(pas_segregated_directory_is_eligible(&directory1->base, 0));
+    CHECK(pas_segregated_directory_is_empty(&directory1->base, 0));
+    CHECK(pas_segregated_directory_is_committed(&directory1->base, 0));
     CHECK_EQUAL(
-        pas_segregated_directory_get(directory1, 0),
+        pas_segregated_directory_get(&directory1->base, 0),
         view1);
 
-    CHECK_EQUAL(pas_segregated_directory_size(directory2), 1);
-    CHECK(pas_segregated_directory_is_eligible(directory2, 0));
-    CHECK(pas_segregated_directory_is_empty(&globalDirectory2->base, 0));
-    CHECK(pas_segregated_directory_is_committed(directory2, 0));
+    CHECK_EQUAL(pas_segregated_directory_size(&directory2->base), 1);
+    CHECK(pas_segregated_directory_is_eligible(&directory2->base, 0));
+    CHECK(pas_segregated_directory_is_empty(&directory2->base, 0));
+    CHECK(pas_segregated_directory_is_committed(&directory2->base, 0));
     CHECK_EQUAL(
-        pas_segregated_directory_get(directory2, 0),
+        pas_segregated_directory_get(&directory2->base, 0),
         view2);
     
-    void* object3 = thingy_try_allocate_primitive(thirdSize);
+    void* object3 = thingy_try_allocate_primitive(thirdSize, pas_non_compact_allocation_mode);
     CHECK(object3);
 
     pas_segregated_view view3 = pas_segregated_view_for_object(reinterpret_cast<uintptr_t>(object3),
                                                                &thingy_heap_config);
     
-    pas_segregated_directory* directory3 = pas_segregated_size_directory_for_object(
+    pas_segregated_size_directory* directory3 = pas_segregated_size_directory_for_object(
         reinterpret_cast<uintptr_t>(object3), &thingy_heap_config);
-    pas_segregated_global_size_directory* globalDirectory3 =
-        pas_segregated_size_directory_get_global(directory3);
-    CHECK_EQUAL(globalDirectory3->object_size, thirdSize);
+    CHECK_EQUAL(directory3->object_size, thirdSize);
     
-    CHECK_EQUAL(pas_segregated_directory_size(directory1), 1);
-    CHECK(pas_segregated_directory_is_eligible(directory1, 0));
-    CHECK(!pas_segregated_directory_is_empty(&globalDirectory1->base, 0));
-    CHECK(!pas_segregated_directory_is_committed(directory1, 0));
+    CHECK_EQUAL(pas_segregated_directory_size(&directory1->base), 1);
+    CHECK(pas_segregated_directory_is_eligible(&directory1->base, 0));
+    CHECK(!pas_segregated_directory_is_empty(&directory1->base, 0));
+    CHECK(!pas_segregated_directory_is_committed(&directory1->base, 0));
 
-    CHECK_EQUAL(pas_segregated_directory_size(directory2), 1);
-    CHECK(pas_segregated_directory_is_eligible(directory2, 0));
-    CHECK(pas_segregated_directory_is_empty(&globalDirectory2->base, 0));
-    CHECK(pas_segregated_directory_is_committed(directory2, 0));
+    CHECK_EQUAL(pas_segregated_directory_size(&directory2->base), 1);
+    CHECK(pas_segregated_directory_is_eligible(&directory2->base, 0));
+    CHECK(pas_segregated_directory_is_empty(&directory2->base, 0));
+    CHECK(pas_segregated_directory_is_committed(&directory2->base, 0));
     CHECK_EQUAL(
-        pas_segregated_directory_get(directory2, 0),
+        pas_segregated_directory_get(&directory2->base, 0),
         view2);
     
-    CHECK_EQUAL(pas_segregated_directory_size(directory3), 1);
-    CHECK(!pas_segregated_directory_is_eligible(directory3, 0));
-    CHECK(!pas_segregated_directory_is_empty(&globalDirectory3->base, 0));
-    CHECK(pas_segregated_directory_is_committed(directory3, 0));
+    CHECK_EQUAL(pas_segregated_directory_size(&directory3->base), 1);
+    CHECK(!pas_segregated_directory_is_eligible(&directory3->base, 0));
+    CHECK(!pas_segregated_directory_is_empty(&directory3->base, 0));
+    CHECK(pas_segregated_directory_is_committed(&directory3->base, 0));
     CHECK_EQUAL(
-        pas_segregated_directory_get(directory3, 0),
+        pas_segregated_directory_get(&directory3->base, 0),
         view3);
 
     CHECK_EQUAL(pas_scavenger_current_state, pas_scavenger_state_no_thread);
@@ -1130,11 +1127,11 @@ void testSizeClassCreationImpl(const vector<SizeClassProgram>& programs)
 #if TLC
     pas_large_sharing_pool_validate_each_splat = true;
 #endif
-    map<size_t, pas_segregated_global_size_directory*> sizeMap;
+    map<size_t, pas_segregated_size_directory*> sizeMap;
     for (const SizeClassProgram& program : programs) {
         cout << "    Program: " << program.name << endl;
         
-        pas_segregated_global_size_directory* resultingSizeClass = nullptr;
+        pas_segregated_size_directory* resultingSizeClass = nullptr;
         
         {
 #if PAS_ENABLE_TESTING
@@ -1177,7 +1174,6 @@ void testSpuriousEligibility()
 #if TLC
     pas_scavenger_suspend();
     pas_large_sharing_pool_validate_each_splat = true;
-    pas_segregated_size_directory_use_tabling = false;
 #endif
     
     unsigned objectSize = 16;
@@ -1192,14 +1188,14 @@ void testSpuriousEligibility()
     
     vector<void*> firstObjects;
     for (unsigned i = numberOfObjectsInFirstSpan; i--;)
-        firstObjects.push_back(thingy_try_allocate_primitive(objectSize));
+        firstObjects.push_back(thingy_try_allocate_primitive(objectSize,pas_non_compact_allocation_mode));
     
     if (verbose)
         cout << "Allocating second span of objects.\n";
     
     vector<void*> secondObjects;
     for (unsigned i = numberOfObjectsInSecondSpan; i--;)
-        secondObjects.push_back(thingy_try_allocate_primitive(objectSize));
+        secondObjects.push_back(thingy_try_allocate_primitive(objectSize, pas_non_compact_allocation_mode));
     
     if (verbose)
         cout << "Shrinking.\n";
@@ -1221,7 +1217,7 @@ void testSpuriousEligibility()
         cout << "Reallocating first span of objects.\n";
     
     for (void* object : firstObjects) {
-        void* reallocatedObject = thingy_try_allocate_primitive(objectSize);
+        void* reallocatedObject = thingy_try_allocate_primitive(objectSize,pas_non_compact_allocation_mode);
         CHECK_EQUAL(reallocatedObject, object);
     }
 
@@ -1240,7 +1236,7 @@ void testSpuriousEligibility()
         cout << "Reallocating second span of objects.\n";
     
     for (void* object : secondObjects) {
-        void* reallocatedObject = thingy_try_allocate_primitive(objectSize);
+        void* reallocatedObject = thingy_try_allocate_primitive(objectSize, pas_non_compact_allocation_mode);
         CHECK_EQUAL(reallocatedObject, object);
     }
 
@@ -1249,7 +1245,7 @@ void testSpuriousEligibility()
     
     flushDeallocationLogAndStopAllocators();
 
-    thingy_try_allocate_primitive(objectSize);
+    thingy_try_allocate_primitive(objectSize, pas_non_compact_allocation_mode);
     
     flushDeallocationLogAndStopAllocators();
     
@@ -1262,11 +1258,11 @@ void testSpuriousEligibility()
     flushDeallocationLogAndStopAllocators();
     
     for (void* object : firstObjects) {
-        void* reallocatedObject = thingy_try_allocate_primitive(objectSize);
+        void* reallocatedObject = thingy_try_allocate_primitive(objectSize, pas_non_compact_allocation_mode);
         CHECK_EQUAL(reallocatedObject, object);
     }
     for (void* object : secondObjects) {
-        void* reallocatedObject = thingy_try_allocate_primitive(objectSize);
+        void* reallocatedObject = thingy_try_allocate_primitive(objectSize, pas_non_compact_allocation_mode);
         CHECK_EQUAL(reallocatedObject, object);
     }
 
@@ -1275,13 +1271,13 @@ void testSpuriousEligibility()
 
 void testBasicSizeClassNotSet()
 {
-    (thread([&] () { thingy_try_allocate_primitive(2); })).join();
-    (thread([&] () { thingy_try_allocate_primitive(1); })).join();
+    (thread([&] () { thingy_try_allocate_primitive(2, pas_non_compact_allocation_mode); })).join();
+    (thread([&] () { thingy_try_allocate_primitive(1, pas_non_compact_allocation_mode); })).join();
 }
 
 void testSmallDoubleFree()
 {
-    void* ptr = thingy_try_allocate_primitive(1);
+    void* ptr = thingy_try_allocate_primitive(1, pas_non_compact_allocation_mode);
     CHECK(ptr);
     thingy_deallocate(ptr);
     DeallocationShouldFail deallocationShouldFail;
@@ -1291,7 +1287,7 @@ void testSmallDoubleFree()
 
 void testSmallFreeInner()
 {
-    void* ptr = thingy_try_allocate_primitive(32);
+    void* ptr = thingy_try_allocate_primitive(32, pas_non_compact_allocation_mode);
     CHECK(ptr);
     DeallocationShouldFail deallocationShouldFail;
     thingy_deallocate(reinterpret_cast<char*>(ptr) + 16);
@@ -1299,7 +1295,7 @@ void testSmallFreeInner()
 
 void testSmallFreeNextWithShrink()
 {
-    void* ptr = thingy_try_allocate_primitive(16);
+    void* ptr = thingy_try_allocate_primitive(16, pas_non_compact_allocation_mode);
     CHECK(ptr);
     flushDeallocationLogAndStopAllocators();
     DeallocationShouldFail deallocationShouldFail;
@@ -1308,21 +1304,21 @@ void testSmallFreeNextWithShrink()
 
 void testSmallFreeNextWithoutShrink()
 {
-    void* ptr = thingy_try_allocate_primitive(16);
+    void* ptr = thingy_try_allocate_primitive(16, pas_non_compact_allocation_mode);
     CHECK(ptr);
     thingy_deallocate(ptr);
 #if !TLC
     DeallocationShouldFail deallocationShouldFail;
 #endif    
     thingy_deallocate(reinterpret_cast<char*>(ptr) + 16);
-    void* ptr2 = thingy_try_allocate_primitive(16);
+    void* ptr2 = thingy_try_allocate_primitive(16, pas_non_compact_allocation_mode);
     CHECK(ptr2 == reinterpret_cast<char*>(ptr) + 16);
     verifyHeapEmpty(&thingy_primitive_heap);
 }
 
 void testSmallFreeNextBeforeShrink()
 {
-    void* ptr = thingy_try_allocate_primitive(16);
+    void* ptr = thingy_try_allocate_primitive(16, pas_non_compact_allocation_mode);
     CHECK(ptr);
 #if !TLC
     DeallocationShouldFail deallocationShouldFail;
@@ -1395,7 +1391,7 @@ class PrimitiveComplexAllocator : public ComplexAllocator {
 public:
     void* allocate(size_t count, size_t alignment) const override
     {
-        return thingy_try_allocate_primitive_with_alignment(count, alignment);
+        return thingy_try_allocate_primitive_with_alignment(count, alignment, pas_non_compact_allocation_mode);
     }
     
     pas_heap* heap() const override
@@ -1418,7 +1414,7 @@ public:
     
     void* allocate(size_t count, size_t alignment) const override
     {
-        return thingy_try_allocate_array(m_heapRef, count, alignment);
+        return thingy_try_allocate_array(m_heapRef, count, alignment, pas_non_compact_allocation_mode);
     }
     
     pas_heap* heap() const override
@@ -1445,8 +1441,8 @@ public:
     void* allocate(size_t count, size_t alignment) const override
     {
         if (count == 1 && alignment == 1)
-            return thingy_try_allocate(m_heapRef);
-        return thingy_try_allocate_array(m_heapRef, count, alignment);
+            return thingy_try_allocate(m_heapRef, pas_non_compact_allocation_mode);
+        return thingy_try_allocate_array(m_heapRef, count, alignment, pas_non_compact_allocation_mode);
     }
     
     pas_heap* heap() const override
@@ -1538,6 +1534,8 @@ void testComplexLargeAllocationImpl(const ComplexAllocator& allocator,
                                     ExpectedBytes expectedNumMappedBytes,
                                     const vector<AllocationProgram>& programs)
 {
+    static constexpr bool verbose = false;
+    
 #if TLC
     pas_large_sharing_pool_validate_each_splat = true;
 #endif
@@ -1550,6 +1548,10 @@ void testComplexLargeAllocationImpl(const ComplexAllocator& allocator,
             cout << "    Program: allocate(" << program.key() << ", " << program.count() << ", "
                  << program.alignment() << ")" << endl;
             void* ptr = allocator.allocate(program.count(), program.alignment());
+            if (verbose) {
+                cout << "Allocated ptr = " << ptr << " with kind "
+                     << pas_get_object_kind(ptr, THINGY_HEAP_CONFIG) << endl;
+            }
             CHECK(pas_is_aligned(reinterpret_cast<uintptr_t>(ptr), program.alignment()));
             CHECK(!objectByKey.count(program.key()));
             objectByKey[program.key()] = ptr;
@@ -1689,7 +1691,7 @@ void testAllocationChaos(unsigned numThreads, unsigned numIsolatedHeaps,
         unsigned size = deterministicRandomNumber(5000);
         
         if (heapIndex == isolatedHeaps.size()) {
-            void* ptr = thingy_try_allocate_primitive(size);
+            void* ptr = thingy_try_allocate_primitive(size, pas_non_compact_allocation_mode);
             addObject(ptr, size);
             return;
         }
@@ -1700,9 +1702,9 @@ void testAllocationChaos(unsigned numThreads, unsigned numIsolatedHeaps,
             count * pas_simple_type_size(reinterpret_cast<pas_simple_type>(heap->type)));
         void* ptr;
         if (count <= 1)
-            ptr = thingy_try_allocate(heap);
+            ptr = thingy_try_allocate(heap, pas_non_compact_allocation_mode);
         else
-            ptr = thingy_try_allocate_array(heap, count, 1);
+            ptr = thingy_try_allocate_array(heap, count, 1, pas_non_compact_allocation_mode);
         addObject(ptr, size);
     };
     
@@ -1969,9 +1971,9 @@ void testCombinedAllocationChaos(unsigned numThreads, unsigned numIsolatedHeaps,
         if (heapIndex == isolatedHeaps.size()) {
             void* ptr;
             if (calloc)
-                ptr = thingy_try_allocate_primitive_zeroed(size);
+                ptr = thingy_try_allocate_primitive_zeroed(size, pas_non_compact_allocation_mode);
             else
-                ptr = thingy_try_allocate_primitive(size);
+                ptr = thingy_try_allocate_primitive(size, pas_non_compact_allocation_mode);
             addObject(ptr, size, false);
             return;
         }
@@ -1983,14 +1985,14 @@ void testCombinedAllocationChaos(unsigned numThreads, unsigned numIsolatedHeaps,
         void* ptr;
         if (count <= 1) {
             if (calloc)
-                ptr = thingy_try_allocate_zeroed(heap);
+                ptr = thingy_try_allocate_zeroed(heap, pas_non_compact_allocation_mode);
             else
-                ptr = thingy_try_allocate(heap);
+                ptr = thingy_try_allocate(heap, pas_non_compact_allocation_mode);
         } else {
             if (calloc)
-                ptr = thingy_try_allocate_zeroed_array(heap, count, 1);
+                ptr = thingy_try_allocate_zeroed_array(heap, count, 1, pas_non_compact_allocation_mode);
             else
-                ptr = thingy_try_allocate_array(heap, count, 1);
+                ptr = thingy_try_allocate_array(heap, count, 1, pas_non_compact_allocation_mode);
         }
         addObject(ptr, size, false);
     };
@@ -2082,7 +2084,7 @@ void testCombinedAllocationChaos(unsigned numThreads, unsigned numIsolatedHeaps,
 
 void testLargeDoubleFree()
 {
-    void* ptr = thingy_try_allocate_primitive(10000);
+    void* ptr = thingy_try_allocate_primitive(10000, pas_non_compact_allocation_mode);
     CHECK(ptr);
     thingy_deallocate(ptr);
     DeallocationShouldFail deallocationShouldFail;
@@ -2091,7 +2093,7 @@ void testLargeDoubleFree()
 
 void testLargeOffsetFree()
 {
-    void* ptr = thingy_try_allocate_primitive(10000);
+    void* ptr = thingy_try_allocate_primitive(10000, pas_non_compact_allocation_mode);
     CHECK(ptr);
     DeallocationShouldFail deallocationShouldFail;
     thingy_deallocate(reinterpret_cast<char*>(ptr) + 1);
@@ -2111,11 +2113,11 @@ void testReallocatePrimitive(size_t originalSize, size_t expectedOriginalSize,
     pas_scavenger_suspend();
 
     for (size_t i = count; i--;) {
-        void* originalObject = thingy_try_allocate_primitive(originalSize);
+        void* originalObject = thingy_try_allocate_primitive(originalSize, pas_non_compact_allocation_mode);
         CHECK(originalObject);
         CHECK_EQUAL(thingy_get_allocation_size(originalObject), expectedOriginalSize);
         
-        void* newObject = thingy_try_reallocate_primitive(originalObject, newSize);
+        void* newObject = thingy_try_reallocate_primitive(originalObject, newSize, pas_non_compact_allocation_mode);
         CHECK(newObject);
         CHECK_EQUAL(thingy_get_allocation_size(newObject), expectedNewSize);
         
@@ -2135,11 +2137,11 @@ void testReallocateArray(size_t typeSize, size_t typeAlignment,
     pas_heap_ref* heapRef = createIsolatedHeapRef(typeSize, typeAlignment);
     
     for (size_t i = count; i--;) {
-        void* originalObject = thingy_try_allocate_array(heapRef, originalCount, 1);
+        void* originalObject = thingy_try_allocate_array(heapRef, originalCount, 1, pas_non_compact_allocation_mode);
         CHECK(originalObject);
         CHECK_EQUAL(thingy_get_allocation_size(originalObject), expectedOriginalSize);
         
-        void* newObject = thingy_try_reallocate_array(originalObject, heapRef, newCount);
+        void* newObject = thingy_try_reallocate_array(originalObject, heapRef, newCount, pas_non_compact_allocation_mode);
         CHECK(newObject);
         CHECK_EQUAL(thingy_get_allocation_size(newObject), expectedNewSize);
         
@@ -2459,10 +2461,10 @@ void addSmallHeapTests()
     pas_heap_ref* heap4Bytes = createIsolatedHeapRef(4, 4);
     
     ADD_TEST(testSizeClassCreation(SIZE_CLASS_PROGRAM(IsolatedHeapAllocator(heap4Bytes), 8, pas_small_segregated_object_kind, 200, 2),
-                                   SIZE_CLASS_PROGRAM(IsolatedHeapArrayAllocator(heap4Bytes, 2, 1), 8, pas_small_segregated_object_kind, 200, 1),
+                                   SIZE_CLASS_PROGRAM(IsolatedHeapArrayAllocator(heap4Bytes, 2, 1), 8, pas_small_segregated_object_kind, 200, 0),
                                    SIZE_CLASS_PROGRAM(IsolatedHeapAllocator(heap4Bytes), 8, pas_small_segregated_object_kind, 200, 0)));
     ADD_TEST(testSizeClassCreation(SIZE_CLASS_PROGRAM(IsolatedHeapArrayAllocator(heap4Bytes, 2, 1), 8, pas_small_segregated_object_kind, 200, 2),
-                                   SIZE_CLASS_PROGRAM(IsolatedHeapAllocator(heap4Bytes), 8, pas_small_segregated_object_kind, 200, 1),
+                                   SIZE_CLASS_PROGRAM(IsolatedHeapAllocator(heap4Bytes), 8, pas_small_segregated_object_kind, 200, 0),
                                    SIZE_CLASS_PROGRAM(IsolatedHeapArrayAllocator(heap4Bytes, 2, 1), 8, pas_small_segregated_object_kind, 200, 0)));
     ADD_TEST(testSizeClassCreation(SIZE_CLASS_PROGRAM(IsolatedHeapArrayAllocator(heap4Bytes, 14, 1), 56, pas_small_segregated_object_kind, 200, 2),
                                    SIZE_CLASS_PROGRAM(IsolatedHeapArrayAllocator(heap4Bytes, 12, 1), 56, pas_small_segregated_object_kind, 200, 2),
@@ -2474,19 +2476,19 @@ void addSmallHeapTests()
     
     ADD_TEST(testSizeClassCreation(SIZE_CLASS_PROGRAM(IsolatedHeapAllocator(heap24Bytes), 24, pas_small_segregated_object_kind, 200, 2),
                                    SIZE_CLASS_PROGRAM(IsolatedHeapArrayAllocator(heap24Bytes, 1, 32), 32, pas_small_segregated_object_kind, 200, 2),
-                                   SIZE_CLASS_PROGRAM(IsolatedHeapAllocator(heap24Bytes), 32, pas_small_segregated_object_kind, 200, 0)));
+                                   SIZE_CLASS_PROGRAM(IsolatedHeapAllocator(heap24Bytes), 24, pas_small_segregated_object_kind, 200, 0)));
     
     pas_heap_ref* heap3Bytes = createIsolatedHeapRef(3, 1);
     
     ADD_TEST(testSizeClassCreation(SIZE_CLASS_PROGRAM(IsolatedHeapAllocator(heap3Bytes), 8, pas_small_segregated_object_kind, 200, 2),
-                                   SIZE_CLASS_PROGRAM(IsolatedHeapArrayAllocator(heap3Bytes, 2, 1), 8, pas_small_segregated_object_kind, 200, 1),
+                                   SIZE_CLASS_PROGRAM(IsolatedHeapArrayAllocator(heap3Bytes, 2, 1), 8, pas_small_segregated_object_kind, 200, 0),
                                    SIZE_CLASS_PROGRAM(IsolatedHeapArrayAllocator(heap3Bytes, 3, 1), 16, pas_small_segregated_object_kind, 200, 2),
                                    SIZE_CLASS_PROGRAM(IsolatedHeapArrayAllocator(heap3Bytes, 4, 1), 16, pas_small_segregated_object_kind, 200, 0)));
 
     pas_heap_ref* heap7Bytes = createIsolatedHeapRef(7, 1);
     
     ADD_TEST(testSizeClassCreation(SIZE_CLASS_PROGRAM(IsolatedHeapArrayAllocator(heap7Bytes, 8, 1), 56, pas_small_segregated_object_kind, 200, 2),
-                                   SIZE_CLASS_PROGRAM(IsolatedHeapArrayAllocator(heap7Bytes, 7, 1), 56, pas_small_segregated_object_kind, 10, 1),
+                                   SIZE_CLASS_PROGRAM(IsolatedHeapArrayAllocator(heap7Bytes, 7, 1), 56, pas_small_segregated_object_kind, 10, 0),
                                    SIZE_CLASS_PROGRAM(IsolatedHeapArrayAllocator(heap7Bytes, 6, 1), 56, pas_small_segregated_object_kind, 10, 1),
                                    SIZE_CLASS_PROGRAM(IsolatedHeapArrayAllocator(heap7Bytes, 6, 16), 48, pas_small_segregated_object_kind, 200, 2),
                                    SIZE_CLASS_PROGRAM(IsolatedHeapArrayAllocator(heap7Bytes, 8, 1), 56, pas_small_segregated_object_kind, 10, 0),
@@ -3022,7 +3024,7 @@ void addLargeHeapTests()
 }
 
 #if SEGHEAP
-void addMediumHeapTests()
+void addMediumSegregatedHeapTests()
 {
     DisableBitfit disableBitfit;
     
@@ -3046,15 +3048,15 @@ void addMediumHeapTests()
                  SIZE_CLASS_PROGRAM(
                      PrimitiveAllocator(2048), 2048, pas_medium_segregated_object_kind, 10, 2),
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(2072), 2296, pas_small_segregated_object_kind, 10, 3),
+                     PrimitiveAllocator(2072), 2560, pas_medium_segregated_object_kind, 10, 2),
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(1600), 1608, pas_small_segregated_object_kind, 10, 2),
+                     PrimitiveAllocator(1600), 2048, pas_medium_segregated_object_kind, 10, 1),
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(1617), 2048, pas_medium_segregated_object_kind, 10, 1),
+                     PrimitiveAllocator(1617), 2048, pas_medium_segregated_object_kind, 10, 0),
                  SIZE_CLASS_PROGRAM(
                      AlignedPrimitiveAllocator(2048, 2048), 2048, pas_medium_segregated_object_kind, 10, 0),
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(2072), 2296, pas_small_segregated_object_kind, 10, 1),
+                     PrimitiveAllocator(2072), 2560, pas_medium_segregated_object_kind, 10, 0),
                  SIZE_CLASS_PROGRAM(
                      PrimitiveAllocator(1617), 2048, pas_medium_segregated_object_kind, 10, 0)));
     ADD_TEST(testSizeClassCreation(
@@ -3074,41 +3076,55 @@ void addMediumHeapTests()
                      PrimitiveAllocator(4096), 4096, pas_medium_segregated_object_kind, 5, 0)));
     ADD_TEST(testSizeClassCreation(
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(16384), 16384, pas_medium_segregated_object_kind, 4, 2),
+                     PrimitiveAllocator(8192), 8192, pas_medium_segregated_object_kind, 4, 2),
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(16000), 16384, pas_medium_segregated_object_kind, 3, 1)));
+                     PrimitiveAllocator(10100), 10752, pas_medium_segregated_object_kind, 3, 2)));
     ADD_TEST(testSizeClassCreation(
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(16384), 16384, pas_medium_segregated_object_kind, 4, 2),
+                     PrimitiveAllocator(10240), 10752, pas_medium_segregated_object_kind, 4, 2),
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(18712), 21504, pas_medium_segregated_object_kind, 3, 2)));
+                     PrimitiveAllocator(11730), 11776, pas_medium_segregated_object_kind, 3, 2)));
+}
+
+void addMediumBitfitHeapTests()
+{
     ADD_TEST(testSizeClassCreation(
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(16384), 16384, pas_medium_segregated_object_kind, 3, 2),
+                     PrimitiveAllocator(16384), 16384, pas_medium_bitfit_object_kind, 4, 1),
                  SIZE_CLASS_PROGRAM(
-                     AlignedPrimitiveAllocator(16384, 16384), 16384, pas_medium_segregated_object_kind, 3, 0),
-                 SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(18712), 21504, pas_medium_segregated_object_kind, 3, 2),
-                 SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(16384), 16384, pas_medium_segregated_object_kind, 3, 1)));
+                     PrimitiveAllocator(16000), 16384, pas_medium_bitfit_object_kind, 3, 1)));
     ADD_TEST(testSizeClassCreation(
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(16896), 18432, pas_medium_segregated_object_kind, 3, 2),
+                     PrimitiveAllocator(16384), 16384, pas_medium_bitfit_object_kind, 4, 1),
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(16384), 18432, pas_medium_segregated_object_kind, 3, 1),
-                 SIZE_CLASS_PROGRAM(
-                     AlignedPrimitiveAllocator(16384, 16384), 16384, pas_medium_segregated_object_kind, 4, 2),
-                 SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(16896), 18432, pas_medium_segregated_object_kind, 3, 1),
-                 SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(16384), 16384, pas_medium_segregated_object_kind, 3, 0)));
+                     PrimitiveAllocator(18712), 18944, pas_medium_bitfit_object_kind, 3, 1)));
     ADD_TEST(testSizeClassCreation(
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(16384), 16384, pas_medium_segregated_object_kind, 3, 2),
+                     PrimitiveAllocator(16384), 16384, pas_medium_bitfit_object_kind, 3, 1),
                  SIZE_CLASS_PROGRAM(
-                     AlignedPrimitiveAllocator(16384, 16384), 16384, pas_medium_segregated_object_kind, 1, 0),
+                     AlignedPrimitiveAllocator(16384, 16384), 16384, pas_medium_bitfit_object_kind, 3, 0),
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(16000), 16384, pas_medium_segregated_object_kind, 3, 1)));
+                     PrimitiveAllocator(18712), 18944, pas_medium_bitfit_object_kind, 3, 1),
+                 SIZE_CLASS_PROGRAM(
+                     PrimitiveAllocator(16384), 16384, pas_medium_bitfit_object_kind, 3, 0)));
+    ADD_TEST(testSizeClassCreation(
+                 SIZE_CLASS_PROGRAM(
+                     PrimitiveAllocator(16880), 16896, pas_medium_bitfit_object_kind, 3, 1),
+                 SIZE_CLASS_PROGRAM(
+                     PrimitiveAllocator(16384), 16384, pas_medium_bitfit_object_kind, 3, 1),
+                 SIZE_CLASS_PROGRAM(
+                     AlignedPrimitiveAllocator(16384, 16384), 16384, pas_medium_bitfit_object_kind, 4, 0),
+                 SIZE_CLASS_PROGRAM(
+                     PrimitiveAllocator(16896), 16896, pas_medium_bitfit_object_kind, 3, 0),
+                 SIZE_CLASS_PROGRAM(
+                     PrimitiveAllocator(16384), 16384, pas_medium_bitfit_object_kind, 3, 0)));
+    ADD_TEST(testSizeClassCreation(
+                 SIZE_CLASS_PROGRAM(
+                     PrimitiveAllocator(16384), 16384, pas_medium_bitfit_object_kind, 3, 1),
+                 SIZE_CLASS_PROGRAM(
+                     AlignedPrimitiveAllocator(16384, 16384), 16384, pas_medium_bitfit_object_kind, 1, 0),
+                 SIZE_CLASS_PROGRAM(
+                     PrimitiveAllocator(16000), 16384, pas_medium_bitfit_object_kind, 3, 1)));
 }
 
 void addLargerThanMediumHeapTests()
@@ -3126,14 +3142,20 @@ void addMargeBitfitTests()
 {
     ADD_TEST(testSizeClassCreation(
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(20000), 21504, pas_medium_segregated_object_kind, 5, 2),
+                     PrimitiveAllocator(8000), 8192, pas_medium_segregated_object_kind, 5, 2),
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(30000), 32768, pas_marge_bitfit_object_kind, 5, 2),
+                     PrimitiveAllocator(16384), 16384, pas_medium_bitfit_object_kind, 5, 1),
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(29000), 32768, pas_marge_bitfit_object_kind, 5, 1)));
+                     PrimitiveAllocator(20000), 20480, pas_medium_bitfit_object_kind, 5, 1),
+                 SIZE_CLASS_PROGRAM(
+                     PrimitiveAllocator(30000), 30208, pas_medium_bitfit_object_kind, 5, 1),
+                 SIZE_CLASS_PROGRAM(
+                     PrimitiveAllocator(29000), 29184, pas_medium_bitfit_object_kind, 5, 1),
+                 SIZE_CLASS_PROGRAM(
+                     PrimitiveAllocator(32770), 36864, pas_marge_bitfit_object_kind, 5, 1)));
     ADD_TEST(testSizeClassCreation(
                  SIZE_CLASS_PROGRAM(
-                     PrimitiveAllocator(300000), 303104, pas_marge_bitfit_object_kind, 5, 2),
+                     PrimitiveAllocator(300000), 303104, pas_marge_bitfit_object_kind, 5, 1),
                  SIZE_CLASS_PROGRAM(
                      PrimitiveAllocator(290000), 290816, pas_marge_bitfit_object_kind, 5, 1)));
 }
@@ -3188,7 +3210,8 @@ void addAllTestsImpl()
     if (hasScope("only-small"))
         addLargeHeapTests();
     else {
-        addMediumHeapTests();
+        addMediumSegregatedHeapTests();
+        addMediumBitfitHeapTests();
         addMargeBitfitTests();
         addLargerThanMediumHeapTests();
         addLargerThanMargeBitfitTests();
@@ -3204,7 +3227,7 @@ void addAllTests()
     {
         TestScope testScope(
             "only-small",
-            [&] () {
+            [] () {
                 pas_medium_segregated_page_config_variant_is_enabled_override = false;
             });
         
@@ -3214,19 +3237,11 @@ void addAllTests()
     {
         TestScope testScope(
             "small-and-medium",
-            [&] () {
+            [] () {
             });
         
         addAllTestsImpl();
-
-        {
-            DisableExplosion DisableExplosion;
-            addSmallHeapTests();
-        }
-        {
-            ForceExplosion forceExplosion;
-            addSmallHeapTests();
-        }
+        addSmallHeapTests();
     }
 }
 
@@ -3242,17 +3257,18 @@ void addThingyAndUtilityHeapAllocationTests()
     // pas API outside of ADD_TEST().
     CHECK(!pas_bootstrap_free_heap.num_mapped_bytes);
 
-    ForceExclusives forceExclusives;
-    ForceTLAs forceTLAs;
-    ForceOneMagazine forceOneMagazine;
-    EpochIsCounter epochIsCounter;
-
     {
         InstallVerifier installVerifier;
+        ForceTLAs forceTLAs;
+        EpochIsCounter epochIsCounter;
         addAllTests();
     }
-
-    addAllTests();
+    {
+        NoVerifier noVerifier;
+        ForceTLAs forceTLAs;
+        EpochIsCounter epochIsCounter;
+        addAllTests();
+    }
 #endif // PAS_ENABLE_THINGY
 }
 

@@ -26,25 +26,27 @@
 #include "config.h"
 #include "TableFormattingState.h"
 
-#if ENABLE(LAYOUT_FORMATTING_CONTEXT)
-
+#include "LayoutBoxInlines.h"
+#include "RenderObject.h"
+#include "StyleComputedStyle+GettersInlines.h"
+#include "StylePrimitiveNumericTypes+Evaluation.h"
 #include "TableFormattingContext.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 namespace Layout {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(TableFormattingState);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(TableFormattingState);
 
-static UniqueRef<TableGrid> ensureTableGrid(const ContainerBox& tableBox)
+static UniqueRef<TableGrid> ensureTableGrid(const ElementBox& tableBox)
 {
     auto tableGrid = makeUniqueRef<TableGrid>();
-    auto& tableStyle = tableBox.style();
-    auto shouldApplyBorderSpacing = tableStyle.borderCollapse() == BorderCollapse::Separate;
-    tableGrid->setHorizontalSpacing(LayoutUnit { shouldApplyBorderSpacing ? tableStyle.horizontalBorderSpacing() : 0 });
-    tableGrid->setVerticalSpacing(LayoutUnit { shouldApplyBorderSpacing ? tableStyle.verticalBorderSpacing() : 0 });
+    CheckedRef tableStyle = tableBox.style();
+    auto shouldApplyBorderSpacing = tableStyle->borderCollapse() == BorderCollapse::Separate;
+    tableGrid->setHorizontalSpacing(LayoutUnit { shouldApplyBorderSpacing ? tableStyle->borderHorizontalSpacing().resolveZoom(tableStyle->usedZoomForLength()) : 0 });
+    tableGrid->setVerticalSpacing(LayoutUnit { shouldApplyBorderSpacing ? tableStyle->borderVerticalSpacing().resolveZoom(tableStyle->usedZoomForLength()) : 0 });
 
-    auto* firstChild = tableBox.firstChild();
+    CheckedPtr firstChild = tableBox.firstChild();
     if (!firstChild) {
         // The rare case of empty table.
         return tableGrid;
@@ -56,7 +58,7 @@ static UniqueRef<TableGrid> ensureTableGrid(const ContainerBox& tableBox)
     if (firstChild->isTableCaption())
         tableCaption = firstChild;
     // The <colgroup> must appear after any optional <caption> element but before any <thead>, <th>, <tbody>, <tfoot> and <tr> element.
-    auto* colgroupCandidate = firstChild;
+    CheckedPtr colgroupCandidate = firstChild;
     if (tableCaption)
         colgroupCandidate = tableCaption->nextSibling();
     if (colgroupCandidate->isTableColumnGroup())
@@ -64,23 +66,23 @@ static UniqueRef<TableGrid> ensureTableGrid(const ContainerBox& tableBox)
 
     if (colgroup) {
         auto& columns = tableGrid->columns();
-        for (auto* column = downcast<ContainerBox>(*colgroup).firstChild(); column; column = column->nextSibling()) {
+        for (CheckedPtr column = downcast<ElementBox>(*colgroup).firstChild(); column; column = column->nextSibling()) {
             ASSERT(column->isTableColumn());
             auto columnSpanCount = column->columnSpan();
             ASSERT(columnSpanCount > 0);
             while (columnSpanCount--)
-                columns.addColumn(downcast<ContainerBox>(*column));
+                columns.addColumn(downcast<ElementBox>(*column));
         }
     }
 
-    auto* firstSection = colgroup ? colgroup->nextSibling() : tableCaption ? tableCaption->nextSibling() : firstChild;
-    for (auto* section = firstSection; section; section = section->nextSibling()) {
+    CheckedPtr firstSection = colgroup ? colgroup->nextSibling() : (tableCaption ? tableCaption->nextSibling() : firstChild.get());
+    for (CheckedPtr section = firstSection; section; section = section->nextSibling()) {
         ASSERT(section->isTableHeader() || section->isTableBody() || section->isTableFooter());
-        for (auto* row = downcast<ContainerBox>(*section).firstChild(); row; row = row->nextSibling()) {
+        for (CheckedPtr row = downcast<ElementBox>(*section).firstChild(); row; row = row->nextSibling()) {
             ASSERT(row->isTableRow());
-            for (auto* cell = downcast<ContainerBox>(*row).firstChild(); cell; cell = cell->nextSibling()) {
+            for (CheckedPtr cell = downcast<ElementBox>(*row).firstChild(); cell; cell = cell->nextSibling()) {
                 ASSERT(cell->isTableCell());
-                tableGrid->appendCell(downcast<ContainerBox>(*cell));
+                tableGrid->appendCell(downcast<ElementBox>(*cell));
             }
         }
     }
@@ -88,16 +90,13 @@ static UniqueRef<TableGrid> ensureTableGrid(const ContainerBox& tableBox)
 }
 
 
-TableFormattingState::TableFormattingState(Ref<FloatingState>&& floatingState, LayoutState& layoutState, const ContainerBox& tableBox)
-    : FormattingState(WTFMove(floatingState), Type::Table, layoutState)
+TableFormattingState::TableFormattingState(LayoutState& layoutState, const ElementBox& tableBox)
+    : FormattingState(Type::Table, layoutState)
     , m_tableGrid(ensureTableGrid(tableBox))
 {
 }
 
-TableFormattingState::~TableFormattingState()
-{
-}
+TableFormattingState::~TableFormattingState() = default;
 
 }
 }
-#endif

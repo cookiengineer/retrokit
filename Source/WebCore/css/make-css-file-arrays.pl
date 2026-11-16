@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 #
-#  Copyright (C) 2006 Apple Inc.
+#  Copyright (C) 2006 Apple Inc. All rights reserved.
 #
 #  This library is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU Library General Public
@@ -28,9 +28,7 @@ use lib "$FindBin::Bin/../bindings/scripts";
 use Getopt::Long;
 
 my $defines;
-my $preprocessor;
-GetOptions('defines=s' => \$defines,
-           'preprocessor=s' => \$preprocessor);
+GetOptions('defines=s' => \$defines);
 
 my $header = $ARGV[0];
 shift;
@@ -40,6 +38,9 @@ shift;
 
 open HEADER, ">", $header or die;
 open OUT, ">", $out or die;
+
+print HEADER "#include <array>\n";
+print OUT "#include <array>\n";
 
 print HEADER "namespace WebCore {\n";
 print OUT "namespace WebCore {\n";
@@ -51,7 +52,7 @@ for my $in (@ARGV) {
     # Slurp in the CSS file.
     my $text;
     require preprocessor;
-    $text = join('', applyPreprocessor($in, $defines, $preprocessor));
+    $text = join('', applyPreprocessor($in, $defines));
 
     # Remove comments in a simple-minded way that will work fine for our files.
     # Could do this a fancier way if we were worried about arbitrary CSS source.
@@ -67,11 +68,11 @@ for my $in (@ARGV) {
     # Write out a C array of the characters.
     my $length = length $text;
     if ($in =~ /(\w+)\.css$/) {
-        print HEADER "extern const char ${name}UserAgentStyleSheet[${length}];\n";
-        print OUT "extern const char ${name}UserAgentStyleSheet[${length}] = {\n";
+        print HEADER "extern const std::array<const char, ${length}> ${name}UserAgentStyleSheet;\n";
+        print OUT "extern const std::array<const char, ${length}> ${name}UserAgentStyleSheet = {\n";
     } else {
-        print HEADER "extern const char ${name}JavaScript[${length}];\n";
-        print OUT "extern const char ${name}JavaScript[${length}] = {\n";
+        print HEADER "extern const std::array<const char, ${length}> ${name}JavaScript;\n";
+        print OUT "extern const std::array<const char, ${length}> ${name}JavaScript = {\n";
     }
     my $i = 0;
     while ($i < $length) {

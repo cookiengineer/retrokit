@@ -23,15 +23,16 @@
 #include "SVGTitleElement.h"
 
 #include "Document.h"
-#include "SVGNames.h"
-#include <wtf/IsoMallocInlines.h>
+#include "SVGElementTypeHelpers.h"
+#include "SVGSVGElement.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(SVGTitleElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGTitleElement);
 
 inline SVGTitleElement::SVGTitleElement(const QualifiedName& tagName, Document& document)
-    : SVGElement(tagName, document)
+    : SVGElement(tagName, document, makeUniqueRef<PropertyRegistry>(*this))
 {
     ASSERT(hasTagName(SVGNames::titleTag));
 }
@@ -41,23 +42,37 @@ Ref<SVGTitleElement> SVGTitleElement::create(const QualifiedName& tagName, Docum
     return adoptRef(*new SVGTitleElement(tagName, document));
 }
 
-Node::InsertedIntoAncestorResult SVGTitleElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+Node::NeedsPostConnectionSteps SVGTitleElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    SVGElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
-    document().titleElementAdded(*this);
-    return InsertedIntoAncestorResult::Done;
+    auto result = SVGElement::insertionSteps(insertionType, parentOfInsertedTree);
+    if (insertionType.connectedToDocument && parentNode() == document().documentElement())
+        protect(document())->titleElementAdded(*this);
+    return result;
 }
 
-void SVGTitleElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+static bool NODELETE isTitleElementRemovedFromSVGSVGElement(SVGTitleElement& title, ContainerNode& oldParentOfRemovedTree)
 {
-    SVGElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
-    document().titleElementRemoved(*this);
+    if (!title.parentNode() && is<SVGSVGElement>(oldParentOfRemovedTree) && title.document().documentElement() == &oldParentOfRemovedTree)
+        return true;
+    if (title.parentNode() && is<SVGSVGElement>(*title.parentNode()) && !title.parentNode()->parentNode() && is<Document>(oldParentOfRemovedTree))
+        return true;
+    return false;
+}
+
+void SVGTitleElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+{
+    SVGElement::removingSteps(removalType, oldParentOfRemovedTree);
+    if (removalType.disconnectedFromDocument && isTitleElementRemovedFromSVGSVGElement(*this, oldParentOfRemovedTree)) {
+        Ref<Document> document = this->document();
+        document->titleElementRemoved(*this);
+    }
 }
 
 void SVGTitleElement::childrenChanged(const ChildChange& change)
 {
     SVGElement::childrenChanged(change);
-    document().titleElementTextChanged(*this);
+    if (isConnected() && parentNode() == document().documentElement())
+        protect(document())->titleElementTextChanged(*this);
 }
 
-}
+} // namespace WebCore

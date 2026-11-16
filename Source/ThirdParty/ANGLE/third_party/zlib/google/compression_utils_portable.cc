@@ -1,6 +1,6 @@
 /* compression_utils_portable.cc
  *
- * Copyright 2019 The Chromium Authors. All rights reserved.
+ * Copyright 2019 The Chromium Authors
  * Use of this source code is governed by a BSD-style license that can be
  * found in the Chromium source repository LICENSE file.
  */
@@ -10,12 +10,6 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
-
-// WebKit-specific change: the WinCairo port seems to have a system
-// zlib.h, but doesn't define z_const.
-#if !defined(z_const)
-#define z_const
-#endif
 
 namespace zlib_internal {
 

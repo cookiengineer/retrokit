@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2020 Apple Inc. All rights reserved.
+* Copyright (C) 2020-2025 Apple Inc. All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
 * modification, are permitted provided that the following conditions
@@ -27,53 +27,61 @@
 #include "config.h"
 #include "RemoteAudioTrackProxy.h"
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
+#include "AudioTrackPrivateRemoteConfiguration.h"
 #include "Connection.h"
 #include "GPUConnectionToWebProcess.h"
 #include "MediaPlayerPrivateRemoteMessages.h"
 #include "RemoteMediaPlayerProxy.h"
-#include "TrackPrivateRemoteConfiguration.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteAudioTrackProxy);
+
 using namespace WebCore;
 
-RemoteAudioTrackProxy::RemoteAudioTrackProxy(GPUConnectionToWebProcess& connectionToWebProcess, TrackPrivateRemoteIdentifier identifier, AudioTrackPrivate& trackPrivate, MediaPlayerIdentifier mediaPlayerIdentifier)
-    : m_connectionToWebProcess(makeWeakPtr(connectionToWebProcess))
-    , m_identifier(identifier)
+RemoteAudioTrackProxy::RemoteAudioTrackProxy(GPUConnectionToWebProcess& connectionToWebProcess, AudioTrackPrivate& trackPrivate, MediaPlayerIdentifier mediaPlayerIdentifier)
+    : m_connectionToWebProcess(connectionToWebProcess)
     , m_trackPrivate(trackPrivate)
+    , m_id(trackPrivate.id())
     , m_mediaPlayerIdentifier(mediaPlayerIdentifier)
 {
-    m_trackPrivate->setClient(this);
-    m_connectionToWebProcess->connection().send(Messages::MediaPlayerPrivateRemote::AddRemoteAudioTrack(m_identifier, configuration()), m_mediaPlayerIdentifier);
+    m_clientId = trackPrivate.addClient([](auto&& task) {
+        ensureOnMainThread(WTF::move(task));
+    }, *this);
+
+    connectionToWebProcess.connection().send(Messages::MediaPlayerPrivateRemote::AddRemoteAudioTrack(configuration()), m_mediaPlayerIdentifier);
 }
 
 RemoteAudioTrackProxy::~RemoteAudioTrackProxy()
 {
+    m_trackPrivate->removeClient(m_clientId);
 }
 
-TrackPrivateRemoteConfiguration& RemoteAudioTrackProxy::configuration()
+AudioTrackPrivateRemoteConfiguration RemoteAudioTrackProxy::configuration()
 {
-    static NeverDestroyed<TrackPrivateRemoteConfiguration> configuration;
-
-    configuration->trackId = m_trackPrivate->id();
-    configuration->label = m_trackPrivate->label();
-    configuration->language = m_trackPrivate->language();
-    configuration->trackIndex = m_trackPrivate->trackIndex();
-    configuration->startTimeVariance = m_trackPrivate->startTimeVariance();
-    configuration->enabled = m_trackPrivate->enabled();
-    configuration->audioKind = m_trackPrivate->kind();
-
-    return configuration.get();
+    return {
+        {
+            m_trackPrivate->id(),
+            m_trackPrivate->label(),
+            m_trackPrivate->language(),
+            m_trackPrivate->startTimeVariance(),
+            m_trackPrivate->trackIndex(),
+        },
+        m_trackPrivate->enabled(),
+        m_trackPrivate->kind(),
+        m_trackPrivate->configuration(),
+    };
 }
 
 void RemoteAudioTrackProxy::configurationChanged()
 {
-    if (!m_connectionToWebProcess)
+    RefPtr connection = m_connectionToWebProcess.get();
+    if (!connection)
         return;
-
-    m_connectionToWebProcess->connection().send(Messages::MediaPlayerPrivateRemote::RemoteAudioTrackConfigurationChanged(m_identifier, configuration()), m_mediaPlayerIdentifier);
+    connection->connection().send(Messages::MediaPlayerPrivateRemote::RemoteAudioTrackConfigurationChanged(std::exchange(m_id, m_trackPrivate->id()), configuration()), m_mediaPlayerIdentifier);
 }
 
 void RemoteAudioTrackProxy::willRemove()
@@ -89,21 +97,26 @@ void RemoteAudioTrackProxy::enabledChanged(bool enabled)
     configurationChanged();
 }
 
-void RemoteAudioTrackProxy::idChanged(const AtomString&)
+void RemoteAudioTrackProxy::configurationChanged(const PlatformAudioTrackConfiguration& configuration)
 {
     configurationChanged();
 }
 
-void RemoteAudioTrackProxy::labelChanged(const AtomString&)
+void RemoteAudioTrackProxy::idChanged(TrackID)
 {
     configurationChanged();
 }
 
-void RemoteAudioTrackProxy::languageChanged(const AtomString&)
+void RemoteAudioTrackProxy::labelChanged(const String&)
+{
+    configurationChanged();
+}
+
+void RemoteAudioTrackProxy::languageChanged(const String&)
 {
     configurationChanged();
 }
 
 } // namespace WebKit
 
-#endif // ENABLE(GPU_PROCESS)
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

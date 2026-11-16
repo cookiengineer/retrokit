@@ -27,14 +27,16 @@
 namespace WebCore {
 
 class RenderCombineText final : public RenderText {
-    WTF_MAKE_ISO_ALLOCATED(RenderCombineText);
+    WTF_MAKE_TZONE_ALLOCATED(RenderCombineText);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderCombineText);
 public:
     RenderCombineText(Text&, const String&);
+    virtual ~RenderCombineText();
 
     Text& textNode() const { return downcast<Text>(nodeForNonAnonymous()); }
 
     void combineTextIfNeeded();
-    std::optional<FloatPoint> computeTextOrigin(const FloatRect& boxRect) const;
+    std::optional<FloatPoint> NODELETE computeTextOrigin(const FloatRect& boxRect) const;
     String combinedStringForRendering() const;
     bool isCombined() const { return m_isCombined; }
     float combinedTextWidth(const FontCascade& font) const { return font.size(); }
@@ -44,13 +46,11 @@ public:
 private:
     void node() const = delete;
 
-    bool isCombineText() const override { return true; }
-    float width(unsigned from, unsigned length, const FontCascade&, float xPosition, HashSet<const Font*>* fallbackFonts = 0, GlyphOverflow* = 0) const override;
-    const char* renderName() const override { return "RenderCombineText"; }
-    void styleDidChange(StyleDifference, const RenderStyle* oldStyle) override;
+    ASCIILiteral renderName() const override { return "RenderCombineText"_s; }
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) override;
     void setRenderedText(const String&) override;
 
-    std::unique_ptr<RenderStyle> m_combineFontStyle;
+    std::unique_ptr<Style::ComputedStyle> m_combineFontStyle;
     float m_combinedTextWidth { 0 };
     float m_combinedTextAscent { 0 };
     float m_combinedTextDescent { 0 };
@@ -60,4 +60,4 @@ private:
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderCombineText, isCombineText())
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderCombineText, isRenderCombineText())

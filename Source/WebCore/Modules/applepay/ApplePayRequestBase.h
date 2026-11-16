@@ -28,14 +28,11 @@
 #if ENABLE(APPLE_PAY)
 
 #include "ApplePayContactField.h"
+#include "ApplePayFeature.h"
 #include "ApplePayInstallmentConfigurationWebCore.h"
 #include "ApplePayMerchantCapability.h"
 #include "ApplePayPaymentContact.h"
 #include "ApplePayShippingContactEditingMode.h"
-
-#if USE(APPLE_INTERNAL_SDK)
-#include <WebKitAdditions/ApplePayRequestBaseAdditions.h>
-#endif
 
 namespace WebCore {
 
@@ -43,6 +40,8 @@ class Document;
 class PaymentCoordinator;
 
 struct ApplePayRequestBase {
+    std::optional<Vector<ApplePayFeature>> features;
+
     Vector<ApplePayMerchantCapability> merchantCapabilities;
     Vector<String> supportedNetworks;
     String countryCode;
@@ -69,12 +68,20 @@ struct ApplePayRequestBase {
     std::optional<ApplePayShippingContactEditingMode> shippingContactEditingMode;
 #endif
 
-#if defined(ApplePayRequestBaseAdditions_members)
-    ApplePayRequestBaseAdditions_members
+#if ENABLE(APPLE_PAY_LATER_AVAILABILITY)
+    std::optional<ApplePayLaterAvailability> applePayLaterAvailability;
+#endif
+
+#if ENABLE(APPLE_PAY_MERCHANT_CATEGORY_CODE)
+    String merchantCategoryCode;
+#endif
+
+#if ENABLE(APPLE_PAY_DELEGATED_REQUEST)
+    std::optional<bool> isDelegatedRequest;
 #endif
 };
 
-ExceptionOr<ApplePaySessionPaymentRequest> convertAndValidate(Document&, unsigned version, ApplePayRequestBase&, const PaymentCoordinator&);
+ExceptionOr<ApplePaySessionPaymentRequest> convertAndValidate(Document&, unsigned version, const ApplePayRequestBase&, const PaymentCoordinator&);
 
 } // namespace WebCore
 

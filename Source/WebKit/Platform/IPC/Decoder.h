@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,154 +27,237 @@
 
 #include "Attachment.h"
 #include "MessageNames.h"
-#include "StringReference.h"
-#include <WebCore/SharedBuffer.h>
+#include "ReceiverMatcher.h"
+#include "SyncRequestID.h"
+#include <memory>
+#include <span>
+#include <wtf/ArgumentCoder.h>
+#include <wtf/Function.h>
+#include <wtf/HashSet.h>
+#include <wtf/Markable.h>
 #include <wtf/OptionSet.h>
+#include <wtf/RetainPtr.h>
+#include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
+#include <wtf/text/ASCIILiteral.h>
 
-#if HAVE(QOS_CLASSES)
-#include <pthread/qos.h>
+#if PLATFORM(COCOA)
+#include "ClassStructPtr.h"
+#endif
+
+#if PLATFORM(MAC)
+#include "ImportanceAssertion.h"
 #endif
 
 namespace IPC {
 
-class ImportanceAssertion;
 enum class MessageFlags : uint8_t;
 enum class ShouldDispatchWhenWaitingForSyncReply : uint8_t;
 
-template<typename, typename> struct ArgumentCoder;
-template<typename, typename> struct HasLegacyDecoder;
-template<typename, typename> struct HasModernDecoder;
+template<typename> struct ArgumentCoder;
+
+#ifdef __OBJC__
+template<typename T> using IsObjCObject = std::enable_if_t<std::is_convertible<T *, id>::value, T *>;
+template<typename T> using IsNotObjCObject = std::enable_if_t<!std::is_convertible<T *, id>::value, T *>;
+template<typename T, typename = IsObjCObject<T>> std::optional<RetainPtr<T>> decodeRequiringAllowedClasses(Decoder&);
+
+template<typename T, typename = IsObjCObject<T>> Class getClass()
+{
+    return [T class];
+}
+#endif
+
+#if PLATFORM(COCOA)
+using AllowedClassHashSet = HashSet<RetainPtr<ClassStructPtr>>;
+#endif
 
 class Decoder {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(Decoder);
 public:
-    static std::unique_ptr<Decoder> create(const uint8_t* buffer, size_t bufferSize, void (*bufferDeallocator)(const uint8_t*, size_t), Vector<Attachment>&&);
-    Decoder(const uint8_t* stream, size_t streamSize, uint64_t destinationID);
+    static std::unique_ptr<Decoder> create(std::span<const uint8_t> buffer, Vector<Attachment>&&);
+    using BufferDeallocator = Function<void(std::span<const uint8_t>)>;
+    static std::unique_ptr<Decoder> create(std::span<const uint8_t> buffer, BufferDeallocator&&, Vector<Attachment>&&);
+    Decoder(std::span<const uint8_t> stream, uint64_t destinationID);
 
     ~Decoder();
 
+    Decoder() = delete;
     Decoder(const Decoder&) = delete;
     Decoder(Decoder&&) = delete;
+    Decoder& operator=(const Decoder&) = delete;
+    Decoder& operator=(Decoder&&) = delete;
 
     ReceiverName messageReceiverName() const { return receiverName(m_messageName); }
     MessageName messageName() const { return m_messageName; }
     uint64_t destinationID() const { return m_destinationID; }
+    SyncRequestID syncRequestID() const { ASSERT(m_syncRequestID); return *m_syncRequestID; }
+    bool matches(const ReceiverMatcher& matcher) const { return matcher.matches(messageReceiverName(), destinationID()); }
 
     bool isSyncMessage() const { return messageIsSync(messageName()); }
-    ShouldDispatchWhenWaitingForSyncReply shouldDispatchMessageWhenWaitingForSyncReply() const;
-    bool shouldUseFullySynchronousModeForTesting() const;
-    bool shouldMaintainOrderingWithAsyncMessages() const;
+    ShouldDispatchWhenWaitingForSyncReply NODELETE shouldDispatchMessageWhenWaitingForSyncReply() const;
+    bool isAllowedWhenWaitingForSyncReply() const { return messageAllowedWhenWaitingForSyncReply(messageName()) || m_isAllowedWhenWaitingForSyncReplyOverride; }
+    bool isAllowedWhenWaitingForUnboundedSyncReply() const { return messageAllowedWhenWaitingForUnboundedSyncReply(messageName()); }
+    bool NODELETE shouldUseFullySynchronousModeForTesting() const;
+    bool NODELETE shouldMaintainOrderingWithAsyncMessages() const;
+    void setIsAllowedWhenWaitingForSyncReplyOverride(bool value) { m_isAllowedWhenWaitingForSyncReplyOverride = value; }
+    bool isAsyncReplyMessage() const { return isAsyncReply(messageName()); }
 
 #if PLATFORM(MAC)
-    void setImportanceAssertion(std::unique_ptr<ImportanceAssertion>);
+    void NODELETE setImportanceAssertion(ImportanceAssertion&&);
+#endif
+
+#if ENABLE(IPC_TESTING_API)
+    bool hasErrorString() const { return !m_errorString.isNull(); }
+    void setErrorString(ASCIILiteral error)
+    {
+        if (!hasErrorString())
+            m_errorString = error;
+    }
+    ASCIILiteral takeErrorString() { return std::exchange(m_errorString, ASCIILiteral { nullptr }); }
 #endif
 
     static std::unique_ptr<Decoder> unwrapForTesting(Decoder&);
 
-    const uint8_t* buffer() const { return m_buffer; }
-    size_t currentBufferPosition() const { return m_bufferPos - m_buffer; }
-    size_t length() const { return m_bufferEnd - m_buffer; }
+    std::span<const uint8_t> span() const { return m_buffer; }
+    size_t currentBufferOffset() const { return std::distance(m_buffer.begin(), m_bufferPosition); }
 
-    WARN_UNUSED_RETURN bool isValid() const { return m_bufferPos != nullptr; }
-    void markInvalid() { m_bufferPos = nullptr; }
-
-    WARN_UNUSED_RETURN bool decodeFixedLengthData(uint8_t* data, size_t, size_t alignment);
-
-    // The data in the returned pointer here will only be valid for the lifetime of the Decoder object.
-    // Returns nullptr on failure.
-    WARN_UNUSED_RETURN const uint8_t* decodeFixedLengthReference(size_t, size_t alignment);
+    [[nodiscard]] bool isValid() const { return !!m_buffer.data(); }
+    void markInvalid()
+    {
+        auto buffer = std::exchange(m_buffer, { });
+        m_bufferPosition = m_buffer.begin();
+        if (m_bufferDeallocator && !buffer.empty())
+            m_bufferDeallocator(WTF::move(buffer));
+    }
 
     template<typename T>
-    WARN_UNUSED_RETURN bool decode(T& t)
-    {
-        using Impl = ArgumentCoder<std::remove_const_t<std::remove_reference_t<T>>, void>;
-        if constexpr(HasLegacyDecoder<T, Impl>::value) {
-            if (UNLIKELY(!Impl::decode(*this, t))) {
-                markInvalid();
-                return false;
-            }
-        } else {
-            std::optional<T> optional;
-            *this >> optional;
-            if (UNLIKELY(!optional)) {
-                markInvalid();
-                return false;
-            }
-            t = WTFMove(*optional);
-        }
-        return true;
-    }
+    [[nodiscard]] std::span<const T> decodeSpan(size_t);
+
+    template<typename T>
+    [[nodiscard]] std::optional<T> decodeObject();
 
     template<typename T>
     Decoder& operator>>(std::optional<T>& t)
     {
-        using Impl = ArgumentCoder<std::remove_const_t<std::remove_reference_t<T>>, void>;
-        if constexpr(HasModernDecoder<T, Impl>::value) {
-            t = Impl::decode(*this);
-            if (UNLIKELY(!t))
-                markInvalid();
-        } else {
-            T v;
-            if (LIKELY(Impl::decode(*this, v)))
-                t = WTFMove(v);
-            else
-                markInvalid();
-        }
+        t = decode<T>();
         return *this;
     }
 
     template<typename T>
-    bool bufferIsLargeEnoughToContain(size_t numElements) const
+    std::optional<T> decode()
     {
-        static_assert(std::is_arithmetic<T>::value, "Type T must have a fixed, known encoded size!");
-
-        if (numElements > std::numeric_limits<size_t>::max() / sizeof(T))
-            return false;
-
-        return bufferIsLargeEnoughToContain(alignof(T), numElements * sizeof(T));
+        std::optional<T> t { ArgumentCoder<std::remove_cvref_t<T>>::decode(*this) };
+        if (!t) [[unlikely]]
+            markInvalid();
+        return t;
     }
 
-    bool removeAttachment(Attachment&);
-
-    static const bool isIPCDecoder = true;
-
-    template <typename T>
-    static std::optional<T> decodeSingleObject(const uint8_t* source, size_t numberOfBytes)
+#ifdef __OBJC__
+    template<typename T, typename = IsObjCObject<T>>
+    std::optional<RetainPtr<T>> decodeWithAllowedClasses(const AllowedClassHashSet& allowedClasses = { getClass<T>() })
     {
-        std::optional<T> result;
-        Decoder decoder(source, numberOfBytes, ConstructWithoutHeader);
-        if (!decoder.isValid())
-            return std::nullopt;
-
-        decoder >> result;
-        return result;
+#if HAVE(WK_SECURE_CODING_NSURLREQUEST)
+        UNUSED_PARAM(allowedClasses);
+#else
+        m_allowedClasses = allowedClasses;
+#endif
+        return IPC::decodeRequiringAllowedClasses<T>(*this);
     }
+
+    template<typename T, typename = IsNotObjCObject<T>>
+    std::optional<T> decodeWithAllowedClasses(const AllowedClassHashSet& allowedClasses)
+    {
+#if HAVE(WK_SECURE_CODING_NSURLREQUEST)
+        UNUSED_PARAM(allowedClasses);
+#else
+        m_allowedClasses = allowedClasses;
+#endif
+        return decode<T>();
+    }
+
+#if !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+    AllowedClassHashSet& allowedClasses() LIFETIME_BOUND { return m_allowedClasses; }
+#endif // !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+#endif // __OBJC__
+
+    std::optional<Attachment> takeLastAttachment();
+
+    void addIndexOfDecodingFailure(uint32_t indexOfObjectFailingDecoding) { m_indicesOfObjectsFailingDecoding.append(indexOfObjectFailingDecoding); }
+    const Vector<uint32_t>& indicesOfObjectsFailingDecoding() const LIFETIME_BOUND { return m_indicesOfObjectsFailingDecoding; }
 
 private:
-    Decoder(const uint8_t* buffer, size_t bufferSize, void (*bufferDeallocator)(const uint8_t*, size_t), Vector<Attachment>&&);
+    Decoder(std::span<const uint8_t> buffer, BufferDeallocator&&, Vector<Attachment>&&);
 
-    enum ConstructWithoutHeaderTag { ConstructWithoutHeader };
-    Decoder(const uint8_t* buffer, size_t bufferSize, ConstructWithoutHeaderTag);
-
-    bool alignBufferPosition(size_t alignment, size_t);
-    bool bufferIsLargeEnoughToContain(size_t alignment, size_t) const;
-
-    const uint8_t* m_buffer;
-    const uint8_t* m_bufferPos;
-    const uint8_t* m_bufferEnd;
-    void (*m_bufferDeallocator)(const uint8_t*, size_t);
+    std::span<const uint8_t> m_buffer;
+    std::span<const uint8_t>::iterator m_bufferPosition;
+    BufferDeallocator m_bufferDeallocator;
 
     Vector<Attachment> m_attachments;
 
     OptionSet<MessageFlags> m_messageFlags;
-    MessageName m_messageName;
-
-    uint64_t m_destinationID;
+    bool m_isAllowedWhenWaitingForSyncReplyOverride { false };
+    MessageName m_messageName { MessageName::Invalid };
 
 #if PLATFORM(MAC)
-    std::unique_ptr<ImportanceAssertion> m_importanceAssertion;
+    ImportanceAssertion m_importanceAssertion;
+#endif
+#if PLATFORM(COCOA) && !HAVE(WK_SECURE_CODING_NSURLREQUEST)
+    AllowedClassHashSet m_allowedClasses;
+#endif
+
+    uint64_t m_destinationID;
+    Markable<SyncRequestID> m_syncRequestID;
+
+    Vector<uint32_t> m_indicesOfObjectsFailingDecoding;
+
+#if ENABLE(IPC_TESTING_API)
+    ASCIILiteral m_errorString;
 #endif
 };
+
+template<>
+inline std::optional<Attachment> Decoder::decode<Attachment>()
+{
+    return takeLastAttachment();
+}
+
+inline bool alignedBufferIsLargeEnoughToContain(size_t bufferSize, const size_t alignedBufferPosition, size_t bytesNeeded)
+{
+    // When bytesNeeded == 0 for the last argument and it's a variable length byte array,
+    // alignedBufferPosition == bufferSize, so checking (bufferSize >= alignedBufferPosition)
+    // is not an off-by-one error since (bufferSize - alignedBufferPosition) >= bytesNeeded)
+    // will catch issues when bytesNeeded > 0.
+    return (bufferSize >= alignedBufferPosition) && ((bufferSize - alignedBufferPosition) >= bytesNeeded);
+}
+
+template<typename T>
+inline std::span<const T> Decoder::decodeSpan(size_t size)
+{
+    if (size > std::numeric_limits<size_t>::max() / sizeof(T))
+        return { };
+
+    const size_t alignedBufferPosition = static_cast<size_t>(std::distance(m_buffer.data(), roundUpToMultipleOf<alignof(T)>(std::to_address(m_bufferPosition))));
+    const size_t bytesNeeded = size * sizeof(T);
+    if (!alignedBufferIsLargeEnoughToContain(m_buffer.size_bytes(), alignedBufferPosition, bytesNeeded)) [[unlikely]] {
+        markInvalid();
+        return { };
+    }
+
+    m_bufferPosition = m_buffer.begin() + alignedBufferPosition + bytesNeeded;
+    return spanReinterpretCast<const T>(m_buffer.subspan(alignedBufferPosition, bytesNeeded));
+}
+
+template<typename T>
+inline std::optional<T> Decoder::decodeObject()
+{
+    static_assert(std::is_trivially_copyable_v<T>);
+
+    auto data = decodeSpan<T>(1);
+    if (!data.data())
+        return std::nullopt;
+
+    return data[0];
+}
 
 } // namespace IPC

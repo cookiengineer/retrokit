@@ -45,22 +45,25 @@ WI.CanvasOverviewContentView = class CanvasOverviewContentView extends WI.Collec
 
         this.element.classList.add("canvas-overview");
 
-        if (WI.CanvasManager.supportsRecordingAutoCapture()) {
-            this._recordingAutoCaptureFrameCountInputElement = document.createElement("input");
-            this._recordingAutoCaptureFrameCountInputElement.type = "number";
-            this._recordingAutoCaptureFrameCountInputElement.min = 0;
-            this._recordingAutoCaptureFrameCountInputElement.addEventListener("input", this._handleRecordingAutoCaptureInput.bind(this));
-            this._recordingAutoCaptureFrameCountInputElementValue = WI.settings.canvasRecordingAutoCaptureFrameCount.value;
+        this._recordingAutoCaptureFrameCountInputElement = document.createElement("input");
+        this._recordingAutoCaptureFrameCountInputElement.type = "number";
+        this._recordingAutoCaptureFrameCountInputElement.min = 0;
+        this._recordingAutoCaptureFrameCountInputElement.addEventListener("input", this._handleRecordingAutoCaptureInput.bind(this));
+        this._recordingAutoCaptureFrameCountInputElementValue = WI.settings.canvasRecordingAutoCaptureFrameCount.value;
 
-            const label = null;
-            this._recordingAutoCaptureNavigationItem = new WI.CheckboxNavigationItem("canvas-recording-auto-capture", label, !!WI.settings.canvasRecordingAutoCaptureEnabled.value);
-            this._recordingAutoCaptureNavigationItem.visibilityPriority = WI.NavigationItem.VisibilityPriority.Low;
-            this._recordingAutoCaptureNavigationItem.addEventListener(WI.CheckboxNavigationItem.Event.CheckedDidChange, this._handleRecordingAutoCaptureCheckedDidChange, this);
+        const label = null;
+        this._recordingAutoCaptureNavigationItem = new WI.CheckboxNavigationItem("canvas-recording-auto-capture", label, !!WI.settings.canvasRecordingAutoCaptureEnabled.value);
+        this._recordingAutoCaptureNavigationItem.visibilityPriority = WI.NavigationItem.VisibilityPriority.Low;
+        this._recordingAutoCaptureNavigationItem.addEventListener(WI.CheckboxNavigationItem.Event.CheckedDidChange, this._handleRecordingAutoCaptureCheckedDidChange, this);
 
-            let frameCount = this._updateRecordingAutoCaptureInputElementSize();
-            this._setRecordingAutoCaptureFrameCount(frameCount);
-            this._updateRecordingAutoCaptureCheckboxLabel(frameCount);
-        }
+        let fragment = document.createDocumentFragment();
+        String.format(WI.UIString("Recording frame count: %s", "Label for input for number of frames to record @ Canvas section of Graphics tab"), [this._recordingAutoCaptureFrameCountInputElement], String.standardFormatters, fragment, (a, b) => {
+            a.append(b);
+            return a;
+        });
+        this._recordingAutoCaptureNavigationItem.label = fragment;
+
+        this._setRecordingAutoCaptureFrameCount(this._recordingAutoCaptureFrameCountInputElementValue);
 
         importNavigationItem.addEventListener(WI.ButtonNavigationItem.Event.Clicked, this._handleImportButtonNavigationItemClicked, this);
 
@@ -178,28 +181,6 @@ WI.CanvasOverviewContentView = class CanvasOverviewContentView extends WI.Collec
         WI.canvasManager.setRecordingAutoCaptureFrameCount(enabled, frameCount);
     }
 
-    _updateRecordingAutoCaptureCheckboxLabel(frameCount)
-    {
-        let active = document.activeElement === this._recordingAutoCaptureFrameCountInputElement;
-        let selectionStart = this._recordingAutoCaptureFrameCountInputElement.selectionStart;
-        let selectionEnd = this._recordingAutoCaptureFrameCountInputElement.selectionEnd;
-        let direction = this._recordingAutoCaptureFrameCountInputElement.direction;
-
-        let label = frameCount === 1 ? WI.UIString("Record first %s frame") : WI.UIString("Record first %s frames");
-        let fragment = document.createDocumentFragment();
-        String.format(label, [this._recordingAutoCaptureFrameCountInputElement], String.standardFormatters, fragment, (a, b) => {
-            a.append(b);
-            return a;
-        });
-        this._recordingAutoCaptureNavigationItem.label = fragment;
-
-        if (active) {
-            this._recordingAutoCaptureFrameCountInputElement.selectionStart = selectionStart;
-            this._recordingAutoCaptureFrameCountInputElement.selectionEnd = selectionEnd;
-            this._recordingAutoCaptureFrameCountInputElement.direction = direction;
-        }
-    }
-
     get _recordingAutoCaptureFrameCountInputElementValue()
     {
         return parseInt(this._recordingAutoCaptureFrameCountInputElement.value);
@@ -211,19 +192,6 @@ WI.CanvasOverviewContentView = class CanvasOverviewContentView extends WI.Collec
             this._recordingAutoCaptureFrameCountInputElement.value = frameCount;
 
         this._recordingAutoCaptureFrameCountInputElement.placeholder = frameCount;
-    }
-
-    _updateRecordingAutoCaptureInputElementSize()
-    {
-        let frameCount = this._recordingAutoCaptureFrameCountInputElementValue;
-        if (isNaN(frameCount) || frameCount < 0) {
-            frameCount = 0;
-            this._recordingAutoCaptureFrameCountInputElementValue = frameCount;
-        }
-
-        this._recordingAutoCaptureFrameCountInputElement.autosize();
-
-        return frameCount;
     }
 
     _addSavedRecording(recording)
@@ -255,7 +223,12 @@ WI.CanvasOverviewContentView = class CanvasOverviewContentView extends WI.Collec
 
     _handleRecordingAutoCaptureInput(event)
     {
-        let frameCount = this._updateRecordingAutoCaptureInputElementSize();
+        let frameCount = this._recordingAutoCaptureFrameCountInputElementValue;
+        if (isNaN(frameCount) || frameCount < 0) {
+            frameCount = 0;
+            this._recordingAutoCaptureFrameCountInputElementValue = frameCount;
+        }
+
         this._recordingAutoCaptureNavigationItem.checked = !!frameCount;
 
         this._setRecordingAutoCaptureFrameCount(frameCount);
@@ -273,11 +246,8 @@ WI.CanvasOverviewContentView = class CanvasOverviewContentView extends WI.Collec
 
     _handleCanvasRecordingAutoCaptureFrameCountChanged(event)
     {
-        // Only update the value if it is different to prevent mangling the selection.
         if (this._recordingAutoCaptureFrameCountInputElementValue !== WI.settings.canvasRecordingAutoCaptureFrameCount.value)
             this._recordingAutoCaptureFrameCountInputElementValue = WI.settings.canvasRecordingAutoCaptureFrameCount.value;
-
-        this._updateRecordingAutoCaptureCheckboxLabel(WI.settings.canvasRecordingAutoCaptureFrameCount.value);
     }
 
     _handleImportButtonNavigationItemClicked(event)

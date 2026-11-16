@@ -35,19 +35,21 @@ class MessageListener : public ObjectImpl<Object::Type::MessageListener> {
 public:
     static Ref<MessageListener> create(CompletionHandler<void(RefPtr<API::Object>)>&& reply)
     {
-        return adoptRef(*new MessageListener(WTFMove(reply)));
+        return adoptRef(*new MessageListener(WTF::move(reply)));
     }
 
     void sendReply(RefPtr<API::Object>&& reply)
     {
-        m_reply(WTFMove(reply));
+        m_reply(WTF::move(reply));
     }
 
 private:
     MessageListener(CompletionHandler<void(RefPtr<API::Object>)>&& reply)
-        : m_reply(WTFMove(reply)) { }
+        : m_reply(WTF::move(reply)) { }
 
     CompletionHandler<void(RefPtr<API::Object>)> m_reply;
 };
 
 } // namespace API
+
+SPECIALIZE_TYPE_TRAITS_API_OBJECT(MessageListener);

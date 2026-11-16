@@ -37,12 +37,11 @@ FunctionExecutable* getExecutableForFunction(JSValue theFunctionValue)
     if (!theFunctionValue.isCell())
         return nullptr;
 
-    VM& vm = theFunctionValue.asCell()->vm();
-    JSFunction* theFunction = jsDynamicCast<JSFunction*>(vm, theFunctionValue);
+    JSFunction* theFunction = dynamicDowncast<JSFunction>(theFunctionValue);
     if (!theFunction)
         return nullptr;
     
-    FunctionExecutable* executable = jsDynamicCast<FunctionExecutable*>(vm, 
+    FunctionExecutable* executable = dynamicDowncast<FunctionExecutable>(
         theFunction->executable());
     return executable;
 }
@@ -53,10 +52,10 @@ CodeBlock* getSomeBaselineCodeBlockForFunction(JSValue theFunctionValue)
     if (!executable)
         return nullptr;
     
-    CodeBlock* baselineCodeBlock = executable->baselineCodeBlockFor(CodeForCall);
+    CodeBlock* baselineCodeBlock = executable->baselineCodeBlockFor(CodeSpecializationKind::CodeForCall);
     
     if (!baselineCodeBlock)
-        baselineCodeBlock = executable->baselineCodeBlockFor(CodeForConstruct);
+        baselineCodeBlock = executable->baselineCodeBlockFor(CodeSpecializationKind::CodeForConstruct);
     
     return baselineCodeBlock;
 }

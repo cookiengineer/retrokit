@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
- * Copyright (C) 2003-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2025 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -23,98 +23,100 @@
 #include "config.h"
 #include "HTMLCollection.h"
 
+#include "CachedHTMLCollectionInlines.h"
 #include "HTMLNames.h"
-#include "NodeRareData.h"
-#include <wtf/IsoMallocInlines.h>
+#include "NodeRareDataInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 using namespace HTMLNames;
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLCollection);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(CollectionNamedElementCache);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLCollection);
 
 inline auto HTMLCollection::rootTypeFromCollectionType(CollectionType type) -> RootType
 {
     switch (type) {
-    case DocImages:
-    case DocApplets:
-    case DocEmbeds:
-    case DocForms:
-    case DocLinks:
-    case DocAnchors:
-    case DocScripts:
-    case DocAll:
-    case WindowNamedItems:
-    case DocumentNamedItems:
-    case DocumentAllNamedItems:
-    case FormControls:
-        return HTMLCollection::IsRootedAtDocument;
-    case AllDescendants:
-    case ByClass:
-    case ByTag:
-    case ByHTMLTag:
-    case FieldSetElements:
-    case NodeChildren:
-    case TableTBodies:
-    case TSectionRows:
-    case TableRows:
-    case TRCells:
-    case SelectOptions:
-    case SelectedOptions:
-    case DataListOptions:
-    case MapAreas:
-        return HTMLCollection::IsRootedAtNode;
+    case CollectionType::DocImages:
+    case CollectionType::DocEmpty:
+    case CollectionType::DocEmbeds:
+    case CollectionType::DocForms:
+    case CollectionType::DocLinks:
+    case CollectionType::DocAnchors:
+    case CollectionType::DocScripts:
+    case CollectionType::DocAll:
+    case CollectionType::WindowNamedItems:
+    case CollectionType::DocumentNamedItems:
+    case CollectionType::DocumentAllNamedItems:
+    case CollectionType::FormControls:
+        return HTMLCollection::RootType::AtTreeScope;
+    case CollectionType::AllDescendants:
+    case CollectionType::ByClass:
+    case CollectionType::ByTag:
+    case CollectionType::ByHTMLTag:
+    case CollectionType::FieldSetElements:
+    case CollectionType::NodeChildren:
+    case CollectionType::TableTBodies:
+    case CollectionType::TSectionRows:
+    case CollectionType::TableRows:
+    case CollectionType::TRCells:
+    case CollectionType::SelectOptions:
+    case CollectionType::SelectedOptions:
+    case CollectionType::DataListOptions:
+    case CollectionType::MapAreas:
+        return HTMLCollection::RootType::AtNode;
     }
     ASSERT_NOT_REACHED();
-    return HTMLCollection::IsRootedAtNode;
+    return HTMLCollection::RootType::AtNode;
 }
 
-static NodeListInvalidationType invalidationTypeExcludingIdAndNameAttributes(CollectionType type)
+static NodeListInvalidationType NODELETE invalidationTypeExcludingIdAndNameAttributes(CollectionType type)
 {
     switch (type) {
-    case ByTag:
-    case ByHTMLTag:
-    case AllDescendants:
-    case DocImages:
-    case DocEmbeds:
-    case DocForms:
-    case DocScripts:
-    case DocAll:
-    case NodeChildren:
-    case TableTBodies:
-    case TSectionRows:
-    case TableRows:
-    case TRCells:
-    case SelectOptions:
-    case MapAreas:
-        return DoNotInvalidateOnAttributeChanges;
-    case DocApplets:
-    case SelectedOptions:
-    case DataListOptions:
+    case CollectionType::ByTag:
+    case CollectionType::ByHTMLTag:
+    case CollectionType::AllDescendants:
+    case CollectionType::DocImages:
+    case CollectionType::DocEmbeds:
+    case CollectionType::DocForms:
+    case CollectionType::DocScripts:
+    case CollectionType::DocAll:
+    case CollectionType::NodeChildren:
+    case CollectionType::TableTBodies:
+    case CollectionType::TSectionRows:
+    case CollectionType::TableRows:
+    case CollectionType::TRCells:
+    case CollectionType::SelectOptions:
+    case CollectionType::MapAreas:
+    case CollectionType::DocEmpty:
+        return NodeListInvalidationType::DoNotInvalidateOnAttributeChanges;
+    case CollectionType::SelectedOptions:
+    case CollectionType::DataListOptions:
         // FIXME: We can do better some day.
-        return InvalidateOnAnyAttrChange;
-    case ByClass:
-        return InvalidateOnClassAttrChange;
-    case DocAnchors:
-        return InvalidateOnNameAttrChange;
-    case DocLinks:
-        return InvalidateOnHRefAttrChange;
-    case WindowNamedItems:
-    case DocumentNamedItems:
-    case DocumentAllNamedItems:
-        return InvalidateOnIdNameAttrChange;
-    case FieldSetElements:
-    case FormControls:
-        return InvalidateForFormControls;
+        return NodeListInvalidationType::InvalidateOnAnyAttrChange;
+    case CollectionType::ByClass:
+        return NodeListInvalidationType::InvalidateOnClassAttrChange;
+    case CollectionType::DocAnchors:
+        return NodeListInvalidationType::InvalidateOnNameAttrChange;
+    case CollectionType::DocLinks:
+        return NodeListInvalidationType::InvalidateOnHRefAttrChange;
+    case CollectionType::WindowNamedItems:
+    case CollectionType::DocumentNamedItems:
+    case CollectionType::DocumentAllNamedItems:
+        return NodeListInvalidationType::InvalidateOnIdNameAttrChange;
+    case CollectionType::FieldSetElements:
+    case CollectionType::FormControls:
+        return NodeListInvalidationType::InvalidateForFormControls;
     }
     ASSERT_NOT_REACHED();
-    return DoNotInvalidateOnAttributeChanges;
+    return NodeListInvalidationType::DoNotInvalidateOnAttributeChanges;
 }
 
 HTMLCollection::HTMLCollection(ContainerNode& ownerNode, CollectionType type)
-    : m_collectionType(type)
-    , m_invalidationType(invalidationTypeExcludingIdAndNameAttributes(type))
-    , m_rootType(rootTypeFromCollectionType(type))
+    : m_collectionType(static_cast<unsigned>(type))
+    , m_invalidationType(static_cast<unsigned>(invalidationTypeExcludingIdAndNameAttributes(type)))
+    , m_rootType(static_cast<unsigned>(rootTypeFromCollectionType(type)))
     , m_ownerNode(ownerNode)
 {
     ASSERT(m_rootType == static_cast<unsigned>(rootTypeFromCollectionType(type)));
@@ -130,12 +132,12 @@ HTMLCollection::~HTMLCollection()
     // HTMLNameCollection & ClassCollection remove cache by themselves.
     // FIXME: We need a cleaner way to handle this.
     switch (type()) {
-    case ByClass:
-    case ByTag:
-    case ByHTMLTag:
-    case WindowNamedItems:
-    case DocumentNamedItems:
-    case DocumentAllNamedItems:
+    case CollectionType::ByClass:
+    case CollectionType::ByTag:
+    case CollectionType::ByHTMLTag:
+    case CollectionType::WindowNamedItems:
+    case CollectionType::DocumentNamedItems:
+    case CollectionType::DocumentAllNamedItems:
         break;
     default:
         ownerNode().nodeLists()->removeCachedCollection(this);
@@ -164,14 +166,14 @@ Element* HTMLCollection::namedItemSlow(const AtomString& name) const
     updateNamedElementCache();
     ASSERT(m_namedElementCache);
 
-    if (const Vector<Element*>* idResults = m_namedElementCache->findElementsWithId(name)) {
+    if (auto* idResults = m_namedElementCache->findElementsWithId(name)) {
         if (idResults->size())
-            return idResults->at(0);
+            return idResults->at(0).ptr();
     }
 
-    if (const Vector<Element*>* nameResults = m_namedElementCache->findElementsWithName(name)) {
+    if (auto* nameResults = m_namedElementCache->findElementsWithName(name)) {
         if (nameResults->size())
-            return nameResults->at(0);
+            return nameResults->at(0).ptr();
     }
 
     return nullptr;
@@ -186,11 +188,11 @@ const Vector<AtomString>& HTMLCollection::supportedPropertyNames()
     return m_namedElementCache->propertyNames();
 }
 
-bool HTMLCollection::isSupportedPropertyName(const String& name)
+bool HTMLCollection::isSupportedPropertyName(const AtomString& name)
 {
     updateNamedElementCache();
     ASSERT(m_namedElementCache);
-    
+
     if (m_namedElementCache->findElementsWithId(name))
         return true;
     if (m_namedElementCache->findElementsWithName(name))
@@ -208,18 +210,19 @@ void HTMLCollection::updateNamedElementCache() const
 
     unsigned size = length();
     for (unsigned i = 0; i < size; ++i) {
-        Element& element = *item(i);
-        const AtomString& id = element.getIdAttribute();
+        Ref element = *item(i);
+        auto& id = element->getIdAttribute();
         if (!id.isEmpty())
-            cache->appendToIdCache(id, element);
-        if (!is<HTMLElement>(element))
+            cache->appendToIdCache(id, element.get());
+        RefPtr htmlElement = dynamicDowncast<HTMLElement>(element);
+        if (!htmlElement)
             continue;
-        const AtomString& name = element.getNameAttribute();
-        if (!name.isEmpty() && id != name && (type() != DocAll || nameShouldBeVisibleInDocumentAll(downcast<HTMLElement>(element))))
-            cache->appendToNameCache(name, element);
+        auto& name = htmlElement->getNameAttribute();
+        if (!name.isEmpty() && id != name && (type() != CollectionType::DocAll || nameShouldBeVisibleInDocumentAll(*htmlElement)))
+            cache->appendToNameCache(name, *htmlElement);
     }
 
-    setNamedItemCache(WTFMove(cache));
+    setNamedItemCache(WTF::move(cache));
 }
 
 Vector<Ref<Element>> HTMLCollection::namedItems(const AtomString& name) const
@@ -241,15 +244,25 @@ Vector<Ref<Element>> HTMLCollection::namedItems(const AtomString& name) const
     elements.reserveInitialCapacity((elementsWithId ? elementsWithId->size() : 0) + (elementsWithName ? elementsWithName->size() : 0));
 
     if (elementsWithId) {
-        for (auto& element : *elementsWithId)
-            elements.uncheckedAppend(*element);
+        elements.appendContainerWithMapping(*elementsWithId, [](auto& element) {
+            return Ref { element.get() };
+        });
     }
     if (elementsWithName) {
-        for (auto& element : *elementsWithName)
-            elements.uncheckedAppend(*element);
+        elements.appendContainerWithMapping(*elementsWithName, [](auto& element) {
+            return Ref { element.get() };
+        });
     }
 
     return elements;
+}
+
+size_t HTMLCollection::memoryCost() const
+{
+    // memoryCost() may be invoked concurrently from a GC thread, and we need to be careful about what data we access here and how.
+    // Hence, we need to guard m_namedElementCache from being replaced while accessing it.
+    Locker locker { m_namedElementCacheAssignmentLock };
+    return m_namedElementCache ? m_namedElementCache->memoryCost() : 0;
 }
 
 } // namespace WebCore

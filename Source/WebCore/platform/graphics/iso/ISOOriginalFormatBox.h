@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,20 +25,23 @@
 
 #pragma once
 
-#include "ISOBox.h"
+#include <WebCore/ISOBox.h>
 
 namespace WebCore {
 
 class WEBCORE_EXPORT ISOOriginalFormatBox final : public ISOBox {
 public:
-    static FourCC boxTypeName() { return "frma"; }
+    ISOOriginalFormatBox();
+    ~ISOOriginalFormatBox();
+
+    static FourCC boxTypeName() { return std::span { "frma" }; }
 
     FourCC dataFormat() const { return m_dataFormat; }
 
-private:
     bool parse(JSC::DataView&, unsigned& offset) override;
 
-    FourCC m_dataFormat { uint32_t { 0 } };
+private:
+    FourCC m_dataFormat;
 };
 
 }

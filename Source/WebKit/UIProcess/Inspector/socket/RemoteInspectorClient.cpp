@@ -32,12 +32,18 @@
 #include "APIInspectorConfiguration.h"
 #include "RemoteWebInspectorUIProxy.h"
 #include <wtf/MainThread.h>
+#include <wtf/NeverDestroyed.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/Base64.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebKit {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteInspectorProxy);
+
 class RemoteInspectorProxy final : public RemoteWebInspectorUIProxyClient {
-    WTF_MAKE_FAST_ALLOCATED();
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(RemoteInspectorProxy);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RemoteInspectorProxy);
 public:
     RemoteInspectorProxy(RemoteInspectorClient& inspectorClient, ConnectionID connectionID, TargetID targetID, Inspector::DebuggableType debuggableType)
         : m_proxy(RemoteWebInspectorUIProxy::create())
@@ -55,12 +61,12 @@ public:
         m_proxy->invalidate();
     }
 
-    void load()
+    void initialize()
     {
         // FIXME <https://webkit.org/b/205537>: this should infer more useful data about the debug target.
         Ref<API::DebuggableInfo> debuggableInfo = API::DebuggableInfo::create(DebuggableInfoData::empty());
         debuggableInfo->setDebuggableType(m_debuggableType);
-        m_proxy->load(WTFMove(debuggableInfo), m_inspectorClient.backendCommandsURL());
+        m_proxy->initialize(WTF::move(debuggableInfo), m_inspectorClient->backendCommandsURL());
     }
 
     void show()
@@ -77,22 +83,22 @@ public:
 
     void sendMessageToBackend(const String& message) override
     {
-        m_inspectorClient.sendMessageToBackend(m_connectionID, m_targetID, message);
+        m_inspectorClient->sendMessageToBackend(m_connectionID, m_targetID, message);
     }
 
     void closeFromFrontend() override
     {
-        m_inspectorClient.closeFromFrontend(m_connectionID, m_targetID);
+        m_inspectorClient->closeFromFrontend(m_connectionID, m_targetID);
     }
 
-    Ref<API::InspectorConfiguration> configurationForRemoteInspector(RemoteWebInspectorUIProxy&)
+    Ref<API::InspectorConfiguration> configurationForRemoteInspector(RemoteWebInspectorUIProxy&) override
     {
         return API::InspectorConfiguration::create();
     }
 
 private:
-    Ref<RemoteWebInspectorUIProxy> m_proxy;
-    RemoteInspectorClient& m_inspectorClient;
+    const Ref<RemoteWebInspectorUIProxy> m_proxy;
+    const CheckedRef<RemoteInspectorClient> m_inspectorClient;
     ConnectionID m_connectionID;
     TargetID m_targetID;
     Inspector::DebuggableType m_debuggableType;
@@ -115,16 +121,13 @@ RemoteInspectorClient::RemoteInspectorClient(URL url, RemoteInspectorObserver& o
     startInitialCommunication();
 }
 
-RemoteInspectorClient::~RemoteInspectorClient()
-{
-}
+RemoteInspectorClient::~RemoteInspectorClient() = default;
 
 void RemoteInspectorClient::sendWebInspectorEvent(const String& event)
 {
     ASSERT(isMainRunLoop());
     ASSERT(m_connectionID);
-    auto message = event.utf8();
-    send(m_connectionID.value(), message.dataAsUInt8Ptr(), message.length());
+    send(m_connectionID.value(), byteCast<uint8_t>(event.utf8().span()));
 }
 
 HashMap<String, Inspector::RemoteInspectorConnectionClient::CallHandler>& RemoteInspectorClient::dispatchMap()
@@ -149,8 +152,8 @@ void RemoteInspectorClient::connectionClosed()
 {
     m_targets.clear();
     m_inspectorProxyMap.clear();
-    m_observer.connectionClosed(*this);
-    m_observer.targetListChanged(*this);
+    m_observer->connectionClosed(*this);
+    m_observer->targetListChanged(*this);
 }
 
 void RemoteInspectorClient::didClose(Inspector::RemoteInspectorSocketEndpoint&, ConnectionID)
@@ -177,7 +180,7 @@ void RemoteInspectorClient::inspect(ConnectionID connectionID, TargetID targetID
     setupEvent->setInteger("targetID"_s, targetID);
     sendWebInspectorEvent(setupEvent->toJSONString());
 
-    addResult.iterator->value->load();
+    addResult.iterator->value->initialize();
 }
 
 void RemoteInspectorClient::sendMessageToBackend(ConnectionID connectionID, TargetID targetID, const String& message)
@@ -206,7 +209,7 @@ void RemoteInspectorClient::setBackendCommands(const Event& event)
     if (!event.message || event.message->isEmpty())
         return;
 
-    m_backendCommandsURL = makeString("data:text/javascript;base64,", base64Encoded(event.message->utf8()));
+    m_backendCommandsURL = makeString("data:text/javascript;base64,"_s, base64Encoded(byteCast<uint8_t>(event.message->utf8().span())));
 }
 
 void RemoteInspectorClient::setTargetList(const Event& event)
@@ -248,7 +251,7 @@ void RemoteInspectorClient::setTargetList(const Event& event)
         if (!target.type)
             continue;
 
-        targetList.append(WTFMove(target));
+        targetList.append(WTF::move(target));
     }
 
     auto connectionID = event.connectionID.value();
@@ -273,8 +276,8 @@ void RemoteInspectorClient::setTargetList(const Event& event)
     for (auto& targetID : targetsToRemove)
         m_inspectorProxyMap.remove(std::make_pair(connectionID, targetID));
 
-    m_targets.set(connectionID, WTFMove(targetList));
-    m_observer.targetListChanged(*this);
+    m_targets.set(connectionID, WTF::move(targetList));
+    m_observer->targetListChanged(*this);
 }
 
 void RemoteInspectorClient::sendMessageToFrontend(const Event& event)

@@ -27,6 +27,8 @@
 
 #include "PlatformCALayerRemote.h"
 
+#if ENABLE(MODEL_ELEMENT)
+
 namespace WebKit {
 
 class PlatformCALayerRemoteModelHosting final : public PlatformCALayerRemote {
@@ -39,15 +41,19 @@ public:
 private:
     PlatformCALayerRemoteModelHosting(Ref<WebCore::Model>, WebCore::PlatformCALayerClient* owner, RemoteLayerTreeContext&);
 
+    Type type() const final { return Type::RemoteModel; }
+
     Ref<WebCore::PlatformCALayer> clone(WebCore::PlatformCALayerClient* owner) const override;
     
     void populateCreationProperties(RemoteLayerTreeTransaction::LayerCreationProperties&, const RemoteLayerTreeContext&, WebCore::PlatformCALayer::LayerType) override;
     
-    void dumpAdditionalProperties(TextStream&, OptionSet<PlatformLayerTreeAsTextFlags>) final;
+    void dumpAdditionalProperties(TextStream&, OptionSet<WebCore::PlatformLayerTreeAsTextFlags>) final;
 
-    Ref<Model> m_model;
+    Ref<WebCore::Model> m_model;
 };
 
 } // namespace WebKit
 
-SPECIALIZE_TYPE_TRAITS_PLATFORM_CALAYER(WebKit::PlatformCALayerRemoteModelHosting, isPlatformCALayerRemote())
+SPECIALIZE_TYPE_TRAITS_PLATFORM_CALAYER(WebKit::PlatformCALayerRemoteModelHosting, type() == WebCore::PlatformCALayer::Type::RemoteModel)
+
+#endif // ENABLE(MODEL_ELEMENT)

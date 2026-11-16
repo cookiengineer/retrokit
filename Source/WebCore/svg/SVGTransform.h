@@ -46,7 +46,12 @@ public:
 
     static Ref<SVGTransform> create(const SVGTransformValue& value)
     {
-        return adoptRef(*new SVGTransform(value.type(), value.matrix()->value(), value.angle(), value.rotationCenter()));
+        return adoptRef(*new SVGTransform(value.type(), value.matrix().value(), value.angle(), value.rotationCenter()));
+    }
+
+    static Ref<SVGTransform> create(SVGTransformValue&& value)
+    {
+        return adoptRef(*new SVGTransform(WTF::move(value)));
     }
 
     template<typename T>
@@ -59,7 +64,7 @@ public:
 
     ~SVGTransform()
     {
-        m_value.matrix()->detach();
+        protect(m_value.matrix())->detach();
     }
 
     Ref<SVGTransform> clone() const
@@ -69,12 +74,12 @@ public:
 
     unsigned short type() { return m_value.type(); }
     float angle() { return m_value.angle(); }
-    const Ref<SVGMatrix>& matrix() { return m_value.matrix(); }
+    SVGMatrix& matrix() { return m_value.matrix(); }
 
     ExceptionOr<void> setMatrix(DOMMatrix2DInit&& matrixInit)
     {
         if (isReadOnly())
-            return Exception { NoModificationAllowedError };
+            return Exception { ExceptionCode::NoModificationAllowedError };
 
         AffineTransform transform;
         if (matrixInit.a)
@@ -97,7 +102,7 @@ public:
     ExceptionOr<void> setTranslate(float tx, float ty)
     {
         if (isReadOnly())
-            return Exception { NoModificationAllowedError };
+            return Exception { ExceptionCode::NoModificationAllowedError };
 
         m_value.setTranslate(tx, ty);
         commitChange();
@@ -107,7 +112,7 @@ public:
     ExceptionOr<void> setScale(float sx, float sy)
     {
         if (isReadOnly())
-            return Exception { NoModificationAllowedError };
+            return Exception { ExceptionCode::NoModificationAllowedError };
 
         m_value.setScale(sx, sy);
         commitChange();
@@ -117,7 +122,7 @@ public:
     ExceptionOr<void> setRotate(float angle, float cx, float cy)
     {
         if (isReadOnly())
-            return Exception { NoModificationAllowedError };
+            return Exception { ExceptionCode::NoModificationAllowedError };
 
         m_value.setRotate(angle, cx, cy);
         commitChange();
@@ -127,7 +132,7 @@ public:
     ExceptionOr<void> setSkewX(float angle)
     {
         if (isReadOnly())
-            return Exception { NoModificationAllowedError };
+            return Exception { ExceptionCode::NoModificationAllowedError };
 
         m_value.setSkewX(angle);
         commitChange();
@@ -137,7 +142,7 @@ public:
     ExceptionOr<void> setSkewY(float angle)
     {
         if (isReadOnly())
-            return Exception { NoModificationAllowedError };
+            return Exception { ExceptionCode::NoModificationAllowedError };
 
         m_value.setSkewY(angle);
         commitChange();
@@ -148,14 +153,14 @@ public:
     {
         Base::attach(owner, access);
         // Reattach the SVGMatrix to the SVGTransformValue with the new SVGPropertyAccess.
-        m_value.matrix()->reattach(this, access);
+        m_value.matrix().reattach(this, access);
     }
 
     void detach() override
     {
         Base::detach();
         // Reattach the SVGMatrix to the SVGTransformValue with the SVGPropertyAccess::ReadWrite.
-        m_value.matrix()->reattach(this, access());
+        m_value.matrix().reattach(this, access());
     }
 
 private:
@@ -166,11 +171,17 @@ private:
     {
     }
 
+    SVGTransform(SVGTransformValue&& value)
+        : Base(WTF::move(value))
+    {
+        protect(m_value.matrix())->attach(this, SVGPropertyAccess::ReadWrite);
+    }
+
     SVGPropertyOwner* owner() const override { return m_owner; }
 
     void commitPropertyChange(SVGProperty* property) override
     {
-        ASSERT_UNUSED(property, property == m_value.matrix().ptr());
+        ASSERT_UNUSED(property, property == &m_value.matrix());
         if (owner())
             owner()->commitPropertyChange(this);
         m_value.matrixDidChange();

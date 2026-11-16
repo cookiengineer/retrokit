@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2010 Apple Inc. All rights reserved.
- * Portions Copyright (c) 2010 Motorola Mobility, Inc.  All rights reserved.
+ * Portions Copyright (c) 2010 Motorola Mobility, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,15 +29,26 @@
 
 #include "AuxiliaryProcessMain.h"
 #include "WebProcess.h"
-#include <WebCore/GtkVersioning.h>
 #include <libintl.h>
+#include <locale.h>
 
-#if PLATFORM(X11)
-#include <X11/Xlib.h>
+#if USE(GSTREAMER)
+#include <WebCore/GStreamerCommon.h>
 #endif
 
 #if USE(GCRYPT)
 #include <pal/crypto/gcrypt/Initialization.h>
+#endif
+
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <skia/core/SkGraphics.h>
+#if USE(SKIA_OPENTYPE_SVG)
+#include <skia/modules/svg/SkSVGOpenTypeSVGDecoder.h>
+#endif
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
+
+#if USE(SYSPROF_CAPTURE)
+#include <wtf/SystemTracing.h>
 #endif
 
 namespace WebKit {
@@ -47,34 +58,43 @@ class WebProcessMainGtk final: public AuxiliaryProcessMainBase<WebProcess> {
 public:
     bool platformInitialize() override
     {
+#if USE(SYSPROF_CAPTURE)
+        SysprofAnnotator::createIfNeeded("WebKit (Web)"_s);
+#endif
+
 #if USE(GCRYPT)
         PAL::GCrypt::initialize();
 #endif
 
+        SkGraphics::Init();
+#if USE(SKIA_OPENTYPE_SVG)
+        SkGraphics::SetOpenTypeSVGDecoderFactory(SkSVGOpenTypeSVGDecoder::Make);
+#endif
+
 #if ENABLE(DEVELOPER_MODE)
-        if (g_getenv("WEBKIT2_PAUSE_WEB_PROCESS_ON_LAUNCH"))
+        if (g_getenv("WEBKIT_PAUSE_WEB_PROCESS_ON_LAUNCH"))
             g_usleep(30 * G_USEC_PER_SEC);
 #endif
 
-#if (USE(COORDINATED_GRAPHICS) || USE(GSTREAMER_GL)) && PLATFORM(X11)
-        XInitThreads();
-#endif
-
-        gtk_init(nullptr, nullptr);
+        if (!setlocale(LC_ALL, ""))
+            g_warning("Locale not supported by C library.\n\tUsing the fallback 'C' locale.");
 
         bindtextdomain(GETTEXT_PACKAGE, LOCALEDIR);
         bind_textdomain_codeset(GETTEXT_PACKAGE, "UTF-8");
 
         return true;
     }
+
+    void platformFinalize() override
+    {
+#if USE(GSTREAMER)
+        deinitializeGStreamer();
+#endif
+    }
 };
 
 int WebProcessMain(int argc, char** argv)
 {
-    // Ignore the GTK_THEME environment variable, the theme is always set by the UI process now.
-    // This call needs to happen before any threads begin execution
-    unsetenv("GTK_THEME");
-
     return AuxiliaryProcessMain<WebProcessMainGtk>(argc, argv);
 }
 

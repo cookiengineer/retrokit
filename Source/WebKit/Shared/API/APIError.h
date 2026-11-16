@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,16 +23,10 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef APIError_h
-#define APIError_h
+#pragma once
 
 #include "APIObject.h"
 #include <WebCore/ResourceError.h>
-
-namespace IPC {
-class Decoder;
-class Encoder;
-}
 
 namespace API {
 
@@ -48,6 +42,11 @@ public:
         return adoptRef(*new Error(error));
     }
 
+    static Ref<Error> create(const WebCore::ResourceError& error, const RefPtr<API::Error>& underlyingError)
+    {
+        return adoptRef(*new Error(error, underlyingError));
+    }
+
     enum General {
         Internal = 300
     };
@@ -55,7 +54,9 @@ public:
 
     enum Network {
         Cancelled = 302,
-        FileDoesNotExist = 303
+        FileDoesNotExist = 303,
+        HTTPSUpgradeRedirectLoop = 304,
+        HTTPNavigationWithHTTPSOnlyError = 305,
     };
     static const WTF::String& webKitNetworkErrorDomain();
 
@@ -98,15 +99,13 @@ public:
     static const WTF::String& webKitPrintErrorDomain();
 #endif
 
-    const WTF::String& domain() const { return m_platformError.domain(); }
+    const WTF::String& domain() const LIFETIME_BOUND { return m_platformError.domain(); }
     int errorCode() const { return m_platformError.errorCode(); }
-    const WTF::String& failingURL() const { return m_platformError.failingURL().string(); }
-    const WTF::String& localizedDescription() const { return m_platformError.localizedDescription(); }
+    const WTF::String& failingURL() const LIFETIME_BOUND { return m_platformError.failingURL().string(); }
+    const WTF::String& localizedDescription() const LIFETIME_BOUND { return m_platformError.localizedDescription(); }
 
-    const WebCore::ResourceError& platformError() const { return m_platformError; }
-
-    void encode(IPC::Encoder&) const;
-    static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, RefPtr<Object>&);
+    const WebCore::ResourceError& platformError() const LIFETIME_BOUND { return m_platformError; }
+    const RefPtr<Error> underlyingError() const { return m_underlyingError; }
 
 private:
     Error()
@@ -118,9 +117,16 @@ private:
     {
     }
 
+    Error(const WebCore::ResourceError& error, const RefPtr<Error>& underlyingError)
+        : m_platformError(error)
+        , m_underlyingError(underlyingError)
+    {
+    }
+
     WebCore::ResourceError m_platformError;
+    const RefPtr<Error> m_underlyingError;
 };
 
 } // namespace API
 
-#endif // APIError_h
+SPECIALIZE_TYPE_TRAITS_API_OBJECT(Error);

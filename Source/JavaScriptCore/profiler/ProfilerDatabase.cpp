@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2013, 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,18 +30,19 @@
 #include "JSCInlines.h"
 #include "JSONObject.h"
 #include "ObjectConstructor.h"
+#include "ProfilerDumper.h"
 #include <wtf/FilePrintStream.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC { namespace Profiler {
 
-static std::atomic<int> databaseCounter;
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Database);
 
 static Lock registrationLock;
-static std::atomic<int> didRegisterAtExit;
 static Database* firstDatabase;
 
 Database::Database(VM& vm)
-    : m_databaseID(++databaseCounter)
+    : m_databaseID(DatabaseID::generate())
     , m_vm(vm)
     , m_shouldSaveAtExit(false)
     , m_nextRegisteredDatabase(nullptr)
@@ -66,7 +67,7 @@ Bytecodes* Database::ensureBytecodesFor(const AbstractLocker&, CodeBlock* codeBl
 {
     codeBlock = codeBlock->baselineAlternative();
     
-    HashMap<CodeBlock*, Bytecodes*>::iterator iter = m_bytecodesMap.find(codeBlock);
+    UncheckedKeyHashMap<CodeBlock*, Bytecodes*>::iterator iter = m_bytecodesMap.find(codeBlock);
     if (iter != m_bytecodesMap.end())
         return iter->value;
     
@@ -91,72 +92,38 @@ void Database::addCompilation(CodeBlock* codeBlock, Ref<Compilation>&& compilati
     Locker locker { m_lock };
 
     m_compilations.append(compilation.copyRef());
-    m_compilationMap.set(codeBlock, WTFMove(compilation));
+    m_compilationMap.set(codeBlock, WTF::move(compilation));
 }
 
-JSValue Database::toJS(JSGlobalObject* globalObject) const
+Ref<JSON::Value> Database::toJSON() const
 {
-    VM& vm = globalObject->vm();
-    auto scope = DECLARE_THROW_SCOPE(vm);
-    JSObject* result = constructEmptyObject(globalObject);
-    
-    JSArray* bytecodes = constructEmptyArray(globalObject, nullptr);
-    RETURN_IF_EXCEPTION(scope, { });
-    for (unsigned i = 0; i < m_bytecodes.size(); ++i) {
-        auto value = m_bytecodes[i].toJS(globalObject);
-        RETURN_IF_EXCEPTION(scope, { });
-        bytecodes->putDirectIndex(globalObject, i, value);
-        RETURN_IF_EXCEPTION(scope, { });
-    }
-    result->putDirect(vm, vm.propertyNames->bytecodes, bytecodes);
-    
-    JSArray* compilations = constructEmptyArray(globalObject, nullptr);
-    RETURN_IF_EXCEPTION(scope, { });
-    for (unsigned i = 0; i < m_compilations.size(); ++i) {
-        auto value = m_compilations[i]->toJS(globalObject);
-        RETURN_IF_EXCEPTION(scope, { });
-        compilations->putDirectIndex(globalObject, i, value);
-        RETURN_IF_EXCEPTION(scope, { });
-    }
-    result->putDirect(vm, vm.propertyNames->compilations, compilations);
-    
-    JSArray* events = constructEmptyArray(globalObject, nullptr);
-    RETURN_IF_EXCEPTION(scope, { });
-    for (unsigned i = 0; i < m_events.size(); ++i) {
-        auto value = m_events[i].toJS(globalObject);
-        RETURN_IF_EXCEPTION(scope, { });
-        events->putDirectIndex(globalObject, i, value);
-        RETURN_IF_EXCEPTION(scope, { });
-    }
-    result->putDirect(vm, vm.propertyNames->events, events);
-    
+    Dumper dumper(*this);
+    auto result = JSON::Object::create();
+
+    auto bytecodes = JSON::Array::create();
+    for (unsigned i = 0; i < m_bytecodes.size(); ++i)
+        bytecodes->pushValue(m_bytecodes[i].toJSON(dumper));
+    result->setValue(dumper.keys().m_bytecodes, WTF::move(bytecodes));
+
+    auto compilations = JSON::Array::create();
+    for (unsigned i = 0; i < m_compilations.size(); ++i)
+        compilations->pushValue(m_compilations[i]->toJSON(dumper));
+    result->setValue(dumper.keys().m_compilations, WTF::move(compilations));
+
+    auto events = JSON::Array::create();
+    for (unsigned i = 0; i < m_events.size(); ++i)
+        events->pushValue(m_events[i].toJSON(dumper));
+    result->setValue(dumper.keys().m_events, WTF::move(events));
+
     return result;
-}
-
-String Database::toJSON() const
-{
-    auto scope = DECLARE_THROW_SCOPE(m_vm);
-    JSGlobalObject* globalObject = JSGlobalObject::create(
-        m_vm, JSGlobalObject::createStructure(m_vm, jsNull()));
-
-    auto value = toJS(globalObject);
-    RETURN_IF_EXCEPTION(scope, String());
-    RELEASE_AND_RETURN(scope, JSONStringify(globalObject, value, 0));
 }
 
 bool Database::save(const char* filename) const
 {
-    auto scope = DECLARE_CATCH_SCOPE(m_vm);
     auto out = FilePrintStream::open(filename, "w");
     if (!out)
         return false;
-    
-    String data = toJSON();
-    if (UNLIKELY(scope.exception())) {
-        scope.clearException();
-        return false;
-    }
-    out->print(data);
+    out->print(toJSON().get());
     return true;
 }
 
@@ -182,12 +149,16 @@ void Database::logEvent(CodeBlock* codeBlock, const char* summary, const CString
 
 void Database::addDatabaseToAtExit()
 {
-    if (++didRegisterAtExit == 1)
+    static std::once_flag onceKey;
+    std::call_once(onceKey, [] {
         atexit(atExitCallback);
-    
-    Locker locker { registrationLock };
-    m_nextRegisteredDatabase = firstDatabase;
-    firstDatabase = this;
+    });
+
+    {
+        Locker locker { registrationLock };
+        m_nextRegisteredDatabase = firstDatabase;
+        firstDatabase = this;
+    }
 }
 
 void Database::removeDatabaseFromAtExit()

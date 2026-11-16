@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2008 Apple Inc. All Rights Reserved.
- * Copyright (C) 2010 Google Inc. All Rights Reserved.
+ * Copyright (C) 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2010 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,10 +29,24 @@
 #include "CSSPreloadScanner.h"
 #include "HTMLTokenizer.h"
 #include "SegmentedString.h"
+#include <memory>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
+// Per-<picture> state used by the preload scanner. The matched <source>
+// candidate's preload is buffered here until we see the inner <img>: if the
+// <img> has loading=lazy we discard it, otherwise we flush it to the request
+// stream. This avoids speculatively fetching alternative-format <source>
+// candidates (e.g. JXL/WebP/AVIF) for images that are still far below the
+// viewport.
+struct PreloadScannerPictureState {
+    bool sourceMatched { false };
+    std::unique_ptr<PreloadRequest> bufferedSourceRequest;
+};
+
 class TokenPreloadScanner {
+    WTF_MAKE_TZONE_ALLOCATED(TokenPreloadScanner);
     WTF_MAKE_NONCOPYABLE(TokenPreloadScanner);
 public:
     explicit TokenPreloadScanner(const URL& documentURL, float deviceScaleFactor = 1.0);
@@ -40,7 +54,7 @@ public:
     void scan(const HTMLToken&, PreloadRequestStream&, Document&);
 
     void setPredictedBaseElementURL(const URL& url) { m_predictedBaseElementURL = url; }
-    
+
     bool inPicture() { return !m_pictureSourceState.isEmpty(); }
 
 private:
@@ -52,20 +66,22 @@ private:
         Script,
         Meta,
         Source,
+        Video,
 
         // These tags are not scanned by the StartTagScanner.
         Unknown,
         Style,
         Base,
         Template,
-        Picture
+        Picture,
+        Svg
     };
 
     class StartTagScanner;
 
     static TagId tagIdFor(const HTMLToken::DataVector&);
 
-    static String initiatorFor(TagId);
+    static ASCIILiteral initiatorFor(TagId);
 
     void updatePredictedBaseURL(const HTMLToken&, bool shouldRestrictBaseURLSchemes);
 
@@ -76,13 +92,14 @@ private:
     URL m_predictedBaseElementURL;
     bool m_inStyle { false };
     
-    Vector<bool> m_pictureSourceState;
+    Vector<PreloadScannerPictureState> m_pictureSourceState;
 
     unsigned m_templateCount { 0 };
+    unsigned m_foreignContentCount { 0 };
 };
 
 class HTMLPreloadScanner {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(HTMLPreloadScanner);
 public:
     HTMLPreloadScanner(const HTMLParserOptions&, const URL& documentURL, float deviceScaleFactor = 1.0);
 

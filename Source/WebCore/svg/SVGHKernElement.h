@@ -26,7 +26,8 @@
 namespace WebCore {
 
 class SVGHKernElement final : public SVGElement {
-    WTF_MAKE_ISO_ALLOCATED(SVGHKernElement);
+    WTF_MAKE_TZONE_ALLOCATED(SVGHKernElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGHKernElement);
 public:
     static Ref<SVGHKernElement> create(const QualifiedName&, Document&);
 
@@ -35,7 +36,7 @@ public:
 private:
     SVGHKernElement(const QualifiedName&, Document&);
 
-    bool rendererIsNeeded(const RenderStyle&) final { return false; }
+    bool rendererIsNeeded(const Style::ComputedStyle&) final { return false; }
 };
 
 } // namespace WebCore

@@ -26,38 +26,37 @@
 #include "config.h"
 
 #if ENABLE(WEBGL)
-
 #include "WebGLDebugShaders.h"
 
-#include "ExtensionsGL.h"
-#include "WebGLRenderingContextBase.h"
 #include "WebGLShader.h"
-#include <wtf/IsoMallocInlines.h>
+
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(WebGLDebugShaders);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebGLDebugShaders);
 
 WebGLDebugShaders::WebGLDebugShaders(WebGLRenderingContextBase& context)
-    : WebGLExtension(context)
+    : WebGLExtension(context, WebGLExtensionName::WebGLDebugShaders)
 {
-    context.graphicsContextGL()->getExtensions().ensureEnabled("GL_ANGLE_translated_shader_source");
+    protect(context.graphicsContextGL())->enableExtension(GCGLExtension::ANGLE_translated_shader_source);
 }
 
 WebGLDebugShaders::~WebGLDebugShaders() = default;
 
-WebGLExtension::ExtensionName WebGLDebugShaders::getName() const
+bool WebGLDebugShaders::supported(GraphicsContextGL& context)
 {
-    return WebGLDebugShadersName;
+    return context.supportsExtension(GCGLExtension::ANGLE_translated_shader_source);
 }
 
 String WebGLDebugShaders::getTranslatedShaderSource(WebGLShader& shader)
 {
-    if (!m_context || m_context->isContextLost())
+    if (isContextLost())
         return String();
-    if (!m_context->validateWebGLObject("getTranslatedShaderSource", &shader))
+    Ref context = this->context();
+    if (!context->validateWebGLObject("getTranslatedShaderSource"_s, shader))
         return emptyString();
-    return m_context->graphicsContextGL()->getExtensions().getTranslatedShaderSourceANGLE(shader.object());
+    return String::fromUTF8(protect(context->graphicsContextGL())->getTranslatedShaderSourceANGLE(shader.object()).span());
 }
 
 } // namespace WebCore

@@ -28,6 +28,8 @@
 #include "AnimationFrameRate.h"
 #include "DisplayRefreshMonitorClient.h"
 #include <wtf/Seconds.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakRef.h>
 
 namespace WebCore {
 
@@ -35,7 +37,8 @@ class Page;
 class Timer;
 
 class RenderingUpdateScheduler final : public DisplayRefreshMonitorClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(RenderingUpdateScheduler);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderingUpdateScheduler);
 public:
     static std::unique_ptr<RenderingUpdateScheduler> create(Page& page)
     {
@@ -43,11 +46,10 @@ public:
     }
 
     RenderingUpdateScheduler(Page&);
+    ~RenderingUpdateScheduler();
     
     void adjustRenderingUpdateFrequency();
     void scheduleRenderingUpdate();
-
-    void triggerRenderingUpdateForTesting();
 
     void windowScreenDidChange(PlatformDisplayID);
 
@@ -57,17 +59,16 @@ private:
     void displayRefreshFired() final;
     DisplayRefreshMonitorFactory* displayRefreshMonitorFactory() const final;
 
-    bool isScheduled() const;
+    bool NODELETE isScheduled() const;
     void startTimer(Seconds);
     void clearScheduled();
 
     void triggerRenderingUpdate();
 
-    Page& m_page;
+    WeakRef<Page> m_page;
     std::unique_ptr<Timer> m_refreshTimer;
     unsigned m_rescheduledRenderingUpdateCount { 0 };
     bool m_useTimer { false };
-    bool m_scheduled { false };
 };
 
-}
+} // namespace WebCore

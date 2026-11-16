@@ -24,9 +24,10 @@
 #include "DOMObjectCache.h"
 #include <WebCore/DOMException.h>
 #include <WebCore/Document.h>
-#include "GObjectEventListener.h"
+#include <WebCore/ElementInlines.h>
 #include <WebCore/HTMLNames.h>
 #include <WebCore/JSExecState.h>
+#include "GObjectEventListener.h"
 #include "WebKitDOMEventPrivate.h"
 #include "WebKitDOMEventTarget.h"
 #include "WebKitDOMHTMLHeadElementPrivate.h"
@@ -93,7 +94,9 @@ static void webkit_dom_html_head_element_dom_event_target_init(WebKitDOMEventTar
     iface->remove_event_listener = webkit_dom_html_head_element_remove_event_listener;
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK port
 G_DEFINE_TYPE_WITH_CODE(WebKitDOMHTMLHeadElement, webkit_dom_html_head_element, WEBKIT_DOM_TYPE_HTML_ELEMENT, G_IMPLEMENT_INTERFACE(WEBKIT_DOM_TYPE_EVENT_TARGET, webkit_dom_html_head_element_dom_event_target_init))
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 enum {
     DOM_HTML_HEAD_ELEMENT_PROP_0,
@@ -155,9 +158,7 @@ gchar* webkit_dom_html_head_element_get_profile(WebKitDOMHTMLHeadElement* self)
 {
     WebCore::JSMainThreadNullState state;
     g_return_val_if_fail(WEBKIT_DOM_IS_HTML_HEAD_ELEMENT(self), 0);
-    WebCore::HTMLHeadElement* item = WebKit::core(self);
-    gchar* result = convertToUTF8String(item->attributeWithoutSynchronization(WebCore::HTMLNames::profileAttr));
-    return result;
+    return nullptr;
 }
 
 void webkit_dom_html_head_element_set_profile(WebKitDOMHTMLHeadElement* self, const gchar* value)
@@ -165,9 +166,7 @@ void webkit_dom_html_head_element_set_profile(WebKitDOMHTMLHeadElement* self, co
     WebCore::JSMainThreadNullState state;
     g_return_if_fail(WEBKIT_DOM_IS_HTML_HEAD_ELEMENT(self));
     g_return_if_fail(value);
-    WebCore::HTMLHeadElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::profileAttr, convertedValue);
+    return;
 }
 
 G_GNUC_END_IGNORE_DEPRECATIONS;

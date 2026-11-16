@@ -68,9 +68,9 @@ egl::ConfigSet DisplayNULL::generateConfigs()
     config.depthSize             = 24;
     config.level                 = 0;
     config.matchNativePixmap     = EGL_NONE;
-    config.maxPBufferWidth       = 0;
-    config.maxPBufferHeight      = 0;
-    config.maxPBufferPixels      = 0;
+    config.maxPBufferWidth       = 4096;
+    config.maxPBufferHeight      = 4096;
+    config.maxPBufferPixels      = 4096 * 4096;
     config.maxSwapInterval       = 1;
     config.minSwapInterval       = 1;
     config.nativeRenderable      = EGL_TRUE;
@@ -92,12 +92,12 @@ egl::ConfigSet DisplayNULL::generateConfigs()
     return configSet;
 }
 
-bool DisplayNULL::testDeviceLost()
+bool ThreadSafeDisplayNULL::testDeviceLost()
 {
     return false;
 }
 
-egl::Error DisplayNULL::restoreLostDevice(const egl::Display *display)
+egl::Error ThreadSafeDisplayNULL::restoreLostDevice(const egl::ThreadSafeDisplay *display)
 {
     return egl::NoError();
 }
@@ -107,9 +107,19 @@ bool DisplayNULL::isValidNativeWindow(EGLNativeWindowType window) const
     return true;
 }
 
-std::string DisplayNULL::getVendorString() const
+std::string DisplayNULL::getRendererDescription()
 {
     return "NULL";
+}
+
+std::string DisplayNULL::getVendorString()
+{
+    return "NULL";
+}
+
+std::string DisplayNULL::getVersionString(bool includeFullVersion)
+{
+    return std::string();
 }
 
 DeviceImpl *DisplayNULL::createDevice()
@@ -190,9 +200,9 @@ StreamProducerImpl *DisplayNULL::createStreamProducerD3DTexture(
     return nullptr;
 }
 
-ShareGroupImpl *DisplayNULL::createShareGroup()
+ShareGroupImpl *DisplayNULL::createShareGroup(const egl::ShareGroupState &state)
 {
-    return new ShareGroupNULL();
+    return new ShareGroupNULL(state);
 }
 
 void DisplayNULL::generateExtensions(egl::DisplayExtensions *outExtensions) const
@@ -200,7 +210,6 @@ void DisplayNULL::generateExtensions(egl::DisplayExtensions *outExtensions) cons
     outExtensions->createContextRobustness            = true;
     outExtensions->postSubBuffer                      = true;
     outExtensions->createContext                      = true;
-    outExtensions->deviceQuery                        = true;
     outExtensions->image                              = true;
     outExtensions->imageBase                          = true;
     outExtensions->glTexture2DImage                   = true;
@@ -208,7 +217,7 @@ void DisplayNULL::generateExtensions(egl::DisplayExtensions *outExtensions) cons
     outExtensions->glTexture3DImage                   = true;
     outExtensions->glRenderbufferImage                = true;
     outExtensions->getAllProcAddresses                = true;
-    outExtensions->flexibleSurfaceCompatibility       = true;
+    outExtensions->noConfigContext                    = true;
     outExtensions->directComposition                  = true;
     outExtensions->createContextNoError               = true;
     outExtensions->createContextWebGLCompatibility    = true;
@@ -219,8 +228,8 @@ void DisplayNULL::generateExtensions(egl::DisplayExtensions *outExtensions) cons
     outExtensions->displayTextureShareGroup           = true;
     outExtensions->displaySemaphoreShareGroup         = true;
     outExtensions->createContextClientArrays          = true;
-    outExtensions->programCacheControl                = true;
-    outExtensions->robustResourceInitialization       = true;
+    outExtensions->programCacheControlANGLE           = true;
+    outExtensions->robustResourceInitializationANGLE  = true;
 }
 
 void DisplayNULL::generateCaps(egl::Caps *outCaps) const

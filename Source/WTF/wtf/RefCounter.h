@@ -36,7 +36,7 @@ enum class RefCounterEvent { Decrement, Increment };
 
 template<typename T>
 class RefCounter {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(RefCounter);
     WTF_MAKE_NONCOPYABLE(RefCounter);
 
     class Count {
@@ -94,14 +94,16 @@ inline void RefCounter<T>::Count::ref()
 template<typename T>
 inline void RefCounter<T>::Count::deref()
 {
+    // GCC gets confused here, see https://webkit.org/b/239338.
+IGNORE_GCC_WARNINGS_BEGIN("use-after-free")
     ASSERT(m_value);
-
     --m_value;
 
     if (m_refCounter && m_refCounter->m_valueDidChange) {
-        SetForScope<bool> inCallback(m_inValueDidChange, true);
+        SetForScope inCallback(m_inValueDidChange, true);
         m_refCounter->m_valueDidChange(RefCounterEvent::Decrement);
     }
+IGNORE_GCC_WARNINGS_END
 
     // The Count object is kept alive so long as either the RefCounter that created it remains
     // allocated, or so long as its reference count is non-zero.
@@ -130,7 +132,7 @@ inline void RefCounter<T>::Count::refCounterWasDeleted()
 
 template<typename T>
 inline RefCounter<T>::RefCounter(ValueChangeFunction&& valueDidChange)
-    : m_valueDidChange(WTFMove(valueDidChange))
+    : m_valueDidChange(WTF::move(valueDidChange))
     , m_count(new Count(*this))
 {
 }

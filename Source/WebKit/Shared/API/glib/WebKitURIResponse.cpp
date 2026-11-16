@@ -29,14 +29,13 @@
 using namespace WebCore;
 
 /**
- * SECTION: WebKitURIResponse
- * @Short_description: Represents a URI response
- * @Title: WebKitURIResponse
+ * WebKitURIResponse:
+ *
+ * Represents an URI response.
  *
  * A #WebKitURIResponse contains information such as the URI, the
  * status code, the content length, the mime type, the HTTP status or
  * the suggested filename.
- *
  */
 
 enum {
@@ -58,7 +57,7 @@ struct _WebKitURIResponsePrivate {
     GUniquePtr<SoupMessageHeaders> httpHeaders;
 };
 
-WEBKIT_DEFINE_TYPE(WebKitURIResponse, webkit_uri_response, G_TYPE_OBJECT)
+WEBKIT_DEFINE_FINAL_TYPE(WebKitURIResponse, webkit_uri_response, G_TYPE_OBJECT, GObject)
 
 static void webkitURIResponseGetProperty(GObject* object, guint propId, GValue* value, GParamSpec* paramSpec)
 {
@@ -101,10 +100,9 @@ static void webkit_uri_response_class_init(WebKitURIResponseClass* responseClass
     g_object_class_install_property(objectClass,
                                     PROP_URI,
                                     g_param_spec_string("uri",
-                                                        _("URI"),
-                                                        _("The URI for which the response was made."),
+                                                        nullptr, nullptr,
                                                         0,
-                                                      WEBKIT_PARAM_READABLE));
+                                                        WEBKIT_PARAM_READABLE));
     /**
      * WebKitURIResponse:status-code:
      *
@@ -113,8 +111,7 @@ static void webkit_uri_response_class_init(WebKitURIResponseClass* responseClass
     g_object_class_install_property(objectClass,
                                     PROP_STATUS_CODE,
                                     g_param_spec_uint("status-code",
-                                                      _("Status Code"),
-                                                      _("The status code of the response as returned by the server."),
+                                                      nullptr, nullptr,
                                                       0, G_MAXUINT, SOUP_STATUS_NONE,
                                                       WEBKIT_PARAM_READABLE));
 
@@ -126,8 +123,7 @@ static void webkit_uri_response_class_init(WebKitURIResponseClass* responseClass
     g_object_class_install_property(objectClass,
                                     PROP_CONTENT_LENGTH,
                                     g_param_spec_uint64("content-length",
-                                                        _("Content Length"),
-                                                        _("The expected content length of the response."),
+                                                        nullptr, nullptr,
                                                         0, G_MAXUINT64, 0,
                                                         WEBKIT_PARAM_READABLE));
 
@@ -139,8 +135,7 @@ static void webkit_uri_response_class_init(WebKitURIResponseClass* responseClass
     g_object_class_install_property(objectClass,
                                     PROP_MIME_TYPE,
                                     g_param_spec_string("mime-type",
-                                                        _("MIME Type"),
-                                                        _("The MIME type of the response"),
+                                                        nullptr, nullptr,
                                                         0,
                                                         WEBKIT_PARAM_READABLE));
 
@@ -152,8 +147,7 @@ static void webkit_uri_response_class_init(WebKitURIResponseClass* responseClass
     g_object_class_install_property(objectClass,
                                     PROP_SUGGESTED_FILENAME,
                                     g_param_spec_string("suggested-filename",
-                                                        _("Suggested Filename"),
-                                                        _("The suggested filename for the URI response"),
+                                                        nullptr, nullptr,
                                                         0,
                                                         WEBKIT_PARAM_READABLE));
 
@@ -169,8 +163,7 @@ static void webkit_uri_response_class_init(WebKitURIResponseClass* responseClass
         PROP_HTTP_HEADERS,
         g_param_spec_boxed(
             "http-headers",
-            _("HTTP Headers"),
-            _("The HTTP headers of the response"),
+            nullptr, nullptr,
             SOUP_TYPE_MESSAGE_HEADERS,
             WEBKIT_PARAM_READABLE));
 }
@@ -179,7 +172,9 @@ static void webkit_uri_response_class_init(WebKitURIResponseClass* responseClass
  * webkit_uri_response_get_uri:
  * @response: a #WebKitURIResponse
  *
- * Returns: the uri of the #WebKitURIResponse
+ * Gets the URI which resulted in the response.
+ *
+ * Returns: response URI, as a string.
  */
 const gchar* webkit_uri_response_get_uri(WebKitURIResponse* response)
 {
@@ -192,6 +187,8 @@ const gchar* webkit_uri_response_get_uri(WebKitURIResponse* response)
 /**
  * webkit_uri_response_get_status_code:
  * @response: a #WebKitURIResponse
+ *
+ * Get the status code of the #WebKitURIResponse.
  *
  * Get the status code of the #WebKitURIResponse as returned by
  * the server. It will normally be a #SoupKnownStatusCode, for
@@ -211,8 +208,9 @@ guint webkit_uri_response_get_status_code(WebKitURIResponse* response)
  * webkit_uri_response_get_content_length:
  * @response: a #WebKitURIResponse
  *
- * Get the expected content length of the #WebKitURIResponse. It can
- * be 0 if the server provided an incorrect or missing Content-Length.
+ * Get the expected content length of the #WebKitURIResponse.
+ *
+ * It can be 0 if the server provided an incorrect or missing Content-Length.
  *
  * Returns: the expected content length of @response.
  */
@@ -227,7 +225,9 @@ guint64 webkit_uri_response_get_content_length(WebKitURIResponse* response)
  * webkit_uri_response_get_mime_type:
  * @response: a #WebKitURIResponse
  *
- * Returns: the MIME type of the #WebKitURIResponse
+ * Gets the MIME type of the response.
+ *
+ * Returns: MIME type, as a string.
  */
 const gchar* webkit_uri_response_get_mime_type(WebKitURIResponse* response)
 {
@@ -240,6 +240,8 @@ const gchar* webkit_uri_response_get_mime_type(WebKitURIResponse* response)
 /**
  * webkit_uri_response_get_suggested_filename:
  * @response: a #WebKitURIResponse
+ *
+ * Get the suggested filename for @response.
  *
  * Get the suggested filename for @response, as specified by
  * the 'Content-Disposition' HTTP header, or %NULL if it's not

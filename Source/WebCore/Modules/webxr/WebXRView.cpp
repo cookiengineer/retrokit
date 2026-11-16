@@ -28,10 +28,11 @@
 
 #if ENABLE(WEBXR)
 
+#include "JSValueInWrappedObjectInlines.h"
 #include "WebXRFrame.h"
 #include "WebXRRigidTransform.h"
 #include <JavaScriptCore/TypedArrayInlines.h>
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
@@ -39,18 +40,19 @@ namespace WebCore {
 // Below this threshold the resulting viewport would be too pixelated.
 static constexpr double kMinViewportScale = 0.1;
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(WebXRView);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebXRView);
 
-Ref<WebXRView> WebXRView::create(Ref<WebXRFrame>&& frame, XREye eye, Ref<WebXRRigidTransform>&& transform, Ref<Float32Array>&& projection)
+Ref<WebXRView> WebXRView::create(Ref<WebXRFrame>&& frame, XREye eye, Ref<UnderlyingView>&& underlyingView, Ref<WebXRRigidTransform>&& transform, Ref<Float32Array>&& projection)
 {
-    return adoptRef(*new WebXRView(WTFMove(frame), eye, WTFMove(transform), WTFMove(projection)));
+    return adoptRef(*new WebXRView(WTF::move(frame), eye, WTF::move(underlyingView), WTF::move(transform), WTF::move(projection)));
 }
 
-WebXRView::WebXRView(Ref<WebXRFrame>&& frame, XREye eye, Ref<WebXRRigidTransform>&& transform, Ref<Float32Array>&& projection)
-    : m_frame(WTFMove(frame))
+WebXRView::WebXRView(Ref<WebXRFrame>&& frame, XREye eye, Ref<UnderlyingView>&& underlyingView, Ref<WebXRRigidTransform>&& transform, Ref<Float32Array>&& projection)
+    : m_frame(WTF::move(frame))
     , m_eye(eye)
-    , m_transform(WTFMove(transform))
-    , m_projection(WTFMove(projection))
+    , m_underlyingView(WTF::move(underlyingView))
+    , m_transform(WTF::move(transform))
+    , m_projection(WTF::move(projection))
 {
 }
 
@@ -68,7 +70,7 @@ void WebXRView::requestViewportScale(std::optional<double> value)
 {
     if (!value || *value <= 0.0)
         return;
-    m_requestedViewportScale = std::clamp(*value, kMinViewportScale, 1.0);
+    m_underlyingView->requestedViewportScale = std::clamp(*value, kMinViewportScale, 1.0);
 }
 
 

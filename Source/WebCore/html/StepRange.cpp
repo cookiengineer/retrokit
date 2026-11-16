@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007, 2008, 2009, 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2024 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -25,8 +25,12 @@
 #include "HTMLParserIdioms.h"
 #include <wtf/MathExtras.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(StepRange);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(StepRange::StepDescription);
 
 using namespace HTMLNames;
 
@@ -47,10 +51,11 @@ StepRange::StepRange(const StepRange& stepRange)
     , m_stepDescription(stepRange.m_stepDescription)
     , m_hasRangeLimitations(stepRange.m_hasRangeLimitations)
     , m_hasStep(stepRange.m_hasStep)
+    , m_isReversible(stepRange.m_isReversible)
 {
 }
 
-StepRange::StepRange(const Decimal& stepBase, RangeLimitations rangeLimitations, const Decimal& minimum, const Decimal& maximum, const Decimal& step, const StepDescription& stepDescription)
+StepRange::StepRange(const Decimal& stepBase, RangeLimitations rangeLimitations, const Decimal& minimum, const Decimal& maximum, const Decimal& step, const StepDescription& stepDescription, IsReversible isReversible)
     : m_maximum(maximum)
     , m_minimum(minimum)
     , m_step(step.isFinite() ? step : 1)
@@ -58,6 +63,7 @@ StepRange::StepRange(const Decimal& stepBase, RangeLimitations rangeLimitations,
     , m_stepDescription(stepDescription)
     , m_hasRangeLimitations(rangeLimitations == RangeLimitations::Valid)
     , m_hasStep(step.isFinite())
+    , m_isReversible(isReversible == IsReversible::Yes)
 {
     ASSERT(m_maximum.isFinite());
     ASSERT(m_minimum.isFinite());
@@ -69,7 +75,7 @@ Decimal StepRange::acceptableError() const
 {
     // FIXME: We should use DBL_MANT_DIG instead of FLT_MANT_DIG regarding to HTML5 specification.
     static NeverDestroyed<const Decimal> twoPowerOfFloatMantissaBits(Decimal::Positive, 0, UINT64_C(1) << FLT_MANT_DIG);
-    return m_stepDescription.stepValueShouldBe == StepValueShouldBeReal ? m_step / twoPowerOfFloatMantissaBits : Decimal(0);
+    return m_stepDescription.stepValueShouldBe == StepValueShouldBe::Real ? m_step / twoPowerOfFloatMantissaBits : Decimal(0);
 }
 
 Decimal StepRange::alignValueForStep(const Decimal& currentValue, const Decimal& newValue) const
@@ -86,20 +92,21 @@ Decimal StepRange::clampValue(const Decimal& value) const
     const Decimal inRangeValue = std::max(m_minimum, std::min(value, m_maximum));
     if (!m_hasStep)
         return inRangeValue;
-    // Rounds inRangeValue to minimum + N * step.
-    const Decimal roundedValue = roundByStep(inRangeValue, m_minimum);
-    const Decimal clampedValue = roundedValue > m_maximum ? roundedValue - m_step : roundedValue;
-    ASSERT(clampedValue >= m_minimum);
-    ASSERT(clampedValue <= m_maximum);
+    // Rounds inRangeValue to stepBase + N * step.
+    const Decimal roundedValue = roundByStep(inRangeValue, m_stepBase);
+    const Decimal clampedValue = roundedValue > m_maximum ? roundedValue - m_step : (roundedValue < m_minimum ? roundedValue + m_step : roundedValue);
+    // clampedValue can be outside of [m_minimum, m_maximum] if m_step is huge.
+    if (clampedValue < m_minimum || clampedValue > m_maximum)
+        return inRangeValue;
     return clampedValue;
 }
 
-Decimal StepRange::parseStep(AnyStepHandling anyStepHandling, const StepDescription& stepDescription, const String& stepString)
+Decimal StepRange::parseStep(AnyStepHandling anyStepHandling, const StepDescription& stepDescription, StringView stepString)
 {
     if (stepString.isEmpty())
         return stepDescription.defaultValue();
 
-    if (equalLettersIgnoringASCIICase(stepString, "any")) {
+    if (equalLettersIgnoringASCIICase(stepString, "any"_s)) {
         switch (anyStepHandling) {
         case AnyStepHandling::Reject:
             return Decimal::nan();
@@ -115,21 +122,19 @@ Decimal StepRange::parseStep(AnyStepHandling anyStepHandling, const StepDescript
         return stepDescription.defaultValue();
 
     switch (stepDescription.stepValueShouldBe) {
-    case StepValueShouldBeReal:
+    case StepValueShouldBe::Real:
         step *= stepDescription.stepScaleFactor;
         break;
-    case ParsedStepValueShouldBeInteger:
+    case StepValueShouldBe::ParsedInteger:
         // For date, month, and week, the parsed value should be an integer for some types.
         step = std::max(step.round(), Decimal(1));
         step *= stepDescription.stepScaleFactor;
         break;
-    case ScaledStepValueShouldBeInteger:
+    case StepValueShouldBe::ScaledInteger:
         // For datetime, datetime-local, time, the result should be an integer.
         step *= stepDescription.stepScaleFactor;
         step = std::max(step.round(), Decimal(1));
         break;
-    default:
-        ASSERT_NOT_REACHED();
     }
 
     ASSERT(step > 0);
@@ -139,6 +144,20 @@ Decimal StepRange::parseStep(AnyStepHandling anyStepHandling, const StepDescript
 Decimal StepRange::roundByStep(const Decimal& value, const Decimal& base) const
 {
     return base + ((value - base) / m_step).round() * m_step;
+}
+
+Decimal StepRange::stepSnappedMaximum() const
+{
+    Decimal base = stepBase();
+    Decimal step =  m_step;
+    if (base - step == base || !(base / step).isFinite())
+        return Decimal::nan();
+    Decimal alignedMaximum = base + ((maximum() - base) / step).floor() * step;
+    if (alignedMaximum > maximum())
+        alignedMaximum -= step;
+    if (alignedMaximum < minimum())
+        return Decimal::nan();
+    return alignedMaximum;
 }
 
 bool StepRange::stepMismatch(const Decimal& valueForCheck) const

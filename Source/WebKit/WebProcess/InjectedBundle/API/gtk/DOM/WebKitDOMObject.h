@@ -2,7 +2,7 @@
  * Copyright (C) 2008 Luke Kenneth Casson Leighton <lkcl@lkcl.net>
  * Copyright (C) 2008 Martin Soto <soto@freedesktop.org>
  * Copyright (C) 2008 Alp Toker <alp@atoker.com>
- * Copyright (C) 2008 Apple Inc.
+ * Copyright (C) 2008 Apple Inc. All rights reserved.
  * Copyright (C) 2009 Igalia S.L.
  *
  * This library is free software; you can redistribute it and/or
@@ -46,7 +46,7 @@ struct _WebKitDOMObjectClass {
     GObjectClass parentClass;
 };
 
-WEBKIT_API GType
+WEBKIT_DEPRECATED GType
 webkit_dom_object_get_type(void);
 
 G_END_DECLS

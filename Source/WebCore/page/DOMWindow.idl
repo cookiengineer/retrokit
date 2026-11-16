@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2026 Apple Inc. All rights reserved.
  * Copyright (C) 2011 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -24,6 +24,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// https://html.spec.whatwg.org/multipage/nav-history-apis.html#window
 [
     CheckSecurity,
     CustomDefineOwnProperty,
@@ -43,15 +44,33 @@
     JSLegacyParent=JSDOMWindowBase,
     LegacyUnenumerableNamedProperties,
     Global=Window,
-    Exposed=Window
+    Exposed=Window,
+    StandaloneConstructorAttributes
 ] interface DOMWindow : EventTarget {
-    // the current browsing context
-    [DoNotCheckSecurity, LegacyUnforgeable, CustomGetter] readonly attribute WindowProxy window;
-    [Replaceable, DoNotCheckSecurityOnGetter, CustomGetter] readonly attribute WindowProxy self;
-    [LegacyUnforgeable] readonly attribute Document document;
-    attribute DOMString name;
+
+    // Properties accessible from DOMWindows that are either remote or local
+    [DoNotCheckSecurity, CallWith=IncumbentDocument] undefined close();
+    [DoNotCheckSecurity] readonly attribute boolean closed;
+    [DoNotCheckSecurity, CallWith=IncumbentWindow] undefined focus();
+    [DoNotCheckSecurity] undefined blur();
+    [DoNotCheckSecurity, CallWith=CurrentGlobalObject&IncumbentWindow] undefined postMessage(any message, USVString targetOrigin, optional sequence<object> transfer = []);
+    [DoNotCheckSecurity, CallWith=CurrentGlobalObject&IncumbentWindow] undefined postMessage(any message, optional WindowPostMessageOptions options = {});
     [DoNotCheckSecurity, PutForwards=href, LegacyUnforgeable] readonly attribute Location location;
+    [DoNotCheckSecurity, LegacyUnforgeable, CustomGetter] readonly attribute WindowProxy window;
+    [DoNotCheckSecurityOnGetter, Replaceable, CustomGetter] readonly attribute WindowProxy self;
+    [DoNotCheckSecurityOnGetter, CustomSetter] attribute WindowProxy? opener;
+    [DoNotCheckSecurityOnGetter, Replaceable, CustomGetter] readonly attribute WindowProxy frames;
+    [DoNotCheckSecurityOnGetter, Replaceable] readonly attribute unsigned long length;
+    [DoNotCheckSecurityOnGetter, LegacyUnforgeable] readonly attribute WindowProxy? top;
+    [DoNotCheckSecurityOnGetter, Replaceable] readonly attribute WindowProxy? parent;
+
+    // the current browsing context
+    // FIXME: `document` should not be nullable.
+    [LegacyUnforgeable] readonly attribute Document? document;
+    [EnabledBySetting=OriginAgentClusterEnabled] readonly attribute boolean originAgentCluster;
+    attribute [AtomString] DOMString name;
     readonly attribute History history;
+    [EnabledBySetting=NavigationAPIEnabled, Replaceable] readonly attribute Navigation navigation;
     [ImplementedAs=ensureCustomElementRegistry] readonly attribute CustomElementRegistry customElements;
     [Replaceable] readonly attribute BarProp locationbar;
     [Replaceable] readonly attribute BarProp menubar;
@@ -60,25 +79,15 @@
     [Replaceable] readonly attribute BarProp statusbar;
     [Replaceable] readonly attribute BarProp toolbar;
     attribute DOMString status;
-    [DoNotCheckSecurity, CallWith=IncumbentDocument] undefined close();
-    [DoNotCheckSecurity] readonly attribute boolean closed;
     undefined stop();
-    [DoNotCheckSecurity, CallWith=IncumbentWindow] undefined focus();
-    [DoNotCheckSecurity] undefined blur();
 
     // other browsing contexts
-    [Replaceable, DoNotCheckSecurityOnGetter, CustomGetter] readonly attribute WindowProxy frames;
-    [Replaceable, DoNotCheckSecurityOnGetter] readonly attribute unsigned long length;
-    [DoNotCheckSecurityOnGetter, LegacyUnforgeable] readonly attribute WindowProxy? top;
-    [DoNotCheckSecurityOnGetter, CustomSetter] attribute WindowProxy? opener;
-    [Replaceable, DoNotCheckSecurityOnGetter] readonly attribute WindowProxy? parent;
-    [CheckSecurityForNode] readonly attribute Element? frameElement;
-    [CallWith=ActiveWindow&FirstWindow] WindowProxy? open(optional USVString url = "", optional DOMString target = "_blank", optional [LegacyNullToEmptyString] DOMString features = "");
+    [CheckSecurityForNodeWithDOMWindow] readonly attribute Element? frameElement;
+    [CallWith=ActiveWindow&FirstWindow] WindowProxy? open(optional USVString url = "", optional [AtomString] DOMString target = "_blank", optional [LegacyNullToEmptyString] DOMString features = "");
 
     // the user agent
     readonly attribute Navigator navigator;
-    // FIXME: This is specified to be [SecureContext]
-    readonly attribute DOMApplicationCache applicationCache;
+    [Replaceable, ImplementedAs=navigator] readonly attribute Navigator clientInformation;
 
     // user prompts
     undefined alert();
@@ -87,10 +96,6 @@
     DOMString? prompt(optional DOMString message = "", optional DOMString defaultValue = "");
     undefined print();
 
-    [CallWith=GlobalObject&IncumbentWindow, DoNotCheckSecurity] undefined postMessage(any message, USVString targetOrigin, optional sequence<object> transfer = []);
-    [CallWith=GlobalObject&IncumbentWindow, DoNotCheckSecurity] undefined postMessage(any message, optional WindowPostMessageOptions options);
-
-
     // Obsolete: Still part of the HTML specification (https://html.spec.whatwg.org/#Window-partial).
     undefined captureEvents();
     undefined releaseEvents();
@@ -98,42 +103,27 @@
 
     // Non-standard
     [Replaceable, CustomGetter] readonly attribute Event event;
-    attribute DOMString defaultStatus;
-    [ImplementedAs=defaultStatus] attribute DOMString defaultstatus; // For compatibility with legacy content.
     boolean find(optional DOMString string, optional boolean caseSensitive = false, optional boolean backwards = false, optional boolean wrap = false, optional boolean wholeWord = false, optional boolean searchInFrames = false, optional boolean showDialog = false);
     [Replaceable] readonly attribute  boolean offscreenBuffering;
     long webkitRequestAnimationFrame(RequestAnimationFrameCallback callback);
     [ImplementedAs=cancelAnimationFrame] undefined webkitCancelAnimationFrame(long id);
     [ImplementedAs=cancelAnimationFrame] undefined webkitCancelRequestAnimationFrame(long id);
 
-    // Non-standard: May get added (https://github.com/whatwg/html/issues/2379).
-    [Replaceable] readonly attribute Navigator clientInformation;
-
     // Non-standard: iOS extension - https://developer.apple.com/reference/webkitjs/gestureevent
     [NotEnumerable, Conditional=IOS_GESTURE_EVENTS] attribute EventHandler ongesturechange;
     [NotEnumerable, Conditional=IOS_GESTURE_EVENTS] attribute EventHandler ongestureend;
     [NotEnumerable, Conditional=IOS_GESTURE_EVENTS] attribute EventHandler ongesturestart;
 
-    // Non-standard: This has been dropped from the HTML specification and by other browsers.
-    [Custom] any showModalDialog(DOMString url, optional any dialogArgs, optional DOMString featureArgs);
-
-    // Non-standard: should probably deprecate this (https://bugs.webkit.org/show_bug.cgi?id=79653).
-    // Blink already deprecated it (https://bugs.chromium.org/p/chromium/issues/detail?id=437569).
-    CSSRuleList getMatchedCSSRules(optional Element? element = null, optional DOMString? pseudoElement = null);
+    // Non-standard: For now we expose this to user worlds since Safari is using it, but we plan to remove it.
+    [EnabledForWorld=isUser] CSSRuleList? getMatchedCSSRules(optional Element? element = null, optional DOMString? pseudoElement = null);
 
     // Non-standard: Blink has already dropped these (https://bugs.chromium.org/p/chromium/issues/detail?id=398352).
-    WebKitPoint webkitConvertPointFromPageToNode(optional Node? node = null, optional WebKitPoint? p = null);
-    WebKitPoint webkitConvertPointFromNodeToPage(optional Node? node = null, optional WebKitPoint? p = null);
+    WebKitPoint? webkitConvertPointFromPageToNode(optional Node? node = null, optional WebKitPoint? p = null);
+    WebKitPoint? webkitConvertPointFromNodeToPage(optional Node? node = null, optional WebKitPoint? p = null);
 
     // Internal operations, not exposed to the Web.
     [EnabledForWorld=shadowRootIsAlwaysOpen] NodeList collectMatchingElementsInFlatTree(Node scope, DOMString selectors);
     [EnabledForWorld=shadowRootIsAlwaysOpen] Element? matchingElementInFlatTree(Node scope, DOMString selectors);
-};
-
-[
-    ImplementedAs=WindowPostMessageOptions
-] dictionary WindowPostMessageOptions : StructuredSerializeOptions {
-    USVString targetOrigin = "/";
 };
 
 DOMWindow includes AnimationFrameProvider;
@@ -141,4 +131,5 @@ DOMWindow includes GlobalEventHandlers;
 DOMWindow includes WindowEventHandlers;
 DOMWindow includes WindowOrWorkerGlobalScope;
 DOMWindow includes WindowLocalStorage;
+DOMWindow includes WindowPush;
 DOMWindow includes WindowSessionStorage;

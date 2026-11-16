@@ -32,6 +32,8 @@
 #include "JSObject.h"
 #include "Scribble.h"
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 #if ASSERT_ENABLED
@@ -43,7 +45,7 @@ ObjectInitializationScope::ObjectInitializationScope(VM& vm)
 
 ObjectInitializationScope::~ObjectInitializationScope()
 {
-    m_vm.heap.mutatorFence();
+    m_vm.mutatorFence();
     if (!m_object)
         return;
     verifyPropertiesAreInitialized(m_object);
@@ -51,9 +53,9 @@ ObjectInitializationScope::~ObjectInitializationScope()
 
 void ObjectInitializationScope::notifyAllocated(JSObject* object)
 {
-    ASSERT(!m_disallowGC);
+    ASSERT(!m_assertNoGC);
     ASSERT(!m_disallowVMEntry);
-    m_disallowGC.emplace();
+    m_assertNoGC.emplace();
     m_disallowVMEntry.emplace(m_vm);
     m_object = object;
 }
@@ -61,7 +63,7 @@ void ObjectInitializationScope::notifyAllocated(JSObject* object)
 void ObjectInitializationScope::notifyInitialized(JSObject* object)
 {
     if (m_object) {
-        m_disallowGC.reset();
+        m_assertNoGC.reset();
         m_disallowVMEntry.reset();
         m_object = nullptr;
     }
@@ -71,12 +73,14 @@ void ObjectInitializationScope::notifyInitialized(JSObject* object)
 void ObjectInitializationScope::verifyPropertiesAreInitialized(JSObject* object)
 {
     Butterfly* butterfly = object->butterfly();
-    Structure* structure = object->structure(m_vm);
+    Structure* structure = object->structure();
     IndexingType indexingType = structure->indexingType();
-    unsigned vectorLength = butterfly->vectorLength();
-    if (UNLIKELY(hasUndecided(indexingType)) || !hasIndexedProperties(indexingType)) {
+    if (hasUndecided(indexingType)) [[unlikely]] {
         // Nothing to verify.
-    } else if (LIKELY(!hasAnyArrayStorage(indexingType))) {
+    } else if (!hasIndexedProperties(indexingType)) {
+        // Nothing to verify.
+    } else if (!hasAnyArrayStorage(indexingType)) [[likely]] {
+        unsigned vectorLength = butterfly->vectorLength();
         auto data = butterfly->contiguous().data();
         for (unsigned i = 0; i < vectorLength; ++i) {
             if (isScribbledValue(data[i].get())) {
@@ -86,6 +90,7 @@ void ObjectInitializationScope::verifyPropertiesAreInitialized(JSObject* object)
         }
     } else {
         ArrayStorage* storage = butterfly->arrayStorage();
+        unsigned vectorLength = storage->vectorLength();
         for (unsigned i = 0; i < vectorLength; ++i) {
             if (isScribbledValue(storage->m_vector[i].get())) {
                 dataLogLn("Found scribbled value at i = ", i);
@@ -116,3 +121,5 @@ void ObjectInitializationScope::verifyPropertiesAreInitialized(JSObject* object)
 #endif // ASSERT_ENABLED
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

@@ -3,7 +3,7 @@
  *           (C) 2000 Antti Koivisto (koivisto@kde.org)
  *           (C) 2000 Dirk Mueller (mueller@kde.org)
  *           (C) 2004 Allan Sandfeld Jensen (kde@carewolf.com)
- * Copyright (C) 2003, 2004, 2005, 2006, 2007, 2008, 2009 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2025 Apple Inc. All rights reserved.
  * Copyright (C) 2009 Google Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "LayoutRect.h"
+#include <WebCore/RenderElement.h>
 
 namespace WebCore {
 
@@ -34,20 +34,21 @@ class RenderLayerModelObject;
 
 class LayoutRepainter {
 public:
-    LayoutRepainter(RenderElement&, bool checkForRepaint);
-
-    bool checkForRepaint() const { return m_checkForRepaint; }
+    enum class CheckForRepaint : uint8_t { No, Yes };
+    enum class ShouldAlwaysIssueFullRepaint : uint8_t { No, Yes };
+    LayoutRepainter(RenderElement&, std::optional<CheckForRepaint> checkForRepaintOverride = { }, std::optional<ShouldAlwaysIssueFullRepaint> = { }, RepaintOutlineBounds = RepaintOutlineBounds::Yes);
 
     // Return true if it repainted.
     bool repaintAfterLayout();
 
 private:
-    RenderElement& m_object;
-    RenderLayerModelObject* m_repaintContainer;
+    const CheckedRef<RenderElement> m_renderer;
+    const RenderLayerModelObject* m_repaintContainer { nullptr };
     // We store these values as LayoutRects, but the final invalidations will be pixel snapped
-    LayoutRect m_oldBounds;
-    LayoutRect m_oldOutlineBox;
-    bool m_checkForRepaint;
+    RenderObject::RepaintRects m_oldRects;
+    bool m_checkForRepaint { true };
+    bool m_forceFullRepaint { false };
+    RepaintOutlineBounds m_repaintOutlineBounds;
 };
 
 } // namespace WebCore

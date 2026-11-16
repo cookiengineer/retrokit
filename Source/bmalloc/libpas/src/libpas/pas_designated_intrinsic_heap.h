@@ -26,7 +26,6 @@
 #ifndef PAS_DESIGNATED_INTRINSIC_HEAP_H
 #define PAS_DESIGNATED_INTRINSIC_HEAP_H
 
-#include "pas_allocator_index.h"
 #include "pas_heap_config.h"
 
 PAS_BEGIN_EXTERN_C;
@@ -44,7 +43,7 @@ typedef enum pas_intrinsic_heap_designation_mode pas_intrinsic_heap_designation_
 /* This can only be done once ever. Once you do it for an intrinsic heap you cannot do it for
    any other intrinsic heaps. It sets up the ability to use the fast size class lookup function. */
 PAS_API void pas_designated_intrinsic_heap_initialize(pas_segregated_heap* heap,
-                                                      pas_heap_config* config);
+                                                      const pas_heap_config* config);
 
 PAS_END_EXTERN_C;
 

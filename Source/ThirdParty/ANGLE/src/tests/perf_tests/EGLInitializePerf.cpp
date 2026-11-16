@@ -8,6 +8,7 @@
 //
 
 #include "ANGLEPerfTest.h"
+#include "common/unsafe_buffers.h"
 #include "platform/PlatformMethods.h"
 #include "test_utils/angle_test_configs.h"
 #include "test_utils/angle_test_instantiate.h"
@@ -29,7 +30,7 @@ struct Captures final : private angle::NonCopyable
 double CapturePlatform_currentTime(angle::PlatformMethods *platformMethods)
 {
     Captures *captures = static_cast<Captures *>(platformMethods->context);
-    return captures->timer.getElapsedTime();
+    return captures->timer.getElapsedWallClockTime();
 }
 
 void CapturePlatform_histogramCustomCounts(angle::PlatformMethods *platformMethods,
@@ -42,16 +43,16 @@ void CapturePlatform_histogramCustomCounts(angle::PlatformMethods *platformMetho
     Captures *captures = static_cast<Captures *>(platformMethods->context);
 
     // These must match the names of the histograms.
-    if (strcmp(name, "GPU.ANGLE.Renderer11InitializeDLLsMS") == 0)
+    if (ANGLE_UNSAFE_TODO(strcmp(name, "GPU.ANGLE.Renderer11InitializeDLLsMS")) == 0)
     {
         captures->loadDLLsMS += static_cast<size_t>(sample);
     }
     // Note: not captured in debug, due to creating a debug device
-    else if (strcmp(name, "GPU.ANGLE.D3D11CreateDeviceMS") == 0)
+    else if (ANGLE_UNSAFE_TODO(strcmp(name, "GPU.ANGLE.D3D11CreateDeviceMS")) == 0)
     {
         captures->createDeviceMS += static_cast<size_t>(sample);
     }
-    else if (strcmp(name, "GPU.ANGLE.Renderer11InitializeDeviceMS") == 0)
+    else if (ANGLE_UNSAFE_TODO(strcmp(name, "GPU.ANGLE.Renderer11InitializeDeviceMS")) == 0)
     {
         captures->initResourcesMS += static_cast<size_t>(sample);
     }
@@ -79,36 +80,38 @@ EGLInitializePerfTest::EGLInitializePerfTest()
 {
     auto platform = GetParam().eglParameters;
 
-    std::vector<EGLint> displayAttributes;
+    mOSWindow = OSWindow::New();
+    mOSWindow->initialize("EGLInitialize Test", 64, 64);
+    const EGLenum platformType = mOSWindow->getNativeDisplayPlatformType();
+
+    std::vector<EGLAttrib> displayAttributes;
     displayAttributes.push_back(EGL_PLATFORM_ANGLE_TYPE_ANGLE);
     displayAttributes.push_back(platform.renderer);
+    displayAttributes.push_back(EGL_PLATFORM_ANGLE_NATIVE_PLATFORM_TYPE_ANGLE);
+    displayAttributes.push_back(platformType);
     displayAttributes.push_back(EGL_PLATFORM_ANGLE_MAX_VERSION_MAJOR_ANGLE);
     displayAttributes.push_back(platform.majorVersion);
     displayAttributes.push_back(EGL_PLATFORM_ANGLE_MAX_VERSION_MINOR_ANGLE);
     displayAttributes.push_back(platform.minorVersion);
 
-    if (platform.renderer == EGL_PLATFORM_ANGLE_TYPE_D3D9_ANGLE ||
-        platform.renderer == EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE)
+    if (platform.renderer == EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE)
     {
         displayAttributes.push_back(EGL_PLATFORM_ANGLE_DEVICE_TYPE_ANGLE);
         displayAttributes.push_back(platform.deviceType);
     }
     displayAttributes.push_back(EGL_NONE);
 
-    mOSWindow = OSWindow::New();
-    mOSWindow->initialize("EGLInitialize Test", 64, 64);
-
-    auto eglGetPlatformDisplayEXT = reinterpret_cast<PFNEGLGETPLATFORMDISPLAYEXTPROC>(
-        eglGetProcAddress("eglGetPlatformDisplayEXT"));
-    if (eglGetPlatformDisplayEXT == nullptr)
+    auto eglGetPlatformDisplay =
+        reinterpret_cast<PFNEGLGETPLATFORMDISPLAYPROC>(eglGetProcAddress("eglGetPlatformDisplay"));
+    if (eglGetPlatformDisplay == nullptr)
     {
         std::cerr << "Error getting platform display!" << std::endl;
         return;
     }
 
-    mDisplay = eglGetPlatformDisplayEXT(EGL_PLATFORM_ANGLE_ANGLE,
-                                        reinterpret_cast<void *>(mOSWindow->getNativeDisplay()),
-                                        &displayAttributes[0]);
+    mDisplay = eglGetPlatformDisplay(EGL_PLATFORM_ANGLE_ANGLE,
+                                     reinterpret_cast<void *>(mOSWindow->getNativeDisplay()),
+                                     &displayAttributes[0]);
 }
 
 void EGLInitializePerfTest::SetUp()
@@ -157,6 +160,9 @@ TEST_P(EGLInitializePerfTest, Run)
     run();
 }
 
-ANGLE_INSTANTIATE_TEST(EGLInitializePerfTest, angle::ES2_D3D11(), angle::ES2_VULKAN());
+ANGLE_INSTANTIATE_TEST(EGLInitializePerfTest,
+                       angle::ES2_D3D11(),
+                       angle::ES2_METAL(),
+                       angle::ES2_VULKAN());
 
 }  // namespace

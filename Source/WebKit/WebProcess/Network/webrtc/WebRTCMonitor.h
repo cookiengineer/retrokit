@@ -29,7 +29,9 @@
 
 #include "RTCNetwork.h"
 #include <WebCore/LibWebRTCProvider.h>
+#include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 #include <wtf/Forward.h>
+#include <wtf/WeakHashSet.h>
 
 namespace IPC {
 class Connection;
@@ -38,28 +40,47 @@ class Decoder;
 
 namespace WebKit {
 
+class LibWebRTCNetwork;
 struct NetworksChangedData;
 
-class WebRTCMonitor final : public rtc::NetworkManagerBase {
+class WebRTCMonitorObserver : public AbstractRefCountedAndCanMakeWeakPtr<WebRTCMonitorObserver> {
 public:
-    WebRTCMonitor() = default;
+    virtual ~WebRTCMonitorObserver() = default;
+
+    virtual void networksChanged(const Vector<RTCNetwork>&, const RTCNetwork::IPAddress&, const RTCNetwork::IPAddress&) = 0;
+    virtual void networkProcessCrashed() = 0;
+};
+
+class WebRTCMonitor {
+public:
+    explicit WebRTCMonitor(LibWebRTCNetwork&);
+
+    void NODELETE ref() const;
+    void deref() const;
+
+    void addObserver(WebRTCMonitorObserver& observer) { m_observers.add(observer); }
+    void removeObserver(WebRTCMonitorObserver& observer) { m_observers.remove(observer); }
+    void startUpdating();
+    void stopUpdating();
 
     void networkProcessCrashed();
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
-    void setEnumeratingAllNetworkInterfacesEnabled(bool);
+
+    bool didReceiveNetworkList() const { return m_didReceiveNetworkList; }
+    const Vector<RTCNetwork>& networkList() const LIFETIME_BOUND { return m_networkList; }
+    const RTCNetwork::IPAddress& ipv4() const LIFETIME_BOUND { return m_ipv4; }
+    const RTCNetwork::IPAddress& ipv6() const LIFETIME_BOUND { return m_ipv6; }
 
 private:
-    void networksChanged(const Vector<RTCNetwork>& networkList, const RTCNetwork::IPAddress&, const RTCNetwork::IPAddress&);
+    void networksChanged(Vector<RTCNetwork>&&, RTCNetwork::IPAddress&&, RTCNetwork::IPAddress&&);
 
-    void StartUpdating() final;
-    void StopUpdating() final;
-    webrtc::MdnsResponderInterface* GetMdnsResponder() const final { return nullptr; }
-
-    static void sendOnMainThread(Function<void(IPC::Connection&)>&&);
-
+    WeakRef<LibWebRTCNetwork> m_libWebRTCNetwork;
     unsigned m_clientCount { 0 };
-    bool m_receivedNetworkList { false };
-    bool m_enableEnumeratingAllNetworkInterfaces { false };
+    WeakHashSet<WebRTCMonitorObserver> m_observers;
+    bool m_didReceiveNetworkList { false };
+    Vector<RTCNetwork> m_networkList;
+    RTCNetwork::IPAddress m_ipv4;
+    RTCNetwork::IPAddress m_ipv6;
 };
 
 } // namespace WebKit

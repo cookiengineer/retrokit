@@ -26,11 +26,13 @@
 #include "config.h"
 #include "InsertNestedListCommand.h"
 
+#include "Document.h"
 #include "Editing.h"
 #include "HTMLLIElement.h"
 #include "HTMLNames.h"
 #include "InsertListCommand.h"
 #include "ModifySelectionListLevel.h"
+#include "SimpleRange.h"
 
 namespace WebCore {
 
@@ -49,7 +51,7 @@ void InsertNestedListCommand::doApply()
     if (endingSelection().isNoneOrOrphaned() || !endingSelection().isContentRichlyEditable())
         return;
 
-    if (auto enclosingItem = makeRefPtr(enclosingElementWithTag(endingSelection().visibleStart().deepEquivalent(), HTMLNames::liTag))) {
+    if (RefPtr enclosingItem = enclosingElementWithTag(endingSelection().visibleStart().deepEquivalent(), HTMLNames::liTag)) {
         auto newListItem = HTMLLIElement::create(document());
         insertNodeAfter(newListItem.copyRef(), *enclosingItem);
         setEndingSelection({ Position { newListItem.ptr(), Position::PositionIsBeforeChildren }, Affinity::Downstream });

@@ -3,9 +3,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
-// DXTSRGBCompressedTextureTest.cpp
+// DXTSRGBCompressedTextureTest.cpp:
 //   Tests for sRGB DXT textures (GL_EXT_texture_compression_s3tc_srgb)
 //
+
+#include <array>
 
 #include "test_utils/ANGLETest.h"
 #include "test_utils/gl_raii.h"
@@ -18,7 +20,7 @@ using namespace angle;
 
 static constexpr int kWindowSize = 64;
 
-class DXTSRGBCompressedTextureTest : public ANGLETest
+class DXTSRGBCompressedTextureTest : public ANGLETest<>
 {
   protected:
     DXTSRGBCompressedTextureTest()
@@ -64,17 +66,18 @@ class DXTSRGBCompressedTextureTest : public ANGLETest
 
     void runTestChecks(const TestCase &test)
     {
-        GLColor actual[kWindowSize * kWindowSize] = {0};
+        std::array<GLColor, kWindowSize * kWindowSize> actual = {0};
         drawQuad(mTextureProgram, "position", 0.5f);
         ASSERT_GL_NO_ERROR();
-        glReadPixels(0, 0, kWindowSize, kWindowSize, GL_RGBA, GL_UNSIGNED_BYTE,
-                     reinterpret_cast<void *>(actual));
+        glReadPixels(0, 0, kWindowSize, kWindowSize, GL_RGBA, GL_UNSIGNED_BYTE, actual.data());
         ASSERT_GL_NO_ERROR();
         for (GLsizei y = 0; y < test.height; ++y)
         {
             for (GLsizei x = 0; x < test.width; ++x)
             {
-                GLColor exp = reinterpret_cast<const GLColor *>(test.expected)[y * test.width + x];
+                const size_t offset = (y * test.width + x) * 4;
+                GLColor exp(test.expected[offset], test.expected[offset + 1],
+                            test.expected[offset + 2], test.expected[offset + 3]);
                 size_t x_actual = (x * kWindowSize + kWindowSize / 2) / test.width;
                 size_t y_actual =
                     ((test.height - y - 1) * kWindowSize + kWindowSize / 2) / test.height;
@@ -91,7 +94,7 @@ class DXTSRGBCompressedTextureTest : public ANGLETest
         const TestCase &test = kTests.at(format);
 
         GLTexture texture;
-        glBindTexture(GL_TEXTURE_2D, texture.get());
+        glBindTexture(GL_TEXTURE_2D, texture);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -102,7 +105,7 @@ class DXTSRGBCompressedTextureTest : public ANGLETest
         ASSERT_GL_NO_ERROR();
 
         glCompressedTexImage2D(GL_TEXTURE_2D, 0, format, test.width, test.height, 0, test.dataSize,
-                               test.data);
+                               test.data.data());
         ASSERT_GL_NO_ERROR() << "glCompressedTexImage2D(format=" << format << ")";
         runTestChecks(test);
 
@@ -110,7 +113,7 @@ class DXTSRGBCompressedTextureTest : public ANGLETest
                                nullptr);
         ASSERT_GL_NO_ERROR() << "glCompressedTexImage2D(format=" << format << ", data=null)";
         glCompressedTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, test.width, test.height, format,
-                                  test.dataSize, test.data);
+                                  test.dataSize, test.data.data());
         ASSERT_GL_NO_ERROR() << "glCompressedTexSubImage2D(format=" << format << ")";
         runTestChecks(test);
 

@@ -32,21 +32,23 @@
 #include "RenderedPosition.h"
 
 #include "CaretRectComputation.h"
+#include "Editing.h"
 #include "InlineRunAndOffset.h"
-#include "LegacyInlineTextBox.h"
+#include "RenderObjectInlines.h"
 #include "VisiblePosition.h"
+#include "NodeInlines.h"
 
 namespace WebCore {
 
-static inline const RenderObject* rendererFromPosition(const Position& position)
+static inline Node* NODELETE nodeFromPosition(const Position& position)
 {
     ASSERT(position.isNotNull());
-    Node* rendererNode = nullptr;
+    Node* node = nullptr;
     switch (position.anchorType()) {
     case Position::PositionIsOffsetInAnchor:
-        rendererNode = position.computeNodeAfterPosition();
-        if (!rendererNode || !rendererNode->renderer())
-            rendererNode = position.anchorNode()->lastChild();
+        node = position.computeNodeAfterPosition();
+        if (!node || !node->renderer())
+            node = position.anchorNode()->lastChild();
         break;
 
     case Position::PositionIsBeforeAnchor:
@@ -54,24 +56,27 @@ static inline const RenderObject* rendererFromPosition(const Position& position)
         break;
 
     case Position::PositionIsBeforeChildren:
-        rendererNode = position.anchorNode()->firstChild();
+        node = position.anchorNode()->firstChild();
         break;
     case Position::PositionIsAfterChildren:
-        rendererNode = position.anchorNode()->lastChild();
+        node = position.anchorNode()->lastChild();
         break;
     }
-    if (!rendererNode || !rendererNode->renderer())
-        rendererNode = position.anchorNode();
-    return rendererNode->renderer();
+    if (!node || !node->renderer())
+        node = position.anchorNode();
+    return node;
 }
 
-RenderedPosition::RenderedPosition()
+static inline const RenderObject* NODELETE rendererFromPosition(const Position& position)
 {
+    return nodeFromPosition(position)->renderer();
 }
 
-RenderedPosition::RenderedPosition(const RenderObject* renderer, LayoutIntegration::RunIterator run, unsigned offset)
+RenderedPosition::RenderedPosition() = default;
+
+RenderedPosition::RenderedPosition(const RenderObject* renderer, InlineIterator::LeafBoxIterator box, unsigned offset)
     : m_renderer(renderer)
-    , m_run(run)
+    , m_box(box)
     , m_offset(offset)
 {
 }
@@ -86,77 +91,80 @@ RenderedPosition::RenderedPosition(const Position& position, Affinity affinity)
     if (position.isNull())
         return;
 
-    auto runAndOffset = position.inlineRunAndOffset(affinity);
-    m_run = runAndOffset.run;
-    m_offset = runAndOffset.offset;
-    if (m_run)
-        m_renderer = &m_run->renderer();
+    auto boxAndOffset = position.inlineBoxAndOffset(affinity);
+    m_box = boxAndOffset.box;
+    m_offset = boxAndOffset.offset;
+    if (m_box)
+        m_renderer = &m_box->renderer();
     else
         m_renderer = rendererFromPosition(position);
+
+    if (m_renderer)
+        m_node = m_renderer->node() ? m_renderer->node() : nodeFromPosition(position);
 }
 
-LayoutIntegration::RunIterator RenderedPosition::previousLeafOnLine() const
+InlineIterator::LeafBoxIterator RenderedPosition::previousLeafOnLine() const
 {
     if (!m_previousLeafOnLine)
-        m_previousLeafOnLine = m_run.previousOnLineIgnoringLineBreak();
+        m_previousLeafOnLine = m_box->nextLineLeftwardOnLineIgnoringLineBreak();
     return *m_previousLeafOnLine;
 }
 
-LayoutIntegration::RunIterator RenderedPosition::nextLeafOnLine() const
+InlineIterator::LeafBoxIterator RenderedPosition::nextLeafOnLine() const
 {
     if (!m_nextLeafOnLine)
-        m_nextLeafOnLine = m_run.nextOnLineIgnoringLineBreak();
+        m_nextLeafOnLine = m_box->nextLineRightwardOnLineIgnoringLineBreak();
     return *m_nextLeafOnLine;
 }
 
 bool RenderedPosition::isEquivalent(const RenderedPosition& other) const
 {
-    return (m_renderer == other.m_renderer && m_run == other.m_run && m_offset == other.m_offset)
-        || (atLeftmostOffsetInBox() && other.atRightmostOffsetInBox() && previousLeafOnLine() == other.m_run)
-        || (atRightmostOffsetInBox() && other.atLeftmostOffsetInBox() && nextLeafOnLine() == other.m_run);
+    return (m_renderer == other.m_renderer && m_box == other.m_box && m_offset == other.m_offset)
+        || (atLeftmostOffsetInBox() && other.atRightmostOffsetInBox() && previousLeafOnLine() == other.m_box)
+        || (atRightmostOffsetInBox() && other.atLeftmostOffsetInBox() && nextLeafOnLine() == other.m_box);
 }
 
 unsigned char RenderedPosition::bidiLevelOnLeft() const
 {
-    auto run = atLeftmostOffsetInBox() ? previousLeafOnLine() : m_run;
-    return run ? run->bidiLevel() : 0;
+    auto box = atLeftmostOffsetInBox() ? previousLeafOnLine() : m_box;
+    return box ? box->bidiLevel() : 0;
 }
 
 unsigned char RenderedPosition::bidiLevelOnRight() const
 {
-    auto run = atRightmostOffsetInBox() ? nextLeafOnLine() : m_run;
-    return run ? run->bidiLevel() : 0;
+    auto box = atRightmostOffsetInBox() ? nextLeafOnLine() : m_box;
+    return box ? box->bidiLevel() : 0;
 }
 
-RenderedPosition RenderedPosition::leftBoundaryOfBidiRun(unsigned char bidiLevelOfRun)
+RenderedPosition RenderedPosition::leftBoundaryOfBidiRun(unsigned char bidiLevelOfRun) const
 {
-    if (!m_run || bidiLevelOfRun > m_run->bidiLevel())
+    if (!m_box || bidiLevelOfRun > m_box->bidiLevel())
         return RenderedPosition();
 
-    auto run = m_run;
+    auto box = m_box;
     do {
-        auto prev = run.previousOnLineIgnoringLineBreak();
+        auto prev = box->nextLineLeftwardOnLineIgnoringLineBreak();
         if (!prev || prev->bidiLevel() < bidiLevelOfRun)
-            return RenderedPosition(&run->renderer(), run, run->leftmostCaretOffset());
-        run = prev;
-    } while (run);
+            return RenderedPosition(&box->renderer(), box, box->leftmostCaretOffset());
+        box = prev;
+    } while (box);
 
     ASSERT_NOT_REACHED();
     return RenderedPosition();
 }
 
-RenderedPosition RenderedPosition::rightBoundaryOfBidiRun(unsigned char bidiLevelOfRun)
+RenderedPosition RenderedPosition::rightBoundaryOfBidiRun(unsigned char bidiLevelOfRun) const
 {
-    if (!m_run || bidiLevelOfRun > m_run->bidiLevel())
+    if (!m_box || bidiLevelOfRun > m_box->bidiLevel())
         return RenderedPosition();
 
-    auto run = m_run;
+    auto box = m_box;
     do {
-        auto next = run.nextOnLineIgnoringLineBreak();
+        auto next = box->nextLineRightwardOnLineIgnoringLineBreak();
         if (!next || next->bidiLevel() < bidiLevelOfRun)
-            return RenderedPosition(&run->renderer(), run, run->rightmostCaretOffset());
-        run = next;
-    } while (run);
+            return RenderedPosition(&box->renderer(), box, box->rightmostCaretOffset());
+        box = next;
+    } while (box);
 
     ASSERT_NOT_REACHED();
     return RenderedPosition();
@@ -164,19 +172,19 @@ RenderedPosition RenderedPosition::rightBoundaryOfBidiRun(unsigned char bidiLeve
 
 bool RenderedPosition::atLeftBoundaryOfBidiRun(ShouldMatchBidiLevel shouldMatchBidiLevel, unsigned char bidiLevelOfRun) const
 {
-    if (!m_run)
+    if (!m_box)
         return false;
 
     if (atLeftmostOffsetInBox()) {
         if (shouldMatchBidiLevel == IgnoreBidiLevel)
-            return !previousLeafOnLine() || previousLeafOnLine()->bidiLevel() < m_run->bidiLevel();
-        return m_run->bidiLevel() >= bidiLevelOfRun && (!previousLeafOnLine() || previousLeafOnLine()->bidiLevel() < bidiLevelOfRun);
+            return !previousLeafOnLine() || previousLeafOnLine()->bidiLevel() < m_box->bidiLevel();
+        return m_box->bidiLevel() >= bidiLevelOfRun && (!previousLeafOnLine() || previousLeafOnLine()->bidiLevel() < bidiLevelOfRun);
     }
 
     if (atRightmostOffsetInBox()) {
         if (shouldMatchBidiLevel == IgnoreBidiLevel)
-            return nextLeafOnLine() && m_run->bidiLevel() < nextLeafOnLine()->bidiLevel();
-        return nextLeafOnLine() && m_run->bidiLevel() < bidiLevelOfRun && nextLeafOnLine()->bidiLevel() >= bidiLevelOfRun;
+            return nextLeafOnLine() && m_box->bidiLevel() < nextLeafOnLine()->bidiLevel();
+        return nextLeafOnLine() && m_box->bidiLevel() < bidiLevelOfRun && nextLeafOnLine()->bidiLevel() >= bidiLevelOfRun;
     }
 
     return false;
@@ -184,19 +192,19 @@ bool RenderedPosition::atLeftBoundaryOfBidiRun(ShouldMatchBidiLevel shouldMatchB
 
 bool RenderedPosition::atRightBoundaryOfBidiRun(ShouldMatchBidiLevel shouldMatchBidiLevel, unsigned char bidiLevelOfRun) const
 {
-    if (!m_run)
+    if (!m_box)
         return false;
 
     if (atRightmostOffsetInBox()) {
         if (shouldMatchBidiLevel == IgnoreBidiLevel)
-            return !nextLeafOnLine() || nextLeafOnLine()->bidiLevel() < m_run->bidiLevel();
-        return m_run->bidiLevel() >= bidiLevelOfRun && (!nextLeafOnLine() || nextLeafOnLine()->bidiLevel() < bidiLevelOfRun);
+            return !nextLeafOnLine() || nextLeafOnLine()->bidiLevel() < m_box->bidiLevel();
+        return m_box->bidiLevel() >= bidiLevelOfRun && (!nextLeafOnLine() || nextLeafOnLine()->bidiLevel() < bidiLevelOfRun);
     }
 
     if (atLeftmostOffsetInBox()) {
         if (shouldMatchBidiLevel == IgnoreBidiLevel)
-            return previousLeafOnLine() && m_run->bidiLevel() < previousLeafOnLine()->bidiLevel();
-        return previousLeafOnLine() && m_run->bidiLevel() < bidiLevelOfRun && previousLeafOnLine()->bidiLevel() >= bidiLevelOfRun;
+            return previousLeafOnLine() && m_box->bidiLevel() < previousLeafOnLine()->bidiLevel();
+        return previousLeafOnLine() && m_box->bidiLevel() < bidiLevelOfRun && previousLeafOnLine()->bidiLevel() >= bidiLevelOfRun;
     }
 
     return false;
@@ -207,19 +215,20 @@ Position RenderedPosition::positionAtLeftBoundaryOfBiDiRun() const
     ASSERT(atLeftBoundaryOfBidiRun());
 
     if (atLeftmostOffsetInBox())
-        return makeDeprecatedLegacyPosition(m_renderer->node(), m_offset);
-
-    return makeDeprecatedLegacyPosition(nextLeafOnLine()->renderer().node(), nextLeafOnLine()->leftmostCaretOffset());
+        return makeDeprecatedLegacyPosition(protect(m_node.get()).get(), m_offset);
+    return makeDeprecatedLegacyPosition(protect(nextLeafOnLine()->renderer().node()).get(), nextLeafOnLine()->leftmostCaretOffset());
 }
 
 Position RenderedPosition::positionAtRightBoundaryOfBiDiRun() const
 {
     ASSERT(atRightBoundaryOfBidiRun());
 
-    if (atRightmostOffsetInBox())
-        return makeDeprecatedLegacyPosition(m_renderer->node(), m_offset);
+    if (atRightmostOffsetInBox()) {
+        auto offset = convertOffsetInTextFragmentToNodeOffset(*m_renderer, m_offset);
+        return makeDeprecatedLegacyPosition(protect(m_node.get()).get(), offset);
+    }
 
-    return makeDeprecatedLegacyPosition(previousLeafOnLine()->renderer().node(), previousLeafOnLine()->rightmostCaretOffset());
+    return makeDeprecatedLegacyPosition(protect(previousLeafOnLine()->renderer().node()).get(), previousLeafOnLine()->rightmostCaretOffset());
 }
 
 IntRect RenderedPosition::absoluteRect(CaretRectMode caretRectMode) const
@@ -227,8 +236,20 @@ IntRect RenderedPosition::absoluteRect(CaretRectMode caretRectMode) const
     if (isNull())
         return IntRect();
 
-    IntRect localRect = snappedIntRect(computeLocalCaretRect(*m_renderer, { m_run, m_offset }, caretRectMode));
+    IntRect localRect = snappedIntRect(computeLocalCaretRect(*m_renderer, { m_box, m_offset }, caretRectMode));
     return localRect == IntRect() ? IntRect() : m_renderer->localToAbsoluteQuad(FloatRect(localRect)).enclosingBoundingBox();
+}
+
+std::optional<BoundaryPoint> RenderedPosition::boundaryPoint() const
+{
+    if (!m_box)
+        return std::nullopt;
+
+    RefPtr node = m_box->renderer().node();
+    if (!node)
+        return std::nullopt;
+
+    return BoundaryPoint { *node, offset() };
 }
 
 bool renderObjectContainsPosition(const RenderObject* target, const Position& position)

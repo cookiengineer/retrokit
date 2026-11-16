@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -42,7 +42,7 @@ static JSC_DECLARE_HOST_FUNCTION(intlSegmenterConstructorSupportedLocalesOf);
 
 namespace JSC {
 
-const ClassInfo IntlSegmenterConstructor::s_info = { "Function", &Base::s_info, &segmenterConstructorTable, nullptr, CREATE_METHOD_TABLE(IntlSegmenterConstructor) };
+const ClassInfo IntlSegmenterConstructor::s_info = { "Function"_s, &Base::s_info, &segmenterConstructorTable, nullptr, CREATE_METHOD_TABLE(IntlSegmenterConstructor) };
 
 /* Source for IntlSegmenterConstructor.lut.h
 @begin segmenterConstructorTable
@@ -52,7 +52,7 @@ const ClassInfo IntlSegmenterConstructor::s_info = { "Function", &Base::s_info, 
 
 IntlSegmenterConstructor* IntlSegmenterConstructor::create(VM& vm, Structure* structure, IntlSegmenterPrototype* segmenterPrototype)
 {
-    auto* constructor = new (NotNull, allocateCell<IntlSegmenterConstructor>(vm.heap)) IntlSegmenterConstructor(vm, structure);
+    auto* constructor = new (NotNull, allocateCell<IntlSegmenterConstructor>(vm)) IntlSegmenterConstructor(vm, structure);
     constructor->finishCreation(vm, segmenterPrototype);
     return constructor;
 }
@@ -101,7 +101,7 @@ JSC_DEFINE_HOST_FUNCTION(callIntlSegmenter, (JSGlobalObject* globalObject, CallF
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    return JSValue::encode(throwConstructorCannotBeCalledAsFunctionTypeError(globalObject, scope, "Segmenter"));
+    return JSValue::encode(throwConstructorCannotBeCalledAsFunctionTypeError(globalObject, scope, "Segmenter"_s));
 }
 
 JSC_DEFINE_HOST_FUNCTION(intlSegmenterConstructorSupportedLocalesOf, (JSGlobalObject* globalObject, CallFrame* callFrame))

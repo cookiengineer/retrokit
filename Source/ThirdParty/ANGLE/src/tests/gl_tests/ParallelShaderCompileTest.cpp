@@ -25,7 +25,7 @@ constexpr unsigned int kPollInterval = 100;
 
 }  // anonymous namespace
 
-class ParallelShaderCompileTest : public ANGLETest
+class ParallelShaderCompileTest : public ANGLETest<>
 {
   protected:
     ParallelShaderCompileTest()
@@ -38,29 +38,16 @@ class ParallelShaderCompileTest : public ANGLETest
         setConfigAlphaBits(8);
     }
 
-    bool ensureParallelShaderCompileExtensionAvailable()
-    {
-        if (IsGLExtensionRequestable("GL_KHR_parallel_shader_compile"))
-        {
-            glRequestExtensionANGLE("GL_KHR_parallel_shader_compile");
-        }
-
-        if (!IsGLExtensionEnabled("GL_KHR_parallel_shader_compile"))
-        {
-            return false;
-        }
-        return true;
-    }
-
     class Task
     {
       public:
         Task(int id) : mID(id) {}
         virtual ~Task() {}
 
-        virtual bool compile()                                     = 0;
-        virtual bool isCompileCompleted()                          = 0;
-        virtual bool link()                                        = 0;
+        virtual bool compile()            = 0;
+        virtual bool isCompileCompleted() = 0;
+        virtual bool link()               = 0;
+        virtual void postLink() {}
         virtual void runAndVerify(ParallelShaderCompileTest *test) = 0;
 
         bool isLinkCompleted()
@@ -71,7 +58,7 @@ class ParallelShaderCompileTest : public ANGLETest
         }
 
       protected:
-        std::string insertRandomString(const std::string &source)
+        static std::string InsertRandomString(const std::string &source)
         {
             RNG rng;
             std::ostringstream ostream;
@@ -80,7 +67,7 @@ class ParallelShaderCompileTest : public ANGLETest
             return ostream.str();
         }
 
-        GLuint CompileShader(GLenum type, const std::string &source)
+        static GLuint CompileShader(GLenum type, const std::string &source)
         {
             GLuint shader = glCreateShader(type);
 
@@ -90,7 +77,14 @@ class ParallelShaderCompileTest : public ANGLETest
             return shader;
         }
 
-        bool checkShader(GLuint shader)
+        static void RecompileShader(GLuint shader, const std::string &source)
+        {
+            const char *sourceArray[1] = {source.c_str()};
+            glShaderSource(shader, 1, sourceArray, nullptr);
+            glCompileShader(shader);
+        }
+
+        static bool CheckShader(GLuint shader)
         {
             GLint compileResult;
             glGetShaderiv(shader, GL_COMPILE_STATUS, &compileResult);
@@ -129,7 +123,7 @@ class ParallelShaderCompileTest : public ANGLETest
         TaskRunner() {}
         ~TaskRunner() {}
 
-        void run(ParallelShaderCompileTest *test)
+        void run(ParallelShaderCompileTest *test, unsigned int pollInterval)
         {
 
             std::vector<std::unique_ptr<T>> compileTasks;
@@ -151,6 +145,7 @@ class ParallelShaderCompileTest : public ANGLETest
                     if (task->isCompileCompleted())
                     {
                         bool isLinking = task->link();
+                        task->postLink();
                         ASSERT_TRUE(isLinking);
                         linkTasks.push_back(std::move(task));
                         compileTasks.erase(compileTasks.begin() + i);
@@ -158,7 +153,10 @@ class ParallelShaderCompileTest : public ANGLETest
                     }
                     ++i;
                 }
-                angle::Sleep(kPollInterval);
+                if (pollInterval != 0)
+                {
+                    angle::Sleep(pollInterval);
+                }
             }
 
             while (!linkTasks.empty())
@@ -173,9 +171,16 @@ class ParallelShaderCompileTest : public ANGLETest
                         linkTasks.erase(linkTasks.begin() + i);
                         continue;
                     }
+                    else
+                    {
+                        task->postLink();
+                    }
                     ++i;
                 }
-                angle::Sleep(kPollInterval);
+                if (pollInterval != 0)
+                {
+                    angle::Sleep(pollInterval);
+                }
             }
         }
     };
@@ -192,9 +197,9 @@ class ParallelShaderCompileTest : public ANGLETest
         bool compile() override
         {
             mVertexShader =
-                CompileShader(GL_VERTEX_SHADER, insertRandomString(essl1_shaders::vs::Simple()));
+                CompileShader(GL_VERTEX_SHADER, InsertRandomString(essl1_shaders::vs::Simple()));
             mFragmentShader = CompileShader(GL_FRAGMENT_SHADER,
-                                            insertRandomString(essl1_shaders::fs::UniformColor()));
+                                            InsertRandomString(essl1_shaders::fs::UniformColor()));
             return (mVertexShader != 0 && mFragmentShader != 0);
         }
 
@@ -213,7 +218,7 @@ class ParallelShaderCompileTest : public ANGLETest
         bool link() override
         {
             mProgram = 0;
-            if (checkShader(mVertexShader) && checkShader(mFragmentShader))
+            if (CheckShader(mVertexShader) && CheckShader(mFragmentShader))
             {
                 mProgram = glCreateProgram();
                 glAttachShader(mProgram, mVertexShader);
@@ -244,10 +249,25 @@ class ParallelShaderCompileTest : public ANGLETest
             ASSERT_GL_NO_ERROR();
         }
 
+      protected:
+        void recompile()
+        {
+            RecompileShader(mVertexShader, essl1_shaders::vs::Simple());
+            RecompileShader(mFragmentShader, essl1_shaders::fs::UniformColor());
+        }
+
       private:
-        GLColor mColor;
         GLuint mVertexShader;
         GLuint mFragmentShader;
+        GLColor mColor;
+    };
+
+    class ClearColorWithDrawRecompile : public ClearColorWithDraw
+    {
+      public:
+        ClearColorWithDrawRecompile(int taskID) : ClearColorWithDraw(taskID) {}
+
+        void postLink() override { recompile(); }
     };
 
     class ImageLoadStore : public Task
@@ -268,7 +288,7 @@ void main()
     imageStore(uImage_2, ivec2(gl_LocalInvocationID.xy), value);
 })";
 
-            mShader = CompileShader(GL_COMPUTE_SHADER, insertRandomString(kCSSource));
+            mShader = CompileShader(GL_COMPUTE_SHADER, InsertRandomString(kCSSource));
             return mShader != 0;
         }
 
@@ -282,7 +302,7 @@ void main()
         bool link() override
         {
             mProgram = 0;
-            if (checkShader(mShader))
+            if (CheckShader(mShader))
             {
                 mProgram = glCreateProgram();
                 glAttachShader(mProgram, mShader);
@@ -354,7 +374,7 @@ void main()
 // Test basic functionality of GL_KHR_parallel_shader_compile
 TEST_P(ParallelShaderCompileTest, Basic)
 {
-    ANGLE_SKIP_TEST_IF(!ensureParallelShaderCompileExtensionAvailable());
+    ANGLE_SKIP_TEST_IF(!EnsureGLExtensionEnabled("GL_KHR_parallel_shader_compile"));
 
     GLint count = 0;
     glMaxShaderCompilerThreadsKHR(8);
@@ -367,10 +387,95 @@ TEST_P(ParallelShaderCompileTest, Basic)
 // Test to compile and link many programs in parallel.
 TEST_P(ParallelShaderCompileTest, LinkAndDrawManyPrograms)
 {
-    ANGLE_SKIP_TEST_IF(!ensureParallelShaderCompileExtensionAvailable());
+    ANGLE_SKIP_TEST_IF(!EnsureGLExtensionEnabled("GL_KHR_parallel_shader_compile"));
 
     TaskRunner<ClearColorWithDraw> runner;
-    runner.run(this);
+    runner.run(this, kPollInterval);
+}
+
+// Tests no crash in case that the Shader starts another compile while the Program being attached
+// to is still linking.
+// crbug.com/1317673
+TEST_P(ParallelShaderCompileTest, LinkProgramAndRecompileShader)
+{
+    ANGLE_SKIP_TEST_IF(!EnsureGLExtensionEnabled("GL_KHR_parallel_shader_compile"));
+
+    TaskRunner<ClearColorWithDrawRecompile> runner;
+    runner.run(this, 0);
+}
+
+// Tests no crash in case the program is being linked, is not current, and the context that spawned
+// the task is destroyed.
+TEST_P(ParallelShaderCompileTest, DestroyContextWhileLinkIsInProgress)
+{
+    ANGLE_SKIP_TEST_IF(!EnsureGLExtensionEnabled("GL_KHR_parallel_shader_compile"));
+
+    // Create a context shared with the current one
+    EGLWindow *window          = getEGLWindow();
+    EGLDisplay display         = window->getDisplay();
+    EGLConfig config           = window->getConfig();
+    EGLSurface surface         = window->getSurface();
+    EGLint contextAttributes[] = {
+        EGL_CONTEXT_MAJOR_VERSION_KHR,
+        GetParam().majorVersion,
+        EGL_CONTEXT_MINOR_VERSION_KHR,
+        GetParam().minorVersion,
+        EGL_NONE,
+    };
+    EGLContext context1 = eglGetCurrentContext();
+    EGLContext context2 = eglCreateContext(display, config, context1, contextAttributes);
+    ASSERT_NE(context2, EGL_NO_CONTEXT);
+    eglMakeCurrent(display, surface, surface, context2);
+
+    constexpr char kVS[] = R"(precision mediump float;
+uniform vec4 u;
+attribute vec4 a;
+varying vec4 b;
+void main()
+{
+    gl_Position = a;
+    b = u;
+})";
+    constexpr char kFS[] = R"(precision mediump float;
+uniform sampler2D s;
+varying vec4 b;
+void main()
+{
+    gl_FragColor = texture2D(s, vec2(0)) + b;
+})";
+
+    GLuint program = glCreateProgram();
+
+    GLuint vs = CompileShader(GL_VERTEX_SHADER, kVS);
+    GLuint fs = CompileShader(GL_FRAGMENT_SHADER, kFS);
+
+    EXPECT_NE(0u, vs);
+    EXPECT_NE(0u, fs);
+
+    glAttachShader(program, vs);
+    glDeleteShader(vs);
+
+    glAttachShader(program, fs);
+    glDeleteShader(fs);
+
+    // Start the link job, but don't wait for it to finish.  Don't bind the program to the context.
+    glLinkProgram(program);
+
+    // Make context1 current again.
+    eglMakeCurrent(display, surface, surface, context1);
+
+    // Destroy the context that spawned the link job
+    eglDestroyContext(display, context2);
+
+    // Destroy the shader
+    glDetachShader(program, vs);
+    glDetachShader(program, fs);
+
+    GLint linkStatus;
+    glGetProgramiv(program, GL_LINK_STATUS, &linkStatus);
+    EXPECT_GL_TRUE(linkStatus);
+
+    EXPECT_GL_NO_ERROR();
 }
 
 class ParallelShaderCompileTestES31 : public ParallelShaderCompileTest
@@ -379,18 +484,22 @@ class ParallelShaderCompileTestES31 : public ParallelShaderCompileTest
 // Test to compile and link many computing programs in parallel.
 TEST_P(ParallelShaderCompileTestES31, LinkAndDispatchManyPrograms)
 {
-    // Flaky on Win NVIDIA D3D11. http://anglebug.com/3359
-    // Suspectable to the flakyness of http://anglebug.com/3349.
+    // Flaky on Win NVIDIA D3D11. http://anglebug.com/40096580
+    // Suspectable to the flakyness of http://anglebug.com/40096579.
     ANGLE_SKIP_TEST_IF(IsWindows() && IsD3D11());
 
-    ANGLE_SKIP_TEST_IF(!ensureParallelShaderCompileExtensionAvailable());
+    // TODO(http://anglebug.com/42264192): Fails on Linux+Intel+OpenGL
+    ANGLE_SKIP_TEST_IF(IsLinux() && IsIntel() && IsOpenGL());
+
+    ANGLE_SKIP_TEST_IF(!EnsureGLExtensionEnabled("GL_KHR_parallel_shader_compile"));
 
     TaskRunner<ImageLoadStore> runner;
-    runner.run(this);
+    runner.run(this, kPollInterval);
 }
 
 ANGLE_INSTANTIATE_TEST_ES2(ParallelShaderCompileTest);
 
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ParallelShaderCompileTestES31);
 ANGLE_INSTANTIATE_TEST_ES31(ParallelShaderCompileTestES31);
 
 }  // namespace

@@ -26,193 +26,91 @@
 #include "config.h"
 #include "ArgumentCoders.h"
 
-#include "DataReference.h"
+#include "DaemonDecoder.h"
+#include "DaemonEncoder.h"
 #include "StreamConnectionEncoder.h"
+#include <wtf/text/AtomString.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/WTFString.h>
 
 namespace IPC {
-
-void ArgumentCoder<WallTime>::encode(Encoder& encoder, const WallTime& time)
-{
-    encoder << time.secondsSinceEpoch().value();
-}
-
-WARN_UNUSED_RETURN bool ArgumentCoder<WallTime>::decode(Decoder& decoder, WallTime& time)
-{
-    double value;
-    if (!decoder.decode(value))
-        return false;
-
-    time = WallTime::fromRawSeconds(value);
-    return true;
-}
-
-WARN_UNUSED_RETURN std::optional<WallTime> ArgumentCoder<WallTime>::decode(Decoder& decoder)
-{
-    std::optional<double> time;
-    decoder >> time;
-    if (!time)
-        return std::nullopt;
-    return WallTime::fromRawSeconds(*time);
-}
-
-void ArgumentCoder<AtomString>::encode(Encoder& encoder, const AtomString& atomString)
-{
-    encoder << atomString.string();
-}
-
-WARN_UNUSED_RETURN bool ArgumentCoder<AtomString>::decode(Decoder& decoder, AtomString& atomString)
-{
-    String string;
-    if (!decoder.decode(string))
-        return false;
-
-    atomString = string;
-    return true;
-}
-
-void ArgumentCoder<CString>::encode(Encoder& encoder, const CString& string)
-{
-    // Special case the null string.
-    if (string.isNull()) {
-        encoder << std::numeric_limits<uint32_t>::max();
-        return;
-    }
-
-    uint32_t length = string.length();
-    encoder << length;
-    encoder.encodeFixedLengthData(string.dataAsUInt8Ptr(), length, 1);
-}
-
-WARN_UNUSED_RETURN bool ArgumentCoder<CString>::decode(Decoder& decoder, CString& result)
-{
-    uint32_t length;
-    if (!decoder.decode(length))
-        return false;
-
-    if (length == std::numeric_limits<uint32_t>::max()) {
-        // This is the null string.
-        result = CString();
-        return true;
-    }
-
-    // Before allocating the string, make sure that the decoder buffer is big enough.
-    if (!decoder.bufferIsLargeEnoughToContain<char>(length))
-        return false;
-
-    char* buffer;
-    CString string = CString::newUninitialized(length, buffer);
-    if (!decoder.decodeFixedLengthData(reinterpret_cast<uint8_t*>(buffer), length, 1))
-        return false;
-
-    result = string;
-    return true;
-}
 
 template<typename Encoder>
 void ArgumentCoder<String>::encode(Encoder& encoder, const String& string)
 {
     // Special case the null string.
     if (string.isNull()) {
-        encoder << std::numeric_limits<uint32_t>::max();
+        encoder << std::numeric_limits<unsigned>::max();
         return;
     }
 
-    uint32_t length = string.length();
     bool is8Bit = string.is8Bit();
-
-    encoder << length << is8Bit;
+    encoder << string.length() << is8Bit;
 
     if (is8Bit)
-        encoder.encodeFixedLengthData(string.characters8(), length * sizeof(LChar), alignof(LChar));
+        encoder.encodeSpan(string.span8());
     else
-        encoder.encodeFixedLengthData(reinterpret_cast<const uint8_t*>(string.characters16()), length * sizeof(UChar), alignof(UChar));
+        encoder.encodeSpan(string.span16());
 }
 template
 void ArgumentCoder<String>::encode<Encoder>(Encoder&, const String&);
 template
 void ArgumentCoder<String>::encode<StreamConnectionEncoder>(StreamConnectionEncoder&, const String&);
 
-template <typename CharacterType>
-static inline std::optional<String> decodeStringText(Decoder& decoder, uint32_t length)
+template<typename CharacterType, typename Decoder>
+static inline std::optional<String> decodeStringText(Decoder& decoder, unsigned length)
 {
-    // Before allocating the string, make sure that the decoder buffer is big enough.
-    if (!decoder.bufferIsLargeEnoughToContain<CharacterType>(length))
+    auto data = decoder.template decodeSpan<CharacterType>(length);
+    if (!data.data())
         return std::nullopt;
-    
-    CharacterType* buffer;
-    String string = String::createUninitialized(length, buffer);
-    if (!decoder.decodeFixedLengthData(reinterpret_cast<uint8_t*>(buffer), length * sizeof(CharacterType), alignof(CharacterType)))
-        return std::nullopt;
-    
-    return string;
+    return std::make_optional<String>(data);
 }
 
-WARN_UNUSED_RETURN std::optional<String> ArgumentCoder<String>::decode(Decoder& decoder)
+template<typename Decoder>
+[[nodiscard]] std::optional<String> ArgumentCoder<String>::decode(Decoder& decoder)
 {
-    uint32_t length;
-    if (!decoder.decode(length))
+    auto length = decoder.template decode<unsigned>();
+    if (!length)
         return std::nullopt;
     
-    if (length == std::numeric_limits<uint32_t>::max()) {
+    if (*length == std::numeric_limits<unsigned>::max()) {
         // This is the null string.
         return String();
     }
-    
-    bool is8Bit;
-    if (!decoder.decode(is8Bit))
+
+    auto is8Bit = decoder.template decode<bool>();
+    if (!is8Bit)
         return std::nullopt;
     
-    if (is8Bit)
-        return decodeStringText<LChar>(decoder, length);
-    return decodeStringText<UChar>(decoder, length);
+    if (*is8Bit)
+        return decodeStringText<Latin1Character>(decoder, *length);
+    return decodeStringText<char16_t>(decoder, *length);
 }
+template
+std::optional<String> ArgumentCoder<String>::decode<Decoder>(Decoder&);
 
-WARN_UNUSED_RETURN bool ArgumentCoder<String>::decode(Decoder& decoder, String& result)
+template<typename Encoder>
+void ArgumentCoder<StringView>::encode(Encoder& encoder, StringView string)
 {
-    std::optional<String> string;
-    decoder >> string;
-    if (!string)
-        return false;
-    result = WTFMove(*string);
-    return true;
-}
-
-void ArgumentCoder<SHA1::Digest>::encode(Encoder& encoder, const SHA1::Digest& digest)
-{
-    encoder.encodeFixedLengthData(digest.data(), sizeof(digest), 1);
-}
-
-WARN_UNUSED_RETURN bool ArgumentCoder<SHA1::Digest>::decode(Decoder& decoder, SHA1::Digest& digest)
-{
-    return decoder.decodeFixedLengthData(digest.data(), sizeof(digest), 1);
-}
-
-#if HAVE(AUDIT_TOKEN)
-void ArgumentCoder<audit_token_t>::encode(Encoder& encoder, const audit_token_t& auditToken)
-{
-    for (unsigned i = 0; i < WTF_ARRAY_LENGTH(auditToken.val); i++)
-        encoder << auditToken.val[i];
-}
-
-WARN_UNUSED_RETURN bool ArgumentCoder<audit_token_t>::decode(Decoder& decoder, audit_token_t& auditToken)
-{
-    for (unsigned i = 0; i < WTF_ARRAY_LENGTH(auditToken.val); i++) {
-        if (!decoder.decode(auditToken.val[i]))
-            return false;
+    // Special case the null string.
+    if (string.isNull()) {
+        encoder << std::numeric_limits<uint32_t>::max();
+        return;
     }
-    return true;
-}
-#endif
 
-void ArgumentCoder<Monostate>::encode(Encoder&, const Monostate&)
-{
-}
+    unsigned length = string.length();
+    bool is8Bit = string.is8Bit();
 
-WARN_UNUSED_RETURN std::optional<Monostate> ArgumentCoder<Monostate>::decode(Decoder&)
-{
-    return Monostate { };
+    encoder << length << is8Bit;
+
+    if (is8Bit)
+        encoder.encodeSpan(string.span8());
+    else
+        encoder.encodeSpan(string.span16());
 }
+template
+void ArgumentCoder<StringView>::encode<Encoder>(Encoder&, StringView);
+template
+void ArgumentCoder<StringView>::encode<StreamConnectionEncoder>(StreamConnectionEncoder&, StringView);
 
 } // namespace IPC

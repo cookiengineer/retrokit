@@ -31,6 +31,8 @@
 #include "DFGGraph.h"
 #include "JSCJSValueInlines.h"
 #include "TrackedReferences.h"
+#include <wtf/AlignedStorage.h>
+#include <wtf/StdLibExtras.h>
 
 namespace JSC { namespace DFG {
 
@@ -52,13 +54,11 @@ void AbstractValue::set(Graph& graph, const FrozenValue& value, StructureClobber
 {
     if (!!value && value.value().isCell()) {
         Structure* structure = value.structure();
-        StructureRegistrationResult result;
-        RegisteredStructure registeredStructure = graph.registerStructure(structure, result);
-        if (result == StructureRegisteredAndWatched) {
-            m_structure = registeredStructure;
+        if (graph.tryWatch(structure)) {
+            m_structure = graph.registerStructure(structure);
             if (clobberState == StructuresAreClobbered) {
                 m_arrayModes = ALL_ARRAY_MODES;
-                m_structure.clobber();
+                m_structure.clobber(graph);
             } else
                 m_arrayModes = arrayModesFromStructure(structure);
         } else {
@@ -147,6 +147,11 @@ void AbstractValue::fixTypeForRepresentation(Graph& graph, NodeFlags representat
             m_type |= SpecInt52Any;
         }
 
+        if (m_type & SpecNonIntAsDouble) {
+            m_type &= ~SpecNonIntAsDouble;
+            m_type |= SpecInt52Any;
+        }
+
         if (m_type & SpecInt32Only) {
             m_type &= ~SpecInt32Only;
             m_type |= SpecInt32AsInt52;
@@ -210,7 +215,7 @@ bool AbstractValue::mergeOSREntryValue(Graph& graph, JSValue value, VariableAcce
     } else {
         mergeSpeculation(m_type, speculationFromValue(value));
         if (!!value && value.isCell()) {
-            RegisteredStructure structure = graph.registerStructure(value.asCell()->structure(graph.m_vm));
+            RegisteredStructure structure = graph.registerStructure(value.asCell()->structure());
             mergeArrayModes(m_arrayModes, arrayModesFromStructure(structure.get()));
             m_structure.merge(RegisteredStructureSet(structure));
         }
@@ -310,11 +315,11 @@ FiltrationResult AbstractValue::filterSlow(SpeculatedType type)
     return normalizeClarity();
 }
 
-FiltrationResult AbstractValue::fastForwardToAndFilterSlow(AbstractValueClobberEpoch newEpoch, SpeculatedType type)
+FiltrationResult AbstractValue::fastForwardToAndFilterSlow(Graph& graph, AbstractValueClobberEpoch newEpoch, SpeculatedType type)
 {
     if (newEpoch != m_effectEpoch)
-        fastForwardToSlow(newEpoch);
-    
+        fastForwardToSlow(graph, newEpoch);
+
     return filterSlow(type);
 }
 
@@ -524,24 +529,81 @@ void AbstractValue::validateReferences(const TrackedReferences& trackedReference
 #if USE(JSVALUE64) && !defined(NDEBUG)
 void AbstractValue::ensureCanInitializeWithZeros()
 {
-    std::aligned_storage<sizeof(AbstractValue), alignof(AbstractValue)>::type zeroFilledStorage;
-    memset(static_cast<void*>(&zeroFilledStorage), 0, sizeof(AbstractValue));
+    AlignedStorage<AbstractValue> zeroFilledStorage;
+    zeroBytes(*zeroFilledStorage);
     ASSERT(*this == *static_cast<AbstractValue*>(static_cast<void*>(&zeroFilledStorage)));
 }
 #endif
 
-void AbstractValue::fastForwardToSlow(AbstractValueClobberEpoch newEpoch)
+void AbstractValue::fastForwardToSlow(Graph& graph, AbstractValueClobberEpoch newEpoch)
 {
     ASSERT(newEpoch != m_effectEpoch);
     
     if (newEpoch.clobberEpoch() != m_effectEpoch.clobberEpoch())
-        clobberStructures();
+        clobberStructures(graph);
     if (newEpoch.structureClobberState() == StructuresAreWatched)
         m_structure.observeInvalidationPoint();
     
     m_effectEpoch = newEpoch;
     
     checkConsistency();
+}
+
+bool AbstractValue::validateOSREntryValue(JSValue value, FlushFormat format) const
+{
+    if (isBytecodeTop())
+        return true;
+
+    if (format == FlushedInt52) {
+        if (!isInt52Any())
+            return false;
+
+        if (!validateTypeAcceptingBoxedInt52(value))
+            return false;
+
+        if (!!m_value) {
+            ASSERT(m_value.isAnyInt());
+            ASSERT(value.isAnyInt());
+            if (jsDoubleNumber(m_value.asAnyInt()) != jsDoubleNumber(value.asAnyInt()))
+                return false;
+        }
+    } else {
+        if (!!m_value && m_value != value)
+            return false;
+
+        if (mergeSpeculations(m_type, speculationFromValue(value)) != m_type)
+            return false;
+
+        if (value.isEmpty()) {
+            ASSERT(m_type & SpecEmpty);
+            return true;
+        }
+    }
+
+    if (!!value && value.isCell()) {
+        ASSERT(m_type & SpecCell);
+        Structure* structure = value.asCell()->structure();
+        return m_structure.contains(structure)
+            && (m_arrayModes & arrayModesFromStructure(structure));
+    }
+
+    return true;
+}
+
+bool AbstractValue::validateTypeAcceptingBoxedInt52(JSValue value) const
+{
+    if (isBytecodeTop())
+        return true;
+
+    if (m_type & SpecInt52Any) {
+        if (mergeSpeculations(m_type, int52AwareSpeculationFromValue(value)) == m_type)
+            return true;
+    }
+
+    if (mergeSpeculations(m_type, speculationFromValue(value)) != m_type)
+        return false;
+
+    return true;
 }
 
 } } // namespace JSC::DFG

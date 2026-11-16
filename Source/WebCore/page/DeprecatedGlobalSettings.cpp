@@ -27,74 +27,45 @@
 #include "DeprecatedGlobalSettings.h"
 
 #include "AudioSession.h"
-#include "HTMLMediaElement.h"
+#include "MediaPlayer.h"
+#include "MediaStrategy.h"
+#include "PlatformMediaSessionManager.h"
+#include "PlatformStrategies.h"
 #include <wtf/NeverDestroyed.h>
+
+#if PLATFORM(COCOA)
+#include "MediaSessionManagerCocoa.h"
+#endif
 
 namespace WebCore {
 
-#if USE(AVFOUNDATION)
-bool DeprecatedGlobalSettings::gAVFoundationEnabled = true;
-bool DeprecatedGlobalSettings::gAVFoundationNSURLSessionEnabled = true;
-#endif
-
-#if USE(GSTREAMER)
-bool DeprecatedGlobalSettings::gGStreamerEnabled = true;
-#endif
-
-bool DeprecatedGlobalSettings::gMockScrollbarsEnabled = false;
-bool DeprecatedGlobalSettings::gUsesOverlayScrollbars = false;
-bool DeprecatedGlobalSettings::gMockScrollAnimatorEnabled = false;
-
-#if PLATFORM(WIN)
-bool DeprecatedGlobalSettings::gShouldUseHighResolutionTimers = true;
-#endif
-    
-bool DeprecatedGlobalSettings::gLowPowerVideoAudioBufferSizeEnabled = false;
-bool DeprecatedGlobalSettings::gResourceLoadStatisticsEnabledEnabled = false;
-bool DeprecatedGlobalSettings::gAllowsAnySSLCertificate = false;
-
-#if PLATFORM(IOS_FAMILY)
-bool DeprecatedGlobalSettings::gNetworkDataUsageTrackingEnabled = false;
-bool DeprecatedGlobalSettings::gShouldOptOutOfNetworkStateObservation = false;
-bool DeprecatedGlobalSettings::gDisableScreenSizeOverride = false;
-#endif
-
-#if PLATFORM(WIN)
-void DeprecatedGlobalSettings::setShouldUseHighResolutionTimers(bool shouldUseHighResolutionTimers)
+DeprecatedGlobalSettings& DeprecatedGlobalSettings::singleton()
 {
-    gShouldUseHighResolutionTimers = shouldUseHighResolutionTimers;
+    static NeverDestroyed<DeprecatedGlobalSettings> deprecatedGlobalSettings;
+    return deprecatedGlobalSettings;
 }
-#endif
 
 #if USE(AVFOUNDATION)
 void DeprecatedGlobalSettings::setAVFoundationEnabled(bool enabled)
 {
-    if (gAVFoundationEnabled == enabled)
+    if (singleton().m_AVFoundationEnabled == enabled)
         return;
 
-    gAVFoundationEnabled = enabled;
-    HTMLMediaElement::resetMediaEngines();
-}
-
-void DeprecatedGlobalSettings::setAVFoundationNSURLSessionEnabled(bool enabled)
-{
-    if (gAVFoundationNSURLSessionEnabled == enabled)
-        return;
-
-    gAVFoundationNSURLSessionEnabled = enabled;
+    singleton().m_AVFoundationEnabled = enabled;
+    platformStrategies()->mediaStrategy()->resetMediaEngines();
 }
 #endif
 
 #if USE(GSTREAMER)
 void DeprecatedGlobalSettings::setGStreamerEnabled(bool enabled)
 {
-    if (gGStreamerEnabled == enabled)
+    if (singleton().m_GStreamerEnabled == enabled)
         return;
 
-    gGStreamerEnabled = enabled;
+    singleton().m_GStreamerEnabled = enabled;
 
 #if ENABLE(VIDEO)
-    HTMLMediaElement::resetMediaEngines();
+    platformStrategies()->mediaStrategy()->resetMediaEngines();
 #endif
 }
 #endif
@@ -105,81 +76,35 @@ void DeprecatedGlobalSettings::setGStreamerEnabled(bool enabled)
 // correctly, which may cause the platform to follow dangling pointers.
 void DeprecatedGlobalSettings::setMockScrollbarsEnabled(bool flag)
 {
-    gMockScrollbarsEnabled = flag;
+    singleton().m_mockScrollbarsEnabled = flag;
     // FIXME: This should update scroll bars in existing pages.
-}
-
-bool DeprecatedGlobalSettings::mockScrollbarsEnabled()
-{
-    return gMockScrollbarsEnabled;
 }
 
 void DeprecatedGlobalSettings::setUsesOverlayScrollbars(bool flag)
 {
-    gUsesOverlayScrollbars = flag;
+    singleton().m_usesOverlayScrollbars = flag;
     // FIXME: This should update scroll bars in existing pages.
 }
 
-bool DeprecatedGlobalSettings::usesOverlayScrollbars()
+void DeprecatedGlobalSettings::setTrackingPreventionEnabled(bool flag)
 {
-    return gUsesOverlayScrollbars;
-}
-
-void DeprecatedGlobalSettings::setUsesMockScrollAnimator(bool flag)
-{
-    gMockScrollAnimatorEnabled = flag;
-}
-
-bool DeprecatedGlobalSettings::usesMockScrollAnimator()
-{
-    return gMockScrollAnimatorEnabled;
-}
-
-void DeprecatedGlobalSettings::setLowPowerVideoAudioBufferSizeEnabled(bool flag)
-{
-    gLowPowerVideoAudioBufferSizeEnabled = flag;
-}
-
-void DeprecatedGlobalSettings::setResourceLoadStatisticsEnabled(bool flag)
-{
-    gResourceLoadStatisticsEnabledEnabled = flag;
+    singleton().m_trackingPreventionEnabled = flag;
 }
 
 #if PLATFORM(IOS_FAMILY)
 void DeprecatedGlobalSettings::setAudioSessionCategoryOverride(unsigned sessionCategory)
 {
-    AudioSession::sharedSession().setCategoryOverride(static_cast<AudioSession::CategoryType>(sessionCategory));
+    AudioSession::singleton().setCategoryOverride(static_cast<AudioSession::CategoryType>(sessionCategory));
 }
 
 unsigned DeprecatedGlobalSettings::audioSessionCategoryOverride()
 {
-    return static_cast<unsigned>(AudioSession::sharedSession().categoryOverride());
-}
-
-void DeprecatedGlobalSettings::setNetworkDataUsageTrackingEnabled(bool trackingEnabled)
-{
-    gNetworkDataUsageTrackingEnabled = trackingEnabled;
-}
-
-bool DeprecatedGlobalSettings::networkDataUsageTrackingEnabled()
-{
-    return gNetworkDataUsageTrackingEnabled;
-}
-
-static String& sharedNetworkInterfaceNameGlobal()
-{
-    static NeverDestroyed<String> networkInterfaceName;
-    return networkInterfaceName;
+    return static_cast<unsigned>(AudioSession::singleton().categoryOverride());
 }
 
 void DeprecatedGlobalSettings::setNetworkInterfaceName(const String& networkInterfaceName)
 {
-    sharedNetworkInterfaceNameGlobal() = networkInterfaceName;
-}
-
-const String& DeprecatedGlobalSettings::networkInterfaceName()
-{
-    return sharedNetworkInterfaceNameGlobal();
+    singleton().m_networkInterfaceName = networkInterfaceName;
 }
 #endif
 
@@ -197,12 +122,21 @@ bool DeprecatedGlobalSettings::shouldManageAudioSessionCategory()
 
 void DeprecatedGlobalSettings::setAllowsAnySSLCertificate(bool allowAnySSLCertificate)
 {
-    gAllowsAnySSLCertificate = allowAnySSLCertificate;
+    singleton().m_allowsAnySSLCertificate = allowAnySSLCertificate;
 }
 
 bool DeprecatedGlobalSettings::allowsAnySSLCertificate()
 {
-    return gAllowsAnySSLCertificate;
+    return singleton().m_allowsAnySSLCertificate;
 }
+
+#if ENABLE(WEB_PUSH_NOTIFICATIONS)
+
+bool DeprecatedGlobalSettings::builtInNotificationsEnabled()
+{
+    return singleton().m_builtInNotificationsEnabled;
+}
+
+#endif
 
 } // namespace WebCore

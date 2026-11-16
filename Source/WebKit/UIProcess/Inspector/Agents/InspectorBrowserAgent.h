@@ -28,22 +28,26 @@
 #include "WebPageInspectorAgentBase.h"
 #include <JavaScriptCore/InspectorBackendDispatchers.h>
 #include <JavaScriptCore/InspectorFrontendDispatchers.h>
+#include <wtf/CheckedPtr.h>
 #include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakRef.h>
 
 namespace WebKit {
 
 class WebPageProxy;
 
-class InspectorBrowserAgent final : public InspectorAgentBase, public Inspector::BrowserBackendDispatcherHandler {
+class InspectorBrowserAgent final : public InspectorAgentBase, public Inspector::BrowserBackendDispatcherHandler, public CanMakeCheckedPtr<InspectorBrowserAgent> {
     WTF_MAKE_NONCOPYABLE(InspectorBrowserAgent);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(InspectorBrowserAgent);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(InspectorBrowserAgent);
 public:
     InspectorBrowserAgent(WebPageAgentContext&);
     ~InspectorBrowserAgent();
-    bool enabled() const;
+    bool NODELETE enabled() const;
 
     // InspectorAgentBase
-    void didCreateFrontendAndBackend(Inspector::FrontendRouter*, Inspector::BackendDispatcher*);
+    void didCreateFrontendAndBackend();
     void willDestroyFrontendAndBackend(Inspector::DisconnectReason);
 
     // BrowserBackendDispatcherHandler
@@ -54,9 +58,9 @@ public:
     void extensionsDisabled(HashSet<String>&&);
 
 private:
-    std::unique_ptr<Inspector::BrowserFrontendDispatcher> m_frontendDispatcher;
-    RefPtr<Inspector::BrowserBackendDispatcher> m_backendDispatcher;
-    WebPageProxy& m_inspectedPage;
+    const UniqueRef<Inspector::BrowserFrontendDispatcher> m_frontendDispatcher;
+    const Ref<Inspector::BrowserBackendDispatcher> m_backendDispatcher;
+    WeakRef<WebPageProxy> m_inspectedPage;
 };
 
 } // namespace WebKit

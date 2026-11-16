@@ -26,11 +26,16 @@
 #include "config.h"
 #include "WindowOrWorkerGlobalScopeFetch.h"
 
-#include "DOMWindow.h"
-#include "Document.h"
+#include "CachedResourceRequestInitiatorTypes.h"
+#include "DocumentQuirks.h"
+#include "EventLoop.h"
 #include "FetchResponse.h"
+#include "JSDOMConvertAny.h"
+#include "JSDOMConvertInterface.h"
 #include "JSDOMPromiseDeferred.h"
 #include "JSFetchResponse.h"
+#include "JSValueInWrappedObjectInlines.h"
+#include "LocalDOMWindow.h"
 #include "UserGestureIndicator.h"
 #include "WorkerGlobalScope.h"
 
@@ -38,46 +43,61 @@ namespace WebCore {
 
 using FetchResponsePromise = DOMPromiseDeferred<IDLInterface<FetchResponse>>;
 
-void WindowOrWorkerGlobalScopeFetch::fetch(DOMWindow& window, FetchRequest::Info&& input, FetchRequest::Init&& init, Ref<DeferredPromise>&& deferred)
+// https://fetch.spec.whatwg.org/#dom-global-fetch
+static void doFetch(ScriptExecutionContext& scope, FetchRequest::Info&& input, FetchRequest::Init&& init, FetchResponsePromise&& promise)
 {
-    FetchResponsePromise promise = WTFMove(deferred);
-
-    auto* document = window.document();
-    if (!document) {
-        promise.reject(InvalidStateError);
+    auto requestOrException = FetchRequest::create(scope, WTF::move(input), WTF::move(init));
+    if (requestOrException.hasException()) {
+        promise.reject(requestOrException.releaseException());
         return;
     }
 
-    auto request = FetchRequest::create(*document, WTFMove(input), WTFMove(init));
-    if (request.hasException()) {
-        promise.reject(request.releaseException());
+    auto request = requestOrException.releaseReturnValue();
+    if (request->signal().aborted()) {
+        auto reason = request->signal().reason().getValue();
+        if (reason.isUndefined())
+            promise.reject(Exception { ExceptionCode::AbortError, "Request signal is aborted"_s });
+        else
+            promise.rejectType<IDLAny>(reason);
+
         return;
     }
 
-    FetchResponse::fetch(*document, request.releaseReturnValue(), [promise = WTFMove(promise), userGestureToken = UserGestureIndicator::currentUserGesture()](ExceptionOr<FetchResponse&>&& result) mutable {
-        if (!userGestureToken || userGestureToken->hasExpired(UserGestureToken::maximumIntervalForUserGestureForwardingForFetch()) || !userGestureToken->processingUserGesture()) {
-            promise.settle(WTFMove(result));
-            return;
-        }
-
-        UserGestureIndicator gestureIndicator(userGestureToken, UserGestureToken::GestureScope::MediaOnly, UserGestureToken::IsPropagatedFromFetch::Yes);
-        promise.settle(WTFMove(result));
-    });
+    FetchResponse::fetch(scope, request.get(), [promise = WTF::move(promise), scope = Ref { scope }, userGestureToken = UserGestureIndicator::currentUserGesture()]<typename Result> (Result&& result) mutable {
+        scope->eventLoop().queueTask(TaskSource::Networking, [promise = WTF::move(promise), userGestureToken = WTF::move(userGestureToken), result = std::forward<Result>(result)] () mutable {
+            if (!userGestureToken || userGestureToken->hasExpired(UserGestureToken::maximumIntervalForUserGestureForwardingForFetch()) || !userGestureToken->processingUserGesture()) {
+                promise.settle(WTF::move(result));
+                return;
+            }
+            UserGestureIndicator gestureIndicator(userGestureToken, userGestureToken->scope(), UserGestureToken::ShouldPropagateToMicroTask::Yes);
+            promise.settle(WTF::move(result));
+        });
+    }, cachedResourceRequestInitiatorTypes().fetch);
 }
 
-void WindowOrWorkerGlobalScopeFetch::fetch(WorkerGlobalScope& scope, FetchRequest::Info&& input, FetchRequest::Init&& init, Ref<DeferredPromise>&& deferred)
+void WindowOrWorkerGlobalScopeFetch::fetch(DOMWindow& window, FetchRequest::Info&& input, FetchRequest::Init&& init, Ref<DeferredPromise>&& promise)
 {
-    FetchResponsePromise promise = WTFMove(deferred);
-
-    auto request = FetchRequest::create(scope, WTFMove(input), WTFMove(init));
-    if (request.hasException()) {
-        promise.reject(request.releaseException());
-        return;
+    if (RefPtr document = window.documentIfLocal(); document && document->quirks().shouldBlockFetchWithNewlineAndLessThan()) {
+        if (auto* string = std::get_if<String>(&input); string && string->contains('\n') && string->contains('<'))
+            return promise->reject(ExceptionCode::InvalidStateError);
     }
 
-    FetchResponse::fetch(scope, request.releaseReturnValue().get(), [promise = WTFMove(promise)](ExceptionOr<FetchResponse&>&& result) mutable {
-        promise.settle(WTFMove(result));
-    });
+    RefPtr localWindow = dynamicDowncast<LocalDOMWindow>(window);
+    if (!localWindow) {
+        promise->reject(ExceptionCode::InvalidStateError);
+        return;
+    }
+    RefPtr document = localWindow->document();
+    if (!document) {
+        promise->reject(ExceptionCode::InvalidStateError);
+        return;
+    }
+    doFetch(*document, WTF::move(input), WTF::move(init), WTF::move(promise));
+}
+
+void WindowOrWorkerGlobalScopeFetch::fetch(WorkerGlobalScope& scope, FetchRequest::Info&& input, FetchRequest::Init&& init, Ref<DeferredPromise>&& promise)
+{
+    doFetch(scope, WTF::move(input), WTF::move(init), WTF::move(promise));
 }
 
 }

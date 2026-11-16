@@ -6,11 +6,11 @@
 
 // test_utils_win.cpp: Implementation of OS-specific functions for Windows
 
+#include "common/unsafe_buffers.h"
 #include "util/test_utils.h"
 
 #include <aclapi.h>
 #include <stdarg.h>
-#include <versionhelpers.h>
 #include <windows.h>
 #include <array>
 #include <iostream>
@@ -18,6 +18,7 @@
 
 #include "anglebase/no_destructor.h"
 #include "common/angleutils.h"
+#include "common/platform_helpers.h"
 
 namespace angle
 {
@@ -126,7 +127,7 @@ bool ShouldUseJobObjects()
 #if defined(ANGLE_ENABLE_WINDOWS_UWP)
     return false;
 #else
-    return (::IsWindows10OrGreater());
+    return IsWindows10OrLater();
 #endif
 }
 
@@ -134,8 +135,7 @@ class WindowsProcess : public Process
 {
   public:
     WindowsProcess(const std::vector<const char *> &commandLineArgs,
-                   bool captureStdOut,
-                   bool captureStdErr)
+                   ProcessOutputCapture captureOutput)
     {
         mProcessInfo.hProcess = INVALID_HANDLE_VALUE;
         mProcessInfo.hThread  = INVALID_HANDLE_VALUE;
@@ -149,7 +149,8 @@ class WindowsProcess : public Process
                 {
                     commandLineString.push_back(' ');
                 }
-                commandLineString.insert(commandLineString.end(), arg, arg + strlen(arg));
+                commandLineString.insert(commandLineString.end(), arg,
+                                         ANGLE_UNSAFE_TODO(arg + strlen(arg)));
             }
         }
         commandLineString.push_back('\0');
@@ -162,10 +163,17 @@ class WindowsProcess : public Process
 
         STARTUPINFOA startInfo = {};
 
+        const bool captureStdout = captureOutput != ProcessOutputCapture::Nothing;
+        const bool captureStderr =
+            captureOutput == ProcessOutputCapture::StdoutAndStderrInterleaved ||
+            captureOutput == ProcessOutputCapture::StdoutAndStderrSeparately;
+        const bool pipeStderrToStdout =
+            captureOutput == ProcessOutputCapture::StdoutAndStderrInterleaved;
+
         // Create pipes for stdout and stderr.
         startInfo.cb        = sizeof(STARTUPINFOA);
         startInfo.hStdInput = ::GetStdHandle(STD_INPUT_HANDLE);
-        if (captureStdOut)
+        if (captureStdout)
         {
             if (!mStdoutPipe.initPipe(&securityAttribs))
             {
@@ -178,7 +186,11 @@ class WindowsProcess : public Process
             startInfo.hStdOutput = ::GetStdHandle(STD_OUTPUT_HANDLE);
         }
 
-        if (captureStdErr)
+        if (pipeStderrToStdout)
+        {
+            startInfo.hStdError = startInfo.hStdOutput;
+        }
+        else if (captureStderr)
         {
             if (!mStderrPipe.initPipe(&securityAttribs))
             {
@@ -192,7 +204,7 @@ class WindowsProcess : public Process
         }
 
 #if !defined(ANGLE_ENABLE_WINDOWS_UWP)
-        if (captureStdOut || captureStdErr)
+        if (captureStdout || captureStderr)
         {
             startInfo.dwFlags |= STARTF_USESTDHANDLES;
         }
@@ -268,6 +280,16 @@ class WindowsProcess : public Process
 
     bool finish() override
     {
+        if (!mStarted)
+        {
+            return false;
+        }
+
+        if (mFinished)
+        {
+            return true;
+        }
+
         if (mStdoutPipe.valid())
         {
             ReadFromFile(true, mStdoutPipe.readHandle, &mStdout);
@@ -279,14 +301,24 @@ class WindowsProcess : public Process
         }
 
         DWORD result = ::WaitForSingleObject(mProcessInfo.hProcess, INFINITE);
+
+        mFinished = true;
         mTimer.stop();
+
         return result == WAIT_OBJECT_0;
     }
 
     bool finished() override
     {
         if (!mStarted)
+        {
             return false;
+        }
+
+        if (mFinished)
+        {
+            return true;
+        }
 
         // Pipe stdin and stdout.
         if (mStdoutPipe.valid())
@@ -302,12 +334,14 @@ class WindowsProcess : public Process
         DWORD result = ::WaitForSingleObject(mProcessInfo.hProcess, 0);
         if (result == WAIT_OBJECT_0)
         {
+            mFinished = true;
             mTimer.stop();
             return true;
         }
         if (result == WAIT_TIMEOUT)
             return false;
 
+        mFinished = true;
         mTimer.stop();
         std::cerr << "Unexpected result from WaitForSingleObject: " << result
                   << ". Last error: " << ::GetLastError() << "\n";
@@ -332,7 +366,14 @@ class WindowsProcess : public Process
     bool kill() override
     {
         if (!mStarted)
+        {
+            return false;
+        }
+
+        if (mFinished)
+        {
             return true;
+        }
 
         HANDLE newHandle;
         if (::DuplicateHandle(::GetCurrentProcess(), mProcessInfo.hProcess, ::GetCurrentProcess(),
@@ -359,13 +400,14 @@ class WindowsProcess : public Process
             return false;
         }
 
-        mStarted = false;
+        mFinished = true;
         mTimer.stop();
         return true;
     }
 
   private:
-    bool mStarted = false;
+    bool mStarted  = false;
+    bool mFinished = false;
     ScopedPipe mStdoutPipe;
     ScopedPipe mStderrPipe;
     PROCESS_INFORMATION mProcessInfo = {};
@@ -382,50 +424,23 @@ void WriteDebugMessage(const char *format, ...)
 {
     va_list args;
     va_start(args, format);
-    int size = vsnprintf(nullptr, 0, format, args);
+    int size = ANGLE_UNSAFE_TODO(vsnprintf(nullptr, 0, format, args));
     va_end(args);
 
     std::vector<char> buffer(size + 2);
     va_start(args, format);
-    vsnprintf(buffer.data(), size + 1, format, args);
+    ANGLE_UNSAFE_TODO(vsnprintf(buffer.data(), size + 1, format, args));
     va_end(args);
 
     OutputDebugStringA(buffer.data());
 }
 
-Process *LaunchProcess(const std::vector<const char *> &args,
-                       bool captureStdout,
-                       bool captureStderr)
+Process *LaunchProcess(const std::vector<const char *> &args, ProcessOutputCapture captureOutput)
 {
-    return new WindowsProcess(args, captureStdout, captureStderr);
+    return new WindowsProcess(args, captureOutput);
 }
 
-bool GetTempDir(char *tempDirOut, uint32_t maxDirNameLen)
-{
-    DWORD pathLen = ::GetTempPathA(maxDirNameLen, tempDirOut);
-    // Strip last path character if present.
-    if (pathLen > 0)
-    {
-        size_t lastChar = strlen(tempDirOut) - 1;
-        if (tempDirOut[lastChar] == '\\')
-        {
-            tempDirOut[lastChar] = 0;
-        }
-    }
-    return (pathLen < MAX_PATH && pathLen > 0);
-}
-
-bool CreateTemporaryFileInDir(const char *dir, char *tempFileNameOut, uint32_t maxFileNameLen)
-{
-    char fileName[MAX_PATH + 1];
-    if (::GetTempFileNameA(dir, "ANGLE", 0, fileName) == 0)
-        return false;
-
-    strncpy(tempFileNameOut, fileName, maxFileNameLen);
-    return true;
-}
-
-bool DeleteFile(const char *path)
+bool DeleteSystemFile(const char *path)
 {
     if (strlen(path) >= MAX_PATH)
         return false;

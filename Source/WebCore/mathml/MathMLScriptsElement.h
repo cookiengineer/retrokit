@@ -27,26 +27,28 @@
 
 #if ENABLE(MATHML)
 
-#include "MathMLPresentationElement.h"
+#include "MathMLRowElement.h"
 
 namespace WebCore {
 
-class MathMLScriptsElement : public MathMLPresentationElement {
-    WTF_MAKE_ISO_ALLOCATED(MathMLScriptsElement);
+class MathMLScriptsElement : public MathMLRowElement {
+    WTF_MAKE_TZONE_ALLOCATED(MathMLScriptsElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(MathMLScriptsElement);
 public:
     static Ref<MathMLScriptsElement> create(const QualifiedName& tagName, Document&);
 
     enum class ScriptType { Sub, Super, SubSup, Multiscripts, Under, Over, UnderOver };
     ScriptType scriptType() const { return m_scriptType; }
-    const Length& subscriptShift();
-    const Length& superscriptShift();
+    const Length& subscriptShift() LIFETIME_BOUND;
+    const Length& superscriptShift() LIFETIME_BOUND;
 
 protected:
     MathMLScriptsElement(const QualifiedName& tagName, Document&);
 
 private:
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
-    void parseAttribute(const QualifiedName&, const AtomString&) override;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) override;
+    bool acceptsLegacyMathVariantAttribute() override { return false; };
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
 
     const ScriptType m_scriptType;
     std::optional<Length> m_subscriptShift;

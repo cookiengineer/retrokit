@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "DOMJITHeapRange.h"
+#include <JavaScriptCore/DOMJITHeapRange.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
@@ -49,7 +49,7 @@ public:
 
     bool isRoot() const { return !m_parent; }
 
-    JS_EXPORT_PRIVATE void compute(unsigned begin);
+    JS_EXPORT_PRIVATE void NODELETE compute(unsigned begin);
 
     bool isComputed() const { return !!m_range; }
     HeapRange range() const { return m_range; }

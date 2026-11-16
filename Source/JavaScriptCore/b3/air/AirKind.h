@@ -40,47 +40,51 @@ namespace JSC { namespace B3 { namespace Air {
 // opcode-agnostic.
 
 struct Kind {
-    Kind(Opcode opcode)
+    constexpr Kind(Opcode opcode)
         : opcode(opcode)
-        , effects(false)
     {
     }
-    
-    Kind()
-        : Kind(Nop)
+
+    Kind() = default;
+
+    friend bool operator==(const Kind&, const Kind&) = default;
+
+    constexpr unsigned hash() const
     {
+        return raw();
     }
-    
-    bool operator==(const Kind& other) const
-    {
-        return opcode == other.opcode
-            && effects == other.effects;
-    }
-    
-    bool operator!=(const Kind& other) const
-    {
-        return !(*this == other);
-    }
-    
-    unsigned hash() const
-    {
-        return static_cast<unsigned>(opcode) + (static_cast<unsigned>(effects) << 16);
-    }
-    
+
     explicit operator bool() const
     {
         return *this != Kind();
     }
-    
+
     void dump(PrintStream&) const;
-    
-    Opcode opcode;
-    
+
+    constexpr uint16_t raw() const
+    {
+        return static_cast<uint16_t>(opcode) | (static_cast<uint16_t>(effects) << 14) | (static_cast<uint16_t>(spill) << 15);
+    }
+
+    static constexpr Kind fromRaw(uint16_t value)
+    {
+        Kind kind;
+        kind.opcode = static_cast<Opcode>(value & 0x3fff);
+        kind.effects = (value >> 14) & 1;
+        kind.spill = (value >> 15) & 1;
+        return kind;
+    }
+
+    Opcode opcode : 14 { Nop };
+
     // This is an opcode-agnostic flag that indicates that we expect that this instruction will do
     // any of the following:
     // - Trap.
     // - Perform some non-arg non-control effect.
-    bool effects : 1;
+    bool effects : 1 { false };
+
+    // This marks whether this instruction was generated for stack spilling.
+    bool spill : 1 { false };
 };
 
 } } } // namespace JSC::B3::Air

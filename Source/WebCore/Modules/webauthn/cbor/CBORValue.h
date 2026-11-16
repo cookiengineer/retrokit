@@ -1,5 +1,5 @@
 // Copyright 2017 The Chromium Authors. All rights reserved.
-// Copyright (C) 2018 Apple Inc. All rights reserved.
+// Copyright (C) 2018-2021 Apple Inc. All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are
@@ -36,6 +36,10 @@
 #include <wtf/StdMap.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
+
+namespace WebCore {
+class BufferSource;
+}
 
 namespace cbor {
 
@@ -127,7 +131,10 @@ public:
     explicit CBORValue(const BinaryValue&);
     explicit CBORValue(BinaryValue&&);
 
+    explicit CBORValue(const WebCore::BufferSource&);
+
     explicit CBORValue(const char*);
+    explicit CBORValue(ASCIILiteral);
     explicit CBORValue(String&&);
     explicit CBORValue(const String&);
 
@@ -166,16 +173,16 @@ public:
 
     // FIXME(183535): Considering adding && getter for better performance.
     // These will all fatally assert if the type doesn't match.
-    SimpleValue getSimpleValue() const;
-    bool getBool() const;
-    const int64_t& getInteger() const;
-    const int64_t& getUnsigned() const;
-    const int64_t& getNegative() const;
-    const BinaryValue& getByteString() const;
+    SimpleValue NODELETE getSimpleValue() const;
+    bool NODELETE getBool() const;
+    const int64_t& NODELETE getInteger() const;
+    const int64_t& NODELETE getUnsigned() const;
+    const int64_t& NODELETE getNegative() const;
+    const BinaryValue& NODELETE getByteString() const;
     // Returned string may contain NUL characters.
-    const String& getString() const;
-    const ArrayValue& getArray() const;
-    const MapValue& getMap() const;
+    const String& NODELETE getString() const;
+    const ArrayValue& NODELETE getArray() const;
+    const MapValue& NODELETE getMap() const;
 
 private:
     Type m_type;

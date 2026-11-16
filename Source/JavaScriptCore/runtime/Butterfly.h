@@ -25,11 +25,12 @@
 
 #pragma once
 
-#include "IndexingHeader.h"
-#include "IndexingType.h"
-#include "PropertyStorage.h"
-#include <wtf/Gigacage.h>
+#include <JavaScriptCore/IndexingHeader.h>
+#include <JavaScriptCore/IndexingType.h>
+#include <JavaScriptCore/PropertyStorage.h>
 #include <wtf/Noncopyable.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
@@ -138,7 +139,7 @@ public:
     
     static size_t totalSize(size_t preCapacity, size_t propertyCapacity, bool hasIndexingHeader, size_t indexingPayloadSizeInBytes)
     {
-        ASSERT(indexingPayloadSizeInBytes ? hasIndexingHeader : true);
+        ASSERT(!indexingPayloadSizeInBytes || hasIndexingHeader);
         ASSERT(sizeof(EncodedJSValue) == sizeof(IndexingHeader));
         return (preCapacity + propertyCapacity) * sizeof(EncodedJSValue) + (hasIndexingHeader ? sizeof(IndexingHeader) : 0) + indexingPayloadSizeInBytes;
     }
@@ -163,22 +164,30 @@ public:
     
     char* pointer() { return reinterpret_cast<char*>(this); }
     
-    static ptrdiff_t offsetOfIndexingHeader() { return IndexingHeader::offsetOfIndexingHeader(); }
-    static ptrdiff_t offsetOfArrayBuffer() { return offsetOfIndexingHeader() + IndexingHeader::offsetOfArrayBuffer(); }
-    static ptrdiff_t offsetOfPublicLength() { return offsetOfIndexingHeader() + IndexingHeader::offsetOfPublicLength(); }
-    static ptrdiff_t offsetOfVectorLength() { return offsetOfIndexingHeader() + IndexingHeader::offsetOfVectorLength(); }
+    static constexpr ptrdiff_t offsetOfIndexingHeader() { return IndexingHeader::offsetOfIndexingHeader(); }
+    static constexpr ptrdiff_t offsetOfArrayBuffer() { return offsetOfIndexingHeader() + IndexingHeader::offsetOfArrayBuffer(); }
+    static constexpr ptrdiff_t offsetOfPublicLength() { return offsetOfIndexingHeader() + IndexingHeader::offsetOfPublicLength(); }
+    static constexpr ptrdiff_t offsetOfVectorLength() { return offsetOfIndexingHeader() + IndexingHeader::offsetOfVectorLength(); }
 
     static Butterfly* tryCreateUninitialized(VM&, JSObject* intendedOwner, size_t preCapacity, size_t propertyCapacity, bool hasIndexingHeader, size_t indexingPayloadSizeInBytes, GCDeferralContext* = nullptr);
     static Butterfly* createUninitialized(VM&, JSObject* intendedOwner, size_t preCapacity, size_t propertyCapacity, bool hasIndexingHeader, size_t indexingPayloadSizeInBytes);
 
+    // FIXME: These return uninitialized indexed storage. Either their names should be updated to reflect this
+    // and/or they should take some kind of initialization scope.
     static Butterfly* tryCreate(VM& vm, JSObject*, size_t preCapacity, size_t propertyCapacity, bool hasIndexingHeader, const IndexingHeader& indexingHeader, size_t indexingPayloadSizeInBytes);
     static Butterfly* create(VM&, JSObject* intendedOwner, size_t preCapacity, size_t propertyCapacity, bool hasIndexingHeader, const IndexingHeader&, size_t indexingPayloadSizeInBytes);
     static Butterfly* create(VM&, JSObject* intendedOwner, Structure*);
     
+    // Don't use the returned IndexingHeader on a butterfly that has none, as with an object with no indexed elements: in that case
+    // the returned address is past the end of the allocation. indexingHeader() can't check that, because it never sees the Structure.
     IndexingHeader* indexingHeader() { return IndexingHeader::from(this); }
     const IndexingHeader* indexingHeader() const { return IndexingHeader::from(this); }
-    PropertyStorage propertyStorage() { return indexingHeader()->propertyStorage(); }
-    ConstPropertyStorage propertyStorage() const { return indexingHeader()->propertyStorage(); }
+
+    size_t preCapacity(Structure*);
+    size_t indexingPayloadSizeInBytes(Structure*);
+
+    PropertyStorage propertyStorage() { return reinterpret_cast_ptr<PropertyStorage>(this) + indexOfPropertyStorage(); }
+    ConstPropertyStorage propertyStorage() const { return reinterpret_cast_ptr<ConstPropertyStorage>(this) + indexOfPropertyStorage(); }
     
     uint32_t publicLength() const { return indexingHeader()->publicLength(); }
     uint32_t vectorLength() const { return indexingHeader()->vectorLength(); }
@@ -208,16 +217,19 @@ public:
         return reinterpret_cast<Butterfly*>(contiguous);
     }
     
-    static ptrdiff_t offsetOfPropertyStorage() { return -static_cast<ptrdiff_t>(sizeof(IndexingHeader)); }
+    static constexpr ptrdiff_t offsetOfPropertyStorage() { return -static_cast<ptrdiff_t>(sizeof(IndexingHeader)); }
     constexpr static int indexOfPropertyStorage()
     {
-        ASSERT(sizeof(IndexingHeader) == sizeof(EncodedJSValue));
+        static_assert(sizeof(IndexingHeader) == sizeof(EncodedJSValue));
+        static_assert(sizeof(WriteBarrierBase<Unknown>) == sizeof(IndexingHeader));
         return -1;
     }
 
     void* base(size_t preCapacity, size_t propertyCapacity) { return propertyStorage() - propertyCapacity - preCapacity; }
     void* base(Structure*);
 
+    // FIXME: This returns uninitialized indexed storage. Either their names should be updated to reflect this
+    // and/or they should take some kind of initialization scope.
     static Butterfly* createOrGrowArrayRight(
         Butterfly*, VM&, JSObject* intendedOwner, Structure* oldStructure,
         size_t propertyCapacity, bool hadIndexingHeader,
@@ -228,6 +240,8 @@ public:
     // methods is not exhaustive and is not intended to encapsulate all possible allocation
     // modes of butterflies - there are code paths that allocate butterflies by calling
     // directly into Heap::tryAllocateStorage.
+    // FIXME: These return uninitialized indexed storage. Either their names should be updated to reflect this
+    // and/or they should take some kind of initialization scope.
     static Butterfly* createOrGrowPropertyStorage(Butterfly*, VM&, JSObject* intendedOwner, Structure*, size_t oldPropertyCapacity, size_t newPropertyCapacity);
     Butterfly* growArrayRight(VM&, JSObject* intendedOwner, Structure* oldStructure, size_t propertyCapacity, bool hadIndexingHeader, size_t oldIndexingPayloadSizeInBytes, size_t newIndexingPayloadSizeInBytes); // Assumes that preCapacity is zero, and asserts as much.
     Butterfly* growArrayRight(VM&, JSObject* intendedOwner, Structure*, size_t newIndexingPayloadSizeInBytes);
@@ -238,6 +252,11 @@ public:
     Butterfly* resizeArray(VM&, JSObject* intendedOwner, Structure*, size_t newPreCapacity, size_t newIndexingPayloadSizeInBytes); // Assumes that you're not changing whether or not the object has an indexing header.
     Butterfly* unshift(Structure*, size_t numberOfSlots);
     Butterfly* shift(Structure*, size_t numberOfSlots);
+
+    // FIXME: This should either not be static or take a span.
+    ALWAYS_INLINE static void clearRange(IndexingType, Butterfly*, unsigned start, unsigned end);
 };
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

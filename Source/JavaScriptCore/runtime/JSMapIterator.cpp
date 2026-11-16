@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2021 Apple, Inc. All rights reserved.
+ * Copyright (C) 2013-2024 Apple, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,11 +32,11 @@
 
 namespace JSC {
 
-const ClassInfo JSMapIterator::s_info = { "Map Iterator", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSMapIterator) };
+const ClassInfo JSMapIterator::s_info = { "Map Iterator"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSMapIterator) };
 
 JSMapIterator* JSMapIterator::createWithInitialValues(VM& vm, Structure* structure)
 {
-    JSMapIterator* iterator = new (NotNull, allocateCell<JSMapIterator>(vm.heap)) JSMapIterator(vm, structure);
+    JSMapIterator* iterator = new (NotNull, allocateCell<JSMapIterator>(vm)) JSMapIterator(vm, structure);
     iterator->finishCreation(vm);
     return iterator;
 }
@@ -44,9 +44,10 @@ JSMapIterator* JSMapIterator::createWithInitialValues(VM& vm, Structure* structu
 void JSMapIterator::finishCreation(VM& vm, JSMap* iteratedObject, IterationKind kind)
 {
     Base::finishCreation(vm);
-    internalField(Field::MapBucket).set(vm, this, iteratedObject->head());
-    internalField(Field::IteratedObject).set(vm, this, iteratedObject);
-    internalField(Field::Kind).set(vm, this, jsNumber(static_cast<int32_t>(kind)));
+    setEntry(vm, 0);
+    setIteratedObject(vm, iteratedObject);
+    internalField(Field::Storage).set(vm, this, iteratedObject->storage());
+    internalField(Field::Kind).setWithoutWriteBarrier(jsNumber(static_cast<int32_t>(kind)));
 }
 
 void JSMapIterator::finishCreation(VM& vm)
@@ -60,20 +61,11 @@ void JSMapIterator::finishCreation(VM& vm)
 template<typename Visitor>
 void JSMapIterator::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    auto* thisObject = jsCast<JSMapIterator*>(cell);
+    auto* thisObject = uncheckedDowncast<JSMapIterator>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
 }
 
 DEFINE_VISIT_CHILDREN(JSMapIterator);
-
-JSValue JSMapIterator::createPair(JSGlobalObject* globalObject, JSValue key, JSValue value)
-{
-    MarkedArgumentBuffer args;
-    args.append(key);
-    args.append(value);
-    ASSERT(!args.hasOverflowed());
-    return constructArray(globalObject, static_cast<ArrayAllocationProfile*>(nullptr), args);
-}
 
 }

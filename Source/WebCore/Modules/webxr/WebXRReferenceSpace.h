@@ -29,8 +29,9 @@
 
 #include "WebXRSpace.h"
 #include "XRReferenceSpaceType.h"
-#include <wtf/IsoMalloc.h>
 #include <wtf/Ref.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -38,29 +39,33 @@ class WebXRRigidTransform;
 class WebXRSession;
 
 class WebXRReferenceSpace : public RefCounted<WebXRReferenceSpace>, public WebXRSpace {
-    WTF_MAKE_ISO_ALLOCATED(WebXRReferenceSpace);
+    WTF_MAKE_TZONE_ALLOCATED(WebXRReferenceSpace);
 public:
-    static Ref<WebXRReferenceSpace> create(Document&, Ref<WebXRSession>&&, XRReferenceSpaceType);
-    static Ref<WebXRReferenceSpace> create(Document&, Ref<WebXRSession>&&, Ref<WebXRRigidTransform>&&, XRReferenceSpaceType);
+    static Ref<WebXRReferenceSpace> create(Document&, WebXRSession&, XRReferenceSpaceType);
+    static Ref<WebXRReferenceSpace> create(Document&, WebXRSession&, Ref<WebXRRigidTransform>&&, XRReferenceSpaceType);
 
     virtual ~WebXRReferenceSpace();
 
-    using RefCounted<WebXRReferenceSpace>::ref;
-    using RefCounted<WebXRReferenceSpace>::deref;
+    // ContextDestructionObserver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
 
-    WebXRSession& session() const final { return m_session.get(); }
-    TransformationMatrix nativeOrigin() const override;
+    WebXRSession* session() const final { return m_session.get(); }
+    std::optional<TransformationMatrix> nativeOrigin() const override;
+#if ENABLE(WEBXR_HIT_TEST)
+    std::optional<PlatformXR::NativeOriginInformation> nativeOriginInformation() const override { return { m_type }; }
+#endif
     virtual ExceptionOr<Ref<WebXRReferenceSpace>> getOffsetReferenceSpace(const WebXRRigidTransform&);
     XRReferenceSpaceType type() const { return m_type; }
 
 protected:
-    WebXRReferenceSpace(Document&, Ref<WebXRSession>&&, Ref<WebXRRigidTransform>&&, XRReferenceSpaceType);
+    WebXRReferenceSpace(Document&, WebXRSession&, Ref<WebXRRigidTransform>&&, XRReferenceSpaceType);
 
     bool isReferenceSpace() const final { return true; }
 
-    TransformationMatrix floorOriginTransform() const;
+    std::optional<TransformationMatrix> floorOriginTransform() const;
 
-    Ref<WebXRSession> m_session;
+    WeakPtr<WebXRSession> m_session;
     XRReferenceSpaceType m_type;
 
 private:

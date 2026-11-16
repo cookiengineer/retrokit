@@ -162,17 +162,19 @@ WI.AnimationContentView = class AnimationContentView extends WI.ContentView
 
     _refreshSubtitle()
     {
-        this.representedObject.requestEffectTarget((domNode) => {
-            this._animationTargetDOMNode = domNode;
+        this.representedObject.requestEffectTarget((styleable) => {
+            this._animationTargetDOMNode = styleable?.node ?? null;
 
             this._subtitleElement.removeChildren();
-            if (domNode)
-                this._subtitleElement.appendChild(WI.linkifyNodeReference(domNode));
+            if (styleable)
+                this._subtitleElement.appendChild(WI.linkifyStyleable(styleable));
         });
     }
 
-    _refreshPreview()
+    async _refreshPreview()
     {
+        await this.representedObject.ensureEffect();
+
         this._previewContainer.removeChildren();
 
         let keyframes = this.representedObject.keyframes;
@@ -283,7 +285,7 @@ WI.AnimationContentView = class AnimationContentView extends WI.ContentView
                 let easingPath = easingContainer.appendChild(createSVGElement("path"));
 
                 let pathSteps = [];
-                if (easing instanceof WI.CubicBezier) {
+                if (easing instanceof WI.CubicBezierTimingFunction) {
                     pathSteps.push("C");
                     pathSteps.push(easing.inPoint.x * width); // x1
                     pathSteps.push((1 - easing.inPoint.y) * (height + adjustEasingHeight)); // y1
@@ -291,22 +293,25 @@ WI.AnimationContentView = class AnimationContentView extends WI.ContentView
                     pathSteps.push((1 - easing.outPoint.y) * (height + adjustEasingHeight)); // y2
                     pathSteps.push(width); // x
                     pathSteps.push(0); // y
-                } else if (easing instanceof WI.StepsFunction) {
+                } else if (easing instanceof WI.LinearTimingFunction) {
+                    for (let point of easing.points)
+                        pathSteps.push("L", width * point.progress, height + adjustEasingHeight - ((height + adjustEasingHeight) * point.value));
+                } else if (easing instanceof WI.StepsTimingFunction) {
                     let goUpFirst = false;
                     let stepStartAdjust = 0;
                     let stepCountAdjust = 0;
 
                     switch (easing.type) {
-                    case WI.StepsFunction.Type.JumpStart:
-                    case WI.StepsFunction.Type.Start:
+                    case WI.StepsTimingFunction.Type.JumpStart:
+                    case WI.StepsTimingFunction.Type.Start:
                         goUpFirst = true;
                         break;
 
-                    case WI.StepsFunction.Type.JumpNone:
+                    case WI.StepsTimingFunction.Type.JumpNone:
                         --stepCountAdjust;
                         break;
 
-                    case WI.StepsFunction.Type.JumpBoth:
+                    case WI.StepsTimingFunction.Type.JumpBoth:
                         ++stepStartAdjust;
                         ++stepCountAdjust;
                         break;
@@ -333,7 +338,7 @@ WI.AnimationContentView = class AnimationContentView extends WI.ContentView
                                 pathSteps.push("H", x + stepX);
                         }
                     }
-                } else if (easing instanceof WI.Spring) {
+                } else if (easing instanceof WI.SpringTimingFunction) {
                     let duration = easing.calculateDuration();
                     for (let i = 0; i < width; i += 1 / window.devicePixelRatio)
                         pathSteps.push("L", i, easing.solve(duration * i / width) * (height + adjustEasingHeight));
@@ -397,8 +402,7 @@ WI.AnimationContentView = class AnimationContentView extends WI.ContentView
                     return;
 
                 const text = WI.UIString("Selected Animation", "Appears as a label when a given web animation is logged to the Console");
-                const addSpecialUserLogClass = true;
-                WI.consoleLogViewController.appendImmediateExecutionWithResult(text, remoteObject, addSpecialUserLogClass);
+                WI.consoleLogViewController.appendImmediateExecutionWithResult(text, remoteObject, {addSpecialUserLogClass: true, shouldRevealConsole: true});
             });
         });
 

@@ -28,6 +28,7 @@
 
 #if ENABLE(WEBASSEMBLY)
 
+#include "ErrorInstanceInlines.h"
 #include "JSCJSValueInlines.h"
 
 namespace JSC {
@@ -35,7 +36,7 @@ namespace JSC {
 JSObject* createJSWebAssemblyCompileError(JSGlobalObject* globalObject, VM& vm, const String& message)
 {
     ASSERT(!message.isEmpty());
-    return ErrorInstance::create(globalObject, vm, globalObject->webAssemblyCompileErrorStructure(), message, JSValue(), defaultSourceAppender, TypeNothing, ErrorType::Error, true);
+    return ErrorInstance::create(vm, globalObject->webAssemblyCompileErrorStructure(), message, JSValue(), defaultSourceAppender, TypeNothing, ErrorType::Error, true);
 }
 
 } // namespace JSC

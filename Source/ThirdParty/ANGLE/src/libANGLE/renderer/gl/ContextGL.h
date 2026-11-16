@@ -13,6 +13,8 @@
 #include "libANGLE/renderer/ContextImpl.h"
 #include "libANGLE/renderer/gl/RendererGL.h"
 
+#include "common/base/anglebase/containers/mru_cache.h"
+
 namespace angle
 {
 struct FeaturesGL;
@@ -46,12 +48,16 @@ class ContextGL : public ContextImpl
               RobustnessVideoMemoryPurgeStatus robustnessVideoMemoryPurgeStatus);
     ~ContextGL() override;
 
-    angle::Result initialize() override;
+    void onDestroy(const gl::Context *context) override;
+
+    angle::Result initialize(const angle::ImageLoadContext &imageLoadContext) override;
 
     // Shader creation
     CompilerImpl *createCompiler() override;
     ShaderImpl *createShader(const gl::ShaderState &data) override;
     ProgramImpl *createProgram(const gl::ProgramState &data) override;
+    ProgramExecutableImpl *createProgramExecutable(
+        const gl::ProgramExecutable *executable) override;
 
     // Framebuffer creation
     FramebufferImpl *createFramebuffer(const gl::FramebufferState &data) override;
@@ -66,7 +72,8 @@ class ContextGL : public ContextImpl
     BufferImpl *createBuffer(const gl::BufferState &state) override;
 
     // Vertex Array creation
-    VertexArrayImpl *createVertexArray(const gl::VertexArrayState &data) override;
+    VertexArrayImpl *createVertexArray(const gl::VertexArrayState &data,
+                                       const gl::VertexArrayBuffers &vertexArrayBuffers) override;
 
     // Query and Fence creation
     QueryImpl *createQuery(gl::QueryType type) override;
@@ -88,9 +95,6 @@ class ContextGL : public ContextImpl
 
     // Semaphore creation.
     SemaphoreImpl *createSemaphore() override;
-
-    // Overlay creation.
-    OverlayImpl *createOverlay(const gl::OverlayState &state) override;
 
     // Flush and finish.
     angle::Result flush(const gl::Context *context) override;
@@ -179,6 +183,11 @@ class ContextGL : public ContextImpl
                                            const GLsizei *counts,
                                            const GLsizei *instanceCounts,
                                            GLsizei drawcount) override;
+    angle::Result multiDrawArraysIndirect(const gl::Context *context,
+                                          gl::PrimitiveMode mode,
+                                          const void *indirect,
+                                          GLsizei drawcount,
+                                          GLsizei stride) override;
     angle::Result multiDrawElements(const gl::Context *context,
                                     gl::PrimitiveMode mode,
                                     const GLsizei *counts,
@@ -192,6 +201,12 @@ class ContextGL : public ContextImpl
                                              const GLvoid *const *indices,
                                              const GLsizei *instanceCounts,
                                              GLsizei drawcount) override;
+    angle::Result multiDrawElementsIndirect(const gl::Context *context,
+                                            gl::PrimitiveMode mode,
+                                            gl::DrawElementsType type,
+                                            const void *indirect,
+                                            GLsizei drawcount,
+                                            GLsizei stride) override;
     angle::Result multiDrawArraysInstancedBaseInstance(const gl::Context *context,
                                                        gl::PrimitiveMode mode,
                                                        const GLint *firsts,
@@ -212,10 +227,6 @@ class ContextGL : public ContextImpl
     // Device loss
     gl::GraphicsResetStatus getResetStatus() override;
 
-    // Vendor and description strings.
-    std::string getVendorString() const override;
-    std::string getRendererDescription() const override;
-
     // EXT_debug_marker
     angle::Result insertEventMarker(GLsizei length, const char *marker) override;
     angle::Result pushGroupMarker(GLsizei length, const char *marker) override;
@@ -230,8 +241,11 @@ class ContextGL : public ContextImpl
 
     // State sync with dirty bits.
     angle::Result syncState(const gl::Context *context,
-                            const gl::State::DirtyBits &dirtyBits,
-                            const gl::State::DirtyBits &bitMask) override;
+                            const gl::state::DirtyBits dirtyBits,
+                            const gl::state::DirtyBits bitMask,
+                            const gl::state::ExtendedDirtyBits extendedDirtyBits,
+                            const gl::state::ExtendedDirtyBits extendedBitMask,
+                            gl::Command command) override;
 
     // Disjoint timer queries
     GLint getGPUDisjoint() override;
@@ -239,12 +253,14 @@ class ContextGL : public ContextImpl
 
     // Context switching
     angle::Result onMakeCurrent(const gl::Context *context) override;
+    angle::Result onUnMakeCurrent(const gl::Context *context) override;
 
     // Caps queries
     gl::Caps getNativeCaps() const override;
     const gl::TextureCapsMap &getNativeTextureCaps() const override;
     const gl::Extensions &getNativeExtensions() const override;
     const gl::Limitations &getNativeLimitations() const override;
+    const ShPixelLocalStorageOptions &getNativePixelLocalStorageOptions() const override;
 
     // Handle helpers
     ANGLE_INLINE const FunctionsGL *getFunctions() const { return mRenderer->getFunctions(); }
@@ -263,16 +279,40 @@ class ContextGL : public ContextImpl
     angle::Result memoryBarrier(const gl::Context *context, GLbitfield barriers) override;
     angle::Result memoryBarrierByRegion(const gl::Context *context, GLbitfield barriers) override;
 
+    void framebufferFetchBarrier() override;
+
+    angle::Result startTiling(const gl::Context *context,
+                              const gl::Rectangle &area,
+                              GLbitfield preserveMask) override;
+    angle::Result endTiling(const gl::Context *context, GLbitfield preserveMask) override;
+
     void setMaxShaderCompilerThreads(GLuint count) override;
-
-    void invalidateTexture(gl::TextureType target) override;
-
-    void validateState() const;
 
     void setNeedsFlushBeforeDeleteTextures();
     void flushIfNecessaryBeforeDeleteTextures();
 
+    void markWorkSubmitted();
+
+    bool hasNativeParallelCompile();
+
+    const gl::Debug &getDebug() const { return mState.getDebug(); }
+
+    angle::Result getDepthInitPBO(const gl::Context *context,
+                                  size_t requestedSize,
+                                  GLenum type,
+                                  GLuint *pboIdOut);
+    void tickGC();
+
   private:
+    enum StateType
+    {
+        GlobalState,
+        VAOState,
+        Count,
+    };
+    using StateTypes = angle::BitSet<StateType::Count>;
+    void validateState(StateTypes statesToValidate);
+
     angle::Result setDrawArraysState(const gl::Context *context,
                                      GLint first,
                                      GLsizei count,
@@ -285,14 +325,37 @@ class ContextGL : public ContextImpl
                                        GLsizei instanceCount,
                                        const void **outIndices);
 
-    gl::AttributesMask updateAttributesForBaseInstance(const gl::Program *program,
+    gl::AttributesMask updateAttributesForBaseInstance(const gl::Context *context,
                                                        GLuint baseInstance);
-    void resetUpdatedAttributes(gl::AttributesMask attribMask);
+    void resetUpdatedAttributes(const gl::Context *context, gl::AttributesMask attribMask);
 
   protected:
     std::shared_ptr<RendererGL> mRenderer;
 
     RobustnessVideoMemoryPurgeStatus mRobustnessVideoMemoryPurgeStatus;
+
+  private:
+    struct PixelBufferGL
+    {
+        const FunctionsGL *functions = nullptr;
+        GLuint bufferID              = 0;
+        size_t size                  = 0;
+        uint32_t lifetimeCounter     = 0;
+
+        PixelBufferGL(const FunctionsGL *functions);
+        ~PixelBufferGL();
+
+        PixelBufferGL(PixelBufferGL &&other);
+        PixelBufferGL &operator=(PixelBufferGL &&other);
+
+        PixelBufferGL(const PixelBufferGL &)            = delete;
+        PixelBufferGL &operator=(const PixelBufferGL &) = delete;
+    };
+
+    using DepthInitPBOCache = angle::base::HashingMRUCache<GLenum, PixelBufferGL>;
+    // Keyed by the GLenum type passed to getDepthInitPBO (e.g. GL_UNSIGNED_INT_24_8,
+    // GL_FLOAT_32_UNSIGNED_INT_24_8_REV).
+    DepthInitPBOCache mDepthInitPBOs;
 };
 
 }  // namespace rx

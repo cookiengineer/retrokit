@@ -23,12 +23,13 @@ namespace sh
 bool ClampFragDepth(TCompiler *compiler, TIntermBlock *root, TSymbolTable *symbolTable)
 {
     // Only clamp gl_FragDepth if it's used in the shader.
-    if (!FindSymbolNode(root, ImmutableString("gl_FragDepth")))
+    const TIntermSymbol *fragDepthSymbol = FindSymbolNode(root, ImmutableString("gl_FragDepth"));
+    if (!fragDepthSymbol)
     {
         return true;
     }
 
-    TIntermSymbol *fragDepthNode = new TIntermSymbol(BuiltInVariable::gl_FragDepth());
+    TIntermSymbol *fragDepthNode = new TIntermSymbol(&fragDepthSymbol->variable());
 
     TIntermTyped *minFragDepthNode = CreateZeroNode(TType(EbtFloat, EbpHigh, EvqConst));
 
@@ -38,12 +39,12 @@ bool ClampFragDepth(TCompiler *compiler, TIntermBlock *root, TSymbolTable *symbo
         new TIntermConstantUnion(maxFragDepthConstant, TType(EbtFloat, EbpHigh, EvqConst));
 
     // clamp(gl_FragDepth, 0.0, 1.0)
-    TIntermSequence *clampArguments = new TIntermSequence();
-    clampArguments->push_back(fragDepthNode->deepCopy());
-    clampArguments->push_back(minFragDepthNode);
-    clampArguments->push_back(maxFragDepthNode);
+    TIntermSequence clampArguments;
+    clampArguments.push_back(fragDepthNode->deepCopy());
+    clampArguments.push_back(minFragDepthNode);
+    clampArguments.push_back(maxFragDepthNode);
     TIntermTyped *clampedFragDepth =
-        CreateBuiltInFunctionCallNode("clamp", clampArguments, *symbolTable, 100);
+        CreateBuiltInFunctionCallNode("clamp", &clampArguments, *symbolTable, 100);
 
     // gl_FragDepth = clamp(gl_FragDepth, 0.0, 1.0)
     TIntermBinary *assignFragDepth = new TIntermBinary(EOpAssign, fragDepthNode, clampedFragDepth);

@@ -25,18 +25,21 @@
 
 #include "config.h"
 #include "TextPaintStyle.h"
+#include "DocumentView.h"
 
 #include "ColorLuminance.h"
 #include "FocusController.h"
-#include "Frame.h"
 #include "GraphicsContext.h"
+#include "LocalFrame.h"
 #include "Page.h"
 #include "PaintInfo.h"
-#include "RenderStyle.h"
+#include "PlatformRenderTheme.h"
+#include "RenderObjectInlines.h"
 #include "RenderText.h"
 #include "RenderTheme.h"
 #include "RenderView.h"
 #include "Settings.h"
+#include "StyleComputedStyle+GettersInlines.h"
 
 namespace WebCore {
 
@@ -50,12 +53,6 @@ bool TextPaintStyle::operator==(const TextPaintStyle& other) const
 {
     return fillColor == other.fillColor && strokeColor == other.strokeColor && emphasisMarkColor == other.emphasisMarkColor
         && strokeWidth == other.strokeWidth && paintOrder == other.paintOrder && lineJoin == other.lineJoin
-#if ENABLE(LETTERPRESS)
-        && useLetterpressEffect == other.useLetterpressEffect
-#endif
-#if HAVE(OS_DARK_MODE_SUPPORT)
-        && useDarkAppearance == other.useDarkAppearance
-#endif
         && lineCap == other.lineCap && miterLimit == other.miterLimit;
 }
 
@@ -71,29 +68,25 @@ static Color adjustColorForVisibilityOnBackground(const Color& textColor, const 
     if (textColorIsLegibleAgainstBackgroundColor(textColor, backgroundColor))
         return textColor;
 
-    if (textColor.luminance() > 0.5)
-        return textColor.darkened();
-    return textColor.lightened();
+    auto darkened = textColor.darkened();
+    auto lightened = textColor.lightened();
+    if (contrastRatio(darkened, backgroundColor) > contrastRatio(lightened, backgroundColor))
+        return darkened;
+    return lightened;
 }
 
-TextPaintStyle computeTextPaintStyle(const Frame& frame, const RenderStyle& lineStyle, const PaintInfo& paintInfo)
+TextPaintStyle computeTextPaintStyle(const RenderText& renderer, const Style::ComputedStyle& lineStyle, const PaintInfo& paintInfo)
 {
+    Ref frame = renderer.frame();
+    RefPtr frameView = frame->view();
     TextPaintStyle paintStyle;
 
-#if ENABLE(LETTERPRESS)
-    paintStyle.useLetterpressEffect = lineStyle.textDecorationsInEffect().contains(TextDecoration::Letterpress);
-#endif
-
-#if HAVE(OS_DARK_MODE_SUPPORT)
-    paintStyle.useDarkAppearance = frame.document() ? frame.document()->useDarkAppearance(&lineStyle) : false;
-#endif
-
-    auto viewportSize = frame.view() ? frame.view()->size() : IntSize();
-    paintStyle.strokeWidth = lineStyle.computedStrokeWidth(viewportSize);
+    auto viewportSize = frameView ? frameView->size() : IntSize();
+    paintStyle.strokeWidth = lineStyle.usedStrokeWidth(viewportSize);
     paintStyle.paintOrder = lineStyle.paintOrder();
     paintStyle.lineJoin = lineStyle.joinStyle();
     paintStyle.lineCap = lineStyle.capStyle();
-    paintStyle.miterLimit = lineStyle.strokeMiterLimit();
+    paintStyle.miterLimit = lineStyle.strokeMiterLimit().value.value;
     
     if (paintInfo.forceTextColor()) {
         paintStyle.fillColor = paintInfo.forcedTextColor();
@@ -103,37 +96,55 @@ TextPaintStyle computeTextPaintStyle(const Frame& frame, const RenderStyle& line
     }
 
     if (lineStyle.insideDefaultButton()) {
-        Page* page = frame.page();
+        RefPtr page = renderer.frame().page();
         if (page && page->focusController().isActive()) {
-            OptionSet<StyleColor::Options> options;
-            if (page->useSystemAppearance())
-                options.add(StyleColor::Options::UseSystemAppearance);
+            OptionSet<StyleColorOptions> options;
+            if (page->settings().useSystemAppearance())
+                options.add(StyleColorOptions::UseSystemAppearance);
             paintStyle.fillColor = RenderTheme::singleton().defaultButtonTextColor(options);
             return paintStyle;
         }
     }
 
-    paintStyle.fillColor = lineStyle.visitedDependentColorWithColorFilter(CSSPropertyWebkitTextFillColor);
+    if (lineStyle.insideSubmitButton()) {
+        RefPtr page = renderer.frame().page();
+        auto focusControllerActive = true;
+#if PLATFORM(MAC)
+        focusControllerActive = page && page->focusController().isActive();
+#endif
+        if (focusControllerActive) {
+            paintStyle.fillColor = RenderTheme::singleton().submitButtonTextColor(renderer);
+            return paintStyle;
+        }
+    }
+
+    paintStyle.fillColor = lineStyle.visitedDependentTextFillColorApplyingColorFilter(paintInfo.paintBehavior);
 
     bool forceBackgroundToWhite = false;
-    if (frame.document() && frame.document()->printing()) {
+    if (frame->document() && protect(frame->document())->printing()) {
         if (lineStyle.printColorAdjust() == PrintColorAdjust::Economy)
             forceBackgroundToWhite = true;
-        if (frame.settings().shouldPrintBackgrounds())
+
+        if (frame->settings().shouldPrintBackgrounds())
             forceBackgroundToWhite = false;
+
+        if (forceBackgroundToWhite) {
+            if (Style::hasAnyBackgroundClipText(renderer.style().backgroundLayers()))
+                paintStyle.fillColor = Color::black;
+        }
     }
 
     // Make the text fill color legible against a white background
     if (forceBackgroundToWhite)
         paintStyle.fillColor = adjustColorForVisibilityOnBackground(paintStyle.fillColor, Color::white);
 
-    paintStyle.strokeColor = lineStyle.colorByApplyingColorFilter(lineStyle.computedStrokeColor());
+    paintStyle.strokeColor = lineStyle.usedStrokeColorApplyingColorFilter();
 
     // Make the text stroke color legible against a white background
     if (forceBackgroundToWhite)
         paintStyle.strokeColor = adjustColorForVisibilityOnBackground(paintStyle.strokeColor, Color::white);
 
-    paintStyle.emphasisMarkColor = lineStyle.visitedDependentColorWithColorFilter(CSSPropertyWebkitTextEmphasisColor);
+    paintStyle.emphasisMarkColor = lineStyle.visitedDependentTextEmphasisColorApplyingColorFilter();
 
     // Make the text stroke color legible against a white background
     if (forceBackgroundToWhite)
@@ -142,7 +153,7 @@ TextPaintStyle computeTextPaintStyle(const Frame& frame, const RenderStyle& line
     return paintStyle;
 }
 
-TextPaintStyle computeTextSelectionPaintStyle(const TextPaintStyle& textPaintStyle, const RenderText& renderer, const RenderStyle& lineStyle, const PaintInfo& paintInfo, std::optional<ShadowData>& selectionShadow)
+TextPaintStyle computeTextSelectionPaintStyle(const TextPaintStyle& textPaintStyle, const RenderText& renderer, const Style::ComputedStyle& lineStyle, const PaintInfo& paintInfo, Style::TextShadows& selectionShadow)
 {
     TextPaintStyle selectionPaintStyle = textPaintStyle;
 
@@ -155,23 +166,25 @@ TextPaintStyle computeTextSelectionPaintStyle(const TextPaintStyle& textPaintSty
     if (emphasisMarkForeground.isValid() && emphasisMarkForeground != selectionPaintStyle.emphasisMarkColor)
         selectionPaintStyle.emphasisMarkColor = emphasisMarkForeground;
 
+    RefPtr view = renderer.frame().view();
     if (auto pseudoStyle = renderer.selectionPseudoStyle()) {
-        selectionShadow = ShadowData::clone(paintInfo.forceTextColor() ? nullptr : pseudoStyle->textShadow());
-        auto viewportSize = renderer.frame().view() ? renderer.frame().view()->size() : IntSize();
-        float strokeWidth = pseudoStyle->computedStrokeWidth(viewportSize);
+        selectionPaintStyle.hasExplicitlySetFillColor = pseudoStyle->hasExplicitlySetColor();
+        selectionShadow = paintInfo.forceTextColor() ? Style::TextShadows { CSS::Keyword::None { } } : pseudoStyle->textShadow();
+        auto viewportSize = view ? view->size() : IntSize();
+        float strokeWidth = pseudoStyle->usedStrokeWidth(viewportSize);
         if (strokeWidth != selectionPaintStyle.strokeWidth)
             selectionPaintStyle.strokeWidth = strokeWidth;
 
-        Color stroke = paintInfo.forceTextColor() ? paintInfo.forcedTextColor() : pseudoStyle->computedStrokeColor();
+        Color stroke = paintInfo.forceTextColor() ? paintInfo.forcedTextColor() : pseudoStyle->usedStrokeColor();
         if (stroke != selectionPaintStyle.strokeColor)
             selectionPaintStyle.strokeColor = stroke;
     } else
-        selectionShadow = ShadowData::clone(paintInfo.forceTextColor() ? nullptr : lineStyle.textShadow());
+        selectionShadow = paintInfo.forceTextColor() ? Style::TextShadows { CSS::Keyword::None { } } : lineStyle.textShadow();
 #else
     UNUSED_PARAM(renderer);
     UNUSED_PARAM(lineStyle);
     UNUSED_PARAM(paintInfo);
-    selectionShadow = ShadowData::clone(paintInfo.forceTextColor() ? nullptr : lineStyle.textShadow());
+    selectionShadow = paintInfo.forceTextColor() ? Style::TextShadows { CSS::Keyword::None { } } : lineStyle.textShadow();
 #endif
     return selectionPaintStyle;
 }
@@ -180,12 +193,6 @@ void updateGraphicsContext(GraphicsContext& context, const TextPaintStyle& paint
 {
     TextDrawingModeFlags mode = context.textDrawingMode();
     TextDrawingModeFlags newMode = mode;
-#if ENABLE(LETTERPRESS)
-    if (paintStyle.useLetterpressEffect)
-        newMode.add(TextDrawingMode::Letterpress);
-    else
-        newMode.remove(TextDrawingMode::Letterpress);
-#endif
     if (paintStyle.strokeWidth > 0 && paintStyle.strokeColor.isVisible())
         newMode.add(TextDrawingMode::Stroke);
     if (mode != newMode) {
@@ -193,11 +200,7 @@ void updateGraphicsContext(GraphicsContext& context, const TextPaintStyle& paint
         mode = newMode;
     }
 
-#if HAVE(OS_DARK_MODE_SUPPORT)
-    context.setUseDarkAppearance(paintStyle.useDarkAppearance);
-#endif
-
-    Color fillColor = fillColorType == UseEmphasisMarkColor ? paintStyle.emphasisMarkColor : paintStyle.fillColor;
+    Color fillColor = fillColorType == FillColorType::EmphasisMark ? paintStyle.emphasisMarkColor : paintStyle.fillColor;
     if (mode.contains(TextDrawingMode::Fill) && (fillColor != context.fillColor()))
         context.setFillColor(fillColor);
 
@@ -208,7 +211,7 @@ void updateGraphicsContext(GraphicsContext& context, const TextPaintStyle& paint
             context.setStrokeThickness(paintStyle.strokeWidth);
         context.setLineJoin(paintStyle.lineJoin);
         context.setLineCap(paintStyle.lineCap);
-        if (paintStyle.lineJoin == MiterJoin)
+        if (paintStyle.lineJoin == LineJoin::Miter)
             context.setMiterLimit(paintStyle.miterLimit);
     }
 }

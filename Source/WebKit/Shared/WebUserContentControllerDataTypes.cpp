@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,89 +26,28 @@
 #include "config.h"
 #include "WebUserContentControllerDataTypes.h"
 
-#include "WebCoreArgumentCoders.h"
+#include <WebCore/SharedMemory.h>
 
 namespace WebKit {
 
-void WebUserScriptData::encode(IPC::Encoder& encoder) const
+WebJSBufferData::WebJSBufferData(const Ref<WebCore::SharedMemory>& data, ContentWorldData&& worldData, const String& name)
+    : data(data)
+    , worldData(WTF::move(worldData))
+    , name(name) { }
+
+WebJSBufferData::WebJSBufferData(std::optional<WebCore::SharedMemoryHandle>&& handle, ContentWorldData&& worldData, String&& name)
+    : data(handle ? WebCore::SharedMemory::map(WTF::move(*handle), WebCore::SharedMemory::Protection::ReadOnly) : nullptr)
+    , worldData(WTF::move(worldData))
+    , name(WTF::move(name)) { }
+
+WebJSBufferData::~WebJSBufferData() = default;
+
+std::optional<WebCore::SharedMemoryHandle> WebJSBufferData::sharedMemoryHandle() const
 {
-    encoder << identifier;
-    encoder << worldIdentifier;
-    encoder << userScript;
-}
-
-std::optional<WebUserScriptData> WebUserScriptData::decode(IPC::Decoder& decoder)
-{
-    std::optional<uint64_t> identifier;
-    decoder >> identifier;
-    if (!identifier)
+    RefPtr sharedMemory = data;
+    if (!sharedMemory)
         return std::nullopt;
-    
-    std::optional<ContentWorldIdentifier> worldIdentifier;
-    decoder >> worldIdentifier;
-    if (!worldIdentifier)
-        return std::nullopt;
-    
-    std::optional<WebCore::UserScript> userScript;
-    decoder >> userScript;
-    if (!userScript)
-        return std::nullopt;
-    
-    return {{ WTFMove(*identifier), WTFMove(*worldIdentifier), WTFMove(*userScript) }};
-}
-
-void WebUserStyleSheetData::encode(IPC::Encoder& encoder) const
-{
-    encoder << identifier;
-    encoder << worldIdentifier;
-    encoder << userStyleSheet;
-}
-
-std::optional<WebUserStyleSheetData> WebUserStyleSheetData::decode(IPC::Decoder& decoder)
-{
-    std::optional<uint64_t> identifier;
-    decoder >> identifier;
-    if (!identifier)
-        return std::nullopt;
-    
-    std::optional<ContentWorldIdentifier> worldIdentifier;
-    decoder >> worldIdentifier;
-    if (!worldIdentifier)
-        return std::nullopt;
-    
-    WebCore::UserStyleSheet userStyleSheet;
-    if (!decoder.decode(userStyleSheet))
-        return std::nullopt;
-    
-    return {{ WTFMove(*identifier), WTFMove(*worldIdentifier), WTFMove(userStyleSheet) }};
-}
-
-
-void WebScriptMessageHandlerData::encode(IPC::Encoder& encoder) const
-{
-    encoder << identifier;
-    encoder << worldIdentifier;
-    encoder << name;
-}
-
-std::optional<WebScriptMessageHandlerData> WebScriptMessageHandlerData::decode(IPC::Decoder& decoder)
-{
-    std::optional<uint64_t> identifier;
-    decoder >> identifier;
-    if (!identifier)
-        return std::nullopt;
-    
-    std::optional<ContentWorldIdentifier> worldIdentifier;
-    decoder >> worldIdentifier;
-    if (!worldIdentifier)
-        return std::nullopt;
-    
-    std::optional<String> name;
-    decoder >> name;
-    if (!name)
-        return std::nullopt;
-
-    return {{ WTFMove(*identifier), WTFMove(*worldIdentifier), WTFMove(*name) }};
+    return sharedMemory->createHandle(WebCore::SharedMemory::Protection::ReadOnly);
 }
 
 } // namespace WebKit

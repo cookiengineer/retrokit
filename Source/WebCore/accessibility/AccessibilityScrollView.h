@@ -25,64 +25,130 @@
 
 #pragma once
 
-#include "AccessibilityObject.h"
+#include <WebCore/AXObjectCache.h>
+#include <WebCore/AXRemoteFrame.h>
+#include <WebCore/AccessibilityObject.h>
+#include <WebCore/ScrollView.h>
 
 namespace WebCore {
-    
+
+class AXLocalFrame;
+class AXRemoteFrame;
 class AccessibilityScrollbar;
 class Scrollbar;
 class ScrollView;
-    
+
 class AccessibilityScrollView final : public AccessibilityObject {
 public:
-    static Ref<AccessibilityScrollView> create(ScrollView*);
-    AccessibilityRole roleValue() const override { return AccessibilityRole::ScrollArea; }
-    ScrollView* scrollView() const override { return m_scrollView.get(); }
+    static Ref<AccessibilityScrollView> create(AXID, ScrollView&, AXObjectCache&);
+    AccessibilityRole determineAccessibilityRole() final;
+    ScrollView* scrollView() const final { return currentScrollView(); }
 
     virtual ~AccessibilityScrollView();
 
-    AccessibilityObject* webAreaObject() const override;
+    AccessibilityObject* webAreaObject() const final;
+    void setNeedsToUpdateChildren() final { m_childrenDirty = true; }
+
+    RefPtr<AXRemoteFrame> remoteFrame() const { return m_remoteFrame; }
+
+    String ownerDebugDescription() const;
+    String extraDebugInfo() const final;
+
+    AccessibilityObject* parentObject() const final;
+#if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
+    AccessibilityObject* crossFrameParentObject() const final;
+    AccessibilityObject* crossFrameChildObject() const final;
+
+    // The AXLocalFrame that proxies this hosted (iframe) frame's content in the parent frame's
+    // accessibility tree. Only non-null on a FrameHost scroll view (i.e. when !isRoot()).
+    AXLocalFrame* localFrame() const { return m_localFrame.get(); }
+
+    // Returns the screen position and transform for this frame.
+    // Reads from the AXObjectCache's cached value, populated asynchronously via IPC.
+    // On first access when cache is empty, fires an async requestFrameScreenPosition.
+    AXFrameGeometry frameGeometry() const;
+    IntPoint frameScreenPosition() const final { return frameGeometry().screenPosition; }
+    AffineTransform frameScreenTransform() const final { return frameGeometry().screenTransform; }
+    IntPoint frameViewOriginScrollPosition() const;
+
+    bool isFrameGeometryInitialized() const final;
+
+    void setInheritedFrameState(InheritedFrameState);
+    const InheritedFrameState& inheritedFrameState() const LIFETIME_BOUND { return m_inheritedFrameState; }
+    bool isARIAHidden() const final;
+    void updateHostedFrameInheritedState();
+
+    // Returns true if the iframe element (or ancestors) cause the content to be hidden.
+    // We can't use isIgnored() because FrameHost scroll views are always ignored (see computeIsIgnored).
+    bool isHostingFrameHidden() const { return isAXHidden(); }
+    bool isHostingFrameInert() const;
+    bool isHostingFrameRenderHidden() const;
+    bool isIgnoredFromHostingFrame() const { return isHostingFrameHidden() || isHostingFrameInert() || isHostingFrameRenderHidden(); }
+#endif // ENABLE(ACCESSIBLITY_LOCAL_FRAME)
 
 private:
-    explicit AccessibilityScrollView(ScrollView*);
-    void detachRemoteParts(AccessibilityDetachmentType) override;
+    explicit AccessibilityScrollView(AXID, ScrollView&, AXObjectCache&);
+    void detachRemoteParts(AccessibilityDetachmentType) final;
 
-    ScrollableArea* getScrollableAreaIfScrollable() const override;
-    void scrollTo(const IntPoint&) const override;
-    bool computeAccessibilityIsIgnored() const override;
-    bool isAccessibilityScrollViewInstance() const override { return true; }
-    bool isEnabled() const override { return true; }
-    
-    bool isAttachment() const override;
-    PlatformWidget platformWidget() const override;
-    Widget* widgetForAttachmentView() const override;
-    
-    AccessibilityObject* scrollBar(AccessibilityOrientation) override;
-    void addChildren() override;
-    void clearChildren() override;
-    AXCoreObject* accessibilityHitTest(const IntPoint&) const override;
-    void updateChildrenIfNecessary() override;
-    void setNeedsToUpdateChildren() override { m_childrenDirty = true; }
+    ScrollView* currentScrollView() const;
+    ScrollableArea* getScrollableAreaIfScrollable() const final { return currentScrollView(); }
+    void scrollTo(const IntPoint&) const final;
+    bool computeIsIgnored() const final;
+    bool isAccessibilityScrollViewInstance() const final { return true; }
+    bool isEnabled() const final { return true; }
+    bool hasRemoteFrameChild() const final { return m_remoteFrame; }
+
+    bool isRoot() const final;
+    bool isAttachment() const final;
+    PlatformWidget platformWidget() const final;
+    Widget* widgetForAttachmentView() const final { return currentScrollView(); }
+
+    AccessibilityObject* scrollBar(AccessibilityOrientation) final;
+    void addChildren() final;
+    void clearChildren() final;
+    RefPtr<AXCoreObject> accessibilityHitTest(const IntPoint&) const final;
+    void updateChildrenIfNecessary() final;
     void updateScrollbars();
-    void setFocused(bool) override;
-    bool canSetFocusAttribute() const override;
-    bool isFocused() const override;
-    
-    FrameView* documentFrameView() const override;
-    LayoutRect elementRect() const override;
-    AccessibilityObject* parentObject() const override;
-    AccessibilityObject* parentObjectIfExists() const override;
+    void setFocused(bool) final;
+    bool canSetFocusAttribute() const final;
+    bool isFocused() const final;
+    void addLocalFrameChild();
+    void addRemoteFrameChild();
+    const AccessibilityScrollView* frameRootScrollView() const;
 
-    AccessibilityObject* firstChild() const override { return webAreaObject(); }
+    Document* document() const final;
+    LocalFrameView* documentFrameView() const final;
+    LayoutRect elementRect() const final;
+    LayoutRect boundingBoxRect() const final { return elementRect(); }
+    AccessibilityObject* horizontalScrollbar() const { return m_horizontalScrollbar.get(); }
+    AccessibilityObject* verticalScrollbar() const { return m_verticalScrollbar.get(); }
+    HTMLFrameOwnerElement* frameOwnerElement() const { return m_frameOwnerElement; }
+
+    AccessibilityObject* firstChild() const final { return webAreaObject(); }
     AccessibilityScrollbar* addChildScrollbar(Scrollbar*);
     void removeChildScrollbar(AccessibilityObject*);
-    
-    WeakPtr<ScrollView> m_scrollView;
+
+    bool m_childrenDirty;
+    // Memoized result of isRoot(), which is invariant for this object's lifetime (see isRoot()).
+    mutable std::optional<bool> m_isRoot;
+    SingleThreadWeakPtr<ScrollView> m_scrollView;
+    WeakPtr<HTMLFrameOwnerElement, WeakPtrImplWithEventTargetData> m_frameOwnerElement;
     RefPtr<AccessibilityObject> m_horizontalScrollbar;
     RefPtr<AccessibilityObject> m_verticalScrollbar;
-    bool m_childrenDirty;
+#if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
+    RefPtr<AXLocalFrame> m_localFrame;
+    InheritedFrameState m_inheritedFrameState;
+#endif
+    RefPtr<AXRemoteFrame> m_remoteFrame;
 };
-    
+
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_ACCESSIBILITY(AccessibilityScrollView, isAccessibilityScrollViewInstance())
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::AccessibilityScrollView)
+    static bool isType(const WebCore::AccessibilityObject& object) { return object.isAccessibilityScrollViewInstance(); }
+    static bool isType(const WebCore::AXCoreObject& object)
+    {
+        auto* accessibilityObject = dynamicDowncast<WebCore::AccessibilityObject>(object);
+        return accessibilityObject && accessibilityObject->isAccessibilityScrollViewInstance();
+    }
+SPECIALIZE_TYPE_TRAITS_END()

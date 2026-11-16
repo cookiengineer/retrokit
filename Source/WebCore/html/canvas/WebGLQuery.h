@@ -27,7 +27,7 @@
 
 #if ENABLE(WEBGL)
 
-#include "WebGLSharedObject.h"
+#include <WebCore/WebGLObject.h>
 
 namespace WTF {
 class AbstractLocker;
@@ -35,8 +35,9 @@ class AbstractLocker;
 
 namespace WebCore {
 
-class WebGLQuery final : public WebGLSharedObject {
+class WebGLQuery final : public WebGLObject {
 public:
+    static Ref<WebGLQuery> createLost();
     static Ref<WebGLQuery> create(WebGLRenderingContextBase&);
     virtual ~WebGLQuery();
 
@@ -46,10 +47,12 @@ public:
 
     void setTarget(GCGLenum target) { m_target = target; }
     GCGLenum target() const { return m_target; }
-
+    bool isUsable() const { return object() && !isDeleted(); }
+    bool isInitialized() const { return true; }
 private:
-    explicit WebGLQuery(WebGLRenderingContextBase&);
-    void deleteObjectImpl(const WTF::AbstractLocker&, GraphicsContextGL*, PlatformGLObject) override;
+    WebGLQuery(WebGLRenderingContextBase&, PlatformGLObject);
+    WebGLQuery();
+    void deleteObjectImpl(const AbstractLocker&, GraphicsContextGL*, PlatformGLObject) override;
 
     bool m_isResultAvailable { false };
     GCGLenum m_target { 0 };

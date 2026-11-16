@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Copyright (c) 2014-2016 Apple Inc. All rights reserved.
 # Copyright (c) 2014 University of Washington. All rights reserved.
@@ -34,7 +34,7 @@ try:
     from .generator import Generator, ucfirst
     from .objc_generator import ObjCGenerator
     from .objc_generator_templates import ObjCGeneratorTemplates as ObjCTemplates
-except ValueError:
+except ImportError:
     from cpp_generator import CppGenerator
     from generator import Generator, ucfirst
     from objc_generator import ObjCGenerator
@@ -156,5 +156,5 @@ class ObjCFrontendDispatcherImplementationGenerator(ObjCGenerator):
             else:
                 lines.append('    if (%s)' % (parameter.parameter_name))
                 lines.append('        protocol_paramsObject->%s("%s"_s, %s);' % (keyed_set_method, parameter.parameter_name, export_expression))
-        lines.append('    protocol_jsonMessage->setObject("params"_s, WTFMove(protocol_paramsObject));')
+        lines.append('    protocol_jsonMessage->setObject("params"_s, WTF::move(protocol_paramsObject));')
         return lines

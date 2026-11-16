@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,16 +27,51 @@
 #include "WebInjectedScriptManager.h"
 
 #include "CommandLineAPIModule.h"
-#include "ScriptState.h"
-
+#include "Document.h"
+#include "JSExecState.h"
+#include "LocalDOMWindow.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 using namespace Inspector;
 
-WebInjectedScriptManager::WebInjectedScriptManager(InspectorEnvironment& environment, Ref<InjectedScriptHost>&& host)
-    : InjectedScriptManager(environment, WTFMove(host))
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebInjectedScriptManager);
+
+Ref<WebInjectedScriptManager> WebInjectedScriptManager::create(InspectorEnvironment& environment, Ref<InjectedScriptHost>&& host)
 {
+    return adoptRef(*new WebInjectedScriptManager(environment, WTF::move(host)));
+}
+
+WebInjectedScriptManager::WebInjectedScriptManager(InspectorEnvironment& environment, Ref<InjectedScriptHost>&& host)
+    : InjectedScriptManager(environment, WTF::move(host))
+{
+}
+
+WebInjectedScriptManager::~WebInjectedScriptManager()
+{
+    ASSERT(!m_clientCount);
+    if (m_clientCount > 0) {
+        m_clientCount = 0;
+        disconnect();
+    }
+}
+
+void WebInjectedScriptManager::addClient()
+{
+    ++m_clientCount;
+    if (m_clientCount == 1)
+        connect();
+}
+
+void WebInjectedScriptManager::removeClient()
+{
+    ASSERT(m_clientCount > 0);
+    --m_clientCount;
+    if (!m_clientCount) {
+        // FIXME <https://webkit.org/b/305415>: Figure out why the commandLineAPIHost may still be used after the last client disconnects, and call disconnect here instead.
+        discardInjectedScripts();
+    }
 }
 
 void WebInjectedScriptManager::connect()
@@ -50,10 +85,7 @@ void WebInjectedScriptManager::disconnect()
 {
     InjectedScriptManager::disconnect();
 
-    if (m_commandLineAPIHost) {
-        m_commandLineAPIHost->disconnect();
-        m_commandLineAPIHost = nullptr;
-    }
+    m_commandLineAPIHost = nullptr;
 }
 
 void WebInjectedScriptManager::discardInjectedScripts()
@@ -61,7 +93,7 @@ void WebInjectedScriptManager::discardInjectedScripts()
     InjectedScriptManager::discardInjectedScripts();
 
     if (m_commandLineAPIHost)
-        m_commandLineAPIHost->clearAllWrappers();
+        protect(m_commandLineAPIHost)->clearAllWrappers();
 }
 
 void WebInjectedScriptManager::didCreateInjectedScript(const Inspector::InjectedScript& injectedScript)
@@ -69,33 +101,21 @@ void WebInjectedScriptManager::didCreateInjectedScript(const Inspector::Injected
     CommandLineAPIModule::injectIfNeeded(this, injectedScript);
 }
 
-void WebInjectedScriptManager::discardInjectedScriptsFor(DOMWindow* window)
+void WebInjectedScriptManager::discardInjectedScriptsFor(LocalDOMWindow& window)
 {
     if (m_scriptStateToId.isEmpty())
         return;
 
-    Vector<long> idsToRemove;
-    for (const auto& it : m_idToInjectedScript) {
-        JSC::JSGlobalObject* lexicalGlobalObject = it.value.globalObject();
-        if (window != domWindowFromExecState(lexicalGlobalObject))
-            continue;
-        m_scriptStateToId.remove(lexicalGlobalObject);
-        idsToRemove.append(it.key);
-    }
+    RefPtr document = window.document();
+    if (!document)
+        return;
 
-    for (auto& id : idsToRemove)
-        m_idToInjectedScript.remove(id);
-
-    // Now remove script states that have id but no injected script.
-    Vector<JSC::JSGlobalObject*> scriptStatesToRemove;
-    for (const auto& it : m_scriptStateToId) {
-        JSC::JSGlobalObject* lexicalGlobalObject = it.key;
-        if (window == domWindowFromExecState(lexicalGlobalObject))
-            scriptStatesToRemove.append(lexicalGlobalObject);
-    }
-
-    for (auto& lexicalGlobalObject : scriptStatesToRemove)
-        m_scriptStateToId.remove(lexicalGlobalObject);
+    m_idToInjectedScript.removeIf([document](auto& entry) {
+        return executionContext(entry.value.globalObject()) == document;
+    });
+    m_scriptStateToId.removeIf([document](auto& entry) {
+        return executionContext(entry.key) == document;
+    });
 }
 
 } // namespace WebCore

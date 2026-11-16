@@ -25,11 +25,12 @@
 
 [
     ActiveDOMObject,
-    EnabledBySetting=SpeechRecognition,
+    EnabledBySetting=SpeechRecognitionEnabled,
     InterfaceName=webkitSpeechRecognition,
+    SecureContext,
     Exposed=Window
 ] interface SpeechRecognition : EventTarget {
-    [CallWith=Document] constructor();
+    [CallWith=CurrentDocument] constructor();
 
     attribute DOMString lang;
     attribute boolean continuous;

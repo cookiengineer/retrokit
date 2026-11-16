@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,54 +29,47 @@
 #if ENABLE(WEB_AUTHN)
 
 #include "AbortSignal.h"
+#include "AllAcceptedCredentialsOptions.h"
 #include "AuthenticatorAssertionResponse.h"
 #include "AuthenticatorAttestationResponse.h"
 #include "AuthenticatorCoordinatorClient.h"
 #include "AuthenticatorResponseData.h"
-#include "Document.h"
+#include "CurrentUserDetailsOptions.h"
+#include "DocumentPage.h"
+#include "DocumentSecurityOrigin.h"
+#include "FrameDestructionObserverInlines.h"
 #include "JSBasicCredential.h"
+#include "LegacySchemeRegistry.h"
+#include "LocalFrameInlines.h"
+#include "JSCredentialCreationOptions.h"
+#include "JSCredentialRequestOptions.h"
+#include "JSDOMConvertBoolean.h"
+#include "JSDOMConvertInterface.h"
+#include "JSDOMConvertNullable.h"
+#include "JSDOMConvertRecord.h"
+#include "JSDOMConvertStrings.h"
 #include "JSDOMPromiseDeferred.h"
+#include "JSValueInWrappedObjectInlines.h"
+#include "LoginStatus.h"
+#include "Page.h"
+#include "PermissionsPolicy.h"
 #include "PublicKeyCredential.h"
 #include "PublicKeyCredentialCreationOptions.h"
 #include "PublicKeyCredentialRequestOptions.h"
 #include "RegistrableDomain.h"
-#include "LegacySchemeRegistry.h"
-#include "SecurityOrigin.h"
+#include "RemoteFrame.h"
+#include "UnknownCredentialOptions.h"
 #include "WebAuthenticationConstants.h"
+#include "WebAuthenticationUtils.h"
 #include <pal/crypto/CryptoDigest.h>
-#include <wtf/JSONValues.h>
 #include <wtf/NeverDestroyed.h>
-#include <wtf/text/Base64.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(AuthenticatorCoordinatorClient);
+
 namespace AuthenticatorCoordinatorInternal {
-
-// FIXME(181948): Add token binding ID.
-static Ref<ArrayBuffer> produceClientDataJson(ClientDataType type, const BufferSource& challenge, const SecurityOrigin& origin)
-{
-    auto object = JSON::Object::create();
-    switch (type) {
-    case ClientDataType::Create:
-        object->setString("type"_s, "webauthn.create"_s);
-        break;
-    case ClientDataType::Get:
-        object->setString("type"_s, "webauthn.get"_s);
-        break;
-    }
-    object->setString("challenge"_s, base64URLEncodeToString(challenge.data(), challenge.length()));
-    object->setString("origin"_s, origin.toRawString());
-
-    auto utf8JSONString = object->toJSONString().utf8();
-    return ArrayBuffer::create(utf8JSONString.data(), utf8JSONString.length());
-}
-
-static Vector<uint8_t> produceClientDataJsonHash(const ArrayBuffer& clientDataJson)
-{
-    auto crypto = PAL::CryptoDigest::create(PAL::CryptoDigest::Algorithm::SHA_256);
-    crypto->addBytes(clientDataJson.data(), clientDataJson.byteLength());
-    return crypto->computeHash();
-}
 
 static bool needsAppIdQuirks(const String& host, const String& appId)
 {
@@ -84,7 +77,7 @@ static bool needsAppIdQuirks(const String& host, const String& appId)
     // existing device registrations that authenticate 'google.com' against 'gstatic.com'. Firefox and other browsers
     // have agreed to grant an exception to the AppId rules for a limited time period (5 years from January, 2018) to
     // allow existing Google users to seamlessly transition to proper WebAuthN behavior.
-    if (equalLettersIgnoringASCIICase(host, "google.com") || host.endsWithIgnoringASCIICase(".google.com"))
+    if (equalLettersIgnoringASCIICase(host, "google.com"_s) || host.endsWithIgnoringASCIICase(".google.com"_s))
         return (appId == "https://www.gstatic.com/securitykey/origins.json"_s) || (appId == "https://www.gstatic.com/securitykey/a/google.com/origins.json"_s);
     return false;
 }
@@ -104,197 +97,423 @@ static String processAppIdExtension(const SecurityOrigin& facetId, const String&
         return facetId.toString();
 
     // Step 3. Relax the comparison to same site.
-    URL appIdURL(URL(), appId);
+    URL appIdURL { appId };
     if (!appIdURL.isValid() || facetId.protocol() != appIdURL.protocol() || (RegistrableDomain(appIdURL) != RegistrableDomain::uncheckedCreateFromHost(facetId.host()) && !needsAppIdQuirks(facetId.host(), appId)))
         return String();
     return appId;
 }
 
-// The default behaviour for google.com is to always turn on the legacy AppID support.
-static bool processGoogleLegacyAppIdSupportExtension(const std::optional<AuthenticationExtensionsClientInputs>& extensions, const String& rpId)
+static ScopeAndCrossOriginParent scopeAndCrossOriginParent(const Document& document)
 {
-    if (rpId != "google.com"_s)
-        return false;
-    if (!extensions)
-        return true;
-    return extensions->googleLegacyAppidSupport;
+    bool isSameSite = true;
+    Ref origin = document.securityOrigin();
+    auto url = document.url();
+    std::optional<SecurityOriginData> crossOriginParent;
+    for (RefPtr parentFrame = document.frame() ? document.frame()->tree().parent() : nullptr; parentFrame; parentFrame = parentFrame->tree().parent()) {
+        RefPtr parentOrigin = parentFrame->frameDocumentSecurityOrigin();
+        if (!parentOrigin || is<RemoteFrame>(parentFrame) || RegistrableDomain(parentOrigin->data()) != RegistrableDomain(origin->data()))
+            isSameSite = false;
+        if (parentOrigin && !origin->isSameOriginAs(*parentOrigin))
+            crossOriginParent = parentOrigin->data();
+    }
+
+    if (!crossOriginParent)
+        return std::pair { WebAuthn::Scope::SameOrigin, std::nullopt };
+    if (isSameSite)
+        return std::pair { WebAuthn::Scope::SameSite, crossOriginParent };
+    return std::pair { WebAuthn::Scope::CrossOrigin, crossOriginParent };
 }
 
 } // namespace AuthenticatorCoordinatorInternal
 
-AuthenticatorCoordinator::AuthenticatorCoordinator(std::unique_ptr<AuthenticatorCoordinatorClient>&& client)
-    : m_client(WTFMove(client))
+WTF_MAKE_TZONE_ALLOCATED_IMPL(AuthenticatorCoordinator);
+
+AuthenticatorCoordinator::AuthenticatorCoordinator(Page& page, std::unique_ptr<AuthenticatorCoordinatorClient>&& client)
+    : m_page(page)
+    , m_client(WTF::move(client))
 {
+}
+
+AuthenticatorCoordinator::~AuthenticatorCoordinator() = default;
+
+void AuthenticatorCoordinator::ref() const
+{
+    m_page->ref();
+}
+
+void AuthenticatorCoordinator::deref() const
+{
+    m_page->deref();
 }
 
 void AuthenticatorCoordinator::setClient(std::unique_ptr<AuthenticatorCoordinatorClient>&& client)
 {
-    m_client = WTFMove(client);
+    m_client = WTF::move(client);
 }
 
-void AuthenticatorCoordinator::create(const Document& document, const PublicKeyCredentialCreationOptions& options, bool sameOriginWithAncestors, RefPtr<AbortSignal>&& abortSignal, CredentialPromise&& promise) const
+void AuthenticatorCoordinator::create(const Document& document, CredentialCreationOptions&& createOptions, RefPtr<AbortSignal>&& abortSignal, CredentialPromise&& promise)
 {
     using namespace AuthenticatorCoordinatorInternal;
 
-    const auto& callerOrigin = document.securityOrigin();
-    auto* frame = document.frame();
+    Ref callerOrigin = document.securityOrigin();
+    RefPtr frame = document.frame();
     ASSERT(frame);
-    // The following implements https://www.w3.org/TR/webauthn/#createCredential as of 5 December 2017.
+    // The following implements https://www.w3.org/TR/webauthn-2/#createCredential as of 28 June 2022.
     // Step 1, 3, 16 are handled by the caller.
+    // Step 1
+    if (!createOptions.publicKey) {
+        promise.reject(Exception { ExceptionCode::NotSupportedError, "Only PublicKeyCredential is supported."_s });
+        return;
+    }
+    const auto& options = createOptions.publicKey.value();
+
     // Step 2.
-    if (!sameOriginWithAncestors) {
-        promise.reject(Exception { NotAllowedError, "The origin of the document is not the same as its ancestors."_s });
+    if (scopeAndCrossOriginParent(document).first != WebAuthn::Scope::SameOrigin) {
+        promise.reject(Exception { ExceptionCode::NotAllowedError, "The origin of the document is not the same as its ancestors."_s });
         return;
     }
 
-    // Step 5. Skipped since SecurityOrigin doesn't have the concept of "opaque origin".
-    // Step 6. The effective domain may be represented in various manners, such as a domain or an ip address.
+    // Step 5.
+    if (options.user.id.byteLength() < 1 || options.user.id.byteLength() > 64) {
+        promise.reject(Exception { ExceptionCode::TypeError, "The length options.user.id must be between 1-64 bytes."_s });
+        return;
+    }
+
+    // Step 6. Skipped since SecurityOrigin doesn't have the concept of "opaque origin".
+    // Step 7. The effective domain may be represented in various manners, such as a domain or an ip address.
     // Only the domain format of host is permitted in WebAuthN.
-    if (URL::hostIsIPAddress(callerOrigin.domain())) {
-        promise.reject(Exception { SecurityError, "The effective domain of the document is not a valid domain."_s });
+    if (URL::hostIsIPAddress(callerOrigin->domain())) {
+        promise.reject(Exception { ExceptionCode::SecurityError, "The effective domain of the document is not a valid domain."_s });
         return;
     }
 
-    // Step 7.
-    if (!options.rp.id.isEmpty() && !callerOrigin.isMatchingRegistrableDomainSuffix(options.rp.id)) {
-        promise.reject(Exception { SecurityError, "The provided RP ID is not a registrable domain suffix of the effective domain of the document."_s });
-        return;
-    }
-    if (options.rp.id.isEmpty())
-        options.rp.id = callerOrigin.domain();
+    // Step 8.
+    if (!options.rp.id)
+        options.rp.id = callerOrigin->domain();
 
-    // Step 8-10.
-    // Most of the jobs are done by bindings. However, we can't know if the JSValue of options.pubKeyCredParams
-    // is empty or not. Return NotSupportedError as long as it is empty.
+    // Step 9-11.
+    // Most of the jobs are done by bindings.
     if (options.pubKeyCredParams.isEmpty()) {
-        promise.reject(Exception { NotSupportedError, "No desired properties of the to be created credential are provided."_s });
-        return;
+        options.pubKeyCredParams.append({ PublicKeyCredentialType::PublicKey, COSE::ES256 });
+        options.pubKeyCredParams.append({ PublicKeyCredentialType::PublicKey, COSE::RS256 });
+    } else {
+        if (notFound != options.pubKeyCredParams.findIf([] (auto& pubKeyCredParam) {
+            return pubKeyCredParam.type != PublicKeyCredentialType::PublicKey;
+        })) {
+            
+            promise.reject(Exception { ExceptionCode::NotSupportedError, "options.pubKeyCredParams contains unsupported PublicKeyCredentialType value."_s });
+            return;
+        }
     }
 
-    // Step 11-12.
-    // Only Google Legacy AppID Support Extension is supported.
-    options.extensions = AuthenticationExtensionsClientInputs { String(), processGoogleLegacyAppIdSupportExtension(options.extensions, options.rp.id) };
+    // Step 12-13.
+    ASSERT(options.rp.id);
 
-    // Step 13-15.
-    auto clientDataJson = produceClientDataJson(ClientDataType::Create, options.challenge, callerOrigin);
-    auto clientDataJsonHash = produceClientDataJsonHash(clientDataJson);
+    AuthenticationExtensionsClientInputs extensionInputs = {
+        nullString(),
+        false,
+        std::nullopt,
+        std::nullopt
+    };
 
-    // Step 4, 17-21.
+    if (auto extensions = options.extensions) {
+        extensionInputs.credProps = extensions->credProps;
+        extensionInputs.largeBlob = extensions->largeBlob;
+        extensionInputs.prf = extensions->prf;
+    }
+
+    options.extensions = extensionInputs;
+    if (options.extensions && options.extensions->largeBlob) {
+        if (options.extensions->largeBlob->read || options.extensions->largeBlob->write) {
+            promise.reject(Exception { ExceptionCode::NotAllowedError, "Read and write may not be present in largeBlob for registration."_s });
+            return;
+        }
+    }
+
+    // Step 4, 18-22.
     if (!m_client) {
-        promise.reject(Exception { UnknownError, "Unknown internal error."_s });
+        promise.reject(Exception { ExceptionCode::UnknownError, "Unknown internal error."_s });
         return;
     }
 
-    auto callback = [clientDataJson = WTFMove(clientDataJson), promise = WTFMove(promise), abortSignal = WTFMove(abortSignal)] (AuthenticatorResponseData&& data, AuthenticatorAttachment attachment, ExceptionData&& exception) mutable {
+    if (RefPtr signal = createOptions.signal) {
+        signal->addAlgorithm([weakThis = WeakPtr { *this }](JSC::JSValue) mutable {
+            if (!weakThis)
+                return;
+            weakThis->m_isCancelling = true;
+            weakThis->m_client->cancel([weakThis = WTF::move(weakThis)] mutable {
+                if (!weakThis)
+                    return;
+                weakThis->m_isCancelling = false;
+                if (auto queuedRequest = WTF::move(weakThis->m_queuedRequest))
+                    queuedRequest();
+            });
+        });
+    }
+
+    auto callback = [promise = WTF::move(promise), abortSignal = WTF::move(abortSignal)](AuthenticatorResponseData&& data, AuthenticatorAttachment attachment, ExceptionData&& exception) mutable {
         if (abortSignal && abortSignal->aborted()) {
-            promise.reject(Exception { AbortError, "Aborted by AbortSignal."_s });
+            promise.rejectType<IDLAny>(abortSignal->reason().getValue());
             return;
         }
 
-        if (auto response = AuthenticatorResponse::tryCreate(WTFMove(data), attachment)) {
-            response->setClientDataJSON(WTFMove(clientDataJson));
+        if (RefPtr response = AuthenticatorResponse::tryCreate(WTF::move(data), attachment)) {
             promise.resolve(PublicKeyCredential::create(response.releaseNonNull()).ptr());
             return;
         }
         ASSERT(!exception.message.isNull());
         promise.reject(exception.toException());
     };
+
+    if (m_isCancelling) {
+        m_queuedRequest = [weakThis = WeakPtr { *this }, weakFrame = WeakPtr { *frame }, createOptions = WTF::move(createOptions), callback = WTF::move(callback)] mutable {
+            if (!weakThis || !weakFrame)
+                return;
+            const auto options = createOptions.publicKey.value();
+            RefPtr frame = weakFrame.get();
+            if (!frame)
+                return;
+            weakThis->m_client->makeCredential(*weakFrame, options, createOptions.mediation, WTF::move(callback));
+        };
+        return;
+    }
     // Async operations are dispatched and handled in the messenger.
-    m_client->makeCredential(*frame, callerOrigin, clientDataJsonHash, options, WTFMove(callback));
+    m_client->makeCredential(*frame, options, createOptions.mediation, WTF::move(callback));
 }
 
-void AuthenticatorCoordinator::discoverFromExternalSource(const Document& document, const PublicKeyCredentialRequestOptions& options, bool sameOriginWithAncestors, RefPtr<AbortSignal>&& abortSignal, CredentialPromise&& promise) const
+void AuthenticatorCoordinator::discoverFromExternalSource(const Document& document, CredentialRequestOptions&& requestOptions, CredentialPromise&& promise)
 {
     using namespace AuthenticatorCoordinatorInternal;
 
-    auto& callerOrigin = document.securityOrigin();
-    auto* frame = document.frame();
+    Ref callerOrigin = document.securityOrigin();
+    RefPtr frame = document.frame();
     ASSERT(frame);
     // The following implements https://www.w3.org/TR/webauthn/#createCredential as of 5 December 2017.
-    // Step 1, 3, 13 are handled by the caller.
+    // Step 3, 13 are handled by the caller.
     // Step 2.
-    if (!sameOriginWithAncestors) {
-        promise.reject(Exception { NotAllowedError, "The origin of the document is not the same as its ancestors."_s });
+    // This implements https://www.w3.org/TR/webauthn-2/#sctn-permissions-policy
+    if (!requestOptions.publicKey) {
+        promise.reject(Exception { ExceptionCode::NotSupportedError, "Only PublicKeyCredential is supported."_s });
+        return;
+    }
+
+    // The request will be aborted in WebAuthenticatorCoordinatorProxy if conditional mediation is not available.
+    if (requestOptions.mediation != MediationRequirement::Conditional && !document.hasFocus()) {
+        promise.reject(Exception { ExceptionCode::NotAllowedError, "The document is not focused."_s });
+        return;
+    }
+
+    const auto& options = requestOptions.publicKey.value();
+    auto scopeCrossOriginParent = scopeAndCrossOriginParent(document);
+    if (scopeCrossOriginParent.first != WebAuthn::Scope::SameOrigin && !PermissionsPolicy::isFeatureEnabled(PermissionsPolicy::Feature::PublickeyCredentialsGetRule, document, PermissionsPolicy::ShouldReportViolation::No)) {
+        promise.reject(Exception { ExceptionCode::NotAllowedError, "The origin of the document is not the same as its ancestors."_s });
         return;
     }
 
     // Step 5. Skipped since SecurityOrigin doesn't have the concept of "opaque origin".
     // Step 6. The effective domain may be represented in various manners, such as a domain or an ip address.
     // Only the domain format of host is permitted in WebAuthN.
-    if (URL::hostIsIPAddress(callerOrigin.domain())) {
-        promise.reject(Exception { SecurityError, "The effective domain of the document is not a valid domain."_s });
+    if (URL::hostIsIPAddress(callerOrigin->domain())) {
+        promise.reject(Exception { ExceptionCode::SecurityError, "The effective domain of the document is not a valid domain."_s });
         return;
     }
 
     // Step 7.
-    if (!options.rpId.isEmpty() && !callerOrigin.isMatchingRegistrableDomainSuffix(options.rpId)) {
-        promise.reject(Exception { SecurityError, "The provided RP ID is not a registrable domain suffix of the effective domain of the document."_s });
-        return;
-    }
     if (options.rpId.isEmpty())
-        options.rpId = callerOrigin.domain();
+        options.rpId = callerOrigin->domain();
 
     // Step 8-9.
     // Only FIDO AppID Extension is supported.
     if (options.extensions && !options.extensions->appid.isNull()) {
         // The following implements https://www.w3.org/TR/webauthn/#sctn-appid-extension as of 4 March 2019.
-        auto appid = processAppIdExtension(callerOrigin, options.extensions->appid);
+        if (options.extensions->appid.isEmpty()) {
+            promise.reject(Exception { ExceptionCode::NotAllowedError, "Empty appid in create request."_s });
+            return;
+        }
+        auto appid = processAppIdExtension(callerOrigin.get(), options.extensions->appid);
         if (!appid) {
-            promise.reject(Exception { SecurityError, "The origin of the document is not authorized for the provided App ID."_s });
+            promise.reject(Exception { ExceptionCode::SecurityError, "The origin of the document is not authorized for the provided App ID."_s });
             return;
         }
         options.extensions->appid = appid;
     }
 
-    // Step 10-12.
-    auto clientDataJson = produceClientDataJson(ClientDataType::Get, options.challenge, callerOrigin);
-    auto clientDataJsonHash = produceClientDataJsonHash(clientDataJson);
+    if (options.extensions && options.extensions->largeBlob) {
+        if (!options.extensions->largeBlob->support.isEmpty()) {
+            promise.reject(Exception { ExceptionCode::NotAllowedError, "Support should not be present in largeBlob for assertion."_s });
+            return;
+        }
+        if (options.extensions->largeBlob->read && options.extensions->largeBlob->write) {
+            promise.reject(Exception { ExceptionCode::NotAllowedError, "Both read and write may not be present together in largeBlob."_s });
+            return;
+        }
+    }
 
     // Step 4, 14-19.
     if (!m_client) {
-        promise.reject(Exception { UnknownError, "Unknown internal error."_s });
+        promise.reject(Exception { ExceptionCode::UnknownError, "Unknown internal error."_s });
         return;
     }
 
-    auto callback = [clientDataJson = WTFMove(clientDataJson), promise = WTFMove(promise), abortSignal = WTFMove(abortSignal)] (AuthenticatorResponseData&& data, AuthenticatorAttachment attachment, ExceptionData&& exception) mutable {
+    if (RefPtr signal = requestOptions.signal) {
+        signal->addAlgorithm([weakThis = WeakPtr { *this }](JSC::JSValue) mutable {
+            if (!weakThis)
+                return;
+            weakThis->m_isCancelling = true;
+            weakThis->m_client->cancel([weakThis = WTF::move(weakThis)] mutable {
+                if (!weakThis)
+                    return;
+                weakThis->m_isCancelling = false;
+                if (auto queuedRequest = WTF::move(weakThis->m_queuedRequest))
+                    queuedRequest();
+            });
+        });
+    }
+
+    auto callback = [weakThis = WeakPtr { *this }, promise = WTF::move(promise), abortSignal = WTF::move(requestOptions.signal), weakPage = WeakPtr { document.page() }] (AuthenticatorResponseData&& data, AuthenticatorAttachment attachment, ExceptionData&& exception) mutable {
         if (abortSignal && abortSignal->aborted()) {
-            promise.reject(Exception { AbortError, "Aborted by AbortSignal."_s });
+            promise.rejectType<IDLAny>(abortSignal->reason().getValue());
             return;
         }
 
-        if (auto response = AuthenticatorResponse::tryCreate(WTFMove(data), attachment)) {
-            response->setClientDataJSON(WTFMove(clientDataJson));
+        if (auto response = AuthenticatorResponse::tryCreate(WTF::move(data), attachment)) {
+            if (RefPtr page = weakPage.get())
+                page->setLastAuthentication(LoginStatus::AuthenticationType::WebAuthn);
             promise.resolve(PublicKeyCredential::create(response.releaseNonNull()).ptr());
             return;
         }
         ASSERT(!exception.message.isNull());
         promise.reject(exception.toException());
     };
+
+    if (m_isCancelling) {
+        m_queuedRequest = [weakThis = WeakPtr { *this }, weakFrame = WeakPtr { *frame }, requestOptions = WTF::move(requestOptions), scopeCrossOriginParent, callback = WTF::move(callback)] mutable {
+            if (!weakThis || !weakFrame)
+                return;
+            const auto options = requestOptions.publicKey.value();
+            RefPtr frame = weakFrame.get();
+            if (!frame)
+                return;
+            weakThis->m_client->getAssertion(*weakFrame, options, requestOptions.mediation, scopeCrossOriginParent, WTF::move(callback));
+        };
+        return;
+    }
     // Async operations are dispatched and handled in the messenger.
-    m_client->getAssertion(*frame, callerOrigin, clientDataJsonHash, options, WTFMove(callback));
+    m_client->getAssertion(*frame, options, requestOptions.mediation, scopeCrossOriginParent, WTF::move(callback));
 }
 
-void AuthenticatorCoordinator::isUserVerifyingPlatformAuthenticatorAvailable(DOMPromiseDeferred<IDLBoolean>&& promise) const
+void AuthenticatorCoordinator::isUserVerifyingPlatformAuthenticatorAvailable(const Document& document, DOMPromiseDeferred<IDLBoolean>&& promise) const
 {
     // The following implements https://www.w3.org/TR/webauthn/#isUserVerifyingPlatformAuthenticatorAvailable
     // as of 5 December 2017.
     if (!m_client)  {
-        promise.reject(Exception { UnknownError, "Unknown internal error."_s });
+        promise.reject(Exception { ExceptionCode::UnknownError, "Unknown internal error."_s });
         return;
     }
 
     // FIXME(182767): We should consider more on the assessment of the return value. Right now, we return true/false
     // immediately according to platform specific procedures.
-    auto completionHandler = [promise = WTFMove(promise)] (bool result) mutable {
+    auto completionHandler = [promise = WTF::move(promise)] (bool result) mutable {
         promise.resolve(result);
     };
+
     // Async operation are dispatched and handled in the messenger.
-    m_client->isUserVerifyingPlatformAuthenticatorAvailable(WTFMove(completionHandler));
+    m_client->isUserVerifyingPlatformAuthenticatorAvailable(protect(document.securityOrigin()).get(), WTF::move(completionHandler));
 }
 
-void AuthenticatorCoordinator::resetUserGestureRequirement()
+
+void AuthenticatorCoordinator::isConditionalMediationAvailable(const Document& document, DOMPromiseDeferred<IDLBoolean>&& promise) const
 {
-    m_client->resetUserGestureRequirement();
+    if (!m_client) {
+        promise.reject(Exception { ExceptionCode::UnknownError, "Unknown internal error."_s });
+        return;
+    }
+
+    auto completionHandler = [promise = WTF::move(promise)](bool result) mutable {
+        promise.resolve(result);
+    };
+    // Async operations are dispatched and handled in the messenger.
+    m_client->isConditionalMediationAvailable(protect(document.securityOrigin()).get(), WTF::move(completionHandler));
+}
+
+void AuthenticatorCoordinator::getClientCapabilities(const Document& document, DOMPromiseDeferred<PublicKeyCredentialClientCapabilities>&& promise) const
+{
+    if (!m_client)  {
+        promise.reject(Exception { ExceptionCode::UnknownError, "Unknown internal error."_s });
+        return;
+    }
+
+    auto completionHandler = [promise = WTF::move(promise)] (const Vector<KeyValuePair<String, bool>> result) mutable {
+        promise.resolve(result);
+    };
+
+    m_client->getClientCapabilities(protect(document.securityOrigin()).get(), WTF::move(completionHandler));
+}
+
+void AuthenticatorCoordinator::signalUnknownCredential(const Document& document, UnknownCredentialOptions&& options, DOMPromiseDeferred<void>&& promise)
+{
+    if (!m_client) {
+        promise.reject(Exception { ExceptionCode::UnknownError, "Web Authentication client not present."_s });
+        return;
+    }
+    Ref securityOrigin = document.securityOrigin();
+    if (RegistrableDomain::uncheckedCreateFromHost(options.rpId) != RegistrableDomain { securityOrigin->data() }) {
+        promise.reject(Exception { ExceptionCode::SecurityError, "The origin of the document is not authorized for the provided RP ID."_s });
+        return;
+    }
+
+    auto completionHandler = [promise = WTF::move(promise)] (std::optional<WebCore::ExceptionData> error) mutable {
+        if (error) {
+            promise.reject(error->toException());
+            return;
+        }
+        promise.resolve();
+    };
+    m_client->signalUnknownCredential(securityOrigin.get(), WTF::move(options), WTF::move(completionHandler));
+}
+
+void AuthenticatorCoordinator::signalAllAcceptedCredentials(const Document& document, AllAcceptedCredentialsOptions&& options, DOMPromiseDeferred<void>&& promise)
+{
+    if (!m_client)  {
+        promise.reject(Exception { ExceptionCode::UnknownError, "Web Authentication client not present."_s });
+        return;
+    }
+    Ref securityOrigin = document.securityOrigin();
+    if (RegistrableDomain::uncheckedCreateFromHost(options.rpId) != RegistrableDomain { securityOrigin->data() }) {
+        promise.reject(Exception { ExceptionCode::SecurityError, "The origin of the document is not authorized for the provided RP ID."_s });
+        return;
+    }
+
+    auto completionHandler = [promise = WTF::move(promise)] (std::optional<WebCore::ExceptionData> error) mutable {
+        if (error) {
+            promise.reject(error->toException());
+            return;
+        }
+        promise.resolve();
+    };
+    m_client->signalAllAcceptedCredentials(securityOrigin.get(), WTF::move(options), WTF::move(completionHandler));
+}
+
+void AuthenticatorCoordinator::signalCurrentUserDetails(const Document& document, CurrentUserDetailsOptions&& options, DOMPromiseDeferred<void>&& promise)
+{
+    if (!m_client)  {
+        promise.reject(Exception { ExceptionCode::UnknownError, "Web Authentication client not present."_s });
+        return;
+    }
+    Ref securityOrigin = document.securityOrigin();
+    if (RegistrableDomain::uncheckedCreateFromHost(options.rpId) != RegistrableDomain { securityOrigin->data() }) {
+        promise.reject(Exception { ExceptionCode::SecurityError, "The origin of the document is not authorized for the provided RP ID."_s });
+        return;
+    }
+
+    auto completionHandler = [promise = WTF::move(promise)] (std::optional<WebCore::ExceptionData> error) mutable {
+        if (error) {
+            promise.reject(error->toException());
+            return;
+        }
+        promise.resolve();
+    };
+    m_client->signalCurrentUserDetails(securityOrigin.get(), WTF::move(options), WTF::move(completionHandler));
 }
 
 } // namespace WebCore

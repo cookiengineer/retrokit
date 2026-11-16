@@ -10,6 +10,7 @@ controls/icon-service.js
 controls/background-tint.js
 controls/time-control.js
 controls/time-label.js
+controls/slider-base.js
 controls/slider.js
 controls/button.js
 controls/play-pause-button.js
@@ -24,6 +25,7 @@ controls/seek-button.js
 controls/rewind-button.js
 controls/forward-button.js
 controls/overflow-button.js
+controls/close-button.js
 controls/buttons-container.js
 controls/status-label.js
 controls/controls-bar.js
@@ -38,14 +40,21 @@ controls/macos-fullscreen-media-controls.js
 controls/macos-layout-traits.js
 controls/placard.js
 controls/airplay-placard.js
+controls/fullscreen-placard.js
 controls/invalid-placard.js
 controls/pip-placard.js
+controls/tvos-media-controls.js
+controls/vision-layout-traits.js
+controls/vision-media-controls.js
+controls/vision-slider.js
+controls/vision-volume-container.js
 controls/watchos-activity-indicator.js
 controls/watchos-media-controls.js
 controls/watchos-layout-traits.js
 media/media-controller-support.js
 media/airplay-support.js
 media/audio-support.js
+media/close-support.js
 media/controls-visibility-support.js
 media/fullscreen-support.js
 media/mute-support.js

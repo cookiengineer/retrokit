@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Igalia S.L.
+ * Copyright (C) 2012, 2026 Igalia S.L.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -25,12 +25,11 @@
 #include "APIString.h"
 #include "WebKitFileChooserRequestPrivate.h"
 #include "WebOpenPanelResultListenerProxy.h"
-#include <WebCore/TextEncoding.h>
 #include <glib/gi18n-lib.h>
+#include <pal/text/TextEncoding.h>
 #include <wtf/FileSystem.h>
 #include <wtf/URL.h>
-#include <wtf/glib/GRefPtr.h>
-#include <wtf/glib/GUniquePtr.h>
+#include <wtf/glib/GSpanExtras.h>
 #include <wtf/glib/WTFGType.h>
 #include <wtf/text/CString.h>
 
@@ -38,17 +37,17 @@ using namespace WebKit;
 using namespace WebCore;
 
 /**
- * SECTION: WebKitFileChooserRequest
- * @Short_description: A request to open a file chooser
- * @Title: WebKitFileChooserRequest
+ * WebKitFileChooserRequest:
  * @See_also: #WebKitWebView
  *
- * Whenever the user interacts with an &lt;input type='file' /&gt;
- * HTML element, WebKit will need to show a dialog to choose one or
+ * A request to open a file chooser.
+ *
+ * Whenever the user interacts with an HTML input element with
+ * file type, WebKit will need to show a dialog to choose one or
  * more files to be uploaded to the server along with the rest of the
  * form data. For that to happen in a general way, instead of just
- * opening a #GtkFileChooserDialog (which might be not desirable in
- * some cases, which could prefer to use their own file chooser
+ * opening a #GtkFileChooserDialog (which might not be desirable for
+ * applications that prefer to use their own file chooser
  * dialog), WebKit will fire the #WebKitWebView::run-file-chooser
  * signal with a #WebKitFileChooserRequest object, which will allow
  * the client application to specify the files to be selected, to
@@ -72,7 +71,7 @@ struct _WebKitFileChooserRequestPrivate {
     bool handledRequest;
 };
 
-WEBKIT_DEFINE_TYPE(WebKitFileChooserRequest, webkit_file_chooser_request, G_TYPE_OBJECT)
+WEBKIT_DEFINE_FINAL_TYPE(WebKitFileChooserRequest, webkit_file_chooser_request, G_TYPE_OBJECT, GObject)
 
 enum {
     PROP_0,
@@ -136,8 +135,7 @@ static void webkit_file_chooser_request_class_init(WebKitFileChooserRequestClass
     g_object_class_install_property(objectClass,
                                     PROP_FILTER,
                                     g_param_spec_object("filter",
-                                                      _("MIME types filter"),
-                                                      _("The filter currently associated with the request"),
+                                                      nullptr, nullptr,
                                                       GTK_TYPE_FILE_FILTER,
                                                       WEBKIT_PARAM_READABLE));
 #endif
@@ -152,8 +150,7 @@ static void webkit_file_chooser_request_class_init(WebKitFileChooserRequestClass
     g_object_class_install_property(objectClass,
                                     PROP_MIME_TYPES,
                                     g_param_spec_boxed("mime-types",
-                                                      _("MIME types"),
-                                                      _("The list of MIME types associated with the request"),
+                                                      nullptr, nullptr,
                                                       G_TYPE_STRV,
                                                       WEBKIT_PARAM_READABLE));
     /**
@@ -167,22 +164,20 @@ static void webkit_file_chooser_request_class_init(WebKitFileChooserRequestClass
     g_object_class_install_property(objectClass,
                                     PROP_SELECT_MULTIPLE,
                                     g_param_spec_boolean("select-multiple",
-                                                       _("Select multiple files"),
-                                                       _("Whether the file chooser should allow selecting multiple files"),
+                                                       nullptr, nullptr,
                                                        FALSE,
                                                        WEBKIT_PARAM_READABLE));
     /**
      * WebKitFileChooserRequest:selected-files:
      *
      * A %NULL-terminated array of strings containing the list of
-     * selected files associated to the current request. See
+     * selected files associated with the current request. See
      * webkit_file_chooser_request_get_selected_files() for more details.
      */
     g_object_class_install_property(objectClass,
                                     PROP_SELECTED_FILES,
                                     g_param_spec_boxed("selected-files",
-                                                      _("Selected files"),
-                                                      _("The list of selected files associated with the request"),
+                                                      nullptr, nullptr,
                                                       G_TYPE_STRV,
                                                       WEBKIT_PARAM_READABLE));
 }
@@ -198,6 +193,8 @@ WebKitFileChooserRequest* webkitFileChooserRequestCreate(API::OpenPanelParameter
 /**
  * webkit_file_chooser_request_get_mime_types:
  * @request: a #WebKitFileChooserRequest
+ *
+ * Get the list of MIME types the file chooser dialog should handle.
  *
  * Get the list of MIME types the file chooser dialog should handle,
  * in the format specified in RFC 2046 for "media types". Its contents
@@ -225,7 +222,7 @@ const gchar* const* webkit_file_chooser_request_get_mime_types(WebKitFileChooser
 
     request->priv->mimeTypes = adoptGRef(g_ptr_array_new_with_free_func(g_free));
     for (size_t i = 0; i < numOfMimeTypes; ++i) {
-        API::String* webMimeType = static_cast<API::String*>(mimeTypes->at(i));
+        RefPtr webMimeType = downcast<API::String>(mimeTypes->at(i));
         String mimeTypeString = webMimeType->string();
         if (mimeTypeString.isEmpty())
             continue;
@@ -241,6 +238,8 @@ const gchar* const* webkit_file_chooser_request_get_mime_types(WebKitFileChooser
  * webkit_file_chooser_request_get_mime_types_filter:
  * @request: a #WebKitFileChooserRequest
  *
+ * Get the filter currently associated with the request.
+ *
  * Get the filter currently associated with the request, ready to be
  * used by #GtkFileChooser. This function should normally be called
  * before presenting the file chooser dialog to the user, to decide
@@ -252,7 +251,7 @@ const gchar* const* webkit_file_chooser_request_get_mime_types(WebKitFileChooser
  *
  * Returns: (transfer none): a #GtkFileFilter if a list of accepted
  * MIME types is defined or %NULL otherwise. The returned object is
- * owned by WebKit should not be modified or freed.
+ * owned by WebKit and should not be modified or freed.
  */
 GtkFileFilter* webkit_file_chooser_request_get_mime_types_filter(WebKitFileChooserRequest* request)
 {
@@ -270,7 +269,7 @@ GtkFileFilter* webkit_file_chooser_request_get_mime_types_filter(WebKitFileChoos
     // sure we keep the ownership during the lifetime of the request.
     request->priv->filter = gtk_file_filter_new();
     for (size_t i = 0; i < numOfMimeTypes; ++i) {
-        API::String* webMimeType = static_cast<API::String*>(mimeTypes->at(i));
+        API::String* webMimeType = downcast<API::String>(mimeTypes->at(i));
         String mimeTypeString = webMimeType->string();
         if (mimeTypeString.isEmpty())
             continue;
@@ -285,7 +284,9 @@ GtkFileFilter* webkit_file_chooser_request_get_mime_types_filter(WebKitFileChoos
  * webkit_file_chooser_request_get_select_multiple:
  * @request: a #WebKitFileChooserRequest
  *
- * Determine whether the file chooser associated to this
+ * Whether the file chooser should allow selecting multiple files.
+ *
+ * Determine whether the file chooser associated with this
  * #WebKitFileChooserRequest should allow selecting multiple files,
  * which depends on the HTML input element having a 'multiple'
  * attribute defined.
@@ -314,15 +315,17 @@ void webkit_file_chooser_request_select_files(WebKitFileChooserRequest* request,
 
     GRefPtr<GPtrArray> selectedFiles = adoptGRef(g_ptr_array_new_with_free_func(g_free));
     Vector<String> chosenFiles;
-    for (int i = 0; files[i]; i++) {
-        chosenFiles.append(WebCore::decodeURLEscapeSequences(String::fromUTF8(files[i])));
-        g_ptr_array_add(selectedFiles.get(), g_strdup(files[i]));
+
+    for (const auto* filePath : span(files)) {
+        chosenFiles.append(PAL::decodeURLEscapeSequences(String::fromUTF8(filePath)));
+        g_ptr_array_add(selectedFiles.get(), g_strdup(filePath));
     }
+
     g_ptr_array_add(selectedFiles.get(), nullptr);
 
     // Select the files in WebCore and update local private attributes.
     request->priv->listener->chooseFiles(chosenFiles);
-    request->priv->selectedFiles = selectedFiles;
+    request->priv->selectedFiles = WTF::move(selectedFiles);
     request->priv->handledRequest = true;
 }
 
@@ -330,10 +333,12 @@ void webkit_file_chooser_request_select_files(WebKitFileChooserRequest* request,
  * webkit_file_chooser_request_get_selected_files:
  * @request: a #WebKitFileChooserRequest
  *
- * Get the list of selected files currently associated to the
+ * Get the list of selected files associated with the request.
+ *
+ * Get the list of selected files currently associated with the
  * request. Initially, the return value of this method contains any
  * files selected in previous file chooser requests for this HTML
- * input element. Once webkit_file_chooser_request_select_files, the
+ * input element. Once webkit_file_chooser_request_select_files() has been called, the
  * value will reflect whatever files are given.
  *
  * This function should normally be called only before presenting the
@@ -359,7 +364,7 @@ const gchar* const* webkit_file_chooser_request_get_selected_files(WebKitFileCho
 
     request->priv->selectedFiles = adoptGRef(g_ptr_array_new_with_free_func(g_free));
     for (size_t i = 0; i < numOfFiles; ++i) {
-        API::String* webFileName = static_cast<API::String*>(selectedFileNames->at(i));
+        RefPtr webFileName = downcast<API::String>(selectedFileNames->at(i));
         if (webFileName->stringView().isEmpty())
             continue;
         CString filename = FileSystem::fileSystemRepresentation(webFileName->string());
@@ -374,7 +379,9 @@ const gchar* const* webkit_file_chooser_request_get_selected_files(WebKitFileCho
  * webkit_file_chooser_request_cancel:
  * @request: a #WebKitFileChooserRequest
  *
- * Ask WebKit to cancel the request. It's important to do this in case
+ * Ask WebKit to cancel the request.
+ *
+ * It's important to do this in case
  * no selection has been made in the client, otherwise the request
  * won't be properly completed and the browser will keep the request
  * pending forever, which might cause the browser to hang.

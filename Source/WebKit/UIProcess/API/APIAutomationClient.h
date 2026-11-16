@@ -27,20 +27,14 @@
 #define APIAutomationClient_h
 
 #include <wtf/Forward.h>
-
-namespace WebKit {
-class WebProcessPool;
-}
+#include <wtf/TZoneMallocInlines.h>
 
 namespace API {
 
 class AutomationClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(AutomationClient);
 public:
     virtual ~AutomationClient() { }
-
-    virtual bool allowsRemoteAutomation(WebKit::WebProcessPool*) { return false; }
-    virtual void didRequestAutomationSession(WebKit::WebProcessPool*, const WTF::String&) { }
 };
 
 } // namespace API

@@ -25,30 +25,33 @@
 
 #pragma once
 
-#include "GridPositionsResolver.h"
 #include "OrderIterator.h"
 #include <wtf/HashMap.h>
-#include <wtf/ListHashSet.h>
+#include <wtf/OrderedHashSet.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
-typedef Vector<WeakPtr<RenderBox>, 1> GridCell;
-typedef Vector<Vector<GridCell>> GridAsMatrix;
-typedef ListHashSet<size_t> OrderedTrackIndexSet;
+namespace Style {
+enum class GridTrackSizingDirection : bool;
+}
+
+using GridCell = Vector<SingleThreadWeakPtr<RenderBox>, 1>;
+using GridAsMatrix = Vector<Vector<GridCell>>;
+using OrderedTrackIndexSet = OrderedHashSet<size_t>;
 
 class GridArea;
-class GridPositionsResolver;
+class GridSpan;
 class RenderGrid;
 
 class Grid final {
 public:
     explicit Grid(RenderGrid&);
 
-    unsigned numTracks(GridTrackSizingDirection) const;
+    unsigned NODELETE numTracks(Style::GridTrackSizingDirection) const;
 
     void ensureGridSize(unsigned maximumRowSize, unsigned maximumColumnSize);
-    void insert(RenderBox&, const GridArea&);
+    GridArea insert(RenderBox&, const GridArea&);
 
     // Note that each in flow child of a grid container becomes a grid item. This means that
     // this method will return false for a grid container with only out of flow children.
@@ -57,32 +60,41 @@ public:
     GridArea gridItemArea(const RenderBox& item) const;
     void setGridItemArea(const RenderBox& item, GridArea);
 
-    GridSpan gridItemSpan(const RenderBox&, GridTrackSizingDirection) const;
+    GridSpan gridItemSpan(const RenderBox&, Style::GridTrackSizingDirection) const;
+    GridSpan gridItemSpanIgnoringCollapsedTracks(const RenderBox&, Style::GridTrackSizingDirection) const;
 
-    const GridCell& cell(unsigned row, unsigned column) const { return m_grid[row][column]; }
+    const GridCell& NODELETE cell(unsigned row, unsigned column) const LIFETIME_BOUND;
 
-    unsigned explicitGridStart(GridTrackSizingDirection) const;
-    void setExplicitGridStart(unsigned rowStart, unsigned columnStart);
+    unsigned NODELETE explicitGridStart(Style::GridTrackSizingDirection) const;
+    void NODELETE setExplicitGridStart(unsigned rowStart, unsigned columnStart);
 
-    unsigned autoRepeatTracks(GridTrackSizingDirection) const;
-    void setAutoRepeatTracks(unsigned autoRepeatRows, unsigned autoRepeatColumns);
+    unsigned NODELETE autoRepeatTracks(Style::GridTrackSizingDirection) const;
+    void NODELETE setAutoRepeatTracks(unsigned autoRepeatRows, unsigned autoRepeatColumns);
+
+    void NODELETE setClampingForSubgrid(unsigned maxRows, unsigned maxColumns);
+
+    void clampAreaToSubgridIfNeeded(GridArea&);
 
     void setAutoRepeatEmptyColumns(std::unique_ptr<OrderedTrackIndexSet>);
     void setAutoRepeatEmptyRows(std::unique_ptr<OrderedTrackIndexSet>);
 
-    unsigned autoRepeatEmptyTracksCount(GridTrackSizingDirection) const;
-    bool hasAutoRepeatEmptyTracks(GridTrackSizingDirection) const;
-    bool isEmptyAutoRepeatTrack(GridTrackSizingDirection, unsigned) const;
+    unsigned autoRepeatEmptyTracksCount(Style::GridTrackSizingDirection) const;
+    bool NODELETE hasAutoRepeatEmptyTracks(Style::GridTrackSizingDirection) const;
+    bool NODELETE isEmptyAutoRepeatTrack(Style::GridTrackSizingDirection, unsigned) const;
 
-    OrderedTrackIndexSet* autoRepeatEmptyTracks(GridTrackSizingDirection) const;
+    OrderedTrackIndexSet* NODELETE autoRepeatEmptyTracks(Style::GridTrackSizingDirection) const LIFETIME_BOUND;
 
-    OrderIterator& orderIterator() { return m_orderIterator; }
+    OrderIterator& orderIterator() LIFETIME_BOUND { return m_orderIterator; }
+    const OrderIterator& orderIterator() const LIFETIME_BOUND { return m_orderIterator; }
 
     void setNeedsItemsPlacement(bool);
     bool needsItemsPlacement() const { return m_needsItemsPlacement; };
 
+    void setupGridForMasonryLayout();
+    unsigned maxRows() const { return m_maxRows; }
+    unsigned maxColumns() const { return m_maxColumns; }
 private:
-    friend class GridIterator;
+    void ensureStorageForRow(unsigned row);
 
     OrderIterator m_orderIterator;
 
@@ -92,11 +104,14 @@ private:
     unsigned m_autoRepeatColumns { 0 };
     unsigned m_autoRepeatRows { 0 };
 
+    unsigned m_maxColumns { 0 };
+    unsigned m_maxRows { 0 };
+
     bool m_needsItemsPlacement { true };
 
     GridAsMatrix m_grid;
 
-    HashMap<const RenderBox*, GridArea> m_gridItemArea;
+    HashMap<SingleThreadWeakRef<const RenderBox>, GridArea> m_gridItemArea;
 
     std::unique_ptr<OrderedTrackIndexSet> m_autoRepeatEmptyColumns;
     std::unique_ptr<OrderedTrackIndexSet> m_autoRepeatEmptyRows;
@@ -107,18 +122,25 @@ class GridIterator {
 public:
     // |direction| is the direction that is fixed to |fixedTrackIndex| so e.g
     // GridIterator(m_grid, ForColumns, 1) will walk over the rows of the 2nd column.
-    GridIterator(const Grid&, GridTrackSizingDirection, unsigned fixedTrackIndex, unsigned varyingTrackIndex = 0);
+    GridIterator(const Grid&, Style::GridTrackSizingDirection, unsigned fixedTrackIndex, unsigned varyingTrackIndex = 0);
 
-    RenderBox* nextGridItem();
+    static GridIterator NODELETE createForSubgrid(const RenderGrid& subgrid, const GridIterator& outer, GridSpan subgridSpanInOuter);
+
+    RenderBox* NODELETE nextGridItem();
     bool isEmptyAreaEnough(unsigned rowSpan, unsigned columnSpan) const;
-    std::unique_ptr<GridArea> nextEmptyGridArea(unsigned fixedTrackSpan, unsigned varyingTrackSpan);
+    std::optional<GridArea> nextEmptyGridArea(unsigned fixedTrackSpan, unsigned varyingTrackSpan);
+
+    Style::GridTrackSizingDirection direction() const
+    {
+        return m_direction;
+    }
 
 private:
-    const GridAsMatrix& m_grid;
-    GridTrackSizingDirection m_direction;
+    const Grid& m_grid;
+    Style::GridTrackSizingDirection m_direction;
     unsigned m_rowIndex;
     unsigned m_columnIndex;
-    unsigned m_childIndex;
+    unsigned m_gridItemIndex;
 };
 
 } // namespace WebCore

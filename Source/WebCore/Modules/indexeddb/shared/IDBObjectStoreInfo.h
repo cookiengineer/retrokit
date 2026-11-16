@@ -25,8 +25,10 @@
 
 #pragma once
 
-#include "IDBIndexInfo.h"
-#include "IDBKeyPath.h"
+#include <WebCore/IDBIndexIdentifier.h>
+#include <WebCore/IDBIndexInfo.h>
+#include <WebCore/IDBKeyPath.h>
+#include <WebCore/IDBObjectStoreIdentifier.h>
 #include <wtf/HashMap.h>
 #include <wtf/text/WTFString.h>
 
@@ -34,33 +36,30 @@ namespace WebCore {
 
 class IDBObjectStoreInfo {
 public:
-    WEBCORE_EXPORT IDBObjectStoreInfo();
-    IDBObjectStoreInfo(uint64_t identifier, const String& name, std::optional<IDBKeyPath>&&, bool autoIncrement);
+    WEBCORE_EXPORT IDBObjectStoreInfo(IDBObjectStoreIdentifier, const String& name, std::optional<IDBKeyPath>&&, bool autoIncrement, HashMap<IDBIndexIdentifier, IDBIndexInfo>&& = { });
 
-    uint64_t identifier() const { return m_identifier; }
-    const String& name() const { return m_name; }
-    const std::optional<IDBKeyPath>& keyPath() const { return m_keyPath; }
+    IDBObjectStoreIdentifier identifier() const { return m_identifier; }
+    const String& name() const LIFETIME_BOUND { return m_name; }
+    const std::optional<IDBKeyPath>& keyPath() const LIFETIME_BOUND { return m_keyPath; }
     bool autoIncrement() const { return m_autoIncrement; }
 
     void rename(const String& newName) { m_name = newName; }
 
-    WEBCORE_EXPORT IDBObjectStoreInfo isolatedCopy() const;
+    WEBCORE_EXPORT IDBObjectStoreInfo isolatedCopy() const &;
+    WEBCORE_EXPORT IDBObjectStoreInfo isolatedCopy() &&;
 
-    IDBIndexInfo createNewIndex(uint64_t indexID, const String& name, IDBKeyPath&&, bool unique, bool multiEntry);
+    IDBIndexInfo createNewIndex(IDBIndexIdentifier, const String& name, IDBKeyPath&&, bool unique, bool multiEntry);
     void addExistingIndex(const IDBIndexInfo&);
-    bool hasIndex(const String& name) const;
-    bool hasIndex(uint64_t indexIdentifier) const;
-    IDBIndexInfo* infoForExistingIndex(const String& name);
-    IDBIndexInfo* infoForExistingIndex(uint64_t identifier);
+    bool NODELETE hasIndex(const String& name) const;
+    bool hasIndex(IDBIndexIdentifier) const;
+    IDBIndexInfo* NODELETE infoForExistingIndex(const String& name);
+    IDBIndexInfo* infoForExistingIndex(IDBIndexIdentifier);
 
     Vector<String> indexNames() const;
-    const HashMap<uint64_t, IDBIndexInfo>& indexMap() const { return m_indexMap; }
+    const HashMap<IDBIndexIdentifier, IDBIndexInfo>& indexMap() const LIFETIME_BOUND { return m_indexMap; }
 
     void deleteIndex(const String& indexName);
-    void deleteIndex(uint64_t indexIdentifier);
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static WARN_UNUSED_RETURN bool decode(Decoder&, IDBObjectStoreInfo&);
+    void deleteIndex(IDBIndexIdentifier);
 
 #if !LOG_DISABLED
     String loggingString(int indent = 0) const;
@@ -68,39 +67,25 @@ public:
 #endif
 
 private:
-    uint64_t m_identifier { 0 };
+    IDBObjectStoreIdentifier m_identifier;
     String m_name;
     std::optional<IDBKeyPath> m_keyPath;
     bool m_autoIncrement { false };
 
-    HashMap<uint64_t, IDBIndexInfo> m_indexMap;
+    HashMap<IDBIndexIdentifier, IDBIndexInfo> m_indexMap;
 };
 
-template<class Encoder>
-void IDBObjectStoreInfo::encode(Encoder& encoder) const
-{
-    encoder << m_identifier << m_name << m_keyPath << m_autoIncrement << m_indexMap;
-}
-
-template<class Decoder>
-bool IDBObjectStoreInfo::decode(Decoder& decoder, IDBObjectStoreInfo& info)
-{
-    if (!decoder.decode(info.m_identifier))
-        return false;
-
-    if (!decoder.decode(info.m_name))
-        return false;
-
-    if (!decoder.decode(info.m_keyPath))
-        return false;
-
-    if (!decoder.decode(info.m_autoIncrement))
-        return false;
-
-    if (!decoder.decode(info.m_indexMap))
-        return false;
-
-    return true;
-}
-
 } // namespace WebCore
+
+namespace WTF {
+
+template<> struct HashTraits<WebCore::IDBObjectStoreInfo> : GenericHashTraits<WebCore::IDBObjectStoreInfo> {
+    static constexpr bool emptyValueIsZero = false;
+    static WebCore::IDBObjectStoreInfo emptyValue()
+    {
+        return WebCore::IDBObjectStoreInfo { HashTraits<WebCore::IDBObjectStoreIdentifier>::emptyValue(), { }, { }, false };
+    }
+    static bool isEmptyValue(const WebCore::IDBObjectStoreInfo& value) { return value.identifier().isHashTableEmptyValue(); }
+};
+
+} // namespace WTF

@@ -20,7 +20,7 @@
 
 #pragma once
 
-#include "SVGPathConsumer.h"
+#include <WebCore/SVGPathConsumer.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
@@ -35,12 +35,12 @@ class SVGPathSegList;
 String buildStringFromPath(const Path&);
 
 // String/SVGPathByteStream -> Path
-Path buildPathFromString(const String&);
+Path buildPathFromString(StringView);
 Path buildPathFromByteStream(const SVGPathByteStream&);
 
 // SVGPathSegList/String -> SVGPathByteStream
 bool buildSVGPathByteStreamFromSVGPathSegList(const SVGPathSegList&, SVGPathByteStream& result, PathParsingMode, bool checkForInitialMoveTo = true);
-bool buildSVGPathByteStreamFromString(const String&, SVGPathByteStream&, PathParsingMode);
+bool buildSVGPathByteStreamFromString(StringView, SVGPathByteStream&, PathParsingMode);
 
 // SVGPathByteStream -> String
 bool buildStringFromByteStream(const SVGPathByteStream&, String&, PathParsingMode, bool checkForInitialMoveTo = true);
@@ -56,5 +56,9 @@ bool addToSVGPathByteStream(SVGPathByteStream& streamToAppendTo, const SVGPathBy
 unsigned getSVGPathSegAtLengthFromSVGPathByteStream(const SVGPathByteStream&, float length);
 float getTotalLengthOfSVGPathByteStream(const SVGPathByteStream&);
 FloatPoint getPointAtLengthOfSVGPathByteStream(const SVGPathByteStream&, float length);
+
+// Convert an SVG path byte stream containing a mixed of relative/absolute draw commands into another byte stream
+// such that all draw commands are absolute. Returns nullptr if an error occurs.
+std::optional<SVGPathByteStream> convertSVGPathByteStreamToAbsoluteCoordinates(const SVGPathByteStream&);
 
 } // namespace WebCore

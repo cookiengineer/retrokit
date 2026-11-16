@@ -31,11 +31,13 @@ namespace JSC {
 class SlotVisitor;
 template<typename T> class Handle;
 
-WeakHandleOwner::~WeakHandleOwner()
+WeakHandleOwner::WeakHandleOwner(ClangVTableWorkaroundTag)
 {
 }
 
-bool WeakHandleOwner::isReachableFromOpaqueRoots(Handle<Unknown>, void*, AbstractSlotVisitor&, const char**)
+WeakHandleOwner::~WeakHandleOwner() = default;
+
+bool WeakHandleOwner::isReachableFromOpaqueRoots(Handle<Unknown>, void*, AbstractSlotVisitor&, ASCIILiteral*)
 {
     return false;
 }

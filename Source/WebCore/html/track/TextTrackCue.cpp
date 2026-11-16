@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011, 2013 Google Inc.  All rights reserved.
+ * Copyright (C) 2011-2018 Google Inc. All rights reserved.
  * Copyright (C) 2011-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -36,62 +36,37 @@
 
 #include "CSSPropertyNames.h"
 #include "CSSValueKeywords.h"
+#include "ContextDestructionObserverInlines.h"
 #include "DOMRect.h"
+#include "DocumentPage.h"
+#include "ElementInlines.h"
 #include "Event.h"
 #include "EventNames.h"
 #include "HTMLDivElement.h"
 #include "HTMLStyleElement.h"
 #include "Logging.h"
 #include "NodeTraversal.h"
-#include "Page.h"
 #include "ScriptDisallowedScope.h"
 #include "Text.h"
 #include "TextTrack.h"
 #include "TextTrackCueList.h"
+#include "UserAgentParts.h"
 #include "VTTCue.h"
 #include "VTTRegionList.h"
+#include "WebCoreOpaqueRootInlines.h"
 #include <limits.h>
 #include <wtf/HexNumber.h>
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/MainThread.h>
 #include <wtf/MathExtras.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/OptionSet.h>
-#include <wtf/text/StringConcatenateNumbers.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(TextTrackCue);
-WTF_MAKE_ISO_ALLOCATED_IMPL(TextTrackCueBox);
-
-const AtomString& TextTrackCue::cueShadowPseudoId()
-{
-    static MainThreadNeverDestroyed<const AtomString> cue("cue", AtomString::ConstructFromLiteral);
-    return cue;
-}
-
-const AtomString& TextTrackCue::cueBoxShadowPseudoId()
-{
-    static MainThreadNeverDestroyed<const AtomString> trackDisplayBoxShadowPseudoId("-webkit-media-text-track-display", AtomString::ConstructFromLiteral);
-    return trackDisplayBoxShadowPseudoId;
-}
-
-const AtomString& TextTrackCue::cueBackdropShadowPseudoId()
-{
-    static MainThreadNeverDestroyed<const AtomString> cueBackdropShadowPseudoId("-webkit-media-text-track-display-backdrop", AtomString::ConstructFromLiteral);
-    return cueBackdropShadowPseudoId;
-}
-
-static const QualifiedName& cueAttributName()
-{
-    static NeverDestroyed<QualifiedName> cueTag(nullAtom(), "cue", nullAtom());
-    return cueTag;
-}
-
-static const QualifiedName& cueBackgroundAttributName()
-{
-    static NeverDestroyed<QualifiedName> cueBackgroundTag(nullAtom(), "cuebackground", nullAtom());
-    return cueBackgroundTag;
-}
+WTF_MAKE_TZONE_ALLOCATED_IMPL(TextTrackCue);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(TextTrackCueBox);
 
 Ref<TextTrackCueBox> TextTrackCueBox::create(Document& document, TextTrackCue& cue)
 {
@@ -101,15 +76,16 @@ Ref<TextTrackCueBox> TextTrackCueBox::create(Document& document, TextTrackCue& c
 }
 
 TextTrackCueBox::TextTrackCueBox(Document& document, TextTrackCue& cue)
-    : HTMLElement(HTMLNames::divTag, document)
-    , m_cue(makeWeakPtr(cue))
+    : HTMLElement(HTMLNames::divTag, document, TypeFlag::HasCustomStyleResolveCallbacks)
+    , m_cue(cue)
 {
-    setHasCustomStyleResolveCallbacks();
 }
+
+TextTrackCueBox::~TextTrackCueBox() = default;
 
 void TextTrackCueBox::initialize()
 {
-    setPseudo(TextTrackCue::cueBoxShadowPseudoId());
+    setUserAgentPart(UserAgentParts::webkitMediaTextTrackDisplay());
 }
 
 TextTrackCue* TextTrackCueBox::getCue() const
@@ -117,23 +93,24 @@ TextTrackCue* TextTrackCueBox::getCue() const
     return m_cue.get();
 }
 
-static inline bool isLegalNode(Node& node)
+static inline bool NODELETE isLegalNode(Node& node)
 {
-    return node.hasTagName(HTMLNames::brTag)
+    return node.hasTagName(HTMLNames::bTag)
+        || node.hasTagName(HTMLNames::brTag)
         || node.hasTagName(HTMLNames::divTag)
-        || node.hasTagName(HTMLNames::imgTag)
+        || node.hasTagName(HTMLNames::iTag)
         || node.hasTagName(HTMLNames::pTag)
         || node.hasTagName(HTMLNames::rbTag)
-        || node.hasTagName(HTMLNames::rtTag)
         || node.hasTagName(HTMLNames::rtcTag)
+        || node.hasTagName(HTMLNames::rtTag)
         || node.hasTagName(HTMLNames::rubyTag)
         || node.hasTagName(HTMLNames::spanTag)
-        || node.nodeType() == Node::TEXT_NODE;
+        || node.nodeType() == NodeType::Text;
 }
 
 static Exception invalidNodeException(Node& node)
 {
-    return Exception { InvalidNodeTypeError, makeString("Invalid node type: ", node.nodeName()) };
+    return Exception { ExceptionCode::InvalidNodeTypeError, makeString("Invalid node type: "_s, node.nodeName()) };
 }
 
 static ExceptionOr<void> checkForInvalidNodeTypes(Node& root)
@@ -141,7 +118,7 @@ static ExceptionOr<void> checkForInvalidNodeTypes(Node& root)
     if (!isLegalNode(root))
         return invalidNodeException(root);
 
-    for (auto* child = root.firstChild(); child; child = child->nextSibling()) {
+    for (RefPtr child = root.firstChild(); child; child = child->nextSibling()) {
         if (!isLegalNode(*child))
             return invalidNodeException(*child);
 
@@ -160,70 +137,81 @@ enum RequiredNodes {
     CueBackground = 1 << 1,
 };
 
-static OptionSet<RequiredNodes> tagPseudoObjects(Node& node)
+static ExceptionOr<void> tagPseudoObjects(Node& node, OptionSet<RequiredNodes>& nodeTypes)
 {
-    if (!is<Element>(node))
+    RefPtr element = dynamicDowncast<Element>(node);
+    if (!element)
         return { };
 
-    OptionSet<RequiredNodes> nodeTypes = { };
-
-    auto& element = downcast<Element>(node);
-    if (element.hasAttributeWithoutSynchronization(cueAttributName())) {
-        element.setPseudo(TextTrackCue::cueShadowPseudoId());
-        nodeTypes = { RequiredNodes::Cue };
-    } else if (element.hasAttributeWithoutSynchronization(cueBackgroundAttributName())) {
-        element.setPseudo(TextTrackCue::cueBackdropShadowPseudoId());
-        nodeTypes = { RequiredNodes::CueBackground };
+    if (element->hasAttributeWithoutSynchronization(HTMLNames::cuebackgroundAttr)) {
+        element->setUserAgentPart(UserAgentParts::webkitMediaTextTrackDisplayBackdrop());
+        nodeTypes.add(RequiredNodes::CueBackground);
     }
 
-    for (auto* child = element.firstChild(); child; child = child->nextSibling())
-        nodeTypes.add(tagPseudoObjects(*child));
+    if (element->hasAttributeWithoutSynchronization(HTMLNames::cueAttr)) {
+        if (!nodeTypes.contains(RequiredNodes::CueBackground) || !element->closest("[cuebackground]"_s).returnValue())
+            return Exception { ExceptionCode::HierarchyRequestError, "Found cue attribute but no cuebackground attribute in hierarchy "_s };
 
-    return nodeTypes;
+        element->setUserAgentPart(UserAgentParts::cue());
+        nodeTypes.add(RequiredNodes::Cue);
+    }
+
+    if (nodeTypes.contains(RequiredNodes::CueBackground) && nodeTypes.contains(RequiredNodes::Cue))
+        return { };
+
+    for (RefPtr child = element->firstChild(); child; child = child->nextSibling())
+        tagPseudoObjects(*child, nodeTypes);
+    return { };
 }
 
-static void removePseudoAttributes(Node& node)
+static void removeUserAgentPartAttributes(Node& node)
 {
-    if (!is<Element>(node))
+    RefPtr element = dynamicDowncast<Element>(node);
+    if (!element)
         return;
 
-    auto& element = downcast<Element>(node);
-    if (element.hasAttributeWithoutSynchronization(cueAttributName()) || element.hasAttributeWithoutSynchronization(cueBackgroundAttributName()))
-        element.removeAttribute(HTMLNames::pseudoAttr);
+    if (element->hasAttributeWithoutSynchronization(HTMLNames::cueAttr) || element->hasAttributeWithoutSynchronization(HTMLNames::cuebackgroundAttr))
+        element->removeAttribute(HTMLNames::useragentpartAttr);
 
-    for (auto* child = element.firstChild(); child; child = child->nextSibling())
-        removePseudoAttributes(*child);
+    for (RefPtr child = element->firstChild(); child; child = child->nextSibling())
+        removeUserAgentPartAttributes(*child);
 }
 
 ExceptionOr<Ref<TextTrackCue>> TextTrackCue::create(Document& document, double start, double end, DocumentFragment& cueFragment)
 {
     if (!cueFragment.firstChild())
-        return Exception { InvalidNodeTypeError, "Empty cue fragment" };
+        return Exception { ExceptionCode::InvalidNodeTypeError, "Empty cue fragment"_s };
 
-    for (Node* node = cueFragment.firstChild(); node; node = node->nextSibling()) {
+    if (cueFragment.firstChild()->nodeType() == NodeType::Text)
+        return Exception { ExceptionCode::InvalidNodeTypeError, "Invalid first child"_s };
+
+    for (RefPtr node = cueFragment.firstChild(); node; node = node->nextSibling()) {
         auto result = checkForInvalidNodeTypes(*node);
         if (result.hasException())
             return result.releaseException();
     }
 
-    auto fragment = DocumentFragment::create(document);
-    for (Node* node = cueFragment.firstChild(); node; node = node->nextSibling()) {
+    Ref fragment = DocumentFragment::create(document);
+    for (RefPtr node = cueFragment.firstChild(); node; node = node->nextSibling()) {
         auto result = fragment->ensurePreInsertionValidity(*node, nullptr);
         if (result.hasException())
             return result.releaseException();
     }
-    cueFragment.cloneChildNodes(fragment);
+    cueFragment.cloneChildNodes(document, nullptr, fragment);
 
     OptionSet<RequiredNodes> nodeTypes = { };
-    for (Node* node = fragment->firstChild(); node; node = node->nextSibling())
-        nodeTypes.add(tagPseudoObjects(*node));
+    for (RefPtr node = fragment->firstChild(); node; node = node->nextSibling()) {
+        auto result = tagPseudoObjects(*node, nodeTypes);
+        if (result.hasException())
+            return result.releaseException();
+    }
 
     if (!nodeTypes.contains(RequiredNodes::Cue))
-        return Exception { InvalidStateError, makeString("Missing required attribute: ", cueAttributName().toString()) };
+        return Exception { ExceptionCode::InvalidNodeTypeError, "Missing required attribute: cue"_s };
     if (!nodeTypes.contains(RequiredNodes::CueBackground))
-        return Exception { InvalidStateError, makeString("Missing required attribute: ", cueBackgroundAttributName().toString()) };
+        return Exception { ExceptionCode::InvalidNodeTypeError, "Missing required attribute: cuebackground"_s };
 
-    auto textTrackCue = adoptRef(*new TextTrackCue(document, MediaTime::createWithDouble(start), MediaTime::createWithDouble(end), WTFMove(fragment)));
+    Ref textTrackCue = adoptRef(*new TextTrackCue(document, MediaTime::createWithDouble(start), MediaTime::createWithDouble(end), WTF::move(fragment)));
     textTrackCue->suspendIfNeeded();
     return textTrackCue;
 }
@@ -232,8 +220,7 @@ TextTrackCue::TextTrackCue(Document& document, const MediaTime& start, const Med
     : ActiveDOMObject(document)
     , m_startTime(start)
     , m_endTime(end)
-    , m_document(document)
-    , m_cueNode(WTFMove(cueFragment))
+    , m_cueNode(WTF::move(cueFragment))
 {
 }
 
@@ -241,13 +228,28 @@ TextTrackCue::TextTrackCue(Document& document, const MediaTime& start, const Med
     : ActiveDOMObject(document)
     , m_startTime(start)
     , m_endTime(end)
-    , m_document(document)
 {
+}
+
+TextTrackCue::~TextTrackCue() = default;
+
+void TextTrackCue::didMoveToNewDocument(Document& newDocument)
+{
+    ActiveDOMObject::didMoveToNewDocument(newDocument);
+    if (RefPtr cueNode = m_cueNode)
+        cueNode->setTreeScopeRecursively(newDocument);
+    if (RefPtr displayTree = m_displayTree)
+        displayTree->setTreeScopeRecursively(newDocument);
 }
 
 ScriptExecutionContext* TextTrackCue::scriptExecutionContext() const
 {
-    return &m_document;
+    return ActiveDOMObject::scriptExecutionContext();
+}
+
+Document* TextTrackCue::document() const
+{
+    return downcast<Document>(scriptExecutionContext());
 }
 
 void TextTrackCue::willChange()
@@ -255,11 +257,11 @@ void TextTrackCue::willChange()
     if (++m_processingCueChanges > 1)
         return;
 
-    if (m_track)
-        m_track->cueWillChange(*this);
+    if (RefPtr track = this->track())
+        track->cueWillChange(*this);
 }
 
-void TextTrackCue::didChange()
+void TextTrackCue::didChange(bool affectOrder)
 {
     ASSERT(m_processingCueChanges);
     if (--m_processingCueChanges)
@@ -267,21 +269,22 @@ void TextTrackCue::didChange()
 
     m_displayTreeNeedsUpdate = true;
 
-    if (m_track)
-        m_track->cueDidChange(*this);
+    if (RefPtr track = this->track())
+        track->cueDidChange(*this, affectOrder);
 }
 
 TextTrack* TextTrackCue::track() const
 {
-    return m_track;
+    return m_track.get();
 }
 
 void TextTrackCue::setTrack(TextTrack* track)
 {
+    Locker locker { m_trackLockForGC };
     m_track = track;
 }
 
-void TextTrackCue::setId(const String& id)
+void TextTrackCue::setId(const AtomString& id)
 {
     if (m_id == id)
         return;
@@ -293,8 +296,7 @@ void TextTrackCue::setId(const String& id)
 
 void TextTrackCue::setStartTime(double value)
 {
-    // TODO(93143): Add spec-compliant behavior for negative time values.
-    if (m_startTime.toDouble() == value || value < 0)
+    if (m_startTime.toDouble() == value)
         return;
 
     setStartTime(MediaTime::createWithDouble(value));
@@ -304,40 +306,34 @@ void TextTrackCue::setStartTime(const MediaTime& value)
 {
     willChange();
     m_startTime = value;
-    didChange();
+    didChange(true);
 }
-    
-void TextTrackCue::setEndTime(double value)
+
+ExceptionOr<void> TextTrackCue::setEndTime(double value)
 {
-    // TODO(93143): Add spec-compliant behavior for negative time values.
-    if (m_endTime.toDouble() == value || value < 0)
-        return;
+    if (std::isnan(value) || value == -std::numeric_limits<double>::infinity())
+        return Exception { ExceptionCode::TypeError, "The provided value is NaN or negative Infinity"_s };
+
+    if (m_endTime.toDouble() == value)
+        return { };
 
     setEndTime(MediaTime::createWithDouble(value));
+    return { };
 }
 
 void TextTrackCue::setEndTime(const MediaTime& value)
 {
     willChange();
     m_endTime = value;
-    didChange();
+    didChange(true);
 }
-    
+
 void TextTrackCue::setPauseOnExit(bool value)
 {
     if (m_pauseOnExit == value)
         return;
-    
+
     m_pauseOnExit = value;
-}
-
-void TextTrackCue::dispatchEvent(Event& event)
-{
-    // When a TextTrack's mode is disabled: no cues are active, no events fired.
-    if (!track() || track()->mode() == TextTrack::Mode::Disabled)
-        return;
-
-    EventTarget::dispatchEvent(event);
 }
 
 bool TextTrackCue::isActive() const
@@ -359,11 +355,15 @@ void TextTrackCue::setIsActive(bool active)
 
 unsigned TextTrackCue::cueIndex() const
 {
-    ASSERT(m_track && m_track->cuesInternal());
-    if (!m_track || !m_track->cuesInternal())
+    RefPtr track = this->track();
+    ASSERT(track && track->cuesInternal());
+    if (!track)
+        return std::numeric_limits<unsigned>::max();
+    RefPtr cuesInternal = track->cuesInternal();
+    if (!cuesInternal)
         return std::numeric_limits<unsigned>::max();
 
-    return m_track->cuesInternal()->cueIndex(*this);
+    return cuesInternal->cueIndex(*this);
 }
 
 bool TextTrackCue::isOrderedBefore(const TextTrackCue* other) const
@@ -397,10 +397,10 @@ bool TextTrackCue::isEqual(const TextTrackCue& other, TextTrackCue::CueMatchRule
 bool TextTrackCue::hasEquivalentStartTime(const TextTrackCue& cue) const
 {
     MediaTime startTimeVariance = MediaTime::zeroTime();
-    if (track())
-        startTimeVariance = track()->startTimeVariance();
-    else if (cue.track())
-        startTimeVariance = cue.track()->startTimeVariance();
+    if (RefPtr track = this->track())
+        startTimeVariance = track->startTimeVariance();
+    else if (RefPtr track = cue.track())
+        startTimeVariance = track->startTimeVariance();
 
     return abs(abs(startMediaTime()) - abs(cue.startMediaTime())) <= startTimeVariance;
 }
@@ -439,10 +439,7 @@ String TextTrackCue::toJSONString() const
 
 TextStream& operator<<(TextStream& stream, const TextTrackCue& cue)
 {
-    String text;
-    if (is<VTTCue>(cue))
-        text = downcast<VTTCue>(cue).text();
-    return stream << &cue << " id=" << cue.id() << " interval=" << cue.startTime() << "-->" << cue.endTime() << " cue=" << text << ')';
+    return stream << &cue << " id=" << cue.id() << " interval=" << cue.startTime() << "-->" << cue.endTime() << " cue=" << cue.text() << ')';
 }
 
 #endif
@@ -452,11 +449,15 @@ RefPtr<DocumentFragment> TextTrackCue::getCueAsHTML()
     if (!m_cueNode)
         return nullptr;
 
-    auto clonedFragment = DocumentFragment::create(ownerDocument());
-    m_cueNode->cloneChildNodes(clonedFragment);
+    RefPtr document = this->document();
+    if (!document)
+        return nullptr;
 
-    for (Node* node = clonedFragment->firstChild(); node; node = node->nextSibling())
-        removePseudoAttributes(*node);
+    Ref clonedFragment = DocumentFragment::create(*document);
+    m_cueNode->cloneChildNodes(*document, nullptr, clonedFragment);
+
+    for (RefPtr node = clonedFragment->firstChild(); node; node = node->nextSibling())
+        removeUserAgentPartAttributes(*node);
 
     return clonedFragment;
 }
@@ -466,7 +467,7 @@ bool TextTrackCue::isRenderable() const
     return m_cueNode && m_cueNode->firstChild();
 }
 
-RefPtr<TextTrackCueBox> TextTrackCue::getDisplayTree(const IntSize&, int)
+RefPtr<TextTrackCueBox> TextTrackCue::getDisplayTree()
 {
     if (m_displayTree && !m_displayTreeNeedsUpdate)
         return m_displayTree;
@@ -486,7 +487,7 @@ void TextTrackCue::removeDisplayTree()
     m_displayTree->remove();
 }
 
-void TextTrackCue::setFontSize(int fontSize, const IntSize&, bool important)
+void TextTrackCue::setFontSize(int fontSize, bool important)
 {
     if (fontSize == m_fontSize && important == m_fontSizeIsImportant)
         return;
@@ -501,24 +502,27 @@ void TextTrackCue::rebuildDisplayTree()
     if (!m_cueNode)
         return;
 
+    RefPtr document = this->document();
+    if (!document)
+        return;
+
     ScriptDisallowedScope::EventAllowedScope allowedScopeForReferenceTree(*m_cueNode);
 
     if (!m_displayTree) {
-        static MainThreadNeverDestroyed<const AtomString> webkitGenericCueRootName("-webkit-generic-cue-root", AtomString::ConstructFromLiteral);
-        m_displayTree = TextTrackCueBox::create(ownerDocument(), *this);
-        m_displayTree->setPseudo(webkitGenericCueRootName);
+        lazyInitialize(m_displayTree, TextTrackCueBox::create(*document, *this));
+        m_displayTree->setUserAgentPart(UserAgentParts::webkitGenericCueRoot());
     }
 
     m_displayTree->removeChildren();
-    auto clonedFragment = DocumentFragment::create(ownerDocument());
-    m_cueNode->cloneChildNodes(clonedFragment);
+    Ref clonedFragment = DocumentFragment::create(*document);
+    m_cueNode->cloneChildNodes(*document, nullptr, clonedFragment);
     m_displayTree->appendChild(clonedFragment);
 
     if (m_fontSize) {
-        if (auto page = ownerDocument().page()) {
-            auto style = HTMLStyleElement::create(HTMLNames::styleTag, ownerDocument(), false);
+        if (RefPtr page = document->page()) {
+            Ref style = HTMLStyleElement::create(HTMLNames::styleTag, *document, false);
             style->setTextContent(makeString(page->captionUserPreferencesStyleSheet(),
-                " ::", TextTrackCue::cueShadowPseudoId(), "{font-size:", m_fontSize, m_fontSizeIsImportant ? "px !important}" : "px}"));
+                " ::"_s, UserAgentParts::cue(), "{font-size:"_s, m_fontSize, m_fontSizeIsImportant ? "px !important}"_s : "px}"_s));
             m_displayTree->appendChild(style);
         }
     }
@@ -526,9 +530,9 @@ void TextTrackCue::rebuildDisplayTree()
     if (track()) {
         if (const auto& styleSheets = track()->styleSheets()) {
             for (const auto& cssString : *styleSheets) {
-                auto style = HTMLStyleElement::create(HTMLNames::styleTag, m_displayTree->document(), false);
-                style->setTextContent(cssString);
-                m_displayTree->appendChild(style);
+                Ref style = HTMLStyleElement::create(HTMLNames::styleTag, *document, false);
+                style->setTextContent(String { cssString });
+                m_displayTree->appendChild(WTF::move(style));
             }
         }
     }
@@ -536,10 +540,15 @@ void TextTrackCue::rebuildDisplayTree()
     m_displayTreeNeedsUpdate = false;
 }
 
-const char* TextTrackCue::activeDOMObjectName() const
+template<typename Visitor>
+void TextTrackCue::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    return "TextTrackCue";
+    Locker locker { m_trackLockForGC };
+    if (m_track)
+        SUPPRESS_UNCHECKED_ARG addWebCoreOpaqueRoot(visitor, *m_track);
 }
+
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(TextTrackCue);
 
 } // namespace WebCore
 

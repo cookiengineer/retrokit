@@ -25,17 +25,9 @@
 
 #pragma once
 
-#include "JSCJSValue.h"
-
-namespace WTF {
-
-class PrintStream;
-class UniquedStringImpl;
-
-} // namespace WTF
-
-using WTF::PrintStream;
-using WTF::UniquedStringImpl;
+#include <JavaScriptCore/GCOwnedDataScope.h>
+#include <JavaScriptCore/JSCJSValue.h>
+#include <wtf/text/SymbolImpl.h>
 
 namespace JSC {
 
@@ -46,43 +38,41 @@ class JSCell;
 class CacheableIdentifier {
 public:
     CacheableIdentifier() = default;
+    constexpr CacheableIdentifier(std::nullptr_t) { }
 
     static inline CacheableIdentifier createFromCell(JSCell* identifier);
-    static inline CacheableIdentifier createFromIdentifierOwnedByCodeBlock(CodeBlock*, const Identifier&);
-    static inline CacheableIdentifier createFromIdentifierOwnedByCodeBlock(CodeBlock*, UniquedStringImpl*);
+    template <typename CodeBlockType>
+    static inline CacheableIdentifier createFromIdentifierOwnedByCodeBlock(CodeBlockType*, const Identifier&);
+    template <typename CodeBlockType>
+    static inline CacheableIdentifier createFromIdentifierOwnedByCodeBlock(CodeBlockType*, UniquedStringImpl*);
     static inline CacheableIdentifier createFromImmortalIdentifier(UniquedStringImpl*);
+    static inline CacheableIdentifier createFromSharedStub(UniquedStringImpl*);
     static constexpr CacheableIdentifier createFromRawBits(uintptr_t rawBits) { return CacheableIdentifier(rawBits); }
-
-    CacheableIdentifier(const CacheableIdentifier&) = default;
-    CacheableIdentifier(CacheableIdentifier&&) = default;
-
-    CacheableIdentifier(std::nullptr_t)
-        : m_bits(0)
-    { }
 
     bool isUid() const { return m_bits & s_uidTag; }
     bool isCell() const { return !isUid(); }
     inline bool isSymbolCell() const;
     inline bool isStringCell() const;
+    inline void ensureIsCell(VM&);
 
-    bool isSymbol() const { return m_bits && uid()->isSymbol(); }
+    inline bool isSymbol() const;
+    inline bool isPrivateName() const;
 
     inline JSCell* cell() const;
     UniquedStringImpl* uid() const;
 
     explicit operator bool() const { return m_bits; }
 
-    unsigned hash() const { return uid()->symbolAwareHash(); }
+    inline unsigned hash() const;
 
-    CacheableIdentifier& operator=(const CacheableIdentifier&) = default;
-    CacheableIdentifier& operator=(CacheableIdentifier&&) = default;
-
-    bool operator==(const CacheableIdentifier& other) const;
-    bool operator!=(const CacheableIdentifier& other) const;
-    bool operator==(const Identifier& other) const;
+    bool operator==(const CacheableIdentifier&) const;
+    bool operator==(const Identifier&) const;
 
     static inline bool isCacheableIdentifierCell(JSCell*);
     static inline bool isCacheableIdentifierCell(JSValue);
+
+    static inline GCOwnedDataScope<const UniquedStringImpl*> getCacheableIdentifier(JSCell*);
+    static inline GCOwnedDataScope<const UniquedStringImpl*> getCacheableIdentifier(JSValue);
 
     uintptr_t rawBits() const { return m_bits; }
 

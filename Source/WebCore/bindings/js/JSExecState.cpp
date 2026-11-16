@@ -27,20 +27,25 @@
 #include "JSExecState.h"
 
 #include "EventLoop.h"
+#include "JSDOMExceptionHandling.h"
+#include "JSDOMGlobalObject.h"
 #include "RejectedPromiseTracker.h"
 #include "ScriptExecutionContext.h"
-#include "ScriptState.h"
 #include "WorkerGlobalScope.h"
+#include <JavaScriptCore/JSGlobalObjectInlines.h>
+#include <JavaScriptCore/MicrotaskQueue.h>
+#include <JavaScriptCore/ScriptProfilingScope.h>
+#include <JavaScriptCore/VMEntryScopeInlines.h>
+#include <JavaScriptCore/VMTrapsInlines.h>
 
 namespace WebCore {
 
 void JSExecState::didLeaveScriptContext(JSC::JSGlobalObject* lexicalGlobalObject)
 {
-    ScriptExecutionContext* context = scriptExecutionContextFromExecState(lexicalGlobalObject);
+    RefPtr context = executionContext(lexicalGlobalObject);
     if (!context)
         return;
-    context->eventLoop().performMicrotaskCheckpoint();
-    context->ensureRejectedPromiseTracker().processQueueSoon();
+    context->eventLoop().performMicrotaskCheckpoint(lexicalGlobalObject->vm());
 }
 
 JSC::JSValue functionCallHandlerFromAnyThread(JSC::JSGlobalObject* lexicalGlobalObject, JSC::JSValue functionObject, const JSC::CallData& callData, JSC::JSValue thisValue, const JSC::ArgList& args, NakedPtr<JSC::Exception>& returnedException)
@@ -51,6 +56,14 @@ JSC::JSValue functionCallHandlerFromAnyThread(JSC::JSGlobalObject* lexicalGlobal
 JSC::JSValue evaluateHandlerFromAnyThread(JSC::JSGlobalObject* lexicalGlobalObject, const JSC::SourceCode& source, JSC::JSValue thisValue, NakedPtr<JSC::Exception>& returnedException)
 {
     return JSExecState::evaluate(lexicalGlobalObject, source, thisValue, returnedException);
+}
+
+ScriptExecutionContext* executionContext(JSC::JSGlobalObject* globalObject)
+{
+    auto* domGlobalObject = dynamicDowncast<JSDOMGlobalObject>(globalObject);
+    if (!domGlobalObject)
+        return nullptr;
+    return domGlobalObject->scriptExecutionContext();
 }
 
 } // namespace WebCore

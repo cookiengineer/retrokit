@@ -25,15 +25,16 @@
 
 #pragma once
 
-#include <WebCore/LengthBox.h>
-#include <wtf/EnumTraits.h>
+#include <WebCore/BoxExtents.h>
 
 #if USE(APPKIT)
 OBJC_CLASS NSPrintInfo;
 #elif PLATFORM(GTK)
-typedef struct _GtkPrintSettings GtkPrintSettings;
-typedef struct _GtkPageSetup GtkPageSetup;
 #include <wtf/glib/GRefPtr.h>
+
+typedef struct _GtkPageSetup GtkPageSetup;
+typedef struct _GtkPrintJob GtkPrintJob;
+typedef struct _GtkPrintSettings GtkPrintSettings;
 #else
 // FIXME: This should use the windows equivalent.
 class NSPrintInfo;
@@ -49,15 +50,26 @@ namespace WebKit {
 struct PrintInfo {
     PrintInfo() = default;
 #if PLATFORM(GTK)
-    enum PrintMode {
-        PrintModeAsync,
-        PrintModeSync
+    enum class PrintMode : uint8_t {
+        Async,
+        Sync
     };
 
-    explicit PrintInfo(GtkPrintSettings*, GtkPageSetup*, PrintMode = PrintModeAsync);
+#if HAVE(GTK_UNIX_PRINTING)
+    explicit PrintInfo(GtkPrintJob*, PrintMode = PrintMode::Async);
+#endif
 #else
     explicit PrintInfo(NSPrintInfo *);
 #endif
+    PrintInfo(float pageSetupScaleFactor, float availablePaperWidth, float availablePaperHeight, WebCore::FloatBoxExtent margin
+#if PLATFORM(IOS_FAMILY)
+        , bool snapshotFirstPage
+#endif
+#if PLATFORM(GTK)
+        , GRefPtr<GtkPrintSettings>&&, GRefPtr<GtkPageSetup>&&, PrintMode
+#endif
+        );
+
 
     // These values are in 'point' unit (and not CSS pixel).
     float pageSetupScaleFactor { 0 };
@@ -71,25 +83,8 @@ struct PrintInfo {
 #if PLATFORM(GTK)
     GRefPtr<GtkPrintSettings> printSettings;
     GRefPtr<GtkPageSetup> pageSetup;
-    PrintMode printMode { PrintModeAsync };
+    PrintMode printMode { PrintMode::Async };
 #endif
-
-    void encode(IPC::Encoder&) const;
-    static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, PrintInfo&);
 };
 
 } // namespace WebKit
-
-#if PLATFORM(GTK)
-namespace WTF {
-
-template<> struct EnumTraits<WebKit::PrintInfo::PrintMode> {
-    using values = EnumValues<
-        WebKit::PrintInfo::PrintMode,
-        WebKit::PrintInfo::PrintMode::PrintModeAsync,
-        WebKit::PrintInfo::PrintMode::PrintModeSync
-    >;
-};
-
-} // namespace WTF
-#endif // PLATFORM(GTK)

@@ -23,12 +23,12 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// https://w3c.github.io/media-capabilities/#media-capabilities-interface
 [
-    EnabledBySetting=MediaCapabilities,
-    ImplementationLacksVTable,
-    JSCustomHeader,
-    Exposed=Window
+    EnabledBySetting=MediaCapabilitiesEnabled,
+    Exposed=(Window,DedicatedWorker),
+    GenerateIsReachable=ReachableFromNavigator
 ] interface MediaCapabilities {
-    [CustomEnabled, CallWith=Document] Promise<MediaCapabilitiesDecodingInfo> decodingInfo(MediaDecodingConfiguration configuration);
-    [CustomEnabled, CallWith=Document] Promise<MediaCapabilitiesEncodingInfo> encodingInfo(MediaEncodingConfiguration configuration);
+    [CallWith=CurrentScriptExecutionContext] Promise<MediaCapabilitiesDecodingInfo> decodingInfo(MediaDecodingConfiguration configuration);
+    [CallWith=CurrentScriptExecutionContext] Promise<MediaCapabilitiesEncodingInfo> encodingInfo(MediaEncodingConfiguration configuration);
 };

@@ -1,7 +1,8 @@
 /*
  * Copyright (C) 1999-2000 Harri Porten (porten@kde.org)
- * Copyright (C) 2006-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2024 Apple Inc. All rights reserved.
  * Copyright (C) 2009 Google Inc. All rights reserved.
+ * Copyright (C) 2012 the V8 project authors. All rights reserved.
  * Copyright (C) 2010 Research In Motion Limited. All rights reserved.
  *
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
@@ -22,7 +23,7 @@
  * The Initial Developer of the Original Code is
  * Netscape Communications Corporation.
  * Portions created by the Initial Developer are Copyright (C) 1998
- * the Initial Developer. All Rights Reserved.
+ * the Initial Developer. All rights reserved.
  *
  * Contributor(s):
  *
@@ -42,12 +43,21 @@
 
 #pragma once
 
-#include "DateInstanceCache.h"
+#include <JavaScriptCore/DateInstanceCache.h>
+#include <JavaScriptCore/JSCTimeZone.h>
+#include <JavaScriptCore/JSExportMacros.h>
+#include <wtf/Compiler.h>
 #include <wtf/DateMath.h>
 #include <wtf/GregorianDateTime.h>
+#include <wtf/Platform.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/TimeZone.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
+class DateInstance;
 class JSGlobalObject;
 class OpaqueICUTimeZone;
 class VM;
@@ -63,53 +73,149 @@ struct OpaqueICUTimeZoneDeleter {
 struct LocalTimeOffsetCache {
     LocalTimeOffsetCache() = default;
 
-    LocalTimeOffset offset;
-    double start { 0.0 };
-    double end { -1.0 };
-    double incrementStart { 0.0 };
-    double incrementEnd { 0.0 };
+    bool isEmpty() { return start > end; }
+
+    LocalTimeOffset offset { };
+    int64_t start { WTF::Int64Milliseconds::maxECMAScriptTime };
+    int64_t end { WTF::Int64Milliseconds::minECMAScriptTime };
+    uint64_t epoch { 0 };
 };
 
 class DateCache {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_NON_HEAP_ALLOCATABLE(DateCache);
     WTF_MAKE_NONCOPYABLE(DateCache);
 public:
     DateCache();
     ~DateCache();
 
-    JS_EXPORT_PRIVATE void reset();
-
-    String defaultTimeZone();
-
-    Ref<DateInstanceData> cachedDateInstanceData(double millisecondsFromEpoch);
-
-    void msToGregorianDateTime(double millisecondsFromEpoch, WTF::TimeType outputTimeType, GregorianDateTime&);
-    double gregorianDateTimeToMS(const GregorianDateTime&, double milliseconds, WTF::TimeType inputTimeType);
-    JS_EXPORT_PRIVATE double parseDate(JSGlobalObject*, VM&, const WTF::String&);
-
-private:
-    void timeZoneCacheSlow();
-    LocalTimeOffset localTimeOffset(double millisecondsFromEpoch, WTF::TimeType inputTimeType = WTF::UTCTime);
-    LocalTimeOffset calculateLocalTimeOffset(double millisecondsFromEpoch, WTF::TimeType inputTimeType);
-
-    OpaqueICUTimeZone* timeZoneCache()
+    bool hasTimeZoneChange()
     {
-        if (!m_timeZoneCache)
-            timeZoneCacheSlow();
-        return m_timeZoneCache.get();
+#if USE(TIME_ZONE_CHANGE_NOTIFICATIONS)
+        return m_cachedTimeZoneID != WTF::lastTimeZoneID();
+#else
+        return true;
+#endif
     }
 
+    JS_EXPORT_PRIVATE void clearForTimeZoneChange();
+
+    TimeZone defaultTimeZone();
+    String timeZoneDisplayName(bool isDST);
+    Ref<DateInstanceData> NODELETE cachedDateInstanceData(double millisecondsFromEpoch);
+
+    void msToGregorianDateTime(double millisecondsFromEpoch, TimeType outputTimeType, GregorianDateTime&);
+    double gregorianDateTimeToMS(const GregorianDateTime&, double milliseconds, TimeType);
+    double localTimeToMS(double milliseconds, TimeType);
+    JS_EXPORT_PRIVATE double parseDate(JSGlobalObject*, VM&, const WTF::String&);
+    std::tuple<int32_t, int32_t, int32_t> yearMonthDayFromDaysWithCache(int32_t days);
+
+private:
+    class DSTCache {
+    public:
+        static constexpr unsigned cacheSize = 32;
+        // The implementation relies on the fact that no time zones have
+        // more than one daylight savings offset change per 19 days.
+        // In Egypt in 2010 they decided to suspend DST during Ramadan. This
+        // led to a short interval where DST is in effect from September 10 to
+        // September 30.
+        static constexpr int64_t defaultDSTDeltaInMilliseconds = 19 * WTF::Int64Milliseconds::secondsPerDay * 1000;
+
+        DSTCache()
+            : m_before(m_entries.data())
+            , m_after(m_entries.data() + 1)
+        {
+        }
+
+        uint64_t bumpEpoch()
+        {
+            ++m_epoch;
+            return m_epoch;
+        }
+
+        void reset()
+        {
+            m_entries.fill(LocalTimeOffsetCache { });
+            m_before = m_entries.data();
+            m_after = m_entries.data() + 1;
+            m_epoch = 0;
+        }
+
+        LocalTimeOffset localTimeOffset(DateCache&, int64_t millisecondsFromEpoch, TimeType);
+
+    private:
+        LocalTimeOffsetCache* NODELETE leastRecentlyUsed(LocalTimeOffsetCache* exclude);
+        std::tuple<LocalTimeOffsetCache*, LocalTimeOffsetCache*> probe(int64_t millisecondsFromEpoch);
+        void extendTheAfterCache(int64_t millisecondsFromEpoch, LocalTimeOffset);
+
+        uint64_t m_epoch { 0 };
+        std::array<LocalTimeOffsetCache, cacheSize> m_entries { };
+        LocalTimeOffsetCache* m_before;
+        LocalTimeOffsetCache* m_after;
+    };
+
+    struct YearMonthDayCache {
+        int32_t m_days { 0 };
+        int32_t m_year { 0 };
+        int32_t m_month { 0 };
+        int32_t m_day { 0 };
+    };
+
+    void timeZoneCacheSlow();
+    LocalTimeOffset localTimeOffset(int64_t millisecondsFromEpoch, TimeType = TimeType::UTCTime);
+
+    LocalTimeOffset calculateLocalTimeOffset(double millisecondsFromEpoch, TimeType inputTimeType);
+
+    OpaqueICUTimeZone* timeZoneCache();
+
     std::unique_ptr<OpaqueICUTimeZone, OpaqueICUTimeZoneDeleter> m_timeZoneCache;
-    LocalTimeOffsetCache m_utcTimeOffsetCache;
-    LocalTimeOffsetCache m_localTimeOffsetCache;
+    std::array<DSTCache, 2> m_caches;
+    std::optional<YearMonthDayCache> m_yearMonthDayCache;
     String m_cachedDateString;
     double m_cachedDateStringValue;
     DateInstanceCache m_dateInstanceCache;
+    uint64_t m_cachedTimeZoneID { 0 };
+    String m_timeZoneStandardDisplayNameCache;
+    String m_timeZoneDSTDisplayNameCache;
 };
 
 ALWAYS_INLINE bool isUTCEquivalent(StringView timeZone)
 {
-    return timeZone == "Etc/UTC"_s || timeZone == "Etc/GMT"_s;
+    return timeZone == "Etc/UTC"_s || timeZone == "Etc/GMT"_s || timeZone == "GMT"_s;
+}
+
+// non-IANA timezones
+// https://github.com/unicode-org/icu/blob/main/icu4c/source/tools/tzcode/icuzones
+ALWAYS_INLINE bool isNonIANA(StringView timeZone)
+{
+    return (
+        timeZone == "ACT"_s
+        || timeZone == "AET"_s
+        || timeZone == "AGT"_s
+        || timeZone == "ART"_s
+        || timeZone == "AST"_s
+        || timeZone == "BET"_s
+        || timeZone == "BST"_s
+        || timeZone == "CAT"_s
+        || timeZone == "CNT"_s
+        || timeZone == "CST"_s
+        || timeZone == "CTT"_s
+        || timeZone == "EAT"_s
+        || timeZone == "ECT"_s
+        || timeZone == "IET"_s
+        || timeZone == "IST"_s
+        || timeZone == "JST"_s
+        || timeZone == "MIT"_s
+        || timeZone == "NET"_s
+        || timeZone == "NST"_s
+        || timeZone == "PLT"_s
+        || timeZone == "PNT"_s
+        || timeZone == "PRT"_s
+        || timeZone == "PST"_s
+        || timeZone == "SST"_s
+        || timeZone == "VST"_s
+    );
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

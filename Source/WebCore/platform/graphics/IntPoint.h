@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004-2016 Apple Inc.  All rights reserved.
+ * Copyright (C) 2004-2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,8 +25,9 @@
 
 #pragma once
 
-#include "IntSize.h"
+#include <WebCore/IntSize.h>
 #include <cmath>
+#include <wtf/Platform.h>
 
 #if USE(CG)
 typedef struct CGPoint CGPoint;
@@ -34,23 +35,13 @@ typedef struct CGPoint CGPoint;
 
 #if !PLATFORM(IOS_FAMILY)
 #if OS(DARWIN)
-#ifdef NSGEOMETRY_TYPES_SAME_AS_CGGEOMETRY_TYPES
 typedef struct CGPoint NSPoint;
-#else
-typedef struct _NSPoint NSPoint;
-#endif
 #endif
 #endif // !PLATFORM(IOS_FAMILY)
 
 #if PLATFORM(WIN)
 typedef struct tagPOINT POINT;
 typedef struct tagPOINTS POINTS;
-
-struct D2D_POINT_2U;
-typedef D2D_POINT_2U D2D1_POINT_2U;
-
-struct D2D_POINT_2F;
-typedef D2D_POINT_2F D2D1_POINT_2F;
 #endif
 
 namespace WTF {
@@ -60,19 +51,20 @@ class TextStream;
 namespace WebCore {
 
 class FloatPoint;
+class IntRect;
 
 class IntPoint {
 public:
-    IntPoint() : m_x(0), m_y(0) { }
-    IntPoint(int x, int y) : m_x(x), m_y(y) { }
+    constexpr IntPoint() : m_x(0), m_y(0) { }
+    constexpr IntPoint(int x, int y) : m_x(x), m_y(y) { }
     explicit IntPoint(const IntSize& size) : m_x(size.width()), m_y(size.height()) { }
     WEBCORE_EXPORT explicit IntPoint(const FloatPoint&); // don't do this implicitly since it's lossy
 
-    static IntPoint zero() { return IntPoint(); }
-    bool isZero() const { return !m_x && !m_y; }
+    static constexpr IntPoint zero() { return IntPoint(); }
+    constexpr bool isZero() const { return !m_x && !m_y; }
 
-    int x() const { return m_x; }
-    int y() const { return m_y; }
+    constexpr int x() const { return m_x; }
+    constexpr int y() const { return m_y; }
 
     void setX(int x) { m_x = x; }
     void setY(int y) { m_y = y; }
@@ -90,8 +82,18 @@ public:
     {
         this->scale(scale, scale);
     }
+
+    constexpr IntPoint scaled(float scale) const
+    {
+        return { static_cast<int>(std::lround(m_x * scale)), static_cast<int>(std::lround(m_y * scale)) };
+    }
+
+    constexpr IntPoint scaled(float scaleX, float scaleY) const
+    {
+        return { static_cast<int>(std::lround(m_x * scaleX)), static_cast<int>(std::lround(m_y * scaleY)) };
+    }
     
-    IntPoint expandedTo(const IntPoint& other) const
+    constexpr IntPoint expandedTo(const IntPoint& other) const
     {
         return {
             m_x > other.m_x ? m_x : other.m_x,
@@ -99,7 +101,7 @@ public:
         };
     }
 
-    IntPoint shrunkTo(const IntPoint& other) const
+    constexpr IntPoint shrunkTo(const IntPoint& other) const
     {
         return {
             m_x < other.m_x ? m_x : other.m_x,
@@ -108,6 +110,8 @@ public:
     }
 
     WEBCORE_EXPORT IntPoint constrainedBetween(const IntPoint& min, const IntPoint& max) const;
+    
+    WEBCORE_EXPORT IntPoint constrainedWithin(const IntRect&) const;
 
     int distanceSquaredToPoint(const IntPoint&) const;
 
@@ -121,28 +125,18 @@ public:
         return IntPoint(m_y, m_x);
     }
 
+    friend bool operator==(const IntPoint&, const IntPoint&) = default;
+
 #if USE(CG)
     WEBCORE_EXPORT explicit IntPoint(const CGPoint&); // don't do this implicitly since it's lossy
     WEBCORE_EXPORT operator CGPoint() const;
 #endif
 
-#if !PLATFORM(IOS_FAMILY)
-#if OS(DARWIN) && !defined(NSGEOMETRY_TYPES_SAME_AS_CGGEOMETRY_TYPES)
-    WEBCORE_EXPORT explicit IntPoint(const NSPoint&); // don't do this implicitly since it's lossy
-    WEBCORE_EXPORT operator NSPoint() const;
-#endif
-#endif // !PLATFORM(IOS_FAMILY)
-
 #if PLATFORM(WIN)
-    IntPoint(const POINT&);
-    operator POINT() const;
-    IntPoint(const POINTS&);
+    WEBCORE_EXPORT IntPoint(const POINT&);
+    WEBCORE_EXPORT operator POINT() const;
+    WEBCORE_EXPORT IntPoint(const POINTS&);
     operator POINTS() const;
-
-    IntPoint(const D2D1_POINT_2U&);
-    explicit IntPoint(const D2D1_POINT_2F&); // Don't do this implicitly, since it's lossy.
-    operator D2D1_POINT_2F() const;
-    operator D2D1_POINT_2U() const;
 #endif
 
 private:
@@ -184,16 +178,6 @@ inline IntPoint operator-(const IntPoint& a, const IntSize& b)
 inline IntPoint operator-(const IntPoint& point)
 {
     return IntPoint(-point.x(), -point.y());
-}
-
-inline bool operator==(const IntPoint& a, const IntPoint& b)
-{
-    return a.x() == b.x() && a.y() == b.y();
-}
-
-inline bool operator!=(const IntPoint& a, const IntPoint& b)
-{
-    return a.x() != b.x() || a.y() != b.y();
 }
 
 inline IntSize toIntSize(const IntPoint& a)

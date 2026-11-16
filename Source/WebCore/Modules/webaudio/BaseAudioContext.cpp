@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2010 Google Inc. All rights reserved.
- * Copyright (C) 2016-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2014 Google Inc. All rights reserved.
+ * Copyright (C) 2016-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -49,14 +49,17 @@
 #include "ChannelSplitterOptions.h"
 #include "ConstantSourceNode.h"
 #include "ConstantSourceOptions.h"
+#include "ContextDestructionObserverInlines.h"
 #include "ConvolverNode.h"
 #include "DelayNode.h"
 #include "DelayOptions.h"
-#include "Document.h"
+#include "DocumentPage.h"
+#include "DocumentSecurityOrigin.h"
 #include "DynamicsCompressorNode.h"
+#include "Event.h"
 #include "EventNames.h"
+#include "EventTargetInterfaces.h"
 #include "FFTFrame.h"
-#include "Frame.h"
 #include "FrameLoader.h"
 #include "GainNode.h"
 #include "HRTFDatabaseLoader.h"
@@ -64,26 +67,33 @@
 #include "IIRFilterNode.h"
 #include "IIRFilterOptions.h"
 #include "JSAudioBuffer.h"
+#include "JSDOMConvertInterface.h"
 #include "JSDOMPromiseDeferred.h"
+#include "LocalFrame.h"
 #include "Logging.h"
+#include "MediaSessionManagerInterface.h"
 #include "NetworkingContext.h"
+#include "OriginAccessPatterns.h"
 #include "OscillatorNode.h"
 #include "Page.h"
 #include "PannerNode.h"
 #include "PeriodicWave.h"
 #include "PeriodicWaveOptions.h"
+#include "PlatformMediaSessionManager.h"
 #include "ScriptController.h"
 #include "ScriptProcessorNode.h"
+#include "ScriptTrackingPrivacyCategory.h"
 #include "StereoPannerNode.h"
 #include "StereoPannerOptions.h"
 #include "WaveShaperNode.h"
 #include <JavaScriptCore/ArrayBuffer.h>
 #include <JavaScriptCore/ScriptCallStack.h>
 #include <wtf/Atomics.h>
-#include <wtf/IsoMallocInlines.h>
 #include <wtf/MainThread.h>
+#include <wtf/NativePromise.h>
 #include <wtf/Ref.h>
 #include <wtf/Scope.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/WTFString.h>
 
 #if DEBUG_AUDIONODE_REFERENCES
@@ -96,25 +106,36 @@
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(BaseAudioContext);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(BaseAudioContext);
 
 bool BaseAudioContext::isSupportedSampleRate(float sampleRate)
 {
     return sampleRate >= 3000 && sampleRate <= 384000;
 }
 
-static uint64_t generateContextID()
+static uint64_t NODELETE generateContextID()
 {
     ASSERT(isMainThread());
     static uint64_t contextIDSeed = 0;
     return ++contextIDSeed;
 }
 
-static HashSet<uint64_t>& liveAudioContexts()
+static HashSet<uint64_t>& NODELETE liveAudioContexts()
 {
     ASSERT(isMainThread());
     static NeverDestroyed<HashSet<uint64_t>> contexts;
     return contexts;
+}
+
+static OptionSet<NoiseInjectionPolicy> effectiveNoiseInjectionPolicies(Document& document)
+{
+    OptionSet<NoiseInjectionPolicy> policies;
+    auto documentPolicies = document.noiseInjectionPolicies();
+    if (documentPolicies.contains(NoiseInjectionPolicy::Minimal))
+        policies.add(NoiseInjectionPolicy::Minimal);
+    if (documentPolicies.contains(NoiseInjectionPolicy::Enhanced) && document.requiresScriptTrackingPrivacyProtection(ScriptTrackingPrivacyCategory::Audio))
+        policies.add(NoiseInjectionPolicy::Enhanced);
+    return policies;
 }
 
 BaseAudioContext::BaseAudioContext(Document& document)
@@ -126,6 +147,7 @@ BaseAudioContext::BaseAudioContext(Document& document)
     , m_contextID(generateContextID())
     , m_worklet(AudioWorklet::create(*this))
     , m_listener(AudioListener::create(*this))
+    , m_noiseInjectionPolicies(effectiveNoiseInjectionPolicies(document))
 {
     liveAudioContexts().add(m_contextID);
 
@@ -165,20 +187,20 @@ void BaseAudioContext::lazyInitialize()
     if (m_isAudioThreadFinished)
         return;
 
-    destination().initialize();
+    protect(destination())->initialize();
 
     m_isInitialized = true;
 }
 
 void BaseAudioContext::clear()
 {
-    auto protectedThis = makeRef(*this);
+    Ref protectedThis { *this };
 
     // Audio thread is dead. Nobody will schedule node deletion action. Let's do it ourselves.
     do {
+        m_nodesToDelete.appendVector(std::exchange(m_nodesMarkedForDeletion, { }));
         deleteMarkedNodes();
-        m_nodesToDelete = std::exchange(m_nodesMarkedForDeletion, { });
-    } while (!m_nodesToDelete.isEmpty());
+    } while (!m_nodesMarkedForDeletion.isEmpty());
 }
 
 void BaseAudioContext::uninitialize()
@@ -191,7 +213,7 @@ void BaseAudioContext::uninitialize()
         return;
 
     // This stops the audio thread and all audio rendering.
-    destination().uninitialize();
+    protect(destination())->uninitialize();
 
     // Don't allow the context to initialize a second time after it's already been explicitly uninitialized.
     m_isAudioThreadFinished = true;
@@ -200,11 +222,16 @@ void BaseAudioContext::uninitialize()
 
     {
         Locker locker { graphLock() };
+        // Process any deferred operations from the last render quantum that couldn't be
+        // processed in handlePostRenderTasks() due to lock contention.
+        handleDeferredDecrementConnectionCounts();
+        handleDeferredDerefs();
         // This should have been called from handlePostRenderTasks() at the end of rendering.
         // However, in case of lock contention, the tryLock() call could have failed in handlePostRenderTasks(),
         // leaving nodes in m_referencedSourceNodes. Now that the audio thread is gone, make sure we deref those nodes
         // before the BaseAudioContext gets destroyed.
         derefFinishedSourceNodes();
+        m_renderingAutomaticPullNodes.clear();
     }
 
     // Get rid of the sources which may still be playing.
@@ -219,7 +246,7 @@ void BaseAudioContext::addReaction(State state, DOMPromiseDeferred<void>&& promi
     if (stateIndex >= m_stateReactions.size())
         m_stateReactions.grow(stateIndex + 1);
 
-    m_stateReactions[stateIndex].append(WTFMove(promise));
+    m_stateReactions[stateIndex].append(WTF::move(promise));
 }
 
 void BaseAudioContext::setState(State state)
@@ -227,6 +254,8 @@ void BaseAudioContext::setState(State state)
     if (m_state != state) {
         m_state = state;
         queueTaskToDispatchEvent(*this, TaskSource::MediaElement, Event::create(eventNames().statechangeEvent, Event::CanBubble::Yes, Event::IsCancelable::No));
+        if (RefPtr manager = mediaSessionManagerIfExists())
+            manager->updateNowPlayingInfoIfNecessary();
     }
 
     size_t stateIndex = static_cast<size_t>(state);
@@ -249,12 +278,12 @@ void BaseAudioContext::stop()
     if (m_isStopScheduled)
         return;
 
-    auto protectedThis = makeRef(*this);
+    Ref protectedThis { *this };
 
     m_isStopScheduled = true;
 
     ASSERT(document());
-    document()->updateIsPlayingMedia();
+    protect(document())->updateIsPlayingMedia();
 
     uninitialize();
     clear();
@@ -262,7 +291,7 @@ void BaseAudioContext::stop()
 
 Document* BaseAudioContext::document() const
 {
-    return downcast<Document>(m_scriptExecutionContext);
+    return downcast<Document>(scriptExecutionContext());
 }
 
 bool BaseAudioContext::wouldTaintOrigin(const URL& url) const
@@ -270,8 +299,8 @@ bool BaseAudioContext::wouldTaintOrigin(const URL& url) const
     if (url.protocolIsData())
         return false;
 
-    if (auto* document = this->document())
-        return !document->securityOrigin().canRequest(url);
+    if (RefPtr document = this->document())
+        return !protect(document->securityOrigin())->canRequest(url, OriginAccessPatternsForWebProcess::singleton());
 
     return false;
 }
@@ -281,30 +310,35 @@ ExceptionOr<Ref<AudioBuffer>> BaseAudioContext::createBuffer(unsigned numberOfCh
     return AudioBuffer::create(AudioBufferOptions {numberOfChannels, length, sampleRate});
 }
 
-void BaseAudioContext::decodeAudioData(Ref<ArrayBuffer>&& audioData, RefPtr<AudioBufferCallback>&& successCallback, RefPtr<AudioBufferCallback>&& errorCallback, std::optional<Ref<DeferredPromise>>&& promise)
+void BaseAudioContext::decodeAudioData(Ref<ArrayBuffer>&& audioData, RefPtr<AudioBufferCallback>&& successCallback, RefPtr<AudioBufferCallback>&& errorCallback, Ref<DeferredPromise>&& promise)
 {
-    if (promise && (!document() || !document()->isFullyActive())) {
-        promise.value()->reject(Exception { InvalidStateError, "Document is not fully active"_s });
+    RefPtr document = this->document();
+    if (!document || !document->isFullyActive()) {
+        promise->reject(Exception { ExceptionCode::InvalidStateError, "Document is not fully active"_s });
         return;
     }
 
     if (!m_audioDecoder)
         m_audioDecoder = makeUnique<AsyncAudioDecoder>();
 
-    m_audioDecoder->decodeAsync(WTFMove(audioData), sampleRate(), [this, activity = makePendingActivity(*this), successCallback = WTFMove(successCallback), errorCallback = WTFMove(errorCallback), promise = WTFMove(promise)](ExceptionOr<Ref<AudioBuffer>>&& result) mutable {
-        queueTaskKeepingObjectAlive(*this, TaskSource::InternalAsyncTask, [successCallback = WTFMove(successCallback), errorCallback = WTFMove(errorCallback), promise = WTFMove(promise), result = WTFMove(result)]() mutable {
-            if (result.hasException()) {
-                if (promise)
-                    promise.value()->reject(result.releaseException());
+    audioData->pin();
+
+    auto p = m_audioDecoder->decodeAsync(audioData.copyRef(), sampleRate());
+    p->whenSettled(RunLoop::currentSingleton(), [audioData = WTF::move(audioData), activity = makePendingActivity(*this), successCallback = WTF::move(successCallback), errorCallback = WTF::move(errorCallback), promise = WTF::move(promise)] (DecodingTaskPromise::Result&& result) mutable {
+        activity->object().queueTaskKeepingObjectAlive(activity->object(), TaskSource::InternalAsyncTask, [audioData = WTF::move(audioData), successCallback = WTF::move(successCallback), errorCallback = WTF::move(errorCallback), promise = WTF::move(promise), result = WTF::move(result)](auto&) mutable {
+
+            audioData->unpin();
+
+            if (!result) {
+                promise->reject(WTF::move(result.error()));
                 if (errorCallback)
-                    errorCallback->handleEvent(nullptr);
+                    errorCallback->invoke(nullptr);
                 return;
             }
-            auto audioBuffer = result.releaseReturnValue();
-            if (promise)
-                promise.value()->resolve<IDLInterface<AudioBuffer>>(audioBuffer.get());
+            auto audioBuffer = WTF::move(result.value());
+            promise->resolve<IDLInterface<AudioBuffer>>(audioBuffer.get());
             if (successCallback)
-                successCallback->handleEvent(audioBuffer.ptr());
+                successCallback->invoke(audioBuffer.ptr());
         });
     });
 }
@@ -334,7 +368,7 @@ ExceptionOr<Ref<ScriptProcessorNode>> BaseAudioContext::createScriptProcessor(si
     case 0:
 #if USE(AUDIO_SESSION)
         // Pick a value between 256 (2^8) and 16384 (2^14), based on the buffer size of the current AudioSession:
-        bufferSize = 1 << std::max<size_t>(8, std::min<size_t>(14, std::log2(AudioSession::sharedSession().bufferSize())));
+        bufferSize = 1 << std::max<size_t>(8, std::min<size_t>(14, std::log2(AudioSession::singleton().bufferSize())));
 #else
         bufferSize = 2048;
 #endif
@@ -348,7 +382,7 @@ ExceptionOr<Ref<ScriptProcessorNode>> BaseAudioContext::createScriptProcessor(si
     case 16384:
         break;
     default:
-        return Exception { IndexSizeError, "Unsupported buffer size for ScriptProcessorNode"_s };
+        return Exception { ExceptionCode::IndexSizeError, "Unsupported buffer size for ScriptProcessorNode"_s };
     }
 
     // An IndexSizeError exception must be thrown if bufferSize or numberOfInputChannels or numberOfOutputChannels
@@ -356,19 +390,19 @@ ExceptionOr<Ref<ScriptProcessorNode>> BaseAudioContext::createScriptProcessor(si
     // In this case an IndexSizeError must be thrown.
 
     if (!numberOfInputChannels && !numberOfOutputChannels)
-        return Exception { IndexSizeError, "numberOfInputChannels and numberOfOutputChannels cannot both be 0"_s };
+        return Exception { ExceptionCode::IndexSizeError, "numberOfInputChannels and numberOfOutputChannels cannot both be 0"_s };
 
     // This parameter [numberOfInputChannels] determines the number of channels for this node's input. Values of
     // up to 32 must be supported. A NotSupportedError must be thrown if the number of channels is not supported.
 
     if (numberOfInputChannels > maxNumberOfChannels)
-        return Exception { IndexSizeError, "numberOfInputChannels exceeds maximum number of channels"_s };
+        return Exception { ExceptionCode::IndexSizeError, "numberOfInputChannels exceeds maximum number of channels"_s };
 
     // This parameter [numberOfOutputChannels] determines the number of channels for this node's output. Values of
     // up to 32 must be supported. A NotSupportedError must be thrown if the number of channels is not supported.
 
     if (numberOfOutputChannels > maxNumberOfChannels)
-        return Exception { IndexSizeError, "numberOfOutputChannels exceeds maximum number of channels"_s };
+        return Exception { ExceptionCode::IndexSizeError, "numberOfOutputChannels exceeds maximum number of channels"_s };
 
     return ScriptProcessorNode::create(*this, bufferSize, numberOfInputChannels, numberOfOutputChannels);
 }
@@ -476,10 +510,10 @@ ExceptionOr<Ref<PeriodicWave>> BaseAudioContext::createPeriodicWave(Vector<float
     ASSERT(isMainThread());
     
     PeriodicWaveOptions options;
-    options.real = WTFMove(real);
-    options.imag = WTFMove(imaginary);
+    options.real = WTF::move(real);
+    options.imag = WTF::move(imaginary);
     options.disableNormalization = constraints.disableNormalization;
-    return PeriodicWave::create(*this, WTFMove(options));
+    return PeriodicWave::create(*this, WTF::move(options));
 }
 
 ExceptionOr<Ref<ConstantSourceNode>> BaseAudioContext::createConstantSource()
@@ -504,9 +538,9 @@ ExceptionOr<Ref<IIRFilterNode>> BaseAudioContext::createIIRFilter(ScriptExecutio
 
     ASSERT(isMainThread());
     IIRFilterOptions options;
-    options.feedforward = WTFMove(feedforward);
-    options.feedback = WTFMove(feedback);
-    return IIRFilterNode::create(scriptExecutionContext, *this, WTFMove(options));
+    options.feedforward = WTF::move(feedforward);
+    options.feedback = WTF::move(feedback);
+    return IIRFilterNode::create(scriptExecutionContext, *this, WTF::move(options));
 }
 
 void BaseAudioContext::derefFinishedSourceNodes()
@@ -536,6 +570,15 @@ void BaseAudioContext::addDeferredDecrementConnectionCount(AudioNode* node)
     m_deferredBreakConnectionList.append(node);
 }
 
+void BaseAudioContext::addDeferredDeref(const AudioNode* node)
+{
+    ASSERT(isAudioThread());
+    // Heap allocations are forbidden on the audio thread for performance reasons so we need to
+    // explicitly allow the following allocation(s).
+    DisableMallocRestrictionsForCurrentThreadScope disableMallocRestrictions;
+    m_deferredDerefList.append(const_cast<AudioNode*>(node));
+}
+
 void BaseAudioContext::handlePreRenderTasks(const AudioIOPosition& outputPosition)
 {
     ASSERT(isAudioThread());
@@ -549,6 +592,8 @@ void BaseAudioContext::handlePreRenderTasks(const AudioIOPosition& outputPositio
 
         updateAutomaticPullNodes();
         m_outputPosition = outputPosition;
+
+        m_listener->updateDirtyState();
     }
 }
 
@@ -572,6 +617,7 @@ void BaseAudioContext::handlePostRenderTasks()
 
     // Take care of finishing any derefs where the tryLock() failed previously.
     handleDeferredDecrementConnectionCounts();
+    handleDeferredDerefs();
 
     // Dynamically clean up nodes which are no longer needed.
     derefFinishedSourceNodes();
@@ -590,11 +636,19 @@ void BaseAudioContext::handlePostRenderTasks()
 
 void BaseAudioContext::handleDeferredDecrementConnectionCounts()
 {
-    ASSERT(isAudioThread() && isGraphOwner());
+    ASSERT(isGraphOwner());
     for (auto& node : m_deferredBreakConnectionList)
         node->decrementConnectionCountWithLock();
-    
+
     m_deferredBreakConnectionList.clear();
+}
+
+void BaseAudioContext::handleDeferredDerefs()
+{
+    ASSERT(isGraphOwner());
+    for (auto& node : m_deferredDerefList)
+        node->derefWithLock();
+    m_deferredDerefList.clear();
 }
 
 void BaseAudioContext::addTailProcessingNode(AudioNode& node)
@@ -633,7 +687,7 @@ void BaseAudioContext::updateTailProcessingNodes()
     // We are on the audio thread so we want to avoid allocations as much as possible.
     for (auto i = m_tailProcessingNodes.size(); i > 0; --i) {
         auto& node = m_tailProcessingNodes[i - 1];
-        if (!node->propagatesSilence())
+        if (!protect(node.node())->propagatesSilence())
             continue; // Node is not done processing its tail.
 
         // Ideally we'd find a way to avoid this vector append since we try to avoid potential heap allocations
@@ -643,8 +697,8 @@ void BaseAudioContext::updateTailProcessingNodes()
         // Disabling of outputs should happen on the main thread we add the node to m_finishedTailProcessingNodes
         // for disableOutputsForFinishedTailProcessingNodes() to process later on the main thread.
         ASSERT(!m_finishedTailProcessingNodes.contains(node));
-        m_finishedTailProcessingNodes.append(WTFMove(node));
-        m_tailProcessingNodes.remove(i - 1);
+        m_finishedTailProcessingNodes.append(WTF::move(node));
+        m_tailProcessingNodes.removeAt(i - 1);
     }
 
     if (m_finishedTailProcessingNodes.isEmpty() || m_disableOutputsForTailProcessingScheduled)
@@ -655,7 +709,7 @@ void BaseAudioContext::updateTailProcessingNodes()
     // We try to avoid heap allocations on the audio thread but there is no way to do a main thread dispatch
     // without one.
     DisableMallocRestrictionsForCurrentThreadScope disableMallocRestrictions;
-    callOnMainThread([this, protectedThis = makeRef(*this)]() mutable {
+    callOnMainThread([this, protectedThis = Ref { *this }]() mutable {
         Locker locker { graphLock() };
         disableOutputsForFinishedTailProcessingNodes();
         m_disableOutputsForTailProcessingScheduled = false;
@@ -667,7 +721,7 @@ void BaseAudioContext::disableOutputsForFinishedTailProcessingNodes()
     ASSERT(isMainThread());
     ASSERT(isGraphOwner());
     for (auto& finishedTailProcessingNode : std::exchange(m_finishedTailProcessingNodes, { }))
-        finishedTailProcessingNode->disableOutputs();
+        protect(finishedTailProcessingNode.node())->disableOutputs();
 }
 
 void BaseAudioContext::finishTailProcessing()
@@ -678,7 +732,7 @@ void BaseAudioContext::finishTailProcessing()
     // disableOutputs() can cause new nodes to start tail processing so we need to loop until both vectors are empty.
     while (!m_tailProcessingNodes.isEmpty() || !m_finishedTailProcessingNodes.isEmpty()) {
         for (auto& tailProcessingNode : std::exchange(m_tailProcessingNodes, { }))
-            tailProcessingNode->disableOutputs();
+            protect(tailProcessingNode.node())->disableOutputs();
         disableOutputsForFinishedTailProcessingNodes();
     }
 }
@@ -704,6 +758,15 @@ void BaseAudioContext::markForDeletion(AudioNode& node)
     removeAutomaticPullNode(node);
 }
 
+void BaseAudioContext::unmarkForDeletion(AudioNode& node)
+{
+    ASSERT(isGraphOwner());
+    ASSERT_WITH_MESSAGE(node.nodeType() != AudioNode::NodeTypeDestination, "Destination node is owned by the BaseAudioContext");
+
+    m_nodesToDelete.removeFirst(&node);
+    m_nodesMarkedForDeletion.removeFirst(&node);
+}
+
 void BaseAudioContext::scheduleNodeDeletion()
 {
     bool isGood = m_isInitialized && isGraphOwner();
@@ -721,7 +784,7 @@ void BaseAudioContext::scheduleNodeDeletion()
         // Heap allocations are forbidden on the audio thread for performance reasons so we need to
         // explicitly allow the following allocation(s).
         DisableMallocRestrictionsForCurrentThreadScope disableMallocRestrictions;
-        callOnMainThread([protectedThis = makeRef(*this)]() mutable {
+        callOnMainThread([protectedThis = Ref { *this }]() mutable {
             protectedThis->deleteMarkedNodes();
         });
     }
@@ -732,27 +795,36 @@ void BaseAudioContext::deleteMarkedNodes()
     ASSERT(isMainThread());
 
     // Protect this object from being deleted before we release the lock.
-    auto protectedThis = makeRef(*this);
+    Ref protectedThis { *this };
 
     Locker locker { graphLock() };
 
     while (m_nodesToDelete.size()) {
-        AudioNode* node = m_nodesToDelete.takeLast();
+        CheckedPtr node = m_nodesToDelete.takeLast();
+
+        // A node may have been re-referenced (via ref() or incrementConnectionCount()) after being
+        // marked for deletion. This can happen when ref() on the audio thread couldn't acquire the
+        // graph lock to unmark the node. Re-check before deleting.
+        if (node->hasReferences()) {
+            node->clearIsMarkedForDeletion();
+            continue;
+        }
 
         // Before deleting the node, clear out any AudioNodeInputs from m_dirtySummingJunctions.
         unsigned numberOfInputs = node->numberOfInputs();
         for (unsigned i = 0; i < numberOfInputs; ++i)
-            m_dirtySummingJunctions.remove(node->input(i));
+            m_dirtySummingJunctions.remove(protect(node->input(i)).get());
 
         // Before deleting the node, clear out any AudioNodeOutputs from m_dirtyAudioNodeOutputs.
         unsigned numberOfOutputs = node->numberOfOutputs();
         for (unsigned i = 0; i < numberOfOutputs; ++i)
-            m_dirtyAudioNodeOutputs.remove(node->output(i));
+            m_dirtyAudioNodeOutputs.remove(protect(node->output(i)).get());
 
         ASSERT_WITH_MESSAGE(node->nodeType() != AudioNode::NodeTypeDestination, "Destination node is owned by the BaseAudioContext");
 
         // Finally, delete it.
-        delete node;
+        SUPPRESS_UNCHECKED_LOCAL auto* nodePtr = std::exchange(node, nullptr).unsafeGet(); // NOLINT.
+        delete nodePtr;
     }
     m_isDeletionScheduled = false;
 }
@@ -773,9 +845,9 @@ void BaseAudioContext::removeMarkedSummingJunction(AudioSummingJunction* summing
     m_dirtySummingJunctions.remove(summingJunction);
 }
 
-EventTargetInterface BaseAudioContext::eventTargetInterface() const
+enum EventTargetInterfaceType BaseAudioContext::eventTargetInterface() const
 {
-    return BaseAudioContextEventTargetInterfaceType;
+    return EventTargetInterfaceType::BaseAudioContext;
 }
 
 void BaseAudioContext::markAudioNodeOutputDirty(AudioNodeOutput* output)
@@ -819,8 +891,17 @@ void BaseAudioContext::removeAutomaticPullNode(AudioNode& node)
 {
     ASSERT(isGraphOwner());
 
-    if (m_automaticPullNodes.remove(&node))
-        m_automaticPullNodesNeedUpdating = true;
+    if (m_automaticPullNodes.remove(&node)) {
+        if (m_isAudioThreadFinished) {
+            // If the audio thread is finished, update m_renderingAutomaticPullNodes
+            // directly instead of setting m_automaticPullNodesNeedUpdating and waiting
+            // for the next rendering quantum (which will not happen). This is safe
+            // since the audio thread has been terminated and thus cannot be using this
+            // vector anymore.
+            m_renderingAutomaticPullNodes.removeFirst(&node);
+        } else
+            m_automaticPullNodesNeedUpdating = true;
+    }
 }
 
 void BaseAudioContext::updateAutomaticPullNodes()
@@ -861,18 +942,19 @@ void BaseAudioContext::postTask(Function<void()>&& task)
 {
     ASSERT(isMainThread());
     if (!m_isStopScheduled)
-        queueTaskKeepingObjectAlive(*this, TaskSource::MediaElement, WTFMove(task));
+        queueTaskKeepingObjectAlive(*this, TaskSource::MediaElement, [task = WTF::move(task)](auto&) mutable { task(); });
 }
 
 const SecurityOrigin* BaseAudioContext::origin() const
 {
-    return m_scriptExecutionContext ? m_scriptExecutionContext->securityOrigin() : nullptr;
+    RefPtr context = scriptExecutionContext();
+    return context ? context->securityOrigin() : nullptr;
 }
 
 void BaseAudioContext::addConsoleMessage(MessageSource source, MessageLevel level, const String& message)
 {
-    if (m_scriptExecutionContext)
-        m_scriptExecutionContext->addConsoleMessage(source, level, message);
+    if (RefPtr context = scriptExecutionContext())
+        context->addConsoleMessage(source, level, message);
 }
 
 PeriodicWave& BaseAudioContext::periodicWave(OscillatorType type)
@@ -904,7 +986,7 @@ void BaseAudioContext::addAudioParamDescriptors(const String& processorName, Vec
 {
     ASSERT(!m_parameterDescriptorMap.contains(processorName));
     bool wasEmpty = m_parameterDescriptorMap.isEmpty();
-    m_parameterDescriptorMap.add(processorName, WTFMove(descriptors));
+    m_parameterDescriptorMap.add(processorName, WTF::move(descriptors));
     if (wasEmpty)
         workletIsReady();
 }
@@ -916,7 +998,7 @@ void BaseAudioContext::sourceNodeWillBeginPlayback(AudioNode& node)
 
     ASSERT(!m_referencedSourceNodes.contains(&node));
     // Reference source node to keep it alive and playing even if its JS wrapper gets garbage collected.
-    m_referencedSourceNodes.append(&node);
+    m_referencedSourceNodes.append(node);
 }
 
 void BaseAudioContext::sourceNodeDidFinishPlayback(AudioNode& node)
@@ -933,7 +1015,7 @@ void BaseAudioContext::workletIsReady()
 
     // If we're already rendering when the worklet becomes ready, we need to restart
     // rendering in order to switch to the audio worklet thread.
-    destination().restartRendering();
+    protect(destination())->restartRendering();
 }
 
 #if !RELEASE_LOG_DISABLED
@@ -942,6 +1024,32 @@ WTFLogChannel& BaseAudioContext::logChannel() const
     return LogMedia;
 }
 #endif
+
+RefPtr<MediaSessionManagerInterface> BaseAudioContext::mediaSessionManager() const
+{
+    RefPtr document = this->document();
+    if (!document)
+        return nullptr;
+
+    RefPtr page = document->page();
+    if (!page)
+        return nullptr;
+
+    return page->mediaSessionManager();
+}
+
+RefPtr<MediaSessionManagerInterface> BaseAudioContext::mediaSessionManagerIfExists() const
+{
+    auto* document = this->document();
+    if (!document)
+        return nullptr;
+
+    auto* page = document->page();
+    if (!page)
+        return nullptr;
+
+    return page->mediaSessionManagerIfExists();
+}
 
 } // namespace WebCore
 

@@ -25,14 +25,12 @@
 
 #pragma once
 
-#if ENABLE(LAYOUT_FORMATTING_CONTEXT)
-
 #include "BlockFormattingGeometry.h"
 #include "BlockFormattingQuirks.h"
 #include "BlockFormattingState.h"
 #include "FormattingContext.h"
 #include <wtf/HashMap.h>
-#include <wtf/IsoMalloc.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -47,52 +45,61 @@ class FloatingContext;
 // This class implements the layout logic for block formatting contexts.
 // https://www.w3.org/TR/CSS22/visuren.html#block-formatting
 class BlockFormattingContext : public FormattingContext {
-    WTF_MAKE_ISO_ALLOCATED(BlockFormattingContext);
+    WTF_MAKE_TZONE_ALLOCATED(BlockFormattingContext);
 public:
-    BlockFormattingContext(const ContainerBox& formattingContextRoot, BlockFormattingState&);
+    BlockFormattingContext(const ElementBox& formattingContextRoot, BlockFormattingState&);
 
-    void layoutInFlowContent(InvalidationState&, const ConstraintsForInFlowContent&) override;
+    void layoutInFlowContent(const ConstraintsForInFlowContent&) override;
+    void layoutOutOfFlowContent(const ConstraintsForOutOfFlowContent&);
     LayoutUnit usedContentHeight() const override;
 
-    const BlockFormattingState& formattingState() const { return downcast<BlockFormattingState>(FormattingContext::formattingState()); }
-    const BlockFormattingGeometry& formattingGeometry() const final { return m_blockFormattingGeometry; }
-    const BlockFormattingQuirks& formattingQuirks() const override { return m_blockFormattingQuirks; }
+    const BlockFormattingState& formattingState() const LIFETIME_BOUND { return m_blockFormattingState; }
+    const BlockFormattingGeometry& formattingGeometry() const LIFETIME_BOUND { return m_blockFormattingGeometry; }
+    const BlockFormattingQuirks& formattingQuirks() const LIFETIME_BOUND { return m_blockFormattingQuirks; }
 
 protected:
     struct ConstraintsPair {
         ConstraintsForInFlowContent formattingContextRoot;
         ConstraintsForInFlowContent containingBlock;
     };
-    void placeInFlowPositionedChildren(const ContainerBox&, const HorizontalConstraints&);
+    void placeInFlowPositionedChildren(const ElementBox&, const HorizontalConstraints&);
 
-    void computeWidthAndMargin(const FloatingContext&, const Box&, const ConstraintsPair&);
-    void computeHeightAndMargin(const Box&, const ConstraintsForInFlowContent&);
+    void computeWidthAndMargin(const FloatingContext&, const ElementBox&, const ConstraintsPair&);
+    void computeHeightAndMargin(const ElementBox&, const ConstraintsForInFlowContent&);
 
-    void computeStaticHorizontalPosition(const Box&, const HorizontalConstraints&);
-    void computeStaticVerticalPosition(const Box&, LayoutUnit containingBlockContentBoxTop);
-    void computePositionToAvoidFloats(const FloatingContext&, const Box&, const ConstraintsPair&);
-    void computeVerticalPositionForFloatClear(const FloatingContext&, const Box&);
+    void computeStaticHorizontalPosition(const ElementBox&, const HorizontalConstraints&);
+    void computeStaticVerticalPosition(const ElementBox&, LayoutUnit containingBlockContentBoxTop);
+    void computePositionToAvoidFloats(const FloatingContext&, const ElementBox&, const ConstraintsPair&);
+    void computeVerticalPositionForFloatClear(const FloatingContext&, const ElementBox&);
 
-    void precomputeVerticalPositionForBoxAndAncestors(const Box&, const ConstraintsPair&);
+    void precomputeVerticalPositionForBoxAndAncestors(const ElementBox&, const ConstraintsPair&);
 
     IntrinsicWidthConstraints computedIntrinsicWidthConstraints() override;
 
-    LayoutUnit verticalPositionWithMargin(const Box&, const UsedVerticalMargin&, LayoutUnit containingBlockContentBoxTop) const;
+    LayoutUnit verticalPositionWithMargin(const ElementBox&, const UsedVerticalMargin&, LayoutUnit containingBlockContentBoxTop) const;
 
-    std::optional<LayoutUnit> usedAvailableWidthForFloatAvoider(const FloatingContext&, const Box&, const ConstraintsPair&);
-    void updateMarginAfterForPreviousSibling(const Box&);
+    std::optional<LayoutUnit> usedAvailableWidthForFloatAvoider(const FloatingContext&, const ElementBox&, const ConstraintsPair&);
+    void updateMarginAfterForPreviousSibling(const ElementBox&);
 
-    BlockFormattingState& formattingState() { return downcast<BlockFormattingState>(FormattingContext::formattingState()); }
+    void collectOutOfFlowDescendantsIfNeeded();
+    void computeOutOfFlowVerticalGeometry(const Box&, const ConstraintsForOutOfFlowContent&);
+    void computeOutOfFlowHorizontalGeometry(const Box&, const ConstraintsForOutOfFlowContent&);
+    void computeBorderAndPadding(const Box&, const HorizontalConstraints&);
+
+    BlockFormattingState& formattingState() LIFETIME_BOUND { return m_blockFormattingState; }
     BlockMarginCollapse marginCollapse() const;
 
 #if ASSERT_ENABLED
-    void setPrecomputedMarginBefore(const Box& layoutBox, const PrecomputedMarginBefore& precomputedMarginBefore) { m_precomputedMarginBeforeList.set(&layoutBox, precomputedMarginBefore); }
-    PrecomputedMarginBefore precomputedMarginBefore(const Box& layoutBox) const { return m_precomputedMarginBeforeList.get(&layoutBox); }
-    bool hasPrecomputedMarginBefore(const Box& layoutBox) const { return m_precomputedMarginBeforeList.contains(&layoutBox); }
+    void setPrecomputedMarginBefore(const ElementBox& layoutBox, const PrecomputedMarginBefore& precomputedMarginBefore) { m_precomputedMarginBeforeList.set(layoutBox, precomputedMarginBefore); }
+    PrecomputedMarginBefore precomputedMarginBefore(const ElementBox& layoutBox) const { return m_precomputedMarginBeforeList.get(layoutBox); }
+    bool hasPrecomputedMarginBefore(const ElementBox& layoutBox) const { return m_precomputedMarginBeforeList.contains(layoutBox); }
 #endif
 
 private:
-    HashMap<const Box*, PrecomputedMarginBefore> m_precomputedMarginBeforeList;
+#if ASSERT_ENABLED
+    HashMap<CheckedRef<const ElementBox>, PrecomputedMarginBefore> m_precomputedMarginBeforeList;
+#endif
+    BlockFormattingState& m_blockFormattingState;
     const BlockFormattingGeometry m_blockFormattingGeometry;
     const BlockFormattingQuirks m_blockFormattingQuirks;
 };
@@ -102,4 +109,3 @@ private:
 
 SPECIALIZE_TYPE_TRAITS_LAYOUT_FORMATTING_CONTEXT(BlockFormattingContext, isBlockFormattingContext())
 
-#endif

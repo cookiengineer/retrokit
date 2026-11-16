@@ -26,6 +26,7 @@
 #pragma once
 
 #include "CompositeEditCommand.h"
+#include "SimpleRange.h"
 
 namespace WebCore {
 
@@ -44,7 +45,7 @@ private:
     void doApply() override;
     String inputEventData() const final;
     RefPtr<DataTransfer> inputEventDataTransfer() const final;
-    Vector<RefPtr<StaticRange>> targetRanges() const final;
+    Vector<Ref<StaticRange>> targetRanges() const final;
 
     SimpleRange m_rangeToBeReplaced;
     RefPtr<DocumentFragment> m_textFragment;

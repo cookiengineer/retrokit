@@ -26,24 +26,23 @@
 #include "config.h"
 #include "WebColorPickerGtk.h"
 
-#if ENABLE(INPUT_TYPE_COLOR)
-
+#include "GtkUtilities.h"
+#include "GtkVersioning.h"
 #include "WebPageProxy.h"
-#include <WebCore/GtkUtilities.h>
-#include <WebCore/GtkVersioning.h>
+#include <WebCore/Color.h>
 #include <glib/gi18n-lib.h>
 
 namespace WebKit {
 using namespace WebCore;
 
-Ref<WebColorPickerGtk> WebColorPickerGtk::create(WebPageProxy& page, const Color& initialColor, const IntRect& rect)
+Ref<WebColorPickerGtk> WebColorPickerGtk::create(WebPageProxy& page, const Color& initialColor, const IntRect& rect, std::optional<WebCore::FrameIdentifier> frameID)
 {
-    return adoptRef(*new WebColorPickerGtk(page, initialColor, rect));
+    return adoptRef(*new WebColorPickerGtk(page, initialColor, rect, frameID));
 }
 
-WebColorPickerGtk::WebColorPickerGtk(WebPageProxy& page, const Color& initialColor, const IntRect&)
-    : WebColorPicker(&page)
-    , m_initialColor(initialColor)
+WebColorPickerGtk::WebColorPickerGtk(WebPageProxy& page, const Color& initialColor, const IntRect&, std::optional<WebCore::FrameIdentifier> frameID)
+    : WebColorPicker(&page.colorPickerClient(), frameID)
+    , m_initialColor(colorToGdkRGBA(initialColor))
     , m_webView(page.viewWidget())
     , m_colorChooser(nullptr)
 {
@@ -56,31 +55,27 @@ WebColorPickerGtk::~WebColorPickerGtk()
 
 void WebColorPickerGtk::cancel()
 {
-    setSelectedColor(m_initialColor);
+    setSelectedColor(gdkRGBAToColor(m_initialColor));
 }
 
 void WebColorPickerGtk::endPicker()
 {
-    if (!m_colorChooser)
-        return;
+    g_clear_pointer(&m_colorChooser, gtk_widget_destroy);
 
-    gtk_widget_destroy(m_colorChooser);
-    m_colorChooser = nullptr;
+    WebColorPicker::endPicker();
 }
 
 void WebColorPickerGtk::didChooseColor(const Color& color)
 {
-    if (!m_client)
-        return;
-
-    m_client->didChooseColor(color);
+    if (CheckedPtr client = this->client())
+        client->didChooseColor(color);
 }
 
 void WebColorPickerGtk::colorChooserDialogRGBAChangedCallback(GtkColorChooser* colorChooser, GParamSpec*, WebColorPickerGtk* colorPicker)
 {
     GdkRGBA rgba;
     gtk_color_chooser_get_rgba(colorChooser, &rgba);
-    colorPicker->didChooseColor(rgba);
+    colorPicker->didChooseColor(gdkRGBAToColor(rgba));
 }
 
 void WebColorPickerGtk::colorChooserDialogResponseCallback(GtkColorChooser*, int responseID, WebColorPickerGtk* colorPicker)
@@ -90,16 +85,16 @@ void WebColorPickerGtk::colorChooserDialogResponseCallback(GtkColorChooser*, int
     colorPicker->endPicker();
 }
 
-void WebColorPickerGtk::showColorPicker(const Color& color)
+void WebColorPickerGtk::showColorPicker(const Color& color, const IntRect&)
 {
-    if (!m_client)
+    if (!client())
         return;
 
-    m_initialColor = color;
+    m_initialColor = colorToGdkRGBA(color);
 
     if (!m_colorChooser) {
         GtkWidget* toplevel = gtk_widget_get_toplevel(m_webView);
-        m_colorChooser = gtk_color_chooser_dialog_new(_("Select Color"), WebCore::widgetIsOnscreenToplevelWindow(toplevel) ? GTK_WINDOW(toplevel) : nullptr);
+        m_colorChooser = gtk_color_chooser_dialog_new(_("Select Color"), widgetIsOnscreenToplevelWindow(toplevel) ? GTK_WINDOW(toplevel) : nullptr);
         gtk_color_chooser_set_rgba(GTK_COLOR_CHOOSER(m_colorChooser), &m_initialColor);
         g_signal_connect(m_colorChooser, "notify::rgba", G_CALLBACK(WebColorPickerGtk::colorChooserDialogRGBAChangedCallback), this);
         g_signal_connect(m_colorChooser, "response", G_CALLBACK(WebColorPickerGtk::colorChooserDialogResponseCallback), this);
@@ -110,5 +105,3 @@ void WebColorPickerGtk::showColorPicker(const Color& color)
 }
 
 } // namespace WebKit
-
-#endif // ENABLE(INPUT_TYPE_COLOR)

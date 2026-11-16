@@ -30,25 +30,31 @@
 
 #pragma once
 
-#if ENABLE(INPUT_TYPE_TIME)
-
 #include "BaseDateAndTimeInputType.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class TimeInputType final : public BaseDateAndTimeInputType {
-    template<typename DowncastedType> friend bool isInvalidInputType(const InputType&, const String&);
+    WTF_MAKE_TZONE_ALLOCATED(TimeInputType);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(TimeInputType);
 public:
-    explicit TimeInputType(HTMLInputElement&);
+    static Ref<TimeInputType> create(HTMLInputElement& element)
+    {
+        return adoptRef(*new TimeInputType(element));
+    }
 
 private:
-    const AtomString& formControlType() const override;
-    DateComponentsType dateType() const override;
-    Decimal defaultValueForStepUp() const override;
-    StepRange createStepRange(AnyStepHandling) const override;
-    std::optional<DateComponents> parseToDateComponents(const StringView&) const override;
-    std::optional<DateComponents> setMillisecondToDateComponents(double) const override;
-    void handleDOMActivateEvent(Event&) override;
+    explicit TimeInputType(HTMLInputElement&);
+
+    const AtomString& formControlType() const final;
+    DateComponentsType dateType() const final;
+    Decimal defaultValueForStepUp() const final;
+    StepRange createStepRange(AnyStepHandling) const final;
+    std::optional<DateComponents> parseToDateComponents(StringView) const final;
+    std::optional<DateComponents> setMillisecondToDateComponents(double) const final;
+    void handleDOMActivateEvent(Event&) final;
+    void showPicker() final;
 
     bool isValidFormat(OptionSet<DateTimeFormatValidationResults>) const final;
     String formatDateTimeFieldsState(const DateTimeFieldsState&) const final;
@@ -57,4 +63,4 @@ private:
 
 } // namespace WebCore
 
-#endif // ENABLE(INPUT_TYPE_TIME)
+SPECIALIZE_TYPE_TRAITS_INPUT_TYPE(TimeInputType, Type::Time)

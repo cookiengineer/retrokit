@@ -35,15 +35,9 @@
 namespace WebCore {
 
 struct RTCRtpSendParameters : RTCRtpParameters {
-    RTCRtpSendParameters() = default;
-    explicit RTCRtpSendParameters(RTCRtpParameters&& parameters)
-        : RTCRtpParameters(WTFMove(parameters))
-    {
-    }
-
     String transactionId;
     Vector<RTCRtpEncodingParameters> encodings;
-    RTCDegradationPreference degradationPreference { RTCDegradationPreference::Balanced };
+    std::optional<RTCDegradationPreference> degradationPreference;
 };
 
 

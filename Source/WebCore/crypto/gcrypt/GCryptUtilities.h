@@ -39,6 +39,9 @@ namespace WebCore {
 
 namespace CryptoConstants {
 
+static const std::array<uint8_t, 12> s_ed25519Identifier { { "1.3.101.112" } };
+static const std::array<uint8_t, 12> s_x25519Identifier { { "1.3.101.110" } };
+
 static const std::array<uint8_t, 18> s_ecPublicKeyIdentifier { { "1.2.840.10045.2.1" } };
 static const std::array<uint8_t, 13> s_ecDHIdentifier { { "1.3.132.1.12" } };
 
@@ -55,7 +58,9 @@ static const std::array<uint8_t, 1> s_asn1Version0 { { 0x00 } };
 static const std::array<uint8_t, 1> s_asn1Version1 { { 0x01 } };
 
 static const std::array<uint8_t, 1> s_ecUncompressedFormatLeadingByte { { 0x04 } };
+static const std::array<uint8_t, 1> s_x25519UncompressedFormatLeadingByte { { 0x40 } };
 
+IGNORE_CLANG_WARNINGS_BEGIN("unsafe-buffer-usage-in-libc-call")
 template<size_t N>
 static inline bool matches(const void* lhs, size_t size, const std::array<uint8_t, N>& rhs)
 {
@@ -64,14 +69,15 @@ static inline bool matches(const void* lhs, size_t size, const std::array<uint8_
 
     return !std::memcmp(lhs, rhs.data(), rhs.size());
 }
+IGNORE_CLANG_WARNINGS_END
 
 } // namespace CryptoConstants
 
-std::optional<const char*> hashAlgorithmName(CryptoAlgorithmIdentifier);
+ASCIILiteral hashAlgorithmName(CryptoAlgorithmIdentifier);
 
 std::optional<int> hmacAlgorithm(CryptoAlgorithmIdentifier);
 std::optional<int> digestAlgorithm(CryptoAlgorithmIdentifier);
-std::optional<PAL::CryptoDigest::Algorithm> hashCryptoDigestAlgorithm(CryptoAlgorithmIdentifier);
+std::optional<PAL::Crypto::CryptoDigest::Algorithm> hashCryptoDigestAlgorithm(CryptoAlgorithmIdentifier);
 
 std::optional<size_t> mpiLength(gcry_mpi_t);
 std::optional<size_t> mpiLength(gcry_sexp_t);

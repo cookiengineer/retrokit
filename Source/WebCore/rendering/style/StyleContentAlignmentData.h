@@ -25,7 +25,8 @@
 
 #pragma once
 
-#include "RenderStyleConstants.h"
+#include <WebCore/RenderStyleConstants.h>
+#include <WebCore/WritingMode.h>
 
 namespace WTF {
 class TextStream;
@@ -35,37 +36,41 @@ namespace WebCore {
 
 class StyleContentAlignmentData {
 public:
+    constexpr StyleContentAlignmentData() = default;
+
     // Style data for Content-Distribution properties: align-content, justify-content.
     // <content-distribution> || [ <overflow-position>? && <content-position> ]
-    StyleContentAlignmentData(ContentPosition position, ContentDistribution distribution, OverflowAlignment overflow = OverflowAlignment::Default)
-        : m_position(static_cast<unsigned>(position))
-        , m_distribution(static_cast<unsigned>(distribution))
-        , m_overflow(static_cast<unsigned>(overflow))
+    constexpr StyleContentAlignmentData(ContentPosition position, ContentDistribution distribution = ContentDistribution::Default, OverflowAlignment overflow = OverflowAlignment::Default)
+        : m_position(std::to_underlying(position))
+        , m_distribution(std::to_underlying(distribution))
+        , m_overflow(std::to_underlying(overflow))
     {
     }
 
-    void setPosition(ContentPosition position) { m_position = static_cast<unsigned>(position); }
-    void setDistribution(ContentDistribution distribution) { m_distribution = static_cast<unsigned>(distribution); }
-    void setOverflow(OverflowAlignment overflow) { m_overflow = static_cast<unsigned>(overflow); }
+    void setPosition(ContentPosition position) { m_position = std::to_underlying(position); }
+    void setDistribution(ContentDistribution distribution) { m_distribution = std::to_underlying(distribution); }
+    void setOverflow(OverflowAlignment overflow) { m_overflow = std::to_underlying(overflow); }
 
     ContentPosition position() const { return static_cast<ContentPosition>(m_position); }
     ContentDistribution distribution() const { return static_cast<ContentDistribution>(m_distribution); }
     OverflowAlignment overflow() const { return static_cast<OverflowAlignment>(m_overflow); }
-
-    bool operator==(const StyleContentAlignmentData& o) const
+    bool isNormal() const
     {
-        return m_position == o.m_position && m_distribution == o.m_distribution && m_overflow == o.m_overflow;
+        return ContentPosition::Normal == static_cast<ContentPosition>(m_position)
+        && ContentDistribution::Default == static_cast<ContentDistribution>(m_distribution);
     }
+    bool NODELETE isStartward(std::optional<TextDirection> leftRightAxisDirection = std::nullopt, bool isFlexReverse = false) const;
+    bool NODELETE isEndward(std::optional<TextDirection> leftRightAxisDirection = std::nullopt, bool isFlexReverse = false) const;
+    // leftRightAxisDirection is only needed for justify-content (invalid for align-content).
+    // Pass std::nullopt if neither the inline axis nor the physical left-right axis matches the justify-content axis (e.g. in flexbox).
+    bool NODELETE isCentered() const;
 
-    bool operator!=(const StyleContentAlignmentData& o) const
-    {
-        return !(*this == o);
-    }
+    friend bool operator==(const StyleContentAlignmentData&, const StyleContentAlignmentData&) = default;
 
 private:
-    unsigned m_position : 4; // ContentPosition
-    unsigned m_distribution : 3; // ContentDistribution
-    unsigned m_overflow : 2; // OverflowAlignment
+    uint16_t m_position : 4 { 0 }; // ContentPosition
+    uint16_t m_distribution : 3 { 0 }; // ContentDistribution
+    uint16_t m_overflow : 2 { 0 }; // OverflowAlignment
 };
 
 WTF::TextStream& operator<<(WTF::TextStream&, const StyleContentAlignmentData&);

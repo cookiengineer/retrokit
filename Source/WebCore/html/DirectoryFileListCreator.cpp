@@ -31,6 +31,7 @@
 #include "FileList.h"
 #include <wtf/CrossThreadCopier.h>
 #include <wtf/FileSystem.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -44,30 +45,24 @@ struct FileInformation {
     String relativePath;
     String displayName;
 
-    FileInformation isolatedCopy() const
-    {
-        return FileInformation { path.isolatedCopy(), relativePath.isolatedCopy(), displayName.isolatedCopy() };
-    }
+    FileInformation isolatedCopy() const & { return { path.isolatedCopy(), relativePath.isolatedCopy(), displayName.isolatedCopy() }; }
+    FileInformation isolatedCopy() && { return { WTF::move(path).isolatedCopy(), relativePath.isolatedCopy(), WTF::move(displayName).isolatedCopy() }; }
 };
 
 static void appendDirectoryFiles(const String& directory, const String& relativePath, Vector<FileInformation>& files)
 {
     ASSERT(!isMainThread());
-    for (auto& childName : FileSystem::listDirectory(directory)) {
+    FileSystem::traverseDirectory(directory, [&](const String& childName, FileSystem::FileType fileType) {
         auto childPath = FileSystem::pathByAppendingComponent(directory, childName);
         if (FileSystem::isHiddenFile(childPath))
-            continue;
+            return;
 
-        auto fileType = FileSystem::fileType(childPath);
-        if (!fileType)
-            continue;
-
-        String childRelativePath = relativePath + "/" + childName;
-        if (*fileType == FileSystem::FileType::Directory)
+        auto childRelativePath = makeString(relativePath, '/', childName);
+        if (fileType == FileSystem::FileType::Directory)
             appendDirectoryFiles(childPath, childRelativePath, files);
-        else if (*fileType == FileSystem::FileType::Regular)
+        else if (fileType == FileSystem::FileType::Regular)
             files.append(FileInformation { childPath, childRelativePath, { } });
-    }
+    });
 }
 
 static Vector<FileInformation> gatherFileInformation(const Vector<FileChooserFileInfo>& paths)
@@ -86,28 +81,26 @@ static Vector<FileInformation> gatherFileInformation(const Vector<FileChooserFil
 static Ref<FileList> toFileList(Document* document, const Vector<FileInformation>& files)
 {
     ASSERT(isMainThread());
-    Vector<Ref<File>> fileObjects;
-    for (auto& file : files) {
+    auto fileObjects = files.map([document](auto& file) {
         if (file.relativePath.isNull())
-            fileObjects.append(File::create(document, file.path, { }, file.displayName));
-        else
-            fileObjects.append(File::createWithRelativePath(document, file.path, file.relativePath));
-    }
-    return FileList::create(WTFMove(fileObjects));
+            return File::create(document, file.path, { }, file.displayName);
+        return File::createWithRelativePath(document, file.path, file.relativePath);
+    });
+    return FileList::create(WTF::move(fileObjects));
 }
 
 DirectoryFileListCreator::DirectoryFileListCreator(CompletionHandler&& completionHandler)
-    : m_workQueue(WorkQueue::create("DirectoryFileListCreator Work Queue"))
-    , m_completionHandler(WTFMove(completionHandler))
+    : m_workQueue(WorkQueue::create("DirectoryFileListCreator Work Queue"_s))
+    , m_completionHandler(WTF::move(completionHandler))
 {
 }
 
 void DirectoryFileListCreator::start(Document* document, const Vector<FileChooserFileInfo>& paths)
 {
     // Resolve directories on a background thread to avoid blocking the main thread.
-    m_workQueue->dispatch([this, protectedThis = makeRef(*this), document = makeRefPtr(document), paths = crossThreadCopy(paths)]() mutable {
+    protect(m_workQueue)->dispatch([this, protectedThis = Ref { *this }, document = RefPtr { document }, paths = crossThreadCopy(paths)]() mutable {
         auto files = gatherFileInformation(paths);
-        callOnMainThread([this, protectedThis = WTFMove(protectedThis), document = WTFMove(document), files = crossThreadCopy(files)]() mutable {
+        callOnMainThread([this, protectedThis = WTF::move(protectedThis), document = WTF::move(document), files = crossThreadCopy(files)]() mutable {
             if (auto completionHandler = std::exchange(m_completionHandler, nullptr))
                 completionHandler(toFileList(document.get(), files));
         });

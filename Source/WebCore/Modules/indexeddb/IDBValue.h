@@ -25,62 +25,55 @@
 
 #pragma once
 
-#include "ThreadSafeDataBuffer.h"
+#include <WebCore/FileSystemHandleGlobalIdentifier.h>
+#include <WebCore/ThreadSafeDataBuffer.h>
+#include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
+class FileSystemHandleStorageKeepAlive;
 class SerializedScriptValue;
+struct FileSystemHandleRecord;
 
 class IDBValue {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(IDBValue, WEBCORE_EXPORT);
 public:
     WEBCORE_EXPORT IDBValue();
     IDBValue(const SerializedScriptValue&);
-    IDBValue(const ThreadSafeDataBuffer&);
+    WEBCORE_EXPORT IDBValue(const ThreadSafeDataBuffer&);
     IDBValue(const SerializedScriptValue&, const Vector<String>& blobURLs, const Vector<String>& blobFilePaths);
-    IDBValue(const ThreadSafeDataBuffer&, Vector<String>&& blobURLs, Vector<String>&& blobFilePaths);
-    IDBValue(const ThreadSafeDataBuffer&, const Vector<String>& blobURLs, const Vector<String>& blobFilePaths);
+    WEBCORE_EXPORT IDBValue(const ThreadSafeDataBuffer&, Vector<String>&& blobURLs, Vector<String>&& blobFilePaths, Vector<FileSystemHandleGlobalIdentifier>&& fileSystemHandleGlobalIdentifiers = { });
+    IDBValue(const ThreadSafeDataBuffer&, const Vector<String>& blobURLs, const Vector<String>& blobFilePaths, const Vector<FileSystemHandleGlobalIdentifier>& fileSystemHandleGlobalIdentifiers = { });
+
+    WEBCORE_EXPORT IDBValue(const IDBValue&);
+    WEBCORE_EXPORT IDBValue(IDBValue&&);
+    WEBCORE_EXPORT IDBValue& operator=(const IDBValue&);
+    WEBCORE_EXPORT IDBValue& operator=(IDBValue&&);
+    WEBCORE_EXPORT ~IDBValue();
 
     void setAsIsolatedCopy(const IDBValue&);
     WEBCORE_EXPORT IDBValue isolatedCopy() const;
 
-    const ThreadSafeDataBuffer& data() const { return m_data; }
-    const Vector<String>& blobURLs() const { return m_blobURLs; }
-    const Vector<String>& blobFilePaths() const { return m_blobFilePaths; }
+    const ThreadSafeDataBuffer& data() const LIFETIME_BOUND { return m_data; }
+    const Vector<String>& blobURLs() const LIFETIME_BOUND { return m_blobURLs; }
+    const Vector<String>& blobFilePaths() const LIFETIME_BOUND { return m_blobFilePaths; }
+    const Vector<FileSystemHandleGlobalIdentifier>& fileSystemHandleGlobalIdentifiers() const LIFETIME_BOUND { return m_fileSystemHandleGlobalIdentifiers; }
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<IDBValue> decode(Decoder&);
+    WEBCORE_EXPORT const Vector<FileSystemHandleRecord>& fileSystemHandleRecords() const LIFETIME_BOUND;
+    WEBCORE_EXPORT void setFileSystemHandleRecords(Vector<FileSystemHandleRecord>&&) const;
 
-    size_t size() const;
+    WEBCORE_EXPORT void attachStorageKeepAlive(RefPtr<FileSystemHandleStorageKeepAlive>&&) const;
+
+    size_t NODELETE size() const;
 private:
     ThreadSafeDataBuffer m_data;
     Vector<String> m_blobURLs;
     Vector<String> m_blobFilePaths;
+    Vector<FileSystemHandleGlobalIdentifier> m_fileSystemHandleGlobalIdentifiers;
+    mutable Vector<FileSystemHandleRecord> m_fileSystemHandleRecords;
+    mutable RefPtr<FileSystemHandleStorageKeepAlive> m_storageKeepAlive;
 };
-
-template<class Encoder>
-void IDBValue::encode(Encoder& encoder) const
-{
-    encoder << m_data;
-    encoder << m_blobURLs;
-    encoder << m_blobFilePaths;
-}
-
-template<class Decoder>
-std::optional<IDBValue> IDBValue::decode(Decoder& decoder)
-{
-    IDBValue result;
-    if (!decoder.decode(result.m_data))
-        return std::nullopt;
-
-    if (!decoder.decode(result.m_blobURLs))
-        return std::nullopt;
-
-    if (!decoder.decode(result.m_blobFilePaths))
-        return std::nullopt;
-
-    return result;
-}
 
 } // namespace WebCore

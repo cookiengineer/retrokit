@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,24 +33,124 @@
 #include "JSObjectInlines.h"
 #include "JSWebAssemblyHelpers.h"
 #include "JSWebAssemblyMemory.h"
-#include "StructureInlines.h"
+#include "PageCount.h"
+#include "StructureCreateInlines.h"
+#include "WasmAddressType.h"
 #include "WasmMemory.h"
-#include "WasmPageCount.h"
 #include "WebAssemblyMemoryPrototype.h"
-
-#include "WebAssemblyMemoryConstructor.lut.h"
 
 namespace JSC {
 
-const ClassInfo WebAssemblyMemoryConstructor::s_info = { "Function", &Base::s_info, &constructorTableWebAssemblyMemory, nullptr, CREATE_METHOD_TABLE(WebAssemblyMemoryConstructor) };
+const ClassInfo WebAssemblyMemoryConstructor::s_info = { "Function"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(WebAssemblyMemoryConstructor) };
 
 static JSC_DECLARE_HOST_FUNCTION(constructJSWebAssemblyMemory);
 static JSC_DECLARE_HOST_FUNCTION(callJSWebAssemblyMemory);
 
-/* Source for WebAssemblyMemoryConstructor.lut.h
- @begin constructorTableWebAssemblyMemory
- @end
- */
+JSWebAssemblyMemory* WebAssemblyMemoryConstructor::createMemoryFromDescriptor(JSGlobalObject* globalObject, Structure* webAssemblyMemoryStructure, JSObject* memoryDescriptor, std::optional<MemoryMode> desiredMemoryMode)
+{
+    VM& vm = globalObject->vm();
+    auto throwScope = DECLARE_THROW_SCOPE(vm);
+
+    Wasm::AddressType addressType; // default i32
+    {
+        Identifier address = Identifier::fromString(vm, "address"_s);
+        JSValue addressTypeValue = memoryDescriptor->get(globalObject, address);
+        RETURN_IF_EXCEPTION(throwScope, { });
+        if (!addressTypeValue.isUndefined()) {
+            String addressTypeString = addressTypeValue.toWTFString(globalObject);
+            RETURN_IF_EXCEPTION(throwScope, { });
+
+            if (addressTypeString == "i64")
+                addressType = Wasm::AddressType { Wasm::AddressType::I64 };
+            else if (addressTypeString != "i32") {
+                throwException(globalObject, throwScope, createError(globalObject, "WebAssembly.Memory 'address' must be a string of value 'i32' or 'i64'"_s));
+                return { };
+            }
+        }
+    }
+
+    PageCount initialPageCount;
+    {
+        Identifier initial = Identifier::fromString(vm, "initial"_s);
+        JSValue initSizeValue = memoryDescriptor->get(globalObject, initial);
+        RETURN_IF_EXCEPTION(throwScope, { });
+        Identifier minimum = Identifier::fromString(vm, "minimum"_s);
+        JSValue minSizeValue = memoryDescriptor->get(globalObject, minimum);
+        RETURN_IF_EXCEPTION(throwScope, { });
+        if (!minSizeValue.isUndefined() && !initSizeValue.isUndefined()) {
+            // Error because both specified.
+            throwTypeError(globalObject, throwScope, "WebAssembly.Memory 'initial' and 'minimum' options are specified at the same time"_s);
+            return { };
+        }
+        if (!initSizeValue.isUndefined())
+            minSizeValue = initSizeValue;
+
+        uint64_t size = addressValueToUint64(globalObject, minSizeValue, addressType);
+        RETURN_IF_EXCEPTION(throwScope, { });
+        if (!PageCount::isValid(size)) {
+            throwException(globalObject, throwScope, createRangeError(globalObject, "WebAssembly.Memory 'initial' page count is too large"_s));
+            return { };
+        }
+        if (PageCount(size).bytes() > MAX_ARRAY_BUFFER_SIZE) {
+            throwException(globalObject, throwScope, createOutOfMemoryError(globalObject));
+            return { };
+        }
+        initialPageCount = PageCount(size);
+    }
+
+    PageCount maximumPageCount;
+    {
+        // In WebIDL, "present" means that [[Get]] result is undefined, not [[HasProperty]] result.
+        // https://webidl.spec.whatwg.org/#idl-dictionaries
+        Identifier maximum = Identifier::fromString(vm, "maximum"_s);
+        JSValue maxSizeValue = memoryDescriptor->get(globalObject, maximum);
+        RETURN_IF_EXCEPTION(throwScope, { });
+        if (!maxSizeValue.isUndefined()) {
+            uint64_t size = addressValueToUint64(globalObject, maxSizeValue, addressType);
+            RETURN_IF_EXCEPTION(throwScope, { });
+            if (!PageCount::isValid(size)) {
+                throwException(globalObject, throwScope, createRangeError(globalObject, "WebAssembly.Memory 'maximum' page count is too large"_s));
+                return { };
+            }
+            maximumPageCount = PageCount(size);
+
+            if (initialPageCount > maximumPageCount) {
+                throwException(globalObject, throwScope,
+                    createRangeError(globalObject, "'maximum' page count must be than greater than or equal to the 'initial' page count"_s));
+                return { };
+            }
+        }
+    }
+
+    // Even though Options::useSharedArrayBuffer() is false, we can create SharedArrayBuffer through wasm shared memory.
+    // But we cannot send SharedArrayBuffer to the other workers, so it is not effective.
+    MemorySharingMode sharingMode = MemorySharingMode::Default;
+    if (Options::useWasmFaultSignalHandler()) [[likely]] {
+        JSValue sharedValue = memoryDescriptor->get(globalObject, Identifier::fromString(vm, "shared"_s));
+        RETURN_IF_EXCEPTION(throwScope, { });
+        bool shared = sharedValue.toBoolean(globalObject);
+        RETURN_IF_EXCEPTION(throwScope, { });
+        if (shared) {
+            if (!maximumPageCount) {
+                throwTypeError(globalObject, throwScope, "'maximum' page count must be defined if 'shared' is true"_s);
+                return { };
+            }
+            sharingMode = MemorySharingMode::Shared;
+        }
+    }
+
+    auto* jsMemory = JSWebAssemblyMemory::create(vm, webAssemblyMemoryStructure);
+
+    RefPtr<Wasm::Memory> memory = Wasm::Memory::tryCreate(vm, initialPageCount, maximumPageCount, sharingMode, addressType, desiredMemoryMode,
+        [&vm, jsMemory] (Wasm::Memory::GrowSuccess, PageCount oldPageCount, PageCount newPageCount) { jsMemory->growSuccessCallback(vm, oldPageCount, newPageCount); });
+    if (!memory) {
+        throwException(globalObject, throwScope, createOutOfMemoryError(globalObject));
+        return { };
+    }
+
+    jsMemory->adopt(memory.releaseNonNull());
+    return jsMemory;
+}
 
 JSC_DEFINE_HOST_FUNCTION(constructJSWebAssemblyMemory, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
@@ -66,92 +166,25 @@ JSC_DEFINE_HOST_FUNCTION(constructJSWebAssemblyMemory, (JSGlobalObject* globalOb
         JSValue argument = callFrame->argument(0);
         if (!argument.isObject())
             return JSValue::encode(throwException(globalObject, throwScope, createTypeError(globalObject, "WebAssembly.Memory expects its first argument to be an object"_s)));
-        memoryDescriptor = jsCast<JSObject*>(argument);
+        memoryDescriptor = uncheckedDowncast<JSObject>(argument);
     }
 
-    Wasm::PageCount initialPageCount;
-    {
-        Identifier initial = Identifier::fromString(vm, "initial");
-        JSValue initSizeValue = memoryDescriptor->get(globalObject, initial);
-        RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
-        Identifier minimum = Identifier::fromString(vm, "minimum");
-        JSValue minSizeValue = memoryDescriptor->get(globalObject, minimum);
-        RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
-        if (!minSizeValue.isUndefined() && !initSizeValue.isUndefined()) {
-            // Error because both specified.
-            return throwVMTypeError(globalObject, throwScope, "WebAssembly.Memory 'initial' and 'minimum' options are specified at the same time");
-        }
-        if (!initSizeValue.isUndefined())
-            minSizeValue = initSizeValue;
-
-        uint32_t size = toNonWrappingUint32(globalObject, minSizeValue);
-        RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
-        if (!Wasm::PageCount::isValid(size))
-            return JSValue::encode(throwException(globalObject, throwScope, createRangeError(globalObject, "WebAssembly.Memory 'initial' page count is too large"_s)));
-        if (Wasm::PageCount(size).bytes() > MAX_ARRAY_BUFFER_SIZE)
-            return JSValue::encode(throwException(globalObject, throwScope, createOutOfMemoryError(globalObject)));
-        initialPageCount = Wasm::PageCount(size);
-    }
-
-    Wasm::PageCount maximumPageCount;
-    {
-        // In WebIDL, "present" means that [[Get]] result is undefined, not [[HasProperty]] result.
-        // https://heycam.github.io/webidl/#idl-dictionaries
-        Identifier maximum = Identifier::fromString(vm, "maximum");
-        JSValue maxSizeValue = memoryDescriptor->get(globalObject, maximum);
-        RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
-        if (!maxSizeValue.isUndefined()) {
-            uint32_t size = toNonWrappingUint32(globalObject, maxSizeValue);
-            RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
-            if (!Wasm::PageCount::isValid(size))
-                return JSValue::encode(throwException(globalObject, throwScope, createRangeError(globalObject, "WebAssembly.Memory 'maximum' page count is too large"_s)));
-            maximumPageCount = Wasm::PageCount(size);
-
-            if (initialPageCount > maximumPageCount) {
-                return JSValue::encode(throwException(globalObject, throwScope,
-                    createRangeError(globalObject, "'maximum' page count must be than greater than or equal to the 'initial' page count"_s)));
-            }
-        }
-    }
-
-    Wasm::MemorySharingMode sharingMode = Wasm::MemorySharingMode::Default;
-    if (Options::useSharedArrayBuffer()) {
-        JSValue sharedValue = memoryDescriptor->get(globalObject, Identifier::fromString(vm, "shared"));
-        RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
-        bool shared = sharedValue.toBoolean(globalObject);
-        RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
-        if (shared) {
-            if (!maximumPageCount)
-                return throwVMTypeError(globalObject, throwScope, "'maximum' page count must be defined if 'shared' is true"_s);
-            sharingMode = Wasm::MemorySharingMode::Shared;
-        }
-    }
-
-    auto* jsMemory = JSWebAssemblyMemory::tryCreate(globalObject, vm, webAssemblyMemoryStructure);
+    JSWebAssemblyMemory* memory = WebAssemblyMemoryConstructor::createMemoryFromDescriptor(globalObject, webAssemblyMemoryStructure, memoryDescriptor);
     RETURN_IF_EXCEPTION(throwScope, encodedJSValue());
 
-    RefPtr<Wasm::Memory> memory = Wasm::Memory::tryCreate(initialPageCount, maximumPageCount, sharingMode,
-        [&vm] (Wasm::Memory::NotifyPressure) { vm.heap.collectAsync(CollectionScope::Full); },
-        [&vm] (Wasm::Memory::SyncTryToReclaim) { vm.heap.collectSync(CollectionScope::Full); },
-        [&vm, jsMemory] (Wasm::Memory::GrowSuccess, Wasm::PageCount oldPageCount, Wasm::PageCount newPageCount) { jsMemory->growSuccessCallback(vm, oldPageCount, newPageCount); });
-    if (!memory)
-        return JSValue::encode(throwException(globalObject, throwScope, createOutOfMemoryError(globalObject)));
-
-    jsMemory->adopt(memory.releaseNonNull());
-    
-    return JSValue::encode(jsMemory);
+    return JSValue::encode(memory);
 }
 
 JSC_DEFINE_HOST_FUNCTION(callJSWebAssemblyMemory, (JSGlobalObject* globalObject, CallFrame*))
 {
     VM& vm = globalObject->vm();
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    return JSValue::encode(throwConstructorCannotBeCalledAsFunctionTypeError(globalObject, throwScope, "WebAssembly.Memory"));
+    return JSValue::encode(throwConstructorCannotBeCalledAsFunctionTypeError(globalObject, throwScope, "WebAssembly.Memory"_s));
 }
 
 WebAssemblyMemoryConstructor* WebAssemblyMemoryConstructor::create(VM& vm, Structure* structure, WebAssemblyMemoryPrototype* thisPrototype)
 {
-    auto* constructor = new (NotNull, allocateCell<WebAssemblyMemoryConstructor>(vm.heap)) WebAssemblyMemoryConstructor(vm, structure);
+    auto* constructor = new (NotNull, allocateCell<WebAssemblyMemoryConstructor>(vm)) WebAssemblyMemoryConstructor(vm, structure);
     constructor->finishCreation(vm, thisPrototype);
     return constructor;
 }

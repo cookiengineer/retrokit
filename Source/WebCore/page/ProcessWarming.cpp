@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,40 +26,41 @@
 #include "config.h"
 #include "ProcessWarming.h"
 
+#include "CommonAtomStrings.h"
 #include "CommonVM.h"
 #include "Font.h"
 #include "FontCache.h"
 #include "FontCascadeDescription.h"
 #include "HTMLNames.h"
 #include "MathMLNames.h"
-#include "MediaFeatureNames.h"
+#include "MediaQueryFeatures.h"
 #include "QualifiedName.h"
 #include "SVGNames.h"
+#include "TagName.h"
 #include "TelephoneNumberDetector.h"
 #include "UserAgentStyle.h"
 #include "WebKitFontFamilyNames.h"
 #include "XLinkNames.h"
 #include "XMLNSNames.h"
 #include "XMLNames.h"
-
-#if ENABLE(GPU_DRIVER_PREWARMING)
-#include "GPUDevice.h"
-#endif
+#include <wtf/Language.h>
 
 namespace WebCore {
 
+WTF_MAKE_STRUCT_TZONE_ALLOCATED_IMPL(PrewarmInformation);
+
 void ProcessWarming::initializeNames()
 {
-    AtomString::init();
+    initializeCommonAtomStrings();
     HTMLNames::init();
     QualifiedName::init();
-    MediaFeatureNames::init();
     SVGNames::init();
     XLinkNames::init();
     MathMLNames::init();
     XMLNSNames::init();
     XMLNames::init();
     WebKitFontFamilyNames::init();
+    initializeTagNameStrings();
 }
 
 void ProcessWarming::prewarmGlobally()
@@ -68,30 +69,29 @@ void ProcessWarming::prewarmGlobally()
     
     // Prewarms user agent stylesheet.
     Style::UserAgentStyle::initDefaultStyleSheet();
+    MQ::Features::allSchemas();
     
     // Prewarms JS VM.
     commonVM();
 
     // Prewarm font cache
-    FontCache::singleton().prewarmGlobally();
+    FontCache::prewarmGlobally();
 
 #if ENABLE(TELEPHONE_NUMBER_DETECTION)
     TelephoneNumberDetector::prewarm();
 #endif
 
-#if ENABLE(GPU_DRIVER_PREWARMING)
-    prewarmGPU();
-#endif
+    defaultLanguage();
 }
 
 WebCore::PrewarmInformation ProcessWarming::collectPrewarmInformation()
 {
-    return { FontCache::singleton().collectPrewarmInformation() };
+    return { protect(FontCache::forCurrentThread())->collectPrewarmInformation() };
 }
 
-void ProcessWarming::prewarmWithInformation(const PrewarmInformation& prewarmInfo)
+void ProcessWarming::prewarmWithInformation(PrewarmInformation&& prewarmInfo)
 {
-    FontCache::singleton().prewarm(prewarmInfo.fontCache);
+    protect(FontCache::forCurrentThread())->prewarm(WTF::move(prewarmInfo.fontCache));
 }
 
 }

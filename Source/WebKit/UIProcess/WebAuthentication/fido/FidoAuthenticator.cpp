@@ -25,6 +25,7 @@
 
 #include "config.h"
 #include "FidoAuthenticator.h"
+#include <WebCore/WebAuthenticationUtils.h>
 
 #if ENABLE(WEB_AUTHN)
 
@@ -32,16 +33,16 @@
 
 namespace WebKit {
 
-FidoAuthenticator::FidoAuthenticator(std::unique_ptr<CtapDriver>&& driver)
-    : m_driver(WTFMove(driver))
+FidoAuthenticator::FidoAuthenticator(Ref<CtapDriver>&& driver)
+    : m_driver(WTF::move(driver))
 {
     ASSERT(m_driver);
 }
 
 FidoAuthenticator::~FidoAuthenticator()
 {
-    if (m_driver)
-        m_driver->cancel();
+    if (RefPtr driver = m_driver)
+        driver->cancel();
 }
 
 CtapDriver& FidoAuthenticator::driver() const
@@ -50,10 +51,15 @@ CtapDriver& FidoAuthenticator::driver() const
     return *m_driver;
 }
 
-std::unique_ptr<CtapDriver> FidoAuthenticator::releaseDriver()
+Ref<CtapDriver> FidoAuthenticator::releaseDriver()
 {
     ASSERT(m_driver);
-    return WTFMove(m_driver);
+    return m_driver.releaseNonNull();
+}
+
+String FidoAuthenticator::transportForDebugging() const
+{
+    return WebCore::toString(driver().transport());
 }
 
 } // namespace WebKit

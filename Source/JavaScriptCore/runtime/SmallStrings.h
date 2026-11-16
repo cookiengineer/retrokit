@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2021 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,9 +25,13 @@
 
 #pragma once
 
-#include "CollectionScope.h"
-#include "TypeofType.h"
+#include <JavaScriptCore/CollectionScope.h>
+#include <JavaScriptCore/JSExportMacros.h>
+#include <JavaScriptCore/TypeofType.h>
+#include <wtf/Compiler.h>
 #include <wtf/Noncopyable.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 #define JSC_COMMON_STRINGS_EACH_NAME(macro) \
     macro(default) \
@@ -67,10 +71,13 @@ public:
 
     JSString* singleCharacterString(unsigned char character)
     {
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         return m_singleCharacterStrings[character];
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     }
 
     JS_EXPORT_PRIVATE Ref<AtomStringImpl> singleCharacterStringRep(unsigned char character);
+    JS_EXPORT_PRIVATE AtomStringImpl* NODELETE existingSingleCharacterStringRep(unsigned char character);
 
     void setIsInitialized(bool isInitialized) { m_isInitialized = isInitialized; }
 
@@ -113,12 +120,25 @@ public:
     }
 
     JSString* objectStringStart() const { return m_objectStringStart; }
-    JSString* nullObjectString() const { return m_nullObjectString; }
-    JSString* undefinedObjectString() const { return m_undefinedObjectString; }
+    JSString* objectNullString() const { return m_objectNullString; }
+    JSString* objectUndefinedString() const { return m_objectUndefinedString; }
+    JSString* objectObjectString() const { return m_objectObjectString; }
+    JSString* objectArrayString() const { return m_objectArrayString; }
+    JSString* objectFunctionString() const { return m_objectFunctionString; }
+    JSString* objectArgumentsString() const { return m_objectArgumentsString; }
+    JSString* objectDateString() const { return m_objectDateString; }
+    JSString* objectRegExpString() const { return m_objectRegExpString; }
+    JSString* objectErrorString() const { return m_objectErrorString; }
+    JSString* objectBooleanString() const { return m_objectBooleanString; }
+    JSString* objectNumberString() const { return m_objectNumberString; }
+    JSString* objectStringString() const { return m_objectStringString; }
     JSString* boundPrefixString() const { return m_boundPrefixString; }
     JSString* notEqualString() const { return m_notEqualString; }
     JSString* timedOutString() const { return m_timedOutString; }
     JSString* okString() const { return m_okString; }
+    JSString* sentinelString() const { return m_sentinelString; }
+    JSString* fulfilledString() const { return m_fulfilledString; }
+    JSString* rejectedString() const { return m_rejectedString; }
 
     bool needsToBeVisited(CollectionScope scope) const
     {
@@ -130,22 +150,38 @@ public:
 private:
     static constexpr unsigned singleCharacterStringCount = maxSingleCharacterString + 1;
 
-    void initialize(VM*, JSString*&, const char* value);
+    void initialize(VM*, JSString*&, ASCIILiteral value);
 
     JSString* m_emptyString { nullptr };
 #define JSC_COMMON_STRINGS_ATTRIBUTE_DECLARATION(name) JSString* m_##name { nullptr };
     JSC_COMMON_STRINGS_EACH_NAME(JSC_COMMON_STRINGS_ATTRIBUTE_DECLARATION)
 #undef JSC_COMMON_STRINGS_ATTRIBUTE_DECLARATION
     JSString* m_objectStringStart { nullptr };
-    JSString* m_nullObjectString { nullptr };
-    JSString* m_undefinedObjectString { nullptr };
+    JSString* m_objectNullString { nullptr };
+    JSString* m_objectUndefinedString { nullptr };
+    JSString* m_objectObjectString { nullptr };
+    JSString* m_objectArrayString { nullptr };
+    JSString* m_objectFunctionString { nullptr };
+    JSString* m_objectArgumentsString { nullptr };
+    JSString* m_objectDateString { nullptr };
+    JSString* m_objectRegExpString { nullptr };
+    JSString* m_objectErrorString { nullptr };
+    JSString* m_objectBooleanString { nullptr };
+    JSString* m_objectNumberString { nullptr };
+    JSString* m_objectStringString { nullptr };
+
     JSString* m_boundPrefixString { nullptr };
     JSString* m_notEqualString { nullptr };
     JSString* m_timedOutString { nullptr };
     JSString* m_okString { nullptr };
+    JSString* m_sentinelString { nullptr };
+    JSString* m_fulfilledString { nullptr };
+    JSString* m_rejectedString { nullptr };
     JSString* m_singleCharacterStrings[singleCharacterStringCount] { nullptr };
     bool m_needsToBeVisited { true };
     bool m_isInitialized { false };
 };
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

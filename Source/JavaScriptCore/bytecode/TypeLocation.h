@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2014 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "TypeSet.h"
+#include <JavaScriptCore/TypeSet.h>
 
 namespace JSC {
 
@@ -39,18 +39,12 @@ typedef intptr_t GlobalVariableID;
 
 class TypeLocation {
 public:
-    TypeLocation()
-        : m_instructionTypeSet(TypeSet::create())
-        , m_globalTypeSet(nullptr)
-        , m_divotForFunctionOffsetIfReturnStatement(UINT_MAX)
-        , m_lastSeenType(TypeNothing)
-    {
-    }
+    TypeLocation();
 
     GlobalVariableID m_globalVariableID;
     RefPtr<TypeSet> m_instructionTypeSet;
     RefPtr<TypeSet> m_globalTypeSet;
-    intptr_t m_sourceID;
+    SourceID m_sourceID;
     unsigned m_divotStart;
     unsigned m_divotEnd;
     unsigned m_divotForFunctionOffsetIfReturnStatement;

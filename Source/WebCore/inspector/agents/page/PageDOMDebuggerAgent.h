@@ -33,7 +33,7 @@
 namespace WebCore {
 
 class Element;
-class Frame;
+class LocalFrame;
 class Node;
 
 class PageDOMDebuggerAgent final : public InspectorDOMDebuggerAgent {
@@ -49,29 +49,23 @@ public:
 
     // InspectorInstrumentation
     void mainFrameNavigated();
-    void frameDocumentUpdated(Frame&);
+    void frameDocumentUpdated(LocalFrame&);
     void willInsertDOMNode(Node& parent);
     void willRemoveDOMNode(Node&);
     void didRemoveDOMNode(Node&);
     void willDestroyDOMNode(Node&);
     void willModifyDOMAttr(Element&);
     void willInvalidateStyleAttr(Element&);
-    void willFireAnimationFrame();
-    void didFireAnimationFrame();
 
 private:
     void enable();
     void disable();
-
-    bool setAnimationFrameBreakpoint(Inspector::Protocol::ErrorString&, RefPtr<JSC::Breakpoint>&&);
 
     Ref<JSON::Object> buildPauseDataForDOMBreakpoint(Inspector::Protocol::DOMDebugger::DOMBreakpointType, Node& breakpointOwner);
 
     HashMap<Node*, Ref<JSC::Breakpoint>> m_domSubtreeModifiedBreakpoints;
     HashMap<Node*, Ref<JSC::Breakpoint>> m_domAttributeModifiedBreakpoints;
     HashMap<Node*, Ref<JSC::Breakpoint>> m_domNodeRemovedBreakpoints;
-
-    RefPtr<JSC::Breakpoint> m_pauseOnAllAnimationFramesBreakpoint;
 };
 
 } // namespace WebCore

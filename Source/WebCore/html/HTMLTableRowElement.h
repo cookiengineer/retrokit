@@ -25,16 +25,19 @@
 
 #pragma once
 
-#include "HTMLTableCellElement.h"
-#include "HTMLTablePartElement.h"
+#include <WebCore/HTMLTableCellElement.h>
+#include <WebCore/HTMLTablePartElement.h>
 
 namespace WebCore {
 
 class HTMLTableRowElement final : public HTMLTablePartElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLTableRowElement);
+    WTF_MAKE_TZONE_ALLOCATED(HTMLTableRowElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLTableRowElement);
 public:
     static Ref<HTMLTableRowElement> create(Document&);
     static Ref<HTMLTableRowElement> create(const QualifiedName&, Document&);
+
+    ~HTMLTableRowElement();
 
     WEBCORE_EXPORT int rowIndex() const;
     void setRowIndex(int);

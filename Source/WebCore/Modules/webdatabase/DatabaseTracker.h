@@ -28,16 +28,20 @@
 
 #pragma once
 
-#include "DatabaseDetails.h"
-#include "ExceptionOr.h"
-#include "SQLiteDatabase.h"
-#include "SecurityOriginData.h"
-#include "SecurityOriginHash.h"
+#include <WebCore/DatabaseDetails.h>
+#include <WebCore/DatabaseManagerClient.h>
+#include <WebCore/SQLiteDatabase.h>
+#include <WebCore/SecurityOriginData.h>
+#include <WebCore/SecurityOriginHash.h>
 #include <wtf/HashCountedSet.h>
 #include <wtf/HashMap.h>
-#include <wtf/HashSet.h>
 #include <wtf/Lock.h>
+#include <wtf/Platform.h>
+#include <wtf/RobinHoodHashSet.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/ThreadSafeWeakHashSet.h>
 #include <wtf/WallTime.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/text/StringHash.h>
 
 namespace WebCore {
@@ -47,20 +51,22 @@ class DatabaseContext;
 class DatabaseManagerClient;
 class OriginLock;
 class SecurityOrigin;
-struct SecurityOriginData;
+class SecurityOriginData;
+template<typename> class ExceptionOr;
 
 enum class CurrentQueryBehavior { Interrupt, RunToCompletion };
 
 class DatabaseTracker {
-    WTF_MAKE_NONCOPYABLE(DatabaseTracker); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(DatabaseTracker, WEBCORE_EXPORT);
+    WTF_MAKE_NONCOPYABLE(DatabaseTracker);
 public:
     // FIXME: This is a hack so we can easily delete databases from the UI process in WebKit2.
     WEBCORE_EXPORT static std::unique_ptr<DatabaseTracker> trackerWithDatabasePath(const String& databasePath);
 
-    static void initializeTracker(const String& databasePath);
+    static void NODELETE initializeTracker(const String& databasePath);
 
-    WEBCORE_EXPORT static DatabaseTracker& singleton();
-    WEBCORE_EXPORT static bool isInitialized();
+    WEBCORE_EXPORT static DatabaseTracker& NODELETE singleton();
+    WEBCORE_EXPORT static bool NODELETE isInitialized();
     // This singleton will potentially be used from multiple worker threads and the page's context thread simultaneously.  To keep this safe, it's
     // currently using 4 locks.  In order to avoid deadlock when taking multiple locks, you must take them in the correct order:
     // m_databaseGuard before quotaManager if both locks are needed.
@@ -90,7 +96,7 @@ public:
     WEBCORE_EXPORT uint64_t usage(const SecurityOriginData&);
     WEBCORE_EXPORT uint64_t quota(const SecurityOriginData&);
     WEBCORE_EXPORT void setQuota(const SecurityOriginData&, uint64_t);
-    RefPtr<OriginLock> originLockFor(const SecurityOriginData&);
+    Ref<OriginLock> originLockFor(const SecurityOriginData&);
 
     WEBCORE_EXPORT void deleteAllDatabasesImmediately();
     WEBCORE_EXPORT void deleteDatabasesModifiedSince(WallTime);
@@ -110,7 +116,7 @@ public:
     WEBCORE_EXPORT static void emptyDatabaseFilesRemovalTaskDidFinish();
 #endif
     
-    void setClient(DatabaseManagerClient*);
+    void NODELETE setClient(DatabaseManagerClient*);
 
     // From a secondary thread, must be thread safe with its data
     void scheduleNotifyDatabaseChanged(const SecurityOriginData&, const String& name);
@@ -158,26 +164,26 @@ private:
 
     void deleteOriginLockFor(const SecurityOriginData&) WTF_REQUIRES_LOCK(m_databaseGuard);
 
-    using DatabaseSet = HashSet<Database*>;
-    using DatabaseNameMap = HashMap<String, DatabaseSet*>;
-    using DatabaseOriginMap = HashMap<SecurityOriginData, DatabaseNameMap*>;
+    using DatabaseSet = ThreadSafeWeakHashSet<Database>;
+    using DatabaseNameMap = HashMap<String, DatabaseSet>;
+    using DatabaseOriginMap = HashMap<SecurityOriginData, DatabaseNameMap>;
 
     Lock m_openDatabaseMapGuard;
-    mutable std::unique_ptr<DatabaseOriginMap> m_openDatabaseMap WTF_GUARDED_BY_LOCK(m_openDatabaseMapGuard);
+    mutable DatabaseOriginMap m_openDatabaseMap WTF_GUARDED_BY_LOCK(m_openDatabaseMapGuard);
 
     // This lock protects m_database, m_originLockMap, m_databaseDirectoryPath, m_originsBeingDeleted, m_beingCreated, and m_beingDeleted.
     Lock m_databaseGuard;
-    SQLiteDatabase m_database WTF_GUARDED_BY_LOCK(m_databaseGuard);
+    const UniqueRef<SQLiteDatabase> m_database WTF_GUARDED_BY_LOCK(m_databaseGuard);
 
-    using OriginLockMap = HashMap<String, RefPtr<OriginLock>>;
+    using OriginLockMap = HashMap<String, Ref<OriginLock>>;
     OriginLockMap m_originLockMap WTF_GUARDED_BY_LOCK(m_databaseGuard);
 
     String m_databaseDirectoryPath;
 
-    DatabaseManagerClient* m_client { nullptr };
+    WeakPtr<DatabaseManagerClient> m_client;
 
-    HashMap<SecurityOriginData, std::unique_ptr<HashCountedSet<String>>> m_beingCreated WTF_GUARDED_BY_LOCK(m_databaseGuard);
-    HashMap<SecurityOriginData, std::unique_ptr<HashSet<String>>> m_beingDeleted WTF_GUARDED_BY_LOCK(m_databaseGuard);
+    HashMap<SecurityOriginData, HashCountedSet<String>> m_beingCreated WTF_GUARDED_BY_LOCK(m_databaseGuard);
+    HashMap<SecurityOriginData, MemoryCompactRobinHoodHashSet<String>> m_beingDeleted WTF_GUARDED_BY_LOCK(m_databaseGuard);
     HashSet<SecurityOriginData> m_originsBeingDeleted WTF_GUARDED_BY_LOCK(m_databaseGuard);
     bool isDeletingDatabaseOrOriginFor(const SecurityOriginData&, const String& name) WTF_REQUIRES_LOCK(m_databaseGuard);
     void recordCreatingDatabase(const SecurityOriginData&, const String& name) WTF_REQUIRES_LOCK(m_databaseGuard);

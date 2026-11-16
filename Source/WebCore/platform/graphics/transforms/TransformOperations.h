@@ -19,14 +19,16 @@
  * along with this library; see the file COPYING.LIB.  If not, write to
  * the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
  * Boston, MA 02110-1301, USA.
- *
  */
 
 #pragma once
 
-#include "LayoutSize.h"
-#include "TransformOperation.h"
-#include <wtf/RefPtr.h>
+#include <WebCore/LayoutSize.h>
+#include <WebCore/TransformOperation.h>
+#include <algorithm>
+#include <wtf/ArgumentCoder.h>
+#include <wtf/Ref.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
@@ -34,66 +36,57 @@ namespace WebCore {
 struct BlendingContext;
 
 class TransformOperations {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(TransformOperations);
 public:
-    explicit TransformOperations(bool makeIdentity = false);
-    
-    bool operator==(const TransformOperations& o) const;
-    bool operator!=(const TransformOperations& o) const
-    {
-        return !(*this == o);
-    }
-    
-    void apply(const FloatSize& sz, TransformationMatrix& t) const
-    {
-        for (unsigned i = 0; i < m_operations.size(); ++i)
-            m_operations[i]->apply(t, sz);
-    }
-    
-    // Return true if any of the operation types are 3D operation types (even if the
-    // values describe affine transforms)
-    bool has3DOperation() const
-    {
-        for (const auto& operation : m_operations) {
-            if (operation->is3DOperation())
-                return true;
-        }
-        return false;
-    }
+    using const_iterator = Vector<Ref<TransformOperation>>::const_iterator;
+    using const_reverse_iterator = Vector<Ref<TransformOperation>>::const_reverse_iterator;
+    using value_type = Vector<Ref<TransformOperation>>::value_type;
 
-    bool isRepresentableIn2D() const
-    {
-        for (const auto& operation : m_operations) {
-            if (!operation->isRepresentableIn2D())
-                return false;
-        }
-        return true;
-    }
+    TransformOperations() = default;
 
-    bool operationsMatch(const TransformOperations&) const;
-    
-    void clear()
-    {
-        m_operations.clear();
-    }
+    explicit TransformOperations(Ref<TransformOperation>&&);
+    WEBCORE_EXPORT explicit TransformOperations(Vector<Ref<TransformOperation>>&&);
 
-    bool affectedByTransformOrigin() const;
-    
-    Vector<RefPtr<TransformOperation>>& operations() { return m_operations; }
-    const Vector<RefPtr<TransformOperation>>& operations() const { return m_operations; }
+    bool operator==(const TransformOperations&) const;
 
+    WEBCORE_EXPORT TransformOperations clone() const;
+
+    const_iterator begin() const LIFETIME_BOUND { return m_operations.begin(); }
+    const_iterator end() const LIFETIME_BOUND { return m_operations.end(); }
+    const_reverse_iterator rbegin() const LIFETIME_BOUND { return m_operations.rbegin(); }
+    const_reverse_iterator rend() const LIFETIME_BOUND { return m_operations.rend(); }
+
+    bool isEmpty() const { return m_operations.isEmpty(); }
     size_t size() const { return m_operations.size(); }
-    const TransformOperation* at(size_t index) const { return index < m_operations.size() ? m_operations.at(index).get() : 0; }
+    const TransformOperation* at(size_t index) const LIFETIME_BOUND { return index < m_operations.size() ? m_operations[index].ptr() : nullptr; }
 
-    TransformOperations blendByMatchingOperations(const TransformOperations& from, const BlendingContext&) const;
-    TransformOperations blendByUsingMatrixInterpolation(const TransformOperations& from, const BlendingContext&, const LayoutSize&) const;
-    TransformOperations blend(const TransformOperations& from, const BlendingContext&, const LayoutSize&) const;
+    const Ref<TransformOperation>& operator[](size_t i) const LIFETIME_BOUND { return m_operations[i]; }
+    const Ref<TransformOperation>& first() const LIFETIME_BOUND { return m_operations.first(); }
+    const Ref<TransformOperation>& last() const LIFETIME_BOUND { return m_operations.last(); }
+
+    void apply(TransformationMatrix&, unsigned start = 0) const;
+
+    template<TransformOperation::Type operationType>
+    bool hasTransformOfType() const;
+
+    bool isInvertible() const;
+    bool containsNonInvertibleMatrix() const;
 
 private:
-    Vector<RefPtr<TransformOperation>> m_operations;
+    friend struct IPC::ArgumentCoder<TransformOperations>;
+    friend WTF::TextStream& operator<<(WTF::TextStream&, const TransformOperations&);
+
+    Vector<Ref<TransformOperation>> m_operations;
 };
+
+template<TransformOperation::Type operationType>
+bool TransformOperations::hasTransformOfType() const
+{
+    return std::ranges::any_of(m_operations, [](auto& op) { return op->type() == operationType; });
+}
+
+TransformOperations blend(const TransformOperations& from, const TransformOperations& to, const BlendingContext&);
 
 WTF::TextStream& operator<<(WTF::TextStream&, const TransformOperations&);
 
 } // namespace WebCore
-

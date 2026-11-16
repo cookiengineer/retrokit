@@ -42,26 +42,26 @@ inline constexpr bool isDynamicallySizedType(JSType type)
     return false;
 }
 
-inline size_t cellSize(VM& vm, JSCell* cell)
+inline size_t cellSize(JSCell* cell)
 {
-    Structure* structure = cell->structure(vm);
-    const ClassInfo* classInfo = structure->classInfo();
+    Structure* structure = cell->structure();
+    const ClassInfo* classInfo = structure->classInfoForCells();
     JSType cellType = cell->type();
 
     if (isDynamicallySizedType(cellType)) {
         switch (cellType) {
         case DirectArgumentsType: {
-            auto* args = jsCast<DirectArguments*>(cell);
+            auto* args = uncheckedDowncast<DirectArguments>(cell);
             return DirectArguments::allocationSize(args->m_minCapacity);
         }
         case FinalObjectType:
             return JSFinalObject::allocationSize(structure->inlineCapacity());
         case LexicalEnvironmentType: {
-            auto* env = jsCast<JSLexicalEnvironment*>(cell);
+            auto* env = uncheckedDowncast<JSLexicalEnvironment>(cell);
             return JSLexicalEnvironment::allocationSize(env->symbolTable());
         }
         case ModuleEnvironmentType: {
-            auto* env = jsCast<JSModuleEnvironment*>(cell);
+            auto* env = uncheckedDowncast<JSModuleEnvironment>(cell);
             return JSModuleEnvironment::allocationSize(env->symbolTable());
         }
         default:

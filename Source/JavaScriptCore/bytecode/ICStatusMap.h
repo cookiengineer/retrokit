@@ -25,8 +25,8 @@
 
 #pragma once
 
-#include "CodeOrigin.h"
-#include "ExitingInlineKind.h"
+#include <JavaScriptCore/CodeOrigin.h>
+#include <JavaScriptCore/ExitingInlineKind.h>
 #include <wtf/HashMap.h>
 
 namespace JSC {
@@ -38,10 +38,10 @@ class GetByStatus;
 class InByStatus;
 class PutByStatus;
 class DeleteByStatus;
-class StructureStubInfo;
+class PropertyInlineCache;
 
 struct ICStatus {
-    StructureStubInfo* stubInfo { nullptr };
+    PropertyInlineCache* propertyCache { nullptr };
     CallLinkInfo* callLinkInfo { nullptr };
     CallLinkStatus* callStatus { nullptr };
     GetByStatus* getStatus { nullptr };
@@ -50,12 +50,12 @@ struct ICStatus {
     DeleteByStatus* deleteStatus { nullptr };
 };
 
-typedef HashMap<CodeOrigin, ICStatus, CodeOriginApproximateHash> ICStatusMap;
+typedef UncheckedKeyHashMap<CodeOrigin, ICStatus, CodeOriginApproximateHash> ICStatusMap;
 
 struct ICStatusContext {
     ICStatus get(CodeOrigin) const;
-    bool isInlined(CodeOrigin) const;
-    ExitingInlineKind inlineKind(CodeOrigin) const;
+    bool NODELETE isInlined(CodeOrigin) const;
+    ExitingInlineKind NODELETE inlineKind(CodeOrigin) const;
     
     InlineCallFrame* inlineCallFrame { nullptr };
     CodeBlock* optimizedCodeBlock { nullptr };

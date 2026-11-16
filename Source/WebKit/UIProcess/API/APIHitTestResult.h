@@ -20,22 +20,17 @@
 #pragma once
 
 #include "APIObject.h"
-#include "SharedMemory.h"
 #include "WebHitTestResultData.h"
+#include "WebPageProxy.h"
 #include <WebCore/DictionaryPopupInfo.h>
 #include <WebCore/FloatPoint.h>
 #include <WebCore/IntRect.h>
 #include <WebCore/PageOverlay.h>
+#include <WebCore/SharedMemory.h>
 #include <wtf/Forward.h>
 #include <wtf/RefPtr.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
-
-OBJC_CLASS DDActionContext;
-
-namespace IPC {
-class Decoder;
-class Encoder;
-}
 
 namespace WebCore {
 class HitTestResult;
@@ -47,16 +42,20 @@ class WebFrame;
 
 class HitTestResult : public API::ObjectImpl<API::Object::Type::HitTestResult> {
 public:
-    static Ref<HitTestResult> create(const WebKit::WebHitTestResultData&);
+    static Ref<HitTestResult> create(const WebKit::WebHitTestResultData&, WebKit::WebPageProxy*);
 
     WTF::String absoluteImageURL() const { return m_data.absoluteImageURL; }
     WTF::String absolutePDFURL() const { return m_data.absolutePDFURL; }
     WTF::String absoluteLinkURL() const { return m_data.absoluteLinkURL; }
     WTF::String absoluteMediaURL() const { return m_data.absoluteMediaURL; }
+    WTF::String absoluteModelURL() const { return m_data.absoluteModelURL; }
 
     WTF::String linkLabel() const { return m_data.linkLabel; }
     WTF::String linkTitle() const { return m_data.linkTitle; }
+    WTF::String linkSuggestedFilename() const { return m_data.linkSuggestedFilename; }
+    WTF::String imageSuggestedFilename() const { return m_data.imageSuggestedFilename; }
     WTF::String lookupText() const { return m_data.lookupText; }
+    WTF::String sourceImageMIMEType() const { return m_data.sourceImageMIMEType; }
 
     bool isContentEditable() const { return m_data.isContentEditable; }
 
@@ -72,13 +71,32 @@ public:
 
     bool isDownloadableMedia() const { return m_data.isDownloadableMedia; }
 
+    bool mediaIsInFullscreen() const { return m_data.mediaIsInFullscreen; }
+
+    WebKit::WebHitTestResultData::ElementType elementType() const { return m_data.elementType; }
+
+    WebKit::WebPageProxy* page() { return m_page.get(); }
+
+    const std::optional<WebKit::FrameInfoData>& frameInfo() const LIFETIME_BOUND { return m_data.frameInfo; }
+    const std::optional<WebCore::FrameIdentifier> targetFrame() const { return m_data.targetFrame; }
+
+    bool allowsFollowingLink() const { return m_data.allowsFollowingLink; }
+
+    bool allowsFollowingImageURL() const { return m_data.allowsFollowingImageURL; }
+
+    const std::optional<WebCore::ResourceResponse>& linkLocalResourceResponse() const LIFETIME_BOUND { return m_data.linkLocalResourceResponse; }
+
 private:
-    explicit HitTestResult(const WebKit::WebHitTestResultData& hitTestResultData)
+    explicit HitTestResult(const WebKit::WebHitTestResultData& hitTestResultData, WebKit::WebPageProxy* page)
         : m_data(hitTestResultData)
+        , m_page(page)
     {
     }
 
     WebKit::WebHitTestResultData m_data;
+    WeakPtr<WebKit::WebPageProxy> m_page;
 };
 
 } // namespace API
+
+SPECIALIZE_TYPE_TRAITS_API_OBJECT(HitTestResult);

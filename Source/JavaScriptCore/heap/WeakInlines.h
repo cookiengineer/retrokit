@@ -25,9 +25,15 @@
 
 #pragma once
 
-#include "JSCast.h"
-#include "WeakSetInlines.h"
+#include <wtf/Compiler.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
+#include <JavaScriptCore/WeakInlinesLight.h>
+#include <JavaScriptCore/WeakSetInlines.h>
 #include <wtf/Assertions.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 namespace JSC {
 
@@ -38,7 +44,7 @@ template<typename T> inline Weak<T>::Weak(T* cell, WeakHandleOwner* weakOwner, v
 
 template<typename T> inline bool Weak<T>::isHashTableDeletedValue() const
 {
-    return m_impl == hashTableDeletedValue();
+    return impl() == hashTableDeletedValue();
 }
 
 template<typename T> inline Weak<T>::Weak(WTF::HashTableDeletedValueType)
@@ -63,31 +69,40 @@ template<typename T> inline void Weak<T>::swap(Weak& other)
 
 template<typename T> inline auto Weak<T>::operator=(Weak&& other) -> Weak&
 {
-    Weak weak = WTFMove(other);
+    Weak weak = WTF::move(other);
     swap(weak);
     return *this;
 }
 
+template <typename T>
+inline void Weak<T>::set(VM&, T* value)
+{
+    *this = value;
+}
+
 template<typename T> inline T* Weak<T>::operator->() const
 {
-    ASSERT(m_impl && m_impl->state() == WeakImpl::Live);
+    auto* pointer = impl();
+    ASSERT(pointer && pointer->state() == WeakImpl::Live);
     // We can't use jsCast here since we could be called in a finalizer.
-    return static_cast<T*>(m_impl->jsValue().asCell());
+    return static_cast<T*>(pointer->jsValue().asCell());
 }
 
 template<typename T> inline T& Weak<T>::operator*() const
 {
-    ASSERT(m_impl && m_impl->state() == WeakImpl::Live);
+    auto* pointer = impl();
+    ASSERT(pointer && pointer->state() == WeakImpl::Live);
     // We can't use jsCast here since we could be called in a finalizer.
-    return *static_cast<T*>(m_impl->jsValue().asCell());
+    return *static_cast<T*>(pointer->jsValue().asCell());
 }
 
 template<typename T> inline T* Weak<T>::get() const
 {
-    if (!m_impl || m_impl->state() != WeakImpl::Live)
+    auto* pointer = impl();
+    if (!pointer || pointer->state() != WeakImpl::Live)
         return nullptr;
     // We can't use jsCast here since we could be called in a finalizer.
-    return static_cast<T*>(m_impl->jsValue().asCell());
+    return static_cast<T*>(pointer->jsValue().asCell());
 }
 
 template<typename T> inline bool Weak<T>::was(T* other) const
@@ -97,7 +112,8 @@ template<typename T> inline bool Weak<T>::was(T* other) const
 
 template<typename T> inline bool Weak<T>::operator!() const
 {
-    return !m_impl || !m_impl->jsValue() || m_impl->state() != WeakImpl::Live;
+    auto* pointer = impl();
+    return !pointer || !pointer->jsValue() || pointer->state() != WeakImpl::Live;
 }
 
 template<typename T> inline Weak<T>::operator bool() const
@@ -107,9 +123,9 @@ template<typename T> inline Weak<T>::operator bool() const
 
 template<typename T> inline WeakImpl* Weak<T>::leakImpl()
 {
-    WeakImpl* impl = m_impl;
+    auto* pointer = impl();
     m_impl = nullptr;
-    return impl;
+    return pointer;
 }
 
 template<typename T> inline WeakImpl* Weak<T>::hashTableDeletedValue()
@@ -120,6 +136,11 @@ template<typename T> inline WeakImpl* Weak<T>::hashTableDeletedValue()
 template <typename T> inline bool operator==(const Weak<T>& lhs, const Weak<T>& rhs)
 {
     return lhs.get() == rhs.get();
+}
+
+template<typename T> inline bool operator==(const Weak<T>& lhs, const T* rhs)
+{
+    return lhs.get() == rhs;
 }
 
 // This function helps avoid modifying a weak table while holding an iterator into it. (Object allocation

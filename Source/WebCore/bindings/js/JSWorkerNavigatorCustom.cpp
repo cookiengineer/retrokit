@@ -26,14 +26,17 @@
 #include "config.h"
 #include "JSWorkerNavigator.h"
 
+#include "WebCoreOpaqueRootInlines.h"
+#include <JavaScriptCore/AbstractSlotVisitorInlines.h>
+
 namespace WebCore {
 
 template<typename Visitor>
-void JSWorkerNavigator::visitAdditionalChildren(Visitor& visitor)
+void JSWorkerNavigator::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    visitor.addOpaqueRoot(static_cast<NavigatorBase*>(&wrapped()));
+    addWebCoreOpaqueRoot(visitor, static_cast<NavigatorBase&>(wrapped()));
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSWorkerNavigator);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSWorkerNavigator);
 
 } // namespace WebCore

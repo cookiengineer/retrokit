@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Google, Inc. All Rights Reserved.
+ * Copyright (C) 2013 Google, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,31 +27,34 @@
 #include "HTMLParserOptions.h"
 
 #include "Document.h"
-#include "Frame.h"
-#include "FrameLoader.h"
+#include "FrameDestructionObserverInlines.h"
+#include "LocalFrame.h"
 #include "ScriptController.h"
 #include "Settings.h"
-#include "SubframeLoader.h"
 
 namespace WebCore {
 
 HTMLParserOptions::HTMLParserOptions()
     : scriptingFlag(false)
     , usePreHTML5ParserQuirks(false)
+    , enhancedSelect(false)
+    , enhancedSelectQuirk(false)
     , maximumDOMTreeDepth(Settings::defaultMaximumHTMLParserDOMTreeDepth)
 {
 }
 
 HTMLParserOptions::HTMLParserOptions(Document& document)
 {
-    RefPtr<Frame> frame = document.frame();
+    RefPtr frame = document.frame();
     if (document.settings().htmlParserScriptingFlagPolicy() == HTMLParserScriptingFlagPolicy::Enabled)
         scriptingFlag = true;
     else
-        scriptingFlag = frame && frame->script().canExecuteScripts(NotAboutToExecuteScript);
+        scriptingFlag = frame && protect(frame->script())->canExecuteScripts(ReasonForCallingCanExecuteScripts::NotAboutToExecuteScript) && document.allowsContentJavaScript();
 
     usePreHTML5ParserQuirks = document.settings().usePreHTML5ParserQuirks();
+    enhancedSelect = document.settings().htmlEnhancedSelectParsingEnabled();
+    enhancedSelectQuirk = document.settings().htmlEnhancedSelectParsingQuirkEnabled();
     maximumDOMTreeDepth = document.settings().maximumHTMLParserDOMTreeDepth();
 }
 
-}
+} // namespace WebCore

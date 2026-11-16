@@ -23,12 +23,19 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+typedef (double or CSSNumericValue) CSSNumberish;
+
+// https://drafts.csswg.org/web-animations-1/#dictdef-computedeffecttiming
+//   and then modified by
+// https://drafts.csswg.org/web-animations-2/#the-computedeffecttiming-dictionary
 [
-    JSGenerateToJSObject
+    JSGenerateToJSObject,
 ] dictionary ComputedEffectTiming : EffectTiming {
-    unrestricted double  endTime;
-    unrestricted double  activeDuration;
-    double?              localTime = null;
+    // FIXME: Add support for `startTime`.
+    // CSSNumberish         startTime;
+    CSSNumberish         endTime;
+    CSSNumberish         activeDuration;
+    CSSNumberish?        localTime = null;
     double?              progress = null;
     unrestricted double? currentIteration = null;
 };

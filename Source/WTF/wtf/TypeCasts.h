@@ -25,11 +25,15 @@
 
 #pragma once
 
+#include <cstddef>
+#include <memory>
 #include <type_traits>
+#include <utility>
+#include <wtf/Compiler.h>
 
 namespace WTF {
 
-template <typename ExpectedType, typename ArgType, bool isBaseType = std::is_base_of_v<ExpectedType, ArgType>>
+template<typename ExpectedType, typename ArgType, bool isBaseType = std::is_base_of_v<ExpectedType, ArgType>>
 struct TypeCastTraits {
     static bool isOfType(ArgType&)
     {
@@ -45,53 +49,98 @@ struct TypeCastTraits {
 
 // Template specialization for the case where ExpectedType is a base of ArgType,
 // so we can return return true unconditionally.
-template <typename ExpectedType, typename ArgType>
+template<typename ExpectedType, typename ArgType>
 struct TypeCastTraits<ExpectedType, ArgType, true /* isBaseType */> {
     static bool isOfType(ArgType&) { return true; }
 };
 
 // Type checking function, to use before casting with downcast<>().
-template <typename ExpectedType, typename ArgType>
-inline bool is(ArgType& source)
+template<typename ExpectedType, typename ArgType>
+inline bool is(const ArgType& source)
 {
     static_assert(std::is_base_of_v<ArgType, ExpectedType>, "Unnecessary type check");
     return TypeCastTraits<const ExpectedType, const ArgType>::isOfType(source);
 }
 
-template <typename ExpectedType, typename ArgType>
+template<typename ExpectedType, typename ArgType>
 inline bool is(ArgType* source)
 {
-    static_assert(std::is_base_of_v<ArgType, ExpectedType>, "Unnecessary type check");
-    return source && TypeCastTraits<const ExpectedType, const ArgType>::isOfType(*source);
+    return source && is<ExpectedType>(*source);
+}
+
+template<typename... ExpectedTypes, typename ArgType>
+inline bool isAnyOf(const ArgType& source)
+{
+    return (is<ExpectedTypes>(source) || ...);
+}
+
+template<typename... ExpectedTypes, typename ArgType>
+inline bool isAnyOf(ArgType* source)
+{
+    return source && (is<ExpectedTypes>(*source) || ...);
 }
 
 // Update T's constness to match Reference's.
-template <typename Reference, typename T>
+template<typename Reference, typename T>
 using match_constness_t =
     typename std::conditional_t<std::is_const_v<Reference>, typename std::add_const_t<T>, typename std::remove_const_t<T>>;
 
-// Safe downcasting functions.
 template<typename Target, typename Source>
-inline match_constness_t<Source, Target>& downcast(Source& source)
+inline match_constness_t<Source, Target>& uncheckedDowncast(Source& source LIFETIME_BOUND)
 {
     static_assert(!std::is_same_v<Source, Target>, "Unnecessary cast to same type");
     static_assert(std::is_base_of_v<Source, Target>, "Should be a downcast");
     ASSERT_WITH_SECURITY_IMPLICATION(is<Target>(source));
-    return static_cast<match_constness_t<Source, Target>&>(source);
+    SUPPRESS_MEMORY_UNSAFE_CAST return static_cast<match_constness_t<Source, Target>&>(source);
 }
+
 template<typename Target, typename Source>
-inline match_constness_t<Source, Target>* downcast(Source* source)
+inline match_constness_t<Source, Target>* uncheckedDowncast(Source* source LIFETIME_BOUND)
 {
     static_assert(!std::is_same_v<Source, Target>, "Unnecessary cast to same type");
     static_assert(std::is_base_of_v<Source, Target>, "Should be a downcast");
     ASSERT_WITH_SECURITY_IMPLICATION(!source || is<Target>(*source));
-    return static_cast<match_constness_t<Source, Target>*>(source);
+    SUPPRESS_MEMORY_UNSAFE_CAST return static_cast<match_constness_t<Source, Target>*>(source);
+}
+
+template<typename Target, typename Source>
+inline match_constness_t<Source, Target>& downcast(Source& source LIFETIME_BOUND)
+{
+    static_assert(!std::is_same_v<Source, Target>, "Unnecessary cast to same type");
+    static_assert(std::is_base_of_v<Source, Target>, "Should be a downcast");
+    RELEASE_ASSERT(is<Target>(source));
+    SUPPRESS_MEMORY_UNSAFE_CAST return static_cast<match_constness_t<Source, Target>&>(source);
+}
+
+template<typename Target, typename Source>
+inline match_constness_t<Source, Target>* downcast(Source* source LIFETIME_BOUND)
+{
+    static_assert(!std::is_same_v<Source, Target>, "Unnecessary cast to same type");
+    static_assert(std::is_base_of_v<Source, Target>, "Should be a downcast");
+    RELEASE_ASSERT(!source || is<Target>(*source));
+    SUPPRESS_MEMORY_UNSAFE_CAST return static_cast<match_constness_t<Source, Target>*>(source);
+}
+
+template<typename Target, typename Source>
+inline match_constness_t<Source, Target>* dynamicDowncast(Source& source LIFETIME_BOUND)
+{
+    static_assert(!std::is_same_v<Source, Target>, "Unnecessary cast to same type");
+    static_assert(std::is_base_of_v<Source, Target>, "Should be a downcast");
+    SUPPRESS_MEMORY_UNSAFE_CAST return is<Target>(source) ? &static_cast<match_constness_t<Source, Target>&>(source) : nullptr;
+}
+
+template<typename Target, typename Source>
+inline match_constness_t<Source, Target>* dynamicDowncast(Source* source LIFETIME_BOUND)
+{
+    static_assert(!std::is_same_v<Source, Target>, "Unnecessary cast to same type");
+    static_assert(std::is_base_of_v<Source, Target>, "Should be a downcast");
+    SUPPRESS_MEMORY_UNSAFE_CAST return is<Target>(source) ? static_cast<match_constness_t<Source, Target>*>(source) : nullptr;
 }
 
 // Add support for type checking / casting using is<>() / downcast<>() helpers for a specific class.
 #define SPECIALIZE_TYPE_TRAITS_BEGIN(ClassName) \
 namespace WTF { \
-template <typename ArgType> \
+template<typename ArgType> \
 class TypeCastTraits<const ClassName, ArgType, false /* isBaseType */> { \
 public: \
     static bool isOfType(ArgType& source) { return isType(source); } \
@@ -101,8 +150,37 @@ private:
 }; \
 }
 
+// Explicit specialization for C++ standard library types.
+
+template<typename ExpectedType, typename ArgType, typename Deleter>
+inline bool is(std::unique_ptr<ArgType, Deleter>& source)
+{
+    return is<ExpectedType>(source.get());
+}
+
+template<typename ExpectedType, typename ArgType, typename Deleter>
+inline bool is(const std::unique_ptr<ArgType, Deleter>& source)
+{
+    return is<ExpectedType>(source.get());
+}
+
+template<typename... ExpectedTypes, typename ArgType, typename Deleter>
+inline bool isAnyOf(std::unique_ptr<ArgType, Deleter>& source)
+{
+    return isAnyOf<ExpectedTypes...>(source.get());
+}
+
+template<typename... ExpectedTypes, typename ArgType, typename Deleter>
+inline bool isAnyOf(const std::unique_ptr<ArgType, Deleter>& source)
+{
+    return isAnyOf<ExpectedTypes...>(source.get());
+}
+
 } // namespace WTF
 
 using WTF::TypeCastTraits;
 using WTF::is;
+using WTF::isAnyOf;
 using WTF::downcast;
+using WTF::dynamicDowncast;
+using WTF::uncheckedDowncast;

@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2024-2025 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,27 +28,35 @@
 
 #include "CSSValue.h"
 #include "FontTaggedSettings.h"
+#include <wtf/Function.h>
 
 namespace WebCore {
 
 class CSSFontVariationValue final : public CSSValue {
 public:
-    static Ref<CSSFontVariationValue> create(FontTag tag, float value)
+    static Ref<CSSFontVariationValue> create(FontTag tag, Ref<CSSValue>&& value)
     {
-        return adoptRef(*new CSSFontVariationValue(tag, value));
+        return adoptRef(*new CSSFontVariationValue(tag, WTF::move(value)));
     }
 
-    const FontTag& tag() const { return m_tag; }
-    float value() const { return m_value; }
-    String customCSSText() const;
+    const FontTag& tag() const LIFETIME_BOUND { return m_tag; }
+    const CSSValue& value() const { return m_value; }
+    String customCSSText(const CSS::SerializationContext&) const;
 
     bool equals(const CSSFontVariationValue&) const;
 
+    IterationStatus customVisitChildren(NOESCAPE const Function<IterationStatus(CSSValue&)>& func) const
+    {
+        if (func(m_value.get()) == IterationStatus::Done)
+            return IterationStatus::Done;
+        return IterationStatus::Continue;
+    }
+
 private:
-    CSSFontVariationValue(FontTag, float);
+    CSSFontVariationValue(FontTag, Ref<CSSValue>&&);
 
     FontTag m_tag;
-    const float m_value;
+    const Ref<CSSValue> m_value;
 };
 
 } // namespace WebCore

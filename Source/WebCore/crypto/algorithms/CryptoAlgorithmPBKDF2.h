@@ -27,8 +27,6 @@
 
 #include "CryptoAlgorithm.h"
 
-#if ENABLE(WEB_CRYPTO)
-
 namespace WebCore {
 
 class CryptoAlgorithmPbkdf2Params;
@@ -36,7 +34,7 @@ class CryptoKeyRaw;
 
 class CryptoAlgorithmPBKDF2 final : public CryptoAlgorithm {
 public:
-    static constexpr const char* s_name = "PBKDF2";
+    static constexpr ASCIILiteral s_name = "PBKDF2"_s;
     static constexpr CryptoAlgorithmIdentifier s_identifier = CryptoAlgorithmIdentifier::PBKDF2;
     static Ref<CryptoAlgorithm> create();
 
@@ -44,13 +42,11 @@ private:
     CryptoAlgorithmPBKDF2() = default;
     CryptoAlgorithmIdentifier identifier() const final;
 
-    void deriveBits(const CryptoAlgorithmParameters&, Ref<CryptoKey>&&, size_t length, VectorCallback&&, ExceptionCallback&&, ScriptExecutionContext&, WorkQueue&) final;
+    void deriveBits(const CryptoAlgorithmParameters&, Ref<CryptoKey>&&, std::optional<size_t> length, VectorCallback&&, ExceptionCallback&&, ScriptExecutionContext&, WorkQueue&) final;
     void importKey(CryptoKeyFormat, KeyData&&, const CryptoAlgorithmParameters&, bool extractable, CryptoKeyUsageBitmap, KeyCallback&&, ExceptionCallback&&) final;
-    ExceptionOr<size_t> getKeyLength(const CryptoAlgorithmParameters&) final;
+    ExceptionOr<std::optional<size_t>> getKeyLength(const CryptoAlgorithmParameters&) final;
 
     static ExceptionOr<Vector<uint8_t>> platformDeriveBits(const CryptoAlgorithmPbkdf2Params&, const CryptoKeyRaw&, size_t);
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(WEB_CRYPTO)

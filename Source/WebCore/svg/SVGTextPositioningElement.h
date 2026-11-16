@@ -22,21 +22,23 @@
 #pragma once
 
 #include "SVGTextContentElement.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class SVGTextPositioningElement : public SVGTextContentElement {
-    WTF_MAKE_ISO_ALLOCATED(SVGTextPositioningElement);
+    WTF_MAKE_TZONE_ALLOCATED(SVGTextPositioningElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGTextPositioningElement);
 public:
-    static SVGTextPositioningElement* elementFromRenderer(RenderBoxModelObject&);
+    static RefPtr<SVGTextPositioningElement> elementFromRenderer(RenderBoxModelObject&);
 
     using PropertyRegistry = SVGPropertyOwnerRegistry<SVGTextPositioningElement, SVGTextContentElement>;
 
-    const SVGLengthList& x() const { return m_x->currentValue(); }
-    const SVGLengthList& y() const { return m_y->currentValue(); }
-    const SVGLengthList& dx() const { return m_dx->currentValue(); }
-    const SVGLengthList& dy() const { return m_dy->currentValue(); }
-    const SVGNumberList& rotate() const { return m_rotate->currentValue(); }
+    const SVGLengthList& x() const LIFETIME_BOUND { return m_x->currentValue(); }
+    const SVGLengthList& y() const LIFETIME_BOUND { return m_y->currentValue(); }
+    const SVGLengthList& dx() const LIFETIME_BOUND { return m_dx->currentValue(); }
+    const SVGLengthList& dy() const LIFETIME_BOUND { return m_dy->currentValue(); }
+    const SVGNumberList& rotate() const LIFETIME_BOUND { return m_rotate->currentValue(); }
 
     SVGAnimatedLengthList& xAnimated() { return m_x; }
     SVGAnimatedLengthList& yAnimated() { return m_y; }
@@ -45,23 +47,28 @@ public:
     SVGAnimatedNumberList& rotateAnimated() { return m_rotate; }
 
 protected:
-    SVGTextPositioningElement(const QualifiedName&, Document&);
+    SVGTextPositioningElement(const QualifiedName&, Document&, UniqueRef<SVGPropertyRegistry>&&);
 
-    void parseAttribute(const QualifiedName&, const AtomString&) override;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
     void svgAttributeChanged(const QualifiedName&) override;
 
 private:
-    bool hasPresentationalHintsForAttribute(const QualifiedName&) const final;
-    void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
+    bool isSVGTextPositioningElement() const override { return true; }
 
-    const SVGPropertyRegistry& propertyRegistry() const override { return m_propertyRegistry; }
-
-    PropertyRegistry m_propertyRegistry { *this };
-    Ref<SVGAnimatedLengthList> m_x { SVGAnimatedLengthList::create(this, SVGLengthMode::Width) };
-    Ref<SVGAnimatedLengthList> m_y { SVGAnimatedLengthList::create(this, SVGLengthMode::Height) };
-    Ref<SVGAnimatedLengthList> m_dx { SVGAnimatedLengthList::create(this, SVGLengthMode::Width) };
-    Ref<SVGAnimatedLengthList> m_dy { SVGAnimatedLengthList::create(this, SVGLengthMode::Height) };
-    Ref<SVGAnimatedNumberList> m_rotate { SVGAnimatedNumberList::create(this) };
+    const Ref<SVGAnimatedLengthList> m_x { SVGAnimatedLengthList::create(this, SVGLengthMode::Width) };
+    const Ref<SVGAnimatedLengthList> m_y { SVGAnimatedLengthList::create(this, SVGLengthMode::Height) };
+    const Ref<SVGAnimatedLengthList> m_dx { SVGAnimatedLengthList::create(this, SVGLengthMode::Width) };
+    const Ref<SVGAnimatedLengthList> m_dy { SVGAnimatedLengthList::create(this, SVGLengthMode::Height) };
+    const Ref<SVGAnimatedNumberList> m_rotate { SVGAnimatedNumberList::create(this) };
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::SVGTextPositioningElement)
+    static bool isType(const WebCore::SVGElement& element) { return element.isSVGTextPositioningElement(); }
+    static bool isType(const WebCore::Node& node)
+    {
+        auto* svgElement = dynamicDowncast<WebCore::SVGElement>(node);
+        return svgElement && isType(*svgElement);
+    }
+SPECIALIZE_TYPE_TRAITS_END()

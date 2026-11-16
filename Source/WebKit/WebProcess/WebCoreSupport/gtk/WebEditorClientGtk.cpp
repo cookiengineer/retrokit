@@ -20,56 +20,59 @@
 #include "config.h"
 #include "WebEditorClient.h"
 
-#include <WebCore/Document.h>
+#include <WebCore/DocumentPage.h>
 #include <WebCore/Editor.h>
 #include <WebCore/EventNames.h>
-#include <WebCore/Frame.h>
+#include <WebCore/FrameDestructionObserverInlines.h>
+#include <WebCore/FrameInlines.h>
 #include <WebCore/KeyboardEvent.h>
+#include <WebCore/LocalFrameInlines.h>
+#include <WebCore/NodeDocument.h>
 #include <WebCore/PagePasteboardContext.h>
 #include <WebCore/Pasteboard.h>
 #include <WebCore/PlatformKeyboardEvent.h>
 #include <WebCore/TextIterator.h>
 #include <WebCore/markup.h>
 #include <WebPage.h>
-#include <wtf/Variant.h>
 #include <wtf/glib/GRefPtr.h>
 
 namespace WebKit {
 using namespace WebCore;
 
-bool WebEditorClient::handleGtkEditorCommand(Frame& frame, const String& command, bool allowTextInsertion)
+bool WebEditorClient::handleGtkEditorCommand(LocalFrame& frame, const String& command, bool allowTextInsertion)
 {
     if (command == "GtkInsertEmoji"_s) {
         if (!allowTextInsertion)
             return false;
-        m_page->showEmojiPicker(frame);
+        if (RefPtr page = m_page.get())
+            page->showEmojiPicker(frame);
         return true;
     }
 
     return false;
 }
 
-bool WebEditorClient::executePendingEditorCommands(Frame& frame, const Vector<WTF::String>& pendingEditorCommands, bool allowTextInsertion)
+bool WebEditorClient::executePendingEditorCommands(LocalFrame& frame, const Vector<WTF::String>& pendingEditorCommands, bool allowTextInsertion)
 {
     Vector<Variant<Editor::Command, String>> commands;
     for (auto& commandString : pendingEditorCommands) {
-        if (commandString.startsWith("Gtk"))
+        if (commandString.startsWith("Gtk"_s))
             commands.append(commandString);
         else {
             Editor::Command command = frame.editor().command(commandString);
             if (command.isTextInsertion() && !allowTextInsertion)
                 return false;
 
-            commands.append(WTFMove(command));
+            commands.append(WTF::move(command));
         }
     }
 
     for (auto& commandVariant : commands) {
-        if (WTF::holds_alternative<String>(commandVariant)) {
-            if (!handleGtkEditorCommand(frame, WTF::get<String>(commandVariant), allowTextInsertion))
+        if (std::holds_alternative<String>(commandVariant)) {
+            if (!handleGtkEditorCommand(frame, std::get<String>(commandVariant), allowTextInsertion))
                 return false;
         } else {
-            auto& command = WTF::get<Editor::Command>(commandVariant);
+            auto& command = std::get<Editor::Command>(commandVariant);
             if (!command.execute())
                 return false;
         }
@@ -98,7 +101,7 @@ void WebEditorClient::handleKeyboardEvent(KeyboardEvent& event)
         // During RawKeyDown events if an editor command will insert text, defer
         // the insertion until the keypress event. We want keydown to bubble up
         // through the DOM first.
-        if (platformEvent->type() == PlatformEvent::RawKeyDown) {
+        if (platformEvent->type() == PlatformEvent::Type::RawKeyDown) {
             if (executePendingEditorCommands(*frame, pendingEditorCommands, false))
                 event.setDefaultHandled();
 
@@ -134,7 +137,7 @@ void WebEditorClient::handleKeyboardEvent(KeyboardEvent& event)
         event.setDefaultHandled();
 }
 
-void WebEditorClient::updateGlobalSelection(Frame* frame)
+void WebEditorClient::updateGlobalSelection(LocalFrame* frame)
 {
     if (!frame->selection().isRange())
         return;
@@ -145,7 +148,7 @@ void WebEditorClient::updateGlobalSelection(Frame* frame)
     PasteboardWebContent pasteboardContent;
     pasteboardContent.canSmartCopyOrDelete = false;
     pasteboardContent.text = plainText(*range);
-    pasteboardContent.markup = serializePreservingVisualAppearance(frame->selection().selection(), ResolveURLs::YesExcludingLocalFileURLsForPrivacy);
+    pasteboardContent.markup = serializePreservingVisualAppearance(frame->selection().selection(), ResolveURLs::YesExcludingURLsForPrivacy, SerializeComposedTree::Yes, IgnoreUserSelectNone::Yes);
     Pasteboard::createForGlobalSelection(PagePasteboardContext::create(frame->pageID()))->write(pasteboardContent);
 }
 

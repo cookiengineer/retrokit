@@ -69,7 +69,7 @@ void RemoteInspector::didClose(RemoteInspectorSocketEndpoint&, ConnectionID)
 
     m_clientConnection = std::nullopt;
 
-    RunLoop::current().dispatch([=] {
+    RunLoop::currentSingleton().dispatch([this] {
         Locker locker { m_mutex };
         stopInternal(StopSource::API);
     });
@@ -80,8 +80,7 @@ void RemoteInspector::sendWebInspectorEvent(const String& event)
     if (!m_clientConnection)
         return;
 
-    const CString message = event.utf8();
-    send(m_clientConnection.value(), reinterpret_cast<const uint8_t*>(message.data()), message.length());
+    send(m_clientConnection.value(), byteCast<uint8_t>(event.utf8().span()));
 }
 
 void RemoteInspector::start()
@@ -112,12 +111,12 @@ void RemoteInspector::stopInternal(StopSource)
 
     updateHasActiveDebugSession();
 
-    m_automaticInspectionPaused = false;
+    m_automaticInspectionCandidates.clear();
 }
 
 TargetListing RemoteInspector::listingForInspectionTarget(const RemoteInspectionTarget& target) const
 {
-    if (!target.remoteDebuggingAllowed())
+    if (!target.allowsInspectionByPolicy())
         return nullptr;
 
     // FIXME: Support remote debugging of a ServiceWorker.
@@ -130,14 +129,14 @@ TargetListing RemoteInspector::listingForInspectionTarget(const RemoteInspection
     targetListing->setString("url"_s, target.url());
     targetListing->setInteger("targetID"_s, target.targetIdentifier());
     targetListing->setBoolean("hasLocalDebugger"_s, target.hasLocalDebugger());
-    if (target.type() == RemoteInspectionTarget::Type::WebPage)
+    if (target.type() == RemoteInspectionTarget::Type::WebPage || target.type() == RemoteInspectionTarget::Type::LegacyWebPage)
         targetListing->setString("type"_s, "web-page"_s);
-    else if (target.type() == RemoteInspectionTarget::Type::Page)
-        targetListing->setString("type"_s, "page"_s);
     else if (target.type() == RemoteInspectionTarget::Type::JavaScript)
         targetListing->setString("type"_s, "javascript"_s);
     else if (target.type() == RemoteInspectionTarget::Type::ServiceWorker)
         targetListing->setString("type"_s, "service-worker"_s);
+    else if (target.type() == RemoteInspectionTarget::Type::WasmDebugger)
+        targetListing->setString("type"_s, "wasm-debugger"_s);
 
     return targetListing;
 }
@@ -181,19 +180,17 @@ void RemoteInspector::pushListingsSoon()
 
     m_pushScheduled = true;
 
-    RunLoop::current().dispatch([=] {
+    RunLoop::currentSingleton().dispatch([this] {
         Locker locker { m_mutex };
         if (m_pushScheduled)
             pushListingsNow();
     });
 }
 
-void RemoteInspector::sendAutomaticInspectionCandidateMessage()
+void RemoteInspector::sendAutomaticInspectionCandidateMessage(TargetID)
 {
     ASSERT(m_enabled);
     ASSERT(m_automaticInspectionEnabled);
-    ASSERT(m_automaticInspectionPaused);
-    ASSERT(m_automaticInspectionCandidateTargetIdentifier);
     // FIXME: Implement automatic inspection.
 }
 
@@ -212,7 +209,7 @@ void RemoteInspector::requestAutomationSession(String&& sessionID, const Client:
         return;
     }
 
-    m_client->requestAutomationSession(WTFMove(sessionID), capabilities);
+    m_client->requestAutomationSession(WTF::move(sessionID), capabilities);
     updateClientCapabilities();
 }
 
@@ -234,6 +231,9 @@ void RemoteInspector::setup(TargetID targetIdentifier)
     RemoteControllableTarget* target;
     {
         Locker locker { m_mutex };
+        if (m_targetConnectionMap.contains(targetIdentifier))
+            return;
+
         target = m_targetMap.get(targetIdentifier);
         if (!target)
             return;
@@ -247,7 +247,7 @@ void RemoteInspector::setup(TargetID targetIdentifier)
     }
 
     Locker locker { m_mutex };
-    m_targetConnectionMap.set(targetIdentifier, WTFMove(connectionToTarget));
+    m_targetConnectionMap.set(targetIdentifier, WTF::move(connectionToTarget));
 
     updateHasActiveDebugSession();
 }
@@ -263,18 +263,9 @@ String RemoteInspector::backendCommands() const
     if (m_backendCommandsPath.isEmpty())
         return { };
 
-    auto handle = FileSystem::openFile(m_backendCommandsPath, FileSystem::FileOpenMode::Read);
-    if (!FileSystem::isHandleValid(handle))
-        return { };
+    auto contents = FileSystem::readEntireFile(m_backendCommandsPath);
 
-    String result;
-    if (auto size = FileSystem::fileSize(handle)) {
-        Vector<LChar> buffer(*size);
-        if (FileSystem::readFromFile(handle, buffer.data(), *size) == *size)
-            result = String::adopt(WTFMove(buffer));
-    }
-    FileSystem::closeFile(handle);
-    return result;
+    return contents ? String { byteCast<Latin1Character>(contents->span()) } : emptyString();
 }
 
 // RemoteInspectorConnectionClient handlers
@@ -354,7 +345,7 @@ void RemoteInspector::sendMessageToBackend(const Event& event)
             return;
     }
 
-    connectionToTarget->sendMessageToTarget(event.message.value());
+    connectionToTarget->sendMessageToTarget(String { event.message.value() });
 }
 
 void RemoteInspector::startAutomationSession(const Event& event)
@@ -367,8 +358,21 @@ void RemoteInspector::startAutomationSession(const Event& event)
     if (!event.message)
         return;
 
-    String sessionID = *event.message;
-    requestAutomationSession(WTFMove(sessionID), { });
+    auto parsedMessageValue = JSON::Value::parseJSON(*event.message);
+    if (!parsedMessageValue)
+        return;
+
+    auto parsedMessageObject = parsedMessageValue->asObject();
+    auto sessionID = parsedMessageObject->getString("sessionID"_s);
+    if (!sessionID)
+        return;
+
+    RemoteInspector::Client::SessionCapabilities capabilities { };
+    auto capabilitiesObject = parsedMessageObject->getObject("capabilities"_s);
+    if (capabilitiesObject)
+        capabilities.acceptInsecureCertificates = capabilitiesObject->getBoolean("acceptInsecureCerts"_s).value_or(false);
+
+    requestAutomationSession(WTF::move(sessionID), capabilities);
 
     auto sendEvent = JSON::Object::create();
     sendEvent->setString("event"_s, "StartAutomationSession_Return"_s);
@@ -376,8 +380,8 @@ void RemoteInspector::startAutomationSession(const Event& event)
     auto capability = clientCapabilities();
 
     auto message = JSON::Object::create();
-    message->setString("browserName"_s, capability ? capability->browserName : "");
-    message->setString("browserVersion"_s, capability ? capability->browserVersion : "");
+    message->setString("browserName"_s, capability ? capability->browserName : emptyString());
+    message->setString("browserVersion"_s, capability ? capability->browserVersion : emptyString());
     sendEvent->setString("message"_s, message->toJSONString());
     sendWebInspectorEvent(sendEvent->toJSONString());
 

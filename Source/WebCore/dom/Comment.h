@@ -22,26 +22,26 @@
 
 #pragma once
 
-#include "CharacterData.h"
+#include <WebCore/CharacterData.h>
 
 namespace WebCore {
 
 class Comment final : public CharacterData {
-    WTF_MAKE_ISO_ALLOCATED(Comment);
+    WTF_MAKE_TZONE_ALLOCATED(Comment);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(Comment);
 public:
-    static Ref<Comment> create(Document&, const String&);
+    static Ref<Comment> create(Document&, String&&);
 
 private:
-    Comment(Document&, const String&);
+    Comment(Document&, String&&);
 
     String nodeName() const override;
-    NodeType nodeType() const override;
-    Ref<Node> cloneNodeInternal(Document&, CloningOperation) override;
-    bool childTypeAllowed(NodeType) const override;
+    Ref<Node> cloneNodeInternal(Document&, CloningOperation, CustomElementRegistry*) const override;
+    SerializedNode serializeNode(CloningOperation) const override;
 };
 
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::Comment)
-    static bool isType(const WebCore::Node& node) { return node.nodeType() == WebCore::Node::COMMENT_NODE; }
+    static bool isType(const WebCore::Node& node) { return node.nodeType() == WebCore::NodeType::Comment; }
 SPECIALIZE_TYPE_TRAITS_END()

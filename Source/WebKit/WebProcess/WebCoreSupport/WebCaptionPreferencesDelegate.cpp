@@ -23,26 +23,30 @@
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#pragma once
-
 #include "config.h"
 #include "WebCaptionPreferencesDelegate.h"
 
 #if HAVE(MEDIA_ACCESSIBILITY_FRAMEWORK)
 
+#include <WebCore/CaptionUserPreferencesMediaAF.h>
 #include "WebProcess.h"
 #include "WebProcessProxyMessages.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebCaptionPreferencesDelegate);
+
 void WebCaptionPreferencesDelegate::setDisplayMode(WebCore::CaptionUserPreferences::CaptionDisplayMode displayMode)
 {
-    WebProcess::singleton().parentProcessConnection()->send(Messages::WebProcessProxy::SetCaptionDisplayMode(displayMode), 0);
+    protect(WebProcess::singleton().parentProcessConnection())->send(Messages::WebProcessProxy::SetCaptionDisplayMode(displayMode), 0);
+    WebCore::CaptionUserPreferencesMediaAF::setCachedCaptionDisplayMode(displayMode);
 }
 
 void WebCaptionPreferencesDelegate::setPreferredLanguage(const String& language)
 {
-    WebProcess::singleton().parentProcessConnection()->send(Messages::WebProcessProxy::SetCaptionLanguage(language), 0);
+    protect(WebProcess::singleton().parentProcessConnection())->send(Messages::WebProcessProxy::SetCaptionLanguage(language), 0);
+    WebCore::CaptionUserPreferencesMediaAF::setCachedPreferredLanguages({ language });
 }
 
 } // namespace WebKit

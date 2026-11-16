@@ -25,9 +25,11 @@
 
 #pragma once
 
-#include "FloatPoint.h"
-#include "IntPoint.h"
-#include "PlatformEvent.h"
+#include <WebCore/FloatPoint.h>
+#include <WebCore/IntPoint.h>
+#include <WebCore/MouseEventTypes.h>
+#include <WebCore/PlatformEvent.h>
+#include <wtf/Platform.h>
 #include <wtf/WindowsExtras.h>
 
 namespace WTF {
@@ -37,13 +39,6 @@ class TextStream;
 namespace WebCore {
 
 class PlatformGestureEvent;
-
-enum class WheelEventProcessingSteps : uint8_t {
-    ScrollingThread                             = 1 << 0,
-    MainThreadForScrolling                      = 1 << 1,
-    MainThreadForNonBlockingDOMEventDispatch    = 1 << 2,
-    MainThreadForBlockingDOMEventDispatch       = 1 << 3,
-};
 
 enum class WheelScrollGestureState : uint8_t {
     Blocking,
@@ -57,26 +52,23 @@ enum class WheelScrollGestureState : uint8_t {
 // In this case, WebKit built in paging behavior is used to page up and down.
 // This yields the same behavior as clicking in a scrollbar track to page up and down.
 
-enum PlatformWheelEventGranularity : uint8_t {
+enum class PlatformWheelEventGranularity : uint8_t {
     ScrollByPageWheelEvent,
     ScrollByPixelWheelEvent,
 };
 
-#if ENABLE(KINETIC_SCROLLING)
-
 enum class PlatformWheelEventPhase : uint8_t {
-    None        = 0,
-    Began       = 1 << 0,
-    Stationary  = 1 << 1,
-    Changed     = 1 << 2,
-    Ended       = 1 << 3,
-    Cancelled   = 1 << 4,
-    MayBegin    = 1 << 5,
-};
-
-WTF::TextStream& operator<<(WTF::TextStream&, PlatformWheelEventPhase);
-
+    None,
+#if ENABLE(ASYNC_SCROLLING) || ENABLE(KINETIC_SCROLLING)
+    Began,
+    Stationary,
+    Changed,
+    Ended,
+    Cancelled,
+    MayBegin,
+    WillBegin,
 #endif
+};
 
 #if PLATFORM(WIN)
 // How many pixels should we scroll per line? Gecko uses the height of the
@@ -92,12 +84,12 @@ const float cScrollbarPixelsPerLine = 100.0f / 3.0f;
 class PlatformWheelEvent : public PlatformEvent {
 public:
     PlatformWheelEvent()
-        : PlatformEvent(PlatformEvent::Wheel)
+        : PlatformEvent(Type::Wheel)
     {
     }
 
     PlatformWheelEvent(IntPoint position, IntPoint globalPosition, float deltaX, float deltaY, float wheelTicksX, float wheelTicksY, PlatformWheelEventGranularity granularity, bool shiftKey, bool ctrlKey, bool altKey, bool metaKey)
-        : PlatformEvent(PlatformEvent::Wheel, shiftKey, ctrlKey, altKey, metaKey, { })
+        : PlatformEvent(Type::Wheel, shiftKey, ctrlKey, altKey, metaKey, { })
         , m_granularity(granularity)
         , m_position(position)
         , m_globalPosition(globalPosition)
@@ -120,11 +112,18 @@ public:
         return copy;
     }
 
-    PlatformWheelEvent copyWithDeltasAndVelocity(float deltaX, float deltaY, const FloatSize& velocity) const
+    PlatformWheelEvent copyWithDeltaAndVelocity(FloatSize delta, FloatSize velocity) const
     {
         PlatformWheelEvent copy = *this;
-        copy.m_deltaX = deltaX;
-        copy.m_deltaY = deltaY;
+        copy.m_deltaX = delta.width();
+        copy.m_deltaY = delta.height();
+        copy.m_scrollingVelocity = velocity;
+        return copy;
+    }
+
+    PlatformWheelEvent copyWithVelocity(FloatSize velocity) const
+    {
+        PlatformWheelEvent copy = *this;
         copy.m_scrollingVelocity = velocity;
         return copy;
     }
@@ -143,47 +142,57 @@ public:
 
     bool directionInvertedFromDevice() const { return m_directionInvertedFromDevice; }
 
-    const FloatSize& scrollingVelocity() const { return m_scrollingVelocity; }
+    const FloatSize& scrollingVelocity() const LIFETIME_BOUND { return m_scrollingVelocity; }
 
     bool hasPreciseScrollingDeltas() const { return m_hasPreciseScrollingDeltas; }
     void setHasPreciseScrollingDeltas(bool hasPreciseScrollingDeltas) { m_hasPreciseScrollingDeltas = hasPreciseScrollingDeltas; }
 
+    MouseEventInputSource inputSource() const { return m_inputSource; }
+    void setInputSource(MouseEventInputSource inputSource) { m_inputSource = inputSource; }
+
 #if PLATFORM(COCOA)
     unsigned scrollCount() const { return m_scrollCount; }
-    float unacceleratedScrollingDeltaX() const { return m_unacceleratedScrollingDeltaX; }
-    float unacceleratedScrollingDeltaY() const { return m_unacceleratedScrollingDeltaY; }
+    FloatSize unacceleratedScrollingDelta() const { return { m_unacceleratedScrollingDeltaX, m_unacceleratedScrollingDeltaY }; }
+    
+    MonotonicTime ioHIDEventTimestamp() const { return m_ioHIDEventTimestamp; }
+
+    std::optional<FloatSize> rawPlatformDelta() const { return m_rawPlatformDelta; }
 #endif
 
 #if ENABLE(ASYNC_SCROLLING)
     bool useLatchedEventElement() const;
     bool isGestureContinuation() const; // The fingers-down part of the gesture excluding momentum.
     bool shouldResetLatching() const;
-    bool isNonGestureEvent() const;
     bool isEndOfMomentumScroll() const;
+    bool isMomentumEvent() const;
 #else
     bool useLatchedEventElement() const { return false; }
 #endif
 
-#if ENABLE(KINETIC_SCROLLING)
     PlatformWheelEventPhase phase() const { return m_phase; }
     PlatformWheelEventPhase momentumPhase() const { return m_momentumPhase; }
 
+#if ENABLE(KINETIC_SCROLLING)
     bool isGestureStart() const;
     bool isGestureCancel() const;
 
+    bool isGestureEvent() const;
+    bool isNonGestureEvent() const;
+
     bool isEndOfNonMomentumScroll() const;
     bool isTransitioningToMomentumScroll() const;
-    FloatPoint swipeVelocity() const;
+    FloatSize swipeVelocity() const;
 #endif
 
 #if PLATFORM(WIN)
-    PlatformWheelEvent(HWND, WPARAM, LPARAM, bool isMouseHWheel);
+    WEBCORE_EXPORT PlatformWheelEvent(HWND, WPARAM, LPARAM, bool isMouseHWheel);
 #endif
 
 protected:
-    PlatformWheelEventGranularity m_granularity { ScrollByPixelWheelEvent };
+    PlatformWheelEventGranularity m_granularity { PlatformWheelEventGranularity::ScrollByPixelWheelEvent };
     bool m_directionInvertedFromDevice { false };
     bool m_hasPreciseScrollingDeltas { false };
+    MouseEventInputSource m_inputSource { MouseEventInputSource::UserDriven };
 
     IntPoint m_position;
     IntPoint m_globalPosition;
@@ -195,11 +204,12 @@ protected:
     // Scrolling velocity in pixels per second.
     FloatSize m_scrollingVelocity;
 
-#if ENABLE(KINETIC_SCROLLING)
     PlatformWheelEventPhase m_phase { PlatformWheelEventPhase::None };
     PlatformWheelEventPhase m_momentumPhase { PlatformWheelEventPhase::None };
-#endif
+
 #if PLATFORM(COCOA)
+    MonotonicTime m_ioHIDEventTimestamp;
+    std::optional<FloatSize> m_rawPlatformDelta;
     unsigned m_scrollCount { 0 };
     float m_unacceleratedScrollingDeltaX { 0 };
     float m_unacceleratedScrollingDeltaY { 0 };
@@ -228,19 +238,26 @@ inline bool PlatformWheelEvent::shouldResetLatching() const
     return m_phase == PlatformWheelEventPhase::Cancelled || m_phase == PlatformWheelEventPhase::MayBegin || (m_phase == PlatformWheelEventPhase::None && m_momentumPhase == PlatformWheelEventPhase::None) || isEndOfMomentumScroll();
 }
 
-inline bool PlatformWheelEvent::isNonGestureEvent() const
-{
-    return m_phase == PlatformWheelEventPhase::None && m_momentumPhase == PlatformWheelEventPhase::None;
-}
-
 inline bool PlatformWheelEvent::isEndOfMomentumScroll() const
 {
     return m_phase == PlatformWheelEventPhase::None && m_momentumPhase == PlatformWheelEventPhase::Ended;
 }
 
+inline bool PlatformWheelEvent::isMomentumEvent() const { return momentumPhase() != PlatformWheelEventPhase::None && momentumPhase() != PlatformWheelEventPhase::WillBegin; }
+
 #endif // ENABLE(ASYNC_SCROLLING)
 
 #if ENABLE(KINETIC_SCROLLING)
+
+inline bool PlatformWheelEvent::isGestureEvent() const
+{
+    return m_phase != PlatformWheelEventPhase::None || m_momentumPhase != PlatformWheelEventPhase::None;
+}
+
+inline bool PlatformWheelEvent::isNonGestureEvent() const
+{
+    return !isGestureEvent();
+}
 
 inline bool PlatformWheelEvent::isGestureStart() const
 {
@@ -262,17 +279,18 @@ inline bool PlatformWheelEvent::isTransitioningToMomentumScroll() const
     return m_phase == PlatformWheelEventPhase::None && m_momentumPhase == PlatformWheelEventPhase::Began;
 }
 
-inline FloatPoint PlatformWheelEvent::swipeVelocity() const
+inline FloatSize PlatformWheelEvent::swipeVelocity() const
 {
     // The swiping velocity is stored in the deltas of the event declaring it.
-    return isTransitioningToMomentumScroll() ? FloatPoint(m_wheelTicksX, m_wheelTicksY) : FloatPoint();
+    return isTransitioningToMomentumScroll() ? FloatSize(m_wheelTicksX, m_wheelTicksY) : FloatSize();
 }
 
 #endif // ENABLE(KINETIC_SCROLLING)
 
 WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const PlatformWheelEvent&);
-WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, WheelEventProcessingSteps);
 WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, EventHandling);
 WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, WheelScrollGestureState);
+WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, PlatformWheelEventPhase);
 
 } // namespace WebCore
+

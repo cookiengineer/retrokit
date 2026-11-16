@@ -1,4 +1,4 @@
-# Copyright (C) 2014 Apple Inc. All rights reserved.
+# Copyright (C) 2014-2023 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -20,8 +20,15 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-messages -> RemoteLayerTreeDrawingAreaProxy : DrawingAreaProxy NotRefCounted {
+[
+    ExceptionForEnabledBy,
+    DispatchedFrom=WebContent,
+    DispatchedTo=UI
+]
+messages -> RemoteLayerTreeDrawingAreaProxy : DrawingAreaProxy {
     void SetPreferredFramesPerSecond(unsigned preferredFramesPerSecond)
-    void WillCommitLayerTree(WebKit::TransactionID transactionID)
-    void CommitLayerTree(WebKit::RemoteLayerTreeTransaction layerTreeTransaction, WebKit::RemoteScrollingCoordinatorTransaction scrollingTreeTransaction)
+    void NotifyPendingCommitLayerTree(std::optional<WebKit::TransactionID> transactionID) CanDispatchOutOfOrder
+    void NotifyFlushingLayerTree(WebKit::TransactionID transactionID) CanDispatchOutOfOrder
+    void CommitLayerTree(struct WebKit::RemoteLayerTreeCommitBundle bundle, HashMap<WebKit::ImageBufferSetIdentifier, std::unique_ptr<WebKit::BufferSetBackendHandle>> handlesMap) CanDispatchOutOfOrder
+    void AsyncSetLayerContents(WebCore::PlatformLayerIdentifier layer, WebKit::RemoteLayerBackingStoreProperties properties)
 }

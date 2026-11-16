@@ -4,6 +4,7 @@
  *           (C) 2000 Dirk Mueller (mueller@kde.org)
  * Copyright (C) 2003, 2005, 2006, 2007, 2008 Apple Inc. All rights reserved.
  * Copyright (C) 2006 Graham Dennis (graham.dennis@gmail.com)
+ * Copyright (C) 2025-2026 Samuel Weinig <sam@webkit.org>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -24,64 +25,31 @@
 
 #pragma once
 
-#include "Color.h"
-#include "RenderStyleConstants.h"
+#include <WebCore/RenderStyleConstants.h>
+#include <WebCore/StyleColor.h>
+#include <WebCore/StyleLineWidth.h>
 
 namespace WebCore {
 
-class BorderValue {
-friend class RenderStyle;
-public:
-    BorderValue()
-        : m_style(static_cast<unsigned>(BorderStyle::None))
-        , m_isAuto(static_cast<unsigned>(OutlineIsAuto::Off))
-    {
-    }
+struct BorderValue {
+    Style::Color color { Style::Color::currentColor() };
+    Style::LineWidth width { Style::LineWidth::Length { 3.0f } };
+    PREFERRED_TYPE(BorderStyle) unsigned style : 4 { static_cast<unsigned>(BorderStyle::None) };
 
-    bool nonZero() const
-    {
-        return width() && style() != BorderStyle::None;
-    }
+    bool isVisible() const;
+    bool nonZero() const;
 
-    bool isTransparent() const
-    {
-        return m_color.isValid() && !m_color.isVisible();
-    }
+    bool hasHiddenStyle() const { return static_cast<BorderStyle>(style) == BorderStyle::Hidden; }
+    bool hasVisibleStyle() const { return isVisibleBorderStyle(static_cast<BorderStyle>(style)); }
 
-    bool isVisible() const
-    {
-        return nonZero() && !isTransparent() && style() != BorderStyle::Hidden;
-    }
-
-    bool operator==(const BorderValue& o) const
-    {
-        return m_width == o.m_width && m_style == o.m_style && m_color == o.m_color;
-    }
-
-    bool operator!=(const BorderValue& o) const
-    {
-        return !(*this == o);
-    }
-
-    void setColor(const Color& color)
-    {
-        m_color = color;
-    }
-
-    const Color& color() const { return m_color; }
-
-    float width() const { return m_width; }
-    BorderStyle style() const { return static_cast<BorderStyle>(m_style); }
-
-protected:
-    Color m_color;
-
-    float m_width { 3 };
-
-    unsigned m_style : 4; // BorderStyle
-
-    // This is only used by OutlineValue but moved here to keep the bits packed.
-    unsigned m_isAuto : 1; // OutlineIsAuto
+    bool operator==(const BorderValue&) const = default;
 };
+
+inline bool BorderValue::nonZero() const
+{
+    return width && static_cast<BorderStyle>(style) != BorderStyle::None;
+}
+
+TextStream& operator<<(TextStream&, const BorderValue&);
 
 } // namespace WebCore

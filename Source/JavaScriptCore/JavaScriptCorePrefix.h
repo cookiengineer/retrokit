@@ -23,10 +23,20 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#pragma once
+
+#if defined(HAVE_CONFIG_H) && HAVE_CONFIG_H && defined(BUILDING_WITH_CMAKE)
+#include "cmakeconfig.h"
+#endif
+
+#include <wtf/Platform.h>
+
+#if defined(__APPLE__)
 #ifdef __cplusplus
 #define NULL __null
 #else
 #define NULL ((void *)0)
+#endif
 #endif
 
 #include <ctype.h>
@@ -36,26 +46,103 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
 #include <time.h>
+
+#if defined(__APPLE__)
+#include <strings.h>
 #include <sys/param.h>
 #include <sys/time.h>
 #include <sys/timeb.h>
 #include <sys/types.h>
+#endif
+
+#if OS(WINDOWS)
+#include <windows.h>
+#endif
 
 #ifdef __cplusplus
-
+#include "B3ValueRep.h"
+#include "ButterflyInlinesLight.h"
+#include "Bytecodes.h"
+#include "CacheableIdentifierInlines.h"
+#include "CodeBlock.h"
+#include "GCSegmentedArrayInlines.h"
+#include "GenericArgumentsImplInlines.h"
+#include "Heap.h"
+#include "IsoCellSetInlines.h"
+#include "JSArray.h"
+#include "JSArrayBufferView.h"
+#include "JSCJSValue.h"
+#include "JSCJSValueInlines.h"
+#include "JSCJSValuePropertyInlines.h"
+#include "JSDataView.h"
+#include "JSGlobalObject.h"
+#include "JSLexicalEnvironment.h"
+#include "JSObject.h"
+#include "JSObjectInlines.h"
+#include "JSObjectRef.h"
+#include "JSString.h"
+#include "JSStringInlines.h"
+#include "MarkedBlockInlines.h"
+#include "Operations.h"
+#include "OperationsInlines.h"
+#include "OperandsInlines.h"
+#include "OptionsList.h"
+#include "Strong.h"
+#include "Structure.h"
+#include "StructureChain.h"
+#include "StructureInlinesLight.h"
+#include "UnlinkedMetadataTableInlines.h"
+#include "VM.h"
+#include "WeakGCMapInlines.h"
+#include <chrono>
+#include <functional>
 #include <list>
+#include <memory>
+#include <mutex>
+#include <string>
 #include <typeinfo>
+#include <wtf/HashMap.h>
+#include <wtf/HashSet.h>
+#include <wtf/MediaTime.h>
+#include <wtf/RefCountedFixedVector.h>
+#include <wtf/SIMDHelpers.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/ValidatedReinterpretCast.h>
+#include <wtf/Variant.h>
+#include <wtf/Vector.h>
+#include <wtf/text/WTFString.h>
 
+#if ENABLE(ASSEMBLER)
+#include "GPRInfo.h"
+#include "LinkBuffer.h"
+#include "MacroAssembler.h"
+#endif
+
+#if ENABLE(JIT)
+#include "AssemblyHelpers.h"
+#include "CCallHelpers.h"
+#include "JITOperations.h"
+#endif
+
+#if ENABLE(WEBASSEMBLY)
+#include "WasmCallee.h"
+#include "WasmCallingConvention.h"
+#include "WebAssemblyFunction.h"
+#endif
 #endif
 
 #ifdef __cplusplus
-#define new ("if you use new/delete make sure to include config.h at the top of the file"()) 
-#define delete ("if you use new/delete make sure to include config.h at the top of the file"()) 
+#define new ("if you use new/delete make sure to include config.h at the top of the file"())
+#define delete ("if you use new/delete make sure to include config.h at the top of the file"())
 #endif
 
-/* Work around bug with C++ library that screws up Objective-C++ when exception support is disabled. */
+/* When C++ exceptions are disabled, the C++ library defines |try| and |catch|
+ * to allow C++ code that expects exceptions to build. These definitions
+ * interfere with Objective-C++ uses of Objective-C exception handlers, which
+ * use |@try| and |@catch|. As a workaround, undefine these macros. */
+#ifdef __OBJC__
 #undef try
 #undef catch
-
+#endif

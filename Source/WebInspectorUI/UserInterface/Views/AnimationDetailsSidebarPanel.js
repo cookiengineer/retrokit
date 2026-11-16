@@ -116,7 +116,7 @@ WI.AnimationDetailsSidebarPanel = class AnimationDetailsSidebarPanel extends WI.
         const selectable = false;
         let backtraceTreeOutline = new WI.TreeOutline(selectable);
         backtraceTreeOutline.disclosureButtons = false;
-        this._backtraceTreeController = new WI.CallFrameTreeController(backtraceTreeOutline);
+        this._backtraceTreeController = new WI.StackTraceTreeController(backtraceTreeOutline);
 
         let backtraceRow = new WI.DetailsSectionRow;
         backtraceRow.element.appendChild(backtraceTreeOutline.element);
@@ -137,17 +137,6 @@ WI.AnimationDetailsSidebarPanel = class AnimationDetailsSidebarPanel extends WI.
         this._refreshIdentitySection();
         this._refreshEffectSection();
         this._refreshBacktraceSection();
-
-        for (let codeMirror of this._codeMirrorSectionMap.values())
-            codeMirror.refresh();
-    }
-
-    attached()
-    {
-        super.attached();
-
-        for (let codeMirror of this._codeMirrorSectionMap.values())
-            codeMirror.refresh();
     }
 
     // Private
@@ -179,19 +168,20 @@ WI.AnimationDetailsSidebarPanel = class AnimationDetailsSidebarPanel extends WI.
         this._cssTransitionPropertyRow.value = cssTransitionProperty;
 
         this._targetRow.value = null;
-        this._animation.requestEffectTarget((domNode) => {
-            this._targetRow.value = domNode ? WI.linkifyNodeReference(domNode) : null;
+        this._animation.requestEffectTarget((styleable) => {
+            this._targetRow.value = WI.linkifyStyleable(styleable);
         });
     }
 
-    _refreshEffectSection()
+    async _refreshEffectSection()
     {
+        await this._animation.ensureEffect();
+
         for (let section of this._codeMirrorSectionMap.keys())
             section.removeEventListener(WI.DetailsSection.Event.CollapsedStateChanged, this._handleDetailsSectionCollapsedStateChanged, this);
         this._codeMirrorSectionMap.clear();
 
         const precision = 0;
-        const readOnly = true;
 
         this._iterationCountRow.value = !isNaN(this._animation.iterationCount) ? this._animation.iterationCount.toLocaleString() : null;
         this._iterationStartRow.value = !isNaN(this._animation.iterationStart) ? this._animation.iterationStart.toLocaleString() : null;
@@ -232,15 +222,17 @@ WI.AnimationDetailsSidebarPanel = class AnimationDetailsSidebarPanel extends WI.
                     return {
                         allowedTokens: /\btag\b/,
                         callback(marker, valueObject, valueString) {
-                            let swatch = new WI.InlineSwatch(type, valueObject, readOnly);
+                            let swatch = new WI.InlineSwatch(type, valueObject, {readOnly: true});
                             codeMirror.setUniqueBookmark(marker.range.startPosition().toCodeMirror(), swatch.element);
                         }
                     };
                 }
                 createCodeMirrorColorTextMarkers(codeMirror, range, optionsForType(WI.InlineSwatch.Type.Color));
                 createCodeMirrorGradientTextMarkers(codeMirror, range, optionsForType(WI.InlineSwatch.Type.Gradient));
-                createCodeMirrorCubicBezierTextMarkers(codeMirror, range, optionsForType(WI.InlineSwatch.Type.Bezier));
-                createCodeMirrorSpringTextMarkers(codeMirror, range, optionsForType(WI.InlineSwatch.Type.Spring));
+                createCodeMirrorCubicBezierTimingFunctionTextMarkers(codeMirror, range, optionsForType(WI.InlineSwatch.Type.CubicBezierTimingFunction));
+                createCodeMirrorLinearTimingFunctionTextMarkers(codeMirror, range, optionsForType(WI.InlineSwatch.Type.LinearTimingFunction));
+                createCodeMirrorSpringTimingFunctionTextMarkers(codeMirror, range, optionsForType(WI.InlineSwatch.Type.SpringTimingFunction));
+                createCodeMirrorStepsTimingFunctionTextMarkers(codeMirror, range, optionsForType(WI.InlineSwatch.Type.StepsTimingFunction));
 
                 let row = new WI.DetailsSectionRow;
                 row.element.classList.add("styles");
@@ -264,13 +256,18 @@ WI.AnimationDetailsSidebarPanel = class AnimationDetailsSidebarPanel extends WI.
             keyframeSections.push(emptyRow);
         }
         this._keyframesGroup.rows = keyframeSections;
+
+        setTimeout(() => {
+            for (let codeMirror of this._codeMirrorSectionMap.values())
+                codeMirror.refresh();
+        });
     }
 
     _refreshBacktraceSection()
     {
-        let callFrames = this._animation.backtrace;
-        this._backtraceTreeController.callFrames = callFrames;
-        this._backtraceSection.element.hidden = !callFrames.length;
+        let stackTrace = this._animation.stackTrace;
+        this._backtraceTreeController.stackTrace = stackTrace;
+        this._backtraceSection.element.hidden = !stackTrace?.callFrames.length;
     }
 
     _handleAnimationNameChanged(event)

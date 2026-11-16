@@ -24,9 +24,11 @@
 
 #pragma once
 
+#include "SVGAttributeAnimator.h"
 #include "SVGSMILElement.h"
 #include "SVGTests.h"
 #include "UnitBezier.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -38,15 +40,16 @@ class TimeContainer;
 enum AnimatedPropertyValueType { RegularPropertyValue, CurrentColorValue, InheritValue };
 
 class SVGAnimationElement : public SVGSMILElement, public SVGTests {
-    WTF_MAKE_ISO_ALLOCATED(SVGAnimationElement);
+    WTF_MAKE_TZONE_ALLOCATED(SVGAnimationElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGAnimationElement);
 public:
-    float getStartTime() const;
+    ExceptionOr<float> getStartTime() const;
     float getCurrentTime() const;
-    float getSimpleDuration() const;
+    ExceptionOr<float> getSimpleDuration() const;
 
-    void beginElement();
+    void beginElement() { beginElementAt(0); }
     void beginElementAt(float offset);
-    void endElement();
+    void endElement() { endElementAt(0); }
     void endElementAt(float offset);
 
     static bool isTargetAttributeCSSProperty(SVGElement*, const QualifiedName&);
@@ -79,23 +82,21 @@ public:
     enum class AttributeType : uint8_t { CSS, XML, Auto };
     AttributeType attributeType() const { return m_attributeType; }
 
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGAnimationElement, SVGElement, SVGTests>;
+
 protected:
     SVGAnimationElement(const QualifiedName&, Document&);
-
-    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGAnimationElement, SVGElement, SVGTests>;
-    const SVGPropertyRegistry& propertyRegistry() const override { return m_propertyRegistry; }
 
     virtual void resetAnimation();
 
     static bool isSupportedAttribute(const QualifiedName&);
-    void parseAttribute(const QualifiedName&, const AtomString&) override;
+    bool attributeContainsJavaScriptURL(const Attribute&) const final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
     void svgAttributeChanged(const QualifiedName&) override;
 
-    String toValue() const;
-    String byValue() const;
-    String fromValue() const;
-
-    String targetAttributeBaseValue();
+    String NODELETE toValue() const;
+    String NODELETE byValue() const;
+    String NODELETE fromValue() const;
 
     // from SVGSMILElement
     void startedActiveInterval() override;
@@ -114,20 +115,22 @@ private:
     void animationAttributeChanged() override;
     void setAttributeType(const AtomString&);
 
-    virtual bool calculateToAtEndOfDurationValue(const String& toAtEndOfDurationString) = 0;
-    virtual bool calculateFromAndToValues(const String& fromString, const String& toString) = 0;
-    virtual bool calculateFromAndByValues(const String& fromString, const String& byString) = 0;
+    bool isSVGAnimationElement() const final { return true; }
+
+    virtual bool setFromAndToValues(const String& fromString, const String& toString) = 0;
+    virtual bool setFromAndByValues(const String& fromString, const String& byString) = 0;
+    virtual bool setToAtEndOfDurationValue(const String& toAtEndOfDurationString) = 0;
     virtual void calculateAnimatedValue(float percent, unsigned repeatCount) = 0;
     virtual std::optional<float> calculateDistance(const String& /*fromString*/, const String& /*toString*/) = 0;
 
-    const Vector<float>& keyTimes() const;
+    const Vector<float>& NODELETE keyTimes() const;
     void currentValuesForValuesAnimation(float percent, float& effectivePercent, String& from, String& to);
     void calculateKeyTimesForCalcModePaced();
     float calculatePercentFromKeyPoints(float percent) const;
     void currentValuesFromKeyPoints(float percent, float& effectivePercent, String& from, String& to) const;
     float calculatePercentForSpline(float percent, unsigned splineIndex) const;
-    float calculatePercentForFromTo(float percent) const;
-    unsigned calculateKeyTimesIndex(float percent) const;
+    float NODELETE calculatePercentForFromTo(float percent) const;
+    unsigned NODELETE calculateKeyTimesIndex(float percent) const;
 
     void setCalcMode(const AtomString&);
 
@@ -143,7 +146,10 @@ private:
     String m_lastValuesAnimationTo;
     CalcMode m_calcMode { CalcMode::Linear };
     AnimationMode m_animationMode { AnimationMode::None };
-    PropertyRegistry m_propertyRegistry { *this };
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::SVGAnimationElement)
+    static bool isType(const WebCore::SVGElement& element) { return element.isSVGAnimationElement(); }
+SPECIALIZE_TYPE_TRAITS_END()

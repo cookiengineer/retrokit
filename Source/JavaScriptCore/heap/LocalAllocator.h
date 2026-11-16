@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,9 +25,9 @@
 
 #pragma once
 
-#include "AllocationFailureMode.h"
-#include "FreeList.h"
-#include "MarkedBlock.h"
+#include <JavaScriptCore/AllocationFailureMode.h>
+#include <JavaScriptCore/FreeList.h>
+#include <JavaScriptCore/MarkedBlock.h>
 #include <wtf/Noncopyable.h>
 
 namespace JSC {
@@ -41,9 +41,9 @@ class LocalAllocator : public BasicRawSentinelNode<LocalAllocator> {
     
 public:
     LocalAllocator(BlockDirectory*);
-    ~LocalAllocator();
+    JS_EXPORT_PRIVATE ~LocalAllocator();
     
-    void* allocate(Heap&, GCDeferralContext*, AllocationFailureMode);
+    void* allocate(Heap&, size_t cellSize, GCDeferralContext*, AllocationFailureMode);
     
     unsigned cellSize() const { return m_freeList.cellSize(); }
 
@@ -52,20 +52,20 @@ public:
     void resumeAllocating();
     void stopAllocatingForGood();
     
-    static ptrdiff_t offsetOfFreeList();
-    static ptrdiff_t offsetOfCellSize();
-    
-    bool isFreeListedCell(const void*) const;
-    
+    static constexpr ptrdiff_t offsetOfFreeList();
+    static constexpr ptrdiff_t offsetOfCellSize();
+
+    BlockDirectory& directory() const { return *m_directory; }
+
 private:
     friend class BlockDirectory;
     
     void reset();
-    JS_EXPORT_PRIVATE void* allocateSlowCase(Heap&, GCDeferralContext*, AllocationFailureMode);
+    JS_EXPORT_PRIVATE void* allocateSlowCase(Heap&, size_t, GCDeferralContext*, AllocationFailureMode);
     void didConsumeFreeList();
-    void* tryAllocateWithoutCollecting();
-    void* tryAllocateIn(MarkedBlock::Handle*);
-    void* allocateIn(MarkedBlock::Handle*);
+    void* tryAllocateWithoutCollecting(size_t);
+    void* tryAllocateIn(MarkedBlock::Handle*, size_t);
+    void* allocateIn(MarkedBlock::Handle*, size_t cellSize);
     ALWAYS_INLINE void doTestCollectionsIfNeeded(Heap&, GCDeferralContext*);
 
     BlockDirectory* m_directory;
@@ -79,12 +79,12 @@ private:
     unsigned m_allocationCursor { 0 }; // Points to the next block that is a candidate for allocation.
 };
 
-inline ptrdiff_t LocalAllocator::offsetOfFreeList()
+inline constexpr ptrdiff_t LocalAllocator::offsetOfFreeList()
 {
     return OBJECT_OFFSETOF(LocalAllocator, m_freeList);
 }
 
-inline ptrdiff_t LocalAllocator::offsetOfCellSize()
+inline constexpr ptrdiff_t LocalAllocator::offsetOfCellSize()
 {
     return OBJECT_OFFSETOF(LocalAllocator, m_freeList) + FreeList::offsetOfCellSize();
 }

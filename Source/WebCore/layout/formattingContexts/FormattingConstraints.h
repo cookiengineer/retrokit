@@ -25,10 +25,8 @@
 
 #pragma once
 
-#if ENABLE(LAYOUT_FORMATTING_CONTEXT)
-
-#include "LayoutUnit.h"
-#include <wtf/OptionSet.h>
+#include <WebCore/LayoutUnit.h>
+#include <wtf/EnumSet.h>
 
 namespace WebCore {
 namespace Layout {
@@ -52,18 +50,22 @@ struct ConstraintsForInFlowContent {
     LayoutUnit logicalTop() const { return m_logicalTop; }
 
     enum BaseTypeFlag : uint8_t {
-        GenericContent = 1 << 0,
-        TableContent   = 1 << 1
+        GenericContent,
+        InlineContent,
+        TableContent,
+        FlexContent
     };
+    bool isConstraintsForInlineContent() const { return baseTypeFlags().contains(InlineContent); }
     bool isConstraintsForTableContent() const { return baseTypeFlags().contains(TableContent); }
+    bool isConstraintsForFlexContent() const { return baseTypeFlags().contains(FlexContent); }
 
 protected:
-    ConstraintsForInFlowContent(HorizontalConstraints, LayoutUnit logicalTop, OptionSet<BaseTypeFlag>);
+    ConstraintsForInFlowContent(HorizontalConstraints, LayoutUnit logicalTop, EnumSet<BaseTypeFlag>);
 
 private:
-    OptionSet<BaseTypeFlag> baseTypeFlags() const { return OptionSet<BaseTypeFlag>::fromRaw(m_baseTypeFlags); }
+    EnumSet<BaseTypeFlag> baseTypeFlags() const { return EnumSet<BaseTypeFlag>::fromRaw(m_baseTypeFlags); }
 
-    unsigned m_baseTypeFlags : 2; // OptionSet<BaseTypeFlag>
+    unsigned m_baseTypeFlags : 4; // EnumSet<BaseTypeFlag>
     HorizontalConstraints m_horizontal;
     LayoutUnit m_logicalTop;
 };
@@ -75,7 +77,7 @@ struct ConstraintsForOutOfFlowContent {
     LayoutUnit borderAndPaddingConstraints;
 };
 
-inline ConstraintsForInFlowContent::ConstraintsForInFlowContent(HorizontalConstraints horizontal, LayoutUnit logicalTop, OptionSet<BaseTypeFlag> baseTypeFlags)
+inline ConstraintsForInFlowContent::ConstraintsForInFlowContent(HorizontalConstraints horizontal, LayoutUnit logicalTop, EnumSet<BaseTypeFlag> baseTypeFlags)
     : m_baseTypeFlags(baseTypeFlags.toRaw())
     , m_horizontal(horizontal)
     , m_logicalTop(logicalTop)
@@ -86,6 +88,11 @@ inline ConstraintsForInFlowContent::ConstraintsForInFlowContent(HorizontalConstr
     : ConstraintsForInFlowContent(horizontal, logicalTop, GenericContent)
 {
 }
+
+enum class IntrinsicWidthMode {
+    Minimum,
+    Maximum
+};
 
 struct IntrinsicWidthConstraints {
     void expand(LayoutUnit horizontalValue);
@@ -138,4 +145,3 @@ SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::Layout::ToValueTypeName) \
     static bool isType(const WebCore::Layout::ConstraintsForInFlowContent& constraints) { return constraints.predicate; } \
 SPECIALIZE_TYPE_TRAITS_END()
 
-#endif

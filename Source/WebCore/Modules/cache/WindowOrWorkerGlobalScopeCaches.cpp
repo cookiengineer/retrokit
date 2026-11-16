@@ -28,33 +28,34 @@
 
 #include "CacheStorageProvider.h"
 #include "DOMCacheStorage.h"
-#include "DOMWindow.h"
-#include "DOMWindowProperty.h"
-#include "Document.h"
-#include "Frame.h"
-#include "Page.h"
+#include "DocumentPage.h"
+#include "LocalDOMWindow.h"
+#include "LocalDOMWindowProperty.h"
+#include "LocalFrameInlines.h"
 #include "Supplementable.h"
 #include "WorkerGlobalScope.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-class DOMWindowCaches : public Supplement<DOMWindow>, public DOMWindowProperty {
-    WTF_MAKE_FAST_ALLOCATED;
+class DOMWindowCaches : public Supplement<LocalDOMWindow>, public LocalDOMWindowProperty {
+    WTF_MAKE_TZONE_ALLOCATED(DOMWindowCaches);
 public:
-    explicit DOMWindowCaches(DOMWindow&);
+    explicit DOMWindowCaches(LocalDOMWindow&);
     virtual ~DOMWindowCaches() = default;
 
-    static DOMWindowCaches* from(DOMWindow&);
+    static DOMWindowCaches* from(LocalDOMWindow&);
     DOMCacheStorage* caches() const;
 
 private:
-    static const char* supplementName() { return "DOMWindowCaches"; }
+    static ASCIILiteral supplementName() { return "DOMWindowCaches"_s; }
+    bool NODELETE isDOMWindowCaches() const final { return true; }
 
     mutable RefPtr<DOMCacheStorage> m_caches;
 };
 
 class WorkerGlobalScopeCaches : public Supplement<WorkerGlobalScope> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(WorkerGlobalScopeCaches);
 public:
     explicit WorkerGlobalScopeCaches(WorkerGlobalScope&);
     virtual ~WorkerGlobalScopeCaches() = default;
@@ -63,26 +64,29 @@ public:
     DOMCacheStorage* caches() const;
 
 private:
-    static const char* supplementName() { return "WorkerGlobalScopeCaches"; }
+    static ASCIILiteral supplementName() { return "WorkerGlobalScopeCaches"_s; }
+    bool NODELETE isWorkerGlobalScopeCaches() const final { return true; }
 
-    WorkerGlobalScope& m_scope;
+    WeakRef<WorkerGlobalScope, WeakPtrImplWithEventTargetData> m_scope;
     mutable RefPtr<DOMCacheStorage> m_caches;
 };
 
 // DOMWindowCaches supplement.
 
-DOMWindowCaches::DOMWindowCaches(DOMWindow& window)
-    : DOMWindowProperty(&window)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(DOMWindowCaches);
+
+DOMWindowCaches::DOMWindowCaches(LocalDOMWindow& window)
+    : LocalDOMWindowProperty(&window)
 {
 }
 
-DOMWindowCaches* DOMWindowCaches::from(DOMWindow& window)
+DOMWindowCaches* DOMWindowCaches::from(LocalDOMWindow& window)
 {
-    auto* supplement = static_cast<DOMWindowCaches*>(Supplement<DOMWindow>::from(&window, supplementName()));
+    auto* supplement = downcast<DOMWindowCaches>(Supplement<LocalDOMWindow>::from(&window, supplementName()));
     if (!supplement) {
         auto newSupplement = makeUnique<DOMWindowCaches>(window);
         supplement = newSupplement.get();
-        provideTo(&window, supplementName(), WTFMove(newSupplement));
+        provideTo(&window, supplementName(), WTF::move(newSupplement));
     }
     return supplement;
 }
@@ -92,11 +96,13 @@ DOMCacheStorage* DOMWindowCaches::caches() const
     ASSERT(frame());
     ASSERT(frame()->document());
     if (!m_caches && frame()->page())
-        m_caches = DOMCacheStorage::create(*frame()->document(), frame()->page()->cacheStorageProvider().createCacheStorageConnection());
+        m_caches = DOMCacheStorage::create(*protect(frame()->document()), frame()->page()->cacheStorageProvider().createCacheStorageConnection());
     return m_caches.get();
 }
 
 // WorkerGlobalScope supplement.
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WorkerGlobalScopeCaches);
 
 WorkerGlobalScopeCaches::WorkerGlobalScopeCaches(WorkerGlobalScope& scope)
     : m_scope(scope)
@@ -105,19 +111,21 @@ WorkerGlobalScopeCaches::WorkerGlobalScopeCaches(WorkerGlobalScope& scope)
 
 WorkerGlobalScopeCaches* WorkerGlobalScopeCaches::from(WorkerGlobalScope& scope)
 {
-    auto* supplement = static_cast<WorkerGlobalScopeCaches*>(Supplement<WorkerGlobalScope>::from(&scope, supplementName()));
+    auto* supplement = downcast<WorkerGlobalScopeCaches>(Supplement<WorkerGlobalScope>::from(&scope, supplementName()));
     if (!supplement) {
         auto newSupplement = makeUnique<WorkerGlobalScopeCaches>(scope);
         supplement = newSupplement.get();
-        provideTo(&scope, supplementName(), WTFMove(newSupplement));
+        provideTo(&scope, supplementName(), WTF::move(newSupplement));
     }
     return supplement;
 }
 
 DOMCacheStorage* WorkerGlobalScopeCaches::caches() const
 {
-    if (!m_caches)
-        m_caches = DOMCacheStorage::create(m_scope, m_scope.cacheStorageConnection());
+    if (!m_caches) {
+        Ref scope = m_scope.get();
+        m_caches = DOMCacheStorage::create(scope, scope->cacheStorageConnection());
+    }
     return m_caches.get();
 }
 
@@ -125,13 +133,17 @@ DOMCacheStorage* WorkerGlobalScopeCaches::caches() const
 
 ExceptionOr<DOMCacheStorage*> WindowOrWorkerGlobalScopeCaches::caches(ScriptExecutionContext& context, DOMWindow& window)
 {
-    if (downcast<Document>(context).isSandboxed(SandboxOrigin))
-        return Exception { SecurityError, "Cache storage is disabled because the context is sandboxed and lacks the 'allow-same-origin' flag" };
+    if (downcast<Document>(context).isSandboxed(SandboxFlag::Origin))
+        return Exception { ExceptionCode::SecurityError, "Cache storage is disabled because the context is sandboxed and lacks the 'allow-same-origin' flag"_s };
 
-    if (!window.isCurrentlyDisplayedInFrame())
+    RefPtr localWindow = dynamicDowncast<LocalDOMWindow>(window);
+    if (!localWindow)
         return nullptr;
 
-    return DOMWindowCaches::from(window)->caches();
+    if (!localWindow->isCurrentlyDisplayedInFrame())
+        return nullptr;
+
+    return DOMWindowCaches::from(*localWindow)->caches();
 }
 
 DOMCacheStorage* WindowOrWorkerGlobalScopeCaches::caches(ScriptExecutionContext&, WorkerGlobalScope& scope)
@@ -140,3 +152,11 @@ DOMCacheStorage* WindowOrWorkerGlobalScopeCaches::caches(ScriptExecutionContext&
 }
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::DOMWindowCaches)
+    static bool isType(const WebCore::SupplementBase& supplement) { return supplement.isDOMWindowCaches(); }
+SPECIALIZE_TYPE_TRAITS_END()
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::WorkerGlobalScopeCaches)
+    static bool isType(const WebCore::SupplementBase& supplement) { return supplement.isWorkerGlobalScopeCaches(); }
+SPECIALIZE_TYPE_TRAITS_END()

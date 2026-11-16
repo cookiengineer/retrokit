@@ -22,11 +22,13 @@
 
 #include "SVGElement.h"
 #include "SVGURIReference.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class SVGGlyphRefElement final : public SVGElement, public SVGURIReference {
-    WTF_MAKE_ISO_ALLOCATED(SVGGlyphRefElement);
+    WTF_MAKE_TZONE_ALLOCATED(SVGGlyphRefElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGGlyphRefElement);
 public:
     static Ref<SVGGlyphRefElement> create(const QualifiedName&, Document&);
 
@@ -41,20 +43,18 @@ public:
     float dy() const { return m_dy; }
     void setDy(float);
 
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGGlyphRefElement, SVGElement, SVGURIReference>;
+
 private:
     SVGGlyphRefElement(const QualifiedName&, Document&);
 
-    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGGlyphRefElement, SVGElement, SVGURIReference>;
-    const SVGPropertyRegistry& propertyRegistry() const final { return m_propertyRegistry; }
-
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
-    bool rendererIsNeeded(const RenderStyle&) final { return false; }
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
+    bool rendererIsNeeded(const Style::ComputedStyle&) final { return false; }
 
     float m_x { 0 };
     float m_y { 0 };
     float m_dx { 0 };
     float m_dy { 0 };
-    PropertyRegistry m_propertyRegistry { *this };
 };
 
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,33 +25,49 @@
 
 #pragma once
 
-#include "BufferSource.h"
-#include "CryptoAlgorithmParameters.h"
+#include <WebCore/BufferSource.h>
+#include <WebCore/CryptoAlgorithmAesCbcCfbParamsInit.h>
+#include <WebCore/CryptoAlgorithmParameters.h>
 #include <wtf/Vector.h>
-
-#if ENABLE(WEB_CRYPTO)
 
 namespace WebCore {
 
 class CryptoAlgorithmAesCbcCfbParams final : public CryptoAlgorithmParameters {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(CryptoAlgorithmAesCbcCfbParams, WEBCORE_EXPORT);
 public:
-    BufferSource iv;
+    std::optional<BufferSource> iv;
+
+    CryptoAlgorithmAesCbcCfbParams()
+        : CryptoAlgorithmParameters { }
+    {
+    }
+
+    CryptoAlgorithmAesCbcCfbParams(CryptoAlgorithmIdentifier identifier)
+        : CryptoAlgorithmParameters { WTF::move(identifier) }
+    {
+    }
+
+    CryptoAlgorithmAesCbcCfbParams(CryptoAlgorithmIdentifier identifier, CryptoAlgorithmAesCbcCfbParamsInit init)
+        : CryptoAlgorithmParameters { WTF::move(identifier), WTF::move(init) }
+        , iv { WTF::move(init.iv) }
+    {
+    }
 
     Class parametersClass() const final { return Class::AesCbcCfbParams; }
 
-    const Vector<uint8_t>& ivVector() const
+    const Vector<uint8_t>& ivVector() const LIFETIME_BOUND
     {
-        if (!m_ivVector.isEmpty() || !iv.length())
+        if (!m_ivVector.isEmpty() || !iv || !iv->byteLength())
             return m_ivVector;
 
-        m_ivVector.append(iv.data(), iv.length());
+        if (iv)
+            m_ivVector.append(iv->span());
         return m_ivVector;
     }
 
     CryptoAlgorithmAesCbcCfbParams isolatedCopy() const
     {
-        CryptoAlgorithmAesCbcCfbParams result;
-        result.identifier = identifier;
+        CryptoAlgorithmAesCbcCfbParams result { identifier };
         result.m_ivVector = ivVector();
 
         return result;
@@ -64,5 +80,3 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_CRYPTO_ALGORITHM_PARAMETERS(AesCbcCfbParams)
-
-#endif // ENABLE(WEB_CRYPTO)

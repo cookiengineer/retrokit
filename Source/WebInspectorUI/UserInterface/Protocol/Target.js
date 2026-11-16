@@ -56,9 +56,12 @@ WI.Target = class Target extends WI.Object
         this._connection.target = this;
 
         // Agents we always expect in every target.
-        console.assert(this.hasDomain("Target") || this.hasDomain("Runtime"));
-        console.assert(this.hasDomain("Target") || this.hasDomain("Debugger"));
-        console.assert(this.hasDomain("Target") || this.hasDomain("Console"));
+        if (this.type !== WI.TargetType.Frame) {
+            // FIXME: <https://webkit.org/b/298910> Add Runtime support for FrameTarget.
+            // FIXME: <https://webkit.org/b/298909> Add Debugger support for FrameTarget.
+            console.assert(this.hasDomain("Target") || this.hasDomain("Runtime"));
+            console.assert(this.hasDomain("Target") || this.hasDomain("Debugger"));
+        }
     }
 
     // Target
@@ -82,7 +85,9 @@ WI.Target = class Target extends WI.Object
         // Intentionally defer ConsoleAgent initialization to the end. We do this so that any
         // previous initialization messages will have their responses arrive before a stream
         // of console message added events come in after enabling Console.
-        this.ConsoleAgent.enable();
+        // See WI.ConsoleManager.prototype.initializeTarget.
+        if (this.hasDomain("Console"))
+            this.ConsoleAgent.enable();
 
         setTimeout(() => {
             // Use this opportunity to run any one time frontend initialization
@@ -129,7 +134,6 @@ WI.Target = class Target extends WI.Object
     // Agents
 
     get AnimationAgent() { return this._agents.Animation; }
-    get ApplicationCacheAgent() { return this._agents.ApplicationCache; }
     get AuditAgent() { return this._agents.Audit; }
     get BrowserAgent() { return this._agents.Browser; }
     get CPUProfilerAgent() { return this._agents.CPUProfiler; }
@@ -139,7 +143,6 @@ WI.Target = class Target extends WI.Object
     get DOMAgent() { return this._agents.DOM; }
     get DOMDebuggerAgent() { return this._agents.DOMDebugger; }
     get DOMStorageAgent() { return this._agents.DOMStorage; }
-    get DatabaseAgent() { return this._agents.Database; }
     get DebuggerAgent() { return this._agents.Debugger; }
     get HeapAgent() { return this._agents.Heap; }
     get IndexedDBAgent() { return this._agents.IndexedDB; }
@@ -152,6 +155,7 @@ WI.Target = class Target extends WI.Object
     get RuntimeAgent() { return this._agents.Runtime; }
     get ScriptProfilerAgent() { return this._agents.ScriptProfiler; }
     get ServiceWorkerAgent() { return this._agents.ServiceWorker; }
+    get StorageAgent() { return this._agents.Storage; }
     get TargetAgent() { return this._agents.Target; }
     get TimelineAgent() { return this._agents.Timeline; }
     get WorkerAgent() { return this._agents.Worker; }
@@ -170,6 +174,18 @@ WI.Target = class Target extends WI.Object
             ++Target._completedInitializationPromiseCount;
             Target._initializationPromises.remove(promise);
         });
+    }
+
+    // Import / Export
+
+    exportData()
+    {
+        // Only expected to be used by timeline recordings for `WI.ImportedTarget`.
+        return {
+            identifier: this._identifier,
+            type: this._type,
+            name: this.displayName,
+        };
     }
 
     // Public

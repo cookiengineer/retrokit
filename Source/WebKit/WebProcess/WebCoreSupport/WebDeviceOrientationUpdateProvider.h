@@ -29,6 +29,7 @@
 #include "WebPage.h"
 
 #include <WebCore/DeviceOrientationUpdateProvider.h>
+#include <WebCore/Element.h>
 
 #include <wtf/WeakHashSet.h>
 #include <wtf/WeakPtr.h>
@@ -40,6 +41,9 @@ namespace WebKit {
 class WebDeviceOrientationUpdateProvider final : public WebCore::DeviceOrientationUpdateProvider, private IPC::MessageReceiver {
 public:
     static Ref<WebDeviceOrientationUpdateProvider> create(WebPage& page) { return adoptRef(*new WebDeviceOrientationUpdateProvider(page));}
+
+    void ref() const final { WebCore::DeviceOrientationUpdateProvider::ref(); }
+    void deref() const final { WebCore::DeviceOrientationUpdateProvider::deref(); }
 
 private:
     WebDeviceOrientationUpdateProvider(WebPage&);

@@ -30,35 +30,66 @@
 #include "MessageReceiver.h"
 #include "XRDeviceIdentifier.h"
 #include "XRDeviceProxy.h"
+#include <WebCore/IntSize.h>
 #include <WebCore/PlatformXR.h>
+#include <wtf/FastMalloc.h>
+#include <wtf/RefPtr.h>
+#include <wtf/WeakRef.h>
+
+namespace WebCore {
+class SecurityOriginData;
+}
 
 namespace WebKit {
 
 class WebPage;
 
 class PlatformXRSystemProxy : public IPC::MessageReceiver {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(PlatformXRSystemProxy);
 public:
     PlatformXRSystemProxy(WebPage&);
     virtual ~PlatformXRSystemProxy();
 
-    void enumerateImmersiveXRDevices(CompletionHandler<void(const PlatformXR::Instance::DeviceList&)>&&);
-    void initializeTrackingAndRendering();
+    void enumerateImmersiveXRDevices(CompletionHandler<void(const PlatformXR::DeviceList&)>&&);
+    void requestPermissionOnSessionFeatures(const WebCore::SecurityOriginData&, PlatformXR::SessionMode, const PlatformXR::Device::FeatureList& /* granted */, const PlatformXR::Device::FeatureList& /* consentRequired */, const PlatformXR::Device::FeatureList& /* consentOptional */, const PlatformXR::Device::FeatureList& /* requiredFeaturesRequested */, const PlatformXR::Device::FeatureList& /* optionalFeaturesRequested */,  CompletionHandler<void(std::optional<PlatformXR::Device::FeatureList>&&)>&&);
+    void initializeTrackingAndRendering(std::optional<WebCore::XRCanvasConfiguration>&&);
     void shutDownTrackingAndRendering();
-    void requestFrame(PlatformXR::Device::RequestFrameCallback&&);
-    std::optional<PlatformXR::LayerHandle> createLayerProjection(uint32_t, uint32_t, bool);
+    void didCompleteShutdownTriggeredBySystem();
+    void requestFrame(std::optional<PlatformXR::RequestData>&&, PlatformXR::Device::RequestFrameCallback&&);
+    std::optional<PlatformXR::LayerInfo> createLayerProjection(uint32_t, uint32_t, bool);
+#if ENABLE(WEBXR_LAYERS)
+    std::optional<PlatformXR::LayerInfo> createCompositionLayer(PlatformXR::CompositionLayerType, WebCore::IntSize, PlatformXR::LayerLayout);
+#endif
+#if USE(OPENXR)
+    void submitFrame(Vector<PlatformXR::DeviceLayer>&&);
+#else
     void submitFrame();
+#endif
+
+    void ref() const final;
+    void deref() const final;
+
+#if ENABLE(WEBXR_HIT_TEST)
+    void requestHitTestSource(const PlatformXR::HitTestOptions&, CompletionHandler<void(WebCore::ExceptionOr<PlatformXR::HitTestSource>)>&&);
+    void deleteHitTestSource(PlatformXR::HitTestSource);
+    void requestTransientInputHitTestSource(const PlatformXR::TransientInputHitTestOptions&, CompletionHandler<void(WebCore::ExceptionOr<PlatformXR::TransientInputHitTestSource>)>&&);
+    void deleteTransientInputHitTestSource(PlatformXR::TransientInputHitTestSource);
+#endif
 
 private:
     RefPtr<XRDeviceProxy> deviceByIdentifier(XRDeviceIdentifier);
+    bool webXREnabled() const;
 
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
 
     // Message handlers
     void sessionDidEnd(XRDeviceIdentifier);
+    void sessionDidUpdateVisibilityState(XRDeviceIdentifier, PlatformXR::VisibilityState);
+    void sessionDidInitializeRendering(XRDeviceIdentifier, uint32_t width, uint32_t height, uint32_t arrayLength);
 
-    PlatformXR::Instance::DeviceList m_devices;
-    WebPage& m_page;
+    PlatformXR::DeviceList m_devices;
+    WeakRef<WebPage> m_page;
 };
 
 }

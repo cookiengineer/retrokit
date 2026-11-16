@@ -132,6 +132,8 @@ WI.TimelineTabContentView = class TimelineTabContentView extends WI.ContentBrows
             if (InspectorBackend.hasDomain("Animation"))
                 return WI.UIString("Media & Animations");
             return WI.UIString("Media");
+        case WI.TimelineRecord.Type.Screenshots:
+            return WI.UIString("Screenshots");
         default:
             console.error("Unknown Timeline type:", timelineType);
         }
@@ -158,6 +160,8 @@ WI.TimelineTabContentView = class TimelineTabContentView extends WI.ContentBrows
             return "rendering-frame-icon";
         case WI.TimelineRecord.Type.Media:
             return "media-icon";
+        case WI.TimelineRecord.Type.Screenshots:
+            return "screenshots-icon";
         default:
             console.error("Unknown Timeline type:", timelineType);
         }
@@ -184,6 +188,8 @@ WI.TimelineTabContentView = class TimelineTabContentView extends WI.ContentBrows
             return "rendering-frame";
         case WI.TimelineRecord.Type.Media:
             return "media";
+        case WI.TimelineRecord.Type.Screenshots:
+            return "screenshots";
         default:
             console.error("Unknown Timeline type:", timelineType);
         }
@@ -200,6 +206,7 @@ WI.TimelineTabContentView = class TimelineTabContentView extends WI.ContentBrows
             case WI.LayoutTimelineRecord.EventType.RecalculateStyles:
                 return WI.TimelineRecordTreeElement.StyleRecordIconStyleClass;
             case WI.LayoutTimelineRecord.EventType.InvalidateLayout:
+            case WI.LayoutTimelineRecord.EventType.ScheduleLayout:
             case WI.LayoutTimelineRecord.EventType.ForcedLayout:
             case WI.LayoutTimelineRecord.EventType.Layout:
                 return WI.TimelineRecordTreeElement.LayoutRecordIconStyleClass;
@@ -207,10 +214,12 @@ WI.TimelineTabContentView = class TimelineTabContentView extends WI.ContentBrows
                 return WI.TimelineRecordTreeElement.PaintRecordIconStyleClass;
             case WI.LayoutTimelineRecord.EventType.Composite:
                 return WI.TimelineRecordTreeElement.CompositeRecordIconStyleClass;
+            case WI.LayoutTimelineRecord.EventType.FirstContentfulPaint:
+            case WI.LayoutTimelineRecord.EventType.LargestContentfulPaint:
+                return WI.TimelineRecordTreeElement.PerformanceEntryIconStyleClass;
             default:
                 console.error("Unknown LayoutTimelineRecord eventType: " + timelineRecord.eventType, timelineRecord);
             }
-
             break;
 
         case WI.TimelineRecord.Type.Script:
@@ -266,6 +275,7 @@ WI.TimelineTabContentView = class TimelineTabContentView extends WI.ContentBrows
 
         case WI.TimelineRecord.Type.CPU:
         case WI.TimelineRecord.Type.Memory:
+        case WI.TimelineRecord.Type.Screenshots:
             // Not used. Fall through to error just in case.
 
         default:
@@ -288,12 +298,13 @@ WI.TimelineTabContentView = class TimelineTabContentView extends WI.ContentBrows
             if (timelineRecord.name)
                 return WI.UIString("Frame %d \u2014 %s").format(timelineRecord.frameNumber, timelineRecord.name);
             return WI.UIString("Frame %d").format(timelineRecord.frameNumber);
-        case WI.TimelineRecord.Type.HeapAllocations:
-            if (timelineRecord.heapSnapshot.imported)
-                return WI.UIString("Imported \u2014 %s").format(timelineRecord.heapSnapshot.title);
-            if (timelineRecord.heapSnapshot.title)
-                return WI.UIString("Snapshot %d \u2014 %s").format(timelineRecord.heapSnapshot.identifier, timelineRecord.heapSnapshot.title);
-            return WI.UIString("Snapshot %d").format(timelineRecord.heapSnapshot.identifier);
+        case WI.TimelineRecord.Type.HeapAllocations: {
+            let snapshot = timelineRecord.heapSnapshot;
+            if (snapshot.imported)
+                return WI.UIString("Imported Snapshot \u2014 %s").format(snapshot.title || snapshot.identifier);
+            let title = snapshot.title ? WI.UIString("%d \u2014 \u201C%s\u201D", "Label for JavaScript heap snapshot identifier and user provided name.").format(snapshot.identifier, snapshot.title) : snapshot.identifier;
+            return WI.UIString("%s Snapshot %s", "Label for JavaScript heap snapshot context name and identifier.").format(snapshot.target.displayName, title);
+        }
         case WI.TimelineRecord.Type.Media:
             // Since the `displayName` can be specific to an `animation-name`/`transition-property`,
             // use the generic `subtitle` text instead of we are rendering from the overview.
@@ -302,6 +313,7 @@ WI.TimelineTabContentView = class TimelineTabContentView extends WI.ContentBrows
             return timelineRecord.displayName;
         case WI.TimelineRecord.Type.CPU:
         case WI.TimelineRecord.Type.Memory:
+        case WI.TimelineRecord.Type.Screenshots:
             // Not used. Fall through to error just in case.
         default:
             console.error("Unknown TimelineRecord type: " + timelineRecord.type, timelineRecord);
@@ -479,9 +491,9 @@ WI.TimelineTabContentView = class TimelineTabContentView extends WI.ContentBrows
         this._continueButton.hidden = false;
     }
 
-    _updateNavigationBarButtons()
+    _updateNavigationBarButtons(capturingState)
     {
-        if (WI.timelineManager.capturingState === WI.TimelineManager.CapturingState.Stopping)
+        if (capturingState === WI.TimelineManager.CapturingState.Stopping)
             this._showRecordStoppingSpinner();
         else if (!WI.modifierKeys.altKey || !WI.timelineManager.willAutoStop())
             this._showRecordButton();
@@ -491,16 +503,17 @@ WI.TimelineTabContentView = class TimelineTabContentView extends WI.ContentBrows
 
     _handleTimelineCapturingStateChanged(event)
     {
-        let enabled = WI.timelineManager.capturingState === WI.TimelineManager.CapturingState.Active || WI.timelineManager.capturingState === WI.TimelineManager.CapturingState.Inactive;
-        let stopping = WI.timelineManager.capturingState === WI.TimelineManager.CapturingState.Stopping;
+        let {capturingState} = event.data;
+        let enabled = capturingState === WI.TimelineManager.CapturingState.Active || capturingState === WI.TimelineManager.CapturingState.Inactive;
+        let stopping = capturingState === WI.TimelineManager.CapturingState.Stopping;
 
         this._toggleRecordingShortcut.disabled = !enabled || stopping;
         this._toggleNewRecordingShortcut.disabled = !enabled || stopping;
 
-        this._recordButton.toggled = WI.timelineManager.isCapturing();
+        this._recordButton.toggled = capturingState !== WI.TimelineManager.CapturingState.Inactive;
         this._recordButton.enabled = enabled;
 
-        this._updateNavigationBarButtons();
+        this._updateNavigationBarButtons(capturingState);
     }
 
     _inspectorVisibilityChanged(event)
@@ -510,7 +523,7 @@ WI.TimelineTabContentView = class TimelineTabContentView extends WI.ContentBrows
 
     _globalModifierKeysDidChange(event)
     {
-        this._updateNavigationBarButtons();
+        this._updateNavigationBarButtons(WI.timelineManager.capturingState);
     }
 
     _toggleRecordingOnSpacebar(event)
@@ -566,7 +579,7 @@ WI.TimelineTabContentView = class TimelineTabContentView extends WI.ContentBrows
 
         WI.timelineManager.relaxAutoStop();
 
-        this._updateNavigationBarButtons();
+        this._updateNavigationBarButtons(WI.timelineManager.capturingState);
     }
 
     _recordingsTreeSelectionDidChange(event)

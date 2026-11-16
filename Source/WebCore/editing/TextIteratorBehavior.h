@@ -29,7 +29,7 @@
 
 namespace WebCore {
 
-enum class TextIteratorBehavior : uint16_t {
+enum class TextIteratorBehavior : uint32_t {
     // Used by selection preservation code. There should be one character emitted between every VisiblePosition
     // in the Range used to create the TextIterator.
     // FIXME <rdar://problem/6028818>: This functionality should eventually be phased out when we rewrite
@@ -61,6 +61,26 @@ enum class TextIteratorBehavior : uint16_t {
     TraversesFlatTree = 1 << 9,
 
     EntersImageOverlays = 1 << 10,
+
+    IgnoresUserSelectNone = 1 << 11,
+
+    EmitsObjectReplacementCharactersForImages = 1 << 12,
+
+#if ENABLE(ATTACHMENT_ELEMENT)
+    EmitsObjectReplacementCharactersForAttachments = 1 << 13,
+#endif
+
+    // Used by accessibility to expose untransformed kana text.
+    IgnoresFullSizeKana = 1 << 14,
+
+    // Used when we want to make 'content-visibility: auto', auto-expanding `<details>` or `hidden=until-found` content discoverable.
+    EntersSkippedContentRelevantToUser = 1 << 15,
+
+    // Used by innerText to follow the WHATWG spec for newlines around block
+    // elements: <p> gets unconditional blank lines (not margin-dependent),
+    // <h1>-<h6> do not get extra blank lines, and trailing block newlines are
+    // stripped. Without this flag, the original margin-based heuristic is used.
+    EmitsNewlinesPerInnerTextSpec = 1 << 16
 };
 
 using TextIteratorBehaviors = OptionSet<TextIteratorBehavior>;

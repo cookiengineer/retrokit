@@ -36,7 +36,6 @@
 #include "MediaPlayerPrivate.h"
 #include "SharedBuffer.h"
 #include <wtf/Condition.h>
-#include <wtf/VectorHash.h>
 
 namespace WebCore {
 
@@ -56,8 +55,8 @@ public:
         WeakPtr<CDMProxyDecryptionClient> cdmProxyDecryptionClient;
     };
 
-    bool decrypt(DecryptionContext&);
-    const String& keySystem() { return m_keySystem; }
+    DecryptionResult decrypt(DecryptionContext&, const GRefPtr<GstCaps>& inputCaps);
+    const String& keySystem() LIFETIME_BOUND { return m_keySystem; }
 
 private:
     BoxPtr<OpenCDMSession> getDecryptionSession(DecryptionContext&) const;

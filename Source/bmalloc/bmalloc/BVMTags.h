@@ -25,7 +25,13 @@
 
 #pragma once
 
+#ifdef __cplusplus
+
 #include "BPlatform.h"
+
+#if BPLATFORM(PLAYSTATION)
+#include <sys/mman.h>
+#endif
 
 // On Mac OS X, the VM subsystem allows tagging memory requested from mmap and vm_map
 // in order to aid tools that inspect system memory use.
@@ -53,16 +59,27 @@
 
 #if defined(VM_MEMORY_JAVASCRIPT_CORE)
 #define VM_TAG_FOR_GIGACAGE_MEMORY VM_MAKE_TAG(VM_MEMORY_JAVASCRIPT_CORE)
+#define VM_TAG_FOR_STRUCTUREALLOCATOR_MEMORY VM_MAKE_TAG(VM_MEMORY_JAVASCRIPT_CORE)
 #else
 #define VM_TAG_FOR_GIGACAGE_MEMORY VM_MAKE_TAG(63)
+#define VM_TAG_FOR_STRUCTUREALLOCATOR_MEMORY VM_MAKE_TAG(63)
 #endif // defined(VM_MEMORY_JAVASCRIPT_CORE)
+
+#elif BPLATFORM(PLAYSTATION) && defined(VM_MAKE_TAG)
+
+#define VM_TAG_FOR_TCMALLOC_MEMORY VM_MAKE_TAG(VM_TYPE_USER1)
+#define VM_TAG_FOR_ISOHEAP_MEMORY VM_MAKE_TAG(VM_TYPE_USER2)
+#define VM_TAG_FOR_EXECUTABLEALLOCATOR_MEMORY VM_MAKE_TAG(VM_TYPE_USER3)
+#define VM_TAG_FOR_GIGACAGE_MEMORY VM_MAKE_TAG(VM_TYPE_USER4)
+#define VM_TAG_FOR_STRUCTUREALLOCATOR_MEMORY VM_MAKE_TAG(VM_TYPE_USER5)
 
 #else // BOS(DARWIN)
 
-#define VM_TAG_FOR_TCMALLOC_MEMORY -1
-#define VM_TAG_FOR_GIGACAGE_MEMORY -1
-#define VM_TAG_FOR_EXECUTABLEALLOCATOR_MEMORY -1
-#define VM_TAG_FOR_ISOHEAP_MEMORY -1
+#define VM_TAG_FOR_TCMALLOC_MEMORY -3
+#define VM_TAG_FOR_GIGACAGE_MEMORY -4
+#define VM_TAG_FOR_STRUCTUREALLOCATOR_MEMORY -5
+#define VM_TAG_FOR_EXECUTABLEALLOCATOR_MEMORY -6
+#define VM_TAG_FOR_ISOHEAP_MEMORY -7
 
 #endif // BOS(DARWIN)
 
@@ -74,6 +91,37 @@ enum class VMTag {
     IsoHeap = VM_TAG_FOR_ISOHEAP_MEMORY,
     JSJITCode = VM_TAG_FOR_EXECUTABLEALLOCATOR_MEMORY,
     JSGigacage = VM_TAG_FOR_GIGACAGE_MEMORY,
+    JSStructureHeap = VM_TAG_FOR_STRUCTUREALLOCATOR_MEMORY,
 };
 
+inline const char* vmTagName(VMTag tag)
+{
+#if BOS(DARWIN)
+    static_assert(VMTag::JSStructureHeap == VMTag::JSGigacage);
+#endif
+    switch (tag) {
+    case VMTag::Malloc: return "WKFastMalloc";
+    case VMTag::IsoHeap: return "WKIsoHeap";
+    case VMTag::JSJITCode: return "JSJITCode";
+    case VMTag::JSGigacage: return "JSGigacage";
+#if !BOS(DARWIN)
+    case VMTag::JSStructureHeap: return "JSStructureHeap";
+#endif
+    default:
+        return nullptr;
+    }
+}
+
+inline int vmTagFd(VMTag tag)
+{
+    BUNUSED_PARAM(tag);
+#if BOS(DARWIN) || (BPLATFORM(PLAYSTATION) && defined(VM_MAKE_TAG))
+    return static_cast<int>(tag);
+#else
+    return -1;
+#endif
+}
+
 } // namespace bmalloc
+
+#endif // __cplusplus

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2010 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,31 +34,39 @@ class AccessibilityMenuListOption;
 class HTMLElement;
 
 class AccessibilityMenuListPopup final : public AccessibilityMockObject {
+    friend class AXObjectCache;
 public:
-    static Ref<AccessibilityMenuListPopup> create() { return adoptRef(*new AccessibilityMenuListPopup); }
+    static Ref<AccessibilityMenuListPopup> create(AXID axID, AXObjectCache& cache) { return adoptRef(*new AccessibilityMenuListPopup(axID, cache)); }
 
-    bool isEnabled() const override;
-    bool isOffScreen() const override;
+    bool isEnabled() const final;
+    bool isOffScreen() const final;
 
     void didUpdateActiveOption(int optionIndex);
 
 private:
-    AccessibilityMenuListPopup();
+    explicit AccessibilityMenuListPopup(AXID, AXObjectCache&);
 
-    bool isMenuListPopup() const override { return true; }
+    bool isMenuListPopup() const final { return true; }
 
-    LayoutRect elementRect() const override { return LayoutRect(); }
-    AccessibilityRole roleValue() const override { return AccessibilityRole::MenuListPopup; }
+    LayoutRect elementRect() const final { return LayoutRect(); }
+    AccessibilityRole determineAccessibilityRole() final { return AccessibilityRole::MenuListPopup; }
 
-    bool isVisible() const override;
-    bool press() override;
-    void addChildren() override;
-    void childrenChanged() override;
-    bool computeAccessibilityIsIgnored() const override;
+    bool isVisible() const final;
+    bool press() final;
+    void addChildren() final;
+    void handleChildrenChanged();
+    bool computeIsIgnored() const final;
 
     AccessibilityMenuListOption* menuListOptionAccessibilityObject(HTMLElement*) const;
 };
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_ACCESSIBILITY(AccessibilityMenuListPopup, isMenuListPopup())
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::AccessibilityMenuListPopup)
+    static bool isType(const WebCore::AccessibilityObject& object) { return object.isMenuListPopup(); }
+    static bool isType(const WebCore::AXCoreObject& object)
+    {
+        auto* accessibilityObject = dynamicDowncast<WebCore::AccessibilityObject>(object);
+        return accessibilityObject && accessibilityObject->isMenuListPopup();
+    }
+SPECIALIZE_TYPE_TRAITS_END()

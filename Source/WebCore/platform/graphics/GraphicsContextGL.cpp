@@ -27,20 +27,26 @@
 
 #include "config.h"
 #include "GraphicsContextGL.h"
-#include "GraphicsContextGLOpenGL.h"
 
 #if ENABLE(WEBGL)
 
-#include "ExtensionsGL.h"
+#include "BitmapImage.h"
 #include "FormatConverter.h"
+#include "GCGLSpan.h"
+#include "GraphicsContext.h"
 #include "HostWindow.h"
 #include "Image.h"
+#include "ImageBuffer.h"
 #include "ImageObserver.h"
+#include "NotImplemented.h"
 #include "PixelBuffer.h"
+#include "VideoFrame.h"
+#include <wtf/StdLibExtras.h>
+#include <wtf/text/ParsingUtilities.h>
 
 namespace WebCore {
 
-static GraphicsContextGL::DataFormat getDataFormat(GCGLenum destinationFormat, GCGLenum destinationType)
+static GraphicsContextGL::DataFormat NODELETE getDataFormat(GCGLenum destinationFormat, GCGLenum destinationType)
 {
     switch (destinationType) {
     case GraphicsContextGL::BYTE:
@@ -277,13 +283,34 @@ ALWAYS_INLINE static unsigned texelBytesForFormat(GraphicsContextGL::DataFormat 
     }
 }
 
+static std::span<const uint8_t> clampedSubspan(std::span<const uint8_t> span, size_t offset, size_t length)
+{
+    size_t clampedOffset = std::min(offset, span.size());
+    size_t clampedLength = std::min(span.size() - clampedOffset, length);
+    return span.subspan(clampedOffset, clampedLength);
+}
+
+template<typename T>
+static void clampedSkip(std::span<T>& span, size_t offset)
+{
+    skip(span, std::min(offset, span.size()));
+}
+
+static void clampedMoveCursorWithinSpan(std::span<uint8_t>& cursor, std::span<uint8_t> container, ptrdiff_t delta)
+{
+    ASSERT(cursor.data() >= container.data());
+    ASSERT(std::to_address(cursor.end()) == std::to_address(container.end()));
+
+    auto clampedNewIndex = std::clamp<ptrdiff_t>(cursor.data() - container.data() + delta, 0, container.size());
+    cursor = container.subspan(clampedNewIndex);
+}
 
 // Helper for packImageData/extractImageData/extractTextureData which implement packing of pixel
 // data into the specified OpenGL destination format and type.
 // A sourceUnpackAlignment of zero indicates that the source
 // data is tightly packed. Non-zero values may take a slow path.
 // Destination data will have no gaps between rows.
-static bool packPixels(const uint8_t* sourceData, GraphicsContextGL::DataFormat sourceDataFormat, unsigned sourceDataWidth, unsigned sourceDataHeight, const IntRect& sourceDataSubRectangle, int depth, unsigned sourceUnpackAlignment, int unpackImageHeight, unsigned destinationFormat, unsigned destinationType, GraphicsContextGL::AlphaOp alphaOp, void* destinationData, bool flipY)
+static bool packPixels(std::span<const uint8_t> sourceData, GraphicsContextGL::DataFormat sourceDataFormat, unsigned sourceDataWidth, unsigned sourceDataHeight, const IntRect& sourceDataSubRectangle, int depth, unsigned sourceUnpackAlignment, int unpackImageHeight, unsigned destinationFormat, unsigned destinationType, GraphicsContextGL::AlphaOp alphaOp, std::span<uint8_t> destinationData, bool flipY)
 {
     ASSERT(depth >= 1);
     UNUSED_PARAM(sourceDataHeight); // Derived from sourceDataSubRectangle.height().
@@ -298,16 +325,17 @@ static bool packPixels(const uint8_t* sourceData, GraphicsContextGL::DataFormat 
     if (dstDataFormat == GraphicsContextGL::DataFormat::Invalid)
         return false;
     int dstStride = sourceDataSubRectangle.width() * texelBytesForFormat(dstDataFormat);
+    auto destinationCursor = destinationData;
     if (flipY) {
-        destinationData = static_cast<uint8_t*>(destinationData) + dstStride * ((depth * sourceDataSubRectangle.height()) - 1);
+        clampedMoveCursorWithinSpan(destinationCursor, destinationData, dstStride * ((depth * sourceDataSubRectangle.height()) - 1));
         dstStride = -dstStride;
     }
     if (!GraphicsContextGL::hasAlpha(sourceDataFormat) || !GraphicsContextGL::hasColor(sourceDataFormat) || !GraphicsContextGL::hasColor(dstDataFormat))
         alphaOp = GraphicsContextGL::AlphaOp::DoNothing;
 
     if (sourceDataFormat == dstDataFormat && alphaOp == GraphicsContextGL::AlphaOp::DoNothing) {
-        const uint8_t* basePtr = sourceData + srcStride * sourceDataSubRectangle.y();
-        const uint8_t* baseEnd = sourceData + srcStride * sourceDataSubRectangle.maxY();
+        ASSERT(srcStride >= 0);
+        size_t baseSpanOffset = srcStride * sourceDataSubRectangle.y();
 
         // If packing multiple images into a 3D texture, and flipY is true,
         // then the sub-rectangle is pointing at the start of the
@@ -316,61 +344,42 @@ static bool packPixels(const uint8_t* sourceData, GraphicsContextGL::DataFormat 
         // last, or "topmost", of these images.
         if (flipY && depth > 1) {
             const ptrdiff_t distanceToTopImage = (depth - 1) * srcStride * unpackImageHeight;
-            basePtr -= distanceToTopImage;
-            baseEnd -= distanceToTopImage;
+            baseSpanOffset -= distanceToTopImage;
         }
 
-        unsigned rowSize = (dstStride > 0) ? dstStride: -dstStride;
-        uint8_t* dst = static_cast<uint8_t*>(destinationData);
-
+        auto baseSpan = clampedSubspan(sourceData, baseSpanOffset, srcStride * sourceDataSubRectangle.maxY() - srcStride * sourceDataSubRectangle.y());
+        unsigned rowSize = dstStride > 0 ? dstStride: -dstStride;
         for (int i = 0; i < depth; ++i) {
-            const uint8_t* ptr = basePtr;
-            const uint8_t* ptrEnd = baseEnd;
-            while (ptr < ptrEnd) {
-                memcpy(dst, ptr + srcRowOffset, rowSize);
-                ptr += srcStride;
-                dst += dstStride;
+            auto sourceCursor = baseSpan;
+            while (!sourceCursor.empty()) {
+                memcpySpan(destinationCursor, sourceCursor.subspan(srcRowOffset, rowSize));
+                clampedSkip(sourceCursor, srcStride);
+                clampedMoveCursorWithinSpan(destinationCursor, destinationData, dstStride);
             }
-            basePtr += unpackImageHeight * srcStride;
-            baseEnd += unpackImageHeight * srcStride;
+            baseSpan = clampedSubspan(sourceData, baseSpan.data() - sourceData.data() + unpackImageHeight * srcStride, baseSpan.size());
         }
         return true;
     }
 
-    FormatConverter converter(
-        sourceDataSubRectangle, depth,
-        unpackImageHeight, sourceData, destinationData,
-        srcStride, srcRowOffset, dstStride);
+    FormatConverter converter(sourceDataSubRectangle, depth, unpackImageHeight, sourceData, destinationCursor, destinationData, srcStride, srcRowOffset, dstStride);
     converter.convert(sourceDataFormat, dstDataFormat, alphaOp);
-    if (!converter.success())
-        return false;
-    return true;
+    return converter.success();
 }
 
-RefPtr<GraphicsContextGL> GraphicsContextGL::create(const GraphicsContextGLAttributes& attributes, HostWindow* hostWindow)
-{
-    RefPtr<GraphicsContextGL> result;
-    if (hostWindow)
-        result = hostWindow->createGraphicsContextGL(attributes);
-    if (!result)
-        result = GraphicsContextGLOpenGL::create(attributes, hostWindow);
-    return result;
-}
+GraphicsContextGL::Client::Client() = default;
 
-GraphicsContextGL::GraphicsContextGL(GraphicsContextGLAttributes attrs, GraphicsContextGL*)
+GraphicsContextGL::Client::~Client() = default;
+
+GraphicsContextGL::GraphicsContextGL(GraphicsContextGLAttributes attrs)
     : m_attrs(attrs)
 {
 }
 
-void GraphicsContextGL::enablePreserveDrawingBuffer()
-{
-    // Canvas capture should not call this unless necessary.
-    ASSERT(!m_attrs.preserveDrawingBuffer);
-    m_attrs.preserveDrawingBuffer = true;
-}
+GraphicsContextGL::~GraphicsContextGL() = default;
 
-bool GraphicsContextGL::computeFormatAndTypeParameters(GCGLenum format, GCGLenum type, unsigned* componentsPerPixel, unsigned* bytesPerComponent)
+unsigned GraphicsContextGL::computeBytesPerGroup(GCGLenum format, GCGLenum type)
 {
+    unsigned componentsPerGroup = 0;
     switch (format) {
     case GraphicsContextGL::ALPHA:
     case GraphicsContextGL::LUMINANCE:
@@ -378,193 +387,117 @@ bool GraphicsContextGL::computeFormatAndTypeParameters(GCGLenum format, GCGLenum
     case GraphicsContextGL::RED_INTEGER:
     case GraphicsContextGL::DEPTH_COMPONENT:
     case GraphicsContextGL::DEPTH_STENCIL: // Treat it as one component.
-        *componentsPerPixel = 1;
+        componentsPerGroup = 1;
         break;
     case GraphicsContextGL::LUMINANCE_ALPHA:
     case GraphicsContextGL::RG:
     case GraphicsContextGL::RG_INTEGER:
-        *componentsPerPixel = 2;
+        componentsPerGroup = 2;
         break;
     case GraphicsContextGL::RGB:
     case GraphicsContextGL::RGB_INTEGER:
-    case ExtensionsGL::SRGB_EXT:
-        *componentsPerPixel = 3;
+    case GraphicsContextGL::SRGB_EXT:
+        componentsPerGroup = 3;
         break;
     case GraphicsContextGL::RGBA:
     case GraphicsContextGL::RGBA_INTEGER:
-    case ExtensionsGL::BGRA_EXT: // GL_EXT_texture_format_BGRA8888
-    case ExtensionsGL::SRGB_ALPHA_EXT:
-        *componentsPerPixel = 4;
+    case GraphicsContextGL::BGRA_EXT: // GL_EXT_texture_format_BGRA8888
+    case GraphicsContextGL::SRGB_ALPHA_EXT:
+        componentsPerGroup = 4;
         break;
     default:
-        return false;
+        return 0;
     }
 
     switch (type) {
-    case GraphicsContextGL::BYTE:
-        *bytesPerComponent = sizeof(GCGLbyte);
-        break;
-    case GraphicsContextGL::UNSIGNED_BYTE:
-        *bytesPerComponent = sizeof(GCGLubyte);
-        break;
-    case GraphicsContextGL::SHORT:
-        *bytesPerComponent = sizeof(GCGLshort);
-        break;
-    case GraphicsContextGL::UNSIGNED_SHORT:
-        *bytesPerComponent = sizeof(GCGLushort);
-        break;
     case GraphicsContextGL::UNSIGNED_SHORT_5_6_5:
     case GraphicsContextGL::UNSIGNED_SHORT_4_4_4_4:
     case GraphicsContextGL::UNSIGNED_SHORT_5_5_5_1:
-        *componentsPerPixel = 1;
-        *bytesPerComponent = sizeof(GCGLushort);
-        break;
-    case GraphicsContextGL::INT:
-        *bytesPerComponent = sizeof(GCGLint);
-        break;
-    case GraphicsContextGL::UNSIGNED_INT:
-        *bytesPerComponent = sizeof(GCGLuint);
-        break;
+        return 2;
     case GraphicsContextGL::UNSIGNED_INT_24_8:
     case GraphicsContextGL::UNSIGNED_INT_10F_11F_11F_REV:
     case GraphicsContextGL::UNSIGNED_INT_5_9_9_9_REV:
     case GraphicsContextGL::UNSIGNED_INT_2_10_10_10_REV:
-        *componentsPerPixel = 1;
-        *bytesPerComponent = sizeof(GCGLuint);
-        break;
-    case GraphicsContextGL::FLOAT: // OES_texture_float
-        *bytesPerComponent = sizeof(GCGLfloat);
-        break;
+        return 4;
+    case GraphicsContextGL::BYTE:
+    case GraphicsContextGL::UNSIGNED_BYTE:
+        return componentsPerGroup;
+    case GraphicsContextGL::SHORT:
+    case GraphicsContextGL::UNSIGNED_SHORT:
     case GraphicsContextGL::HALF_FLOAT:
     case GraphicsContextGL::HALF_FLOAT_OES: // OES_texture_half_float
-        *bytesPerComponent = sizeof(GCGLhalffloat);
-        break;
+        return componentsPerGroup * 2;
+    case GraphicsContextGL::INT:
+    case GraphicsContextGL::UNSIGNED_INT:
+    case GraphicsContextGL::FLOAT: // OES_texture_float
+        return componentsPerGroup * 4;
     case GraphicsContextGL::FLOAT_32_UNSIGNED_INT_24_8_REV:
-        *bytesPerComponent = sizeof(GCGLfloat) + sizeof(GCGLuint);
-        break;
+        return componentsPerGroup * 8;
     default:
-        return false;
+        return 0;
     }
-    return true;
 }
 
-GCGLenum GraphicsContextGL::computeImageSizeInBytes(GCGLenum format, GCGLenum type, GCGLsizei width, GCGLsizei height, GCGLsizei depth, const PixelStoreParams& params, unsigned* imageSizeInBytes, unsigned* paddingInBytes, unsigned* skipSizeInBytes)
+std::optional<GraphicsContextGL::PixelRectangleSizes> GraphicsContextGL::computeImageSize(GCGLenum format, GCGLenum type, IntSize size, GCGLsizei inDepth, const PixelStoreParameters& parameters)
 {
-    ASSERT(imageSizeInBytes);
-    ASSERT(params.alignment == 1 || params.alignment == 2 || params.alignment == 4 || params.alignment == 8);
-    ASSERT(params.rowLength >= 0);
-    ASSERT(params.imageHeight >= 0);
-    ASSERT(params.skipPixels >= 0);
-    ASSERT(params.skipRows >= 0);
-    ASSERT(params.skipImages >= 0);
-    if (width < 0 || height < 0 || depth < 0)
-        return GraphicsContextGL::INVALID_VALUE;
-    if (!width || !height || !depth) {
-        *imageSizeInBytes = 0;
-        if (paddingInBytes)
-            *paddingInBytes = 0;
-        if (skipSizeInBytes)
-            *skipSizeInBytes = 0;
-        return GraphicsContextGL::NO_ERROR;
-    }
+    ASSERT(parameters.alignment == 1 || parameters.alignment == 2 || parameters.alignment == 4 || parameters.alignment == 8);
+    ASSERT(parameters.rowLength >= 0);
+    ASSERT(parameters.imageHeight >= 0);
+    ASSERT(parameters.skipPixels >= 0);
+    ASSERT(parameters.skipRows >= 0);
+    ASSERT(parameters.skipImages >= 0);
 
-    int rowLength = params.rowLength > 0 ? params.rowLength : width;
-    int imageHeight = params.imageHeight > 0 ? params.imageHeight : height;
+    CheckedUint32 bytesPerGroup = computeBytesPerGroup(format, type);
+    if (!bytesPerGroup)
+        return std::nullopt;
+    if (!size.width() || !size.height() || !inDepth)
+        return PixelRectangleSizes { };
 
-    unsigned bytesPerComponent, componentsPerPixel;
-    if (!computeFormatAndTypeParameters(format, type, &componentsPerPixel, &bytesPerComponent))
-        return GraphicsContextGL::INVALID_ENUM;
-    unsigned bytesPerGroup = bytesPerComponent * componentsPerPixel;
-    CheckedUint32 checkedValue = static_cast<uint32_t>(rowLength);
-    checkedValue *= bytesPerGroup;
-    if (checkedValue.hasOverflowed())
-        return GraphicsContextGL::INVALID_VALUE;
+    // Inputs are assigned to CheckedUint32 to ensure nothing is computed with negative inputs.
+    CheckedUint32 width = size.width();
+    CheckedUint32 height = size.height();
+    CheckedUint32 depth = inDepth;
+    CheckedUint32 rowLength = parameters.rowLength > 0 ? parameters.rowLength : size.width();
+    CheckedUint32 imageHeight = parameters.imageHeight > 0 ? parameters.imageHeight : size.height();
+    CheckedUint32 alignment = parameters.alignment;
 
-    unsigned lastRowSize;
-    if (params.rowLength > 0 && params.rowLength != width) {
-        CheckedUint32 tmp = width;
-        tmp *= bytesPerGroup;
-        if (tmp.hasOverflowed())
-            return GraphicsContextGL::INVALID_VALUE;
-        lastRowSize = tmp;
-    } else
-        lastRowSize = checkedValue;
+    CheckedUint32 paddedRowBytes = rowLength * bytesPerGroup;
+    CheckedUint32 alignedRowBytes = roundUpToMultipleOfNonPowerOfTwo(alignment, paddedRowBytes);
 
-    unsigned padding = 0;
-    unsigned residual = checkedValue.value() % params.alignment;
-    if (residual) {
-        padding = params.alignment - residual;
-        checkedValue += padding;
-    }
-    if (checkedValue.hasOverflowed())
-        return GraphicsContextGL::INVALID_VALUE;
-    unsigned paddedRowSize = checkedValue;
+    // Last image is not affected by `parameters.imageHeight`.
+    CheckedUint32 rows = imageHeight * (depth - 1) + height;
 
-    CheckedUint32 rows = imageHeight;
-    rows *= (depth - 1);
-    // Last image is not affected by IMAGE_HEIGHT parameter.
-    rows += height;
-    if (rows.hasOverflowed())
-        return GraphicsContextGL::INVALID_VALUE;
-    checkedValue *= (rows - 1);
-    // Last row is not affected by ROW_LENGTH parameter.
-    checkedValue += lastRowSize;
-    if (checkedValue.hasOverflowed())
-        return GraphicsContextGL::INVALID_VALUE;
-    *imageSizeInBytes = checkedValue;
-    if (paddingInBytes)
-        *paddingInBytes = padding;
+    // Last row is not affected by `parameters.alignment`, `parameters.rowLength`.
+    CheckedUint32 lastRowBytes = width * bytesPerGroup;
+    CheckedUint32 imageBytes = alignedRowBytes * (rows - 1) + lastRowBytes;
 
-    CheckedUint32 skipSize = 0;
-    if (params.skipImages > 0) {
-        CheckedUint32 tmp = paddedRowSize;
-        tmp *= imageHeight;
-        tmp *= params.skipImages;
-        if (tmp.hasOverflowed())
-            return GraphicsContextGL::INVALID_VALUE;
-        skipSize += tmp;
-    }
-    if (params.skipRows > 0) {
-        CheckedUint32 tmp = paddedRowSize;
-        tmp *= params.skipRows;
-        if (tmp.hasOverflowed())
-            return GraphicsContextGL::INVALID_VALUE;
-        skipSize += tmp;
-    }
-    if (params.skipPixels > 0) {
-        CheckedUint32 tmp = bytesPerGroup;
-        tmp *= params.skipPixels;
-        if (tmp.hasOverflowed())
-            return GraphicsContextGL::INVALID_VALUE;
-        skipSize += tmp;
-    }
-    if (skipSize.hasOverflowed())
-        return GraphicsContextGL::INVALID_VALUE;
-    if (skipSizeInBytes)
-        *skipSizeInBytes = skipSize;
+    CheckedUint32 skipImages = parameters.skipImages;
+    CheckedUint32 skipRows = parameters.skipRows;
+    CheckedUint32 skipPixels = parameters.skipPixels;
+    CheckedUint32 initialSkipBytes = alignedRowBytes * (imageHeight * skipImages + skipRows) + bytesPerGroup * skipPixels;
 
-    checkedValue += skipSize;
-    if (checkedValue.hasOverflowed())
-        return GraphicsContextGL::INVALID_VALUE;
-    return GraphicsContextGL::NO_ERROR;
+    CheckedUint32 totalBytes = initialSkipBytes + imageBytes; // Validated only.
+    if (imageBytes.hasOverflowed() || initialSkipBytes.hasOverflowed() || totalBytes.hasOverflowed())
+        return std::nullopt;
+    return PixelRectangleSizes { initialSkipBytes.value(), imageBytes.value(), alignedRowBytes.value(), lastRowBytes.value() };
 }
 
-bool GraphicsContextGL::packImageData(Image* image, const void* pixels, GCGLenum format, GCGLenum type, bool flipY, AlphaOp alphaOp, DataFormat sourceFormat, unsigned sourceImageWidth, unsigned sourceImageHeight, const IntRect& sourceImageSubRectangle, int depth, unsigned sourceUnpackAlignment, int unpackImageHeight, Vector<uint8_t>& data)
+bool GraphicsContextGL::packImageData(Image* image, std::span<const uint8_t> pixels, GCGLenum format, GCGLenum type, bool flipY, AlphaOp alphaOp, DataFormat sourceFormat, unsigned sourceImageWidth, unsigned sourceImageHeight, const IntRect& sourceImageSubRectangle, int depth, unsigned sourceUnpackAlignment, int unpackImageHeight, Vector<uint8_t>& data)
 {
-    if (!image || !pixels)
+    if (!image || !pixels.data())
         return false;
 
-    unsigned packedSize;
     // Output data is tightly packed (alignment == 1).
-    PixelStoreParams params;
+    PixelStoreParameters params;
     params.alignment = 1;
-    if (computeImageSizeInBytes(format, type, sourceImageSubRectangle.width(), sourceImageSubRectangle.height(), depth, params, &packedSize, nullptr, nullptr) != GraphicsContextGL::NO_ERROR)
+    auto packSizes = computeImageSize(format, type, sourceImageSubRectangle.size(), depth, params);
+    if (!packSizes)
         return false;
-    data.resize(packedSize);
+    data.resize(packSizes->imageBytes);
 
-    if (!packPixels(static_cast<const uint8_t*>(pixels), sourceFormat, sourceImageWidth, sourceImageHeight, sourceImageSubRectangle, depth, sourceUnpackAlignment, unpackImageHeight, format, type, alphaOp, data.data(), flipY))
+    if (!packPixels(pixels, sourceFormat, sourceImageWidth, sourceImageHeight, sourceImageSubRectangle, depth, sourceUnpackAlignment, unpackImageHeight, format, type, alphaOp, data.mutableSpan(), flipY))
         return false;
-    if (ImageObserver* observer = image->imageObserver())
+    if (auto observer = image->imageObserver())
         observer->didDraw(*image);
     return true;
 }
@@ -574,44 +507,150 @@ bool GraphicsContextGL::extractPixelBuffer(const PixelBuffer& pixelBuffer, DataF
     int width = pixelBuffer.size().width();
     int height = pixelBuffer.size().height();
 
-    unsigned packedSize;
     // Output data is tightly packed (alignment == 1).
-    PixelStoreParams params;
+    PixelStoreParameters params;
     params.alignment = 1;
-    if (computeImageSizeInBytes(format, type, sourceImageSubRectangle.width(), sourceImageSubRectangle.height(), depth, params, &packedSize, nullptr, nullptr) != GraphicsContextGL::NO_ERROR)
+    auto packSizes = computeImageSize(format, type, sourceImageSubRectangle.size(), depth, params);
+    if (!packSizes)
         return false;
-    data.resize(packedSize);
+    data.resize(packSizes->imageBytes);
 
-    if (!packPixels(pixelBuffer.data().data(), sourceDataFormat, width, height, sourceImageSubRectangle, depth, 0, unpackImageHeight, format, type, premultiplyAlpha ? AlphaOp::DoPremultiply : AlphaOp::DoNothing, data.data(), flipY))
+    if (!packPixels(pixelBuffer.bytes(), sourceDataFormat, width, height, sourceImageSubRectangle, depth, 0, unpackImageHeight, format, type, premultiplyAlpha ? AlphaOp::DoPremultiply : AlphaOp::DoNothing, data.mutableSpan(), flipY))
         return false;
 
     return true;
 }
 
-bool GraphicsContextGL::extractTextureData(unsigned width, unsigned height, GCGLenum format, GCGLenum type, const PixelStoreParams& unpackParams, bool flipY, bool premultiplyAlpha, const void* pixels, Vector<uint8_t>& data)
+bool GraphicsContextGL::extractTextureData(unsigned width, unsigned height, GCGLenum format, GCGLenum type, const PixelStoreParameters& unpackParams, bool flipY, bool premultiplyAlpha, std::span<const uint8_t> pixels, Vector<uint8_t>& data)
 {
     // Assumes format, type, etc. have already been validated.
     DataFormat sourceDataFormat = getDataFormat(format, type);
     if (sourceDataFormat == GraphicsContextGL::DataFormat::Invalid)
         return false;
-    // Resize the output buffer.
-    unsigned componentsPerPixel, bytesPerComponent;
-    if (!computeFormatAndTypeParameters(format, type, &componentsPerPixel, &bytesPerComponent))
+    unsigned bytesPerPixel = computeBytesPerGroup(format, type);
+    if (!bytesPerPixel)
         return false;
-    unsigned bytesPerPixel = componentsPerPixel * bytesPerComponent;
+    auto packSizes = computeImageSize(format, type, { static_cast<int>(width), static_cast<int>(height) }, 1, unpackParams);
+    if (!packSizes)
+        return false;
     data.resize(width * height * bytesPerPixel);
-
-    unsigned imageSizeInBytes, skipSizeInBytes;
-    computeImageSizeInBytes(format, type, width, height, 1, unpackParams, &imageSizeInBytes, nullptr, &skipSizeInBytes);
-    const uint8_t* srcData = static_cast<const uint8_t*>(pixels);
-    if (skipSizeInBytes)
-        srcData += skipSizeInBytes;
-
-    if (!packPixels(srcData, sourceDataFormat, unpackParams.rowLength ? unpackParams.rowLength : width, height, IntRect(0, 0, width, height), 1, unpackParams.alignment, 0, format, type, (premultiplyAlpha ? AlphaOp::DoPremultiply : AlphaOp::DoNothing), data.data(), flipY))
+    skip(pixels, packSizes->initialSkipBytes);
+    if (!packPixels(pixels, sourceDataFormat, unpackParams.rowLength ? unpackParams.rowLength : width, height, IntRect(0, 0, width, height), 1, unpackParams.alignment, 0, format, type, (premultiplyAlpha ? AlphaOp::DoPremultiply : AlphaOp::DoNothing), data.mutableSpan(), flipY))
         return false;
-
     return true;
 }
+
+bool GraphicsContextGL::supportsExtension(GCGLExtension extension)
+{
+    return m_knownActiveExtensions.contains(extension) || m_requestableExtensions.contains(extension);
+}
+
+GCGLfloat GraphicsContextGL::getFloat(GCGLenum pname)
+{
+    GCGLfloat value { };
+    getFloatv(pname, singleElementSpan(value));
+    return value;
+}
+
+GCGLboolean GraphicsContextGL::getBoolean(GCGLenum pname)
+{
+    GCGLboolean value { };
+    getBooleanv(pname, singleElementSpan(value));
+    return value;
+}
+
+GCGLint GraphicsContextGL::getInteger(GCGLenum pname)
+{
+    GCGLint value { };
+    getIntegerv(pname, singleElementSpan(value));
+    return value;
+}
+
+GCGLint GraphicsContextGL::getIntegeri(GCGLenum pname, GCGLuint index)
+{
+    std::array<GCGLint, 4> value { };
+    getIntegeri_v(pname, index, std::span { value });
+    return value[0];
+}
+
+GCGLint GraphicsContextGL::getActiveUniformBlocki(GCGLuint program, GCGLuint uniformBlockIndex, GCGLenum pname)
+{
+    GCGLint value { };
+    getActiveUniformBlockiv(program, uniformBlockIndex, pname, singleElementSpan(value));
+    return value;
+}
+
+GCGLint GraphicsContextGL::getInternalformati(GCGLenum target, GCGLenum internalformat, GCGLenum pname)
+{
+    GCGLint value { };
+    getInternalformativ(target, internalformat, pname, singleElementSpan(value));
+    return value;
+}
+
+void GraphicsContextGL::framebufferDiscard(GCGLenum, std::span<const GCGLenum>)
+{
+    notImplemented();
+}
+
+#if ENABLE(WEBXR)
+void GraphicsContextGL::framebufferResolveRenderbuffer(GCGLenum, GCGLenum, GCGLenum, PlatformGLObject)
+{
+    notImplemented();
+}
+#endif
+
+void GraphicsContextGL::setDrawingBufferColorSpace(const DestinationColorSpace&)
+{
+}
+
+void GraphicsContextGL::paintToCanvas(NativeImage& image, const IntSize& canvasSize, GraphicsContext& context)
+{
+    if (canvasSize.isEmpty())
+        return;
+
+    auto imageSize = image.size();
+
+    // CSS styling may cause the canvas's content to be resized on
+    // the page. Go back to the Canvas to figure out the correct
+    // width and height to draw.
+    FloatRect canvasRect(FloatPoint(), canvasSize);
+    // We want to completely overwrite the previous frame's
+    // rendering results.
+
+    GraphicsContextStateSaver stateSaver(context);
+    context.scale(FloatSize(1, -1));
+    context.translate(0, -imageSize.height());
+    context.setImageInterpolationQuality(InterpolationQuality::DoNotInterpolate);
+    context.drawNativeImage(image, canvasRect, FloatRect { { }, imageSize }, { CompositeOperator::Copy });
+}
+
+void GraphicsContextGL::paintToCanvas(const GraphicsContextGLAttributes& sourceContextAttributes, Ref<PixelBuffer>&& pixelBuffer, const IntSize& canvasSize, GraphicsContext& context)
+{
+    if (canvasSize.isEmpty())
+        return;
+
+    auto image = createNativeImageFromPixelBuffer(sourceContextAttributes, WTF::move(pixelBuffer));
+    paintToCanvas(*image, canvasSize, context);
+}
+
+void GraphicsContextGL::forceContextLost()
+{
+    m_contextLost = true;
+    if (m_client)
+        m_client->forceContextLost();
+}
+
+#if ENABLE(VIDEO)
+RefPtr<Image> GraphicsContextGL::videoFrameToImage(VideoFrame& frame)
+{
+    IntSize size { static_cast<int>(frame.presentationSize().width()), static_cast<int>(frame.presentationSize().height()) };
+    auto imageBuffer = ImageBuffer::create(size, RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
+    if (!imageBuffer)
+        return { };
+    imageBuffer->context().drawVideoFrame(frame, { { }, size }, ImageOrientation::Orientation::None, true);
+    return BitmapImage::create(ImageBuffer::sinkIntoNativeImage(WTF::move(imageBuffer)));
+}
+#endif
 
 } // namespace WebCore
 

@@ -34,7 +34,6 @@ class Image;
 
 namespace WebKit {
 
-class ShareableBitmap;
 class WebPage;
 
 class WebContextMenu : public RefCounted<WebContextMenu> {
@@ -46,7 +45,7 @@ public:
     
     ~WebContextMenu();
 
-    void show();
+    bool show();
     void itemSelected(const WebContextMenuItemData&);
     Vector<WebContextMenuItemData> items() const;
 

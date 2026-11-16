@@ -33,6 +33,8 @@ struct SupportRequirement
 {
     SupportRequirement();
     SupportRequirement(const SupportRequirement &other);
+    SupportRequirement &operator=(const SupportRequirement &other);
+
     ~SupportRequirement();
 
     // Version that this format became supported without extensions
@@ -105,8 +107,7 @@ struct CopyTexImageImageFormat
 };
 CopyTexImageImageFormat GetCopyTexImageImageFormat(const FunctionsGL *functions,
                                                    const angle::FeaturesGL &features,
-                                                   GLenum internalFormat,
-                                                   GLenum framebufferType);
+                                                   GLenum internalFormat);
 
 struct TexStorageFormat
 {

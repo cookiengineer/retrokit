@@ -27,14 +27,16 @@
 #include "PlatformKeyboardEvent.h"
 
 #if USE(LIBWPE)
-
 #include "WindowsKeyboardCodes.h"
 #include <wpe/wpe.h>
 #include <wtf/HexNumber.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
+#endif
 
 namespace WebCore {
 
+#if USE(LIBWPE)
 // FIXME: This is incomplete. We should change this to mirror
 // more like what Firefox does, and generate these switch statements
 // at build time.
@@ -429,12 +431,9 @@ String PlatformKeyboardEvent::keyValueForWPEKeyCode(unsigned keyCode)
         break;
     }
 
-    UChar32 unicodeCharacter = wpe_key_code_to_unicode(keyCode);
-    if (unicodeCharacter && U_IS_UNICODE_CHAR(unicodeCharacter)) {
-        StringBuilder builder;
-        builder.appendCharacter(unicodeCharacter);
-        return builder.toString();
-    }
+    char32_t unicodeCharacter = wpe_key_code_to_unicode(keyCode);
+    if (unicodeCharacter && U_IS_UNICODE_CHAR(unicodeCharacter))
+        return makeString(unicodeCharacter);
 
     return "Unidentified"_s;
 }
@@ -758,6 +757,12 @@ String PlatformKeyboardEvent::keyCodeForHardwareKeyCode(unsigned keyCode)
         return "F24"_s;
     case 0x00E1:
         return "BrowserSearch"_s;
+    case 0x00E7:
+        return "Cancel"_s;
+    case 0x00F8:
+        return "Unknown"_s;
+    case 0x016B:
+        return "Clear"_s;
     default:
         break;
     }
@@ -773,106 +778,114 @@ String PlatformKeyboardEvent::keyIdentifierForWPEKeyCode(unsigned keyCode)
     case WPE_KEY_Menu:
     case WPE_KEY_Alt_L:
     case WPE_KEY_Alt_R:
-        return "Alt";
+        return "Alt"_s;
     case WPE_KEY_Clear:
-        return "Clear";
+        return "Clear"_s;
     case WPE_KEY_Down:
-        return "Down";
+    case WPE_KEY_KP_Down:
+        return "Down"_s;
         // "End"
     case WPE_KEY_End:
-        return "End";
+    case WPE_KEY_KP_End:
+        return "End"_s;
         // "Enter"
     case WPE_KEY_ISO_Enter:
     case WPE_KEY_KP_Enter:
     case WPE_KEY_Return:
-        return "Enter";
+        return "Enter"_s;
     case WPE_KEY_Execute:
-        return "Execute";
+        return "Execute"_s;
     case WPE_KEY_F1:
-        return "F1";
+        return "F1"_s;
     case WPE_KEY_F2:
-        return "F2";
+        return "F2"_s;
     case WPE_KEY_F3:
-        return "F3";
+        return "F3"_s;
     case WPE_KEY_F4:
-        return "F4";
+        return "F4"_s;
     case WPE_KEY_F5:
-        return "F5";
+        return "F5"_s;
     case WPE_KEY_F6:
-        return "F6";
+        return "F6"_s;
     case WPE_KEY_F7:
-        return "F7";
+        return "F7"_s;
     case WPE_KEY_F8:
-        return "F8";
+        return "F8"_s;
     case WPE_KEY_F9:
-        return "F9";
+        return "F9"_s;
     case WPE_KEY_F10:
-        return "F10";
+        return "F10"_s;
     case WPE_KEY_F11:
-        return "F11";
+        return "F11"_s;
     case WPE_KEY_F12:
-        return "F12";
+        return "F12"_s;
     case WPE_KEY_F13:
-        return "F13";
+        return "F13"_s;
     case WPE_KEY_F14:
-        return "F14";
+        return "F14"_s;
     case WPE_KEY_F15:
-        return "F15";
+        return "F15"_s;
     case WPE_KEY_F16:
-        return "F16";
+        return "F16"_s;
     case WPE_KEY_F17:
-        return "F17";
+        return "F17"_s;
     case WPE_KEY_F18:
-        return "F18";
+        return "F18"_s;
     case WPE_KEY_F19:
-        return "F19";
+        return "F19"_s;
     case WPE_KEY_F20:
-        return "F20";
+        return "F20"_s;
     case WPE_KEY_F21:
-        return "F21";
+        return "F21"_s;
     case WPE_KEY_F22:
-        return "F22";
+        return "F22"_s;
     case WPE_KEY_F23:
-        return "F23";
+        return "F23"_s;
     case WPE_KEY_F24:
-        return "F24";
+        return "F24"_s;
     case WPE_KEY_Help:
-        return "Help";
+        return "Help"_s;
     case WPE_KEY_Home:
-        return "Home";
+    case WPE_KEY_KP_Home:
+        return "Home"_s;
     case WPE_KEY_Insert:
-        return "Insert";
+        return "Insert"_s;
     case WPE_KEY_Left:
-        return "Left";
+    case WPE_KEY_KP_Left:
+        return "Left"_s;
     case WPE_KEY_Page_Down:
-        return "PageDown";
+    case WPE_KEY_KP_Page_Down:
+        return "PageDown"_s;
     case WPE_KEY_Page_Up:
-        return "PageUp";
+    case WPE_KEY_KP_Page_Up:
+        return "PageUp"_s;
     case WPE_KEY_Pause:
-        return "Pause";
+        return "Pause"_s;
     case WPE_KEY_3270_PrintScreen:
     case WPE_KEY_Print:
-        return "PrintScreen";
+        return "PrintScreen"_s;
     case WPE_KEY_Right:
-        return "Right";
+    case WPE_KEY_KP_Right:
+        return "Right"_s;
     case WPE_KEY_Select:
-        return "Select";
+        return "Select"_s;
     case WPE_KEY_Up:
-        return "Up";
+    case WPE_KEY_KP_Up:
+        return "Up"_s;
         // Standard says that DEL becomes U+007F.
     case WPE_KEY_Delete:
-        return "U+007F";
+        return "U+007F"_s;
     case WPE_KEY_BackSpace:
-        return "U+0008";
+        return "U+0008"_s;
     case WPE_KEY_ISO_Left_Tab:
     case WPE_KEY_3270_BackTab:
     case WPE_KEY_Tab:
-        return "U+0009";
+        return "U+0009"_s;
     default:
         break;
     }
 
-    return makeString("U+", hex(wpe_key_code_to_unicode(keyCode), 4));
+    return makeString("U+"_s, hex(wpe_key_code_to_unicode(keyCode), 4));
 }
 
 int PlatformKeyboardEvent::windowsKeyCodeForWPEKeyCode(unsigned keycode)
@@ -1297,50 +1310,36 @@ String PlatformKeyboardEvent::singleCharacterString(unsigned val)
     case WPE_KEY_ISO_Enter:
     case WPE_KEY_KP_Enter:
     case WPE_KEY_Return:
-        return String("\r");
+        return String("\r"_s);
     case WPE_KEY_BackSpace:
-        return String("\x8");
+        return String("\x8"_s);
     case WPE_KEY_Tab:
-        return String("\t");
+        return String("\t"_s);
     default:
         break;
     }
 
-    UChar32 unicodeCharacter = wpe_key_code_to_unicode(val);
-    if (unicodeCharacter && U_IS_UNICODE_CHAR(unicodeCharacter)) {
-        StringBuilder builder;
-        builder.appendCharacter(unicodeCharacter);
-        return builder.toString();
-    }
+    char32_t unicodeCharacter = wpe_key_code_to_unicode(val);
+    if (unicodeCharacter && U_IS_UNICODE_CHAR(unicodeCharacter))
+        return makeString(unicodeCharacter);
 
     return { };
 }
+#endif // USE(LIBWPE)
 
 void PlatformKeyboardEvent::disambiguateKeyDownEvent(Type type, bool backwardsCompatibility)
 {
-    ASSERT(m_type == KeyDown);
+    ASSERT(m_type == PlatformEvent::Type::KeyDown);
     m_type = type;
     if (backwardsCompatibility || m_handledByInputMethod)
         return;
 
-    if (type == PlatformEvent::RawKeyDown) {
+    if (type == PlatformEvent::Type::RawKeyDown) {
         m_text = String();
         m_unmodifiedText = String();
     } else {
         m_keyIdentifier = String();
-        m_windowsVirtualKeyCode = 0;
     }
 }
 
-bool PlatformKeyboardEvent::currentCapsLockState()
-{
-    return false;
-}
-
-void PlatformKeyboardEvent::getCurrentModifierState(bool&, bool&, bool&, bool&)
-{
-}
-
 } // namespace WebCore
-
-#endif // USE(LIBWPE)

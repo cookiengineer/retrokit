@@ -29,16 +29,18 @@
 #if ENABLE(CONTEXT_MENUS)
 
 #include "APIContextMenuClient.h"
+#include "MessageSenderInlines.h"
 #include "WebPageMessages.h"
 #include "WebPageProxy.h"
 #include "WebProcessProxy.h"
 
 namespace WebKit {
 
-WebContextMenuProxy::WebContextMenuProxy(WebPageProxy& page, ContextMenuContextData&& context, const UserData& userData)
-    : m_context(WTFMove(context))
+WebContextMenuProxy::WebContextMenuProxy(WebPageProxy& page, FrameInfoData&& frameInfo, ContextMenuContextData&& context, const UserData& userData)
+    : m_context(WTF::move(context))
     , m_userData(userData)
-    , m_page(makeWeakPtr(page))
+    , m_frameInfo(WTF::move(frameInfo))
+    , m_page(page)
 {
 }
 
@@ -53,27 +55,33 @@ Vector<Ref<WebContextMenuItem>> WebContextMenuProxy::proposedItems() const
 
 void WebContextMenuProxy::show()
 {
-    m_contextMenuListener = WebContextMenuListenerProxy::create(*this);
-    page()->contextMenuClient().getContextMenuFromProposedMenu(*page(), proposedItems(), *m_contextMenuListener, m_context.webHitTestResultData(), page()->process().transformHandlesToObjects(m_userData.object()).get());
+    ASSERT(m_context.webHitTestResultData());
+
+    RefPtr page = this->page();
+    if (!page)
+        return;
+
+    Ref contextMenuListener = WebContextMenuListenerProxy::create(*this);
+    m_contextMenuListener = contextMenuListener.copyRef();
+    page->contextMenuClient().getContextMenuFromProposedMenu(*page, proposedItems(), contextMenuListener, m_context.webHitTestResultData().value(),
+        protect(page->legacyMainFrameProcess())->transformHandlesToObjects(protect(m_userData.object()).get()).get());
 }
 
 void WebContextMenuProxy::useContextMenuItems(Vector<Ref<WebContextMenuItem>>&& items)
 {
     m_contextMenuListener = nullptr;
 
-    auto page = makeRefPtr(this->page());
+    RefPtr page = this->page();
     if (!page)
         return;
 
     // Since showContextMenuWithItems can spin a nested run loop we need to turn off the responsiveness timer.
-    page->process().stopResponsivenessTimer();
+    protect(page->legacyMainFrameProcess())->stopResponsivenessTimer();
 
     // Protect |this| from being deallocated if WebPageProxy code is re-entered from the menu runloop or delegates.
-    auto protectedThis = makeRef(*this);
-    showContextMenuWithItems(WTFMove(items));
-
-    // No matter the result of showContextMenuWithItems, always notify the WebProcess that the menu is hidden so it starts handling mouse events again.
-    page->send(Messages::WebPage::DidShowContextMenu());
+    Ref protectedThis { *this };
+    showContextMenuWithItems(WTF::move(items));
+    page->clearWaitingForContextMenuToShow();
 }
 
 } // namespace WebKit

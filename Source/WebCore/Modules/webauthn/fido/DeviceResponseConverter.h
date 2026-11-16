@@ -31,11 +31,12 @@
 
 #if ENABLE(WEB_AUTHN)
 
-#include "AttestationConveyancePreference.h"
-#include "AuthenticatorAssertionResponse.h"
-#include "AuthenticatorAttestationResponse.h"
-#include "AuthenticatorGetInfoResponse.h"
-#include "FidoConstants.h"
+#include <WebCore/AttestationConveyancePreference.h>
+#include <WebCore/AuthenticatorAssertionResponse.h>
+#include <WebCore/AuthenticatorAttestationResponse.h>
+#include <WebCore/AuthenticatorGetInfoResponse.h>
+#include <WebCore/FidoConstants.h>
+#include <WebCore/Pin.h>
 
 // Converts response from authenticators to CTAPResponse objects. If the
 // response of the authenticator does not conform to format specified by the
@@ -46,18 +47,18 @@ std::optional<cbor::CBORValue> decodeResponseMap(const Vector<uint8_t>&);
 
 // Parses response code from response received from the authenticator. If
 // unknown response code value is received, then CTAP2_ERR_OTHER is returned.
-WEBCORE_EXPORT CtapDeviceResponseCode getResponseCode(const Vector<uint8_t>&);
+WEBCORE_EXPORT CtapDeviceResponseCode NODELETE getResponseCode(const Vector<uint8_t>&);
 
 // De-serializes CBOR encoded response, checks for valid CBOR map formatting,
 // and converts response to AuthenticatorMakeCredentialResponse object with
 // CBOR map keys that conform to format of attestation object defined by the
 // WebAuthN spec : https://w3c.github.io/webauthn/#fig-attStructs
-WEBCORE_EXPORT RefPtr<WebCore::AuthenticatorAttestationResponse> readCTAPMakeCredentialResponse(const Vector<uint8_t>&, WebCore::AuthenticatorAttachment, const WebCore::AttestationConveyancePreference& = WebCore::AttestationConveyancePreference::Direct);
+WEBCORE_EXPORT RefPtr<WebCore::AuthenticatorAttestationResponse> readCTAPMakeCredentialResponse(const Vector<uint8_t>&, WebCore::AuthenticatorAttachment, Vector<WebCore::AuthenticatorTransport>&&, const WebCore::AttestationConveyancePreference& = WebCore::AttestationConveyancePreference::Direct, const std::optional<pin::HmacSecretRequest>& = std::nullopt);
 
 // De-serializes CBOR encoded response to AuthenticatorGetAssertion /
 // AuthenticatorGetNextAssertion request to AuthenticatorGetAssertionResponse
 // object.
-WEBCORE_EXPORT RefPtr<WebCore::AuthenticatorAssertionResponse> readCTAPGetAssertionResponse(const Vector<uint8_t>&, WebCore::AuthenticatorAttachment);
+WEBCORE_EXPORT RefPtr<WebCore::AuthenticatorAssertionResponse> readCTAPGetAssertionResponse(const Vector<uint8_t>&, WebCore::AuthenticatorAttachment, const std::optional<pin::HmacSecretRequest>& = std::nullopt);
 
 // De-serializes CBOR encoded response to AuthenticatorGetInfo request to
 // AuthenticatorGetInfoResponse object.

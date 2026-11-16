@@ -27,7 +27,11 @@
 #include "config.h"
 #include "InspectorAuditDOMObject.h"
 
+#include "Document.h"
+#include "ExceptionOr.h"
 #include "Node.h"
+#include "UserGestureEmulationScope.h"
+#include "VoidCallback.h"
 #include <wtf/text/AtomString.h>
 #include <wtf/text/WTFString.h>
 
@@ -37,9 +41,9 @@ using namespace Inspector;
 
 #define ERROR_IF_NO_ACTIVE_AUDIT() \
     if (!m_auditAgent.hasActiveAudit()) \
-        return Exception { NotAllowedError, "Cannot be called outside of a Web Inspector Audit"_s };
+        return Exception { ExceptionCode::NotAllowedError, "Cannot be called outside of a Web Inspector Audit"_s };
 
-InspectorAuditDOMObject::InspectorAuditDOMObject(InspectorAuditAgent& auditAgent)
+InspectorAuditDOMObject::InspectorAuditDOMObject(PageAuditAgent& auditAgent)
     : m_auditAgent(auditAgent)
 {
 }
@@ -56,7 +60,7 @@ ExceptionOr<bool> InspectorAuditDOMObject::hasEventListeners(Node& node, const S
             eventTypes.append(type);
 
         for (AtomString& type : eventTypes) {
-            for (const RefPtr<RegisteredEventListener>& listener : node.eventListeners(type)) {
+            for (auto& listener : node.eventListeners(type)) {
                 if (listener->callback().type() == EventListener::JSEventListenerType)
                     return true;
             }
@@ -64,6 +68,16 @@ ExceptionOr<bool> InspectorAuditDOMObject::hasEventListeners(Node& node, const S
     }
 
     return false;
+}
+
+ExceptionOr<void> InspectorAuditDOMObject::simulateUserInteraction(Document& document, Ref<VoidCallback>&& callback)
+{
+    ERROR_IF_NO_ACTIVE_AUDIT();
+
+    UserGestureEmulationScope userGestureScope(m_auditAgent.inspectedPage(), true, &document);
+    callback->invoke();
+
+    return { };
 }
 
 } // namespace WebCore

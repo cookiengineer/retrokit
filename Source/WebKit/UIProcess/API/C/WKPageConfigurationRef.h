@@ -27,6 +27,7 @@
 #define WKPageConfigurationRef_h
 
 #include <WebKit/WKBase.h>
+#include <WebKit/WKDeprecated.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -39,8 +40,8 @@ WK_EXPORT WKPageConfigurationRef WKPageConfigurationCreate(void);
 WK_EXPORT WKContextRef WKPageConfigurationGetContext(WKPageConfigurationRef configuration);
 WK_EXPORT void WKPageConfigurationSetContext(WKPageConfigurationRef configuration, WKContextRef context);
 
-WK_EXPORT WKPageGroupRef WKPageConfigurationGetPageGroup(WKPageConfigurationRef configuration);
-WK_EXPORT void WKPageConfigurationSetPageGroup(WKPageConfigurationRef configuration, WKPageGroupRef pageGroup);
+WK_EXPORT WKPageGroupRef WKPageConfigurationGetPageGroup(WKPageConfigurationRef configuration) WK_C_API_DEPRECATED;
+WK_EXPORT void WKPageConfigurationSetPageGroup(WKPageConfigurationRef configuration, WKPageGroupRef pageGroup) WK_C_API_DEPRECATED;
 
 WK_EXPORT WKUserContentControllerRef WKPageConfigurationGetUserContentController(WKPageConfigurationRef configuration);
 WK_EXPORT void WKPageConfigurationSetUserContentController(WKPageConfigurationRef configuration, WKUserContentControllerRef userContentController);
@@ -48,14 +49,22 @@ WK_EXPORT void WKPageConfigurationSetUserContentController(WKPageConfigurationRe
 WK_EXPORT WKPreferencesRef WKPageConfigurationGetPreferences(WKPageConfigurationRef configuration);
 WK_EXPORT void WKPageConfigurationSetPreferences(WKPageConfigurationRef configuration, WKPreferencesRef preferences);
 
-WK_EXPORT WKPageRef WKPageConfigurationGetRelatedPage(WKPageConfigurationRef configuration);
-WK_EXPORT void WKPageConfigurationSetRelatedPage(WKPageConfigurationRef configuration, WKPageRef relatedPage);
+WK_EXPORT WKPageRef WKPageConfigurationGetRelatedPage(WKPageConfigurationRef configuration) WK_C_API_DEPRECATED;
+WK_EXPORT void WKPageConfigurationSetRelatedPage(WKPageConfigurationRef configuration, WKPageRef relatedPage) WK_C_API_DEPRECATED;
 
 WK_EXPORT WKWebsiteDataStoreRef WKPageConfigurationGetWebsiteDataStore(WKPageConfigurationRef configuration);
 WK_EXPORT void WKPageConfigurationSetWebsiteDataStore(WKPageConfigurationRef configuration, WKWebsiteDataStoreRef websiteDataStore);
 
+WK_EXPORT WKWebsitePoliciesRef WKPageConfigurationGetDefaultWebsitePolicies(WKPageConfigurationRef configuration);
+WK_EXPORT void WKPageConfigurationSetDefaultWebsitePolicies(WKPageConfigurationRef configuration, WKWebsitePoliciesRef policies);
+
 WK_EXPORT void WKPageConfigurationSetInitialCapitalizationEnabled(WKPageConfigurationRef configuration, bool enabled);
 WK_EXPORT void WKPageConfigurationSetBackgroundCPULimit(WKPageConfigurationRef configuration, double cpuLimit); // Terminates process if it uses more than CPU limit over an extended period of time while in the background.
+
+WK_EXPORT void WKPageConfigurationSetAllowTestOnlyIPC(WKPageConfigurationRef configuration, bool allowTestOnlyIPC);
+WK_EXPORT void WKPageConfigurationSetShouldSendConsoleLogsToUIProcessForTesting(WKPageConfigurationRef configuration, bool should);
+
+WK_EXPORT void WKPageConfigurationSetPortsForUpgradingInsecureSchemeForTesting(WKPageConfigurationRef configuration, uint16_t upgradeFromInsecurePort, uint16_t upgradeToSecurePort);
 
 #ifdef __cplusplus
 }

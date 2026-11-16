@@ -21,7 +21,7 @@ using namespace angle;
 // The results of each frame of the animation are compared against expected values
 // The original source of the boot animation can be found here:
 // https://android.googlesource.com/platform/frameworks/base/+/refs/heads/master/cmds/bootanimation/BootAnimation.cpp#422
-class BootAnimationTest : public ANGLETest
+class BootAnimationTest : public ANGLETest<>
 {
   protected:
     BootAnimationTest()
@@ -221,7 +221,7 @@ class BootAnimationTest : public ANGLETest
 
 TEST_P(BootAnimationTest, DefaultBootAnimation)
 {
-    // http://anglebug.com/5085
+    // http://anglebug.com/42263653
     ANGLE_SKIP_TEST_IF(IsWindows() && IsNVIDIA() && IsVulkan());
 
     constexpr uint64_t kMaxIterationCount = 8;  // number of times we shift the shine textures

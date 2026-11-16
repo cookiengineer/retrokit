@@ -34,21 +34,26 @@ PAS_BEGIN_EXTERN_C;
    part of that. */
 enum pas_heap_kind {
     pas_bootstrap_free_heap_kind,
+    pas_small_medium_bootstrap_free_heap_kind,
     pas_compact_bootstrap_free_heap_kind,
     pas_large_utility_free_heap_kind,
     pas_immortal_heap_kind,
-    pas_utility_heap_kind
+    pas_utility_heap_kind,
+    pas_compact_expendable_heap_kind,
+    pas_large_expendable_heap_kind
 };
 
 typedef enum pas_heap_kind pas_heap_kind;
 
-#define PAS_NUM_HEAP_KINDS 5
+#define PAS_NUM_HEAP_KINDS 8
 
 static inline const char* pas_heap_kind_get_string(pas_heap_kind kind)
 {
     switch (kind) {
     case pas_bootstrap_free_heap_kind:
         return "bootstrap_free_heap";
+    case pas_small_medium_bootstrap_free_heap_kind:
+        return "small_medium_bootstrap_free_heap";
     case pas_compact_bootstrap_free_heap_kind:
         return "compact_bootstrap_free_heap";
     case pas_large_utility_free_heap_kind:
@@ -57,8 +62,12 @@ static inline const char* pas_heap_kind_get_string(pas_heap_kind kind)
         return "immortal_heap";
     case pas_utility_heap_kind:
         return "utility_heap";
+    case pas_compact_expendable_heap_kind:
+        return "compact_expendable_heap";
+    case pas_large_expendable_heap_kind:
+        return "large_expendable_heap";
     }
-    PAS_ASSERT(!"Should not be reached");
+    PAS_ASSERT_NOT_REACHED();
     return NULL;
 }
 

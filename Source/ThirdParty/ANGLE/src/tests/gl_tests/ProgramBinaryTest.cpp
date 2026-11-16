@@ -4,9 +4,11 @@
 // found in the LICENSE file.
 //
 
+#include "common/unsafe_buffers.h"
 #include "test_utils/ANGLETest.h"
 
 #include <stdint.h>
+#include <array>
 #include <memory>
 
 #include "common/string_utils.h"
@@ -17,7 +19,7 @@
 
 using namespace angle;
 
-class ProgramBinaryTest : public ANGLETest
+class ProgramBinaryTest : public ANGLETest<>
 {
   protected:
     ProgramBinaryTest()
@@ -35,7 +37,7 @@ class ProgramBinaryTest : public ANGLETest
 
     void testSetUp() override
     {
-        mProgram = CompileProgram(essl1_shaders::vs::Simple(), essl1_shaders::fs::Red());
+        mProgram = CompileProgram(essl1_shaders::vs::Texture2D(), essl1_shaders::fs::Texture2D());
         if (mProgram == 0)
         {
             FAIL() << "shader compilation failed.";
@@ -229,6 +231,82 @@ TEST_P(ProgramBinaryTest, SaveAndLoadBinaryTwice)
     EXPECT_GL_NO_ERROR();
 }
 
+// Test to verify that when saving a program binary twice consecutively, both the length and the
+// binary match. Also verify that when loading each program binary, the quad rendered using the
+// binary matches as expected.
+TEST_P(ProgramBinaryTest, ReturnedBinaryTwiceShouldMatch)
+{
+    if (!supported())
+    {
+        return;
+    }
+
+    // Create a red program.
+    ANGLE_GL_PROGRAM(redProgram, essl1_shaders::vs::Simple(), essl1_shaders::fs::Red());
+
+    GLint programLength1 = 0;
+    GLint writtenLength1 = 0;
+    GLenum binaryFormat1 = GL_NONE;
+
+    GLint programLength2 = 0;
+    GLint writtenLength2 = 0;
+    GLenum binaryFormat2 = GL_NONE;
+
+    // Get the binary initially.
+    glGetProgramiv(redProgram, GL_PROGRAM_BINARY_LENGTH_OES, &programLength1);
+    std::vector<uint8_t> binary1(programLength1);
+    glGetProgramBinaryOES(redProgram, programLength1, &writtenLength1, &binaryFormat1,
+                          binary1.data());
+    EXPECT_GL_NO_ERROR();
+
+    // Ensure that the lengths from glGetProgramiv and glGetProgramBinaryOES match.
+    EXPECT_EQ(programLength1, writtenLength1);
+
+    // Immediately get the binary again.
+    glGetProgramiv(redProgram, GL_PROGRAM_BINARY_LENGTH_OES, &programLength2);
+    std::vector<uint8_t> binary2(programLength2);
+    glGetProgramBinaryOES(redProgram, programLength2, &writtenLength2, &binaryFormat2,
+                          binary2.data());
+    EXPECT_GL_NO_ERROR();
+
+    // Ensure that the lengths from glGetProgramiv and glGetProgramBinaryOES match again.
+    EXPECT_EQ(programLength2, writtenLength2);
+
+    // Verify length/binary 1 and 2 are the same.
+    EXPECT_EQ(programLength1, programLength2);
+    EXPECT_EQ(binary1, binary2);
+
+    // Load the program binary 1.
+    GLuint loadedProgram = glCreateProgram();
+    glProgramBinaryOES(loadedProgram, binaryFormat1, binary1.data(), writtenLength1);
+    EXPECT_GL_NO_ERROR();
+
+    // Load the program binary 2.
+    GLuint reloadedProgram = glCreateProgram();
+    glProgramBinaryOES(reloadedProgram, binaryFormat2, binary2.data(), writtenLength2);
+    EXPECT_GL_NO_ERROR();
+
+    glUseProgram(loadedProgram);
+
+    // Verify that the red program draws correctly for the program binary 1.
+    drawQuad(loadedProgram, std::string(essl1_shaders::PositionAttrib()), 0.0f);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+    EXPECT_GL_NO_ERROR();
+
+    // Clear with black before the second iteration.
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::black);
+    EXPECT_GL_NO_ERROR();
+
+    glUseProgram(reloadedProgram);
+
+    // Verify that the red program draws correctly for the program binary 2.
+    drawQuad(reloadedProgram, std::string(essl1_shaders::PositionAttrib()), 0.0f);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+    EXPECT_GL_NO_ERROR();
+}
+
 // Ensures that we init the compiler before calling ProgramBinary.
 TEST_P(ProgramBinaryTest, CallProgramBinaryBeforeLink)
 {
@@ -274,9 +352,11 @@ TEST_P(ProgramBinaryTest, ZeroSizedUnlinkedBinary)
 
 // Use this to select which configurations (e.g. which renderer, which GLES major version) these
 // tests should be run against.
-ANGLE_INSTANTIATE_TEST_ES2_AND_ES3(ProgramBinaryTest);
+ANGLE_INSTANTIATE_TEST_ES2_AND_ES3_AND(
+    ProgramBinaryTest,
+    ES3_VULKAN().disable(Feature::EnablePipelineCacheDataCompression));
 
-class ProgramBinaryES3Test : public ANGLETest
+class ProgramBinaryES3Test : public ProgramBinaryTest
 {
   protected:
     ProgramBinaryES3Test()
@@ -288,33 +368,52 @@ class ProgramBinaryES3Test : public ANGLETest
     void testBinaryAndUBOBlockIndexes(bool drawWithProgramFirst);
 };
 
+class ProgramBinaryES31Test : public ANGLETest<>
+{
+  protected:
+    ProgramBinaryES31Test()
+    {
+        setWindowWidth(128);
+        setWindowHeight(128);
+        setConfigRedBits(8);
+        setConfigGreenBits(8);
+        setConfigBlueBits(8);
+        setConfigAlphaBits(8);
+
+        // Test flakiness was noticed when reusing displays.
+        forceNewDisplay();
+    }
+
+    GLint getAvailableProgramBinaryFormatCount() const
+    {
+        GLint formatCount;
+        glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS_OES, &formatCount);
+        return formatCount;
+    }
+};
+
 void ProgramBinaryES3Test::testBinaryAndUBOBlockIndexes(bool drawWithProgramFirst)
 {
-    // We can't run the test if no program binary formats are supported.
-    GLint binaryFormatCount = 0;
-    glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS, &binaryFormatCount);
-    ANGLE_SKIP_TEST_IF(binaryFormatCount == 0);
+    ANGLE_SKIP_TEST_IF(getAvailableProgramBinaryFormatCount() == 0);
 
-    constexpr char kVS[] =
-        "#version 300 es\n"
-        "uniform block {\n"
-        "    float f;\n"
-        "};\n"
-        "in vec4 position;\n"
-        "out vec4 color;\n"
-        "void main() {\n"
-        "    gl_Position = position;\n"
-        "    color = vec4(f, f, f, 1);\n"
-        "}";
+    constexpr char kVS[] = R"(#version 300 es
+uniform block {
+    float f;
+};
+in vec4 position;
+out vec4 color;
+void main() {
+    gl_Position = position;
+    color = vec4(f, f, f, 1);
+})";
 
-    constexpr char kFS[] =
-        "#version 300 es\n"
-        "precision mediump float;\n"
-        "in vec4 color;\n"
-        "out vec4 colorOut;\n"
-        "void main() {\n"
-        "    colorOut = color;\n"
-        "}";
+    constexpr char kFS[] = R"(#version 300 es
+precision mediump float;
+in vec4 color;
+out vec4 colorOut;
+void main() {
+    colorOut = color;
+})";
 
     // Init and draw with the program.
     ANGLE_GL_PROGRAM(program, kVS, kFS);
@@ -323,14 +422,14 @@ void ProgramBinaryES3Test::testBinaryAndUBOBlockIndexes(bool drawWithProgramFirs
     GLuint bindIndex = 2;
 
     GLBuffer ubo;
-    glBindBuffer(GL_UNIFORM_BUFFER, ubo.get());
+    glBindBuffer(GL_UNIFORM_BUFFER, ubo);
     glBufferData(GL_UNIFORM_BUFFER, sizeof(fData), &fData, GL_STATIC_DRAW);
-    glBindBufferRange(GL_UNIFORM_BUFFER, bindIndex, ubo.get(), 0, sizeof(fData));
+    glBindBufferRange(GL_UNIFORM_BUFFER, bindIndex, ubo, 0, sizeof(fData));
 
-    GLint blockIndex = glGetUniformBlockIndex(program.get(), "block");
+    GLint blockIndex = glGetUniformBlockIndex(program, "block");
     ASSERT_NE(-1, blockIndex);
 
-    glUniformBlockBinding(program.get(), blockIndex, bindIndex);
+    glUniformBlockBinding(program, blockIndex, bindIndex);
 
     glClearColor(1.0, 0.0, 0.0, 1.0);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -338,20 +437,20 @@ void ProgramBinaryES3Test::testBinaryAndUBOBlockIndexes(bool drawWithProgramFirs
 
     if (drawWithProgramFirst)
     {
-        drawQuad(program.get(), "position", 0.5f);
+        drawQuad(program, "position", 0.5f);
         ASSERT_GL_NO_ERROR();
         EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::white);
     }
 
     // Read back the binary.
     GLint programLength = 0;
-    glGetProgramiv(program.get(), GL_PROGRAM_BINARY_LENGTH_OES, &programLength);
+    glGetProgramiv(program, GL_PROGRAM_BINARY_LENGTH_OES, &programLength);
     ASSERT_GL_NO_ERROR();
 
     GLsizei readLength  = 0;
     GLenum binaryFormat = GL_NONE;
     std::vector<uint8_t> binary(programLength);
-    glGetProgramBinary(program.get(), programLength, &readLength, &binaryFormat, binary.data());
+    glGetProgramBinary(program, programLength, &readLength, &binaryFormat, binary.data());
     ASSERT_GL_NO_ERROR();
 
     EXPECT_EQ(static_cast<GLsizei>(programLength), readLength);
@@ -359,11 +458,14 @@ void ProgramBinaryES3Test::testBinaryAndUBOBlockIndexes(bool drawWithProgramFirs
     // Load a new program with the binary and draw.
     ANGLE_GL_BINARY_ES3_PROGRAM(binaryProgram, binary, binaryFormat);
 
+    // Reconfigure the block binding, which is reset after a call to glProgramBinary.
+    glUniformBlockBinding(binaryProgram, blockIndex, bindIndex);
+
     glClearColor(1.0, 0.0, 0.0, 1.0);
     glClear(GL_COLOR_BUFFER_BIT);
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
 
-    drawQuad(binaryProgram.get(), "position", 0.5f);
+    drawQuad(binaryProgram, "position", 0.5f);
     ASSERT_GL_NO_ERROR();
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::white);
 }
@@ -374,20 +476,160 @@ TEST_P(ProgramBinaryES3Test, UniformBlockBindingWithDraw)
     testBinaryAndUBOBlockIndexes(true);
 }
 
-// Same as above, but does not do an initial draw with the program. Covers an ANGLE crash.
-// http://anglebug.com/1637
+// Same as UniformBlockBindingWithDraw, but does not do an initial draw with the program. Covers an
+// ANGLE crash.  http://anglebug.com/42260591
 TEST_P(ProgramBinaryES3Test, UniformBlockBindingNoDraw)
 {
     testBinaryAndUBOBlockIndexes(false);
 }
 
+// Same as UniformBlockBindingWithDraw, but specifies the binding in the shader itself.
+TEST_P(ProgramBinaryES31Test, UniformBlockBindingSpecifiedInShader)
+{
+    ANGLE_SKIP_TEST_IF(getAvailableProgramBinaryFormatCount() == 0);
+
+    constexpr char kVS[] = R"(#version 310 es
+layout(binding = 1) uniform block {
+    vec4 v;
+};
+in vec4 position;
+out vec4 color;
+void main() {
+    gl_Position = position;
+    color = v;
+})";
+
+    constexpr char kFS[] = R"(#version 310 es
+precision mediump float;
+in vec4 color;
+out vec4 colorOut;
+void main() {
+    colorOut = color;
+})";
+
+    // Init and draw with the program.
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+
+    constexpr std::array<float, 4> kBlue = {0, 0, 1, 1};
+    GLBuffer blue;
+    glBindBuffer(GL_UNIFORM_BUFFER, blue);
+    glBufferData(GL_UNIFORM_BUFFER, sizeof(kBlue), kBlue.data(), GL_STATIC_DRAW);
+    glBindBufferBase(GL_UNIFORM_BUFFER, 1, blue);
+
+    GLint blockIndex = glGetUniformBlockIndex(program, "block");
+    ASSERT_NE(-1, blockIndex);
+
+    glClearColor(1.0, 0.0, 0.0, 1.0);
+    glClear(GL_COLOR_BUFFER_BIT);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+
+    drawQuad(program, "position", 0.5f);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::blue);
+
+    // Read back the binary.
+    GLint programLength = 0;
+    glGetProgramiv(program, GL_PROGRAM_BINARY_LENGTH_OES, &programLength);
+    ASSERT_GL_NO_ERROR();
+
+    GLsizei readLength  = 0;
+    GLenum binaryFormat = GL_NONE;
+    std::vector<uint8_t> binary(programLength);
+    glGetProgramBinary(program, programLength, &readLength, &binaryFormat, binary.data());
+    ASSERT_GL_NO_ERROR();
+
+    EXPECT_EQ(static_cast<GLsizei>(programLength), readLength);
+
+    // Load a new program with the binary and draw.
+    ANGLE_GL_BINARY_ES3_PROGRAM(binaryProgram, binary, binaryFormat);
+
+    glClear(GL_COLOR_BUFFER_BIT);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+
+    drawQuad(binaryProgram, "position", 0.5f);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::blue);
+}
+
+// Ensure that uniform block bindings are reset to their original value on program binary
+TEST_P(ProgramBinaryES31Test, UniformBlockBindingResetOnReload)
+{
+    ANGLE_SKIP_TEST_IF(getAvailableProgramBinaryFormatCount() == 0);
+
+    constexpr char kVS[] = R"(#version 310 es
+layout(binding = 1) uniform block {
+    vec4 v;
+};
+in vec4 position;
+out vec4 color;
+void main() {
+    gl_Position = position;
+    color = v;
+})";
+
+    constexpr char kFS[] = R"(#version 310 es
+precision mediump float;
+in vec4 color;
+out vec4 colorOut;
+void main() {
+    colorOut = color;
+})";
+
+    // Init and draw with the program.
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+
+    constexpr std::array<float, 4> kBlue  = {0, 0, 1, 1};
+    constexpr std::array<float, 4> kGreen = {0, 1, 0, 1};
+    GLBuffer blue, green;
+    glBindBuffer(GL_UNIFORM_BUFFER, blue);
+    glBufferData(GL_UNIFORM_BUFFER, sizeof(kBlue), kBlue.data(), GL_STATIC_DRAW);
+    glBindBuffer(GL_UNIFORM_BUFFER, green);
+    glBufferData(GL_UNIFORM_BUFFER, sizeof(kGreen), kGreen.data(), GL_STATIC_DRAW);
+
+    // Bind one buffer to binding 1 and another to binding 2
+    glBindBufferBase(GL_UNIFORM_BUFFER, 1, blue);
+    glBindBufferBase(GL_UNIFORM_BUFFER, 2, green);
+
+    GLint blockIndex = glGetUniformBlockIndex(program, "block");
+    ASSERT_NE(-1, blockIndex);
+
+    // Initially, remap the block to binding 2
+    glUniformBlockBinding(program, blockIndex, 2);
+
+    glClearColor(1.0, 0.0, 0.0, 1.0);
+    glClear(GL_COLOR_BUFFER_BIT);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+
+    drawQuad(program, "position", 0.5f);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+
+    // Read back the binary.
+    GLint programLength = 0;
+    glGetProgramiv(program, GL_PROGRAM_BINARY_LENGTH_OES, &programLength);
+    ASSERT_GL_NO_ERROR();
+
+    GLsizei readLength  = 0;
+    GLenum binaryFormat = GL_NONE;
+    std::vector<uint8_t> binary(programLength);
+    glGetProgramBinary(program, programLength, &readLength, &binaryFormat, binary.data());
+    ASSERT_GL_NO_ERROR();
+
+    EXPECT_EQ(static_cast<GLsizei>(programLength), readLength);
+
+    // Load a new program with the binary and draw.  On reset, the binding should be reset back to 1
+    ANGLE_GL_BINARY_ES3_PROGRAM(binaryProgram, binary, binaryFormat);
+
+    glClear(GL_COLOR_BUFFER_BIT);
+    drawQuad(binaryProgram, "position", 0.5f);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::blue);
+}
+
 // Test the shaders with arrays-of-struct uniforms are properly saved and restored
 TEST_P(ProgramBinaryES3Test, TestArrayOfStructUniform)
 {
-    // We can't run the test if no program binary formats are supported.
-    GLint binaryFormatCount = 0;
-    glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS, &binaryFormatCount);
-    ANGLE_SKIP_TEST_IF(binaryFormatCount == 0);
+    ANGLE_SKIP_TEST_IF(getAvailableProgramBinaryFormatCount() == 0);
 
     constexpr char kVS[] =
         "#version 300 es\n"
@@ -438,24 +680,24 @@ TEST_P(ProgramBinaryES3Test, TestArrayOfStructUniform)
     // Init and draw with the program.
     ANGLE_GL_PROGRAM(program, kVS, kFS);
 
-    glUseProgram(program.get());
+    glUseProgram(program);
 
-    int location = glGetUniformLocation(program.get(), "u_var[0].m0");
+    int location = glGetUniformLocation(program, "u_var[0].m0");
     ASSERT_NE(location, -1);
     glUniform4f(location, 0.15, 0.52, 0.26, 0.35);
-    location = glGetUniformLocation(program.get(), "u_var[0].m1");
+    location = glGetUniformLocation(program, "u_var[0].m1");
     ASSERT_NE(location, -1);
     glUniform4f(location, 0.88, 0.09, 0.30, 0.61);
-    location = glGetUniformLocation(program.get(), "u_var[1].m0");
+    location = glGetUniformLocation(program, "u_var[1].m0");
     ASSERT_NE(location, -1);
     glUniform4f(location, 0.85, 0.59, 0.33, 0.71);
-    location = glGetUniformLocation(program.get(), "u_var[1].m1");
+    location = glGetUniformLocation(program, "u_var[1].m1");
     ASSERT_NE(location, -1);
     glUniform4f(location, 0.62, 0.89, 0.09, 0.99);
-    location = glGetUniformLocation(program.get(), "u_var[2].m0");
+    location = glGetUniformLocation(program, "u_var[2].m0");
     ASSERT_NE(location, -1);
     glUniform4f(location, 0.53, 0.89, 0.01, 0.08);
-    location = glGetUniformLocation(program.get(), "u_var[2].m1");
+    location = glGetUniformLocation(program, "u_var[2].m1");
     ASSERT_NE(location, -1);
     glUniform4f(location, 0.26, 0.72, 0.60, 0.12);
     ASSERT_GL_NO_ERROR();
@@ -464,19 +706,19 @@ TEST_P(ProgramBinaryES3Test, TestArrayOfStructUniform)
     glClearColor(1.0, 0.0, 0.0, 1.0);
     glClear(GL_COLOR_BUFFER_BIT);
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
-    drawQuad(program.get(), "position", 0.5f);
+    drawQuad(program, "position", 0.5f);
     ASSERT_GL_NO_ERROR();
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::white);
 
     // Read back the binary.
     GLint programLength = 0;
-    glGetProgramiv(program.get(), GL_PROGRAM_BINARY_LENGTH_OES, &programLength);
+    glGetProgramiv(program, GL_PROGRAM_BINARY_LENGTH_OES, &programLength);
     ASSERT_GL_NO_ERROR();
 
     GLsizei readLength  = 0;
     GLenum binaryFormat = GL_NONE;
     std::vector<uint8_t> binary(programLength);
-    glGetProgramBinary(program.get(), programLength, &readLength, &binaryFormat, binary.data());
+    glGetProgramBinary(program, programLength, &readLength, &binaryFormat, binary.data());
     ASSERT_GL_NO_ERROR();
 
     EXPECT_EQ(static_cast<GLsizei>(programLength), readLength);
@@ -484,24 +726,24 @@ TEST_P(ProgramBinaryES3Test, TestArrayOfStructUniform)
     // Load a new program with the binary and draw.
     ANGLE_GL_BINARY_ES3_PROGRAM(binaryProgram, binary, binaryFormat);
 
-    glUseProgram(binaryProgram.get());
+    glUseProgram(binaryProgram);
 
-    location = glGetUniformLocation(binaryProgram.get(), "u_var[0].m0");
+    location = glGetUniformLocation(binaryProgram, "u_var[0].m0");
     ASSERT_NE(location, -1);
     glUniform4f(location, 0.15, 0.52, 0.26, 0.35);
-    location = glGetUniformLocation(binaryProgram.get(), "u_var[0].m1");
+    location = glGetUniformLocation(binaryProgram, "u_var[0].m1");
     ASSERT_NE(location, -1);
     glUniform4f(location, 0.88, 0.09, 0.30, 0.61);
-    location = glGetUniformLocation(binaryProgram.get(), "u_var[1].m0");
+    location = glGetUniformLocation(binaryProgram, "u_var[1].m0");
     ASSERT_NE(location, -1);
     glUniform4f(location, 0.85, 0.59, 0.33, 0.71);
-    location = glGetUniformLocation(binaryProgram.get(), "u_var[1].m1");
+    location = glGetUniformLocation(binaryProgram, "u_var[1].m1");
     ASSERT_NE(location, -1);
     glUniform4f(location, 0.62, 0.89, 0.09, 0.99);
-    location = glGetUniformLocation(binaryProgram.get(), "u_var[2].m0");
+    location = glGetUniformLocation(binaryProgram, "u_var[2].m0");
     ASSERT_NE(location, -1);
     glUniform4f(location, 0.53, 0.89, 0.01, 0.08);
-    location = glGetUniformLocation(binaryProgram.get(), "u_var[2].m1");
+    location = glGetUniformLocation(binaryProgram, "u_var[2].m1");
     ASSERT_NE(location, -1);
     glUniform4f(location, 0.26, 0.72, 0.60, 0.12);
     ASSERT_GL_NO_ERROR();
@@ -510,18 +752,124 @@ TEST_P(ProgramBinaryES3Test, TestArrayOfStructUniform)
     glClearColor(1.0, 0.0, 0.0, 1.0);
     glClear(GL_COLOR_BUFFER_BIT);
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
-    drawQuad(binaryProgram.get(), "position", 0.5f);
+    drawQuad(binaryProgram, "position", 0.5f);
     ASSERT_GL_NO_ERROR();
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::white);
+}
+
+// Verify that saving/loading binary with detached shaders followed by indexed
+// drawing works.
+TEST_P(ProgramBinaryES3Test, SaveAndLoadDetachedShaders)
+{
+    ANGLE_SKIP_TEST_IF(getAvailableProgramBinaryFormatCount() == 0);
+
+    // We use shaders with the "flat" qualifier, to ensure that "flat" behaves
+    // across save/load. This is primarily to catch possible bugs in the Metal
+    // backend, where it needs to detect "flat" at shader link time and
+    // preserve that detection across binary save/load.
+    constexpr char kVS[] = R"(#version 300 es
+precision highp float;
+
+in vec4 a_position;
+flat out vec4 v_color;
+
+const vec4 colors[4] = vec4[](
+    vec4(0.0f, 0.0f, 1.0f, 1.0f),
+    vec4(0.0f, 0.0f, 1.0f, 1.0f),
+    vec4(0.0f, 1.0f, 0.0f, 1.0f),
+    vec4(0.0f, 1.0f, 0.0f, 1.0f)
+);
+
+void main()
+{
+    v_color = colors[gl_VertexID];
+    gl_Position = a_position;
+}
+)";
+
+    constexpr char kFS[] = R"(#version 300 es
+precision highp float;
+
+flat in vec4 v_color;
+out vec4 o_color;
+
+void main()
+{
+    o_color = v_color;
+}
+)";
+
+    const auto &vertices = GetIndexedQuadVertices();
+
+    GLBuffer vertexBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices[0]) * vertices.size(), vertices.data(),
+                 GL_STATIC_DRAW);
+
+    GLBuffer indexBuffer;
+    const auto &indices = GetQuadIndices();
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices[0]) * indices.size(), indices.data(),
+                 GL_STATIC_DRAW);
+    ASSERT_GL_NO_ERROR();
+
+    GLuint vertexShader   = CompileShader(GL_VERTEX_SHADER, kVS);
+    GLuint fragmentShader = CompileShader(GL_FRAGMENT_SHADER, kFS);
+    ASSERT_NE(0u, vertexShader);
+    ASSERT_NE(0u, fragmentShader);
+
+    GLuint program = glCreateProgram();
+    glAttachShader(program, vertexShader);
+    glAttachShader(program, fragmentShader);
+
+    glLinkProgram(program);
+
+    GLint linkStatus;
+    glGetProgramiv(program, GL_LINK_STATUS, &linkStatus);
+    EXPECT_EQ(GL_TRUE, linkStatus);
+
+    glDetachShader(program, vertexShader);
+    glDetachShader(program, fragmentShader);
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+    ASSERT_GL_NO_ERROR();
+
+    GLuint loadedProgram = glCreateProgram();
+    saveAndLoadProgram(program, loadedProgram);
+    glDeleteProgram(program);
+
+    ASSERT_EQ(glIsProgram(loadedProgram), GL_TRUE);
+    glUseProgram(loadedProgram);
+    ASSERT_GL_NO_ERROR();
+
+    GLint posLocation = glGetAttribLocation(loadedProgram, "a_position");
+    ASSERT_NE(-1, posLocation);
+
+    GLVertexArray vertexArray;
+    glBindVertexArray(vertexArray);
+    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+    glVertexAttribPointer(posLocation, 3, GL_FLOAT, GL_FALSE, 0, 0);
+    glEnableVertexAttribArray(posLocation);
+    ASSERT_GL_NO_ERROR();
+
+    glClearColor(1.0, 0.0, 0.0, 1.0);
+    glClear(GL_COLOR_BUFFER_BIT);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer);
+    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
+    ASSERT_GL_NO_ERROR();
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+
+    glDeleteProgram(loadedProgram);
+    ASSERT_GL_NO_ERROR();
 }
 
 // Tests the difference between uniform static and active use
 TEST_P(ProgramBinaryES3Test, ActiveUniformShader)
 {
-    // We can't run the test if no program binary formats are supported.
-    GLint binaryFormatCount = 0;
-    glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS, &binaryFormatCount);
-    ANGLE_SKIP_TEST_IF(binaryFormatCount == 0);
+    ANGLE_SKIP_TEST_IF(getAvailableProgramBinaryFormatCount() == 0);
 
     constexpr char kVS[] =
         "#version 300 es\n"
@@ -545,10 +893,10 @@ TEST_P(ProgramBinaryES3Test, ActiveUniformShader)
     // Init and draw with the program.
     ANGLE_GL_PROGRAM(program, kVS, kFS);
 
-    GLint valuesLoc = glGetUniformLocation(program.get(), "values");
+    GLint valuesLoc = glGetUniformLocation(program, "values");
     ASSERT_NE(-1, valuesLoc);
 
-    glUseProgram(program.get());
+    glUseProgram(program);
     GLfloat values[2] = {0.5f, 1.0f};
     glUniform1fv(valuesLoc, 2, values);
     ASSERT_GL_NO_ERROR();
@@ -557,19 +905,19 @@ TEST_P(ProgramBinaryES3Test, ActiveUniformShader)
     glClear(GL_COLOR_BUFFER_BIT);
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
 
-    drawQuad(program.get(), "position", 0.5f);
+    drawQuad(program, "position", 0.5f);
     ASSERT_GL_NO_ERROR();
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
 
     // Read back the binary.
     GLint programLength = 0;
-    glGetProgramiv(program.get(), GL_PROGRAM_BINARY_LENGTH_OES, &programLength);
+    glGetProgramiv(program, GL_PROGRAM_BINARY_LENGTH_OES, &programLength);
     ASSERT_GL_NO_ERROR();
 
     GLsizei readLength  = 0;
     GLenum binaryFormat = GL_NONE;
     std::vector<uint8_t> binary(programLength);
-    glGetProgramBinary(program.get(), programLength, &readLength, &binaryFormat, binary.data());
+    glGetProgramBinary(program, programLength, &readLength, &binaryFormat, binary.data());
     ASSERT_GL_NO_ERROR();
 
     EXPECT_EQ(static_cast<GLsizei>(programLength), readLength);
@@ -577,10 +925,10 @@ TEST_P(ProgramBinaryES3Test, ActiveUniformShader)
     // Load a new program with the binary and draw.
     ANGLE_GL_BINARY_ES3_PROGRAM(binaryProgram, binary, binaryFormat);
 
-    valuesLoc = glGetUniformLocation(program.get(), "values");
+    valuesLoc = glGetUniformLocation(program, "values");
     ASSERT_NE(-1, valuesLoc);
 
-    glUseProgram(binaryProgram.get());
+    glUseProgram(binaryProgram);
     GLfloat values2[2] = {0.1f, 1.0f};
     glUniform1fv(valuesLoc, 2, values2);
     ASSERT_GL_NO_ERROR();
@@ -589,7 +937,7 @@ TEST_P(ProgramBinaryES3Test, ActiveUniformShader)
     glClear(GL_COLOR_BUFFER_BIT);
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
 
-    drawQuad(binaryProgram.get(), "position", 0.5f);
+    drawQuad(binaryProgram, "position", 0.5f);
     ASSERT_GL_NO_ERROR();
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
 }
@@ -597,14 +945,7 @@ TEST_P(ProgramBinaryES3Test, ActiveUniformShader)
 // Test that uses many uniforms in the shaders
 TEST_P(ProgramBinaryES3Test, BinaryWithLargeUniformCount)
 {
-    // Suspecting AMD driver bug - failure seen on bots running on ATI GPU on Windows.
-    // http://anglebug.com/3721
-    ANGLE_SKIP_TEST_IF(IsAMD() && IsOpenGL() && IsWindows());
-
-    // We can't run the test if no program binary formats are supported.
-    GLint binaryFormatCount = 0;
-    glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS, &binaryFormatCount);
-    ANGLE_SKIP_TEST_IF(binaryFormatCount == 0);
+    ANGLE_SKIP_TEST_IF(getAvailableProgramBinaryFormatCount() == 0);
 
     constexpr char kVS[] =
         "#version 300 es\n"
@@ -649,41 +990,41 @@ TEST_P(ProgramBinaryES3Test, BinaryWithLargeUniformCount)
     GLuint bindIndex1   = 2;
 
     GLBuffer ubo0;
-    glBindBuffer(GL_UNIFORM_BUFFER, ubo0.get());
+    glBindBuffer(GL_UNIFORM_BUFFER, ubo0);
     glBufferData(GL_UNIFORM_BUFFER, sizeof(block0Data), &block0Data, GL_STATIC_DRAW);
-    glBindBufferRange(GL_UNIFORM_BUFFER, bindIndex0, ubo0.get(), 0, sizeof(block0Data));
+    glBindBufferRange(GL_UNIFORM_BUFFER, bindIndex0, ubo0, 0, sizeof(block0Data));
     ASSERT_GL_NO_ERROR();
 
     GLBuffer ubo1;
-    glBindBuffer(GL_UNIFORM_BUFFER, ubo1.get());
+    glBindBuffer(GL_UNIFORM_BUFFER, ubo1);
     glBufferData(GL_UNIFORM_BUFFER, sizeof(block1Data), &block1Data, GL_STATIC_DRAW);
-    glBindBufferRange(GL_UNIFORM_BUFFER, bindIndex1, ubo1.get(), 0, sizeof(block1Data));
+    glBindBufferRange(GL_UNIFORM_BUFFER, bindIndex1, ubo1, 0, sizeof(block1Data));
     ASSERT_GL_NO_ERROR();
 
-    GLint block0Index = glGetUniformBlockIndex(program.get(), "block0");
+    GLint block0Index = glGetUniformBlockIndex(program, "block0");
     ASSERT_NE(-1, block0Index);
 
-    GLint block1Index = glGetUniformBlockIndex(program.get(), "block1");
+    GLint block1Index = glGetUniformBlockIndex(program, "block1");
     ASSERT_NE(-1, block1Index);
 
-    glUniformBlockBinding(program.get(), block0Index, bindIndex0);
-    glUniformBlockBinding(program.get(), block1Index, bindIndex1);
+    glUniformBlockBinding(program, block0Index, bindIndex0);
+    glUniformBlockBinding(program, block1Index, bindIndex1);
     ASSERT_GL_NO_ERROR();
 
-    GLint redVSLoc = glGetUniformLocation(program.get(), "redVS");
+    GLint redVSLoc = glGetUniformLocation(program, "redVS");
     ASSERT_NE(-1, redVSLoc);
-    GLint greenVSLoc = glGetUniformLocation(program.get(), "greenVS");
+    GLint greenVSLoc = glGetUniformLocation(program, "greenVS");
     ASSERT_NE(-1, greenVSLoc);
-    GLint blueVSLoc = glGetUniformLocation(program.get(), "blueVS");
+    GLint blueVSLoc = glGetUniformLocation(program, "blueVS");
     ASSERT_NE(-1, blueVSLoc);
-    GLint redFSLoc = glGetUniformLocation(program.get(), "redFS");
+    GLint redFSLoc = glGetUniformLocation(program, "redFS");
     ASSERT_NE(-1, redFSLoc);
-    GLint greenFSLoc = glGetUniformLocation(program.get(), "greenFS");
+    GLint greenFSLoc = glGetUniformLocation(program, "greenFS");
     ASSERT_NE(-1, greenFSLoc);
-    GLint blueFSLoc = glGetUniformLocation(program.get(), "blueFS");
+    GLint blueFSLoc = glGetUniformLocation(program, "blueFS");
     ASSERT_NE(-1, blueFSLoc);
 
-    glUseProgram(program.get());
+    glUseProgram(program);
     glUniform1f(redVSLoc, 0.6f);
     glUniform1f(greenVSLoc, 0.2f);
     glUniform1f(blueVSLoc, 1.1f);
@@ -696,19 +1037,19 @@ TEST_P(ProgramBinaryES3Test, BinaryWithLargeUniformCount)
     glClear(GL_COLOR_BUFFER_BIT);
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
 
-    drawQuad(program.get(), "position", 0.5f);
+    drawQuad(program, "position", 0.5f);
     ASSERT_GL_NO_ERROR();
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::cyan);
 
     // Read back the binary.
     GLint programLength = 0;
-    glGetProgramiv(program.get(), GL_PROGRAM_BINARY_LENGTH_OES, &programLength);
+    glGetProgramiv(program, GL_PROGRAM_BINARY_LENGTH_OES, &programLength);
     ASSERT_GL_NO_ERROR();
 
     GLsizei readLength  = 0;
     GLenum binaryFormat = GL_NONE;
     std::vector<uint8_t> binary(programLength);
-    glGetProgramBinary(program.get(), programLength, &readLength, &binaryFormat, binary.data());
+    glGetProgramBinary(program, programLength, &readLength, &binaryFormat, binary.data());
     ASSERT_GL_NO_ERROR();
 
     EXPECT_EQ(static_cast<GLsizei>(programLength), readLength);
@@ -716,20 +1057,23 @@ TEST_P(ProgramBinaryES3Test, BinaryWithLargeUniformCount)
     // Load a new program with the binary and draw.
     ANGLE_GL_BINARY_ES3_PROGRAM(binaryProgram, binary, binaryFormat);
 
-    redVSLoc = glGetUniformLocation(program.get(), "redVS");
+    glUniformBlockBinding(binaryProgram, block0Index, bindIndex0);
+    glUniformBlockBinding(binaryProgram, block1Index, bindIndex1);
+
+    redVSLoc = glGetUniformLocation(binaryProgram, "redVS");
     ASSERT_NE(-1, redVSLoc);
-    greenVSLoc = glGetUniformLocation(program.get(), "greenVS");
+    greenVSLoc = glGetUniformLocation(binaryProgram, "greenVS");
     ASSERT_NE(-1, greenVSLoc);
-    blueVSLoc = glGetUniformLocation(program.get(), "blueVS");
+    blueVSLoc = glGetUniformLocation(binaryProgram, "blueVS");
     ASSERT_NE(-1, blueVSLoc);
-    redFSLoc = glGetUniformLocation(program.get(), "redFS");
+    redFSLoc = glGetUniformLocation(binaryProgram, "redFS");
     ASSERT_NE(-1, redFSLoc);
-    greenFSLoc = glGetUniformLocation(program.get(), "greenFS");
+    greenFSLoc = glGetUniformLocation(binaryProgram, "greenFS");
     ASSERT_NE(-1, greenFSLoc);
-    blueFSLoc = glGetUniformLocation(program.get(), "blueFS");
+    blueFSLoc = glGetUniformLocation(binaryProgram, "blueFS");
     ASSERT_NE(-1, blueFSLoc);
 
-    glUseProgram(binaryProgram.get());
+    glUseProgram(binaryProgram);
     glUniform1f(redVSLoc, 0.2f);
     glUniform1f(greenVSLoc, -0.6f);
     glUniform1f(blueVSLoc, 1.0f);
@@ -742,7 +1086,7 @@ TEST_P(ProgramBinaryES3Test, BinaryWithLargeUniformCount)
     glClear(GL_COLOR_BUFFER_BIT);
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
 
-    drawQuad(binaryProgram.get(), "position", 0.5f);
+    drawQuad(binaryProgram, "position", 0.5f);
     ASSERT_GL_NO_ERROR();
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::magenta);
 }
@@ -750,15 +1094,19 @@ TEST_P(ProgramBinaryES3Test, BinaryWithLargeUniformCount)
 // Test that sampler texelFetch references are saved and loaded correctly
 TEST_P(ProgramBinaryTest, SRGBDecodeWithSamplerAndTexelFetchTest)
 {
+    if (!supported())
+    {
+        return;
+    }
+
     ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_EXT_texture_sRGB_decode") ||
                        getClientMajorVersion() < 3);
 
     // These OpenGL drivers appear not to respect the texelFetch exception
-    // http://anglebug.com/4991
+    // http://anglebug.com/42263564
     ANGLE_SKIP_TEST_IF(IsOpenGL() && IsIntel() && IsWindows());
     ANGLE_SKIP_TEST_IF(IsOpenGL() && IsAMD() && IsWindows());
-    ANGLE_SKIP_TEST_IF(IsOpenGL() && (IsNVIDIA() || IsARM64()) && IsOSX());
-    ANGLE_SKIP_TEST_IF(IsOpenGLES() && (IsNexus5X() || IsNexus6P()));
+    ANGLE_SKIP_TEST_IF(IsOpenGLES() && IsNexus5X());
 
     constexpr char kVS[] =
         "#version 300 es\n"
@@ -784,10 +1132,10 @@ TEST_P(ProgramBinaryTest, SRGBDecodeWithSamplerAndTexelFetchTest)
 
     GLProgram program;
     program.makeRaster(kVS, kFS);
-    ASSERT_NE(0u, program.get());
+    ASSERT_NE(0u, program);
 
     GLuint reloadedProgram = glCreateProgram();
-    saveAndLoadProgram(program.get(), reloadedProgram);
+    saveAndLoadProgram(program, reloadedProgram);
 
     GLint textureLocation = glGetUniformLocation(reloadedProgram, "tex");
     ASSERT_NE(-1, textureLocation);
@@ -796,14 +1144,14 @@ TEST_P(ProgramBinaryTest, SRGBDecodeWithSamplerAndTexelFetchTest)
     GLColor srgbColor(13, 54, 133, 255);
 
     GLTexture tex;
-    glBindTexture(GL_TEXTURE_2D, tex.get());
+    glBindTexture(GL_TEXTURE_2D, tex);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8_ALPHA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE,
                  &linearColor);
     ASSERT_GL_NO_ERROR();
 
     GLSampler sampler;
-    glBindSampler(0, sampler.get());
-    glSamplerParameteri(sampler.get(), GL_TEXTURE_SRGB_DECODE_EXT, GL_DECODE_EXT);
+    glBindSampler(0, sampler);
+    glSamplerParameteri(sampler, GL_TEXTURE_SRGB_DECODE_EXT, GL_DECODE_EXT);
 
     glUseProgram(reloadedProgram);
     glUniform1i(textureLocation, 0);
@@ -813,7 +1161,7 @@ TEST_P(ProgramBinaryTest, SRGBDecodeWithSamplerAndTexelFetchTest)
 
     EXPECT_PIXEL_COLOR_NEAR(0, 0, srgbColor, 1.0);
 
-    glSamplerParameteri(sampler.get(), GL_TEXTURE_SRGB_DECODE_EXT, GL_SKIP_DECODE_EXT);
+    glSamplerParameteri(sampler, GL_TEXTURE_SRGB_DECODE_EXT, GL_SKIP_DECODE_EXT);
     drawQuad(reloadedProgram, "position", 0.5f);
 
     EXPECT_PIXEL_COLOR_NEAR(0, 0, srgbColor, 1.0);
@@ -821,34 +1169,97 @@ TEST_P(ProgramBinaryTest, SRGBDecodeWithSamplerAndTexelFetchTest)
     glDeleteProgram(reloadedProgram);
 }
 
-ANGLE_INSTANTIATE_TEST_ES3(ProgramBinaryES3Test);
-
-class ProgramBinaryES31Test : public ANGLETest
+// Test that array of structs containing array of samplers work as expected.
+TEST_P(ProgramBinaryES3Test, ArrayOfStructContainingArrayOfSamplers)
 {
-  protected:
-    ProgramBinaryES31Test()
-    {
-        setWindowWidth(128);
-        setWindowHeight(128);
-        setConfigRedBits(8);
-        setConfigGreenBits(8);
-        setConfigBlueBits(8);
-        setConfigAlphaBits(8);
+    ANGLE_SKIP_TEST_IF(getAvailableProgramBinaryFormatCount() == 0);
 
-        // Test flakiness was noticed when reusing displays.
-        forceNewDisplay();
+    constexpr char kFS[] =
+        "precision mediump float;\n"
+        "struct Data { mediump sampler2D data[2]; };\n"
+        "uniform Data test[2];\n"
+        "void main() {\n"
+        "    gl_FragColor = vec4(texture2D(test[1].data[1], vec2(0.0, 0.0)).r,\n"
+        "                        texture2D(test[1].data[0], vec2(0.0, 0.0)).r,\n"
+        "                        texture2D(test[0].data[1], vec2(0.0, 0.0)).r,\n"
+        "                        texture2D(test[0].data[0], vec2(0.0, 0.0)).r);\n"
+        "}\n";
+
+    ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), kFS);
+    glUseProgram(program);
+    std::array<GLTexture, 4> textures;
+    GLColor expected = MakeGLColor(32, 64, 96, 255);
+
+    // 4 bytes of padding, so that texture can be initialized with 4 bytes
+    const std::array<GLubyte, 8> data = {expected.R, expected.G, expected.B, expected.A,
+                                         0,          0,          0,          0};
+
+    for (int i = 0; i < 4; i++)
+    {
+        int outerIdx = i % 2;
+        int innerIdx = i / 2;
+        glActiveTexture(GL_TEXTURE0 + i);
+        glBindTexture(GL_TEXTURE_2D, textures[i]);
+        // Each element provides two components.
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &data[i]);
+        std::stringstream uniformName;
+        uniformName << "test[" << innerIdx << "].data[" << outerIdx << "]";
+        // Then send it as a uniform
+        GLint uniformLocation = glGetUniformLocation(program, uniformName.str().c_str());
+        // The uniform should be active.
+        EXPECT_NE(uniformLocation, -1);
+
+        glUniform1i(uniformLocation, 3 - i);
+        ASSERT_GL_NO_ERROR();
     }
-};
+
+    drawQuad(program, essl1_shaders::PositionAttrib(), 0.5f);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(0, 0, expected);
+
+    // Read back the binary.
+    GLint programLength = 0;
+    glGetProgramiv(program, GL_PROGRAM_BINARY_LENGTH, &programLength);
+    ASSERT_GL_NO_ERROR();
+
+    GLsizei readLength  = 0;
+    GLenum binaryFormat = GL_NONE;
+    std::vector<uint8_t> binary(programLength);
+    glGetProgramBinary(program, programLength, &readLength, &binaryFormat, binary.data());
+    ASSERT_GL_NO_ERROR();
+
+    // Load a new program with the binary.
+    ANGLE_GL_BINARY_ES3_PROGRAM(binaryProgram, binary, binaryFormat);
+    glUseProgram(binaryProgram);
+
+    for (int i = 0; i < 4; i++)
+    {
+        int outerIdx = i % 2;
+        int innerIdx = i / 2;
+        std::stringstream uniformName;
+        uniformName << "test[" << innerIdx << "].data[" << outerIdx << "]";
+        // Then send it as a uniform
+        GLint uniformLocation = glGetUniformLocation(program, uniformName.str().c_str());
+        // The uniform should be active.
+        EXPECT_NE(uniformLocation, -1);
+
+        glUniform1i(uniformLocation, 3 - i);
+        ASSERT_GL_NO_ERROR();
+    }
+
+    // Verify the uniform data with the binary program.
+    drawQuad(binaryProgram, essl1_shaders::PositionAttrib(), 0.5f);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(0, 0, expected);
+}
+
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ProgramBinaryES3Test);
+ANGLE_INSTANTIATE_TEST_ES3(ProgramBinaryES3Test);
 
 // Tests that saving and loading a program attached with computer shader.
 TEST_P(ProgramBinaryES31Test, ProgramBinaryWithComputeShader)
 {
-    // We can't run the test if no program binary formats are supported.
-    GLint binaryFormatCount = 0;
-    glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS, &binaryFormatCount);
-    ANGLE_SKIP_TEST_IF(binaryFormatCount == 0);
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(IsVulkan());
+    ANGLE_SKIP_TEST_IF(getAvailableProgramBinaryFormatCount() == 0);
 
     constexpr char kCS[] =
         "#version 310 es\n"
@@ -866,13 +1277,13 @@ TEST_P(ProgramBinaryES31Test, ProgramBinaryWithComputeShader)
 
     // Read back the binary.
     GLint programLength = 0;
-    glGetProgramiv(program.get(), GL_PROGRAM_BINARY_LENGTH, &programLength);
+    glGetProgramiv(program, GL_PROGRAM_BINARY_LENGTH, &programLength);
     ASSERT_GL_NO_ERROR();
 
     GLsizei readLength  = 0;
     GLenum binaryFormat = GL_NONE;
     std::vector<uint8_t> binary(programLength);
-    glGetProgramBinary(program.get(), programLength, &readLength, &binaryFormat, binary.data());
+    glGetProgramBinary(program, programLength, &readLength, &binaryFormat, binary.data());
     ASSERT_GL_NO_ERROR();
 
     EXPECT_EQ(static_cast<GLsizei>(programLength), readLength);
@@ -882,20 +1293,57 @@ TEST_P(ProgramBinaryES31Test, ProgramBinaryWithComputeShader)
     ASSERT_GL_NO_ERROR();
 
     // Dispatch compute with the loaded binary program
-    glUseProgram(binaryProgram.get());
+    glUseProgram(binaryProgram);
     glDispatchCompute(8, 4, 2);
+    ASSERT_GL_NO_ERROR();
+}
+
+// Tests saving and loading a separable program that has a computer shader using a uniform and a
+// uniform block.
+TEST_P(ProgramBinaryES31Test, SeparableProgramLinkedUniforms)
+{
+    ANGLE_SKIP_TEST_IF(getAvailableProgramBinaryFormatCount() == 0);
+
+    constexpr char kComputeShader[] = R"(#version 310 es
+layout(local_size_x=4, local_size_y=3, local_size_z=1) in;
+uniform float testUint;
+uniform TestBlock
+{
+    mat4 testMatrix;
+};
+layout(rgba32ui) uniform highp writeonly uimage2D imageOut;
+void main() {
+    imageStore(imageOut, ivec2(gl_LocalInvocationIndex, 0), uvec4(testMatrix[0][0] + testUint, 0, 0, 0));
+})";
+
+    ANGLE_GL_COMPUTE_PROGRAM(program, kComputeShader);
+    glProgramParameteri(program, GL_PROGRAM_SEPARABLE, GL_TRUE);
+
+    // Read back the binary.
+    GLint programLength = 0;
+    glGetProgramiv(program, GL_PROGRAM_BINARY_LENGTH, &programLength);
+    ASSERT_GL_NO_ERROR();
+
+    GLsizei readLength  = 0;
+    GLenum binaryFormat = GL_NONE;
+    std::vector<uint8_t> binary(programLength);
+    glGetProgramBinary(program, programLength, &readLength, &binaryFormat, binary.data());
+    ASSERT_GL_NO_ERROR();
+
+    EXPECT_EQ(static_cast<GLsizei>(programLength), readLength);
+
+    // Load a new program with the binary.
+    ANGLE_GL_BINARY_ES3_PROGRAM(binaryProgram, binary, binaryFormat);
+    ASSERT_GL_NO_ERROR();
+
+    glUseProgram(binaryProgram);
     ASSERT_GL_NO_ERROR();
 }
 
 // Tests that saving and loading a program attached with computer shader.
 TEST_P(ProgramBinaryES31Test, ProgramBinaryWithAtomicCounterComputeShader)
 {
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(IsAndroid() && IsVulkan());
-    // We can't run the test if no program binary formats are supported.
-    GLint binaryFormatCount = 0;
-    glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS, &binaryFormatCount);
-    ANGLE_SKIP_TEST_IF(binaryFormatCount == 0);
+    ANGLE_SKIP_TEST_IF(getAvailableProgramBinaryFormatCount() == 0);
 
     constexpr char kComputeShader[] = R"(#version 310 es
 layout(local_size_x=1, local_size_y=1, local_size_z=1) in;
@@ -943,7 +1391,7 @@ void main() {
     glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, atomicCounterBuffer);
     void *mappedBuffer =
         glMapBufferRange(GL_ATOMIC_COUNTER_BUFFER, 0, sizeof(GLuint) * 3, GL_MAP_READ_BIT);
-    memcpy(bufferData, mappedBuffer, sizeof(bufferData));
+    ANGLE_UNSAFE_TODO(memcpy(bufferData, mappedBuffer, sizeof(bufferData)));
     glUnmapBuffer(GL_ATOMIC_COUNTER_BUFFER);
 
     EXPECT_EQ(11u, bufferData[0]);
@@ -955,10 +1403,7 @@ void main() {
 // Tests that image texture works correctly when loading a program from binary.
 TEST_P(ProgramBinaryES31Test, ImageTextureBinding)
 {
-    // We can't run the test if no program binary formats are supported.
-    GLint binaryFormatCount = 0;
-    glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS, &binaryFormatCount);
-    ANGLE_SKIP_TEST_IF(binaryFormatCount == 0);
+    ANGLE_SKIP_TEST_IF(getAvailableProgramBinaryFormatCount() == 0);
 
     const char kComputeShader[] =
         R"(#version 310 es
@@ -973,13 +1418,13 @@ TEST_P(ProgramBinaryES31Test, ImageTextureBinding)
 
     // Read back the binary.
     GLint programLength = 0;
-    glGetProgramiv(program.get(), GL_PROGRAM_BINARY_LENGTH, &programLength);
+    glGetProgramiv(program, GL_PROGRAM_BINARY_LENGTH, &programLength);
     ASSERT_GL_NO_ERROR();
 
     GLsizei readLength  = 0;
     GLenum binaryFormat = GL_NONE;
     std::vector<uint8_t> binary(programLength);
-    glGetProgramBinary(program.get(), programLength, &readLength, &binaryFormat, binary.data());
+    glGetProgramBinary(program, programLength, &readLength, &binaryFormat, binary.data());
     ASSERT_GL_NO_ERROR();
 
     EXPECT_EQ(static_cast<GLsizei>(programLength), readLength);
@@ -989,7 +1434,7 @@ TEST_P(ProgramBinaryES31Test, ImageTextureBinding)
     ASSERT_GL_NO_ERROR();
 
     // Dispatch compute with the loaded binary program
-    glUseProgram(binaryProgram.get());
+    glUseProgram(binaryProgram);
     GLTexture texture;
     glBindTexture(GL_TEXTURE_2D, texture);
     glTexStorage2D(GL_TEXTURE_2D, 1, GL_R32UI, 1, 1);
@@ -1012,9 +1457,10 @@ TEST_P(ProgramBinaryES31Test, ImageTextureBinding)
     ASSERT_GL_NO_ERROR();
 }
 
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ProgramBinaryES31Test);
 ANGLE_INSTANTIATE_TEST_ES31(ProgramBinaryES31Test);
 
-class ProgramBinaryTransformFeedbackTest : public ANGLETest
+class ProgramBinaryTransformFeedbackTest : public ANGLETest<>
 {
   protected:
     ProgramBinaryTransformFeedbackTest()
@@ -1076,11 +1522,11 @@ TEST_P(ProgramBinaryTransformFeedbackTest, GetTransformFeedbackVarying)
 {
     ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_OES_get_program_binary"));
 
-    ANGLE_SKIP_TEST_IF(!getAvailableProgramBinaryFormatCount());
+    ANGLE_SKIP_TEST_IF(getAvailableProgramBinaryFormatCount() == 0);
 
-    // http://anglebug.com/3690
+    // http://anglebug.com/42262347
     ANGLE_SKIP_TEST_IF(IsAndroid() && (IsPixel2() || IsPixel2XL()) && IsVulkan());
-    // http://anglebug.com/4092
+    // http://anglebug.com/40096654
     ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGLES());
 
     std::vector<uint8_t> binary(0);
@@ -1123,8 +1569,7 @@ TEST_P(ProgramBinaryTransformFeedbackTest, GetTransformFeedbackVarying)
     EXPECT_GL_NO_ERROR();
 }
 
-// Use this to select which configurations (e.g. which renderer, which GLES major version) these
-// tests should be run against.
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ProgramBinaryTransformFeedbackTest);
 ANGLE_INSTANTIATE_TEST_ES3(ProgramBinaryTransformFeedbackTest);
 
 // For the ProgramBinariesAcrossPlatforms tests, we need two sets of params:
@@ -1166,6 +1611,17 @@ class ProgramBinariesAcrossPlatforms : public testing::TestWithParam<PlatformsWi
   public:
     void SetUp() override
     {
+        // TODO(b/429026255): ProgramBinariesAcrossPlatforms does not inherit from ANGLETest, so it
+        // cannot (1) be skipped with angle_end2end_tests_expectations.txt and (2) cannot call
+        // isDriverSystemEgl(). We need to use #ifdefs and skip the test here instead.
+#if defined(ANGLE_TEST_ENABLE_SYSTEM_EGL)
+        // TODO(b/424595860): Test fails on Android when testing SystemEGL.
+        if (IsAndroid())
+        {
+            GTEST_SKIP();
+        }
+#endif
+
         mOSWindow   = OSWindow::New();
         bool result = mOSWindow->initialize("ProgramBinariesAcrossRenderersTests", 100, 100);
 
@@ -1175,7 +1631,7 @@ class ProgramBinariesAcrossPlatforms : public testing::TestWithParam<PlatformsWi
         }
 
         mEntryPointsLib.reset(
-            angle::OpenSharedLibrary(ANGLE_EGL_LIBRARY_NAME, angle::SearchType::ApplicationDir));
+            angle::OpenSharedLibrary(ANGLE_EGL_LIBRARY_NAME, angle::SearchType::ModuleDir));
     }
 
     EGLWindow *createAndInitEGLWindow(angle::PlatformParameters &param)
@@ -1189,7 +1645,7 @@ class ProgramBinariesAcrossPlatforms : public testing::TestWithParam<PlatformsWi
             EGLWindow::Delete(&eglWindow);
         }
 
-        angle::LoadGLES(eglGetProcAddress);
+        LoadUtilGLES(eglGetProcAddress);
 
         return eglWindow;
     }
@@ -1239,8 +1695,11 @@ class ProgramBinariesAcrossPlatforms : public testing::TestWithParam<PlatformsWi
 
     void TearDown() override
     {
-        mOSWindow->destroy();
-        OSWindow::Delete(&mOSWindow);
+        if (mOSWindow != nullptr)
+        {
+            mOSWindow->destroy();
+            OSWindow::Delete(&mOSWindow);
+        }
     }
 
     OSWindow *mOSWindow = nullptr;
@@ -1274,7 +1733,6 @@ TEST_P(ProgramBinariesAcrossPlatforms, CreateAndReloadBinary)
     if (eglWindow == nullptr)
     {
         FAIL() << "Failed to create EGL window";
-        return;
     }
 
     // If the test is trying to use both the default GPU and WARP, but the default GPU *IS* WARP,
@@ -1331,7 +1789,6 @@ TEST_P(ProgramBinariesAcrossPlatforms, CreateAndReloadBinary)
     if (eglWindow == nullptr)
     {
         FAIL() << "Failed to create EGL window";
-        return;
     }
 
     program = glCreateProgram();
@@ -1355,13 +1812,17 @@ TEST_P(ProgramBinariesAcrossPlatforms, CreateAndReloadBinary)
 }
 
 // clang-format off
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ProgramBinariesAcrossPlatforms);
 ANGLE_INSTANTIATE_TEST(ProgramBinariesAcrossPlatforms,
-                       //                     | Save the program   | Load the program      | Expected
-                       //                     | using these params | using these params    | link result
-                       PlatformsWithLinkResult(ES2_D3D11(),         ES2_D3D11(),            true         ), // Loading + reloading binary should work
-                       PlatformsWithLinkResult(ES3_D3D11(),         ES3_D3D11(),            true         ), // Loading + reloading binary should work
-                       PlatformsWithLinkResult(ES2_D3D11(),         ES2_D3D9(),             false        ), // Switching from D3D11 to D3D9 shouldn't work
-                       PlatformsWithLinkResult(ES2_D3D9(),          ES2_D3D11(),            false        ), // Switching from D3D9 to D3D11 shouldn't work
-                       PlatformsWithLinkResult(ES2_D3D11(),         ES3_D3D11(),            false        ), // Switching to newer client version shouldn't work
-                       );
+                       //                     | Save the     | Load the     | Expected
+                       //                     | program in   | program in   | link
+                       //                     | this config  | this config  | result
+                       PlatformsWithLinkResult(ES2_D3D11(),   ES2_D3D11(),   true ), // Loading + reloading binary should work
+                       PlatformsWithLinkResult(ES3_D3D11(),   ES3_D3D11(),   true ), // Loading + reloading binary should work
+                       PlatformsWithLinkResult(ES2_D3D11(),   ES3_D3D11(),   false), // Switching to newer client version shouldn't work
+                       PlatformsWithLinkResult(ES2_VULKAN(),  ES2_VULKAN(),  true ), // Loading + reloading binary should work
+                       PlatformsWithLinkResult(ES3_VULKAN(),  ES3_VULKAN(),  true ), // Loading + reloading binary should work
+                       PlatformsWithLinkResult(ES31_VULKAN(), ES31_VULKAN(), true ), // Loading + reloading binary should work
+                       PlatformsWithLinkResult(ES3_VULKAN(),  ES31_VULKAN(), false), // Switching to newer client version shouldn't work with Vulkan
+                      );
 // clang-format on

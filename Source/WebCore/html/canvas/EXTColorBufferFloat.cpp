@@ -28,32 +28,28 @@
 #if ENABLE(WEBGL)
 #include "EXTColorBufferFloat.h"
 
-#include "ExtensionsGL.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(EXTColorBufferFloat);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(EXTColorBufferFloat);
 
 EXTColorBufferFloat::EXTColorBufferFloat(WebGLRenderingContextBase& context)
-    : WebGLExtension(context)
+    : WebGLExtension(context, WebGLExtensionName::EXTColorBufferFloat)
 {
-    context.graphicsContextGL()->getExtensions().ensureEnabled("GL_EXT_color_buffer_float"_s);
+    protect(context.graphicsContextGL())->enableExtension(GCGLExtension::EXT_color_buffer_float);
+
     // https://github.com/KhronosGroup/WebGL/pull/2830
     // Spec requires EXT_float_blend to be turned on implicitly here.
-    context.graphicsContextGL()->getExtensions().ensureEnabled("GL_EXT_float_blend"_s);
+    // Enable it both in the backend and in WebKit.
+    context.getExtension("EXT_float_blend"_s);
 }
 
 EXTColorBufferFloat::~EXTColorBufferFloat() = default;
 
-WebGLExtension::ExtensionName EXTColorBufferFloat::getName() const
+bool EXTColorBufferFloat::supported(GraphicsContextGL& context)
 {
-    return EXTColorBufferFloatName;
-}
-
-bool EXTColorBufferFloat::supported(const WebGLRenderingContextBase& context)
-{
-    return context.graphicsContextGL()->getExtensions().supports("GL_EXT_color_buffer_float"_s);
+    return context.supportsExtension(GCGLExtension::EXT_color_buffer_float);
 }
 
 } // namespace WebCore

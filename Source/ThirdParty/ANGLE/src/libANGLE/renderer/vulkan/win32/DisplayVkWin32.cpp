@@ -8,8 +8,9 @@
 //
 
 #include "libANGLE/renderer/vulkan/win32/DisplayVkWin32.h"
+#include "common/unsafe_buffers.h"
 #include "libANGLE/renderer/vulkan/DisplayVk.h"
-#include "libANGLE/renderer/vulkan/RendererVk.h"
+#include "libANGLE/renderer/vulkan/vk_renderer.h"
 
 #include <windows.h>
 
@@ -63,41 +64,43 @@ egl::Error DisplayVkWin32::initialize(egl::Display *display)
 
     HINSTANCE hinstance = GetModuleHandle(nullptr);
 
-    std::ostringstream stream;
-    stream << "ANGLE DisplayVkWin32 " << gl::FmtHex(display) << " Intermediate Window Class";
+    std::wostringstream stream;
+    stream << L"ANGLE DisplayVkWin32 " << gl::FmtHex<egl::Display *, wchar_t>(display)
+           << L" Intermediate Window Class";
 
-    const LPSTR idcArrow  = MAKEINTRESOURCEA(32512);
-    std::string className = stream.str();
-    WNDCLASSA wndClass;
-    if (!GetClassInfoA(hinstance, className.c_str(), &wndClass))
+    const LPWSTR idcArrow  = MAKEINTRESOURCEW(32512);
+    std::wstring className = stream.str();
+    WNDCLASSW wndClass;
+    if (!GetClassInfoW(hinstance, className.c_str(), &wndClass))
     {
-        WNDCLASSA intermediateClassDesc     = {};
+        WNDCLASSW intermediateClassDesc     = {};
         intermediateClassDesc.style         = CS_OWNDC;
-        intermediateClassDesc.lpfnWndProc   = DefWindowProcA;
+        intermediateClassDesc.lpfnWndProc   = DefWindowProcW;
         intermediateClassDesc.cbClsExtra    = 0;
         intermediateClassDesc.cbWndExtra    = 0;
         intermediateClassDesc.hInstance     = GetModuleHandle(nullptr);
         intermediateClassDesc.hIcon         = nullptr;
-        intermediateClassDesc.hCursor       = LoadCursorA(nullptr, idcArrow);
-        intermediateClassDesc.hbrBackground = 0;
+        intermediateClassDesc.hCursor       = LoadCursorW(nullptr, idcArrow);
+        intermediateClassDesc.hbrBackground = nullptr;
         intermediateClassDesc.lpszMenuName  = nullptr;
         intermediateClassDesc.lpszClassName = className.c_str();
-        mWindowClass                        = RegisterClassA(&intermediateClassDesc);
+        mWindowClass                        = RegisterClassW(&intermediateClassDesc);
         if (!mWindowClass)
         {
-            return egl::EglNotInitialized()
-                   << "Failed to register intermediate OpenGL window class \"" << className.c_str()
-                   << "\":" << gl::FmtErr(HRESULT_CODE(GetLastError()));
+            std::ostringstream err;
+            err << "Failed to register intermediate OpenGL window class \""
+                << gl::FmtHex<egl::Display *, char>(display)
+                << "\":" << gl::FmtErr(HRESULT_CODE(GetLastError()));
+            return egl::Error(EGL_NOT_INITIALIZED, err.str());
         }
     }
 
-    mMockWindow =
-        CreateWindowExA(0, reinterpret_cast<const char *>(mWindowClass), "ANGLE Mock Window",
-                        WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
-                        CW_USEDEFAULT, nullptr, nullptr, nullptr, nullptr);
+    mMockWindow = CreateWindowExW(0, reinterpret_cast<LPCWSTR>(mWindowClass), L"ANGLE Mock Window",
+                                  WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+                                  CW_USEDEFAULT, nullptr, nullptr, nullptr, nullptr);
     if (!mMockWindow)
     {
-        return egl::EglNotInitialized() << "Failed to create mock OpenGL window.";
+        return egl::Error(EGL_NOT_INITIALIZED, "Failed to create mock OpenGL window.");
     }
 
     VkSurfaceKHR surfaceVk;
@@ -107,24 +110,24 @@ egl::Error DisplayVkWin32::initialize(egl::Display *display)
     VkInstance instance         = mRenderer->getInstance();
     VkPhysicalDevice physDevice = mRenderer->getPhysicalDevice();
 
-    if (vkCreateWin32SurfaceKHR(instance, &info, nullptr, &surfaceVk) != VK_SUCCESS)
+    if (VK_CALL(vkCreateWin32SurfaceKHR, instance, &info, nullptr, &surfaceVk) != VK_SUCCESS)
     {
-        return egl::EglNotInitialized() << "vkCreateWin32SurfaceKHR failed";
+        return egl::Error(EGL_NOT_INITIALIZED, "vkCreateWin32SurfaceKHR failed");
     }
     uint32_t surfaceFormatCount;
 
-    if (vkGetPhysicalDeviceSurfaceFormatsKHR(physDevice, surfaceVk, &surfaceFormatCount, nullptr) !=
-        VK_SUCCESS)
+    if (VK_CALL(vkGetPhysicalDeviceSurfaceFormatsKHR, physDevice, surfaceVk, &surfaceFormatCount,
+                nullptr) != VK_SUCCESS)
     {
-        return egl::EglNotInitialized() << "vkGetPhysicalDeviceSurfaceFormatsKHR failed";
+        return egl::Error(EGL_NOT_INITIALIZED, "vkGetPhysicalDeviceSurfaceFormatsKHR failed");
     }
     mSurfaceFormats.resize(surfaceFormatCount);
-    if (vkGetPhysicalDeviceSurfaceFormatsKHR(physDevice, surfaceVk, &surfaceFormatCount,
-                                             mSurfaceFormats.data()) != VK_SUCCESS)
+    if (VK_CALL(vkGetPhysicalDeviceSurfaceFormatsKHR, physDevice, surfaceVk, &surfaceFormatCount,
+                mSurfaceFormats.data()) != VK_SUCCESS)
     {
-        return egl::EglNotInitialized() << "vkGetPhysicalDeviceSurfaceFormatsKHR (2nd) failed";
+        return egl::Error(EGL_NOT_INITIALIZED, "vkGetPhysicalDeviceSurfaceFormatsKHR (2nd) failed");
     }
-    vkDestroySurfaceKHR(instance, surfaceVk, nullptr);
+    VK_CALL(vkDestroySurfaceKHR, instance, surfaceVk, nullptr);
 
     DestroyWindow(mMockWindow);
     mMockWindow = nullptr;
@@ -139,7 +142,8 @@ egl::ConfigSet DisplayVkWin32::generateConfigs()
 
     std::vector<GLenum> depthStencilFormats(
         egl_vk::kConfigDepthStencilFormats,
-        egl_vk::kConfigDepthStencilFormats + ArraySize(egl_vk::kConfigDepthStencilFormats));
+        ANGLE_UNSAFE_TODO(egl_vk::kConfigDepthStencilFormats +
+                          ArraySize(egl_vk::kConfigDepthStencilFormats)));
 
     if (getCaps().stencil8)
     {
@@ -152,7 +156,6 @@ egl::ConfigSet DisplayVkWin32::generateConfigs()
 void DisplayVkWin32::checkConfigSupport(egl::Config *config)
 {
     const vk::Format &formatVk = this->getRenderer()->getFormat(config->renderTargetFormat);
-    VkFormat nativeFormat      = formatVk.vkImageFormat;
 
     // If the format list includes just one entry of VK_FORMAT_UNDEFINED,
     // the surface has no preferred format.  Otherwise, at least one
@@ -164,7 +167,7 @@ void DisplayVkWin32::checkConfigSupport(egl::Config *config)
 
     for (const VkSurfaceFormatKHR &surfaceFormat : mSurfaceFormats)
     {
-        if (surfaceFormat.format == nativeFormat)
+        if (surfaceFormat.format == formatVk.getActualRenderableImageVkFormat(this->getRenderer()))
         {
             return;
         }

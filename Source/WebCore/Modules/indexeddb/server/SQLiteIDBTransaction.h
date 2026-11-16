@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013, 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,13 +25,17 @@
 
 #pragma once
 
-#include "IDBError.h"
-#include "IDBResourceIdentifier.h"
-#include "IDBTransactionInfo.h"
-#include "IndexedDB.h"
+#include <WebCore/IDBError.h>
+#include <WebCore/IDBIndexIdentifier.h>
+#include <WebCore/IDBObjectStoreIdentifier.h>
+#include <WebCore/IDBResourceIdentifier.h>
+#include <WebCore/IDBTransactionInfo.h>
+#include <WebCore/IndexedDB.h>
+#include <wtf/CheckedPtr.h>
 #include <wtf/HashMap.h>
-#include <wtf/HashSet.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/RobinHoodHashSet.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -45,31 +49,34 @@ namespace IDBServer {
 class SQLiteIDBBackingStore;
 class SQLiteIDBCursor;
 
-class SQLiteIDBTransaction {
-    WTF_MAKE_FAST_ALLOCATED;
+class SQLiteIDBTransaction : public CanMakeThreadSafeCheckedPtr<SQLiteIDBTransaction> {
+    WTF_MAKE_TZONE_ALLOCATED(SQLiteIDBTransaction);
     WTF_MAKE_NONCOPYABLE(SQLiteIDBTransaction);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SQLiteIDBTransaction);
 public:
     SQLiteIDBTransaction(SQLiteIDBBackingStore&, const IDBTransactionInfo&);
     ~SQLiteIDBTransaction();
 
-    const IDBResourceIdentifier& transactionIdentifier() const { return m_info.identifier(); }
+    const IDBResourceIdentifier& transactionIdentifier() const LIFETIME_BOUND { return m_info.identifier(); }
 
     IDBError begin(SQLiteDatabase&);
     IDBError commit();
     IDBError abort();
 
-    std::unique_ptr<SQLiteIDBCursor> maybeOpenBackingStoreCursor(uint64_t objectStoreID, uint64_t indexID, const IDBKeyRangeData&);
+    std::unique_ptr<SQLiteIDBCursor> maybeOpenBackingStoreCursor(IDBObjectStoreIdentifier, std::optional<IDBIndexIdentifier>, const IDBKeyRangeData&, IndexedDB::CursorDirection = IndexedDB::CursorDirection::Next);
     SQLiteIDBCursor* maybeOpenCursor(const IDBCursorInfo&);
 
     void closeCursor(SQLiteIDBCursor&);
-    void notifyCursorsOfChanges(int64_t objectStoreID);
+    void notifyCursorsOfChanges(IDBObjectStoreIdentifier);
 
     IDBTransactionMode mode() const { return m_info.mode(); }
     IDBTransactionDurability durability() const { return m_info.durability(); }
-    bool inProgress() const;
+    bool NODELETE inProgress() const;
+    bool NODELETE inProgressOrReadOnly() const;
 
-    SQLiteTransaction* sqliteTransaction() const { return m_sqliteTransaction.get(); }
-    SQLiteIDBBackingStore& backingStore() { return m_backingStore; }
+    SQLiteDatabase* NODELETE sqliteDatabase() const;
+    SQLiteTransaction* sqliteTransaction() const LIFETIME_BOUND { return m_sqliteTransaction.get(); }
+    SQLiteIDBBackingStore& backingStore() { return m_backingStore.get(); }
 
     void addBlobFile(const String& temporaryPath, const String& storedFilename);
     void addRemovedBlobFile(const String& removedFilename);
@@ -80,15 +87,17 @@ private:
 
     void moveBlobFilesIfNecessary();
     void deleteBlobFilesIfNecessary();
+    bool isReadOnly() const { return mode() == IDBTransactionMode::Readonly; }
 
     IDBTransactionInfo m_info;
 
-    SQLiteIDBBackingStore& m_backingStore;
+    const CheckedRef<SQLiteIDBBackingStore> m_backingStore;
+    CheckedPtr<SQLiteDatabase> m_sqliteDatabase;
     std::unique_ptr<SQLiteTransaction> m_sqliteTransaction;
     HashMap<IDBResourceIdentifier, std::unique_ptr<SQLiteIDBCursor>> m_cursors;
-    HashSet<SQLiteIDBCursor*> m_backingStoreCursors;
+    HashSet<CheckedPtr<SQLiteIDBCursor>> m_backingStoreCursors;
     Vector<std::pair<String, String>> m_blobTemporaryAndStoredFilenames;
-    HashSet<String> m_blobRemovedFilenames;
+    MemoryCompactRobinHoodHashSet<String> m_blobRemovedFilenames;
 };
 
 } // namespace IDBServer

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007, 2009, 2010, 2011, 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,7 +34,7 @@ namespace WebCore {
 class TextMetrics;
 
 class CanvasRenderingContext2D final : public CanvasRenderingContext2DBase {
-    WTF_MAKE_ISO_ALLOCATED(CanvasRenderingContext2D);
+    WTF_MAKE_TZONE_ALLOCATED(CanvasRenderingContext2D);
 public:
     static std::unique_ptr<CanvasRenderingContext2D> create(CanvasBase&, CanvasRenderingContext2DSettings&&, bool usesCSSCompatibilityParseMode);
 
@@ -56,8 +56,11 @@ public:
 private:
     CanvasRenderingContext2D(CanvasBase&, CanvasRenderingContext2DSettings&&, bool usesCSSCompatibilityParseMode);
 
-    bool is2d() const final { return true; }
     const FontProxy* fontProxy() final;
+
+    std::optional<Style::Filter> setFilterStringWithoutUpdatingStyle(const String&) override;
+    RefPtr<Filter> createFilter(const FloatRect& bounds) const override;
+    IntOutsets calculateFilterOutsets(const FloatRect& bounds) const override;
 
     void setFontWithoutUpdatingStyle(const String&);
 
@@ -65,7 +68,7 @@ private:
 
     void drawFocusIfNeededInternal(const Path&, Element&);
 
-    TextDirection toTextDirection(CanvasRenderingContext2DBase::Direction, const RenderStyle** computedStyle = nullptr) const;
+    TextDirection toTextDirection(CanvasRenderingContext2DBase::Direction, const Style::ComputedStyle** = nullptr) const;
 };
 
 } // namespace WebCore

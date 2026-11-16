@@ -8,6 +8,8 @@
 //   This test can only be enabled when HLSL support is enabled.
 //
 
+#include <array>
+
 #include "GLSLANG/ShaderLang.h"
 #include "angle_gl.h"
 #include "common/angleutils.h"
@@ -28,10 +30,12 @@ class UnrollFlattenTest : public testing::Test
   protected:
     void compile(const std::string &shaderString)
     {
+        ShCompileOptions compileOptions = {};
+
         std::string infoLog;
         bool compilationSuccess =
             compileTestShader(GL_FRAGMENT_SHADER, mInputSpec, SH_HLSL_4_1_OUTPUT, shaderString,
-                              SH_VARIABLES, &mTranslatedSource, &infoLog);
+                              compileOptions, &mTranslatedSource, &infoLog);
         if (!compilationSuccess)
         {
             FAIL() << "Shader compilation failed " << infoLog;
@@ -40,12 +44,11 @@ class UnrollFlattenTest : public testing::Test
         mCurrentPosition = static_cast<int>(mTranslatedSource.find("cbuffer DriverConstants"));
     }
 
-    void expect(const char *patterns[], size_t count)
+    void expect(angle::Span<const char *const> patterns)
     {
-        const char *badPatterns[] = {UNROLL, FLATTEN};
-        for (size_t i = 0; i < count; i++)
+        constexpr std::array badPatterns = {UNROLL, FLATTEN};
+        for (const char *pattern : patterns)
         {
-            const char *pattern = patterns[i];
             auto position       = mTranslatedSource.find(pattern, mCurrentPosition);
             if (position == std::string::npos)
             {
@@ -54,9 +57,8 @@ class UnrollFlattenTest : public testing::Test
                        << mTranslatedSource;
             }
 
-            for (size_t j = 0; j < ArraySize(badPatterns); j++)
+            for (const char *badPattern : badPatterns)
             {
-                const char *badPattern = badPatterns[j];
                 if (pattern != badPattern &&
                     mTranslatedSource.find(badPattern, mCurrentPosition) < position)
                 {
@@ -71,8 +73,8 @@ class UnrollFlattenTest : public testing::Test
         }
     }
 
-    static const char *UNROLL;
-    static const char *FLATTEN;
+    static constexpr const char *UNROLL  = "LOOP";
+    static constexpr const char *FLATTEN = "FLATTEN";
 
   private:
     ShShaderSpec mInputSpec;
@@ -81,9 +83,6 @@ class UnrollFlattenTest : public testing::Test
     int mCurrentPosition;
     std::string mExpectationList;
 };
-
-const char *UnrollFlattenTest::UNROLL  = "LOOP";
-const char *UnrollFlattenTest::FLATTEN = "FLATTEN";
 
 // Check that the nothing is added if there is no gradient operation
 // even when there is ifs and discontinuous loops
@@ -118,7 +117,7 @@ TEST_F(UnrollFlattenTest, NoGradient)
     // 7 - no FLATTEN
     const char *expectations[] = {"fun(",  "if",   "fun2(", "for", "if",
                                   "break", "fun(", "main(", "if",  "fun2("};
-    expect(expectations, ArraySize(expectations));
+    expect(expectations);
 }
 
 // Check that when we have a gradient in a non-discontinuous loop
@@ -157,7 +156,7 @@ TEST_F(UnrollFlattenTest, GradientNotInDiscont)
     compile(shaderString);
     const char *expectations[] = {"fun(", "texture2D(", "fun2(", "LOOP",    "for", "if",
                                   "fun(", "texture2D(", "main(", "FLATTEN", "if",  "fun2("};
-    expect(expectations, ArraySize(expectations));
+    expect(expectations);
 }
 
 // Check that when we have a gradient in a discontinuous loop
@@ -196,17 +195,17 @@ TEST_F(UnrollFlattenTest, GradientInDiscont)
     const char *expectations[] = {
         "fun(",  "texture2D(", "funLod0(",      "texture2DLod0(", "fun2(",   "LOOP", "for",  "if",
         "break", "funLod0(",   "texture2DLod0", "main(",          "FLATTEN", "if",   "fun2("};
-    expect(expectations, ArraySize(expectations));
+    expect(expectations);
 }
 
-class UnrollFlattenTest_ES3 : public UnrollFlattenTest
+class UnrollFlattenTestES3 : public UnrollFlattenTest
 {
   public:
-    UnrollFlattenTest_ES3() : UnrollFlattenTest(SH_GLES3_SPEC) {}
+    UnrollFlattenTestES3() : UnrollFlattenTest(SH_GLES3_SPEC) {}
 };
 
 // Check that we correctly detect the ES3 builtin "texture" function as a gradient operation.
-TEST_F(UnrollFlattenTest_ES3, TextureBuiltin)
+TEST_F(UnrollFlattenTestES3, TextureBuiltin)
 {
     const std::string &shaderString =
         "#version 300 es\n"
@@ -224,6 +223,6 @@ TEST_F(UnrollFlattenTest_ES3, TextureBuiltin)
 
     compile(shaderString);
     const char *expectations[] = {"main(", "LOOP", "Lod0("};
-    expect(expectations, ArraySize(expectations));
+    expect(expectations);
 }
 }  // namespace

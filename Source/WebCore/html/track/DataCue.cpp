@@ -30,35 +30,37 @@
 
 #include "DataCue.h"
 
+#include "Document.h"
 #include "Logging.h"
 #include "TextTrack.h"
 #include "TextTrackCueList.h"
 #include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/StrongInlines.h>
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 using namespace JSC;
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(DataCue);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(DataCue);
 
 DataCue::DataCue(Document& document, const MediaTime& start, const MediaTime& end, ArrayBuffer& data, const String& type)
     : TextTrackCue(document, start, end)
     , m_type(type)
 {
-    setData(data);
+    setData(&data);
 }
 
-DataCue::DataCue(Document& document, const MediaTime& start, const MediaTime& end, const void* data, unsigned length)
+DataCue::DataCue(Document& document, const MediaTime& start, const MediaTime& end, std::span<const uint8_t> data)
     : TextTrackCue(document, start, end)
-    , m_data(ArrayBuffer::create(data, length))
+    , m_data(ArrayBuffer::create(data))
 {
 }
 
 DataCue::DataCue(Document& document, const MediaTime& start, const MediaTime& end, Ref<SerializedPlatformDataCue>&& platformValue, const String& type)
     : TextTrackCue(document, start, end)
     , m_type(type)
-    , m_platformValue(WTFMove(platformValue))
+    , m_platformValue(WTF::move(platformValue))
 {
 }
 
@@ -69,16 +71,16 @@ DataCue::DataCue(Document& document, const MediaTime& start, const MediaTime& en
 {
 }
 
-Ref<DataCue> DataCue::create(Document& document, const MediaTime& start, const MediaTime& end, const void* data, unsigned length)
+Ref<DataCue> DataCue::create(Document& document, const MediaTime& start, const MediaTime& end, std::span<const uint8_t> data)
 {
-    auto dataCue = adoptRef(*new DataCue(document, start, end, data, length));
+    auto dataCue = adoptRef(*new DataCue(document, start, end, data));
     dataCue->suspendIfNeeded();
     return dataCue;
 }
 
 Ref<DataCue> DataCue::create(Document& document, const MediaTime& start, const MediaTime& end, Ref<SerializedPlatformDataCue>&& platformValue, const String& type)
 {
-    auto dataCue = adoptRef(*new DataCue(document, start, end, WTFMove(platformValue), type));
+    auto dataCue = adoptRef(*new DataCue(document, start, end, WTF::move(platformValue), type));
     dataCue->suspendIfNeeded();
     return dataCue;
 }
@@ -102,19 +104,23 @@ DataCue::~DataCue() = default;
 RefPtr<ArrayBuffer> DataCue::data() const
 {
     if (m_platformValue)
-        return m_platformValue->data();
+        return protect(platformValue())->data();
 
     if (!m_data)
         return nullptr;
 
-    return ArrayBuffer::create(*m_data);
+    return ArrayBuffer::create(*RefPtr { m_data });
 }
 
-void DataCue::setData(ArrayBuffer& data)
+ExceptionOr<void> DataCue::setData(ArrayBuffer* data)
 {
+    if (!data)
+        return Exception { ExceptionCode::TypeError, "The DataCue.data attribute must be an instance of ArrayBuffer"_s };
+
     m_platformValue = nullptr;
     m_value.clear();
-    m_data = ArrayBuffer::create(data);
+    m_data = ArrayBuffer::create(*data);
+    return { };
 }
 
 bool DataCue::cueContentsMatch(const TextTrackCue& cue) const
@@ -123,15 +129,13 @@ bool DataCue::cueContentsMatch(const TextTrackCue& cue) const
     RefPtr<ArrayBuffer> otherData = dataCue->data();
     if ((otherData && !m_data) || (!otherData && m_data))
         return false;
-    if (m_data && m_data->byteLength() != otherData->byteLength())
-        return false;
-    if (m_data && m_data->data() && memcmp(m_data->data(), otherData->data(), m_data->byteLength()))
+    if (RefPtr thisData = m_data; thisData && thisData->data() && !equalSpans(thisData->span(), otherData->span()))
         return false;
 
-    auto otherPlatformValue = dataCue->platformValue();
+    RefPtr otherPlatformValue = dataCue->platformValue();
     if ((otherPlatformValue && !m_platformValue) || (!otherPlatformValue && m_platformValue))
         return false;
-    if (m_platformValue && !m_platformValue->isEqual(*otherPlatformValue))
+    if (m_platformValue && !protect(platformValue())->isEqual(*otherPlatformValue))
         return false;
 
     JSC::JSValue thisValue = valueOrNull();
@@ -147,7 +151,7 @@ bool DataCue::cueContentsMatch(const TextTrackCue& cue) const
 JSC::JSValue DataCue::value(JSC::JSGlobalObject& state) const
 {
     if (m_platformValue)
-        return m_platformValue->deserialize(&state);
+        return protect(platformValue())->deserialize(&state);
 
     if (m_value)
         return m_value.get();

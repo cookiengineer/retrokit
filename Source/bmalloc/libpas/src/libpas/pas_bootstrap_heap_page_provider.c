@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 Apple Inc. All rights reserved.
+ * Copyright (c) 2019-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,11 +35,25 @@ pas_allocation_result pas_bootstrap_heap_page_provider(
     size_t size,
     pas_alignment alignment,
     const char* name,
+    pas_heap* heap,
+    pas_physical_memory_transaction* transaction,
     void *arg)
 {
     PAS_UNUSED_PARAM(arg);
-    return pas_bootstrap_free_heap_try_allocate_with_alignment(
+    PAS_UNUSED_PARAM(heap);
+    PAS_UNUSED_PARAM(transaction);
+    static const bool verbose = PAS_SHOULD_LOG(PAS_LOG_BOOTSTRAP_HEAPS);
+
+    if (verbose)
+        pas_log("bootstreap heap page-provider allocating %zu for %s\n", size, name);
+
+    pas_allocation_result retval = pas_bootstrap_free_heap_try_allocate_with_alignment(
         size, alignment, name, pas_delegate_allocation);
+
+    if (verbose)
+        pas_log("bootstrap heap page-provider done allocating\n");
+
+    return retval;
 }
 
 #endif /* LIBPAS_ENABLED */

@@ -20,6 +20,10 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+[
+    ExceptionForDispatchedFrom,
+    DispatchedTo=WebContent
+]
 messages -> WebInspectorUI {
     EstablishConnection(WebKit::WebPageProxyIdentifier inspectedPageIdentifier, struct WebKit::DebuggableInfoData debuggableInfo, bool underTest, unsigned inspectionLevel)
     UpdateConnection()
@@ -36,6 +40,8 @@ messages -> WebInspectorUI {
     SetDiagnosticLoggingAvailable(bool available)
 #endif
 
+    SystemAppearanceDidChange()
+
     ShowConsole()
     ShowResources()
 
@@ -46,9 +52,6 @@ messages -> WebInspectorUI {
 
     StartElementSelection()
     StopElementSelection()
-
-    DidSave(String url)
-    DidAppend(String url)
 
     SendMessageToFrontend(String message)
     EvaluateInFrontendForTesting(String expression)

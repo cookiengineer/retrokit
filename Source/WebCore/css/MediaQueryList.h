@@ -21,22 +21,31 @@
 
 #include "ActiveDOMObject.h"
 #include "EventTarget.h"
-#include "MediaList.h"
-#include "MediaQueryEvaluator.h"
+#include "EventTargetInterfaces.h"
+#include "MediaQuery.h"
 #include "MediaQueryMatcher.h"
 
 namespace WebCore {
+
+namespace MQ {
+class MediaQueryEvaluator;
+}
 
 // MediaQueryList interface is specified at https://drafts.csswg.org/cssom-view/#the-mediaquerylist-interface
 // The objects of this class are returned by window.matchMedia. They may be used to
 // retrieve the current value of the given media query and to add/remove listeners that
 // will be called whenever the value of the query changes.
 
-class MediaQueryList final : public RefCounted<MediaQueryList>, public EventTargetWithInlineData, public ActiveDOMObject {
-    WTF_MAKE_ISO_ALLOCATED(MediaQueryList);
+class MediaQueryList final : public RefCounted<MediaQueryList>, public EventTarget, public ActiveDOMObject {
+    WTF_MAKE_TZONE_ALLOCATED(MediaQueryList);
 public:
-    static Ref<MediaQueryList> create(Document&, MediaQueryMatcher&, Ref<MediaQuerySet>&&, bool matches);
+    static Ref<MediaQueryList> create(Document&, MediaQueryMatcher&, MQ::MediaQueryList&&, bool matches);
     ~MediaQueryList();
+
+    // ContextDestructionObserver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+    USING_CAN_MAKE_WEAKPTR(EventTarget);
 
     String media() const;
     bool matches();
@@ -44,34 +53,34 @@ public:
     void addListener(RefPtr<EventListener>&&);
     void removeListener(RefPtr<EventListener>&&);
 
-    void evaluate(MediaQueryEvaluator&, bool& notificationNeeded);
+    void evaluate(MQ::MediaQueryEvaluator&, MediaQueryMatcher::EventMode);
 
     void detachFromMatcher();
 
-    using RefCounted::ref;
-    using RefCounted::deref;
-
 private:
-    MediaQueryList(Document&, MediaQueryMatcher&, Ref<MediaQuerySet>&&, bool matches);
+    MediaQueryList(Document&, MediaQueryMatcher&, MQ::MediaQueryList&&, bool matches);
 
-    void setMatches(bool);
+    void NODELETE setMatches(bool);
 
-    EventTargetInterface eventTargetInterface() const final { return MediaQueryListEventTargetInterfaceType; }
-    ScriptExecutionContext* scriptExecutionContext() const final { return ContextDestructionObserver::scriptExecutionContext(); }
+    enum EventTargetInterfaceType eventTargetInterface() const final { return EventTargetInterfaceType::MediaQueryList; }
+    ScriptExecutionContext* NODELETE scriptExecutionContext() const final;
     void refEventTarget() final { ref(); }
     void derefEventTarget() final { deref(); }
     void eventListenersDidChange() final;
 
     // ActiveDOMObject.
-    const char* activeDOMObjectName() const final;
-    bool virtualHasPendingActivity() const final;
+    bool NODELETE virtualHasPendingActivity() const final;
 
     RefPtr<MediaQueryMatcher> m_matcher;
-    Ref<MediaQuerySet> m_media;
+    const MQ::MediaQueryList m_mediaQueries;
+    const OptionSet<MQ::MediaQueryDynamicDependency> m_dynamicDependencies;
     unsigned m_evaluationRound; // Indicates if the query has been evaluated after the last style selector change.
     unsigned m_changeRound; // Used to know if the query has changed in the last style selector change.
     bool m_matches;
     bool m_hasChangeEventListener { false };
+    bool m_needsNotification { false };
 };
 
-}
+} // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_EVENTTARGET(MediaQueryList)

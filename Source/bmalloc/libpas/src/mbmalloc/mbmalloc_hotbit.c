@@ -27,22 +27,25 @@
 
 #if PAS_ENABLE_HOTBIT
 
-#include <malloc/malloc.h>
 #include "pas_scavenger.h"
+
+#if PAS_OS(DARWIN)
+#include <malloc/malloc.h>
+#endif
 
 void* mbmalloc(size_t size)
 {
-    return hotbit_try_allocate(size);
+    return hotbit_try_allocate(size, pas_non_compact_allocation_mode);
 }
 
 void* mbmemalign(size_t alignment, size_t size)
 {
-    return hotbit_try_allocate_with_alignment(size, alignment);
+    return hotbit_try_allocate_with_alignment(size, alignment, pas_non_compact_allocation_mode);
 }
 
 void* mbrealloc(void* p, size_t ignored_old_size, size_t new_size)
 {
-    return hotbit_try_reallocate(p, new_size, pas_reallocate_free_if_successful);
+    return hotbit_try_reallocate(p, new_size, pas_reallocate_free_if_successful, pas_non_compact_allocation_mode);
 }
 
 void mbfree(void* p, size_t ignored_size)
@@ -53,7 +56,9 @@ void mbfree(void* p, size_t ignored_size)
 void mbscavenge(void)
 {
     pas_scavenger_run_synchronously_now();
+#if PAS_OS(DARWIN)
     malloc_zone_pressure_relief(NULL, 0);
+#endif
 }
 
 #endif /* PAS_ENABLE_HOTBIT */

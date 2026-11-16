@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,66 +34,86 @@
 #include "RemoteCDMInstanceSession.h"
 #include "WebProcess.h"
 #include <WebCore/Settings.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 
 using namespace WebCore;
 
-RemoteCDMFactory::RemoteCDMFactory(WebProcess& process)
-    : m_process(process)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteCDMFactory);
+
+RemoteCDMFactory::RemoteCDMFactory(WebProcess& webProcess)
+    : m_webProcess(webProcess)
 {
 }
 
 RemoteCDMFactory::~RemoteCDMFactory() = default;
 
-void RemoteCDMFactory::registerFactory(Vector<CDMFactory*>& factories)
+void RemoteCDMFactory::ref() const
 {
-    factories.append(this);
+    return m_webProcess->ref();
 }
 
-const char* RemoteCDMFactory::supplementName()
+void RemoteCDMFactory::deref() const
 {
-    return "RemoteCDMFactory";
+    return m_webProcess->deref();
+}
+
+void RemoteCDMFactory::registerFactory(Vector<WeakRef<CDMFactory>>& factories)
+{
+    factories.append(*this);
+}
+
+ASCIILiteral RemoteCDMFactory::supplementName()
+{
+    return "RemoteCDMFactory"_s;
 }
 
 GPUProcessConnection& RemoteCDMFactory::gpuProcessConnection()
 {
-    return m_process.ensureGPUProcessConnection();
+    return WebProcess::singleton().ensureGPUProcessConnection();
 }
 
 bool RemoteCDMFactory::supportsKeySystem(const String& keySystem)
 {
-    bool supported = false;
-    gpuProcessConnection().connection().sendSync(Messages::RemoteCDMFactoryProxy::SupportsKeySystem(keySystem), Messages::RemoteCDMFactoryProxy::SupportsKeySystem::Reply(supported), { });
+    auto sendResult = gpuProcessConnection().connection().sendSync(Messages::RemoteCDMFactoryProxy::SupportsKeySystem(keySystem), { });
+    auto [supported] = sendResult.takeReplyOr(false);
     return supported;
 }
 
-std::unique_ptr<CDMPrivate> RemoteCDMFactory::createCDM(const String& keySystem)
+std::unique_ptr<CDMPrivate> RemoteCDMFactory::createCDM(const String& keySystem, const String& mediaKeysHashSalt, const CDMPrivateClient&)
 {
-    RemoteCDMIdentifier identifier;
-    RemoteCDMConfiguration configuration;
-    gpuProcessConnection().connection().sendSync(Messages::RemoteCDMFactoryProxy::CreateCDM(keySystem), Messages::RemoteCDMFactoryProxy::CreateCDM::Reply(identifier, configuration), { });
+    auto sendResult = gpuProcessConnection().connection().sendSync(Messages::RemoteCDMFactoryProxy::CreateCDM(keySystem, mediaKeysHashSalt), { });
+    auto [identifier, configuration] = sendResult.takeReplyOr(std::nullopt, RemoteCDMConfiguration { });
     if (!identifier)
         return nullptr;
-    return RemoteCDM::create(makeWeakPtr(this), WTFMove(identifier), WTFMove(configuration));
+    return RemoteCDM::create(*this, WTF::move(*identifier), WTF::move(configuration), mediaKeysHashSalt);
 }
 
-void RemoteCDMFactory::addSession(Ref<RemoteCDMInstanceSession>&& session)
+void RemoteCDMFactory::addSession(RemoteCDMInstanceSession& session)
 {
-    ASSERT(!m_sessions.contains(session->identifier()));
-    m_sessions.set(session->identifier(), WTFMove(session));
+    ASSERT(!m_sessions.contains(session.identifier()));
+    m_sessions.set(session.identifier(), session);
 }
 
 void RemoteCDMFactory::removeSession(RemoteCDMInstanceSessionIdentifier identifier)
 {
     ASSERT(m_sessions.contains(identifier));
     m_sessions.remove(identifier);
+    gpuProcessConnection().connection().send(Messages::RemoteCDMFactoryProxy::RemoveSession(identifier), { });
+}
+
+void RemoteCDMFactory::removeInstance(RemoteCDMInstanceIdentifier identifier)
+{
+    gpuProcessConnection().connection().send(Messages::RemoteCDMFactoryProxy::RemoveInstance(identifier), { });
 }
 
 void RemoteCDMFactory::didReceiveSessionMessage(IPC::Connection& connection, IPC::Decoder& decoder)
 {
-    if (auto* session = m_sessions.get(makeObjectIdentifier<RemoteCDMInstanceSessionIdentifierType>(decoder.destinationID())))
-        session->didReceiveMessage(connection, decoder);
+    if (ObjectIdentifier<RemoteCDMInstanceSessionIdentifierType>::isValidIdentifier(decoder.destinationID())) {
+        if (RefPtr session = m_sessions.get(ObjectIdentifier<RemoteCDMInstanceSessionIdentifierType>(decoder.destinationID())))
+            session->didReceiveMessage(connection, decoder);
+    }
 }
 
 }

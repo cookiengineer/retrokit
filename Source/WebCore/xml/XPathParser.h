@@ -26,14 +26,20 @@
 
 #pragma once
 
-#include "ExceptionOr.h"
 #include "XPathPredicate.h"
 
 union YYSTYPE;
 
+namespace WTF {
+
+class String;
+
+} // namespace WTF
+
 namespace WebCore {
 
 class XPathNSResolver;
+template<typename> class ExceptionOr;
 
 namespace XPath {
 
@@ -43,22 +49,22 @@ public:
     static ExceptionOr<std::unique_ptr<Expression>> parseStatement(const String& statement, RefPtr<XPathNSResolver>&&);
 
     int lex(YYSTYPE&);
-    bool expandQualifiedName(const String& qualifiedName, String& localName, String& namespaceURI);
-    void setParseResult(std::unique_ptr<Expression>&& expression) { m_result = WTFMove(expression); }
+    bool expandQualifiedName(const String& qualifiedName, AtomString& localName, AtomString& namespaceURI);
+    void setParseResult(std::unique_ptr<Expression>&& expression) { m_result = WTF::move(expression); }
 
 private:
     Parser(const String&, RefPtr<XPathNSResolver>&&);
 
     struct Token;
 
-    bool isBinaryOperatorContext() const;
+    bool NODELETE isBinaryOperatorContext() const;
 
-    void skipWS();
+    void NODELETE skipWS();
     Token makeTokenAndAdvance(int type, int advance = 1);
     Token makeTokenAndAdvance(int type, NumericOp::Opcode, int advance = 1);
     Token makeTokenAndAdvance(int type, EqTestOp::Opcode, int advance = 1);
-    char peekAheadHelper();
-    char peekCurHelper();
+    char NODELETE peekAheadHelper();
+    char NODELETE peekCurHelper();
 
     Token lexString();
     Token lexNumber();
@@ -69,7 +75,7 @@ private:
     Token nextTokenInternal();
 
     const String& m_data;
-    RefPtr<XPathNSResolver> m_resolver;
+    const RefPtr<XPathNSResolver> m_resolver;
 
     unsigned m_nextPos { 0 };
     int m_lastTokenType { 0 };

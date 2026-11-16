@@ -30,38 +30,47 @@
 #include "config.h"
 #include "CSSOMVariableReferenceValue.h"
 
-#if ENABLE(CSS_TYPED_OM)
-
 #include "CSSUnparsedValue.h"
 #include "ExceptionOr.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(CSSOMVariableReferenceValue);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(CSSOMVariableReferenceValue);
 
 ExceptionOr<Ref<CSSOMVariableReferenceValue>> CSSOMVariableReferenceValue::create(String&& variable, RefPtr<CSSUnparsedValue>&& fallback)
 {
-    if (!variable.startsWith("--"))
-        return Exception { TypeError, "Custom Variable Reference needs to have \"--\" prefix."_s };
+    if (!variable.startsWith("--"_s))
+        return Exception { ExceptionCode::TypeError, "Custom Variable Reference needs to have \"--\" prefix."_s };
     
-    return adoptRef(*new CSSOMVariableReferenceValue(WTFMove(variable), WTFMove(fallback)));
+    return adoptRef(*new CSSOMVariableReferenceValue(WTF::move(variable), WTF::move(fallback)));
 }
 
 ExceptionOr<void> CSSOMVariableReferenceValue::setVariable(String&& variable)
 {
-    if (!variable.startsWith("--"))
-        return Exception { TypeError, "Custom Variable Reference needs to have \"--\" prefix."_s };
+    if (!variable.startsWith("--"_s))
+        return Exception { ExceptionCode::TypeError, "Custom Variable Reference needs to have \"--\" prefix."_s };
     
-    m_variable = WTFMove(variable);
+    m_variable = WTF::move(variable);
     return { };
 }
 
 String CSSOMVariableReferenceValue::toString() const
 {
-    return makeString("var(", m_variable, (m_fallback ? ", "_s : ""_s), (m_fallback ? m_fallback->toString() : emptyString()), ")");
+    StringBuilder builder;
+    serialize(builder, { });
+    return builder.toString();
+}
+
+void CSSOMVariableReferenceValue::serialize(StringBuilder& builder, OptionSet<SerializationArguments> arguments) const
+{
+    builder.append("var("_s, m_variable);
+    if (m_fallback) {
+        builder.append(',');
+        protect(m_fallback)->serialize(builder, arguments);
+    }
+    builder.append(')');
 }
 
 } // namespace WebCore
-
-#endif

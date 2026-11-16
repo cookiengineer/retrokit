@@ -27,6 +27,20 @@
 
 namespace WebCore {
 
+Ref<ScaleTransformOperation> ScaleTransformOperation::create(double sx, double sy, double sz, TransformOperation::Type type)
+{
+    return adoptRef(*new ScaleTransformOperation(sx, sy, sz, type));
+}
+
+ScaleTransformOperation::ScaleTransformOperation(double sx, double sy, double sz, TransformOperation::Type type)
+    : TransformOperation(type)
+    , m_x(sx)
+    , m_y(sy)
+    , m_z(sz)
+{
+    RELEASE_ASSERT(isScaleTransformOperationType(type));
+}
+
 bool ScaleTransformOperation::operator==(const TransformOperation& other) const
 {
     if (!isSameType(other))
@@ -35,28 +49,40 @@ bool ScaleTransformOperation::operator==(const TransformOperation& other) const
     return m_x == s.m_x && m_y == s.m_y && m_z == s.m_z;
 }
 
-Ref<TransformOperation> ScaleTransformOperation::blend(const TransformOperation* from, const BlendingContext& context, bool blendToIdentity)
+static double NODELETE blendScaleComponent(double from, double to, const BlendingContext& context)
 {
-    if (from && !from->isSameType(*this))
-        return *this;
-    
+    switch (context.compositeOperation) {
+    case CompositeOperation::Replace:
+        return WebCore::blend(from, to, context);
+    case CompositeOperation::Add:
+        ASSERT(context.progress == 1.0);
+        return from * to;
+    case CompositeOperation::Accumulate:
+        ASSERT(context.progress == 1.0);
+        return from + to - 1;
+    }
+    RELEASE_ASSERT_NOT_REACHED();
+}
+
+Ref<TransformOperation> ScaleTransformOperation::blend(const TransformOperation* from, const BlendingContext& context, bool blendToIdentity) const
+{
     if (blendToIdentity)
-        return ScaleTransformOperation::create(WebCore::blend(m_x, 1.0, context),
-                                               WebCore::blend(m_y, 1.0, context),
-                                               WebCore::blend(m_z, 1.0, context), type());
-    
+        return ScaleTransformOperation::create(blendScaleComponent(m_x, 1.0, context), blendScaleComponent(m_y, 1.0, context), blendScaleComponent(m_z, 1.0, context), type());
+
+    auto outputType = sharedPrimitiveType(from);
+    if (!outputType)
+        return const_cast<ScaleTransformOperation&>(*this);
+
     const ScaleTransformOperation* fromOp = downcast<ScaleTransformOperation>(from);
     double fromX = fromOp ? fromOp->m_x : 1.0;
     double fromY = fromOp ? fromOp->m_y : 1.0;
     double fromZ = fromOp ? fromOp->m_z : 1.0;
-    return ScaleTransformOperation::create(WebCore::blend(fromX, m_x, context),
-                                           WebCore::blend(fromY, m_y, context),
-                                           WebCore::blend(fromZ, m_z, context), type());
+    return ScaleTransformOperation::create(blendScaleComponent(fromX, m_x, context), blendScaleComponent(fromY, m_y, context), blendScaleComponent(fromZ, m_z, context), *outputType);
 }
 
 void ScaleTransformOperation::dump(TextStream& ts) const
 {
-    ts << type() << "(" << TextStream::FormatNumberRespectingIntegers(m_x) << ", " << TextStream::FormatNumberRespectingIntegers(m_y) << ", " << TextStream::FormatNumberRespectingIntegers(m_z) << ")";
+    ts << type() << '(' << TextStream::FormatNumberRespectingIntegers(m_x) << ", "_s << TextStream::FormatNumberRespectingIntegers(m_y) << ", "_s << TextStream::FormatNumberRespectingIntegers(m_z) << ')';
 }
 
 } // namespace WebCore

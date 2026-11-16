@@ -25,10 +25,9 @@
 
 #pragma once
 
-#include "CachePayload.h"
-#include "CachedTypes.h"
-#include "CodeSpecializationKind.h"
-#include <wtf/Variant.h>
+#include <JavaScriptCore/CachePayload.h>
+#include <JavaScriptCore/CachedTypes.h>
+#include <JavaScriptCore/CodeSpecializationKind.h>
 
 namespace JSC {
 
@@ -52,7 +51,7 @@ public:
     CacheUpdate(CacheUpdate&&);
     CacheUpdate& operator=(CacheUpdate&&);
 
-    bool isGlobal() const;
+    bool NODELETE isGlobal() const;
     const GlobalUpdate& asGlobal() const;
     const FunctionUpdate& asFunction() const;
 

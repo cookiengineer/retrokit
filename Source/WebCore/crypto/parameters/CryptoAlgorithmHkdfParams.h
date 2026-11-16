@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,38 +26,54 @@
 #pragma once
 
 #include "BufferSource.h"
+#include "CryptoAlgorithmHkdfParamsInit.h"
 #include "CryptoAlgorithmParameters.h"
 #include <JavaScriptCore/JSObject.h>
 #include <JavaScriptCore/Strong.h>
 #include <wtf/Vector.h>
 
-#if ENABLE(WEB_CRYPTO)
-
 namespace WebCore {
 
 class CryptoAlgorithmHkdfParams final : public CryptoAlgorithmParameters {
+    WTF_MAKE_TZONE_ALLOCATED(CryptoAlgorithmHkdfParams);
 public:
     // FIXME: Consider merging hash and hashIdentifier.
     Variant<JSC::Strong<JSC::JSObject>, String> hash;
     CryptoAlgorithmIdentifier hashIdentifier;
-    BufferSource salt;
-    BufferSource info;
+    std::optional<BufferSource> salt;
+    std::optional<BufferSource> info;
 
-    const Vector<uint8_t>& saltVector() const
+    CryptoAlgorithmHkdfParams(CryptoAlgorithmIdentifier identifier)
+        : CryptoAlgorithmParameters { WTF::move(identifier) }
     {
-        if (!m_saltVector.isEmpty() || !salt.length())
+    }
+
+    CryptoAlgorithmHkdfParams(CryptoAlgorithmIdentifier identifier, CryptoAlgorithmHkdfParamsInit init, CryptoAlgorithmIdentifier hashIdentifier)
+        : CryptoAlgorithmParameters { WTF::move(identifier), WTF::move(init) }
+        , hash { WTF::move(init.hash) }
+        , hashIdentifier { WTF::move(hashIdentifier) }
+        , salt { WTF::move(init.salt) }
+        , info { WTF::move(init.info) }
+    {
+    }
+
+    const Vector<uint8_t>& saltVector() const LIFETIME_BOUND
+    {
+        if (!m_saltVector.isEmpty() || !salt || !salt->byteLength())
             return m_saltVector;
 
-        m_saltVector.append(salt.data(), salt.length());
+        if (salt)
+            m_saltVector.append(salt->span());
         return m_saltVector;
     }
 
-    const Vector<uint8_t>& infoVector() const
+    const Vector<uint8_t>& infoVector() const LIFETIME_BOUND
     {
-        if (!m_infoVector.isEmpty() || !info.length())
+        if (!m_infoVector.isEmpty() || !info || !info->byteLength())
             return m_infoVector;
 
-        m_infoVector.append(info.data(), info.length());
+        if (info)
+            m_infoVector.append(info->span());
         return m_infoVector;
     }
 
@@ -65,8 +81,7 @@ public:
 
     CryptoAlgorithmHkdfParams isolatedCopy() const
     {
-        CryptoAlgorithmHkdfParams result;
-        result.identifier = identifier;
+        CryptoAlgorithmHkdfParams result { identifier };
         result.m_saltVector = saltVector();
         result.m_infoVector = infoVector();
         result.hashIdentifier = hashIdentifier;
@@ -82,5 +97,3 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_CRYPTO_ALGORITHM_PARAMETERS(HkdfParams)
-
-#endif // ENABLE(WEB_CRYPTO)

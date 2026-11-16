@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2015 Yusuke Suzuki <utatane.tea@gmail.com>.
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,7 +26,7 @@
 
 #pragma once
 
-#include "JSInternalFieldObjectImpl.h"
+#include <JavaScriptCore/JSInternalFieldObjectImpl.h>
 
 namespace JSC {
 
@@ -39,6 +39,8 @@ public:
         IteratedString,
     };
 
+    static constexpr int32_t doneIndex = -1;
+
     DECLARE_EXPORT_INFO;
 
     static size_t allocationSize(Checked<size_t> inlineCapacity)
@@ -48,7 +50,7 @@ public:
     }
 
     template<typename CellType, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         return vm.stringIteratorSpace<mode>();
     }
@@ -64,14 +66,13 @@ public:
     const WriteBarrier<Unknown>& internalField(Field field) const { return Base::internalField(static_cast<uint32_t>(field)); }
     WriteBarrier<Unknown>& internalField(Field field) { return Base::internalField(static_cast<uint32_t>(field)); }
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(JSStringIteratorType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
+
+    static JSStringIterator* createWithInitialValues(VM&, Structure*);
 
     static JSStringIterator* create(VM& vm, Structure* structure, JSString* iteratedString)
     {
-        JSStringIterator* instance = new (NotNull, allocateCell<JSStringIterator>(vm.heap)) JSStringIterator(vm, structure);
+        JSStringIterator* instance = new (NotNull, allocateCell<JSStringIterator>(vm)) JSStringIterator(vm, structure);
         instance->finishCreation(vm, iteratedString);
         return instance;
     }
@@ -79,6 +80,9 @@ public:
     JSValue iteratedString() const { return internalField(Field::IteratedString).get(); }
     JSValue index() const { return internalField(Field::Index).get(); }
     JSStringIterator* clone(JSGlobalObject*);
+
+    static inline std::pair<JSString*, int32_t> advance(JSGlobalObject*, VM&, JSString*, int32_t position);
+    inline JSString* nextWithAdvance(JSGlobalObject*, VM&);
 
     DECLARE_VISIT_CHILDREN;
 
@@ -88,6 +92,7 @@ private:
     {
     }
 
+    void finishCreation(VM&);
     void finishCreation(VM&, JSString* iteratedString);
 };
 

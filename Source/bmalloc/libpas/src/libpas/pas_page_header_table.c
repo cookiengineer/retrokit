@@ -41,6 +41,11 @@ pas_page_base* pas_page_header_table_add(pas_page_header_table* table,
 {
     pas_page_base* page_base;
 
+    uintptr_t boundary_int = (uintptr_t)boundary;
+    PAS_PROFILE(PAGE_HEADER_TABLE_ADD, boundary_int);
+    PAS_MTE_HANDLE(PAGE_HEADER_TABLE_ADD, boundary_int);
+    boundary = (void*)boundary_int;
+
     if (verbose)
         pas_log("Adding page header for boundary = %p.\n", boundary);
     
@@ -52,9 +57,12 @@ pas_page_base* pas_page_header_table_add(pas_page_header_table* table,
     /* This protects against leaks. */
     PAS_ASSERT(!pas_page_header_table_get_for_boundary(table, page_size, boundary));
 
+    /* We allocate two slots before the pas_page_base. The one is used for storing boundary.
+       Another is not used, just allocated to align the page with 16byte alignment, which is
+       required since it includes 16byte aligned data structures. */
     page_base = (pas_page_base*)(
-        (void**)pas_utility_heap_allocate(
-            sizeof(void*) + header_size, "pas_page_header_table/header") + 1);
+        (void**)pas_utility_heap_allocate_with_alignment(
+            sizeof(void*) * 2 + header_size, 16, "pas_page_header_table/header") + 2);
 
     if (verbose)
         pas_log("created page header at %p\n", page_base);

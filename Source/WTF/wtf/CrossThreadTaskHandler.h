@@ -28,7 +28,6 @@
 #include <wtf/CrossThreadQueue.h>
 #include <wtf/CrossThreadTask.h>
 #include <wtf/Lock.h>
-#include <wtf/Threading.h>
 
 namespace WTF {
 
@@ -41,7 +40,7 @@ public:
     enum class AutodrainedPoolForRunLoop { DoNotUse, Use };
 
 protected:
-    WTF_EXPORT_PRIVATE CrossThreadTaskHandler(const char* threadName, AutodrainedPoolForRunLoop = AutodrainedPoolForRunLoop::DoNotUse);
+    WTF_EXPORT_PRIVATE CrossThreadTaskHandler(ASCIILiteral threadName, AutodrainedPoolForRunLoop = AutodrainedPoolForRunLoop::DoNotUse);
 
     WTF_EXPORT_PRIVATE void postTask(CrossThreadTask&&);
     WTF_EXPORT_PRIVATE void postTaskReply(CrossThreadTask&&);

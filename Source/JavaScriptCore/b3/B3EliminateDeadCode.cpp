@@ -45,18 +45,16 @@ bool eliminateDeadCodeImpl(Procedure& proc)
 {
     bool changed = false;
     GraphNodeWorklist<Value*, IndexSet<Value*>> worklist;
-    Vector<UpsilonValue*, 64> upsilons;
+    Vector<UpsilonValue*, 128> upsilons;
     for (BasicBlock* block : proc) {
         for (Value* value : *block) {
-            Effects effects;
             // We don't care about effects of SSA operations, since we model them more
             // accurately than the effects() method does.
-            if (value->opcode() != Phi && value->opcode() != Upsilon)
-                effects = value->effects();
-            
-            if (effects.mustExecute())
-                worklist.push(value);
-            
+            if (value->opcode() != Phi && value->opcode() != Upsilon) {
+                if (value->mustExecute())
+                    worklist.push(value);
+            }
+
             if (UpsilonValue* upsilon = value->as<UpsilonValue>())
                 upsilons.append(upsilon);
         }
@@ -97,7 +95,7 @@ bool eliminateDeadCodeImpl(Procedure& proc)
                 changed = true;
             }
         }
-        block->values().resize(targetIndex);
+        block->values().shrink(targetIndex);
     }
 
     for (Variable* variable : proc.variables()) {
@@ -109,7 +107,7 @@ bool eliminateDeadCodeImpl(Procedure& proc)
 
 bool eliminateDeadCode(Procedure& proc)
 {
-    PhaseScope phaseScope(proc, "eliminateDeadCode");
+    PhaseScope phaseScope(proc, "eliminateDeadCode"_s);
     return eliminateDeadCodeImpl(proc);
 }
 

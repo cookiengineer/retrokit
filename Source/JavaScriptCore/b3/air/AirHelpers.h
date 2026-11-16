@@ -28,6 +28,7 @@
 #if ENABLE(B3_JIT)
 
 #include "AirOpcode.h"
+#include "B3Type.h"
 
 namespace JSC::B3::Air {
 
@@ -37,12 +38,14 @@ inline Air::Opcode moveForType(Type type)
     case Int32:
         return Move32;
     case Int64:
-        RELEASE_ASSERT(is64Bit());
         return Move;
     case Float:
         return MoveFloat;
     case Double:
         return MoveDouble;
+    case V128:
+        ASSERT(Options::useWasmSIMD());
+        return MoveVector;
     case Void:
     case Tuple:
         break;
@@ -77,6 +80,8 @@ inline Air::Opcode relaxedMoveForType(Type type)
         return MoveFloat;
     case Double:
         return MoveDouble;
+    case V128:
+        return MoveVector;
     case Void:
     case Tuple:
         break;

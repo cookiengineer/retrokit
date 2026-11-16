@@ -46,9 +46,8 @@ enum {
     N_PROPERTIES,
 };
 
-static GParamSpec* sObjProperties[N_PROPERTIES] = { nullptr, };
+static std::array<GParamSpec*, N_PROPERTIES> sObjProperties;
 
-#define webkit_text_combiner_pad_parent_class parent_class
 WEBKIT_DEFINE_TYPE(WebKitTextCombinerPad, webkit_text_combiner_pad, GST_TYPE_GHOST_PAD);
 
 static gboolean webkitTextCombinerPadEvent(GstPad* pad, GstObject* parent, GstEvent* event)
@@ -87,7 +86,7 @@ static GstFlowReturn webkitTextCombinerPadChain(GstPad* pad, GstObject* parent, 
                 return TRUE;
 
             auto* combinerPad = WEBKIT_TEXT_COMBINER_PAD(pad);
-            auto parent = adoptGRef(gst_pad_get_parent(pad));
+            GRefPtr parent = adoptGRef(gst_pad_get_parent(pad));
             GstCaps* caps;
             gst_event_parse_caps(*event, &caps);
             combinerPad->priv->shouldProcessStickyEvents = false;
@@ -137,10 +136,12 @@ static void webkitTextCombinerPadSetProperty(GObject* object, guint propertyId, 
 
 static void webkitTextCombinerPadConstructed(GObject* object)
 {
-    GST_CALL_PARENT(G_OBJECT_CLASS, constructed, (object));
+    G_OBJECT_CLASS(webkit_text_combiner_pad_parent_class)->constructed(object);
     gst_ghost_pad_construct(GST_GHOST_PAD(object));
+IGNORE_WARNINGS_BEGIN("cast-align")
     gst_pad_set_event_function(GST_PAD_CAST(object), webkitTextCombinerPadEvent);
     gst_pad_set_chain_function(GST_PAD_CAST(object), webkitTextCombinerPadChain);
+IGNORE_WARNINGS_END
 }
 
 static void webkit_text_combiner_pad_class_init(WebKitTextCombinerPadClass* klass)
@@ -152,14 +153,14 @@ static void webkit_text_combiner_pad_class_init(WebKitTextCombinerPadClass* klas
     gobjectClass->set_property = GST_DEBUG_FUNCPTR(webkitTextCombinerPadSetProperty);
 
     sObjProperties[PROP_PAD_TAGS] =
-        g_param_spec_boxed("tags", "Tags", "The currently active tags on the pad", GST_TYPE_TAG_LIST,
+        g_param_spec_boxed("tags", nullptr, nullptr, GST_TYPE_TAG_LIST,
             static_cast<GParamFlags>(G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
 
     sObjProperties[PROP_INNER_COMBINER_PAD] =
-        g_param_spec_object("inner-combiner-pad", "Internal Combiner Pad", "The internal funnel (or concat) pad associated with this pad", GST_TYPE_PAD,
+        g_param_spec_object("inner-combiner-pad", nullptr, nullptr, GST_TYPE_PAD,
             static_cast<GParamFlags>(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
-    g_object_class_install_properties(gobjectClass, N_PROPERTIES, sObjProperties);
+    g_object_class_install_properties(gobjectClass, N_PROPERTIES, sObjProperties.data());
 }
 
 GstPad* webKitTextCombinerPadLeakInternalPadRef(WebKitTextCombinerPad* pad)

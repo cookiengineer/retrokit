@@ -27,8 +27,6 @@
 
 #include "CryptoAlgorithm.h"
 
-#if ENABLE(WEB_CRYPTO)
-
 namespace WebCore {
 
 class CryptoAlgorithmRsaOaepParams;
@@ -36,7 +34,7 @@ class CryptoKeyRSA;
 
 class CryptoAlgorithmRSA_OAEP final : public CryptoAlgorithm {
 public:
-    static constexpr const char* s_name = "RSA-OAEP";
+    static constexpr ASCIILiteral s_name = "RSA-OAEP"_s;
     static constexpr CryptoAlgorithmIdentifier s_identifier = CryptoAlgorithmIdentifier::RSA_OAEP;
     static Ref<CryptoAlgorithm> create();
 
@@ -55,5 +53,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(WEB_CRYPTO)

@@ -26,19 +26,17 @@
 #include "config.h"
 #include "DataListButtonElement.h"
 
-#if ENABLE(DATALIST_ELEMENT)
-
 #include "Event.h"
 #include "EventNames.h"
-#include "HTMLNames.h"
 #include "MouseEvent.h"
-#include <wtf/IsoMallocInlines.h>
+#include "ResolvedStyle.h"
+#include "StyleAppearance.h"
+#include "StyleComputedStyle+GettersInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(DataListButtonElement);
-
-using namespace HTMLNames;
+WTF_MAKE_TZONE_ALLOCATED_IMPL(DataListButtonElement);
 
 Ref<DataListButtonElement> DataListButtonElement::create(Document& document, DataListButtonOwner& owner)
 {
@@ -46,25 +44,25 @@ Ref<DataListButtonElement> DataListButtonElement::create(Document& document, Dat
 }
 
 DataListButtonElement::DataListButtonElement(Document& document, DataListButtonOwner& owner)
-    : HTMLDivElement(divTag, document)
+    : HTMLDivElement(document, TypeFlag::HasCustomStyleResolveCallbacks)
     , m_owner(owner)
 {
 }
 
-DataListButtonElement::~DataListButtonElement() { }
+DataListButtonElement::~DataListButtonElement() = default;
 
 void DataListButtonElement::defaultEventHandler(Event& event)
 {
-    if (!is<MouseEvent>(event)) {
+    auto* mouseEvent = dynamicDowncast<MouseEvent>(event);
+    if (!mouseEvent) {
         if (!event.defaultHandled())
             HTMLDivElement::defaultEventHandler(event);
         return;
     }
 
-    MouseEvent& mouseEvent = downcast<MouseEvent>(event);
-
-    if (mouseEvent.type() == eventNames().clickEvent) {
-        m_owner.dataListButtonElementWasClicked();
+    if (isAnyClick(*mouseEvent)) {
+        if (RefPtr owner = m_owner)
+            owner->dataListButtonElementWasClicked();
         event.setDefaultHandled();
     }
 
@@ -72,6 +70,26 @@ void DataListButtonElement::defaultEventHandler(Event& event)
         HTMLDivElement::defaultEventHandler(event);
 }
 
-} // namespace WebCore
+bool DataListButtonElement::isDisabledFormControl() const
+{
+    RefPtr host = shadowHost();
+    return host && host->isDisabledFormControl();
+}
 
-#endif // ENABLE(DATALIST_ELEMENT)
+std::optional<Style::UnadjustedStyle> DataListButtonElement::resolveCustomStyle(const Style::ResolutionContext& resolutionContext, const Style::ComputedStyle* shadowHostStyle)
+{
+    m_canAdjustStyleForAppearance = true;
+
+    if (!shadowHostStyle)
+        return std::nullopt;
+
+    auto usedAppearance = shadowHostStyle->usedAppearance();
+    if (usedAppearance == StyleAppearance::None) {
+        m_canAdjustStyleForAppearance = false;
+        return resolveStyle(resolutionContext);
+    }
+
+    return std::nullopt;
+}
+
+} // namespace WebCore

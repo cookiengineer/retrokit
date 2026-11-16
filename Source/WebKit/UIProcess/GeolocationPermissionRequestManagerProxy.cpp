@@ -26,6 +26,7 @@
 #include "config.h"
 #include "GeolocationPermissionRequestManagerProxy.h"
 
+#include "MessageSenderInlines.h"
 #include "WebPageMessages.h"
 #include "WebPageProxy.h"
 #include "WebProcessProxy.h"
@@ -46,16 +47,17 @@ void GeolocationPermissionRequestManagerProxy::invalidateRequests()
     m_pendingRequests.clear();
 }
 
-Ref<GeolocationPermissionRequestProxy> GeolocationPermissionRequestManagerProxy::createRequest(GeolocationIdentifier geolocationID)
+Ref<GeolocationPermissionRequestProxy> GeolocationPermissionRequestManagerProxy::createRequest(GeolocationIdentifier geolocationID, WebProcessProxy& process, WebCore::RegistrableDomain&& registrableDomain)
 {
-    auto request = GeolocationPermissionRequestProxy::create(this, geolocationID);
-    m_pendingRequests.add(geolocationID, request.ptr());
+    Ref request = GeolocationPermissionRequestProxy::create(*this, geolocationID, process, WTF::move(registrableDomain));
+    m_pendingRequests.add(geolocationID, request);
     return request;
 }
 
 void GeolocationPermissionRequestManagerProxy::didReceiveGeolocationPermissionDecision(GeolocationIdentifier geolocationID, bool allowed)
 {
-    if (!m_page.hasRunningProcess())
+    Ref page = m_page.get();
+    if (!page->hasRunningProcess())
         return;
 
     auto it = m_pendingRequests.find(geolocationID);
@@ -63,10 +65,11 @@ void GeolocationPermissionRequestManagerProxy::didReceiveGeolocationPermissionDe
         return;
 
 #if ENABLE(GEOLOCATION)
-    String authorizationToken = allowed ? createCanonicalUUIDString() : String();
+    String authorizationToken = allowed ? createVersion4UUIDString() : String();
     if (!authorizationToken.isNull())
-        m_validAuthorizationTokens.add(authorizationToken);
-    m_page.send(Messages::WebPage::DidReceiveGeolocationPermissionDecision(geolocationID, authorizationToken));
+        m_validAuthorizationTokens.add(authorizationToken, it->value->registrableDomain());
+    if (RefPtr process = it->value->process())
+        process->send(Messages::WebPage::DidReceiveGeolocationPermissionDecision(geolocationID, authorizationToken), page->webPageIDInProcess(*process));
 #else
     UNUSED_PARAM(allowed);
 #endif
@@ -79,12 +82,32 @@ bool GeolocationPermissionRequestManagerProxy::isValidAuthorizationToken(const S
     return !authorizationToken.isNull() && m_validAuthorizationTokens.contains(authorizationToken);
 }
 
+std::optional<WebCore::RegistrableDomain> GeolocationPermissionRequestManagerProxy::registrableDomainForAuthorizationToken(const String& authorizationToken) const
+{
+    if (authorizationToken.isNull())
+        return std::nullopt;
+    auto it = m_validAuthorizationTokens.find(authorizationToken);
+    if (it == m_validAuthorizationTokens.end())
+        return std::nullopt;
+    return it->value;
+}
+
 void GeolocationPermissionRequestManagerProxy::revokeAuthorizationToken(const String& authorizationToken)
 {
     ASSERT(isValidAuthorizationToken(authorizationToken));
     if (!isValidAuthorizationToken(authorizationToken))
         return;
     m_validAuthorizationTokens.remove(authorizationToken);
+}
+
+void GeolocationPermissionRequestManagerProxy::ref() const
+{
+    m_page->ref();
+}
+
+void GeolocationPermissionRequestManagerProxy::deref() const
+{
+    m_page->deref();
 }
 
 } // namespace WebKit

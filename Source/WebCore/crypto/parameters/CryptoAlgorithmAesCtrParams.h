@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,33 +26,45 @@
 #pragma once
 
 #include "BufferSource.h"
+#include "CryptoAlgorithmAesCtrParamsInit.h"
 #include "CryptoAlgorithmParameters.h"
 #include <wtf/Vector.h>
-
-#if ENABLE(WEB_CRYPTO)
 
 namespace WebCore {
 
 class CryptoAlgorithmAesCtrParams final : public CryptoAlgorithmParameters {
+    WTF_MAKE_TZONE_ALLOCATED(CryptoAlgorithmAesCtrParams);
 public:
-    BufferSource counter;
+    std::optional<BufferSource> counter;
     size_t length;
+
+    CryptoAlgorithmAesCtrParams(CryptoAlgorithmIdentifier identifier)
+        : CryptoAlgorithmParameters { WTF::move(identifier) }
+    {
+    }
+
+    CryptoAlgorithmAesCtrParams(CryptoAlgorithmIdentifier identifier, CryptoAlgorithmAesCtrParamsInit init)
+        : CryptoAlgorithmParameters { WTF::move(identifier), WTF::move(init) }
+        , counter { WTF::move(init.counter) }
+        , length { WTF::move(init.length) }
+    {
+    }
 
     Class parametersClass() const final { return Class::AesCtrParams; }
 
-    const Vector<uint8_t>& counterVector() const
+    const Vector<uint8_t>& counterVector() const LIFETIME_BOUND
     {
-        if (!m_counterVector.isEmpty() || !counter.length())
+        if (!m_counterVector.isEmpty() || !counter || !counter->byteLength())
             return m_counterVector;
 
-        m_counterVector.append(counter.data(), counter.length());
+        if (counter)
+            m_counterVector.append(counter->span());
         return m_counterVector;
     }
 
     CryptoAlgorithmAesCtrParams isolatedCopy() const
     {
-        CryptoAlgorithmAesCtrParams result;
-        result.identifier = identifier;
+        CryptoAlgorithmAesCtrParams result { identifier };
         result.m_counterVector = counterVector();
         result.length = length;
 
@@ -66,5 +78,3 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_CRYPTO_ALGORITHM_PARAMETERS(AesCtrParams)
-
-#endif // ENABLE(WEB_CRYPTO)

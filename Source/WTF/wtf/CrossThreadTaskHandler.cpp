@@ -27,10 +27,11 @@
 #include <wtf/CrossThreadTaskHandler.h>
 
 #include <wtf/AutodrainedPool.h>
+#include <wtf/Threading.h>
 
 namespace WTF {
 
-CrossThreadTaskHandler::CrossThreadTaskHandler(const char* threadName, AutodrainedPoolForRunLoop useAutodrainedPool)
+CrossThreadTaskHandler::CrossThreadTaskHandler(ASCIILiteral threadName, AutodrainedPoolForRunLoop useAutodrainedPool)
     : m_useAutodrainedPool(useAutodrainedPool)
 {
     ASSERT(isMainThread());
@@ -50,12 +51,12 @@ CrossThreadTaskHandler::~CrossThreadTaskHandler()
 
 void CrossThreadTaskHandler::postTask(CrossThreadTask&& task)
 {
-    m_taskQueue.append(WTFMove(task));
+    m_taskQueue.append(WTF::move(task));
 }
 
 void CrossThreadTaskHandler::postTaskReply(CrossThreadTask&& task)
 {
-    m_taskReplyQueue.append(WTFMove(task));
+    m_taskReplyQueue.append(WTF::move(task));
 
     Locker locker { m_mainThreadReplyLock };
     if (m_mainThreadReplyScheduled)
@@ -94,7 +95,7 @@ void CrossThreadTaskHandler::handleTaskRepliesOnMainThread()
 
 void CrossThreadTaskHandler::setCompletionCallback(Function<void ()>&& completionCallback)
 {
-    m_completionCallback = WTFMove(completionCallback);
+    m_completionCallback = WTF::move(completionCallback);
 }
 
 void CrossThreadTaskHandler::kill()

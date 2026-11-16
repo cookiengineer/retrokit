@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,20 +27,39 @@
 
 namespace WebCore {
 
+// https://w3c.github.io/csswg-drafts/cssom-1/#the-cssrule-interface
+
 enum class StyleRuleType : uint8_t {
-    Unknown, // Not used.
-    Style,
-    Charset, // Not used. These are internally strings owned by the style sheet.
-    Import,
-    Media,
-    FontFace,
-    Page,
-    Keyframes,
-    Keyframe, // Not used. These are internally non-rule StyleRuleKeyframe objects.
+    Style = 1,
+    Charset = 2,
+    Import = 3,
+    Media = 4,
+    FontFace = 5,
+    Page = 6,
+    Keyframes = 7,
+    Keyframe = 8,
+    Margin = 9,
     Namespace = 10,
     CounterStyle = 11,
     Supports = 12,
-    Layer = 13,
+    FontFeatureValues = 14,
+    // Numbers above 14 are not exposed to the web.
+    ViewTransition = 15,
+    LayerBlock,
+    LayerStatement,
+    Container,
+    FontPaletteValues,
+    FontFeatureValuesBlock,
+    Property,
+    StyleWithNesting,
+    Scope,
+    StartingStyle,
+    NestedDeclarations,
+    PositionTry,
+    Function,
+    FunctionDeclarations,
 };
+
+static constexpr auto firstUnexposedStyleRuleType = StyleRuleType::ViewTransition;
 
 } // namespace WebCore

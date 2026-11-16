@@ -32,10 +32,10 @@
 using namespace WebCore;
 
 /**
- * SECTION: WebKitWindowProperties
- * @short_description: Window properties of a #WebKitWebView
- * @title: WebKitWindowProperties
+ * WebKitWindowProperties:
  * @see_also: #WebKitWebView::ready-to-show
+ *
+ * Window properties of a #WebKitWebView.
  *
  * The content of a #WebKitWebView can request to change certain
  * properties of the window containing the view. This can include the x, y position
@@ -47,19 +47,19 @@ using namespace WebCore;
  * to apply the initial window properties. Then you can monitor the
  * #WebKitWindowProperties by connecting to ::notify signal.
  *
- * <informalexample><programlisting>
+ * ```c
  * static void ready_to_show_cb (WebKitWebView *web_view, gpointer user_data)
  * {
  *     GtkWidget *window;
  *     WebKitWindowProperties *window_properties;
  *     gboolean visible;
  *
- *     /<!-- -->* Create the window to contain the WebKitWebView *<!-- -->/
+ *     // Create the window to contain the WebKitWebView.
  *     window = browser_window_new ();
  *     gtk_container_add (GTK_CONTAINER (window), GTK_WIDGET (web_view));
  *     gtk_widget_show (GTK_WIDGET (web_view));
  *
- *     /<!-- -->* Get the WebKitWindowProperties of the web view and monitor it *<!-- -->/
+ *     // Get the WebKitWindowProperties of the web view and monitor it.
  *     window_properties = webkit_web_view_get_window_properties (web_view);
  *     g_signal_connect (window_properties, "notify::geometry",
  *                       G_CALLBACK (window_geometry_changed), window);
@@ -67,14 +67,12 @@ using namespace WebCore;
  *                       G_CALLBACK (window_toolbar_visibility_changed), window);
  *     g_signal_connect (window_properties, "notify::menubar-visible",
  *                       G_CALLBACK (window_menubar_visibility_changed), window);
- *     ....
  *
- *     /<!-- -->* Apply the window properties before showing the window *<!-- -->/
+ *     // Apply the window properties before showing the window.
  *     visible = webkit_window_properties_get_toolbar_visible (window_properties);
  *     browser_window_set_toolbar_visible (BROWSER_WINDOW (window), visible);
  *     visible = webkit_window_properties_get_menubar_visible (window_properties);
  *     browser_window_set_menubar_visible (BROWSER_WINDOW (window), visible);
- *     ....
  *
  *     if (webkit_window_properties_get_fullscreen (window_properties)) {
  *         gtk_window_fullscreen (GTK_WINDOW (window));
@@ -90,7 +88,7 @@ using namespace WebCore;
  *
  *     gtk_widget_show (window);
  * }
- * </programlisting></informalexample>
+ * ```
  */
 
 enum {
@@ -108,7 +106,7 @@ enum {
     N_PROPERTIES,
 };
 
-static GParamSpec* sObjProperties[N_PROPERTIES] = { nullptr, };
+static std::array<GParamSpec*, N_PROPERTIES> sObjProperties;
 
 struct _WebKitWindowPropertiesPrivate {
 #if PLATFORM(GTK)
@@ -125,7 +123,7 @@ struct _WebKitWindowPropertiesPrivate {
     bool fullscreen : 1;
 };
 
-WEBKIT_DEFINE_TYPE(WebKitWindowProperties, webkit_window_properties, G_TYPE_OBJECT)
+WEBKIT_DEFINE_FINAL_TYPE(WebKitWindowProperties, webkit_window_properties, G_TYPE_OBJECT, GObject)
 
 static void webkitWindowPropertiesGetProperty(GObject* object, guint propId, GValue* value, GParamSpec* paramSpec)
 {
@@ -210,110 +208,102 @@ static void webkit_window_properties_class_init(WebKitWindowPropertiesClass* req
 
 #if PLATFORM(GTK)
     /**
-     * WebKitWebWindowProperties:geometry:
+     * WebKitWindowProperties:geometry:
      *
      * The size and position of the window on the screen.
      */
     sObjProperties[PROP_GEOMETRY] =
         g_param_spec_boxed(
             "geometry",
-            _("Geometry"),
-            _("The size and position of the window on the screen."),
+            nullptr, nullptr,
             GDK_TYPE_RECTANGLE,
             paramFlags);
 #endif
 
     /**
-     * WebKitWebWindowProperties:toolbar-visible:
+     * WebKitWindowProperties:toolbar-visible:
      *
      * Whether the toolbar should be visible for the window.
      */
     sObjProperties[PROP_TOOLBAR_VISIBLE] =
         g_param_spec_boolean(
             "toolbar-visible",
-            _("Toolbar Visible"),
-            _("Whether the toolbar should be visible for the window."),
+            nullptr, nullptr,
             TRUE,
             paramFlags);
 
     /**
-     * WebKitWebWindowProperties:statusbar-visible:
+     * WebKitWindowProperties:statusbar-visible:
      *
      * Whether the statusbar should be visible for the window.
      */
     sObjProperties[PROP_STATUSBAR_VISIBLE] =
         g_param_spec_boolean(
             "statusbar-visible",
-            _("Statusbar Visible"),
-            _("Whether the statusbar should be visible for the window."),
+            nullptr, nullptr,
             TRUE,
             paramFlags);
 
     /**
-     * WebKitWebWindowProperties:scrollbars-visible:
+     * WebKitWindowProperties:scrollbars-visible:
      *
      * Whether the scrollbars should be visible for the window.
      */
     sObjProperties[PROP_SCROLLBARS_VISIBLE] =
         g_param_spec_boolean(
             "scrollbars-visible",
-            _("Scrollbars Visible"),
-            _("Whether the scrollbars should be visible for the window."),
+            nullptr, nullptr,
             TRUE,
             paramFlags);
 
     /**
-     * WebKitWebWindowProperties:menubar-visible:
+     * WebKitWindowProperties:menubar-visible:
      *
      * Whether the menubar should be visible for the window.
      */
     sObjProperties[PROP_MENUBAR_VISIBLE] =
         g_param_spec_boolean(
             "menubar-visible",
-            _("Menubar Visible"),
-            _("Whether the menubar should be visible for the window."),
+            nullptr, nullptr,
             TRUE,
             paramFlags);
 
     /**
-     * WebKitWebWindowProperties:locationbar-visible:
+     * WebKitWindowProperties:locationbar-visible:
      *
      * Whether the locationbar should be visible for the window.
      */
     sObjProperties[PROP_LOCATIONBAR_VISIBLE] =
         g_param_spec_boolean(
             "locationbar-visible",
-            _("Locationbar Visible"),
-            _("Whether the locationbar should be visible for the window."),
+            nullptr, nullptr,
             TRUE,
             paramFlags);
     /**
-     * WebKitWebWindowProperties:resizable:
+     * WebKitWindowProperties:resizable:
      *
      * Whether the window can be resized.
      */
     sObjProperties[PROP_RESIZABLE] =
         g_param_spec_boolean(
             "resizable",
-            _("Resizable"),
-            _("Whether the window can be resized."),
+            nullptr, nullptr,
             TRUE,
             paramFlags);
 
     /**
-     * WebKitWebWindowProperties:fullscreen:
+     * WebKitWindowProperties:fullscreen:
      *
      * Whether window will be displayed fullscreen.
      */
     sObjProperties[PROP_FULLSCREEN] =
         g_param_spec_boolean(
             "fullscreen",
-            _("Fullscreen"),
-            _("Whether window will be displayed fullscreen."),
+            nullptr, nullptr,
             FALSE,
             paramFlags);
 
-    g_object_class_install_properties(objectClass, N_PROPERTIES, sObjProperties);
+    g_object_class_install_properties(objectClass, N_PROPERTIES, sObjProperties.data());
 }
 
 WebKitWindowProperties* webkitWindowPropertiesCreate()
@@ -405,13 +395,20 @@ void webkitWindowPropertiesUpdateFromWebWindowFeatures(WebKitWindowProperties* w
     webkitWindowPropertiesSetGeometry(windowProperties, &geometry);
 #endif
 
-    webkitWindowPropertiesSetMenubarVisible(windowProperties, windowFeatures.menuBarVisible);
-    webkitWindowPropertiesSetStatusbarVisible(windowProperties, windowFeatures.statusBarVisible);
-    webkitWindowPropertiesSetToolbarVisible(windowProperties, windowFeatures.toolBarVisible);
-    webkitWindowPropertiesSetLocationbarVisible(windowProperties, windowFeatures.locationBarVisible);
-    webkitWindowPropertiesSetScrollbarsVisible(windowProperties, windowFeatures.scrollbarsVisible);
-    webkitWindowPropertiesSetResizable(windowProperties, windowFeatures.resizable);
-    webkitWindowPropertiesSetFullscreen(windowProperties, windowFeatures.fullscreen);
+    if (windowFeatures.menuBarVisible)
+        webkitWindowPropertiesSetMenubarVisible(windowProperties, *windowFeatures.menuBarVisible);
+    if (windowFeatures.statusBarVisible)
+        webkitWindowPropertiesSetStatusbarVisible(windowProperties, *windowFeatures.statusBarVisible);
+    if (windowFeatures.toolBarVisible)
+        webkitWindowPropertiesSetToolbarVisible(windowProperties, *windowFeatures.toolBarVisible);
+    if (windowFeatures.locationBarVisible)
+        webkitWindowPropertiesSetLocationbarVisible(windowProperties, *windowFeatures.locationBarVisible);
+    if (windowFeatures.scrollbarsVisible)
+        webkitWindowPropertiesSetScrollbarsVisible(windowProperties, *windowFeatures.scrollbarsVisible);
+    if (windowFeatures.resizable)
+        webkitWindowPropertiesSetResizable(windowProperties, *windowFeatures.resizable);
+    if (windowFeatures.fullscreen)
+        webkitWindowPropertiesSetFullscreen(windowProperties, *windowFeatures.fullscreen);
 }
 
 #if PLATFORM(GTK)

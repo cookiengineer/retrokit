@@ -7,18 +7,78 @@ See http://dev.chromium.org/developers/how-tos/depottools/presubmit-scripts
 for more details on the presubmit API built into depot_tools.
 """
 
+import dataclasses
+from typing import Optional
+from typing import Sequence
+from typing import Tuple
+import itertools
 import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
+import pathlib
 
-# Fragment of a regular expression that matches C++ and Objective-C++ implementation files and headers.
-_IMPLEMENTATION_AND_HEADER_EXTENSIONS = r'\.(cc|cpp|cxx|mm|h|hpp|hxx)$'
+# This line is 'magic' in that git-cl looks for it to decide whether to
+# use Python3 instead of Python2 when running the code in this file.
+USE_PYTHON3 = True
+
+# Fragment of a regular expression that matches C/C++ and Objective-C++ implementation files and headers.
+_IMPLEMENTATION_AND_HEADER_EXTENSIONS = r'\.(c|cc|cpp|cxx|mm|h|hpp|hxx)$'
 
 # Fragment of a regular expression that matches C++ and Objective-C++ header files.
 _HEADER_EXTENSIONS = r'\.(h|hpp|hxx)$'
+
+
+# Copied from Chrome's BanRule.
+@dataclasses.dataclass
+class BanRule:
+    # String pattern. If the pattern begins with a slash, the pattern will be
+    # treated as a regular expression instead.
+    pattern: str
+
+    # Explanation as a sequence of strings. Each string in the sequence will be
+    # printed on its own line.
+    explanation: Tuple[str, ...]
+
+    # Whether or not to treat this ban as a fatal error.
+    treat_as_error: bool = False
+
+    # Paths that should be excluded from the ban check. Each string is a regular
+    # expression that will be matched against the path of the file being checked
+    # relative to the root of the source tree.
+    excluded_paths: Optional[Sequence[str]] = None
+
+    # If True, surfaces any violation as a Gerrit comment on the CL after
+    # running the CQ.
+    surface_as_gerrit_lint: Optional[bool] = None
+
+
+# Configuration for banned patterns checks.
+_BANNED_CPP_PATTERNS: Sequence[BanRule] = (
+    BanRule(
+        pattern=r'/\bANGLE_UNSAFE_TODO\b',
+        explanation=(
+            'Do not introduce new instances of ANGLE_UNSAFE_TODO. ',
+            'Use ANGLE_UNSAFE_BUFFERS with a // SAFETY: comment instead, ',
+            'or rewrite to be safe.',
+        ),
+        treat_as_error=False,
+        surface_as_gerrit_lint=True,
+    ),
+    BanRule(
+        pattern=r'/#pragma\s+allow_unsafe_buffers\b',
+        explanation=(
+            '#pragma allow_unsafe_buffers is discouraged. Prefer using ',
+            'ANGLE_UNSAFE_BUFFERS with a // SAFETY: comment for ',
+            'specific blocks, or rewrite to be safe.',
+        ),
+        treat_as_error=False,
+        surface_as_gerrit_lint=True,
+    ),
+)
 
 _PRIMARY_EXPORT_TARGETS = [
     '//:libEGL',
@@ -26,6 +86,20 @@ _PRIMARY_EXPORT_TARGETS = [
     '//:libGLESv2',
     '//:translator',
 ]
+
+
+def _SplitIntoMultipleCommits(description_text):
+    paragraph_split_pattern = r"(?m)(^\s*$\n)"
+    multiple_paragraphs = re.split(paragraph_split_pattern, description_text)
+    multiple_commits = [""]
+    change_id_pattern = re.compile(r"(?m)^Change-Id: [a-zA-Z0-9]*$")
+    for paragraph in multiple_paragraphs:
+        multiple_commits[-1] += paragraph
+        if change_id_pattern.search(paragraph):
+            multiple_commits.append("")
+    if multiple_commits[-1] == "":
+        multiple_commits.pop()
+    return multiple_commits
 
 
 def _CheckCommitMessageFormatting(input_api, output_api):
@@ -44,23 +118,10 @@ def _CheckCommitMessageFormatting(input_api, output_api):
     def _IsTagLine(line):
         return ":" in line
 
-    def _SplitIntoMultipleCommits(description_text):
-        paragraph_split_pattern = r"((?m)^\s*$\n)"
-        multiple_paragraphs = re.split(paragraph_split_pattern, description_text)
-        multiple_commits = [""]
-        change_id_pattern = re.compile(r"(?m)^Change-Id: [a-zA-Z0-9]*$")
-        for paragraph in multiple_paragraphs:
-            multiple_commits[-1] += paragraph
-            if change_id_pattern.search(paragraph):
-                multiple_commits.append("")
-        if multiple_commits[-1] == "":
-            multiple_commits.pop()
-        return multiple_commits
-
     def _CheckTabInCommit(lines):
         return all([line.find("\t") == -1 for line in lines])
 
-    allowlist_strings = ['Revert "', 'Roll ', 'Reland ', 'Re-land ']
+    allowlist_strings = ['Revert', 'Roll', 'Manual roll', 'Reland', 'Re-land']
     summary_linelength_warning_lower_limit = 65
     summary_linelength_warning_upper_limit = 70
     description_linelength_limit = 72
@@ -162,9 +223,9 @@ def _CheckCommitMessageFormatting(input_api, output_api):
         # loop through description body
         while len(commit_msg_lines) > 0:
             line = commit_msg_lines.pop(0)
-            # lines starting with 4 spaces or lines without space(urls)
+            # lines starting with 4 spaces, quotes or lines without space(urls)
             # are exempt from length check
-            if line.startswith("    ") or " " not in line:
+            if line.startswith("    ") or line.startswith("> ") or " " not in line:
                 continue
             if len(line) > description_linelength_limit:
                 errors.append(
@@ -180,42 +241,46 @@ def _CheckCommitMessageFormatting(input_api, output_api):
 def _CheckChangeHasBugField(input_api, output_api):
     """Requires that the changelist have a Bug: field from a known project."""
     bugs = input_api.change.BugsFromDescription()
-    if not bugs:
-        return [
-            output_api.PresubmitError('Please ensure that your description contains:\n'
-                                      '"Bug: angleproject:[bug number]"\n'
-                                      'directly above the Change-Id tag.')
-        ]
 
     # The bug must be in the form of "project:number".  None is also accepted, which is used by
     # rollers as well as in very minor changes.
     if len(bugs) == 1 and bugs[0] == 'None':
         return []
 
-    projects = ['angleproject:', 'chromium:', 'dawn:', 'fuchsia:', 'skia:', 'swiftshader:', 'b/']
+    projects = [
+        'angleproject:', 'chromium:', 'dawn:', 'fuchsia:', 'skia:', 'swiftshader:', 'tint:', 'b/'
+    ]
     bug_regex = re.compile(r"([a-z]+[:/])(\d+)")
     errors = []
-    extra_help = None
+    extra_help = False
+
+    if not bugs:
+        errors.append('Please ensure that your description contains\n'
+                      'Bug: bugtag\n'
+                      'directly above the Change-Id tag (no empty line in-between)')
+        extra_help = True
 
     for bug in bugs:
         if bug == 'None':
-            errors.append(
-                output_api.PresubmitError('Invalid bug tag "None" in presence of other bug tags.'))
+            errors.append('Invalid bug tag "None" in presence of other bug tags.')
             continue
 
         match = re.match(bug_regex, bug)
         if match == None or bug != match.group(0) or match.group(1) not in projects:
-            errors.append(output_api.PresubmitError('Incorrect bug tag "' + bug + '".'))
-            if not extra_help:
-                extra_help = output_api.PresubmitError('Acceptable format is:\n\n'
-                                                       '    Bug: project:bugnumber\n\n'
-                                                       'Acceptable projects are:\n\n    ' +
-                                                       '\n    '.join(projects))
+            errors.append('Incorrect bug tag "' + bug + '".')
+            extra_help = True
 
     if extra_help:
-        errors.append(extra_help)
+        change_ids = re.findall('^Change-Id:', input_api.change.FullDescriptionText(), re.M)
+        if len(change_ids) > 1:
+            errors.append('Note: multiple Change-Id tags found in description')
 
-    return errors
+        errors.append('''Acceptable bugtags:
+    project:bugnumber - where project is one of ({projects})
+    b/bugnumber - for Buganizer/IssueTracker bugs
+'''.format(projects=', '.join(p[:-1] for p in projects if p != 'b/')))
+
+    return [output_api.PresubmitError('\n\n'.join(errors))] if errors else []
 
 
 def _CheckCodeGeneration(input_api, output_api):
@@ -223,7 +288,7 @@ def _CheckCodeGeneration(input_api, output_api):
     class Msg(output_api.PresubmitError):
         """Specialized error message"""
 
-        def __init__(self, message):
+        def __init__(self, message, **kwargs):
             super(output_api.PresubmitError, self).__init__(
                 message,
                 long_text='Please ensure your ANGLE repositiory is synced to tip-of-tree\n'
@@ -232,12 +297,13 @@ def _CheckCodeGeneration(input_api, output_api):
                 'If that fails, run scripts/run_code_generation.py to refresh generated hashes.\n'
                 '\n'
                 'If you are building ANGLE inside Chromium you must bootstrap ANGLE\n'
-                'before gclient sync. See the DevSetup documentation for more details.\n')
+                'before gclient sync. See the DevSetup documentation for more details.\n',
+                **kwargs)
 
     code_gen_path = input_api.os_path.join(input_api.PresubmitLocalPath(),
                                            'scripts/run_code_generation.py')
     cmd_name = 'run_code_generation'
-    cmd = [input_api.python_executable, code_gen_path, '--verify-no-dirty']
+    cmd = [input_api.python3_executable, code_gen_path, '--verify-no-dirty']
     test_cmd = input_api.Command(name=cmd_name, cmd=cmd, kwargs={}, message=Msg)
     if input_api.verbose:
         print('Running ' + cmd_name)
@@ -294,11 +360,12 @@ def _CheckExportValidity(input_api, output_api):
     use_shell = input_api.is_windows
     try:
         try:
-            subprocess.check_output(['gn', 'gen', outdir], shell=use_shell)
+            subprocess.check_output(
+                [sys.executable, 'third_party/depot_tools/gn.py', 'gen', outdir], shell=use_shell)
         except subprocess.CalledProcessError as e:
             return [
-                output_api.PresubmitError(
-                    'Unable to run gn gen for export_targets.py: %s' % e.output)
+                output_api.PresubmitError('Unable to run gn gen for export_targets.py: %s' %
+                                          e.output.decode())
             ]
         export_target_script = os.path.join(input_api.PresubmitLocalPath(), 'scripts',
                                             'export_targets.py')
@@ -309,11 +376,13 @@ def _CheckExportValidity(input_api, output_api):
                 shell=use_shell)
         except subprocess.CalledProcessError as e:
             if input_api.is_committing:
-                return [output_api.PresubmitError('export_targets.py failed: %s' % e.output)]
+                return [
+                    output_api.PresubmitError('export_targets.py failed: %s' % e.output.decode())
+                ]
             return [
                 output_api.PresubmitPromptWarning(
                     'export_targets.py failed, this may just be due to your local checkout: %s' %
-                    e.output)
+                    e.output.decode())
             ]
         return []
     finally:
@@ -321,14 +390,17 @@ def _CheckExportValidity(input_api, output_api):
 
 
 def _CheckTabsInSourceFiles(input_api, output_api):
-    """Forbids tab characters in source files due to a WebKit repo requirement. """
+    """Forbids tab characters in source files due to a WebKit repo requirement."""
 
-    def implementation_and_headers(f):
+    def implementation_and_headers_including_third_party(f):
+        # Check third_party files too, because WebKit's checks don't make exceptions.
         return input_api.FilterSourceFile(
-            f, files_to_check=(r'.+%s' % _IMPLEMENTATION_AND_HEADER_EXTENSIONS,))
+            f,
+            files_to_check=(r'.+%s' % _IMPLEMENTATION_AND_HEADER_EXTENSIONS,),
+            files_to_skip=[f for f in input_api.DEFAULT_FILES_TO_SKIP if not "third_party" in f])
 
     files_with_tabs = []
-    for f in input_api.AffectedSourceFiles(implementation_and_headers):
+    for f in input_api.AffectedSourceFiles(implementation_and_headers_including_third_party):
         for (num, line) in f.ChangedContents():
             if '\t' in line:
                 files_with_tabs.append(f)
@@ -353,7 +425,7 @@ def is_ascii(s):
 
 
 def _CheckNonAsciiInSourceFiles(input_api, output_api):
-    """Forbids non-ascii characters in source files. """
+    """Forbids non-ascii characters in source files."""
 
     def implementation_and_headers(f):
         return input_api.FilterSourceFile(
@@ -377,10 +449,478 @@ def _CheckNonAsciiInSourceFiles(input_api, output_api):
     return []
 
 
+def _CheckCommentBeforeTestInTestFiles(input_api, output_api):
+    """Require a comment before TEST_P() and other tests."""
+
+    def test_files(f):
+        return input_api.FilterSourceFile(
+            f, files_to_check=(r'^src/tests/.+\.cpp$', r'^src/.+_unittest\.cpp$'))
+
+    tests_with_no_comment = []
+    for f in input_api.AffectedSourceFiles(test_files):
+        diff = f.GenerateScmDiff()
+        last_line_was_comment = False
+        for line in diff.splitlines():
+            # Skip removed lines
+            if line.startswith('-'):
+                continue
+
+            # Note: we don't always get the context of the diff, so if a test already has a comment
+            # but is only renamed, the diff looks like:
+            #
+            #     @@ <line info>
+            #     -TEST_P(OLD, NAME)
+            #     +TEST_P(NEW, NAME)
+            #
+            # Treat @@ as if it was a comment in that case, assuming the test already had a comment
+            # previously.
+            new_line_is_comment = (
+                line.startswith(' //') or line.startswith('+//') or line.startswith('@@'))
+            new_line_is_test_declaration = (
+                line.startswith('+TEST_P(') or line.startswith('+TEST(') or
+                line.startswith('+TYPED_TEST('))
+
+            if new_line_is_test_declaration and not last_line_was_comment:
+                tests_with_no_comment.append(line[1:])
+
+            last_line_was_comment = new_line_is_comment
+
+    if tests_with_no_comment:
+        return [
+            output_api.PresubmitError(
+                'Tests without comment.',
+                items=sorted(tests_with_no_comment),
+                long_text='ANGLE requires a comment describing what a test does.')
+        ]
+    return []
+
+
+def _CheckWildcardInTestExpectationFiles(input_api, output_api):
+    """Require wildcard as API tag (i.e. in foo.bar/*) in expectations when no additional feature is
+    enabled."""
+
+    def expectation_files(f):
+        return input_api.FilterSourceFile(
+            f, files_to_check=[r'^src/tests/angle_end2end_tests_expectations.txt$'])
+
+    expectation_pattern = re.compile(r'^.*:\s*[a-zA-Z0-9._*]+\/([^ ]*)\s*=.*$')
+
+    expectations_without_wildcard = []
+    for f in input_api.AffectedSourceFiles(expectation_files):
+        diff = f.GenerateScmDiff()
+        for line in diff.splitlines():
+            # Only look at new lines
+            if not line.startswith('+'):
+                continue
+
+            match = re.match(expectation_pattern, line[1:].strip())
+            if match is None:
+                continue
+
+            tag = match.group(1)
+
+            # The tag is in the following general form:
+            #
+            #     FRONTENDAPI_BACKENDAPI[_FEATURE]*
+            #
+            # Any part of the above may be a wildcard.  Warn about usage of FRONTEND_BACKENDAPI as
+            # the tag.  Instead, the backend should be specified before the : and `*` used as the
+            # tag.  If any additional tags are present, it's a specific expectation that should
+            # remain specific (and not wildcarded).  NoFixture is an exception as X_Y_NoFixture is
+            # the generic form of the tags of tests that don't use the fixture.
+
+            sections = [section for section in tag.split('_') if section != 'NoFixture']
+
+            # Allow '*_...', or 'FRONTENDAPI_*_...'.
+            if '*' in sections[0] or (len(sections) > 1 and '*' in sections[1]):
+                continue
+
+            # Warn if no additional tags are present
+            if len(sections) == 2:
+                expectations_without_wildcard.append(line[1:])
+
+    if expectations_without_wildcard:
+        return [
+            output_api.PresubmitError(
+                'Use wildcard in API tags (after /) in angle_end2end_tests_expectations.txt.',
+                items=expectations_without_wildcard,
+                long_text="""ANGLE prefers end2end expections to use the following form:
+
+1234 MAC OPENGL : Foo.Bar/* = SKIP
+
+instead of:
+
+1234 MAC OPENGL : Foo.Bar/ES2_OpenGL = SKIP
+1234 MAC OPENGL : Foo.Bar/ES3_OpenGL = SKIP
+
+Expectatations that are specific (such as Foo.Bar/ES2_OpenGL_SomeFeature) are allowed.""")
+        ]
+    return []
+
+
+def _CheckShaderVersionInShaderLangHeader(input_api, output_api):
+    """Requires an update to ANGLE_SH_VERSION when ShaderLang.h or ShaderVars.h change."""
+
+    def headers(f):
+        return input_api.FilterSourceFile(
+            f,
+            files_to_check=(r'^include/GLSLANG/ShaderLang.h$', r'^include/GLSLANG/ShaderVars.h$'))
+
+    headers_changed = input_api.AffectedSourceFiles(headers)
+    if len(headers_changed) == 0:
+        return []
+
+    # Skip this check for reverts and rolls.  Unlike
+    # _CheckCommitMessageFormatting, relands are still checked because the
+    # original change might have incremented the version correctly, but the
+    # rebase over a new version could accidentally remove that (because another
+    # change in the meantime identically incremented it).
+    git_output = input_api.change.DescriptionText()
+    multiple_commits = _SplitIntoMultipleCommits(git_output)
+    for commit in multiple_commits:
+        if commit.startswith('Revert') or commit.startswith('Roll'):
+            return []
+
+    diffs = '\n'.join(f.GenerateScmDiff() for f in headers_changed)
+    versions = dict(re.findall(r'^([-+])#define ANGLE_SH_VERSION\s+(\d+)', diffs, re.M))
+
+    if len(versions) != 2 or int(versions['+']) <= int(versions['-']):
+        return [
+            output_api.PresubmitError(
+                'ANGLE_SH_VERSION should be incremented when ShaderLang.h or ShaderVars.h change.',
+            )
+        ]
+    return []
+
+
+def _CheckGClientExists(input_api, output_api, search_limit=None):
+    presubmit_path = pathlib.Path(input_api.PresubmitLocalPath())
+
+    for current_path in itertools.chain([presubmit_path], presubmit_path.parents):
+        gclient_path = current_path.joinpath('.gclient')
+        if gclient_path.exists() and gclient_path.is_file():
+            return []
+        # search_limit parameter is used in unit tests to prevent searching all the way to root
+        # directory for reproducibility.
+        elif search_limit != None and current_path == search_limit:
+            break
+
+    return [
+        output_api.PresubmitError(
+            'Missing .gclient file.',
+            long_text=textwrap.fill(
+                width=100,
+                text='The top level directory of the repository must contain a .gclient file.'
+                ' You can follow the steps outlined in the link below to get set up for ANGLE'
+                ' development:') +
+            '\n\nhttps://chromium.googlesource.com/angle/angle/+/refs/heads/main/doc/DevSetup.md')
+    ]
+
+
+def _CheckRestrictedTraces(input_api, output_api):
+    import json
+    json_path = 'src/tests/restricted_traces/restricted_traces.json'
+    trace_file = None
+    for f in input_api.AffectedFiles():
+        if f.LocalPath() == json_path:
+            trace_file = f
+            break
+
+    # If the traces JSON file was not modified in this CL, skip the check.
+    if not trace_file:
+        return []
+
+    abs_path = input_api.os_path.join(input_api.PresubmitLocalPath(), json_path)
+    try:
+        with open(abs_path, 'r') as f:
+            json_data = json.load(f)
+    except Exception as e:
+        return [output_api.PresubmitError(f'Failed to parse {json_path}: {e}')]
+
+    if 'traces' not in json_data:
+        return [output_api.PresubmitError(f'{json_path} is missing the "traces" key.')]
+
+    old_traces = []
+    old_contents = trace_file.OldContents()
+    if old_contents:
+        try:
+            old_data = json.loads('\n'.join(old_contents))
+            old_traces = [t.split(' ')[0] for t in old_data.get('traces', [])]
+        except Exception as e:
+            return [output_api.PresubmitError(f'Failed to parse old version of {json_path}: {e}')]
+
+    raw_trace_parts = [trace.split(' ') for trace in json_data['traces']]
+    cq_extra_traces = [
+        p[0] for p in raw_trace_parts if 'ci' not in p[2:] and 'representative' not in p[2:]
+    ]
+
+    TAG_ORDER = ['ci', 'representative', 'smoke']
+
+    def get_sort_key(tag):
+        if tag in TAG_ORDER:
+            return (0, TAG_ORDER.index(tag))
+        else:
+            return (1, tag)
+
+    for p in raw_trace_parts:
+        name = p[0]
+        tags = p[2:]
+
+        if name not in old_traces and tags:
+            return [
+                output_api.PresubmitError(
+                    f'New trace "{name}" has tags: {tags}. '
+                    f'New traces must not have any tags initially so they are tested on CQ.')
+            ]
+
+        sorted_tags = sorted(tags, key=get_sort_key)
+        if tags != sorted_tags:
+            return [
+                output_api.PresubmitError(
+                    f'Trace "{name}" has unsorted tags: {tags}. '
+                    f'Expected order: {sorted_tags} (broadest first: ci, representative, smoke).')
+            ]
+
+    LIMIT_N = 10
+    if len(cq_extra_traces) > LIMIT_N:
+        return [
+            output_api.PresubmitError(
+                f'Too many CQ extra traces ({len(cq_extra_traces)}). Limit is {LIMIT_N}.\n'
+                'Please move some traces to conditional checkout by adding the "ci" tag.')
+        ]
+
+    return []
+
+
+def _CheckUnwrappedVulkanCalls(input_api, output_api):
+    """Runs find_unwrapped_vk_calls.py to detect unwrapped calls."""
+
+    vulkan_dir = input_api.os_path.join('src', 'libANGLE', 'renderer', 'vulkan')
+    vulkan_dir_re = vulkan_dir.replace('\\', '/')
+
+    results = []
+
+    # Only run if Vulkan renderer files are affected
+    def vulkan_source_files(f):
+        return input_api.FilterSourceFile(f, files_to_check=[rf'^{vulkan_dir_re}/.*\.(h|cpp|mm)$'])
+
+    if not input_api.AffectedSourceFiles(vulkan_source_files):
+        return results
+
+    # First, run tests if the script or test files are changed
+    def find_unwrapped_vk_calls_files(f):
+        return input_api.FilterSourceFile(
+            f,
+            files_to_check=[
+                rf'^{vulkan_dir_re}/find_unwrapped_vk_calls_test/.*$',
+                rf'^{vulkan_dir_re}/find_unwrapped_vk_calls\.py$'
+            ])
+
+    if input_api.AffectedSourceFiles(find_unwrapped_vk_calls_files):
+        cmd_name = 'find_unwrapped_vk_calls TESTS'
+        cmd = [
+            input_api.python3_executable,
+            input_api.os_path.join(input_api.PresubmitLocalPath(), vulkan_dir,
+                                   'find_unwrapped_vk_calls_test', 'run_tests.py')
+        ]
+        test_cmd = input_api.Command(
+            name=cmd_name, cmd=cmd, kwargs={}, message=output_api.PresubmitError)
+        if input_api.verbose:
+            print('Running ' + cmd_name)
+        results.extend(input_api.RunTests([test_cmd]))
+
+    # Do not run the script if tests fail
+    for result in results:
+        if isinstance(result, output_api.PresubmitError):
+            return results
+
+    # Finally, run the main script
+    cmd_name = 'find_unwrapped_vk_calls'
+    cmd = [
+        input_api.python3_executable,
+        input_api.os_path.join(input_api.PresubmitLocalPath(), vulkan_dir,
+                               'find_unwrapped_vk_calls.py')
+    ]
+    test_cmd = input_api.Command(
+        name=cmd_name, cmd=cmd, kwargs={}, message=output_api.PresubmitError)
+    if input_api.verbose:
+        print('Running ' + cmd_name)
+    results.extend(input_api.RunTests([test_cmd]))
+
+    return results
+
+
+def _CheckPresubmitTests(input_api, output_api):
+    """Test PRESUBMIT.py during presubmit."""
+
+    return input_api.RunTests(
+        input_api.canned_checks.GetUnitTestsInDirectory(
+            input_api,
+            output_api,
+            input_api.os_path.join(input_api.PresubmitLocalPath(), 'scripts'),
+            files_to_check=[r'^angle_presubmit_utils_unittest\.py$']))
+
+
+def _CheckUnsafeBuffersSafetyComments(input_api, output_api):
+    """Checks that ANGLE_UNSAFE_BUFFERS is accompanied by a
+    // SAFETY: comment.
+    """
+    # We only check C++ source files.
+    exts = ('.h', '.cc', '.cpp', '.mm')
+    file_filter = lambda f: f.LocalPath().endswith(exts)
+
+    unsafe_buffers_regex = re.compile(r'\bANGLE_UNSAFE_BUFFERS\b')
+    safety_comment_regex = re.compile(r'//.*\bSAFETY\b')
+
+    problems = []
+
+    for f in input_api.AffectedSourceFiles(file_filter):
+        lines = f.NewContents()
+        for line_num, line in enumerate(lines, start=1):
+            if line.strip().startswith('//'):
+                continue
+            if unsafe_buffers_regex.search(line):
+                # Check if safety comment is on the same line.
+                if safety_comment_regex.search(line):
+                    continue
+
+                # Check preceding lines for a SAFETY comment.
+                has_safety = False
+                for check_line_num in range(line_num - 1, 0, -1):
+                    check_line = lines[check_line_num - 1].strip()
+                    if not check_line:
+                        continue
+                    if check_line.startswith('//'):
+                        if safety_comment_regex.search(check_line):
+                            has_safety = True
+                            break
+                    else:
+                        # Not a comment line. If it looks like the end of a statement, stop searching.
+                        if check_line.endswith(';') or check_line.endswith(
+                                '{') or check_line.endswith('}'):
+                            break
+
+                if not has_safety:
+                    problems.append(f"{f.LocalPath()}:{line_num}: "
+                                    "ANGLE_UNSAFE_BUFFERS usage must be accompanied by a "
+                                    "// SAFETY: comment.")
+
+    if problems:
+        return [
+            output_api.PresubmitPromptWarning(
+                "ANGLE_UNSAFE_BUFFERS usages must be accompanied by a "
+                "// SAFETY: comment explaining why they are safe.",
+                items=problems)
+        ]
+    return []
+
+
+# Copied from Chrome's _GetMessageForMatchingType.
+def _GetMessageForMatchingType(input_api, affected_file, line_number, line, ban_rule):
+    """
+    Helper method for checking for banned constructs.
+
+    Returns an string composed of the name of the file, the line number
+    where the match has been found and the additional text passed as
+    |message| in case the target type name matches the text inside the
+    line passed as parameter.
+    """
+    result = []
+
+    # Ignore comments about banned types.
+    if input_api.re.search(r'^ *//', line):
+        return result
+    # A // nocheck comment will bypass this error.
+    if line.endswith(' nocheck'):
+        return result
+
+    matched = False
+    if ban_rule.pattern[0:1] == '/':
+        regex = ban_rule.pattern[1:]
+        if input_api.re.search(regex, line):
+            matched = True
+    elif ban_rule.pattern in line:
+        matched = True
+
+    if matched:
+        result.append('    %s:%d:' % (affected_file.LocalPath(), line_number))
+        for line in ban_rule.explanation:
+            result.append('      %s' % line)
+
+    return result
+
+
+# Copied from Chrome's CheckNoBannedPatterns with modifications.
+def _CheckNoBannedPatterns(input_api, output_api):
+    """Make sure that banned patterns are not used."""
+    results = []
+
+    def IsExcludedFile(affected_file, excluded_paths):
+        if not excluded_paths:
+            return False
+
+        local_path = affected_file.UnixLocalPath()
+        for item in excluded_paths:
+            if input_api.re.match(item, local_path):
+                return True
+        return False
+
+    def CheckForMatch(affected_file, line_num, line, ban_rule):
+        if IsExcludedFile(affected_file, ban_rule.excluded_paths):
+            return
+
+        message = _GetMessageForMatchingType(input_api, affected_file, line_num, line, ban_rule)
+        if message:
+            result_loc = []
+            if ban_rule.surface_as_gerrit_lint:
+                if hasattr(output_api, 'PresubmitResultLocation'):
+                    result_loc.append(
+                        output_api.PresubmitResultLocation(
+                            file_path=affected_file.LocalPath(),
+                            start_line=line_num,
+                            end_line=line_num,
+                        ))
+            if ban_rule.treat_as_error:
+                if result_loc:
+                    results.append(
+                        output_api.PresubmitError(
+                            'A banned pattern was used.\n' + '\n'.join(message),
+                            locations=result_loc))
+                else:
+                    results.append(
+                        output_api.PresubmitError('A banned pattern was used.\n' +
+                                                  '\n'.join(message)))
+            else:
+                if result_loc:
+                    results.append(
+                        output_api.PresubmitPromptWarning(
+                            'A banned pattern was used.\n' + '\n'.join(message),
+                            locations=result_loc))
+                else:
+                    results.append(
+                        output_api.PresubmitPromptWarning('A banned pattern was used.\n' +
+                                                          '\n'.join(message)))
+
+    file_filter = lambda f: f.LocalPath().endswith(('.cc', '.mm', '.cpp', '.h'))
+    for f in input_api.AffectedSourceFiles(file_filter):
+        for line_num, line in f.ChangedContents():
+            for ban_rule in _BANNED_CPP_PATTERNS:
+                CheckForMatch(f, line_num, line, ban_rule)
+
+    return results
+
+
 def CheckChangeOnUpload(input_api, output_api):
     results = []
+    results.extend(_CheckPresubmitTests(input_api, output_api))
+    results.extend(_CheckUnsafeBuffersSafetyComments(input_api, output_api))
+    results.extend(_CheckNoBannedPatterns(input_api, output_api))
+    results.extend(input_api.canned_checks.CheckForCommitObjects(input_api, output_api))
     results.extend(_CheckTabsInSourceFiles(input_api, output_api))
     results.extend(_CheckNonAsciiInSourceFiles(input_api, output_api))
+    results.extend(_CheckCommentBeforeTestInTestFiles(input_api, output_api))
+    results.extend(_CheckWildcardInTestExpectationFiles(input_api, output_api))
+    results.extend(_CheckShaderVersionInShaderLangHeader(input_api, output_api))
     results.extend(_CheckCodeGeneration(input_api, output_api))
     results.extend(_CheckChangeHasBugField(input_api, output_api))
     results.extend(input_api.canned_checks.CheckChangeHasDescription(input_api, output_api))
@@ -390,6 +930,10 @@ def CheckChangeOnUpload(input_api, output_api):
         input_api.canned_checks.CheckPatchFormatted(
             input_api, output_api, result_factory=output_api.PresubmitError))
     results.extend(_CheckCommitMessageFormatting(input_api, output_api))
+    results.extend(_CheckGClientExists(input_api, output_api))
+    results.extend(_CheckRestrictedTraces(input_api, output_api))
+    results.extend(_CheckUnwrappedVulkanCalls(input_api, output_api))
+
     return results
 
 

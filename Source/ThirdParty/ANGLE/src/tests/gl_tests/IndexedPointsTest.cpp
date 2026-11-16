@@ -4,12 +4,14 @@
 // found in the LICENSE file.
 //
 
+#include <array>
+
 #include "test_utils/ANGLETest.h"
 
 using namespace angle;
 
 template <typename IndexType, GLenum IndexTypeName>
-class IndexedPointsTest : public ANGLETest
+class IndexedPointsTest : public ANGLETest<>
 {
   protected:
     IndexedPointsTest()
@@ -70,7 +72,7 @@ void main()
 
         // Construct a vertex buffer of position values and color values
         // contained in a single structure
-        const float verticesWithColor[] = {
+        const std::array<float, 20> verticesWithColor = {
             getIndexPositionX(0), getIndexPositionY(0), 0.0f, 1.0f, 0.0f,
             getIndexPositionX(2), getIndexPositionY(2), 0.0f, 1.0f, 0.0f,
             getIndexPositionX(1), getIndexPositionY(1), 0.0f, 1.0f, 0.0f,
@@ -79,23 +81,23 @@ void main()
 
         glGenBuffers(1, &mVertexWithColorBuffer);
         glBindBuffer(GL_ARRAY_BUFFER, mVertexWithColorBuffer);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(verticesWithColor), &verticesWithColor[0],
+        glBufferData(GL_ARRAY_BUFFER, sizeof(verticesWithColor), verticesWithColor.data(),
                      GL_STATIC_DRAW);
 
         // Construct a vertex buffer of position values only
-        const GLfloat vertices[] = {
+        const std::array<GLfloat, 8> vertices = {
             getIndexPositionX(0), getIndexPositionY(0), getIndexPositionX(2), getIndexPositionY(2),
             getIndexPositionX(1), getIndexPositionY(1), getIndexPositionX(3), getIndexPositionY(3),
         };
         glGenBuffers(1, &mVertexBuffer);
         glBindBuffer(GL_ARRAY_BUFFER, mVertexBuffer);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), &vertices[0], GL_STATIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices.data(), GL_STATIC_DRAW);
 
         // The indices buffer is shared between both variations of tests
-        const IndexType indices[] = {0, 2, 1, 3};
+        const std::array<IndexType, 4> indices = {0, 2, 1, 3};
         glGenBuffers(1, &mIndexBuffer);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mIndexBuffer);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), &indices[0], GL_STATIC_DRAW);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices.data(), GL_STATIC_DRAW);
     }
 
     void testTearDown() override
@@ -192,61 +194,41 @@ typedef IndexedPointsTest<GLubyte, GL_UNSIGNED_BYTE> IndexedPointsTestUByte;
 
 TEST_P(IndexedPointsTestUByte, UnsignedByteOffset0)
 {
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
     runTest(0);
 }
 
 TEST_P(IndexedPointsTestUByte, UnsignedByteOffset1)
 {
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
     runTest(1);
 }
 
 TEST_P(IndexedPointsTestUByte, UnsignedByteOffset2)
 {
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
     runTest(2);
 }
 
 TEST_P(IndexedPointsTestUByte, UnsignedByteOffset3)
 {
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
     runTest(3);
 }
 
 TEST_P(IndexedPointsTestUByte, VertexWithColorUnsignedByteOffset0)
 {
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
-
     runTest(0, true);
 }
 
 TEST_P(IndexedPointsTestUByte, VertexWithColorUnsignedByteOffset1)
 {
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
-
     runTest(1, true);
 }
 
 TEST_P(IndexedPointsTestUByte, VertexWithColorUnsignedByteOffset2)
 {
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
-
     runTest(2, true);
 }
 
 TEST_P(IndexedPointsTestUByte, VertexWithColorUnsignedByteOffset3)
 {
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
-
     runTest(3, true);
 }
 
@@ -254,69 +236,46 @@ typedef IndexedPointsTest<GLushort, GL_UNSIGNED_SHORT> IndexedPointsTestUShort;
 
 TEST_P(IndexedPointsTestUShort, UnsignedShortOffset0)
 {
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
     runTest(0);
 }
 
 TEST_P(IndexedPointsTestUShort, UnsignedShortOffset1)
 {
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
     runTest(1);
 }
 
 TEST_P(IndexedPointsTestUShort, UnsignedShortOffset2)
 {
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
     runTest(2);
 }
 
 TEST_P(IndexedPointsTestUShort, UnsignedShortOffset3)
 {
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
     runTest(3);
 }
 
 TEST_P(IndexedPointsTestUShort, VertexWithColorUnsignedShortOffset0)
 {
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
-
     runTest(0, true);
 }
 
 TEST_P(IndexedPointsTestUShort, VertexWithColorUnsignedShortOffset1)
 {
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
-
     runTest(1, true);
 }
 
 TEST_P(IndexedPointsTestUShort, VertexWithColorUnsignedShortOffset2)
 {
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
-
     runTest(2, true);
 }
 
 TEST_P(IndexedPointsTestUShort, VertexWithColorUnsignedShortOffset3)
 {
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
-
     runTest(3, true);
 }
 
 TEST_P(IndexedPointsTestUShort, VertexWithColorUnsignedShortOffsetChangingIndices)
 {
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
-
     // TODO(fjhenigman): Figure out why this fails on Ozone Intel.
     ANGLE_SKIP_TEST_IF(IsOzone() && IsIntel() && IsOpenGLES());
 
@@ -334,8 +293,6 @@ TEST_P(IndexedPointsTestUInt, UnsignedIntOffset0)
     {
         return;
     }
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
     runTest(0);
 }
 
@@ -345,8 +302,6 @@ TEST_P(IndexedPointsTestUInt, UnsignedIntOffset1)
     {
         return;
     }
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
     runTest(1);
 }
 
@@ -356,8 +311,6 @@ TEST_P(IndexedPointsTestUInt, UnsignedIntOffset2)
     {
         return;
     }
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
     runTest(2);
 }
 
@@ -367,8 +320,6 @@ TEST_P(IndexedPointsTestUInt, UnsignedIntOffset3)
     {
         return;
     }
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
     runTest(3);
 }
 
@@ -378,8 +329,6 @@ TEST_P(IndexedPointsTestUInt, VertexWithColorUnsignedIntOffset0)
     {
         return;
     }
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
     runTest(0, true);
 }
 
@@ -389,8 +338,6 @@ TEST_P(IndexedPointsTestUInt, VertexWithColorUnsignedIntOffset1)
     {
         return;
     }
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
     runTest(1, true);
 }
 
@@ -400,8 +347,6 @@ TEST_P(IndexedPointsTestUInt, VertexWithColorUnsignedIntOffset2)
     {
         return;
     }
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
     runTest(2, true);
 }
 
@@ -411,13 +356,11 @@ TEST_P(IndexedPointsTestUInt, VertexWithColorUnsignedIntOffset3)
     {
         return;
     }
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
     runTest(3, true);
 }
 
 // TODO(lucferron): Diagnose and fix the UByte tests below for Vulkan.
-// http://anglebug.com/2646
+// http://anglebug.com/42261353
 
 // TODO(geofflang): Figure out why this test fails on Intel OpenGL
 ANGLE_INSTANTIATE_TEST_ES2(IndexedPointsTestUByte);

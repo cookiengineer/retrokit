@@ -30,23 +30,26 @@
 #pragma once
 
 #include "CSSParserObserver.h"
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/Vector.h>
 
 namespace WebCore {
 
-class CSSParserObserverWrapper {
+class CSSParserObserverWrapper : public RefCountedAndCanMakeWeakPtr<CSSParserObserverWrapper> {
 public:
-    explicit CSSParserObserverWrapper(CSSParserObserver& observer)
-        : m_observer(observer)
-    { }
+    static Ref<CSSParserObserverWrapper> create(CSSParserObserver& observer)
+    {
+        return adoptRef(*new CSSParserObserverWrapper(observer));
+    }
 
-    unsigned startOffset(const CSSParserTokenRange&);
-    unsigned previousTokenStartOffset(const CSSParserTokenRange&);
-    unsigned endOffset(const CSSParserTokenRange&); // Includes trailing comments
+    unsigned NODELETE startOffset(const CSSParserTokenRange&);
+    unsigned NODELETE previousTokenStartOffset(const CSSParserTokenRange&);
+    unsigned NODELETE endOffset(const CSSParserTokenRange&); // Includes trailing comments
 
-    void skipCommentsBefore(const CSSParserTokenRange&, bool leaveDirectlyBefore);
+    void NODELETE skipCommentsBefore(const CSSParserTokenRange&, bool leaveDirectlyBefore);
     void yieldCommentsBefore(const CSSParserTokenRange&);
 
-    CSSParserObserver& observer() { return m_observer; }
+    CSSParserObserver& observer() LIFETIME_BOUND { return m_observer; }
     void addComment(unsigned startOffset, unsigned endOffset, unsigned tokensBefore)
     {
         CommentPosition position = {startOffset, endOffset, tokensBefore};
@@ -56,10 +59,14 @@ public:
     void finalizeConstruction(CSSParserToken* firstParserToken)
     {
         m_firstParserToken = firstParserToken;
-        m_commentIterator = m_commentOffsets.begin();
+        ASSERT(!m_commentIndex);
     }
 
 private:
+    explicit CSSParserObserverWrapper(CSSParserObserver& observer)
+        : m_observer(observer)
+    { }
+
     CSSParserObserver& m_observer;
     Vector<unsigned> m_tokenOffsets;
     CSSParserToken* m_firstParserToken;
@@ -71,7 +78,7 @@ private:
     };
 
     Vector<CommentPosition> m_commentOffsets;
-    Vector<CommentPosition>::iterator m_commentIterator;
+    size_t m_commentIndex { 0 };
 };
 
 } // namespace WebCore

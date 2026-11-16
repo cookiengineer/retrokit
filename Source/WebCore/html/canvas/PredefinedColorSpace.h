@@ -26,16 +26,17 @@
 #pragma once
 
 #include <optional>
-#include <wtf/EnumTraits.h>
 
 namespace WebCore {
 
 class DestinationColorSpace;
 
-enum class PredefinedColorSpace {
-    SRGB
-#if ENABLE(DESTINATION_COLOR_SPACE_DISPLAY_P3)
-    , DisplayP3
+enum class PredefinedColorSpace : uint8_t {
+    SRGB,
+    SRGBLinear,
+#if ENABLE(PREDEFINED_COLOR_SPACE_DISPLAY_P3)
+    DisplayP3,
+    DisplayP3Linear,
 #endif
 };
 
@@ -43,17 +44,3 @@ DestinationColorSpace toDestinationColorSpace(PredefinedColorSpace);
 std::optional<PredefinedColorSpace> toPredefinedColorSpace(const DestinationColorSpace&);
 
 }
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::PredefinedColorSpace> {
-    using values = EnumValues<
-        WebCore::PredefinedColorSpace,
-        WebCore::PredefinedColorSpace::SRGB
-#if ENABLE(DESTINATION_COLOR_SPACE_DISPLAY_P3)
-        , WebCore::PredefinedColorSpace::DisplayP3
-#endif
-    >;
-};
-
-} // namespace WTF

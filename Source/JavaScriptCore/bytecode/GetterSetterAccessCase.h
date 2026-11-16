@@ -34,49 +34,34 @@ namespace JSC {
 
 class GetterSetterAccessCase final : public ProxyableAccessCase {
 public:
-    typedef ProxyableAccessCase Base;
+    using Base = ProxyableAccessCase;
     friend class AccessCase;
+    friend class InlineCacheCompiler;
 
-    // This can return null if it hasn't been generated yet. That's
-    // actually somewhat likely because of how we do buffering of new cases.
-    // CallLinkInfo's ownership is held both by generated code via GCAwareJITStubRoutine and PolymorphicAccess.
-    // The ownership relation is PolymorphicAccess -> GCAwareJITStubRoutine -> CallLinkInfo.
-    // PolymorphicAccess can be destroyed while GCAwareJITStubRoutine is alive if we are destroying PolymorphicAccess
-    // while we are executing GCAwareJITStubRoutine. It is not possible that GetterSetterAccessCase is alive while
-    // GCAwareJITStubRoutine is destroyed.
-    CallLinkInfo* callLinkInfo() const { return m_callLinkInfo; }
-    JSObject* customSlotBase() const { return m_customSlotBase.get(); }
+    JSObject* customSlotBase() const LIFETIME_BOUND { return m_customSlotBase.get(); }
     std::optional<DOMAttributeAnnotation> domAttribute() const { return m_domAttribute; }
-
-    bool hasAlternateBase() const final;
-    JSObject* alternateBase() const final;
-
-    void emitDOMJITGetter(AccessGenerationState&, const DOMJIT::GetterSetter*, GPRReg baseForGetGPR);
 
     static Ref<AccessCase> create(
         VM&, JSCell* owner, AccessType, CacheableIdentifier, PropertyOffset, Structure*,
-        const ObjectPropertyConditionSet&, bool viaProxy, WatchpointSet* additionalSet, FunctionPtr<CustomAccessorPtrTag> customGetter,
+        const ObjectPropertyConditionSet&, bool viaGlobalProxy, WatchpointSet* additionalSet, CodePtr<CustomAccessorPtrTag> customGetter,
         JSObject* customSlotBase, std::optional<DOMAttributeAnnotation>, RefPtr<PolyProtoAccessChain>&&);
 
     static Ref<AccessCase> create(VM&, JSCell* owner, AccessType, Structure*, CacheableIdentifier, PropertyOffset,
-        const ObjectPropertyConditionSet&, RefPtr<PolyProtoAccessChain>&&, bool viaProxy = false,
-        FunctionPtr<CustomAccessorPtrTag> customSetter = nullptr, JSObject* customSlotBase = nullptr);
+        const ObjectPropertyConditionSet&, RefPtr<PolyProtoAccessChain>&&, bool viaGlobalProxy = false,
+        CodePtr<CustomAccessorPtrTag> customSetter = nullptr, JSObject* customSlotBase = nullptr);
 
-    void dumpImpl(PrintStream&, CommaPrinter&) const final;
-    Ref<AccessCase> clone() const final;
-
-    ~GetterSetterAccessCase() final;
-
-    FunctionPtr<CustomAccessorPtrTag> customAccessor() const { return m_customAccessor; }
+    CodePtr<CustomAccessorPtrTag> customAccessor() const { return m_customAccessor; }
 
 private:
-    GetterSetterAccessCase(VM&, JSCell*, AccessType, CacheableIdentifier, PropertyOffset, Structure*, const ObjectPropertyConditionSet&, bool viaProxy, WatchpointSet* additionalSet, JSObject* customSlotBase, RefPtr<PolyProtoAccessChain>&&);
+    GetterSetterAccessCase(VM&, JSCell*, AccessType, CacheableIdentifier, PropertyOffset, Structure*, const ObjectPropertyConditionSet&, bool viaGlobalProxy, WatchpointSet* additionalSet, JSObject* customSlotBase, RefPtr<PolyProtoAccessChain>&&);
 
     GetterSetterAccessCase(const GetterSetterAccessCase&);
 
+    JSObject* tryGetAlternateBaseImpl() const;
+    void dumpImpl(PrintStream&, CommaPrinter&, Indenter&) const;
+
     WriteBarrier<JSObject> m_customSlotBase;
-    CallLinkInfo* m_callLinkInfo { nullptr };
-    FunctionPtr<CustomAccessorPtrTag> m_customAccessor;
+    CodePtr<CustomAccessorPtrTag> m_customAccessor;
     std::optional<DOMAttributeAnnotation> m_domAttribute;
 };
 

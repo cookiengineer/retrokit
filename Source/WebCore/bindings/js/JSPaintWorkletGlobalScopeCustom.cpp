@@ -26,23 +26,22 @@
 #include "config.h"
 #include "JSPaintWorkletGlobalScope.h"
 
-#if ENABLE(CSS_PAINTING_API)
+#include <JavaScriptCore/SlotVisitorInlines.h>
+#include <JavaScriptCore/StructureInlines.h>
 
 namespace WebCore {
 using namespace JSC;
 
 template<typename Visitor>
-void JSPaintWorkletGlobalScope::visitAdditionalChildren(Visitor& visitor)
+void JSPaintWorkletGlobalScope::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
     Locker locker { wrapped().paintDefinitionLock() };
     for (auto& registered : wrapped().paintDefinitionMap().values()) {
-        registered->paintCallback->visitJSFunction(visitor);
+        registered->paintCallback->visitJSFunctionInGCThread(visitor);
         visitor.appendUnbarriered(registered->paintConstructor);
     }
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSPaintWorkletGlobalScope);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSPaintWorkletGlobalScope);
 
 } // namespace WebCore
-
-#endif

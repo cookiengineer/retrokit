@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -276,6 +276,18 @@ WI.Table = class Table extends WI.View
         this._cachedRows.delete(rowIndex);
     }
 
+    restyleRow(rowIndex)
+    {
+        if (!this._isRowVisible(rowIndex))
+            return;
+
+        let row = this._cachedRows.get(rowIndex);
+        if (!row)
+            return;
+
+        this._styleRow(row);
+    }
+
     reloadVisibleColumnCells(column)
     {
         let columnIndex = this._visibleColumns.indexOf(column);
@@ -462,7 +474,7 @@ WI.Table = class Table extends WI.View
         // Save user preference for this column to be visible.
         let savedColumnVisibility = this._columnVisibilitySetting.value;
         if (savedColumnVisibility[column.identifier] !== true) {
-            let copy = Object.shallowCopy(savedColumnVisibility);
+            let copy = {...savedColumnVisibility};
             if (column.defaultHidden)
                 copy[column.identifier] = true;
             else
@@ -540,7 +552,7 @@ WI.Table = class Table extends WI.View
         // Save user preference for this column to be hidden.
         let savedColumnVisibility = this._columnVisibilitySetting.value;
         if (savedColumnVisibility[column.identifier] !== false) {
-            let copy = Object.shallowCopy(savedColumnVisibility);
+            let copy = {...savedColumnVisibility};
             if (column.defaultHidden)
                 delete copy[column.identifier];
             else
@@ -837,11 +849,31 @@ WI.Table = class Table extends WI.View
         let row = document.createElement("li");
         row.__index = rowIndex;
         row.__widthGeneration = 0;
-        if (this.isRowSelected(rowIndex))
-            row.classList.add("selected");
+        this._styleRow(row);
+
+        if (this._delegate.tableRowHovered) {
+            this._boundHandleRowMouseEnter ??= this._handleRowMouseEnter.bind(this);
+            this._boundHandleRowMouseLeave ??= this._handleRowMouseLeave.bind(this);
+
+            row.addEventListener("mouseenter", this._boundHandleRowMouseEnter);
+            row.addEventListener("mouseleave", this._boundHandleRowMouseLeave);
+        }
 
         this._cachedRows.set(rowIndex, row);
         return row;
+    }
+
+    _styleRow(row)
+    {
+        let selected = row.classList.contains("selected");
+
+        row.className = "";
+
+        if (selected || this.isRowSelected(row.__index))
+            row.classList.add("selected");
+
+        if (this._delegate.tableRowClassNames)
+            row.classList.add(...this._delegate.tableRowClassNames(this, row.__index));
     }
 
     _populatedCellForColumnAndRow(column, columnIndex, rowIndex)
@@ -1077,6 +1109,8 @@ WI.Table = class Table extends WI.View
         let updateOffsetThreshold = rowHeight * 10;
         let overflowPadding = updateOffsetThreshold * 3;
 
+        let heightChanged = isNaN(this._cachedHeight);
+
         let scrollTop = this._calculateScrollTop();
         let scrollableOffsetHeight = this._calculateOffsetHeight();
 
@@ -1088,7 +1122,7 @@ WI.Table = class Table extends WI.View
         let belowTopThreshold = !currentTopMargin || scrollTop > currentTopMargin + updateOffsetThreshold;
         let aboveBottomThreshold = !currentBottomMargin || scrollTop + scrollableOffsetHeight < currentTableBottom - updateOffsetThreshold;
 
-        if (belowTopThreshold && aboveBottomThreshold && !isNaN(this._previousRevealedRowCount))
+        if (belowTopThreshold && aboveBottomThreshold && !heightChanged && !isNaN(this._previousRevealedRowCount))
             return;
 
         let numberOfRows = this.numberOfRows;
@@ -1120,7 +1154,7 @@ WI.Table = class Table extends WI.View
             this._topSpacerElement.style.height = marginTop + "px";
         }
 
-        if (this._bottomDataTableMarginElement !== marginBottom) {
+        if (this._bottomSpacerHeight !== marginBottom) {
             this._bottomSpacerHeight = marginBottom;
             this._bottomSpacerElement.style.height = marginBottom + "px";
         }
@@ -1134,12 +1168,14 @@ WI.Table = class Table extends WI.View
         // If there are an odd number of rows hidden, the first visible row must be an even row.
         this._listElement.classList.toggle("even-first-zebra-stripe", !!(topHiddenRowCount % 2));
 
+        let listElementFragment = document.createDocumentFragment();
         for (let i = this._visibleRowIndexStart; i < this._visibleRowIndexEnd && i < numberOfRows; ++i) {
             let row = this._getOrCreateRow(i);
-            this._listElement.appendChild(row);
+            listElementFragment.appendChild(row);
         }
 
-        this._listElement.appendChild(this._fillerRow);
+        listElementFragment.appendChild(this._fillerRow);
+        this._listElement.appendChild(listElementFragment);
     }
 
     _updateFillerRowWithNewHeight()
@@ -1269,7 +1305,7 @@ WI.Table = class Table extends WI.View
         if (!this._previousRevealedRowCount)
             return false;
 
-        return rowIndex >= this._visibleRowIndexStart && rowIndex <= this._visibleRowIndexEnd;
+        return rowIndex >= this._visibleRowIndexStart && rowIndex < this._visibleRowIndexEnd;
     }
 
     _indexToInsertColumn(column)
@@ -1279,7 +1315,7 @@ WI.Table = class Table extends WI.View
         for (let columnIdentifier of this._columnOrder) {
             if (columnIdentifier === column.identifier)
                 return currentVisibleColumnIndex;
-            if (columnIdentifier === this._visibleColumns[currentVisibleColumnIndex].identifier) {
+            if (currentVisibleColumnIndex < this._visibleColumns.length && columnIdentifier === this._visibleColumns[currentVisibleColumnIndex].identifier) {
                 currentVisibleColumnIndex++;
                 if (currentVisibleColumnIndex >= this._visibleColumns.length)
                     break;
@@ -1401,6 +1437,18 @@ WI.Table = class Table extends WI.View
                     this.hideColumn(column);
             }, checked);
         }
+    }
+
+    _handleRowMouseEnter(event)
+    {
+        let row = event.target;
+
+        this.delegate.tableRowHovered(this, row.__index);
+    }
+
+    _handleRowMouseLeave(event)
+    {
+        this.delegate.tableRowHovered(this, NaN);
     }
 
     _removeRows(representedObjects)

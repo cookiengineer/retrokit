@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,8 +33,10 @@
 #include "MacroAssembler.h"
 #include "MethodOfGettingAValueProfile.h"
 #include "Operands.h"
+#include "OperationResult.h"
 #include "ValueRecovery.h"
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC {
 
@@ -51,8 +53,8 @@ class OSRExit;
 
 namespace DFG {
 
+class BasicBlock;
 class SpeculativeJIT;
-struct BasicBlock;
 struct Node;
 
 // This enum describes the types of additional recovery that
@@ -103,44 +105,9 @@ private:
     SpeculationRecoveryType m_type;
 };
 
-enum class ExtraInitializationLevel;
-
-struct OSRExitState : RefCounted<OSRExitState> {
-    OSRExitState(OSRExitBase& exit, CodeBlock* codeBlock, CodeBlock* baselineCodeBlock, Operands<ValueRecovery>& operands, Vector<UndefinedOperandSpan>&& undefinedOperandSpans, SpeculationRecovery* recovery, ptrdiff_t stackPointerOffset, int32_t activeThreshold, double memoryUsageAdjustedThreshold, void* jumpTarget, ArrayProfile* arrayProfile, bool isJumpToLLInt)
-        : exit(exit)
-        , codeBlock(codeBlock)
-        , baselineCodeBlock(baselineCodeBlock)
-        , operands(operands)
-        , undefinedOperandSpans(undefinedOperandSpans)
-        , recovery(recovery)
-        , stackPointerOffset(stackPointerOffset)
-        , activeThreshold(activeThreshold)
-        , memoryUsageAdjustedThreshold(memoryUsageAdjustedThreshold)
-        , jumpTarget(jumpTarget)
-        , arrayProfile(arrayProfile)
-        , isJumpToLLInt(isJumpToLLInt)
-    { }
-
-    OSRExitBase& exit;
-    CodeBlock* codeBlock;
-    CodeBlock* baselineCodeBlock;
-    Operands<ValueRecovery> operands;
-    Vector<UndefinedOperandSpan> undefinedOperandSpans;
-    SpeculationRecovery* recovery;
-    ptrdiff_t stackPointerOffset;
-    uint32_t activeThreshold;
-    double memoryUsageAdjustedThreshold;
-    void* jumpTarget;
-    ArrayProfile* arrayProfile;
-    bool isJumpToLLInt;
-
-    ExtraInitializationLevel extraInitializationLevel;
-    Profiler::OSRExit* profilerExit { nullptr };
-};
-
-JSC_DECLARE_JIT_OPERATION(operationCompileOSRExit, void, (CallFrame*, void*));
-JSC_DECLARE_JIT_OPERATION(operationDebugPrintSpeculationFailure, void, (CallFrame*, void*, void*));
-JSC_DECLARE_JIT_OPERATION(operationMaterializeOSRExitSideState, void, (VM*, const OSRExitBase*, EncodedJSValue*));
+JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationCompileOSRExit, void, (CallFrame*, void*));
+JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationDebugPrintSpeculationFailure, void, (Probe::Context&));
+JSC_DECLARE_NOEXCEPT_JIT_OPERATION(operationMaterializeOSRExitSideState, void, (VM*, const OSRExitBase*, EncodedJSValue*));
 
 // === OSRExit ===
 //
@@ -149,19 +116,14 @@ JSC_DECLARE_JIT_OPERATION(operationMaterializeOSRExitSideState, void, (VM*, cons
 struct OSRExit : public OSRExitBase {
     OSRExit(ExitKind, JSValueSource, MethodOfGettingAValueProfile, SpeculativeJIT*, unsigned streamIndex, unsigned recoveryIndex = UINT_MAX);
 
-    friend void JIT_OPERATION_ATTRIBUTES operationCompileOSRExit(CallFrame*, void*);
-
     CodeLocationLabel<JSInternalPtrTag> m_patchableJumpLocation;
-    MacroAssemblerCodeRef<OSRExitPtrTag> m_code;
 
-    RefPtr<OSRExitState> exitState;
-    
     JSValueSource m_jsValueSource;
     MethodOfGettingAValueProfile m_valueProfile;
     
     unsigned m_recoveryIndex;
 
-    CodeLocationJump<JSInternalPtrTag> codeLocationForRepatch() const;
+    CodeLocationJump<JSInternalPtrTag> codeLocationForRepatch() const { return CodeLocationJump<JSInternalPtrTag>(m_patchableJumpLocation); }
 
     unsigned m_streamIndex;
     void considerAddingAsFrequentExitSite(CodeBlock* profiledCodeBlock)
@@ -169,16 +131,17 @@ struct OSRExit : public OSRExitBase {
         OSRExitBase::considerAddingAsFrequentExitSite(profiledCodeBlock, ExitFromDFG);
     }
 
+    static void compileExit(CCallHelpers&, VM&, const OSRExit&, const Operands<ValueRecovery>&, SpeculationRecovery*, uint32_t osrExitIndex);
+
 private:
-    static void compileExit(CCallHelpers&, VM&, const OSRExit&, const Operands<ValueRecovery>&, SpeculationRecovery*);
     static void emitRestoreArguments(CCallHelpers&, VM&, const Operands<ValueRecovery>&);
-    friend void JIT_OPERATION_ATTRIBUTES operationDebugPrintSpeculationFailure(CallFrame*, void*, void*);
 };
 
 struct SpeculationFailureDebugInfo {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED;
+    WTF_MAKE_STRUCT_SEQUESTERED_ARENA_ALLOCATED(SpeculationFailureDebugInfo);
     CodeBlock* codeBlock;
     ExitKind kind;
+    uint32_t exitIndex;
     BytecodeIndex bytecodeIndex;
 };
 

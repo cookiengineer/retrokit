@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2006 Rob Buis <buis@kde.org>
- * Copyright (C) 2008-2021 Apple Inc. All right reserved.
+ * Copyright (C) 2008-2025 Apple Inc. All right reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -20,52 +20,45 @@
 
 #pragma once
 
+#include "CSSPrimitiveNumericTypes.h"
+#include "CSSURL.h"
 #include "CSSValue.h"
-#include "IntPoint.h"
-#include "ResourceLoaderOptions.h"
-#include <wtf/HashSet.h>
+#include "CSSValuePair.h"
 
 namespace WebCore {
 
-class Document;
-class SVGCursorElement;
-
-struct ImageWithScale;
-
 namespace Style {
 class BuilderState;
+class CursorImage;
+class Image;
 }
 
 class CSSCursorImageValue final : public CSSValue {
 public:
-    static Ref<CSSCursorImageValue> create(Ref<CSSValue>&& imageValue, const std::optional<IntPoint>& hotSpot, LoadedFromOpaqueSource);
+    using HotSpot = SpaceSeparatedPoint<CSS::Number<>>;
+
+    static Ref<CSSCursorImageValue> create(Ref<CSSValue>&& imageValue, std::optional<HotSpot>&&);
+    static Ref<CSSCursorImageValue> NODELETE create(Ref<CSSValue>&& imageValue, std::optional<HotSpot>&&, CSS::URL&&);
     ~CSSCursorImageValue();
 
-    std::optional<IntPoint> hotSpot() const { return m_hotSpot; }
+    const CSS::URL& originalURL() const LIFETIME_BOUND { return m_originalURL; }
 
-    const URL& imageURL() const { return m_originalURL; }
-
-    String customCSSText() const;
-
-    ImageWithScale selectBestFitImage(const Document&);
-
+    String customCSSText(const CSS::SerializationContext&) const;
     bool equals(const CSSCursorImageValue&) const;
 
-    void cursorElementRemoved(SVGCursorElement&);
-    void cursorElementChanged(SVGCursorElement&);
+    IterationStatus customVisitChildren(NOESCAPE const Function<IterationStatus(CSSValue&)>& func) const
+    {
+        return func(m_imageValue.get());
+    }
 
-    Ref<CSSCursorImageValue> valueWithStylesResolved(Style::BuilderState&);
+    RefPtr<Style::CursorImage> createStyleImage(const Style::BuilderState&) const;
 
 private:
-    CSSCursorImageValue(Ref<CSSValue>&& imageValue, const std::optional<IntPoint>& hotSpot, LoadedFromOpaqueSource);
+    CSSCursorImageValue(Ref<CSSValue>&& imageValue, std::optional<HotSpot>&&, CSS::URL&&);
 
-    SVGCursorElement* updateCursorElement(const Document&);
-
-    URL m_originalURL;
-    Ref<CSSValue> m_imageValue;
-    std::optional<IntPoint> m_hotSpot;
-    HashSet<SVGCursorElement*> m_cursorElements;
-    LoadedFromOpaqueSource m_loadedFromOpaqueSource { LoadedFromOpaqueSource::No };
+    const Ref<CSSValue> m_imageValue;
+    const std::optional<HotSpot> m_hotSpot;
+    CSS::URL m_originalURL;
 };
 
 } // namespace WebCore

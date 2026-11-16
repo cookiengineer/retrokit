@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2012 Adobe Systems Incorporated. All rights reserved.
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,55 +32,71 @@
 
 #include "CachedResourceHandle.h"
 #include "CachedSVGDocumentClient.h"
+#include "FilterRenderingMode.h"
 #include "RenderLayer.h"
+#include <wtf/InlineWeakPtr.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
+class CSSFilterRenderer;
 class CachedSVGDocument;
 class Element;
 class FilterOperations;
+class GraphicsContextSwitcher;
 
-class RenderLayerFilters final : private CachedSVGDocumentClient {
-    WTF_MAKE_FAST_ALLOCATED;
+class RenderLayerFilters final : public RefCounted<RenderLayerFilters>, private CachedSVGDocumentClient {
+    WTF_MAKE_TZONE_ALLOCATED(RenderLayerFilters);
 public:
-    explicit RenderLayerFilters(RenderLayer&);
+    static Ref<RenderLayerFilters> create(RenderLayer&, FloatSize scale);
     virtual ~RenderLayerFilters();
 
-    const LayoutRect& dirtySourceRect() const { return m_dirtySourceRect; }
+    void detachFromLayer() { m_layer = nullptr; }
+
+    // CachedResourceClient.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
+    const LayoutRect& dirtySourceRect() const LIFETIME_BOUND { return m_dirtySourceRect; }
     void expandDirtySourceRect(const LayoutRect& rect) { m_dirtySourceRect.unite(rect); }
 
-    CSSFilter* filter() const { return m_filter.get(); }
-    void setFilter(RefPtr<CSSFilter>&&);
+    CSSFilterRenderer* filter() const { return m_filter.get(); }
+    void clearFilter() { m_filter = nullptr; }
     
-    bool hasFilterThatMovesPixels() const;
-    bool hasFilterThatShouldBeRestrictedBySecurityOrigin() const;
+    bool NODELETE hasFilterThatMovesPixels() const;
+    bool NODELETE hasFilterThatShouldBeRestrictedBySecurityOrigin() const;
+    bool hasSourceImage() const;
 
-    void updateReferenceFilterClients(const FilterOperations&);
+    void updateReferenceFilterClients(const Style::Filter&);
     void removeReferenceFilterClients();
 
-    void buildFilter(RenderElement&, float scaleFactor, RenderingMode);
+    static IntOutsets calculateOutsets(RenderElement&, const FloatRect& targetBoundingBox);
 
     // Per render
     LayoutRect repaintRect() const { return m_repaintRect; }
 
-    GraphicsContext* beginFilterEffect(GraphicsContext& destinationContext, const LayoutRect& filterBoxRect, const LayoutRect& dirtyRect, const LayoutRect& layerRepaintRect);
+    GraphicsContext* beginFilterEffect(RenderElement&, GraphicsContext&, OptionSet<PaintBehavior>, const LayoutRect& filterBoxRect, const LayoutRect& dirtyRect, const LayoutRect& layerRepaintRect, const LayoutRect& clipRect, NOESCAPE const Function<void(GraphicsContext&)>& applyAdditionalDestinationClip = { });
     void applyFilterEffect(GraphicsContext& destinationContext);
 
 private:
-    void notifyFinished(CachedResource&, const NetworkLoadMetrics&) final;
+    explicit RenderLayerFilters(RenderLayer&, FloatSize scale);
+
+    void notifyFinished(CachedResource&, const NetworkLoadMetrics&, LoadWillContinueInAnotherProcess) final;
     void resetDirtySourceRect() { m_dirtySourceRect = LayoutRect(); }
 
-    RenderLayer& m_layer;
-
-    Vector<RefPtr<Element>> m_internalSVGReferences;
+    InlineWeakPtr<RenderLayer> m_layer;
+    Vector<Ref<Element>> m_internalSVGReferences;
     Vector<CachedResourceHandle<CachedSVGDocument>> m_externalSVGReferences;
 
-    RefPtr<CSSFilter> m_filter;
     LayoutRect m_dirtySourceRect;
-    
-    // Data used per paint
-    LayoutPoint m_paintOffset;
     LayoutRect m_repaintRect;
+
+    FloatSize m_filterScale { 1, 1 };
+
+    OptionSet<FilterRenderingMode> m_preferredFilterRenderingModes { FilterRenderingMode::Software };
+
+    RefPtr<CSSFilterRenderer> m_filter;
+    std::unique_ptr<GraphicsContextSwitcher> m_targetSwitcher;
 };
 
 } // namespace WebCore

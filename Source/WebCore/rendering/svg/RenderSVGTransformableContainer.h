@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2007 Eric Seidel <eric@webkit.org>
  * Copyright (C) 2009 Google, Inc.
+ * Copyright (c) 2020, 2021, 2022 Igalia S.L.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -21,33 +22,33 @@
 #pragma once
 
 #include "RenderSVGContainer.h"
-#include "SVGGraphicsElement.h"
 
 namespace WebCore {
-    
-class SVGGraphicsElement;
-class RenderSVGTransformableContainer final : public RenderSVGContainer {
-    WTF_MAKE_ISO_ALLOCATED(RenderSVGTransformableContainer);
-public:
-    RenderSVGTransformableContainer(SVGGraphicsElement&, RenderStyle&&);
-    SVGGraphicsElement& graphicsElement() { return downcast<SVGGraphicsElement>(RenderSVGContainer::element()); }
 
-    bool isSVGTransformableContainer() const override { return true; }
-    const AffineTransform& localToParentTransform() const override { return m_localTransform; }
-    void setNeedsTransformUpdate() override { m_needsTransformUpdate = true; }
-    bool didTransformToRootUpdate() override { return m_didTransformToRootUpdate; }
+class SVGGraphicsElement;
+
+class RenderSVGTransformableContainer final : public RenderSVGContainer {
+    WTF_MAKE_TZONE_ALLOCATED(RenderSVGTransformableContainer);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderSVGTransformableContainer);
+public:
+    RenderSVGTransformableContainer(SVGGraphicsElement&, Style::ComputedStyle&&);
+    virtual ~RenderSVGTransformableContainer();
+
+    FloatSize additionalContainerTranslation() const;
 
 private:
-    void element() const = delete;
-    bool calculateLocalTransform() override;
-    AffineTransform localTransform() const override { return m_localTransform; }
+    ASCIILiteral renderName() const final { return "RenderSVGTransformableContainer"_s; }
 
-    bool m_needsTransformUpdate : 1;
-    bool m_didTransformToRootUpdate : 1;
-    AffineTransform m_localTransform;
-    FloatSize m_lastTranslation;
+    void element() const = delete;
+    SVGGraphicsElement& NODELETE graphicsElement() const;
+
+    void applyTransform(TransformationMatrix&, const Style::ComputedStyle&, const FloatRect& boundingBox, OptionSet<Style::TransformResolverOption>) const final;
+    void updateLayerTransform() final;
+    bool needsHasSVGTransformFlags() const final;
+
+    AffineTransform m_supplementalLayerTransform;
 };
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderSVGTransformableContainer, isSVGTransformableContainer())
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderSVGTransformableContainer, isRenderSVGTransformableContainer())

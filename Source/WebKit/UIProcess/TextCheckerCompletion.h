@@ -28,6 +28,7 @@
 #include "IdentifierTypes.h"
 #include <WebCore/TextChecking.h>
 #include <wtf/Forward.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebKit {
 
@@ -37,19 +38,19 @@ class WebPageProxy;
 
 class TextCheckerCompletion : public RefCounted<TextCheckerCompletion> {
 public:
-    static Ref<TextCheckerCompletion> create(TextCheckerRequestID, const WebCore::TextCheckingRequestData&, WebPageProxy*);
+    static Ref<TextCheckerCompletion> create(TextCheckerRequestID, const WebCore::TextCheckingRequestData&, WebPageProxy&);
 
-    const WebCore::TextCheckingRequestData& textCheckingRequestData() const;
+    const WebCore::TextCheckingRequestData& NODELETE textCheckingRequestData() const;
     SpellDocumentTag spellDocumentTag();
     void didFinishCheckingText(const Vector<WebCore::TextCheckingResult>&) const;
     void didCancelCheckingText() const;
 
 private:
-    TextCheckerCompletion(TextCheckerRequestID, const WebCore::TextCheckingRequestData&, WebPageProxy*);
+    TextCheckerCompletion(TextCheckerRequestID, const WebCore::TextCheckingRequestData&, WebPageProxy&);
 
     const TextCheckerRequestID m_requestID;
     const WebCore::TextCheckingRequestData m_requestData;
-    WebPageProxy* m_page;
+    WeakPtr<WebPageProxy> m_page;
 };
 
 } // namespace WebKit

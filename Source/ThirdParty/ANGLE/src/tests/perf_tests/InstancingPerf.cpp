@@ -8,7 +8,9 @@
 //
 
 #include "ANGLEPerfTest.h"
+#include "common/unsafe_buffers.h"
 
+#include <array>
 #include <cmath>
 #include <sstream>
 
@@ -140,9 +142,9 @@ void InstancingPerfBenchmark::initializeBenchmark()
 
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 
-    GLuint baseIndexData[6]     = {0, 1, 2, 1, 3, 2};
-    Vector2 basePositionData[4] = {Vector2(-1.0f, 1.0f), Vector2(1.0f, 1.0f), Vector2(-1.0f, -1.0f),
-                                   Vector2(1.0f, -1.0f)};
+    static constexpr std::array<GLuint, 6> baseIndexData = {0, 1, 2, 1, 3, 2};
+    std::array<Vector2, 4> basePositionData = {Vector2(-1.0f, 1.0f), Vector2(1.0f, 1.0f),
+                                               Vector2(-1.0f, -1.0f), Vector2(1.0f, -1.0f)};
 
     std::vector<GLuint> indexData;
     std::vector<Vector2> positionData;
@@ -273,10 +275,10 @@ void InstancingPerfBenchmark::drawBenchmark()
 
     const auto &params = GetParam();
 
-    // Animatino makes the test more interesting visually, but also eats up many CPU cycles.
+    // Animation makes the test more interesting visually, but also eats up many CPU cycles.
     if (params.animationEnabled)
     {
-        float time = static_cast<float>(mTimer.getElapsedTime());
+        float time = static_cast<float>(mTrialTimer.getElapsedWallClockTime());
 
         for (size_t pointIndex = 0; pointIndex < mTranslateData.size(); ++pointIndex)
         {
@@ -330,6 +332,13 @@ InstancingPerfParams InstancingPerfD3D11Params()
     return params;
 }
 
+InstancingPerfParams InstancingPerfMetalParams()
+{
+    InstancingPerfParams params;
+    params.eglParameters = METAL();
+    return params;
+}
+
 InstancingPerfParams InstancingPerfOpenGLOrGLESParams()
 {
     InstancingPerfParams params;
@@ -344,6 +353,7 @@ TEST_P(InstancingPerfBenchmark, Run)
 
 ANGLE_INSTANTIATE_TEST(InstancingPerfBenchmark,
                        InstancingPerfD3D11Params(),
+                       InstancingPerfMetalParams(),
                        InstancingPerfOpenGLOrGLESParams());
 
 }  // anonymous namespace

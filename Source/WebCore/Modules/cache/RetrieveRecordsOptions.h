@@ -26,69 +26,23 @@
 
 #pragma once
 
-#include "CrossOriginEmbedderPolicy.h"
-#include "ResourceRequest.h"
-#include "SecurityOrigin.h"
+#include <WebCore/CrossOriginEmbedderPolicy.h>
+#include <WebCore/ResourceRequest.h>
+#include <WebCore/SecurityOrigin.h>
 
 namespace WebCore {
 
 struct RetrieveRecordsOptions {
-    RetrieveRecordsOptions isolatedCopy() const { return { request.isolatedCopy(), crossOriginEmbedderPolicy.isolatedCopy(), sourceOrigin->isolatedCopy(), ignoreSearch, ignoreMethod, ignoreVary, shouldProvideResponse }; }
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<RetrieveRecordsOptions> decode(Decoder&);
+    RetrieveRecordsOptions isolatedCopy() const & { return { request.isolatedCopy(), crossOriginEmbedderPolicy.isolatedCopy(), sourceOrigin->isolatedCopy(), ignoreSearch, ignoreMethod, ignoreVary, shouldProvideResponse }; }
+    RetrieveRecordsOptions isolatedCopy() && { return { WTF::move(request).isolatedCopy(), WTF::move(crossOriginEmbedderPolicy).isolatedCopy(), sourceOrigin->isolatedCopy(), ignoreSearch, ignoreMethod, ignoreVary, shouldProvideResponse }; }
 
     ResourceRequest request;
     CrossOriginEmbedderPolicy crossOriginEmbedderPolicy;
-    Ref<SecurityOrigin> sourceOrigin;
+    const Ref<SecurityOrigin> sourceOrigin;
     bool ignoreSearch { false };
     bool ignoreMethod { false };
     bool ignoreVary { false };
     bool shouldProvideResponse { true };
 };
-
-template<class Encoder> inline void RetrieveRecordsOptions::encode(Encoder& encoder) const
-{
-    encoder << request << crossOriginEmbedderPolicy << sourceOrigin.get() << ignoreSearch << ignoreMethod << ignoreVary << shouldProvideResponse;
-}
-
-template<class Decoder> inline std::optional<RetrieveRecordsOptions> RetrieveRecordsOptions::decode(Decoder& decoder)
-{
-    std::optional<ResourceRequest> request;
-    decoder >> request;
-    if (!request)
-        return std::nullopt;
-
-    std::optional<CrossOriginEmbedderPolicy> crossOriginEmbedderPolicy;
-    decoder >> crossOriginEmbedderPolicy;
-    if (!crossOriginEmbedderPolicy)
-        return std::nullopt;
-
-    auto sourceOrigin = SecurityOrigin::decode(decoder);
-    if (!sourceOrigin)
-        return std::nullopt;
-
-    std::optional<bool> ignoreSearch;
-    decoder >> ignoreSearch;
-    if (!ignoreSearch)
-        return std::nullopt;
-
-    std::optional<bool> ignoreMethod;
-    decoder >> ignoreMethod;
-    if (!ignoreMethod)
-        return std::nullopt;
-
-    std::optional<bool> ignoreVary;
-    decoder >> ignoreVary;
-    if (!ignoreVary)
-        return std::nullopt;
-
-    std::optional<bool> shouldProvideResponse;
-    decoder >> shouldProvideResponse;
-    if (!shouldProvideResponse)
-        return std::nullopt;
-
-    return { { WTFMove(*request), WTFMove(*crossOriginEmbedderPolicy), sourceOrigin.releaseNonNull(), WTFMove(*ignoreSearch), WTFMove(*ignoreMethod), WTFMove(*ignoreVary), WTFMove(*shouldProvideResponse) } };
-}
 
 } // namespace WebCore

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -41,7 +41,7 @@ public:
     static Ref<GeolocationPositionError> create(ErrorCode code, const String& message) { return adoptRef(*new GeolocationPositionError(code, message)); }
 
     ErrorCode code() const { return m_code; }
-    const String& message() const { return m_message; }
+    const String& message() const LIFETIME_BOUND { return m_message; }
     void setIsFatal(bool isFatal) { m_isFatal = isFatal; }
     bool isFatal() const { return m_isFatal; }
     

@@ -26,49 +26,57 @@
 #include "config.h"
 #include "WebProgressTrackerClient.h"
 
+#include "APIInjectedBundlePageLoaderClient.h"
+#include "MessageSenderInlines.h"
 #include "WebPage.h"
 #include "WebPageProxyMessages.h"
-#include <WebCore/Frame.h>
+#include <WebCore/LocalFrame.h>
 #include <WebCore/Page.h>
 #include <WebCore/ProgressTracker.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 using namespace WebCore;
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebProgressTrackerClient);
 
 WebProgressTrackerClient::WebProgressTrackerClient(WebPage& webPage)
     : m_webPage(webPage)
 {
 }
 
-void WebProgressTrackerClient::progressStarted(Frame& originatingProgressFrame)
+void WebProgressTrackerClient::progressStarted(LocalFrame& originatingProgressFrame)
 {
     if (!originatingProgressFrame.isMainFrame())
         return;
 
-    m_webPage.setMainFrameProgressCompleted(false);
-    m_webPage.send(Messages::WebPageProxy::DidStartProgress());
+    Ref page = *m_webPage;
+    page->setMainFrameProgressCompleted(false);
+    page->send(Messages::WebPageProxy::DidStartProgress());
 }
 
-void WebProgressTrackerClient::progressEstimateChanged(Frame& originatingProgressFrame)
+void WebProgressTrackerClient::progressEstimateChanged(LocalFrame& originatingProgressFrame)
 {
     if (!originatingProgressFrame.isMainFrame())
         return;
-    
-    double progress = m_webPage.corePage()->progress().estimatedProgress();
-    m_webPage.send(Messages::WebPageProxy::DidChangeProgress(progress));
+
+    Ref page = *m_webPage;
+    double progress = page->corePage()->progress().estimatedProgress();
+    page->send(Messages::WebPageProxy::DidChangeProgress(progress));
 }
 
-void WebProgressTrackerClient::progressFinished(Frame& originatingProgressFrame)
+void WebProgressTrackerClient::progressFinished(LocalFrame& originatingProgressFrame)
 {
     if (!originatingProgressFrame.isMainFrame())
         return;
 
-    m_webPage.setMainFrameProgressCompleted(true);
+    Ref webPage = *m_webPage;
+    webPage->setMainFrameProgressCompleted(true);
 
     // Notify the bundle client.
-    m_webPage.injectedBundleLoaderClient().didFinishProgress(m_webPage);
+    webPage->injectedBundleLoaderClient().didFinishProgress(webPage);
 
-    m_webPage.send(Messages::WebPageProxy::DidFinishProgress());
+    webPage->send(Messages::WebPageProxy::DidFinishProgress());
 }
 
 } // namespace WebKit

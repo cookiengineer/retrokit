@@ -27,11 +27,11 @@
 #include "HTMLTimeElement.h"
 
 #include "HTMLNames.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLTimeElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLTimeElement);
 
 using namespace HTMLNames;
 
@@ -45,5 +45,7 @@ inline HTMLTimeElement::HTMLTimeElement(const QualifiedName& tagName, Document& 
 {
     ASSERT(hasTagName(timeTag));
 }
+
+HTMLTimeElement::~HTMLTimeElement() = default;
 
 } // namespace WebCore.

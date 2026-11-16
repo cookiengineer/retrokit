@@ -34,6 +34,10 @@
 #include "XRTargetRayMode.h"
 #include <wtf/Vector.h>
 
+#if ENABLE(WEBXR_HANDS)
+#include "FakeXRJointStateInit.h"
+#endif
+
 namespace WebCore {
 
 struct FakeXRInputSourceInit {
@@ -44,7 +48,10 @@ struct FakeXRInputSourceInit {
     bool selectionStarted { false };
     bool selectionClicked { false };
     Vector<FakeXRButtonStateInit> supportedButtons;
-    FakeXRRigidTransformInit gripOrigin;
+    std::optional<FakeXRRigidTransformInit> gripOrigin;
+#if ENABLE(WEBXR_HANDS)
+    Vector<FakeXRJointStateInit> handJoints;
+#endif
 };
 
 } // namespace WebCore

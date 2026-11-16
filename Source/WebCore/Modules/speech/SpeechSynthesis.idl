@@ -24,18 +24,22 @@
  */
 
 // https://wicg.github.io/speech-api/#speechsynthesis
-// FIXME: This is not specified as "LegacyNoInterfaceObject". It should have an interface object and be Exposed=Window.
 [
+    ActiveDOMObject,
+    EnabledBySetting=SpeechSynthesisAPIEnabled,
     Conditional=SPEECH_SYNTHESIS,
-    LegacyNoInterfaceObject,
-] interface SpeechSynthesis  {
+    Exposed=Window,
+] interface SpeechSynthesis : EventTarget {
+
     readonly attribute boolean pending;
     readonly attribute boolean speaking;
     readonly attribute boolean paused;
 
+    attribute EventHandler onvoiceschanged;
+  
     undefined speak(SpeechSynthesisUtterance utterance);
     undefined cancel();
     undefined pause();
-    undefined resume();
+    [ImplementedAs=resumeSynthesis] undefined resume();
     sequence<SpeechSynthesisVoice> getVoices();
 };

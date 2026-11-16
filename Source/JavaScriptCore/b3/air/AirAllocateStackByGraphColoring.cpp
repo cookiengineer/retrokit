@@ -35,6 +35,7 @@
 #include "AirLiveness.h"
 #include "AirPhaseScope.h"
 #include "AirStackAllocation.h"
+#include "AirStackAllocatorStats.h"
 #include <wtf/InterferenceGraph.h>
 #include <wtf/ListDump.h>
 
@@ -59,7 +60,7 @@ protected:
 
     // We will perform some spill coalescing. To make that effective, we need to be able to identify
     // coalescable moves and handle them specially in interference analysis.
-    bool isCoalescableMove(Inst& inst) const
+    bool NODELETE isCoalescableMove(Inst& inst) const
     {
         if (!Options::coalesceSpillSlots())
             return false;
@@ -76,33 +77,36 @@ protected:
         case MoveDouble:
             width = Width64;
             break;
+        case MoveVector:
+            width = Width128;
+            break;
         default:
             return false;
         }
 
-        if (inst.args.size() != 3)
+        if (inst.args().size() != 3)
             return false;
 
         for (unsigned i = 0; i < 2; ++i) {
-            Arg arg = inst.args[i];
+            Arg arg = inst.args()[i];
             if (!arg.isStack())
                 return false;
             StackSlot* slot = arg.stackSlot();
             if (slot->kind() != StackSlotKind::Spill)
                 return false;
-            if (slot->byteSize() != bytes(width))
+            if (slot->byteSize() != bytesForWidth(width))
                 return false;
         }
 
         return true;
     }
 
-    bool isUselessMove(Inst& inst) const
+    bool NODELETE isUselessMove(Inst& inst) const
     {
-        return isCoalescableMove(inst) && inst.args[0] == inst.args[1];
+        return isCoalescableMove(inst) && inst.args()[0] == inst.args()[1];
     }
 
-    unsigned remap(unsigned slotIndex) const
+    unsigned NODELETE remap(unsigned slotIndex) const
     {
         for (;;) {
             unsigned remappedSlotIndex = m_remappedStackSlotIndices[slotIndex];
@@ -112,12 +116,12 @@ protected:
         }
     }
 
-    StackSlot* remapStackSlot(StackSlot* slot) const
+    StackSlot* NODELETE remapStackSlot(StackSlot* slot) const
     {
         return m_code.stackSlots()[remap(slot->index())];
     }
 
-    bool isRemappedSlotIndex(unsigned slotIndex) const
+    bool NODELETE isRemappedSlotIndex(unsigned slotIndex) const
     {
         return m_remappedStackSlotIndices[slotIndex] != slotIndex;
     };
@@ -142,6 +146,19 @@ public:
     {
         StackSlotLiveness liveness(m_code);
 
+        buildInterferenceGraph(liveness);
+        coalesceSlots();
+        assignStackLocations(assignedEscapedStackSlots);
+
+        updateFrameSizeBasedOnStackSlots(m_code);
+        m_stats.frameSize = m_code.frameSize();
+    }
+
+private:
+    void buildInterferenceGraph(StackSlotLiveness& liveness)
+    {
+        CompilerTimingScope timingScope("Air"_s, "StackAllocator::build"_s);
+
         for (BasicBlock* block : m_code) {
             StackSlotLiveness::LocalCalc localCalc(liveness, block);
 
@@ -152,7 +169,7 @@ public:
                 Inst* prevInst = block->get(instIndex);
                 Inst* nextInst = block->get(instIndex + 1);
                 if (prevInst && isCoalescableMove(*prevInst)) {
-                    CoalescableMove move(prevInst->args[0].stackSlot()->index(), prevInst->args[1].stackSlot()->index(), block->frequency());
+                    CoalescableMove move(prevInst->args()[0].stackSlot()->index(), prevInst->args()[1].stackSlot()->index(), block->frequency());
 
                     m_coalescableMoves.append(move);
 
@@ -241,13 +258,20 @@ public:
                 dataLog("\n");
             }
         }
+    }
+
+    void coalesceSlots()
+    {
+        CompilerTimingScope timingScope("Air"_s, "StackAllocator::coalesce"_s);
+
+        if (m_stats.collectingStats()) {
+            m_stats.numStackSlots = m_code.stackSlots().size();
+            m_stats.stackSlotInterferenceSizeBytes = m_interference.memoryUse();
+            m_stats.numStackSlotsCoalesceableMoves = m_coalescableMoves.size();
+        }
 
         // Now try to coalesce some moves.
-        std::sort(
-            m_coalescableMoves.begin(), m_coalescableMoves.end(),
-            [&] (CoalescableMove& a, CoalescableMove& b) -> bool {
-                return a.frequency > b.frequency;
-            });
+        std::ranges::sort(m_coalescableMoves, std::ranges::greater { }, &CoalescableMove::frequency);
 
         for (const CoalescableMove& move : m_coalescableMoves) {
             IndexType slotToKill = remap(move.src);
@@ -257,6 +281,7 @@ public:
             if (m_interference.contains(slotToKill, slotToKeep))
                 continue;
 
+            m_stats.numStackSlotsCoalesced++;
             m_remappedStackSlotIndices[slotToKill] = slotToKeep;
 
             for (IndexType interferingSlot : m_interference[slotToKill])
@@ -266,7 +291,7 @@ public:
 
         for (BasicBlock* block : m_code) {
             for (Inst& inst : *block) {
-                for (Arg& arg : inst.args) {
+                for (Arg& arg : inst.args()) {
                     if (arg.isStack())
                         arg = Arg::stack(remapStackSlot(arg.stackSlot()), arg.offset());
                 }
@@ -274,9 +299,14 @@ public:
                     inst = Inst();
             }
         }
+    }
+
+    void assignStackLocations(const Vector<StackSlot*>& assignedEscapedStackSlots)
+    {
+        CompilerTimingScope timingScope("Air"_s, "StackAllocator::assign"_s);
 
         // Now we assign stack locations. At its heart this algorithm is just first-fit. For each
-        // StackSlot we just want to find the offsetFromFP that is closest to zero while ensuring no
+        // StackSlot we just want to find the offsetFromFP that is least negative while ensuring no
         // overlap with other StackSlots that this overlaps with.
         Vector<StackSlot*> otherSlots = assignedEscapedStackSlots;
         for (StackSlot* slot : m_code.stackSlots()) {
@@ -288,19 +318,21 @@ public:
                 continue;
             }
 
-            otherSlots.resize(assignedEscapedStackSlots.size());
+            otherSlots.shrink(0);
+            otherSlots.appendVector(assignedEscapedStackSlots);
             for (unsigned otherSlotIndex : m_interference[slot->index()]) {
                 if (isRemappedSlotIndex(otherSlotIndex))
                     continue;
                 StackSlot* otherSlot = m_code.stackSlots()[otherSlotIndex];
-                otherSlots.append(otherSlot);
+                if (otherSlot->offsetFromFP())
+                    otherSlots.append(otherSlot);
             }
 
+            std::ranges::sort(otherSlots, std::ranges::greater { }, &StackSlot::offsetFromFP);
             assign(slot, otherSlots);
         }
     }
 
-private:
     struct CoalescableMove {
         CoalescableMove()
         {
@@ -313,17 +345,7 @@ private:
         {
         }
 
-        bool operator==(const CoalescableMove& other) const
-        {
-            return src == other.src
-                && dst == other.dst
-                && frequency == other.frequency;
-        }
-
-        bool operator!=(const CoalescableMove& other) const
-        {
-            return !(*this == other);
-        }
+        friend bool operator==(const CoalescableMove&, const CoalescableMove&) = default;
 
         explicit operator bool() const
         {
@@ -354,17 +376,18 @@ private:
 
     InterferenceGraph m_interference;
     Vector<CoalescableMove> m_coalescableMoves;
+    AirStackAllocatorStats m_stats;
 };
 
-// We try to avoid computing the liveness information if there is no spill slot to allocate
-bool tryTrivialStackAllocation(Code& code)
+// Avoid computing the liveness information if there is no spill slot to allocate
+bool doTrivialStackAllocation(Code& code)
 {
     for (StackSlot* slot : code.stackSlots()) {
         if (slot->offsetFromFP())
             continue;
         return false;
     }
-
+    updateFrameSizeBasedOnStackSlots(code);
     return true;
 }
 
@@ -372,14 +395,14 @@ bool tryTrivialStackAllocation(Code& code)
 
 void allocateStackByGraphColoring(Code& code)
 {
-    PhaseScope phaseScope(code, "allocateStackByGraphColoring");
+    PhaseScope phaseScope(code, "allocateStackByGraphColoring"_s);
 
     handleCalleeSaves(code);
 
     Vector<StackSlot*> assignedEscapedStackSlots =
         allocateAndGetEscapedStackSlotsWithoutChangingFrameSize(code);
 
-    if (!tryTrivialStackAllocation(code)) {
+    if (!doTrivialStackAllocation(code)) {
         if (code.stackSlots().size() < WTF::maxSizeForSmallInterferenceGraph) {
             GraphColoringStackAllocator<SmallIterableInterferenceGraph> allocator(code);
             allocator.run(assignedEscapedStackSlots);
@@ -392,7 +415,6 @@ void allocateStackByGraphColoring(Code& code)
         }
     }
 
-    updateFrameSizeBasedOnStackSlots(code);
     code.setStackIsAllocated(true);
 }
 

@@ -25,32 +25,37 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
 #include "SWServer.h"
 #include "ServiceWorkerJobData.h"
 #include "Timer.h"
+#include "WorkerFetchResult.h"
+#include <wtf/CheckedPtr.h>
 #include <wtf/Deque.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class SWServerWorker;
+class ServiceWorkerJob;
+struct WorkerFetchResult;
 
-class SWServerJobQueue {
-    WTF_MAKE_FAST_ALLOCATED;
+class SWServerJobQueue final : public CanMakeCheckedPtr<SWServerJobQueue>, public CanMakeWeakPtr<SWServerJobQueue> {
+    WTF_MAKE_TZONE_ALLOCATED(SWServerJobQueue);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SWServerJobQueue);
 public:
     explicit SWServerJobQueue(SWServer&, const ServiceWorkerRegistrationKey&);
     SWServerJobQueue(const SWServerRegistration&) = delete;
     ~SWServerJobQueue();
 
-    const ServiceWorkerJobData& firstJob() const { return m_jobQueue.first(); }
-    const ServiceWorkerJobData& lastJob() const { return m_jobQueue.last(); }
-    void enqueueJob(ServiceWorkerJobData&& jobData) { m_jobQueue.append(WTFMove(jobData)); }
+    const ServiceWorkerJobData& firstJob() const LIFETIME_BOUND { return m_jobQueue.first(); }
+    const ServiceWorkerJobData& lastJob() const LIFETIME_BOUND { return m_jobQueue.last(); }
+    void enqueueJob(ServiceWorkerJobData&& jobData) { m_jobQueue.append(WTF::move(jobData)); }
     size_t size() const { return m_jobQueue.size(); }
 
     void runNextJob();
 
-    void scriptFetchFinished(const ServiceWorkerFetchResult&);
+    void scriptFetchFinished(const ServiceWorkerJobDataIdentifier&, const std::optional<ProcessIdentifier>&, WorkerFetchResult&&);
+    void importedScriptsFetchFinished(const ServiceWorkerJobDataIdentifier&, const Vector<std::pair<URL, ScriptBuffer>>&, const std::optional<ProcessIdentifier>&);
     void scriptContextFailedToStart(const ServiceWorkerJobDataIdentifier&, ServiceWorkerIdentifier, const String& message);
     void scriptContextStarted(const ServiceWorkerJobDataIdentifier&, ServiceWorkerIdentifier);
     void didFinishInstall(const ServiceWorkerJobDataIdentifier&, SWServerWorker&, bool wasSuccessful);
@@ -58,7 +63,7 @@ public:
     void cancelJobsFromConnection(SWServerConnectionIdentifier);
     void cancelJobsFromServiceWorker(ServiceWorkerIdentifier);
 
-    bool isCurrentlyProcessingJob(const ServiceWorkerJobDataIdentifier&) const;
+    bool NODELETE isCurrentlyProcessingJob(const ServiceWorkerJobDataIdentifier&) const;
 
 private:
     void jobTimerFired();
@@ -72,15 +77,17 @@ private:
 
     void install(SWServerRegistration&, ServiceWorkerIdentifier);
 
-    void removeAllJobsMatching(const WTF::Function<bool(ServiceWorkerJobData&)>&);
+    void removeAllJobsMatching(NOESCAPE const Function<bool(ServiceWorkerJobData&)>&);
+    void scriptAndImportedScriptsFetchFinished(const ServiceWorkerJobData&, SWServerRegistration&);
+
+    SWServer& server() const { return m_server.get(); }
 
     Deque<ServiceWorkerJobData> m_jobQueue;
 
     Timer m_jobTimer;
-    SWServer& m_server;
+    WeakRef<SWServer> m_server;
     ServiceWorkerRegistrationKey m_registrationKey;
+    WorkerFetchResult m_workerFetchResult;
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)

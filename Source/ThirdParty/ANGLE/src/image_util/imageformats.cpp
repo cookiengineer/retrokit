@@ -124,6 +124,27 @@ void A8L8::average(A8L8 *dst, const A8L8 *src1, const A8L8 *src2)
                        (*(uint16_t *)src1 & *(uint16_t *)src2);
 }
 
+void L4A4::readColor(gl::ColorF *dst, const L4A4 *src)
+{
+    const float lum = gl::normalizedToFloat<4>(src->L);
+    dst->red        = lum;
+    dst->green      = lum;
+    dst->blue       = lum;
+    dst->alpha      = gl::normalizedToFloat<4>(src->A);
+}
+
+void L4A4::writeColor(L4A4 *dst, const gl::ColorF *src)
+{
+    dst->L = gl::floatToNormalized<4, uint8_t>(src->red);
+    dst->A = gl::floatToNormalized<4, uint8_t>(src->alpha);
+}
+
+void L4A4::average(L4A4 *dst, const L4A4 *src1, const L4A4 *src2)
+{
+    dst->L = gl::average(src1->L, src2->L);
+    dst->A = gl::average(src1->A, src2->A);
+}
+
 void R8G8::readColor(gl::ColorUI *dst, const R8G8 *src)
 {
     dst->red   = src->R;
@@ -259,17 +280,17 @@ void R5G6B5::average(R5G6B5 *dst, const R5G6B5 *src1, const R5G6B5 *src2)
 
 void B5G6R5::readColor(gl::ColorF *dst, const B5G6R5 *src)
 {
-    dst->red   = gl::normalizedToFloat<5>(gl::getShiftedData<5, 11>(src->BGR));
+    dst->red   = gl::normalizedToFloat<5>(gl::getShiftedData<5, 0>(src->BGR));
     dst->green = gl::normalizedToFloat<6>(gl::getShiftedData<6, 5>(src->BGR));
-    dst->blue  = gl::normalizedToFloat<5>(gl::getShiftedData<5, 0>(src->BGR));
+    dst->blue  = gl::normalizedToFloat<5>(gl::getShiftedData<5, 11>(src->BGR));
     dst->alpha = 1.0f;
 }
 
 void B5G6R5::writeColor(B5G6R5 *dst, const gl::ColorF *src)
 {
-    dst->BGR = gl::shiftData<5, 0>(gl::floatToNormalized<5, unsigned short>(src->blue)) |
+    dst->BGR = gl::shiftData<5, 11>(gl::floatToNormalized<5, unsigned short>(src->blue)) |
                gl::shiftData<6, 5>(gl::floatToNormalized<6, unsigned short>(src->green)) |
-               gl::shiftData<5, 11>(gl::floatToNormalized<5, unsigned short>(src->red));
+               gl::shiftData<5, 0>(gl::floatToNormalized<5, unsigned short>(src->red));
 }
 
 void B5G6R5::average(B5G6R5 *dst, const B5G6R5 *src1, const B5G6R5 *src2)
@@ -376,18 +397,9 @@ void R8G8B8A8SRGB::writeColor(R8G8B8A8SRGB *dst, const gl::ColorF *src)
 
 void R8G8B8A8SRGB::average(R8G8B8A8SRGB *dst, const R8G8B8A8SRGB *src1, const R8G8B8A8SRGB *src2)
 {
-    dst->R =
-        gl::linearToSRGB(static_cast<uint8_t>((static_cast<uint16_t>(gl::sRGBToLinear(src1->R)) +
-                                               static_cast<uint16_t>(gl::sRGBToLinear(src2->R))) >>
-                                              1));
-    dst->G =
-        gl::linearToSRGB(static_cast<uint8_t>((static_cast<uint16_t>(gl::sRGBToLinear(src1->G)) +
-                                               static_cast<uint16_t>(gl::sRGBToLinear(src2->G))) >>
-                                              1));
-    dst->B =
-        gl::linearToSRGB(static_cast<uint8_t>((static_cast<uint16_t>(gl::sRGBToLinear(src1->B)) +
-                                               static_cast<uint16_t>(gl::sRGBToLinear(src2->B))) >>
-                                              1));
+    dst->R = gl::linearToSRGB((gl::sRGBToLinear(src1->R) + gl::sRGBToLinear(src2->R)) * 0.5f);
+    dst->G = gl::linearToSRGB((gl::sRGBToLinear(src1->G) + gl::sRGBToLinear(src2->G)) * 0.5f);
+    dst->B = gl::linearToSRGB((gl::sRGBToLinear(src1->B) + gl::sRGBToLinear(src2->B)) * 0.5f);
     dst->A = static_cast<uint8_t>(
         (static_cast<uint16_t>(src1->A) + static_cast<uint16_t>(src2->A)) >> 1);
 }
@@ -463,6 +475,45 @@ void B8G8R8X8::writeColor(B8G8R8X8 *dst, const gl::ColorF *src)
 }
 
 void B8G8R8X8::average(B8G8R8X8 *dst, const B8G8R8X8 *src1, const B8G8R8X8 *src2)
+{
+    *(uint32_t *)dst = (((*(uint32_t *)src1 ^ *(uint32_t *)src2) & 0xFEFEFEFE) >> 1) +
+                       (*(uint32_t *)src1 & *(uint32_t *)src2);
+    dst->X = 255;
+}
+
+void R8G8B8X8::readColor(gl::ColorUI *dst, const R8G8B8X8 *src)
+{
+    dst->red   = src->R;
+    dst->green = src->G;
+    dst->blue  = src->B;
+    dst->alpha = 1;
+}
+
+void R8G8B8X8::readColor(gl::ColorF *dst, const R8G8B8X8 *src)
+{
+    dst->red   = gl::normalizedToFloat(src->R);
+    dst->green = gl::normalizedToFloat(src->G);
+    dst->blue  = gl::normalizedToFloat(src->B);
+    dst->alpha = 1.0f;
+}
+
+void R8G8B8X8::writeColor(R8G8B8X8 *dst, const gl::ColorUI *src)
+{
+    dst->R = static_cast<uint8_t>(src->red);
+    dst->G = static_cast<uint8_t>(src->green);
+    dst->B = static_cast<uint8_t>(src->blue);
+    dst->X = 255;
+}
+
+void R8G8B8X8::writeColor(R8G8B8X8 *dst, const gl::ColorF *src)
+{
+    dst->R = gl::floatToNormalized<uint8_t>(src->red);
+    dst->G = gl::floatToNormalized<uint8_t>(src->green);
+    dst->B = gl::floatToNormalized<uint8_t>(src->blue);
+    dst->X = 255;
+}
+
+void R8G8B8X8::average(R8G8B8X8 *dst, const R8G8B8X8 *src1, const R8G8B8X8 *src2)
 {
     *(uint32_t *)dst = (((*(uint32_t *)src1 ^ *(uint32_t *)src2) & 0xFEFEFEFE) >> 1) +
                        (*(uint32_t *)src1 & *(uint32_t *)src2);
@@ -1790,6 +1841,48 @@ void B10G10R10A2::average(B10G10R10A2 *dst, const B10G10R10A2 *src1, const B10G1
     dst->A = gl::average(src1->A, src2->A);
 }
 
+void R10X6G10X6B10X6A10X6::readColor(gl::ColorF *dst, const R10X6G10X6B10X6A10X6 *src)
+{
+    dst->red   = gl::normalizedToFloat<10>(src->R);
+    dst->green = gl::normalizedToFloat<10>(src->G);
+    dst->blue  = gl::normalizedToFloat<10>(src->B);
+    dst->alpha = gl::normalizedToFloat<10>(src->A);
+}
+
+void R10X6G10X6B10X6A10X6::readColor(gl::ColorUI *dst, const R10X6G10X6B10X6A10X6 *src)
+{
+    dst->red   = static_cast<uint32_t>(src->R);
+    dst->green = static_cast<uint32_t>(src->G);
+    dst->blue  = static_cast<uint32_t>(src->B);
+    dst->alpha = static_cast<uint32_t>(src->A);
+}
+
+void R10X6G10X6B10X6A10X6::writeColor(R10X6G10X6B10X6A10X6 *dst, const gl::ColorF *src)
+{
+    dst->R = gl::floatToNormalized<10, uint16_t>(src->red);
+    dst->G = gl::floatToNormalized<10, uint16_t>(src->green);
+    dst->B = gl::floatToNormalized<10, uint16_t>(src->blue);
+    dst->A = gl::floatToNormalized<10, uint16_t>(src->alpha);
+}
+
+void R10X6G10X6B10X6A10X6::writeColor(R10X6G10X6B10X6A10X6 *dst, const gl::ColorUI *src)
+{
+    dst->R = static_cast<uint16_t>(src->red);
+    dst->G = static_cast<uint16_t>(src->green);
+    dst->B = static_cast<uint16_t>(src->blue);
+    dst->A = static_cast<uint16_t>(src->alpha);
+}
+
+void R10X6G10X6B10X6A10X6::average(R10X6G10X6B10X6A10X6 *dst,
+                                   const R10X6G10X6B10X6A10X6 *src1,
+                                   const R10X6G10X6B10X6A10X6 *src2)
+{
+    dst->R = gl::average(src1->R, src2->R);
+    dst->G = gl::average(src1->G, src2->G);
+    dst->B = gl::average(src1->B, src2->B);
+    dst->A = gl::average(src1->A, src2->A);
+}
+
 void R9G9B9E5::readColor(gl::ColorF *dst, const R9G9B9E5 *src)
 {
     gl::convert999E5toRGBFloats(gl::bitCast<uint32_t>(*src), &dst->red, &dst->green, &dst->blue);
@@ -1872,7 +1965,7 @@ void D16::WriteDepthStencil(D16 *dst, const DepthStencil *src)
 
 void D24X8::ReadDepthStencil(DepthStencil *dst, const D24X8 *src)
 {
-    dst->depth = gl::normalizedToFloat<24>(src->D & 0x00ffffff);
+    dst->depth = gl::normalizedToFloat<24>(src->D);
 }
 
 void D24X8::WriteDepthStencil(D24X8 *dst, const DepthStencil *src)

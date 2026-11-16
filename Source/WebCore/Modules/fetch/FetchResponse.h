@@ -29,11 +29,12 @@
 #pragma once
 
 #include "FetchBodyOwner.h"
-#include "FetchHeaders.h"
-#include "ReadableStreamSink.h"
-#include "ResourceResponse.h"
 #include <JavaScriptCore/TypedArrays.h>
-#include <wtf/Span.h>
+#include <WebCore/FetchHeaders.h>
+#include <WebCore/HTTPStatusCodes.h>
+#include <WebCore/ResourceResponse.h>
+#include <span>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 
 namespace JSC {
@@ -45,6 +46,7 @@ namespace WebCore {
 
 class AbortSignal;
 class FetchRequest;
+class FetchResponseBodyLoader;
 class ReadableStreamSource;
 
 class FetchResponse final : public FetchBodyOwner {
@@ -52,19 +54,25 @@ public:
     using Type = ResourceResponse::Type;
 
     struct Init {
-        unsigned short status { 200 };
-        String statusText;
+        unsigned short status { httpStatus200OK };
+        AtomString statusText;
         std::optional<FetchHeaders::Init> headers;
     };
 
-    WEBCORE_EXPORT static Ref<FetchResponse> create(ScriptExecutionContext&, std::optional<FetchBody>&&, FetchHeaders::Guard, ResourceResponse&&);
+    virtual ~FetchResponse();
+
+    WEBCORE_EXPORT static Ref<FetchResponse> create(ScriptExecutionContext*, std::optional<FetchBody>&&, FetchHeaders::Guard, ResourceResponse&&);
+    static Ref<FetchResponse> create(ScriptExecutionContext*, std::optional<FetchBody>&&, Ref<FetchHeaders>&&, ResourceResponse&&);
 
     static ExceptionOr<Ref<FetchResponse>> create(ScriptExecutionContext&, std::optional<FetchBody::Init>&&, Init&&);
+    static ExceptionOr<Ref<FetchResponse>> create(ScriptExecutionContext&, std::optional<FetchBodyWithType>&&, Init&&);
     static Ref<FetchResponse> error(ScriptExecutionContext&);
     static ExceptionOr<Ref<FetchResponse>> redirect(ScriptExecutionContext&, const String& url, int status);
+    static ExceptionOr<Ref<FetchResponse>> jsonForBindings(ScriptExecutionContext&, JSC::JSValue data, Init&&);
 
-    using NotificationCallback = WTF::Function<void(ExceptionOr<FetchResponse&>&&)>;
-    static void fetch(ScriptExecutionContext&, FetchRequest&, NotificationCallback&&);
+    using NotificationCallback = Function<void(ExceptionOr<Ref<FetchResponse>>&&)>;
+    static void fetch(ScriptExecutionContext&, FetchRequest&, NotificationCallback&&, const String& initiator);
+    static Ref<FetchResponse> createFetchResponse(ScriptExecutionContext&, FetchRequest&, NotificationCallback&&);
 
     void startConsumingStream(unsigned);
     void consumeChunk(Ref<JSC::Uint8Array>&&);
@@ -75,11 +83,11 @@ public:
     bool redirected() const { return filteredResponse().isRedirected(); }
     int status() const { return filteredResponse().httpStatusCode(); }
     bool ok() const { return filteredResponse().isSuccessful(); }
-    const String& statusText() const { return filteredResponse().httpStatusText(); }
+    const String& statusText() const LIFETIME_BOUND { return filteredResponse().httpStatusText(); }
 
     const FetchHeaders& headers() const { return m_headers; }
     FetchHeaders& headers() { return m_headers; }
-    ExceptionOr<Ref<FetchResponse>> clone(ScriptExecutionContext&);
+    ExceptionOr<Ref<FetchResponse>> clone(JSDOMGlobalObject&);
 
     void consumeBodyAsStream() final;
     void feedStream() final;
@@ -89,13 +97,14 @@ public:
     ResponseData consumeBody();
     void setBodyData(ResponseData&&, uint64_t bodySizeWithPadding);
 
-    bool isLoading() const { return !!m_bodyLoader; }
+    bool isLoading() const { return !!m_loader; }
     bool isBodyReceivedByChunk() const { return isLoading() || hasReadableStreamBody(); }
     bool isBlobBody() const { return !isBodyNull() && body().isBlob(); }
     bool isBlobFormData() const { return !isBodyNull() && body().isFormData(); }
 
-    using ConsumeDataByChunkCallback = Function<void(ExceptionOr<Span<const uint8_t>*>&&)>;
+    using ConsumeDataByChunkCallback = Function<void(ExceptionOr<std::span<const uint8_t>*>&&)>;
     void consumeBodyReceivedByChunk(ConsumeDataByChunkCallback&&);
+    void cancelStream();
 
     WEBCORE_EXPORT ResourceResponse resourceResponse() const;
     ResourceResponse::Tainting tainting() const { return m_internalResponse.tainting(); }
@@ -106,61 +115,94 @@ public:
 
     void initializeOpaqueLoadIdentifierForTesting() { m_opaqueLoadIdentifier = 1; }
 
-    const HTTPHeaderMap& internalResponseHeaders() const { return m_internalResponse.httpHeaderFields(); }
+    const HTTPHeaderMap& internalResponseHeaders() const LIFETIME_BOUND { return m_internalResponse.httpHeaderFields(); }
 
-    bool isCORSSameOrigin() const;
+    bool NODELETE isCORSSameOrigin() const;
     bool hasWasmMIMEType() const;
 
+    const NetworkLoadMetrics& networkLoadMetrics() const LIFETIME_BOUND { return m_networkLoadMetrics; }
+    void setReceivedInternalResponse(const ResourceResponse&, FetchOptions::Credentials);
+    void startLoader(ScriptExecutionContext&, FetchRequest&, const String& initiator);
+
+    void setIsNavigationPreload(bool isNavigationPreload) { m_isNavigationPreload = isNavigationPreload; }
+    bool isAvailableNavigationPreload() const { return m_isNavigationPreload && m_loader && !m_loader->hasLoader() && !hasReadableStreamBody(); }
+    void NODELETE markAsUsedForPreload();
+    bool isUsedForPreload() const { return m_isUsedForPreload; }
+
+    void setBodyLoader(UniqueRef<FetchResponseBodyLoader>&&);
+    void receivedError(Exception&&);
+    void receivedError(ResourceError&&);
+    void didSucceed(const NetworkLoadMetrics&);
+    void receivedData(Ref<SharedBuffer>&&);
+
 private:
-    FetchResponse(ScriptExecutionContext&, std::optional<FetchBody>&&, Ref<FetchHeaders>&&, ResourceResponse&&);
+    FetchResponse(ScriptExecutionContext*, std::optional<FetchBody>&&, Ref<FetchHeaders>&&, ResourceResponse&&);
 
+    // FetchBodyOwner
     void stop() final;
-    const char* activeDOMObjectName() const final;
+    void loadBody() final;
 
-    const ResourceResponse& filteredResponse() const;
-
+    const ResourceResponse& NODELETE filteredResponse() const;
+    void setNetworkLoadMetrics(const NetworkLoadMetrics& metrics) { m_networkLoadMetrics = metrics; }
     void closeStream();
 
     void addAbortSteps(Ref<AbortSignal>&&);
+    void processReceivedError();
 
-    class BodyLoader final : public FetchLoaderClient {
-        WTF_MAKE_FAST_ALLOCATED;
+    class Loader final : public RefCounted<Loader>, public FetchLoaderClient {
+        WTF_MAKE_TZONE_ALLOCATED(Loader);
     public:
-        BodyLoader(FetchResponse&, NotificationCallback&&);
-        ~BodyLoader();
+        static Ref<Loader> create(FetchResponse&, NotificationCallback&&);
+        ~Loader();
 
-        bool start(ScriptExecutionContext&, const FetchRequest&);
+        // FetchLoaderClient.
+        void ref() const final { RefCounted::ref(); }
+        void deref() const final { RefCounted::deref(); }
+
+        bool start(ScriptExecutionContext&, const FetchRequest&, const String& initiator);
         void stop();
 
         void consumeDataByChunk(ConsumeDataByChunkCallback&&);
 
-        RefPtr<SharedBuffer> startStreaming();
-        NotificationCallback takeNotificationCallback() { return WTFMove(m_responseCallback); }
-        ConsumeDataByChunkCallback takeConsumeDataCallback() { return WTFMove(m_consumeDataCallback); }
+        bool hasLoader() const { return !!m_loader; }
+
+        RefPtr<FragmentedSharedBuffer> startStreaming();
+        NotificationCallback takeNotificationCallback() { return WTF::move(m_responseCallback); }
+        ConsumeDataByChunkCallback takeConsumeDataCallback() { return WTF::move(m_consumeDataCallback); }
 
     private:
+        Loader(FetchResponse&, NotificationCallback&&);
+
         // FetchLoaderClient API
-        void didSucceed() final;
+        void didSucceed(const NetworkLoadMetrics&) final;
         void didFail(const ResourceError&) final;
         void didReceiveResponse(const ResourceResponse&) final;
-        void didReceiveData(const uint8_t*, size_t) final;
+        void didReceiveData(const SharedBuffer&) final;
 
-        FetchResponse& m_response;
+        WeakPtr<FetchResponse> m_response;
         NotificationCallback m_responseCallback;
         ConsumeDataByChunkCallback m_consumeDataCallback;
-        std::unique_ptr<FetchLoader> m_loader;
-        Ref<PendingActivity<FetchResponse>> m_pendingActivity;
+        RefPtr<FetchLoader> m_loader;
+        const Ref<PendingActivity<FetchResponse>> m_pendingActivity;
         FetchOptions::Credentials m_credentials;
+        bool m_shouldStartStreaming { false };
     };
+
+    Loader* loader() const { return m_loader.get(); }
 
     mutable std::optional<ResourceResponse> m_filteredResponse;
     ResourceResponse m_internalResponse;
-    std::unique_ptr<BodyLoader> m_bodyLoader;
+    RefPtr<Loader> m_loader;
+    std::unique_ptr<FetchResponseBodyLoader> m_bodyLoader;
     mutable String m_responseURL;
     // Opaque responses will padd their body size when used with Cache API.
     uint64_t m_bodySizeWithPadding { 0 };
     uint64_t m_opaqueLoadIdentifier { 0 };
     RefPtr<AbortSignal> m_abortSignal;
+    NetworkLoadMetrics m_networkLoadMetrics;
+    bool m_hasInitializedInternalResponse { false };
+    bool m_isNavigationPreload { false };
+    bool m_isUsedForPreload { false };
 };
 
 } // namespace WebCore

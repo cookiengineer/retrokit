@@ -6,6 +6,10 @@
 
 // test_utils_posix.cpp: Implementation of OS-specific functions for Posix systems
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include "util/test_utils.h"
 
 #include <dlfcn.h>
@@ -18,21 +22,33 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#include <array>
 #include <cstdarg>
 #include <cstring>
 #include <iostream>
 
 #include "common/debug.h"
 #include "common/platform.h"
+#include "common/system_utils.h"
 
 #if !defined(ANGLE_PLATFORM_FUCHSIA)
 #    include <sys/resource.h>
+#endif
+
+#if defined(ANGLE_PLATFORM_MACOS)
+#    include <crt_externs.h>
 #endif
 
 namespace angle
 {
 namespace
 {
+
+#if defined(ANGLE_PLATFORM_MACOS)
+// Argument to skip the file hooking step. Might be automatically added by InitMetalFileAPIHooking()
+constexpr char kSkipFileHookingArg[] = "--skip-file-hooking";
+#endif
+
 struct ScopedPipe
 {
     ~ScopedPipe()
@@ -52,7 +68,7 @@ struct ScopedPipe
 
     bool valid() const { return fds[0] != -1 || fds[1] != -1; }
 
-    int fds[2] = {
+    std::array<int, 2> fds = {
         -1,
         -1,
     };
@@ -64,6 +80,7 @@ enum class ReadResult
     GotData,
 };
 
+#if !defined(ANGLE_PLATFORM_APPLETV)
 ReadResult ReadFromFile(int fd, std::string *out)
 {
     constexpr size_t kBufSize = 2048;
@@ -95,18 +112,24 @@ class PosixProcess : public Process
 {
   public:
     PosixProcess(const std::vector<const char *> &commandLineArgs,
-                 bool captureStdOut,
-                 bool captureStdErr)
+                 ProcessOutputCapture captureOutput)
     {
         if (commandLineArgs.empty())
         {
             return;
         }
 
+        const bool captureStdout = captureOutput != ProcessOutputCapture::Nothing;
+        const bool captureStderr =
+            captureOutput == ProcessOutputCapture::StdoutAndStderrInterleaved ||
+            captureOutput == ProcessOutputCapture::StdoutAndStderrSeparately;
+        const bool pipeStderrToStdout =
+            captureOutput == ProcessOutputCapture::StdoutAndStderrInterleaved;
+
         // Create pipes for stdout and stderr.
-        if (captureStdOut)
+        if (captureStdout)
         {
-            if (pipe(mStdoutPipe.fds) != 0)
+            if (pipe(mStdoutPipe.fds.data()) != 0)
             {
                 std::cerr << "Error calling pipe: " << errno << "\n";
                 return;
@@ -117,9 +140,9 @@ class PosixProcess : public Process
                 return;
             }
         }
-        if (captureStdErr)
+        if (captureStderr && !pipeStderrToStdout)
         {
-            if (pipe(mStderrPipe.fds) != 0)
+            if (pipe(mStderrPipe.fds.data()) != 0)
             {
                 std::cerr << "Error calling pipe: " << errno << "\n";
                 return;
@@ -145,7 +168,7 @@ class PosixProcess : public Process
             // Child.  Execute the application.
 
             // Redirect stdout and stderr to the pipe fds.
-            if (captureStdOut)
+            if (captureStdout)
             {
                 if (dup2(mStdoutPipe.fds[1], STDOUT_FILENO) < 0)
                 {
@@ -153,7 +176,14 @@ class PosixProcess : public Process
                 }
                 mStdoutPipe.closeEndPoint(1);
             }
-            if (captureStdErr)
+            if (pipeStderrToStdout)
+            {
+                if (dup2(STDOUT_FILENO, STDERR_FILENO) < 0)
+                {
+                    _exit(errno);
+                }
+            }
+            else if (captureStderr)
             {
                 if (dup2(mStderrPipe.fds[1], STDERR_FILENO) < 0)
                 {
@@ -297,11 +327,7 @@ class PosixProcess : public Process
     int mExitCode = 0;
     pid_t mPID    = -1;
 };
-
-std::string TempFileName()
-{
-    return std::string(".angle.XXXXXX");
-}
+#endif
 }  // anonymous namespace
 
 void Sleep(unsigned int milliseconds)
@@ -314,9 +340,10 @@ void Sleep(unsigned int milliseconds)
     }
     else
     {
-        timespec sleepTime = {
-            .tv_sec  = milliseconds / 1000,
-            .tv_nsec = (milliseconds % 1000) * 1000000,
+        long milliseconds_long = milliseconds;
+        timespec sleepTime     = {
+                .tv_sec  = milliseconds_long / 1000,
+                .tv_nsec = (milliseconds_long % 1000) * 1000000,
         };
 
         nanosleep(&sleepTime, nullptr);
@@ -334,7 +361,9 @@ void WriteDebugMessage(const char *format, ...)
 {
     va_list vararg;
     va_start(vararg, format);
+    ANGLE_DISABLE_NONLITERAL_FORMAT_WARNING
     vfprintf(stderr, format, vararg);
+    ANGLE_REENABLE_NONLITERAL_FORMAT_WARNING
     va_end(vararg);
 }
 
@@ -364,7 +393,7 @@ bool StabilizeCPUForBenchmarking()
         success = false;
     }
 #    else
-    // TODO(jmadill): Implement for non-linux. http://anglebug.com/2923
+    // TODO(jmadill): Implement for non-linux. http://anglebug.com/40096532
 #    endif
 
     return success;
@@ -373,44 +402,18 @@ bool StabilizeCPUForBenchmarking()
 #endif
 }
 
-bool GetTempDir(char *tempDirOut, uint32_t maxDirNameLen)
-{
-    const char *tmp = getenv("TMPDIR");
-    if (tmp)
-    {
-        strncpy(tempDirOut, tmp, maxDirNameLen);
-        return true;
-    }
-
-#if defined(ANGLE_PLATFORM_ANDROID)
-    // Not used right now in the ANGLE test runner.
-    // return PathService::Get(DIR_CACHE, path);
-    return false;
-#else
-    strncpy(tempDirOut, "/tmp", maxDirNameLen);
-    return true;
-#endif
-}
-
-bool CreateTemporaryFileInDir(const char *dir, char *tempFileNameOut, uint32_t maxFileNameLen)
-{
-    std::string tempFile = TempFileName();
-    sprintf(tempFileNameOut, "%s/%s", dir, tempFile.c_str());
-    int fd = mkstemp(tempFileNameOut);
-    close(fd);
-    return fd != -1;
-}
-
-bool DeleteFile(const char *path)
+bool DeleteSystemFile(const char *path)
 {
     return unlink(path) == 0;
 }
 
-Process *LaunchProcess(const std::vector<const char *> &args,
-                       bool captureStdout,
-                       bool captureStderr)
+Process *LaunchProcess(const std::vector<const char *> &args, ProcessOutputCapture captureOutput)
 {
-    return new PosixProcess(args, captureStdout, captureStderr);
+#if !defined(ANGLE_PLATFORM_APPLETV)
+    return new PosixProcess(args, captureOutput);
+#else
+    return nullptr;
+#endif
 }
 
 int NumberOfProcessors()
@@ -447,4 +450,73 @@ const char *GetNativeEGLLibraryNameWithExtension()
     return "unknown_libegl";
 #endif
 }
+
+#if defined(ANGLE_PLATFORM_MACOS)
+void InitMetalFileAPIHooking(int argc, char **argv)
+{
+    if (argc < 1)
+    {
+        return;
+    }
+
+    for (int i = 0; i < argc; ++i)
+    {
+        if (strncmp(argv[i], kSkipFileHookingArg, strlen(kSkipFileHookingArg)) == 0)
+        {
+            return;
+        }
+    }
+
+    constexpr char kInjectLibVarName[]    = "DYLD_INSERT_LIBRARIES";
+    constexpr size_t kInjectLibVarNameLen = sizeof(kInjectLibVarName) - 1;
+
+    std::string exeDir = GetExecutableDirectory();
+    if (!exeDir.empty() && exeDir.back() != '/')
+    {
+        exeDir += "/";
+    }
+
+    // Intercept Metal shader cache access and return as if the cache doesn't exist.
+    // This is to avoid slow shader cache mechanism that caused the test timeout in the past.
+    // In order to do that, we need to hook the file API functions by making sure
+    // libmetal_shader_cache_file_hooking.dylib library is loaded first before any other libraries.
+    std::string injectLibsVar =
+        std::string(kInjectLibVarName) + "=" + exeDir + "libmetal_shader_cache_file_hooking.dylib";
+
+    char skipHookOption[sizeof(kSkipFileHookingArg)];
+    memcpy(skipHookOption, kSkipFileHookingArg, sizeof(kSkipFileHookingArg));
+
+    // Construct environment variables
+    std::vector<char *> newEnv;
+    char **environ = *_NSGetEnviron();
+    for (int i = 0; environ[i]; ++i)
+    {
+        if (strncmp(environ[i], kInjectLibVarName, kInjectLibVarNameLen) == 0)
+        {
+            injectLibsVar += ':';
+            injectLibsVar += environ[i] + kInjectLibVarNameLen + 1;
+        }
+        else
+        {
+            newEnv.push_back(environ[i]);
+        }
+    }
+    newEnv.push_back(strdup(injectLibsVar.data()));
+    newEnv.push_back(nullptr);
+
+    // Construct arguments with kSkipFileHookingArg flag to skip the hooking after re-launching.
+    std::vector<char *> newArgs;
+    newArgs.push_back(argv[0]);
+    newArgs.push_back(skipHookOption);
+    for (int i = 1; i < argc; ++i)
+    {
+        newArgs.push_back(argv[i]);
+    }
+    newArgs.push_back(nullptr);
+
+    // Re-launch the app with file API hooked.
+    ASSERT(-1 != execve(argv[0], newArgs.data(), newEnv.data()));
+}
+#endif
+
 }  // namespace angle

@@ -24,9 +24,10 @@
 #include "DOMObjectCache.h"
 #include <WebCore/DOMException.h>
 #include <WebCore/Document.h>
-#include "GObjectEventListener.h"
+#include <WebCore/ElementInlines.h>
 #include <WebCore/HTMLNames.h>
 #include <WebCore/JSExecState.h>
+#include "GObjectEventListener.h"
 #include "WebKitDOMEventPrivate.h"
 #include "WebKitDOMEventTarget.h"
 #include "WebKitDOMHTMLTableCellElementPrivate.h"
@@ -93,7 +94,9 @@ static void webkit_dom_html_table_cell_element_dom_event_target_init(WebKitDOMEv
     iface->remove_event_listener = webkit_dom_html_table_cell_element_remove_event_listener;
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK port
 G_DEFINE_TYPE_WITH_CODE(WebKitDOMHTMLTableCellElement, webkit_dom_html_table_cell_element, WEBKIT_DOM_TYPE_HTML_ELEMENT, G_IMPLEMENT_INTERFACE(WEBKIT_DOM_TYPE_EVENT_TARGET, webkit_dom_html_table_cell_element_dom_event_target_init))
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 enum {
     DOM_HTML_TABLE_CELL_ELEMENT_PROP_0,
@@ -410,8 +413,7 @@ void webkit_dom_html_table_cell_element_set_align(WebKitDOMHTMLTableCellElement*
     g_return_if_fail(WEBKIT_DOM_IS_HTML_TABLE_CELL_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLTableCellElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::alignAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::alignAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_html_table_cell_element_get_axis(WebKitDOMHTMLTableCellElement* self)
@@ -429,8 +431,7 @@ void webkit_dom_html_table_cell_element_set_axis(WebKitDOMHTMLTableCellElement* 
     g_return_if_fail(WEBKIT_DOM_IS_HTML_TABLE_CELL_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLTableCellElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::axisAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::axisAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_html_table_cell_element_get_bg_color(WebKitDOMHTMLTableCellElement* self)
@@ -448,8 +449,7 @@ void webkit_dom_html_table_cell_element_set_bg_color(WebKitDOMHTMLTableCellEleme
     g_return_if_fail(WEBKIT_DOM_IS_HTML_TABLE_CELL_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLTableCellElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::bgcolorAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::bgcolorAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_html_table_cell_element_get_ch(WebKitDOMHTMLTableCellElement* self)
@@ -467,8 +467,7 @@ void webkit_dom_html_table_cell_element_set_ch(WebKitDOMHTMLTableCellElement* se
     g_return_if_fail(WEBKIT_DOM_IS_HTML_TABLE_CELL_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLTableCellElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::charAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::charAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_html_table_cell_element_get_ch_off(WebKitDOMHTMLTableCellElement* self)
@@ -486,8 +485,7 @@ void webkit_dom_html_table_cell_element_set_ch_off(WebKitDOMHTMLTableCellElement
     g_return_if_fail(WEBKIT_DOM_IS_HTML_TABLE_CELL_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLTableCellElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::charoffAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::charoffAttr, WTF::AtomString::fromUTF8(value));
 }
 
 glong webkit_dom_html_table_cell_element_get_col_span(WebKitDOMHTMLTableCellElement* self)
@@ -512,7 +510,7 @@ glong webkit_dom_html_table_cell_element_get_row_span(WebKitDOMHTMLTableCellElem
     WebCore::JSMainThreadNullState state;
     g_return_val_if_fail(WEBKIT_DOM_IS_HTML_TABLE_CELL_ELEMENT(self), 0);
     WebCore::HTMLTableCellElement* item = WebKit::core(self);
-    glong result = item->rowSpanForBindings();
+    glong result = item->rowSpan();
     return result;
 }
 
@@ -521,7 +519,7 @@ void webkit_dom_html_table_cell_element_set_row_span(WebKitDOMHTMLTableCellEleme
     WebCore::JSMainThreadNullState state;
     g_return_if_fail(WEBKIT_DOM_IS_HTML_TABLE_CELL_ELEMENT(self));
     WebCore::HTMLTableCellElement* item = WebKit::core(self);
-    item->setRowSpanForBindings(value);
+    item->setRowSpan(value);
 }
 
 gchar* webkit_dom_html_table_cell_element_get_headers(WebKitDOMHTMLTableCellElement* self)
@@ -539,8 +537,7 @@ void webkit_dom_html_table_cell_element_set_headers(WebKitDOMHTMLTableCellElemen
     g_return_if_fail(WEBKIT_DOM_IS_HTML_TABLE_CELL_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLTableCellElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::headersAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::headersAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_html_table_cell_element_get_height(WebKitDOMHTMLTableCellElement* self)
@@ -558,8 +555,7 @@ void webkit_dom_html_table_cell_element_set_height(WebKitDOMHTMLTableCellElement
     g_return_if_fail(WEBKIT_DOM_IS_HTML_TABLE_CELL_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLTableCellElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::heightAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::heightAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gboolean webkit_dom_html_table_cell_element_get_no_wrap(WebKitDOMHTMLTableCellElement* self)
@@ -594,8 +590,7 @@ void webkit_dom_html_table_cell_element_set_v_align(WebKitDOMHTMLTableCellElemen
     g_return_if_fail(WEBKIT_DOM_IS_HTML_TABLE_CELL_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLTableCellElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::valignAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::valignAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_html_table_cell_element_get_width(WebKitDOMHTMLTableCellElement* self)
@@ -613,8 +608,7 @@ void webkit_dom_html_table_cell_element_set_width(WebKitDOMHTMLTableCellElement*
     g_return_if_fail(WEBKIT_DOM_IS_HTML_TABLE_CELL_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLTableCellElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::widthAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::widthAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_html_table_cell_element_get_abbr(WebKitDOMHTMLTableCellElement* self)
@@ -632,8 +626,7 @@ void webkit_dom_html_table_cell_element_set_abbr(WebKitDOMHTMLTableCellElement* 
     g_return_if_fail(WEBKIT_DOM_IS_HTML_TABLE_CELL_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLTableCellElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::abbrAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::abbrAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_html_table_cell_element_get_scope(WebKitDOMHTMLTableCellElement* self)
@@ -651,8 +644,7 @@ void webkit_dom_html_table_cell_element_set_scope(WebKitDOMHTMLTableCellElement*
     g_return_if_fail(WEBKIT_DOM_IS_HTML_TABLE_CELL_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLTableCellElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setScope(convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::scopeAttr, WTF::AtomString::fromUTF8(value));
 }
 
 G_GNUC_END_IGNORE_DEPRECATIONS;

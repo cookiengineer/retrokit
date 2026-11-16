@@ -26,8 +26,7 @@
 typedef (object or DOMString) HashAlgorithmIdentifier;
 
 [
-    Conditional=WEB_CRYPTO,
-    ImplementedAs=CryptoAlgorithmHkdfParams,
+    ImplementedAs=CryptoAlgorithmHkdfParamsInit,
 ] dictionary HkdfParams : CryptoAlgorithmParameters {
     // The algorithm to use with HMAC (e.g.: SHA-256)
     required HashAlgorithmIdentifier hash;

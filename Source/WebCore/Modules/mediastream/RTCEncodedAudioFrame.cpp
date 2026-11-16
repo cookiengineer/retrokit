@@ -24,23 +24,28 @@
  */
 
 #include "config.h"
-#include "RTCEncodedAudioFrame.h"
 
 #if ENABLE(WEB_RTC)
+#include "RTCEncodedAudioFrame.h"
+
+#include <JavaScriptCore/ArrayBuffer.h>
 
 namespace WebCore {
 
+Ref<RTCEncodedAudioFrame> RTCEncodedAudioFrame::create(RTCEncodedAudioFrame& frame, const Options& options)
+{
+    auto rtcFrame = frame.serialize();
+    if (options.metadata)
+        rtcFrame->setOptions(*options.metadata);
+    return create(WTF::move(rtcFrame));
+}
+
 RTCEncodedAudioFrame::RTCEncodedAudioFrame(Ref<RTCRtpTransformableFrame>&& frame)
-    : RTCEncodedFrame(WTFMove(frame))
+    : RTCEncodedFrame(WTF::move(frame))
 {
 }
 
 RTCEncodedAudioFrame::~RTCEncodedAudioFrame() = default;
-
-uint64_t RTCEncodedAudioFrame::timestamp() const
-{
-    return m_frame->timestamp();
-}
 
 const RTCEncodedAudioFrame::Metadata& RTCEncodedAudioFrame::getMetadata()
 {

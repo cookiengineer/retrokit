@@ -29,56 +29,71 @@
 #include "config.h"
 #include "AccessibilityListBoxOption.h"
 
-#include "AXObjectCache.h"
-#include "AccessibilityListBox.h"
+#include "AXLoggerBase.h"
+#include "AXObjectCacheInlines.h"
+#include "AccessibilityNodeObjectInlines.h"
+#include "AccessibilityObjectInlines.h"
+#include "ContainerNodeInlines.h"
+#include "ElementInlines.h"
 #include "HTMLNames.h"
 #include "HTMLOptGroupElement.h"
 #include "HTMLOptionElement.h"
 #include "HTMLSelectElement.h"
 #include "IntRect.h"
 #include "RenderListBox.h"
+#include "RenderObjectInlines.h"
 
 namespace WebCore {
 
 using namespace HTMLNames;
-    
-AccessibilityListBoxOption::AccessibilityListBoxOption(HTMLElement& element)
-    : m_optionElement(makeWeakPtr(element))
+
+AccessibilityListBoxOption::AccessibilityListBoxOption(AXID axID, RenderObject& renderer, AXObjectCache& cache)
+    : AccessibilityRenderObject(axID, renderer, cache)
+{
+}
+
+AccessibilityListBoxOption::AccessibilityListBoxOption(AXID axID, HTMLElement& element, AXObjectCache& cache)
+    : AccessibilityRenderObject(axID, static_cast<Node&>(element), cache)
 {
 }
 
 AccessibilityListBoxOption::~AccessibilityListBoxOption() = default;
-    
-Ref<AccessibilityListBoxOption> AccessibilityListBoxOption::create(HTMLElement& element)
+
+AccessibilityRole AccessibilityListBoxOption::determineAccessibilityRole()
 {
-    return adoptRef(*new AccessibilityListBoxOption(element));
+    // Base-appearance select options live inside a popover and behave as menu
+    // items (activate to select and close), not listbox options (toggle selection
+    // in an always-visible list).
+    if (RefPtr option = dynamicDowncast<HTMLOptionElement>(m_node.get())) {
+        if (RefPtr select = option->ownerSelectElement(); select && select->usesBaseAppearancePicker())
+            return AccessibilityRole::MenuItem;
+    }
+    return AccessibilityRole::ListBoxOption;
 }
-    
+
+Ref<AccessibilityListBoxOption> AccessibilityListBoxOption::create(AXID axID, HTMLElement& element, AXObjectCache& cache)
+{
+    if (CheckedPtr renderer = element.renderer())
+        return adoptRef(*new AccessibilityListBoxOption(axID, *renderer, cache));
+    return adoptRef(*new AccessibilityListBoxOption(axID, element, cache));
+}
+
 bool AccessibilityListBoxOption::isEnabled() const
 {
-    if (is<HTMLOptGroupElement>(m_optionElement.get()))
-        return false;
-
-    if (equalLettersIgnoringASCIICase(getAttribute(aria_disabledAttr), "true"))
-        return false;
-
-    if (m_optionElement->hasAttributeWithoutSynchronization(disabledAttr))
-        return false;
-    
-    return true;
+    return !(is<HTMLOptGroupElement>(m_node.get())
+        || equalLettersIgnoringASCIICase(getAttribute(aria_disabledAttr), "true"_s)
+        || hasAttribute(disabledAttr));
 }
-    
+
 bool AccessibilityListBoxOption::isSelected() const
 {
-    if (!is<HTMLOptionElement>(m_optionElement.get()))
-        return false;
-
-    return downcast<HTMLOptionElement>(*m_optionElement).selected();
+    RefPtr option = dynamicDowncast<HTMLOptionElement>(m_node.get());
+    return option && option->selected();
 }
 
 bool AccessibilityListBoxOption::isSelectedOptionActive() const
 {
-    HTMLSelectElement* listBoxParentNode = listBoxOptionParentNode();
+    RefPtr listBoxParentNode = listBoxOptionParentNode();
     if (!listBoxParentNode)
         return false;
 
@@ -87,136 +102,137 @@ bool AccessibilityListBoxOption::isSelectedOptionActive() const
 
 LayoutRect AccessibilityListBoxOption::elementRect() const
 {
-    LayoutRect rect;
-    if (!m_optionElement)
-        return rect;
-    
-    HTMLSelectElement* listBoxParentNode = listBoxOptionParentNode();
+    if (!m_node)
+        return { };
+
+    RefPtr listBoxParentNode = listBoxOptionParentNode();
     if (!listBoxParentNode)
-        return rect;
-    
-    RenderElement* listBoxRenderer = listBoxParentNode->renderer();
+        return { };
+
+    CheckedPtr listBoxRenderer = dynamicDowncast<RenderListBox>(listBoxParentNode->renderer());
     if (!listBoxRenderer)
-        return rect;
-    
-    LayoutRect parentRect = listBoxRenderer->document().axObjectCache()->getOrCreate(listBoxRenderer)->boundingBoxRect();
+        return AccessibilityRenderObject::elementRect();
+
+    WeakPtr cache = protect(listBoxRenderer->document())->axObjectCache();
+    RefPtr listbox = cache ? cache->getOrCreate(*listBoxRenderer) : nullptr;
+    if (!listbox)
+        return { };
+
+    auto parentRect = listbox->boundingBoxRect();
     int index = listBoxOptionIndex();
     if (index != -1)
-        rect = downcast<RenderListBox>(*listBoxRenderer).itemBoundingBoxRect(parentRect.location(), index);
-    
-    return rect;
+        return listBoxRenderer->itemBoundingBoxRect(parentRect.location(), index);
+    return { };
 }
 
-bool AccessibilityListBoxOption::computeAccessibilityIsIgnored() const
+bool AccessibilityListBoxOption::computeIsIgnored() const
 {
-    if (!m_optionElement)
+    if (!m_node || isIgnoredByDefault())
         return true;
 
-    if (accessibilityIsIgnoredByDefault())
-        return true;
-
-    auto* parent = parentObject();
-    return parent ? parent->accessibilityIsIgnored() : true;
+    RefPtr parent = parentObject();
+    return parent ? parent->isIgnored() : true;
 }
-    
+
 bool AccessibilityListBoxOption::canSetSelectedAttribute() const
 {
-    if (!is<HTMLOptionElement>(m_optionElement.get()))
+    RefPtr optionElement = dynamicDowncast<HTMLOptionElement>(m_node.get());
+    if (!optionElement)
         return false;
-    
-    if (m_optionElement->isDisabledFormControl())
+
+    if (optionElement->isDisabledFormControl())
         return false;
-    
-    HTMLSelectElement* selectElement = listBoxOptionParentNode();
-    if (selectElement && selectElement->isDisabledFormControl())
-        return false;
-    
-    return true;
+
+    RefPtr selectElement = listBoxOptionParentNode();
+    return !selectElement || !selectElement->isDisabledFormControl();
 }
-    
+
 String AccessibilityListBoxOption::stringValue() const
 {
-    if (!m_optionElement)
-        return String();
-    
-    const AtomString& ariaLabel = getAttribute(aria_labelAttr);
-    if (!ariaLabel.isNull())
+    if (!m_node)
+        return { };
+
+    auto ariaLabel = getAttributeTrimmed(aria_labelAttr);
+    if (!ariaLabel.isEmpty())
         return ariaLabel;
-    
-    if (is<HTMLOptionElement>(*m_optionElement))
-        return downcast<HTMLOptionElement>(*m_optionElement).label();
-    
-    if (is<HTMLOptGroupElement>(*m_optionElement))
-        return downcast<HTMLOptGroupElement>(*m_optionElement).groupLabelText();
-    
-    return String();
+
+    if (RefPtr option = dynamicDowncast<HTMLOptionElement>(*m_node))
+        return option->label();
+
+    if (RefPtr optgroup = dynamicDowncast<HTMLOptGroupElement>(*m_node))
+        return optgroup->groupLabelText();
+
+    return { };
 }
 
 Element* AccessibilityListBoxOption::actionElement() const
 {
-    return m_optionElement.get();
-}
-
-Node* AccessibilityListBoxOption::node() const
-{
-    return m_optionElement.get();
+    AX_ASSERT(is<HTMLElement>(m_node.get()));
+    return dynamicDowncast<Element>(m_node.get());
 }
 
 AccessibilityObject* AccessibilityListBoxOption::parentObject() const
 {
-    HTMLSelectElement* parentNode = listBoxOptionParentNode();
+    RefPtr parentNode = listBoxOptionParentNode();
     if (!parentNode)
         return nullptr;
-    
-    return m_optionElement->document().axObjectCache()->getOrCreate(parentNode);
+
+    CheckedPtr cache = protect(m_node)->document().axObjectCache();
+    return cache ? cache->getOrCreate(*parentNode) : nullptr;
 }
 
 void AccessibilityListBoxOption::setSelected(bool selected)
 {
-    HTMLSelectElement* selectElement = listBoxOptionParentNode();
+    RefPtr selectElement = listBoxOptionParentNode();
     if (!selectElement)
         return;
-    
+
     if (!canSetSelectedAttribute())
         return;
-    
+
     bool isOptionSelected = isSelected();
     if ((isOptionSelected && selected) || (!isOptionSelected && !selected))
         return;
-    
+
     // Convert from the entire list index to the option index.
     int optionIndex = selectElement->listToOptionIndex(listBoxOptionIndex());
-    selectElement->accessKeySetSelectedIndex(optionIndex);
+
+    if (selected && selectElement->usesBaseAppearancePicker()) {
+        selectElement->optionSelectedByUser(optionIndex, true);
+        selectElement->hidePickerPopoverElement();
+    } else
+        selectElement->accessKeySetSelectedIndex(optionIndex);
 }
 
 HTMLSelectElement* AccessibilityListBoxOption::listBoxOptionParentNode() const
 {
-    if (!m_optionElement)
+    if (!m_node)
         return nullptr;
 
-    if (is<HTMLOptionElement>(*m_optionElement))
-        return downcast<HTMLOptionElement>(*m_optionElement).ownerSelectElement();
+    if (auto* option = dynamicDowncast<HTMLOptionElement>(*m_node))
+        return option->ownerSelectElement();
 
-    if (is<HTMLOptGroupElement>(*m_optionElement))
-        return downcast<HTMLOptGroupElement>(*m_optionElement).ownerSelectElement();
+    if (auto* optgroup = dynamicDowncast<HTMLOptGroupElement>(*m_node))
+        return optgroup->ownerSelectElement();
 
     return nullptr;
 }
 
 int AccessibilityListBoxOption::listBoxOptionIndex() const
 {
-    if (!m_optionElement)
+    if (!m_node)
         return -1;
-    
-    HTMLSelectElement* selectElement = listBoxOptionParentNode();
-    if (!selectElement) 
+
+    RefPtr selectElement = listBoxOptionParentNode();
+    if (!selectElement)
         return -1;
-    
+
     const auto& listItems = selectElement->listItems();
     unsigned length = listItems.size();
-    for (unsigned i = 0; i < length; i++)
-        if (listItems[i] == m_optionElement)
+    for (unsigned i = 0; i < length; i++) {
+        if (listItems[i] == m_node)
             return i;
+    }
 
     return -1;
 }

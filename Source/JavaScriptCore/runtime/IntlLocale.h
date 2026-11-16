@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2020 Sony Interactive Entertainment Inc.
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,7 +34,7 @@ class IntlLocale final : public JSNonFinalObject {
 public:
     using Base = JSNonFinalObject;
 
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
 
     static void destroy(JSCell* cell)
     {
@@ -42,7 +42,7 @@ public:
     }
 
     template<typename CellType, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         return vm.intlLocaleSpace<mode>();
     }
@@ -51,6 +51,8 @@ public:
     static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
     DECLARE_INFO;
+
+    DECLARE_VISIT_CHILDREN;
 
     void initializeLocale(JSGlobalObject*, const String& tag, JSValue optionsValue);
     void initializeLocale(JSGlobalObject*, JSValue tagValue, JSValue optionsValue);
@@ -61,10 +63,12 @@ public:
     const String& language();
     const String& script();
     const String& region();
+    const String& variants();
 
     const String& calendar();
     const String& caseFirst();
     const String& collation();
+    const String& firstDayOfWeek();
     const String& hourCycle();
     const String& numberingSystem();
     TriState numeric();
@@ -79,8 +83,7 @@ public:
 
 private:
     IntlLocale(VM&, Structure*);
-    void finishCreation(VM&);
-    DECLARE_VISIT_CHILDREN;
+    DECLARE_DEFAULT_FINISH_CREATION;
 
     String keywordValue(ASCIILiteral, bool isBoolean = false) const;
 
@@ -93,9 +96,12 @@ private:
     String m_language;
     String m_script;
     String m_region;
+    String m_variants;
+    String m_nonUnicodeExtensions;
     std::optional<String> m_calendar;
     std::optional<String> m_caseFirst;
     std::optional<String> m_collation;
+    std::optional<String> m_firstDayOfWeek;
     std::optional<String> m_hourCycle;
     std::optional<String> m_numberingSystem;
     TriState m_numeric { TriState::Indeterminate };

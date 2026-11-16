@@ -38,8 +38,6 @@ WindowFeatures::WindowFeatures(const WebCore::WindowFeatures& windowFeatures)
 {
 }
 
-WindowFeatures::~WindowFeatures()
-{
-}
+WindowFeatures::~WindowFeatures() = default;
 
 }

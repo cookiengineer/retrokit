@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010, 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2010, 2013-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,7 +26,50 @@
 #pragma once
 
 #include <wtf/Assertions.h>
+#include <wtf/Platform.h>
 #include <wtf/text/WTFString.h>
+
+#include "WebKitLogDefinitions.h"
+
+#define COMMA() ,
+#define OPTIONAL_ARGS(...) __VA_OPT__(COMMA()) __VA_ARGS__
+
+#if ENABLE(LOGD_BLOCKING_IN_WEBCONTENT)
+#include "LogClient.h"
+
+#define RELEASE_LOG_FORWARDABLE(category, logMessage, ...) do { \
+    if (auto* client = downcast<LogClient>(WebCore::logClient().get())) \
+        client->logMessage(__VA_ARGS__); \
+    else \
+        RELEASE_LOG(category, MESSAGE_##logMessage OPTIONAL_ARGS(__VA_ARGS__)); \
+} while (0)
+
+#define RELEASE_LOG_INFO_FORWARDABLE(category, logMessage, ...) do { \
+    if (auto* client = downcast<LogClient>(WebCore::logClient().get())) \
+        client->logMessage(__VA_ARGS__); \
+    else \
+        RELEASE_LOG_INFO(category, MESSAGE_##logMessage OPTIONAL_ARGS(__VA_ARGS__)); \
+} while (0)
+
+#define RELEASE_LOG_ERROR_FORWARDABLE(category, logMessage, ...) do { \
+    if (auto* client = downcast<LogClient>(WebCore::logClient().get())) \
+        client->logMessage(__VA_ARGS__); \
+    else \
+        RELEASE_LOG_ERROR(category, MESSAGE_##logMessage OPTIONAL_ARGS(__VA_ARGS__)); \
+} while (0)
+
+#define RELEASE_LOG_FAULT_FORWARDABLE(category, logMessage, ...) do { \
+    if (auto* client = downcast<LogClient>(WebCore::logClient().get())) \
+        client->logMessage(__VA_ARGS__); \
+    else \
+        RELEASE_LOG_FAULT(category, MESSAGE_##logMessage OPTIONAL_ARGS(__VA_ARGS__)); \
+} while (0)
+#else
+#define RELEASE_LOG_FORWARDABLE(category, logMessage, ...) RELEASE_LOG(category, MESSAGE_##logMessage OPTIONAL_ARGS(__VA_ARGS__))
+#define RELEASE_LOG_INFO_FORWARDABLE(category, logMessage, ...) RELEASE_LOG_INFO(category, MESSAGE_##logMessage OPTIONAL_ARGS(__VA_ARGS__))
+#define RELEASE_LOG_ERROR_FORWARDABLE(category, logMessage, ...) RELEASE_LOG_ERROR(category, MESSAGE_##logMessage OPTIONAL_ARGS(__VA_ARGS__))
+#define RELEASE_LOG_FAULT_FORWARDABLE(category, logMessage, ...) RELEASE_LOG_FAULT(category, MESSAGE_##logMessage OPTIONAL_ARGS(__VA_ARGS__))
+#endif // ENABLE(LOGD_BLOCKING_IN_WEBCONTENT)
 
 #if !LOG_DISABLED || !RELEASE_LOG_DISABLED
 
@@ -39,36 +82,47 @@ extern "C" {
 #endif
 
 #define WEBKIT2_LOG_CHANNELS(M) \
+    M(API) \
     M(ActivityState) \
-    M(PrivateClickMeasurement) \
+    M(AdvancedPrivacyProtections) \
     M(AppSSO) \
+    M(Animations) \
     M(Automation) \
     M(AutomationInteractions) \
     M(BackForward) \
     M(BackForwardCache) \
     M(CacheStorage) \
     M(ContentObservation) \
+    M(ContentRuleLists) \
     M(ContextMenu) \
+    M(DigitalCredentials) \
     M(DisplayLink) \
+    M(DisplayLists) \
     M(DiskPersistency) \
     M(DragAndDrop) \
     M(EME) \
+    M(EnhancedSecurity) \
+    M(Extensions) \
+    M(FrameTree) \
     M(Fullscreen) \
     M(Gamepad) \
+    M(GestureHandling) \
     M(IPC) \
+    M(IPCMessages) \
     M(ITPDebug) \
     M(IconDatabase) \
     M(Images) \
+    M(ImageAnalysis) \
     M(IncrementalPDF) \
     M(IncrementalPDFVerbose) \
     M(IndexedDB) \
     M(Inspector) \
     M(KeyHandling) \
+    M(Keychain) \
     M(Language) \
     M(Layers) \
     M(Layout) \
     M(Loading) \
-    M(LocalStorageDatabaseTracker) \
     M(Media) \
     M(MemoryPressure) \
     M(ModelElement) \
@@ -79,34 +133,59 @@ extern "C" {
     M(NetworkCacheStorage) \
     M(NetworkScheduling) \
     M(NetworkSession) \
+    M(Notifications) \
+    M(PDF) \
+    M(PDFAsyncRendering) \
+    M(PageLoadObserver) \
+    M(Pasteboard) \
     M(PerformanceLogging) \
+    M(PointerLock) \
     M(Plugins) \
     M(Printing) \
+    M(PrivateClickMeasurement) \
     M(Process) \
+    M(ProcessCapabilities) \
     M(ProcessSuspension) \
     M(ProcessSwapping) \
     M(ProximityNetworking) \
+    M(Push) \
+    M(RemoteLayerBuffers) \
     M(RemoteLayerTree) \
     M(Resize) \
     M(ResourceLoadStatistics) \
+    M(ResourceMonitoring) \
+    M(Sandbox) \
+    M(ScreenTime) \
+    M(ScrollAnimations) \
     M(Scrolling) \
+    M(SecureCoding) \
     M(Selection) \
     M(ServiceWorker) \
     M(SessionState) \
     M(SharedDisplayLists) \
+    M(SharedWorker) \
+    M(SiteIsolation) \
     M(Storage) \
     M(StorageAPI) \
+    M(SystemPreview) \
+    M(Telephony) \
+    M(TextExtraction) \
     M(TextInput) \
+    M(TextInteraction) \
+    M(Translation) \
     M(UIHitTesting) \
+    M(UserContentController) \
     M(ViewGestures) \
     M(ViewState) \
     M(ViewportSizing) \
     M(VirtualMemory) \
     M(VisibleRects) \
+    M(Vulkan) \
     M(WebAuthn) \
     M(WebGL) \
     M(WebRTC) \
     M(WheelEvents) \
+    M(Worker) \
     M(XR) \
 
 WEBKIT2_LOG_CHANNELS(DECLARE_LOG_CHANNEL)

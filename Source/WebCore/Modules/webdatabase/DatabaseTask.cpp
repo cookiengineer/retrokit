@@ -30,14 +30,14 @@
 #include "DatabaseTask.h"
 
 #include "Database.h"
+#include "ExceptionOr.h"
 #include "Logging.h"
 #include "SQLTransaction.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-DatabaseTaskSynchronizer::DatabaseTaskSynchronizer()
-{
-}
+DatabaseTaskSynchronizer::DatabaseTaskSynchronizer() = default;
 
 void DatabaseTaskSynchronizer::waitForTaskCompletion()
 {
@@ -52,6 +52,8 @@ void DatabaseTaskSynchronizer::taskCompleted()
     m_taskCompleted = true;
     m_synchronousCondition.notifyOne();
 }
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(DatabaseTask);
 
 DatabaseTask::DatabaseTask(Database& database, DatabaseTaskSynchronizer* synchronizer)
     : m_database(database)
@@ -69,9 +71,9 @@ void DatabaseTask::performTask()
     // Database tasks are meant to be used only once, so make sure this one hasn't been performed before.
     ASSERT(!m_complete);
 
-    LOG(StorageAPI, "Performing %s %p\n", debugTaskName(), this);
+    LOG(StorageAPI, "Performing %s %p\n", debugTaskName().characters(), this);
 
-    m_database.resetAuthorizer();
+    database()->resetAuthorizer();
 
     doPerformTask();
 
@@ -95,14 +97,14 @@ DatabaseOpenTask::DatabaseOpenTask(Database& database, bool setVersionInNewDatab
 
 void DatabaseOpenTask::doPerformTask()
 {
-    m_result = isolatedCopy(database().performOpenAndVerify(m_setVersionInNewDatabase));
+    m_result = crossThreadCopy(database()->performOpenAndVerify(m_setVersionInNewDatabase));
 }
 
 #if !LOG_DISABLED
 
-const char* DatabaseOpenTask::debugTaskName() const
+ASCIILiteral DatabaseOpenTask::debugTaskName() const
 {
-    return "DatabaseOpenTask";
+    return "DatabaseOpenTask"_s;
 }
 
 #endif
@@ -117,14 +119,14 @@ DatabaseCloseTask::DatabaseCloseTask(Database& database, DatabaseTaskSynchronize
 
 void DatabaseCloseTask::doPerformTask()
 {
-    database().performClose();
+    database()->performClose();
 }
 
 #if !LOG_DISABLED
 
-const char* DatabaseCloseTask::debugTaskName() const
+ASCIILiteral DatabaseCloseTask::debugTaskName() const
 {
-    return "DatabaseCloseTask";
+    return "DatabaseCloseTask"_s;
 }
 
 #endif
@@ -134,7 +136,7 @@ const char* DatabaseCloseTask::debugTaskName() const
 
 DatabaseTransactionTask::DatabaseTransactionTask(RefPtr<SQLTransaction>&& transaction)
     : DatabaseTask(transaction->database(), 0)
-    , m_transaction(WTFMove(transaction))
+    , m_transaction(WTF::move(transaction))
     , m_didPerformTask(false)
 {
 }
@@ -161,9 +163,9 @@ void DatabaseTransactionTask::doPerformTask()
 
 #if !LOG_DISABLED
 
-const char* DatabaseTransactionTask::debugTaskName() const
+ASCIILiteral DatabaseTransactionTask::debugTaskName() const
 {
-    return "DatabaseTransactionTask";
+    return "DatabaseTransactionTask"_s;
 }
 
 #endif
@@ -180,14 +182,14 @@ DatabaseTableNamesTask::DatabaseTableNamesTask(Database& database, DatabaseTaskS
 void DatabaseTableNamesTask::doPerformTask()
 {
     // FIXME: Why no need for an isolatedCopy here?
-    m_result = database().performGetTableNames();
+    m_result = database()->performGetTableNames();
 }
 
 #if !LOG_DISABLED
 
-const char* DatabaseTableNamesTask::debugTaskName() const
+ASCIILiteral DatabaseTableNamesTask::debugTaskName() const
 {
-    return "DatabaseTableNamesTask";
+    return "DatabaseTableNamesTask"_s;
 }
 
 #endif

@@ -25,13 +25,21 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if ENABLE(JIT)
 
-#include "CodeLocation.h"
+#include <JavaScriptCore/BytecodeIndex.h>
+#include <JavaScriptCore/CodeLocation.h>
+#include <wtf/MallocPtr.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/Vector.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
+
+DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(JITCodeMap);
 
 class JITCodeMap {
 public:
@@ -43,9 +51,9 @@ public:
         : m_size(indexes.size())
     {
         ASSERT(indexes.size() == codeLocations.size());
-        m_pointer = MallocPtr<uint8_t>::malloc(sizeof(CodeLocationLabel<JSEntryPtrTag>) * m_size + sizeof(BytecodeIndex) * m_size);
-        std::copy(codeLocations.begin(), codeLocations.end(), this->codeLocations());
-        std::copy(indexes.begin(), indexes.end(), this->indexes());
+        m_pointer = MallocPtr<uint8_t, JITCodeMapMalloc>::malloc(sizeof(CodeLocationLabel<JSEntryPtrTag>) * m_size + sizeof(BytecodeIndex) * m_size);
+        std::ranges::copy(codeLocations, this->codeLocations());
+        std::ranges::copy(indexes, this->indexes());
     }
 
     CodeLocationLabel<JSEntryPtrTag> find(BytecodeIndex bytecodeIndex) const
@@ -61,15 +69,15 @@ public:
 private:
     CodeLocationLabel<JSEntryPtrTag>* codeLocations() const
     {
-        return bitwise_cast<CodeLocationLabel<JSEntryPtrTag>*>(m_pointer.get());
+        return std::bit_cast<CodeLocationLabel<JSEntryPtrTag>*>(m_pointer.get());
     }
 
     BytecodeIndex* indexes() const
     {
-        return bitwise_cast<BytecodeIndex*>(m_pointer.get() + sizeof(CodeLocationLabel<JSEntryPtrTag>) * m_size);
+        return std::bit_cast<BytecodeIndex*>(m_pointer.get() + sizeof(CodeLocationLabel<JSEntryPtrTag>) * m_size);
     }
 
-    MallocPtr<uint8_t> m_pointer;
+    MallocPtr<uint8_t, JITCodeMapMalloc> m_pointer;
     unsigned m_size { 0 };
 };
 
@@ -85,7 +93,7 @@ public:
 
     JITCodeMap finalize()
     {
-        return JITCodeMap(WTFMove(m_indexes), WTFMove(m_codeLocations));
+        return JITCodeMap(WTF::move(m_indexes), WTF::move(m_codeLocations));
     }
 
 private:
@@ -94,5 +102,7 @@ private:
 };
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(JIT)

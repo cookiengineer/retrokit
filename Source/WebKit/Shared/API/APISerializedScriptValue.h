@@ -23,60 +23,15 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef APISerializedScriptValue_h
-#define APISerializedScriptValue_h
+#pragma once
 
-#include "APIObject.h"
-
-#include "DataReference.h"
-#include <WebCore/SerializedScriptValue.h>
-#include <wtf/RefPtr.h>
+#include <JavaScriptCore/JSRetainPtr.h>
 
 namespace API {
 
-class SerializedScriptValue : public API::ObjectImpl<API::Object::Type::SerializedScriptValue> {
+struct SerializedScriptValue {
 public:
-    static Ref<SerializedScriptValue> create(Ref<WebCore::SerializedScriptValue>&& serializedValue)
-    {
-        return adoptRef(*new SerializedScriptValue(WTFMove(serializedValue)));
-    }
-    
-    static RefPtr<SerializedScriptValue> create(JSContextRef context, JSValueRef value, JSValueRef* exception)
-    {
-        RefPtr<WebCore::SerializedScriptValue> serializedValue = WebCore::SerializedScriptValue::create(context, value, exception);
-        if (!serializedValue)
-            return nullptr;
-        return adoptRef(*new SerializedScriptValue(serializedValue.releaseNonNull()));
-    }
-    
-    static Ref<SerializedScriptValue> adopt(Vector<uint8_t>&& buffer)
-    {
-        return adoptRef(*new SerializedScriptValue(WebCore::SerializedScriptValue::adopt(WTFMove(buffer))));
-    }
-    
-    JSValueRef deserialize(JSContextRef context, JSValueRef* exception)
-    {
-        return m_serializedScriptValue->deserialize(context, exception);
-    }
-    
-#if PLATFORM(COCOA) && defined(__OBJC__)
-    static id deserialize(WebCore::SerializedScriptValue&, JSValueRef* exception);
-    static RefPtr<SerializedScriptValue> createFromNSObject(id);
-#endif
-
-    IPC::DataReference dataReference() const { return m_serializedScriptValue->data(); }
-
-    WebCore::SerializedScriptValue& internalRepresentation() { return m_serializedScriptValue.get(); }
-
-private:
-    explicit SerializedScriptValue(Ref<WebCore::SerializedScriptValue>&& serializedScriptValue)
-        : m_serializedScriptValue(WTFMove(serializedScriptValue))
-    {
-    }
-
-    Ref<WebCore::SerializedScriptValue> m_serializedScriptValue;
+    static JSRetainPtr<JSGlobalContextRef> deserializationContext();
 };
     
 }
-
-#endif

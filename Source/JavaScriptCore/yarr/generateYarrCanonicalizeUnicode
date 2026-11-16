@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#!/usr/bin/env python3
 
 # Copyright (C) 2016-2019 Apple Inc. All rights reserved.
 #
@@ -30,7 +30,6 @@
 import optparse
 import os
 import re
-import sys
 
 header = """/*
 * Copyright (C) 2016 Apple Inc. All rights reserved.
@@ -77,10 +76,7 @@ def openOrExit(path, mode):
         dirname = os.path.dirname(path)
         if not os.path.isdir(dirname):
             os.makedirs(dirname)
-        if sys.version_info.major >= 3:
-            return open(path, mode, encoding="UTF-8")
-        else:
-            return open(path, mode)
+        return open(path, mode, encoding="UTF-8")
     except IOError as e:
         print("I/O error opening {0}, ({1}): {2}".format(path, e.errno, e.strerror))
         exit(1)
@@ -159,19 +155,19 @@ class Canonicalize:
             cur_set = characterSets[i]
             for ch in cur_set:
                 characters = characters + "0x{character:04x}, ".format(character=ch)
-            file.write("const UChar32 unicodeCharacterSet{index:d}[] = {{ {characters}0 }};\n".format(index=i, characters=characters))
+            file.write("constexpr char32_t unicodeCharacterSet{index:d}[] = {{ {characters}0 }};\n".format(index=i, characters=characters))
 
         file.write("\n")
-        file.write("static constexpr size_t UNICODE_CANONICALIZATION_SETS = {setCount:d};\n".format(setCount=len(characterSets)))
-        file.write("const UChar32* const unicodeCharacterSetInfo[UNICODE_CANONICALIZATION_SETS] = {\n")
+        file.write("constexpr size_t UNICODE_CANONICALIZATION_SETS = {setCount:d};\n".format(setCount=len(characterSets)))
+        file.write("constexpr const char32_t* unicodeCharacterSetInfo[UNICODE_CANONICALIZATION_SETS] = {\n")
 
         for i in range(len(characterSets)):
             file.write("    unicodeCharacterSet{setNumber:d},\n".format(setNumber=i))
 
         file.write("};\n")
         file.write("\n")
-        file.write("const size_t UNICODE_CANONICALIZATION_RANGES = {rangeCount:d};\n".format(rangeCount=len(rangeInfo)))
-        file.write("const CanonicalizationRange unicodeRangeInfo[UNICODE_CANONICALIZATION_RANGES] = {\n")
+        file.write("constexpr size_t UNICODE_CANONICALIZATION_RANGES = {rangeCount:d};\n".format(rangeCount=len(rangeInfo)))
+        file.write("constexpr CanonicalizationRange unicodeRangeInfo[UNICODE_CANONICALIZATION_RANGES] = {\n")
 
         for info in rangeInfo:
             typeAndValue = info["type"].split(":")

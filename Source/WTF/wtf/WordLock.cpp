@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2015-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Igalia S.L.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,6 +29,7 @@
 
 #include <condition_variable>
 #include <mutex>
+#include <wtf/SpinBackoff.h>
 #include <wtf/Threading.h>
 
 namespace WTF {
@@ -61,11 +63,8 @@ struct ThreadData {
 
 NEVER_INLINE void WordLock::lockSlow()
 {
-    unsigned spinCount = 0;
+    SpinBackoff backoff;
 
-    // This magic number turns out to be optimal based on past JikesRVM experiments.
-    const unsigned spinLimit = 40;
-    
     for (;;) {
         uintptr_t currentWordValue = m_word.load();
         
@@ -81,11 +80,8 @@ NEVER_INLINE void WordLock::lockSlow()
         }
 
         // If there is no queue and we haven't spun too much, we can just try to spin around again.
-        if (!(currentWordValue & ~queueHeadMask) && spinCount < spinLimit) {
-            spinCount++;
-            Thread::yield();
+        if (!(currentWordValue & ~queueHeadMask) && !backoff.shouldParkAfterSpinOnce())
             continue;
-        }
 
         // Need to put ourselves on the queue. Create the queue if one does not exist. This requries
         // owning the queue for a little bit. The lock that controls the queue is itself a spinlock.
@@ -100,7 +96,7 @@ NEVER_INLINE void WordLock::lockSlow()
         if ((currentWordValue & isQueueLockedBit)
             || !(currentWordValue & isLockedBit)
             || !m_word.compareExchangeWeak(currentWordValue, currentWordValue | isQueueLockedBit)) {
-            Thread::yield();
+            backoff.spinOnce();
             continue;
         }
         
@@ -108,7 +104,7 @@ NEVER_INLINE void WordLock::lockSlow()
 
         // We own the queue. Nobody can enqueue or dequeue until we're done. Also, it's not possible
         // to release the WordLock while we hold the queue lock.
-        ThreadData* queueHead = bitwise_cast<ThreadData*>(currentWordValue & ~queueHeadMask);
+        ThreadData* queueHead = std::bit_cast<ThreadData*>(currentWordValue & ~queueHeadMask);
         if (queueHead) {
             // Put this thread at the end of the queue.
             queueHead->queueTail->nextInQueue = &me;
@@ -132,7 +128,7 @@ NEVER_INLINE void WordLock::lockSlow()
             ASSERT(currentWordValue & isQueueLockedBit);
             ASSERT(currentWordValue & isLockedBit);
             uintptr_t newWordValue = currentWordValue;
-            newWordValue |= bitwise_cast<uintptr_t>(queueHead);
+            newWordValue |= std::bit_cast<uintptr_t>(queueHead);
             newWordValue &= ~isQueueLockedBit;
             m_word.store(newWordValue);
         }
@@ -165,6 +161,7 @@ NEVER_INLINE void WordLock::unlockSlow()
     // Acquire the queue lock, or release the lock. This loop handles both lock release in case the
     // fast path's weak CAS spuriously failed and it handles queue lock acquisition if there is
     // actually something interesting on the queue.
+    SpinBackoff backoff;
     for (;;) {
         uintptr_t currentWordValue = m_word.load();
 
@@ -176,13 +173,12 @@ NEVER_INLINE void WordLock::unlockSlow()
                 // unlocked and we're done!
                 return;
             }
-            // Loop around and try again.
-            Thread::yield();
+            backoff.spinOnce();
             continue;
         }
         
         if (currentWordValue & isQueueLockedBit) {
-            Thread::yield();
+            backoff.spinOnce();
             continue;
         }
 
@@ -201,7 +197,7 @@ NEVER_INLINE void WordLock::unlockSlow()
     // queue lock and if it did then it only releases it after putting something on the queue.
     ASSERT(currentWordValue & isLockedBit);
     ASSERT(currentWordValue & isQueueLockedBit);
-    ThreadData* queueHead = bitwise_cast<ThreadData*>(currentWordValue & ~queueHeadMask);
+    ThreadData* queueHead = std::bit_cast<ThreadData*>(currentWordValue & ~queueHeadMask);
     ASSERT(queueHead);
 
     ThreadData* newQueueHead = queueHead->nextInQueue;
@@ -216,12 +212,12 @@ NEVER_INLINE void WordLock::unlockSlow()
     currentWordValue = m_word.load();
     ASSERT(currentWordValue & isLockedBit);
     ASSERT(currentWordValue & isQueueLockedBit);
-    ASSERT((currentWordValue & ~queueHeadMask) == bitwise_cast<uintptr_t>(queueHead));
+    ASSERT((currentWordValue & ~queueHeadMask) == std::bit_cast<uintptr_t>(queueHead));
     uintptr_t newWordValue = currentWordValue;
     newWordValue &= ~isLockedBit; // Release the WordLock.
     newWordValue &= ~isQueueLockedBit; // Release the queue lock.
     newWordValue &= queueHeadMask; // Clear out the old queue head.
-    newWordValue |= bitwise_cast<uintptr_t>(newQueueHead); // Install new queue head.
+    newWordValue |= std::bit_cast<uintptr_t>(newQueueHead); // Install new queue head.
     m_word.store(newWordValue);
 
     // Now the lock is available for acquisition. But we just have to wake up the old queue head.

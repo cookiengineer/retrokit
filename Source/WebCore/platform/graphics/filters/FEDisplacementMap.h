@@ -2,6 +2,7 @@
  * Copyright (C) 2004, 2005, 2006, 2007 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005 Rob Buis <buis@kde.org>
  * Copyright (C) 2005 Eric Seidel <eric@webkit.org>
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -21,13 +22,12 @@
 
 #pragma once
 
-#include "FilterEffect.h"
-#include "Filter.h"
+#include <WebCore/FilterEffect.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
-enum ChannelSelectorType {
+enum class ChannelSelectorType : uint8_t {
     CHANNEL_UNKNOWN = 0,
     CHANNEL_R = 1,
     CHANNEL_G = 2,
@@ -35,40 +35,53 @@ enum ChannelSelectorType {
     CHANNEL_A = 4
 };
 
-class FEDisplacementMap : public FilterEffect {
+class FEDisplacementMap final : public FilterEffect {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(FEDisplacementMap);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(FEDisplacementMap);
 public:
-    static Ref<FEDisplacementMap> create(Filter&, ChannelSelectorType xChannelSelector, ChannelSelectorType yChannelSelector, float scale);
+    WEBCORE_EXPORT static Ref<FEDisplacementMap> create(ChannelSelectorType xChannelSelector, ChannelSelectorType yChannelSelector, float scale, DestinationColorSpace = DestinationColorSpace::SRGB(), bool in2IsTainted = false);
+
+    bool operator==(const FEDisplacementMap&) const;
 
     ChannelSelectorType xChannelSelector() const { return m_xChannelSelector; }
-    bool setXChannelSelector(const ChannelSelectorType);
+    bool NODELETE setXChannelSelector(const ChannelSelectorType);
 
     ChannelSelectorType yChannelSelector() const { return m_yChannelSelector; }
-    bool setYChannelSelector(const ChannelSelectorType);
+    bool NODELETE setYChannelSelector(const ChannelSelectorType);
 
     float scale() const { return m_scale; }
-    bool setScale(float);
+    bool NODELETE setScale(float);
 
-    void setResultColorSpace(const DestinationColorSpace&) override;
-    void transformResultColorSpace(FilterEffect*, const int) override;
+    // §16.4: when in2 is tainted, this primitive becomes a pass-through of in.
+    bool in2IsTainted() const { return m_in2IsTainted; }
+    void setIn2IsTainted(bool tainted) { m_in2IsTainted = tainted; }
+
+    static IntOutsets calculateOutsets(const FloatSize& maxDisplacement);
 
 private:
-    FEDisplacementMap(Filter&, ChannelSelectorType xChannelSelector, ChannelSelectorType yChannelSelector, float);
+    FEDisplacementMap(ChannelSelectorType xChannelSelector, ChannelSelectorType yChannelSelector, float, DestinationColorSpace);
 
-    const char* filterName() const final { return "FEDisplacementMap"; }
+    bool operator==(const FilterEffect& other) const override { return areEqual<FEDisplacementMap>(*this, other); }
 
-    void platformApplySoftware() override;
+    unsigned numberOfEffectInputs() const override { return 2; }
 
-    void determineAbsolutePaintRect() override { setAbsolutePaintRect(enclosingIntRect(maxEffectRect())); }
+    FloatRect calculateImageRect(const Filter&, std::span<const FloatRect> inputImageRects, const FloatRect& primitiveSubregion) const override;
 
-    int xChannelIndex() const { return m_xChannelSelector - 1; }
-    int yChannelIndex() const { return m_yChannelSelector - 1; }
+    const DestinationColorSpace& resultColorSpace(std::span<const Ref<FilterImage>>) const override;
+    void transformInputsColorSpace(std::span<const Ref<FilterImage>> inputs) const override;
 
-    WTF::TextStream& externalRepresentation(WTF::TextStream&, RepresentationType) const override;
+    OptionSet<FilterRenderingMode> supportedFilterRenderingModes(OptionSet<FilterRenderingMode>) const override;
+    std::unique_ptr<FilterEffectApplier> createAcceleratedApplier() const override;
+    std::unique_ptr<FilterEffectApplier> createSoftwareApplier() const override;
+
+    WTF::TextStream& externalRepresentation(WTF::TextStream&, FilterRepresentation) const override;
 
     ChannelSelectorType m_xChannelSelector;
     ChannelSelectorType m_yChannelSelector;
     float m_scale;
+    bool m_in2IsTainted { false };
 };
 
 } // namespace WebCore
 
+SPECIALIZE_TYPE_TRAITS_FILTER_FUNCTION(FEDisplacementMap)

@@ -26,36 +26,35 @@
 #include "config.h"
 #include "FormattingContext.h"
 
-#if ENABLE(LAYOUT_FORMATTING_CONTEXT)
-
 #include "FormattingGeometry.h"
 #include "FormattingQuirks.h"
-#include "FormattingState.h"
-#include "InvalidationState.h"
-#include "LayoutBox.h"
 #include "LayoutBoxGeometry.h"
-#include "LayoutContainerBox.h"
+#include "LayoutBoxInlines.h"
+#include "LayoutContainingBlockChainIterator.h"
 #include "LayoutContext.h"
 #include "LayoutDescendantIterator.h"
+#include "LayoutElementBox.h"
 #include "LayoutInitialContainingBlock.h"
-#include "LayoutReplacedBox.h"
+#include "LayoutIntegrationBoxGeometryUpdater.h"
 #include "LayoutState.h"
 #include "Logging.h"
-#include <wtf/IsoMallocInlines.h>
+#include "RenderBlockFlow.h"
+#include "StyleComputedStyle+GettersInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
 namespace Layout {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(FormattingContext);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(FormattingContext);
 
-FormattingContext::FormattingContext(const ContainerBox& formattingContextRoot, FormattingState& formattingState)
-    : m_root(makeWeakPtr(formattingContextRoot))
-    , m_formattingState(formattingState)
+FormattingContext::FormattingContext(const ElementBox& formattingContextRoot, LayoutState& layoutState)
+    : m_root(formattingContextRoot)
+    , m_layoutState(layoutState)
 {
     ASSERT(formattingContextRoot.hasChild());
 #ifndef NDEBUG
-    layoutState().registerFormattingContext(*this);
+    layoutState.registerFormattingContext(*this);
 #endif
 }
 
@@ -66,108 +65,14 @@ FormattingContext::~FormattingContext()
 #endif
 }
 
-LayoutState& FormattingContext::layoutState() const
+LayoutState& FormattingContext::layoutState()
 {
-    return m_formattingState.layoutState();
+    return m_layoutState;
 }
 
-void FormattingContext::computeOutOfFlowHorizontalGeometry(const Box& layoutBox, const ConstraintsForOutOfFlowContent& constraints)
+BoxGeometry& FormattingContext::geometryForBox(const Box& layoutBox, std::optional<EscapeReason>)
 {
-    ASSERT(layoutBox.isOutOfFlowPositioned());
-    auto compute = [&](std::optional<LayoutUnit> usedWidth) {
-        return formattingGeometry().outOfFlowHorizontalGeometry(layoutBox, constraints.horizontal, constraints.vertical, { usedWidth, { } });
-    };
-
-    auto containingBlockWidth = constraints.horizontal.logicalWidth;
-    auto horizontalGeometry = compute({ });
-    if (auto maxWidth = formattingGeometry().computedMaxWidth(layoutBox, containingBlockWidth)) {
-        auto maxHorizontalGeometry = compute(maxWidth);
-        if (horizontalGeometry.contentWidthAndMargin.contentWidth > maxHorizontalGeometry.contentWidthAndMargin.contentWidth)
-            horizontalGeometry = maxHorizontalGeometry;
-    }
-
-    if (auto minWidth = formattingGeometry().computedMinWidth(layoutBox, containingBlockWidth)) {
-        auto minHorizontalGeometry = compute(minWidth);
-        if (horizontalGeometry.contentWidthAndMargin.contentWidth < minHorizontalGeometry.contentWidthAndMargin.contentWidth)
-            horizontalGeometry = minHorizontalGeometry;
-    }
-
-    auto& boxGeometry = formattingState().boxGeometry(layoutBox);
-    boxGeometry.setLogicalLeft(horizontalGeometry.left + horizontalGeometry.contentWidthAndMargin.usedMargin.start);
-    boxGeometry.setContentBoxWidth(horizontalGeometry.contentWidthAndMargin.contentWidth);
-    auto& usedHorizontalMargin = horizontalGeometry.contentWidthAndMargin.usedMargin;
-    boxGeometry.setHorizontalMargin({ usedHorizontalMargin.start, usedHorizontalMargin.end });
-}
-
-void FormattingContext::computeOutOfFlowVerticalGeometry(const Box& layoutBox, const ConstraintsForOutOfFlowContent& constraints)
-{
-    ASSERT(layoutBox.isOutOfFlowPositioned());
-    auto compute = [&](std::optional<LayoutUnit> usedHeight) {
-        return formattingGeometry().outOfFlowVerticalGeometry(layoutBox, constraints.horizontal, constraints.vertical, { usedHeight });
-    };
-
-    auto containingBlockHeight = constraints.vertical.logicalHeight;
-    auto verticalGeometry = compute({ });
-    if (auto maxHeight = formattingGeometry().computedMaxHeight(layoutBox, containingBlockHeight)) {
-        auto maxVerticalGeometry = compute(maxHeight);
-        if (verticalGeometry.contentHeightAndMargin.contentHeight > maxVerticalGeometry.contentHeightAndMargin.contentHeight)
-            verticalGeometry = maxVerticalGeometry;
-    }
-
-    if (auto minHeight = formattingGeometry().computedMinHeight(layoutBox, containingBlockHeight)) {
-        auto minVerticalGeometry = compute(minHeight);
-        if (verticalGeometry.contentHeightAndMargin.contentHeight < minVerticalGeometry.contentHeightAndMargin.contentHeight)
-            verticalGeometry = minVerticalGeometry;
-    }
-
-    auto& boxGeometry = formattingState().boxGeometry(layoutBox);
-    auto nonCollapsedVerticalMargin = verticalGeometry.contentHeightAndMargin.nonCollapsedMargin;
-    boxGeometry.setLogicalTop(verticalGeometry.top + nonCollapsedVerticalMargin.before);
-    boxGeometry.setContentBoxHeight(verticalGeometry.contentHeightAndMargin.contentHeight);
-    // Margins of absolutely positioned boxes do not collapse.
-    boxGeometry.setVerticalMargin({ nonCollapsedVerticalMargin.before, nonCollapsedVerticalMargin.after });
-}
-
-void FormattingContext::computeBorderAndPadding(const Box& layoutBox, const HorizontalConstraints& horizontalConstraint)
-{
-    auto& boxGeometry = formattingState().boxGeometry(layoutBox);
-    boxGeometry.setBorder(formattingGeometry().computedBorder(layoutBox));
-    boxGeometry.setPadding(formattingGeometry().computedPadding(layoutBox, horizontalConstraint.logicalWidth));
-}
-
-void FormattingContext::layoutOutOfFlowContent(InvalidationState& invalidationState, const ConstraintsForOutOfFlowContent& constraints)
-{
-    LOG_WITH_STREAM(FormattingContextLayout, stream << "Start: layout out-of-flow content -> context: " << &layoutState() << " root: " << &root());
-
-    collectOutOfFlowDescendantsIfNeeded();
-
-    auto constraintsForLayoutBox = [&] (const auto& outOfFlowBox) {
-        auto& containingBlock = outOfFlowBox.containingBlock();
-        return &containingBlock == &root() ? constraints : formattingGeometry().constraintsForOutOfFlowContent(containingBlock);
-    };
-
-    for (auto& outOfFlowBox : formattingState().outOfFlowBoxes()) {
-        ASSERT(outOfFlowBox->establishesFormattingContext());
-        if (!invalidationState.needsLayout(*outOfFlowBox))
-            continue;
-
-        auto containingBlockConstraints = constraintsForLayoutBox(*outOfFlowBox);
-        auto horizontalConstraintsForBorderAndPadding = HorizontalConstraints { containingBlockConstraints.horizontal.logicalLeft, containingBlockConstraints.borderAndPaddingConstraints };
-        computeBorderAndPadding(*outOfFlowBox, horizontalConstraintsForBorderAndPadding);
-
-        computeOutOfFlowHorizontalGeometry(*outOfFlowBox, containingBlockConstraints);
-        auto outOfFlowBoxHasContent = is<ContainerBox>(*outOfFlowBox) && downcast<ContainerBox>(*outOfFlowBox).hasChild();
-        if (outOfFlowBoxHasContent) {
-            auto& containerBox = downcast<ContainerBox>(*outOfFlowBox);
-            auto formattingContext = LayoutContext::createFormattingContext(containerBox, layoutState());
-            if (containerBox.hasInFlowOrFloatingChild())
-                formattingContext->layoutInFlowContent(invalidationState, formattingGeometry().constraintsForInFlowContent(containerBox));
-            computeOutOfFlowVerticalGeometry(containerBox, containingBlockConstraints);
-            formattingContext->layoutOutOfFlowContent(invalidationState, formattingGeometry().constraintsForOutOfFlowContent(containerBox));
-        } else
-            computeOutOfFlowVerticalGeometry(*outOfFlowBox, containingBlockConstraints);
-    }
-    LOG_WITH_STREAM(FormattingContextLayout, stream << "End: layout out-of-flow content -> context: " << &layoutState() << " root: " << &root());
+    return m_layoutState->ensureGeometryForBox(layoutBox);
 }
 
 const BoxGeometry& FormattingContext::geometryForBox(const Box& layoutBox, std::optional<EscapeReason> escapeReason) const
@@ -175,7 +80,7 @@ const BoxGeometry& FormattingContext::geometryForBox(const Box& layoutBox, std::
     UNUSED_PARAM(escapeReason);
 #if ASSERT_ENABLED
     auto isOkToAccessBoxGeometry = [&] {
-        if (!is<InitialContainingBlock>(layoutBox) && &layoutBox.formattingContextRoot() == &root()) {
+        if (!is<InitialContainingBlock>(layoutBox) && &formattingContextRoot(layoutBox) == &root()) {
             // This is the non-escape case of accessing a box's geometry information within the same formatting context.
             return true;
         }
@@ -200,7 +105,7 @@ const BoxGeometry& FormattingContext::geometryForBox(const Box& layoutBox, std::
             // This is the case when the table formatting root collects geometry information from the cell's
             // formatting context to be able to determine width/height. see shouldIgnoreChildContentVerticalMargin
             ASSERT(root().establishesTableFormattingContext());
-            return &layoutBox.formattingContextRoot().formattingContextRoot() == &root();
+            return &formattingContextRoot(formattingContextRoot(layoutBox)) == &root();
         }
 
         if (*escapeReason == EscapeReason::OutOfFlowBoxNeedsInFlowGeometry) {
@@ -214,8 +119,11 @@ const BoxGeometry& FormattingContext::geometryForBox(const Box& layoutBox, std::
         if (*escapeReason == EscapeReason::FloatBoxIsAlwaysRelativeToFloatStateRoot) {
             // Float box top/left values are mapped relative to the FloatState's root. Inline formatting contexts(A) inherit floats from parent
             // block formatting contexts(B). Floats in these inline formatting contexts(A) need to be mapped to the parent, block formatting context(B).
-            auto& formattingContextRoot = layoutBox.formattingContextRoot();
-            return &formattingContextRoot == &root() || &formattingContextRoot == &root().formattingContextRoot();
+            if (layoutBox.isInlineIntegrationRoot())
+                return true;
+
+            auto& formattingContextRootForBox = formattingContextRoot(layoutBox);
+            return &formattingContextRootForBox == &root() || &formattingContextRootForBox == &formattingContextRoot(root());
         }
 
         if (*escapeReason == EscapeReason::FindFixedHeightAncestorQuirk) {
@@ -224,12 +132,12 @@ const BoxGeometry& FormattingContext::geometryForBox(const Box& layoutBox, std::
             // This is only to check if the targetFormattingRoot is an ancestor formatting root.
             if (is<InitialContainingBlock>(layoutBox))
                 return true;
-            auto& targetFormattingRoot = layoutBox.formattingContextRoot();
-            auto* ancestorFormattingContextRoot = &root().formattingContextRoot();
+            auto& targetFormattingRoot = formattingContextRoot(layoutBox);
+            auto* ancestorFormattingContextRoot = &formattingContextRoot(root());
             while (true) {
                 if (&targetFormattingRoot == ancestorFormattingContextRoot)
                     return true;
-                ancestorFormattingContextRoot = &ancestorFormattingContextRoot->formattingContextRoot();
+                ancestorFormattingContextRoot = &FormattingContext::formattingContextRoot(*ancestorFormattingContextRoot);
                 if (is<InitialContainingBlock>(*ancestorFormattingContextRoot))
                     return true;
             }
@@ -240,7 +148,7 @@ const BoxGeometry& FormattingContext::geometryForBox(const Box& layoutBox, std::
             // Tables are wrapped in a 2 level formatting context structure. A <table> element initiates a block formatting context for its principal table box
             // where the caption and the table content live. It also initiates a table wrapper box which establishes the table formatting context.
             // In many cases the TFC needs access to the parent (generated) BFC.
-            return &layoutBox == &root().formattingContextRoot();
+            return &layoutBox == &formattingContextRoot(root());
         }
 
         ASSERT_NOT_REACHED();
@@ -248,39 +156,87 @@ const BoxGeometry& FormattingContext::geometryForBox(const Box& layoutBox, std::
     };
 #endif
     ASSERT(isOkToAccessBoxGeometry());
-    ASSERT(layoutState().hasBoxGeometry(layoutBox));
-    return layoutState().geometryForBox(layoutBox);
+    ASSERT(m_layoutState->hasBoxGeometry(layoutBox));
+    return m_layoutState->geometryForBox(layoutBox);
 }
 
-void FormattingContext::collectOutOfFlowDescendantsIfNeeded()
+const InitialContainingBlock& FormattingContext::initialContainingBlock(const Box& layoutBox)
 {
-    if (!formattingState().outOfFlowBoxes().isEmpty())
-        return;
-    auto& root = this->root();
-    if (!root.hasChild())
-        return;
-    if (!root.isPositioned() && !is<InitialContainingBlock>(root))
-        return;
-    // Collect the out-of-flow descendants at the formatting root level (as opposed to at the containing block level, though they might be the same).
-    // FIXME: Turn this into a register-self as boxes are being inserted.
-    for (auto& descendant : descendantsOfType<Box>(root)) {
-        if (!descendant.isOutOfFlowPositioned())
-            continue;
-        if (&descendant.formattingContextRoot() != &root)
-            continue;
-        formattingState().addOutOfFlowBox(descendant);
-    }
+    if (auto* initialContainingBlock = dynamicDowncast<InitialContainingBlock>(layoutBox))
+        return *initialContainingBlock;
+
+    auto* ancestor = &layoutBox.parent();
+    for (; !is<InitialContainingBlock>(*ancestor); ancestor = &ancestor->parent()) { }
+    return downcast<InitialContainingBlock>(*ancestor);
 }
 
-#ifndef NDEBUG
+const ElementBox& FormattingContext::containingBlock(const Box& layoutBox)
+{
+    // If we ever end up here with the ICB, we must be doing something not-so-great.
+    RELEASE_ASSERT(!is<InitialContainingBlock>(layoutBox));
+    // The containing block in which the root element lives is a rectangle called the initial containing block.
+    // For other elements, if the element's position is 'relative' or 'static', the containing block is formed by the
+    // content edge of the nearest block container ancestor box or which establishes a formatting context.
+    // If the element has 'position: fixed', the containing block is established by the viewport
+    // If the element has 'position: absolute', the containing block is established by the nearest ancestor with a
+    // 'position' of 'absolute', 'relative' or 'fixed'.
+    if (!layoutBox.isPositioned() || layoutBox.isInFlowPositioned()) {
+        SUPPRESS_UNCHECKED_LOCAL auto* ancestor = &layoutBox.parent();
+        for (; !is<InitialContainingBlock>(*ancestor); ancestor = &ancestor->parent()) {
+            if (ancestor->isContainingBlockForInFlow())
+                return *ancestor;
+        }
+        return *ancestor;
+    }
+
+    if (layoutBox.isFixedPositioned()) {
+        SUPPRESS_UNCHECKED_LOCAL auto* ancestor = &layoutBox.parent();
+        for (; !is<InitialContainingBlock>(*ancestor); ancestor = &ancestor->parent()) {
+            if (ancestor->isContainingBlockForFixedPosition())
+                return *ancestor;
+        }
+        return *ancestor;
+    }
+
+    if (layoutBox.isOutOfFlowPositioned()) {
+        SUPPRESS_UNCHECKED_LOCAL auto* ancestor = &layoutBox.parent();
+        for (; !is<InitialContainingBlock>(*ancestor); ancestor = &ancestor->parent()) {
+            if (ancestor->isContainingBlockForOutOfFlowPosition())
+                return *ancestor;
+        }
+        return *ancestor;
+    }
+
+    ASSERT_NOT_REACHED();
+    return layoutBox.parent();    
+}
+
+#if ASSERT_ENABLED
+const ElementBox& FormattingContext::formattingContextRoot(const Box& layoutBox)
+{
+    // We should never need to ask this question on the ICB.
+    ASSERT(!is<InitialContainingBlock>(layoutBox));
+    // A box lives in the same formatting context as its containing block unless the containing block establishes a formatting context.
+    // However relatively positioned (inflow) inline container lives in the formatting context where its parent lives unless
+    // the parent establishes a formatting context.
+    //
+    // <div id=outer style="position: absolute"><div id=inner><span style="position: relative">content</span></div></div>
+    // While the relatively positioned inline container (span) is placed relative to its containing block "outer", it lives in the inline
+    // formatting context established by "inner".
+    auto& ancestor = layoutBox.isInlineLevelBox() && layoutBox.isInFlowPositioned() ? layoutBox.parent() : containingBlock(layoutBox);
+    if (ancestor.establishesFormattingContext())
+        return ancestor;
+    return formattingContextRoot(ancestor);
+}
+
 void FormattingContext::validateGeometryConstraintsAfterLayout() const
 {
-    auto& formattingContextRoot = root();
+    auto& root = this->root();
     // FIXME: add a descendantsOfType<> flavor that stops at nested formatting contexts
-    for (auto& layoutBox : descendantsOfType<Box>(formattingContextRoot)) {
-        if (&layoutBox.formattingContextRoot() != &formattingContextRoot)
+    for (auto& layoutBox : descendantsOfType<Box>(root)) {
+        if (&formattingContextRoot(layoutBox) != &root)
             continue;
-        auto& containingBlockGeometry = geometryForBox(layoutBox.containingBlock());
+        auto& containingBlockGeometry = geometryForBox(containingBlock(layoutBox));
         auto& boxGeometry = geometryForBox(layoutBox);
 
         // 10.3.3 Block-level, non-replaced elements in normal flow
@@ -295,8 +251,7 @@ void FormattingContext::validateGeometryConstraintsAfterLayout() const
         if (layoutBox.isOutOfFlowPositioned() && !layoutBox.isReplacedBox()) {
             // top + margin-top + border-top-width + padding-top + height + padding-bottom + border-bottom-width + margin-bottom + bottom = height of containing block
             auto containingBlockHeight = containingBlockGeometry.contentBoxHeight();
-            ASSERT(BoxGeometry::borderBoxTop(boxGeometry) + boxGeometry.marginBefore() + boxGeometry.borderTop() + boxGeometry.paddingTop().value_or(0) + boxGeometry.contentBoxHeight()
-                + boxGeometry.paddingBottom().value_or(0) + boxGeometry.borderBottom() + boxGeometry.marginAfter() == containingBlockHeight);
+            ASSERT(BoxGeometry::borderBoxTop(boxGeometry) + boxGeometry.verticalMarginBorderAndPadding() + boxGeometry.contentBoxHeight() == containingBlockHeight);
         }
     }
 }
@@ -304,4 +259,3 @@ void FormattingContext::validateGeometryConstraintsAfterLayout() const
 
 }
 }
-#endif

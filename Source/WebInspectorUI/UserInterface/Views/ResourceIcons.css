@@ -55,11 +55,11 @@
     content: url(../Images/DocumentIcons.svg#font-light-override);
 }
 
-:matches(.resource-icon.resource-type-style-sheet, .style-sheet-icon) .icon {
+:is(.resource-icon.resource-type-style-sheet, .style-sheet-icon) .icon {
     content: url(../Images/DocumentIcons.svg#css-light);
 }
 
-:matches(.resource-icon.resource-type-style-sheet.override, .style-sheet-icon.override) .icon {
+:is(.resource-icon.resource-type-style-sheet.override, .style-sheet-icon.override) .icon {
     content: url(../Images/DocumentIcons.svg#css-light-override);
 }
 
@@ -71,7 +71,7 @@
     content: url(../Images/DocumentIcons.svg#js-light-override);
 }
 
-.anonymous-script-icon .icon {
+:is(.anonymous-script-icon, .resource-icon.resource-type-script.console-snippet) .icon {
     content: url(../Images/ClippingIcons.svg#js-light);
 }
 
@@ -108,6 +108,24 @@
     content: url(../Images/ClippingIcons.svg#range-light);
 }
 
+.resource-icon.override.mapped-file .icon {
+    content: url(../Images/Disk.svg#light);
+}
+
+body:not(.window-inactive, .window-docked-inactive) :is(.table, .data-grid):focus-within .selected .resource-icon.override.mapped-file .icon,
+body:not(.window-inactive, .window-docked-inactive) .tree-outline:focus-within .selected.resource-icon.override.mapped-file .icon {
+    content: url(../Images/Disk.svg#dark);
+}
+
+.resource-icon.override.skip-network .icon {
+    content: url(../Images/SkipNetwork.svg#light);
+}
+
+body:not(.window-inactive, .window-docked-inactive) :is(.table, .data-grid):focus-within .selected .resource-icon.override.skip-network .icon,
+body:not(.window-inactive, .window-docked-inactive) .tree-outline:focus-within .selected.resource-icon.override.skip-network .icon {
+    content: url(../Images/SkipNetwork.svg#dark);
+}
+
 @media (prefers-color-scheme: dark) {
     .resource-icon .icon {
         content: url(../Images/DocumentIcons.svg#generic-dark);
@@ -139,10 +157,10 @@
         content: url(../Images/DocumentIcons.svg#font-dark-override);
     }
 
-    :matches(.resource-icon.resource-type-style-sheet, .style-sheet-icon) .icon {
+    :is(.resource-icon.resource-type-style-sheet, .style-sheet-icon) .icon {
         content: url(../Images/DocumentIcons.svg#css-dark);
     }
-    :matches(.resource-icon.resource-type-style-sheet.override, .style-sheet-icon.override) .icon {
+    :is(.resource-icon.resource-type-style-sheet.override, .style-sheet-icon.override) .icon {
         content: url(../Images/DocumentIcons.svg#css-dark-override);
     }
 
@@ -153,7 +171,7 @@
         content: url(../Images/DocumentIcons.svg#js-dark-override);
     }
 
-    .anonymous-script-icon .icon {
+    :is(.anonymous-script-icon, .resource-icon.resource-type-script.console-snippet) .icon {
         content: url(../Images/ClippingIcons.svg#js-dark);
     }
 
@@ -188,5 +206,13 @@
 
     .resource-icon.resource-type-range .icon {
         content: url(../Images/ClippingIcons.svg#range-dark);
+    }
+
+    .resource-icon.override.mapped-file .icon {
+        content: url(../Images/Disk.svg#dark);
+    }
+
+    .resource-icon.override.skip-network .icon {
+        content: url(../Images/SkipNetwork.svg#dark);
     }
 }

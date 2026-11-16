@@ -21,19 +21,21 @@
 #include "config.h"
 #include "SVGGlyphRefElement.h"
 
+#include "NodeName.h"
+#include "SVGElementTypeHelpers.h"
 #include "SVGGlyphElement.h"
 #include "SVGNames.h"
 #include "SVGParserUtilities.h"
 #include "XLinkNames.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/AtomString.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(SVGGlyphRefElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGGlyphRefElement);
 
 inline SVGGlyphRefElement::SVGGlyphRefElement(const QualifiedName& tagName, Document& document)
-    : SVGElement(tagName, document)
+    : SVGElement(tagName, document, makeUniqueRef<PropertyRegistry>(*this))
     , SVGURIReference(this)
 {
     ASSERT(hasTagName(SVGNames::glyphRefTag));
@@ -49,7 +51,7 @@ bool SVGGlyphRefElement::hasValidGlyphElement(String& glyphName) const
     // FIXME: We only support xlink:href so far.
     // https://bugs.webkit.org/show_bug.cgi?id=64787
     // No need to support glyphRef referencing another node inside a shadow tree.
-    auto target = targetElementFromIRIString(getAttribute(SVGNames::hrefAttr, XLinkNames::hrefAttr), document());
+    auto target = targetElementFromIRIString(getAttribute(SVGNames::hrefAttr, XLinkNames::hrefAttr), protect(document()));
     glyphName = target.identifier;
     return is<SVGGlyphElement>(target.element);
 }
@@ -59,21 +61,28 @@ static float parseFloat(const AtomString& value)
     return parseNumber(value).value_or(0);
 }
 
-void SVGGlyphRefElement::parseAttribute(const QualifiedName& name, const AtomString& value)
+void SVGGlyphRefElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
     // FIXME: Is the error handling in parseFloat correct for these attributes?
-    if (name == SVGNames::xAttr)
-        m_x = parseFloat(value);
-    else if (name == SVGNames::yAttr)
-        m_y = parseFloat(value);
-    else if (name == SVGNames::dxAttr)
-        m_dx = parseFloat(value);
-    else if (name == SVGNames::dyAttr)
-        m_dy = parseFloat(value);
-    else {
-        SVGURIReference::parseAttribute(name, value);
-        SVGElement::parseAttribute(name, value);
+    switch (name.nodeName()) {
+    case AttributeNames::xAttr:
+        m_x = parseFloat(newValue);
+        break;
+    case AttributeNames::yAttr:
+        m_y = parseFloat(newValue);
+        break;
+    case AttributeNames::dxAttr:
+        m_dx = parseFloat(newValue);
+        break;
+    case AttributeNames::dyAttr:
+        m_dy = parseFloat(newValue);
+        break;
+    default:
+        break;
     }
+
+    SVGURIReference::parseAttribute(name, newValue);
+    SVGElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
 }
 
 void SVGGlyphRefElement::setX(float x)

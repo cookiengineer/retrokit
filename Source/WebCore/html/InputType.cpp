@@ -2,10 +2,10 @@
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2001 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2004-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2022 Apple Inc. All rights reserved.
  *           (C) 2006 Alexey Proskuryakov (ap@nypop.com)
  * Copyright (C) 2007 Samuel Weinig (sam@webkit.org)
- * Copyright (C) 2009, 2010, 2011, 2012 Google Inc. All rights reserved.
+ * Copyright (C) 2009-2015 Google Inc. All rights reserved.
  * Copyright (C) 2012 Samsung Electronics. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
@@ -38,6 +38,9 @@
 #include "DateInputType.h"
 #include "DateTimeLocalInputType.h"
 #include "Decimal.h"
+#include "DocumentPage.h"
+#include "ElementInlines.h"
+#include "ElementTextDirection.h"
 #include "EmailInputType.h"
 #include "EventNames.h"
 #include "FileInputType.h"
@@ -55,8 +58,8 @@
 #include "MonthInputType.h"
 #include "NodeRenderStyle.h"
 #include "NumberInputType.h"
-#include "Page.h"
 #include "PasswordInputType.h"
+#include "PseudoClassChangeInvalidation.h"
 #include "RadioInputType.h"
 #include "RangeInputType.h"
 #include "RenderElement.h"
@@ -77,49 +80,61 @@
 #include "WeekInputType.h"
 #include <limits>
 #include <wtf/Assertions.h>
-#include <wtf/HashMap.h>
+#include <wtf/RobinHoodHashMap.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/StringHash.h>
 #include <wtf/text/TextBreakIterator.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(InputType);
 
 using namespace HTMLNames;
 
 typedef bool (Settings::*InputTypeConditionalFunction)() const;
 typedef const AtomString& (*InputTypeNameFunction)();
 typedef Ref<InputType> (*InputTypeFactoryFunction)(HTMLInputElement&);
-typedef HashMap<AtomString, std::pair<InputTypeConditionalFunction, InputTypeFactoryFunction>, ASCIICaseInsensitiveHash> InputTypeFactoryMap;
 
-template<class T> static Ref<InputType> createInputType(HTMLInputElement& element)
+struct InputTypeFactory {
+    InputTypeConditionalFunction conditionalFunction;
+    InputTypeFactoryFunction factoryFunction;
+};
+
+typedef MemoryCompactLookupOnlyRobinHoodHashMap<AtomString, InputTypeFactory> InputTypeFactoryMap;
+
+template<typename T> static Ref<InputType> createInputType(HTMLInputElement& element)
 {
-    return adoptRef(*new T(element));
+    return T::create(element);
+}
+
+template<typename DowncastedType>
+ALWAYS_INLINE bool isInvalidInputType(const DowncastedType& inputType, StringView value)
+{
+    return inputType.typeMismatch()
+        || inputType.hasStepRangeViolation(value)
+        || inputType.patternMismatch(value)
+        || inputType.valueMissing(value)
+        || inputType.hasBadInput();
 }
 
 static InputTypeFactoryMap createInputTypeFactoryMap()
 {
-    static const struct InputTypes {
+    struct InputType {
         InputTypeConditionalFunction conditionalFunction;
         InputTypeNameFunction nameFunction;
         InputTypeFactoryFunction factoryFunction;
-    } inputTypes[] = {
+    };
+    static const auto inputTypes = WTF::toArray<InputType>({
         { nullptr, &InputTypeNames::button, &createInputType<ButtonInputType> },
         { nullptr, &InputTypeNames::checkbox, &createInputType<CheckboxInputType> },
-#if ENABLE(INPUT_TYPE_COLOR)
         { &Settings::inputTypeColorEnabled, &InputTypeNames::color, &createInputType<ColorInputType> },
-#endif
-#if ENABLE(INPUT_TYPE_DATE)
         { &Settings::inputTypeDateEnabled, &InputTypeNames::date, &createInputType<DateInputType> },
-#endif
-#if ENABLE(INPUT_TYPE_DATETIMELOCAL)
         { &Settings::inputTypeDateTimeLocalEnabled, &InputTypeNames::datetimelocal, &createInputType<DateTimeLocalInputType> },
-#endif
         { nullptr, &InputTypeNames::email, &createInputType<EmailInputType> },
         { nullptr, &InputTypeNames::file, &createInputType<FileInputType> },
         { nullptr, &InputTypeNames::hidden, &createInputType<HiddenInputType> },
         { nullptr, &InputTypeNames::image, &createInputType<ImageInputType> },
-#if ENABLE(INPUT_TYPE_MONTH)
         { &Settings::inputTypeMonthEnabled, &InputTypeNames::month, &createInputType<MonthInputType> },
-#endif
         { nullptr, &InputTypeNames::number, &createInputType<NumberInputType> },
         { nullptr, &InputTypeNames::password, &createInputType<PasswordInputType> },
         { nullptr, &InputTypeNames::radio, &createInputType<RadioInputType> },
@@ -128,43 +143,112 @@ static InputTypeFactoryMap createInputTypeFactoryMap()
         { nullptr, &InputTypeNames::search, &createInputType<SearchInputType> },
         { nullptr, &InputTypeNames::submit, &createInputType<SubmitInputType> },
         { nullptr, &InputTypeNames::telephone, &createInputType<TelephoneInputType> },
-#if ENABLE(INPUT_TYPE_TIME)
+        { nullptr, &InputTypeNames::text, &createInputType<TextInputType> },
         { &Settings::inputTypeTimeEnabled, &InputTypeNames::time, &createInputType<TimeInputType> },
-#endif
         { nullptr, &InputTypeNames::url, &createInputType<URLInputType> },
-#if ENABLE(INPUT_TYPE_WEEK)
         { &Settings::inputTypeWeekEnabled, &InputTypeNames::week, &createInputType<WeekInputType> },
-#endif
-        // No need to register "text" because it is the default type.
-    };
+    });
 
     InputTypeFactoryMap map;
     for (auto& inputType : inputTypes)
-        map.add(inputType.nameFunction(), std::make_pair(inputType.conditionalFunction, inputType.factoryFunction));
+        map.add(inputType.nameFunction(), InputTypeFactory { inputType.conditionalFunction, inputType.factoryFunction });
     return map;
 }
 
-Ref<InputType> InputType::create(HTMLInputElement& element, const AtomString& typeName)
+static inline std::pair<const AtomString&, InputTypeFactory*> findFactory(const AtomString& typeName)
 {
-    if (!typeName.isEmpty()) {
-        static const auto factoryMap = makeNeverDestroyed(createInputTypeFactoryMap());
-        auto&& [conditional, factory] = factoryMap.get().get(typeName);
-        if (factory && (!conditional || std::invoke(conditional, element.document().settings())))
-            return factory(element);
+    static NeverDestroyed factoryMap = createInputTypeFactoryMap();
+    auto& map = factoryMap.get();
+    auto it = map.find(typeName);
+    if (it == map.end()) [[unlikely]] {
+        it = map.find(typeName.convertToASCIILowercase());
+        if (it == map.end())
+            return { nullAtom(), nullptr };
     }
-    return adoptRef(*new TextInputType(element));
+    return { it->key, &it->value };
 }
 
-Ref<InputType> InputType::createText(HTMLInputElement& element)
+RefPtr<InputType> InputType::createIfDifferent(HTMLInputElement& element, const AtomString& typeName, InputType* currentInputType)
 {
-    return adoptRef(*new TextInputType(element));
+    if (!typeName.isEmpty()) {
+        auto& currentTypeName = currentInputType ? currentInputType->formControlType() : nullAtom();
+        if (typeName == currentTypeName)
+            return nullptr;
+        if (auto factory = findFactory(typeName); factory.second) [[likely]] {
+            if (factory.first == currentTypeName)
+                return nullptr;
+            if (!factory.second->conditionalFunction || std::invoke(factory.second->conditionalFunction, element.document().settings()))
+                return factory.second->factoryFunction(element);
+        }
+    }
+    if (currentInputType && currentInputType->type() == Type::Text)
+        return nullptr;
+    return TextInputType::create(element);
 }
 
 InputType::~InputType() = default;
 
-bool InputType::themeSupportsDataListUI(InputType* type)
+template<typename T> static bool validateInputType(const T& inputType, StringView value)
 {
-    return RenderTheme::singleton().supportsDataListUI(type->formControlType());
+    ASSERT(inputType.canSetStringValue());
+    return !inputType.typeMismatchFor(value)
+        && !inputType.hasStepRangeViolation(value)
+        && !inputType.patternMismatch(value)
+        && !inputType.valueMissing(value);
+}
+
+bool InputType::isValidValue(StringView value) const
+{
+    switch (m_type) {
+    case Type::Button:
+        return validateInputType(uncheckedDowncast<ButtonInputType>(*this), value);
+    case Type::Checkbox:
+        return validateInputType(uncheckedDowncast<CheckboxInputType>(*this), value);
+    case Type::Color:
+        return validateInputType(uncheckedDowncast<ColorInputType>(*this), value);
+    case Type::Date:
+        return validateInputType(uncheckedDowncast<DateInputType>(*this), value);
+    case Type::DateTimeLocal:
+        return validateInputType(uncheckedDowncast<DateTimeLocalInputType>(*this), value);
+    case Type::Email:
+        return validateInputType(uncheckedDowncast<EmailInputType>(*this), value);
+    case Type::File:
+        return validateInputType(uncheckedDowncast<FileInputType>(*this), value);
+    case Type::Hidden:
+        return validateInputType(uncheckedDowncast<HiddenInputType>(*this), value);
+    case Type::Image:
+        return validateInputType(uncheckedDowncast<ImageInputType>(*this), value);
+    case Type::Month:
+        return validateInputType(uncheckedDowncast<MonthInputType>(*this), value);
+    case Type::Number:
+        return validateInputType(uncheckedDowncast<NumberInputType>(*this), value);
+    case Type::Password:
+        return validateInputType(uncheckedDowncast<PasswordInputType>(*this), value);
+    case Type::Radio:
+        return validateInputType(uncheckedDowncast<RadioInputType>(*this), value);
+    case Type::Range:
+        return validateInputType(uncheckedDowncast<RangeInputType>(*this), value);
+    case Type::Reset:
+        return validateInputType(uncheckedDowncast<ResetInputType>(*this), value);
+    case Type::Search:
+        return validateInputType(uncheckedDowncast<SearchInputType>(*this), value);
+    case Type::Submit:
+        return validateInputType(uncheckedDowncast<SubmitInputType>(*this), value);
+    case Type::Telephone:
+        return validateInputType(uncheckedDowncast<TelephoneInputType>(*this), value);
+    case Type::Time:
+        return validateInputType(uncheckedDowncast<TimeInputType>(*this), value);
+    case Type::URL:
+        return validateInputType(uncheckedDowncast<URLInputType>(*this), value);
+    case Type::Week:
+        return validateInputType(uncheckedDowncast<WeekInputType>(*this), value);
+    case Type::Text:
+        return validateInputType(uncheckedDowncast<TextInputType>(*this), value);
+    default:
+        break;
+    }
+    ASSERT_NOT_REACHED();
+    return false;
 }
 
 bool InputType::shouldSaveAndRestoreFormControlState() const
@@ -175,8 +259,9 @@ bool InputType::shouldSaveAndRestoreFormControlState() const
 FormControlState InputType::saveFormControlState() const
 {
     ASSERT(element());
-    auto currentValue = element()->value();
-    if (currentValue == element()->defaultValue())
+    Ref input = *element();
+    AtomString currentValue { input->value().get() };
+    if (currentValue == input->attributeWithoutSynchronization(valueAttr))
         return { };
     return { { currentValue } };
 }
@@ -184,32 +269,38 @@ FormControlState InputType::saveFormControlState() const
 void InputType::restoreFormControlState(const FormControlState& state)
 {
     ASSERT(element());
-    element()->setValue(state[0]);
+    protect(element())->setValue(state[0]);
 }
 
 bool InputType::isFormDataAppendable() const
 {
     ASSERT(element());
     // There is no form data unless there's a name for non-image types.
-    return !element()->name().isEmpty();
+    return !protect(element())->name().isEmpty();
 }
 
-bool InputType::appendFormData(DOMFormData& formData, bool) const
+bool InputType::appendFormData(DOMFormData& formData) const
 {
     ASSERT(element());
     // Always successful.
-    formData.append(element()->name(), element()->value());
+    Ref input = *element();
+    formData.append(input->name(), input->value());
     return true;
 }
 
-double InputType::valueAsDate() const
+WallTime InputType::valueAsDate() const
 {
-    return DateComponents::invalidMilliseconds();
+    return WallTime::nan();
 }
 
-ExceptionOr<void> InputType::setValueAsDate(double) const
+ExceptionOr<void> InputType::setValueAsDate(WallTime) const
 {
-    return Exception { InvalidStateError };
+    return Exception { ExceptionCode::InvalidStateError };
+}
+
+WallTime InputType::accessibilityValueAsDate() const
+{
+    return WallTime::nan();
 }
 
 double InputType::valueAsDouble() const
@@ -224,17 +315,7 @@ ExceptionOr<void> InputType::setValueAsDouble(double doubleValue, TextFieldEvent
 
 ExceptionOr<void> InputType::setValueAsDecimal(const Decimal&, TextFieldEventBehavior) const
 {
-    return Exception { InvalidStateError };
-}
-
-bool InputType::typeMismatchFor(const String&) const
-{
-    return false;
-}
-
-bool InputType::typeMismatch() const
-{
-    return false;
+    return Exception { ExceptionCode::InvalidStateError };
 }
 
 bool InputType::supportsRequired() const
@@ -243,116 +324,91 @@ bool InputType::supportsRequired() const
     return supportsValidation();
 }
 
-bool InputType::valueMissing(const String&) const
-{
-    return false;
-}
-
-bool InputType::hasBadInput() const
-{
-    return false;
-}
-
-bool InputType::patternMismatch(const String&) const
-{
-    return false;
-}
-
-bool InputType::rangeUnderflow(const String& value) const
+std::optional<std::pair<Decimal, StepRange>> InputType::parsedValueAndStepRange(StringView value) const
 {
     if (!isSteppable())
-        return false;
-
-    const Decimal numericValue = parseToNumberOrNaN(value);
+        return std::nullopt;
+    auto numericValue = parseToNumberOrNaN(value);
     if (!numericValue.isFinite())
-        return false;
-
-    return numericValue < createStepRange(AnyStepHandling::Reject).minimum();
+        return std::nullopt;
+    return { { numericValue, createStepRange(AnyStepHandling::Reject) } };
 }
 
-bool InputType::rangeOverflow(const String& value) const
+bool InputType::rangeUnderflow(StringView value) const
 {
-    if (!isSteppable())
+    auto parsed = parsedValueAndStepRange(value);
+    if (!parsed)
         return false;
 
-    const Decimal numericValue = parseToNumberOrNaN(value);
-    if (!numericValue.isFinite())
-        return false;
+    auto& [numericValue, range] = *parsed;
 
-    return numericValue > createStepRange(AnyStepHandling::Reject).maximum();
+    if (range.isReversible() && range.maximum() < range.minimum())
+        return numericValue > range.maximum() && numericValue < range.minimum();
+
+    return numericValue < range.minimum();
 }
 
-bool InputType::isInvalid(const String& value) const
+bool InputType::rangeOverflow(StringView value) const
+{
+    auto parsed = parsedValueAndStepRange(value);
+    if (!parsed)
+        return false;
+
+    auto& [numericValue, range] = *parsed;
+
+    if (range.isReversible() && range.maximum() < range.minimum())
+        return numericValue > range.maximum() && numericValue < range.minimum();
+
+    return numericValue > range.maximum();
+}
+
+bool InputType::isInvalid(StringView value) const
 {
     switch (m_type) {
     case Type::Button:
-        return isInvalidInputType<ButtonInputType>(*this, value);
+        return isInvalidInputType(uncheckedDowncast<ButtonInputType>(*this), value);
     case Type::Checkbox:
-        return isInvalidInputType<CheckboxInputType>(*this, value);
+        return isInvalidInputType(uncheckedDowncast<CheckboxInputType>(*this), value);
     case Type::Color:
-#if ENABLE(INPUT_TYPE_COLOR)
-        return isInvalidInputType<ColorInputType>(*this, value);
-#else
-        return false;
-#endif
+        return isInvalidInputType(uncheckedDowncast<ColorInputType>(*this), value);
     case Type::Date:
-#if ENABLE(INPUT_TYPE_DATE)
-        return isInvalidInputType<DateInputType>(*this, value);
-#else
-        return false;
-#endif
+        return isInvalidInputType(uncheckedDowncast<DateInputType>(*this), value);
     case Type::DateTimeLocal:
-#if ENABLE(INPUT_TYPE_DATETIMELOCAL)
-        return isInvalidInputType<DateTimeLocalInputType>(*this, value);
-#else
-        return false;
-#endif
+        return isInvalidInputType(uncheckedDowncast<DateTimeLocalInputType>(*this), value);
     case Type::Email:
-        return isInvalidInputType<EmailInputType>(*this, value);
+        return isInvalidInputType(uncheckedDowncast<EmailInputType>(*this), value);
     case Type::File:
-        return isInvalidInputType<FileInputType>(*this, value);
+        return isInvalidInputType(uncheckedDowncast<FileInputType>(*this), value);
     case Type::Hidden:
-        return isInvalidInputType<HiddenInputType>(*this, value);
+        return isInvalidInputType(uncheckedDowncast<HiddenInputType>(*this), value);
     case Type::Image:
-        return isInvalidInputType<ImageInputType>(*this, value);
+        return isInvalidInputType(uncheckedDowncast<ImageInputType>(*this), value);
     case Type::Month:
-#if ENABLE(INPUT_TYPE_MONTH)
-        return isInvalidInputType<MonthInputType>(*this, value);
-#else
-        return false;
-#endif
+        return isInvalidInputType(uncheckedDowncast<MonthInputType>(*this), value);
     case Type::Number:
-        return isInvalidInputType<NumberInputType>(*this, value);
+        return isInvalidInputType(uncheckedDowncast<NumberInputType>(*this), value);
     case Type::Password:
-        return isInvalidInputType<PasswordInputType>(*this, value);
+        return isInvalidInputType(uncheckedDowncast<PasswordInputType>(*this), value);
     case Type::Radio:
-        return isInvalidInputType<RadioInputType>(*this, value);
+        return isInvalidInputType(uncheckedDowncast<RadioInputType>(*this), value);
     case Type::Range:
-        return isInvalidInputType<RangeInputType>(*this, value);
+        return isInvalidInputType(uncheckedDowncast<RangeInputType>(*this), value);
     case Type::Reset:
-        return isInvalidInputType<ResetInputType>(*this, value);
+        return isInvalidInputType(uncheckedDowncast<ResetInputType>(*this), value);
     case Type::Search:
-        return isInvalidInputType<SearchInputType>(*this, value);
+        return isInvalidInputType(uncheckedDowncast<SearchInputType>(*this), value);
     case Type::Submit:
-        return isInvalidInputType<SubmitInputType>(*this, value);
+        return isInvalidInputType(uncheckedDowncast<SubmitInputType>(*this), value);
     case Type::Telephone:
-        return isInvalidInputType<TelephoneInputType>(*this, value);
+        return isInvalidInputType(uncheckedDowncast<TelephoneInputType>(*this), value);
     case Type::Time:
-#if ENABLE(INPUT_TYPE_TIME)
-        return isInvalidInputType<TimeInputType>(*this, value);
-#else
-        return false;
-#endif
+        return isInvalidInputType(uncheckedDowncast<TimeInputType>(*this), value);
     case Type::URL:
-        return isInvalidInputType<URLInputType>(*this, value);
+        return isInvalidInputType(uncheckedDowncast<URLInputType>(*this), value);
     case Type::Week:
-#if ENABLE(INPUT_TYPE_WEEK)
-        return isInvalidInputType<WeekInputType>(*this, value);
-#else
-        return false;
-#endif
+        return isInvalidInputType(uncheckedDowncast<WeekInputType>(*this), value);
     case Type::Text:
-        return isInvalidInputType<TextInputType>(*this, value);
+        return isInvalidInputType(uncheckedDowncast<TextInputType>(*this), value);
     }
     ASSERT_NOT_REACHED();
     return false;
@@ -380,12 +436,12 @@ bool InputType::sizeShouldIncludeDecoration(int, int& preferredSize) const
     return false;
 }
 
-float InputType::decorationWidth() const
+float InputType::decorationWidth(float) const
 {
     return 0;
 }
 
-bool InputType::isInRange(const String& value) const
+bool InputType::isInRange(StringView value) const
 {
     if (!isSteppable())
         return false;
@@ -393,15 +449,20 @@ bool InputType::isInRange(const String& value) const
     StepRange stepRange(createStepRange(AnyStepHandling::Reject));
     if (!stepRange.hasRangeLimitations())
         return false;
-    
+
+    // This function should return true if both validity.rangeUnderflow and
+    // validity.rangeOverflow are false. If the INPUT has no value, they are false.
     const Decimal numericValue = parseToNumberOrNaN(value);
     if (!numericValue.isFinite())
         return true;
 
+    if (stepRange.isReversible() && stepRange.maximum() < stepRange.minimum())
+        return numericValue >= stepRange.minimum() || numericValue <= stepRange.maximum();
+
     return numericValue >= stepRange.minimum() && numericValue <= stepRange.maximum();
 }
 
-bool InputType::isOutOfRange(const String& value) const
+bool InputType::isOutOfRange(StringView value) const
 {
     if (!isSteppable() || value.isEmpty())
         return false;
@@ -410,23 +471,45 @@ bool InputType::isOutOfRange(const String& value) const
     if (!stepRange.hasRangeLimitations())
         return false;
 
+    // This function should return true if either validity.rangeUnderflow or
+    // validity.rangeOverflow is true. If the INPUT has no value, they are false.
     const Decimal numericValue = parseToNumberOrNaN(value);
     if (!numericValue.isFinite())
-        return true;
+        return false;
+
+    if (stepRange.isReversible() && stepRange.maximum() < stepRange.minimum())
+        return numericValue > stepRange.maximum() && numericValue < stepRange.minimum();
 
     return numericValue < stepRange.minimum() || numericValue > stepRange.maximum();
 }
 
-bool InputType::stepMismatch(const String& value) const
+bool InputType::stepMismatch(StringView value) const
 {
-    if (!isSteppable())
+    auto parsed = parsedValueAndStepRange(value);
+    if (!parsed)
         return false;
 
-    const Decimal numericValue = parseToNumberOrNaN(value);
-    if (!numericValue.isFinite())
+    auto& [numericValue, range] = *parsed;
+    return range.stepMismatch(numericValue);
+}
+
+bool InputType::hasStepRangeViolation(StringView value) const
+{
+    auto parsed = parsedValueAndStepRange(value);
+    if (!parsed)
         return false;
 
-    return createStepRange(AnyStepHandling::Reject).stepMismatch(numericValue);
+    auto& [numericValue, range] = *parsed;
+
+    if (range.isReversible() && range.maximum() < range.minimum()) {
+        if (numericValue > range.maximum() && numericValue < range.minimum())
+            return true;
+    } else {
+        if (numericValue < range.minimum() || numericValue > range.maximum())
+            return true;
+    }
+
+    return range.stepMismatch(numericValue);
 }
 
 String InputType::badInputText() const
@@ -448,7 +531,8 @@ String InputType::valueMissingText() const
 String InputType::validationMessage() const
 {
     ASSERT(element());
-    String value = element()->value();
+    Ref element = *this->element();
+    String value = element->value();
 
     // The order of the following checks is meaningful. e.g. We'd like to show the
     // badInput message even if the control has other validation errors.
@@ -461,14 +545,18 @@ String InputType::validationMessage() const
     if (typeMismatch())
         return typeMismatchText();
 
-    if (patternMismatch(value))
-        return validationMessagePatternMismatchText();
+    if (patternMismatch(value)) {
+        auto title = element->attributeWithoutSynchronization(HTMLNames::titleAttr).string().trim(isASCIIWhitespace).simplifyWhiteSpace(isASCIIWhitespace);
+        if (title.isEmpty())
+            return validationMessagePatternMismatchText();
+        return validationMessagePatternMismatchText(title);
+    }
 
-    if (element()->tooShort())
-        return validationMessageTooShortText(numGraphemeClusters(value), element()->minLength());
+    if (element->tooShort())
+        return validationMessageTooShortText(value.length(), element->minLength());
 
-    if (element()->tooLong())
-        return validationMessageTooLongText(numGraphemeClusters(value), element()->effectiveMaxLength());
+    if (element->tooLong())
+        return validationMessageTooLongText(value.length(), element->effectiveMaxLength());
 
     if (!isSteppable())
         return emptyString();
@@ -493,15 +581,12 @@ String InputType::validationMessage() const
     return emptyString();
 }
 
-void InputType::handleClickEvent(MouseEvent&)
+bool InputType::allowsShowPickerAcrossFrames()
 {
+    return false;
 }
 
-void InputType::handleMouseDownEvent(MouseEvent&)
-{
-}
-
-void InputType::handleDOMActivateEvent(Event&)
+void InputType::showPicker()
 {
 }
 
@@ -522,56 +607,64 @@ void InputType::handleBeforeTextInsertedEvent(BeforeTextInsertedEvent&)
 {
 }
 
-#if ENABLE(TOUCH_EVENTS)
-void InputType::handleTouchEvent(TouchEvent&)
-{
-}
-#endif
-
 void InputType::forwardEvent(Event&)
 {
 }
 
 bool InputType::shouldSubmitImplicitly(Event& event)
 {
-    return is<KeyboardEvent>(event) && event.type() == eventNames().keypressEvent && downcast<KeyboardEvent>(event).charCode() == '\r';
+    auto* keyboardEvent = dynamicDowncast<KeyboardEvent>(event);
+    return keyboardEvent && event.type() == eventNames().keypressEvent && keyboardEvent->charCode() == '\r';
 }
 
-RenderPtr<RenderElement> InputType::createInputRenderer(RenderStyle&& style)
+RenderPtr<RenderElement> InputType::createInputRenderer(Style::ComputedStyle&& style)
 {
     ASSERT(element());
-    return RenderPtr<RenderElement>(RenderElement::createFor(*element(), WTFMove(style)));
+    // FIXME: https://github.com/llvm/llvm-project/pull/142471 Moving style is not unsafe.
+    SUPPRESS_UNCOUNTED_ARG return RenderPtr<RenderElement>(RenderElement::createFor(*protect(element()), WTF::move(style)));
 }
 
 void InputType::blur()
 {
     ASSERT(element());
-    element()->defaultBlur();
+    protect(element())->defaultBlur();
 }
 
-void InputType::createShadowSubtreeAndUpdateInnerTextElementEditability(ContainerNode::ChildChange::Source, bool)
+void InputType::createShadowSubtree()
 {
 }
 
-void InputType::destroyShadowSubtree()
+void InputType::removeShadowSubtree()
 {
     ASSERT(element());
-    RefPtr<ShadowRoot> root = element()->userAgentShadowRoot();
+    RefPtr root = element()->userAgentShadowRoot();
     if (!root)
         return;
 
     root->removeChildren();
+    m_hasCreatedShadowSubtree = false;
 }
 
-Decimal InputType::parseToNumber(const String&, const Decimal& defaultValue) const
+Decimal InputType::parseToNumber(StringView, const Decimal& defaultValue) const
 {
     ASSERT_NOT_REACHED();
     return defaultValue;
 }
 
-Decimal InputType::parseToNumberOrNaN(const String& string) const
+Decimal InputType::parseToNumberOrNaN(StringView string) const
 {
     return parseToNumber(string, Decimal::nan());
+}
+
+Decimal InputType::extractStepRangeBound(const QualifiedName& attributeName, const Decimal& defaultValue, RangeLimitations& rangeLimitations) const
+{
+    ASSERT(element());
+    Decimal valueFromAttribute = parseToNumberOrNaN(element()->attributeWithoutSynchronization(attributeName));
+    if (valueFromAttribute.isFinite()) {
+        rangeLimitations = RangeLimitations::Valid;
+        return valueFromAttribute;
+    }
+    return defaultValue;
 }
 
 String InputType::serialize(const Decimal&) const
@@ -588,8 +681,9 @@ DateComponentsType InputType::dateType() const
 void InputType::dispatchSimulatedClickIfActive(KeyboardEvent& event) const
 {
     ASSERT(element());
-    if (element()->active())
-        element()->dispatchSimulatedClick(&event);
+    Ref element = *this->element();
+    if (element->active())
+        element->dispatchSimulatedClick(&event);
     event.setDefaultHandled();
 }
 
@@ -611,16 +705,17 @@ bool InputType::hasCustomFocusLogic() const
     return true;
 }
 
-bool InputType::isKeyboardFocusable(KeyboardEvent* event) const
+bool InputType::isKeyboardFocusable(const FocusEventData& focusEventData) const
 {
     ASSERT(element());
-    return !element()->isReadOnly() && element()->isTextFormControlKeyboardFocusable(event);
+    Ref element = *this->element();
+    return !element->isReadOnly() && element->isTextFormControlKeyboardFocusable(focusEventData);
 }
 
 bool InputType::isMouseFocusable() const
 {
     ASSERT(element());
-    return element()->isTextFormControlMouseFocusable();
+    return protect(element())->isTextFormControlMouseFocusable();
 }
 
 bool InputType::shouldUseInputMethod() const
@@ -639,7 +734,7 @@ void InputType::handleBlurEvent()
 bool InputType::accessKeyAction(bool)
 {
     ASSERT(element());
-    element()->focus({ SelectionRestorationMode::SelectAll });
+    protect(element())->focus({ { }, { }, SelectionRestorationMode::SelectAll });
     return false;
 }
 
@@ -675,26 +770,12 @@ bool InputType::rendererIsNeeded()
     return true;
 }
 
-FileList* InputType::files()
-{
-    return nullptr;
-}
-
-void InputType::setFiles(RefPtr<FileList>&&, WasSetByJavaScript)
-{
-}
-
-bool InputType::getTypeSpecificValue(String&)
-{
-    return false;
-}
-
-String InputType::fallbackValue() const
+ValueOrReference<String> NODELETE InputType::fallbackValue() const
 {
     return String();
 }
 
-String InputType::defaultValue() const
+String NODELETE InputType::defaultValue() const
 {
     return String();
 }
@@ -709,39 +790,43 @@ bool InputType::storesValueSeparateFromAttribute()
     return true;
 }
 
-void InputType::setValue(const String& sanitizedValue, bool valueChanged, TextFieldEventBehavior eventBehavior)
+void InputType::setValue(const String& sanitizedValue, bool valueChanged, TextFieldEventBehavior eventBehavior, TextControlSetValueSelection)
 {
-    ASSERT(element());
-    element()->setValueInternal(sanitizedValue, eventBehavior);
-    if (!valueChanged)
+    RefPtr element = this->element();
+    ASSERT(element);
+    if (!valueChanged) {
+        element->setValueInternal(sanitizedValue, eventBehavior);
         return;
-    element()->invalidateStyleForSubtree();
+    }
+
+    bool wasInRange = isInRange(element->value());
+    bool inRange = isInRange(sanitizedValue);
+
+    auto oldDirection = computeTextDirectionIfDirIsAuto(*element);
+
+    std::optional<Style::PseudoClassChangeInvalidation> styleInvalidation;
+    if (wasInRange != inRange)
+        emplace(styleInvalidation, *element, { { CSSSelector::PseudoClass::InRange, inRange }, { CSSSelector::PseudoClass::OutOfRange, !inRange } });
+
+    element->setValueInternal(sanitizedValue, eventBehavior);
+
+    if (oldDirection.value_or(TextDirection::LTR) != computeTextDirectionIfDirIsAuto(*element).value_or(TextDirection::LTR))
+        element->invalidateStyle();
 
     switch (eventBehavior) {
     case DispatchChangeEvent:
-        element()->dispatchFormControlChangeEvent();
+        element->dispatchFormControlChangeEvent();
         break;
     case DispatchInputAndChangeEvent:
-        element()->dispatchFormControlInputEvent();
-        if (auto element = this->element())
-            element->dispatchFormControlChangeEvent();
+        element->dispatchFormControlInputEvent();
+        element->dispatchFormControlChangeEvent();
         break;
     case DispatchNoEvent:
         break;
     }
-}
 
-bool InputType::canSetValue(const String&)
-{
-    return true;
-}
-
-void InputType::willDispatchClick(InputElementClickState&)
-{
-}
-
-void InputType::didDispatchClick(Event&, const InputElementClickState&)
-{
+    if (CheckedPtr cache = protect(element->document())->existingAXObjectCache())
+        cache->valueChanged(*element);
 }
 
 String InputType::localizeValue(const String& proposedValue) const
@@ -752,7 +837,7 @@ String InputType::localizeValue(const String& proposedValue) const
 String InputType::visibleValue() const
 {
     ASSERT(element());
-    return element()->value();
+    return protect(element())->value();
 }
 
 bool InputType::isEmptyValue() const
@@ -760,7 +845,7 @@ bool InputType::isEmptyValue() const
     return true;
 }
 
-String InputType::sanitizeValue(const String& proposedValue) const
+ValueOrReference<String> InputType::sanitizeValue(const String& proposedValue LIFETIME_BOUND) const
 {
     return proposedValue;
 }
@@ -792,17 +877,12 @@ bool InputType::shouldResetOnDocumentActivation()
     return false;
 }
 
-bool InputType::shouldRespectListAttribute()
-{
-    return false;
-}
-
 bool InputType::isInteractiveContent() const
 {
     return m_type != Type::Hidden;
 }
 
-bool InputType::supportLabels() const
+bool InputType::isLabelable() const
 {
     return m_type != Type::Hidden;
 }
@@ -848,21 +928,9 @@ void InputType::subtreeHasChanged()
     ASSERT_NOT_REACHED();
 }
 
-#if ENABLE(TOUCH_EVENTS)
-bool InputType::hasTouchEventHandler() const
-{
-    return false;
-}
-#endif
-
 String InputType::defaultToolTip() const
 {
     return String();
-}
-
-#if ENABLE(DATALIST_ELEMENT)
-void InputType::dataListMayHaveChanged()
-{
 }
 
 std::optional<Decimal> InputType::findClosestTickMarkValue(const Decimal&)
@@ -870,14 +938,8 @@ std::optional<Decimal> InputType::findClosestTickMarkValue(const Decimal&)
     ASSERT_NOT_REACHED();
     return std::nullopt;
 }
-#endif
 
 bool InputType::matchesIndeterminatePseudoClass() const
-{
-    return false;
-}
-
-bool InputType::shouldAppearIndeterminate() const
 {
     return false;
 }
@@ -888,6 +950,11 @@ bool InputType::isPresentingAttachedView() const
 }
 
 bool InputType::supportsSelectionAPI() const
+{
+    return false;
+}
+
+bool InputType::dirAutoUsesValue() const
 {
     return false;
 }
@@ -904,39 +971,84 @@ unsigned InputType::width() const
 
 ExceptionOr<void> InputType::applyStep(int count, AnyStepHandling anyStepHandling, TextFieldEventBehavior eventBehavior)
 {
+    // https://html.spec.whatwg.org/C/#dom-input-stepup
+
     StepRange stepRange(createStepRange(anyStepHandling));
+    // 2. If the element has no allowed value step, then throw an InvalidStateError exception, and abort these steps.
     if (!stepRange.hasStep())
-        return Exception { InvalidStateError };
+        return Exception { ExceptionCode::InvalidStateError };
+
+    // 3. If the element has a minimum and a maximum and the minimum is greater than the maximum, then abort these steps.
+    if (stepRange.minimum() > stepRange.maximum())
+        return { };
+    
+    // 4. If the element has a minimum and a maximum and there is no value greater than or equal to the element's minimum and less than or equal to
+    // the element's maximum that, when subtracted from the step base, is an integral multiple of the allowed value step, then abort these steps.
+    Decimal alignedMaximum = stepRange.stepSnappedMaximum();
+    if (!alignedMaximum.isFinite())
+        return { };
 
     ASSERT(element());
-    const Decimal current = parseToNumberOrNaN(element()->value());
-    if (!current.isFinite())
-        return Exception { InvalidStateError };
-    Decimal newValue = current + stepRange.step() * count;
-    if (!newValue.isFinite())
-        return Exception { InvalidStateError };
+    Ref element = *this->element();
+    const Decimal current = parseToNumber(element->value(), 0);
+    Decimal base = stepRange.stepBase();
+    Decimal step = stepRange.step();
+    Decimal newValue = current;
 
-    const Decimal acceptableErrorValue = stepRange.acceptableError();
-    if (newValue - stepRange.minimum() < -acceptableErrorValue)
-        return Exception { InvalidStateError };
-    if (newValue < stepRange.minimum())
-        newValue = stepRange.minimum();
+    const AtomString& stepString = element->getAttribute(HTMLNames::stepAttr);
 
-    if (!equalLettersIgnoringASCIICase(element()->attributeWithoutSynchronization(stepAttr), "any"))
+    if (!equalLettersIgnoringASCIICase(stepString, "any"_s) && stepRange.stepMismatch(current)) {
+        // Snap-to-step / clamping steps
+        // If the current value is not matched to step value:
+        // - The value should be the larger matched value nearest to 0 if count > 0
+        //   e.g. <input type=number value=3 min=-100 step=3> -> 5
+        // - The value should be the smaller matched value nearest to 0 if count < 0
+        //   e.g. <input type=number value=3 min=-100 step=3> -> 2
+
+        ASSERT(!step.isZero());
+        if (count < 0) {
+            newValue = base + ((newValue - base) / step).floor() * step;
+            ++count;
+        } else if (count > 0) {
+            newValue = base + ((newValue - base) / step).ceil() * step;
+            --count;
+        }
+    }
+
+    newValue = newValue + stepRange.step() * Decimal::fromDouble(count);
+
+    if (!equalLettersIgnoringASCIICase(stepString, "any"_s))
         newValue = stepRange.alignValueForStep(current, newValue);
 
-    if (newValue - stepRange.maximum() > acceptableErrorValue)
-        return Exception { InvalidStateError };
-    if (newValue > stepRange.maximum())
-        newValue = stepRange.maximum();
+    // 8. If the element has a minimum, and value is less than that minimum, then set value to the smallest value that, when subtracted from the step
+    // base, is an integral multiple of the allowed value step, and that is more than or equal to minimum.
+    if (newValue < stepRange.minimum()) {
+        const Decimal alignedMinimum = base + ((stepRange.minimum() - base) / step).ceil() * step;
+        ASSERT(alignedMinimum >= stepRange.minimum());
+        newValue = alignedMinimum;
+    }
 
-    auto protectedThis = makeRef(*this);
+    // 9. If the element has a maximum, and value is greater than that maximum, then set value to the largest value that, when subtracted from the step
+    // base, is an integral multiple of the allowed value step, and that is less than or equal to maximum.
+    if (newValue > stepRange.maximum())
+        newValue = alignedMaximum;
+
+    // 10. If either the method invoked was the stepDown() method and value is greater than valueBeforeStepping, or the method invoked was the stepUp()
+    // method and value is less than valueBeforeStepping, then return.
+    if ((count < 0 && current < newValue) || (count > 0 && current > newValue))
+        return { };
+    
+    // 11. Let value as string be the result of running the algorithm to convert a number to a string, as defined for the input element's type attribute's
+    // current state, on value.
+    // 12. Set the value of the element to value as string.
+
+    Ref protectedThis { *this };
     auto result = setValueAsDecimal(newValue, eventBehavior);
-    if (result.hasException() || !element())
+    if (result.hasException() || !this->element())
         return result;
 
-    if (AXObjectCache* cache = element()->document().existingAXObjectCache())
-        cache->postNotification(element(), AXObjectCache::AXValueChanged);
+    if (CheckedPtr cache = protect(element->document())->existingAXObjectCache())
+        cache->valueChanged(element);
 
     return result;
 }
@@ -957,7 +1069,7 @@ StepRange InputType::createStepRange(AnyStepHandling) const
 ExceptionOr<void> InputType::stepUp(int n)
 {
     if (!isSteppable())
-        return Exception { InvalidStateError };
+        return Exception { ExceptionCode::InvalidStateError };
     return applyStep(n, AnyStepHandling::Reject, DispatchNoEvent);
 }
 
@@ -1024,7 +1136,8 @@ void InputType::stepUpFromRenderer(int n)
         sign = 0;
 
     ASSERT(element());
-    String currentStringValue = element()->value();
+    Ref element = *this->element();
+    String currentStringValue = element->value();
     Decimal current = parseToNumberOrNaN(currentStringValue);
     if (!current.isFinite()) {
         current = defaultValueForStepUp();
@@ -1038,14 +1151,14 @@ void InputType::stepUpFromRenderer(int n)
     if ((sign > 0 && current < stepRange.minimum()) || (sign < 0 && current > stepRange.maximum()))
         setValueAsDecimal(sign > 0 ? stepRange.minimum() : stepRange.maximum(), DispatchInputAndChangeEvent);
     else {
-        if (stepMismatch(element()->value())) {
+        if (stepMismatch(element->value())) {
             ASSERT(!step.isZero());
             const Decimal base = stepRange.stepBase();
             Decimal newValue;
             if (sign < 0)
                 newValue = base + ((current - base) / step).floor() * step;
             else if (sign > 0)
-                newValue = base + ((current - base) / step).ceiling() * step;
+                newValue = base + ((current - base) / step).ceil() * step;
             else
                 newValue = current;
 
@@ -1064,29 +1177,57 @@ void InputType::stepUpFromRenderer(int n)
     }
 }
 
-Color InputType::valueAsColor() const
-{
-    return Color::transparentBlack;
-}
-
-void InputType::selectColor(StringView)
-{
-}
-
-Vector<Color> InputType::suggestedColors() const
-{
-    return { };
-}
-
 RefPtr<TextControlInnerTextElement> InputType::innerTextElement() const
 {
     return nullptr;
 }
 
+RefPtr<TextControlInnerTextElement> InputType::innerTextElementCreatingShadowSubtreeIfNeeded()
+{
+    createShadowSubtreeIfNeeded();
+    return innerTextElement();
+}
+
 String InputType::resultForDialogSubmit() const
 {
     ASSERT(element());
-    return element()->value();
+    return protect(element())->value();
+}
+
+void InputType::createShadowSubtreeIfNeeded()
+{
+    if (m_hasCreatedShadowSubtree || !needsShadowSubtree())
+        return;
+    // FIXME: Remove protectedThis once all the callsites protect InputType.
+    Ref protectedThis { *this };
+    protect(element())->ensureUserAgentShadowRoot();
+    m_hasCreatedShadowSubtree = true;
+    createShadowSubtree();
+}
+
+#if ENABLE(TOUCH_EVENTS)
+bool InputType::hasTouchEventHandler() const
+{
+#if ENABLE(IOS_TOUCH_EVENTS)
+    if (isSwitch()) {
+        ASSERT(element());
+        return !protect(element())->isDisabledFormControl();
+    }
+#else
+    if (isRangeControl())
+        return true;
+#endif
+    return false;
+}
+#endif
+
+Decimal InputType::findStepBase(const Decimal& defaultValue) const
+{
+    Ref element = *this->element();
+    Decimal stepBase = parseToNumber(element->attributeWithoutSynchronization(minAttr), Decimal::nan());
+    if (!stepBase.isFinite())
+        stepBase = parseToNumber(element->attributeWithoutSynchronization(valueAttr), defaultValue);
+    return stepBase;
 }
 
 } // namespace WebCore

@@ -28,6 +28,7 @@
 
 #include "CustomEvent.h"
 #include "DOMWrapperWorld.h"
+#include "JSValueInWrappedObjectInlines.h"
 #include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSCJSValue.h>
 #include <JavaScriptCore/Structure.h>
@@ -36,19 +37,19 @@ namespace WebCore {
 
 JSC::JSValue JSCustomEvent::detail(JSC::JSGlobalObject& lexicalGlobalObject) const
 {
-    return cachedPropertyValue(lexicalGlobalObject, *this, wrapped().cachedDetail(), [this] {
-        JSC::JSValue detail = wrapped().detail();
-        return detail ? detail : JSC::jsNull();
+    auto throwScope = DECLARE_THROW_SCOPE(lexicalGlobalObject.vm());
+    return cachedPropertyValue(throwScope, lexicalGlobalObject, *this, wrapped().cachedDetail(), [this](JSC::ThrowScope&) {
+        return wrapped().detail().getValue(JSC::jsNull());
     });
 }
 
 template<typename Visitor>
-void JSCustomEvent::visitAdditionalChildren(Visitor& visitor)
+void JSCustomEvent::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    wrapped().detail().visit(visitor);
-    wrapped().cachedDetail().visit(visitor);
+    wrapped().detail().visitInGCThread(visitor);
+    wrapped().cachedDetail().visitInGCThread(visitor);
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSCustomEvent);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSCustomEvent);
 
 } // namespace WebCore

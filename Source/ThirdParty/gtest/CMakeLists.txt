@@ -10,15 +10,8 @@ set(GTEST_INCLUDE_DIRECTORIES
 )
 
 set(GTEST_SOURCES
-    ${GTEST_DIR}/src/gtest.cc
-    ${GTEST_DIR}/src/gtest-death-test.cc
-    ${GTEST_DIR}/src/gtest-filepath.cc
+    ${GTEST_DIR}/src/gtest-all.cc
     ${GTEST_DIR}/src/gtest_main.cc
-    ${GTEST_DIR}/src/gtest-matchers.cc
-    ${GTEST_DIR}/src/gtest-port.cc
-    ${GTEST_DIR}/src/gtest-printers.cc
-    ${GTEST_DIR}/src/gtest-test-part.cc
-    ${GTEST_DIR}/src/gtest-typed-test.cc
 )
 
 set(gtest_DEFINITIONS GTEST_HAS_RTTI=0)
@@ -41,9 +34,11 @@ endif ()
 
 target_include_directories(gtest PRIVATE ${GTEST_INCLUDE_DIRECTORIES})
 
-WEBKIT_ADD_TARGET_CXX_FLAGS(gtest -Wno-undef
-                                  -Wno-stringop-truncation
-                                  -Wno-suggest-attribute=format)
+WEBKIT_ADD_TARGET_CXX_FLAGS(gtest -Wno-undef)
+if (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+    WEBKIT_ADD_TARGET_CXX_FLAGS(gtest -Wno-stringop-truncation
+                                      -Wno-suggest-attribute=format)
+endif ()
 
 if (CMAKE_USE_PTHREADS_INIT)
     target_link_libraries(gtest PRIVATE ${CMAKE_THREAD_LIBS_INIT})

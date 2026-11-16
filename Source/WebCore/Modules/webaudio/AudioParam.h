@@ -32,10 +32,10 @@
 #include "AudioParamTimeline.h"
 #include "AudioSummingJunction.h"
 #include "AutomationRate.h"
-#include <JavaScriptCore/Float32Array.h>
+#include <JavaScriptCore/Forward.h>
 #include <sys/types.h>
 #include <wtf/LoggerHelper.h>
-#include <wtf/RefCounted.h>
+#include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
@@ -46,11 +46,13 @@ enum class AutomationRateMode : bool { Fixed, Variable };
 
 class AudioParam final
     : public AudioSummingJunction
-    , public RefCounted<AudioParam>
+    , public ThreadSafeRefCounted<AudioParam, WTF::DestructionThread::Main>
 #if !RELEASE_LOG_DISABLED
     , private LoggerHelper
 #endif
 {
+    WTF_MAKE_TZONE_ALLOCATED(AudioParam);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(AudioParam);
 public:
     static constexpr double SmoothingConstant = 0.05;
     static constexpr double SnapThreshold = 0.001;
@@ -68,7 +70,7 @@ public:
     float value();
     void setValue(float);
 
-    float valueForBindings() const;
+    float NODELETE valueForBindings() const;
     ExceptionOr<void> setValueForBindings(float);
 
     AutomationRate automationRate() const { return m_automationRate; }
@@ -78,7 +80,7 @@ public:
     // Must be called in the audio thread.
     float finalValue();
 
-    const String& name() const { return m_name; }
+    const String& name() const LIFETIME_BOUND { return m_name; }
 
     float minValue() const { return m_minValue; }
     float maxValue() const { return m_maxValue; }
@@ -88,7 +90,7 @@ public:
 
     // When a new value is set with setValue(), in our internal use of the parameter we don't immediately jump to it.
     // Instead we smoothly approach this value to avoid glitching.
-    float smoothedValue();
+    float smoothedValue() const { return m_smoothedValue; }
 
     // Smoothly exponentially approaches to (de-zippers) the desired value.
     // Returns true if smoothed value has already snapped exactly to value.
@@ -109,7 +111,7 @@ public:
     
     // Calculates numberOfValues parameter values starting at the context's current time.
     // Must be called in the context's render thread.
-    void calculateSampleAccurateValues(float* values, unsigned numberOfValues);
+    void calculateSampleAccurateValues(std::span<float> values);
 
     // Connect an audio-rate signal to control this parameter.
     void connect(AudioNodeOutput*);
@@ -120,14 +122,14 @@ protected:
 
 private:
     // sampleAccurate corresponds to a-rate (audio rate) vs. k-rate in the Web Audio specification.
-    void calculateFinalValues(float* values, unsigned numberOfValues, bool sampleAccurate);
-    void calculateTimelineValues(float* values, unsigned numberOfValues);
+    void calculateFinalValues(std::span<float> values, bool sampleAccurate);
+    void calculateTimelineValues(std::span<float> values);
 
 #if !RELEASE_LOG_DISABLED
     const Logger& logger() const final { return m_logger.get(); }
-    const void* logIdentifier() const final { return m_logIdentifier; }
-    const char* logClassName() const final { return "AudioParam"; }
-    WTFLogChannel& logChannel() const final;
+    uint64_t logIdentifier() const final { return m_logIdentifier; }
+    ASCIILiteral logClassName() const final { return "AudioParam"_s; }
+    WTFLogChannel& NODELETE logChannel() const final;
 #endif
     
     String m_name;
@@ -142,11 +144,11 @@ private:
     float m_smoothedValue;
     
     AudioParamTimeline m_timeline;
-    Ref<AudioBus> m_summingBus;
+    const Ref<AudioBus> m_summingBus;
 
 #if !RELEASE_LOG_DISABLED
     mutable Ref<const Logger> m_logger;
-    const void* m_logIdentifier;
+    const uint64_t m_logIdentifier;
 #endif
 };
 

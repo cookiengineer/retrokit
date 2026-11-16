@@ -26,6 +26,7 @@
 #include "SVGNames.h"
 #include "SVGURIReference.h"
 #include "SVGUnitTypes.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -57,53 +58,56 @@ struct SVGPropertyTraits<SVGSpreadMethodType> {
         return emptyString();
     }
 
-    static SVGSpreadMethodType fromString(const String& value)
+    static SVGSpreadMethodType fromString(SVGElement&, const String& value)
     {
-        if (value == "pad")
+        if (value == "pad"_s)
             return SVGSpreadMethodPad;
-        if (value == "reflect")
+        if (value == "reflect"_s)
             return SVGSpreadMethodReflect;
-        if (value == "repeat")
+        if (value == "repeat"_s)
             return SVGSpreadMethodRepeat;
         return SVGSpreadMethodUnknown;
     }
 };
 
 class SVGGradientElement : public SVGElement, public SVGURIReference {
-    WTF_MAKE_ISO_ALLOCATED(SVGGradientElement);
+    WTF_MAKE_TZONE_ALLOCATED(SVGGradientElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGGradientElement);
 public:
     enum {
         SVG_SPREADMETHOD_UNKNOWN = SVGSpreadMethodUnknown,
-        SVG_SPREADMETHOD_PAD = SVGSpreadMethodReflect,
-        SVG_SPREADMETHOD_REFLECT = SVGSpreadMethodRepeat,
-        SVG_SPREADMETHOD_REPEAT = SVGSpreadMethodUnknown
+        SVG_SPREADMETHOD_PAD = SVGSpreadMethodPad,
+        SVG_SPREADMETHOD_REFLECT = SVGSpreadMethodReflect,
+        SVG_SPREADMETHOD_REPEAT = SVGSpreadMethodRepeat
     };
 
-    Gradient::ColorStopVector buildStops();
+    GradientColorStops buildStops();
 
     using PropertyRegistry = SVGPropertyOwnerRegistry<SVGGradientElement, SVGElement, SVGURIReference>;
 
     SVGSpreadMethodType spreadMethod() const { return m_spreadMethod->currentValue<SVGSpreadMethodType>(); }
     SVGUnitTypes::SVGUnitType gradientUnits() const { return m_gradientUnits->currentValue<SVGUnitTypes::SVGUnitType>(); }
-    const SVGTransformList& gradientTransform() const { return m_gradientTransform->currentValue(); }
+    const SVGTransformList& gradientTransform() const LIFETIME_BOUND { return m_gradientTransform->currentValue(); }
 
     SVGAnimatedEnumeration& spreadMethodAnimated() { return m_spreadMethod; }
     SVGAnimatedEnumeration& gradientUnitsAnimated() { return m_gradientUnits; }
     SVGAnimatedTransformList& gradientTransformAnimated() { return m_gradientTransform; }
 
 protected:
-    SVGGradientElement(const QualifiedName&, Document&);
+    SVGGradientElement(const QualifiedName&, Document&, UniqueRef<SVGPropertyRegistry>&&);
 
-    void parseAttribute(const QualifiedName&, const AtomString&) override;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
     void svgAttributeChanged(const QualifiedName&) override;
+
+    void invalidateGradientResource();
 
 private:
     bool needsPendingResourceHandling() const override { return false; }
     void childrenChanged(const ChildChange&) override;
 
-    Ref<SVGAnimatedEnumeration> m_spreadMethod { SVGAnimatedEnumeration::create(this, SVGSpreadMethodPad) };
-    Ref<SVGAnimatedEnumeration> m_gradientUnits { SVGAnimatedEnumeration::create(this, SVGUnitTypes::SVG_UNIT_TYPE_OBJECTBOUNDINGBOX) };
-    Ref<SVGAnimatedTransformList> m_gradientTransform { SVGAnimatedTransformList::create(this) };
+    const Ref<SVGAnimatedEnumeration> m_spreadMethod { SVGAnimatedEnumeration::create(this, SVGSpreadMethodPad) };
+    const Ref<SVGAnimatedEnumeration> m_gradientUnits { SVGAnimatedEnumeration::create(this, SVGUnitTypes::SVG_UNIT_TYPE_OBJECTBOUNDINGBOX) };
+    const Ref<SVGAnimatedTransformList> m_gradientTransform { SVGAnimatedTransformList::create(this) };
 };
 
 } // namespace WebCore
@@ -115,6 +119,7 @@ static bool isType(const WebCore::SVGElement& element)
 }
 static bool isType(const WebCore::Node& node)
 {
-    return is<WebCore::SVGElement>(node) && isType(downcast<WebCore::SVGElement>(node));
+    auto* svgElement = dynamicDowncast<WebCore::SVGElement>(node);
+    return svgElement && isType(*svgElement);
 }
 SPECIALIZE_TYPE_TRAITS_END()

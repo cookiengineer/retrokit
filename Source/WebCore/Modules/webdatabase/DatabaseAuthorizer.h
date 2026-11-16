@@ -51,52 +51,52 @@ public:
 
     static Ref<DatabaseAuthorizer> create(const String& databaseInfoTableName);
 
-    int createTable(const String& tableName);
-    int createTempTable(const String& tableName);
-    int dropTable(const String& tableName);
-    int dropTempTable(const String& tableName);
-    int allowAlterTable(const String& databaseName, const String& tableName);
+    int NODELETE createTable(const String& tableName);
+    int NODELETE createTempTable(const String& tableName);
+    int NODELETE dropTable(const String& tableName);
+    int NODELETE dropTempTable(const String& tableName);
+    int NODELETE allowAlterTable(const String& databaseName, const String& tableName);
 
-    int createIndex(const String& indexName, const String& tableName);
-    int createTempIndex(const String& indexName, const String& tableName);
-    int dropIndex(const String& indexName, const String& tableName);
-    int dropTempIndex(const String& indexName, const String& tableName);
+    int NODELETE createIndex(const String& indexName, const String& tableName);
+    int NODELETE createTempIndex(const String& indexName, const String& tableName);
+    int NODELETE dropIndex(const String& indexName, const String& tableName);
+    int NODELETE dropTempIndex(const String& indexName, const String& tableName);
 
-    int createTrigger(const String& triggerName, const String& tableName);
-    int createTempTrigger(const String& triggerName, const String& tableName);
-    int dropTrigger(const String& triggerName, const String& tableName);
-    int dropTempTrigger(const String& triggerName, const String& tableName);
+    int NODELETE createTrigger(const String& triggerName, const String& tableName);
+    int NODELETE createTempTrigger(const String& triggerName, const String& tableName);
+    int NODELETE dropTrigger(const String& triggerName, const String& tableName);
+    int NODELETE dropTempTrigger(const String& triggerName, const String& tableName);
 
-    int createView(const String& viewName);
-    int createTempView(const String& viewName);
-    int dropView(const String& viewName);
-    int dropTempView(const String& viewName);
+    int NODELETE createView(const String& viewName);
+    int NODELETE createTempView(const String& viewName);
+    int NODELETE dropView(const String& viewName);
+    int NODELETE dropTempView(const String& viewName);
 
-    int createVTable(const String& tableName, const String& moduleName);
-    int dropVTable(const String& tableName, const String& moduleName);
+    int NODELETE createVTable(const String& tableName, const String& moduleName);
+    int NODELETE dropVTable(const String& tableName, const String& moduleName);
 
-    int allowDelete(const String& tableName);
-    int allowInsert(const String& tableName);
-    int allowUpdate(const String& tableName, const String& columnName);
-    int allowTransaction();
+    int NODELETE allowDelete(const String& tableName);
+    int NODELETE allowInsert(const String& tableName);
+    int NODELETE allowUpdate(const String& tableName, const String& columnName);
+    int NODELETE allowTransaction();
 
     int allowSelect() { return SQLAuthAllow; }
-    int allowRead(const String& tableName, const String& columnName);
+    int NODELETE allowRead(const String& tableName, const String& columnName);
 
-    int allowReindex(const String& indexName);
-    int allowAnalyze(const String& tableName);
+    int NODELETE allowReindex(const String& indexName);
+    int NODELETE allowAnalyze(const String& tableName);
     int allowFunction(const String& functionName);
-    int allowPragma(const String& pragmaName, const String& firstArgument);
+    int NODELETE allowPragma(const String& pragmaName, const String& firstArgument);
 
-    int allowAttach(const String& filename);
-    int allowDetach(const String& databaseName);
+    int NODELETE allowAttach(const String& filename);
+    int NODELETE allowDetach(const String& databaseName);
 
-    void disable();
-    void enable();
-    void setPermissions(int permissions);
+    void NODELETE disable();
+    void NODELETE enable();
+    void NODELETE setPermissions(int permissions);
 
-    void reset();
-    void resetDeletes();
+    void NODELETE reset();
+    void NODELETE resetDeletes();
 
     bool lastActionWasInsert() const { return m_lastActionWasInsert; }
     bool lastActionChangedDatabase() const { return m_lastActionChangedDatabase; }
@@ -105,9 +105,9 @@ public:
 private:
     explicit DatabaseAuthorizer(const String& databaseInfoTableName);
     void addAllowedFunctions();
-    int denyBasedOnTableName(const String&) const;
-    int updateDeletesBasedOnTableName(const String&);
-    bool allowWrite();
+    int NODELETE denyBasedOnTableName(const String&) const;
+    int NODELETE updateDeletesBasedOnTableName(const String&);
+    bool NODELETE allowWrite();
 
     int m_permissions;
     bool m_securityEnabled : 1;

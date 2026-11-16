@@ -25,7 +25,8 @@
 
 .tree-outline.dom {
     position: relative;
-
+    /* Ensure this containing block for the absolutely-positioned descendant .selection-area spans the full width of the scroll container so .selection-area spans from edge-to-edge of the scoll area. */
+    width: fit-content;
     min-width: 100%;
     margin: 0;
     padding: 0;
@@ -39,6 +40,7 @@
     color: var(--text-color);
 
     --item-pseudo-class-indicator-start: 2px;
+    --item-minimum-width: 200px;
 
     --sublist-margin-start: 4px;
     --sublist-padding-start: 1px;
@@ -53,8 +55,7 @@
 
 .tree-outline.dom li .selection-area {
     position: absolute;
-    left: 0;
-    right: 0;
+    inset-inline: 0;
     height: 15px;
     z-index: -1;
 }
@@ -88,6 +89,17 @@ body:not(.window-inactive, .window-docked-inactive) .tree-outline.dom:focus-with
     color: var(--selected-secondary-text-color);
 }
 
+.content-view.dom-tree.deemphasize-unrendered .tree-outline.dom li:not(.rendered) > span > *:not(.html-comment) {
+    filter: grayscale();
+}
+
+.content-view.dom-tree.deemphasize-unrendered .tree-outline.dom li:not(.rendered, .selected) > span > *:not(.html-comment),
+.content-view.dom-tree.deemphasize-unrendered .tree-outline.dom:not(:focus-within) li.selected:not(.rendered) > span > *:not(.html-comment),
+body:is(.window-inactive, .window-docked-inactive) .content-view.dom-tree.deemphasize-unrendered .tree-outline.dom li.selected:not(.rendered) > span > *:not(.html-comment) {
+    opacity: 0.7;
+}
+
+/* These styles will get overridden by an ancestor matching `.tree-outline.object ol`. Both rules have the same specificity, but that one is defined later. This happens when WI.DOMTreeOutline is nested in WI.ObjectTreeView. */
 .tree-outline.dom ol {
     list-style-type: none;
     margin: 0;
@@ -102,13 +114,13 @@ body:not(.window-inactive, .window-docked-inactive) .tree-outline.dom:focus-with
     display: block;
 }
 
-.tree-outline.dom li:matches(.hovered, .selected) + ol.children.expanded {
+.tree-outline.dom li:is(.hovered, .selected) + ol.children.expanded {
     margin-inline-start: var(--sublist-margin-start);
     padding-inline-start: var(--sublist-padding-start);
     border: 0 solid hsla(0, 0%, 83%, 0.5);
 }
 
-.tree-outline.dom li:matches(.hovered, .selected) + ol.children.expanded {
+.tree-outline.dom li:is(.hovered, .selected) + ol.children.expanded {
     border-left-width: var(--sublist-border-width-start);
 }
 
@@ -120,6 +132,7 @@ body:not(.window-inactive, .window-docked-inactive) .tree-outline.dom:focus-with
     padding: 0;
     word-wrap: break-word;
     outline: none;
+    min-width: var(--item-minimum-width);
 
     --item-padding-start: 17px;
     --item-padding-end: 6px;
@@ -136,6 +149,14 @@ body:not(.window-inactive, .window-docked-inactive) .tree-outline.dom:focus-with
 }
 
 .tree-outline.dom li > span > .html-text-node {
+    unicode-bidi: isolate;
+}
+
+.tree-outline.dom .html-entity-value {
+    padding: 0 2px;
+    color: var(--text-color-secondary);
+    background-color: hsla(0, 0%, 50%, 0.15);
+    border-radius: 3px;
     unicode-bidi: isolate;
 }
 
@@ -265,7 +286,7 @@ body:not(.window-inactive, .window-docked-inactive) .tree-outline.dom:focus-with
 }
 
 .highlight .selection-area {
-    animation: "dom-tree-outline-highlight-fadeout" 2s;
+    animation: dom-tree-outline-highlight-fadeout 2s;
 }
 
 .tree-outline.dom li .highlight {

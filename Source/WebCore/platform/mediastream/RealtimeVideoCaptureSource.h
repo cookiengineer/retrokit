@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,10 +27,11 @@
 
 #if ENABLE(MEDIA_STREAM)
 
-#include "ImageBuffer.h"
-#include "MediaSample.h"
-#include "RealtimeMediaSource.h"
-#include "VideoPreset.h"
+#include <WebCore/ImageBuffer.h>
+#include <WebCore/OrientationNotifier.h>
+#include <WebCore/RealtimeMediaSource.h>
+#include <WebCore/VideoPreset.h>
+#include <wtf/Deque.h>
 #include <wtf/Lock.h>
 #include <wtf/RunLoop.h>
 
@@ -38,78 +39,123 @@ namespace WebCore {
 
 class ImageTransferSessionVT;
 
-class WEBCORE_EXPORT RealtimeVideoCaptureSource : public RealtimeMediaSource {
+enum class VideoFrameRotation : uint16_t;
+
+class WEBCORE_EXPORT RealtimeVideoCaptureSource : public RealtimeMediaSource, public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<RealtimeVideoCaptureSource, WTF::DestructionThread::MainRunLoop>, protected OrientationNotifier::Observer {
 public:
     virtual ~RealtimeVideoCaptureSource();
 
-    void clientUpdatedSizeAndFrameRate(std::optional<int> width, std::optional<int> height, std::optional<double> frameRate);
-
-    bool supportsSizeAndFrameRate(std::optional<int> width, std::optional<int> height, std::optional<double>) override;
+    bool supportsSizeFrameRateAndZoom(const VideoPresetConstraints&) override;
     virtual void generatePresets() = 0;
-    virtual MediaSample::VideoRotation sampleRotation() const { return MediaSample::VideoRotation::None; }
 
-    double observedFrameRate() const { return m_observedFrameRate; }
+    double observedFrameRate() const final { return m_observedFrameRate; }
     Vector<VideoPresetData> presetsData();
 
     void ensureIntrinsicSizeMaintainsAspectRatio();
 
+    using RealtimeMediaSource::applyConstraints;
+
+    WTF_ABSTRACT_THREAD_SAFE_REF_COUNTED_AND_CAN_MAKE_WEAK_PTR_IMPL;
+
 protected:
-    RealtimeVideoCaptureSource(String&& name, String&& id, String&& hashSalt);
+    RealtimeVideoCaptureSource(const CaptureDevice&, MediaDeviceHashSalts&&, std::optional<PageIdentifier>);
 
-    void prepareToProduceData();
-    void setSizeAndFrameRate(std::optional<int> width, std::optional<int> height, std::optional<double>) override;
+    void setSizeFrameRateAndZoom(const VideoPresetConstraints&) override;
 
-    virtual bool prefersPreset(VideoPreset&) { return true; }
-    virtual void setFrameRateWithPreset(double, RefPtr<VideoPreset>) { };
+    virtual void applyFrameRateAndZoomWithPreset(double, double, std::optional<VideoPreset>&&);
     virtual bool canResizeVideoFrames() const { return false; }
-    bool shouldUsePreset(VideoPreset& current, VideoPreset& candidate);
 
-    void setSupportedPresets(const Vector<Ref<VideoPreset>>&);
+    void setSupportedPresets(Vector<VideoPreset>&&);
     void setSupportedPresets(Vector<VideoPresetData>&&);
-    const Vector<Ref<VideoPreset>>& presets();
+    virtual const Vector<VideoPreset>& presets();
 
-    bool frameRateRangeIncludesRate(const FrameRateRange&, double);
+    bool NODELETE frameRateRangeIncludesRate(const FrameRateRange&, double);
 
     void updateCapabilities(RealtimeMediaSourceCapabilities&);
 
-    void dispatchMediaSampleToObservers(MediaSample&);
-    const Vector<IntSize>& standardVideoSizes();
+    void dispatchVideoFrameToObservers(VideoFrame&, VideoFrameTimeMetadata);
+
+    static std::span<const IntSize> NODELETE standardVideoSizes();
+
+    virtual Ref<TakePhotoNativePromise> takePhotoInternal(PhotoSettings&&);
+    bool mutedForPhotoCapture() const { return m_mutedForPhotoCapture; }
+
+    bool canBePowerEfficient();
 
 private:
-    struct CaptureSizeAndFrameRate {
-        RefPtr<VideoPreset> encodingPreset;
+    struct CaptureSizeFrameRateAndZoom {
+        std::optional<VideoPreset> encodingPreset;
         IntSize requestedSize;
         double requestedFrameRate { 0 };
+        double requestedZoom { 0 };
     };
-    bool supportsCaptureSize(std::optional<int>, std::optional<int>, const Function<bool(const IntSize&)>&&);
-    std::optional<CaptureSizeAndFrameRate> bestSupportedSizeAndFrameRate(std::optional<int> width, std::optional<int> height, std::optional<double>);
-    bool presetSupportsFrameRate(RefPtr<VideoPreset>, double);
+    bool supportsCaptureSize(std::optional<int>, std::optional<int>, NOESCAPE const Function<bool(const IntSize&)>&);
+
+    enum class TryPreservingSize { No, Yes };
+    std::optional<CaptureSizeFrameRateAndZoom> bestSupportedSizeFrameRateAndZoom(const VideoPresetConstraints&, TryPreservingSize = TryPreservingSize::Yes);
+    std::optional<CaptureSizeFrameRateAndZoom> bestSupportedSizeFrameRateAndZoomConsideringObservers(const VideoPresetConstraints&);
+
+    bool NODELETE presetSupportsFrameRate(const VideoPreset&, double);
+    bool NODELETE presetSupportsZoom(const VideoPreset&, double);
+
+    void setSizeFrameRateAndZoomForPhoto(CaptureSizeFrameRateAndZoom&&);
+    Ref<TakePhotoNativePromise> takePhoto(PhotoSettings&&) final;
+    bool isPowerEfficient() const final;
+
+    void orientationChanged(IntDegrees) override;
+
+    struct PendingPhotoCapture {
+        PhotoSettings settings;
+        UniqueRef<TakePhotoNativePromise::Producer> producer;
+    };
+    struct PendingConstraintApplication {
+        MediaConstraints constraints;
+        ApplyConstraintsHandler handler;
+    };
+    using PendingOperation = Variant<PendingPhotoCapture, PendingConstraintApplication>;
+
+    void dispatchNextOperation();
+    void applyConstraints(const MediaConstraints&, ApplyConstraintsHandler&&) override;
+    void didEnd() override;
 
 #if !RELEASE_LOG_DISABLED
-    const char* logClassName() const override { return "RealtimeVideoCaptureSource"; }
+    ASCIILiteral logClassName() const override { return "RealtimeVideoCaptureSource"_s; }
 #endif
 
-    Vector<Ref<VideoPreset>> m_presets;
+    std::optional<VideoPreset> m_currentPreset;
+    Vector<VideoPreset> m_presets;
     Deque<double> m_observedFrameTimeStamps;
     double m_observedFrameRate { 0 };
+    bool m_mutedForPhotoCapture { false };
+    Deque<PendingOperation> m_pendingOperations;
+    bool m_captureInFlight { false };
 };
 
-struct SizeAndFrameRate {
+struct SizeFrameRateAndZoom {
     std::optional<int> width;
     std::optional<int> height;
     std::optional<double> frameRate;
+    std::optional<double> zoom;
 
     String toJSONString() const;
     Ref<JSON::Object> toJSONObject() const;
 };
+
+inline void RealtimeVideoCaptureSource::applyFrameRateAndZoomWithPreset(double, double, std::optional<VideoPreset>&&)
+{
+}
+
+inline void RealtimeVideoCaptureSource::orientationChanged(IntDegrees)
+{
+}
 
 } // namespace WebCore
 
 namespace WTF {
 template<typename Type> struct LogArgument;
 template <>
-struct LogArgument<WebCore::SizeAndFrameRate> {
-    static String toString(const WebCore::SizeAndFrameRate& size)
+struct LogArgument<WebCore::SizeFrameRateAndZoom> {
+    static String toString(const WebCore::SizeFrameRateAndZoom& size)
     {
         return size.toJSONString();
     }

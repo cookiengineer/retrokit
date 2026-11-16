@@ -25,22 +25,28 @@
 
 #pragma once
 
-#include "FillMode.h"
-#include "PlaybackDirection.h"
-#include <wtf/Variant.h>
+#include <WebCore/CSSNumericValue.h>
+#include <WebCore/CommonAtomStrings.h>
+#include <WebCore/FillMode.h>
+#include <WebCore/PlaybackDirection.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
+using OptionalDoubleOrString = std::optional<Variant<double, String>>;
+using DoubleOrCSSNumericValueOrString = Variant<double, Ref<CSSNumericValue>, String>;
+
 struct EffectTiming {
-    Variant<double, String> duration { "auto" };
     double delay { 0 };
     double endDelay { 0 };
+    FillMode fill { FillMode::Auto };
     double iterationStart { 0 };
     double iterations { 1 };
-    String easing { "linear" };
-    FillMode fill { FillMode::Auto };
+    DoubleOrCSSNumericValueOrString duration { autoAtom() };
     PlaybackDirection direction { PlaybackDirection::Normal };
+    String easing { "linear"_s };
+
+    OptionalDoubleOrString durationAsDoubleOrString() const;
 };
 
 } // namespace WebCore

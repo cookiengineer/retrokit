@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,74 +25,112 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if ENABLE(WEBASSEMBLY)
 
-#include "SlotVisitorMacros.h"
-#include "WasmFormat.h"
-#include "WasmLimits.h"
-#include "WriteBarrier.h"
+#include <JavaScriptCore/SlotVisitorMacros.h>
+#include <JavaScriptCore/WasmFormat.h>
+#include <JavaScriptCore/WasmLimits.h>
+#include <JavaScriptCore/WriteBarrier.h>
 #include <wtf/Ref.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeRefCounted.h>
 
-namespace JSC { namespace Wasm {
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
-class Instance;
+namespace JSC {
+
+class JSWebAssemblyGlobal;
+
+namespace Wasm {
 
 class Global final : public ThreadSafeRefCounted<Global> {
     WTF_MAKE_NONCOPYABLE(Global);
-    WTF_MAKE_FAST_ALLOCATED(Global);
+    WTF_MAKE_TZONE_ALLOCATED(Global);
 public:
     union Value {
+        v128_t m_vector { };
         uint64_t m_primitive;
         WriteBarrierBase<Unknown> m_externref;
         Value* m_pointer;
-    };
 
-    static Ref<Global> create(Wasm::Type type, Wasm::GlobalInformation::Mutability mutability, uint64_t initialValue = 0)
+        static constexpr ptrdiff_t offsetOfValue() { return 0; }
+        static constexpr ptrdiff_t offsetOfOwner() { return Global::offsetOfOwner() - Global::offsetOfValue(); }
+    };
+    static_assert(sizeof(Value) == 16, "Update IPInt if this changes");
+
+    static Ref<Global> create(Wasm::Type type, Wasm::Mutability mutability, uint64_t initialValue = 0)
+    {
+        return adoptRef(*new Global(type, mutability, initialValue));
+    }
+
+    static Ref<Global> create(Wasm::Type type, Wasm::Mutability mutability, v128_t initialValue)
     {
         return adoptRef(*new Global(type, mutability, initialValue));
     }
 
     Wasm::Type type() const { return m_type; }
-    Wasm::GlobalInformation::Mutability mutability() const { return m_mutability; }
+    Wasm::Mutability mutability() const { return m_mutability; }
     JSValue get(JSGlobalObject*) const;
+    JSValue getReference() const
+    {
+        ASSERT(isRefType(m_type));
+        return m_value.m_externref.get();
+    }
     uint64_t getPrimitive() const { return m_value.m_primitive; }
+    v128_t getVector() const { return m_value.m_vector; }
     void set(JSGlobalObject*, JSValue);
     DECLARE_VISIT_AGGREGATE;
 
-    template<typename T> T* owner() const { return reinterpret_cast<T*>(m_owner); }
-    void setOwner(JSObject* owner)
+    JSWebAssemblyGlobal* owner() const { return m_owner; }
+    void setOwner(JSWebAssemblyGlobal* owner)
     {
         ASSERT(!m_owner);
         ASSERT(owner);
         m_owner = owner;
     }
 
-    static ptrdiff_t offsetOfValue() { return OBJECT_OFFSETOF(Global, m_value); }
-    static ptrdiff_t offsetOfOwner() { return OBJECT_OFFSETOF(Global, m_owner); }
+    static constexpr ptrdiff_t offsetOfValue() { ASSERT(!OBJECT_OFFSETOF(Value, m_primitive)); ASSERT(!OBJECT_OFFSETOF(Value, m_externref)); return OBJECT_OFFSETOF(Global, m_value); }
+    static constexpr ptrdiff_t offsetOfOwner() { return OBJECT_OFFSETOF(Global, m_owner); }
 
     static Global& fromBinding(Value& value)
     {
-        return *bitwise_cast<Global*>(bitwise_cast<uint8_t*>(&value) - offsetOfValue());
+        return *std::bit_cast<Global*>(std::bit_cast<uint8_t*>(&value) - offsetOfValue());
     }
 
     Value* valuePointer() { return &m_value; }
 
 private:
-    Global(Wasm::Type type, Wasm::GlobalInformation::Mutability mutability, uint64_t initialValue)
+    Global(Wasm::Type type, Wasm::Mutability mutability, uint64_t initialValue)
         : m_type(type)
+        , m_typeRTT(TypeInformation::tryGetRTT(type.index))
         , m_mutability(mutability)
-        , m_value()
     {
+        ASSERT(m_type != Types::V128);
         m_value.m_primitive = initialValue;
     }
 
+    Global(Wasm::Type type, Wasm::Mutability mutability, v128_t initialValue)
+        : m_type(type)
+        , m_typeRTT(TypeInformation::tryGetRTT(type.index))
+        , m_mutability(mutability)
+    {
+        ASSERT(m_type == Types::V128);
+        m_value.m_vector = initialValue;
+    }
+
     Wasm::Type m_type;
-    Wasm::GlobalInformation::Mutability m_mutability;
-    JSObject* m_owner { nullptr };
+    // For concrete (RTT-bearing) heap types, retain the canonical RTT so the
+    // pointer embedded in m_type does not dangle.
+    const RefPtr<const Wasm::RTT> m_typeRTT;
+    Wasm::Mutability m_mutability;
+    JSWebAssemblyGlobal* m_owner { nullptr };
     Value m_value;
 };
 
 } } // namespace JSC::Wasm
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(WEBASSEMBLY)

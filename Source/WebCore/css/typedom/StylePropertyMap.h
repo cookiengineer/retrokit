@@ -25,17 +25,33 @@
 
 #pragma once
 
-#if ENABLE(CSS_TYPED_OM)
-
-#include "StylePropertyMapReadOnly.h"
+#include "MainThreadStylePropertyMapReadOnly.h"
 
 namespace WebCore {
 
-class StylePropertyMap : public StylePropertyMapReadOnly {
+class CSSSubstitutionValue;
+
+class StylePropertyMap : public MainThreadStylePropertyMapReadOnly {
 public:
-    virtual void clearElement() = 0;
+    ExceptionOr<void> set(Document&, const AtomString& property, FixedVector<Variant<Ref<CSSStyleValue>, String>>&& values);
+    ExceptionOr<void> append(Document&, const AtomString& property, FixedVector<Variant<Ref<CSSStyleValue>, String>>&& values);
+    ExceptionOr<void> remove(Document&, const AtomString& property);
+    virtual void clear() = 0;
+
+protected:
+    virtual void removeProperty(CSSPropertyID) = 0;
+    virtual void removeCustomProperty(const AtomString&) = 0;
+    virtual bool setShorthandProperty(CSSPropertyID, const String&) = 0;
+    virtual bool setProperty(CSSPropertyID, Ref<CSSValue>&&) = 0;
+    virtual bool setCustomProperty(Document&, const AtomString&, Ref<CSSSubstitutionValue>&&) = 0;
+
+private:
+    bool isStylePropertyMap() const final { return true; }
+    RefPtr<CSSStyleValue> shorthandPropertyValue(Document&, CSSPropertyID) const;
 };
 
 } // namespace WebCore
 
-#endif
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::StylePropertyMap)
+    static bool isType(const WebCore::StylePropertyMapReadOnly& map) { return map.isStylePropertyMap(); }
+SPECIALIZE_TYPE_TRAITS_END()

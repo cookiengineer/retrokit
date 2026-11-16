@@ -26,12 +26,18 @@
 
 using namespace WebKit;
 
+/**
+ * WebKitNavigationAction:
+ *
+ * Provides details about interaction resulting in a resource load.
+ */
+
 G_DEFINE_BOXED_TYPE(WebKitNavigationAction, webkit_navigation_action, webkit_navigation_action_copy, webkit_navigation_action_free)
 
 WebKitNavigationAction* webkitNavigationActionCreate(Ref<API::NavigationAction>&& action)
 {
     WebKitNavigationAction* navigation = static_cast<WebKitNavigationAction*>(fastZeroedMalloc(sizeof(WebKitNavigationAction)));
-    new (navigation) WebKitNavigationAction(WTFMove(action));
+    new (navigation) WebKitNavigationAction(WTF::move(action));
     return navigation;
 }
 
@@ -90,6 +96,8 @@ WebKitNavigationType webkit_navigation_action_get_navigation_type(WebKitNavigati
  * webkit_navigation_action_get_mouse_button:
  * @navigation: a #WebKitNavigationAction
  *
+ * Return the number of the mouse button that triggered the navigation.
+ *
  * Return the number of the mouse button that triggered the navigation, or 0 if
  * the navigation was not started by a mouse event.
  *
@@ -106,6 +114,8 @@ unsigned webkit_navigation_action_get_mouse_button(WebKitNavigationAction* navig
 /**
  * webkit_navigation_action_get_modifiers:
  * @navigation: a #WebKitNavigationAction
+ *
+ * Return the modifier keys.
  *
  * Return a bitmask of #GdkModifierType values describing the modifier keys that were in effect
  * when the navigation was requested
@@ -125,8 +135,9 @@ unsigned webkit_navigation_action_get_modifiers(WebKitNavigationAction* navigati
  * @navigation: a #WebKitNavigationAction
  *
  * Return the #WebKitURIRequest associated with the navigation action.
- * Modifications to the returned object are <emphasis>not</emphasis> taken
- * into account when the request is sent over the network, and is intended
+ *
+ * Modifications to the returned object are *not* taken
+ * into account when the request is sent over the network, and the object is intended
  * only to aid in evaluating whether a navigation action should be taken or
  * not. To modify requests before they are sent over the network the
  * #WebKitPage::send-request signal can be used instead.
@@ -173,4 +184,28 @@ gboolean webkit_navigation_action_is_redirect(WebKitNavigationAction* navigation
 {
     g_return_val_if_fail(navigation, FALSE);
     return navigation->action->isRedirect();
+}
+
+/**
+ * webkit_navigation_action_get_frame_name:
+ * @navigation: a #WebKitNavigationAction
+ *
+ * Gets the @navigation target frame name. For example if navigation was triggered by clicking a
+ * link with a target attribute equal to "_blank", this will return the value of that attribute.
+ * In all other cases this function will return %NULL.
+ *
+ * Returns: (nullable): The name of the new frame this navigation action targets or %NULL
+ *
+ * Since: 2.40
+ */
+const char* webkit_navigation_action_get_frame_name(WebKitNavigationAction* navigation)
+{
+    g_return_val_if_fail(navigation, nullptr);
+    if (!navigation->frameName) {
+        if (auto targetFrameName = navigation->action->targetFrameName(); !!targetFrameName)
+            navigation->frameName = targetFrameName.utf8();
+        else
+            navigation->frameName = CString();
+    }
+    return navigation->frameName->data();
 }

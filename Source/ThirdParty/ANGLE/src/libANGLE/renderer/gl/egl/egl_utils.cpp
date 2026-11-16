@@ -7,6 +7,7 @@
 // egl_utils.cpp: Utility routines specific to the EGL->EGL implementation.
 
 #include "libANGLE/renderer/gl/egl/egl_utils.h"
+#include "common/unsafe_buffers.h"
 
 #include "common/debug.h"
 
@@ -24,7 +25,7 @@ AttributeVector TrimAttributeMap(const egl::AttributeMap &attributes,
     for (size_t forwardAttribIndex = 0; forwardAttribIndex < forwardAttribsCount;
          forwardAttribIndex++)
     {
-        EGLint forwardAttrib = forwardAttribs[forwardAttribIndex];
+        EGLint forwardAttrib = ANGLE_UNSAFE_TODO(forwardAttribs[forwardAttribIndex]);
         if (attributes.contains(forwardAttrib))
         {
             result.push_back(forwardAttrib);

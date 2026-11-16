@@ -146,9 +146,9 @@ void PointSpritesBenchmark::initializeBenchmark()
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 
     std::vector<float> vertexPositions(params.count * 2);
-    for (size_t pointIndex = 0; pointIndex < vertexPositions.size(); ++pointIndex)
+    for (float &vertexPosition : vertexPositions)
     {
-        vertexPositions[pointIndex] = mRNG.randomNegativeOneToOne();
+        vertexPosition = mRNG.randomNegativeOneToOne();
     }
 
     glGenBuffers(1, &mBuffer);
@@ -201,6 +201,13 @@ PointSpritesParams D3D11Params()
     return params;
 }
 
+PointSpritesParams MetalParams()
+{
+    PointSpritesParams params;
+    params.eglParameters = egl_platform::METAL();
+    return params;
+}
+
 PointSpritesParams OpenGLOrGLESParams()
 {
     PointSpritesParams params;
@@ -222,4 +229,8 @@ TEST_P(PointSpritesBenchmark, Run)
     run();
 }
 
-ANGLE_INSTANTIATE_TEST(PointSpritesBenchmark, D3D11Params(), OpenGLOrGLESParams(), VulkanParams());
+ANGLE_INSTANTIATE_TEST(PointSpritesBenchmark,
+                       D3D11Params(),
+                       MetalParams(),
+                       OpenGLOrGLESParams(),
+                       VulkanParams());

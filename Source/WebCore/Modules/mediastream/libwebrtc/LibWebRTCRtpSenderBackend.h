@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc.
+ * Copyright (C) 2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,35 +24,39 @@
 
 #pragma once
 
-#if ENABLE(WEB_RTC)
+#if ENABLE(WEB_RTC) && USE(LIBWEBRTC)
 
 #include "LibWebRTCMacros.h"
 #include "LibWebRTCPeerConnectionBackend.h"
+#include "LibWebRTCRefWrappers.h"
 #include "RTCRtpSenderBackend.h"
 #include "RealtimeOutgoingAudioSource.h"
 #include "RealtimeOutgoingVideoSource.h"
-#include <wtf/WeakPtr.h>
-
-ALLOW_UNUSED_PARAMETERS_BEGIN
-
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
 #include <webrtc/api/rtp_sender_interface.h>
 #include <webrtc/api/scoped_refptr.h>
-
-ALLOW_UNUSED_PARAMETERS_END
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
 class LibWebRTCPeerConnectionBackend;
 
-class LibWebRTCRtpSenderBackend final : public RTCRtpSenderBackend, public CanMakeWeakPtr<LibWebRTCRtpSenderBackend> {
-    WTF_MAKE_FAST_ALLOCATED;
+class LibWebRTCRtpSenderBackend final : public RTCRtpSenderBackend, public RefCountedAndCanMakeWeakPtr<LibWebRTCRtpSenderBackend> {
+    WTF_MAKE_TZONE_ALLOCATED(LibWebRTCRtpSenderBackend);
 public:
     using Source = Variant<std::nullptr_t, Ref<RealtimeOutgoingAudioSource>, Ref<RealtimeOutgoingVideoSource>>;
-    LibWebRTCRtpSenderBackend(LibWebRTCPeerConnectionBackend&, rtc::scoped_refptr<webrtc::RtpSenderInterface>&&, Source&&);
-    LibWebRTCRtpSenderBackend(LibWebRTCPeerConnectionBackend&, rtc::scoped_refptr<webrtc::RtpSenderInterface>&&);
+    static Ref<LibWebRTCRtpSenderBackend> create(LibWebRTCPeerConnectionBackend&, RefPtr<webrtc::RtpSenderInterface>&&, Source&&);
+    static Ref<LibWebRTCRtpSenderBackend> create(LibWebRTCPeerConnectionBackend&, RefPtr<webrtc::RtpSenderInterface>&&);
     ~LibWebRTCRtpSenderBackend();
 
-    void setRTCSender(rtc::scoped_refptr<webrtc::RtpSenderInterface>&& rtcSender) { m_rtcSender = WTFMove(rtcSender); }
+    // RTCRtpSenderBackend.
+    void ref() const final { RefCountedAndCanMakeWeakPtr::ref(); }
+    void deref() const final { RefCountedAndCanMakeWeakPtr::deref(); }
+
+    void setRTCSender(RefPtr<webrtc::RtpSenderInterface>&& rtcSender) { m_rtcSender = WTF::move(rtcSender); }
     webrtc::RtpSenderInterface* rtcSender() { return m_rtcSender.get(); }
 
     RealtimeOutgoingVideoSource* videoSource();
@@ -61,25 +65,34 @@ public:
     void takeSource(LibWebRTCRtpSenderBackend&);
 
 private:
+    LibWebRTCRtpSenderBackend(LibWebRTCPeerConnectionBackend&, RefPtr<webrtc::RtpSenderInterface>&&, Source&&);
+    LibWebRTCRtpSenderBackend(LibWebRTCPeerConnectionBackend&, RefPtr<webrtc::RtpSenderInterface>&&);
+
+    bool isLibWebRTCRtpSenderBackend() const final { return true; }
+
     bool replaceTrack(RTCRtpSender&, MediaStreamTrack*) final;
     RTCRtpSendParameters getParameters() const final;
     void setParameters(const RTCRtpSendParameters&, DOMPromiseDeferred<void>&&) final;
     std::unique_ptr<RTCDTMFSenderBackend> createDTMFBackend() final;
     Ref<RTCRtpTransformBackend> rtcRtpTransformBackend() final;
     std::unique_ptr<RTCDtlsTransportBackend> dtlsTransportBackend() final;
-    void setMediaStreamIds(const Vector<String>&) final;
+    void setMediaStreamIds(const FixedVector<String>&) final;
 
     void startSource();
     void stopSource();
     bool hasSource() const;
 
     WeakPtr<LibWebRTCPeerConnectionBackend> m_peerConnectionBackend;
-    rtc::scoped_refptr<webrtc::RtpSenderInterface> m_rtcSender;
+    RefPtr<webrtc::RtpSenderInterface> m_rtcSender;
     Source m_source;
-    RefPtr<RTCRtpTransformBackend> m_transformBackend;
+    const RefPtr<RTCRtpTransformBackend> m_transformBackend;
     mutable std::optional<webrtc::RtpParameters> m_currentParameters;
 };
 
 } // namespace WebCore
 
-#endif // ENABLE(WEB_RTC)
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::LibWebRTCRtpSenderBackend)
+    static bool isType(const WebCore::RTCRtpSenderBackend& backend) { return backend.isLibWebRTCRtpSenderBackend(); }
+SPECIALIZE_TYPE_TRAITS_END()
+
+#endif // ENABLE(WEB_RTC) && USE(LIBWEBRTC)

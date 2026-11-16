@@ -25,18 +25,15 @@
 
 #pragma once
 
-#if ENABLE(CONTENT_EXTENSIONS)
-
 #include "APIObject.h"
+#include <WebCore/ContentExtensionParser.h>
 #include <system_error>
+#include <wtf/Forward.h>
+#include <wtf/WorkQueue.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
-class SharedBuffer;
-}
-
-namespace WTF {
-class WorkQueue;
+class FragmentedSharedBuffer;
 }
 
 namespace API {
@@ -45,47 +42,52 @@ class ContentRuleList;
 
 class ContentRuleListStore final : public ObjectImpl<Object::Type::ContentRuleListStore> {
 public:
-    enum class Error {
+    enum class Error : uint8_t {
         LookupFailed = 1,
         VersionMismatch,
         CompileFailed,
         RemoveFailed
     };
-    
+
+#if ENABLE(CONTENT_EXTENSIONS)
     // This should be incremented every time a functional change is made to the bytecode, file format, etc.
     // to prevent crashing while loading old data.
-    // Also update ContentRuleListStore::getContentRuleListSource to be able to find the original JSON
-    // source from old versions.
-    // Update getContentRuleListSourceFromMappedFile with this.
-    static constexpr uint32_t CurrentContentRuleListFileVersion = 11;
+    static constexpr uint32_t CurrentContentRuleListFileVersion = 21;
 
-    static ContentRuleListStore& defaultStore();
+    static ContentRuleListStore& defaultStoreSingleton();
     static Ref<ContentRuleListStore> storeWithPath(const WTF::String& storePath);
 
     explicit ContentRuleListStore();
     explicit ContentRuleListStore(const WTF::String& storePath);
     virtual ~ContentRuleListStore();
 
-    void compileContentRuleList(const WTF::String& identifier, WTF::String&& json, CompletionHandler<void(RefPtr<API::ContentRuleList>, std::error_code)>);
-    void lookupContentRuleList(const WTF::String& identifier, CompletionHandler<void(RefPtr<API::ContentRuleList>, std::error_code)>);
-    void removeContentRuleList(const WTF::String& identifier, CompletionHandler<void(std::error_code)>);
+    void compileContentRuleList(WTF::String&& identifier, WTF::String&& json, CompletionHandler<void(RefPtr<API::ContentRuleList>, std::error_code)>);
+    void lookupContentRuleList(WTF::String&& identifier, CompletionHandler<void(RefPtr<API::ContentRuleList>, std::error_code)>);
+    void removeContentRuleList(WTF::String&& identifier, CompletionHandler<void(std::error_code)>);
+
+    void compileContentRuleListFile(WTF::String&& filePath, WTF::String&& identifier, WTF::String&& json, WebCore::ContentExtensions::CSSSelectorsAllowed, CompletionHandler<void(RefPtr<API::ContentRuleList>, std::error_code)>);
+    void lookupContentRuleListFile(WTF::String&& filePath, WTF::String&& identifier, CompletionHandler<void(RefPtr<API::ContentRuleList>, std::error_code)>);
+    void removeContentRuleListFile(WTF::String&& filePath, CompletionHandler<void(std::error_code)>);
+
     void getAvailableContentRuleListIdentifiers(CompletionHandler<void(WTF::Vector<WTF::String>)>);
 
     // For testing only.
     void synchronousRemoveAllContentRuleLists();
     void invalidateContentRuleListVersion(const WTF::String& identifier);
-    void getContentRuleListSource(const WTF::String& identifier, CompletionHandler<void(WTF::String)>);
+    void corruptContentRuleListHeader(const WTF::String& identifier, bool usingCurrentVersion);
+    void corruptContentRuleListActionsMatchingEverything(const WTF::String& identifier);
+    void invalidateContentRuleListHeader(const WTF::String& identifier);
+    void getContentRuleListSource(WTF::String&& identifier, CompletionHandler<void(WTF::String)>);
 
 private:
     WTF::String defaultStorePath();
-    
+
     const WTF::String m_storePath;
-    Ref<WTF::WorkQueue> m_compileQueue;
-    Ref<WTF::WorkQueue> m_readQueue;
-    Ref<WTF::WorkQueue> m_removeQueue;
+    const Ref<WorkQueue> m_workQueue;
+#endif // ENABLE(CONTENT_EXTENSIONS)
 };
 
-const std::error_category& contentRuleListStoreErrorCategory();
+const std::error_category& NODELETE contentRuleListStoreErrorCategory();
 
 inline std::error_code make_error_code(ContentRuleListStore::Error error)
 {
@@ -94,8 +96,8 @@ inline std::error_code make_error_code(ContentRuleListStore::Error error)
 
 } // namespace API
 
+SPECIALIZE_TYPE_TRAITS_API_OBJECT(ContentRuleListStore);
+
 namespace std {
 template<> struct is_error_code_enum<API::ContentRuleListStore::Error> : public true_type { };
 }
-
-#endif // ENABLE(CONTENT_EXTENSIONS)

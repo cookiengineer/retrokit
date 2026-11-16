@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,7 +31,7 @@ WI.WorkerTreeElement = class WorkerTreeElement extends WI.ScriptTreeElement
     constructor(target)
     {
         console.assert(target instanceof WI.Target);
-        console.assert(target.type === WI.TargetType.Worker || target.type === WI.TargetType.ServiceWorker);
+        console.assert(target.type === WI.TargetType.Worker);
         console.assert(target.mainResource instanceof WI.Script);
 
         let options = {};
@@ -97,8 +97,7 @@ WI.WorkerTreeElement = class WorkerTreeElement extends WI.ScriptTreeElement
         for (let script of this._target.extraScriptCollection)
             this.addChildForRepresentedObject(script);
 
-        let sourceMaps = this._target.mainResource.sourceMaps;
-        for (let sourceMap of sourceMaps) {
+        for (let sourceMap of this._target.mainResource.sourceMaps) {
             for (let resource of sourceMap.resources)
                 this.addChildForRepresentedObject(resource);
         }
@@ -107,7 +106,7 @@ WI.WorkerTreeElement = class WorkerTreeElement extends WI.ScriptTreeElement
     populateContextMenu(contextMenu, event)
     {
         // FIXME: <https://webkit.org/b/164427> Web Inspector: WorkerTarget's mainResource should be a Resource not a Script
-        WI.appendContextMenuItemsForSourceCode(contextMenu, this.script.resource ? this.script.resource : this.script);
+        WI.appendContextMenuItemsForNetworkResource(contextMenu, this.script.resource ? this.script.resource : this.script);
 
         super.populateContextMenu(contextMenu, event);
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,12 +26,25 @@
 #include "config.h"
 #include "CPU.h"
 
-#if (CPU(X86) || CPU(X86_64)) && OS(DARWIN)
+#if (CPU(X86) || CPU(X86_64) || CPU(ARM64)) && OS(DARWIN)
 #include <mutex>
 #include <sys/sysctl.h>
 #endif
 
+#if ENABLE(ASSEMBLER)
+#include "MacroAssembler.h"
+#endif
+
 namespace JSC {
+
+#if PLATFORM(MAC) || PLATFORM(MACCATALYST)
+bool isKernOpenSource()
+{
+    uint32_t val = 0;
+    size_t valSize = sizeof(val);
+    return !sysctlbyname("kern.opensource_kernel", &val, &valSize, nullptr, 0) && val;
+}
+#endif
 
 #if (CPU(X86) || CPU(X86_64)) && OS(DARWIN)
 bool isKernTCSMAvailable()
@@ -91,5 +104,86 @@ int32_t hwPhysicalCPUMax()
 }
 
 #endif // #if (CPU(X86) || CPU(X86_64)) && OS(DARWIN)
+
+#if CPU(ARM64) && OS(DARWIN)
+static int32_t hwPerfLevelPhysicalCPUMax(const char* name)
+{
+    int32_t val = 0;
+    size_t valSize = sizeof(val);
+    int rc = sysctlbyname(name, &val, &valSize, nullptr, 0);
+    if (rc < 0)
+        return 0;
+    return val;
+}
+
+// The highest performance cores.
+int32_t hwNumberOfP0Cores()
+{
+    if (int32_t numberOfCoresOverride = Options::numberOfP0CoresOverrides())
+        return numberOfCoresOverride;
+    return hwPerfLevelPhysicalCPUMax("hw.perflevel0.physicalcpu_max");
+}
+
+int32_t hwNumberOfP1Cores()
+{
+    return hwPerfLevelPhysicalCPUMax("hw.perflevel1.physicalcpu_max");
+}
+
+int32_t hwNumberOfP2Cores()
+{
+    return hwPerfLevelPhysicalCPUMax("hw.perflevel2.physicalcpu_max");
+}
+#endif // #if CPU(ARM64) && OS(DARWIN)
+
+#if CPU(ARM64) && !(CPU(ARM64E) || OS(MACOS))
+bool isARM64_LSE()
+{
+#if ENABLE(ASSEMBLER)
+    return MacroAssembler::supportsLSE();
+#else
+    return false;
+#endif
+}
+#endif
+
+#if CPU(ARM64) && !OS(MACOS)
+bool isARM64_SHA3()
+{
+#if ENABLE(ASSEMBLER)
+    return MacroAssembler::supportsSHA3();
+#else
+    return false;
+#endif
+}
+#endif
+
+#if CPU(ARM64E)
+bool isARM64E_FPAC()
+{
+#if OS(DARWIN)
+    static std::once_flag onceFlag;
+    std::call_once(onceFlag, [] {
+        uint32_t val = 0;
+        size_t valSize = sizeof(val);
+        int rc = sysctlbyname("hw.optional.arm.FEAT_FPAC", &val, &valSize, nullptr, 0);
+        g_jscConfig.canUseFPAC = rc >= 0 && val;
+    });
+    return g_jscConfig.canUseFPAC;
+#else
+    return false;
+#endif
+}
+#endif // CPU(ARM64E)
+
+#if CPU(X86_64)
+bool isX86_64_AVX()
+{
+#if ENABLE(ASSEMBLER)
+    return MacroAssembler::supportsAVX();
+#else
+    return false;
+#endif
+}
+#endif
 
 } // namespace JSC

@@ -25,21 +25,10 @@
 
 #pragma once
 
-#include <wtf/EnumTraits.h>
+#include <cstdint>
 
 namespace WebCore {
 
 enum class DiagnosticLoggingDomain : uint8_t { Media };
 
 } // namespace WebCore
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::DiagnosticLoggingDomain> {
-    using values = EnumValues<
-        WebCore::DiagnosticLoggingDomain,
-        WebCore::DiagnosticLoggingDomain::Media
-    >;
-};
-
-} // namespace WTF

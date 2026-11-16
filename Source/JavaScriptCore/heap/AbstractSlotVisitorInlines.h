@@ -25,22 +25,30 @@
 
 #pragma once
 
-#include "AbstractSlotVisitor.h"
-#include "Heap.h"
-#include "WeakInlines.h"
-#include "WriteBarrier.h"
+#include <JavaScriptCore/AbstractSlotVisitor.h>
+#include <JavaScriptCore/GCSegmentedArrayInlines.h>
+#include <JavaScriptCore/Heap.h>
+#include <JavaScriptCore/WeakInlines.h>
+#include <JavaScriptCore/WriteBarrier.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
 using ReferrerToken = AbstractSlotVisitor::ReferrerToken;
 
+inline bool AbstractSlotVisitor::isEmpty()
+{
+    return m_collectorStack.isEmpty() && m_mutatorStack.isEmpty();
+}
+
 inline ReferrerToken::ReferrerToken(HeapCell* cell)
-    : m_bits(bitwise_cast<uintptr_t>(cell) | HeapCellToken)
+    : m_bits(std::bit_cast<uintptr_t>(cell) | HeapCellToken)
 {
 }
 
 inline ReferrerToken::ReferrerToken(OpaqueRootTag, void* opaqueRoot)
-    : m_bits(bitwise_cast<uintptr_t>(opaqueRoot) | OpaqueRootToken)
+    : m_bits(std::bit_cast<uintptr_t>(opaqueRoot) | OpaqueRootToken)
 {
     ASSERT(opaqueRoot);
 }
@@ -52,12 +60,12 @@ inline ReferrerToken::ReferrerToken(RootMarkReason reason)
 
 inline HeapCell* ReferrerToken::asCell() const
 {
-    return isHeapCell() ? bitwise_cast<HeapCell*>(m_bits & ~tokenTypeMask) : nullptr;
+    return isHeapCell() ? std::bit_cast<HeapCell*>(m_bits & ~tokenTypeMask) : nullptr;
 }
 
 inline void* ReferrerToken::asOpaqueRoot() const
 {
-    return isOpaqueRoot() ? bitwise_cast<HeapCell*>(m_bits & ~tokenTypeMask) : nullptr;
+    return isOpaqueRoot() ? std::bit_cast<HeapCell*>(m_bits & ~tokenTypeMask) : nullptr;
 }
 
 inline RootMarkReason ReferrerToken::asRootMarkReason() const
@@ -74,7 +82,9 @@ inline AbstractSlotVisitor::ReferrerContext::ReferrerContext(AbstractSlotVisitor
         // An OpaqueRoot contexts can only be on the leaf.
         RELEASE_ASSERT(!m_previous->m_isOpaqueRootContext);
     }
+IGNORE_GCC_WARNINGS_BEGIN("dangling-pointer")
     m_visitor.m_context = this;
+IGNORE_GCC_WARNINGS_END
 }
 
 inline AbstractSlotVisitor::ReferrerContext::ReferrerContext(AbstractSlotVisitor& visitor, AbstractSlotVisitor::OpaqueRootTag)
@@ -86,7 +96,9 @@ inline AbstractSlotVisitor::ReferrerContext::ReferrerContext(AbstractSlotVisitor
         // An OpaqueRoot contexts can only be on the leaf.
         RELEASE_ASSERT(!m_previous->m_isOpaqueRootContext);
     }
+IGNORE_GCC_WARNINGS_BEGIN("dangling-pointer")
     m_visitor.m_context = this;
+IGNORE_GCC_WARNINGS_END
 }
 
 inline AbstractSlotVisitor::ReferrerContext::~ReferrerContext()
@@ -94,14 +106,14 @@ inline AbstractSlotVisitor::ReferrerContext::~ReferrerContext()
     m_visitor.m_context = m_previous;
 }
 
-inline AbstractSlotVisitor::AbstractSlotVisitor(Heap& heap, CString codeName, ConcurrentPtrHashSet& opaqueRoots)
+inline AbstractSlotVisitor::AbstractSlotVisitor(JSC::Heap& heap, CString codeName, ConcurrentPtrHashSet& opaqueRoots)
     : m_heap(heap)
     , m_codeName(codeName)
     , m_opaqueRoots(opaqueRoots)
 {
 }
 
-inline Heap* AbstractSlotVisitor::heap() const
+inline JSC::Heap* AbstractSlotVisitor::heap() const
 {
     return &m_heap;
 }
@@ -124,7 +136,7 @@ inline bool AbstractSlotVisitor::addOpaqueRoot(void* ptr)
         return false;
     if (!m_opaqueRoots.add(ptr))
         return false;
-    if (UNLIKELY(m_needsExtraOpaqueRootHandling))
+    if (m_needsExtraOpaqueRootHandling) [[unlikely]]
         didAddOpaqueRoot(ptr);
     m_visitCount++;
     return true;
@@ -133,7 +145,7 @@ inline bool AbstractSlotVisitor::addOpaqueRoot(void* ptr)
 inline bool AbstractSlotVisitor::containsOpaqueRoot(void* ptr) const
 {
     bool found = m_opaqueRoots.contains(ptr);
-    if (UNLIKELY(found && m_needsExtraOpaqueRootHandling)) {
+    if (found && m_needsExtraOpaqueRootHandling) [[unlikely]] {
         auto* nonConstThis = const_cast<AbstractSlotVisitor*>(this);
         nonConstThis->didFindOpaqueRoot(ptr);
     }
@@ -158,6 +170,16 @@ ALWAYS_INLINE void AbstractSlotVisitor::appendHidden(const WriteBarrierBase<T, T
     appendHiddenUnbarriered(slot.get());
 }
 
+ALWAYS_INLINE void AbstractSlotVisitor::append(const WriteBarrierStructureID& slot)
+{
+    appendUnbarriered(reinterpret_cast<JSCell*>(slot.get()));
+}
+
+ALWAYS_INLINE void AbstractSlotVisitor::appendHidden(const WriteBarrierStructureID& slot)
+{
+    appendHiddenUnbarriered(reinterpret_cast<JSCell*>(slot.get()));
+}
+
 ALWAYS_INLINE void AbstractSlotVisitor::appendHiddenUnbarriered(JSValue value)
 {
     if (value.isCell())
@@ -169,6 +191,12 @@ ALWAYS_INLINE void AbstractSlotVisitor::append(Iterator begin, Iterator end)
 {
     for (auto it = begin; it != end; ++it)
         append(*it);
+}
+
+ALWAYS_INLINE void AbstractSlotVisitor::appendValues(std::span<const WriteBarrier<Unknown, RawValueTraits<Unknown>>> barriers)
+{
+    for (auto& barrier : barriers)
+        append(barrier);
 }
 
 ALWAYS_INLINE void AbstractSlotVisitor::appendValues(const WriteBarrierBase<Unknown>* barriers, size_t count)
@@ -208,3 +236,5 @@ ALWAYS_INLINE void AbstractSlotVisitor::reset()
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

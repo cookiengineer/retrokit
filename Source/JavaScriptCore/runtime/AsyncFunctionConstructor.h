@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2016 Caitlin Potter <caitp@igalia.com>.
+ * Copyright (C) 2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -39,15 +40,12 @@ public:
 
     static AsyncFunctionConstructor* create(VM& vm, Structure* structure, AsyncFunctionPrototype* asyncFunctionPrototype)
     {
-        AsyncFunctionConstructor* constructor = new (NotNull, allocateCell<AsyncFunctionConstructor>(vm.heap)) AsyncFunctionConstructor(vm, structure);
+        AsyncFunctionConstructor* constructor = new (NotNull, allocateCell<AsyncFunctionConstructor>(vm)) AsyncFunctionConstructor(vm, structure);
         constructor->finishCreation(vm, asyncFunctionPrototype);
         return constructor;
     }
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(InternalFunctionType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
 private:
     AsyncFunctionConstructor(VM&, Structure*);

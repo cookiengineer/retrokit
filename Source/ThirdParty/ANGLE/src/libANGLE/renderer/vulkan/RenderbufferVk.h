@@ -39,31 +39,23 @@ class RenderbufferVk : public RenderbufferImpl, public angle::ObserverInterface
 
     angle::Result copyRenderbufferSubData(const gl::Context *context,
                                           const gl::Renderbuffer *srcBuffer,
-                                          GLint srcLevel,
                                           GLint srcX,
                                           GLint srcY,
-                                          GLint srcZ,
-                                          GLint dstLevel,
                                           GLint dstX,
                                           GLint dstY,
-                                          GLint dstZ,
                                           GLsizei srcWidth,
-                                          GLsizei srcHeight,
-                                          GLsizei srcDepth) override;
+                                          GLsizei srcHeight) override;
 
     angle::Result copyTextureSubData(const gl::Context *context,
                                      const gl::Texture *srcTexture,
-                                     GLint srcLevel,
+                                     gl::LevelIndex srcLevel,
                                      GLint srcX,
                                      GLint srcY,
-                                     GLint srcZ,
-                                     GLint dstLevel,
+                                     gl::LayerIndex srcZ,
                                      GLint dstX,
                                      GLint dstY,
-                                     GLint dstZ,
                                      GLsizei srcWidth,
-                                     GLsizei srcHeight,
-                                     GLsizei srcDepth) override;
+                                     GLsizei srcHeight) override;
 
     angle::Result getAttachmentRenderTarget(const gl::Context *context,
                                             GLenum binding,
@@ -72,6 +64,7 @@ class RenderbufferVk : public RenderbufferImpl, public angle::ObserverInterface
                                             FramebufferAttachmentRenderTarget **rtOut) override;
 
     angle::Result initializeContents(const gl::Context *context,
+                                     GLenum binding,
                                      const gl::ImageIndex &imageIndex) override;
 
     vk::ImageHelper *getImage() const { return mImage; }
@@ -124,6 +117,8 @@ class RenderbufferVk : public RenderbufferImpl, public angle::ObserverInterface
     RenderTargetVk mRenderTarget;
 
     angle::ObserverBinding mImageObserverBinding;
+
+    vk::Renderer *mRenderer;
 };
 
 }  // namespace rx

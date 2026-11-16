@@ -1,6 +1,6 @@
 /*
  * Copyright 2016 The Chromium Authors. All rights reserved.
- * Copyright (C) 2020, Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,13 +29,17 @@
 #include "IIRFilterNode.h"
 
 #include "BaseAudioContext.h"
+#include "ExceptionCode.h"
+#include "ExceptionOr.h"
 #include "IIRFilter.h"
 #include "ScriptExecutionContext.h"
-#include <wtf/IsoMallocInlines.h>
+#include <JavaScriptCore/ConsoleTypes.h>
+#include <JavaScriptCore/TypedArrays.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(IIRFilterNode);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(IIRFilterNode);
 
 // Determine if filter is stable based on the feedback coefficients.
 // We compute the reflection coefficients for the filter. If, at any
@@ -68,7 +72,7 @@ static bool isFilterStable(const Vector<double>& feedback)
     for (int n = order; n >= 1; --n) {
         double k = coefficients[n];
 
-        if (std::fabs(k) >= 1)
+        if (std::abs(k) >= 1)
             return false;
 
         // Note that A[n](1/z)/z^n is basically the coefficients of A[n]
@@ -85,17 +89,17 @@ static bool isFilterStable(const Vector<double>& feedback)
 ExceptionOr<Ref<IIRFilterNode>> IIRFilterNode::create(ScriptExecutionContext& scriptExecutionContext, BaseAudioContext& context, IIRFilterOptions&& options)
 {
     if (!options.feedforward.size() || options.feedforward.size() > IIRFilter::maxOrder)
-        return Exception { NotSupportedError, "feedforward array must have a length between 1 and 20"_s };
+        return Exception { ExceptionCode::NotSupportedError, "feedforward array must have a length between 1 and 20"_s };
 
-    auto nonZeroValueIndex = options.feedforward.findMatching([](auto& value) { return !!value; });
+    auto nonZeroValueIndex = options.feedforward.findIf([](auto& value) { return !!value; });
     if (nonZeroValueIndex == notFound)
-        return Exception { InvalidStateError, "feedforward array must contain a non-zero value"_s };
+        return Exception { ExceptionCode::InvalidStateError, "feedforward array must contain a non-zero value"_s };
 
     if (!options.feedback.size() || options.feedback.size() > IIRFilter::maxOrder)
-        return Exception { NotSupportedError, "feedback array must have a length between 1 and 20"_s };
+        return Exception { ExceptionCode::NotSupportedError, "feedback array must have a length between 1 and 20"_s };
 
     if (!options.feedback[0])
-        return Exception { InvalidStateError, "first value of feedback array cannot be zero"_s };
+        return Exception { ExceptionCode::InvalidStateError, "first value of feedback array cannot be zero"_s };
 
     bool isFilterStable = WebCore::isFilterStable(options.feedback);
     if (!isFilterStable)
@@ -122,11 +126,11 @@ ExceptionOr<void> IIRFilterNode::getFrequencyResponse(Float32Array& frequencyHz,
 {
     auto expectedLength = frequencyHz.length();
     if (magResponse.length() != expectedLength || phaseResponse.length() != expectedLength)
-        return Exception { InvalidAccessError, "Arrays must have the same length"_s };
+        return Exception { ExceptionCode::InvalidAccessError, "Arrays must have the same length"_s };
 
     // Nothing to do if the length is 0.
     if (expectedLength > 0)
-        iirProcessor()->getFrequencyResponse(expectedLength, frequencyHz.data(), magResponse.data(), phaseResponse.data());
+        iirProcessor()->getFrequencyResponse(expectedLength, frequencyHz.typedSpan(), magResponse.typedMutableSpan(), phaseResponse.typedMutableSpan());
 
     return { };
 }

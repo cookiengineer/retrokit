@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,24 +34,21 @@ public:
     using Base = JSScope;
 
     template<typename CellType, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         return vm.strictEvalActivationSpace<mode>();
     }
 
     static StrictEvalActivation* create(VM& vm, Structure* structure, JSScope* currentScope)
     {
-        StrictEvalActivation* scope = new (NotNull, allocateCell<StrictEvalActivation>(vm.heap)) StrictEvalActivation(vm, structure, currentScope);
+        StrictEvalActivation* scope = new (NotNull, allocateCell<StrictEvalActivation>(vm)) StrictEvalActivation(vm, structure, currentScope);
         scope->finishCreation(vm);
         return scope;
     }
 
-    static bool deleteProperty(JSCell*, JSGlobalObject*, PropertyName, DeletePropertySlot&);
+    static bool NODELETE deleteProperty(JSCell*, JSGlobalObject*, PropertyName, DeletePropertySlot&);
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(StrictEvalActivationType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
     
     DECLARE_INFO;
 

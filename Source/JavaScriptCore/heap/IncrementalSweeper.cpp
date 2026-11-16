@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,10 +26,11 @@
 #include "config.h"
 #include "IncrementalSweeper.h"
 
-#include "DeferGC.h"
+#include "BlockDirectoryInlines.h"
+#include "DeferGCInlines.h"
 #include "HeapInlines.h"
-#include "MarkedBlock.h"
-#include "VM.h"
+#include "MarkedBlockInlines.h"
+#include <wtf/SystemTracing.h>
 
 namespace JSC {
 
@@ -42,36 +43,56 @@ void IncrementalSweeper::scheduleTimer()
     setTimeUntilFire(sweepTimeSlice * sweepTimeMultiplier);
 }
 
-IncrementalSweeper::IncrementalSweeper(Heap* heap)
+IncrementalSweeper::IncrementalSweeper(JSC::Heap* heap)
     : Base(heap->vm())
     , m_currentDirectory(nullptr)
 {
 }
 
-void IncrementalSweeper::doWork(VM& vm)
+void IncrementalSweeper::doWorkUntil(VM& vm, ApproximateTime deadline)
 {
-    doSweep(vm, MonotonicTime::now());
+    if (!m_currentDirectory)
+        m_currentDirectory = vm.heap.objectSpace().firstDirectory();
+
+    if (m_currentDirectory)
+        doSweep(vm, deadline, SweepTrigger::OpportunisticTask);
 }
 
-void IncrementalSweeper::doSweep(VM& vm, MonotonicTime sweepBeginTime)
+void IncrementalSweeper::doWork(VM& vm)
 {
-    while (sweepNextBlock(vm)) {
-        Seconds elapsedTime = MonotonicTime::now() - sweepBeginTime;
-        if (elapsedTime < sweepTimeSlice)
-            continue;
-
+    if (m_lastOpportunisticTaskDidFinishSweeping) {
+        m_lastOpportunisticTaskDidFinishSweeping = false;
         scheduleTimer();
         return;
     }
+    doSweep(vm, ApproximateTime::now() + sweepTimeSlice, SweepTrigger::Timer);
+}
 
-    if (m_shouldFreeFastMallocMemoryAfterSweeping) {
-        WTF::releaseFastMallocFreeMemory();
-        m_shouldFreeFastMallocMemoryAfterSweeping = false;
+void IncrementalSweeper::doSweep(VM& vm, ApproximateTime deadline, SweepTrigger trigger)
+{
+    std::optional<TraceScope> traceScope;
+    if (Options::useTracePoints()) [[unlikely]]
+        traceScope.emplace(IncrementalSweepStart, IncrementalSweepEnd, vm.heap.size(), vm.heap.capacity());
+
+    vm.heap.clearConcurrentRetainedDataIfPossible();
+
+    while (sweepNextBlock(vm, trigger)) {
+        if (ApproximateTime::now() < deadline)
+            continue;
+
+        if (trigger == SweepTrigger::Timer)
+            scheduleTimer();
+        else
+            m_lastOpportunisticTaskDidFinishSweeping = false;
+        return;
     }
+    if (trigger == SweepTrigger::OpportunisticTask)
+        m_lastOpportunisticTaskDidFinishSweeping = true;
+
     cancelTimer();
 }
 
-bool IncrementalSweeper::sweepNextBlock(VM& vm)
+bool IncrementalSweeper::sweepNextBlock(VM& vm, SweepTrigger trigger)
 {
     vm.heap.stopIfNecessary();
 
@@ -84,16 +105,28 @@ bool IncrementalSweeper::sweepNextBlock(VM& vm)
     }
     
     if (block) {
-        DeferGCForAWhile deferGC(vm.heap);
+        DeferGCForAWhile deferGC(vm);
         block->sweep(nullptr);
-        vm.heap.objectSpace().freeOrShrinkBlock(block);
+
+        bool blockIsFreed = false;
+        if (trigger == SweepTrigger::Timer) {
+            if (!block->isEmpty())
+                block->shrink();
+            else {
+                vm.heap.objectSpace().freeBlock(block);
+                blockIsFreed = true;
+            }
+        }
+
+        if (!blockIsFreed)
+            m_currentDirectory->didFinishUsingBlock(block);
         return true;
     }
 
     return vm.heap.sweepNextLogicallyEmptyWeakBlock();
 }
 
-void IncrementalSweeper::startSweeping(Heap& heap)
+void IncrementalSweeper::startSweeping(JSC::Heap& heap)
 {
     scheduleTimer();
     m_currentDirectory = heap.objectSpace().firstDirectory();

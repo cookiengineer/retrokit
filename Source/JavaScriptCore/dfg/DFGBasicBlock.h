@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011, 2013-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,6 +34,8 @@
 #include "DFGNodeAbstractValuePair.h"
 #include "DFGStructureClobberState.h"
 #include "Operands.h"
+#include <wtf/SequesteredMalloc.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 
 namespace JSC { namespace DFG {
@@ -46,8 +48,11 @@ typedef Vector<Node*, 8> BlockNodeList;
 
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(BasicBlock);
 
-struct BasicBlock : RefCounted<BasicBlock> {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(BasicBlock);
+class BasicBlock {
+    WTF_MAKE_NONCOPYABLE(BasicBlock);
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(BasicBlock, BasicBlock);
+public:
+
     BasicBlock(
         BytecodeIndex bytecodeBegin, unsigned numArguments, unsigned numLocals, unsigned numTmps,
         float executionCount);
@@ -137,8 +142,8 @@ struct BasicBlock : RefCounted<BasicBlock> {
     }
     bool isPhiIndex(size_t i) const { return i < phis.size(); }
     
-    bool isInPhis(Node* node) const;
-    bool isInBlock(Node* myNode) const;
+    bool NODELETE isInPhis(Node* node) const;
+    bool NODELETE isInBlock(Node* myNode) const;
     
     BlockNodeList::iterator begin() { return m_nodes.begin(); }
     BlockNodeList::iterator end() { return m_nodes.end(); }
@@ -158,9 +163,16 @@ struct BasicBlock : RefCounted<BasicBlock> {
     {
         return terminal()->successors();
     }
-    
-    void removePredecessor(BasicBlock* block);
-    void replacePredecessor(BasicBlock* from, BasicBlock* to);
+
+    bool isJumpPad() { return m_nodes.size() == 1 && m_nodes[0]->isJump(); }
+
+    BlockIndex index() const { return m_index; }
+    void setIndex(BlockIndex index) { m_index = index; }
+
+    void NODELETE removePredecessor(BasicBlock* block);
+    void NODELETE replacePredecessor(BasicBlock* from, BasicBlock* to);
+
+    inline Node* cloneAndAppend(Graph&, const Node*);
 
     template<typename... Params>
     Node* appendNode(Graph&, SpeculatedType, Params...);
@@ -183,15 +195,14 @@ struct BasicBlock : RefCounted<BasicBlock> {
     // This value is used internally for block linking and OSR entry. It is mostly meaningless
     // for other purposes due to inlining.
     BytecodeIndex bytecodeBegin;
-    
-    BlockIndex index;
-
+private:
+    BlockIndex m_index;
+public:
     StructureClobberState cfaStructureClobberStateAtHead;
     StructureClobberState cfaStructureClobberStateAtTail;
     BranchDirection cfaBranchDirection;
     bool cfaHasVisited;
     bool cfaShouldRevisit;
-    bool cfaThinksShouldTryConstantFolding { false };
     bool cfaDidFinish;
     bool intersectionOfCFAHasVisited;
     bool isOSRTarget;
@@ -233,7 +244,7 @@ struct BasicBlock : RefCounted<BasicBlock> {
     float executionCount;
     
     struct SSAData {
-        WTF_MAKE_FAST_ALLOCATED;
+        WTF_MAKE_SEQUESTERED_ARENA_ALLOCATED(SSAData);
     public:
         void invalidate()
         {
@@ -255,7 +266,17 @@ struct BasicBlock : RefCounted<BasicBlock> {
         ~SSAData();
     };
     std::unique_ptr<SSAData> ssa;
-    
+
+    // Indicates this block was synthetically generated (e.g., via loop unrolling or
+    // additional jump pad insertion due to loop unrolling) and should not contribute
+    // to FTL inlining code size heuristics.
+    bool isExcludedFromFTLCodeSizeEstimation { false };
+
+#if ASSERT_ENABLED
+    // Points to the original block this one was cloned from during loop unrolling.
+    BasicBlock* cloneSource { nullptr };
+#endif
+
 private:
     friend class InsertionSet;
     BlockNodeList m_nodes;

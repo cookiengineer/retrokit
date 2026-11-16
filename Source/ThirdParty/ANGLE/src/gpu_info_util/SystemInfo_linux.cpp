@@ -71,14 +71,14 @@ bool GetPCIDevicesWithLibPCI(std::vector<GPUDeviceInfo> *devices)
 
 bool GetSystemInfo(SystemInfo *info)
 {
-    if (!GetPCIDevicesWithLibPCI(&(info->gpus)))
+    if (!GetPCIDevicesWithLibPCI(&(info->gpus)) || info->gpus.size() == 0)
     {
+#if defined(ANGLE_USE_VULKAN_SYSTEM_INFO)
+        // Try vulkan backend to get GPU info
+        return GetSystemInfoVulkan(info);
+#else
         return false;
-    }
-
-    if (info->gpus.size() == 0)
-    {
-        return false;
+#endif  // defined(ANGLE_HAS_VULKAN_SYSTEM_INFO)
     }
 
     GetDualGPUInfo(info);

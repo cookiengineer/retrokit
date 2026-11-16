@@ -9,13 +9,11 @@
 
 #include "libANGLE/renderer/gl/cgl/PbufferSurfaceCGL.h"
 
-#if defined(ANGLE_PLATFORM_MACOS) || defined(ANGLE_PLATFORM_MACCATALYST)
-
-#    include "common/debug.h"
-#    include "libANGLE/renderer/gl/FramebufferGL.h"
-#    include "libANGLE/renderer/gl/FunctionsGL.h"
-#    include "libANGLE/renderer/gl/RendererGL.h"
-#    include "libANGLE/renderer/gl/StateManagerGL.h"
+#include "common/debug.h"
+#include "libANGLE/renderer/gl/FramebufferGL.h"
+#include "libANGLE/renderer/gl/FunctionsGL.h"
+#include "libANGLE/renderer/gl/RendererGL.h"
+#include "libANGLE/renderer/gl/StateManagerGL.h"
 
 namespace rx
 {
@@ -29,20 +27,27 @@ PbufferSurfaceCGL::PbufferSurfaceCGL(const egl::SurfaceState &state,
       mHeight(height),
       mFunctions(renderer->getFunctions()),
       mStateManager(renderer->getStateManager()),
+      mFramebuffer(0),
       mColorRenderbuffer(0),
       mDSRenderbuffer(0)
 {}
 
 PbufferSurfaceCGL::~PbufferSurfaceCGL()
 {
+    if (mFramebuffer != 0)
+    {
+        mStateManager->deleteFramebuffer(mFramebuffer);
+        mFramebuffer = 0;
+    }
+
     if (mColorRenderbuffer != 0)
     {
-        mFunctions->deleteRenderbuffers(1, &mColorRenderbuffer);
+        mStateManager->deleteRenderbuffer(mColorRenderbuffer);
         mColorRenderbuffer = 0;
     }
     if (mDSRenderbuffer != 0)
     {
-        mFunctions->deleteRenderbuffers(1, &mDSRenderbuffer);
+        mStateManager->deleteRenderbuffer(mDSRenderbuffer);
         mDSRenderbuffer = 0;
     }
 }
@@ -65,7 +70,7 @@ egl::Error PbufferSurfaceCGL::makeCurrent(const gl::Context *context)
     return egl::NoError();
 }
 
-egl::Error PbufferSurfaceCGL::swap(const gl::Context *context)
+egl::Error PbufferSurfaceCGL::swap(const gl::Context *context, SurfaceSwapFeedback *feedback)
 {
     return egl::NoError();
 }
@@ -99,17 +104,13 @@ egl::Error PbufferSurfaceCGL::releaseTexImage(const gl::Context *context, EGLint
     return egl::NoError();
 }
 
-void PbufferSurfaceCGL::setSwapInterval(EGLint interval) {}
+void PbufferSurfaceCGL::setSwapInterval(const egl::Display *display, EGLint interval) {}
 
-EGLint PbufferSurfaceCGL::getWidth() const
+gl::Extents PbufferSurfaceCGL::getSize() const
 {
-    return mWidth;
+    return gl::Extents(mWidth, mHeight, 1);
 }
 
-EGLint PbufferSurfaceCGL::getHeight() const
-{
-    return mHeight;
-}
 
 EGLint PbufferSurfaceCGL::isPostSubBufferSupported() const
 {
@@ -122,23 +123,31 @@ EGLint PbufferSurfaceCGL::getSwapBehavior() const
     return EGL_BUFFER_PRESERVED;
 }
 
-FramebufferImpl *PbufferSurfaceCGL::createDefaultFramebuffer(const gl::Context *context,
-                                                             const gl::FramebufferState &state)
+void PbufferSurfaceCGL::attachToFramebuffer(const gl::Context *context,
+                                            gl::Framebuffer *framebuffer)
 {
-    const FunctionsGL *functions = GetFunctionsGL(context);
-    StateManagerGL *stateManager = GetStateManagerGL(context);
+    FramebufferGL *framebufferGL = GetImplAs<FramebufferGL>(framebuffer);
+    ASSERT(framebufferGL->getFramebufferID() == 0);
 
-    GLuint framebuffer = 0;
-    functions->genFramebuffers(1, &framebuffer);
-    stateManager->bindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-    functions->framebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER,
-                                       mColorRenderbuffer);
-    functions->framebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER,
-                                       mDSRenderbuffer);
+    if (mFramebuffer == 0)
+    {
+        GLuint framebufferID = 0;
+        mFunctions->genFramebuffers(1, &framebufferID);
+        mStateManager->bindFramebuffer(GL_FRAMEBUFFER, framebufferID);
+        mFunctions->framebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER,
+                                            mColorRenderbuffer);
+        mFunctions->framebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
+                                            GL_RENDERBUFFER, mDSRenderbuffer);
+        mFramebuffer = framebufferID;
+    }
+    framebufferGL->setFramebufferID(mFramebuffer);
+}
 
-    return new FramebufferGL(state, framebuffer, true, false);
+void PbufferSurfaceCGL::detachFromFramebuffer(gl::Framebuffer *framebuffer)
+{
+    FramebufferGL *framebufferGL = GetImplAs<FramebufferGL>(framebuffer);
+    ASSERT(framebufferGL->getFramebufferID() == mFramebuffer);
+    framebufferGL->setFramebufferID(0);
 }
 
 }  // namespace rx
-
-#endif  // defined(ANGLE_PLATFORM_MACOS) || defined(ANGLE_PLATFORM_MACCATALYST)

@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2005 Oliver Hunt <ojh16@student.canterbury.ac.nz>
+ * Copyright (C) 2022 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -24,14 +25,17 @@
 namespace WebCore {
 
 class SVGFEDistantLightElement final : public SVGFELightElement {
+    WTF_MAKE_TZONE_ALLOCATED(SVGFEDistantLightElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGFEDistantLightElement);
 public:
     static Ref<SVGFEDistantLightElement> create(const QualifiedName&, Document&);
 
 private:
     SVGFEDistantLightElement(const QualifiedName&, Document&);
 
-    Ref<LightSource> lightSource(SVGFilterBuilder&) const override;
+    Ref<LightSource> lightSource() const override;
 };
+
 static_assert(sizeof(SVGFEDistantLightElement) == sizeof(SVGFELightElement));
 
 } // namespace WebCore

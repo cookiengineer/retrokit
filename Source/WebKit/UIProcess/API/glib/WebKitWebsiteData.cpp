@@ -29,10 +29,10 @@
 using namespace WebKit;
 
 /**
- * SECTION: WebKitWebsiteData
- * @Short_description: Website data
- * @Title: WebKitWebsiteData
+ * WebKitWebsiteData: (ref-func webkit_website_data_ref) (unref-func webkit_website_data_unref)
  * @See_also: #WebKitWebsiteDataManager
+ *
+ * Data stored locally by a web site.
  *
  * WebKitWebsiteData represents data stored in the client by a particular website.
  * A website is normally a set of URLs grouped by domain name. You can get the website name,
@@ -52,7 +52,7 @@ using namespace WebKit;
  */
 struct _WebKitWebsiteData {
     explicit _WebKitWebsiteData(WebsiteDataRecord&& websiteDataDecord)
-        : record(WTFMove(websiteDataDecord))
+        : record(WTF::move(websiteDataDecord))
     {
     }
 
@@ -68,18 +68,17 @@ static bool recordContainsSupportedDataTypes(const WebsiteDataRecord& record)
     return record.types.containsAny({
         WebsiteDataType::MemoryCache,
         WebsiteDataType::DiskCache,
-        WebsiteDataType::OfflineWebApplicationCache,
         WebsiteDataType::SessionStorage,
         WebsiteDataType::LocalStorage,
+#if !ENABLE(2022_GLIB_API)
         WebsiteDataType::WebSQLDatabases,
+#endif
         WebsiteDataType::IndexedDBDatabases,
         WebsiteDataType::HSTSCache,
         WebsiteDataType::Cookies,
         WebsiteDataType::DeviceIdHashSalt,
         WebsiteDataType::ResourceLoadStatistics,
-#if ENABLE(SERVICE_WORKER)
         WebsiteDataType::ServiceWorkerRegistrations,
-#endif
         WebsiteDataType::DOMCache
     });
 }
@@ -91,14 +90,14 @@ static WebKitWebsiteDataTypes toWebKitWebsiteDataTypes(OptionSet<WebsiteDataType
         returnValue |= WEBKIT_WEBSITE_DATA_MEMORY_CACHE;
     if (types.contains(WebsiteDataType::DiskCache))
         returnValue |= WEBKIT_WEBSITE_DATA_DISK_CACHE;
-    if (types.contains(WebsiteDataType::OfflineWebApplicationCache))
-        returnValue |= WEBKIT_WEBSITE_DATA_OFFLINE_APPLICATION_CACHE;
     if (types.contains(WebsiteDataType::SessionStorage))
         returnValue |= WEBKIT_WEBSITE_DATA_SESSION_STORAGE;
     if (types.contains(WebsiteDataType::LocalStorage))
         returnValue |= WEBKIT_WEBSITE_DATA_LOCAL_STORAGE;
+#if !ENABLE(2022_GLIB_API)
     if (types.contains(WebsiteDataType::WebSQLDatabases))
         returnValue |= WEBKIT_WEBSITE_DATA_WEBSQL_DATABASES;
+#endif
     if (types.contains(WebsiteDataType::IndexedDBDatabases))
         returnValue |= WEBKIT_WEBSITE_DATA_INDEXEDDB_DATABASES;
     if (types.contains(WebsiteDataType::HSTSCache))
@@ -109,10 +108,8 @@ static WebKitWebsiteDataTypes toWebKitWebsiteDataTypes(OptionSet<WebsiteDataType
         returnValue |= WEBKIT_WEBSITE_DATA_DEVICE_ID_HASH_SALT;
     if (types.contains(WebsiteDataType::ResourceLoadStatistics))
         returnValue |= WEBKIT_WEBSITE_DATA_ITP;
-#if ENABLE(SERVICE_WORKER)
     if (types.contains(WebsiteDataType::ServiceWorkerRegistrations))
         returnValue |= WEBKIT_WEBSITE_DATA_SERVICE_WORKER_REGISTRATIONS;
-#endif
     if (types.contains(WebsiteDataType::DOMCache))
         returnValue |= WEBKIT_WEBSITE_DATA_DOM_CACHE;
     return static_cast<WebKitWebsiteDataTypes>(returnValue);
@@ -124,7 +121,7 @@ WebKitWebsiteData* webkitWebsiteDataCreate(WebsiteDataRecord&& record)
         return nullptr;
 
     WebKitWebsiteData* websiteData = static_cast<WebKitWebsiteData*>(fastMalloc(sizeof(WebKitWebsiteData)));
-    new (websiteData) WebKitWebsiteData(WTFMove(record));
+    new (websiteData) WebKitWebsiteData(WTF::move(record));
     return websiteData;
 }
 
@@ -139,6 +136,7 @@ const WebKit::WebsiteDataRecord& webkitWebsiteDataGetRecord(WebKitWebsiteData* w
  * @website_data: a #WebKitWebsiteData
  *
  * Atomically increments the reference count of @website_data by one.
+ *
  * This function is MT-safe and may be called from any thread.
  *
  * Returns: The passed #WebKitWebsiteData
@@ -158,6 +156,7 @@ WebKitWebsiteData* webkit_website_data_ref(WebKitWebsiteData* websiteData)
  * @website_data: A #WebKitWebsiteData
  *
  * Atomically decrements the reference count of @website_data by one.
+ *
  * If the reference count drops to 0, all memory allocated by
  * #WebKitWebsiteData is released. This function is MT-safe and may be
  * called from any thread.
@@ -178,7 +177,9 @@ void webkit_website_data_unref(WebKitWebsiteData* websiteData)
  * webkit_website_data_get_name:
  * @website_data: a #WebKitWebsiteData
  *
- * Gets the name of #WebKitWebsiteData. This is the website name, normally represented by
+ * Gets the name of #WebKitWebsiteData.
+ *
+ * This is the website name, normally represented by
  * a domain or host name. All local documents are grouped in the same #WebKitWebsiteData using
  * the name "Local files".
  *
@@ -191,7 +192,7 @@ const char* webkit_website_data_get_name(WebKitWebsiteData* websiteData)
     g_return_val_if_fail(websiteData, nullptr);
 
     if (websiteData->displayName.isNull()) {
-        if (websiteData->record.displayName == "Local documents on your computer")
+        if (websiteData->record.displayName == "Local documents on your computer"_s)
             websiteData->displayName = _("Local files");
         else
             websiteData->displayName = websiteData->record.displayName.utf8();
@@ -203,7 +204,9 @@ const char* webkit_website_data_get_name(WebKitWebsiteData* websiteData)
  * webkit_website_data_get_types:
  * @website_data: a #WebKitWebsiteData
  *
- * Gets the types of data stored in the client for a #WebKitWebsiteData. These are the
+ * Gets the types of data stored in the client for a #WebKitWebsiteData.
+ *
+ * These are the
  * types actually present, not the types queried with webkit_website_data_manager_fetch().
  *
  * Returns: a bitmask of #WebKitWebsiteDataTypes in @website_data
@@ -223,8 +226,10 @@ WebKitWebsiteDataTypes webkit_website_data_get_types(WebKitWebsiteData* websiteD
  * @types: a bitmask  of #WebKitWebsiteDataTypes
  *
  * Gets the size of the data of types @types in a #WebKitWebsiteData.
- * Note that currently the data size is only known for %WEBKIT_WEBSITE_DATA_DISK_CACHE data type
- * so for all other types 0 will be returned.
+ *
+ * Note that currently the data size is only known for the %WEBKIT_WEBSITE_DATA_DISK_CACHE,
+ * %WEBKIT_WEBSITE_DATA_LOCAL_STORAGE, %WEBKIT_WEBSITE_DATA_INDEXEDDB_DATABASES and
+ * %WEBKIT_WEBSITE_DATA_DOM_CACHE data types, so for all other types 0 will be returned.
  *
  * Returns: the size of @website_data for the given @types.
  *
@@ -238,9 +243,9 @@ guint64 webkit_website_data_get_size(WebKitWebsiteData* websiteData, WebKitWebsi
         return 0;
 
     guint64 totalSize = 0;
-    for (auto type : websiteData->record.size->typeSizes.keys()) {
-        if (type & types)
-            totalSize += websiteData->record.size->typeSizes.get(type);
+    for (auto [type, size] : websiteData->record.size->typeSizes) {
+        if (toWebKitWebsiteDataTypes(static_cast<WebsiteDataType>(type)) & types)
+            totalSize += size;
     }
 
     return totalSize;

@@ -58,29 +58,29 @@ public:
         , m_strength(strength)
     {
         ASSERT((!!value && value.isCell()) == !!structure);
-        ASSERT(!value || !value.isCell() || value.asCell()->classInfo(value.asCell()->vm()) == structure->classInfo());
+        ASSERT(!value || !value.isCell() || value.asCell()->classInfo() == structure->classInfoForCells());
         ASSERT(!!structure || (strength == WeakValue));
     }
     
-    static FrozenValue* emptySingleton();
+    static FrozenValue* NODELETE emptySingleton();
     
     bool operator!() const { return !m_value; }
     
     JSValue value() const { return m_value; }
-    JSCell* cell() const { return m_value.asCell(); }
+    JSCell* cell() const LIFETIME_BOUND { return m_value.asCell(); }
     
     template<typename T>
-    T dynamicCast(VM& vm)
+    T dynamicCast()
     {
         JSValue theValue = value();
         if (!theValue)
             return nullptr;
-        return jsDynamicCast<T>(vm, theValue);
+        return dynamicDowncast<std::remove_pointer_t<T>>(theValue);
     }
     template<typename T>
     T cast()
     {
-        return jsCast<T>(value());
+        return uncheckedDowncast<std::remove_pointer_t<T>>(value());
     }
     
     Structure* structure() const { return m_structure; }

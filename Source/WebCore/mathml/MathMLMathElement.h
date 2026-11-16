@@ -34,18 +34,19 @@
 namespace WebCore {
 
 class MathMLMathElement final : public MathMLRowElement {
-    WTF_MAKE_ISO_ALLOCATED(MathMLMathElement);
+    WTF_MAKE_TZONE_ALLOCATED(MathMLMathElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(MathMLMathElement);
 public:
     static Ref<MathMLMathElement> create(const QualifiedName& tagName, Document&);
 
 private:
     MathMLMathElement(const QualifiedName& tagName, Document&);
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
     void didAttachRenderers() final;
 
-    bool acceptsMathVariantAttribute() final { return true; }
+    bool acceptsLegacyMathVariantAttribute() final;
 
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) final;
 };
 
 }

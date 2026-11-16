@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012, 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,11 +32,6 @@ namespace JSC {
 
 class PrivateName {
 public:
-    PrivateName()
-        : m_uid(SymbolImpl::createNullSymbol())
-    {
-    }
-
     explicit PrivateName(SymbolImpl& uid)
         : m_uid(uid)
     {
@@ -64,10 +59,9 @@ public:
     SymbolImpl& uid() const { return m_uid; }
 
     bool operator==(const PrivateName& other) const { return &uid() == &other.uid(); }
-    bool operator!=(const PrivateName& other) const { return &uid() != &other.uid(); }
 
 private:
-    Ref<SymbolImpl> m_uid;
+    const Ref<SymbolImpl> m_uid;
 };
 
 } // namespace JSC

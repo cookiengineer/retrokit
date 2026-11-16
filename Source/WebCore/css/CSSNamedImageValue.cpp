@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc.  All rights reserved.
+ * Copyright (C) 2015, 2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,26 +26,40 @@
 #include "config.h"
 #include "CSSNamedImageValue.h"
 
-#include "NamedImageGeneratedImage.h"
+#include "StyleNamedImage.h"
+#include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 
-String CSSNamedImageValue::customCSSText() const
+CSSNamedImageValue::CSSNamedImageValue(CSS::CustomIdent&& name)
+    : CSSValue { ClassType::NamedImage }
+    , m_name { WTF::move(name) }
 {
-    return makeString("-webkit-named-image(", m_name, ')');
 }
 
-RefPtr<Image> CSSNamedImageValue::image(RenderElement&, const FloatSize& size)
-{
-    if (size.isEmpty())
-        return nullptr;
+CSSNamedImageValue::~CSSNamedImageValue() = default;
 
-    return NamedImageGeneratedImage::create(m_name, size);
+String CSSNamedImageValue::customCSSText(const CSS::SerializationContext& context) const
+{
+    StringBuilder builder;
+    builder.append("-webkit-named-image("_s);
+    CSS::serializationForCSS(builder, context, m_name);
+    builder.append(')');
+    return builder.toString();
 }
 
 bool CSSNamedImageValue::equals(const CSSNamedImageValue& other) const
 {
     return m_name == other.m_name;
+}
+
+RefPtr<Style::Image> CSSNamedImageValue::createStyleImage(const Style::BuilderState& state) const
+{
+    if (m_cachedStyleImage)
+        return m_cachedStyleImage;
+
+    m_cachedStyleImage = Style::NamedImage::create(Style::toStyle(m_name, state));
+    return m_cachedStyleImage;
 }
 
 } // namespace WebCore

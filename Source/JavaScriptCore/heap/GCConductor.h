@@ -25,6 +25,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace JSC {
 
 // Either the mutator has the conn (https://en.wikipedia.org/wiki/Conn_(nautical)), meaning that the
@@ -35,7 +37,7 @@ enum class GCConductor : uint8_t {
     Collector
 };
 
-const char* gcConductorShortName(GCConductor officer);
+const char* NODELETE gcConductorShortName(GCConductor officer);
 
 } // namespace JSC
 

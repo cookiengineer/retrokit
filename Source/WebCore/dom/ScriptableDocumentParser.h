@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Google, Inc. All Rights Reserved.
+ * Copyright (C) 2010 Google, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,7 +26,7 @@
 #pragma once
 
 #include "DecodedDataDocumentParser.h"
-#include "FragmentScriptingPermission.h"
+#include "ParserContentPolicy.h"
 #include "Timer.h"
 #include <wtf/text/TextPosition.h>
 
@@ -45,16 +45,17 @@ public:
     void executeScriptsWaitingForStylesheetsSoon();
 
     // Returns true if the parser didn't yield or pause or synchronously execute a script,
-    // so calls to PageConsoleClient should be associated with the parser's text position.
+    // so calls to FrameConsoleClient should be associated with the parser's text position.
     virtual bool shouldAssociateConsoleMessagesWithTextPosition() const = 0;
 
     void setWasCreatedByScript(bool wasCreatedByScript) { m_wasCreatedByScript = wasCreatedByScript; }
     bool wasCreatedByScript() const { return m_wasCreatedByScript; }
 
-    ParserContentPolicy parserContentPolicy() { return m_parserContentPolicy; }
+    OptionSet<ParserContentPolicy> parserContentPolicy() const { return m_parserContentPolicy; }
+    void setParserContentPolicy(OptionSet<ParserContentPolicy> policy) { m_parserContentPolicy = policy; }
 
 protected:
-    explicit ScriptableDocumentParser(Document&, ParserContentPolicy = AllowScriptingContent);
+    explicit ScriptableDocumentParser(Document&, OptionSet<ParserContentPolicy> = { DefaultParserContentPolicy });
 
     virtual void executeScriptsWaitingForStylesheets() { }
 
@@ -67,7 +68,7 @@ private:
 
     // http://www.whatwg.org/specs/web-apps/current-work/#script-created-parser
     bool m_wasCreatedByScript;
-    ParserContentPolicy m_parserContentPolicy;
+    OptionSet<ParserContentPolicy> m_parserContentPolicy;
     Timer m_scriptsWaitingForStylesheetsExecutionTimer;
 };
 

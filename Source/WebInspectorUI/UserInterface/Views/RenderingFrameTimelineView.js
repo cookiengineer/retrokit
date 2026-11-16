@@ -120,6 +120,8 @@ WI.RenderingFrameTimelineView = class RenderingFrameTimelineView extends WI.Time
         this.representedObject.removeEventListener(WI.Timeline.Event.RecordAdded, this._renderingFrameTimelineRecordAdded, this);
 
         this._dataGrid.closed();
+
+        super.closed();
     }
 
     get selectionPathComponents()
@@ -299,3 +301,4 @@ WI.RenderingFrameTimelineView.DurationFilter = {
     OverFifteenMilliseconds: "rendering-frame-timeline-view-duration-filter-over-15-ms"
 };
 
+WI.RenderingFrameTimelineView.ReferencePage = WI.ReferencePage.TimelinesTab.FramesView;

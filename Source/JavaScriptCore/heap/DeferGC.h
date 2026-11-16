@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,60 +25,45 @@
 
 #pragma once
 
-#include "DisallowScope.h"
-#include "Heap.h"
+#include <JavaScriptCore/DisallowScope.h>
+#include <JavaScriptCore/JSExportMacros.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/ThreadSpecific.h>
 
 namespace JSC {
 
+class Heap;
+class VM;
+
 class DeferGC {
     WTF_MAKE_NONCOPYABLE(DeferGC);
     WTF_FORBID_HEAP_ALLOCATION;
 public:
-    DeferGC(Heap& heap)
-        : m_heap(heap)
-    {
-        m_heap.incrementDeferralDepth();
-    }
-    
-    ~DeferGC()
-    {
-        if constexpr (validateDFGDoesGC)
-            m_heap.verifyCanGC();
-        m_heap.decrementDeferralDepthAndGCIfNeeded();
-    }
+    DeferGC(VM&);
+    ~DeferGC();
 
 private:
-    Heap& m_heap;
+    VM& m_vm;
 };
 
 class DeferGCForAWhile {
     WTF_MAKE_NONCOPYABLE(DeferGCForAWhile);
     WTF_FORBID_HEAP_ALLOCATION;
 public:
-    DeferGCForAWhile(Heap& heap)
-        : m_heap(heap)
-    {
-        m_heap.incrementDeferralDepth();
-    }
-    
-    ~DeferGCForAWhile()
-    {
-        m_heap.decrementDeferralDepth();
-    }
+    DeferGCForAWhile(VM&);
+    ~DeferGCForAWhile();
 
 private:
-    Heap& m_heap;
+    JSC::Heap& m_heap;
 };
 
-class DisallowGC : public DisallowScope<DisallowGC> {
-    WTF_MAKE_NONCOPYABLE(DisallowGC);
+class AssertNoGC : public DisallowScope<AssertNoGC> {
+    WTF_MAKE_NONCOPYABLE(AssertNoGC);
     WTF_FORBID_HEAP_ALLOCATION;
-    typedef DisallowScope<DisallowGC> Base;
+    typedef DisallowScope<AssertNoGC> Base;
 public:
 #if ASSERT_ENABLED
-    DisallowGC() = default;
+    AssertNoGC() = default;
 
     static void initialize()
     {
@@ -98,11 +83,11 @@ private:
     JS_EXPORT_PRIVATE static LazyNeverDestroyed<ThreadSpecific<unsigned, WTF::CanBeGCThread::True>> s_scopeReentryCount;
 
 #else
-    ALWAYS_INLINE DisallowGC() { } // We need this to placate Clang due to unused warnings.
+    ALWAYS_INLINE AssertNoGC() { } // We need this to placate Clang due to unused warnings.
     ALWAYS_INLINE static void initialize() { }
 #endif // ASSERT_ENABLED
     
-    friend class DisallowScope<DisallowGC>;
+    friend class DisallowScope<AssertNoGC>;
 };
 
 } // namespace JSC

@@ -28,13 +28,13 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef LocaleICU_h
-#define LocaleICU_h
+#pragma once
 
 #include "PlatformLocale.h"
 #include <unicode/udat.h>
 #include <unicode/unum.h>
 #include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/WTFString.h>
 
@@ -42,40 +42,40 @@ namespace WebCore {
 
 // We should use this class only for LocalizedNumberICU.cpp, LocalizedDateICU.cpp,
 // and LocalizedNumberICUTest.cpp.
-class LocaleICU : public Locale {
+class LocaleICU final : public Locale {
+    WTF_MAKE_TZONE_ALLOCATED(LocaleICU);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(LocaleICU);
 public:
     explicit LocaleICU(const char*);
     virtual ~LocaleICU();
 
-#if ENABLE(DATE_AND_TIME_INPUT_TYPES)
-    String dateFormat() override;
-    String monthFormat() override;
-    String shortMonthFormat() override;
-    String timeFormat() override;
-    String shortTimeFormat() override;
-    String dateTimeFormatWithSeconds() override;
-    String dateTimeFormatWithoutSeconds() override;
-    const Vector<String>& monthLabels() override;
-    const Vector<String>& shortMonthLabels() override;
-    const Vector<String>& standAloneMonthLabels() override;
-    const Vector<String>& shortStandAloneMonthLabels() override;
-    const Vector<String>& timeAMPMLabels() override;
-#endif
+    Locale::WritingDirection defaultWritingDirection() const final;
+
+    String dateFormat() final;
+    String monthFormat() final;
+    String shortMonthFormat() final;
+    String timeFormat() final;
+    String shortTimeFormat() final;
+    String dateTimeFormatWithSeconds() final;
+    String dateTimeFormatWithoutSeconds() final;
+    const Vector<String>& NODELETE monthLabels() final;
+    const Vector<String>& shortMonthLabels() final;
+    const Vector<String>& standAloneMonthLabels() final;
+    const Vector<String>& shortStandAloneMonthLabels() final;
+    const Vector<String>& timeAMPMLabels() final;
 
 private:
 #if !UCONFIG_NO_FORMATTING
     String decimalSymbol(UNumberFormatSymbol);
     String decimalTextAttribute(UNumberFormatTextAttribute);
 #endif
-    void initializeLocaleData() override;
+    void initializeLocaleData() final;
 
-#if ENABLE(DATE_AND_TIME_INPUT_TYPES)
     bool initializeShortDateFormat();
     UDateFormat* openDateFormat(UDateFormatStyle timeStyle, UDateFormatStyle dateStyle) const;
 
     std::unique_ptr<Vector<String>> createLabelVector(const UDateFormat*, UDateFormatSymbolType, int32_t startIndex, int32_t size);
     void initializeDateTimeFormat();
-#endif
 
     CString m_locale;
 
@@ -84,7 +84,6 @@ private:
     bool m_didCreateDecimalFormat { false };
 #endif
 
-#if ENABLE(DATE_AND_TIME_INPUT_TYPES)
     std::unique_ptr<Vector<String>> m_monthLabels;
     String m_dateFormat;
     String m_monthFormat;
@@ -102,8 +101,6 @@ private:
     Vector<String> m_timeAMPMLabels;
     bool m_didCreateShortDateFormat { false };
     bool m_didCreateTimeFormat { false };
-#endif
 };
 
 } // namespace WebCore
-#endif

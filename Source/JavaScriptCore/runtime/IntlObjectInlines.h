@@ -27,18 +27,22 @@
 #pragma once
 
 #include "BuiltinNames.h"
+#include "ExceptionHelpers.h"
 #include "IntlObject.h"
+#include "JSArray.h"
 #include "JSBoundFunction.h"
 #include "JSObject.h"
 #include "ObjectConstructor.h"
 #include <unicode/ucol.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
 template<typename StringType>
 static constexpr uint32_t computeTwoCharacters16Code(const StringType& string)
 {
-    return static_cast<uint16_t>(string.characterAt(0)) | (static_cast<uint32_t>(static_cast<uint16_t>(string.characterAt(1))) << 16);
+    return static_cast<uint16_t>(string.codeUnitAt(0)) | (static_cast<uint32_t>(static_cast<uint16_t>(string.codeUnitAt(1))) << 16);
 }
 
 template<typename Predicate> String bestAvailableLocale(const String& locale, Predicate predicate)
@@ -58,7 +62,7 @@ template<typename Predicate> String bestAvailableLocale(const String& locale, Pr
         if (pos >= 2 && candidate[pos - 2] == '-')
             pos -= 2;
 
-        candidate = candidate.substring(0, pos);
+        candidate = candidate.left(pos);
     }
 
     return String();
@@ -77,7 +81,7 @@ JSValue constructIntlInstanceWithWorkaroundForLegacyIntlConstructor(JSGlobalObje
 
     if (thisValue.isObject()) {
         JSObject* thisObject = asObject(thisValue);
-        ASSERT(!callee->template inherits<JSBoundFunction>(vm));
+        ASSERT(!callee->template inherits<JSBoundFunction>());
         JSValue prototype = callee->getDirect(vm, vm.propertyNames->prototype); // Passed constructors always have `prototype` which cannot be deleted.
         ASSERT(prototype);
         bool hasInstance = JSObject::defaultHasInstance(globalObject, thisObject, prototype);
@@ -85,7 +89,7 @@ JSValue constructIntlInstanceWithWorkaroundForLegacyIntlConstructor(JSGlobalObje
         if (hasInstance) {
             PropertyDescriptor descriptor(instance, PropertyAttribute::ReadOnly | PropertyAttribute::DontEnum | PropertyAttribute::DontDelete);
             scope.release();
-            thisObject->methodTable(vm)->defineOwnProperty(thisObject, globalObject, vm.propertyNames->builtinNames().intlLegacyConstructedSymbol(), descriptor, true);
+            thisObject->methodTable()->defineOwnProperty(thisObject, globalObject, globalObject->intlLegacyConstructedSymbol(), descriptor, true);
             return thisObject;
         }
     }
@@ -98,15 +102,15 @@ InstanceType* unwrapForLegacyIntlConstructor(JSGlobalObject* globalObject, JSVal
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    JSObject* thisObject = jsDynamicCast<JSObject*>(vm, thisValue);
-    if (UNLIKELY(!thisObject))
+    JSObject* thisObject = dynamicDowncast<JSObject>(thisValue);
+    if (!thisObject) [[unlikely]]
         return nullptr;
 
-    auto* instance = jsDynamicCast<InstanceType*>(vm, thisObject);
-    if (LIKELY(instance))
+    auto* instance = dynamicDowncast<InstanceType>(thisObject);
+    if (instance) [[likely]]
         return instance;
 
-    ASSERT(!constructor->template inherits<JSBoundFunction>(vm));
+    ASSERT(!constructor->template inherits<JSBoundFunction>());
     JSValue prototype = constructor->getDirect(vm, vm.propertyNames->prototype); // Passed constructors always have `prototype` which cannot be deleted.
     ASSERT(prototype);
     bool hasInstance = JSObject::defaultHasInstance(globalObject, thisObject, prototype);
@@ -114,9 +118,9 @@ InstanceType* unwrapForLegacyIntlConstructor(JSGlobalObject* globalObject, JSVal
     if (!hasInstance)
         return nullptr;
 
-    JSValue value = thisObject->get(globalObject, vm.propertyNames->builtinNames().intlLegacyConstructedSymbol());
+    JSValue value = thisObject->get(globalObject, globalObject->intlLegacyConstructedSymbol());
     RETURN_IF_EXCEPTION(scope, nullptr);
-    return jsDynamicCast<InstanceType*>(vm, value);
+    return dynamicDowncast<InstanceType>(value);
 }
 
 template<typename ResultType>
@@ -151,18 +155,83 @@ ResultType intlOption(JSGlobalObject* globalObject, JSObject* options, PropertyN
     return fallback;
 }
 
+template<typename ResultType>
+ResultType intlStringOrBooleanOption(JSGlobalObject* globalObject, JSObject* options, PropertyName property, ResultType trueValue, ResultType falsyValue, std::initializer_list<std::pair<ASCIILiteral, ResultType>> values, ASCIILiteral notFoundMessage, ResultType fallback)
+{
+    // https://tc39.es/proposal-intl-numberformat-v3/out/negotiation/diff.html#sec-getstringorbooleanoption
 
-ALWAYS_INLINE bool canUseASCIIUCADUCETComparison(UChar character)
+    ASSERT(values.size() > 0);
+
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    if (!options)
+        return fallback;
+
+    JSValue value = options->get(globalObject, property);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    if (value.isUndefined())
+        return fallback;
+
+    if (value.isBoolean() && value.asBoolean())
+        return trueValue;
+
+    bool valueBoolean = value.toBoolean(globalObject);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    if (!valueBoolean)
+        return falsyValue;
+
+    String stringValue = value.toWTFString(globalObject);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    // FIXME: We need to know whether this fallback is actually correct.
+    // https://github.com/tc39/proposal-intl-numberformat-v3/issues/111
+    if (stringValue == "true"_s || stringValue == "false"_s)
+        return fallback;
+
+    for (const auto& entry : values) {
+        if (entry.first == stringValue)
+            return entry.second;
+    }
+
+    throwRangeError(globalObject, scope, notFoundMessage);
+    return { };
+}
+
+ALWAYS_INLINE bool canUseASCIIUCADUCETComparison(char16_t character)
 {
     return isASCII(character) && ducetLevel1Weights[character];
 }
 
-template<typename CharacterType1, typename CharacterType2>
-UCollationResult compareASCIIWithUCADUCETLevel3(const CharacterType1* characters1, const CharacterType2* characters2, unsigned length)
+ALWAYS_INLINE bool canUseASCIIUCADUCETComparison(Latin1Character character)
 {
-    for (unsigned position = 0; position < length; ++position) {
-        auto lhs = characters1[position];
-        auto rhs = characters2[position];
+    return ducetLevel1Weights[character];
+}
+
+ALWAYS_INLINE bool followedByNonLatinCharacter(std::span<const char16_t> characters, size_t index)
+{
+    size_t nextIndex = index + 1;
+    if (characters.size() > nextIndex)
+        return !isLatin1(characters[nextIndex]);
+    return false;
+}
+
+ALWAYS_INLINE bool followedByNonLatinCharacter(std::span<const Latin1Character>, size_t)
+{
+    return false;
+}
+
+template<typename CharacterType1, typename CharacterType2>
+UCollationResult compareASCIIWithUCADUCETLevel3(std::span<const CharacterType1> characters1, std::span<const CharacterType2> characters2)
+{
+    auto* data1 = characters1.data();
+    auto* data2 = characters2.data();
+    ASSERT(characters1.size() == characters2.size());
+    for (size_t position = 0; position < characters1.size(); ++position) {
+        auto lhs = data1[position];
+        auto rhs = data2[position];
         uint8_t leftWeight = ducetLevel3Weights[lhs];
         uint8_t rightWeight = ducetLevel3Weights[rhs];
         if (leftWeight == rightWeight)
@@ -173,31 +242,50 @@ UCollationResult compareASCIIWithUCADUCETLevel3(const CharacterType1* characters
 }
 
 template<typename CharacterType1, typename CharacterType2>
-inline UCollationResult compareASCIIWithUCADUCET(const CharacterType1* characters1, unsigned length1, const CharacterType2* characters2, unsigned length2)
+inline std::optional<UCollationResult> compareASCIIWithUCADUCET(std::span<const CharacterType1> characters1, std::span<const CharacterType2> characters2)
 {
-    bool notSameCharacters = false;
-    unsigned commonLength = std::min(length1, length2);
+    if (characters1.size() == characters2.size()) {
+        if (equal(characters1.data(), characters2))
+            return UCOL_EQUAL;
+    }
+
+    auto* data1 = characters1.data();
+    auto* data2 = characters2.data();
+    size_t commonLength = std::min(characters1.size(), characters2.size());
     for (unsigned position = 0; position < commonLength; ++position) {
-        auto lhs = characters1[position];
-        auto rhs = characters2[position];
-        ASSERT(canUseASCIIUCADUCETComparison(lhs));
-        ASSERT(canUseASCIIUCADUCETComparison(rhs));
-        if (lhs == rhs)
-            continue;
-        notSameCharacters = true;
+        auto lhs = data1[position];
+        auto rhs = data2[position];
+
+        if (!canUseASCIIUCADUCETComparison(lhs) || !canUseASCIIUCADUCETComparison(rhs))
+            return std::nullopt;
+
         uint8_t leftWeight = ducetLevel1Weights[lhs];
         uint8_t rightWeight = ducetLevel1Weights[rhs];
         if (leftWeight == rightWeight)
             continue;
+
+        // If the following character is a non-latin, then it is possible that current and next characters can be combined into different character.
+        if (followedByNonLatinCharacter(characters1, position) || followedByNonLatinCharacter(characters2, position))
+            return std::nullopt;
+
         return leftWeight > rightWeight ? UCOL_GREATER : UCOL_LESS;
     }
 
-    if (length1 == length2) {
-        if (notSameCharacters)
-            return compareASCIIWithUCADUCETLevel3(characters1, characters2, length1);
-        return UCOL_EQUAL;
+    if (characters1.size() == characters2.size())
+        return compareASCIIWithUCADUCETLevel3(characters1, characters2);
+
+    // If the next character is valid, then we do not need to look into the rest of characters.
+    if (characters1.size() > characters2.size()) {
+        auto lhs = data1[characters2.size()];
+        if (!canUseASCIIUCADUCETComparison(lhs))
+            return std::nullopt;
+        return UCOL_GREATER;
     }
-    return length1 > length2 ? UCOL_GREATER : UCOL_LESS;
+
+    auto rhs = data2[characters1.size()];
+    if (!canUseASCIIUCADUCETComparison(rhs))
+        return std::nullopt;
+    return UCOL_LESS;
 }
 
 // https://tc39.es/ecma402/#sec-getoptionsobject
@@ -207,7 +295,7 @@ inline JSObject* intlGetOptionsObject(JSGlobalObject* globalObject, JSValue opti
     auto scope = DECLARE_THROW_SCOPE(vm);
     if (options.isUndefined())
         return nullptr;
-    if (LIKELY(options.isObject()))
+    if (options.isObject()) [[likely]]
         return asObject(options);
     throwTypeError(globalObject, scope, "options argument is not an object or undefined"_s);
     return nullptr;
@@ -243,4 +331,49 @@ JSArray* createArrayFromStringVector(JSGlobalObject* globalObject, const Contain
     return result;
 }
 
+template<typename Container>
+JSArray* createArrayFromIntVector(JSGlobalObject* globalObject, const Container& elements)
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    JSArray* result = JSArray::tryCreate(vm, globalObject->arrayStructureForIndexingTypeDuringAllocation(ArrayWithContiguous), elements.size());
+    if (!result) {
+        throwOutOfMemoryError(globalObject, scope);
+        return nullptr;
+    }
+    for (unsigned index = 0; index < elements.size(); ++index) {
+        result->putDirectIndex(globalObject, index, jsNumber(elements[index]));
+        RETURN_IF_EXCEPTION(scope, { });
+    }
+    return result;
+}
+
+class ListFormatInput {
+    WTF_MAKE_NONCOPYABLE(ListFormatInput);
+public:
+    ListFormatInput(Vector<String, 4>&& strings)
+        : m_strings(WTF::move(strings))
+    {
+        m_stringPointers.reserveInitialCapacity(m_strings.size());
+        m_stringLengths.reserveInitialCapacity(m_strings.size());
+        for (auto& string : m_strings) {
+            string.convertTo16Bit();
+            m_stringPointers.append(string.span16().data());
+            m_stringLengths.append(string.length());
+        }
+    }
+
+    int32_t size() const { return m_stringPointers.size(); }
+    const char16_t* const* stringPointers() const { return m_stringPointers.span().data(); }
+    const int32_t* stringLengths() const LIFETIME_BOUND { return m_stringLengths.span().data(); }
+
+private:
+    Vector<String, 4> m_strings;
+    Vector<const char16_t*, 4> m_stringPointers;
+    Vector<int32_t, 4> m_stringLengths;
+};
+
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

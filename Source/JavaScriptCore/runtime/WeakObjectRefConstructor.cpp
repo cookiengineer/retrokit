@@ -28,11 +28,12 @@
 
 #include "JSCInlines.h"
 #include "JSWeakObjectRef.h"
+#include "WeakMapImplInlines.h"
 #include "WeakObjectRefPrototype.h"
 
 namespace JSC {
 
-const ClassInfo WeakObjectRefConstructor::s_info = { "Function", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(WeakObjectRefConstructor) };
+const ClassInfo WeakObjectRefConstructor::s_info = { "Function"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(WeakObjectRefConstructor) };
 
 void WeakObjectRefConstructor::finishCreation(VM& vm, WeakObjectRefPrototype* prototype)
 {
@@ -52,7 +53,7 @@ JSC_DEFINE_HOST_FUNCTION(callWeakRef, (JSGlobalObject* globalObject, CallFrame*)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
-    return JSValue::encode(throwConstructorCannotBeCalledAsFunctionTypeError(globalObject, scope, "WeakRef"));
+    return JSValue::encode(throwConstructorCannotBeCalledAsFunctionTypeError(globalObject, scope, "WeakRef"_s));
 }
 
 JSC_DEFINE_HOST_FUNCTION(constructWeakRef, (JSGlobalObject* globalObject, CallFrame* callFrame))
@@ -60,14 +61,15 @@ JSC_DEFINE_HOST_FUNCTION(constructWeakRef, (JSGlobalObject* globalObject, CallFr
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    if (!callFrame->argument(0).isObject())
-        return throwVMTypeError(globalObject, scope, "First argument to WeakRef should be an object"_s);
+    JSValue target = callFrame->argument(0);
+    if (!canBeHeldWeakly(target)) [[unlikely]]
+        return throwVMTypeError(globalObject, scope, "First argument to WeakRef should be an object or a non-registered symbol"_s);
 
     JSObject* newTarget = asObject(callFrame->newTarget());
     Structure* weakObjectRefStructure = JSC_GET_DERIVED_STRUCTURE(vm, weakObjectRefStructure, newTarget, callFrame->jsCallee());
     RETURN_IF_EXCEPTION(scope, { });
 
-    RELEASE_AND_RETURN(scope, JSValue::encode(JSWeakObjectRef::create(vm, weakObjectRefStructure, callFrame->uncheckedArgument(0).getObject())));
+    RELEASE_AND_RETURN(scope, JSValue::encode(JSWeakObjectRef::create(vm, weakObjectRefStructure, target.asCell())));
 }
 
 }

@@ -39,14 +39,12 @@ static const Seconds responsivenessTimeout { 90_s };
 BackgroundProcessResponsivenessTimer::BackgroundProcessResponsivenessTimer(WebProcessProxy& webProcessProxy)
     : m_webProcessProxy(webProcessProxy)
     , m_checkingInterval(initialCheckingInterval)
-    , m_responsivenessCheckTimer(RunLoop::main(), this, &BackgroundProcessResponsivenessTimer::responsivenessCheckTimerFired)
-    , m_timeoutTimer(RunLoop::main(), this, &BackgroundProcessResponsivenessTimer::timeoutTimerFired)
+    , m_responsivenessCheckTimer(RunLoop::mainSingleton(), "BackgroundProcessResponsivenessTimer::ResponsivenessCheckTimer"_s, this, &BackgroundProcessResponsivenessTimer::responsivenessCheckTimerFired)
+    , m_timeoutTimer(RunLoop::mainSingleton(), "BackgroundProcessResponsivenessTimer:TimeoutTimer"_s, this, &BackgroundProcessResponsivenessTimer::timeoutTimerFired)
 {
 }
 
-BackgroundProcessResponsivenessTimer::~BackgroundProcessResponsivenessTimer()
-{
-}
+BackgroundProcessResponsivenessTimer::~BackgroundProcessResponsivenessTimer() = default;
 
 void BackgroundProcessResponsivenessTimer::updateState()
 {
@@ -93,7 +91,7 @@ void BackgroundProcessResponsivenessTimer::responsivenessCheckTimerFired()
     ASSERT(!m_timeoutTimer.isActive());
 
     m_timeoutTimer.startOneShot(responsivenessTimeout);
-    m_webProcessProxy.send(Messages::WebProcess::BackgroundResponsivenessPing(), 0);
+    protect(m_webProcessProxy)->send(Messages::WebProcess::BackgroundResponsivenessPing(), 0);
 }
 
 void BackgroundProcessResponsivenessTimer::timeoutTimerFired()
@@ -102,10 +100,15 @@ void BackgroundProcessResponsivenessTimer::timeoutTimerFired()
 
     scheduleNextResponsivenessCheck();
 
+    // This shouldn't happen but still check to be 100% sure we don't report
+    // suspended processes as unresponsive.
+    if (m_webProcessProxy->throttler().isSuspended())
+        return;
+
     if (!m_isResponsive)
         return;
 
-    if (!client().mayBecomeUnresponsive())
+    if (!protect(client())->mayBecomeUnresponsive())
         return;
 
     setResponsive(false);
@@ -116,31 +119,34 @@ void BackgroundProcessResponsivenessTimer::setResponsive(bool isResponsive)
     if (m_isResponsive == isResponsive)
         return;
 
-    auto protectedClient = makeRef(client());
+    Ref client = this->client();
 
-    client().willChangeIsResponsive();
+    client->willChangeIsResponsive();
     m_isResponsive = isResponsive;
-    client().didChangeIsResponsive();
+    client->didChangeIsResponsive();
 
     if (m_isResponsive) {
-        RELEASE_LOG_ERROR(PerformanceLogging, "Notifying the client that background WebProcess with pid %d has become responsive again", m_webProcessProxy.processIdentifier());
-        client().didBecomeResponsive();
+        RELEASE_LOG_ERROR(PerformanceLogging, "Notifying the client that background WebProcess with pid %d has become responsive again", m_webProcessProxy->processID());
+        client->didBecomeResponsive();
     } else {
-        RELEASE_LOG_ERROR(PerformanceLogging, "Notifying the client that background WebProcess with pid %d has become unresponsive", m_webProcessProxy.processIdentifier());
-        client().didBecomeUnresponsive();
+        RELEASE_LOG_ERROR(PerformanceLogging, "Notifying the client that background WebProcess with pid %d has become unresponsive", m_webProcessProxy->processID());
+        client->didBecomeUnresponsive();
     }
 }
 
 bool BackgroundProcessResponsivenessTimer::shouldBeActive() const
 {
-#if !PLATFORM(IOS_FAMILY)
-    if (m_webProcessProxy.visiblePageCount())
+#if !USE(RUNNINGBOARD)
+    auto& webProcess = m_webProcessProxy.get();
+    if (webProcess.visiblePageCount())
         return false;
-    if (m_webProcessProxy.isStandaloneServiceWorkerProcess())
+    if (webProcess.throttler().isSuspended())
+        return false;
+    if (webProcess.isStandaloneServiceWorkerProcess())
         return true;
-    return m_webProcessProxy.pageCount();
+    return webProcess.pageCount();
 #else
-    // Disable background process responsiveness checking on iOS since such processes usually get suspended.
+    // Disable background process responsiveness checking when using RunningBoard since such processes usually get suspended.
     return false;
 #endif
 }
@@ -160,7 +166,7 @@ void BackgroundProcessResponsivenessTimer::scheduleNextResponsivenessCheck()
 
 ResponsivenessTimer::Client& BackgroundProcessResponsivenessTimer::client() const
 {
-    return m_webProcessProxy;
+    return const_cast<WebProcessProxy&>(m_webProcessProxy.get());
 }
 
 } // namespace WebKit

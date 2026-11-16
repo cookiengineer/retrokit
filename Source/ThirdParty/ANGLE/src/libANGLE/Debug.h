@@ -11,9 +11,12 @@
 
 #include "angle_gl.h"
 #include "common/PackedEnums.h"
+#include "common/SimpleMutex.h"
 #include "common/angleutils.h"
 #include "libANGLE/AttributeMap.h"
+#include "libANGLE/Error.h"
 
+#include <atomic>
 #include <deque>
 #include <string>
 #include <vector>
@@ -26,8 +29,8 @@ class LabeledObject
 {
   public:
     virtual ~LabeledObject() {}
-    virtual void setLabel(const Context *context, const std::string &label) = 0;
-    virtual const std::string &getLabel() const                             = 0;
+    virtual angle::Result setLabel(const Context *context, const std::string &label) = 0;
+    virtual const std::string &getLabel() const                                      = 0;
 };
 
 class Debug : angle::NonCopyable
@@ -82,7 +85,7 @@ class Debug : angle::NonCopyable
     size_t getGroupStackDepth() const;
 
     // Helper for ANGLE_PERF_WARNING
-    void insertPerfWarning(GLenum severity, const char *message, uint32_t *repeatCount) const;
+    void insertPerfWarning(GLenum severity, bool isLastRepeat, const char *message) const;
 
   private:
     bool isMessageEnabled(GLenum source, GLenum type, GLuint id, GLenum severity) const;
@@ -125,6 +128,7 @@ class Debug : angle::NonCopyable
     };
 
     bool mOutputEnabled;
+    mutable angle::SimpleMutex mMutex;
     GLDEBUGPROCKHR mCallbackFunction;
     const void *mCallbackUserParam;
     mutable std::deque<Message> mMessages;
@@ -166,12 +170,43 @@ class Debug : angle::NonCopyable
 };
 }  // namespace egl
 
+namespace
+{
+ANGLE_INLINE bool MessageCounterBelowMaxRepeat(std::atomic<uint32_t> *counter,
+                                               uint32_t maxRepeat,
+                                               bool *isLastRepeat)
+{
+    // Stop incrementing the counter after max value to avoid unnecessary cache effects
+    if (counter->load(std::memory_order_relaxed) < maxRepeat)
+    {
+        uint32_t count = counter->fetch_add(1, std::memory_order_relaxed);
+        // Check not strictly necessary as worst case is an additional log, but is good practice.
+        if (count < maxRepeat)
+        {
+            if (count == maxRepeat - 1)
+            {
+                *isLastRepeat = true;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+}  // namespace
+
 // Generate a perf warning.  Only outputs the same message a few times to avoid spamming the logs.
-#define ANGLE_PERF_WARNING(debug, severity, message)                 \
-    do                                                               \
-    {                                                                \
-        static uint32_t sRepeatCount = 0;                            \
-        (debug).insertPerfWarning(severity, message, &sRepeatCount); \
+#define ANGLE_PERF_WARNING(debug, severity, ...)                                        \
+    do                                                                                  \
+    {                                                                                   \
+        static std::atomic<uint32_t> sRepeatCount = 0;                                  \
+        bool isLastRepeat                         = false;                              \
+        constexpr uint32_t kMaxPerfRepeat         = 4;                                  \
+        if (MessageCounterBelowMaxRepeat(&sRepeatCount, kMaxPerfRepeat, &isLastRepeat)) \
+        {                                                                               \
+            char ANGLE_MESSAGE[200];                                                    \
+            snprintf(ANGLE_MESSAGE, sizeof(ANGLE_MESSAGE), __VA_ARGS__);                \
+            (debug).insertPerfWarning(severity, isLastRepeat, ANGLE_MESSAGE);           \
+        }                                                                               \
     } while (0)
 
 #endif  // LIBANGLE_DEBUG_H_

@@ -50,6 +50,7 @@ RepetitionCount AVIFImageDecoder::repetitionCount() const
 
 size_t AVIFImageDecoder::findFirstRequiredFrameToDecode(size_t frameIndex)
 {
+    assertIsHeld(m_lock);
     // The first frame doesn't depend on any other.
     if (!frameIndex)
         return 0;
@@ -66,7 +67,8 @@ size_t AVIFImageDecoder::findFirstRequiredFrameToDecode(size_t frameIndex)
 
 ScalableImageDecoderFrame* AVIFImageDecoder::frameBufferAtIndex(size_t index)
 {
-    const size_t imageCount = frameCount();
+    assertIsHeld(m_lock);
+    const size_t imageCount = decodeIfNeededAndGetFrameCount();
     if (index >= imageCount)
         return nullptr;
 
@@ -93,6 +95,7 @@ bool AVIFImageDecoder::setFailed()
 
 bool AVIFImageDecoder::isComplete()
 {
+    assertIsHeld(m_lock);
     if (m_frameBufferCache.isEmpty())
         return false;
 
@@ -113,14 +116,12 @@ void AVIFImageDecoder::tryDecodeSize(bool allDataReceived)
 
     m_frameCount = m_reader->imageCount();
 
-    // FIXME: The avif sequence image can repeat for non-integer times (e.g., 2.5 times)
-    // but ScalableImageDecoder accepts an integer only for the repetition count.
-    // https://github.com/AOMediaCodec/av1-avif/issues/73
-    m_repetitionCount = static_cast<RepetitionCount>(std::round(m_reader->repetitionCount()));
+    m_repetitionCount = m_frameCount > 1 ? RepetitionCountInfinite : RepetitionCountNone;
 }
 
 void AVIFImageDecoder::decode(size_t frameIndex, bool allDataReceived)
 {
+    assertIsHeld(m_lock);
     if (failed())
         return;
 

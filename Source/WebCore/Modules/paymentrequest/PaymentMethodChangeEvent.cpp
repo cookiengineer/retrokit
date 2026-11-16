@@ -28,28 +28,24 @@
 
 #if ENABLE(PAYMENT_REQUEST)
 
-#include <wtf/IsoMallocInlines.h>
+#include "JSValueInWrappedObjectInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(PaymentMethodChangeEvent);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PaymentMethodChangeEvent);
 
-EventInterface PaymentMethodChangeEvent::eventInterface() const
-{
-    return PaymentMethodChangeEventInterfaceType;
-}
-
-PaymentMethodChangeEvent::PaymentMethodChangeEvent(const AtomString& type, Init&& eventInit)
-    : PaymentRequestUpdateEvent { type, eventInit }
-    , m_methodName { WTFMove(eventInit.methodName) }
-    , m_methodDetails { JSValueInWrappedObject { eventInit.methodDetails.get() } }
+PaymentMethodChangeEvent::PaymentMethodChangeEvent(JSC::JSGlobalObject& globalObject, const AtomString& type, Init&& eventInit)
+    : PaymentRequestUpdateEvent { EventInterfaceType::PaymentMethodChangeEvent, type, eventInit }
+    , m_methodName { WTF::move(eventInit.methodName) }
+    , m_methodDetails { WTF::InPlaceTypeT<JSValueInWrappedObject>(), globalObject, eventInit.methodDetails.get() }
 {
 }
 
 PaymentMethodChangeEvent::PaymentMethodChangeEvent(const AtomString& type, const String& methodName, MethodDetailsFunction&& methodDetailsFunction)
-    : PaymentRequestUpdateEvent { type }
+    : PaymentRequestUpdateEvent { EventInterfaceType::PaymentMethodChangeEvent, type }
     , m_methodName { methodName }
-    , m_methodDetails { WTFMove(methodDetailsFunction) }
+    , m_methodDetails { WTF::InPlaceTypeT<MethodDetailsFunction>(), WTF::move(methodDetailsFunction) }
 {
 }
 

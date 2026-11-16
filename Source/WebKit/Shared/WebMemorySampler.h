@@ -53,6 +53,8 @@
 
 #include "SandboxExtension.h"
 #include <WebCore/Timer.h>
+#include <wtf/CheckedRef.h>
+#include <wtf/FileHandle.h>
 #include <wtf/FileSystem.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/RefPtr.h>
@@ -68,15 +70,21 @@ struct WebMemoryStatistics {
     Vector<size_t> values;
 };
     
-class WebMemorySampler {
+class WebMemorySampler final : public CanMakeCheckedPtr<WebMemorySampler> {
     WTF_MAKE_NONCOPYABLE(WebMemorySampler);
+    WTF_MAKE_TZONE_ALLOCATED(WebMemorySampler);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WebMemorySampler);
 public:
-    static WebMemorySampler* singleton();
+    static WebMemorySampler* NODELETE singleton();
     void start(const double interval = 0);
     void start(SandboxExtension::Handle&&, const String&, const double interval = 0);
     void stop();
-    bool isRunning() const;
+    bool isRunning() const { return m_isRunning; }
     
+    // Do nothing since this is a singleton.
+    void ref() const { }
+    void deref() const { }
+
 private:
     WebMemorySampler();
     ~WebMemorySampler();
@@ -87,7 +95,7 @@ private:
     void initializeTimers(double);
     void sampleTimerFired();
     void stopTimerFired();
-    void appendCurrentMemoryUsageToFile(FileSystem::PlatformFileHandle&);
+    void appendCurrentMemoryUsageToFile();
     void sendMemoryPressureEvent();
     
     SystemMallocStats sampleSystemMalloc() const;
@@ -95,7 +103,7 @@ private:
     WebMemoryStatistics sampleWebKit() const;
     String processName() const;
     
-    FileSystem::PlatformFileHandle m_sampleLogFile { FileSystem::invalidPlatformFileHandle };
+    FileSystem::FileHandle m_sampleLogFile;
     String m_sampleLogFilePath;
     WebCore::Timer m_sampleTimer;
     WebCore::Timer m_stopTimer;

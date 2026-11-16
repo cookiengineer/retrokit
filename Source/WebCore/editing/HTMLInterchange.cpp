@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004, 2008 Apple Inc.  All rights reserved.
+ * Copyright (C) 2004, 2008 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,7 +28,9 @@
 
 #include "Editing.h"
 #include "RenderText.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "Text.h"
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/unicode/CharacterNames.h>
 
@@ -40,8 +42,7 @@ String convertHTMLTextToInterchangeFormat(const String& in, const Text* node)
     if (node->renderer() && node->renderer()->style().preserveNewline())
         return in;
 
-    const char convertedSpaceString[] = "<span class=\"" AppleConvertedSpace "\">\xA0</span>";
-    COMPILE_ASSERT((static_cast<unsigned char>('\xA0') == noBreakSpace), ConvertedSpaceStringSpaceIsNoBreakSpace);
+    static NeverDestroyed<const String> convertedSpaceString { makeString("<span class=\""_s, AppleConvertedSpace, "\">"_s, noBreakSpace, "</span>"_s) };
 
     StringBuilder s;
 
@@ -60,24 +61,24 @@ String convertHTMLTextToInterchangeFormat(const String& in, const Text* node)
                 unsigned add = count % 3;
                 switch (add) {
                     case 0:
-                        s.append(convertedSpaceString, ' ', convertedSpaceString);
+                        s.append(convertedSpaceString.get(), ' ', convertedSpaceString.get());
                         add = 3;
                         break;
                     case 1:
                         if (i == 0 || i + 1 == in.length()) // at start or end of string
-                            s.append(convertedSpaceString);
+                            s.append(convertedSpaceString.get());
                         else
                             s.append(' ');
                         break;
                     case 2:
                         if (i == 0) {
                              // at start of string
-                            s.append(convertedSpaceString, ' ');
+                            s.append(convertedSpaceString.get(), ' ');
                         } else if (i + 2 == in.length()) {
                              // at end of string
-                            s.append(convertedSpaceString, convertedSpaceString);
+                            s.append(convertedSpaceString.get(), convertedSpaceString.get());
                         } else {
-                            s.append(convertedSpaceString, ' ');
+                            s.append(convertedSpaceString.get(), ' ');
                         }
                         break;
                 }

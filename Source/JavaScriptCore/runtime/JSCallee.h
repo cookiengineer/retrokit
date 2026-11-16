@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,9 +25,9 @@
 
 #pragma once
 
-#include "JSGlobalObject.h"
-#include "JSObject.h"
-#include "JSScope.h"
+#include <JavaScriptCore/JSGlobalObject.h>
+#include <JavaScriptCore/JSObject.h>
+#include <JavaScriptCore/JSScope.h>
 
 namespace JSC {
 
@@ -48,14 +48,14 @@ public:
     static constexpr unsigned StructureFlags = Base::StructureFlags | ImplementsHasInstance | ImplementsDefaultHasInstance;
 
     template<typename CellType, SubspaceAccess>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
-        return &vm.calleeSpace;
+        return &vm.calleeSpace();
     }
 
     static JSCallee* create(VM& vm, JSGlobalObject* globalObject, JSScope* scope)
     {
-        JSCallee* callee = new (NotNull, allocateCell<JSCallee>(vm.heap)) JSCallee(vm, scope, globalObject->calleeStructure());
+        JSCallee* callee = new (NotNull, allocateCell<JSCallee>(vm)) JSCallee(vm, scope, globalObject->calleeStructure());
         callee->finishCreation(vm);
         return callee;
     }
@@ -65,44 +65,31 @@ public:
         return m_scope.get();
     }
 
-    // This method may be called for host functions, in which case it
-    // will return an arbitrary value. This should only be used for
-    // optimized paths in which the return value does not matter for
-    // host functions, and checking whether the function is a host
-    // function is deemed too expensive.
-    JSScope* scopeUnchecked()
-    {
-        return m_scope.get();
-    }
-
     void setScope(VM& vm, JSScope* scope)
     {
-        m_scope.set(vm, this, scope);
+        if (scope)
+            m_scope.set(vm, this, scope);
+        else
+            m_scope.clear();
     }
 
     DECLARE_EXPORT_INFO;
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype) 
-    {
-        ASSERT(globalObject);
-        return Structure::create(vm, globalObject, prototype, TypeInfo(JSCalleeType, StructureFlags), info());
-    }
+    DECLARE_VISIT_CHILDREN;
 
-    static inline ptrdiff_t offsetOfScopeChain()
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
+
+    static constexpr ptrdiff_t offsetOfScopeChain()
     {
         return OBJECT_OFFSETOF(JSCallee, m_scope);
     }
 
 protected:
-    JS_EXPORT_PRIVATE JSCallee(VM&, JSGlobalObject*, Structure*);
+    JSCallee(VM&, JSGlobalObject*, Structure*);
     JSCallee(VM&, JSScope*, Structure*);
 
-    void finishCreation(VM&);
-    using Base::finishCreation;
+    DECLARE_DEFAULT_FINISH_CREATION;
 
-    DECLARE_VISIT_CHILDREN;
-
-private:
     friend class LLIntOffsetsExtractor;
 
     WriteBarrier<JSScope> m_scope;

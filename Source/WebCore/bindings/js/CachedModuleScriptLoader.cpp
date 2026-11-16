@@ -29,9 +29,9 @@
 #include "CachedScript.h"
 #include "CachedScriptFetcher.h"
 #include "DOMWrapperWorld.h"
-#include "Frame.h"
 #include "JSDOMBinding.h"
 #include "JSDOMPromiseDeferred.h"
+#include "LocalFrame.h"
 #include "ModuleFetchParameters.h"
 #include "ResourceLoaderOptions.h"
 #include "ScriptController.h"
@@ -40,40 +40,41 @@
 
 namespace WebCore {
 
-Ref<CachedModuleScriptLoader> CachedModuleScriptLoader::create(ModuleScriptLoaderClient& client, DeferredPromise& promise, CachedScriptFetcher& scriptFetcher, RefPtr<ModuleFetchParameters>&& parameters)
+Ref<CachedModuleScriptLoader> CachedModuleScriptLoader::create(ModuleScriptLoaderClient& client, DeferredPromise& promise, CachedScriptFetcher& scriptFetcher, RefPtr<JSC::ScriptFetchParameters>&& parameters)
 {
-    return adoptRef(*new CachedModuleScriptLoader(client, promise, scriptFetcher, WTFMove(parameters)));
+    return adoptRef(*new CachedModuleScriptLoader(client, promise, scriptFetcher, WTF::move(parameters)));
 }
 
-CachedModuleScriptLoader::CachedModuleScriptLoader(ModuleScriptLoaderClient& client, DeferredPromise& promise, CachedScriptFetcher& scriptFetcher, RefPtr<ModuleFetchParameters>&& parameters)
-    : ModuleScriptLoader(client, promise, scriptFetcher, WTFMove(parameters))
+CachedModuleScriptLoader::CachedModuleScriptLoader(ModuleScriptLoaderClient& client, DeferredPromise& promise, CachedScriptFetcher& scriptFetcher, RefPtr<JSC::ScriptFetchParameters>&& parameters)
+    : ModuleScriptLoader(client, promise, scriptFetcher, WTF::move(parameters))
 {
 }
 
 CachedModuleScriptLoader::~CachedModuleScriptLoader()
 {
     if (m_cachedScript) {
-        m_cachedScript->removeClient(*this);
+        protect(m_cachedScript)->removeClient(*this);
         m_cachedScript = nullptr;
     }
 }
 
-bool CachedModuleScriptLoader::load(Document& document, URL&& sourceURL)
+bool CachedModuleScriptLoader::load(Document& document, URL&& sourceURL, std::optional<ServiceWorkersMode> serviceWorkersMode)
 {
     ASSERT(m_promise);
     ASSERT(!m_cachedScript);
     String integrity = m_parameters ? m_parameters->integrity() : String { };
-    m_cachedScript = scriptFetcher().requestModuleScript(document, sourceURL, WTFMove(integrity));
+    auto destination = m_parameters && m_parameters->type() == JSC::ScriptFetchParameters::Type::JSON ? FetchOptionsDestination::Json : FetchOptionsDestination::Script;
+    m_cachedScript = protect(scriptFetcher())->requestModuleScript(document, sourceURL, destination, WTF::move(integrity), serviceWorkersMode);
     if (!m_cachedScript)
         return false;
-    m_sourceURL = WTFMove(sourceURL);
+    m_sourceURL = WTF::move(sourceURL);
 
     // If the content is already cached, this immediately calls notifyFinished.
-    m_cachedScript->addClient(*this);
+    protect(m_cachedScript)->addClient(*this);
     return true;
 }
 
-void CachedModuleScriptLoader::notifyFinished(CachedResource& resource, const NetworkLoadMetrics&)
+void CachedModuleScriptLoader::notifyFinished(CachedResource& resource, const NetworkLoadMetrics&, LoadWillContinueInAnotherProcess)
 {
     ASSERT_UNUSED(resource, &resource == m_cachedScript);
     ASSERT(m_cachedScript);
@@ -81,11 +82,11 @@ void CachedModuleScriptLoader::notifyFinished(CachedResource& resource, const Ne
 
     Ref<CachedModuleScriptLoader> protectedThis(*this);
     if (m_client)
-        m_client->notifyFinished(*this, WTFMove(m_sourceURL), m_promise.releaseNonNull());
+        m_client->notifyFinished(*this, WTF::move(m_sourceURL), m_promise.releaseNonNull());
 
     // Remove the client after calling notifyFinished to keep the data buffer in
     // CachedResource alive while notifyFinished processes the resource.
-    m_cachedScript->removeClient(*this);
+    protect(m_cachedScript)->removeClient(*this);
     m_cachedScript = nullptr;
 }
 

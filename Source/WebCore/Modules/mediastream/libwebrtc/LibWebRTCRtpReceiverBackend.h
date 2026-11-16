@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc.
+ * Copyright (C) 2018-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,38 +27,60 @@
 #if ENABLE(WEB_RTC) && USE(LIBWEBRTC)
 
 #include "LibWebRTCMacros.h"
+#include "LibWebRTCRefWrappers.h"
 #include "RTCRtpReceiverBackend.h"
+#include "RealtimeMediaSource.h"
 #include <webrtc/api/scoped_refptr.h>
-
-namespace webrtc {
-class RtpReceiverInterface;
-}
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
-
+class Document;
+class LibWebRTCRtpReceiverBackend;
 class RealtimeMediaSource;
 
-class LibWebRTCRtpReceiverBackend final : public RTCRtpReceiverBackend {
-    WTF_MAKE_FAST_ALLOCATED;
+struct LibWebRTCRtpReceiverBackendAndSource {
+    UniqueRef<LibWebRTCRtpReceiverBackend> backend;
+    Ref<RealtimeMediaSource> source;
+};
+
+class LibWebRTCRtpReceiverBackend final : public RTCRtpReceiverBackend, public webrtc::RtpReceiverObserverInterface {
+    WTF_MAKE_TZONE_ALLOCATED(LibWebRTCRtpReceiverBackend);
 public:
-    explicit LibWebRTCRtpReceiverBackend(rtc::scoped_refptr<webrtc::RtpReceiverInterface>&&);
+    static LibWebRTCRtpReceiverBackendAndSource create(Document&, Ref<webrtc::RtpReceiverInterface>&&);
+
+    LibWebRTCRtpReceiverBackend(Ref<webrtc::RtpReceiverInterface>&&, RealtimeMediaSource&);
     ~LibWebRTCRtpReceiverBackend();
 
-    webrtc::RtpReceiverInterface* rtcReceiver() { return m_rtcReceiver.get(); }
-
-    Ref<RealtimeMediaSource> createSource();
+    webrtc::RtpReceiverInterface& rtcReceiver() { return m_rtcReceiver.get(); }
 
 private:
+
+    // RTCRtpReceiverBackend
+    bool isLibWebRTCRtpReceiverBackend() const final { return true; }
+
     RTCRtpParameters getParameters() final;
     Vector<RTCRtpContributingSource> getContributingSources() const final;
     Vector<RTCRtpSynchronizationSource> getSynchronizationSources() const final;
     Ref<RTCRtpTransformBackend> rtcRtpTransformBackend() final;
     std::unique_ptr<RTCDtlsTransportBackend> dtlsTransportBackend() final;
+    void setJitterBufferTarget(std::optional<double>) final;
 
-    rtc::scoped_refptr<webrtc::RtpReceiverInterface> m_rtcReceiver;
-    RefPtr<RTCRtpTransformBackend> m_transformBackend;
+    // webrtc::RtpReceiverObserverInterface
+    void OnFirstPacketReceived(webrtc::MediaType) final { }
+    void OnFirstPacketReceivedAfterReceptiveChange(webrtc::MediaType) final;
+
+    double webrtcToWallTimeOffset() const;
+
+    const Ref<webrtc::RtpReceiverInterface> m_rtcReceiver;
+    const ThreadSafeWeakPtr<RealtimeMediaSource> m_source;
+    const RefPtr<RTCRtpTransformBackend> m_transformBackend;
+    mutable std::optional<double> m_webrtcToWallTimeOffset;
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::LibWebRTCRtpReceiverBackend)
+    static bool isType(const WebCore::RTCRtpReceiverBackend& backend) { return backend.isLibWebRTCRtpReceiverBackend(); }
+SPECIALIZE_TYPE_TRAITS_END()
 
 #endif // ENABLE(WEB_RTC) && USE(LIBWEBRTC)

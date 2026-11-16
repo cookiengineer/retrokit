@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc.
+ * Copyright (C) 2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,6 +30,7 @@
 
 namespace WebCore {
 
+class Exception;
 class RTCRtpTransformableFrame;
 
 class RTCRtpTransformBackend : public ThreadSafeRefCounted<RTCRtpTransformBackend, WTF::DestructionThread::Main> {
@@ -47,7 +48,13 @@ public:
     enum class Side { Receiver, Sender };
     virtual Side side() const = 0;
 
-    virtual void requestKeyFrame() = 0;
+    virtual bool requestKeyFrame(const String&) = 0;
+
+    // Invoked when the WebKit backend that owns this transform is about to be
+    // destroyed. Gives subclasses a chance to break retain cycles with the
+    // underlying libwebrtc sender/receiver (which holds a ref back via its
+    // frame_transformer_ field).
+    virtual void detachFromOwningBackend() { }
 };
 
 } // namespace WebCore

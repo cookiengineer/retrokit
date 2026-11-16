@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2015 Ericsson AB. All rights reserved.
- * Copyright (C) 2016-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -36,17 +36,19 @@
 #include "ActiveDOMObject.h"
 #include "EventNames.h"
 #include "EventTarget.h"
-#include "ExceptionOr.h"
+#include "EventTargetInterfaces.h"
 #include "IDLTypes.h"
 #include "MediaTrackConstraints.h"
 #include "RealtimeMediaSourceCenter.h"
-#include "Timer.h"
 #include "UserMediaClient.h"
+#include <wtf/RobinHoodHashMap.h>
+#include <wtf/RunLoop.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
 class Document;
+class InputDeviceInfo;
 class MediaDeviceInfo;
 class MediaStream;
 class UserGestureToken;
@@ -55,17 +57,22 @@ struct MediaTrackSupportedConstraints;
 
 template<typename IDLType> class DOMPromiseDeferred;
 
-class MediaDevices final : public RefCounted<MediaDevices>, public ActiveDOMObject, public EventTargetWithInlineData {
-    WTF_MAKE_ISO_ALLOCATED(MediaDevices);
+class MediaDevices final : public RefCounted<MediaDevices>, public ActiveDOMObject, public EventTarget {
+    WTF_MAKE_TZONE_ALLOCATED(MediaDevices);
 public:
     static Ref<MediaDevices> create(Document&);
 
     ~MediaDevices();
 
-    Document* document() const;
+    // ContextDestructionObserver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+    USING_CAN_MAKE_WEAKPTR(EventTarget);
+
+    Document* NODELETE document() const;
 
     using Promise = DOMPromiseDeferred<IDLInterface<MediaStream>>;
-    using EnumerateDevicesPromise = DOMPromiseDeferred<IDLSequence<IDLInterface<MediaDeviceInfo>>>;
+    using EnumerateDevicesPromise = DOMPromiseDeferred<IDLSequence<IDLUnion<IDLInterface<MediaDeviceInfo>, IDLInterface<InputDeviceInfo>>>>;
 
     enum class DisplayCaptureSurfaceType {
         Monitor,
@@ -78,41 +85,40 @@ public:
         Variant<bool, MediaTrackConstraints> video;
         Variant<bool, MediaTrackConstraints> audio;
     };
-    void getUserMedia(const StreamConstraints&, Promise&&);
+    void getUserMedia(StreamConstraints&&, Promise&&);
 
     struct DisplayMediaStreamConstraints {
         Variant<bool, MediaTrackConstraints> video;
         Variant<bool, MediaTrackConstraints> audio;
     };
-    void getDisplayMedia(const DisplayMediaStreamConstraints&, Promise&&);
+    void getDisplayMedia(DisplayMediaStreamConstraints&&, Promise&&);
 
     void enumerateDevices(EnumerateDevicesPromise&&);
-    MediaTrackSupportedConstraints getSupportedConstraints();
+    MediaTrackSupportedConstraints NODELETE getSupportedConstraints();
 
-    String deviceIdToPersistentId(const String& deviceId) const { return m_audioOutputDeviceIdToPersistentId.get(deviceId); }
+    String deviceIdToPersistentId(const String&) const;
 
-    using RefCounted<MediaDevices>::ref;
-    using RefCounted<MediaDevices>::deref;
+    void willStartMediaCapture(bool microphone, bool camera);
 
 private:
     explicit MediaDevices(Document&);
 
     void scheduledEventTimerFired();
     bool addEventListener(const AtomString& eventType, Ref<EventListener>&&, const AddEventListenerOptions&) override;
+    using EventTarget::addEventListener;
 
-    void exposeDevices(const Vector<CaptureDevice>&, const String&, EnumerateDevicesPromise&&);
+    void exposeDevices(Vector<CaptureDeviceWithCapabilities>&&, MediaDeviceHashSalts&&, EnumerateDevicesPromise&&);
     void listenForDeviceChanges();
 
     friend class JSMediaDevicesOwner;
 
     // ActiveDOMObject
-    const char* activeDOMObjectName() const final;
     void stop() final;
     bool virtualHasPendingActivity() const final;
 
-    // EventTargetWithInlineData.
-    EventTargetInterface eventTargetInterface() const final { return MediaDevicesEventTargetInterfaceType; }
-    ScriptExecutionContext* scriptExecutionContext() const final { return ActiveDOMObject::scriptExecutionContext(); }
+    // EventTarget.
+    enum EventTargetInterfaceType eventTargetInterface() const final { return EventTargetInterfaceType::MediaDevices; }
+    ScriptExecutionContext* NODELETE scriptExecutionContext() const final;
     void refEventTarget() final { ref(); }
     void derefEventTarget() final { deref(); }
 
@@ -123,20 +129,26 @@ private:
     };
     bool computeUserGesturePriviledge(GestureAllowedRequest);
 
-    Timer m_scheduledEventTimer;
-    UserMediaClient::DeviceChangeObserverToken m_deviceChangeToken;
+    enum class UserActivation : bool { No, Yes };
+    void queueTaskForDeviceChangeEvent(UserActivation);
+
+    RunLoop::Timer m_scheduledEventTimer;
+    Markable<UserMediaClient::DeviceChangeObserverToken> m_deviceChangeToken;
     const EventNames& m_eventNames; // Need to cache this so we can use it from GC threads.
     bool m_listeningForDeviceChanges { false };
-
-    String m_groupIdHashSalt;
 
     OptionSet<GestureAllowedRequest> m_requestTypesForCurrentGesture;
     WeakPtr<UserGestureToken> m_currentGestureToken;
 
-    HashMap<String, String> m_audioOutputDeviceIdToPersistentId;
+    MemoryCompactRobinHoodHashMap<String, String> m_audioOutputDeviceIdToPersistentId;
     String m_audioOutputDeviceId;
+
+    bool m_hasRestrictedCameraDevices { true };
+    bool m_hasRestrictedMicrophoneDevices { true };
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_EVENTTARGET(MediaDevices)
 
 #endif // ENABLE(MEDIA_STREAM)

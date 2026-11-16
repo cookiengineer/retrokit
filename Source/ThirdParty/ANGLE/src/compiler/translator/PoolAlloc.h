@@ -28,6 +28,17 @@
 //
 extern angle::PoolAllocator *GetGlobalPoolAllocator();
 extern void SetGlobalPoolAllocator(angle::PoolAllocator *poolAllocator);
+extern bool IsGlobalPoolAllocatorInitialized();
+
+class [[nodiscard]] TScopedPoolAllocator
+{
+  public:
+    TScopedPoolAllocator() { SetGlobalPoolAllocator(&mAllocator); }
+    ~TScopedPoolAllocator() { SetGlobalPoolAllocator(nullptr); }
+
+  private:
+    angle::PoolAllocator mAllocator;
+};
 
 //
 // This STL compatible allocator is intended to be used as the allocator

@@ -28,14 +28,9 @@
 
 #include "JSDOMGlobalObject.h"
 #include "JSDOMWrapper.h"
-
-#if ENABLE(SERVICE_WORKER)
 #include "ServiceWorkerGlobalScope.h"
-#endif
 
 namespace WebCore {
-
-class WorkerGlobalScope;
 
 class JSWorkerGlobalScopeBase : public JSDOMGlobalObject {
 public:
@@ -48,31 +43,26 @@ public:
 
     DECLARE_INFO;
 
-    WorkerGlobalScope& wrapped() const { return *m_wrapped; }
-    ScriptExecutionContext* scriptExecutionContext() const;
-
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::GlobalObjectType, StructureFlags), info());
-    }
-
-    static const JSC::GlobalObjectMethodTable s_globalObjectMethodTable;
-
-    static bool supportsRichSourceInfo(const JSC::JSGlobalObject*);
-    static bool shouldInterruptScript(const JSC::JSGlobalObject*);
-    static bool shouldInterruptScriptBeforeTimeout(const JSC::JSGlobalObject*);
-    static JSC::RuntimeFlags javaScriptRuntimeFlags(const JSC::JSGlobalObject*);
-    static JSC::ScriptExecutionStatus scriptExecutionStatus(JSC::JSGlobalObject*, JSC::JSObject*);
-    static void queueMicrotaskToEventLoop(JSC::JSGlobalObject&, Ref<JSC::Microtask>&&);
-
-protected:
-    JSWorkerGlobalScopeBase(JSC::VM&, JSC::Structure*, RefPtr<WorkerGlobalScope>&&);
-    void finishCreation(JSC::VM&, JSC::JSProxy*);
-
     DECLARE_VISIT_CHILDREN;
 
+    WorkerGlobalScope& wrapped() const { return m_wrapped; }
+
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
+    static bool NODELETE supportsRichSourceInfo(const JSC::JSGlobalObject*);
+    static bool NODELETE shouldInterruptScript(const JSC::JSGlobalObject*);
+    static bool NODELETE shouldInterruptScriptBeforeTimeout(const JSC::JSGlobalObject*);
+    static JSC::RuntimeFlags javaScriptRuntimeFlags(const JSC::JSGlobalObject*);
+    static JSC::ScriptExecutionStatus NODELETE scriptExecutionStatus(JSC::JSGlobalObject*, JSC::JSObject*);
+    static void NODELETE reportViolationForUnsafeEval(JSC::JSGlobalObject*, const String&);
+
+protected:
+    JSWorkerGlobalScopeBase(JSC::VM&, JSC::Structure*, Ref<WorkerGlobalScope>&&);
+    void finishCreation(JSC::VM&, JSC::JSGlobalProxy*);
+
+    static const JSC::GlobalObjectMethodTable* globalObjectMethodTable();
+
 private:
-    RefPtr<WorkerGlobalScope> m_wrapped;
+    const Ref<WorkerGlobalScope> m_wrapped;
 };
 
 // Returns a JSWorkerGlobalScope or jsNull()

@@ -4,7 +4,11 @@
 // found in the LICENSE file.
 //
 
-// angle_loadimage.cpp: Defines image loading functions.
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
+// loadimage.cpp: Defines image loading functions.
 
 #include "image_util/loadimage.h"
 
@@ -12,10 +16,53 @@
 #include "common/platform.h"
 #include "image_util/imageformats.h"
 
+#if defined(ANGLE_PLATFORM_WINDOWS) && !defined(_M_ARM) && !defined(_M_ARM64)
+#    if defined(_MSC_VER)
+#        include <intrin.h>
+#        define ANGLE_LOADIMAGE_USE_SSE
+#    elif defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
+#        include <x86intrin.h>
+#        if __SSE__
+#            define ANGLE_LOADIMAGE_USE_SSE
+#        endif
+#    endif
+#endif
+
+#if defined(ANGLE_LOADIMAGE_USE_SSE)
+inline bool supportsSSE2()
+{
+    static bool checked  = false;
+    static bool supports = false;
+
+    if (checked)
+    {
+        return supports;
+    }
+
+    int info[4];
+    __cpuid(info, 0);
+
+    if (info[0] >= 1)
+    {
+        __cpuid(info, 1);
+
+        supports = (info[3] >> 26) & 1;
+    }
+
+    checked = true;
+    return supports;
+}
+#endif
+
 namespace angle
 {
+ImageLoadContext::ImageLoadContext()                                         = default;
+ImageLoadContext::~ImageLoadContext()                                        = default;
+ImageLoadContext::ImageLoadContext(const ImageLoadContext &other)            = default;
+ImageLoadContext &ImageLoadContext::operator=(const ImageLoadContext &other) = default;
 
-void LoadA8ToRGBA8(size_t width,
+void LoadA8ToRGBA8(const ImageLoadContext &context,
+                   size_t width,
                    size_t height,
                    size_t depth,
                    const uint8_t *input,
@@ -25,8 +72,8 @@ void LoadA8ToRGBA8(size_t width,
                    size_t outputRowPitch,
                    size_t outputDepthPitch)
 {
-#if defined(ANGLE_USE_SSE)
-    if (gl::supportsSSE2())
+#if defined(ANGLE_LOADIMAGE_USE_SSE)
+    if (supportsSSE2())
     {
         __m128i zeroWide = _mm_setzero_si128();
 
@@ -42,7 +89,7 @@ void LoadA8ToRGBA8(size_t width,
                 size_t x = 0;
 
                 // Make output writes aligned
-                for (; ((reinterpret_cast<intptr_t>(&dest[x]) & 0xF) != 0 && x < width); x++)
+                for (; x < width && (reinterpret_cast<intptr_t>(&dest[x]) & 0xF) != 0; x++)
                 {
                     dest[x] = static_cast<uint32_t>(source[x]) << 24;
                 }
@@ -89,7 +136,8 @@ void LoadA8ToRGBA8(size_t width,
     }
 }
 
-void LoadA8ToBGRA8(size_t width,
+void LoadA8ToBGRA8(const ImageLoadContext &context,
+                   size_t width,
                    size_t height,
                    size_t depth,
                    const uint8_t *input,
@@ -100,11 +148,12 @@ void LoadA8ToBGRA8(size_t width,
                    size_t outputDepthPitch)
 {
     // Same as loading to RGBA
-    LoadA8ToRGBA8(width, height, depth, input, inputRowPitch, inputDepthPitch, output,
+    LoadA8ToRGBA8(context, width, height, depth, input, inputRowPitch, inputDepthPitch, output,
                   outputRowPitch, outputDepthPitch);
 }
 
-void LoadA32FToRGBA32F(size_t width,
+void LoadA32FToRGBA32F(const ImageLoadContext &context,
+                       size_t width,
                        size_t height,
                        size_t depth,
                        const uint8_t *input,
@@ -133,7 +182,8 @@ void LoadA32FToRGBA32F(size_t width,
     }
 }
 
-void LoadA16FToRGBA16F(size_t width,
+void LoadA16FToRGBA16F(const ImageLoadContext &context,
+                       size_t width,
                        size_t height,
                        size_t depth,
                        const uint8_t *input,
@@ -162,7 +212,8 @@ void LoadA16FToRGBA16F(size_t width,
     }
 }
 
-void LoadL8ToRGBA8(size_t width,
+void LoadL8ToRGBA8(const ImageLoadContext &context,
+                   size_t width,
                    size_t height,
                    size_t depth,
                    const uint8_t *input,
@@ -192,7 +243,8 @@ void LoadL8ToRGBA8(size_t width,
     }
 }
 
-void LoadL8ToBGRA8(size_t width,
+void LoadL8ToBGRA8(const ImageLoadContext &context,
+                   size_t width,
                    size_t height,
                    size_t depth,
                    const uint8_t *input,
@@ -203,11 +255,12 @@ void LoadL8ToBGRA8(size_t width,
                    size_t outputDepthPitch)
 {
     // Same as loading to RGBA
-    LoadL8ToRGBA8(width, height, depth, input, inputRowPitch, inputDepthPitch, output,
+    LoadL8ToRGBA8(context, width, height, depth, input, inputRowPitch, inputDepthPitch, output,
                   outputRowPitch, outputDepthPitch);
 }
 
-void LoadL32FToRGBA32F(size_t width,
+void LoadL32FToRGBA32F(const ImageLoadContext &context,
+                       size_t width,
                        size_t height,
                        size_t depth,
                        const uint8_t *input,
@@ -236,7 +289,8 @@ void LoadL32FToRGBA32F(size_t width,
     }
 }
 
-void LoadL16FToRGBA16F(size_t width,
+void LoadL16FToRGBA16F(const ImageLoadContext &context,
+                       size_t width,
                        size_t height,
                        size_t depth,
                        const uint8_t *input,
@@ -265,7 +319,38 @@ void LoadL16FToRGBA16F(size_t width,
     }
 }
 
-void LoadLA8ToRGBA8(size_t width,
+void LoadLA8ToRGBA4(const ImageLoadContext &context,
+                    size_t width,
+                    size_t height,
+                    size_t depth,
+                    const uint8_t *input,
+                    size_t inputRowPitch,
+                    size_t inputDepthPitch,
+                    uint8_t *output,
+                    size_t outputRowPitch,
+                    size_t outputDepthPitch)
+{
+    for (size_t z = 0; z < depth; z++)
+    {
+        for (size_t y = 0; y < height; y++)
+        {
+            const uint8_t *source =
+                priv::OffsetDataPointer<uint8_t>(input, y, z, inputRowPitch, inputDepthPitch);
+            uint8_t *dest =
+                priv::OffsetDataPointer<uint8_t>(output, y, z, outputRowPitch, outputDepthPitch);
+            for (size_t x = 0; x < width; x++)
+            {
+                uint8_t l       = source[2 * x + 0] >> 4;
+                uint8_t a       = source[2 * x + 1] >> 4;
+                dest[2 * x + 0] = l | l << 4;
+                dest[2 * x + 1] = l | a << 4;
+            }
+        }
+    }
+}
+
+void LoadLA8ToRGBA8(const ImageLoadContext &context,
+                    size_t width,
                     size_t height,
                     size_t depth,
                     const uint8_t *input,
@@ -294,7 +379,8 @@ void LoadLA8ToRGBA8(size_t width,
     }
 }
 
-void LoadLA8ToBGRA8(size_t width,
+void LoadLA8ToBGRA8(const ImageLoadContext &context,
+                    size_t width,
                     size_t height,
                     size_t depth,
                     const uint8_t *input,
@@ -305,11 +391,12 @@ void LoadLA8ToBGRA8(size_t width,
                     size_t outputDepthPitch)
 {
     // Same as loading to RGBA
-    LoadLA8ToRGBA8(width, height, depth, input, inputRowPitch, inputDepthPitch, output,
+    LoadLA8ToRGBA8(context, width, height, depth, input, inputRowPitch, inputDepthPitch, output,
                    outputRowPitch, outputDepthPitch);
 }
 
-void LoadLA32FToRGBA32F(size_t width,
+void LoadLA32FToRGBA32F(const ImageLoadContext &context,
+                        size_t width,
                         size_t height,
                         size_t depth,
                         const uint8_t *input,
@@ -338,7 +425,8 @@ void LoadLA32FToRGBA32F(size_t width,
     }
 }
 
-void LoadLA16FToRGBA16F(size_t width,
+void LoadLA16FToRGBA16F(const ImageLoadContext &context,
+                        size_t width,
                         size_t height,
                         size_t depth,
                         const uint8_t *input,
@@ -367,7 +455,41 @@ void LoadLA16FToRGBA16F(size_t width,
     }
 }
 
-void LoadRGB8ToBGR565(size_t width,
+void LoadRGB8ToBGR565(const ImageLoadContext &context,
+                      size_t width,
+                      size_t height,
+                      size_t depth,
+                      const uint8_t *input,
+                      size_t inputRowPitch,
+                      size_t inputDepthPitch,
+                      uint8_t *output,
+                      size_t outputRowPitch,
+                      size_t outputDepthPitch)
+{
+    for (size_t z = 0; z < depth; z++)
+    {
+        for (size_t y = 0; y < height; y++)
+        {
+            const uint8_t *source =
+                priv::OffsetDataPointer<uint8_t>(input, y, z, inputRowPitch, inputDepthPitch);
+            uint16_t *dest =
+                priv::OffsetDataPointer<uint16_t>(output, y, z, outputRowPitch, outputDepthPitch);
+            for (size_t x = 0; x < width; x++)
+            {
+                uint8_t r8 = source[x * 3 + 0];
+                uint8_t g8 = source[x * 3 + 1];
+                uint8_t b8 = source[x * 3 + 2];
+                auto r5    = static_cast<uint16_t>(r8 >> 3);
+                auto g6    = static_cast<uint16_t>(g8 >> 2);
+                auto b5    = static_cast<uint16_t>(b8 >> 3);
+                dest[x]    = (b5 << 11) | (g6 << 5) | r5;
+            }
+        }
+    }
+}
+
+void LoadRGB8ToRGB565(const ImageLoadContext &context,
+                      size_t width,
                       size_t height,
                       size_t depth,
                       const uint8_t *input,
@@ -399,7 +521,8 @@ void LoadRGB8ToBGR565(size_t width,
     }
 }
 
-void LoadRGB565ToBGR565(size_t width,
+void LoadRGB565ToBGR565(const ImageLoadContext &context,
+                        size_t width,
                         size_t height,
                         size_t depth,
                         const uint8_t *input,
@@ -419,19 +542,18 @@ void LoadRGB565ToBGR565(size_t width,
                 priv::OffsetDataPointer<uint16_t>(output, y, z, outputRowPitch, outputDepthPitch);
             for (size_t x = 0; x < width; x++)
             {
-                // The GL type RGB is packed with with red in the MSB, while the D3D11 type BGR
-                // is packed with red in the LSB
                 auto rgb    = source[x];
                 uint16_t r5 = gl::getShiftedData<5, 11>(rgb);
                 uint16_t g6 = gl::getShiftedData<6, 5>(rgb);
                 uint16_t b5 = gl::getShiftedData<5, 0>(rgb);
-                dest[x]     = (r5 << 11) | (g6 << 5) | b5;
+                dest[x]     = (b5 << 11) | (g6 << 5) | r5;
             }
         }
     }
 }
 
-void LoadRGB8ToBGRX8(size_t width,
+void LoadRGB8ToBGRX8(const ImageLoadContext &context,
+                     size_t width,
                      size_t height,
                      size_t depth,
                      const uint8_t *input,
@@ -460,7 +582,8 @@ void LoadRGB8ToBGRX8(size_t width,
     }
 }
 
-void LoadRG8ToBGRX8(size_t width,
+void LoadRG8ToBGRX8(const ImageLoadContext &context,
+                    size_t width,
                     size_t height,
                     size_t depth,
                     const uint8_t *input,
@@ -489,7 +612,8 @@ void LoadRG8ToBGRX8(size_t width,
     }
 }
 
-void LoadR8ToBGRX8(size_t width,
+void LoadR8ToBGRX8(const ImageLoadContext &context,
+                   size_t width,
                    size_t height,
                    size_t depth,
                    const uint8_t *input,
@@ -518,7 +642,8 @@ void LoadR8ToBGRX8(size_t width,
     }
 }
 
-void LoadR5G6B5ToBGRA8(size_t width,
+void LoadR5G6B5ToBGRA8(const ImageLoadContext &context,
+                       size_t width,
                        size_t height,
                        size_t depth,
                        const uint8_t *input,
@@ -551,7 +676,8 @@ void LoadR5G6B5ToBGRA8(size_t width,
     }
 }
 
-void LoadR5G6B5ToRGBA8(size_t width,
+void LoadR5G6B5ToRGBA8(const ImageLoadContext &context,
+                       size_t width,
                        size_t height,
                        size_t depth,
                        const uint8_t *input,
@@ -584,7 +710,8 @@ void LoadR5G6B5ToRGBA8(size_t width,
     }
 }
 
-void LoadRGBA8ToBGRA8(size_t width,
+void LoadRGBA8ToBGRA8(const ImageLoadContext &context,
+                      size_t width,
                       size_t height,
                       size_t depth,
                       const uint8_t *input,
@@ -594,8 +721,8 @@ void LoadRGBA8ToBGRA8(size_t width,
                       size_t outputRowPitch,
                       size_t outputDepthPitch)
 {
-#if defined(ANGLE_USE_SSE)
-    if (gl::supportsSSE2())
+#if defined(ANGLE_LOADIMAGE_USE_SSE)
+    if (supportsSSE2())
     {
         __m128i brMask = _mm_set1_epi32(0x00ff00ff);
 
@@ -611,7 +738,7 @@ void LoadRGBA8ToBGRA8(size_t width,
                 size_t x = 0;
 
                 // Make output writes aligned
-                for (; ((reinterpret_cast<intptr_t>(&dest[x]) & 15) != 0) && x < width; x++)
+                for (; x < width && (reinterpret_cast<intptr_t>(&dest[x]) & 15) != 0; x++)
                 {
                     uint32_t rgba = source[x];
                     dest[x]       = (ANGLE_ROTL(rgba, 16) & 0x00ff00ff) | (rgba & 0xff00ff00);
@@ -663,7 +790,8 @@ void LoadRGBA8ToBGRA8(size_t width,
     }
 }
 
-void LoadRGBA8ToBGRA4(size_t width,
+void LoadRGBA8ToBGRA4(const ImageLoadContext &context,
+                      size_t width,
                       size_t height,
                       size_t depth,
                       const uint8_t *input,
@@ -694,7 +822,8 @@ void LoadRGBA8ToBGRA4(size_t width,
     }
 }
 
-void LoadRGBA8ToRGBA4(size_t width,
+void LoadRGBA8ToRGBA4(const ImageLoadContext &context,
+                      size_t width,
                       size_t height,
                       size_t depth,
                       const uint8_t *input,
@@ -725,7 +854,8 @@ void LoadRGBA8ToRGBA4(size_t width,
     }
 }
 
-void LoadRGBA4ToARGB4(size_t width,
+void LoadRGBA4ToARGB4(const ImageLoadContext &context,
+                      size_t width,
                       size_t height,
                       size_t depth,
                       const uint8_t *input,
@@ -751,7 +881,8 @@ void LoadRGBA4ToARGB4(size_t width,
     }
 }
 
-void LoadRGBA4ToBGRA8(size_t width,
+void LoadRGBA4ToBGRA8(const ImageLoadContext &context,
+                      size_t width,
                       size_t height,
                       size_t depth,
                       const uint8_t *input,
@@ -785,7 +916,8 @@ void LoadRGBA4ToBGRA8(size_t width,
     }
 }
 
-void LoadRGBA4ToRGBA8(size_t width,
+void LoadRGBA4ToRGBA8(const ImageLoadContext &context,
+                      size_t width,
                       size_t height,
                       size_t depth,
                       const uint8_t *input,
@@ -819,7 +951,8 @@ void LoadRGBA4ToRGBA8(size_t width,
     }
 }
 
-void LoadBGRA4ToBGRA8(size_t width,
+void LoadBGRA4ToBGRA8(const ImageLoadContext &context,
+                      size_t width,
                       size_t height,
                       size_t depth,
                       const uint8_t *input,
@@ -853,7 +986,8 @@ void LoadBGRA4ToBGRA8(size_t width,
     }
 }
 
-void LoadRGBA8ToBGR5A1(size_t width,
+void LoadRGBA8ToBGR5A1(const ImageLoadContext &context,
+                       size_t width,
                        size_t height,
                        size_t depth,
                        const uint8_t *input,
@@ -884,7 +1018,8 @@ void LoadRGBA8ToBGR5A1(size_t width,
     }
 }
 
-void LoadRGBA8ToRGB5A1(size_t width,
+void LoadRGBA8ToRGB5A1(const ImageLoadContext &context,
+                       size_t width,
                        size_t height,
                        size_t depth,
                        const uint8_t *input,
@@ -915,7 +1050,8 @@ void LoadRGBA8ToRGB5A1(size_t width,
     }
 }
 
-void LoadRGB10A2ToBGR5A1(size_t width,
+void LoadRGB10A2ToBGR5A1(const ImageLoadContext &context,
+                         size_t width,
                          size_t height,
                          size_t depth,
                          const uint8_t *input,
@@ -948,7 +1084,8 @@ void LoadRGB10A2ToBGR5A1(size_t width,
     }
 }
 
-void LoadRGB10A2ToRGB5A1(size_t width,
+void LoadRGB10A2ToRGB5A1(const ImageLoadContext &context,
+                         size_t width,
                          size_t height,
                          size_t depth,
                          const uint8_t *input,
@@ -981,7 +1118,75 @@ void LoadRGB10A2ToRGB5A1(size_t width,
     }
 }
 
-void LoadRGB5A1ToA1RGB5(size_t width,
+void LoadRGB10A2ToRGB565(const ImageLoadContext &context,
+                         size_t width,
+                         size_t height,
+                         size_t depth,
+                         const uint8_t *input,
+                         size_t inputRowPitch,
+                         size_t inputDepthPitch,
+                         uint8_t *output,
+                         size_t outputRowPitch,
+                         size_t outputDepthPitch)
+{
+    for (size_t z = 0; z < depth; z++)
+    {
+        for (size_t y = 0; y < height; y++)
+        {
+            const R10G10B10A2 *source =
+                priv::OffsetDataPointer<R10G10B10A2>(input, y, z, inputRowPitch, inputDepthPitch);
+            uint16_t *dest =
+                priv::OffsetDataPointer<uint16_t>(output, y, z, outputRowPitch, outputDepthPitch);
+            for (size_t x = 0; x < width; x++)
+            {
+                R10G10B10A2 rgb10a2 = source[x];
+
+                uint16_t r5 = static_cast<uint16_t>(rgb10a2.R >> 5u);
+                uint16_t g6 = static_cast<uint16_t>(rgb10a2.G >> 4u);
+                uint16_t b5 = static_cast<uint16_t>(rgb10a2.B >> 5u);
+
+                dest[x] = (r5 << 11) | (g6 << 5) | b5;
+            }
+        }
+    }
+}
+
+void LoadRGB10A2ToBGR565(const ImageLoadContext &context,
+                         size_t width,
+                         size_t height,
+                         size_t depth,
+                         const uint8_t *input,
+                         size_t inputRowPitch,
+                         size_t inputDepthPitch,
+                         uint8_t *output,
+                         size_t outputRowPitch,
+                         size_t outputDepthPitch)
+{
+    ASSERT(IsLittleEndian());
+    for (size_t z = 0; z < depth; z++)
+    {
+        for (size_t y = 0; y < height; y++)
+        {
+            const R10G10B10A2 *source =
+                priv::OffsetDataPointer<R10G10B10A2>(input, y, z, inputRowPitch, inputDepthPitch);
+            uint16_t *dest =
+                priv::OffsetDataPointer<uint16_t>(output, y, z, outputRowPitch, outputDepthPitch);
+            for (size_t x = 0; x < width; x++)
+            {
+                R10G10B10A2 rgb10a2 = source[x];
+
+                uint16_t r5 = static_cast<uint16_t>(rgb10a2.R >> 5u);
+                uint16_t g6 = static_cast<uint16_t>(rgb10a2.G >> 4u);
+                uint16_t b5 = static_cast<uint16_t>(rgb10a2.B >> 5u);
+
+                dest[x] = (b5 << 11) | (g6 << 5) | r5;
+            }
+        }
+    }
+}
+
+void LoadRGB5A1ToA1RGB5(const ImageLoadContext &context,
+                        size_t width,
                         size_t height,
                         size_t depth,
                         const uint8_t *input,
@@ -1007,7 +1212,8 @@ void LoadRGB5A1ToA1RGB5(size_t width,
     }
 }
 
-void LoadRGB5A1ToBGR5A1(size_t width,
+void LoadRGB5A1ToBGR5A1(const ImageLoadContext &context,
+                        size_t width,
                         size_t height,
                         size_t depth,
                         const uint8_t *input,
@@ -1038,7 +1244,8 @@ void LoadRGB5A1ToBGR5A1(size_t width,
     }
 }
 
-void LoadRGB5A1ToBGRA8(size_t width,
+void LoadRGB5A1ToBGRA8(const ImageLoadContext &context,
+                       size_t width,
                        size_t height,
                        size_t depth,
                        const uint8_t *input,
@@ -1071,7 +1278,8 @@ void LoadRGB5A1ToBGRA8(size_t width,
     }
 }
 
-void LoadRGB5A1ToRGBA8(size_t width,
+void LoadRGB5A1ToRGBA8(const ImageLoadContext &context,
+                       size_t width,
                        size_t height,
                        size_t depth,
                        const uint8_t *input,
@@ -1104,7 +1312,8 @@ void LoadRGB5A1ToRGBA8(size_t width,
     }
 }
 
-void LoadBGR5A1ToBGRA8(size_t width,
+void LoadBGR5A1ToBGRA8(const ImageLoadContext &context,
+                       size_t width,
                        size_t height,
                        size_t depth,
                        const uint8_t *input,
@@ -1137,7 +1346,8 @@ void LoadBGR5A1ToBGRA8(size_t width,
     }
 }
 
-void LoadRGB10A2ToRGBA8(size_t width,
+void LoadRGB10A2ToRGBA8(const ImageLoadContext &context,
+                        size_t width,
                         size_t height,
                         size_t depth,
                         const uint8_t *input,
@@ -1167,7 +1377,39 @@ void LoadRGB10A2ToRGBA8(size_t width,
     }
 }
 
-void LoadRGB10A2ToRGB10X2(size_t width,
+void LoadRGB10A2ToRGB8(const ImageLoadContext &context,
+                       size_t width,
+                       size_t height,
+                       size_t depth,
+                       const uint8_t *input,
+                       size_t inputRowPitch,
+                       size_t inputDepthPitch,
+                       uint8_t *output,
+                       size_t outputRowPitch,
+                       size_t outputDepthPitch)
+{
+    for (size_t z = 0; z < depth; z++)
+    {
+        for (size_t y = 0; y < height; y++)
+        {
+
+            const uint32_t *source =
+                priv::OffsetDataPointer<uint32_t>(input, y, z, inputRowPitch, inputDepthPitch);
+            uint8_t *dest =
+                priv::OffsetDataPointer<uint8_t>(output, y, z, outputRowPitch, outputDepthPitch);
+            for (size_t x = 0; x < width; x++)
+            {
+                uint32_t rgba   = source[x];
+                dest[3 * x + 0] = static_cast<uint8_t>((rgba & 0x000003FF) >> 2);
+                dest[3 * x + 1] = static_cast<uint8_t>((rgba & 0x000FFC00) >> 12);
+                dest[3 * x + 2] = static_cast<uint8_t>((rgba & 0x3FF00000) >> 22);
+            }
+        }
+    }
+}
+
+void LoadRGB10A2ToRGB10X2(const ImageLoadContext &context,
+                          size_t width,
                           size_t height,
                           size_t depth,
                           const uint8_t *input,
@@ -1193,7 +1435,40 @@ void LoadRGB10A2ToRGB10X2(size_t width,
     }
 }
 
-void LoadRGB16FToRGB9E5(size_t width,
+void LoadBGR10A2ToRGB10A2(const ImageLoadContext &context,
+                          size_t width,
+                          size_t height,
+                          size_t depth,
+                          const uint8_t *input,
+                          size_t inputRowPitch,
+                          size_t inputDepthPitch,
+                          uint8_t *output,
+                          size_t outputRowPitch,
+                          size_t outputDepthPitch)
+{
+    for (size_t z = 0; z < depth; z++)
+    {
+        for (size_t y = 0; y < height; y++)
+        {
+            const uint32_t *source =
+                priv::OffsetDataPointer<uint32_t>(input, y, z, inputRowPitch, inputDepthPitch);
+            uint32_t *dest =
+                priv::OffsetDataPointer<uint32_t>(output, y, z, outputRowPitch, outputDepthPitch);
+            for (size_t x = 0; x < width; x++)
+            {
+                const uint32_t src  = source[x];
+                const uint32_t srcB = src & 0x3FF;
+                const uint32_t srcG = src >> 10 & 0x3FF;
+                const uint32_t srcR = src >> 20 & 0x3FF;
+                const uint32_t srcA = src >> 30 & 0x3;
+                dest[x]             = srcR | srcG << 10 | srcB << 20 | srcA << 30;
+            }
+        }
+    }
+}
+
+void LoadRGB16FToRGB9E5(const ImageLoadContext &context,
+                        size_t width,
                         size_t height,
                         size_t depth,
                         const uint8_t *input,
@@ -1221,7 +1496,8 @@ void LoadRGB16FToRGB9E5(size_t width,
     }
 }
 
-void LoadRGB32FToRGB9E5(size_t width,
+void LoadRGB32FToRGB9E5(const ImageLoadContext &context,
+                        size_t width,
                         size_t height,
                         size_t depth,
                         const uint8_t *input,
@@ -1248,7 +1524,8 @@ void LoadRGB32FToRGB9E5(size_t width,
     }
 }
 
-void LoadRGB16FToRG11B10F(size_t width,
+void LoadRGB16FToRG11B10F(const ImageLoadContext &context,
+                          size_t width,
                           size_t height,
                           size_t depth,
                           const uint8_t *input,
@@ -1276,7 +1553,8 @@ void LoadRGB16FToRG11B10F(size_t width,
     }
 }
 
-void LoadRGB32FToRG11B10F(size_t width,
+void LoadRGB32FToRG11B10F(const ImageLoadContext &context,
+                          size_t width,
                           size_t height,
                           size_t depth,
                           const uint8_t *input,
@@ -1304,7 +1582,8 @@ void LoadRGB32FToRG11B10F(size_t width,
     }
 }
 
-void LoadG8R24ToR24G8(size_t width,
+void LoadD24S8ToS8D24(const ImageLoadContext &context,
+                      size_t width,
                       size_t height,
                       size_t depth,
                       const uint8_t *input,
@@ -1324,15 +1603,14 @@ void LoadG8R24ToR24G8(size_t width,
                 priv::OffsetDataPointer<uint32_t>(output, y, z, outputRowPitch, outputDepthPitch);
             for (size_t x = 0; x < width; x++)
             {
-                uint32_t d = source[x] >> 8;
-                uint8_t s  = source[x] & 0xFF;
-                dest[x]    = d | (s << 24);
+                dest[x] = ANGLE_ROTL(source[x], 24);
             }
         }
     }
 }
 
-void LoadD24S8ToD32FS8X24(size_t width,
+void LoadD24S8ToD32FS8X24(const ImageLoadContext &context,
+                          size_t width,
                           size_t height,
                           size_t depth,
                           const uint8_t *input,
@@ -1355,14 +1633,15 @@ void LoadD24S8ToD32FS8X24(size_t width,
                 1;
             for (size_t x = 0; x < width; x++)
             {
-                destDepth[x * 2]   = (source[x] & 0xFFFFFF) / static_cast<float>(0xFFFFFF);
-                destStencil[x * 2] = source[x] & 0xFF000000;
+                destDepth[x * 2]   = (source[x] >> 8) / static_cast<float>(0xFFFFFF);
+                destStencil[x * 2] = source[x] & 0xFF;
             }
         }
     }
 }
 
-void LoadD24S8ToD32F(size_t width,
+void LoadD24S8ToD32F(const ImageLoadContext &context,
+                     size_t width,
                      size_t height,
                      size_t depth,
                      const uint8_t *input,
@@ -1382,14 +1661,14 @@ void LoadD24S8ToD32F(size_t width,
                 priv::OffsetDataPointer<float>(output, y, z, outputRowPitch, outputDepthPitch);
             for (size_t x = 0; x < width; x++)
             {
-                uint32_t sourcePixel = (source[x] >> 8) & 0xFFFFFF;
-                destDepth[x]         = sourcePixel / static_cast<float>(0xFFFFFF);
+                destDepth[x] = (source[x] >> 8) / static_cast<float>(0xFFFFFF);
             }
         }
     }
 }
 
-void LoadD32ToD32FX32(size_t width,
+void LoadD32ToD32FX32(const ImageLoadContext &context,
+                      size_t width,
                       size_t height,
                       size_t depth,
                       const uint8_t *input,
@@ -1415,7 +1694,8 @@ void LoadD32ToD32FX32(size_t width,
     }
 }
 
-void LoadD32ToD32F(size_t width,
+void LoadD32ToD32F(const ImageLoadContext &context,
+                   size_t width,
                    size_t height,
                    size_t depth,
                    const uint8_t *input,
@@ -1442,7 +1722,8 @@ void LoadD32ToD32F(size_t width,
     }
 }
 
-void LoadD32FToD32F(size_t width,
+void LoadD32FToD32F(const ImageLoadContext &context,
+                    size_t width,
                     size_t height,
                     size_t depth,
                     const uint8_t *input,
@@ -1468,7 +1749,8 @@ void LoadD32FToD32F(size_t width,
     }
 }
 
-void LoadD32FS8X24ToD24S8(size_t width,
+void LoadD32FS8X24ToS8D24(const ImageLoadContext &context,
+                          size_t width,
                           size_t height,
                           size_t depth,
                           const uint8_t *input,
@@ -1491,14 +1773,15 @@ void LoadD32FS8X24ToD24S8(size_t width,
             for (size_t x = 0; x < width; x++)
             {
                 uint32_t d = static_cast<uint32_t>(gl::clamp01(sourceDepth[x * 2]) * 0xFFFFFF);
-                uint32_t s = sourceStencil[x * 2] & 0xFF000000;
+                uint32_t s = sourceStencil[x * 2] << 24;
                 dest[x]    = d | s;
             }
         }
     }
 }
 
-void LoadX24S8ToS8(size_t width,
+void LoadX24S8ToS8(const ImageLoadContext &context,
+                   size_t width,
                    size_t height,
                    size_t depth,
                    const uint8_t *input,
@@ -1524,7 +1807,8 @@ void LoadX24S8ToS8(size_t width,
     }
 }
 
-void LoadX32S8ToS8(size_t width,
+void LoadX32S8ToS8(const ImageLoadContext &context,
+                   size_t width,
                    size_t height,
                    size_t depth,
                    const uint8_t *input,
@@ -1550,7 +1834,8 @@ void LoadX32S8ToS8(size_t width,
     }
 }
 
-void LoadD32FS8X24ToD32F(size_t width,
+void LoadD32FS8X24ToD32F(const ImageLoadContext &context,
+                         size_t width,
                          size_t height,
                          size_t depth,
                          const uint8_t *input,
@@ -1576,7 +1861,8 @@ void LoadD32FS8X24ToD32F(size_t width,
     }
 }
 
-void LoadD32FS8X24ToD32FS8X24(size_t width,
+void LoadD32FS8X24ToD32FS8X24(const ImageLoadContext &context,
+                              size_t width,
                               size_t height,
                               size_t depth,
                               const uint8_t *input,
@@ -1602,13 +1888,14 @@ void LoadD32FS8X24ToD32FS8X24(size_t width,
             for (size_t x = 0; x < width; x++)
             {
                 destDepth[x * 2]   = gl::clamp01(sourceDepth[x * 2]);
-                destStencil[x * 2] = sourceStencil[x * 2] & 0xFF000000;
+                destStencil[x * 2] = sourceStencil[x * 2] & 0xFF;
             }
         }
     }
 }
 
-void LoadRGB32FToRGBA16F(size_t width,
+void LoadRGB32FToRGBA16F(const ImageLoadContext &context,
+                         size_t width,
                          size_t height,
                          size_t depth,
                          const uint8_t *input,
@@ -1637,7 +1924,8 @@ void LoadRGB32FToRGBA16F(size_t width,
     }
 }
 
-void LoadRGB32FToRGB16F(size_t width,
+void LoadRGB32FToRGB16F(const ImageLoadContext &context,
+                        size_t width,
                         size_t height,
                         size_t depth,
                         const uint8_t *input,
@@ -1665,7 +1953,8 @@ void LoadRGB32FToRGB16F(size_t width,
     }
 }
 
-void LoadR32ToR16(size_t width,
+void LoadR32ToR16(const ImageLoadContext &context,
+                  size_t width,
                   size_t height,
                   size_t depth,
                   const uint8_t *input,
@@ -1691,7 +1980,8 @@ void LoadR32ToR16(size_t width,
     }
 }
 
-void LoadR32ToR24G8(size_t width,
+void LoadD32ToX8D24(const ImageLoadContext &context,
+                    size_t width,
                     size_t height,
                     size_t depth,
                     const uint8_t *input,
@@ -1716,6 +2006,79 @@ void LoadR32ToR24G8(size_t width,
             }
         }
     }
+}
+
+// This conversion was added to support using a 32F depth buffer
+// as emulation for 16unorm depth buffer in Metal.
+// See https://anglebug.com/42265093
+void LoadD16ToD32F(const ImageLoadContext &context,
+                   size_t width,
+                   size_t height,
+                   size_t depth,
+                   const uint8_t *input,
+                   size_t inputRowPitch,
+                   size_t inputDepthPitch,
+                   uint8_t *output,
+                   size_t outputRowPitch,
+                   size_t outputDepthPitch)
+{
+    for (size_t z = 0; z < depth; z++)
+    {
+        for (size_t y = 0; y < height; y++)
+        {
+            const uint16_t *source =
+                priv::OffsetDataPointer<uint16_t>(input, y, z, inputRowPitch, inputDepthPitch);
+            float *dest =
+                priv::OffsetDataPointer<float>(output, y, z, outputRowPitch, outputDepthPitch);
+            for (size_t x = 0; x < width; x++)
+            {
+                dest[x] = static_cast<float>(source[x]) / 0xFFFF;
+            }
+        }
+    }
+}
+
+void LoadS8ToS8X24(const ImageLoadContext &context,
+                   size_t width,
+                   size_t height,
+                   size_t depth,
+                   const uint8_t *input,
+                   size_t inputRowPitch,
+                   size_t inputDepthPitch,
+                   uint8_t *output,
+                   size_t outputRowPitch,
+                   size_t outputDepthPitch)
+{
+    for (size_t z = 0; z < depth; z++)
+    {
+        for (size_t y = 0; y < height; y++)
+        {
+            const uint8_t *source =
+                priv::OffsetDataPointer<uint8_t>(input, y, z, inputRowPitch, inputDepthPitch);
+            uint32_t *destStencil =
+                priv::OffsetDataPointer<uint32_t>(output, y, z, outputRowPitch, outputDepthPitch);
+
+            for (size_t x = 0; x < width; x++)
+            {
+                destStencil[x] = source[x] << 24;
+            }
+        }
+    }
+}
+
+void LoadYuvToNative(const ImageLoadContext &context,
+                     size_t width,
+                     size_t height,
+                     size_t depth,
+                     const uint8_t *input,
+                     size_t inputRowPitch,
+                     size_t inputDepthPitch,
+                     uint8_t *output,
+                     size_t outputRowPitch,
+                     size_t outputDepthPitch)
+{
+    // For YUV formats it is assumed that source has tightly packed data.
+    memcpy(output, input, inputDepthPitch);
 }
 
 }  // namespace angle

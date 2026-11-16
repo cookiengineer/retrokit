@@ -30,18 +30,19 @@
 #define Cone_h
 
 #include "FloatPoint3D.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 // Cone gain is defined according to the OpenAL specification
 
 class ConeEffect final {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(ConeEffect);
 public:
     ConeEffect();
 
     // Returns scalar gain for the given source/listener positions/orientations
-    double gain(FloatPoint3D sourcePosition, FloatPoint3D sourceOrientation, FloatPoint3D listenerPosition);
+    double gain(FloatPoint3D sourcePosition, FloatPoint3D sourceOrientation, FloatPoint3D listenerPosition) const;
 
     // Angles in degrees
     void setInnerAngle(double innerAngle) { m_innerAngle = innerAngle; }

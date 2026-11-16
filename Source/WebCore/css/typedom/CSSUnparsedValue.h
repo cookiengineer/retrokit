@@ -25,33 +25,37 @@
 
 #pragma once
 
-#if ENABLE(CSS_TYPED_OM)
-
 #include "CSSStyleValue.h"
-#include <wtf/RefCounted.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
 template<typename> class ExceptionOr;
 class CSSOMVariableReferenceValue;
-using CSSUnparsedSegment = Variant<String, RefPtr<CSSOMVariableReferenceValue>>;
+class CSSParserTokenRange;
+using CSSUnparsedSegment = Variant<String, Ref<CSSOMVariableReferenceValue>>;
 
 class CSSUnparsedValue final : public CSSStyleValue {
-    WTF_MAKE_ISO_ALLOCATED(CSSUnparsedValue);
+    WTF_MAKE_TZONE_ALLOCATED(CSSUnparsedValue);
 public:
     static Ref<CSSUnparsedValue> create(Vector<CSSUnparsedSegment>&&);
-        
+    static Ref<CSSUnparsedValue> create(CSSParserTokenRange);
+
+    virtual ~CSSUnparsedValue();
+
+    void serialize(StringBuilder&, OptionSet<SerializationArguments>) const final;
     size_t length() const { return m_segments.size(); }
-    ExceptionOr<CSSUnparsedSegment> item(size_t);
+    
+    bool isSupportedPropertyIndex(unsigned index) const { return index < m_segments.size(); }
+    std::optional<CSSUnparsedSegment> item(size_t);
     ExceptionOr<CSSUnparsedSegment> setItem(size_t, CSSUnparsedSegment&&);
 
-    CSSStyleValueType getType() const final { return CSSStyleValueType::CSSUnparsedValue; }
-    String toString() const;
+    CSSStyleValueType styleValueType() const final { return CSSStyleValueType::CSSUnparsedValue; }
+
+    RefPtr<CSSValue> toCSSValue() const final;
 
 private:
     explicit CSSUnparsedValue(Vector<CSSUnparsedSegment>&& segments);
-    void serialize(StringBuilder&) const;
     
     Vector<CSSUnparsedSegment> m_segments;
 };
@@ -59,7 +63,5 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::CSSUnparsedValue)
-    static bool isType(const WebCore::CSSStyleValue& styleValue) { return styleValue.getType() == WebCore::CSSStyleValueType::CSSUnparsedValue; }
+    static bool isType(const WebCore::CSSStyleValue& styleValue) { return styleValue.styleValueType() == WebCore::CSSStyleValueType::CSSUnparsedValue; }
 SPECIALIZE_TYPE_TRAITS_END()
-
-#endif

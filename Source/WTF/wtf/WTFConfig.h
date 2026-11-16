@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,6 +25,12 @@
 
 #pragma once
 
+#include <wtf/Compiler.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
+#include <bmalloc/GigacageConfig.h>
+#include <cstddef>
 #include <wtf/Assertions.h>
 #include <wtf/Atomics.h>
 #include <wtf/ExportMacros.h>
@@ -33,23 +39,41 @@
 #include <wtf/StdLibExtras.h>
 #include <wtf/threads/Signals.h>
 
-#if defined(USE_SYSTEM_MALLOC) && USE_SYSTEM_MALLOC
-namespace Gigacage {
-constexpr size_t reservedSlotsForGigacageConfig = 0;
-constexpr size_t reservedBytesForGigacageConfig = 0;
-}
-#else
-#include <bmalloc/GigacageConfig.h>
-#endif
-
-#if ENABLE(UNIFIED_AND_FREEZABLE_CONFIG_RECORD)
 namespace WebConfig {
 
 using Slot = uint64_t;
+// Used primarily as storage for WTFConfig.
+// However, other components also use it to stow their own configurations:
+// - the storage for allocator configs is located at the start of the
+//   region, and is laid out a la ReservedGlobalConfigSlots below.
+// - JSC::Config is located after the body of the WTFConfig,
+//   at the address `spaceForExtensions`
 extern "C" WTF_EXPORT_PRIVATE Slot g_config[];
 
+constexpr size_t reservedSlotsForLibpasConfiguration = 2;
+constexpr size_t reservedSlotsForExecutableAllocator = 2;
+struct ReservedGlobalConfigSlots {
+    // Unlike with the other two allocator configuration regions,
+    // Libpas does NOT reference these definitions to see how much space it has /
+    // what offset it starts at, as it doesn't depend on WTF and can't include
+    // cpp headers.
+    // Instead, it assumes
+    //   A) it gets at least two slots of storage,
+    //   B) that that storage starts at byte 0 of g_config (i.e. no offset)
+    Slot reservationForLibpas[reservedSlotsForLibpasConfiguration];
+    Slot reservationForExecutableAllocator[reservedSlotsForExecutableAllocator];
+    Slot reservationForGigacage[Gigacage::reservedSlotsForGigacageConfig];
+    // Storage for the WTF config proper begins here
+};
+
+constexpr ptrdiff_t startOffsetOfExecutableAllocatorConfig =
+        offsetof(WebConfig::ReservedGlobalConfigSlots, reservationForExecutableAllocator);
+
+#if !USE(SYSTEM_MALLOC)
+static_assert(Gigacage::startOffsetOfGigacageConfig == offsetof(ReservedGlobalConfigSlots, reservationForGigacage));
+#endif
+
 } // namespace WebConfig
-#endif // ENABLE(UNIFIED_AND_FREEZABLE_CONFIG_RECORD)
 
 namespace WTF {
 
@@ -58,6 +82,9 @@ constexpr size_t ConfigSizeToProtect = std::max(CeilingOnPageSize, 16 * KB);
 
 struct Config {
     WTF_EXPORT_PRIVATE static void permanentlyFreeze();
+    WTF_EXPORT_PRIVATE static void initialize();
+    WTF_EXPORT_PRIVATE static void finalize();
+    WTF_EXPORT_PRIVATE static void NODELETE disableFreezingForTesting();
 
     struct AssertNotFrozenScope {
         AssertNotFrozenScope();
@@ -68,8 +95,13 @@ struct Config {
     // initial value is 0 / null / falsy because Config is instantiated
     // as a global singleton.
 
+    uintptr_t lowestAccessibleAddress;
+    uintptr_t highestAccessibleAddress;
+
     bool isPermanentlyFrozen;
-#if PLATFORM(COCOA)
+    bool disabledFreezingForTesting;
+    bool useSpecialAbortForExtraSecurityImplications;
+#if PLATFORM(COCOA) || OS(ANDROID)
     bool disableForwardingVPrintfStdErrToOSLog;
 #endif
 
@@ -78,37 +110,39 @@ struct Config {
     bool isThreadSuspendResumeSignalConfigured;
     int sigThreadSuspendResume;
 #endif
-#if OS(UNIX)
     SignalHandlers signalHandlers;
-#endif
     PtrTagLookup* ptrTagLookupHead;
 
     uint64_t spaceForExtensions[1];
 };
 
-#if ENABLE(UNIFIED_AND_FREEZABLE_CONFIG_RECORD)
+constexpr ptrdiff_t startOffsetOfWTFConfig = sizeof(WebConfig::ReservedGlobalConfigSlots);
+constexpr size_t startSlotOfWTFConfig = startOffsetOfWTFConfig / sizeof(WebConfig::Slot);
 
-constexpr size_t startSlotOfWTFConfig = Gigacage::reservedSlotsForGigacageConfig;
-constexpr size_t startOffsetOfWTFConfig = startSlotOfWTFConfig * sizeof(WebConfig::Slot);
-
-constexpr size_t offsetOfWTFConfigExtension = startOffsetOfWTFConfig + offsetof(WTF::Config, spaceForExtensions);
+constexpr ptrdiff_t offsetOfWTFConfigExtension = startOffsetOfWTFConfig + offsetof(WTF::Config, spaceForExtensions);
 
 constexpr size_t alignmentOfWTFConfig = std::alignment_of<WTF::Config>::value;
 
-static_assert(Gigacage::reservedBytesForGigacageConfig + sizeof(WTF::Config) <= ConfigSizeToProtect);
 static_assert(roundUpToMultipleOf<alignmentOfWTFConfig>(startOffsetOfWTFConfig) == startOffsetOfWTFConfig);
+static_assert(startOffsetOfWTFConfig + sizeof(WTF::Config) <= ConfigSizeToProtect);
 
 WTF_EXPORT_PRIVATE void setPermissionsOfConfigPage();
 
-#define g_wtfConfig (*bitwise_cast<WTF::Config*>(&WebConfig::g_config[WTF::startSlotOfWTFConfig]))
+WTF_EXPORT_PRIVATE void makePagesFreezable(void* base, size_t); // Works together with permanentlyFreezePages().
 
-#else // not ENABLE(UNIFIED_AND_FREEZABLE_CONFIG_RECORD)
+enum class FreezePagePermission {
+    None, // Remove all permissions i.e. no permissions at all.
+    ReadOnly, // The pages can be read.
+};
+WTF_EXPORT_PRIVATE void permanentlyFreezePages(void* base, size_t, FreezePagePermission);
 
-inline void setPermissionsOfConfigPage() { }
+// Workaround to localize bounds safety warnings to this file.
+// FIXME: Use real types to make materializing WTF::Config* bounds-safe and type-safe.
+inline Config* addressOfWTFConfig() { return std::bit_cast<Config*>(&WebConfig::g_config[startSlotOfWTFConfig]); }
 
-extern "C" WTF_EXPORT_PRIVATE Config g_wtfConfig;
+#define g_wtfConfig (*WTF::addressOfWTFConfig())
 
-#endif // ENABLE(UNIFIED_AND_FREEZABLE_CONFIG_RECORD)
+constexpr size_t offsetOfWTFConfigLowestAccessibleAddress = offsetof(WTF::Config, lowestAccessibleAddress);
 
 ALWAYS_INLINE Config::AssertNotFrozenScope::AssertNotFrozenScope()
 {
@@ -124,6 +158,5 @@ ALWAYS_INLINE Config::AssertNotFrozenScope::~AssertNotFrozenScope()
 
 } // namespace WTF
 
-#if !ENABLE(UNIFIED_AND_FREEZABLE_CONFIG_RECORD)
-using WTF::g_wtfConfig;
-#endif
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+

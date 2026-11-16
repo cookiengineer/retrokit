@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,30 +24,30 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
 #if (ENABLE(WEBKIT2) && (NESTED_MASTER_CONDITION || MASTER_OR && MASTER_AND))
 
 #include "ArgumentCoders.h"
 #include "Connection.h"
-#if PLATFORM(IOS_FAMILY)
+#if PLATFORM(COCOA)
 #include "GestureTypes.h"
 #endif
 #include "MessageNames.h"
-#include "Plugin.h"
-#include "TestWithoutAttributesMessagesReplies.h"
-#include <WebCore/GraphicsLayer.h>
 #include <WebCore/KeyboardEvent.h>
+#include <WebCore/PlatformLayerIdentifier.h>
 #include <WebCore/PluginData.h>
 #include <utility>
 #include <wtf/Forward.h>
 #include <wtf/HashMap.h>
+#include <wtf/MachSendRight.h>
 #include <wtf/OptionSet.h>
+#include <wtf/RuntimeApplicationChecks.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
 namespace IPC {
 class DummyType;
-class MachPort;
 }
 
 namespace WebKit {
@@ -65,114 +65,134 @@ static inline IPC::ReceiverName messageReceiverName()
 
 class LoadURL {
 public:
-    using Arguments = std::tuple<const String&>;
+    using Arguments = std::tuple<String>;
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithoutAttributes_LoadURL; }
     static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
     explicit LoadURL(const String& url)
-        : m_arguments(url)
+        : m_url(url)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        encoder << m_url;
     }
 
 private:
-    Arguments m_arguments;
+    const String& m_url;
 };
 
 #if ENABLE(TOUCH_EVENTS)
 class LoadSomething {
 public:
-    using Arguments = std::tuple<const String&>;
+    using Arguments = std::tuple<String>;
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithoutAttributes_LoadSomething; }
     static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
     explicit LoadSomething(const String& url)
-        : m_arguments(url)
+        : m_url(url)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        encoder << m_url;
     }
 
 private:
-    Arguments m_arguments;
+    const String& m_url;
 };
 #endif
 
 #if (ENABLE(TOUCH_EVENTS) && (NESTED_MESSAGE_CONDITION || SOME_OTHER_MESSAGE_CONDITION))
 class TouchEvent {
 public:
-    using Arguments = std::tuple<const WebKit::WebTouchEvent&>;
+    using Arguments = std::tuple<WebKit::WebTouchEvent>;
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithoutAttributes_TouchEvent; }
     static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
     explicit TouchEvent(const WebKit::WebTouchEvent& event)
-        : m_arguments(event)
+        : m_event(event)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        SUPPRESS_FORWARD_DECL_ARG encoder << m_event;
     }
 
 private:
-    Arguments m_arguments;
+    SUPPRESS_FORWARD_DECL_MEMBER const WebKit::WebTouchEvent& m_event;
 };
 #endif
 
 #if (ENABLE(TOUCH_EVENTS) && (NESTED_MESSAGE_CONDITION && SOME_OTHER_MESSAGE_CONDITION))
 class AddEvent {
 public:
-    using Arguments = std::tuple<const WebKit::WebTouchEvent&>;
+    using Arguments = std::tuple<WebKit::WebTouchEvent>;
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithoutAttributes_AddEvent; }
     static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
     explicit AddEvent(const WebKit::WebTouchEvent& event)
-        : m_arguments(event)
+        : m_event(event)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        SUPPRESS_FORWARD_DECL_ARG encoder << m_event;
     }
 
 private:
-    Arguments m_arguments;
+    SUPPRESS_FORWARD_DECL_MEMBER const WebKit::WebTouchEvent& m_event;
 };
 #endif
 
 #if ENABLE(TOUCH_EVENTS)
 class LoadSomethingElse {
 public:
-    using Arguments = std::tuple<const String&>;
+    using Arguments = std::tuple<String>;
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithoutAttributes_LoadSomethingElse; }
     static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
     explicit LoadSomethingElse(const String& url)
-        : m_arguments(url)
+        : m_url(url)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        encoder << m_url;
     }
 
 private:
-    Arguments m_arguments;
+    const String& m_url;
 };
 #endif
 
@@ -182,19 +202,29 @@ public:
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithoutAttributes_DidReceivePolicyDecision; }
     static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
     DidReceivePolicyDecision(uint64_t frameID, uint64_t listenerID, uint32_t policyAction)
-        : m_arguments(frameID, listenerID, policyAction)
+        : m_frameID(frameID)
+        , m_listenerID(listenerID)
+        , m_policyAction(policyAction)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        encoder << m_frameID;
+        encoder << m_listenerID;
+        encoder << m_policyAction;
     }
 
 private:
-    Arguments m_arguments;
+    uint64_t m_frameID;
+    uint64_t m_listenerID;
+    uint32_t m_policyAction;
 };
 
 class Close {
@@ -203,35 +233,45 @@ public:
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithoutAttributes_Close; }
     static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
-    const Arguments& arguments() const
+    Close()
     {
-        return m_arguments;
+    }
+
+    template<typename Encoder>
+    void encode(Encoder& encoder)
+    {
     }
 
 private:
-    Arguments m_arguments;
 };
 
 class PreferencesDidChange {
 public:
-    using Arguments = std::tuple<const WebKit::WebPreferencesStore&>;
+    using Arguments = std::tuple<WebKit::WebPreferencesStore>;
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithoutAttributes_PreferencesDidChange; }
     static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
     explicit PreferencesDidChange(const WebKit::WebPreferencesStore& store)
-        : m_arguments(store)
+        : m_store(store)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        SUPPRESS_FORWARD_DECL_ARG encoder << m_store;
     }
 
 private:
-    Arguments m_arguments;
+    SUPPRESS_FORWARD_DECL_MEMBER const WebKit::WebPreferencesStore& m_store;
 };
 
 class SendDoubleAndFloat {
@@ -240,88 +280,120 @@ public:
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithoutAttributes_SendDoubleAndFloat; }
     static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
     SendDoubleAndFloat(double d, float f)
-        : m_arguments(d, f)
+        : m_d(d)
+        , m_f(f)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        encoder << m_d;
+        encoder << m_f;
     }
 
 private:
-    Arguments m_arguments;
+    double m_d;
+    float m_f;
 };
 
 class SendInts {
 public:
-    using Arguments = std::tuple<const Vector<uint64_t>&, const Vector<Vector<uint64_t>>&>;
+    using Arguments = std::tuple<Vector<uint64_t>, Vector<Vector<uint64_t>>>;
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithoutAttributes_SendInts; }
     static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
     SendInts(const Vector<uint64_t>& ints, const Vector<Vector<uint64_t>>& intVectors)
-        : m_arguments(ints, intVectors)
+        : m_ints(ints)
+        , m_intVectors(intVectors)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        SUPPRESS_FORWARD_DECL_ARG encoder << m_ints;
+        SUPPRESS_FORWARD_DECL_ARG encoder << m_intVectors;
     }
 
 private:
-    Arguments m_arguments;
+    SUPPRESS_FORWARD_DECL_MEMBER const Vector<uint64_t>& m_ints;
+    SUPPRESS_FORWARD_DECL_MEMBER const Vector<Vector<uint64_t>>& m_intVectors;
 };
 
 class CreatePlugin {
 public:
-    using Arguments = std::tuple<uint64_t, const WebKit::Plugin::Parameters&>;
+    using Arguments = std::tuple<uint64_t, WebKit::Plugin::Parameters>;
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithoutAttributes_CreatePlugin; }
-    static constexpr bool isSync = true;
+    static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
+    static IPC::MessageName asyncMessageReplyName() { return IPC::MessageName::TestWithoutAttributes_CreatePluginReply; }
     static constexpr auto callbackThread = WTF::CompletionHandlerCallThread::ConstructionThread;
-    using Reply = std::tuple<bool&>;
     using ReplyArguments = std::tuple<bool>;
+    using Reply = CompletionHandler<void(bool)>;
+    using Promise = WTF::NativePromise<bool, IPC::Error>;
     CreatePlugin(uint64_t pluginInstanceID, const WebKit::Plugin::Parameters& parameters)
-        : m_arguments(pluginInstanceID, parameters)
+        : m_pluginInstanceID(pluginInstanceID)
+        , m_parameters(parameters)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        encoder << m_pluginInstanceID;
+        SUPPRESS_FORWARD_DECL_ARG encoder << m_parameters;
     }
 
 private:
-    Arguments m_arguments;
+    uint64_t m_pluginInstanceID;
+    SUPPRESS_FORWARD_DECL_MEMBER const WebKit::Plugin::Parameters& m_parameters;
 };
 
 class RunJavaScriptAlert {
 public:
-    using Arguments = std::tuple<uint64_t, const String&>;
+    using Arguments = std::tuple<uint64_t, String>;
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithoutAttributes_RunJavaScriptAlert; }
-    static constexpr bool isSync = true;
+    static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
+    static IPC::MessageName asyncMessageReplyName() { return IPC::MessageName::TestWithoutAttributes_RunJavaScriptAlertReply; }
     static constexpr auto callbackThread = WTF::CompletionHandlerCallThread::ConstructionThread;
-    using Reply = std::tuple<>;
     using ReplyArguments = std::tuple<>;
+    using Reply = CompletionHandler<void()>;
+    using Promise = WTF::NativePromise<void, IPC::Error>;
     RunJavaScriptAlert(uint64_t frameID, const String& message)
-        : m_arguments(frameID, message)
+        : m_frameID(frameID)
+        , m_message(message)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        encoder << m_frameID;
+        encoder << m_message;
     }
 
 private:
-    Arguments m_arguments;
+    uint64_t m_frameID;
+    const String& m_message;
 };
 
 class GetPlugins {
@@ -329,49 +401,57 @@ public:
     using Arguments = std::tuple<bool>;
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithoutAttributes_GetPlugins; }
-    static constexpr bool isSync = true;
+    static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
+    static IPC::MessageName asyncMessageReplyName() { return IPC::MessageName::TestWithoutAttributes_GetPluginsReply; }
     static constexpr auto callbackThread = WTF::CompletionHandlerCallThread::ConstructionThread;
-    using Reply = std::tuple<Vector<WebCore::PluginInfo>&>;
     using ReplyArguments = std::tuple<Vector<WebCore::PluginInfo>>;
+    using Reply = CompletionHandler<void(Vector<WebCore::PluginInfo>&&)>;
+    using Promise = WTF::NativePromise<Vector<WebCore::PluginInfo>, IPC::Error>;
     explicit GetPlugins(bool refresh)
-        : m_arguments(refresh)
+        : m_refresh(refresh)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        encoder << m_refresh;
     }
 
 private:
-    Arguments m_arguments;
+    bool m_refresh;
 };
 
 class GetPluginProcessConnection {
 public:
-    using Arguments = std::tuple<const String&>;
+    using Arguments = std::tuple<String>;
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithoutAttributes_GetPluginProcessConnection; }
     static constexpr bool isSync = true;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
-    using DelayedReply = GetPluginProcessConnectionDelayedReply;
     static constexpr auto callbackThread = WTF::CompletionHandlerCallThread::ConstructionThread;
-    static void send(UniqueRef<IPC::Encoder>&&, IPC::Connection&, const IPC::Connection::Handle& connectionHandle);
-    using Reply = std::tuple<IPC::Connection::Handle&>;
     using ReplyArguments = std::tuple<IPC::Connection::Handle>;
+    using Reply = CompletionHandler<void(IPC::Connection::Handle&&)>;
     explicit GetPluginProcessConnection(const String& pluginPath)
-        : m_arguments(pluginPath)
+        : m_pluginPath(pluginPath)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        encoder << m_pluginPath;
     }
 
 private:
-    Arguments m_arguments;
+    const String& m_pluginPath;
 };
 
 class TestMultipleAttributes {
@@ -380,19 +460,23 @@ public:
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithoutAttributes_TestMultipleAttributes; }
     static constexpr bool isSync = true;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
-    using DelayedReply = TestMultipleAttributesDelayedReply;
     static constexpr auto callbackThread = WTF::CompletionHandlerCallThread::ConstructionThread;
-    static void send(UniqueRef<IPC::Encoder>&&, IPC::Connection&);
-    using Reply = std::tuple<>;
     using ReplyArguments = std::tuple<>;
-    const Arguments& arguments() const
+    using Reply = CompletionHandler<void()>;
+    TestMultipleAttributes()
     {
-        return m_arguments;
+    }
+
+    template<typename Encoder>
+    void encode(Encoder& encoder)
+    {
     }
 
 private:
-    Arguments m_arguments;
 };
 
 class TestParameterAttributes {
@@ -401,83 +485,139 @@ public:
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithoutAttributes_TestParameterAttributes; }
     static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
     TestParameterAttributes(uint64_t foo, double bar, double baz)
-        : m_arguments(foo, bar, baz)
+        : m_foo(foo)
+        , m_bar(bar)
+        , m_baz(baz)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        encoder << m_foo;
+        encoder << m_bar;
+        encoder << m_baz;
     }
 
 private:
-    Arguments m_arguments;
+    uint64_t m_foo;
+    double m_bar;
+    double m_baz;
 };
 
 class TemplateTest {
 public:
-    using Arguments = std::tuple<const HashMap<String, std::pair<String, uint64_t>>&>;
+    using Arguments = std::tuple<HashMap<String, std::pair<String, uint64_t>>>;
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithoutAttributes_TemplateTest; }
     static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
     explicit TemplateTest(const HashMap<String, std::pair<String, uint64_t>>& a)
-        : m_arguments(a)
+        : m_a(a)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        SUPPRESS_FORWARD_DECL_ARG encoder << m_a;
     }
 
 private:
-    Arguments m_arguments;
+    SUPPRESS_FORWARD_DECL_MEMBER const HashMap<String, std::pair<String, uint64_t>>& m_a;
 };
 
 class SetVideoLayerID {
 public:
-    using Arguments = std::tuple<const WebCore::GraphicsLayer::PlatformLayerID&>;
+    using Arguments = std::tuple<WebCore::PlatformLayerIdentifier>;
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithoutAttributes_SetVideoLayerID; }
     static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
-    explicit SetVideoLayerID(const WebCore::GraphicsLayer::PlatformLayerID& videoLayerID)
-        : m_arguments(videoLayerID)
+    explicit SetVideoLayerID(const WebCore::PlatformLayerIdentifier& videoLayerID)
+        : m_videoLayerID(videoLayerID)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        encoder << m_videoLayerID;
     }
 
 private:
-    Arguments m_arguments;
+    const WebCore::PlatformLayerIdentifier& m_videoLayerID;
+};
+
+class OpaqueTypeSecurityAssertion {
+public:
+    using Arguments = std::tuple<NotDispatchableFromWebContent>;
+
+    static IPC::MessageName name() { return IPC::MessageName::TestWithoutAttributes_OpaqueTypeSecurityAssertion; }
+    static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
+
+    static IPC::MessageName asyncMessageReplyName() { return IPC::MessageName::TestWithoutAttributes_OpaqueTypeSecurityAssertionReply; }
+    static constexpr auto callbackThread = WTF::CompletionHandlerCallThread::ConstructionThread;
+    using ReplyArguments = std::tuple<NotDispatchableFromWebContent>;
+    using Reply = CompletionHandler<void(NotDispatchableFromWebContent&&)>;
+    using Promise = WTF::NativePromise<NotDispatchableFromWebContent, IPC::Error>;
+    explicit OpaqueTypeSecurityAssertion(const NotDispatchableFromWebContent& ping)
+        : m_ping(ping)
+    {
+    }
+
+    template<typename Encoder>
+    void encode(Encoder& encoder)
+    {
+        ASSERT(!isInWebProcess());
+        SUPPRESS_FORWARD_DECL_ARG encoder << m_ping;
+    }
+
+private:
+    SUPPRESS_FORWARD_DECL_MEMBER const NotDispatchableFromWebContent& m_ping;
 };
 
 #if PLATFORM(MAC)
 class DidCreateWebProcessConnection {
 public:
-    using Arguments = std::tuple<const IPC::MachPort&, const OptionSet<WebKit::SelectionFlags>&>;
+    using Arguments = std::tuple<MachSendRight, OptionSet<WebKit::SelectionFlags>>;
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithoutAttributes_DidCreateWebProcessConnection; }
     static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
-    DidCreateWebProcessConnection(const IPC::MachPort& connectionIdentifier, const OptionSet<WebKit::SelectionFlags>& flags)
-        : m_arguments(connectionIdentifier, flags)
+    DidCreateWebProcessConnection(MachSendRight&& connectionIdentifier, const OptionSet<WebKit::SelectionFlags>& flags)
+        : m_connectionIdentifier(WTF::move(connectionIdentifier))
+        , m_flags(flags)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        encoder << WTF::move(m_connectionIdentifier);
+        SUPPRESS_FORWARD_DECL_ARG encoder << m_flags;
     }
 
 private:
-    Arguments m_arguments;
+    MachSendRight&& m_connectionIdentifier;
+    SUPPRESS_FORWARD_DECL_MEMBER const OptionSet<WebKit::SelectionFlags>& m_flags;
 };
 #endif
 
@@ -487,69 +627,208 @@ public:
     using Arguments = std::tuple<uint32_t>;
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithoutAttributes_InterpretKeyEvent; }
-    static constexpr bool isSync = true;
+    static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
+    static IPC::MessageName asyncMessageReplyName() { return IPC::MessageName::TestWithoutAttributes_InterpretKeyEventReply; }
     static constexpr auto callbackThread = WTF::CompletionHandlerCallThread::ConstructionThread;
-    using Reply = std::tuple<Vector<WebCore::KeypressCommand>&>;
     using ReplyArguments = std::tuple<Vector<WebCore::KeypressCommand>>;
+    using Reply = CompletionHandler<void(Vector<WebCore::KeypressCommand>&&)>;
+    using Promise = WTF::NativePromise<Vector<WebCore::KeypressCommand>, IPC::Error>;
     explicit InterpretKeyEvent(uint32_t type)
-        : m_arguments(type)
+        : m_type(type)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        encoder << m_type;
     }
 
 private:
-    Arguments m_arguments;
+    uint32_t m_type;
 };
 #endif
 
 #if ENABLE(DEPRECATED_FEATURE)
 class DeprecatedOperation {
 public:
-    using Arguments = std::tuple<const IPC::DummyType&>;
+    using Arguments = std::tuple<IPC::DummyType>;
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithoutAttributes_DeprecatedOperation; }
     static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
     explicit DeprecatedOperation(const IPC::DummyType& dummy)
-        : m_arguments(dummy)
+        : m_dummy(dummy)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        SUPPRESS_FORWARD_DECL_ARG encoder << m_dummy;
     }
 
 private:
-    Arguments m_arguments;
+    SUPPRESS_FORWARD_DECL_MEMBER const IPC::DummyType& m_dummy;
 };
 #endif
 
-#if ENABLE(EXPERIMENTAL_FEATURE)
+#if ENABLE(FEATURE_FOR_TESTING)
 class ExperimentalOperation {
 public:
-    using Arguments = std::tuple<const IPC::DummyType&>;
+    using Arguments = std::tuple<IPC::DummyType>;
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithoutAttributes_ExperimentalOperation; }
     static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
     explicit ExperimentalOperation(const IPC::DummyType& dummy)
-        : m_arguments(dummy)
+        : m_dummy(dummy)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        SUPPRESS_FORWARD_DECL_ARG encoder << m_dummy;
     }
 
 private:
-    Arguments m_arguments;
+    SUPPRESS_FORWARD_DECL_MEMBER const IPC::DummyType& m_dummy;
+};
+#endif
+
+class CreatePluginReply {
+public:
+    using Arguments = std::tuple<bool>;
+
+    static IPC::MessageName name() { return IPC::MessageName::TestWithoutAttributes_CreatePluginReply; }
+    static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
+
+    explicit CreatePluginReply(bool result)
+        : m_result(result)
+    {
+    }
+
+    template<typename Encoder>
+    void encode(Encoder& encoder)
+    {
+        encoder << m_result;
+    }
+
+private:
+    bool m_result;
+};
+
+class RunJavaScriptAlertReply {
+public:
+    using Arguments = std::tuple<>;
+
+    static IPC::MessageName name() { return IPC::MessageName::TestWithoutAttributes_RunJavaScriptAlertReply; }
+    static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
+
+    RunJavaScriptAlertReply()
+    {
+    }
+
+    template<typename Encoder>
+    void encode(Encoder& encoder)
+    {
+    }
+
+private:
+};
+
+class GetPluginsReply {
+public:
+    using Arguments = std::tuple<Vector<WebCore::PluginInfo>>;
+
+    static IPC::MessageName name() { return IPC::MessageName::TestWithoutAttributes_GetPluginsReply; }
+    static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
+
+    explicit GetPluginsReply(const Vector<WebCore::PluginInfo>& plugins)
+        : m_plugins(plugins)
+    {
+    }
+
+    template<typename Encoder>
+    void encode(Encoder& encoder)
+    {
+        SUPPRESS_FORWARD_DECL_ARG encoder << m_plugins;
+    }
+
+private:
+    SUPPRESS_FORWARD_DECL_MEMBER const Vector<WebCore::PluginInfo>& m_plugins;
+};
+
+class OpaqueTypeSecurityAssertionReply {
+public:
+    using Arguments = std::tuple<NotDispatchableFromWebContent>;
+
+    static IPC::MessageName name() { return IPC::MessageName::TestWithoutAttributes_OpaqueTypeSecurityAssertionReply; }
+    static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
+
+    explicit OpaqueTypeSecurityAssertionReply(const NotDispatchableFromWebContent& pong)
+        : m_pong(pong)
+    {
+    }
+
+    template<typename Encoder>
+    void encode(Encoder& encoder)
+    {
+        ASSERT(!isInWebProcess());
+        SUPPRESS_FORWARD_DECL_ARG encoder << m_pong;
+    }
+
+private:
+    SUPPRESS_FORWARD_DECL_MEMBER const NotDispatchableFromWebContent& m_pong;
+};
+
+#if PLATFORM(MAC)
+class InterpretKeyEventReply {
+public:
+    using Arguments = std::tuple<Vector<WebCore::KeypressCommand>>;
+
+    static IPC::MessageName name() { return IPC::MessageName::TestWithoutAttributes_InterpretKeyEventReply; }
+    static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
+
+    explicit InterpretKeyEventReply(const Vector<WebCore::KeypressCommand>& commandName)
+        : m_commandName(commandName)
+    {
+    }
+
+    template<typename Encoder>
+    void encode(Encoder& encoder)
+    {
+        SUPPRESS_FORWARD_DECL_ARG encoder << m_commandName;
+    }
+
+private:
+    SUPPRESS_FORWARD_DECL_MEMBER const Vector<WebCore::KeypressCommand>& m_commandName;
 };
 #endif
 

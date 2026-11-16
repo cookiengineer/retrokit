@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,22 +25,32 @@
 
 #pragma once
 
+#include "CryptoAlgorithmEcKeyParamsInit.h"
 #include "CryptoAlgorithmParameters.h"
-
-#if ENABLE(WEB_CRYPTO)
 
 namespace WebCore {
 
 class CryptoAlgorithmEcKeyParams final : public CryptoAlgorithmParameters {
+    WTF_MAKE_TZONE_ALLOCATED(CryptoAlgorithmEcKeyParams);
 public:
     String namedCurve;
+
+    CryptoAlgorithmEcKeyParams(CryptoAlgorithmIdentifier identifier)
+        : CryptoAlgorithmParameters { WTF::move(identifier) }
+    {
+    }
+
+    CryptoAlgorithmEcKeyParams(CryptoAlgorithmIdentifier identifier, CryptoAlgorithmEcKeyParamsInit init)
+        : CryptoAlgorithmParameters { WTF::move(identifier), WTF::move(init) }
+        , namedCurve { WTF::move(init.namedCurve) }
+    {
+    }
 
     Class parametersClass() const final { return Class::EcKeyParams; }
 
     CryptoAlgorithmEcKeyParams isolatedCopy() const
     {
-        CryptoAlgorithmEcKeyParams result;
-        result.identifier = identifier;
+        CryptoAlgorithmEcKeyParams result { identifier };
         result.namedCurve = namedCurve.isolatedCopy();
 
         return result;
@@ -50,5 +60,3 @@ public:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_CRYPTO_ALGORITHM_PARAMETERS(EcKeyParams)
-
-#endif // ENABLE(WEB_CRYPTO)

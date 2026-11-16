@@ -26,11 +26,13 @@
 #include "config.h"
 #include "WebEditorClient.h"
 
+#include "APIInjectedBundleEditorClient.h"
+#include "APIInjectedBundleFormClient.h"
 #include "EditorState.h"
-#include "SharedBufferCopy.h"
+#include "MessageSenderInlines.h"
+#include "SharedBufferReference.h"
 #include "UndoOrRedo.h"
 #include "WKBundlePageEditorClient.h"
-#include "WebCoreArgumentCoders.h"
 #include "WebFrame.h"
 #include "WebPage.h"
 #include "WebPageProxy.h"
@@ -41,13 +43,15 @@
 #include <WebCore/DOMPasteAccess.h>
 #include <WebCore/DocumentFragment.h>
 #include <WebCore/FocusController.h>
-#include <WebCore/Frame.h>
+#include <WebCore/FrameDestructionObserverInlines.h>
 #include <WebCore/FrameLoader.h>
-#include <WebCore/FrameView.h>
 #include <WebCore/HTMLInputElement.h>
 #include <WebCore/HTMLNames.h>
 #include <WebCore/HTMLTextAreaElement.h>
 #include <WebCore/KeyboardEvent.h>
+#include <WebCore/LocalFrame.h>
+#include <WebCore/LocalFrameView.h>
+#include <WebCore/NodeDocument.h>
 #include <WebCore/NotImplemented.h>
 #include <WebCore/Page.h>
 #include <WebCore/Range.h>
@@ -59,34 +63,36 @@
 #include <WebCore/UserTypingGestureIndicator.h>
 #include <WebCore/VisibleUnits.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/StringView.h>
-
-#if PLATFORM(GTK)
-#include <WebCore/PlatformDisplay.h>
-#endif
 
 namespace WebKit {
 using namespace WebCore;
 using namespace HTMLNames;
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebEditorClient);
+
 bool WebEditorClient::shouldDeleteRange(const std::optional<SimpleRange>& range)
 {
-    return m_page->injectedBundleEditorClient().shouldDeleteRange(*m_page, range);
+    RefPtr page = m_page.get();
+    return page && page->injectedBundleEditorClient().shouldDeleteRange(*page, range);
 }
 
 bool WebEditorClient::smartInsertDeleteEnabled()
 {
-    return m_page->isSmartInsertDeleteEnabled();
+    auto* page = m_page.get();
+    return page && page->isSmartInsertDeleteEnabled();
 }
- 
+
 bool WebEditorClient::isSelectTrailingWhitespaceEnabled() const
 {
-    return m_page->isSelectTrailingWhitespaceEnabled();
+    auto* page = m_page.get();
+    return page && page->isSelectTrailingWhitespaceEnabled();
 }
 
 bool WebEditorClient::isContinuousSpellCheckingEnabled()
 {
-    return WebProcess::singleton().textCheckerState().isContinuousSpellCheckingEnabled;
+    return WebProcess::singleton().textCheckerState().contains(TextCheckerState::ContinuousSpellCheckingEnabled);
 }
 
 void WebEditorClient::toggleContinuousSpellChecking()
@@ -96,7 +102,7 @@ void WebEditorClient::toggleContinuousSpellChecking()
 
 bool WebEditorClient::isGrammarCheckingEnabled()
 {
-    return WebProcess::singleton().textCheckerState().isGrammarCheckingEnabled;
+    return WebProcess::singleton().textCheckerState().contains(TextCheckerState::GrammarCheckingEnabled);
 }
 
 void WebEditorClient::toggleGrammarChecking()
@@ -112,75 +118,91 @@ int WebEditorClient::spellCheckerDocumentTag()
 
 bool WebEditorClient::shouldBeginEditing(const SimpleRange& range)
 {
-    return m_page->injectedBundleEditorClient().shouldBeginEditing(*m_page, range);
+    RefPtr page = m_page.get();
+    return page && page->injectedBundleEditorClient().shouldBeginEditing(*page, range);
 }
 
 bool WebEditorClient::shouldEndEditing(const SimpleRange& range)
 {
-    return m_page->injectedBundleEditorClient().shouldEndEditing(*m_page, range);
+    RefPtr page = m_page.get();
+    return page && page->injectedBundleEditorClient().shouldEndEditing(*page, range);
 }
 
 bool WebEditorClient::shouldInsertNode(Node& node, const std::optional<SimpleRange>& rangeToReplace, EditorInsertAction action)
 {
-    return m_page->injectedBundleEditorClient().shouldInsertNode(*m_page, node, rangeToReplace, action);
+    RefPtr page = m_page.get();
+    return page && page->injectedBundleEditorClient().shouldInsertNode(*page, node, rangeToReplace, action);
 }
 
 bool WebEditorClient::shouldInsertText(const String& text, const std::optional<SimpleRange>& rangeToReplace, EditorInsertAction action)
 {
-    return m_page->injectedBundleEditorClient().shouldInsertText(*m_page, text, rangeToReplace, action);
+    RefPtr page = m_page.get();
+    return page && page->injectedBundleEditorClient().shouldInsertText(*page, text, rangeToReplace, action);
 }
 
 bool WebEditorClient::shouldChangeSelectedRange(const std::optional<SimpleRange>& fromRange, const std::optional<SimpleRange>& toRange, Affinity affinity, bool stillSelecting)
 {
-    return m_page->injectedBundleEditorClient().shouldChangeSelectedRange(*m_page, fromRange, toRange, affinity, stillSelecting);
+    RefPtr page = m_page.get();
+    return page && page->injectedBundleEditorClient().shouldChangeSelectedRange(*page, fromRange, toRange, affinity, stillSelecting);
 }
-    
+
 bool WebEditorClient::shouldApplyStyle(const StyleProperties& style, const std::optional<SimpleRange>& range)
 {
-    return m_page->injectedBundleEditorClient().shouldApplyStyle(*m_page, style, range);
+    RefPtr page = m_page.get();
+    return page && page->injectedBundleEditorClient().shouldApplyStyle(*page, style, range);
 }
 
 #if ENABLE(ATTACHMENT_ELEMENT)
 
-void WebEditorClient::registerAttachmentIdentifier(const String& identifier, const String& contentType, const String& preferredFileName, Ref<SharedBuffer>&& data)
+void WebEditorClient::registerAttachmentIdentifier(const String& identifier, const String& contentType, const String& preferredFileName, Ref<FragmentedSharedBuffer>&& data)
 {
-    m_page->send(Messages::WebPageProxy::RegisterAttachmentIdentifierFromData(identifier, contentType, preferredFileName, data.get()));
+    if (RefPtr page = m_page.get())
+        page->send(Messages::WebPageProxy::RegisterAttachmentIdentifierFromData(identifier, contentType, preferredFileName, IPC::SharedBufferReference(WTF::move(data))));
 }
 
 void WebEditorClient::registerAttachments(Vector<WebCore::SerializedAttachmentData>&& data)
 {
-    m_page->send(Messages::WebPageProxy::RegisterAttachmentsFromSerializedData(WTFMove(data)));
+    if (RefPtr page = m_page.get())
+        page->send(Messages::WebPageProxy::RegisterAttachmentsFromSerializedData(WTF::move(data)));
 }
 
 void WebEditorClient::registerAttachmentIdentifier(const String& identifier, const String& contentType, const String& filePath)
 {
-    m_page->send(Messages::WebPageProxy::RegisterAttachmentIdentifierFromFilePath(identifier, contentType, filePath));
+    if (RefPtr page = m_page.get())
+        page->send(Messages::WebPageProxy::RegisterAttachmentIdentifierFromFilePath(identifier, contentType, filePath));
 }
 
 void WebEditorClient::registerAttachmentIdentifier(const String& identifier)
 {
-    m_page->send(Messages::WebPageProxy::RegisterAttachmentIdentifier(identifier));
+    if (RefPtr page = m_page.get())
+        page->send(Messages::WebPageProxy::RegisterAttachmentIdentifier(identifier));
 }
 
 void WebEditorClient::cloneAttachmentData(const String& fromIdentifier, const String& toIdentifier)
 {
-    m_page->send(Messages::WebPageProxy::CloneAttachmentData(fromIdentifier, toIdentifier));
+    if (RefPtr page = m_page.get())
+        page->send(Messages::WebPageProxy::CloneAttachmentData(fromIdentifier, toIdentifier));
 }
 
-void WebEditorClient::didInsertAttachmentWithIdentifier(const String& identifier, const String& source, bool hasEnclosingImage)
+void WebEditorClient::didInsertAttachmentWithIdentifier(const String& identifier, const String& source, WebCore::AttachmentAssociatedElementType associatedElementType)
 {
-    m_page->send(Messages::WebPageProxy::DidInsertAttachmentWithIdentifier(identifier, source, hasEnclosingImage));
+    if (RefPtr page = m_page.get())
+        page->send(Messages::WebPageProxy::DidInsertAttachmentWithIdentifier(identifier, source, associatedElementType));
 }
 
 void WebEditorClient::didRemoveAttachmentWithIdentifier(const String& identifier)
 {
-    m_page->send(Messages::WebPageProxy::DidRemoveAttachmentWithIdentifier(identifier));
+    if (RefPtr page = m_page.get())
+        page->send(Messages::WebPageProxy::DidRemoveAttachmentWithIdentifier(identifier));
 }
 
 Vector<SerializedAttachmentData> WebEditorClient::serializedAttachmentDataForIdentifiers(const Vector<String>& identifiers)
 {
-    Vector<WebCore::SerializedAttachmentData> serializedData;
-    m_page->sendSync(Messages::WebPageProxy::SerializedAttachmentDataForIdentifiers(identifiers), Messages::WebPageProxy::SerializedAttachmentDataForIdentifiers::Reply(serializedData));
+    RefPtr page = m_page.get();
+    if (!page)
+        return { };
+    auto sendResult = page->sendSync(Messages::WebPageProxy::SerializedAttachmentDataForIdentifiers(identifiers));
+    auto [serializedData] = sendResult.takeReplyOr(Vector<WebCore::SerializedAttachmentData> { });
     return serializedData;
 }
 
@@ -188,7 +210,8 @@ Vector<SerializedAttachmentData> WebEditorClient::serializedAttachmentDataForIde
 
 void WebEditorClient::didApplyStyle()
 {
-    m_page->didApplyStyle();
+    if (RefPtr page = m_page.get())
+        page->didApplyStyle();
 }
 
 bool WebEditorClient::shouldMoveRangeAfterDelete(const SimpleRange&, const SimpleRange&)
@@ -200,24 +223,31 @@ void WebEditorClient::didBeginEditing()
 {
     // FIXME: What good is a notification name, if it's always the same?
     static NeverDestroyed<String> WebViewDidBeginEditingNotification(MAKE_STATIC_STRING_IMPL("WebViewDidBeginEditingNotification"));
-    m_page->injectedBundleEditorClient().didBeginEditing(*m_page, WebViewDidBeginEditingNotification.get().impl());
+    if (RefPtr page = m_page.get())
+        page->injectedBundleEditorClient().didBeginEditing(*page, WebViewDidBeginEditingNotification.get().impl());
 }
 
 void WebEditorClient::respondToChangedContents()
 {
     static NeverDestroyed<String> WebViewDidChangeNotification(MAKE_STATIC_STRING_IMPL("WebViewDidChangeNotification"));
-    m_page->injectedBundleEditorClient().didChange(*m_page, WebViewDidChangeNotification.get().impl());
-    m_page->didChangeContents();
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+    page->injectedBundleEditorClient().didChange(*page, WebViewDidChangeNotification.get().impl());
+    page->didChangeContents();
 }
 
-void WebEditorClient::respondToChangedSelection(Frame* frame)
+void WebEditorClient::respondToChangedSelection(LocalFrame* frame)
 {
     static NeverDestroyed<String> WebViewDidChangeSelectionNotification(MAKE_STATIC_STRING_IMPL("WebViewDidChangeSelectionNotification"));
-    m_page->injectedBundleEditorClient().didChangeSelection(*m_page, WebViewDidChangeSelectionNotification.get().impl());
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+    page->injectedBundleEditorClient().didChangeSelection(*page, WebViewDidChangeSelectionNotification.get().impl());
     if (!frame)
         return;
 
-    m_page->didChangeSelection();
+    page->didChangeSelection(*frame);
 
 #if PLATFORM(GTK)
     updateGlobalSelection(frame);
@@ -226,67 +256,90 @@ void WebEditorClient::respondToChangedSelection(Frame* frame)
 
 void WebEditorClient::didEndUserTriggeredSelectionChanges()
 {
-    m_page->didEndUserTriggeredSelectionChanges();
+    if (RefPtr page = m_page.get())
+        page->didEndUserTriggeredSelectionChanges();
 }
 
 void WebEditorClient::updateEditorStateAfterLayoutIfEditabilityChanged()
 {
-    m_page->updateEditorStateAfterLayoutIfEditabilityChanged();
+    if (RefPtr page = m_page.get())
+        page->updateEditorStateAfterLayoutIfEditabilityChanged();
 }
 
 void WebEditorClient::didUpdateComposition()
 {
-    m_page->didUpdateComposition();
+    if (RefPtr page = m_page.get())
+        page->didUpdateComposition();
 }
 
-void WebEditorClient::discardedComposition(Frame*)
+void WebEditorClient::discardedComposition(const Document& document)
 {
-    m_page->discardedComposition();
+    if (RefPtr page = m_page.get())
+        page->discardedComposition(document);
 }
 
 void WebEditorClient::canceledComposition()
 {
-    m_page->canceledComposition();
+    if (RefPtr page = m_page.get())
+        page->canceledComposition();
 }
 
 void WebEditorClient::didEndEditing()
 {
     static NeverDestroyed<String> WebViewDidEndEditingNotification(MAKE_STATIC_STRING_IMPL("WebViewDidEndEditingNotification"));
-    m_page->injectedBundleEditorClient().didEndEditing(*m_page, WebViewDidEndEditingNotification.get().impl());
+    if (RefPtr page = m_page.get())
+        page->injectedBundleEditorClient().didEndEditing(*page, WebViewDidEndEditingNotification.get().impl());
 }
 
 void WebEditorClient::didWriteSelectionToPasteboard()
 {
-    m_page->injectedBundleEditorClient().didWriteToPasteboard(*m_page);
+    if (RefPtr page = m_page.get())
+        page->injectedBundleEditorClient().didWriteToPasteboard(*page);
 }
 
 void WebEditorClient::willWriteSelectionToPasteboard(const std::optional<SimpleRange>& range)
 {
-    m_page->injectedBundleEditorClient().willWriteToPasteboard(*m_page, range);
+    if (RefPtr page = m_page.get())
+        page->injectedBundleEditorClient().willWriteToPasteboard(*page, range);
 }
 
-void WebEditorClient::getClientPasteboardData(const std::optional<SimpleRange>& range, Vector<String>& pasteboardTypes, Vector<RefPtr<SharedBuffer>>& pasteboardData)
+void WebEditorClient::getClientPasteboardData(const std::optional<SimpleRange>& range, Vector<std::pair<String, RefPtr<WebCore::SharedBuffer>>>& pasteboardTypesAndData)
 {
-    m_page->injectedBundleEditorClient().getPasteboardDataForRange(*m_page, range, pasteboardTypes, pasteboardData);
+    Vector<String> pasteboardTypes;
+    Vector<RefPtr<WebCore::SharedBuffer>> pasteboardData;
+    for (size_t i = 0; i < pasteboardTypesAndData.size(); ++i) {
+        pasteboardTypes.append(pasteboardTypesAndData[i].first);
+        pasteboardData.append(pasteboardTypesAndData[i].second);
+    }
+
+    if (RefPtr page = m_page.get())
+        page->injectedBundleEditorClient().getPasteboardDataForRange(*page, range, pasteboardTypes, pasteboardData);
+
+    ASSERT(pasteboardTypes.size() == pasteboardData.size());
+    pasteboardTypesAndData.clear();
+    for (size_t i = 0; i < pasteboardTypes.size(); ++i)
+        pasteboardTypesAndData.append(std::make_pair(pasteboardTypes[i], pasteboardData[i]));
 }
 
 bool WebEditorClient::performTwoStepDrop(DocumentFragment& fragment, const SimpleRange& destination, bool isMove)
 {
-    return m_page->injectedBundleEditorClient().performTwoStepDrop(*m_page, fragment, destination, isMove);
+    RefPtr page = m_page.get();
+    return page && page->injectedBundleEditorClient().performTwoStepDrop(*page, fragment, destination, isMove);
 }
 
 void WebEditorClient::registerUndoStep(UndoStep& step)
 {
     // FIXME: Add assertion that the command being reapplied is the same command that is
     // being passed to us.
-    if (m_page->isInRedo())
+    RefPtr page = m_page.get();
+    if (!page || page->isInRedo())
         return;
 
     auto webStep = WebUndoStep::create(step);
     auto stepID = webStep->stepID();
 
-    m_page->addWebUndoStep(stepID, WTFMove(webStep));
-    m_page->send(Messages::WebPageProxy::RegisterEditCommandForUndo(stepID, step.label()), IPC::SendOption::DispatchMessageEvenWhenWaitingForSyncReply);
+    page->addWebUndoStep(stepID, WTF::move(webStep));
+    page->send(Messages::WebPageProxy::RegisterEditCommandForUndo(stepID, step.label()), IPC::SendOption::DispatchMessageEvenWhenWaitingForSyncReply);
 }
 
 void WebEditorClient::registerRedoStep(UndoStep&)
@@ -295,53 +348,82 @@ void WebEditorClient::registerRedoStep(UndoStep&)
 
 void WebEditorClient::clearUndoRedoOperations()
 {
-    m_page->send(Messages::WebPageProxy::ClearAllEditCommands());
+    if (RefPtr page = m_page.get())
+        page->send(Messages::WebPageProxy::ClearAllEditCommands());
 }
 
-bool WebEditorClient::canCopyCut(Frame*, bool defaultValue) const
+bool WebEditorClient::canCopyCut(LocalFrame*, bool defaultValue) const
 {
     return defaultValue;
 }
 
-bool WebEditorClient::canPaste(Frame*, bool defaultValue) const
+bool WebEditorClient::canPaste(LocalFrame*, bool defaultValue) const
 {
     return defaultValue;
 }
 
 bool WebEditorClient::canUndo() const
 {
-    bool result = false;
-    m_page->sendSync(Messages::WebPageProxy::CanUndoRedo(UndoOrRedo::Undo), Messages::WebPageProxy::CanUndoRedo::Reply(result));
+    RefPtr page = m_page.get();
+    if (!page)
+        return false;
+    auto sendResult = page->sendSync(Messages::WebPageProxy::CanUndoRedo(UndoOrRedo::Undo));
+    auto [result] = sendResult.takeReplyOr(false);
     return result;
 }
 
 bool WebEditorClient::canRedo() const
 {
-    bool result = false;
-    m_page->sendSync(Messages::WebPageProxy::CanUndoRedo(UndoOrRedo::Redo), Messages::WebPageProxy::CanUndoRedo::Reply(result));
+    RefPtr page = m_page.get();
+    if (!page)
+        return false;
+    auto sendResult = page->sendSync(Messages::WebPageProxy::CanUndoRedo(UndoOrRedo::Redo));
+    auto [result] = sendResult.takeReplyOr(false);
     return result;
+}
+
+static void applyPendingUndoRedo(WebPage& page, uint32_t undoVersion, const Vector<std::pair<WebKit::WebUndoStepID, WebKit::UndoOrRedo>>& pendingUndoRedo)
+{
+    for (auto undoRedo : pendingUndoRedo) {
+        if (undoRedo.second == UndoOrRedo::Undo)
+            page.unapplyEditCommand(undoVersion, undoRedo.first, [] { });
+        else {
+            ASSERT(undoRedo.second == UndoOrRedo::Redo);
+            page.reapplyEditCommand(undoVersion, undoRedo.first, [] { });
+        }
+    }
 }
 
 void WebEditorClient::undo()
 {
-    m_page->sendSync(Messages::WebPageProxy::ExecuteUndoRedo(UndoOrRedo::Undo), Messages::WebPageProxy::ExecuteUndoRedo::Reply());
+    if (RefPtr page = m_page.get()) {
+        auto result = page->sendSync(Messages::WebPageProxy::ExecuteUndoRedo(UndoOrRedo::Undo));
+        if (result.succeeded())
+            applyPendingUndoRedo(*page, std::get<0>(result.reply()), std::get<1>(result.reply()));
+    }
 }
 
 void WebEditorClient::redo()
 {
-    m_page->sendSync(Messages::WebPageProxy::ExecuteUndoRedo(UndoOrRedo::Redo), Messages::WebPageProxy::ExecuteUndoRedo::Reply());
+    if (RefPtr page = m_page.get()) {
+        auto result = page->sendSync(Messages::WebPageProxy::ExecuteUndoRedo(UndoOrRedo::Redo));
+        if (result.succeeded())
+            applyPendingUndoRedo(*page, std::get<0>(result.reply()), std::get<1>(result.reply()));
+    }
 }
 
-WebCore::DOMPasteAccessResponse WebEditorClient::requestDOMPasteAccess(const String& originIdentifier)
+WebCore::DOMPasteAccessResponse WebEditorClient::requestDOMPasteAccess(WebCore::DOMPasteAccessCategory pasteAccessCategory, WebCore::FrameIdentifier frameID, const String& originIdentifier)
 {
-    return m_page->requestDOMPasteAccess(originIdentifier);
+    RefPtr page = m_page.get();
+    return page ? page->requestDOMPasteAccess(pasteAccessCategory, frameID, originIdentifier) : WebCore::DOMPasteAccessResponse::DeniedForGesture;
 }
 
 #if !PLATFORM(COCOA) && !USE(GLIB)
 
 void WebEditorClient::handleKeyboardEvent(KeyboardEvent& event)
 {
-    if (m_page->handleEditingKeyboardEvent(event))
+    RefPtr page = m_page.get();
+    if (page && page->handleEditingKeyboardEvent(event))
         event.setDefaultHandled();
 }
 
@@ -352,50 +434,65 @@ void WebEditorClient::handleInputMethodKeydown(KeyboardEvent&)
 
 #endif // !PLATFORM(COCOA) && !USE(GLIB)
 
-void WebEditorClient::textFieldDidBeginEditing(Element* element)
+void WebEditorClient::textFieldDidBeginEditing(Element& element)
 {
-    if (!is<HTMLInputElement>(*element))
+    RefPtr inputElement = dynamicDowncast<HTMLInputElement>(element);
+    if (!inputElement)
         return;
 
-    WebFrame* webFrame = WebFrame::fromCoreFrame(*element->document().frame());
+    RefPtr frame = element.document().frame();
+    RefPtr webFrame = WebFrame::fromCoreFrame(*frame);
     ASSERT(webFrame);
 
-    m_page->injectedBundleFormClient().textFieldDidBeginEditing(m_page, downcast<HTMLInputElement>(element), webFrame);
+    if (RefPtr page = m_page.get())
+        page->injectedBundleFormClient().textFieldDidBeginEditing(page.get(), *inputElement, webFrame.get());
 }
 
-void WebEditorClient::textFieldDidEndEditing(Element* element)
+void WebEditorClient::textFieldDidEndEditing(Element& element)
 {
-    if (!is<HTMLInputElement>(*element))
+    RefPtr inputElement = dynamicDowncast<HTMLInputElement>(element);
+    if (!inputElement)
         return;
 
-    WebFrame* webFrame = WebFrame::fromCoreFrame(*element->document().frame());
+    RefPtr webFrame = WebFrame::fromCoreFrame(*element.document().frame());
     ASSERT(webFrame);
 
-    m_page->injectedBundleFormClient().textFieldDidEndEditing(m_page, downcast<HTMLInputElement>(element), webFrame);
+    if (RefPtr page = m_page.get())
+        page->injectedBundleFormClient().textFieldDidEndEditing(page.get(), *inputElement, webFrame.get());
 }
 
-void WebEditorClient::textDidChangeInTextField(Element* element)
+void WebEditorClient::textDidChangeInTextField(Element& element)
 {
-    if (!is<HTMLInputElement>(*element))
+    RefPtr inputElement = dynamicDowncast<HTMLInputElement>(element);
+    if (!inputElement)
         return;
 
-    bool initiatedByUserTyping = UserTypingGestureIndicator::processingUserTypingGesture() && UserTypingGestureIndicator::focusedElementAtGestureStart() == element;
+    bool initiatedByUserTyping = UserTypingGestureIndicator::processingUserTypingGesture() && UserTypingGestureIndicator::focusedElementAtGestureStart() == inputElement;
 
-    WebFrame* webFrame = WebFrame::fromCoreFrame(*element->document().frame());
+    RefPtr webFrame = WebFrame::fromCoreFrame(*element.document().frame());
     ASSERT(webFrame);
 
-    m_page->injectedBundleFormClient().textDidChangeInTextField(m_page, downcast<HTMLInputElement>(element), webFrame, initiatedByUserTyping);
+    if (RefPtr page = m_page.get())
+        page->injectedBundleFormClient().textDidChangeInTextField(page.get(), *inputElement, webFrame.get(), initiatedByUserTyping);
+
+    if (initiatedByUserTyping)
+        inputElement->dispatchUserTextInputEvent();
 }
 
-void WebEditorClient::textDidChangeInTextArea(Element* element)
+void WebEditorClient::textDidChangeInTextArea(Element& element)
 {
-    if (!is<HTMLTextAreaElement>(*element))
+    RefPtr textAreaElement = dynamicDowncast<HTMLTextAreaElement>(element);
+    if (!textAreaElement)
         return;
 
-    WebFrame* webFrame = WebFrame::fromCoreFrame(*element->document().frame());
+    RefPtr webFrame = WebFrame::fromCoreFrame(*element.document().frame());
     ASSERT(webFrame);
 
-    m_page->injectedBundleFormClient().textDidChangeInTextArea(m_page, downcast<HTMLTextAreaElement>(element), webFrame);
+    if (RefPtr page = m_page.get())
+        page->injectedBundleFormClient().textDidChangeInTextArea(page.get(), *textAreaElement, webFrame.get());
+
+    if (UserTypingGestureIndicator::processingUserTypingGesture())
+        textAreaElement->dispatchUserTextInputEvent();
 }
 
 #if !PLATFORM(IOS_FAMILY)
@@ -410,21 +507,38 @@ void WebEditorClient::subFrameScrollPositionChanged()
 
 #endif
 
+#if PLATFORM(COCOA)
+
+bool WebEditorClient::shouldAllowSingleClickToChangeSelection(WebCore::Node& targetNode, const WebCore::VisibleSelection& newSelection, WebCore::MouseEventInputSource inputSource) const
+{
+    RefPtr page = m_page.get();
+    return page && page->shouldAllowSingleClickToChangeSelection(targetNode, newSelection, inputSource);
+}
+
+HashMap<WebCore::FrameIdentifier, WebCore::AttributedString> WebEditorClient::collectAttributedStringsForRemoteFrames(WebCore::FrameIdentifier rootFrameIdentifier, const Vector<WebCore::FrameIdentifier>& frameIdentifiers)
+{
+    if (RefPtr page = m_page.get())
+        return page->attributedStringsForRemoteFrames(rootFrameIdentifier, frameIdentifiers);
+    return { };
+}
+
+#endif // PLATFORM(COCOA)
+
 static bool getActionTypeForKeyEvent(KeyboardEvent* event, WKInputFieldActionType& type)
 {
     String key = event->keyIdentifier();
-    if (key == "Up")
+    if (key == "Up"_s)
         type = WKInputFieldActionTypeMoveUp;
-    else if (key == "Down")
+    else if (key == "Down"_s)
         type = WKInputFieldActionTypeMoveDown;
-    else if (key == "U+001B")
+    else if (key == "U+001B"_s)
         type = WKInputFieldActionTypeCancel;
-    else if (key == "U+0009") {
+    else if (key == "U+0009"_s) {
         if (event->shiftKey())
             type = WKInputFieldActionTypeInsertBacktab;
         else
             type = WKInputFieldActionTypeInsertTab;
-    } else if (key == "Enter")
+    } else if (key == "Enter"_s)
         type = WKInputFieldActionTypeInsertNewline;
     else
         return false;
@@ -432,7 +546,7 @@ static bool getActionTypeForKeyEvent(KeyboardEvent* event, WKInputFieldActionTyp
     return true;
 }
 
-static API::InjectedBundle::FormClient::InputFieldAction toInputFieldAction(WKInputFieldActionType action)
+static API::InjectedBundle::FormClient::InputFieldAction NODELETE toInputFieldAction(WKInputFieldActionType action)
 {
     switch (action) {
     case WKInputFieldActionTypeMoveUp:
@@ -455,37 +569,41 @@ static API::InjectedBundle::FormClient::InputFieldAction toInputFieldAction(WKIn
     return API::InjectedBundle::FormClient::InputFieldAction::Cancel;
 }
 
-bool WebEditorClient::doTextFieldCommandFromEvent(Element* element, KeyboardEvent* event)
+bool WebEditorClient::doTextFieldCommandFromEvent(Element& element, KeyboardEvent* event)
 {
-    if (!is<HTMLInputElement>(*element))
+    RefPtr inputElement = dynamicDowncast<HTMLInputElement>(element);
+    if (!inputElement)
         return false;
 
     WKInputFieldActionType actionType = static_cast<WKInputFieldActionType>(0);
     if (!getActionTypeForKeyEvent(event, actionType))
         return false;
 
-    WebFrame* webFrame = WebFrame::fromCoreFrame(*element->document().frame());
+    RefPtr webFrame = WebFrame::fromCoreFrame(*element.document().frame());
     ASSERT(webFrame);
 
-    return m_page->injectedBundleFormClient().shouldPerformActionInTextField(m_page, downcast<HTMLInputElement>(element), toInputFieldAction(actionType), webFrame);
+    RefPtr page = m_page.get();
+    return page && page->injectedBundleFormClient().shouldPerformActionInTextField(page.get(), *inputElement, toInputFieldAction(actionType), webFrame.get());
 }
 
-void WebEditorClient::textWillBeDeletedInTextField(Element* element)
+void WebEditorClient::textWillBeDeletedInTextField(Element& element)
 {
-    if (!is<HTMLInputElement>(*element))
+    RefPtr inputElement = dynamicDowncast<HTMLInputElement>(element);
+    if (!inputElement)
         return;
 
-    WebFrame* webFrame = WebFrame::fromCoreFrame(*element->document().frame());
+    RefPtr webFrame = WebFrame::fromCoreFrame(*element.document().frame());
     ASSERT(webFrame);
 
-    m_page->injectedBundleFormClient().shouldPerformActionInTextField(m_page, downcast<HTMLInputElement>(element), toInputFieldAction(WKInputFieldActionTypeInsertDelete), webFrame);
+    if (RefPtr page = m_page.get())
+        page->injectedBundleFormClient().shouldPerformActionInTextField(page.get(), *inputElement, toInputFieldAction(WKInputFieldActionTypeInsertDelete), webFrame.get());
 }
 
 bool WebEditorClient::shouldEraseMarkersAfterChangeSelection(WebCore::TextCheckingType type) const
 {
-    // This prevents erasing spelling markers on OS X Lion or later to match AppKit on these Mac OS X versions.
+    // This prevents erasing spelling and grammar markers to match AppKit.
 #if PLATFORM(COCOA)
-    return type != TextCheckingType::Spelling;
+    return !(type == TextCheckingType::Spelling || type == TextCheckingType::Grammar);
 #else
     UNUSED_PARAM(type);
     return true;
@@ -494,36 +612,37 @@ bool WebEditorClient::shouldEraseMarkersAfterChangeSelection(WebCore::TextChecki
 
 void WebEditorClient::ignoreWordInSpellDocument(const String& word)
 {
-    m_page->send(Messages::WebPageProxy::IgnoreWord(word));
+    if (RefPtr page = m_page.get())
+        page->send(Messages::WebPageProxy::IgnoreWord(word));
 }
 
 void WebEditorClient::learnWord(const String& word)
 {
-    m_page->send(Messages::WebPageProxy::LearnWord(word));
+    if (RefPtr page = m_page.get())
+        page->send(Messages::WebPageProxy::LearnWord(word));
 }
 
 void WebEditorClient::checkSpellingOfString(StringView text, int* misspellingLocation, int* misspellingLength)
 {
-    int32_t resultLocation = -1;
-    int32_t resultLength = 0;
-    m_page->sendSync(Messages::WebPageProxy::CheckSpellingOfString(text.toStringWithoutCopying()),
-        Messages::WebPageProxy::CheckSpellingOfString::Reply(resultLocation, resultLength));
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+    auto sendResult = page->sendSync(Messages::WebPageProxy::CheckSpellingOfString(text.toStringWithoutCopying()));
+    auto [resultLocation, resultLength] = sendResult.takeReplyOr(-1, 0);
     *misspellingLocation = resultLocation;
     *misspellingLength = resultLength;
 }
 
-String WebEditorClient::getAutoCorrectSuggestionForMisspelledWord(const String&)
-{
-    notImplemented();
-    return String();
-}
-
 void WebEditorClient::checkGrammarOfString(StringView text, Vector<WebCore::GrammarDetail>& grammarDetails, int* badGrammarLocation, int* badGrammarLength)
 {
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+    auto sendResult = page->sendSync(Messages::WebPageProxy::CheckGrammarOfString(text.toStringWithoutCopying()));
     int32_t resultLocation = -1;
     int32_t resultLength = 0;
-    m_page->sendSync(Messages::WebPageProxy::CheckGrammarOfString(text.toStringWithoutCopying()),
-        Messages::WebPageProxy::CheckGrammarOfString::Reply(grammarDetails, resultLocation, resultLength));
+    if (sendResult.succeeded())
+        std::tie(grammarDetails, resultLocation, resultLength) = sendResult.takeReply();
     *badGrammarLocation = resultLocation;
     *badGrammarLength = resultLength;
 }
@@ -539,8 +658,11 @@ static uint64_t insertionPointFromCurrentSelection(const VisibleSelection& curre
 
 Vector<TextCheckingResult> WebEditorClient::checkTextOfParagraph(StringView stringView, OptionSet<WebCore::TextCheckingType> checkingTypes, const VisibleSelection& currentSelection)
 {
-    Vector<TextCheckingResult> results;
-    m_page->sendSync(Messages::WebPageProxy::CheckTextOfParagraph(stringView.toStringWithoutCopying(), checkingTypes, insertionPointFromCurrentSelection(currentSelection)), Messages::WebPageProxy::CheckTextOfParagraph::Reply(results));
+    RefPtr page = m_page.get();
+    if (!page)
+        return { };
+    auto sendResult = page->sendSync(Messages::WebPageProxy::CheckTextOfParagraph(stringView.toStringWithoutCopying(), checkingTypes, insertionPointFromCurrentSelection(currentSelection)));
+    auto [results] = sendResult.takeReplyOr(Vector<TextCheckingResult> { });
     return results;
 }
 
@@ -548,12 +670,14 @@ Vector<TextCheckingResult> WebEditorClient::checkTextOfParagraph(StringView stri
 
 void WebEditorClient::updateSpellingUIWithGrammarString(const String& badGrammarPhrase, const GrammarDetail& grammarDetail)
 {
-    m_page->send(Messages::WebPageProxy::UpdateSpellingUIWithGrammarString(badGrammarPhrase, grammarDetail));
+    if (RefPtr page = m_page.get())
+        page->send(Messages::WebPageProxy::UpdateSpellingUIWithGrammarString(badGrammarPhrase, grammarDetail));
 }
 
 void WebEditorClient::updateSpellingUIWithMisspelledWord(const String& misspelledWord)
 {
-    m_page->send(Messages::WebPageProxy::UpdateSpellingUIWithMisspelledWord(misspelledWord));
+    if (RefPtr page = m_page.get())
+        page->send(Messages::WebPageProxy::UpdateSpellingUIWithMisspelledWord(misspelledWord));
 }
 
 void WebEditorClient::showSpellingUI(bool)
@@ -563,42 +687,63 @@ void WebEditorClient::showSpellingUI(bool)
 
 bool WebEditorClient::spellingUIIsShowing()
 {
-    bool isShowing = false;
-    m_page->sendSync(Messages::WebPageProxy::SpellingUIIsShowing(), Messages::WebPageProxy::SpellingUIIsShowing::Reply(isShowing));
+    RefPtr page = m_page.get();
+    if (!page)
+        return false;
+    auto sendResult = page->sendSync(Messages::WebPageProxy::SpellingUIIsShowing());
+    auto [isShowing] = sendResult.takeReplyOr(false);
     return isShowing;
 }
 
 void WebEditorClient::getGuessesForWord(const String& word, const String& context, const VisibleSelection& currentSelection, Vector<String>& guesses)
 {
-    m_page->sendSync(Messages::WebPageProxy::GetGuessesForWord(word, context, insertionPointFromCurrentSelection(currentSelection)), Messages::WebPageProxy::GetGuessesForWord::Reply(guesses));
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+    auto sendResult = page->sendSync(Messages::WebPageProxy::GetGuessesForWord(word, context, insertionPointFromCurrentSelection(currentSelection)));
+    if (sendResult.succeeded())
+        std::tie(guesses) = sendResult.takeReply();
 }
 
 void WebEditorClient::requestCheckingOfString(TextCheckingRequest& request, const WebCore::VisibleSelection& currentSelection)
 {
     auto requestID = TextCheckerRequestID::generate();
-    m_page->addTextCheckingRequest(requestID, request);
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+    page->addTextCheckingRequest(requestID, request);
 
-    m_page->send(Messages::WebPageProxy::RequestCheckingOfString(requestID, request.data(), insertionPointFromCurrentSelection(currentSelection)));
+    page->send(Messages::WebPageProxy::RequestCheckingOfString(requestID, request.data(), insertionPointFromCurrentSelection(currentSelection)));
+}
+
+void WebEditorClient::requestExtendedCheckingOfString(TextCheckingRequest& request, const WebCore::VisibleSelection& currentSelection)
+{
+    auto requestID = TextCheckerRequestID::generate();
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+    page->addTextCheckingRequest(requestID, request);
+
+    page->send(Messages::WebPageProxy::RequestExtendedCheckingOfString(requestID, request.data(), insertionPointFromCurrentSelection(currentSelection)));
 }
 
 void WebEditorClient::willChangeSelectionForAccessibility()
 {
-    m_page->willChangeSelectionForAccessibility();
+    if (auto* page = m_page.get())
+        page->willChangeSelectionForAccessibility();
 }
 
 void WebEditorClient::didChangeSelectionForAccessibility()
 {
-    m_page->didChangeSelectionForAccessibility();
-}
-
-void WebEditorClient::willSetInputMethodState()
-{
+    if (auto* page = m_page.get())
+        page->didChangeSelectionForAccessibility();
 }
 
 void WebEditorClient::setInputMethodState(Element* element)
 {
 #if PLATFORM(GTK) || PLATFORM(WPE)
-    m_page->setInputMethodState(element);
+    if (RefPtr page = m_page.get())
+        page->setInputMethodState(element);
 #else
     UNUSED_PARAM(element);
 #endif
@@ -606,15 +751,11 @@ void WebEditorClient::setInputMethodState(Element* element)
 
 bool WebEditorClient::supportsGlobalSelection()
 {
-#if PLATFORM(GTK) && PLATFORM(X11)
-    if (PlatformDisplay::sharedDisplay().type() == PlatformDisplay::Type::X11)
-        return true;
-#endif
-#if PLATFORM(GTK) && PLATFORM(WAYLAND)
-    if (PlatformDisplay::sharedDisplay().type() == PlatformDisplay::Type::Wayland)
-        return true;
-#endif
+#if PLATFORM(GTK)
+    return true;
+#else
     return false;
+#endif
 }
 
 } // namespace WebKit

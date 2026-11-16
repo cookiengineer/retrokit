@@ -26,19 +26,16 @@
 #include "config.h"
 #include "SharedStringHashTable.h"
 
-#include "SharedMemory.h"
+#include <WebCore/SharedMemory.h>
+#include <wtf/StdLibExtras.h>
 
 namespace WebKit {
 
 using namespace WebCore;
 
-SharedStringHashTable::SharedStringHashTable()
-{
-}
+SharedStringHashTable::SharedStringHashTable() = default;
 
-SharedStringHashTable::~SharedStringHashTable()
-{
-}
+SharedStringHashTable::~SharedStringHashTable() = default;
 
 bool SharedStringHashTable::add(SharedStringHash sharedStringHash)
 {
@@ -68,7 +65,7 @@ void SharedStringHashTable::clear()
     if (!m_sharedMemory)
         return;
 
-    memset(m_sharedMemory->data(), 0, m_sharedMemory->size());
+    zeroSpan(m_sharedMemory->mutableSpan());
     setSharedMemory(nullptr);
 }
 

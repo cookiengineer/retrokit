@@ -61,7 +61,7 @@ JSValueRef JSEvaluateScriptInternal(const JSLockHolder&, JSContextRef ctx, JSObj
         // Debugger path is currently ignored by inspector.
         // NOTE: If we don't have a debugger, this SourceCode will be forever lost to the inspector.
         // We could stash it in the inspector in case an inspector is ever opened.
-        globalObject->inspectorController().reportAPIException(globalObject, evaluationException);
+        protect(globalObject->inspectorController())->reportAPIException(globalObject, evaluationException);
 #endif
         return nullptr;
     }
@@ -86,7 +86,7 @@ JSValueRef JSEvaluateScript(JSContextRef ctx, JSStringRef script, JSObjectRef th
     startingLineNumber = std::max(1, startingLineNumber);
 
     auto sourceURL = sourceURLString ? URL({ }, sourceURLString->string()) : URL();
-    SourceCode source = makeSource(script->string(), SourceOrigin { sourceURL }, sourceURL.string(), TextPosition(OrdinalNumber::fromOneBasedInt(startingLineNumber), OrdinalNumber()));
+    SourceCode source = makeSource(script->string(), SourceOrigin { sourceURL }, SourceTaintedOrigin::Untainted, sourceURL.string(), TextPosition(OrdinalNumber::fromOneBasedInt(startingLineNumber), OrdinalNumber()));
 
     return JSEvaluateScriptInternal(locker, ctx, thisObject, source, exception);
 }
@@ -104,7 +104,7 @@ bool JSCheckScriptSyntax(JSContextRef ctx, JSStringRef script, JSStringRef sourc
     startingLineNumber = std::max(1, startingLineNumber);
 
     auto sourceURL = sourceURLString ? URL({ }, sourceURLString->string()) : URL();
-    SourceCode source = makeSource(script->string(), SourceOrigin { sourceURL }, sourceURL.string(), TextPosition(OrdinalNumber::fromOneBasedInt(startingLineNumber), OrdinalNumber()));
+    SourceCode source = makeSource(script->string(), SourceOrigin { sourceURL }, SourceTaintedOrigin::Untainted, sourceURL.string(), TextPosition(OrdinalNumber::fromOneBasedInt(startingLineNumber), OrdinalNumber()));
     
     JSValue syntaxException;
     bool isValidSyntax = checkSyntax(globalObject, source, &syntaxException);
@@ -114,7 +114,7 @@ bool JSCheckScriptSyntax(JSContextRef ctx, JSStringRef script, JSStringRef sourc
             *exception = toRef(globalObject, syntaxException);
 #if ENABLE(REMOTE_INSPECTOR)
         Exception* exception = Exception::create(vm, syntaxException);
-        globalObject->inspectorController().reportAPIException(globalObject, exception);
+        protect(globalObject->inspectorController())->reportAPIException(globalObject, exception);
 #endif
         return false;
     }
@@ -204,14 +204,20 @@ JSObjectRef JSGetMemoryUsageStatistics(JSContextRef ctx)
     VM& vm = globalObject->vm();
     JSLockHolder locker(vm);
 
+    auto typeCounts = vm.heap.objectTypeCounts();
+    JSObject* objectTypeCounts = constructEmptyObject(globalObject);
+    for (auto& it : typeCounts)
+        objectTypeCounts->putDirect(vm, Identifier::fromString(vm, it.key), jsNumber(it.value));
+
     JSObject* object = constructEmptyObject(globalObject);
-    object->putDirect(vm, Identifier::fromString(vm, "heapSize"), jsNumber(vm.heap.size()));
-    object->putDirect(vm, Identifier::fromString(vm, "heapCapacity"), jsNumber(vm.heap.capacity()));
-    object->putDirect(vm, Identifier::fromString(vm, "extraMemorySize"), jsNumber(vm.heap.extraMemorySize()));
-    object->putDirect(vm, Identifier::fromString(vm, "objectCount"), jsNumber(vm.heap.objectCount()));
-    object->putDirect(vm, Identifier::fromString(vm, "protectedObjectCount"), jsNumber(vm.heap.protectedObjectCount()));
-    object->putDirect(vm, Identifier::fromString(vm, "globalObjectCount"), jsNumber(vm.heap.globalObjectCount()));
-    object->putDirect(vm, Identifier::fromString(vm, "protectedGlobalObjectCount"), jsNumber(vm.heap.protectedGlobalObjectCount()));
+    object->putDirect(vm, Identifier::fromString(vm, "heapSize"_s), jsNumber(vm.heap.size()));
+    object->putDirect(vm, Identifier::fromString(vm, "heapCapacity"_s), jsNumber(vm.heap.capacity()));
+    object->putDirect(vm, Identifier::fromString(vm, "extraMemorySize"_s), jsNumber(vm.heap.extraMemorySize()));
+    object->putDirect(vm, Identifier::fromString(vm, "objectCount"_s), jsNumber(vm.heap.objectCount()));
+    object->putDirect(vm, Identifier::fromString(vm, "protectedObjectCount"_s), jsNumber(vm.heap.protectedObjectCount()));
+    object->putDirect(vm, Identifier::fromString(vm, "globalObjectCount"_s), jsNumber(vm.heap.globalObjectCount()));
+    object->putDirect(vm, Identifier::fromString(vm, "protectedGlobalObjectCount"_s), jsNumber(vm.heap.protectedGlobalObjectCount()));
+    object->putDirect(vm, Identifier::fromString(vm, "objectTypeCounts"_s), objectTypeCounts);
 
     return toRef(object);
 }

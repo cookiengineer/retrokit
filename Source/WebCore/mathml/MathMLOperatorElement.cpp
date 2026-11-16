@@ -29,13 +29,18 @@
 
 #if ENABLE(MATHML)
 
+#include "ContainerNodeInlines.h"
+#include "ElementInlines.h"
+#include "NodeName.h"
 #include "RenderMathMLOperator.h"
-#include <wtf/IsoMallocInlines.h>
+#include "RenderObjectInlines.h"
+#include "StyleComputedStyle.h"
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/unicode/CharacterNames.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(MathMLOperatorElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MathMLOperatorElement);
 
 using namespace MathMLNames;
 using namespace MathMLOperatorDictionary;
@@ -43,6 +48,7 @@ using namespace MathMLOperatorDictionary;
 MathMLOperatorElement::MathMLOperatorElement(const QualifiedName& tagName, Document& document)
     : MathMLTokenElement(tagName, document)
 {
+    ASSERT(hasTagName(MathMLNames::moTag));
 }
 
 Ref<MathMLOperatorElement> MathMLOperatorElement::create(const QualifiedName& tagName, Document& document)
@@ -53,15 +59,51 @@ Ref<MathMLOperatorElement> MathMLOperatorElement::create(const QualifiedName& ta
 MathMLOperatorElement::OperatorChar MathMLOperatorElement::parseOperatorChar(const String& string)
 {
     OperatorChar operatorChar;
-    // FIXME: This operator dictionary does not accept multiple characters (https://webkit.org/b/124828).
-    if (auto codePoint = convertToSingleCodePoint(string)) {
-        auto character = codePoint.value();
-        // The minus sign renders better than the hyphen sign used in some MathML formulas.
-        if (character == hyphenMinus)
-            character = minusSign;
+    String trimmed = string.trim(isASCIIWhitespaceWithoutFF<UChar>);
+    if (trimmed.isEmpty())
+        return operatorChar;
+
+    auto setOperatorChar = [&](char32_t character) {
         operatorChar.character = character;
         operatorChar.isVertical = isVertical(operatorChar.character);
+    };
+
+    // https://w3c.github.io/mathml-core/#dfn-algorithm-to-determine-the-category-of-an-operator
+    // Only operators with UTF-16 length 1 or 2 are recognized.
+    unsigned length = trimmed.length();
+    if (length == 1) {
+        char32_t character = trimmed[0];
+        // The minus sign renders better than the hyphen sign used in some MathML formulas.
+        // This is not in MathML Core, see https://github.com/w3c/mathml-core/issues/70
+        if (character == hyphenMinus)
+            character = minusSign;
+        setOperatorChar(character);
+        return operatorChar;
     }
+
+    if (length == 2) {
+        // A surrogate pair encoding a single code point (e.g. U+1EEF0, U+1EEF1).
+        if (auto codePoint = StringView(trimmed).convertToSingleCodePoint()) {
+            setOperatorChar(codePoint.value());
+            return operatorChar;
+        }
+        // Base character followed by U+0338 COMBINING LONG SOLIDUS OVERLAY
+        // or U+20D2 COMBINING LONG VERTICAL LINE OVERLAY. The base character
+        // is used for dictionary lookup and must not be substituted.
+        constexpr UChar combiningLongSolidusOverlay = 0x0338;
+        constexpr UChar combiningLongVerticalLineOverlay = 0x20D2;
+        UChar second = trimmed[1];
+        if (second == combiningLongSolidusOverlay || second == combiningLongVerticalLineOverlay) {
+            setOperatorChar(trimmed[0]);
+            return operatorChar;
+        }
+        // Otherwise, a multi-character operator such as "&&", "!=" or "->".
+        // Store both code units for a second-pass lookup in the multi-character
+        // operator dictionary.
+        operatorChar.hasTwoCharacters = true;
+        operatorChar.characters = { trimmed[0], trimmed[1] };
+    }
+
     return operatorChar;
 }
 
@@ -77,27 +119,30 @@ Property MathMLOperatorElement::computeDictionaryProperty()
     Property dictionaryProperty;
 
     // We first determine the form attribute and use the default spacing and properties.
-    const auto& value = attributeWithoutSynchronization(formAttr);
+    const auto& value = attributeWithoutSynchronization(MathMLNames::formAttr);
     bool explicitForm = true;
-    if (value == "prefix")
-        dictionaryProperty.form = Prefix;
-    else if (value == "infix")
-        dictionaryProperty.form = Infix;
-    else if (value == "postfix")
-        dictionaryProperty.form = Postfix;
+    if (value == "prefix"_s)
+        dictionaryProperty.form = Form::Prefix;
+    else if (value == "infix"_s)
+        dictionaryProperty.form = Form::Infix;
+    else if (value == "postfix"_s)
+        dictionaryProperty.form = Form::Postfix;
     else {
         // FIXME: We should use more advanced heuristics indicated in the specification to determine the operator form (https://bugs.webkit.org/show_bug.cgi?id=124829).
         explicitForm = false;
         if (!previousSibling() && nextSibling())
-            dictionaryProperty.form = Prefix;
+            dictionaryProperty.form = Form::Prefix;
         else if (previousSibling() && !nextSibling())
-            dictionaryProperty.form = Postfix;
+            dictionaryProperty.form = Form::Postfix;
         else
-            dictionaryProperty.form = Infix;
+            dictionaryProperty.form = Form::Infix;
     }
 
     // We then try and find an entry in the operator dictionary to override the default values.
-    if (auto entry = search(operatorChar().character, dictionaryProperty.form, explicitForm))
+    if (!operatorChar().hasTwoCharacters) {
+        if (auto entry = search(operatorChar().character, dictionaryProperty.form, explicitForm))
+            dictionaryProperty = entry.value();
+    } else if (auto entry = search(operatorChar().characters, dictionaryProperty.form, explicitForm))
         dictionaryProperty = entry.value();
 
     return dictionaryProperty;
@@ -110,7 +155,7 @@ const Property& MathMLOperatorElement::dictionaryProperty()
     return m_dictionaryProperty.value();
 }
 
-static const QualifiedName& propertyFlagToAttributeName(MathMLOperatorDictionary::Flag flag)
+static const QualifiedName& NODELETE propertyFlagToAttributeName(MathMLOperatorDictionary::Flag flag)
 {
     switch (flag) {
     case Accent:
@@ -209,55 +254,93 @@ void MathMLOperatorElement::childrenChanged(const ChildChange& change)
     MathMLTokenElement::childrenChanged(change);
 }
 
-static std::optional<MathMLOperatorDictionary::Flag> attributeNameToPropertyFlag(const QualifiedName& name)
+void MathMLOperatorElement::setOperatorFormDirty()
 {
-    if (name == accentAttr)
-        return Accent;
-    if (name == fenceAttr)
-        return Fence;
-    if (name == largeopAttr)
-        return LargeOp;
-    if (name == movablelimitsAttr)
-        return MovableLimits;
-    if (name == separatorAttr)
-        return Separator;
-    if (name == stretchyAttr)
-        return Stretchy;
-    if (name == symmetricAttr)
-        return Symmetric;
-    return std::nullopt;
+    // Nothing to invalidate if the dictionary entry has never been computed; the
+    // renderer will read the up-to-date value the first time it asks for it.
+    if (!m_dictionaryProperty)
+        return;
+
+    // Invalidate the cached dictionary entry and ensure the renderer re-reads it so
+    // that spacing changes from a sibling-triggered form switch take effect at layout.
+    m_dictionaryProperty = std::nullopt;
+    m_properties.dirtyFlags = MathMLOperatorDictionary::allFlags;
+    if (CheckedPtr renderOperator = dynamicDowncast<RenderMathMLOperator>(renderer())) {
+        renderOperator->updateFromElement();
+        renderOperator->setNeedsLayoutAndInvalidateContentLogicalWidths();
+    }
 }
 
-void MathMLOperatorElement::parseAttribute(const QualifiedName& name, const AtomString& value)
+void MathMLOperatorElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
-    if (name == formAttr) {
+    bool affectsLayout = false;
+    switch (name.nodeName()) {
+    case AttributeNames::formAttr:
         m_dictionaryProperty = std::nullopt;
         m_properties.dirtyFlags = MathMLOperatorDictionary::allFlags;
-    } else if (auto flag = attributeNameToPropertyFlag(name))
-        m_properties.dirtyFlags |= flag.value();
-    else if (name == lspaceAttr)
+        affectsLayout = true;
+        break;
+    case AttributeNames::lspaceAttr:
         m_leadingSpace = std::nullopt;
-    else if (name == rspaceAttr)
+        affectsLayout = true;
+        break;
+    case AttributeNames::rspaceAttr:
         m_trailingSpace = std::nullopt;
-    else if (name == minsizeAttr)
+        affectsLayout = true;
+        break;
+    case AttributeNames::minsizeAttr:
         m_minSize = std::nullopt;
-    else if (name == maxsizeAttr)
+        affectsLayout = true;
+        break;
+    case AttributeNames::maxsizeAttr:
         m_maxSize = std::nullopt;
-
-    if ((name == stretchyAttr || name == lspaceAttr || name == rspaceAttr || name == movablelimitsAttr) && renderer()) {
-        downcast<RenderMathMLOperator>(*renderer()).updateFromElement();
-        return;
+        affectsLayout = true;
+        break;
+    case AttributeNames::stretchyAttr:
+        m_properties.dirtyFlags |= Stretchy;
+        affectsLayout = true;
+        break;
+    case AttributeNames::movablelimitsAttr:
+        m_properties.dirtyFlags |= MovableLimits;
+        affectsLayout = true;
+        break;
+    case AttributeNames::accentAttr:
+        m_properties.dirtyFlags |= Accent;
+        affectsLayout = true;
+        break;
+    case AttributeNames::fenceAttr:
+        m_properties.dirtyFlags |= Fence;
+        break;
+    case AttributeNames::largeopAttr:
+        m_properties.dirtyFlags |= LargeOp;
+        affectsLayout = true;
+        break;
+    case AttributeNames::separatorAttr:
+        m_properties.dirtyFlags |= Separator;
+        break;
+    case AttributeNames::symmetricAttr:
+        m_properties.dirtyFlags |= Symmetric;
+        affectsLayout = true;
+        break;
+    default:
+        break;
     }
 
-    MathMLTokenElement::parseAttribute(name, value);
+    if (affectsLayout) {
+        if (CheckedPtr renderOperator = dynamicDowncast<RenderMathMLOperator>(renderer())) {
+            renderOperator->updateFromElement();
+            renderOperator->setNeedsLayoutAndInvalidateContentLogicalWidths();
+        }
+    }
+
+    MathMLTokenElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
 }
 
-RenderPtr<RenderElement> MathMLOperatorElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> MathMLOperatorElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
-    ASSERT(hasTagName(MathMLNames::moTag));
-    return createRenderer<RenderMathMLOperator>(*this, WTFMove(style));
+    return createRenderer<RenderMathMLOperator>(RenderObject::Type::MathMLOperator, *this, WTF::move(style));
 }
 
-}
+} // namespace WebCore
 
 #endif // ENABLE(MATHML)

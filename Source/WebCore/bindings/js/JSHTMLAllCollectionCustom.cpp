@@ -26,6 +26,7 @@
 #include "config.h"
 #include "JSHTMLAllCollection.h"
 
+#include "CachedHTMLCollectionInlines.h"
 #include "Element.h"
 #include "HTMLCollection.h"
 #include "JSDOMConvertInterface.h"
@@ -45,22 +46,24 @@ JSC_DEFINE_HOST_FUNCTION(callJSHTMLAllCollection, (JSGlobalObject* lexicalGlobal
     VM& vm = lexicalGlobalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    auto* castedThis = jsCast<JSHTMLAllCollection*>(callFrame->jsCallee());
+    auto* castedThis = downcast<JSHTMLAllCollection>(callFrame->jsCallee());
     ASSERT(castedThis);
     auto& impl = castedThis->wrapped();
     if (callFrame->argument(0).isUndefined())
         return JSValue::encode(jsNull());
 
-    AtomString nameOrIndex = callFrame->uncheckedArgument(0).toString(lexicalGlobalObject)->toAtomString(lexicalGlobalObject);
+    AtomString nameOrIndex = callFrame->uncheckedArgument(0).toString(lexicalGlobalObject)->toAtomString(lexicalGlobalObject).data;
     RETURN_IF_EXCEPTION(scope, { });
-    RELEASE_AND_RETURN(scope, JSValue::encode(toJS<IDLNullable<IDLUnion<IDLInterface<HTMLCollection>, IDLInterface<Element>>>>(*lexicalGlobalObject, *castedThis->globalObject(), impl.namedOrIndexedItemOrItems(WTFMove(nameOrIndex)))));
+    RELEASE_AND_RETURN(scope, JSValue::encode(toJS<IDLNullable<IDLUnion<IDLInterface<HTMLCollection>, IDLInterface<Element>>>>(*lexicalGlobalObject, *castedThis->realm(), impl.namedOrIndexedItemOrItems(WTF::move(nameOrIndex)))));
 }
 
-CallData JSHTMLAllCollection::getCallData(JSCell*)
+CallData NODELETE JSHTMLAllCollection::getCallData(JSCell*)
 {
     CallData callData;
     callData.type = CallData::Type::Native;
     callData.native.function = callJSHTMLAllCollection;
+    callData.native.isBoundFunction = false;
+    callData.native.isWasm = false;
     return callData;
 }
 

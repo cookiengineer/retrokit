@@ -25,16 +25,35 @@
 
 #pragma once
 
-#include "InlineRunAndOffset.h"
-#include "RenderObjectEnums.h"
+#include <WebCore/InlineRunAndOffset.h>
+#include <WebCore/RenderObjectEnums.h>
+
+#if HAVE(REDESIGNED_TEXT_CURSOR)
+#include <pal/spi/cocoa/FeatureFlagsSPI.h>
+#endif
 
 namespace WebCore {
 
-enum class CaretRectMode {
+enum class CaretRectMode : bool {
     Normal,
     ExpandToEndOfLine
 };
 
-LayoutRect computeLocalCaretRect(const RenderObject&, const InlineRunAndOffset&, CaretRectMode = CaretRectMode::Normal);
+int caretWidth();
+
+LayoutRect computeLocalCaretRect(const RenderObject&, const InlineBoxAndOffset&, CaretRectMode = CaretRectMode::Normal);
+
+// FIXME: Remove this feature flag check when possible (rdar://110802729).
+#if HAVE(REDESIGNED_TEXT_CURSOR)
+static inline bool redesignedTextCursorEnabled()
+{
+    static bool enabled;
+    static std::once_flag flag;
+    std::call_once(flag, [] {
+        enabled = os_feature_enabled(UIKit, redesigned_text_cursor);
+    });
+    return enabled;
+}
+#endif
 
 };

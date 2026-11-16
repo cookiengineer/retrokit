@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,11 +29,6 @@
 #include <WebCore/ResourceRequest.h>
 #include <wtf/Forward.h>
 
-namespace IPC {
-class Decoder;
-class Encoder;
-}
-
 namespace API {
 
 class URLRequest : public ObjectImpl<Object::Type::URLRequest> {
@@ -43,13 +38,10 @@ public:
         return adoptRef(*new URLRequest(request));
     }
 
-    const WebCore::ResourceRequest& resourceRequest() const { return m_request; }
+    const WebCore::ResourceRequest& resourceRequest() const LIFETIME_BOUND { return m_request; }
 
     static double defaultTimeoutInterval(); // May return 0 when using platform default.
     static void setDefaultTimeoutInterval(double);
-
-    void encode(IPC::Encoder&) const;
-    static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, RefPtr<Object>&);
 
 private:
     explicit URLRequest(const WebCore::ResourceRequest&);
@@ -58,3 +50,5 @@ private:
 };
 
 } // namespace API
+
+SPECIALIZE_TYPE_TRAITS_API_OBJECT(URLRequest);

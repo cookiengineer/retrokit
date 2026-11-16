@@ -52,7 +52,7 @@ public:
     };
 
     struct RangeKey {
-        static RangeKey addition(Edge edge)
+        static RangeKey NODELETE addition(Edge edge)
         {
             RangeKey result;
             result.m_kind = Addition;
@@ -61,7 +61,7 @@ public:
             return result;
         }
         
-        static RangeKey arrayBounds(Edge edge, Node* key)
+        static RangeKey NODELETE arrayBounds(Edge edge, Node* key)
         {
             RangeKey result;
             result.m_kind = ArrayBounds;
@@ -70,19 +70,14 @@ public:
             return result;
         }
         
-        bool operator!() const { return m_kind == InvalidRangeKind; }
+        bool NODELETE operator!() const { return m_kind == InvalidRangeKind; }
         
-        unsigned hash() const
+        unsigned NODELETE hash() const
         {
             return m_kind + m_source.hash() + PtrHash<Node*>::hash(m_key);
         }
         
-        bool operator==(const RangeKey& other) const
-        {
-            return m_kind == other.m_kind
-                && m_source == other.m_source
-                && m_key == other.m_key;
-        }
+        friend bool NODELETE operator==(const RangeKey&, const RangeKey&) = default;
         
         void dump(PrintStream& out) const
         {
@@ -123,7 +118,7 @@ public:
         {
         }
         
-        bool operator!() const { return !m_key && !m_addend; }
+        bool NODELETE operator!() const { return !m_key && !m_addend; }
         
         void dump(PrintStream& out) const
         {
@@ -150,7 +145,7 @@ public:
     };
 
     IntegerCheckCombiningPhase(Graph& graph)
-        : Phase(graph, "integer check combining")
+        : Phase(graph, "integer check combining"_s)
         , m_insertionSet(graph)
     {
     }
@@ -181,14 +176,12 @@ private:
         
         for (auto* node : *block) {
             RangeKeyAndAddend data = rangeKeyAndAddend(node);
-            if (DFGIntegerCheckCombiningPhaseInternal::verbose)
-                dataLog("For ", node, ": ", data, "\n");
+            dataLogLnIf(DFGIntegerCheckCombiningPhaseInternal::verbose, "For ", node, ": ", data);
             if (!data)
                 continue;
-            
-            Range& range = m_map[data.m_key];
-            if (DFGIntegerCheckCombiningPhaseInternal::verbose)
-                dataLog("    Range: ", range, "\n");
+
+            Range& range = m_map.add(data.m_key, Range { }).iterator->value;
+            dataLogLnIf(DFGIntegerCheckCombiningPhaseInternal::verbose, "    Range: ", range);
             if (range.m_count) {
                 if (data.m_addend > range.m_maxBound) {
                     range.m_maxBound = data.m_addend;
@@ -204,8 +197,7 @@ private:
                 range.m_maxOrigin = node->origin.semantic;
             }
             range.m_count++;
-            if (DFGIntegerCheckCombiningPhaseInternal::verbose)
-                dataLog("    New range: ", range, "\n");
+            dataLogLnIf(DFGIntegerCheckCombiningPhaseInternal::verbose, "    New range: ", range);
         }
         
         for (unsigned nodeIndex = 0; nodeIndex < block->size(); ++nodeIndex) {
@@ -213,7 +205,7 @@ private:
             RangeKeyAndAddend data = rangeKeyAndAddend(node);
             if (!data)
                 continue;
-            Range range = m_map[data.m_key];
+            Range range = m_map.get(data.m_key);
             if (!isValid(data.m_key, range))
                 continue;
             
@@ -260,7 +252,7 @@ private:
                             nodeIndex, SpecNone, CheckInBounds, node->origin,
                             Edge(minNode, Int32Use), Edge(data.m_key.m_key, Int32Use));
                     }
-                    m_map[data.m_key].m_dependency = m_insertionSet.insertNode(
+                    m_map.find(data.m_key)->value.m_dependency = m_insertionSet.insertNode(
                         nodeIndex, SpecNone, CheckInBounds, node->origin,
                         Edge(maxNode, Int32Use), Edge(data.m_key.m_key, Int32Use), Edge(minCheck, UntypedUse));
                     break;
@@ -271,7 +263,7 @@ private:
                 }
                 
                 m_changed = true;
-                m_map[data.m_key].m_hoisted = true;
+                m_map.find(data.m_key)->value.m_hoisted = true;
             }
             
             // Do the elimination.
@@ -283,9 +275,9 @@ private:
                 
             case ArrayBounds:
                 ASSERT(node->op() == CheckInBounds);
-                if (UNLIKELY(Options::validateBoundsCheckElimination()))
+                if (Options::validateBoundsCheckElimination()) [[unlikely]]
                     m_insertionSet.insertNode(nodeIndex, SpecNone, AssertInBounds, node->origin, node->child1(), node->child2());
-                node->convertToIdentityOn(m_map[data.m_key].m_dependency);
+                node->convertToIdentityOn(m_map.get(data.m_key).m_dependency);
                 m_changed = true;
                 break;
                 
@@ -342,7 +334,7 @@ private:
         return RangeKeyAndAddend();
     }
     
-    bool isValid(const RangeKey& key, const Range& range)
+    bool NODELETE isValid(const RangeKey& key, const Range& range)
     {
         if (range.m_count < 2)
             return false;
@@ -378,7 +370,7 @@ private:
                 nodeIndex, origin, jsNumber(addend), source.useKind()));
     }
     
-    using RangeMap = StdUnorderedMap<RangeKey, Range, HashMethod<RangeKey>>;
+    using RangeMap = UncheckedKeyHashMap<GenericHashKey<RangeKey>, Range>;
     RangeMap m_map;
     
     InsertionSet m_insertionSet;

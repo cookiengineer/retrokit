@@ -28,28 +28,26 @@
 
 #include "MediaCapabilities.h"
 #include "Navigator.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-NavigatorMediaCapabilities::NavigatorMediaCapabilities()
-    : m_mediaCapabilities(adoptRef(*new MediaCapabilities()))
+WTF_MAKE_TZONE_ALLOCATED_IMPL(NavigatorMediaCapabilities);
+
+NavigatorMediaCapabilities::NavigatorMediaCapabilities(Navigator& navigator)
+    : m_mediaCapabilities(MediaCapabilities::create(navigator))
 {
 }
 
 NavigatorMediaCapabilities::~NavigatorMediaCapabilities() = default;
 
-const char* NavigatorMediaCapabilities::supplementName()
-{
-    return "NavigatorMediaCapabilities";
-}
-
 NavigatorMediaCapabilities& NavigatorMediaCapabilities::from(Navigator& navigator)
 {
-    NavigatorMediaCapabilities* supplement = static_cast<NavigatorMediaCapabilities*>(Supplement<Navigator>::from(&navigator, supplementName()));
+    auto* supplement = downcast<NavigatorMediaCapabilities>(Supplement<Navigator>::from(&navigator, supplementName()));
     if (!supplement) {
-        auto newSupplement = makeUnique<NavigatorMediaCapabilities>();
+        auto newSupplement = makeUnique<NavigatorMediaCapabilities>(navigator);
         supplement = newSupplement.get();
-        provideTo(&navigator, supplementName(), WTFMove(newSupplement));
+        provideTo(&navigator, supplementName(), WTF::move(newSupplement));
     }
     return *supplement;
 }

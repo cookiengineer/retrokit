@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Google Inc. All Rights Reserved.
+ * Copyright (C) 2010 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,35 +27,38 @@
 
 #include "HTMLTokenizer.h"
 #include "SegmentedString.h"
-#include "TextEncoding.h"
+#include <pal/text/TextEncoding.h>
+#include <wtf/TZoneMalloc.h>
+
+namespace PAL {
+class TextCodec;
+}
 
 namespace WebCore {
 
-class TextCodec;
-
 class HTMLMetaCharsetParser {
-    WTF_MAKE_NONCOPYABLE(HTMLMetaCharsetParser); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(HTMLMetaCharsetParser);
+    WTF_MAKE_NONCOPYABLE(HTMLMetaCharsetParser);
 public:
     HTMLMetaCharsetParser();
 
     // Returns true if done checking, regardless whether an encoding is found.
-    bool checkForMetaCharset(const char*, size_t);
+    bool checkForMetaCharset(std::span<const uint8_t>);
 
-    const TextEncoding& encoding() { return m_encoding; }
+    const PAL::TextEncoding& encoding() LIFETIME_BOUND { return m_encoding; }
 
     // The returned encoding might not be valid.
-    typedef Vector<std::pair<String, String>> AttributeList;
-    static TextEncoding encodingFromMetaAttributes(const AttributeList&);
+    static PAL::TextEncoding encodingFromMetaAttributes(std::span<const std::pair<StringView, StringView>>);
 
 private:
     bool processMeta(HTMLToken&);
 
     HTMLTokenizer m_tokenizer;
-    const std::unique_ptr<TextCodec> m_codec;
+    const std::unique_ptr<PAL::TextCodec> m_codec;
     SegmentedString m_input;
     bool m_inHeadSection { true };
     bool m_doneChecking { false };
-    TextEncoding m_encoding;
+    PAL::TextEncoding m_encoding;
 };
 
 } // namespace WebCore

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,11 +25,13 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if ENABLE(JIT)
 
-#include "MacroAssemblerCodeRef.h"
-#include <wtf/FastMalloc.h>
+#include <JavaScriptCore/MacroAssemblerCodeRef.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC {
 
@@ -41,14 +43,14 @@ class OpaqueByproducts;
 
 class Compilation {
     WTF_MAKE_NONCOPYABLE(Compilation);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(Compilation, JS_EXPORT_PRIVATE);
 
 public:
     JS_EXPORT_PRIVATE Compilation(MacroAssemblerCodeRef<JITCompilationPtrTag>, std::unique_ptr<OpaqueByproducts>);
     JS_EXPORT_PRIVATE Compilation(Compilation&&);
     JS_EXPORT_PRIVATE ~Compilation();
 
-    MacroAssemblerCodePtr<JITCompilationPtrTag> code() const { return m_codeRef.code(); }
+    CodePtr<JITCompilationPtrTag> code() const { return m_codeRef.code(); }
     MacroAssemblerCodeRef<JITCompilationPtrTag> codeRef() const { return m_codeRef; }
     
     CString disassembly() const { return m_codeRef.disassembly(); }

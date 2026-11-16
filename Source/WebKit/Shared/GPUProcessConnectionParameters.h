@@ -27,63 +27,34 @@
 
 #if ENABLE(GPU_PROCESS)
 
+#include "GPUProcessMediaCodecCapabilities.h"
+#include "SharedPreferencesForWebProcess.h"
+#include <WebCore/ProcessIdentity.h>
 #include <wtf/MachSendRight.h>
+
+#if HAVE(AUDIT_TOKEN)
+#include "CoreIPCAuditToken.h"
+#include <WebCore/PageIdentifier.h>
+#endif
 
 namespace WebKit {
 
 struct GPUProcessConnectionParameters {
-#if HAVE(TASK_IDENTITY_TOKEN)
-    MachSendRight webProcessIdentityToken;
-#endif
-    Vector<String> overrideLanguages;
+    WebCore::ProcessIdentity webProcessIdentity;
+    SharedPreferencesForWebProcess sharedPreferencesForWebProcess;
+    bool isLockdownModeEnabled { false };
 #if ENABLE(IPC_TESTING_API)
     bool ignoreInvalidMessageForTesting { false };
 #endif
-
-    void encode(IPC::Encoder& encoder) const
-    {
-#if HAVE(TASK_IDENTITY_TOKEN)
-        encoder << webProcessIdentityToken;
+#if HAVE(AUDIT_TOKEN)
+    HashMap<WebCore::PageIdentifier, CoreIPCAuditToken> presentingApplicationAuditTokens;
 #endif
-        encoder << overrideLanguages;
-#if ENABLE(IPC_TESTING_API)
-        encoder << ignoreInvalidMessageForTesting;
+#if PLATFORM(COCOA)
+    String applicationBundleIdentifier;
 #endif
-    }
-
-    static std::optional<GPUProcessConnectionParameters> decode(IPC::Decoder& decoder)
-    {
-#if HAVE(TASK_IDENTITY_TOKEN)
-        std::optional<MachSendRight> webProcessIdentityToken;
-        decoder >> webProcessIdentityToken;
-        if (!webProcessIdentityToken)
-            return std::nullopt;
-#endif
-
-        std::optional<Vector<String>> overrideLanguages;
-        decoder >> overrideLanguages;
-        if (!overrideLanguages)
-            return std::nullopt;
-
-#if ENABLE(IPC_TESTING_API)
-        std::optional<bool> ignoreInvalidMessageForTesting;
-        decoder >> ignoreInvalidMessageForTesting;
-        if (!ignoreInvalidMessageForTesting)
-            return std::nullopt;
-#endif
-
-        return GPUProcessConnectionParameters {
-#if HAVE(TASK_IDENTITY_TOKEN)
-            WTFMove(*webProcessIdentityToken),
-#endif
-            WTFMove(*overrideLanguages),
-#if ENABLE(IPC_TESTING_API)
-            *ignoreInvalidMessageForTesting,
-#endif
-        };
-    }
+    std::optional<GPUProcessMediaCodecCapabilities> mediaCodecCapabilities;
 };
 
-} // namespace WebKit
+}; // namespace WebKit
 
 #endif // ENABLE(GPU_PROCESS)

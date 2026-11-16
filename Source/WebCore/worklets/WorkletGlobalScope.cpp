@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2018-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,12 +27,14 @@
 #include "config.h"
 #include "WorkletGlobalScope.h"
 
-#include "Frame.h"
+#include "ContentSecurityPolicy.h"
+#include "DocumentPage.h"
+#include "DocumentSettingsValues.h"
+#include "FrameConsoleClient.h"
 #include "InspectorInstrumentation.h"
 #include "JSWorkletGlobalScope.h"
-#include "PageConsoleClient.h"
+#include "LocalFrame.h"
 #include "SecurityOriginPolicy.h"
-#include "Settings.h"
 #include "WorkerMessagePortChannelProvider.h"
 #include "WorkerOrWorkletThread.h"
 #include "WorkerScriptLoader.h"
@@ -40,41 +42,46 @@
 #include <JavaScriptCore/Exception.h>
 #include <JavaScriptCore/JSLock.h>
 #include <JavaScriptCore/ScriptCallStack.h>
-#include <wtf/IsoMallocInlines.h>
+#include <JavaScriptCore/StructureInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 using namespace Inspector;
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(WorkletGlobalScope);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WorkletGlobalScope);
 
 static std::atomic<unsigned> gNumberOfWorkletGlobalScopes { 0 };
 
 WorkletGlobalScope::WorkletGlobalScope(WorkerOrWorkletThread& thread, Ref<JSC::VM>&& vm, const WorkletParameters& parameters)
-    : WorkerOrWorkletGlobalScope(WorkerThreadType::Worklet, WTFMove(vm), &thread)
-    , m_topOrigin(SecurityOrigin::createUnique())
+    : WorkerOrWorkletGlobalScope(WorkerThreadType::Worklet, parameters.sessionID, WTF::move(vm), parameters.referrerPolicy, &thread, parameters.noiseInjectionHashSalt, parameters.advancedPrivacyProtections)
+    , m_topOrigin(SecurityOrigin::createOpaque())
     , m_url(parameters.windowURL)
     , m_jsRuntimeFlags(parameters.jsRuntimeFlags)
     , m_settingsValues(parameters.settingsValues)
+    , m_agentClusterID(parameters.agentClusterID)
 {
     ++gNumberOfWorkletGlobalScopes;
 
+    setStorageBlockingPolicy(parameters.settingsValues.storageBlockingPolicy);
     setSecurityOriginPolicy(SecurityOriginPolicy::create(SecurityOrigin::create(this->url())));
     setContentSecurityPolicy(makeUnique<ContentSecurityPolicy>(URL { this->url() }, *this));
 }
 
 WorkletGlobalScope::WorkletGlobalScope(Document& document, Ref<JSC::VM>&& vm, ScriptSourceCode&& code)
-    : WorkerOrWorkletGlobalScope(WorkerThreadType::Worklet, WTFMove(vm), nullptr)
-    , m_document(makeWeakPtr(document))
-    , m_topOrigin(SecurityOrigin::createUnique())
+    : WorkerOrWorkletGlobalScope(WorkerThreadType::Worklet, *document.sessionID(), WTF::move(vm), document.referrerPolicy(), nullptr, document.noiseInjectionHashSalt(), document.advancedPrivacyProtections())
+    , m_document(document)
+    , m_topOrigin(SecurityOrigin::createOpaque())
     , m_url(code.url())
     , m_jsRuntimeFlags(document.settings().javaScriptRuntimeFlags())
-    , m_code(WTFMove(code))
+    , m_code(WTF::move(code))
     , m_settingsValues(document.settingsValues().isolatedCopy())
+    , m_agentClusterID(document.agentClusterID())
 {
     ++gNumberOfWorkletGlobalScopes;
 
     ASSERT(document.page());
 
+    setStorageBlockingPolicy(m_document->settings().storageBlockingPolicy());
     setSecurityOriginPolicy(SecurityOriginPolicy::create(SecurityOrigin::create(this->url())));
     setContentSecurityPolicy(makeUnique<ContentSecurityPolicy>(URL { this->url() }, *this));
 }
@@ -105,8 +112,8 @@ void WorkletGlobalScope::prepareForDestruction()
 String WorkletGlobalScope::userAgent(const URL& url) const
 {
     if (!m_document)
-        return "";
-    return m_document->userAgent(url);
+        return emptyString();
+    return protect(m_document)->userAgent(url);
 }
 
 void WorkletGlobalScope::evaluate()
@@ -115,7 +122,8 @@ void WorkletGlobalScope::evaluate()
         script()->evaluate(*m_code);
 }
 
-URL WorkletGlobalScope::completeURL(const String& url, ForceUTF8) const
+// https://html.spec.whatwg.org/multipage/webappapis.html#parse-a-url
+URL WorkletGlobalScope::parseURL(const String& url) const
 {
     if (url.isNull())
         return URL();
@@ -124,47 +132,55 @@ URL WorkletGlobalScope::completeURL(const String& url, ForceUTF8) const
 
 void WorkletGlobalScope::logExceptionToConsole(const String& errorMessage, const String& sourceURL, int lineNumber, int columnNumber, RefPtr<ScriptCallStack>&& stack)
 {
+    if (settingsValues().logsPageMessagesToSystemConsoleEnabled) [[unlikely]] {
+        if (stack) {
+            Inspector::ConsoleMessage message { MessageSource::JS, MessageType::Log, MessageLevel::Error, errorMessage, *stack };
+            FrameConsoleClient::logMessageToSystemConsole(message);
+        } else {
+            Inspector::ConsoleMessage message { MessageSource::JS, MessageType::Log, MessageLevel::Error, errorMessage, sourceURL, static_cast<unsigned>(lineNumber), static_cast<unsigned>(columnNumber) };
+            FrameConsoleClient::logMessageToSystemConsole(message);
+        }
+    }
+
     if (!m_document || isJSExecutionForbidden())
         return;
-    m_document->logExceptionToConsole(errorMessage, sourceURL, lineNumber, columnNumber, WTFMove(stack));
+    protect(m_document)->logExceptionToConsole(errorMessage, sourceURL, lineNumber, columnNumber, WTF::move(stack));
 }
 
 void WorkletGlobalScope::addConsoleMessage(std::unique_ptr<Inspector::ConsoleMessage>&& message)
 {
+    if (settingsValues().logsPageMessagesToSystemConsoleEnabled && message) [[unlikely]]
+        FrameConsoleClient::logMessageToSystemConsole(*message);
+
     if (!m_document || isJSExecutionForbidden() || !message)
         return;
-    m_document->addConsoleMessage(makeUnique<Inspector::ConsoleMessage>(message->source(), message->type(), message->level(), message->message(), 0));
+    protect(m_document)->addConsoleMessage(makeUnique<Inspector::ConsoleMessage>(message->source(), message->type(), message->level(), message->message(), 0));
 }
 
 void WorkletGlobalScope::addConsoleMessage(MessageSource source, MessageLevel level, const String& message, unsigned long requestIdentifier)
 {
     if (!m_document || isJSExecutionForbidden())
         return;
-    m_document->addConsoleMessage(source, level, message, requestIdentifier);
+    protect(m_document)->addConsoleMessage(source, level, message, requestIdentifier);
 }
 
 void WorkletGlobalScope::addMessage(MessageSource source, MessageLevel level, const String& messageText, const String& sourceURL, unsigned lineNumber, unsigned columnNumber, RefPtr<ScriptCallStack>&& callStack, JSC::JSGlobalObject*, unsigned long requestIdentifier)
 {
     if (!m_document || isJSExecutionForbidden())
         return;
-    m_document->addMessage(source, level, messageText, sourceURL, lineNumber, columnNumber, WTFMove(callStack), nullptr, requestIdentifier);
-}
-
-ReferrerPolicy WorkletGlobalScope::referrerPolicy() const
-{
-    return ReferrerPolicy::NoReferrer;
+    protect(m_document)->addMessage(source, level, messageText, sourceURL, lineNumber, columnNumber, WTF::move(callStack), nullptr, requestIdentifier);
 }
 
 void WorkletGlobalScope::fetchAndInvokeScript(const URL& moduleURL, FetchRequestCredentials credentials, CompletionHandler<void(std::optional<Exception>&&)>&& completionHandler)
 {
     ASSERT(!isMainThread());
-    script()->loadAndEvaluateModule(moduleURL, credentials, WTFMove(completionHandler));
+    script()->loadAndEvaluateModule(moduleURL, credentials, WTF::move(completionHandler));
 }
 
 MessagePortChannelProvider& WorkletGlobalScope::messagePortChannelProvider()
 {
     if (!m_messagePortChannelProvider)
-        m_messagePortChannelProvider = makeUnique<WorkerMessagePortChannelProvider>(*this);
+        lazyInitialize(m_messagePortChannelProvider, WorkerMessagePortChannelProvider::create(*this));
     return *m_messagePortChannelProvider;
 }
 

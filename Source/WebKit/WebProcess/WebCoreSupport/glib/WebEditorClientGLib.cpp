@@ -23,8 +23,13 @@
 #include <WebCore/CompositionHighlight.h>
 #include <WebCore/Document.h>
 #include <WebCore/Editor.h>
-#include <WebCore/Frame.h>
+#include <WebCore/FrameDestructionObserverInlines.h>
 #include <WebCore/KeyboardEvent.h>
+#include <WebCore/LocalFrame.h>
+#include <WebCore/LocalFrameInlines.h>
+#include <WebCore/Node.h>
+#include <WebCore/NodeDocument.h>
+#include <WebCore/NodeInlines.h>
 #include <WebCore/PlatformKeyboardEvent.h>
 #include <WebPage.h>
 
@@ -42,15 +47,21 @@ void WebEditorClient::didDispatchInputMethodKeydown(KeyboardEvent& event)
 {
     auto* platformEvent = event.underlyingPlatformEvent();
     ASSERT(event.target());
-    auto* frame = downcast<Node>(event.target())->document().frame();
+    RefPtr frame = downcast<Node>(event.target())->document().frame();
     ASSERT(frame);
 
     if (const auto& underlines = platformEvent->preeditUnderlines()) {
         auto rangeStart = platformEvent->preeditSelectionRangeStart().value_or(0);
         auto rangeLength = platformEvent->preeditSelectionRangeLength().value_or(0);
-        frame->editor().setComposition(platformEvent->text(), underlines.value(), { }, rangeStart, rangeStart + rangeLength);
-    } else
+        frame->editor().setComposition(platformEvent->text(), underlines.value(), { }, { }, rangeStart, rangeStart + rangeLength);
+    } else if (frame->editor().hasComposition())
         frame->editor().confirmComposition(platformEvent->text());
+    else if (!platformEvent->text().isEmpty() && frame->editor().canEdit()) {
+        // The input method committed text without a preedit, so there is no composition to end. Insert it as typing,
+        // otherwise the page would get a compositionend without a compositionstart. The keydown has already been
+        // dispatched and no keypress follows it, so the text is not inserted from a keydown default handler.
+        frame->editor().insertText(platformEvent->text(), nullptr);
+    }
 }
 
 } // namespace WebKit

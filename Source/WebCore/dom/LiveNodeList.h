@@ -2,7 +2,7 @@
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2001 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2004-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2025 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -23,72 +23,82 @@
 
 #pragma once
 
-#include "CollectionIndexCache.h"
-#include "CollectionTraversal.h"
-#include "Document.h"
-#include "HTMLNames.h"
-#include "NodeList.h"
+#include <WebCore/CollectionIndexCache.h>
+#include <WebCore/CollectionTraversal.h>
+#include <WebCore/DocumentEnums.h>
+#include <WebCore/NodeList.h>
 #include <wtf/Forward.h>
-#include <wtf/IsoMalloc.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
+class Document;
 class Element;
+class QualifiedName;
 
-static bool shouldInvalidateTypeOnAttributeChange(NodeListInvalidationType, const QualifiedName&);
+inline bool shouldInvalidateTypeOnAttributeChange(NodeListInvalidationType, const QualifiedName&);
+
+enum class LiveNodeListType : uint8_t {
+    NameNodeList = 0,
+    RadioNodeList = 1,
+    LabelsNodeList = 2
+};
 
 class LiveNodeList : public NodeList {
-    WTF_MAKE_ISO_NONALLOCATABLE(LiveNodeList);
+    WTF_MAKE_TZONE_NON_HEAP_ALLOCATABLE(LiveNodeList);
 public:
     virtual ~LiveNodeList();
 
     virtual bool elementMatches(Element&) const = 0;
-    virtual bool isRootedAtDocument() const = 0;
+    virtual bool isRootedAtTreeScope() const = 0;
+
+    LiveNodeListType type() const { return m_type; }
 
     NodeListInvalidationType invalidationType() const { return m_invalidationType; }
     ContainerNode& ownerNode() const { return m_ownerNode; }
+    ContainerNode& rootNode() const;
     void invalidateCacheForAttribute(const QualifiedName& attributeName) const;
     virtual void invalidateCacheForDocument(Document&) const = 0;
-    void invalidateCache() const { invalidateCacheForDocument(document()); }
+    inline void invalidateCache() const;
 
     bool isRegisteredForInvalidationAtDocument() const { return m_isRegisteredForInvalidationAtDocument; }
     void setRegisteredForInvalidationAtDocument(bool isRegistered) { m_isRegisteredForInvalidationAtDocument = isRegistered; }
 
 protected:
-    LiveNodeList(ContainerNode& ownerNode, NodeListInvalidationType);
+    LiveNodeList(ContainerNode& ownerNode, LiveNodeListType, NodeListInvalidationType);
 
-    Document& document() const { return m_ownerNode->document(); }
-    ContainerNode& rootNode() const;
+    inline Document& document() const;
 
 private:
     bool isLiveNodeList() const final { return true; }
 
-    Ref<ContainerNode> m_ownerNode;
+    const Ref<ContainerNode> m_ownerNode;
 
+    const LiveNodeListType m_type;
     const NodeListInvalidationType m_invalidationType;
     bool m_isRegisteredForInvalidationAtDocument { false };
 };
 
-template <class NodeListType>
+template <class NodeListType, CollectionTraversalType traversalType = CollectionTraversalType::Descendants>
 class CachedLiveNodeList : public LiveNodeList {
-    WTF_MAKE_ISO_NONALLOCATABLE(CachedLiveNodeList);
+    WTF_MAKE_TZONE_NON_HEAP_ALLOCATABLE(CachedLiveNodeList);
 public:
-    virtual ~CachedLiveNodeList();
+    inline virtual ~CachedLiveNodeList();
 
-    unsigned length() const final { return m_indexCache.nodeCount(nodeList()); }
-    Element* item(unsigned offset) const final { return m_indexCache.nodeAt(nodeList(), offset); }
+    inline unsigned length() const final;
+    inline Node* item(unsigned offset) const final;
 
     // For CollectionIndexCache
-    using Traversal = CollectionTraversal<CollectionTraversalType::Descendants>;
+    using Traversal = CollectionTraversal<traversalType>;
     using Iterator = Traversal::Iterator;
-    auto collectionBegin() const { return Traversal::begin(nodeList(), rootNode()); }
-    auto collectionLast() const { return Traversal::last(nodeList(), rootNode()); }
-    void collectionTraverseForward(Iterator& current, unsigned count, unsigned& traversedCount) const { Traversal::traverseForward(nodeList(), current, count, traversedCount); }
-    void collectionTraverseBackward(Iterator& current, unsigned count) const { Traversal::traverseBackward(nodeList(), current, count); }
-    bool collectionCanTraverseBackward() const { return true; }
-    void willValidateIndexCache() const { document().registerNodeListForInvalidation(const_cast<CachedLiveNodeList&>(*this)); }
+    inline Iterator collectionBegin() const;
+    inline Iterator collectionLast() const;
+    inline void collectionTraverseForward(Iterator& current, unsigned count, unsigned& traversedCount) const;
+    inline void collectionTraverseBackward(Iterator& current, unsigned count) const;
+    inline bool collectionCanTraverseBackward() const;
+    inline void willValidateIndexCache() const;
 
-    void invalidateCacheForDocument(Document&) const final;
+    inline void invalidateCacheForDocument(Document&) const final;
     size_t memoryCost() const final
     {
         // memoryCost() may be invoked concurrently from a GC thread, and we need to be careful
@@ -98,7 +108,7 @@ public:
     }
 
 protected:
-    CachedLiveNodeList(ContainerNode& rootNode, NodeListInvalidationType);
+    inline CachedLiveNodeList(ContainerNode& rootNode, LiveNodeListType, NodeListInvalidationType);
 
 private:
     NodeListType& nodeList() { return static_cast<NodeListType&>(*this); }
@@ -107,64 +117,16 @@ private:
     mutable CollectionIndexCache<NodeListType, Iterator> m_indexCache;
 };
 
-ALWAYS_INLINE bool shouldInvalidateTypeOnAttributeChange(NodeListInvalidationType type, const QualifiedName& attrName)
-{
-    switch (type) {
-    case InvalidateOnClassAttrChange:
-        return attrName == HTMLNames::classAttr;
-    case InvalidateOnNameAttrChange:
-        return attrName == HTMLNames::nameAttr;
-    case InvalidateOnIdNameAttrChange:
-        return attrName == HTMLNames::idAttr || attrName == HTMLNames::nameAttr;
-    case InvalidateOnForTypeAttrChange:
-        return attrName == HTMLNames::forAttr || attrName == HTMLNames::typeAttr;
-    case InvalidateForFormControls:
-        return attrName == HTMLNames::nameAttr || attrName == HTMLNames::idAttr || attrName == HTMLNames::forAttr
-            || attrName == HTMLNames::formAttr || attrName == HTMLNames::typeAttr;
-    case InvalidateOnHRefAttrChange:
-        return attrName == HTMLNames::hrefAttr;
-    case DoNotInvalidateOnAttributeChanges:
-        return false;
-    case InvalidateOnAnyAttrChange:
-        return true;
-    }
-    return false;
-}
-
-ALWAYS_INLINE void LiveNodeList::invalidateCacheForAttribute(const QualifiedName& attributeName) const
-{
-    if (shouldInvalidateTypeOnAttributeChange(m_invalidationType, attributeName))
-        invalidateCache();
-}
-
-inline ContainerNode& LiveNodeList::rootNode() const
-{
-    if (isRootedAtDocument() && m_ownerNode->isConnected())
-        return document();
-
-    return m_ownerNode;
-}
-
-template <class NodeListType>
-CachedLiveNodeList<NodeListType>::CachedLiveNodeList(ContainerNode& ownerNode, NodeListInvalidationType invalidationType)
-    : LiveNodeList(ownerNode, invalidationType)
-{
-}
-
-template <class NodeListType>
-CachedLiveNodeList<NodeListType>::~CachedLiveNodeList()
-{
-    if (m_indexCache.hasValidCache())
-        document().unregisterNodeListForInvalidation(*this);
-}
-
-template <class NodeListType>
-void CachedLiveNodeList<NodeListType>::invalidateCacheForDocument(Document& document) const
-{
-    if (m_indexCache.hasValidCache()) {
-        document.unregisterNodeListForInvalidation(const_cast<NodeListType&>(nodeList()));
-        m_indexCache.invalidate();
-    }
-}
-
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::LiveNodeList)
+    static bool isType(const WebCore::NodeList& nodeList) { return nodeList.isLiveNodeList(); }
+SPECIALIZE_TYPE_TRAITS_END()
+
+#define SPECIALIZE_TYPE_TRAITS_LIVENODELIST(ClassName) \
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::ClassName) \
+    static bool isType(const WebCore::LiveNodeList& nodeList) \
+    { \
+        return nodeList.type() == WebCore::LiveNodeListType::ClassName; \
+    } \
+SPECIALIZE_TYPE_TRAITS_END()

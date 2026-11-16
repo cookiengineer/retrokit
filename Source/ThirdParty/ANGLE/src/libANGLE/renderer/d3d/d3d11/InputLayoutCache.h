@@ -18,6 +18,7 @@
 #include <map>
 
 #include "common/angleutils.h"
+#include "common/span.h"
 #include "libANGLE/Constants.h"
 #include "libANGLE/Error.h"
 #include "libANGLE/SizedMRUCache.h"
@@ -27,11 +28,10 @@
 
 namespace rx
 {
+ANGLE_ENABLE_STRUCT_PADDING_WARNINGS
+
 struct PackedAttributeLayout
 {
-    PackedAttributeLayout();
-    PackedAttributeLayout(const PackedAttributeLayout &other);
-
     void addAttributeData(GLenum glType,
                           UINT semanticIndex,
                           angle::FormatID vertexFormatID,
@@ -39,17 +39,12 @@ struct PackedAttributeLayout
 
     bool operator==(const PackedAttributeLayout &other) const;
 
-    enum Flags
-    {
-        FLAG_USES_INSTANCED_SPRITES     = 0x1,
-        FLAG_INSTANCED_SPRITES_ACTIVE   = 0x2,
-        FLAG_INSTANCED_RENDERING_ACTIVE = 0x4,
-    };
-
-    uint32_t numAttributes;
-    uint32_t flags;
-    gl::AttribArray<uint64_t> attributeData;
+    uint32_t numAttributes                  = 0;
+    uint32_t pad0                           = 0;
+    gl::AttribArray<uint64_t> attributeData = {0};
 };
+
+ANGLE_DISABLE_STRUCT_PADDING_WARNINGS
 }  // namespace rx
 
 namespace std
@@ -59,7 +54,7 @@ struct hash<rx::PackedAttributeLayout>
 {
     size_t operator()(const rx::PackedAttributeLayout &value) const
     {
-        return angle::ComputeGenericHash(value);
+        return angle::ComputeGenericHash(angle::byte_span_from_ref(value));
     }
 };
 }  // namespace std

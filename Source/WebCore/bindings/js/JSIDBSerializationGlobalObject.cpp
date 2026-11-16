@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,23 +26,29 @@
 #include "config.h"
 #include "JSIDBSerializationGlobalObject.h"
 
+#include "JSDOMGlobalObjectInlines.h"
 #include "WebCoreJSClientData.h"
 
 namespace WebCore {
 
 using namespace JSC;
 
-const ClassInfo JSIDBSerializationGlobalObject::s_info = { "JSIDBSerializationGlobalObject", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSIDBSerializationGlobalObject) };
+const ClassInfo JSIDBSerializationGlobalObject::s_info = { "JSIDBSerializationGlobalObject"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSIDBSerializationGlobalObject) };
+
+JSC::Structure* JSIDBSerializationGlobalObject::createStructure(JSC::VM& vm, JSC::JSValue prototype)
+{
+    return JSC::Structure::create(vm, 0, prototype, JSC::TypeInfo(JSC::GlobalObjectType, StructureFlags), info());
+}
 
 inline JSIDBSerializationGlobalObject::JSIDBSerializationGlobalObject(VM& vm, Structure* structure, Ref<DOMWrapperWorld>&& impl)
-    : Base(vm, structure, WTFMove(impl))
+    : Base(vm, structure, WTF::move(impl))
     , m_scriptExecutionContext(EmptyScriptExecutionContext::create(vm))
 {
 }
 
 JSIDBSerializationGlobalObject* JSIDBSerializationGlobalObject::create(VM& vm, Structure* structure, Ref<DOMWrapperWorld>&& impl)
 {
-    JSIDBSerializationGlobalObject* ptr =  new (NotNull, allocateCell<JSIDBSerializationGlobalObject>(vm.heap)) JSIDBSerializationGlobalObject(vm, structure, WTFMove(impl));
+    JSIDBSerializationGlobalObject* ptr =  new (NotNull, JSC::allocateCell<JSIDBSerializationGlobalObject>(vm)) JSIDBSerializationGlobalObject(vm, structure, WTF::move(impl));
     ptr->finishCreation(vm);
     return ptr;
 }
@@ -52,14 +58,15 @@ void JSIDBSerializationGlobalObject::finishCreation(VM& vm)
     Base::finishCreation(vm);
 }
 
-IsoSubspace* JSIDBSerializationGlobalObject::subspaceForImpl(VM& vm)
+GCClient::IsoSubspace* JSIDBSerializationGlobalObject::subspaceForImpl(VM& vm)
 {
-    return &static_cast<JSVMClientData*>(vm.clientData)->idbSerializationSpace();
+    return &downcast<JSVMClientData>(vm.clientData)->idbSerializationSpace();
 }
 
 void JSIDBSerializationGlobalObject::destroy(JSCell* cell)
 {
-    static_cast<JSIDBSerializationGlobalObject*>(cell)->JSIDBSerializationGlobalObject::~JSIDBSerializationGlobalObject();
+    // We cannot rely on jsCast() during JSObject destruction.
+    SUPPRESS_MEMORY_UNSAFE_CAST static_cast<JSIDBSerializationGlobalObject*>(cell)->JSIDBSerializationGlobalObject::~JSIDBSerializationGlobalObject();
 }
 
 } // namespace WebCore

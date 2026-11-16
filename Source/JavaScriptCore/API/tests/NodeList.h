@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,7 +33,7 @@ typedef struct {
 } NodeList;
 
 extern NodeList* NodeList_new(Node* parentNode);
-extern unsigned NodeList_length(NodeList*);
-extern Node* NodeList_item(NodeList*, unsigned);
-extern void NodeList_ref(NodeList*);
+extern unsigned NODELETE NodeList_length(NodeList*);
+extern Node* NODELETE NodeList_item(NodeList*, unsigned);
+extern void NODELETE NodeList_ref(NodeList*);
 extern void NodeList_deref(NodeList*);

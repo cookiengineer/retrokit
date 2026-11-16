@@ -25,11 +25,12 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if HAVE(FAST_TLS)
 
 #include <pthread.h>
-#include <System/pthread_machdep.h>
-#include <wtf/Platform.h>
+#include <pthread/tsd_private.h>
 
 namespace WTF {
 

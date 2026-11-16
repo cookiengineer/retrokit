@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,9 +25,11 @@
 
 #pragma once
 
-#include "Gate.h"
-#include "Opcode.h"
-#include "OptionsList.h"
+#include <JavaScriptCore/Gate.h>
+#include <JavaScriptCore/OptionsList.h>
+#include <JavaScriptCore/SecureARM64EHashPins.h>
+#include <JavaScriptCore/StopTheWorldCallback.h>
+#include <wtf/PtrTag.h>
 #include <wtf/WTFConfig.h>
 
 namespace JSC {
@@ -40,12 +42,15 @@ class VM;
 using JITWriteSeparateHeapsFunction = void (*)(off_t, const void*, size_t);
 #endif
 
-struct Config {
-    static Config& singleton();
+#define JSC_CONFIG_METHOD(method) \
+    WTF_FUNCPTR_PTRAUTH_STR("JSCConfig." #method) method
 
-    JS_EXPORT_PRIVATE static void disableFreezingForTesting();
-    JS_EXPORT_PRIVATE static void enableRestrictedOptions();
-    static void permanentlyFreeze() { WTF::Config::permanentlyFreeze(); }
+struct Config {
+    static Config& NODELETE singleton();
+
+    static void disableFreezingForTesting() { g_wtfConfig.disableFreezingForTesting(); }
+    JS_EXPORT_PRIVATE static void NODELETE enableRestrictedOptions();
+    static void finalize() { WTF::Config::finalize(); }
 
     static void configureForTesting()
     {
@@ -59,10 +64,12 @@ struct Config {
     // All the fields in this struct should be chosen such that their
     // initial value is 0 / null / falsy because Config is instantiated
     // as a global singleton.
+    // FIXME: We should use a placement new constructor from JSC::initialize so we can use default initializers.
 
-    bool disabledFreezingForTesting;
     bool restrictedOptionsEnabled;
     bool jitDisabled;
+    bool vmCreationDisallowed;
+    bool vmEntryDisallowed;
 
     bool useFastJITPermissions;
 
@@ -76,11 +83,19 @@ struct Config {
         bool canUseJIT;
     } vm;
 
+#if CPU(ARM64E)
+    bool canUseFPAC;
+#endif
     ExecutableAllocator* executableAllocator;
     FixedVMPoolExecutableAllocator* fixedVMPoolExecutableAllocator;
     void* startExecutableMemory;
     void* endExecutableMemory;
     uintptr_t startOfFixedWritableMemoryPool;
+    uintptr_t startOfStructureHeap;
+    uintptr_t structureIDBase;
+    uintptr_t sizeOfStructureHeap;
+    void* defaultCallThunk;
+    void* arityFixupThunk;
 
 #if ENABLE(SEPARATED_WX_HEAP)
     JITWriteSeparateHeapsFunction jitWriteSeparateHeaps;
@@ -88,39 +103,62 @@ struct Config {
 
     OptionsStorage options;
 
-    void (*shellTimeoutCheckCallback)(VM&);
+    using ShellTimeoutCheckCallback = void (*)(VM&);
+    ShellTimeoutCheckCallback JSC_CONFIG_METHOD(shellTimeoutCheckCallback);
 
+    StopTheWorldCallback JSC_CONFIG_METHOD(wasmDebuggerOnStop);
+    using PostResumeCallback = void (*)();
+    PostResumeCallback JSC_CONFIG_METHOD(wasmDebuggerOnResume);
+    StopTheWorldCallback JSC_CONFIG_METHOD(memoryDebuggerStopTheWorld);
+
+    static constexpr unsigned exceptionInstructionsSize = 64;
     struct {
-        uint8_t exceptionInstructions[maxOpcodeLength + 1];
-        uint8_t wasmExceptionInstructions[maxOpcodeLength + 1];
+        uint8_t exceptionInstructions[exceptionInstructionsSize];
         const void* gateMap[numberOfGates];
     } llint;
 
 #if CPU(ARM64E) && ENABLE(PTRTAG_DEBUGGING)
     WTF::PtrTagLookup ptrTagLookupRecord;
 #endif
-};
 
-#if ENABLE(UNIFIED_AND_FREEZABLE_CONFIG_RECORD)
+#if CPU(ARM64E) && ENABLE(JIT)
+    SecureARM64EHashPins arm64eHashPins;
+#endif
+};
 
 constexpr size_t alignmentOfJSCConfig = std::alignment_of<JSC::Config>::value;
 
 static_assert(WTF::offsetOfWTFConfigExtension + sizeof(JSC::Config) <= WTF::ConfigSizeToProtect);
 static_assert(roundUpToMultipleOf<alignmentOfJSCConfig>(WTF::offsetOfWTFConfigExtension) == WTF::offsetOfWTFConfigExtension);
 
-#define g_jscConfig (*bitwise_cast<JSC::Config*>(&g_wtfConfig.spaceForExtensions))
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
-#else // not ENABLE(UNIFIED_AND_FREEZABLE_CONFIG_RECORD)
+// Workaround to localize bounds safety warnings to this file.
+// FIXME: Use real types to make materializing JSC::Config* bounds-safe and type-safe.
+inline Config* addressOfJSCConfig() { return std::bit_cast<Config*>(&g_wtfConfig.spaceForExtensions); }
 
-extern "C" JS_EXPORT_PRIVATE Config g_jscConfig;
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-#endif // ENABLE(UNIFIED_AND_FREEZABLE_CONFIG_RECORD)
+#define g_jscConfig (*JSC::addressOfJSCConfig())
 
 constexpr size_t offsetOfJSCConfigInitializeHasBeenCalled = offsetof(JSC::Config, initializeHasBeenCalled);
 constexpr size_t offsetOfJSCConfigGateMap = offsetof(JSC::Config, llint.gateMap);
+constexpr size_t offsetOfJSCConfigStructureIDBase = offsetof(JSC::Config, structureIDBase);
+constexpr size_t offsetOfJSCConfigDefaultCallThunk = offsetof(JSC::Config, defaultCallThunk);
+
+ALWAYS_INLINE PURE_FUNCTION uintptr_t startOfStructureHeap()
+{
+    return g_jscConfig.startOfStructureHeap;
+}
+
+ALWAYS_INLINE PURE_FUNCTION uintptr_t sizeOfStructureHeap()
+{
+    return g_jscConfig.sizeOfStructureHeap;
+}
+
+ALWAYS_INLINE PURE_FUNCTION uintptr_t structureIDBase()
+{
+    return g_jscConfig.structureIDBase;
+}
 
 } // namespace JSC
-
-#if !ENABLE(UNIFIED_AND_FREEZABLE_CONFIG_RECORD)
-using JSC::g_jscConfig;
-#endif

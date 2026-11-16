@@ -29,6 +29,7 @@
 #include "StorageAreaImplIdentifier.h"
 #include <WebCore/StorageArea.h>
 #include <wtf/HashMap.h>
+#include <wtf/Identified.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -39,14 +40,12 @@ namespace WebKit {
 
 class StorageAreaMap;
 
-class StorageAreaImpl final : public WebCore::StorageArea {
+class StorageAreaImpl final : public WebCore::StorageArea, public Identified<StorageAreaImplIdentifier> {
 public:
     using Identifier = StorageAreaImplIdentifier;
 
     static Ref<StorageAreaImpl> create(StorageAreaMap&);
     virtual ~StorageAreaImpl();
-
-    Identifier identifier() const { return m_identifier; }
 
 private:
     StorageAreaImpl(StorageAreaMap&);
@@ -55,18 +54,20 @@ private:
     unsigned length() override;
     String key(unsigned index) override;
     String item(const String& key) override;
-    void setItem(WebCore::Frame* sourceFrame, const String& key, const String& value, bool& quotaException) override;
-    void removeItem(WebCore::Frame* sourceFrame, const String& key) override;
-    void clear(WebCore::Frame* sourceFrame) override;
+    void setItem(WebCore::LocalFrame& sourceFrame, const String& key, const String& value, bool& quotaException) override;
+    void removeItem(WebCore::LocalFrame& sourceFrame, const String& key) override;
+    void clear(WebCore::LocalFrame& sourceFrame) override;
     bool contains(const String& key) override;
     WebCore::StorageType storageType() const override;
+    bool isWebKit2StorageAreaImpl() const final { return true; }
     size_t memoryBytesUsedByCache() override;
-    void incrementAccessCount() override;
-    void decrementAccessCount() override;
-    void closeDatabaseIfIdle() override;
+    void prewarm() final;
 
-    Identifier m_identifier;
     WeakPtr<StorageAreaMap> m_storageAreaMap;
 };
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::StorageAreaImpl)
+static bool isType(const WebCore::StorageArea& area) { return area.isWebKit2StorageAreaImpl(); }
+SPECIALIZE_TYPE_TRAITS_END()

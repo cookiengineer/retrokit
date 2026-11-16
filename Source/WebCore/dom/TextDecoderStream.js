@@ -31,7 +31,7 @@ function initializeTextDecoderStream()
     const options = arguments.length >= 2 ? arguments[1] : { };
 
     const startAlgorithm = () => {
-        return @Promise.@resolve();
+        return @promiseResolve(@Promise, @undefined);
     };
     const transformAlgorithm = (chunk) => {
         const decoder = @getByIdDirectPrivate(this, "textDecoderStreamDecoder");
@@ -39,14 +39,14 @@ function initializeTextDecoderStream()
         try {
             buffer = decoder.@decode(chunk);
         } catch (e) {
-            return @Promise.@reject(e);
+            return @promiseReject(@Promise, e);
         }
         if (buffer) {
             const transformStream = @getByIdDirectPrivate(this, "textDecoderStreamTransform");
             const controller = @getByIdDirectPrivate(transformStream, "controller");
             @transformStreamDefaultControllerEnqueue(controller, buffer);
         }
-        return @Promise.@resolve();
+        return @promiseResolve(@Promise, @undefined);
     };
     const flushAlgorithm = () => {
         const decoder = @getByIdDirectPrivate(this, "textDecoderStreamDecoder");
@@ -54,18 +54,20 @@ function initializeTextDecoderStream()
         try {
             buffer = decoder.@flush();
         } catch (e) {
-            return @Promise.@reject(e);
+            return @promiseReject(@Promise, e);
         }
         if (buffer) {
             const transformStream = @getByIdDirectPrivate(this, "textDecoderStreamTransform");
             const controller = @getByIdDirectPrivate(transformStream, "controller");
             @transformStreamDefaultControllerEnqueue(controller, buffer);
         }
-        return @Promise.@resolve();
+        return @promiseResolve(@Promise, @undefined);
     };
 
-    const transform = @createTransformStream(startAlgorithm, transformAlgorithm, flushAlgorithm);
+    const [transform, readable, writable] = @createTransformStream(startAlgorithm, transformAlgorithm, flushAlgorithm);
     @putByIdDirectPrivate(this, "textDecoderStreamTransform", transform);
+    @putByIdDirectPrivate(this, "readable", readable);
+    @putByIdDirectPrivate(this, "writable", writable);
 
     const fatal = !!options.fatal;
     const ignoreBOM = !!options.ignoreBOM;
@@ -121,7 +123,7 @@ function readable()
     if (!transform)
         throw @makeThisTypeError("TextDecoderStream", "readable");
 
-    return @getByIdDirectPrivate(transform, "readable");
+    return @getByIdDirectPrivate(this, "readable");
 }
 
 @getter
@@ -133,5 +135,5 @@ function writable()
     if (!transform)
         throw @makeThisTypeError("TextDecoderStream", "writable");
 
-    return @getByIdDirectPrivate(transform, "writable");
+    return @getByIdDirectPrivate(this, "writable");
 }

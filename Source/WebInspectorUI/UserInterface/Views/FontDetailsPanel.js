@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,34 +32,71 @@ WI.FontDetailsPanel = class FontDetailsPanel extends WI.StyleDetailsPanel
         const label = WI.UIString("Font", "Font @ Font Details Sidebar Title", "Title for the Font details sidebar.");
         super(delegate, className, identifier, label);
 
-        this._fontPropertiesMap = new Map;
-        this._fontVariationsMap = new Map;
-        this._fontFeaturesMap = new Map;
+        this._fontStyles = null;
+        this._fontVariationRowsMap = new Map;
+        this._basicPropertyRowsMap = new Map;
+        this._basicPropertyNames = ["font-size", "font-style", "font-weight", "font-stretch"];
+
+        this._abortController = new AbortController;
+        this._throttledUpdate = new Throttler(() => { this.update() }, 100);
+        this._debouncedUpdate = new Debouncer(() => { this._skipNextUpdate = false; this.update(); });
+        this._skipNextUpdate = false;
     }
 
     // Public
-
-    get supportsToggleCSSClass()
-    {
-        return false;
-    }
 
     refresh(significantChange)
     {
         super.refresh(significantChange);
 
-        let fontMap = this.nodeStyles.computedPrimaryFont?.calculateFontProperties(this.nodeStyles) ?? {};
-        this._fontPropertiesMap = fontMap.propertiesMap ?? new Map;
-        this._fontVariationsMap = fontMap.variationsMap ?? new Map;
-        this._fontFeaturesMap = fontMap.featuresMap ?? new Map;
+        if (!this._fontStyles || this._fontStyles.significantChangeSinceLastRefresh) {
+            this._throttledUpdate.force();
+            return;
+        }
+
+        this._throttledUpdate.fire();
+    }
+
+    update()
+    {
+        if (this._skipNextUpdate)
+            return;
+
+        this._fontStyles?.refresh();
+
+        if (!this._fontStyles || this._fontStyles.significantChangeSinceLastRefresh)
+            this.updateLayout();
+
+        // Basic properties
+        for (let propertyName of this._basicPropertyNames) {
+            let row = this._basicPropertyRowsMap.get(propertyName);
+            let fontProperty = this._fontPropertiesMap.get(propertyName);
+
+            if (row instanceof WI.DetailsSectionSimpleRow) {
+                row.value = this._formatPropertyValue(propertyName, fontProperty.value);
+
+                if (propertyName === "font-style")
+                    if (this.nodeStyles.computedPrimaryFont?.synthesizedOblique)
+                        if (fontProperty.value === "italic")
+                            row.warningMessage = WI.UIString("Font was synthesized to be oblique because no italic font is available.", "A warning that is shown in the Font Details Sidebar when the font had to be synthesized to support the provided style.");
+                        else
+                            row.warningMessage = WI.UIString("Font was synthesized to be oblique because no oblique font is available.", "A warning that is shown in the Font Details Sidebar when the font had to be synthesized to support the provided style.");
+                    else
+                        row.warningMessage = null;
+
+                if (propertyName === "font-weight")
+                    row.warningMessage = this.nodeStyles.computedPrimaryFont?.synthesizedBold ? WI.UIString("Font was synthesized to be bold because no bold font is available.", "A warning that is shown in the Font Details Sidebar when the font had to be synthesized to support the provided weight.") : null;
+            }
+
+            if (row instanceof WI.FontVariationDetailsSectionRow) {
+                let fontVariationAxis = fontProperty.variations.values().next().value;
+                row.value = fontVariationAxis.value ? fontVariationAxis.value : WI.FontStyles.fontPropertyValueToAxisValue(fontVariationAxis.tag, fontProperty.value);
+            }
+        }
 
         this._fontNameRow.value = this.nodeStyles.computedPrimaryFont.name;
 
-        this._fontSizeRow.value = this._formatSizeValue(this._fontPropertiesMap.get("font-size"));
-        this._fontStyleRow.value = this._formatStyleValue(this._fontPropertiesMap.get("font-style"));
-        this._fontWeightRow.value = this._formatSimpleSingleValue(this._fontPropertiesMap.get("font-weight"), "wght", "%s");
-        this._fontStretchRow.value = this._formatSimpleSingleValue(this._fontPropertiesMap.get("font-stretch"), "wdth", WI.UIString("%s%%", "%s%% @ Font Details Sidebar", "A single value expressed as a percentage where the value has already been converted from a number to a string."));
-
+        // Feature properties
         this._fontVariantLigaturesRow.value = this._formatLigatureValue(this._fontPropertiesMap.get("font-variant-ligatures"));
         this._fontVariantPositionRow.value = this._formatPositionValue(this._fontPropertiesMap.get("font-variant-position"));
         this._fontVariantCapsRow.value = this._formatCapitalsValue(this._fontPropertiesMap.get("font-variant-caps"));
@@ -73,20 +110,79 @@ WI.FontDetailsPanel = class FontDetailsPanel extends WI.StyleDetailsPanel
         this._fontAdditionalFeaturesGroup.rows = featureRows;
         this._fontAdditionalFeaturesGroup.hidden = !featureRows.length;
 
-        let variationRows = [];
-        for (let [key, value] of this._fontVariationsMap) {
-            let name = value.name ? WI.UIString("%s (%s)").format(value.name, key) : key;
-            variationRows.push(new WI.DetailsSectionSimpleRow(name, this._formatVariationValue(value)));
+        // Variation properties
+        for (let [tag, fontVariationAxis] of this._fontVariationsMap) {
+            let variationRow = this._fontVariationRowsMap.get(tag);
+            variationRow.value = fontVariationAxis.value ?? fontVariationAxis.defaultValue;
         }
-        if (!variationRows.length) {
+
+        if (!this._fontVariationRowsMap.size) {
             let emptyRow = new WI.DetailsSectionRow(WI.UIString("No additional variation axes.", "No additional variation axes. @ Font Details Sidebar", "Message shown when there are no additional variation axes to show."));
             emptyRow.showEmptyMessage();
-            variationRows.push(emptyRow);
+
+            this._fontVariationsGroup.rows = [emptyRow];
         }
-        this._fontVariationsGroup.rows = variationRows;
     }
 
     // Protected
+
+    detached()
+    {
+        super.detached();
+
+        this._fontStyles = null;
+        this._abortController?.abort();
+        this._abortController = null;
+    }
+
+    layout()
+    {
+        if (this.layoutReason === WI.View.LayoutReason.Resize)
+            return;
+
+        if (!this.nodeStyles.computedStyle || !this.nodeStyles.computedPrimaryFont) {
+            this._fontStyles = null;
+            return;
+        }
+
+        this._abortController?.abort();
+        this._abortController = new AbortController();
+        this._fontStyles = new WI.FontStyles(this.nodeStyles);
+
+        for (let propertyName of this._basicPropertyNames) {
+            let row = this._basicPropertyRowsMap.get(propertyName);
+            if (row)
+                row.element.remove();
+
+            this._basicPropertyRowsMap.set(propertyName, this._createDetailsSectionRowForProperty(propertyName));
+        }
+
+        this._basicPropertiesGroup.rows = [...this._basicPropertyRowsMap.values()].sort((rowA, rowB) => {
+            if (rowA instanceof WI.DetailsSectionSimpleRow && rowB instanceof WI.FontVariationDetailsSectionRow)
+                return -1;
+
+            if (rowA instanceof WI.FontVariationDetailsSectionRow && rowB instanceof WI.DetailsSectionSimpleRow)
+                return 1;
+
+            return 0;
+        });
+
+        for (let [tag, variationRow] of this._fontVariationRowsMap) {
+            variationRow.element.remove();
+            variationRow.removeEventListener(WI.FontVariationDetailsSectionRow.Event.VariationValueChanged, this._handleFontVariationValueChanged, this);
+
+            this._fontVariationRowsMap.delete(tag);
+        }
+
+        for (let [tag, fontVariationAxis] of this._fontVariationsMap) {
+            let variationRow = new WI.FontVariationDetailsSectionRow(fontVariationAxis, this._abortController.signal);
+            variationRow.addEventListener(WI.FontVariationDetailsSectionRow.Event.VariationValueChanged, this._handleFontVariationValueChanged, this);
+
+            this._fontVariationRowsMap.set(tag, variationRow);
+        }
+
+        this._fontVariationsGroup.rows = [...this._fontVariationRowsMap.values()];
+    }
 
     initialLayout()
     {
@@ -100,13 +196,9 @@ WI.FontDetailsPanel = class FontDetailsPanel extends WI.StyleDetailsPanel
         this.element.appendChild(fontNameSection.element);
 
         // Basic Properties
-        this._fontSizeRow = new WI.DetailsSectionSimpleRow(WI.UIString("Size", "Size @ Font Details Sidebar Property", "Property title for `font-size`."));
-        this._fontStyleRow = new WI.DetailsSectionSimpleRow(WI.UIString("Style", "Style @ Font Details Sidebar Property", "Property title for `font-style`."));
-        this._fontWeightRow = new WI.DetailsSectionSimpleRow(WI.UIString("Weight", "Weight @ Font Details Sidebar Property", "Property title for `font-weight`."));
-        this._fontStretchRow = new WI.DetailsSectionSimpleRow(WI.UIString("Stretch", "Stretch @ Font Details Sidebar Property", "Property title for `font-stretch`."));
-        let basicPropertiesGroup = new WI.DetailsSectionGroup([this._fontSizeRow, this._fontStyleRow, this._fontWeightRow, this._fontStretchRow]);
+        this._basicPropertiesGroup = new WI.DetailsSectionGroup();
 
-        let fontBasicPropertiesSection = new WI.DetailsSection("font-basic-properties", WI.UIString("Basic Properties", "Basic Properties @ Font Details Sidebar Section", "Section title for basic font properties."), [basicPropertiesGroup]);
+        let fontBasicPropertiesSection = new WI.DetailsSection("font-basic-properties", WI.UIString("Basic Properties", "Basic Properties @ Font Details Sidebar Section", "Section title for basic font properties."), [this._basicPropertiesGroup]);
         this.element.appendChild(fontBasicPropertiesSection.element);
 
         // Feature Properties
@@ -130,58 +222,73 @@ WI.FontDetailsPanel = class FontDetailsPanel extends WI.StyleDetailsPanel
         this.element.appendChild(fontVariationPropertiesSection.element);
     }
 
-    _formatSizeValue(property)
+    // Private
+
+    get _fontPropertiesMap()
     {
-        return property.value;
+        return this._fontStyles?.propertiesMap ?? new Map;   
     }
 
-    _formatStyleValue(property)
+    get _fontVariationsMap()
     {
-        // `slnt` is expressed in negated values relative to `oblique`.
-        if (this._hasVariationValue(property, "slnt"))
-            return WI.UIString("Oblique %ddeg", "Oblique %ddeg @ Font Details Sidebar Property Value", "Property value for oblique text.").format(-1 * parseFloat(property.variations.get("slnt").value));
-
-        if (this._hasVariationValue(property, "ital"))
-            return WI.UIString("Italic", "Italic @ Font Details Sidebar Property Value", "Property value for oblique text.");
-
-        if (property.value === "normal")
-            return WI.UIString("Normal", "Normal @ Font Details Sidebar Property Value", "Property value for any `normal` CSS value.");
-
-        return property.value;
+        return this._fontStyles?.variationsMap ?? new Map;
     }
 
-    _formatSimpleSingleValue(property, variationTag, variationFormat)
+    get _fontFeaturesMap()
     {
-        let result;
-        if (this._hasVariationValue(property, variationTag))
-            result = variationFormat.format(this._formatAxisValueAsString(property.variations.get(variationTag).value));
-        else
-            result = this._formatAxisValueAsString(property.value);
+        return this._fontStyles?.featuresMap ?? new Map;
+    }
 
-        if (this._hasVariationValue(property, variationTag, {optional: true})) {
-            let axis = property.variations.get(variationTag);
-            return this._createVariationValueElement(result, axis.minimumValue, axis.maximumValue, axis.defaultValue);
+    _createDetailsSectionRowForProperty(propertyName)
+    {
+        let fontProperty = this._fontPropertiesMap.get(propertyName);
+        const labelForTag = {
+            "ital": WI.UIString("Italic", "Italic @ Font Details Sidebar Property Value", "Property title for `font-style` italic and `ital` variation axis."),
+            "slnt": WI.UIString("Oblique", "Oblique @ Font Details Sidebar Property Value", "Property title for `font-style` oblique and `slnt` variation axis."),
+            "opsz": WI.UIString("Optical Sizing", "Optical Sizing @ Font Details Sidebar Property Value", "Property title for `font-optical-sizing` and `opzs` variation axis."),
+            "wght": WI.UIString("Weight", "Weight @ Font Details Sidebar Property", "Property title for `font-weight` and `wght` variation axis."),
+            "wdth": WI.UIString("Width", "Width @ Font Details Sidebar Property", "Property title for `font-stretch` and `wdth` variation axis."),
         }
 
-        return result;
+        let fontVariationAxis = fontProperty.variations?.values().next().value;
+        if (fontVariationAxis) {
+            // Ensure registered axes have a name; fallback to labels for their corresponding font properties.
+            fontVariationAxis.name ??= labelForTag[fontVariationAxis.tag];
+            let variationRow = new WI.FontVariationDetailsSectionRow(fontVariationAxis, this._abortController.signal);
+
+            variationRow.addEventListener(WI.FontVariationDetailsSectionRow.Event.VariationValueChanged, this._handleFontVariationValueChanged, this);
+
+            return variationRow;
+        }
+
+        switch (propertyName) {
+        case "font-size":
+            return new WI.DetailsSectionSimpleRow(WI.UIString("Size", "Size @ Font Details Sidebar Property", "Property title for `font-size`."));
+            break;
+        case "font-style":
+            return new WI.DetailsSectionSimpleRow(WI.UIString("Style", "Style @ Font Details Sidebar Property", "Property title for `font-style`."));
+            break;
+        case "font-weight":
+            return new WI.DetailsSectionSimpleRow(WI.UIString("Weight", "Weight @ Font Details Sidebar Property", "Property title for `font-weight` and `wght` variation axis."));
+            break;
+        case "font-stretch":
+            return new WI.DetailsSectionSimpleRow(WI.UIString("Stretch", "Stretch @ Font Details Sidebar Property", "Property title for `font-stretch`."));
+            break;
+        }
+
+        console.assert(false, "Should not be reached.", propertyName);
     }
 
-    _formatVariationValue(variation)
+    _formatPropertyValue(propertyName, propertyValue)
     {
-        let value = variation.value || variation.value === 0 ? variation.value : variation.defaultValue;
-        return this._createVariationValueElement(this._formatAxisValueAsString(value), variation.minimumValue, variation.maximumValue, variation.defaultValue);
-    }
-
-    _createVariationValueElement(value, minimumValue, maximumValue, defaultValue)
-    {
-        let valueElement = document.createElement("div");
-        valueElement.textContent = value;
-
-        let secondaryElement = valueElement.appendChild(document.createElement("span"));
-        secondaryElement.className = "secondary";
-        secondaryElement.textContent = WI.UIString(" (Range: %s-%s, Default: %s)", " (Range: %s-%s, Default: %s) @ Font Details Sidebar", "A range and default value for a single variation axis of a font.").format(this._formatAxisValueAsString(minimumValue), this._formatAxisValueAsString(maximumValue), this._formatAxisValueAsString(defaultValue));
-        
-        return valueElement;
+        switch (propertyName) {
+        case "font-size":
+            return propertyValue;
+        case "font-style":
+            return propertyValue === "normal" ? WI.UIString("Normal", "Normal @ Font Details Sidebar Property Value", "Property value for any `normal` CSS value.") : propertyValue;
+        default:
+            return this._formatAxisValueAsString(propertyValue);
+        }
     }
 
     _formatAxisValueAsString(value)
@@ -190,13 +297,14 @@ WI.FontDetailsPanel = class FontDetailsPanel extends WI.StyleDetailsPanel
             minimumFractionDigits: 0,
             maximumFractionDigits: 2,
             useGrouping: false,
-        }
+            trailingZeroDisplay: "stripIfInteger",
+        };
         return value.toLocaleString(undefined, options);
     }
 
     _formatSimpleFeatureValues(property, features, noMatchesResult)
     {
-        let valueParts = property.value.match(WI.Font.SettingPattern);
+        let valueParts = property.value.match(WI.FontStyles.SettingPattern);
         let results = [];
         // Only one result should be pushed per group.
         let resultGroups = new Set;
@@ -215,7 +323,7 @@ WI.FontDetailsPanel = class FontDetailsPanel extends WI.StyleDetailsPanel
 
     _formatLigatureValue(property)
     {
-        let valueParts = property.value.match(WI.Font.SettingPattern);
+        let valueParts = property.value.match(WI.FontStyles.SettingPattern);
 
         let results = [];
 
@@ -439,10 +547,10 @@ WI.FontDetailsPanel = class FontDetailsPanel extends WI.StyleDetailsPanel
         return tagNotPresentCondition;
     }
 
-    _hasVariationValue(property, variationTag, {optional} = {})
+    _handleFontVariationValueChanged(event)
     {
-        if (property.variations?.has(variationTag))
-            return property.variations.get(variationTag).value || optional;
-        return false;
+        this._skipNextUpdate = true;
+        this._debouncedUpdate.delayForTime(100);
+        this._fontStyles.writeFontVariation(event.data.tag, event.data.value);
     }
 };

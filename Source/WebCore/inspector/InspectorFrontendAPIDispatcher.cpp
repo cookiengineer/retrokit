@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,24 +26,25 @@
 #include "config.h"
 #include "InspectorFrontendAPIDispatcher.h"
 
-#include "Frame.h"
-#include "InspectorController.h"
+#include "DOMWrapperWorld.h"
 #include "JSDOMPromise.h"
+#include "LocalFrame.h"
 #include "Page.h"
+#include "PageInspectorController.h"
 #include "ScriptController.h"
 #include "ScriptDisallowedScope.h"
 #include "ScriptSourceCode.h"
-#include "ScriptState.h"
 #include <JavaScriptCore/FrameTracers.h>
 #include <JavaScriptCore/JSPromise.h>
 #include <wtf/RunLoop.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
 using EvaluationError = InspectorFrontendAPIDispatcher::EvaluationError;
 
 InspectorFrontendAPIDispatcher::InspectorFrontendAPIDispatcher(Page& frontendPage)
-    : m_frontendPage(makeWeakPtr(frontendPage))
+    : m_frontendPage(frontendPage)
 {
 }
 
@@ -82,7 +83,7 @@ void InspectorFrontendAPIDispatcher::suspend(UnsuspendSoon unsuspendSoon)
     m_suspended = true;
 
     if (unsuspendSoon == UnsuspendSoon::Yes) {
-        RunLoop::main().dispatch([protectedThis = makeRef(*this)] {
+        RunLoop::mainSingleton().dispatch([protectedThis = Ref { *this }] {
             // If the frontend page has been deallocated, there's nothing to do.
             if (!protectedThis->m_frontendPage)
                 return;
@@ -107,19 +108,23 @@ JSDOMGlobalObject* InspectorFrontendAPIDispatcher::frontendGlobalObject()
 {
     if (!m_frontendPage)
         return nullptr;
+
+    RefPtr localMainFrame = m_frontendPage->localMainFrame();
+    if (!localMainFrame)
+        return nullptr;
     
-    return m_frontendPage->mainFrame().script().globalObject(mainThreadNormalWorld());
+    return localMainFrame->script().globalObject(mainThreadNormalWorldSingleton());
 }
 
 static String expressionForEvaluatingCommand(const String& command, Vector<Ref<JSON::Value>>&& arguments)
 {
     StringBuilder expression;
-    expression.append("InspectorFrontendAPI.dispatch([\"", command, '"');
+    expression.append("InspectorFrontendAPI.dispatch([\""_s, command, '"');
     for (auto& argument : arguments) {
-        expression.append(", ");
+        expression.append(", "_s);
         argument->writeJSON(expression);
     }
-    expression.append("])");
+    expression.append("])"_s);
     return expression.toString();
 }
 
@@ -128,17 +133,17 @@ InspectorFrontendAPIDispatcher::EvaluationResult InspectorFrontendAPIDispatcher:
     if (m_suspended)
         return makeUnexpected(EvaluationError::ExecutionSuspended);
 
-    return evaluateExpression(expressionForEvaluatingCommand(command, WTFMove(arguments)));
+    return evaluateExpression(expressionForEvaluatingCommand(command, WTF::move(arguments)));
 }
 
 void InspectorFrontendAPIDispatcher::dispatchCommandWithResultAsync(const String& command, Vector<Ref<JSON::Value>>&& arguments, EvaluationResultHandler&& resultHandler)
 {
-    evaluateOrQueueExpression(expressionForEvaluatingCommand(command, WTFMove(arguments)), WTFMove(resultHandler));
+    evaluateOrQueueExpression(expressionForEvaluatingCommand(command, WTF::move(arguments)), WTF::move(resultHandler));
 }
 
 void InspectorFrontendAPIDispatcher::dispatchMessageAsync(const String& message)
 {
-    evaluateOrQueueExpression(makeString("InspectorFrontendAPI.dispatchMessageAsync(", message, ")"));
+    evaluateOrQueueExpression(makeString("InspectorFrontendAPI.dispatchMessageAsync("_s, message, ')'));
 }
 
 void InspectorFrontendAPIDispatcher::evaluateOrQueueExpression(const String& expression, EvaluationResultHandler&& optionalResultHandler)
@@ -158,7 +163,7 @@ void InspectorFrontendAPIDispatcher::evaluateOrQueueExpression(const String& exp
         suspend(UnsuspendSoon::Yes);
 
     if (!m_frontendLoaded || m_suspended) {
-        m_queuedEvaluations.append(std::make_pair(expression, WTFMove(optionalResultHandler)));
+        m_queuedEvaluations.append(std::make_pair(expression, WTF::move(optionalResultHandler)));
         return;
     }
 
@@ -176,9 +181,10 @@ void InspectorFrontendAPIDispatcher::evaluateOrQueueExpression(const String& exp
         optionalResultHandler(makeUnexpected(EvaluationError::ContextDestroyed));
         return;
     }
-        
-    auto& vm = globalObject->vm();
-    auto* castedPromise = JSC::jsDynamicCast<JSC::JSPromise*>(vm, result.value());
+    
+    JSC::JSLockHolder lock(globalObject);
+    
+    auto* castedPromise = dynamicDowncast<JSC::JSPromise>(result.value());
     if (!castedPromise) {
         // Simple case: result is NOT a promise, just return the JSValue.
         optionalResultHandler(result);
@@ -187,28 +193,28 @@ void InspectorFrontendAPIDispatcher::evaluateOrQueueExpression(const String& exp
 
     // If the result is a promise, call the result handler when the promise settles.
     Ref<DOMPromise> promise = DOMPromise::create(*globalObject, *castedPromise);
-    m_pendingResponses.set(promise.copyRef(), WTFMove(optionalResultHandler));
-    auto isRegistered = promise->whenSettled([promise = promise.copyRef(), weakThis = makeWeakPtr(*this)] {
+    m_pendingResponses.set(promise.copyRef(), WTF::move(optionalResultHandler));
+    auto isRegistered = promise->whenSettled([promise = promise.copyRef(), weakThis = WeakPtr { *this }] {
         // If `this` is cleared or the responses map is empty, then the promise settled
         // beyond the time when we care about its result. Ignore late-settled promises.
         // We clear out completion handlers for pending responses during teardown.
         if (!weakThis)
             return;
 
-        auto strongThis = makeRef(*weakThis);
-        if (!strongThis->m_pendingResponses.size())
+        Ref protectedThis = { *weakThis };
+        if (!protectedThis->m_pendingResponses.size())
             return;
 
-        EvaluationResultHandler resultHandler = strongThis->m_pendingResponses.take(promise);
+        EvaluationResultHandler resultHandler = protectedThis->m_pendingResponses.take(promise);
         ASSERT(resultHandler);
         
-        JSDOMGlobalObject* globalObject = strongThis->frontendGlobalObject();
+        JSDOMGlobalObject* globalObject = protectedThis->frontendGlobalObject();
         if (!globalObject) {
             resultHandler(makeUnexpected(EvaluationError::ContextDestroyed));
             return;
         }
 
-        resultHandler({ promise->promise()->result(globalObject->vm()) });
+        resultHandler({ promise->promise()->result() });
     });
 
     if (isRegistered == DOMPromise::IsCallbackRegistered::No)
@@ -219,7 +225,7 @@ void InspectorFrontendAPIDispatcher::invalidateQueuedExpressions()
 {
     auto queuedEvaluations = std::exchange(m_queuedEvaluations, { });
     for (auto& pair : queuedEvaluations) {
-        auto resultHandler = WTFMove(pair.second);
+        auto resultHandler = WTF::move(pair.second);
         if (resultHandler)
             resultHandler(makeUnexpected(EvaluationError::ContextDestroyed));
     }
@@ -247,7 +253,7 @@ void InspectorFrontendAPIDispatcher::evaluateQueuedExpressions()
     auto queuedEvaluations = std::exchange(m_queuedEvaluations, { });
     for (auto& pair : queuedEvaluations) {
         auto result = evaluateExpression(pair.first);
-        if (auto resultHandler = WTFMove(pair.second))
+        if (auto resultHandler = WTF::move(pair.second))
             resultHandler(result);
     }
 }
@@ -258,8 +264,10 @@ ValueOrException InspectorFrontendAPIDispatcher::evaluateExpression(const String
     ASSERT(!m_suspended);
     ASSERT(m_queuedEvaluations.isEmpty());
 
-    JSC::SuspendExceptionScope scope(&m_frontendPage->inspectorController().vm());
-    return m_frontendPage->mainFrame().script().evaluateInWorld(ScriptSourceCode(expression), mainThreadNormalWorld());
+    JSC::SuspendExceptionScope scope(m_frontendPage->inspectorController().vm());
+
+    RefPtr localMainFrame = m_frontendPage->localMainFrame();
+    return localMainFrame->script().evaluateInWorld(ScriptSourceCode(expression, JSC::SourceTaintedOrigin::Untainted), mainThreadNormalWorldSingleton());
 }
 
 void InspectorFrontendAPIDispatcher::evaluateExpressionForTesting(const String& expression)

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2021 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,14 +26,15 @@
 #include "config.h"
 #include "JSEventTarget.h"
 
-#include "DOMWindow.h"
 #include "EventTarget.h"
 #include "EventTargetHeaders.h"
 #include "EventTargetInterfaces.h"
+#include "JSDOMGlobalObjectInlines.h"
 #include "JSDOMWindow.h"
 #include "JSEventListener.h"
 #include "JSWindowProxy.h"
 #include "JSWorkerGlobalScope.h"
+#include "LocalDOMWindow.h"
 #include "WorkerGlobalScope.h"
 
 #if ENABLE(OFFSCREEN_CANVAS)
@@ -45,39 +46,39 @@ using namespace JSC;
 
 JSValue toJSNewlyCreated(JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<EventTarget>&& value)
 {
-    return createWrapper<EventTarget>(globalObject, WTFMove(value));
+    return createWrapper<EventTarget>(globalObject, WTF::move(value));
 }
 
-EventTarget* JSEventTarget::toWrapped(VM& vm, JSValue value)
+EventTarget* NODELETE JSEventTarget::toWrapped(VM&, JSValue value)
 {
-    if (value.inherits<JSWindowProxy>(vm))
-        return &jsCast<JSWindowProxy*>(asObject(value))->wrapped();
-    if (value.inherits<JSDOMWindow>(vm))
-        return &jsCast<JSDOMWindow*>(asObject(value))->wrapped();
-    if (value.inherits<JSWorkerGlobalScope>(vm))
-        return &jsCast<JSWorkerGlobalScope*>(asObject(value))->wrapped();
-    if (value.inherits<JSEventTarget>(vm))
-        return &jsCast<JSEventTarget*>(asObject(value))->wrapped();
+    if (auto* windowProxy = dynamicDowncast<JSWindowProxy>(value))
+        return &windowProxy->wrapped();
+    if (auto* window = dynamicDowncast<JSDOMWindow>(value))
+        return &window->wrapped();
+    if (auto* workerGlobalScope = dynamicDowncast<JSWorkerGlobalScope>(value))
+        return &workerGlobalScope->wrapped();
+    if (auto* eventTarget = dynamicDowncast<JSEventTarget>(value))
+        return &eventTarget->wrapped();
     return nullptr;
 }
 
-std::unique_ptr<JSEventTargetWrapper> jsEventTargetCast(VM& vm, JSValue thisValue)
+JSEventTargetWrapper jsEventTargetCast(VM& vm, JSValue thisValue)
 {
-    if (auto* target = jsDynamicCast<JSEventTarget*>(vm, thisValue))
-        return makeUnique<JSEventTargetWrapper>(target->wrapped(), *target);
+    if (auto* target = dynamicDowncast<JSEventTarget>(thisValue))
+        return { target->wrapped(), *target };
     if (auto* window = toJSDOMGlobalObject<JSDOMWindow>(vm, thisValue))
-        return makeUnique<JSEventTargetWrapper>(window->wrapped(), *window);
+        return { window->wrapped(), *window };
     if (auto* scope = toJSDOMGlobalObject<JSWorkerGlobalScope>(vm, thisValue))
-        return makeUnique<JSEventTargetWrapper>(scope->wrapped(), *scope);
-    return nullptr;
+        return { scope->wrapped(), *scope };
+    return { };
 }
 
 template<typename Visitor>
-void JSEventTarget::visitAdditionalChildren(Visitor& visitor)
+void JSEventTarget::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    wrapped().visitJSEventListeners(visitor);
+    wrapped().visitJSEventListenersInGCThread(visitor);
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSEventTarget);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSEventTarget);
 
 } // namespace WebCore

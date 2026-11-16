@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,17 +25,19 @@
 
 #pragma once
 
-#include "HeapCellType.h"
+#include <JavaScriptCore/HeapCellType.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC {
 
 class JSDestructibleObjectHeapCellType final : public HeapCellType {
+    WTF_MAKE_TZONE_ALLOCATED(JSDestructibleObjectHeapCellType);
 public:
     JS_EXPORT_PRIVATE JSDestructibleObjectHeapCellType();
     JS_EXPORT_PRIVATE ~JSDestructibleObjectHeapCellType() final;
     
-    void finishSweep(MarkedBlock::Handle&, FreeList*) final;
-    void destroy(VM&, JSCell*) final;
+    void finishSweep(MarkedBlock::Handle&, FreeList*) const final;
+    void destroy(VM&, JSCell*) const final;
 };
 
 } // namespace JSC

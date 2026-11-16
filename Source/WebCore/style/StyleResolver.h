@@ -26,24 +26,26 @@
 #include "InspectorCSSOMWrappers.h"
 #include "MatchedDeclarationsCache.h"
 #include "MediaQueryEvaluator.h"
-#include "RenderStyle.h"
+#include "PropertyCascade.h"
 #include "RuleSet.h"
-#include "StyleBuilderState.h"
 #include "StyleScopeRuleSets.h"
+#include "TreeResolutionState.h"
 #include <memory>
 #include <wtf/HashMap.h>
 #include <wtf/RefPtr.h>
+#include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/text/AtomStringHash.h>
 #include <wtf/text/StringHash.h>
 
 namespace WebCore {
 
+class BlendingKeyframe;
+class BlendingKeyframes;
 class CSSStyleSheet;
 class Document;
 class Element;
-class KeyframeList;
-class KeyframeValue;
 class RuleData;
 class RuleSet;
 class SelectorFilter;
@@ -55,63 +57,76 @@ class StyleRuleKeyframes;
 class StyleRulePage;
 class StyleSheet;
 class StyleSheetList;
+class TimingFunction;
 class ViewportStyleResolver;
-
-// MatchOnlyUserAgentRules is used in media queries, where relative units
-// are interpreted according to the document root element style, and styled only
-// from the User Agent Stylesheet rules.
 
 enum class RuleMatchingBehavior: uint8_t {
     MatchAllRules,
     MatchAllRulesExcludingSMIL,
-    MatchOnlyUserAgentRules,
 };
 
 namespace Style {
 
-struct ElementStyle {
-    ElementStyle(std::unique_ptr<RenderStyle> renderStyle, std::unique_ptr<Relations> relations = { })
-        : renderStyle(WTFMove(renderStyle))
-        , relations(WTFMove(relations))
-    { }
+class ComputedStyle;
+class CustomFunctionRegistry;
+struct BuilderContext;
+struct CachedMatchResult;
+struct ResolvedStyle;
+struct SelectorMatchingState;
+struct UnadjustedStyle;
 
-    std::unique_ptr<RenderStyle> renderStyle;
-    std::unique_ptr<Relations> relations;
+struct ResolutionContext {
+    const Style::ComputedStyle* parentStyle;
+    const Style::ComputedStyle* parentBoxStyle { nullptr };
+    // This needs to be provided during style resolution when up-to-date document element style is not available via DOM.
+    const Style::ComputedStyle* documentElementStyle { nullptr };
+    SelectorMatchingState* selectorMatchingState { nullptr };
+    CheckedPtr<TreeResolutionState> treeResolutionState { };
+
+    bool isSVGUseTreeRoot { false };
 };
 
-class Resolver : public RefCounted<Resolver> {
-    WTF_MAKE_ISO_ALLOCATED(Resolver);
+using KeyframesRuleMap = HashMap<AtomString, Ref<StyleRuleKeyframes>>;
+
+class Resolver : public ThreadSafeRefCounted<Resolver>, public CanMakeSingleThreadWeakPtr<Resolver> {
+    WTF_MAKE_TZONE_ALLOCATED(Resolver);
 public:
-    static Ref<Resolver> create(Document&);
+    // Style resolvers are shared between shadow trees with identical styles. That's why we don't simply provide a Style::Scope.
+    enum class ScopeType : bool { Document, ShadowTree };
+    static Ref<Resolver> create(Document&, ScopeType);
     ~Resolver();
 
-    ElementStyle styleForElement(const Element&, const RenderStyle* parentStyle, const RenderStyle* parentBoxStyle = nullptr, RuleMatchingBehavior = RuleMatchingBehavior::MatchAllRules, const SelectorFilter* = nullptr);
+    UnadjustedStyle unadjustedStyleForElement(Element&, const ResolutionContext&, RuleMatchingBehavior = RuleMatchingBehavior::MatchAllRules);
+    UnadjustedStyle unadjustedStyleForCachedMatchResult(Element&, const ResolutionContext&, CachedMatchResult&&);
 
-    void keyframeStylesForAnimation(const Element&, const RenderStyle* elementStyle, const RenderStyle* parentElementStyle, KeyframeList&);
+    ResolvedStyle styleForElement(Element&, const ResolutionContext&, RuleMatchingBehavior = RuleMatchingBehavior::MatchAllRules);
 
-    WEBCORE_EXPORT std::unique_ptr<RenderStyle> pseudoStyleForElement(const Element&, const PseudoElementRequest&, const RenderStyle& parentStyle, const RenderStyle* parentBoxStyle = nullptr, const SelectorFilter* = nullptr);
+    bool keyframeStylesForAnimation(Element&, const Style::ComputedStyle& elementStyle, const ResolutionContext&, BlendingKeyframes&, const TimingFunction*) const;
 
-    std::unique_ptr<RenderStyle> styleForPage(int pageIndex);
-    std::unique_ptr<RenderStyle> defaultStyleForElement(const Element*);
+    WEBCORE_EXPORT std::optional<ResolvedStyle> styleForPseudoElement(Element&, const PseudoElementRequest&, const ResolutionContext&);
 
-    Document& document() { return m_document; }
-    const Document& document() const { return m_document; }
-    const Settings& settings() const { return m_document.settings(); }
+    std::unique_ptr<Style::ComputedStyle> styleForPage(int pageIndex);
+    std::unique_ptr<Style::ComputedStyle> defaultStyleForElement(const Element*);
 
-    void appendAuthorStyleSheets(const Vector<RefPtr<CSSStyleSheet>>&);
+    Document& NODELETE document();
+    const Document& NODELETE document() const;
+    const Settings& NODELETE settings() const;
 
-    ScopeRuleSets& ruleSets() { return m_ruleSets; }
-    const ScopeRuleSets& ruleSets() const { return m_ruleSets; }
+    ScopeType scopeType() const { return m_scopeType; }
 
-    const MediaQueryEvaluator& mediaQueryEvaluator() const { return m_mediaQueryEvaluator; }
+    void appendAuthorStyleSheets(std::span<const Ref<CSSStyleSheet>>);
 
-    const RenderStyle* overrideDocumentElementStyle() const { return m_overrideDocumentElementStyle; }
-    void setOverrideDocumentElementStyle(const RenderStyle* style) { m_overrideDocumentElementStyle = style; }
+    ScopeRuleSets& ruleSets() LIFETIME_BOUND { return m_ruleSets; }
+    const ScopeRuleSets& ruleSets() const LIFETIME_BOUND { return m_ruleSets; }
+
+    const MQ::MediaQueryEvaluator& mediaQueryEvaluator() const LIFETIME_BOUND { return m_mediaQueryEvaluator; }
 
     void addCurrentSVGFontFaceRules();
 
-    std::unique_ptr<RenderStyle> styleForKeyframe(const Element&, const RenderStyle* elementStyle, const RenderStyle* parentElementStyle, const StyleRuleKeyframe*, KeyframeValue&);
-    bool isAnimationNameValid(const String&);
+    std::unique_ptr<Style::ComputedStyle> styleForKeyframe(Element&, const Style::ComputedStyle& elementStyle, const ResolutionContext&, const StyleRuleKeyframe&, BlendingKeyframe&) const;
+    bool isAnimationNameValid(const AtomString&) const;
+
+    void setViewTransitionStyles(CSSSelector::PseudoElement, const AtomString&, Ref<MutableStyleProperties>);
 
     // These methods will give back the set of rules that matched for a given element (or a pseudo-element).
     enum CSSRuleFilter {
@@ -121,78 +136,59 @@ public:
         AllButEmptyCSSRules = UAAndUserCSSRules | AuthorCSSRules,
         AllCSSRules         = AllButEmptyCSSRules | EmptyCSSRules,
     };
-    Vector<RefPtr<const StyleRule>> styleRulesForElement(const Element*, unsigned rulesToInclude = AllButEmptyCSSRules);
-    Vector<RefPtr<const StyleRule>> pseudoStyleRulesForElement(const Element*, PseudoId, unsigned rulesToInclude = AllButEmptyCSSRules);
+    Vector<Ref<const StyleRule>> styleRulesForElement(const Element*, unsigned rulesToInclude = AllButEmptyCSSRules);
+    Vector<Ref<const StyleRule>> pseudoStyleRulesForElement(const Element*, const std::optional<Style::PseudoElementRequest>&, unsigned rulesToInclude = AllButEmptyCSSRules);
 
     bool hasSelectorForId(const AtomString&) const;
     bool hasSelectorForAttribute(const Element&, const AtomString&) const;
 
-    bool hasViewportDependentMediaQueries() const;
+    bool NODELETE hasViewportDependentMediaQueries() const;
     std::optional<DynamicMediaQueryEvaluationChanges> evaluateDynamicMediaQueries();
 
+    static KeyframesRuleMap& NODELETE userAgentKeyframes();
+    static void addUserAgentKeyframeStyle(Ref<StyleRuleKeyframes>&&);
     void addKeyframeStyle(Ref<StyleRuleKeyframes>&&);
+    Vector<Ref<StyleRuleKeyframe>> keyframeRulesForName(const AtomString&, const TimingFunction*) const;
+
+    const CustomFunctionRegistry* NODELETE customFunctionRegistry() const;
+    CustomFunctionRegistry& ensureCustomFunctionRegistry();
+
+    RefPtr<StyleRuleViewTransition> NODELETE viewTransitionRule() const;
 
     bool usesFirstLineRules() const { return m_ruleSets.features().usesFirstLineRules; }
     bool usesFirstLetterRules() const { return m_ruleSets.features().usesFirstLetterRules; }
-    
+    bool usesStartingStyleRules() const { return m_ruleSets.features().hasStartingStyleRules; }
+
     void invalidateMatchedDeclarationsCache();
     void clearCachedDeclarationsAffectedByViewportUnits();
 
-    InspectorCSSOMWrappers& inspectorCSSOMWrappers() { return m_inspectorCSSOMWrappers; }
+    InspectorCSSOMWrappers& inspectorCSSOMWrappers() LIFETIME_BOUND { return m_inspectorCSSOMWrappers; }
 
     bool isSharedBetweenShadowTrees() const { return m_isSharedBetweenShadowTrees; }
     void setSharedBetweenShadowTrees() { m_isSharedBetweenShadowTrees = true; }
 
 private:
-    friend class PageRuleCollector;
+    Resolver(Document&, ScopeType);
+    void initialize();
 
-    Resolver(Document&);
+    class State;
 
-    class State {
-    public:
-        State() { }
-        State(const Element&, const RenderStyle* parentStyle, const RenderStyle* documentElementStyle = nullptr);
+    State initializeStateAndStyle(const Element&, const ResolutionContext&, std::unique_ptr<Style::ComputedStyle>&& initialStyle = { });
+    BuilderContext NODELETE builderContext(State&) const;
 
-    public:
-        const Element* element() const { return m_element; }
+    void applyMatchedProperties(State&, const MatchResult&, PropertyCascade::IncludedProperties&&);
+    void setGlobalStateAfterApplyingProperties(const BuilderState&);
 
-        void setStyle(std::unique_ptr<RenderStyle>);
-        RenderStyle* style() const { return m_style.get(); }
-        std::unique_ptr<RenderStyle> takeStyle() { return WTFMove(m_style); }
-
-        void setParentStyle(std::unique_ptr<RenderStyle>);
-        const RenderStyle* parentStyle() const { return m_parentStyle; }
-        const RenderStyle* rootElementStyle() const { return m_rootElementStyle; }
-
-        const RenderStyle* userAgentAppearanceStyle() const { return m_userAgentAppearanceStyle.get(); }
-        void setUserAgentAppearanceStyle(std::unique_ptr<RenderStyle> style) { m_userAgentAppearanceStyle = WTFMove(style); }
-
-    private:
-        const Element* m_element { nullptr };
-        std::unique_ptr<RenderStyle> m_style;
-        const RenderStyle* m_parentStyle { nullptr };
-        std::unique_ptr<const RenderStyle> m_ownedParentStyle;
-        const RenderStyle* m_rootElementStyle { nullptr };
-
-        std::unique_ptr<RenderStyle> m_userAgentAppearanceStyle;
-    };
-
-    BuilderContext builderContext(const State&);
-
-    enum class UseMatchedDeclarationsCache { Yes, No };
-    void applyMatchedProperties(State&, const MatchResult&, UseMatchedDeclarationsCache = UseMatchedDeclarationsCache::Yes);
+    WeakPtr<Document, WeakPtrImplWithEventTargetData> m_document;
+    const ScopeType m_scopeType;
 
     ScopeRuleSets m_ruleSets;
 
-    typedef HashMap<AtomStringImpl*, RefPtr<StyleRuleKeyframes>> KeyframesRuleMap;
     KeyframesRuleMap m_keyframesRuleMap;
 
-    MediaQueryEvaluator m_mediaQueryEvaluator;
-    std::unique_ptr<RenderStyle> m_rootDefaultStyle;
+    std::unique_ptr<Style::CustomFunctionRegistry> m_customFunctionRegistry;
 
-    Document& m_document;
-
-    const RenderStyle* m_overrideDocumentElementStyle { nullptr };
+    MQ::MediaQueryEvaluator m_mediaQueryEvaluator;
 
     InspectorCSSOMWrappers m_inspectorCSSOMWrappers;
 
@@ -200,24 +196,7 @@ private:
 
     bool m_matchAuthorAndUserStyles { true };
     bool m_isSharedBetweenShadowTrees { false };
-
-    // See if we still have crashes where Resolver gets deleted early.
-    bool m_isDeleted { false };
 };
-
-inline bool Resolver::hasSelectorForAttribute(const Element& element, const AtomString &attributeName) const
-{
-    ASSERT(!attributeName.isEmpty());
-    if (element.isHTMLElement())
-        return m_ruleSets.features().attributeCanonicalLocalNamesInRules.contains(attributeName);
-    return m_ruleSets.features().attributeLocalNamesInRules.contains(attributeName);
-}
-
-inline bool Resolver::hasSelectorForId(const AtomString& idValue) const
-{
-    ASSERT(!idValue.isEmpty());
-    return m_ruleSets.features().idsInRules.contains(idValue);
-}
 
 } // namespace Style
 } // namespace WebCore

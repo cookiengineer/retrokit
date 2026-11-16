@@ -1,6 +1,6 @@
 /*
  * Copyright (C) Research In Motion Limited 2010. All rights reserved.
- * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2024 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -20,54 +20,154 @@
 
 #pragma once
 
-#include "SVGPathUtilities.h"
-#include "SVGPropertyTraits.h"
+#include <WebCore/Path.h>
+#include <WebCore/SVGPathUtilities.h>
+#include <WebCore/SVGPropertyTraits.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakPtr.h>
+
+namespace WebCore {
+class SVGPathByteStream;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::SVGPathByteStream> : std::true_type { };
+}
 
 namespace WebCore {
 
-// Type definitions for the byte stream data
-typedef union {
-    bool value;
-    unsigned char bytes[sizeof(bool)];
-} BoolByte;
-
-typedef union {
-    float value;
-    unsigned char bytes[sizeof(float)];
-} FloatByte;
-
-typedef union {
-    unsigned short value;
-    unsigned char bytes[sizeof(unsigned short)];
-} UnsignedShortByte;
-
-class SVGPathByteStream {
-    WTF_MAKE_FAST_ALLOCATED;
+class SVGPathByteStream final : public CanMakeSingleThreadWeakPtr<SVGPathByteStream> {
+    WTF_MAKE_TZONE_ALLOCATED(SVGPathByteStream);
 public:
-    typedef Vector<unsigned char> Data;
-    typedef Data::const_iterator DataIterator;
+    class Data final : public ThreadSafeRefCounted<Data> {
+    public:
+        friend class NeverDestroyed<Data>;
 
-    SVGPathByteStream() { }
+        using Bytes = Vector<uint8_t>;
 
-    SVGPathByteStream(const String& string)
+        static Ref<Data> create(Bytes&& bytes)
+        {
+            return adoptRef(*new Data(WTF::move(bytes)));
+        }
+
+        void updatePath(const Path& path) const
+        {
+            m_path = path;
+        }
+
+        static Ref<Data> empty()
+        {
+            static NeverDestroyed<Data> singleton;
+            return Ref { singleton.get() };
+        }
+
+        const Bytes& bytes() const LIFETIME_BOUND { return m_bytes; }
+
+        void append(uint8_t byte)
+        {
+            m_path = { };
+            m_bytes.append(byte);
+        }
+
+        void append(std::span<const uint8_t> bytes)
+        {
+            m_path = { };
+            m_bytes.append(bytes);
+        }
+
+        void append(const Bytes& other)
+        {
+            m_path = { };
+            m_bytes.appendVector(other);
+        }
+
+        const Path& path() const { return m_path; }
+
+        Ref<Data> copy() const
+        {
+            return adoptRef(*new Data(*this));
+        }
+
+        friend bool operator==(const Data& a, const Data& b)
+        {
+            return a.m_bytes == b.m_bytes;
+        }
+
+        unsigned size() const { return m_bytes.size(); }
+        bool isEmpty() const { return m_bytes.isEmpty(); }
+
+    private:
+        Data(Bytes&& bytes)
+            : m_bytes(WTF::move(bytes))
+        {
+        }
+
+        Data() = default;
+        Data(const Data& data)
+            : m_bytes(data.m_bytes)
+            , m_path(data.m_path)
+        {
+        }
+
+        Bytes m_bytes;
+        mutable Path m_path;
+    };
+
+    using DataIterator = Data::Bytes::const_iterator;
+
+    SVGPathByteStream()
+        : m_data(Data::empty())
+    {
+    }
+
+    SVGPathByteStream(StringView string)
+        : SVGPathByteStream()
     {
         buildSVGPathByteStreamFromString(string, *this, UnalteredParsing);
     }
 
-    SVGPathByteStream(const SVGPathByteStream& other)
+    // Returns std::nullopt when the string is not a legal path. An empty string is a legal
+    // (empty) path, so callers that must reject an empty value should check that separately.
+    static std::optional<SVGPathByteStream> create(StringView string)
     {
-        *this = other;
+        SVGPathByteStream stream;
+        if (!buildSVGPathByteStreamFromString(string, stream, UnalteredParsing))
+            return std::nullopt;
+        return stream;
+    }
+
+    SVGPathByteStream(const SVGPathByteStream& other)
+        : CanMakeSingleThreadWeakPtr<SVGPathByteStream>()
+        , m_data(other.m_data)
+    {
     }
 
     SVGPathByteStream(SVGPathByteStream&& other)
+        : CanMakeSingleThreadWeakPtr<SVGPathByteStream>()
+        , m_data(std::exchange(other.m_data, Data::empty()))
     {
-        *this = WTFMove(other);
+    }
+
+    SVGPathByteStream(Ref<Data>&& data)
+        : m_data(WTF::move(data))
+    {
+    }
+
+    SVGPathByteStream(Data::Bytes&& data)
+        : m_data(Data::create(WTF::move(data)))
+    {
+    }
+
+    static SVGPathByteStream& empty()
+    {
+        static NeverDestroyed<SVGPathByteStream> singleton;
+        return singleton;
     }
 
     SVGPathByteStream& operator=(const SVGPathByteStream& other)
     {
-        if (*this == other)
+        if (this == &other)
             return *this;
         m_data = other.m_data;
         return *this;
@@ -75,32 +175,53 @@ public:
 
     SVGPathByteStream& operator=(SVGPathByteStream&& other)
     {
-        if (*this == other)
+        if (this == &other)
             return *this;
-        m_data = WTFMove(other.m_data);
+        m_data = std::exchange(other.m_data, Data::empty());
         return *this;
     }
 
-    bool operator==(const SVGPathByteStream& other) const { return m_data == other.m_data; }
-    bool operator!=(const SVGPathByteStream& other) const { return !(*this == other); }
+    friend bool operator==(const SVGPathByteStream& a, const SVGPathByteStream& b)
+    {
+        return a.m_data == b.m_data;
+    }
 
     std::unique_ptr<SVGPathByteStream> copy() const
     {
         return makeUnique<SVGPathByteStream>(*this);
     }
 
-    DataIterator begin() const { return m_data.begin(); }
-    DataIterator end() const { return m_data.end(); }
+    DataIterator begin() const LIFETIME_BOUND { return m_data->bytes().begin(); }
+    DataIterator end() const LIFETIME_BOUND { return m_data->bytes().end(); }
 
-    void append(unsigned char byte) { m_data.append(byte); }
-    void append(const SVGPathByteStream& other) { m_data.appendVector(other.m_data); }
-    void clear() { m_data.clear(); }
-    bool isEmpty() const { return m_data.isEmpty(); }
-    unsigned size() const { return m_data.size(); }
-    void shrinkToFit() { m_data.shrinkToFit(); }
+    void append(uint8_t byte) { m_data.access().append(byte); }
+    void append(std::span<const uint8_t> bytes) { m_data.access().append(bytes); }
+    void append(const SVGPathByteStream& other) { m_data.access().append(other.m_data->bytes()); }
+    void clear() { m_data = Data::empty(); }
+    bool isEmpty() const { return m_data->isEmpty(); }
+    unsigned size() const { return m_data->size(); }
+    // Making empty for now instead of sharing Vectors.
+    void shrinkToFit() { }
+
+    std::optional<Path> cachedPath() const
+    {
+        if (m_data->path().isEmpty())
+            return std::nullopt;
+        return m_data->path();
+    }
+
+    void cachePath(const Path& path) const
+    {
+        m_data->updatePath(path);
+    }
+
+    const Data::Bytes& bytes() const LIFETIME_BOUND { return m_data->bytes(); }
+
+    DataRef<Data> data() const { return m_data; }
+    void setData(DataRef<Data>&& data) { m_data = WTF::move(data); }
 
 private:
-    Data m_data;
+    DataRef<Data> m_data;
 };
 
 } // namespace WebCore

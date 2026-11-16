@@ -26,12 +26,17 @@
 #include "config.h"
 #include <wtf/NumberOfCores.h>
 
+#include <array>
 #include <cstdio>
+#include <wtf/text/ASCIILiteral.h>
+#include <wtf/text/StringToIntegerConversion.h>
 
 #if OS(DARWIN)
 #include <sys/sysctl.h>
-#elif OS(LINUX) || OS(AIX) || OS(OPENBSD) || OS(NETBSD) || OS(FREEBSD)
+#elif OS(LINUX) || OS(AIX) || OS(OPENBSD) || OS(NETBSD) || OS(FREEBSD) || OS(HAIKU)
 #include <unistd.h>
+#elif OS(QNX)
+#include <sys/syspage.h>
 #elif OS(WINDOWS)
 #include <windows.h>
 #endif
@@ -46,29 +51,37 @@ int numberOfProcessorCores()
     if (s_numberOfCores > 0)
         return s_numberOfCores;
     
-    if (const char* coresEnv = getenv("WTF_numberOfProcessorCores")) {
-        unsigned numberOfCores;
-        if (sscanf(coresEnv, "%u", &numberOfCores) == 1) {
-            s_numberOfCores = numberOfCores;
+    ASCIILiteral coresEnvName = "WTF_numberOfProcessorCores";
+    CString coresEnv = getenv(coresEnvName);
+    if (coresEnv.isNull()) {
+        coresEnvName = "NUMBER_OF_PROCESSORS";
+        coresEnv = getenv(coresEnvName);
+    }
+    if (!coresEnv.isNull()) {
+        if (auto numberOfCores = parseInteger<unsigned>(coresEnv.span())) {
+            s_numberOfCores = *numberOfCores;
             return s_numberOfCores;
-        } else
-            fprintf(stderr, "WARNING: failed to parse WTF_numberOfProcessorCores=%s\n", coresEnv);
+        }
+        SAFE_FPRINTF(stderr, "WARNING: failed to parse %s=%s\n", coresEnvName, coresEnv);
     }
 
 #if OS(DARWIN)
     unsigned result;
     size_t length = sizeof(result);
-    int name[] = {
+    std::array name {
             CTL_HW,
             HW_AVAILCPU
     };
-    int sysctlResult = sysctl(name, sizeof(name) / sizeof(int), &result, &length, 0, 0);
+    int sysctlResult = sysctl(name.data(), name.size(), &result, &length, 0, 0);
 
     s_numberOfCores = sysctlResult < 0 ? defaultIfUnavailable : result;
-#elif OS(LINUX) || OS(AIX) || OS(OPENBSD) || OS(NETBSD) || OS(FREEBSD)
+#elif OS(LINUX) || OS(AIX) || OS(OPENBSD) || OS(NETBSD) || OS(FREEBSD) || OS(HAIKU)
     long sysconfResult = sysconf(_SC_NPROCESSORS_ONLN);
 
     s_numberOfCores = sysconfResult < 0 ? defaultIfUnavailable : static_cast<int>(sysconfResult);
+#elif OS(QNX)
+    int numCpuQNX = _syspage_ptr->num_cpu;
+    s_numberOfCores = numCpuQNX < 0 ? defaultIfUnavailable : numCpuQNX;
 #elif OS(WINDOWS)
     UNUSED_PARAM(defaultIfUnavailable);
     SYSTEM_INFO sysInfo;
@@ -80,5 +93,22 @@ int numberOfProcessorCores()
 #endif
     return s_numberOfCores;
 }
+
+#if OS(DARWIN)
+int numberOfPhysicalProcessorCores()
+{
+    static int32_t numCores = [] {
+        constexpr int32_t defaultIfUnavailable = 1;
+        size_t valueSize = sizeof(numCores);
+        int32_t numCores = 0;
+        int result = sysctlbyname("hw.physicalcpu_max", &numCores, &valueSize, nullptr, 0);
+        if (result < 0)
+            return defaultIfUnavailable;
+        return numCores;
+    }();
+
+    return numCores;
+}
+#endif
 
 }

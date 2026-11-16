@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "Event.h"
+#include <WebCore/Event.h>
 #include <wtf/Markable.h>
 
 namespace WebCore {
@@ -33,34 +33,20 @@ namespace WebCore {
 class WebAnimation;
 
 class AnimationEventBase : public Event {
-    WTF_MAKE_ISO_ALLOCATED(AnimationEventBase);
+    WTF_MAKE_TZONE_ALLOCATED(AnimationEventBase);
 public:
-    static Ref<AnimationEventBase> create(const AtomString& type, WebAnimation* animation, std::optional<Seconds> timelineTime)
-    {
-        return adoptRef(*new AnimationEventBase(type, animation, timelineTime));
-    }
-
     virtual ~AnimationEventBase();
 
-    virtual bool isAnimationPlaybackEvent() const { return false; }
-    virtual bool isAnimationEvent() const { return false; }
-    virtual bool isTransitionEvent() const { return false; }
-
-    std::optional<Seconds> timelineTime() const { return m_timelineTime; }
     WebAnimation* animation() const { return m_animation.get(); }
+    std::optional<Seconds> scheduledTime() const { return m_scheduledTime; }
 
 protected:
-    AnimationEventBase(const AtomString&, WebAnimation*, std::optional<Seconds>);
-    AnimationEventBase(const AtomString&, const EventInit&, IsTrusted);
+    AnimationEventBase(enum EventInterfaceType, const AtomString&, WebAnimation*, std::optional<Seconds> scheduledTime);
+    AnimationEventBase(enum EventInterfaceType, const AtomString&, EventInit&&, IsTrusted, RefPtr<WebAnimation>&&);
 
-    RefPtr<WebAnimation> m_animation;
-    Markable<Seconds, Seconds::MarkableTraits> m_timelineTime;
+private:
+    const RefPtr<WebAnimation> m_animation;
+    Markable<Seconds> m_scheduledTime;
 };
 
-}
-
-#define SPECIALIZE_TYPE_TRAITS_ANIMATION_EVENT_BASE(ToValueTypeName, predicate) \
-SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::ToValueTypeName) \
-static bool isType(const WebCore::AnimationEventBase& value) { return value.predicate; } \
-SPECIALIZE_TYPE_TRAITS_END()
-
+} // namespace WebCore

@@ -31,13 +31,15 @@
 #if ENABLE(ENCRYPTED_MEDIA)
 
 #include "BufferSource.h"
+#include "CDMKeyID.h"
 #include "MediaKeyStatus.h"
-#include <JavaScriptCore/JSCJSValueInlines.h>
+#include <JavaScriptCore/JSCJSValue.h>
 #include <wtf/RefCounted.h>
 
 namespace WebCore {
 
 class MediaKeySession;
+class ScriptExecutionContext;
 class SharedBuffer;
 
 class MediaKeyStatusMap : public RefCounted<MediaKeyStatusMap> {
@@ -51,27 +53,27 @@ public:
 
     virtual ~MediaKeyStatusMap();
 
-    void detachSession();
+    void NODELETE detachSession();
 
-    unsigned long size();
+    unsigned long NODELETE size();
     bool has(const BufferSource&);
     JSC::JSValue get(JSC::JSGlobalObject&, const BufferSource&);
 
     class Iterator {
     public:
         explicit Iterator(MediaKeyStatusMap&);
-        std::optional<WTF::KeyValuePair<BufferSource::VariantType, MediaKeyStatus>> next();
+        std::optional<KeyValuePair<BufferSource::VariantType, MediaKeyStatus>> next();
 
     private:
-        Ref<MediaKeyStatusMap> m_map;
+        const Ref<MediaKeyStatusMap> m_map;
         size_t m_index { 0 };
     };
-    Iterator createIterator() { return Iterator(*this); }
+    Iterator createIterator(ScriptExecutionContext*) { return Iterator(*this); }
 
 private:
     MediaKeyStatusMap(const MediaKeySession&);
 
-    const MediaKeySession* m_session;
+    WeakPtr<const MediaKeySession> m_session;
 };
 
 } // namespace WebCore

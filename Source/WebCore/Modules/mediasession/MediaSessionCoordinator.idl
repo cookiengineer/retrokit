@@ -26,10 +26,9 @@
 [
     ActiveDOMObject,
     Conditional=MEDIA_SESSION_COORDINATOR,
-    EnabledBySetting=MediaSessionCoordinator,
+    EnabledBySetting=MediaSessionCoordinatorEnabled,
     Exposed=Window,
-    ExportMacro=WEBCORE_EXPORT,
-    JSGenerateToJSObject,
+    ExportMacro=WEBCORE_EXPORT
 ] interface MediaSessionCoordinator : EventTarget {
 
     Promise<undefined> join();

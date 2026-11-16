@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc.
+ * Copyright (C) 2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,10 +24,11 @@
 
 #pragma once
 
-#if ENABLE(WEB_RTC)
+#if ENABLE(WEB_RTC) && USE(LIBWEBRTC)
 
 #include "RTCRtpTransformableFrame.h"
 #include <wtf/Ref.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace webrtc {
 class TransformableFrameInterface;
@@ -36,28 +37,37 @@ class TransformableFrameInterface;
 namespace WebCore {
 
 class LibWebRTCRtpTransformableFrame final : public RTCRtpTransformableFrame {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(LibWebRTCRtpTransformableFrame);
 public:
-    static Ref<LibWebRTCRtpTransformableFrame> create(std::unique_ptr<webrtc::TransformableFrameInterface>&& frame, bool isAudioSenderFrame) { return adoptRef(*new LibWebRTCRtpTransformableFrame(WTFMove(frame), isAudioSenderFrame)); }
+    static Ref<LibWebRTCRtpTransformableFrame> create(std::unique_ptr<webrtc::TransformableFrameInterface>&& frame, bool isAudio) { return adoptRef(*new LibWebRTCRtpTransformableFrame(WTF::move(frame), isAudio)); }
     ~LibWebRTCRtpTransformableFrame();
 
     std::unique_ptr<webrtc::TransformableFrameInterface> takeRTCFrame();
 
 private:
-    LibWebRTCRtpTransformableFrame(std::unique_ptr<webrtc::TransformableFrameInterface>&&, bool isAudioSenderFrame);
+    LibWebRTCRtpTransformableFrame(std::unique_ptr<webrtc::TransformableFrameInterface>&&, bool isAudio);
+
+    bool isLibWebRTCRtpTransformableFrame() const final { return true; }
 
     // RTCRtpTransformableFrame
-    Span<const uint8_t> data() const final;
-    void setData(Span<const uint8_t>) final;
+    std::span<const uint8_t> data() const final;
+    void setData(std::span<const uint8_t>) final;
     bool isKeyFrame() const final;
     uint64_t timestamp() const final;
     RTCEncodedAudioFrameMetadata audioMetadata() const final;
     RTCEncodedVideoFrameMetadata videoMetadata() const final;
+    Ref<RTCRtpTransformableFrame> clone() final;
+    void setOptions(const RTCEncodedAudioFrameMetadata&) final;
+    void setOptions(const RTCEncodedVideoFrameMetadata&) final;
 
     std::unique_ptr<webrtc::TransformableFrameInterface> m_rtcFrame;
-    bool m_isAudioSenderFrame;
+    bool m_isAudio;
 };
 
 } // namespace WebCore
 
-#endif // ENABLE(WEB_RTC)
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::LibWebRTCRtpTransformableFrame)
+    static bool isType(const WebCore::RTCRtpTransformableFrame& backend) { return backend.isLibWebRTCRtpTransformableFrame(); }
+SPECIALIZE_TYPE_TRAITS_END()
+
+#endif // ENABLE(WEB_RTC) && USE(LIBWEBRTC)

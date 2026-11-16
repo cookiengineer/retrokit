@@ -4,6 +4,7 @@
  * Copyright (C) 2007 Rob Buis <buis@kde.org>
  * Copyright (C) 2009 Google, Inc.
  * Copyright (C) 2010 Patrick Gansterer <paroga@paroga.com>
+ * Copyright (c) 2020, 2021, 2022 Igalia S.L.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -23,73 +24,71 @@
 
 #pragma once
 
-#include "AffineTransform.h"
-#include "FloatRect.h"
+#include "RenderImageResource.h"
 #include "RenderSVGModelObject.h"
+#include "SVGBoundingBoxComputation.h"
 
 namespace WebCore {
 
-class RenderImageResource;
 class SVGImageElement;
 
 class RenderSVGImage final : public RenderSVGModelObject {
-    WTF_MAKE_ISO_ALLOCATED(RenderSVGImage);
+    WTF_MAKE_TZONE_ALLOCATED(RenderSVGImage);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderSVGImage);
 public:
-    RenderSVGImage(SVGImageElement&, RenderStyle&&);
+    RenderSVGImage(SVGImageElement&, Style::ComputedStyle&&);
     virtual ~RenderSVGImage();
 
-    SVGImageElement& imageElement() const;
+    SVGImageElement& NODELETE imageElement() const;
+
+    RenderImageResource& imageResource() { return m_imageResource; }
+    const RenderImageResource& imageResource() const { return m_imageResource; }
 
     bool updateImageViewport();
-    void setNeedsBoundariesUpdate() override { m_needsBoundariesUpdate = true; }
-    bool needsBoundariesUpdate() override { return m_needsBoundariesUpdate; }
-    void setNeedsTransformUpdate() override { m_needsTransformUpdate = true; }
 
-    RenderImageResource& imageResource() { return *m_imageResource; }
-    const RenderImageResource& imageResource() const { return *m_imageResource; }
+    bool isObjectBoundingBoxValid() const { return !m_objectBoundingBox.isEmpty(); }
 
-    // Note: Assumes the PaintInfo context has had all local transforms applied.
-    void paintForeground(PaintInfo&);
+    bool objectBoundingBoxIsEmpty() const final { return !isObjectBoundingBoxValid(); }
 
 private:
-    void willBeDestroyed() override;
+    void willBeDestroyed() final;
 
     void element() const = delete;
 
-    const char* renderName() const override { return "RenderSVGImage"; }
-    bool isSVGImage() const override { return true; }
-    bool canHaveChildren() const override { return false; }
-
-    const AffineTransform& localToParentTransform() const override { return m_localTransform; }
+    ASCIILiteral renderName() const final { return "RenderSVGImage"_s; }
+    bool canHaveChildren() const final { return false; }
 
     FloatRect calculateObjectBoundingBox() const;
-    FloatRect objectBoundingBox() const override { return m_objectBoundingBox; }
-    FloatRect strokeBoundingBox() const override { return m_objectBoundingBox; }
-    FloatRect repaintRectInLocalCoordinates() const override { return m_repaintBoundingBox; }
+    FloatRect objectBoundingBox() const final { return m_objectBoundingBox; }
+    FloatRect strokeBoundingBox() const final { return m_objectBoundingBox; }
+    FloatRect repaintRectInLocalCoordinates(RepaintRectCalculation = RepaintRectCalculation::Fast) const final { return SVGBoundingBoxComputation::computeRepaintBoundingBox(*this); }
+    FloatRect decoratedBoundingBox() const final { return m_objectBoundingBox; }
 
-    void addFocusRingRects(Vector<LayoutRect>&, const LayoutPoint& additionalOffset, const RenderLayerModelObject* paintContainer = 0) override;
+    void imageChanged(WrappedImagePtr, const IntRect* = nullptr) final;
 
-    void imageChanged(WrappedImagePtr, const IntRect* = nullptr) override;
+    void layout() final;
+    void paint(PaintInfo&, const LayoutPoint&) final;
 
-    void layout() override;
-    void paint(PaintInfo&, const LayoutPoint&) override;
+    void paintForeground(PaintInfo&, const LayoutPoint&);
+    ImageDrawResult paintIntoRect(PaintInfo&, const FloatRect&, const FloatRect&);
 
-    void invalidateBufferedForeground();
+    bool nodeAtPoint(const HitTestRequest&, HitTestResult&, const HitTestLocation& locationInContainer, const LayoutPoint& accumulatedOffset, HitTestAction) final;
 
-    bool nodeAtFloatPoint(const HitTestRequest&, HitTestResult&, const FloatPoint& pointInParent, HitTestAction) override;
+    void repaintOrMarkForLayout(const IntRect* = nullptr);
+    void notifyFinished(CachedResource&, const NetworkLoadMetrics&, LoadWillContinueInAnotherProcess) final;
+    bool bufferForeground(PaintInfo&, const LayoutPoint&);
 
-    AffineTransform localTransform() const override { return m_localTransform; }
-    void calculateImageViewport();
+    bool needsHasSVGTransformFlags() const final;
 
-    bool m_needsBoundariesUpdate : 1;
-    bool m_needsTransformUpdate : 1;
-    AffineTransform m_localTransform;
+    void applyTransform(TransformationMatrix&, const Style::ComputedStyle&, const FloatRect& boundingBox, OptionSet<Style::TransformResolverOption>) const final;
+
+    CachedImage* cachedImage() const { return imageResource().cachedImage(); }
+
     FloatRect m_objectBoundingBox;
-    FloatRect m_repaintBoundingBox;
-    std::unique_ptr<RenderImageResource> m_imageResource;
+    const UniqueRef<RenderImageResource> m_imageResource;
     RefPtr<ImageBuffer> m_bufferedForeground;
 };
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderSVGImage, isSVGImage())
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderSVGImage, isRenderSVGImage())

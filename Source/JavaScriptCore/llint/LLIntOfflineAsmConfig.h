@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,46 +25,25 @@
 
 #pragma once
 
-#include "LLIntCommon.h"
+#include "InPlaceInterpreter.h"
+#include <JavaScriptCore/LLIntCommon.h>
+#include <JavaScriptCore/StructureID.h>
 #include <wtf/Assertions.h>
-#include <wtf/Gigacage.h>
+#include <wtf/FastMalloc.h>
 
 #if ENABLE(C_LOOP)
-#if !OS(WINDOWS)
 #define OFFLINE_ASM_C_LOOP 1
-#define OFFLINE_ASM_C_LOOP_WIN 0
-#else
-#define OFFLINE_ASM_C_LOOP 0
-#define OFFLINE_ASM_C_LOOP_WIN 1
-#endif
-#define OFFLINE_ASM_X86 0
-#define OFFLINE_ASM_X86_WIN 0
 #define OFFLINE_ASM_ARMv7 0
 #define OFFLINE_ASM_ARM64 0
 #define OFFLINE_ASM_ARM64E 0
 #define OFFLINE_ASM_X86_64 0
-#define OFFLINE_ASM_X86_64_WIN 0
 #define OFFLINE_ASM_ARMv7k 0
 #define OFFLINE_ASM_ARMv7s 0
-#define OFFLINE_ASM_MIPS 0
 #define OFFLINE_ASM_RISCV64 0
 
 #else // ENABLE(C_LOOP)
 
 #define OFFLINE_ASM_C_LOOP 0
-#define OFFLINE_ASM_C_LOOP_WIN 0
-
-#if CPU(X86) && !COMPILER(MSVC)
-#define OFFLINE_ASM_X86 1
-#else
-#define OFFLINE_ASM_X86 0
-#endif
-
-#if CPU(X86) && COMPILER(MSVC)
-#define OFFLINE_ASM_X86_WIN 1
-#else
-#define OFFLINE_ASM_X86_WIN 0
-#endif
 
 #ifdef __ARM_ARCH_7K__
 #define OFFLINE_ASM_ARMv7k 1
@@ -84,22 +63,10 @@
 #define OFFLINE_ASM_ARMv7 0
 #endif
 
-#if CPU(X86_64) && !COMPILER(MSVC)
+#if CPU(X86_64)
 #define OFFLINE_ASM_X86_64 1
 #else
 #define OFFLINE_ASM_X86_64 0
-#endif
-
-#if CPU(X86_64) && COMPILER(MSVC)
-#define OFFLINE_ASM_X86_64_WIN 1
-#else
-#define OFFLINE_ASM_X86_64_WIN 0
-#endif
-
-#if CPU(MIPS)
-#define OFFLINE_ASM_MIPS 1
-#else
-#define OFFLINE_ASM_MIPS 0
 #endif
 
 #if CPU(ARM64)
@@ -122,19 +89,6 @@
 #define OFFLINE_ASM_RISCV64 0
 #endif
 
-#if CPU(MIPS)
-#ifdef WTF_MIPS_PIC
-#define S(x) #x
-#define SX(x) S(x)
-#define OFFLINE_ASM_CPLOAD(reg) \
-    ".set noreorder\n" \
-    ".cpload " SX(reg) "\n" \
-    ".set reorder\n"
-#else
-#define OFFLINE_ASM_CPLOAD(reg)
-#endif
-#endif
-
 #endif // ENABLE(C_LOOP)
 
 #if USE(JSVALUE64)
@@ -147,6 +101,12 @@
 #define OFFLINE_ASM_BIGINT32 1
 #else
 #define OFFLINE_ASM_BIGINT32 0
+#endif
+
+#if USE(LARGE_TYPED_ARRAYS)
+#define OFFLINE_ASM_LARGE_TYPED_ARRAYS 1
+#else
+#define OFFLINE_ASM_LARGE_TYPED_ARRAYS 0
 #endif
 
 #if CPU(ADDRESS64)
@@ -169,16 +129,34 @@
 
 #define OFFLINE_ASM_GIGACAGE_ENABLED GIGACAGE_ENABLED
 
+#if ENABLE(JIT)
+#define OFFLINE_ASM_JIT 1
+#else
+#define OFFLINE_ASM_JIT 0
+#endif
+
+#if ENABLE(JIT_CAGE)
+#define OFFLINE_ASM_JIT_CAGE 1
+#else
+#define OFFLINE_ASM_JIT_CAGE 0
+#endif
+
 #if ENABLE(WEBASSEMBLY)
 #define OFFLINE_ASM_WEBASSEMBLY 1
 #else
 #define OFFLINE_ASM_WEBASSEMBLY 0
 #endif
 
-#if ENABLE(WEBASSEMBLY_B3JIT)
-#define OFFLINE_ASM_WEBASSEMBLY_B3JIT 1
+#if ENABLE(WEBASSEMBLY_OMGJIT)
+#define OFFLINE_ASM_WEBASSEMBLY_OMGJIT 1
 #else
-#define OFFLINE_ASM_WEBASSEMBLY_B3JIT 0
+#define OFFLINE_ASM_WEBASSEMBLY_OMGJIT 0
+#endif
+
+#if ENABLE(WEBASSEMBLY_BBQJIT)
+#define OFFLINE_ASM_WEBASSEMBLY_BBQJIT 1
+#else
+#define OFFLINE_ASM_WEBASSEMBLY_BBQJIT 0
 #endif
 
 #if HAVE(FAST_TLS)

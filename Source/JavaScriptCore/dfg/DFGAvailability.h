@@ -118,16 +118,7 @@ public:
     
     bool operator!() const { return nodeIsUnavailable() && flushedAt().format() == ConflictingFlush; }
 
-    bool operator==(const Availability& other) const
-    {
-        return m_node == other.m_node
-            && m_flushedAt == other.m_flushedAt;
-    }
-    
-    bool operator!=(const Availability& other) const
-    {
-        return !(*this == other);
-    }
+    friend bool operator==(const Availability&, const Availability&) = default;
     
     Availability merge(const Availability& other) const
     {
@@ -153,7 +144,7 @@ private:
     
     static Node* unavailableMarker()
     {
-        return bitwise_cast<Node*>(static_cast<intptr_t>(1));
+        return std::bit_cast<Node*>(static_cast<intptr_t>(1));
     }
     
     Node* m_node;

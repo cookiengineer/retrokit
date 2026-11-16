@@ -27,9 +27,13 @@
 #include "config.h"
 #include "XMLHttpRequestProgressEventThrottle.h"
 
+#include "ContextDestructionObserverInlines.h"
+#include "EventLoop.h"
 #include "EventNames.h"
 #include "EventTarget.h"
-#include "XMLHttpRequest.h"
+#include "EventTargetInlines.h"
+#include "ScriptExecutionContext.h"
+#include "ScriptExecutionContextInlines.h"
 #include "XMLHttpRequestProgressEvent.h"
 
 namespace WebCore {
@@ -38,9 +42,7 @@ const Seconds XMLHttpRequestProgressEventThrottle::minimumProgressEventDispatchi
 
 XMLHttpRequestProgressEventThrottle::XMLHttpRequestProgressEventThrottle(XMLHttpRequest& target)
     : m_target(target)
-    , m_dispatchThrottledProgressEventTimer(target.scriptExecutionContext(), *this, &XMLHttpRequestProgressEventThrottle::dispatchThrottledProgressEventTimerFired)
 {
-    m_dispatchThrottledProgressEventTimer.suspendIfNeeded();
 }
 
 XMLHttpRequestProgressEventThrottle::~XMLHttpRequestProgressEventThrottle() = default;
@@ -51,17 +53,25 @@ void XMLHttpRequestProgressEventThrottle::updateProgress(bool isAsync, bool leng
     m_loaded = loaded;
     m_total = total;
 
-    if (!isAsync || !m_target.hasEventListeners(eventNames().progressEvent))
+    if (!isAsync)
         return;
 
-    if (!m_shouldDeferEventsDueToSuspension && !m_dispatchThrottledProgressEventTimer.isActive()) {
+    Ref target = m_target.get();
+    if (!target->hasEventListeners(eventNames().progressEvent))
+        return;
+
+    if (!m_shouldDeferEventsDueToSuspension && !m_dispatchThrottledProgressEventTimer) {
         // The timer is not active so the least frequent event for now is every byte. Just dispatch the event.
 
         // We should not have any throttled progress event.
         ASSERT(!m_hasPendingThrottledProgressEvent);
 
         dispatchEventWhenPossible(XMLHttpRequestProgressEvent::create(eventNames().progressEvent, lengthComputable, loaded, total));
-        m_dispatchThrottledProgressEventTimer.startRepeating(minimumProgressEventDispatchingInterval);
+        m_dispatchThrottledProgressEventTimer = protect(protect(target->scriptExecutionContext())->eventLoop())->scheduleRepeatingTask(
+            minimumProgressEventDispatchingInterval, minimumProgressEventDispatchingInterval, TaskSource::Networking, [weakTarget = WeakPtr { m_target.get() }] {
+            if (RefPtr protectedTarget = weakTarget.get())
+                protectedTarget->dispatchThrottledProgressEventIfNeeded();
+        });
         m_hasPendingThrottledProgressEvent = false;
         return;
     }
@@ -80,15 +90,16 @@ void XMLHttpRequestProgressEventThrottle::dispatchReadyStateChangeEvent(Event& e
 
 void XMLHttpRequestProgressEventThrottle::dispatchEventWhenPossible(Event& event)
 {
+    Ref target = m_target.get();
     if (m_shouldDeferEventsDueToSuspension)
-        m_target.queueTaskToDispatchEvent(m_target, TaskSource::Networking, makeRef(event));
+        target->queueTaskToDispatchEvent(target.get(), TaskSource::Networking, event);
     else
-        m_target.dispatchEvent(event);
+        target->dispatchEvent(event);
 }
 
 void XMLHttpRequestProgressEventThrottle::dispatchProgressEvent(const AtomString& type)
 {
-    ASSERT(type == eventNames().loadstartEvent || type == eventNames().progressEvent || type == eventNames().loadEvent || type == eventNames().loadendEvent || type == eventNames().abortEvent || type == eventNames().errorEvent || type == eventNames().timeoutEvent);
+    ASSERT(type == eventNames().loadstartEvent || type == eventNames().progressEvent || type == eventNames().loadEvent || type == eventNames().loadendEvent);
 
     if (type == eventNames().loadstartEvent) {
         m_lengthComputable = false;
@@ -96,8 +107,16 @@ void XMLHttpRequestProgressEventThrottle::dispatchProgressEvent(const AtomString
         m_total = 0;
     }
 
-    if (m_target.hasEventListeners(type))
+    if (m_target->hasEventListeners(type))
         dispatchEventWhenPossible(XMLHttpRequestProgressEvent::create(type, m_lengthComputable, m_loaded, m_total));
+}
+
+void XMLHttpRequestProgressEventThrottle::dispatchErrorProgressEvent(const AtomString& type)
+{
+    ASSERT(type == eventNames().loadendEvent || type == eventNames().abortEvent || type == eventNames().errorEvent || type == eventNames().timeoutEvent);
+
+    if (m_target->hasEventListeners(type))
+        dispatchEventWhenPossible(XMLHttpRequestProgressEvent::create(type, false, 0, 0));
 }
 
 void XMLHttpRequestProgressEventThrottle::flushProgressEvent()
@@ -107,17 +126,17 @@ void XMLHttpRequestProgressEventThrottle::flushProgressEvent()
 
     m_hasPendingThrottledProgressEvent = false;
     // We stop the timer as this is called when no more events are supposed to occur.
-    m_dispatchThrottledProgressEventTimer.cancel();
+    m_dispatchThrottledProgressEventTimer = nullptr;
 
     dispatchEventWhenPossible(XMLHttpRequestProgressEvent::create(eventNames().progressEvent, m_lengthComputable, m_loaded, m_total));
 }
 
-void XMLHttpRequestProgressEventThrottle::dispatchThrottledProgressEventTimerFired()
+void XMLHttpRequestProgressEventThrottle::dispatchThrottledProgressEventIfNeeded()
 {
-    ASSERT(m_dispatchThrottledProgressEventTimer.isActive());
+    ASSERT(m_dispatchThrottledProgressEventTimer);
     if (!m_hasPendingThrottledProgressEvent) {
         // No progress event was queued since the previous dispatch, we can safely stop the timer.
-        m_dispatchThrottledProgressEventTimer.cancel();
+        m_dispatchThrottledProgressEventTimer = nullptr;
         return;
     }
 
@@ -130,7 +149,7 @@ void XMLHttpRequestProgressEventThrottle::suspend()
     m_shouldDeferEventsDueToSuspension = true;
 
     if (m_hasPendingThrottledProgressEvent) {
-        m_target.queueTaskKeepingObjectAlive(m_target, TaskSource::Networking, [this] {
+        ActiveDOMObject::queueTaskKeepingObjectAlive(protect(m_target).get(), TaskSource::Networking, [this](auto&) {
             flushProgressEvent();
         });
     }
@@ -138,7 +157,7 @@ void XMLHttpRequestProgressEventThrottle::suspend()
 
 void XMLHttpRequestProgressEventThrottle::resume()
 {
-    m_target.queueTaskKeepingObjectAlive(m_target, TaskSource::Networking, [this] {
+    ActiveDOMObject::queueTaskKeepingObjectAlive(protect(m_target).get(), TaskSource::Networking, [this](auto&) {
         m_shouldDeferEventsDueToSuspension = false;
     });
 }

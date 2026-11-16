@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007, 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2024 Apple Inc. All rights reserved.
  * Copyright (C) 2007 Alp Toker <alp@atoker.com>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,59 +27,55 @@
 #include "config.h"
 #include "CanvasGradient.h"
 
-#include "CanvasBase.h"
 #include "CanvasStyle.h"
+#include "ExceptionOr.h"
 #include "Gradient.h"
 
 namespace WebCore {
 
-CanvasGradient::CanvasGradient(const FloatPoint& p0, const FloatPoint& p1, CanvasBase& canvasBase)
-    : m_gradient(Gradient::create(Gradient::LinearData { p0, p1 }))
-    , m_canvas(canvasBase)
+CanvasGradient::CanvasGradient(const FloatPoint& p0, const FloatPoint& p1)
+    : m_gradient(Gradient::create(Gradient::LinearData { p0, p1 }, { ColorInterpolationMethod::SRGB { }, AlphaPremultiplication::Unpremultiplied }))
 {
 }
 
-CanvasGradient::CanvasGradient(const FloatPoint& p0, float r0, const FloatPoint& p1, float r1, CanvasBase& canvasBase)
-    : m_gradient(Gradient::create(Gradient::RadialData { p0, p1, r0, r1, 1 }))
-    , m_canvas(canvasBase)
+CanvasGradient::CanvasGradient(const FloatPoint& p0, float r0, const FloatPoint& p1, float r1)
+    : m_gradient(Gradient::create(Gradient::RadialData { p0, p1, r0, r1, 1 }, { ColorInterpolationMethod::SRGB { }, AlphaPremultiplication::Unpremultiplied }))
 {
 }
 
-CanvasGradient::CanvasGradient(const FloatPoint& centerPoint, float angleInRadians, CanvasBase& canvasBase)
-    : m_gradient(Gradient::create(Gradient::ConicData { centerPoint, angleInRadians }))
-    , m_canvas(canvasBase)
+CanvasGradient::CanvasGradient(const FloatPoint& centerPoint, float angleInRadians)
+    : m_gradient(Gradient::create(Gradient::ConicData { centerPoint, angleInRadians }, { ColorInterpolationMethod::SRGB { }, AlphaPremultiplication::Unpremultiplied }))
 {
 }
 
-Ref<CanvasGradient> CanvasGradient::create(const FloatPoint& p0, const FloatPoint& p1, CanvasBase& canvasBase)
+Ref<CanvasGradient> CanvasGradient::create(const FloatPoint& p0, const FloatPoint& p1)
 {
-    return adoptRef(*new CanvasGradient(p0, p1, canvasBase));
+    return adoptRef(*new CanvasGradient(p0, p1));
 }
 
-Ref<CanvasGradient> CanvasGradient::create(const FloatPoint& p0, float r0, const FloatPoint& p1, float r1, CanvasBase& canvasBase)
+Ref<CanvasGradient> CanvasGradient::create(const FloatPoint& p0, float r0, const FloatPoint& p1, float r1)
 {
-    return adoptRef(*new CanvasGradient(p0, r0, p1, r1, canvasBase));
+    return adoptRef(*new CanvasGradient(p0, r0, p1, r1));
 }
 
-Ref<CanvasGradient> CanvasGradient::create(const FloatPoint& centerPoint, float angleInRadians, CanvasBase& canvasBase)
+Ref<CanvasGradient> CanvasGradient::create(const FloatPoint& centerPoint, float angleInRadians)
 {
-    return adoptRef(*new CanvasGradient(centerPoint, angleInRadians, canvasBase));
+    return adoptRef(*new CanvasGradient(centerPoint, angleInRadians));
 }
 
 CanvasGradient::~CanvasGradient() = default;
 
-ExceptionOr<void> CanvasGradient::addColorStop(double value, const String& colorString)
+ExceptionOr<void> CanvasGradient::addColorStop(ScriptExecutionContext& scriptExecutionContext, double value, const String& colorString)
 {
     if (!(value >= 0 && value <= 1))
-        return Exception { IndexSizeError };
+        return Exception { ExceptionCode::IndexSizeError };
 
-    // Treat currentColor as black, as required by the standard.
-    Color color = isCurrentColorString(colorString) ? Color::black : parseColor(colorString, m_canvas);
+    auto color = parseColor(colorString, scriptExecutionContext);
     if (!color.isValid())
-        return Exception { SyntaxError };
+        return Exception { ExceptionCode::SyntaxError };
 
-    m_gradient->addColorStop({ static_cast<float>(value), WTFMove(color) });
+    m_gradient->addColorStop({ static_cast<float>(value), WTF::move(color) });
     return { };
 }
 
-}
+} // namespace WebCore

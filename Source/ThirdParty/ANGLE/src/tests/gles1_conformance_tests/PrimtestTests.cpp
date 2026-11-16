@@ -8,6 +8,7 @@
 //
 
 #include "GLES/gl.h"
+#include "common/unsafe_buffers.h"
 #include "test_utils/ANGLETest.h"
 #include "test_utils/gl_raii.h"
 
@@ -28,7 +29,7 @@ extern void DrawPrims(void);
 
 namespace angle
 {
-class GLES1PrimtestTest : public ANGLETest
+class GLES1PrimtestTest : public ANGLETest<>
 {
   protected:
     GLES1PrimtestTest()
@@ -54,17 +55,17 @@ class GLES1PrimtestTest : public ANGLETest
     void execTest(long test)
     {
         long i;
-        for (i = 0; driver[i].test != TEST_NULL; i++)
+        for (i = 0; ANGLE_UNSAFE_TODO(driver[i].test) != TEST_NULL; i++)
         {
-            if (driver[i].test == test)
+            if (ANGLE_UNSAFE_TODO(driver[i].test) == test)
             {
                 break;
             }
         }
 
-        ASSERT_NE(TEST_NULL, driver[i].test);
+        ASSERT_NE(TEST_NULL, ANGLE_UNSAFE_TODO(driver[i].test));
 
-        driverRec &op = driver[i];
+        driverRec &op = ANGLE_UNSAFE_TODO(driver[i]);
 
         op.funcInit((void *)&mTestData);
         op.finish = 0;
@@ -161,6 +162,3 @@ TEST_P(GLES1PrimtestTest, Texture)
 
 ANGLE_INSTANTIATE_TEST(GLES1PrimtestTest, ES1_OPENGL(), ES1_VULKAN());
 }  // namespace angle
-
-// Included here to fix a compile error due to white box tests using angle_end2end_tests_main.
-void RegisterContextCompatibilityTests() {}

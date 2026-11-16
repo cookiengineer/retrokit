@@ -23,16 +23,18 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// https://w3c.github.io/webrtc-pc/#dom-rtcdatachannelevent
 [
     Conditional=WEB_RTC,
-    EnabledBySetting=PeerConnection,
+    EnabledBySetting=PeerConnectionEnabled,
     Exposed=Window
 ] interface RTCDataChannelEvent : Event {
-    constructor(DOMString type, RTCDataChannelEventInit eventInitDict);
+    constructor([AtomString] DOMString type, RTCDataChannelEventInit eventInitDict);
 
     readonly attribute RTCDataChannel channel;
 };
 
+// https://w3c.github.io/webrtc-pc/#dom-rtcdatachanneleventinit
 dictionary RTCDataChannelEventInit : EventInit {
     required RTCDataChannel channel;
 };

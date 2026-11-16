@@ -38,49 +38,63 @@ namespace WebKit {
 
 class WebKeyboardEvent : public WebEvent {
 public:
-    WebKeyboardEvent();
     ~WebKeyboardEvent();
 
 #if USE(APPKIT)
-    WebKeyboardEvent(Type, const String& text, const String& unmodifiedText, const String& key, const String& code, const String& keyIdentifier, int windowsVirtualKeyCode, int nativeVirtualKeyCode, int macCharCode, bool handledByInputMethod, const Vector<WebCore::KeypressCommand>&, bool isAutoRepeat, bool isKeypad, bool isSystemKey, OptionSet<Modifier>, WallTime timestamp);
+    WebKeyboardEvent(WebEvent&&, const String& text, const String& unmodifiedText, const String& key, const String& code, const String& keyIdentifier, int windowsVirtualKeyCode, int nativeVirtualKeyCode, int macCharCode, bool handledByInputMethod, const Vector<WebCore::KeypressCommand>&, bool isAutoRepeat, bool isKeypad, bool isSystemKey);
 #elif PLATFORM(GTK)
-    WebKeyboardEvent(Type, const String& text, const String& key, const String& code, const String& keyIdentifier, int windowsVirtualKeyCode, int nativeVirtualKeyCode, bool handledByInputMethod, std::optional<Vector<WebCore::CompositionUnderline>>&&, std::optional<EditingRange>&&, Vector<String>&& commands, bool isKeypad, OptionSet<Modifier>, WallTime timestamp);
+    WebKeyboardEvent(WebEvent&&, const String& text, const String& key, const String& code, const String& keyIdentifier, int windowsVirtualKeyCode, int nativeVirtualKeyCode, bool handledByInputMethod, std::optional<Vector<WebCore::CompositionUnderline>>&&, std::optional<EditingRange>&&, Vector<String>&& commands, bool isAutoRepeat, bool isKeypad);
 #elif PLATFORM(IOS_FAMILY)
-    WebKeyboardEvent(Type, const String& text, const String& unmodifiedText, const String& key, const String& code, const String& keyIdentifier, int windowsVirtualKeyCode, int nativeVirtualKeyCode, int macCharCode, bool handledByInputMethod, bool isAutoRepeat, bool isKeypad, bool isSystemKey, OptionSet<Modifier>, WallTime timestamp);
-#elif USE(LIBWPE)
-    WebKeyboardEvent(Type, const String& text, const String& key, const String& code, const String& keyIdentifier, int windowsVirtualKeyCode, int nativeVirtualKeyCode, bool handledByInputMethod, std::optional<Vector<WebCore::CompositionUnderline>>&&, std::optional<EditingRange>&&, bool isKeypad, OptionSet<Modifier>, WallTime timestamp);
+    WebKeyboardEvent(WebEvent&&, const String& text, const String& unmodifiedText, const String& key, const String& code, const String& keyIdentifier, int windowsVirtualKeyCode, int nativeVirtualKeyCode, int macCharCode, bool handledByInputMethod, bool isAutoRepeat, bool isKeypad, bool isSystemKey);
+#elif USE(LIBWPE) || ENABLE(WPE_PLATFORM)
+    WebKeyboardEvent(WebEvent&&, const String& text, const String& key, const String& code, const String& keyIdentifier, int windowsVirtualKeyCode, int nativeVirtualKeyCode, bool handledByInputMethod, std::optional<Vector<WebCore::CompositionUnderline>>&&, std::optional<EditingRange>&&, bool isAutoRepeat, bool isKeypad);
 #else
-    WebKeyboardEvent(Type, const String& text, const String& unmodifiedText, const String& key, const String& code, const String& keyIdentifier, int windowsVirtualKeyCode, int nativeVirtualKeyCode, int macCharCode, bool isAutoRepeat, bool isKeypad, bool isSystemKey, OptionSet<Modifier>, WallTime timestamp);
+    WebKeyboardEvent(WebEvent&&, const String& text, const String& unmodifiedText, const String& key, const String& code, const String& keyIdentifier, int windowsVirtualKeyCode, int nativeVirtualKeyCode, int macCharCode, bool isAutoRepeat, bool isKeypad, bool isSystemKey);
 #endif
 
-    const String& text() const { return m_text; }
-    const String& unmodifiedText() const { return m_unmodifiedText; }
-    const String& key() const { return m_key; }
-    const String& code() const { return m_code; }
-    const String& keyIdentifier() const { return m_keyIdentifier; }
+    const String& text() const LIFETIME_BOUND { return m_text; }
+    const String& unmodifiedText() const LIFETIME_BOUND { return m_unmodifiedText; }
+    const String& key() const LIFETIME_BOUND { return m_key; }
+    const String& code() const LIFETIME_BOUND { return m_code; }
+    const String& keyIdentifier() const LIFETIME_BOUND { return m_keyIdentifier; }
     int32_t windowsVirtualKeyCode() const { return m_windowsVirtualKeyCode; }
+#if PLATFORM(WIN)
+    void setWindowsVirtualKeyCode(int32_t keyCode) { m_windowsVirtualKeyCode = keyCode; }
+#endif
     int32_t nativeVirtualKeyCode() const { return m_nativeVirtualKeyCode; }
     int32_t macCharCode() const { return m_macCharCode; }
-#if USE(APPKIT) || PLATFORM(IOS_FAMILY) || PLATFORM(GTK) || USE(LIBWPE)
+#if USE(APPKIT) || PLATFORM(IOS_FAMILY) || PLATFORM(GTK) || USE(LIBWPE) || ENABLE(WPE_PLATFORM)
     bool handledByInputMethod() const { return m_handledByInputMethod; }
 #endif
-#if PLATFORM(GTK) || USE(LIBWPE)
-    const std::optional<Vector<WebCore::CompositionUnderline>>& preeditUnderlines() const { return m_preeditUnderlines; }
-    const std::optional<EditingRange>& preeditSelectionRange() const { return m_preeditSelectionRange; }
+#if PLATFORM(GTK) || USE(LIBWPE) || ENABLE(WPE_PLATFORM)
+    const std::optional<Vector<WebCore::CompositionUnderline>>& preeditUnderlines() const LIFETIME_BOUND { return m_preeditUnderlines; }
+    const std::optional<EditingRange>& preeditSelectionRange() const LIFETIME_BOUND { return m_preeditSelectionRange; }
 #endif
 #if USE(APPKIT)
-    const Vector<WebCore::KeypressCommand>& commands() const { return m_commands; }
+    const Vector<WebCore::KeypressCommand>& commands() const LIFETIME_BOUND { return m_commands; }
 #elif PLATFORM(GTK)
-    const Vector<String>& commands() const { return m_commands; }
+    const Vector<String>& commands() const LIFETIME_BOUND { return m_commands; }
 #endif
     bool isAutoRepeat() const { return m_isAutoRepeat; }
     bool isKeypad() const { return m_isKeypad; }
     bool isSystemKey() const { return m_isSystemKey; }
 
-    void encode(IPC::Encoder&) const;
-    static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, WebKeyboardEvent&);
+    static bool NODELETE isKeyboardEventType(WebEventType);
 
-    static bool isKeyboardEventType(Type);
+#if PLATFORM(WPE)
+    static String keyValueStringForWPEKeyval(unsigned);
+    static String keyCodeStringForWPEKeycode(unsigned);
+    static String keyIdentifierForWPEKeyval(unsigned);
+    static int32_t windowsKeyCodeForWPEKeyval(unsigned);
+    static String singleCharacterStringForWPEKeyval(unsigned);
+#endif
+#if PLATFORM(GTK)
+    static String keyValueStringForGdkKeyval(unsigned);
+    static String keyCodeStringForGdkKeycode(unsigned);
+    static String keyIdentifierForGdkKeyval(unsigned);
+    static int windowsKeyCodeForGdkKeyval(unsigned);
+    static String singleCharacterStringForGdkKeyval(unsigned);
+#endif
 
 private:
     String m_text;
@@ -91,10 +105,10 @@ private:
     int32_t m_windowsVirtualKeyCode { 0 };
     int32_t m_nativeVirtualKeyCode { 0 };
     int32_t m_macCharCode { 0 };
-#if USE(APPKIT) || PLATFORM(IOS_FAMILY) || PLATFORM(GTK) || USE(LIBWPE)
+#if USE(APPKIT) || PLATFORM(IOS_FAMILY) || PLATFORM(GTK) || USE(LIBWPE) || ENABLE(WPE_PLATFORM)
     bool m_handledByInputMethod { false };
 #endif
-#if PLATFORM(GTK) || USE(LIBWPE)
+#if PLATFORM(GTK) || USE(LIBWPE) || ENABLE(WPE_PLATFORM)
     std::optional<Vector<WebCore::CompositionUnderline>> m_preeditUnderlines;
     std::optional<EditingRange> m_preeditSelectionRange;
 #endif
@@ -109,3 +123,7 @@ private:
 };
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebKeyboardEvent)
+static bool isType(const WebKit::WebEvent& event) { return WebKit::WebKeyboardEvent::isKeyboardEventType(event.type()); }
+SPECIALIZE_TYPE_TRAITS_END()

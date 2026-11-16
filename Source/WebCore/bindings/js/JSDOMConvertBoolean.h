@@ -25,19 +25,17 @@
 
 #pragma once
 
-#include "IDLTypes.h"
-#include "JSDOMConvertBase.h"
+#include <JavaScriptCore/JSGlobalObject.h>
+#include <WebCore/IDLTypes.h>
+#include <WebCore/JSDOMConvertBase.h>
 
 namespace WebCore {
 
 template<> struct Converter<IDLBoolean> : DefaultConverter<IDLBoolean> {
-
     static constexpr bool conversionHasSideEffects = false;
+    using Result = ConversionResult<IDLBoolean>;
 
-    static bool convert(JSC::JSGlobalObject& lexicalGlobalObject, JSC::JSValue value)
-    {
-        return value.toBoolean(&lexicalGlobalObject);
-    }
+    WEBCORE_EXPORT static Result convert(JSC::JSGlobalObject&, JSC::JSValue);
 };
 
 template<> struct JSConverter<IDLBoolean> {

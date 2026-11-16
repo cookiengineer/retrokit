@@ -26,11 +26,13 @@
 #include "config.h"
 #include "SpeechRecognitionUpdate.h"
 
+#include <wtf/NeverDestroyed.h>
+
 namespace WebCore {
 
 String convertEnumerationToString(SpeechRecognitionUpdateType enumerationValue)
 {
-    static const NeverDestroyed<String> values[] = {
+    static const std::array<NeverDestroyed<String>, 11> values {
         MAKE_STATIC_STRING_IMPL("UpdateTypeStart"),
         MAKE_STATIC_STRING_IMPL("UpdateTypeAudioStart"),
         MAKE_STATIC_STRING_IMPL("UpdateTypeSoundStart"),
@@ -54,13 +56,13 @@ String convertEnumerationToString(SpeechRecognitionUpdateType enumerationValue)
     static_assert(static_cast<size_t>(SpeechRecognitionUpdateType::NoMatch) == 8, "SpeechRecognitionUpdateType::NoMatch is not 9 as expected");
     static_assert(static_cast<size_t>(SpeechRecognitionUpdateType::Error) == 9, "SpeechRecognitionUpdateType::Error is not 10 as expected");
     static_assert(static_cast<size_t>(SpeechRecognitionUpdateType::End) == 10, "SpeechRecognitionUpdateType::End is not 11 as expected");
-    ASSERT(static_cast<size_t>(enumerationValue) < WTF_ARRAY_LENGTH(values));
+    ASSERT(static_cast<size_t>(enumerationValue) < std::size(values));
     return values[static_cast<size_t>(enumerationValue)];
 }
 
 SpeechRecognitionUpdate SpeechRecognitionUpdate::create(SpeechRecognitionConnectionClientIdentifier clientIdentifier, SpeechRecognitionUpdateType type)
 {
-    return SpeechRecognitionUpdate { clientIdentifier, type, WTF::Monostate() };
+    return SpeechRecognitionUpdate { clientIdentifier, type, std::monostate() };
 }
 
 SpeechRecognitionUpdate SpeechRecognitionUpdate::createError(SpeechRecognitionConnectionClientIdentifier clientIdentifier, const SpeechRecognitionError& error)

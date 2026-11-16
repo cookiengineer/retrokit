@@ -27,6 +27,7 @@
 
 #include <wtf/Forward.h>
 #include <wtf/Vector.h>
+#include <wtf/text/WTFString.h>
 
 #if PLATFORM(COCOA)
 #import <CoreFoundation/CoreFoundation.h>
@@ -35,13 +36,20 @@
 
 namespace WTF {
 
-enum class ShouldMinimizeLanguages { No, Yes };
+enum class ShouldMinimizeLanguages : bool { No, Yes };
+
+struct LocaleComponents {
+    String languageCode;
+    String scriptCode;
+    String regionCode;
+};
 
 WTF_EXPORT_PRIVATE String defaultLanguage(ShouldMinimizeLanguages = ShouldMinimizeLanguages::Yes); // Thread-safe.
 WTF_EXPORT_PRIVATE Vector<String> userPreferredLanguages(ShouldMinimizeLanguages = ShouldMinimizeLanguages::Yes); // Thread-safe, returns BCP 47 language tags.
-WTF_EXPORT_PRIVATE Vector<String> userPreferredLanguagesOverride();
 WTF_EXPORT_PRIVATE void overrideUserPreferredLanguages(const Vector<String>&);
 WTF_EXPORT_PRIVATE size_t indexOfBestMatchingLanguageInList(const String& language, const Vector<String>& languageList, bool& exactMatch);
+WTF_EXPORT_PRIVATE bool userPrefersSimplifiedChinese();
+WTF_EXPORT_PRIVATE LocaleComponents parseLocale(const String&);
 
 // Called from platform specific code when the user's preferred language(s) change.
 WTF_EXPORT_PRIVATE void languageDidChange();
@@ -60,14 +68,19 @@ WTF_EXPORT_PRIVATE void listenForLanguageChangeNotifications();
 RetainPtr<CFArrayRef> minimizedLanguagesFromLanguages(CFArrayRef);
 #endif
 
+#if PLATFORM(HAIKU)
+WTF_EXPORT_PRIVATE void listenForLanguageChangeNotifications();
+#endif
+
 } // namespace WTF
 
 using WTF::ShouldMinimizeLanguages;
 using WTF::defaultLanguage;
 using WTF::userPreferredLanguages;
-using WTF::userPreferredLanguagesOverride;
 using WTF::overrideUserPreferredLanguages;
 using WTF::indexOfBestMatchingLanguageInList;
+using WTF::userPrefersSimplifiedChinese;
+using WTF::parseLocale;
 using WTF::addLanguageChangeObserver;
 using WTF::removeLanguageChangeObserver;
 using WTF::displayNameForLanguageLocale;

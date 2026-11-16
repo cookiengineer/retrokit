@@ -33,23 +33,28 @@
 #include "WebProcessProxy.h"
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/WeakHashMap.h>
 #include <wtf/WeakHashSet.h>
-#include <wtf/text/StringConcatenateNumbers.h>
+#include <wtf/text/MakeString.h>
+
+#if PLATFORM(COCOA)
+#include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
+#endif
 
 namespace WebKit {
 
-typedef HashMap<WebPageProxy*, unsigned> PageLevelMap;
+using PageLevelMap = WeakHashMap<WebPageProxy, unsigned>;
 
-static PageLevelMap& pageLevelMap()
+static PageLevelMap& NODELETE pageLevelMap()
 {
     static NeverDestroyed<PageLevelMap> map;
     return map;
 }
 
-unsigned inspectorLevelForPage(WebPageProxy* page)
+unsigned NODELETE inspectorLevelForPage(WebPageProxy* page)
 {
     if (page) {
-        auto findResult = pageLevelMap().find(page);
+        auto findResult = pageLevelMap().find(*page);
         if (findResult != pageLevelMap().end())
             return findResult->value + 1;
     }
@@ -59,15 +64,15 @@ unsigned inspectorLevelForPage(WebPageProxy* page)
 
 String defaultInspectorPageGroupIdentifierForPage(WebPageProxy* page)
 {
-    return makeString("__WebInspectorPageGroupLevel", inspectorLevelForPage(page), "__");
+    return makeString("__WebInspectorPageGroupLevel"_s, inspectorLevelForPage(page), "__"_s);
 }
 
-void trackInspectorPage(WebPageProxy* inspectorPage, WebPageProxy* inspectedPage)
+void trackInspectorPage(WebPageProxy& inspectorPage, WebPageProxy* inspectedPage)
 {
     pageLevelMap().set(inspectorPage, inspectorLevelForPage(inspectedPage));
 }
 
-void untrackInspectorPage(WebPageProxy* inspectorPage)
+void untrackInspectorPage(WebPageProxy& inspectorPage)
 {
     pageLevelMap().remove(inspectorPage);
 }
@@ -75,7 +80,7 @@ void untrackInspectorPage(WebPageProxy* inspectorPage)
 static WebProcessPool* s_mainInspectorProcessPool;
 static WebProcessPool* s_nestedInspectorProcessPool;
 
-static WeakHashSet<WebProcessPool>& allInspectorProcessPools()
+static WeakHashSet<WebProcessPool>& NODELETE allInspectorProcessPools()
 {
     static NeverDestroyed<WeakHashSet<WebProcessPool>> allInspectorProcessPools;
     return allInspectorProcessPools.get();
@@ -96,20 +101,29 @@ WebProcessPool& defaultInspectorProcessPool(unsigned inspectionLevel)
 
 void prepareProcessPoolForInspector(WebProcessPool& processPool)
 {
-    // Do not delay process launch for inspector pages as inspector pages do not know how to transition from a terminated process.
-    processPool.disableDelayedWebProcessLaunch();
-
     allInspectorProcessPools().add(processPool);
 }
 
-bool isInspectorProcessPool(WebProcessPool& processPool)
+bool NODELETE isInspectorProcessPool(WebProcessPool& processPool)
 {
     return allInspectorProcessPools().contains(processPool);
 }
 
-bool isInspectorPage(WebPageProxy& webPage)
+bool NODELETE isInspectorPage(WebPageProxy& webPage)
 {
-    return pageLevelMap().contains(&webPage);
+    return pageLevelMap().contains(webPage);
 }
+
+#if PLATFORM(COCOA)
+CFStringRef bundleIdentifierForSandboxBrokerSingleton()
+{
+    if (applicationBundleIdentifier() == "com.apple.SafariTechnologyPreview"_s)
+        return CFSTR("com.apple.SafariTechnologyPreview.SandboxBroker");
+    if (applicationBundleIdentifier() == "com.apple.Safari.automation"_s)
+        return CFSTR("com.apple.Safari.automation.SandboxBroker");
+
+    return CFSTR("com.apple.Safari.SandboxBroker");
+}
+#endif // PLATFORM(COCOA)
 
 } // namespace WebKit

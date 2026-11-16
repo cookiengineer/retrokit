@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,25 +25,40 @@
 #include "config.h"
 #include "TestWithStreamBuffer.h"
 
-#include "Decoder.h"
-#include "HandleMessage.h"
-#include "StreamConnectionBuffer.h"
-#include "TestWithStreamBufferMessages.h"
+#include "Decoder.h" // NOLINT
+#include "HandleMessage.h" // NOLINT
+#include "StreamConnectionBuffer.h" // NOLINT
+#include "TestWithStreamBufferMessages.h" // NOLINT
+
+#if ENABLE(IPC_TESTING_API)
+#include "JSIPCBinding.h"
+#endif
 
 namespace WebKit {
 
 void TestWithStreamBuffer::didReceiveMessage(IPC::Connection& connection, IPC::Decoder& decoder)
 {
-    auto protectedThis = makeRef(*this);
-    if (decoder.messageName() == Messages::TestWithStreamBuffer::SendStreamBuffer::name())
-        return IPC::handleMessage<Messages::TestWithStreamBuffer::SendStreamBuffer>(decoder, this, &TestWithStreamBuffer::sendStreamBuffer);
-    UNUSED_PARAM(connection);
-    UNUSED_PARAM(decoder);
-#if ENABLE(IPC_TESTING_API)
-    if (connection.ignoreInvalidMessageForTesting())
+    if (decoder.messageName() == Messages::TestWithStreamBuffer::SendStreamBuffer::name()) {
+        IPC::handleMessage<Messages::TestWithStreamBuffer::SendStreamBuffer>(connection, decoder, this, &TestWithStreamBuffer::sendStreamBuffer);
         return;
-#endif // ENABLE(IPC_TESTING_API)
-    ASSERT_NOT_REACHED_WITH_MESSAGE("Unhandled message %s to %" PRIu64, description(decoder.messageName()), decoder.destinationID());
+    }
+    UNUSED_PARAM(connection);
+    RELEASE_LOG_ERROR(IPC, "Unhandled message %s to %" PRIu64, IPC::description(decoder.messageName()).characters(), decoder.destinationID());
+    decoder.markInvalid();
 }
 
 } // namespace WebKit
+
+#if ENABLE(IPC_TESTING_API)
+
+namespace IPC {
+
+template<> std::optional<JSC::JSValue> jsValueForDecodedMessage<MessageName::TestWithStreamBuffer_SendStreamBuffer>(JSC::JSGlobalObject* globalObject, Decoder& decoder)
+{
+    return jsValueForDecodedArguments<Messages::TestWithStreamBuffer::SendStreamBuffer::Arguments>(globalObject, decoder);
+}
+
+}
+
+#endif
+

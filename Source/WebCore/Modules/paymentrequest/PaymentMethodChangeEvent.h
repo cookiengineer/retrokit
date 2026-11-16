@@ -30,7 +30,6 @@
 #include "JSValueInWrappedObject.h"
 #include "PaymentRequestUpdateEvent.h"
 #include <JavaScriptCore/Strong.h>
-#include <wtf/Variant.h>
 #include <wtf/text/WTFString.h>
 
 namespace JSC {
@@ -40,7 +39,7 @@ class JSObject;
 namespace WebCore {
 
 class PaymentMethodChangeEvent final : public PaymentRequestUpdateEvent {
-    WTF_MAKE_ISO_ALLOCATED(PaymentMethodChangeEvent);
+    WTF_MAKE_TZONE_ALLOCATED(PaymentMethodChangeEvent);
 public:
     template<typename... Args> static Ref<PaymentMethodChangeEvent> create(Args&&... args)
     {
@@ -50,20 +49,17 @@ public:
     using MethodDetailsFunction = std::function<JSC::Strong<JSC::JSObject>(JSC::JSGlobalObject&)>;
     using MethodDetailsType = Variant<JSValueInWrappedObject, MethodDetailsFunction>;
 
-    const String& methodName() const { return m_methodName; }
-    const MethodDetailsType& methodDetails() const { return m_methodDetails; }
-    JSValueInWrappedObject& cachedMethodDetails() { return m_cachedMethodDetails; }
+    const String& methodName() const LIFETIME_BOUND { return m_methodName; }
+    const MethodDetailsType& methodDetails() const LIFETIME_BOUND { return m_methodDetails; }
+    JSValueInWrappedObject& cachedMethodDetails() LIFETIME_BOUND { return m_cachedMethodDetails; }
 
-    // Event
-    EventInterface eventInterface() const override;
-    
     struct Init final : PaymentRequestUpdateEventInit {
         String methodName;
         JSC::Strong<JSC::JSObject> methodDetails;
     };
 
 private:
-    PaymentMethodChangeEvent(const AtomString& type, Init&&);
+    PaymentMethodChangeEvent(JSC::JSGlobalObject&, const AtomString& type, Init&&);
     PaymentMethodChangeEvent(const AtomString& type, const String& methodName, MethodDetailsFunction&&);
 
     String m_methodName;
@@ -72,5 +68,7 @@ private:
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_EVENT(PaymentMethodChangeEvent)
 
 #endif // ENABLE(PAYMENT_REQUEST)

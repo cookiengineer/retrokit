@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,8 +25,8 @@
 
 #pragma once
 
-#include "JSDestructibleObject.h"
-#include "StackFrame.h"
+#include <JavaScriptCore/JSDestructibleObject.h>
+#include <JavaScriptCore/StackFrame.h>
 #include <wtf/Vector.h>
 
 namespace JSC {
@@ -35,19 +35,19 @@ class Exception final : public JSCell {
 public:
     using Base = JSCell;
     static constexpr unsigned StructureFlags = Base::StructureFlags | StructureIsImmortal;
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
 
     template<typename CellType, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
-        return &vm.exceptionSpace;
+        return &vm.exceptionSpace();
     }
 
-    enum StackCaptureAction {
+    enum class StackCaptureAction {
         CaptureStack,
         DoNotCaptureStack
     };
-    JS_EXPORT_PRIVATE static Exception* create(VM&, JSValue thrownValue, StackCaptureAction = CaptureStack);
+    JS_EXPORT_PRIVATE static Exception* create(VM&, JSValue thrownValue, StackCaptureAction = StackCaptureAction::CaptureStack);
 
     static Structure* createStructure(VM&, JSGlobalObject*, JSValue prototype);
 
@@ -55,22 +55,27 @@ public:
 
     DECLARE_EXPORT_INFO;
 
-    static ptrdiff_t valueOffset()
+    static constexpr ptrdiff_t valueOffset()
     {
         return OBJECT_OFFSETOF(Exception, m_value);
     }
 
     JSValue value() const { return m_value.get(); }
-    const Vector<StackFrame>& stack() const { return m_stack; }
+    const Vector<StackFrame>& stack() const LIFETIME_BOUND { return m_stack; }
 
     bool didNotifyInspectorOfThrow() const { return m_didNotifyInspectorOfThrow; }
     void setDidNotifyInspectorOfThrow() { m_didNotifyInspectorOfThrow = true; }
 
+#if ENABLE(WEBASSEMBLY)
+    void tryUnwrapValueForJSTag(VM&);
+    void wrapValueForJSTag(JSGlobalObject*);
+#endif
+
     ~Exception();
 
 private:
-    Exception(VM&);
-    void finishCreation(VM&, JSValue thrownValue, StackCaptureAction);
+    Exception(VM&, JSValue thrownValue);
+    void finishCreation(VM&, StackCaptureAction);
     static void destroy(JSCell*);
 
     WriteBarrier<Unknown> m_value;

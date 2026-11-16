@@ -111,7 +111,7 @@ function createCodeMirrorColorTextMarkers(codeMirror, range, options = {})
                 break;
         }
 
-        if (/(repeating-)?(linear|radial)-gradient$/.test(lineContent.substring(0, index)))
+        if (/(repeating-)?(linear|radial|conic)-gradient$/.test(lineContent.substring(0, index)))
             return false;
 
         // Act as a negative look-behind and disallow the color from being prefixing with certain characters.
@@ -128,7 +128,7 @@ function createCodeMirrorGradientTextMarkers(codeMirror, range, options = {})
     var start = range instanceof WI.TextRange ? range.startLine : 0;
     var end = range instanceof WI.TextRange ? range.endLine + 1 : codeMirror.lineCount();
 
-    var gradientRegex = /(repeating-)?(linear|radial)-gradient\s*\(\s*/g;
+    var gradientRegex = /(repeating-)?(linear|radial|conic)-gradient\s*\(\s*/g;
 
     for (var lineNumber = start; lineNumber < end; ++lineNumber) {
         var lineContent = codeMirror.getLine(lineNumber);
@@ -190,14 +190,26 @@ function createCodeMirrorGradientTextMarkers(codeMirror, range, options = {})
     return createdMarkers;
 }
 
-function createCodeMirrorCubicBezierTextMarkers(codeMirror, range, options = {})
+function createCodeMirrorCubicBezierTimingFunctionTextMarkers(codeMirror, range, options = {})
 {
     const pattern = /(cubic-bezier\([^)]+\)|\b\w+\b(?:-\b\w+\b){0,2})/g;
-    return createCodeMirrorTextMarkers({codeMirror, range, type: "CubicBezier", pattern, ...options});
+    return createCodeMirrorTextMarkers({codeMirror, range, type: "CubicBezierTimingFunction", pattern, ...options});
 }
 
-function createCodeMirrorSpringTextMarkers(codeMirror, range, options = {})
+function createCodeMirrorLinearTimingFunctionTextMarkers(codeMirror, range, options = {})
+{
+    const pattern = /(linear\([^)]+\))/g;
+    return createCodeMirrorTextMarkers({codeMirror, range, type: "LinearTimingFunction", pattern, ...options});
+}
+
+function createCodeMirrorSpringTimingFunctionTextMarkers(codeMirror, range, options = {})
 {
     const pattern = /(spring\([^)]+\))/g;
-    return createCodeMirrorTextMarkers({codeMirror, range, type: "Spring", pattern, ...options});
+    return createCodeMirrorTextMarkers({codeMirror, range, type: "SpringTimingFunction", pattern, ...options});
+}
+
+function createCodeMirrorStepsTimingFunctionTextMarkers(codeMirror, range, options = {})
+{
+    const pattern = /(steps\([^)]+\))/g;
+    return createCodeMirrorTextMarkers({codeMirror, range, type: "StepsTimingFunction", pattern, ...options});
 }

@@ -7,16 +7,12 @@
 //   Prints all format support info
 //
 
+#include "common/gl_enum_utils.h"
+#include "libANGLE/Context.h"
+#include "libANGLE/Display.h"
+#include "libANGLE/formatutils.h"
 #include "test_utils/ANGLETest.h"
 #include "test_utils/angle_test_instantiate.h"
-// 'None' is defined as 'struct None {};' in
-// third_party/googletest/src/googletest/include/gtest/internal/gtest-type-util.h.
-// But 'None' is also defined as a numeric constant 0L in <X11/X.h>.
-// So we need to include ANGLETest.h first to avoid this conflict.
-
-#include "libANGLE/Context.h"
-#include "libANGLE/formatutils.h"
-#include "libANGLE/gl_enum_utils.h"
 #include "util/EGLWindow.h"
 
 using namespace angle;
@@ -24,7 +20,7 @@ using namespace angle;
 namespace
 {
 
-class FormatPrintTest : public ANGLETest
+class FormatPrintTest : public ANGLETest<>
 {};
 
 // This test enumerates all sized and unsized GL formats and prints out support information
@@ -35,7 +31,10 @@ class FormatPrintTest : public ANGLETest
 TEST_P(FormatPrintTest, PrintAllSupportedFormats)
 {
     // Hack the angle!
-    gl::Context *context = static_cast<gl::Context *>(getEGLWindow()->getContext());
+    egl::Display *display   = static_cast<egl::Display *>(getEGLWindow()->getDisplay());
+    gl::ContextID contextID = {
+        static_cast<GLuint>(reinterpret_cast<uintptr_t>(getEGLWindow()->getContext()))};
+    gl::Context *context                                 = display->getContext(contextID);
     const gl::InternalFormatInfoMap &allSupportedFormats = gl::GetInternalFormatMap();
 
     std::cout << std::endl
@@ -50,7 +49,7 @@ TEST_P(FormatPrintTest, PrintAllSupportedFormats)
             bool textureSupport = typeFormatPair.second.textureSupport(context->getClientVersion(),
                                                                        context->getExtensions());
             bool filterSupport  = typeFormatPair.second.filterSupport(context->getClientVersion(),
-                                                                     context->getExtensions());
+                                                                      context->getExtensions());
             bool textureAttachmentSupport = typeFormatPair.second.textureAttachmentSupport(
                 context->getClientVersion(), context->getExtensions());
             bool renderbufferSupport = typeFormatPair.second.renderbufferSupport(
@@ -65,10 +64,10 @@ TEST_P(FormatPrintTest, PrintAllSupportedFormats)
 
             // Lookup enum strings from enum
             std::stringstream resultStringStream;
-            gl::OutputGLenumString(resultStringStream, gl::GLenumGroup::InternalFormat,
+            gl::OutputGLenumString(resultStringStream, gl::GLESEnum::InternalFormat,
                                    internalFormat.first);
             resultStringStream << ",";
-            gl::OutputGLenumString(resultStringStream, gl::GLenumGroup::PixelType,
+            gl::OutputGLenumString(resultStringStream, gl::GLESEnum::PixelType,
                                    typeFormatPair.first);
             resultStringStream << ",";
 
@@ -106,8 +105,6 @@ TEST_P(FormatPrintTest, PrintAllSupportedFormats)
 }
 
 ANGLE_INSTANTIATE_TEST(FormatPrintTest, ES2_VULKAN(), ES3_VULKAN());
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(FormatPrintTest);
 
 }  // anonymous namespace
-
-// Included here to fix a compile error due to white box tests using angle_end2end_tests_main.
-void RegisterContextCompatibilityTests() {}

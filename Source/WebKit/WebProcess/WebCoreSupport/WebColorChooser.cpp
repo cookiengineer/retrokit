@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2012 Intel Corporation. All rights reserved.
+ * Copyright (C) 2013-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,66 +27,71 @@
 #include "config.h"
 #include "WebColorChooser.h"
 
-#if ENABLE(INPUT_TYPE_COLOR)
-
-#include "WebCoreArgumentCoders.h"
+#include "ColorControlSupportsAlpha.h"
 #include "WebPage.h"
 #include "WebPageProxyMessages.h"
 #include "WebProcess.h"
 #include <WebCore/ColorChooserClient.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 using namespace WebCore;
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebColorChooser);
 
 WebColorChooser::WebColorChooser(WebPage* page, ColorChooserClient* client, const Color& initialColor)
     : m_colorChooserClient(client)
     , m_page(page)
 {
-    m_page->setActiveColorChooser(this);
-    WebProcess::singleton().parentProcessConnection()->send(Messages::WebPageProxy::ShowColorPicker(initialColor, client->elementRectRelativeToRootView(), client->suggestedColors()), m_page->identifier());
+    page->setActiveColorChooser(this);
+    auto supportsAlpha = client->supportsAlpha() ? ColorControlSupportsAlpha::Yes : ColorControlSupportsAlpha::No;
+
+    protect(WebProcess::singleton().parentProcessConnection())->send(Messages::WebPageProxy::ShowColorPicker(initialColor, client->elementRectRelativeToRootView(), supportsAlpha, client->suggestedColors(), client->rootFrameID()), page->identifier());
 }
 
 WebColorChooser::~WebColorChooser()
 {
-    if (!m_page)
-        return;
-
-    m_page->setActiveColorChooser(0);
+    if (auto* page = m_page.get())
+        page->setActiveColorChooser(nullptr);
 }
 
 void WebColorChooser::didChooseColor(const Color& color)
 {
-    m_colorChooserClient->didChooseColor(color);
+    if (RefPtr colorChooserClient = m_colorChooserClient.get())
+        colorChooserClient->didChooseColor(color);
 }
 
 void WebColorChooser::didEndChooser()
 {
-    m_colorChooserClient->didEndChooser();
+    if (RefPtr colorChooserClient = m_colorChooserClient.get())
+        colorChooserClient->didEndChooser();
 }
 
 void WebColorChooser::disconnectFromPage()
 {
-    m_page = 0;
+    m_page = nullptr;
 }
 
 void WebColorChooser::reattachColorChooser(const Color& color)
 {
-    ASSERT(m_page);
-    m_page->setActiveColorChooser(this);
+    Ref page = *m_page;
+    page->setActiveColorChooser(this);
 
-    ASSERT(m_colorChooserClient);
-    WebProcess::singleton().parentProcessConnection()->send(Messages::WebPageProxy::ShowColorPicker(color, m_colorChooserClient->elementRectRelativeToRootView(), m_colorChooserClient->suggestedColors()), m_page->identifier());
+    Ref colorChooserClient = *m_colorChooserClient;
+    auto supportsAlpha = colorChooserClient->supportsAlpha() ? ColorControlSupportsAlpha::Yes : ColorControlSupportsAlpha::No;
+    protect(WebProcess::singleton().parentProcessConnection())->send(Messages::WebPageProxy::ShowColorPicker(color, colorChooserClient->elementRectRelativeToRootView(), supportsAlpha, colorChooserClient->suggestedColors(), colorChooserClient->rootFrameID()), page->identifier());
 }
 
 void WebColorChooser::setSelectedColor(const Color& color)
 {
-    if (!m_page)
+    RefPtr page = m_page.get();
+    if (!page)
         return;
     
-    if (m_page->activeColorChooser() != this)
+    if (page->activeColorChooser() != this)
         return;
 
-    WebProcess::singleton().parentProcessConnection()->send(Messages::WebPageProxy::SetColorPickerColor(color), m_page->identifier());
+    protect(WebProcess::singleton().parentProcessConnection())->send(Messages::WebPageProxy::SetColorPickerColor(color), page->identifier());
 }
 
 void WebColorChooser::endChooser()
@@ -93,9 +99,7 @@ void WebColorChooser::endChooser()
     if (!m_page)
         return;
 
-    WebProcess::singleton().parentProcessConnection()->send(Messages::WebPageProxy::EndColorPicker(), m_page->identifier());
+    protect(WebProcess::singleton().parentProcessConnection())->send(Messages::WebPageProxy::EndColorPicker(), m_page->identifier());
 }
 
 } // namespace WebKit
-
-#endif // ENABLE(INPUT_TYPE_COLOR)

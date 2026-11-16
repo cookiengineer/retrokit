@@ -25,37 +25,27 @@
 
 #pragma once
 
-#if ENABLE(WEB_CRYPTO)
-
-#include "CryptoAesKeyAlgorithm.h"
-#include "CryptoAlgorithmIdentifier.h"
-#include "CryptoEcKeyAlgorithm.h"
-#include "CryptoHmacKeyAlgorithm.h"
-#include "CryptoKeyAlgorithm.h"
-#include "CryptoKeyType.h"
-#include "CryptoKeyUsage.h"
-#include "CryptoRsaHashedKeyAlgorithm.h"
-#include "CryptoRsaKeyAlgorithm.h"
+#include <WebCore/CryptoAesKeyAlgorithm.h>
+#include <WebCore/CryptoEcKeyAlgorithm.h>
+#include <WebCore/CryptoHmacKeyAlgorithm.h>
+#include <WebCore/CryptoKeyAlgorithm.h>
+#include <WebCore/CryptoKeyData.h>
+#include <WebCore/CryptoRsaHashedKeyAlgorithm.h>
+#include <WebCore/CryptoRsaKeyAlgorithm.h>
 #include <wtf/Forward.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/TypeCasts.h>
-#include <wtf/Variant.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
-enum class CryptoKeyClass {
-    AES,
-    EC,
-    HMAC,
-    RSA,
-    Raw,
-};
+class WebCoreOpaqueRoot;
 
 class CryptoKey : public ThreadSafeRefCounted<CryptoKey> {
 public:
     using Type = CryptoKeyType;
+    using Data = CryptoKeyData;
     using KeyAlgorithm = Variant<CryptoKeyAlgorithm, CryptoAesKeyAlgorithm, CryptoEcKeyAlgorithm, CryptoHmacKeyAlgorithm, CryptoRsaHashedKeyAlgorithm, CryptoRsaKeyAlgorithm>;
 
     CryptoKey(CryptoAlgorithmIdentifier, Type, bool extractable, CryptoKeyUsageBitmap);
@@ -65,8 +55,11 @@ public:
     bool extractable() const { return m_extractable; }
     Vector<CryptoKeyUsage> usages() const;
     virtual KeyAlgorithm algorithm() const = 0;
-
     virtual CryptoKeyClass keyClass() const = 0;
+    virtual bool isValid() const { return true; }
+
+    WEBCORE_EXPORT virtual Data data() const = 0;
+    WEBCORE_EXPORT static RefPtr<CryptoKey> create(Data&&);
 
     CryptoAlgorithmIdentifier algorithmIdentifier() const { return m_algorithmIdentifier; }
     CryptoKeyUsageBitmap usagesBitmap() const { return m_usages; }
@@ -87,11 +80,11 @@ inline auto CryptoKey::type() const -> Type
     return m_type;
 }
 
+WebCoreOpaqueRoot NODELETE root(CryptoKey*);
+
 } // namespace WebCore
 
 #define SPECIALIZE_TYPE_TRAITS_CRYPTO_KEY(ToClassName, KeyClass) \
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::ToClassName) \
     static bool isType(const WebCore::CryptoKey& key) { return key.keyClass() == WebCore::KeyClass; } \
 SPECIALIZE_TYPE_TRAITS_END()
-
-#endif // ENABLE(WEB_CRYPTO)

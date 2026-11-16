@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2010, Google Inc. All rights reserved.
- * Copyright (C) 2020, Apple Inc. All rights reserved.
+ * Copyright (C) 2010 Google Inc. All rights reserved.
+ * Copyright (C) 2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,17 +35,18 @@ class AudioBuffer;
 class Reverb;
     
 class ConvolverNode final : public AudioNode {
-    WTF_MAKE_ISO_ALLOCATED(ConvolverNode);
+    WTF_MAKE_TZONE_ALLOCATED(ConvolverNode);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(ConvolverNode);
 public:
     static ExceptionOr<Ref<ConvolverNode>> create(BaseAudioContext&, ConvolverOptions&& = { });
     
     virtual ~ConvolverNode();
     
     ExceptionOr<void> setBufferForBindings(RefPtr<AudioBuffer>&&);
-    AudioBuffer* bufferForBindings(); // Only safe to call on the main thread.
+    AudioBuffer* NODELETE bufferForBindings(); // Only safe to call on the main thread.
 
     bool normalizeForBindings() const WTF_IGNORES_THREAD_SAFETY_ANALYSIS { ASSERT(isMainThread()); return m_normalize; }
-    void setNormalizeForBindings(bool);
+    void NODELETE setNormalizeForBindings(bool);
 
     ExceptionOr<void> setChannelCount(unsigned) final;
     ExceptionOr<void> setChannelCountMode(ChannelCountMode) final;
@@ -55,7 +56,7 @@ private:
 
     double tailTime() const final;
     double latencyTime() const final;
-    bool requiresTailProcessing() const final;
+    bool NODELETE requiresTailProcessing() const final;
 
     void process(size_t framesToProcess) final;
     void checkNumberOfChannelsForInput(AudioNodeInput*) final;
@@ -71,3 +72,5 @@ private:
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_AUDIONODE(ConvolverNode, NodeTypeConvolver);

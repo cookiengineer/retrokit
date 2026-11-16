@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,8 +24,7 @@
  */
 
 :host {
-    /* We always want to prevent iOS dialogs and the magnifier UI to be shown. */
-    -webkit-user-select: none !important;
+    /* We always want to avoid showing the context menu on iOS. */
     -webkit-touch-callout: none !important;
 }
 
@@ -34,6 +33,7 @@
     height: var(--inline-controls-bar-height);
     min-width: 44px !important;
     min-height: var(--inline-controls-bar-height) !important;
+    box-sizing: content-box !important;
 }
 
 * {
@@ -42,6 +42,7 @@
     --primary-glyph-color: rgba(255, 255, 255, 0.75);
     --secondary-glyph-color: rgba(255, 255, 255, 0.55);
     --scrubber-margin: 5px;
+    --inline-controls-border-radius: 23px;
 }
 
 :host(audio), :host(video.media-document.audio), * {
@@ -58,6 +59,7 @@
     -webkit-cursor-visibility: inherit;
     position: relative;
     will-change: z-index;
+    overflow: clip;
 }
 
 .media-controls-container,
@@ -82,21 +84,31 @@
 .media-controls {
     height: 100%;
     font-family: -apple-system;
-    -webkit-user-select: none;
     white-space: nowrap;
     text-align: initial;
     transform-origin: 0 0;
 }
 
-:host(:-webkit-animating-full-screen-transition) .media-controls {
+:host(:-internal-animating-fullscreen-transition) .media-controls {
     display: none;
 }
 
-.media-controls > * {
+.media-controls-container:has(.media-controls.inherits-border-radius),
+.media-controls.inherits-border-radius {
+    border-radius: inherit;
+}
+
+.media-controls > *,
+.media-controls::before,
+.media-controls::after {
+    /* We always want to avoid showing the text selection magnifier on iOS. */
+    -webkit-user-select: none;
     transition: opacity 0.1s linear;
 }
 
-.media-controls.faded > *:not(.placard) {
+.media-controls.faded > *:not(.placard),
+.media-controls.faded::before,
+.media-controls.faded::after {
     opacity: 0;
     pointer-events: none;
     transition-duration: 0.25s;
@@ -115,6 +127,42 @@
 .media-controls .status-label {
     color: var(--secondary-glyph-color);
     mix-blend-mode: plus-lighter;
+}
+
+.backdrop {
+    pointer-events: none;
+}
+
+.stats-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: calc(100% - 40px);
+    height: calc(100% - 40px);
+    padding: 20px;
+    pointer-events: none;
+}
+
+.stats-container > table {
+    padding: 5px;
+    font-size: 11px;
+    font-family: sans-serif;
+    color: hsl(0, 0%, 95%);
+    background-color: hsla(0, 0%, 25%, 0.6);
+    border-radius: 5px;
+    -webkit-backdrop-filter: blur(5px);
+}
+
+.stats-container > table > tr > th,
+.stats-container > table > tr > td {
+    margin: 0;
+    padding: 0;
+    pointer-events: auto;
+}
+
+.stats-container > table > tr > th {
+    padding-inline-end: 5px;
+    text-align: end;
 }
 
 @keyframes fade-in {

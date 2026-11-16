@@ -29,32 +29,31 @@
 #if ENABLE(DRAG_SUPPORT)
 
 #include "ArgumentCodersGtk.h"
-#include "ShareableBitmap.h"
+#include "MessageSenderInlines.h"
 #include "WebPage.h"
 #include "WebPageProxyMessages.h"
-#include <WebCore/CairoOperations.h>
 #include <WebCore/DataTransfer.h>
 #include <WebCore/DragData.h>
 #include <WebCore/GraphicsContext.h>
 #include <WebCore/Pasteboard.h>
 #include <WebCore/SelectionData.h>
-#include <cairo.h>
+#include <WebCore/ShareableBitmap.h>
 
 namespace WebKit {
 using namespace WebCore;
 
-static RefPtr<ShareableBitmap> convertCairoSurfaceToShareableBitmap(cairo_surface_t* surface)
+static RefPtr<ShareableBitmap> convertSkiaImageToShareableBitmap(SkImage* image)
 {
-    if (!surface)
+    if (!image)
         return nullptr;
 
-    IntSize imageSize(cairo_image_surface_get_width(surface), cairo_image_surface_get_height(surface));
-    auto bitmap = ShareableBitmap::createShareable(imageSize, { });
+    IntSize imageSize(image->width(), image->height());
+    RefPtr bitmap = ShareableBitmap::create({ imageSize });
     auto graphicsContext = bitmap->createGraphicsContext();
 
     ASSERT(graphicsContext->hasPlatformContext());
-    auto& state = graphicsContext->state();
-    Cairo::drawSurface(*graphicsContext->platformContext(), surface, IntRect(IntPoint(), imageSize), IntRect(IntPoint(), imageSize), state.imageInterpolationQuality, state.alpha, Cairo::ShadowState(state));
+    graphicsContext->platformContext()->drawImage(image, 0, 0);
+
     return bitmap;
 }
 
@@ -62,19 +61,23 @@ void WebDragClient::didConcludeEditDrag()
 {
 }
 
-void WebDragClient::startDrag(DragItem item, DataTransfer& dataTransfer, Frame&)
+void WebDragClient::startDrag(DragItem dragItem, DataTransfer& dataTransfer, Frame&, const std::optional<WebCore::NodeIdentifier>&)
 {
-    auto& dragImage = item.image;
-    RefPtr<ShareableBitmap> bitmap = convertCairoSurfaceToShareableBitmap(dragImage.get().get());
-    ShareableBitmap::Handle handle;
+    std::optional<ShareableBitmap::Handle> handle;
+    auto* dragSurface = dragItem.image.get().get();
+    RefPtr<ShareableBitmap> bitmap;
 
-    // If we have a bitmap, but cannot create a handle to it, we fail early.
-    if (bitmap && !bitmap->createHandle(handle))
-        return;
+    bitmap = convertSkiaImageToShareableBitmap(dragSurface);
+    if (bitmap) {
+        handle = bitmap->createHandle();
+
+        // If we have a bitmap, but cannot create a handle to it, we fail early.
+        if (!handle)
+            return;
+    }
 
     m_page->willStartDrag();
-
-    m_page->send(Messages::WebPageProxy::StartDrag(dataTransfer.pasteboard().selectionData(), dataTransfer.sourceOperationMask(), handle));
+    m_page->send(Messages::WebPageProxy::StartDrag(dataTransfer.pasteboard().selectionData(), dataTransfer.sourceOperationMask(), WTF::move(handle), dataTransfer.dragLocation()));
 }
 
 }; // namespace WebKit.

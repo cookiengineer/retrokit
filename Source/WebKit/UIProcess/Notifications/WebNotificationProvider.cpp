@@ -34,20 +34,24 @@
 #include "WebNotification.h"
 #include "WebNotificationManagerProxy.h"
 #include "WebPageProxy.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebNotificationProvider);
 
 WebNotificationProvider::WebNotificationProvider(const WKNotificationProviderBase* provider)
 {
     initialize(provider);
 }
 
-void WebNotificationProvider::show(WebPageProxy& page, WebNotification& notification)
+bool WebNotificationProvider::show(WebPageProxy* page, WebNotification& notification, RefPtr<WebCore::NotificationResources>&&)
 {
     if (!m_client.show)
-        return;
+        return false;
 
-    m_client.show(toAPI(&page), toAPI(&notification), m_client.base.clientInfo);
+    m_client.show(toAPI(page), toAPI(&notification), m_client.base.clientInfo);
+    return true;
 }
 
 void WebNotificationProvider::cancel(WebNotification& notification)
@@ -66,18 +70,15 @@ void WebNotificationProvider::didDestroyNotification(WebNotification& notificati
     m_client.didDestroyNotification(toAPI(&notification), m_client.base.clientInfo);
 }
 
-void WebNotificationProvider::clearNotifications(const Vector<uint64_t>& notificationIDs)
+void WebNotificationProvider::clearNotifications(const Vector<WebNotificationIdentifier>& notificationIDs)
 {
     if (!m_client.clearNotifications)
         return;
 
-    Vector<RefPtr<API::Object>> arrayIDs;
-    arrayIDs.reserveInitialCapacity(notificationIDs.size());
-
-    for (const auto& notificationID : notificationIDs)
-        arrayIDs.uncheckedAppend(API::UInt64::create(notificationID));
-
-    m_client.clearNotifications(toAPI(API::Array::create(WTFMove(arrayIDs)).ptr()), m_client.base.clientInfo);
+    auto arrayIDs = notificationIDs.map([](auto& notificationID) -> RefPtr<API::Object> {
+        return API::UInt64::create(notificationID.toUInt64());
+    });
+    m_client.clearNotifications(toAPI(API::Array::create(WTF::move(arrayIDs)).ptr()), m_client.base.clientInfo);
 }
 
 void WebNotificationProvider::addNotificationManager(WebNotificationManagerProxy& manager)
@@ -108,7 +109,7 @@ HashMap<WTF::String, bool> WebNotificationProvider::notificationPermissions()
 
     Ref<API::Array> knownOrigins = knownPermissions->keys();
     for (size_t i = 0; i < knownOrigins->size(); ++i) {
-        API::String* origin = knownOrigins->at<API::String>(i);
+        RefPtr origin = knownOrigins->at<API::String>(i);
         permissions.set(origin->string(), knownPermissions->get<API::Boolean>(origin->string())->value());
     }
     return permissions;

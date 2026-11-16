@@ -31,6 +31,7 @@
 
 #include "pas_generic_large_free_heap.h"
 #include "pas_utility_heap.h"
+#include "pas_zero_memory.h"
 
 /* It so happens that we can use this for both x (address) and y (size). */
 static PAS_ALWAYS_INLINE int key_compare_callback(void* raw_left,
@@ -51,7 +52,7 @@ static PAS_ALWAYS_INLINE int key_compare_callback(void* raw_left,
 
 static PAS_ALWAYS_INLINE void* get_x_key_callback(pas_cartesian_tree_node* node)
 {
-    return (void*)((pas_fast_large_free_heap_node*)node)->free.begin;
+    return (void*)((uintptr_t)((pas_fast_large_free_heap_node*)node)->free.begin);
 }
 
 static PAS_ALWAYS_INLINE void* get_y_key_callback(pas_cartesian_tree_node* node)
@@ -90,7 +91,7 @@ static void insert_node(pas_fast_large_free_heap* heap,
     initialize_cartesian_config(&cartesian_config);
     pas_cartesian_tree_insert(
         &heap->tree,
-        (void*)new_free.begin,
+        (void*)((uintptr_t)new_free.begin),
         (void*)pas_large_free_size(new_free),
         &node->tree_node,
         &cartesian_config);
@@ -118,7 +119,7 @@ static void dump_heap(pas_fast_large_free_heap* heap)
         
         node = (pas_fast_large_free_heap_node*)tree_node;
         
-        printf(" [%p, %p)", (void*)node->free.begin, (void*)node->free.end);
+        printf(" [%p, %p)", (void*)((uintptr_t)node->free.begin), (void*)((uintptr_t)node->free.end));
     }
     
     printf("\n");
@@ -214,12 +215,6 @@ static void fast_write_cursor(
 
     if (pas_large_free_size(value) != pas_large_free_size(node->free)) {
         if (pas_large_free_size(value) < pas_large_free_size(node->free)) {
-            pas_fast_large_free_heap_node* parent_node;
-            parent_node = (pas_fast_large_free_heap_node*)
-                pas_compact_cartesian_tree_node_ptr_load(&node->tree_node.parent);
-            need_to_readd_to_tree |= parent_node
-                && pas_large_free_size(value) < pas_large_free_size(parent_node->free);
-        } else {
             pas_fast_large_free_heap_node* left_node;
             pas_fast_large_free_heap_node* right_node;
             left_node = (pas_fast_large_free_heap_node*)
@@ -227,8 +222,14 @@ static void fast_write_cursor(
             right_node = (pas_fast_large_free_heap_node*)
                 pas_compact_cartesian_tree_node_ptr_load(&node->tree_node.right);
             need_to_readd_to_tree |=
-                (left_node && pas_large_free_size(value) > pas_large_free_size(left_node->free)) ||
-                (right_node && pas_large_free_size(value) > pas_large_free_size(right_node->free));
+                (left_node && pas_large_free_size(value) < pas_large_free_size(left_node->free)) ||
+                (right_node && pas_large_free_size(value) < pas_large_free_size(right_node->free));
+        } else {
+            pas_fast_large_free_heap_node* parent_node;
+            parent_node = (pas_fast_large_free_heap_node*)
+                pas_compact_cartesian_tree_node_ptr_load(&node->tree_node.parent);
+            need_to_readd_to_tree |= parent_node
+                && pas_large_free_size(value) > pas_large_free_size(parent_node->free);
         }
     }
 
@@ -242,7 +243,7 @@ static void fast_write_cursor(
     if (need_to_readd_to_tree) {
         pas_cartesian_tree_insert(
             &heap->tree,
-            (void*)value.begin,
+            (void*)((uintptr_t)value.begin),
             (void*)pas_large_free_size(value),
             &node->tree_node,
             &cartesian_config);
@@ -266,7 +267,7 @@ static void fast_merge(
     
     left_node = (pas_fast_large_free_heap_node*)
         pas_cartesian_tree_find_greatest_less_than(
-            &heap->tree, (void*)new_free.begin, &cartesian_config);
+            &heap->tree, (void*)((uintptr_t)new_free.begin), &cartesian_config);
     if (left_node && (
             left_node->free.end != new_free.begin
             || !pas_large_free_can_merge(left_node->free, new_free, config)))
@@ -274,7 +275,7 @@ static void fast_merge(
     
     right_node = (pas_fast_large_free_heap_node*)
         pas_cartesian_tree_find_exact(
-            &heap->tree, (void*)new_free.end, &cartesian_config);
+            &heap->tree, (void*)((uintptr_t)new_free.end), &cartesian_config);
     if (right_node && !pas_large_free_can_merge(right_node->free, new_free, config))
         right_node = NULL;
     
@@ -285,26 +286,21 @@ static void fast_merge(
         merger = pas_large_free_create_merged_for_sure(merger, right_node->free, config);
     
     if (left_node) {
-        pas_fast_large_free_heap_node* left_left_node;
-        pas_fast_large_free_heap_node* left_right_node;
+        pas_fast_large_free_heap_node* left_parent_node;
         bool need_to_readd_to_tree;
-        
+
         if (right_node)
             remove_node(heap, right_node);
-        
+
         /* Thanks to this fact, we don't have to change left_node's position in the tree! */
         PAS_ASSERT(left_node->free.begin == merger.begin);
         PAS_ASSERT(left_node->free.end < merger.end);
-        
-        left_left_node = (pas_fast_large_free_heap_node*)
-            pas_compact_cartesian_tree_node_ptr_load(&left_node->tree_node.left);
-        left_right_node = (pas_fast_large_free_heap_node*)
-            pas_compact_cartesian_tree_node_ptr_load(&left_node->tree_node.right);
+
+        left_parent_node = (pas_fast_large_free_heap_node*)
+            pas_compact_cartesian_tree_node_ptr_load(&left_node->tree_node.parent);
         need_to_readd_to_tree =
-            (left_left_node
-             && pas_large_free_size(merger) > pas_large_free_size(left_left_node->free)) ||
-            (left_right_node
-             && pas_large_free_size(merger) > pas_large_free_size(left_right_node->free));
+            left_parent_node
+            && pas_large_free_size(merger) > pas_large_free_size(left_parent_node->free);
 
         if (need_to_readd_to_tree)
             pas_cartesian_tree_remove(&heap->tree, &left_node->tree_node, &cartesian_config);
@@ -314,7 +310,7 @@ static void fast_merge(
         if (need_to_readd_to_tree) {
             pas_cartesian_tree_insert(
                 &heap->tree,
-                (void*)merger.begin,
+                (void*)((uintptr_t)merger.begin),
                 (void*)pas_large_free_size(merger),
                 &left_node->tree_node,
                 &cartesian_config);
@@ -330,7 +326,7 @@ static void fast_merge(
         
         pas_cartesian_tree_insert(
             &heap->tree,
-            (void*)merger.begin,
+            (void*)((uintptr_t)merger.begin),
             (void*)pas_large_free_size(merger),
             &right_node->tree_node,
             &cartesian_config);
@@ -414,7 +410,10 @@ pas_allocation_result pas_fast_large_free_heap_try_allocate(pas_fast_large_free_
                                                             pas_alignment alignment,
                                                             pas_large_free_heap_config* config)
 {
+    static const bool verbose = PAS_SHOULD_LOG(PAS_LOG_LARGE_HEAPS);
     pas_generic_large_free_heap_config generic_heap_config;
+    if (verbose)
+        pas_log("heap %p allocating %zu, alignment %zu\n", heap, size, alignment.alignment);
     initialize_generic_heap_config(&generic_heap_config);
     return pas_generic_large_free_heap_try_allocate(
         (pas_generic_large_free_heap*)heap,
@@ -428,7 +427,10 @@ void pas_fast_large_free_heap_deallocate(pas_fast_large_free_heap* heap,
                                          pas_zero_mode zero_mode,
                                          pas_large_free_heap_config* config)
 {
+    static const bool verbose = PAS_SHOULD_LOG(PAS_LOG_LARGE_HEAPS);
     pas_generic_large_free_heap_config generic_heap_config;
+    if (verbose)
+        pas_log("heap %p deallocating %p of size %zu\n", heap, (void*)begin, end - begin);
     initialize_generic_heap_config(&generic_heap_config);
     pas_generic_large_free_heap_merge_physical(
         (pas_generic_large_free_heap*)heap,

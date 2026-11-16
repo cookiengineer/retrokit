@@ -26,23 +26,6 @@ bool IsD3D11()
     return (rendererString.find("Direct3D11 vs_5_0") != std::string::npos);
 }
 
-bool IsD3D11_FL93()
-{
-    std::string rendererString(reinterpret_cast<const char *>(glGetString(GL_RENDERER)));
-    return (rendererString.find("Direct3D11 vs_4_0_") != std::string::npos);
-}
-
-bool IsD3D9()
-{
-    std::string rendererString(reinterpret_cast<const char *>(glGetString(GL_RENDERER)));
-    return (rendererString.find("Direct3D9") != std::string::npos);
-}
-
-bool IsD3DSM3()
-{
-    return IsD3D9() || IsD3D11_FL93();
-}
-
 bool IsDesktopOpenGL()
 {
     return IsOpenGL() && !IsOpenGLES();
@@ -77,12 +60,19 @@ bool IsMetal()
 {
     const char *renderer = reinterpret_cast<const char *>(glGetString(GL_RENDERER));
     std::string rendererString(renderer);
-    return (rendererString.find("Metal") != std::string::npos);
+    return (rendererString.find("ANGLE Metal") != std::string::npos);
 }
 
 bool IsD3D()
 {
-    return IsD3D9() || IsD3D11();
+    return IsD3D11();
+}
+
+bool IsWebGPU()
+{
+    const char *renderer = reinterpret_cast<const char *>(glGetString(GL_RENDERER));
+    std::string rendererString(renderer);
+    return (rendererString.find("WebGPU") != std::string::npos);
 }
 
 bool IsDebug()

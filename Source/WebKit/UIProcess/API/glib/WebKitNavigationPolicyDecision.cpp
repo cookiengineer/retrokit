@@ -28,16 +28,15 @@
 #include <glib/gi18n-lib.h>
 #include <wtf/glib/GRefPtr.h>
 #include <wtf/glib/WTFGType.h>
-#include <wtf/text/CString.h>
 
 using namespace WebKit;
 using namespace WebCore;
 
 /**
- * SECTION: WebKitNavigationPolicyDecision
- * @Short_description: A policy decision for navigation actions
- * @Title: WebKitNavigationPolicyDecision
+ * WebKitNavigationPolicyDecision:
  * @See_also: #WebKitPolicyDecision, #WebKitWebView
+ *
+ * A policy decision for navigation actions.
  *
  * WebKitNavigationPolicyDecision represents a policy decision for events associated with
  * navigations. If the value of #WebKitNavigationPolicyDecision:mouse-button is not 0, then
@@ -51,21 +50,22 @@ struct _WebKitNavigationPolicyDecisionPrivate {
     }
 
     WebKitNavigationAction* navigationAction;
-    CString frameName;
 };
 
-WEBKIT_DEFINE_TYPE(WebKitNavigationPolicyDecision, webkit_navigation_policy_decision, WEBKIT_TYPE_POLICY_DECISION)
+WEBKIT_DEFINE_FINAL_TYPE(WebKitNavigationPolicyDecision, webkit_navigation_policy_decision, WEBKIT_TYPE_POLICY_DECISION, WebKitPolicyDecision)
 
 enum {
     PROP_0,
     PROP_NAVIGATION_ACTION,
-#if PLATFORM(GTK)
+#if PLATFORM(GTK) && !USE(GTK4)
     PROP_NAVIGATION_TYPE,
     PROP_MOUSE_BUTTON,
     PROP_MODIFIERS,
     PROP_REQUEST,
 #endif
+#if !ENABLE(2022_GLIB_API)
     PROP_FRAME_NAME,
+#endif
 };
 
 static void webkitNavigationPolicyDecisionGetProperty(GObject* object, guint propId, GValue* value, GParamSpec* paramSpec)
@@ -75,7 +75,7 @@ static void webkitNavigationPolicyDecisionGetProperty(GObject* object, guint pro
     case PROP_NAVIGATION_ACTION:
         g_value_set_boxed(value, webkit_navigation_policy_decision_get_navigation_action(decision));
         break;
-#if PLATFORM(GTK)
+#if PLATFORM(GTK) && !USE(GTK4)
     case PROP_NAVIGATION_TYPE:
         g_value_set_enum(value, webkit_navigation_action_get_navigation_type(decision->priv->navigationAction));
         break;
@@ -89,9 +89,11 @@ static void webkitNavigationPolicyDecisionGetProperty(GObject* object, guint pro
         g_value_set_object(value, webkit_navigation_action_get_request(decision->priv->navigationAction));
         break;
 #endif
+#if !ENABLE(2022_GLIB_API)
     case PROP_FRAME_NAME:
-        g_value_set_string(value, webkit_navigation_policy_decision_get_frame_name(decision));
+        g_value_set_string(value, webkit_navigation_action_get_frame_name(decision->priv->navigationAction));
         break;
+#endif
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, propId, paramSpec);
         break;
@@ -115,12 +117,11 @@ static void webkit_navigation_policy_decision_class_init(WebKitNavigationPolicyD
         PROP_NAVIGATION_ACTION,
         g_param_spec_boxed(
             "navigation-action",
-            _("Navigation action"),
-            _("The WebKitNavigationAction triggering this decision"),
+            nullptr, nullptr,
             WEBKIT_TYPE_NAVIGATION_ACTION,
             WEBKIT_PARAM_READABLE));
 
-#if PLATFORM(GTK)
+#if PLATFORM(GTK) && !USE(GTK4)
     /**
      * WebKitNavigationPolicyDecision:navigation-type:
      *
@@ -133,8 +134,7 @@ static void webkit_navigation_policy_decision_class_init(WebKitNavigationPolicyD
     g_object_class_install_property(objectClass,
                                     PROP_NAVIGATION_TYPE,
                                     g_param_spec_enum("navigation-type",
-                                                      _("Navigation type"),
-                                                      _("The type of navigation triggering this decision"),
+                                                      nullptr, nullptr,
                                                       WEBKIT_TYPE_NAVIGATION_TYPE,
                                                       WEBKIT_NAVIGATION_TYPE_LINK_CLICKED,
                                                       WEBKIT_PARAM_READABLE));
@@ -153,8 +153,7 @@ static void webkit_navigation_policy_decision_class_init(WebKitNavigationPolicyD
     g_object_class_install_property(objectClass,
                                     PROP_MOUSE_BUTTON,
                                     g_param_spec_uint("mouse-button",
-                                                      _("Mouse button"),
-                                                      _("The mouse button used if this decision was triggered by a mouse event"),
+                                                      nullptr, nullptr,
                                                       0, G_MAXUINT, 0,
                                                       WEBKIT_PARAM_READABLE));
 
@@ -172,8 +171,7 @@ static void webkit_navigation_policy_decision_class_init(WebKitNavigationPolicyD
     g_object_class_install_property(objectClass,
                                     PROP_MODIFIERS,
                                     g_param_spec_uint("modifiers",
-                                                      _("Mouse event modifiers"),
-                                                      _("The modifiers active if this decision was triggered by a mouse event"),
+                                                      nullptr, nullptr,
                                                       0, G_MAXUINT, 0,
                                                       WEBKIT_PARAM_READABLE));
 
@@ -188,12 +186,12 @@ static void webkit_navigation_policy_decision_class_init(WebKitNavigationPolicyD
     g_object_class_install_property(objectClass,
                                     PROP_REQUEST,
                                     g_param_spec_object("request",
-                                                      _("Navigation URI request"),
-                                                      _("The URI request that is associated with this navigation"),
+                                                      nullptr, nullptr,
                                                       WEBKIT_TYPE_URI_REQUEST,
                                                       WEBKIT_PARAM_READABLE));
 #endif
 
+#if !ENABLE(2022_GLIB_API)
     /**
      * WebKitNavigationPolicyDecision:frame-name:
      *
@@ -201,14 +199,16 @@ static void webkit_navigation_policy_decision_class_init(WebKitNavigationPolicyD
      * the name of that frame. For example if the decision was triggered by clicking a
      * link with a target attribute equal to "_blank", this property will contain the
      * value of that attribute. In all other cases, this value will be %NULL.
+     *
+     * Deprecated: 2.40: Use #WebKitNavigationPolicyDecision:navigation-action instead
      */
     g_object_class_install_property(objectClass,
                                     PROP_FRAME_NAME,
                                     g_param_spec_string("frame-name",
-                                                      _("Frame name"),
-                                                      _("The name of the new frame this navigation action targets"),
+                                                      nullptr, nullptr,
                                                       0,
                                                       WEBKIT_PARAM_READABLE));
+#endif
 }
 
 /**
@@ -227,7 +227,7 @@ WebKitNavigationAction* webkit_navigation_policy_decision_get_navigation_action(
     return decision->priv->navigationAction;
 }
 
-#if PLATFORM(GTK)
+#if PLATFORM(GTK) && !USE(GTK4)
 /**
  * webkit_navigation_policy_decision_get_navigation_type:
  * @decision: a #WebKitNavigationPolicyDecision
@@ -293,6 +293,7 @@ WebKitURIRequest* webkit_navigation_policy_decision_get_request(WebKitNavigation
 }
 #endif
 
+#if !ENABLE(2022_GLIB_API)
 /**
  * webkit_navigation_policy_decision_get_frame_name:
  * @decision: a #WebKitNavigationPolicyDecision
@@ -300,23 +301,21 @@ WebKitURIRequest* webkit_navigation_policy_decision_get_request(WebKitNavigation
  * Gets the value of the #WebKitNavigationPolicyDecision:frame-name property.
  *
  * Returns: The name of the new frame this navigation action targets or %NULL
+ *
+ * Deprecated: 2.40: Use webkit_navigation_policy_decision_get_navigation_action() instead.
  */
 const char* webkit_navigation_policy_decision_get_frame_name(WebKitNavigationPolicyDecision* decision)
 {
     g_return_val_if_fail(WEBKIT_IS_NAVIGATION_POLICY_DECISION(decision), nullptr);
-    // FIXME: frame name should also be moved to WebKitNavigationAction and this method deprecated.
-    return decision->priv->frameName.data();
+    return webkit_navigation_action_get_frame_name(decision->priv->navigationAction);
 }
+#endif
 
 WebKitPolicyDecision* webkitNavigationPolicyDecisionCreate(Ref<API::NavigationAction>&& navigationAction, Ref<WebFramePolicyListenerProxy>&& listener)
 {
     WebKitNavigationPolicyDecision* navigationDecision = WEBKIT_NAVIGATION_POLICY_DECISION(g_object_new(WEBKIT_TYPE_NAVIGATION_POLICY_DECISION, nullptr));
-    // FIXME: frame name should also be moved to WebKitNavigationAction.
-    auto targetFrameName = navigationAction->targetFrameName();
-    navigationDecision->priv->navigationAction = webkitNavigationActionCreate(WTFMove(navigationAction));
-    if (targetFrameName)
-        navigationDecision->priv->frameName = targetFrameName->utf8();
+    navigationDecision->priv->navigationAction = webkitNavigationActionCreate(WTF::move(navigationAction));
     WebKitPolicyDecision* decision = WEBKIT_POLICY_DECISION(navigationDecision);
-    webkitPolicyDecisionSetListener(decision, WTFMove(listener));
+    webkitPolicyDecisionSetListener(decision, WTF::move(listener));
     return decision;
 }

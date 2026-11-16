@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,30 +25,37 @@
 
 #pragma once
 
-#include "CatchScope.h"
-#include "StackAlignment.h"
-#include "VM.h"
+#include <JavaScriptCore/StackAlignment.h>
+#include <JavaScriptCore/TopExceptionScope.h>
+#include <JavaScriptCore/VM.h>
+#include <wtf/SetForScope.h>
 
 namespace JSC {
 
 struct EntryFrame;
+class PropertyInlineCache;
 
 class SuspendExceptionScope {
 public:
-    SuspendExceptionScope(VM* vm)
+    SuspendExceptionScope(VM& vm)
         : m_vm(vm)
+        , m_exceptionWasSet(vm.m_exception)
+        , m_savedException(vm.m_exception, nullptr)
+        , m_savedLastException(vm.m_lastException, nullptr)
     {
-        auto scope = DECLARE_CATCH_SCOPE(*vm);
-        oldException = scope.exception();
-        scope.clearException();
+        if (m_exceptionWasSet)
+            m_vm.traps().clearTrap(VMTraps::NeedExceptionHandling);
     }
     ~SuspendExceptionScope()
     {
-        m_vm->restorePreviousException(oldException);
+        if (m_exceptionWasSet)
+            m_vm.traps().fireTrap(VMTraps::NeedExceptionHandling);
     }
 private:
-    Exception* oldException;
-    VM* m_vm;
+    VM& m_vm;
+    bool m_exceptionWasSet;
+    SetForScope<Exception*> m_savedException;
+    SetForScope<Exception*> m_savedLastException;
 };
 
 class TopCallFrameSetter {
@@ -75,7 +82,7 @@ ALWAYS_INLINE static void assertStackPointerIsAligned()
 #if CPU(X86) && !OS(WINDOWS)
     uintptr_t stackPointer;
 
-    asm("movl %%esp,%0" : "=r"(stackPointer));
+    __asm__("movl %%esp,%0" : "=r"(stackPointer));
     ASSERT(!(stackPointer % stackAlignmentBytes()));
 #endif
 #endif
@@ -92,6 +99,19 @@ public:
     }
 };
 
+// This class should be used instead of SlowPathFrameTracer *only* in contexts where the sole
+// reason the topCallFrame is accessed is to update ShadowChicken. In other words, in contexts
+// where a JS exception cannot be thrown.
+class WasmSlowPathWithoutCallFrameTracer {
+public:
+    ALWAYS_INLINE WasmSlowPathWithoutCallFrameTracer(VM& vm)
+    {
+        // Wasm frames don't participate in ShadowChicken.
+        if (vm.shadowChicken()) [[unlikely]]
+            vm.topCallFrame = nullptr;
+    }
+};
+
 class NativeCallFrameTracer {
 public:
     ALWAYS_INLINE NativeCallFrameTracer(VM& vm, CallFrame* callFrame)
@@ -100,6 +120,18 @@ public:
         ASSERT(reinterpret_cast<void*>(callFrame) < reinterpret_cast<void*>(vm.topEntryFrame));
         assertStackPointerIsAligned();
         vm.topCallFrame = callFrame;
+    }
+};
+
+class WasmOperationPrologueCallFrameTracer {
+public:
+    ALWAYS_INLINE WasmOperationPrologueCallFrameTracer(VM& vm, CallFrame* callFrame, void* returnPC)
+    {
+        ASSERT(callFrame);
+        ASSERT(reinterpret_cast<void*>(callFrame) < reinterpret_cast<void*>(vm.topEntryFrame));
+        assertStackPointerIsAligned();
+        vm.topCallFrame = callFrame;
+        vm.maybeReturnPC = returnPC;
     }
 };
 
@@ -128,11 +160,27 @@ public:
     ~JITOperationPrologueCallFrameTracer()
     {
         // Fill vm.topCallFrame with invalid value when leaving from JIT operation functions.
-        m_vm.topCallFrame = bitwise_cast<CallFrame*>(static_cast<uintptr_t>(0x0badbeef0badbeefULL));
+        m_vm.topCallFrame = std::bit_cast<CallFrame*>(static_cast<uintptr_t>(0x0badbeef0badbeefULL));
     }
 
     VM& m_vm;
 #endif
 };
+
+class ICSlowPathCallFrameTracer {
+public:
+    inline ICSlowPathCallFrameTracer(VM&, CallFrame*, PropertyInlineCache*);
+
+#if ASSERT_ENABLED
+    ~ICSlowPathCallFrameTracer()
+    {
+        // Fill vm.topCallFrame with invalid value when leaving from JIT operation functions.
+        m_vm.topCallFrame = std::bit_cast<CallFrame*>(static_cast<uintptr_t>(0x0badbeef0badbeefULL));
+    }
+
+    VM& m_vm;
+#endif
+};
+
 
 } // namespace JSC

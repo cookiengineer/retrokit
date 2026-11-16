@@ -25,6 +25,10 @@
 
 #pragma once
 
+#include "Options.h"
+#include "PropertyOffset.h"
+#include "Structure.h"
+
 namespace JSC {
 
 enum class GetByIdMode : uint8_t {
@@ -49,7 +53,9 @@ struct GetByIdModeMetadataUnset {
 static_assert(sizeof(GetByIdModeMetadataUnset) == 12);
 
 struct GetByIdModeMetadataArrayLength {
-    ArrayProfile arrayProfile;
+    unsigned padding1;
+    unsigned padding2;
+    unsigned padding3;
 };
 static_assert(sizeof(GetByIdModeMetadataArrayLength) == 12);
 
@@ -68,7 +74,7 @@ static_assert(sizeof(GetByIdModeMetadataProtoLoad) == 16);
 union GetByIdModeMetadata {
     GetByIdModeMetadata()
     {
-        defaultMode.structureID = 0;
+        defaultMode.structureID = StructureID();
         defaultMode.cachedOffset = 0;
         defaultMode.padding1 = 0;
         mode = GetByIdMode::Default;
@@ -88,6 +94,7 @@ union GetByIdModeMetadata {
         GetByIdMode mode;
         uint8_t hitCountForLLIntCaching; // This must be zero when we use ProtoLoad mode.
     };
+    static constexpr ptrdiff_t offsetOfMode() { return OBJECT_OFFSETOF(GetByIdModeMetadata, mode); }
     GetByIdModeMetadataDefault defaultMode;
     GetByIdModeMetadataUnset unsetMode;
     GetByIdModeMetadataArrayLength arrayLengthMode;
@@ -98,7 +105,7 @@ static_assert(sizeof(GetByIdModeMetadata) == 16);
 struct GetByIdModeMetadata {
     GetByIdModeMetadata()
     {
-        defaultMode.structureID = 0;
+        defaultMode.structureID = StructureID();
         defaultMode.cachedOffset = 0;
         defaultMode.padding1 = 0;
         mode = GetByIdMode::Default;
@@ -117,6 +124,7 @@ struct GetByIdModeMetadata {
         GetByIdModeMetadataProtoLoad protoLoadMode;
     };
     GetByIdMode mode;
+    static constexpr ptrdiff_t offsetOfMode() { return OBJECT_OFFSETOF(GetByIdModeMetadata, mode); }
     uint8_t hitCountForLLIntCaching;
 };
 #endif
@@ -124,7 +132,7 @@ struct GetByIdModeMetadata {
 inline void GetByIdModeMetadata::clearToDefaultModeWithoutCache()
 {
     mode = GetByIdMode::Default;
-    defaultMode.structureID = 0;
+    defaultMode.structureID = StructureID();
     defaultMode.cachedOffset = 0;
 }
 
@@ -132,23 +140,36 @@ inline void GetByIdModeMetadata::setUnsetMode(Structure* structure)
 {
     mode = GetByIdMode::Unset;
     unsetMode.structureID = structure->id();
+    defaultMode.cachedOffset = 0;
 }
 
 inline void GetByIdModeMetadata::setArrayLengthMode()
 {
     mode = GetByIdMode::ArrayLength;
-    new (&arrayLengthMode.arrayProfile) ArrayProfile;
+    // We should clear the structure ID to avoid the old structure ID being saved.
+    defaultMode.structureID = StructureID();
+    defaultMode.cachedOffset = 0;
     // Prevent the prototype cache from ever happening.
     hitCountForLLIntCaching = 0;
 }
 
 inline void GetByIdModeMetadata::setProtoLoadMode(Structure* structure, PropertyOffset offset, JSObject* cachedSlot)
 {
-    mode = GetByIdMode::ProtoLoad; // This must be first set. In 64bit architecture, this field is shared with protoLoadMode.cachedSlot.
+#if CPU(LITTLE_ENDIAN) && CPU(ADDRESS64)
+    // We rely on ProtoLoad being 0, or else the high bits of the pointer would write the wrong mode and hit count
+    static_assert(!static_cast<std::underlying_type_t<GetByIdMode>>(GetByIdMode::ProtoLoad)); // In 64bit architecture, this field is shared with protoLoadMode.cachedSlot.
+#else
+    mode = GetByIdMode::ProtoLoad;
+#endif
+
     protoLoadMode.structureID = structure->id();
     protoLoadMode.cachedOffset = offset;
+
     // We know that this pointer will remain valid because it will be cleared by either a watchpoint fire or
     // during GC when we clear the LLInt caches.
+
+    // The write to cachedSlot also writes the mode, since they overlap in the struct layout. We know that
+    // the mode ProtoLoad is 0 by the static assertion above.
     protoLoadMode.cachedSlot = cachedSlot;
 
     ASSERT(mode == GetByIdMode::ProtoLoad);

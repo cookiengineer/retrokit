@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2021 Metrological Group B.V.
  * Copyright (C) 2021 Igalia S.L.
+ * Copyright (C) 2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,43 +28,52 @@
 
 #include "FontLoadRequest.h"
 #include "ResourceLoaderOptions.h"
+#include "SharedBuffer.h"
 #include "ThreadableLoaderClient.h"
+#include <wtf/TZoneMalloc.h>
 #include <wtf/URL.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
+class FontCreationContext;
 class ScriptExecutionContext;
-class SharedBuffer;
 class WorkerGlobalScope;
 
 struct FontCustomPlatformData;
 
-class WorkerFontLoadRequest : public FontLoadRequest, public ThreadableLoaderClient {
-    WTF_MAKE_FAST_ALLOCATED;
+class WorkerFontLoadRequest final : public FontLoadRequest, public ThreadableLoaderClient, public RefCounted<WorkerFontLoadRequest> {
+    WTF_MAKE_TZONE_ALLOCATED(WorkerFontLoadRequest);
 public:
-    WorkerFontLoadRequest(URL&&, LoadedFromOpaqueSource);
-    ~WorkerFontLoadRequest() = default;
+    static Ref<WorkerFontLoadRequest> create(URL&&, LoadedFromOpaqueSource);
 
     void load(WorkerGlobalScope&);
 
+    // FontLoadRequest, ThreadableLoaderClient.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
 private:
-    const URL& url() const final { return m_url; }
+    WorkerFontLoadRequest(URL&&, LoadedFromOpaqueSource);
+
+    URL url() const LIFETIME_BOUND final { return m_url; }
     bool isPending() const final { return !m_isLoading && !m_errorOccurred && !m_data; }
     bool isLoading() const final { return m_isLoading; }
     bool errorOccurred() const final { return m_errorOccurred; }
 
-    bool ensureCustomFontData(const AtomString& remoteURI) final;
-    RefPtr<Font> createFont(const FontDescription&, const AtomString& remoteURI, bool syntheticBold, bool syntheticItalic, const FontFeatureSettings&, FontSelectionSpecifiedCapabilities) final;
+    bool ensureCustomFontData() final;
+    RefPtr<Font> createFont(const FontDescription&, const FontCreationContext&) final;
 
     void setClient(FontLoadRequestClient*) final;
 
     bool isWorkerFontLoadRequest() const final { return true; }
 
-    void didReceiveResponse(unsigned long identifier, const ResourceResponse&) final;
-    void didReceiveData(const uint8_t* data, int dataLength) final;
-    void didFinishLoading(unsigned long identifier) final;
-    void didFail(const ResourceError&) final;
+    void didReceiveResponse(ScriptExecutionContextIdentifier, std::optional<ResourceLoaderIdentifier>, const ResourceResponse&) final;
+    void didReceiveData(const SharedBuffer&) final;
+    void didFinishLoading(ScriptExecutionContextIdentifier, std::optional<ResourceLoaderIdentifier>, const NetworkLoadMetrics&) final;
+    void didFail(std::optional<ScriptExecutionContextIdentifier>, const ResourceError&) final;
+
+    RefPtr<FontCustomPlatformData> loadCustomFont(SharedBuffer&, const String&);
 
     URL m_url;
     LoadedFromOpaqueSource m_loadedFromOpaqueSource;
@@ -71,11 +81,11 @@ private:
     bool m_isLoading { false };
     bool m_notifyOnClientSet { false };
     bool m_errorOccurred { false };
-    FontLoadRequestClient* m_fontLoadRequestClient { nullptr };
+    WeakPtr<FontLoadRequestClient> m_fontLoadRequestClient;
 
     WeakPtr<ScriptExecutionContext> m_context;
-    RefPtr<SharedBuffer> m_data;
-    std::unique_ptr<FontCustomPlatformData> m_fontCustomPlatformData;
+    SharedBufferBuilder m_data;
+    const RefPtr<FontCustomPlatformData> m_fontCustomPlatformData;
 };
 
 } // namespace WebCore

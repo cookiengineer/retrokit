@@ -9,6 +9,7 @@
 
 #include <cstddef>
 #include <vector>
+#include "common/unsafe_buffers.h"
 
 namespace angle
 {
@@ -25,7 +26,7 @@ class Input
     Input(size_t count, const char *const string[], const int length[]);
 
     size_t count() const { return mCount; }
-    const char *string(size_t index) const { return mString[index]; }
+    const char *string(size_t index) const { return ANGLE_UNSAFE_TODO(mString[index]); }
     size_t length(size_t index) const { return mLength[index]; }
 
     size_t read(char *buf, size_t maxSize, int *lineNo);

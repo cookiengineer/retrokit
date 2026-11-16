@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,478 +25,226 @@
 #include "config.h"
 #include "MessageNames.h"
 
+namespace IPC::Detail {
+
+const MessageDescriptionsArray messageDescriptions {
+#if USE(AVFOUNDATION)
+    MessageDescription { "TestWithCVPixelBuffer_ReceiveCVPixelBuffer"_s, ReceiverName::TestWithCVPixelBuffer, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithCVPixelBuffer_ReceiveCVPixelBufferReply"_s, ReceiverName::TestWithCVPixelBuffer, false, false, true, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithCVPixelBuffer_SendCVPixelBuffer"_s, ReceiverName::TestWithCVPixelBuffer, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+#endif
+    MessageDescription { "TestWithDeferSendingOption_MultipleIndices"_s, ReceiverName::TestWithDeferSendingOption, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithDeferSendingOption_NoIndices"_s, ReceiverName::TestWithDeferSendingOption, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithDeferSendingOption_NoOptions"_s, ReceiverName::TestWithDeferSendingOption, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithDeferSendingOption_OneIndex"_s, ReceiverName::TestWithDeferSendingOption, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithDispatchedFromAndTo_AlwaysEnabled"_s, ReceiverName::TestWithDispatchedFromAndTo, false, false, false, ProcessName::WebContent, ProcessName::UI },
+    MessageDescription { "TestWithEnabledByAndConjunction_AlwaysEnabled"_s, ReceiverName::TestWithEnabledByAndConjunction, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithEnabledByOrConjunction_AlwaysEnabled"_s, ReceiverName::TestWithEnabledByOrConjunction, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithEnabledBy_AlwaysEnabled"_s, ReceiverName::TestWithEnabledBy, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithEnabledBy_ConditionallyEnabled"_s, ReceiverName::TestWithEnabledBy, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithEnabledBy_ConditionallyEnabledAnd"_s, ReceiverName::TestWithEnabledBy, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithEnabledBy_ConditionallyEnabledOr"_s, ReceiverName::TestWithEnabledBy, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+#if PLATFORM(COCOA) || PLATFORM(GTK)
+    MessageDescription { "TestWithIfMessage_LoadURL"_s, ReceiverName::TestWithIfMessage, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+#endif
+    MessageDescription { "TestWithImageData_ReceiveImageData"_s, ReceiverName::TestWithImageData, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithImageData_ReceiveImageDataReply"_s, ReceiverName::TestWithImageData, false, false, true, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithImageData_SendImageData"_s, ReceiverName::TestWithImageData, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+#if (ENABLE(TOUCH_EVENTS) && (NESTED_MESSAGE_CONDITION && SOME_OTHER_MESSAGE_CONDITION))
+    MessageDescription { "TestWithLegacyReceiver_AddEvent"_s, ReceiverName::TestWithLegacyReceiver, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+#endif
+    MessageDescription { "TestWithLegacyReceiver_Close"_s, ReceiverName::TestWithLegacyReceiver, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithLegacyReceiver_CreatePlugin"_s, ReceiverName::TestWithLegacyReceiver, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithLegacyReceiver_CreatePluginReply"_s, ReceiverName::TestWithLegacyReceiver, false, false, true, ProcessName::Unknown, ProcessName::Unknown },
+#if ENABLE(DEPRECATED_FEATURE)
+    MessageDescription { "TestWithLegacyReceiver_DeprecatedOperation"_s, ReceiverName::TestWithLegacyReceiver, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+#endif
+#if PLATFORM(MAC)
+    MessageDescription { "TestWithLegacyReceiver_DidCreateWebProcessConnection"_s, ReceiverName::TestWithLegacyReceiver, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+#endif
+    MessageDescription { "TestWithLegacyReceiver_DidReceivePolicyDecision"_s, ReceiverName::TestWithLegacyReceiver, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+#if ENABLE(FEATURE_FOR_TESTING)
+    MessageDescription { "TestWithLegacyReceiver_ExperimentalOperation"_s, ReceiverName::TestWithLegacyReceiver, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+#endif
+    MessageDescription { "TestWithLegacyReceiver_GetPlugins"_s, ReceiverName::TestWithLegacyReceiver, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithLegacyReceiver_GetPluginsReply"_s, ReceiverName::TestWithLegacyReceiver, false, false, true, ProcessName::Unknown, ProcessName::Unknown },
+#if PLATFORM(MAC)
+    MessageDescription { "TestWithLegacyReceiver_InterpretKeyEvent"_s, ReceiverName::TestWithLegacyReceiver, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithLegacyReceiver_InterpretKeyEventReply"_s, ReceiverName::TestWithLegacyReceiver, false, false, true, ProcessName::Unknown, ProcessName::Unknown },
+#endif
+#if ENABLE(TOUCH_EVENTS)
+    MessageDescription { "TestWithLegacyReceiver_LoadSomething"_s, ReceiverName::TestWithLegacyReceiver, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithLegacyReceiver_LoadSomethingElse"_s, ReceiverName::TestWithLegacyReceiver, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+#endif
+    MessageDescription { "TestWithLegacyReceiver_LoadURL"_s, ReceiverName::TestWithLegacyReceiver, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithLegacyReceiver_OpaqueTypeSecurityAssertion"_s, ReceiverName::TestWithLegacyReceiver, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithLegacyReceiver_OpaqueTypeSecurityAssertionReply"_s, ReceiverName::TestWithLegacyReceiver, false, false, true, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithLegacyReceiver_PreferencesDidChange"_s, ReceiverName::TestWithLegacyReceiver, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithLegacyReceiver_RunJavaScriptAlert"_s, ReceiverName::TestWithLegacyReceiver, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithLegacyReceiver_RunJavaScriptAlertReply"_s, ReceiverName::TestWithLegacyReceiver, false, false, true, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithLegacyReceiver_SendDoubleAndFloat"_s, ReceiverName::TestWithLegacyReceiver, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithLegacyReceiver_SendInts"_s, ReceiverName::TestWithLegacyReceiver, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithLegacyReceiver_SetVideoLayerID"_s, ReceiverName::TestWithLegacyReceiver, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithLegacyReceiver_TemplateTest"_s, ReceiverName::TestWithLegacyReceiver, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithLegacyReceiver_TestParameterAttributes"_s, ReceiverName::TestWithLegacyReceiver, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+#if (ENABLE(TOUCH_EVENTS) && (NESTED_MESSAGE_CONDITION || SOME_OTHER_MESSAGE_CONDITION))
+    MessageDescription { "TestWithLegacyReceiver_TouchEvent"_s, ReceiverName::TestWithLegacyReceiver, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+#endif
+    MessageDescription { "TestWithMultiLineExtendedAttributes_AlwaysEnabled"_s, ReceiverName::TestWithMultiLineExtendedAttributes, false, false, false, ProcessName::GPU, ProcessName::WebContent },
+    MessageDescription { "TestWithSemaphore_ReceiveSemaphore"_s, ReceiverName::TestWithSemaphore, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithSemaphore_ReceiveSemaphoreReply"_s, ReceiverName::TestWithSemaphore, false, false, true, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithSemaphore_SendSemaphore"_s, ReceiverName::TestWithSemaphore, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithSpanOfConst_TestSpanOfConstFloat"_s, ReceiverName::TestWithSpanOfConst, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithSpanOfConst_TestSpanOfConstFloatSegments"_s, ReceiverName::TestWithSpanOfConst, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithStreamBatched_SendString"_s, ReceiverName::TestWithStreamBatched, true, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithStreamBuffer_SendStreamBuffer"_s, ReceiverName::TestWithStreamBuffer, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithStreamServerConnectionHandle_SendStreamServerConnection"_s, ReceiverName::TestWithStreamServerConnectionHandle, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithStream_CallWithIdentifier"_s, ReceiverName::TestWithStream, true, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithStream_CallWithIdentifierReply"_s, ReceiverName::TestWithStream, false, false, true, ProcessName::Unknown, ProcessName::Unknown },
+#if PLATFORM(COCOA)
+    MessageDescription { "TestWithStream_SendMachSendRight"_s, ReceiverName::TestWithStream, true, false, false, ProcessName::Unknown, ProcessName::Unknown },
+#endif
+    MessageDescription { "TestWithStream_SendString"_s, ReceiverName::TestWithStream, true, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithStream_SendStringAsync"_s, ReceiverName::TestWithStream, true, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithStream_SendStringAsyncReply"_s, ReceiverName::TestWithStream, false, false, true, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithSuperclassAndWantsAsyncDispatch_LoadURL"_s, ReceiverName::TestWithSuperclassAndWantsAsyncDispatch, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithSuperclassAndWantsDispatch_LoadURL"_s, ReceiverName::TestWithSuperclassAndWantsDispatch, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithSuperclass_LoadURL"_s, ReceiverName::TestWithSuperclass, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+#if ENABLE(TEST_FEATURE)
+    MessageDescription { "TestWithSuperclass_TestAsyncMessage"_s, ReceiverName::TestWithSuperclass, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithSuperclass_TestAsyncMessageAnyThread"_s, ReceiverName::TestWithSuperclass, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithSuperclass_TestAsyncMessageAnyThreadReply"_s, ReceiverName::TestWithSuperclass, false, false, true, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithSuperclass_TestAsyncMessageReply"_s, ReceiverName::TestWithSuperclass, false, false, true, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithSuperclass_TestAsyncMessageWithConnection"_s, ReceiverName::TestWithSuperclass, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithSuperclass_TestAsyncMessageWithConnectionReply"_s, ReceiverName::TestWithSuperclass, false, false, true, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithSuperclass_TestAsyncMessageWithMultipleArguments"_s, ReceiverName::TestWithSuperclass, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithSuperclass_TestAsyncMessageWithMultipleArgumentsReply"_s, ReceiverName::TestWithSuperclass, false, false, true, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithSuperclass_TestAsyncMessageWithNoArguments"_s, ReceiverName::TestWithSuperclass, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithSuperclass_TestAsyncMessageWithNoArgumentsReply"_s, ReceiverName::TestWithSuperclass, false, false, true, ProcessName::Unknown, ProcessName::Unknown },
+#endif
+    MessageDescription { "TestWithSwiftConditionally_TestAsyncMessage"_s, ReceiverName::TestWithSwiftConditionally, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithSwiftConditionally_TestAsyncMessageReply"_s, ReceiverName::TestWithSwiftConditionally, false, false, true, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithSwift_TestAsyncMessage"_s, ReceiverName::TestWithSwift, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithSwift_TestAsyncMessageReply"_s, ReceiverName::TestWithSwift, false, false, true, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithValidator_AlwaysEnabled"_s, ReceiverName::TestWithValidator, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithValidator_EnabledIfPassValidation"_s, ReceiverName::TestWithValidator, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithValidator_EnabledIfSomeFeatureEnabledAndPassValidation"_s, ReceiverName::TestWithValidator, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithValidator_MessageWithReply"_s, ReceiverName::TestWithValidator, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithValidator_MessageWithReplyReply"_s, ReceiverName::TestWithValidator, false, false, true, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithWantsAsyncDispatch_TestMessage"_s, ReceiverName::TestWithWantsAsyncDispatch, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithWantsDispatchNoSyncMessages_TestMessage"_s, ReceiverName::TestWithWantsDispatchNoSyncMessages, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithWantsDispatch_TestMessage"_s, ReceiverName::TestWithWantsDispatch, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+#if (ENABLE(TOUCH_EVENTS) && (NESTED_MESSAGE_CONDITION && SOME_OTHER_MESSAGE_CONDITION))
+    MessageDescription { "TestWithoutAttributes_AddEvent"_s, ReceiverName::TestWithoutAttributes, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+#endif
+    MessageDescription { "TestWithoutAttributes_Close"_s, ReceiverName::TestWithoutAttributes, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithoutAttributes_CreatePlugin"_s, ReceiverName::TestWithoutAttributes, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithoutAttributes_CreatePluginReply"_s, ReceiverName::TestWithoutAttributes, false, false, true, ProcessName::Unknown, ProcessName::Unknown },
+#if ENABLE(DEPRECATED_FEATURE)
+    MessageDescription { "TestWithoutAttributes_DeprecatedOperation"_s, ReceiverName::TestWithoutAttributes, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+#endif
+#if PLATFORM(MAC)
+    MessageDescription { "TestWithoutAttributes_DidCreateWebProcessConnection"_s, ReceiverName::TestWithoutAttributes, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+#endif
+    MessageDescription { "TestWithoutAttributes_DidReceivePolicyDecision"_s, ReceiverName::TestWithoutAttributes, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+#if ENABLE(FEATURE_FOR_TESTING)
+    MessageDescription { "TestWithoutAttributes_ExperimentalOperation"_s, ReceiverName::TestWithoutAttributes, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+#endif
+    MessageDescription { "TestWithoutAttributes_GetPlugins"_s, ReceiverName::TestWithoutAttributes, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithoutAttributes_GetPluginsReply"_s, ReceiverName::TestWithoutAttributes, false, false, true, ProcessName::Unknown, ProcessName::Unknown },
+#if PLATFORM(MAC)
+    MessageDescription { "TestWithoutAttributes_InterpretKeyEvent"_s, ReceiverName::TestWithoutAttributes, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithoutAttributes_InterpretKeyEventReply"_s, ReceiverName::TestWithoutAttributes, false, false, true, ProcessName::Unknown, ProcessName::Unknown },
+#endif
+#if ENABLE(TOUCH_EVENTS)
+    MessageDescription { "TestWithoutAttributes_LoadSomething"_s, ReceiverName::TestWithoutAttributes, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithoutAttributes_LoadSomethingElse"_s, ReceiverName::TestWithoutAttributes, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+#endif
+    MessageDescription { "TestWithoutAttributes_LoadURL"_s, ReceiverName::TestWithoutAttributes, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithoutAttributes_OpaqueTypeSecurityAssertion"_s, ReceiverName::TestWithoutAttributes, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithoutAttributes_OpaqueTypeSecurityAssertionReply"_s, ReceiverName::TestWithoutAttributes, false, false, true, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithoutAttributes_PreferencesDidChange"_s, ReceiverName::TestWithoutAttributes, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithoutAttributes_RunJavaScriptAlert"_s, ReceiverName::TestWithoutAttributes, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithoutAttributes_RunJavaScriptAlertReply"_s, ReceiverName::TestWithoutAttributes, false, false, true, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithoutAttributes_SendDoubleAndFloat"_s, ReceiverName::TestWithoutAttributes, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithoutAttributes_SendInts"_s, ReceiverName::TestWithoutAttributes, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithoutAttributes_SetVideoLayerID"_s, ReceiverName::TestWithoutAttributes, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithoutAttributes_TemplateTest"_s, ReceiverName::TestWithoutAttributes, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithoutAttributes_TestParameterAttributes"_s, ReceiverName::TestWithoutAttributes, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+#if (ENABLE(TOUCH_EVENTS) && (NESTED_MESSAGE_CONDITION || SOME_OTHER_MESSAGE_CONDITION))
+    MessageDescription { "TestWithoutAttributes_TouchEvent"_s, ReceiverName::TestWithoutAttributes, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+#endif
+    MessageDescription { "TestWithoutUsingIPCConnection_MessageWithArgument"_s, ReceiverName::TestWithoutUsingIPCConnection, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithoutUsingIPCConnection_MessageWithArgumentAndEmptyReply"_s, ReceiverName::TestWithoutUsingIPCConnection, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithoutUsingIPCConnection_MessageWithArgumentAndEmptyReplyReply"_s, ReceiverName::TestWithoutUsingIPCConnection, false, false, true, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithoutUsingIPCConnection_MessageWithArgumentAndReplyWithArgument"_s, ReceiverName::TestWithoutUsingIPCConnection, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithoutUsingIPCConnection_MessageWithArgumentAndReplyWithArgumentReply"_s, ReceiverName::TestWithoutUsingIPCConnection, false, false, true, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithoutUsingIPCConnection_MessageWithoutArgument"_s, ReceiverName::TestWithoutUsingIPCConnection, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithoutUsingIPCConnection_MessageWithoutArgumentAndEmptyReply"_s, ReceiverName::TestWithoutUsingIPCConnection, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithoutUsingIPCConnection_MessageWithoutArgumentAndEmptyReplyReply"_s, ReceiverName::TestWithoutUsingIPCConnection, false, false, true, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithoutUsingIPCConnection_MessageWithoutArgumentAndReplyWithArgument"_s, ReceiverName::TestWithoutUsingIPCConnection, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithoutUsingIPCConnection_MessageWithoutArgumentAndReplyWithArgumentReply"_s, ReceiverName::TestWithoutUsingIPCConnection, false, false, true, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "CancelSyncMessageReply"_s, ReceiverName::IPC, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+#if PLATFORM(COCOA)
+    MessageDescription { "InitializeConnection"_s, ReceiverName::IPC, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+#endif
+    MessageDescription { "LegacySessionState"_s, ReceiverName::IPC, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "ProcessOutOfStreamMessage"_s, ReceiverName::IPC, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "SetStreamDestinationID"_s, ReceiverName::IPC, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "SyncMessageReply"_s, ReceiverName::IPC, false, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithLegacyReceiver_GetPluginProcessConnection"_s, ReceiverName::TestWithLegacyReceiver, true, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithLegacyReceiver_TestMultipleAttributes"_s, ReceiverName::TestWithLegacyReceiver, true, false, false, ProcessName::Unknown, ProcessName::Unknown },
+#if PLATFORM(COCOA)
+    MessageDescription { "TestWithStream_ReceiveMachSendRight"_s, ReceiverName::TestWithStream, true, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithStream_SendAndReceiveMachSendRight"_s, ReceiverName::TestWithStream, true, false, false, ProcessName::Unknown, ProcessName::Unknown },
+#endif
+    MessageDescription { "TestWithStream_SendStringSync"_s, ReceiverName::TestWithStream, true, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithSuperclassAndWantsAsyncDispatch_TestSyncMessage"_s, ReceiverName::TestWithSuperclassAndWantsAsyncDispatch, true, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithSuperclassAndWantsDispatch_TestSyncMessage"_s, ReceiverName::TestWithSuperclassAndWantsDispatch, true, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithSuperclass_TestSyncMessage"_s, ReceiverName::TestWithSuperclass, true, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithSuperclass_TestSynchronousMessage"_s, ReceiverName::TestWithSuperclass, true, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithSwiftConditionally_TestSyncMessage"_s, ReceiverName::TestWithSwiftConditionally, true, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithSwift_TestSyncMessage"_s, ReceiverName::TestWithSwift, true, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithWantsAsyncDispatch_TestSyncMessage"_s, ReceiverName::TestWithWantsAsyncDispatch, true, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithWantsDispatch_TestSyncMessage"_s, ReceiverName::TestWithWantsDispatch, true, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithoutAttributes_GetPluginProcessConnection"_s, ReceiverName::TestWithoutAttributes, true, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "TestWithoutAttributes_TestMultipleAttributes"_s, ReceiverName::TestWithoutAttributes, true, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "WrappedAsyncMessageForTesting"_s, ReceiverName::IPC, true, false, false, ProcessName::Unknown, ProcessName::Unknown },
+    MessageDescription { "<invalid message name>"_s, ReceiverName::Invalid, false, false, false, ProcessName::Unknown, ProcessName::Unknown }
+};
+
+} // namespace IPC::Detail
+
 namespace IPC {
 
-const char* description(MessageName name)
+ASCIILiteral processLiteral(ProcessName name)
 {
     switch (name) {
-    case MessageName::TestWithCVPixelBuffer_ReceiveCVPixelBuffer:
-        return "TestWithCVPixelBuffer_ReceiveCVPixelBuffer";
-    case MessageName::TestWithCVPixelBuffer_SendCVPixelBuffer:
-        return "TestWithCVPixelBuffer_SendCVPixelBuffer";
-    case MessageName::TestWithIfMessage_LoadURL:
-        return "TestWithIfMessage_LoadURL";
-    case MessageName::TestWithImageData_ReceiveImageData:
-        return "TestWithImageData_ReceiveImageData";
-    case MessageName::TestWithImageData_SendImageData:
-        return "TestWithImageData_SendImageData";
-    case MessageName::TestWithLegacyReceiver_AddEvent:
-        return "TestWithLegacyReceiver_AddEvent";
-    case MessageName::TestWithLegacyReceiver_Close:
-        return "TestWithLegacyReceiver_Close";
-    case MessageName::TestWithLegacyReceiver_CreatePlugin:
-        return "TestWithLegacyReceiver_CreatePlugin";
-    case MessageName::TestWithLegacyReceiver_DeprecatedOperation:
-        return "TestWithLegacyReceiver_DeprecatedOperation";
-    case MessageName::TestWithLegacyReceiver_DidCreateWebProcessConnection:
-        return "TestWithLegacyReceiver_DidCreateWebProcessConnection";
-    case MessageName::TestWithLegacyReceiver_DidReceivePolicyDecision:
-        return "TestWithLegacyReceiver_DidReceivePolicyDecision";
-    case MessageName::TestWithLegacyReceiver_ExperimentalOperation:
-        return "TestWithLegacyReceiver_ExperimentalOperation";
-    case MessageName::TestWithLegacyReceiver_GetPlugins:
-        return "TestWithLegacyReceiver_GetPlugins";
-    case MessageName::TestWithLegacyReceiver_InterpretKeyEvent:
-        return "TestWithLegacyReceiver_InterpretKeyEvent";
-    case MessageName::TestWithLegacyReceiver_LoadSomething:
-        return "TestWithLegacyReceiver_LoadSomething";
-    case MessageName::TestWithLegacyReceiver_LoadSomethingElse:
-        return "TestWithLegacyReceiver_LoadSomethingElse";
-    case MessageName::TestWithLegacyReceiver_LoadURL:
-        return "TestWithLegacyReceiver_LoadURL";
-    case MessageName::TestWithLegacyReceiver_PreferencesDidChange:
-        return "TestWithLegacyReceiver_PreferencesDidChange";
-    case MessageName::TestWithLegacyReceiver_RunJavaScriptAlert:
-        return "TestWithLegacyReceiver_RunJavaScriptAlert";
-    case MessageName::TestWithLegacyReceiver_SendDoubleAndFloat:
-        return "TestWithLegacyReceiver_SendDoubleAndFloat";
-    case MessageName::TestWithLegacyReceiver_SendInts:
-        return "TestWithLegacyReceiver_SendInts";
-    case MessageName::TestWithLegacyReceiver_SetVideoLayerID:
-        return "TestWithLegacyReceiver_SetVideoLayerID";
-    case MessageName::TestWithLegacyReceiver_TemplateTest:
-        return "TestWithLegacyReceiver_TemplateTest";
-    case MessageName::TestWithLegacyReceiver_TestParameterAttributes:
-        return "TestWithLegacyReceiver_TestParameterAttributes";
-    case MessageName::TestWithLegacyReceiver_TouchEvent:
-        return "TestWithLegacyReceiver_TouchEvent";
-    case MessageName::TestWithSemaphore_ReceiveSemaphore:
-        return "TestWithSemaphore_ReceiveSemaphore";
-    case MessageName::TestWithSemaphore_SendSemaphore:
-        return "TestWithSemaphore_SendSemaphore";
-    case MessageName::TestWithStreamBuffer_SendStreamBuffer:
-        return "TestWithStreamBuffer_SendStreamBuffer";
-    case MessageName::TestWithStream_ReceiveMachSendRight:
-        return "TestWithStream_ReceiveMachSendRight";
-    case MessageName::TestWithStream_SendAndReceiveMachSendRight:
-        return "TestWithStream_SendAndReceiveMachSendRight";
-    case MessageName::TestWithStream_SendMachSendRight:
-        return "TestWithStream_SendMachSendRight";
-    case MessageName::TestWithStream_SendString:
-        return "TestWithStream_SendString";
-    case MessageName::TestWithStream_SendStringSynchronized:
-        return "TestWithStream_SendStringSynchronized";
-    case MessageName::TestWithSuperclass_LoadURL:
-        return "TestWithSuperclass_LoadURL";
-    case MessageName::TestWithSuperclass_TestAsyncMessage:
-        return "TestWithSuperclass_TestAsyncMessage";
-    case MessageName::TestWithSuperclass_TestAsyncMessageWithConnection:
-        return "TestWithSuperclass_TestAsyncMessageWithConnection";
-    case MessageName::TestWithSuperclass_TestAsyncMessageWithMultipleArguments:
-        return "TestWithSuperclass_TestAsyncMessageWithMultipleArguments";
-    case MessageName::TestWithSuperclass_TestAsyncMessageWithNoArguments:
-        return "TestWithSuperclass_TestAsyncMessageWithNoArguments";
-    case MessageName::TestWithoutAttributes_AddEvent:
-        return "TestWithoutAttributes_AddEvent";
-    case MessageName::TestWithoutAttributes_Close:
-        return "TestWithoutAttributes_Close";
-    case MessageName::TestWithoutAttributes_CreatePlugin:
-        return "TestWithoutAttributes_CreatePlugin";
-    case MessageName::TestWithoutAttributes_DeprecatedOperation:
-        return "TestWithoutAttributes_DeprecatedOperation";
-    case MessageName::TestWithoutAttributes_DidCreateWebProcessConnection:
-        return "TestWithoutAttributes_DidCreateWebProcessConnection";
-    case MessageName::TestWithoutAttributes_DidReceivePolicyDecision:
-        return "TestWithoutAttributes_DidReceivePolicyDecision";
-    case MessageName::TestWithoutAttributes_ExperimentalOperation:
-        return "TestWithoutAttributes_ExperimentalOperation";
-    case MessageName::TestWithoutAttributes_GetPlugins:
-        return "TestWithoutAttributes_GetPlugins";
-    case MessageName::TestWithoutAttributes_InterpretKeyEvent:
-        return "TestWithoutAttributes_InterpretKeyEvent";
-    case MessageName::TestWithoutAttributes_LoadSomething:
-        return "TestWithoutAttributes_LoadSomething";
-    case MessageName::TestWithoutAttributes_LoadSomethingElse:
-        return "TestWithoutAttributes_LoadSomethingElse";
-    case MessageName::TestWithoutAttributes_LoadURL:
-        return "TestWithoutAttributes_LoadURL";
-    case MessageName::TestWithoutAttributes_PreferencesDidChange:
-        return "TestWithoutAttributes_PreferencesDidChange";
-    case MessageName::TestWithoutAttributes_RunJavaScriptAlert:
-        return "TestWithoutAttributes_RunJavaScriptAlert";
-    case MessageName::TestWithoutAttributes_SendDoubleAndFloat:
-        return "TestWithoutAttributes_SendDoubleAndFloat";
-    case MessageName::TestWithoutAttributes_SendInts:
-        return "TestWithoutAttributes_SendInts";
-    case MessageName::TestWithoutAttributes_SetVideoLayerID:
-        return "TestWithoutAttributes_SetVideoLayerID";
-    case MessageName::TestWithoutAttributes_TemplateTest:
-        return "TestWithoutAttributes_TemplateTest";
-    case MessageName::TestWithoutAttributes_TestParameterAttributes:
-        return "TestWithoutAttributes_TestParameterAttributes";
-    case MessageName::TestWithoutAttributes_TouchEvent:
-        return "TestWithoutAttributes_TouchEvent";
-    case MessageName::InitializeConnection:
-        return "InitializeConnection";
-    case MessageName::LegacySessionState:
-        return "LegacySessionState";
-    case MessageName::ProcessOutOfStreamMessage:
-        return "ProcessOutOfStreamMessage";
-    case MessageName::SetStreamDestinationID:
-        return "SetStreamDestinationID";
-    case MessageName::SyncMessageReply:
-        return "SyncMessageReply";
-    case MessageName::TestWithSuperclass_TestAsyncMessageReply:
-        return "TestWithSuperclass_TestAsyncMessageReply";
-    case MessageName::TestWithSuperclass_TestAsyncMessageWithConnectionReply:
-        return "TestWithSuperclass_TestAsyncMessageWithConnectionReply";
-    case MessageName::TestWithSuperclass_TestAsyncMessageWithMultipleArgumentsReply:
-        return "TestWithSuperclass_TestAsyncMessageWithMultipleArgumentsReply";
-    case MessageName::TestWithSuperclass_TestAsyncMessageWithNoArgumentsReply:
-        return "TestWithSuperclass_TestAsyncMessageWithNoArgumentsReply";
-    case MessageName::TestWithLegacyReceiver_GetPluginProcessConnection:
-        return "TestWithLegacyReceiver_GetPluginProcessConnection";
-    case MessageName::TestWithLegacyReceiver_TestMultipleAttributes:
-        return "TestWithLegacyReceiver_TestMultipleAttributes";
-    case MessageName::TestWithSuperclass_TestSyncMessage:
-        return "TestWithSuperclass_TestSyncMessage";
-    case MessageName::TestWithSuperclass_TestSynchronousMessage:
-        return "TestWithSuperclass_TestSynchronousMessage";
-    case MessageName::TestWithoutAttributes_GetPluginProcessConnection:
-        return "TestWithoutAttributes_GetPluginProcessConnection";
-    case MessageName::TestWithoutAttributes_TestMultipleAttributes:
-        return "TestWithoutAttributes_TestMultipleAttributes";
-    case MessageName::WrappedAsyncMessageForTesting:
-        return "WrappedAsyncMessageForTesting";
+    case ProcessName::UI:
+        return "UI";
+    case ProcessName::Networking:
+        return "Networking";
+    case ProcessName::GPU:
+        return "GPU";
+    case ProcessName::WebContent:
+        return "WebContent";
+    case ProcessName::Model:
+        return "Model";
+    case ProcessName::Unknown:
+        return "Unknown";
+    default:
+        RELEASE_ASSERT_NOT_REACHED();
     }
-    ASSERT_NOT_REACHED();
-    return "<invalid message name>";
-}
+};
 
-ReceiverName receiverName(MessageName messageName)
+ASCIILiteral dispatchedFrom(MessageName name)
 {
-    switch (messageName) {
-    case MessageName::TestWithCVPixelBuffer_ReceiveCVPixelBuffer:
-    case MessageName::TestWithCVPixelBuffer_SendCVPixelBuffer:
-        return ReceiverName::TestWithCVPixelBuffer;
-    case MessageName::TestWithIfMessage_LoadURL:
-        return ReceiverName::TestWithIfMessage;
-    case MessageName::TestWithImageData_ReceiveImageData:
-    case MessageName::TestWithImageData_SendImageData:
-        return ReceiverName::TestWithImageData;
-    case MessageName::TestWithLegacyReceiver_AddEvent:
-    case MessageName::TestWithLegacyReceiver_Close:
-    case MessageName::TestWithLegacyReceiver_CreatePlugin:
-    case MessageName::TestWithLegacyReceiver_DeprecatedOperation:
-    case MessageName::TestWithLegacyReceiver_DidCreateWebProcessConnection:
-    case MessageName::TestWithLegacyReceiver_DidReceivePolicyDecision:
-    case MessageName::TestWithLegacyReceiver_ExperimentalOperation:
-    case MessageName::TestWithLegacyReceiver_GetPlugins:
-    case MessageName::TestWithLegacyReceiver_InterpretKeyEvent:
-    case MessageName::TestWithLegacyReceiver_LoadSomething:
-    case MessageName::TestWithLegacyReceiver_LoadSomethingElse:
-    case MessageName::TestWithLegacyReceiver_LoadURL:
-    case MessageName::TestWithLegacyReceiver_PreferencesDidChange:
-    case MessageName::TestWithLegacyReceiver_RunJavaScriptAlert:
-    case MessageName::TestWithLegacyReceiver_SendDoubleAndFloat:
-    case MessageName::TestWithLegacyReceiver_SendInts:
-    case MessageName::TestWithLegacyReceiver_SetVideoLayerID:
-    case MessageName::TestWithLegacyReceiver_TemplateTest:
-    case MessageName::TestWithLegacyReceiver_TestParameterAttributes:
-    case MessageName::TestWithLegacyReceiver_TouchEvent:
-        return ReceiverName::TestWithLegacyReceiver;
-    case MessageName::TestWithSemaphore_ReceiveSemaphore:
-    case MessageName::TestWithSemaphore_SendSemaphore:
-        return ReceiverName::TestWithSemaphore;
-    case MessageName::TestWithStreamBuffer_SendStreamBuffer:
-        return ReceiverName::TestWithStreamBuffer;
-    case MessageName::TestWithStream_ReceiveMachSendRight:
-    case MessageName::TestWithStream_SendAndReceiveMachSendRight:
-    case MessageName::TestWithStream_SendMachSendRight:
-    case MessageName::TestWithStream_SendString:
-    case MessageName::TestWithStream_SendStringSynchronized:
-        return ReceiverName::TestWithStream;
-    case MessageName::TestWithSuperclass_LoadURL:
-    case MessageName::TestWithSuperclass_TestAsyncMessage:
-    case MessageName::TestWithSuperclass_TestAsyncMessageWithConnection:
-    case MessageName::TestWithSuperclass_TestAsyncMessageWithMultipleArguments:
-    case MessageName::TestWithSuperclass_TestAsyncMessageWithNoArguments:
-        return ReceiverName::TestWithSuperclass;
-    case MessageName::TestWithoutAttributes_AddEvent:
-    case MessageName::TestWithoutAttributes_Close:
-    case MessageName::TestWithoutAttributes_CreatePlugin:
-    case MessageName::TestWithoutAttributes_DeprecatedOperation:
-    case MessageName::TestWithoutAttributes_DidCreateWebProcessConnection:
-    case MessageName::TestWithoutAttributes_DidReceivePolicyDecision:
-    case MessageName::TestWithoutAttributes_ExperimentalOperation:
-    case MessageName::TestWithoutAttributes_GetPlugins:
-    case MessageName::TestWithoutAttributes_InterpretKeyEvent:
-    case MessageName::TestWithoutAttributes_LoadSomething:
-    case MessageName::TestWithoutAttributes_LoadSomethingElse:
-    case MessageName::TestWithoutAttributes_LoadURL:
-    case MessageName::TestWithoutAttributes_PreferencesDidChange:
-    case MessageName::TestWithoutAttributes_RunJavaScriptAlert:
-    case MessageName::TestWithoutAttributes_SendDoubleAndFloat:
-    case MessageName::TestWithoutAttributes_SendInts:
-    case MessageName::TestWithoutAttributes_SetVideoLayerID:
-    case MessageName::TestWithoutAttributes_TemplateTest:
-    case MessageName::TestWithoutAttributes_TestParameterAttributes:
-    case MessageName::TestWithoutAttributes_TouchEvent:
-        return ReceiverName::TestWithoutAttributes;
-    case MessageName::InitializeConnection:
-    case MessageName::LegacySessionState:
-    case MessageName::ProcessOutOfStreamMessage:
-    case MessageName::SetStreamDestinationID:
-    case MessageName::SyncMessageReply:
-        return ReceiverName::IPC;
-    case MessageName::TestWithSuperclass_TestAsyncMessageReply:
-    case MessageName::TestWithSuperclass_TestAsyncMessageWithConnectionReply:
-    case MessageName::TestWithSuperclass_TestAsyncMessageWithMultipleArgumentsReply:
-    case MessageName::TestWithSuperclass_TestAsyncMessageWithNoArgumentsReply:
-        return ReceiverName::AsyncReply;
-    case MessageName::TestWithLegacyReceiver_GetPluginProcessConnection:
-    case MessageName::TestWithLegacyReceiver_TestMultipleAttributes:
-        return ReceiverName::TestWithLegacyReceiver;
-    case MessageName::TestWithSuperclass_TestSyncMessage:
-    case MessageName::TestWithSuperclass_TestSynchronousMessage:
-        return ReceiverName::TestWithSuperclass;
-    case MessageName::TestWithoutAttributes_GetPluginProcessConnection:
-    case MessageName::TestWithoutAttributes_TestMultipleAttributes:
-        return ReceiverName::TestWithoutAttributes;
-    case MessageName::WrappedAsyncMessageForTesting:
-        return ReceiverName::IPC;
-    }
-    ASSERT_NOT_REACHED();
-    return ReceiverName::Invalid;
-}
+    return processLiteral(Detail::messageDescriptions[static_cast<size_t>(name)].dispatchedFrom);
+};
 
-bool isValidMessageName(MessageName messageName)
+ASCIILiteral dispatchedTo(MessageName name)
 {
-#if USE(AVFOUNDATION)
-    if (messageName == IPC::MessageName::TestWithCVPixelBuffer_ReceiveCVPixelBuffer)
-        return true;
-#endif
-#if USE(AVFOUNDATION)
-    if (messageName == IPC::MessageName::TestWithCVPixelBuffer_SendCVPixelBuffer)
-        return true;
-#endif
-#if PLATFORM(COCOA)
-    if (messageName == IPC::MessageName::TestWithIfMessage_LoadURL)
-        return true;
-#endif
-#if PLATFORM(GTK)
-    if (messageName == IPC::MessageName::TestWithIfMessage_LoadURL)
-        return true;
-#endif
-    if (messageName == IPC::MessageName::TestWithImageData_ReceiveImageData)
-        return true;
-    if (messageName == IPC::MessageName::TestWithImageData_SendImageData)
-        return true;
-#if (ENABLE(TOUCH_EVENTS) && (NESTED_MESSAGE_CONDITION && SOME_OTHER_MESSAGE_CONDITION))
-    if (messageName == IPC::MessageName::TestWithLegacyReceiver_AddEvent)
-        return true;
-#endif
-    if (messageName == IPC::MessageName::TestWithLegacyReceiver_Close)
-        return true;
-    if (messageName == IPC::MessageName::TestWithLegacyReceiver_CreatePlugin)
-        return true;
-#if ENABLE(DEPRECATED_FEATURE)
-    if (messageName == IPC::MessageName::TestWithLegacyReceiver_DeprecatedOperation)
-        return true;
-#endif
-#if PLATFORM(MAC)
-    if (messageName == IPC::MessageName::TestWithLegacyReceiver_DidCreateWebProcessConnection)
-        return true;
-#endif
-    if (messageName == IPC::MessageName::TestWithLegacyReceiver_DidReceivePolicyDecision)
-        return true;
-#if ENABLE(EXPERIMENTAL_FEATURE)
-    if (messageName == IPC::MessageName::TestWithLegacyReceiver_ExperimentalOperation)
-        return true;
-#endif
-    if (messageName == IPC::MessageName::TestWithLegacyReceiver_GetPlugins)
-        return true;
-#if PLATFORM(MAC)
-    if (messageName == IPC::MessageName::TestWithLegacyReceiver_InterpretKeyEvent)
-        return true;
-#endif
-#if ENABLE(TOUCH_EVENTS)
-    if (messageName == IPC::MessageName::TestWithLegacyReceiver_LoadSomething)
-        return true;
-#endif
-#if ENABLE(TOUCH_EVENTS)
-    if (messageName == IPC::MessageName::TestWithLegacyReceiver_LoadSomethingElse)
-        return true;
-#endif
-    if (messageName == IPC::MessageName::TestWithLegacyReceiver_LoadURL)
-        return true;
-    if (messageName == IPC::MessageName::TestWithLegacyReceiver_PreferencesDidChange)
-        return true;
-    if (messageName == IPC::MessageName::TestWithLegacyReceiver_RunJavaScriptAlert)
-        return true;
-    if (messageName == IPC::MessageName::TestWithLegacyReceiver_SendDoubleAndFloat)
-        return true;
-    if (messageName == IPC::MessageName::TestWithLegacyReceiver_SendInts)
-        return true;
-    if (messageName == IPC::MessageName::TestWithLegacyReceiver_SetVideoLayerID)
-        return true;
-    if (messageName == IPC::MessageName::TestWithLegacyReceiver_TemplateTest)
-        return true;
-    if (messageName == IPC::MessageName::TestWithLegacyReceiver_TestParameterAttributes)
-        return true;
-#if (ENABLE(TOUCH_EVENTS) && (NESTED_MESSAGE_CONDITION || SOME_OTHER_MESSAGE_CONDITION))
-    if (messageName == IPC::MessageName::TestWithLegacyReceiver_TouchEvent)
-        return true;
-#endif
-    if (messageName == IPC::MessageName::TestWithSemaphore_ReceiveSemaphore)
-        return true;
-    if (messageName == IPC::MessageName::TestWithSemaphore_SendSemaphore)
-        return true;
-    if (messageName == IPC::MessageName::TestWithStreamBuffer_SendStreamBuffer)
-        return true;
-#if PLATFORM(COCOA)
-    if (messageName == IPC::MessageName::TestWithStream_ReceiveMachSendRight)
-        return true;
-#endif
-#if PLATFORM(COCOA)
-    if (messageName == IPC::MessageName::TestWithStream_SendAndReceiveMachSendRight)
-        return true;
-#endif
-#if PLATFORM(COCOA)
-    if (messageName == IPC::MessageName::TestWithStream_SendMachSendRight)
-        return true;
-#endif
-    if (messageName == IPC::MessageName::TestWithStream_SendString)
-        return true;
-    if (messageName == IPC::MessageName::TestWithStream_SendStringSynchronized)
-        return true;
-    if (messageName == IPC::MessageName::TestWithSuperclass_LoadURL)
-        return true;
-#if ENABLE(TEST_FEATURE)
-    if (messageName == IPC::MessageName::TestWithSuperclass_TestAsyncMessage)
-        return true;
-#endif
-#if ENABLE(TEST_FEATURE)
-    if (messageName == IPC::MessageName::TestWithSuperclass_TestAsyncMessageWithConnection)
-        return true;
-#endif
-#if ENABLE(TEST_FEATURE)
-    if (messageName == IPC::MessageName::TestWithSuperclass_TestAsyncMessageWithMultipleArguments)
-        return true;
-#endif
-#if ENABLE(TEST_FEATURE)
-    if (messageName == IPC::MessageName::TestWithSuperclass_TestAsyncMessageWithNoArguments)
-        return true;
-#endif
-#if (ENABLE(TOUCH_EVENTS) && (NESTED_MESSAGE_CONDITION && SOME_OTHER_MESSAGE_CONDITION))
-    if (messageName == IPC::MessageName::TestWithoutAttributes_AddEvent)
-        return true;
-#endif
-    if (messageName == IPC::MessageName::TestWithoutAttributes_Close)
-        return true;
-    if (messageName == IPC::MessageName::TestWithoutAttributes_CreatePlugin)
-        return true;
-#if ENABLE(DEPRECATED_FEATURE)
-    if (messageName == IPC::MessageName::TestWithoutAttributes_DeprecatedOperation)
-        return true;
-#endif
-#if PLATFORM(MAC)
-    if (messageName == IPC::MessageName::TestWithoutAttributes_DidCreateWebProcessConnection)
-        return true;
-#endif
-    if (messageName == IPC::MessageName::TestWithoutAttributes_DidReceivePolicyDecision)
-        return true;
-#if ENABLE(EXPERIMENTAL_FEATURE)
-    if (messageName == IPC::MessageName::TestWithoutAttributes_ExperimentalOperation)
-        return true;
-#endif
-    if (messageName == IPC::MessageName::TestWithoutAttributes_GetPlugins)
-        return true;
-#if PLATFORM(MAC)
-    if (messageName == IPC::MessageName::TestWithoutAttributes_InterpretKeyEvent)
-        return true;
-#endif
-#if ENABLE(TOUCH_EVENTS)
-    if (messageName == IPC::MessageName::TestWithoutAttributes_LoadSomething)
-        return true;
-#endif
-#if ENABLE(TOUCH_EVENTS)
-    if (messageName == IPC::MessageName::TestWithoutAttributes_LoadSomethingElse)
-        return true;
-#endif
-    if (messageName == IPC::MessageName::TestWithoutAttributes_LoadURL)
-        return true;
-    if (messageName == IPC::MessageName::TestWithoutAttributes_PreferencesDidChange)
-        return true;
-    if (messageName == IPC::MessageName::TestWithoutAttributes_RunJavaScriptAlert)
-        return true;
-    if (messageName == IPC::MessageName::TestWithoutAttributes_SendDoubleAndFloat)
-        return true;
-    if (messageName == IPC::MessageName::TestWithoutAttributes_SendInts)
-        return true;
-    if (messageName == IPC::MessageName::TestWithoutAttributes_SetVideoLayerID)
-        return true;
-    if (messageName == IPC::MessageName::TestWithoutAttributes_TemplateTest)
-        return true;
-    if (messageName == IPC::MessageName::TestWithoutAttributes_TestParameterAttributes)
-        return true;
-#if (ENABLE(TOUCH_EVENTS) && (NESTED_MESSAGE_CONDITION || SOME_OTHER_MESSAGE_CONDITION))
-    if (messageName == IPC::MessageName::TestWithoutAttributes_TouchEvent)
-        return true;
-#endif
-#if PLATFORM(COCOA)
-    if (messageName == IPC::MessageName::InitializeConnection)
-        return true;
-#endif
-    if (messageName == IPC::MessageName::LegacySessionState)
-        return true;
-    if (messageName == IPC::MessageName::ProcessOutOfStreamMessage)
-        return true;
-    if (messageName == IPC::MessageName::SetStreamDestinationID)
-        return true;
-    if (messageName == IPC::MessageName::SyncMessageReply)
-        return true;
-#if ENABLE(TEST_FEATURE)
-    if (messageName == IPC::MessageName::TestWithSuperclass_TestAsyncMessageReply)
-        return true;
-#endif
-#if ENABLE(TEST_FEATURE)
-    if (messageName == IPC::MessageName::TestWithSuperclass_TestAsyncMessageWithConnectionReply)
-        return true;
-#endif
-#if ENABLE(TEST_FEATURE)
-    if (messageName == IPC::MessageName::TestWithSuperclass_TestAsyncMessageWithMultipleArgumentsReply)
-        return true;
-#endif
-#if ENABLE(TEST_FEATURE)
-    if (messageName == IPC::MessageName::TestWithSuperclass_TestAsyncMessageWithNoArgumentsReply)
-        return true;
-#endif
-    if (messageName == IPC::MessageName::TestWithLegacyReceiver_GetPluginProcessConnection)
-        return true;
-    if (messageName == IPC::MessageName::TestWithLegacyReceiver_TestMultipleAttributes)
-        return true;
-    if (messageName == IPC::MessageName::TestWithSuperclass_TestSyncMessage)
-        return true;
-    if (messageName == IPC::MessageName::TestWithSuperclass_TestSynchronousMessage)
-        return true;
-    if (messageName == IPC::MessageName::TestWithoutAttributes_GetPluginProcessConnection)
-        return true;
-    if (messageName == IPC::MessageName::TestWithoutAttributes_TestMultipleAttributes)
-        return true;
-    if (messageName == IPC::MessageName::WrappedAsyncMessageForTesting)
-        return true;
-    return false;
+    return processLiteral(Detail::messageDescriptions[static_cast<size_t>(name)].dispatchedTo);
 };
 
 } // namespace IPC

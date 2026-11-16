@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2020 Apple Inc.  All rights reserved.
+ * Copyright (C) 2016-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,6 +30,7 @@
 
 #include "CairoOperations.h"
 #include "CairoUtilities.h"
+#include "NotImplemented.h"
 #include <cairo.h>
 
 namespace WebCore {
@@ -44,21 +45,37 @@ bool NativeImage::hasAlpha() const
     return cairo_surface_get_content(m_platformImage.get()) != CAIRO_CONTENT_COLOR;
 }
 
-Color NativeImage::singlePixelSolidColor() const
+DestinationColorSpace NativeImage::colorSpace() const
+{
+    notImplemented();
+    return DestinationColorSpace::SRGB();
+}
+
+std::optional<Color> NativeImage::singlePixelSolidColor() const
 {
     if (size() != IntSize(1, 1))
-        return Color();
+        return std::nullopt;
 
-    if (cairo_surface_get_type(m_platformImage.get()) != CAIRO_SURFACE_TYPE_IMAGE)
-        return Color();
+    auto platformImage = this->platformImage().get();
+    if (cairo_surface_get_type(platformImage) != CAIRO_SURFACE_TYPE_IMAGE)
+        return std::nullopt;
 
-    unsigned* pixel = reinterpret_cast_ptr<unsigned*>(cairo_image_surface_get_data(m_platformImage.get()));
+    unsigned* pixel = reinterpret_cast_ptr<unsigned*>(cairo_image_surface_get_data(platformImage));
     return unpremultiplied(asSRGBA(PackedColor::ARGB { *pixel }));
 }
 
 void NativeImage::clearSubimages()
 {
 }
+
+#if USE(COORDINATED_GRAPHICS)
+uint64_t NativeImage::uniqueID() const
+{
+    if (auto& image = platformImage())
+        return getSurfaceUniqueID(image.get());
+    return 0;
+}
+#endif
 
 } // namespace WebCore
 

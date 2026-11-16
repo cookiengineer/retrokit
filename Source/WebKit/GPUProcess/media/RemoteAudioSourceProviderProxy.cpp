@@ -33,15 +33,15 @@
 
 namespace WebKit {
 
-Ref<RemoteAudioSourceProviderProxy> RemoteAudioSourceProviderProxy::create(WebCore::MediaPlayerIdentifier identifier, Ref<IPC::Connection>&& connection, AudioSourceProviderAVFObjC& localProvider)
+Ref<RemoteAudioSourceProviderProxy> RemoteAudioSourceProviderProxy::create(WebCore::MediaPlayerIdentifier identifier, Ref<IPC::Connection>&& connection, WebCore::AudioSourceProviderAVFObjC& localProvider)
 {
-    auto remoteProvider = adoptRef(*new RemoteAudioSourceProviderProxy(identifier, WTFMove(connection)));
+    auto remoteProvider = adoptRef(*new RemoteAudioSourceProviderProxy(identifier, WTF::move(connection)));
 
-    localProvider.setRingBufferCreationCallback([remoteProvider]() {
-        return remoteProvider->createRingBuffer();
+    localProvider.setConfigureAudioStorageCallback([remoteProvider](auto&&... args) {
+        return remoteProvider->configureAudioStorage(args...);
     });
-    localProvider.setAudioCallback([remoteProvider](auto startFrame, auto numberOfFrames) {
-        remoteProvider->newAudioSamples(startFrame, numberOfFrames);
+    localProvider.setAudioCallback([remoteProvider](auto startFrame, auto numberOfFrames, bool needsFlush) {
+        remoteProvider->newAudioSamples(startFrame, numberOfFrames, needsFlush);
     });
 
     return remoteProvider;
@@ -49,37 +49,42 @@ Ref<RemoteAudioSourceProviderProxy> RemoteAudioSourceProviderProxy::create(WebCo
 
 RemoteAudioSourceProviderProxy::RemoteAudioSourceProviderProxy(WebCore::MediaPlayerIdentifier identifier, Ref<IPC::Connection>&& connection)
     : m_identifier(identifier)
-    , m_connection(WTFMove(connection))
+    , m_connection(WTF::move(connection))
 {
 }
 
 RemoteAudioSourceProviderProxy::~RemoteAudioSourceProviderProxy() = default;
 
-UniqueRef<CARingBuffer> RemoteAudioSourceProviderProxy::createRingBuffer()
+std::unique_ptr<WebCore::CARingBuffer> RemoteAudioSourceProviderProxy::configureAudioStorage(const WebCore::CAAudioStreamDescription& format, size_t frameCount)
 {
-    return makeUniqueRef<CARingBuffer>(makeUniqueRef<SharedRingBufferStorage>([protectedThis = makeRef(*this)](SharedMemory* memory, const CAAudioStreamDescription& format, size_t frameCount) mutable {
-        protectedThis->storageChanged(memory, format, frameCount);
-    }));
+    auto result = ProducerSharedCARingBuffer::allocate(format, frameCount);
+    RELEASE_ASSERT(result); // FIXME(https://bugs.webkit.org/show_bug.cgi?id=262690): Handle allocation failure.
+    auto [ringBuffer, handle] = WTF::move(*result);
+    m_connection->send(Messages::RemoteAudioSourceProviderManager::AudioStorageChanged { m_identifier, WTF::move(handle), format }, 0);
+    // Use a redundant variable to avoid move in return position and to obtain copy elision. Clang or libc++ does not allow returning covariant of Ts from std::unique_ptr<T>s in this position.
+    std::unique_ptr<WebCore::CARingBuffer> caRingBuffer = WTF::move(ringBuffer);  // NOLINT: see above.
+    return caRingBuffer;
 }
 
-void RemoteAudioSourceProviderProxy::newAudioSamples(uint64_t startFrame, uint64_t numberOfFrames)
+void RemoteAudioSourceProviderProxy::newAudioSamples(uint64_t, uint64_t, bool needsFlush)
 {
-    m_connection->send(Messages::RemoteAudioSourceProviderManager::AudioSamplesAvailable { m_identifier, startFrame, numberOfFrames }, 0);
+    if (needsFlush)
+        m_connection->send(Messages::RemoteAudioSourceProviderManager::SetNeedsFlush { m_identifier }, 0);
 }
 
-void RemoteAudioSourceProviderProxy::storageChanged(SharedMemory* memory, const CAAudioStreamDescription& format, size_t frameCount)
+void RemoteAudioSourceProviderProxy::setPlaybackRate(double playbackRate)
 {
-    SharedMemory::Handle handle;
-    if (memory)
-        memory->createHandle(handle, SharedMemory::Protection::ReadOnly);
+    m_connection->send(Messages::RemoteAudioSourceProviderManager::SetPlaybackRate { m_identifier, playbackRate }, 0);
+}
 
-    // FIXME: Send the actual data size with IPCHandle.
-#if OS(DARWIN) || OS(WINDOWS)
-    uint64_t dataSize = handle.size();
-#else
-    uint64_t dataSize = 0;
-#endif
-    m_connection->send(Messages::RemoteAudioSourceProviderManager::AudioStorageChanged { m_identifier, SharedMemory::IPCHandle { WTFMove(handle),  dataSize }, format, frameCount }, 0);
+void RemoteAudioSourceProviderProxy::setPreservesPitch(bool preservesPitch)
+{
+    m_connection->send(Messages::RemoteAudioSourceProviderManager::SetPreservesPitch { m_identifier, preservesPitch }, 0);
+}
+
+void RemoteAudioSourceProviderProxy::setVolume(double volume)
+{
+    m_connection->send(Messages::RemoteAudioSourceProviderManager::SetVolume { m_identifier, volume }, 0);
 }
 
 } // namespace WebKit

@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,20 +26,86 @@
 
 #pragma once
 
-#if ENABLE(CSS_TYPED_OM)
-
-#include "CSSStyleValue.h"
+#include <WebCore/CSSNumericType.h>
+#include <WebCore/CSSStyleValue.h>
+#include <wtf/HashMap.h>
 
 namespace WebCore {
 
+namespace CSS {
+class UnevaluatedCalcBase;
+}
+
+namespace CSSCalc {
+struct Child;
+struct ChildOrNone;
+struct Tree;
+}
+
+class CSSPrimitiveValue;
+class CSSNumericValue;
+class CSSUnitValue;
+class CSSMathSum;
+class CSSValue;
+
+template<typename> class ExceptionOr;
+
+using CSSNumberish = Variant<double, Ref<CSSNumericValue>>;
+
 class CSSNumericValue : public CSSStyleValue {
-    WTF_MAKE_ISO_ALLOCATED(CSSNumericValue);
+    WTF_MAKE_TZONE_ALLOCATED(CSSNumericValue);
+public:
+    ExceptionOr<Ref<CSSNumericValue>> add(FixedVector<CSSNumberish>&&);
+    ExceptionOr<Ref<CSSNumericValue>> sub(FixedVector<CSSNumberish>&&);
+    ExceptionOr<Ref<CSSNumericValue>> mul(FixedVector<CSSNumberish>&&);
+    ExceptionOr<Ref<CSSNumericValue>> div(FixedVector<CSSNumberish>&&);
+    ExceptionOr<Ref<CSSNumericValue>> min(FixedVector<CSSNumberish>&&);
+    ExceptionOr<Ref<CSSNumericValue>> max(FixedVector<CSSNumberish>&&);
     
-    CSSStyleValueType getType() const override { return CSSStyleValueType::CSSNumericValue; }
+    bool equals(FixedVector<CSSNumberish>&&);
+    
+    ExceptionOr<Ref<CSSUnitValue>> to(String&&);
+    ExceptionOr<Ref<CSSUnitValue>> to(CSSUnitType);
+    ExceptionOr<Ref<CSSMathSum>> toSum(FixedVector<String>&&);
+
+    const CSSNumericType& type() const LIFETIME_BOUND { return m_type; }
+    
+    static ExceptionOr<Ref<CSSNumericValue>> parse(Document&, String&&);
+    static Ref<CSSNumericValue> rectifyNumberish(CSSNumberish&&);
+
+    static ExceptionOr<Ref<CSSNumericValue>> reifyValue(Document&, const CSSValue&);
+    static ExceptionOr<Ref<CSSNumericValue>> reifyValue(Document&, const CSSPrimitiveValue&);
+
+    // https://drafts.css-houdini.org/css-typed-om/#sum-value-value
+    using UnitMap = HashMap<CSSUnitType, int, WTF::IntHash<CSSUnitType>, WTF::StrongEnumHashTraits<CSSUnitType>>;
+    struct Addend {
+        double value;
+        UnitMap units;
+    };
+    using SumValue = Vector<Addend>;
+    virtual std::optional<SumValue> toSumValue() const = 0;
+    virtual bool equals(const CSSNumericValue&) const = 0;
+
+    virtual std::optional<CSSCalc::Child> toCalcTreeNode() const = 0;
+
+    static ExceptionOr<Ref<CSSNumericValue>> reifyMathExpression(const CSS::UnevaluatedCalcBase&);
+    static ExceptionOr<Ref<CSSNumericValue>> reifyMathExpression(const CSSCalc::Tree&);
+    static ExceptionOr<Ref<CSSNumericValue>> reifyMathExpression(const CSSCalc::Child&);
+    static ExceptionOr<Ref<CSSNumericValue>> reifyMathExpression(const CSSCalc::ChildOrNone&);
 
 protected:
-    CSSNumericValue() = default;
+    ExceptionOr<Ref<CSSNumericValue>> addInternal(Vector<Ref<CSSNumericValue>>&&);
+    ExceptionOr<Ref<CSSNumericValue>> multiplyInternal(Vector<Ref<CSSNumericValue>>&&);
+    template<typename T> Vector<Ref<CSSNumericValue>> prependItemsOfTypeOrThis(Vector<Ref<CSSNumericValue>>&&);
+
+    CSSNumericValue(CSSNumericType type = { })
+        : m_type(WTF::move(type)) { }
+
+    CSSNumericType m_type;
 };
+
 } // namespace WebCore
 
-#endif
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::CSSNumericValue)
+    static bool isType(const WebCore::CSSStyleValue& styleValue) { return isCSSNumericValue(styleValue.styleValueType()); }
+SPECIALIZE_TYPE_TRAITS_END()

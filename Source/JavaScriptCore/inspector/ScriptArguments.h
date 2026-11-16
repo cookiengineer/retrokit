@@ -31,10 +31,11 @@
 
 #pragma once
 
-#include "Strong.h"
+#include <JavaScriptCore/Strong.h>
 #include <wtf/Forward.h>
 #include <wtf/RefCounted.h>
 #include <wtf/Vector.h>
+#include <wtf/text/MakeString.h>
 
 namespace JSC {
 class CallFrame;
@@ -43,17 +44,18 @@ class JSGlobalObject;
 
 namespace Inspector {
 
-class JS_EXPORT_PRIVATE ScriptArguments : public RefCounted<ScriptArguments> {
+class ScriptArguments : public RefCounted<ScriptArguments> {
 public:
-    static Ref<ScriptArguments> create(JSC::JSGlobalObject*, Vector<JSC::Strong<JSC::Unknown>>&& arguments);
-    ~ScriptArguments();
+    JS_EXPORT_PRIVATE static Ref<ScriptArguments> create(JSC::JSGlobalObject*, Vector<JSC::Strong<JSC::Unknown>>&& arguments);
+    JS_EXPORT_PRIVATE ~ScriptArguments();
 
-    JSC::JSValue argumentAt(size_t) const;
+    JS_EXPORT_PRIVATE JSC::JSValue NODELETE argumentAt(size_t) const;
     size_t argumentCount() const { return m_arguments.size(); }
 
-    JSC::JSGlobalObject* globalObject() const;
+    JS_EXPORT_PRIVATE JSC::JSGlobalObject* NODELETE globalObject() const;
 
-    bool getFirstArgumentAsString(String& result) const;
+    JS_EXPORT_PRIVATE bool getFirstArgumentAsString(String& result) const;
+    JS_EXPORT_PRIVATE Vector<String> getArgumentsAsStrings() const;
     bool isEqual(const ScriptArguments&) const;
 
     static String truncateStringForConsoleMessage(const String& message)
@@ -61,11 +63,12 @@ public:
         constexpr size_t maxMessageLength = 10000;
         if (message.length() <= maxMessageLength)
             return message;
-        return makeString(message.substring(0, maxMessageLength), "..."_s);
+        return makeString(StringView(message).left(maxMessageLength), "..."_s);
     }
 
 private:
     ScriptArguments(JSC::JSGlobalObject*, Vector<JSC::Strong<JSC::Unknown>>&& arguments);
+    std::optional<String> getArgumentAtIndexAsString(size_t) const;
 
     JSC::Strong<JSC::JSGlobalObject> m_globalObject;
     Vector<JSC::Strong<JSC::Unknown>> m_arguments;

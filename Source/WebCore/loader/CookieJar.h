@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,11 +25,13 @@
 
 #pragma once
 
-#include "FrameIdentifier.h"
-#include "PageIdentifier.h"
-#include "SameSiteInfo.h"
+#include <WebCore/FrameIdentifier.h>
+#include <WebCore/PageIdentifier.h>
+#include <WebCore/SameSiteInfo.h>
+#include <optional>
 #include <wtf/Forward.h>
-#include <wtf/text/WTFString.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -39,12 +41,15 @@ enum class SecureCookiesAccessed : bool { No, Yes };
 
 class Document;
 struct Cookie;
+class CookieChangeListener;
 struct CookieRequestHeaderFieldProxy;
+struct CookieStoreGetOptions;
 class NetworkStorageSession;
 class StorageSessionProvider;
 struct SameSiteInfo;
+enum class ShouldPartitionCookie : bool;
 
-class WEBCORE_EXPORT CookieJar : public RefCounted<CookieJar> {
+class WEBCORE_EXPORT CookieJar : public RefCountedAndCanMakeWeakPtr<CookieJar> {
 public:
     static Ref<CookieJar> create(Ref<StorageSessionProvider>&&);
     
@@ -52,15 +57,26 @@ public:
 
     String cookieRequestHeaderFieldValue(Document&, const URL&) const;
 
+    static IncludeSecureCookies shouldIncludeSecureCookies(const URL&);
+
     // These two functions implement document.cookie API, with special rules for HttpOnly cookies.
     virtual String cookies(Document&, const URL&) const;
     virtual void setCookies(Document&, const URL&, const String& cookieString);
 
-    virtual bool cookiesEnabled(const Document&) const;
+    virtual bool cookiesEnabled(Document&);
+    virtual void remoteCookiesEnabled(const Document&, CompletionHandler<void(bool)>&&) const;
     virtual std::pair<String, SecureCookiesAccessed> cookieRequestHeaderFieldValue(const URL& firstParty, const SameSiteInfo&, const URL&, std::optional<FrameIdentifier>, std::optional<PageIdentifier>, IncludeSecureCookies) const;
-    virtual bool getRawCookies(const Document&, const URL&, Vector<Cookie>&) const;
-    virtual void setRawCookie(const Document&, const Cookie&);
-    virtual void deleteCookie(const Document&, const URL&, const String& cookieName);
+    virtual bool getRawCookies(Document&, const URL&, Vector<Cookie>&) const;
+    virtual void setRawCookie(const Document&, const Cookie&, ShouldPartitionCookie);
+    virtual void deleteCookie(const Document&, const URL&, const String& cookieName, CompletionHandler<void()>&&);
+
+    virtual void getCookiesAsync(Document&, const URL&, const CookieStoreGetOptions&, CompletionHandler<void(std::optional<Vector<Cookie>>&&)>&&) const;
+    virtual void setCookieAsync(Document&, const URL&, const Cookie&, CompletionHandler<void(bool)>&&) const;
+
+#if HAVE(COOKIE_CHANGE_LISTENER_API)
+    virtual void addChangeListener(const WebCore::Document&, const CookieChangeListener&);
+    virtual void removeChangeListener(const String& host, const CookieChangeListener&);
+#endif
 
     // Cookie Cache.
     virtual void clearCache() { }
@@ -69,11 +85,10 @@ public:
     virtual ~CookieJar();
 protected:
     static SameSiteInfo sameSiteInfo(const Document&, IsForDOMCookieAccess = IsForDOMCookieAccess::No);
-    static IncludeSecureCookies shouldIncludeSecureCookies(const Document&, const URL&);
     CookieJar(Ref<StorageSessionProvider>&&);
 
 private:
-    Ref<StorageSessionProvider> m_storageSessionProvider;
+    const Ref<StorageSessionProvider> m_storageSessionProvider;
 };
 
 } // namespace WebCore

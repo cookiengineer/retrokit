@@ -28,15 +28,17 @@
 #include <wtf/CompletionHandler.h>
 #include <wtf/MainThread.h>
 #include <wtf/Ref.h>
+#include <wtf/RefCounted.h>
 #include <wtf/ThreadSafeRefCounted.h>
 
 namespace WTF {
 
-class CallbackAggregator : public ThreadSafeRefCounted<CallbackAggregator> {
+template <DestructionThread destructionThread>
+class CallbackAggregatorOnThread : public ThreadSafeRefCounted<CallbackAggregatorOnThread<destructionThread>, destructionThread> {
 public:
-    static Ref<CallbackAggregator> create(CompletionHandler<void()>&& callback) { return adoptRef(*new CallbackAggregator(WTFMove(callback))); }
+    static auto create(CompletionHandler<void()>&& callback) { return adoptRef(*new CallbackAggregatorOnThread(WTF::move(callback))); }
 
-    ~CallbackAggregator()
+    ~CallbackAggregatorOnThread()
     {
         ASSERT(m_wasConstructedOnMainThread == isMainThread());
         if (m_callback)
@@ -44,8 +46,8 @@ public:
     }
 
 private:
-    explicit CallbackAggregator(CompletionHandler<void()>&& callback)
-        : m_callback(WTFMove(callback))
+    explicit CallbackAggregatorOnThread(CompletionHandler<void()>&& callback)
+        : m_callback(WTF::move(callback))
 #if ASSERT_ENABLED
         , m_wasConstructedOnMainThread(isMainThread())
 #endif
@@ -58,6 +60,99 @@ private:
 #endif
 };
 
+using CallbackAggregator = CallbackAggregatorOnThread<DestructionThread::Any>;
+using MainRunLoopCallbackAggregator = CallbackAggregatorOnThread<DestructionThread::MainRunLoop>;
+
+// EagerCallbackAggregator ensures a callback is executed at its first opportunity, ignoring subsequent triggers.
+// It's particularly useful in situations where a callback might be triggered multiple times, but only the first
+// execution is necessary. If the callback hasn't been executed by the time of the aggregator's destruction,
+// it's automatically called with default parameters, ensuring a single, definitive execution.
+
+template<typename> class EagerCallbackAggregator;
+template <typename Out, typename... In>
+class EagerCallbackAggregator<Out(In...)> : public ThreadSafeRefCounted<EagerCallbackAggregator<Out(In...)>> {
+public:
+    template<typename CallableType>
+        requires (std::is_rvalue_reference_v<CallableType&&>)
+    static Ref<EagerCallbackAggregator> create(CallableType&& callback, In... defaultArgs)
+    {
+        return adoptRef(*new EagerCallbackAggregator(std::forward<CallableType>(callback), std::forward<In>(defaultArgs)...));
+    }
+
+    Out operator()(In... args)
+    {
+        if (m_callback)
+            return m_callback(std::forward<In>(args)...);
+        return Out();
+    }
+
+    ~EagerCallbackAggregator()
+    {
+        if (m_callback)
+            std::apply(m_callback, WTF::move(m_defaultArgs));
+    }
+
+private:
+    template<typename CallableType>
+    explicit EagerCallbackAggregator(CallableType&& callback, In... defaultArgs)
+        : m_callback(std::forward<CallableType>(callback))
+        , m_defaultArgs(std::forward<In>(defaultArgs)...)
+    {
+    }
+
+    CompletionHandler<Out(In...)> m_callback;
+    std::tuple<In...> m_defaultArgs;
+};
+
+// Waits for all bool completions and resolves to true only if all succeed.
+template <DestructionThread destructionThread>
+class SuccessCallbackAggregatorOnThread : public ThreadSafeRefCounted<SuccessCallbackAggregatorOnThread<destructionThread>, destructionThread> {
+public:
+    static auto create(CompletionHandler<void(bool)>&& callback) { return adoptRef(*new SuccessCallbackAggregatorOnThread(WTF::move(callback))); }
+
+    ~SuccessCallbackAggregatorOnThread()
+    {
+        ASSERT(m_wasConstructedOnMainThread == isMainThread());
+        m_callback(m_result);
+    }
+
+    void failed()
+    {
+        m_result = false;
+    }
+
+    CompletionHandler<void(bool)> chain()
+    {
+        return [aggregator = Ref { *this }] (bool success) {
+            if (!success)
+                aggregator->failed();
+        };
+    }
+
+private:
+    explicit SuccessCallbackAggregatorOnThread(CompletionHandler<void(bool)>&& callback)
+        : m_callback(WTF::move(callback))
+#if ASSERT_ENABLED
+        , m_wasConstructedOnMainThread(isMainThread())
+#endif
+    {
+    }
+
+    CompletionHandler<void(bool)> m_callback;
+#if ASSERT_ENABLED
+    bool m_wasConstructedOnMainThread;
+#endif
+    bool m_result { true };
+};
+
+
+using SuccessCallbackAggregator = SuccessCallbackAggregatorOnThread<DestructionThread::Any>;
+using MainRunLoopSuccessCallbackAggregator = SuccessCallbackAggregatorOnThread<DestructionThread::MainRunLoop>;
+
 } // namespace WTF
 
 using WTF::CallbackAggregator;
+using WTF::MainRunLoopCallbackAggregator;
+using WTF::EagerCallbackAggregator;
+using WTF::SuccessCallbackAggregator;
+using WTF::MainRunLoopSuccessCallbackAggregator;

@@ -33,6 +33,8 @@
 #include <thread>
 #include <vector>
 #include <wtf/MainThread.h>
+#include <wtf/Vector.h>
+#include <wtf/text/CString.h>
 
 static int failuresFound = 0;
 
@@ -51,14 +53,16 @@ void startMultithreadedMultiVMExecutionTest()
     WTF::initializeMainThread();
     JSC::initialize();
 
-#define CHECK(condition, message) do { \
+#define CHECK(condition, threadNumber, count, message) do { \
         if (!condition) { \
-            printf("FAILED MultithreadedMultiVMExecutionTest: %s\n", message); \
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN \
+            printf("FAIL: MultithreadedMultiVMExecutionTest: %d %d %s\n", threadNumber, count, message); \
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END \
             failuresFound++; \
         } \
     } while (false)
 
-    auto task = [&]() {
+    auto task = [](int threadNumber) {
         int ret = 0;
         std::string scriptString =
             "const AAA = {A:0, B:1, C:2, D:3};"
@@ -67,17 +71,29 @@ void startMultithreadedMultiVMExecutionTest()
 
         for (int i = 0; i < 1000; ++i) {
             JSClassRef jsClass = JSClassCreate(&kJSClassDefinitionEmpty);
-            CHECK(jsClass, "global object class creation");
+            CHECK(jsClass, threadNumber, i, "global object class creation");
             JSContextGroupRef contextGroup = JSContextGroupCreate();
-            CHECK(contextGroup, "group creation");
+            CHECK(contextGroup, threadNumber, i, "group creation");
             JSGlobalContextRef context = JSGlobalContextCreateInGroup(contextGroup, jsClass);
-            CHECK(context, "ctx creation");
+            CHECK(context, threadNumber, i, "ctx creation");
 
             JSStringRef jsScriptString = JSStringCreateWithUTF8CString(scriptString.c_str());
-            CHECK(jsScriptString, "script to jsString");
+            CHECK(jsScriptString, threadNumber, i, "script to jsString");
 
-            JSValueRef jsScript = JSEvaluateScript(context, jsScriptString, nullptr, nullptr, 0, nullptr);
-            CHECK(jsScript, "script eval");
+            JSValueRef exception = nullptr;
+            JSValueRef jsScript = JSEvaluateScript(context, jsScriptString, nullptr, nullptr, 0, &exception);
+            CHECK(!exception, threadNumber, i, "script eval no exception");
+            if (exception) {
+                JSStringRef string = JSValueToStringCopy(context, exception, nullptr);
+                if (string) {
+                    Vector<char> buffer(JSStringGetMaximumUTF8CStringSize(string));
+                    JSStringGetUTF8CString(string, buffer.mutableSpan().data(), buffer.size());
+                    SAFE_PRINTF("FAIL: MultithreadedMultiVMExecutionTest: %d %d %s\n", threadNumber, i, CString(buffer.span()));
+                    JSStringRelease(string);
+                } else
+                    printf("FAIL: MultithreadedMultiVMExecutionTest: %d %d stringifying exception failed\n", threadNumber, i);
+            }
+            CHECK(jsScript, threadNumber, i, "script eval");
             JSStringRelease(jsScriptString);
 
             JSGlobalContextRelease(context);
@@ -88,7 +104,7 @@ void startMultithreadedMultiVMExecutionTest()
         return ret;
     };
     for (int t = 0; t < 8; ++t)
-        threadsList().push_back(std::thread(task));
+        threadsList().push_back(std::thread(task, t));
 }
 
 int finalizeMultithreadedMultiVMExecutionTest()
@@ -97,7 +113,6 @@ int finalizeMultithreadedMultiVMExecutionTest()
     for (auto& thread : threads)
         thread.join();
 
-    if (failuresFound)
-        printf("FAILED MultithreadedMultiVMExecutionTest\n");
+    SAFE_PRINTF("%s: MultithreadedMultiVMExecutionTest\n", failuresFound ? "FAIL"_s : "PASS"_s);
     return (failuresFound > 0);
 }

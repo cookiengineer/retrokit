@@ -24,10 +24,10 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if PLATFORM(COCOA)
 #include <wtf/cocoa/SoftLinking.h>
 #elif OS(WINDOWS)
 #include <wtf/win/SoftLinking.h>
-#else
-#error "SoftLinking not defined for platform"
 #endif

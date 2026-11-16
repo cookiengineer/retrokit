@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2010 Apple Inc. All rights reserved.
- * Portions Copyright (c) 2010 Motorola Mobility, Inc.  All rights reserved.
+ * Portions Copyright (c) 2010 Motorola Mobility, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,21 +29,20 @@
 
 #include <glib.h>
 #include <wtf/FileSystem.h>
-#include <wtf/glib/GLibUtilities.h>
 
 namespace WebKit {
 
 #if ENABLE(DEVELOPER_MODE)
 static String getExecutablePath()
 {
-    CString executablePath = getCurrentExecutablePath();
+    CString executablePath = FileSystem::currentExecutablePath();
     if (!executablePath.isNull())
         return FileSystem::parentPath(FileSystem::stringFromFileSystemRepresentation(executablePath.data()));
     return { };
 }
 #endif
 
-static String findWebKitProcess(const char* processName)
+static String findWebKitProcess(const ASCIILiteral processName)
 {
 #if ENABLE(DEVELOPER_MODE)
     static const char* execDirectory = g_getenv("WEBKIT_EXEC_PATH");
@@ -67,27 +66,18 @@ static String findWebKitProcess(const char* processName)
 String executablePathOfWebProcess()
 {
 #if PLATFORM(WPE)
-    return findWebKitProcess("WPEWebProcess");
+    return findWebKitProcess("WPEWebProcess"_s);
 #else
-    return findWebKitProcess("WebKitWebProcess");
-#endif
-}
-
-String executablePathOfPluginProcess()
-{
-#if PLATFORM(WPE)
-    return findWebKitProcess("WPEPluginProcess");
-#else
-    return findWebKitProcess("WebKitPluginProcess");
+    return findWebKitProcess("WebKitWebProcess"_s);
 #endif
 }
 
 String executablePathOfNetworkProcess()
 {
 #if PLATFORM(WPE)
-    return findWebKitProcess("WPENetworkProcess");
+    return findWebKitProcess("WPENetworkProcess"_s);
 #else
-    return findWebKitProcess("WebKitNetworkProcess");
+    return findWebKitProcess("WebKitNetworkProcess"_s);
 #endif
 }
 
@@ -95,9 +85,9 @@ String executablePathOfNetworkProcess()
 String executablePathOfGPUProcess()
 {
 #if PLATFORM(WPE)
-    return findWebKitProcess("WPEGPUProcess");
+    return findWebKitProcess("WPEGPUProcess"_s);
 #else
-    return findWebKitProcess("WebKitGPUProcess");
+    return findWebKitProcess("WebKitGPUProcess"_s);
 #endif
 }
 #endif

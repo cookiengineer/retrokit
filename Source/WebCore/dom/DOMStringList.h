@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Google Inc. All Rights Reserved.
+ * Copyright (C) 2010 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "WebCoreOpaqueRoot.h"
 #include <wtf/RefCounted.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
@@ -40,22 +41,35 @@ public:
         return adoptRef(*new DOMStringList);
     }
 
+    static Ref<DOMStringList> create(Vector<String>&& strings)
+    {
+        return adoptRef(*new DOMStringList(WTF::move(strings)));
+    }
+
     bool isEmpty() const { return m_strings.isEmpty(); }
     void clear() { m_strings.clear(); }
-    void append(const String& string) { m_strings.append(string); }
+    void append(String&& string) { m_strings.append(WTF::move(string)); }
     void sort();
+
+    bool isSupportedPropertyIndex(unsigned index) const { return index < m_strings.size(); }
 
     // Implements the IDL.
     size_t length() const { return m_strings.size(); }
-    String item(unsigned index) const;
-    bool contains(const String& str) const;
+    String NODELETE item(unsigned index) const;
+    bool NODELETE contains(const String&) const;
 
-    operator const Vector<String>&() const { return m_strings; }
+    operator const Vector<String>&() const LIFETIME_BOUND { return m_strings; }
 
 private:
-    DOMStringList() { }
+    DOMStringList() = default;
+    explicit DOMStringList(Vector<String>&& strings)
+        : m_strings(WTF::move(strings))
+    {
+    }
 
     Vector<String> m_strings;
 };
+
+inline WebCoreOpaqueRoot root(DOMStringList* list) { return WebCoreOpaqueRoot { list }; }
 
 } // namespace WebCore

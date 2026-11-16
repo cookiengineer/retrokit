@@ -26,10 +26,9 @@
 #include "config.h"
 #include "TableWrapperBlockFormattingQuirks.h"
 
-#if ENABLE(LAYOUT_FORMATTING_CONTEXT)
-
 #include "BlockFormattingGeometry.h"
 #include "LayoutState.h"
+#include "RenderObject.h"
 #include "TableWrapperBlockFormattingContext.h"
 
 namespace WebCore {
@@ -40,7 +39,7 @@ TableWrapperQuirks::TableWrapperQuirks(const TableWrapperBlockFormattingContext&
 {
 }
 
-LayoutUnit TableWrapperQuirks::overriddenTableHeight(const ContainerBox& tableBox) const
+LayoutUnit TableWrapperQuirks::overriddenTableHeight(const ElementBox& tableBox) const
 {
     ASSERT(layoutState().inQuirksMode());
     // In quirks mode always use the content height. Note that the tables with content take computed values into account.
@@ -51,4 +50,3 @@ LayoutUnit TableWrapperQuirks::overriddenTableHeight(const ContainerBox& tableBo
 }
 }
 
-#endif

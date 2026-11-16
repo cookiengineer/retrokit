@@ -2,7 +2,7 @@
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2000 Simon Hausmann <hausmann@kde.org>
- * Copyright (C) 2003, 2006, 2007, 2008, 2009, 2010, 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2025 Apple Inc. All rights reserved.
  *           (C) 2006 Graham Dennis (graham.dennis@gmail.com)
  * Copyright (C) 2011 Google Inc. All rights reserved.
  * Copyright (C) 2012 Motorola Mobility Inc.
@@ -36,13 +36,14 @@
 #include "SecurityOrigin.h"
 #include "URLSearchParams.h"
 #include <wtf/MainThread.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
-inline DOMURL::DOMURL(URL&& completeURL, const URL& baseURL)
-    : m_baseURL(baseURL)
-    , m_url(WTFMove(completeURL))
+inline DOMURL::DOMURL(URL&& completeURL)
+    : m_url(WTF::move(completeURL))
 {
+    ASSERT(m_url.isValid());
 }
 
 ExceptionOr<Ref<DOMURL>> DOMURL::create(const String& url, const URL& base)
@@ -50,39 +51,50 @@ ExceptionOr<Ref<DOMURL>> DOMURL::create(const String& url, const URL& base)
     ASSERT(base.isValid() || base.isNull());
     URL completeURL { base, url };
     if (!completeURL.isValid())
-        return Exception { TypeError };
-    return adoptRef(*new DOMURL(WTFMove(completeURL), base));
+        return Exception { ExceptionCode::TypeError, makeString('"', url, "\" cannot be parsed as a URL."_s) };
+    return adoptRef(*new DOMURL(WTF::move(completeURL)));
 }
 
 ExceptionOr<Ref<DOMURL>> DOMURL::create(const String& url, const String& base)
 {
-    URL baseURL { URL { }, base };
+    URL baseURL { base };
     if (!base.isNull() && !baseURL.isValid())
-        return Exception { TypeError };
+        return Exception { ExceptionCode::TypeError, makeString('"', url, "\" cannot be parsed as a URL against \""_s, base, "\"."_s) };
     return create(url, baseURL);
-}
-
-ExceptionOr<Ref<DOMURL>> DOMURL::create(const String& url, const DOMURL& base)
-{
-    return create(url, base.href());
 }
 
 DOMURL::~DOMURL() = default;
 
-ExceptionOr<void> DOMURL::setHref(const String& url)
+static URL parseInternal(const String& url, const String& base)
 {
-    URL completeURL { URL { }, url };
-    if (!completeURL.isValid())
-        return Exception { TypeError };
-    m_url = WTFMove(completeURL);
-    if (m_searchParams)
-        m_searchParams->updateFromAssociatedURL();
-    return { };
+    URL baseURL { base };
+    if (!base.isNull() && !baseURL.isValid())
+        return { };
+    return { baseURL, url };
 }
 
-void DOMURL::setQuery(const String& query)
+RefPtr<DOMURL> DOMURL::parse(const String& url, const String& base)
 {
-    m_url.setQuery(query);
+    auto completeURL = parseInternal(url, base);
+    if (!completeURL.isValid())
+        return { };
+    return adoptRef(*new DOMURL(WTF::move(completeURL)));
+}
+
+bool DOMURL::canParse(const String& url, const String& base)
+{
+    return parseInternal(url, base).isValid();
+}
+
+ExceptionOr<void> DOMURL::setHref(const String& url)
+{
+    URL completeURL { url };
+    if (!completeURL.isValid())
+        return Exception { ExceptionCode::TypeError };
+    m_url = WTF::move(completeURL);
+    if (RefPtr searchParams = m_searchParams)
+        searchParams->updateFromAssociatedURL();
+    return { };
 }
 
 String DOMURL::createObjectURL(ScriptExecutionContext& scriptExecutionContext, Blob& blob)
@@ -92,11 +104,11 @@ String DOMURL::createObjectURL(ScriptExecutionContext& scriptExecutionContext, B
 
 String DOMURL::createPublicURL(ScriptExecutionContext& scriptExecutionContext, URLRegistrable& registrable)
 {
-    URL publicURL = BlobURL::createPublicURL(scriptExecutionContext.securityOrigin());
+    URL publicURL = BlobURL::createPublicURL(protect(scriptExecutionContext.securityOrigin()).get());
     if (publicURL.isEmpty())
         return String();
 
-    scriptExecutionContext.publicURLManager().registerURL(publicURL, registrable);
+    protect(scriptExecutionContext.publicURLManager())->registerURL(publicURL, registrable);
 
     return publicURL.string();
 }
@@ -107,16 +119,16 @@ URLSearchParams& DOMURL::searchParams()
         m_searchParams = URLSearchParams::create(search(), this);
     return *m_searchParams;
 }
-    
+
 void DOMURL::revokeObjectURL(ScriptExecutionContext& scriptExecutionContext, const String& urlString)
 {
-    URL url(URL(), urlString);
-    ResourceRequest request(url);
-    request.setDomainForCachePartition(scriptExecutionContext.domainForCachePartition());
+    URL url { urlString };
+    ResourceRequest request(WTF::move(url));
+    request.setShouldBlockThirdPartyStorage(scriptExecutionContext.shouldBlockThirdPartyStorage());
 
     MemoryCache::removeRequestFromSessionCaches(scriptExecutionContext, request);
 
-    scriptExecutionContext.publicURLManager().revoke(url);
+    protect(scriptExecutionContext.publicURLManager())->revoke(request.url());
 }
 
 } // namespace WebCore

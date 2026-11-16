@@ -33,8 +33,8 @@
 namespace WebKit {
 using namespace WebCore;
 
-WebContextMenuListenerProxy::WebContextMenuListenerProxy(WebContextMenuListenerProxy::Client& client)
-    : m_client(makeWeakPtr(client))
+WebContextMenuListenerProxy::WebContextMenuListenerProxy(WebContextMenuListenerProxyClient& client)
+    : m_client(client)
 {
 }
 
@@ -42,10 +42,8 @@ WebContextMenuListenerProxy::~WebContextMenuListenerProxy() = default;
 
 void WebContextMenuListenerProxy::useContextMenuItems(Vector<Ref<WebContextMenuItem>>&& items)
 {
-    if (!m_client)
-        return;
-
-    m_client->useContextMenuItems(WTFMove(items));
+    if (RefPtr client = m_client.get())
+        client->useContextMenuItems(WTF::move(items));
 }
 
 } // namespace WebKit

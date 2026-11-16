@@ -43,29 +43,27 @@ String InbandGenericCue::toJSONString() const
 {
     auto object = JSON::Object::create();
 
-#if !LOG_DISABLED
     object->setString("text"_s, m_cueData.m_content);
-#endif
-    object->setInteger("identifier"_s, m_cueData.m_uniqueId.toUInt64());
+    object->setInteger("identifier"_s, m_cueData.m_uniqueId->toUInt64());
     object->setDouble("start"_s, m_cueData.m_startTime.toDouble());
     object->setDouble("end"_s, m_cueData.m_endTime.toDouble());
 
-    const char* status = "";
+    ASCIILiteral status = ""_s;
     switch (m_cueData.m_status) {
     case GenericCueData::Status::Uninitialized:
-        status = "Uninitialized";
+        status = "Uninitialized"_s;
         break;
     case GenericCueData::Status::Partial:
-        status = "Partial";
+        status = "Partial"_s;
         break;
     case GenericCueData::Status::Complete:
-        status = "Complete";
+        status = "Complete"_s;
         break;
     }
-    object->setString("status", status);
+    object->setString("status"_s, status);
 
     if (!m_cueData.m_id.isEmpty())
-        object->setString("id", m_cueData.m_id);
+        object->setString("id"_s, m_cueData.m_id);
 
     if (m_cueData.m_line > 0)
         object->setDouble("line"_s, m_cueData.m_line);
@@ -76,20 +74,39 @@ String InbandGenericCue::toJSONString() const
     if (m_cueData.m_position > 0)
         object->setDouble("position"_s, m_cueData.m_position);
 
-    if (m_cueData.m_align != GenericCueData::Alignment::None) {
-        const char* align = "";
-        switch (m_cueData.m_align) {
+    if (m_cueData.m_positionAlign != GenericCueData::Alignment::None) {
+        ASCIILiteral positionAlign = ""_s;
+        switch (m_cueData.m_positionAlign) {
         case GenericCueData::Alignment::Start:
-            align = "Start";
+            positionAlign = "Start"_s;
             break;
         case GenericCueData::Alignment::Middle:
-            align = "Middle";
+            positionAlign = "Middle"_s;
             break;
         case GenericCueData::Alignment::End:
-            align = "End";
+            positionAlign = "End"_s;
             break;
         case GenericCueData::Alignment::None:
-            align = "None";
+            positionAlign = "None"_s;
+            break;
+        }
+        object->setString("positionAlign"_s, positionAlign);
+    }
+
+    if (m_cueData.m_align != GenericCueData::Alignment::None) {
+        ASCIILiteral align = ""_s;
+        switch (m_cueData.m_align) {
+        case GenericCueData::Alignment::Start:
+            align = "Start"_s;
+            break;
+        case GenericCueData::Alignment::Middle:
+            align = "Middle"_s;
+            break;
+        case GenericCueData::Alignment::End:
+            align = "End"_s;
+            break;
+        case GenericCueData::Alignment::None:
+            align = "None"_s;
             break;
         }
         object->setString("align"_s, align);
@@ -113,6 +130,8 @@ String InbandGenericCue::toJSONString() const
     if (!m_cueData.m_fontName.isEmpty())
         object->setString("font"_s, m_cueData.m_fontName);
 
+    object->setString("preventLineWrapping"_s, m_cueData.m_preventLineWrapping ? "true"_s : "false"_s);
+
     return object->toJSONString();
 }
 
@@ -129,7 +148,8 @@ bool GenericCueData::equalNotConsideringTimesOrId(const GenericCueData& other) c
         && m_highlightColor == other.m_highlightColor
         && m_fontName == other.m_fontName
         && m_id == other.m_id
-        && m_content == other.m_content;
+        && m_content == other.m_content
+        && m_preventLineWrapping == other.m_preventLineWrapping;
 }
 
 }

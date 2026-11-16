@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,76 +27,70 @@
 
 #if ENABLE(APPLICATION_MANIFEST)
 
-#include "Color.h"
-#include <wtf/EnumTraits.h>
+#include <WebCore/Color.h>
+#include <WebCore/ScreenOrientationLockType.h>
+#include <optional>
 #include <wtf/URL.h>
+#include <wtf/Vector.h>
 
 namespace WebCore {
 
 struct ApplicationManifest {
-    enum class Display {
+    enum class Direction : uint8_t {
+        Auto,
+        LTR, // NOLINT
+        RTL, // NOLINT
+    };
+
+    enum class Display : uint8_t {
         Browser,
         MinimalUI,
         Standalone,
         Fullscreen,
     };
 
+    struct Icon {
+        enum class Purpose : uint8_t {
+            Any = 1 << 0,
+            Monochrome = 1 << 1,
+            Maskable = 1 << 2,
+        };
+
+        URL src;
+        Vector<String> sizes;
+        String type;
+        OptionSet<Purpose> purposes;
+    };
+
+    struct Shortcut {
+        String name;
+        URL url;
+        Vector<Icon> icons;
+    };
+
+    String rawJSON;
+    Direction dir;
+    String lang;
     String name;
     String shortName;
     String description;
     URL scope;
+    bool isDefaultScope { false };
     Display display;
+    std::optional<ScreenOrientationLockType> orientation;
+    URL manifestURL;
     URL startURL;
+    URL id;
+    Color backgroundColor;
+    Color backgroundColorDark;
     Color themeColor;
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<ApplicationManifest> decode(Decoder&);
+    Color themeColorDark;
+    Vector<String> categories;
+    Vector<Icon> icons;
+    Vector<Shortcut> shortcuts;
 };
-
-template<class Encoder>
-void ApplicationManifest::encode(Encoder& encoder) const
-{
-    encoder << name << shortName << description << scope << display << startURL << themeColor;
-}
-
-template<class Decoder>
-std::optional<ApplicationManifest> ApplicationManifest::decode(Decoder& decoder)
-{
-    ApplicationManifest result;
-
-    if (!decoder.decode(result.name))
-        return std::nullopt;
-    if (!decoder.decode(result.shortName))
-        return std::nullopt;
-    if (!decoder.decode(result.description))
-        return std::nullopt;
-    if (!decoder.decode(result.scope))
-        return std::nullopt;
-    if (!decoder.decode(result.display))
-        return std::nullopt;
-    if (!decoder.decode(result.startURL))
-        return std::nullopt;
-    if (!decoder.decode(result.themeColor))
-        return std::nullopt;
-
-    return result;
-}
 
 } // namespace WebCore
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::ApplicationManifest::Display> {
-    using values = EnumValues<
-        WebCore::ApplicationManifest::Display,
-        WebCore::ApplicationManifest::Display::Browser,
-        WebCore::ApplicationManifest::Display::MinimalUI,
-        WebCore::ApplicationManifest::Display::Standalone,
-        WebCore::ApplicationManifest::Display::Fullscreen
-    >;
-};
-
-} // namespace WTF;
 
 #endif // ENABLE(APPLICATION_MANIFEST)
 

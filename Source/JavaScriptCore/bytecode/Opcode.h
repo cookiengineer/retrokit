@@ -29,14 +29,16 @@
 
 #pragma once
 
-#include "Bytecodes.h"
-#include "LLIntOpcode.h"
+#include <JavaScriptCore/Bytecodes.h>
+#include <JavaScriptCore/LLIntOpcode.h>
+#include <JavaScriptCore/OpcodeSize.h>
 
 #include <algorithm>
 #include <string.h>
 
 #include <wtf/Assertions.h>
 #include <wtf/MathExtras.h>
+#include <wtf/text/ASCIILiteral.h>
 
 namespace JSC {
 
@@ -55,82 +57,82 @@ namespace JSC {
 
 
 #if ENABLE(C_LOOP)
-const int numOpcodeIDs = NUMBER_OF_BYTECODE_IDS + NUMBER_OF_CLOOP_BYTECODE_HELPER_IDS + NUMBER_OF_BYTECODE_HELPER_IDS;
+const int numOpcodeIDs = NUMBER_OF_BYTECODE_IDS + NUMBER_OF_CLOOP_BYTECODE_HELPER_IDS + NUMBER_OF_BYTECODE_HELPER_IDS + NUMBER_OF_CLOOP_RETURN_HELPER_IDS;
 #else
 const int numOpcodeIDs = NUMBER_OF_BYTECODE_IDS + NUMBER_OF_BYTECODE_HELPER_IDS;
 #endif
 
-constexpr int numWasmOpcodeIDs = NUMBER_OF_WASM_IDS + NUMBER_OF_BYTECODE_HELPER_IDS;
-
 #define OPCODE_ID_ENUM(opcode, length) opcode,
     enum OpcodeID : unsigned { FOR_EACH_OPCODE_ID(OPCODE_ID_ENUM) };
-    enum WasmOpcodeID : unsigned { FOR_EACH_WASM_ID(OPCODE_ID_ENUM) };
 #undef OPCODE_ID_ENUM
 
 #if ENABLE(C_LOOP) && !HAVE(COMPUTED_GOTO)
 
 #define OPCODE_ID_ENUM(opcode, length) opcode##_wide16 = numOpcodeIDs + opcode,
     enum OpcodeIDWide16 : unsigned { FOR_EACH_OPCODE_ID(OPCODE_ID_ENUM) };
-    enum WasmOpcodeIDWide16 : unsigned { FOR_EACH_WASM_ID(OPCODE_ID_ENUM) };
 #undef OPCODE_ID_ENUM
 
 #define OPCODE_ID_ENUM(opcode, length) opcode##_wide32 = numOpcodeIDs * 2 + opcode,
     enum OpcodeIDWide32 : unsigned { FOR_EACH_OPCODE_ID(OPCODE_ID_ENUM) };
-    enum WasmOpcodeIDWide32 : unsigned { FOR_EACH_WASM_ID(OPCODE_ID_ENUM) };
 #undef OPCODE_ID_ENUM
 #endif
 
 extern const unsigned opcodeLengths[];
-extern const unsigned wasmOpcodeLengths[];
 
 #define OPCODE_ID_LENGTHS(id, length) const int id##_length = length;
     FOR_EACH_OPCODE_ID(OPCODE_ID_LENGTHS);
-    FOR_EACH_WASM_ID(OPCODE_ID_LENGTHS);
 #undef OPCODE_ID_LENGTHS
 
-static constexpr unsigned maxJSOpcodeLength = /* Opcode */ 1 + /* Wide32 Opcode */ 1 + /* Operands */ (MAX_LENGTH_OF_BYTECODE_IDS - 1) * 4;
-static constexpr unsigned maxWasmOpcodeLength = /* Opcode */ 1 + /* Wide32 Opcode */ 1 + /* Operands */ (MAX_LENGTH_OF_WASM_IDS - 1) * 4;
-static constexpr unsigned maxOpcodeLength = std::max(maxJSOpcodeLength, maxWasmOpcodeLength);
-static constexpr unsigned bitWidthForMaxOpcodeLength = WTF::getMSBSetConstexpr(maxOpcodeLength) + 1;
+static_assert(NUMBER_OF_BYTECODE_IDS < 255);
+static constexpr OpcodeSize maxJSOpcodeIDWidth = OpcodeSize::Narrow;
+static constexpr unsigned maxJSBytecodeStructLength = /* Opcode */ maxJSOpcodeIDWidth + /* Wide32 Opcode */ 1 + /* Operands */ MAX_LENGTH_OF_BYTECODE_IDS * 4;
+static constexpr unsigned maxBytecodeStructLength = maxJSBytecodeStructLength;
+static constexpr unsigned bitWidthForMaxBytecodeStructLength = WTF::getMSBSet(maxBytecodeStructLength) + 1;
 
 #define FOR_EACH_OPCODE_WITH_VALUE_PROFILE(macro) \
     macro(OpCallVarargs) \
-    macro(OpTailCallVarargs) \
-    macro(OpTailCallForwardArguments) \
     macro(OpConstructVarargs) \
+    macro(OpSuperConstructVarargs) \
     macro(OpGetByVal) \
     macro(OpEnumeratorGetByVal) \
     macro(OpGetById) \
+    macro(OpGetLength) \
     macro(OpGetByIdWithThis) \
-    macro(OpTryGetById) \
     macro(OpGetByIdDirect) \
     macro(OpGetByValWithThis) \
     macro(OpGetPrototypeOf) \
     macro(OpGetFromArguments) \
-    macro(OpToNumber) \
-    macro(OpToNumeric) \
     macro(OpToObject) \
     macro(OpGetArgument) \
     macro(OpGetInternalField) \
     macro(OpToThis) \
     macro(OpCall) \
-    macro(OpTailCall) \
-    macro(OpCallEval) \
+    macro(OpCallDirectEval) \
     macro(OpConstruct) \
+    macro(OpSuperConstruct) \
     macro(OpGetFromScope) \
-    macro(OpBitand) \
-    macro(OpBitor) \
-    macro(OpBitnot) \
-    macro(OpBitxor) \
-    macro(OpLshift) \
-    macro(OpRshift) \
     macro(OpGetPrivateName) \
+    macro(OpNewArrayWithSpecies) \
+    macro(OpAsyncIteratorNext) \
 
-#define FOR_EACH_OPCODE_WITH_ARRAY_PROFILE(macro) \
+#define FOR_EACH_OPCODE_WITH_CALL_LINK_INFO(macro) \
+    macro(OpCall) \
+    macro(OpTailCall) \
+    macro(OpCallDirectEval) \
+    macro(OpConstruct) \
+    macro(OpSuperConstruct) \
+    macro(OpIteratorOpen) \
+    macro(OpIteratorNext) \
+    macro(OpAsyncIteratorOpen) \
+    macro(OpAsyncIteratorNext) \
     macro(OpCallVarargs) \
     macro(OpTailCallVarargs) \
-    macro(OpTailCallForwardArguments) \
     macro(OpConstructVarargs) \
+    macro(OpSuperConstructVarargs) \
+    macro(OpCallIgnoreResult) \
+
+#define FOR_EACH_OPCODE_WITH_SIMPLE_ARRAY_PROFILE(macro) \
+    macro(OpGetLength) \
     macro(OpGetByVal) \
     macro(OpInByVal) \
     macro(OpPutByVal) \
@@ -138,28 +140,47 @@ static constexpr unsigned bitWidthForMaxOpcodeLength = WTF::getMSBSetConstexpr(m
     macro(OpEnumeratorNext) \
     macro(OpEnumeratorGetByVal) \
     macro(OpEnumeratorInByVal) \
+    macro(OpEnumeratorPutByVal) \
     macro(OpEnumeratorHasOwnProperty) \
+    macro(OpNewArrayWithSpecies) \
+    macro(OpCall) \
+    macro(OpCallIgnoreResult) \
+    macro(OpTailCall) \
+    macro(OpIteratorOpen) \
 
 #define FOR_EACH_OPCODE_WITH_ARRAY_ALLOCATION_PROFILE(macro) \
     macro(OpNewArray) \
     macro(OpNewArrayWithSize) \
+    macro(OpNewArrayWithSpecies) \
     macro(OpNewArrayBuffer) \
 
 #define FOR_EACH_OPCODE_WITH_OBJECT_ALLOCATION_PROFILE(macro) \
     macro(OpNewObject) \
 
-#define FOR_EACH_OPCODE_WITH_LLINT_CALL_LINK_INFO(macro) \
-    macro(OpCall) \
-    macro(OpTailCall) \
-    macro(OpCallEval) \
-    macro(OpConstruct) \
-    macro(OpIteratorOpen) \
-    macro(OpIteratorNext) \
+#define FOR_EACH_OPCODE_WITH_BINARY_ARITH_PROFILE(macro) \
+    macro(OpAdd) \
+    macro(OpMul) \
+    macro(OpDiv) \
+    macro(OpSub) \
+    macro(OpBitand) \
+    macro(OpBitor) \
+    macro(OpBitxor) \
+    macro(OpLshift) \
+    macro(OpRshift) \
+
+#define FOR_EACH_OPCODE_WITH_UNARY_ARITH_PROFILE(macro) \
+    macro(OpBitnot) \
+    macro(OpInc) \
+    macro(OpDec) \
+    macro(OpNegate) \
+    macro(OpToNumber) \
+    macro(OpToNumeric) \
+    macro(OpUnsigned) \
 
 
 IGNORE_WARNINGS_BEGIN("type-limits")
 
-#define VERIFY_OPCODE_ID(id, size) COMPILE_ASSERT(id <= numOpcodeIDs, ASSERT_THAT_JS_OPCODE_IDS_ARE_VALID);
+#define VERIFY_OPCODE_ID(id, size) static_assert(id <= numOpcodeIDs, "ASSERT that JS Opcode ID is valid");
     FOR_EACH_OPCODE_ID(VERIFY_OPCODE_ID);
 #undef VERIFY_OPCODE_ID
 
@@ -171,8 +192,7 @@ typedef void* Opcode;
 typedef OpcodeID Opcode;
 #endif
 
-extern const char* const opcodeNames[];
-extern const char* const wasmOpcodeNames[];
+extern ASCIILiteral const opcodeNames[];
 
 #if ENABLE(OPCODE_STATS)
 
@@ -199,6 +219,7 @@ inline bool isBranch(OpcodeID opcodeID)
     case op_jneq_null:
     case op_jundefined_or_null:
     case op_jnundefined_or_null:
+    case op_jeq_ptr:
     case op_jneq_ptr:
     case op_jless:
     case op_jlesseq:
@@ -237,7 +258,6 @@ inline bool isTerminal(OpcodeID opcodeID)
 {
     switch (opcodeID) {
     case op_ret:
-    case op_end:
     case op_unreachable:
         return true;
     default:
@@ -256,8 +276,8 @@ inline bool isThrow(OpcodeID opcodeID)
     }
 }
 
-unsigned metadataSize(OpcodeID);
-unsigned metadataAlignment(OpcodeID);
+unsigned NODELETE metadataSize(OpcodeID);
+unsigned NODELETE metadataAlignment(OpcodeID);
 
 } // namespace JSC
 

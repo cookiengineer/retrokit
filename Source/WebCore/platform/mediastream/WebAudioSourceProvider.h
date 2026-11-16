@@ -27,12 +27,12 @@
 
 #if ENABLE(WEB_AUDIO)
 
-#include "AudioSourceProvider.h"
-#include <wtf/ThreadSafeRefCounted.h>
+#include <WebCore/AudioSourceProvider.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 
 namespace WebCore {
 
-class WebAudioSourceProvider : public ThreadSafeRefCounted<WebAudioSourceProvider, WTF::DestructionThread::Main>, public AudioSourceProvider {
+class WebAudioSourceProvider : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<WebAudioSourceProvider, WTF::DestructionThread::Main>, public AudioSourceProvider {
 };
 
 }

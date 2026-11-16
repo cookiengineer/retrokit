@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,12 +25,12 @@
 
 #pragma once
 
-#include "DataView.h"
-#include "JSArrayBufferView.h"
+#include <JavaScriptCore/DataView.h>
+#include <JavaScriptCore/JSArrayBufferView.h>
 
 namespace JSC {
 
-class JSDataView final : public JSArrayBufferView {
+class JSDataView : public JSArrayBufferView {
 public:
     using Base = JSArrayBufferView;
     static constexpr unsigned StructureFlags = Base::StructureFlags;
@@ -40,21 +40,45 @@ public:
     static constexpr TypedArrayContentType contentType = TypedArrayContentType::None;
 
     template<typename CellType, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         return vm.dataViewSpace<mode>();
     }
 
-    JS_EXPORT_PRIVATE static JSDataView* create(
-        JSGlobalObject*, Structure*, RefPtr<ArrayBuffer>&&, unsigned byteOffset,
-        unsigned byteLength);
+    JS_EXPORT_PRIVATE static JSDataView* create(JSGlobalObject*, Structure*, RefPtr<ArrayBuffer>&&, size_t byteOffset, std::optional<size_t> byteLength);
     
     // Dummy methods, which don't actually work; these are just in place to
     // placate some template specialization we do elsewhere.
-    static JSDataView* createUninitialized(JSGlobalObject*, Structure*, unsigned length);
-    static JSDataView* create(JSGlobalObject*, Structure*, unsigned length);
-    bool set(JSGlobalObject*, unsigned, JSObject*, unsigned, unsigned length);
-    bool setIndex(JSGlobalObject*, unsigned, JSValue);
+    static JSDataView* createUninitialized(JSGlobalObject*, Structure*, size_t length);
+    static JSDataView* create(JSGlobalObject*, Structure*, size_t length);
+    bool NODELETE setFromTypedArray(JSGlobalObject*, size_t offset, JSArrayBufferView*, size_t objectOffset, size_t length, CopyType);
+    bool NODELETE setFromArrayLike(JSGlobalObject*, size_t offset, JSObject*, size_t objectOffset, size_t length);
+    bool NODELETE setIndex(JSGlobalObject*, size_t, JSValue);
+
+    template<typename Getter>
+    std::optional<size_t> viewByteLength(Getter& getter)
+    {
+        // https://tc39.es/proposal-resizablearraybuffer/#sec-isviewoutofbounds
+        // https://tc39.es/proposal-resizablearraybuffer/#sec-getviewbytelength
+        if (isDetached()) [[unlikely]]
+            return std::nullopt;
+
+        if (canUseRawFieldsDirectly()) [[likely]]
+            return byteLengthRaw();
+
+        RefPtr<ArrayBuffer> buffer = possiblySharedBuffer();
+        if (!buffer)
+            return 0;
+
+        size_t bufferByteLength = getter(*buffer);
+        size_t byteOffset = byteOffsetRaw();
+        size_t byteLength = byteLengthRaw() + byteOffset; // Keep in mind that byteLengthRaw returns 0 for AutoLength TypedArray.
+        if (byteLength > bufferByteLength)
+            return std::nullopt;
+        if (isAutoLength())
+            return bufferByteLength - byteOffset;
+        return byteLengthRaw();
+    }
     
     ArrayBuffer* possiblySharedBuffer() const { return m_buffer; }
     ArrayBuffer* unsharedBuffer() const
@@ -62,11 +86,17 @@ public:
         RELEASE_ASSERT(!m_buffer->isShared());
         return m_buffer;
     }
+    static constexpr ptrdiff_t offsetOfBuffer() { return OBJECT_OFFSETOF(JSDataView, m_buffer); }
     
     RefPtr<DataView> possiblySharedTypedImpl();
     RefPtr<DataView> unsharedTypedImpl();
     
     static constexpr TypedArrayType TypedArrayStorageType = TypeDataView;
+
+    JS_EXPORT_PRIVATE static RefPtr<DataView> toWrapped(VM&, JSValue);
+    JS_EXPORT_PRIVATE static RefPtr<DataView> toWrappedAllowResizable(VM&, JSValue);
+    JS_EXPORT_PRIVATE static RefPtr<DataView> toWrappedAllowShared(VM&, JSValue);
+    JS_EXPORT_PRIVATE static RefPtr<DataView> toWrappedAllowSharedAndResizable(VM&, JSValue);
 
     static Structure* createStructure(VM&, JSGlobalObject*, JSValue prototype);
     
@@ -76,6 +106,18 @@ private:
     JSDataView(VM&, ConstructionContext&, ArrayBuffer*);
 
     ArrayBuffer* m_buffer;
+};
+
+class JSResizableOrGrowableSharedDataView final : public JSDataView {
+public:
+    using Base = JSDataView;
+    using Base::StructureFlags;
+
+    static constexpr bool isResizableOrGrowableSharedTypedArray = true;
+
+    DECLARE_EXPORT_INFO;
+
+    static Structure* createStructure(VM&, JSGlobalObject*, JSValue prototype);
 };
 
 } // namespace JSC

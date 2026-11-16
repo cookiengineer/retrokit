@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Apple, Inc. All rights reserved.
+ * Copyright (C) 2020-2022 Apple, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -44,7 +44,7 @@ public:
     }
 
     template<typename CellType, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         return vm.finalizationRegistrySpace<mode>();
     }
@@ -59,7 +59,7 @@ public:
     const WriteBarrier<Unknown>& internalField(Field field) const { return Base::internalField(static_cast<uint32_t>(field)); }
     WriteBarrier<Unknown>& internalField(Field field) { return Base::internalField(static_cast<uint32_t>(field)); }
 
-    JSObject* callback() const { return jsCast<JSObject*>(internalField(Field::Callback).get()); }
+    JSObject* callback() const { return uncheckedDowncast<JSObject>(internalField(Field::Callback).get()); }
 
     static JSFinalizationRegistry* create(VM&, Structure*, JSObject* callback);
     static JSFinalizationRegistry* createWithInitialValues(VM&, Structure*);
@@ -69,19 +69,31 @@ public:
 
     DECLARE_EXPORT_INFO;
 
-    void finalizeUnconditionally(VM&);
+    void finalizeUnconditionally(VM&, CollectionScope);
     DECLARE_VISIT_CHILDREN;
     static void destroy(JSCell*);
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
 
     JSValue takeDeadHoldingsValue();
 
-    bool unregister(VM&, JSObject* token);
-    // token should be a JSObject or undefined.
-    void registerTarget(VM&, JSObject* target, JSValue holdings, JSValue token);
+    bool unregister(VM&, JSCell* token);
+    // token should be a JSObject, Symbol, or undefined.
+    void registerTarget(VM&, JSCell* target, JSValue holdings, JSValue token);
 
+    struct LiveRegistration {
+        JSCell* target;
+        JSValue heldValue;
+        JSCell* unregisterToken = nullptr;
+    };
     JS_EXPORT_PRIVATE size_t liveCount(const Locker<JSCellLock>&);
+    Vector<LiveRegistration> liveRegistrations(const Locker<JSCellLock>&) const;
+
+    struct DeadRegistration {
+        JSValue heldValue;
+        JSCell* unregisterToken = nullptr;
+    };
     JS_EXPORT_PRIVATE size_t deadCount(const Locker<JSCellLock>&);
+    Vector<DeadRegistration> deadRegistrations(const Locker<JSCellLock>&) const;
 
 private:
     JSFinalizationRegistry(VM& vm, Structure* structure)
@@ -92,7 +104,7 @@ private:
     JS_EXPORT_PRIVATE void finishCreation(VM&, JSGlobalObject*, JSObject* callback);
 
     struct Registration {
-        JSObject* target;
+        JSCell* target;
         WriteBarrier<Unknown> holdings;
     };
 
@@ -101,11 +113,12 @@ private:
     using DeadRegistrations = Vector<WriteBarrier<Unknown>>;
 
     // Note that we don't bother putting a write barrier on the key or target because they are weakly referenced.
-    HashMap<JSObject*, LiveRegistrations> m_liveRegistrations;
-    HashMap<JSObject*, DeadRegistrations> m_deadRegistrations;
-    // We use a separate list for no unregister values instead of a special key in the tables above because the HashMap has a tendency to reallocate under us when iterating...
+    UncheckedKeyHashMap<JSCell*, LiveRegistrations> m_liveRegistrations;
+    UncheckedKeyHashMap<JSCell*, DeadRegistrations> m_deadRegistrations;
+    // We use a separate list for no unregister values instead of a special key in the tables above because the UncheckedKeyHashMap has a tendency to reallocate under us when iterating...
     LiveRegistrations m_noUnregistrationLive;
     DeadRegistrations m_noUnregistrationDead;
+    bool m_hasAlreadyScheduledWork { false };
 };
 
 } // namespace JSC

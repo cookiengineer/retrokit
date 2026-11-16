@@ -25,8 +25,8 @@
 
 #pragma once
 
-#include "DOMException.h"
-#include "ExceptionCode.h"
+#include <WebCore/DOMException.h>
+#include <WebCore/ExceptionCode.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
@@ -37,12 +37,12 @@ public:
 
     static IDBError userDeleteError()
     {
-        return IDBError { UnknownError, "Database deleted by request of the user"_s };
+        return IDBError { ExceptionCode::UnknownError, "Database deleted by request of the user"_s };
     }
     
     static IDBError serverConnectionLostError()
     {
-        return IDBError { UnknownError, "Connection to Indexed Database server lost. Refresh the page to try again"_s };
+        return IDBError { ExceptionCode::UnknownError, "Connection to Indexed Database server lost. Refresh the page to try again"_s };
     }
 
     RefPtr<DOMException> toDOMException() const;
@@ -50,49 +50,17 @@ public:
     std::optional<ExceptionCode> code() const { return m_code; }
     String name() const;
     String message() const;
+    const String& messageForSerialization() const LIFETIME_BOUND { return m_message; }
 
     bool isNull() const { return !m_code; }
+    operator bool() const { return !isNull(); }
 
-    WEBCORE_EXPORT IDBError isolatedCopy() const;
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static WARN_UNUSED_RETURN bool decode(Decoder&, IDBError&);
+    IDBError isolatedCopy() const & { return IDBError { m_code, m_message.isolatedCopy() }; }
+    IDBError isolatedCopy() && { return IDBError { m_code, WTF::move(m_message).isolatedCopy() }; }
 
 private:
     std::optional<ExceptionCode> m_code;
     String m_message;
 };
-
-template<class Encoder>
-void IDBError::encode(Encoder& encoder) const
-{
-    if (m_code) {
-        encoder << true;
-        encoder << m_code.value();
-    } else
-        encoder << false;
-    encoder << m_message;
-}
-    
-template<class Decoder>
-bool IDBError::decode(Decoder& decoder, IDBError& error)
-{
-    bool hasCode = false;
-    if (!decoder.decode(hasCode))
-        return false;
-
-    if (hasCode) {
-        ExceptionCode ec;
-        if (!decoder.decode(ec))
-            return false;
-        error.m_code = ec;
-    } else
-        error.m_code = std::nullopt;
-
-    if (!decoder.decode(error.m_message))
-        return false;
-
-    return true;
-}
 
 } // namespace WebCore

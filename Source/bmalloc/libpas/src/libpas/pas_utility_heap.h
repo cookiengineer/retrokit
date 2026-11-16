@@ -27,7 +27,6 @@
 #define PAS_UTILITY_HEAP_H
 
 #include "pas_allocation_kind.h"
-#include "pas_intrinsic_heap_support.h"
 #include "pas_allocator_counts.h"
 #include "pas_lock.h"
 #include "pas_segregated_heap.h"
@@ -38,10 +37,10 @@ PAS_BEGIN_EXTERN_C;
 
 struct pas_segregated_heap;
 struct pas_segregated_page;
-struct pas_segregated_global_size_directory;
+struct pas_segregated_size_directory;
 typedef struct pas_segregated_heap pas_segregated_heap;
 typedef struct pas_segregated_page pas_segregated_page;
-typedef struct pas_segregated_global_size_directory pas_segregated_global_size_directory;
+typedef struct pas_segregated_size_directory pas_segregated_size_directory;
 
 /* The utility heap is for allocating high volumes of small objects as part of bookkeeping for
    the heaps that libpas actually provides. It can only handle objects up to some size (roughly

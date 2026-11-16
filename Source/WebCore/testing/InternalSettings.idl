@@ -27,16 +27,12 @@
 enum EditingBehaviorType { "mac", "windows", "unix", "ios" };
 enum FontLoadTimingOverride { "None", "Block", "Swap", "Failure" };
 enum ForcedAccessibilityValue { "system", "on", "off" };
-enum FrameFlatteningValue { "Disabled", "EnabledForNonFullScreenIFrames", "FullyEnabled" };
-enum PDFImageCachingPolicy { "Enabled", "BelowMemoryLimit", "Disabled", "ClipBoundsOnly" };
-enum StorageBlockingPolicy { "AllowAll", "BlockThirdParty", "BlockAll" };
 enum SystemLayoutDirection { "LTR", "RTL" };
 enum TrackKind { "Subtitles", "Captions", "TextDescriptions" };
 enum UserInterfaceDirectionPolicy { "Content", "System" };
 
 [
     LegacyNoInterfaceObject,
-    JSGenerateToJSObject,
     ExportMacro=WEBCORE_TESTSUPPORT_EXPORT,
 ] interface InternalSettings : InternalSettingsGenerated {
     // Settings
@@ -53,9 +49,6 @@ enum UserInterfaceDirectionPolicy { "Content", "System" };
     undefined setTimeWithoutMouseMovementBeforeHidingControls(unrestricted double intervalInSeconds);
     undefined setMinimumTimerInterval(unrestricted double intervalInSeconds);
     undefined setEditingBehavior(EditingBehaviorType behavior);
-    undefined setStorageBlockingPolicy(StorageBlockingPolicy policy);
-    undefined setPDFImageCachingPolicy(PDFImageCachingPolicy policy);
-    undefined setFrameFlattening(FrameFlatteningValue frameFlattening);
     undefined setUserInterfaceDirectionPolicy(UserInterfaceDirectionPolicy policy);
     undefined setSystemLayoutDirection(SystemLayoutDirection direction);
     attribute ForcedAccessibilityValue forcedColorsAreInvertedAccessibilityValue;
@@ -64,13 +57,11 @@ enum UserInterfaceDirectionPolicy { "Content", "System" };
     attribute ForcedAccessibilityValue forcedPrefersReducedMotionAccessibilityValue;
     attribute ForcedAccessibilityValue forcedSupportsHighDynamicRangeValue;
 
-    // RuntimeEnabledFeatures.
-    undefined setFetchAPIKeepAliveEnabled(boolean enabled);
+    // DeprecatedGlobalSettings.
     undefined setCustomPasteboardDataEnabled(boolean enabled);
 
     readonly attribute boolean vp9DecoderEnabled;
 
-    // DeprecatedGlobalSettings.
     undefined setShouldManageAudioSessionCategory(boolean should);
 
     // CaptionUserPreferences
@@ -94,4 +85,10 @@ enum UserInterfaceDirectionPolicy { "Content", "System" };
 
     // AudioContext
     undefined setDefaultAudioContextSampleRate(float sampleRate);
+
+    undefined setAllowedMediaContainerTypes(DOMString? types);
+    undefined setAllowedMediaCodecTypes(DOMString? types);
+    undefined setAllowedMediaVideoCodecIDs(DOMString? types);
+    undefined setAllowedMediaAudioCodecIDs(DOMString? types);
+    undefined setAllowedMediaCaptionFormatTypes(DOMString? types);
 };

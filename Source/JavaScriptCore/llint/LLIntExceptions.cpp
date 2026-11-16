@@ -29,20 +29,21 @@
 #include "LLIntCommon.h"
 #include "LLIntData.h"
 #include "LLIntThunks.h"
+#include "WasmContext.h"
 
 #if LLINT_TRACING
-#include "CatchScope.h"
 #include "Exception.h"
+#include "TopExceptionScope.h"
 #endif
 
 namespace JSC { namespace LLInt {
 
-Instruction* returnToThrow(VM& vm)
+JSInstruction* returnToThrow(VM& vm)
 {
     UNUSED_PARAM(vm);
 #if LLINT_TRACING
-    if (UNLIKELY(Options::traceLLIntSlowPath())) {
-        auto scope = DECLARE_CATCH_SCOPE(vm);
+    if (Options::traceLLIntSlowPath()) [[unlikely]] {
+        auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
         dataLog("Throwing exception ", JSValue(scope.exception()), " (returnToThrow).\n");
     }
 #endif
@@ -53,8 +54,8 @@ MacroAssemblerCodeRef<ExceptionHandlerPtrTag> callToThrow(VM& vm)
 {
     UNUSED_PARAM(vm);
 #if LLINT_TRACING
-    if (UNLIKELY(Options::traceLLIntSlowPath())) {
-        auto scope = DECLARE_CATCH_SCOPE(vm);
+    if (Options::traceLLIntSlowPath()) [[unlikely]] {
+        auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
         dataLog("Throwing exception ", JSValue(scope.exception()), " (callToThrow).\n");
     }
 #endif

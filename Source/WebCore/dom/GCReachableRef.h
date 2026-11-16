@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <WebCore/Node.h>
 #include <wtf/HashCountedSet.h>
 #include <wtf/RawPtrTraits.h>
 #include <wtf/RefPtr.h>
@@ -35,20 +36,28 @@ class Node;
 
 class GCReachableRefMap {
 public:
-    static inline bool contains(Node& node) { return map().contains(&node); }
-    static inline void add(Node& node) { map().add(&node); }
-    static inline void remove(Node& node) { map().remove(&node); }
+    static inline bool contains(EventTarget& target) { return target.isInGCReacheableRefMap(); }
+    static inline void add(EventTarget& target)
+    {
+        if (map().add(&target).isNewEntry)
+            target.setIsInGCReacheableRefMap(true);
+    }
+    static inline void remove(EventTarget& target)
+    {
+        if (map().remove(&target))
+            target.setIsInGCReacheableRefMap(false);
+    }
 
 private:
-    static HashCountedSet<Node*>& map();
+    WEBCORE_EXPORT static HashCountedSet<EventTarget*>& NODELETE map();
 };
 
-template <typename T, typename = std::enable_if_t<std::is_same<T, typename std::remove_const<T>::type>::value>>
+template <typename T>
+    requires std::same_as<T, std::remove_const_t<T>>
 class GCReachableRef {
     WTF_MAKE_NONCOPYABLE(GCReachableRef);
 public:
 
-    template<typename = std::enable_if_t<std::is_base_of<Node, T>::value>>
     GCReachableRef(T& object)
         : m_ptr(&object)
     {
@@ -62,7 +71,7 @@ public:
     }
 
     GCReachableRef(GCReachableRef&& other)
-        : m_ptr(WTFMove(other.m_ptr))
+        : m_ptr(WTF::move(other.m_ptr))
     {
     }
 
@@ -89,7 +98,7 @@ public:
     void assignToHashTableEmptyValue(GCReachableRef&& reference)
     {
         ASSERT(!m_ptr);
-        m_ptr = WTFMove(reference.m_ptr);
+        m_ptr = WTF::move(reference.m_ptr);
         ASSERT(m_ptr);
     }
 
@@ -117,26 +126,28 @@ template<typename P> struct HashTraits<WebCore::GCReachableRef<P>> : SimpleClass
     static void assignToEmpty(WebCore::GCReachableRef<P>& emptyValue, WebCore::GCReachableRef<P>&& newValue)
     {
         ASSERT(isEmptyValue(emptyValue));
-        emptyValue.assignToHashTableEmptyValue(WTFMove(newValue));
+        emptyValue.assignToHashTableEmptyValue(WTF::move(newValue));
     }
 
     typedef P* PeekType;
-    static PeekType peek(const Ref<P>& value) { return const_cast<PeekType>(value.ptrAllowingHashTableEmptyValue()); }
+    static PeekType peek(const WebCore::GCReachableRef<P>& value) { return const_cast<PeekType>(value.ptrAllowingHashTableEmptyValue()); }
     static PeekType peek(P* value) { return value; }
 
-    typedef std::optional<Ref<P>> TakeType;
-    static TakeType take(Ref<P>&& value) { return isEmptyValue(value) ? std::nullopt : std::optional<Ref<P>>(WTFMove(value)); }
+    typedef std::optional<WebCore::GCReachableRef<P>> TakeType;
+    static TakeType take(WebCore::GCReachableRef<P>&& value) { return isEmptyValue(value) ? std::nullopt : std::optional<WebCore::GCReachableRef<P>>(WTF::move(value)); }
 };
 
-template <typename T, typename U>
-struct GetPtrHelper<WebCore::GCReachableRef<T, U>> {
-    typedef T* PtrType;
-    static T* getPtr(const WebCore::GCReachableRef<T, U>& reference) { return const_cast<T*>(reference.ptr()); }
+template <typename T>
+struct GetPtrHelper<WebCore::GCReachableRef<T>> {
+    using PtrType = T*;
+    using UnderlyingType = T;
+    static T* getPtr(const WebCore::GCReachableRef<T>& reference) { return const_cast<T*>(reference.ptr()); }
 };
 
-template <typename T, typename U>
-struct IsSmartPtr<WebCore::GCReachableRef<T, U>> {
+template <typename T>
+struct IsSmartPtr<WebCore::GCReachableRef<T>> {
     static const bool value = true;
+    static constexpr bool isNullable = true;
 };
 
 template<typename P> struct PtrHash<WebCore::GCReachableRef<P>> : PtrHashBase<WebCore::GCReachableRef<P>, IsSmartPtr<WebCore::GCReachableRef<P>>::value> {

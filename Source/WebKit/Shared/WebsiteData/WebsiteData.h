@@ -25,6 +25,10 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
+#if !PLATFORM(COCOA) || !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
+
 #include <WebCore/RegistrableDomain.h>
 #include <WebCore/SecurityOriginData.h>
 #include <wtf/HashSet.h>
@@ -44,33 +48,31 @@ enum class WebsiteDataProcessType { Network, UI, Web };
 
 struct WebsiteData {
     struct Entry {
+        Entry(WebCore::SecurityOriginData, WebsiteDataType, uint64_t);
+        Entry(WebCore::SecurityOriginData&&, OptionSet<WebsiteDataType>&&, uint64_t);
+
+        OptionSet<WebsiteDataType> typeAsOptionSet() const { return { type }; }
+        
+        Entry isolatedCopy() const &;
+        Entry isolatedCopy() &&;
+
         WebCore::SecurityOriginData origin;
         WebsiteDataType type;
         uint64_t size;
-
-        Entry isolatedCopy() const;
-
-        void encode(IPC::Encoder&) const;
-        static std::optional<WebsiteData::Entry> decode(IPC::Decoder&);
     };
 
-    WebsiteData isolatedCopy() const;
+    WebsiteData isolatedCopy() const &;
+    WebsiteData isolatedCopy() &&;
 
     Vector<Entry> entries;
     HashSet<String> hostNamesWithCookies;
 
-#if ENABLE(NETSCAPE_PLUGIN_API)
-    HashSet<String> hostNamesWithPluginData;
-#endif
     HashSet<String> hostNamesWithHSTSCache;
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
     HashSet<WebCore::RegistrableDomain> registrableDomainsWithResourceLoadStatistics;
-#endif
-
-    void encode(IPC::Encoder&) const;
-    static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, WebsiteData&);
-    static WebsiteDataProcessType ownerProcess(WebsiteDataType);
-    static OptionSet<WebsiteDataType> filter(OptionSet<WebsiteDataType>, WebsiteDataProcessType);
+    static WebsiteDataProcessType NODELETE ownerProcess(WebsiteDataType);
+    static OptionSet<WebsiteDataType> NODELETE filter(OptionSet<WebsiteDataType>, WebsiteDataProcessType);
 };
 
 }
+
+#endif // !PLATFORM(COCOA) || !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)

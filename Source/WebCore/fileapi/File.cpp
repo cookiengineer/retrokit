@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,15 +28,16 @@
 
 #include "BlobURL.h"
 #include "MIMETypeRegistry.h"
+#include <JavaScriptCore/ArrayBufferView.h>
 #include "ThreadableBlobRegistry.h"
 #include <wtf/DateMath.h>
 #include <wtf/FileSystem.h>
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(File);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(File);
 
 Ref<File> File::createWithRelativePath(ScriptExecutionContext* context, const String& path, const String& relativePath)
 {
@@ -45,7 +46,7 @@ Ref<File> File::createWithRelativePath(ScriptExecutionContext* context, const St
     return file;
 }
 
-Ref<File> File::create(ScriptExecutionContext* context, const String& path, const String& replacementPath, const String& nameOverride)
+Ref<File> File::create(ScriptExecutionContext* context, const String& path, const String& replacementPath, const String& nameOverride, const std::optional<FileSystem::PlatformFileID>& fileID)
 {
     String name;
     String type;
@@ -53,22 +54,30 @@ Ref<File> File::create(ScriptExecutionContext* context, const String& path, cons
     computeNameAndContentType(effectivePath, nameOverride, name, type);
 
     auto internalURL = BlobURL::createInternalURL();
-    ThreadableBlobRegistry::registerFileBlobURL(internalURL, path, replacementPath, type);
+    ThreadableBlobRegistry::registerInternalFileBlobURL(internalURL, path, replacementPath, type);
 
-    auto file = adoptRef(*new File(context, WTFMove(internalURL), WTFMove(type), WTFMove(effectivePath), WTFMove(name)));
+    auto file = adoptRef(*new File(context, WTF::move(internalURL), WTF::move(type), WTF::move(effectivePath), WTF::move(name), fileID));
     file->suspendIfNeeded();
     return file;
 }
 
 File::File(ScriptExecutionContext* context, URL&& url, String&& type, String&& path, String&& name)
-    : Blob(uninitializedContructor, context, WTFMove(url), WTFMove(type))
-    , m_path(WTFMove(path))
-    , m_name(WTFMove(name))
+    : Blob(uninitializedContructor, context, WTF::move(url), WTF::move(type))
+    , m_path(WTF::move(path))
+    , m_name(WTF::move(name))
+{
+}
+
+File::File(ScriptExecutionContext* context, URL&& url, String&& type, String&& path, String&& name, const std::optional<FileSystem::PlatformFileID>& fileID)
+    : Blob(uninitializedContructor, context, WTF::move(url), WTF::move(type))
+    , m_path(WTF::move(path))
+    , m_name(WTF::move(name))
+    , m_fileID(fileID)
 {
 }
 
 File::File(DeserializationContructor, ScriptExecutionContext* context, const String& path, const URL& url, const String& type, const String& name, const std::optional<int64_t>& lastModified)
-    : Blob(deserializationContructor, context, url, type, { }, path)
+    : Blob(deserializationContructor, context, url, type, { }, 0, path)
     , m_path(path)
     , m_name(name)
     , m_lastModifiedDateOverride(lastModified)
@@ -76,7 +85,7 @@ File::File(DeserializationContructor, ScriptExecutionContext* context, const Str
 }
 
 File::File(ScriptExecutionContext& context, Vector<BlobPartVariant>&& blobPartVariants, const String& filename, const PropertyBag& propertyBag)
-    : Blob(context, WTFMove(blobPartVariants), propertyBag)
+    : Blob(context, WTF::move(blobPartVariants), propertyBag)
     , m_name(filename)
     , m_lastModifiedDateOverride(propertyBag.lastModified.value_or(WallTime::now().secondsSinceEpoch().milliseconds()))
 {
@@ -115,7 +124,7 @@ int64_t File::lastModified() const
     else
         result = WallTime::now().secondsSinceEpoch().millisecondsAs<int64_t>();
 
-    return WTF::timeClip(result);
+    return timeClip(result);
 }
 
 void File::computeNameAndContentType(const String& path, const String& nameOverride, String& effectiveName, String& effectiveContentType)
@@ -130,7 +139,7 @@ void File::computeNameAndContentType(const String& path, const String& nameOverr
     size_t index = effectiveName.reverseFind('.');
     if (index != notFound) {
         callOnMainThreadAndWait([&effectiveContentType, &effectiveName, index] {
-            effectiveContentType = MIMETypeRegistry::mimeTypeForExtension(effectiveName.substring(index + 1)).isolatedCopy();
+            effectiveContentType = MIMETypeRegistry::mimeTypeForExtension(StringView(effectiveName).substring(index + 1)).isolatedCopy();
         });
     }
 }
@@ -149,11 +158,6 @@ bool File::isDirectory() const
     if (!m_isDirectory)
         m_isDirectory = FileSystem::fileTypeFollowingSymlinks(m_path) == FileSystem::FileType::Directory;
     return *m_isDirectory;
-}
-
-const char* File::activeDOMObjectName() const
-{
-    return "File";
 }
 
 } // namespace WebCore

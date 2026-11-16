@@ -22,36 +22,40 @@
 
 #pragma once
 
-#include "HTMLElement.h"
+#include <WebCore/HTMLElement.h>
 
 namespace WebCore {
 
 class HitTestResult;
 class HTMLImageElement;
-    
+class LayoutPoint;
+class LayoutSize;
+
 class HTMLMapElement final : public HTMLElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLMapElement);
+    WTF_MAKE_TZONE_ALLOCATED(HTMLMapElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLMapElement);
 public:
     static Ref<HTMLMapElement> create(Document&);
     static Ref<HTMLMapElement> create(const QualifiedName&, Document&);
     virtual ~HTMLMapElement();
 
-    const AtomString& getName() const { return m_name; }
+    const AtomString& getName() const LIFETIME_BOUND { return m_name; }
 
     bool mapMouseEvent(LayoutPoint location, const LayoutSize&, HitTestResult&);
     
-    HTMLImageElement* imageElement();
+    RefPtr<HTMLImageElement> imageElement();
     WEBCORE_EXPORT Ref<HTMLCollection> areas();
 
 private:
     HTMLMapElement(const QualifiedName&, Document&);
 
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
 
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    void removedFromAncestor(RemovalType, ContainerNode&) final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void removingSteps(RemovalType, ContainerNode&) final;
 
     AtomString m_name;
+    AtomString m_registeredId;
 };
 
 } // namespaces

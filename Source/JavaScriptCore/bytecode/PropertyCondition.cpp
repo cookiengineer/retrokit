@@ -33,7 +33,7 @@
 namespace JSC {
 
 namespace PropertyConditionInternal {
-static bool verbose = false;
+static constexpr bool verbose = false;
 }
 
 void PropertyCondition::dumpInContext(PrintStream& out, DumpContext* context) const
@@ -45,10 +45,12 @@ void PropertyCondition::dumpInContext(PrintStream& out, DumpContext* context) co
     
     switch (m_header.type()) {
     case Presence:
+    case Replacement:
         out.print(m_header.type(), " of ", m_header.pointer(), " at ", offset(), " with attributes ", attributes());
         return;
     case Absence:
     case AbsenceOfSetEffect:
+    case AbsenceOfIndexedProperties:
         out.print(m_header.type(), " of ", m_header.pointer(), " with prototype ", inContext(JSValue(prototype()), context));
         return;
     case Equivalence:
@@ -70,61 +72,64 @@ void PropertyCondition::dump(PrintStream& out) const
 }
 
 bool PropertyCondition::isStillValidAssumingImpurePropertyWatchpoint(
-    Structure* structure, JSObject* base) const
+    Concurrency concurrency, Structure* structure, JSObject* base) const
 {
-    if (PropertyConditionInternal::verbose) {
-        dataLog(
-            "Determining validity of ", *this, " with structure ", pointerDump(structure), " and base ",
-            JSValue(base), " assuming impure property watchpoints are set.\n");
-    }
-    
+    dataLogLnIf(PropertyConditionInternal::verbose,
+        "Determining validity of ", *this, " with structure ", pointerDump(structure), " and base ",
+        JSValue(base), " assuming impure property watchpoints are set.");
+
     if (!*this) {
-        if (PropertyConditionInternal::verbose)
-            dataLog("Invalid because unset.\n");
+        dataLogLnIf(PropertyConditionInternal::verbose, "Invalid because unset.");
         return false;
     }
 
     switch (m_header.type()) {
     case Presence:
+    case Replacement:
     case Absence:
     case AbsenceOfSetEffect:
+    case AbsenceOfIndexedProperties:
     case Equivalence:
     case HasStaticProperty:
         if (!structure->propertyAccessesAreCacheable()) {
-            if (PropertyConditionInternal::verbose)
-                dataLog("Invalid because property accesses are not cacheable.\n");
+            dataLogLnIf(PropertyConditionInternal::verbose, "Invalid because property accesses are not cacheable.");
             return false;
         }
         break;
         
     case HasPrototype:
         if (!structure->prototypeQueriesAreCacheable()) {
-            if (PropertyConditionInternal::verbose)
-                dataLog("Invalid because prototype queries are not cacheable.\n");
+            dataLogLnIf(PropertyConditionInternal::verbose, "Invalid because prototype queries are not cacheable.");
             return false;
         }
         break;
     }
     
     switch (m_header.type()) {
-    case Presence: {
+    case Presence:
+    case Replacement: {
         unsigned currentAttributes;
-        PropertyOffset currentOffset = structure->getConcurrently(uid(), currentAttributes);
+        PropertyOffset currentOffset = structure->get(structure->vm(), concurrency, uid(), currentAttributes);
         if (currentOffset != offset() || currentAttributes != attributes()) {
-            if (PropertyConditionInternal::verbose) {
-                dataLog(
-                    "Invalid because we need offset, attributes to be ", offset(), ", ", attributes(),
-                    " but they are ", currentOffset, ", ", currentAttributes, "\n");
-            }
+            dataLogLnIf(PropertyConditionInternal::verbose,
+                "Invalid because we need offset, attributes to be ", offset(), ", ", attributes(),
+                " but they are ", currentOffset, ", ", currentAttributes);
             return false;
+        }
+
+        if (m_header.type() == Replacement) {
+            auto* watchpointSet = structure->propertyReplacementWatchpointSet(currentOffset);
+            if (!watchpointSet || watchpointSet->isStillValid()) {
+                dataLogLnIf(PropertyConditionInternal::verbose, "Invalid because the replacement watchpoint needs to be fired but is not");
+                return false;
+            }
         }
         return true;
     }
         
     case Absence: {
         if (structure->isDictionary()) {
-            if (PropertyConditionInternal::verbose)
-                dataLog("Invalid because it's a dictionary.\n");
+            dataLogLnIf(PropertyConditionInternal::verbose, "Invalid because it's a dictionary.");
             return false;
         }
 
@@ -136,19 +141,23 @@ bool PropertyCondition::isStillValidAssumingImpurePropertyWatchpoint(
             return false;
         }
 
-        PropertyOffset currentOffset = structure->getConcurrently(uid());
+        PropertyOffset currentOffset = structure->get(structure->vm(), concurrency, uid());
         if (currentOffset != invalidOffset) {
-            if (PropertyConditionInternal::verbose)
-                dataLog("Invalid because the property exists at offset: ", currentOffset, "\n");
+            dataLogLnIf(PropertyConditionInternal::verbose, "Invalid because the property exists at offset: ", currentOffset);
             return false;
         }
 
-        if (structure->storedPrototypeObject() != prototype()) {
-            if (PropertyConditionInternal::verbose) {
-                dataLog(
-                    "Invalid because the prototype is ", structure->storedPrototype(), " even though "
-                    "it should have been ", JSValue(prototype()), "\n");
+        if (structure->hasNonReifiedStaticProperties()) {
+            if (structure->findPropertyHashEntry(uid())) {
+                dataLogLnIf(PropertyConditionInternal::verbose, "Invalid because the property exists in the non-reified static property table: ", uid(), ".");
+                return false;
             }
+        }
+
+        if (structure->storedPrototypeObject() != prototype()) {
+            dataLogLnIf(PropertyConditionInternal::verbose,
+                "Invalid because the prototype is ", structure->storedPrototype(), " even though "
+                "it should have been ", JSValue(prototype()));
             return false;
         }
         
@@ -157,21 +166,30 @@ bool PropertyCondition::isStillValidAssumingImpurePropertyWatchpoint(
     
     case AbsenceOfSetEffect: {
         if (structure->isDictionary()) {
-            if (PropertyConditionInternal::verbose)
-                dataLog("Invalid because it's a dictionary.\n");
+            dataLogLnIf(PropertyConditionInternal::verbose, "Invalid because it's a dictionary.");
             return false;
         }
         
+        if (structure->typeInfo().overridesPut() && JSObject::mightBeSpecialProperty(structure->vm(), structure->typeInfo().type(), uid())) {
+            dataLogLnIf(PropertyConditionInternal::verbose, "Invalid because its put() override may treat ", uid(), " property as special non-structure one.");
+            return false;
+        }
+
         unsigned currentAttributes;
-        PropertyOffset currentOffset = structure->getConcurrently(uid(), currentAttributes);
+        PropertyOffset currentOffset = structure->get(structure->vm(), concurrency, uid(), currentAttributes);
         if (currentOffset != invalidOffset) {
             if (currentAttributes & (PropertyAttribute::ReadOnly | PropertyAttribute::Accessor | PropertyAttribute::CustomAccessorOrValue)) {
-                if (PropertyConditionInternal::verbose) {
-                    dataLog(
-                        "Invalid because we expected not to have a setter, but we have one at offset ",
-                        currentOffset, " with attributes ", currentAttributes, "\n");
-                }
+                dataLogLnIf(PropertyConditionInternal::verbose,
+                    "Invalid because we expected not to have a setter, but we have one at offset ",
+                    currentOffset, " with attributes ", currentAttributes);
                 return false;
+            }
+        } else if (structure->hasNonReifiedStaticProperties()) {
+            if (auto entry = structure->findPropertyHashEntry(uid())) {
+                if (entry->value->attributes() & PropertyAttribute::ReadOnlyOrAccessorOrCustomAccessorOrValue) {
+                    dataLogLnIf(PropertyConditionInternal::verbose, "Invalid because we expected not to have a setter, but we have one in non-reified static property table: ", uid(), ".");
+                    return false;
+                }
             }
         }
 
@@ -184,17 +202,44 @@ bool PropertyCondition::isStillValidAssumingImpurePropertyWatchpoint(
         }
         
         if (structure->storedPrototypeObject() != prototype()) {
-            if (PropertyConditionInternal::verbose) {
-                dataLog(
-                    "Invalid because the prototype is ", structure->storedPrototype(), " even though "
-                    "it should have been ", JSValue(prototype()), "\n");
-            }
+            dataLogLnIf(PropertyConditionInternal::verbose,
+                "Invalid because the prototype is ", structure->storedPrototype(), " even though "
+                "it should have been ", JSValue(prototype()));
             return false;
         }
         
         return true;
     }
-        
+
+    case AbsenceOfIndexedProperties: {
+        if (structure->hasPolyProto()) {
+            // FIXME: I think this is too conservative. We can probably prove this if
+            // we have the base. Anyways, we should make this work when integrating
+            // OPC and poly proto.
+            // https://bugs.webkit.org/show_bug.cgi?id=177339
+            return false;
+        }
+
+        if (hasIndexedProperties(structure->indexingType())) {
+            dataLogLnIf(PropertyConditionInternal::verbose, "Invalid because the indexed properties exist: ", structure->indexingType());
+            return false;
+        }
+
+        if (structure->mayInterceptIndexedAccesses() || structure->typeInfo().interceptsGetOwnPropertySlotByIndexEvenWhenLengthIsNotZero()) {
+            dataLogLnIf(PropertyConditionInternal::verbose, "Invalid because structure intercepts index access.");
+            return false;
+        }
+
+        if (structure->storedPrototypeObject() != prototype()) {
+            dataLogLnIf(PropertyConditionInternal::verbose,
+                "Invalid because the prototype is ", structure->storedPrototype(), " even though "
+                "it should have been ", JSValue(prototype()));
+            return false;
+        }
+
+        return true;
+    }
+
     case HasPrototype: {
         if (structure->hasPolyProto()) {
             // FIXME: I think this is too conservative. We can probably prove this if
@@ -205,11 +250,9 @@ bool PropertyCondition::isStillValidAssumingImpurePropertyWatchpoint(
         }
 
         if (structure->storedPrototypeObject() != prototype()) {
-            if (PropertyConditionInternal::verbose) {
-                dataLog(
-                    "Invalid because the prototype is ", structure->storedPrototype(), " even though "
-                    "it should have been ", JSValue(prototype()), "\n");
-            }
+            dataLogLnIf(PropertyConditionInternal::verbose,
+                "Invalid because the prototype is ", structure->storedPrototype(), " even though "
+                "it should have been ", JSValue(prototype()));
             return false;
         }
         
@@ -217,44 +260,40 @@ bool PropertyCondition::isStillValidAssumingImpurePropertyWatchpoint(
     }
         
     case Equivalence: {
+        Locker<JSCellLock> cellLocker { NoLockingNecessary };
+        if (concurrency != Concurrency::MainThread && base)
+            cellLocker = Locker { base->cellLock() };
         if (!base || base->structure() != structure) {
             // Conservatively return false, since we cannot verify this one without having the
             // object.
-            if (PropertyConditionInternal::verbose) {
-                dataLog(
-                    "Invalid because we don't have a base or the base has the wrong structure: ",
-                    RawPointer(base), "\n");
-            }
+            dataLogLnIf(PropertyConditionInternal::verbose,
+                "Invalid because we don't have a base or the base has the wrong structure: ",
+                RawPointer(base));
             return false;
         }
         
         // FIXME: This is somewhat racy, and maybe more risky than we want.
         // https://bugs.webkit.org/show_bug.cgi?id=134641
         
-        PropertyOffset currentOffset = structure->getConcurrently(uid());
+        PropertyOffset currentOffset = structure->get(structure->vm(), concurrency, uid());
         if (currentOffset == invalidOffset) {
-            if (PropertyConditionInternal::verbose) {
-                dataLog(
-                    "Invalid because the base no long appears to have ", uid(), " on its structure: ",
-                        RawPointer(base), "\n");
-            }
+            dataLogLnIf(PropertyConditionInternal::verbose,
+                "Invalid because the base no long appears to have ", uid(), " on its structure: ",
+                RawPointer(base));
             return false;
         }
 
-        JSValue currentValue = base->getDirectConcurrently(structure, currentOffset);
-        if (currentValue != requiredValue()) {
-            if (PropertyConditionInternal::verbose) {
-                dataLog(
-                    "Invalid because the value is ", currentValue, " but we require ", requiredValue(),
-                    "\n");
-            }
+        JSValue currentValue = base->getDirect(cellLocker, concurrency, structure, currentOffset);
+        if (currentValue != requiredValue() || !currentValue) {
+            dataLogLnIf(PropertyConditionInternal::verbose,
+                "Invalid because the value is ", currentValue, " but we require ", requiredValue());
             return false;
         }
         
         return true;
     } 
     case HasStaticProperty: {
-        if (isValidOffset(structure->getConcurrently(uid())))
+        if (isValidOffset(structure->get(structure->vm(), concurrency, uid())))
             return false;
         if (structure->staticPropertiesReified())
             return false;
@@ -263,8 +302,19 @@ bool PropertyCondition::isStillValidAssumingImpurePropertyWatchpoint(
     }
     
     RELEASE_ASSERT_NOT_REACHED();
-    return false;
 }
+
+IGNORE_RETURN_TYPE_WARNINGS_BEGIN
+static ALWAYS_INLINE Concurrency NODELETE watchabilityToConcurrency(PropertyCondition::WatchabilityEffort effort)
+{
+    switch (effort) {
+    case PropertyCondition::WatchabilityEffort::EnsureWatchability:
+        return Concurrency::MainThread;
+    case PropertyCondition::WatchabilityEffort::MakeNoChanges:
+        return Concurrency::ConcurrentThread;
+    }
+}
+IGNORE_RETURN_TYPE_WARNINGS_END
 
 bool PropertyCondition::validityRequiresImpurePropertyWatchpoint(Structure* structure) const
 {
@@ -273,26 +323,27 @@ bool PropertyCondition::validityRequiresImpurePropertyWatchpoint(Structure* stru
     
     switch (m_header.type()) {
     case Presence:
+    case Replacement:
     case Absence:
     case Equivalence:
     case HasStaticProperty:
         return structure->needImpurePropertyWatchpoint();
     case AbsenceOfSetEffect:
+    case AbsenceOfIndexedProperties:
     case HasPrototype:
         return false;
     }
     
     RELEASE_ASSERT_NOT_REACHED();
-    return false;
 }
 
-bool PropertyCondition::isStillValid(Structure* structure, JSObject* base) const
+bool PropertyCondition::isStillValid(Concurrency concurrency, Structure* structure, JSObject* base) const
 {
-    if (!isStillValidAssumingImpurePropertyWatchpoint(structure, base))
+    if (!isStillValidAssumingImpurePropertyWatchpoint(concurrency, structure, base))
         return false;
 
     // Currently we assume that an impure property can cause a property to appear, and can also
-    // "shadow" an existing JS property on the same object. Hence it affects both presence and
+    // "shadow" an existing JS property on the same object. Hence it affects presence, replacement, and
     // absence. It doesn't affect AbsenceOfSetEffect because impure properties aren't ever setters.
     switch (m_header.type()) {
     case Absence:
@@ -300,11 +351,13 @@ bool PropertyCondition::isStillValid(Structure* structure, JSObject* base) const
             return false;
         break;
     case Presence:
+    case Replacement:
     case Equivalence:
     case HasStaticProperty:
         if (structure->typeInfo().getOwnPropertySlotIsImpure())
             return false;
         break;
+    case AbsenceOfIndexedProperties:
     default:
         break;
     }
@@ -312,15 +365,39 @@ bool PropertyCondition::isStillValid(Structure* structure, JSObject* base) const
     return true;
 }
 
-bool PropertyCondition::isWatchableWhenValid(
-    Structure* structure, WatchabilityEffort effort) const
+bool PropertyCondition::isWatchableWhenValid(Structure* structure, WatchabilityEffort effort, Concurrency concurrency) const
 {
     if (structure->transitionWatchpointSetHasBeenInvalidated())
         return false;
     
     switch (m_header.type()) {
+    case Replacement: {
+        VM& vm = structure->vm();
+        PropertyOffset offset = structure->get(vm, concurrency, uid());
+
+        // This method should only be called when some variant of isValid returned true, which
+        // implies that we already confirmed that the structure knows of the property. We should
+        // also have verified that the Structure is a cacheable dictionary, which means we
+        // shouldn't have a TOCTOU race either.
+        RELEASE_ASSERT(offset != invalidOffset);
+
+        WatchpointSet* set = nullptr;
+        switch (effort) {
+        case MakeNoChanges:
+            set = structure->propertyReplacementWatchpointSet(offset);
+            break;
+        case EnsureWatchability:
+            set = structure->firePropertyReplacementWatchpointSet(structure->vm(), offset, "Firing replacement to ensure validity");
+            break;
+        }
+
+        if (!set || set->isStillValid())
+            return false;
+
+        break;
+    }
     case Equivalence: {
-        PropertyOffset offset = structure->getConcurrently(uid());
+        PropertyOffset offset = structure->get(structure->vm(), concurrency, uid());
         
         // This method should only be called when some variant of isValid returned true, which
         // implies that we already confirmed that the structure knows of the property. We should
@@ -366,18 +443,24 @@ bool PropertyCondition::isWatchableWhenValid(
     return true;
 }
 
-bool PropertyCondition::isWatchableAssumingImpurePropertyWatchpoint(
-    Structure* structure, JSObject* base, WatchabilityEffort effort) const
+bool PropertyCondition::isWatchableAssumingImpurePropertyWatchpoint(Structure* structure, JSObject* base, WatchabilityEffort effort, Concurrency concurrency) const
 {
-    return isStillValidAssumingImpurePropertyWatchpoint(structure, base)
-        && isWatchableWhenValid(structure, effort);
+    return isStillValidAssumingImpurePropertyWatchpoint(concurrency, structure, base) && isWatchableWhenValid(structure, effort, concurrency);
 }
 
-bool PropertyCondition::isWatchable(
-    Structure* structure, JSObject* base, WatchabilityEffort effort) const
+bool PropertyCondition::isWatchableAssumingImpurePropertyWatchpoint(Structure* structure, JSObject* base, WatchabilityEffort effort) const
 {
-    return isStillValid(structure, base)
-        && isWatchableWhenValid(structure, effort);
+    return isWatchableAssumingImpurePropertyWatchpoint(structure, base, effort, watchabilityToConcurrency(effort));
+}
+
+bool PropertyCondition::isWatchable(Structure* structure, JSObject* base, WatchabilityEffort effort) const
+{
+    return isWatchable(structure, base, effort, watchabilityToConcurrency(effort));
+}
+
+bool PropertyCondition::isWatchable(Structure* structure, JSObject* base, WatchabilityEffort effort, Concurrency concurrency) const
+{
+    return isStillValid(concurrency, structure, base) && isWatchableWhenValid(structure, effort, concurrency);
 }
 
 void PropertyCondition::validateReferences(const TrackedReferences& tracked) const
@@ -389,28 +472,56 @@ void PropertyCondition::validateReferences(const TrackedReferences& tracked) con
         tracked.check(requiredValue());
 }
 
-bool PropertyCondition::isValidValueForAttributes(VM& vm, JSValue value, unsigned attributes)
+bool PropertyCondition::isValidValueForAttributes(JSValue value, unsigned attributes)
 {
     if (!value)
         return false;
-    bool attributesClaimAccessor = !!(attributes & PropertyAttribute::Accessor);
-    bool valueClaimsAccessor = !!jsDynamicCast<GetterSetter*>(vm, value);
-    return attributesClaimAccessor == valueClaimsAccessor;
+    if (value.inherits<GetterSetter>())
+        return attributes & PropertyAttribute::Accessor;
+    if (value.inherits<CustomGetterSetter>())
+        return attributes & PropertyAttribute::CustomAccessorOrValue;
+    return !(attributes & PropertyAttribute::AccessorOrCustomAccessorOrValue);
 }
 
-bool PropertyCondition::isValidValueForPresence(VM& vm, JSValue value) const
+bool PropertyCondition::isValidValueForPresence(JSValue value) const
 {
-    return isValidValueForAttributes(vm, value, attributes());
+    return isValidValueForAttributes(value, attributes());
 }
 
-PropertyCondition PropertyCondition::attemptToMakeEquivalenceWithoutBarrier(VM& vm, JSObject* base) const
+PropertyCondition PropertyCondition::attemptToMakeEquivalenceWithoutBarrier(JSObject* base) const
 {
-    Structure* structure = base->structure(vm);
+    JSValue value;
+    {
+        Locker cellLocker { base->cellLock() };
+        Structure* structure = base->structure();
 
-    JSValue value = base->getDirectConcurrently(structure, offset());
-    if (!isValidValueForPresence(vm, value))
+        value = base->getDirectConcurrently(cellLocker, structure, offset());
+    }
+    if (!isValidValueForPresence(value))
         return PropertyCondition();
     return equivalenceWithoutBarrier(uid(), value);
+}
+
+PropertyCondition PropertyCondition::attemptToMakeReplacementWithoutBarrier(JSObject* base) const
+{
+    if (kind() != Presence)
+        return PropertyCondition();
+
+    // Let's check the validity of this condition with the live object to see whether this is worth using Replacement PropertyCondition.
+    Structure* structure = base->structure();
+    unsigned attributes = 0;
+    PropertyOffset offset = structure->getConcurrently(uid(), attributes);
+
+    if (offset != this->offset())
+        return PropertyCondition();
+
+    if (attributes != this->attributes())
+        return PropertyCondition();
+
+    if (attributes & PropertyAttribute::ReadOnly)
+        return PropertyCondition();
+
+    return replacementWithoutBarrier(uid(), offset, attributes);
 }
 
 } // namespace JSC
@@ -423,11 +534,17 @@ void printInternal(PrintStream& out, JSC::PropertyCondition::Kind condition)
     case JSC::PropertyCondition::Presence:
         out.print("Presence");
         return;
+    case JSC::PropertyCondition::Replacement:
+        out.print("Replacement");
+        return;
     case JSC::PropertyCondition::Absence:
         out.print("Absence");
         return;
     case JSC::PropertyCondition::AbsenceOfSetEffect:
-        out.print("Absence");
+        out.print("AbsenceOfSetEffect");
+        return;
+    case JSC::PropertyCondition::AbsenceOfIndexedProperties:
+        out.print("AbsenceOfIndexedProperties");
         return;
     case JSC::PropertyCondition::Equivalence:
         out.print("Equivalence");

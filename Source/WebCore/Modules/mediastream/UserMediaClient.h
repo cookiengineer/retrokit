@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2011 Ericsson AB. All rights reserved.
- * Copyright (C) 2016-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,35 +33,44 @@
 
 #if ENABLE(MEDIA_STREAM)
 
+#include <WebCore/MediaProducer.h>
+#include <wtf/AbstractRefCounted.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/ObjectIdentifier.h>
 
 namespace WebCore {
 
-class CaptureDevice;
+struct CaptureDeviceWithCapabilities;
 class Document;
+class Exception;
 class Page;
 class UserMediaRequest;
 
-class UserMediaClient {
-public:
-    virtual void pageDestroyed() = 0;
+struct MediaDeviceHashSalts;
 
+class UserMediaClient : public AbstractRefCounted {
+public:
     virtual void requestUserMediaAccess(UserMediaRequest&) = 0;
     virtual void cancelUserMediaAccessRequest(UserMediaRequest&) = 0;
 
-    virtual void enumerateMediaDevices(Document&, CompletionHandler<void(const Vector<CaptureDevice>&, const String&)>&&) = 0;
+    using EnumerateDevicesCallback = CompletionHandler<void(Vector<CaptureDeviceWithCapabilities>&&, MediaDeviceHashSalts&&)>;
+    virtual void enumerateMediaDevices(Document&, EnumerateDevicesCallback&&) = 0;
 
     enum DeviceChangeObserverTokenType { };
     using DeviceChangeObserverToken = ObjectIdentifier<DeviceChangeObserverTokenType>;
-    virtual DeviceChangeObserverToken addDeviceChangeObserver(WTF::Function<void()>&&) = 0;
+    virtual DeviceChangeObserverToken addDeviceChangeObserver(Function<void()>&&) = 0;
     virtual void removeDeviceChangeObserver(DeviceChangeObserverToken) = 0;
 
-protected:
+    virtual void updateCaptureState(const Document&, bool isActive, MediaProducerMediaCaptureKind, CompletionHandler<void(std::optional<Exception>&&)>&&) = 0;
+    virtual void setShouldListenToVoiceActivity(bool) = 0;
+
     virtual ~UserMediaClient() = default;
+
+protected:
+    UserMediaClient() = default;
 };
 
-WEBCORE_EXPORT void provideUserMediaTo(Page*, UserMediaClient*);
+WEBCORE_EXPORT void provideUserMediaTo(Page*, Ref<UserMediaClient>&&);
 
 } // namespace WebCore
 

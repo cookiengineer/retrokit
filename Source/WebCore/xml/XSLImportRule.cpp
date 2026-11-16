@@ -28,21 +28,27 @@
 #include "CachedResourceLoader.h"
 #include "CachedResourceRequest.h"
 #include "Document.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-XSLImportRule::XSLImportRule(XSLStyleSheet* parent, const String& href)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(XSLImportRule);
+
+Ref<XSLImportRule> XSLImportRule::create(XSLStyleSheet& parentSheet, const String& href)
+{
+    return adoptRef(*new XSLImportRule(parentSheet, href));
+}
+
+XSLImportRule::XSLImportRule(XSLStyleSheet& parent, const String& href)
     : m_parentStyleSheet(parent)
     , m_strHref(href)
-    , m_cachedSheet(nullptr)
-    , m_loading(false)
 {
 }
 
 XSLImportRule::~XSLImportRule()
 {
     if (m_styleSheet)
-        m_styleSheet->setParentStyleSheet(nullptr);
+        styleSheet()->setParentStyleSheet(nullptr);
 
     if (m_cachedSheet)
         m_cachedSheet->removeClient(*this);
@@ -51,15 +57,13 @@ XSLImportRule::~XSLImportRule()
 void XSLImportRule::setXSLStyleSheet(const String& href, const URL& baseURL, const String& sheet)
 {
     if (m_styleSheet)
-        m_styleSheet->setParentStyleSheet(nullptr);
+        styleSheet()->setParentStyleSheet(nullptr);
 
-    m_styleSheet = XSLStyleSheet::create(this, href, baseURL);
+    // FIXME: parentStyleSheet() should never be null here.
+    RefPtr parent = parentStyleSheet();
+    m_styleSheet = XSLStyleSheet::create(parent.get(), href, baseURL);
 
-    XSLStyleSheet* parent = parentStyleSheet();
-    if (parent)
-        m_styleSheet->setParentStyleSheet(parent);
-
-    m_styleSheet->parseString(sheet);
+    protect(styleSheet())->parseString(sheet);
     m_loading = false;
 
     if (parent)
@@ -68,45 +72,42 @@ void XSLImportRule::setXSLStyleSheet(const String& href, const URL& baseURL, con
 
 bool XSLImportRule::isLoading()
 {
-    return (m_loading || (m_styleSheet && m_styleSheet->isLoading()));
+    return (m_loading || (m_styleSheet && protect(m_styleSheet)->isLoading()));
 }
 
 void XSLImportRule::loadSheet()
 {
-    CachedResourceLoader* cachedResourceLoader = nullptr;
+    RefPtr rootSheet = parentStyleSheet();
+    while (RefPtr parentSheet = rootSheet->parentStyleSheet())
+        rootSheet = parentSheet;
 
-    XSLStyleSheet* rootSheet = parentStyleSheet();
-
-    if (rootSheet) {
-        while (XSLStyleSheet* parentSheet = rootSheet->parentStyleSheet())
-            rootSheet = parentSheet;
-    }
-
-    if (rootSheet)
-        cachedResourceLoader = rootSheet->cachedResourceLoader();
+    RefPtr cachedResourceLoader = rootSheet->cachedResourceLoader();
 
     String absHref = m_strHref;
-    XSLStyleSheet* parentSheet = parentStyleSheet();
+    RefPtr parentSheet = parentStyleSheet();
     if (!parentSheet->baseURL().isNull())
         // use parent styleheet's URL as the base URL
         absHref = URL(parentSheet->baseURL(), m_strHref).string();
 
     // Check for a cycle in our import chain.  If we encounter a stylesheet
     // in our parent chain with the same URL, then just bail.
-    for (XSLStyleSheet* parentSheet = parentStyleSheet(); parentSheet; parentSheet = parentSheet->parentStyleSheet()) {
+    for (RefPtr parentSheet = parentStyleSheet(); parentSheet; parentSheet = parentSheet->parentStyleSheet()) {
         if (absHref == parentSheet->baseURL().string())
             return;
     }
 
     if (m_cachedSheet)
-        m_cachedSheet->removeClient(*this);
+        protect(m_cachedSheet)->removeClient(*this);
 
     auto options = CachedResourceLoader::defaultCachedResourceOptions();
     options.mode = FetchOptions::Mode::SameOrigin;
-    m_cachedSheet = cachedResourceLoader->requestXSLStyleSheet({ResourceRequest(cachedResourceLoader->document()->completeURL(absHref)), options}).value_or(nullptr);
+    if (auto result = cachedResourceLoader->requestXSLStyleSheet({ ResourceRequest(protect(cachedResourceLoader->document())->encodingParseURL(absHref)), options }))
+        m_cachedSheet = WTF::move(result.value());
+    else
+        m_cachedSheet = nullptr;
 
     if (m_cachedSheet) {
-        m_cachedSheet->addClient(*this);
+        protect(m_cachedSheet)->addClient(*this);
 
         // If the imported sheet is in the cache, then setXSLStyleSheet gets called,
         // and the sheet even gets parsed (via parseString).  In this case we have

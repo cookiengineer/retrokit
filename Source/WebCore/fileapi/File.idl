@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,16 +28,15 @@ typedef (BufferSource or Blob or USVString) BlobPart;
 [
     ExportMacro=WEBCORE_EXPORT,
     Exposed=(Window,Worker),
-    JSGenerateToJSObject,
     JSGenerateToNativeObject,
 ] interface File : Blob {
-    [CallWith=ScriptExecutionContext] constructor(sequence<BlobPart> fileBits, USVString fileName, optional FilePropertyBag options);
+    [CallWith=CurrentScriptExecutionContext] constructor(sequence<BlobPart> fileBits, USVString fileName, optional FilePropertyBag options = {});
 
     readonly attribute DOMString name;
     readonly attribute long long lastModified;
 
     // https://wicg.github.io/entries-api/#file-interface
-    [EnabledAtRuntime=DirectoryUpload, ImplementedAs=relativePath] readonly attribute USVString webkitRelativePath;
+    [EnabledBySetting=DirectoryUploadEnabled, ImplementedAs=relativePath] readonly attribute USVString webkitRelativePath;
 };
 
 dictionary FilePropertyBag : BlobPropertyBag {

@@ -28,7 +28,6 @@
 
 #pragma once
 
-#include <wtf/Variant.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {

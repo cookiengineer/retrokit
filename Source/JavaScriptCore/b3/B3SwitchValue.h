@@ -31,6 +31,8 @@
 #include "B3SwitchCase.h"
 #include "B3Value.h"
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC { namespace B3 {
 
 class SwitchValue final : public Value {
@@ -45,15 +47,15 @@ public:
     // The successor for this case value is at the same index.
     int64_t caseValue(unsigned index) const { return m_values[index]; }
     
-    const Vector<int64_t>& caseValues() const { return m_values; }
+    const Vector<int64_t>& caseValues() const LIFETIME_BOUND { return m_values; }
 
     CaseCollection cases(const BasicBlock* owner) const { return CaseCollection(this, owner); }
     CaseCollection cases() const { return cases(owner); }
 
-    bool hasFallThrough(const BasicBlock*) const;
+    bool NODELETE hasFallThrough(const BasicBlock*) const;
     bool hasFallThrough() const;
 
-    BasicBlock* fallThrough(const BasicBlock* owner);
+    BasicBlock* NODELETE fallThrough(const BasicBlock* owner);
 
     // These two functions can be called in any order.
     void setFallThrough(BasicBlock*, const FrequentedBlock&);
@@ -80,5 +82,7 @@ private:
 };
 
 } } // namespace JSC::B3
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(B3_JIT)

@@ -27,7 +27,7 @@
 #include "UserAgent.h"
 
 #include <wtf/NeverDestroyed.h>
-#include <wtf/text/StringConcatenate.h>
+#include <wtf/text/MakeString.h>
 
 // WARNING! WARNING! WARNING!
 //
@@ -43,9 +43,9 @@ static String getSystemSoftwareName()
 #if HAS_GETENV_NP
     char buf[32];
     if (!getenv_np("SYSTEM_SOFTWARE_NAME", buf, sizeof(buf)))
-        return buf;
+        return String::fromUTF8(buf);
 #endif
-    return "PlayStation";
+    return "PlayStation"_s;
 }
 
 static String getSystemSoftwareVersion()
@@ -53,22 +53,22 @@ static String getSystemSoftwareVersion()
 #if HAS_GETENV_NP
     char buf[32];
     if (!getenv_np("SYSTEM_SOFTWARE_VERSION", buf, sizeof(buf)))
-        return buf;
+        return String::fromUTF8(buf);
 #endif
-    return "0.00";
+    return "0.00"_s;
 }
 
-static constexpr const char* versionForUAString()
+static constexpr ASCIILiteral versionForUAString()
 {
     // https://bugs.webkit.org/show_bug.cgi?id=180365
-    return "605.1.15";
+    return "605.1.15"_s;
 }
 
 static String standardUserAgentStatic()
 {
     // Version/X is mandatory *before* Safari/X to be a valid Safari UA. See
     // https://bugs.webkit.org/show_bug.cgi?id=133403 for details.
-    static NeverDestroyed<String> uaStatic(makeString("Mozilla/5.0 (PlayStation; ", getSystemSoftwareName(), '/', getSystemSoftwareVersion(), ") AppleWebKit/", versionForUAString(), " (KHTML, like Gecko) ", "Version/14.0 Safari/", versionForUAString()));
+    static NeverDestroyed<String> uaStatic(makeString("Mozilla/5.0 (PlayStation; "_s, getSystemSoftwareName(), '/', getSystemSoftwareVersion(), ") AppleWebKit/"_s, versionForUAString(), " (KHTML, like Gecko) "_s, "Version/17.0 Safari/"_s, versionForUAString()));
     return uaStatic;
 }
 
@@ -85,11 +85,7 @@ String standardUserAgent(const String& applicationName, const String& applicatio
     if (applicationName.isEmpty())
         return standardUserAgentStatic();
 
-    String finalApplicationVersion = applicationVersion;
-    if (finalApplicationVersion.isEmpty())
-        finalApplicationVersion = versionForUAString();
-
-    return makeString(standardUserAgentStatic(), ' ', applicationName, '/', finalApplicationVersion);
+    return makeString(standardUserAgentStatic(), ' ', applicationName, '/', applicationVersion.isEmpty() ? versionForUAString() : applicationVersion);
 }
 
 String standardUserAgentForURL(const URL&)

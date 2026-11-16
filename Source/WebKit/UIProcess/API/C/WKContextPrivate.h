@@ -48,7 +48,7 @@ WK_EXPORT void WKContextRegisterURLSchemeAsEmptyDocument(WKContextRef context, W
 
 WK_EXPORT void WKContextSetAlwaysUsesComplexTextCodePath(WKContextRef context, bool alwaysUseComplexTextCodePath);
 
-WK_EXPORT void WKContextSetShouldUseFontSmoothing(WKContextRef context, bool useFontSmoothing);
+WK_EXPORT void WKContextSetDisableFontSubpixelAntialiasingForTesting(WKContextRef context, bool disable);
 
 WK_EXPORT void WKContextRegisterURLSchemeAsSecure(WKContextRef context, WKStringRef urlScheme);
 
@@ -83,6 +83,7 @@ WK_EXPORT void WKContextWarmInitialProcess(WKContextRef context);
 // At some point it should be removed.
 WK_EXPORT void WKContextSetUsesNetworkProcess(WKContextRef, bool);
 
+WK_EXPORT void WKContextTerminateGPUProcess(WKContextRef);
 WK_EXPORT void WKContextTerminateServiceWorkers(WKContextRef);
 
 typedef void (*WKContextInvalidMessageFunction)(WKStringRef messageName);
@@ -99,9 +100,14 @@ WK_EXPORT void WKContextClearSupportedPlugins(WKContextRef context);
 
 WK_EXPORT void WKContextClearCurrentModifierStateForTesting(WKContextRef context);
 
+WK_EXPORT void WKContextSetAllowAXAuthenticationForTesting(WKContextRef context, bool allow);
+
 WK_EXPORT void WKContextSetUseSeparateServiceWorkerProcess(WKContextRef context, bool forceServiceWorkerProcess);
 
 WK_EXPORT void WKContextSetPrimaryWebsiteDataStore(WKContextRef context, WKWebsiteDataStoreRef websiteDataStore);
+
+WK_EXPORT WKArrayRef WKContextCopyLocalhostAliases(WKContextRef context);
+WK_EXPORT void WKContextSetLocalhostAliases(WKContextRef context, WKArrayRef localhostAliases);
 
 #ifdef __cplusplus
 }

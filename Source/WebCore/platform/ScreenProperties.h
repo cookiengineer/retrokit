@@ -25,15 +25,29 @@
 
 #pragma once
 
-#include "DestinationColorSpace.h"
-#include "FloatRect.h"
-#include "PlatformScreen.h"
-#include <wtf/EnumTraits.h>
+#include <WebCore/DestinationColorSpace.h>
+#include <WebCore/FloatRect.h>
 #include <wtf/HashMap.h>
+#include <wtf/Platform.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
+
+enum class ContentsFormat : uint8_t;
+
+using PlatformGPUID = uint64_t; // On MAC, global IOKit registryID that can identify a GPU across process boundaries.
+
+using PlatformDisplayID = uint32_t;
+
+enum class DynamicRangeMode : uint8_t {
+    None,
+    Standard,
+    HLG,
+    HDR10,
+    DolbyVisionPQ,
+};
 
 struct ScreenData {
     FloatRect screenAvailableRect;
@@ -44,158 +58,51 @@ struct ScreenData {
     bool screenSupportsExtendedColor { false };
     bool screenHasInvertedColors { false };
     bool screenSupportsHighDynamicRange { false };
+#if HAVE(SUPPORT_HDR_DISPLAY)
+    // FIXME: https://bugs.webkit.org/show_bug.cgi?id=297729 - Move EDR screen properties to their own container
+    bool suppressEDR { false };
+    float currentEDRHeadroom { 1 };
+    float maxEDRHeadroom { 1 };
+#endif
 #if PLATFORM(MAC)
+    FloatSize screenSize; // In millimeters.
     bool screenIsMonochrome { false };
     uint32_t displayMask { 0 };
-    IORegistryGPUID gpuID { 0 };
+    PlatformGPUID gpuID { 0 };
     DynamicRangeMode preferredDynamicRangeMode { DynamicRangeMode::Standard };
+    WEBCORE_EXPORT double NODELETE screenDPI() const;
+#endif
+#if PLATFORM(GTK) || (PLATFORM(WPE) && ENABLE(WPE_PLATFORM))
+    IntSize screenSize; // In millimeters.
+    double dpi; // Already corrected for device scaling.
 #endif
 
 #if PLATFORM(MAC) || PLATFORM(IOS_FAMILY)
     float scaleFactor { 1 };
 #endif
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<ScreenData> decode(Decoder&);
+#if PLATFORM(MAC)
+    bool reserved { false };
+#endif
+
+    bool operator==(const ScreenData&) const = default;
 };
 
 using ScreenDataMap = HashMap<PlatformDisplayID, ScreenData>;
 
 struct ScreenProperties {
+    WTF_MAKE_STRUCT_TZONE_ALLOCATED_EXPORT(ScreenProperties, WEBCORE_EXPORT);
+
     PlatformDisplayID primaryDisplayID { 0 };
     ScreenDataMap screenDataMap;
+#if HAVE(SUPPORT_HDR_DISPLAY)
+    OptionSet<ContentsFormat> screenContentsFormatsForTesting;
+#endif
+#if ENABLE(TOUCH_EVENTS) && PLATFORM(GTK)
+    bool screenHasTouchDevice { true };
+#endif
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<ScreenProperties> decode(Decoder&);
+    bool operator==(const ScreenProperties&) const = default;
 };
-
-template<class Encoder>
-void ScreenProperties::encode(Encoder& encoder) const
-{
-    encoder << primaryDisplayID << screenDataMap;
-}
-
-template<class Decoder>
-std::optional<ScreenProperties> ScreenProperties::decode(Decoder& decoder)
-{
-    std::optional<PlatformDisplayID> primaryDisplayID;
-    decoder >> primaryDisplayID;
-    if (!primaryDisplayID)
-        return std::nullopt;
-
-    std::optional<ScreenDataMap> screenDataMap;
-    decoder >> screenDataMap;
-    if (!screenDataMap)
-        return std::nullopt;
-
-    return { { *primaryDisplayID, WTFMove(*screenDataMap) } };
-}
-
-template<class Encoder>
-void ScreenData::encode(Encoder& encoder) const
-{
-    encoder << screenAvailableRect << screenRect << colorSpace << screenDepth << screenDepthPerComponent << screenSupportsExtendedColor << screenHasInvertedColors << screenSupportsHighDynamicRange;
-
-#if PLATFORM(MAC)
-    encoder << screenIsMonochrome << displayMask << gpuID << preferredDynamicRangeMode;
-#endif
-
-#if PLATFORM(MAC) || PLATFORM(IOS_FAMILY)
-    encoder << scaleFactor;
-#endif
-}
-
-template<class Decoder>
-std::optional<ScreenData> ScreenData::decode(Decoder& decoder)
-{
-    std::optional<FloatRect> screenAvailableRect;
-    decoder >> screenAvailableRect;
-    if (!screenAvailableRect)
-        return std::nullopt;
-
-    std::optional<FloatRect> screenRect;
-    decoder >> screenRect;
-    if (!screenRect)
-        return std::nullopt;
-
-    std::optional<DestinationColorSpace> screenColorSpace;
-    decoder >> screenColorSpace;
-    if (!screenColorSpace)
-        return std::nullopt;
-
-    std::optional<int> screenDepth;
-    decoder >> screenDepth;
-    if (!screenDepth)
-        return std::nullopt;
-
-    std::optional<int> screenDepthPerComponent;
-    decoder >> screenDepthPerComponent;
-    if (!screenDepthPerComponent)
-        return std::nullopt;
-
-    std::optional<bool> screenSupportsExtendedColor;
-    decoder >> screenSupportsExtendedColor;
-    if (!screenSupportsExtendedColor)
-        return std::nullopt;
-
-    std::optional<bool> screenHasInvertedColors;
-    decoder >> screenHasInvertedColors;
-    if (!screenHasInvertedColors)
-        return std::nullopt;
-
-    std::optional<bool> screenSupportsHighDynamicRange;
-    decoder >> screenSupportsHighDynamicRange;
-    if (!screenSupportsHighDynamicRange)
-        return std::nullopt;
-
-#if PLATFORM(MAC)
-    std::optional<bool> screenIsMonochrome;
-    decoder >> screenIsMonochrome;
-    if (!screenIsMonochrome)
-        return std::nullopt;
-
-    std::optional<uint32_t> displayMask;
-    decoder >> displayMask;
-    if (!displayMask)
-        return std::nullopt;
-
-    std::optional<IORegistryGPUID> gpuID;
-    decoder >> gpuID;
-    if (!gpuID)
-        return std::nullopt;
-
-    std::optional<DynamicRangeMode> preferredDynamicRangeMode;
-    decoder >> preferredDynamicRangeMode;
-    if (!preferredDynamicRangeMode)
-        return std::nullopt;
-#endif
-
-#if PLATFORM(MAC) || PLATFORM(IOS_FAMILY)
-    std::optional<float> scaleFactor;
-    decoder >> scaleFactor;
-    if (!scaleFactor)
-        return std::nullopt;
-#endif
-
-    return { {
-        WTFMove(*screenAvailableRect),
-        WTFMove(*screenRect),
-        WTFMove(*screenColorSpace),
-        WTFMove(*screenDepth),
-        WTFMove(*screenDepthPerComponent),
-        WTFMove(*screenSupportsExtendedColor),
-        WTFMove(*screenHasInvertedColors),
-        WTFMove(*screenSupportsHighDynamicRange),
-#if PLATFORM(MAC)
-        WTFMove(*screenIsMonochrome),
-        WTFMove(*displayMask),
-        WTFMove(*gpuID),
-        WTFMove(*preferredDynamicRangeMode),
-#endif
-#if PLATFORM(MAC) || PLATFORM(IOS_FAMILY)
-        WTFMove(*scaleFactor),
-#endif
-    } };
-}
 
 } // namespace WebCore

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,6 +26,7 @@
 #include "config.h"
 #include "WebEditCommandProxy.h"
 
+#include "MessageSenderInlines.h"
 #include "UndoOrRedo.h"
 #include "WebPageMessages.h"
 #include "WebPageProxy.h"
@@ -36,36 +37,48 @@
 namespace WebKit {
 using namespace WebCore;
 
-WebEditCommandProxy::WebEditCommandProxy(WebUndoStepID commandID, const String& label, WebPageProxy& page)
+WebEditCommandProxy::WebEditCommandProxy(WebUndoStepID commandID, String&& label, WebPageProxy& page)
     : m_commandID(commandID)
-    , m_label(label)
-    , m_page(makeWeakPtr(page))
+    , m_label(WTF::move(label))
+    , m_page(page)
 {
-    m_page->addEditCommand(*this);
+    page.addEditCommand(*this);
 }
 
 WebEditCommandProxy::~WebEditCommandProxy()
 {
-    if (m_page)
-        m_page->removeEditCommand(*this);
+    if (RefPtr page = m_page.get())
+        page->removeEditCommand(*this);
 }
 
 void WebEditCommandProxy::unapply()
 {
-    if (!m_page || !m_page->hasRunningProcess())
+    RefPtr page = m_page.get();
+    if (!page || !page->hasRunningProcess())
         return;
 
-    m_page->send(Messages::WebPage::UnapplyEditCommand(m_commandID), IPC::SendOption::DispatchMessageEvenWhenWaitingForSyncReply);
-    m_page->registerEditCommand(*this, UndoOrRedo::Redo);
+    page->addPendingUndoRedo(m_commandID, UndoOrRedo::Undo);
+    // FIXME: <rdar://168324268> Fix this for site isolation.
+    protect(page->legacyMainFrameProcess())->sendWithAsyncReply(Messages::WebPage::UnapplyEditCommand(page->undoVersion(), m_commandID), [weakPage = WeakPtr { *page }, commandID = m_commandID]() {
+        if (RefPtr page = weakPage.get())
+            page->removePendingUndoRedo(commandID);
+    }, page->webPageIDInMainFrameProcess());
+    page->registerEditCommand(*this, UndoOrRedo::Redo);
 }
 
 void WebEditCommandProxy::reapply()
 {
-    if (!m_page || !m_page->hasRunningProcess())
+    RefPtr page = m_page.get();
+    if (!page || !page->hasRunningProcess())
         return;
 
-    m_page->send(Messages::WebPage::ReapplyEditCommand(m_commandID), IPC::SendOption::DispatchMessageEvenWhenWaitingForSyncReply);
-    m_page->registerEditCommand(*this, UndoOrRedo::Undo);
+    page->addPendingUndoRedo(m_commandID, UndoOrRedo::Redo);
+    // FIXME: <rdar://168324268> Fix this for site isolation.
+    protect(page->legacyMainFrameProcess())->sendWithAsyncReply(Messages::WebPage::ReapplyEditCommand(page->undoVersion(), m_commandID), [weakPage = WeakPtr { *page }, commandID = m_commandID]() {
+        if (RefPtr page = weakPage.get())
+            page->removePendingUndoRedo(commandID);
+    }, page->webPageIDInMainFrameProcess());
+    page->registerEditCommand(*this, UndoOrRedo::Undo);
 }
 
 } // namespace WebKit

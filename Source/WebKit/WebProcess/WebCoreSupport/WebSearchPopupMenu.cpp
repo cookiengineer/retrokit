@@ -23,7 +23,6 @@
 #include "config.h"
 #include "WebSearchPopupMenu.h"
 
-#include "WebCoreArgumentCoders.h"
 #include "WebPage.h"
 #include "WebPageProxyMessages.h"
 #include "WebProcess.h"
@@ -52,11 +51,11 @@ void WebSearchPopupMenu::saveRecentSearches(const AtomString& name, const Vector
     if (name.isEmpty())
         return;
 
-    WebPage* page = m_popup->page();
+    RefPtr page = m_popup->page();
     if (!page)
         return;
 
-    WebProcess::singleton().parentProcessConnection()->send(Messages::WebPageProxy::SaveRecentSearches(name, searchItems), page->identifier());
+    protect(WebProcess::singleton().parentProcessConnection())->send(Messages::WebPageProxy::SaveRecentSearches(name, searchItems), page->identifier());
 }
 
 void WebSearchPopupMenu::loadRecentSearches(const AtomString& name, Vector<RecentSearch>& resultItems)
@@ -64,11 +63,13 @@ void WebSearchPopupMenu::loadRecentSearches(const AtomString& name, Vector<Recen
     if (name.isEmpty())
         return;
 
-    WebPage* page = m_popup->page();
+    RefPtr page = m_popup->page();
     if (!page)
         return;
 
-    WebProcess::singleton().parentProcessConnection()->sendSync(Messages::WebPageProxy::LoadRecentSearches(name), Messages::WebPageProxy::LoadRecentSearches::Reply(resultItems), page->identifier());
+    auto sendResult = protect(WebProcess::singleton().parentProcessConnection())->sendSync(Messages::WebPageProxy::LoadRecentSearches(name), page->identifier());
+    if (sendResult.succeeded())
+        std::tie(resultItems) = sendResult.takeReply();
 }
 
 bool WebSearchPopupMenu::enabled()

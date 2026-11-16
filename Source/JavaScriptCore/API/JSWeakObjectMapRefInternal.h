@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,7 +26,8 @@
 #ifndef JSWeakObjectMapRefInternal_h
 #define JSWeakObjectMapRefInternal_h
 
-#include "WeakGCMap.h"
+#include <JavaScriptCore/WeakGCMap.h>
+#include <wtf/PtrTag.h>
 #include <wtf/RefCounted.h>
 
 namespace JSC {
@@ -39,6 +40,9 @@ typedef void (*JSWeakMapDestroyedCallback)(struct OpaqueJSWeakObjectMap*, void*)
 
 typedef JSC::WeakGCMap<void*, JSC::JSObject> WeakMapType;
 
+#define OPAQUE_JSWEAK_OBJECT_MAP_METHOD(method) \
+    WTF_VTBL_FUNCPTR_PTRAUTH_STR("OpaqueJSWeakObjectMap." #method) method
+
 struct OpaqueJSWeakObjectMap : public RefCounted<OpaqueJSWeakObjectMap> {
 public:
     static Ref<OpaqueJSWeakObjectMap> create(JSC::VM& vm, void* data, JSWeakMapDestroyedCallback callback)
@@ -46,7 +50,7 @@ public:
         return adoptRef(*new OpaqueJSWeakObjectMap(vm, data, callback));
     }
 
-    WeakMapType& map() { return m_map; }
+    WeakMapType& map() LIFETIME_BOUND { return m_map; }
     
     ~OpaqueJSWeakObjectMap()
     {
@@ -62,8 +66,9 @@ private:
     }
     WeakMapType m_map;
     void* m_data;
-    JSWeakMapDestroyedCallback m_callback;
+    JSWeakMapDestroyedCallback OPAQUE_JSWEAK_OBJECT_MAP_METHOD(m_callback);
 };
 
+#undef OPAQUE_JSWEAK_OBJECT_MAP_METHOD
 
 #endif // JSWeakObjectMapInternal_h

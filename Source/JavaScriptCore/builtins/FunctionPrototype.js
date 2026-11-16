@@ -29,7 +29,7 @@ function call(thisArgument)
 
     var argumentValues = [];
     // Start from 1 to ignore thisArgument
-    for (var i = 1; i < arguments.length; i++)
+    for (var i = 1; i < @argumentCount(); i++)
         @putByValDirect(argumentValues, i-1, arguments[i]);
 
     return this.@apply(thisArgument, argumentValues);
@@ -40,54 +40,4 @@ function apply(thisValue, argumentValues)
     "use strict";
 
     return this.@apply(thisValue, argumentValues);
-}
-
-@overriddenName="[Symbol.hasInstance]"
-function symbolHasInstance(value)
-{
-    "use strict";
-
-    if (!@isCallable(this))
-        return false;
-
-    if (@isBoundFunction(this))
-        return @hasInstanceBoundFunction(this, value);
-
-    var target = this.prototype;
-    return @instanceOf(value, target);
-}
-
-function bind(thisValue)
-{
-    "use strict";
-
-    var target = this;
-    if (!@isCallable(target))
-        @throwTypeError("|this| is not a function inside Function.prototype.bind");
-
-    var argumentCount = @argumentCount();
-    var boundArgs = null;
-    var numBoundArgs = 0;
-    if (argumentCount > 1) {
-        numBoundArgs = argumentCount - 1;
-        boundArgs = @createArgumentsButterfly();
-    }
-
-    var length = 0;
-    if (@hasOwnLengthProperty(target)) {
-        var lengthValue = target.length;
-        if (typeof lengthValue === "number") {
-            lengthValue = @toIntegerOrInfinity(lengthValue);
-            // Note that we only care about positive lengthValues, however, this comparision
-            // against numBoundArgs suffices to prove we're not a negative number.
-            if (lengthValue > numBoundArgs)
-                length = lengthValue - numBoundArgs;
-        }
-    }
-
-    var name = target.name;
-    if (typeof name !== "string")
-        name = "";
-
-    return @makeBoundFunction(target, thisValue, boundArgs, length, name);
 }

@@ -27,8 +27,11 @@
 #include "LoaderStrategy.h"
 
 #include "NetworkLoadInformation.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(LoaderStrategy);
 
 LoaderStrategy::~LoaderStrategy() = default;
 
@@ -37,21 +40,21 @@ void LoaderStrategy::setResourceLoadSchedulingMode(Page&, LoadSchedulingMode)
 {
 }
 
-void LoaderStrategy::prioritizeResourceLoads(const Vector<SubresourceLoader*>&)
+void LoaderStrategy::prioritizeResourceLoads(const Vector<Ref<SubresourceLoader>>&)
 {
 }
 
-ResourceResponse LoaderStrategy::responseFromResourceLoadIdentifier(uint64_t /* resourceLoadIdentifier */)
-{
-    return { };
-}
-
-NetworkLoadMetrics LoaderStrategy::networkMetricsFromResourceLoadIdentifier(uint64_t /* resourceLoadIdentifier */)
+ResourceResponse LoaderStrategy::responseFromResourceLoadIdentifier(ResourceLoaderIdentifier)
 {
     return { };
 }
 
-Vector<NetworkTransactionInformation> LoaderStrategy::intermediateLoadInformationFromResourceLoadIdentifier(uint64_t /* resourceLoadIdentifier */)
+NetworkLoadMetrics LoaderStrategy::networkMetricsFromResourceLoadIdentifier(ResourceLoaderIdentifier)
+{
+    return { };
+}
+
+Vector<NetworkTransactionInformation> LoaderStrategy::intermediateLoadInformationFromResourceLoadIdentifier(ResourceLoaderIdentifier)
 {
     return { };
 }

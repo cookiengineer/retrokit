@@ -31,58 +31,83 @@
 #include "config.h"
 #include "DOMFormData.h"
 
+#include "ContextDestructionObserverInlines.h"
+#include "Document.h"
+#include "ExceptionOr.h"
 #include "HTMLFormControlElement.h"
 #include "HTMLFormElement.h"
 
+template class mpark::variant<WTF::Ref<WebCore::File>, WTF::String>;
+
 namespace WebCore {
 
-DOMFormData::DOMFormData(const TextEncoding& encoding)
-    : m_encoding(encoding)
+DOMFormData::DOMFormData(ScriptExecutionContext* context, const PAL::TextEncoding& encoding)
+    : ContextDestructionObserver(context)
+    , m_encoding(encoding)
 {
 }
 
-ExceptionOr<Ref<DOMFormData>> DOMFormData::create(HTMLFormElement* form)
+ExceptionOr<Ref<DOMFormData>> DOMFormData::create(ScriptExecutionContext& context, HTMLFormElement* form, HTMLElement* submitter)
 {
-    auto formData = adoptRef(*new DOMFormData);
+    // https://xhr.spec.whatwg.org/#dom-formdata
+    auto formData = adoptRef(*new DOMFormData(&context));
     if (!form)
         return formData;
-    
-    auto result = form->constructEntryList(WTFMove(formData), nullptr, HTMLFormElement::IsMultipartForm::Yes);
+
+    RefPtr<HTMLFormControlElement> control;
+    if (submitter) {
+        control = dynamicDowncast<HTMLFormControlElement>(*submitter);
+        if (!control || !control->isSubmitButton())
+            return Exception { ExceptionCode::TypeError, "The specified element is not a submit button."_s };
+        if (control->form() != form)
+            return Exception { ExceptionCode::NotFoundError, "The specified element is not owned by this form element."_s };
+    }
+    auto result = form->constructEntryList(control.get(), WTF::move(formData), nullptr);
     
     if (!result)
-        return Exception { InvalidStateError, "Already constructing Form entry list."_s };
+        return Exception { ExceptionCode::InvalidStateError, "Already constructing Form entry list."_s };
     
     return result.releaseNonNull();
 }
 
-Ref<DOMFormData> DOMFormData::create(const TextEncoding& encoding)
+Ref<DOMFormData> DOMFormData::create(ScriptExecutionContext* context, const PAL::TextEncoding& encoding)
 {
-    return adoptRef(*new DOMFormData(encoding));
+    return adoptRef(*new DOMFormData(context, encoding));
 }
 
 Ref<DOMFormData> DOMFormData::clone() const
 {
-    auto newFormData = adoptRef(*new DOMFormData(this->encoding()));
+    auto newFormData = adoptRef(*new DOMFormData(scriptExecutionContext(), this->encoding()));
     newFormData->m_items = m_items;
     
     return newFormData;
 }
 
-// https://xhr.spec.whatwg.org/#create-an-entry
-auto DOMFormData::createFileEntry(const String& name, Blob& blob, const String& filename) -> Item
+// https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#create-an-entry
+static auto createStringEntry(const String& name, const String& value) -> DOMFormData::Item
 {
-    if (!blob.isFile())
-        return { name, File::create(blob.scriptExecutionContext(), blob, filename.isNull() ? "blob"_s : filename) };
-    
-    if (!filename.isNull())
-        return { name, File::create(blob.scriptExecutionContext(), downcast<File>(blob), filename) };
+    return {
+        replaceUnpairedSurrogatesWithReplacementCharacter(String(name)),
+        replaceUnpairedSurrogatesWithReplacementCharacter(String(value)),
+    };
+}
 
-    return { name, RefPtr<File> { &downcast<File>(blob) } };
+// https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#create-an-entry
+static auto createFileEntry(const String& name, Blob& blob, const String& filename) -> DOMFormData::Item
+{
+    auto usvName = replaceUnpairedSurrogatesWithReplacementCharacter(String(name));
+
+    if (RefPtr file = dynamicDowncast<File>(blob)) {
+        if (!filename.isNull())
+            return { usvName, File::create(protect(blob.scriptExecutionContext()).get(), *file, filename) };
+        return { usvName, file.releaseNonNull() };
+    }
+    return { usvName, File::create(protect(blob.scriptExecutionContext()).get(), blob, filename.isNull() ? "blob"_s : filename) };
 }
 
 void DOMFormData::append(const String& name, const String& value)
 {
-    m_items.append({ name, value });
+    m_items.append(createStringEntry(name, value));
 }
 
 void DOMFormData::append(const String& name, Blob& blob, const String& filename)
@@ -152,7 +177,7 @@ void DOMFormData::set(const String& name, Item&& item)
     }
 
     if (initialMatchLocation) {
-        m_items[*initialMatchLocation] = WTFMove(item);
+        m_items[*initialMatchLocation] = WTF::move(item);
 
         m_items.removeAllMatching([&name] (const auto& item) {
             return item.name == name;
@@ -160,7 +185,7 @@ void DOMFormData::set(const String& name, Item&& item)
         return;
     }
 
-    m_items.append(WTFMove(item));
+    m_items.append(WTF::move(item));
 }
 
 DOMFormData::Iterator::Iterator(DOMFormData& target)

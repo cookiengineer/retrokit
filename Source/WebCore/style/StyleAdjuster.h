@@ -25,7 +25,9 @@
 
 #pragma once
 
+#include "AutosizeStatus.h"
 #include "RenderStyleConstants.h"
+#include <wtf/CheckedRef.h>
 #include <wtf/OptionSet.h>
 
 namespace WebCore {
@@ -33,23 +35,33 @@ namespace WebCore {
 class Document;
 class Element;
 class EventTarget;
-class RenderStyle;
 class SVGElement;
 class Settings;
 
-enum class AnimationImpact;
+enum class AnimationImpact : uint8_t;
+enum class PaginationMode : uint8_t;
 
 namespace Style {
 
+class ComputedStyle;
+class Update;
+
 class Adjuster {
 public:
-    Adjuster(const Document&, const RenderStyle& parentStyle, const RenderStyle* parentBoxStyle, const Element*);
+    Adjuster(const Document&, const Style::ComputedStyle& parentStyle, const Style::ComputedStyle* parentBoxStyle, Element*);
 
-    void adjust(RenderStyle&, const RenderStyle* userAgentAppearanceStyle) const;
-    void adjustAnimatedStyle(RenderStyle&, OptionSet<AnimationImpact>) const;
+    static void adjustFromBuilder(Style::ComputedStyle&);
+    void adjust(Style::ComputedStyle&) const;
+    void adjustAnimatedStyle(Style::ComputedStyle&, OptionSet<AnimationImpact>) const;
 
-    static void adjustSVGElementStyle(RenderStyle&, const SVGElement&);
-    static void adjustEventListenerRegionTypesForRootStyle(RenderStyle&, const Document&);
+    static void adjustVisibilityForPseudoElement(Style::ComputedStyle&, const Element& host);
+    static void NODELETE adjustFirstLetterStyle(Style::ComputedStyle&);
+    static void NODELETE adjustFirstLineStyle(Style::ComputedStyle&);
+    static void adjustSVGElementStyle(Style::ComputedStyle&, const SVGElement&);
+    static bool adjustEventListenerRegionTypesForRootStyle(Style::ComputedStyle&, const Document&);
+    static void adjustColumnStylesForPaginationMode(Style::ComputedStyle&, PaginationMode);
+    static void propagateToDocumentElementAndInitialContainingBlock(Update&, const Document&);
+    static std::unique_ptr<Style::ComputedStyle> restoreUsedDocumentElementStyleToComputed(const Style::ComputedStyle&);
 
 #if ENABLE(TEXT_AUTOSIZING)
     struct AdjustmentForTextAutosizing {
@@ -58,20 +70,30 @@ public:
         std::optional<AutosizeStatus> newStatus;
         explicit operator bool() const { return newFontSize || newLineHeight || newStatus; }
     };
-    static AdjustmentForTextAutosizing adjustmentForTextAutosizing(const RenderStyle&, const Element&);
-    static bool adjustForTextAutosizing(RenderStyle&, const Element&, AdjustmentForTextAutosizing);
-    static bool adjustForTextAutosizing(RenderStyle&, const Element&);
+    static AdjustmentForTextAutosizing adjustmentForTextAutosizing(const Style::ComputedStyle&, const Element&);
+    static bool adjustForTextAutosizing(Style::ComputedStyle&, AdjustmentForTextAutosizing);
+    static bool adjustForTextAutosizing(Style::ComputedStyle&, const Element&);
 #endif
 
 private:
-    void adjustDisplayContentsStyle(RenderStyle&) const;
-    void adjustForSiteSpecificQuirks(RenderStyle&) const;
-    static OptionSet<EventListenerRegionType> computeEventListenerRegionTypes(const EventTarget&, OptionSet<EventListenerRegionType>);
+    void NODELETE adjustDisplayContentsStyle(Style::ComputedStyle&) const;
+    void adjustForSiteSpecificQuirks(Style::ComputedStyle&) const;
 
-    const Document& m_document;
-    const RenderStyle& m_parentStyle;
-    const RenderStyle& m_parentBoxStyle;
-    const Element* m_element;
+    void adjustThemeStyle(Style::ComputedStyle&, const Style::ComputedStyle& parentStyle) const;
+
+    static void adjustAnimations(Style::ComputedStyle&);
+    static void adjustTransitions(Style::ComputedStyle&);
+    static void adjustBackgroundLayers(Style::ComputedStyle&);
+    static void adjustMaskLayers(Style::ComputedStyle&);
+    static void adjustScrollTimelines(Style::ComputedStyle&);
+    static void adjustViewTimelines(Style::ComputedStyle&);
+
+    static OptionSet<EventListenerRegionType> computeEventListenerRegionTypes(const Document&, const Style::ComputedStyle&, const EventTarget&, OptionSet<EventListenerRegionType>);
+
+    CheckedRef<const Document> m_document;
+    const Style::ComputedStyle& m_parentStyle;
+    const Style::ComputedStyle& m_parentBoxStyle;
+    RefPtr<Element> m_element;
 };
 
 }

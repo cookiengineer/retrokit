@@ -30,38 +30,58 @@
 #include <wtf/SystemTracing.h>
 #include <wtf/WorkQueue.h>
 
+#if OS(DARWIN)
+#include <mach/mach_init.h>
+#include <mach/mach_traps.h>
+#endif
+
 namespace WebKit {
 
 ProcessLauncher::ProcessLauncher(Client* client, LaunchOptions&& launchOptions)
     : m_client(client)
-    , m_launchOptions(WTFMove(launchOptions))
+    , m_launchOptions(WTF::move(launchOptions))
 {
-    tracePoint(ProcessLaunchStart);
+    tracePoint(ProcessLaunchStart, m_launchOptions.processIdentifier.toUInt64());
     launchProcess();
 }
 
-void ProcessLauncher::didFinishLaunchingProcess(ProcessID processIdentifier, IPC::Connection::Identifier identifier)
+ProcessLauncher::~ProcessLauncher()
 {
-    tracePoint(ProcessLaunchEnd);
-    m_processIdentifier = processIdentifier;
+    platformDestroy();
+
+    if (m_isLaunching)
+        tracePoint(ProcessLaunchEnd, m_launchOptions.processIdentifier.toUInt64(), static_cast<uint64_t>(m_launchOptions.processType));
+}
+
+#if !PLATFORM(COCOA)
+void ProcessLauncher::platformDestroy()
+{
+}
+#endif
+
+void ProcessLauncher::didFinishLaunchingProcess(ProcessID processIdentifier, IPC::Connection::Identifier&& identifier)
+{
+    m_processID = processIdentifier;
     m_isLaunching = false;
-    
-    if (!m_client) {
-        // FIXME: Make Identifier a move-only object and release port rights/connections in the destructor.
-#if OS(DARWIN) && !PLATFORM(GTK)
-        // FIXME: Should really be something like USE(MACH)
+
+    tracePoint(ProcessLaunchEnd, m_launchOptions.processIdentifier.toUInt64(), static_cast<uint64_t>(m_launchOptions.processType), static_cast<uint64_t>(m_processID));
+
+    RefPtr client = m_client.get();
+    if (!client) {
+#if OS(DARWIN) && !USE(UNIX_DOMAIN_SOCKETS)
+        // FIXME: Release port rights/connections in the Connection::Identifier destructor.
         if (identifier.port)
             mach_port_mod_refs(mach_task_self(), identifier.port, MACH_PORT_RIGHT_RECEIVE, -1);
 #endif
         return;
     }
-    
-    m_client->didFinishLaunching(this, identifier);
+
+    client->didFinishLaunching(this, WTF::move(identifier));
 }
 
 void ProcessLauncher::invalidate()
 {
-    m_client = 0;
+    m_client = nullptr;
     platformInvalidate();
 }
 

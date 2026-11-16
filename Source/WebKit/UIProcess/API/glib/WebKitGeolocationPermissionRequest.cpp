@@ -25,13 +25,17 @@
 #include "WebKitPermissionRequest.h"
 #include <wtf/glib/WTFGType.h>
 
+#if !ENABLE(2022_GLIB_API)
+typedef WebKitPermissionRequestIface WebKitPermissionRequestInterface;
+#endif
+
 using namespace WebKit;
 
 /**
- * SECTION: WebKitGeolocationPermissionRequest
- * @Short_description: A permission request for sharing user's location
- * @Title: WebKitGeolocationPermissionRequest
+ * WebKitGeolocationPermissionRequest:
  * @See_also: #WebKitPermissionRequest, #WebKitWebView
+ *
+ * A permission request for sharing the user's location.
  *
  * WebKitGeolocationPermissionRequest represents a request for
  * permission to decide whether WebKit should provide the user's
@@ -57,15 +61,15 @@ using namespace WebKit;
  * does not match the name of a valid `.desktop` file.
  */
 
-static void webkit_permission_request_interface_init(WebKitPermissionRequestIface*);
+static void webkit_permission_request_interface_init(WebKitPermissionRequestInterface*);
 
 struct _WebKitGeolocationPermissionRequestPrivate {
     RefPtr<GeolocationPermissionRequest> request;
     bool madeDecision;
 };
 
-WEBKIT_DEFINE_TYPE_WITH_CODE(
-    WebKitGeolocationPermissionRequest, webkit_geolocation_permission_request, G_TYPE_OBJECT,
+WEBKIT_DEFINE_FINAL_TYPE_WITH_CODE(
+    WebKitGeolocationPermissionRequest, webkit_geolocation_permission_request, G_TYPE_OBJECT, GObject,
     G_IMPLEMENT_INTERFACE(WEBKIT_TYPE_PERMISSION_REQUEST, webkit_permission_request_interface_init))
 
 static void webkitGeolocationPermissionRequestAllow(WebKitPermissionRequest* request)
@@ -96,7 +100,7 @@ static void webkitGeolocationPermissionRequestDeny(WebKitPermissionRequest* requ
     priv->madeDecision = true;
 }
 
-static void webkit_permission_request_interface_init(WebKitPermissionRequestIface* iface)
+static void webkit_permission_request_interface_init(WebKitPermissionRequestInterface* iface)
 {
     iface->allow = webkitGeolocationPermissionRequestAllow;
     iface->deny = webkitGeolocationPermissionRequestDeny;

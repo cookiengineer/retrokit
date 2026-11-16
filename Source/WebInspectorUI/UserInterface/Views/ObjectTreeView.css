@@ -25,13 +25,13 @@
 
 .object-tree {
     position: relative;
-    display: inline-block;
+    display: inline;
     color: var(--text-color);
     font-family: Menlo, monospace;
     font-size: 11px;
 }
 
-.object-tree > :matches(.title, .object-preview)::before {
+.object-tree > :is(.title, .object-preview)::before {
     display: inline-block;
 
     vertical-align: baseline;
@@ -49,15 +49,15 @@
     content: "";
 }
 
-.object-tree:not(.lossless-preview) > :matches(.title, .object-preview) {
+.object-tree:not(.lossless-preview) > :is(.title, .object-preview) {
     margin-left: 0;
 }
 
-.object-tree.expanded > :matches(.title, .object-preview)::before {
+.object-tree.expanded > :is(.title, .object-preview)::before {
     background-image: url(../Images/DisclosureTriangles.svg#open-normal);
 }
 
-.object-tree.properties-only > :matches(.title, .object-preview) {
+.object-tree.properties-only > :is(.title, .object-preview) {
     display: none;
 }
 
@@ -69,7 +69,7 @@
     line-height: 16px;
 }
 
-.object-tree.lossless-preview > :matches(.title, .object-preview)::before {
+.object-tree.lossless-preview > :is(.title, .object-preview)::before {
     background: none;
     width: 0px;
 }
@@ -84,10 +84,16 @@
 
 .tree-outline.object {
     margin: 0;
-    padding: 0 6px 2px;
+    padding-top: 0;
+    padding-bottom: 2px;
+    padding-inline: 6px 0;
     list-style: none;
     min-height: 18px;
     outline: none;
+}
+
+.tree-outline.object > .item {
+    padding-inline-end: 0;
 }
 
 .object-tree .tree-outline.object.compact {
@@ -103,7 +109,7 @@
     opacity: 1;
 }
 
-.object-tree.properties-only.json-only .object-tree-property.prototype-property, 
+.object-tree.properties-only.json-only .object-tree-property.prototype-property,
 .object-tree.properties-only.json-only .object-tree-property.prototype-property + .children {
     display: none;
 }
@@ -119,8 +125,12 @@
 .tree-outline.object ol {
     display: none;
     margin: 0;
-    padding-inline-start: 16px;
     list-style: none;
+}
+
+/* Prevent overriding styles on a descendant `.tree-outline.dom ol` which has the same specificity but is defined earlier. */
+.tree-outline.object:not(:has(.tree-outline.dom)) ol {
+    padding-inline-start: 16px;
 }
 
 .tree-outline.object ol.expanded {

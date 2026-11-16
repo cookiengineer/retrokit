@@ -28,7 +28,6 @@
 #include "config.h"
 
 #include <wtf/dtoa/diy-fp.h>
-#include <wtf/dtoa/utils.h>
 
 namespace WTF {
 namespace double_conversion {

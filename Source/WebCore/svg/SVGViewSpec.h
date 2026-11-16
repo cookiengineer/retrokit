@@ -22,14 +22,17 @@
 
 #include "SVGFitToViewBox.h"
 #include "SVGZoomAndPan.h"
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
 class SVGElement;
 class SVGTransformList;
+class WeakPtrImplWithEventTargetData;
 
 class SVGViewSpec final : public RefCounted<SVGViewSpec>, public SVGFitToViewBox, public SVGZoomAndPan {
+    WTF_MAKE_TZONE_ALLOCATED(SVGViewSpec);
 public:
     static Ref<SVGViewSpec> create(SVGElement& contextElement)
     {
@@ -40,21 +43,17 @@ public:
     void reset();
     void resetContextElement() { m_contextElement = nullptr; }
 
-    SVGElement* viewTarget() const;
-    const String& viewTargetString() const { return m_viewTargetString; }
-
     String transformString() const { return m_transform->valueAsString(); }
     Ref<SVGTransformList>& transform() { return m_transform; }
 
-    const WeakPtr<SVGElement>& contextElementConcurrently() const { return m_contextElement; }
+    SVGElement* contextElementConcurrently() const { return m_contextElement; }
+
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGViewSpec, SVGFitToViewBox>;
 
 private:
     explicit SVGViewSpec(SVGElement&);
 
-    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGViewSpec, SVGFitToViewBox>;
-
-    WeakPtr<SVGElement> m_contextElement;
-    String m_viewTargetString;
+    WeakPtr<SVGElement, WeakPtrImplWithEventTargetData> m_contextElement;
     Ref<SVGTransformList> m_transform;
 };
 

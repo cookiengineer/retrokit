@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2009 Dirk Schulze <krit@webkit.org>
+ * Copyright (C) 2021-2022 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -21,48 +22,64 @@
 #include "SourceGraphic.h"
 
 #include "Filter.h"
-#include "GraphicsContext.h"
-#include <wtf/NeverDestroyed.h>
-#include <wtf/StdLibExtras.h>
+#include "SourceGraphicSoftwareApplier.h"
 #include <wtf/text/TextStream.h>
-#include <wtf/text/WTFString.h>
+
+#if USE(CORE_IMAGE)
+#include "SourceGraphicCoreImageApplier.h"
+#endif
+
+#if USE(SKIA)
+#include "SourceGraphicSkiaApplier.h"
+#endif
 
 namespace WebCore {
 
-Ref<SourceGraphic> SourceGraphic::create(Filter& filter)
+Ref<SourceGraphic> SourceGraphic::create(DestinationColorSpace colorSpace)
 {
-    return adoptRef(*new SourceGraphic(filter));
+    return adoptRef(*new SourceGraphic(colorSpace));
 }
 
-const AtomString& SourceGraphic::effectName()
+SourceGraphic::SourceGraphic(DestinationColorSpace colorSpace)
+    : FilterEffect(FilterEffect::Type::SourceGraphic, colorSpace)
 {
-    static MainThreadNeverDestroyed<const AtomString> s_effectName("SourceGraphic", AtomString::ConstructFromLiteral);
-    return s_effectName;
 }
 
-void SourceGraphic::determineAbsolutePaintRect()
+OptionSet<FilterRenderingMode> SourceGraphic::supportedFilterRenderingModes(OptionSet<FilterRenderingMode> preferredFilterRenderingModes) const
 {
-    Filter& filter = this->filter();
-    FloatRect paintRect = filter.sourceImageRect();
-    paintRect.scale(filter.filterResolution().width(), filter.filterResolution().height());
-    setAbsolutePaintRect(enclosingIntRect(paintRect));
+    OptionSet<FilterRenderingMode> modes = FilterRenderingMode::Software;
+#if USE(CORE_IMAGE) || USE(SKIA)
+    modes.add(FilterRenderingMode::Accelerated);
+#endif
+#if USE(GRAPHICS_CONTEXT_FILTERS)
+    modes.add(FilterRenderingMode::GraphicsContext);
+#endif
+    return modes & preferredFilterRenderingModes;
 }
 
-void SourceGraphic::platformApplySoftware()
+std::unique_ptr<FilterEffectApplier> SourceGraphic::createAcceleratedApplier() const
 {
-    Filter& filter = this->filter();
-
-    ImageBuffer* resultImage = createImageBufferResult();
-    ImageBuffer* sourceImage = filter.sourceImage();
-    if (!resultImage || !sourceImage)
-        return;
-
-    resultImage->context().drawImageBuffer(*sourceImage, IntPoint());
+#if USE(CORE_IMAGE)
+    return FilterEffectApplier::create<SourceGraphicCoreImageApplier>(*this);
+#elif USE(SKIA)
+    return FilterEffectApplier::create<SourceGraphicSkiaApplier>(*this);
+#else
+    return nullptr;
+#endif
 }
 
-TextStream& SourceGraphic::externalRepresentation(TextStream& ts, RepresentationType) const
+std::unique_ptr<FilterEffectApplier> SourceGraphic::createSoftwareApplier() const
 {
-    ts << indent << "[SourceGraphic]\n";
+#if USE(SKIA)
+    return FilterEffectApplier::create<SourceGraphicSkiaApplier>(*this);
+#else
+    return FilterEffectApplier::create<SourceGraphicSoftwareApplier>(*this);
+#endif
+}
+
+TextStream& SourceGraphic::externalRepresentation(TextStream& ts, FilterRepresentation) const
+{
+    ts << indent << "[SourceGraphic]\n"_s;
     return ts;
 }
 

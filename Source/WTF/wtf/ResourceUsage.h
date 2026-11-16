@@ -26,19 +26,23 @@
 #pragma once
 
 #include <array>
+#include <wtf/ExportMacros.h>
+#include <wtf/FastMalloc.h>
+#include <wtf/Forward.h>
 
 namespace WTF {
 
 #if PLATFORM(COCOA)
 
 struct TagInfo {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(TagInfo);
+    size_t regionCount { 0 };
     size_t dirty { 0 };
     size_t reclaimable { 0 };
     size_t reserved { 0 };
 };
 
-WTF_EXPORT_PRIVATE const char* displayNameForVMTag(unsigned);
+WTF_EXPORT_PRIVATE ASCIILiteral displayNameForVMTag(unsigned);
 WTF_EXPORT_PRIVATE size_t vmPageSize();
 WTF_EXPORT_PRIVATE std::array<TagInfo, 256> pagesPerVMTag();
 WTF_EXPORT_PRIVATE void logFootprintComparison(const std::array<TagInfo, 256>&, const std::array<TagInfo, 256>&);

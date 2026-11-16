@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2016 Ericsson AB. All rights reserved.
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -37,7 +37,7 @@
 #include "RTCRtpSender.h"
 #include "RTCRtpTransceiverBackend.h"
 #include "RTCRtpTransceiverDirection.h"
-#include "ScriptWrappable.h"
+#include <WebCore/ScriptWrappable.h>
 #include <wtf/RefCounted.h>
 #include <wtf/RefPtr.h>
 #include <wtf/text/WTFString.h>
@@ -45,21 +45,17 @@
 namespace WebCore {
 
 class RTCPeerConnection;
-struct RTCRtpCodecCapability;
+struct RTCRtpCodec;
 
 class RTCRtpTransceiver final : public RefCounted<RTCRtpTransceiver>, public ScriptWrappable {
-    WTF_MAKE_ISO_ALLOCATED(RTCRtpTransceiver);
+    WTF_MAKE_TZONE_ALLOCATED(RTCRtpTransceiver);
 public:
-    static Ref<RTCRtpTransceiver> create(Ref<RTCRtpSender>&& sender, Ref<RTCRtpReceiver>&& receiver, std::unique_ptr<RTCRtpTransceiverBackend>&& backend) { return adoptRef(*new RTCRtpTransceiver(WTFMove(sender), WTFMove(receiver), WTFMove(backend))); }
-    virtual ~RTCRtpTransceiver() = default;
-
-    bool hasSendingDirection() const;
-    void enableSendingDirection();
-    void disableSendingDirection();
+    static Ref<RTCRtpTransceiver> create(Ref<RTCRtpSender>&& sender, Ref<RTCRtpReceiver>&& receiver, UniqueRef<RTCRtpTransceiverBackend>&& backend) { return adoptRef(*new RTCRtpTransceiver(WTF::move(sender), WTF::move(receiver), WTF::move(backend))); }
+    ~RTCRtpTransceiver();
 
     RTCRtpTransceiverDirection direction() const;
     std::optional<RTCRtpTransceiverDirection> currentDirection() const;
-    void setDirection(RTCRtpTransceiverDirection);
+    ExceptionOr<void> setDirection(RTCRtpTransceiverDirection);
     String mid() const;
 
     RTCRtpSender& sender() { return m_sender.get(); }
@@ -67,35 +63,37 @@ public:
 
     bool stopped() const;
     ExceptionOr<void> stop();
-    ExceptionOr<void> setCodecPreferences(const Vector<RTCRtpCodecCapability>&);
-
-    RTCRtpTransceiverBackend* backend() { return m_backend.get(); }
+    ExceptionOr<void> setCodecPreferences(const Vector<RTCRtpCodec>&);
+    
+    RTCRtpTransceiverBackend& backend() LIFETIME_BOUND { return m_backend.get(); }
     void setConnection(RTCPeerConnection&);
 
+    std::optional<RTCRtpTransceiverDirection> firedDirection() const { return m_firedDirection; }
+    void setFiredDirection(std::optional<RTCRtpTransceiverDirection> firedDirection) { m_firedDirection = firedDirection; }
+
 private:
-    RTCRtpTransceiver(Ref<RTCRtpSender>&&, Ref<RTCRtpReceiver>&&, std::unique_ptr<RTCRtpTransceiverBackend>&&);
+    RTCRtpTransceiver(Ref<RTCRtpSender>&&, Ref<RTCRtpReceiver>&&, UniqueRef<RTCRtpTransceiverBackend>&&);
 
-    RTCRtpTransceiverDirection m_direction;
+    bool m_isStopping { false };
+    std::optional<RTCRtpTransceiverDirection> m_firedDirection;
 
-    Ref<RTCRtpSender> m_sender;
-    Ref<RTCRtpReceiver> m_receiver;
-
-    bool m_stopped { false };
-
-    std::unique_ptr<RTCRtpTransceiverBackend> m_backend;
-    WeakPtr<RTCPeerConnection> m_connection;
+    const Ref<RTCRtpSender> m_sender;
+    const Ref<RTCRtpReceiver> m_receiver;
+    const UniqueRef<RTCRtpTransceiverBackend> m_backend;
+    WeakPtr<RTCPeerConnection, WeakPtrImplWithEventTargetData> m_connection;
 };
 
 class RtpTransceiverSet {
 public:
-    const Vector<RefPtr<RTCRtpTransceiver>>& list() const { return m_transceivers; }
+    const Vector<Ref<RTCRtpTransceiver>>& list() const LIFETIME_BOUND { return m_transceivers; }
     void append(Ref<RTCRtpTransceiver>&&);
+    void remove(const RTCRtpTransceiver&);
 
     Vector<std::reference_wrapper<RTCRtpSender>> senders() const;
     Vector<std::reference_wrapper<RTCRtpReceiver>> receivers() const;
 
 private:
-    Vector<RefPtr<RTCRtpTransceiver>> m_transceivers;
+    Vector<Ref<RTCRtpTransceiver>> m_transceivers;
 };
 
 } // namespace WebCore

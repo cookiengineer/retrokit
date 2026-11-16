@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2025 Apple Inc. All rights reserved.
  * Copyright (C) 2012 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,37 +29,37 @@
 
 #pragma once
 
-#include "DOMWindowProperty.h"
-#include "ExceptionOr.h"
+#include "GetComposedRangesOptions.h"
+#include "LocalDOMWindowProperty.h"
 #include <wtf/Forward.h>
 #include <wtf/RefCounted.h>
 #include <wtf/RefPtr.h>
+#include <wtf/Variant.h>
 
 namespace WebCore {
 
 class Node;
 class Position;
 class Range;
+class StaticRange;
 class VisibleSelection;
 
 struct SimpleRange;
 
-class DOMSelection : public RefCounted<DOMSelection>, public DOMWindowProperty {
-public:
-    static Ref<DOMSelection> create(DOMWindow&);
+template<typename> class ExceptionOr;
 
-    RefPtr<Node> baseNode() const;
-    RefPtr<Node> extentNode() const;
-    unsigned baseOffset() const;
-    unsigned extentOffset() const;
+class DOMSelection : public RefCounted<DOMSelection>, public LocalDOMWindowProperty {
+public:
+    static Ref<DOMSelection> create(LocalDOMWindow&);
+
     String type() const;
-    ExceptionOr<void> setBaseAndExtent(Node* baseNode, unsigned baseOffset, Node* extentNode, unsigned extentOffset);
+    String direction() const;
+    ExceptionOr<void> setBaseAndExtent(Node& anchorNode, unsigned anchorOffset, Node& focusNode, unsigned focusOffset);
     ExceptionOr<void> setPosition(Node*, unsigned offset);
     void modify(const String& alter, const String& direction, const String& granularity);
 
     // The anchor and focus are the start and end of the selection, and
     // reflect the direction in which the selection was made by the user.
-    // The base and extent are different, because they don't reflect expansion.
     RefPtr<Node> anchorNode() const;
     unsigned anchorOffset() const;
     RefPtr<Node> focusNode() const;
@@ -74,6 +74,9 @@ public:
     void removeAllRanges();
     void addRange(Range&);
     ExceptionOr<void> removeRange(Range&);
+
+    Vector<Ref<StaticRange>> getComposedRanges(Variant<Ref<ShadowRoot>, GetComposedRangesOptions>&& options, FixedVector<std::reference_wrapper<ShadowRoot>>&& = { });
+
     void deleteFromDocument();
     bool containsNode(Node&, bool partlyContained) const;
     ExceptionOr<void> selectAllChildren(Node&);
@@ -83,21 +86,17 @@ public:
     void empty();
 
 private:
-    explicit DOMSelection(DOMWindow&);
+    explicit DOMSelection(LocalDOMWindow&);
 
-    // FIXME: Change DOMWindowProperty::frame to return RefPtr and then delete this.
-    RefPtr<Frame> frame() const;
+    // FIXME: Change LocalDOMWindowProperty::frame to return RefPtr and then delete this.
+    RefPtr<LocalFrame> NODELETE frame() const;
     std::optional<SimpleRange> range() const;
 
     Position anchorPosition() const;
     Position focusPosition() const;
-    Position basePosition() const;
-    Position extentPosition() const;
 
-    RefPtr<Node> shadowAdjustedNode(const Position&) const;
+    Node* NODELETE shadowAdjustedNode(const Position&) const;
     unsigned shadowAdjustedOffset(const Position&) const;
-
-    bool isValidForPosition(Node*) const;
 };
 
 } // namespace WebCore

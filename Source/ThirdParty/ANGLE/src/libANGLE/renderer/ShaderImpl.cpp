@@ -13,88 +13,18 @@
 
 namespace rx
 {
-
-WaitableCompileEvent::WaitableCompileEvent(std::shared_ptr<angle::WaitableEvent> waitableEvent)
-    : mWaitableEvent(waitableEvent)
-{}
-
-WaitableCompileEvent::~WaitableCompileEvent()
+bool ShaderTranslateTask::translate(ShHandle compiler,
+                                    const ShCompileOptions &options,
+                                    const std::string &source)
 {
-    mWaitableEvent.reset();
+    ANGLE_TRACE_EVENT1("gpu.angle", "ShaderTranslateTask::run", "source", source);
+    const char *src = source.c_str();
+    return sh::Compile(compiler, &src, 1, options);
 }
 
-void WaitableCompileEvent::wait()
+angle::Result ShaderImpl::onLabelUpdate(const gl::Context *context)
 {
-    mWaitableEvent->wait();
-}
-
-bool WaitableCompileEvent::isReady()
-{
-    return mWaitableEvent->isReady();
-}
-
-const std::string &WaitableCompileEvent::getInfoLog()
-{
-    return mInfoLog;
-}
-
-class TranslateTask : public angle::Closure
-{
-  public:
-    TranslateTask(ShHandle handle, ShCompileOptions options, const std::string &source)
-        : mHandle(handle), mOptions(options), mSource(source), mResult(false)
-    {}
-
-    void operator()() override
-    {
-        ANGLE_TRACE_EVENT1("gpu.angle", "TranslateTask::run", "source", mSource);
-        const char *source = mSource.c_str();
-        mResult            = sh::Compile(mHandle, &source, 1, mOptions);
-    }
-
-    bool getResult() { return mResult; }
-
-    ShHandle getHandle() { return mHandle; }
-
-  private:
-    ShHandle mHandle;
-    ShCompileOptions mOptions;
-    std::string mSource;
-    bool mResult;
-};
-
-class WaitableCompileEventImpl final : public WaitableCompileEvent
-{
-  public:
-    WaitableCompileEventImpl(std::shared_ptr<angle::WaitableEvent> waitableEvent,
-                             std::shared_ptr<TranslateTask> translateTask)
-        : WaitableCompileEvent(waitableEvent), mTranslateTask(translateTask)
-    {}
-
-    bool getResult() override { return mTranslateTask->getResult(); }
-
-    bool postTranslate(std::string *infoLog) override { return true; }
-
-  private:
-    std::shared_ptr<TranslateTask> mTranslateTask;
-};
-
-std::shared_ptr<WaitableCompileEvent> ShaderImpl::compileImpl(
-    const gl::Context *context,
-    gl::ShCompilerInstance *compilerInstance,
-    const std::string &source,
-    ShCompileOptions compileOptions)
-{
-#if defined(ANGLE_ENABLE_ASSERTS)
-    compileOptions |= SH_VALIDATE_AST;
-#endif
-
-    auto workerThreadPool = context->getWorkerThreadPool();
-    auto translateTask =
-        std::make_shared<TranslateTask>(compilerInstance->getHandle(), compileOptions, source);
-
-    return std::make_shared<WaitableCompileEventImpl>(
-        angle::WorkerThreadPool::PostWorkerTask(workerThreadPool, translateTask), translateTask);
+    return angle::Result::Continue;
 }
 
 }  // namespace rx

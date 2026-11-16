@@ -29,8 +29,39 @@
 #include "APIPageConfiguration.h"
 #include "DrawingAreaProxyCoordinatedGraphics.h"
 #include "WebProcessPool.h"
+#include <wtf/TZoneMallocInlines.h>
+
+#if USE(WPE_BACKEND_PLAYSTATION)
+#include <wpe/playstation.h>
+#endif
 
 namespace WebKit {
+
+#if USE(WPE_BACKEND_PLAYSTATION)
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PlayStationWebView);
+
+RefPtr<PlayStationWebView> PlayStationWebView::create(struct wpe_view_backend* backend, const API::PageConfiguration& configuration)
+{
+    return adoptRef(*new PlayStationWebView(backend, configuration));
+}
+
+PlayStationWebView::PlayStationWebView(struct wpe_view_backend* backend, const API::PageConfiguration& conf)
+    : m_pageClient(makeUniqueWithoutRefCountedCheck<PageClientImpl>(*this))
+    , m_viewStateFlags { WebCore::ActivityState::WindowIsActive, WebCore::ActivityState::IsFocused, WebCore::ActivityState::IsVisible, WebCore::ActivityState::IsInWindow }
+    , m_backend(backend)
+{
+    auto configuration = conf.copy();
+    auto& pool = configuration->processPool();
+    m_page = pool.createWebPage(*m_pageClient, WTF::move(configuration));
+
+    wpe_view_backend_initialize(m_backend);
+
+    auto& pageConfiguration = m_page->configuration();
+    m_page->initializeWebPage(pageConfiguration.openedSite(), pageConfiguration.initialSandboxFlags(), pageConfiguration.initialReferrerPolicy());
+}
+
+#else
 
 RefPtr<PlayStationWebView> PlayStationWebView::create(const API::PageConfiguration& configuration)
 {
@@ -38,26 +69,27 @@ RefPtr<PlayStationWebView> PlayStationWebView::create(const API::PageConfigurati
 }
 
 PlayStationWebView::PlayStationWebView(const API::PageConfiguration& conf)
-    : m_pageClient(makeUnique<PageClientImpl>(*this))
+    : m_pageClient(makeUniqueWithoutRefCountedCheck<PageClientImpl>(*this))
     , m_viewStateFlags { WebCore::ActivityState::WindowIsActive, WebCore::ActivityState::IsFocused, WebCore::ActivityState::IsVisible, WebCore::ActivityState::IsInWindow }
 {
     auto configuration = conf.copy();
-    auto* pool = configuration->processPool();
-    m_page = pool->createWebPage(*m_pageClient, WTFMove(configuration));
+    auto& pool = configuration->processPool();
+    m_page = pool.createWebPage(*m_pageClient, WTF::move(configuration));
 
-    m_page->initializeWebPage();
+    auto& pageConfiguration = m_page->configuration();
+    m_page->initializeWebPage(pageConfiguration.openedSite(), pageConfiguration.initialSandboxFlags(), pageConfiguration.initialReferrerPolicy());
 }
 
-PlayStationWebView::~PlayStationWebView()
-{
-}
+#endif // USE(WPE_BACKEND_PLAYSTATION)
+
+PlayStationWebView::~PlayStationWebView() = default;
 
 void PlayStationWebView::setClient(std::unique_ptr<API::ViewClient>&& client)
 {
     if (!client)
         m_client = makeUnique<API::ViewClient>();
     else
-        m_client = WTFMove(client);
+        m_client = WTF::move(client);
 }
 
 void PlayStationWebView::setViewSize(WebCore::IntSize viewSize)
@@ -65,7 +97,7 @@ void PlayStationWebView::setViewSize(WebCore::IntSize viewSize)
     m_viewSize = viewSize;
 }
 
-void PlayStationWebView::setViewState(OptionSet<WebCore::ActivityState::Flag> flags)
+void PlayStationWebView::setViewState(OptionSet<WebCore::ActivityState> flags)
 {
     auto changedFlags = m_viewStateFlags ^ flags;
     m_viewStateFlags = flags;
@@ -81,26 +113,10 @@ void PlayStationWebView::setViewNeedsDisplay(const WebCore::Region& region)
 }
 
 #if ENABLE(FULLSCREEN_API)
-void PlayStationWebView::willEnterFullScreen()
+void PlayStationWebView::willEnterFullScreen(CompletionHandler<void(bool)>&& completionHandler)
 {
     m_isFullScreen = true;
-    m_page->fullScreenManager()->willEnterFullScreen();
-}
-
-void PlayStationWebView::didEnterFullScreen()
-{
-    m_page->fullScreenManager()->didEnterFullScreen();
-}
-
-void PlayStationWebView::willExitFullScreen()
-{
-    m_page->fullScreenManager()->willExitFullScreen();
-}
-
-void PlayStationWebView::didExitFullScreen()
-{
-    m_page->fullScreenManager()->didExitFullScreen();
-    m_isFullScreen = false;
+    completionHandler(true);
 }
 
 void PlayStationWebView::requestExitFullScreen()
@@ -121,28 +137,37 @@ bool PlayStationWebView::isFullScreen()
     return m_isFullScreen;
 }
 
-void PlayStationWebView::enterFullScreen()
+void PlayStationWebView::enterFullScreen(CompletionHandler<void(bool)>&& completionHandler)
 {
     if (m_client && !isFullScreen())
-        m_client->enterFullScreen(*this);
+        m_client->enterFullScreen(*this, WTF::move(completionHandler));
+    else
+        completionHandler(false);
 }
 
-void PlayStationWebView::exitFullScreen()
+void PlayStationWebView::exitFullScreen(CompletionHandler<void()>&& completionHandler)
 {
     if (m_client && isFullScreen())
         m_client->exitFullScreen(*this);
+    completionHandler();
 }
 
-void PlayStationWebView::beganEnterFullScreen(const WebCore::IntRect& initialFrame, const WebCore::IntRect& finalFrame)
+void PlayStationWebView::beganEnterFullScreen(const WebCore::IntRect& initialFrame, const WebCore::IntRect& finalFrame, CompletionHandler<void(bool)>&& completionHandler)
 {
     if (m_client)
-        m_client->beganEnterFullScreen(*this, initialFrame, finalFrame);
+        m_client->beganEnterFullScreen(*this, initialFrame, finalFrame, WTF::move(completionHandler));
+    else
+        completionHandler(false);
 }
 
-void PlayStationWebView::beganExitFullScreen(const WebCore::IntRect& initialFrame, const WebCore::IntRect& finalFrame)
+void PlayStationWebView::beganExitFullScreen(const WebCore::IntRect& initialFrame, const WebCore::IntRect& finalFrame, CompletionHandler<void()>&& completionHandler)
 {
-    if (m_client)
-        m_client->beganExitFullScreen(*this, initialFrame, finalFrame);
+    if (!m_client)
+        return completionHandler();
+    m_client->beganExitFullScreen(*this, initialFrame, finalFrame, [this, protectedThis = Ref { *this }, completionHandler = WTF::move(completionHandler)] mutable {
+        m_isFullScreen = false;
+        completionHandler();
+    });
 }
 #endif
 

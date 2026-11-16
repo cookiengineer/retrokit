@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2006 Oliver Hunt <ojh16@student.canterbury.ac.nz>
- * Copyright (C) 2006 Apple Inc.
+ * Copyright (C) 2006 Apple Inc. All rights reserved.
  * Copyright (C) 2009 Google Inc.
  *
  * This library is free software; you can redistribute it and/or
@@ -21,27 +21,27 @@
 
 #pragma once
 
+#include "RenderBoxModelObjectInlines.h"
 #include "RenderSVGInline.h"
 #include "SVGTextPositioningElement.h"
 
 namespace WebCore {
 
 class RenderSVGTSpan final : public RenderSVGInline {
-    WTF_MAKE_ISO_ALLOCATED(RenderSVGTSpan);
+    WTF_MAKE_TZONE_ALLOCATED(RenderSVGTSpan);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderSVGTSpan);
 public:
-    explicit RenderSVGTSpan(SVGTextPositioningElement& element, RenderStyle&& style)
-        : RenderSVGInline(element, WTFMove(style))
+    explicit RenderSVGTSpan(SVGTextPositioningElement& element, Style::ComputedStyle&& style)
+        : RenderSVGInline(Type::SVGTSpan, element, WTF::move(style))
     {
+        ASSERT(isRenderSVGTSpan());
     }
-
-    SVGTextPositioningElement& textPositioningElement() const { return static_cast<SVGTextPositioningElement&>(RenderSVGInline::graphicsElement()); }
 
 private:
     void graphicsElement() const = delete;
-    const char* renderName() const override { return "RenderSVGTSpan"; }
-    bool isSVGTSpan() const override { return true; }
+    ASCIILiteral renderName() const override { return "RenderSVGTSpan"_s; }
 };
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderSVGTSpan, isSVGTSpan())
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderSVGTSpan, isRenderSVGTSpan())

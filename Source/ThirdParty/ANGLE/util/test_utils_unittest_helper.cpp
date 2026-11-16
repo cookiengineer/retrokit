@@ -6,6 +6,7 @@
 // system_utils_unittest_helper.cpp: Helper to the SystemUtils.RunApp unittest
 
 #include "test_utils_unittest_helper.h"
+#include "common/unsafe_buffers.h"
 
 #include "../src/tests/test_utils/runner/TestSuite.h"
 #include "common/system_utils.h"
@@ -21,7 +22,7 @@ int main(int argc, char **argv)
 
     for (int argIndex = 1; argIndex < argc; ++argIndex)
     {
-        if (strcmp(argv[argIndex], kRunTestSuite) == 0)
+        if (ANGLE_UNSAFE_TODO(strcmp(argv[argIndex], kRunTestSuite)) == 0)
         {
             runTestSuite = true;
         }
@@ -33,18 +34,20 @@ int main(int argc, char **argv)
         return testSuite.run();
     }
 
-    if (argc != 3 || strcmp(argv[1], kRunAppTestArg1) != 0 || strcmp(argv[2], kRunAppTestArg2) != 0)
+    if (argc != 3 || ANGLE_UNSAFE_TODO(strcmp(argv[1], kRunAppTestArg1)) != 0 ||
+        ANGLE_UNSAFE_TODO(strcmp(argv[2], kRunAppTestArg2)) != 0)
     {
-        fprintf(stderr, "Expected command line:\n%s %s %s\n", argv[0], kRunAppTestArg1,
-                kRunAppTestArg2);
+        ANGLE_UNSAFE_TODO(fprintf(stderr, "Expected command line:\n%s %s %s\n", argv[0],
+                                  kRunAppTestArg1, kRunAppTestArg2));
         return EXIT_FAILURE;
     }
 
     std::string env = angle::GetEnvironmentVar(kRunAppTestEnvVarName);
     if (env == "")
     {
-        printf("%s", kRunAppTestStdout);
-        fprintf(stderr, "%s", kRunAppTestStderr);
+        ANGLE_UNSAFE_TODO(printf("%s", kRunAppTestStdout));
+        fflush(stdout);
+        ANGLE_UNSAFE_TODO(fprintf(stderr, "%s", kRunAppTestStderr));
     }
     else
     {

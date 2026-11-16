@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2010 Google Inc. All rights reserved.
- * Copyright (C) 2011-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -32,44 +32,49 @@
 #include "config.h"
 #include "BaseCheckableInputType.h"
 
+#include "CommonAtomStrings.h"
 #include "DOMFormData.h"
 #include "FormController.h"
 #include "HTMLInputElement.h"
 #include "HTMLNames.h"
 #include "KeyboardEvent.h"
 #include <wtf/NeverDestroyed.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(BaseCheckableInputType);
 
 using namespace HTMLNames;
 
 FormControlState BaseCheckableInputType::saveFormControlState() const
 {
     ASSERT(element());
-    return { element()->checked() ? "on"_s : "off"_s };
+    return { element()->checked() ? onAtom() : offAtom() };
 }
 
 void BaseCheckableInputType::restoreFormControlState(const FormControlState& state)
 {
     ASSERT(element());
-    element()->setChecked(state[0] == "on");
+    protect(element())->setChecked(state[0] == onAtom());
 }
 
-bool BaseCheckableInputType::appendFormData(DOMFormData& formData, bool) const
+bool BaseCheckableInputType::appendFormData(DOMFormData& formData) const
 {
     ASSERT(element());
-    if (!element()->checked())
+    Ref element = *this->element();
+    if (!element->checked())
         return false;
-    formData.append(element()->name(), element()->value());
+    formData.append(element->name(), element->value());
     return true;
 }
 
 auto BaseCheckableInputType::handleKeydownEvent(KeyboardEvent& event) -> ShouldCallBaseEventHandler
 {
     const String& key = event.keyIdentifier();
-    if (key == "U+0020") {
+    if (key == "U+0020"_s) {
         ASSERT(element());
-        element()->setActive(true, true);
+        protect(element())->setActive(true);
         // No setDefaultHandled(), because IE dispatches a keypress in this case
         // and the caller will only dispatch a keypress if we don't call setDefaultHandled().
         return ShouldCallBaseEventHandler::No;
@@ -94,13 +99,12 @@ bool BaseCheckableInputType::canSetStringValue() const
 bool BaseCheckableInputType::accessKeyAction(bool sendMouseEvents)
 {
     ASSERT(element());
-    return InputType::accessKeyAction(sendMouseEvents) || element()->dispatchSimulatedClick(0, sendMouseEvents ? SendMouseUpDownEvents : SendNoEvents);
+    return InputType::accessKeyAction(sendMouseEvents) || protect(element())->dispatchSimulatedClick(0, sendMouseEvents ? SendMouseUpDownEvents : SendNoEvents);
 }
 
-String BaseCheckableInputType::fallbackValue() const
+ValueOrReference<String> BaseCheckableInputType::fallbackValue() const
 {
-    static MainThreadNeverDestroyed<const AtomString> on("on", AtomString::ConstructFromLiteral);
-    return on.get();
+    return onAtom().string();
 }
 
 bool BaseCheckableInputType::storesValueSeparateFromAttribute()
@@ -108,24 +112,25 @@ bool BaseCheckableInputType::storesValueSeparateFromAttribute()
     return false;
 }
 
-void BaseCheckableInputType::setValue(const String& sanitizedValue, bool, TextFieldEventBehavior)
+void BaseCheckableInputType::setValue(const String& sanitizedValue, bool, TextFieldEventBehavior, TextControlSetValueSelection)
 {
     ASSERT(element());
-    element()->setAttributeWithoutSynchronization(valueAttr, sanitizedValue);
+    protect(element())->setAttributeWithoutSynchronization(valueAttr, AtomString { sanitizedValue });
 }
 
 void BaseCheckableInputType::fireInputAndChangeEvents()
 {
-    if (!element()->isConnected())
+    Ref element = *this->element();
+    if (!element->isConnected())
         return;
 
     if (!shouldSendChangeEventAfterCheckedChanged())
         return;
 
-    auto protectedThis = makeRef(*this);
-    element()->setTextAsOfLastFormControlChangeEvent(String());
-    element()->dispatchInputEvent();
-    if (auto* element = this->element())
+    Ref protectedThis { *this };
+    element->setTextAsOfLastFormControlChangeEvent(String());
+    element->dispatchInputEvent();
+    if (RefPtr element = this->element())
         element->dispatchFormControlChangeEvent();
 }
 

@@ -28,7 +28,7 @@ function initializeTextEncoderStream()
     "use strict";
 
     const startAlgorithm = () => {
-        return @Promise.@resolve();
+        return @promiseResolve(@Promise, @undefined);
     };
     const transformAlgorithm = (chunk) => {
         const encoder = @getByIdDirectPrivate(this, "textEncoderStreamEncoder");
@@ -36,14 +36,14 @@ function initializeTextEncoderStream()
         try {
             buffer = encoder.@encode(chunk);
         } catch (e) {
-            return @Promise.@reject(e);
+            return @promiseReject(@Promise, e);
         }
         if (buffer) {
             const transformStream = @getByIdDirectPrivate(this, "textEncoderStreamTransform");
             const controller = @getByIdDirectPrivate(transformStream, "controller");
             @transformStreamDefaultControllerEnqueue(controller, buffer);
         }
-        return @Promise.@resolve();
+        return @promiseResolve(@Promise, @undefined);
     };
     const flushAlgorithm = () => {
         const encoder = @getByIdDirectPrivate(this, "textEncoderStreamEncoder");
@@ -53,12 +53,14 @@ function initializeTextEncoderStream()
             const controller = @getByIdDirectPrivate(transformStream, "controller");
             @transformStreamDefaultControllerEnqueue(controller, buffer);
         }
-        return @Promise.@resolve();
+        return @promiseResolve(@Promise, @undefined);
     };
 
-    const transform = @createTransformStream(startAlgorithm, transformAlgorithm, flushAlgorithm);
+    const [transform, readable, writable] = @createTransformStream(startAlgorithm, transformAlgorithm, flushAlgorithm);
     @putByIdDirectPrivate(this, "textEncoderStreamTransform", transform);
     @putByIdDirectPrivate(this, "textEncoderStreamEncoder", new @TextEncoderStreamEncoder());
+    @putByIdDirectPrivate(this, "readable", readable);
+    @putByIdDirectPrivate(this, "writable", writable);
 
     return this;
 }
@@ -83,7 +85,7 @@ function readable()
     if (!transform)
         throw @makeThisTypeError("TextEncoderStream", "readable");
 
-    return @getByIdDirectPrivate(transform, "readable");
+    return @getByIdDirectPrivate(this, "readable");
 }
 
 @getter
@@ -95,5 +97,5 @@ function writable()
     if (!transform)
         throw @makeThisTypeError("TextEncoderStream", "writable");
 
-    return @getByIdDirectPrivate(transform, "writable");
+    return @getByIdDirectPrivate(this, "writable");
 }

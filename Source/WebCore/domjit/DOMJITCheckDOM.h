@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,6 +34,7 @@
 #include "Element.h"
 #include "Event.h"
 #include "Node.h"
+#include <JavaScriptCore/Snippet.h>
 
 namespace WebCore { namespace DOMJIT {
 

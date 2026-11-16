@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,14 +29,19 @@
 #if ENABLE(DFG_JIT)
 
 #include "JSCJSValueInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC { namespace DFG {
+
+using BasicBlockSSAData = BasicBlock::SSAData;
+
+WTF_MAKE_SEQUESTERED_ARENA_ALLOCATED_IMPL(BasicBlockSSAData);
 
 DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(BasicBlock);
 
 BasicBlock::BasicBlock(BytecodeIndex bytecodeBegin, unsigned numArguments, unsigned numLocals, unsigned numTmps, float executionCount)
     : bytecodeBegin(bytecodeBegin)
-    , index(NoBlock)
+    , m_index(NoBlock)
     , cfaStructureClobberStateAtHead(StructuresAreWatched)
     , cfaStructureClobberStateAtTail(StructuresAreWatched)
     , cfaBranchDirection(InvalidBranchDirection)
@@ -59,9 +64,7 @@ BasicBlock::BasicBlock(BytecodeIndex bytecodeBegin, unsigned numArguments, unsig
 {
 }
 
-BasicBlock::~BasicBlock()
-{
-}
+BasicBlock::~BasicBlock() = default;
 
 void BasicBlock::ensureLocals(unsigned newNumLocals)
 {
@@ -137,7 +140,7 @@ void BasicBlock::replacePredecessor(BasicBlock* from, BasicBlock* to)
 
 void BasicBlock::dump(PrintStream& out) const
 {
-    out.print("#", index);
+    out.print("#", m_index);
 }
 
 BasicBlock::SSAData::SSAData(BasicBlock* block)

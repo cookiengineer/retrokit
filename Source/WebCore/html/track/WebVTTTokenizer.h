@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2011, 2013 Google Inc.  All rights reserved.
- * Copyright (C) 2014 Apple Inc.  All rights reserved.
+ * Copyright (C) 2011, 2013 Google Inc. All rights reserved.
+ * Copyright (C) 2014 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -33,8 +33,9 @@
 
 #if ENABLE(VIDEO)
 
-#include "InputStreamPreprocessor.h"
 #include "WebVTTToken.h"
+#include <wtf/Variant.h>
+#include <wtf/text/StringParsingBuffer.h>
 
 namespace WebCore {
 
@@ -43,11 +44,12 @@ public:
     explicit WebVTTTokenizer(const String&);
     bool nextToken(WebVTTToken&);
 
-    static bool neverSkipNullCharacters() { return false; }
-
 private:
-    SegmentedString m_input;
-    InputStreamPreprocessor<WebVTTTokenizer> m_preprocessor;
+    template<typename CharacterType>
+    bool nextTokenImpl(StringParsingBuffer<CharacterType>&, WebVTTToken&);
+
+    String m_input;
+    Variant<StringParsingBuffer<Latin1Character>, StringParsingBuffer<char16_t>> m_buffer;
 };
 
 } // namespace WebCore

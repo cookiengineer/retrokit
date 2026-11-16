@@ -47,28 +47,14 @@ WI.PageObserver = class PageObserver extends InspectorBackend.Dispatcher
         WI.networkManager.frameDidDetach(frameId);
     }
 
+    // COMPATIBILITY (macOS 13, iOS 16.0): `Page.defaultAppearanceDidChange` was removed in favor of `Page.defaultUserPreferencesDidChange`
     defaultAppearanceDidChange(appearance)
     {
         WI.cssManager.defaultAppearanceDidChange(appearance);
     }
 
-    frameStartedLoading(frameId)
+    defaultUserPreferencesDidChange(userPreferences)
     {
-        // Not handled yet.
-    }
-
-    frameStoppedLoading(frameId)
-    {
-        // Not handled yet.
-    }
-
-    frameScheduledNavigation(frameId, delay)
-    {
-        // Not handled yet.
-    }
-
-    frameClearedScheduledNavigation(frameId)
-    {
-        // Not handled yet.
+        WI.cssManager.defaultUserPreferencesDidChange(userPreferences);
     }
 };

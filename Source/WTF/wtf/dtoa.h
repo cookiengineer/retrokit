@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2003-2019 Apple Inc. All rights reserved.
+ *  Copyright (C) 2003-2024 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Library General Public
@@ -22,6 +22,7 @@
 
 #include <array>
 #include <wtf/ASCIICType.h>
+#include <wtf/FastFloat.h>
 #include <wtf/dtoa/double-conversion.h>
 #include <wtf/text/StringView.h>
 
@@ -31,49 +32,37 @@ namespace WTF {
 // <-> + <21 digits> + decimal point + <100 digits> + null char = 124.
 using NumberToStringBuffer = std::array<char, 124>;
 
-WTF_EXPORT_PRIVATE const char* numberToString(float, NumberToStringBuffer&);
-WTF_EXPORT_PRIVATE const char* numberToFixedPrecisionString(float, unsigned significantFigures, NumberToStringBuffer&, bool truncateTrailingZeros = false);
-WTF_EXPORT_PRIVATE const char* numberToFixedWidthString(float, unsigned decimalPlaces, NumberToStringBuffer&);
 
-WTF_EXPORT_PRIVATE const char* numberToString(double, NumberToStringBuffer&);
-WTF_EXPORT_PRIVATE const char* numberToFixedPrecisionString(double, unsigned significantFigures, NumberToStringBuffer&, bool truncateTrailingZeros = false);
-WTF_EXPORT_PRIVATE const char* numberToFixedWidthString(double, unsigned decimalPlaces, NumberToStringBuffer&);
+// <-> + <320 digits> + decimal point + <6 digits> + null char = 329
+using NumberToCSSStringBuffer = std::array<char, 329>;
 
-double parseDouble(const LChar* string, size_t length, size_t& parsedLength);
-double parseDouble(const UChar* string, size_t length, size_t& parsedLength);
-double parseDouble(StringView, size_t& parsedLength);
+using NumberToStringSpan = std::span<const char>;
 
-namespace Internal {
-    WTF_EXPORT_PRIVATE double parseDoubleFromLongString(const UChar* string, size_t length, size_t& parsedLength);
-}
+WTF_EXPORT_PRIVATE NumberToStringSpan numberToFixedPrecisionString(float, unsigned significantFigures, NumberToStringBuffer& buffer LIFETIME_BOUND, bool truncateTrailingZeros = false);
+WTF_EXPORT_PRIVATE NumberToStringSpan numberToFixedWidthString(float, unsigned decimalPlaces, NumberToStringBuffer& buffer LIFETIME_BOUND);
 
-inline double parseDouble(const LChar* string, size_t length, size_t& parsedLength)
-{
-    return double_conversion::StringToDoubleConverter::StringToDouble(reinterpret_cast<const char*>(string), length, &parsedLength);
-}
+WTF_EXPORT_PRIVATE NumberToStringSpan numberToStringWithTrailingPoint(double, NumberToStringBuffer& buffer LIFETIME_BOUND);
+WTF_EXPORT_PRIVATE NumberToStringSpan numberToFixedPrecisionString(double, unsigned significantFigures, NumberToStringBuffer& buffer LIFETIME_BOUND, bool truncateTrailingZeros = false);
+WTF_EXPORT_PRIVATE NumberToStringSpan numberToFixedWidthString(double, unsigned decimalPlaces, NumberToStringBuffer& buffer LIFETIME_BOUND);
 
-inline double parseDouble(const UChar* string, size_t length, size_t& parsedLength)
-{
-    const size_t conversionBufferSize = 64;
-    if (length > conversionBufferSize)
-        return Internal::parseDoubleFromLongString(string, length, parsedLength);
-    LChar conversionBuffer[conversionBufferSize];
-    for (int i = 0; i < static_cast<int>(length); ++i)
-        conversionBuffer[i] = isASCII(string[i]) ? string[i] : 0;
-    return parseDouble(conversionBuffer, length, parsedLength);
-}
+WTF_EXPORT_PRIVATE NumberToStringSpan numberToStringAndSize(float, NumberToStringBuffer& buffer LIFETIME_BOUND);
+WTF_EXPORT_PRIVATE NumberToStringSpan numberToStringAndSize(double, NumberToStringBuffer& buffer LIFETIME_BOUND);
+
+// Fixed width with up to 6 decimal places, trailing zeros truncated.
+WTF_EXPORT_PRIVATE NumberToStringSpan numberToCSSString(double, NumberToCSSStringBuffer& buffer LIFETIME_BOUND);
 
 inline double parseDouble(StringView string, size_t& parsedLength)
 {
     if (string.is8Bit())
-        return parseDouble(string.characters8(), string.length(), parsedLength);
-    return parseDouble(string.characters16(), string.length(), parsedLength);
+        return parseDouble(string.span8(), parsedLength);
+    return parseDouble(string.span16(), parsedLength);
 }
 
 } // namespace WTF
 
 using WTF::NumberToStringBuffer;
-using WTF::numberToString;
+using WTF::numberToStringWithTrailingPoint;
+using WTF::numberToStringAndSize;
 using WTF::numberToFixedPrecisionString;
 using WTF::numberToFixedWidthString;
 using WTF::parseDouble;

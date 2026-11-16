@@ -27,7 +27,7 @@
 
 #if ENABLE(B3_JIT)
 
-#include "B3TimingScope.h"
+#include "CompilerTimingScope.h"
 #include <wtf/Noncopyable.h>
 #include <wtf/text/CString.h>
 
@@ -38,13 +38,13 @@ class Procedure;
 class PhaseScope {
     WTF_MAKE_NONCOPYABLE(PhaseScope);
 public:
-    PhaseScope(Procedure&, const char* name);
+    PhaseScope(Procedure&, ASCIILiteral name);
     ~PhaseScope(); // this does validation
 
 private:
     Procedure& m_procedure;
-    const char* m_name;
-    TimingScope m_timingScope;
+    ASCIILiteral m_name;
+    CompilerTimingScope m_timingScope;
     CString m_dumpBefore;
 };
 

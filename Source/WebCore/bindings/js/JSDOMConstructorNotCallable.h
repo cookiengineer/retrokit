@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2021 Alexey Shvayka <shvaikalesh@gmail.com>
+ * Copyright (C) 2021-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,6 +28,7 @@
 
 #include "JSDOMWrapper.h"
 #include "WebCoreJSClientData.h"
+#include <WebCore/JSDOMBindingFacade.h>
 
 namespace WebCore {
 
@@ -35,7 +37,7 @@ public:
     using Base = JSDOMObject;
 
     static constexpr unsigned StructureFlags = Base::StructureFlags;
-    static constexpr bool needsDestruction = false;
+    static constexpr JSC::DestructionMode needsDestruction = JSC::DoesNotNeedDestruction;
     static JSDOMConstructorNotCallable* create(JSC::VM&, JSC::Structure*, JSDOMGlobalObject&);
     static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject&, JSC::JSValue prototype);
 
@@ -44,12 +46,12 @@ public:
     static JSC::JSValue prototypeForStructure(JSC::VM&, const JSDOMGlobalObject&);
 
     template<typename CellType, JSC::SubspaceAccess>
-    static JSC::IsoSubspace* subspaceFor(JSC::VM& vm)
+    static JSC::GCClient::IsoSubspace* subspaceFor(JSC::VM& vm)
     {
         static_assert(sizeof(CellType) == sizeof(JSDOMConstructorNotCallable));
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(CellType, JSDOMConstructorNotCallable);
         static_assert(CellType::destroy == JSC::JSCell::destroy, "JSDOMConstructorNotCallable<JSClass> is not destructible actually");
-        return &static_cast<JSVMClientData*>(vm.clientData)->domConstructorSpace();
+        return &downcast<JSVMClientData>(vm.clientData)->domNamespaceObjectSpace();
     }
 
 private:
@@ -64,20 +66,22 @@ private:
 
 template<typename JSClass> inline JSDOMConstructorNotCallable<JSClass>* JSDOMConstructorNotCallable<JSClass>::create(JSC::VM& vm, JSC::Structure* structure, JSDOMGlobalObject& globalObject)
 {
-    JSDOMConstructorNotCallable* constructor = new (NotNull, JSC::allocateCell<JSDOMConstructorNotCallable>(vm.heap)) JSDOMConstructorNotCallable(structure, globalObject);
+    JSDOMConstructorNotCallable* constructor = new (NotNull, JSC::allocateCell<JSDOMConstructorNotCallable>(vm)) JSDOMConstructorNotCallable(structure, globalObject);
     constructor->finishCreation(vm, globalObject);
     return constructor;
 }
 
 template<typename JSClass> inline JSC::Structure* JSDOMConstructorNotCallable<JSClass>::createStructure(JSC::VM& vm, JSC::JSGlobalObject& globalObject, JSC::JSValue prototype)
 {
-    return JSC::Structure::create(vm, &globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
+    auto* structure = JSC::Structure::create(vm, &globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info(), JSC::NonArray);
+    structure->setMayBePrototype(true);
+    return structure;
 }
 
 template<typename JSClass> inline void JSDOMConstructorNotCallable<JSClass>::finishCreation(JSC::VM& vm, JSDOMGlobalObject& globalObject)
 {
     Base::finishCreation(vm);
-    ASSERT(inherits(vm, info()));
+    ASSERT(inheritsSlow(info()));
     initializeProperties(vm, globalObject);
 }
 

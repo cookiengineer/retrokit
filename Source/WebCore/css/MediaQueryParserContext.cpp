@@ -26,21 +26,21 @@
 #include "config.h"
 #include "MediaQueryParserContext.h"
 
-#include "CSSParserContext.h"
-#include "Document.h"
-#include "Page.h"
-
 namespace WebCore {
-    
-MediaQueryParserContext::MediaQueryParserContext(const CSSParserContext& context)
+
+MediaQueryParserContext::MediaQueryParserContext()
+    : context(strictCSSParserContext())
 {
-    useSystemAppearance = context.useSystemAppearance;
-    mode = context.mode;
+}
+
+MediaQueryParserContext::MediaQueryParserContext(const CSSParserContext& context)
+    : context(context)
+{
 }
 
 MediaQueryParserContext::MediaQueryParserContext(const Document& document)
+    : context(CSSParserContext(document))
 {
-    useSystemAppearance = document.page() ? document.page()->useSystemAppearance() : false;
 }
 
 } // namespace WebCore

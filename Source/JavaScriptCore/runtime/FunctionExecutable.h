@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2009-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,9 +25,9 @@
 
 #pragma once
 
-#include "ExecutableToCodeBlockEdge.h"
-#include "ScriptExecutable.h"
-#include "SourceCode.h"
+#include <JavaScriptCore/JSFunction.h>
+#include <JavaScriptCore/ScriptExecutable.h>
+#include <JavaScriptCore/SourceCode.h>
 #include <wtf/Box.h>
 #include <wtf/Markable.h>
 
@@ -43,20 +43,18 @@ public:
     static constexpr unsigned StructureFlags = Base::StructureFlags | StructureIsImmortal;
 
     template<typename CellType, SubspaceAccess>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
-        return &vm.functionExecutableSpace.space;
+        return &vm.functionExecutableSpace();
     }
 
     static FunctionExecutable* create(VM& vm, ScriptExecutable* topLevelExecutable, const SourceCode& source, UnlinkedFunctionExecutable* unlinkedExecutable, Intrinsic intrinsic, bool isInsideOrdinaryFunction)
     {
-        FunctionExecutable* executable = new (NotNull, allocateCell<FunctionExecutable>(vm.heap)) FunctionExecutable(vm, source, unlinkedExecutable, intrinsic, isInsideOrdinaryFunction);
-        executable->finishCreation(vm, topLevelExecutable);
+        FunctionExecutable* executable = new (NotNull, allocateCell<FunctionExecutable>(vm)) FunctionExecutable(vm, topLevelExecutable, source, unlinkedExecutable, intrinsic, isInsideOrdinaryFunction);
+        executable->finishCreation(vm);
         return executable;
     }
-    static FunctionExecutable* fromGlobalCode(
-        const Identifier& name, JSGlobalObject*, const SourceCode&, 
-        JSObject*& exception, int overrideLineNumber, std::optional<int> functionConstructorParametersEndPosition);
+    static FunctionExecutable* fromGlobalCode(const Identifier& name, JSGlobalObject*, String&& program, const SourceOrigin&, SourceTaintedOrigin, const String& sourceURL, const TextPosition&, LexicallyScopedFeatures, JSObject*& exception, int overrideLineNumber, std::optional<int> functionConstructorParametersEndPosition, FunctionConstructionMode);
 
     static void destroy(JSCell*);
         
@@ -68,49 +66,46 @@ public:
     // Returns either call or construct bytecode. This can be appropriate
     // for answering questions that that don't vary between call and construct --
     // for example, argumentsRegister().
-    FunctionCodeBlock* eitherCodeBlock()
+    FunctionCodeBlock* eitherCodeBlock() const
     {
-        ExecutableToCodeBlockEdge* edge;
-        if (m_codeBlockForCall)
-            edge = m_codeBlockForCall.get();
-        else
-            edge = m_codeBlockForConstruct.get();
-        return bitwise_cast<FunctionCodeBlock*>(ExecutableToCodeBlockEdge::unwrap(edge));
+        if (auto* result = codeBlockForCall())
+            return result;
+        return codeBlockForConstruct();
     }
         
     bool isGeneratedForCall() const
     {
-        return !!m_codeBlockForCall;
+        return !!codeBlockForCall();
     }
 
-    FunctionCodeBlock* codeBlockForCall()
+    FunctionCodeBlock* codeBlockForCall() const
     {
-        return bitwise_cast<FunctionCodeBlock*>(ExecutableToCodeBlockEdge::unwrap(m_codeBlockForCall.get()));
+        return std::bit_cast<FunctionCodeBlock*>(m_codeBlockForCall.get());
     }
 
     bool isGeneratedForConstruct() const
     {
-        return !!m_codeBlockForConstruct;
+        return !!codeBlockForConstruct();
     }
 
-    FunctionCodeBlock* codeBlockForConstruct()
+    FunctionCodeBlock* codeBlockForConstruct() const
     {
-        return bitwise_cast<FunctionCodeBlock*>(ExecutableToCodeBlockEdge::unwrap(m_codeBlockForConstruct.get()));
+        return std::bit_cast<FunctionCodeBlock*>(m_codeBlockForConstruct.get());
     }
         
     bool isGeneratedFor(CodeSpecializationKind kind)
     {
-        if (kind == CodeForCall)
+        if (kind == CodeSpecializationKind::CodeForCall)
             return isGeneratedForCall();
-        ASSERT(kind == CodeForConstruct);
+        ASSERT(kind == CodeSpecializationKind::CodeForConstruct);
         return isGeneratedForConstruct();
     }
         
     FunctionCodeBlock* codeBlockFor(CodeSpecializationKind kind)
     {
-        if (kind == CodeForCall)
+        if (kind == CodeSpecializationKind::CodeForCall)
             return codeBlockForCall();
-        ASSERT(kind == CodeForConstruct);
+        ASSERT(kind == CodeSpecializationKind::CodeForConstruct);
         return codeBlockForConstruct();
     }
 
@@ -121,6 +116,8 @@ public:
         return baselineCodeBlockFor(kind);
     }
 
+    FunctionCodeBlock* replaceCodeBlockWith(VM&, CodeSpecializationKind, CodeBlock*);
+
     RefPtr<TypeSet> returnStatementTypeSet() 
     {
         RareData& rareData = ensureRareData();
@@ -130,8 +127,10 @@ public:
     }
         
     FunctionMode functionMode() { return m_unlinkedExecutable->functionMode(); }
+    ImplementationVisibility implementationVisibility() const { return m_unlinkedExecutable->implementationVisibility(); }
     bool isBuiltinFunction() const { return m_unlinkedExecutable->isBuiltinFunction(); }
     ConstructAbility constructAbility() const { return m_unlinkedExecutable->constructAbility(); }
+    InlineAttribute inlineAttribute() const { return m_unlinkedExecutable->inlineAttribute(); }
     bool isClass() const { return m_unlinkedExecutable->isClass(); }
     bool isArrowFunction() const { return parseMode() == SourceParseMode::ArrowFunctionMode; }
     bool isGetter() const { return parseMode() == SourceParseMode::GetterMode; }
@@ -161,15 +160,14 @@ public:
     SourceCode classSource() const { return m_unlinkedExecutable->classSource(); }
 
     DECLARE_VISIT_CHILDREN;
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue proto)
-    {
-        return Structure::create(vm, globalObject, proto, TypeInfo(FunctionExecutableType, StructureFlags), info());
-    }
+    DECLARE_VISIT_OUTPUT_CONSTRAINTS;
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
+    static constexpr int overrideLineNumberNotFound = -1;
     void setOverrideLineNumber(int overrideLineNumber)
     {
-        if (overrideLineNumber == -1) {
-            if (UNLIKELY(m_rareData))
+        if (overrideLineNumber == overrideLineNumberNotFound) {
+            if (m_rareData) [[unlikely]]
                 m_rareData->m_overrideLineNumber = std::nullopt;
             return;
         }
@@ -178,21 +176,21 @@ public:
 
     std::optional<int> overrideLineNumber() const
     {
-        if (UNLIKELY(m_rareData))
+        if (m_rareData) [[unlikely]]
             return m_rareData->m_overrideLineNumber;
         return std::nullopt;
     }
 
     int lineCount() const
     {
-        if (UNLIKELY(m_rareData))
+        if (m_rareData) [[unlikely]]
             return m_rareData->m_lineCount;
         return m_unlinkedExecutable->lineCount();
     }
 
     int endColumn() const
     {
-        if (UNLIKELY(m_rareData))
+        if (m_rareData) [[unlikely]]
             return m_rareData->m_endColumn;
         return m_unlinkedExecutable->linkedEndColumn(m_source.startColumn().oneBasedInt());
     }
@@ -207,61 +205,48 @@ public:
         return firstLine() + lineCount();
     }
 
-    unsigned typeProfilingStartOffset(VM&) const
+    unsigned functionEnd() const
     {
-        return typeProfilingStartOffset();
+        if (m_rareData) [[unlikely]]
+            return m_rareData->m_functionEnd;
+        return m_unlinkedExecutable->unlinkedFunctionEnd();
     }
 
-    unsigned typeProfilingStartOffset() const
+    unsigned functionStart() const
     {
-        if (UNLIKELY(m_rareData))
-            return m_rareData->m_typeProfilingStartOffset;
-        return m_unlinkedExecutable->typeProfilingStartOffset();
-    }
-
-    unsigned typeProfilingEndOffset(VM&) const
-    {
-        return typeProfilingEndOffset();
-    }
-
-    unsigned typeProfilingEndOffset() const
-    {
-        if (UNLIKELY(m_rareData))
-            return m_rareData->m_typeProfilingEndOffset;
-        return m_unlinkedExecutable->typeProfilingEndOffset();
+        if (m_rareData) [[unlikely]]
+            return m_rareData->m_functionStart;
+        return m_unlinkedExecutable->unlinkedFunctionStart();
     }
 
     unsigned parametersStartOffset() const
     {
-        if (UNLIKELY(m_rareData))
+        if (m_rareData) [[unlikely]]
             return m_rareData->m_parametersStartOffset;
         return m_unlinkedExecutable->parametersStartOffset();
     }
 
     void overrideInfo(const FunctionOverrideInfo&);
 
-    DECLARE_INFO;
+    DECLARE_EXPORT_INFO;
 
     InferredValue<JSFunction>& singleton()
     {
         return m_singleton;
     }
 
-    void notifyCreation(VM& vm, JSFunction* function, const char* reason)
-    {
-        m_singleton.notifyWrite(vm, this, function, reason);
-    }
+    void notifyCreation(VM&, JSFunction*, const char* reason);
 
     // Cached poly proto structure for the result of constructing this executable.
     Structure* cachedPolyProtoStructure()
     {
-        if (UNLIKELY(m_rareData))
-            return m_rareData->m_cachedPolyProtoStructure.get();
+        if (m_rareData) [[unlikely]]
+            return m_rareData->m_cachedPolyProtoStructureID.get();
         return nullptr;
     }
     void setCachedPolyProtoStructure(VM& vm, Structure* structure)
     {
-        ensureRareData().m_cachedPolyProtoStructure.set(vm, this, structure);
+        ensureRareData().m_cachedPolyProtoStructureID.set(vm, this, structure);
     }
 
     InlineWatchpointSet& ensurePolyProtoWatchpoint()
@@ -273,11 +258,11 @@ public:
 
     Box<InlineWatchpointSet> sharedPolyProtoWatchpoint() const { return m_polyProtoWatchpoint; }
 
-    ScriptExecutable* topLevelExecutable() const { return m_topLevelExecutable.get(); }
+    ScriptExecutable* topLevelExecutable() const LIFETIME_BOUND { return m_topLevelExecutable.get(); }
 
     TemplateObjectMap& ensureTemplateObjectMap(VM&);
 
-    void finalizeUnconditionally(VM&);
+    void finalizeUnconditionally(VM&, CollectionScope);
 
     JSString* toString(JSGlobalObject*);
     JSString* asStringConcurrently() const
@@ -287,34 +272,50 @@ public:
         return m_rareData->m_asString.get();
     }
 
-    static inline ptrdiff_t offsetOfRareData() { return OBJECT_OFFSETOF(FunctionExecutable, m_rareData); }
-    static inline ptrdiff_t offsetOfAsStringInRareData() { return OBJECT_OFFSETOF(RareData, m_asString); }
+    static constexpr ptrdiff_t offsetOfRareData() { return OBJECT_OFFSETOF(FunctionExecutable, m_rareData); }
+    static constexpr ptrdiff_t offsetOfCodeBlockForCall() { return OBJECT_OFFSETOF(FunctionExecutable, m_codeBlockForCall); }
+    static constexpr ptrdiff_t offsetOfCodeBlockForConstruct() { return OBJECT_OFFSETOF(FunctionExecutable, m_codeBlockForConstruct); }
 
-private:
-    friend class ExecutableBase;
-    FunctionExecutable(VM&, const SourceCode&, UnlinkedFunctionExecutable*, Intrinsic, bool isInsideOrdinaryFunction);
-    
-    void finishCreation(VM&, ScriptExecutable* topLevelExecutable);
-
-    friend class ScriptExecutable;
+    static constexpr ptrdiff_t offsetOfCodeBlockFor(CodeSpecializationKind kind)
+    {
+        switch (kind) {
+        case CodeSpecializationKind::CodeForCall:
+            return OBJECT_OFFSETOF(FunctionExecutable, m_codeBlockForCall);
+        case CodeSpecializationKind::CodeForConstruct:
+            return OBJECT_OFFSETOF(FunctionExecutable, m_codeBlockForConstruct);
+        }
+        RELEASE_ASSERT_NOT_REACHED();
+        return 0;
+    }
 
     struct RareData {
-        WTF_MAKE_STRUCT_FAST_ALLOCATED;
+        WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(RareData);
+
+        static constexpr ptrdiff_t offsetOfAsString() { return OBJECT_OFFSETOF(RareData, m_asString); }
+
         RefPtr<TypeSet> m_returnStatementTypeSet;
         unsigned m_lineCount;
         unsigned m_endColumn;
-        Markable<int, IntegralMarkableTraits<int, -1>> m_overrideLineNumber;
+        Markable<int> m_overrideLineNumber;
         unsigned m_parametersStartOffset { 0 };
-        unsigned m_typeProfilingStartOffset { UINT_MAX };
-        unsigned m_typeProfilingEndOffset { UINT_MAX };
+        WriteBarrierStructureID m_cachedPolyProtoStructureID;
         std::unique_ptr<TemplateObjectMap> m_templateObjectMap;
-        WriteBarrier<Structure> m_cachedPolyProtoStructure;
         WriteBarrier<JSString> m_asString;
+        unsigned m_functionStart { UINT_MAX };
+        unsigned m_functionEnd { UINT_MAX };
     };
+
+private:
+    friend class ExecutableBase;
+    FunctionExecutable(VM&, ScriptExecutable* topLevelExecutable, const SourceCode&, UnlinkedFunctionExecutable*, Intrinsic, bool isInsideOrdinaryFunction);
+
+    DECLARE_DEFAULT_FINISH_CREATION;
+
+    friend class ScriptExecutable;
 
     RareData& ensureRareData()
     {
-        if (LIKELY(m_rareData))
+        if (m_rareData) [[likely]]
             return *m_rareData;
         return ensureRareDataSlow();
     }
@@ -328,8 +329,8 @@ private:
     std::unique_ptr<RareData> m_rareData;
     WriteBarrier<ScriptExecutable> m_topLevelExecutable;
     WriteBarrier<UnlinkedFunctionExecutable> m_unlinkedExecutable;
-    WriteBarrier<ExecutableToCodeBlockEdge> m_codeBlockForCall;
-    WriteBarrier<ExecutableToCodeBlockEdge> m_codeBlockForConstruct;
+    WriteBarrier<CodeBlock> m_codeBlockForCall;
+    WriteBarrier<CodeBlock> m_codeBlockForConstruct;
     InferredValue<JSFunction> m_singleton;
     Box<InlineWatchpointSet> m_polyProtoWatchpoint;
 };

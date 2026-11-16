@@ -23,10 +23,12 @@
  * DAMAGE.
  */
 
-#ifndef PlatformLocale_h
-#define PlatformLocale_h
+#pragma once
 
+#include <wtf/CheckedRef.h>
 #include <wtf/Language.h>
+#include <wtf/Platform.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
@@ -37,11 +39,13 @@ class DateComponents;
 class FontCascade;
 #endif
 
-class Locale {
-    WTF_MAKE_NONCOPYABLE(Locale); WTF_MAKE_FAST_ALLOCATED;
+class Locale : public CanMakeCheckedPtr<Locale> {
+    WTF_MAKE_TZONE_ALLOCATED(Locale);
+    WTF_MAKE_NONCOPYABLE(Locale);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(Locale);
 
 public:
-    static std::unique_ptr<Locale> create(const AtomString& localeIdentifier);
+    WEBCORE_EXPORT static std::unique_ptr<Locale> create(const AtomString& localeIdentifier);
     static std::unique_ptr<Locale> createDefault();
 
     // Converts the specified number string to another number string localized
@@ -57,7 +61,15 @@ public:
     // resultant string.
     String convertFromLocalizedNumber(const String&);
 
-#if ENABLE(DATE_AND_TIME_INPUT_TYPES)
+    enum class WritingDirection: uint8_t {
+        Default,
+        LeftToRight,
+        RightToLeft
+    };
+
+    // Returns the default writing direction for the specified locale.
+    virtual WritingDirection defaultWritingDirection() const;
+
     // Returns date format in Unicode TR35 LDML[1] containing day of month,
     // month, and year, e.g. "dd/mm/yyyy"
     // [1] LDML http://unicode.org/reports/tr35/#Date_Format_Patterns
@@ -109,10 +121,14 @@ public:
     // December. These strings should not be abbreviations.
     virtual const Vector<String>& monthLabels() = 0;
 
-    String localizedDecimalSeparator();
-#endif
+    const String& localizedDecimalSeparator();
 
-#if ENABLE(DATE_AND_TIME_INPUT_TYPES)
+    // Converts digit and decimal separator characters to their localized
+    // equivalents, passing through all other characters unchanged. Unlike
+    // convertToLocalizedNumber, this handles partial input (e.g. containing
+    // 'e', '+') and does not add sign prefixes or suffixes.
+    String localizeNumberCharacters(const String&);
+
     enum FormatType { FormatTypeUnspecified, FormatTypeShort, FormatTypeMedium };
 
     // Serializes the specified date into a formatted date string to
@@ -120,9 +136,8 @@ public:
     // localized dates the function should return an empty string.
     // FormatType can be used to specify if you want the short format. 
     virtual String formatDateTime(const DateComponents&, FormatType = FormatTypeUnspecified);
-#endif
 
-    virtual ~Locale();
+    WEBCORE_EXPORT virtual ~Locale();
 
 protected:
     enum {
@@ -137,10 +152,10 @@ protected:
     void setLocaleData(const Vector<String, DecimalSymbolsSize>&, const String& positivePrefix, const String& positiveSuffix, const String& negativePrefix, const String& negativeSuffix);
 
 private:
-    bool detectSignAndGetDigitRange(const String& input, bool& isNegative, unsigned& startIndex, unsigned& endIndex);
-    unsigned matchedDecimalSymbolIndex(const String& input, unsigned& position);
+    bool NODELETE detectSignAndGetDigitRange(const String& input, bool& isNegative, unsigned& startIndex, unsigned& endIndex);
+    unsigned NODELETE matchedDecimalSymbolIndex(const String& input, unsigned& position);
 
-    String m_decimalSymbols[DecimalSymbolsSize];
+    std::array<String, DecimalSymbolsSize> m_decimalSymbols;
     String m_positivePrefix;
     String m_positiveSuffix;
     String m_negativePrefix;
@@ -150,8 +165,7 @@ private:
 
 inline std::unique_ptr<Locale> Locale::createDefault()
 {
-    return Locale::create(defaultLanguage());
+    return Locale::create(AtomString { defaultLanguage() });
 }
 
-}
-#endif
+} // namespace WebCore

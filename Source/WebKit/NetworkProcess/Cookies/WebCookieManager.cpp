@@ -26,15 +26,17 @@
 #include "config.h"
 #include "WebCookieManager.h"
 
+#include "Logging.h"
+#include "MessageSenderInlines.h"
 #include "NetworkProcess.h"
+#include "NetworkProcessProxyMessages.h"
 #include "WebCookieManagerMessages.h"
-#include "WebCookieManagerProxyMessages.h"
-#include "WebCoreArgumentCoders.h"
 #include <WebCore/Cookie.h>
 #include <WebCore/CookieStorage.h>
 #include <WebCore/HTTPCookieAcceptPolicy.h>
 #include <WebCore/NetworkStorageSession.h>
 #include <wtf/MainThread.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/URL.h>
 #include <wtf/text/StringHash.h>
 #include <wtf/text/WTFString.h>
@@ -42,81 +44,101 @@
 namespace WebKit {
 using namespace WebCore;
 
-const char* WebCookieManager::supplementName()
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebCookieManager);
+
+ASCIILiteral WebCookieManager::supplementName()
 {
-    return "WebCookieManager";
+    return "WebCookieManager"_s;
 }
 
 WebCookieManager::WebCookieManager(NetworkProcess& process)
     : m_process(process)
 {
-    m_process.addMessageReceiver(Messages::WebCookieManager::messageReceiverName(), *this);
+    process.addMessageReceiver(Messages::WebCookieManager::messageReceiverName(), *this);
 }
 
 WebCookieManager::~WebCookieManager() = default;
 
+void WebCookieManager::ref() const
+{
+    m_process->ref();
+}
+
+void WebCookieManager::deref() const
+{
+    m_process->deref();
+}
+
 void WebCookieManager::getHostnamesWithCookies(PAL::SessionID sessionID, CompletionHandler<void(Vector<String>&&)>&& completionHandler)
 {
     HashSet<String> hostnames;
-    if (auto* storageSession = m_process.storageSession(sessionID))
+    if (CheckedPtr storageSession = m_process->storageSession(sessionID))
         storageSession->getHostnamesWithCookies(hostnames);
     completionHandler(copyToVector(hostnames));
 }
 
-void WebCookieManager::deleteCookiesForHostnames(PAL::SessionID sessionID, const Vector<String>& hostnames)
+void WebCookieManager::deleteCookiesForHostnames(PAL::SessionID sessionID, const Vector<String>& hostnames, CompletionHandler<void()>&& completionHandler)
 {
-    if (auto* storageSession = m_process.storageSession(sessionID))
-        storageSession->deleteCookiesForHostnames(hostnames);
+    if (CheckedPtr storageSession = m_process->storageSession(sessionID))
+        storageSession->deleteCookiesForHostnames(hostnames, WTF::move(completionHandler));
+    else
+        completionHandler();
 }
 
-void WebCookieManager::deleteAllCookies(PAL::SessionID sessionID)
+void WebCookieManager::deleteAllCookies(PAL::SessionID sessionID, CompletionHandler<void()>&& completionHandler)
 {
-    if (auto* storageSession = m_process.storageSession(sessionID))
-        storageSession->deleteAllCookies();
+    if (CheckedPtr storageSession = m_process->storageSession(sessionID))
+        storageSession->deleteAllCookies(WTF::move(completionHandler));
+    else
+        completionHandler();
 }
 
 void WebCookieManager::deleteCookie(PAL::SessionID sessionID, const Cookie& cookie, CompletionHandler<void()>&& completionHandler)
 {
-    if (auto* storageSession = m_process.storageSession(sessionID))
-        storageSession->deleteCookie(cookie);
-    completionHandler();
+    if (CheckedPtr storageSession = m_process->storageSession(sessionID))
+        storageSession->deleteCookie(cookie, WTF::move(completionHandler));
+    else
+        completionHandler();
 }
 
 void WebCookieManager::deleteAllCookiesModifiedSince(PAL::SessionID sessionID, WallTime time, CompletionHandler<void()>&& completionHandler)
 {
-    if (auto* storageSession = m_process.storageSession(sessionID))
-        storageSession->deleteAllCookiesModifiedSince(time);
-    completionHandler();
+    if (CheckedPtr storageSession = m_process->storageSession(sessionID))
+        storageSession->deleteAllCookiesModifiedSince(time, WTF::move(completionHandler));
+    else
+        completionHandler();
 }
 
 void WebCookieManager::getAllCookies(PAL::SessionID sessionID, CompletionHandler<void(Vector<WebCore::Cookie>&&)>&& completionHandler)
 {
     Vector<Cookie> cookies;
-    if (auto* storageSession = m_process.storageSession(sessionID))
+    if (CheckedPtr storageSession = m_process->storageSession(sessionID))
         cookies = storageSession->getAllCookies();
-    completionHandler(WTFMove(cookies));
+    completionHandler(WTF::move(cookies));
 }
 
 void WebCookieManager::getCookies(PAL::SessionID sessionID, const URL& url, CompletionHandler<void(Vector<WebCore::Cookie>&&)>&& completionHandler)
 {
     Vector<Cookie> cookies;
-    if (auto* storageSession = m_process.storageSession(sessionID))
+    if (CheckedPtr storageSession = m_process->storageSession(sessionID))
         cookies = storageSession->getCookies(url);
-    completionHandler(WTFMove(cookies));
+    completionHandler(WTF::move(cookies));
 }
 
-void WebCookieManager::setCookie(PAL::SessionID sessionID, const Vector<Cookie>& cookies, CompletionHandler<void()>&& completionHandler)
+void WebCookieManager::setCookie(PAL::SessionID sessionID, const Vector<Cookie>& cookies, uint64_t cookiesVersion, CompletionHandler<void()>&& completionHandler)
 {
-    if (auto* storageSession = m_process.storageSession(sessionID)) {
+    if (CheckedPtr storageSession = m_process->storageSession(sessionID)) {
         for (auto& cookie : cookies)
             storageSession->setCookie(cookie);
-    }
+        storageSession->setCookiesVersion(cookiesVersion);
+    } else
+        RELEASE_LOG_ERROR(Storage, "%p - WebCookieManager::setCookie failed to set cookies and version (%" PRIu64 ") for session %" PRIu64, this, cookiesVersion, sessionID.toUInt64());
     completionHandler();
 }
 
 void WebCookieManager::setCookies(PAL::SessionID sessionID, const Vector<Cookie>& cookies, const URL& url, const URL& mainDocumentURL, CompletionHandler<void()>&& completionHandler)
 {
-    if (auto* storageSession = m_process.storageSession(sessionID))
+    if (CheckedPtr storageSession = m_process->storageSession(sessionID))
         storageSession->setCookies(cookies, url, mainDocumentURL);
     completionHandler();
 }
@@ -124,27 +146,29 @@ void WebCookieManager::setCookies(PAL::SessionID sessionID, const Vector<Cookie>
 void WebCookieManager::notifyCookiesDidChange(PAL::SessionID sessionID)
 {
     ASSERT(RunLoop::isMain());
-    m_process.send(Messages::WebCookieManagerProxy::CookiesDidChange(sessionID), 0);
+    protect(m_process)->send(Messages::NetworkProcessProxy::CookiesDidChange(sessionID), 0);
 }
 
 void WebCookieManager::startObservingCookieChanges(PAL::SessionID sessionID)
 {
-    if (auto* storageSession = m_process.storageSession(sessionID)) {
-        WebCore::startObservingCookieChanges(*storageSession, [this, sessionID] {
-            notifyCookiesDidChange(sessionID);
+    if (CheckedPtr storageSession = m_process->storageSession(sessionID)) {
+        WebCore::startObservingCookieChanges(*storageSession, [weakThis = WeakPtr { *this }, sessionID] {
+            if (RefPtr protectedThis = weakThis.get())
+                protectedThis->notifyCookiesDidChange(sessionID);
         });
     }
 }
 
 void WebCookieManager::stopObservingCookieChanges(PAL::SessionID sessionID)
 {
-    if (auto* storageSession = m_process.storageSession(sessionID))
+    if (CheckedPtr storageSession = m_process->storageSession(sessionID))
         WebCore::stopObservingCookieChanges(*storageSession);
 }
 
-void WebCookieManager::setHTTPCookieAcceptPolicy(HTTPCookieAcceptPolicy policy, CompletionHandler<void()>&& completionHandler)
+void WebCookieManager::setHTTPCookieAcceptPolicy(PAL::SessionID sessionID, HTTPCookieAcceptPolicy policy, CompletionHandler<void()>&& completionHandler)
 {
-    platformSetHTTPCookieAcceptPolicy(policy, [policy, process = makeRef(m_process), completionHandler = WTFMove(completionHandler)] () mutable {
+    RELEASE_LOG(Storage, "WebCookieManager::setHTTPCookieAcceptPolicy set policy %d for session %" PRIu64, static_cast<int>(policy), sessionID.toUInt64());
+    platformSetHTTPCookieAcceptPolicy(sessionID, policy, [policy, process = protect(m_process), completionHandler = WTF::move(completionHandler)] () mutable {
         process->cookieAcceptPolicyChanged(policy);
         completionHandler();
     });
@@ -152,7 +176,7 @@ void WebCookieManager::setHTTPCookieAcceptPolicy(HTTPCookieAcceptPolicy policy, 
 
 void WebCookieManager::getHTTPCookieAcceptPolicy(PAL::SessionID sessionID, CompletionHandler<void(HTTPCookieAcceptPolicy)>&& completionHandler)
 {
-    if (auto* storageSession = m_process.storageSession(sessionID))
+    if (CheckedPtr storageSession = m_process->storageSession(sessionID))
         completionHandler(storageSession->cookieAcceptPolicy());
     else
         completionHandler(HTTPCookieAcceptPolicy::Never);

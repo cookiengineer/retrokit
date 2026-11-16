@@ -24,15 +24,16 @@
 #include <WebCore/SQLiteStatement.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/HashMap.h>
+#include <wtf/ListHashSet.h>
 #include <wtf/Lock.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/WorkQueue.h>
 
 namespace WebKit {
 
-class IconDatabase : public ThreadSafeRefCounted<IconDatabase> {
+class IconDatabase : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<IconDatabase> {
 public:
-    enum class AllowDatabaseWrite { No, Yes };
+    enum class AllowDatabaseWrite : bool { No, Yes };
 
     static Ref<IconDatabase> create(const String& path, AllowDatabaseWrite allowDatabaseWrite)
     {
@@ -44,16 +45,16 @@ public:
     void invalidate();
 
     void checkIconURLAndSetPageURLIfNeeded(const String& iconURL, const String& pageURL, AllowDatabaseWrite, CompletionHandler<void(bool, bool)>&&);
-    void loadIconForPageURL(const String&, AllowDatabaseWrite, CompletionHandler<void(WebCore::PlatformImagePtr&&)>&&);
-    String iconURLForPageURL(const String&);
-    void setIconForPageURL(const String& iconURL, const uint8_t*, size_t, const String& pageURL, AllowDatabaseWrite, CompletionHandler<void(bool)>&&);
+    void loadIconsForPageURL(const String&, AllowDatabaseWrite, CompletionHandler<void(Vector<WebCore::PlatformImagePtr>&&)>&&);
+    ListHashSet<String> iconURLsForPageURL(const String&);
+    void setIconForPageURL(const String& iconURL, std::span<const uint8_t>, const String& pageURL, AllowDatabaseWrite, CompletionHandler<void(bool)>&&);
     void clear(CompletionHandler<void()>&&);
 
 private:
     IconDatabase(const String&, AllowDatabaseWrite);
 
     bool createTablesIfNeeded();
-    void populatePageURLToIconURLMap();
+    void populatePageURLToIconURLsMap();
     void pruneTimerFired();
     void startPruneTimer();
     void clearStatements();
@@ -68,8 +69,8 @@ private:
 
     Ref<WorkQueue> m_workQueue;
     AllowDatabaseWrite m_allowDatabaseWrite { AllowDatabaseWrite::Yes };
-    WebCore::SQLiteDatabase m_db;
-    HashMap<String, String> m_pageURLToIconURLMap;
+    UniqueRef<WebCore::SQLiteDatabase> m_db;
+    HashMap<String, ListHashSet<String>> m_pageURLToIconURLMap;
     Lock m_pageURLToIconURLMapLock;
     HashMap<String, std::pair<WebCore::PlatformImagePtr, MonotonicTime>> m_loadedIcons WTF_GUARDED_BY_LOCK(m_loadedIconsLock);
     Lock m_loadedIconsLock;
@@ -85,8 +86,8 @@ private:
     std::unique_ptr<WebCore::SQLiteStatement> m_deleteIconStatement;
     std::unique_ptr<WebCore::SQLiteStatement> m_pruneIconsStatement;
 
-    std::unique_ptr<RunLoop::Timer<IconDatabase>> m_pruneTimer;
-    RunLoop::Timer<IconDatabase> m_clearLoadedIconsTimer;
+    std::unique_ptr<RunLoop::Timer> m_pruneTimer;
+    RunLoop::Timer m_clearLoadedIconsTimer;
 };
 
 } // namespace WebKit

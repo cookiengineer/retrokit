@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008, 2009, 2015 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008, 2009, 2015 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,16 +32,19 @@
 
 namespace WebCore {
 
-class Frame;
 class Element;
+class LocalFrame;
 class RenderBox;
 class RenderScrollbarPart;
-class RenderStyle;
+
+namespace Style {
+class ComputedStyle;
+}
 
 class RenderScrollbar final : public Scrollbar {
 public:
     friend class Scrollbar;
-    static Ref<Scrollbar> createCustomScrollbar(ScrollableArea&, ScrollbarOrientation, Element*, Frame* owningFrame = nullptr);
+    static Ref<Scrollbar> createCustomScrollbar(ScrollableArea&, ScrollbarOrientation, Element*, LocalFrame* owningFrame = nullptr);
     virtual ~RenderScrollbar();
 
     RenderBox* owningRenderer() const;
@@ -56,19 +59,19 @@ public:
 
     float opacity() const;
     
-    bool isHiddenByStyle() const final;
+    bool isHiddenByStyle() const override;
 
-    std::unique_ptr<RenderStyle> getScrollbarPseudoStyle(ScrollbarPart, PseudoId) const;
+    std::unique_ptr<Style::ComputedStyle> getScrollbarPseudoStyle(ScrollbarPart, PseudoElementType) const;
 
 private:
-    RenderScrollbar(ScrollableArea&, ScrollbarOrientation, Element*, Frame*);
+    RenderScrollbar(ScrollableArea&, ScrollbarOrientation, Element*, LocalFrame*);
 
     bool isOverlayScrollbar() const override { return false; }
 
     void setParent(ScrollView*) override;
     void setEnabled(bool) override;
 
-    void paint(GraphicsContext&, const IntRect& damageRect, Widget::SecurityOriginPaintPolicy, EventRegionContext*) override;
+    void paint(GraphicsContext&, const IntRect& damageRect, Widget::SecurityOriginPaintPolicy, RegionContext*) override;
 
     void setHoveredPart(ScrollbarPart) override;
     void setPressedPart(ScrollbarPart) override;
@@ -85,7 +88,7 @@ private:
     // FrameView which this Element pointer can in no way keep alive. See webkit bug 80610.
     RefPtr<Element> m_ownerElement;
 
-    WeakPtr<Frame> m_owningFrame;
+    WeakPtr<LocalFrame> m_owningFrame;
     HashMap<unsigned, RenderPtr<RenderScrollbarPart>> m_parts;
 };
 

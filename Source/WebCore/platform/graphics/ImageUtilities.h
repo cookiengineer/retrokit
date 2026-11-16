@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,12 +25,37 @@
 
 #pragma once
 
+#include <WebCore/IntSize.h>
+#include <WebCore/PlatformImage.h>
+#include <optional>
 #include <wtf/Forward.h>
+
+#if USE(CG)
+#include <CoreFoundation/CoreFoundation.h>
+#include <span>
 #include <wtf/WorkQueue.h>
+#endif
 
 namespace WebCore {
 
-WEBCORE_EXPORT WorkQueue& sharedImageTranscodingQueue();
+class ImageBuffer;
+class NativeImage;
+class PixelBuffer;
+class ShareableBitmap;
+class SharedBuffer;
+
+Vector<uint8_t> encodeData(const PixelBuffer&, const String& mimeType, std::optional<double> quality = std::nullopt);
+Vector<uint8_t> encodeData(const NativeImage&, const String& mimeType, std::optional<double> quality = std::nullopt);
+Vector<uint8_t> encodeData(const RefPtr<NativeImage>&, const String& mimeType, std::optional<double> quality = std::nullopt);
+WEBCORE_EXPORT Vector<uint8_t> encodeData(RefPtr<ImageBuffer>&&, const String& mimeType, std::optional<double> quality = std::nullopt);
+
+String encodeDataURL(const PixelBuffer&, const String& mimeType, std::optional<double> quality = std::nullopt);
+String encodeDataURL(const NativeImage&, const String& mimeType, std::optional<double> quality = std::nullopt);
+WEBCORE_EXPORT String encodeDataURL(const RefPtr<NativeImage>&, const String& mimeType, std::optional<double> quality = std::nullopt);
+WEBCORE_EXPORT String encodeDataURL(RefPtr<ImageBuffer>&&, const String& mimeType, std::optional<double> quality = std::nullopt);
+
+#if USE(CG)
+WEBCORE_EXPORT WorkQueue& sharedImageTranscodingQueueSingleton();
 
 // Given a list of files' 'paths' and 'allowedMIMETypes', the function returns a list
 // of strings whose size is the same as the size of 'paths' and its entries are all
@@ -43,6 +68,31 @@ WEBCORE_EXPORT Vector<String> findImagesForTranscoding(const Vector<String>& pat
 // of paths to the result temporary files. If an entry in 'paths' is null or an error
 // happens while transcoding, a null string will be added to the returned list.
 WEBCORE_EXPORT Vector<String> transcodeImages(const Vector<String>& paths, const String& destinationUTI, const String& destinationExtension);
+
+// Same as transcodeImages, but performs the work on a background queue and invokes the completion handler on the main thread with the transcoded paths.
+WEBCORE_EXPORT void transcodeImagesInBackgroundQueue(Vector<String>&& paths, String&& destinationUTI, String&& destinationExtension, CompletionHandler<void(Vector<String>&&)>&&);
+
+enum class ImageDecodingError : uint8_t {
+    Internal,
+    BadData,
+    UnsupportedType
+};
+WEBCORE_EXPORT String descriptionString(ImageDecodingError);
+WEBCORE_EXPORT Expected<std::pair<String, Vector<IntSize>>, ImageDecodingError> utiAndAvailableSizesFromImageData(std::span<const uint8_t>);
+WEBCORE_EXPORT Expected<Vector<std::pair<String, float>>, ImageDecodingError> imageMetadataFromImageData(std::span<const uint8_t>);
+WEBCORE_EXPORT void createBitmapsFromImageData(std::span<const uint8_t> data, std::span<const unsigned> lengths, CompletionHandler<void(Vector<Ref<ShareableBitmap>>&&)>&&);
+WEBCORE_EXPORT RefPtr<SharedBuffer> createIconDataFromBitmaps(Vector<Ref<ShareableBitmap>>&&);
+WEBCORE_EXPORT void decodeImageWithSize(std::span<const uint8_t> data, std::optional<FloatSize>, CompletionHandler<void(RefPtr<ShareableBitmap>&&)>&&);
+
+Vector<uint8_t> encodeData(CGImageRef, const String& mimeType, std::optional<double> quality = std::nullopt);
+WEBCORE_EXPORT String encodeDataURL(CGImageRef, const String& mimeType, std::optional<double> quality = std::nullopt);
+WEBCORE_EXPORT uint8_t NODELETE verifyImageBufferIsBigEnough(std::span<const uint8_t> buffer);
+RetainPtr<CFStringRef> utiFromImageBufferMIMEType(const String& mimeType);
+CFStringRef NODELETE jpegUTI();
+#endif
+
+// For the implementations, not to be called directly.
+Vector<uint8_t> platformEncodeData(const NativeImage&, const String& mimeType, std::optional<double> quality);
 
 } // namespace WebCore
 

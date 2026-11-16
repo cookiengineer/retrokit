@@ -4,6 +4,8 @@
  * Copyright (C) 2004, 2005 Rob Buis <buis@kde.org>
  * Copyright (C) 2005 Eric Seidel <eric@webkit.org>
  * Copyright (C) 2010 Zoltan Herczeg <zherczeg@webkit.org>
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2014 Google Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -23,7 +25,7 @@
 
 #pragma once
 
-#include "FloatPoint3D.h"
+#include <WebCore/FloatPoint3D.h>
 #include <wtf/RefCounted.h>
 
 namespace WTF {
@@ -32,13 +34,14 @@ class TextStream;
 
 namespace WebCore {
 
-enum LightType {
+enum class LightType : uint8_t {
     LS_DISTANT,
     LS_POINT,
     LS_SPOT
 };
 
-class FilterEffect;
+class Filter;
+class FilterImage;
 
 class LightSource : public RefCounted<LightSource> {
 public:
@@ -53,7 +56,6 @@ public:
         FloatPoint3D directionVector;
         float coneCutOffLimit;
         float coneFullLight;
-        int specularExponent;
     };
 
     LightSource(LightType type)
@@ -62,10 +64,15 @@ public:
 
     virtual ~LightSource() = default;
 
+    virtual bool operator==(const LightSource& other) const
+    {
+        return m_type == other.m_type;
+    }
+
     LightType type() const { return m_type; }
     virtual WTF::TextStream& externalRepresentation(WTF::TextStream&) const = 0;
 
-    virtual void initPaintingData(const FilterEffect&, PaintingData&) = 0;
+    virtual void initPaintingData(const Filter&, const FilterImage& result, PaintingData&) const = 0;
     // z is a float number, since it is the alpha value scaled by a user
     // specified "surfaceScale" constant, which type is <number> in the SVG standard.
     // x and y are in the coordinates of the FilterEffect's buffer.
@@ -84,6 +91,14 @@ public:
     
     virtual bool setSpecularExponent(float) { return false; }
     virtual bool setLimitingConeAngle(float) { return false; }
+
+protected:
+    template<typename LightSourceType>
+    static bool areEqual(const LightSourceType& a, const LightSource& b)
+    {
+        auto* bType = dynamicDowncast<LightSourceType>(b);
+        return bType && a.operator==(*bType);
+    }
 
 private:
     LightType m_type;

@@ -25,7 +25,9 @@
 
 #pragma once
 
+#include <wtf/CheckedPtr.h>
 #include <wtf/Function.h>
+#include <wtf/TZoneMalloc.h>
 
 #if HAVE(APPLE_LOW_POWER_MODE_SUPPORT)
 #include <wtf/RetainPtr.h>
@@ -34,15 +36,18 @@ OBJC_CLASS WebLowPowerModeObserver;
 
 #if USE(GLIB)
 #include <wtf/glib/GRefPtr.h>
-typedef struct _GDBusProxy GDBusProxy;
+extern "C" {
+typedef struct _GPowerProfileMonitor GPowerProfileMonitor;
+};
 #endif
 
 namespace WebCore {
 
-class LowPowerModeNotifier {
-    WTF_MAKE_FAST_ALLOCATED;
+class LowPowerModeNotifier : public CanMakeCheckedPtr<LowPowerModeNotifier> {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(LowPowerModeNotifier, WEBCORE_EXPORT);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(LowPowerModeNotifier);
 public:
-    using LowPowerModeChangeCallback = WTF::Function<void(bool isLowPowerModeEnabled)>;
+    using LowPowerModeChangeCallback = Function<void(bool isLowPowerModeEnabled)>;
     WEBCORE_EXPORT explicit LowPowerModeNotifier(LowPowerModeChangeCallback&&);
     WEBCORE_EXPORT ~LowPowerModeNotifier();
 
@@ -56,13 +61,8 @@ private:
     RetainPtr<WebLowPowerModeObserver> m_observer;
     LowPowerModeChangeCallback m_callback;
 #elif USE(GLIB)
-    void updateWarningLevel();
-    void warningLevelChanged();
-    static void gPropertiesChangedCallback(LowPowerModeNotifier*, GVariant* changedProperties);
-
-    GRefPtr<GDBusProxy> m_displayDeviceProxy;
-    GRefPtr<GCancellable> m_cancellable;
     LowPowerModeChangeCallback m_callback;
+    GRefPtr<GPowerProfileMonitor> m_powerProfileMonitor;
     bool m_lowPowerModeEnabled { false };
 #endif
 };

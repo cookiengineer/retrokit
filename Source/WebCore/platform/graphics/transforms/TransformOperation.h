@@ -24,34 +24,49 @@
 
 #pragma once
 
-#include "FloatSize.h"
-#include "TransformationMatrix.h"
+#include <WebCore/CompositeOperation.h>
+#include <WebCore/FloatSize.h>
+#include <WebCore/TransformationMatrix.h>
 #include <wtf/Forward.h>
 #include <wtf/RefCounted.h>
+#include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/TypeCasts.h>
 
 namespace WebCore {
 
 struct BlendingContext;
 
-class TransformOperation : public RefCounted<TransformOperation> {
-public:
-    enum OperationType {
-        SCALE_X, SCALE_Y, SCALE, 
-        TRANSLATE_X, TRANSLATE_Y, TRANSLATE, 
-        ROTATE,
-        ROTATE_Z = ROTATE,
-        SKEW_X, SKEW_Y, SKEW, 
-        MATRIX,
-        SCALE_Z, SCALE_3D,
-        TRANSLATE_Z, TRANSLATE_3D,
-        ROTATE_X, ROTATE_Y, ROTATE_3D,
-        MATRIX_3D,
-        PERSPECTIVE,
-        IDENTITY, NONE
-    };
+enum class TransformOperationType : uint8_t {
+    ScaleX,
+    ScaleY,
+    Scale,
+    TranslateX,
+    TranslateY,
+    Translate,
+    RotateX,
+    RotateY,
+    Rotate,
+    SkewX,
+    SkewY,
+    Skew,
+    Matrix,
+    ScaleZ,
+    Scale3D,
+    TranslateZ,
+    Translate3D,
+    RotateZ,
+    Rotate3D,
+    Matrix3D,
+    Perspective,
+    Identity,
+    None
+};
 
-    TransformOperation(OperationType type)
+class TransformOperation : public ThreadSafeRefCounted<TransformOperation> {
+public:
+    using Type = TransformOperationType;
+
+    TransformOperation(Type type)
         : m_type(type)
     {
     }
@@ -60,68 +75,68 @@ public:
     virtual Ref<TransformOperation> clone() const = 0;
 
     virtual bool operator==(const TransformOperation&) const = 0;
-    bool operator!=(const TransformOperation& o) const { return !(*this == o); }
 
-    virtual bool isIdentity() const = 0;
+    virtual void apply(TransformationMatrix&) const = 0;
+    virtual void applyUnrounded(TransformationMatrix& transform) const
+    {
+        apply(transform);
+    }
 
-    // Return true if the borderBoxSize was used in the computation, false otherwise.
-    virtual bool apply(TransformationMatrix&, const FloatSize& borderBoxSize) const = 0;
+    virtual Ref<TransformOperation> blend(const TransformOperation* from, const BlendingContext&, bool blendToIdentity = false) const = 0;
 
-    virtual Ref<TransformOperation> blend(const TransformOperation* from, const BlendingContext&, bool blendToIdentity = false) = 0;
-
-    OperationType type() const { return m_type; }
+    Type type() const { return m_type; }
     bool isSameType(const TransformOperation& other) const { return type() == other.type(); }
 
-    virtual bool isAffectedByTransformOrigin() const { return false; }
-    
-    bool is3DOperation() const
-    {
-        OperationType opType = type();
-        return opType == SCALE_Z ||
-               opType == SCALE_3D ||
-               opType == TRANSLATE_Z ||
-               opType == TRANSLATE_3D ||
-               opType == ROTATE_X ||
-               opType == ROTATE_Y ||
-               opType == ROTATE_3D ||
-               opType == MATRIX_3D ||
-               opType == PERSPECTIVE;
-    }
-    
-    virtual bool isRepresentableIn2D() const { return true; }
+    virtual Type primitiveType() const { return m_type; }
+    std::optional<Type> sharedPrimitiveType(Type other) const;
+    std::optional<Type> sharedPrimitiveType(const TransformOperation* other) const;
 
-    bool isRotateTransformOperationType() const
+    static bool isRotateTransformOperationType(Type type)
     {
-        return type() == ROTATE_X || type() == ROTATE_Y || type() == ROTATE_Z || type() == ROTATE || type() == ROTATE_3D;
+        return type == Type::RotateX
+            || type == Type::RotateY
+            || type == Type::RotateZ
+            || type == Type::Rotate
+            || type == Type::Rotate3D;
     }
 
-    bool isScaleTransformOperationType() const
+    static bool isScaleTransformOperationType(Type type)
     {
-        return type() == SCALE_X || type() == SCALE_Y || type() == SCALE_Z || type() == SCALE || type() == SCALE_3D;
+        return type == Type::ScaleX
+            || type == Type::ScaleY
+            || type == Type::ScaleZ
+            || type == Type::Scale
+            || type == Type::Scale3D;
     }
 
-    bool isSkewTransformOperationType() const
+    static bool isSkewTransformOperationType(Type type)
     {
-        return type() == SKEW_X || type() == SKEW_Y || type() == SKEW;
+        return type == Type::SkewX
+            || type == Type::SkewY
+            || type == Type::Skew;
     }
 
-    bool isTranslateTransformOperationType() const
+    static bool isTranslateTransformOperationType(Type type)
     {
-        return type() == TRANSLATE_X || type() == TRANSLATE_Y || type() == TRANSLATE_Z || type() == TRANSLATE || type() == TRANSLATE_3D;
+        return type == Type::TranslateX
+            || type == Type::TranslateY
+            || type == Type::TranslateZ
+            || type == Type::Translate
+            || type == Type::Translate3D;
     }
-    
+
     virtual void dump(WTF::TextStream&) const = 0;
 
 private:
-    OperationType m_type;
+    Type m_type;
 };
 
-WTF::TextStream& operator<<(WTF::TextStream&, TransformOperation::OperationType);
+WTF::TextStream& operator<<(WTF::TextStream&, TransformOperation::Type);
 WTF::TextStream& operator<<(WTF::TextStream&, const TransformOperation&);
 
 } // namespace WebCore
 
 #define SPECIALIZE_TYPE_TRAITS_TRANSFORMOPERATION(ToValueTypeName, predicate) \
 SPECIALIZE_TYPE_TRAITS_BEGIN(ToValueTypeName) \
-    static bool isType(const WebCore::TransformOperation& operation) { return operation.predicate; } \
+    static bool isType(const WebCore::TransformOperation& operation) { return predicate(operation.type()); } \
 SPECIALIZE_TYPE_TRAITS_END()

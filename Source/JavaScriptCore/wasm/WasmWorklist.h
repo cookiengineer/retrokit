@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,6 +25,8 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if ENABLE(WEBASSEMBLY)
 
 #include <queue>
@@ -32,23 +34,25 @@
 #include <wtf/AutomaticThread.h>
 #include <wtf/PrintStream.h>
 #include <wtf/PriorityQueue.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 
 namespace JSC {
 
+class VM;
+
 namespace Wasm {
 
-struct Context;
 class Plan;
 
 class Worklist {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(Worklist);
 public:
     Worklist();
     ~Worklist();
 
     JS_EXPORT_PRIVATE void enqueue(Ref<Plan>);
-    void stopAllPlansForContext(Context&);
+    void stopAllPlansForContext(VM&);
 
     JS_EXPORT_PRIVATE void completePlanSynchronously(Plan&);
 
@@ -58,7 +62,6 @@ public:
         Compilation,
         Preparation
     };
-    const char* priorityString(Priority);
 
     void dump(PrintStream&) const;
 
@@ -74,7 +77,7 @@ private:
         Ticket ticket;
         RefPtr<Plan> plan;
 
-        void setToNextPriority();
+        void NODELETE setToNextPriority();
     };
 
     static bool isHigherPriority(const QueueElement& left, const QueueElement& right)
@@ -85,15 +88,15 @@ private:
     }
 
     Box<Lock> m_lock;
-    Ref<AutomaticThreadCondition> m_planEnqueued;
+    const Ref<AutomaticThreadCondition> m_planEnqueued;
     // Technically, this could overflow but that's unlikely. Even if it did, we will just compile things of the same
     // Priority it the wrong order, which isn't wrong, just suboptimal.
     Ticket m_lastGrantedTicket { 0 };
     PriorityQueue<QueueElement, isHigherPriority, 10> m_queue;
-    Vector<std::unique_ptr<Thread>> m_threads;
+    Vector<Ref<Thread>> m_threads;
 };
 
-Worklist* existingWorklistOrNull();
+Worklist* NODELETE existingWorklistOrNull();
 JS_EXPORT_PRIVATE Worklist& ensureWorklist();
 
 } } // namespace JSC::Wasm

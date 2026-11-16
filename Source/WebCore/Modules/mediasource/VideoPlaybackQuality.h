@@ -37,7 +37,7 @@ struct VideoPlaybackQualityMetrics;
 class VideoPlaybackQuality : public RefCounted<VideoPlaybackQuality> {
     WTF_MAKE_NONCOPYABLE(VideoPlaybackQuality)
 public:
-    static Ref<VideoPlaybackQuality> create(double creationTime, const VideoPlaybackQualityMetrics&);
+    static Ref<VideoPlaybackQuality> NODELETE create(double creationTime, const VideoPlaybackQualityMetrics&);
 
     double creationTime() const { return m_creationTime; }
     unsigned totalVideoFrames() const { return m_totalVideoFrames; }
@@ -45,6 +45,8 @@ public:
     unsigned corruptedVideoFrames() const { return m_corruptedVideoFrames; }
     unsigned displayCompositedVideoFrames() const { return m_displayCompositedVideoFrames; }
     double totalFrameDelay() const { return m_totalFrameDelay; }
+
+    Ref<JSON::Object> toJSONObject() const;
 
 private:
     VideoPlaybackQuality(double creationTime, const VideoPlaybackQualityMetrics&);

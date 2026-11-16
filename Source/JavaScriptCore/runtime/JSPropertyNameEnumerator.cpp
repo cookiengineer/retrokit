@@ -28,47 +28,56 @@
 
 #include "JSObjectInlines.h"
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
-const ClassInfo JSPropertyNameEnumerator::s_info = { "JSPropertyNameEnumerator", nullptr, nullptr, nullptr, CREATE_METHOD_TABLE(JSPropertyNameEnumerator) };
+const ClassInfo JSPropertyNameEnumerator::s_info = { "JSPropertyNameEnumerator"_s, nullptr, nullptr, nullptr, CREATE_METHOD_TABLE(JSPropertyNameEnumerator) };
 
-JSPropertyNameEnumerator* JSPropertyNameEnumerator::create(VM& vm, Structure* structure, uint32_t indexedLength, uint32_t numberStructureProperties, PropertyNameArray&& propertyNames)
+JSPropertyNameEnumerator* JSPropertyNameEnumerator::tryCreate(VM& vm, Structure* structure, uint32_t indexedLength, uint32_t numberStructureProperties, PropertyNameArrayBuilder&& propertyNames)
 {
     unsigned propertyNamesSize = propertyNames.size();
-    unsigned propertyNamesBufferSizeInBytes = Checked<unsigned>(propertyNamesSize) * sizeof(WriteBarrier<JSString>);
+    auto propertyNamesBufferSizeInBytes = CheckedUint32(propertyNamesSize) * sizeof(WriteBarrier<JSString>);
+    if (propertyNamesBufferSizeInBytes.hasOverflowed()) [[unlikely]]
+        return nullptr;
+
     WriteBarrier<JSString>* propertyNamesBuffer = nullptr;
     if (propertyNamesBufferSizeInBytes) {
-        propertyNamesBuffer = static_cast<WriteBarrier<JSString>*>(vm.jsValueGigacageAuxiliarySpace.allocateNonVirtual(vm, propertyNamesBufferSizeInBytes, nullptr, AllocationFailureMode::Assert));
+        propertyNamesBuffer = static_cast<WriteBarrier<JSString>*>(vm.auxiliarySpace().allocate(vm, propertyNamesBufferSizeInBytes, nullptr, AllocationFailureMode::ReturnNull));
+        if (!propertyNamesBuffer) [[unlikely]]
+            return nullptr;
+
         for (unsigned i = 0; i < propertyNamesSize; ++i)
             propertyNamesBuffer[i].clear();
     }
-    JSPropertyNameEnumerator* enumerator = new (NotNull, allocateCell<JSPropertyNameEnumerator>(vm.heap)) JSPropertyNameEnumerator(vm, structure, indexedLength, numberStructureProperties, propertyNamesBuffer, propertyNamesSize);
+
+    JSPropertyNameEnumerator* enumerator = new (NotNull, allocateCell<JSPropertyNameEnumerator>(vm)) JSPropertyNameEnumerator(vm, structure, indexedLength, numberStructureProperties, propertyNamesBuffer, propertyNamesSize);
     enumerator->finishCreation(vm, propertyNames.releaseData());
     return enumerator;
 }
 
 JSPropertyNameEnumerator::JSPropertyNameEnumerator(VM& vm, Structure* structure, uint32_t indexedLength, uint32_t numberStructureProperties, WriteBarrier<JSString>* propertyNamesBuffer, unsigned propertyNamesSize)
     : JSCell(vm, vm.propertyNameEnumeratorStructure.get())
-    , m_propertyNames(vm, this, propertyNamesBuffer)
-    , m_cachedStructureID(structure ? structure->id() : 0)
+    , m_propertyNames(propertyNamesBuffer, WriteBarrierEarlyInit)
+    , m_cachedStructureID(structure, WriteBarrierEarlyInit)
     , m_indexedLength(indexedLength)
     , m_endStructurePropertyIndex(numberStructureProperties)
     , m_endGenericPropertyIndex(propertyNamesSize)
     , m_cachedInlineCapacity(structure ? structure->inlineCapacity() : 0)
 {
     if (m_indexedLength)
-        m_modeSet |= JSPropertyNameEnumerator::IndexedMode;
+        m_flags |= JSPropertyNameEnumerator::IndexedMode;
     if (m_endStructurePropertyIndex)
-        m_modeSet |= JSPropertyNameEnumerator::OwnStructureMode;
+        m_flags |= JSPropertyNameEnumerator::OwnStructureMode;
     if (m_endGenericPropertyIndex - m_endStructurePropertyIndex)
-        m_modeSet |= JSPropertyNameEnumerator::GenericMode;
+        m_flags |= JSPropertyNameEnumerator::GenericMode;
 }
 
-void JSPropertyNameEnumerator::finishCreation(VM& vm, RefPtr<PropertyNameArrayData>&& identifiers)
+void JSPropertyNameEnumerator::finishCreation(VM& vm, RefPtr<PropertyNameArray>&& identifiers)
 {
     Base::finishCreation(vm);
 
-    PropertyNameArrayData::PropertyNameVector& vector = identifiers->propertyNameVector();
+    PropertyNameArray::PropertyNameVector& vector = identifiers->propertyNameVector();
     ASSERT(m_endGenericPropertyIndex == vector.size());
     for (unsigned i = 0; i < vector.size(); ++i) {
         const Identifier& identifier = vector[i];
@@ -79,26 +88,21 @@ void JSPropertyNameEnumerator::finishCreation(VM& vm, RefPtr<PropertyNameArrayDa
 template<typename Visitor>
 void JSPropertyNameEnumerator::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    JSPropertyNameEnumerator* thisObject = jsCast<JSPropertyNameEnumerator*>(cell);
+    JSPropertyNameEnumerator* thisObject = uncheckedDowncast<JSPropertyNameEnumerator>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(cell, visitor);
     if (auto* propertyNames = thisObject->m_propertyNames.get()) {
         visitor.markAuxiliary(propertyNames);
         visitor.append(propertyNames, propertyNames + thisObject->sizeOfPropertyNames());
     }
-    visitor.append(thisObject->m_prototypeChain);
-
-    if (thisObject->cachedStructureID()) {
-        VM& vm = visitor.vm();
-        visitor.appendUnbarriered(vm.getStructure(thisObject->cachedStructureID()));
-    }
+    visitor.append(thisObject->m_cachedStructureID);
 }
 
 DEFINE_VISIT_CHILDREN(JSPropertyNameEnumerator);
 
 // FIXME: Assert that properties returned by getOwnPropertyNames() are reported enumerable by getOwnPropertySlot().
 // https://bugs.webkit.org/show_bug.cgi?id=219926
-void getEnumerablePropertyNames(JSGlobalObject* globalObject, JSObject* base, PropertyNameArray& propertyNames, uint32_t& indexedLength, uint32_t& structurePropertyCount)
+void getEnumerablePropertyNames(JSGlobalObject* globalObject, JSObject* base, PropertyNameArrayBuilder& propertyNames, uint32_t& indexedLength, uint32_t& structurePropertyCount)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
@@ -110,13 +114,13 @@ void getEnumerablePropertyNames(JSGlobalObject* globalObject, JSObject* base, Pr
             // Although doing this for all objects is spec-conformant, collecting DontEnum properties isn't free.
             mode = DontEnumPropertiesMode::Include;
         }
-        object->methodTable(vm)->getOwnPropertyNames(object, globalObject, propertyNames, mode);
+        object->methodTable()->getOwnPropertyNames(object, globalObject, propertyNames, mode);
     };
 
-    Structure* structure = base->structure(vm);
+    Structure* structure = base->structure();
     if (structure->canAccessPropertiesQuicklyForEnumeration() && indexedLength == base->getArrayLength()) {
         // Inlined JSObject::getOwnNonIndexPropertyNames()
-        base->methodTable(vm)->getOwnSpecialPropertyNames(base, globalObject, propertyNames, DontEnumPropertiesMode::Exclude);
+        base->methodTable()->getOwnSpecialPropertyNames(base, globalObject, propertyNames, DontEnumPropertiesMode::Exclude);
         RETURN_IF_EXCEPTION(scope, void());
 
         base->getNonReifiedStaticPropertyNames(vm, propertyNames, DontEnumPropertiesMode::Exclude);
@@ -138,12 +142,12 @@ void getEnumerablePropertyNames(JSGlobalObject* globalObject, JSObject* base, Pr
     unsigned prototypeCount = 0;
 
     while (true) {
-        JSValue prototype = object->getPrototype(vm, globalObject);
+        JSValue prototype = object->getPrototype(globalObject);
         RETURN_IF_EXCEPTION(scope, void());
         if (prototype.isNull())
             break;
 
-        if (UNLIKELY(++prototypeCount > JSObject::maximumPrototypeChainDepth)) {
+        if (++prototypeCount > JSObject::maximumPrototypeChainDepth) [[unlikely]] {
             throwStackOverflowError(globalObject, scope);
             return;
         }
@@ -154,7 +158,7 @@ void getEnumerablePropertyNames(JSGlobalObject* globalObject, JSObject* base, Pr
     }
 }
 
-JSString* JSPropertyNameEnumerator::computeNext(JSGlobalObject* globalObject, JSObject* base, uint32_t& index, Mode& mode, bool shouldAllocateIndexedNameString)
+JSString* JSPropertyNameEnumerator::computeNext(JSGlobalObject* globalObject, JSObject* base, uint32_t& index, Flag& mode, bool shouldAllocateIndexedNameString)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
@@ -166,7 +170,7 @@ JSString* JSPropertyNameEnumerator::computeNext(JSGlobalObject* globalObject, JS
     case InitMode: {
         mode = IndexedMode;
         index = 0;
-        FALLTHROUGH;
+        [[fallthrough]];
     }
 
     case JSPropertyNameEnumerator::IndexedMode: {
@@ -177,14 +181,14 @@ JSString* JSPropertyNameEnumerator::computeNext(JSGlobalObject* globalObject, JS
         scope.assertNoException();
 
         if (index < indexedLength())
-            return shouldAllocateIndexedNameString ? jsString(vm, Identifier::from(vm, index).string()) : nullptr;
+            return shouldAllocateIndexedNameString ? jsString(vm, Identifier::from(vm, index).releaseImpl()) : nullptr;
 
         if (!sizeOfPropertyNames())
             return nullptr;
 
         mode = OwnStructureMode;
         index = 0;
-        FALLTHROUGH;
+        [[fallthrough]];
     }
 
     case JSPropertyNameEnumerator::OwnStructureMode:
@@ -198,9 +202,9 @@ JSString* JSPropertyNameEnumerator::computeNext(JSGlobalObject* globalObject, JS
                 break;
             if (index < endStructurePropertyIndex() && base->structureID() == cachedStructureID())
                 break;
-            auto id = Identifier::fromString(vm, name->value(globalObject));
+            auto id = name->toAtomString(globalObject);
             RETURN_IF_EXCEPTION(scope, nullptr);
-            if (base->hasEnumerableProperty(globalObject, id))
+            if (base->hasEnumerableProperty(globalObject, id.data))
                 break;
             RETURN_IF_EXCEPTION(scope, nullptr);
             name = nullptr;
@@ -221,3 +225,5 @@ JSString* JSPropertyNameEnumerator::computeNext(JSGlobalObject* globalObject, JS
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

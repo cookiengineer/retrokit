@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -48,36 +48,52 @@ namespace WebKit {
 class RemoteCDMInstanceProxy;
 struct RemoteCDMInstanceConfiguration;
 struct RemoteCDMConfiguration;
+struct SharedPreferencesForWebProcess;
 
-class RemoteCDMProxy : public IPC::MessageReceiver {
+class RemoteCDMProxy : public RefCounted<RemoteCDMProxy>, public IPC::MessageReceiver {
 public:
-    static std::unique_ptr<RemoteCDMProxy> create(WeakPtr<RemoteCDMFactoryProxy>&&, std::unique_ptr<WebCore::CDMPrivate>&&);
+    static Ref<RemoteCDMProxy> create(RemoteCDMFactoryProxy&, UniqueRef<WebCore::CDMPrivate>&&);
     ~RemoteCDMProxy();
 
-    const RemoteCDMConfiguration& configuration() const { return m_configuration.get(); }
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
+    const RemoteCDMConfiguration& configuration() const LIFETIME_BOUND { return m_configuration.get(); }
 
     RemoteCDMFactoryProxy* factory() const { return m_factory.get(); }
 
-    bool supportsInitData(const AtomString&, const WebCore::SharedBuffer&);
+    bool supportsInitData(const String&, const WebCore::SharedBuffer&);
     RefPtr<WebCore::SharedBuffer> sanitizeResponse(const WebCore::SharedBuffer& response);
     std::optional<String> sanitizeSessionId(const String& sessionId);
+    std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const;
+
+#if !RELEASE_LOG_DISABLED
+    const Logger& logger() const { return m_logger; }
+    uint64_t logIdentifier() const { return m_logIdentifier; }
+#endif
 
 private:
     friend class RemoteCDMFactoryProxy;
-    RemoteCDMProxy(WeakPtr<RemoteCDMFactoryProxy>&&, std::unique_ptr<WebCore::CDMPrivate>&&, UniqueRef<RemoteCDMConfiguration>&&);
+    RemoteCDMProxy(RemoteCDMFactoryProxy&, UniqueRef<WebCore::CDMPrivate>&&, UniqueRef<RemoteCDMConfiguration>&&);
 
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
-    bool didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
+    void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
 
     // Messages
-    void getSupportedConfiguration(WebCore::CDMKeySystemConfiguration&&, WebCore::CDMPrivate::LocalStorageAccess, WebCore::CDMPrivate::SupportedConfigurationCallback&&);
-    void createInstance(CompletionHandler<void(RemoteCDMInstanceIdentifier, RemoteCDMInstanceConfiguration&&)>&&);
+    void getSupportedConfiguration(WebCore::CDMKeySystemConfiguration&&, WebCore::CDMPrivate::LocalStorageAccess, CompletionHandler<void(std::optional<WebCore::CDMKeySystemConfiguration>)>&&);
+    void createInstance(CompletionHandler<void(std::optional<RemoteCDMInstanceIdentifier>, RemoteCDMInstanceConfiguration&&)>&&);
     void loadAndInitialize();
+    void setLogIdentifier(uint64_t);
 
     WeakPtr<RemoteCDMFactoryProxy> m_factory;
-    std::unique_ptr<WebCore::CDMPrivate> m_private;
-    UniqueRef<RemoteCDMConfiguration> m_configuration;
+    const UniqueRef<WebCore::CDMPrivate> m_private;
+    const UniqueRef<RemoteCDMConfiguration> m_configuration;
+
+#if !RELEASE_LOG_DISABLED
+    const Ref<const Logger> m_logger;
+    uint64_t m_logIdentifier { 0 };
+#endif
 };
 
 }

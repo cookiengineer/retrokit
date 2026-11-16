@@ -25,10 +25,13 @@
 
 // https://wicg.github.io/speech-api/#speechsynthesisutterance
 [
+    ActiveDOMObject,
+    EnabledBySetting=SpeechSynthesisAPIEnabled,
     Conditional=SPEECH_SYNTHESIS,
+    ExportMacro=WEBCORE_EXPORT,
     Exposed=Window
 ] interface SpeechSynthesisUtterance : EventTarget {
-    [CallWith=ScriptExecutionContext] constructor(optional DOMString text);
+    [CallWith=CurrentScriptExecutionContext] constructor(optional DOMString text);
 
     attribute DOMString text;
     attribute DOMString lang;

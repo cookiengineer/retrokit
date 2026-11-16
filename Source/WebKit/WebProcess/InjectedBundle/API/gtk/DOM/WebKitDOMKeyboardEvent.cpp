@@ -55,7 +55,9 @@ WebKitDOMKeyboardEvent* wrapKeyboardEvent(WebCore::KeyboardEvent* coreObject)
 
 } // namespace WebKit
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK port
 G_DEFINE_TYPE(WebKitDOMKeyboardEvent, webkit_dom_keyboard_event, WEBKIT_DOM_TYPE_UI_EVENT)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 enum {
     DOM_KEYBOARD_EVENT_PROP_0,
@@ -201,9 +203,9 @@ void webkit_dom_keyboard_event_init_keyboard_event(WebKitDOMKeyboardEvent* self,
     g_return_if_fail(WEBKIT_DOM_IS_DOM_WINDOW(view));
     g_return_if_fail(keyIdentifier);
     WebCore::KeyboardEvent* item = WebKit::core(self);
-    WTF::String convertedType = WTF::String::fromUTF8(type);
-    WTF::String convertedKeyIdentifier = WTF::String::fromUTF8(keyIdentifier);
-    item->initKeyboardEvent(convertedType, canBubble, cancelable, WebKit::toWindowProxy(view), convertedKeyIdentifier, location, ctrlKey, altKey, shiftKey, metaKey, altGraphKey);
+    auto convertedType = WTF::AtomString::fromUTF8(type);
+    auto convertedKeyIdentifier = WTF::AtomString::fromUTF8(keyIdentifier);
+    item->initKeyboardEvent(convertedType, canBubble, cancelable, WebKit::toWindowProxy(view), convertedKeyIdentifier, location, ctrlKey, altKey, shiftKey, metaKey);
 }
 
 gchar* webkit_dom_keyboard_event_get_key_identifier(WebKitDOMKeyboardEvent* self)
@@ -264,9 +266,7 @@ gboolean webkit_dom_keyboard_event_get_alt_graph_key(WebKitDOMKeyboardEvent* sel
 {
     WebCore::JSMainThreadNullState state;
     g_return_val_if_fail(WEBKIT_DOM_IS_KEYBOARD_EVENT(self), FALSE);
-    WebCore::KeyboardEvent* item = WebKit::core(self);
-    gboolean result = item->altGraphKey();
-    return result;
+    return FALSE;
 }
 
 G_GNUC_END_IGNORE_DEPRECATIONS;

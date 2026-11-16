@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2018 Igalia S.L.
- * Copyright (C) 2013-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -37,7 +37,7 @@
 class JSAPIWrapperObjectHandleOwner final : public JSC::WeakHandleOwner {
 public:
     void finalize(JSC::Handle<JSC::Unknown>, void*) final;
-    bool isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown>, void* context, JSC::AbstractSlotVisitor&, const char**) final;
+    bool isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown>, void* context, JSC::AbstractSlotVisitor&, ASCIILiteral*) final;
 };
 
 static JSAPIWrapperObjectHandleOwner* jsAPIWrapperObjectHandleOwner()
@@ -56,14 +56,14 @@ void JSAPIWrapperObjectHandleOwner::finalize(JSC::Handle<JSC::Unknown> handle, v
     JSC::WeakSet::deallocate(JSC::WeakImpl::asWeakImpl(handle.slot()));
 }
 
-bool JSAPIWrapperObjectHandleOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, JSC::AbstractSlotVisitor& visitor, const char**)
+bool JSAPIWrapperObjectHandleOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, JSC::AbstractSlotVisitor& visitor, ASCIILiteral*)
 {
-    JSC::JSAPIWrapperObject* wrapperObject = JSC::jsCast<JSC::JSAPIWrapperObject*>(handle.get().asCell());
+    JSC::JSAPIWrapperObject* wrapperObject = uncheckedDowncast<JSC::JSAPIWrapperObject>(handle.get().asCell());
     // We use the JSGlobalObject when processing weak handles to prevent the situation where using
     // the same wrapped object in multiple global objects keeps all of the global objects alive.
     if (!wrapperObject->wrappedObject())
         return false;
-    return visitor.vm().heap.isMarked(wrapperObject->structure()->globalObject()) && visitor.containsOpaqueRoot(wrapperObject->wrappedObject());
+    return visitor.vm().heap.isMarked(wrapperObject->realm()) && visitor.containsOpaqueRoot(wrapperObject->wrappedObject());
 }
 
 namespace JSC {
@@ -75,35 +75,35 @@ static JSC_DECLARE_CUSTOM_GETTER(staticFunctionGetterJSAPIWrapperObjectCallbackO
 
 DEFINE_VISIT_CHILDREN_WITH_MODIFIER(template<>, JSCallbackObject<JSAPIWrapperObject>);
 
-template <> const ClassInfo JSCallbackObject<JSAPIWrapperObject>::s_info = { "JSAPIWrapperObject", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSCallbackObject) };
-template<> const bool JSCallbackObject<JSAPIWrapperObject>::needsDestruction = true;
+template <> const ClassInfo JSCallbackObject<JSAPIWrapperObject>::s_info = { "JSAPIWrapperObject"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSCallbackObject) };
+template<> const DestructionMode JSCallbackObject<JSAPIWrapperObject>::needsDestruction = NeedsDestruction;
 
 template <>
-RawNativeFunction JSCallbackObject<JSAPIWrapperObject>::getCallFunction()
+NativeFunction::Ptr JSCallbackObject<JSAPIWrapperObject>::getCallFunction()
 {
     return callJSAPIWrapperObjectCallbackObject;
 }
 
 template <>
-RawNativeFunction JSCallbackObject<JSAPIWrapperObject>::getConstructFunction()
+NativeFunction::Ptr JSCallbackObject<JSAPIWrapperObject>::getConstructFunction()
 {
     return constructJSAPIWrapperObjectCallbackObject;
 }
 
 template <>
-PropertySlot::GetValueFunc JSCallbackObject<JSAPIWrapperObject>::getCallbackGetter()
+GetValueFunc JSCallbackObject<JSAPIWrapperObject>::getCallbackGetter()
 {
     return callbackGetterJSAPIWrapperObjectCallbackObject;
 }
 
 template <>
-PropertySlot::GetValueFunc JSCallbackObject<JSAPIWrapperObject>::getStaticFunctionGetter()
+GetValueFunc JSCallbackObject<JSAPIWrapperObject>::getStaticFunctionGetter()
 {
     return staticFunctionGetterJSAPIWrapperObjectCallbackObject;
 }
 
 template <>
-IsoSubspace* JSCallbackObject<JSAPIWrapperObject>::subspaceForImpl(VM& vm, SubspaceAccess mode)
+GCClient::IsoSubspace* JSCallbackObject<JSAPIWrapperObject>::subspaceForImpl(VM& vm, SubspaceAccess mode)
 {
     switch (mode) {
     case SubspaceAccess::OnMainThread:

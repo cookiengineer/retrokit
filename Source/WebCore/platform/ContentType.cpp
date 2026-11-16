@@ -1,7 +1,7 @@
 /*
- * Copyright (C) 2006-2021 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006-2021 Apple Inc. All rights reserved.
  * Copyright (C) 2008 Torch Mobile Inc. All rights reserved. (http://www.torchmobile.com/)
- * Copyright (C) 2009 Google Inc.  All rights reserved.
+ * Copyright (C) 2009 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,20 +27,42 @@
 
 #include "config.h"
 #include "ContentType.h"
-#include "HTMLParserIdioms.h"
+#include "MIMETypeRegistry.h"
 #include <wtf/JSONValues.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/URL.h>
 
 namespace WebCore {
 
 ContentType::ContentType(String&& contentType)
-    : m_type(WTFMove(contentType))
+    : m_type(WTF::move(contentType))
 {
 }
 
 ContentType::ContentType(const String& contentType)
     : m_type(contentType)
 {
+}
+
+ContentType::ContentType(const String& contentType, bool typeWasInferredFromExtension)
+    : m_type(contentType)
+    , m_typeWasInferredFromExtension(typeWasInferredFromExtension)
+{
+}
+
+ContentType ContentType::fromURL(const URL& url)
+{
+    ASSERT(isMainThread());
+
+    auto lastPathComponent = url.lastPathComponent();
+    size_t pos = lastPathComponent.reverseFind('.');
+    if (pos != notFound) {
+        auto extension = lastPathComponent.substring(pos + 1);
+        String mediaType = MIMETypeRegistry::mediaMIMETypeForExtension(extension);
+        if (!mediaType.isEmpty())
+            return ContentType(WTF::move(mediaType), true);
+    }
+    return ContentType();
 }
 
 const String& ContentType::codecsParameter()
@@ -87,21 +109,21 @@ String ContentType::parameter(const String& parameterName) const
         start = equalSignPosition + 1;
         end = m_type.find(';', start);
     }
-    return StringView { m_type }.substring(start, end - start).stripLeadingAndTrailingMatchedCharacters(isHTMLSpace<UChar>).toString();
+    return StringView { m_type }.substring(start, end - start).trim(isASCIIWhitespace<char16_t>).toString();
 }
 
 String ContentType::containerType() const
 {
     // Strip parameters that come after a semicolon.
     // FIXME: This will ignore a quotation mark if it comes before the semicolon. Is that the desired behavior?
-    return stripLeadingAndTrailingHTMLSpaces(m_type.left(m_type.find(';')));
+    return m_type.left(m_type.find(';')).trim(isASCIIWhitespace);
 }
 
 static inline Vector<String> splitParameters(StringView parametersView)
 {
     Vector<String> result;
     for (auto view : parametersView.split(','))
-        result.append(view.stripLeadingAndTrailingMatchedCharacters(isHTMLSpace<UChar>).toString());
+        result.append(view.trim(isASCIIWhitespace<char16_t>).toString());
     return result;
 }
 
@@ -121,11 +143,11 @@ String ContentType::toJSONString() const
 
     object->setString("containerType"_s, containerType());
 
-    auto codecs = codecsParameter();
+    auto codecs = parameter(codecsParameter());
     if (!codecs.isEmpty())
         object->setString("codecs"_s, codecs);
 
-    auto profiles = profilesParameter();
+    auto profiles = parameter(profilesParameter());
     if (!profiles.isEmpty())
         object->setString("profiles"_s, profiles);
 

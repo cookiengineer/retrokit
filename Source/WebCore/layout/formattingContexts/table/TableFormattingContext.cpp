@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,35 +27,33 @@
 #include "config.h"
 #include "TableFormattingContext.h"
 
-#if ENABLE(LAYOUT_FORMATTING_CONTEXT)
-
 #include "BlockFormattingState.h"
-#include "FloatingState.h"
-#include "InlineFormattingState.h"
-#include "InvalidationState.h"
 #include "LayoutBox.h"
 #include "LayoutBoxGeometry.h"
 #include "LayoutChildIterator.h"
 #include "LayoutContext.h"
 #include "LayoutInitialContainingBlock.h"
+#include "PlacedFloats.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "TableFormattingConstraints.h"
 #include "TableFormattingState.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 namespace Layout {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(TableFormattingContext);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(TableFormattingContext);
 
 // https://www.w3.org/TR/css-tables-3/#table-layout-algorithm
-TableFormattingContext::TableFormattingContext(const ContainerBox& formattingContextRoot, TableFormattingState& formattingState)
-    : FormattingContext(formattingContextRoot, formattingState)
+TableFormattingContext::TableFormattingContext(const ElementBox& formattingContextRoot, TableFormattingState& tableFormattingState)
+    : FormattingContext(formattingContextRoot, tableFormattingState.layoutState())
+    , m_tableFormattingState(tableFormattingState)
     , m_tableFormattingGeometry(*this)
     , m_tableFormattingQuirks(*this)
 {
 }
 
-void TableFormattingContext::layoutInFlowContent(InvalidationState&, const ConstraintsForInFlowContent& constraints)
+void TableFormattingContext::layoutInFlowContent(const ConstraintsForInFlowContent& constraints)
 {
     auto availableHorizontalSpace = constraints.horizontal().logicalWidth;
     auto availableVerticalSpace = downcast<ConstraintsForTableContent>(constraints).availableVerticalSpaceForContent();
@@ -84,13 +83,13 @@ void TableFormattingContext::setUsedGeometryForCells(LayoutUnit availableHorizon
     auto& formattingGeometry = this->formattingGeometry();
     // Final table cell layout. At this point all percentage values can be resolved.
     auto sectionOffset = LayoutUnit { };
-    auto* currentSection = &rowList.first().box().parent();
+    CheckedPtr currentSection = &rowList.first().box().parent();
     for (auto& cell : grid.cells()) {
-        auto& cellBox = cell->box();
+        CheckedRef cellBox = cell->box();
         auto& cellBoxGeometry = formattingState().boxGeometry(cellBox);
-        auto& section = rowList[cell->startRow()].box().parent();
-        if (&section != currentSection) {
-            currentSection = &section;
+        CheckedRef section = rowList[cell->startRow()].box().parent();
+        if (section.ptr() != currentSection) {
+            currentSection = section.ptr();
             // While the grid is a continuous flow of rows, in the display tree they are relative to their sections.
             sectionOffset = rowList[cell->startRow()].logicalTop();
         }
@@ -100,16 +99,15 @@ void TableFormattingContext::setUsedGeometryForCells(LayoutUnit availableHorizon
 
         cellBoxGeometry.setBorder(formattingGeometry.computedCellBorder(*cell));
         cellBoxGeometry.setPadding(formattingGeometry.computedPadding(cellBox, availableHorizontalSpace));
-        cellBoxGeometry.setLogicalTop(rowList[cell->startRow()].logicalTop() - sectionOffset);
-        cellBoxGeometry.setLogicalLeft(columnList[cell->startColumn()].usedLogicalLeft());
+        cellBoxGeometry.setTop(rowList[cell->startRow()].logicalTop() - sectionOffset);
+        cellBoxGeometry.setLeft(columnList[cell->startColumn()].usedLogicalLeft());
         cellBoxGeometry.setContentBoxWidth(formattingGeometry.horizontalSpaceForCellContent(*cell));
 
-        if (cellBox.hasInFlowOrFloatingChild()) {
-            auto invalidationState = InvalidationState { };
+        if (cellBox->hasInFlowOrFloatingChild()) {
             // FIXME: This should probably be part of the invalidation state to indicate when we re-layout the cell multiple times as part of the multi-pass table algorithm.
-            auto& floatingStateForCellContent = layoutState().ensureBlockFormattingState(cellBox).floatingState();
-            floatingStateForCellContent.clear();
-            LayoutContext::createFormattingContext(cellBox, layoutState())->layoutInFlowContent(invalidationState, formattingGeometry.constraintsForInFlowContent(cellBox));
+            auto& placedFloatsForCellContent = layoutState().ensureBlockFormattingState(cellBox).placedFloats();
+            placedFloatsForCellContent.clear();
+            LayoutContext::createFormattingContext(cellBox, layoutState())->layoutInFlowContent(formattingGeometry.constraintsForInFlowContent(cellBox));
         }
         cellBoxGeometry.setContentBoxHeight(formattingGeometry.verticalSpaceForCellContent(*cell, availableVerticalSpace));
 
@@ -125,30 +123,28 @@ void TableFormattingContext::setUsedGeometryForCells(LayoutUnit availableHorizon
 
             // FIXME: Find out if it is ok to use the regular padding here to align the content box inside a tall cell or we need to
             // use some kind of intrinsic padding similar to RenderTableCell.
-            auto paddingTop = cellBoxGeometry.paddingTop().value_or(LayoutUnit { });
-            auto paddingBottom = cellBoxGeometry.paddingBottom().value_or(LayoutUnit { });
+            auto paddingTop = cellBoxGeometry.paddingBefore();
+            auto paddingBottom = cellBoxGeometry.paddingAfter();
             auto intrinsicPaddingTop = LayoutUnit { };
             auto intrinsicPaddingBottom = LayoutUnit { };
 
-            switch (cellBox.style().verticalAlign()) {
-            case VerticalAlign::Middle: {
-                auto intrinsicVerticalPadding = std::max(0_lu, cellLogicalHeight - cellBoxGeometry.verticalMarginBorderAndPadding() - cellBoxGeometry.contentBoxHeight());
-                intrinsicPaddingTop = intrinsicVerticalPadding / 2;
-                intrinsicPaddingBottom = intrinsicVerticalPadding / 2;
-                break;
-            }
-            case VerticalAlign::Baseline: {
-                auto rowBaseline = LayoutUnit { rowList[cell->startRow()].baseline() };
-                auto cellBaseline = LayoutUnit { cell->baseline() };
-                intrinsicPaddingTop = std::max(0_lu, rowBaseline - cellBaseline - cellBoxGeometry.borderTop());
-                intrinsicPaddingBottom = std::max(0_lu, cellLogicalHeight - cellBoxGeometry.verticalMarginBorderAndPadding() - intrinsicPaddingTop - cellBoxGeometry.contentBoxHeight());
-                break;
-            }
-            default:
-                ASSERT_NOT_IMPLEMENTED_YET();
-                break;
-            }
-            if (intrinsicPaddingTop && cellBox.hasInFlowOrFloatingChild()) {
+            WTF::switchOn(cellBox->style().verticalAlign(),
+                [&](const CSS::Keyword::Middle&) {
+                    auto intrinsicVerticalPadding = std::max(0_lu, cellLogicalHeight - cellBoxGeometry.verticalMarginBorderAndPadding() - cellBoxGeometry.contentBoxHeight());
+                    intrinsicPaddingTop = intrinsicVerticalPadding / 2;
+                    intrinsicPaddingBottom = intrinsicVerticalPadding / 2;
+                },
+                [&](const CSS::Keyword::Baseline&) {
+                    auto rowBaseline = LayoutUnit { rowList[cell->startRow()].baseline() };
+                    auto cellBaseline = LayoutUnit { cell->baseline() };
+                    intrinsicPaddingTop = std::max(0_lu, rowBaseline - cellBaseline - cellBoxGeometry.borderBefore());
+                    intrinsicPaddingBottom = std::max(0_lu, cellLogicalHeight - cellBoxGeometry.verticalMarginBorderAndPadding() - intrinsicPaddingTop - cellBoxGeometry.contentBoxHeight());
+                },
+                [&](const auto&) {
+                    ASSERT_NOT_IMPLEMENTED_YET();
+                }
+            );
+            if (intrinsicPaddingTop && cellBox->hasInFlowOrFloatingChild()) {
                 auto adjustCellContentWithInstrinsicPaddingBefore = [&] {
                     // Child boxes (and runs) are always in the coordinate system of the containing block's border box.
                     // The content box (where the child content lives) is inside the padding box, which is inside the border box.
@@ -156,23 +152,20 @@ void TableFormattingContext::setUsedGeometryForCells(LayoutUnit availableHorizon
                     // Normally by the time we start positioning the child content, we already have computed borders and padding for the containing block.
                     // This is different with table cells where the final padding offset depends on the content height as we use
                     // the padding box to vertically align the table cell content.
-                    auto& formattingState = layoutState().establishedFormattingState(cellBox);
-                    for (auto* child = cellBox.firstInFlowOrFloatingChild(); child; child = child->nextInFlowOrFloatingSibling()) {
+                    auto& formattingState = layoutState().formattingStateForFormattingContext(cellBox);
+                    for (CheckedPtr child = cellBox->firstInFlowOrFloatingChild(); child; child = child->nextInFlowOrFloatingSibling()) {
                         if (child->isInlineTextBox())
                             continue;
                         formattingState.boxGeometry(*child).moveVertically(intrinsicPaddingTop);
                     }
-                    if (cellBox.establishesInlineFormattingContext()) {
-                        auto& inlineFormattingStatee = layoutState().establishedInlineFormattingState(cellBox);
-                        for (auto& run : inlineFormattingStatee.runs())
-                            run.moveVertically(intrinsicPaddingTop);
-                        for (auto& line : inlineFormattingStatee.lines())
-                            line.moveVertically(intrinsicPaddingTop);
+                    if (cellBox->establishesInlineFormattingContext()) {
+                        // FIXME: Adjust inline display content when applicable.
+                        ASSERT_NOT_IMPLEMENTED_YET();
                     }
                 };
                 adjustCellContentWithInstrinsicPaddingBefore();
             }
-            cellBoxGeometry.setVerticalPadding({ paddingTop + intrinsicPaddingTop, paddingBottom + intrinsicPaddingBottom });
+            cellBoxGeometry.setVerticalPadding(BoxGeometry::VerticalEdges { paddingTop + intrinsicPaddingTop, paddingBottom + intrinsicPaddingBottom });
         };
         computeIntrinsicVerticalPaddingForCell();
     }
@@ -184,10 +177,10 @@ void TableFormattingContext::setUsedGeometryForRows(LayoutUnit availableHorizont
     auto& rows = grid.rows().list();
 
     auto rowLogicalTop = grid.verticalSpacing();
-    const ContainerBox* previousRow = nullptr;
+    const ElementBox* previousRow = nullptr;
     for (size_t rowIndex = 0; rowIndex < rows.size(); ++rowIndex) {
         auto& row = rows[rowIndex];
-        auto& rowBox = row.box();
+        CheckedRef rowBox = row.box();
         auto& rowBoxGeometry = formattingState().boxGeometry(rowBox);
 
         rowBoxGeometry.setPadding(formattingGeometry().computedPadding(rowBox, availableHorizontalSpace));
@@ -202,9 +195,9 @@ void TableFormattingContext::setUsedGeometryForRows(LayoutUnit availableHorizont
             // Border collapsing delegates borders to table/cells.
             border.horizontal = { };
             if (!rowIndex)
-                border.vertical.top = { };
+                border.vertical.before = { };
             if (rowIndex == rows.size() - 1)
-                border.vertical.bottom = { };
+                border.vertical.after = { };
             return border;
         }();
         if (computedRowBorder.height() > row.logicalHeight()) {
@@ -214,33 +207,33 @@ void TableFormattingContext::setUsedGeometryForRows(LayoutUnit availableHorizont
             // or with a wide frame box.
             // If it happens to cause issues in the display tree, we could also consider
             // a special frame box override, where padding box + border != frame box.
-            computedRowBorder.vertical.top = { };
-            computedRowBorder.vertical.bottom = { };
+            computedRowBorder.vertical.before = { };
+            computedRowBorder.vertical.after = { };
         }
         rowBoxGeometry.setContentBoxHeight(row.logicalHeight() - computedRowBorder.height());
 
         auto rowLogicalWidth = grid.columns().logicalWidth() + 2 * grid.horizontalSpacing();
         if (computedRowBorder.width() > rowLogicalWidth) {
             // See comment above.
-            computedRowBorder.horizontal.left = { };
-            computedRowBorder.horizontal.right = { };
+            computedRowBorder.horizontal.start = { };
+            computedRowBorder.horizontal.end = { };
         }
         rowBoxGeometry.setContentBoxWidth(rowLogicalWidth - computedRowBorder.width());
         rowBoxGeometry.setBorder(computedRowBorder);
 
-        if (previousRow && &previousRow->parent() != &rowBox.parent()) {
+        if (previousRow && &previousRow->parent() != &rowBox->parent()) {
             // This row is in a different section.
             rowLogicalTop = { };
         }
-        rowBoxGeometry.setLogicalTop(rowLogicalTop);
-        rowBoxGeometry.setLogicalLeft({ });
+        rowBoxGeometry.setTop(rowLogicalTop);
+        rowBoxGeometry.setLeft({ });
 
         rowLogicalTop += row.logicalHeight() + grid.verticalSpacing();
-        previousRow = &rowBox;
+        previousRow = rowBox.ptr();
     }
 
     auto& columns = grid.columns();
-    Vector<InlineLayoutUnit> rowBaselines(rows.size(), 0);
+    Vector<InlineLayoutUnit> rowBaselines(FillWith { }, rows.size(), 0);
     // Now that cells are laid out, let's compute the row baselines.
     for (size_t rowIndex = 0; rowIndex < rows.size(); ++rowIndex) {
         for (size_t columnIndex = 0; columnIndex < columns.size(); ++columnIndex) {
@@ -249,8 +242,8 @@ void TableFormattingContext::setUsedGeometryForRows(LayoutUnit availableHorizont
                 continue;
             if (slot.hasRowSpan())
                 continue;
-            auto& cell = slot.cell();
-            rowBaselines[rowIndex] = std::max(rowBaselines[rowIndex], cell.baseline());
+            CheckedRef cell = slot.cell();
+            rowBaselines[rowIndex] = std::max(rowBaselines[rowIndex], cell->baseline());
         }
     }
     for (size_t rowIndex = 0; rowIndex < rows.size(); ++rowIndex)
@@ -266,12 +259,12 @@ void TableFormattingContext::setUsedGeometryForSections(const ConstraintsForInFl
     auto verticalSpacing = grid.verticalSpacing();
     auto paddingBefore = std::optional<LayoutUnit> { verticalSpacing };
     auto paddingAfter = verticalSpacing;
-    for (auto& sectionBox : childrenOfType<ContainerBox>(tableBox)) {
+    for (CheckedRef sectionBox : childrenOfType<ElementBox>(tableBox)) {
         auto& sectionBoxGeometry = formattingState().boxGeometry(sectionBox);
         // Section borders are either collapsed or ignored.
         sectionBoxGeometry.setBorder({ });
         // Use fake vertical padding to space out the sections.
-        sectionBoxGeometry.setPadding(Edges { { }, { paddingBefore.value_or(0_lu), paddingAfter } });
+        sectionBoxGeometry.setPadding(BoxGeometry::Edges { { }, { paddingBefore.value_or(0_lu), paddingAfter } });
         paddingBefore = std::nullopt;
         // Internal table elements do not have margins.
         sectionBoxGeometry.setHorizontalMargin({ });
@@ -280,14 +273,14 @@ void TableFormattingContext::setUsedGeometryForSections(const ConstraintsForInFl
         sectionBoxGeometry.setContentBoxWidth(sectionWidth);
         auto sectionContentHeight = LayoutUnit { };
         size_t rowCount = 0;
-        for (auto& rowBox : childrenOfType<ContainerBox>(sectionBox)) {
+        for (CheckedRef rowBox : childrenOfType<ElementBox>(sectionBox)) {
             sectionContentHeight += geometryForBox(rowBox).borderBoxHeight();
             ++rowCount;
         }
         sectionContentHeight += verticalSpacing * (rowCount - 1);
         sectionBoxGeometry.setContentBoxHeight(sectionContentHeight);
-        sectionBoxGeometry.setLogicalLeft(constraints.horizontal().logicalLeft);
-        sectionBoxGeometry.setLogicalTop(logicalTop);
+        sectionBoxGeometry.setLeft(constraints.horizontal().logicalLeft);
+        sectionBoxGeometry.setTop(logicalTop);
 
         logicalTop += sectionBoxGeometry.borderBoxHeight();
     }
@@ -304,12 +297,12 @@ IntrinsicWidthConstraints TableFormattingContext::computedIntrinsicWidthConstrai
         return *computedWidthConstraints;
 
     // Compute the minimum/maximum width of each column.
-    auto computedWidthConstraints = computedPreferredWidthForColumns();
+    auto computedWidthConstraints = computedIntrinsicWidthForColumns();
     grid.setWidthConstraints(computedWidthConstraints);
     return computedWidthConstraints;
 }
 
-IntrinsicWidthConstraints TableFormattingContext::computedPreferredWidthForColumns()
+IntrinsicWidthConstraints TableFormattingContext::computedIntrinsicWidthForColumns()
 {
     auto& formattingState = this->formattingState();
     auto& grid = formattingState.tableGrid();
@@ -327,7 +320,7 @@ IntrinsicWidthConstraints TableFormattingContext::computedPreferredWidthForColum
     auto collectColsFixedWidth = [&] {
         for (auto& column : columnList) {
             auto fixedWidth = [&] () -> std::optional<LayoutUnit> {
-                auto* columnBox = column.box();
+                CheckedPtr columnBox = column.box();
                 if (!columnBox) {
                     // Anonymous columns don't have associated layout boxes and can't have fixed col size.
                     return { };
@@ -337,7 +330,7 @@ IntrinsicWidthConstraints TableFormattingContext::computedPreferredWidthForColum
                 return formattingGeometry.computedColumnWidth(*columnBox);
             }();
         if (fixedWidth)
-            column.setComputedLogicalWidth({ *fixedWidth, LengthType::Fixed });
+            column.setComputedLogicalWidth(Style::Length<CSS::Nonnegative, float> { *fixedWidth });
         }
     };
     collectColsFixedWidth();
@@ -349,8 +342,8 @@ IntrinsicWidthConstraints TableFormattingContext::computedPreferredWidthForColum
 
     auto collectCellsIntrinsicWidthConstraints = [&] {
         for (auto& cell : grid.cells()) {
-            auto& cellBox = cell->box();
-            ASSERT(cellBox.establishesBlockFormattingContext());
+            CheckedRef cellBox = cell->box();
+            ASSERT(cellBox->establishesBlockFormattingContext());
 
             auto intrinsicWidth = formattingState.intrinsicWidthConstraintsForBox(cellBox);
             if (!intrinsicWidth) {
@@ -358,35 +351,29 @@ IntrinsicWidthConstraints TableFormattingContext::computedPreferredWidthForColum
                 formattingState.setIntrinsicWidthConstraintsForBox(cellBox, *intrinsicWidth);
             }
             auto cellPosition = cell->position();
-            auto& cellStyle = cellBox.style();
+            CheckedRef cellStyle = cellBox->style();
+            auto usedZoom = cellStyle->usedZoomForLength();
             // Expand it with border and padding.
             auto horizontalBorderAndPaddingWidth = formattingGeometry.computedCellBorder(*cell).width()
-                + formattingGeometry.fixedValue(cellStyle.paddingLeft()).value_or(0)
-                + formattingGeometry.fixedValue(cellStyle.paddingRight()).value_or(0);
+                + formattingGeometry.fixedValue(cellStyle->paddingLeft(), usedZoom).value_or(0)
+                + formattingGeometry.fixedValue(cellStyle->paddingRight(), usedZoom).value_or(0);
             intrinsicWidth->expand(horizontalBorderAndPaddingWidth);
             // Spanner cells put their intrinsic widths on the initial slots.
             grid.slot(cellPosition)->setWidthConstraints(*intrinsicWidth);
 
-            auto cellLogicalWidth = cellStyle.logicalWidth();
             auto columnIndex = cellPosition.column;
-            switch (cellLogicalWidth.type()) {
-            case LengthType::Fixed: {
-                auto fixedWidth = LayoutUnit { cellLogicalWidth.value() } + horizontalBorderAndPaddingWidth;
-                maximumFixedColumnWidths[columnIndex] = std::max(maximumFixedColumnWidths[columnIndex].value_or(0_lu), fixedWidth);
-                hasColumnWithFixedWidth = true;
-                break;
-            }
-            case LengthType::Percent: {
-                maximumPercentColumnWidths[columnIndex] = std::max(maximumPercentColumnWidths[columnIndex].value_or(0.f), cellLogicalWidth.percent());
-                hasColumnWithPercentWidth = true;
-                break;
-            }
-            case LengthType::Relative:
-                ASSERT_NOT_IMPLEMENTED_YET();
-                break;
-            default:
-                break;
-            }
+            WTF::switchOn(cellStyle->logicalWidth(),
+                [&](const Style::PreferredSize::Fixed& fixed) {
+                    auto fixedWidth = LayoutUnit { fixed.resolveZoom(cellStyle->usedZoomForLength()) } + horizontalBorderAndPaddingWidth;
+                    maximumFixedColumnWidths[columnIndex] = std::max(maximumFixedColumnWidths[columnIndex].value_or(0_lu), fixedWidth);
+                    hasColumnWithFixedWidth = true;
+                },
+                [&](const Style::PreferredSize::Percentage& percentage) {
+                    maximumPercentColumnWidths[columnIndex] = std::max(maximumPercentColumnWidths[columnIndex].value_or(0.f), percentage.value);
+                    hasColumnWithPercentWidth = true;
+                },
+                [&](const auto&) { }
+            );
         }
     };
     collectCellsIntrinsicWidthConstraints();
@@ -424,22 +411,22 @@ IntrinsicWidthConstraints TableFormattingContext::computedPreferredWidthForColum
         // 4. Distribute the spanning min/max widths.
         for (auto spanningCellPosition : spanningCellPositionList) {
             auto& slot = *grid.slot(spanningCellPosition);
-            auto& cell = slot.cell();
+            CheckedRef cell = slot.cell();
             ASSERT(slot.hasColumnSpan());
             auto widthConstraintsToDistribute = slot.widthConstraints();
-            for (size_t columnSpanIndex = cell.startColumn(); columnSpanIndex < cell.endColumn(); ++columnSpanIndex)
+            for (size_t columnSpanIndex = cell->startColumn(); columnSpanIndex < cell->endColumn(); ++columnSpanIndex)
                 widthConstraintsToDistribute -= columnIntrinsicWidths[columnSpanIndex];
             // <table style="border-spacing: 50px"><tr><td colspan=2>long long text</td></tr><tr><td>lo</td><td>xt</td><tr></table>
             // [long long text]
             // [lo]        [xt]
             // While it looks like the spanning cell has to distribute all its spanning width, the border-spacing takes most of the space and
             // no distribution is needed at all.
-            widthConstraintsToDistribute -= (cell.columnSpan() - 1) * grid.horizontalSpacing();
+            widthConstraintsToDistribute -= (cell->columnSpan() - 1) * grid.horizontalSpacing();
             // FIXME: Check if fixed width columns should be skipped here.
-            widthConstraintsToDistribute.minimum = std::max(LayoutUnit { }, widthConstraintsToDistribute.minimum / cell.columnSpan());
-            widthConstraintsToDistribute.maximum = std::max(LayoutUnit { }, widthConstraintsToDistribute.maximum / cell.columnSpan());
+            widthConstraintsToDistribute.minimum = std::max(LayoutUnit { }, widthConstraintsToDistribute.minimum / cell->columnSpan());
+            widthConstraintsToDistribute.maximum = std::max(LayoutUnit { }, widthConstraintsToDistribute.maximum / cell->columnSpan());
             if (widthConstraintsToDistribute.minimum || widthConstraintsToDistribute.maximum) {
-                for (size_t columnSpanIndex = cell.startColumn(); columnSpanIndex < cell.endColumn(); ++columnSpanIndex)
+                for (size_t columnSpanIndex = cell->startColumn(); columnSpanIndex < cell->endColumn(); ++columnSpanIndex)
                     columnIntrinsicWidths[columnSpanIndex] += widthConstraintsToDistribute;
             }
         }
@@ -459,7 +446,7 @@ IntrinsicWidthConstraints TableFormattingContext::computedPreferredWidthForColum
         if (hasColumnWithFixedWidth && !hasColumnWithPercentWidth) {
             for (size_t columnIndex = 0; columnIndex < columnList.size(); ++columnIndex) {
                 if (auto fixedWidth = maximumFixedColumnWidths[columnIndex])
-                    columnList[columnIndex].setComputedLogicalWidth({ *fixedWidth, LengthType::Fixed });
+                    columnList[columnIndex].setComputedLogicalWidth(Style::Length<CSS::Nonnegative, float> { *fixedWidth });
             }
             return;
         } 
@@ -475,7 +462,7 @@ IntrinsicWidthConstraints TableFormattingContext::computedPreferredWidthForColum
         for (size_t columnIndex = 0; columnIndex < columnList.size(); ++columnIndex) {
             auto nonPercentColumnWidth = columnIntrinsicWidths[columnIndex].maximum;
             if (auto fixedWidth = maximumFixedColumnWidths[columnIndex]) {
-                columnList[columnIndex].setComputedLogicalWidth({ *fixedWidth, LengthType::Fixed });
+                columnList[columnIndex].setComputedLogicalWidth(Style::Length<CSS::Nonnegative, float> { *fixedWidth });
                 nonPercentColumnWidth = std::max(nonPercentColumnWidth, *fixedWidth);
             }
             if (!maximumPercentColumnWidths[columnIndex]) {
@@ -483,7 +470,7 @@ IntrinsicWidthConstraints TableFormattingContext::computedPreferredWidthForColum
                 continue;
             }
             auto percent = std::min(*maximumPercentColumnWidths[columnIndex], remainingPercent);
-            columnList[columnIndex].setComputedLogicalWidth({ percent, LengthType::Percent });
+            columnList[columnIndex].setComputedLogicalWidth(Style::Percentage<CSS::Nonnegative, float> { percent });
             percentMaximumWidth = std::max(percentMaximumWidth, LayoutUnit { nonPercentColumnWidth * 100.0f / percent });
             remainingPercent -= percent;
         }
@@ -541,10 +528,8 @@ void TableFormattingContext::computeAndDistributeExtraSpace(LayoutUnit available
                 cellBoxGeometry.setPadding(formattingGeometry.computedPadding(cellBox, availableHorizontalSpace));
                 cellBoxGeometry.setContentBoxWidth(formattingGeometry.horizontalSpaceForCellContent(cell));
 
-                if (cellBox.hasInFlowOrFloatingChild()) {
-                    auto invalidationState = InvalidationState { };
-                    LayoutContext::createFormattingContext(cellBox, layoutState())->layoutInFlowContent(invalidationState, formattingGeometry.constraintsForInFlowContent(cellBox));
-                }
+                if (cellBox.hasInFlowOrFloatingChild())
+                    LayoutContext::createFormattingContext(cellBox, layoutState())->layoutInFlowContent(formattingGeometry.constraintsForInFlowContent(cellBox));
                 cellBoxGeometry.setContentBoxHeight(formattingGeometry.verticalSpaceForCellContent(cell, availableVerticalSpace));
             };
             layoutCellContent(slot.cell());
@@ -552,8 +537,8 @@ void TableFormattingContext::computeAndDistributeExtraSpace(LayoutUnit available
                 continue;
             // The minimum height of a row (without spanning-related height distribution) is defined as the height of an hypothetical
             // linebox containing the cells originating in the row.
-            auto& cell = slot.cell();
-            cell.setBaseline(formattingGeometry.usedBaselineForCell(cell.box()));
+            CheckedRef cell = slot.cell();
+            cell->setBaseline(formattingGeometry.usedBaselineForCell(cell->box()));
         }
     }
 
@@ -571,4 +556,3 @@ void TableFormattingContext::computeAndDistributeExtraSpace(LayoutUnit available
 }
 }
 
-#endif

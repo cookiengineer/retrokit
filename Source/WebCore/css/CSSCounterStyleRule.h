@@ -25,54 +25,44 @@
 
 #pragma once
 
+#include "CSSCounterStyleDescriptors.h"
 #include "CSSRule.h"
 #include "StyleProperties.h"
 #include "StyleRule.h"
 #include <wtf/text/AtomString.h>
 
 namespace WebCore {
-
-// The keywords that can be used as values for the counter-style `system` descriptor.
-// https://www.w3.org/TR/css-counter-styles-3/#counter-style-system
-enum class CounterStyleSystem : uint8_t {
-    Cyclic,
-    Numeric,
-    Alphabetic,
-    Symbolic,
-    Additive,
-    Fixed,
-    Extends
-};
-
 class StyleRuleCounterStyle final : public StyleRuleBase {
 public:
-    static Ref<StyleRuleCounterStyle> create(const AtomString& name, Ref<StyleProperties>&&);
+    static Ref<StyleRuleCounterStyle> create(const AtomString&, CSSCounterStyleDescriptors&&);
     ~StyleRuleCounterStyle();
 
-    const StyleProperties& properties() const { return m_properties; }
-    MutableStyleProperties& mutableProperties();
+    Ref<StyleRuleCounterStyle> copy() const { return adoptRef(*new StyleRuleCounterStyle(*this)); }
 
-    const AtomString& name() const { return m_name; }
-    String system() const { return m_properties->getPropertyValue(CSSPropertySystem); }
-    String negative() const { return m_properties->getPropertyValue(CSSPropertyNegative); }
-    String prefix() const { return m_properties->getPropertyValue(CSSPropertyPrefix); }
-    String suffix() const { return m_properties->getPropertyValue(CSSPropertySuffix); }
-    String range() const { return m_properties->getPropertyValue(CSSPropertyRange); }
-    String pad() const { return m_properties->getPropertyValue(CSSPropertyPad); }
-    String fallback() const { return m_properties->getPropertyValue(CSSPropertyFallback); }
-    String symbols() const { return m_properties->getPropertyValue(CSSPropertySymbols); }
-    String additiveSymbols() const { return m_properties->getPropertyValue(CSSPropertyAdditiveSymbols); }
-    String speakAs() const { return m_properties->getPropertyValue(CSSPropertySpeakAs); }
+    const CSSCounterStyleDescriptors& descriptors() const LIFETIME_BOUND { return m_descriptors; };
+    CSSCounterStyleDescriptors& mutableDescriptors() LIFETIME_BOUND { return m_descriptors; };
 
+    const AtomString& name() const LIFETIME_BOUND { return m_name; }
+    String system() const { return m_descriptors.systemCSSText(); }
+    String negative() const { return m_descriptors.negativeCSSText(); }
+    String prefix() const { return m_descriptors.prefixCSSText(); }
+    String suffix() const { return m_descriptors.suffixCSSText(); }
+    String range() const { return { m_descriptors.rangesCSSText() }; }
+    String pad() const { return m_descriptors.padCSSText(); }
+    String fallback() const { return m_descriptors.fallbackCSSText(); }
+    String symbols() const { return m_descriptors.symbolsCSSText(); }
+    String additiveSymbols() const { return m_descriptors.additiveSymbolsCSSText(); }
+    String speakAs() const { return { }; }
     bool newValueInvalidOrEqual(CSSPropertyID, const RefPtr<CSSValue> newValue) const;
 
     void setName(const AtomString& name) { m_name = name; }
 
 private:
-    explicit StyleRuleCounterStyle(const AtomString&, Ref<StyleProperties>&&);
+    explicit StyleRuleCounterStyle(const AtomString&, CSSCounterStyleDescriptors&&);
+    StyleRuleCounterStyle(const StyleRuleCounterStyle&) = default;
 
     AtomString m_name;
-    Ref<StyleProperties> m_properties;
+    CSSCounterStyleDescriptors m_descriptors;
 };
 
 class CSSCounterStyleRule final : public CSSRule {
@@ -81,8 +71,8 @@ public:
     virtual ~CSSCounterStyleRule();
 
     String cssText() const final;
-    void reattach(StyleRuleBase&) final;
-    CSSRule::Type type() const final { return COUNTER_STYLE_RULE; }
+    void NODELETE reattach(StyleRuleBase&) final;
+    StyleRuleType styleRuleType() const final { return StyleRuleType::CounterStyle; }
 
     String name() const { return m_counterStyleRule->name(); }
     String system() const { return m_counterStyleRule->system(); }
@@ -106,21 +96,25 @@ public:
     void setFallback(const String&);
     void setSymbols(const String&);
     void setAdditiveSymbols(const String&);
-    void setSpeakAs(const String&);
+    void NODELETE setSpeakAs(const String&);
 
 private:
     CSSCounterStyleRule(StyleRuleCounterStyle&, CSSStyleSheet* parent);
 
-    void setterInternal(CSSPropertyID, const String&);
+    bool setterInternal(CSSPropertyID, const String&);
+    RefPtr<CSSValue> cssValueFromText(CSSPropertyID, const String&);
+    const CSSCounterStyleDescriptors& descriptors() const LIFETIME_BOUND { return m_counterStyleRule->descriptors(); }
+    CSSCounterStyleDescriptors& mutableDescriptors() LIFETIME_BOUND { return m_counterStyleRule->mutableDescriptors(); }
 
     Ref<StyleRuleCounterStyle> m_counterStyleRule;
 };
 
+CSSCounterStyleDescriptors::System NODELETE toCounterStyleSystemEnum(const CSSValue*);
+
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_CSS_RULE(CSSCounterStyleRule, CSSRule::COUNTER_STYLE_RULE)
+SPECIALIZE_TYPE_TRAITS_CSS_RULE(CSSCounterStyleRule, StyleRuleType::CounterStyle)
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::StyleRuleCounterStyle)
 static bool isType(const WebCore::StyleRuleBase& rule) { return rule.isCounterStyleRule(); }
 SPECIALIZE_TYPE_TRAITS_END()
-

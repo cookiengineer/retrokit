@@ -50,7 +50,7 @@ enum class ReferrerPolicy : uint8_t {
     Default = StrictOriginWhenCrossOrigin
 };
 
-enum class ReferrerPolicySource : uint8_t { MetaTag, HTTPHeader, ReferrerPolicyAttribute };
+enum class ReferrerPolicySource : uint8_t { MetaTag, HTTPHeader, ReferrerPolicyAttribute, SpeculationRules };
 std::optional<ReferrerPolicy> parseReferrerPolicy(StringView, ReferrerPolicySource);
 String referrerPolicyToString(const ReferrerPolicy&);
 
@@ -58,7 +58,7 @@ String referrerPolicyToString(const ReferrerPolicy&);
 
 namespace WTF {
 
-template<> struct EnumTraits<WebCore::ReferrerPolicy> {
+template<> struct EnumTraitsForPersistence<WebCore::ReferrerPolicy> {
     using values = EnumValues<
         WebCore::ReferrerPolicy,
         WebCore::ReferrerPolicy::EmptyString,

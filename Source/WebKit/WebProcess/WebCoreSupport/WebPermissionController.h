@@ -25,47 +25,52 @@
 
 #pragma once
 
+#include "MessageReceiver.h"
+#include "WebPageProxyIdentifier.h"
 #include <WebCore/ClientOrigin.h>
 #include <WebCore/PermissionController.h>
 #include <WebCore/PermissionDescriptor.h>
 #include <wtf/Deque.h>
 #include <wtf/WeakHashSet.h>
 
+namespace WebCore {
+enum class PermissionQuerySource : uint8_t;
+enum class PermissionState : uint8_t;
+class Page;
+class SecurityOriginData;
+}
+
 namespace WebKit {
 
-class WebPage;
+class WebProcess;
 
-class WebPermissionController final : public CanMakeWeakPtr<WebPermissionController>, public WebCore::PermissionController {
+class WebPermissionController final : public WebCore::PermissionController, public IPC::MessageReceiver {
 public:
-    static Ref<WebPermissionController> create(WebPage&);
+    static Ref<WebPermissionController> create(WebProcess&);
+    ~WebPermissionController();
+
+    void ref() const final { WebCore::PermissionController::ref(); }
+    void deref() const final { WebCore::PermissionController::deref(); }
+
+    // IPC::MessageReceiver
+    void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
 
 private:
-    explicit WebPermissionController(WebPage&);
+    explicit WebPermissionController(WebProcess&);
 
     // WebCore::PermissionController
-    WebCore::PermissionState query(WebCore::ClientOrigin&&, WebCore::PermissionDescriptor&&) final;
-    void request(WebCore::ClientOrigin&&, WebCore::PermissionDescriptor&&, CompletionHandler<void(WebCore::PermissionState)>&&) final;
+    void query(WebCore::ClientOrigin&&, WebCore::PermissionDescriptor, const WeakPtr<WebCore::Page>&, WebCore::PermissionQuerySource, CompletionHandler<void(std::optional<WebCore::PermissionState>)>&&) final;
     void addObserver(WebCore::PermissionObserver&) final;
     void removeObserver(WebCore::PermissionObserver&) final;
+    void storageAccessPermissionChanged(const WebCore::RegistrableDomain&, const WebCore::RegistrableDomain&) final;
+    void permissionChanged(WebCore::PermissionName, const WebCore::SecurityOriginData&) final;
+    void addChangeListener(WebCore::PermissionName, const WebCore::RegistrableDomain& topFrameDomain, const WebCore::RegistrableDomain& subFrameDomain) final;
+    void removeChangeListener(WebCore::PermissionName, const WebCore::RegistrableDomain& topFrameDomain, const WebCore::RegistrableDomain& subFrameDomain) final;
 
-    WebCore::PermissionState queryCache(const WebCore::ClientOrigin&, const WebCore::PermissionDescriptor&);
-    void updateCache(const WebCore::ClientOrigin&, const WebCore::PermissionDescriptor&, WebCore::PermissionState);
-    void tryProcessingRequests();
-    void permissionChanged(const WebCore::ClientOrigin&, const WebCore::PermissionDescriptor&, WebCore::PermissionState);
+    template<typename ObserverFilter>
+    void notifyObserversIfNeeded(WebCore::PermissionName, ObserverFilter&&);
 
-    WeakPtr<WebPage> m_page;
     WeakHashSet<WebCore::PermissionObserver> m_observers;
-
-    using PermissionEntry = std::pair<WebCore::PermissionDescriptor, WebCore::PermissionState>;
-    HashMap<WebCore::ClientOrigin, Vector<PermissionEntry>> m_cachedPermissionEntries;
-
-    struct PermissionRequest {
-        WebCore::ClientOrigin origin;
-        WebCore::PermissionDescriptor descriptor;
-        CompletionHandler<void(WebCore::PermissionState)> completionHandler;
-        bool isWaitingForReply { false };
-    };
-    Deque<PermissionRequest> m_requests;
 };
 
 } // namespace WebCore

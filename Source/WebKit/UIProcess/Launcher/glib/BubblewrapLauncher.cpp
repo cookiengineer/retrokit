@@ -20,34 +20,33 @@
 
 #if ENABLE(BUBBLEWRAP_SANDBOX)
 
-#include <WebCore/PlatformDisplay.h>
+#include "XDGDBusProxy.h"
 #include <fcntl.h>
 #include <glib.h>
 #include <seccomp.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
-#include <unistd.h>
 #include <wtf/FileSystem.h>
+#include <wtf/NeverDestroyed.h>
+#include <wtf/UUID.h>
 #include <wtf/UniStdExtras.h>
-#include <wtf/glib/GLibUtilities.h>
+#include <wtf/glib/Application.h>
 #include <wtf/glib/GRefPtr.h>
+#include <wtf/glib/GSpanExtras.h>
 #include <wtf/glib/GUniquePtr.h>
+#include <wtf/glib/Sandbox.h>
+#include <wtf/text/CStringView.h>
+#include <wtf/text/MakeString.h>
+
+#if PLATFORM(GTK)
+#include "Display.h"
+#endif
 
 #if !defined(MFD_ALLOW_SEALING) && HAVE(LINUX_MEMFD_H)
 #include <linux/memfd.h>
 #endif
 
 #include "Syscalls.h"
-
-#if PLATFORM(GTK)
-#include "WaylandCompositor.h"
-#endif
-
-#if PLATFORM(GTK)
-#define BASE_DIRECTORY "webkitgtk"
-#elif PLATFORM(WPE)
-#define BASE_DIRECTORY "wpe"
-#endif
 
 #if !defined(MFD_ALLOW_SEALING) && HAVE(LINUX_MEMFD_H)
 
@@ -70,8 +69,26 @@ static int memfd_create(const char* name, unsigned flags)
 }
 #endif // #if !defined(MFD_ALLOW_SEALING) && HAVE(LINUX_MEMFD_H)
 
+#if PLATFORM(GTK)
+#define BASE_DIRECTORY "webkitgtk"
+#elif PLATFORM(WPE)
+#define BASE_DIRECTORY "wpe"
+#endif
+
 namespace WebKit {
 using namespace WebCore;
+
+static bool remoteInspectorEnabled()
+{
+    static int enabled = -1;
+
+    if (enabled == -1) {
+        const char* env = g_getenv("WEBKIT_INSPECTOR_SERVER");
+        enabled = env && *env;
+    }
+
+    return enabled;
+}
 
 static int createSealedMemFdWithData(const char* name, gconstpointer data, size_t size)
 {
@@ -109,8 +126,7 @@ static int createSealedMemFdWithData(const char* name, gconstpointer data, size_
     return fd;
 }
 
-static int
-argsToFd(const Vector<CString>& args, const char *name)
+int argumentsToFileDescriptor(const Vector<CString>& args, const char* name)
 {
     GString* buffer = g_string_new(nullptr);
 
@@ -129,171 +145,47 @@ argsToFd(const Vector<CString>& args, const char *name)
     return memfd;
 }
 
-static int createFlatpakInfo()
+static void createBwrapInfo(GSubprocessLauncher* launcher, Vector<CString>& args, const char* instanceID)
+{
+    // This is the hardcoded path expected in xdg-desktop-portal's xdp_app_info_load_bwrap_info() used
+    // by xdp_app_info_map_pids() for the Realtime portal.
+    GUniquePtr<char> instancePath(g_build_filename(g_get_user_runtime_dir(), ".flatpak", instanceID, nullptr));
+    GUniquePtr<char> bwrapInfoPath(g_build_filename(instancePath.get(), "bwrapinfo.json", nullptr));
+
+    if (g_mkdir_with_parents(instancePath.get(), 0700) == -1) {
+        g_warning("Failed to create '%s': %s", instancePath.get(), g_strerror(errno));
+        return;
+    }
+
+    int bwrapInfoFD = open(bwrapInfoPath.get(), O_CREAT | O_RDWR | O_TRUNC, 0644);
+    if (bwrapInfoFD == -1) {
+        g_warning("Failed to create '%s': %s", bwrapInfoPath.get(), g_strerror(errno));
+        return;
+    }
+
+    GUniquePtr<char> bwrapInfoFdStr(g_strdup_printf("%d", bwrapInfoFD));
+    g_subprocess_launcher_take_fd(launcher, bwrapInfoFD, bwrapInfoFD);
+    args.appendVector(Vector<CString>({ "--info-fd", bwrapInfoFdStr.get() }));
+}
+
+static int createFlatpakInfo(const char* instanceID)
 {
     static NeverDestroyed<GUniquePtr<char>> data;
     static size_t size;
 
     if (!data.get()) {
-        // xdg-desktop-portal relates your name to certain permissions so we want
-        // them to be application unique which is best done via GApplication.
-        GApplication* app = g_application_get_default();
-        if (!app)
-            g_error("GApplication is required for xdg-desktop-portal access in the WebKit sandbox.");
-
-        const char* appID = g_application_get_application_id(app);
-        if (!appID)
-            g_error("GApplication must have a valid ID for xdg-desktop-portal access in the WebKit sandbox.");
-
         GUniquePtr<GKeyFile> keyFile(g_key_file_new());
-        g_key_file_set_string(keyFile.get(), "Application", "name", appID);
+        g_key_file_set_string(keyFile.get(), "Application", "name", WTF::applicationID().data());
+        g_key_file_set_string(keyFile.get(), "Instance", "instance-id", instanceID);
+
+        if (remoteInspectorEnabled())
+            g_key_file_set_string(keyFile.get(), "Context", "shared", "network;");
+
         data->reset(g_key_file_to_data(keyFile.get(), &size, nullptr));
     }
 
     return createSealedMemFdWithData("flatpak-info", data->get(), size);
 }
-
-enum class DBusAddressType {
-    Normal,
-    Abstract,
-};
-
-class XDGDBusProxyLauncher {
-public:
-    void setAddress(const char* dbusAddress, DBusAddressType addressType)
-    {
-        CString dbusPath = dbusAddressToPath(dbusAddress, addressType);
-        if (dbusPath.isNull())
-            return;
-
-        GUniquePtr<char> appRunDir(g_build_filename(g_get_user_runtime_dir(), BASE_DIRECTORY, nullptr));
-        m_proxyPath = makeProxyPath(appRunDir.get());
-
-        m_socket = dbusAddress;
-        m_path = WTFMove(dbusPath);
-    }
-
-    bool isRunning() const { return m_isRunning; };
-    const CString& path() const { return m_path; };
-    const CString& proxyPath() const { return m_proxyPath; };
-
-    void setPermissions(Vector<CString>&& permissions)
-    {
-        RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(!isRunning());
-        m_permissions = WTFMove(permissions);
-    };
-
-    void launch(bool enableLogging)
-    {
-        RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(!isRunning());
-
-        if (m_socket.isNull() || m_path.isNull() || m_proxyPath.isNull())
-            return;
-
-        int syncFds[2];
-        if (pipe(syncFds) == -1)
-            g_error("Failed to make syncfds for dbus-proxy: %s", g_strerror(errno));
-        setCloseOnExec(syncFds[0]);
-
-        GUniquePtr<char> syncFdStr(g_strdup_printf("--fd=%d", syncFds[1]));
-
-        Vector<CString> proxyArgs = {
-            m_socket, m_proxyPath,
-            "--filter",
-            syncFdStr.get(),
-        };
-
-        if (enableLogging)
-            proxyArgs.append("--log");
-
-        proxyArgs.appendVector(m_permissions);
-
-        int proxyFd = argsToFd(proxyArgs, "dbus-proxy");
-        GUniquePtr<char> proxyArgsStr(g_strdup_printf("--args=%d", proxyFd));
-
-        // We have to run xdg-dbus-proxy under bubblewrap because we need /.flatpak-info to exist in
-        // xdg-dbus-proxy's mount namespace. Portals may use this as a trusted way to get the
-        // sandboxed process's application ID, and will break if it's missing.
-        Vector<CString> args = {
-            DBUS_PROXY_EXECUTABLE,
-            proxyArgsStr.get(),
-        };
-
-        int nargs = args.size() + 1;
-        int i = 0;
-        char** argv = g_newa(char*, nargs);
-        for (const auto& arg : args)
-            argv[i++] = const_cast<char*>(arg.data());
-        argv[i] = nullptr;
-
-        GRefPtr<GSubprocessLauncher> launcher = adoptGRef(g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_INHERIT_FDS));
-        g_subprocess_launcher_take_fd(launcher.get(), proxyFd, proxyFd);
-        g_subprocess_launcher_take_fd(launcher.get(), syncFds[1], syncFds[1]);
-
-        // We are purposefully leaving syncFds[0] open here.
-        // xdg-dbus-proxy will exit() itself once that is closed on our exit
-
-        ProcessLauncher::LaunchOptions launchOptions;
-        launchOptions.processType = ProcessLauncher::ProcessType::DBusProxy;
-        GUniqueOutPtr<GError> error;
-        GRefPtr<GSubprocess> process = bubblewrapSpawn(launcher.get(), launchOptions, argv, &error.outPtr());
-        if (!process.get())
-            g_error("Failed to start dbus proxy: %s", error->message);
-
-        char out;
-        // We need to ensure the proxy has created the socket.
-        // FIXME: This is more blocking IO.
-        if (read(syncFds[0], &out, 1) != 1)
-            g_error("Failed to fully launch dbus-proxy %s", g_strerror(errno));
-
-        m_isRunning = true;
-    };
-
-private:
-    static CString makeProxyPath(const char* appRunDir)
-    {
-        if (g_mkdir_with_parents(appRunDir, 0700) == -1) {
-            g_warning("Failed to mkdir for dbus proxy (%s): %s", appRunDir, g_strerror(errno));
-            return { };
-        }
-
-        GUniquePtr<char> proxySocketTemplate(g_build_filename(appRunDir, "dbus-proxy-XXXXXX", nullptr));
-        int fd;
-        if ((fd = g_mkstemp(proxySocketTemplate.get())) == -1) {
-            g_warning("Failed to make socket file for dbus proxy: %s", g_strerror(errno));
-            return { };
-        }
-
-        close(fd);
-        return CString(proxySocketTemplate.get());
-    };
-
-    static CString dbusAddressToPath(const char* address, DBusAddressType addressType = DBusAddressType::Normal)
-    {
-        if (!address)
-            return { };
-
-        if (!g_str_has_prefix(address, "unix:"))
-            return { };
-
-        const char* path = strstr(address, addressType == DBusAddressType::Abstract ? "abstract=" : "path=");
-        if (!path)
-            return { };
-
-        path += strlen(addressType == DBusAddressType::Abstract ? "abstract=" : "path=");
-        const char* pathEnd = path;
-        while (*pathEnd && *pathEnd != ',')
-            pathEnd++;
-
-        return CString(path, pathEnd - path);
-}
-
-    CString m_socket;
-    CString m_path;
-    CString m_proxyPath;
-    bool m_isRunning;
-    Vector<CString> m_permissions;
-};
 
 enum class BindFlags {
     ReadOnly,
@@ -301,46 +193,74 @@ enum class BindFlags {
     Device,
 };
 
+static void bindSymlinksRealPath(Vector<CString>& args, const String& path, const ASCIILiteral bindOption = "--ro-bind"_s)
+{
+    auto realPath = FileSystem::realPath(path);
+    if (path != realPath) {
+        auto rpath = realPath.utf8();
+        args.appendList<CString>({ bindOption, rpath, rpath });
+    }
+}
+
+static void bindIfExists(Vector<CString>& args, const CStringView& path, BindFlags bindFlags = BindFlags::ReadOnly)
+{
+    const ASCIILiteral bindType = [&] () {
+        switch (bindFlags) {
+        case BindFlags::Device:
+            return "--dev-bind-try"_s;
+        case BindFlags::ReadOnly:
+            return "--ro-bind-try"_s;
+        default:
+            return "--bind-try"_s;
+        }
+    }();
+
+    // Canonicalize the source path, otherwise a symbolic link could
+    // point to a location outside of the namespace.
+    bindSymlinksRealPath(args, path.span(), bindType);
+
+    // As /etc is exposed wholesale, do not layer extraneous bind
+    // directives on top, which could fail in the presence of symbolic
+    // links.
+    if (!startsWith(path.span(), "/etc/"_s)) {
+        auto pathString = CString(path.span());
+        args.appendList<CString>({ bindType, pathString, pathString });
+    }
+}
+
 static void bindIfExists(Vector<CString>& args, const char* path, BindFlags bindFlags = BindFlags::ReadOnly)
 {
     if (!path || path[0] == '\0')
         return;
 
-    const char* bindType;
-    if (bindFlags == BindFlags::Device)
-        bindType = "--dev-bind-try";
-    else if (bindFlags == BindFlags::ReadOnly)
-        bindType = "--ro-bind-try";
-    else
-        bindType = "--bind-try";
-    args.appendVector(Vector<CString>({ bindType, path, path }));
+    bindIfExists(args, CStringView::unsafeFromUTF8(path), bindFlags);
 }
 
-static void bindDBusSession(Vector<CString>& args, XDGDBusProxyLauncher& proxy)
+static void bindDBusSession(Vector<CString>& args, XDGDBusProxy& dbusProxy, bool allowPortals)
 {
-    if (!proxy.isRunning())
-        proxy.setAddress(g_getenv("DBUS_SESSION_BUS_ADDRESS"), DBusAddressType::Normal);
+    auto dbusSessionProxyPath = dbusProxy.dbusSessionProxy(BASE_DIRECTORY, allowPortals ? XDGDBusProxy::AllowPortals::Yes : XDGDBusProxy::AllowPortals::No);
+    if (!dbusSessionProxyPath)
+        return;
 
-    if (proxy.proxyPath().data()) {
-        args.appendVector(Vector<CString>({
-            "--bind", proxy.proxyPath(), proxy.path(),
-        }));
-    }
+    GUniquePtr<char> sandboxedSessionBusPath(g_build_filename(sandboxedUserRuntimeDirectory().data(), "bus", nullptr));
+    GUniquePtr<char> proxyAddress(g_strdup_printf("unix:path=%s", sandboxedSessionBusPath.get()));
+    args.appendList<CString>({
+        "--ro-bind", *dbusSessionProxyPath, sandboxedSessionBusPath.get(),
+        "--setenv", "DBUS_SESSION_BUS_ADDRESS", proxyAddress.get()
+    });
 }
 
 #if PLATFORM(X11)
 static void bindX11(Vector<CString>& args)
 {
-    const char* display = g_getenv("DISPLAY");
-    if (display && display[0] == ':' && g_ascii_isdigit(const_cast<char*>(display)[1])) {
-        const char* displayNumber = &display[1];
-        const char* displayNumberEnd = displayNumber;
-        while (g_ascii_isdigit(*displayNumberEnd))
-            displayNumberEnd++;
-
-        GUniquePtr<char> displayString(g_strndup(displayNumber, displayNumberEnd - displayNumber));
-        GUniquePtr<char> x11File(g_strdup_printf("/tmp/.X11-unix/X%s", displayString.get()));
-        bindIfExists(args, x11File.get(), BindFlags::ReadWrite);
+    auto display = String::fromUTF8(g_getenv("DISPLAY"));
+    if (!display.isNull() && display[0] == ':' && isASCIIDigit(display[1])) {
+        auto displayNumberEnd = display.find([](char16_t c) {
+            return !isASCIIDigit(c);
+        }, 1);
+        auto displayString = display.substring(1, displayNumberEnd - 1);
+        auto x11File = makeString("/tmp/.X11-unix/X"_s, displayString);
+        bindIfExists(args, x11File.utf8().data(), BindFlags::ReadWrite);
     }
 
     const char* xauth = g_getenv("XAUTHORITY");
@@ -353,7 +273,7 @@ static void bindX11(Vector<CString>& args)
 }
 #endif
 
-#if PLATFORM(WAYLAND) && USE(EGL)
+#if PLATFORM(WAYLAND)
 static void bindWayland(Vector<CString>& args)
 {
     const char* display = g_getenv("WAYLAND_DISPLAY");
@@ -363,14 +283,6 @@ static void bindWayland(Vector<CString>& args)
     const char* runtimeDir = g_get_user_runtime_dir();
     GUniquePtr<char> waylandRuntimeFile(g_build_filename(runtimeDir, display, nullptr));
     bindIfExists(args, waylandRuntimeFile.get(), BindFlags::ReadWrite);
-
-#if !USE(WPE_RENDERER)
-    if (WaylandCompositor::singleton().isRunning()) {
-        String displayName = WaylandCompositor::singleton().displayName();
-        waylandRuntimeFile.reset(g_build_filename(runtimeDir, displayName.utf8().data(), nullptr));
-        bindIfExists(args, waylandRuntimeFile.get(), BindFlags::ReadWrite);
-    }
-#endif
 }
 #endif
 
@@ -380,8 +292,9 @@ static void bindPulse(Vector<CString>& args)
     // They can also be set as X11 props but that is getting a bit ridiculous.
     const char* pulseServer = g_getenv("PULSE_SERVER");
     if (pulseServer) {
-        if (g_str_has_prefix(pulseServer, "unix:"))
-            bindIfExists(args, pulseServer + 5, BindFlags::ReadWrite);
+        auto pulseServerString = CStringView::unsafeFromUTF8(pulseServer);
+        if (startsWith(pulseServerString.span(), "unix:"_s))
+            bindIfExists(args, CStringView::fromUTF8(pulseServerString.spanIncludingNullTerminator().subspan(5)), BindFlags::ReadWrite);
         // else it uses tcp
     } else {
         const char* runtimeDir = g_get_user_runtime_dir();
@@ -402,6 +315,9 @@ static void bindPulse(Vector<CString>& args)
     GUniquePtr<char> asoundHomeConfigDir(g_build_filename(homeDir, ".asoundrc", nullptr));
     bindIfExists(args, pulseHomeConfigDir.get());
     bindIfExists(args, asoundHomeConfigDir.get());
+
+    // Pulseaudio service ran as system daemon, allows multi-user setups
+    bindIfExists(args, "/run/pulse", BindFlags::ReadWrite);
 
     // This is the ultimate fallback to raw ALSA
     bindIfExists(args, "/dev/snd", BindFlags::Device);
@@ -425,6 +341,7 @@ static void bindFonts(Vector<CString>& args)
     const char* homeDir = g_get_home_dir();
     const char* dataDir = g_get_user_data_dir();
     const char* cacheDir = g_get_user_cache_dir();
+    const char* const * dataDirs = g_get_system_data_dirs();
 
     // Configs can include custom dirs but then we have to parse them...
     GUniquePtr<char> fontConfig(g_build_filename(configDir, "fontconfig", nullptr));
@@ -441,6 +358,10 @@ static void bindFonts(Vector<CString>& args)
     bindIfExists(args, fontHomeConfigDir.get());
     bindIfExists(args, fontData.get());
     bindIfExists(args, fontHomeData.get());
+    for (const auto* dataDir : span(dataDirs)) {
+        GUniquePtr<char> fontDataDir(g_build_filename(dataDir, "fonts", nullptr));
+        bindIfExists(args, fontDataDir.get());
+    }
     bindIfExists(args, "/var/cache/fontconfig"); // Used by Debian.
 }
 
@@ -460,61 +381,21 @@ static void bindGtkData(Vector<CString>& args)
     bindIfExists(args, themeHomeData.get());
     bindIfExists(args, iconHomeData.get());
 }
+#endif
 
-static void bindA11y(Vector<CString>& args)
+#if USE(ATSPI)
+static void bindA11y(Vector<CString>& args, XDGDBusProxy& dbusProxy, const String& accessibilityBusAddress, const String& accessibilityBusName, const String& sandboxedAccessibilityBusAddress)
 {
-    static XDGDBusProxyLauncher proxy;
+    auto accessibilityProxyPath = dbusProxy.accessibilityProxy(BASE_DIRECTORY, accessibilityBusAddress, accessibilityBusName);
+    if (!accessibilityProxyPath)
+        return;
 
-    if (!proxy.isRunning()) {
-        // FIXME: Avoid blocking IO... (It is at least a one-time cost)
-        GRefPtr<GDBusConnection> sessionBus = adoptGRef(g_bus_get_sync(G_BUS_TYPE_SESSION, nullptr, nullptr));
-        if (!sessionBus.get())
-            return;
-
-        GRefPtr<GDBusMessage> msg = adoptGRef(g_dbus_message_new_method_call(
-            "org.a11y.Bus", "/org/a11y/bus", "org.a11y.Bus", "GetAddress"));
-        g_dbus_message_set_body(msg.get(), g_variant_new("()"));
-        GRefPtr<GDBusMessage> reply = adoptGRef(g_dbus_connection_send_message_with_reply_sync(
-            sessionBus.get(), msg.get(),
-            G_DBUS_SEND_MESSAGE_FLAGS_NONE,
-            30000,
-            nullptr,
-            nullptr,
-            nullptr));
-
-        if (reply.get()) {
-            GUniqueOutPtr<GError> error;
-            if (g_dbus_message_to_gerror(reply.get(), &error.outPtr())) {
-                if (!g_error_matches(error.get(), G_DBUS_ERROR, G_DBUS_ERROR_SERVICE_UNKNOWN))
-                    g_warning("Can't find a11y bus: %s", error->message);
-            } else {
-                GUniqueOutPtr<char> a11yAddress;
-                g_variant_get(g_dbus_message_get_body(reply.get()), "(s)", &a11yAddress.outPtr());
-                proxy.setAddress(a11yAddress.get(), DBusAddressType::Abstract);
-            }
-        }
-
-        proxy.setPermissions({
-            "--sloppy-names",
-            "--call=org.a11y.atspi.Registry=org.a11y.atspi.Socket.Embed@/org/a11y/atspi/accessible/root",
-            "--call=org.a11y.atspi.Registry=org.a11y.atspi.Socket.Unembed@/org/a11y/atspi/accessible/root",
-            "--call=org.a11y.atspi.Registry=org.a11y.atspi.Registry.GetRegisteredEvents@/org/a11y/atspi/registry",
-            "--call=org.a11y.atspi.Registry=org.a11y.atspi.DeviceEventController.GetKeystrokeListeners@/org/a11y/atspi/registry/deviceeventcontroller",
-            "--call=org.a11y.atspi.Registry=org.a11y.atspi.DeviceEventController.GetDeviceEventListeners@/org/a11y/atspi/registry/deviceeventcontroller",
-            "--call=org.a11y.atspi.Registry=org.a11y.atspi.DeviceEventController.NotifyListenersSync@/org/a11y/atspi/registry/deviceeventcontroller",
-            "--call=org.a11y.atspi.Registry=org.a11y.atspi.DeviceEventController.NotifyListenersAsync@/org/a11y/atspi/registry/deviceeventcontroller",
-        });
-
-        proxy.launch(!g_strcmp0(g_getenv("WEBKIT_ENABLE_A11Y_DBUS_PROXY_LOGGING"), "1"));
-    }
-
-    if (proxy.proxyPath().data()) {
-        GUniquePtr<char> proxyAddress(g_strdup_printf("unix:path=%s", proxy.proxyPath().data()));
-        args.appendVector(Vector<CString>({
-            "--ro-bind", proxy.proxyPath(), proxy.proxyPath(),
-            "--setenv", "AT_SPI_BUS_ADDRESS", proxyAddress.get(),
-        }));
-    }
+    ASSERT(sandboxedAccessibilityBusAddress.startsWith("unix:path="_s));
+    auto sandboxedAccessibilityBusPath = sandboxedAccessibilityBusAddress.substring(strlen("unix:path=")).utf8();
+    args.appendList<CString>({
+        "--ro-bind", *accessibilityProxyPath, sandboxedAccessibilityBusPath,
+        "--setenv", "AT_SPI_BUS_ADDRESS", sandboxedAccessibilityBusAddress.utf8(),
+    });
 }
 #endif
 
@@ -525,10 +406,16 @@ static bool bindPathVar(Vector<CString>& args, const char* varname)
         return false;
 
     GUniquePtr<char*> splitPaths(g_strsplit(pathValue, ":", -1));
-    for (size_t i = 0; splitPaths.get()[i]; ++i)
-        bindIfExists(args, splitPaths.get()[i]);
+    for (const auto* path : span(splitPaths))
+        bindIfExists(args, path);
 
     return true;
+}
+
+static const char* environmentVariableValue(const char* name, const char* defaultValue)
+{
+    const char* value = g_getenv(name);
+    return value ? value : defaultValue;
 }
 
 static void bindGStreamerData(Vector<CString>& args)
@@ -536,27 +423,54 @@ static void bindGStreamerData(Vector<CString>& args)
     if (!bindPathVar(args, "GST_PLUGIN_PATH_1_0"))
         bindPathVar(args, "GST_PLUGIN_PATH");
 
-    if (!bindPathVar(args, "GST_PLUGIN_SYSTEM_PATH_1_0")) {
-        if (!bindPathVar(args, "GST_PLUGIN_SYSTEM_PATH")) {
-            GUniquePtr<char> gstData(g_build_filename(g_get_user_data_dir(), "gstreamer-1.0", nullptr));
-            bindIfExists(args, gstData.get());
-        }
+    if (!bindPathVar(args, "GST_PLUGIN_SYSTEM_PATH_1_0"))
+        bindPathVar(args, "GST_PLUGIN_SYSTEM_PATH");
+
+    // The plugin scanner needs write permissions in the parent directory of GST_REGISTRY in order to
+    // write the registry file.
+    GUniquePtr<char> defaultRegistryPath(g_build_filename(g_get_user_cache_dir(), "gstreamer-1.0", nullptr));
+    const char* registryPath = environmentVariableValue("GST_REGISTRY", defaultRegistryPath.get());
+    auto registryDir = FileSystem::parentPath(FileSystem::stringFromFileSystemRepresentation(registryPath));
+    bindIfExists(args, registryDir.utf8().data(), BindFlags::ReadWrite);
+
+    bindPathVar(args, "GST_PRESET_PATH");
+
+    // GST_DEBUG_FILE points to an absolute file path, so we need write permissions for its parent directory.
+    if (const char* debugFilePath = g_getenv("GST_DEBUG_FILE")) {
+        auto parentDir = FileSystem::parentPath(FileSystem::stringFromFileSystemRepresentation(debugFilePath));
+        bindIfExists(args, parentDir.utf8().data(), BindFlags::ReadWrite);
     }
 
-    GUniquePtr<char> gstCache(g_build_filename(g_get_user_cache_dir(), "gstreamer-1.0", nullptr));
-    bindIfExists(args, gstCache.get(), BindFlags::ReadWrite);
+    // GST_DEBUG_DUMP_DOT_DIR might not exist when the application starts, so we need write
+    // permissions for its parent directory.
+    if (const char* dotDir = g_getenv("GST_DEBUG_DUMP_DOT_DIR")) {
+        auto parentDir = FileSystem::parentPath(FileSystem::stringFromFileSystemRepresentation(dotDir));
+        bindIfExists(args, parentDir.utf8().data(), BindFlags::ReadWrite);
+    }
 
-    // /usr/lib is already added so this is only requried for other dirs
-    const char* scannerPath = g_getenv("GST_PLUGIN_SCANNER") ?: "/usr/libexec/gstreamer-1.0/gst-plugin-scanner";
-    const char* helperPath = g_getenv("GST_INSTALL_PLUGINS_HELPER ") ?: "/usr/libexec/gst-install-plugins-helper";
+    // /usr/lib is already added so this is only required for other dirs.
+    const char* scannerPath = environmentVariableValue("GST_PLUGIN_SCANNER", "/usr/libexec/gstreamer-1.0/gst-plugin-scanner");
+    const char* installPluginsHelperPath = environmentVariableValue("GST_INSTALL_PLUGINS_HELPER", "/usr/libexec/gstreamer-1.0/gst-install-plugins-helper");
+    const char* ptpHelperPath = environmentVariableValue("GST_PTP_HELPER", "/usr/libexec/gstreamer-1.0/gst-ptp-helper");
+
+    // Workaround for UsrMerge systems, where /lib64 on host is a symlink and bwrap doesn't handle this.
+    // See also https://gitlab.freedesktop.org/gstreamer/gstreamer/-/issues/2877#note_2042004
+    bindIfExists(args, "/lib64/../libexec/gstreamer-1.0/gst-plugin-scanner");
+    bindIfExists(args, "/lib64/../libexec/gstreamer-1.0/gst-ptp-helper");
 
     bindIfExists(args, scannerPath);
-    bindIfExists(args, helperPath);
+    bindIfExists(args, installPluginsHelperPath);
+    bindIfExists(args, ptpHelperPath);
+
+    // Since GStreamer 1.28.0 software video decoders are likely to use a udmabuf allocator, so
+    // allow access to the corresponding device in the sandbox. Note: We are in the UIProcess so a
+    // runtime GStreamer version check is not wanted here.
+    args.appendList({ "--dev-bind-try", "/dev/udmabuf", "/dev/udmabuf" });
 }
 
 static void bindOpenGL(Vector<CString>& args)
 {
-    args.appendVector(Vector<CString>({
+    args.appendList({
         "--dev-bind-try", "/dev/dri", "/dev/dri",
         // Mali
         "--dev-bind-try", "/dev/mali", "/dev/mali",
@@ -569,34 +483,51 @@ static void bindOpenGL(Vector<CString>& args)
         // Adreno
         "--dev-bind-try", "/dev/kgsl-3d0", "/dev/kgsl-3d0",
         "--dev-bind-try", "/dev/ion", "/dev/ion",
+        // WSL2 (Mesa d3d12)
+        "--dev-bind-try", "/dev/dxg", "/dev/dxg",
 #if PLATFORM(WPE)
         "--dev-bind-try", "/dev/fb0", "/dev/fb0",
         "--dev-bind-try", "/dev/fb1", "/dev/fb1",
 #endif
-    }));
+    });
 }
 
 static void bindV4l(Vector<CString>& args)
 {
-    args.appendVector(Vector<CString>({
+    args.appendList({
         "--dev-bind-try", "/dev/v4l", "/dev/v4l",
-        // Not pretty but a stop-gap for pipewire anyway.
-        "--dev-bind-try", "/dev/video0", "/dev/video0",
-        "--dev-bind-try", "/dev/video1", "/dev/video1",
-        "--dev-bind-try", "/dev/video2", "/dev/video2",
-        "--dev-bind-try", "/dev/media0", "/dev/media0",
-    }));
+    });
+
+    for (StringView fileName : FileSystem::listDirectory("/dev"_s)) {
+        bool isV4LNode = [&] () {
+            static constexpr std::array<ASCIILiteral, 3> nodeNames = { "video"_s, "media"_s, "v4l-subdev"_s };
+            for (const auto& nodeName : nodeNames) {
+                if (fileName.startsWith(nodeName) && fileName.substring(nodeName.length()).containsOnly<isASCIIDigit>())
+                    return true;
+            }
+            return false;
+        }();
+
+        if (!isV4LNode)
+            continue;
+
+        CString path = FileSystem::pathByAppendingComponent("/dev"_s, fileName).utf8();
+        args.appendList<CString>({
+            "--dev-bind-try", path, path,
+        });
+    }
 }
 
-static void bindSymlinksRealPath(Vector<CString>& args, const char* path)
+static bool enableDebugPermissions()
 {
-    char realPath[PATH_MAX];
+    static int enabled = -1;
 
-    if (realpath(path, realPath) && strcmp(path, realPath)) {
-        args.appendVector(Vector<CString>({
-            "--ro-bind", realPath, realPath,
-        }));
+    if (enabled == -1) {
+        const char* env = g_getenv("WEBKIT_ENABLE_DEBUG_PERMISSIONS_IN_SANDBOX");
+        enabled = !g_strcmp0(env, "1");
     }
+
+    return enabled;
 }
 
 // Translate a libseccomp error code into an error message. libseccomp
@@ -662,7 +593,8 @@ static int setupSeccomp()
     struct scmp_arg_cmp cloneArg = SCMP_A0(SCMP_CMP_MASKED_EQ, CLONE_NEWUSER, CLONE_NEWUSER);
 #endif
 
-    struct scmp_arg_cmp ttyArg = SCMP_A1(SCMP_CMP_MASKED_EQ, 0xFFFFFFFFu, TIOCSTI);
+    struct scmp_arg_cmp tiocstiArg = SCMP_A1(SCMP_CMP_MASKED_EQ, 0xFFFFFFFFu, TIOCSTI);
+    struct scmp_arg_cmp tioclinuxArg = SCMP_A1(SCMP_CMP_MASKED_EQ, 0xFFFFFFFFu, TIOCLINUX);
     struct {
         int scall;
         int errnum;
@@ -703,7 +635,11 @@ static int setupSeccomp()
         { SCMP_SYS(clone), EPERM, &cloneArg },
 
         // Don't allow faking input to the controlling tty (CVE-2017-5226)
-        { SCMP_SYS(ioctl), EPERM, &ttyArg },
+        { SCMP_SYS(ioctl), EPERM, &tiocstiArg },
+        // In the unlikely event that the controlling tty is a Linux virtual
+        // console (/dev/tty2 or similar), copy/paste operations have an effect
+        // similar to TIOCSTI (CVE-2023-28100).
+        { SCMP_SYS(ioctl), EPERM, &tioclinuxArg },
 
         // seccomp can't look into clone3()'s struct clone_args to check whether
         // the flags are OK, so we have no choice but to block clone3().
@@ -722,7 +658,13 @@ static int setupSeccomp()
         { SCMP_SYS(fsmount), ENOSYS, nullptr },
         { SCMP_SYS(fspick), ENOSYS, nullptr },
         { SCMP_SYS(mount_setattr), ENOSYS, nullptr },
+    };
 
+    struct {
+        int scall;
+        int errnum;
+        struct scmp_arg_cmp* arg;
+    } nonDebugSyscallBlockList[] = {
         // Profiling operations; we expect these to be done by tools from outside
         // the sandbox. In particular perf has been the source of many CVEs.
         { SCMP_SYS(perf_event_open), EPERM, nullptr },
@@ -752,6 +694,20 @@ static int setupSeccomp()
             g_error("Failed to block syscall %d: %s", rule.scall, seccompStrerror(r));
     }
 
+    if (!enableDebugPermissions()) {
+        for (auto& rule : nonDebugSyscallBlockList) {
+            int r;
+            if (rule.arg)
+                r = seccomp_rule_add(seccomp, SCMP_ACT_ERRNO(rule.errnum), rule.scall, 1, *rule.arg);
+            else
+                r = seccomp_rule_add(seccomp, SCMP_ACT_ERRNO(rule.errnum), rule.scall, 0);
+            if (r == -EFAULT)
+                g_info("Unable to block syscall %d: syscall not known to libseccomp?", rule.scall);
+            else if (r < 0)
+                g_error("Failed to block syscall %d: %s", rule.scall, seccompStrerror(r));
+        }
+    }
+
     int tmpfd = memfd_create("seccomp-bpf", 0);
     if (tmpfd == -1)
         g_error("Failed to create memfd: %s", g_strerror(errno));
@@ -766,18 +722,25 @@ static int setupSeccomp()
     return tmpfd;
 }
 
-static bool shouldUnshareNetwork(ProcessLauncher::ProcessType processType)
+static bool shouldUnshareNetwork(ProcessLauncher::ProcessType processType, Vector<char*>& argv)
 {
+    // gdbserver requires network access for remote debugging.
+    if (enableDebugPermissions() && endsWith(CStringView::unsafeFromUTF8(argv[0]).span(), "gdbserver"_s))
+        return false;
+
+    if (remoteInspectorEnabled())
+        return false;
+
     // xdg-dbus-proxy needs access to host abstract sockets to connect to the a11y bus. Secure
     // host services must not use abstract sockets.
     if (processType == ProcessLauncher::ProcessType::DBusProxy)
         return false;
 
-#if PLATFORM(X11)
+#if PLATFORM(GTK)
     // Also, the web process needs access to host networking if the X server is running over TCP or
     // on a different host's Unix socket; this is likely the case if the first character of DISPLAY
     // is not a colon.
-    if (processType == ProcessLauncher::ProcessType::Web && PlatformDisplay::sharedDisplay().type() == PlatformDisplay::Type::X11) {
+    if (processType == ProcessLauncher::ProcessType::Web && Display::singleton().isX11()) {
         const char* display = g_getenv("DISPLAY");
         if (display && display[0] != ':')
             return false;
@@ -789,7 +752,43 @@ static bool shouldUnshareNetwork(ProcessLauncher::ProcessType processType)
     return true;
 }
 
-GRefPtr<GSubprocess> bubblewrapSpawn(GSubprocessLauncher* launcher, const ProcessLauncher::LaunchOptions& launchOptions, char** argv, GError **error)
+static std::optional<CString> directoryContainingDBusSocket(const char* dbusAddress)
+{
+    if (!dbusAddress)
+        return std::nullopt;
+
+    auto dbusAddressString = StringView::fromLatin1(dbusAddress);
+
+    if (!dbusAddressString.startsWith("unix:"_s))
+        return std::nullopt;
+
+    if (auto pathStart = dbusAddressString.find("path="_s); pathStart != notFound) {
+        pathStart += strlen("path=");
+
+        auto pathEnd = dbusAddressString.find(',', pathStart);
+        auto path = pathEnd == notFound ? dbusAddressString.substring(pathStart) : dbusAddressString.substring(pathStart, pathEnd - pathStart);
+        GRefPtr<GFile> file = adoptGRef(g_file_new_for_path(path.utf8().data()));
+        GRefPtr<GFile> parent = adoptGRef(g_file_get_parent(file.get()));
+        if (!parent)
+            return std::nullopt;
+
+        return { g_file_peek_path(parent.get()) };
+    }
+
+    return std::nullopt;
+}
+
+static void addExtraPaths(const HashMap<CString, SandboxPermission>& paths, Vector<CString>& args)
+{
+    for (const auto& pathAndPermission : paths) {
+        args.appendList<CString>({
+            pathAndPermission.value == SandboxPermission::ReadOnly ? "--ro-bind-try": "--bind-try",
+            pathAndPermission.key, pathAndPermission.key
+        });
+    }
+}
+
+GRefPtr<GSubprocess> bubblewrapSpawn(GSubprocessLauncher* launcher, const ProcessLauncher::LaunchOptions& launchOptions, XDGDBusProxy& dbusProxy, Vector<char*>& argv, GError **error)
 {
     ASSERT(launcher);
 
@@ -797,12 +796,10 @@ GRefPtr<GSubprocess> bubblewrapSpawn(GSubprocessLauncher* launcher, const Proces
     // requires a lot of access but doesn't execute arbitrary code like
     // the WebProcess where our focus lies.
     if (launchOptions.processType == ProcessLauncher::ProcessType::Network)
-        return adoptGRef(g_subprocess_launcher_spawnv(launcher, argv, error));
+        return adoptGRef(g_subprocess_launcher_spawnv(launcher, argv.span().data(), error));
 
     const char* runDir = g_get_user_runtime_dir();
     Vector<CString> sandboxArgs = {
-        "--die-with-parent",
-        "--unshare-pid",
         "--unshare-uts",
 
         // We assume /etc has safe permissions.
@@ -832,6 +829,9 @@ GRefPtr<GSubprocess> bubblewrapSpawn(GSubprocessLauncher* launcher, const Proces
         "--ro-bind-try", "/usr/lib", "/usr/lib",
         "--ro-bind-try", "/usr/local/lib", "/usr/local/lib",
         "--ro-bind-try", LIBDIR, LIBDIR,
+#if defined(WEBKIT_SWIFT_STDLIB_LIBRARY_PATH)
+        "--ro-bind-try", WEBKIT_SWIFT_STDLIB_LIBRARY_PATH, WEBKIT_SWIFT_STDLIB_LIBRARY_PATH,
+#endif
 #if CPU(ADDRESS64)
         "--ro-bind-try", "/lib64", "/lib64",
         "--ro-bind-try", "/usr/lib64", "/usr/lib64",
@@ -845,17 +845,50 @@ GRefPtr<GSubprocess> bubblewrapSpawn(GSubprocessLauncher* launcher, const Proces
         "--ro-bind-try", PKGLIBEXECDIR, PKGLIBEXECDIR,
     };
 
-    if (launchOptions.processType == ProcessLauncher::ProcessType::DBusProxy) {
-        sandboxArgs.appendVector(Vector<CString>({
-            "--ro-bind", DBUS_PROXY_EXECUTABLE, DBUS_PROXY_EXECUTABLE,
-            // This is a lot of access, but xdg-dbus-proxy is trusted so that's OK. It's sandboxed
-            // only because we have to mount .flatpak-info in its mount namespace. The user rundir
-            // is where we mount our proxy socket.
-            "--bind", runDir, runDir,
-        }));
+    if (enableDebugPermissions()) {
+        const char* dataDir = g_get_user_data_dir();
+        GUniquePtr<char> rrOutputDir(g_build_filename(dataDir, "rr", nullptr));
+
+        sandboxArgs.appendList<CString>({
+            // Other binaries are helpful for debugging such as gdbserver.
+            "--ro-bind-try", "/bin", "/bin",
+            "--ro-bind-try", "/usr/bin", "/usr/bin",
+            // rr writes to this directory.
+            "--bind-try", rrOutputDir.get(), rrOutputDir.get(),
+        });
+    } else {
+        // In some configurations cross pid namespace debugging has issues.
+        sandboxArgs.append("--unshare-pid");
     }
 
-    if (shouldUnshareNetwork(launchOptions.processType))
+    addExtraPaths(launchOptions.extraSandboxPaths, sandboxArgs);
+
+    if (launchOptions.processType == ProcessLauncher::ProcessType::DBusProxy) {
+        sandboxArgs.appendList<CString>({
+            "--ro-bind", DBUS_PROXY_EXECUTABLE, DBUS_PROXY_EXECUTABLE,
+            "--bind", sandboxedUserRuntimeDirectory(), sandboxedUserRuntimeDirectory(),
+        });
+
+        // xdg-dbus-proxy is trusted, so it's OK to mount the directories that contain the session
+        // bus and a11y bus sockets wherever they may be. xdg-dbus-proxy is sandboxed only because
+        // we have to mount .flatpak-info in its mount namespace so that portals may use it as a
+        // trusted way to get the app ID of the process that is using it.
+        if (auto sessionBusDirectory = directoryContainingDBusSocket(g_getenv("DBUS_SESSION_BUS_ADDRESS"))) {
+            sandboxArgs.appendList<CString>({
+                "--bind", *sessionBusDirectory, *sessionBusDirectory,
+            });
+        }
+
+#if USE(ATSPI)
+        if (auto a11yBusDirectory = directoryContainingDBusSocket(launchOptions.extraInitializationData.get("accessibilityBusAddress"_s).utf8().data())) {
+            sandboxArgs.appendList<CString>({
+                "--bind", *a11yBusDirectory, *a11yBusDirectory,
+            });
+        }
+#endif
+    }
+
+    if (shouldUnshareNetwork(launchOptions.processType, argv))
         sandboxArgs.append("--unshare-net");
 
     // We would have to parse ld config files for more info.
@@ -865,82 +898,78 @@ GRefPtr<GSubprocess> bubblewrapSpawn(GSubprocessLauncher* launcher, const Proces
     if (libraryPath && libraryPath[0]) {
         // On distros using a suid bwrap it drops this env var
         // so we have to pass it through to the children.
-        sandboxArgs.appendVector(Vector<CString>({
+        sandboxArgs.appendList<CString>({
             "--setenv", "LD_LIBRARY_PATH", libraryPath,
-        }));
+        });
     }
 
-    bindSymlinksRealPath(sandboxArgs, "/etc/resolv.conf");
-    bindSymlinksRealPath(sandboxArgs, "/etc/localtime");
+    bindSymlinksRealPath(sandboxArgs, "/etc/resolv.conf"_s);
+    bindSymlinksRealPath(sandboxArgs, "/etc/localtime"_s);
 
     // xdg-desktop-portal defaults to assuming you are host application with
     // full permissions unless it can identify you as a snap or flatpak.
     // The easiest method is for us to pretend to be a flatpak and if that
     // fails just blocking portals entirely as it just becomes a sandbox escape.
-    int flatpakInfoFd = createFlatpakInfo();
+    GUniquePtr<char> instanceID(g_strdup_printf("webkit-%d-%" PRIu64, getpid(), launchOptions.processIdentifier.toUInt64()));
+    int flatpakInfoFd = createFlatpakInfo(instanceID.get());
     if (flatpakInfoFd != -1) {
         g_subprocess_launcher_take_fd(launcher, flatpakInfoFd, flatpakInfoFd);
         GUniquePtr<char> flatpakInfoFdStr(g_strdup_printf("%d", flatpakInfoFd));
 
-        sandboxArgs.appendVector(Vector<CString>({
+        sandboxArgs.appendList<CString>({
             "--ro-bind-data", flatpakInfoFdStr.get(), "/.flatpak-info"
-        }));
+        });
     }
 
-    if (launchOptions.processType == ProcessLauncher::ProcessType::Web) {
-        static XDGDBusProxyLauncher proxy;
+    bindIfExists(sandboxArgs, "/run/systemd/journal/socket");
+    bindIfExists(sandboxArgs, "/run/systemd/journal/stdout");
 
-#if PLATFORM(WAYLAND) && USE(EGL)
-        if (PlatformDisplay::sharedDisplay().type() == PlatformDisplay::Type::Wayland) {
+    createBwrapInfo(launcher, sandboxArgs, instanceID.get());
+
+    if (launchOptions.processType == ProcessLauncher::ProcessType::Web) {
+#if PLATFORM(GTK)
+#if PLATFORM(WAYLAND)
+        if (Display::singleton().isWayland()) {
             bindWayland(sandboxArgs);
             sandboxArgs.append("--unshare-ipc");
         }
 #endif
 #if PLATFORM(X11)
-        if (PlatformDisplay::sharedDisplay().type() == PlatformDisplay::Type::X11)
+        if (Display::singleton().isX11())
             bindX11(sandboxArgs);
 #endif
+#endif
 
-        for (const auto& pathAndPermission : launchOptions.extraWebProcessSandboxPaths) {
-            sandboxArgs.appendVector(Vector<CString>({
-                pathAndPermission.value == SandboxPermission::ReadOnly ? "--ro-bind-try": "--bind-try",
-                pathAndPermission.key, pathAndPermission.key
-            }));
-        }
-
-        Vector<String> extraPaths = { "applicationCacheDirectory", "mediaKeysDirectory", "waylandSocket", "webSQLDatabaseDirectory" };
+        Vector<String> extraPaths = { "mediaKeysDirectory"_s, "waylandSocket"_s };
         for (const auto& path : extraPaths) {
-            String extraPath = launchOptions.extraInitializationData.get(path);
+            auto extraPath = launchOptions.extraInitializationData.get(path).utf8();
             if (!extraPath.isEmpty())
-                sandboxArgs.appendVector(Vector<CString>({ "--bind-try", extraPath.utf8(), extraPath.utf8() }));
+                sandboxArgs.appendList<CString>({ "--bind-try", extraPath, extraPath });
         }
 
-        bindDBusSession(sandboxArgs, proxy);
+        bindDBusSession(sandboxArgs, dbusProxy, flatpakInfoFd != -1);
         // FIXME: We should move to Pipewire as soon as viable, Pulse doesn't restrict clients atm.
         bindPulse(sandboxArgs);
         bindSndio(sandboxArgs);
         bindFonts(sandboxArgs);
         bindGStreamerData(sandboxArgs);
         bindOpenGL(sandboxArgs);
-        // FIXME: This is also fixed by Pipewire once in use.
+
+        // Although cameras can be managed via the DesktopPortal, we still need v4l2 for video decoding.
         bindV4l(sandboxArgs);
+
+#if USE(ATSPI)
+        auto accessibilityBusAddress = launchOptions.extraInitializationData.get("accessibilityBusAddress"_s);
+        auto sandboxedAccessibilityBusAddress = launchOptions.extraInitializationData.get("sandboxedAccessibilityBusAddress"_s);
+        if (!accessibilityBusAddress.isEmpty() && !sandboxedAccessibilityBusAddress.isEmpty()) {
+            auto a11yBusName = launchOptions.extraInitializationData.get<HashTranslatorASCIILiteral>("accessibilityBusName"_s);
+            bindA11y(sandboxArgs, dbusProxy, accessibilityBusAddress, a11yBusName, sandboxedAccessibilityBusAddress);
+        }
+#endif
 #if PLATFORM(GTK)
-        bindA11y(sandboxArgs);
         bindGtkData(sandboxArgs);
 #endif
-
-        if (!proxy.isRunning()) {
-            Vector<CString> permissions = {
-                // GStreamers plugin install helper.
-                "--call=org.freedesktop.PackageKit=org.freedesktop.PackageKit.Modify2.InstallGStreamerResources@/org/freedesktop/PackageKit"
-            };
-            if (flatpakInfoFd != -1) {
-                // xdg-desktop-portal used by GTK and us.
-                permissions.append("--talk=org.freedesktop.portal.Desktop");
-            }
-            proxy.setPermissions(WTFMove(permissions));
-            proxy.launch(!g_strcmp0(g_getenv("WEBKIT_ENABLE_DBUS_PROXY_LOGGING"), "1"));
-        }
+        dbusProxy.launch(launchOptions);
     } else {
         // Only X11 users need this for XShm which is only the Web process.
         sandboxArgs.append("--unshare-ipc");
@@ -949,14 +978,14 @@ GRefPtr<GSubprocess> bubblewrapSpawn(GSubprocessLauncher* launcher, const Proces
 #if ENABLE(DEVELOPER_MODE)
     const char* execDirectory = g_getenv("WEBKIT_EXEC_PATH");
     if (execDirectory) {
-        String parentDir = FileSystem::parentPath(FileSystem::stringFromFileSystemRepresentation(execDirectory));
+        auto parentDir = FileSystem::parentPath(FileSystem::stringFromFileSystemRepresentation(execDirectory));
         bindIfExists(sandboxArgs, parentDir.utf8().data());
     }
 
-    CString executablePath = getCurrentExecutablePath();
+    CString executablePath = FileSystem::currentExecutablePath();
     if (!executablePath.isNull()) {
         // Our executable is `/foo/bar/bin/Process`, we want `/foo/bar` as a usable prefix
-        String parentDir = FileSystem::parentPath(FileSystem::parentPath(FileSystem::stringFromFileSystemRepresentation(executablePath.data())));
+        auto parentDir = FileSystem::parentPath(FileSystem::parentPath(FileSystem::stringFromFileSystemRepresentation(executablePath.data())));
         bindIfExists(sandboxArgs, parentDir.utf8().data());
     }
 #endif
@@ -964,9 +993,9 @@ GRefPtr<GSubprocess> bubblewrapSpawn(GSubprocessLauncher* launcher, const Proces
     int seccompFd = setupSeccomp();
     GUniquePtr<char> fdStr(g_strdup_printf("%d", seccompFd));
     g_subprocess_launcher_take_fd(launcher, seccompFd, seccompFd);
-    sandboxArgs.appendVector(Vector<CString>({ "--seccomp", fdStr.get() }));
+    sandboxArgs.appendList<CString>({ "--seccomp", fdStr.get() });
 
-    int bwrapFd = argsToFd(sandboxArgs, "bwrap");
+    int bwrapFd = argumentsToFileDescriptor(sandboxArgs, "bwrap");
     GUniquePtr<char> bwrapFdStr(g_strdup_printf("%d", bwrapFd));
     g_subprocess_launcher_take_fd(launcher, bwrapFd, bwrapFd);
 
@@ -977,16 +1006,15 @@ GRefPtr<GSubprocess> bubblewrapSpawn(GSubprocessLauncher* launcher, const Proces
         "--",
     };
 
-    char** newArgv = g_newa(char*, g_strv_length(argv) + bwrapArgs.size() + 1);
+    Vector<char*> newArgv(bwrapArgs.size() + argv.size());
     size_t i = 0;
 
     for (auto& arg : bwrapArgs)
         newArgv[i++] = const_cast<char*>(arg.data());
-    for (size_t x = 0; argv[x]; x++)
-        newArgv[i++] = argv[x];
-    newArgv[i++] = nullptr;
+    for (auto& arg : argv)
+        newArgv[i++] = arg;
 
-    return adoptGRef(g_subprocess_launcher_spawnv(launcher, newArgv, error));
+    return adoptGRef(g_subprocess_launcher_spawnv(launcher, newArgv.span().data(), error));
 }
 
 };

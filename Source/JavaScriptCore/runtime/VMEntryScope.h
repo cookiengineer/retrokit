@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <JavaScriptCore/JSExportMacros.h>
 #include <functional>
 #include <wtf/Vector.h>
 
@@ -35,18 +36,19 @@ class VM;
 
 class VMEntryScope {
 public:
-    JS_EXPORT_PRIVATE VMEntryScope(VM&, JSGlobalObject*);
-    JS_EXPORT_PRIVATE ~VMEntryScope();
+    VMEntryScope(VM&, JSGlobalObject*);
+    ~VMEntryScope();
 
     VM& vm() const { return m_vm; }
     JSGlobalObject* globalObject() const { return m_globalObject; }
-
-    void addDidPopListener(Function<void ()>&&);
+    void setGlobalObject(JSGlobalObject* globalObject) { m_globalObject = globalObject; }
 
 private:
+    JS_EXPORT_PRIVATE void setUpSlow();
+    JS_EXPORT_PRIVATE void tearDownSlow();
+
     VM& m_vm;
     JSGlobalObject* m_globalObject;
-    Vector<Function<void ()>> m_didPopListeners;
 };
 
 } // namespace JSC

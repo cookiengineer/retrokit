@@ -25,17 +25,24 @@
 
 #pragma once
 
-#include "CachedFrame.h"
+#include <WebCore/BackForwardItemIdentifier.h>
+#include <WebCore/CachedFrame.h>
+#include <wtf/CheckedRef.h>
 #include <wtf/MonotonicTime.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakRef.h>
 
 namespace WebCore {
 
+class BackForwardController;
 class Document;
 class DocumentLoader;
 class Page;
+class RegistrableDomain;
 
-class CachedPage {
-    WTF_MAKE_FAST_ALLOCATED;
+class CachedPage final : public CanMakeCheckedPtr<CachedPage> {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(CachedPage, WEBCORE_EXPORT);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(CachedPage);
 public:
     explicit CachedPage(Page&);
     WEBCORE_EXPORT ~CachedPage();
@@ -49,7 +56,7 @@ public:
 
     bool hasExpired() const;
     
-    CachedFrame* cachedMainFrame() { return m_cachedMainFrame.get(); }
+    CachedFrame* cachedMainFrame() const LIFETIME_BOUND { return m_cachedMainFrame.get(); }
 
 #if ENABLE(VIDEO)
     void markForCaptionPreferencesChanged() { m_needsCaptionPreferencesChanged = true; }
@@ -59,18 +66,25 @@ public:
 
     void markForContentsSizeChanged() { m_needsUpdateContentsSize = true; }
 
+    // Bound by callers that go through the explicit-IPC same-site BFCache path
+    // so that eviction signals from BackForwardCache can carry a
+    // BackForwardItemIdentifier (the key UIProcess uses).
+    void setItemID(BackForwardItemIdentifier itemID) { m_itemID = itemID; }
+    std::optional<BackForwardItemIdentifier> itemID() const { return m_itemID; }
+
 private:
-    Page& m_page;
+    void restoreNavigationAPIHistoryItems(LocalFrame&, BackForwardController*);
+
+    WeakRef<Page> m_page;
     MonotonicTime m_expirationTime;
     std::unique_ptr<CachedFrame> m_cachedMainFrame;
+    std::optional<BackForwardItemIdentifier> m_itemID;
 #if ENABLE(VIDEO)
     bool m_needsCaptionPreferencesChanged { false };
 #endif
     bool m_needsDeviceOrPageScaleChanged { false };
     bool m_needsUpdateContentsSize { false };
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
     Vector<RegistrableDomain> m_loadedSubresourceDomains;
-#endif
 };
 
 } // namespace WebCore

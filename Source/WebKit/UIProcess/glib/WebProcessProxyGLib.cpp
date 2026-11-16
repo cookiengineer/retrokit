@@ -29,43 +29,76 @@
 #include "UserMessage.h"
 #include "WebProcessPool.h"
 #include "WebsiteDataStore.h"
-#include <WebCore/PlatformDisplay.h>
+#include <WebCore/NotImplemented.h>
+#include <signal.h>
+#include <sys/types.h>
 #include <wtf/FileSystem.h>
+#include <wtf/glib/Sandbox.h>
+
+#if PLATFORM(GTK)
+#include <gdk/gdk.h>
+#endif
 
 namespace WebKit {
 using namespace WebCore;
 
 void WebProcessProxy::platformGetLaunchOptions(ProcessLauncher::LaunchOptions& launchOptions)
 {
-    launchOptions.extraInitializationData.set("enable-sandbox", m_processPool->sandboxEnabled() ? "true" : "false");
+    launchOptions.extraInitializationData.set("enable-sandbox"_s, m_processPool->sandboxEnabled() ? "true"_s : "false"_s);
+
+#if USE(ATSPI)
+    launchOptions.extraInitializationData.set("accessibilityBusAddress"_s, m_processPool->accessibilityBusAddress());
+    launchOptions.extraInitializationData.set("accessibilityBusName"_s, m_processPool->generateNextAccessibilityBusName());
+#endif
 
     if (m_processPool->sandboxEnabled()) {
-        WebsiteDataStore* dataStore = m_websiteDataStore.get();
-        if (!dataStore) {
-            // Prewarmed processes don't have a WebsiteDataStore yet, so use the primary WebsiteDataStore from the WebProcessPool.
-            // The process won't be used if current WebsiteDataStore is different than the WebProcessPool primary one.
-            dataStore = WebsiteDataStore::defaultDataStore().ptr();
-        }
+        // Prewarmed processes don't have a WebsiteDataStore yet, so use the primary WebsiteDataStore from the WebProcessPool.
+        // The process won't be used if current WebsiteDataStore is different than the WebProcessPool primary one.
+        RefPtr dataStore = isPrewarmed() ? &WebsiteDataStore::defaultDataStore() : websiteDataStore();
 
         ASSERT(dataStore);
-        dataStore->resolveDirectoriesIfNecessary();
-        launchOptions.extraInitializationData.set("webSQLDatabaseDirectory", dataStore->resolvedDatabaseDirectory());
-        launchOptions.extraInitializationData.set("mediaKeysDirectory", dataStore->resolvedMediaKeysDirectory());
-        launchOptions.extraInitializationData.set("applicationCacheDirectory", dataStore->resolvedApplicationCacheDirectory());
+        launchOptions.extraInitializationData.set("mediaKeysDirectory"_s, dataStore->resolvedDirectories().mediaKeysStorageDirectory);
 
-        launchOptions.extraWebProcessSandboxPaths = m_processPool->sandboxPaths();
+        launchOptions.extraSandboxPaths = m_processPool->sandboxPaths();
+#if USE(ATSPI)
+        if (shouldUseBubblewrap())
+            launchOptions.extraInitializationData.set("sandboxedAccessibilityBusAddress"_s, m_processPool->sandboxedAccessibilityBusAddress());
+#endif
     }
 }
 
 void WebProcessProxy::sendMessageToWebContextWithReply(UserMessage&& message, CompletionHandler<void(UserMessage&&)>&& completionHandler)
 {
-    if (const auto& userMessageHandler = m_processPool->userMessageHandler())
-        userMessageHandler(WTFMove(message), WTFMove(completionHandler));
+    if (const auto& userMessageHandler = m_processPool->userMessageHandler()) {
+        userMessageHandler(WTF::move(message), WTF::move(completionHandler));
+        return;
+    }
+    completionHandler({ });
 }
 
 void WebProcessProxy::sendMessageToWebContext(UserMessage&& message)
 {
-    sendMessageToWebContextWithReply(WTFMove(message), [](UserMessage&&) { });
+    sendMessageToWebContextWithReply(WTF::move(message), [](UserMessage&&) { });
 }
 
-};
+void WebProcessProxy::platformSuspendProcess()
+{
+    // FIXME: https://webkit.org/b/280014
+    notImplemented();
+}
+
+void WebProcessProxy::platformResumeProcess()
+{
+    // FIXME: https://webkit.org/b/280014
+    notImplemented();
+}
+
+void WebProcessProxy::systemBeep()
+{
+#if PLATFORM(GTK)
+    if (auto* display = gdk_display_get_default())
+        gdk_display_beep(display);
+#endif
+}
+
+} // namespace WebKit

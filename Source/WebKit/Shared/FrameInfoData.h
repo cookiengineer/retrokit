@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,26 +25,47 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
+#if !PLATFORM(COCOA) || !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)
+
+#include "WebFrameMetrics.h"
+#include <WebCore/CertificateInfo.h>
 #include <WebCore/FrameIdentifier.h>
 #include <WebCore/ResourceRequest.h>
+#include <WebCore/ScriptExecutionContextIdentifier.h>
 #include <WebCore/SecurityOriginData.h>
-
-namespace IPC {
-class Decoder;
-class Encoder;
-}
+#include <wtf/ProcessID.h>
 
 namespace WebKit {
 
+struct WebPageProxyIdentifierType;
+using WebPageProxyIdentifier = ObjectIdentifier<WebPageProxyIdentifierType>;
+
+enum class FrameType : bool { Local, Remote };
+
 struct FrameInfoData {
-    void encode(IPC::Encoder&) const;
-    static std::optional<FrameInfoData> decode(IPC::Decoder&);
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(FrameInfoData);
 
     bool isMainFrame { false };
+    FrameType frameType { FrameType::Local };
     WebCore::ResourceRequest request;
     WebCore::SecurityOriginData securityOrigin;
-    std::optional<WebCore::FrameIdentifier> frameID;
-    std::optional<WebCore::FrameIdentifier> parentFrameID;
+    WebCore::SecurityOriginData topOrigin;
+    String frameName;
+    WebCore::FrameIdentifier frameID;
+    Markable<WebPageProxyIdentifier> webPageProxyID;
+    Markable<WebCore::FrameIdentifier> parentFrameID;
+    Markable<WebCore::ScriptExecutionContextIdentifier> documentID;
+    WebCore::CertificateInfo certificateInfo;
+    ProcessID processID;
+    bool isFocused { false };
+    bool errorOccurred { false };
+    WebFrameMetrics frameMetrics { };
 };
 
+FrameInfoData legacyEmptyFrameInfo(WebCore::ResourceRequest&&);
+
 }
+
+#endif // !PLATFORM(COCOA) || !__has_feature(modules) || (defined(WK_SUPPORTS_SWIFT_OBJCXX_INTEROP) && WK_SUPPORTS_SWIFT_OBJCXX_INTEROP)

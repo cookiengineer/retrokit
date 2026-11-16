@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,38 +26,59 @@
 #include "config.h"
 #include "SVGStringList.h"
 
-#include <wtf/text/StringBuilder.h>
+#include "SVGParserUtilities.h"
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringParsingBuffer.h>
 
 namespace WebCore {
 
-bool SVGStringList::parse(StringView data, UChar delimiter)
+void SVGStringList::setFromCommaSeparatedTokens(StringView string)
 {
+    m_delimiter = ',';
     clearItems();
+    parseCommaSeparatedTokens(string);
 
-    auto isSVGSpaceOrDelimiter = [delimiter](auto c) {
-        return isSVGSpace(c) || c == delimiter;
-    };
+    if (m_items.isEmpty())
+        m_items.append(emptyString());
+}
 
-    return readCharactersForParsing(data, [&](auto buffer) {
+void SVGStringList::setFromSpaceSeparatedTokens(StringView string)
+{
+    m_delimiter = ' ';
+    clearItems();
+    parseSpaceSeparatedTokens(string);
+
+    if (m_items.isEmpty())
+        m_items.append(emptyString());
+}
+
+// FIXME: This should use a general-purpose WTF space-separated token parser. https://webkit.org/b/312153
+// https://html.spec.whatwg.org/multipage/common-microsyntaxes.html#set-of-comma-separated-tokens
+void SVGStringList::parseCommaSeparatedTokens(StringView data)
+{
+    for (auto token : data.splitAllowingEmptyEntries(','))
+        m_items.append(token.trim(isASCIIWhitespace).toString());
+}
+
+// FIXME: This should use a general-purpose WTF space-separated token parser. https://webkit.org/b/312153
+// https://bugs.webkit.org/show_bug.cgi?id=312153
+// https://html.spec.whatwg.org/multipage/common-microsyntaxes.html#set-of-space-separated-tokens
+void SVGStringList::parseSpaceSeparatedTokens(StringView data)
+{
+    readCharactersForParsing(data, [&](auto buffer) {
         skipOptionalSVGSpaces(buffer);
 
         while (buffer.hasCharactersRemaining()) {
             auto start = buffer.position();
-            
-            // FIXME: It would be a nice improvement to add a variant of skipUntil which worked
-            // with lambda predicates.
-            while (buffer.hasCharactersRemaining() && !isSVGSpaceOrDelimiter(*buffer))
-                ++buffer;
+
+            skipUntil<isASCIIWhitespace>(buffer);
 
             if (buffer.position() == start)
                 break;
 
-            m_items.append(String(start, buffer.position() - start));
-            skipOptionalSVGSpacesOrDelimiter(buffer, delimiter);
+            m_items.append(String({ start, buffer.position() }));
+            skipOptionalSVGSpaces(buffer);
         }
-
-        // FIXME: Should this clearItems() on failure like SVGTransformList does?
 
         return buffer.atEnd();
     });
@@ -65,16 +86,8 @@ bool SVGStringList::parse(StringView data, UChar delimiter)
 
 String SVGStringList::valueAsString() const
 {
-    StringBuilder builder;
-
-    for (const auto& string : m_items) {
-        if (builder.length())
-            builder.append(' ');
-
-        builder.append(string);
-    }
-
-    return builder.toString();
+    auto delimiter = m_delimiter == ',' ? ", "_s : " "_s;
+    return makeString(interleave(m_items, delimiter));
 }
 
 }

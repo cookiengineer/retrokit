@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2004-2016 Apple Inc.  All rights reserved.
- * Copyright (C) 2005 Nokia.  All rights reserved.
+ * Copyright (C) 2004-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2005 Nokia. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,26 +26,20 @@
 
 #pragma once
 
-#include "FloatSize.h"
-#include "IntPoint.h"
+#include <WebCore/DoublePoint.h>
+#include <WebCore/FloatSize.h>
+#include <WebCore/IntPoint.h>
+#include <wtf/Hasher.h>
 #include <wtf/MathExtras.h>
+#include <wtf/TZoneMalloc.h>
 
 #if USE(CG)
 typedef struct CGPoint CGPoint;
 #endif
 
 #if PLATFORM(MAC)
-#ifdef NSGEOMETRY_TYPES_SAME_AS_CGGEOMETRY_TYPES
 typedef struct CGPoint NSPoint;
-#else
-typedef struct _NSPoint NSPoint;
-#endif
 #endif // PLATFORM(MAC)
-
-#if PLATFORM(WIN)
-struct D2D_POINT_2F;
-typedef D2D_POINT_2F D2D1_POINT_2F;
-#endif
 
 namespace WTF {
 class TextStream;
@@ -55,24 +49,26 @@ namespace WebCore {
 
 class AffineTransform;
 class TransformationMatrix;
-class IntPoint;
 class IntSize;
+class FloatRect;
 
 class FloatPoint {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(FloatPoint);
 public:
-    FloatPoint() { }
-    FloatPoint(float x, float y) : m_x(x), m_y(y) { }
+    constexpr FloatPoint() = default;
+    constexpr FloatPoint(float x, float y) : m_x(x), m_y(y) { }
     WEBCORE_EXPORT FloatPoint(const IntPoint&);
     explicit FloatPoint(const FloatSize& size) : m_x(size.width()), m_y(size.height()) { }
+    explicit FloatPoint(const DoublePoint& point)
+        : m_x(static_cast<float>(point.x())), m_y(static_cast<float>(point.y())) { }
 
-    static FloatPoint zero() { return FloatPoint(); }
-    bool isZero() const { return !m_x && !m_y; }
+    static constexpr FloatPoint zero() { return FloatPoint(); }
+    constexpr bool isZero() const { return !m_x && !m_y; }
 
-    WEBCORE_EXPORT static FloatPoint narrowPrecision(double x, double y);
+    WEBCORE_EXPORT static FloatPoint NODELETE narrowPrecision(double x, double y);
 
-    float x() const { return m_x; }
-    float y() const { return m_y; }
+    constexpr float x() const { return m_x; }
+    constexpr float y() const { return m_y; }
 
     void setX(float x) { m_x = x; }
     void setY(float y) { m_y = y; }
@@ -125,30 +121,21 @@ public:
         m_y *= scaleY;
     }
 
-    FloatPoint scaled(float scale) const
+    constexpr FloatPoint scaled(float scale) const
     {
         return { m_x * scale, m_y * scale };
     }
 
-    FloatPoint scaled(float scaleX, float scaleY) const
+    constexpr FloatPoint scaled(float scaleX, float scaleY) const
     {
         return { m_x * scaleX, m_y * scaleY };
     }
 
-    void rotate(double angleInRadians, const FloatPoint& aboutPoint = { })
-    {
-        auto sinAngle = sin(angleInRadians);
-        auto cosAngle = cos(angleInRadians);
-        m_x -= aboutPoint.x();
-        m_y -= aboutPoint.y();
-        auto newX = m_x * cosAngle - m_y * sinAngle + aboutPoint.x();
-        m_y = m_x * sinAngle + m_y * cosAngle + aboutPoint.y();
-        m_x = newX;
-    }
+    void rotate(double angleInRadians, const FloatPoint& aboutPoint);
 
-    WEBCORE_EXPORT void normalize();
+    WEBCORE_EXPORT void NODELETE normalize();
 
-    float dot(const FloatPoint& a) const
+    constexpr float dot(const FloatPoint& a) const
     {
         return m_x * a.x() + m_y * a.y();
     }
@@ -160,26 +147,33 @@ public:
         return std::hypot(m_x, m_y);
     }
 
-    float lengthSquared() const
+    constexpr float lengthSquared() const
     {
         return m_x * m_x + m_y * m_y;
     }
 
     WEBCORE_EXPORT FloatPoint constrainedBetween(const FloatPoint& min, const FloatPoint& max) const;
+    
+    WEBCORE_EXPORT FloatPoint constrainedWithin(const FloatRect&) const;
 
-    FloatPoint shrunkTo(const FloatPoint& other) const
+    constexpr FloatPoint shrunkTo(const FloatPoint& other) const
     {
         return { std::min(m_x, other.m_x), std::min(m_y, other.m_y) };
     }
 
-    FloatPoint expandedTo(const FloatPoint& other) const
+    constexpr FloatPoint expandedTo(const FloatPoint& other) const
     {
         return { std::max(m_x, other.m_x), std::max(m_y, other.m_y) };
     }
 
-    FloatPoint transposedPoint() const
+    constexpr FloatPoint transposedPoint() const
     {
         return { m_y, m_x };
+    }
+
+    FloatPoint scaledBy(float scale) const
+    {
+        return FloatPoint(m_x * scale, m_y * scale);
     }
 
 #if USE(CG)
@@ -187,24 +181,27 @@ public:
     WEBCORE_EXPORT operator CGPoint() const;
 #endif
 
-#if PLATFORM(MAC) && !defined(NSGEOMETRY_TYPES_SAME_AS_CGGEOMETRY_TYPES)
-    WEBCORE_EXPORT FloatPoint(const NSPoint&);
-    WEBCORE_EXPORT operator NSPoint() const;
-#endif
-
 #if PLATFORM(WIN)
-    WEBCORE_EXPORT FloatPoint(const D2D1_POINT_2F&);
-    WEBCORE_EXPORT operator D2D1_POINT_2F() const;
+    WEBCORE_EXPORT FloatPoint(const POINT&);
 #endif
 
-    WEBCORE_EXPORT FloatPoint matrixTransform(const TransformationMatrix&) const;
+    WEBCORE_EXPORT FloatPoint NODELETE matrixTransform(const TransformationMatrix&) const;
     WEBCORE_EXPORT FloatPoint matrixTransform(const AffineTransform&) const;
+
+    static constexpr FloatPoint nanPoint();
+    constexpr bool isNaN() const;
+
+    WEBCORE_EXPORT String toJSONString() const;
+    WEBCORE_EXPORT Ref<JSON::Object> toJSONObject() const;
+
+    operator DoublePoint() const { return { m_x, m_y }; }
+
+    friend bool operator==(const FloatPoint&, const FloatPoint&) = default;
 
 private:
     float m_x { 0 };
     float m_y { 0 };
 };
-
 
 inline FloatPoint& operator+=(FloatPoint& a, const FloatSize& b)
 {
@@ -224,65 +221,73 @@ inline FloatPoint& operator-=(FloatPoint& a, const FloatSize& b)
     return a;
 }
 
-inline FloatPoint operator+(const FloatPoint& a, const FloatSize& b)
+constexpr FloatPoint operator+(const FloatPoint& a, const FloatSize& b)
 {
     return FloatPoint(a.x() + b.width(), a.y() + b.height());
 }
 
-inline FloatPoint operator+(const FloatPoint& a, const FloatPoint& b)
+constexpr FloatPoint operator+(const FloatPoint& a, const FloatPoint& b)
 {
     return FloatPoint(a.x() + b.x(), a.y() + b.y());
 }
 
-inline FloatSize operator-(const FloatPoint& a, const FloatPoint& b)
+constexpr FloatSize operator-(const FloatPoint& a, const FloatPoint& b)
 {
     return FloatSize(a.x() - b.x(), a.y() - b.y());
 }
 
-inline FloatPoint operator-(const FloatPoint& a, const FloatSize& b)
+constexpr FloatPoint operator-(const FloatPoint& a, const FloatSize& b)
 {
     return FloatPoint(a.x() - b.width(), a.y() - b.height());
 }
 
-inline FloatPoint operator-(const FloatPoint& a)
+constexpr FloatPoint operator-(const FloatPoint& a)
 {
     return FloatPoint(-a.x(), -a.y());
 }
 
-inline bool operator==(const FloatPoint& a, const FloatPoint& b)
-{
-    return a.x() == b.x() && a.y() == b.y();
-}
-
-inline bool operator!=(const FloatPoint& a, const FloatPoint& b)
-{
-    return a.x() != b.x() || a.y() != b.y();
-}
-
-inline float operator*(const FloatPoint& a, const FloatPoint& b)
+constexpr float operator*(const FloatPoint& a, const FloatPoint& b)
 {
     // dot product
     return a.dot(b);
 }
 
+inline void FloatPoint::rotate(double angleInRadians, const FloatPoint& aboutPoint = { })
+{
+    auto sinAngle = sin(angleInRadians);
+    auto cosAngle = cos(angleInRadians);
+    m_x -= aboutPoint.x();
+    m_y -= aboutPoint.y();
+    auto newX = m_x * cosAngle - m_y * sinAngle + aboutPoint.x();
+    m_y = m_x * sinAngle + m_y * cosAngle + aboutPoint.y();
+    m_x = newX;
+}
+
 inline IntSize flooredIntSize(const FloatPoint& p)
 {
-    return IntSize(clampToInteger(floorf(p.x())), clampToInteger(floorf(p.y())));
+    return IntSize(clampTo<int>(floorf(p.x())), clampTo<int>(floorf(p.y())));
 }
+
+#if USE(CG)
+inline IntPoint roundedIntPoint(const CGPoint& p)
+{
+    return IntPoint(clampTo<int>(roundf(p.x)), clampTo<int>(roundf(p.y)));
+}
+#endif
 
 inline IntPoint roundedIntPoint(const FloatPoint& p)
 {
-    return IntPoint(clampToInteger(roundf(p.x())), clampToInteger(roundf(p.y())));
+    return IntPoint(clampTo<int>(roundf(p.x())), clampTo<int>(roundf(p.y())));
 }
 
 inline IntPoint flooredIntPoint(const FloatPoint& p)
 {
-    return IntPoint(clampToInteger(floorf(p.x())), clampToInteger(floorf(p.y())));
+    return IntPoint(clampTo<int>(floorf(p.x())), clampTo<int>(floorf(p.y())));
 }
 
 inline IntPoint ceiledIntPoint(const FloatPoint& p)
 {
-    return IntPoint(clampToInteger(ceilf(p.x())), clampToInteger(ceilf(p.y())));
+    return IntPoint(clampTo<int>(ceilf(p.x())), clampTo<int>(ceilf(p.y())));
 }
 
 inline FloatPoint floorPointToDevicePixels(const FloatPoint& p, float deviceScaleFactor)
@@ -310,7 +315,50 @@ inline bool areEssentiallyEqual(const FloatPoint& a, const FloatPoint& b)
     return WTF::areEssentiallyEqual(a.x(), b.x()) && WTF::areEssentiallyEqual(a.y(), b.y());
 }
 
+inline void add(Hasher& hasher, const FloatPoint& point)
+{
+    add(hasher, point.x(), point.y());
+}
+
+constexpr FloatPoint FloatPoint::nanPoint()
+{
+    return {
+        std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::quiet_NaN()
+    };
+}
+
+constexpr bool FloatPoint::isNaN() const
+{
+    return isNaNConstExpr(x());
+}
+
 WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const FloatPoint&);
 
 }
 
+namespace WTF {
+
+template<typename Type> struct LogArgument;
+template <>
+struct LogArgument<WebCore::FloatPoint> {
+    static String toString(const WebCore::FloatPoint& point)
+    {
+        return point.toJSONString();
+    }
+};
+
+template<>
+struct MarkableTraits<WebCore::FloatPoint> {
+    constexpr static bool isEmptyValue(const WebCore::FloatPoint& point)
+    {
+        return point.isNaN();
+    }
+
+    constexpr static WebCore::FloatPoint emptyValue()
+    {
+        return WebCore::FloatPoint::nanPoint();
+    }
+};
+
+} // namespace WTF

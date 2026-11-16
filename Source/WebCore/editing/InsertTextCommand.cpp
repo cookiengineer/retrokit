@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005 Apple Inc.  All rights reserved.
+ * Copyright (C) 2005 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,49 +26,60 @@
 #include "config.h"
 #include "InsertTextCommand.h"
 
+#include "CSSSerializationContext.h"
+#include "CSSValuePool.h"
 #include "Document.h"
 #include "Editing.h"
 #include "Editor.h"
-#include "Frame.h"
+#include "FontAttributes.h"
 #include "HTMLElement.h"
+#include "HTMLImageElement.h"
 #include "HTMLInterchange.h"
+#include "InsertListCommand.h"
+#include "LocalFrame.h"
+#include "MutableStyleProperties.h"
+#include "PositionInlines.h"
 #include "Text.h"
+#include "TextIterator.h"
+#include "TextListParser.h"
 #include "VisibleUnits.h"
+#include <wtf/text/StringToIntegerConversion.h>
 
 namespace WebCore {
 
-InsertTextCommand::InsertTextCommand(Document& document, const String& text, bool selectInsertedText, RebalanceType rebalanceType, EditAction editingAction)
-    : CompositeEditCommand(document, editingAction)
+InsertTextCommand::InsertTextCommand(Ref<Document>&& document, const String& text, AllowPasswordEcho allowPasswordEcho, bool selectInsertedText, RebalanceType rebalanceType, EditAction editingAction)
+    : CompositeEditCommand(WTF::move(document), editingAction)
     , m_text(text)
+    , m_allowPasswordEcho(allowPasswordEcho)
     , m_selectInsertedText(selectInsertedText)
     , m_rebalanceType(rebalanceType)
 {
 }
 
-InsertTextCommand::InsertTextCommand(Document& document, const String& text, Ref<TextInsertionMarkerSupplier>&& markerSupplier, EditAction editingAction)
-    : CompositeEditCommand(document, editingAction)
+InsertTextCommand::InsertTextCommand(Ref<Document>&& document, const String& text, Ref<TextInsertionMarkerSupplier>&& markerSupplier, EditAction editingAction)
+    : CompositeEditCommand(WTF::move(document), editingAction)
     , m_text(text)
     , m_selectInsertedText(false)
     , m_rebalanceType(RebalanceLeadingAndTrailingWhitespaces)
-    , m_markerSupplier(WTFMove(markerSupplier))
+    , m_markerSupplier(WTF::move(markerSupplier))
 {
 }
 
 Position InsertTextCommand::positionInsideTextNode(const Position& p)
 {
     Position pos = p;
-    if (isTabSpanTextNode(pos.anchorNode())) {
-        auto textNode = document().createEditingTextNode(emptyString());
+    if (parentTabSpanNode(pos.anchorNode())) {
+        auto textNode = document().createEditingTextNode(String { emptyString() });
         insertNodeAtTabSpanPosition(textNode.copyRef(), pos);
-        return firstPositionInNode(textNode.ptr());
+        return firstPositionInNode(textNode);
     }
 
     // Prepare for text input by looking at the specified position.
     // It may be necessary to insert a text node to receive characters.
     if (!pos.containerNode()->isTextNode()) {
-        auto textNode = document().createEditingTextNode(emptyString());
+        auto textNode = document().createEditingTextNode(String { emptyString() });
         insertNodeAt(textNode.copyRef(), pos);
-        return firstPositionInNode(textNode.ptr());
+        return firstPositionInNode(textNode);
     }
 
     return pos;
@@ -81,7 +92,7 @@ void InsertTextCommand::setEndingSelectionWithoutValidation(const Position& star
     // <http://bugs.webkit.org/show_bug.cgi?id=15781>
     VisibleSelection forcedEndingSelection;
     forcedEndingSelection.setWithoutValidation(startPosition, endPosition);
-    forcedEndingSelection.setIsDirectional(endingSelection().isDirectional());
+    forcedEndingSelection.setDirectionality(endingSelection().directionality());
     setEndingSelection(forcedEndingSelection);
 }
 
@@ -92,7 +103,7 @@ bool InsertTextCommand::performTrivialReplace(const String& text, bool selectIns
     if (!endingSelection().isRange())
         return false;
 
-    if (text.contains('\t') || text.contains(' ') || text.contains('\n'))
+    if (text.contains([](char16_t c) { return c == '\t' || c == ' ' || c == '\n'; }))
         return false;
 
     Position start = endingSelection().start();
@@ -102,7 +113,7 @@ bool InsertTextCommand::performTrivialReplace(const String& text, bool selectIns
 
     setEndingSelectionWithoutValidation(start, endPosition);
     if (!selectInsertedText)
-        setEndingSelection(VisibleSelection(endingSelection().visibleEnd(), endingSelection().isDirectional()));
+        setEndingSelection(VisibleSelection(endingSelection().visibleEnd(), endingSelection().directionality()));
 
     return true;
 }
@@ -123,10 +134,144 @@ bool InsertTextCommand::performOverwrite(const String& text, bool selectInserted
     Position endPosition = Position(textNode.get(), start.offsetInContainerNode() + text.length());
     setEndingSelectionWithoutValidation(start, endPosition);
     if (!selectInsertedText)
-        setEndingSelection(VisibleSelection(endingSelection().visibleEnd(), endingSelection().isDirectional()));
+        setEndingSelection(VisibleSelection(endingSelection().visibleEnd(), endingSelection().directionality()));
 
     return true;
 }
+
+#if PLATFORM(COCOA)
+bool InsertTextCommand::applySmartListsIfNeeded()
+{
+    if (!selectionAllowsSmartLists(m_text, endingSelection()))
+        return false;
+
+    // Get the start of the current line
+
+    auto lineStart = logicalStartOfLine(endingSelection().visibleBase());
+    if (lineStart.isNull() || lineStart.isOrphan()) {
+        ASSERT_NOT_REACHED();
+        return false;
+    }
+
+    // Create and parse the smart list for the current line, if possible.
+
+    auto smartListRangeForCurrentLine = [&] -> std::optional<SimpleRange> {
+        // Get the range from the beginning of the line up until the current caret position,
+        // before `m_text` has been applied.
+        VisibleSelection line { lineStart, endingSelection().visibleExtent() };
+        return line.firstRange();
+    };
+
+    auto currentRange = smartListRangeForCurrentLine();
+    if (!currentRange)
+        return false;
+
+    // Convert the SimpleRange to a String, and then convert the String to a Style::ListStyleType
+    // (which itself is later converted to a CSSValue).
+
+    auto currentLineText = plainText(*currentRange);
+    auto currentSmartList = parseTextList(currentLineText);
+    if (!currentSmartList) {
+        // The line content does not match the Smart List marker criteria.
+        return false;
+    }
+
+    auto lineEnd = logicalEndOfLine(endingSelection().visibleBase());
+    if (lineEnd.isNull() || lineEnd.isOrphan())
+        return false;
+
+    auto fullLineRange = VisibleSelection { lineStart, lineEnd }.firstRange();
+    if (!fullLineRange)
+        return false;
+
+    auto fullLineText = plainText(*fullLineRange);
+    if (fullLineText.find(' ') != notFound)
+        return false;
+
+    // Create and parse the smart list for the previous line, if possible.
+
+    auto smartListRangeForPreviousLine = [&] -> std::optional<SimpleRange> {
+        auto positionBeforeStartOfCurrentLine = lineStart.previous();
+        auto previousLineStart = logicalStartOfLine(positionBeforeStartOfCurrentLine);
+        if (previousLineStart.isNull() || previousLineStart.isOrphan())
+            return std::nullopt;
+
+        auto previousLineEnd = logicalEndOfLine(positionBeforeStartOfCurrentLine);
+        if (previousLineEnd.isNull() || previousLineEnd.isOrphan())
+            return std::nullopt;
+
+        VisibleSelection previousLine { previousLineStart, previousLineEnd };
+        return previousLine.firstRange();
+    };
+
+    auto previousRange = smartListRangeForPreviousLine();
+    if (!previousRange)
+        return false;
+
+    auto previousLineText = plainText(*previousRange);
+    auto previousSmartList = parseTextList(previousLineText);
+    if (!previousSmartList) {
+        // The line content does not match the Smart List marker criteria.
+        return false;
+    }
+
+    // Ensure there are no mismatches between the current and previous line list markers
+
+    if (!areCompatibleListMarkers(*currentSmartList, *previousSmartList))
+        return false;
+
+    Ref styleToPreserve = EditingStyle::create(endingSelection().start(), EditingStyle::PropertiesToInclude::EditingPropertiesInEffect);
+    Ref document = this->document();
+
+    // Insert a list for the previous line
+
+    auto listType = previousSmartList->ordered ? InsertListCommand::Type::OrderedList : InsertListCommand::Type::UnorderedList;
+    applyCommandToComposite(InsertListCommand::create(document.copyRef(), listType, previousSmartList->styleType), *previousRange);
+
+    // And delete the marker from that line.
+
+    if (RefPtr prevListChild = enclosingListChild(protect(endingSelection().base().anchorNode()))) {
+        if (RefPtr textNode = dynamicDowncast<Text>(prevListChild->firstDescendant())) {
+            auto spaceIndex = previousLineText.find(' ');
+            if (spaceIndex != WTF::notFound && spaceIndex + 1 <= textNode->length())
+                deleteTextFromNode(*textNode, 0, spaceIndex + 1);
+        }
+    }
+
+    // This list is the one that was just created or modified.
+    RefPtr listElement = enclosingList(protect(endingSelection().base().anchorNode()));
+    if (!listElement) {
+        ASSERT_NOT_REACHED();
+        return false;
+    }
+
+    // Apply the relevant attributes to the current list element
+
+    auto attributes = nodeAttributesForSmartList(*listElement, *previousSmartList);
+    for (const auto& [attribute, value] : attributes)
+        setNodeAttribute(*listElement, attribute, value);
+
+    // Insert a list for the current line, which will get merged into the prior line.
+
+    applyCommandToComposite(InsertListCommand::create(document.copyRef(), listType, currentSmartList->styleType), *currentRange);
+
+    // And delete the marker from the current line.
+
+    deleteSelection();
+
+    styleToPreserve->prepareToApplyAt(endingSelection().end());
+    if (!styleToPreserve->isEmpty())
+        m_styleToPreserveForSmartList = WTF::move(styleToPreserve);
+
+    m_smartListUndoData =  {
+        previousLineText,
+        currentLineText,
+        listElement,
+    };
+
+    return true;
+}
+#endif // PLATFORM(COCOA)
 
 void InsertTextCommand::doApply()
 {
@@ -174,18 +319,39 @@ void InsertTextCommand::doApply()
     
     // It is possible for the node that contains startPosition to contain only unrendered whitespace,
     // and so deleteInsignificantText could remove it.  Save the position before the node in case that happens.
-    Position positionBeforeStartNode(positionInParentBeforeNode(startPosition.containerNode()));
-    deleteInsignificantText(startPosition.upstream(), startPosition.downstream());
+    Position positionBeforeStartNode(positionInParentBeforeNode(*protect(startPosition.containerNode())));
+
+    if (!document().editor().isInsertingTextForWritingSuggestion())
+        deleteInsignificantText(startPosition, startPosition.downstream());
+
     if (!startPosition.anchorNode()->isConnected())
         startPosition = positionBeforeStartNode;
     if (!startPosition.isCandidate())
         startPosition = startPosition.downstream();
     
     startPosition = positionAvoidingSpecialElementBoundary(startPosition);
-    
+    if (endingSelection().isNoneOrOrphaned())
+        return;
+
     Position endPosition;
-    
-    if (m_text == "\t") {
+
+#if PLATFORM(COCOA)
+    if (applySmartListsIfNeeded()) {
+        // This branch is evaluated if Smart Lists are available, enabled, and contextually applicable.
+        //
+        // A Smart List is generated if the current input is the space character preceded by an eligible
+        // marker such as "2.", "-", "*", etc, at the beginning of a line.
+        //
+        // The start of the line, up to and including the space, is deleted from the DOM, and the corresponding
+        // list type (<ul> or <ol>) is inserted in it place, with a list element <li> contained within for the subsequent text.
+        //
+        // Since the space character acts as a "trigger" for Smart Lists, it should not actually be inserted.
+
+        return;
+    }
+#endif // PLATFORM(COCOA)
+
+    if (m_text == "\t"_s) {
         endPosition = insertTab(startPosition);
         startPosition = endPosition.previous();
         if (placeholder.isNotNull())
@@ -201,10 +367,10 @@ void InsertTextCommand::doApply()
         RefPtr<Text> textNode = startPosition.containerText();
         const unsigned offset = startPosition.offsetInContainerNode();
 
-        insertTextIntoNode(*textNode, offset, m_text);
+        insertTextIntoNode(*textNode, offset, m_text, m_allowPasswordEcho);
         endPosition = Position(textNode.get(), offset + m_text.length());
         if (m_markerSupplier)
-            m_markerSupplier->addMarkersToTextNode(*textNode, offset, m_text);
+            protect(m_markerSupplier)->addMarkersToTextNode(*textNode, offset, m_text);
 
         if (m_rebalanceType == RebalanceLeadingAndTrailingWhitespaces) {
             // The insertion may require adjusting adjacent whitespace, if it is present.
@@ -225,15 +391,23 @@ void InsertTextCommand::doApply()
 
     setEndingSelectionWithoutValidation(startPosition, endPosition);
 
-    // Handle the case where there is a typing style.
-    if (RefPtr<EditingStyle> typingStyle = document().selection().typingStyle()) {
-        typingStyle->prepareToApplyAt(endPosition, EditingStyle::PreserveWritingDirection);
+    RefPtr typingStyle = document().selection().typingStyle();
+
+#if ENABLE(MULTI_REPRESENTATION_HEIC)
+    if (!typingStyle && document().selection().isCaret()) {
+        if (RefPtr imageElement = dynamicDowncast<HTMLImageElement>(document().selection().selection().start().deprecatedNode()); imageElement && imageElement->isMultiRepresentationHEIC())
+            typingStyle = EditingStyle::create(imageElement.get());
+    }
+#endif
+
+    if (typingStyle) {
+        typingStyle->prepareToApplyAt(endPosition, EditingStyle::ShouldPreserveWritingDirection::Yes);
         if (!typingStyle->isEmpty())
             applyStyle(typingStyle.get());
     }
 
     if (!m_selectInsertedText)
-        setEndingSelection(VisibleSelection(endingSelection().end(), endingSelection().affinity(), endingSelection().isDirectional()));
+        setEndingSelection(VisibleSelection(endingSelection().end(), endingSelection().affinity(), endingSelection().directionality()));
 }
 
 Position InsertTextCommand::insertTab(const Position& pos)
@@ -242,40 +416,37 @@ Position InsertTextCommand::insertTab(const Position& pos)
     if (insertPos.isNull())
         return pos;
 
-    Node* node = insertPos.containerNode();
+    RefPtr node = insertPos.containerNode();
     unsigned int offset = node->isTextNode() ? insertPos.offsetInContainerNode() : 0;
 
     // keep tabs coalesced in tab span
-    if (isTabSpanTextNode(node)) {
-        Ref<Text> textNode = downcast<Text>(*node);
-        insertTextIntoNode(textNode, offset, "\t");
-        return Position(textNode.ptr(), offset + 1);
+    if (parentTabSpanNode(node.get())) {
+        Ref textNode = downcast<Text>(node.releaseNonNull());
+        insertTextIntoNode(textNode, offset, "\t"_s);
+        return Position(WTF::move(textNode), offset + 1);
     }
     
     // create new tab span
     auto spanNode = createTabSpanElement(document());
-    auto* spanNodePtr = spanNode.ptr();
     
     // place it
-    if (!is<Text>(*node))
-        insertNodeAt(WTFMove(spanNode), insertPos);
-    else {
-        Ref<Text> textNode = downcast<Text>(*node);
+    if (RefPtr textNode = dynamicDowncast<Text>(*node)) {
         if (offset >= textNode->length())
-            insertNodeAfter(WTFMove(spanNode), textNode);
+            insertNodeAfter(spanNode.copyRef(), *textNode);
         else {
             // split node to make room for the span
             // NOTE: splitTextNode uses textNode for the
             // second node in the split, so we need to
             // insert the span before it.
             if (offset > 0)
-                splitTextNode(textNode, offset);
-            insertNodeBefore(WTFMove(spanNode), textNode);
+                splitTextNode(*textNode, offset);
+            insertNodeBefore(spanNode.copyRef(), *textNode);
         }
-    }
+    } else
+        insertNodeAt(spanNode.copyRef(), insertPos);
 
     // return the position following the new tab
-    return lastPositionInNode(spanNodePtr);
+    return lastPositionInNode(spanNode);
 }
 
 }

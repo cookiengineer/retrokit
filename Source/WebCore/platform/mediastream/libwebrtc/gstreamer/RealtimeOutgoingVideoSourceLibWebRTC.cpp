@@ -31,64 +31,95 @@
 #include "RealtimeOutgoingVideoSourceLibWebRTC.h"
 
 #include "GStreamerVideoFrameLibWebRTC.h"
-#include "MediaSampleGStreamer.h"
+#include "VideoFrameGStreamer.h"
 
 namespace WebCore {
 
+GST_DEBUG_CATEGORY(webkit_libwebrtc_outgoing_video_debug);
+#define GST_CAT_DEFAULT webkit_libwebrtc_outgoing_video_debug
+
 Ref<RealtimeOutgoingVideoSource> RealtimeOutgoingVideoSource::create(Ref<MediaStreamTrackPrivate>&& videoSource)
 {
-    return RealtimeOutgoingVideoSourceLibWebRTC::create(WTFMove(videoSource));
+    return RealtimeOutgoingVideoSourceLibWebRTC::create(WTF::move(videoSource));
 }
 
 Ref<RealtimeOutgoingVideoSourceLibWebRTC> RealtimeOutgoingVideoSourceLibWebRTC::create(Ref<MediaStreamTrackPrivate>&& videoSource)
 {
-    return adoptRef(*new RealtimeOutgoingVideoSourceLibWebRTC(WTFMove(videoSource)));
+    return adoptRef(*new RealtimeOutgoingVideoSourceLibWebRTC(WTF::move(videoSource)));
 }
 
 RealtimeOutgoingVideoSourceLibWebRTC::RealtimeOutgoingVideoSourceLibWebRTC(Ref<MediaStreamTrackPrivate>&& videoSource)
-    : RealtimeOutgoingVideoSource(WTFMove(videoSource))
+    : RealtimeOutgoingVideoSource(WTF::move(videoSource))
 {
+    static std::once_flag onceFlag;
+    std::call_once(onceFlag, [] {
+        GST_DEBUG_CATEGORY_INIT(webkit_libwebrtc_outgoing_video_debug, "webkitlibwebrtcvideooutgoing", 0, "WebKit LibWebRTC outgoing video source");
+    });
 }
 
-void RealtimeOutgoingVideoSourceLibWebRTC::videoSampleAvailable(MediaSample& sample)
+void RealtimeOutgoingVideoSourceLibWebRTC::videoFrameAvailable(VideoFrame& videoFrame, VideoFrameTimeMetadata)
 {
-    switch (sample.videoRotation()) {
-    case MediaSample::VideoRotation::None:
+    switch (videoFrame.rotation()) {
+    case VideoFrame::Rotation::None:
         m_currentRotation = webrtc::kVideoRotation_0;
         break;
-    case MediaSample::VideoRotation::UpsideDown:
+    case VideoFrame::Rotation::UpsideDown:
         m_currentRotation = webrtc::kVideoRotation_180;
         break;
-    case MediaSample::VideoRotation::Right:
+    case VideoFrame::Rotation::Right:
         m_currentRotation = webrtc::kVideoRotation_90;
         break;
-    case MediaSample::VideoRotation::Left:
+    case VideoFrame::Rotation::Left:
         m_currentRotation = webrtc::kVideoRotation_270;
         break;
     }
 
-    ASSERT(sample.platformSample().type == PlatformSample::GStreamerSampleType);
-    auto& mediaSample = static_cast<MediaSampleGStreamer&>(sample);
-    auto frameBuffer = GStreamerVideoFrameLibWebRTC::create(gst_sample_ref(mediaSample.platformSample().sample.gstSample));
+    auto colorSpace = [&] {
+        if (auto pixelFormat = convertVideoFramePixelFormat(videoFrame.pixelFormat(), true)) {
+            if (isRGBVideoPixelFormat(*pixelFormat))
+                return PlatformVideoColorSpace { PlatformVideoColorPrimaries::Bt709, PlatformVideoTransferCharacteristics::Bt709, PlatformVideoMatrixCoefficients::Bt709, false };
+        }
+        return videoFrame.colorSpace();
+    }();
 
-    sendFrame(WTFMove(frameBuffer));
+    auto& gstFrame = downcast<VideoFrameGStreamer>(videoFrame);
+    auto frameSize = gstFrame.presentationSize();
+    if (frameSize.isEmpty())
+        return;
+
+    frameSize.scale(this->videoFrameScaling());
+    auto sample = gstFrame.convert(GST_VIDEO_FORMAT_I420, frameSize, colorSpace);
+    if (!sample)
+        return;
+
+    // Clear the segment otherwise a bytes segment will be pushed on the encoder, leading to
+    // potential critical warnings in videoflip which expects a time segment.
+    GRefPtr writableSample = adoptGRef(gst_sample_make_writable(sample.leakRef()));
+    gst_sample_set_segment(writableSample.get(), nullptr);
+    GST_TRACE("Sending video frame with caps %" GST_PTR_FORMAT, gst_sample_get_caps(writableSample.get()));
+    sendFrame(GStreamerVideoFrameLibWebRTC::create(WTF::move(writableSample)), colorSpace);
 }
 
-rtc::scoped_refptr<webrtc::VideoFrameBuffer> RealtimeOutgoingVideoSourceLibWebRTC::createBlackFrame(size_t  width, size_t  height)
+webrtc::scoped_refptr<webrtc::VideoFrameBuffer> RealtimeOutgoingVideoSourceLibWebRTC::createBlackFrame(size_t width, size_t height)
 {
-    GstVideoInfo info;
+    GST_TRACE("Creating black video frame");
 
+    GstVideoInfo info;
     gst_video_info_set_format(&info, GST_VIDEO_FORMAT_RGB, width, height);
 
     GRefPtr<GstBuffer> buffer = adoptGRef(gst_buffer_new_allocate(nullptr, info.size, nullptr));
     GRefPtr<GstCaps> caps = adoptGRef(gst_video_info_to_caps(&info));
 
-    GstMappedBuffer map(buffer.get(), GST_MAP_WRITE);
-    memset(map.data(), 0, info.size);
+    {
+        GstMappedBuffer map(buffer.get(), GST_MAP_WRITE);
+        memsetSpan(map.mutableSpan<uint8_t>(), 0);
+    }
 
-    return GStreamerVideoFrameLibWebRTC::create(gst_sample_new(buffer.get(), caps.get(), NULL, NULL));
+    return GStreamerVideoFrameLibWebRTC::create(gst_sample_new(buffer.get(), caps.get(), nullptr, nullptr));
 }
+
+#undef GST_CAT_DEFAULT
 
 } // namespace WebCore
 
-#endif // USE(LIBWEBRTC)
+#endif // USE(LIBWEBRTC) && USE(GSTREAMER)

@@ -27,50 +27,90 @@
 
 #if USE(SYSTEM_PREVIEW)
 
-#include <WebCore/FrameLoaderTypes.h>
+#include "ProcessThrottler.h"
 #include <WebCore/IntRect.h>
 #include <WebCore/ResourceError.h>
+#include <WebCore/SystemPreviewInfo.h>
+#include <wtf/BlockPtr.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/URL.h>
+#include <wtf/WeakPtr.h>
 
+OBJC_CLASS NSArray;
+OBJC_CLASS NSString;
 #if USE(QUICK_LOOK)
 OBJC_CLASS QLPreviewController;
 OBJC_CLASS _WKPreviewControllerDataSource;
 OBJC_CLASS _WKPreviewControllerDelegate;
+OBJC_CLASS _WKSystemPreviewDataTaskDelegate;
 #endif
+
+namespace WebCore {
+class SecurityOriginData;
+}
 
 namespace WebKit {
 
 class WebPageProxy;
 
-class SystemPreviewController {
-    WTF_MAKE_FAST_ALLOCATED;
+class SystemPreviewController : public RefCountedAndCanMakeWeakPtr<SystemPreviewController> {
+    WTF_MAKE_TZONE_ALLOCATED(SystemPreviewController);
 public:
-    explicit SystemPreviewController(WebPageProxy&);
+    static Ref<SystemPreviewController> create(WebPageProxy&);
 
     bool canPreview(const String& mimeType) const;
 
-    void start(URL originatingPageURL, const String& mimeType, const WebCore::SystemPreviewInfo&);
+    void begin(const URL&, const WebCore::SecurityOriginData& topOrigin, const WebCore::SystemPreviewInfo&, CompletionHandler<void()>&&);
     void updateProgress(float);
-    void finish(URL);
-    void cancel();
-    void fail(const WebCore::ResourceError&);
+    void loadStarted(const URL& localFileURL);
+    void loadCompleted(const URL& localFileURL);
+    void loadFailed();
+    void end();
 
-    WebPageProxy& page() { return m_webPageProxy; }
-    const WebCore::SystemPreviewInfo& previewInfo() const { return m_systemPreviewInfo; }
+    WebPageProxy* page() { return m_webPageProxy.get(); }
+    const WebCore::SystemPreviewInfo& previewInfo() const LIFETIME_BOUND { return m_systemPreviewInfo; }
 
     void triggerSystemPreviewAction();
 
-    void triggerSystemPreviewActionWithTargetForTesting(uint64_t elementID, uint64_t frameID, uint64_t pageID);
+    void triggerSystemPreviewActionWithTargetForTesting(uint64_t nodeID, NSString* documentID, uint64_t pageID);
+    void setCompletionHandlerForLoadTesting(CompletionHandler<void(bool)>&&);
 
 private:
-    WebPageProxy& m_webPageProxy;
+    explicit SystemPreviewController(WebPageProxy&);
+
+    void takeActivityToken();
+    void releaseActivityTokenIfNecessary();
+
+    NSArray *localFileURLs() const;
+
+    enum class State : uint8_t {
+        Initial,
+        Began,
+        Loading,
+        Viewing
+    };
+
+    State m_state { State::Initial };
+
+    WeakPtr<WebPageProxy> m_webPageProxy;
     WebCore::SystemPreviewInfo m_systemPreviewInfo;
+    URL m_downloadURL;
+    URL m_localFileURL;
+    String m_fragmentIdentifier;
 #if USE(QUICK_LOOK)
     RetainPtr<QLPreviewController> m_qlPreviewController;
     RetainPtr<_WKPreviewControllerDelegate> m_qlPreviewControllerDelegate;
     RetainPtr<_WKPreviewControllerDataSource> m_qlPreviewControllerDataSource;
+    RetainPtr<_WKSystemPreviewDataTaskDelegate> m_wkSystemPreviewDataTaskDelegate;
 #endif
+
+    RefPtr<ProcessThrottler::BackgroundActivity> m_activity;
+    CompletionHandler<void(bool)> m_testingCallback;
+    BlockPtr<void(bool)> m_allowPreviewCallback;
+    double m_showPreviewDelay { 0 };
+
 };
 
 }

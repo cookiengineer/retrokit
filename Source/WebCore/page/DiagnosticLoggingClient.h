@@ -25,28 +25,37 @@
 
 #pragma once
 
-#include "DiagnosticLoggingDomain.h"
-#include "DiagnosticLoggingResultType.h"
-#include <wtf/FastMalloc.h>
+#include <WebCore/DiagnosticLoggingDomain.h>
+#include <wtf/CheckedPtr.h>
+#include <wtf/CryptographicallyRandomNumber.h>
 #include <wtf/HashMap.h>
-#include <wtf/RandomNumber.h>
-#include <wtf/Variant.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/text/StringHash.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
+enum DiagnosticLoggingResultType : uint8_t;
 enum class ShouldSample : bool { No, Yes };
 
-class DiagnosticLoggingClient {
-    WTF_MAKE_FAST_ALLOCATED;
+struct DiagnosticLoggingDictionary {
+    using Payload = Variant<String, uint64_t, int64_t, bool, double>;
+    using Dictionary = HashMap<String, Payload>;
+    Dictionary dictionary;
+    void set(String key, Payload value) { dictionary.set(WTF::move(key), WTF::move(value)); }
+};
+
+class DiagnosticLoggingClient : public CanMakeCheckedPtr<DiagnosticLoggingClient> {
+    WTF_MAKE_TZONE_ALLOCATED(DiagnosticLoggingClient);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(DiagnosticLoggingClient);
 public:
     virtual void logDiagnosticMessage(const String& message, const String& description, ShouldSample) = 0;
     virtual void logDiagnosticMessageWithResult(const String& message, const String& description, DiagnosticLoggingResultType, ShouldSample) = 0;
     virtual void logDiagnosticMessageWithValue(const String& message, const String& description, double value, unsigned significantFigures, ShouldSample) = 0;
     virtual void logDiagnosticMessageWithEnhancedPrivacy(const String& message, const String& description, ShouldSample) = 0;
 
-    using ValuePayload = Variant<String, uint64_t, int64_t, bool, double>;
-    using ValueDictionary = HashMap<String, ValuePayload>;
+    using ValuePayload = DiagnosticLoggingDictionary::Payload;
+    using ValueDictionary = DiagnosticLoggingDictionary;
 
     virtual void logDiagnosticMessageWithValueDictionary(const String& message, const String& description, const ValueDictionary&, ShouldSample) = 0;
     virtual void logDiagnosticMessageWithDomain(const String& message, DiagnosticLoggingDomain) = 0;
@@ -62,7 +71,7 @@ inline bool DiagnosticLoggingClient::shouldLogAfterSampling(ShouldSample shouldS
         return true;
 
     static const double selectionProbability = 0.05;
-    return randomNumber() <= selectionProbability;
+    return cryptographicallyRandomUnitInterval() <= selectionProbability;
 }
 
 } // namespace WebCore

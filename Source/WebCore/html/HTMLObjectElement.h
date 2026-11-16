@@ -22,20 +22,22 @@
 
 #pragma once
 
-#include "FormAssociatedElement.h"
-#include "HTMLPlugInImageElement.h"
+#include <WebCore/FormListedElement.h>
+#include <WebCore/HTMLPlugInElement.h>
 
 namespace WebCore {
 
 class HTMLFormElement;
 
-class HTMLObjectElement final : public HTMLPlugInImageElement, public FormAssociatedElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLObjectElement);
+class HTMLObjectElement final : public HTMLPlugInElement, public FormListedElement {
+    WTF_MAKE_TZONE_ALLOCATED(HTMLObjectElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLObjectElement);
 public:
-    static Ref<HTMLObjectElement> create(const QualifiedName&, Document&, HTMLFormElement*);
+    USING_CAN_MAKE_WEAKPTR(HTMLPlugInElement);
 
-    bool isExposed() const { return m_isExposed; }
-    bool containsJavaApplet() const;
+    static Ref<HTMLObjectElement> create(const QualifiedName&, Document&);
+
+    bool isExposed() const;
 
     bool hasFallbackContent() const;
     bool useFallbackContent() const final { return m_useFallbackContent; }
@@ -48,64 +50,55 @@ public:
     static bool checkValidity() { return true; }
     static bool reportValidity() { return true; }
 
-    void setCustomValidity(const String&) final { }
-    String validationMessage() const final { return String(); }
-
-    using HTMLPlugInImageElement::ref;
-    using HTMLPlugInImageElement::deref;
-
-    HTMLFormElement* form() const final { return FormAssociatedElement::form(); }
+    using HTMLPlugInElement::ref;
+    using HTMLPlugInElement::deref;
 
 private:
-    HTMLObjectElement(const QualifiedName&, Document&, HTMLFormElement*);
+    HTMLObjectElement(const QualifiedName&, Document&);
     ~HTMLObjectElement();
 
     int defaultTabIndex() const final;
 
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
     bool hasPresentationalHintsForAttribute(const QualifiedName&) const final;
     void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
 
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    void didFinishInsertingNode() final;
-    void removedFromAncestor(RemovalType, ContainerNode&) final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void postConnectionSteps() final;
+    void removingSteps(RemovalType, ContainerNode&) final;
 
     void didMoveToNewDocument(Document& oldDocument, Document& newDocument) final;
 
     void childrenChanged(const ChildChange&) final;
 
-    bool isURLAttribute(const Attribute&) const final;
-    const AtomString& imageSourceURL() const final;
+    bool NODELETE isURLAttribute(const Attribute&) const final;
+    String imageSourceURL() const final;
 
-    void addSubresourceAttributeURLs(ListHashSet<URL>&) const final;
+    void addSubresourceAttributeURLs(OrderedHashSet<URL>&) const final;
 
     void updateWidget(CreatePlugins) final;
-    void updateExposedState();
 
-    // FIXME: This function should not deal with url or serviceType
-    // so that we can better share code between <object> and <embed>.
-    void parametersForPlugin(Vector<String>& paramNames, Vector<String>& paramValues, String& url, String& serviceType);
+    // FIXME: Better share code between <object> and <embed>.
+    void parametersForPlugin(Vector<AtomString>& paramNames, Vector<AtomString>& paramValues);
 
-    bool hasValidClassId();
+    void refFormAssociatedElement() const final { ref(); }
+    void derefFormAssociatedElement() const final { deref(); }
 
-    void refFormAssociatedElement() final { ref(); }
-    void derefFormAssociatedElement() final { deref(); }
+    FormAssociatedElement* NODELETE asFormAssociatedElement() final { return this; }
+    FormListedElement* NODELETE asFormListedElement() final { return this; }
+    ValidatedFormListedElement* NODELETE asValidatedFormListedElement() final { return nullptr; }
 
-    FormNamedItem* asFormNamedItem() final { return this; }
-    FormAssociatedElement* asFormAssociatedElement() final { return this; }
+    // These functions can be called concurrently for ValidityState.
     HTMLObjectElement& asHTMLElement() final { return *this; }
     const HTMLObjectElement& asHTMLElement() const final { return *this; }
 
-    bool isInteractiveContent() const final;
+    bool NODELETE isFormListedElement() const final { return true; }
+    bool NODELETE isValidatedFormListedElement() const final { return false; }
 
-    bool isFormControlElement() const final { return false; }
-
-    bool isEnumeratable() const final { return true; }
-    bool appendFormData(DOMFormData&, bool) final;
+    bool NODELETE isEnumeratable() const final { return true; }
 
     bool canContainRangeEndPoint() const final;
 
-    bool m_isExposed { true };
     bool m_useFallbackContent { false };
 };
 

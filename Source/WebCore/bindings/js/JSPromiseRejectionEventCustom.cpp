@@ -27,6 +27,7 @@
 #include "config.h"
 #include "JSPromiseRejectionEvent.h"
 
+#include "JSValueInWrappedObjectInlines.h"
 #include "PromiseRejectionEvent.h"
 #include <JavaScriptCore/HeapInlines.h>
 #include <JavaScriptCore/JSCJSValueInlines.h>
@@ -34,11 +35,11 @@
 namespace WebCore {
 
 template<typename Visitor>
-void JSPromiseRejectionEvent::visitAdditionalChildren(Visitor& visitor)
+void JSPromiseRejectionEvent::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    wrapped().reason().visit(visitor);
+    wrapped().reason().visitInGCThread(visitor);
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSPromiseRejectionEvent);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSPromiseRejectionEvent);
 
 } // namespace WebCore

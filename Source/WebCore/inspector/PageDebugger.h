@@ -27,16 +27,17 @@
 #pragma once
 
 #include <JavaScriptCore/Debugger.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
-class Frame;
+class LocalFrame;
 class Page;
 class PageGroup;
 
 class PageDebugger final : public JSC::Debugger {
     WTF_MAKE_NONCOPYABLE(PageDebugger);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(PageDebugger);
 public:
     PageDebugger(Page&);
     ~PageDebugger() override = default;
@@ -56,11 +57,11 @@ private:
     void runEventLoopWhilePausedInternal();
 
     void setJavaScriptPaused(const PageGroup&, bool paused);
-    void setJavaScriptPaused(Frame&, bool paused);
+    void setJavaScriptPaused(LocalFrame&, bool paused);
 
     bool platformShouldContinueRunningEventLoopWhilePaused();
 
-    Page& m_page;
+    WeakRef<Page> m_page;
 };
 
 } // namespace WebCore

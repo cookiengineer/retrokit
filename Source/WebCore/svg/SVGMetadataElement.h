@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2004, 2005 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005 Rob Buis <buis@kde.org>
+ * Copyright (C) 2024 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -25,14 +26,16 @@
 namespace WebCore {
 
 class SVGMetadataElement final : public SVGElement {
-    WTF_MAKE_ISO_ALLOCATED(SVGMetadataElement);
+    WTF_MAKE_TZONE_ALLOCATED(SVGMetadataElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGMetadataElement);
 public:
     static Ref<SVGMetadataElement> create(const QualifiedName&, Document&);
 
 private:
     SVGMetadataElement(const QualifiedName&, Document&);
 
-    bool rendererIsNeeded(const RenderStyle&) final { return false; }
+    bool rendererIsNeeded(const Style::ComputedStyle&) final { return false; }
+    bool supportsFocus() const final { return false; }
 };
 
 } // namespace WebCore

@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2008-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2013 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,7 +30,7 @@
 #include "SMILTime.h"
 #include "Timer.h"
 #include <wtf/HashMap.h>
-#include <wtf/RefCounted.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/text/StringHash.h>
 #include <wtf/text/WTFString.h>
 
@@ -38,10 +39,11 @@ namespace WebCore {
 class SVGElement;
 class SVGSMILElement;
 class SVGSVGElement;
+class WeakPtrImplWithEventTargetData;
 
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(SMILTimeContainer);
-class SMILTimeContainer final : public RefCounted<SMILTimeContainer>  {
-    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(SMILTimeContainer);
+class SMILTimeContainer final : public RefCountedAndCanMakeWeakPtr<SMILTimeContainer>  {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(SMILTimeContainer, SMILTimeContainer);
 public:
     static Ref<SMILTimeContainer> create(SVGSVGElement& owner) { return adoptRef(*new SMILTimeContainer(owner)); }
 
@@ -49,13 +51,12 @@ public:
     void unschedule(SVGSMILElement*, SVGElement*, const QualifiedName&);
     void notifyIntervalsChanged();
 
-    WEBCORE_EXPORT Seconds animationFrameDelay() const;
+    WEBCORE_EXPORT Seconds NODELETE animationFrameDelay() const;
 
     SMILTime elapsed() const;
 
-    bool isActive() const;
-    bool isPaused() const;
-    bool isStarted() const;
+    bool NODELETE isActive() const;
+    bool NODELETE isPaused() const;
 
     void begin();
     void pause();
@@ -67,17 +68,19 @@ public:
 private:
     SMILTimeContainer(SVGSVGElement& owner);
 
+    bool NODELETE isStarted() const;
     void timerFired();
     void startTimer(SMILTime elapsed, SMILTime fireTime, SMILTime minimumDelay = 0);
     void updateAnimations(SMILTime elapsed, bool seekToTime = false);
 
     using ElementAttributePair = std::pair<SVGElement*, QualifiedName>;
-    using AnimationsVector = Vector<SVGSMILElement*>;
+    using AnimationsVector = Vector<WeakRef<SVGSMILElement, WeakPtrImplWithEventTargetData>>;
     using GroupedAnimationsMap = HashMap<ElementAttributePair, AnimationsVector>;
 
-    void processScheduledAnimations(const Function<void(SVGSMILElement&)>&);
+    void processScheduledAnimations(NOESCAPE const Function<void(SVGSMILElement&)>&);
     void updateDocumentOrderIndexes();
     void sortByPriority(AnimationsVector& smilElements, SMILTime elapsed);
+    MonotonicTime lastResumeTime() const { return m_resumeTime ? m_resumeTime : m_beginTime; }
 
     MonotonicTime m_beginTime;
     MonotonicTime m_pauseTime;
@@ -88,7 +91,7 @@ private:
     bool m_documentOrderIndexesDirty { false };
     Timer m_timer;
     GroupedAnimationsMap m_scheduledAnimations;
-    SVGSVGElement& m_ownerSVGElement;
+    WeakRef<SVGSVGElement, WeakPtrImplWithEventTargetData> m_ownerSVGElement;
 };
 
 } // namespace WebCore

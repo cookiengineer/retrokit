@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,8 +25,9 @@
 
 #pragma once
 
-#include "JSObject.h"
-#include "Options.h"
+#include <JavaScriptCore/GCAwareJITStubRoutine.h>
+#include <JavaScriptCore/JSObject.h>
+#include <JavaScriptCore/Options.h>
 
 namespace JSC {
 
@@ -38,31 +39,35 @@ struct DollarVMAssertScope {
 class JSDollarVM final : public JSNonFinalObject {
 public:
     typedef JSNonFinalObject Base;
+    static constexpr unsigned StructureFlags = Base::StructureFlags | OverridesGetOwnPropertyNames;
 
     template<typename CellType, SubspaceAccess>
     static CompleteSubspace* subspaceFor(VM& vm)
     {
-        return &vm.cellSpace;
+        return &vm.cellSpace();
     }
     
     DECLARE_EXPORT_INFO;
+
+    DECLARE_VISIT_CHILDREN;
     
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        DollarVMAssertScope assertScope;
-        return Structure::create(vm, globalObject, prototype, TypeInfo(ObjectType, StructureFlags), info());
-    }
+    static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
     static JSDollarVM* create(VM& vm, Structure* structure)
     {
         DollarVMAssertScope assertScope;
-        JSDollarVM* instance = new (NotNull, allocateCell<JSDollarVM>(vm.heap)) JSDollarVM(vm, structure);
+        JSDollarVM* instance = new (NotNull, allocateCell<JSDollarVM>(vm)) JSDollarVM(vm, structure);
         instance->finishCreation(vm);
         return instance;
     }
 
-    Structure* objectDoingSideEffectPutWithoutCorrectSlotStatusStructure() { return m_objectDoingSideEffectPutWithoutCorrectSlotStatusStructure.get(); }
-    
+    Structure* objectDoingSideEffectPutWithoutCorrectSlotStatusStructure() { return m_objectDoingSideEffectPutWithoutCorrectSlotStatusStructureID.get(); }
+    Structure* testCustomGetterSetterStructure() { return m_testCustomGetterSetterStructureID.get(); }
+
+#if ENABLE(JIT)
+    RefPtr<PolymorphicAccessJITStubRoutine> m_testStubRoutine;
+#endif
+
 private:
     JSDollarVM(VM& vm, Structure* structure)
         : Base(vm, structure)
@@ -71,12 +76,13 @@ private:
     }
 
     void finishCreation(VM&);
-    void addFunction(VM&, JSGlobalObject*, const char* name, NativeFunction, unsigned arguments);
-    void addConstructibleFunction(VM&, JSGlobalObject*, const char* name, NativeFunction, unsigned arguments);
+    void addFunction(VM&, JSGlobalObject*, ASCIILiteral name, NativeFunction, unsigned arguments);
+    void addConstructibleFunction(VM&, JSGlobalObject*, ASCIILiteral name, NativeFunction, unsigned arguments);
 
-    DECLARE_VISIT_CHILDREN;
+    static void getOwnPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArrayBuilder&, DontEnumPropertiesMode);
 
-    WriteBarrier<Structure> m_objectDoingSideEffectPutWithoutCorrectSlotStatusStructure;
+    WriteBarrierStructureID m_objectDoingSideEffectPutWithoutCorrectSlotStatusStructureID;
+    WriteBarrierStructureID m_testCustomGetterSetterStructureID;
 };
 
 } // namespace JSC

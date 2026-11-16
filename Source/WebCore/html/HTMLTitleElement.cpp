@@ -24,21 +24,23 @@
 #include "HTMLTitleElement.h"
 
 #include "Document.h"
+#include "ElementInlines.h"
 #include "HTMLNames.h"
 #include "NodeRenderStyle.h"
 #include "RenderElement.h"
-#include "RenderStyle.h"
-#include "StyleInheritedData.h"
+#include "ResolvedStyle.h"
+#include "StyleComputedStyle.h"
 #include "StyleResolver.h"
 #include "Text.h"
+#include "TextManipulationController.h"
 #include "TextNodeTraversal.h"
-#include <wtf/IsoMallocInlines.h>
 #include <wtf/Ref.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLTitleElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLTitleElement);
 
 using namespace HTMLNames;
 
@@ -53,24 +55,40 @@ Ref<HTMLTitleElement> HTMLTitleElement::create(const QualifiedName& tagName, Doc
     return adoptRef(*new HTMLTitleElement(tagName, document));
 }
 
-Node::InsertedIntoAncestorResult HTMLTitleElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+Node::NeedsPostConnectionSteps HTMLTitleElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    HTMLElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
-    document().titleElementAdded(*this);
-    return InsertedIntoAncestorResult::Done;
+    HTMLElement::insertionSteps(insertionType, parentOfInsertedTree);
+
+    if (insertionType.connectedToDocument)
+        return NeedsPostConnectionSteps::Yes;
+
+    return NeedsPostConnectionSteps::No;
 }
 
-void HTMLTitleElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void HTMLTitleElement::postConnectionSteps()
 {
-    HTMLElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
-    document().titleElementRemoved(*this);
+    HTMLElement::postConnectionSteps();
+
+    m_title = computedTextWithDirection();
+    protect(document())->titleElementAdded(*this);
+}
+
+void HTMLTitleElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+{
+    HTMLElement::removingSteps(removalType, oldParentOfRemovedTree);
+
+    if (removalType.disconnectedFromDocument)
+        protect(document())->titleElementRemoved(*this);
 }
 
 void HTMLTitleElement::childrenChanged(const ChildChange& change)
 {
     HTMLElement::childrenChanged(change);
-    m_title = computedTextWithDirection();
-    document().titleElementTextChanged(*this);
+
+    if (isConnected()) {
+        m_title = computedTextWithDirection();
+        protect(document())->titleElementTextChanged(*this);
+    }
 }
 
 String HTMLTitleElement::text() const
@@ -80,17 +98,18 @@ String HTMLTitleElement::text() const
 
 StringWithDirection HTMLTitleElement::computedTextWithDirection()
 {
+    ASSERT(isConnected());
+    if (!firstChild())
+        return { };
     auto direction = TextDirection::LTR;
-    if (auto* computedStyle = this->computedStyle())
-        direction = computedStyle->direction();
-    else
-        direction = styleResolver().styleForElement(*this, parentElement() ? parentElement()->renderStyle() : nullptr).renderStyle->direction();
+    if (CheckedPtr computedStyle = this->computedStyle())
+        direction = computedStyle->writingMode().computedTextDirection();
     return { text(), direction };
 }
 
-void HTMLTitleElement::setText(const String& value)
+void HTMLTitleElement::setText(String&& value)
 {
-    setTextContent(value);
+    setTextContent(WTF::move(value));
 }
 
 }

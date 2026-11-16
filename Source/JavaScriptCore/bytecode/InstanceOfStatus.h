@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,28 +28,32 @@
 #include "ConcurrentJSLock.h"
 #include "ICStatusMap.h"
 #include "InstanceOfVariant.h"
-#include "StubInfoSummary.h"
+#include "PropertyInlineCacheSummary.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC {
 
 class AccessCase;
 class CodeBlock;
-class StructureStubInfo;
+class PropertyInlineCache;
 
 class InstanceOfStatus final {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(InstanceOfStatus);
 public:
     enum State {
         // It's uncached so we have no information.
         NoInformation,
-        
+
         // It's cached in a simple way.
         Simple,
-        
+
+        // It's cached for a megamorphic case.
+        Megamorphic,
+
         // It's known to often take slow path.
         TakesSlowPath
     };
-    
+
     InstanceOfStatus()
         : m_state(NoInformation)
     {
@@ -58,21 +62,24 @@ public:
     InstanceOfStatus(State state)
         : m_state(state)
     {
-        ASSERT(state == NoInformation || state == TakesSlowPath);
+        ASSERT(state == NoInformation || state == TakesSlowPath || state == Megamorphic);
     }
     
-    explicit InstanceOfStatus(StubInfoSummary summary)
+    explicit InstanceOfStatus(PropertyInlineCacheSummary summary)
     {
         switch (summary) {
-        case StubInfoSummary::NoInformation:
+        case PropertyInlineCacheSummary::NoInformation:
             m_state = NoInformation;
             return;
-        case StubInfoSummary::Simple:
-        case StubInfoSummary::MakesCalls:
+        case PropertyInlineCacheSummary::Simple:
+        case PropertyInlineCacheSummary::MakesCalls:
             RELEASE_ASSERT_NOT_REACHED();
             return;
-        case StubInfoSummary::TakesSlowPath:
-        case StubInfoSummary::TakesSlowPathAndMakesCalls:
+        case PropertyInlineCacheSummary::Megamorphic:
+            m_state = Megamorphic;
+            return;
+        case PropertyInlineCacheSummary::TakesSlowPath:
+        case PropertyInlineCacheSummary::TakesSlowPathAndMakesCalls:
             m_state = TakesSlowPath;
             return;
         }
@@ -82,7 +89,8 @@ public:
     static InstanceOfStatus computeFor(CodeBlock*, ICStatusMap&, BytecodeIndex);
     
 #if ENABLE(DFG_JIT)
-    static InstanceOfStatus computeForStubInfo(const ConcurrentJSLocker&, VM&, StructureStubInfo*);
+    static InstanceOfStatus computeForPropertyInlineCache
+(const ConcurrentJSLocker&, VM&, PropertyInlineCache*);
 #endif
     
     State state() const { return m_state; }
@@ -91,12 +99,13 @@ public:
     explicit operator bool() const { return isSet(); }
     
     bool isSimple() const { return m_state == Simple; }
+    bool isMegamorphic() const { return m_state == Megamorphic; }
     bool takesSlowPath() const { return m_state == TakesSlowPath; }
     
-    JSObject* commonPrototype() const;
+    JSObject* NODELETE commonPrototype() const;
     
     size_t numVariants() const { return m_variants.size(); }
-    const Vector<InstanceOfVariant, 2>& variants() const { return m_variants; }
+    const Vector<InstanceOfVariant, 2>& variants() const LIFETIME_BOUND { return m_variants; }
     const InstanceOfVariant& at(size_t index) const { return m_variants[index]; }
     const InstanceOfVariant& operator[](size_t index) const { return at(index); }
 

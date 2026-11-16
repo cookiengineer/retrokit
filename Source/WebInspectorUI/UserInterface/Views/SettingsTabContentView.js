@@ -187,9 +187,10 @@ WI.SettingsTabContentView = class SettingsTabContentView extends WI.TabContentVi
 
         this._createExperimentalSettingsView();
 
-        if (WI.isEngineeringBuild) {
+        if (WI.engineeringSettingsAllowed())
             this._createEngineeringSettingsView();
 
+        if (WI.isEngineeringBuild) {
             WI.showDebugUISetting.addEventListener(WI.Setting.Event.Changed, this._updateDebugSettingsViewVisibility, this);
             this._updateDebugSettingsViewVisibility();
         }
@@ -254,7 +255,11 @@ WI.SettingsTabContentView = class SettingsTabContentView extends WI.TabContentVi
         searchGroup.addSetting(WI.settings.searchFromSelection, WI.UIString("%s from selection", "Global Search From Selection @ Settings", "Settings tab checkbox label for whether the global search should populate from the current selection.").format(WI.searchKeyboardShortcut.displayName));
 
         generalSettingsView.addSeparator();
-
+        
+        generalSettingsView.addSetting(WI.UIString("Details Sidebars:", "Details Sidebars: @ Settings General Pane", "Category label for detail sidebar settings."), WI.settings.enableNarrowLayoutMode, WI.UIString("Show on bottom when narrow", "Show on bottom when narrow @ Settings General Pane", "Settings tab checkbox label for whether the details sidebars (on the right in LTR locales) are at the bottom"));
+        
+        generalSettingsView.addSeparator();
+        
         const zoomLevels = [0.6, 0.8, 1, 1.2, 1.4, 1.6, 1.8, 2, 2.2, 2.4];
         const zoomValues = zoomLevels.map((level) => [level, Number.percentageString(level, 0)]);
 
@@ -279,8 +284,18 @@ WI.SettingsTabContentView = class SettingsTabContentView extends WI.TabContentVi
 
         let elementsSettingsView = new WI.SettingsView("elements", WI.UIString("Elements"));
 
+        // COMPATIBILITY (macOS 13.0, iOS 16.0): CSS.LayoutFlag.Rendered did not exist yet.
+        if (InspectorBackend.Enum.CSS?.LayoutFlag?.Rendered) {
+            elementsSettingsView.addSetting(WI.UIString("DOM Tree:"), WI.settings.domTreeDeemphasizesNodesThatAreNotRendered, WI.UIString("De-emphasize nodes that are not rendered"));
+
+            elementsSettingsView.addSeparator();
+        }
+
         if (InspectorBackend.hasCommand("DOM.setInspectModeEnabled", "showRulers")) {
-            elementsSettingsView.addSetting(WI.UIString("Element Selection:"), WI.settings.showRulersDuringElementSelection, WI.UIString("Show page rulers and node border lines"));
+            let elementSelectionGroup = elementsSettingsView.addGroup(WI.UIString("Element Selection:"));
+            elementSelectionGroup.addSetting(WI.settings.showRulersDuringElementSelection, WI.UIString("Show page rulers and node border lines"));
+            elementSelectionGroup.addSetting(WI.settings.showFlexOverlayDuringElementSelection, WI.UIString("Show grid overlay"));
+            elementSelectionGroup.addSetting(WI.settings.showGridOverlayDuringElementSelection, WI.UIString("Show flexbox overlay"));
 
             elementsSettingsView.addSeparator();
         }
@@ -291,6 +306,7 @@ WI.SettingsTabContentView = class SettingsTabContentView extends WI.TabContentVi
         let cssGroup = elementsSettingsView.addGroup(WI.UIString("CSS:"));
         cssGroup.addSetting(WI.settings.cssChangesPerNode, WI.UIString("Show changes only for selected node"));
         cssGroup.addSetting(WI.settings.showCSSPropertySyntaxInDocumentationPopover, WI.UIString("Show property syntax in documentation popover"));
+        cssGroup.addSetting(WI.settings.showUserAgentStyles, WI.UIString("Show user agent styles"));
 
         this._createReferenceLink(elementsSettingsView);
 
@@ -320,7 +336,7 @@ WI.SettingsTabContentView = class SettingsTabContentView extends WI.TabContentVi
     {
         let consoleSettingsView = new WI.SettingsView("console", WI.UIString("Console"));
 
-        // COMPATIBILITY (iOS 12.2): Runtime.setSavedResultAlias did not exist.
+        // COMPATIBILITY (iOS 13.0): Runtime.setSavedResultAlias did not exist.
         if (InspectorBackend.hasCommand("Runtime.setSavedResultAlias")) {
             let consoleSavedResultAliasEditor = consoleSettingsView.addGroupWithCustomEditor(WI.UIString("Saved Result Alias:"));
 
@@ -345,6 +361,11 @@ WI.SettingsTabContentView = class SettingsTabContentView extends WI.TabContentVi
         }
 
         consoleSettingsView.addSetting(WI.UIString("Traces:"), WI.settings.consoleAutoExpandTrace, WI.UIString("Auto-expand"));
+        consoleSettingsView.addSetting(WI.UIString("Show:"), WI.settings.showConsoleMessageTimestamps, WI.UIString("Timestamps"));
+
+        // COMPATIBILITY (macOS 14.4, iOS 17.4): `Console.setConsoleClearAPIEnabled` did not exist yet.
+        if (InspectorBackend.hasCommand("Console.setConsoleClearAPIEnabled"))
+            consoleSettingsView.addSetting(WI.UIString("Clear:"), WI.settings.consoleClearAPIEnabled, WI.UIString("Allow page to clear Console"));
 
         if (WI.ConsoleManager.supportsLogChannels()) {
             consoleSettingsView.addSeparator();
@@ -369,8 +390,7 @@ WI.SettingsTabContentView = class SettingsTabContentView extends WI.TabContentVi
                 let logEditor = consoleSettingsView.addGroupWithCustomSetting(label, WI.SettingEditor.Type.Select, {values: logLevels});
                 logEditor.value = channel.level;
                 logEditor.addEventListener(WI.SettingEditor.Event.ValueDidChange, function(event) {
-                    for (let target of WI.targets)
-                        target.ConsoleAgent.setLoggingChannelLevel(channel.source, this.value);
+                    channel.level = this.value;
                 }, logEditor);
             }
         }
@@ -385,27 +405,48 @@ WI.SettingsTabContentView = class SettingsTabContentView extends WI.TabContentVi
         let experimentalSettingsView = new WI.SettingsView("experimental", WI.UIString("Experimental"));
 
         let initialValues = new Map;
+        
+        let consoleGroup = experimentalSettingsView.addGroup(WI.UIString("Console:"));
+        consoleGroup.addSetting(WI.settings.experimentalGroupSourceMapErrors, WI.UIString("Group source map network errors"));
+        
+        experimentalSettingsView.addSeparator();
 
-        let canShowPreviewFeatures = WI.canShowPreviewFeatures();
-        if (canShowPreviewFeatures) {
-            experimentalSettingsView.addSetting(WI.UIString("Staging:"), WI.settings.experimentalEnablePreviewFeatures, WI.UIString("Enable Preview Features"));
-            experimentalSettingsView.addSeparator();
-        }
 
         let hasCSSDomain = InspectorBackend.hasDomain("CSS");
         if (hasCSSDomain) {
             let stylesGroup = experimentalSettingsView.addGroup(WI.UIString("Styles:"));
             stylesGroup.addSetting(WI.settings.experimentalEnableStylesJumpToEffective, WI.UIString("Show jump to effective property button"));
             stylesGroup.addSetting(WI.settings.experimentalEnableStylesJumpToVariableDeclaration, WI.UIString("Show jump to variable declaration button"));
+            stylesGroup.addSetting(WI.settings.experimentalCSSSortPropertyNameAutocompletionByUsage, WI.UIString("Suggest property names based on usage"));
 
             experimentalSettingsView.addSeparator();
         }
 
-        let supportsBlackboxingScripts = WI.DebuggerManager.supportsBlackboxingScripts();
-        if (supportsBlackboxingScripts) {
-            experimentalSettingsView.addSetting(WI.UIString("Debugging:", "Debugging: @ Experimental Settings", "Category label for experimental settings related to debugging."), WI.settings.experimentalCollapseBlackboxedCallFrames, WI.UIString("Collapse blackboxed call frames", "Collapse blackboxed call frames @ Experimental Settings", "Setting to collapse blackboxed call frames in the debugger."));
+        if (InspectorBackend.hasCommand("LayerTree.requestContent")) {
+            let layersGroup = experimentalSettingsView.addGroup(WI.UIString("Layers:"));
+            layersGroup.addSetting(WI.settings.experimentalLayers3DShowLayerContents, WI.UIString("Show layer contents"));
+
             experimentalSettingsView.addSeparator();
         }
+
+        let hasNetworkEmulatedCondition = InspectorBackend.hasCommand("Network.setEmulatedConditions");
+        if (hasNetworkEmulatedCondition) {
+            let networkGroup = experimentalSettingsView.addGroup(WI.UIString("Network:"));
+            networkGroup.addSetting(WI.settings.experimentalEnableNetworkEmulatedCondition, WI.UIString("Allow throttling", "Label for checkbox that controls whether network throttling functionality is enabled."));
+
+            experimentalSettingsView.addSeparator();
+        }
+
+        let sourcesGroup = experimentalSettingsView.addGroup(WI.UIString("Sources:"));
+        sourcesGroup.addSetting(WI.settings.experimentalLimitSourceCodeHighlighting, WI.UIString("Limit syntax highlighting on long lines of code"));
+        sourcesGroup.addSetting(WI.settings.experimentalUseFuzzyMatchingForCSSCodeCompletion, WI.UIString("Use fuzzy matching for CSS code completion"));
+
+        experimentalSettingsView.addSeparator();
+
+        let searchGroup = experimentalSettingsView.addGroup(WI.UIString("Search:"));
+        searchGroup.addSetting(WI.settings.experimentalUseStrictCheckForGlobMatching, WI.UIString("Use strict word boundary checks for glob pattern matching"));
+
+        experimentalSettingsView.addSeparator();
 
         let diagnosticsGroup = experimentalSettingsView.addGroup(WI.UIString("Diagnostics:", "Diagnostics: @ Experimental Settings", "Category label for experimental settings related to Web Inspector diagnostics."));
         diagnosticsGroup.addSetting(WI.settings.experimentalAllowInspectingInspector, WI.UIString("Allow Inspecting Web Inspector", "Allow Inspecting Web Inspector @ Experimental Settings", "Label for setting that allows the user to inspect the Web Inspector user interface."));
@@ -427,16 +468,22 @@ WI.SettingsTabContentView = class SettingsTabContentView extends WI.TabContentVi
             }, reloadInspectorContainerElement);
         }
 
-        if (canShowPreviewFeatures)
-            listenForChange(WI.settings.experimentalEnablePreviewFeatures);
+        listenForChange(WI.settings.experimentalGroupSourceMapErrors);
 
         if (hasCSSDomain) {
             listenForChange(WI.settings.experimentalEnableStylesJumpToEffective);
             listenForChange(WI.settings.experimentalEnableStylesJumpToVariableDeclaration);
+            listenForChange(WI.settings.experimentalCSSSortPropertyNameAutocompletionByUsage);
         }
 
-        if (supportsBlackboxingScripts)
-            listenForChange(WI.settings.experimentalCollapseBlackboxedCallFrames);
+        if (InspectorBackend.hasCommand("LayerTree.requestContent"))
+            listenForChange(WI.settings.experimentalLayers3DShowLayerContents);
+
+        if (hasNetworkEmulatedCondition)
+            listenForChange(WI.settings.experimentalEnableNetworkEmulatedCondition);
+
+        listenForChange(WI.settings.experimentalLimitSourceCodeHighlighting);
+        listenForChange(WI.settings.experimentalUseFuzzyMatchingForCSSCodeCompletion);
 
         this._createReferenceLink(experimentalSettingsView);
 
@@ -445,7 +492,7 @@ WI.SettingsTabContentView = class SettingsTabContentView extends WI.TabContentVi
 
     _createEngineeringSettingsView()
     {
-        // These settings are only ever shown in engineering builds, so the strings are unlocalized.
+        // These settings are only ever shown when engineering tools are enabled or in engineering builds, so the strings are unlocalized.
 
         let engineeringSettingsView = new WI.SettingsView("engineering", WI.unlocalizedString("Engineering"));
 
@@ -464,6 +511,11 @@ WI.SettingsTabContentView = class SettingsTabContentView extends WI.TabContentVi
         let heapSnapshotGroup = engineeringSettingsView.addGroup(WI.unlocalizedString("Heap Snapshot:"));
         heapSnapshotGroup.addSetting(WI.settings.engineeringShowInternalObjectsInHeapSnapshot, WI.unlocalizedString("Show Internal Objects"));
         heapSnapshotGroup.addSetting(WI.settings.engineeringShowPrivateSymbolsInHeapSnapshot, WI.unlocalizedString("Show Private Symbols"));
+
+        if (WI.isEngineeringBuild) {
+            engineeringSettingsView.addSeparator();
+            engineeringSettingsView.addSetting(WI.unlocalizedString("Debug UI:"), WI.showDebugUISetting, WI.unlocalizedString("Show Debug UI"));
+        }
 
         this.addSettingsView(engineeringSettingsView);
     }
@@ -521,6 +573,11 @@ WI.SettingsTabContentView = class SettingsTabContentView extends WI.TabContentVi
         layoutDirectionEditor.addEventListener(WI.SettingEditor.Event.ValueDidChange, function(event) {
             WI.setLayoutDirection(this.value);
         }, layoutDirectionEditor);
+
+        this._debugSettingsView.addSeparator();
+
+        let extensionsGroup = this._debugSettingsView.addGroup(WI.unlocalizedString("Web Extensions:"));
+        extensionsGroup.addSetting(WI.settings.debugShowMockWebExtensionTab, WI.unlocalizedString("Show Mock Web Extension tab"));
 
         this._debugSettingsView.addSeparator();
 

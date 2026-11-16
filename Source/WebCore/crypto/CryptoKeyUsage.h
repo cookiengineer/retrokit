@@ -25,8 +25,6 @@
 
 #pragma once
 
-#if ENABLE(WEB_CRYPTO)
-
 namespace WebCore {
 
 enum {
@@ -43,7 +41,7 @@ enum {
 typedef int CryptoKeyUsageBitmap;
 
 // Only for binding purpose.
-enum class CryptoKeyUsage {
+enum class CryptoKeyUsage : uint8_t {
     Encrypt,
     Decrypt,
     Sign,
@@ -55,5 +53,3 @@ enum class CryptoKeyUsage {
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(WEB_CRYPTO)

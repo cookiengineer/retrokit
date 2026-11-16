@@ -27,14 +27,27 @@
 #include "config.h"
 #include "JSErrorEvent.h"
 
-namespace WebCore {
+#include "JSDOMGlobalObject.h"
+#include "JSValueInWrappedObjectInlines.h"
 
-template<typename Visitor>
-void JSErrorEvent::visitAdditionalChildren(Visitor& visitor)
+namespace WebCore {
+using namespace JSC;
+
+JSValue JSErrorEvent::error(JSGlobalObject& lexicalGlobalObject) const
 {
-    wrapped().originalError().visit(visitor);
+    auto throwScope = DECLARE_THROW_SCOPE(lexicalGlobalObject.vm());
+    return cachedPropertyValue(throwScope, lexicalGlobalObject, *this, wrapped().cachedError(), [this](ThrowScope&) {
+        return wrapped().originalError().getValue(jsNull());
+    });
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSErrorEvent);
+template<typename Visitor>
+void JSErrorEvent::visitAdditionalChildrenInGCThread(Visitor& visitor)
+{
+    wrapped().originalError().visitInGCThread(visitor);
+    wrapped().cachedError().visitInGCThread(visitor);
+}
+
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSErrorEvent);
 
 } // namespace WebCore

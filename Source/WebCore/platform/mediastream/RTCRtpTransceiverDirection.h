@@ -27,14 +27,19 @@
 
 #if ENABLE(WEB_RTC)
 
+#include <wtf/text/WTFString.h>
+
 namespace WebCore {
 
 enum class RTCRtpTransceiverDirection {
     Sendrecv,
     Sendonly,
     Recvonly,
-    Inactive
+    Inactive,
+    Stopped
 };
+
+String convertEnumerationToString(RTCRtpTransceiverDirection); // in JSRTCRtpTransceiverDirection.h
 
 } // namespace WebCore
 

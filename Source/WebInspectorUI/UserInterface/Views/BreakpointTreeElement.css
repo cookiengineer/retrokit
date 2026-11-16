@@ -42,7 +42,7 @@
     width: 3px;
     height: 12px;
     content: "";
-    -webkit-clip-path: polygon(0 20%, 100% 50%, 0 80%);
+    clip-path: polygon(0 20%, 100% 50%, 0 80%);
     background-color: var(--selected-foreground-color);
 }
 
@@ -52,6 +52,10 @@
 
 .item.breakpoint .status > .status-image:not(.resolved) {
     filter: grayscale();
+}
+
+body:not(.window-inactive, .window-docked-inactive) .tree-outline:focus-within .item.breakpoint.selected .status > .status-image.resolved {
+    stroke: var(--selected-foreground-color);
 }
 
 .item.breakpoint.paused .icon {

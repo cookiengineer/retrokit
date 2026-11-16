@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,18 +25,24 @@
 
 #pragma once
 
-#include "GraphicsContext.h"
+#include <WebCore/GraphicsContext.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
+enum class NullGraphicsContextPaintInvalidationReasons : uint8_t {
+    None,
+    InvalidatingControlTints,
+    InvalidatingImagesWithAsyncDecodes,
+    DetectingContentfulPaint
+};
+
 class NullGraphicsContext : public GraphicsContext {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(NullGraphicsContext);
 public:
-    enum class PaintInvalidationReasons : uint8_t {
-        None,
-        InvalidatingControlTints,
-        InvalidatingImagesWithAsyncDecodes,
-        DetectingContentfulPaint
-    };
+    using PaintInvalidationReasons = NullGraphicsContextPaintInvalidationReasons;
+
+    NullGraphicsContext() = default;
 
     NullGraphicsContext(PaintInvalidationReasons reasons)
         : m_paintInvalidationReasons(reasons)
@@ -44,8 +50,7 @@ public:
     }
 
 private:
-#if USE(CG) || USE(DIRECT2D)
-    void setIsCALayerContext(bool) final { }
+#if USE(CG)
     bool isCALayerContext() const final { return false; }
 #endif
 
@@ -55,19 +60,17 @@ private:
     bool invalidatingImagesWithAsyncDecodes() const final { return m_paintInvalidationReasons == PaintInvalidationReasons::InvalidatingImagesWithAsyncDecodes; }
     bool detectingContentfulPaint() const final { return m_paintInvalidationReasons == PaintInvalidationReasons::DetectingContentfulPaint; }
 
-    void updateState(const GraphicsContextState&, GraphicsContextState::StateChangeFlags) final { }
+    void didUpdateState(GraphicsContextState&) final { }
 
-#if USE(CG) || USE(DIRECT2D)
-    void setIsAcceleratedContext(bool) final { }
-#endif
+    void drawNativeImage(const NativeImage&, const FloatRect&, const FloatRect&, ImagePaintingOptions) final { }
 
-    void drawNativeImage(NativeImage&, const FloatSize&, const FloatRect&, const FloatRect&, const ImagePaintingOptions&) final { }
+    void drawSystemImage(SystemImage&, const FloatRect&) final { };
 
-    void drawPattern(NativeImage&, const FloatSize&, const FloatRect&, const FloatRect&, const AffineTransform&, const FloatPoint&, const FloatSize&, const ImagePaintingOptions&) final { }
+    void drawPattern(const NativeImage&, const FloatRect&, const FloatRect&, const AffineTransform&, const FloatPoint&, const FloatSize&, ImagePaintingOptions) final { }
 
     IntRect clipBounds() const final { return { }; }
 
-#if USE(CG) || USE(DIRECT2D)
+#if USE(CG)
     void applyStrokePattern() final { }
     void applyFillPattern() final { }
     void drawPath(const Path&) final { }
@@ -78,14 +81,13 @@ private:
     void drawEllipse(const FloatRect&) final { }
     void fillPath(const Path&) final { }
     void strokePath(const Path&) final { }
-    void fillRect(const FloatRect&) final { }
+    void fillRect(const FloatRect&, RequiresClipToRect) final { }
+    void fillRect(const FloatRect&, Gradient&, const AffineTransform&, RequiresClipToRect) final { }
     void fillRect(const FloatRect&, const Color&) final { }
     void fillRoundedRectImpl(const FloatRoundedRect&, const Color&) final { }
     void strokeRect(const FloatRect&, float) final { }
     void clipPath(const Path&, WindRule = WindRule::EvenOdd) final { }
-    FloatRect roundToDevicePixels(const FloatRect& rect, RoundingMode = RoundAllSides) final { return rect; }
-    void drawLineForText(const FloatRect&, bool, bool = false, StrokeStyle = SolidStroke) final { }
-    void drawLinesForText(const FloatPoint&, float, const DashArray&, bool, bool = false, StrokeStyle = SolidStroke) final { }
+    void drawLinesForText(const FloatPoint&, float, std::span<const FloatSegment>, bool, bool, StrokeStyle) final { }
     void setLineCap(LineCap) final { }
     void setLineDash(const DashArray&, float) final { }
     void setLineJoin(LineJoin) final { }
@@ -98,43 +100,36 @@ private:
     void setCTM(const AffineTransform&) final { }
     AffineTransform getCTM(IncludeDeviceScale = PossiblyIncludeDeviceScale) const final { return { }; }
     void clearRect(const FloatRect&) final { }
+    void resetClip() final { }
     void clip(const FloatRect&) final { }
     void clipOut(const FloatRect&) final { }
-    void save() final { }
-    void restore() final { }
+    void save(GraphicsContextState::Purpose = GraphicsContextState::Purpose::SaveRestore) final { }
+    void restore(GraphicsContextState::Purpose = GraphicsContextState::Purpose::SaveRestore) final { }
 
     void drawRaisedEllipse(const FloatRect&, const Color&, const Color&) final { }
 
     FloatSize drawText(const FontCascade&, const TextRun&, const FloatPoint&, unsigned = 0, std::optional<unsigned> = std::nullopt) final { return { }; }
 
-    void drawGlyphs(const Font&, const GlyphBufferGlyph*, const GlyphBufferAdvance*, unsigned, const FloatPoint&, FontSmoothingMode) final { }
+    void drawGlyphs(const Font&, std::span<const GlyphBufferGlyph>, std::span<const GlyphBufferAdvance>, const FloatPoint&, FontSmoothingMode) final { }
+    void drawDisplayList(const DisplayList::DisplayList&, ControlFactory&) final { }
 
     void drawEmphasisMarks(const FontCascade&, const TextRun&, const AtomString&, const FloatPoint&, unsigned = 0, std::optional<unsigned> = std::nullopt) final { }
-    void drawBidiText(const FontCascade&, const TextRun&, const FloatPoint&, FontCascade::CustomFontNotReadyAction = FontCascade::DoNotPaintIfFontNotReady) final { }
+    void drawBidiText(const FontCascade&, const TextRun&, const FloatPoint&, FontCascade::CustomFontNotReadyAction = FontCascade::CustomFontNotReadyAction::DoNotPaintIfFontNotReady) final { }
 
     void drawDotsForDocumentMarker(const FloatRect&, DocumentMarkerLineStyle) final { }
 
-    ImageDrawResult drawImage(Image&, const FloatPoint&, const ImagePaintingOptions& = { ImageOrientation::FromImage }) final { return ImageDrawResult::DidNothing; }
-    ImageDrawResult drawImage(Image&, const FloatRect&, const ImagePaintingOptions& = { ImageOrientation::FromImage }) final { return ImageDrawResult::DidNothing; }
-    ImageDrawResult drawImage(Image&, const FloatRect&, const FloatRect&, const ImagePaintingOptions& = { ImageOrientation::FromImage }) final { return ImageDrawResult::DidNothing; }
+    ImageDrawResult drawImage(Image&, const FloatRect&, const FloatRect&, ImagePaintingOptions = { ImageOrientation::Orientation::FromImage }) final { return ImageDrawResult::DidNothing; }
 
-    ImageDrawResult drawTiledImage(Image&, const FloatRect&, const FloatPoint&, const FloatSize&, const FloatSize&, const ImagePaintingOptions& = { }) final { return ImageDrawResult::DidNothing; }
-    ImageDrawResult drawTiledImage(Image&, const FloatRect&, const FloatRect&, const FloatSize&, Image::TileRule, Image::TileRule, const ImagePaintingOptions& = { }) final { return ImageDrawResult::DidNothing; }
+    ImageDrawResult drawTiledImage(Image&, const FloatRect&, const FloatPoint&, const FloatSize&, const FloatSize&, ImagePaintingOptions = { }) final { return ImageDrawResult::DidNothing; }
+    ImageDrawResult drawTiledImage(Image&, const FloatRect&, const FloatRect&, const FloatSize&, Image::TileRule, Image::TileRule, ImagePaintingOptions = { }) final { return ImageDrawResult::DidNothing; }
 
-    void drawFocusRing(const Vector<FloatRect>&, float, float, const Color&) final { }
-    void drawFocusRing(const Path&, float, float, const Color&) final { }
-#if PLATFORM(MAC)
-    void drawFocusRing(const Path&, double, bool&, const Color&) final { }
-    void drawFocusRing(const Vector<FloatRect>&, double, bool&, const Color&) final { }
-#endif
+    void drawFocusRing(const Path&, float, const Color&, float) final { }
+    void drawFocusRing(const Vector<FloatRect>&, float, const Color&, float) final { }
 
-    void drawImageBuffer(ImageBuffer&, const FloatRect&, const FloatRect&, const ImagePaintingOptions& = { }) final { }
-    void drawConsumingImageBuffer(RefPtr<ImageBuffer>, const FloatRect&, const FloatRect&, const ImagePaintingOptions& = { }) final;
+    void drawImageBuffer(ImageBuffer&, const FloatRect&, const FloatRect&, ImagePaintingOptions = { }) final { }
 
     void clipRoundedRect(const FloatRoundedRect&) final { }
     void clipOutRoundedRect(const FloatRoundedRect&) final { }
-
-    ClipToDrawingCommandsResult clipToDrawingCommands(const FloatRect&, const DestinationColorSpace&, Function<void(GraphicsContext&)>&&) final { return ClipToDrawingCommandsResult::Success; }
     void clipToImageBuffer(ImageBuffer&, const FloatRect&) final { }
 
     void fillRect(const FloatRect&, Gradient&) final { }
@@ -144,11 +139,7 @@ private:
     void fillRectWithRoundedHole(const FloatRect&, const FloatRoundedRect&, const Color&) final { }
 
 #if ENABLE(VIDEO)
-    void paintFrameForMedia(MediaPlayer&, const FloatRect&) final { }
-#endif
-
-#if OS(WINDOWS) && !USE(CAIRO)
-    GraphicsContextPlatformPrivate* deprecatedPrivateContext() const final { return nullptr; }
+    void drawVideoFrame(const VideoFrame&, const FloatRect&, ImageOrientation, bool) final { }
 #endif
 
 private:

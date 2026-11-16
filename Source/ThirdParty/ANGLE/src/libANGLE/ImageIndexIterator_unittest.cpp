@@ -4,6 +4,9 @@
 // found in the LICENSE file.
 //
 
+#include <array>
+
+#include "common/unsafe_buffers.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
@@ -98,12 +101,12 @@ TEST(ImageIndexTest, Iterator3D)
 
 TEST(ImageIndexTest, Iterator2DArray)
 {
-    GLsizei layerCounts[] = {1, 3, 5, 2};
+    std::array<GLsizei, 4> layerCounts = {1, 3, 5, 2};
 
-    ImageIndexIterator iter = ImageIndexIterator::Make2DArray(minMip, maxMip, layerCounts);
+    ImageIndexIterator iter = ImageIndexIterator::Make2DArray(minMip, maxMip, layerCounts.data());
 
     ASSERT_GE(0, minMip);
-    ASSERT_EQ(ArraySize(layerCounts), static_cast<size_t>(maxMip));
+    ASSERT_EQ(layerCounts.size(), static_cast<size_t>(maxMip));
 
     for (GLint mip = minMip; mip < maxMip; mip++)
     {
@@ -126,10 +129,10 @@ TEST(ImageIndexTest, Iterator2DArray)
 
 TEST(ImageIndexTest, LayerIterator2DArray)
 {
-    GLsizei layerCounts[] = {1, 3, 5, 2};
+    std::array<GLsizei, 4> layerCounts = {1, 3, 5, 2};
 
     ASSERT_GE(0, minMip);
-    ASSERT_EQ(ArraySize(layerCounts), static_cast<size_t>(maxMip));
+    ASSERT_EQ(layerCounts.size(), static_cast<size_t>(maxMip));
 
     for (GLint mip = minMip; mip < maxMip; mip++)
     {

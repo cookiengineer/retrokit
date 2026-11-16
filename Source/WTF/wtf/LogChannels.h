@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc.  All rights reserved.
+ * Copyright (C) 2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -39,7 +39,7 @@ public:
     virtual ~LogChannels() = default;
     virtual String logLevelString() = 0;
 
-    bool isLogChannelEnabled(const String& name);
+    WTF_EXPORT_PRIVATE bool isLogChannelEnabled(const String& name);
     WTF_EXPORT_PRIVATE void setLogChannelToAccumulate(const String& name);
     WTF_EXPORT_PRIVATE void clearAllLogChannelsToAccumulate();
     WTF_EXPORT_PRIVATE void initializeLogChannelsIfNecessary(std::optional<String> = std::nullopt);

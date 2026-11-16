@@ -31,14 +31,14 @@
 
 namespace WebCore {
 
-class Frame;
+class LocalFrame;
 class Page;
 enum class LayerTreeAsTextOptions : uint16_t;
 
-class MockPageOverlayClient final : public PageOverlay::Client {
+class MockPageOverlayClient final : public PageOverlayClient {
     friend class NeverDestroyed<MockPageOverlayClient>;
 public:
-    static MockPageOverlayClient& singleton();
+    static MockPageOverlayClient& NODELETE singleton();
 
     explicit MockPageOverlayClient();
 
@@ -54,13 +54,13 @@ private:
     void didMoveToPage(PageOverlay&, Page*) override;
     void drawRect(PageOverlay&, GraphicsContext&, const IntRect& dirtyRect) override;
     bool mouseEvent(PageOverlay&, const PlatformMouseEvent&) override;
-    void didScrollFrame(PageOverlay&, Frame&) override;
+    void didScrollFrame(PageOverlay&, LocalFrame&) override;
 
     bool copyAccessibilityAttributeStringValueForPoint(PageOverlay&, String /* attribute */, FloatPoint, String&) override;
     bool copyAccessibilityAttributeBoolValueForPoint(PageOverlay&, String /* attribute */, FloatPoint, bool&) override;
     Vector<String> copyAccessibilityAttributeNames(PageOverlay&, bool /* parameterizedNames */) override;
 
-    HashSet<RefPtr<MockPageOverlay>> m_overlays;
+    HashSet<Ref<MockPageOverlay>> m_overlays;
 };
 
 } // namespace WebCore

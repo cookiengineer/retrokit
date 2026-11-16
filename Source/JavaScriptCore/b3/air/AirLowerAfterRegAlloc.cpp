@@ -36,6 +36,7 @@
 #include "AirRegLiveness.h"
 #include "AirPhaseScope.h"
 #include "B3CCallValue.h"
+#include "B3ProcedureInlines.h"
 #include "B3ValueInlines.h"
 #include "RegisterSet.h"
 #include <wtf/HashMap.h>
@@ -53,32 +54,21 @@ static constexpr bool verbose = false;
 
 void lowerAfterRegAlloc(Code& code)
 {
-    PhaseScope phaseScope(code, "lowerAfterRegAlloc");
+    PhaseScope phaseScope(code, "lowerAfterRegAlloc"_s);
 
     if (AirLowerAfterRegAllocInternal::verbose)
         dataLog("Code before lowerAfterRegAlloc:\n", code);
-    
+
+    if (!code.proc().usesColdCCall() && !code.proc().usesShuffle())
+        return;
+
     auto isRelevant = [] (Inst& inst) -> bool {
         return inst.kind.opcode == Shuffle || inst.kind.opcode == ColdCCall;
     };
-    
-    bool haveAnyRelevant = false;
-    for (BasicBlock* block : code) {
-        for (Inst& inst : *block) {
-            if (isRelevant(inst)) {
-                haveAnyRelevant = true;
-                break;
-            }
-        }
-        if (haveAnyRelevant)
-            break;
-    }
-    if (!haveAnyRelevant)
-        return;
 
     padInterference(code);
 
-    HashMap<Inst*, RegisterSet> usedRegisters;
+    UncheckedKeyHashMap<Inst*, RegisterSet> usedRegisters;
     
     RegLiveness liveness(code);
     for (BasicBlock* block : code) {
@@ -89,10 +79,8 @@ void lowerAfterRegAlloc(Code& code)
             
             RegisterSet set;
 
-            if (isRelevant(inst)) {
-                for (Reg reg : localCalc.live())
-                    set.set(reg);
-            }
+            if (isRelevant(inst))
+                set = { localCalc.live() };
             
             localCalc.execute(instIndex);
 
@@ -111,20 +99,25 @@ void lowerAfterRegAlloc(Code& code)
     // If we run after stack allocation then we cannot use those callee saves that aren't in
     // the callee save list. Note that we are only run after stack allocation in -O1, so this
     // kind of slop is OK.
-    RegisterSet disallowedCalleeSaves;
+    ScalarRegisterSet disallowedCalleeSaves;
     if (code.stackIsAllocated()) {
-        disallowedCalleeSaves = RegisterSet::calleeSaveRegisters();
-        disallowedCalleeSaves.exclude(code.calleeSaveRegisters());
+        RegisterSet disallowed = RegisterSet::calleeSaveRegisters();
+        ASSERT(!disallowed.hasAnyWideRegisters());
+        RegisterSet usedCalleeSaves = code.calleeSaveRegisters();
+        ASSERT(!usedCalleeSaves.hasAnyWideRegisters());
+
+        disallowed.exclude(usedCalleeSaves);
+        disallowedCalleeSaves = disallowed.toScalarRegisterSet();
     }
-    
-    auto getScratches = [&] (RegisterSet set, Bank bank) -> std::array<Arg, 2> {
+
+    auto getScratches = [&] (ScalarRegisterSet set, Bank bank) -> std::array<Arg, 2> {
         std::array<Arg, 2> result;
         for (unsigned i = 0; i < 2; ++i) {
             bool found = false;
             for (Reg reg : code.regsInPriorityOrder(bank)) {
-                if (!set.get(reg) && !disallowedCalleeSaves.get(reg)) {
+                if (!set.contains(reg, IgnoreVectors) && !disallowedCalleeSaves.contains(reg, IgnoreVectors)) {
                     result[i] = Tmp(reg);
-                    set.set(reg);
+                    set.add(reg, IgnoreVectors);
                     found = true;
                     break;
                 }
@@ -132,7 +125,7 @@ void lowerAfterRegAlloc(Code& code)
             if (!found) {
                 StackSlot*& slot = slots[bank][i];
                 if (!slot)
-                    slot = code.addStackSlot(bytes(conservativeWidth(bank)), StackSlotKind::Spill);
+                    slot = code.addStackSlot(code.usesSIMD() ? conservativeRegisterBytes(bank) : conservativeRegisterBytesWithoutVectors(bank), StackSlotKind::Spill);
                 result[i] = Arg::stack(slots[bank][i]);
             }
         }
@@ -147,19 +140,19 @@ void lowerAfterRegAlloc(Code& code)
 
             switch (inst.kind.opcode) {
             case Shuffle: {
-                RegisterSet set = usedRegisters.get(&inst);
+                ScalarRegisterSet set = usedRegisters.get(&inst).toScalarRegisterSet();
                 Vector<ShufflePair> pairs;
-                for (unsigned i = 0; i < inst.args.size(); i += 3) {
-                    Arg src = inst.args[i + 0];
-                    Arg dst = inst.args[i + 1];
-                    Width width = inst.args[i + 2].width();
+                for (unsigned i = 0; i < inst.args().size(); i += 3) {
+                    Arg src = inst.args()[i + 0];
+                    Arg dst = inst.args()[i + 1];
+                    Width width = inst.args()[i + 2].width();
 
                     // The used register set contains things live after the shuffle. But
                     // emitShuffle() wants a scratch register that is not just dead but also does not
                     // interfere with either sources or destinations.
                     auto excludeRegisters = [&] (Tmp tmp) {
                         if (tmp.isReg())
-                            set.set(tmp.reg());
+                            set.add(tmp.reg(), IgnoreVectors);
                     };
                     src.forEachTmpFast(excludeRegisters);
                     dst.forEachTmpFast(excludeRegisters);
@@ -175,31 +168,39 @@ void lowerAfterRegAlloc(Code& code)
             }
 
             case ColdCCall: {
+                if constexpr (is32Bit())
+                    UNREACHABLE_FOR_PLATFORM(); // Needs porting when used
                 CCallValue* value = inst.origin->as<CCallValue>();
                 Kind oldKind = inst.kind;
 
                 RegisterSet liveRegs = usedRegisters.get(&inst);
-                RegisterSet regsToSave = liveRegs;
-                regsToSave.exclude(RegisterSet::calleeSaveRegisters());
-                regsToSave.exclude(RegisterSet::stackRegisters());
-                regsToSave.exclude(RegisterSet::reservedHardwareRegisters());
+                RegisterSet unsavedRegs = liveRegs;
+                unsavedRegs.exclude(RegisterSet::calleeSaveRegisters());
+                unsavedRegs.exclude(RegisterSet::stackRegisters());
+                unsavedRegs.exclude(RegisterSet::reservedHardwareRegisters());
+                auto regsToSave = unsavedRegs.normalizeWidths();
 
-                RegisterSet preUsed = liveRegs;
+                ScalarRegisterSet preUsed = liveRegs.toScalarRegisterSet();
+                ScalarRegisterSet postUsed = preUsed;
                 Vector<Arg> destinations = computeCCallingConvention(code, value);
-                Tmp result = cCallResult(value->type());
-                Arg originalResult = result ? inst.args[1] : Arg();
+                Vector<Tmp, 2> results;
+                Vector<Arg, 2> originalResults;
+                for (unsigned i = 0; i < cCallResultCount(code, value); ++i) {
+                    results.append(cCallResult(code, value, i));
+                    originalResults.append(inst.args()[i + 2]);
+                }
                 
                 Vector<ShufflePair> pairs;
                 for (unsigned i = 0; i < destinations.size(); ++i) {
                     Value* child = value->child(i);
-                    Arg src = inst.args[result ? (i >= 1 ? i + 1 : i) : i ];
+                    Arg src = inst.args()[i >= 1 ? i + results.size() + 1 : i + 1];
                     Arg dst = destinations[i];
                     Width width = widthForType(child->type());
                     pairs.append(ShufflePair(src, dst, width));
 
                     auto excludeRegisters = [&] (Tmp tmp) {
                         if (tmp.isReg())
-                            preUsed.set(tmp.reg());
+                            preUsed.add(tmp.reg(), IgnoreVectors);
                     };
                     src.forEachTmpFast(excludeRegisters);
                     dst.forEachTmpFast(excludeRegisters);
@@ -210,16 +211,17 @@ void lowerAfterRegAlloc(Code& code)
                 
                 // Also need to save all live registers. Don't need to worry about the result
                 // register.
-                if (originalResult.isReg())
-                    regsToSave.clear(originalResult.reg());
+                for (Arg originalResult : originalResults) {
+                    if (originalResult.isReg())
+                        regsToSave.remove(originalResult.reg());
+                }
                 Vector<StackSlot*> stackSlots;
-                regsToSave.forEach(
-                    [&] (Reg reg) {
+                regsToSave.forEachWithWidth(
+                    [&] (Reg reg, Width width) {
                         Tmp tmp(reg);
                         Arg arg(tmp);
-                        Width width = conservativeWidth(arg.bank());
                         StackSlot* stackSlot =
-                            code.addStackSlot(bytes(width), StackSlotKind::Spill);
+                            code.addStackSlot(bytesForWidth(width), StackSlotKind::Spill);
                         pairs.append(ShufflePair(arg, Arg::stack(stackSlot), width));
                         stackSlots.append(stackSlot);
                     });
@@ -237,26 +239,27 @@ void lowerAfterRegAlloc(Code& code)
                 // Now we need to emit code to restore registers.
                 pairs.shrink(0);
                 unsigned stackSlotIndex = 0;
-                regsToSave.forEach(
-                    [&] (Reg reg) {
+                regsToSave.forEachWithWidth(
+                    [&] (Reg reg, Width width) {
                         Tmp tmp(reg);
                         Arg arg(tmp);
-                        Width width = conservativeWidth(arg.bank());
                         StackSlot* stackSlot = stackSlots[stackSlotIndex++];
+                        ASSERT(stackSlot->byteSize() >= bytesForWidth(width));
                         pairs.append(ShufflePair(Arg::stack(stackSlot), arg, width));
                     });
-                if (result) {
-                    ShufflePair pair(result, originalResult, widthForType(value->type()));
+                for (unsigned i = 0; i < results.size(); ++i) {
+                    Type type = value->type().isTuple() ? code.proc().typeAtOffset(value->type(), i) : value->type();
+                    ShufflePair pair(results[i], originalResults[i], widthForType(type));
                     pairs.append(pair);
+
+                    // For finding scratch registers, we need to account for the possibility that
+                    // the result is dead.
+                    if (originalResults[i].isReg())
+                        postUsed.add(originalResults[i].reg(), IgnoreVectors);
                 }
 
-                // For finding scratch registers, we need to account for the possibility that
-                // the result is dead.
-                if (originalResult.isReg())
-                    liveRegs.set(originalResult.reg());
-
-                gpScratch = getScratches(liveRegs, GP);
-                fpScratch = getScratches(liveRegs, FP);
+                gpScratch = getScratches(postUsed, GP);
+                fpScratch = getScratches(postUsed, FP);
                 
                 insertionSet.insertInsts(
                     instIndex + 1, emitShuffle(code, pairs, gpScratch, fpScratch, inst.origin));

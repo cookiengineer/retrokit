@@ -8,10 +8,10 @@
 //   Tests pertaining to eglGetSyncValuesCHROMIUM.
 
 #include <d3d11.h>
+#include "common/unsafe_buffers.h"
 
 #include "test_utils/ANGLETest.h"
 #include "util/OSWindow.h"
-#include "util/com_utils.h"
 
 using namespace angle;
 
@@ -41,9 +41,9 @@ class EGLSyncControlTest : public testing::Test
 
         const char *extensionString =
             static_cast<const char *>(eglQueryString(EGL_NO_DISPLAY, EGL_EXTENSIONS));
-        if (strstr(extensionString, "EGL_ANGLE_device_creation"))
+        if (ANGLE_UNSAFE_TODO(strstr(extensionString, "EGL_ANGLE_device_creation")))
         {
-            if (strstr(extensionString, "EGL_ANGLE_device_creation_d3d11"))
+            if (ANGLE_UNSAFE_TODO(strstr(extensionString, "EGL_ANGLE_device_creation_d3d11")))
             {
                 mDeviceCreationD3D11ExtAvailable = true;
             }
@@ -52,8 +52,8 @@ class EGLSyncControlTest : public testing::Test
 
     void TearDown() override
     {
-        SafeRelease(mDevice);
-        SafeRelease(mDeviceContext);
+        mDevice.Reset();
+        mDeviceContext.Reset();
 
         OSWindow::Delete(&mOSWindow);
 
@@ -90,15 +90,18 @@ class EGLSyncControlTest : public testing::Test
 
     void InitializeDisplay()
     {
-        EGLint displayAttribs[] = {EGL_PLATFORM_ANGLE_TYPE_ANGLE,
-                                   EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE,
-                                   EGL_PLATFORM_ANGLE_MAX_VERSION_MAJOR_ANGLE,
-                                   EGL_DONT_CARE,
-                                   EGL_PLATFORM_ANGLE_MAX_VERSION_MINOR_ANGLE,
-                                   EGL_DONT_CARE,
-                                   EGL_PLATFORM_ANGLE_DEVICE_TYPE_ANGLE,
-                                   EGL_PLATFORM_ANGLE_DEVICE_TYPE_HARDWARE_ANGLE,
-                                   EGL_NONE};
+        EGLAttrib displayAttribs[] = {
+            EGL_PLATFORM_ANGLE_TYPE_ANGLE,
+            EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE,
+            EGL_PLATFORM_ANGLE_NATIVE_PLATFORM_TYPE_ANGLE,
+            static_cast<EGLAttrib>(mOSWindow->getNativeDisplayPlatformType()),
+            EGL_PLATFORM_ANGLE_MAX_VERSION_MAJOR_ANGLE,
+            EGL_DONT_CARE,
+            EGL_PLATFORM_ANGLE_MAX_VERSION_MINOR_ANGLE,
+            EGL_DONT_CARE,
+            EGL_PLATFORM_ANGLE_DEVICE_TYPE_ANGLE,
+            EGL_PLATFORM_ANGLE_DEVICE_TYPE_HARDWARE_ANGLE,
+            EGL_NONE};
 
         // Create an OS Window
         mOSWindow = OSWindow::New();
@@ -106,9 +109,9 @@ class EGLSyncControlTest : public testing::Test
         mOSWindow->setVisible(true);
 
         // Create an EGLDisplay using the EGLDevice
-        mDisplay = eglGetPlatformDisplayEXT(EGL_PLATFORM_ANGLE_ANGLE,
-                                            reinterpret_cast<void *>(mOSWindow->getNativeDisplay()),
-                                            displayAttribs);
+        mDisplay = eglGetPlatformDisplay(GetEglPlatform(),
+                                         reinterpret_cast<void *>(mOSWindow->getNativeDisplay()),
+                                         displayAttribs);
         ASSERT_TRUE(mDisplay != EGL_NO_DISPLAY);
 
         EGLint majorVersion, minorVersion;
@@ -154,8 +157,8 @@ class EGLSyncControlTest : public testing::Test
     HMODULE mD3D11Module                       = nullptr;
     PFN_D3D11_CREATE_DEVICE mD3D11CreateDevice = nullptr;
 
-    ID3D11Device *mDevice               = nullptr;
-    ID3D11DeviceContext *mDeviceContext = nullptr;
+    angle::ComPtr<ID3D11Device> mDevice;
+    angle::ComPtr<ID3D11DeviceContext> mDeviceContext;
     D3D_FEATURE_LEVEL mFeatureLevel;
 
     bool mDeviceCreationD3D11ExtAvailable = false;
@@ -195,7 +198,7 @@ TEST_F(EGLSyncControlTest, DISABLED_SyncValuesTest)
 
     const char *extensionString =
         static_cast<const char *>(eglQueryString(mDisplay, EGL_EXTENSIONS));
-    ASSERT_TRUE(strstr(extensionString, "EGL_CHROMIUM_sync_control"));
+    ASSERT_TRUE(ANGLE_UNSAFE_TODO(strstr(extensionString, "EGL_CHROMIUM_sync_control")));
 
     EGLuint64KHR ust = 0, msc = 0, sbc = 0;
     // It appears there is a race condition so the very first call to eglGetSyncValuesCHROMIUM

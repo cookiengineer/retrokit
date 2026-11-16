@@ -26,58 +26,113 @@
 #include "config.h"
 #include "Nodes.h"
 
+#include "IdentifierInlines.h"
 #include "JSCJSValueInlines.h"
 #include "JSModuleRecord.h"
 #include "ModuleAnalyzer.h"
+#include <wtf/text/MakeString.h>
 
 namespace JSC {
 
-void ScopeNode::analyzeModule(ModuleAnalyzer& analyzer)
+static Expected<RefPtr<ScriptFetchParameters>, std::tuple<ErrorType, String>> tryCreateAttributes(VM& vm, ImportAttributesListNode* attributesList)
 {
-    m_statements->analyzeModule(analyzer);
+    if (!attributesList)
+        return RefPtr<ScriptFetchParameters> { };
+
+    // https://tc39.es/proposal-import-attributes/#sec-AllImportAttributesSupported
+    // Currently, only "type" is supported.
+    std::optional<ScriptFetchParameters::Type> type;
+    for (auto& [key, value] : attributesList->attributes()) {
+        if (*key != vm.propertyNames->type)
+            return makeUnexpected(std::tuple { ErrorType::SyntaxError, makeString("Import attribute \""_s, StringView(key->impl()), "\" is not supported"_s) });
+    }
+
+    for (auto& [key, value] : attributesList->attributes()) {
+        if (*key == vm.propertyNames->type) {
+            type = ScriptFetchParameters::parseType(value->impl());
+            if (!type)
+                return makeUnexpected(std::tuple { ErrorType::TypeError, makeString("Import attribute type \""_s, StringView(value->impl()), "\" is not valid"_s) });
+        }
+    }
+
+    if (type)
+        return RefPtr<ScriptFetchParameters>(ScriptFetchParameters::create(type.value()));
+    return RefPtr<ScriptFetchParameters> { };
 }
 
-void SourceElements::analyzeModule(ModuleAnalyzer& analyzer)
+bool ScopeNode::analyzeModule(ModuleAnalyzer& analyzer)
+{
+    return m_statements->analyzeModule(analyzer);
+}
+
+bool SourceElements::analyzeModule(ModuleAnalyzer& analyzer)
 {
     // In the module analyzer phase, only module declarations are included in the top-level SourceElements.
     for (StatementNode* statement = m_head; statement; statement = statement->next()) {
         ASSERT(statement->isModuleDeclarationNode());
-        static_cast<ModuleDeclarationNode*>(statement)->analyzeModule(analyzer);
+        if (!static_cast<ModuleDeclarationNode*>(statement)->analyzeModule(analyzer))
+            return false;
     }
+    return true;
 }
 
-void ImportDeclarationNode::analyzeModule(ModuleAnalyzer& analyzer)
+bool ImportDeclarationNode::analyzeModule(ModuleAnalyzer& analyzer)
 {
-    analyzer.moduleRecord()->appendRequestedModule(m_moduleName->moduleName());
+    auto result = tryCreateAttributes(analyzer.vm(), attributesList());
+    if (!result) {
+        analyzer.fail(WTF::move(result.error()));
+        return false;
+    }
+
+    auto phase = m_type == ImportType::Deferred ? AbstractModuleRecord::ModulePhase::Defer : AbstractModuleRecord::ModulePhase::Evaluation;
+    analyzer.appendRequestedModule(m_moduleName->moduleName(), WTF::move(result.value()), phase);
     for (auto* specifier : m_specifierList->specifiers()) {
         analyzer.moduleRecord()->addImportEntry(JSModuleRecord::ImportEntry {
-            specifier->importedName() == analyzer.vm().propertyNames->timesIdentifier
+            specifier->importedName() == analyzer.vm().propertyNames->starNamespacePrivateName
                 ? JSModuleRecord::ImportEntryType::Namespace : JSModuleRecord::ImportEntryType::Single,
+            phase,
             m_moduleName->moduleName(),
             specifier->importedName(),
             specifier->localName(),
         });
     }
+    return true;
 }
 
-void ExportAllDeclarationNode::analyzeModule(ModuleAnalyzer& analyzer)
+bool ExportAllDeclarationNode::analyzeModule(ModuleAnalyzer& analyzer)
 {
-    analyzer.moduleRecord()->appendRequestedModule(m_moduleName->moduleName());
+    auto result = tryCreateAttributes(analyzer.vm(), attributesList());
+    if (!result) {
+        analyzer.fail(WTF::move(result.error()));
+        return false;
+    }
+
+    analyzer.appendRequestedModule(m_moduleName->moduleName(), WTF::move(result.value()));
     analyzer.moduleRecord()->addStarExportEntry(m_moduleName->moduleName());
+    return true;
 }
 
-void ExportDefaultDeclarationNode::analyzeModule(ModuleAnalyzer&)
+bool ExportDefaultDeclarationNode::analyzeModule(ModuleAnalyzer&)
 {
+    return true;
 }
 
-void ExportLocalDeclarationNode::analyzeModule(ModuleAnalyzer&)
+bool ExportLocalDeclarationNode::analyzeModule(ModuleAnalyzer&)
 {
+    return true;
 }
 
-void ExportNamedDeclarationNode::analyzeModule(ModuleAnalyzer& analyzer)
+bool ExportNamedDeclarationNode::analyzeModule(ModuleAnalyzer& analyzer)
 {
-    if (m_moduleName)
-        analyzer.moduleRecord()->appendRequestedModule(m_moduleName->moduleName());
+    if (m_moduleName) {
+        auto result = tryCreateAttributes(analyzer.vm(), attributesList());
+        if (!result) {
+            analyzer.fail(WTF::move(result.error()));
+            return false;
+        }
+
+        analyzer.appendRequestedModule(m_moduleName->moduleName(), WTF::move(result.value()));
+    }
 
     for (auto* specifier : m_specifierList->specifiers()) {
         if (m_moduleName) {
@@ -95,6 +150,7 @@ void ExportNamedDeclarationNode::analyzeModule(ModuleAnalyzer& analyzer)
                 analyzer.moduleRecord()->addExportEntry(JSModuleRecord::ExportEntry::createIndirect(specifier->exportedName(), specifier->localName(), m_moduleName->moduleName()));
         }
     }
+    return true;
 }
 
 } // namespace JSC

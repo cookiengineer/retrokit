@@ -27,12 +27,11 @@
 #include "config.h"
 #include "WebDateTimePickerGtk.h"
 
-#if ENABLE(DATE_AND_TIME_INPUT_TYPES)
-
 #include "WebKitWebViewBasePrivate.h"
 #include <gtk/gtk.h>
 #include <wtf/SetForScope.h>
 #include <wtf/glib/GRefPtr.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebKit {
 
@@ -123,10 +122,10 @@ void WebDateTimePickerGtk::didChooseDate()
     m_page->didChooseDate(calendarDateToString(year, month, day, m_currentDate, m_secondFormat));
 }
 
-void WebDateTimePickerGtk::showDateTimePicker(WebCore::DateTimeChooserParameters&& params)
+void WebDateTimePickerGtk::platformShowDateTimePicker(WebCore::DateTimeChooserParameters&& params)
 {
     if (m_popover) {
-        update(WTFMove(params));
+        update(WTF::move(params));
         return;
     }
 
@@ -158,22 +157,22 @@ void WebDateTimePickerGtk::showDateTimePicker(WebCore::DateTimeChooserParameters
     gtk_widget_show(m_calendar);
 #endif
 
-    update(WTFMove(params));
+    update(WTF::move(params));
 
     gtk_popover_popup(GTK_POPOVER(m_popover));
 }
 
 void WebDateTimePickerGtk::update(WebCore::DateTimeChooserParameters&& params)
 {
-    SetForScope<bool> inUpdate(m_inUpdate, true);
-    if (params.type == "date")
+    SetForScope inUpdate(m_inUpdate, true);
+    if (params.type == "date"_s)
         m_currentDate = WebCore::DateComponents::fromParsingDate(params.currentValue);
-    else if (params.type == "datetime-local")
+    else if (params.type == "datetime-local"_s)
         m_currentDate = WebCore::DateComponents::fromParsingDateTimeLocal(params.currentValue);
 
     if (m_currentDate)
         g_object_set(m_calendar, "year", m_currentDate->fullYear(), "month", m_currentDate->month(), "day", m_currentDate->monthDay(), nullptr);
-    else if (params.type == "datetime-local") {
+    else if (params.type == "datetime-local"_s) {
         GRefPtr<GDateTime> now = adoptGRef(g_date_time_new_now_local());
         Seconds unixTime = Seconds(g_date_time_to_unix(now.get())) + Seconds::fromMicroseconds(g_date_time_get_utc_offset(now.get()));
         m_currentDate = WebCore::DateComponents::fromMillisecondsSinceEpochForDateTimeLocal(unixTime.milliseconds());
@@ -187,5 +186,3 @@ void WebDateTimePickerGtk::update(WebCore::DateTimeChooserParameters&& params)
 }
 
 } // namespace WebKit
-
-#endif // ENABLE(DATE_AND_TIME_INPUT_TYPES)

@@ -34,21 +34,25 @@
 #if USE(LIBWEBRTC)
 
 #include "LibWebRTCAudioFormat.h"
+#include "LibWebRTCAudioModule.h"
+#include "LibWebRTCRefWrappers.h"
 #include "Logging.h"
 
 namespace WebCore {
 
-RealtimeIncomingAudioSource::RealtimeIncomingAudioSource(rtc::scoped_refptr<webrtc::AudioTrackInterface>&& audioTrack, String&& audioTrackId)
-    : RealtimeMediaSource(RealtimeMediaSource::Type::Audio, "remote audio"_s, WTFMove(audioTrackId))
-    , m_audioTrack(WTFMove(audioTrack))
+RealtimeIncomingAudioSource::RealtimeIncomingAudioSource(Ref<webrtc::AudioTrackInterface>&& audioTrack, String&& audioTrackId)
+    : RealtimeMediaSource(CaptureDevice { WTF::move(audioTrackId), CaptureDevice::DeviceType::Microphone, "remote audio"_s })
+    , m_audioTrack(WTF::move(audioTrack))
 {
-    ASSERT(m_audioTrack);
     m_audioTrack->RegisterObserver(this);
 }
 
 RealtimeIncomingAudioSource::~RealtimeIncomingAudioSource()
 {
-    stop();
+    // Subclasses must call stop() in their destructors to ensure the audio
+    // track sink is removed BEFORE derived members are destroyed. Otherwise,
+    // the OnData callback may access destroyed members on the audio thread.
+    ASSERT(!isProducingData());
     m_audioTrack->UnregisterObserver(this);
 }
 
@@ -64,7 +68,7 @@ void RealtimeIncomingAudioSource::stopProducingData()
 
 void RealtimeIncomingAudioSource::OnChanged()
 {
-    callOnMainThread([protectedThis = makeRef(*this)] {
+    callOnMainThread([protectedThis = Ref { *this }] {
         if (protectedThis->m_audioTrack->state() == webrtc::MediaStreamTrackInterface::kEnded)
             protectedThis->end();
     });
@@ -78,6 +82,12 @@ const RealtimeMediaSourceCapabilities& RealtimeIncomingAudioSource::capabilities
 const RealtimeMediaSourceSettings& RealtimeIncomingAudioSource::settings()
 {
     return m_currentSettings;
+}
+
+void RealtimeIncomingAudioSource::setAudioModule(RefPtr<LibWebRTCAudioModule>&& audioModule)
+{
+    ASSERT(!m_audioModule);
+    m_audioModule = WTF::move(audioModule);
 }
 
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,57 +32,57 @@
 #include "RemoteLegacyCDMFactory.h"
 #include "RemoteLegacyCDMProxyMessages.h"
 #include "RemoteLegacyCDMSession.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 
 using namespace WebCore;
 
-std::unique_ptr<RemoteLegacyCDM> RemoteLegacyCDM::create(WeakPtr<RemoteLegacyCDMFactory>&& factory, RemoteLegacyCDMIdentifier identifier)
-{
-    return std::unique_ptr<RemoteLegacyCDM>(new RemoteLegacyCDM(WTFMove(factory), WTFMove(identifier)));
-}
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteLegacyCDM);
 
-RemoteLegacyCDM::RemoteLegacyCDM(WeakPtr<RemoteLegacyCDMFactory>&& factory, RemoteLegacyCDMIdentifier&& identifier)
-    : m_factory(WTFMove(factory))
-    , m_identifier(WTFMove(identifier))
+RemoteLegacyCDM::RemoteLegacyCDM(RemoteLegacyCDMFactory& factory, RemoteLegacyCDMIdentifier identifier)
+    : m_factory(factory)
+    , m_identifier(identifier)
 {
 }
 
 RemoteLegacyCDM::~RemoteLegacyCDM() = default;
 
-bool RemoteLegacyCDM::supportsMIMEType(const String& mimeType)
+bool RemoteLegacyCDM::supportsMIMEType(const String& mimeType) const
 {
-    if (!m_factory)
-        return false;
-
-    bool supported = false;
-    m_factory->gpuProcessConnection().connection().sendSync(Messages::RemoteLegacyCDMProxy::SupportsMIMEType(mimeType), Messages::RemoteLegacyCDMProxy::SupportsMIMEType::Reply(supported), m_identifier);
+    auto sendResult = protect(m_factory)->gpuProcessConnection().connection().sendSync(Messages::RemoteLegacyCDMProxy::SupportsMIMEType(mimeType), m_identifier);
+    auto [supported] = sendResult.takeReplyOr(false);
     return supported;
 }
 
-std::unique_ptr<WebCore::LegacyCDMSession> RemoteLegacyCDM::createSession(WebCore::LegacyCDMSessionClient* client)
+RefPtr<WebCore::LegacyCDMSession> RemoteLegacyCDM::createSession(WebCore::LegacyCDMSessionClient& client)
 {
-    if (!m_factory)
-        return nullptr;
+    uint64_t logIdentifier { 0 };
+#if !RELEASE_LOG_DISABLED
+    logIdentifier = reinterpret_cast<uint64_t>(client.logIdentifier());
+#endif
 
-    String storageDirectory = client ? client->mediaKeysStorageDirectory() : emptyString();
-
-    RemoteLegacyCDMSessionIdentifier identifier;
-    m_factory->gpuProcessConnection().connection().sendSync(Messages::RemoteLegacyCDMProxy::CreateSession(storageDirectory), Messages::RemoteLegacyCDMProxy::CreateSession::Reply(identifier), m_identifier);
+    Ref factory = m_factory.get();
+    auto sendResult = factory->gpuProcessConnection().connection().sendSync(Messages::RemoteLegacyCDMProxy::CreateSession(logIdentifier), m_identifier);
+    auto [identifier] = sendResult.takeReplyOr(std::nullopt);
     if (!identifier)
         return nullptr;
-    return RemoteLegacyCDMSession::create(m_factory, WTFMove(identifier));
+    return RemoteLegacyCDMSession::create(factory, WTF::move(*identifier), client);
 }
 
-void RemoteLegacyCDM::setPlayerId(MediaPlayerIdentifier identifier)
+void RemoteLegacyCDM::setPlayerId(std::optional<MediaPlayerIdentifier> identifier)
 {
-    if (!m_factory)
-        return;
+    protect(m_factory)->gpuProcessConnection().connection().send(Messages::RemoteLegacyCDMProxy::SetPlayerId(identifier), m_identifier);
+}
 
-    std::optional<MediaPlayerIdentifier> optionalId;
-    if (identifier)
-        optionalId = identifier;
-    m_factory->gpuProcessConnection().connection().send(Messages::RemoteLegacyCDMProxy::SetPlayerId(optionalId), m_identifier);
+void RemoteLegacyCDM::ref() const
+{
+    m_factory->ref();
+}
+
+void RemoteLegacyCDM::deref() const
+{
+    m_factory->deref();
 }
 
 }

@@ -25,20 +25,25 @@
 
 #pragma once
 
-#include "AnimationEffectPhase.h"
-#include "EffectTiming.h"
-#include "WebAnimationTypes.h"
+#include <WebCore/AnimationEffectPhase.h>
+#include <WebCore/CSSNumericValue.h>
+#include <WebCore/EffectTiming.h>
+#include <WebCore/TimingFunction.h>
+#include <WebCore/WebAnimationTypes.h>
 
 namespace WebCore {
 
 struct ComputedEffectTiming : EffectTiming {
+    WebAnimationTime endTime;
+    WebAnimationTime activeDuration;
+    std::optional<WebAnimationTime> localTime;
+    Markable<double> progress;
+    Markable<double> currentIteration;
+
+    // FIXME: These are not part of the IDL.
     AnimationEffectPhase phase { AnimationEffectPhase::Idle };
-    MarkableDouble localTime;
-    MarkableDouble simpleIterationProgress;
-    MarkableDouble progress;
-    MarkableDouble currentIteration;
-    double endTime;
-    double activeDuration;
+    Markable<double> simpleIterationProgress;
+    TimingFunction::Before before { TimingFunction::Before::No };
 };
 
 } // namespace WebCore

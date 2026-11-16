@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,6 +30,7 @@
 #include "RemoteLegacyCDMSessionIdentifier.h"
 #include <WebCore/LegacyCDMSession.h>
 #include <wtf/Forward.h>
+#include <wtf/RefCounted.h>
 #include <wtf/UniqueRef.h>
 
 #if ENABLE(GPU_PROCESS) && ENABLE(LEGACY_ENCRYPTED_MEDIA)
@@ -40,55 +41,68 @@ class LegacyCDMSession;
 class SharedBuffer;
 }
 
-namespace IPC {
-class SharedBufferCopy;
-}
-
 namespace WebKit {
 
 class RemoteLegacyCDMProxy;
 class RemoteMediaPlayerProxy;
 
-class RemoteLegacyCDMSessionProxy
-    : public IPC::MessageReceiver
-    , public WebCore::LegacyCDMSessionClient {
+class RemoteLegacyCDMSessionProxy : public IPC::MessageReceiver, public WebCore::LegacyCDMSessionClient, public RefCounted<RemoteLegacyCDMSessionProxy> {
+    WTF_MAKE_TZONE_ALLOCATED(RemoteLegacyCDMSessionProxy);
 public:
-    static std::unique_ptr<RemoteLegacyCDMSessionProxy> create(WeakPtr<RemoteLegacyCDMFactoryProxy>&&, RemoteLegacyCDMSessionIdentifier, WebCore::LegacyCDM&);
+    static Ref<RemoteLegacyCDMSessionProxy> create(RemoteLegacyCDMFactoryProxy&, uint64_t logIdentifier, RemoteLegacyCDMSessionIdentifier, WebCore::LegacyCDM&);
     ~RemoteLegacyCDMSessionProxy();
+
+    // IPC::MessageReceiver, WebCore::LegacyCDMSessionClient.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
+    void NODELETE invalidate();
 
     RemoteLegacyCDMFactoryProxy* factory() const { return m_factory.get(); }
     WebCore::LegacyCDMSession* session() const { return m_session.get(); }
 
-    void setPlayer(WeakPtr<RemoteMediaPlayerProxy> player) { m_player = WTFMove(player); }
-
     RefPtr<ArrayBuffer> getCachedKeyForKeyId(const String&);
+    std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const;
 
 private:
     friend class RemoteLegacyCDMFactoryProxy;
-    RemoteLegacyCDMSessionProxy(WeakPtr<RemoteLegacyCDMFactoryProxy>&&, RemoteLegacyCDMSessionIdentifier, WebCore::LegacyCDM&);
+    RemoteLegacyCDMSessionProxy(RemoteLegacyCDMFactoryProxy&, uint64_t logIdentifier, RemoteLegacyCDMSessionIdentifier, WebCore::LegacyCDM&);
 
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
-    bool didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
+    void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
 
     // LegacyCDMSessionClient
     void sendMessage(Uint8Array*, String destinationURL) final;
     void sendError(MediaKeyErrorCode, uint32_t systemCode) final;
     String mediaKeysStorageDirectory() const final;
+    String mediaKeysHashSalt() const final { return m_mediaKeysHashSalt; }
+#if !RELEASE_LOG_DISABLED
+    const Logger& logger() const final { return m_logger; }
+    uint64_t logIdentifier() const final { return m_logIdentifier; }
+    ASCIILiteral logClassName() const { return "RemoteLegacyCDMSessionProxy"_s; }
+    WTFLogChannel& NODELETE logChannel() const;
+#endif
 
     // Messages
-    using GenerateKeyCallback = CompletionHandler<void(std::optional<IPC::SharedBufferCopy>&&, const String&, unsigned short, uint32_t)>;
-    void generateKeyRequest(const String& mimeType, IPC::SharedBufferCopy&& initData, GenerateKeyCallback&&);
+    using GenerateKeyCallback = CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&, const String&, unsigned short, uint32_t)>;
+    void generateKeyRequest(const String& mimeType, RefPtr<WebCore::SharedBuffer>&& initData, const String& mediaKeysHashSalt, GenerateKeyCallback&&);
     void releaseKeys();
-    using UpdateCallback = CompletionHandler<void(bool, std::optional<IPC::SharedBufferCopy>&&, unsigned short, uint32_t)>;
-    void update(IPC::SharedBufferCopy&& update, UpdateCallback&&);
-    using CachedKeyForKeyIDCallback = CompletionHandler<void(std::optional<IPC::SharedBufferCopy>&&)>;
+    using UpdateCallback = CompletionHandler<void(bool, RefPtr<WebCore::SharedBuffer>&&, unsigned short, uint32_t)>;
+    void update(RefPtr<WebCore::SharedBuffer>&& update, UpdateCallback&&);
+    using CachedKeyForKeyIDCallback = CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&)>;
     void cachedKeyForKeyID(String keyId, CachedKeyForKeyIDCallback&&);
 
     WeakPtr<RemoteLegacyCDMFactoryProxy> m_factory;
+
+#if !RELEASE_LOG_DISABLED
+    const Ref<const Logger> m_logger;
+    const uint64_t m_logIdentifier;
+#endif
+
     RemoteLegacyCDMSessionIdentifier m_identifier;
-    std::unique_ptr<WebCore::LegacyCDMSession> m_session;
-    WeakPtr<RemoteMediaPlayerProxy> m_player;
+    RefPtr<WebCore::LegacyCDMSession> m_session;
+    String m_mediaKeysHashSalt;
 };
 
 }

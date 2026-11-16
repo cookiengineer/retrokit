@@ -26,6 +26,7 @@
 #pragma once
 
 #include "CompositeEditCommand.h"
+#include "StyleListStyleType.h"
 
 namespace WebCore {
 
@@ -36,29 +37,30 @@ class InsertListCommand final : public CompositeEditCommand {
 public:
     enum class Type : uint8_t { OrderedList, UnorderedList };
 
-    static Ref<InsertListCommand> create(Document& document, Type listType)
+    static Ref<InsertListCommand> create(Ref<Document>&& document, Type listType, Style::ListStyleType styleType = CSS::Keyword::None { })
     {
-        return adoptRef(*new InsertListCommand(document, listType));
+        return adoptRef(*new InsertListCommand(WTF::move(document), listType, styleType));
     }
 
-    static RefPtr<HTMLElement> insertList(Document&, Type);
+    static RefPtr<HTMLElement> insertList(Ref<Document>&&, Type);
     
     bool preservesTypingStyle() const final { return true; }
 
 private:
-    InsertListCommand(Document&, Type);
+    InsertListCommand(Ref<Document>&&, Type, Style::ListStyleType);
 
     void doApply() final;
     EditAction editingAction() const final;
 
     HTMLElement* fixOrphanedListChild(Node&);
-    bool selectionHasListOfType(const VisibleSelection& selection, const QualifiedName&);
+    bool selectionHasListOfType(const VisibleSelection&, const HTMLQualifiedName&);
     Ref<HTMLElement> mergeWithNeighboringLists(HTMLElement&);
     void doApplyForSingleParagraph(bool forceCreateList, const HTMLQualifiedName&, SimpleRange& currentSelection);
-    void unlistifyParagraph(const VisiblePosition& originalStart, HTMLElement* listNode, Node* listChildNode);
-    RefPtr<HTMLElement> listifyParagraph(const VisiblePosition& originalStart, const QualifiedName& listTag);
+    void unlistifyParagraph(const VisiblePosition& originalStart, HTMLElement& listNode, Node* listChildNode);
+    RefPtr<HTMLElement> listifyParagraph(const VisiblePosition& originalStart, const HTMLQualifiedName& listTag);
     RefPtr<HTMLElement> m_listElement;
     Type m_type;
+    Style::ListStyleType m_listStyleType;
 };
 
 } // namespace WebCore

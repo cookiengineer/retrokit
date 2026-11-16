@@ -23,9 +23,14 @@
 
 #if ENABLE(MEDIA_STREAM)
 
-messages -> UserMediaCaptureManager NotRefCounted {
-    ValidateUserMediaRequestConstraints(struct WebCore::MediaStreamRequest request, String hashSalt) -> (std::optional<String> invalidConstraint, Vector<WebCore::CaptureDevice> audioDevices, Vector<WebCore::CaptureDevice> videoDevices, std::optional<String> deviceIdentifierHashSalt) Async
-    GetMediaStreamDevices() -> (Vector<WebCore::CaptureDevice> devices) Async
+[
+    ExceptionForDispatchedFrom,
+    ExceptionForDispatchedTo,
+    ExceptionForEnabledBy
+]
+messages -> UserMediaCaptureManager {
+    ValidateUserMediaRequestConstraints(struct WebCore::MediaStreamRequest request, struct WebCore::MediaDeviceHashSalts mediaDeviceIdentifierHashSalts) -> (Expected<WebCore::RealtimeMediaSourceCenter::ValidDevices, WebCore::MediaConstraintType> result)
+    GetMediaStreamDevices(bool revealIdsAndLabels) -> (Vector<WebCore::CaptureDeviceWithCapabilities> devices)
 }
 
 #endif

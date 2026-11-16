@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <WebCore/PopupMenu.h>
 #include <wtf/Forward.h>
 #include <wtf/Vector.h>
 #include <wtf/WallTime.h>
@@ -32,6 +33,8 @@ class PopupMenu;
 struct RecentSearch {
     String string;
     WallTime time;
+
+    RecentSearch isolatedCopy() const { return { string.isolatedCopy(), time.isolatedCopy() }; }
 };
 
 class SearchPopupMenu : public RefCounted<SearchPopupMenu> {

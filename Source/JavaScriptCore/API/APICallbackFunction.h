@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2020, 2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,7 +27,9 @@
 #define APICallbackFunction_h
 
 #include "APICast.h"
+#include "CommonIdentifiers.h"
 #include "Error.h"
+#include "Integrity.h"
 #include "JSCallbackConstructor.h"
 #include "JSLock.h"
 #include <wtf/Vector.h>
@@ -46,19 +48,26 @@ EncodedJSValue APICallbackFunction::callImpl(JSGlobalObject* globalObject, CallF
     auto scope = DECLARE_THROW_SCOPE(vm);
     JSContextRef execRef = toRef(globalObject);
     JSObjectRef functionRef = toRef(callFrame->jsCallee());
-    JSObjectRef thisObjRef = toRef(jsCast<JSObject*>(callFrame->thisValue().toThis(globalObject, ECMAMode::sloppy())));
+    JSObjectRef thisObjRef = toRef(uncheckedDowncast<JSObject>(callFrame->thisValue().toThis(globalObject, ECMAMode::sloppy())));
 
-    int argumentCount = static_cast<int>(callFrame->argumentCount());
-    Vector<JSValueRef, 16> arguments;
-    arguments.reserveInitialCapacity(argumentCount);
-    for (int i = 0; i < argumentCount; i++)
-        arguments.uncheckedAppend(toRef(globalObject, callFrame->uncheckedArgument(i)));
+#if CPU(ADDRESS64)
+    auto argumentsSpan = Integrity::audit(callFrame->argumentsSpan());
+    JSValueRef* argumentsSpanData = std::bit_cast<JSValueRef*>(argumentsSpan.data());
+#else
+    // It is safe to use a Vector here because the values are protected by their source
+    // location in the call frame arguments on the stack.
+    Vector<JSValueRef, 16> arguments(callFrame->argumentCount(), [&](size_t i) {
+        return toRef(globalObject, callFrame->uncheckedArgument(i));
+    });
+    auto argumentsSpan = arguments.span();
+    auto* argumentsSpanData = argumentsSpan.data();
+#endif
 
     JSValueRef exception = nullptr;
     JSValueRef result;
     {
         JSLock::DropAllLocks dropAllLocks(globalObject);
-        result = jsCast<T*>(toJS(functionRef))->functionCallback()(execRef, functionRef, thisObjRef, argumentCount, arguments.data(), &exception);
+        result = uncheckedDowncast<T>(toJS(functionRef))->functionCallback()(execRef, functionRef, thisObjRef, argumentsSpan.size(), argumentsSpanData, &exception);
     }
     if (exception) {
         throwException(globalObject, scope, toJS(globalObject, exception));
@@ -78,7 +87,7 @@ EncodedJSValue APICallbackFunction::constructImpl(JSGlobalObject* globalObject, 
     VM& vm = getVM(globalObject);
     auto scope = DECLARE_THROW_SCOPE(vm);
     JSValue callee = callFrame->jsCallee();
-    T* constructor = jsCast<T*>(callFrame->jsCallee());
+    T* constructor = uncheckedDowncast<T>(callFrame->jsCallee());
     JSContextRef ctx = toRef(globalObject);
     JSObjectRef constructorRef = toRef(constructor);
 
@@ -92,17 +101,24 @@ EncodedJSValue APICallbackFunction::constructImpl(JSGlobalObject* globalObject, 
             RETURN_IF_EXCEPTION(scope, { });
         }
 
-        size_t argumentCount = callFrame->argumentCount();
-        Vector<JSValueRef, 16> arguments;
-        arguments.reserveInitialCapacity(argumentCount);
-        for (size_t i = 0; i < argumentCount; ++i)
-            arguments.uncheckedAppend(toRef(globalObject, callFrame->uncheckedArgument(i)));
+#if CPU(ADDRESS64)
+        auto argumentsSpan = Integrity::audit(callFrame->argumentsSpan());
+        JSValueRef* argumentsSpanData = std::bit_cast<JSValueRef*>(argumentsSpan.data());
+#else
+        // It is safe to use a Vector here because the values are protected by their source
+        // location in the call frame arguments on the stack.
+        Vector<JSValueRef, 16> arguments(callFrame->argumentCount(), [&](size_t i) {
+            return toRef(globalObject, callFrame->uncheckedArgument(i));
+        });
+        auto argumentsSpan = arguments.span();
+        auto* argumentsSpanData = argumentsSpan.data();
+#endif
 
         JSValueRef exception = nullptr;
         JSObjectRef result;
         {
             JSLock::DropAllLocks dropAllLocks(globalObject);
-            result = callback(ctx, constructorRef, argumentCount, arguments.data(), &exception);
+            result = callback(ctx, constructorRef, argumentsSpan.size(), argumentsSpanData, &exception);
         }
 
         if (exception) {
@@ -115,7 +131,7 @@ EncodedJSValue APICallbackFunction::constructImpl(JSGlobalObject* globalObject, 
 
         JSObject* newObject = toJS(result);
         // This won't trigger proxy traps on newObject's prototype handler but that's probably desirable here anyway.
-        if (newTarget != constructor && newObject->getPrototypeDirect(vm) == constructor->get(globalObject, vm.propertyNames->prototype)) {
+        if (newTarget != constructor && newObject->getPrototypeDirect() == constructor->get(globalObject, vm.propertyNames->prototype)) {
             RETURN_IF_EXCEPTION(scope, { });
             newObject->setPrototype(vm, globalObject, prototype);
             RETURN_IF_EXCEPTION(scope, { });
@@ -124,7 +140,7 @@ EncodedJSValue APICallbackFunction::constructImpl(JSGlobalObject* globalObject, 
         return JSValue::encode(newObject);
     }
     
-    return JSValue::encode(toJS(JSObjectMake(ctx, jsCast<JSCallbackConstructor*>(callee)->classRef(), nullptr)));
+    return JSValue::encode(toJS(JSObjectMake(ctx, uncheckedDowncast<JSCallbackConstructor>(callee)->classRef(), nullptr)));
 }
 
 } // namespace JSC

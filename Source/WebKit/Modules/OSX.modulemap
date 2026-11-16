@@ -1,15 +1,7 @@
-framework module WebKit [system] [extern_c] {
+framework module WebKit [system] {
   umbrella header "WebKit.h"
   module * { export * }
   export *
-  
-  explicit module NPAPI {
-    header "nptypes.h"
-    header "npapi.h"
-    header "npfunctions.h"
-    header "npruntime.h"
-    export *
-  }
 
   explicit module DOMProgressEvent {
     header "DOMProgressEvent.h"

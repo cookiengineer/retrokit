@@ -25,6 +25,8 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if ENABLE(B3_JIT)
 
 #include "B3Type.h"
@@ -58,6 +60,7 @@ inline Bank bankForType(Type type)
         return GP;
     case Float:
     case Double:
+    case V128:
         return FP;
     }
     ASSERT_NOT_REACHED();
@@ -66,7 +69,32 @@ inline Bank bankForType(Type type)
 
 inline Bank bankForReg(Reg reg)
 {
-    return reg.isGPR() ? GP : FP;
+    return reg.isFPR() ? FP : GP;
+}
+
+inline Width minimumWidth(Bank bank)
+{
+    return bank == GP ? Width8 : Width32;
+}
+
+ALWAYS_INLINE constexpr Width conservativeWidthWithoutVectors(Bank bank)
+{
+    return bank == FP ? Width64 : widthForBytes(sizeof(CPURegister));
+}
+
+ALWAYS_INLINE constexpr Width conservativeWidth(Bank bank)
+{
+    return bank == FP ? Width128 : widthForBytes(sizeof(CPURegister));
+}
+
+ALWAYS_INLINE constexpr unsigned conservativeRegisterBytes(Bank bank)
+{
+    return bytesForWidth(conservativeWidth(bank));
+}
+
+ALWAYS_INLINE constexpr unsigned conservativeRegisterBytesWithoutVectors(Bank bank)
+{
+    return bytesForWidth(conservativeWidthWithoutVectors(bank));
 }
 
 } } // namespace JSC::B3

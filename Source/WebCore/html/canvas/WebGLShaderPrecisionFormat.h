@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, Google Inc. All rights reserved.
+ * Copyright (c) 2012 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -28,18 +28,18 @@
 
 #if ENABLE(WEBGL)
 
-#include "GraphicsContextGL.h"
+#include "GraphicsTypesGL.h"
 #include <wtf/RefCounted.h>
 
 namespace WebCore {
 
 class WebGLShaderPrecisionFormat : public RefCounted<WebGLShaderPrecisionFormat> {
 public:
-    static Ref<WebGLShaderPrecisionFormat> create(GCGLint rangeMin, GCGLint rangeMax, GCGLint precision);
+    static Ref<WebGLShaderPrecisionFormat> NODELETE create(GCGLint rangeMin, GCGLint rangeMax, GCGLint precision);
 
-    GCGLint rangeMin() const;
-    GCGLint rangeMax() const;
-    GCGLint precision() const;
+    GCGLint NODELETE rangeMin() const;
+    GCGLint NODELETE rangeMax() const;
+    GCGLint NODELETE precision() const;
 
 private:
     WebGLShaderPrecisionFormat(GCGLint rangeMin, GCGLint rangeMax, GCGLint precision);

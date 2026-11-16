@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,51 +25,46 @@
 
 #include "config.h"
 #include "FullGCActivityCallback.h"
+#include <wtf/MemoryPressureHandler.h>
 
 #include "VM.h"
 
 namespace JSC {
 
-FullGCActivityCallback::FullGCActivityCallback(Heap* heap)
-    : GCActivityCallback(heap)
+FullGCActivityCallback::FullGCActivityCallback(JSC::Heap& heap, Synchronousness synchronousness)
+    : GCActivityCallback(heap, synchronousness)
 {
 }
 
+FullGCActivityCallback::~FullGCActivityCallback() = default;
+
 void FullGCActivityCallback::doCollection(VM& vm)
 {
-    Heap& heap = vm.heap;
-    m_didGCRecently = false;
+    JSC::Heap& heap = vm.heap;
+    setDidGCRecently(false);
 
 #if !PLATFORM(IOS_FAMILY) || PLATFORM(MACCATALYST)
     MonotonicTime startTime = MonotonicTime::now();
-    if (heap.isPagedOut()) {
+    if (MemoryPressureHandler::singleton().isUnderMemoryPressure() && heap.isPagedOut()) {
         cancel();
         heap.increaseLastFullGCLength(MonotonicTime::now() - startTime);
         return;
     }
 #endif
 
-    heap.collectAsync(CollectionScope::Full);
+    heap.collect(m_synchronousness, CollectionScope::Full);
 }
 
-Seconds FullGCActivityCallback::lastGCLength(Heap& heap)
+Seconds FullGCActivityCallback::lastGCLength(JSC::Heap& heap)
 {
     return heap.lastFullGCLength();
 }
 
-double FullGCActivityCallback::deathRate(Heap& heap)
+double FullGCActivityCallback::deathRate(JSC::Heap& heap)
 {
     size_t sizeBefore = heap.sizeBeforeLastFullCollection();
     size_t sizeAfter = heap.sizeAfterLastFullCollection();
-    if (!sizeBefore)
-        return 1.0;
-    if (sizeAfter > sizeBefore) {
-        // GC caused the heap to grow(!)
-        // This could happen if the we visited more extra memory than was reported allocated.
-        // We don't return a negative death rate, since that would schedule the next GC in the past.
-        return 0;
-    }
-    return static_cast<double>(sizeBefore - sizeAfter) / static_cast<double>(sizeBefore);
+    return GCActivityCallback::deathRate(sizeBefore, sizeAfter);
 }
 
 double FullGCActivityCallback::gcTimeSlice(size_t bytes)

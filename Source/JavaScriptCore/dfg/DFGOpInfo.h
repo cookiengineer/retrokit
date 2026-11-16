@@ -28,28 +28,36 @@
 #include "CacheableIdentifier.h"
 #include "DFGRegisteredStructure.h"
 #include "HeapCell.h"
+#include "JSType.h"
+#include "Operands.h"
 #include "PrivateFieldPutKind.h"
+#include <JavaScriptCore/ECMAMode.h>
 #include <wtf/OptionSet.h>
 #include <wtf/StdLibExtras.h>
 
 #if ENABLE(DFG_JIT)
 
-namespace JSC { namespace DFG {
+namespace JSC {
+
+class StructureSet;
+
+namespace DFG {
 
 // This type used in passing an immediate argument to Node constructor;
 // distinguishes an immediate value (typically an index into a CodeBlock data structure - 
 // a constant index, argument, or identifier) from a Node*.
 struct OpInfo {
     OpInfo() : m_value(0) { }
-    template<
-        typename IntegralType,
-        typename Constraint = typename std::enable_if<(std::is_integral<IntegralType>::value || std::is_enum<IntegralType>::value) && sizeof(IntegralType) <= sizeof(uint64_t)>::type>
+    template<typename IntegralType>
+        requires (IntegralOrEnum<IntegralType> && sizeof(IntegralType) <= sizeof(uint64_t))
     explicit OpInfo(IntegralType value)
         : m_value(static_cast<uint64_t>(value)) { }
-    explicit OpInfo(RegisteredStructure structure) : m_value(static_cast<uint64_t>(bitwise_cast<uintptr_t>(structure))) { }
+    explicit OpInfo(RegisteredStructure structure) : m_value(static_cast<uint64_t>(std::bit_cast<uintptr_t>(structure))) { }
     explicit OpInfo(Operand op) : m_value(op.asBits()) { }
     explicit OpInfo(CacheableIdentifier identifier) : m_value(static_cast<uint64_t>(identifier.rawBits())) { }
     explicit OpInfo(ECMAMode ecmaMode) : m_value(ecmaMode.value()) { }
+    explicit OpInfo(JSTypeRange range)
+        : m_value(range.rawValue()) { }
     explicit OpInfo(PrivateFieldPutKind putKind) : m_value(putKind.value()) { }
     template<typename EnumType>
     explicit OpInfo(OptionSet<EnumType> optionSet) : m_value(optionSet.toRaw()) { }
@@ -65,6 +73,7 @@ struct OpInfo {
     uint64_t m_value;
 };
 
-} } // namespace JSC::DFG
+} // namespace DFG
+} // namespace JSC
 
 #endif // ENABLE(DFG_JIT)

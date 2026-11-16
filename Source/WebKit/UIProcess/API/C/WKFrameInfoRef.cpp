@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,21 +30,30 @@
 #include "APIFrameInfo.h"
 #include "APISecurityOrigin.h"
 #include "WKAPICast.h"
-
-using namespace WebKit;
+#include "WebPageProxy.h"
 
 WKTypeID WKFrameInfoGetTypeID()
 {
-    return toAPI(API::FrameInfo::APIType);
+    return WebKit::toAPI(API::FrameInfo::APIType);
 }
 
-WKFrameHandleRef WKFrameInfoCreateFrameHandleRef(WKFrameInfoRef frameInfoRef)
+WKFrameHandleRef WKFrameInfoCreateFrameHandleRef(WKFrameInfoRef frameInfo)
 {
-    return toAPI(&toImpl(frameInfoRef)->handle().leakRef());
+    return WebKit::toAPILeakingRef(protect(WebKit::toImpl(frameInfo))->handle());
 }
 
-WKSecurityOriginRef WKFrameInfoCopySecurityOrigin(WKFrameInfoRef frameInfoRef)
+WKSecurityOriginRef WKFrameInfoCopySecurityOrigin(WKFrameInfoRef frameInfo)
 {
-    auto origin = toImpl(frameInfoRef)->securityOrigin();
-    return toAPI(&API::SecurityOrigin::create(origin.protocol, origin.host, origin.port).leakRef());
+    auto origin = WebKit::toImpl(frameInfo)->securityOrigin();
+    return WebKit::toAPILeakingRef(API::SecurityOrigin::create(origin));
+}
+
+bool WKFrameInfoGetIsMainFrame(WKFrameInfoRef frameInfo)
+{
+    return WebKit::toImpl(frameInfo)->isMainFrame();
+}
+
+WKPageRef WKFrameInfoGetPage(WKFrameInfoRef frameInfo)
+{
+    return WebKit::toAPI(RefPtr { protect(WebKit::toImpl(frameInfo))->page() }.get());
 }

@@ -26,7 +26,11 @@
 #ifndef APIFindClient_h
 #define APIFindClient_h
 
+#include <WebCore/PlatformLayer.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/WTFString.h>
+
+OBJC_CLASS CALayer;
 
 namespace WebCore {
 class IntRect;
@@ -39,13 +43,18 @@ class WebPageProxy;
 namespace API {
 
 class FindClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FindClient);
 public:
     virtual ~FindClient() { }
 
     virtual void didCountStringMatches(WebKit::WebPageProxy*, const WTF::String&, uint32_t) { }
     virtual void didFindString(WebKit::WebPageProxy*, const WTF::String&, const Vector<WebCore::IntRect>& matchRects, uint32_t, int32_t, bool didWrapAround) { }
     virtual void didFailToFindString(WebKit::WebPageProxy*, const WTF::String&) { }
+
+    virtual void didAddLayerForFindOverlay(WebKit::WebPageProxy*, PlatformLayer*) { }
+    virtual void didRemoveLayerForFindOverlay(WebKit::WebPageProxy*) { }
+
+    virtual bool isWebKitFindClient() const { return false; }
 };
 
 } // namespace API

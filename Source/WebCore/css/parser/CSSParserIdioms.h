@@ -31,16 +31,27 @@
 
 #pragma once
 
-#include "CSSParserContext.h"
+#include <WebCore/CSSParserContext.h>
+#include <WebCore/CSSValueKeywords.h>
+#include <WebCore/CSSWideKeyword.h>
 #include <wtf/ASCIICType.h>
 
 namespace WebCore {
     
 // Space characters as defined by the CSS specification.
 // http://www.w3.org/TR/css3-syntax/#whitespace
-inline bool isCSSSpace(UChar c)
+
+template<typename CharacterType>
+inline bool isCSSSpace(CharacterType c)
 {
     return c == ' ' || c == '\t' || c == '\n';
+}
+
+// https://drafts.csswg.org/css-syntax-3/#newline
+template<typename CharacterType>
+inline bool isCSSNewline(CharacterType c)
+{
+    return c == '\n' || c == '\r' || c == '\f';
 }
 
 // http://dev.w3.org/csswg/css-syntax/#name-start-code-point
@@ -57,6 +68,44 @@ bool isNameCodePoint(CharacterType c)
     return isNameStartCodePoint(c) || isASCIIDigit(c) || c == '-';
 }
 
-bool isValueAllowedInMode(unsigned short, CSSParserMode);
+inline bool isValidCustomIdentifier(CSSValueID valueID)
+{
+    // "default" is obsolete as a CSS-wide keyword but is still not allowed as a custom identifier.
+    return !isCSSWideKeyword(valueID) && valueID != CSSValueDefault;
+}
+
+// Unlike CSSPropertyParserHelpers::genericFontFamily, this does not access
+// NeverDestroyed objects that require main-thread access, making it
+// safe to call from OffscreenCanvas workers.
+inline bool isGenericFontFamilyKeyword(CSSValueID valueID)
+{
+    switch (valueID) {
+    case CSSValueSerif:
+    case CSSValueSansSerif:
+    case CSSValueCursive:
+    case CSSValueFantasy:
+    case CSSValueMonospace:
+    case CSSValueSystemUi:
+    case CSSValueWebkitPictograph:
+    case CSSValueMath:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// https://drafts.csswg.org/css-conditional-5/#propdef-container-name
+inline bool isValidContainerNameIdentifier(CSSValueID valueID)
+{
+    switch (valueID) {
+    case CSSValueNone:
+    case CSSValueAnd:
+    case CSSValueOr:
+    case CSSValueNot:
+        return false;
+    default:
+        return isValidCustomIdentifier(valueID);
+    }
+}
 
 } // namespace WebCore

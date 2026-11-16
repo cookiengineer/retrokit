@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2009 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,11 +25,12 @@
 
 #pragma once
 
-#include "Credential.h"
-#include "ProtectionSpaceHash.h"
-#include "SecurityOriginData.h"
+#include <WebCore/Credential.h>
+#include <WebCore/ProtectionSpaceHash.h>
+#include <WebCore/SecurityOriginData.h>
 #include <wtf/HashMap.h>
-#include <wtf/HashSet.h>
+#include <wtf/Platform.h>
+#include <wtf/RobinHoodHashSet.h>
 #include <wtf/text/StringHash.h>
 #include <wtf/text/WTFString.h>
 
@@ -44,14 +45,12 @@ public:
     WEBCORE_EXPORT Credential get(const String&, const ProtectionSpace&);
     WEBCORE_EXPORT void remove(const String&, const ProtectionSpace&);
     WEBCORE_EXPORT void removeCredentialsWithOrigin(const SecurityOriginData&);
+    WEBCORE_EXPORT void clearCredentials();
 
+#if PLATFORM(COCOA)
     // OS credential storage.
     WEBCORE_EXPORT static Credential getFromPersistentStorage(const ProtectionSpace&);
-    WEBCORE_EXPORT static HashSet<SecurityOriginData> originsWithSessionCredentials();
-    WEBCORE_EXPORT static void removeSessionCredentialsWithOrigins(const Vector<SecurityOriginData>& origins);
-    WEBCORE_EXPORT static void clearSessionCredentials();
-
-    WEBCORE_EXPORT void clearCredentials();
+#endif
 
     // These methods work for authentication schemes that support sending credentials without waiting for a request. E.g., for HTTP Basic authentication scheme
     // a client should assume that all paths at or deeper than the depth of a known protected resource share are within the same protection space.
@@ -62,7 +61,7 @@ public:
 
 private:
     HashMap<std::pair<String /* partitionName */, ProtectionSpace>, Credential> m_protectionSpaceToCredentialMap;
-    HashSet<String> m_originsWithCredentials;
+    MemoryCompactRobinHoodHashSet<String> m_originsWithCredentials;
 
     typedef HashMap<String, ProtectionSpace> PathToDefaultProtectionSpaceMap;
     PathToDefaultProtectionSpaceMap m_pathToDefaultProtectionSpaceMap;

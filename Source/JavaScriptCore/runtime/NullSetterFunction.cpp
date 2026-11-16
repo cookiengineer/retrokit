@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,11 +27,12 @@
 #include "NullSetterFunction.h"
 
 #include "CodeBlock.h"
+#include "ErrorInstanceInlines.h"
 #include "JSCInlines.h"
 
 namespace JSC {
 
-const ClassInfo NullSetterFunction::s_info = { "Function", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(NullSetterFunction) };
+const ClassInfo NullSetterFunction::s_info = { "Function"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(NullSetterFunction) };
 
 
 #if ASSERT_ENABLED
@@ -44,17 +45,17 @@ public:
     {
     }
 
-    StackVisitor::Status operator()(StackVisitor& visitor) const
+    IterationStatus operator()(StackVisitor& visitor) const
     {
         ++m_iterations;
         if (m_iterations < 2)
-            return StackVisitor::Continue;
+            return IterationStatus::Continue;
 
         CodeBlock* codeBlock = visitor->codeBlock();
         // This does not take into account that we might have an strict opcode in a non-strict context, but that's
         // ok since we assert below that this function should never be called from any kind strict context.
         m_callerIsStrict = codeBlock && codeBlock->ownerExecutable()->isInStrictContext();
-        return StackVisitor::Done;
+        return IterationStatus::Done;
     }
 
     bool callerIsStrict() const { return m_callerIsStrict; }
@@ -67,7 +68,7 @@ private:
 static bool callerIsStrict(VM& vm, CallFrame* callFrame)
 {
     GetCallerStrictnessFunctor iter;
-    callFrame->iterate(vm, iter);
+    StackVisitor::visit(callFrame, vm, iter);
     return iter.callerIsStrict();
 }
 
@@ -94,7 +95,7 @@ JSC_DEFINE_HOST_FUNCTION(callThrowError, (JSGlobalObject* globalObject, CallFram
     auto scope = DECLARE_THROW_SCOPE(vm);
     // This function is only called from IC. And we do not want to include this frame in Error's stack.
     constexpr bool useCurrentFrame = false;
-    throwException(globalObject, scope, ErrorInstance::create(globalObject, vm, globalObject->errorStructure(ErrorType::TypeError), ReadonlyPropertyWriteError, JSValue(), nullptr, TypeNothing, ErrorType::TypeError, useCurrentFrame));
+    throwException(globalObject, scope, ErrorInstance::create(vm, globalObject->errorStructure(ErrorType::TypeError), ReadonlyPropertyWriteError, JSValue(), nullptr, TypeNothing, ErrorType::TypeError, useCurrentFrame));
     return { };
 }
 

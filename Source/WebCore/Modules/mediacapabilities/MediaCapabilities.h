@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,19 +25,35 @@
 
 #pragma once
 
-#include <wtf/RefCounted.h>
+#include "PlatformMediaEngineConfigurationFactory.h"
+#include <wtf/HashMap.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
 class DeferredPromise;
-class Document;
+class NavigatorBase;
+class ScriptExecutionContext;
 struct MediaDecodingConfiguration;
 struct MediaEncodingConfiguration;
 
-class MediaCapabilities : public RefCounted<MediaCapabilities> {
+class MediaCapabilities : public RefCountedAndCanMakeWeakPtr<MediaCapabilities> {
 public:
-    void decodingInfo(Document&, MediaDecodingConfiguration&&, Ref<DeferredPromise>&&);
-    void encodingInfo(Document&, MediaEncodingConfiguration&&, Ref<DeferredPromise>&&);
+    static Ref<MediaCapabilities> create(NavigatorBase& navigator) { return adoptRef(*new MediaCapabilities(navigator)); }
+
+    NavigatorBase* navigator();
+
+    void decodingInfo(ScriptExecutionContext&, MediaDecodingConfiguration&&, Ref<DeferredPromise>&&);
+    void encodingInfo(ScriptExecutionContext&, MediaEncodingConfiguration&&, Ref<DeferredPromise>&&);
+
+private:
+    explicit MediaCapabilities(NavigatorBase&);
+
+    WeakPtr<NavigatorBase> m_navigator;
+    uint64_t m_nextTaskIdentifier { 0 };
+    HashMap<uint64_t, PlatformMediaEngineConfigurationFactory::DecodingConfigurationCallback> m_decodingTasks;
+    HashMap<uint64_t, PlatformMediaEngineConfigurationFactory::EncodingConfigurationCallback> m_encodingTasks;
 };
 
 } // namespace WebCore

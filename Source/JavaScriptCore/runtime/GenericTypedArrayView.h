@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,32 +25,40 @@
 
 #pragma once
 
-#include "ArrayBuffer.h"
-#include "ArrayBufferView.h"
+#include <JavaScriptCore/ArrayBuffer.h>
+#include <JavaScriptCore/ArrayBufferView.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
 template<typename Adaptor>
 class GenericTypedArrayView final : public ArrayBufferView {
 public:
-    static Ref<GenericTypedArrayView> create(unsigned length);
-    static Ref<GenericTypedArrayView> create(const typename Adaptor::Type* array, unsigned length);
-    static Ref<GenericTypedArrayView> create(RefPtr<ArrayBuffer>&&, unsigned byteOffset, unsigned length);
-    static RefPtr<GenericTypedArrayView> tryCreate(unsigned length);
-    static RefPtr<GenericTypedArrayView> tryCreate(const typename Adaptor::Type* array, unsigned length);
-    static RefPtr<GenericTypedArrayView> tryCreate(RefPtr<ArrayBuffer>&&, unsigned byteOffset, unsigned length);
+    static Ref<GenericTypedArrayView> create(size_t length);
+    static Ref<GenericTypedArrayView> create(const typename Adaptor::Type* array, size_t length);
+    static Ref<GenericTypedArrayView> create(std::span<const typename Adaptor::Type> data) { return create(data.data(), data.size()); }
+    static Ref<GenericTypedArrayView> create(Ref<ArrayBuffer>&&);
+    static Ref<GenericTypedArrayView> create(RefPtr<ArrayBuffer>&&, size_t byteOffset, std::optional<size_t> length);
+    static RefPtr<GenericTypedArrayView> tryCreate(size_t length);
+    static RefPtr<GenericTypedArrayView> tryCreate(const typename Adaptor::Type* array, size_t length);
+    static RefPtr<GenericTypedArrayView> tryCreate(std::span<const typename Adaptor::Type> data) { return tryCreate(data.data(), data.size()); }
+    static RefPtr<GenericTypedArrayView> tryCreate(RefPtr<ArrayBuffer>&&, size_t byteOffset, std::optional<size_t> length);
     
-    static Ref<GenericTypedArrayView> createUninitialized(unsigned length);
-    static RefPtr<GenericTypedArrayView> tryCreateUninitialized(unsigned length);
+    static Ref<GenericTypedArrayView> createUninitialized(size_t length);
+    static RefPtr<GenericTypedArrayView> tryCreateUninitialized(size_t length);
     
     typename Adaptor::Type* data() const { return static_cast<typename Adaptor::Type*>(baseAddress()); }
-    
-    bool set(GenericTypedArrayView<Adaptor>* array, unsigned offset)
+
+    std::span<const typename Adaptor::Type> typedSpan() const { return unsafeMakeSpan(data(), length()); }
+    std::span<typename Adaptor::Type> typedMutableSpan() { return unsafeMakeSpan(data(), length()); }
+
+    bool set(GenericTypedArrayView<Adaptor>* array, size_t offset)
     {
         return setImpl(array, offset * sizeof(typename Adaptor::Type));
     }
     
-    bool setRange(const typename Adaptor::Type* data, size_t count, unsigned offset)
+    bool setRange(const typename Adaptor::Type* data, size_t count, size_t offset)
     {
         return setRangeImpl(
             reinterpret_cast<const char*>(data),
@@ -58,39 +66,42 @@ public:
             offset * sizeof(typename Adaptor::Type));
     }
     
-    bool zeroRange(unsigned offset, size_t count)
+    bool zeroRange(size_t offset, size_t count)
     {
         return zeroRangeImpl(offset * sizeof(typename Adaptor::Type), count * sizeof(typename Adaptor::Type));
     }
     
     void zeroFill() { zeroRange(0, length()); }
     
-    unsigned length() const
+    size_t length() const
     {
-        if (isDetached())
-            return 0;
         return byteLength() / sizeof(typename Adaptor::Type);
     }
 
-    typename Adaptor::Type item(unsigned index) const
+    size_t lengthRaw() const
+    {
+        return byteLengthRaw() / sizeof(typename Adaptor::Type);
+    }
+
+    typename Adaptor::Type item(size_t index) const
     {
         ASSERT_WITH_SECURITY_IMPLICATION(index < this->length());
         return data()[index];
     }
     
-    void set(unsigned index, double value) const
+    void set(size_t index, double value) const
     {
         ASSERT_WITH_SECURITY_IMPLICATION(index < this->length());
         data()[index] = Adaptor::toNativeFromDouble(value);
     }
 
-    void setNative(unsigned index, typename Adaptor::Type value) const
+    void setNative(size_t index, typename Adaptor::Type value) const
     {
         ASSERT_WITH_SECURITY_IMPLICATION(index < this->length());
         data()[index] = value;
     }
 
-    bool getRange(typename Adaptor::Type* data, size_t count, unsigned offset)
+    bool getRange(typename Adaptor::Type* data, size_t count, size_t offset)
     {
         return getRangeImpl(
             reinterpret_cast<char*>(data),
@@ -98,27 +109,53 @@ public:
             offset * sizeof(typename Adaptor::Type));
     }
 
-    bool checkInboundData(unsigned offset, size_t count) const
+    bool checkInboundData(size_t offset, size_t count) const
     {
-        unsigned length = this->length();
-        return (offset <= length
-            && offset + count <= length
-            // check overflow
-            && offset + count >= offset);
-    }
-    
-    RefPtr<GenericTypedArrayView> subarray(int start) const;
-    RefPtr<GenericTypedArrayView> subarray(int start, int end) const;
-    
-    TypedArrayType getType() const final
-    {
-        return Adaptor::typeValue;
+        return isSumSmallerThanOrEqual(offset, count, this->length());
     }
 
-    JSArrayBufferView* wrap(JSGlobalObject*, JSGlobalObject*) final;
+    JSArrayBufferView* wrapImpl(JSGlobalObject* lexicalGlobalObject, JSGlobalObject* globalObject);
+
+    static RefPtr<GenericTypedArrayView<Adaptor>> wrappedAs(Ref<ArrayBuffer>&&, size_t byteOffset, std::optional<size_t> length);
 
 private:
-    GenericTypedArrayView(RefPtr<ArrayBuffer>&&, unsigned byteOffset, unsigned length);
+    GenericTypedArrayView(RefPtr<ArrayBuffer>&&, size_t byteOffset, std::optional<size_t> length);
 };
 
+template<typename Adaptor>
+GenericTypedArrayView<Adaptor>::GenericTypedArrayView(RefPtr<ArrayBuffer>&& buffer, size_t byteOffset, std::optional<size_t> length)
+    : ArrayBufferView(Adaptor::typeValue, WTF::move(buffer), byteOffset, length ? std::optional { length.value() * sizeof(typename Adaptor::Type) } : std::nullopt)
+{
+#if ASSERT_ENABLED
+    if (length)
+        ASSERT((length.value() / sizeof(typename Adaptor::Type)) < std::numeric_limits<size_t>::max());
+#endif
+}
+
+template<typename Adaptor>
+RefPtr<GenericTypedArrayView<Adaptor>> GenericTypedArrayView<Adaptor>::tryCreate(RefPtr<ArrayBuffer>&& buffer, size_t byteOffset, std::optional<size_t> length)
+{
+    if (!buffer)
+        return nullptr;
+
+    ASSERT(length || buffer->isResizableOrGrowableShared());
+
+    if (!ArrayBufferView::verifySubRangeLength(buffer->byteLength(), byteOffset, length.value_or(0), sizeof(typename Adaptor::Type)))
+        return nullptr;
+
+    if (!verifyByteOffsetAlignment(byteOffset, sizeof(typename Adaptor::Type)))
+        return nullptr;
+
+    return adoptRef(new GenericTypedArrayView(WTF::move(buffer), byteOffset, length));
+}
+
+template<typename Adaptor>
+Ref<GenericTypedArrayView<Adaptor>> GenericTypedArrayView<Adaptor>::create(Ref<ArrayBuffer>&& buffer)
+{
+    auto length = buffer->byteLength();
+    return adoptRef(*new GenericTypedArrayView(WTF::move(buffer), 0, length));
+}
+
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

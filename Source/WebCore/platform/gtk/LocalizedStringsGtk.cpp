@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006, 2007 Apple Inc. All rights reserved.
  * Copyright (C) 2006 Michael Emmel mike.emmel@gmail.com
  * Copyright (C) 2007 Holger Hans Peter Freyther
  * Copyright (C) 2008 Christian Dywan <christian@imendio.com>
@@ -48,7 +48,7 @@ String contextMenuItemTagDownloadImageToDisk()
     return String::fromUTF8(_("Sa_ve Image As"));
 }
 
-String contextMenuItemTagCopyImageUrlToClipboard()
+String contextMenuItemTagCopyImageURLToClipboard()
 {
     return String::fromUTF8(_("Copy Image _Address"));
 }

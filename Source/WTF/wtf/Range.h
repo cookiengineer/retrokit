@@ -39,28 +39,23 @@ namespace WTF {
 
 template<typename PassedType>
 class Range {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(Range);
 public:
-    typedef PassedType Type;
-    
-    Range()
-        : m_begin(0)
-        , m_end(0)
-    {
-    }
+    using Type = PassedType;
+    constexpr Range() = default;
 
-    explicit Range(Type value)
+    explicit constexpr Range(Type value)
         : m_begin(value)
         , m_end(value + 1)
     {
-        ASSERT(m_end >= m_begin);
+        ASSERT_UNDER_CONSTEXPR_CONTEXT(m_end >= m_begin);
     }
 
-    Range(Type begin, Type end)
+    constexpr Range(Type begin, Type end)
         : m_begin(begin)
         , m_end(end)
     {
-        ASSERT(m_end >= m_begin);
+        ASSERT_UNDER_CONSTEXPR_CONTEXT(m_end >= m_begin);
         if (m_begin == m_end) {
             // Canonicalize empty ranges.
             m_begin = 0;
@@ -68,23 +63,14 @@ public:
         }
     }
 
-    static Range top()
+    static constexpr Range top()
     {
         return Range(std::numeric_limits<Type>::min(), std::numeric_limits<Type>::max());
     }
 
-    bool operator==(const Range& other) const
-    {
-        return m_begin == other.m_begin
-            && m_end == other.m_end;
-    }
+    friend bool operator==(const Range&, const Range&) = default;
 
-    bool operator!=(const Range& other) const
-    {
-        return !(*this == other);
-    }
-    
-    explicit operator bool() const { return m_begin != m_end; }
+    explicit constexpr operator bool() const { return m_begin != m_end; }
 
     Range operator|(const Range& other) const
     {
@@ -104,6 +90,8 @@ public:
     
     Type begin() const { return m_begin; }
     Type end() const { return m_end; }
+
+    Type distance() const { return end() - begin(); }
 
     bool overlaps(const Range& other) const
     {
@@ -133,8 +121,10 @@ public:
     }
 
 private:
-    Type m_begin;
-    Type m_end;
+    Type m_begin { 0 };
+    Type m_end { 0 };
 };
 
 } // namespace WTF
+
+using WTF::Range;

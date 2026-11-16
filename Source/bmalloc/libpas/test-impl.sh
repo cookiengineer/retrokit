@@ -22,17 +22,17 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 # THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-. common.sh
+. ./common.sh
 
 case $variants in
     all|testing)
-        DYLD_LIBRARY_PATH=build-$sdk-testing/$configdir build-$sdk-testing/$configdir/test_pas
+        DYLD_LIBRARY_PATH=build-$sdk-testing/$configdir build-$sdk-testing/$configdir/test_pas $testArgs
         ;;
 esac
 
 case $variants in
     all|default)
-        DYLD_LIBRARY_PATH=build-$sdk-default/$configdir build-$sdk-default/$configdir/test_pas
+        DYLD_LIBRARY_PATH=build-$sdk-default/$configdir build-$sdk-default/$configdir/test_pas $testArgs
         ;;
 esac
 

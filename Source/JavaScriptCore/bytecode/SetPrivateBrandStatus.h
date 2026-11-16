@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  * Copyright (C) 2021 Igalia S.A. All rights reserved.
  *
  *
@@ -32,18 +32,19 @@
 #include "ConcurrentJSLock.h"
 #include "ExitFlag.h"
 #include "ICStatusMap.h"
+#include "PropertyInlineCacheSummary.h"
 #include "SetPrivateBrandVariant.h"
-#include "StubInfoSummary.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC {
 
 class AccessCase;
 class CodeBlock;
 class StructureSet;
-class StructureStubInfo;
+class PropertyInlineCache;
 
 class SetPrivateBrandStatus final {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(SetPrivateBrandStatus);
 public:
     enum State : uint8_t {
         // It's uncached so we have no information.
@@ -75,10 +76,10 @@ public:
     bool operator!() const { return !isSet(); }
     bool observedSlowPath() const { return m_state == ObservedTakesSlowPath; }
     bool isSimple() const { return m_state == Simple; }
-    const Vector<SetPrivateBrandVariant, 1>& variants() { return m_variants; }
-    CacheableIdentifier singleIdentifier() const;
+    const Vector<SetPrivateBrandVariant, 1>& variants() LIFETIME_BOUND { return m_variants; }
+    CacheableIdentifier NODELETE singleIdentifier() const;
 
-    SetPrivateBrandStatus slowVersion() const;
+    SetPrivateBrandStatus NODELETE slowVersion() const;
 
     // Attempts to reduce the set of variants to fit the given structure set. This may be approximate.
     void filter(const StructureSet&);
@@ -93,13 +94,13 @@ public:
     void dump(PrintStream&) const;
 
 private:
-    explicit SetPrivateBrandStatus(StubInfoSummary, StructureStubInfo&);
+    explicit SetPrivateBrandStatus(PropertyInlineCacheSummary, PropertyInlineCache&);
     void merge(const SetPrivateBrandStatus&);
 
     static SetPrivateBrandStatus computeForBaseline(CodeBlock*, ICStatusMap&, BytecodeIndex, ExitFlag);
 #if ENABLE(JIT)
-    static SetPrivateBrandStatus computeForStubInfoWithoutExitSiteFeedback(
-        const ConcurrentJSLocker&, CodeBlock* profiledBlock, StructureStubInfo*);
+    static SetPrivateBrandStatus computeForPropertyInlineCacheWithoutExitSiteFeedback(
+        const ConcurrentJSLocker&, CodeBlock* profiledBlock, PropertyInlineCache*);
 #endif
 
     Vector<SetPrivateBrandVariant, 1> m_variants;

@@ -25,29 +25,86 @@
 
 #pragma once
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
+#include "RemoteMediaResourceIdentifier.h"
+#include "RemoteMediaResourceLoaderIdentifier.h"
+#include "WorkQueueMessageReceiver.h"
 #include <WebCore/PlatformMediaResourceLoader.h>
 #include <WebCore/ResourceRequest.h>
+#include <WebCore/SharedMemory.h>
+#include <wtf/Identified.h>
+#include <wtf/Lock.h>
+#include <wtf/NeverDestroyed.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
+#include <wtf/WorkQueue.h>
+
+namespace IPC {
+class Connection;
+class Decoder;
+class SharedBufferReference;
+}
 
 namespace WebKit {
 
 class RemoteMediaPlayerProxy;
+class RemoteMediaResource;
 
 class RemoteMediaResourceLoader final
-    : public WebCore::PlatformMediaResourceLoader {
+    : public WebCore::PlatformMediaResourceLoader
+    , public IPC::WorkQueueMessageReceiver<WTF::DestructionThread::Any>
+    , public Identified<RemoteMediaResourceLoaderIdentifier> {
+    WTF_MAKE_TZONE_ALLOCATED(RemoteMediaResourceLoader);
 public:
-    explicit RemoteMediaResourceLoader(RemoteMediaPlayerProxy&);
+    static Ref<RemoteMediaResourceLoader> create(RemoteMediaPlayerProxy&, Ref<IPC::Connection>&&);
     ~RemoteMediaResourceLoader();
 
+    static Ref<WorkQueue> defaultQueue()
+    {
+        static NeverDestroyed<Ref<WorkQueue>> messageQueue = WorkQueue::create("PlatformMediaResourceLoader"_s);
+        return messageQueue.get();
+    }
+
+    void addMediaResource(RemoteMediaResourceIdentifier, RemoteMediaResource&);
+    void removeMediaResource(RemoteMediaResourceIdentifier);
+    RefPtr<RemoteMediaResource> resourceForId(RemoteMediaResourceIdentifier);
+
+    // Disambiguate ref/deref:
+    void ref() const final { return IPC::WorkQueueMessageReceiver<WTF::DestructionThread::Any>::ref(); }
+    void deref() const final { return IPC::WorkQueueMessageReceiver<WTF::DestructionThread::Any>::deref(); }
+    ThreadSafeWeakPtrControlBlock& controlBlock() const final { return IPC::WorkQueueMessageReceiver<WTF::DestructionThread::Any>::controlBlock(); }
+    uint32_t weakRefCount() const final { return IPC::WorkQueueMessageReceiver<WTF::DestructionThread::Any>::weakRefCount(); }
+
+    // IPC::Connection::WorkQueueMessageReceiver.
+    void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
+
 private:
+    explicit RemoteMediaResourceLoader(RemoteMediaPlayerProxy&, Ref<IPC::Connection>&&);
+
+    void initializeConnection();
+
+    // PlatformMediaResourceLoader
     RefPtr<WebCore::PlatformMediaResource> requestResource(WebCore::ResourceRequest&&, LoadOptions) final;
     void sendH2Ping(const URL&, CompletionHandler<void(Expected<WTF::Seconds, WebCore::ResourceError>&&)>&&) final;
+    Ref<GuaranteedSerialFunctionDispatcher> targetDispatcher() final { return defaultQueue(); }
 
-    WeakPtr<RemoteMediaPlayerProxy> m_remoteMediaPlayerProxy;
+    // Messages
+    void responseReceived(RemoteMediaResourceIdentifier, const WebCore::ResourceResponse&, bool, CompletionHandler<void(WebCore::ShouldContinuePolicyCheck)>&&);
+    void redirectReceived(RemoteMediaResourceIdentifier, WebCore::ResourceRequest&&, const WebCore::ResourceResponse&, CompletionHandler<void(WebCore::ResourceRequest&&)>&&);
+    void dataSent(RemoteMediaResourceIdentifier, uint64_t, uint64_t);
+    void dataReceived(RemoteMediaResourceIdentifier, IPC::SharedBufferReference&&, CompletionHandler<void(std::optional<WebCore::SharedMemory::Handle>&&)>&&);
+    void accessControlCheckFailed(RemoteMediaResourceIdentifier, const WebCore::ResourceError&);
+    void loadFailed(RemoteMediaResourceIdentifier, const WebCore::ResourceError&);
+    void loadFinished(RemoteMediaResourceIdentifier, const WebCore::NetworkLoadMetrics&);
+
+    WeakPtr<RemoteMediaPlayerProxy> m_remoteMediaPlayerProxy WTF_GUARDED_BY_CAPABILITY(mainRunLoop);
+    const Ref<IPC::Connection> m_connection;
+
+    Lock m_lock;
+    HashMap<RemoteMediaResourceIdentifier, ThreadSafeWeakPtr<RemoteMediaResource>> m_remoteMediaResources WTF_GUARDED_BY_LOCK(m_lock);
 };
 
 } // namespace WebKit
 
-#endif
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

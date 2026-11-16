@@ -41,13 +41,13 @@ namespace WebCore {
 
 class MediaSourceTrackGStreamer final: public ThreadSafeRefCounted<MediaSourceTrackGStreamer> {
 public:
-    static Ref<MediaSourceTrackGStreamer> create(TrackPrivateBaseGStreamer::TrackType, AtomString trackId, GRefPtr<GstCaps>&& initialCaps);
-    virtual ~MediaSourceTrackGStreamer();
+    static Ref<MediaSourceTrackGStreamer> create(GStreamerTrackType, TrackID, GRefPtr<GstCaps>&& initialCaps);
+    ~MediaSourceTrackGStreamer();
 
-    TrackPrivateBaseGStreamer::TrackType type() const { return m_type; }
-    AtomString trackId() const { return m_trackId; }
+    GStreamerTrackType type() const { return m_type; }
+    TrackID id() const { return m_id; }
     GRefPtr<GstCaps>& initialCaps() { return m_initialCaps; }
-    DataMutex<TrackQueue>& queueDataMutex() { return m_queueDataMutex; }
+    DataMutex<TrackQueue>& queueDataMutex() LIFETIME_BOUND { return m_queueDataMutex; }
 
     bool isReadyForMoreSamples();
 
@@ -64,10 +64,10 @@ public:
     void remove();
 
 private:
-    explicit MediaSourceTrackGStreamer(TrackPrivateBaseGStreamer::TrackType, AtomString trackId, GRefPtr<GstCaps>&& initialCaps);
+    explicit MediaSourceTrackGStreamer(GStreamerTrackType, TrackID, GRefPtr<GstCaps>&& initialCaps);
 
-    TrackPrivateBaseGStreamer::TrackType m_type;
-    AtomString m_trackId;
+    GStreamerTrackType m_type;
+    TrackID m_id;
     GRefPtr<GstCaps> m_initialCaps;
     DataMutex<TrackQueue> m_queueDataMutex;
 

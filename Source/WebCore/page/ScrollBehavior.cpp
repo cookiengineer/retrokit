@@ -26,10 +26,12 @@
 #include "config.h"
 #include "ScrollBehavior.h"
 
+#include "ContainerNodeInlines.h"
 #include "Element.h"
+#include "NodeDocument.h"
 #include "RenderElement.h"
-#include "RenderStyle.h"
 #include "Settings.h"
+#include "StyleComputedStyle+GettersInlines.h"
 
 namespace WebCore {
 
@@ -40,16 +42,17 @@ bool useSmoothScrolling(ScrollBehavior behavior, Element* associatedElement)
 
     // FIXME: Should we use document()->scrollingElement()?
     // See https://bugs.webkit.org/show_bug.cgi?id=205059
-    if (associatedElement == associatedElement->document().scrollingElement())
-        associatedElement = associatedElement->document().documentElement();
+    RefPtr element = associatedElement;
+    if (element == protect(element->document())->scrollingElement())
+        element = element->document().documentElement();
 
-    if (!associatedElement->renderer() || !associatedElement->document().settings().CSSOMViewSmoothScrollingEnabled())
+    if (!element->renderer())
         return false;
 
     // https://drafts.csswg.org/cssom-view/#scrolling
     switch (behavior) {
     case ScrollBehavior::Auto:
-        return associatedElement->renderer()->style().useSmoothScrolling();
+        return element->renderer()->style().scrollBehavior() == Style::ScrollBehavior::Smooth;
     case ScrollBehavior::Instant:
         return false;
     case ScrollBehavior::Smooth:

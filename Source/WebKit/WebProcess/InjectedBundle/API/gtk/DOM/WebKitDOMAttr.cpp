@@ -93,7 +93,9 @@ static void webkit_dom_attr_dom_event_target_init(WebKitDOMEventTargetIface* ifa
     iface->remove_event_listener = webkit_dom_attr_remove_event_listener;
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK port
 G_DEFINE_TYPE_WITH_CODE(WebKitDOMAttr, webkit_dom_attr, WEBKIT_DOM_TYPE_NODE, G_IMPLEMENT_INTERFACE(WEBKIT_DOM_TYPE_EVENT_TARGET, webkit_dom_attr_dom_event_target_init))
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 enum {
     DOM_ATTR_PROP_0,
@@ -269,8 +271,7 @@ void webkit_dom_attr_set_value(WebKitDOMAttr* self, const gchar* value, GError**
     g_return_if_fail(value);
     UNUSED_PARAM(error);
     WebCore::Attr* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setValue(convertedValue);
+    item->setValue(WTF::AtomString::fromUTF8(value));
 }
 
 WebKitDOMElement* webkit_dom_attr_get_owner_element(WebKitDOMAttr* self)

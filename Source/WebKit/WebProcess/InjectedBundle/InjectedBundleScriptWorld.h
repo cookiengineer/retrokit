@@ -23,47 +23,63 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef InjectedBundleScriptWorld_h
-#define InjectedBundleScriptWorld_h
+#pragma once
 
 #include "APIObject.h"
+#include <WebCore/ProcessQualified.h>
+#include <wtf/Markable.h>
 #include <wtf/Ref.h>
 #include <wtf/RefPtr.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
-    class DOMWrapperWorld;
+class DOMWrapperWorld;
 }
 
 namespace WebKit {
 
-class InjectedBundleScriptWorld : public API::ObjectImpl<API::Object::Type::BundleScriptWorld> {
+struct ContentWorldIdentifierType;
+using ContentWorldIdentifier = WebCore::ProcessQualified<ObjectIdentifier<ContentWorldIdentifierType>>;
+
+class InjectedBundleScriptWorld : public API::ObjectImpl<API::Object::Type::BundleScriptWorld>, public CanMakeWeakPtr<InjectedBundleScriptWorld> {
 public:
     enum class Type { User, Internal };
-    static Ref<InjectedBundleScriptWorld> create(Type = Type::Internal);
-    static Ref<InjectedBundleScriptWorld> create(const String& name, Type = Type::Internal);
+    static Ref<InjectedBundleScriptWorld> create(ContentWorldIdentifier, Type = Type::Internal);
+    static Ref<InjectedBundleScriptWorld> create(ContentWorldIdentifier, const String& name, Type = Type::Internal);
     static Ref<InjectedBundleScriptWorld> getOrCreate(WebCore::DOMWrapperWorld&);
-    static InjectedBundleScriptWorld* find(const String&);
-    static InjectedBundleScriptWorld& normalWorld();
+    static RefPtr<InjectedBundleScriptWorld> get(const WebCore::DOMWrapperWorld&);
+    static InjectedBundleScriptWorld* NODELETE find(const String&);
+    static InjectedBundleScriptWorld& normalWorldSingleton();
 
     virtual ~InjectedBundleScriptWorld();
 
-    const WebCore::DOMWrapperWorld& coreWorld() const;
-    WebCore::DOMWrapperWorld& coreWorld();
+    const WebCore::DOMWrapperWorld& NODELETE coreWorld() const;
+    WebCore::DOMWrapperWorld& NODELETE coreWorld();
 
     void clearWrappers();
-    void makeAllShadowRootsOpen();
-    void disableOverrideBuiltinsBehavior();
+    void NODELETE setAllowAutofill();
+    void NODELETE setAllowElementUserInfo();
+    void NODELETE makeAllShadowRootsOpen();
+    void NODELETE exposeClosedShadowRootsForExtensions();
+    void NODELETE disableOverrideBuiltinsBehavior();
+    void NODELETE setAllowJSHandleCreation();
+    void NODELETE setAllowNodeSnapshotCreation();
+    void NODELETE setAllowPostingLegacySynchronousMessages();
 
-    const String& name() const { return m_name; }
+    ContentWorldIdentifier identifier() const { return m_identifier; }
+    const String& name() const LIFETIME_BOUND { return m_name; }
 
 private:
-    InjectedBundleScriptWorld(WebCore::DOMWrapperWorld&, const String&);
+    InjectedBundleScriptWorld(ContentWorldIdentifier, WebCore::DOMWrapperWorld&, const String&);
 
-    Ref<WebCore::DOMWrapperWorld> m_world;
-    String m_name;
+    const ContentWorldIdentifier m_identifier;
+    const Ref<WebCore::DOMWrapperWorld> m_world;
+    const String m_name;
 };
 
 } // namespace WebKit
 
-#endif // InjectedBundleScriptWorld_h
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::InjectedBundleScriptWorld)
+static bool isType(const API::Object& object) { return object.type() == API::Object::Type::BundleScriptWorld; }
+SPECIALIZE_TYPE_TRAITS_END()

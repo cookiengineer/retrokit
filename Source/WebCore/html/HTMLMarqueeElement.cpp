@@ -24,23 +24,30 @@
 #include "HTMLMarqueeElement.h"
 
 #include "Attribute.h"
+#include "ContainerNodeInlines.h"
 #include "CSSPropertyNames.h"
 #include "CSSValueKeywords.h"
+#include "ElementInlines.h"
 #include "HTMLNames.h"
 #include "HTMLParserIdioms.h"
+#include "NodeName.h"
 #include "RenderLayer.h"
 #include "RenderLayerScrollableArea.h"
 #include "RenderMarquee.h"
-#include <wtf/IsoMallocInlines.h>
+#include "StyleComputedStyle+GettersInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLMarqueeElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLMarqueeElement);
 
 using namespace HTMLNames;
 
+static constexpr unsigned defaultScrollAmount = 6;
+static constexpr unsigned defaultScrollDelay = 85;
+
 inline HTMLMarqueeElement::HTMLMarqueeElement(const QualifiedName& tagName, Document& document)
-    : HTMLElement(tagName, document)
+    : HTMLElement(tagName, document, TypeFlag::HasDidMoveToNewDocument)
     , ActiveDOMObject(document)
 {
     ASSERT(hasTagName(marqueeTag));
@@ -64,118 +71,151 @@ int HTMLMarqueeElement::minimumDelay() const
 
 bool HTMLMarqueeElement::hasPresentationalHintsForAttribute(const QualifiedName& name) const
 {
-    if (name == widthAttr || name == heightAttr || name == bgcolorAttr || name == vspaceAttr || name == hspaceAttr || name == scrollamountAttr || name == scrolldelayAttr || name == loopAttr || name == behaviorAttr || name == directionAttr)
+    switch (name.nodeName()) {
+    case AttributeNames::widthAttr:
+    case AttributeNames::heightAttr:
+    case AttributeNames::bgcolorAttr:
+    case AttributeNames::vspaceAttr:
+    case AttributeNames::hspaceAttr:
+    case AttributeNames::scrollamountAttr:
+    case AttributeNames::scrolldelayAttr:
+    case AttributeNames::loopAttr:
+    case AttributeNames::behaviorAttr:
+    case AttributeNames::directionAttr:
         return true;
+    default:
+        break;
+    }
     return HTMLElement::hasPresentationalHintsForAttribute(name);
 }
 
 void HTMLMarqueeElement::collectPresentationalHintsForAttribute(const QualifiedName& name, const AtomString& value, MutableStyleProperties& style)
 {
-    if (name == widthAttr) {
+    switch (name.nodeName()) {
+    case AttributeNames::widthAttr:
         if (!value.isEmpty())
             addHTMLLengthToStyle(style, CSSPropertyWidth, value);
-    } else if (name == heightAttr) {
+        break;
+    case AttributeNames::heightAttr:
         if (!value.isEmpty())
             addHTMLLengthToStyle(style, CSSPropertyHeight, value);
-    } else if (name == bgcolorAttr) {
+        break;
+    case AttributeNames::bgcolorAttr:
         if (!value.isEmpty())
             addHTMLColorToStyle(style, CSSPropertyBackgroundColor, value);
-    } else if (name == vspaceAttr) {
+        break;
+    case AttributeNames::vspaceAttr:
         if (!value.isEmpty()) {
             addHTMLLengthToStyle(style, CSSPropertyMarginTop, value);
             addHTMLLengthToStyle(style, CSSPropertyMarginBottom, value);
         }
-    } else if (name == hspaceAttr) {
+        break;
+    case AttributeNames::hspaceAttr:
         if (!value.isEmpty()) {
             addHTMLLengthToStyle(style, CSSPropertyMarginLeft, value);
             addHTMLLengthToStyle(style, CSSPropertyMarginRight, value);
         }
-    } else if (name == scrollamountAttr) {
+        break;
+    case AttributeNames::scrollamountAttr:
         if (!value.isEmpty())
             addHTMLLengthToStyle(style, CSSPropertyWebkitMarqueeIncrement, value);
-    } else if (name == scrolldelayAttr) {
+        break;
+    case AttributeNames::scrolldelayAttr:
         if (!value.isEmpty())
-            addHTMLNumberToStyle(style, CSSPropertyWebkitMarqueeSpeed, value);
-    } else if (name == loopAttr) {
+            addPropertyToPresentationalHintStyle(style, CSSPropertyWebkitMarqueeSpeed, limitToOnlyHTMLNonNegative(value, defaultScrollDelay), CSSUnitType::CSS_MS);
+        break;
+    case AttributeNames::loopAttr:
         if (!value.isEmpty()) {
-            if (value == "-1" || equalLettersIgnoringASCIICase(value, "infinite"))
+            if (value == "-1"_s || equalLettersIgnoringASCIICase(value, "infinite"_s))
                 addPropertyToPresentationalHintStyle(style, CSSPropertyWebkitMarqueeRepetition, CSSValueInfinite);
             else
                 addHTMLNumberToStyle(style, CSSPropertyWebkitMarqueeRepetition, value);
         }
-    } else if (name == behaviorAttr) {
+        break;
+    case AttributeNames::behaviorAttr:
         if (!value.isEmpty())
             addPropertyToPresentationalHintStyle(style, CSSPropertyWebkitMarqueeStyle, value);
-    } else if (name == directionAttr) {
+        break;
+    case AttributeNames::directionAttr:
         if (!value.isEmpty())
             addPropertyToPresentationalHintStyle(style, CSSPropertyWebkitMarqueeDirection, value);
-    } else
+        break;
+    default:
         HTMLElement::collectPresentationalHintsForAttribute(name, value, style);
+        break;
+    }
 }
 
 void HTMLMarqueeElement::start()
 {
-    if (auto* renderer = renderMarquee())
+    if (CheckedPtr renderer = renderMarquee())
         renderer->start();
 }
 
 void HTMLMarqueeElement::stop()
 {
-    if (auto* renderer = renderMarquee())
+    if (CheckedPtr renderer = renderMarquee())
         renderer->stop();
 }
 
 unsigned HTMLMarqueeElement::scrollAmount() const
 {
-    return limitToOnlyHTMLNonNegative(attributeWithoutSynchronization(scrollamountAttr), RenderStyle::initialMarqueeIncrement().intValue());
+    return limitToOnlyHTMLNonNegative(attributeWithoutSynchronization(scrollamountAttr), defaultScrollAmount);
 }
-    
+
 void HTMLMarqueeElement::setScrollAmount(unsigned scrollAmount)
 {
-    setUnsignedIntegralAttribute(scrollamountAttr, limitToOnlyHTMLNonNegative(scrollAmount, RenderStyle::initialMarqueeIncrement().intValue()));
+    setUnsignedIntegralAttribute(scrollamountAttr, limitToOnlyHTMLNonNegative(scrollAmount, defaultScrollAmount));
 }
-    
+
 unsigned HTMLMarqueeElement::scrollDelay() const
 {
-    return limitToOnlyHTMLNonNegative(attributeWithoutSynchronization(scrolldelayAttr), RenderStyle::initialMarqueeSpeed());
+    return limitToOnlyHTMLNonNegative(attributeWithoutSynchronization(scrolldelayAttr), defaultScrollDelay);
 }
 
 void HTMLMarqueeElement::setScrollDelay(unsigned scrollDelay)
 {
-    setUnsignedIntegralAttribute(scrolldelayAttr, limitToOnlyHTMLNonNegative(scrollDelay, RenderStyle::initialMarqueeSpeed()));
+    setUnsignedIntegralAttribute(scrolldelayAttr, limitToOnlyHTMLNonNegative(scrollDelay, defaultScrollDelay));
 }
-    
+
 int HTMLMarqueeElement::loop() const
 {
-    int loopValue = getIntegralAttribute(loopAttr);
+    int loopValue = integralAttribute(loopAttr);
     return loopValue > 0 ? loopValue : -1;
 }
     
 ExceptionOr<void> HTMLMarqueeElement::setLoop(int loop)
 {
     if (loop <= 0 && loop != -1)
-        return Exception { IndexSizeError };
+        return Exception { ExceptionCode::IndexSizeError };
     setIntegralAttribute(loopAttr, loop);
     return { };
 }
 
+void HTMLMarqueeElement::didMoveToNewDocument(Document& oldDocument, Document& newDocument)
+{
+    HTMLElement::didMoveToNewDocument(oldDocument, newDocument);
+    ActiveDOMObject::didMoveToNewDocument(newDocument);
+}
+
 void HTMLMarqueeElement::suspend(ReasonForSuspension)
 {
-    if (RenderMarquee* marqueeRenderer = renderMarquee())
+    if (CheckedPtr marqueeRenderer = renderMarquee())
         marqueeRenderer->suspend();
 }
 
 void HTMLMarqueeElement::resume()
 {
-    if (RenderMarquee* marqueeRenderer = renderMarquee())
+    if (CheckedPtr marqueeRenderer = renderMarquee())
         marqueeRenderer->updateMarqueePosition();
 }
 
 RenderMarquee* HTMLMarqueeElement::renderMarquee() const
 {
-    if (!renderer() || !renderer()->hasLayer())
+    auto* renderer = this->renderer();
+    if (!renderer || !renderer->hasLayer())
         return nullptr;
-    auto* scrollableArea = renderBoxModelObject()->layer()->scrollableArea();
+    auto* scrollableArea = downcast<RenderBoxModelObject>(*renderer).layer()->scrollableArea();
     if (!scrollableArea)
         return nullptr;
     return scrollableArea->marquee();

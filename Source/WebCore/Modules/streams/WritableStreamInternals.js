@@ -45,19 +45,70 @@ function acquireWritableStreamDefaultWriter(stream)
     return new @WritableStreamDefaultWriter(stream);
 }
 
-function createWritableStream(startAlgorithm, writeAlgorithm, closeAlgorithm, abortAlgorithm, writableHighWaterMark, writableSizeAlgorithm)
+// https://streams.spec.whatwg.org/#create-writable-stream
+function createWritableStream(startAlgorithm, writeAlgorithm, closeAlgorithm, abortAlgorithm, highWaterMark, sizeAlgorithm)
 {
-    if (arguments.length < 5)
-        writableHighWaterMark = 1;
-    if (arguments.length < 6)
-        writableSizeAlgorithm = () => { return 1; };
+    @assert(typeof highWaterMark === "number" && highWaterMark === highWaterMark && highWaterMark >= 0);
 
-    let underlyingSink = { startAlgorithm: startAlgorithm, writeAlgorithm: writeAlgorithm, closeAlgorithm: closeAlgorithm, abortAlgorithm: abortAlgorithm};
-    @putByIdDirectPrivate(underlyingSink, "WritableStream", true);
-    return new @WritableStream(underlyingSink, { sizeAlgorithm: writableSizeAlgorithm, highWaterMark: writableHighWaterMark });
+    const internalStream = { };
+    @initializeWritableStreamSlots(internalStream, { });
+    const controller = new @WritableStreamDefaultController(@isWritableStream);
+
+    @setUpWritableStreamDefaultController(internalStream, controller, startAlgorithm, writeAlgorithm, closeAlgorithm, abortAlgorithm, highWaterMark, sizeAlgorithm);
+
+    return @createWritableStreamFromInternal(internalStream);
 }
 
-function privateInitializeWritableStream(stream, underlyingSink)
+function createInternalWritableStreamFromUnderlyingSink(underlyingSink, strategy)
+{
+    "use strict";
+
+    const stream = { };
+
+    if (underlyingSink === @undefined)
+        underlyingSink = { };
+
+    if (strategy === @undefined)
+        strategy = { };
+
+    if (!@isObject(underlyingSink))
+        @throwTypeError("WritableStream constructor takes an object as first argument");
+
+    if ("type" in underlyingSink)
+        @throwRangeError("Invalid type is specified");
+
+    const sizeAlgorithm = @extractSizeAlgorithm(strategy);
+    const highWaterMark = @extractHighWaterMark(strategy, 1);
+
+    const underlyingSinkDict = { };
+    if ("start" in underlyingSink) {
+        underlyingSinkDict["start"] = underlyingSink["start"];
+        if (typeof underlyingSinkDict["start"] !== "function")
+            @throwTypeError("underlyingSink.start should be a function");
+    }
+    if ("write" in underlyingSink) {
+        underlyingSinkDict["write"] = underlyingSink["write"];
+        if (typeof underlyingSinkDict["write"] !== "function")
+            @throwTypeError("underlyingSink.write should be a function");
+    }
+    if ("close" in underlyingSink) {
+        underlyingSinkDict["close"] = underlyingSink["close"];
+        if (typeof underlyingSinkDict["close"] !== "function")
+            @throwTypeError("underlyingSink.close should be a function");
+    }
+    if ("abort" in underlyingSink) {
+        underlyingSinkDict["abort"] = underlyingSink["abort"];
+        if (typeof underlyingSinkDict["abort"] !== "function")
+            @throwTypeError("underlyingSink.abort should be a function");
+    }
+
+    @initializeWritableStreamSlots(stream, underlyingSink);
+    @setUpWritableStreamDefaultControllerFromUnderlyingSink(stream, underlyingSink, underlyingSinkDict, highWaterMark, sizeAlgorithm);
+
+    return stream;
+}
+
+function initializeWritableStreamSlots(stream, underlyingSink)
 {
     @putByIdDirectPrivate(stream, "state", "writable");
     @putByIdDirectPrivate(stream, "storedError", @undefined);
@@ -70,6 +121,25 @@ function privateInitializeWritableStream(stream, underlyingSink)
     @putByIdDirectPrivate(stream, "writeRequests", []);
     @putByIdDirectPrivate(stream, "backpressure", false);
     @putByIdDirectPrivate(stream, "underlyingSink", underlyingSink);
+}
+
+function writableStreamCloseForBindings(stream)
+{
+    if (@isWritableStreamLocked(stream))
+        return @promiseReject(@Promise, @makeTypeError("WritableStream.close method can only be used on non locked WritableStream"));
+
+    if (@writableStreamCloseQueuedOrInFlight(stream))
+        return @promiseReject(@Promise, @makeTypeError("WritableStream.close method can only be used on a being close WritableStream"));
+
+    return @writableStreamClose(stream);
+}
+
+function writableStreamAbortForBindings(stream, reason)
+{
+    if (@isWritableStreamLocked(stream))
+        return @promiseReject(@Promise, @makeTypeError("WritableStream.abort method can only be used on non locked WritableStream"));
+
+    return @writableStreamAbort(stream, reason);
 }
 
 function isWritableStreamLocked(stream)
@@ -93,32 +163,39 @@ function setUpWritableStreamDefaultWriter(writer, stream)
     const state = @getByIdDirectPrivate(stream, "state");
     if (state === "writable") {
         if (@writableStreamCloseQueuedOrInFlight(stream) || !@getByIdDirectPrivate(stream, "backpressure"))
-            readyPromiseCapability.@resolve.@call();
+            readyPromiseCapability.resolve.@call();
     } else if (state === "erroring") {
-        readyPromiseCapability.@reject.@call(@undefined, @getByIdDirectPrivate(stream, "storedError"));
-        @markPromiseAsHandled(readyPromiseCapability.@promise);
+        readyPromiseCapability.reject.@call(@undefined, @getByIdDirectPrivate(stream, "storedError"));
+        @markPromiseAsHandled(readyPromiseCapability.promise);
     } else if (state === "closed") {
-        readyPromiseCapability.@resolve.@call();
-        closedPromiseCapability.@resolve.@call();
+        readyPromiseCapability.resolve.@call();
+        closedPromiseCapability.resolve.@call();
     } else {
         @assert(state === "errored");
         const storedError = @getByIdDirectPrivate(stream, "storedError");
-        readyPromiseCapability.@reject.@call(@undefined, storedError);
-        @markPromiseAsHandled(readyPromiseCapability.@promise);
-        closedPromiseCapability.@reject.@call(@undefined, storedError);
-        @markPromiseAsHandled(closedPromiseCapability.@promise);
+        readyPromiseCapability.reject.@call(@undefined, storedError);
+        @markPromiseAsHandled(readyPromiseCapability.promise);
+        closedPromiseCapability.reject.@call(@undefined, storedError);
+        @markPromiseAsHandled(closedPromiseCapability.promise);
     }
 }
 
 function writableStreamAbort(stream, reason)
 {
-    const state = @getByIdDirectPrivate(stream, "state");
+    let state = @getByIdDirectPrivate(stream, "state");
     if (state === "closed" || state === "errored")
-        return @Promise.@resolve();
+        return @promiseResolve(@Promise, @undefined);
+
+    const controller = @getByIdDirectPrivate(stream, "controller");
+    @signalAbort(@getByIdDirectPrivate(controller, "signal"), reason);
+
+    state = @getByIdDirectPrivate(stream, "state");
+    if (state === "closed" || state === "errored")
+        return @promiseResolve(@Promise, @undefined);
 
     const pendingAbortRequest = @getByIdDirectPrivate(stream, "pendingAbortRequest");
     if (pendingAbortRequest !== @undefined)
-        return pendingAbortRequest.promise.@promise;
+        return pendingAbortRequest.promise.promise;
 
     @assert(state === "writable" || state === "erroring");
     let wasAlreadyErroring = false;
@@ -132,14 +209,34 @@ function writableStreamAbort(stream, reason)
 
     if (!wasAlreadyErroring)
         @writableStreamStartErroring(stream, reason);
-    return abortPromiseCapability.@promise;
+    return abortPromiseCapability.promise;
+}
+
+function writableStreamErrorIfPossible(stream, reason)
+{
+    const state = @getByIdDirectPrivate(stream, "state");
+    if (state !== "writable")
+        return;
+
+    const controller = @getByIdDirectPrivate(stream, "controller");
+    @writableStreamDefaultControllerError(controller, reason);
+}
+
+function writableStreamCloseIfPossible(stream)
+{
+    const state = @getByIdDirectPrivate(stream, "state");
+    if (state !== "writable")
+        return;
+
+    const promise = @writableStreamClose(stream);
+    @markPromiseAsHandled(promise);
 }
 
 function writableStreamClose(stream)
 {
     const state = @getByIdDirectPrivate(stream, "state");
     if (state === "closed" || state === "errored")
-        return @Promise.@reject(@makeTypeError("Cannot close a writable stream that is closed or errored"));
+        return @promiseReject(@Promise, @makeTypeError("Cannot close a writable stream that is closed or errored"));
 
     @assert(state === "writable" || state === "erroring");
     @assert(!@writableStreamCloseQueuedOrInFlight(stream));
@@ -149,11 +246,11 @@ function writableStreamClose(stream)
 
     const writer = @getByIdDirectPrivate(stream, "writer");
     if (writer !== @undefined && @getByIdDirectPrivate(stream, "backpressure") && state === "writable")
-        @getByIdDirectPrivate(writer, "readyPromise").@resolve.@call();
+        @getByIdDirectPrivate(writer, "readyPromise").resolve.@call();
         
     @writableStreamDefaultControllerClose(@getByIdDirectPrivate(stream, "controller"));
 
-    return closePromiseCapability.@promise;
+    return closePromiseCapability.promise;
 }
 
 function writableStreamAddWriteRequest(stream)
@@ -164,7 +261,7 @@ function writableStreamAddWriteRequest(stream)
     const writePromiseCapability = @newPromiseCapability(@Promise);
     const writeRequests = @getByIdDirectPrivate(stream, "writeRequests");
     @arrayPush(writeRequests, writePromiseCapability);
-    return writePromiseCapability.@promise;
+    return writePromiseCapability.promise;
 }
 
 function writableStreamCloseQueuedOrInFlight(stream)
@@ -197,7 +294,7 @@ function writableStreamFinishErroring(stream)
     const storedError = @getByIdDirectPrivate(stream, "storedError");
     const requests = @getByIdDirectPrivate(stream, "writeRequests");
     for (let index = 0, length = requests.length; index < length; ++index)
-        requests[index].@reject.@call(@undefined, storedError);
+        requests[index].reject.@call(@undefined, storedError);
 
     @putByIdDirectPrivate(stream, "writeRequests", []);
 
@@ -209,16 +306,16 @@ function writableStreamFinishErroring(stream)
 
     @putByIdDirectPrivate(stream, "pendingAbortRequest", @undefined);
     if (abortRequest.wasAlreadyErroring) {
-        abortRequest.promise.@reject.@call(@undefined, storedError);
+        abortRequest.promise.reject.@call(@undefined, storedError);
         @writableStreamRejectCloseAndClosedPromiseIfNeeded(stream);
         return;
     }
 
     @getByIdDirectPrivate(controller, "abortSteps").@call(@undefined, abortRequest.reason).@then(() => {
-        abortRequest.promise.@resolve.@call();
+        abortRequest.promise.resolve.@call();
         @writableStreamRejectCloseAndClosedPromiseIfNeeded(stream);
     }, (reason) => {
-        abortRequest.promise.@reject.@call(@undefined, reason);
+        abortRequest.promise.reject.@call(@undefined, reason);
         @writableStreamRejectCloseAndClosedPromiseIfNeeded(stream);
     });
 }
@@ -226,7 +323,7 @@ function writableStreamFinishErroring(stream)
 function writableStreamFinishInFlightClose(stream)
 {
     const inFlightCloseRequest = @getByIdDirectPrivate(stream, "inFlightCloseRequest");
-    inFlightCloseRequest.@resolve.@call();
+    inFlightCloseRequest.resolve.@call();
 
     @putByIdDirectPrivate(stream, "inFlightCloseRequest", @undefined);
 
@@ -237,7 +334,7 @@ function writableStreamFinishInFlightClose(stream)
         @putByIdDirectPrivate(stream, "storedError", @undefined);
         const abortRequest = @getByIdDirectPrivate(stream, "pendingAbortRequest");
         if (abortRequest !== @undefined) {
-            abortRequest.promise.@resolve.@call();
+            abortRequest.promise.resolve.@call();
             @putByIdDirectPrivate(stream, "pendingAbortRequest", @undefined);
         }
     }
@@ -246,7 +343,7 @@ function writableStreamFinishInFlightClose(stream)
 
     const writer = @getByIdDirectPrivate(stream, "writer");
     if (writer !== @undefined)
-        @getByIdDirectPrivate(writer, "closedPromise").@resolve.@call();
+        @getByIdDirectPrivate(writer, "closedPromise").resolve.@call();
 
     @assert(@getByIdDirectPrivate(stream, "pendingAbortRequest") === @undefined);
     @assert(@getByIdDirectPrivate(stream, "storedError") === @undefined);
@@ -256,7 +353,7 @@ function writableStreamFinishInFlightCloseWithError(stream, error)
 {
     const inFlightCloseRequest = @getByIdDirectPrivate(stream, "inFlightCloseRequest");
     @assert(inFlightCloseRequest !== @undefined);
-    inFlightCloseRequest.@reject.@call(@undefined, error);
+    inFlightCloseRequest.reject.@call(@undefined, error);
 
     @putByIdDirectPrivate(stream, "inFlightCloseRequest", @undefined);
 
@@ -265,7 +362,7 @@ function writableStreamFinishInFlightCloseWithError(stream, error)
 
     const abortRequest = @getByIdDirectPrivate(stream, "pendingAbortRequest");
     if (abortRequest !== @undefined) {
-        abortRequest.promise.@reject.@call(@undefined, error);
+        abortRequest.promise.reject.@call(@undefined, error);
         @putByIdDirectPrivate(stream, "pendingAbortRequest", @undefined);
     }
 
@@ -276,7 +373,7 @@ function writableStreamFinishInFlightWrite(stream)
 {
     const inFlightWriteRequest = @getByIdDirectPrivate(stream, "inFlightWriteRequest");
     @assert(inFlightWriteRequest !== @undefined);
-    inFlightWriteRequest.@resolve.@call();
+    inFlightWriteRequest.resolve.@call();
 
     @putByIdDirectPrivate(stream, "inFlightWriteRequest", @undefined);
 }
@@ -285,7 +382,7 @@ function writableStreamFinishInFlightWriteWithError(stream, error)
 {
     const inFlightWriteRequest = @getByIdDirectPrivate(stream, "inFlightWriteRequest");
     @assert(inFlightWriteRequest !== @undefined);
-    inFlightWriteRequest.@reject.@call(@undefined, error);
+    inFlightWriteRequest.reject.@call(@undefined, error);
 
     @putByIdDirectPrivate(stream, "inFlightWriteRequest", @undefined);
 
@@ -329,15 +426,15 @@ function writableStreamRejectCloseAndClosedPromiseIfNeeded(stream)
     const closeRequest = @getByIdDirectPrivate(stream, "closeRequest");
     if (closeRequest !== @undefined) {
         @assert(@getByIdDirectPrivate(stream, "inFlightCloseRequest") === @undefined);
-        closeRequest.@reject.@call(@undefined, storedError);
+        closeRequest.reject.@call(@undefined, storedError);
         @putByIdDirectPrivate(stream, "closeRequest", @undefined);
     }
 
     const writer = @getByIdDirectPrivate(stream, "writer");
     if (writer !== @undefined) {
         const closedPromise = @getByIdDirectPrivate(writer, "closedPromise");
-        closedPromise.@reject.@call(@undefined, storedError);
-        @markPromiseAsHandled(closedPromise.@promise);
+        closedPromise.reject.@call(@undefined, storedError);
+        @markPromiseAsHandled(closedPromise.promise);
     }
 }
 
@@ -370,7 +467,7 @@ function writableStreamUpdateBackpressure(stream, backpressure)
         if (backpressure)
            @putByIdDirectPrivate(writer, "readyPromise", @newPromiseCapability(@Promise));
         else
-            @getByIdDirectPrivate(writer, "readyPromise").@resolve.@call();
+            @getByIdDirectPrivate(writer, "readyPromise").resolve.@call();
     }
     @putByIdDirectPrivate(stream, "backpressure", backpressure);
 }
@@ -397,10 +494,10 @@ function writableStreamDefaultWriterCloseWithErrorPropagation(writer)
     const state = @getByIdDirectPrivate(stream, "state");
 
     if (@writableStreamCloseQueuedOrInFlight(stream) || state === "closed")
-        return @Promise.@resolve();
+        return @promiseResolve(@Promise, @undefined);
 
     if (state === "errored")
-        return @Promise.@reject(@getByIdDirectPrivate(stream, "storedError"));
+        return @promiseReject(@Promise, @getByIdDirectPrivate(stream, "storedError"));
 
     @assert(state === "writable" || state === "erroring");
     return @writableStreamDefaultWriterClose(writer);
@@ -409,30 +506,30 @@ function writableStreamDefaultWriterCloseWithErrorPropagation(writer)
 function writableStreamDefaultWriterEnsureClosedPromiseRejected(writer, error)
 {
     let closedPromiseCapability = @getByIdDirectPrivate(writer, "closedPromise");
-    let closedPromise = closedPromiseCapability.@promise;
+    let closedPromise = closedPromiseCapability.promise;
 
-    if ((@getPromiseInternalField(closedPromise, @promiseFieldFlags) & @promiseStateMask) !== @promiseStatePending) {
+    if (!@isPromiseStatePending(closedPromise)) {
         closedPromiseCapability = @newPromiseCapability(@Promise);
-        closedPromise = closedPromiseCapability.@promise;
+        closedPromise = closedPromiseCapability.promise;
         @putByIdDirectPrivate(writer, "closedPromise", closedPromiseCapability);
     }
 
-    closedPromiseCapability.@reject.@call(@undefined, error);
+    closedPromiseCapability.reject.@call(@undefined, error);
     @markPromiseAsHandled(closedPromise);
 }
 
 function writableStreamDefaultWriterEnsureReadyPromiseRejected(writer, error)
 {
     let readyPromiseCapability = @getByIdDirectPrivate(writer, "readyPromise");
-    let readyPromise = readyPromiseCapability.@promise;
+    let readyPromise = readyPromiseCapability.promise;
 
-    if ((@getPromiseInternalField(readyPromise, @promiseFieldFlags) & @promiseStateMask) !== @promiseStatePending) {
+    if (!@isPromiseStatePending(readyPromise)) {
         readyPromiseCapability = @newPromiseCapability(@Promise);
-        readyPromise = readyPromiseCapability.@promise;
+        readyPromise = readyPromiseCapability.promise;
         @putByIdDirectPrivate(writer, "readyPromise", readyPromiseCapability);
     }
 
-    readyPromiseCapability.@reject.@call(@undefined, error);
+    readyPromiseCapability.reject.@call(@undefined, error);
     @markPromiseAsHandled(readyPromise);
 }
 
@@ -477,20 +574,20 @@ function writableStreamDefaultWriterWrite(writer, chunk)
     const chunkSize = @writableStreamDefaultControllerGetChunkSize(controller, chunk);
 
     if (stream !== @getByIdDirectPrivate(writer, "stream"))
-        return @Promise.@reject(@makeTypeError("writer is not stream's writer"));
+        return @promiseReject(@Promise, @makeTypeError("writer is not stream's writer"));
 
     const state = @getByIdDirectPrivate(stream, "state");
     if (state === "errored")
-        return @Promise.@reject(@getByIdDirectPrivate(stream, "storedError"));
+        return @promiseReject(@Promise, @getByIdDirectPrivate(stream, "storedError"));
 
     if (@writableStreamCloseQueuedOrInFlight(stream) || state === "closed")
-        return @Promise.@reject(@makeTypeError("stream is closing or closed"));
+        return @promiseReject(@Promise, @makeTypeError("stream is closing or closed"));
 
     if (@writableStreamCloseQueuedOrInFlight(stream) || state === "closed")
-        return @Promise.@reject(@makeTypeError("stream is closing or closed"));
+        return @promiseReject(@Promise, @makeTypeError("stream is closing or closed"));
 
     if (state === "erroring")
-        return @Promise.@reject(@getByIdDirectPrivate(stream, "storedError"));
+        return @promiseReject(@Promise, @getByIdDirectPrivate(stream, "storedError"));
 
     @assert(state === "writable");
 
@@ -509,6 +606,7 @@ function setUpWritableStreamDefaultController(stream, controller, startAlgorithm
 
     @resetQueue(@getByIdDirectPrivate(controller, "queue"));
 
+    @putByIdDirectPrivate(controller, "signal", @createAbortSignal());
     @putByIdDirectPrivate(controller, "started", false);
     @putByIdDirectPrivate(controller, "strategySizeAlgorithm", sizeAlgorithm);
     @putByIdDirectPrivate(controller, "strategyHWM", highWaterMark);
@@ -519,7 +617,7 @@ function setUpWritableStreamDefaultController(stream, controller, startAlgorithm
     const backpressure = @writableStreamDefaultControllerGetBackpressure(controller);
     @writableStreamUpdateBackpressure(stream, backpressure);
 
-    @Promise.@resolve(startAlgorithm.@call()).@then(() => {
+    @promiseResolve(@Promise, startAlgorithm()).@then(() => {
         const state = @getByIdDirectPrivate(stream, "state");
         @assert(state === "writable" || state === "erroring");
         @putByIdDirectPrivate(controller, "started", true);
@@ -534,12 +632,12 @@ function setUpWritableStreamDefaultController(stream, controller, startAlgorithm
 
 function setUpWritableStreamDefaultControllerFromUnderlyingSink(stream, underlyingSink, underlyingSinkDict, highWaterMark, sizeAlgorithm)
 {
-    const controller = new @WritableStreamDefaultController();
+    const controller = new @WritableStreamDefaultController(@isWritableStream);
 
     let startAlgorithm = () => { };
-    let writeAlgorithm = () => { return @Promise.@resolve(); };
-    let closeAlgorithm = () => { return @Promise.@resolve(); };
-    let abortAlgorithm = () => { return @Promise.@resolve(); };
+    let writeAlgorithm = () => { return @promiseResolve(@Promise, @undefined); };
+    let closeAlgorithm = () => { return @promiseResolve(@Promise, @undefined); };
+    let abortAlgorithm = () => { return @promiseResolve(@Promise, @undefined); };
 
     if ("start" in underlyingSinkDict) {
         const startMethod = underlyingSinkDict["start"];
@@ -708,4 +806,28 @@ function writableStreamDefaultControllerWrite(controller, chunk, chunkSize)
     } catch (e) {
         @writableStreamDefaultControllerErrorIfNeeded(controller, e);
     }
+}
+
+function writableStreamState(stream)
+{
+    @assert(@isWritableStream(stream));
+    return @getByIdDirectPrivate(stream, "state");
+}
+
+function writableStreamStoredError(stream)
+{
+    @assert(@isWritableStream(stream));
+    return @getByIdDirectPrivate(stream, "storedError");
+}
+
+function writableStreamDefaultWriterClosedPromise(writer)
+{
+    @assert(@isWritableStreamDefaultWriter(writer));
+    return @getByIdDirectPrivate(writer, "closedPromise").promise;
+}
+
+function writableStreamDefaultWriterReadyPromise(writer)
+{
+    @assert(@isWritableStreamDefaultWriter(writer));
+    return @getByIdDirectPrivate(writer, "readyPromise").promise;
 }

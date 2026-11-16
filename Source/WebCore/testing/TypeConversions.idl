@@ -25,7 +25,6 @@
 
 [
     LegacyNoInterfaceObject,
-    ImplementationLacksVTable,
     ExportMacro=WEBCORE_TESTSUPPORT_EXPORT,
 ] interface TypeConversions {
     attribute byte testByte;
@@ -88,20 +87,22 @@
 };
 
 [
-    JSGenerateToJSObject
+    JSGenerateToJSObject,
+    JSGenerateToNativeObject,
 ] dictionary TypeConversionsOtherDictionary {
     long longValue = 0;
     DOMString stringValue = "";
 };
 
 [
-    JSGenerateToJSObject
+    JSGenerateToJSObject,
+    JSGenerateToNativeObject,
 ] dictionary TypeConversionsDictionary {
     long longValue = 0;
     DOMString stringValue = "";
     [LegacyNullToEmptyString] DOMString treatNullAsEmptyStringValue = "";
     sequence<DOMString> sequenceValue = [];
-    (Node or sequence<DOMString> or TypeConversionsOtherDictionary) unionValue = null;
+    (Node or sequence<DOMString> or TypeConversionsOtherDictionary) unionValue = { };
     [Clamp] long clampLongValue = 0;
     [EnforceRange] long enforceRangeLongValue = 0;
 };

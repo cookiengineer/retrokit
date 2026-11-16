@@ -36,6 +36,7 @@ class HTTPHeaderMap;
 class NetworkStorageSession;
 class ResourceRequest;
 class ResourceResponse;
+struct ResourceLoaderOptions;
 
 struct RedirectChainCacheStatus {
     enum class Status : uint8_t {
@@ -54,7 +55,7 @@ struct RedirectChainCacheStatus {
 WEBCORE_EXPORT Seconds computeCurrentAge(const ResourceResponse&, WallTime responseTimestamp);
 WEBCORE_EXPORT Seconds computeFreshnessLifetimeForHTTPFamily(const ResourceResponse&, WallTime responseTimestamp);
 WEBCORE_EXPORT void updateResponseHeadersAfterRevalidation(ResourceResponse&, const ResourceResponse& validatingResponse);
-WEBCORE_EXPORT void updateRedirectChainStatus(RedirectChainCacheStatus&, const ResourceResponse&);
+WEBCORE_EXPORT void updateRedirectChainStatus(RedirectChainCacheStatus&, const ResourceResponse&, const ResourceLoaderOptions&);
 
 enum ReuseExpiredRedirectionOrNot { DoNotReuseExpiredRedirection, ReuseExpiredRedirection };
 WEBCORE_EXPORT bool redirectChainAllowsReuse(RedirectChainCacheStatus, ReuseExpiredRedirectionOrNot);
@@ -65,15 +66,18 @@ struct CacheControlDirectives {
         , noStore(false)
         , mustRevalidate(false)
         , immutable(false)
+        , isPublic(false)
         { }
 
-    Markable<Seconds, Seconds::MarkableTraits> maxAge;
-    Markable<Seconds, Seconds::MarkableTraits> maxStale;
-    Markable<Seconds, Seconds::MarkableTraits> staleWhileRevalidate;
+    Markable<Seconds> maxAge;
+    Markable<Seconds> maxStale;
+    Markable<Seconds> minFresh;
+    Markable<Seconds> staleWhileRevalidate;
     bool noCache : 1;
     bool noStore : 1;
     bool mustRevalidate : 1;
     bool immutable : 1;
+    bool isPublic : 1;
 };
 WEBCORE_EXPORT CacheControlDirectives parseCacheControlDirectives(const HTTPHeaderMap&);
 
@@ -82,7 +86,6 @@ WEBCORE_EXPORT Vector<std::pair<String, String>> collectVaryingRequestHeaders(co
 WEBCORE_EXPORT bool verifyVaryingRequestHeaders(NetworkStorageSession*, const Vector<std::pair<String, String>>& varyingRequestHeaders, const ResourceRequest&);
 WEBCORE_EXPORT bool verifyVaryingRequestHeaders(const CookieJar*, const Vector<std::pair<String, String>>& varyingRequestHeaders, const ResourceRequest&);
 
-WEBCORE_EXPORT bool isStatusCodeCacheableByDefault(int statusCode);
-WEBCORE_EXPORT bool isStatusCodePotentiallyCacheable(int statusCode);
+WEBCORE_EXPORT bool NODELETE isStatusCodeCacheableByDefault(int statusCode);
 
 }

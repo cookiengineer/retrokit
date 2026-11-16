@@ -27,8 +27,7 @@ class DisplayMtl;
 
 namespace mtl
 {
-
-LoadFunctionMap GetLoadFunctionsMap(GLenum internalFormat, angle::FormatID angleFormat);
+class ContextDevice;
 
 struct FormatBase
 {
@@ -85,17 +84,21 @@ struct Format : public FormatBase
     }
     bool isPVRTC() const;
 
-    const FormatCaps &getCaps() const { return *caps; }
+    const FormatCaps &getCaps() const { return caps; }
 
     // Need conversion between source format and this format?
     bool needConversion(angle::FormatID srcFormatId) const;
+
+    // Are the formats view compatible without requiring
+    // MTLTextureUsagePixelFormatView?
+    bool isViewCompatible(const Format &srcFormat) const;
 
     MTLPixelFormat metalFormat = MTLPixelFormatInvalid;
 
     LoadFunctionMap textureLoadFunctions       = nullptr;
     InitializeTextureDataFunction initFunction = nullptr;
 
-    const FormatCaps *caps = nullptr;
+    FormatCaps caps;
 
     bool swizzled = false;
     std::array<GLenum, 4> swizzle;
@@ -134,9 +137,7 @@ class FormatTable final : angle::NonCopyable
 
     angle::Result initialize(const DisplayMtl *display);
 
-    void generateTextureCaps(const DisplayMtl *display,
-                             gl::TextureCapsMap *capsMapOut,
-                             std::vector<GLenum> *compressedFormatsOut);
+    void generateTextureCaps(const DisplayMtl *display, gl::TextureCapsMap *capsMapOut);
 
     const Format &getPixelFormat(angle::FormatID angleFormatId) const;
     const FormatCaps &getNativeFormatCaps(MTLPixelFormat mtlFormat) const;
@@ -153,53 +154,12 @@ class FormatTable final : angle::NonCopyable
     void initNativeFormatCapsAutogen(const DisplayMtl *display);
     void initNativeFormatCaps(const DisplayMtl *display);
 
-    void setFormatCaps(MTLPixelFormat formatId,
-                       bool filterable,
-                       bool writable,
-                       bool blendable,
-                       bool multisample,
-                       bool resolve,
-                       bool colorRenderable);
+    void setFormatCaps(MTLPixelFormat formatId, const FormatCaps &caps);
 
-    void setFormatCaps(MTLPixelFormat formatId,
-                       bool filterable,
-                       bool writable,
-                       bool blendable,
-                       bool multisample,
-                       bool resolve,
-                       bool colorRenderable,
-                       NSUInteger bytesPerChannel,
-                       NSUInteger channels);
-
-    void setFormatCaps(MTLPixelFormat formatId,
-                       bool filterable,
-                       bool writable,
-                       bool blendable,
-                       bool multisample,
-                       bool resolve,
-                       bool colorRenderable,
-                       bool depthRenderable);
-
-    void setFormatCaps(MTLPixelFormat formatId,
-                       bool filterable,
-                       bool writable,
-                       bool blendable,
-                       bool multisample,
-                       bool resolve,
-                       bool colorRenderable,
-                       bool depthRenderable,
-                       NSUInteger bytesPerChannel,
-                       NSUInteger channels);
-
-    void setCompressedFormatCaps(MTLPixelFormat formatId, bool filterable);
-
-    void adjustFormatCapsForDevice(id<MTLDevice> device,
-                                   MTLPixelFormat id,
-                                   bool supportsiOS2,
-                                   bool supportsiOS4);
+    void adjustFormatCapsForDevice(MTLPixelFormat id, bool supportsiOS2, bool supportsiOS4);
 
     std::array<Format, angle::kNumANGLEFormats> mPixelFormatTable;
-    std::unordered_map<MTLPixelFormat, FormatCaps> mNativePixelFormatCapsTable;
+    angle::HashMap<MTLPixelFormat, FormatCaps> mNativePixelFormatCapsTable;
     // One for tightly packed buffers, one for general cases.
     std::array<VertexFormat, angle::kNumANGLEFormats> mVertexFormatTables[2];
 

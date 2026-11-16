@@ -25,7 +25,10 @@
 
 #pragma once
 
-#include "ExecutableBase.h"
+#include <JavaScriptCore/ExecutableBase.h>
+#include <JavaScriptCore/Intrinsic.h>
+#include <JavaScriptCore/ParserModes.h>
+#include <JavaScriptCore/ProfilerJettisonReason.h>
 
 namespace JSC {
 
@@ -40,29 +43,31 @@ public:
 
     static void destroy(JSCell*);
 
-    using TemplateObjectMap = HashMap<uint64_t, WriteBarrier<JSArray>, WTF::IntHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>>;
+    using TemplateObjectMap = UncheckedKeyHashMap<uint64_t, WriteBarrier<JSArray>, WTF::IntHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>>;
         
     CodeBlockHash hashFor(CodeSpecializationKind) const;
 
-    const SourceCode& source() const { return m_source; }
-    intptr_t sourceID() const { return m_source.providerID(); }
-    const SourceOrigin& sourceOrigin() const { return m_source.provider()->sourceOrigin(); }
+    const SourceCode& source() const LIFETIME_BOUND { return m_source; }
+    SourceID sourceID() const { return m_source.providerID(); }
+    const SourceOrigin& sourceOrigin() const LIFETIME_BOUND { return m_source.provider()->sourceOrigin(); }
     // This is NOT the path that should be used for computing relative paths from a script. Use SourceOrigin's URL for that, the values may or may not be the same... This should only be used for `error.sourceURL` and stack traces.
-    const String& sourceURL() const { return m_source.provider()->sourceURL(); }
+    const String& sourceURL() const LIFETIME_BOUND { return m_source.provider()->sourceURL(); }
+    const String& sourceURLStripped() const LIFETIME_BOUND { return m_source.provider()->sourceURLStripped(); }
+    const String& preRedirectURL() const LIFETIME_BOUND { return m_source.provider()->preRedirectURL(); }
     int firstLine() const { return m_source.firstLine().oneBasedInt(); }
-    JS_EXPORT_PRIVATE int lastLine() const;
+    JS_EXPORT_PRIVATE int NODELETE lastLine() const;
     unsigned startColumn() const { return m_source.startColumn().oneBasedInt(); }
-    JS_EXPORT_PRIVATE unsigned endColumn() const;
+    JS_EXPORT_PRIVATE unsigned NODELETE endColumn() const;
 
-    std::optional<int> overrideLineNumber(VM&) const;
-    unsigned typeProfilingStartOffset(VM&) const;
-    unsigned typeProfilingEndOffset(VM&) const;
+    std::optional<int> NODELETE overrideLineNumber(VM&) const;
+    unsigned NODELETE typeProfilingStartOffset() const;
+    unsigned NODELETE typeProfilingEndOffset() const;
 
     bool usesArguments() const { return m_features & ArgumentsFeature; }
     bool isArrowFunctionContext() const { return m_isArrowFunctionContext; }
     DerivedContextType derivedContextType() const { return static_cast<DerivedContextType>(m_derivedContextType); }
     EvalContextType evalContextType() const { return static_cast<EvalContextType>(m_evalContextType); }
-    bool isInStrictContext() const { return m_lexicalScopeFeatures & StrictModeLexicalFeature; }
+    bool isInStrictContext() const { return m_lexicallyScopedFeatures & StrictModeLexicallyScopedFeature; }
     bool usesNonSimpleParameterList() const { return m_features & NonSimpleParameterListFeature; }
 
     void setNeverInline(bool value) { m_neverInline = value; }
@@ -79,16 +84,18 @@ public:
     bool canUseOSRExitFuzzing() const { return m_canUseOSRExitFuzzing; }
     bool isInsideOrdinaryFunction() const { return m_isInsideOrdinaryFunction; }
     
-    bool* addressOfDidTryToEnterInLoop() { return &m_didTryToEnterInLoop; }
+    bool* addressOfDidTryToEnterInLoop() LIFETIME_BOUND { return &m_didTryToEnterInLoop; }
 
     CodeFeatures features() const { return m_features; }
+    LexicallyScopedFeatures lexicallyScopedFeatures() { return static_cast<LexicallyScopedFeatures>(m_lexicallyScopedFeatures); }
+    void setTaintedByWithScope() { m_lexicallyScopedFeatures |= TaintedByWithScopeLexicallyScopedFeature; }
         
     DECLARE_EXPORT_INFO;
 
-    void recordParse(CodeFeatures, LexicalScopeFeatures, bool hasCapturedVariables, int lastLine, unsigned endColumn);
+    void NODELETE recordParse(CodeFeatures, LexicallyScopedFeatures, bool hasCapturedVariables, int lastLine, unsigned endColumn);
     void installCode(CodeBlock*);
-    void installCode(VM&, CodeBlock*, CodeType, CodeSpecializationKind);
-    CodeBlock* newCodeBlockFor(CodeSpecializationKind, JSFunction*, JSScope*, Exception*&);
+    void installCode(VM&, CodeBlock*, CodeType, CodeSpecializationKind, Profiler::JettisonReason);
+    CodeBlock* newCodeBlockFor(CodeSpecializationKind, JSFunction*, JSScope*);
     CodeBlock* newReplacementCodeBlockFor(CodeSpecializationKind);
 
     void clearCode(IsoCellSet&);
@@ -114,36 +121,42 @@ public:
     // to point to it. This forces callers to have a CodeBlock* in a register or on the stack that will be marked
     // by conservative GC if a GC happens after we create the CodeBlock.
     template <typename ExecutableType>
-    Exception* prepareForExecution(VM&, JSFunction*, JSScope*, CodeSpecializationKind, CodeBlock*& resultCodeBlock);
+    void prepareForExecution(VM&, JSFunction*, JSScope*, CodeSpecializationKind, CodeBlock*&);
 
-    ScriptExecutable* topLevelExecutable();
+    ScriptExecutable* NODELETE topLevelExecutable();
     JSArray* createTemplateObject(JSGlobalObject*, JSTemplateObjectDescriptor*);
 
 private:
     friend class ExecutableBase;
-    Exception* prepareForExecutionImpl(VM&, JSFunction*, JSScope*, CodeSpecializationKind, CodeBlock*&);
+    void prepareForExecutionImpl(VM&, JSFunction*, JSScope*, CodeSpecializationKind, CodeBlock*&);
 
-    bool hasClearableCode(VM&) const;
+    bool NODELETE hasClearableCode() const;
 
     TemplateObjectMap& ensureTemplateObjectMap(VM&);
 
 protected:
-    ScriptExecutable(Structure*, VM&, const SourceCode&, LexicalScopeFeatures, DerivedContextType, bool isInArrowFunctionContext, bool isInsideOrdinaryFunction, EvalContextType, Intrinsic);
+    ScriptExecutable(Structure*, VM&, const SourceCode&, LexicallyScopedFeatures, DerivedContextType, bool isInArrowFunctionContext, bool isInsideOrdinaryFunction, EvalContextType, Intrinsic);
 
-    void recordParse(CodeFeatures features, LexicalScopeFeatures lexicalScopeFeatures, bool hasCapturedVariables)
+    void recordParse(CodeFeatures features, LexicallyScopedFeatures lexicallyScopedFeatures, bool hasCapturedVariables)
     {
         m_features = features;
-        m_lexicalScopeFeatures = lexicalScopeFeatures;
+        m_lexicallyScopedFeatures = lexicallyScopedFeatures;
         m_hasCapturedVariables = hasCapturedVariables;
     }
 
     static TemplateObjectMap& ensureTemplateObjectMapImpl(std::unique_ptr<TemplateObjectMap>& dest);
 
+    template<typename Visitor>
+    static void runConstraint(const ConcurrentJSLocker&, Visitor&, CodeBlock*);
+    template<typename Visitor>
+    static void visitCodeBlockEdge(Visitor&, CodeBlock*);
+    void finalizeCodeBlockEdge(VM&, WriteBarrier<CodeBlock>&);
+
     SourceCode m_source;
     Intrinsic m_intrinsic { NoIntrinsic };
     bool m_didTryToEnterInLoop { false };
     CodeFeatures m_features;
-    unsigned m_lexicalScopeFeatures : 4;
+    LexicallyScopedFeatures m_lexicallyScopedFeatures : bitWidthOfLexicallyScopedFeatures;
     OptionSet<CodeGenerationMode> m_codeGenerationModeForGeneratorBody;
     bool m_hasCapturedVariables : 1;
     bool m_neverInline : 1;

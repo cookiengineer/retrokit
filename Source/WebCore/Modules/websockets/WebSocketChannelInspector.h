@@ -25,31 +25,43 @@
 
 #pragma once
 
+#include <WebCore/EventTarget.h>
+#include <WebCore/WebSocketFrame.h>
 #include <wtf/Forward.h>
+#include <wtf/ObjectIdentifier.h>
 
 namespace WebCore {
 
 class Document;
+class WeakPtrImplWithEventTargetData;
 class ResourceRequest;
 class ResourceResponse;
-struct WebSocketFrame;
+class WebSocketChannel;
+class WebSocketChannelInspector;
+
+using WebSocketChannelIdentifier = AtomicObjectIdentifier<WebSocketChannel>;
 
 class WEBCORE_EXPORT WebSocketChannelInspector {
 public:
     explicit WebSocketChannelInspector(Document&);
+    ~WebSocketChannelInspector();
 
-    void didCreateWebSocket(Document*, const URL&);
-    void willSendWebSocketHandshakeRequest(Document*, const ResourceRequest&);
-    void didReceiveWebSocketHandshakeResponse(Document*, const ResourceResponse&);
-    void didCloseWebSocket(Document*);
-    void didReceiveWebSocketFrame(Document*, const WebSocketFrame&);
-    void didSendWebSocketFrame(Document*, const WebSocketFrame&);
-    void didReceiveWebSocketFrameError(Document*, const String& errorMessage);
+    void didCreateWebSocket(const URL&) const;
+    void willSendWebSocketHandshakeRequest(ResourceRequest&) const;
+    void didSendWebSocketHandshakeRequest(const ResourceRequest&) const;
+    void didReceiveWebSocketHandshakeResponse(const ResourceResponse&) const;
+    void didCloseWebSocket() const;
+    void didReceiveWebSocketFrame(const WebSocketFrame&) const;
+    void didSendWebSocketFrame(const WebSocketFrame&) const;
+    void didReceiveWebSocketFrameError(const String& errorMessage) const;
     
-    unsigned long progressIdentifier() const;
+    WebSocketChannelIdentifier progressIdentifier() const { return m_progressIdentifier; }
+
+    static WebSocketFrame NODELETE createFrame(std::span<const uint8_t> data, WebSocketFrame::OpCode);
 
 private:
-    unsigned long m_progressIdentifier { 0 };
+    WeakPtr<Document, WeakPtrImplWithEventTargetData> m_document;
+    WebSocketChannelIdentifier m_progressIdentifier;
 };
 
 } // namespace WebCore

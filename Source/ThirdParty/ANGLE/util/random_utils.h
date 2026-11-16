@@ -58,9 +58,9 @@ class ANGLE_UTIL_EXPORT RNG
 // Implemented inline to avoid cross-module allocation issues.
 inline void FillVectorWithRandomUBytes(RNG *rng, std::vector<uint8_t> *data)
 {
-    for (size_t i = 0; i < data->size(); ++i)
+    for (uint8_t &value : *data)
     {
-        (*data)[i] = static_cast<uint8_t>(rng->randomIntBetween(0, 255));
+        value = static_cast<uint8_t>(rng->randomIntBetween(0, 255));
     }
 }
 
@@ -68,6 +68,15 @@ inline void FillVectorWithRandomUBytes(std::vector<uint8_t> *data)
 {
     RNG rng;
     FillVectorWithRandomUBytes(&rng, data);
+}
+
+inline Vector3 RandomVec3(int seed, float minValue, float maxValue)
+{
+    RNG rng(seed);
+    srand(seed);
+    return Vector3(rng.randomFloatBetween(minValue, maxValue),
+                   rng.randomFloatBetween(minValue, maxValue),
+                   rng.randomFloatBetween(minValue, maxValue));
 }
 
 inline Vector4 RandomVec4(int seed, float minValue, float maxValue)

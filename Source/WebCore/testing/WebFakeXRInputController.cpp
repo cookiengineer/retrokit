@@ -27,14 +27,22 @@
 #include "WebFakeXRInputController.h"
 
 #if ENABLE(WEBXR)
+#include "ExceptionOr.h"
 #include "WebFakeXRDevice.h"
+#include "XRHandJoint.h"
+#include <ranges>
 
 namespace WebCore {
 
-using InputSource = PlatformXR::Device::FrameData::InputSource;
-using InputSourceButton = PlatformXR::Device::FrameData::InputSourceButton;
-using InputSourcePose = PlatformXR::Device::FrameData::InputSourcePose;
+using InputSource = PlatformXR::FrameData::InputSource;
+using InputSourceButton = PlatformXR::FrameData::InputSourceButton;
+using InputSourcePose = PlatformXR::FrameData::InputSourcePose;
 using ButtonType = FakeXRButtonStateInit::Type;
+
+#if ENABLE(WEBXR_HANDS)
+using HandJointsVector = PlatformXR::FrameData::HandJointsVector;
+using InputSourceHandJoint = PlatformXR::FrameData::InputSourceHandJoint;
+#endif
 
 // https://immersive-web.github.io/webxr-gamepads-module/#xr-standard-gamepad-mapping
 constexpr std::array<ButtonType, 5> XR_STANDARD_BUTTONS = { ButtonType::Grip, ButtonType::Touchpad, ButtonType::Thumbstick, ButtonType::OptionalButton, ButtonType::OptionalThumbstick };
@@ -46,15 +54,19 @@ Ref<WebFakeXRInputController> WebFakeXRInputController::create(PlatformXR::Input
 
 WebFakeXRInputController::WebFakeXRInputController(PlatformXR::InputSourceHandle handle, const FakeXRInputSourceInit& init)
     : m_handle(handle)
-    , m_handeness(init.handedness)
+    , m_handedness(init.handedness)
     , m_targetRayMode(init.targetRayMode)
     , m_profiles(init.profiles)
     , m_primarySelected(init.selectionStarted)
     , m_simulateSelect(init.selectionClicked)
 {
     setPointerOrigin(init.pointerOrigin, false);
-    setGripOrigin(init.gripOrigin, false);
+    if (init.gripOrigin)
+        setGripOrigin(*init.gripOrigin, false);
     setSupportedButtons(init.supportedButtons);
+#if ENABLE(WEBXR_HANDS)
+    updateHandJoints(init.handJoints);
+#endif
 }
 
 void WebFakeXRInputController::setGripOrigin(FakeXRRigidTransformInit gripOrigin, bool emulatedPosition)
@@ -101,11 +113,14 @@ InputSource WebFakeXRInputController::getFrameData()
 {
     InputSource state;
     state.handle = m_handle;
-    state.handeness = m_handeness;
+    state.handedness = m_handedness;
     state.targetRayMode = m_targetRayMode;
     state.profiles = m_profiles;
     state.pointerOrigin = m_pointerOrigin;
     state.gripOrigin = m_gripOrigin;
+#if ENABLE(WEBXR_HANDS)
+    state.handJoints = m_handJoints;
+#endif
 
     if (m_simulateSelect)
         m_primarySelected = true;
@@ -158,11 +173,11 @@ WebFakeXRInputController::ButtonOrPlaceholder WebFakeXRInputController::getButto
         // Devices that lack one of the optional inputs listed in the tables above MUST preserve their place in the
         // buttons or axes array, reporting a placeholder button or placeholder axis, respectively.
         if (buttonType != ButtonType::OptionalButton && buttonType != ButtonType::OptionalThumbstick) {
-            auto priority = std::find(XR_STANDARD_BUTTONS.begin(), XR_STANDARD_BUTTONS.end(), buttonType);
-            ASSERT(priority != XR_STANDARD_BUTTONS.end());
+            size_t priority = std::ranges::find(XR_STANDARD_BUTTONS, buttonType) - XR_STANDARD_BUTTONS.begin();
+            ASSERT(priority != XR_STANDARD_BUTTONS.size());
 
-            for (auto it = priority + 1; it != XR_STANDARD_BUTTONS.end(); ++it) {
-                if (m_buttons.contains(*it)) {
+            for (size_t i = priority + 1; i < XR_STANDARD_BUTTONS.size(); ++i) {
+                if (m_buttons.contains(XR_STANDARD_BUTTONS[i])) {
                     result.button = InputSourceButton();
                     break;
                 }
@@ -175,6 +190,32 @@ WebFakeXRInputController::ButtonOrPlaceholder WebFakeXRInputController::getButto
 
     return result;
 }
+
+#if ENABLE(WEBXR_HANDS)
+void WebFakeXRInputController::updateHandJoints(const Vector<FakeXRJointStateInit>& handJoints)
+{
+    if (handJoints.isEmpty() || handJoints.size() != static_cast<size_t>(XRHandJoint::Count)) {
+        m_handJoints = std::nullopt;
+        return;
+    }
+
+    HandJointsVector updatedJoints;
+    for (auto handJoint : handJoints) {
+        if (!handJoint.pose) {
+            updatedJoints.append(std::nullopt);
+            continue;
+        }
+        auto transform = WebFakeXRDevice::parseRigidTransform(*handJoint.pose);
+        if (transform.hasException()) {
+            updatedJoints.append(std::nullopt);
+            continue;
+        }
+        
+        updatedJoints.append(InputSourceHandJoint { InputSourcePose { transform.releaseReturnValue(), false }, handJoint.radius });
+    }
+    m_handJoints = WTF::move(updatedJoints);
+}
+#endif // ENABLE(WEBXR_HANDS)
 
 } // namespace WebCore
 

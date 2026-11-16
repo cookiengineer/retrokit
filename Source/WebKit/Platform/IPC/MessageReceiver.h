@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 #include <wtf/Assertions.h>
 #include <wtf/WeakPtr.h>
 
@@ -34,7 +35,7 @@ class Connection;
 class Decoder;
 class Encoder;
 
-class MessageReceiver : public CanMakeWeakPtr<MessageReceiver> {
+class MessageReceiver : public AbstractRefCountedAndCanMakeWeakPtr<MessageReceiver> {
 public:
     virtual ~MessageReceiver()
     {
@@ -46,10 +47,14 @@ public:
         ASSERT_NOT_REACHED();
     }
 
-    virtual bool didReceiveSyncMessage(Connection&, Decoder&, UniqueRef<Encoder>&)
+    virtual void didReceiveMessageWithReplyHandler(Decoder&, Function<void(UniqueRef<IPC::Encoder>&&)>&&)
     {
         ASSERT_NOT_REACHED();
-        return false;
+    }
+
+    virtual void didReceiveSyncMessage(Connection&, Decoder&, UniqueRef<Encoder>&)
+    {
+        ASSERT_NOT_REACHED();
     }
 
 private:

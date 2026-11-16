@@ -26,25 +26,23 @@
 #include "config.h"
 #include "LayoutInlineTextBox.h"
 
-#if ENABLE(LAYOUT_FORMATTING_CONTEXT)
-
-#include "RenderStyle.h"
-#include <wtf/IsoMallocInlines.h>
+#include "RenderObject.h"
+#include "StyleComputedStyle.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 namespace Layout {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(InlineTextBox);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(InlineTextBox);
 
-InlineTextBox::InlineTextBox(String content, bool canUseSimplifiedContentMeasuring, RenderStyle&& style)
-    : Box({ }, WTFMove(style), Box::InlineTextBoxFlag)
+InlineTextBox::InlineTextBox(String content, bool isCombined, EnumSet<ContentCharacteristic> contentCharacteristicSet, Style::ComputedStyle&& style, std::unique_ptr<Style::ComputedStyle>&& firstLineStyle)
+: Box({ NodeType::Text, IsAnonymous::Yes }, WTF::move(style), WTF::move(firstLineStyle), Box::InlineTextBoxFlag)
     , m_content(content)
-    , m_canUseSimplifiedContentMeasuring(canUseSimplifiedContentMeasuring)
+    , m_isCombined(isCombined)
+    , m_contentCharacteristicSet(contentCharacteristicSet)
 {
-    setIsAnonymous();
 }
 
 }
 }
 
-#endif

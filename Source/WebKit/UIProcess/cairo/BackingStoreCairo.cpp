@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2011 Apple Inc. All rights reserved.
+ * Copyright (C) 2011 Samsung Electronics
  * Copyright (C) 2011,2014 Igalia S.L.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,62 +28,75 @@
 #include "config.h"
 #include "BackingStore.h"
 
-#include "ShareableBitmap.h"
+#if USE(CAIRO)
+
 #include "UpdateInfo.h"
-#include "WebPageProxy.h"
-#include <WebCore/BackingStoreBackendCairoImpl.h>
 #include <WebCore/CairoUtilities.h>
 #include <WebCore/GraphicsContextCairo.h>
-#include <WebCore/RefPtrCairo.h>
+#include <WebCore/IntRect.h>
+#include <WebCore/ShareableBitmap.h>
 #include <cairo.h>
-
-#if PLATFORM(GTK) && PLATFORM(X11) && defined(GDK_WINDOWING_X11) && !USE(GTK4)
-#include <WebCore/BackingStoreBackendCairoX11.h>
-#include <WebCore/PlatformDisplayX11.h>
-#include <gdk/gdkx.h>
-#endif
 
 namespace WebKit {
 using namespace WebCore;
 
-std::unique_ptr<BackingStoreBackendCairo> BackingStore::createBackend()
+static const Seconds s_scrollHysteresisDuration { 300_ms };
+
+static RefPtr<cairo_surface_t> createCairoImageSurfaceWithFastMalloc(const IntSize& size, double deviceScaleFactor)
 {
-#if PLATFORM(GTK) && PLATFORM(X11) && defined(GDK_WINDOWING_X11) && !USE(GTK4)
-    const auto& sharedDisplay = PlatformDisplay::sharedDisplay();
-    if (is<PlatformDisplayX11>(sharedDisplay)) {
-        GdkVisual* visual = gtk_widget_get_visual(m_webPageProxy.viewWidget());
-        GdkScreen* screen = gdk_visual_get_screen(visual);
-        ASSERT(downcast<PlatformDisplayX11>(sharedDisplay).native() == GDK_SCREEN_XDISPLAY(screen));
-        return makeUnique<BackingStoreBackendCairoX11>(GDK_WINDOW_XID(gdk_screen_get_root_window(screen)),
-            GDK_VISUAL_XVISUAL(visual), gdk_visual_get_depth(visual), m_size, m_deviceScaleFactor);
-    }
+    ASSERT(!size.isEmpty());
+    IntSize scaledSize(size);
+    scaledSize.scale(deviceScaleFactor);
+    static cairo_user_data_key_t s_surfaceDataKey;
+    int stride = cairo_format_stride_for_width(CAIRO_FORMAT_ARGB32, scaledSize.width());
+    auto* surfaceData = fastZeroedMalloc(scaledSize.height() * stride);
+    RefPtr<cairo_surface_t> surface = adoptRef(cairo_image_surface_create_for_data(static_cast<unsigned char*>(surfaceData), CAIRO_FORMAT_ARGB32, scaledSize.width(), scaledSize.height(), stride));
+    cairo_surface_set_user_data(surface.get(), &s_surfaceDataKey, surfaceData, [](void* data) { fastFree(data); });
+    cairo_surface_set_device_scale(surface.get(), deviceScaleFactor, deviceScaleFactor);
+    return surface;
+}
+
+BackingStore::BackingStore(const IntSize& size, float deviceScaleFactor)
+    : m_size(size)
+    , m_deviceScaleFactor(deviceScaleFactor)
+    , m_surface(createCairoImageSurfaceWithFastMalloc(m_size, m_deviceScaleFactor))
+    , m_scrolledHysteresis([this](PAL::HysteresisState state) { if (state == PAL::HysteresisState::Stopped) m_scrollSurface = nullptr; }, s_scrollHysteresisDuration)
+{
+}
+
+BackingStore::~BackingStore() = default;
+
+void BackingStore::paint(PlatformPaintContextPtr cr, const IntRect& rect)
+{
+    cairo_save(cr);
+    cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+    cairo_set_source_surface(cr, m_surface.get(), 0, 0);
+    cairo_rectangle(cr, rect.x(), rect.y(), rect.width(), rect.height());
+    cairo_fill(cr);
+    cairo_restore(cr);
+}
+
+void BackingStore::incorporateUpdate(UpdateInfo&& updateInfo)
+{
+    ASSERT(m_size == updateInfo.viewSize);
+    if (!updateInfo.bitmapHandle)
+        return;
+
+    auto bitmap = ShareableBitmap::create(WTF::move(*updateInfo.bitmapHandle));
+    if (!bitmap)
+        return;
+
+#if ASSERT_ENABLED
+    IntSize updateSize = expandedIntSize(updateInfo.updateRectBounds.size() * m_deviceScaleFactor);
+    ASSERT(bitmap->size() == updateSize);
 #endif
-
-    return makeUnique<BackingStoreBackendCairoImpl>(m_size, m_deviceScaleFactor);
-}
-
-void BackingStore::paint(cairo_t* context, const IntRect& rect)
-{
-    ASSERT(m_backend);
-
-    cairo_save(context);
-    cairo_set_operator(context, CAIRO_OPERATOR_SOURCE);
-    cairo_set_source_surface(context, m_backend->surface(), 0, 0);
-    cairo_rectangle(context, rect.x(), rect.y(), rect.width(), rect.height());
-    cairo_fill(context);
-    cairo_restore(context);
-}
-
-void BackingStore::incorporateUpdate(ShareableBitmap* bitmap, const UpdateInfo& updateInfo)
-{
-    if (!m_backend)
-        m_backend = createBackend();
 
     scroll(updateInfo.scrollRect, updateInfo.scrollOffset);
 
     // Paint all update rects.
     IntPoint updateRectLocation = updateInfo.updateRectBounds.location();
-    GraphicsContextCairo graphicsContext(m_backend->surface());
+
+    GraphicsContextCairo graphicsContext(m_surface.get());
 
     // When m_webPageProxy.drawsBackground() is false, bitmap contains transparent parts as a background of the webpage.
     // For such case, bitmap must be drawn using CompositeOperator::Copy to overwrite the existing surface.
@@ -91,7 +105,7 @@ void BackingStore::incorporateUpdate(ShareableBitmap* bitmap, const UpdateInfo& 
     for (const auto& updateRect : updateInfo.updateRects) {
         IntRect srcRect = updateRect;
         srcRect.move(-updateRectLocation.x(), -updateRectLocation.y());
-        bitmap->paint(graphicsContext, deviceScaleFactor(), updateRect.location(), srcRect);
+        bitmap->paint(graphicsContext, m_deviceScaleFactor, updateRect.location(), srcRect);
     }
 }
 
@@ -100,8 +114,20 @@ void BackingStore::scroll(const IntRect& scrollRect, const IntSize& scrollOffset
     if (scrollOffset.isZero())
         return;
 
-    ASSERT(m_backend);
-    m_backend->scroll(scrollRect, scrollOffset);
+    IntRect targetRect = scrollRect;
+    targetRect.move(scrollOffset);
+    targetRect.intersect(scrollRect);
+    if (targetRect.isEmpty())
+        return;
+
+    if (!m_scrollSurface)
+        m_scrollSurface = createCairoImageSurfaceWithFastMalloc(m_size, m_deviceScaleFactor);
+
+    copyRectFromOneSurfaceToAnother(m_surface.get(), m_scrollSurface.get(), scrollOffset, targetRect);
+    copyRectFromOneSurfaceToAnother(m_scrollSurface.get(), m_surface.get(), { }, targetRect);
+    m_scrolledHysteresis.impulse();
 }
 
 } // namespace WebKit
+
+#endif // USE(CAIRO)

@@ -26,6 +26,7 @@
 #include "WritingMode.h"
 #include <wtf/HashMap.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
@@ -66,7 +67,7 @@ public:
         m_transitions[index].fastDecrement();
     }
 
-    const Vector<Iterator>& transitions() { return m_transitions; }
+    const Vector<Iterator>& transitions() LIFETIME_BOUND { return m_transitions; }
     size_t numTransitions() const { return m_transitions.size(); }
     size_t currentTransition() const { return m_currentTransition; }
     void setCurrentTransition(size_t currentTransition) { m_currentTransition = currentTransition; }
@@ -97,7 +98,7 @@ struct BidiStatus {
         : eor(eor)
         , lastStrong(lastStrong)
         , last(last)
-        , context(WTFMove(context))
+        , context(WTF::move(context))
     {
     }
 
@@ -123,13 +124,9 @@ inline bool operator==(const BidiStatus& status1, const BidiStatus& status2)
     return status1.eor == status2.eor && status1.last == status2.last && status1.lastStrong == status2.lastStrong && *(status1.context) == *(status2.context);
 }
 
-inline bool operator!=(const BidiStatus& status1, const BidiStatus& status2)
-{
-    return !(status1 == status2);
-}
-
+template<typename ConcreteRunType>
 struct BidiCharacterRun {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(BidiCharacterRun);
 public:
     BidiCharacterRun(unsigned start, unsigned stop, BidiContext* context, UCharDirection direction)
         : m_start(start)
@@ -156,9 +153,9 @@ public:
     ~BidiCharacterRun()
     {
         // Delete the linked list in a loop to prevent destructor recursion.
-        auto next = WTFMove(m_next);
+        auto next = WTF::move(m_next);
         while (next)
-            next = WTFMove(next->m_next);
+            next = WTF::move(next->m_next);
     }
 
     unsigned start() const { return m_start; }
@@ -167,19 +164,23 @@ public:
     bool reversed(bool visuallyOrdered) { return m_level % 2 && !visuallyOrdered; }
     bool dirOverride(bool visuallyOrdered) { return m_override || visuallyOrdered; }
 
-    BidiCharacterRun* next() const { return m_next.get(); }
-    std::unique_ptr<BidiCharacterRun> takeNext() { return WTFMove(m_next); }
-    void setNext(std::unique_ptr<BidiCharacterRun>&& next) { m_next = WTFMove(next); }
+    ConcreteRunType* next() const LIFETIME_BOUND { return m_next.get(); }
+    std::unique_ptr<ConcreteRunType> takeNext() { return WTF::move(m_next); }
+    void setNext(std::unique_ptr<ConcreteRunType>&& next) { m_next = WTF::move(next); }
 
 private:
-    std::unique_ptr<BidiCharacterRun> m_next;
+    std::unique_ptr<ConcreteRunType> m_next;
 
 public:
     unsigned m_start;
     unsigned m_stop;
     unsigned char m_level;
     bool m_override : 1;
-    bool m_hasHyphen : 1; // Used by BidiRun subclass which is a layering violation but enables us to save 8 bytes per object on 64-bit.
+};
+
+// Standalone BidiCharacterRun for cases that don't need a derived class.
+struct SimpleBidiCharacterRun : BidiCharacterRun<SimpleBidiCharacterRun> {
+    using BidiCharacterRun<SimpleBidiCharacterRun>::BidiCharacterRun;
 };
 
 enum VisualDirectionOverride {
@@ -193,7 +194,7 @@ enum VisualDirectionOverride {
 template<typename Iterator, typename Run, typename DerivedClass> class BidiResolverBase {
     WTF_MAKE_NONCOPYABLE(BidiResolverBase);
 public:
-    const Iterator& position() const { return m_current; }
+    const Iterator& position() const LIFETIME_BOUND { return m_current; }
     void setPositionIgnoringNestedIsolates(const Iterator& position) { m_current = position; }
     void setPosition(const Iterator& position, unsigned nestedIsolatedCount)
     {
@@ -204,7 +205,7 @@ public:
     void increment() { static_cast<DerivedClass&>(*this).incrementInternal(); }
 
     BidiContext* context() const { return m_status.context.get(); }
-    void setContext(RefPtr<BidiContext>&& context) { m_status.context = WTFMove(context); }
+    void setContext(RefPtr<BidiContext>&& context) { m_status.context = WTF::move(context); }
 
     void setLastDir(UCharDirection lastDir) { m_status.last = lastDir; }
     void setLastStrongDir(UCharDirection lastStrongDir) { m_status.lastStrong = lastStrongDir; }
@@ -213,10 +214,10 @@ public:
     UCharDirection dir() const { return m_direction; }
     void setDir(UCharDirection direction) { m_direction = direction; }
 
-    const BidiStatus& status() const { return m_status; }
+    const BidiStatus& status() const LIFETIME_BOUND { return m_status; }
     void setStatus(BidiStatus status) { m_status = status; }
 
-    WhitespaceCollapsingState<Iterator>& whitespaceCollapsingState() { return m_whitespaceCollapsingState; }
+    WhitespaceCollapsingState<Iterator>& whitespaceCollapsingState() LIFETIME_BOUND { return m_whitespaceCollapsingState; }
 
     // The current algorithm handles nested isolates one layer of nesting at a time.
     // But when we layout each isolated span, we will walk into (and ignore) all
@@ -230,7 +231,7 @@ public:
 
     void createBidiRunsForLine(const Iterator& end, VisualDirectionOverride = NoVisualOverride, bool hardLineBreak = false);
 
-    BidiRunList<Run>& runs() { return m_runs; }
+    BidiRunList<Run>& runs() LIFETIME_BOUND { return m_runs; }
 
     // FIXME: This used to be part of deleteRuns() but was a layering violation.
     // It's unclear if this is still needed.
@@ -295,7 +296,7 @@ public:
     void incrementInternal();
     void appendRunInternal();
     bool needsContinuePastEndInternal() const;
-    Vector<IsolateRun>& isolatedRuns() { return m_isolatedRuns; }
+    Vector<IsolateRun>& isolatedRuns() LIFETIME_BOUND { return m_isolatedRuns; }
 
 private:
     Vector<IsolateRun> m_isolatedRuns;
@@ -443,7 +444,7 @@ bool BidiResolverBase<Iterator, Run, DerivedClass>::commitExplicitEmbedding()
 
     for (auto& embedding : m_currentExplicitEmbeddingSequence) {
         if (embedding.direction == U_POP_DIRECTIONAL_FORMAT) {
-            if (auto* parentContext = toContext->parent())
+            if (RefPtr parentContext = toContext->parent())
                 toContext = parentContext;
         } else {
             UCharDirection direction = (embedding.direction == U_RIGHT_TO_LEFT_EMBEDDING || embedding.direction == U_RIGHT_TO_LEFT_OVERRIDE) ? U_RIGHT_TO_LEFT : U_LEFT_TO_RIGHT;
@@ -465,7 +466,7 @@ bool BidiResolverBase<Iterator, Run, DerivedClass>::commitExplicitEmbedding()
     else if (toLevel < fromLevel)
         lowerExplicitEmbeddingLevel(fromLevel % 2 ? U_RIGHT_TO_LEFT : U_LEFT_TO_RIGHT);
 
-    setContext(WTFMove(toContext));
+    setContext(WTF::move(toContext));
 
     m_currentExplicitEmbeddingSequence.clear();
 
@@ -507,7 +508,7 @@ inline void BidiResolverBase<Iterator, Run, DerivedClass>::updateStatusLastFromC
         // ignore these
         break;
     case U_EUROPEAN_NUMBER:
-        FALLTHROUGH;
+        [[fallthrough]];
     default:
         m_status.last = dirCurrent;
     }
@@ -582,7 +583,7 @@ void BidiResolverBase<Iterator, Run, DerivedClass>::createBidiRunsForLine(const 
     while (true) {
         UCharDirection dirCurrent;
         if (pastEnd && (hardLineBreak || m_current.atEnd())) {
-            BidiContext* c = context();
+            RefPtr c = context();
             if (hardLineBreak) {
                 // A deviation from the Unicode Bidi Algorithm in order to match
                 // WinIE and user expectations: hard line breaks reset bidi state
@@ -612,13 +613,6 @@ void BidiResolverBase<Iterator, Run, DerivedClass>::createBidiRunsForLine(const 
                 dirCurrent = m_status.last;
         }
 
-#if PLATFORM(WIN)
-        // Our Windows build hasn't updated its headers from ICU 6.1, which doesn't have these symbols.
-        const UCharDirection U_FIRST_STRONG_ISOLATE = static_cast<UCharDirection>(19);
-        const UCharDirection U_LEFT_TO_RIGHT_ISOLATE = static_cast<UCharDirection>(20);
-        const UCharDirection U_RIGHT_TO_LEFT_ISOLATE = static_cast<UCharDirection>(21);
-        const UCharDirection U_POP_DIRECTIONAL_ISOLATE = static_cast<UCharDirection>(22);
-#endif
         // We ignore all character directionality while in unicode-bidi: isolate spans.
         // We'll handle ordering the isolated characters in a second pass.
         if (inIsolate() || dirCurrent == U_FIRST_STRONG_ISOLATE || dirCurrent == U_LEFT_TO_RIGHT_ISOLATE || dirCurrent == U_RIGHT_TO_LEFT_ISOLATE || dirCurrent == U_POP_DIRECTIONAL_ISOLATE)
@@ -703,7 +697,7 @@ void BidiResolverBase<Iterator, Run, DerivedClass>::createBidiRunsForLine(const 
                 case U_EUROPEAN_NUMBER:
                 case U_ARABIC_NUMBER:
                     appendRun();
-                    FALLTHROUGH;
+                    [[fallthrough]];
                 case U_RIGHT_TO_LEFT:
                 case U_RIGHT_TO_LEFT_ARABIC:
                     break;
@@ -756,7 +750,7 @@ void BidiResolverBase<Iterator, Run, DerivedClass>::createBidiRunsForLine(const 
                     case U_COMMON_NUMBER_SEPARATOR:
                         if (m_status.eor == U_EUROPEAN_NUMBER)
                             break;
-                        FALLTHROUGH;
+                        [[fallthrough]];
                     case U_EUROPEAN_NUMBER_TERMINATOR:
                     case U_BOUNDARY_NEUTRAL:
                     case U_BLOCK_SEPARATOR:
@@ -804,7 +798,7 @@ void BidiResolverBase<Iterator, Run, DerivedClass>::createBidiRunsForLine(const 
                     m_direction = U_LEFT_TO_RIGHT;
                 break;
             }
-            FALLTHROUGH;
+            [[fallthrough]];
         case U_ARABIC_NUMBER:
             dirCurrent = U_ARABIC_NUMBER;
             switch (m_status.last) {
@@ -823,7 +817,7 @@ void BidiResolverBase<Iterator, Run, DerivedClass>::createBidiRunsForLine(const 
                 case U_COMMON_NUMBER_SEPARATOR:
                     if (m_status.eor == U_ARABIC_NUMBER)
                         break;
-                    FALLTHROUGH;
+                    [[fallthrough]];
                 case U_EUROPEAN_NUMBER_SEPARATOR:
                 case U_EUROPEAN_NUMBER_TERMINATOR:
                 case U_BOUNDARY_NEUTRAL:

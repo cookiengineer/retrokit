@@ -33,10 +33,13 @@
 #include <WebCore/StoredCredentialsPolicy.h>
 #include <pal/SessionID.h>
 #include <wtf/CompletionHandler.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 class ResourceError;
 class SecurityOrigin;
+class SharedBuffer;
+enum class AdvancedPrivacyProtections : uint16_t;
 }
 
 namespace WebKit {
@@ -44,42 +47,54 @@ namespace WebKit {
 class NetworkProcess;
 class NetworkResourceLoader;
 
-class NetworkCORSPreflightChecker final : private NetworkDataTaskClient {
-    WTF_MAKE_FAST_ALLOCATED;
+class NetworkCORSPreflightChecker final : public RefCounted<NetworkCORSPreflightChecker>, private NetworkDataTaskClient {
+    WTF_MAKE_TZONE_ALLOCATED(NetworkCORSPreflightChecker);
 public:
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     struct Parameters {
         WebCore::ResourceRequest originalRequest;
         Ref<WebCore::SecurityOrigin> sourceOrigin;
-        RefPtr<WebCore::SecurityOrigin> topOrigin;
+        Ref<WebCore::SecurityOrigin> topOrigin;
         String referrer;
         String userAgent;
         PAL::SessionID sessionID;
-        WebPageProxyIdentifier webPageProxyID;
+        Markable<WebPageProxyIdentifier> webPageProxyID;
         WebCore::StoredCredentialsPolicy storedCredentialsPolicy;
+        bool allowPrivacyProxy { true };
+        OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections;
+        bool includeFetchMetadata { false };
     };
     using CompletionCallback = CompletionHandler<void(WebCore::ResourceError&&)>;
 
-    NetworkCORSPreflightChecker(NetworkProcess&, NetworkResourceLoader*, Parameters&&, bool shouldCaptureExtraNetworkLoadMetrics, CompletionCallback&&);
+    static Ref<NetworkCORSPreflightChecker> create(NetworkProcess& networkProcess, NetworkResourceLoader* networkResourceLoader, Parameters&& parameters, bool shouldCaptureExtraNetworkLoadMetrics, CompletionCallback&& completionCallback)
+    {
+        return adoptRef(*new NetworkCORSPreflightChecker(networkProcess, networkResourceLoader, WTF::move(parameters), shouldCaptureExtraNetworkLoadMetrics, WTF::move(completionCallback)));
+    }
     ~NetworkCORSPreflightChecker();
-    const WebCore::ResourceRequest& originalRequest() const { return m_parameters.originalRequest; }
+    const WebCore::ResourceRequest& originalRequest() const LIFETIME_BOUND { return m_parameters.originalRequest; }
 
     void startPreflight();
 
     WebCore::NetworkTransactionInformation takeInformation();
 
 private:
+    NetworkCORSPreflightChecker(NetworkProcess&, NetworkResourceLoader*, Parameters&&, bool shouldCaptureExtraNetworkLoadMetrics, CompletionCallback&&);
+
     void willPerformHTTPRedirection(WebCore::ResourceResponse&&, WebCore::ResourceRequest&&, RedirectCompletionHandler&&) final;
     void didReceiveChallenge(WebCore::AuthenticationChallenge&&, NegotiatedLegacyTLS, ChallengeCompletionHandler&&) final;
-    void didReceiveResponse(WebCore::ResourceResponse&&, NegotiatedLegacyTLS, ResponseCompletionHandler&&) final;
-    void didReceiveData(Ref<WebCore::SharedBuffer>&&) final;
+    void didReceiveResponse(WebCore::ResourceResponse&&, NegotiatedLegacyTLS, PrivateRelayed, ResponseCompletionHandler&&) final;
+    void didReceiveData(const WebCore::SharedBuffer&) final;
     void didCompleteWithError(const WebCore::ResourceError&, const WebCore::NetworkLoadMetrics&) final;
     void didSendData(uint64_t totalBytesSent, uint64_t totalBytesExpectedToSend) final;
     void wasBlocked() final;
     void cannotShowURL() final;
     void wasBlockedByRestrictions() final;
+    void wasBlockedByDisabledFTP() final;
 
     Parameters m_parameters;
-    Ref<NetworkProcess> m_networkProcess;
+    const Ref<NetworkProcess> m_networkProcess;
     WebCore::ResourceResponse m_response;
     CompletionCallback m_completionCallback;
     RefPtr<NetworkDataTask> m_task;

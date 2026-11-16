@@ -27,15 +27,33 @@
 
 #if ENABLE(APPLE_PAY)
 
-#include "ApplePayError.h"
+#include <WebCore/ApplePayError.h>
+#include <WebCore/ApplePayPaymentOrderDetails.h>
+#include <optional>
 #include <wtf/RefPtr.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
 
 struct ApplePayPaymentAuthorizationResult {
-    unsigned short status;
-    Vector<RefPtr<ApplePayError>> errors;
+    using Status = unsigned short;
+    static constexpr Status Success = 0;
+    static constexpr Status Failure = 1;
+    static constexpr Status InvalidBillingPostalAddress = 2;
+    static constexpr Status InvalidShippingPostalAddress = 3;
+    static constexpr Status InvalidShippingContact = 4;
+    static constexpr Status PINRequired = 5;
+    static constexpr Status PINIncorrect = 6;
+    static constexpr Status PINLockout = 7;
+
+    Status status; // required
+    Vector<Ref<ApplePayError>> errors;
+
+#if ENABLE(APPLE_PAY_PAYMENT_ORDER_DETAILS)
+    std::optional<ApplePayPaymentOrderDetails> orderDetails;
+#endif
+
+    WEBCORE_EXPORT bool NODELETE isFinalState() const;
 };
 
 }

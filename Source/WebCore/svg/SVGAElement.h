@@ -25,18 +25,25 @@
 #include "SVGGraphicsElement.h"
 #include "SVGURIReference.h"
 #include "SharedStringHash.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class DOMTokenList;
 
+enum class Relation : uint8_t;
+
 class SVGAElement final : public SVGGraphicsElement, public SVGURIReference {
-    WTF_MAKE_ISO_ALLOCATED(SVGAElement);
+    WTF_MAKE_TZONE_ALLOCATED(SVGAElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGAElement);
 public:
     static Ref<SVGAElement> create(const QualifiedName&, Document&);
+    ~SVGAElement();
 
-    String target() const final { return m_target->currentValue(); }
-    Ref<SVGAnimatedString>& targetAnimated() { return m_target; }
+    AtomString target() const final { return AtomString { m_target->currentValue() }; }
+    SVGAnimatedString& targetAnimated() { return m_target; }
+
+    URL hrefURL() const;
 
     SharedStringHash visitedLinkHash() const;
 
@@ -46,34 +53,36 @@ private:
     SVGAElement(const QualifiedName&, Document&);
 
     using PropertyRegistry = SVGPropertyOwnerRegistry<SVGAElement, SVGGraphicsElement, SVGURIReference>;
-    const SVGPropertyRegistry& propertyRegistry() const final { return m_propertyRegistry; }
 
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
     void svgAttributeChanged(const QualifiedName&) final;
 
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) final;
     bool childShouldCreateRenderer(const Node&) const final;
 
     bool isValid() const final { return SVGTests::isValid(); }
     String title() const final;
     void defaultEventHandler(Event&) final;
+
+    bool NODELETE hasRel(Relation) const;
     
     bool supportsFocus() const final;
     bool isMouseFocusable() const final;
-    bool isKeyboardFocusable(KeyboardEvent*) const final;
-    bool isURLAttribute(const Attribute&) const final;
+    bool isKeyboardFocusable(const FocusEventData&) const final;
+    bool NODELETE isURLAttribute(const Attribute&) const final;
     bool canStartSelection() const final;
     int defaultTabIndex() const final;
 
-    bool willRespondToMouseClickEvents() final;
+    bool willRespondToMouseClickEventsWithEditability(Editability) const final;
 
-    PropertyRegistry m_propertyRegistry { *this };
-    Ref<SVGAnimatedString> m_target { SVGAnimatedString::create(this) };
+    const Ref<SVGAnimatedString> m_target { SVGAnimatedString::create(this) };
+
+    OptionSet<Relation> m_linkRelations;
 
     // This is computed only once and must not be affected by subsequent URL changes.
     mutable std::optional<SharedStringHash> m_storedVisitedLinkHash;
 
-    std::unique_ptr<DOMTokenList> m_relList;
+    const std::unique_ptr<DOMTokenList> m_relList;
 };
 
 } // namespace WebCore

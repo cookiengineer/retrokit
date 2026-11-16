@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,57 +30,67 @@
 #include "GPUProcessConnection.h"
 #include "MessageReceiver.h"
 #include "SampleBufferDisplayLayerIdentifier.h"
+#include "SharedVideoFrame.h"
 #include <WebCore/SampleBufferDisplayLayer.h>
+#include <wtf/Identified.h>
 #include <wtf/WeakPtr.h>
+
+namespace WebCore {
+enum class VideoFrameRotation : uint16_t;
+}
 
 namespace WebKit {
 
 class SampleBufferDisplayLayerManager;
 
-class SampleBufferDisplayLayer final : public WebCore::SampleBufferDisplayLayer, public IPC::MessageReceiver, public GPUProcessConnection::Client {
+class SampleBufferDisplayLayer final : public WebCore::SampleBufferDisplayLayer, public IPC::MessageReceiver, public GPUProcessConnection::Client, public Identified<SampleBufferDisplayLayerIdentifier> {
 public:
-    static std::unique_ptr<SampleBufferDisplayLayer> create(SampleBufferDisplayLayerManager&, WebCore::SampleBufferDisplayLayer::Client&);
+    static Ref<SampleBufferDisplayLayer> create(SampleBufferDisplayLayerManager&, WebCore::SampleBufferDisplayLayerClient&);
     ~SampleBufferDisplayLayer();
-
-    SampleBufferDisplayLayerIdentifier identifier() const { return m_identifier; }
 
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
 
-    using GPUProcessConnection::Client::weakPtrFactory;
-    using WeakValueType = GPUProcessConnection::Client::WeakValueType;
+    WebCore::HostingContext hostingContext() const final { return m_hostingContext.value_or(WebCore::HostingContext()); }
+
+    WTF_ABSTRACT_THREAD_SAFE_REF_COUNTED_AND_CAN_MAKE_WEAK_PTR_IMPL;
 
 private:
-    SampleBufferDisplayLayer(SampleBufferDisplayLayerManager&, WebCore::SampleBufferDisplayLayer::Client&);
+    SampleBufferDisplayLayer(SampleBufferDisplayLayerManager&, WebCore::SampleBufferDisplayLayerClient&);
 
     // WebCore::SampleBufferDisplayLayer
-    void initialize(bool hideRootLayer, WebCore::IntSize, CompletionHandler<void(bool)>&&) final;
+    void initialize(bool hideRootLayer, WebCore::IntSize, bool shouldMaintainAspectRatio, CompletionHandler<void(bool)>&&) final;
 #if !RELEASE_LOG_DISABLED
-    void setLogIdentifier(String&&) final;
+    void setLogIdentifier(uint64_t) final;
 #endif
     bool didFail() const final;
     void updateDisplayMode(bool hideDisplayLayer, bool hideRootLayer) final;
-    void updateAffineTransform(CGAffineTransform) final;
-    void updateBoundsAndPosition(CGRect, WebCore::MediaSample::VideoRotation) final;
+    void updateBoundsAndPosition(CGRect, std::optional<WTF::MachSendRightAnnotated>&&) final;
     void flush() final;
     void flushAndRemoveImage() final;
     void play() final;
     void pause() final;
-    void enqueueSample(WebCore::MediaSample&) final;
-    void clearEnqueuedSamples() final;
+    void enqueueBlackFrameFrom(const WebCore::VideoFrame&) final;
+    void enqueueVideoFrame(WebCore::VideoFrame&) final;
+    void clearVideoFrames() final;
     PlatformLayer* rootLayer() final;
+    void setShouldMaintainAspectRatio(bool) final;
 
     // GPUProcessConnection::Client
     void gpuProcessConnectionDidClose(GPUProcessConnection&) final;
 
     void setDidFail(bool);
+    void updateVideoFrameCounters(uint64_t, uint64_t);
 
+    ThreadSafeWeakPtr<GPUProcessConnection> m_gpuProcessConnection;
     WeakPtr<SampleBufferDisplayLayerManager> m_manager;
-    Ref<IPC::Connection> m_connection;
-    SampleBufferDisplayLayerIdentifier m_identifier;
+    const Ref<IPC::Connection> m_connection;
 
     PlatformLayerContainer m_videoLayer;
     bool m_didFail { false };
     bool m_paused { false };
+
+    SharedVideoFrameWriter m_sharedVideoFrameWriter;
+    std::optional<WebCore::HostingContext> m_hostingContext;
 };
 
 }

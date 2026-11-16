@@ -32,7 +32,7 @@ namespace JSC {
 class LeafExecutable;
 class UnlinkedFunctionExecutable;
 
-using LeafExecutableMap = HashMap<const UnlinkedFunctionExecutable*, LeafExecutable>;
+using LeafExecutableMap = UncheckedKeyHashMap<const UnlinkedFunctionExecutable*, LeafExecutable>;
 
 class LeafExecutable {
 public:
@@ -44,7 +44,7 @@ public:
     }
 
     ptrdiff_t base() const { return m_base; }
-    LeafExecutable operator+(size_t) const;
+    LeafExecutable NODELETE operator+(size_t) const;
 
 private:
     ptrdiff_t m_base;

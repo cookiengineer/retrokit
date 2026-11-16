@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,7 +32,7 @@ button.watchos-activity-indicator > picture {
     width: var(--width) !important;
     height: 29.5px !important;
 
-    -webkit-mask-size: calc(var(--number-of-frames) * 100%) 100%;
+    mask-size: calc(var(--number-of-frames) * 100%) 100%;
 
     /* We apply two animations in sequence, first the intro which goes for 8 frames (0 - 7) and whichs
        runs once, then the loop which starts after the intro (using a delay) and runs infinitely. */

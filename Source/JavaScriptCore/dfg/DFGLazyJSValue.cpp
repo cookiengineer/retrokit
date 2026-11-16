@@ -51,7 +51,7 @@ JSValue LazyJSValue::getValue(VM& vm) const
     case SingleCharacterString:
         return jsSingleCharacterString(vm, u.character);
     case KnownStringImpl:
-        return jsString(vm, u.stringImpl);
+        return jsString(vm, String { u.stringImpl });
     case NewStringImpl:
         return jsString(vm, AtomStringImpl::add(u.stringImpl));
     }
@@ -59,7 +59,7 @@ JSValue LazyJSValue::getValue(VM& vm) const
     return JSValue();
 }
 
-static TriState equalToSingleCharacter(JSValue value, UChar character)
+static TriState NODELETE equalToSingleCharacter(JSValue value, char16_t character)
 {
     if (!value.isString())
         return TriState::False;
@@ -75,7 +75,7 @@ static TriState equalToSingleCharacter(JSValue value, UChar character)
     return triState(string->at(0) == character);
 }
 
-static TriState equalToStringImpl(JSValue value, StringImpl* stringImpl)
+static TriState NODELETE equalToStringImpl(JSValue value, StringImpl* stringImpl)
 {
     if (!value.isString())
         return TriState::False;
@@ -88,7 +88,7 @@ static TriState equalToStringImpl(JSValue value, StringImpl* stringImpl)
     return triState(WTF::equal(stringImpl, string));
 }
 
-const StringImpl* LazyJSValue::tryGetStringImpl(VM& vm) const
+const StringImpl* LazyJSValue::tryGetStringImpl() const
 {
     switch (m_kind) {
     case KnownStringImpl:
@@ -96,7 +96,7 @@ const StringImpl* LazyJSValue::tryGetStringImpl(VM& vm) const
         return u.stringImpl;
 
     case KnownValue:
-        if (JSString* string = value()->dynamicCast<JSString*>(vm))
+        if (JSString* string = value()->dynamicCast<JSString*>())
             return string->tryGetValueImpl();
         return nullptr;
 
@@ -107,6 +107,23 @@ const StringImpl* LazyJSValue::tryGetStringImpl(VM& vm) const
     return nullptr;
 }
 
+struct CrossThreadStringTranslator {
+    static unsigned hash(const StringImpl* impl)
+    {
+        return impl->concurrentHash();
+    }
+
+    static bool NODELETE equal(const String& string, const StringImpl* impl)
+    {
+        return WTF::equal(string.impl(), impl);
+    }
+
+    static void translate(String& location, const StringImpl* impl, unsigned)
+    {
+        location = impl->isolatedCopy();
+    }
+};
+
 String LazyJSValue::tryGetString(Graph& graph) const
 {
     switch (m_kind) {
@@ -114,19 +131,16 @@ String LazyJSValue::tryGetString(Graph& graph) const
         return u.stringImpl;
 
     case SingleCharacterString:
-        return String(&u.character, 1);
+        return span(u.character);
 
     case KnownValue:
     case KnownStringImpl:
-        if (const StringImpl* string = tryGetStringImpl(graph.m_vm)) {
+        if (const StringImpl* string = tryGetStringImpl()) {
             unsigned ginormousStringLength = 10000;
             if (string->length() > ginormousStringLength)
                 return String();
             
-            auto result = graph.m_copiedStrings.add(string, String());
-            if (result.isNewEntry)
-                result.iterator->value = string->isolatedCopy();
-            return result.iterator->value;
+            return *graph.m_copiedStrings.add<CrossThreadStringTranslator>(string).iterator;
         }
         
         return String();
@@ -201,7 +215,7 @@ uintptr_t LazyJSValue::switchLookupValue(SwitchKind kind) const
             return 0;
         case SwitchCell:
             if (value()->value())
-                return bitwise_cast<uintptr_t>(value()->value().asCell());
+                return std::bit_cast<uintptr_t>(value()->value().asCell());
             return 0;
         default:
             RELEASE_ASSERT_NOT_REACHED();
@@ -224,7 +238,7 @@ uintptr_t LazyJSValue::switchLookupValue(SwitchKind kind) const
     return 0;
 }
 
-void LazyJSValue::emit(CCallHelpers& jit, JSValueRegs result) const
+void LazyJSValue::emit(CCallHelpers& jit, JSValueRegs result, Plan& planRef) const
 {
     if (m_kind == KnownValue) {
         jit.moveValue(value()->value(), result);
@@ -249,14 +263,15 @@ void LazyJSValue::emit(CCallHelpers& jit, JSValueRegs result) const
 
     CodeBlock* codeBlock = jit.codeBlock();
     
+    auto* plan = &planRef;
     jit.addLinkTask([=] (LinkBuffer& linkBuffer) {
         auto patchLocation = linkBuffer.locationOf<JITCompilationPtrTag>(label);
-        linkBuffer.addMainThreadFinalizationTask([=] {
+        plan->addMainThreadFinalizationTask([=] {
             JSValue realValue = thisValue.getValue(codeBlock->vm());
             RELEASE_ASSERT(realValue.isCell());
 
             codeBlock->addConstant(ConcurrentJSLocker(codeBlock->m_lock), realValue);
-            
+
             if (thisValue.m_kind == NewStringImpl)
                 thisValue.u.stringImpl->deref();
 
@@ -274,7 +289,7 @@ void LazyJSValue::dumpInContext(PrintStream& out, DumpContext* context) const
     case SingleCharacterString:
         out.print("Lazy:SingleCharacterString(");
         out.printf("%04X", static_cast<unsigned>(character()));
-        out.print(" / ", StringImpl::utf8ForCharacters(&u.character, 1).value(), ")");
+        out.print(" / ", StringImpl::utf8ForCharacters(span(u.character)).value(), ")");
         return;
     case KnownStringImpl:
         out.print("Lazy:KnownString(", stringImpl(), ")");

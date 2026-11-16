@@ -29,19 +29,6 @@
 
 namespace WebCore {
 
-enum class ShouldTreatAsContinuingLoad : uint8_t { No, YesAfterNavigationPolicyDecision, YesAfterResponsePolicyDecision };
+enum class ShouldTreatAsContinuingLoad : uint8_t { No, YesAfterNavigationPolicyDecision, YesAfterProvisionalLoadStarted };
 
 } // namespace WebCore
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::ShouldTreatAsContinuingLoad> {
-    using values = EnumValues<
-        WebCore::ShouldTreatAsContinuingLoad,
-        WebCore::ShouldTreatAsContinuingLoad::No,
-        WebCore::ShouldTreatAsContinuingLoad::YesAfterNavigationPolicyDecision,
-        WebCore::ShouldTreatAsContinuingLoad::YesAfterResponsePolicyDecision
-    >;
-};
-
-} // namespace WTF

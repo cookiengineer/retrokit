@@ -24,7 +24,7 @@
  */
 
 [
-    JSGenerateToJSObject,
+    EnabledBySetting=IndexedDBAPIEnabled,
     JSGenerateToNativeObject,
     SkipVTableValidation,
     Exposed=(Window,Worker)

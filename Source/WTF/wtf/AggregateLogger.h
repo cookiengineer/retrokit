@@ -25,7 +25,6 @@
 
 #pragma once
 
-#include <wtf/Algorithms.h>
 #include <wtf/HashSet.h>
 #include <wtf/Logger.h>
 #include <wtf/Ref.h>
@@ -53,7 +52,7 @@ public:
     }
 
     template<typename... Arguments>
-    inline void logAlways(WTFLogChannel& channel, UNUSED_FUNCTION const Arguments&... arguments) const
+    inline void logAlways(WTFLogChannel& channel, UNUSED_VARIADIC_PARAMS const Arguments&... arguments) const
     {
 #if RELEASE_LOG_DISABLED
         // "Standard" WebCore logging goes to stderr, which is captured in layout test output and can generally be a problem
@@ -90,7 +89,11 @@ public:
 
     inline bool willLog(const WTFLogChannel& channel, WTFLogLevel level) const
     {
-        return allOf(m_loggers, [channel, level] (auto& logger) { return logger->willLog(channel, level); });
+        for (auto& logger : m_loggers) {
+            if (!logger->willLog(channel, level, { }))
+                return false;
+        }
+        return true;
     }
 
 private:
@@ -109,7 +112,7 @@ private:
 
         for (const auto& logger : m_loggers) {
             for (Observer& observer : logger->observers())
-                observer.didLogMessage(channel, level, { ConsoleLogValue<Argument>::toValue(arguments)... });
+                observer.didLogMessage(channel, level, { }, { ConsoleLogValue<Argument>::toValue(arguments)... });
         }
     }
 

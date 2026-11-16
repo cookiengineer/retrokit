@@ -2,6 +2,7 @@
  * Copyright (C) 2004, 2005, 2006, 2007 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005 Rob Buis <buis@kde.org>
  * Copyright (C) 2005 Eric Seidel <eric@webkit.org>
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -21,31 +22,40 @@
 
 #pragma once
 
-#include "FilterEffect.h"
-#include "Filter.h"
+#include <WebCore/FilterEffect.h>
 
 namespace WebCore {
 
-class FEOffset : public FilterEffect {
+class FEOffset final : public FilterEffect {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(FEOffset);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(FEOffset);
 public:
-    static Ref<FEOffset> create(Filter&, float dx, float dy);
+    WEBCORE_EXPORT static Ref<FEOffset> create(float dx, float dy, DestinationColorSpace = DestinationColorSpace::SRGB());
+
+    bool operator==(const FEOffset&) const;
 
     float dx() const { return m_dx; }
-    void setDx(float);
+    bool NODELETE setDx(float);
 
     float dy() const { return m_dy; }
-    void setDy(float);
+    bool NODELETE setDy(float);
+
+    static IntOutsets calculateOutsets(const FloatSize& offset);
 
 private:
-    FEOffset(Filter&, float dx, float dy);
+    FEOffset(float dx, float dy, DestinationColorSpace);
 
-    const char* filterName() const final { return "FEOffset"; }
+    bool operator==(const FilterEffect& other) const override { return areEqual<FEOffset>(*this, other); }
 
-    void platformApplySoftware() override;
-    
-    void determineAbsolutePaintRect() override;
+    FloatRect calculateImageRect(const Filter&, std::span<const FloatRect> inputImageRects, const FloatRect& primitiveSubregion) const override;
 
-    WTF::TextStream& externalRepresentation(WTF::TextStream&, RepresentationType) const override;
+    bool resultIsAlphaImage(std::span<const Ref<FilterImage>> inputs) const override;
+
+    OptionSet<FilterRenderingMode> supportedFilterRenderingModes(OptionSet<FilterRenderingMode> preferredFilterRenderingModes) const override;
+    std::unique_ptr<FilterEffectApplier> createAcceleratedApplier() const override;
+    std::unique_ptr<FilterEffectApplier> createSoftwareApplier() const override;
+
+    WTF::TextStream& externalRepresentation(WTF::TextStream&, FilterRepresentation) const override;
 
     float m_dx;
     float m_dy;
@@ -53,3 +63,4 @@ private:
 
 } // namespace WebCore
 
+SPECIALIZE_TYPE_TRAITS_FILTER_FUNCTION(FEOffset)

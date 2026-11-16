@@ -27,6 +27,7 @@
 #include "DFGDriver.h"
 
 #include "CodeBlock.h"
+#include "DFGCommon.h"
 #include "DFGJITCode.h"
 #include "DFGPlan.h"
 #include "DFGThunks.h"
@@ -48,25 +49,31 @@ unsigned getNumCompilations()
 }
 
 #if ENABLE(DFG_JIT)
-static FunctionAllowlist& ensureGlobalDFGAllowlist()
-{
-    static LazyNeverDestroyed<FunctionAllowlist> dfgAllowlist;
-    static std::once_flag initializeAllowlistFlag;
-    std::call_once(initializeAllowlistFlag, [] {
-        const char* functionAllowlistFile = Options::dfgAllowlist();
-        dfgAllowlist.construct(functionAllowlistFile);
-    });
-    return dfgAllowlist;
-}
-
 static CompilationResult compileImpl(
     VM& vm, CodeBlock* codeBlock, CodeBlock* profiledDFGCodeBlock, JITCompilationMode mode,
-    BytecodeIndex osrEntryBytecodeIndex, const Operands<std::optional<JSValue>>& mustHandleValues,
+    BytecodeIndex osrEntryBytecodeIndex, Operands<std::optional<JSValue>>&& mustHandleValues,
     Ref<DeferredCompilationCallback>&& callback)
 {
-    if (!Options::bytecodeRangeToDFGCompile().isInRange(codeBlock->instructionsSize())
-        || !ensureGlobalDFGAllowlist().contains(codeBlock))
-        return CompilationFailed;
+    switch (mode) {
+    case JITCompilationMode::DFG:
+    case JITCompilationMode::UnlinkedDFG:
+        if (!Options::bytecodeRangeToDFGCompile().isInRange(codeBlock->instructionsSize()) || !ensureGlobalDFGAllowlist().contains(codeBlock))
+            return CompilationResult::CompilationFailed;
+        break;
+    case JITCompilationMode::FTL:
+    case JITCompilationMode::FTLForOSREntry:
+#if ENABLE(FTL_JIT)
+        if (!Options::bytecodeRangeToFTLCompile().isInRange(codeBlock->instructionsSize()) || !ensureGlobalFTLAllowlist().contains(codeBlock))
+            return CompilationResult::CompilationFailed;
+        break;
+#else
+        [[fallthrough]];
+#endif
+    case JITCompilationMode::Baseline:
+    case JITCompilationMode::InvalidCompilation:
+        RELEASE_ASSERT_NOT_REACHED();
+        break;
+    }
     
     numCompilations++;
     
@@ -75,38 +82,33 @@ static CompilationResult compileImpl(
     ASSERT(JITCode::isBaselineCode(codeBlock->alternative()->jitType()));
     ASSERT(!profiledDFGCodeBlock || profiledDFGCodeBlock->jitType() == JITType::DFGJIT);
     
-    if (logCompilationChanges(mode))
-        dataLog("DFG(Driver) compiling ", *codeBlock, " with ", mode, ", instructions size = ", codeBlock->instructionsSize(), "\n");
+    dataLogLnIf(logCompilationChanges(mode), "DFG(Driver) compiling ", *codeBlock, " with ", mode, ", instructions size = ", codeBlock->instructionsSize());
     
     if (vm.typeProfiler())
         vm.typeProfilerLog()->processLogEntries(vm, "Preparing for DFG compilation."_s);
     
-    Ref<Plan> plan = adoptRef(
-        *new Plan(codeBlock, profiledDFGCodeBlock, mode, osrEntryBytecodeIndex, mustHandleValues));
+    Ref<Plan> plan = adoptRef(*new Plan(codeBlock, profiledDFGCodeBlock, mode, osrEntryBytecodeIndex, WTF::move(mustHandleValues)));
 
-    plan->setCallback(WTFMove(callback));
+    plan->setCallback(WTF::move(callback));
     JITWorklist& worklist = JITWorklist::ensureGlobalWorklist();
     dataLogLnIf(Options::useConcurrentJIT() && logCompilationChanges(mode), "Deferring DFG compilation of ", *codeBlock, " with queue length ", worklist.queueLength(), ".\n");
-    return worklist.enqueue(WTFMove(plan));
+    return worklist.enqueue(WTF::move(plan));
 }
 #else // ENABLE(DFG_JIT)
 static CompilationResult compileImpl(
     VM&, CodeBlock*, CodeBlock*, JITCompilationMode, BytecodeIndex, const Operands<std::optional<JSValue>>&,
     Ref<DeferredCompilationCallback>&&)
 {
-    return CompilationFailed;
+    return CompilationResult::CompilationFailed;
 }
 #endif // ENABLE(DFG_JIT)
 
 CompilationResult compile(
     VM& vm, CodeBlock* codeBlock, CodeBlock* profiledDFGCodeBlock, JITCompilationMode mode,
-    BytecodeIndex osrEntryBytecodeIndex, const Operands<std::optional<JSValue>>& mustHandleValues,
+    BytecodeIndex osrEntryBytecodeIndex, Operands<std::optional<JSValue>>&& mustHandleValues,
     Ref<DeferredCompilationCallback>&& callback)
 {
-    CompilationResult result = compileImpl(
-        vm, codeBlock, profiledDFGCodeBlock, mode, osrEntryBytecodeIndex, mustHandleValues,
-        callback.copyRef());
-    return result;
+    return compileImpl(vm, codeBlock, profiledDFGCodeBlock, mode, osrEntryBytecodeIndex, WTF::move(mustHandleValues), callback.copyRef());
 }
 
 } } // namespace JSC::DFG

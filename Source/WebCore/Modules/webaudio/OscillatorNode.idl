@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2012, Google Inc. All rights reserved.
- * Copyright (C) 2016-2020, Apple Inc. All rights reserved.
+ * Copyright (C) 2012 Google Inc. All rights reserved.
+ * Copyright (C) 2016-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,11 +25,11 @@
  
 [
     Conditional=WEB_AUDIO,
-    JSGenerateToJSObject,
+    EnabledBySetting=WebAudioEnabled,
     ActiveDOMObject,
     Exposed=Window
 ] interface OscillatorNode : AudioScheduledSourceNode {
-    [EnabledBySetting=WebAudio] constructor (BaseAudioContext context, optional OscillatorOptions options);
+    [EnabledBySetting=WebAudioEnabled] constructor (BaseAudioContext context, optional OscillatorOptions options = {});
 
     [ImplementedAs=typeForBindings] attribute OscillatorType type;
 

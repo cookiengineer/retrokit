@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,10 +35,12 @@
 #include "JSObjectInlines.h"
 #include "JSWebAssemblyHelpers.h"
 #include "JSWebAssemblyMemory.h"
-#include "StructureInlines.h"
+#include "StructureCreateInlines.h"
 
 namespace JSC {
 static JSC_DECLARE_HOST_FUNCTION(webAssemblyMemoryProtoFuncGrow);
+static JSC_DECLARE_HOST_FUNCTION(webAssemblyMemoryProtoFuncToFixedLengthBuffer);
+static JSC_DECLARE_HOST_FUNCTION(webAssemblyMemoryProtoFuncToResizableBuffer);
 static JSC_DECLARE_CUSTOM_GETTER(webAssemblyMemoryProtoGetterBuffer);
 static JSC_DECLARE_HOST_FUNCTION(webAssemblyMemoryProtoFuncType);
 }
@@ -48,21 +50,21 @@ static JSC_DECLARE_HOST_FUNCTION(webAssemblyMemoryProtoFuncType);
 
 namespace JSC {
 
-const ClassInfo WebAssemblyMemoryPrototype::s_info = { "WebAssembly.Memory", &Base::s_info, &prototypeTableWebAssemblyMemory, nullptr, CREATE_METHOD_TABLE(WebAssemblyMemoryPrototype) };
+const ClassInfo WebAssemblyMemoryPrototype::s_info = { "WebAssembly.Memory"_s, &Base::s_info, &prototypeTableWebAssemblyMemory, nullptr, CREATE_METHOD_TABLE(WebAssemblyMemoryPrototype) };
 
 /* Source for WebAssemblyMemoryPrototype.lut.h
 @begin prototypeTableWebAssemblyMemory
- grow   webAssemblyMemoryProtoFuncGrow   Function 1
- buffer webAssemblyMemoryProtoGetterBuffer ReadOnly|CustomAccessor
- type   webAssemblyMemoryProtoFuncType   Function 0
+ grow   webAssemblyMemoryProtoFuncGrow      Function 1
+ buffer webAssemblyMemoryProtoGetterBuffer  ReadOnly|CustomAccessor
 @end
 */
+// two more functions are added if Options::useWasmMemoryToBufferAPIs() is true; see finishCreation()
 
 ALWAYS_INLINE JSWebAssemblyMemory* getMemory(JSGlobalObject* globalObject, VM& vm, JSValue value)
 {
     auto throwScope = DECLARE_THROW_SCOPE(vm);
 
-    JSWebAssemblyMemory* memory = jsDynamicCast<JSWebAssemblyMemory*>(vm, value); 
+    JSWebAssemblyMemory* memory = dynamicDowncast<JSWebAssemblyMemory>(value);
     if (!memory) {
         throwException(globalObject, throwScope, 
             createTypeError(globalObject, "WebAssembly.Memory.prototype.buffer getter called with non WebAssembly.Memory |this| value"_s));
@@ -79,13 +81,38 @@ JSC_DEFINE_HOST_FUNCTION(webAssemblyMemoryProtoFuncGrow, (JSGlobalObject* global
     JSWebAssemblyMemory* memory = getMemory(globalObject, vm, callFrame->thisValue()); 
     RETURN_IF_EXCEPTION(throwScope, { });
     
-    uint32_t delta = toNonWrappingUint32(globalObject, callFrame->argument(0));
+    uint64_t delta = addressValueToUint64(globalObject, callFrame->argument(0), memory->memory().addressType());
     RETURN_IF_EXCEPTION(throwScope, { });
 
-    Wasm::PageCount result = memory->grow(vm, globalObject, delta);
+    PageCount result = memory->grow(vm, globalObject, delta);
     RETURN_IF_EXCEPTION(throwScope, { });
 
+    if (memory->memory().addressType().is64Bit()) {
+        JSValue bigInt = JSBigInt::createFrom(globalObject, result.pageCount());
+        RETURN_IF_EXCEPTION(throwScope, { });
+        return JSValue::encode(bigInt);
+    }
     return JSValue::encode(jsNumber(result.pageCount()));
+}
+
+JSC_DEFINE_HOST_FUNCTION(webAssemblyMemoryProtoFuncToFixedLengthBuffer, (JSGlobalObject* globalObject, CallFrame* callFrame))
+{
+    VM& vm = globalObject->vm();
+    auto throwScope = DECLARE_THROW_SCOPE(vm);
+
+    JSWebAssemblyMemory* memory = getMemory(globalObject, vm, callFrame->thisValue());
+    RETURN_IF_EXCEPTION(throwScope, { });
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(memory->toFixedLengthBuffer(globalObject)));
+}
+
+JSC_DEFINE_HOST_FUNCTION(webAssemblyMemoryProtoFuncToResizableBuffer, (JSGlobalObject* globalObject, CallFrame* callFrame))
+{
+    VM& vm = globalObject->vm();
+    auto throwScope = DECLARE_THROW_SCOPE(vm);
+
+    JSWebAssemblyMemory* memory = getMemory(globalObject, vm, callFrame->thisValue());
+    RETURN_IF_EXCEPTION(throwScope, { });
+    RELEASE_AND_RETURN(throwScope, JSValue::encode(memory->toResizableBuffer(globalObject)));
 }
 
 JSC_DEFINE_CUSTOM_GETTER(webAssemblyMemoryProtoGetterBuffer, (JSGlobalObject* globalObject, EncodedJSValue thisValue, PropertyName))
@@ -109,10 +136,10 @@ JSC_DEFINE_HOST_FUNCTION(webAssemblyMemoryProtoFuncType, (JSGlobalObject* global
 }
 
 
-WebAssemblyMemoryPrototype* WebAssemblyMemoryPrototype::create(VM& vm, JSGlobalObject*, Structure* structure)
+WebAssemblyMemoryPrototype* WebAssemblyMemoryPrototype::create(VM& vm, JSGlobalObject* globalObject, Structure* structure)
 {
-    auto* object = new (NotNull, allocateCell<WebAssemblyMemoryPrototype>(vm.heap)) WebAssemblyMemoryPrototype(vm, structure);
-    object->finishCreation(vm);
+    auto* object = new (NotNull, allocateCell<WebAssemblyMemoryPrototype>(vm)) WebAssemblyMemoryPrototype(vm, structure);
+    object->finishCreation(vm, globalObject);
     return object;
 }
 
@@ -121,11 +148,19 @@ Structure* WebAssemblyMemoryPrototype::createStructure(VM& vm, JSGlobalObject* g
     return Structure::create(vm, globalObject, prototype, TypeInfo(ObjectType, StructureFlags), info());
 }
 
-void WebAssemblyMemoryPrototype::finishCreation(VM& vm)
+void WebAssemblyMemoryPrototype::finishCreation(VM& vm, JSGlobalObject* globalObject)
 {
     Base::finishCreation(vm);
-    ASSERT(inherits(vm, info()));
+    ASSERT(inherits(info()));
     JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+
+    if (Options::useWasmJSTypes())
+        JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION("type"_s, webAssemblyMemoryProtoFuncType, static_cast<unsigned>(PropertyAttribute::None), 0, ImplementationVisibility::Public);
+
+    if (Options::useWasmMemoryToBufferAPIs()) {
+        JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION("toFixedLengthBuffer"_s, webAssemblyMemoryProtoFuncToFixedLengthBuffer, static_cast<unsigned>(PropertyAttribute::None), 0, ImplementationVisibility::Public);
+        JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION("toResizableBuffer"_s, webAssemblyMemoryProtoFuncToResizableBuffer, static_cast<unsigned>(PropertyAttribute::None), 0, ImplementationVisibility::Public);
+    }
 }
 
 WebAssemblyMemoryPrototype::WebAssemblyMemoryPrototype(VM& vm, Structure* structure)

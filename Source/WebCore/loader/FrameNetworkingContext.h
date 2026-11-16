@@ -19,10 +19,10 @@
 
 #pragma once
 
-#include "Document.h"
-#include "Frame.h"
-#include "NetworkingContext.h"
-#include "ReferrerPolicy.h"
+#include <WebCore/Document.h>
+#include <WebCore/LocalFrameInlines.h>
+#include <WebCore/NetworkingContext.h>
+#include <WebCore/ReferrerPolicy.h>
 
 namespace WebCore {
 
@@ -43,17 +43,17 @@ public:
     }
 
 protected:
-    explicit FrameNetworkingContext(Frame* frame)
-        : m_frame(makeWeakPtr(frame))
+    explicit FrameNetworkingContext(LocalFrame* frame)
+        : m_frame(frame)
     {
     }
 
-    Frame* frame() const { return m_frame.get(); }
+    LocalFrame* frame() const { return m_frame; }
 
 private:
     bool isValid() const override { return !!m_frame; }
 
-    WeakPtr<Frame> m_frame;
+    WeakPtr<LocalFrame> m_frame;
 };
 
 }

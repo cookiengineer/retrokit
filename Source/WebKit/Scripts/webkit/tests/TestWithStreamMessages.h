@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,9 +27,9 @@
 #include "ArgumentCoders.h"
 #include "Connection.h"
 #include "MessageNames.h"
-#include "TestWithStreamMessagesReplies.h"
 #include <wtf/Forward.h>
 #include <wtf/MachSendRight.h>
+#include <wtf/RuntimeApplicationChecks.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/text/WTFString.h>
 
@@ -44,73 +44,151 @@ static inline IPC::ReceiverName messageReceiverName()
 
 class SendString {
 public:
-    using Arguments = std::tuple<const String&>;
+    using Arguments = std::tuple<String>;
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithStream_SendString; }
     static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
     static constexpr bool isStreamEncodable = true;
+    static constexpr bool isStreamBatched = false;
 
     explicit SendString(const String& url)
-        : m_arguments(url)
+        : m_url(url)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        encoder << m_url;
     }
 
 private:
-    Arguments m_arguments;
+    const String& m_url;
 };
 
-class SendStringSynchronized {
+class SendStringAsync {
 public:
-    using Arguments = std::tuple<const String&>;
+    using Arguments = std::tuple<String>;
 
-    static IPC::MessageName name() { return IPC::MessageName::TestWithStream_SendStringSynchronized; }
-    static constexpr bool isSync = true;
+    static IPC::MessageName name() { return IPC::MessageName::TestWithStream_SendStringAsync; }
+    static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
     static constexpr bool isStreamEncodable = true;
     static constexpr bool isReplyStreamEncodable = true;
+    static constexpr bool isStreamBatched = false;
 
+    static IPC::MessageName asyncMessageReplyName() { return IPC::MessageName::TestWithStream_SendStringAsyncReply; }
     static constexpr auto callbackThread = WTF::CompletionHandlerCallThread::ConstructionThread;
-    using Reply = std::tuple<int64_t&>;
     using ReplyArguments = std::tuple<int64_t>;
-    explicit SendStringSynchronized(const String& url)
-        : m_arguments(url)
+    using Reply = CompletionHandler<void(int64_t)>;
+    using Promise = WTF::NativePromise<int64_t, IPC::Error>;
+    explicit SendStringAsync(const String& url)
+        : m_url(url)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        encoder << m_url;
     }
 
 private:
-    Arguments m_arguments;
+    const String& m_url;
+};
+
+class SendStringSync {
+public:
+    using Arguments = std::tuple<String>;
+
+    static IPC::MessageName name() { return IPC::MessageName::TestWithStream_SendStringSync; }
+    static constexpr bool isSync = true;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
+    static constexpr bool isStreamEncodable = true;
+    static constexpr bool isReplyStreamEncodable = true;
+    static constexpr bool isStreamBatched = false;
+
+    static constexpr auto callbackThread = WTF::CompletionHandlerCallThread::ConstructionThread;
+    using ReplyArguments = std::tuple<int64_t>;
+    using Reply = CompletionHandler<void(int64_t)>;
+    explicit SendStringSync(const String& url)
+        : m_url(url)
+    {
+    }
+
+    template<typename Encoder>
+    void encode(Encoder& encoder)
+    {
+        encoder << m_url;
+    }
+
+private:
+    const String& m_url;
+};
+
+class CallWithIdentifier {
+public:
+    using Arguments = std::tuple<>;
+
+    static IPC::MessageName name() { return IPC::MessageName::TestWithStream_CallWithIdentifier; }
+    static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
+    static constexpr bool isStreamEncodable = true;
+    static constexpr bool isReplyStreamEncodable = true;
+    static constexpr bool isStreamBatched = false;
+
+    static IPC::MessageName asyncMessageReplyName() { return IPC::MessageName::TestWithStream_CallWithIdentifierReply; }
+    static constexpr auto callbackThread = WTF::CompletionHandlerCallThread::ConstructionThread;
+    using ReplyArguments = std::tuple<>;
+    using Reply = CompletionHandler<void()>;
+    using Promise = WTF::NativePromise<void, IPC::Error>;
+    CallWithIdentifier()
+    {
+    }
+
+    template<typename Encoder>
+    void encode(Encoder& encoder)
+    {
+    }
+
+private:
 };
 
 #if PLATFORM(COCOA)
 class SendMachSendRight {
 public:
-    using Arguments = std::tuple<const MachSendRight&>;
+    using Arguments = std::tuple<MachSendRight>;
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithStream_SendMachSendRight; }
     static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
     static constexpr bool isStreamEncodable = false;
+    static constexpr bool isStreamBatched = false;
 
-    explicit SendMachSendRight(const MachSendRight& a1)
-        : m_arguments(a1)
+    explicit SendMachSendRight(MachSendRight&& a1)
+        : m_a1(WTF::move(a1))
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        encoder << WTF::move(m_a1);
     }
 
 private:
-    Arguments m_arguments;
+    MachSendRight&& m_a1;
 };
 #endif
 
@@ -121,49 +199,112 @@ public:
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithStream_ReceiveMachSendRight; }
     static constexpr bool isSync = true;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
     static constexpr bool isStreamEncodable = true;
     static constexpr bool isReplyStreamEncodable = false;
+    static constexpr bool isStreamBatched = false;
 
     static constexpr auto callbackThread = WTF::CompletionHandlerCallThread::ConstructionThread;
-    using Reply = std::tuple<MachSendRight&>;
     using ReplyArguments = std::tuple<MachSendRight>;
-    const Arguments& arguments() const
+    using Reply = CompletionHandler<void(MachSendRight&&)>;
+    ReceiveMachSendRight()
     {
-        return m_arguments;
+    }
+
+    template<typename Encoder>
+    void encode(Encoder& encoder)
+    {
     }
 
 private:
-    Arguments m_arguments;
 };
 #endif
 
 #if PLATFORM(COCOA)
 class SendAndReceiveMachSendRight {
 public:
-    using Arguments = std::tuple<const MachSendRight&>;
+    using Arguments = std::tuple<MachSendRight>;
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithStream_SendAndReceiveMachSendRight; }
     static constexpr bool isSync = true;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
     static constexpr bool isStreamEncodable = false;
     static constexpr bool isReplyStreamEncodable = false;
+    static constexpr bool isStreamBatched = false;
 
     static constexpr auto callbackThread = WTF::CompletionHandlerCallThread::ConstructionThread;
-    using Reply = std::tuple<MachSendRight&>;
     using ReplyArguments = std::tuple<MachSendRight>;
-    explicit SendAndReceiveMachSendRight(const MachSendRight& a1)
-        : m_arguments(a1)
+    using Reply = CompletionHandler<void(MachSendRight&&)>;
+    explicit SendAndReceiveMachSendRight(MachSendRight&& a1)
+        : m_a1(WTF::move(a1))
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        encoder << WTF::move(m_a1);
     }
 
 private:
-    Arguments m_arguments;
+    MachSendRight&& m_a1;
 };
 #endif
+
+class SendStringAsyncReply {
+public:
+    using Arguments = std::tuple<int64_t>;
+
+    static IPC::MessageName name() { return IPC::MessageName::TestWithStream_SendStringAsyncReply; }
+    static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
+    static constexpr bool isStreamEncodable = true;
+    static constexpr bool isStreamBatched = false;
+
+    explicit SendStringAsyncReply(int64_t returnValue)
+        : m_returnValue(returnValue)
+    {
+    }
+
+    template<typename Encoder>
+    void encode(Encoder& encoder)
+    {
+        encoder << m_returnValue;
+    }
+
+private:
+    int64_t m_returnValue;
+};
+
+class CallWithIdentifierReply {
+public:
+    using Arguments = std::tuple<>;
+
+    static IPC::MessageName name() { return IPC::MessageName::TestWithStream_CallWithIdentifierReply; }
+    static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
+    static constexpr bool isStreamEncodable = true;
+    static constexpr bool isStreamBatched = false;
+
+    CallWithIdentifierReply()
+    {
+    }
+
+    template<typename Encoder>
+    void encode(Encoder& encoder)
+    {
+    }
+
+private:
+};
 
 } // namespace TestWithStream
 } // namespace Messages

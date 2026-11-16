@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2015 Yusuke Suzuki <utatane.tea@gmail.com>.
+ * Copyright (C) 2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,6 +27,8 @@
 #include "config.h"
 #include <wtf/text/SymbolRegistry.h>
 
+#include <wtf/text/SymbolImpl.h>
+
 namespace WTF {
 
 SymbolRegistry::SymbolRegistry(Type type)
@@ -35,19 +38,15 @@ SymbolRegistry::SymbolRegistry(Type type)
 
 SymbolRegistry::~SymbolRegistry()
 {
-    for (auto& key : m_table) {
-        ASSERT(key.impl()->isSymbol());
-        static_cast<SymbolImpl*>(key.impl())->asRegisteredSymbolImpl()->clearSymbolRegistry();
-    }
+    for (auto& key : m_table)
+        SUPPRESS_UNCOUNTED_ARG downcast<SymbolImpl>(key.get())->asRegisteredSymbolImpl()->clearSymbolRegistry();
 }
 
 Ref<RegisteredSymbolImpl> SymbolRegistry::symbolForKey(const String& rep)
 {
-    auto addResult = m_table.add(SymbolRegistryKey(rep.impl()));
-    if (!addResult.isNewEntry) {
-        ASSERT(addResult.iterator->impl()->isSymbol());
-        return *static_cast<SymbolImpl*>(addResult.iterator->impl())->asRegisteredSymbolImpl();
-    }
+    auto addResult = m_table.add(rep.impl());
+    if (!addResult.isNewEntry)
+        return *downcast<SymbolImpl>(addResult.iterator->get())->asRegisteredSymbolImpl();
 
     RefPtr<RegisteredSymbolImpl> symbol;
     if (m_symbolType == Type::PrivateSymbol)
@@ -55,15 +54,21 @@ Ref<RegisteredSymbolImpl> SymbolRegistry::symbolForKey(const String& rep)
     else
         symbol = RegisteredSymbolImpl::create(*rep.impl(), *this);
 
-    *addResult.iterator = SymbolRegistryKey(symbol.get());
+    *addResult.iterator = symbol;
     return symbol.releaseNonNull();
 }
+
+// When removing a registered symbol from the table, we know it's already the one in the table, so no need for a string equality check.
+struct SymbolRegistryTableRemovalHashTranslator {
+    static unsigned hash(const RegisteredSymbolImpl* key) { return key->hash(); }
+    static bool NODELETE equal(const RefPtr<StringImpl>& a, const RegisteredSymbolImpl* b) { return a == b; }
+};
 
 void SymbolRegistry::remove(RegisteredSymbolImpl& uid)
 {
     ASSERT(uid.symbolRegistry() == this);
-    auto iterator = m_table.find(SymbolRegistryKey(&uid));
-    ASSERT_WITH_MESSAGE(iterator != m_table.end(), "The string being removed is registered in the string table of an other thread!");
+    auto iterator = m_table.find<SymbolRegistryTableRemovalHashTranslator>(&uid);
+    ASSERT_WITH_MESSAGE(iterator != m_table.end(), "The string being removed is registered in the string table of another thread!");
     m_table.remove(iterator);
 }
 

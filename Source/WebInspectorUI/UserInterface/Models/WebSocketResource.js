@@ -31,7 +31,7 @@ WI.WebSocketResource = class WebSocketResource extends WI.Resource
             type: WI.Resource.Type.WebSocket,
             loaderIdentifier,
             requestIdentifier,
-            requestMethod: "GET",
+            requestMethod: WI.HTTPUtilities.RequestMethod.GET,
             requestHeaders,
             requestSentTimestamp,
         });
@@ -77,10 +77,6 @@ WI.WebSocketResource = class WebSocketResource extends WI.Resource
         this._frames.push(frame);
         if (InspectorFrontendHost.isUnderTest())
             frame.dataForTest = data;
-
-        // COMPATIBILITY (iOS 10.3): `payloadLength` did not exist in 10.3 and earlier.
-        if (payloadLength === undefined)
-            payloadLength = new TextEncoder("utf-8").encode(data).length;
 
         this.increaseSize(payloadLength, elapsedTime);
 

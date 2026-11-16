@@ -28,6 +28,7 @@
 
 #include "config.h"
 #include "CDMProxyThunder.h"
+#include "GStreamerEMEUtilities.h"
 
 #if ENABLE(ENCRYPTED_MEDIA) && ENABLE(THUNDER)
 
@@ -42,7 +43,7 @@ GST_DEBUG_CATEGORY_EXTERN(webkitMediaThunderDecryptDebugCategory);
 namespace WebCore {
 
 // NOTE: YouTube 2019 EME conformance tests expect this to be >=5s.
-const WTF::Seconds s_licenseKeyResponseTimeout = WTF::Seconds(6);
+const Seconds s_licenseKeyResponseTimeout = Seconds(6);
 
 BoxPtr<OpenCDMSession> CDMProxyThunder::getDecryptionSession(DecryptionContext& in) const
 {
@@ -54,17 +55,24 @@ BoxPtr<OpenCDMSession> CDMProxyThunder::getDecryptionSession(DecryptionContext& 
 
     auto keyID = mappedKeyID.createVector();
 
-    auto keyHandle = getOrWaitForKeyHandle(keyID, WTFMove(in.cdmProxyDecryptionClient));
-    if (!keyHandle.has_value() || !keyHandle.value()->isStatusCurrentlyValid())
+    auto keyHandle = getOrWaitForKeyHandle(keyID, WTF::move(in.cdmProxyDecryptionClient));
+    if (!keyHandle) {
+        GST_ERROR("No key handle");
         return nullptr;
+    }
+
+    if (!keyHandle.value()->isStatusCurrentlyValid()) {
+        GST_ERROR("Key handle has no usable key");
+        return nullptr;
+    }
 
     KeyHandleValueVariant keyData = keyHandle.value()->value();
-    ASSERT(WTF::holds_alternative<BoxPtr<OpenCDMSession>>(keyData));
+    ASSERT(std::holds_alternative<BoxPtr<OpenCDMSession>>(keyData));
 
-    BoxPtr<OpenCDMSession> keyValue = WTF::get<BoxPtr<OpenCDMSession>>(keyData);
+    BoxPtr<OpenCDMSession> keyValue = std::get<BoxPtr<OpenCDMSession>>(keyData);
 
     if (!keyValue) {
-        keyValue = adoptInBoxPtr(opencdm_get_system_session(&static_cast<const CDMInstanceThunder*>(instance())->thunderSystem(), keyID.data(),
+        keyValue = adoptInBoxPtr(opencdm_get_system_session(&static_cast<const CDMInstanceThunder*>(instance())->thunderSystem(), keyID.span().data(),
             keyID.size(), s_licenseKeyResponseTimeout.millisecondsAs<uint32_t>()));
         ASSERT(keyValue);
         // takeValueIfDifferent takes and r-value ref of
@@ -80,25 +88,42 @@ BoxPtr<OpenCDMSession> CDMProxyThunder::getDecryptionSession(DecryptionContext& 
     return keyValue;
 }
 
-bool CDMProxyThunder::decrypt(CDMProxyThunder::DecryptionContext& input)
+DecryptionResult CDMProxyThunder::decrypt(CDMProxyThunder::DecryptionContext& input, const GRefPtr<GstCaps>& inputCaps)
 {
     BoxPtr<OpenCDMSession> session = getDecryptionSession(input);
     if (!session) {
         GST_WARNING("there is no valid session to decrypt for the provided key ID (or the operation was aborted)");
-        return false;
+        return DecryptionResult::Failure;
     }
 
-    GST_TRACE("decrypting");
-    // Decrypt cipher.
-    OpenCDMError errorCode = opencdm_gstreamer_session_decrypt(session->get(), input.dataBuffer, input.subsamplesBuffer, input.numSubsamples,
+    OpenCDMError errorCode;
+#if THUNDER_HAS_OCDM_DECRYPT_BUFFER
+    RELEASE_ASSERT_WITH_MESSAGE(inputCaps, "Decryption attempted without input caps");
+    errorCode = opencdm_gstreamer_session_decrypt_buffer(session->get(), input.dataBuffer, inputCaps.get());
+#else
+    UNUSED_PARAM(inputCaps);
+    errorCode = opencdm_gstreamer_session_decrypt(session->get(), input.dataBuffer, input.subsamplesBuffer, input.numSubsamples,
         input.ivBuffer, input.keyIDBuffer, 0);
-    if (errorCode) {
-        GST_ERROR("decryption failed, error code %X", errorCode);
-        return false;
-    }
+#endif
 
-    return true;
+    DecryptionResult result;
+    switch (errorCode) {
+    case ERROR_NONE:
+        result = DecryptionResult::Success;
+        break;
+    case ERROR_INVALID_ACCESSOR:
+        GST_ERROR("Decryption failed, converting ERROR_INVALID_ACCESSOR to NoKey error");
+        result = DecryptionResult::NoKey;
+        break;
+    default:
+        GST_ERROR("Decryption failed, error code 0x%X", errorCode);
+        result = DecryptionResult::Failure;
+        break;
+    };
+    return result;
 }
+
+#undef GST_CAT_DEFAULT
 
 } // namespace WebCore
 

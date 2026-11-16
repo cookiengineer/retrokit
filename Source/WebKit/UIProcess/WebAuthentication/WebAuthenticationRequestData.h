@@ -30,13 +30,18 @@
 #include "APIWebAuthenticationPanel.h"
 #include "FrameInfoData.h"
 #include "WebAuthenticationFlags.h"
+#include "WebPageProxy.h"
+#include <WebCore/CredentialRequestOptions.h>
 #include <WebCore/GlobalFrameIdentifier.h>
 #include <WebCore/PublicKeyCredentialCreationOptions.h>
 #include <WebCore/PublicKeyCredentialRequestOptions.h>
 #include <WebCore/WebAuthenticationConstants.h>
-#include <wtf/Variant.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
+
+namespace WebCore {
+class SecurityOriginData;
+}
 
 namespace WebKit {
 
@@ -50,15 +55,16 @@ struct WebAuthenticationRequestData {
     WeakPtr<WebPageProxy> page;
     WebAuthenticationPanelResult panelResult { WebAuthenticationPanelResult::Unavailable };
     RefPtr<API::WebAuthenticationPanel> panel;
-    std::optional<WebCore::GlobalFrameIdentifier> frameID;
-    WebKit::FrameInfoData frameInfo;
+    std::optional<WebCore::GlobalFrameIdentifier> globalFrameID;
+    std::optional<WebKit::FrameInfoData> frameInfo;
 
-    bool processingUserGesture;
     String cachedPin; // Only used to improve NFC Client PIN experience.
     WeakPtr<API::WebAuthenticationPanel> weakPanel;
+    std::optional<WebCore::MediationRequirement> mediation;
+    std::optional<WebCore::SecurityOriginData> parentOrigin;
 };
 
-WebCore::ClientDataType getClientDataType(const Variant<WebCore::PublicKeyCredentialCreationOptions, WebCore::PublicKeyCredentialRequestOptions>&);
+WebCore::ClientDataType NODELETE getClientDataType(const Variant<WebCore::PublicKeyCredentialCreationOptions, WebCore::PublicKeyCredentialRequestOptions>&);
 WebCore::UserVerificationRequirement getUserVerificationRequirement(const Variant<WebCore::PublicKeyCredentialCreationOptions, WebCore::PublicKeyCredentialRequestOptions>&);
 
 } // namespace WebKit

@@ -25,8 +25,8 @@
 
 #pragma once
 
-#include "SecurityPolicyViolationEvent.h"
 #include <JavaScriptCore/ConsoleTypes.h>
+#include <WebCore/SecurityPolicyViolationEvent.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
@@ -36,6 +36,7 @@ class FormData;
 struct CSPInfo {
     String documentURI;
     String sourceFile;
+    String sample;
     int lineNumber { 0 };
     int columnNumber { 0 };
 };
@@ -43,15 +44,13 @@ struct CSPInfo {
 struct WEBCORE_EXPORT ContentSecurityPolicyClient {
     // An inline function cannot be the first non-abstract virtual function declared
     // in the class as it results in the vtable being generated as a weak symbol.
-    // This hurts performance (in Mac OS X at least, when loading frameworks), so we
+    // This hurts performance (in macOS at least, when loading frameworks), so we
     // don't want to do it in WebKit.
-    virtual void willSendCSPViolationReport(CSPInfo&);
+    virtual void addConsoleMessage(MessageSource, MessageLevel, const String&, unsigned long requestIdentifier = 0) = 0;
 
     virtual ~ContentSecurityPolicyClient() = default;
 
-    virtual void addConsoleMessage(MessageSource, MessageLevel, const String&, unsigned long requestIdentifier = 0) = 0;
-    virtual void sendCSPViolationReport(URL&&, Ref<FormData>&&) = 0;
-    virtual void enqueueSecurityPolicyViolationEvent(SecurityPolicyViolationEvent::Init&&) = 0;
+    virtual void enqueueSecurityPolicyViolationEvent(SecurityPolicyViolationEventInit&&) = 0;
 };
 
 } // namespace WebCore

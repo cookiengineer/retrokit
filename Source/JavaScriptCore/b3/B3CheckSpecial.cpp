@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,8 +33,11 @@
 #include "B3StackmapGenerationParams.h"
 #include "B3ValueInlines.h"
 #include "CCallHelpers.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC { namespace B3 {
+
+WTF_MAKE_SEQUESTERED_ARENA_ALLOCATED_IMPL(CheckSpecial);
 
 using Inst = Air::Inst;
 using Arg = Air::Arg;
@@ -42,7 +45,7 @@ using GenerationContext = Air::GenerationContext;
 
 namespace {
 
-unsigned numB3Args(Kind kind)
+unsigned NODELETE numB3Args(Kind kind)
 {
     switch (kind.opcode()) {
     case CheckAdd:
@@ -57,12 +60,12 @@ unsigned numB3Args(Kind kind)
     }
 }
 
-unsigned numB3Args(Value* value)
+unsigned NODELETE numB3Args(Value* value)
 {
     return numB3Args(value->kind());
 }
 
-unsigned numB3Args(Inst& inst)
+unsigned NODELETE numB3Args(Inst& inst)
 {
     return numB3Args(inst.origin);
 }
@@ -72,7 +75,7 @@ unsigned numB3Args(Inst& inst)
 CheckSpecial::Key::Key(const Inst& inst)
 {
     m_kind = inst.kind;
-    m_numArgs = inst.args.size();
+    m_numArgs = inst.args().size();
     m_stackmapRole = SameAsRep;
 }
 
@@ -94,16 +97,15 @@ CheckSpecial::CheckSpecial(const CheckSpecial::Key& key)
 {
 }
 
-CheckSpecial::~CheckSpecial()
-{
-}
+CheckSpecial::~CheckSpecial() = default;
 
 Inst CheckSpecial::hiddenBranch(const Inst& inst) const
 {
-    Inst hiddenBranch(m_checkKind, inst.origin);
-    hiddenBranch.args.reserveInitialCapacity(m_numCheckArgs);
-    for (unsigned i = 0; i < m_numCheckArgs; ++i)
-        hiddenBranch.args.append(inst.args[i + 1]);
+    Vector<Arg, 8> args;
+    args.appendUsingFunctor(m_numCheckArgs, [&](size_t i) {
+        return inst.args()[i + 1];
+    });
+    Inst hiddenBranch(m_checkKind, inst.origin, WTF::move(args));
     ASSERT(hiddenBranch.isTerminal());
     return hiddenBranch;
 }
@@ -119,13 +121,19 @@ void CheckSpecial::forEachArg(Inst& inst, const ScopedLambda<Inst::EachArgCallba
                 ASSERT(!optionalDefArgWidth); // There can only be one Def'ed arg.
                 optionalDefArgWidth = width;
             }
-            unsigned index = &arg - &hidden.args[0];
-            callback(inst.args[1 + index], role, bank, width);
+            unsigned index = &arg - &hidden.args()[0];
+            callback(inst.args()[1 + index], role, bank, width);
         });
 
     std::optional<unsigned> firstRecoverableIndex;
-    if (m_checkKind.opcode == BranchAdd32 || m_checkKind.opcode == BranchAdd64)
+    switch (m_checkKind.opcode) {
+    case BranchAdd32:
+    case BranchAdd64:
         firstRecoverableIndex = 1;
+        break;
+    default:
+        break;
+    }
     forEachArgImpl(numB3Args(inst), m_numCheckArgs + 1, inst, m_stackmapRole, firstRecoverableIndex, callback, optionalDefArgWidth);
 }
 
@@ -133,7 +141,7 @@ bool CheckSpecial::isValid(Inst& inst)
 {
     return hiddenBranch(inst).isValidForm()
         && isValidImpl(numB3Args(inst), m_numCheckArgs + 1, inst)
-        && inst.args.size() - m_numCheckArgs - 1 == inst.origin->numChildren() - numB3Args(inst);
+        && inst.args().size() - m_numCheckArgs - 1 == inst.origin->numChildren() - numB3Args(inst);
 }
 
 bool CheckSpecial::admitsStack(Inst& inst, unsigned argIndex)
@@ -172,80 +180,109 @@ CCallHelpers::Jump CheckSpecial::generate(Inst& inst, CCallHelpers& jit, Generat
     // capture all of inst in the closure below.
     Vector<Arg, 3> args;
     for (unsigned i = 0; i < m_numCheckArgs; ++i)
-        args.append(inst.args[1 + i]);
+        args.append(inst.args()[1 + i]);
 
-    context.latePaths.append(
+    context.latePaths.append(std::tuple {
+        inst.origin->origin(),
         createSharedTask<GenerationContext::LatePathFunction>(
-            [=] (CCallHelpers& jit, GenerationContext& context) {
+            [=, this] (auto& jit, GenerationContext& context) {
                 fail.link(&jit);
 
                 // If necessary, undo the operation.
                 switch (m_checkKind.opcode) {
                 case BranchAdd32:
-                    if ((m_numCheckArgs == 4 && args[1] == args[2] && args[2] == args[3])
-                        || (m_numCheckArgs == 3 && args[1] == args[2])) {
-                        // This is ugly, but that's fine - we won't have to do this very often.
-                        ASSERT(args[1].isGPR());
-                        GPRReg valueGPR = args[1].gpr();
-                        GPRReg scratchGPR = CCallHelpers::selectScratchGPR(valueGPR);
-                        jit.pushToSave(scratchGPR);
-                        jit.setCarry(scratchGPR);
-                        jit.lshift32(CCallHelpers::TrustedImm32(31), scratchGPR);
-                        jit.urshift32(CCallHelpers::TrustedImm32(1), valueGPR);
-                        jit.or32(scratchGPR, valueGPR);
-                        jit.popToRestore(scratchGPR);
-                        break;
-                    }
-                    if (m_numCheckArgs == 4) {
-                        if (args[1] == args[3])
-                            Inst(Sub32, nullptr, args[2], args[3]).generate(jit, context);
-                        else if (args[2] == args[3])
-                            Inst(Sub32, nullptr, args[1], args[3]).generate(jit, context);
-                    } else if (m_numCheckArgs == 3)
-                        Inst(Sub32, nullptr, args[1], args[2]).generate(jit, context);
+                    // this instruction happens not to be used (and requires unimplemented assembler instructions) in 32-bit
+                    if constexpr (is64Bit()) {
+                        if ((m_numCheckArgs == 4 && args[1] == args[2] && args[2] == args[3])
+                            || (m_numCheckArgs == 3 && args[1] == args[2])) {
+                            // This is ugly, but that's fine - we won't have to do this very often.
+                            ASSERT(args[1].isGPR());
+                            GPRReg valueGPR = args[1].gpr();
+                            GPRReg scratchGPR = CCallHelpers::selectScratchGPR(valueGPR);
+                            jit.pushToSave(scratchGPR);
+                            jit.setCarry(scratchGPR);
+                            jit.lshift32(CCallHelpers::TrustedImm32(31), scratchGPR);
+                            jit.urshift32(CCallHelpers::TrustedImm32(1), valueGPR);
+                            jit.or32(scratchGPR, valueGPR);
+                            jit.popToRestore(scratchGPR);
+                            break;
+                        }
+                        if (m_numCheckArgs == 4) {
+                            if (args[1] == args[3])
+                                Inst(Sub32, nullptr, args[2], args[3]).generate(jit, context);
+                            else if (args[2] == args[3])
+                                Inst(Sub32, nullptr, args[1], args[3]).generate(jit, context);
+                        } else if (m_numCheckArgs == 3)
+                            Inst(Sub32, nullptr, args[1], args[2]).generate(jit, context);
+                    } else
+                        UNREACHABLE_FOR_PLATFORM();
                     break;
                 case BranchAdd64:
-                    if ((m_numCheckArgs == 4 && args[1] == args[2] && args[2] == args[3])
-                        || (m_numCheckArgs == 3 && args[1] == args[2])) {
-                        // This is ugly, but that's fine - we won't have to do this very often.
-                        ASSERT(args[1].isGPR());
-                        GPRReg valueGPR = args[1].gpr();
-                        GPRReg scratchGPR = CCallHelpers::selectScratchGPR(valueGPR);
-                        jit.pushToSave(scratchGPR);
-                        jit.setCarry(scratchGPR);
-                        jit.lshift64(CCallHelpers::TrustedImm32(63), scratchGPR);
-                        jit.urshift64(CCallHelpers::TrustedImm32(1), valueGPR);
-                        jit.or64(scratchGPR, valueGPR);
-                        jit.popToRestore(scratchGPR);
-                        break;
-                    }
+                    // this instruction is only selectable on 64-bit platforms
+                    if constexpr (is64Bit()) {
+                        if ((m_numCheckArgs == 4 && args[1] == args[2] && args[2] == args[3])
+                            || (m_numCheckArgs == 3 && args[1] == args[2])) {
+                            // This is ugly, but that's fine - we won't have to do this very often.
+                            ASSERT(args[1].isGPR());
+                            GPRReg valueGPR = args[1].gpr();
+                            GPRReg scratchGPR = CCallHelpers::selectScratchGPR(valueGPR);
+                            jit.pushToSave(scratchGPR);
+                            jit.setCarry(scratchGPR);
+                            jit.lshift64(CCallHelpers::TrustedImm32(63), scratchGPR);
+                            jit.urshift64(CCallHelpers::TrustedImm32(1), valueGPR);
+                            jit.or64(scratchGPR, valueGPR);
+                            jit.popToRestore(scratchGPR);
+                            break;
+                        }
+                        if (m_numCheckArgs == 4) {
+                            if (args[1] == args[3])
+                                Inst(Sub64, nullptr, args[2], args[3]).generate(jit, context);
+                            else if (args[2] == args[3])
+                                Inst(Sub64, nullptr, args[1], args[3]).generate(jit, context);
+                        } else if (m_numCheckArgs == 3)
+                            Inst(Sub64, nullptr, args[1], args[2]).generate(jit, context);
+                    } else
+                        UNREACHABLE_FOR_PLATFORM();
+                    break;
+                case BranchSub32: {
                     if (m_numCheckArgs == 4) {
-                        if (args[1] == args[3])
-                            Inst(Sub64, nullptr, args[2], args[3]).generate(jit, context);
-                        else if (args[2] == args[3])
-                            Inst(Sub64, nullptr, args[1], args[3]).generate(jit, context);
-                    } else if (m_numCheckArgs == 3)
-                        Inst(Sub64, nullptr, args[1], args[2]).generate(jit, context);
+                        // Use, Use, EarlyDef. Thus Def register is different from both Use.
+                        // In this case, we do not need to recover them since Used registers are not clobbered.
+                    } else if (m_numCheckArgs == 3) {
+                        // In that case, just adding back will recover the original input in UseDef side.
+                        Inst(Add32, nullptr, args[1], args[2]).generate(jit, context);
+                    }
                     break;
-                case BranchSub32:
-                    Inst(Add32, nullptr, args[1], args[2]).generate(jit, context);
-                    break;
+                }
                 case BranchSub64:
-                    Inst(Add64, nullptr, args[1], args[2]).generate(jit, context);
+                    // this instruction is only selectable on 64-bit platforms
+                    if constexpr (is64Bit()) {
+                        if (m_numCheckArgs == 4) {
+                            // Use, Use, EarlyDef. Thus Def register is different from both Use.
+                            // In this case, we do not need to recover them since Used registers are not clobbered.
+                        } else if (m_numCheckArgs == 3) {
+                            // In that case, just adding back will recover the original input in UseDef side.
+                            Inst(Add64, nullptr, args[1], args[2]).generate(jit, context);
+                        }
+                    } else
+                        UNREACHABLE_FOR_PLATFORM();
                     break;
                 case BranchNeg32:
                     Inst(Neg32, nullptr, args[1]).generate(jit, context);
                     break;
                 case BranchNeg64:
-                    Inst(Neg64, nullptr, args[1]).generate(jit, context);
+                    // this instruction is only selectable on 64-bit platforms
+                    if constexpr (is64Bit())
+                        Inst(Neg64, nullptr, args[1]).generate(jit, context);
+                    else
+                        UNREACHABLE_FOR_PLATFORM();
                     break;
                 default:
                     break;
                 }
-                
                 value->m_generator->run(jit, StackmapGenerationParams(value, reps, context));
-            }));
-
+            })
+        });
     return CCallHelpers::Jump(); // As far as Air thinks, we are not a terminal.
 }
 

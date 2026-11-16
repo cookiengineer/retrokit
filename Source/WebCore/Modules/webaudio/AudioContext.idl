@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010, Google Inc. All rights reserved.
+ * Copyright (C) 2010 Google Inc. All rights reserved.
  * Copyright (C) 2011 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,19 +26,17 @@
 [
     ActiveDOMObject,
     Conditional=WEB_AUDIO,
-    EnabledBySetting=WebAudio,
+    EnabledBySetting=WebAudioEnabled,
     ExportMacro=WEBCORE_EXPORT,
     JSGenerateToNativeObject,
     Exposed=Window
 ] interface AudioContext : BaseAudioContext {
-    [CallWith=Document] constructor(optional AudioContextOptions contextOptions);
+    [CallWith=CurrentDocument] constructor(optional AudioContextOptions contextOptions = {});
 
     readonly attribute double baseLatency;
+    readonly attribute double outputLatency;
 
-    // FIXME: Add support.
-    // readonly attribute double outputLatency;
-
-    [CallWith=ActiveWindow] AudioTimestamp getOutputTimestamp();
+    AudioTimestamp getOutputTimestamp();
 
     [ImplementedAs=suspendRendering] Promise<undefined> suspend();
     [ImplementedAs=resumeRendering] Promise<undefined> resume();

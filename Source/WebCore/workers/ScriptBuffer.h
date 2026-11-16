@@ -30,38 +30,37 @@
 
 #pragma once
 
-#include "SharedBuffer.h"
+#include <WebCore/SharedBuffer.h>
+#include <wtf/Platform.h>
 
 namespace WebCore {
 
 class ScriptBuffer {
 public:
     ScriptBuffer() = default;
-
-    ScriptBuffer(RefPtr<SharedBuffer>&& buffer)
-        : m_buffer(WTFMove(buffer))
-    {
-    }
+    WEBCORE_EXPORT explicit ScriptBuffer(const String&);
+    WEBCORE_EXPORT explicit ScriptBuffer(RefPtr<const FragmentedSharedBuffer>&&);
 
     static ScriptBuffer empty();
 
-    WEBCORE_EXPORT explicit ScriptBuffer(const String&);
-
     String toString() const;
-    SharedBuffer* buffer() const { return m_buffer.get(); }
+    const SharedBufferBuilder& bufferBuilder() const LIFETIME_BOUND { return m_buffer; }
+    const FragmentedSharedBuffer* buffer() const { return m_buffer.buffer(); }
+    RefPtr<const FragmentedSharedBuffer> bufferForSerialization() const { return m_buffer.buffer(); }
+    size_t size() const { return m_buffer.size(); }
 
-    ScriptBuffer isolatedCopy() const { return ScriptBuffer(m_buffer ? RefPtr<SharedBuffer>(m_buffer->copy()) : nullptr); }
+    ScriptBuffer isolatedCopy() const { return ScriptBuffer(m_buffer ? RefPtr<FragmentedSharedBuffer>(m_buffer.copyBuffer()) : nullptr); }
     explicit operator bool() const { return !!m_buffer; }
-    bool isEmpty() const { return !m_buffer || !m_buffer->size(); }
+    bool isEmpty() const { return m_buffer.isEmpty(); }
 
-    WEBCORE_EXPORT bool containsSingleFileMappedSegment() const;
+    WEBCORE_EXPORT bool NODELETE containsSingleFileMappedSegment() const;
     void append(const String&);
+    void append(const FragmentedSharedBuffer&);
+
+    bool operator==(const ScriptBuffer& other) const { return m_buffer == other.m_buffer; }
 
 private:
-    RefPtr<SharedBuffer> m_buffer; // Contains the UTF-8 encoded script.
+    SharedBufferBuilder m_buffer; // Contains the UTF-8 encoded script.
 };
-
-bool operator==(const ScriptBuffer&, const ScriptBuffer&);
-bool operator!=(const ScriptBuffer&, const ScriptBuffer&);
 
 } // namespace WebCore

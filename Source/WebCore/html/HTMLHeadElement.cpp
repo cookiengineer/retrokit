@@ -26,11 +26,11 @@
 
 #include "HTMLNames.h"
 #include "Text.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLHeadElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLHeadElement);
 
 using namespace HTMLNames;
 
@@ -49,5 +49,7 @@ Ref<HTMLHeadElement> HTMLHeadElement::create(const QualifiedName& tagName, Docum
 {
     return adoptRef(*new HTMLHeadElement(tagName, document));
 }
+
+HTMLHeadElement::~HTMLHeadElement() = default;
 
 }

@@ -32,7 +32,9 @@
 
 #include "ActiveDOMObject.h"
 #include "CDMInstanceSession.h"
+#include "CDMKeyID.h"
 #include "EventTarget.h"
+#include "EventTargetInterfaces.h"
 #include "IDLTypes.h"
 #include "MediaKeyMessageType.h"
 #include "MediaKeySessionType.h"
@@ -61,21 +63,22 @@ class SharedBuffer;
 
 template<typename IDLType> class DOMPromiseProxy;
 
-class MediaKeySession final : public RefCounted<MediaKeySession>, public EventTargetWithInlineData, public ActiveDOMObject, public CDMInstanceSessionClient {
-    WTF_MAKE_ISO_ALLOCATED(MediaKeySession);
+class MediaKeySession final : public RefCounted<MediaKeySession>, public EventTarget, public ActiveDOMObject, public CDMInstanceSessionClient {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(MediaKeySession, WEBCORE_EXPORT);
 public:
     static Ref<MediaKeySession> create(Document&, WeakPtr<MediaKeys>&&, MediaKeySessionType, bool useDistinctiveIdentifier, Ref<CDM>&&, Ref<CDMInstanceSession>&&);
-    virtual ~MediaKeySession();
+    WEBCORE_EXPORT virtual ~MediaKeySession();
 
-    using CDMInstanceSessionClient::weakPtrFactory;
-    using WeakValueType = CDMInstanceSessionClient::WeakValueType;
-    using RefCounted<MediaKeySession>::ref;
-    using RefCounted<MediaKeySession>::deref;
+    // ActiveDOMObject, CDMInstanceSessionClient.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
+    USING_CAN_MAKE_WEAKPTR(CDMInstanceSessionClient);
 
     bool isClosed() const { return m_closed; }
 
-    const String& sessionId() const;
-    double expiration() const;
+    const String& NODELETE sessionId() const;
+    double NODELETE expiration() const;
     Ref<MediaKeyStatusMap> keyStatuses() const;
 
     void generateRequest(const AtomString&, const BufferSource&, Ref<DeferredPromise>&&);
@@ -87,16 +90,19 @@ public:
     using ClosedPromise = DOMPromiseProxy<IDLUndefined>;
     ClosedPromise& closed() { return m_closedPromise.get(); }
 
-    const Vector<std::pair<Ref<SharedBuffer>, MediaKeyStatus>>& statuses() const { return m_statuses; }
+    const Vector<std::pair<CDMKeyID, MediaKeyStatus>>& statuses() const LIFETIME_BOUND { return m_statuses; }
 
     unsigned internalInstanceSessionObjectRefCount() const { return m_instanceSession->refCount(); }
+
+    bool hasSecurityOrigin(const String&) const;
 
 private:
     MediaKeySession(Document&, WeakPtr<MediaKeys>&&, MediaKeySessionType, bool useDistinctiveIdentifier, Ref<CDM>&&, Ref<CDMInstanceSession>&&);
     void enqueueMessage(MediaKeyMessageType, const SharedBuffer&);
-    void updateExpiration(double);
+    void NODELETE updateExpiration(double);
     void sessionClosed();
     String mediaKeysStorageDirectory() const;
+    CDMKeyGroupingStrategy NODELETE keyGroupingStrategy() const;
 
     // CDMInstanceSessionClient
     void updateKeyStatuses(CDMInstanceSessionClient::KeyStatusVector&&) override;
@@ -105,50 +111,52 @@ private:
     PlatformDisplayID displayID() final;
 
     // EventTarget
-    EventTargetInterface eventTargetInterface() const override { return MediaKeySessionEventTargetInterfaceType; }
-    ScriptExecutionContext* scriptExecutionContext() const override { return ActiveDOMObject::scriptExecutionContext(); }
+    enum EventTargetInterfaceType eventTargetInterface() const override { return EventTargetInterfaceType::MediaKeySession; }
+    ScriptExecutionContext* NODELETE scriptExecutionContext() const override;
     void refEventTarget() override { ref(); }
     void derefEventTarget() override { deref(); }
 
     // ActiveDOMObject
-    const char* activeDOMObjectName() const final;
-    bool virtualHasPendingActivity() const final;
+    bool NODELETE virtualHasPendingActivity() const final;
+    void stop() final;
 
     // DisplayChangedObserver
     void displayChanged(PlatformDisplayID);
 
 #if !RELEASE_LOG_DISABLED
     // LoggerHelper
-    const WTF::Logger& logger() const { return m_logger; }
-    const char* logClassName() const { return "MediaKeySession"; }
-    WTFLogChannel& logChannel() const;
-    const void* logIdentifier() const { return m_logIdentifier; }
+    const Logger& logger() const { return m_logger; }
+    ASCIILiteral logClassName() const { return "MediaKeySession"_s; }
+    WTFLogChannel& NODELETE logChannel() const;
+    uint64_t logIdentifier() const { return m_logIdentifier; }
 
-    Ref<WTF::Logger> m_logger;
-    const void* m_logIdentifier;
+    const Ref<const Logger> m_logger;
+    const uint64_t m_logIdentifier;
 #endif
 
     WeakPtr<MediaKeys> m_keys;
     String m_sessionId;
     double m_expiration;
-    UniqueRef<ClosedPromise> m_closedPromise;
-    Ref<MediaKeyStatusMap> m_keyStatuses;
+    const UniqueRef<ClosedPromise> m_closedPromise;
+    const Ref<MediaKeyStatusMap> m_keyStatuses;
     bool m_closed { false };
     bool m_uninitialized { true };
     bool m_callable { false };
     bool m_useDistinctiveIdentifier;
     MediaKeySessionType m_sessionType;
-    Ref<CDM> m_implementation;
-    Ref<CDMInstanceSession> m_instanceSession;
+    const Ref<CDM> m_implementation;
+    const Ref<CDMInstanceSession> m_instanceSession;
     Vector<Ref<SharedBuffer>> m_recordOfKeyUsage;
     double m_firstDecryptTime { 0 };
     double m_latestDecryptTime { 0 };
-    Vector<std::pair<Ref<SharedBuffer>, MediaKeyStatus>> m_statuses;
+    Vector<std::pair<CDMKeyID, MediaKeyStatus>> m_statuses;
 
     using DisplayChangedObserver = Observer<void(PlatformDisplayID)>;
-    DisplayChangedObserver m_displayChangedObserver;
+    const Ref<DisplayChangedObserver> m_displayChangedObserver;
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_EVENTTARGET(MediaKeySession)
 
 #endif // ENABLE(ENCRYPTED_MEDIA)

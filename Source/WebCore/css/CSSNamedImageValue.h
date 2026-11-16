@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015, 2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,35 +25,34 @@
 
 #pragma once
 
-#include "CSSImageGeneratorValue.h"
-#include "Image.h"
+#include "CSSCustomIdent.h"
+#include "CSSValue.h"
 
 namespace WebCore {
 
-class CSSNamedImageValue final : public CSSImageGeneratorValue {
+namespace Style {
+class BuilderState;
+class Image;
+}
+
+class CSSNamedImageValue final : public CSSValue {
 public:
-    static Ref<CSSNamedImageValue> create(const String& name)
+    static Ref<CSSNamedImageValue> create(CSS::CustomIdent&& name)
     {
-        return adoptRef(*new CSSNamedImageValue(name));
+        return adoptRef(*new CSSNamedImageValue(WTF::move(name)));
     }
+    ~CSSNamedImageValue();
 
-    String customCSSText() const;
+    String customCSSText(const CSS::SerializationContext&) const;
+    bool NODELETE equals(const CSSNamedImageValue&) const;
 
-    bool isFixedSize() const { return false; }
-    bool isPending() const { return false; }
-
-    RefPtr<Image> image(RenderElement&, const FloatSize&);
-
-    bool equals(const CSSNamedImageValue&) const;
+    RefPtr<Style::Image> createStyleImage(const Style::BuilderState&) const;
 
 private:
-    explicit CSSNamedImageValue(const String& name)
-        : CSSImageGeneratorValue(NamedImageClass)
-        , m_name(name)
-    {
-    }
+    explicit CSSNamedImageValue(CSS::CustomIdent&&);
 
-    String m_name;
+    CSS::CustomIdent m_name;
+    mutable RefPtr<Style::Image> m_cachedStyleImage;
 };
 
 } // namespace WebCore

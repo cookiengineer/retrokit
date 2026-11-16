@@ -29,13 +29,27 @@
 #include "CallbackResult.h"
 #include <wtf/ThreadSafeRefCounted.h>
 
+namespace JSC {
+class JSValue;
+} // namespace JSC
+
 namespace WebCore {
 
 class AbortAlgorithm : public ThreadSafeRefCounted<AbortAlgorithm>, public ActiveDOMCallback {
 public:
     using ActiveDOMCallback::ActiveDOMCallback;
 
-    virtual CallbackResult<void> handleEvent() = 0;
+    // ContextDestructionObserver.
+    void ref() const final { ThreadSafeRefCounted::ref(); }
+    void deref() const final { ThreadSafeRefCounted::deref(); }
+
+    virtual bool isJSAbortAlgorithm() const { return false; }
+
+    virtual CallbackResult<void> invoke(JSC::JSValue) = 0;
+    virtual CallbackResult<void> invokeRethrowingException(JSC::JSValue) = 0;
+
+private:
+    virtual bool hasCallback() const = 0;
 };
 
 } // namespace WebCore

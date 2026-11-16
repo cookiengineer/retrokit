@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "AnimationFrameRate.h"
+#include <WebCore/AnimationFrameRate.h>
 
 namespace WTF {
 class TextStream;
@@ -44,34 +44,8 @@ struct DisplayUpdate {
         return { (updateIndex + 1) % updatesPerSecond, updatesPerSecond };
     }
     
-    WEBCORE_EXPORT bool relevantForUpdateFrequency(FramesPerSecond) const;
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<DisplayUpdate> decode(Decoder&);
+    WEBCORE_EXPORT bool NODELETE relevantForUpdateFrequency(FramesPerSecond) const;
 };
-
-template<class Encoder>
-void DisplayUpdate::encode(Encoder& encoder) const
-{
-    encoder << updateIndex;
-    encoder << updatesPerSecond;
-}
-
-template<class Decoder>
-std::optional<DisplayUpdate> DisplayUpdate::decode(Decoder& decoder)
-{
-    std::optional<unsigned> updateIndex;
-    decoder >> updateIndex;
-    if (!updateIndex)
-        return std::nullopt;
-
-    std::optional<FramesPerSecond> updatesPerSecond;
-    decoder >> updatesPerSecond;
-    if (!updatesPerSecond)
-        return std::nullopt;
-
-    return {{ *updateIndex, *updatesPerSecond }};
-}
 
 WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const DisplayUpdate&);
 

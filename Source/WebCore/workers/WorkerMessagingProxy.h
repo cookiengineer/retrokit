@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2017 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,36 +25,44 @@
 
 #pragma once
 
+#include "WorkerBadgeProxy.h"
 #include "WorkerGlobalScopeProxy.h"
 #include "WorkerDebuggerProxy.h"
 #include "WorkerLoaderProxy.h"
 #include "WorkerObjectProxy.h"
+#include <wtf/CheckedPtr.h>
 #include <wtf/MonotonicTime.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeRefCounted.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
 class DedicatedWorkerThread;
+class WeakPtrImplWithEventTargetData;
 class WorkerInspectorProxy;
+class WorkerUserGestureForwarder;
 
-class WorkerMessagingProxy final : public ThreadSafeRefCounted<WorkerMessagingProxy>, public WorkerGlobalScopeProxy, public WorkerObjectProxy, public WorkerLoaderProxy, public WorkerDebuggerProxy {
-    WTF_MAKE_FAST_ALLOCATED;
+class WorkerMessagingProxy final : public ThreadSafeRefCounted<WorkerMessagingProxy>, public WorkerGlobalScopeProxy, public WorkerObjectProxy, public WorkerLoaderProxy, public WorkerDebuggerProxy, public WorkerBadgeProxy, public CanMakeThreadSafeCheckedPtr<WorkerMessagingProxy> {
+    WTF_MAKE_TZONE_ALLOCATED(WorkerMessagingProxy);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WorkerMessagingProxy);
 public:
     explicit WorkerMessagingProxy(Worker&);
     virtual ~WorkerMessagingProxy();
 
-    // Implementation of WorkerLoaderProxy.
-    // This method is used in the main thread to post task back to the worker thread.
-    bool postTaskForModeToWorkerOrWorkletGlobalScope(ScriptExecutionContext::Task&&, const String& mode) final;
+    uint32_t checkedPtrCount() const final { return CanMakeThreadSafeCheckedPtr<WorkerMessagingProxy>::checkedPtrCount(); }
+    uint32_t checkedPtrCountWithoutThreadCheck() const final { return CanMakeThreadSafeCheckedPtr<WorkerMessagingProxy>::checkedPtrCountWithoutThreadCheck(); }
+    void incrementCheckedPtrCount() const final { CanMakeThreadSafeCheckedPtr<WorkerMessagingProxy>::incrementCheckedPtrCount(); }
+    void decrementCheckedPtrCount() const final { CanMakeThreadSafeCheckedPtr<WorkerMessagingProxy>::decrementCheckedPtrCount(); }
+    void setDidBeginCheckedPtrDeletion() final { CanMakeThreadSafeCheckedPtr<WorkerMessagingProxy>::setDidBeginCheckedPtrDeletion(); }
 
 private:
     // Implementations of WorkerGlobalScopeProxy.
     // (Only use these functions in the worker object thread.)
-    void startWorkerGlobalScope(const URL& scriptURL, const String& name, const String& userAgent, bool isOnline, const ScriptBuffer& sourceCode, const ContentSecurityPolicyResponseHeaders&, bool shouldBypassMainWorldContentSecurityPolicy, const CrossOriginEmbedderPolicy&, MonotonicTime timeOrigin, ReferrerPolicy, WorkerType, FetchRequestCredentials, JSC::RuntimeFlags) final;
+    void startWorkerGlobalScope(const URL& scriptURL, PAL::SessionID, const String& name, WorkerInitializationData&&, const ScriptBuffer& sourceCode, const ContentSecurityPolicyResponseHeaders&, bool shouldBypassMainWorldContentSecurityPolicy, const CrossOriginEmbedderPolicy&, MonotonicTime timeOrigin, ReferrerPolicy, WorkerType, FetchRequestCredentials, JSC::RuntimeFlags) final;
     void terminateWorkerGlobalScope() final;
     void postMessageToWorkerGlobalScope(MessageWithMessagePorts&&) final;
     void postTaskToWorkerGlobalScope(Function<void(ScriptExecutionContext&)>&&) final;
-    bool hasPendingActivity() const final;
     void workerObjectDestroyed() final;
     void notifyNetworkStateChange(bool isOnline) final;
     void suspendForBackForwardCache() final;
@@ -65,8 +73,7 @@ private:
     void postMessageToWorkerObject(MessageWithMessagePorts&&) final;
     void postTaskToWorkerObject(Function<void(Worker&)>&&) final;
     void postExceptionToWorkerObject(const String& errorMessage, int lineNumber, int columnNumber, const String& sourceURL) final;
-    void confirmMessageFromWorkerObject(bool hasPendingActivity) final;
-    void reportPendingActivity(bool hasPendingActivity) final;
+    void reportErrorToWorkerObject(const String&) final;
     void workerGlobalScopeClosed() final;
     void workerGlobalScopeDestroyed() final;
 
@@ -80,26 +87,31 @@ private:
     // requests and to send callbacks back to WorkerGlobalScope.
     bool isWorkerMessagingProxy() const final { return true; }
     void postTaskToLoader(ScriptExecutionContext::Task&&) final;
+    ScriptExecutionContextIdentifier loaderContextIdentifier() const final;
     RefPtr<CacheStorageConnection> createCacheStorageConnection() final;
+    RefPtr<FileSystemStorageConnection> createFileSystemStorageConnection() final;
     RefPtr<RTCDataChannelRemoteHandlerConnection> createRTCDataChannelRemoteHandlerConnection() final;
+    RefPtr<IDBClient::IDBConnectionProxy> createIDBConnectionProxy() final;
 
     void workerThreadCreated(DedicatedWorkerThread&);
 
-    // Only use this method on the worker object thread.
-    bool askedToTerminate() const { return m_askedToTerminate; }
+    bool askedToTerminate() const final { return m_askedToTerminate; }
 
     void workerGlobalScopeDestroyedInternal();
-    void reportPendingActivityInternal(bool confirmingMessage, bool hasPendingActivity);
-    Worker* workerObject() const { return m_workerObject; }
+    Worker* workerObject() const;
+
+    // WorkerBadgeProxy
+    void setAppBadge(std::optional<uint64_t>) final;
 
     RefPtr<ScriptExecutionContext> m_scriptExecutionContext;
-    RefPtr<WorkerInspectorProxy> m_inspectorProxy;
-    Worker* m_workerObject;
+    Markable<ScriptExecutionContextIdentifier> m_scriptExecutionContextIdentifier;
+    ScriptExecutionContextIdentifier m_loaderContextIdentifier;
+    const Ref<WorkerInspectorProxy> m_inspectorProxy;
+    RefPtr<WorkerUserGestureForwarder> m_userGestureForwarder;
+    WeakPtr<Worker, WeakPtrImplWithEventTargetData> m_workerObject;
     bool m_mayBeDestroyed { false };
     RefPtr<DedicatedWorkerThread> m_workerThread;
-
-    unsigned m_unconfirmedMessageCount { 0 }; // Unconfirmed messages from worker object to worker thread.
-    bool m_workerThreadHadPendingActivity { false }; // The latest confirmation from worker thread reported that it was still active.
+    URL m_scriptURL;
 
     bool m_askedToSuspend { false };
     bool m_askedToTerminate { false };

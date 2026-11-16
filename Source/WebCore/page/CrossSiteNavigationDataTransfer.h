@@ -25,29 +25,17 @@
 
 #pragma once
 
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
 #include <wtf/OptionSet.h>
 
 namespace WebCore {
 
+enum class CrossSiteNavigationDataTransferFlag : uint8_t {
+    DestinationLinkDecoration = 1 << 1,
+    ReferrerLinkDecoration = 1 << 2,
+};
+
 struct CrossSiteNavigationDataTransfer {
-    enum class Flag : uint8_t {
-        DestinationLinkDecoration = 1 << 1,
-        ReferrerLinkDecoration = 1 << 2,
-    };
+    using Flag = CrossSiteNavigationDataTransferFlag;
 };
 
 } // namespace WebCore
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::CrossSiteNavigationDataTransfer::Flag> {
-    using values = EnumValues<
-        WebCore::CrossSiteNavigationDataTransfer::Flag,
-        WebCore::CrossSiteNavigationDataTransfer::Flag::DestinationLinkDecoration,
-        WebCore::CrossSiteNavigationDataTransfer::Flag::ReferrerLinkDecoration
-    >;
-};
-
-} // namespace WTF
-#endif // ENABLE(RESOURCE_LOAD_STATISTICS)

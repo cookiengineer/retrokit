@@ -29,7 +29,8 @@ class SVGFontElement;
 class StyleRuleFontFace;
 
 class SVGFontFaceElement final : public SVGElement {
-    WTF_MAKE_ISO_ALLOCATED(SVGFontFaceElement);
+    WTF_MAKE_TZONE_ALLOCATED(SVGFontFaceElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGFontFaceElement);
 public:
     static Ref<SVGFontFaceElement> create(const QualifiedName&, Document&);
 
@@ -46,25 +47,25 @@ public:
     int descent() const;
     String fontFamily() const;
 
-    SVGFontElement* associatedFontElement() const;
+    SVGFontElement* NODELETE associatedFontElement() const;
     void rebuildFontFace();
-    
-    StyleRuleFontFace& fontFaceRule() { return m_fontFaceRule.get(); }
+
+    StyleRuleFontFace& fontFaceRule() const { return m_fontFaceRule.get(); }
 
 private:
     SVGFontFaceElement(const QualifiedName&, Document&);
     ~SVGFontFaceElement();
 
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
 
     void childrenChanged(const ChildChange&) final;
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    void removedFromAncestor(RemovalType, ContainerNode&) final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void removingSteps(RemovalType, ContainerNode&) final;
 
-    bool rendererIsNeeded(const RenderStyle&) final { return false; }
+    bool rendererIsNeeded(const Style::ComputedStyle&) final { return false; }
 
-    Ref<StyleRuleFontFace> m_fontFaceRule;
-    SVGFontElement* m_fontElement;
+    const Ref<StyleRuleFontFace> m_fontFaceRule;
+    WeakPtr<SVGFontElement, WeakPtrImplWithEventTargetData> m_fontElement;
 };
 
 } // namespace WebCore

@@ -26,41 +26,43 @@
 #include "config.h"
 #include "ServiceWorkerSoftUpdateLoader.h"
 
-#if ENABLE(SERVICE_WORKER)
-
 #include "Logging.h"
 #include "NetworkCache.h"
 #include "NetworkLoad.h"
 #include "NetworkSession.h"
-#include <WebCore/ServiceWorkerFetchResult.h>
+#include <WebCore/AdvancedPrivacyProtections.h>
+#include <WebCore/HTTPStatusCodes.h>
 #include <WebCore/ServiceWorkerJob.h>
 #include <WebCore/TextResourceDecoder.h>
+#include <WebCore/WorkerFetchResult.h>
 #include <WebCore/WorkerScriptLoader.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 
 using namespace WebCore;
 
-void ServiceWorkerSoftUpdateLoader::start(NetworkSession* session, ServiceWorkerJobData&& jobData, bool shouldRefreshCache, ResourceRequest&& request, Handler&& completionHandler)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ServiceWorkerSoftUpdateLoader);
+
+Ref<ServiceWorkerSoftUpdateLoader> ServiceWorkerSoftUpdateLoader::create(NetworkSession& session, WebCore::ServiceWorkerJobData&& jobData, bool shouldRefreshCache, WebCore::ResourceRequest&& request, Handler&& completionHandler)
 {
-    if (!session)
-        return completionHandler(serviceWorkerFetchError(jobData.identifier(), ServiceWorkerRegistrationKey { jobData.registrationKey() }, ResourceError { ResourceError::Type::Cancellation }));
-    auto loader = std::unique_ptr<ServiceWorkerSoftUpdateLoader>(new ServiceWorkerSoftUpdateLoader(*session, WTFMove(jobData), shouldRefreshCache, WTFMove(request), WTFMove(completionHandler)));
-    session->addSoftUpdateLoader(WTFMove(loader));
+    return adoptRef(*new ServiceWorkerSoftUpdateLoader(session, WTF::move(jobData), shouldRefreshCache, WTF::move(request), WTF::move(completionHandler)));
 }
 
 ServiceWorkerSoftUpdateLoader::ServiceWorkerSoftUpdateLoader(NetworkSession& session, ServiceWorkerJobData&& jobData, bool shouldRefreshCache, ResourceRequest&& request, Handler&& completionHandler)
-    : m_completionHandler(WTFMove(completionHandler))
-    , m_jobData(WTFMove(jobData))
-    , m_session(makeWeakPtr(session))
+    : m_completionHandler(WTF::move(completionHandler))
+    , m_jobData(WTF::move(jobData))
+    , m_session(session)
 {
     ASSERT(!request.isConditional());
 
-    if (session.cache()) {
+    if (RefPtr cache = session.cache()) {
         // We set cache policy to disable speculative loading/async revalidation from the cache.
         request.setCachePolicy(ResourceRequestCachePolicy::ReturnCacheDataDontLoad);
 
-        session.cache()->retrieve(request, NetworkCache::GlobalFrameID { }, NavigatingToAppBoundDomain::No, [this, weakThis = makeWeakPtr(*this), request, shouldRefreshCache](auto&& entry, auto&&) mutable {
+        OptionSet<AdvancedPrivacyProtections> advancedPrivacyProtections;
+        bool allowPrivacyProxy { true };
+        cache->retrieve(request, std::nullopt, NavigatingToAppBoundDomain::No, allowPrivacyProxy, advancedPrivacyProtections, [this, weakThis = WeakPtr { *this }, request, shouldRefreshCache](auto&& entry, auto&&) mutable {
             if (!weakThis)
                 return;
             if (!m_session) {
@@ -74,7 +76,7 @@ ServiceWorkerSoftUpdateLoader::ServiceWorkerSoftUpdateLoader(NetworkSession& ses
 
             request.setCachePolicy(ResourceRequestCachePolicy::RefreshAnyCacheData);
             if (entry) {
-                m_cacheEntry = WTFMove(entry);
+                m_cacheEntry = WTF::move(entry);
 
                 String eTag = m_cacheEntry->response().httpHeaderField(HTTPHeaderName::ETag);
                 if (!eTag.isEmpty())
@@ -84,17 +86,17 @@ ServiceWorkerSoftUpdateLoader::ServiceWorkerSoftUpdateLoader(NetworkSession& ses
                 if (!lastModified.isEmpty())
                     request.setHTTPHeaderField(HTTPHeaderName::IfModifiedSince, lastModified);
             }
-            loadFromNetwork(*m_session, WTFMove(request));
+            loadFromNetwork(CheckedRef { *m_session }.get(), WTF::move(request));
         });
         return;
     }
-    loadFromNetwork(session, WTFMove(request));
+    loadFromNetwork(session, WTF::move(request));
 }
 
 ServiceWorkerSoftUpdateLoader::~ServiceWorkerSoftUpdateLoader()
 {
     if (m_completionHandler)
-        m_completionHandler(serviceWorkerFetchError(m_jobData.identifier(), ServiceWorkerRegistrationKey { m_jobData.registrationKey() }, ResourceError { ResourceError::Type::Cancellation }));
+        m_completionHandler(workerFetchError(ResourceError { ResourceError::Type::Cancellation }));
 }
 
 void ServiceWorkerSoftUpdateLoader::fail(ResourceError&& error)
@@ -102,7 +104,7 @@ void ServiceWorkerSoftUpdateLoader::fail(ResourceError&& error)
     if (!m_completionHandler)
         return;
 
-    m_completionHandler(serviceWorkerFetchError(m_jobData.identifier(), ServiceWorkerRegistrationKey { m_jobData.registrationKey() }, WTFMove(error)));
+    m_completionHandler(workerFetchError(WTF::move(error)));
     didComplete();
 }
 
@@ -110,12 +112,12 @@ void ServiceWorkerSoftUpdateLoader::loadWithCacheEntry(NetworkCache::Entry& entr
 {
     auto error = processResponse(entry.response());
     if (!error.isNull()) {
-        fail(WTFMove(error));
+        fail(WTF::move(error));
         return;
     }
 
-    if (entry.buffer())
-        didReceiveBuffer(makeRef(*entry.buffer()), 0);
+    if (RefPtr buffer = entry.buffer())
+        didReceiveBuffer(*buffer);
     didFinishLoading({ });
 }
 
@@ -124,33 +126,35 @@ void ServiceWorkerSoftUpdateLoader::loadFromNetwork(NetworkSession& session, Res
     NetworkLoadParameters parameters;
     parameters.storedCredentialsPolicy = StoredCredentialsPolicy::Use;
     parameters.contentSniffingPolicy = ContentSniffingPolicy::DoNotSniffContent;
-    parameters.contentEncodingSniffingPolicy = ContentEncodingSniffingPolicy::Sniff;
+    parameters.contentEncodingSniffingPolicy = ContentEncodingSniffingPolicy::Default;
     parameters.needsCertificateInfo = true;
-    parameters.request = WTFMove(request);
-    m_networkLoad = makeUnique<NetworkLoad>(*this, nullptr, WTFMove(parameters), session);
-    m_networkLoad->start();
+    parameters.request = WTF::move(request);
+    Ref networkLoad = NetworkLoad::create(*this, WTF::move(parameters), session);
+    m_networkLoad = networkLoad.copyRef();
+    networkLoad->start();
 
 #if PLATFORM(COCOA)
     session.appPrivacyReportTestingData().setDidPerformSoftUpdate();
 #endif
 }
 
-void ServiceWorkerSoftUpdateLoader::willSendRedirectedRequest(ResourceRequest&&, ResourceRequest&&, ResourceResponse&&)
+void ServiceWorkerSoftUpdateLoader::willSendRedirectedRequest(ResourceRequest&&, ResourceRequest&&, ResourceResponse&&, CompletionHandler<void(WebCore::ResourceRequest&&)>&& completionHandler)
 {
     fail(ResourceError { ResourceError::Type::Cancellation });
+    completionHandler({ }); // May deallocate this ServiceWorkerSoftUpdateLoader.
 }
 
-void ServiceWorkerSoftUpdateLoader::didReceiveResponse(ResourceResponse&& response, ResponseCompletionHandler&& completionHandler)
+void ServiceWorkerSoftUpdateLoader::didReceiveResponse(ResourceResponse&& response, PrivateRelayed, ResponseCompletionHandler&& completionHandler)
 {
     m_certificateInfo = *response.certificateInfo();
-    if (response.httpStatusCode() == 304 && m_cacheEntry) {
+    if (response.httpStatusCode() == httpStatus304NotModified && m_cacheEntry) {
         loadWithCacheEntry(*m_cacheEntry);
         completionHandler(PolicyAction::Ignore);
         return;
     }
     auto error = processResponse(response);
     if (!error.isNull()) {
-        fail(WTFMove(error));
+        fail(WTF::move(error));
         completionHandler(PolicyAction::Ignore);
         return;
     }
@@ -160,7 +164,8 @@ void ServiceWorkerSoftUpdateLoader::didReceiveResponse(ResourceResponse&& respon
 // https://w3c.github.io/ServiceWorker/#update-algorithm, steps 9.7 to 9.17
 ResourceError ServiceWorkerSoftUpdateLoader::processResponse(const ResourceResponse& response)
 {
-    auto error = WorkerScriptLoader::validateWorkerResponse(response, FetchOptions::Destination::Serviceworker);
+    auto source = m_jobData.workerType == WorkerType::Module ? WorkerScriptLoader::Source::ModuleScript : WorkerScriptLoader::Source::ClassicWorkerScript;
+    auto error = WorkerScriptLoader::validateWorkerResponse(response, source, FetchOptions::Destination::Serviceworker);
     if (!error.isNull())
         return error;
 
@@ -170,31 +175,33 @@ ResourceError ServiceWorkerSoftUpdateLoader::processResponse(const ResourceRespo
 
     m_contentSecurityPolicy = ContentSecurityPolicyResponseHeaders { response };
     // Service workers are always secure contexts.
-    m_crossOriginEmbedderPolicy = obtainCrossOriginEmbedderPolicy(response, IsSecureContext::Yes);
+    m_crossOriginEmbedderPolicy = obtainCrossOriginEmbedderPolicy(response, nullptr);
     m_referrerPolicy = response.httpHeaderField(HTTPHeaderName::ReferrerPolicy);
     m_responseEncoding = response.textEncodingName();
 
     return { };
 }
 
-void ServiceWorkerSoftUpdateLoader::didReceiveBuffer(Ref<SharedBuffer>&& buffer, int reportedEncodedDataLength)
+void ServiceWorkerSoftUpdateLoader::didReceiveBuffer(const WebCore::FragmentedSharedBuffer& buffer)
 {
     if (!m_decoder) {
         if (!m_responseEncoding.isEmpty())
             m_decoder = TextResourceDecoder::create("text/javascript"_s, m_responseEncoding);
         else
-            m_decoder = TextResourceDecoder::create("text/javascript"_s, "UTF-8");
+            m_decoder = TextResourceDecoder::create("text/javascript"_s, "UTF-8"_s);
     }
 
-    if (auto size = buffer->size())
-        m_script.append(m_decoder->decode(buffer->data(), size));
+    buffer.forEachSegment([&](auto segment) {
+        if (segment.size())
+            m_script.append(m_decoder->decode(segment));
+    });
 }
 
 void ServiceWorkerSoftUpdateLoader::didFinishLoading(const WebCore::NetworkLoadMetrics&)
 {
-    if (m_decoder)
-        m_script.append(m_decoder->flush());
-    m_completionHandler({ m_jobData.identifier(), m_jobData.registrationKey(), ScriptBuffer { m_script.toString() }, m_certificateInfo, m_contentSecurityPolicy, m_crossOriginEmbedderPolicy, m_referrerPolicy, { } });
+    if (RefPtr decoder = m_decoder)
+        m_script.append(decoder->flush());
+    m_completionHandler({ ScriptBuffer { m_script.toString() }, m_jobData.scriptURL, m_certificateInfo, m_contentSecurityPolicy, m_crossOriginEmbedderPolicy, m_referrerPolicy, { } });
     didComplete();
 }
 
@@ -206,10 +213,8 @@ void ServiceWorkerSoftUpdateLoader::didFailLoading(const ResourceError& error)
 void ServiceWorkerSoftUpdateLoader::didComplete()
 {
     m_networkLoad = nullptr;
-    if (m_session)
-        m_session->removeSoftUpdateLoader(this);
+    if (CheckedPtr session = m_session.get())
+        session->removeSoftUpdateLoader(this);
 }
 
 } // namespace WebKit
-
-#endif // ENABLE(SERVICE_WORKER)

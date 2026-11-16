@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013, 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,33 +25,37 @@
 
 #pragma once
 
+#include <pal/crypto/CryptoTypes.h>
+#include <wtf/HexNumber.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/Vector.h>
+#include <wtf/text/WTFString.h>
 
-namespace PAL {
+namespace PAL::Crypto {
 
 struct CryptoDigestContext;
 
 class CryptoDigest {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(CryptoDigest, PAL_EXPORT);
     WTF_MAKE_NONCOPYABLE(CryptoDigest);
 public:
-    enum class Algorithm {
-        SHA_1,
-        SHA_224,
-        SHA_256,
-        SHA_384,
-        SHA_512,
-    };
+    using Algorithm = CryptoDigestHashFunction;
+
     PAL_EXPORT static std::unique_ptr<CryptoDigest> create(Algorithm);
     PAL_EXPORT ~CryptoDigest();
 
-    PAL_EXPORT void addBytes(const void* input, size_t length);
+    PAL_EXPORT void addBytes(std::span<const uint8_t>);
     PAL_EXPORT Vector<uint8_t> computeHash();
+    String toHexString();
+    PAL_EXPORT CryptoDigest();
 
 private:
-    CryptoDigest();
-
     std::unique_ptr<CryptoDigestContext> m_context;
 };
 
-} // namespace PAL
+inline String CryptoDigest::toHexString()
+{
+    return WTF::toHexString(computeHash());
+}
+
+} // namespace PAL::Crypto

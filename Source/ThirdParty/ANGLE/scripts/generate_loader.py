@@ -1,4 +1,4 @@
-#!/usr/bin/python2
+#!/usr/bin/python3
 #
 # Copyright 2018 The ANGLE Project Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
@@ -9,7 +9,6 @@
 #   NOTE: don't run this script directly. Run scripts/run_code_generation.py.
 
 import sys, os, pprint, json
-from datetime import date
 import registry_xml
 
 
@@ -22,6 +21,7 @@ def write_header(data_source_name,
                  preamble,
                  path,
                  lib,
+                 load_fn_name,
                  ns="",
                  prefix=None,
                  export="",
@@ -47,7 +47,6 @@ def write_header(data_source_name,
         loader_header = template_loader_h.format(
             script_name=os.path.basename(sys.argv[0]),
             data_source_name=data_source_name,
-            year=date.today().year,
             defines="\n".join(defines),
             function_pointers="\n".join(var_protos),
             api_upper=api.upper(),
@@ -55,7 +54,7 @@ def write_header(data_source_name,
             preamble=preamble,
             export=export,
             lib=lib.upper(),
-            load_fn_name="Load%s%s" % (prefix if prefix else "", api.upper()),
+            load_fn_name=load_fn_name,
             file_prefix=file_prefix)
 
         out.write(loader_header)
@@ -66,6 +65,7 @@ def write_source(data_source_name,
                  all_cmds,
                  api,
                  path,
+                 load_fn_name,
                  ns="",
                  prefix=None,
                  export="",
@@ -93,12 +93,11 @@ def write_source(data_source_name,
         loader_source = template_loader_cpp.format(
             script_name=os.path.basename(sys.argv[0]),
             data_source_name=data_source_name,
-            year=date.today().year,
             function_pointers="\n".join(var_defs),
             set_pointers="\n".join(setters),
             api_upper=api.upper(),
             api_lower=api,
-            load_fn_name="Load%s%s" % (prefix if prefix else "", api.upper()),
+            load_fn_name=load_fn_name,
             file_prefix=file_prefix)
 
         out.write(loader_source)
@@ -130,19 +129,20 @@ def gen_libegl_loader():
         libegl_preamble,
         path,
         "LIBEGL",
+        "LoadLibEGL_EGL",
         prefix="EGL_",
         export="ANGLE_NO_EXPORT ")
-    write_source(data_source_name, all_cmds, "egl", path, prefix="EGL_")
+    write_source(data_source_name, all_cmds, "egl", path, "LoadLibEGL_EGL", prefix="EGL_")
 
 
-def gen_gles_loader(gles_preamble, path, header_lib, export, internal_prefix, file_prefix):
+def gen_gles_loader(gles_preamble, path, header_lib, export, internal_prefix, file_prefix, tag):
 
     data_source_name = "gl.xml and gl_angle_ext.xml"
     xml = registry_xml.RegistryXML("gl.xml", "gl_angle_ext.xml")
 
     # First run through the main GLES entry points.  Since ES2+ is the primary use
     # case, we go through those first and then add ES1-only APIs at the end.
-    for major_version, minor_version in [[2, 0], [3, 0], [3, 1], [1, 0]]:
+    for major_version, minor_version in [[2, 0], [3, 0], [3, 1], [3, 2], [1, 0]]:
         annotation = "{}_{}".format(major_version, minor_version)
         name_prefix = "GL_ES_VERSION_"
 
@@ -158,8 +158,8 @@ def gen_gles_loader(gles_preamble, path, header_lib, export, internal_prefix, fi
 
     all_cmds = xml.all_cmd_names.get_all_commands()
 
-    if registry_xml.support_EGL_ANGLE_explicit_context:
-        all_cmds += [cmd + "ContextANGLE" for cmd in xml.all_cmd_names.get_all_commands()]
+    # Ensure there are no duplicates
+    assert (len(all_cmds) == len(set(all_cmds))), "Duplicate command names found"
 
     write_header(
         data_source_name,
@@ -168,6 +168,7 @@ def gen_gles_loader(gles_preamble, path, header_lib, export, internal_prefix, fi
         gles_preamble,
         path,
         header_lib,
+        "Load%sGLES" % tag,
         export=export,
         internal_prefix=internal_prefix,
         file_prefix=file_prefix)
@@ -176,12 +177,13 @@ def gen_gles_loader(gles_preamble, path, header_lib, export, internal_prefix, fi
         all_cmds,
         "gles",
         path,
+        "Load%sGLES" % tag,
         export=export,
         internal_prefix=internal_prefix,
         file_prefix=file_prefix)
 
 
-def gen_egl_loader(egl_preamble, path, header_lib, export, internal_prefix, file_prefix):
+def gen_egl_loader(egl_preamble, path, header_lib, export, internal_prefix, file_prefix, tag):
 
     data_source_name = "egl.xml and egl_angle_ext.xml"
     xml = registry_xml.RegistryXML("egl.xml", "egl_angle_ext.xml")
@@ -205,6 +207,7 @@ def gen_egl_loader(egl_preamble, path, header_lib, export, internal_prefix, file
         egl_preamble,
         path,
         header_lib,
+        "Load%sEGL" % tag,
         export=export,
         internal_prefix=internal_prefix,
         file_prefix=file_prefix)
@@ -213,6 +216,7 @@ def gen_egl_loader(egl_preamble, path, header_lib, export, internal_prefix, file
         all_cmds,
         "egl",
         path,
+        "Load%sEGL" % tag,
         export=export,
         internal_prefix=internal_prefix,
         file_prefix=file_prefix)
@@ -222,24 +226,23 @@ def gen_util_gles_and_egl_loaders():
     path = os.path.join("..", "util")
     export = "ANGLE_UTIL_EXPORT "
     lib = "UTIL"
-    gen_gles_loader(util_gles_preamble, path, lib, export, DEFAULT_INTERNAL_PREFIX, "")
-    gen_egl_loader(util_egl_preamble, path, lib, export, DEFAULT_INTERNAL_PREFIX, "")
+    gen_gles_loader(util_gles_preamble, path, lib, export, DEFAULT_INTERNAL_PREFIX, "", "Util")
+    gen_egl_loader(util_egl_preamble, path, lib, export, DEFAULT_INTERNAL_PREFIX, "", "Util")
 
 
 def gen_trace_gles_and_egl_loaders():
-    path = os.path.join("..", "src", "tests", "restricted_traces")
+    path = os.path.join("..", "util", "capture")
     export = "ANGLE_TRACE_LOADER_EXPORT "
-    lib = "ANGLE_RESTRICTED_TRACES"
-    gen_gles_loader(trace_gles_preamble, path, lib, export, "t_", "trace_")
-    gen_egl_loader(trace_egl_preamble, path, lib, export, "t_", "trace_")
+    lib = "ANGLE_TRACES_UTIL"
+    gen_gles_loader(trace_gles_preamble, path, lib, export, "t_", "trace_", "Trace")
+    gen_egl_loader(trace_egl_preamble, path, lib, export, "t_", "trace_", "Trace")
 
 
 def gen_util_wgl_loader():
 
     supported_wgl_extensions = [
-        "WGL_ARB_create_context",
-        "WGL_ARB_extensions_string",
-        "WGL_EXT_swap_control",
+        "WGL_ARB_create_context", "WGL_ARB_extensions_string", "WGL_ARB_pixel_format",
+        "WGL_EXT_colorspace", "WGL_EXT_swap_control"
     ]
 
     source = "wgl.xml"
@@ -258,22 +261,16 @@ def gen_util_wgl_loader():
     all_cmds = xml.all_cmd_names.get_all_commands()
 
     path = os.path.join("..", "util", "windows")
-    write_header(source, all_cmds, "wgl", util_wgl_preamble, path, "UTIL_WINDOWS", "_")
-    write_source(source, all_cmds, "wgl", path, "_")
+    write_header(
+        source, all_cmds, "wgl", util_wgl_preamble, path, "UTIL_WINDOWS", "LoadWGL", ns="_")
+    write_source(source, all_cmds, "wgl", path, "LoadWGL", ns="_")
 
 
 def main():
 
     # Handle inputs/outputs for run_code_generation.py's auto_script
     if len(sys.argv) > 1:
-        inputs = [
-            'gl.xml',
-            'gl_angle_ext.xml',
-            'egl.xml',
-            'egl_angle_ext.xml',
-            'registry_xml.py',
-            'wgl.xml',
-        ]
+        inputs = registry_xml.xml_inputs
         outputs = [
             '../src/libEGL/egl_loader_autogen.cpp',
             '../src/libEGL/egl_loader_autogen.h',
@@ -283,16 +280,16 @@ def main():
             '../util/gles_loader_autogen.h',
             '../util/windows/wgl_loader_autogen.cpp',
             '../util/windows/wgl_loader_autogen.h',
-            '../src/tests/restricted_traces/trace_egl_loader_autogen.cpp',
-            '../src/tests/restricted_traces/trace_egl_loader_autogen.h',
-            '../src/tests/restricted_traces/trace_gles_loader_autogen.cpp',
-            '../src/tests/restricted_traces/trace_gles_loader_autogen.h',
+            '../util/capture/trace_egl_loader_autogen.cpp',
+            '../util/capture/trace_egl_loader_autogen.h',
+            '../util/capture/trace_gles_loader_autogen.cpp',
+            '../util/capture/trace_gles_loader_autogen.h',
         ]
 
         if sys.argv[1] == 'inputs':
-            print ','.join(inputs)
+            print(','.join(inputs))
         elif sys.argv[1] == 'outputs':
-            print ','.join(outputs)
+            print(','.join(outputs))
         else:
             print('Invalid script parameters')
             return 1
@@ -329,13 +326,14 @@ trace_gles_preamble = """#if defined(GL_GLES_PROTOTYPES) && GL_GLES_PROTOTYPES
 #endif  // defined(GL_GLES_PROTOTYPES)
 
 #include "angle_gl.h"
-#include "restricted_traces_autogen.h"
+#include "traces_export.h"
 """
 
-trace_egl_preamble = """#include "restricted_traces_autogen.h"
-
+trace_egl_preamble = """
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
+
+#include "traces_export.h"
 """
 
 util_wgl_preamble = """
@@ -350,7 +348,7 @@ util_wgl_preamble = """
 template_loader_h = """// GENERATED FILE - DO NOT EDIT.
 // Generated by {script_name} using data from {data_source_name}.
 //
-// Copyright {year} The ANGLE Project Authors. All rights reserved.
+// Copyright 2018 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -362,14 +360,19 @@ template_loader_h = """// GENERATED FILE - DO NOT EDIT.
 
 {preamble}
 {defines}
+
+#if defined(__cplusplus)
+extern "C" {{
+#endif  // defined(__cplusplus)
 {function_pointers}
 
-namespace {file_prefix}angle
-{{
-using GenericProc = void (*)();
-using LoadProc = GenericProc (KHRONOS_APIENTRY *)(const char *);
+typedef void (*GenericProc)(void);
+typedef GenericProc (KHRONOS_APIENTRY *LoadProc)(const char *);
 {export}void {load_fn_name}(LoadProc loadProc);
-}}  // namespace angle
+
+#if defined(__cplusplus)
+}}  // extern "C"
+#endif  // defined(__cplusplus)
 
 #endif  // {lib}_{api_upper}_LOADER_AUTOGEN_H_
 """
@@ -377,7 +380,7 @@ using LoadProc = GenericProc (KHRONOS_APIENTRY *)(const char *);
 template_loader_cpp = """// GENERATED FILE - DO NOT EDIT.
 // Generated by {script_name} using data from {data_source_name}.
 //
-// Copyright {year} The ANGLE Project Authors. All rights reserved.
+// Copyright 2018 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -386,15 +389,14 @@ template_loader_cpp = """// GENERATED FILE - DO NOT EDIT.
 
 #include "{file_prefix}{api_lower}_loader_autogen.h"
 
+extern "C" {{
 {function_pointers}
 
-namespace {file_prefix}angle
-{{
 void {load_fn_name}(LoadProc loadProc)
 {{
 {set_pointers}
 }}
-}}  // namespace angle
+}}  // extern "C"
 """
 
 if __name__ == '__main__':

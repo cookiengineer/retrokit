@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007, 2008, 2009, 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,25 +28,21 @@
 #if ENABLE(VIDEO)
 #include "RenderMedia.h"
 
+#include "RenderBoxInlines.h"
+#include "RenderBoxModelObjectInlines.h"
 #include "RenderFragmentedFlow.h"
+#include "RenderMediaInlines.h"
 #include "RenderView.h"
-#include <wtf/IsoMallocInlines.h>
 #include <wtf/StackStats.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(RenderMedia);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderMedia);
 
-RenderMedia::RenderMedia(HTMLMediaElement& element, RenderStyle&& style)
-    : RenderImage(element, WTFMove(style))
+RenderMedia::RenderMedia(Type type, HTMLMediaElement& element, Style::ComputedStyle&& style)
+    : RenderImage(type, element, WTF::move(style), ReplacedFlag::IsMedia)
 {
-    setHasShadowControls(true);
-}
-
-RenderMedia::RenderMedia(HTMLMediaElement& element, RenderStyle&& style, const IntSize& intrinsicSize)
-    : RenderImage(element, WTFMove(style))
-{
-    setIntrinsicSize(intrinsicSize);
     setHasShadowControls(true);
 }
 
@@ -58,17 +54,25 @@ void RenderMedia::paintReplaced(PaintInfo&, const LayoutPoint&)
 
 void RenderMedia::layout()
 {
-    LayoutSize oldSize = size();
+    LayoutSize oldSize = borderBoxSize();
     RenderImage::layout();
-    if (oldSize != size())
-        mediaElement().layoutSizeChanged();
+    if (oldSize != borderBoxSize())
+        protect(mediaElement())->layoutSizeChanged();
 }
 
-void RenderMedia::styleDidChange(StyleDifference difference, const RenderStyle* oldStyle)
+void RenderMedia::styleDidChange(Style::Difference difference, const Style::ComputedStyle* oldStyle)
 {
     RenderImage::styleDidChange(difference, oldStyle);
-    if (!oldStyle || style().visibility() != oldStyle->visibility())
-        mediaElement().visibilityDidChange();
+
+    Ref mediaElement = this->mediaElement();
+    if (!oldStyle || style().usedVisibility() != oldStyle->usedVisibility())
+        mediaElement->visibilityDidChange();
+
+    if (!oldStyle || style().dynamicRangeLimit() != oldStyle->dynamicRangeLimit())
+        mediaElement->dynamicRangeLimitDidChange(style().dynamicRangeLimit().toPlatformDynamicRangeLimit());
+
+    if (oldStyle && style().transform() != oldStyle->transform())
+        mediaElement->layoutSizeChanged();
 }
 
 } // namespace WebCore

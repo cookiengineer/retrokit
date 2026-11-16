@@ -24,13 +24,19 @@
 #include "APINavigationClient.h"
 #include "FrameInfoData.h"
 #include "WebKitBackForwardListPrivate.h"
+#include "WebKitDownloadPrivate.h"
 #include "WebKitNavigationPolicyDecisionPrivate.h"
 #include "WebKitPrivate.h"
 #include "WebKitResponsePolicyDecisionPrivate.h"
 #include "WebKitURIResponsePrivate.h"
+#include "WebKitWebContextPrivate.h"
 #include "WebKitWebViewPrivate.h"
 #include <wtf/glib/GUniquePtr.h>
 #include <wtf/text/CString.h>
+
+#if ENABLE(2022_GLIB_API)
+#include "WebKitNetworkSessionPrivate.h"
+#endif
 
 using namespace WebKit;
 using namespace WebCore;
@@ -53,7 +59,7 @@ private:
         webkitWebViewLoadChanged(m_webView, WEBKIT_LOAD_REDIRECTED);
     }
 
-    void didFailProvisionalNavigationWithError(WebPageProxy&, FrameInfoData&& frameInfo, API::Navigation*, const ResourceError& resourceError, API::Object* /* userData */) override
+    void didFailProvisionalNavigationWithError(WebPageProxy&, FrameInfoData&& frameInfo, API::Navigation*, const URL&, const ResourceError& resourceError, API::Object* /* userData */) override
     {
         if (!frameInfo.isMainFrame)
             return;
@@ -76,23 +82,13 @@ private:
         webkitWebViewLoadChanged(m_webView, WEBKIT_LOAD_FINISHED);
     }
 
-    void didFailNavigationWithError(WebPageProxy&, const FrameInfoData& frameInfo, API::Navigation*, const ResourceError& resourceError, API::Object* /* userData */) override
+    void didFailNavigationWithError(WebPageProxy&, const FrameInfoData& frameInfo, API::Navigation*, const URL&, const ResourceError& resourceError, API::Object* /* userData */) override
     {
         if (!frameInfo.isMainFrame)
             return;
         GUniquePtr<GError> error(g_error_new_literal(g_quark_from_string(resourceError.domain().utf8().data()),
             toWebKitError(resourceError.errorCode()), resourceError.localizedDescription().utf8().data()));
         webkitWebViewLoadFailed(m_webView, WEBKIT_LOAD_COMMITTED, resourceError.failingURL().string().utf8().data(), error.get());
-    }
-
-    void didDisplayInsecureContent(WebPageProxy&, API::Object* /* userData */) override
-    {
-        webkitWebViewInsecureContentDetected(m_webView, WEBKIT_INSECURE_CONTENT_DISPLAYED);
-    }
-
-    void didRunInsecureContent(WebPageProxy&, API::Object* /* userData */) override
-    {
-        webkitWebViewInsecureContentDetected(m_webView, WEBKIT_INSECURE_CONTENT_RUN);
     }
 
     bool didChangeBackForwardList(WebPageProxy&, WebBackForwardListItem* addedItem, const Vector<Ref<WebBackForwardListItem>>& removedItems) override
@@ -110,6 +106,7 @@ private:
     {
         switch (reason) {
         case ProcessTerminationReason::Crash:
+        case ProcessTerminationReason::NonMainFrameWebContentProcessCrash:
             webkitWebViewWebProcessTerminated(m_webView, WEBKIT_WEB_PROCESS_CRASHED);
             return true;
         case ProcessTerminationReason::ExceededMemoryLimit:
@@ -122,6 +119,12 @@ private:
         case ProcessTerminationReason::RequestedByNetworkProcess:
         case ProcessTerminationReason::NavigationSwap:
         case ProcessTerminationReason::RequestedByGPUProcess:
+        case ProcessTerminationReason::RequestedByModelProcess:
+        case ProcessTerminationReason::ExceededProcessCountLimit:
+        case ProcessTerminationReason::IdleExit:
+        case ProcessTerminationReason::Unresponsive:
+        case ProcessTerminationReason::GPUProcessCrashedTooManyTimes:
+        case ProcessTerminationReason::ModelProcessCrashedTooManyTimes:
             break;
         }
         return false;
@@ -137,17 +140,47 @@ private:
         webkitWebViewSetIsWebProcessResponsive(m_webView, false);
     }
 
-    void decidePolicyForNavigationAction(WebPageProxy&, Ref<API::NavigationAction>&& navigationAction, Ref<WebFramePolicyListenerProxy>&& listener, API::Object* /* userData */) override
+    void decidePolicyForNavigationAction(WebPageProxy&, Ref<API::NavigationAction>&& navigationAction, Ref<WebFramePolicyListenerProxy>&& listener) override
     {
         WebKitPolicyDecisionType decisionType = navigationAction->targetFrame() ? WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION : WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION;
-        GRefPtr<WebKitPolicyDecision> decision = adoptGRef(webkitNavigationPolicyDecisionCreate(WTFMove(navigationAction), WTFMove(listener)));
+        GRefPtr<WebKitPolicyDecision> decision = adoptGRef(webkitNavigationPolicyDecisionCreate(WTF::move(navigationAction), WTF::move(listener)));
         webkitWebViewMakePolicyDecision(m_webView, decisionType, decision.get());
     }
 
-    void decidePolicyForNavigationResponse(WebPageProxy&, Ref<API::NavigationResponse>&& navigationResponse, Ref<WebFramePolicyListenerProxy>&& listener, API::Object* /* userData */) override
+    void decidePolicyForNavigationResponse(WebPageProxy&, Ref<API::NavigationResponse>&& navigationResponse, Ref<WebFramePolicyListenerProxy>&& listener) override
     {
-        GRefPtr<WebKitPolicyDecision> decision = adoptGRef(webkitResponsePolicyDecisionCreate(WTFMove(navigationResponse), WTFMove(listener)));
+        GRefPtr<WebKitPolicyDecision> decision = adoptGRef(webkitResponsePolicyDecisionCreate(WTF::move(navigationResponse), WTF::move(listener)));
         webkitWebViewMakePolicyDecision(m_webView, WEBKIT_POLICY_DECISION_TYPE_RESPONSE, decision.get());
+    }
+
+    void navigationActionDidBecomeDownload(WebPageProxy&, API::NavigationAction&, DownloadProxy& downloadProxy) override
+    {
+        auto download = webkitDownloadCreate(downloadProxy, m_webView);
+#if ENABLE(2022_GLIB_API)
+        webkitNetworkSessionDownloadStarted(webkit_web_view_get_network_session(m_webView), download.get());
+#else
+        webkitWebContextDownloadStarted(webkit_web_view_get_context(m_webView), download.get());
+#endif
+    }
+
+    void navigationResponseDidBecomeDownload(WebPageProxy&, API::NavigationResponse&, DownloadProxy& downloadProxy) override
+    {
+        auto download = webkitDownloadCreate(downloadProxy, m_webView);
+#if ENABLE(2022_GLIB_API)
+        webkitNetworkSessionDownloadStarted(webkit_web_view_get_network_session(m_webView), download.get());
+#else
+        webkitWebContextDownloadStarted(webkit_web_view_get_context(m_webView), download.get());
+#endif
+    }
+
+    void contextMenuDidCreateDownload(WebPageProxy&, DownloadProxy& downloadProxy) override
+    {
+        auto download = webkitDownloadCreate(downloadProxy, m_webView);
+#if ENABLE(2022_GLIB_API)
+        webkitNetworkSessionDownloadStarted(webkit_web_view_get_network_session(m_webView), download.get());
+#else
+        webkitWebContextDownloadStarted(webkit_web_view_get_context(m_webView), download.get());
+#endif
     }
 
     WebKitWebView* m_webView;

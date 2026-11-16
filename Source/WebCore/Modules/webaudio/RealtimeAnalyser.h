@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010, Google Inc. All rights reserved.
+ * Copyright (C) 2010 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,22 +25,23 @@
 #pragma once
 
 #include "AudioArray.h"
-#include <JavaScriptCore/Float32Array.h>
-#include <JavaScriptCore/Uint8Array.h>
+#include "AudioBus.h"
+#include "NoiseInjectionPolicy.h"
+#include <JavaScriptCore/Forward.h>
 #include <memory>
 #include <wtf/Forward.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
-class AudioBus;
 class FFTFrame;
 
 class RealtimeAnalyser {
+    WTF_MAKE_TZONE_ALLOCATED(RealtimeAnalyser);
     WTF_MAKE_NONCOPYABLE(RealtimeAnalyser);
-    WTF_MAKE_FAST_ALLOCATED;
 public:
-    RealtimeAnalyser();
+    explicit RealtimeAnalyser(OptionSet<NoiseInjectionPolicy>);
     virtual ~RealtimeAnalyser();
 
     size_t fftSize() const { return m_fftSize; }
@@ -63,7 +64,7 @@ public:
     void getByteTimeDomainData(JSC::Uint8Array&);
 
     // The audio thread writes input data here.
-    void writeInput(AudioBus*, size_t framesToProcess);
+    void writeInput(AudioBus&, size_t framesToProcess);
 
     static constexpr double DefaultSmoothingTimeConstant { 0.8 };
     static constexpr double DefaultMinDecibels { -100 };
@@ -81,7 +82,7 @@ private:
     unsigned m_writeIndex { 0 };
 
     // AudioBus used for downmixing input audio before copying it to m_inputBuffer.
-    RefPtr<AudioBus> m_downmixBus;
+    const Ref<AudioBus> m_downmixBus;
     
     size_t m_fftSize { DefaultFFTSize };
     std::unique_ptr<FFTFrame> m_analysisFrame;
@@ -89,7 +90,7 @@ private:
     
     // doFFTAnalysisIfNecessary() stores the floating-point magnitude analysis data here.
     AudioFloatArray m_magnitudeBuffer { DefaultFFTSize / 2 };
-    AudioFloatArray& magnitudeBuffer() { return m_magnitudeBuffer; }
+    AudioFloatArray& magnitudeBuffer() LIFETIME_BOUND { return m_magnitudeBuffer; }
 
     // A value between 0 and 1 which averages the previous version of m_magnitudeBuffer with the current analysis magnitude data.
     double m_smoothingTimeConstant { DefaultSmoothingTimeConstant };
@@ -100,6 +101,7 @@ private:
 
     // We should only do the FFT analysis once per render quantum.
     bool m_shouldDoFFTAnalysis { true };
+    OptionSet<NoiseInjectionPolicy> m_noiseInjectionPolicies;
 };
 
 } // namespace WebCore

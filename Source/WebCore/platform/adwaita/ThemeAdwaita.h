@@ -25,39 +25,36 @@
 
 #pragma once
 
+#if USE(THEME_ADWAITA)
+
 #include "Color.h"
 #include "StyleColor.h"
 #include "Theme.h"
 
 namespace WebCore {
 
-class Path;
-
 class ThemeAdwaita : public Theme {
 public:
-    static Color focusColor(bool focusColor);
-    static void paintFocus(GraphicsContext&, const FloatRect&, int offset, bool useDarkAppearance);
-    static void paintFocus(GraphicsContext&, const Path&, const Color&);
-    static void paintFocus(GraphicsContext&, const Vector<FloatRect>&, const Color&);
-    enum class ArrowDirection { Up, Down };
-    static void paintArrow(GraphicsContext&, ArrowDirection, bool);
+    ThemeAdwaita();
 
-    virtual Color activeSelectionForegroundColor() const;
-    virtual Color activeSelectionBackgroundColor() const;
-    virtual Color inactiveSelectionForegroundColor() const;
-    virtual Color inactiveSelectionBackgroundColor() const;
     virtual void platformColorsDidChange() { };
 
-private:
-    LengthSize controlSize(ControlPart, const FontCascade&, const LengthSize&, float) const final;
-    LengthSize minimumControlSize(ControlPart, const FontCascade&, const LengthSize&, float) const final;
-    LengthBox controlBorder(ControlPart, const FontCascade&, const LengthBox&, float) const final;
-    void paint(ControlPart, ControlStates&, GraphicsContext&, const FloatRect&, float, ScrollView*, float, float, bool, bool) final;
+    InterfaceContrastPreference userPreferredContrast() const final;
+    bool userPrefersReducedMotion() const final;
 
-    void paintCheckbox(ControlStates&, GraphicsContext&, const FloatRect&, bool);
-    void paintRadio(ControlStates&, GraphicsContext&, const FloatRect&, bool);
-    void paintButton(ControlStates&, GraphicsContext&, const FloatRect&, bool);
-    void paintSpinButton(ControlStates&, GraphicsContext&, const FloatRect&, bool);
+    void setAccentColor(const Color&);
+    Color accentColor();
+private:
+#if PLATFORM(GTK) || PLATFORM(WPE)
+    void refreshSettings();
+#endif
+
+    Color m_accentColor { SRGBA<uint8_t> { 52, 132, 228 } };
+
+    bool m_prefersReducedMotion { false };
+    InterfaceContrastPreference m_preferredContrast { InterfaceContrastPreference::NoPreference };
 };
 
 } // namespace WebCore
+
+#endif // USE(THEME_ADWAITA)

@@ -25,9 +25,9 @@
 
 #pragma once
 
-#include "BytecodeConventions.h"
-#include "CallFrame.h"
-#include <wtf/PrintStream.h>
+#include <JavaScriptCore/BytecodeConventions.h>
+#include <JavaScriptCore/CallFrame.h>
+#include <wtf/Forward.h>
 
 namespace JSC {
 
@@ -78,13 +78,8 @@ public:
     int offset() const { return m_virtualRegister; }
     int offsetInBytes() const { return m_virtualRegister * sizeof(Register); }
 
-    bool operator==(VirtualRegister other) const { return m_virtualRegister == other.m_virtualRegister; }
-    bool operator!=(VirtualRegister other) const { return m_virtualRegister != other.m_virtualRegister; }
-    bool operator<(VirtualRegister other) const { return m_virtualRegister < other.m_virtualRegister; }
-    bool operator>(VirtualRegister other) const { return m_virtualRegister > other.m_virtualRegister; }
-    bool operator<=(VirtualRegister other) const { return m_virtualRegister <= other.m_virtualRegister; }
-    bool operator>=(VirtualRegister other) const { return m_virtualRegister >= other.m_virtualRegister; }
-    
+    friend auto operator<=>(const VirtualRegister&, const VirtualRegister&) = default;
+
     VirtualRegister operator+(int value) const
     {
         return VirtualRegister(offset() + value);
@@ -121,7 +116,7 @@ private:
     int m_virtualRegister;
 };
 
-COMPILE_ASSERT(sizeof(VirtualRegister) == sizeof(int), VirtualRegister_is_32bit);
+static_assert(sizeof(VirtualRegister) == sizeof(int), "VirtualRegister is 32bit");
 
 inline VirtualRegister virtualRegisterForLocal(int local)
 {

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -49,10 +49,14 @@ class VolumeSupport extends MediaControllerSupport
         this.mediaController.media.muted = control.value === 0;
     }
 
-    syncControl()
+    syncControl(event)
     {
         const media = this.mediaController.media;
-        this.control.value = media.muted ? 0 : media.volume;
+        const controlValue = media.muted ? 0 : media.volume;
+        if (event)
+            this.control.setValueAnimated(controlValue);
+        else
+            this.control.value = controlValue;
     }
 
 }

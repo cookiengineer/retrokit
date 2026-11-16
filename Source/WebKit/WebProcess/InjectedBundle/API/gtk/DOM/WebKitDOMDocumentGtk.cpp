@@ -53,11 +53,16 @@
 #include "WebKitDOMXPathNSResolverPrivate.h"
 #include "WebKitDOMXPathResultPrivate.h"
 #include <WebCore/CSSImportRule.h>
+#include <WebCore/CSSStyleProperties.h>
 #include <WebCore/DOMException.h>
-#include <WebCore/Document.h>
-#include <WebCore/FullscreenManager.h>
+#include <WebCore/DocumentFullscreen.h>
+#include <WebCore/DocumentInlines.h>
+#include <WebCore/HitTestSource.h>
+#include <WebCore/ImportNodeOptions.h>
+#include <WebCore/JSDOMPromiseDeferred.h>
 #include <WebCore/JSExecState.h>
 #include <WebCore/SecurityOrigin.h>
+#include <WebCore/VisibilityState.h>
 #include <wtf/GetPtr.h>
 #include <wtf/RefPtr.h>
 
@@ -879,8 +884,7 @@ WebKitDOMElement* webkit_dom_document_create_element(WebKitDOMDocument* self, co
     g_return_val_if_fail(tagName, 0);
     g_return_val_if_fail(!error || !*error, 0);
     WebCore::Document* item = WebKit::core(self);
-    WTF::String convertedTagName = WTF::String::fromUTF8(tagName);
-    auto result = item->createElementForBindings(convertedTagName);
+    auto result = item->createElementForBindings(WTF::AtomString::fromUTF8(tagName));
     if (result.hasException()) {
         auto description = WebCore::DOMException::description(result.releaseException().code());
         g_set_error_literal(error, g_quark_from_string("WEBKIT_DOM"), description.legacyCode, description.name);
@@ -905,7 +909,7 @@ WebKitDOMText* webkit_dom_document_create_text_node(WebKitDOMDocument* self, con
     g_return_val_if_fail(data, 0);
     WebCore::Document* item = WebKit::core(self);
     WTF::String convertedData = WTF::String::fromUTF8(data);
-    RefPtr<WebCore::Text> gobjectResult = WTF::getPtr(item->createTextNode(convertedData));
+    RefPtr<WebCore::Text> gobjectResult = WTF::getPtr(item->createTextNode(WTF::move(convertedData)));
     return WebKit::kit(gobjectResult.get());
 }
 
@@ -916,7 +920,7 @@ WebKitDOMComment* webkit_dom_document_create_comment(WebKitDOMDocument* self, co
     g_return_val_if_fail(data, 0);
     WebCore::Document* item = WebKit::core(self);
     WTF::String convertedData = WTF::String::fromUTF8(data);
-    RefPtr<WebCore::Comment> gobjectResult = WTF::getPtr(item->createComment(convertedData));
+    RefPtr<WebCore::Comment> gobjectResult = WTF::getPtr(item->createComment(WTF::move(convertedData)));
     return WebKit::kit(gobjectResult.get());
 }
 
@@ -927,8 +931,7 @@ WebKitDOMCDATASection* webkit_dom_document_create_cdata_section(WebKitDOMDocumen
     g_return_val_if_fail(data, 0);
     g_return_val_if_fail(!error || !*error, 0);
     WebCore::Document* item = WebKit::core(self);
-    WTF::String convertedData = WTF::String::fromUTF8(data);
-    auto result = item->createCDATASection(convertedData);
+    auto result = item->createCDATASection(WTF::String::fromUTF8(data));
     if (result.hasException()) {
         auto description = WebCore::DOMException::description(result.releaseException().code());
         g_set_error_literal(error, g_quark_from_string("WEBKIT_DOM"), description.legacyCode, description.name);
@@ -945,9 +948,7 @@ WebKitDOMProcessingInstruction* webkit_dom_document_create_processing_instructio
     g_return_val_if_fail(data, 0);
     g_return_val_if_fail(!error || !*error, 0);
     WebCore::Document* item = WebKit::core(self);
-    WTF::String convertedTarget = WTF::String::fromUTF8(target);
-    WTF::String convertedData = WTF::String::fromUTF8(data);
-    auto result = item->createProcessingInstruction(convertedTarget, convertedData);
+    auto result = item->createProcessingInstruction(WTF::String::fromUTF8(target), WTF::String::fromUTF8(data));
     if (result.hasException()) {
         auto description = WebCore::DOMException::description(result.releaseException().code());
         g_set_error_literal(error, g_quark_from_string("WEBKIT_DOM"), description.legacyCode, description.name);
@@ -963,8 +964,7 @@ WebKitDOMAttr* webkit_dom_document_create_attribute(WebKitDOMDocument* self, con
     g_return_val_if_fail(name, 0);
     g_return_val_if_fail(!error || !*error, 0);
     WebCore::Document* item = WebKit::core(self);
-    WTF::String convertedName = WTF::String::fromUTF8(name);
-    auto result = item->createAttribute(convertedName);
+    auto result = item->createAttribute(WTF::AtomString::fromUTF8(name));
     if (result.hasException()) {
         auto description = WebCore::DOMException::description(result.releaseException().code());
         g_set_error_literal(error, g_quark_from_string("WEBKIT_DOM"), description.legacyCode, description.name);
@@ -979,8 +979,7 @@ WebKitDOMHTMLCollection* webkit_dom_document_get_elements_by_tag_name_as_html_co
     g_return_val_if_fail(WEBKIT_DOM_IS_DOCUMENT(self), 0);
     g_return_val_if_fail(tagname, 0);
     WebCore::Document* item = WebKit::core(self);
-    WTF::String convertedTagname = WTF::String::fromUTF8(tagname);
-    RefPtr<WebCore::HTMLCollection> gobjectResult = WTF::getPtr(item->getElementsByTagName(convertedTagname));
+    RefPtr<WebCore::HTMLCollection> gobjectResult = WTF::getPtr(item->getElementsByTagName(WTF::AtomString::fromUTF8(tagname)));
     return WebKit::kit(gobjectResult.get());
 }
 
@@ -992,7 +991,7 @@ WebKitDOMNode* webkit_dom_document_import_node(WebKitDOMDocument* self, WebKitDO
     g_return_val_if_fail(!error || !*error, 0);
     WebCore::Document* item = WebKit::core(self);
     WebCore::Node* convertedImportedNode = WebKit::core(importedNode);
-    auto result = item->importNode(*convertedImportedNode, deep);
+    auto result = item->importNode(*convertedImportedNode, static_cast<bool>(deep));
     if (result.hasException()) {
         auto description = WebCore::DOMException::description(result.releaseException().code());
         g_set_error_literal(error, g_quark_from_string("WEBKIT_DOM"), description.legacyCode, description.name);
@@ -1008,8 +1007,8 @@ WebKitDOMElement* webkit_dom_document_create_element_ns(WebKitDOMDocument* self,
     g_return_val_if_fail(qualifiedName, 0);
     g_return_val_if_fail(!error || !*error, 0);
     WebCore::Document* item = WebKit::core(self);
-    WTF::String convertedNamespaceURI = WTF::String::fromUTF8(namespaceURI);
-    WTF::String convertedQualifiedName = WTF::String::fromUTF8(qualifiedName);
+    auto convertedNamespaceURI = WTF::AtomString::fromUTF8(namespaceURI);
+    auto convertedQualifiedName = WTF::AtomString::fromUTF8(qualifiedName);
     auto result = item->createElementNS(convertedNamespaceURI, convertedQualifiedName);
     if (result.hasException()) {
         auto description = WebCore::DOMException::description(result.releaseException().code());
@@ -1026,8 +1025,8 @@ WebKitDOMAttr* webkit_dom_document_create_attribute_ns(WebKitDOMDocument* self, 
     g_return_val_if_fail(qualifiedName, 0);
     g_return_val_if_fail(!error || !*error, 0);
     WebCore::Document* item = WebKit::core(self);
-    WTF::String convertedNamespaceURI = WTF::String::fromUTF8(namespaceURI);
-    WTF::String convertedQualifiedName = WTF::String::fromUTF8(qualifiedName);
+    auto convertedNamespaceURI = WTF::AtomString::fromUTF8(namespaceURI);
+    auto convertedQualifiedName = WTF::AtomString::fromUTF8(qualifiedName);
     auto result = item->createAttributeNS(convertedNamespaceURI, convertedQualifiedName);
     if (result.hasException()) {
         auto description = WebCore::DOMException::description(result.releaseException().code());
@@ -1044,8 +1043,8 @@ WebKitDOMHTMLCollection* webkit_dom_document_get_elements_by_tag_name_ns_as_html
     g_return_val_if_fail(namespaceURI, 0);
     g_return_val_if_fail(localName, 0);
     WebCore::Document* item = WebKit::core(self);
-    WTF::String convertedNamespaceURI = WTF::String::fromUTF8(namespaceURI);
-    WTF::String convertedLocalName = WTF::String::fromUTF8(localName);
+    auto convertedNamespaceURI = WTF::AtomString::fromUTF8(namespaceURI);
+    auto convertedLocalName = WTF::AtomString::fromUTF8(localName);
     RefPtr<WebCore::HTMLCollection> gobjectResult = WTF::getPtr(item->getElementsByTagNameNS(convertedNamespaceURI, convertedLocalName));
     return WebKit::kit(gobjectResult.get());
 }
@@ -1104,7 +1103,9 @@ WebKitDOMNodeIterator* webkit_dom_document_create_node_iterator(WebKitDOMDocumen
     WebCore::Node* convertedRoot = WebKit::core(root);
     RefPtr<WebCore::NodeFilter> convertedFilter = WebKit::core(item, filter);
     RefPtr<WebCore::NodeIterator> gobjectResult = WTF::getPtr(item->createNodeIterator(*convertedRoot, whatToShow, WTF::getPtr(convertedFilter), expandEntityReferences));
+IGNORE_GCC_WARNINGS_BEGIN("use-after-free")
     return WebKit::kit(gobjectResult.get());
+IGNORE_GCC_WARNINGS_END
 }
 
 WebKitDOMTreeWalker* webkit_dom_document_create_tree_walker(WebKitDOMDocument* self, WebKitDOMNode* root, gulong whatToShow, WebKitDOMNodeFilter* filter, gboolean expandEntityReferences, GError** error)
@@ -1118,7 +1119,9 @@ WebKitDOMTreeWalker* webkit_dom_document_create_tree_walker(WebKitDOMDocument* s
     WebCore::Node* convertedRoot = WebKit::core(root);
     RefPtr<WebCore::NodeFilter> convertedFilter = WebKit::core(item, filter);
     RefPtr<WebCore::TreeWalker> gobjectResult = WTF::getPtr(item->createTreeWalker(*convertedRoot, whatToShow, WTF::getPtr(convertedFilter), expandEntityReferences));
+IGNORE_GCC_WARNINGS_BEGIN("use-after-free")
     return WebKit::kit(gobjectResult.get());
+IGNORE_GCC_WARNINGS_END
 }
 
 WebKitDOMCSSStyleDeclaration* webkit_dom_document_get_override_style(WebKitDOMDocument*, WebKitDOMElement*, const gchar*)
@@ -1136,7 +1139,7 @@ WebKitDOMXPathExpression* webkit_dom_document_create_expression(WebKitDOMDocumen
     WebCore::Document* item = WebKit::core(self);
     WTF::String convertedExpression = WTF::String::fromUTF8(expression);
     RefPtr<WebCore::XPathNSResolver> convertedResolver = WebKit::core(resolver);
-    auto result = item->createExpression(convertedExpression, WTFMove(convertedResolver));
+    auto result = item->createExpression(convertedExpression, WTF::move(convertedResolver));
     if (result.hasException()) {
         auto description = WebCore::DOMException::description(result.releaseException().code());
         g_set_error_literal(error, g_quark_from_string("WEBKIT_DOM"), description.legacyCode, description.name);
@@ -1172,7 +1175,7 @@ WebKitDOMXPathResult* webkit_dom_document_evaluate(WebKitDOMDocument* self, cons
     WebCore::Node* convertedContextNode = WebKit::core(contextNode);
     RefPtr<WebCore::XPathNSResolver> convertedResolver = WebKit::core(resolver);
     WebCore::XPathResult* convertedInResult = WebKit::core(inResult);
-    auto result = item->evaluate(convertedExpression, *convertedContextNode, WTFMove(convertedResolver), type, convertedInResult);
+    auto result = item->evaluate(convertedExpression, *convertedContextNode, WTF::move(convertedResolver), type, convertedInResult);
     if (result.hasException()) {
         auto description = WebCore::DOMException::description(result.releaseException().code());
         g_set_error_literal(error, g_quark_from_string("WEBKIT_DOM"), description.legacyCode, description.name);
@@ -1191,7 +1194,7 @@ gboolean webkit_dom_document_exec_command(WebKitDOMDocument* self, const gchar* 
     WTF::String convertedCommand = WTF::String::fromUTF8(command);
     WTF::String convertedValue = WTF::String::fromUTF8(value);
     auto result = item->execCommand(convertedCommand, userInterface, convertedValue);
-    return result.hasException() ? false : result.returnValue();
+    return !result.hasException() && result.returnValue();
 }
 
 gboolean webkit_dom_document_query_command_enabled(WebKitDOMDocument* self, const gchar* command)
@@ -1202,7 +1205,7 @@ gboolean webkit_dom_document_query_command_enabled(WebKitDOMDocument* self, cons
     WebCore::Document* item = WebKit::core(self);
     WTF::String convertedCommand = WTF::String::fromUTF8(command);
     auto result = item->queryCommandEnabled(convertedCommand);
-    return result.hasException() ? false : result.returnValue();
+    return !result.hasException() && result.returnValue();
 }
 
 gboolean webkit_dom_document_query_command_indeterm(WebKitDOMDocument* self, const gchar* command)
@@ -1213,7 +1216,7 @@ gboolean webkit_dom_document_query_command_indeterm(WebKitDOMDocument* self, con
     WebCore::Document* item = WebKit::core(self);
     WTF::String convertedCommand = WTF::String::fromUTF8(command);
     auto result = item->queryCommandIndeterm(convertedCommand);
-    return result.hasException() ? false : result.returnValue();
+    return !result.hasException() && result.returnValue();
 }
 
 gboolean webkit_dom_document_query_command_state(WebKitDOMDocument* self, const gchar* command)
@@ -1224,7 +1227,7 @@ gboolean webkit_dom_document_query_command_state(WebKitDOMDocument* self, const 
     WebCore::Document* item = WebKit::core(self);
     WTF::String convertedCommand = WTF::String::fromUTF8(command);
     auto result = item->queryCommandState(convertedCommand);
-    return result.hasException() ? false : result.returnValue();
+    return !result.hasException() && result.returnValue();
 }
 
 gboolean webkit_dom_document_query_command_supported(WebKitDOMDocument* self, const gchar* command)
@@ -1235,7 +1238,7 @@ gboolean webkit_dom_document_query_command_supported(WebKitDOMDocument* self, co
     WebCore::Document* item = WebKit::core(self);
     WTF::String convertedCommand = WTF::String::fromUTF8(command);
     auto result = item->queryCommandSupported(convertedCommand);
-    return result.hasException() ? false : result.returnValue();
+    return !result.hasException() && result.returnValue();
 }
 
 gchar* webkit_dom_document_query_command_value(WebKitDOMDocument* self, const gchar* command)
@@ -1256,8 +1259,7 @@ WebKitDOMNodeList* webkit_dom_document_get_elements_by_name(WebKitDOMDocument* s
     g_return_val_if_fail(WEBKIT_DOM_IS_DOCUMENT(self), 0);
     g_return_val_if_fail(elementName, 0);
     WebCore::Document* item = WebKit::core(self);
-    WTF::String convertedElementName = WTF::String::fromUTF8(elementName);
-    RefPtr<WebCore::NodeList> gobjectResult = WTF::getPtr(item->getElementsByName(convertedElementName));
+    RefPtr<WebCore::NodeList> gobjectResult = WTF::getPtr(item->getElementsByName(WTF::AtomString::fromUTF8(elementName)));
     return WebKit::kit(gobjectResult.get());
 }
 
@@ -1266,7 +1268,7 @@ WebKitDOMElement* webkit_dom_document_element_from_point(WebKitDOMDocument* self
     WebCore::JSMainThreadNullState state;
     g_return_val_if_fail(WEBKIT_DOM_IS_DOCUMENT(self), 0);
     WebCore::Document* item = WebKit::core(self);
-    RefPtr<WebCore::Element> gobjectResult = WTF::getPtr(item->elementFromPoint(x, y));
+    RefPtr<WebCore::Element> gobjectResult = WTF::getPtr(item->elementFromPoint(x, y, WebCore::HitTestSource::User));
     return WebKit::kit(gobjectResult.get());
 }
 
@@ -1275,7 +1277,7 @@ WebKitDOMRange* webkit_dom_document_caret_range_from_point(WebKitDOMDocument* se
     WebCore::JSMainThreadNullState state;
     g_return_val_if_fail(WEBKIT_DOM_IS_DOCUMENT(self), 0);
     WebCore::Document* item = WebKit::core(self);
-    RefPtr<WebCore::Range> gobjectResult = WTF::getPtr(item->caretRangeFromPoint(x, y));
+    RefPtr<WebCore::Range> gobjectResult = WTF::getPtr(item->caretRangeFromPoint(x, y, WebCore::HitTestSource::User));
     return WebKit::kit(gobjectResult.get());
 }
 
@@ -1284,7 +1286,8 @@ WebKitDOMCSSStyleDeclaration* webkit_dom_document_create_css_style_declaration(W
     WebCore::JSMainThreadNullState state;
     g_return_val_if_fail(WEBKIT_DOM_IS_DOCUMENT(self), 0);
     WebCore::Document* item = WebKit::core(self);
-    RefPtr<WebCore::CSSStyleDeclaration> gobjectResult = WTF::getPtr(item->createCSSStyleDeclaration());
+    auto declaration = item->createCSSStyleDeclaration();
+    RefPtr<WebCore::CSSStyleDeclaration> gobjectResult = WTF::getPtr(reinterpret_cast<WebCore::CSSStyleDeclaration*>(&declaration.get()));
     return WebKit::kit(gobjectResult.get());
 }
 
@@ -1294,8 +1297,7 @@ WebKitDOMHTMLCollection* webkit_dom_document_get_elements_by_class_name_as_html_
     g_return_val_if_fail(WEBKIT_DOM_IS_DOCUMENT(self), 0);
     g_return_val_if_fail(classNames, 0);
     WebCore::Document* item = WebKit::core(self);
-    WTF::String convertedClassNames = WTF::String::fromUTF8(classNames);
-    RefPtr<WebCore::HTMLCollection> gobjectResult = WTF::getPtr(item->getElementsByClassName(convertedClassNames));
+    RefPtr<WebCore::HTMLCollection> gobjectResult = WTF::getPtr(item->getElementsByClassName(WTF::AtomString::fromUTF8(classNames)));
     return WebKit::kit(gobjectResult.get());
 }
 
@@ -1312,16 +1314,20 @@ void webkit_dom_document_webkit_cancel_fullscreen(WebKitDOMDocument* self)
 {
     WebCore::JSMainThreadNullState state;
     g_return_if_fail(WEBKIT_DOM_IS_DOCUMENT(self));
+#if ENABLE(FULLSCREEN_API)
     WebCore::Document* item = WebKit::core(self);
-    item->fullscreenManager().cancelFullscreen();
+    item->fullscreen().fullyExitFullscreen();
+#endif
 }
 
 void webkit_dom_document_webkit_exit_fullscreen(WebKitDOMDocument* self)
 {
     WebCore::JSMainThreadNullState state;
     g_return_if_fail(WEBKIT_DOM_IS_DOCUMENT(self));
+#if ENABLE(FULLSCREEN_API)
     WebCore::Document* item = WebKit::core(self);
-    item->fullscreenManager().exitFullscreen();
+    item->fullscreen().exitFullscreen(nullptr);
+#endif
 }
 
 void webkit_dom_document_exit_pointer_lock(WebKitDOMDocument* self)
@@ -1528,8 +1534,7 @@ void webkit_dom_document_set_title(WebKitDOMDocument* self, const gchar* value)
     g_return_if_fail(WEBKIT_DOM_IS_DOCUMENT(self));
     g_return_if_fail(value);
     WebCore::Document* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setTitle(convertedValue);
+    item->setTitle(WTF::String::fromUTF8(value));
 }
 
 gchar* webkit_dom_document_get_dir(WebKitDOMDocument* self)
@@ -1547,8 +1552,7 @@ void webkit_dom_document_set_dir(WebKitDOMDocument* self, const gchar* value)
     g_return_if_fail(WEBKIT_DOM_IS_DOCUMENT(self));
     g_return_if_fail(value);
     WebCore::Document* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setDir(convertedValue);
+    item->setDir(WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_document_get_design_mode(WebKitDOMDocument* self)
@@ -1716,7 +1720,7 @@ WebKitDOMHTMLCollection* webkit_dom_document_get_plugins(WebKitDOMDocument* self
     WebCore::JSMainThreadNullState state;
     g_return_val_if_fail(WEBKIT_DOM_IS_DOCUMENT(self), 0);
     WebCore::Document* item = WebKit::core(self);
-    RefPtr<WebCore::HTMLCollection> gobjectResult = WTF::getPtr(item->plugins());
+    RefPtr<WebCore::HTMLCollection> gobjectResult = WTF::getPtr(item->embeds());
     return WebKit::kit(gobjectResult.get());
 }
 
@@ -1764,11 +1768,11 @@ gchar* webkit_dom_document_get_ready_state(WebKitDOMDocument* self)
 
     auto readyState = WebKit::core(self)->readyState();
     switch (readyState) {
-    case WebCore::Document::Loading:
+    case WebCore::Document::ReadyState::Loading:
         return convertToUTF8String("loading"_s);
-    case WebCore::Document::Interactive:
+    case WebCore::Document::ReadyState::Interactive:
         return convertToUTF8String("interactive"_s);
-    case WebCore::Document::Complete:
+    case WebCore::Document::ReadyState::Complete:
         return convertToUTF8String("complete"_s);
     }
     return 0;
@@ -1822,45 +1826,65 @@ gboolean webkit_dom_document_get_webkit_is_fullscreen(WebKitDOMDocument* self)
 {
     WebCore::JSMainThreadNullState state;
     g_return_val_if_fail(WEBKIT_DOM_IS_DOCUMENT(self), FALSE);
+#if ENABLE(FULLSCREEN_API)
     WebCore::Document* item = WebKit::core(self);
-    gboolean result = item->fullscreenManager().isFullscreen();
+    gboolean result = item->fullscreen().isFullscreen();
     return result;
+#else
+    return FALSE;
+#endif
 }
 
 gboolean webkit_dom_document_get_webkit_fullscreen_keyboard_input_allowed(WebKitDOMDocument* self)
 {
     WebCore::JSMainThreadNullState state;
     g_return_val_if_fail(WEBKIT_DOM_IS_DOCUMENT(self), FALSE);
+#if ENABLE(FULLSCREEN_API)
     WebCore::Document* item = WebKit::core(self);
-    gboolean result = item->fullscreenManager().isFullscreenKeyboardInputAllowed();
+    gboolean result = item->fullscreen().isFullscreenKeyboardInputAllowed();
     return result;
+#else
+    return FALSE;
+#endif
 }
 
 WebKitDOMElement* webkit_dom_document_get_webkit_current_fullscreen_element(WebKitDOMDocument* self)
 {
     WebCore::JSMainThreadNullState state;
     g_return_val_if_fail(WEBKIT_DOM_IS_DOCUMENT(self), 0);
+#if ENABLE(FULLSCREEN_API)
     WebCore::Document* item = WebKit::core(self);
-    RefPtr<WebCore::Element> gobjectResult = WTF::getPtr(item->fullscreenManager().currentFullscreenElement());
+    RefPtr<WebCore::Element> gobjectResult = WTF::getPtr(item->fullscreen().fullscreenElement());
     return WebKit::kit(gobjectResult.get());
+#else
+    return NULL;
+#endif
 }
 
 gboolean webkit_dom_document_get_webkit_fullscreen_enabled(WebKitDOMDocument* self)
 {
     WebCore::JSMainThreadNullState state;
     g_return_val_if_fail(WEBKIT_DOM_IS_DOCUMENT(self), FALSE);
+#if ENABLE(FULLSCREEN_API)
     WebCore::Document* item = WebKit::core(self);
-    gboolean result = item->fullscreenManager().isFullscreenEnabled();
+    gboolean result = item->fullscreen().enabledByPermissionsPolicy();
     return result;
+#else
+    return FALSE;
+#endif
 }
 
 WebKitDOMElement* webkit_dom_document_get_webkit_fullscreen_element(WebKitDOMDocument* self)
 {
     WebCore::JSMainThreadNullState state;
     g_return_val_if_fail(WEBKIT_DOM_IS_DOCUMENT(self), 0);
+#if ENABLE(FULLSCREEN_API)
     WebCore::Document* item = WebKit::core(self);
-    RefPtr<WebCore::Element> gobjectResult = WTF::getPtr(item->fullscreenManager().fullscreenElement());
+    RefPtr<WebCore::Element> gobjectResult = WTF::getPtr(item->fullscreen().fullscreenElement());
     return WebKit::kit(gobjectResult.get());
+#else
+    return NULL;
+#endif
 }
 
 WebKitDOMElement* webkit_dom_document_get_pointer_lock_element(WebKitDOMDocument* self)
@@ -1885,9 +1909,9 @@ gchar* webkit_dom_document_get_visibility_state(WebKitDOMDocument* self)
     WebCore::Document* item = WebKit::core(self);
     switch (item->visibilityState()) {
     case WebCore::VisibilityState::Hidden:
-        return convertToUTF8String("hidden");
+        return convertToUTF8String("hidden"_s);
     case WebCore::VisibilityState::Visible:
-        return convertToUTF8String("visible");
+        return convertToUTF8String("visible"_s);
     }
     ASSERT_NOT_REACHED();
     return nullptr;

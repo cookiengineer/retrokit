@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2018-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,11 +27,13 @@
 #include "config.h"
 #include "CSSParserContext.h"
 
-#include "CSSImageValue.h"
-#include "Document.h"
+#include "CSSPropertyNames.h"
+#include "CSSValuePool.h"
 #include "DocumentLoader.h"
+#include "DocumentQuirks.h"
+#include "DocumentSecurityOrigin.h"
+#include "OriginAccessPatterns.h"
 #include "Page.h"
-#include "RuntimeEnabledFeatures.h"
 #include "Settings.h"
 #include <wtf/NeverDestroyed.h>
 
@@ -42,209 +45,153 @@ const CSSParserContext& strictCSSParserContext()
     return strictContext;
 }
 
+static void NODELETE applyUASheetBehaviorsToContext(CSSParserContext& context)
+{
+    // FIXME: We should turn all of the features on from their WebCore Settings defaults.
+    context.cssAppearanceBaseEnabled = true;
+    context.cssRubyDisplayTypesEnabled = true;
+    context.cssTextTransformMathAutoEnabled = true;
+    context.popoverAttributeEnabled = true;
+    context.propertySettings.cssInputSecurityEnabled = true;
+    context.propertySettings.supportHDRDisplayEnabled = true;
+    context.propertySettings.cssFieldSizingEnabled = true;
+    context.cssMathDepthEnabled = true;
+    context.propertySettings.cssMathDepthEnabled = true;
+#if HAVE(CORE_MATERIAL)
+    context.propertySettings.useSystemAppearance = true;
+#endif
+    context.propertySettings.cssAnchorPositioningEnabled = true;
+    context.cssInternalAutoBaseParsingEnabled = true;
+    context.htmlEnhancedSelectEnabled = true;
+}
+
 CSSParserContext::CSSParserContext(CSSParserMode mode, const URL& baseURL)
     : baseURL(baseURL)
     , mode(mode)
 {
+    if (isUASheetBehavior(mode))
+        applyUASheetBehaviorsToContext(*this);
+
+    StaticCSSValuePool::init();
 }
 
-#if ENABLE(OVERFLOW_SCROLLING_TOUCH)
-static bool shouldEnableLegacyOverflowScrollingTouch(const Document& document)
+CSSParserContext::CSSParserContext(const Document& document)
 {
-    // The legacy -webkit-overflow-scrolling: touch behavior may have been disabled through the website policy,
-    // in that case we want to disable the legacy behavior regardless of what the setting says.
-    if (auto* loader = document.loader()) {
-        if (loader->legacyOverflowScrollingTouchPolicy() == LegacyOverflowScrollingTouchPolicy::Disable)
-            return false;
-    }
-    return document.settings().legacyOverflowScrollingTouchEnabled();
-}
-#endif
-
-CSSParserContext::CSSParserContext(const Document& document, const URL& sheetBaseURL, const String& charset)
-    : baseURL { sheetBaseURL.isNull() ? document.baseURL() : sheetBaseURL }
-    , charset { charset }
-    , mode { document.inQuirksMode() ? HTMLQuirksMode : HTMLStandardMode }
-    , isHTMLDocument { document.isHTMLDocument() }
-    , hasDocumentSecurityOrigin { sheetBaseURL.isNull() || document.securityOrigin().canRequest(baseURL) }
-    , useSystemAppearance { document.page() ? document.page()->useSystemAppearance() : false }
-    , aspectRatioEnabled { document.settings().aspectRatioEnabled() }
-    , colorContrastEnabled { document.settings().cssColorContrastEnabled() }
-    , colorFilterEnabled { document.settings().colorFilterEnabled() }
-    , colorMixEnabled { document.settings().cssColorMixEnabled() }
-    , constantPropertiesEnabled { document.settings().constantPropertiesEnabled() }
-    , containmentEnabled { document.settings().cssContainmentEnabled() }
-    , counterStyleAtRulesEnabled { document.settings().cssCounterStyleAtRulesEnabled() }
-    , counterStyleAtRuleImageSymbolsEnabled { document.settings().cssCounterStyleAtRuleImageSymbolsEnabled() }
-    , cssColor4 { document.settings().cssColor4() }
-    , deferredCSSParserEnabled { document.settings().deferredCSSParserEnabled() }
-    , individualTransformPropertiesEnabled { document.settings().cssIndividualTransformPropertiesEnabled() }
-#if ENABLE(OVERFLOW_SCROLLING_TOUCH)
-    , legacyOverflowScrollingTouchEnabled { shouldEnableLegacyOverflowScrollingTouch(document) }
-#endif
-    , overscrollBehaviorEnabled { document.settings().overscrollBehaviorEnabled() }
-    , relativeColorSyntaxEnabled { document.settings().cssRelativeColorSyntaxEnabled() }
-    , scrollBehaviorEnabled { document.settings().CSSOMViewSmoothScrollingEnabled() }
-    , springTimingFunctionEnabled { document.settings().springTimingFunctionEnabled() }
-#if ENABLE(TEXT_AUTOSIZING)
-    , textAutosizingEnabled { document.settings().textAutosizingEnabled() }
-#endif
-#if ENABLE(CSS_TRANSFORM_STYLE_OPTIMIZED_3D)
-    , transformStyleOptimized3DEnabled { document.settings().cssTransformStyleOptimized3DEnabled() }
-#endif
-    , useLegacyBackgroundSizeShorthandBehavior { document.settings().useLegacyBackgroundSizeShorthandBehavior() }
-    , focusVisibleEnabled { document.settings().focusVisibleEnabled() }
-    , hasPseudoClassEnabled { document.settings().hasPseudoClassEnabled() }
-    , cascadeLayersEnabled { document.settings().cssCascadeLayersEnabled() }
-#if ENABLE(ATTACHMENT_ELEMENT)
-    , attachmentEnabled { RuntimeEnabledFeatures::sharedFeatures().attachmentElementEnabled() }
-#endif
-    , overflowClipEnabled { document.settings().overflowClipEnabled() }
-{
+    *this = document.cssParserContext();
 }
 
-bool operator==(const CSSParserContext& a, const CSSParserContext& b)
+CSSParserContext::CSSParserContext(const Document& document, const URL& sheetBaseURL, ASCIILiteral charset)
+    : CSSParserContext(document.settings())
 {
-    return a.baseURL == b.baseURL
-        && a.charset == b.charset
-        && a.mode == b.mode
-        && a.enclosingRuleType == b.enclosingRuleType
-        && a.isHTMLDocument == b.isHTMLDocument
-        && a.hasDocumentSecurityOrigin == b.hasDocumentSecurityOrigin
-        && a.isContentOpaque == b.isContentOpaque
-        && a.useSystemAppearance == b.useSystemAppearance
-        && a.aspectRatioEnabled == b.aspectRatioEnabled
-        && a.colorContrastEnabled == b.colorContrastEnabled
-        && a.colorFilterEnabled == b.colorFilterEnabled
-        && a.colorMixEnabled == b.colorMixEnabled
-        && a.constantPropertiesEnabled == b.constantPropertiesEnabled
-        && a.containmentEnabled == b.containmentEnabled
-        && a.counterStyleAtRulesEnabled == b.counterStyleAtRulesEnabled
-        && a.counterStyleAtRuleImageSymbolsEnabled == b.counterStyleAtRuleImageSymbolsEnabled
-        && a.cssColor4 == b.cssColor4
-        && a.deferredCSSParserEnabled == b.deferredCSSParserEnabled
-        && a.individualTransformPropertiesEnabled == b.individualTransformPropertiesEnabled
-#if ENABLE(OVERFLOW_SCROLLING_TOUCH)
-        && a.legacyOverflowScrollingTouchEnabled == b.legacyOverflowScrollingTouchEnabled
+    baseURL = sheetBaseURL.isNull() ? document.baseURL() : sheetBaseURL;
+    this->charset = charset;
+    mode = document.inQuirksMode() ? HTMLQuirksMode : HTMLStandardMode;
+    isHTMLDocument = document.isHTMLDocument();
+    hasDocumentSecurityOrigin = sheetBaseURL.isNull() || protect(document.securityOrigin())->canRequest(baseURL, OriginAccessPatternsForWebProcess::singleton());
+    webkitMediaTextTrackDisplayQuirkEnabled = document.quirks().needsWebKitMediaTextTrackDisplayQuirk();
+}
+
+CSSParserContext::CSSParserContext(const Settings& settings)
+    : mode { HTMLStandardMode }
+    , useSystemAppearance { settings.useSystemAppearance() }
+    , counterStyleAtRuleImageSymbolsEnabled { settings.cssCounterStyleAtRuleImageSymbolsEnabled() }
+    , springTimingFunctionEnabled { settings.springTimingFunctionEnabled() }
+#if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
+    , cssTransformStyleSeparatedEnabled { settings.cssTransformStyleSeparatedEnabled() }
 #endif
-        && a.overscrollBehaviorEnabled == b.overscrollBehaviorEnabled
-        && a.relativeColorSyntaxEnabled == b.relativeColorSyntaxEnabled
-        && a.scrollBehaviorEnabled == b.scrollBehaviorEnabled
-        && a.springTimingFunctionEnabled == b.springTimingFunctionEnabled
-#if ENABLE(TEXT_AUTOSIZING)
-        && a.textAutosizingEnabled == b.textAutosizingEnabled
+    , gridLanesEnabled { settings.gridLanesEnabled() }
+    , cssAppearanceBaseEnabled { settings.cssAppearanceBaseEnabled() }
+    , cssPaintingAPIEnabled { settings.cssPaintingAPIEnabled() }
+    , cssTextDecorationLineErrorValues { settings.cssTextDecorationLineErrorValues() }
+    , cssWordBreakAutoPhraseEnabled { settings.cssWordBreakAutoPhraseEnabled() }
+    , popoverAttributeEnabled { settings.popoverAttributeEnabled() }
+    , cssTextWrapPrettyEnabled { settings.cssTextWrapPrettyEnabled() }
+#if ENABLE(SERVICE_CONTROLS)
+    , imageControlsEnabled { settings.imageControlsEnabled() }
 #endif
-#if ENABLE(CSS_TRANSFORM_STYLE_OPTIMIZED_3D)
-        && a.transformStyleOptimized3DEnabled == b.transformStyleOptimized3DEnabled
-#endif
-        && a.useLegacyBackgroundSizeShorthandBehavior == b.useLegacyBackgroundSizeShorthandBehavior
-        && a.focusVisibleEnabled == b.focusVisibleEnabled
-        && a.hasPseudoClassEnabled == b.hasPseudoClassEnabled
-        && a.cascadeLayersEnabled == b.cascadeLayersEnabled
-#if ENABLE(ATTACHMENT_ELEMENT)
-        && a.attachmentEnabled == b.attachmentEnabled
-#endif
-        && a.overflowClipEnabled == b.overflowClipEnabled
-    ;
+    , colorLayersEnabled { settings.cssColorLayersEnabled() }
+    , cssPickerPseudoElementEnabled { settings.cssPickerPseudoElementEnabled() }
+    , targetTextPseudoElementEnabled { settings.targetTextPseudoElementEnabled() }
+    , htmlEnhancedSelectEnabled { settings.htmlEnhancedSelectEnabled() }
+    , cssRandomFunctionEnabled { settings.cssRandomFunctionEnabled() }
+    , cssRandomItemFunctionEnabled { settings.cssRandomItemFunctionEnabled() }
+    , cssRubyDisplayTypesEnabled { settings.cssRubyDisplayTypesInAuthorStylesEnabled() }
+    , cssTreeCountingFunctionsEnabled { settings.cssTreeCountingFunctionsEnabled() }
+    , cssURLModifiersEnabled { settings.cssURLModifiersEnabled() }
+    , cssURLIntegrityModifierEnabled { settings.cssURLIntegrityModifierEnabled() }
+    , cssAxisRelativePositionKeywordsEnabled { settings.cssAxisRelativePositionKeywordsEnabled() }
+    , cssDynamicRangeLimitMixEnabled { settings.cssDynamicRangeLimitMixEnabled() }
+    , cssConstrainedDynamicRangeLimitEnabled { settings.cssConstrainedDynamicRangeLimitEnabled() }
+    , cssTextTransformMathAutoEnabled { settings.cssTextTransformMathAutoEnabled() }
+    , cssFontSynthesisStyleObliqueOnlyEnabled { settings.cssFontSynthesisStyleObliqueOnlyEnabled() }
+    , cssInternalAutoBaseParsingEnabled { settings.cssInternalAutoBaseParsingEnabled() }
+    , cssMathDepthEnabled { settings.cssMathDepthEnabled() }
+    , openPseudoClassEnabled { settings.openPseudoClassEnabled() }
+    , cssAttrSubstitutionFunctionEnabled { settings.cssAttrSubstitutionFunctionEnabled() }
+    , cssScrollStateContainerQueriesEnabled { settings.cssScrollStateContainerQueriesEnabled() }
+    , cssCalcMixEnabled { settings.cssCalcMixEnabled() }
+    , cssIdentFunctionEnabled { settings.cssIdentFunctionEnabled() }
+    , cssIfFunctionEnabled { settings.cssIfFunctionEnabled() }
+    , propertySettings { CSSPropertySettings { settings } }
+{
 }
 
 void add(Hasher& hasher, const CSSParserContext& context)
 {
-    unsigned bits = context.isHTMLDocument                  << 0
-        | context.hasDocumentSecurityOrigin                 << 1
-        | context.isContentOpaque                           << 2
-        | context.useSystemAppearance                       << 3
-        | context.aspectRatioEnabled                        << 4
-        | context.colorContrastEnabled                      << 5
-        | context.colorFilterEnabled                        << 6
-        | context.colorMixEnabled                           << 7
-        | context.constantPropertiesEnabled                 << 8
-        | context.containmentEnabled                        << 9
-        | context.cssColor4                                 << 10
-        | context.deferredCSSParserEnabled                  << 11
-        | context.individualTransformPropertiesEnabled      << 12
-#if ENABLE(OVERFLOW_SCROLLING_TOUCH)
-        | context.legacyOverflowScrollingTouchEnabled       << 13
+    auto bits = WTF::packBools(
+        context.isHTMLDocument,
+        context.hasDocumentSecurityOrigin,
+        static_cast<bool>(context.loadedFromOpaqueSource),
+        context.useSystemAppearance,
+        context.shouldIgnoreImportRules,
+        context.counterStyleAtRuleImageSymbolsEnabled,
+        context.springTimingFunctionEnabled,
+#if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
+        context.cssTransformStyleSeparatedEnabled,
 #endif
-        | context.overscrollBehaviorEnabled                 << 14
-        | context.relativeColorSyntaxEnabled                << 15
-        | context.scrollBehaviorEnabled                     << 16
-        | context.springTimingFunctionEnabled               << 17
-#if ENABLE(TEXT_AUTOSIZING)
-        | context.textAutosizingEnabled                     << 18
+        context.gridLanesEnabled,
+        context.cssAppearanceBaseEnabled,
+        context.cssPaintingAPIEnabled,
+        context.cssWordBreakAutoPhraseEnabled,
+        context.popoverAttributeEnabled,
+        context.cssTextWrapPrettyEnabled,
+#if ENABLE(SERVICE_CONTROLS)
+        context.imageControlsEnabled,
 #endif
-#if ENABLE(CSS_TRANSFORM_STYLE_OPTIMIZED_3D)
-        | context.transformStyleOptimized3DEnabled          << 19
-#endif
-        | context.useLegacyBackgroundSizeShorthandBehavior  << 20
-        | context.focusVisibleEnabled                       << 21
-        | context.hasPseudoClassEnabled                     << 22
-        | context.cascadeLayersEnabled                      << 23
-#if ENABLE(ATTACHMENT_ELEMENT)
-        | context.attachmentEnabled                         << 24
-#endif
-        | context.overflowClipEnabled                       << 25
-        | context.mode                                      << 26; // This is multiple bits, so keep it last.
-    add(hasher, context.baseURL, context.charset, bits);
+        context.colorLayersEnabled,
+        context.cssPickerPseudoElementEnabled,
+        context.targetTextPseudoElementEnabled,
+        context.htmlEnhancedSelectEnabled,
+        context.cssRandomFunctionEnabled,
+        context.cssRandomItemFunctionEnabled,
+        context.cssRubyDisplayTypesEnabled,
+        context.cssTreeCountingFunctionsEnabled,
+        context.cssURLModifiersEnabled,
+        context.cssURLIntegrityModifierEnabled,
+        context.cssAxisRelativePositionKeywordsEnabled,
+        context.cssDynamicRangeLimitMixEnabled,
+        context.cssConstrainedDynamicRangeLimitEnabled,
+        context.cssTextDecorationLineErrorValues,
+        context.cssTextTransformMathAutoEnabled,
+        context.cssFontSynthesisStyleObliqueOnlyEnabled,
+        context.cssInternalAutoBaseParsingEnabled,
+        context.webkitMediaTextTrackDisplayQuirkEnabled,
+        context.cssMathDepthEnabled,
+        context.openPseudoClassEnabled,
+        context.cssAttrSubstitutionFunctionEnabled,
+        context.cssScrollStateContainerQueriesEnabled,
+        context.cssCalcMixEnabled,
+        context.cssIdentFunctionEnabled,
+        context.cssIfFunctionEnabled,
+        context.legacyFontFaceAttributeMode
+    );
+    add(hasher, context.baseURL, context.charset, context.propertySettings, context.mode, context.enclosingRuleType, bits);
 }
 
-bool CSSParserContext::isPropertyRuntimeDisabled(CSSPropertyID property) const
+void CSSParserContext::setUASheetMode()
 {
-    switch (property) {
-    case CSSPropertyAdditiveSymbols:
-    case CSSPropertyFallback:
-    case CSSPropertyPad:
-    case CSSPropertySymbols:
-    case CSSPropertyNegative:
-    case CSSPropertyPrefix:
-    case CSSPropertyRange:
-    case CSSPropertySuffix:
-    case CSSPropertySystem:
-        return !counterStyleAtRulesEnabled;
-    case CSSPropertyAspectRatio:
-        return !aspectRatioEnabled;
-    case CSSPropertyContain:
-        return !containmentEnabled;
-    case CSSPropertyAppleColorFilter:
-        return !colorFilterEnabled;
-    case CSSPropertyTranslate:
-    case CSSPropertyRotate:
-    case CSSPropertyScale:
-        return !individualTransformPropertiesEnabled;
-    case CSSPropertyOverscrollBehavior:
-    case CSSPropertyOverscrollBehaviorX:
-    case CSSPropertyOverscrollBehaviorY:
-        return !overscrollBehaviorEnabled;
-    case CSSPropertyScrollBehavior:
-        return !scrollBehaviorEnabled;
-#if ENABLE(TEXT_AUTOSIZING) && !PLATFORM(IOS_FAMILY)
-    case CSSPropertyWebkitTextSizeAdjust:
-        return !textAutosizingEnabled;
-#endif
-#if ENABLE(OVERFLOW_SCROLLING_TOUCH)
-    case CSSPropertyWebkitOverflowScrolling:
-        return !legacyOverflowScrollingTouchEnabled;
-#endif
-    default:
-        return false;
-    }
+    mode = UASheetMode;
+    applyUASheetBehaviorsToContext(*this);
 }
 
-ResolvedURL CSSParserContext::completeURL(const String& string) const
-{
-    auto result = [&] () -> ResolvedURL {
-        if (string.isNull())
-            return { };
-        if (charset.isEmpty())
-            return { string, { baseURL, string } };
-        auto encodingForURLParsing = TextEncoding { charset }.encodingForFormSubmissionOrURLParsing();
-        return { string, { baseURL, string, encodingForURLParsing == UTF8Encoding() ? nullptr : &encodingForURLParsing } };
-    }();
-
-    if (mode == WebVTTMode && !result.resolvedURL.protocolIsData())
-        return { };
-
-    return result;
-}
-
-}
+} // namespace WebCore

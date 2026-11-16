@@ -36,12 +36,12 @@ void CurlSSLHandle::platformInitialize()
     CertificateStore::getTrustedRootCA(*certificateData);
 
     CertificateInfo::Certificate caCertData;
-    caCertData.append(certificateData->data(), certificateData->size());
+    caCertData.append(std::span { certificateData->data(), certificateData->size() });
     if (certificateData->size())
-        setCACertData(WTFMove(caCertData));
+        setCACertData(WTF::move(caCertData));
 
     setCipherList(CertificateStore::cipherSuites());
-    setCurvesList(CertificateStore::supportedGroups());
+    setECCurves(CertificateStore::supportedGroups());
 
     setIgnoreSSLErrors(CertificateStore::shouldIgnoreTLSErrors());
 }

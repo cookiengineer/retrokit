@@ -25,12 +25,13 @@
 
 #pragma once
 
-#include "HTMLElement.h"
+#include <WebCore/HTMLElement.h>
 
 namespace WebCore {
 
 class HTMLPictureElement final : public HTMLElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLPictureElement);
+    WTF_MAKE_TZONE_ALLOCATED(HTMLPictureElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLPictureElement);
 public:
     static Ref<HTMLPictureElement> create(const QualifiedName&, Document&);
     virtual ~HTMLPictureElement();
@@ -44,8 +45,6 @@ public:
 
 private:
     HTMLPictureElement(const QualifiedName&, Document&);
-
-    void didMoveToNewDocument(Document& oldDocument, Document& newDocument) final;
 };
 
 } // namespace WebCore

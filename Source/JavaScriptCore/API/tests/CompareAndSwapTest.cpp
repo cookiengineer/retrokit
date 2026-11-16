@@ -31,13 +31,15 @@
 #include <wtf/Atomics.h>
 #include <wtf/Threading.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 class Bitmap {
 public:
     Bitmap() { clearAll(); }
 
     inline void clearAll();
     inline bool concurrentTestAndSet(size_t n);
-    inline size_t numBits() const { return words * wordSize; }
+    inline size_t NODELETE numBits() const { return words * wordSize; }
 
 private:
     static constexpr size_t Size = 4096*10;
@@ -54,7 +56,7 @@ inline void Bitmap::clearAll()
     memset(&bits, 0, sizeof(bits));
 }
 
-inline bool Bitmap::concurrentTestAndSet(size_t n)
+inline bool NODELETE Bitmap::concurrentTestAndSet(size_t n)
 {
     uint8_t mask = one << (n % wordSize);
     size_t index = n / wordSize;
@@ -107,7 +109,7 @@ void testCompareAndSwap()
         data[i].bitmap = &bitmap;
         data[i].id = i;
         data[i].numThreads = numThreads;
-        threads[i] = Thread::create("setBitThreadFunc", std::bind(setBitThreadFunc, &data[i]));
+        threads[i] = Thread::create("setBitThreadFunc"_s, std::bind(setBitThreadFunc, &data[i]));
     }
 
     printf("Waiting for %d threads to join\n", numThreads);
@@ -116,3 +118,5 @@ void testCompareAndSwap()
 
     printf("PASS: CompareAndSwap test completed without a hang\n");
 }
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

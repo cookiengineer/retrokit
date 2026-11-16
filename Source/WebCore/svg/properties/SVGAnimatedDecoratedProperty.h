@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Apple Inc.  All rights reserved.
+ * Copyright (C) 2018-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,7 +31,8 @@
 namespace WebCore {
 
 template<template <typename, typename> class DecoratedProperty, typename DecorationType>
-class SVGAnimatedDecoratedProperty : public SVGAnimatedProperty {
+class SVGAnimatedDecoratedProperty : public SVGAnimatedProperty<SVGAnimatedDecoratedProperty<DecoratedProperty, DecorationType>> {
+    using Base = SVGAnimatedProperty<SVGAnimatedDecoratedProperty<DecoratedProperty, DecorationType>>;
 public:
     template<typename PropertyType, typename AnimatedProperty = SVGAnimatedDecoratedProperty>
     static Ref<AnimatedProperty> create(SVGElement* contextElement)
@@ -46,8 +47,8 @@ public:
     }
 
     SVGAnimatedDecoratedProperty(SVGElement* contextElement, Ref<SVGDecoratedProperty<DecorationType>>&& baseVal)
-        : SVGAnimatedProperty(contextElement)
-        , m_baseVal(WTFMove(baseVal))
+        : Base(contextElement)
+        , m_baseVal(WTF::move(baseVal))
     {
     }
 
@@ -55,8 +56,8 @@ public:
     ExceptionOr<void> setBaseVal(const DecorationType& baseVal)
     {
         if (!m_baseVal->setValue(baseVal))
-            return Exception { TypeError };
-        commitPropertyChange(nullptr);
+            return Exception { ExceptionCode::TypeError };
+        this->commitPropertyChange(nullptr);
         return { };
     }
 
@@ -75,15 +76,15 @@ public:
     template<typename PropertyType>
     void setAnimVal(const PropertyType& animVal)
     {
-        ASSERT(isAnimating() && m_animVal);
+        ASSERT(this->isAnimating() && m_animVal);
         m_animVal->setValueInternal(static_cast<DecorationType>(animVal));
     }
 
     template<typename PropertyType = DecorationType>
     PropertyType animVal() const
     {
-        ASSERT_IMPLIES(isAnimating(), m_animVal);
-        return static_cast<PropertyType>((isAnimating() ? *m_animVal : m_baseVal.get()).value());
+        ASSERT_IMPLIES(this->isAnimating(), m_animVal);
+        return static_cast<PropertyType>((this->isAnimating() ? *m_animVal : m_baseVal.get()).value());
     }
 
     // Used when committing a change from the SVGAnimatedProperty to the attribute.
@@ -92,7 +93,7 @@ public:
     // Used to apply the SVGAnimator change to the target element.
     String animValAsString() const override
     {
-        ASSERT(isAnimating() && !!m_animVal);
+        ASSERT(this->isAnimating() && !!m_animVal);
         return m_animVal->valueAsString();
     }
 
@@ -111,8 +112,8 @@ public:
     template<typename PropertyType>
     PropertyType currentValue() const
     {
-        ASSERT_IMPLIES(isAnimating(), m_animVal);
-        return static_cast<PropertyType>((isAnimating() ? *m_animVal : m_baseVal.get()).valueInternal());
+        ASSERT_IMPLIES(this->isAnimating(), m_animVal);
+        return static_cast<PropertyType>((this->isAnimating() ? *m_animVal : m_baseVal.get()).valueInternal());
     }
 
     // Controlling the animation.
@@ -122,36 +123,34 @@ public:
             m_animVal->setValue(m_baseVal->value());
         else
             m_animVal = m_baseVal->clone();
-        SVGAnimatedProperty::startAnimation(animator);
+        Base::startAnimation(animator);
     }
     void stopAnimation(SVGAttributeAnimator& animator) override
     {
-        SVGAnimatedProperty::stopAnimation(animator);
-        if (!isAnimating())
+        Base::stopAnimation(animator);
+        if (!this->isAnimating())
             m_animVal = nullptr;
         else if (m_animVal)
             m_animVal->setValue(m_baseVal->value());
     }
 
     // Controlling the instance animation.
-    void instanceStartAnimation(SVGAttributeAnimator& animator, SVGAnimatedProperty& animated) override
+    void instanceStartAnimationImpl(SVGAttributeAnimator& animator, SVGAnimatedDecoratedProperty& animated) override
     {
-        if (isAnimating())
-            return;
-        m_animVal = static_cast<decltype(*this)>(animated).m_animVal;
-        SVGAnimatedProperty::instanceStartAnimation(animator, animated);
+        if (!this->isAnimating())
+            m_animVal = animated.m_animVal;
+        Base::startAnimation(animator);
     }
 
-    void instanceStopAnimation(SVGAttributeAnimator& animator) override
+    void instanceStopAnimationImpl(SVGAttributeAnimator& animator) override
     {
-        if (!isAnimating())
-            return;
-        m_animVal = nullptr;
-        SVGAnimatedProperty::instanceStopAnimation(animator);
+        Base::stopAnimation(animator);
+        if (!this->isAnimating())
+            m_animVal = nullptr;
     }
 
 protected:
-    Ref<SVGDecoratedProperty<DecorationType>> m_baseVal;
+    const Ref<SVGDecoratedProperty<DecorationType>> m_baseVal;
     RefPtr<SVGDecoratedProperty<DecorationType>> m_animVal;
     SVGPropertyState m_state { SVGPropertyState::Clean };
 };

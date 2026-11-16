@@ -25,7 +25,7 @@
 
 WI.ObjectPreviewView = class ObjectPreviewView extends WI.Object
 {
-    constructor(object, preview, mode)
+    constructor(object, preview, {objectPreviewViewMode} = {})
     {
         console.assert(!object || object instanceof WI.RemoteObject);
         console.assert(preview instanceof WI.ObjectPreview);
@@ -34,7 +34,7 @@ WI.ObjectPreviewView = class ObjectPreviewView extends WI.Object
 
         this._object = object || null;
         this._preview = preview;
-        this._mode = mode || WI.ObjectPreviewView.Mode.Full;
+        this._mode = objectPreviewViewMode || WI.ObjectPreviewView.Mode.Full;
 
         this._element = document.createElement("span");
         this._element.className = "object-preview";
@@ -166,11 +166,11 @@ WI.ObjectPreviewView = class ObjectPreviewView extends WI.Object
             var keyPreviewLossless = true;
             var entry = preview.collectionEntryPreviews[i];
             if (entry.keyPreview) {
-                keyPreviewLossless = this._appendPreview(element, entry.keyPreview);
+                keyPreviewLossless = this._appendCollectionEntryNodePreview(element, entry.keyPreview, preview, i, true);
                 element.append(" => ");
             }
 
-            var valuePreviewLossless = this._appendPreview(element, entry.valuePreview);
+            var valuePreviewLossless = this._appendCollectionEntryNodePreview(element, entry.valuePreview, preview, i, false);
 
             if (!keyPreviewLossless || !valuePreviewLossless)
                 lossless = false;
@@ -190,6 +190,28 @@ WI.ObjectPreviewView = class ObjectPreviewView extends WI.Object
         element.append(isIterator ? "]" : "}");
 
         return lossless;
+    }
+
+    _appendCollectionEntryNodePreview(element, entryPreview, collectionPreview, entryIndex, isKey)
+    {
+        if (entryPreview.subtype === "node" && collectionPreview === this._preview && this._object && !this._preview.isWeakCollection()) {
+            let options = {
+                remoteObjectAccessor: (callback) => {
+                    this._object.getCollectionEntries((entries) => {
+                        if (!entries?.length) {
+                            callback(null);
+                            return;
+                        }
+                        let remoteObject = isKey ? entries[0].key : entries[0].value;
+                        WI.consoleManager.releaseRemoteObjectWithConsoleClear(remoteObject);
+                        callback(remoteObject);
+                    }, {fetchStart: entryIndex, fetchCount: 1});
+                },
+            };
+            element.appendChild(WI.FormattedValue.createElementForNodePreview(entryPreview, options));
+            return false;
+        }
+        return this._appendPreview(element, entryPreview);
     }
 
     _appendPropertyPreviews(element, preview)
@@ -230,6 +252,11 @@ WI.ObjectPreviewView = class ObjectPreviewView extends WI.Object
                 let nameElement = element.appendChild(document.createElement("span"));
                 nameElement.className = "name";
                 nameElement.textContent = property.name;
+                if (property.private)
+                    nameElement.classList.add("private");
+                if (property.internal)
+                    nameElement.classList.add("internal");
+
                 element.append(": ");
             }
 
@@ -295,7 +322,7 @@ WI.ObjectPreviewView = class ObjectPreviewView extends WI.Object
             if (!isImpossible)
                 WI.quickConsole.prompt.pushHistoryItem(text);
 
-            WI.consoleLogViewController.appendImmediateExecutionWithResult(text, this._remoteObject, isImpossible);
+            WI.consoleLogViewController.appendImmediateExecutionWithResult(text, this._remoteObject, {addSpecialUserLogClass: isImpossible, shouldRevealConsole: true});
         });
     }
 };

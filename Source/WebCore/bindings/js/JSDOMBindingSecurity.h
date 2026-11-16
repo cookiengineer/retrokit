@@ -23,7 +23,10 @@
 
 #pragma once
 
-#include "ExceptionOr.h"
+#include <WebCore/ExceptionOr.h>
+#include <WebCore/HTMLFrameOwnerElement.h>
+#include <WebCore/LocalDOMWindow.h>
+#include <WebCore/RemoteFrame.h>
 #include <wtf/Forward.h>
 
 namespace JSC {
@@ -35,9 +38,10 @@ namespace WebCore {
 
 class DOMWindow;
 class Frame;
+class LocalFrame;
 class Node;
 
-void printErrorMessageForFrame(Frame*, const String& message);
+void printErrorMessageForFrame(LocalFrame*, const String& message);
 
 enum SecurityReportingOption { DoNotReportSecurityError, LogSecurityError, ThrowSecurityError };
 
@@ -45,9 +49,15 @@ namespace BindingSecurity {
 
 template<typename T> T* checkSecurityForNode(JSC::JSGlobalObject&, T&);
 template<typename T> T* checkSecurityForNode(JSC::JSGlobalObject&, T*);
+template<typename T> T* checkSecurityForNodeWithFrameOwner(JSC::JSGlobalObject&, T*, const HTMLFrameOwnerElement&);
 template<typename T> ExceptionOr<T*> checkSecurityForNode(JSC::JSGlobalObject&, ExceptionOr<T*>&&);
 template<typename T> ExceptionOr<T*> checkSecurityForNode(JSC::JSGlobalObject&, ExceptionOr<T&>&&);
+template<typename T> ExceptionOr<T*> checkSecurityForNodeWithDOMWindow(JSC::JSGlobalObject&, ExceptionOr<T*>&&, const DOMWindow&);
 
+bool shouldAllowAccessToDOMWindow(JSC::JSGlobalObject*, LocalDOMWindow&, SecurityReportingOption = LogSecurityError);
+bool shouldAllowAccessToDOMWindow(JSC::JSGlobalObject&, LocalDOMWindow&, String& message);
+bool shouldAllowAccessToDOMWindow(JSC::JSGlobalObject*, LocalDOMWindow*, SecurityReportingOption = LogSecurityError);
+bool shouldAllowAccessToDOMWindow(JSC::JSGlobalObject&, LocalDOMWindow*, String& message);
 bool shouldAllowAccessToDOMWindow(JSC::JSGlobalObject*, DOMWindow&, SecurityReportingOption = LogSecurityError);
 bool shouldAllowAccessToDOMWindow(JSC::JSGlobalObject&, DOMWindow&, String& message);
 bool shouldAllowAccessToDOMWindow(JSC::JSGlobalObject*, DOMWindow*, SecurityReportingOption = LogSecurityError);
@@ -68,6 +78,18 @@ template<typename T> inline T* BindingSecurity::checkSecurityForNode(JSC::JSGlob
     return shouldAllowAccessToNode(lexicalGlobalObject, node) ? node : nullptr;
 }
 
+template<typename T> inline T* BindingSecurity::checkSecurityForNodeWithFrameOwner(JSC::JSGlobalObject& lexicalGlobalObject, T* node, const HTMLFrameOwnerElement& owner)
+{
+    if (node)
+        return shouldAllowAccessToNode(lexicalGlobalObject, node) ? node : nullptr;
+
+    // Perform access check to log cross-origin error if there is one, matching
+    // behavior before Site Isolation.
+    if (RefPtr frame = dynamicDowncast<RemoteFrame>(owner.contentFrame()))
+        shouldAllowAccessToFrame(&lexicalGlobalObject, frame);
+    return nullptr;
+}
+
 template<typename T> inline ExceptionOr<T*> BindingSecurity::checkSecurityForNode(JSC::JSGlobalObject& lexicalGlobalObject, ExceptionOr<T*>&& value)
 {
     if (value.hasException())
@@ -80,6 +102,26 @@ template<typename T> inline ExceptionOr<T*> BindingSecurity::checkSecurityForNod
     if (value.hasException())
         return value.releaseException();
     return checkSecurityForNode(lexicalGlobalObject, value.releaseReturnValue());
+}
+
+template<typename T> inline ExceptionOr<T*> BindingSecurity::checkSecurityForNodeWithDOMWindow(JSC::JSGlobalObject& lexicalGlobalObject, ExceptionOr<T*>&& value, const DOMWindow& window)
+{
+    if (value.hasException())
+        return value.releaseException();
+
+    RefPtr node = value.releaseReturnValue();
+    if (node)
+        return shouldAllowAccessToNode(lexicalGlobalObject, node.get()) ? node.get() : nullptr;
+
+    // With site isolation, the owner element is in the parent's process. Explicitly
+    // check the remote parent frame to log the cross-origin error.
+    if (RefPtr localWindow = dynamicDowncast<LocalDOMWindow>(window)) {
+        if (RefPtr frame = localWindow->frame()) {
+            if (RefPtr parentFrame = dynamicDowncast<RemoteFrame>(frame->tree().parent()))
+                shouldAllowAccessToFrame(&lexicalGlobalObject, parentFrame.get());
+        }
+    }
+    return nullptr;
 }
 
 } // namespace WebCore

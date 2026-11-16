@@ -1,5 +1,3 @@
-include(WebKitCommon)
-
 set_property(DIRECTORY . PROPERTY FOLDER "WebInspectorUI")
 
 set(InspectorFiles
@@ -48,15 +46,13 @@ WEBKIT_INCLUDE_CONFIG_FILES_IF_EXISTS()
 # expected in DerivedSources/WebInspectorUI/UserInterface/Protocol/.
 add_custom_command(
     OUTPUT ${WebInspectorUI_DERIVED_SOURCES_DIR}/UserInterface/Protocol/InspectorBackendCommands.js
-    DEPENDS JavaScriptCore
-            InspectorBackendCommands
-            ${JavaScriptCore_DERIVED_SOURCES_DIR}/inspector/InspectorBackendCommands.js
-    COMMAND ${CMAKE_COMMAND} -E copy ${JavaScriptCore_DERIVED_SOURCES_DIR}/inspector/InspectorBackendCommands.js ${WebInspectorUI_DERIVED_SOURCES_DIR}/UserInterface/Protocol/InspectorBackendCommands.js
+    DEPENDS ${JavaScriptCore_DERIVED_SOURCES_DIR}/inspector/InspectorBackendCommands.js
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${JavaScriptCore_DERIVED_SOURCES_DIR}/inspector/InspectorBackendCommands.js ${WebInspectorUI_DERIVED_SOURCES_DIR}/UserInterface/Protocol/InspectorBackendCommands.js
     VERBATIM
 )
 
 if (NOT DEFINED COMBINE_INSPECTOR_RESOURCES)
-    if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+    if (CMAKE_BUILD_TYPE STREQUAL "Debug" OR DEVELOPER_MODE)
         set(COMBINE_INSPECTOR_RESOURCES NO)
     else ()
         set(COMBINE_INSPECTOR_RESOURCES YES)
@@ -70,13 +66,17 @@ if (NOT DEFINED COMBINE_TEST_RESOURCES)
     endif ()
 endif ()
 
+if (NOT DEFINED INCLUDE_BROWSER_INSPECTOR_FRONTEND_HOST)
+    set(INCLUDE_BROWSER_INSPECTOR_FRONTEND_HOST NO)
+endif ()
+
 add_custom_command(
     OUTPUT ${CMAKE_BINARY_DIR}/inspector-resources.stamp
     DEPENDS ${InspectorFilesDependencies}
             ${InspectorResourceScripts}
             ${WebInspectorUI_DERIVED_SOURCES_DIR}/UserInterface/Protocol/InspectorBackendCommands.js
     COMMAND ${CMAKE_COMMAND} -E copy ${WebInspectorUI_DERIVED_SOURCES_DIR}/UserInterface/Protocol/InspectorBackendCommands.js ${JavaScriptCore_SCRIPTS_DIR}/InspectorBackendCommands.js
-    COMMAND ${CMAKE_COMMAND} -E env "DERIVED_SOURCES_DIR=${WebInspectorUI_DERIVED_SOURCES_DIR}" "SRCROOT=${WEBINSPECTORUI_DIR}" "JAVASCRIPTCORE_PRIVATE_HEADERS_DIR=${JavaScriptCore_SCRIPTS_DIR}" "TARGET_BUILD_DIR=${WebInspectorUI_RESOURCES_DIR}" "UNLOCALIZED_RESOURCES_FOLDER_PATH=WebInspectorUI" "COMBINE_INSPECTOR_RESOURCES=${COMBINE_INSPECTOR_RESOURCES}" "COMBINE_TEST_RESOURCES=${COMBINE_TEST_RESOURCES}" PYTHON=${PYTHON_EXECUTABLE} ${PERL_EXECUTABLE} ${WEBINSPECTORUI_DIR}/Scripts/copy-user-interface-resources.pl
+    COMMAND ${CMAKE_COMMAND} -E env "DERIVED_SOURCES_DIR=${WebInspectorUI_DERIVED_SOURCES_DIR}" "SRCROOT=${WEBINSPECTORUI_DIR}" "JAVASCRIPTCORE_PRIVATE_HEADERS_DIR=${JavaScriptCore_SCRIPTS_DIR}" "TARGET_BUILD_DIR=${WebInspectorUI_RESOURCES_DIR}" "UNLOCALIZED_RESOURCES_FOLDER_PATH=WebInspectorUI" "COMBINE_INSPECTOR_RESOURCES=${COMBINE_INSPECTOR_RESOURCES}" "COMBINE_TEST_RESOURCES=${COMBINE_TEST_RESOURCES}" "INCLUDE_BROWSER_INSPECTOR_FRONTEND_HOST=${INCLUDE_BROWSER_INSPECTOR_FRONTEND_HOST}" PYTHON=${PYTHON_EXECUTABLE} ${PERL_EXECUTABLE} ${WEBINSPECTORUI_DIR}/Scripts/copy-user-interface-resources.pl
     COMMAND ${CMAKE_COMMAND} -E make_directory ${WebInspectorUI_LOCALIZED_STRINGS_DIR}
     COMMAND ${CMAKE_COMMAND} -E copy "${WEBINSPECTORUI_DIR}/Localizations/en.lproj/localizedStrings.js" ${WebInspectorUI_LOCALIZED_STRINGS_DIR}/localizedStrings.js
     COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_BINARY_DIR}/inspector-resources.stamp

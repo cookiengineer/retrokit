@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2021 Apple Inc. All rights reserved.
+ * Copyright (c) 2018-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,6 +31,7 @@
 #include "pas_enumerator.h"
 #include "pas_log.h"
 #include "pas_utils.h"
+#include "pas_zero_memory.h"
 
 PAS_BEGIN_EXTERN_C;
 
@@ -112,7 +113,7 @@ PAS_BEGIN_EXTERN_C;
         new_table_mask = new_size - 1; \
         new_byte_size = (size_t)new_size * sizeof(entry_type); \
         if (verbose) \
-            pas_log("Allocating a new table with new_size = %zu, new_byte_size = %zu.\n", new_size, new_byte_size); \
+            pas_log("Allocating a new table with new_size = %u, new_byte_size = %zu.\n", new_size, new_byte_size); \
         new_table = (entry_type*)allocation_config->allocate( \
             new_byte_size, #name "/table", pas_object_allocation, allocation_config->arg); \
         \
@@ -149,10 +150,11 @@ PAS_BEGIN_EXTERN_C;
             PAS_TESTING_ASSERT(!in_flux_stash->hashtable_being_resized); \
             in_flux_stash->table_before_resize = old_table; \
             in_flux_stash->table_size_before_resize = old_size; \
+            pas_compiler_fence(); /* When hashtable_being_resized is pointing at table, table_before_resize and table_size_before_resize need to be right values. */ \
             in_flux_stash->hashtable_being_resized = table; \
         } \
         pas_compiler_fence(); \
-        \
+        /* We do not need to ensure the ordering of the following stores since in-flux-stash is effective while running this code. */ \
         table->table = new_table; \
         table->table_size = new_size; \
         table->table_mask = new_table_mask; \
@@ -161,6 +163,7 @@ PAS_BEGIN_EXTERN_C;
         pas_compiler_fence(); \
         if (in_flux_stash) { \
             in_flux_stash->hashtable_being_resized = NULL; \
+            pas_compiler_fence(); /* We should clear hashtable_being_resized first to tell memory enumerator that in_flux_stash is no longer effective. */ \
             in_flux_stash->table_before_resize = NULL; \
             in_flux_stash->table_size_before_resize = 0; \
         } \
@@ -405,50 +408,43 @@ PAS_BEGIN_EXTERN_C;
         pas_enumerator* enumerator, name* remote_table, name##_in_flux_stash* remote_in_flux_stash, \
         name##_for_each_entry_remote_callback callback, void* arg) \
     { \
-        name##_in_flux_stash* in_flux_stash; \
-        entry_type* table_table; \
+        name##_in_flux_stash in_flux_stash; \
+        entry_type* remote_table_table; \
         size_t table_size; \
         size_t index; \
         \
-        in_flux_stash = (name##_in_flux_stash*)pas_enumerator_read( \
-            enumerator, remote_in_flux_stash, sizeof(name##_in_flux_stash)); \
-        if (!in_flux_stash) \
+        if (!pas_enumerator_copy_remote(enumerator, &in_flux_stash, remote_in_flux_stash, sizeof(name##_in_flux_stash))) \
             return false; \
         \
-        if (in_flux_stash->hashtable_being_resized == remote_table) { \
-            table_table = in_flux_stash->table_before_resize; \
-            table_size = in_flux_stash->table_size_before_resize; \
+        if (in_flux_stash.hashtable_being_resized == remote_table) { \
+            remote_table_table = in_flux_stash.table_before_resize; \
+            table_size = in_flux_stash.table_size_before_resize; \
         } else { \
-            name* table; \
+            name table; \
             \
-            table = (name*)pas_enumerator_read(enumerator, remote_table, sizeof(name)); \
-            if (!table) \
+            if (!pas_enumerator_copy_remote(enumerator, &table, remote_table, sizeof(name))) \
                 return false; \
             \
-            table_table = table->table; \
-            table_size = table->table_size; \
+            remote_table_table = table.table; \
+            table_size = table.table_size; \
         } \
         \
         if (!table_size) { \
-            PAS_ASSERT(!table_table); \
+            PAS_ASSERT(!remote_table_table); \
             return true; \
         } \
         \
-        table_table = (entry_type*)pas_enumerator_read( \
-            enumerator, table_table, sizeof(entry_type) * table_size); \
-        if (!table_table) \
-            return false; \
-        \
         for (index = table_size; index--;) { \
-            entry_type* entry; \
+            entry_type entry; \
             \
-            entry = table_table + index; \
-            if (entry == in_flux_stash->in_flux_entry) \
+            if (remote_table_table + index == in_flux_stash.in_flux_entry) \
                 continue; \
-            if (entry_type##_is_empty_or_deleted(*entry)) \
+            if (!pas_enumerator_copy_remote(enumerator, &entry, remote_table_table + index, sizeof(entry_type))) \
+                return false; \
+            if (entry_type##_is_empty_or_deleted(entry)) \
                 continue; \
             \
-            if (!callback(enumerator, entry, arg)) \
+            if (!callback(enumerator, &entry, arg)) \
                 return false; \
         } \
         \

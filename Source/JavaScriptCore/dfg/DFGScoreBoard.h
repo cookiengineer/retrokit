@@ -43,9 +43,9 @@ class ScoreBoard {
 public:
     ScoreBoard(unsigned nextMachineLocal)
         : m_highWatermark(nextMachineLocal + 1)
+        , m_used(FillWith { }, nextMachineLocal, max())
     {
-        m_used.fill(max(), nextMachineLocal);
-        m_free.reserveCapacity(nextMachineLocal);
+        m_free.reserveInitialCapacity(nextMachineLocal);
     }
 
     ~ScoreBoard()
@@ -55,7 +55,7 @@ public:
     
     void sortFree()
     {
-        std::sort(m_free.begin(), m_free.end());
+        std::ranges::sort(m_free);
     }
     
     void assertClear()
@@ -103,6 +103,7 @@ public:
         if (!child)
             return;
 
+        ASSERT(!child->isTuple());
         // Find the virtual register number for this child, increment its use count.
         uint32_t index = child->virtualRegister().toLocal();
         ASSERT(m_used[index] != max());

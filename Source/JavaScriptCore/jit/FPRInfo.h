@@ -25,8 +25,12 @@
 
 #pragma once
 
-#include "MacroAssembler.h"
+#include <JavaScriptCore/MacroAssembler.h>
+#include <wtf/Compiler.h>
+#include <wtf/Platform.h>
 #include <wtf/PrintStream.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
@@ -35,62 +39,86 @@ static constexpr FPRReg InvalidFPRReg { FPRReg::InvalidFPRReg };
 
 #if ENABLE(ASSEMBLER)
 
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
 
 class FPRInfo {
 public:
     typedef FPRReg RegisterType;
-    static constexpr unsigned numberOfRegisters = 6;
+    static constexpr unsigned numberOfRegisters = 15;
     static constexpr unsigned numberOfArgumentRegisters = is64Bit() ? 8 : 0;
 
     // Temporary registers.
+    // xmm15 is use by the MacroAssembler as fpTempRegister.
     static constexpr FPRReg fpRegT0 = X86Registers::xmm0;
     static constexpr FPRReg fpRegT1 = X86Registers::xmm1;
     static constexpr FPRReg fpRegT2 = X86Registers::xmm2;
     static constexpr FPRReg fpRegT3 = X86Registers::xmm3;
     static constexpr FPRReg fpRegT4 = X86Registers::xmm4;
     static constexpr FPRReg fpRegT5 = X86Registers::xmm5;
-#if CPU(X86_64)
-    // Only X86_64 passes aguments in xmm registers
+    static constexpr FPRReg fpRegT6 = X86Registers::xmm6;
+    static constexpr FPRReg fpRegT7 = X86Registers::xmm7;
+    static constexpr FPRReg fpRegT8 = X86Registers::xmm8;
+    static constexpr FPRReg fpRegT9 = X86Registers::xmm9;
+    static constexpr FPRReg fpRegT10 = X86Registers::xmm10;
+    static constexpr FPRReg fpRegT11 = X86Registers::xmm11;
+    static constexpr FPRReg fpRegT12 = X86Registers::xmm12;
+    static constexpr FPRReg fpRegT13 = X86Registers::xmm13;
+    static constexpr FPRReg fpRegT14 = X86Registers::xmm14;
     static constexpr FPRReg argumentFPR0 = X86Registers::xmm0; // fpRegT0
     static constexpr FPRReg argumentFPR1 = X86Registers::xmm1; // fpRegT1
     static constexpr FPRReg argumentFPR2 = X86Registers::xmm2; // fpRegT2
     static constexpr FPRReg argumentFPR3 = X86Registers::xmm3; // fpRegT3
     static constexpr FPRReg argumentFPR4 = X86Registers::xmm4; // fpRegT4
     static constexpr FPRReg argumentFPR5 = X86Registers::xmm5; // fpRegT5
-    static constexpr FPRReg argumentFPR6 = X86Registers::xmm6;
-    static constexpr FPRReg argumentFPR7 = X86Registers::xmm7;
-#endif
-    // On X86 the return will actually be on the x87 stack,
-    // so we'll copy to xmm0 for sanity!
+    static constexpr FPRReg argumentFPR6 = X86Registers::xmm6; // fpRegT6
+    static constexpr FPRReg argumentFPR7 = X86Registers::xmm7; // fpRegT7
     static constexpr FPRReg returnValueFPR = X86Registers::xmm0; // fpRegT0
+
+    static constexpr FPRReg nonPreservedNonArgumentFPR0 = X86Registers::xmm8;
 
     // FPRReg mapping is direct, the machine regsiter numbers can
     // be used directly as indices into the FPR RegisterBank.
-    COMPILE_ASSERT(X86Registers::xmm0 == 0, xmm0_is_0);
-    COMPILE_ASSERT(X86Registers::xmm1 == 1, xmm1_is_1);
-    COMPILE_ASSERT(X86Registers::xmm2 == 2, xmm2_is_2);
-    COMPILE_ASSERT(X86Registers::xmm3 == 3, xmm3_is_3);
-    COMPILE_ASSERT(X86Registers::xmm4 == 4, xmm4_is_4);
-    COMPILE_ASSERT(X86Registers::xmm5 == 5, xmm5_is_5);
+    static_assert(X86Registers::xmm0 == 0);
+    static_assert(X86Registers::xmm1 == 1);
+    static_assert(X86Registers::xmm2 == 2);
+    static_assert(X86Registers::xmm3 == 3);
+    static_assert(X86Registers::xmm4 == 4);
+    static_assert(X86Registers::xmm5 == 5);
+    static_assert(X86Registers::xmm6 == 6);
+    static_assert(X86Registers::xmm7 == 7);
+    static_assert(X86Registers::xmm8 == 8);
+    static_assert(X86Registers::xmm9 == 9);
+    static_assert(X86Registers::xmm10 == 10);
+    static_assert(X86Registers::xmm11 == 11);
+    static_assert(X86Registers::xmm12 == 12);
+    static_assert(X86Registers::xmm13 == 13);
+    static_assert(X86Registers::xmm14 == 14);
+    static_assert(X86Registers::xmm15 == 15);
     static FPRReg toRegister(unsigned index)
     {
         return (FPRReg)index;
     }
     static unsigned toIndex(FPRReg reg)
     {
-        unsigned result = (unsigned)reg;
+        auto result = static_cast<unsigned>(reg);
         if (result >= numberOfRegisters)
             return InvalidIndex;
         return result;
     }
     
-    static FPRReg toArgumentRegister(unsigned index)
+    static constexpr FPRReg toArgumentRegister(unsigned index)
     {
         return (FPRReg)index;
     }
+    static unsigned toArgumentIndex(FPRReg reg)
+    {
+        auto result = static_cast<unsigned>(reg);
+        if (result >= numberOfArgumentRegisters)
+            return InvalidIndex;
+        return result;
+    }
 
-    static const char* debugName(FPRReg reg)
+    static ASCIILiteral debugName(FPRReg reg)
     {
         ASSERT(reg != InvalidFPRReg);
         return MacroAssembler::fprName(reg);
@@ -99,65 +127,80 @@ public:
     static constexpr unsigned InvalidIndex = 0xffffffff;
 };
 
-#endif // CPU(X86) || CPU(X86_64)
+#endif // CPU(X86_64)
 
 #if CPU(ARM)
 
 class FPRInfo {
 public:
     typedef FPRReg RegisterType;
-    static constexpr unsigned numberOfRegisters = 6;
+    static constexpr unsigned numberOfRegisters = 8;
 
-#if CPU(ARM_HARDFP)
     static constexpr unsigned numberOfArgumentRegisters = 8;
-#else
-    static constexpr unsigned numberOfArgumentRegisters = 0;
-#endif
 
     // Temporary registers.
-    // d7 is use by the MacroAssembler as fpTempRegister.
+    // d8-d15 are callee saved, d15 is use by the MacroAssembler as fpTempRegister.
+    // d14 is reserved as an additional scratch for wasm JITs
     static constexpr FPRReg fpRegT0 = ARMRegisters::d0;
     static constexpr FPRReg fpRegT1 = ARMRegisters::d1;
     static constexpr FPRReg fpRegT2 = ARMRegisters::d2;
     static constexpr FPRReg fpRegT3 = ARMRegisters::d3;
     static constexpr FPRReg fpRegT4 = ARMRegisters::d4;
     static constexpr FPRReg fpRegT5 = ARMRegisters::d5;
+    static constexpr FPRReg fpRegT6 = ARMRegisters::d6;
+    static constexpr FPRReg fpRegT7 = ARMRegisters::d7;
+    static constexpr FPRReg fpRegCS0 = ARMRegisters::d8;
+    static constexpr FPRReg fpRegCS1 = ARMRegisters::d9;
+    static constexpr FPRReg fpRegCS2 = ARMRegisters::d10;
+    static constexpr FPRReg fpRegCS3 = ARMRegisters::d11;
+    static constexpr FPRReg fpRegCS4 = ARMRegisters::d12;
+    static constexpr FPRReg fpRegCS5 = ARMRegisters::d13;
+
     // ARMv7 doesn't pass arguments in fp registers. The return
     // value is also actually in integer registers, for now
     // we'll return in d0 for simplicity.
     static constexpr FPRReg returnValueFPR = ARMRegisters::d0; // fpRegT0
-
-#if CPU(ARM_HARDFP)
     static constexpr FPRReg argumentFPR0 = ARMRegisters::d0; // fpRegT0
     static constexpr FPRReg argumentFPR1 = ARMRegisters::d1; // fpRegT1
-#endif
+    static constexpr FPRReg argumentFPR2 = ARMRegisters::d2; // fpRegT2
+    static constexpr FPRReg argumentFPR3 = ARMRegisters::d3; // fpRegT3
+    static constexpr FPRReg argumentFPR4 = ARMRegisters::d4; // fpRegT4
+    static constexpr FPRReg argumentFPR5 = ARMRegisters::d5; // fpRegT5
+    static constexpr FPRReg argumentFPR6 = ARMRegisters::d6; // fpRegT6
+    static constexpr FPRReg argumentFPR7 = ARMRegisters::d7; // fpRegT7
+
+    static constexpr FPRReg nonPreservedNonArgumentFPR0 = ARMRegisters::d14;
 
     // FPRReg mapping is direct, the machine regsiter numbers can
     // be used directly as indices into the FPR RegisterBank.
-    COMPILE_ASSERT(ARMRegisters::d0 == 0, d0_is_0);
-    COMPILE_ASSERT(ARMRegisters::d1 == 1, d1_is_1);
-    COMPILE_ASSERT(ARMRegisters::d2 == 2, d2_is_2);
-    COMPILE_ASSERT(ARMRegisters::d3 == 3, d3_is_3);
-    COMPILE_ASSERT(ARMRegisters::d4 == 4, d4_is_4);
-    COMPILE_ASSERT(ARMRegisters::d5 == 5, d5_is_5);
+    static_assert(ARMRegisters::d0 == 0);
+    static_assert(ARMRegisters::d1 == 1);
+    static_assert(ARMRegisters::d2 == 2);
+    static_assert(ARMRegisters::d3 == 3);
+    static_assert(ARMRegisters::d4 == 4);
+    static_assert(ARMRegisters::d5 == 5);
+    static_assert(ARMRegisters::d6 == 6);
+    static_assert(ARMRegisters::d7 == 7);
     static FPRReg toRegister(unsigned index)
     {
         return (FPRReg)index;
     }
     static unsigned toIndex(FPRReg reg)
     {
-        return (unsigned)reg;
+        return static_cast<unsigned>(reg);
     }
 
-#if CPU(ARM_HARDFP)
-    static FPRReg toArgumentRegister(unsigned index)
+    static constexpr FPRReg toArgumentRegister(unsigned index)
     {
-        ASSERT(index < numberOfArgumentRegisters);
+        ASSERT_UNDER_CONSTEXPR_CONTEXT(index < numberOfArgumentRegisters);
         return static_cast<FPRReg>(index);
     }
-#endif
+    static unsigned toArgumentIndex(FPRReg reg)
+    {
+        return static_cast<unsigned>(reg);
+    }
 
-    static const char* debugName(FPRReg reg)
+    static ASCIILiteral debugName(FPRReg reg)
     {
         ASSERT(reg != InvalidFPRReg);
         return MacroAssembler::fprName(reg);
@@ -220,6 +263,7 @@ public:
     static constexpr FPRReg argumentFPR7 = ARM64Registers::q7; // fpRegT7
 
     static constexpr FPRReg returnValueFPR = ARM64Registers::q0; // fpRegT0
+    static constexpr FPRReg nonPreservedNonArgumentFPR0 = ARM64Registers::q16;
 
     static FPRReg toRegister(unsigned index)
     {
@@ -246,13 +290,22 @@ public:
         return result;
     }
 
-    static FPRReg toArgumentRegister(unsigned index)
+    static constexpr FPRReg toArgumentRegister(unsigned index)
     {
-        ASSERT(index < 8);
+        ASSERT_UNDER_CONSTEXPR_CONTEXT(index < 8);
         return static_cast<FPRReg>(index);
     }
 
-    static const char* debugName(FPRReg reg)
+    static unsigned toArgumentIndex(FPRReg reg)
+    {
+        ASSERT(reg != InvalidFPRReg);
+        ASSERT(static_cast<int>(reg) < 32);
+        if (reg > argumentFPR7)
+            return InvalidIndex;
+        return static_cast<unsigned>(reg);
+    }
+
+    static ASCIILiteral debugName(FPRReg reg)
     {
         ASSERT(reg != InvalidFPRReg);
         return MacroAssembler::fprName(reg);
@@ -263,100 +316,32 @@ public:
 
 #endif // CPU(ARM64)
 
-#if CPU(MIPS)
-
-class FPRInfo {
-public:
-    typedef FPRReg RegisterType;
-    static constexpr unsigned numberOfRegisters = 7;
-    static constexpr unsigned numberOfArgumentRegisters = 2;
-
-    // Temporary registers.
-    static constexpr FPRReg fpRegT0 = MIPSRegisters::f0;
-    static constexpr FPRReg fpRegT1 = MIPSRegisters::f2;
-    static constexpr FPRReg fpRegT2 = MIPSRegisters::f4;
-    static constexpr FPRReg fpRegT3 = MIPSRegisters::f6;
-    static constexpr FPRReg fpRegT4 = MIPSRegisters::f8;
-    static constexpr FPRReg fpRegT5 = MIPSRegisters::f10;
-    static constexpr FPRReg fpRegT6 = MIPSRegisters::f18;
-
-    static constexpr FPRReg returnValueFPR = MIPSRegisters::f0;
-
-    static constexpr FPRReg argumentFPR0 = MIPSRegisters::f12;
-    static constexpr FPRReg argumentFPR1 = MIPSRegisters::f14;
-
-    static FPRReg toRegister(unsigned index)
-    {
-        static const FPRReg registerForIndex[numberOfRegisters] = {
-            fpRegT0, fpRegT1, fpRegT2, fpRegT3, fpRegT4, fpRegT5, fpRegT6 };
-
-        ASSERT(index < numberOfRegisters);
-        return registerForIndex[index];
-    }
-
-    static FPRReg toArgumentRegister(unsigned index)
-    {
-        ASSERT(index < numberOfArgumentRegisters);
-        static const FPRReg indexForRegister[2] = {
-            argumentFPR0, argumentFPR1
-        };
-        return indexForRegister[index];
-    }
-
-    static unsigned toIndex(FPRReg reg)
-    {
-        ASSERT(reg != InvalidFPRReg);
-        ASSERT(reg < 20);
-        static const unsigned indexForRegister[20] = {
-            0, InvalidIndex, 1, InvalidIndex,
-            2, InvalidIndex, 3, InvalidIndex,
-            4, InvalidIndex, 5, InvalidIndex,
-            InvalidIndex, InvalidIndex, InvalidIndex, InvalidIndex,
-            InvalidIndex, InvalidIndex, 6, InvalidIndex,
-        };
-        unsigned result = indexForRegister[reg];
-        return result;
-    }
-
-    static const char* debugName(FPRReg reg)
-    {
-        ASSERT(reg != InvalidFPRReg);
-        return MacroAssembler::fprName(reg);
-    }
-
-    static constexpr unsigned InvalidIndex = 0xffffffff;
-};
-
-#endif // CPU(MIPS)
-
 #if CPU(RISCV64)
 
 class FPRInfo {
 public:
     typedef FPRReg RegisterType;
-    static constexpr unsigned numberOfRegisters = 20;
+    static constexpr unsigned numberOfRegisters = 18;
     static constexpr unsigned numberOfArgumentRegisters = 8;
 
-    static constexpr FPRReg fpRegT0 = RISCV64Registers::f0;
-    static constexpr FPRReg fpRegT1 = RISCV64Registers::f1;
-    static constexpr FPRReg fpRegT2 = RISCV64Registers::f2;
-    static constexpr FPRReg fpRegT3 = RISCV64Registers::f3;
-    static constexpr FPRReg fpRegT4 = RISCV64Registers::f4;
-    static constexpr FPRReg fpRegT5 = RISCV64Registers::f5;
-    static constexpr FPRReg fpRegT6 = RISCV64Registers::f6;
-    static constexpr FPRReg fpRegT7 = RISCV64Registers::f7;
-    static constexpr FPRReg fpRegT8 = RISCV64Registers::f10;
-    static constexpr FPRReg fpRegT9 = RISCV64Registers::f11;
-    static constexpr FPRReg fpRegT10 = RISCV64Registers::f12;
-    static constexpr FPRReg fpRegT11 = RISCV64Registers::f13;
-    static constexpr FPRReg fpRegT12 = RISCV64Registers::f14;
-    static constexpr FPRReg fpRegT13 = RISCV64Registers::f15;
-    static constexpr FPRReg fpRegT14 = RISCV64Registers::f16;
-    static constexpr FPRReg fpRegT15 = RISCV64Registers::f17;
+    static constexpr FPRReg fpRegT0 = RISCV64Registers::f10;
+    static constexpr FPRReg fpRegT1 = RISCV64Registers::f11;
+    static constexpr FPRReg fpRegT2 = RISCV64Registers::f12;
+    static constexpr FPRReg fpRegT3 = RISCV64Registers::f13;
+    static constexpr FPRReg fpRegT4 = RISCV64Registers::f14;
+    static constexpr FPRReg fpRegT5 = RISCV64Registers::f15;
+    static constexpr FPRReg fpRegT6 = RISCV64Registers::f16;
+    static constexpr FPRReg fpRegT7 = RISCV64Registers::f17;
+    static constexpr FPRReg fpRegT8 = RISCV64Registers::f0;
+    static constexpr FPRReg fpRegT9 = RISCV64Registers::f1;
+    static constexpr FPRReg fpRegT10 = RISCV64Registers::f2;
+    static constexpr FPRReg fpRegT11 = RISCV64Registers::f3;
+    static constexpr FPRReg fpRegT12 = RISCV64Registers::f4;
+    static constexpr FPRReg fpRegT13 = RISCV64Registers::f5;
+    static constexpr FPRReg fpRegT14 = RISCV64Registers::f6;
+    static constexpr FPRReg fpRegT15 = RISCV64Registers::f7;
     static constexpr FPRReg fpRegT16 = RISCV64Registers::f28;
     static constexpr FPRReg fpRegT17 = RISCV64Registers::f29;
-    static constexpr FPRReg fpRegT18 = RISCV64Registers::f30;
-    static constexpr FPRReg fpRegT19 = RISCV64Registers::f31;
 
     static constexpr FPRReg fpRegCS0 = RISCV64Registers::f8;
     static constexpr FPRReg fpRegCS1 = RISCV64Registers::f9;
@@ -371,16 +356,17 @@ public:
     static constexpr FPRReg fpRegCS10 = RISCV64Registers::f26;
     static constexpr FPRReg fpRegCS11 = RISCV64Registers::f27;
 
-    static constexpr FPRReg argumentFPR0 = RISCV64Registers::f10; // fpRegT8
-    static constexpr FPRReg argumentFPR1 = RISCV64Registers::f11; // fpRegT9
-    static constexpr FPRReg argumentFPR2 = RISCV64Registers::f12; // fpRegT10
-    static constexpr FPRReg argumentFPR3 = RISCV64Registers::f13; // fpRegT11
-    static constexpr FPRReg argumentFPR4 = RISCV64Registers::f14; // fpRegT12
-    static constexpr FPRReg argumentFPR5 = RISCV64Registers::f15; // fpRegT13
-    static constexpr FPRReg argumentFPR6 = RISCV64Registers::f16; // fpRegT14
-    static constexpr FPRReg argumentFPR7 = RISCV64Registers::f17; // fpRegT15
+    static constexpr FPRReg argumentFPR0 = RISCV64Registers::f10; // fpRegT0
+    static constexpr FPRReg argumentFPR1 = RISCV64Registers::f11; // fpRegT1
+    static constexpr FPRReg argumentFPR2 = RISCV64Registers::f12; // fpRegT2
+    static constexpr FPRReg argumentFPR3 = RISCV64Registers::f13; // fpRegT3
+    static constexpr FPRReg argumentFPR4 = RISCV64Registers::f14; // fpRegT4
+    static constexpr FPRReg argumentFPR5 = RISCV64Registers::f15; // fpRegT5
+    static constexpr FPRReg argumentFPR6 = RISCV64Registers::f16; // fpRegT6
+    static constexpr FPRReg argumentFPR7 = RISCV64Registers::f17; // fpRegT7
 
-    static constexpr FPRReg returnValueFPR = RISCV64Registers::f10; // fpRegT8
+    static constexpr FPRReg returnValueFPR = RISCV64Registers::f10; // fpRegT0
+    static constexpr FPRReg nonPreservedNonArgumentFPR0 = RISCV64Registers::f11;
 
     static FPRReg toRegister(unsigned index)
     {
@@ -388,15 +374,15 @@ public:
         static const FPRReg registerForIndex[numberOfRegisters] = {
             fpRegT0, fpRegT1, fpRegT2, fpRegT3, fpRegT4, fpRegT5, fpRegT6, fpRegT7,
             fpRegT8, fpRegT9, fpRegT10, fpRegT11, fpRegT12, fpRegT13, fpRegT14, fpRegT15,
-            fpRegT16, fpRegT17, fpRegT18, fpRegT19,
+            fpRegT16, fpRegT17,
         };
         return registerForIndex[index];
     }
 
-    static FPRReg toArgumentRegister(unsigned index)
+    static constexpr FPRReg toArgumentRegister(unsigned index)
     {
-        ASSERT(index < numberOfArgumentRegisters);
-        static const FPRReg registerForIndex[numberOfArgumentRegisters] = {
+        ASSERT_UNDER_CONSTEXPR_CONTEXT(index < numberOfArgumentRegisters);
+        constexpr FPRReg registerForIndex[numberOfArgumentRegisters] = {
             argumentFPR0, argumentFPR1, argumentFPR2, argumentFPR3,
             argumentFPR4, argumentFPR5, argumentFPR6, argumentFPR7,
         };
@@ -408,15 +394,24 @@ public:
         ASSERT(reg != InvalidFPRReg);
         ASSERT(static_cast<int>(reg) < 32);
         static const unsigned indexForRegister[32] = {
-            0, 1, 2, 3, 4, 5, 6, 7,
-            InvalidIndex, InvalidIndex, 8, 9, 10, 11, 12, 13,
-            14, 15, InvalidIndex, InvalidIndex, InvalidIndex, InvalidIndex, InvalidIndex, InvalidIndex,
-            InvalidIndex, InvalidIndex, InvalidIndex, InvalidIndex, 16, 17, 18, 19,
+            8, 9, 10, 11, 12, 13, 14, 15,
+            InvalidIndex, InvalidIndex, 0, 1, 2, 3, 4, 5,
+            6, 7, InvalidIndex, InvalidIndex, InvalidIndex, InvalidIndex, InvalidIndex, InvalidIndex,
+            InvalidIndex, InvalidIndex, InvalidIndex, InvalidIndex, 16, 17, InvalidIndex, InvalidIndex,
         };
         return indexForRegister[reg];
     }
 
-    static const char* debugName(FPRReg reg)
+    static unsigned toArgumentIndex(FPRReg reg)
+    {
+        ASSERT(reg != InvalidFPRReg);
+        ASSERT(static_cast<int>(reg) < 32);
+        if (reg < argumentFPR0 || reg > argumentFPR7)
+            return InvalidIndex;
+        return static_cast<unsigned>(reg) - 10;
+    }
+
+    static ASCIILiteral debugName(FPRReg reg)
     {
         ASSERT(reg != InvalidFPRReg);
         return MacroAssembler::fprName(reg);
@@ -446,3 +441,5 @@ inline void printInternal(PrintStream& out, JSC::FPRReg reg)
 }
 
 } // namespace WTF
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

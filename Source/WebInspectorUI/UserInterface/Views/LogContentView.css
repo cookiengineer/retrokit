@@ -23,6 +23,75 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+.message-channel-scope-bar.default-item-selected:not(:hover) {
+    --scope-bar-text-color-override: var(--text-color);
+    --scope-bar-background-color-override: transparent;
+    --scope-bar-border-color-override: transparent;
+}
+
+.message-channel-scope-bar.default-item-selected:hover {
+    --scope-bar-background-opacity-override: 0.5;
+}
+
+.log-scope-bar + .message-channel-scope-bar {
+    padding-inline-start: 0;
+}
+
+.console-other-filters-button > .glyph {
+    width: 16px;
+    height: 16px;
+    color: var(--glyph-color);
+    opacity: var(--glyph-opacity);
+}
+
+.console-other-filters-button:active > .glyph {
+    color: var(--glyph-color-pressed);
+}
+
+.console-other-filters-button.active > .glyph {
+    color: var(--glyph-color-active);
+}
+
+.console-other-filters-button.active:active > .glyph {
+    color: var(--glyph-color-active-pressed);
+}
+
+.navigation-bar > .item.find-banner.console {
+    flex-wrap: nowrap;
+    position: relative;
+    top: auto;
+    border: none;
+    margin-inline-end: 3px;
+}
+
+:not(.console-drawer) > .navigation-bar > .item.find-banner.console {
+    margin-inline-start: var(--find-banner-inline-space);
+}
+
+.navigation-bar > .item.find-banner.console > input[type="search"] {
+    padding-top: 0;
+    border: 1px solid var(--border-color);
+    outline: none;
+}
+
+.navigation-bar > .item.find-banner.console > :is(input[type="search"], button) {
+    background-color: inherit;
+    height: 22px;
+}
+
+.navigation-bar > .item.find-banner.console > input[type="search"]:focus,
+.navigation-bar > .item.find-banner.console > input[type="search"]:focus ~ button,
+.navigation-bar > .item.find-banner.console > input[type="search"]:not(:placeholder-shown),
+.navigation-bar > .item.find-banner.console > input[type="search"]:not(:placeholder-shown) ~ button {
+    background-color: var(--background-color);
+}
+
+.navigation-bar > .item.console-snippets > img {
+    width: 16px;
+    height: 16px;
+    content: url(../Images/ClippingIcons.svg#js-light);
+}
+
 .content-view.log {
     display: flex;
     flex-direction: column;
@@ -66,6 +135,7 @@
     outline: none;
     overflow-x: hidden;
     overflow-y: auto;
+    will-change: z-index; /* Workaround for <rdar://125601926> - Content renders on top of the scroll bar */
 }
 
 .console-messages > :first-child {
@@ -86,11 +156,21 @@
     border-top-color: hsl(40, 100%, 90%);
 }
 
-.console-item::before {
+.console-item::before,
+.console-group::before {
     position: absolute;
     left: 4px;
     height: 12px;
     width: 12px;
+    z-index: 1;
+}
+
+.console-group::before {
+    top: 4px;
+}
+
+.console-group:is(.console-warning-level, .console-error-level, .console-log-level, .console-info-level, .console-debug-level) {
+    padding-inline-start: 16px;
 }
 
 .console-item.selected::after {
@@ -146,6 +226,18 @@
     inset-inline-start: 4px;
     width: 13px;
     height: 13px;
+}
+
+.console-group-title > .console-error-level {
+    display: inline-block;
+    margin-inline-end: 4px;
+    height: 12px;
+    width: 12px;    
+}
+
+.console-group-title > .console-error-level::before {
+    position: relative;
+    top: 2px;
 }
 
 body[dir=rtl] .console-group-title::before {
@@ -229,7 +321,24 @@ body[dir=rtl] .console-group-title::before {
         alt: attr(data-labelprefix);
 }
 
+.console-user-command:not(:hover) > .console-snippet-options {
+    display: none;
+}
+
+.create-snippet-popover > .label {
+    display: inline-block;
+    margin-inline-end: 6px;
+    font-weight: bold;
+    line-height: 23px;
+    white-space: nowrap;
+    color: hsl(0, 0%, 34%);
+}
+
 @media (prefers-color-scheme: dark) {
+    .navigation-bar > .item.console-snippets > img {
+        content: url(../Images/ClippingIcons.svg#js-dark);
+    }
+
     .console-messages {
         background-color: var(--background-color-content);
     }
@@ -300,6 +409,10 @@ body[dir=rtl] .console-group-title::before {
 
     .console-warning-level:not(.filtered-out, .filtered-out-by-search), .console-warning-level:not(.filtered-out, .filtered-out-by-search) + .console-item {
         border-top-color: var(--border-color-warning);
+    }
+    
+    .console-group-sourcemap-errors {
+        background-color: var(--error-background-color-secondary);
     }
 
     .search-in-progress .console-item:not(.filtered-out-by-search) .highlighted {

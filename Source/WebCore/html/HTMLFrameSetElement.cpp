@@ -3,7 +3,8 @@
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2000 Simon Hausmann (hausmann@kde.org)
  *           (C) 2001 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2004-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2026 Apple Inc. All rights reserved.
+ * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -24,35 +25,35 @@
 #include "config.h"
 #include "HTMLFrameSetElement.h"
 
+#include "ContainerNodeInlines.h"
 #include "CSSPropertyNames.h"
 #include "DOMWrapperWorld.h"
 #include "Document.h"
-#include "ElementIterator.h"
+#include "ElementAncestorIteratorInlines.h"
 #include "Event.h"
-#include "Frame.h"
 #include "FrameLoader.h"
-#include "FrameLoaderClient.h"
 #include "HTMLBodyElement.h"
 #include "HTMLCollection.h"
 #include "HTMLFrameElement.h"
 #include "HTMLNames.h"
 #include "HTMLParserIdioms.h"
-#include "Length.h"
+#include "LocalFrame.h"
+#include "LocalFrameLoaderClient.h"
 #include "MouseEvent.h"
+#include "NodeName.h"
 #include "RenderFrameSet.h"
+#include "RenderObjectInlines.h"
 #include "Text.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLFrameSetElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLFrameSetElement);
 
 using namespace HTMLNames;
 
 HTMLFrameSetElement::HTMLFrameSetElement(const QualifiedName& tagName, Document& document)
-    : HTMLElement(tagName, document)
-    , m_totalRows(1)
-    , m_totalCols(1)
+    : HTMLElement(tagName, document, TypeFlag::HasCustomStyleResolveCallbacks)
     , m_border(6)
     , m_borderSet(false)
     , m_borderColorSet(false)
@@ -61,7 +62,6 @@ HTMLFrameSetElement::HTMLFrameSetElement(const QualifiedName& tagName, Document&
     , m_noresize(false)
 {
     ASSERT(hasTagName(framesetTag));
-    setHasCustomStyleResolveCallbacks();
 }
 
 Ref<HTMLFrameSetElement> HTMLFrameSetElement::create(const QualifiedName& tagName, Document& document)
@@ -84,91 +84,75 @@ void HTMLFrameSetElement::collectPresentationalHintsForAttribute(const Qualified
         HTMLElement::collectPresentationalHintsForAttribute(name, value, style);
 }
 
-void HTMLFrameSetElement::parseAttribute(const QualifiedName& name, const AtomString& value)
+void HTMLFrameSetElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
-    if (name == rowsAttr) {
+    if (auto& eventName = HTMLBodyElement::eventNameForWindowEventHandlerAttribute(name); !eventName.isNull())
+        protect(document())->setWindowAttributeEventListener(eventName, name, newValue, mainThreadNormalWorldSingleton());
+    else
+        HTMLElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
+
+    switch (name.nodeName()) {
+    case AttributeNames::rowsAttr:
         // FIXME: What is the right thing to do when removing this attribute?
         // Why not treat it the same way we treat setting it to the empty string?
-        if (!value.isNull()) {
-            m_rowLengths = newLengthArray(value.string(), m_totalRows);
-            // FIXME: Would be nice to optimize the case where m_rowLengths did not change.
+        if (!newValue.isNull()) {
+            m_rowDimensions = parseHTMLDimensionsList(newValue);
+            // FIXME: Would be nice to optimize the case where m_rowDimensions did not change.
             invalidateStyleForSubtree();
         }
-        return;
-    }
-
-    if (name == colsAttr) {
+        break;
+    case AttributeNames::colsAttr:
         // FIXME: What is the right thing to do when removing this attribute?
         // Why not treat it the same way we treat setting it to the empty string?
-        if (!value.isNull()) {
-            m_colLengths = newLengthArray(value.string(), m_totalCols);
-            // FIXME: Would be nice to optimize the case where m_colLengths did not change.
+        if (!newValue.isNull()) {
+            m_colDimensions = parseHTMLDimensionsList(newValue);
+            // FIXME: Would be nice to optimize the case where m_colDimensions did not change.
             invalidateStyleForSubtree();
         }
-        return;
-    }
-
-    if (name == frameborderAttr) {
-        if (!value.isNull()) {
-            if (equalLettersIgnoringASCIICase(value, "no") || value == "0") {
+        break;
+    case AttributeNames::frameborderAttr:
+        if (!newValue.isNull()) {
+            if (equalLettersIgnoringASCIICase(newValue, "no"_s) || newValue == "0"_s) {
                 m_frameborder = false;
                 m_frameborderSet = true;
-            } else if (equalLettersIgnoringASCIICase(value, "yes") || value == "1") {
+            } else if (equalLettersIgnoringASCIICase(newValue, "yes"_s) || newValue == "1"_s) {
+                m_frameborder = true;
                 m_frameborderSet = true;
             }
         } else {
-            m_frameborder = false;
+            m_frameborder = true;
             m_frameborderSet = false;
         }
-        // FIXME: Do we need to trigger repainting?
-        return;
-    }
-
-    if (name == noresizeAttr) {
-        // FIXME: This should set m_noresize to false if the value is null.
-        m_noresize = true;
-        return;
-    }
-
-    if (name == borderAttr) {
-        if (!value.isNull()) {
-            m_border = parseHTMLInteger(value).value_or(0);
+        invalidateStyleForSubtree();
+        break;
+    case AttributeNames::noresizeAttr:
+        m_noresize = !newValue.isNull();
+        invalidateStyleForSubtree();
+        break;
+    case AttributeNames::borderAttr:
+        if (!newValue.isNull()) {
+            m_border = parseHTMLInteger(newValue).value_or(0);
             m_borderSet = true;
         } else
             m_borderSet = false;
         // FIXME: Do we need to trigger repainting?
-        return;
-    }
-
-    if (name == bordercolorAttr) {
-        m_borderColorSet = !value.isEmpty();
+        break;
+    case AttributeNames::bordercolorAttr:
+        m_borderColorSet = !newValue.isEmpty();
         // FIXME: Clearly wrong: This can overwrite the value inherited from the parent frameset.
         // FIXME: Do we need to trigger repainting?
-        return;
+        break;
+    default:
+        break;
     }
-
-    auto& eventName = HTMLBodyElement::eventNameForWindowEventHandlerAttribute(name);
-    if (!eventName.isNull()) {
-        document().setWindowAttributeEventListener(eventName, name, value, mainThreadNormalWorld());
-        return;
-    }
-
-    HTMLElement::parseAttribute(name, value);
 }
 
-bool HTMLFrameSetElement::rendererIsNeeded(const RenderStyle& style)
+RenderPtr<RenderElement> HTMLFrameSetElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
-    // For compatibility, frames render even when display: none is set.
-    // However, we delay creating a renderer until stylesheets have loaded. 
-    return !style.isNotFinal();
-}
-
-RenderPtr<RenderElement> HTMLFrameSetElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
-{
-    if (style.hasContent())
-        return RenderElement::createFor(*this, WTFMove(style));
+    if (style.content().isData())
+        return RenderElement::createFor(*this, WTF::move(style));
     
-    return createRenderer<RenderFrameSet>(*this, WTFMove(style));
+    return createRenderer<RenderFrameSet>(*this, WTF::move(style));
 }
 
 RefPtr<HTMLFrameSetElement> HTMLFrameSetElement::findContaining(Element* descendant)
@@ -197,39 +181,46 @@ void HTMLFrameSetElement::willAttachRenderers()
 
 void HTMLFrameSetElement::defaultEventHandler(Event& event)
 {
-    if (is<MouseEvent>(event) && !m_noresize && is<RenderFrameSet>(renderer())) {
-        if (downcast<RenderFrameSet>(*renderer()).userResize(downcast<MouseEvent>(event))) {
-            event.setDefaultHandled();
-            return;
+    if (auto* mouseEvent = dynamicDowncast<MouseEvent>(event); mouseEvent && !m_noresize) {
+        if (CheckedPtr renderFrameSet = dynamicDowncast<RenderFrameSet>(renderer())) {
+            if (renderFrameSet->userResize(*mouseEvent)) {
+                event.setDefaultHandled();
+                return;
+            }
         }
     }
     HTMLElement::defaultEventHandler(event);
 }
 
-void HTMLFrameSetElement::willRecalcStyle(Style::Change)
+void HTMLFrameSetElement::willRecalcStyle(OptionSet<Style::Change>)
 {
-    if (needsStyleRecalc() && renderer())
-        renderer()->setNeedsLayout();
+    if (!needsStyleRecalc())
+        return;
+
+    if (CheckedPtr renderer = this->renderer())
+        renderer->setNeedsLayout();
 }
 
-Node::InsertedIntoAncestorResult HTMLFrameSetElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+Node::NeedsPostConnectionSteps HTMLFrameSetElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    HTMLElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
-    return InsertedIntoAncestorResult::Done;
+    HTMLElement::insertionSteps(insertionType, parentOfInsertedTree);
+    return NeedsPostConnectionSteps::No;
 }
 
-void HTMLFrameSetElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void HTMLFrameSetElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
-    HTMLElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    HTMLElement::removingSteps(removalType, oldParentOfRemovedTree);
 }
 
 WindowProxy* HTMLFrameSetElement::namedItem(const AtomString& name)
 {
-    auto frameElement = makeRefPtr(children()->namedItem(name));
-    if (!is<HTMLFrameElement>(frameElement))
-        return nullptr;
+    RefPtr frameElement = dynamicDowncast<HTMLFrameElement>(children()->namedItem(name));
+    return frameElement ? frameElement->contentWindow() : nullptr;
+}
 
-    return downcast<HTMLFrameElement>(*frameElement).contentWindow();
+bool HTMLFrameSetElement::isSupportedPropertyName(const AtomString& name)
+{
+    return namedItem(name);
 }
 
 Vector<AtomString> HTMLFrameSetElement::supportedPropertyNames() const

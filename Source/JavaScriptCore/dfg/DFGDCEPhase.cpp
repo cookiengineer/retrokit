@@ -38,7 +38,7 @@ namespace JSC { namespace DFG {
 class DCEPhase : public Phase {
 public:
     DCEPhase(Graph& graph)
-        : Phase(graph, "dead code elimination")
+        : Phase(graph, "dead code elimination"_s)
         , m_insertionSet(graph)
     {
     }
@@ -142,7 +142,7 @@ private:
     }
     
     template<typename VariablesVectorType>
-    void cleanVariables(VariablesVectorType& variables)
+    void NODELETE cleanVariables(VariablesVectorType& variables)
     {
         for (unsigned i = variables.size(); i--;) {
             Node* node = variables[i];

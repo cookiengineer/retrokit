@@ -13,9 +13,13 @@
 
 #include "libANGLE/Debug.h"
 
+#include <atomic>
+
 namespace angle
 {
+#if defined(ANGLE_USE_ANDROID_TLS_SLOT)
 extern bool gUseAndroidOpenGLTlsSlot;
+#endif
 }  // namespace angle
 
 namespace gl
@@ -39,10 +43,14 @@ class Thread : public LabeledObject
     EGLLabelKHR getLabel() const override;
 
     void setSuccess();
-    void setError(const Error &error,
-                  const Debug *debug,
+
+    void setError(EGLint error,
                   const char *command,
-                  const LabeledObject *object);
+                  const LabeledObject *object,
+                  const char *message);
+
+    // TODO: Remove egl::Error. http://anglebug.com/42261727
+    void setError(const Error &error, const char *command, const LabeledObject *object);
     EGLint getError() const;
 
     void setAPI(EGLenum api);
@@ -60,6 +68,10 @@ class Thread : public LabeledObject
     EGLenum mAPI;
     gl::Context *mContext;
 };
+
+void EnsureDebugAllocated();
+void DeallocateDebug();
+Debug *GetDebug();
 
 }  // namespace egl
 

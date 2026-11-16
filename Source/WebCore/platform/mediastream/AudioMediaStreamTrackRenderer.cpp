@@ -29,9 +29,14 @@
 #if ENABLE(MEDIA_STREAM)
 
 #include "Logging.h"
+#include <wtf/TZoneMallocInlines.h>
 
 #if PLATFORM(COCOA)
 #include "AudioMediaStreamTrackRendererCocoa.h"
+#endif
+
+#if USE(LIBWEBRTC)
+#include "LibWebRTCAudioModule.h"
 #endif
 
 namespace WTF {
@@ -40,34 +45,56 @@ class MediaTime;
 
 namespace WebCore {
 
-AudioMediaStreamTrackRenderer::RendererCreator AudioMediaStreamTrackRenderer::m_rendererCreator = nullptr;
-void AudioMediaStreamTrackRenderer::setCreator(RendererCreator creator)
-{
-    m_rendererCreator = creator;
-}
+WTF_MAKE_TZONE_ALLOCATED_IMPL(AudioMediaStreamTrackRenderer);
 
-std::unique_ptr<AudioMediaStreamTrackRenderer> AudioMediaStreamTrackRenderer::create()
+RefPtr<AudioMediaStreamTrackRenderer> AudioMediaStreamTrackRenderer::create(Init&& init)
 {
-    if (m_rendererCreator)
-        return m_rendererCreator();
-
 #if PLATFORM(COCOA)
-    return makeUnique<AudioMediaStreamTrackRendererCocoa>();
+    return AudioMediaStreamTrackRendererCocoa::create(WTF::move(init));
 #else
+    UNUSED_PARAM(init);
     return nullptr;
 #endif
 }
 
-#if !RELEASE_LOG_DISABLED
-void AudioMediaStreamTrackRenderer::setLogger(const Logger& logger, const void* identifier)
+String AudioMediaStreamTrackRenderer::defaultDeviceID()
 {
-    m_logger = &logger;
-    m_logIdentifier = identifier;
+    ASSERT(isMainThread());
+    return "default"_s;
 }
 
+AudioMediaStreamTrackRenderer::AudioMediaStreamTrackRenderer(Init&& init)
+    : m_crashCallback(WTF::move(init.crashCallback))
+#if USE(LIBWEBRTC)
+    , m_audioModule(WTF::move(init.audioModule))
+#endif
+#if !RELEASE_LOG_DISABLED
+    , m_logger(WTF::move(init.logger))
+    , m_logIdentifier(init.logIdentifier)
+#endif
+{
+}
+
+#if !RELEASE_LOG_DISABLED
 WTFLogChannel& AudioMediaStreamTrackRenderer::logChannel() const
 {
     return LogMedia;
+}
+
+const Logger& AudioMediaStreamTrackRenderer::logger() const
+{
+    return m_logger.get();
+
+}
+
+uint64_t AudioMediaStreamTrackRenderer::logIdentifier() const
+{
+    return m_logIdentifier;
+}
+
+ASCIILiteral AudioMediaStreamTrackRenderer::logClassName() const
+{
+    return "AudioMediaStreamTrackRenderer"_s;
 }
 #endif
 

@@ -34,27 +34,15 @@
 
 namespace WTF {
 
-// Test CrossThreadCopier using COMPILE_ASSERT.
+// Test CrossThreadCopier using static_assert.
 
 // Verify that ThreadSafeRefCounted objects get handled correctly.
 class CopierThreadSafeRefCountedTest : public ThreadSafeRefCounted<CopierThreadSafeRefCountedTest> {
 };
 
-COMPILE_ASSERT((std::is_same<
-                    RefPtr<CopierThreadSafeRefCountedTest>,
-                    CrossThreadCopier<RefPtr<CopierThreadSafeRefCountedTest>>::Type
-                >::value),
-                RefPtrTest);
-COMPILE_ASSERT((std::is_same<
-                    RefPtr<CopierThreadSafeRefCountedTest>,
-                    CrossThreadCopier<CopierThreadSafeRefCountedTest*>::Type
-                >::value),
-                RawPointerTest);
-
-// Add specializations for RefCounted types which will let us verify that no other template matches.
-template<typename T> struct CrossThreadCopierBase<false, false, RefPtr<T>> {
-    typedef int Type;
-};
+static_assert((std::is_same<RefPtr<CopierThreadSafeRefCountedTest>, CrossThreadCopier<RefPtr<CopierThreadSafeRefCountedTest>>::Type>::value), "RefPtrTest");
+static_assert((std::is_same<RefPtr<CopierThreadSafeRefCountedTest>, CrossThreadCopier<CopierThreadSafeRefCountedTest*>::Type>::value), "RawPointerTest");
+static_assert((std::is_same<Ref<CopierThreadSafeRefCountedTest>, CrossThreadCopier<Ref<CopierThreadSafeRefCountedTest>>::Type>::value), "RawPointerTest");
 
 template<typename T> struct CrossThreadCopierBase<false, false, T*> {
     typedef int Type;
@@ -64,7 +52,6 @@ template<typename T> struct CrossThreadCopierBase<false, false, T*> {
 class CopierRefCountedTest : public RefCounted<CopierRefCountedTest> {
 };
 
-static_assert((std::is_same<int, CrossThreadCopier<RefPtr<CopierRefCountedTest>>::Type>::value), "CrossThreadCopier specialization improperly applied to RefPtr<> of a RefCounted (but not ThreadSafeRefCounted) type");
 static_assert((std::is_same<int, CrossThreadCopier<CopierRefCountedTest*>::Type>::value), "CrossThreadCopier specialization improperly applied to raw pointer of a RefCounted (but not ThreadSafeRefCounted) type");
 
 } // namespace WTF

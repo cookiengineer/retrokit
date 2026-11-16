@@ -31,7 +31,7 @@
 
 namespace WebKit {
 
-enum RemoteAudioHardwareListenerIdentifierType { };
+struct RemoteAudioHardwareListenerIdentifierType;
 using RemoteAudioHardwareListenerIdentifier = ObjectIdentifier<RemoteAudioHardwareListenerIdentifierType>;
 
 } // namespace WebKit

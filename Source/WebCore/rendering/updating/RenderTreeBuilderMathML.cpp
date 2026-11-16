@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,9 +30,15 @@
 
 #include "RenderMathMLFenced.h"
 #include "RenderMathMLFencedOperator.h"
+#include "RenderObjectDocument.h"
+#include "RenderObjectNode.h"
 #include "RenderTreeBuilderBlock.h"
+#include "StyleComputedStyle+SettersInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderTreeBuilder::MathML);
 
 RenderTreeBuilder::MathML::MathML(RenderTreeBuilder& builder)
     : m_builder(builder)
@@ -42,19 +48,19 @@ RenderTreeBuilder::MathML::MathML(RenderTreeBuilder& builder)
 RenderPtr<RenderMathMLFencedOperator> RenderTreeBuilder::MathML::createMathMLOperator(RenderMathMLFenced& parent, const String& operatorString,
     MathMLOperatorDictionary::Form form, MathMLOperatorDictionary::Flag flag)
 {
-    RenderPtr<RenderMathMLFencedOperator> newOperator = createRenderer<RenderMathMLFencedOperator>(parent.document(), RenderStyle::createAnonymousStyleWithDisplay(parent.style(), DisplayType::Block), operatorString, form, flag);
+    RenderPtr<RenderMathMLFencedOperator> newOperator = createRenderer<RenderMathMLFencedOperator>(parent.document(), Style::ComputedStyle::createAnonymousStyleWithDisplay(protect(parent.style()), Style::DisplayType::BlockFlow), operatorString, form, flag);
     newOperator->initializeStyle();
     return newOperator;
 }
 
 void RenderTreeBuilder::MathML::makeFences(RenderMathMLFenced& parent)
 {
-    auto openFence = createMathMLOperator(parent, parent.openingBrace(), MathMLOperatorDictionary::Prefix, MathMLOperatorDictionary::Fence);
-    m_builder.blockBuilder().attach(parent, WTFMove(openFence), parent.firstChild());
+    auto openFence = createMathMLOperator(parent, parent.openingBrace(), MathMLOperatorDictionary::Form::Prefix, MathMLOperatorDictionary::Fence);
+    m_builder.blockBuilder().attach(parent, WTF::move(openFence), parent.firstChild());
 
-    auto closeFence = createMathMLOperator(parent, parent.closingBrace(), MathMLOperatorDictionary::Postfix, MathMLOperatorDictionary::Fence);
+    auto closeFence = createMathMLOperator(parent, parent.closingBrace(), MathMLOperatorDictionary::Form::Postfix, MathMLOperatorDictionary::Fence);
     parent.setCloseFenceRenderer(*closeFence);
-    m_builder.blockBuilder().attach(parent, WTFMove(closeFence), nullptr);
+    m_builder.blockBuilder().attach(parent, WTF::move(closeFence), nullptr);
 }
 
 void RenderTreeBuilder::MathML::attach(RenderMathMLFenced& parent, RenderPtr<RenderObject> child, RenderObject* beforeChild)
@@ -68,7 +74,7 @@ void RenderTreeBuilder::MathML::attach(RenderMathMLFenced& parent, RenderPtr<Ren
     // if they're different, as later child positions change by +1 or -1.
     // This should also handle surrogate pairs. See https://bugs.webkit.org/show_bug.cgi?id=125938.
     RenderPtr<RenderMathMLFencedOperator> separatorRenderer;
-    auto* separators = parent.separators();
+    RefPtr separators = parent.separators();
     if (separators) {
         unsigned count = 0;
         for (Node* position = child->node(); position; position = position->previousSibling()) {
@@ -82,7 +88,7 @@ void RenderTreeBuilder::MathML::attach(RenderMathMLFenced& parent, RenderPtr<Ren
         // |count| is now the number of element children that will be before our new separator, i.e. it's the 1-based index of the separator.
 
         if (count > 0) {
-            UChar separator;
+            char16_t separator;
 
             // Use the last separator if we've run out of specified separators.
             if (count > separators->length())
@@ -92,20 +98,20 @@ void RenderTreeBuilder::MathML::attach(RenderMathMLFenced& parent, RenderPtr<Ren
 
             StringBuilder stringBuilder;
             stringBuilder.append(separator);
-            separatorRenderer = createMathMLOperator(parent, stringBuilder.toString(), MathMLOperatorDictionary::Infix, MathMLOperatorDictionary::Separator);
+            separatorRenderer = createMathMLOperator(parent, stringBuilder.toString(), MathMLOperatorDictionary::Form::Infix, MathMLOperatorDictionary::Separator);
         }
     }
 
     if (beforeChild) {
         // Adding |x| before an existing |y| e.g. in element (y) - first insert our new child |x|, then its separator, to get (x, y).
-        m_builder.blockBuilder().attach(parent, WTFMove(child), beforeChild);
+        m_builder.blockBuilder().attach(parent, WTF::move(child), beforeChild);
         if (separatorRenderer)
-            m_builder.blockBuilder().attach(parent, WTFMove(separatorRenderer), beforeChild);
+            m_builder.blockBuilder().attach(parent, WTF::move(separatorRenderer), beforeChild);
     } else {
         // Adding |y| at the end of an existing element e.g. (x) - insert the separator first before the closing fence, then |y|, to get (x, y).
         if (separatorRenderer)
-            m_builder.blockBuilder().attach(parent, WTFMove(separatorRenderer), parent.closeFenceRenderer());
-        m_builder.blockBuilder().attach(parent, WTFMove(child), parent.closeFenceRenderer());
+            m_builder.blockBuilder().attach(parent, WTF::move(separatorRenderer), parent.closeFenceRenderer());
+        m_builder.blockBuilder().attach(parent, WTF::move(child), parent.closeFenceRenderer());
     }
 }
 

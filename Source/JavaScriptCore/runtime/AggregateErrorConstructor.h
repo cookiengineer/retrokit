@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,17 +25,11 @@
 
 #pragma once
 
-#include "AggregateErrorPrototype.h"
-#include "ErrorType.h"
 #include "InternalFunction.h"
-#include "JSCJSValue.h"
-#include "JSCell.h"
-#include "JSGlobalObject.h"
-#include "JSTypeInfo.h"
-#include "Structure.h"
-#include "VM.h"
 
 namespace JSC {
+
+class AggregateErrorPrototype;
 
 class AggregateErrorConstructor final : public InternalFunction {
 public:
@@ -43,14 +37,11 @@ public:
 
     DECLARE_INFO;
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(InternalFunctionType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
     static AggregateErrorConstructor* create(VM& vm, Structure* structure, AggregateErrorPrototype* prototype)
     {
-        AggregateErrorConstructor* constructor = new (NotNull, allocateCell<AggregateErrorConstructor>(vm.heap)) AggregateErrorConstructor(vm, structure);
+        AggregateErrorConstructor* constructor = new (NotNull, allocateCell<AggregateErrorConstructor>(vm)) AggregateErrorConstructor(vm, structure);
         constructor->finishCreation(vm, prototype);
         return constructor;
     }

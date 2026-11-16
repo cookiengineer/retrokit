@@ -28,35 +28,55 @@
 
 #if ENABLE(GPU_PROCESS)
 
-#include <WebCore/MediaCapabilitiesDecodingInfo.h>
-#include <WebCore/MediaCapabilitiesEncodingInfo.h>
-#include <WebCore/MediaDecodingConfiguration.h>
-#include <WebCore/MediaEncodingConfiguration.h>
-#include <WebCore/MediaEngineConfigurationFactory.h>
-#include <wtf/Algorithms.h>
+#include "GPUConnectionToWebProcess.h"
+#include "SharedPreferencesForWebProcess.h"
+#include <WebCore/PlatformMediaCapabilitiesDecodingInfo.h>
+#include <WebCore/PlatformMediaCapabilitiesEncodingInfo.h>
+#include <WebCore/PlatformMediaDecodingConfiguration.h>
+#include <WebCore/PlatformMediaEncodingConfiguration.h>
+#include <WebCore/PlatformMediaEngineConfigurationFactory.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 
 using namespace WebCore;
 
-RemoteMediaEngineConfigurationFactoryProxy::RemoteMediaEngineConfigurationFactoryProxy()
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteMediaEngineConfigurationFactoryProxy);
+
+RemoteMediaEngineConfigurationFactoryProxy::RemoteMediaEngineConfigurationFactoryProxy(GPUConnectionToWebProcess& connection)
+    : m_connection(connection)
 {
 }
 
 RemoteMediaEngineConfigurationFactoryProxy::~RemoteMediaEngineConfigurationFactoryProxy() = default;
 
-void RemoteMediaEngineConfigurationFactoryProxy:: createDecodingConfiguration(WebCore::MediaDecodingConfiguration&& configuration, CompletionHandler<void(WebCore::MediaCapabilitiesDecodingInfo&&)>&& completion)
+void RemoteMediaEngineConfigurationFactoryProxy:: createDecodingConfiguration(WebCore::PlatformMediaDecodingConfiguration&& configuration, CompletionHandler<void(WebCore::PlatformMediaCapabilitiesDecodingInfo&&)>&& completion)
 {
-    MediaEngineConfigurationFactory::createDecodingConfiguration(WTFMove(configuration), [completion = WTFMove(completion)] (auto info) mutable {
-        completion(WTFMove(info));
+    WebCore::PlatformMediaEngineConfigurationFactory::createDecodingConfiguration(WTF::move(configuration), [completion = WTF::move(completion)] (auto info) mutable {
+        completion(WTF::move(info));
     });
 }
 
-void RemoteMediaEngineConfigurationFactoryProxy::createEncodingConfiguration(WebCore::MediaEncodingConfiguration&& configuration, CompletionHandler<void(WebCore::MediaCapabilitiesEncodingInfo&&)>&& completion)
+void RemoteMediaEngineConfigurationFactoryProxy::createEncodingConfiguration(WebCore::PlatformMediaEncodingConfiguration&& configuration, CompletionHandler<void(WebCore::PlatformMediaCapabilitiesEncodingInfo&&)>&& completion)
 {
-    MediaEngineConfigurationFactory::createEncodingConfiguration(WTFMove(configuration), [completion = WTFMove(completion)] (auto info) mutable {
-        completion(WTFMove(info));
+    WebCore::PlatformMediaEngineConfigurationFactory::createEncodingConfiguration(WTF::move(configuration), [completion = WTF::move(completion)] (auto info) mutable {
+        completion(WTF::move(info));
     });
+}
+
+void RemoteMediaEngineConfigurationFactoryProxy::ref() const
+{
+    m_connection.get()->ref();
+}
+
+void RemoteMediaEngineConfigurationFactoryProxy::deref() const
+{
+    m_connection.get()->deref();
+}
+
+std::optional<SharedPreferencesForWebProcess> RemoteMediaEngineConfigurationFactoryProxy::sharedPreferencesForWebProcess() const
+{
+    return m_connection.get()->sharedPreferencesForWebProcess();
 }
 
 }

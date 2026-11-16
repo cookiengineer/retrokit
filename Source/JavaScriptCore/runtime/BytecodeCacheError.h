@@ -25,11 +25,7 @@
 
 #pragma once
 
-#include "JSGlobalObject.h"
-#include "JSSourceCode.h"
-#include "ParserError.h"
-#include <wtf/Variant.h>
-#include <wtf/text/WTFString.h>
+#include <JavaScriptCore/ParserError.h>
 
 namespace JSC {
 
@@ -42,7 +38,7 @@ public:
         {
         }
 
-        bool isValid() const;
+        bool NODELETE isValid() const;
         String message() const;
 
     private:

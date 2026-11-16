@@ -34,8 +34,13 @@
 namespace WebCore {
 
 class AudioScheduledSourceNode : public AudioNode, public ActiveDOMObject {
-    WTF_MAKE_ISO_ALLOCATED(AudioScheduledSourceNode);
+    WTF_MAKE_TZONE_ALLOCATED(AudioScheduledSourceNode);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(AudioScheduledSourceNode);
 public:
+    // ActiveDOMObject.
+    void ref() const final { AudioNode::ref(); }
+    void deref() const final { AudioNode::deref(); }
+
     // These are the possible states an AudioScheduledSourceNode can be in:
     //
     // UNSCHEDULED_STATE - Initial playback state. Created, but not yet scheduled.
@@ -52,8 +57,6 @@ public:
         PLAYING_STATE = 2,
         FINISHED_STATE = 3
     };
-    
-    AudioScheduledSourceNode(BaseAudioContext&, NodeType);
 
     ExceptionOr<void> startLater(double when);
     ExceptionOr<void> stopLater(double when);
@@ -63,6 +66,10 @@ public:
     bool hasFinished() const { return m_playbackState == FINISHED_STATE; }
 
 protected:
+    AudioScheduledSourceNode(BaseAudioContext&, NodeType);
+
+    bool isAudioScheduledSourceNode() const final { return true; }
+
     // Get frame information for the current time quantum.
     // We handle the transition into PLAYING_STATE and FINISHED_STATE here,
     // zeroing out portions of the outputBus which are outside the range of startFrame and endFrame.
@@ -77,12 +84,15 @@ protected:
     // Called when we have no more sound to play or the noteOff() time has been reached.
     virtual void finish();
 
+    // ActiveDOMObject.
     bool virtualHasPendingActivity() const final;
+
     void eventListenersDidChange() final;
 
     bool requiresTailProcessing() const final { return false; }
 
-    PlaybackState m_playbackState { UNSCHEDULED_STATE };
+    // This is accessed from the main thread and the audio thread.
+    std::atomic<PlaybackState> m_playbackState { UNSCHEDULED_STATE };
 
     // m_startTime is the time to start playing based on the context's timeline (0 or a time less than the context's current time means "now").
     double m_startTime { 0 }; // in seconds
@@ -95,3 +105,7 @@ protected:
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::AudioScheduledSourceNode)
+static bool isType(const WebCore::AudioNode& node) { return node.isAudioScheduledSourceNode(); }
+SPECIALIZE_TYPE_TRAITS_END()

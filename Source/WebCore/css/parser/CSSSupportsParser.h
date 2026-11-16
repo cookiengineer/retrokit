@@ -29,13 +29,15 @@
 
 #pragma once
 
+#include "CSSParser.h"
+#include "CSSParserEnum.h"
 #include "CSSParserToken.h"
 
 namespace WebCore {
 
-class CSSParserImpl;
 class CSSParserTokenRange;
-    
+struct CSSParserContext;
+
 class CSSSupportsParser {
 public:
     enum SupportsResult {
@@ -44,27 +46,35 @@ public:
         Invalid
     };
 
-    enum SupportsParsingMode {
-        ForAtRule,
-        ForWindowCSS,
+    enum class ParsingMode : bool {
+        ForAtRuleSupports,
+        AllowBareDeclarationAndGeneralEnclosed,
     };
 
-    static SupportsResult supportsCondition(CSSParserTokenRange, CSSParserImpl&, SupportsParsingMode);
+    static SupportsResult supportsCondition(CSSParserTokenRange, CSSParser&, ParsingMode);
+    static SupportsResult supportsCondition(const String&, const CSSParserContext&, ParsingMode);
 
 private:
-    CSSSupportsParser(CSSParserImpl& parser)
-        : m_parser(parser) { }
+    CSSSupportsParser(CSSParser& parser)
+        : m_parser(parser)
+    { }
 
     SupportsResult consumeCondition(CSSParserTokenRange);
     SupportsResult consumeNegation(CSSParserTokenRange);
+    SupportsResult consumeSupportsFunction(CSSParserTokenRange&);
     SupportsResult consumeSupportsFeatureOrGeneralEnclosed(CSSParserTokenRange&);
     // https://drafts.csswg.org/css-conditional-4/#typedef-supports-selector-fn
-    // <supports-seletor-fn> = selector( <complex-selector> );
+    // <supports-selector-fn> = selector( <complex-selector> );
     SupportsResult consumeSupportsSelectorFunction(CSSParserTokenRange&);
+
+    // https://drafts.csswg.org/css-conditional-5/#typedef-supports-font-format-fn
+    SupportsResult consumeSupportsFontFormatFunction(CSSParserTokenRange&);
+    // https://drafts.csswg.org/css-conditional-5/#typedef-supports-font-tech-fn
+    SupportsResult consumeSupportsFontTechFunction(CSSParserTokenRange&);
 
     SupportsResult consumeConditionInParenthesis(CSSParserTokenRange&, CSSParserTokenType);
 
-    CSSParserImpl& m_parser;
+    CSSParser& m_parser;
 };
 
 } // namespace WebCore

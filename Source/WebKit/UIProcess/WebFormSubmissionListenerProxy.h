@@ -34,16 +34,20 @@ class WebFormSubmissionListenerProxy : public API::ObjectImpl<API::Object::Type:
 public:
     static Ref<WebFormSubmissionListenerProxy> create(CompletionHandler<void()>&& completionHandler)
     {
-        return adoptRef(*new WebFormSubmissionListenerProxy(WTFMove(completionHandler)));
+        return adoptRef(*new WebFormSubmissionListenerProxy(WTF::move(completionHandler)));
     }
 
     void continueSubmission();
 
 private:
     WebFormSubmissionListenerProxy(CompletionHandler<void()>&& completionHandler)
-        : m_completionHandler(WTFMove(completionHandler))
+        : m_completionHandler(WTF::move(completionHandler))
     { }
     CompletionHandler<void()> m_completionHandler;
 };
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebFormSubmissionListenerProxy)
+static bool isType(const API::Object& object) { return object.type() == API::Object::Type::FormSubmissionListener; }
+SPECIALIZE_TYPE_TRAITS_END()

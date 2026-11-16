@@ -29,7 +29,7 @@
 
 namespace JSC {
 
-// Almost all of the VM's code runs with "heap access". This means that the GC thread believes that
+// Almost all of the VM's code runs with "heap access". This means that the GC believes that
 // the VM is messing with the heap in a way that would be unsafe for certain phases of the collector,
 // like the weak reference fixpoint, stack scanning, and changing barrier modes. However, many long
 // running operations inside the VM don't require heap access. For example, memcpying a typed array
@@ -39,7 +39,7 @@ namespace JSC {
 // you are waiting.
 class ReleaseHeapAccessScope {
 public:
-    ReleaseHeapAccessScope(Heap& heap)
+    ReleaseHeapAccessScope(JSC::Heap& heap)
         : m_heap(heap)
     {
         m_heap.releaseAccess();
@@ -51,12 +51,12 @@ public:
     }
 
 private:
-    Heap& m_heap;
+    JSC::Heap& m_heap;
 };
 
 class ReleaseHeapAccessIfNeededScope {
 public:
-    ReleaseHeapAccessIfNeededScope(Heap& heap)
+    ReleaseHeapAccessIfNeededScope(JSC::Heap& heap)
         : m_heap(heap)
     {
         hadHeapAccess = m_heap.hasAccess();
@@ -71,7 +71,7 @@ public:
     }
 
 private:
-    Heap& m_heap;
+    JSC::Heap& m_heap;
     bool hadHeapAccess { false };
 };
 

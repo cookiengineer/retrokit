@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2010, 2012 Google Inc. All rights reserved.
- * Copyright (C) 2011-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -34,16 +34,19 @@
 
 #include "HTMLInputElement.h"
 #include "KeyboardEvent.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(BaseClickableWithKeyInputType);
 
 using namespace HTMLNames;
 
 auto BaseClickableWithKeyInputType::handleKeydownEvent(HTMLInputElement& element, KeyboardEvent& event) -> ShouldCallBaseEventHandler
 {
     const String& key = event.keyIdentifier();
-    if (key == "U+0020") {
-        element.setActive(true, true);
+    if (key == "U+0020"_s) {
+        element.setActive(true);
         // No setDefaultHandled(), because IE dispatches a keypress in this case
         // and the caller will only dispatch a keypress if we don't call setDefaultHandled().
         return ShouldCallBaseEventHandler::No;
@@ -68,7 +71,7 @@ void BaseClickableWithKeyInputType::handleKeypressEvent(HTMLInputElement& elemen
 void BaseClickableWithKeyInputType::handleKeyupEvent(InputType& inputType, KeyboardEvent& event)
 {
     const String& key = event.keyIdentifier();
-    if (key != "U+0020")
+    if (key != "U+0020"_s)
         return;
     // Simulate mouse click for spacebar for button types.
     inputType.dispatchSimulatedClickIfActive(event);
@@ -83,13 +86,13 @@ bool BaseClickableWithKeyInputType::accessKeyAction(HTMLInputElement& element, b
 auto BaseClickableWithKeyInputType::handleKeydownEvent(KeyboardEvent& event) -> ShouldCallBaseEventHandler
 {
     ASSERT(element());
-    return handleKeydownEvent(*element(), event);
+    return handleKeydownEvent(*protect(element()), event);
 }
 
 void BaseClickableWithKeyInputType::handleKeypressEvent(KeyboardEvent& event)
 {
     ASSERT(element());
-    handleKeypressEvent(*element(), event);
+    handleKeypressEvent(*protect(element()), event);
 }
 
 void BaseClickableWithKeyInputType::handleKeyupEvent(KeyboardEvent& event)
@@ -101,7 +104,7 @@ bool BaseClickableWithKeyInputType::accessKeyAction(bool sendMouseEvents)
 {
     InputType::accessKeyAction(sendMouseEvents);
     ASSERT(element());
-    return accessKeyAction(*element(), sendMouseEvents);
+    return accessKeyAction(*protect(element()), sendMouseEvents);
 }
 
 } // namespace WebCore

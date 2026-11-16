@@ -23,7 +23,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+typedef (double or CSSNumericValue) CSSNumberish;
+
+// https://drafts.csswg.org/web-animations-2/#dictdef-animationplaybackeventinit
 dictionary AnimationPlaybackEventInit : EventInit {
-    double? currentTime = null;
-    double? timelineTime = null;
+    CSSNumberish? currentTime = null;
+    CSSNumberish? timelineTime = null;
 };

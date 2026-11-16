@@ -29,11 +29,14 @@
 #ifndef AudioDestination_h
 #define AudioDestination_h
 
-#include "AudioBus.h"
-#include "AudioIOCallback.h"
+#include <WebCore/AudioBus.h>
+#include <WebCore/AudioIOCallback.h>
 #include <memory>
+#include <wtf/AbstractRefCounted.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/Lock.h>
+#include <wtf/MediaTime.h>
+#include <wtf/Platform.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/text/WTFString.h>
 
@@ -43,12 +46,23 @@ namespace WebCore {
 // The audio hardware periodically calls the AudioIOCallback render() method asking it to render/output the next render quantum of audio.
 // It optionally will pass in local/live audio input when it calls render().
 
-class AudioDestination : public ThreadSafeRefCounted<AudioDestination, WTF::DestructionThread::Main> {
-    WTF_MAKE_FAST_ALLOCATED;
+struct AudioDestinationCreationOptions {
+    AudioIOCallback& callback;
+    const String& inputDeviceId;
+    unsigned numberOfInputChannels;
+    unsigned numberOfOutputChannels;
+    float sampleRate;
+#if PLATFORM(IOS_FAMILY)
+    const String& sceneIdentifier;
+#endif
+};
+
+class AudioDestination : public AbstractRefCounted {
 public:
     // Pass in (numberOfInputChannels > 0) if live/local audio input is desired.
     // Port-specific device identification information for live/local input streams can be passed in the inputDeviceId.
-    WEBCORE_EXPORT static Ref<AudioDestination> create(AudioIOCallback&, const String& inputDeviceId, unsigned numberOfInputChannels, unsigned numberOfOutputChannels, float sampleRate);
+    using CreationOptions = AudioDestinationCreationOptions;
+    WEBCORE_EXPORT static Ref<AudioDestination> create(const CreationOptions&);
 
     virtual ~AudioDestination() = default;
 
@@ -59,10 +73,11 @@ public:
     virtual bool isPlaying() = 0;
 
     // Sample-rate conversion may happen in AudioDestination to the hardware sample-rate
-    virtual float sampleRate() const = 0;
+    virtual float sampleRate() const { return m_sampleRate; }
     WEBCORE_EXPORT static float hardwareSampleRate();
 
     virtual unsigned framesPerBuffer() const = 0;
+    virtual WTF::MediaTime outputLatency() const { return MediaTime::zeroTime(); }
 
     // maxChannelCount() returns the total number of output channels of the audio hardware.
     // A value of 0 indicates that the number of channels cannot be configured and
@@ -72,19 +87,44 @@ public:
     // or if maxChannelCount() equals 0, then numberOfOutputChannels must be 2.
     static unsigned long maxChannelCount();
 
-    void callRenderCallback(AudioBus* sourceBus, AudioBus* destinationBus, size_t framesToProcess, const AudioIOPosition& outputPosition);
+    void callRenderCallback(AudioBus& destinationBus, size_t framesToProcess, const AudioIOPosition& outputPosition);
+
+    const String& inputDeviceId() const LIFETIME_BOUND { return m_inputDeviceId; }
+    unsigned numberOfInputChannels() const { return m_numberOfInputChannels; }
+    unsigned numberOfOutputChannels() const { return m_numberOfOutputChannels; }
+
+#if PLATFORM(IOS_FAMILY)
+    const String& sceneIdentifier() const LIFETIME_BOUND { return m_sceneIdentifier; }
+    virtual void setSceneIdentifier(const String& identifier) { m_sceneIdentifier = identifier; }
+#endif
 
 protected:
-    explicit AudioDestination(AudioIOCallback&);
+    explicit AudioDestination(const CreationOptions&);
 
     Lock m_callbackLock;
     AudioIOCallback* m_callback WTF_GUARDED_BY_LOCK(m_callbackLock) { nullptr };
+
+private:
+    String m_inputDeviceId;
+    unsigned m_numberOfInputChannels;
+    unsigned m_numberOfOutputChannels;
+    float m_sampleRate;
+#if PLATFORM(IOS_FAMILY)
+    String m_sceneIdentifier;
+#endif
 };
 
-inline AudioDestination::AudioDestination(AudioIOCallback& callback)
+inline AudioDestination::AudioDestination(const CreationOptions& options)
+    : m_inputDeviceId { options.inputDeviceId }
+    , m_numberOfInputChannels { options.numberOfInputChannels }
+    , m_numberOfOutputChannels { options.numberOfOutputChannels }
+    , m_sampleRate { options.sampleRate }
+#if PLATFORM(IOS_FAMILY)
+    , m_sceneIdentifier { options.sceneIdentifier }
+#endif
 {
     Locker locker { m_callbackLock };
-    m_callback = &callback;
+    m_callback = &options.callback;
 }
 
 inline void AudioDestination::clearCallback()
@@ -93,16 +133,16 @@ inline void AudioDestination::clearCallback()
     m_callback = nullptr;
 }
 
-inline void AudioDestination::callRenderCallback(AudioBus* sourceBus, AudioBus* destinationBus, size_t framesToProcess, const AudioIOPosition& outputPosition)
+inline void AudioDestination::callRenderCallback(AudioBus& destinationBus, size_t framesToProcess, const AudioIOPosition& outputPosition)
 {
     if (m_callbackLock.tryLock()) {
         Locker locker { AdoptLock, m_callbackLock };
         if (m_callback) {
-            m_callback->render(sourceBus, destinationBus, framesToProcess, outputPosition);
+            m_callback->render(destinationBus, framesToProcess, outputPosition);
             return;
         }
     }
-    destinationBus->zero();
+    destinationBus.zero();
 }
 
 } // namespace WebCore

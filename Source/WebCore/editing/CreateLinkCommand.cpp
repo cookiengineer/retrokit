@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,26 +32,32 @@
 
 namespace WebCore {
 
-CreateLinkCommand::CreateLinkCommand(Document& document, const String& url)
-    : CompositeEditCommand(document)
+CreateLinkCommand::CreateLinkCommand(Ref<Document>&& document, const String& url)
+    : CompositeEditCommand(WTF::move(document))
     , m_url(url)
 {
 }
 
 void CreateLinkCommand::doApply()
 {
-    if (endingSelection().isNone())
+    if (endingSelection().isNoneOrOrphaned())
         return;
-        
-    auto anchorElement = HTMLAnchorElement::create(document());
-    anchorElement->setHref(m_url);
-    
+
+    Ref document = this->document();
+    Ref anchorElement = HTMLAnchorElement::create(document);
+    anchorElement->setAttributeWithoutSynchronization(HTMLNames::hrefAttr, AtomString { m_url });
+
     if (endingSelection().isRange())
-        applyStyledElement(WTFMove(anchorElement));
+        applyStyledElement(WTF::move(anchorElement));
     else {
         insertNodeAt(anchorElement.copyRef(), endingSelection().start());
-        appendNode(Text::create(document(), m_url), anchorElement.copyRef());
-        setEndingSelection(VisibleSelection(positionInParentBeforeNode(anchorElement.ptr()), positionInParentAfterNode(anchorElement.ptr()), Affinity::Downstream, endingSelection().isDirectional()));
+        appendNode(Text::create(document, String { m_url }), anchorElement.copyRef());
+        setEndingSelection(VisibleSelection(
+            positionInParentBeforeNode(anchorElement),
+            positionInParentAfterNode(anchorElement),
+            Affinity::Downstream,
+            endingSelection().directionality()
+        ));
     }
 }
 

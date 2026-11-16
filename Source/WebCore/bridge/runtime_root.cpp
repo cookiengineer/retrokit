@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004 Apple Inc.  All rights reserved.
+ * Copyright (C) 2004 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,6 +29,7 @@
 #include "BridgeJSC.h"
 #include "runtime_object.h"
 #include <JavaScriptCore/JSGlobalObject.h>
+#include <JavaScriptCore/JSGlobalObjectInlines.h>
 #include <JavaScriptCore/StrongInlines.h>
 #include <JavaScriptCore/Weak.h>
 #include <JavaScriptCore/WeakInlines.h>
@@ -37,16 +38,16 @@
 #include <wtf/Ref.h>
 #include <wtf/StdLibExtras.h>
 
-namespace JSC { namespace Bindings {
+namespace JSC::Bindings {
 
 // This code attempts to solve two problems: (1) plug-ins leaking references to 
 // JS and the DOM; (2) plug-ins holding stale references to JS and the DOM. Previous 
 // comments in this file claimed that problem #1 was an issue in Java, in particular, 
 // because Java, allegedly, didn't always call finalize when collecting an object.
 
-typedef HashSet<RootObject*> RootObjectSet;
+using RootObjectSet = HashSet<RootObject*>;
 
-static RootObjectSet& rootObjectSet()
+static RootObjectSet& NODELETE rootObjectSet()
 {
     static NeverDestroyed<RootObjectSet> staticRootObjectSet;
     return staticRootObjectSet;
@@ -59,7 +60,7 @@ RootObject* findProtectingRootObject(JSObject* jsObject)
 {
     RootObjectSet::const_iterator end = rootObjectSet().end();
     for (RootObjectSet::const_iterator it = rootObjectSet().begin(); it != end; ++it) {
-        if ((*it)->gcIsProtected(jsObject))
+        if (protect((*it))->gcIsProtected(jsObject))
             return *it;
     }
     return 0;
@@ -118,7 +119,7 @@ void RootObject::invalidate()
 
     {
         HashSet<InvalidationCallback*>::iterator end = m_invalidationCallbacks.end();
-        for (HashSet<InvalidationCallback*>::iterator iter = m_invalidationCallbacks.begin(); iter != end; ++iter)
+        for (auto iter = m_invalidationCallbacks.begin(); iter != end; ++iter)
             (**iter)(this);
 
         m_invalidationCallbacks.clear();
@@ -195,11 +196,12 @@ void RootObject::removeRuntimeObject(RuntimeObject* object)
 
 void RootObject::finalize(JSC::Handle<JSC::Unknown> handle, void*)
 {
-    RuntimeObject* object = static_cast<RuntimeObject*>(handle.slot()->asCell());
+    // Cannot call jsCast() during weak reference finalization.
+    SUPPRESS_MEMORY_UNSAFE_CAST auto* object = static_cast<RuntimeObject*>(handle.slot()->asCell());
 
     Ref<RootObject> protectedThis(*this);
     object->invalidate();
     weakRemove(m_runtimeObjects, object, object);
 }
 
-} } // namespace JSC::Bindings
+} // namespace JSC::Bindings

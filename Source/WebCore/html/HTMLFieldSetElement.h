@@ -2,7 +2,7 @@
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2000 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2004, 2005, 2006, 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2023 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -23,36 +23,36 @@
 
 #pragma once
 
-#include "HTMLFormControlElement.h"
+#include <WebCore/HTMLFormControlElement.h>
 #include <wtf/WeakHashSet.h>
 
 namespace WebCore {
 
-class FormAssociatedElement;
-class HTMLFormControlsCollection;
-
 class HTMLFieldSetElement final : public HTMLFormControlElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLFieldSetElement);
+    WTF_MAKE_TZONE_ALLOCATED(HTMLFieldSetElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLFieldSetElement);
 public:
-    static Ref<HTMLFieldSetElement> create(const QualifiedName&, Document&, HTMLFormElement*);
+    static Ref<HTMLFieldSetElement> create(const QualifiedName&, Document&);
 
-    HTMLLegendElement* legend() const;
+    HTMLLegendElement* NODELETE legend() const;
 
     Ref<HTMLCollection> elements();
 
-    void addInvalidDescendant(const HTMLFormControlElement&);
-    void removeInvalidDescendant(const HTMLFormControlElement&);
+    void addInvalidDescendant(const HTMLElement&);
+    void removeInvalidDescendant(const HTMLElement&);
 
 private:
-    HTMLFieldSetElement(const QualifiedName&, Document&, HTMLFormElement*);
+    HTMLFieldSetElement(const QualifiedName&, Document&);
     ~HTMLFieldSetElement();
 
-    bool isEnumeratable() const final { return true; }
+    bool isDisabledFormControl() const final;
+    bool isActuallyDisabled() const final;
+    bool NODELETE isEnumeratable() const final { return true; }
     bool supportsFocus() const final;
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) final;
     const AtomString& formControlType() const final;
     bool computeWillValidate() const final { return false; }
-    void disabledAttributeChanged() final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
     void disabledStateChanged() final;
     void childrenChanged(const ChildChange&) final;
     void didMoveToNewDocument(Document& oldDocument, Document& newDocument) final;
@@ -60,8 +60,7 @@ private:
     bool matchesValidPseudoClass() const final;
     bool matchesInvalidPseudoClass() const final;
 
-    WeakHashSet<HTMLFormControlElement> m_invalidDescendants;
-    bool m_hasDisabledAttribute { false };
+    WeakHashSet<HTMLElement, WeakPtrImplWithEventTargetData> m_invalidDescendants;
 };
 
 } // namespace

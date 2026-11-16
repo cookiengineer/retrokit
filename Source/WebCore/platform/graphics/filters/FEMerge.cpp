@@ -2,6 +2,7 @@
  * Copyright (C) 2004, 2005, 2006, 2007 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005 Rob Buis <buis@kde.org>
  * Copyright (C) 2005 Eric Seidel <eric@webkit.org>
+ * Copyright (C) 2021-2022 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -22,51 +23,63 @@
 #include "config.h"
 #include "FEMerge.h"
 
-#include "Filter.h"
-#include "GraphicsContext.h"
+#include "FEMergeSoftwareApplier.h"
+#include "ImageBuffer.h"
 #include <wtf/text/TextStream.h>
+
+#if USE(CORE_IMAGE)
+#include "FEMergeCoreImageApplier.h"
+#endif
 
 namespace WebCore {
 
-FEMerge::FEMerge(Filter& filter)
-    : FilterEffect(filter, Type::Merge)
+Ref<FEMerge> FEMerge::create(unsigned numberOfEffectInputs, DestinationColorSpace colorSpace)
+{
+    return adoptRef(*new FEMerge(numberOfEffectInputs, colorSpace));
+}
+
+FEMerge::FEMerge(unsigned numberOfEffectInputs, DestinationColorSpace colorSpace)
+    : FilterEffect(FilterEffect::Type::FEMerge, colorSpace)
+    , m_numberOfEffectInputs(numberOfEffectInputs)
 {
 }
 
-Ref<FEMerge> FEMerge::create(Filter& filter)
+bool FEMerge::operator==(const FEMerge& other) const
 {
-    return adoptRef(*new FEMerge(filter));
+    return FilterEffect::operator==(other) && m_numberOfEffectInputs == other.m_numberOfEffectInputs;
 }
 
-void FEMerge::platformApplySoftware()
+OptionSet<FilterRenderingMode> FEMerge::supportedFilterRenderingModes(OptionSet<FilterRenderingMode> preferredFilterRenderingModes) const
 {
-    unsigned size = numberOfEffectInputs();
-    ASSERT(size > 0);
-
-    ImageBuffer* resultImage = createImageBufferResult();
-    if (!resultImage)
-        return;
-
-
-    GraphicsContext& filterContext = resultImage->context();
-    for (unsigned i = 0; i < size; ++i) {
-        FilterEffect* in = inputEffect(i);
-        if (ImageBuffer* inBuffer = in->imageBufferResult())
-            filterContext.drawImageBuffer(*inBuffer, drawingRegionOfInputImage(in->absolutePaintRect()));
-    }
+    OptionSet<FilterRenderingMode> modes = FilterRenderingMode::Software;
+#if USE(CORE_IMAGE)
+    modes.add(FilterRenderingMode::Accelerated);
+#endif
+    return modes & preferredFilterRenderingModes;
 }
 
-TextStream& FEMerge::externalRepresentation(TextStream& ts, RepresentationType representation) const
+std::unique_ptr<FilterEffectApplier> FEMerge::createAcceleratedApplier() const
 {
-    ts << indent << "[feMerge";
+#if USE(CORE_IMAGE)
+    return FilterEffectApplier::create<FEMergeCoreImageApplier>(*this);
+#else
+    return nullptr;
+#endif
+}
+
+std::unique_ptr<FilterEffectApplier> FEMerge::createSoftwareApplier() const
+{
+    return FilterEffectApplier::create<FEMergeSoftwareApplier>(*this);
+}
+
+TextStream& FEMerge::externalRepresentation(TextStream& ts, FilterRepresentation representation) const
+{
+    ts << indent << "[feMerge"_s;
     FilterEffect::externalRepresentation(ts, representation);
-    unsigned size = numberOfEffectInputs();
-    ASSERT(size > 0);
-    ts << " mergeNodes=\"" << size << "\"]\n";
 
-    TextStream::IndentScope indentScope(ts);
-    for (unsigned i = 0; i < size; ++i)
-        inputEffect(i)->externalRepresentation(ts, representation);
+    ts << " mergeNodes=\"" << m_numberOfEffectInputs << '"';
+
+    ts << "]\n"_s;
     return ts;
 }
 

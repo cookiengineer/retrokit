@@ -36,7 +36,7 @@ public:
     static Ref<WebsiteDataRecord> create(WebKit::WebsiteDataRecord&&);
     virtual ~WebsiteDataRecord();
 
-    const WebKit::WebsiteDataRecord& websiteDataRecord() const { return m_websiteDataRecord; }
+    const WebKit::WebsiteDataRecord& websiteDataRecord() const LIFETIME_BOUND { return m_websiteDataRecord; }
 
 private:
     explicit WebsiteDataRecord(WebKit::WebsiteDataRecord&&);
@@ -45,5 +45,7 @@ private:
 };
 
 }
+
+SPECIALIZE_TYPE_TRAITS_API_OBJECT(WebsiteDataRecord);
 
 #endif // APIWebsiteDataRecord_h

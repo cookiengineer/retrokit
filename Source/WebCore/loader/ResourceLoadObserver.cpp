@@ -29,7 +29,7 @@
 
 namespace WebCore {
 
-static ResourceLoadObserver*& sharedObserver()
+static ResourceLoadObserver*& NODELETE sharedObserver()
 {
     static ResourceLoadObserver* observer = nullptr;
     return observer;
@@ -41,7 +41,7 @@ void ResourceLoadObserver::setShared(ResourceLoadObserver& observer)
     sharedObserver() = &observer;
 }
 
-ResourceLoadObserver& ResourceLoadObserver::shared()
+ResourceLoadObserver& ResourceLoadObserver::singleton()
 {
     static NeverDestroyed<ResourceLoadObserver> emptyObserver;
     if (!sharedObserver())
@@ -49,7 +49,7 @@ ResourceLoadObserver& ResourceLoadObserver::shared()
     return *sharedObserver();
 }
 
-ResourceLoadObserver* ResourceLoadObserver::sharedIfExists()
+ResourceLoadObserver* ResourceLoadObserver::singletonIfExists()
 {
     return sharedObserver();
 }

@@ -3,9 +3,9 @@
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2001 Dirk Mueller (mueller@kde.org)
  *           (C) 2006 Alexey Proskuryakov (ap@nypop.com)
- * Copyright (C) 2004-2020 Apple Inc. All rights reserved.
- * Copyright (C) 2010 Google Inc. All rights reserved.
- * Copyright (C) 2011 Motorola Mobility, Inc.  All rights reserved.
+ * Copyright (C) 2004-2026 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2017 Google Inc. All rights reserved.
+ * Copyright (C) 2011 Motorola Mobility, Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -27,36 +27,46 @@
 #include "config.h"
 #include "HTMLOptionElement.h"
 
+#include "AXObjectCache.h"
+#include "ContainerNodeInlines.h"
 #include "Document.h"
-#include "ElementAncestorIterator.h"
+#include "ElementAncestorIteratorInlines.h"
+#include "EventNames.h"
 #include "HTMLDataListElement.h"
+#include "HTMLHRElement.h"
 #include "HTMLNames.h"
 #include "HTMLOptGroupElement.h"
-#include "HTMLParserIdioms.h"
 #include "HTMLSelectElement.h"
+#include "HTMLSelectedContentElement.h"
+#include "HTMLSlotElement.h"
+#include "HTMLSpanElement.h"
+#include "KeyboardEvent.h"
+#include "MouseEvent.h"
+#include "NodeName.h"
 #include "NodeRenderStyle.h"
 #include "NodeTraversal.h"
-#include "RenderMenuList.h"
+#include "PseudoClassChangeInvalidation.h"
 #include "RenderTheme.h"
+#include "ScriptDisallowedScope.h"
 #include "ScriptElement.h"
+#include "SelectPopoverElement.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleResolver.h"
 #include "Text.h"
-#include <wtf/IsoMallocInlines.h>
 #include <wtf/Ref.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLOptionElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLOptionElement);
 
 using namespace HTMLNames;
 
 HTMLOptionElement::HTMLOptionElement(const QualifiedName& tagName, Document& document)
-    : HTMLElement(tagName, document)
-    , m_disabled(false)
-    , m_isSelected(false)
+    : HTMLElement(tagName, document, TypeFlag::HasCustomStyleResolveCallbacks)
 {
     ASSERT(hasTagName(optionTag));
-    setHasCustomStyleResolveCallbacks();
 }
 
 Ref<HTMLOptionElement> HTMLOptionElement::create(Document& document)
@@ -69,18 +79,18 @@ Ref<HTMLOptionElement> HTMLOptionElement::create(const QualifiedName& tagName, D
     return adoptRef(*new HTMLOptionElement(tagName, document));
 }
 
-ExceptionOr<Ref<HTMLOptionElement>> HTMLOptionElement::createForLegacyFactoryFunction(Document& document, const String& text, const String& value, bool defaultSelected, bool selected)
+ExceptionOr<Ref<HTMLOptionElement>> HTMLOptionElement::createForLegacyFactoryFunction(Document& document, String&& text, const AtomString& value, bool defaultSelected, bool selected)
 {
-    auto element = create(document);
+    Ref element = create(document);
 
     if (!text.isEmpty()) {
-        auto appendResult = element->appendChild(Text::create(document, text));
+        auto appendResult = element->appendChild(Text::create(document, WTF::move(text)));
         if (appendResult.hasException())
             return appendResult.releaseException();
     }
 
     if (!value.isNull())
-        element->setValue(value);
+        element->setAttributeWithoutSynchronization(valueAttr, value);
     if (defaultSelected)
         element->setAttributeWithoutSynchronization(selectedAttr, emptyAtom());
     element->setSelected(selected);
@@ -88,18 +98,161 @@ ExceptionOr<Ref<HTMLOptionElement>> HTMLOptionElement::createForLegacyFactoryFun
     return element;
 }
 
-bool HTMLOptionElement::isFocusable() const
+void HTMLOptionElement::didAddUserAgentShadowRoot(ShadowRoot& root)
 {
-    if (!supportsFocus())
-        return false;
-    // Option elements do not have a renderer.
-    auto* style = const_cast<HTMLOptionElement&>(*this).computedStyle();
-    return style && style->display() != DisplayType::None;
+    Ref document = this->document();
+    ScriptDisallowedScope::EventAllowedScope rootScope { root };
+
+    Ref labelContainer = HTMLSpanElement::create(document);
+    root.appendChild(labelContainer);
+    m_labelContainer = WTF::move(labelContainer);
+
+    Ref slot = HTMLSlotElement::create(slotTag, document);
+    root.appendChild(slot);
+    m_slot = WTF::move(slot);
 }
 
-bool HTMLOptionElement::matchesDefaultPseudoClass() const
+void HTMLOptionElement::invalidateShadowTree()
 {
-    return hasAttributeWithoutSynchronization(selectedAttr);
+    if (!document().settings().htmlEnhancedSelectEnabled())
+        return;
+
+    if (m_shadowTreeNeedsUpdate)
+        return;
+
+    m_shadowTreeNeedsUpdate = true;
+    if (isConnected())
+        protect(document())->addElementWithPendingUserAgentShadowTreeUpdate(*this);
+}
+
+void HTMLOptionElement::updateUserAgentShadowTree()
+{
+    if (!m_shadowTreeNeedsUpdate)
+        return;
+
+    m_shadowTreeNeedsUpdate = false;
+    protect(document())->removeElementWithPendingUserAgentShadowTreeUpdate(*this);
+
+    if (!m_ownerSelect && !userAgentShadowRoot())
+        return;
+
+    if (!userAgentShadowRoot()) {
+        if (attributeWithoutSynchronization(labelAttr).isNull())
+            return;
+        ensureUserAgentShadowRoot();
+    }
+
+    Ref labelContainer = *m_labelContainer;
+    Ref slot = *m_slot;
+    auto labelValue = attributeWithoutSynchronization(labelAttr);
+
+    ScriptDisallowedScope::EventAllowedScope labelContainerScope { labelContainer };
+    ScriptDisallowedScope::EventAllowedScope slotScope { slot };
+
+    labelContainer->setTextContent(String { labelValue });
+    if (m_ownerSelect && !labelValue.isNull()) {
+        labelContainer->setInlineStyleProperty(CSSPropertyDisplay, CSSValueInline);
+        slot->setInlineStyleProperty(CSSPropertyDisplay, CSSValueNone);
+    } else {
+        labelContainer->setInlineStyleProperty(CSSPropertyDisplay, CSSValueNone);
+        slot->setInlineStyleProperty(CSSPropertyDisplay, CSSValueContents);
+    }
+}
+
+auto HTMLOptionElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree) -> NeedsPostConnectionSteps
+{
+    auto result = HTMLElement::insertionSteps(insertionType, parentOfInsertedTree);
+
+    if (document().settings().htmlEnhancedSelectParsingEnabled() && !m_ownerSelect) {
+        if (RefPtr select = HTMLSelectElement::findOwnerSelect(parentNode(), HTMLSelectElement::ExcludeOptGroup::No)) {
+            m_ownerSelect = select.get();
+            select->setRecalcListItems();
+            // If this non-selected option is the first non-disabled option in a
+            // single-select that has no explicitly selected option, select it by
+            // default. This maintains m_isSelected incrementally so that
+            // finishParsingChildren() can use selectedWithoutUpdate() (O(1))
+            // instead of selected() which triggers O(n) recalcListItems().
+            // Only do this during parsing — for API insertions, the existing
+            // childrenChanged → optionToSelectFromChildChangeScope path handles it.
+            if (!select->isFinishedParsingChildren() && !selectedWithoutUpdate() && !m_disabled)
+                select->selectDefaultOptionIfNeeded(*this);
+        }
+    }
+
+    if (insertionType.connectedToDocument) {
+        if (RefPtr select = ownerSelectElement())
+            select->invalidateButtonText();
+        if (m_shadowTreeNeedsUpdate)
+            protect(document())->addElementWithPendingUserAgentShadowTreeUpdate(*this);
+    }
+
+    return result;
+}
+
+void HTMLOptionElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+{
+    HTMLElement::removingSteps(removalType, oldParentOfRemovedTree);
+
+    if (removalType.disconnectedFromDocument && m_shadowTreeNeedsUpdate)
+        protect(document())->removeElementWithPendingUserAgentShadowTreeUpdate(*this);
+
+    if (!document().settings().htmlEnhancedSelectParsingEnabled() || !m_ownerSelect)
+        return;
+
+    if (auto* select = HTMLSelectElement::findOwnerSelect(parentNode(), HTMLSelectElement::ExcludeOptGroup::No)) {
+        ASSERT_UNUSED(select, select == m_ownerSelect.get());
+        return;
+    }
+
+    if (RefPtr select = std::exchange(m_ownerSelect, nullptr).get()) {
+        select->setRecalcListItems();
+        select->invalidateButtonText();
+        invalidateShadowTree();
+    }
+}
+
+void HTMLOptionElement::finishParsingChildren()
+{
+    if (!document().settings().htmlEnhancedSelectEnabled())
+        return;
+
+    if (document().settings().mutationEventsEnabled())
+        return;
+
+    ASSERT(document().settings().htmlEnhancedSelectParsingEnabled());
+
+    if (m_disabled)
+        return;
+
+    RefPtr select = m_ownerSelect;
+    if (!select)
+        return;
+
+    // When the owning <select> is still being parsed, use selectedWithoutUpdate()
+    // instead of selected() to avoid triggering recalcListItems() for each
+    // option, which would be O(n²). The selection state (m_isSelected) is
+    // maintained incrementally at insertion time — see insertionSteps() and
+    // optionToSelectFromChildChangeScope().
+    bool isSelected = select->isFinishedParsingChildren() ? selected() : selectedWithoutUpdate();
+    if (!isSelected)
+        return;
+
+    // Pass `this` to avoid updateSelectedContent() calling listItems() to find
+    // the selected option, which would also trigger recalcListItems().
+    select->updateSelectedContent(this);
+}
+
+bool HTMLOptionElement::supportsFocus() const
+{
+    return HTMLElement::supportsFocus() || belongsToBaseAppearancePicker();
+}
+
+bool HTMLOptionElement::isFocusable() const
+{
+    RefPtr select = ownerSelectElement();
+    if (select && select->usesMenuList() && !select->usesBaseAppearancePicker())
+        return false;
+    return HTMLElement::isFocusable();
 }
 
 String HTMLOptionElement::text() const
@@ -108,28 +261,21 @@ String HTMLOptionElement::text() const
 
     // FIXME: Is displayStringModifiedByEncoding helpful here?
     // If it's correct here, then isn't it needed in the value and label functions too?
-    return stripLeadingAndTrailingHTMLSpaces(document().displayStringModifiedByEncoding(text)).simplifyWhiteSpace(isHTMLSpace);
+    return protect(document())->displayStringModifiedByEncoding(text).trim(isASCIIWhitespace).simplifyWhiteSpace(isASCIIWhitespace);
 }
 
-void HTMLOptionElement::setText(const String &text)
+void HTMLOptionElement::setText(String&& text)
 {
-    Ref<HTMLOptionElement> protectedThis(*this);
+    Ref protectedThis { *this };
 
     // Changing the text causes a recalc of a select's items, which will reset the selected
     // index to the first item if the select is single selection with a menu list. We attempt to
     // preserve the selected item.
-    RefPtr<HTMLSelectElement> select = ownerSelectElement();
-    bool selectIsMenuList = select && select->usesMenuList();
+    RefPtr select = ownerSelectElement();
+    bool selectIsMenuList = select && select->usesMenuListDeprecated();
     int oldSelectedIndex = selectIsMenuList ? select->selectedIndex() : -1;
 
-    // Handle the common special case where there's exactly 1 child node, and it's a text node.
-    RefPtr<Node> child = firstChild();
-    if (is<Text>(child) && !child->nextSibling())
-        downcast<Text>(*child).setData(text);
-    else {
-        removeChildren();
-        appendChild(Text::create(document(), text));
-    }
+    setTextContent(WTF::move(text));
     
     if (selectIsMenuList && select->selectedIndex() != oldSelectedIndex)
         select->setSelectedIndex(oldSelectedIndex);
@@ -137,19 +283,106 @@ void HTMLOptionElement::setText(const String &text)
 
 bool HTMLOptionElement::accessKeyAction(bool)
 {
-    RefPtr<HTMLSelectElement> select = ownerSelectElement();
-    if (select) {
+    RefPtr select = ownerSelectElement();
+    if (!select)
+        return false;
+
+    if (select->usesBaseAppearancePicker()) {
+        select->optionSelectedByUser(index(), true);
+        select->hidePickerPopoverElement();
+    } else
         select->accessKeySetSelectedIndex(index());
-        return true;
+    return true;
+}
+
+void HTMLOptionElement::defaultEventHandler(Event& event)
+{
+    if (!event.isTrusted())
+        return HTMLElement::defaultEventHandler(event);
+
+    RefPtr select = ownerSelectElement();
+    if (!select || !select->document().settings().htmlEnhancedSelectEnabled() || !select->usesBaseAppearancePicker())
+        return HTMLElement::defaultEventHandler(event);
+
+    auto& eventNames = WebCore::eventNames();
+
+    if (event.type() == eventNames.keydownEvent) {
+        RefPtr keyboardEvent = dynamicDowncast<KeyboardEvent>(event);
+        if (!keyboardEvent)
+            return HTMLElement::defaultEventHandler(event);
+
+        const String& keyIdentifier = keyboardEvent->keyIdentifier();
+
+        // [Shift+]Tab closes the picker; fall through to move focus.
+        if (keyIdentifier == "U+0009"_s) {
+            select->hidePickerPopoverElement();
+            return HTMLElement::defaultEventHandler(event);
+        }
+
+        int currentIndex = select->optionToListIndex(index());
+        int listIndex = select->computeNavigationIndex(keyIdentifier, currentIndex, select->pickerNavigationKeyIdentifiers());
+        if (listIndex >= 0) {
+            auto scrollMode = HTMLSelectElement::PickerScrollMode::Nearest;
+            if (keyIdentifier == "PageDown"_s)
+                scrollMode = HTMLSelectElement::PickerScrollMode::AlignBottom;
+            else if (keyIdentifier == "PageUp"_s)
+                scrollMode = HTMLSelectElement::PickerScrollMode::AlignTop;
+            select->focusOptionAtIndex(listIndex, std::nullopt, scrollMode);
+            keyboardEvent->setDefaultHandled();
+            return;
+        }
     }
-    return false;
+
+    if (event.type() == eventNames.keypressEvent) {
+        RefPtr keyboardEvent = dynamicDowncast<KeyboardEvent>(event);
+        if (!keyboardEvent)
+            return HTMLElement::defaultEventHandler(event);
+
+        int keyCode = keyboardEvent->keyCode();
+        if (keyCode == '\r' || keyCode == ' ') {
+            select->optionSelectedByUser(index(), true);
+            select->hidePickerPopoverElement();
+            keyboardEvent->setDefaultHandled();
+            return;
+        }
+
+        if (!keyboardEvent->ctrlKey() && !keyboardEvent->altKey() && !keyboardEvent->metaKey() && u_isprint(keyboardEvent->charCode())) {
+            int listIndex = select->typeAheadMatchIndex(*keyboardEvent);
+            if (listIndex >= 0)
+                select->focusOptionAtIndex(listIndex);
+            keyboardEvent->setDefaultHandled();
+            return;
+        }
+    }
+
+    if (RefPtr mouseEvent = dynamicDowncast<MouseEvent>(event); mouseEvent && event.type() == eventNames.mousedownEvent && mouseEvent->button() == MouseButton::Left) {
+        select->optionSelectedByUser(index(), true);
+        select->hidePickerPopoverElement();
+        event.setDefaultHandled();
+        return;
+    }
+
+    HTMLElement::defaultEventHandler(event);
+}
+
+HTMLFormElement* HTMLOptionElement::form() const
+{
+    if (auto* selectElement = ownerSelectElement())
+        return selectElement->form();
+    return nullptr;
+}
+
+RefPtr<HTMLFormElement> HTMLOptionElement::formForBindings() const
+{
+    // FIXME: The downcast should be unnecessary, but the WPT was written before https://github.com/WICG/webcomponents/issues/1072 was resolved. Update once the WPT has been updated.
+    return dynamicDowncast<HTMLFormElement>(retargetReferenceTargetForBindings(form()));
 }
 
 int HTMLOptionElement::index() const
 {
     // It would be faster to cache the index, but harder to get it right in all cases.
 
-    RefPtr<HTMLSelectElement> selectElement = ownerSelectElement();
+    RefPtr selectElement = ownerSelectElement();
     if (!selectElement)
         return 0;
 
@@ -166,34 +399,43 @@ int HTMLOptionElement::index() const
     return 0;
 }
 
-void HTMLOptionElement::parseAttribute(const QualifiedName& name, const AtomString& value)
+void HTMLOptionElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
-#if ENABLE(DATALIST_ELEMENT)
-    if (name == valueAttr) {
-        for (auto& dataList : ancestorsOfType<HTMLDataListElement>(*this))
-            dataList.optionElementChildrenChanged();
-    } else
-#endif
-    if (name == disabledAttr) {
-        bool oldDisabled = m_disabled;
-        m_disabled = !value.isNull();
-        if (oldDisabled != m_disabled) {
-            invalidateStyleForSubtree();
-            if (renderer() && renderer()->style().hasAppearance())
-                renderer()->theme().stateChanged(*renderer(), ControlStates::States::Enabled);
+    switch (name.nodeName()) {
+    case AttributeNames::disabledAttr: {
+        bool newDisabled = !newValue.isNull();
+        if (m_disabled != newDisabled) {
+            Style::PseudoClassChangeInvalidation disabledInvalidation(*this, { { CSSSelector::PseudoClass::Disabled, newDisabled },  { CSSSelector::PseudoClass::Enabled, !newDisabled } });
+            m_disabled = newDisabled;
+            if (CheckedPtr renderer = this->renderer(); renderer && renderer->style().hasUsedAppearance())
+                renderer->repaint();
         }
-    } else if (name == selectedAttr) {
-        invalidateStyleForSubtree();
+        break;
+    }
+    case AttributeNames::selectedAttr: {
+        // FIXME: Use PseudoClassChangeInvalidation in other elements that implement matchesDefaultPseudoClass().
+        Style::PseudoClassChangeInvalidation defaultInvalidation(*this, CSSSelector::PseudoClass::Default, !newValue.isNull());
+        m_isDefault = !newValue.isNull();
 
-        // FIXME: This doesn't match what the HTML specification says.
-        // The specification implies that removing the selected attribute or
-        // changing the value of a selected attribute that is already present
-        // has no effect on whether the element is selected. Further, it seems
-        // that we need to do more than just set m_isSelected to select in that
-        // case; we'd need to do the other work from the setSelected function.
-        m_isSelected = !value.isNull();
-    } else
-        HTMLElement::parseAttribute(name, value);
+        // https://html.spec.whatwg.org/multipage/form-elements.html#concept-option-selectedness
+        if (oldValue.isNull() != newValue.isNull() && !m_isDirty)
+            setSelected(!newValue.isNull());
+        break;
+    }
+    case AttributeNames::labelAttr: {
+        if (RefPtr select = ownerSelectElement())
+            select->optionElementChildrenChanged();
+        invalidateShadowTree();
+        break;
+    }
+    case AttributeNames::valueAttr:
+        for (Ref dataList : ancestorsOfType<HTMLDataListElement>(*this))
+            dataList->optionElementChildrenChanged();
+        break;
+    default:
+        HTMLElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
+        break;
+    }
 }
 
 String HTMLOptionElement::value() const
@@ -201,18 +443,13 @@ String HTMLOptionElement::value() const
     const AtomString& value = attributeWithoutSynchronization(valueAttr);
     if (!value.isNull())
         return value;
-    return stripLeadingAndTrailingHTMLSpaces(collectOptionInnerText()).simplifyWhiteSpace(isHTMLSpace);
+    return collectOptionInnerTextCollapsingWhitespace();
 }
 
-void HTMLOptionElement::setValue(const String& value)
+bool HTMLOptionElement::selected(AllowStyleInvalidation allowStyleInvalidation) const
 {
-    setAttributeWithoutSynchronization(valueAttr, value);
-}
-
-bool HTMLOptionElement::selected() const
-{
-    if (RefPtr<HTMLSelectElement> select = ownerSelectElement())
-        select->updateListItemSelectedStates();
+    if (RefPtr select = ownerSelectElement())
+        select->updateListItemSelectedStates(allowStyleInvalidation);
     return m_isSelected;
 }
 
@@ -223,71 +460,118 @@ void HTMLOptionElement::setSelected(bool selected)
 
     setSelectedState(selected);
 
-    if (RefPtr<HTMLSelectElement> select = ownerSelectElement())
+    if (RefPtr select = ownerSelectElement())
         select->optionSelectionStateChanged(*this, selected);
 }
 
-void HTMLOptionElement::setSelectedState(bool selected)
+bool HTMLOptionElement::selectedForBindings() const
+{
+    return selected();
+}
+
+void HTMLOptionElement::setSelectedForBindings(bool selected)
+{
+    bool wasSelected = m_isSelected;
+    setSelected(selected);
+
+    // https://html.spec.whatwg.org/multipage/form-elements.html#concept-option-dirtiness
+    // The spec says dirtiness becomes true unconditionally. However, for web
+    // compatibility, don't set dirtiness if the option is owned by a select
+    // element and selectedness did not actually change.
+    if (ownerSelectElement() && wasSelected == m_isSelected)
+        return;
+
+    m_isDirty = true;
+}
+
+void HTMLOptionElement::setSelectedState(bool selected, AllowStyleInvalidation allowStyleInvalidation)
 {
     if (m_isSelected == selected)
         return;
 
+    std::optional<Style::PseudoClassChangeInvalidation> checkedInvalidation;
+    if (allowStyleInvalidation == AllowStyleInvalidation::Yes)
+        emplace(checkedInvalidation, *this, { { CSSSelector::PseudoClass::Checked, selected } });
+
     m_isSelected = selected;
-    invalidateStyleForSubtree();
+
+    if (CheckedPtr cache = protect(document())->existingAXObjectCache())
+        cache->onSelectedOptionChanged(*this);
 }
 
 void HTMLOptionElement::childrenChanged(const ChildChange& change)
 {
-#if ENABLE(DATALIST_ELEMENT)
-    for (auto& dataList : ancestorsOfType<HTMLDataListElement>(*this))
-        dataList.optionElementChildrenChanged();
-#endif
-    if (RefPtr<HTMLSelectElement> select = ownerSelectElement())
-        select->optionElementChildrenChanged();
+    Vector<Ref<HTMLDataListElement>> ancestors;
+    for (Ref dataList : ancestorsOfType<HTMLDataListElement>(*this))
+        ancestors.append(WTF::move(dataList));
+    for (auto& dataList : ancestors)
+        dataList->optionElementChildrenChanged();
+    if (change.source != ChildChange::Source::Clone) {
+        if (RefPtr select = ownerSelectElement())
+            select->optionElementChildrenChanged();
+    }
     HTMLElement::childrenChanged(change);
+}
+
+void HTMLOptionElement::willResetComputedStyle()
+{
+    if (RefPtr select = ownerSelectElement()) {
+        if (CheckedPtr selectRenderer = select->renderer())
+            selectRenderer->repaint();
+    }
 }
 
 HTMLSelectElement* HTMLOptionElement::ownerSelectElement() const
 {
-    return const_cast<HTMLSelectElement*>(ancestorsOfType<HTMLSelectElement>(*this).first());
+    if (document().settings().htmlEnhancedSelectParsingEnabled())
+        return m_ownerSelect.get();
+
+    if (auto* parent = parentElement()) {
+        if (auto* select = dynamicDowncast<HTMLSelectElement>(*parent))
+            return select;
+        if (auto* optGroup = dynamicDowncast<HTMLOptGroupElement>(*parent))
+            return optGroup->ownerSelectElement();
+    }
+    return nullptr;
+}
+
+bool HTMLOptionElement::belongsToBaseAppearancePicker() const
+{
+    RefPtr select = ownerSelectElement();
+    return select && select->usesBaseAppearancePicker();
 }
 
 String HTMLOptionElement::label() const
 {
     String label = attributeWithoutSynchronization(labelAttr);
     if (!label.isNull())
-        return stripLeadingAndTrailingHTMLSpaces(label);
-    return stripLeadingAndTrailingHTMLSpaces(collectOptionInnerText()).simplifyWhiteSpace(isHTMLSpace);
+        return label;
+    return collectOptionInnerTextCollapsingWhitespace();
 }
 
-// Same as label() but ignores the label content attribute in quirks mode for compatibility with other browsers.
 String HTMLOptionElement::displayLabel() const
 {
-    if (document().inQuirksMode())
-        return stripLeadingAndTrailingHTMLSpaces(collectOptionInnerText()).simplifyWhiteSpace(isHTMLSpace);
-    return label();
-}
-
-void HTMLOptionElement::setLabel(const String& label)
-{
-    setAttributeWithoutSynchronization(labelAttr, label);
-}
-
-void HTMLOptionElement::willResetComputedStyle()
-{
-    // FIXME: This is nasty, we ask our owner select to repaint even if the new
-    // style is exactly the same.
-    if (auto select = ownerSelectElement()) {
-        if (auto renderer = select->renderer())
-            renderer->repaint();
-    }
+    String label = attributeWithoutSynchronization(labelAttr);
+    if (label.isEmpty())
+        return collectOptionInnerTextCollapsingWhitespace();
+    return label;
 }
 
 String HTMLOptionElement::textIndentedToRespectGroupLabel() const
 {
-    RefPtr<ContainerNode> parent = parentNode();
-    if (is<HTMLOptGroupElement>(parent))
-        return "    " + displayLabel();
+    if (!document().settings().htmlEnhancedSelectParsingEnabled()) {
+        if (is<HTMLOptGroupElement>(parentNode()))
+            return makeString("    "_s, displayLabel());
+        return displayLabel();
+    }
+
+    for (Ref ancestor : ancestorsOfType<HTMLElement>(*this)) {
+        if (is<HTMLOptGroupElement>(ancestor))
+            return makeString("    "_s, displayLabel());
+
+        if (isAnyOf<HTMLDataListElement, HTMLSelectElement, HTMLOptionElement, HTMLHRElement>(ancestor))
+            return displayLabel();
+    }
     return displayLabel();
 }
 
@@ -296,42 +580,54 @@ bool HTMLOptionElement::isDisabledFormControl() const
     if (ownElementDisabled())
         return true;
 
-    if (!is<HTMLOptGroupElement>(parentNode()))
-        return false;
-
-    return downcast<HTMLOptGroupElement>(*parentNode()).isDisabledFormControl();
-}
-
-Node::InsertedIntoAncestorResult HTMLOptionElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
-{
-    if (RefPtr<HTMLSelectElement> select = ownerSelectElement()) {
-        select->setRecalcListItems();
-        select->updateValidity();
-        // Do not call selected() since calling updateListItemSelectedStates()
-        // at this time won't do the right thing. (Why, exactly?)
-        // FIXME: Might be better to call this unconditionally, always passing m_isSelected,
-        // rather than only calling it if we are selected.
-        if (m_isSelected)
-            select->optionSelectionStateChanged(*this, true);
-        select->scrollToSelection();
+    if (!document().settings().htmlEnhancedSelectParsingEnabled()) {
+        RefPtr parentOptGroup = dynamicDowncast<HTMLOptGroupElement>(parentNode());
+        return parentOptGroup && parentOptGroup->isDisabledFormControl();
     }
 
-    return HTMLElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    for (Ref ancestor : ancestorsOfType<HTMLElement>(*this)) {
+        if (RefPtr optGroup = dynamicDowncast<HTMLOptGroupElement>(ancestor))
+            return optGroup->isDisabledFormControl();
+        if (isAnyOf<HTMLDataListElement, HTMLSelectElement, HTMLOptionElement, HTMLHRElement>(ancestor))
+            return false;
+    }
+    return false;
+}
+
+bool HTMLOptionElement::isActuallyDisabled() const
+{
+    if (HTMLElement::isActuallyDisabled())
+        return true;
+    RefPtr select = ownerSelectElement();
+    return select && select->isDisabledFormControl();
 }
 
 String HTMLOptionElement::collectOptionInnerText() const
 {
     StringBuilder text;
-    for (RefPtr<Node> node = firstChild(); node; ) {
-        if (is<Text>(*node))
-            text.append(node->nodeValue());
-        // Text nodes inside script elements are not part of the option text.
-        if (is<Element>(*node) && isScriptElement(downcast<Element>(*node)))
-            node = NodeTraversal::nextSkippingChildren(*node, this);
-        else
-            node = NodeTraversal::next(*node, this);
+    // Text nodes inside script elements are not part of the option text.
+    for (RefPtr node = firstChild(); node; node = isScriptElement(*node) ? NodeTraversal::nextSkippingChildren(*node, this) : NodeTraversal::next(*node, this)) {
+        if (auto* textNode = dynamicDowncast<Text>(*node))
+            text.append(textNode->data());
     }
     return text.toString();
+}
+
+String HTMLOptionElement::collectOptionInnerTextCollapsingWhitespace() const
+{
+    return collectOptionInnerText().trim(isASCIIWhitespace).simplifyWhiteSpace(isASCIIWhitespace);
+}
+
+void HTMLOptionElement::cloneIntoSelectedContent(HTMLSelectedContentElement& selectedContent)
+{
+    ASSERT(document().settings().htmlEnhancedSelectParsingEnabled());
+    ASSERT(document().settings().htmlEnhancedSelectEnabled());
+    ASSERT(!selectedContent.document().settings().mutationEventsEnabled());
+
+    NodeVector newChildren;
+    for (RefPtr child = firstChild(); child; child = child->nextSibling())
+        newChildren.append(child->cloneNode(true));
+    selectedContent.replaceChildrenWithoutValidityCheck(WTF::move(newChildren));
 }
 
 } // namespace

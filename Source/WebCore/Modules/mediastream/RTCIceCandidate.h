@@ -32,40 +32,26 @@
 
 #if ENABLE(WEB_RTC)
 
-#include "ExceptionOr.h"
-#include "RTCIceCandidateType.h"
-#include "RTCIceComponent.h"
-#include "RTCIceProtocol.h"
-#include "RTCIceTcpCandidateType.h"
-#include "ScriptWrappable.h"
+#include <WebCore/RTCIceCandidateFields.h>
+#include <WebCore/ScriptWrappable.h>
 
 namespace WebCore {
 
 struct RTCIceCandidateInit;
+template<typename> class ExceptionOr;
 
 class RTCIceCandidate final : public RefCounted<RTCIceCandidate>, public ScriptWrappable {
-    WTF_MAKE_ISO_ALLOCATED(RTCIceCandidate);
+    WTF_MAKE_TZONE_ALLOCATED(RTCIceCandidate);
 public:
+    using Fields = RTCIceCandidateFields;
+
     static ExceptionOr<Ref<RTCIceCandidate>> create(const RTCIceCandidateInit&);
     static Ref<RTCIceCandidate> create(const String& candidate, const String& sdpMid, std::optional<unsigned short> sdpMLineIndex);
+    static Ref<RTCIceCandidate> create(const String& candidate, const String& sdpMid, Fields&& fields) { return adoptRef(*new RTCIceCandidate(candidate, sdpMid, { }, WTF::move(fields))); }
 
-    const String& candidate() const { return m_candidate; }
-    const String& sdpMid() const { return m_sdpMid; }
+    const String& candidate() const LIFETIME_BOUND { return m_candidate; }
+    const String& sdpMid() const LIFETIME_BOUND { return m_sdpMid; }
     std::optional<unsigned short> sdpMLineIndex() const { return m_sdpMLineIndex; }
-
-    struct Fields {
-        String foundation;
-        std::optional<RTCIceComponent> component;
-        std::optional<unsigned> priority;
-        String address;
-        std::optional<RTCIceProtocol> protocol;
-        std::optional<unsigned short> port;
-        std::optional<RTCIceCandidateType> type;
-        std::optional<RTCIceTcpCandidateType> tcpType;
-        String relatedAddress;
-        std::optional<unsigned short> relatedPort;
-        String usernameFragment;
-    };
 
     String foundation() const { return m_fields.foundation; }
     std::optional<RTCIceComponent> component() const { return m_fields.component; }
@@ -77,8 +63,8 @@ public:
     std::optional<RTCIceTcpCandidateType> tcpType() const { return m_fields.tcpType; }
     String relatedAddress() const { return m_fields.relatedAddress; }
     std::optional<unsigned short> relatedPort() const { return m_fields.relatedPort; }
-    String usernameFragment() const { return m_fields.usernameFragment; }
 
+    String usernameFragment() const { return m_fields.usernameFragment; }
     RTCIceCandidateInit toJSON() const;
 
 private:
@@ -89,8 +75,6 @@ private:
     std::optional<unsigned short> m_sdpMLineIndex;
     Fields m_fields;
 };
-
-std::optional<RTCIceCandidate::Fields> parseIceCandidateSDP(const String&);
 
 } // namespace WebCore
 

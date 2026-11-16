@@ -29,13 +29,13 @@
 #include "Logging.h"
 #include <wtf/CompletionHandler.h>
 #include <wtf/MainThread.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-MessagePortChannelRegistry::MessagePortChannelRegistry(CheckProcessLocalPortForActivityCallback&& checkProcessLocalPortForActivityCallback)
-    : m_checkProcessLocalPortForActivityCallback(WTFMove(checkProcessLocalPortForActivityCallback))
-{
-}
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MessagePortChannelRegistry);
+
+MessagePortChannelRegistry::MessagePortChannelRegistry() = default;
 
 MessagePortChannelRegistry::~MessagePortChannelRegistry()
 {
@@ -54,15 +54,11 @@ void MessagePortChannelRegistry::messagePortChannelCreated(MessagePortChannel& c
 {
     ASSERT(isMainThread());
 
-    auto result = m_openChannels.ensure(channel.port1(), [channel = &channel] {
-        return channel;
-    });
-    ASSERT(result.isNewEntry);
+    auto result = m_openChannels.add(channel.port1(), channel);
+    ASSERT_UNUSED(result, result.isNewEntry);
 
-    result = m_openChannels.ensure(channel.port2(), [channel = &channel] {
-        return channel;
-    });
-    ASSERT(result.isNewEntry);
+    result = m_openChannels.add(channel.port2(), channel);
+    ASSERT_UNUSED(result, result.isNewEntry);
 }
 
 void MessagePortChannelRegistry::messagePortChannelDestroyed(MessagePortChannel& channel)
@@ -75,6 +71,11 @@ void MessagePortChannelRegistry::messagePortChannelDestroyed(MessagePortChannel&
     m_openChannels.remove(channel.port1());
     m_openChannels.remove(channel.port2());
 
+    m_pendingTransferOrigins.remove(channel.port1());
+    m_pendingTransferOrigins.remove(channel.port2());
+    m_pendingTransferDestinations.remove(channel.port1());
+    m_pendingTransferDestinations.remove(channel.port2());
+
     LOG(MessagePorts, "Registry: After removing channel %s there are %u channels left in the registry:", channel.logString().utf8().data(), m_openChannels.size());
 }
 
@@ -83,7 +84,7 @@ void MessagePortChannelRegistry::didEntangleLocalToRemote(const MessagePortIdent
     ASSERT(isMainThread());
 
     // The channel might be gone if the remote side was closed.
-    auto* channel = m_openChannels.get(local);
+    RefPtr channel = m_openChannels.get(local);
     if (!channel)
         return;
 
@@ -97,11 +98,8 @@ void MessagePortChannelRegistry::didDisentangleMessagePort(const MessagePortIden
     ASSERT(isMainThread());
 
     // The channel might be gone if the remote side was closed.
-    auto* channel = m_openChannels.get(port);
-    if (!channel)
-        return;
-
-    channel->disentanglePort(port);
+    if (RefPtr channel = m_openChannels.get(port))
+        channel->disentanglePort(port);
 }
 
 void MessagePortChannelRegistry::didCloseMessagePort(const MessagePortIdentifier& port)
@@ -110,7 +108,7 @@ void MessagePortChannelRegistry::didCloseMessagePort(const MessagePortIdentifier
 
     LOG(MessagePorts, "Registry: MessagePort %s closed in registry", port.logString().utf8().data());
 
-    auto* channel = m_openChannels.get(port);
+    RefPtr channel = m_openChannels.get(port);
     if (!channel)
         return;
 
@@ -132,43 +130,29 @@ bool MessagePortChannelRegistry::didPostMessageToRemote(MessageWithMessagePorts&
     LOG(MessagePorts, "Registry: Posting message to MessagePort %s in registry", remoteTarget.logString().utf8().data());
 
     // The channel might be gone if the remote side was closed.
-    auto* channel = m_openChannels.get(remoteTarget);
+    RefPtr channel = m_openChannels.get(remoteTarget);
     if (!channel) {
         LOG(MessagePorts, "Registry: Could not find MessagePortChannel for port %s; It was probably closed. Message will be dropped.", remoteTarget.logString().utf8().data());
         return false;
     }
 
-    return channel->postMessageToRemote(WTFMove(message), remoteTarget);
+    return channel->postMessageToRemote(WTF::move(message), remoteTarget);
 }
 
-void MessagePortChannelRegistry::takeAllMessagesForPort(const MessagePortIdentifier& port, CompletionHandler<void(Vector<MessageWithMessagePorts>&&, Function<void()>&&)>&& callback)
+void MessagePortChannelRegistry::takeAllMessagesForPort(const MessagePortIdentifier& port, CompletionHandler<void(Vector<MessageWithMessagePorts>&&, CompletionHandler<void()>&&)>&& callback)
 {
     ASSERT(isMainThread());
 
     LOG(MessagePorts, "Registry: Taking all messages for MessagePort %s", port.logString().utf8().data());
 
     // The channel might be gone if the remote side was closed.
-    auto* channel = m_openChannels.get(port);
+    RefPtr channel = m_openChannels.get(port);
     if (!channel) {
         callback({ }, [] { });
         return;
     }
 
-    channel->takeAllMessagesForPort(port, WTFMove(callback));
-}
-
-void MessagePortChannelRegistry::checkRemotePortForActivity(const MessagePortIdentifier& remoteTarget, CompletionHandler<void(MessagePortChannelProvider::HasActivity)>&& callback)
-{
-    ASSERT(isMainThread());
-
-    // The channel might be gone if the remote side was closed.
-    auto* channel = m_openChannels.get(remoteTarget);
-    if (!channel) {
-        callback(MessagePortChannelProvider::HasActivity::No);
-        return;
-    }
-
-    channel->checkRemotePortForActivity(remoteTarget, WTFMove(callback));
+    channel->takeAllMessagesForPort(port, WTF::move(callback));
 }
 
 MessagePortChannel* MessagePortChannelRegistry::existingChannelContainingPort(const MessagePortIdentifier& port)
@@ -178,9 +162,36 @@ MessagePortChannel* MessagePortChannelRegistry::existingChannelContainingPort(co
     return m_openChannels.get(port);
 }
 
-void MessagePortChannelRegistry::checkProcessLocalPortForActivity(const MessagePortIdentifier& messagePortIdentifier, ProcessIdentifier processIdentifier, CompletionHandler<void(MessagePortChannelProvider::HasActivity)>&& callback)
+void MessagePortChannelRegistry::recordPendingTransferOrigin(const MessagePortIdentifier& port, ProcessIdentifier origin)
 {
-    m_checkProcessLocalPortForActivityCallback(messagePortIdentifier, processIdentifier, WTFMove(callback));
+    ASSERT(isMainThread());
+    m_pendingTransferOrigins.set(port, origin);
+}
+
+bool MessagePortChannelRegistry::claimPendingTransferOrigin(const MessagePortIdentifier& port, ProcessIdentifier expected)
+{
+    ASSERT(isMainThread());
+    auto it = m_pendingTransferOrigins.find(port);
+    if (it == m_pendingTransferOrigins.end() || it->value != expected)
+        return false;
+    m_pendingTransferOrigins.remove(it);
+    return true;
+}
+
+void MessagePortChannelRegistry::recordPendingTransferDestination(const MessagePortIdentifier& port, ProcessIdentifier destination)
+{
+    ASSERT(isMainThread());
+    m_pendingTransferDestinations.set(port, destination);
+}
+
+bool MessagePortChannelRegistry::claimPendingTransferDestination(const MessagePortIdentifier& port, ProcessIdentifier expected)
+{
+    ASSERT(isMainThread());
+    auto it = m_pendingTransferDestinations.find(port);
+    if (it == m_pendingTransferDestinations.end() || it->value != expected)
+        return false;
+    m_pendingTransferDestinations.remove(it);
+    return true;
 }
 
 } // namespace WebCore

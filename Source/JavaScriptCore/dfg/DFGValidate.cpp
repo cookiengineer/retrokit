@@ -29,6 +29,7 @@
 #if ENABLE(DFG_JIT)
 
 #include "ButterflyInlines.h"
+#include "CacheableIdentifierInlines.h"
 #include "DFGClobberize.h"
 #include "DFGClobbersExitState.h"
 #include "DFGDominators.h"
@@ -46,6 +47,7 @@ public:
         : m_graph(graph)
         , m_graphDumpMode(graphDumpMode)
         , m_graphDumpBeforePhase(graphDumpBeforePhase)
+        , m_myTupleRefCounts(FillWith { }, m_graph.m_tupleData.size(), 0)
     {
     }
     
@@ -137,8 +139,16 @@ public:
                     
                     m_myRefCounts.find(edge.node())->value++;
 
+                    if (node->op() == ExtractFromTuple) {
+                        VALIDATE((node, edge), edge->isTuple());
+                        VALIDATE((node, edge), node->child1() == edge);
+                        m_myTupleRefCounts.at(node->tupleIndex())++;
+                        // Tuples edges don't obey the normal hasResult() rules for nodes so skip that logic below.
+                        continue;
+                    }
+
                     validateEdgeWithDoubleResultIfNecessary(node, edge);
-                    VALIDATE((node, edge), edge->hasInt52Result() == (edge.useKind() == Int52RepUse));
+                    validateEdgeWithInt52ResultIfNecessary(node, edge);
                     
                     if (m_graph.m_form == SSA) {
                         // In SSA, all edges must hasResult().
@@ -178,8 +188,13 @@ public:
                 continue;
             for (size_t i = 0; i < block->numNodes(); ++i) {
                 Node* node = block->node(i);
-                if (m_graph.m_refCountState == ExactRefCount)
+                if (m_graph.m_refCountState == ExactRefCount) {
                     V_EQUAL((node), m_myRefCounts.get(node), node->adjustedRefCount());
+                    if (node->isTuple()) {
+                        for (unsigned j = 0; j < node->tupleSize(); ++j)
+                            V_EQUAL((node), m_myTupleRefCounts.at(node->tupleOffset() + j), m_graph.m_tupleData.at(node->tupleOffset() + j).refCount);
+                    }
+                }
             }
             
             bool foundTerminal = false;
@@ -234,6 +249,11 @@ public:
                     if (!node->child1())
                         VALIDATE((node), !node->child2());
                 }
+
+                if (node->hasCacheableIdentifier()) {
+                    auto* uid = node->cacheableIdentifier().uid();
+                    VALIDATE((node), uid->isSymbol() || !parseIndex(*uid));
+                }
                  
                 switch (node->op()) {
                 case Identity:
@@ -254,6 +274,7 @@ public:
                     case DoubleRepUse:
                     case BooleanUse:
                     case KnownBooleanUse:
+                    case KnownStorageUse:
                         break;
                     default:
                         VALIDATE((node), !"Bad use kind");
@@ -261,6 +282,7 @@ public:
                     }
                     break;
                 case MakeRope:
+                case MakeAtomString:
                 case ValueAdd:
                 case ValueSub:
                 case ValueMul:
@@ -273,8 +295,6 @@ public:
                 case ArithIMul:
                 case ArithDiv:
                 case ArithMod:
-                case ArithMin:
-                case ArithMax:
                 case ArithPow:
                 case CompareLess:
                 case CompareLessEq:
@@ -286,8 +306,16 @@ public:
                 case CompareStrictEq:
                 case SameValue:
                 case StrCat:
-                    VALIDATE((node), !!node->child1());
-                    VALIDATE((node), !!node->child2());
+                    m_graph.doToChildren(node, [&](Edge& edge) {
+                        VALIDATE((node), !!edge);
+                    });
+                    break;
+                case ArithMin:
+                case ArithMax:
+                    m_graph.doToChildren(node, [&](Edge& edge) {
+                        VALIDATE((node), !!edge);
+                    });
+                    VALIDATE((node), node->numChildren());
                     break;
                 case CompareEqPtr:
                     VALIDATE((node), !!node->child1());
@@ -305,23 +333,24 @@ public:
                     break;
                 case CheckStructure:
                 case StringFromCharCode:
+                case StringFromCodePoint:
                     VALIDATE((node), !!node->child1());
                     break;
                 case PutStructure:
-                    VALIDATE((node), !node->transition()->previous->dfgShouldWatch());
+                    VALIDATE((node), !node->transition()->previous->dfgMayWatch());
                     break;
                 case MultiPutByOffset:
                     for (unsigned i = node->multiPutByOffsetData().variants.size(); i--;) {
                         const PutByVariant& variant = node->multiPutByOffsetData().variants[i];
                         if (variant.kind() != PutByVariant::Transition)
                             continue;
-                        VALIDATE((node), !variant.oldStructureForTransition()->dfgShouldWatch());
+                        VALIDATE((node), !variant.oldStructureForTransition()->dfgMayWatch());
                     }
                     break;
                 case MultiDeleteByOffset:
                     for (unsigned i = node->multiDeleteByOffsetData().variants.size(); i--;) {
                         const DeleteByVariant& variant = node->multiDeleteByOffsetData().variants[i];
-                        VALIDATE((node), !variant.newStructure() || !variant.oldStructure()->dfgShouldWatch());
+                        VALIDATE((node), !variant.newStructure() || !variant.oldStructure()->dfgMayWatch());
                     }
                     break;
                 case MaterializeNewObject:
@@ -329,13 +358,24 @@ public:
                         // This only supports structures that are JSFinalObject or JSArray.
                         VALIDATE(
                             (node),
-                            structure->classInfo() == JSFinalObject::info()
-                            || structure->classInfo() == JSArray::info());
+                            structure->classInfoForCells() == JSFinalObject::info()
+                            || structure->classInfoForCells() == JSArray::info());
 
                         // We only support certain indexing shapes.
                         VALIDATE((node), !hasAnyArrayStorage(structure->indexingType()));
                     }
                     break;
+                case NewArrayWithButterfly:
+                case NewButterflyWithSize:
+                case MaterializeNewArrayWithButterfly: {
+                    // These only support constant size butterflies right now.
+                    Edge sizeChild = node->op() == MaterializeNewArrayWithButterfly ? m_graph.varArgChild(node, 0) : node->child1();
+                    VALIDATE((node), sizeChild->isInt32Constant());
+                    VALIDATE((node), !hasAnyArrayStorage(node->indexingType()));
+                    if (node->op() == MaterializeNewArrayWithButterfly)
+                        VALIDATE((node), !hasUndecided(node->indexingType()));
+                    break;
+                }
                 case DoubleConstant:
                 case Int52Constant:
                     VALIDATE((node), node->isNumberConstant());
@@ -376,11 +416,14 @@ public:
                         VALIDATE((node), inlineCallFrame->isVarargs());
                     break;
                 }
+                case GetIndexedPropertyStorage:
+                    VALIDATE((node), node->arrayMode().type() != Array::String);
+                    break;
                 case NewArray:
                     VALIDATE((node), node->vectorLengthHint() >= node->numChildren());
                     break;
                 case NewArrayBuffer:
-                    VALIDATE((node), node->vectorLengthHint() >= node->castOperand<JSImmutableButterfly*>()->length());
+                    VALIDATE((node), node->vectorLengthHint() >= node->castOperand<JSCellButterfly*>()->length());
                     break;
                 case GetByVal:
                     switch (node->arrayMode().type()) {
@@ -395,6 +438,15 @@ public:
                     default:
                         break;
                     }
+                    break;
+                case WeakMapGet:
+                    VALIDATE((node), node->child2().useKind() == CellUse || node->child2().useKind() == ObjectUse || node->child2().useKind() == SymbolUse);
+                    break;
+                case WeakSetAdd:
+                    VALIDATE((node), node->child2().useKind() == CellUse || node->child2().useKind() == ObjectUse);
+                    break;
+                case WeakMapSet:
+                    VALIDATE((node), m_graph.varArgChild(node, 1).useKind() == CellUse || m_graph.varArgChild(node, 1).useKind() == ObjectUse);
                     break;
                 default:
                     break;
@@ -456,7 +508,7 @@ public:
 
         for (BasicBlock* block : m_graph.blocksInNaturalOrder()) {
             // We expect the predecessor list to be de-duplicated.
-            HashSet<BasicBlock*> predecessors;
+            UncheckedKeyHashSet<BasicBlock*> predecessors;
             for (BasicBlock* predecessor : block->predecessors)
                 predecessors.add(predecessor);
             VALIDATE((block), predecessors.size() == block->predecessors.size());
@@ -464,13 +516,6 @@ public:
     }
     
 private:
-    Graph& m_graph;
-    GraphDumpMode m_graphDumpMode;
-    CString m_graphDumpBeforePhase;
-    
-    HashMap<Node*, unsigned> m_myRefCounts;
-    HashSet<Node*> m_acceptableNodes;
-    
     void validateCPS()
     {
         VALIDATE((), !m_graph.m_rootToArguments.isEmpty()); // We should have at least one root.
@@ -483,8 +528,8 @@ private:
             if (!block)
                 continue;
             
-            HashSet<Node*> phisInThisBlock;
-            HashSet<Node*> nodesInThisBlock;
+            UncheckedKeyHashSet<Node*> phisInThisBlock;
+            UncheckedKeyHashSet<Node*> nodesInThisBlock;
             
             for (size_t i = 0; i < block->numNodes(); ++i) {
                 Node* node = block->node(i);
@@ -500,7 +545,7 @@ private:
             }
 
             {
-                HashSet<Node*> seenNodes;
+                UncheckedKeyHashSet<Node*> seenNodes;
                 for (size_t i = 0; i < block->size(); ++i) {
                     Node* node = block->at(i);
                     m_graph.doToChildren(node, [&] (const Edge& edge) {
@@ -640,13 +685,17 @@ private:
                 case Upsilon:
                 case AssertInBounds:
                 case CheckInBounds:
+                case CheckInBoundsInt52:
                 case PhantomNewObject:
+                case PhantomNewArrayWithButterfly:
+                case PhantomNewButterflyWithSize:
                 case PhantomNewFunction:
                 case PhantomNewGeneratorFunction:
                 case PhantomNewAsyncFunction:
                 case PhantomNewAsyncGeneratorFunction:
                 case PhantomCreateActivation:
-                case PhantomNewRegexp:
+                case PhantomNewRegExp:
+                case PhantomNewPromise:
                 case GetMyArgumentByVal:
                 case GetMyArgumentByValOutOfBounds:
                 case PutHint:
@@ -763,7 +812,7 @@ private:
 
         if (m_graph.m_form == ThreadedCPS) {
             Vector<Node*> worklist;
-            HashSet<Node*> seen;
+            UncheckedKeyHashSet<Node*> seen;
             for (BasicBlock* block : m_graph.blocksInNaturalOrder()) {
                 for (Node* node : *block) {
                     if (node->op() == GetLocal || node->op() == PhantomLocal) {
@@ -833,7 +882,7 @@ private:
 
             bool isOSRExited = false;
             
-            HashSet<Node*> nodesInThisBlock;
+            UncheckedKeyHashSet<Node*> nodesInThisBlock;
 
             for (auto* node : *block) {
                 switch (node->op()) {
@@ -861,6 +910,7 @@ private:
                     continue;
                 switch (node->op()) {
                 case PhantomNewObject:
+                case PhantomNewButterflyWithSize:
                 case PhantomNewFunction:
                 case PhantomNewGeneratorFunction:
                 case PhantomNewAsyncFunction:
@@ -869,7 +919,8 @@ private:
                 case PhantomDirectArguments:
                 case PhantomCreateRest:
                 case PhantomClonedArguments:
-                case PhantomNewRegexp:
+                case PhantomNewRegExp:
+                case PhantomNewPromise:
                 case MovHint:
                 case Upsilon:
                 case ForwardVarargs:
@@ -879,6 +930,36 @@ private:
                 case ConstructForwardVarargs:
                 case GetMyArgumentByVal:
                 case GetMyArgumentByValOutOfBounds:
+                    break;
+
+                case PhantomNewArrayWithButterfly:
+                    // Conceptually it is valid to sink/eliminate the Array wrapper around a butterfly.
+                    // The problem is that our GC doesn't scan auxilary buffers it sees on the stack since
+                    // they don't have an indexing header. This means any new objects that are stored into
+                    // the butterfly wouldn't be marked. e.g. something like:
+                    //
+                    // 1: NewButterflyWithSize
+                    // 2: PhantomNewArrayWithButterfly
+                    // 3: NewObject
+                    // -: PutByVal(@2, 1, @3, @1)
+                    // ... GC
+                    // 4: GetByVal(@2, 1, @1)
+                    // -: Use(@4) <-- UAF
+                    //
+                    // It's possible we work around this by one of:
+                    // 1) Allocating a JSCellButterfly but that only saves a few bytes so it probably
+                    //    wouldn't be profitable.
+                    // 2) Conservatively scanning any auxilary found on the stack but not visited by an
+                    //    object.
+                    //
+                    //
+                    // This assertion below is what we'd like to ASSERT but it's possible
+                    // (although inefficient) for ObjectAllocationSinking to sink an Array
+                    // but not the Butterfly then never store into said Butterfly.
+                    //
+                    // VALIDATE((node), node->child2()->op() == PhantomNewButterflyWithSize);
+                    //
+                    // Instead we rely on every store node validating that no child is a Phantom.
                     break;
 
                 case Check:
@@ -912,7 +993,7 @@ private:
 
                 case PhantomNewArrayBuffer:
                     VALIDATE((node), m_graph.m_form == SSA);
-                    VALIDATE((node), node->vectorLengthHint() >= node->castOperand<JSImmutableButterfly*>()->length());
+                    VALIDATE((node), node->vectorLengthHint() >= node->castOperand<JSCellButterfly*>()->length());
                     break;
 
                 case NewArrayWithSpread: {
@@ -970,6 +1051,14 @@ private:
         VALIDATE((node, edge), edge.useKind() == DoubleRepUse || edge.useKind() == DoubleRepRealUse || edge.useKind() == DoubleRepAnyIntUse);
     }
 
+    void validateEdgeWithInt52ResultIfNecessary(Node* node, Edge edge)
+    {
+        if (m_graph.m_planStage < PlanStage::AfterFixup)
+            return;
+
+        VALIDATE((node, edge), edge->hasInt52Result() == (edge.useKind() == Int52RepUse));
+    }
+
     void checkOperand(
         BasicBlock* block, Operands<size_t>& getLocalPositions,
         Operands<size_t>& setLocalPositions, Operand operand)
@@ -986,7 +1075,7 @@ private:
             getLocalPositions.operand(operand) < setLocalPositions.operand(operand));
     }
     
-    void reportValidationContext() { }
+    void NODELETE reportValidationContext() { }
 
     void reportValidationContext(Node* node)
     {
@@ -1045,14 +1134,24 @@ private:
     {
         if (m_graphDumpMode == DontDumpGraph)
             return;
-        dataLog("\n");
-        if (!m_graphDumpBeforePhase.isNull()) {
-            dataLog("Before phase:\n");
-            dataLog(m_graphDumpBeforePhase);
-        }
-        dataLog("At time of failure:\n");
-        m_graph.dump();
+        WTF::dataFile().atomically([&](auto&) {
+            dataLog("\n");
+            if (!m_graphDumpBeforePhase.isNull()) {
+                dataLog("Before phase:\n");
+                dataLog(m_graphDumpBeforePhase);
+            }
+            dataLog("At time of failure:\n");
+            dataLog(m_graph);
+        });
     }
+
+    Graph& m_graph;
+    GraphDumpMode m_graphDumpMode;
+    CString m_graphDumpBeforePhase;
+
+    UncheckedKeyHashMap<Node*, unsigned> m_myRefCounts;
+    Vector<uint32_t> m_myTupleRefCounts;
+    UncheckedKeyHashSet<Node*> m_acceptableNodes;
 };
 
 } // End anonymous namespace.

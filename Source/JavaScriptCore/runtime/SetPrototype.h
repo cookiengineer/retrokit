@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,27 +34,24 @@ public:
     using Base = JSNonFinalObject;
 
     template<typename CellType, SubspaceAccess>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(SetPrototype, Base);
-        return &vm.plainObjectSpace;
+        return &vm.plainObjectSpace();
     }
 
-    static constexpr unsigned StructureFlags = Base::StructureFlags | HasStaticPropertyTable;
+    static constexpr unsigned StructureFlags = Base::StructureFlags;
 
     static SetPrototype* create(VM& vm, JSGlobalObject* globalObject, Structure* structure)
     {
-        SetPrototype* prototype = new (NotNull, allocateCell<SetPrototype>(vm.heap)) SetPrototype(vm, structure);
+        SetPrototype* prototype = new (NotNull, allocateCell<SetPrototype>(vm)) SetPrototype(vm, structure);
         prototype->finishCreation(vm, globalObject);
         return prototype;
     }
 
     DECLARE_INFO;
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(ObjectType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
 private:
     SetPrototype(VM& vm, Structure* structure)
@@ -63,5 +60,7 @@ private:
     }
     void finishCreation(VM&, JSGlobalObject*);
 };
+
+JSC_DECLARE_HOST_FUNCTION(setProtoFuncValues);
 
 } // namespace JSC

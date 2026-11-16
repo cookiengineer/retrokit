@@ -24,20 +24,24 @@
  */
 
 #include "config.h"
+
 #include "JSAudioBuffer.h"
 
 #if ENABLE(WEB_AUDIO)
+
+#include <JavaScriptCore/GenericTypedArrayViewInlines.h>
+#include <JavaScriptCore/TypedArrayAdaptors.h>
 
 namespace WebCore {
 using namespace JSC;
 
 template<typename Visitor>
-void JSAudioBuffer::visitAdditionalChildren(Visitor& visitor)
+void JSAudioBuffer::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    wrapped().visitChannelWrappers(visitor);
+    wrapped().visitChannelWrappersInGCThread(visitor);
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSAudioBuffer);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSAudioBuffer);
 
 } // namespace WebCore
 

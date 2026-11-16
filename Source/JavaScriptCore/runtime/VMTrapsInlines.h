@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,29 +25,77 @@
 
 #pragma once
 
-#include "VM.h"
+#include <JavaScriptCore/VM.h>
 
 namespace JSC {
 
 ALWAYS_INLINE VM& VMTraps::vm() const
 {
-    return *bitwise_cast<VM*>(bitwise_cast<uintptr_t>(this) - OBJECT_OFFSETOF(VM, m_traps));
+    return *std::bit_cast<VM*>(std::bit_cast<uintptr_t>(this) - VM::offsetOfTraps());
 }
 
 inline void VMTraps::deferTermination(DeferAction deferAction)
 {
     auto originalCount = m_deferTerminationCount++;
     ASSERT(m_deferTerminationCount < UINT_MAX);
-    if (UNLIKELY(originalCount == 0 && vm().exception()))
+    // Strictly speaking, we're only interested in vm.hasPendingTerminationException() here.
+    // However, vm.exception() is a necessary condition for vm.hasPendingTerminationException().
+    // Since this checks is intended to be cheap, we'll just do the cheaper check of vm.exception()
+    // which itself rarely returns true. We'll let the slow path do the full
+    // vm.hasPendingTerminationException() check instead.
+    if (!originalCount && vm().exception()) [[unlikely]]
         deferTerminationSlow(deferAction);
 }
 
 inline void VMTraps::undoDeferTermination(DeferAction deferAction)
 {
     ASSERT(m_deferTerminationCount > 0);
-    ASSERT(!m_suspendedTerminationException || vm().terminationInProgress());
-    if (UNLIKELY(--m_deferTerminationCount == 0 && vm().terminationInProgress()))
+    ASSERT(!m_suspendedTerminationException || vm().hasTerminationRequest());
+    if (!--m_deferTerminationCount && vm().hasTerminationRequest()) [[unlikely]]
         undoDeferTerminationSlow(deferAction);
+}
+
+ALWAYS_INLINE DeferTraps::DeferTraps(VM& vm)
+    : m_traps(vm.traps())
+    , m_previousTrapsDeferred(m_traps.m_trapsDeferred)
+{
+    m_traps.m_trapsDeferred = true;
+}
+
+ALWAYS_INLINE DeferTraps::~DeferTraps()
+{
+    m_traps.m_trapsDeferred = m_previousTrapsDeferred;
+}
+
+inline void VMTraps::notifyGrabAllLocks()
+{
+    if (needHandling(AsyncEvents))
+        invalidateCodeBlocksOnStack();
+}
+
+inline void VMTraps::setStackSoftLimit(void* newLimit)
+{
+    m_stack.setStackSoftLimit(newLimit);
+}
+
+inline void VMTraps::registerMirror(Mirror& mirror)
+{
+    m_stack.registerMirror(mirror);
+}
+
+inline void VMTraps::unregisterMirror(Mirror& mirror)
+{
+    m_stack.unregisterMirror(mirror);
+}
+
+inline void VMTraps::requestStop()
+{
+    m_stack.requestStop();
+}
+
+inline void VMTraps::cancelStop()
+{
+    m_stack.cancelStop();
 }
 
 } // namespace JSC

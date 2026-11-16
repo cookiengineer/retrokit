@@ -36,23 +36,23 @@
 #include "WebXRFrame.h"
 #include "WebXRSession.h"
 #include "XRInputSourceEvent.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(WebXRInputSource);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebXRInputSource);
 
-Ref<WebXRInputSource> WebXRInputSource::create(Document& document, WebXRSession& session, double timestamp, const PlatformXR::Device::FrameData::InputSource& source)
+Ref<WebXRInputSource> WebXRInputSource::create(Document& document, WebXRSession& session, double timestamp, const PlatformXR::FrameData::InputSource& source)
 {
     return adoptRef(*new WebXRInputSource(document, session, timestamp, source));
 }
 
-WebXRInputSource::WebXRInputSource(Document& document, WebXRSession& session, double timestamp, const PlatformXR::Device::FrameData::InputSource& source)
-    : m_session(makeWeakPtr(session))
-    , m_targetRaySpace(WebXRInputSpace::create(document, session, source.pointerOrigin))
+WebXRInputSource::WebXRInputSource(Document& document, WebXRSession& session, double timestamp, const PlatformXR::FrameData::InputSource& source)
+    : m_session(session)
+    , m_targetRaySpace(WebXRInputSpace::create(document, session, source.pointerOrigin, source.handle))
     , m_connectTime(timestamp)
 #if ENABLE(GAMEPAD)
-    , m_gamepad(Gamepad::create(WebXRGamepad(timestamp, timestamp, source)))
+    , m_gamepad(Gamepad::create(&document, makeUniqueRef<WebXRGamepad>(timestamp, timestamp, source)))
 #endif
 {
     update(timestamp, source);
@@ -65,9 +65,9 @@ WebXRSession* WebXRInputSource::session()
     return m_session.get();
 }
 
-void WebXRInputSource::update(double timestamp, const PlatformXR::Device::FrameData::InputSource& source)
+void WebXRInputSource::update(double timestamp, const PlatformXR::FrameData::InputSource& source)
 {
-    auto session = makeRefPtr(m_session.get());
+    RefPtr session { m_session };
     if (!session)
         return;
 
@@ -79,18 +79,37 @@ void WebXRInputSource::update(double timestamp, const PlatformXR::Device::FrameD
     if (auto gripOrigin = source.gripOrigin) {
         if (m_gripSpace)
             m_gripSpace->setPose(*gripOrigin);
-        else if (auto* document = downcast<Document>(session->scriptExecutionContext()))
-            m_gripSpace = WebXRInputSpace::create(*document, *session, *gripOrigin);
+        else if (RefPtr document = downcast<Document>(session->scriptExecutionContext())) {
+            m_gripSpace = WebXRInputSpace::create(*document, *session, *gripOrigin, handle());
+#if ENABLE(WEBXR_HIT_TEST)
+            m_gripSpace->setType(PlatformXR::InputSourceSpaceType::Grip);
+#endif
+        }
     } else
         m_gripSpace = nullptr;
 #if ENABLE(GAMEPAD)
-    m_gamepad->updateFromPlatformGamepad(WebXRGamepad(timestamp, m_connectTime, source));
+    m_gamepad->updateFromPlatformGamepad(makeUniqueRef<WebXRGamepad>(timestamp, m_connectTime, source));
+#endif
+
+#if ENABLE(WEBXR_HANDS)
+    if (source.handJoints) {
+        // https://www.w3.org/TR/webxr-hand-input-1/#xrinputsource-interface
+        // If the XRInputSource belongs to an XRSession that has not been requested
+        // with the "hand-tracking" feature descriptor, hand MUST be null.
+        if (!m_hand && session->isHandTrackingEnabled())
+            m_hand = WebXRHand::create(*this);
+
+        if (m_hand)
+            m_hand->updateFromInputSource(source);
+
+        return;
+    }
 #endif
 }
 
 bool WebXRInputSource::requiresInputSourceChange(const InputSource& source)
 {
-    return m_source.handeness != source.handeness
+    return m_source.handedness != source.handedness
         || m_source.targetRayMode != source.targetRayMode
         || m_source.profiles != source.profiles
         || static_cast<bool>(m_gripSpace) != source.gripOrigin.has_value();
@@ -106,23 +125,27 @@ void WebXRInputSource::disconnect()
 
 void WebXRInputSource::pollEvents(Vector<Ref<XRInputSourceEvent>>& events)
 {
-    auto session = makeRefPtr(m_session.get());
+    RefPtr session { m_session };
     if (!session)
         return;
 
     auto createEvent = [this, session](const AtomString& name) -> Ref<XRInputSourceEvent> {
-        XRInputSourceEvent::Init init;
-        init.frame = WebXRFrame::create(*session, WebXRFrame::IsAnimationFrame::No);
-        init.inputSource = makeRefPtr(*this);
-
-        return XRInputSourceEvent::create(name, init);
+        auto init = XRInputSourceEvent::Init {
+            { false, false, false },
+            WebXRFrame::create(*session, WebXRFrame::IsAnimationFrame::No),
+            protect(*this)
+        };
+        return XRInputSourceEvent::create(name, WTF::move(init));
     };
 
     if (!m_connected) {
         // A user agent MUST dispatch a selectend event on an XRSession when one of its XRInputSources ends 
         // when an XRInputSource that has begun a primary select action is disconnected.
-        if (m_selectStarted)
+        if (m_selectStarted) {
+            if (targetRayMode() == PlatformXR::XRTargetRayMode::TransientPointer)
+                events.append(createEvent(eventNames().selectEvent));
             events.append(createEvent(eventNames().selectendEvent));
+        }
 
         // A user agent MUST dispatch a squeezeend event on an XRSession when one of its XRInputSources ends 
         // when an XRInputSource that has begun a primary squeeze action is disconnected.

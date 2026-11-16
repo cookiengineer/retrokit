@@ -14,7 +14,7 @@
 namespace angle
 {
 
-class WebGLFramebufferTest : public ANGLETest
+class WebGLFramebufferTest : public ANGLETest<>
 {
   protected:
     WebGLFramebufferTest()
@@ -229,7 +229,7 @@ void WebGLFramebufferTest::testDepthStencilDepthStencil(GLint width, GLint heigh
     }
 
     ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), essl1_shaders::fs::UniformColor());
-    GLint uniformLoc = glGetUniformLocation(program.get(), essl1_shaders::ColorUniform());
+    GLint uniformLoc = glGetUniformLocation(program, essl1_shaders::ColorUniform());
     ASSERT_NE(-1, uniformLoc);
 
     struct TestInfo
@@ -266,16 +266,16 @@ void WebGLFramebufferTest::testDepthStencilDepthStencil(GLint width, GLint heigh
             glRenderbufferStorage(GL_RENDERBUFFER, test.firstFormat, width, height);
             glFramebufferRenderbuffer(GL_FRAMEBUFFER, test.firstAttach, GL_RENDERBUFFER, firstRb);
 
-            EXPECT_GLENUM_EQ(GL_FRAMEBUFFER_COMPLETE, glCheckFramebufferStatus(GL_FRAMEBUFFER));
+            EXPECT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
 
             // TODO(jmadill): Remove clear - this should be implicit in WebGL_
             glClear(GL_DEPTH_BUFFER_BIT);
 
             glEnable(GL_DEPTH_TEST);
             // Test it works
-            drawUByteColorQuad(program.get(), uniformLoc, GLColor::green);
+            drawUByteColorQuad(program, uniformLoc, GLColor::green);
             // should not draw since DEPTH_FUNC == LESS
-            drawUByteColorQuad(program.get(), uniformLoc, GLColor::red);
+            drawUByteColorQuad(program, uniformLoc, GLColor::red);
             // should be green
             EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
 
@@ -300,14 +300,14 @@ void WebGLFramebufferTest::testDepthStencilDepthStencil(GLint width, GLint heigh
             }
 
             // If the first attachment is not restored this may fail
-            EXPECT_GLENUM_EQ(GL_FRAMEBUFFER_COMPLETE, glCheckFramebufferStatus(GL_FRAMEBUFFER));
+            EXPECT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
             EXPECT_GL_NO_ERROR();
 
             // If the first attachment is not restored this may fail.
             glClear(GL_DEPTH_BUFFER_BIT);
-            drawUByteColorQuad(program.get(), uniformLoc, GLColor::green);
+            drawUByteColorQuad(program, uniformLoc, GLColor::green);
             // should not draw since DEPTH_FUNC == LESS
-            drawUByteColorQuad(program.get(), uniformLoc, GLColor::red);
+            drawUByteColorQuad(program, uniformLoc, GLColor::red);
             // should be green
             EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
             glDisable(GL_DEPTH_TEST);
@@ -470,12 +470,7 @@ TEST_P(WebGLFramebufferTest, TestAttachments)
             testColorRenderbuffer(width, height, GL_RGBA4, allowedStatusForGoodCase);
 
             // Attach color renderbuffer with internalformat == RGB5_A1.
-            // This particular format seems to be bugged on NVIDIA Retina. http://crbug.com/635081
-            // TODO(jmadill): Figure out if we can add a format workaround.
-            if (!(IsNVIDIA() && IsOSX() && IsOpenGL()))
-            {
-                testColorRenderbuffer(width, height, GL_RGB5_A1, allowedStatusForGoodCase);
-            }
+            testColorRenderbuffer(width, height, GL_RGB5_A1, allowedStatusForGoodCase);
 
             // Attach color renderbuffer with internalformat == RGB565.
             testColorRenderbuffer(width, height, GL_RGB565, allowedStatusForGoodCase);
@@ -591,7 +586,7 @@ void WebGLFramebufferTest::testUsingIncompleteFramebuffer(GLenum depthFormat,
 
     // Drawing or reading from an incomplete framebuffer should generate
     // INVALID_FRAMEBUFFER_OPERATION.
-    testRenderingAndReading(program.get());
+    testRenderingAndReading(program);
 
     GLFramebuffer fbo2;
     glBindFramebuffer(GL_FRAMEBUFFER, fbo2);
@@ -599,7 +594,7 @@ void WebGLFramebufferTest::testUsingIncompleteFramebuffer(GLenum depthFormat,
 
     // Drawing or reading from an incomplete framebuffer should generate
     // INVALID_FRAMEBUFFER_OPERATION.
-    testRenderingAndReading(program.get());
+    testRenderingAndReading(program);
 
     GLRenderbuffer colorBuffer2;
     glBindRenderbuffer(GL_RENDERBUFFER, colorBuffer2);
@@ -608,7 +603,7 @@ void WebGLFramebufferTest::testUsingIncompleteFramebuffer(GLenum depthFormat,
 
     // Drawing or reading from an incomplete framebuffer should generate
     // INVALID_FRAMEBUFFER_OPERATION.
-    testRenderingAndReading(program.get());
+    testRenderingAndReading(program);
 }
 
 void testFramebufferIncompleteAttachment(GLenum depthFormat)
@@ -791,12 +786,6 @@ void WebGLFramebufferTest::testDrawingMissingAttachment()
 // Determine if we can attach both color and depth or color and depth_stencil
 TEST_P(WebGLFramebufferTest, CheckValidColorDepthCombination)
 {
-    // In FL9_3, we don't have a good way to handle non-color framebuffer rendering.
-    if (IsD3D11_FL93())
-    {
-        ignoreD3D11SDKLayersWarnings();
-    }
-
     GLenum depthFormat     = GL_NONE;
     GLenum depthAttachment = GL_NONE;
 
@@ -828,14 +817,13 @@ TEST_P(WebGLFramebufferTest, TextureAttachmentCommitBug)
     ANGLE_SKIP_TEST_IF(!EnsureGLExtensionEnabled("GL_ANGLE_depth_texture"));
 
     GLTexture depthTexture;
-    glBindTexture(GL_TEXTURE_2D, depthTexture.get());
+    glBindTexture(GL_TEXTURE_2D, depthTexture);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, 1, 1, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT,
                  nullptr);
 
     GLFramebuffer framebuffer;
     glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthTexture.get(),
-                           0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthTexture, 0);
 
     glCheckFramebufferStatus(GL_FRAMEBUFFER);
 
@@ -896,7 +884,7 @@ TEST_P(WebGLFramebufferTest, DepthStencilAttachmentOrdering)
 
         // Framebuffer should be complete now with a depth-stencil format
         EXPECT_GL_NO_ERROR();
-        EXPECT_GLENUM_EQ(glCheckFramebufferStatus(GL_FRAMEBUFFER), GL_FRAMEBUFFER_COMPLETE);
+        EXPECT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
     }
 }
 

@@ -26,128 +26,84 @@
 #include "config.h"
 #include "AccessibilitySpinButton.h"
 
+#include "AXLoggerBase.h"
 #include "AXObjectCache.h"
+#include "AXUtilities.h"
+#include "AccessibilityObjectInlines.h"
+#include "ContainerNodeInlines.h"
 #include "RenderElement.h"
 
 namespace WebCore {
 
-Ref<AccessibilitySpinButton> AccessibilitySpinButton::create()
+AccessibilitySpinButton::AccessibilitySpinButton(AXID axID, SpinButtonElement& spinButtonElement, AXObjectCache& cache)
+    : AccessibilityMockObject(axID, cache)
+    , m_spinButtonElement(spinButtonElement)
 {
-    return adoptRef(*new AccessibilitySpinButton);
+    // Eagerly initialize our role because it influences the result of the is-ignored
+    // computation for us and our child spin-button-parts, which are also created as
+    // part of this constructor (thus not allowing us to wait for the normal AccessibilityObject::init()).
+    m_role = determineAccessibilityRole();
+
+    lazyInitialize(m_incrementor, Ref { downcast<AccessibilitySpinButtonPart>(*cache.create(AccessibilityRole::SpinButtonPart)) });
+    m_incrementor->setIsIncrementor(true);
+    lazyInitialize(m_decrementor, Ref { downcast<AccessibilitySpinButtonPart>(*cache.create(AccessibilityRole::SpinButtonPart)) });
+    m_decrementor->setIsIncrementor(false);
 }
-    
-AccessibilitySpinButton::AccessibilitySpinButton()
-    : m_spinButtonElement(nullptr)
+
+Ref<AccessibilitySpinButton> AccessibilitySpinButton::create(AXID axID, SpinButtonElement& spinButtonElement, AXObjectCache& cache)
 {
+    Ref spinButton = adoptRef(*new AccessibilitySpinButton(axID, spinButtonElement, cache));
+    // We have to do this setup here and not in the constructor to avoid an
+    // adoptionIsRequired ASSERT in RefCounted.h.
+    spinButton->m_incrementor->setParent(spinButton.ptr());
+    spinButton->m_decrementor->setParent(spinButton.ptr());
+    spinButton->addChild(spinButton->m_incrementor.get());
+    spinButton->addChild(spinButton->m_decrementor.get());
+    spinButton->m_childrenInitialized = true;
+
+    return spinButton;
 }
 
 AccessibilitySpinButton::~AccessibilitySpinButton() = default;
-    
-AXCoreObject* AccessibilitySpinButton::incrementButton()
-{
-    if (!m_haveChildren)
-        addChildren();
-    if (!m_haveChildren)
-        return nullptr;
 
-    ASSERT(m_children.size() == 2);
-
-    return m_children[0].get();
-}
-   
-AXCoreObject* AccessibilitySpinButton::decrementButton()
-{
-    if (!m_haveChildren)
-        addChildren();
-    if (!m_haveChildren)
-        return nullptr;
-    
-    ASSERT(m_children.size() == 2);
-    
-    return m_children[1].get();    
-}
-    
 LayoutRect AccessibilitySpinButton::elementRect() const
 {
-    ASSERT(m_spinButtonElement);
-    
-    if (!m_spinButtonElement || !m_spinButtonElement->renderer())
-        return LayoutRect();
-    
-    Vector<FloatQuad> quads;
-    m_spinButtonElement->renderer()->absoluteFocusRingQuads(quads);
+    AX_ASSERT(m_spinButtonElement);
 
-    return boundingBoxForQuads(m_spinButtonElement->renderer(), quads);
+    CheckedPtr renderer = m_spinButtonElement ? m_spinButtonElement->renderer() : nullptr;
+    if (!renderer)
+        return { };
+
+    Vector<FloatQuad> quads;
+    renderer->absoluteFocusRingQuads(quads);
+    return boundingBoxForQuads(renderer.get(), quads);
 }
 
 void AccessibilitySpinButton::addChildren()
 {
-    AXObjectCache* cache = axObjectCache();
-    if (!cache)
-        return;
-    
-    m_haveChildren = true;
-    
-    auto& incrementor = downcast<AccessibilitySpinButtonPart>(*cache->create(AccessibilityRole::SpinButtonPart));
-    incrementor.setIsIncrementor(true);
-    incrementor.setParent(this);
-    m_children.append(&incrementor);
-
-    auto& decrementor = downcast<AccessibilitySpinButtonPart>(*cache->create(AccessibilityRole::SpinButtonPart));
-    decrementor.setIsIncrementor(false);
-    decrementor.setParent(this);
-    m_children.append(&decrementor);
+    // This class sets its children once in the create function, and should never
+    // have dirty or uninitialized children afterwards.
+    AX_ASSERT(m_childrenInitialized);
+    AX_ASSERT(!m_subtreeDirty);
+    AX_ASSERT(!m_childrenDirty);
 }
-    
+
 void AccessibilitySpinButton::step(int amount)
 {
-    ASSERT(m_spinButtonElement);
-    if (!m_spinButtonElement)
-        return;
-    
-    m_spinButtonElement->step(amount);
+    AX_ASSERT(m_spinButtonElement);
+    if (RefPtr element = m_spinButtonElement.get())
+        element->step(amount);
 }
 
-// AccessibilitySpinButtonPart 
-
-AccessibilitySpinButtonPart::AccessibilitySpinButtonPart()
-    : m_isIncrementor(false)
+bool AccessibilitySpinButton::computeIsIgnored() const
 {
-}
-    
-Ref<AccessibilitySpinButtonPart> AccessibilitySpinButtonPart::create()
-{
-    return adoptRef(*new AccessibilitySpinButtonPart);
-}
-
-LayoutRect AccessibilitySpinButtonPart::elementRect() const
-{
-    // FIXME: This logic should exist in the render tree or elsewhere, but there is no
-    // relationship that exists that can be queried.
-    
-    LayoutRect parentRect = parentObject()->elementRect();
-    if (m_isIncrementor)
-        parentRect.setHeight(parentRect.height() / 2);
-    else {
-        parentRect.setY(parentRect.y() + parentRect.height() / 2);        
-        parentRect.setHeight(parentRect.height() / 2);        
-    }
-        
-    return parentRect;
-}
-
-bool AccessibilitySpinButtonPart::press()
-{
-    if (!is<AccessibilitySpinButton>(m_parent))
-        return false;
-    
-    auto& spinButton = downcast<AccessibilitySpinButton>(*m_parent);
-    if (m_isIncrementor)
-        spinButton.step(1);
-    else
-        spinButton.step(-1);
-    
-    return true;
+    if (isIgnoredByDefault())
+        return true;
+    // If the spin button element has no renderer, or is render-hidden (e.g.,
+    // inside a collapsed <details> element with content-visibility: hidden),
+    // the spin button is not visible.
+    CheckedPtr renderer = m_spinButtonElement ? m_spinButtonElement->renderer() : nullptr;
+    return !renderer || WebCore::isRenderHidden(&renderer->style());
 }
 
 } // namespace WebCore

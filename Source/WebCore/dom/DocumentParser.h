@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2000 Peter Kelly (pmk@post.com)
- * Copyright (C) 2005, 2006 Apple Inc.
+ * Copyright (C) 2005, 2006 Apple Inc. All rights reserved.
  * Copyright (C) 2007 Samuel Weinig (sam@webkit.org)
  * Copyright (C) 2010 Google, Inc.
  *
@@ -23,22 +23,27 @@
 
 #pragma once
 
-#include "Document.h"
+#include <wtf/CanMakeWeakPtr.h>
+#include <wtf/CheckedPtr.h>
 #include <wtf/Forward.h>
-#include <wtf/RefCounted.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
+class Document;
 class DocumentWriter;
+class HTMLDocumentParser;
 class SegmentedString;
 class ScriptableDocumentParser;
+class WeakPtrImplWithEventTargetData;
 
-class DocumentParser : public RefCounted<DocumentParser> {
+class DocumentParser : public RefCountedAndCanMakeWeakPtr<DocumentParser> {
 public:
     virtual ~DocumentParser();
 
-    virtual ScriptableDocumentParser* asScriptableDocumentParser() { return 0; }
+    virtual ScriptableDocumentParser* asScriptableDocumentParser() { return nullptr; }
+    virtual HTMLDocumentParser* asHTMLDocumentParser() { return nullptr; }
 
     // http://www.whatwg.org/specs/web-apps/current-work/#insertion-point
     virtual bool hasInsertionPoint() { return true; }
@@ -47,13 +52,11 @@ public:
     virtual void insert(SegmentedString&&) = 0;
 
     // appendBytes and flush are used by DocumentWriter (the loader).
-    virtual void appendBytes(DocumentWriter&, const uint8_t* bytes, size_t length) = 0;
+    virtual void appendBytes(DocumentWriter&, std::span<const uint8_t>) = 0;
     virtual void flush(DocumentWriter&) = 0;
 
-    // FIXME: append() should be private, but DocumentWriter::replaceDocument uses it for now.
-    // FIXME: This really should take a std::unique_ptr to signify that it expects to take
-    // ownership of the buffer. The parser expects the RefPtr to hold the only ref of the StringImpl.
     virtual void append(RefPtr<StringImpl>&&) = 0;
+    virtual void appendSynchronously(RefPtr<StringImpl>&& inputSource) { append(WTF::move(inputSource)); }
 
     virtual void finish() = 0;
 
@@ -71,7 +74,7 @@ public:
     bool isDetached() const { return m_state == ParserState::Detached; }
 
     // FIXME: Is this necessary? Does XMLDocumentParserLibxml2 really need to set this?
-    virtual void startParsing();
+    virtual void NODELETE startParsing();
 
     // prepareToStop() is used when the EOF token is encountered and parsing is to be
     // stopped normally.
@@ -114,8 +117,8 @@ private:
     bool m_documentWasLoadedAsPartOfNavigation;
 
     // Every DocumentParser needs a pointer back to the document.
-    // m_document will be 0 after the parser is stopped.
-    WeakPtr<Document> m_document;
+    // m_document will be nullptr after the parser is stopped.
+    WeakPtr<Document, WeakPtrImplWithEventTargetData> m_document;
 };
 
 } // namespace WebCore

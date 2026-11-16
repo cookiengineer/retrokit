@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2011 Google Inc. All rights reserved.
+ * Copyright (C) 2013-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -34,97 +35,76 @@
 
 #include "Document.h"
 #include "LinkIconType.h"
-#include "RuntimeEnabledFeatures.h"
 #include "Settings.h"
+#include <wtf/SortedArrayMap.h>
 #include <wtf/text/StringView.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
-LinkRelAttribute::LinkRelAttribute()
-    : iconType()
-    , isStyleSheet(false)
-    , isAlternate(false)
-    , isDNSPrefetch(false)
-    , isLinkPreload(false)
-    , isLinkPreconnect(false)
-    , isLinkPrefetch(false)
-#if ENABLE(APPLICATION_MANIFEST)
-    , isApplicationManifest(false)
-#endif
-{
-}
+// https://html.spec.whatwg.org/#linkTypes
 
-// Keep LinkRelAttribute::isSupported() in sync when updating this constructor.
-LinkRelAttribute::LinkRelAttribute(Document& document, const String& rel)
-    : LinkRelAttribute()
+struct LinkTypeDetails {
+    bool (*isEnabled)(const Document&);
+    void (*updateRel)(LinkRelAttribute&);
+};
+
+static constexpr SortedArrayMap linkTypes { WTF::toArray<std::pair<ComparableLettersLiteral, LinkTypeDetails>>({
+    { "alternate"_s, { [](auto) { return true; }, [](auto relAttribute) { relAttribute.isAlternate = true; } } },
+    { "apple-touch-icon"_s, { [](auto) { return true; }, [](auto relAttribute) { relAttribute.iconType = LinkIconType::TouchIcon; } } },
+    { "apple-touch-icon-precomposed"_s, { [](auto) { return true; }, [](auto relAttribute) { relAttribute.iconType = LinkIconType::TouchPrecomposedIcon; } } },
+    { "dns-prefetch"_s, { [](auto) { return true; }, [](auto relAttribute) { relAttribute.isDNSPrefetch = true; } } },
+    { "expect"_s, { [](auto) { return true; }, [](auto relAttribute) { relAttribute.isInternalResourceLink = true; } } },
+    { "icon"_s, { [](auto) { return true; }, [](auto relAttribute) { relAttribute.iconType = LinkIconType::Favicon; } } },
+#if ENABLE(APPLICATION_MANIFEST)
+    { "manifest"_s, { [](auto) { return true; }, [](auto relAttribute) { relAttribute.isApplicationManifest = true; } } },
+#else
+    { "manifest"_s, { [](auto) { return false; }, [](auto) { } } },
+#endif
+    { "modulepreload"_s, { [](auto) { return true; }, [](auto relAttribute) { relAttribute.isLinkModulePreload = true; } } },
+    { "preconnect"_s, { [](auto document) { return document.settings().linkPreconnectEnabled(); }, [](auto relAttribute) { relAttribute.isLinkPreconnect = true; } } },
+    { "prefetch"_s, { [](auto document) { return document.settings().linkPrefetchEnabled(); }, [](auto relAttribute) { relAttribute.isLinkPrefetch = true; } } },
+    { "preload"_s, { [](auto document) { return document.settings().linkPreloadEnabled(); }, [](auto relAttribute) { relAttribute.isLinkPreload = true; } } },
+    { "stylesheet"_s, { [](auto) { return true; }, [](auto relAttribute) { relAttribute.isStyleSheet = true; } } },
+}) };
+
+LinkRelAttribute::LinkRelAttribute(Document& document, StringView rel)
 {
-    if (equalLettersIgnoringASCIICase(rel, "stylesheet"))
-        isStyleSheet = true;
-    else if (equalLettersIgnoringASCIICase(rel, "icon") || equalLettersIgnoringASCIICase(rel, "shortcut icon"))
+    if (auto linkType = linkTypes.tryGet(rel)) {
+        if (linkType->isEnabled(document))
+            linkType->updateRel(*this);
+        return;
+    }
+    if (equalLettersIgnoringASCIICase(rel, "shortcut icon"_s))
         iconType = LinkIconType::Favicon;
-    else if (equalLettersIgnoringASCIICase(rel, "apple-touch-icon"))
-        iconType = LinkIconType::TouchIcon;
-    else if (equalLettersIgnoringASCIICase(rel, "apple-touch-icon-precomposed"))
-        iconType = LinkIconType::TouchPrecomposedIcon;
-    else if (equalLettersIgnoringASCIICase(rel, "dns-prefetch"))
-        isDNSPrefetch = true;
-    else if (document.settings().linkPreconnectEnabled() && equalLettersIgnoringASCIICase(rel, "preconnect"))
-        isLinkPreconnect = true;
-    else if (document.settings().linkPreloadEnabled() && equalLettersIgnoringASCIICase(rel, "preload"))
-        isLinkPreload = true;
-    else if (document.settings().linkPrefetchEnabled() && equalLettersIgnoringASCIICase(rel, "prefetch"))
-        isLinkPrefetch = true;
-    else if (equalLettersIgnoringASCIICase(rel, "alternate stylesheet") || equalLettersIgnoringASCIICase(rel, "stylesheet alternate")) {
+    else if (equalLettersIgnoringASCIICase(rel, "alternate stylesheet"_s) || equalLettersIgnoringASCIICase(rel, "stylesheet alternate"_s)) {
         isStyleSheet = true;
         isAlternate = true;
-#if ENABLE(APPLICATION_MANIFEST)
-    } else if (equalLettersIgnoringASCIICase(rel, "manifest")) {
-        isApplicationManifest = true;
-#endif
     } else {
         // Tokenize the rel attribute and set bits based on specific keywords that we find.
-        String relCopy = rel;
-        relCopy.replace('\n', ' ');
-        for (auto word : StringView(relCopy).split(' ')) {
-            if (equalLettersIgnoringASCIICase(word, "stylesheet"))
-                isStyleSheet = true;
-            else if (equalLettersIgnoringASCIICase(word, "alternate"))
-                isAlternate = true;
-            else if (equalLettersIgnoringASCIICase(word, "icon"))
-                iconType = LinkIconType::Favicon;
-            else if (equalLettersIgnoringASCIICase(word, "apple-touch-icon"))
-                iconType = LinkIconType::TouchIcon;
-            else if (equalLettersIgnoringASCIICase(word, "apple-touch-icon-precomposed"))
-                iconType = LinkIconType::TouchPrecomposedIcon;
+        unsigned length = rel.length();
+        unsigned start = 0;
+        while (start < length) {
+            if (isASCIIWhitespace(rel[start])) {
+                start++;
+                continue;
+            }
+            unsigned end = start + 1;
+            while (end < length && !isASCIIWhitespace(rel[end]))
+                end++;
+            if (auto linkType = linkTypes.tryGet(rel.substring(start, end - start))) {
+                if (linkType->isEnabled(document))
+                    linkType->updateRel(*this);
+            }
+            start = end;
         }
     }
 }
 
-// https://html.spec.whatwg.org/#linkTypes
 bool LinkRelAttribute::isSupported(Document& document, StringView attribute)
 {
-    static const char* const supportedAttributes[] = {
-        "alternate", "dns-prefetch", "icon", "stylesheet", "apple-touch-icon", "apple-touch-icon-precomposed",
-#if ENABLE(APPLICATION_MANIFEST)
-        "manifest",
-#endif
-    };
-
-    for (auto* supportedAttribute : supportedAttributes) {
-        if (equalIgnoringASCIICase(attribute, supportedAttribute))
-            return true;
-    }
-
-    if (document.settings().linkPreconnectEnabled() && equalIgnoringASCIICase(attribute, "preconnect"))
-        return true;
-
-    if (document.settings().linkPreloadEnabled() && equalIgnoringASCIICase(attribute, "preload"))
-        return true;
-
-    if (document.settings().linkPrefetchEnabled() && equalIgnoringASCIICase(attribute, "prefetch"))
-        return true;
-
+    if (auto linkType = linkTypes.tryGet(attribute))
+        return linkType->isEnabled(document);
     return false;
 }
 

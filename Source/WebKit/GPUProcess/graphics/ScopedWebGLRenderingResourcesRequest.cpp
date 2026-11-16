@@ -26,20 +26,42 @@
 #include "config.h"
 #include "ScopedWebGLRenderingResourcesRequest.h"
 
+#if ENABLE(GPU_PROCESS) && ENABLE(WEBGL)
+
+#include "RemoteGraphicsContextGL.h"
+#include "StreamConnectionWorkQueue.h"
+#include <WebCore/GraphicsContextGLANGLE.h>
+#include <wtf/RunLoop.h>
+#include <wtf/Seconds.h>
+
 namespace WebKit {
 
 std::atomic<unsigned> ScopedWebGLRenderingResourcesRequest::s_requests;
-
-#if !PLATFORM(COCOA)
+#if !USE(GRAPHICS_LAYER_WC)
+static constexpr Seconds freeWebGLRenderingResourcesTimeout = 1_s;
+#endif
+static bool didScheduleFreeWebGLRenderingResources;
 
 void ScopedWebGLRenderingResourcesRequest::scheduleFreeWebGLRenderingResources()
 {
+#if !USE(GRAPHICS_LAYER_WC)
+    if (didScheduleFreeWebGLRenderingResources)
+        return;
+    RunLoop::mainSingleton().dispatchAfter(freeWebGLRenderingResourcesTimeout, freeWebGLRenderingResources);
+    didScheduleFreeWebGLRenderingResources = true;
+#endif
 }
 
 void ScopedWebGLRenderingResourcesRequest::freeWebGLRenderingResources()
 {
+    didScheduleFreeWebGLRenderingResources = false;
+    if (s_requests)
+        return;
+    remoteGraphicsContextGLStreamWorkQueueSingleton().dispatch([] {
+        WebCore::GraphicsContextGLANGLE::releaseThreadResources(WebCore::GraphicsContextGLANGLE::ReleaseThreadResourceBehavior::TerminateAndReleaseThreadResources);
+    });
+}
+
 }
 
 #endif
-
-}

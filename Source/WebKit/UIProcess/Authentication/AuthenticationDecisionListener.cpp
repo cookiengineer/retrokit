@@ -30,7 +30,6 @@
 #include "AuthenticationChallengeProxy.h"
 #include "AuthenticationManager.h"
 #include "AuthenticationManagerMessages.h"
-#include "WebCertificateInfo.h"
 #include "WebCredential.h"
 #include "WebPageProxy.h"
 #include "WebProcessProxy.h"
@@ -38,7 +37,7 @@
 namespace WebKit {
 
 AuthenticationDecisionListener::AuthenticationDecisionListener(CompletionHandler<void(AuthenticationChallengeDisposition, const WebCore::Credential&)>&& completionHandler)
-    : m_completionHandler(WTFMove(completionHandler))
+    : m_completionHandler(WTF::move(completionHandler))
 {
 }
 

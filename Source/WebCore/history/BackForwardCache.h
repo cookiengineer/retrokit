@@ -25,22 +25,25 @@
 
 #pragma once
 
-#include "HistoryItem.h"
+#include <WebCore/BackForwardFrameItemIdentifier.h>
+#include <WebCore/BackForwardItemIdentifier.h>
+#include <WebCore/HistoryItem.h>
 #include <wtf/Forward.h>
 #include <wtf/ListHashSet.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class CachedPage;
-class Frame;
+class LocalFrame;
 class Page;
 
 enum class PruningReason { None, ProcessSuspended, MemoryPressure, ReachedMaxSize };
 
 class BackForwardCache {
+    WTF_MAKE_TZONE_ALLOCATED(BackForwardCache);
     WTF_MAKE_NONCOPYABLE(BackForwardCache);
-    WTF_MAKE_FAST_ALLOCATED;
 public:
     // Function to obtain the global back/forward cache.
     WEBCORE_EXPORT static BackForwardCache& singleton();
@@ -54,11 +57,18 @@ public:
 
     WEBCORE_EXPORT std::unique_ptr<CachedPage> suspendPage(Page&);
     WEBCORE_EXPORT bool addIfCacheable(HistoryItem&, Page*); // Prunes if maxSize() is exceeded.
+    WEBCORE_EXPORT bool addIfCacheable(BackForwardFrameItemIdentifier, Page&, std::optional<BackForwardItemIdentifier> = std::nullopt);
+    enum class ShouldNotifyClient : bool { No, Yes };
+    WEBCORE_EXPORT void remove(BackForwardFrameItemIdentifier, ShouldNotifyClient = ShouldNotifyClient::Yes);
     WEBCORE_EXPORT void remove(HistoryItem&);
     CachedPage* get(HistoryItem&, Page*);
+    WEBCORE_EXPORT CachedPage* get(BackForwardFrameItemIdentifier);
     std::unique_ptr<CachedPage> take(HistoryItem&, Page*);
+    WEBCORE_EXPORT std::unique_ptr<CachedPage> take(BackForwardFrameItemIdentifier, Page*);
 
-    void removeAllItemsForPage(Page&);
+    WEBCORE_EXPORT void removeAllItemsForPage(Page&);
+
+    WEBCORE_EXPORT void clearEntriesForOrigins(const HashSet<Ref<SecurityOrigin>>&);
 
     unsigned pageCount() const { return m_items.size(); }
     WEBCORE_EXPORT unsigned frameCount() const;
@@ -69,18 +79,20 @@ public:
     void markPagesForCaptionPreferencesChanged();
 #endif
 
+    WEBCORE_EXPORT bool NODELETE isInBackForwardCache(BackForwardFrameItemIdentifier) const;
+    bool hasCachedPageExpired(BackForwardFrameItemIdentifier) const;
+
 private:
     BackForwardCache();
     ~BackForwardCache() = delete; // Make sure nobody accidentally calls delete -- WebCore does not delete singletons.
-
-    static bool canCachePageContainingThisFrame(Frame&);
 
     enum class ForceSuspension : bool { No, Yes };
     std::unique_ptr<CachedPage> trySuspendPage(Page&, ForceSuspension);
     void prune(PruningReason);
     void dump() const;
 
-    ListHashSet<RefPtr<HistoryItem>> m_items;
+    HashMap<BackForwardFrameItemIdentifier, Variant<PruningReason, UniqueRef<CachedPage>>> m_cachedPageMap;
+    ListHashSet<BackForwardFrameItemIdentifier> m_items;
     unsigned m_maxSize {0};
 
 #if ASSERT_ENABLED

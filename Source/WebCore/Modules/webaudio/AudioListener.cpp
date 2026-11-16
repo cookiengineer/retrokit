@@ -36,19 +36,20 @@
 #include "AudioBus.h"
 #include "AudioParam.h"
 #include "AudioUtilities.h"
+#include "ExceptionOr.h"
 
 namespace WebCore {
 
 AudioListener::AudioListener(BaseAudioContext& context)
-    : m_positionX(AudioParam::create(context, "positionX", 0.0, -FLT_MAX, FLT_MAX, AutomationRate::ARate))
-    , m_positionY(AudioParam::create(context, "positionY", 0.0, -FLT_MAX, FLT_MAX, AutomationRate::ARate))
-    , m_positionZ(AudioParam::create(context, "positionZ", 0.0, -FLT_MAX, FLT_MAX, AutomationRate::ARate))
-    , m_forwardX(AudioParam::create(context, "forwardX", 0.0, -FLT_MAX, FLT_MAX, AutomationRate::ARate))
-    , m_forwardY(AudioParam::create(context, "forwardY", 0.0, -FLT_MAX, FLT_MAX, AutomationRate::ARate))
-    , m_forwardZ(AudioParam::create(context, "forwardZ", -1.0, -FLT_MAX, FLT_MAX, AutomationRate::ARate))
-    , m_upX(AudioParam::create(context, "upX", 0.0, -FLT_MAX, FLT_MAX, AutomationRate::ARate))
-    , m_upY(AudioParam::create(context, "upY", 1.0, -FLT_MAX, FLT_MAX, AutomationRate::ARate))
-    , m_upZ(AudioParam::create(context, "upZ", 0.0, -FLT_MAX, FLT_MAX, AutomationRate::ARate))
+    : m_positionX(AudioParam::create(context, "positionX"_s, 0.0, -FLT_MAX, FLT_MAX, AutomationRate::ARate))
+    , m_positionY(AudioParam::create(context, "positionY"_s, 0.0, -FLT_MAX, FLT_MAX, AutomationRate::ARate))
+    , m_positionZ(AudioParam::create(context, "positionZ"_s, 0.0, -FLT_MAX, FLT_MAX, AutomationRate::ARate))
+    , m_forwardX(AudioParam::create(context, "forwardX"_s, 0.0, -FLT_MAX, FLT_MAX, AutomationRate::ARate))
+    , m_forwardY(AudioParam::create(context, "forwardY"_s, 0.0, -FLT_MAX, FLT_MAX, AutomationRate::ARate))
+    , m_forwardZ(AudioParam::create(context, "forwardZ"_s, -1.0, -FLT_MAX, FLT_MAX, AutomationRate::ARate))
+    , m_upX(AudioParam::create(context, "upX"_s, 0.0, -FLT_MAX, FLT_MAX, AutomationRate::ARate))
+    , m_upY(AudioParam::create(context, "upY"_s, 1.0, -FLT_MAX, FLT_MAX, AutomationRate::ARate))
+    , m_upZ(AudioParam::create(context, "upZ"_s, 0.0, -FLT_MAX, FLT_MAX, AutomationRate::ARate))
     , m_positionXValues(AudioUtilities::renderQuantumSize)
     , m_positionYValues(AudioUtilities::renderQuantumSize)
     , m_positionZValues(AudioUtilities::renderQuantumSize)
@@ -109,72 +110,86 @@ void AudioListener::updateValuesIfNeeded(size_t framesToProcess)
         ASSERT(framesToProcess <= m_upYValues.size());
         ASSERT(framesToProcess <= m_upZValues.size());
 
-        positionX().calculateSampleAccurateValues(m_positionXValues.data(), framesToProcess);
-        positionY().calculateSampleAccurateValues(m_positionYValues.data(), framesToProcess);
-        positionZ().calculateSampleAccurateValues(m_positionZValues.data(), framesToProcess);
+        positionX().calculateSampleAccurateValues(m_positionXValues.span().first(framesToProcess));
+        positionY().calculateSampleAccurateValues(m_positionYValues.span().first(framesToProcess));
+        positionZ().calculateSampleAccurateValues(m_positionZValues.span().first(framesToProcess));
 
-        forwardX().calculateSampleAccurateValues(m_forwardXValues.data(), framesToProcess);
-        forwardY().calculateSampleAccurateValues(m_forwardYValues.data(), framesToProcess);
-        forwardZ().calculateSampleAccurateValues(m_forwardZValues.data(), framesToProcess);
+        forwardX().calculateSampleAccurateValues(m_forwardXValues.span().first(framesToProcess));
+        forwardY().calculateSampleAccurateValues(m_forwardYValues.span().first(framesToProcess));
+        forwardZ().calculateSampleAccurateValues(m_forwardZValues.span().first(framesToProcess));
 
-        upX().calculateSampleAccurateValues(m_upXValues.data(), framesToProcess);
-        upY().calculateSampleAccurateValues(m_upYValues.data(), framesToProcess);
-        upZ().calculateSampleAccurateValues(m_upZValues.data(), framesToProcess);
+        upX().calculateSampleAccurateValues(m_upXValues.span().first(framesToProcess));
+        upY().calculateSampleAccurateValues(m_upYValues.span().first(framesToProcess));
+        upZ().calculateSampleAccurateValues(m_upZValues.span().first(framesToProcess));
     }
 }
 
-const float* AudioListener::positionXValues(size_t framesToProcess)
+void AudioListener::updateDirtyState()
 {
-    updateValuesIfNeeded(framesToProcess);
-    return m_positionXValues.data();
+    ASSERT(!isMainThread());
+
+    auto lastPosition = std::exchange(m_lastPosition, position());
+    m_isPositionDirty = lastPosition != m_lastPosition;
+
+    auto lastOrientation = std::exchange(m_lastOrientation, orientation());
+    m_isOrientationDirty = lastOrientation != m_lastOrientation;
+
+    auto lastUpVector = std::exchange(m_lastUpVector, upVector());
+    m_isUpVectorDirty = lastUpVector != m_lastUpVector;
 }
 
-const float* AudioListener::positionYValues(size_t framesToProcess)
+std::span<const float> AudioListener::positionXValues(size_t framesToProcess)
 {
     updateValuesIfNeeded(framesToProcess);
-    return m_positionYValues.data();
+    return m_positionXValues.span();
 }
 
-const float* AudioListener::positionZValues(size_t framesToProcess)
+std::span<const float> AudioListener::positionYValues(size_t framesToProcess)
 {
     updateValuesIfNeeded(framesToProcess);
-    return m_positionZValues.data();
+    return m_positionYValues.span();
 }
 
-const float* AudioListener::forwardXValues(size_t framesToProcess)
+std::span<const float> AudioListener::positionZValues(size_t framesToProcess)
 {
     updateValuesIfNeeded(framesToProcess);
-    return m_forwardXValues.data();
+    return m_positionZValues.span();
 }
 
-const float* AudioListener::forwardYValues(size_t framesToProcess)
+std::span<const float> AudioListener::forwardXValues(size_t framesToProcess)
 {
     updateValuesIfNeeded(framesToProcess);
-    return m_forwardYValues.data();
+    return m_forwardXValues.span();
 }
 
-const float* AudioListener::forwardZValues(size_t framesToProcess)
+std::span<const float> AudioListener::forwardYValues(size_t framesToProcess)
 {
     updateValuesIfNeeded(framesToProcess);
-    return m_forwardZValues.data();
+    return m_forwardYValues.span();
 }
 
-const float* AudioListener::upXValues(size_t framesToProcess)
+std::span<const float> AudioListener::forwardZValues(size_t framesToProcess)
 {
     updateValuesIfNeeded(framesToProcess);
-    return m_upXValues.data();
+    return m_forwardZValues.span();
 }
 
-const float* AudioListener::upYValues(size_t framesToProcess)
+std::span<const float> AudioListener::upXValues(size_t framesToProcess)
 {
     updateValuesIfNeeded(framesToProcess);
-    return m_upYValues.data();
+    return m_upXValues.span();
 }
 
-const float* AudioListener::upZValues(size_t framesToProcess)
+std::span<const float> AudioListener::upYValues(size_t framesToProcess)
 {
     updateValuesIfNeeded(framesToProcess);
-    return m_upZValues.data();
+    return m_upYValues.span();
+}
+
+std::span<const float> AudioListener::upZValues(size_t framesToProcess)
+{
+    updateValuesIfNeeded(framesToProcess);
+    return m_upZValues.span();
 }
 
 ExceptionOr<void> AudioListener::setPosition(float x, float y, float z)

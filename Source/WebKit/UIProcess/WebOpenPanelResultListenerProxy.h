@@ -29,6 +29,7 @@
 #include <wtf/Forward.h>
 #include <wtf/RefPtr.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakPtr.h>
 
 namespace API {
 class Array;
@@ -38,12 +39,13 @@ class Data;
 namespace WebKit {
 
 class WebPageProxy;
+class WebProcessProxy;
 
 class WebOpenPanelResultListenerProxy : public API::ObjectImpl<API::Object::Type::FramePolicyListener> {
 public:
-    static Ref<WebOpenPanelResultListenerProxy> create(WebPageProxy* page)
+    static Ref<WebOpenPanelResultListenerProxy> create(WebPageProxy* page, WebProcessProxy& process)
     {
-        return adoptRef(*new WebOpenPanelResultListenerProxy(page));
+        return adoptRef(*new WebOpenPanelResultListenerProxy(page, process));
     }
 
     virtual ~WebOpenPanelResultListenerProxy();
@@ -56,10 +58,17 @@ public:
 
     void invalidate();
 
+    WebProcessProxy* NODELETE process() const;
+
 private:
-    explicit WebOpenPanelResultListenerProxy(WebPageProxy*);
+    WebOpenPanelResultListenerProxy(WebPageProxy*, WebProcessProxy&);
 
     RefPtr<WebPageProxy> m_page;
+    WeakPtr<WebProcessProxy> m_process;
 };
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebOpenPanelResultListenerProxy)
+static bool isType(const API::Object& object) { return object.type() == API::Object::Type::FramePolicyListener; }
+SPECIALIZE_TYPE_TRAITS_END()

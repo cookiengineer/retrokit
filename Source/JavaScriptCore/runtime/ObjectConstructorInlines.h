@@ -25,35 +25,263 @@
 
 #pragma once
 
+#include "JSObjectInlines.h"
+#include "MarkedVector.h"
 #include "ObjectConstructor.h"
+#include "StructureCreateInlines.h"
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
-ALWAYS_INLINE bool canPerformFastPropertyEnumerationForObjectAssign(Structure* structure)
+inline Structure* ObjectConstructor::createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
 {
+    return Structure::create(vm, globalObject, prototype, TypeInfo(InternalFunctionType, StructureFlags), info());
+}
+
+ALWAYS_INLINE bool canPerformFastPropertyNameEnumerationForJSONStringifyWithSideEffect(Structure* structure)
+{
+    // We do not check GetterSetter, CustomGetterSetter. GetterSetter and CustomGetterSetter will be invoked, and we fall back to the a bit more generic mode when we detect structure transition.
     if (structure->typeInfo().overridesGetOwnPropertySlot())
         return false;
     if (structure->typeInfo().overridesAnyFormOfGetOwnPropertyNames())
         return false;
-    // FIXME: Indexed properties can be handled.
-    // https://bugs.webkit.org/show_bug.cgi?id=185358
     if (hasIndexedProperties(structure->indexingType()))
-        return false;
-    if (structure->hasGetterSetterProperties())
-        return false;
-    if (structure->hasReadOnlyOrGetterSetterPropertiesExcludingProto())
-        return false;
-    if (structure->hasCustomGetterSetterProperties())
         return false;
     if (structure->isUncacheableDictionary())
         return false;
-    // Cannot perform fast [[Put]] to |target| if the property names of the |source| contain "__proto__".
-    if (structure->hasUnderscoreProtoPropertyExcludingOriginalProto())
+    if (structure->hasNonReifiedStaticProperties())
         return false;
     return true;
 }
 
-ALWAYS_INLINE void objectAssignFast(VM& vm, JSObject* target, JSObject* source, Vector<RefPtr<UniquedStringImpl>, 8>& properties, MarkedArgumentBuffer& values)
+ALWAYS_INLINE void objectAssignIndexedPropertiesFast(JSGlobalObject* globalObject, JSObject* target, JSObject* source)
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    source->forEachOwnIndexedProperty<>(globalObject, [&](unsigned index, JSValue value) {
+        target->putDirectIndex(globalObject, index, value);
+        RETURN_IF_EXCEPTION(scope, IterationStatus::Done);
+        return IterationStatus::Continue;
+    });
+    RETURN_IF_EXCEPTION(scope, void());
+}
+
+ALWAYS_INLINE bool checkStructureForClone(Structure* structure)
+{
+    static constexpr bool verbose = false;
+
+    if (structure->typeInfo().type() != FinalObjectType) {
+        dataLogLnIf(verbose, "target is not final object");
+        return false;
+    }
+
+    if (structure->isDictionary()) {
+        dataLogLnIf(verbose, "target is dictionary");
+        return false;
+    }
+
+    if (hasIndexedProperties(structure->indexingType())) {
+        dataLogLnIf(verbose, "target has indexing mode");
+        return false;
+    }
+
+    if (structure->mayBePrototype()) {
+        dataLogLnIf(verbose, "target may be prototype");
+        return false;
+    }
+
+    if (structure->didPreventExtensions()) {
+        dataLogLnIf(verbose, "target has didPreventExtensions");
+        return false;
+    }
+
+    if (structure->hasBeenFlattenedBefore()) {
+        dataLogLnIf(verbose, "target has flattened before");
+        return false;
+    }
+
+    if (structure->hasBeenDictionary()) {
+        dataLogLnIf(verbose, "target has been dictionary");
+        return false;
+    }
+
+    if (structure->isBrandedStructure()) {
+        dataLogLnIf(verbose, "target has isBrandedStructure");
+        return false;
+    }
+
+    if (structure->hasPolyProto()) {
+        dataLogLnIf(verbose, "target has PolyProto");
+        return false;
+    }
+
+    if (structure->hasReadOnlyOrGetterSetterPropertiesExcludingProto()) {
+        dataLogLnIf(verbose, "target has non-writable properties");
+        return false;
+    }
+
+    if (structure->hasNonEnumerableProperties()) {
+        dataLogLnIf(verbose, "target has non-enumerable properties");
+        return false;
+    }
+
+    if (structure->hasNonConfigurableProperties()) {
+        dataLogLnIf(verbose, "target has non-configurable properties");
+        return false;
+    }
+
+    if (!structure->isQuickPropertyAccessAllowedForEnumeration()) {
+        dataLogLnIf(verbose, "target has symbol properties (right now we disable this optimization in this case since we cannot detect private symbol properties)");
+        return false;
+    }
+
+    return true;
+}
+
+
+ALWAYS_INLINE bool objectCloneFast(VM& vm, JSFinalObject* target, JSObject* source)
+{
+    static constexpr bool verbose = false;
+
+    Structure* targetStructure = target->structure();
+    Structure* sourceStructure = source->structure();
+
+    ASSERT(sourceStructure->canPerformFastPropertyEnumerationCommon());
+
+    if (targetStructure->seenProperties().bits()) {
+        dataLogLnIf(verbose, "target already has properties");
+        return false;
+    }
+
+    if (!checkStructureForClone(targetStructure))
+        return false;
+
+    if (targetStructure->transitionWatchpointSetIsStillValid()) {
+        dataLogLnIf(verbose, "target transitionWatchpointSetIsStillValid");
+        return false;
+    }
+
+    if (targetStructure->didTransition()) {
+        dataLogLnIf(verbose, "target did some transition, indicating non pure empty structure");
+        return false;
+    }
+
+    // If the sourceStructure is frozen, we retrieve the last one before freezing.
+    if (sourceStructure->transitionKind() == TransitionKind::Freeze) {
+        dataLogLnIf(verbose, "source was frozen. Let's look into the previous structure");
+        sourceStructure = sourceStructure->previousID();
+        if (!sourceStructure)
+            return false;
+
+        dataLogLnIf(verbose, "source should have ArrayStorage since it was frozen. Let's see whether it is empty and we can quickly get the previous structure without ArrayStorage.");
+        if (sourceStructure->transitionKind() == TransitionKind::AllocateArrayStorage && !source->canHaveExistingOwnIndexedProperties()) {
+            sourceStructure = sourceStructure->previousID();
+            if (!sourceStructure)
+                return false;
+        }
+    }
+
+    if (!checkStructureForClone(sourceStructure))
+        return false;
+
+    if (!sourceStructure->didTransition()) {
+        dataLogLnIf(verbose, "source didn't do some transition, indicating pure empty structure, not trying to use the fast path since we would like to see target as transitioned before at final form");
+        return false;
+    }
+
+    if (targetStructure->inlineCapacity() != sourceStructure->inlineCapacity()) {
+        dataLogLnIf(verbose, "source and target has different inline capacity");
+        return false;
+    }
+
+    if (targetStructure->realm() != sourceStructure->realm()) {
+        dataLogLnIf(verbose, "source and target has different globalObject");
+        return false;
+    }
+
+    if (targetStructure->storedPrototype() != sourceStructure->storedPrototype()) {
+        dataLogLnIf(verbose, "__proto__ is different");
+        return false;
+    }
+
+    dataLogLnIf(verbose, "Use fast cloning!");
+
+    bool canCopyInlineStorage = source->hasInlineStorage();
+
+    unsigned propertyCapacity = sourceStructure->outOfLineCapacity();
+    if (propertyCapacity) {
+        Butterfly* newButterfly = Butterfly::createUninitialized(vm, target, 0, propertyCapacity, /* hasIndexingHeader */ false, 0);
+        // memcpy is fine since newButterfly is not tied to any object yet.
+        memcpy(newButterfly->propertyStorage() - propertyCapacity, source->butterfly()->propertyStorage() - propertyCapacity, propertyCapacity * sizeof(EncodedJSValue));
+        if (canCopyInlineStorage)
+            gcSafeMemcpy(target->inlineStorage(), source->inlineStorage(), sourceStructure->inlineCapacity() * sizeof(EncodedJSValue));
+        target->nukeStructureAndSetButterfly(vm, targetStructure->id(), newButterfly);
+    } else if (canCopyInlineStorage)
+        gcSafeMemcpy(target->inlineStorage(), source->inlineStorage(), sourceStructure->inlineCapacity() * sizeof(EncodedJSValue));
+    target->setStructure(vm, sourceStructure);
+
+    vm.writeBarrier(target);
+
+    return true;
+}
+
+ALWAYS_INLINE JSObject* tryCreateObjectViaCloning(VM& vm, JSGlobalObject* globalObject, JSObject* source)
+{
+    static constexpr bool verbose = false;
+
+    Structure* sourceStructure = source->structure();
+
+    ASSERT(sourceStructure->canPerformFastPropertyEnumerationCommon());
+
+    // If the sourceStructure is frozen, we retrieve the last one before freezing.
+    if (sourceStructure->transitionKind() == TransitionKind::Freeze) {
+        dataLogLnIf(verbose, "source was frozen. Let's look into the previous structure");
+        sourceStructure = sourceStructure->previousID();
+        if (!sourceStructure)
+            return nullptr;
+
+        dataLogLnIf(verbose, "source should have ArrayStorage since it was frozen. Let's see whether it is empty and we can quickly get the previous structure without ArrayStorage.");
+        if (sourceStructure->transitionKind() == TransitionKind::AllocateArrayStorage && !source->canHaveExistingOwnIndexedProperties()) {
+            sourceStructure = sourceStructure->previousID();
+            if (!sourceStructure)
+                return nullptr;
+        }
+    }
+
+    if (!checkStructureForClone(sourceStructure))
+        return nullptr;
+
+    if (!sourceStructure->didTransition()) {
+        dataLogLnIf(verbose, "source didn't do some transition, indicating pure empty structure, not trying to use the fast path since we would like to see target as transitioned before at final form");
+        return nullptr;
+    }
+
+    if (globalObject != sourceStructure->realm()) {
+        dataLogLnIf(verbose, "source and target has different globalObject");
+        return nullptr;
+    }
+
+    if (sourceStructure->storedPrototype() != globalObject->objectPrototype()) {
+        dataLogLnIf(verbose, "__proto__ is different");
+        return nullptr;
+    }
+
+    dataLogLnIf(verbose, "Use fast cloning!");
+
+    unsigned propertyCapacity = source->butterfly() ? sourceStructure->outOfLineCapacity() : 0;
+    if (!propertyCapacity)
+        return JSFinalObject::createWithButterflyCopyingInlineStorage(vm, sourceStructure, nullptr, source->inlineStorage());
+
+    DeferGC deferGC(vm);
+    Butterfly* newButterfly = Butterfly::createUninitialized(vm, nullptr, 0, propertyCapacity, /* hasIndexingHeader */ false, 0);
+    // memcpy is fine since newButterfly is not tied to any object yet.
+    memcpy(newButterfly->propertyStorage() - propertyCapacity, source->butterfly()->propertyStorage() - propertyCapacity, propertyCapacity * sizeof(EncodedJSValue));
+    return JSFinalObject::createWithButterflyCopyingInlineStorage(vm, sourceStructure, newButterfly, source->inlineStorage());
+}
+
+ALWAYS_INLINE bool objectAssignFast(JSGlobalObject* globalObject, JSFinalObject* target, JSObject* source, Vector<UniquedStringImpl*, 8>& properties, MarkedArgumentBuffer& values)
 {
     // |source| Structure does not have any getters. And target can perform fast put.
     // So enumerating properties and putting properties are non observable.
@@ -69,29 +297,52 @@ ALWAYS_INLINE void objectAssignFast(VM& vm, JSObject* target, JSObject* source, 
     // regression in object-assign-replace. Since the code is small and fast path, we keep both.
 
     // Do not clear since Vector::clear shrinks the backing store.
-    properties.resize(0);
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+    properties.shrink(0);
     values.clear();
-    source->structure(vm)->forEachProperty(vm, [&] (const PropertyMapEntry& entry) -> bool {
-        if (entry.attributes & PropertyAttribute::DontEnum)
+
+    if (source->hasNonReifiedStaticProperties())
+        return false;
+
+    Structure* sourceStructure = source->structure();
+    if (!sourceStructure->canPerformFastPropertyEnumerationCommon())
+        return false;
+
+    if (objectCloneFast(vm, target, source))
+        return true;
+
+    if (source->canHaveExistingOwnIndexedGetterSetterProperties())
+        return false;
+
+    EnsureStillAliveScope sourceStructureScope(sourceStructure);
+    sourceStructure->forEachProperty(vm, [&](const PropertyTableEntry& entry) -> bool {
+        if (entry.attributes() & PropertyAttribute::DontEnum)
             return true;
 
-        PropertyName propertyName(entry.key);
+        PropertyName propertyName(entry.key());
         if (propertyName.isPrivateName())
             return true;
 
-        properties.append(entry.key);
-        values.appendWithCrashOnOverflow(source->getDirect(entry.offset));
+        properties.append(entry.key()); // sourceStructure ensures the lifetimes of these strings.
+        values.appendWithCrashOnOverflow(source->getDirect(entry.offset()));
 
         return true;
     });
 
-    for (size_t i = 0; i < properties.size(); ++i) {
-        // FIXME: We could put properties in a batching manner to accelerate Object.assign more.
-        // https://bugs.webkit.org/show_bug.cgi?id=185358
-        PutPropertySlot putPropertySlot(target, true);
-        target->putOwnDataProperty(vm, properties[i].get(), values.at(i), putPropertySlot);
+    if (source->canHaveExistingOwnIndexedProperties()) {
+        objectAssignIndexedPropertiesFast(globalObject, target, source);
+        RETURN_IF_EXCEPTION(scope, { });
     }
+
+    // Actually, assigning with empty object (option for example) is common. (`Object.assign(defaultOptions, passedOptions)` where `passedOptions` is empty object.)
+    if (properties.size())
+        target->putOwnDataPropertyBatching(vm, properties.mutableSpan().data(), values.data(), properties.size());
+
+    return true;
 }
 
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

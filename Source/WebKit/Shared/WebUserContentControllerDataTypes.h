@@ -25,41 +25,69 @@
 
 #pragma once
 
+#include "ContentWorldData.h"
 #include "ContentWorldShared.h"
+#include "ScriptMessageHandlerIdentifier.h"
+#include "TransferString.h"
+#include "UserScriptIdentifier.h"
+#include "UserStyleSheetIdentifier.h"
 #include <WebCore/UserScript.h>
 #include <WebCore/UserStyleSheet.h>
 
-namespace IPC {
-class Decoder;
-class Encoder;
+namespace WebCore {
+class SharedMemory;
+class SharedMemoryHandle;
 }
 
 namespace WebKit {
 
-struct WebUserScriptData {
-    void encode(IPC::Encoder&) const;
-    static std::optional<WebUserScriptData> decode(IPC::Decoder&);
+struct WebCoreUserScriptData {
+    IPC::TransferString source;
+    URL url;
+    Vector<String> allowlist;
+    Vector<String> blocklist;
+    WebCore::UserScriptInjectionTime injectionTime;
+    WebCore::UserContentInjectedFrames injectedFrames;
+    WebCore::UserContentMatchParentFrame matchParentFrame;
+};
 
-    uint64_t identifier;
-    ContentWorldIdentifier worldIdentifier;
-    WebCore::UserScript userScript;
+struct WebUserScriptData {
+    UserScriptIdentifier identifier;
+    ContentWorldData worldData;
+    WebCoreUserScriptData userScript;
+};
+
+struct WebCoreUserStyleSheetData {
+    IPC::TransferString source;
+    URL url;
+    Vector<String> allowlist;
+    Vector<String> blocklist;
+    WebCore::UserContentInjectedFrames injectedFrames;
+    WebCore::UserContentMatchParentFrame matchParentFrame;
+    WebCore::UserStyleLevel level;
+    std::optional<WebCore::PageIdentifier> pageID;
 };
 
 struct WebUserStyleSheetData {
-    void encode(IPC::Encoder&) const;
-    static std::optional<WebUserStyleSheetData> decode(IPC::Decoder&);
-
-    uint64_t identifier;
-    ContentWorldIdentifier worldIdentifier;
-    WebCore::UserStyleSheet userStyleSheet;
+    UserStyleSheetIdentifier identifier;
+    ContentWorldData worldData;
+    WebCoreUserStyleSheetData userStyleSheet;
 };
 
 struct WebScriptMessageHandlerData {
-    void encode(IPC::Encoder&) const;
-    static std::optional<WebScriptMessageHandlerData> decode(IPC::Decoder&);
+    ScriptMessageHandlerIdentifier identifier;
+    ContentWorldData worldData;
+    String name;
+};
 
-    uint64_t identifier;
-    ContentWorldIdentifier worldIdentifier;
+struct WebJSBufferData {
+    WebJSBufferData(const Ref<WebCore::SharedMemory>&, ContentWorldData&&, const String&);
+    WebJSBufferData(std::optional<WebCore::SharedMemoryHandle>&&, ContentWorldData&&, String&&);
+    ~WebJSBufferData();
+    std::optional<WebCore::SharedMemoryHandle> sharedMemoryHandle() const;
+
+    RefPtr<WebCore::SharedMemory> data;
+    ContentWorldData worldData;
     String name;
 };
 

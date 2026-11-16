@@ -25,8 +25,6 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
 #include <WebCore/ServiceWorkerProvider.h>
 #include <wtf/NeverDestroyed.h>
 
@@ -43,7 +41,7 @@ namespace WebKit {
 
 class WebServiceWorkerProvider final : public WebCore::ServiceWorkerProvider {
 public:
-    static WebServiceWorkerProvider& singleton();
+    static WebServiceWorkerProvider& NODELETE singleton();
 
     void didReceiveServiceWorkerClientRegistrationMatch(IPC::Connection&, IPC::Decoder&);
     void updateThrottleState(bool isThrottleable);
@@ -53,9 +51,8 @@ private:
     WebServiceWorkerProvider();
 
     WebCore::SWClientConnection& serviceWorkerConnection() final;
+    WebCore::SWClientConnection* existingServiceWorkerConnection() final;
     void terminateWorkerForTesting(WebCore::ServiceWorkerIdentifier, CompletionHandler<void()>&&) final;
 }; // class WebServiceWorkerProvider
 
 } // namespace WebKit
-
-#endif // ENABLE(SERVICE_WORKER)

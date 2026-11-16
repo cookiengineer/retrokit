@@ -33,6 +33,7 @@
 #include "SQLStatementErrorCallback.h"
 #include "SQLValue.h"
 #include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
@@ -44,13 +45,13 @@ class SQLResultSet;
 class SQLTransactionBackend;
 
 class SQLStatement final {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(SQLStatement);
 public:
     SQLStatement(Database&, const String&, Vector<SQLValue>&&, RefPtr<SQLStatementCallback>&&, RefPtr<SQLStatementErrorCallback>&&, int permissions);
     ~SQLStatement();
 
     bool execute(Database&);
-    bool lastExecutionFailedDueToQuota() const;
+    bool NODELETE lastExecutionFailedDueToQuota() const;
 
     bool hasStatementCallback() const { return m_statementCallbackWrapper.hasCallback(); }
     bool hasStatementErrorCallback() const { return m_statementErrorCallbackWrapper.hasCallback(); }
@@ -59,8 +60,8 @@ public:
     void setDatabaseDeletedError();
     void setVersionMismatchedError();
 
-    SQLError* sqlError() const;
-    SQLResultSet* sqlResultSet() const;
+    SQLError* NODELETE sqlError() const;
+    SQLResultSet* NODELETE sqlResultSet() const;
 
 private:
     void setFailureDueToQuota();

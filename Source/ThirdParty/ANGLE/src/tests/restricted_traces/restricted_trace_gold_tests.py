@@ -1,15 +1,4 @@
-#! /usr/bin/env python
-#
-# [VPYTHON:BEGIN]
-# wheel: <
-#  name: "infra/python/wheels/psutil/${vpython_platform}"
-#  version: "version:5.2.2"
-# >
-# wheel: <
-#  name: "infra/python/wheels/six-py2_py3"
-#  version: "version:1.10.0"
-# >
-# [VPYTHON:END]
+#! /usr/bin/env vpython3
 #
 # Copyright 2020 The ANGLE Project Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
@@ -22,10 +11,10 @@
 
 import argparse
 import contextlib
-import fnmatch
 import json
 import logging
 import os
+import pathlib
 import platform
 import re
 import shutil
@@ -34,38 +23,27 @@ import tempfile
 import time
 import traceback
 
+
+PY_UTILS = str(pathlib.Path(__file__).resolve().parents[1] / 'py_utils')
+if PY_UTILS not in sys.path:
+    os.stat(PY_UTILS) and sys.path.insert(0, PY_UTILS)
+import android_helper
+import angle_path_util
+import angle_test_util
 from skia_gold import angle_skia_gold_properties
 from skia_gold import angle_skia_gold_session_manager
 
-# Add //src/testing into sys.path for importing xvfb and test_env, and
-# //src/testing/scripts for importing common.
-d = os.path.dirname
-THIS_DIR = d(os.path.abspath(__file__))
-ANGLE_SRC_DIR = d(d(d(THIS_DIR)))
-sys.path.insert(0, os.path.join(ANGLE_SRC_DIR, 'testing'))
-sys.path.insert(0, os.path.join(ANGLE_SRC_DIR, 'testing', 'scripts'))
-# Handle the Chromium-relative directory as well. As long as one directory
-# is valid, Python is happy.
-CHROMIUM_SRC_DIR = d(d(ANGLE_SRC_DIR))
-sys.path.insert(0, os.path.join(CHROMIUM_SRC_DIR, 'testing'))
-sys.path.insert(0, os.path.join(CHROMIUM_SRC_DIR, 'testing', 'scripts'))
-
+angle_path_util.AddDepsDirToPath('testing/scripts')
 import common
-import test_env
-import xvfb
 
 
-def IsWindows():
-    return sys.platform == 'cygwin' or sys.platform.startswith('win')
-
-
-DEFAULT_TEST_SUITE = 'angle_perftests'
-DEFAULT_TEST_PREFIX = '--gtest_filter=TracePerfTest.Run/vulkan_'
+DEFAULT_TEST_SUITE = angle_test_util.ANGLE_TRACE_TEST_SUITE
+DEFAULT_TEST_PREFIX = 'TraceTest.'
 DEFAULT_SCREENSHOT_PREFIX = 'angle_vulkan_'
-
-# Filters out stuff like: " I   72.572s run_tests_on_device(96071FFAZ00096) "
-ANDROID_LOGGING_PREFIX = r'I +\d+.\d+s \w+\(\w+\)  '
-ANDROID_BEGIN_SYSTEM_INFO = '>>ScopedMainEntryLogger'
+SWIFTSHADER_SCREENSHOT_PREFIX = 'angle_vulkan_swiftshader_'
+DEFAULT_BATCH_SIZE = 5
+DEFAULT_LOG = 'info'
+DEFAULT_GOLD_INSTANCE = 'angle'
 
 # Test expectations
 FAIL = 'FAIL'
@@ -79,7 +57,7 @@ def temporary_dir(prefix=''):
     try:
         yield path
     finally:
-        logging.info("Removing temporary directory: %s" + path)
+        logging.info("Removing temporary directory: %s" % path)
         shutil.rmtree(path)
 
 
@@ -130,11 +108,17 @@ def add_skia_gold_args(parser):
         'pre-authenticated. Meant for testing locally instead of on the bots.')
 
 
-def run_wrapper(args, cmd, env, stdoutfile=None):
-    if args.xvfb:
-        return xvfb.run_executable(cmd, env, stdoutfile=stdoutfile)
-    else:
-        return test_env.run_command_with_output(cmd, env=env, stdoutfile=stdoutfile)
+def run_angle_system_info_test(sysinfo_args, args, env):
+    with temporary_dir() as temp_dir:
+        sysinfo_args += ['--render-test-output-dir=' + temp_dir]
+
+        result, _, _ = angle_test_util.RunTestSuite(
+            'angle_system_info_test', sysinfo_args, env, use_xvfb=args.xvfb)
+        if result != 0:
+            raise Exception('Error getting system info.')
+
+        with open(os.path.join(temp_dir, 'angle_system_info.json')) as f:
+            return json.load(f)
 
 
 def to_hex(num):
@@ -153,14 +137,7 @@ def to_non_empty_string_or_none_dict(d, key):
     return 'None' if not key in d else to_non_empty_string_or_none(d[key])
 
 
-def get_binary_name(binary):
-    if IsWindows():
-        return '.\\%s.exe' % binary
-    else:
-        return './%s' % binary
-
-
-def get_skia_gold_keys(args):
+def get_skia_gold_keys(args, env):
     """Get all the JSON metadata that will be passed to golctl."""
     # All values need to be strings, otherwise goldctl fails.
 
@@ -169,54 +146,19 @@ def get_skia_gold_keys(args):
         logging.exception('get_skia_gold_keys may only be called once')
     get_skia_gold_keys.called = True
 
-    env = os.environ.copy()
+    sysinfo_args = ['--vulkan', '-v']
+    if args.swiftshader:
+        sysinfo_args.append('--swiftshader')
 
-    class Filter:
-
-        def __init__(self):
-            self.accepting_lines = True
-            self.done_accepting_lines = False
-            self.android_prefix = re.compile(ANDROID_LOGGING_PREFIX)
-            self.lines = []
-            self.is_android = False
-
-        def append(self, line):
-            if self.done_accepting_lines:
-                return
-            if 'Additional test environment' in line or 'android/test_runner.py' in line:
-                self.accepting_lines = False
-                self.is_android = True
-            if ANDROID_BEGIN_SYSTEM_INFO in line:
-                self.accepting_lines = True
-                return
-            if not self.accepting_lines:
-                return
-
-            if self.is_android:
-                line = self.android_prefix.sub('', line)
-
-            if line[0] == '}':
-                self.done_accepting_lines = True
-
-            self.lines.append(line)
-
-        def get(self):
-            return self.lines
-
-    with common.temporary_file() as tempfile_path:
-        binary = get_binary_name('angle_system_info_test')
-        if run_wrapper(args, [binary, '--vulkan', '-v'], env, tempfile_path):
-            raise Exception('Error getting system info.')
-
-        filter = Filter()
-
-        with open(tempfile_path) as f:
-            for line in f:
-                filter.append(line)
-
-        str = ''.join(filter.get())
-        logging.info(str)
-        json_data = json.loads(str)
+    if angle_test_util.IsAndroid():
+        json_data = android_helper.AngleSystemInfo(sysinfo_args)
+        logging.info(json_data)
+        os_name = 'Android'
+        os_version = android_helper.GetBuildFingerprint()
+    else:
+        json_data = run_angle_system_info_test(sysinfo_args, args, env)
+        os_name = to_non_empty_string_or_none(platform.system())
+        os_version = to_non_empty_string_or_none(platform.version())
 
     if len(json_data.get('gpus', [])) == 0 or not 'activeGPUIndex' in json_data:
         raise Exception('Error getting system info.')
@@ -228,8 +170,8 @@ def get_skia_gold_keys(args):
         'device_id': to_hex_or_none(active_gpu['deviceId']),
         'model_name': to_non_empty_string_or_none_dict(active_gpu, 'machineModelVersion'),
         'manufacturer_name': to_non_empty_string_or_none_dict(active_gpu, 'machineManufacturer'),
-        'os': to_non_empty_string_or_none(platform.system()),
-        'os_version': to_non_empty_string_or_none(platform.version()),
+        'os': os_name,
+        'os_version': os_version,
         'driver_version': to_non_empty_string_or_none_dict(active_gpu, 'driverVersion'),
         'driver_vendor': to_non_empty_string_or_none_dict(active_gpu, 'driverVendor'),
     }
@@ -255,8 +197,25 @@ def output_diff_local_files(gold_session, image_name):
     logging.error('Diff image: %s', diff_file or failure_message)
 
 
+def get_trace_key_frame(trace):
+    # read trace info
+    json_name = os.path.join(angle_path_util.ANGLE_ROOT_DIR, 'src', 'tests', 'restricted_traces',
+                             trace, trace + '.json')
+    with open(json_name) as fp:
+        trace_info = json.load(fp)
+
+    # Check its metadata for a keyframe
+    keyframe = ''
+    if 'KeyFrames' in trace_info['TraceMetadata']:
+        # KeyFrames is an array, but we only use the first value for now
+        keyframe = str(trace_info['TraceMetadata']['KeyFrames'][0])
+        logging.info('trace %s is using a keyframe of %s' % (trace, keyframe))
+
+    return keyframe
+
+
 def upload_test_result_to_skia_gold(args, gold_session_manager, gold_session, gold_properties,
-                                    screenshot_dir, image_name, artifacts):
+                                    screenshot_dir, trace, artifacts):
     """Compares the given image using Skia Gold and uploads the result.
 
     No uploading is done if the test is being run in local run mode. Compares
@@ -269,21 +228,71 @@ def upload_test_result_to_skia_gold(args, gold_session_manager, gold_session, go
       gold_session: Skia Gold session.
       gold_properties: Skia Gold properties.
       screenshot_dir: directory where the test stores screenshots.
-      image_name: the name of the image being checked.
+      trace: base name of the trace being checked.
       artifacts: dictionary of JSON artifacts to pass to the result merger.
     """
 
     use_luci = not (gold_properties.local_pixel_tests or gold_properties.no_luci_auth)
 
+    # Determine if this trace is using a keyframe
+    image_name = trace
+    keyframe = get_trace_key_frame(trace)
+    if keyframe != '':
+        image_name = trace + '_frame' + keyframe
+        logging.debug('Using %s as image_name for upload' % image_name)
+
     # Note: this would be better done by iterating the screenshot directory.
-    png_file_name = os.path.join(screenshot_dir, DEFAULT_SCREENSHOT_PREFIX + image_name + '.png')
+    prefix = SWIFTSHADER_SCREENSHOT_PREFIX if args.swiftshader else DEFAULT_SCREENSHOT_PREFIX
+    png_file_name = os.path.join(screenshot_dir, prefix + image_name + '.png')
 
     if not os.path.isfile(png_file_name):
-        logging.info('Screenshot not found, test skipped.')
-        return SKIP
+        raise Exception('Screenshot not found: ' + png_file_name)
+
+    if args.use_permissive_pixel_comparison:
+        # These arguments cause Gold to use the sample area inexact matching
+        # algorithm. It is set to allow any of up to 3 pixels in each 4x4 group
+        # of pixels to differ by any amount. Pixels that differ by a max of 1
+        # on all channels (i.e. have differences that can be attributed to
+        # rounding errors) do not count towards this limit.
+        #
+        # An image that passes due to this logic is auto-approved as a new good
+        # image.
+        inexact_matching_args = [
+            '--add-test-optional-key',
+            'image_matching_algorithm:sample_area',
+            '--add-test-optional-key',
+            'sample_area_width:4',
+            '--add-test-optional-key',
+            'sample_area_max_different_pixels_per_area:3',
+            '--add-test-optional-key',
+            'sample_area_channel_delta_threshold:1',
+        ]
+    else:
+        # These arguments cause Gold to use the fuzzy inexact matching
+        # algorithm. It is set to allow up to 20k pixels to differ by 1 on all
+        # channels, which is meant to help reduce triage overhead caused by new
+        # images from rounding differences.
+        #
+        # The max number of pixels is fairly arbitrary, but the diff threshold
+        # is intentional since we don't want to let in any changes that can't be
+        # attributed to rounding errors.
+        #
+        # An image that passes due to this logic is auto-approved as a new good
+        # image.
+        inexact_matching_args = [
+            '--add-test-optional-key',
+            'image_matching_algorithm:fuzzy',
+            '--add-test-optional-key',
+            'fuzzy_max_different_pixels:20000',
+            '--add-test-optional-key',
+            'fuzzy_pixel_per_channel_delta_threshold:1',
+        ]
 
     status, error = gold_session.RunComparison(
-        name=image_name, png_file=png_file_name, use_luci=use_luci)
+        name=image_name,
+        png_file=png_file_name,
+        use_luci=use_luci,
+        inexact_matching_args=inexact_matching_args)
 
     artifact_name = os.path.basename(png_file_name)
     artifacts[artifact_name] = [artifact_name]
@@ -302,7 +311,9 @@ def upload_test_result_to_skia_gold(args, gold_session_manager, gold_session, go
             logging.error('Failed to get triage link for %s, raw output: %s', image_name, error)
             logging.error('Reason for no triage link: %s',
                           gold_session.GetTriageLinkOmissionReason(image_name))
-        elif gold_properties.IsTryjobRun():
+        if gold_properties.IsTryjobRun():
+            # Pick "show all results" so we can see the tryjob images by default.
+            triage_link += '&master=true'
             artifacts['triage_link_for_entire_cl'] = [triage_link]
         else:
             artifacts['gold_triage_link'] = [triage_link]
@@ -322,23 +333,199 @@ def upload_test_result_to_skia_gold(args, gold_session_manager, gold_session, go
     return FAIL
 
 
+def _get_batches(traces, batch_size):
+    for i in range(0, len(traces), batch_size):
+        yield traces[i:i + batch_size]
+
+
+def _get_gtest_filter_for_batch(args, batch):
+    expanded = ['%s%s' % (DEFAULT_TEST_PREFIX, trace) for trace in batch]
+    return '--gtest_filter=%s' % ':'.join(expanded)
+
+
+def _get_filtered_batch(batches, args):
+    for batch in batches:
+        filtered_batch = []
+        filtered_trace = False
+        for trace in batch:
+
+            # Check for conditions where we want to skip golden image comparison on the trace
+            if args.key_frame_limit:
+                keyframe = get_trace_key_frame(trace)
+                if keyframe != '' and int(keyframe) > int(args.key_frame_limit):
+                    filtered_trace = True
+                    logging.info('Skipping %s since key frame (%s) is higher than the limit (%s).',
+                                 trace, keyframe, args.key_frame_limit)
+
+            if not filtered_trace:
+                logging.debug('Adding %s to batch.', trace)
+                filtered_batch.append(trace)
+
+            filtered_trace = False
+
+        yield filtered_batch
+
+def _run_tests(args, tests, extra_flags, env, screenshot_dir, results, test_results):
+    keys = get_skia_gold_keys(args, env)
+
+    with temporary_dir('angle_skia_gold_') as skia_gold_temp_dir:
+        gold_properties = angle_skia_gold_properties.ANGLESkiaGoldProperties(args)
+        gold_session_manager = angle_skia_gold_session_manager.ANGLESkiaGoldSessionManager(
+            skia_gold_temp_dir, gold_properties)
+        gold_session = gold_session_manager.GetSkiaGoldSession(keys, instance=args.instance)
+
+        traces = [trace.split(' ')[0] for trace in tests]
+
+        if args.isolated_script_test_filter:
+            traces = angle_test_util.FilterTests(traces, args.isolated_script_test_filter)
+            assert traces, 'Test filter did not match any tests'
+
+        if angle_test_util.IsAndroid():
+            # On Android, screen orientation changes between traces can result in small pixel diffs
+            # making results depend on the ordering of traces. Disable batching.
+            batch_size = 1
+        else:
+            batch_size = args.batch_size
+
+        batches = _get_batches(traces, batch_size)
+
+        for batch in _get_filtered_batch(batches, args):
+            if angle_test_util.IsAndroid():
+                android_helper.PrepareRestrictedTraces(batch)
+
+            for iteration in range(0, args.flaky_retries + 1):
+                # This is how we signal early exit
+                if not batch:
+                    logging.debug('All tests in batch completed.')
+                    break
+                if iteration > 0:
+                    logging.info('Test run failed, running retry #%d...' % iteration)
+
+                gtest_filter = _get_gtest_filter_for_batch(args, batch)
+                cmd_args = [
+                    gtest_filter,
+                    '--run-to-key-frame',
+                    '--verbose-logging',
+                    '--render-test-output-dir=%s' % screenshot_dir,
+                    '--save-screenshots',
+                ] + extra_flags
+                if args.swiftshader:
+                    cmd_args += ['--use-angle=swiftshader']
+
+                # break here to debug new options
+
+                logging.info('Running batch with args: %s' % cmd_args)
+                result, _, json_results = angle_test_util.RunTestSuite(
+                    args.test_suite, cmd_args, env, use_xvfb=args.xvfb)
+                if result == 0:
+                    batch_result = PASS
+                else:
+                    batch_result = FAIL
+                    logging.error('Batch FAIL! json_results: %s' %
+                                  json.dumps(json_results, indent=2))
+
+                next_batch = []
+                for trace in batch:
+                    artifacts = {}
+
+                    if batch_result == PASS:
+                        test_name = DEFAULT_TEST_PREFIX + trace
+                        if json_results['tests'][test_name]['actual'] == 'SKIP':
+                            logging.info('Test skipped by suite: %s' % test_name)
+                            result = SKIP
+                        else:
+                            logging.debug('upload test result: %s' % trace)
+                            result = upload_test_result_to_skia_gold(args, gold_session_manager,
+                                                                     gold_session, gold_properties,
+                                                                     screenshot_dir, trace,
+                                                                     artifacts)
+                    else:
+                        result = batch_result
+
+                    expected_result = SKIP if result == SKIP else PASS
+                    test_results[trace] = {'expected': expected_result, 'actual': result}
+                    if len(artifacts) > 0:
+                        test_results[trace]['artifacts'] = artifacts
+                    if result == FAIL:
+                        next_batch.append(trace)
+                batch = next_batch
+
+        # These properties are recorded after iteration to ensure they only happen once.
+        for _, trace_results in test_results.items():
+            result = trace_results['actual']
+            results['num_failures_by_type'][result] += 1
+            if result == FAIL:
+                trace_results['is_unexpected'] = True
+
+        return results['num_failures_by_type'][FAIL] == 0
+
+
+def _shard_tests(tests, shard_count, shard_index):
+    return [tests[index] for index in range(shard_index, len(tests), shard_count)]
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--isolated-script-test-output', type=str)
     parser.add_argument('--isolated-script-test-perf-output', type=str)
-    parser.add_argument('--isolated-script-test-filter', type=str)
+    parser.add_argument('-f', '--isolated-script-test-filter', '--filter', type=str)
     parser.add_argument('--test-suite', help='Test suite to run.', default=DEFAULT_TEST_SUITE)
     parser.add_argument('--render-test-output-dir', help='Directory to store screenshots')
     parser.add_argument('--xvfb', help='Start xvfb.', action='store_true')
+    parser.add_argument(
+        '--flaky-retries', help='Number of times to retry failed tests.', type=int, default=0)
+    parser.add_argument(
+        '--shard-count',
+        help='Number of shards for test splitting. Default is 1.',
+        type=int,
+        default=1)
+    parser.add_argument(
+        '--shard-index',
+        help='Index of the current shard for test splitting. Default is 0.',
+        type=int,
+        default=0)
+    parser.add_argument(
+        '--batch-size',
+        help='Number of tests to run in a group. Default: %d (disabled on Android)' %
+        DEFAULT_BATCH_SIZE,
+        type=int,
+        default=DEFAULT_BATCH_SIZE)
+    parser.add_argument(
+        '-l', '--log', help='Log output level. Default is %s.' % DEFAULT_LOG, default=DEFAULT_LOG)
+    parser.add_argument('--swiftshader', help='Test with SwiftShader.', action='store_true')
+    parser.add_argument(
+        '-i',
+        '--instance',
+        '--gold-instance',
+        '--skia-gold-instance',
+        help='Skia Gold instance. Default is "%s".' % DEFAULT_GOLD_INSTANCE,
+        default=DEFAULT_GOLD_INSTANCE)
+    parser.add_argument(
+        '--use-permissive-pixel-comparison',
+        type=int,
+        help='Use a more permissive pixel comparison algorithm than the '
+        'default "allow rounding errors" one. This is intended for use on CLs '
+        'that are likely to cause differences in many tests, e.g. SwiftShader '
+        'or driver changes. Can be enabled on bots by adding a '
+        '"Use-Permissive-Angle-Pixel-Comparison: True" footer.')
+    parser.add_argument(
+        '--key-frame-limit',
+        type=str,
+        help='Traces that have a high key frame can take a long time to run '
+        'on software renderers. To keep test times low, use this option to '
+        'skip traces that have key frames over the specified limit')
 
     add_skia_gold_args(parser)
 
     args, extra_flags = parser.parse_known_args()
+    angle_test_util.SetupLogging(args.log.upper())
+
     env = os.environ.copy()
 
-    if 'GTEST_TOTAL_SHARDS' in env and int(env['GTEST_TOTAL_SHARDS']) != 1:
-        logging.error('Sharding not yet implemented.')
-        sys.exit(1)
+    if angle_test_util.HasGtestShardsAndIndex(env):
+        args.shard_count, args.shard_index = angle_test_util.PopGtestShardsAndIndex(env)
+
+    angle_test_util.Initialize(args.test_suite)
 
     results = {
         'tests': {},
@@ -353,86 +540,50 @@ def main():
         },
     }
 
-    result_tests = {}
-
-    def run_tests(args, tests, extra_flags, env, screenshot_dir):
-        keys = get_skia_gold_keys(args)
-
-        with temporary_dir('angle_skia_gold_') as skia_gold_temp_dir:
-            gold_properties = angle_skia_gold_properties.ANGLESkiaGoldProperties(args)
-            gold_session_manager = angle_skia_gold_session_manager.ANGLESkiaGoldSessionManager(
-                skia_gold_temp_dir, gold_properties)
-            gold_session = gold_session_manager.GetSkiaGoldSession(keys)
-
-            for test in tests['traces']:
-
-                # Apply test filter if present.
-                if args.isolated_script_test_filter:
-                    full_name = 'angle_restricted_trace_gold_tests.%s' % test
-                    if not fnmatch.fnmatch(full_name, args.isolated_script_test_filter):
-                        logging.info('Skipping test %s because it does not match filter %s' %
-                                     (full_name, args.isolated_script_test_filter))
-                        continue
-
-                with common.temporary_file() as tempfile_path:
-                    cmd = [
-                        args.test_suite,
-                        DEFAULT_TEST_PREFIX + test,
-                        '--render-test-output-dir=%s' % screenshot_dir,
-                        '--one-frame-only',
-                        '--verbose-logging',
-                    ] + extra_flags
-
-                    result = PASS if run_wrapper(args, cmd, env, tempfile_path) == 0 else FAIL
-
-                    artifacts = {}
-
-                    if result == PASS:
-                        result = upload_test_result_to_skia_gold(args, gold_session_manager,
-                                                                 gold_session, gold_properties,
-                                                                 screenshot_dir, test, artifacts)
-
-                    expected_result = SKIP if result == SKIP else PASS
-                    result_tests[test] = {'expected': expected_result, 'actual': result}
-                    if result == FAIL:
-                        result_tests[test]['is_unexpected'] = True
-                    if len(artifacts) > 0:
-                        result_tests[test]['artifacts'] = artifacts
-                    results['num_failures_by_type'][result] += 1
-
-            return results['num_failures_by_type'][FAIL] == 0
+    test_results = {}
 
     rc = 0
 
     try:
-        if IsWindows():
-            args.test_suite = '.\\%s.exe' % args.test_suite
+        # If we have a generated list, use that (typically a subset)
+        gen_trace_list_path = os.path.join(os.getcwd(), 'gen', 'trace_list.json')
+        if os.path.exists(gen_trace_list_path):
+            logging.info('Using generated trace list at %s' % gen_trace_list_path)
+            with open(gen_trace_list_path) as fp:
+                tests = json.load(fp)
         else:
-            args.test_suite = './%s' % args.test_suite
+            # Read the full list of traces
+            full_trace_list_path = os.path.join(angle_path_util.ANGLE_ROOT_DIR, 'src', 'tests',
+                                                'restricted_traces', 'restricted_traces.json')
+            assert os.path.exists(full_trace_list_path), 'Failed to find full trace list'
+            logging.info('Using full trace list at %s' % full_trace_list_path)
+            with open(full_trace_list_path) as fp:
+                tests = json.load(fp)['traces']
 
-        # read test set
-        json_name = os.path.join(ANGLE_SRC_DIR, 'src', 'tests', 'restricted_traces',
-                                 'restricted_traces.json')
-        with open(json_name) as fp:
-            tests = json.load(fp)
+        # Split tests according to sharding
+        sharded_tests = _shard_tests(tests, args.shard_count, args.shard_index)
 
         if args.render_test_output_dir:
-            if not run_tests(args, tests, extra_flags, env, args.render_test_output_dir):
+            if not _run_tests(args, sharded_tests, extra_flags, env, args.render_test_output_dir,
+                              results, test_results):
                 rc = 1
         elif 'ISOLATED_OUTDIR' in env:
-            if not run_tests(args, tests, extra_flags, env, env['ISOLATED_OUTDIR']):
+            if not _run_tests(args, sharded_tests, extra_flags, env, env['ISOLATED_OUTDIR'],
+                              results, test_results):
                 rc = 1
         else:
             with temporary_dir('angle_trace_') as temp_dir:
-                if not run_tests(args, tests, extra_flags, env, temp_dir):
+                if not _run_tests(args, sharded_tests, extra_flags, env, temp_dir, results,
+                                  test_results):
                     rc = 1
 
     except Exception:
         traceback.print_exc()
+        results['interrupted'] = True
         rc = 1
 
-    if result_tests:
-        results['tests']['angle_restricted_trace_gold_tests'] = result_tests
+    if test_results:
+        results['tests']['angle_restricted_trace_gold_tests'] = test_results
 
     if args.isolated_script_test_output:
         with open(args.isolated_script_test_output, 'w') as out_file:
@@ -445,18 +596,5 @@ def main():
     return rc
 
 
-# This is not really a "script test" so does not need to manually add
-# any additional compile targets.
-def main_compile_targets(args):
-    json.dump([], args.output)
-
-
 if __name__ == '__main__':
-    # Conform minimally to the protocol defined by ScriptTest.
-    if 'compile_targets' in sys.argv:
-        funcs = {
-            'run': None,
-            'compile_targets': main_compile_targets,
-        }
-        sys.exit(common.run_script(sys.argv[1:], funcs))
     sys.exit(main())

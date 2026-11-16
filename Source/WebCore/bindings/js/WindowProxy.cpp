@@ -1,7 +1,7 @@
 /*
  *  Copyright (C) 1999-2001 Harri Porten (porten@kde.org)
  *  Copyright (C) 2001 Peter Kelly (pmk@post.com)
- *  Copyright (C) 2006-2019 Apple Inc. All rights reserved.
+ *  Copyright (C) 2006-2025 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -22,23 +22,50 @@
 #include "WindowProxy.h"
 
 #include "CommonVM.h"
-#include "Frame.h"
-#include "GCController.h"
+#include "ContentSecurityPolicy.h"
+#include "DOMWrapperWorld.h"
+#include "DocumentLoader.h"
+#include "DocumentPage.h"
+#include "FrameConsoleClient.h"
+#include "FrameLoader.h"
+#include "GarbageCollectionController.h"
+#include "JSDOMWindowBase.h"
 #include "JSWindowProxy.h"
+#include "LocalFrame.h"
+#include "LocalFrameInlines.h"
 #include "Page.h"
-#include "PageConsoleClient.h"
 #include "PageGroup.h"
 #include "RemoteFrame.h"
 #include "ScriptController.h"
+#include "SecurityOrigin.h"
 #include "runtime_root.h"
+#include <JavaScriptCore/JSGlobalObjectInlines.h>
 #include <JavaScriptCore/JSLock.h>
 #include <JavaScriptCore/StrongInlines.h>
 #include <JavaScriptCore/WeakGCMapInlines.h>
 #include <wtf/MemoryPressureHandler.h>
+#include <wtf/TZoneMallocInlines.h>
+
+#if ENABLE(WEBDRIVER_BIDI)
+#include "AutomationInstrumentation.h"
+#endif
 
 namespace WebCore {
 
 using namespace JSC;
+
+#if ENABLE(WEBDRIVER_BIDI)
+static SecurityOriginData resolveOriginForRealm(LocalFrame& localFrame)
+{
+    if (RefPtr document = localFrame.document())
+        return document->securityOrigin().data();
+
+    if (RefPtr loader = localFrame.loader().activeDocumentLoader(); loader && !loader->url().isEmpty())
+        return SecurityOriginData::fromURL(loader->url());
+
+    return SecurityOriginData::createOpaque();
+}
+#endif
 
 static void collectGarbageAfterWindowProxyDestruction()
 {
@@ -47,49 +74,76 @@ static void collectGarbageAfterWindowProxyDestruction()
     if (MemoryPressureHandler::singleton().isUnderMemoryPressure()) {
         // NOTE: We do the collection on next runloop to ensure that there's no pointer
         //       to the window object on the stack.
-        GCController::singleton().garbageCollectOnNextRunLoop();
+        GarbageCollectionController::singleton().garbageCollectOnNextRunLoop();
     } else
-        GCController::singleton().garbageCollectSoon();
+        GarbageCollectionController::singleton().garbageCollectSoon();
 }
 
-WindowProxy::WindowProxy(AbstractFrame& frame)
-    : m_frame(makeWeakPtr(frame))
-    , m_jsWindowProxies(makeUniqueRef<ProxyMap>())
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WindowProxy);
+
+WindowProxy::WindowProxy(Frame& frame)
+    : m_frame(frame)
 {
+}
+
+Ref<WindowProxy> WindowProxy::create(Frame& frame)
+{
+    return adoptRef(*new WindowProxy(frame));
 }
 
 WindowProxy::~WindowProxy()
 {
     ASSERT(!m_frame);
-    ASSERT(m_jsWindowProxies->isEmpty());
+    ASSERT(m_jsWindowProxies.isEmpty());
 }
 
-AbstractFrame* WindowProxy::frame() const
+Frame* WindowProxy::frame() const
 {
-    return m_frame.get();
+    return m_frame;
 }
 
 void WindowProxy::detachFromFrame()
 {
     ASSERT(m_frame);
 
+    // Save frame reference before nullifying for realm destruction notifications.
+    RefPtr<Frame> frameBeingDetached = m_frame.get();
     m_frame = nullptr;
 
-    // It's likely that destroying windowProxies will create a lot of garbage.
-    if (!m_jsWindowProxies->isEmpty()) {
-        while (!m_jsWindowProxies->isEmpty()) {
-            auto it = m_jsWindowProxies->begin();
+    // It's likely that destroying proxies will create a lot of garbage.
+    if (!m_jsWindowProxies.isEmpty()) {
+        do {
+            auto it = m_jsWindowProxies.begin();
             it->value->window()->setConsoleClient(nullptr);
-            destroyJSWindowProxy(*it->key);
-        }
+            destroyJSWindowProxy(it->key, frameBeingDetached.get());
+        } while (!m_jsWindowProxies.isEmpty());
         collectGarbageAfterWindowProxyDestruction();
     }
 }
 
-void WindowProxy::destroyJSWindowProxy(DOMWrapperWorld& world)
+void WindowProxy::replaceFrame(Frame& frame)
 {
-    ASSERT(m_jsWindowProxies->contains(&world));
-    m_jsWindowProxies->remove(&world);
+    ASSERT(m_frame);
+    m_frame = frame;
+    setDOMWindow(protect(frame.window()).get());
+}
+
+void WindowProxy::destroyJSWindowProxy(DOMWrapperWorld& world, Frame* frameForNotification)
+{
+    ASSERT(m_jsWindowProxies.contains(&world));
+    m_jsWindowProxies.remove(&world);
+
+#if ENABLE(WEBDRIVER_BIDI)
+    // Notify about realm destruction for automation.
+    // Use frameForNotification if provided (during detachment), otherwise use m_frame.
+    RefPtr frame = frameForNotification ? frameForNotification : m_frame.get();
+    if (frame) {
+        if (RefPtr localFrame = dynamicDowncast<LocalFrame>(*frame))
+            AutomationInstrumentation::scriptRealmDestroyed(localFrame->frameID(), world);
+    }
+#else
+    UNUSED_PARAM(frameForNotification);
+#endif
     world.didDestroyWindowProxy(this);
 }
 
@@ -97,20 +151,27 @@ JSWindowProxy& WindowProxy::createJSWindowProxy(DOMWrapperWorld& world)
 {
     ASSERT(m_frame);
 
-    ASSERT(!m_jsWindowProxies->contains(&world));
-    ASSERT(m_frame->window());
+    ASSERT(!m_jsWindowProxies.contains(&world));
+    ASSERT(protect(m_frame)->window());
 
     VM& vm = world.vm();
 
-    Strong<JSWindowProxy> jsWindowProxy(vm, &JSWindowProxy::create(vm, *m_frame->window(), world));
-    m_jsWindowProxies->add(&world, jsWindowProxy);
+    Strong<JSWindowProxy> jsWindowProxy(vm, &JSWindowProxy::create(vm, *protect(protect(m_frame)->window()).get(), world));
+    m_jsWindowProxies.add(world, jsWindowProxy);
     world.didCreateWindowProxy(this);
+
+#if ENABLE(WEBDRIVER_BIDI)
+    // Notify about realm creation for automation.
+    if (RefPtr localFrame = dynamicDowncast<LocalFrame>(*m_frame))
+        AutomationInstrumentation::scriptRealmCreated(localFrame->frameID(), resolveOriginForRealm(*localFrame), world);
+#endif
+
     return *jsWindowProxy.get();
 }
 
 Vector<JSC::Strong<JSWindowProxy>> WindowProxy::jsWindowProxiesAsVector() const
 {
-    return copyToVector(m_jsWindowProxies->values());
+    return copyToVector(m_jsWindowProxies.values());
 }
 
 JSDOMGlobalObject* WindowProxy::globalObject(DOMWrapperWorld& world)
@@ -126,14 +187,14 @@ JSWindowProxy& WindowProxy::createJSWindowProxyWithInitializedScript(DOMWrapperW
 
     JSLockHolder lock(world.vm());
     auto& windowProxy = createJSWindowProxy(world);
-    if (is<Frame>(*m_frame))
-        downcast<Frame>(*m_frame).script().initScriptForWindowProxy(windowProxy);
+    if (RefPtr localFrame = dynamicDowncast<LocalFrame>(*m_frame))
+        protect(localFrame->script())->initScriptForWindowProxy(windowProxy);
     return windowProxy;
 }
 
-void WindowProxy::clearJSWindowProxiesNotMatchingDOMWindow(AbstractDOMWindow* newDOMWindow, bool goingIntoBackForwardCache)
+void WindowProxy::clearJSWindowProxiesNotMatchingDOMWindow(DOMWindow* newDOMWindow, bool goingIntoBackForwardCache)
 {
-    if (m_jsWindowProxies->isEmpty())
+    if (m_jsWindowProxies.isEmpty())
         return;
 
     JSLockHolder lock(commonVM());
@@ -145,7 +206,7 @@ void WindowProxy::clearJSWindowProxiesNotMatchingDOMWindow(AbstractDOMWindow* ne
         // Clear the debugger and console from the current window before setting the new window.
         windowProxy->attachDebugger(nullptr);
         windowProxy->window()->setConsoleClient(nullptr);
-        if (auto* jsDOMWindow = jsDynamicCast<JSDOMWindowBase*>(windowProxy->vm(), windowProxy->window()))
+        if (auto* jsDOMWindow = dynamicDowncast<JSDOMWindowBase>(windowProxy->window()))
             jsDOMWindow->willRemoveFromWindowProxy();
     }
 
@@ -155,14 +216,13 @@ void WindowProxy::clearJSWindowProxiesNotMatchingDOMWindow(AbstractDOMWindow* ne
         collectGarbageAfterWindowProxyDestruction();
 }
 
-void WindowProxy::setDOMWindow(AbstractDOMWindow* newDOMWindow)
+void WindowProxy::setDOMWindow(DOMWindow* newDOMWindow)
 {
     ASSERT(newDOMWindow);
-
-    if (m_jsWindowProxies->isEmpty())
-        return;
-
     ASSERT(m_frame);
+
+    if (m_jsWindowProxies.isEmpty())
+        return;
 
     JSLockHolder lock(commonVM());
 
@@ -172,50 +232,64 @@ void WindowProxy::setDOMWindow(AbstractDOMWindow* newDOMWindow)
 
         windowProxy->setWindow(*newDOMWindow);
 
-        ScriptController* scriptController = nullptr;
-        Page* page = nullptr;
-        if (is<Frame>(*m_frame)) {
-            auto& frame = downcast<Frame>(*m_frame);
-            scriptController = &frame.script();
-            page = frame.page();
+#if ENABLE(WEBDRIVER_BIDI)
+        // Navigations reuse the JSWindowProxy with a new DOMWindow, which means a new realm.
+        if (RefPtr localFrame = dynamicDowncast<LocalFrame>(m_frame.get())) {
+            AutomationInstrumentation::scriptRealmDestroyed(localFrame->frameID(), windowProxy->world());
+            AutomationInstrumentation::scriptRealmCreated(localFrame->frameID(), resolveOriginForRealm(*localFrame), windowProxy->world());
+        }
+#endif
+
+        if (RefPtr localFrame = dynamicDowncast<LocalFrame>(m_frame.get())) {
+            CheckedRef scriptController = localFrame->script();
+
+            // ScriptController's m_cacheableBindingRootObject persists between page navigations
+            // so needs to know about the new JSDOMWindow.
+            if (RefPtr cacheableBindingRootObject = scriptController->existingCacheableBindingRootObject())
+                cacheableBindingRootObject->updateGlobalObject(windowProxy->window());
+
+            windowProxy->window()->setConsoleClient(localFrame->console());
+
+            // Apply the document's CSP state to the new JSDOMWindow created by setWindow().
+            if (RefPtr document = localFrame->document()) {
+                if (CheckedPtr csp = document->contentSecurityPolicy())
+                    csp->didCreateWindowProxy(*windowProxy.get());
+            }
         }
 
-        // ScriptController's m_cacheableBindingRootObject persists between page navigations
-        // so needs to know about the new JSDOMWindow.
-        if (auto* cacheableBindingRootObject = scriptController ? scriptController->existingCacheableBindingRootObject() : nullptr)
-            cacheableBindingRootObject->updateGlobalObject(windowProxy->window());
-
+        RefPtr page = m_frame->page();
         windowProxy->attachDebugger(page ? page->debugger() : nullptr);
         if (page)
             windowProxy->window()->setProfileGroup(page->group().identifier());
-        windowProxy->window()->setConsoleClient(page ? makeWeakPtr(page->console()) : nullptr);
     }
 }
 
 void WindowProxy::attachDebugger(JSC::Debugger* debugger)
 {
-    for (auto& windowProxy : m_jsWindowProxies->values())
+    for (auto& windowProxy : m_jsWindowProxies.values())
         windowProxy->attachDebugger(debugger);
 }
 
-AbstractDOMWindow* WindowProxy::window() const
+DOMWindow* WindowProxy::window() const
 {
-    return m_frame ? m_frame->window() : nullptr;
+    RefPtr frame = m_frame.get();
+    return frame ? frame->window() : nullptr;
 }
 
-WindowProxy::ProxyMap::ValuesConstIteratorRange WindowProxy::jsWindowProxies() const
+JSWindowProxy* WindowProxy::existingJSWindowProxy(DOMWrapperWorld& world) const
 {
-    return m_jsWindowProxies->values();
+    return m_jsWindowProxies.get(&world).get();
 }
 
-WindowProxy::ProxyMap WindowProxy::releaseJSWindowProxies()
+JSWindowProxy* WindowProxy::jsWindowProxy(DOMWrapperWorld& world)
 {
-    return std::exchange(m_jsWindowProxies, makeUniqueRef<ProxyMap>());
-}
+    if (!m_frame)
+        return nullptr;
 
-void WindowProxy::setJSWindowProxies(ProxyMap&& windowProxies)
-{
-    m_jsWindowProxies = makeUniqueRef<ProxyMap>(WTFMove(windowProxies));
+    if (auto* existingProxy = existingJSWindowProxy(world))
+        return existingProxy;
+
+    return &createJSWindowProxyWithInitializedScript(world);
 }
 
 } // namespace WebCore

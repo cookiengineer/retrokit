@@ -27,6 +27,12 @@ function initializeWritableStreamDefaultWriter(stream)
 {
     "use strict";
 
+    // stream can be a WritableStream if WritableStreamDefaultWriter constructor is called directly from JS
+    // or an InternalWritableStream in other code paths.
+    const internalStream = @getInternalWritableStream(stream);
+    if (internalStream)
+        stream = internalStream;
+
     if (!@isWritableStream(stream))
         @throwTypeError("WritableStreamDefaultWriter constructor takes a WritableStream");
 
@@ -40,9 +46,9 @@ function closed()
     "use strict";
 
     if (!@isWritableStreamDefaultWriter(this))
-        return @Promise.@reject(@makeGetterTypeError("WritableStreamDefaultWriter", "closed"));
+        return @promiseReject(@Promise, @makeGetterTypeError("WritableStreamDefaultWriter", "closed"));
 
-    return @getByIdDirectPrivate(this, "closedPromise").@promise;
+    return @getByIdDirectPrivate(this, "closedPromise").promise;
 }
 
 @getter
@@ -65,21 +71,22 @@ function ready()
     "use strict";
 
     if (!@isWritableStreamDefaultWriter(this))
-        return @Promise.@reject(@makeThisTypeError("WritableStreamDefaultWriter", "ready"));
+        return @promiseReject(@Promise, @makeThisTypeError("WritableStreamDefaultWriter", "ready"));
 
-    return @getByIdDirectPrivate(this, "readyPromise").@promise;
+    return @getByIdDirectPrivate(this, "readyPromise").promise;
 }
 
-function abort(reason)
+function abort()
 {
     "use strict";
 
     if (!@isWritableStreamDefaultWriter(this))
-        return @Promise.@reject(@makeThisTypeError("WritableStreamDefaultWriter", "abort"));
+        return @promiseReject(@Promise, @makeThisTypeError("WritableStreamDefaultWriter", "abort"));
 
     if (@getByIdDirectPrivate(this, "stream") === @undefined)
-        return @Promise.@reject(@makeTypeError("WritableStreamDefaultWriter has no stream"));
+        return @promiseReject(@Promise, @makeTypeError("WritableStreamDefaultWriter has no stream"));
 
+    const reason = arguments[0];
     return @writableStreamDefaultWriterAbort(this, reason);
 }
 
@@ -88,14 +95,14 @@ function close()
     "use strict";
 
     if (!@isWritableStreamDefaultWriter(this))
-        return @Promise.@reject(@makeThisTypeError("WritableStreamDefaultWriter", "close"));
+        return @promiseReject(@Promise, @makeThisTypeError("WritableStreamDefaultWriter", "close"));
 
     const stream = @getByIdDirectPrivate(this, "stream");
     if (stream === @undefined)
-        return @Promise.@reject(@makeTypeError("WritableStreamDefaultWriter has no stream"));
+        return @promiseReject(@Promise, @makeTypeError("WritableStreamDefaultWriter has no stream"));
 
     if (@writableStreamCloseQueuedOrInFlight(stream))
-        return @Promise.@reject(@makeTypeError("WritableStreamDefaultWriter is being closed"));
+        return @promiseReject(@Promise, @makeTypeError("WritableStreamDefaultWriter is being closed"));
     
     return @writableStreamDefaultWriterClose(this);
 }
@@ -115,15 +122,16 @@ function releaseLock()
     @writableStreamDefaultWriterRelease(this);
 }
 
-function write(chunk)
+function write()
 {
     "use strict";
 
     if (!@isWritableStreamDefaultWriter(this))
-        return @Promise.@reject(@makeThisTypeError("WritableStreamDefaultWriter", "write"));
+        return @promiseReject(@Promise, @makeThisTypeError("WritableStreamDefaultWriter", "write"));
 
     if (@getByIdDirectPrivate(this, "stream") === @undefined)
-        return @Promise.@reject(@makeTypeError("WritableStreamDefaultWriter has no stream"));
+        return @promiseReject(@Promise, @makeTypeError("WritableStreamDefaultWriter has no stream"));
 
+    const chunk = arguments[0];
     return @writableStreamDefaultWriterWrite(this, chunk);
 }

@@ -27,10 +27,12 @@
 
 #if ENABLE(PREVIEW_CONVERTER)
 
-#include "ResourceError.h"
-#include "ResourceResponse.h"
-#include <wtf/RefCounted.h>
+#include <WebCore/ResourceError.h>
+#include <WebCore/ResourceResponse.h>
+#include <WebCore/SharedBuffer.h>
+#include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
@@ -41,21 +43,19 @@ namespace WebCore {
 
 class ResourceError;
 class ResourceRequest;
-class SharedBuffer;
-class SharedBufferDataView;
 struct PreviewConverterClient;
 struct PreviewConverterProvider;
 
-struct PreviewPlatformDelegate : CanMakeWeakPtr<PreviewPlatformDelegate> {
+struct PreviewPlatformDelegate : AbstractRefCountedAndCanMakeWeakPtr<PreviewPlatformDelegate> {
     virtual ~PreviewPlatformDelegate() = default;
 
-    virtual void delegateDidReceiveData(const SharedBuffer&) = 0;
+    virtual void delegateDidReceiveData(const FragmentedSharedBuffer&) = 0;
     virtual void delegateDidFinishLoading() = 0;
     virtual void delegateDidFailWithError(const ResourceError&) = 0;
 };
 
 class PreviewConverter final : private PreviewPlatformDelegate, public RefCounted<PreviewConverter> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(PreviewConverter);
     WTF_MAKE_NONCOPYABLE(PreviewConverter);
 public:
     static Ref<PreviewConverter> create(const ResourceResponse& response, PreviewConverterProvider& provider)
@@ -67,12 +67,16 @@ public:
 
     ~PreviewConverter();
 
+    // PreviewPlatformDelegate.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     ResourceRequest safeRequest(const ResourceRequest&) const;
     ResourceResponse previewResponse() const;
     WEBCORE_EXPORT String previewFileName() const;
     WEBCORE_EXPORT String previewUTI() const;
     const ResourceError& previewError() const;
-    const SharedBuffer& previewData() const;
+    const FragmentedSharedBuffer& previewData() const;
 
     void failedUpdating();
     void finishUpdating();
@@ -94,7 +98,7 @@ private:
     bool isPlatformPasswordError(const ResourceError&) const;
 
     template<typename T> void iterateClients(T&& callback);
-    void appendFromBuffer(const SharedBuffer&);
+    void appendFromBuffer(const FragmentedSharedBuffer&);
     void didAddClient(PreviewConverterClient&);
     void didFailConvertingWithError(const ResourceError&);
     void didFailUpdating();
@@ -106,7 +110,7 @@ private:
     void platformUnlockWithPassword(const String&);
 
     // PreviewPlatformDelegate
-    void delegateDidReceiveData(const SharedBuffer&) final;
+    void delegateDidReceiveData(const FragmentedSharedBuffer&) final;
     void delegateDidFinishLoading() final;
     void delegateDidFailWithError(const ResourceError&) final;
 
@@ -118,7 +122,7 @@ private:
         FinishedConverting,
     };
 
-    Ref<SharedBuffer> m_previewData;
+    SharedBufferBuilder m_previewData;
     ResourceError m_previewError;
     ResourceResponse m_originalResponse;
     State m_state { State::Updating };

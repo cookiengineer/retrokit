@@ -31,37 +31,47 @@
 #include "config.h"
 #include "InspectorLayerTreeAgent.h"
 
+#include "DestinationColorSpace.h"
+#include "GraphicsContext.h"
+#include "GraphicsLayer.h"
+#include "ImageBuffer.h"
+#include "ImageUtilities.h"
 #include "InspectorDOMAgent.h"
 #include "InstrumentingAgents.h"
 #include "IntRect.h"
+#include "PixelFormat.h"
 #include "PseudoElement.h"
 #include "RenderChildIterator.h"
+#include "RenderElementInlines.h"
 #include "RenderLayer.h"
 #include "RenderLayerBacking.h"
 #include "RenderLayerCompositor.h"
 #include "RenderView.h"
 #include <JavaScriptCore/IdentifiersFactory.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 using namespace Inspector;
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(InspectorLayerTreeAgent);
+
 InspectorLayerTreeAgent::InspectorLayerTreeAgent(WebAgentContext& context)
     : InspectorAgentBase("LayerTree"_s, context)
-    , m_frontendDispatcher(makeUnique<Inspector::LayerTreeFrontendDispatcher>(context.frontendRouter))
+    , m_frontendDispatcher(makeUniqueRef<Inspector::LayerTreeFrontendDispatcher>(context.frontendRouter))
     , m_backendDispatcher(Inspector::LayerTreeBackendDispatcher::create(context.backendDispatcher, this))
 {
 }
 
 InspectorLayerTreeAgent::~InspectorLayerTreeAgent() = default;
 
-void InspectorLayerTreeAgent::didCreateFrontendAndBackend(Inspector::FrontendRouter*, Inspector::BackendDispatcher*)
+void InspectorLayerTreeAgent::didCreateFrontendAndBackend()
 {
 }
 
 void InspectorLayerTreeAgent::willDestroyFrontendAndBackend(Inspector::DisconnectReason)
 {
-    disable();
+    std::ignore = disable();
 }
 
 void InspectorLayerTreeAgent::reset()
@@ -73,16 +83,16 @@ void InspectorLayerTreeAgent::reset()
     m_suppressLayerChangeEvents = false;
 }
 
-Protocol::ErrorStringOr<void> InspectorLayerTreeAgent::enable()
+Inspector::Protocol::ErrorStringOr<void> InspectorLayerTreeAgent::enable()
 {
-    m_instrumentingAgents.setEnabledLayerTreeAgent(this);
+    Ref { m_instrumentingAgents.get() }->setEnabledLayerTreeAgent(this);
 
     return { };
 }
 
-Protocol::ErrorStringOr<void> InspectorLayerTreeAgent::disable()
+Inspector::Protocol::ErrorStringOr<void> InspectorLayerTreeAgent::disable()
 {
-    m_instrumentingAgents.setEnabledLayerTreeAgent(nullptr);
+    Ref { m_instrumentingAgents.get() }->setEnabledLayerTreeAgent(nullptr);
 
     reset();
 
@@ -109,53 +119,55 @@ void InspectorLayerTreeAgent::pseudoElementDestroyed(PseudoElement& pseudoElemen
     unbindPseudoElement(&pseudoElement);
 }
 
-Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Protocol::LayerTree::Layer>>> InspectorLayerTreeAgent::layersForNode(Protocol::DOM::NodeId nodeId)
+Inspector::Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Inspector::Protocol::LayerTree::Layer>>> InspectorLayerTreeAgent::layersForNode(Inspector::Protocol::DOM::NodeId nodeId)
 {
-    auto* node = m_instrumentingAgents.persistentDOMAgent()->nodeForId(nodeId);
+    m_suppressLayerChangeEvents = false;
+
+    Ref agents = m_instrumentingAgents.get();
+    RefPtr node = CheckedPtr { agents->persistentDOMAgent() }->nodeForId(nodeId);
     if (!node)
         return makeUnexpected("Missing node for given nodeId"_s);
 
-    auto* renderer = node->renderer();
+    CheckedPtr renderer = node->renderer();
     if (!renderer)
         return makeUnexpected("Missing renderer of node for given nodeId"_s);
 
     if (!is<RenderElement>(*renderer))
         return makeUnexpected("Missing renderer of element for given nodeId"_s);
 
-    auto layers = JSON::ArrayOf<Protocol::LayerTree::Layer>::create();
+    auto layers = JSON::ArrayOf<Inspector::Protocol::LayerTree::Layer>::create();
 
     gatherLayersUsingRenderObjectHierarchy(downcast<RenderElement>(*renderer), layers);
-
-    m_suppressLayerChangeEvents = false;
 
     return layers;
 }
 
-void InspectorLayerTreeAgent::gatherLayersUsingRenderObjectHierarchy(RenderElement& renderer, JSON::ArrayOf<Protocol::LayerTree::Layer>& layers)
+void InspectorLayerTreeAgent::gatherLayersUsingRenderObjectHierarchy(RenderElement& renderer, JSON::ArrayOf<Inspector::Protocol::LayerTree::Layer>& layers)
 {
     if (renderer.hasLayer()) {
-        gatherLayersUsingRenderLayerHierarchy(downcast<RenderLayerModelObject>(renderer).layer(), layers);
+        gatherLayersUsingRenderLayerHierarchy(CheckedPtr { downcast<RenderLayerModelObject>(renderer).layer() }, layers);
         return;
     }
 
-    for (auto& child : childrenOfType<RenderElement>(renderer))
+    for (CheckedRef child : childrenOfType<RenderElement>(renderer))
         gatherLayersUsingRenderObjectHierarchy(child, layers);
 }
 
-void InspectorLayerTreeAgent::gatherLayersUsingRenderLayerHierarchy(RenderLayer* renderLayer, JSON::ArrayOf<Protocol::LayerTree::Layer>& layers)
+void InspectorLayerTreeAgent::gatherLayersUsingRenderLayerHierarchy(RenderLayer* renderLayer, JSON::ArrayOf<Inspector::Protocol::LayerTree::Layer>& layers)
 {
-    if (renderLayer->isComposited())
+    CheckedPtr layer = renderLayer;
+    if (layer->isComposited())
         layers.addItem(buildObjectForLayer(renderLayer));
 
-    for (renderLayer = renderLayer->firstChild(); renderLayer; renderLayer = renderLayer->nextSibling())
-        gatherLayersUsingRenderLayerHierarchy(renderLayer, layers);
+    for (layer = layer->firstChild(); layer; layer = layer->nextSibling())
+        gatherLayersUsingRenderLayerHierarchy(layer.get(), layers);
 }
 
-Ref<Protocol::LayerTree::Layer> InspectorLayerTreeAgent::buildObjectForLayer(RenderLayer* renderLayer)
+Ref<Inspector::Protocol::LayerTree::Layer> InspectorLayerTreeAgent::buildObjectForLayer(RenderLayer* renderLayer)
 {
-    RenderObject* renderer = &renderLayer->renderer();
+    RenderElement* renderer = &renderLayer->renderer();
     RenderLayerBacking* backing = renderLayer->backing();
-    Node* node = renderer->node();
+    RefPtr<Node> node = renderer->element();
 
     bool isReflection = renderLayer->isReflection();
     bool isGenerated = (isReflection ? renderer->parent() : renderer)->isBeforeOrAfterContent();
@@ -166,14 +178,14 @@ Ref<Protocol::LayerTree::Layer> InspectorLayerTreeAgent::buildObjectForLayer(Ren
     else if (isReflection && isGenerated)
         node = renderer->parent()->generatingElement();
     else if (isGenerated)
-        node = renderer->generatingNode();
+        node = renderer->generatingElement();
     else if (isReflection || isAnonymous)
         node = renderer->parent()->element();
 
     // Basic set of properties.
-    auto layerObject = Protocol::LayerTree::Layer::create()
+    auto layerObject = Inspector::Protocol::LayerTree::Layer::create()
         .setLayerId(bind(renderLayer))
-        .setNodeId(idForNode(node))
+        .setNodeId(idForNode(node.get()))
         .setBounds(buildObjectForIntRect(renderer->absoluteBoundingBoxRect()))
         .setMemory(backing->backingStoreMemoryEstimate())
         .setCompositedBounds(buildObjectForIntRect(enclosingIntRect(backing->compositedBounds())))
@@ -190,32 +202,33 @@ Ref<Protocol::LayerTree::Layer> InspectorLayerTreeAgent::buildObjectForLayer(Ren
         if (isReflection)
             renderer = renderer->parent();
         layerObject->setIsGeneratedContent(true);
-        layerObject->setPseudoElementId(bindPseudoElement(downcast<PseudoElement>(renderer->node())));
+        layerObject->setPseudoElementId(bindPseudoElement(RefPtr { downcast<PseudoElement>(renderer->element()) }.get()));
         if (renderer->isBeforeContent())
-            layerObject->setPseudoElement("before");
+            layerObject->setPseudoElement("before"_s);
         else if (renderer->isAfterContent())
-            layerObject->setPseudoElement("after");
+            layerObject->setPseudoElement("after"_s);
     }
 
     // FIXME: RenderView is now really anonymous but don't tell about it to the frontend before making sure it can handle it.
     if (isAnonymous && !renderer->isRenderView()) {
         layerObject->setIsAnonymous(true);
-        const RenderStyle& style = renderer->style();
-        if (style.styleType() == PseudoId::FirstLetter)
-            layerObject->setPseudoElement("first-letter");
-        else if (style.styleType() == PseudoId::FirstLine)
-            layerObject->setPseudoElement("first-line");
+        CheckedRef style = renderer->style();
+        if (style->pseudoElementType() == PseudoElementType::FirstLetter)
+            layerObject->setPseudoElement("first-letter"_s);
+        else if (style->pseudoElementType() == PseudoElementType::FirstLine)
+            layerObject->setPseudoElement("first-line"_s);
     }
 
     return layerObject;
 }
 
-Protocol::DOM::NodeId InspectorLayerTreeAgent::idForNode(Node* node)
+Inspector::Protocol::DOM::NodeId InspectorLayerTreeAgent::idForNode(Node* node)
 {
     if (!node)
         return 0;
 
-    InspectorDOMAgent* domAgent = m_instrumentingAgents.persistentDOMAgent();
+    Ref agents = m_instrumentingAgents.get();
+    CheckedPtr domAgent = agents->persistentDOMAgent();
     
     auto nodeId = domAgent->boundNodeId(node);
     if (!nodeId) {
@@ -226,9 +239,9 @@ Protocol::DOM::NodeId InspectorLayerTreeAgent::idForNode(Node* node)
     return nodeId;
 }
 
-Ref<Protocol::LayerTree::IntRect> InspectorLayerTreeAgent::buildObjectForIntRect(const IntRect& rect)
+Ref<Inspector::Protocol::LayerTree::IntRect> InspectorLayerTreeAgent::buildObjectForIntRect(const IntRect& rect)
 {
-    return Protocol::LayerTree::IntRect::create()
+    return Inspector::Protocol::LayerTree::IntRect::create()
         .setX(rect.x())
         .setY(rect.y())
         .setWidth(rect.width())
@@ -236,15 +249,15 @@ Ref<Protocol::LayerTree::IntRect> InspectorLayerTreeAgent::buildObjectForIntRect
         .release();
 }
 
-Protocol::ErrorStringOr<Ref<Protocol::LayerTree::CompositingReasons>> InspectorLayerTreeAgent::reasonsForCompositingLayer(const Protocol::LayerTree::LayerId& layerId)
+Inspector::Protocol::ErrorStringOr<Ref<Inspector::Protocol::LayerTree::CompositingReasons>> InspectorLayerTreeAgent::reasonsForCompositingLayer(const Inspector::Protocol::LayerTree::LayerId& layerId)
 {
-    const RenderLayer* renderLayer = m_idToLayer.get(layerId);
+    const CheckedPtr renderLayer = m_idToLayer.get(layerId);
 
     if (!renderLayer)
         return makeUnexpected("Missing render layer for given layerId"_s);
 
     OptionSet<CompositingReason> reasons = renderLayer->compositor().reasonsForCompositing(*renderLayer);
-    auto compositingReasons = Protocol::LayerTree::CompositingReasons::create().release();
+    auto compositingReasons = Inspector::Protocol::LayerTree::CompositingReasons::create().release();
 
     if (reasons.contains(CompositingReason::Transform3D))
         compositingReasons->setTransform3D(true);
@@ -325,8 +338,48 @@ Protocol::ErrorStringOr<Ref<Protocol::LayerTree::CompositingReasons>> InspectorL
     if (reasons.contains(CompositingReason::Root))
         compositingReasons->setRoot(true);
 
+    if (reasons.contains(CompositingReason::BackdropRoot))
+        compositingReasons->setBackdropRoot(true);
+
     return compositingReasons;
 }
+
+Inspector::CommandResult<String> InspectorLayerTreeAgent::requestContent(const Inspector::Protocol::LayerTree::LayerId& layerId)
+{
+    CheckedPtr renderLayer = m_idToLayer.get(layerId);
+    if (!renderLayer)
+        return makeUnexpected("Missing render layer for given layerId"_s);
+
+    auto* backing = renderLayer->backing();
+    if (!backing)
+        return makeUnexpected("Layer is not composited"_s);
+
+    RefPtr graphicsLayer = backing->graphicsLayer();
+    if (!graphicsLayer)
+        return makeUnexpected("Missing graphics layer"_s);
+
+    FloatSize layerSize = graphicsLayer->size();
+    if (layerSize.isEmpty())
+        return emptyString();
+
+    // Limit scale factor for large layers to prevent excessive memory usage.
+    constexpr float maxScaleFactor = 2;
+    constexpr float maxSnapshotDimension = 4096;
+    float scaleFactor = std::min({
+        maxSnapshotDimension / layerSize.width(),
+        maxSnapshotDimension / layerSize.height(),
+        maxScaleFactor,
+    });
+
+    auto imageBuffer = ImageBuffer::create(layerSize, RenderingMode::Unaccelerated, RenderingPurpose::Snapshot, scaleFactor, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
+    if (!imageBuffer)
+        return makeUnexpected("Failed to create image buffer"_s);
+
+    graphicsLayer->paintGraphicsLayerContents(imageBuffer->context(), { { }, layerSize });
+
+    return encodeDataURL(WTF::move(imageBuffer), "image/png"_s);
+}
+
 
 String InspectorLayerTreeAgent::bind(const RenderLayer* layer)
 {
@@ -334,7 +387,7 @@ String InspectorLayerTreeAgent::bind(const RenderLayer* layer)
         return emptyString();
     return m_documentLayerToIdMap.ensure(layer, [this, layer] {
         auto identifier = IdentifiersFactory::createIdentifier();
-        m_idToLayer.set(identifier, layer);
+        m_idToLayer.set(identifier, InlineWeakPtr { layer });
         return identifier;
     }).iterator->value;
 }
@@ -353,7 +406,7 @@ String InspectorLayerTreeAgent::bindPseudoElement(PseudoElement* pseudoElement)
         return emptyString();
     return m_pseudoElementToIdMap.ensure(*pseudoElement, [this, pseudoElement] {
         auto identifier = IdentifiersFactory::createIdentifier();
-        m_idToPseudoElement.set(identifier, makeWeakPtr(pseudoElement));
+        m_idToPseudoElement.set(identifier, pseudoElement);
         return identifier;
     }).iterator->value;
 }

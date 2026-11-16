@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Apple Inc.  All rights reserved.
+ * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,6 +29,7 @@
 #include "SVGAnimatedDecoratedProperty.h"
 #include "SVGAnimatedPrimitiveProperty.h"
 #include "SVGAnimatedPropertyList.h"
+#include "SVGAnimatedString.h"
 #include "SVGAnimatedValueProperty.h"
 #include "SVGDecoratedEnumeration.h"
 #include "SVGLength.h"
@@ -46,7 +47,6 @@ namespace WebCore {
 using SVGAnimatedBoolean = SVGAnimatedPrimitiveProperty<bool>;
 using SVGAnimatedInteger = SVGAnimatedPrimitiveProperty<int>;
 using SVGAnimatedNumber = SVGAnimatedPrimitiveProperty<float>;
-using SVGAnimatedString = SVGAnimatedPrimitiveProperty<String>;
 
 using SVGAnimatedEnumeration = SVGAnimatedDecoratedProperty<SVGDecoratedEnumeration, unsigned>;
 
@@ -82,18 +82,18 @@ public:
 
     SVGPathByteStream& currentPathByteStream()
     {
-        return isAnimating() ? animVal()->pathByteStream() : baseVal()->pathByteStream();
+        return isAnimating() ? animVal().pathByteStream() : baseVal()->pathByteStream();
     }
 
     Path currentPath()
     {
-        return isAnimating() ? animVal()->path() : baseVal()->path();
+        return isAnimating() ? animVal().path() : baseVal()->path();
     }
 
     size_t approximateMemoryCost() const
     {
         if (isAnimating())
-            return baseVal()->approximateMemoryCost() + animVal()->approximateMemoryCost();
+            return baseVal()->approximateMemoryCost() + animVal().approximateMemoryCost();
         return baseVal()->approximateMemoryCost();
     }
 };

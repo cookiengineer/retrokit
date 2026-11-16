@@ -26,6 +26,7 @@
 #include <wtf/HashFunctions.h>
 #include <wtf/KeyValuePair.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/text/ASCIILiteral.h>
 
 #ifdef __OBJC__
 #include <CoreFoundation/CoreFoundation.h>
@@ -45,7 +46,7 @@ template<typename T> struct GenericHashTraitsBase<false, T> {
     static constexpr bool hasIsEmptyValueFunction = false;
 
     // Used by WeakPtr to indicate that the value may become deleted without being explicitly removed.
-    static constexpr bool hasIsReleasedWeakValueFunction = false;
+    static constexpr bool hasIsWeakNullValueFunction = false;
 
     // The starting table size. Can be overridden when we know beforehand that
     // a hash table will have at least N entries.
@@ -89,6 +90,13 @@ template<typename T> struct HashTraits : GenericHashTraits<T> { };
 
 template<typename T> struct FloatHashTraits : GenericHashTraits<T> {
     static T emptyValue() { return std::numeric_limits<T>::infinity(); }
+    static void constructDeletedValue(T& slot) { slot = -std::numeric_limits<T>::infinity(); }
+    static bool isDeletedValue(T value) { return value == -std::numeric_limits<T>::infinity(); }
+};
+
+template<typename T> struct FloatWithZeroEmptyKeyHashTraits : GenericHashTraits<T> {
+    static constexpr bool emptyValueIsZero = true;
+    static T emptyValue() { return static_cast<T>(0); }
     static void constructDeletedValue(T& slot) { slot = -std::numeric_limits<T>::infinity(); }
     static bool isDeletedValue(T value) { return value == -std::numeric_limits<T>::infinity(); }
 };
@@ -145,6 +153,7 @@ template<typename T> struct SimpleClassHashTraits : GenericHashTraits<T> {
 template<typename T, typename Deleter> struct HashTraits<std::unique_ptr<T, Deleter>> : SimpleClassHashTraits<std::unique_ptr<T, Deleter>> {
     typedef std::nullptr_t EmptyValueType;
     static EmptyValueType emptyValue() { return nullptr; }
+    static bool isEmptyValue(const std::unique_ptr<T, Deleter>& value) { return !value; }
 
     static void constructDeletedValue(std::unique_ptr<T, Deleter>& slot) { new (NotNull, std::addressof(slot)) std::unique_ptr<T, Deleter> { reinterpret_cast<T*>(-1) }; }
     static bool isDeletedValue(const std::unique_ptr<T, Deleter>& value) { return value.get() == reinterpret_cast<T*>(-1); }
@@ -173,7 +182,7 @@ template<typename T, typename Deleter> struct HashTraits<std::unique_ptr<T, Dele
 
         // The null case happens if a caller uses std::move() to remove the pointer before calling remove()
         // with an iterator. This is very uncommon.
-        if (LIKELY(pointer))
+        if (pointer) [[likely]]
             Deleter()(pointer);
     }
 };
@@ -181,6 +190,14 @@ template<typename T, typename Deleter> struct HashTraits<std::unique_ptr<T, Dele
 template<typename T> struct HashTraits<UniqueRef<T>> : SimpleClassHashTraits<UniqueRef<T>> {
     typedef std::nullptr_t EmptyValueType;
     static EmptyValueType emptyValue() { return nullptr; }
+
+    template<typename>
+    static void constructEmptyValue(UniqueRef<T>& slot)
+    {
+        new (NotNull, std::addressof(slot)) UniqueRef<T>(HashTableEmptyValue);
+    }
+
+    static bool isEmptyValue(const UniqueRef<T>& value) { return value.isHashTableEmptyValue(); }
 
     static void constructDeletedValue(UniqueRef<T>& slot) { new (NotNull, std::addressof(slot)) UniqueRef<T> { reinterpret_cast<T*>(-1) }; }
     static bool isDeletedValue(const UniqueRef<T>& value) { return value.get() == reinterpret_cast<T*>(-1); }
@@ -195,19 +212,29 @@ template<typename T> struct HashTraits<UniqueRef<T>> : SimpleClassHashTraits<Uni
     static TakeType take(std::nullptr_t) { return nullptr; }
 };
 
-template<typename P> struct HashTraits<RefPtr<P>> : SimpleClassHashTraits<RefPtr<P>> {
-    static P* emptyValue() { return nullptr; }
+template<> struct HashTraits<ASCIILiteral> : SimpleClassHashTraits<ASCIILiteral> {
+    static ASCIILiteral emptyValue() { return { }; }
+    static bool isEmptyValue(const ASCIILiteral& value) { return value.isNull(); }
 
-    typedef P* PeekType;
-    static PeekType peek(const RefPtr<P>& value) { return value.get(); }
+    static void constructDeletedValue(ASCIILiteral& slot) { slot = ASCIILiteral::deletedValue(); }
+    static bool isDeletedValue(const ASCIILiteral& value) { return value.isDeletedValue(); }
+};
+
+template<typename P, typename Q, typename R> struct HashTraits<RefPtr<P, Q, R>> : SimpleClassHashTraits<RefPtr<P, Q, R>> {
+    static P* emptyValue() { return nullptr; }
+    static bool isEmptyValue(const RefPtr<P, Q, R>& value) { return !value; }
+
+    using PeekType = P*;
+    static PeekType peek(const RefPtr<P, Q, R>& value) { return value; }
     static PeekType peek(P* value) { return value; }
 
-    static void customDeleteBucket(RefPtr<P>& value)
+    static void customDeleteBucket(RefPtr<P, Q, R>& value)
     {
         // See unique_ptr's customDeleteBucket() for an explanation.
-        ASSERT(!SimpleClassHashTraits<RefPtr<P>>::isDeletedValue(value));
-        auto valueToBeDestroyed = WTFMove(value);
-        SimpleClassHashTraits<RefPtr<P>>::constructDeletedValue(value);
+        bool isDeletedValue = SimpleClassHashTraits<RefPtr<P, Q, R>>::isDeletedValue(value);
+        ASSERT_UNUSED(isDeletedValue, !isDeletedValue);
+        auto valueToBeDestroyed = WTF::move(value);
+        SimpleClassHashTraits<RefPtr<P, Q, R>>::constructDeletedValue(value);
     }
 };
 
@@ -215,7 +242,7 @@ template<typename P> struct RefHashTraits : SimpleClassHashTraits<Ref<P>> {
     static constexpr bool emptyValueIsZero = true;
     static Ref<P> emptyValue() { return HashTableEmptyValue; }
 
-    template <typename>
+    template<typename>
     static void constructEmptyValue(Ref<P>& slot)
     {
         new (NotNull, std::addressof(slot)) Ref<P>(HashTableEmptyValue);
@@ -229,7 +256,7 @@ template<typename P> struct RefHashTraits : SimpleClassHashTraits<Ref<P>> {
     static PeekType peek(P* value) { return value; }
 
     using TakeType = RefPtr<P>;
-    static TakeType take(Ref<P>&& value) { return isEmptyValue(value) ? nullptr : RefPtr<P>(WTFMove(value)); }
+    static TakeType take(Ref<P>&& value) { return isEmptyValue(value) ? nullptr : RefPtr<P>(WTF::move(value)); }
 };
 
 template<typename P> struct HashTraits<Ref<P>> : RefHashTraits<P> { };
@@ -242,8 +269,20 @@ template<typename P> struct HashTraits<Packed<P*>> : SimpleClassHashTraits<Packe
     static Packed<P*> emptyValue() { return nullptr; }
     static bool isEmptyValue(const TargetType& value) { return value.get() == nullptr; }
 
-    using PeekType = P*;
-    static PeekType peek(const TargetType& value) { return value.get(); }
+    using PeekType = Packed<P*>;
+    static PeekType peek(const TargetType& value) { return value; }
+    static PeekType peek(P* value) { return value; }
+};
+
+template<typename P> struct HashTraits<CompactPtr<P>> : SimpleClassHashTraits<CompactPtr<P>> {
+    static constexpr bool hasIsEmptyValueFunction = true;
+    using TargetType = CompactPtr<P>;
+
+    static CompactPtr<P> emptyValue() { return nullptr; }
+    static bool isEmptyValue(const TargetType& value) { return !value; }
+
+    using PeekType = CompactPtr<P>;
+    static PeekType peek(const TargetType& value) { return value; }
     static PeekType peek(P* value) { return value; }
 };
 
@@ -268,16 +307,16 @@ template<typename Traits, typename T> inline bool isHashTraitsEmptyValue(const T
     return HashTraitsEmptyValueChecker<Traits, Traits::hasIsEmptyValueFunction>::isEmptyValue(value);
 }
 
-template<typename Traits, bool hasIsReleasedWeakValueFunction> struct HashTraitsReleasedWeakValueChecker;
-template<typename Traits> struct HashTraitsReleasedWeakValueChecker<Traits, true> {
-    template<typename T> static bool isReleasedWeakValue(const T& value) { return Traits::isReleasedWeakValue(value); }
+template<typename Traits, bool hasIsWeakNullValueFunction> struct HashTraitsWeakNullValueChecker;
+template<typename Traits> struct HashTraitsWeakNullValueChecker<Traits, true> {
+    template<typename T> static bool isWeakNullValue(const T& value) { return Traits::isWeakNullValue(value); }
 };
-template<typename Traits> struct HashTraitsReleasedWeakValueChecker<Traits, false> {
-    template<typename T> static bool isReleasedWeakValue(const T&) { return false; }
+template<typename Traits> struct HashTraitsWeakNullValueChecker<Traits, false> {
+    template<typename T> static bool isWeakNullValue(const T&) { return false; }
 };
-template<typename Traits, typename T> inline bool isHashTraitsReleasedWeakValue(const T& value)
+template<typename Traits, typename T> inline bool isHashTraitsWeakNullValue(const T& value)
 {
-    return HashTraitsReleasedWeakValueChecker<Traits, Traits::hasIsReleasedWeakValueFunction>::isReleasedWeakValue(value);
+    return HashTraitsWeakNullValueChecker<Traits, Traits::hasIsWeakNullValueFunction>::isWeakNullValue(value);
 }
 
 template<typename Traits, typename T>
@@ -290,18 +329,14 @@ struct HashTraitHasCustomDelete {
 };
 
 template<typename Traits, typename T>
-typename std::enable_if<HashTraitHasCustomDelete<Traits, T>::value>::type
-hashTraitsDeleteBucket(T& value)
+void hashTraitsDeleteBucket(T& value)
 {
-    Traits::customDeleteBucket(value);
-}
-
-template<typename Traits, typename T>
-typename std::enable_if<!HashTraitHasCustomDelete<Traits, T>::value>::type
-hashTraitsDeleteBucket(T& value)
-{
-    value.~T();
-    Traits::constructDeletedValue(value);
+    if constexpr (HashTraitHasCustomDelete<Traits, T>::value)
+        Traits::customDeleteBucket(value);
+    else {
+        value.~T();
+        Traits::constructDeletedValue(value);
+    }
 }
 
 template<typename FirstTraitsArg, typename SecondTraitsArg>
@@ -312,12 +347,28 @@ struct PairHashTraits : GenericHashTraits<std::pair<typename FirstTraitsArg::Tra
     typedef std::pair<typename FirstTraits::EmptyValueType, typename SecondTraits::EmptyValueType> EmptyValueType;
 
     static constexpr bool emptyValueIsZero = FirstTraits::emptyValueIsZero && SecondTraits::emptyValueIsZero;
+    // Always use isEmptyValue() to avoid constructing emptyValue() which may not be safe for move-only types like Ref.
+    static constexpr bool hasIsEmptyValueFunction = true;
     static EmptyValueType emptyValue() { return std::make_pair(FirstTraits::emptyValue(), SecondTraits::emptyValue()); }
+
+    // Override constructEmptyValue to construct elements individually, avoiding move-construction from emptyValue().
+    template<typename>
+    static void constructEmptyValue(TraitType& slot)
+    {
+        FirstTraits::template constructEmptyValue<FirstTraits>(*std::launder(&slot.first));
+        SecondTraits::template constructEmptyValue<SecondTraits>(*std::launder(&slot.second));
+    }
+
+    static bool isEmptyValue(const TraitType& value) { return isHashTraitsEmptyValue<FirstTraits>(value.first) && isHashTraitsEmptyValue<SecondTraits>(value.second); }
 
     static constexpr unsigned minimumTableSize = FirstTraits::minimumTableSize;
 
     static void constructDeletedValue(TraitType& slot) { FirstTraits::constructDeletedValue(slot.first); }
     static bool isDeletedValue(const TraitType& value) { return FirstTraits::isDeletedValue(value.first); }
+
+    using TakeType = std::pair<typename FirstTraits::TakeType, typename SecondTraits::TakeType>;
+    static TakeType take(TraitType&& value) { return { FirstTraits::take(WTF::move(value.first)), SecondTraits::take(WTF::move(value.second)) }; }
+    static TakeType emptyTakeValue() { return { FirstTraits::take(FirstTraits::emptyValue()), SecondTraits::take(SecondTraits::emptyValue()) }; }
 };
 
 template<typename First, typename Second>
@@ -328,23 +379,57 @@ struct TupleHashTraits : GenericHashTraits<std::tuple<typename FirstTrait::Trait
     typedef std::tuple<typename FirstTrait::TraitType, typename Traits::TraitType...> TraitType;
     typedef std::tuple<typename FirstTrait::EmptyValueType, typename Traits::EmptyValueType...> EmptyValueType;
 
-    // We should use emptyValueIsZero = Traits::emptyValueIsZero &&... whenever we switch to C++17. We can't do anything
-    // better here right now because GCC can't do C++.
-    template<typename BoolType>
-    static constexpr bool allTrue(BoolType value) { return value; }
-    template<typename BoolType, typename... BoolTypes>
-    static constexpr bool allTrue(BoolType value, BoolTypes... values) { return value && allTrue(values...); }
-    static constexpr bool emptyValueIsZero = allTrue(FirstTrait::emptyValueIsZero, Traits::emptyValueIsZero...);
+    static constexpr bool emptyValueIsZero = FirstTrait::emptyValueIsZero && (Traits::emptyValueIsZero && ...);
+    // Always use isEmptyValue() to avoid constructing emptyValue() which may not be safe for move-only types like Ref.
+    static constexpr bool hasIsEmptyValueFunction = true;
     static EmptyValueType emptyValue() { return std::make_tuple(FirstTrait::emptyValue(), Traits::emptyValue()...); }
+
+    static bool isEmptyValue(const TraitType& value)
+    {
+        return isEmptyValueImpl(value, std::make_index_sequence<1 + sizeof...(Traits)> { });
+    }
+
+    // Override constructEmptyValue to construct elements individually, avoiding move-construction from emptyValue().
+    template<typename>
+    static void constructEmptyValue(TraitType& slot)
+    {
+        constructEmptyValueImpl(slot, std::make_index_sequence<1 + sizeof...(Traits)> { });
+    }
 
     static constexpr unsigned minimumTableSize = FirstTrait::minimumTableSize;
 
     static void constructDeletedValue(TraitType& slot) { FirstTrait::constructDeletedValue(std::get<0>(slot)); }
     static bool isDeletedValue(const TraitType& value) { return FirstTrait::isDeletedValue(std::get<0>(value)); }
+
+private:
+    using TraitsTuple = std::tuple<FirstTrait, Traits...>;
+
+    template<std::size_t... Is>
+    static bool isEmptyValueImpl(const TraitType& value, std::index_sequence<Is...>)
+    {
+        return (isHashTraitsEmptyValue<std::tuple_element_t<Is, TraitsTuple>>(std::get<Is>(value)) && ...);
+    }
+
+    template<std::size_t... Is>
+    static void constructEmptyValueImpl(TraitType& slot, std::index_sequence<Is...>)
+    {
+        (..., std::tuple_element_t<Is, TraitsTuple>::template constructEmptyValue<std::tuple_element_t<Is, TraitsTuple>>(*std::launder(&std::get<Is>(slot))));
+    }
 };
 
 template<typename... Traits>
 struct HashTraits<std::tuple<Traits...>> : public TupleHashTraits<HashTraits<Traits>...> { };
+
+
+template<typename FirstTrait, typename... Traits>
+struct VariantHashTraits : GenericHashTraits<Variant<typename FirstTrait::TraitType, typename Traits::TraitType...>> {
+    typedef Variant<typename FirstTrait::TraitType, typename Traits::TraitType...> TraitType;
+
+    static TraitType emptyValue() { return FirstTrait::emptyValue(); }
+};
+
+template<typename... Traits>
+struct HashTraits<Variant<Traits...>> : public VariantHashTraits<HashTraits<Traits>...> { };
 
 template<typename KeyTraitsArg, typename ValueTraitsArg>
 struct KeyValuePairHashTraits : GenericHashTraits<KeyValuePair<typename KeyTraitsArg::TraitType, typename ValueTraitsArg::TraitType>> {
@@ -357,7 +442,9 @@ struct KeyValuePairHashTraits : GenericHashTraits<KeyValuePair<typename KeyTrait
     static constexpr bool emptyValueIsZero = KeyTraits::emptyValueIsZero && ValueTraits::emptyValueIsZero;
     static EmptyValueType emptyValue() { return KeyValuePair<typename KeyTraits::EmptyValueType, typename ValueTraits::EmptyValueType>(KeyTraits::emptyValue(), ValueTraits::emptyValue()); }
 
-    template <typename>
+    static bool isEmptyValue(const TraitType& value) { return isHashTraitsEmptyValue<KeyTraits>(value.key) && isHashTraitsEmptyValue<ValueTraits>(value.value); }
+
+    template<typename>
     static void constructEmptyValue(TraitType& slot)
     {
         KeyTraits::template constructEmptyValue<KeyTraits>(slot.key);

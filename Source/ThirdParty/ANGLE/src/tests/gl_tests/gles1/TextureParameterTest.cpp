@@ -6,6 +6,7 @@
 
 // TextureParameterTest.cpp: Tests GLES1-specific usage of glTexParameter.
 
+#include "common/unsafe_buffers.h"
 #include "test_utils/ANGLETest.h"
 #include "test_utils/gl_raii.h"
 
@@ -13,9 +14,11 @@
 
 #include <stdint.h>
 
+#include <array>
+
 using namespace angle;
 
-class TextureParameterTest : public ANGLETest
+class TextureParameterTest : public ANGLETest<>
 {
   protected:
     TextureParameterTest()
@@ -75,9 +78,13 @@ TEST_P(TextureParameterTest, NegativeEnum)
     glGetTexParameteriv(GL_TEXTURE_2D, 0, nullptr);
     EXPECT_GL_ERROR(GL_INVALID_ENUM);
 
-    // Not enough buffer
+    // Non-vector command for a vector param
+    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_CROP_RECT_OES, 3);
+    EXPECT_GL_ERROR(GL_INVALID_ENUM);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_CROP_RECT_OES, 3);
-    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+    EXPECT_GL_ERROR(GL_INVALID_ENUM);
+    glTexParameterx(GL_TEXTURE_2D, GL_TEXTURE_CROP_RECT_OES, 3);
+    EXPECT_GL_ERROR(GL_INVALID_ENUM);
 
     // Not supported in GLES1
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
@@ -87,27 +94,27 @@ TEST_P(TextureParameterTest, NegativeEnum)
 // Checks that GLES1-specific texture parameters can be set.
 TEST_P(TextureParameterTest, Set)
 {
-    GLint params[4] = {};
+    std::array<GLint, 4> params = {};
 
     glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_TRUE);
     EXPECT_GL_NO_ERROR();
 
-    glGetTexParameteriv(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, params);
+    glGetTexParameteriv(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, params.data());
     EXPECT_GL_NO_ERROR();
 
     EXPECT_GL_TRUE(params[0]);
 
-    GLint cropRect[4] = {10, 20, 30, 40};
+    static constexpr std::array<GLint, 4> kCropRect = {10, 20, 30, 40};
 
-    glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_CROP_RECT_OES, cropRect);
+    glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_CROP_RECT_OES, kCropRect.data());
     EXPECT_GL_NO_ERROR();
 
-    glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_CROP_RECT_OES, params);
+    glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_CROP_RECT_OES, params.data());
     EXPECT_GL_NO_ERROR();
 
     for (int i = 0; i < 4; i++)
     {
-        EXPECT_EQ(cropRect[i], params[i]);
+        EXPECT_EQ(kCropRect[i], params[i]);
     }
 }
 
@@ -116,8 +123,8 @@ TEST_P(TextureParameterTest, IntConversionsAndIntBounds)
 {
     // Test integers that can't be represented as floats, INT_MIN, and INT_MAX
     constexpr GLint kFirstIntThatCannotBeFloat         = 16777217;
-    constexpr unsigned int kParameterLength            = 4;
-    constexpr std::array<GLint, kParameterLength> crop = {
+    constexpr unsigned int kParameterLength                   = 4;
+    static constexpr std::array<GLint, kParameterLength> crop = {
         -kFirstIntThatCannotBeFloat, kFirstIntThatCannotBeFloat, std::numeric_limits<GLint>::max(),
         std::numeric_limits<GLint>::min()};
     glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_CROP_RECT_OES, crop.data());
@@ -139,7 +146,7 @@ TEST_P(TextureParameterTest, SetFixedPoint)
     EXPECT_GL_NO_ERROR();
     EXPECT_GL_TRUE(params[0]);
 
-    std::array<GLfixed, 4> cropRect = {0x10000, 0x10000, 0x20000, 0x20000};
+    static constexpr std::array<GLfixed, 4> cropRect = {0x10000, 0x10000, 0x20000, 0x20000};
 
     glTexParameterxv(GL_TEXTURE_2D, GL_TEXTURE_CROP_RECT_OES, cropRect.data());
     EXPECT_GL_NO_ERROR();
@@ -161,6 +168,17 @@ TEST_P(TextureParameterTest, SetFixedPoint)
     glGetTexParameterxv(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, params.data());
     EXPECT_GL_NO_ERROR();
     EXPECT_EQ(GL_LINEAR, params[0]);
+
+    if (IsGLExtensionEnabled("GL_OES_texture_mirrored_repeat"))
+    {
+        glTexParameterx(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_MIRRORED_REPEAT);
+        EXPECT_GL_NO_ERROR();
+    }
+    else
+    {
+        glTexParameterx(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_MIRRORED_REPEAT);
+        EXPECT_GL_ERROR(GL_INVALID_ENUM);
+    }
 }
 
 ANGLE_INSTANTIATE_TEST_ES1(TextureParameterTest);

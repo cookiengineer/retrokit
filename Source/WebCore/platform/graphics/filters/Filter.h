@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2009 Dirk Schulze <krit@webkit.org>
  * Copyright (C) 2013 Google Inc. All rights reserved.
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -20,59 +21,102 @@
 
 #pragma once
 
-#include "AffineTransform.h"
-#include "FloatRect.h"
-#include "GraphicsTypes.h"
-#include "ImageBuffer.h"
-#include <wtf/RefCounted.h>
+#include <WebCore/FilterEffectVector.h>
+#include <WebCore/FilterFunction.h>
+#include <WebCore/FloatPoint3D.h>
+#include <WebCore/FloatRect.h>
+#include <WebCore/GraphicsTypes.h>
+#include <WebCore/ImageBuffer.h>
+#include <WebCore/RenderingMode.h>
 
 namespace WebCore {
 
 class FilterEffect;
+class FilterImage;
+class FilterResults;
 
-class Filter : public RefCounted<Filter> {
+struct FilterGeometry {
+    FloatRect referenceBox;
+    FloatRect filterRegion;
+    FloatSize scale;
+};
+
+enum class FilterRenderingOption : uint8_t {
+    ShowDebugOverlay    = 1 << 0,
+    FastAndLowQuality   = 1 << 1,
+};
+
+class Filter : public FilterFunction {
+    using FilterFunction::apply;
+    using FilterFunction::createFilterStyles;
+
 public:
-    Filter(const AffineTransform& absoluteTransform, float filterScale = 1)
-        : m_absoluteTransform(absoluteTransform)
-        , m_filterScale(filterScale)
-    { }
-    virtual ~Filter() = default;
+    RenderingMode NODELETE renderingMode() const;
 
-    void setSourceImage(RefPtr<ImageBuffer>&& sourceImage) { m_sourceImage = WTFMove(sourceImage); }
-    ImageBuffer* sourceImage() { return m_sourceImage.get(); }
+    OptionSet<FilterRenderingMode> filterRenderingModes() const { return m_filterRenderingModes; }
+    WEBCORE_EXPORT void setFilterRenderingModes(OptionSet<FilterRenderingMode> preferredFilterRenderingModes);
 
-    FloatSize filterResolution() const { return m_filterResolution; }
-    void setFilterResolution(const FloatSize& filterResolution) { m_filterResolution = filterResolution; }
+    OptionSet<FilterRenderingOption> renderingOptions() const { return m_renderingOptions; }
+    void setRenderingOptions(OptionSet<FilterRenderingOption> options) { m_renderingOptions = options; }
 
-    float filterScale() const { return m_filterScale; }
-    void setFilterScale(float scale) { m_filterScale = scale; }
+    const FilterGeometry& geometry() const LIFETIME_BOUND { return m_geometry; }
 
-    const AffineTransform& absoluteTransform() const { return m_absoluteTransform; }
+    FloatSize filterScale() const { return m_geometry.scale; }
+    void setFilterScale(const FloatSize& filterScale) { m_geometry.scale = filterScale; }
 
-    RenderingMode renderingMode() const { return m_renderingMode; }
-    void setRenderingMode(RenderingMode renderingMode) { m_renderingMode = renderingMode; }
+    FloatRect filterRegion() const { return m_geometry.filterRegion; }
+    void setFilterRegion(const FloatRect& filterRegion) { m_geometry.filterRegion = filterRegion; }
 
-    virtual bool isSVGFilter() const { return false; }
-    virtual bool isCSSFilter() const { return false; }
+    FloatRect referenceBox() const { return m_geometry.referenceBox; }
 
-    virtual FloatSize scaledByFilterResolution(FloatSize size) const { return size * m_filterResolution; }
-    
-    virtual FloatRect sourceImageRect() const = 0;
-    virtual FloatRect filterRegion() const = 0;
-    virtual FloatRect filterRegionInUserSpace() const = 0;
+    virtual FloatSize resolvedSize(const FloatSize& size) const { return size; }
+    virtual FloatPoint3D resolvedPoint3D(const FloatPoint3D& point) const { return point; }
+
+    FloatPoint NODELETE scaledByFilterScale(const FloatPoint&) const;
+    FloatSize scaledByFilterScale(const FloatSize&) const;
+    FloatRect scaledByFilterScale(const FloatRect&) const;
+
+    FloatRect maxEffectRect(const FloatRect& primitiveSubregion) const;
+    FloatRect clipToMaxEffectRect(const FloatRect& imageRect, const FloatRect& primitiveSubregion) const;
+
+#if USE(CORE_IMAGE)
+    // When CSS filter has a mixture of CSS and SVG filters, we need to compute CI filter geometry
+    // against a consistent enclosing rect, which we compute as the union of the filter regions
+    // of all the filters in the chain.
+    FloatRect enclosingFilterRegion() const { return m_enclosingFilterRegion; }
+    void setEnclosingFilterRegion(const FloatRect& rect) { m_enclosingFilterRegion = rect; }
+
+    FloatRect NODELETE absoluteEnclosingFilterRegion() const;
+    FloatRect NODELETE flippedRectRelativeToAbsoluteEnclosingFilterRegion(const FloatRect&) const;
+#endif
+
+    virtual FilterEffectVector effectsOfType(FilterFunction::Type) const = 0;
+
+    bool clampFilterRegionIfNeeded();
+
+    WEBCORE_EXPORT RefPtr<FilterImage> apply(ImageBuffer* sourceImage, const FloatRect& sourceImageRect, FilterResults&);
+    WEBCORE_EXPORT FilterStyleVector createFilterStyles(GraphicsContext&, const FloatRect& sourceImageRect) const;
+
+    ImageBuffer* filterResultBuffer(FilterImage&) const;
 
 protected:
-    explicit Filter(const FloatSize& filterResolution)
-        : m_filterResolution(filterResolution)
-    {
-    }
+    Filter(Filter::Type, std::optional<RenderingResourceIdentifier> = std::nullopt);
+    Filter(Filter::Type, const FilterGeometry&, OptionSet<FilterRenderingOption> = { }, std::optional<RenderingResourceIdentifier> = std::nullopt);
+
+    virtual RefPtr<FilterImage> apply(FilterImage* sourceImage, FilterResults&) = 0;
+    virtual FilterStyleVector createFilterStyles(GraphicsContext&, const FilterStyle& sourceStyle) const = 0;
 
 private:
-    RefPtr<ImageBuffer> m_sourceImage;
-    FloatSize m_filterResolution;
-    AffineTransform m_absoluteTransform;
-    RenderingMode m_renderingMode { RenderingMode::Unaccelerated };
-    float m_filterScale { 1 };
+    FilterGeometry m_geometry;
+#if USE(CORE_IMAGE)
+    FloatRect m_enclosingFilterRegion;
+#endif
+    OptionSet<FilterRenderingMode> m_filterRenderingModes { FilterRenderingMode::Software };
+    OptionSet<FilterRenderingOption> m_renderingOptions;
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::Filter)
+    static bool isType(const WebCore::RenderingResource& renderingResource) { return renderingResource.isFilter(); }
+SPECIALIZE_TYPE_TRAITS_END()

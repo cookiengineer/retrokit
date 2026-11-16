@@ -28,6 +28,7 @@
 #include "CodeBlock.h"
 #include "HeapInlines.h"
 #include "JITCode.h"
+#include "JSCellInlines.h"
 #include "LLIntData.h"
 #include "LLIntThunks.h"
 #include "MaxFrameExtentForSlowPathCall.h"
@@ -35,7 +36,7 @@
 
 namespace JSC { namespace LLInt {
 
-#if CPU(ARM64E)
+#if CPU(ARM64E) && !ENABLE(C_LOOP)
 extern "C" void jsTrampolineProgramPrologue(void);
 extern "C" void jsTrampolineModuleProgramPrologue(void);
 extern "C" void jsTrampolineEvalPrologue(void);
@@ -47,7 +48,7 @@ extern "C" void jsTrampolineFunctionForConstructArityCheckPrologue(void);
 template<typename PtrType>
 static MacroAssemblerCodeRef<JSEntryPtrTag> entrypointTrampoline(PtrType address)
 {
-    return MacroAssemblerCodeRef<JSEntryPtrTag>::createSelfManagedCodeRef(MacroAssemblerCodePtr<JSEntryPtrTag>::createFromExecutableAddress(retagCodePtr<void*, CFunctionPtrTag, JSEntryPtrTag>(address)));
+    return MacroAssemblerCodeRef<JSEntryPtrTag>::createSelfManagedCodeRef(CodePtr<JSEntryPtrTag>::fromTaggedPtr(retagCodePtr<void*, CFunctionPtrTag, JSEntryPtrTag>(address)));
 }
 #endif
 
@@ -57,7 +58,7 @@ static void setFunctionEntrypoint(CodeBlock* codeBlock)
     
 #if ENABLE(JIT)
     if (Options::useJIT()) {
-        if (kind == CodeForCall) {
+        if (kind == CodeSpecializationKind::CodeForCall) {
             static DirectJITCode* jitCode;
             static std::once_flag onceKey;
             std::call_once(onceKey, [&] {
@@ -66,10 +67,10 @@ static void setFunctionEntrypoint(CodeBlock* codeBlock)
                 jitCode = new DirectJITCode(callRef, callArityCheckRef.code(), JITType::InterpreterThunk, JITCode::ShareAttribute::Shared);
             });
 
-            codeBlock->setJITCode(makeRef(*jitCode));
+            codeBlock->setJITCode(*jitCode);
             return;
         }
-        ASSERT(kind == CodeForConstruct);
+        ASSERT(kind == CodeSpecializationKind::CodeForConstruct);
 
         static DirectJITCode* jitCode;
         static std::once_flag onceKey;
@@ -79,33 +80,33 @@ static void setFunctionEntrypoint(CodeBlock* codeBlock)
             jitCode = new DirectJITCode(constructRef, constructArityCheckRef.code(), JITType::InterpreterThunk, JITCode::ShareAttribute::Shared);
         });
 
-        codeBlock->setJITCode(makeRef(*jitCode));
+        codeBlock->setJITCode(*jitCode);
         return;
     }
 #endif // ENABLE(JIT)
 
-    if (kind == CodeForCall) {
+    if (kind == CodeSpecializationKind::CodeForCall) {
         static DirectJITCode* jitCode;
         static std::once_flag onceKey;
         std::call_once(onceKey, [&] {
-#if CPU(ARM64E)
+#if CPU(ARM64E) && !ENABLE(C_LOOP)
             jitCode = new DirectJITCode(entrypointTrampoline(jsTrampolineFunctionForCallPrologue), entrypointTrampoline(jsTrampolineFunctionForCallArityCheckPrologue).code(), JITType::InterpreterThunk, JITCode::ShareAttribute::Shared);
 #else
             jitCode = new DirectJITCode(getCodeRef<JSEntryPtrTag>(llint_function_for_call_prologue), getCodePtr<JSEntryPtrTag>(llint_function_for_call_arity_check), JITType::InterpreterThunk, JITCode::ShareAttribute::Shared);
 #endif
         });
-        codeBlock->setJITCode(makeRef(*jitCode));
+        codeBlock->setJITCode(*jitCode);
     } else {
         static DirectJITCode* jitCode;
         static std::once_flag onceKey;
         std::call_once(onceKey, [&] {
-#if CPU(ARM64E)
+#if CPU(ARM64E) && !ENABLE(C_LOOP)
             jitCode = new DirectJITCode(entrypointTrampoline(jsTrampolineFunctionForConstructPrologue), entrypointTrampoline(jsTrampolineFunctionForConstructArityCheckPrologue).code(), JITType::InterpreterThunk, JITCode::ShareAttribute::Shared);
 #else
             jitCode = new DirectJITCode(getCodeRef<JSEntryPtrTag>(llint_function_for_construct_prologue), getCodePtr<JSEntryPtrTag>(llint_function_for_construct_arity_check), JITType::InterpreterThunk, JITCode::ShareAttribute::Shared);
 #endif
         });
-        codeBlock->setJITCode(makeRef(*jitCode));
+        codeBlock->setJITCode(*jitCode);
     }
 }
 
@@ -119,7 +120,7 @@ static void setEvalEntrypoint(CodeBlock* codeBlock)
             MacroAssemblerCodeRef<JSEntryPtrTag> codeRef = evalEntryThunk();
             jitCode = new NativeJITCode(codeRef, JITType::InterpreterThunk, Intrinsic::NoIntrinsic, JITCode::ShareAttribute::Shared);
         });
-        codeBlock->setJITCode(makeRef(*jitCode));
+        codeBlock->setJITCode(*jitCode);
         return;
     }
 #endif // ENABLE(JIT)
@@ -127,13 +128,13 @@ static void setEvalEntrypoint(CodeBlock* codeBlock)
     static NativeJITCode* jitCode;
     static std::once_flag onceKey;
     std::call_once(onceKey, [&] {
-#if CPU(ARM64E)
+#if CPU(ARM64E) && !ENABLE(C_LOOP)
         jitCode = new NativeJITCode(entrypointTrampoline(jsTrampolineEvalPrologue), JITType::InterpreterThunk, Intrinsic::NoIntrinsic, JITCode::ShareAttribute::Shared);
 #else
         jitCode = new NativeJITCode(getCodeRef<JSEntryPtrTag>(llint_eval_prologue), JITType::InterpreterThunk, Intrinsic::NoIntrinsic, JITCode::ShareAttribute::Shared);
 #endif
     });
-    codeBlock->setJITCode(makeRef(*jitCode));
+    codeBlock->setJITCode(*jitCode);
 }
 
 static void setProgramEntrypoint(CodeBlock* codeBlock)
@@ -146,7 +147,7 @@ static void setProgramEntrypoint(CodeBlock* codeBlock)
             MacroAssemblerCodeRef<JSEntryPtrTag> codeRef = programEntryThunk();
             jitCode = new NativeJITCode(codeRef, JITType::InterpreterThunk, Intrinsic::NoIntrinsic, JITCode::ShareAttribute::Shared);
         });
-        codeBlock->setJITCode(makeRef(*jitCode));
+        codeBlock->setJITCode(*jitCode);
         return;
     }
 #endif // ENABLE(JIT)
@@ -154,13 +155,13 @@ static void setProgramEntrypoint(CodeBlock* codeBlock)
     static NativeJITCode* jitCode;
     static std::once_flag onceKey;
     std::call_once(onceKey, [&] {
-#if CPU(ARM64E)
+#if CPU(ARM64E) && !ENABLE(C_LOOP)
         jitCode = new NativeJITCode(entrypointTrampoline(jsTrampolineProgramPrologue), JITType::InterpreterThunk, Intrinsic::NoIntrinsic, JITCode::ShareAttribute::Shared);
 #else
         jitCode = new NativeJITCode(getCodeRef<JSEntryPtrTag>(llint_program_prologue), JITType::InterpreterThunk, Intrinsic::NoIntrinsic, JITCode::ShareAttribute::Shared);
 #endif
     });
-    codeBlock->setJITCode(makeRef(*jitCode));
+    codeBlock->setJITCode(*jitCode);
 }
 
 static void setModuleProgramEntrypoint(CodeBlock* codeBlock)
@@ -173,7 +174,7 @@ static void setModuleProgramEntrypoint(CodeBlock* codeBlock)
             MacroAssemblerCodeRef<JSEntryPtrTag> codeRef = moduleProgramEntryThunk();
             jitCode = new NativeJITCode(codeRef, JITType::InterpreterThunk, Intrinsic::NoIntrinsic, JITCode::ShareAttribute::Shared);
         });
-        codeBlock->setJITCode(makeRef(*jitCode));
+        codeBlock->setJITCode(*jitCode);
         return;
     }
 #endif // ENABLE(JIT)
@@ -181,13 +182,31 @@ static void setModuleProgramEntrypoint(CodeBlock* codeBlock)
     static NativeJITCode* jitCode;
     static std::once_flag onceKey;
     std::call_once(onceKey, [&] {
-#if CPU(ARM64E)
+#if CPU(ARM64E) && !ENABLE(C_LOOP)
         jitCode = new NativeJITCode(entrypointTrampoline(jsTrampolineModuleProgramPrologue), JITType::InterpreterThunk, Intrinsic::NoIntrinsic, JITCode::ShareAttribute::Shared);
 #else
         jitCode = new NativeJITCode(getCodeRef<JSEntryPtrTag>(llint_module_program_prologue), JITType::InterpreterThunk, Intrinsic::NoIntrinsic, JITCode::ShareAttribute::Shared);
 #endif
     });
-    codeBlock->setJITCode(makeRef(*jitCode));
+    codeBlock->setJITCode(*jitCode);
+}
+
+MacroAssemblerCodeRef<JSEntryPtrTag> defaultCall()
+{
+#if ENABLE(JIT)
+    if (Options::useJIT())
+        return defaultCallThunk();
+#endif // ENABLE(JIT)
+    return LLInt::getCodeRef<JSEntryPtrTag>(llint_default_call_trampoline);
+}
+
+CodePtr<JITThunkPtrTag> arityFixup()
+{
+#if ENABLE(JIT)
+    if (Options::useJIT())
+        return CodePtr<JITThunkPtrTag>::fromTaggedPtr(g_jscConfig.arityFixupThunk);
+#endif
+    return nullptr;
 }
 
 MacroAssemblerCodeRef<JSEntryPtrTag> getHostCallReturnValueEntrypoint()

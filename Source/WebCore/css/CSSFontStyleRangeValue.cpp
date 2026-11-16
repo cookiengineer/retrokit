@@ -26,28 +26,35 @@
 #include "config.h"
 #include "CSSFontStyleRangeValue.h"
 
-#include <wtf/text/StringBuilder.h>
+#include "CSSPrimitiveNumericTypes+CSSValueVisitation.h"
+#include "CSSPrimitiveNumericTypes+Serialization.h"
 
 namespace WebCore {
 
-String CSSFontStyleRangeValue::customCSSText() const
+Ref<CSSFontStyleRangeValue> CSSFontStyleRangeValue::create(CSS::FontStyleRange&& fontStyleRange)
 {
-    if (!obliqueValues)
-        return fontStyleValue->cssText();
+    return adoptRef(*new CSSFontStyleRangeValue(WTF::move(fontStyleRange)));
+}
 
-    StringBuilder builder;
-    builder.append(fontStyleValue->cssText());
-    builder.append(' ');
-    builder.append(obliqueValues->cssText());
-    return builder.toString();
+CSSFontStyleRangeValue::CSSFontStyleRangeValue(CSS::FontStyleRange&& fontStyleRange)
+    : CSSValue(ClassType::FontStyleRange)
+    , m_fontStyleRange(WTF::move(fontStyleRange))
+{
+}
+
+String CSSFontStyleRangeValue::customCSSText(const CSS::SerializationContext& context) const
+{
+    return CSS::serializationForCSS(context, m_fontStyleRange);
 }
 
 bool CSSFontStyleRangeValue::equals(const CSSFontStyleRangeValue& other) const
 {
-    if (!obliqueValues)
-        return fontStyleValue.get() == other.fontStyleValue.get();
-    return fontStyleValue.get() == other.fontStyleValue.get()
-        && *obliqueValues == *other.obliqueValues;
+    return m_fontStyleRange == other.m_fontStyleRange;
 }
 
+IterationStatus CSSFontStyleRangeValue::customVisitChildren(NOESCAPE const Function<IterationStatus(CSSValue&)>& func) const
+{
+    return CSS::visitCSSValueChildren(func, m_fontStyleRange);
 }
+
+} // namespace WebCore

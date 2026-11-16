@@ -36,9 +36,19 @@ class CustomXPathNSResolver : public XPathNSResolver, public ActiveDOMCallback {
 public:
     using ActiveDOMCallback::ActiveDOMCallback;
 
-    virtual CallbackResult<String> lookupNamespaceURIForBindings(const String& prefix) = 0;
+    // ContextDestructionObserver.
+    void ref() const final { XPathNSResolver::ref(); }
+    void deref() const final { XPathNSResolver::deref(); }
 
-    String lookupNamespaceURI(const String& prefix);
+    virtual CallbackResult<String> lookupNamespaceURIForBindings(const AtomString& prefix) = 0;
+    virtual CallbackResult<String> lookupNamespaceURIForBindingsRethrowingException(const AtomString& prefix) = 0;
+
+    AtomString lookupNamespaceURI(const AtomString& prefix);
+
+    virtual bool isJSCustomXPathNSResolver() const { return false; }
+
+private:
+    virtual bool hasCallback() const = 0;
 };
 
 } // namespace WebCore

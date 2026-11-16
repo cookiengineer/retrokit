@@ -30,23 +30,30 @@
 #pragma once
 
 #include "AudioBufferOptions.h"
-#include "ExceptionOr.h"
 #include "JSValueInWrappedObject.h"
-#include <JavaScriptCore/Float32Array.h>
+#include "ScriptWrappable.h"
+#include <JavaScriptCore/Forward.h>
+#include <JavaScriptCore/TypedArrayAdaptersForwardDeclarations.h>
+#include <wtf/FixedVector.h>
 #include <wtf/Lock.h>
-#include <wtf/Vector.h>
 
 namespace WebCore {
 
 class AudioBus;
+class JSDOMGlobalObject;
+class WebCoreOpaqueRoot;
+template<typename> class ExceptionOr;
 
-class AudioBuffer : public RefCounted<AudioBuffer> {
+class AudioBuffer : public ScriptWrappable, public RefCounted<AudioBuffer> {
+    WTF_MAKE_TZONE_ALLOCATED(AudioBuffer);
 public:
     enum class LegacyPreventDetaching : bool { No, Yes };
     static RefPtr<AudioBuffer> create(unsigned numberOfChannels, size_t numberOfFrames, float sampleRate, LegacyPreventDetaching = LegacyPreventDetaching::No);
     static ExceptionOr<Ref<AudioBuffer>> create(const AudioBufferOptions&);
     // Returns nullptr if data is not a valid audio file.
-    static RefPtr<AudioBuffer> createFromAudioFileData(const void* data, size_t dataSize, bool mixToMono, float sampleRate);
+    static RefPtr<AudioBuffer> createFromAudioFileData(std::span<const uint8_t> data, bool mixToMono, float sampleRate);
+
+    ~AudioBuffer();
 
     // Format
     size_t originalLength() const { return m_originalLength; }
@@ -57,6 +64,8 @@ public:
     size_t length() const { return hasDetachedChannelBuffer() ? 0 : m_originalLength; }
     double duration() const { return length() / static_cast<double>(sampleRate()); }
 
+    void markBuffersAsNonDetachable();
+
     // Channel data access
     unsigned numberOfChannels() const { return m_channels.size(); }
     ExceptionOr<JSC::JSValue> getChannelData(JSDOMGlobalObject&, unsigned channelIndex);
@@ -65,7 +74,7 @@ public:
 
     // Native channel data access.
     RefPtr<Float32Array> channelData(unsigned channelIndex);
-    float* rawChannelData(unsigned channelIndex);
+    std::span<float> rawChannelData(unsigned channelIndex) LIFETIME_BOUND;
     void zero();
 
     // Because an AudioBuffer has a JavaScript wrapper, which will be garbage collected, it may take a while for this object to be deleted.
@@ -75,7 +84,7 @@ public:
 
     size_t memoryCost() const;
 
-    template<typename Visitor> void visitChannelWrappers(Visitor&);
+    template<typename Visitor> void visitChannelWrappersInGCThread(Visitor&);
 
     bool copyTo(AudioBuffer&) const;
 
@@ -83,6 +92,9 @@ public:
     Ref<AudioBuffer> clone(ShouldCopyChannelData = ShouldCopyChannelData::Yes) const;
     
     bool topologyMatches(const AudioBuffer&) const;
+
+    void increaseNoiseInjectionMultiplier(float amount = 0.001) { m_noiseInjectionMultiplier += amount; }
+    float noiseInjectionMultiplier() const { return m_noiseInjectionMultiplier; }
 
 private:
     AudioBuffer(unsigned numberOfChannels, size_t length, float sampleRate, LegacyPreventDetaching = LegacyPreventDetaching::No);
@@ -92,12 +104,22 @@ private:
 
     bool hasDetachedChannelBuffer() const;
 
+    void applyNoiseIfNeeded();
+
+    // We do not currently support having the Float32Arrays in m_channels being more than 2GB,
+    // and we have tests that we return an error promptly on trying to create such a huge AudioBuffer.
+    static constexpr uint64_t s_maxChannelLength = (1ull << 32) / sizeof(float);
+    static constexpr uint64_t s_maxLength = 1ull << 32;
+
     float m_sampleRate;
-    mutable Lock m_channelsLock;
     size_t m_originalLength;
-    Vector<RefPtr<Float32Array>> m_channels;
-    Vector<JSValueInWrappedObject> m_channelWrappers;
+    FixedVector<Ref<Float32Array>> m_channels;
+    FixedVector<JSValueInWrappedObject> m_channelWrappers;
     bool m_isDetachable { true };
+    mutable Lock m_channelsLock;
+    float m_noiseInjectionMultiplier { 0 };
 };
+
+WebCoreOpaqueRoot NODELETE root(AudioBuffer*);
 
 } // namespace WebCore

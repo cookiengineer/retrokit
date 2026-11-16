@@ -24,6 +24,7 @@
 
 #include "SVGElement.h"
 #include "SVGParserUtilities.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -40,19 +41,17 @@ struct SVGKerningPair {
 };
 
 class SVGFontElement final : public SVGElement {
-    WTF_MAKE_ISO_ALLOCATED(SVGFontElement);
+    WTF_MAKE_TZONE_ALLOCATED(SVGFontElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGFontElement);
 public:
     static Ref<SVGFontElement> create(const QualifiedName&, Document&);
+
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGFontElement, SVGElement>;
 
 private:
     SVGFontElement(const QualifiedName&, Document&);
 
-    bool rendererIsNeeded(const RenderStyle&) final { return false; }
-
-    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGFontElement, SVGElement>;
-    const SVGPropertyRegistry& propertyRegistry() const final { return m_propertyRegistry; }
-
-    PropertyRegistry m_propertyRegistry { *this };
+    bool rendererIsNeeded(const Style::ComputedStyle&) final { return false; }
 };
 
 } // namespace WebCore

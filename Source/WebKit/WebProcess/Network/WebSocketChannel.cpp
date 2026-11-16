@@ -26,60 +26,89 @@
 #include "config.h"
 #include "WebSocketChannel.h"
 
+#include "MessageSenderInlines.h"
 #include "NetworkConnectionToWebProcessMessages.h"
 #include "NetworkProcessConnection.h"
 #include "NetworkSocketChannelMessages.h"
-#include "WebCoreArgumentCoders.h"
 #include "WebProcess.h"
+#include <WebCore/AdvancedPrivacyProtections.h>
 #include <WebCore/Blob.h>
-#include <WebCore/Document.h>
+#include <WebCore/ClientOrigin.h>
+#include <WebCore/DocumentInlines.h>
+#include <WebCore/DocumentLoader.h>
+#include <WebCore/DocumentPage.h>
 #include <WebCore/ExceptionCode.h>
-#include <WebCore/Page.h>
-#include <WebCore/WebSocketChannel.h>
+#include <WebCore/FrameDestructionObserverInlines.h>
+#include <WebCore/LocalFrameInlines.h>
+#include <WebCore/ThreadableWebSocketChannel.h>
 #include <WebCore/WebSocketChannelClient.h>
 #include <wtf/CheckedArithmetic.h>
+#include <wtf/URLParser.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebKit {
 using namespace WebCore;
 
-Ref<WebSocketChannel> WebSocketChannel::create(WebPageProxyIdentifier webPageProxyID, Document& document, WebSocketChannelClient& client)
+Ref<WebSocketChannel> WebSocketChannel::create(WebPageProxyIdentifier webPageProxyID, Document& document, WebSocketChannelClient& client, IsInitiatedByDedicatedWorker isInitiatedByDedicatedWorker)
 {
-    return adoptRef(*new WebSocketChannel(webPageProxyID, document, client));
+    return adoptRef(*new WebSocketChannel(webPageProxyID, document, client, isInitiatedByDedicatedWorker));
 }
 
-void WebSocketChannel::notifySendFrame(WebSocketFrame::OpCode opCode, const uint8_t* data, size_t length)
+void WebSocketChannel::notifySendFrame(WebSocketFrame::OpCode opCode, std::span<const uint8_t> data)
 {
-    WebSocketFrame frame(opCode, true, false, true, data, length);
-    m_inspector.didSendWebSocketFrame(m_document.get(), frame);
+    WebSocketFrame frame(opCode, true, false, true, data);
+    m_inspector.didSendWebSocketFrame(frame);
 }
 
-NetworkSendQueue WebSocketChannel::createMessageQueue(Document& document, WebSocketChannel& channel)
+Ref<NetworkSendQueue> WebSocketChannel::createMessageQueue(Document& document, WebSocketChannel& channel)
 {
-    return { document, [&channel](auto& utf8String) {
-        channel.notifySendFrame(WebSocketFrame::OpCode::OpCodeText, utf8String.dataAsUInt8Ptr(), utf8String.length());
-        channel.sendMessage(Messages::NetworkSocketChannel::SendString { IPC::DataReference { utf8String.dataAsUInt8Ptr(), utf8String.length() } }, utf8String.length());
-    }, [&channel](auto& span) {
-        channel.notifySendFrame(WebSocketFrame::OpCode::OpCodeBinary, span.data(), span.size());
-        channel.sendMessage(Messages::NetworkSocketChannel::SendData { IPC::DataReference { span.data(), span.size() } }, span.size());
-    }, [&channel](ExceptionCode exceptionCode) {
+    return NetworkSendQueue::create(document, [weakChannel = WeakPtr { channel }](auto& utf8String) {
+        RefPtr channel = weakChannel.get();
+        if (!channel)
+            return;
+        auto data = utf8String.span();
+        channel->notifySendFrame(WebSocketFrame::OpCode::OpCodeText, byteCast<uint8_t>(data));
+        channel->sendMessageInternal(Messages::NetworkSocketChannel::SendString { byteCast<uint8_t>(data) }, utf8String.length());
+    }, [weakChannel = WeakPtr { channel }](auto span) {
+        RefPtr channel = weakChannel.get();
+        if (!channel)
+            return;
+        channel->notifySendFrame(WebSocketFrame::OpCode::OpCodeBinary, span);
+        channel->sendMessageInternal(Messages::NetworkSocketChannel::SendData { span }, span.size());
+    }, [weakChannel = WeakPtr { channel }](ExceptionCode exceptionCode) {
+        RefPtr channel = weakChannel.get();
+        if (!channel)
+            return NetworkSendQueue::Continue::No;
         auto code = static_cast<int>(exceptionCode);
-        channel.fail(makeString("Failed to load Blob: exception code = ", code));
+        channel->fail(makeString("Failed to load Blob: exception code = "_s, code));
         return NetworkSendQueue::Continue::No;
-    } };
+    });
 }
 
-WebSocketChannel::WebSocketChannel(WebPageProxyIdentifier webPageProxyID, Document& document, WebSocketChannelClient& client)
-    : m_document(makeWeakPtr(document))
-    , m_client(makeWeakPtr(client))
+WebSocketChannel::WebSocketChannel(WebPageProxyIdentifier webPageProxyID, Document& document, WebSocketChannelClient& client, IsInitiatedByDedicatedWorker isInitiatedByDedicatedWorker)
+    : m_document(document)
+    , m_client(client)
     , m_messageQueue(createMessageQueue(document, *this))
     , m_inspector(document)
     , m_webPageProxyID(webPageProxyID)
+    , m_isInitiatedByDedicatedWorker(isInitiatedByDedicatedWorker)
 {
     WebProcess::singleton().webSocketChannelManager().addChannel(*this);
 }
 
 WebSocketChannel::~WebSocketChannel()
 {
+    // Ensure the network process tears down its NetworkSocketChannel even when
+    // none of the explicit close/disconnect paths ran. This happens for worker
+    // WebSockets on a peer-initiated close: WorkerThreadableWebSocketChannel::Peer::didClose
+    // nulls its RefPtr<WebSocketChannel> before the worker can call disconnect(),
+    // so without this the Close IPC would never be sent and the network-side
+    // channel would leak. m_needsToCallClose is only true once connect()
+    // successfully sent a CreateSocketChannel IPC and Close hasn't been sent
+    // since, so the destructor doesn't send a stray Close for channels the
+    // network process never knew about.
+    if (m_needsToCallClose)
+        MessageSender::send(Messages::NetworkSocketChannel::Close { WebCore::ThreadableWebSocketChannel::CloseEventCodeGoingAway, { } });
     WebProcess::singleton().webSocketChannelManager().removeChannel(*this);
 }
 
@@ -90,7 +119,7 @@ IPC::Connection* WebSocketChannel::messageSenderConnection() const
 
 uint64_t WebSocketChannel::messageSenderDestinationID() const
 {
-    return m_identifier.toUInt64();
+    return identifier().toUInt64();
 }
 
 String WebSocketChannel::subprotocol()
@@ -105,19 +134,48 @@ String WebSocketChannel::extensions()
 
 WebSocketChannel::ConnectStatus WebSocketChannel::connect(const URL& url, const String& protocol)
 {
-    if (!m_document)
+    RefPtr document = m_document.get();
+    if (!document)
         return ConnectStatus::KO;
 
-    auto request = webSocketConnectRequest(*m_document, url);
+    if (WebProcess::singleton().webSocketChannelManager().hasReachedSocketLimit()) {
+        auto reason = "Connection failed: Insufficient resources"_s;
+        logErrorMessage(reason);
+        if (RefPtr client = m_client.get())
+            client->didReceiveMessageError(String { reason });
+        return ConnectStatus::KO;
+    }
+
+    auto request = webSocketConnectRequest(*document, url);
     if (!request)
         return ConnectStatus::KO;
 
-    if (request->url() != url && m_client)
-        m_client->didUpgradeURL();
+    if (request->url() != url) {
+        if (RefPtr client = m_client.get())
+            client->didUpgradeURL();
+    }
 
-    m_inspector.didCreateWebSocket(m_document.get(), url);
+    StoredCredentialsPolicy storedCredentialsPolicy { StoredCredentialsPolicy::Use };
+    RefPtr frame = document->frame();
+    if (!frame)
+        return ConnectStatus::KO;
+
+    if (auto* page = frame->page())
+        storedCredentialsPolicy = page->canUseCredentialStorage() ? StoredCredentialsPolicy::Use : StoredCredentialsPolicy::DoNotUse;
+
+    m_inspector.didCreateWebSocket(url);
     m_url = request->url();
-    MessageSender::send(Messages::NetworkConnectionToWebProcess::CreateSocketChannel { *request, protocol, m_identifier, m_webPageProxyID });
+    m_inspector.willSendWebSocketHandshakeRequest(*request);
+    Ref mainFrame = frame->mainFrame();
+
+    Ref policySourceFrame = [&] -> Ref<Frame> {
+        if (!WTF::URLParser::isSpecialScheme(mainFrame->frameURLProtocol()) && document->url().protocolIsInHTTPFamily())
+            return *frame;
+        return mainFrame;
+    }();
+
+    MessageSender::send(Messages::NetworkConnectionToWebProcess::CreateSocketChannel { *request, protocol, identifier(), m_webPageProxyID, std::optional(frame->frameID()), frame->pageID(), document->clientOrigin(), WebProcess::singleton().hadMainFrameMainResourcePrivateRelayed(), policySourceFrame->allowPrivacyProxy(), policySourceFrame->advancedPrivacyProtections(), storedCredentialsPolicy, m_isInitiatedByDedicatedWorker });
+    m_needsToCallClose = true;
     return ConnectStatus::OK;
 }
 
@@ -128,14 +186,14 @@ bool WebSocketChannel::increaseBufferedAmount(size_t byteLength)
 
     CheckedSize checkedNewBufferedAmount = m_bufferedAmount;
     checkedNewBufferedAmount += byteLength;
-    if (UNLIKELY(checkedNewBufferedAmount.hasOverflowed())) {
-        fail("Failed to send WebSocket frame: buffer has no more space");
+    if (checkedNewBufferedAmount.hasOverflowed()) [[unlikely]] {
+        fail("Failed to send WebSocket frame: buffer has no more space"_s);
         return false;
     }
 
     m_bufferedAmount = checkedNewBufferedAmount;
-    if (m_client)
-        m_client->didUpdateBufferedAmount(m_bufferedAmount);
+    if (RefPtr client = m_client.get())
+        client->didUpdateBufferedAmount(m_bufferedAmount);
     return true;
 }
 
@@ -146,98 +204,93 @@ void WebSocketChannel::decreaseBufferedAmount(size_t byteLength)
 
     ASSERT(m_bufferedAmount >= byteLength);
     m_bufferedAmount -= byteLength;
-    if (m_client)
-        m_client->didUpdateBufferedAmount(m_bufferedAmount);
+    if (RefPtr client = m_client.get())
+        client->didUpdateBufferedAmount(m_bufferedAmount);
 }
 
-template<typename T> void WebSocketChannel::sendMessage(T&& message, size_t byteLength)
+template<typename T> void WebSocketChannel::sendMessageInternal(T&& message, size_t byteLength)
 {
-    CompletionHandler<void()> completionHandler = [this, protectedThis = makeRef(*this), byteLength] {
+    CompletionHandler<void()> completionHandler = [this, protectedThis = Ref { *this }, byteLength] {
         decreaseBufferedAmount(byteLength);
     };
-    sendWithAsyncReply(WTFMove(message), WTFMove(completionHandler));
+    sendWithAsyncReply(std::forward<T>(message), WTF::move(completionHandler));
 }
 
-WebSocketChannel::SendResult WebSocketChannel::send(const String& message)
+void WebSocketChannel::send(CString&& message)
 {
-    auto utf8 = message.utf8(StrictConversionReplacingUnpairedSurrogatesWithFFFD);
-    if (!increaseBufferedAmount(utf8.length()))
-        return SendFail;
+    if (!increaseBufferedAmount(message.length()))
+        return;
 
-    m_messageQueue.enqueue(WTFMove(utf8));
-    return SendSuccess;
+    m_messageQueue->enqueue(WTF::move(message));
 }
 
-WebSocketChannel::SendResult WebSocketChannel::send(const JSC::ArrayBuffer& binaryData, unsigned byteOffset, unsigned byteLength)
+void WebSocketChannel::send(const JSC::ArrayBuffer& binaryData, unsigned byteOffset, unsigned byteLength)
 {
     if (!increaseBufferedAmount(byteLength))
-        return SendFail;
+        return;
 
-    m_messageQueue.enqueue(binaryData, byteOffset, byteLength);
-    return SendSuccess;
+    m_messageQueue->enqueue(binaryData, byteOffset, byteLength);
 }
 
-WebSocketChannel::SendResult WebSocketChannel::send(Blob& blob)
+void WebSocketChannel::send(Blob& blob)
 {
     auto byteLength = blob.size();
     if (!blob.size())
         return send(JSC::ArrayBuffer::create(byteLength, 1), 0, 0);
 
     if (!increaseBufferedAmount(byteLength))
-        return SendFail;
+        return;
 
-    m_messageQueue.enqueue(blob);
-    return SendSuccess;
-}
-
-unsigned WebSocketChannel::bufferedAmount() const
-{
-    return m_bufferedAmount;
+    m_messageQueue->enqueue(blob);
 }
 
 void WebSocketChannel::close(int code, const String& reason)
 {
     // An attempt to send closing handshake may fail, which will get the channel closed and dereferenced.
-    auto protectedThis = makeRef(*this);
+    Ref protectedThis { *this };
 
     m_isClosing = true;
-    if (m_client)
-        m_client->didStartClosingHandshake();
+    if (RefPtr client = m_client.get())
+        client->didStartClosingHandshake();
 
-    ASSERT(code >= 0 || code == WebCore::WebSocketChannel::CloseEventCodeNotSpecified);
+    ASSERT(code >= 0 || code == WebCore::ThreadableWebSocketChannel::CloseEventCodeNotSpecified);
 
     WebSocketFrame closingFrame(WebSocketFrame::OpCodeClose, true, false, true);
-    m_inspector.didSendWebSocketFrame(m_document.get(), closingFrame);
+    m_inspector.didSendWebSocketFrame(closingFrame);
 
     MessageSender::send(Messages::NetworkSocketChannel::Close { code, reason });
+    m_needsToCallClose = false;
 }
 
-void WebSocketChannel::fail(const String& reason)
+void WebSocketChannel::fail(String&& reason)
 {
     // The client can close the channel, potentially removing the last reference.
-    auto protectedThis = makeRef(*this);
+    Ref protectedThis { *this };
 
     logErrorMessage(reason);
-    if (m_client)
-        m_client->didReceiveMessageError();
+    if (RefPtr client = m_client.get())
+        client->didReceiveMessageError(String { reason });
 
     if (m_isClosing)
         return;
 
-    MessageSender::send(Messages::NetworkSocketChannel::Close { WebCore::WebSocketChannel::CloseEventCodeGoingAway, reason });
-    didClose(WebCore::WebSocketChannel::CloseEventCodeAbnormalClosure, { });
+    MessageSender::send(Messages::NetworkSocketChannel::Close { WebCore::ThreadableWebSocketChannel::CloseEventCodeGoingAway, reason });
+    m_needsToCallClose = false;
+    didClose(WebCore::ThreadableWebSocketChannel::CloseEventCodeAbnormalClosure, { });
 }
 
 void WebSocketChannel::disconnect()
 {
     m_client = nullptr;
     m_document = nullptr;
-    m_pendingTasks.clear();
-    m_messageQueue.clear();
+    m_messageQueue->clear();
 
-    m_inspector.didCloseWebSocket(m_document.get());
+    m_inspector.didCloseWebSocket();
 
-    MessageSender::send(Messages::NetworkSocketChannel::Close { WebCore::WebSocketChannel::CloseEventCodeGoingAway, { } });
+    if (m_needsToCallClose) {
+        MessageSender::send(Messages::NetworkSocketChannel::Close { WebCore::ThreadableWebSocketChannel::CloseEventCodeGoingAway, { } });
+        m_needsToCallClose = false;
+    }
 }
 
 void WebSocketChannel::didConnect(String&& subprotocol, String&& extensions)
@@ -245,37 +298,13 @@ void WebSocketChannel::didConnect(String&& subprotocol, String&& extensions)
     if (m_isClosing)
         return;
 
-    if (!m_client)
+    RefPtr client = m_client.get();
+    if (!client)
         return;
 
-    if (m_isSuspended) {
-        enqueueTask([this, subprotocol = WTFMove(subprotocol), extensions = WTFMove(extensions)] () mutable {
-            didConnect(WTFMove(subprotocol), WTFMove(extensions));
-        });
-        return;
-    }
-
-    m_subprotocol = WTFMove(subprotocol);
-    m_extensions = WTFMove(extensions);
-    m_client->didConnect();
-}
-
-static inline WebSocketFrame createWebSocketFrameForWebInspector(const uint8_t* data, size_t length, WebSocketFrame::OpCode opCode)
-{
-    // This is an approximation since frames can be merged on a single message.
-    WebSocketFrame frame;
-    frame.opCode = opCode;
-    frame.masked = false;
-    frame.payload = data;
-    frame.payloadLength = length;
-
-    // WebInspector does not use them.
-    frame.final = false;
-    frame.compress = false;
-    frame.reserved2 = false;
-    frame.reserved3 = false;
-
-    return frame;
+    m_subprotocol = WTF::move(subprotocol);
+    m_extensions = WTF::move(extensions);
+    client->didConnect();
 }
 
 void WebSocketChannel::didReceiveText(String&& message)
@@ -283,145 +312,82 @@ void WebSocketChannel::didReceiveText(String&& message)
     if (m_isClosing)
         return;
 
-    if (!m_client)
-        return;
-
-    if (m_isSuspended) {
-        enqueueTask([this, message = WTFMove(message)] () mutable {
-            didReceiveText(WTFMove(message));
-        });
-        return;
-    }
-
-    auto utf8Message = message.utf8();
-    m_inspector.didReceiveWebSocketFrame(m_document.get(), createWebSocketFrameForWebInspector(utf8Message.dataAsUInt8Ptr(), utf8Message.length(), WebSocketFrame::OpCode::OpCodeText));
-
-    m_client->didReceiveMessage(message);
+    if (RefPtr client = m_client.get())
+        client->didReceiveMessage(WTF::move(message));
 }
 
-void WebSocketChannel::didReceiveBinaryData(IPC::DataReference&& data)
+void WebSocketChannel::didReceiveBinaryData(std::span<const uint8_t> data)
 {
     if (m_isClosing)
         return;
 
-    if (!m_client)
-        return;
-
-    if (m_isSuspended) {
-        enqueueTask([this, data = data.vector()] () mutable {
-            if (!m_isClosing && m_client)
-                m_client->didReceiveBinaryData(WTFMove(data));
-        });
-        return;
-    }
-
-    m_inspector.didReceiveWebSocketFrame(m_document.get(), createWebSocketFrameForWebInspector(data.data(), data.size(), WebSocketFrame::OpCode::OpCodeBinary));
-
-    m_client->didReceiveBinaryData(data.vector());
+    if (RefPtr client = m_client.get())
+        client->didReceiveBinaryData({ data });
 }
 
 void WebSocketChannel::didClose(unsigned short code, String&& reason)
 {
-    if (!m_client)
+    RefPtr client = m_client.get();
+    if (!client)
         return;
-
-    if (m_isSuspended) {
-        enqueueTask([this, code, reason = WTFMove(reason)] () mutable {
-            didClose(code, WTFMove(reason));
-        });
-        return;
-    }
-
-    WebSocketFrame closingFrame(WebSocketFrame::OpCodeClose, true, false, false);
-    m_inspector.didReceiveWebSocketFrame(m_document.get(), closingFrame);
-    m_inspector.didCloseWebSocket(m_document.get());
 
     // An attempt to send closing handshake may fail, which will get the channel closed and dereferenced.
-    auto protectedThis = makeRef(*this);
+    Ref protectedThis { *this };
 
-    bool receivedClosingHandshake = code != WebCore::WebSocketChannel::CloseEventCodeAbnormalClosure;
+    bool receivedClosingHandshake = code != WebCore::ThreadableWebSocketChannel::CloseEventCodeAbnormalClosure;
     if (receivedClosingHandshake)
-        m_client->didStartClosingHandshake();
+        client->didStartClosingHandshake();
 
-    m_client->didClose(m_bufferedAmount, (m_isClosing || receivedClosingHandshake) ? WebCore::WebSocketChannelClient::ClosingHandshakeComplete : WebCore::WebSocketChannelClient::ClosingHandshakeIncomplete, code, reason);
+    client->didClose(m_bufferedAmount, (m_isClosing || receivedClosingHandshake) ? WebCore::WebSocketChannelClient::ClosingHandshakeComplete : WebCore::WebSocketChannelClient::ClosingHandshakeIncomplete, code, reason);
 }
 
 void WebSocketChannel::logErrorMessage(const String& errorMessage)
 {
-    if (!m_document)
+    RefPtr document = m_document.get();
+    if (!document)
         return;
 
     String consoleMessage;
     if (!m_url.isNull())
-        consoleMessage = makeString("WebSocket connection to '", m_url.string(), "' failed: ", errorMessage);
+        consoleMessage = makeString("WebSocket connection to '"_s, m_url.string(), "' failed: "_s, errorMessage);
     else
-        consoleMessage = makeString("WebSocket connection failed: ", errorMessage);
-    m_document->addConsoleMessage(MessageSource::Network, MessageLevel::Error, consoleMessage);
+        consoleMessage = makeString("WebSocket connection failed: "_s, errorMessage);
+    document->addConsoleMessage(MessageSource::Network, MessageLevel::Error, consoleMessage);
 }
 
 void WebSocketChannel::didReceiveMessageError(String&& errorMessage)
 {
-    if (!m_client)
+    RefPtr client = m_client.get();
+    if (!client)
         return;
-
-    if (m_isSuspended) {
-        enqueueTask([this, errorMessage = WTFMove(errorMessage)] () mutable {
-            didReceiveMessageError(WTFMove(errorMessage));
-        });
-        return;
-    }
 
     logErrorMessage(errorMessage);
-    m_client->didReceiveMessageError();
+    client->didReceiveMessageError(WTF::move(errorMessage));
 }
 
 void WebSocketChannel::networkProcessCrashed()
 {
-    didReceiveMessageError("WebSocket network error: Network process crashed."_s);
+    fail("WebSocket network error: Network process crashed."_s);
 }
 
 void WebSocketChannel::suspend()
 {
-    m_isSuspended = true;
 }
 
 void WebSocketChannel::resume()
 {
-    auto protectedThis = makeRef(*this);
-    m_isSuspended = false;
-    while (!m_isSuspended && !m_pendingTasks.isEmpty())
-        m_pendingTasks.takeFirst()();
-}
-
-void WebSocketChannel::enqueueTask(Function<void()>&& task)
-{
-    m_pendingTasks.append(WTFMove(task));
 }
 
 void WebSocketChannel::didSendHandshakeRequest(ResourceRequest&& request)
 {
-    if (m_isSuspended) {
-        enqueueTask([this, request = WTFMove(request)]() mutable {
-            didSendHandshakeRequest(WTFMove(request));
-        });
-        return;
-    }
-
-    m_inspector.willSendWebSocketHandshakeRequest(m_document.get(), request);
-    m_handshakeRequest = WTFMove(request);
+    m_inspector.didSendWebSocketHandshakeRequest(request);
+    m_handshakeRequest = WTF::move(request);
 }
 
 void WebSocketChannel::didReceiveHandshakeResponse(ResourceResponse&& response)
 {
-    if (m_isSuspended) {
-        enqueueTask([this, response = WTFMove(response)]() mutable {
-            didReceiveHandshakeResponse(WTFMove(response));
-        });
-        return;
-    }
-
-    m_inspector.didReceiveWebSocketHandshakeResponse(m_document.get(), response);
-    m_handshakeResponse = WTFMove(response);
+    m_inspector.didReceiveWebSocketHandshakeResponse(response);
+    m_handshakeResponse = WTF::move(response);
 }
 
 } // namespace WebKit

@@ -27,6 +27,7 @@
 #include "WebPage.h"
 
 #include <WebCore/NotImplemented.h>
+#include <WebCore/Page.h>
 #include <WebCore/PointerCharacteristics.h>
 #include <WebCore/Settings.h>
 #include <WebCore/UserAgent.h>
@@ -34,22 +35,16 @@
 namespace WebKit {
 using namespace WebCore;
 
-void WebPage::platformInitialize()
+void WebPage::platformInitialize(const WebPageCreationParameters&)
 {
 }
 
-void WebPage::platformReinitialize()
+void WebPage::platformReinitializeAccessibilityToken()
 {
 }
 
 void WebPage::platformDetach()
 {
-}
-
-bool WebPage::performDefaultBehaviorForKeyEvent(const WebKeyboardEvent&)
-{
-    notImplemented();
-    return false;
 }
 
 bool WebPage::platformCanHandleRequest(const ResourceRequest&)
@@ -92,7 +87,7 @@ bool WebPage::handleEditingKeyboardEvent(WebCore::KeyboardEvent& event)
     return false;
 }
 
-void WebPage::getPlatformEditorState(Frame& frame, EditorState& result) const
+void WebPage::getPlatformEditorState(LocalFrame& frame, EditorState& result) const
 {
     notImplemented();
 }

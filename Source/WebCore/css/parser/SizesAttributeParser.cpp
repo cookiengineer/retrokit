@@ -1,5 +1,6 @@
 // Copyright 2014 The Chromium Authors. All rights reserved.
-// Copyright (C) 2016 Apple Inc. All rights reserved.
+// Copyright (C) 2016-2025 Apple Inc. All rights reserved.
+// Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
 //
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are
@@ -30,134 +31,228 @@
 #include "config.h"
 #include "SizesAttributeParser.h"
 
-#include "CSSPrimitiveValue.h"
+#include "CSSCalcTree+Evaluation.h"
+#include "CSSCalcTree+Parser.h"
+#include "CSSCalcTree+Simplification.h"
+#include "CSSCalcTree.h"
+#include "CSSParserTokenRange.h"
+#include "CSSPrimitiveNumericCategory.h"
+#include "CSSPrimitiveNumericRange.h"
+#include "CSSPrimitiveNumericUnits.h"
+#include "CSSPropertyParserOptions.h"
+#include "CSSPropertyParserState.h"
 #include "CSSToLengthConversionData.h"
 #include "CSSTokenizer.h"
-#include "FontCascade.h"
-#include "MediaList.h"
 #include "MediaQueryEvaluator.h"
 #include "MediaQueryParser.h"
 #include "MediaQueryParserContext.h"
 #include "RenderView.h"
-#include "SizesCalcParser.h"
+#include "StyleComputedStyle+GettersInlines.h"
+#include "StyleLengthResolution.h"
 #include "StyleScope.h"
+#include <wtf/Scope.h>
 
 namespace WebCore {
 
-float SizesAttributeParser::computeLength(double value, CSSUnitType type, const Document& document)
-{
-    auto* renderer = document.renderView();
-    if (!renderer)
-        return 0;
-    auto& style = renderer->style();
-
-    CSSToLengthConversionData conversionData(&style, &style, renderer->parentStyle(), renderer);
-    // Because we evaluate "sizes" at parse time (before style has been resolved), the font metrics used for these specific units
-    // are not available. The font selector's internal consistency isn't guaranteed just yet, so we can just temporarily clear
-    // the pointer to it for the duration of the unit evaluation. This is acceptible because the style always comes from the
-    // RenderView, which has its font information hardcoded in resolveForDocument() to be -webkit-standard, whose operations
-    // don't require a font selector.
-    if (type == CSSUnitType::CSS_EXS || type == CSSUnitType::CSS_CHS) {
-        RefPtr<FontSelector> fontSelector = style.fontCascade().fontSelector();
-        style.fontCascade().update(nullptr);
-        float result = CSSPrimitiveValue::computeNonCalcLengthDouble(conversionData, type, value);
-        style.fontCascade().update(fontSelector.get());
-        return result;
-    }
-    return clampTo<float>(CSSPrimitiveValue::computeNonCalcLengthDouble(conversionData, type, value));
-}
-    
-SizesAttributeParser::SizesAttributeParser(const String& attribute, const Document& document, MediaQueryDynamicResults* mediaQueryDynamicResults)
+SizesAttributeParser::SizesAttributeParser(const String& attribute, const Document& document)
     : m_document(document)
-    , m_mediaQueryDynamicResults(mediaQueryDynamicResults)
 {
-    m_isValid = parse(CSSTokenizer(attribute).tokenRange());
+    if (!attribute.isEmpty())
+        m_result = parse(CSSTokenizer(attribute).tokenRange(), CSSParserContext(document));
 }
 
-float SizesAttributeParser::length()
+std::optional<float> SizesAttributeParser::effectiveSize()
 {
-    if (m_isValid)
-        return effectiveSize();
+    if (m_result)
+        return *m_result;
     return effectiveSizeDefaultValue();
 }
 
-bool SizesAttributeParser::calculateLengthInPixels(CSSParserTokenRange range, float& result)
+std::optional<float> SizesAttributeParser::effectiveSizeDefaultValue()
 {
-    const CSSParserToken& startToken = range.peek();
-    CSSParserTokenType type = startToken.type();
-    if (type == DimensionToken) {
-        if (!CSSPrimitiveValue::isLength(startToken.unitType()))
-            return false;
-        result = computeLength(startToken.numericValue(), startToken.unitType(), m_document);
-        if (result >= 0)
-            return true;
-    } else if (type == FunctionToken) {
-        SizesCalcParser calcParser(range, m_document);
-        if (!calcParser.isValid())
-            return false;
-        result = calcParser.result();
-        return true;
-    } else if (type == NumberToken && !startToken.numericValue()) {
-        result = 0;
-        return true;
-    }
-
-    return false;
+    auto conversionData = this->conversionData();
+    if (!conversionData)
+        return std::nullopt;
+    auto result = CSS::clampToRange<CSS::Nonnegative, float>(Style::computeNonCalcLengthDouble(100.0, CSS::LengthUnit::Vw, *conversionData));
+    if (!result)
+        return std::nullopt;
+    return result;
 }
 
-bool SizesAttributeParser::mediaConditionMatches(const MediaQuerySet& mediaCondition)
+std::optional<float> SizesAttributeParser::parse(CSSParserTokenRange tokens, const CSSParserContext& context)
+{
+    // https://html.spec.whatwg.org/multipage/images.html#parsing-a-sizes-attribute
+    auto savedTokens = tokens;
+    tokens.consumeWhitespace();
+    if (tokens.peek().type() == IdentToken && equalLettersIgnoringASCIICase(tokens.peek().value(), "auto"_s)) {
+        tokens.consume();
+        tokens.consumeWhitespace();
+        if (tokens.atEnd() || tokens.peek().type() == CommaToken) {
+            m_isAuto = true;
+            if (!tokens.atEnd())
+                tokens.consume();
+            return parse(tokens, context);
+        }
+        tokens = savedTokens;
+    } else
+        tokens = savedTokens;
+
+    // Split on a comma token and parse the result tokens as (media-condition, length) pairs
+    while (!tokens.atEnd()) {
+        auto mediaConditionStart = tokens;
+        // The length is the last component value before the comma which isn't whitespace or a comment
+        auto lengthTokenStart = tokens;
+        auto lengthTokenEnd = tokens;
+        while (!tokens.atEnd() && tokens.peek().type() != CommaToken) {
+            lengthTokenStart = tokens;
+            tokens.consumeComponentValue();
+            lengthTokenEnd = tokens;
+            tokens.consumeWhitespace();
+        }
+        tokens.consume();
+
+        auto length = parseLength(lengthTokenStart.rangeUntil(lengthTokenEnd), context);
+        if (!length)
+            continue;
+        auto mediaCondition = MQ::MediaQueryParser::parseCondition(mediaConditionStart.rangeUntil(lengthTokenStart), context);
+        if (!mediaCondition)
+            continue;
+        bool matches = mediaConditionMatches(*mediaCondition);
+        MQ::MediaQueryEvaluator evaluator { screenAtom() };
+        if (!evaluator.collectDynamicDependencies(*mediaCondition).isEmpty())
+            m_dynamicMediaQueryResults.append({ MQ::MediaQueryList { *mediaCondition }, matches });
+        if (!matches)
+            continue;
+        return length;
+    }
+    return std::nullopt;
+}
+
+std::optional<float> SizesAttributeParser::parseDimension(CSSParserTokenRange tokens, const CSSParserContext&)
+{
+    ASSERT(tokens.peek().type() == DimensionToken);
+
+    auto& token = tokens.consumeIncludingWhitespace();
+
+    auto unit = CSS::toLengthUnit(token.unitType());
+    if (!unit)
+        return std::nullopt;
+
+    auto conversionData = this->conversionData();
+    if (!conversionData)
+        return std::nullopt;
+
+    auto value = token.numericValue();
+
+    auto resolve = [&] -> std::optional<float> {
+        auto result = CSS::clampToRange<CSS::All, float>(Style::computeNonCalcLengthDouble(value, *unit, *conversionData));
+        if (result < 0)
+            return std::nullopt;
+        return result;
+    };
+
+    return resolve();
+}
+
+std::optional<float> SizesAttributeParser::parseFunction(CSSParserTokenRange tokens, const CSSParserContext& context)
+{
+    // Per https://html.spec.whatwg.org/#sizes-attributes
+    //   "A <source-size-value> that is a <length> must not be negative, and must
+    //    not use CSS functions other than the math functions."
+
+    static constexpr auto category = CSS::Category::Length;
+    static constexpr auto range = CSS::Nonnegative;
+
+    ASSERT(tokens.peek().type() == FunctionToken);
+
+    auto conversionData = this->conversionData();
+    if (!conversionData)
+        return std::nullopt;
+
+    auto parserState = CSS::PropertyParserState {
+        .context = context
+    };
+    auto parserOptions = CSSCalc::ParserOptions {
+        .category = category,
+        .range = range,
+        .allowedSymbols = { },
+        .propertyOptions = { },
+    };
+    auto simplificationOptions = CSSCalc::SimplificationOptions {
+        .category = category,
+        .range = range,
+        .conversionData = conversionData,
+        .symbolTable = { },
+        .allowZeroValueLengthRemovalFromSum = true,
+    };
+
+    auto tree = CSSCalc::parseAndSimplify(tokens, parserState, parserOptions, simplificationOptions);
+    if (!tree)
+        return std::nullopt;
+
+    auto evaluationOptions = CSSCalc::EvaluationOptions {
+        .category = category,
+        .range = range,
+        .conversionData = conversionData,
+        .symbolTable = { },
+    };
+    auto result = CSSCalc::evaluateDouble(*tree, evaluationOptions);
+    if (!result)
+        return std::nullopt;
+
+    // https://drafts.csswg.org/css-values-4/#calc-ieee
+    // Infinities and NaN do not escape a top-level calculation. For the
+    // sizes attribute, treat these as invalid so the entry is skipped and
+    // the fallback/default size is used, matching other browsers.
+    auto value = *result;
+    if (std::isnan(value) || std::isinf(value))
+        return std::nullopt;
+
+    return CSS::clampToRange<range, float>(value);
+}
+
+std::optional<float> SizesAttributeParser::parseLength(CSSParserTokenRange tokens, const CSSParserContext& context)
+{
+    // FIXME: Consider making `MetaConsumer<CSS::Length<CSS::Nonnegative>>` support immediate resolution of calc() and relative lengths via an optional `CSSToLengthConversionData` parameter and using it here.
+
+    switch (tokens.peek().type()) {
+    case DimensionToken:
+        return parseDimension(tokens, context);
+    case FunctionToken:
+        return parseFunction(tokens, context);
+    case NumberToken:
+        if (!tokens.peek().numericValue())
+            return 0;
+        break;
+    default:
+        break;
+    }
+
+    return std::nullopt;
+}
+
+bool SizesAttributeParser::mediaConditionMatches(const MQ::MediaQuery& mediaCondition)
 {
     // A Media Condition cannot have a media type other than screen.
-    auto* renderer = m_document.renderView();
-    if (!renderer)
-        return false;
-    auto& style = renderer->style();
-    return MediaQueryEvaluator { "screen", m_document, &style }.evaluate(mediaCondition, m_mediaQueryDynamicResults);
+    return MQ::MediaQueryEvaluator { screenAtom(), m_document.get() }.evaluate(mediaCondition);
 }
 
-bool SizesAttributeParser::parse(CSSParserTokenRange range)
+std::optional<CSSToLengthConversionData> SizesAttributeParser::conversionData() const
 {
-    // Split on a comma token and parse the result tokens as (media-condition, length) pairs
-    while (!range.atEnd()) {
-        const CSSParserToken* mediaConditionStart = &range.peek();
-        // The length is the last component value before the comma which isn't whitespace or a comment
-        const CSSParserToken* lengthTokenStart = &range.peek();
-        const CSSParserToken* lengthTokenEnd = &range.peek();
-        while (!range.atEnd() && range.peek().type() != CommaToken) {
-            lengthTokenStart = &range.peek();
-            range.consumeComponentValue();
-            lengthTokenEnd = &range.peek();
-            range.consumeWhitespace();
-        }
-        range.consume();
+    Ref document = this->document();
+    CheckedPtr renderView = document->renderView();
+    if (!renderView)
+        return std::nullopt;
 
-        float length;
-        if (!calculateLengthInPixels(range.makeSubRange(lengthTokenStart, lengthTokenEnd), length))
-            continue;
-        RefPtr<MediaQuerySet> mediaCondition = MediaQueryParser::parseMediaCondition(range.makeSubRange(mediaConditionStart, lengthTokenStart), MediaQueryParserContext(m_document));
-        if (!mediaCondition || !mediaConditionMatches(*mediaCondition))
-            continue;
-        m_length = length;
-        m_lengthWasSet = true;
-        return true;
-    }
-    return false;
-}
-
-float SizesAttributeParser::effectiveSize()
-{
-    if (m_lengthWasSet)
-        return m_length;
-    return effectiveSizeDefaultValue();
-}
-
-unsigned SizesAttributeParser::effectiveSizeDefaultValue()
-{
-    auto* renderer = m_document.renderView();
-    if (!renderer)
-        return 0;
-    auto& style = renderer->style();
-    return clampTo<float>(CSSPrimitiveValue::computeNonCalcLengthDouble({ &style, &style, renderer->parentStyle(), renderer }, CSSUnitType::CSS_VW, 100.0));
+    // Per https://html.spec.whatwg.org/multipage/images.html#source-size-2:
+    //  "When a source size has a unit relative to the viewport, it must be
+    //   interpreted relative to the img element's node document's viewport.
+    //   Other units must be interpreted the same as in Media Queries."
+    //
+    // MediaQueries are defined to use the initial style, so that is passed
+    // in as the "style", "parent style" and "root style". The `RenderView`
+    // is passed in to resolve viewport relative units.
+    return CSSToLengthConversionData { document->initialStyle(), &document->initialStyle(), &document->initialStyle(), renderView.get() };
 }
 
 } // namespace WebCore

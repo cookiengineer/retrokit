@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,47 +29,68 @@
 #include "CodeCache.h"
 #include "Debugger.h"
 #include "Error.h"
+#include "GlobalObjectMethodTable.h"
 #include "JSCJSValueInlines.h"
 #include "ParserError.h"
 
 namespace JSC {
 
-IndirectEvalExecutable* IndirectEvalExecutable::create(JSGlobalObject* globalObject, const SourceCode& source, DerivedContextType derivedContextType, bool isArrowFunctionContext, EvalContextType evalContextType)
+template<typename ErrorHandlerFunctor>
+inline IndirectEvalExecutable* IndirectEvalExecutable::createImpl(JSGlobalObject* globalObject, const SourceCode& source, LexicallyScopedFeatures lexicallyScopedFeatures, DerivedContextType derivedContextType, bool isArrowFunctionContext, EvalContextType evalContextType, ErrorHandlerFunctor errorHandler)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    if (!globalObject->evalEnabled()) {
+    if (!globalObject->evalEnabled() && globalObject->trustedTypesEnforcement() != TrustedTypesEnforcement::EnforcedWithEvalEnabled) {
+        globalObject->globalObjectMethodTable()->reportViolationForUnsafeEval(globalObject, source.provider() ? source.provider()->source().toString() : nullString());
         throwException(globalObject, scope, createEvalError(globalObject, globalObject->evalDisabledErrorMessage()));
         return nullptr;
     }
 
-    auto* executable = new (NotNull, allocateCell<IndirectEvalExecutable>(vm.heap)) IndirectEvalExecutable(globalObject, source, derivedContextType, isArrowFunctionContext, evalContextType);
+    auto* executable = new (NotNull, allocateCell<IndirectEvalExecutable>(vm)) IndirectEvalExecutable(globalObject, source, lexicallyScopedFeatures, derivedContextType, isArrowFunctionContext, evalContextType);
     executable->finishCreation(vm);
 
     ParserError error;
     OptionSet<CodeGenerationMode> codeGenerationMode = globalObject->defaultCodeGenerationMode();
-    
+
     UnlinkedEvalCodeBlock* unlinkedEvalCode = vm.codeCache()->getUnlinkedEvalCodeBlock(
-        vm, executable, executable->source(), JSParserStrictMode::NotStrict, codeGenerationMode, error, evalContextType);
+        vm, executable, executable->source(), codeGenerationMode, error, evalContextType);
 
     if (globalObject->hasDebugger())
         globalObject->debugger()->sourceParsed(globalObject, executable->source().provider(), error.line(), error.message());
 
     if (error.isValid()) {
-        throwVMError(globalObject, scope, error.toErrorObject(globalObject, executable->source()));
+        errorHandler(executable->source(), &error);
+        scope.release();
         return nullptr;
     }
 
-    executable->m_unlinkedEvalCodeBlock.set(vm, executable, unlinkedEvalCode);
+    executable->m_unlinkedCodeBlock.set(vm, executable, unlinkedEvalCode);
 
     return executable;
 }
 
-constexpr bool inStrictContext = false;
+IndirectEvalExecutable* IndirectEvalExecutable::create(JSGlobalObject* globalObject, const SourceCode& source, LexicallyScopedFeatures lexicallyScopedFeatures, DerivedContextType derivedContextType, bool isArrowFunctionContext, EvalContextType evalContextType, NakedPtr<JSObject>& resultingError)
+{
+    auto handleError = [&](const SourceCode& source, ParserError* error) {
+        resultingError = error->toErrorObject(globalObject, source);
+    };
+    return createImpl(globalObject, source, lexicallyScopedFeatures, derivedContextType, isArrowFunctionContext, evalContextType, handleError);
+}
+
+IndirectEvalExecutable* IndirectEvalExecutable::tryCreate(JSGlobalObject* globalObject, const SourceCode& source, LexicallyScopedFeatures lexicallyScopedFeatures, DerivedContextType derivedContextType, bool isArrowFunctionContext, EvalContextType evalContextType)
+{
+    VM& vm = globalObject->vm();
+    auto handleError = [&](const SourceCode& source, ParserError* error) {
+        auto scope = DECLARE_THROW_SCOPE(vm);
+        throwVMError(globalObject, scope, error->toErrorObject(globalObject, source));
+    };
+    return createImpl(globalObject, source, lexicallyScopedFeatures, derivedContextType, isArrowFunctionContext, evalContextType, handleError);
+}
+
 constexpr bool insideOrdinaryFunction = false;
-IndirectEvalExecutable::IndirectEvalExecutable(JSGlobalObject* globalObject, const SourceCode& source, DerivedContextType derivedContextType, bool isArrowFunctionContext, EvalContextType evalContextType)
-    : EvalExecutable(globalObject, source, inStrictContext, derivedContextType, isArrowFunctionContext, insideOrdinaryFunction, evalContextType, NeedsClassFieldInitializer::No, PrivateBrandRequirement::None)
+IndirectEvalExecutable::IndirectEvalExecutable(JSGlobalObject* globalObject, const SourceCode& source, LexicallyScopedFeatures lexicallyScopedFeatures, DerivedContextType derivedContextType, bool isArrowFunctionContext, EvalContextType evalContextType)
+    : EvalExecutable(globalObject, source, lexicallyScopedFeatures, derivedContextType, isArrowFunctionContext, insideOrdinaryFunction, evalContextType, NeedsClassFieldInitializer::No, PrivateBrandRequirement::None)
 {
 }
 

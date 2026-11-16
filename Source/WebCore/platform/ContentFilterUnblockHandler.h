@@ -27,14 +27,22 @@
 
 #if ENABLE(CONTENT_FILTERING)
 
+#if HAVE(WEBCONTENTRESTRICTIONS_ASK_TO) && HAVE(BROWSERENGINEKIT_WEBCONTENTFILTER)
+#include <WebCore/CocoaView.h>
+#endif
 #include <functional>
 #include <wtf/RetainPtr.h>
 #include <wtf/URL.h>
 #include <wtf/text/WTFString.h>
 
 OBJC_CLASS NSCoder;
+OBJC_CLASS NSNumber;
 
-#if PLATFORM(IOS_FAMILY)
+#if HAVE(WEBCONTENTRESTRICTIONS)
+OBJC_CLASS WCRBrowserEngineClient;
+#endif
+
+#if HAVE(PARENTAL_CONTROLS_WITH_UNBLOCK_HANDLER)
 OBJC_CLASS WebFilterEvaluator;
 #endif
 
@@ -48,29 +56,66 @@ public:
     using UnblockRequesterFunction = std::function<void(DecisionHandlerFunction)>;
 
     ContentFilterUnblockHandler() = default;
-    WEBCORE_EXPORT ContentFilterUnblockHandler(String unblockURLHost, UnblockRequesterFunction);
-#if HAVE(PARENTAL_CONTROLS_WITH_UNBLOCK_HANDLER)
+    WEBCORE_EXPORT ContentFilterUnblockHandler(String unblockURLHost, UnblockRequesterFunction&&);
+#if HAVE(WEBCONTENTRESTRICTIONS)
+    ContentFilterUnblockHandler(const URL& evaluatedURL);
+#elif HAVE(PARENTAL_CONTROLS_WITH_UNBLOCK_HANDLER)
     ContentFilterUnblockHandler(String unblockURLHost, RetainPtr<WebFilterEvaluator>);
 #endif
 
-    WEBCORE_EXPORT bool needsUIProcess() const;
-    WEBCORE_EXPORT void encode(NSCoder *) const;
-    WEBCORE_EXPORT static WARN_UNUSED_RETURN bool decode(NSCoder *, ContentFilterUnblockHandler&);
-    WEBCORE_EXPORT bool canHandleRequest(const ResourceRequest&) const;
-    WEBCORE_EXPORT void requestUnblockAsync(DecisionHandlerFunction) const;
-    void wrapWithDecisionHandler(const DecisionHandlerFunction&);
+    WEBCORE_EXPORT ContentFilterUnblockHandler(
+        String&& unblockURLHost,
+        URL&& unreachableURL,
+#if HAVE(WEBCONTENTRESTRICTIONS)
+        std::optional<URL>&& evaluatedURL,
+#elif HAVE(PARENTAL_CONTROLS_WITH_UNBLOCK_HANDLER)
+        RetainPtr<WebFilterEvaluator>&&,
+#endif
+        bool unblockedAfterRequest
+    );
 
-    const String& unblockURLHost() const { return m_unblockURLHost; }
-    const URL& unreachableURL() const { return m_unreachableURL; }
+    WEBCORE_EXPORT bool NODELETE needsUIProcess() const;
+    WEBCORE_EXPORT bool canHandleRequest(const ResourceRequest&) const;
+    WEBCORE_EXPORT void requestUnblockAsync(DecisionHandlerFunction&&, std::optional<URL> requestURL = std::nullopt
+#if HAVE(WEBCONTENTRESTRICTIONS_ASK_TO) && HAVE(BROWSERENGINEKIT_WEBCONTENTFILTER)
+        , CocoaView* presentingView = nullptr
+#endif
+    );
+    void wrapWithDecisionHandler(const DecisionHandlerFunction&);
+#if HAVE(WEBCONTENTRESTRICTIONS)
+    WEBCORE_EXPORT bool NODELETE needsNetworkProcess() const;
+#endif
+
+    const String& unblockURLHost() const LIFETIME_BOUND { return m_unblockURLHost; }
+    const URL& unreachableURL() const LIFETIME_BOUND { return m_unreachableURL; }
     void setUnreachableURL(const URL& url) { m_unreachableURL = url; }
+
+#if HAVE(WEBCONTENTRESTRICTIONS)
+    std::optional<URL> evaluatedURL() const { return m_evaluatedURL; }
+#if HAVE(WEBCONTENTRESTRICTIONS_PATH_SPI)
+    const String& configurationPath() const LIFETIME_BOUND { return m_configurationPath; }
+    void setConfigurationPath(const String& path) { m_configurationPath = path; }
+#endif
+#elif HAVE(PARENTAL_CONTROLS_WITH_UNBLOCK_HANDLER)
+    RetainPtr<WebFilterEvaluator> webFilterEvaluator() const { return m_webFilterEvaluator; }
+#endif
+
+    WEBCORE_EXPORT void NODELETE setUnblockedAfterRequest(bool);
+    bool unblockedAfterRequest() const { return m_unblockedAfterRequest; }
 
 private:
     String m_unblockURLHost;
     URL m_unreachableURL;
     UnblockRequesterFunction m_unblockRequester;
-#if HAVE(PARENTAL_CONTROLS_WITH_UNBLOCK_HANDLER)
+#if HAVE(WEBCONTENTRESTRICTIONS)
+    std::optional<URL> m_evaluatedURL;
+#if HAVE(WEBCONTENTRESTRICTIONS_PATH_SPI)
+    String m_configurationPath;
+#endif
+#elif HAVE(PARENTAL_CONTROLS_WITH_UNBLOCK_HANDLER)
     RetainPtr<WebFilterEvaluator> m_webFilterEvaluator;
 #endif
+    bool m_unblockedAfterRequest { false };
 };
 
 } // namespace WebCore

@@ -27,6 +27,7 @@
 #include "UserAgentStyle.h"
 #include <memory>
 #include <wtf/HashMap.h>
+#include <wtf/OptionSet.h>
 #include <wtf/RefPtr.h>
 #include <wtf/Vector.h>
 
@@ -35,20 +36,50 @@ namespace WebCore {
 class CSSStyleRule;
 class CSSStyleSheet;
 class ExtensionStyleSheets;
+
+namespace MQ {
 class MediaQueryEvaluator;
+};
 
 namespace Style {
 
+enum class DeclarationOrigin : uint8_t;
 class InspectorCSSOMWrappers;
 class Resolver;
 
-struct InvalidationRuleSet {
-    MatchElement matchElement;
-    Ref<RuleSet> ruleSet;
-    Vector<const CSSSelector*> invalidationSelectors;
-
-    WTF_MAKE_FAST_ALLOCATED;
+// Properties of a :has() argument used to limit sibling-combinator invalidation visits.
+enum class HasArgumentProperty : uint8_t {
+    // The argument depends on sibling order/position (a sibling combinator or a sibling-relative pseudo-class
+    // anywhere). Order-insensitive arguments don't need sibling-combinator invalidation visits — the changed
+    // element's own SelfOrDescendant traversal covers them — so they are skipped there to avoid re-walking the
+    // bearer subtree on every mutation.
+    OrderSensitive = 1 << 0,
+    // The order-sensitivity is *purely* structural sibling combinators (+/~) with no positional or stateful
+    // pseudo-classes (recursing into :is()/:where()/:not()). For these an element's match depends only on itself
+    // and its preceding siblings, so the hasAlreadyMatchedAndMutationIsIrrelevant short-circuit can be applied on
+    // sibling-combinator visits when the mutation is at the end of the element list.
+    StructuralSibling = 1 << 1,
 };
+
+struct InvalidationRuleSet {
+    RefPtr<RuleSet> ruleSet;
+    // Invalidation selectors are used for attribute selector and :has() invalidation.
+    // For attributes selectors it contains the simple selectors for fast testing of whether an attribute mutation may have an effect.
+    // For :has() it contains the complex argument selectors for testing if adding or removing a node may affect :has() matching.
+    // Otherwise the list is empty.
+    CSSSelectorList invalidationSelectors;
+    MatchElement matchElement;
+    IsNegation isNegation;
+    OptionSet<HasArgumentProperty> hasArgumentProperties;
+    // Selector for the :has() scope element, used to bound invalidation traversal.
+    //   - Specific selectors: strong scope.
+    //   - Universal `*`: weak scope (bearer has no compound peer); scope element is still
+    //     DOM-identifiable relative to a changed element.
+    //   - Null: scope-breaking (nested :is()/:not() reaches outside the scope).
+    RefPtr<const RefCountedCSSSelectorList> scopeSelector;
+};
+
+enum class SelectorsForStyleAttribute : uint8_t { None, SubjectPositionOnly, NonSubjectPosition };
 
 class ScopeRuleSets {
 public:
@@ -57,52 +88,71 @@ public:
 
     bool isAuthorStyleDefined() const { return m_isAuthorStyleDefined; }
     RuleSet* userAgentMediaQueryStyle() const;
+    RuleSet* NODELETE dynamicViewTransitionsStyle() const;
     RuleSet& authorStyle() const { return *m_authorStyle; }
     RuleSet* userStyle() const;
-    const RuleFeatureSet& features() const;
-    RuleSet* sibling() const { return m_siblingRuleSet.get(); }
-    RuleSet* uncommonAttribute() const { return m_uncommonAttributeRuleSet.get(); }
+    RuleSet* styleForDeclarationOrigin(DeclarationOrigin);
 
-    const Vector<InvalidationRuleSet>* classInvalidationRuleSets(const AtomString& className) const;
-    const Vector<InvalidationRuleSet>* attributeInvalidationRuleSets(const AtomString& attributeName) const;
-    const Vector<InvalidationRuleSet>* pseudoClassInvalidationRuleSets(CSSSelector::PseudoClassType) const;
+    const RuleFeatureSet& features() const LIFETIME_BOUND;
 
-    bool hasComplexSelectorsForStyleAttribute() const;
+    const Vector<InvalidationRuleSet>* idInvalidationRuleSets(const AtomString&) const LIFETIME_BOUND;
+    const Vector<InvalidationRuleSet>* classInvalidationRuleSets(const AtomString&) const LIFETIME_BOUND;
+    const Vector<InvalidationRuleSet>* attributeInvalidationRuleSets(const AtomString&) const LIFETIME_BOUND;
+    const Vector<InvalidationRuleSet>* pseudoClassInvalidationRuleSets(const PseudoClassInvalidationKey&) const LIFETIME_BOUND;
+    const Vector<InvalidationRuleSet>* hasPseudoClassInvalidationRuleSets(const PseudoClassInvalidationKey&) const LIFETIME_BOUND;
+
+    const HashSet<AtomString>& customPropertyNamesInStyleContainerQueries() const LIFETIME_BOUND;
+
+    SelectorsForStyleAttribute selectorsForStyleAttribute() const;
 
     void setUsesSharedUserStyle(bool b) { m_usesSharedUserStyle = b; }
     void initializeUserStyle();
 
     void resetAuthorStyle();
-    void appendAuthorStyleSheets(const Vector<RefPtr<CSSStyleSheet>>&, MediaQueryEvaluator*, Style::InspectorCSSOMWrappers&);
+    void appendAuthorStyleSheets(std::span<const Ref<CSSStyleSheet>>, MQ::MediaQueryEvaluator*, Style::InspectorCSSOMWrappers&);
 
     void resetUserAgentMediaQueryStyle();
 
-    bool hasViewportDependentMediaQueries() const;
+    bool NODELETE hasViewportDependentMediaQueries() const;
+    bool NODELETE hasContainerQueries() const;
+    bool NODELETE hasScopeRules() const;
 
-    std::optional<DynamicMediaQueryEvaluationChanges> evaluateDynamicMediaQueryRules(const MediaQueryEvaluator&);
+    RefPtr<StyleRuleViewTransition> NODELETE viewTransitionRule() const;
 
-    RuleFeatureSet& mutableFeatures();
+    std::optional<DynamicMediaQueryEvaluationChanges> evaluateDynamicMediaQueryRules(const MQ::MediaQueryEvaluator&);
 
-    bool& isInvalidatingStyleWithRuleSets() { return m_isInvalidatingStyleWithRuleSets; }
+    RuleFeatureSet& mutableFeatures() LIFETIME_BOUND;
+
+    void setDynamicViewTransitionsStyle(RuleSet* ruleSet)
+    {
+        m_dynamicViewTransitionsStyle = ruleSet;
+    }
+
+    bool& isInvalidatingStyleWithRuleSets() LIFETIME_BOUND { return m_isInvalidatingStyleWithRuleSets; }
+
+    bool hasMatchingUserOrAuthorStyle(NOESCAPE const WTF::Function<bool(RuleSet&)>&);
 
 private:
     void collectFeatures() const;
-    void collectRulesFromUserStyleSheets(const Vector<RefPtr<CSSStyleSheet>>&, RuleSet& userStyle, const MediaQueryEvaluator&);
+    void collectRulesFromUserStyleSheets(const Vector<Ref<CSSStyleSheet>>&, RuleSet& userStyle, const MQ::MediaQueryEvaluator&);
     void updateUserAgentMediaQueryStyleIfNeeded() const;
 
     RefPtr<RuleSet> m_authorStyle;
     mutable RefPtr<RuleSet> m_userAgentMediaQueryStyle;
+    mutable RefPtr<RuleSet> m_dynamicViewTransitionsStyle;
     RefPtr<RuleSet> m_userStyle;
 
     Resolver& m_styleResolver;
     mutable RuleFeatureSet m_features;
-    mutable RefPtr<RuleSet> m_siblingRuleSet;
-    mutable RefPtr<RuleSet> m_uncommonAttributeRuleSet;
+    mutable HashMap<AtomString, std::unique_ptr<Vector<InvalidationRuleSet>>> m_idInvalidationRuleSets;
     mutable HashMap<AtomString, std::unique_ptr<Vector<InvalidationRuleSet>>> m_classInvalidationRuleSets;
     mutable HashMap<AtomString, std::unique_ptr<Vector<InvalidationRuleSet>>> m_attributeInvalidationRuleSets;
-    mutable HashMap<CSSSelector::PseudoClassType, std::unique_ptr<Vector<InvalidationRuleSet>>, WTF::IntHash<CSSSelector::PseudoClassType>, WTF::StrongEnumHashTraits<CSSSelector::PseudoClassType>> m_pseudoClassInvalidationRuleSets;
+    mutable HashMap<PseudoClassInvalidationKey, std::unique_ptr<Vector<InvalidationRuleSet>>> m_pseudoClassInvalidationRuleSets;
+    mutable HashMap<PseudoClassInvalidationKey, std::unique_ptr<Vector<InvalidationRuleSet>>> m_hasPseudoClassInvalidationRuleSets;
 
-    mutable std::optional<bool> m_cachedHasComplexSelectorsForStyleAttribute;
+    mutable std::optional<HashSet<AtomString>> m_customPropertyNamesInStyleContainerQueries;
+
+    mutable std::optional<SelectorsForStyleAttribute> m_cachedSelectorsForStyleAttribute;
 
     mutable unsigned m_defaultStyleVersionOnFeatureCollection { 0 };
     mutable unsigned m_userAgentMediaQueryRuleCountOnUpdate { 0 };

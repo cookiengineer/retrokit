@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,11 +30,16 @@
 #include "CodeBlockInlines.h"
 #include "JSObject.h"
 #include "MarkedSpaceInlines.h"
-#include "VMInspector.h"
+#include "VMManager.h"
 #include "ValueProfile.h"
 #include <wtf/ProcessID.h>
+#include <wtf/TZoneMallocInlines.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HeapVerifier);
 
 HeapVerifier::HeapVerifier(Heap* heap, unsigned numberOfGCCyclesToRecord)
     : m_heap(heap)
@@ -142,7 +147,7 @@ void HeapVerifier::printVerificationHeader()
     RELEASE_ASSERT(m_heap->collectionScope());
     CollectionScope scope = currentCycle().scope;
     MonotonicTime gcCycleTimestamp = currentCycle().timestamp;
-    dataLog("Verifying heap in [p", getCurrentProcessID(), ", ", Thread::current(), "] vm ",
+    dataLog("Verifying heap in [p", getCurrentProcessID(), ", ", Thread::currentSingleton(), "] vm ",
         RawPointer(&m_heap->vm()), " on ", scope, " GC @ ", gcCycleTimestamp, "\n");
 }
 
@@ -172,7 +177,8 @@ bool HeapVerifier::verifyCellList(Phase phase, CellList& list)
             continue;
 
         JSCell* cell = profile.jsCell();
-        success |= validateJSCell(&vm, cell, &profile, &list, printHeaderIfNeeded, "  ");
+        if (!validateJSCell(&vm, cell, &profile, &list, printHeaderIfNeeded, "  "))
+            success = false;
     }
 
     return success;
@@ -219,8 +225,6 @@ bool HeapVerifier::validateJSCell(VM* expectedVM, JSCell* cell, CellProfile* pro
     }
 
     if (expectedVM) {
-        VM& vm = *expectedVM;
-
         VM* cellVM = &cell->vm();
         if (cellVM != expectedVM) {
             printHeaderAndCell();
@@ -230,14 +234,10 @@ bool HeapVerifier::validateJSCell(VM* expectedVM, JSCell* cell, CellProfile* pro
 
         // 2. Validate the cell's structure
 
-        Structure* structure = vm.getStructure(structureID);
+        Structure* structure = structureID.decode();
         if (!structure) {
             printHeaderAndCell();
-#if USE(JSVALUE64)
-            uint32_t structureIDAsUint32 = structureID;
-#else
-            uint32_t structureIDAsUint32 = reinterpret_cast<uint32_t>(structureID);
-#endif
+            uint32_t structureIDAsUint32 = structureID.bits();
             dataLog(" with structureID ", structureIDAsUint32, " maps to a NULL Structure pointer\n");
             return false;
         }
@@ -285,7 +285,7 @@ bool HeapVerifier::validateJSCell(VM* expectedVM, JSCell* cell, CellProfile* pro
 
         // 3. Validate the cell's structure's structure.
         
-        Structure* structureStructure = vm.getStructure(structureID);
+        Structure* structureStructure = structureStructureID.decode();
         if (!structureStructure) {
             printHeaderAndCell();
             dataLog(" has structure ", RawPointer(structure), " whose structure is NULL\n");
@@ -326,11 +326,11 @@ bool HeapVerifier::validateJSCell(VM* expectedVM, JSCell* cell, CellProfile* pro
             }
         }
         
-        CodeBlock* codeBlock = jsDynamicCast<CodeBlock*>(vm, cell);
-        if (UNLIKELY(codeBlock)) {
+        CodeBlock* codeBlock = dynamicDowncast<CodeBlock>(cell);
+        if (codeBlock) [[unlikely]] {
             bool success = true;
-            codeBlock->forEachValueProfile([&](ValueProfile& valueProfile, bool) {
-                for (unsigned i = 0; i < ValueProfile::totalNumberOfBuckets; ++i) {
+            codeBlock->forEachValueProfile([&](auto& valueProfile, bool) {
+                for (unsigned i = 0; i < std::remove_reference_t<decltype(valueProfile)>::totalNumberOfBuckets; ++i) {
                     JSValue value = JSValue::decode(valueProfile.m_buckets[i]);
                     if (!value)
                         continue;
@@ -386,7 +386,7 @@ void HeapVerifier::reportCell(CellProfile& profile, int cycleIndex, HeapVerifier
 
     if (profile.isLive() && profile.isJSCell()) {
         JSCell* jsCell = profile.jsCell();
-        Structure* structure = jsCell->structure(vm);
+        Structure* structure = jsCell->structure();
         dataLog(" structure:", RawPointer(structure));
         if (jsCell->isObject()) {
             JSObject* obj = static_cast<JSObject*>(cell);
@@ -442,21 +442,22 @@ void HeapVerifier::checkIfRecorded(uintptr_t candidateCell)
 {
     HeapCell* candidateHeapCell = reinterpret_cast<HeapCell*>(candidateCell);
     
-    auto& inspector = VMInspector::instance();
-    if (!inspector.getLock().tryLockWithTimeout(2_s)) {
-        dataLog("ERROR: Timed out while waiting to iterate VMs.");
-        return;
-    }
-    Locker locker { AdoptLock, inspector.getLock() };
-    inspector.iterate([&] (VM& vm) {
+    auto result = VMManager::forEachVMWithTimeout(2_s, [&] (VM& vm) {
+        if (!vm.isInService())
+            return IterationStatus::Continue;
+
         if (!vm.heap.m_verifier)
-            return VMInspector::FunctorStatus::Continue;
+            return IterationStatus::Continue;
         
         auto* verifier = vm.heap.m_verifier.get();
         dataLog("Search for cell ", RawPointer(candidateHeapCell), " in VM ", RawPointer(&vm), ":\n");
         verifier->checkIfRecorded(candidateHeapCell);
-        return VMInspector::FunctorStatus::Continue;
+        return IterationStatus::Continue;
     });
+    if (result == VMManager::Error::TimedOut)
+        dataLog("ERROR: Timed out while waiting to iterate VMs.");
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

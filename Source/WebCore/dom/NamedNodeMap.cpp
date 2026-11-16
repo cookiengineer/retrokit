@@ -26,49 +26,62 @@
 #include "NamedNodeMap.h"
 
 #include "Attr.h"
+#include "ElementInlines.h"
 #include "HTMLElement.h"
-#include <wtf/IsoMallocInlines.h>
+#include "ScriptWrappableInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 using namespace HTMLNames;
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(NamedNodeMap);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(NamedNodeMap);
 
 void NamedNodeMap::ref()
 {
-    m_element.ref();
+    m_element->ref();
 }
 
 void NamedNodeMap::deref()
 {
-    m_element.deref();
+    m_element->deref();
 }
 
 RefPtr<Attr> NamedNodeMap::getNamedItem(const AtomString& name) const
 {
-    return m_element.getAttributeNode(name);
+    return protect(element())->getAttributeNode(name);
+}
+
+bool NamedNodeMap::isSupportedPropertyName(const AtomString& name) const
+{
+    return protect(element())->hasAttribute(name);
 }
 
 RefPtr<Attr> NamedNodeMap::getNamedItemNS(const AtomString& namespaceURI, const AtomString& localName) const
 {
-    return m_element.getAttributeNodeNS(namespaceURI, localName);
+    return protect(element())->getAttributeNodeNS(namespaceURI, localName);
 }
 
 ExceptionOr<Ref<Attr>> NamedNodeMap::removeNamedItem(const AtomString& name)
 {
-    if (!m_element.hasAttributes())
-        return Exception { NotFoundError };
-    auto index = m_element.findAttributeIndexByName(name, shouldIgnoreAttributeCase(m_element));
+    Ref element = m_element.get();
+    if (!element->hasAttributes())
+        return Exception { ExceptionCode::NotFoundError };
+    auto index = element->findAttributeIndexByName(name, shouldIgnoreAttributeCase(m_element));
     if (index == ElementData::attributeNotFound)
-        return Exception { NotFoundError };
-    return m_element.detachAttribute(index);
+        return Exception { ExceptionCode::NotFoundError };
+    return element->detachAttribute(index);
+}
+
+Element& NamedNodeMap::element() const
+{
+    return m_element.get();
 }
 
 Vector<String> NamedNodeMap::supportedPropertyNames() const
 {
-    Vector<String> names = m_element.getAttributeNames();
-    if (is<HTMLElement>(m_element) && m_element.document().isHTMLDocument()) {
+    Vector<String> names = protect(m_element.get())->getAttributeNames();
+    if (is<HTMLElement>(m_element.get()) && m_element->document().isHTMLDocument()) {
         names.removeAllMatching([](String& name) {
             for (auto character : StringView { name }.codeUnits()) {
                 if (isASCIIUpper(character))
@@ -82,31 +95,33 @@ Vector<String> NamedNodeMap::supportedPropertyNames() const
 
 ExceptionOr<Ref<Attr>> NamedNodeMap::removeNamedItemNS(const AtomString& namespaceURI, const AtomString& localName)
 {
-    if (!m_element.hasAttributes())
-        return Exception { NotFoundError };
-    auto index = m_element.findAttributeIndexByName(QualifiedName { nullAtom(), localName, namespaceURI });
+    Ref element = m_element.get();
+    if (!element->hasAttributes())
+        return Exception { ExceptionCode::NotFoundError };
+    auto index = element->findAttributeIndexByName(QualifiedName { nullAtom(), localName, namespaceURI });
     if (index == ElementData::attributeNotFound)
-        return Exception { NotFoundError };
-    return m_element.detachAttribute(index);
+        return Exception { ExceptionCode::NotFoundError };
+    return element->detachAttribute(index);
 }
 
 ExceptionOr<RefPtr<Attr>> NamedNodeMap::setNamedItem(Attr& attr)
 {
-    return m_element.setAttributeNode(attr);
+    return protect(element())->setAttributeNode(attr);
 }
 
 RefPtr<Attr> NamedNodeMap::item(unsigned index) const
 {
     if (index >= length())
         return nullptr;
-    return m_element.ensureAttr(m_element.attributeAt(index).name());
+    Ref element = m_element.get();
+    return element->ensureAttr(element->attributeAt(index).name());
 }
 
 unsigned NamedNodeMap::length() const
 {
-    if (!m_element.hasAttributes())
+    if (!m_element->hasAttributes())
         return 0;
-    return m_element.attributeCount();
+    return protect(m_element.get())->attributeCount();
 }
 
 } // namespace WebCore

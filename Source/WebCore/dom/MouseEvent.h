@@ -2,7 +2,8 @@
  * Copyright (C) 2001 Peter Kelly (pmk@post.com)
  * Copyright (C) 2001 Tobias Anton (anton@stud.fbi.fh-darmstadt.de)
  * Copyright (C) 2006 Samuel Weinig (sam.weinig@gmail.com)
- * Copyright (C) 2003-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2017 Google Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -23,12 +24,19 @@
 
 #pragma once
 
-#include "EventTarget.h"
-#include "MouseEventInit.h"
-#include "MouseRelatedEvent.h"
+#include <WebCore/EventTarget.h>
+#include <WebCore/MouseEventInit.h>
+#include <WebCore/MouseEventTypes.h>
+#include <WebCore/MouseRelatedEvent.h>
+#include <WebCore/PlatformMouseEvent.h>
 
+#include <wtf/Platform.h>
 #if ENABLE(TOUCH_EVENTS) && PLATFORM(IOS_FAMILY)
-#include "PlatformTouchEventIOS.h"
+// FIXME: Properly support using WKA in modules.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnon-modular-include-in-module"
+#include <WebKitAdditions/PlatformTouchEventIOS.h>
+#pragma clang diagnostic pop
 #endif
 
 namespace JSC {
@@ -39,42 +47,104 @@ class JSValue;
 namespace WebCore {
 
 class Node;
-class PlatformMouseEvent;
+
+enum class SyntheticClickType : uint8_t;
+
+bool isAnyClick(const AtomString& eventType);
+bool isAnyClick(const Event&);
 
 class MouseEvent : public MouseRelatedEvent {
-    WTF_MAKE_ISO_ALLOCATED(MouseEvent);
+    WTF_MAKE_TZONE_ALLOCATED(MouseEvent);
 public:
-    WEBCORE_EXPORT static Ref<MouseEvent> create(const AtomString& type, CanBubble, IsCancelable, IsComposed, MonotonicTime timestamp, RefPtr<WindowProxy>&&, int detail,
-        const IntPoint& screenLocation, const IntPoint& windowLocation, const IntPoint& movementDelta, OptionSet<Modifier>, short button, unsigned short buttons,
-        EventTarget* relatedTarget, double force, unsigned short syntheticClickType, IsSimulated = IsSimulated::No, IsTrusted = IsTrusted::Yes);
+    WEBCORE_EXPORT static Ref<MouseEvent> create(
+        const AtomString& type,
+        CanBubble,
+        IsCancelable,
+        IsComposed,
+        MonotonicTime timestamp,
+        RefPtr<WindowProxy>&&,
+        int detail,
+        const DoublePoint& screenLocation,
+        const DoublePoint& windowLocation,
+        double movementX,
+        double movementY,
+        OptionSet<Modifier>,
+        MouseButton,
+        unsigned short buttons,
+        RefPtr<EventTarget>&& relatedTarget,
+        double force,
+        SyntheticClickType,
+        const Vector<Ref<MouseEvent>>& coalescedEvents,
+        const Vector<Ref<MouseEvent>>& predictedEvents,
+        const std::optional<MouseEventInputSource>& inputSource = { },
+        IsSimulated = IsSimulated::No,
+        IsTrusted = IsTrusted::Yes
+    );
 
-    WEBCORE_EXPORT static Ref<MouseEvent> create(const AtomString& eventType, RefPtr<WindowProxy>&&, const PlatformMouseEvent&, int detail, Node* relatedTarget);
+    WEBCORE_EXPORT static Ref<MouseEvent> create(
+        const AtomString& eventType,
+        RefPtr<WindowProxy>&&,
+        const PlatformMouseEvent&,
+        const Vector<Ref<MouseEvent>>& coalescedEvents,
+        const Vector<Ref<MouseEvent>>& predictedEvents,
+        int detail,
+        Node* relatedTarget
+    );
 
-    static Ref<MouseEvent> create(const AtomString& eventType, CanBubble, IsCancelable, IsComposed, RefPtr<WindowProxy>&&, int detail,
-        int screenX, int screenY, int clientX, int clientY, OptionSet<Modifier>, short button, unsigned short buttons,
-        unsigned short syntheticClickType, EventTarget* relatedTarget);
+    static Ref<MouseEvent> create(
+        const AtomString& eventType,
+        CanBubble,
+        IsCancelable,
+        IsComposed,
+        MonotonicTime timestamp,
+        RefPtr<WindowProxy>&&,
+        int detail,
+        double screenX,
+        double screenY,
+        double clientX,
+        double clientY,
+        OptionSet<Modifier>,
+        MouseButton,
+        unsigned short buttons,
+        SyntheticClickType,
+        RefPtr<EventTarget>&& relatedTarget
+    );
 
-    static Ref<MouseEvent> createForBindings() { return adoptRef(*new MouseEvent); }
+    static Ref<MouseEvent> createForBindings();
 
     static Ref<MouseEvent> create(const AtomString& eventType, const MouseEventInit&);
 
 #if ENABLE(TOUCH_EVENTS) && PLATFORM(IOS_FAMILY)
-    static Ref<MouseEvent> create(const PlatformTouchEvent&, unsigned touchIndex, Ref<WindowProxy>&&, IsCancelable = IsCancelable::Yes);
+    enum class ShouldComputeMovementDelta : bool { No, Yes };
+    static Ref<MouseEvent> create(const PlatformTouchEvent&, unsigned touchIndex, Ref<WindowProxy>&&, IsCancelable = IsCancelable::Yes, ShouldComputeMovementDelta = ShouldComputeMovementDelta::No);
 #endif
 
     virtual ~MouseEvent();
 
-    WEBCORE_EXPORT void initMouseEvent(const AtomString& type, bool canBubble, bool cancelable, RefPtr<WindowProxy>&&,
-        int detail, int screenX, int screenY, int clientX, int clientY, bool ctrlKey, bool altKey, bool shiftKey, bool metaKey,
-        short button, EventTarget* relatedTarget);
+    WEBCORE_EXPORT void initMouseEvent(
+        const AtomString& type,
+        bool canBubble,
+        bool cancelable,
+        RefPtr<WindowProxy>&&,
+        int detail,
+        double screenX,
+        double screenY,
+        double clientX,
+        double clientY,
+        bool ctrlKey,
+        bool altKey,
+        bool shiftKey,
+        bool metaKey,
+        int16_t button,
+        RefPtr<EventTarget>&& relatedTarget
+    );
 
-    void initMouseEventQuirk(JSC::JSGlobalObject&, ScriptExecutionContext&, const AtomString& type, bool canBubble, bool cancelable, RefPtr<WindowProxy>&&,
-        int detail, int screenX, int screenY, int clientX, int clientY, bool ctrlKey, bool altKey, bool shiftKey, bool metaKey,
-        short button, JSC::JSValue relatedTarget);
+    const std::optional<MouseEventInputSource>& inputSource() const LIFETIME_BOUND { return m_inputSource; }
 
-    short button() const { return m_button; }
+    MouseButton button() const;
+    int16_t buttonAsShort() const { return m_button; }
     unsigned short buttons() const { return m_buttons; }
-    unsigned short syntheticClickType() const { return m_syntheticClickType; }
+    SyntheticClickType syntheticClickType() const { return m_syntheticClickType; }
     bool buttonDown() const { return m_buttonDown; }
     EventTarget* relatedTarget() const final { return m_relatedTarget.get(); }
     double force() const { return m_force; }
@@ -85,35 +155,79 @@ public:
 
     static bool canTriggerActivationBehavior(const Event&);
 
-    int which() const final;
+    unsigned which() const final;
+
+    Vector<Ref<MouseEvent>> coalescedEvents() const { return m_coalescedEvents; }
+
+    Vector<Ref<MouseEvent>> predictedEvents() const { return m_predictedEvents; }
 
 protected:
-    MouseEvent(const AtomString& type, CanBubble, IsCancelable, IsComposed, MonotonicTime timestamp, RefPtr<WindowProxy>&&, int detail,
-        const IntPoint& screenLocation, const IntPoint& windowLocation, const IntPoint& movementDelta, OptionSet<Modifier>, short button, unsigned short buttons,
-        EventTarget* relatedTarget, double force, unsigned short syntheticClickType, IsSimulated, IsTrusted);
+    MouseEvent(
+        enum EventInterfaceType,
+        const AtomString& type,
+        CanBubble,
+        IsCancelable,
+        IsComposed,
+        MonotonicTime timestamp,
+        RefPtr<WindowProxy>&&,
+        int detail,
+        const DoublePoint& screenLocation,
+        const DoublePoint& windowLocation,
+        double movementX,
+        double movementY,
+        OptionSet<Modifier>,
+        MouseButton,
+        unsigned short buttons,
+        RefPtr<EventTarget>&& relatedTarget,
+        double force,
+        SyntheticClickType,
+        const Vector<Ref<MouseEvent>>& coalescedEvents,
+        const Vector<Ref<MouseEvent>>& predictedEvents,
+        const std::optional<MouseEventInputSource>& inputSource,
+        IsSimulated,
+        IsTrusted
+    );
 
-    MouseEvent(const AtomString& type, CanBubble, IsCancelable, IsComposed, RefPtr<WindowProxy>&&, int detail,
-        const IntPoint& screenLocation, const IntPoint& clientLocation, OptionSet<Modifier>, short button, unsigned short buttons,
-        unsigned short syntheticClickType, EventTarget* relatedTarget);
+    MouseEvent(
+        enum EventInterfaceType,
+        const AtomString& type,
+        CanBubble,
+        IsCancelable,
+        IsComposed,
+        MonotonicTime timestamp,
+        RefPtr<WindowProxy>&&,
+        int detail,
+        const DoublePoint& screenLocation,
+        const DoublePoint& clientLocation,
+        double movementX,
+        double movementY,
+        OptionSet<Modifier>,
+        MouseButton,
+        unsigned short buttons,
+        SyntheticClickType,
+        RefPtr<EventTarget>&& relatedTarget
+    );
 
-    MouseEvent(const AtomString& type, const MouseEventInit&);
+    MouseEvent(enum EventInterfaceType, const AtomString& type, const MouseEventInit&, IsTrusted);
 
-    MouseEvent();
+    explicit MouseEvent(enum EventInterfaceType);
 
 private:
-    bool isMouseEvent() const final;
-    EventInterface eventInterface() const override;
+    bool isMouseEvent() const final { return true; }
 
-    void setRelatedTarget(EventTarget* relatedTarget) final { m_relatedTarget = relatedTarget; }
+    void setRelatedTarget(RefPtr<EventTarget>&&) final;
 
-    short m_button { 0 };
+    int16_t m_button { std::to_underlying(MouseButton::Left) };
     unsigned short m_buttons { 0 };
-    unsigned short m_syntheticClickType { 0 };
+    SyntheticClickType m_syntheticClickType { SyntheticClickType::NoTap };
     bool m_buttonDown { false };
     RefPtr<EventTarget> m_relatedTarget;
     double m_force { 0 };
+    Vector<Ref<MouseEvent>> m_coalescedEvents;
+    Vector<Ref<MouseEvent>> m_predictedEvents;
+    std::optional<MouseEventInputSource> m_inputSource;
 };
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_EVENT(MouseEvent)
+SPECIALIZE_TYPE_TRAITS_EVENT_POLYMORPHIC(MouseEvent)

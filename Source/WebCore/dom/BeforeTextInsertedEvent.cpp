@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2019 Apple Inc.  All rights reserved.
+ * Copyright (C) 2005-2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,23 +27,17 @@
 #include "BeforeTextInsertedEvent.h"
 
 #include "EventNames.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(BeforeTextInsertedEvent);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(BeforeTextInsertedEvent);
 
 BeforeTextInsertedEvent::BeforeTextInsertedEvent(const String& text)
-    : Event(eventNames().webkitBeforeTextInsertedEvent, CanBubble::No, IsCancelable::Yes), m_text(text)
+    : Event(EventInterfaceType::Event, eventNames().webkitBeforeTextInsertedEvent, CanBubble::No, IsCancelable::Yes), m_text(text)
 {
 }
 
 BeforeTextInsertedEvent::~BeforeTextInsertedEvent() = default;
-
-EventInterface BeforeTextInsertedEvent::eventInterface() const
-{
-    // Notice that there is no BeforeTextInsertedEvent.idl.
-    return EventInterfaceType;
-}
 
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,12 +26,17 @@
 #pragma once
 
 #include "Connection.h"
-#include "MessageSender.h"
+#include "EnhancedSecurity.h"
 #include "ProcessThrottler.h"
-#include "WebBackForwardListItem.h"
-#include "WebPageProxyMessagesReplies.h"
+#include "WebPageProxyMessageReceiverRegistration.h"
+#include "WebProcessProxy.h"
+#include <WebCore/BackForwardFrameItemIdentifier.h>
 #include <WebCore/FrameIdentifier.h>
+#include <WebCore/NavigationIdentifier.h>
+#include <wtf/HashSet.h>
 #include <wtf/RefCounted.h>
+#include <wtf/SwiftBridging.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -40,10 +45,11 @@ class RegistrableDomain;
 
 namespace WebKit {
 
+class BrowsingContextGroup;
+class RemotePageProxy;
 class WebBackForwardCache;
 class WebPageProxy;
 class WebProcessPool;
-class WebProcessProxy;
 class WebsiteDataStore;
 
 #if HAVE(VISIBILITY_PROPAGATION_VIEW)
@@ -52,25 +58,39 @@ using LayerHostingContextID = uint32_t;
 
 enum class ShouldDelayClosingUntilFirstLayerFlush : bool { No, Yes };
 
-class SuspendedPageProxy final: public IPC::MessageReceiver, public IPC::MessageSender {
-    WTF_MAKE_FAST_ALLOCATED;
+class SuspendedPageProxy final: public IPC::MessageReceiver, public RefCounted<SuspendedPageProxy>, public CanMakeCheckedPtr<SuspendedPageProxy> {
+    WTF_MAKE_TZONE_ALLOCATED(SuspendedPageProxy);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SuspendedPageProxy);
 public:
-    SuspendedPageProxy(WebPageProxy&, Ref<WebProcessProxy>&&, WebCore::FrameIdentifier mainFrameID, ShouldDelayClosingUntilFirstLayerFlush);
+    static Ref<SuspendedPageProxy> create(WebPageProxy&, Ref<WebProcessProxy>&&, Ref<WebFrameProxy>&& mainFrame, Ref<BrowsingContextGroup>&&, ShouldDelayClosingUntilFirstLayerFlush);
     ~SuspendedPageProxy();
 
-    static RefPtr<WebProcessProxy> findReusableSuspendedPageProcess(WebProcessPool&, const WebCore::RegistrableDomain&, WebsiteDataStore&);
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
 
-    WebPageProxy& page() const { return m_page; }
+    static RefPtr<WebProcessProxy> findReusableSuspendedPageProcess(WebProcessPool&, const WebCore::RegistrableDomain&, WebsiteDataStore&, WebProcessProxy::LockdownMode, EnhancedSecurity, const API::PageConfiguration&);
+
+    WebPageProxy* NODELETE page() const;
     WebCore::PageIdentifier webPageID() const { return m_webPageID; }
     WebProcessProxy& process() const { return m_process.get(); }
-    WebCore::FrameIdentifier mainFrameID() const { return m_mainFrameID; }
+    WebFrameProxy& mainFrame() { return m_mainFrame.get(); }
+    const BrowsingContextGroup& browsingContextGroup() const { return m_browsingContextGroup.get(); }
+    BrowsingContextGroup& browsingContextGroup() { return m_browsingContextGroup.get(); }
 
-    WebBackForwardCache& backForwardCache() const;
+    WebBackForwardCache& NODELETE backForwardCache() const;
 
-    bool pageIsClosedOrClosing() const;
+    WebPageProxyMessageReceiverRegistration& messageReceiverRegistration() LIFETIME_BOUND { return m_messageReceiverRegistration; }
 
+    bool NODELETE pageIsClosedOrClosing() const;
+
+    void startSuspension(std::optional<WebCore::BackForwardFrameItemIdentifier>);
     void waitUntilReadyToUnsuspend(CompletionHandler<void(SuspendedPageProxy*)>&&);
-    void unsuspend();
+    void unsuspend(WebCore::BackForwardFrameItemIdentifier);
+
+    bool hasSubframeInProcess(WebCore::ProcessIdentifier) const;
+
+    std::optional<WebCore::BackForwardFrameItemIdentifier> suspendedFrameItemID() const { return m_suspendedFrameItemID; }
+    HashSet<Ref<WebProcessProxy>> iframeProcesses() const;
 
     void pageDidFirstLayerFlush();
     void closeWithoutFlashing();
@@ -83,38 +103,49 @@ public:
 #endif
 
 #if !LOG_DISABLED
-    const char* loggingString() const;
+    String loggingString() const;
 #endif
 
 private:
-    enum class SuspensionState : uint8_t { Suspending, FailedToSuspend, Suspended, Resumed };
+    SuspendedPageProxy(WebPageProxy&, Ref<WebProcessProxy>&&, Ref<WebFrameProxy>&& mainFrame, Ref<BrowsingContextGroup>&&, ShouldDelayClosingUntilFirstLayerFlush);
+
+    enum class SuspensionState : uint8_t { BeforeStart, Suspending, FailedToSuspend, Suspended, Resumed };
+    bool hasSuspensionStarted() const { return m_suspensionState != SuspensionState::BeforeStart; }
     void didProcessRequestToSuspend(SuspensionState);
     void suspensionTimedOut();
+    void suspendSubframeProcesses(WebCore::BackForwardFrameItemIdentifier);
+    void maybeCompleteSuspension();
 
     void close();
+    void teardown();
+    void didDestroyNavigation(WebCore::NavigationIdentifier);
 
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
-    bool didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
+    void didReceiveSyncMessage(IPC::Connection&, IPC::Decoder&, UniqueRef<IPC::Encoder>&) final;
 
-    // IPC::MessageSender
-    IPC::Connection* messageSenderConnection() const final;
-    uint64_t messageSenderDestinationID() const final;
-    bool sendMessage(UniqueRef<IPC::Encoder>&&, OptionSet<IPC::SendOption>, std::optional<std::pair<CompletionHandler<void(IPC::Decoder*)>, uint64_t>>&&) final;
+    template<typename M> void send(M&&);
+    template<typename M, typename C> void sendWithAsyncReply(M&&, C&&);
 
-    WebPageProxy& m_page;
-    WebCore::PageIdentifier m_webPageID;
-    Ref<WebProcessProxy> m_process;
-    WebCore::FrameIdentifier m_mainFrameID;
+    WeakPtr<WebPageProxy> m_page;
+    const WebCore::PageIdentifier m_webPageID;
+    const Ref<WebProcessProxy> m_process;
+    const Ref<WebFrameProxy> m_mainFrame;
+    const Ref<BrowsingContextGroup> m_browsingContextGroup;
+    WebPageProxyMessageReceiverRegistration m_messageReceiverRegistration;
     bool m_isClosed { false };
     ShouldDelayClosingUntilFirstLayerFlush m_shouldDelayClosingUntilFirstLayerFlush { ShouldDelayClosingUntilFirstLayerFlush::No };
     bool m_shouldCloseWhenEnteringAcceleratedCompositingMode { false };
 
-    SuspensionState m_suspensionState { SuspensionState::Suspending };
+    SuspensionState m_suspensionState { SuspensionState::BeforeStart };
+    // Set once in startSuspension; never reset (the entry destructor gates reads on its own frame id).
+    std::optional<WebCore::BackForwardFrameItemIdentifier> m_suspendedFrameItemID;
     CompletionHandler<void(SuspendedPageProxy*)> m_readyToUnsuspendHandler;
-    RunLoop::Timer<SuspendedPageProxy> m_suspensionTimeoutTimer;
-#if PLATFORM(IOS_FAMILY)
-    std::unique_ptr<ProcessThrottler::BackgroundActivity> m_suspensionActivity;
+    RunLoop::Timer m_suspensionTimeoutTimer;
+    bool m_mainFrameSuspended { false };
+    bool m_allSubframesSuspended { false };
+#if USE(RUNNINGBOARD)
+    RefPtr<ProcessThrottler::BackgroundActivity> m_suspensionActivity;
 #endif
 #if HAVE(VISIBILITY_PROPAGATION_VIEW)
     LayerHostingContextID m_contextIDForVisibilityPropagationInWebProcess { 0 };
@@ -122,6 +153,16 @@ private:
     LayerHostingContextID m_contextIDForVisibilityPropagationInGPUProcess { 0 };
 #endif
 #endif
-};
+} SWIFT_SHARED_REFERENCE(refSuspendedPageProxy, derefSuspendedPageProxy);
 
 } // namespace WebKit
+
+inline void refSuspendedPageProxy(WebKit::SuspendedPageProxy* WTF_NONNULL obj)
+{
+    obj->ref();
+}
+
+inline void derefSuspendedPageProxy(WebKit::SuspendedPageProxy* WTF_NONNULL obj)
+{
+    obj->deref();
+}

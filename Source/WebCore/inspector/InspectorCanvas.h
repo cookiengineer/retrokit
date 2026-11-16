@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2017-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,16 +26,21 @@
 
 #pragma once
 
-#include "InspectorCanvasCallTracer.h"
+#include "CanvasRenderingContext2DBase.h"
+#include "InspectorCanvasProcessedArguments.h"
+#include "WebGL2RenderingContext.h"
+#include "WebGLRenderingContextBase.h"
+#include <JavaScriptCore/AsyncStackTrace.h>
 #include <JavaScriptCore/InspectorProtocolObjects.h>
-#include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/ScriptCallFrame.h>
 #include <JavaScriptCore/ScriptCallStack.h>
-#include <initializer_list>
 #include <wtf/HashSet.h>
-#include <wtf/Variant.h>
-#include <wtf/Vector.h>
-#include <wtf/text/WTFString.h>
+#include <wtf/WeakRef.h>
+
+namespace JSC {
+class JSValue;
+class JSGlobalObject;
+}
 
 namespace WebCore {
 
@@ -46,41 +52,34 @@ class HTMLImageElement;
 class HTMLVideoElement;
 class ImageBitmap;
 class ImageData;
-#if ENABLE(OFFSCREEN_CANVAS)
 class OffscreenCanvas;
-#endif
-#if ENABLE(CSS_TYPED_OM)
 class CSSStyleImageValue;
-#endif
 
-class InspectorCanvas final : public RefCounted<InspectorCanvas> {
+template<typename> struct InspectorCanvasArgumentProcessor;
+
+class InspectorCanvas final : public RefCountedAndCanMakeWeakPtr<InspectorCanvas> {
 public:
     static Ref<InspectorCanvas> create(CanvasRenderingContext&);
 
-    const String& identifier() const { return m_identifier; }
+    const String& identifier() const LIFETIME_BOUND { return m_identifier; }
 
-    CanvasRenderingContext* canvasContext() const;
-    HTMLCanvasElement* canvasElement() const;
+    const CanvasRenderingContext& canvasContext() const { return m_context; }
+    CanvasRenderingContext& canvasContext() { return m_context; }
+    HTMLCanvasElement* NODELETE canvasElement() const;
 
     ScriptExecutionContext* scriptExecutionContext() const;
 
-    JSC::JSValue resolveContext(JSC::JSGlobalObject*) const;
+    JSC::JSValue resolveContext(JSC::JSGlobalObject*);
 
     HashSet<Element*> clientNodes() const;
 
-    void canvasChanged();
+    void NODELETE canvasChanged();
 
     void resetRecordingData();
-    bool hasRecordingData() const;
-    bool currentFrameHasData() const;
+    bool NODELETE hasRecordingData() const;
+    bool NODELETE currentFrameHasData() const;
 
-    // InspectorCanvasCallTracer
-#define PROCESS_ARGUMENT_DECLARATION(ArgumentType) \
-    std::optional<InspectorCanvasCallTracer::ProcessedArgument> processArgument(ArgumentType); \
-// end of PROCESS_ARGUMENT_DECLARATION
-    FOR_EACH_INSPECTOR_CANVAS_CALL_TRACER_ARGUMENT(PROCESS_ARGUMENT_DECLARATION)
-#undef PROCESS_ARGUMENT_DECLARATION
-    void recordAction(String&&, InspectorCanvasCallTracer::ProcessedArguments&& = { });
+    void recordAction(String&&, InspectorCanvasProcessedArguments&& = { });
 
     Ref<JSON::ArrayOf<Inspector::Protocol::Recording::Frame>> releaseFrames() { return m_frames.releaseNonNull(); }
 
@@ -90,39 +89,41 @@ public:
     void setRecordingName(const String& name) { m_recordingName = name; }
 
     void setBufferLimit(long);
-    bool hasBufferSpace() const;
+    bool NODELETE hasBufferSpace() const;
     long bufferUsed() const { return m_bufferUsed; }
 
     void setFrameCount(long);
-    bool overFrameCount() const;
+    bool NODELETE overFrameCount() const;
 
     Ref<Inspector::Protocol::Canvas::Canvas> buildObjectForCanvas(bool captureBacktrace);
     Ref<Inspector::Protocol::Recording::Recording> releaseObjectForRecording();
 
-    String getCanvasContentAsDataURL(Inspector::Protocol::ErrorString&);
+    static Inspector::Protocol::ErrorStringOr<String> getContentAsDataURL(CanvasRenderingContext&);
+    Inspector::Protocol::ErrorStringOr<String> getContentAsDataURL() { return getContentAsDataURL(m_context); };
 
 private:
-    InspectorCanvas(CanvasRenderingContext&);
+    template<typename> friend struct InspectorCanvasArgumentProcessor;
+
+    explicit InspectorCanvas(CanvasRenderingContext&);
 
     void appendActionSnapshotIfNeeded();
 
     using DuplicateDataVariant = Variant<
-        RefPtr<CanvasGradient>,
-        RefPtr<CanvasPattern>,
-        RefPtr<HTMLCanvasElement>,
-        RefPtr<HTMLImageElement>,
+        Ref<CanvasGradient>,
+        Ref<CanvasPattern>,
+        Ref<HTMLCanvasElement>,
+        Ref<HTMLImageElement>,
 #if ENABLE(VIDEO)
-        RefPtr<HTMLVideoElement>,
+        Ref<HTMLVideoElement>,
 #endif
-        RefPtr<ImageData>,
-        RefPtr<ImageBitmap>,
-        RefPtr<Inspector::ScriptCallStack>,
-#if ENABLE(CSS_TYPED_OM)
-        RefPtr<CSSStyleImageValue>,
-#endif
+        Ref<ImageData>,
+        Ref<ImageBitmap>,
+        Ref<Inspector::ScriptCallStack>,
+        Ref<Inspector::AsyncStackTrace>,
+        Ref<CSSStyleImageValue>,
         Inspector::ScriptCallFrame,
 #if ENABLE(OFFSCREEN_CANVAS)
-        RefPtr<OffscreenCanvas>,
+        Ref<OffscreenCanvas>,
 #endif
         String
     >;
@@ -131,17 +132,14 @@ private:
     Ref<JSON::Value> valueIndexForData(DuplicateDataVariant);
     String stringIndexForKey(const String&);
     Ref<Inspector::Protocol::Recording::InitialState> buildInitialState();
-    Ref<JSON::ArrayOf<JSON::Value>> buildAction(String&&, InspectorCanvasCallTracer::ProcessedArguments&& = { });
+    Ref<JSON::ArrayOf<JSON::Value>> buildAction(String&&, InspectorCanvasProcessedArguments&& = { });
     Ref<JSON::ArrayOf<JSON::Value>> buildArrayForCanvasGradient(const CanvasGradient&);
     Ref<JSON::ArrayOf<JSON::Value>> buildArrayForCanvasPattern(const CanvasPattern&);
     Ref<JSON::ArrayOf<JSON::Value>> buildArrayForImageData(const ImageData&);
 
     String m_identifier;
 
-    Variant<
-        std::reference_wrapper<CanvasRenderingContext>,
-        Monostate
-    > m_context;
+    WeakRef<CanvasRenderingContext> m_context;
 
     RefPtr<Inspector::Protocol::Recording::InitialState> m_initialState;
     RefPtr<JSON::ArrayOf<Inspector::Protocol::Recording::Frame>> m_frames;

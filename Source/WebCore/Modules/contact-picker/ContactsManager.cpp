@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,19 +32,22 @@
 #include "ContactsRequestData.h"
 #include "ContactsSelectOptions.h"
 #include "Document.h"
-#include "Frame.h"
+#include "DocumentPage.h"
 #include "JSContactInfo.h"
+#include "JSDOMConvertEnumeration.h"
+#include "JSDOMConvertSequences.h"
 #include "JSDOMPromiseDeferred.h"
+#include "LocalFrameInlines.h"
 #include "Navigator.h"
 #include "Page.h"
 #include "UserGestureIndicator.h"
 #include <wtf/CompletionHandler.h>
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/URL.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(ContactsManager);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ContactsManager);
 
 Ref<ContactsManager> ContactsManager::create(Navigator& navigator)
 {
@@ -52,14 +55,14 @@ Ref<ContactsManager> ContactsManager::create(Navigator& navigator)
 }
 
 ContactsManager::ContactsManager(Navigator& navigator)
-    : m_navigator(makeWeakPtr(navigator))
+    : m_navigator(navigator)
 {
 }
 
 ContactsManager::~ContactsManager() = default;
 
 
-Frame* ContactsManager::frame() const
+LocalFrame* ContactsManager::frame() const
 {
     return m_navigator ? m_navigator->frame() : nullptr;
 }
@@ -77,42 +80,44 @@ void ContactsManager::getProperties(Ref<DeferredPromise>&& promise)
 
 void ContactsManager::select(const Vector<ContactProperty>& properties, const ContactsSelectOptions& options, Ref<DeferredPromise>&& promise)
 {
-    auto* frame = this->frame();
+    RefPtr frame = this->frame();
     if (!frame || !frame->isMainFrame() || !frame->document() || !frame->page()) {
-        promise->reject(InvalidStateError);
+        promise->reject(ExceptionCode::InvalidStateError);
         return;
     }
 
     if (!UserGestureIndicator::processingUserGesture()) {
-        promise->reject(SecurityError);
+        promise->reject(ExceptionCode::SecurityError);
         return;
     }
 
     if (m_contactPickerIsShowing) {
-        promise->reject(InvalidStateError);
+        promise->reject(ExceptionCode::InvalidStateError);
         return;
     }
 
     if (properties.isEmpty()) {
-        promise->reject(TypeError);
+        promise->reject(ExceptionCode::TypeError);
         return;
     }
 
     ContactsRequestData requestData;
     requestData.properties = properties;
     requestData.multiple = options.multiple;
-    requestData.url = frame->document()->url().truncatedForUseAsBase().string();
+    requestData.url = protect(frame->document())->url().truncatedForUseAsBase().string();
 
     m_contactPickerIsShowing = true;
 
-    frame->page()->chrome().showContactPicker(requestData, [promise = WTFMove(promise), this] (std::optional<Vector<ContactInfo>>&& info) {
-        m_contactPickerIsShowing = false;
+    frame->page()->chrome().showContactPicker(WTF::move(requestData), [promise = WTF::move(promise), weakThis = WeakPtr { *this }] (std::optional<Vector<ContactInfo>>&& info) {
+        if (weakThis)
+            weakThis->m_contactPickerIsShowing = false;
+
         if (info) {
             promise->resolve<IDLSequence<IDLDictionary<ContactInfo>>>(*info);
             return;
         }
 
-        promise->reject(UnknownError);
+        promise->reject(ExceptionCode::UnknownError);
     });
 }
 

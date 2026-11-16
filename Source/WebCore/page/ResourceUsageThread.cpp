@@ -29,16 +29,13 @@
 #if ENABLE(RESOURCE_USAGE)
 
 #include "CommonVM.h"
-#include "JSDOMWindow.h"
 #include <thread>
 #include <wtf/MainThread.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
 
-ResourceUsageThread::ResourceUsageThread()
-{
-}
+ResourceUsageThread::ResourceUsageThread() = default;
 
 ResourceUsageThread& ResourceUsageThread::singleton()
 {
@@ -84,13 +81,13 @@ void ResourceUsageThread::waitUntilObservers()
         m_condition.wait(m_observersLock);
 
         // Wait a bit after waking up for the first time.
-        WTF::sleep(10_ms);
+        sleep(10_ms);
     }
 }
 
 void ResourceUsageThread::notifyObservers(ResourceUsageData&& data)
 {
-    callOnMainThread([data = WTFMove(data)]() mutable {
+    callOnMainThread([data = WTF::move(data)]() mutable {
         Vector<std::pair<ResourceUsageCollectionMode, std::function<void (const ResourceUsageData&)>>> pairs;
 
         {
@@ -106,10 +103,12 @@ void ResourceUsageThread::notifyObservers(ResourceUsageData&& data)
 
 void ResourceUsageThread::recomputeCollectionMode()
 {
-    m_collectionMode = None;
+    ResourceUsageCollectionMode mode = None;
 
     for (auto& pair : m_observers.values())
-        m_collectionMode = static_cast<ResourceUsageCollectionMode>(m_collectionMode | pair.first);
+        mode = static_cast<ResourceUsageCollectionMode>(mode | pair.first);
+
+    m_collectionMode = mode;
 }
 
 void ResourceUsageThread::createThreadIfNeeded()
@@ -118,15 +117,15 @@ void ResourceUsageThread::createThreadIfNeeded()
         return;
 
     m_vm = &commonVM();
-    m_thread = Thread::create("WebCore: ResourceUsage", [this] {
+    m_thread = Thread::create("WebCore: ResourceUsage"_s, [this] {
         threadBody();
     });
 }
 
-NO_RETURN void ResourceUsageThread::threadBody()
+[[noreturn]] void ResourceUsageThread::threadBody()
 {
     // Wait a bit after waking up for the first time.
-    WTF::sleep(10_ms);
+    sleep(10_ms);
     
     while (true) {
         // Only do work if we have observers.
@@ -135,19 +134,23 @@ NO_RETURN void ResourceUsageThread::threadBody()
         auto start = WallTime::now();
 
         ResourceUsageData data;
-        ResourceUsageCollectionMode mode = m_collectionMode;
+        ResourceUsageCollectionMode mode;
+        {
+            Locker locker { m_observersLock };
+            mode = m_collectionMode;
+        }
         if (mode & CPU)
             platformCollectCPUData(m_vm, data);
         if (mode & Memory)
             platformCollectMemoryData(m_vm, data);
 
-        notifyObservers(WTFMove(data));
+        notifyObservers(WTF::move(data));
 
         // NOTE: Web Inspector expects this interval to be 500ms (CPU / Memory timelines),
         // so if this interval changes Web Inspector may need to change.
         auto duration = WallTime::now() - start;
         auto difference = 500_ms - duration;
-        WTF::sleep(difference);
+        sleep(difference);
     }
 }
 

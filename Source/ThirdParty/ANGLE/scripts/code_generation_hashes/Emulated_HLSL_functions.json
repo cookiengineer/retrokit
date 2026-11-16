@@ -1,8 +1,8 @@
 {
-  "src/compiler/translator/emulated_builtin_function_data_hlsl.json":
-    "002ad46d144c51fe98d73478aa554ba7",
-  "src/compiler/translator/emulated_builtin_functions_hlsl_autogen.cpp":
-    "2d43e80d277a8fcc05212a94438883f2",
-  "src/compiler/translator/gen_emulated_builtin_function_tables.py":
-    "1c51fee50b5431779b1cdbfd910c3aca"
+  "src/compiler/translator/hlsl/emulated_builtin_function_data_hlsl.json":
+    "4caabae9c7780612345fcc2e3bb551ff",
+  "src/compiler/translator/hlsl/emulated_builtin_functions_hlsl_autogen.cpp":
+    "3d7bf06358f9c4ad35ef27225eae2e5c",
+  "src/compiler/translator/hlsl/gen_emulated_builtin_function_tables.py":
+    "cdeb72610aefe2e87ecf46cf7617e487"
 }

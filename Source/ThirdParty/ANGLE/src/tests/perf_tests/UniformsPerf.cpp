@@ -8,6 +8,7 @@
 //
 
 #include "ANGLEPerfTest.h"
+#include "common/unsafe_buffers.h"
 
 #include <array>
 #include <iostream>
@@ -150,6 +151,7 @@ class UniformsBenchmark : public ANGLERenderTest,
 std::vector<Matrix4> GenMatrixData(size_t count, int parity)
 {
     std::vector<Matrix4> data;
+    data.reserve(count);
 
     // Very simple matrix data allocation scheme.
     for (size_t index = 0; index < count; ++index)
@@ -171,11 +173,12 @@ std::vector<Matrix4> GenMatrixData(size_t count, int parity)
 
 UniformsBenchmark::UniformsBenchmark() : ANGLERenderTest("Uniforms", GetParam()), mPrograms({})
 {
-    // Fails on Windows7 NVIDIA Vulkan, presumably due to old drivers. http://crbug.com/1096510
     if (IsWindows7() && IsNVIDIA() &&
         GetParam().eglParameters.renderer == EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE)
     {
-        mSkipTest = true;
+        skipTest(
+            "http://crbug.com/1096510 Fails on Windows7 NVIDIA Vulkan, presumably due to old "
+            "drivers");
     }
 }
 
@@ -415,7 +418,7 @@ void UniformsBenchmark::drawBenchmark()
             auto setFunc = [=](const std::vector<GLuint> &locations, const MatrixData &matrixData,
                                size_t uniform, size_t frameIndex) {
                 glUniformMatrix4fv(locations[uniform], 1, transpose,
-                                   matrixData[frameIndex][uniform].data);
+                                   matrixData[frameIndex][uniform].data.data());
             };
 
             drawLoop<false>(setFunc);
@@ -426,7 +429,7 @@ void UniformsBenchmark::drawBenchmark()
             auto setFunc = [=](const std::vector<GLuint> &locations, const MatrixData &matrixData,
                                size_t uniform, size_t frameIndex) {
                 glUniformMatrix3x4fv(locations[uniform], 1, transpose,
-                                     matrixData[frameIndex][uniform].data);
+                                     matrixData[frameIndex][uniform].data.data());
             };
 
             drawLoop<false>(setFunc);
@@ -437,7 +440,7 @@ void UniformsBenchmark::drawBenchmark()
             auto setFunc = [=](const std::vector<GLuint> &locations, const MatrixData &matrixData,
                                size_t uniform, size_t frameIndex) {
                 glUniformMatrix3fv(locations[uniform], 1, transpose,
-                                   matrixData[frameIndex][uniform].data);
+                                   matrixData[frameIndex][uniform].data.data());
             };
 
             drawLoop<false>(setFunc);
@@ -511,10 +514,12 @@ ANGLE_INSTANTIATE_TEST(
     VectorUniforms(D3D11(), DataMode::REPEAT),
     VectorUniforms(D3D11(), DataMode::UPDATE),
     VectorUniforms(D3D11_NULL(), DataMode::UPDATE),
+    VectorUniforms(METAL(), DataMode::UPDATE),
+    VectorUniforms(METAL(), DataMode::REPEAT),
     VectorUniforms(OPENGL_OR_GLES(), DataMode::UPDATE),
     VectorUniforms(OPENGL_OR_GLES(), DataMode::REPEAT),
-    VectorUniforms(OPENGL_OR_GLES_NULL(), DataMode::UPDATE),
     MatrixUniforms(D3D11(), DataMode::UPDATE, DataType::MAT4x4, MatrixLayout::NO_TRANSPOSE),
+    MatrixUniforms(METAL(), DataMode::UPDATE, DataType::MAT4x4, MatrixLayout::NO_TRANSPOSE),
     MatrixUniforms(OPENGL_OR_GLES(),
                    DataMode::UPDATE,
                    DataType::MAT4x4,

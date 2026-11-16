@@ -21,8 +21,11 @@
 #include "WebKitWebResource.h"
 
 #include "APIData.h"
+#include "APIURL.h"
 #include "WebFrameProxy.h"
-#include "WebKitURIRequest.h"
+#include "WebKitPrivate.h"
+#include "WebKitURIRequestPrivate.h"
+#include "WebKitURIResponsePrivate.h"
 #include "WebKitWebResourcePrivate.h"
 #include "WebPageProxy.h"
 #include <glib/gi18n-lib.h>
@@ -33,9 +36,9 @@
 using namespace WebKit;
 
 /**
- * SECTION: WebKitWebResource
- * @Short_description: Represents a resource at the end of a URI
- * @Title: WebKitWebResource
+ * WebKitWebResource:
+ *
+ * Represents a resource at the end of a URI.
  *
  * A #WebKitWebResource encapsulates content for each resource at the
  * end of a particular URI. For example, one #WebKitWebResource will
@@ -46,7 +49,6 @@ using namespace WebKit;
  * #WebKitWebResource, using webkit_web_resource_get_uri() and
  * webkit_web_resource_get_response(), as well as the raw data, using
  * webkit_web_resource_get_data().
- *
  */
 
 enum {
@@ -66,7 +68,7 @@ enum {
     N_PROPERTIES,
 };
 
-static GParamSpec* sObjProperties[N_PROPERTIES] = { nullptr, };
+static std::array<GParamSpec*, N_PROPERTIES> sObjProperties;
 
 struct _WebKitWebResourcePrivate {
     RefPtr<WebFrameProxy> frame;
@@ -75,9 +77,9 @@ struct _WebKitWebResourcePrivate {
     bool isMainResource;
 };
 
-WEBKIT_DEFINE_TYPE(WebKitWebResource, webkit_web_resource, G_TYPE_OBJECT)
+WEBKIT_DEFINE_FINAL_TYPE(WebKitWebResource, webkit_web_resource, G_TYPE_OBJECT, GObject)
 
-static guint signals[LAST_SIGNAL] = { 0, };
+static std::array<unsigned, LAST_SIGNAL> signals;
 
 static void webkitWebResourceGetProperty(GObject* object, guint propId, GValue* value, GParamSpec* paramSpec)
 {
@@ -109,8 +111,7 @@ static void webkit_web_resource_class_init(WebKitWebResourceClass* resourceClass
     sObjProperties[PROP_URI] =
         g_param_spec_string(
             "uri",
-            _("URI"),
-            _("The current active URI of the resource"),
+            nullptr, nullptr,
             nullptr,
             WEBKIT_PARAM_READABLE);
 
@@ -122,12 +123,11 @@ static void webkit_web_resource_class_init(WebKitWebResourceClass* resourceClass
     sObjProperties[PROP_RESPONSE] =
         g_param_spec_object(
             "response",
-            _("Response"),
-            _("The response of the resource"),
+            nullptr, nullptr,
             WEBKIT_TYPE_URI_RESPONSE,
             WEBKIT_PARAM_READABLE);
 
-    g_object_class_install_properties(objectClass, N_PROPERTIES, sObjProperties);
+    g_object_class_install_properties(objectClass, N_PROPERTIES, sObjProperties.data());
 
     /**
      * WebKitWebResource::sent-request:
@@ -152,6 +152,7 @@ static void webkit_web_resource_class_init(WebKitWebResourceClass* resourceClass
         WEBKIT_TYPE_URI_REQUEST,
         WEBKIT_TYPE_URI_RESPONSE);
 
+#if !ENABLE(2022_GLIB_API)
     /**
      * WebKitWebResource::received-data:
      * @resource: the #WebKitWebResource
@@ -160,6 +161,10 @@ static void webkit_web_resource_class_init(WebKitWebResourceClass* resourceClass
      * This signal is emitted after response is received,
      * every time new data has been received. It's
      * useful to know the progress of the resource load operation.
+     *
+     * This signal is deprecated since version 2.40 and it's never emitted.
+     *
+     * Deprecated: 2.40
      */
     signals[RECEIVED_DATA] = g_signal_new(
         "received-data",
@@ -169,6 +174,7 @@ static void webkit_web_resource_class_init(WebKitWebResourceClass* resourceClass
         g_cclosure_marshal_generic,
         G_TYPE_NONE, 1,
         G_TYPE_UINT64);
+#endif
 
     /**
      * WebKitWebResource::finished:
@@ -234,80 +240,70 @@ static void webkitWebResourceUpdateURI(WebKitWebResource* resource, const CStrin
     g_object_notify_by_pspec(G_OBJECT(resource), sObjProperties[PROP_URI]);
 }
 
-WebKitWebResource* webkitWebResourceCreate(WebFrameProxy& frame, WebKitURIRequest* request, bool isMainResource)
+WebKitWebResource* webkitWebResourceCreate(WebFrameProxy& frame, const WebCore::ResourceRequest& request)
 {
     WebKitWebResource* resource = WEBKIT_WEB_RESOURCE(g_object_new(WEBKIT_TYPE_WEB_RESOURCE, NULL));
     resource->priv->frame = &frame;
-    resource->priv->uri = webkit_uri_request_get_uri(request);
-    resource->priv->isMainResource = isMainResource;
+    resource->priv->uri = request.url().string().utf8();
+    resource->priv->isMainResource = frame.isMainFrame() && request.requester() == WebCore::ResourceRequestRequester::Main;
     return resource;
 }
 
-void webkitWebResourceSentRequest(WebKitWebResource* resource, WebKitURIRequest* request, WebKitURIResponse* redirectResponse)
+void webkitWebResourceSentRequest(WebKitWebResource* resource, WebCore::ResourceRequest&& request, WebCore::ResourceResponse&& redirectResponse)
 {
-    webkitWebResourceUpdateURI(resource, webkit_uri_request_get_uri(request));
-    g_signal_emit(resource, signals[SENT_REQUEST], 0, request, redirectResponse);
+    GRefPtr<WebKitURIRequest> uriRequest = adoptGRef(webkitURIRequestCreateForResourceRequest(request));
+    webkitWebResourceUpdateURI(resource, webkit_uri_request_get_uri(uriRequest.get()));
+    GRefPtr<WebKitURIResponse> uriRedirectResponse = !redirectResponse.isNull() ? adoptGRef(webkitURIResponseCreateForResourceResponse(redirectResponse)) : nullptr;
+    g_signal_emit(resource, signals[SENT_REQUEST], 0, uriRequest.get(), uriRedirectResponse.get());
 }
 
-void webkitWebResourceSetResponse(WebKitWebResource* resource, WebKitURIResponse* response)
+void webkitWebResourceSetResponse(WebKitWebResource* resource, WebCore::ResourceResponse&& response)
 {
-    resource->priv->response = response;
+    resource->priv->response = adoptGRef(webkitURIResponseCreateForResourceResponse(response));
     g_object_notify_by_pspec(G_OBJECT(resource), sObjProperties[PROP_RESPONSE]);
-}
-
-void webkitWebResourceNotifyProgress(WebKitWebResource* resource, guint64 bytesReceived)
-{
-    g_signal_emit(resource, signals[RECEIVED_DATA], 0, bytesReceived);
 }
 
 void webkitWebResourceFinished(WebKitWebResource* resource)
 {
-    g_signal_emit(resource, signals[FINISHED], 0, NULL);
-}
-
-void webkitWebResourceFailed(WebKitWebResource* resource, GError* error)
-{
-    g_signal_emit(resource, signals[FAILED], 0, error);
-    g_signal_emit(resource, signals[FINISHED], 0, NULL);
-}
-
-void webkitWebResourceFailedWithTLSErrors(WebKitWebResource* resource, GTlsCertificateFlags tlsErrors, GTlsCertificate* certificate)
-{
-    g_signal_emit(resource, signals[FAILED_WITH_TLS_ERRORS], 0, certificate, tlsErrors);
     g_signal_emit(resource, signals[FINISHED], 0, nullptr);
 }
 
-WebFrameProxy* webkitWebResourceGetFrame(WebKitWebResource* resource)
+void webkitWebResourceFailed(WebKitWebResource* resource, WebCore::ResourceError&& resourceError)
 {
-    return resource->priv->frame.get();
+    if (resourceError.tlsErrors())
+        g_signal_emit(resource, signals[FAILED_WITH_TLS_ERRORS], 0, resourceError.certificate(), static_cast<GTlsCertificateFlags>(resourceError.tlsErrors()));
+    else {
+        GUniquePtr<GError> error(g_error_new_literal(g_quark_from_string(resourceError.domain().utf8().data()),
+            toWebKitError(resourceError.errorCode()), resourceError.localizedDescription().utf8().data()));
+        g_signal_emit(resource, signals[FAILED], 0, error.get());
+    }
+
+    webkitWebResourceFinished(resource);
+}
+
+bool webkitWebResourceIsMainResource(WebKitWebResource* resource)
+{
+    return resource->priv->isMainResource;
 }
 
 /**
  * webkit_web_resource_get_uri:
  * @resource: a #WebKitWebResource
  *
- * Returns the current active URI of @resource. The active URI might change during
+ * Returns the current active URI of @resource.
+ *
+ * The active URI might change during
  * a load operation:
  *
- * <orderedlist>
- * <listitem><para>
- *   When the resource load starts, the active URI is the requested URI
- * </para></listitem>
- * <listitem><para>
- *   When the initial request is sent to the server, #WebKitWebResource::sent-request
- *   signal is emitted without a redirected response, the active URI is the URI of
- *   the request sent to the server.
- * </para></listitem>
- * <listitem><para>
- *   In case of a server redirection, #WebKitWebResource::sent-request signal
- *   is emitted again with a redirected response, the active URI is the URI the request
- *   was redirected to.
- * </para></listitem>
- * <listitem><para>
- *   When the response is received from the server, the active URI is the final
- *   one and it will not change again.
- * </para></listitem>
- * </orderedlist>
+ * 1. When the resource load starts, the active URI is the requested URI
+ * 2. When the initial request is sent to the server, #WebKitWebResource::sent-request
+ *    signal is emitted without a redirected response, the active URI is the URI of
+ *    the request sent to the server.
+ * 3. In case of a server redirection, #WebKitWebResource::sent-request signal
+ *    is emitted again with a redirected response, the active URI is the URI the request
+ *    was redirected to.
+ * 4. When the response is received from the server, the active URI is the final
+ *    one and it will not change again.
  *
  * You can monitor the active URI by connecting to the notify::uri
  * signal of @resource.
@@ -326,6 +322,7 @@ const char* webkit_web_resource_get_uri(WebKitWebResource* resource)
  * @resource: a #WebKitWebResource
  *
  * Retrieves the #WebKitURIResponse of the resource load operation.
+ *
  * This method returns %NULL if called before the response
  * is received from the server. You can connect to notify::response
  * signal to be notified when the response is received.
@@ -354,8 +351,8 @@ static void resourceDataCallback(API::Data* wkData, GTask* task)
 
     ResourceGetDataAsyncData* data = static_cast<ResourceGetDataAsyncData*>(g_task_get_task_data(task));
     data->webData = wkData;
-    if (!wkData->bytes())
-        data->webData = API::Data::create(reinterpret_cast<const unsigned char*>(""), 1);
+    if (!wkData->span().data())
+        data->webData = API::Data::create(unsafeMakeSpan(reinterpret_cast<const uint8_t*>(""), 1));
     g_task_return_boolean(task, TRUE);
 }
 
@@ -364,7 +361,7 @@ static void resourceDataCallback(API::Data* wkData, GTask* task)
  * @resource: a #WebKitWebResource
  * @cancellable: (allow-none): a #GCancellable or %NULL to ignore
  * @callback: (scope async): a #GAsyncReadyCallback to call when the request is satisfied
- * @user_data: (closure): the data to pass to callback function
+ * @user_data: the data to pass to callback function
  *
  * Asynchronously get the raw data for @resource.
  *
@@ -378,12 +375,12 @@ void webkit_web_resource_get_data(WebKitWebResource* resource, GCancellable* can
     GRefPtr<GTask> task = adoptGRef(g_task_new(resource, cancellable, callback, userData));
     g_task_set_task_data(task.get(), createResourceGetDataAsyncData(), reinterpret_cast<GDestroyNotify>(destroyResourceGetDataAsyncData));
     if (resource->priv->isMainResource)
-        resource->priv->frame->getMainResourceData([task = WTFMove(task)](API::Data* data) {
+        resource->priv->frame->getMainResourceData([task = WTF::move(task)](API::Data* data) {
             resourceDataCallback(data, task.get());
         });
     else {
         String url = String::fromUTF8(resource->priv->uri.data());
-        resource->priv->frame->getResourceData(API::URL::create(url).ptr(), [task = WTFMove(task)](API::Data* data) {
+        resource->priv->frame->getResourceData(API::URL::create(url).ptr(), [task = WTF::move(task)](API::Data* data) {
             resourceDataCallback(data, task.get());
         });
     }
@@ -399,7 +396,7 @@ void webkit_web_resource_get_data(WebKitWebResource* resource, GCancellable* can
  * Finish an asynchronous operation started with webkit_web_resource_get_data().
  *
  * Returns: (transfer full) (array length=length) (element-type guint8): a
- *    string with the data of @resource, or %NULL in case of error. if @length
+ *    string with the data of @resource, or %NULL in case of error. If @length
  *    is not %NULL, the size of the data will be assigned to it.
  */
 guchar* webkit_web_resource_get_data_finish(WebKitWebResource* resource, GAsyncResult* result, gsize* length, GError** error)
@@ -415,11 +412,13 @@ guchar* webkit_web_resource_get_data_finish(WebKitWebResource* resource, GAsyncR
     if (length)
         *length = data->webData->size();
 
-    auto* bytes = data->webData->bytes();
-    if (!bytes || !data->webData->size())
+    auto bytes = data->webData->span();
+    if (bytes.empty())
         return nullptr;
 
     auto* returnValue = g_malloc(data->webData->size());
-    memcpy(returnValue, bytes, data->webData->size());
+    IGNORE_CLANG_WARNINGS_BEGIN("unsafe-buffer-usage-in-libc-call")
+    memcpy(returnValue, bytes.data(), bytes.size());
+    IGNORE_CLANG_WARNINGS_END
     return static_cast<guchar*>(returnValue);
 }

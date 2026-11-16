@@ -22,8 +22,12 @@
 
 #if USE(LIBWEBRTC)
 
-messages -> WebRTCResolver NotRefCounted {
-    void SetResolvedAddress(Vector<WebKit::RTCNetwork::IPAddress> addresses)
+[
+    DispatchedFrom=Networking,
+    DispatchedTo=WebContent
+]
+messages -> WebRTCResolver {
+    void SetResolvedAddress(Vector<WebKit::WebRTCNetwork::IPAddress> addresses)
     void ResolvedAddressError(int error)
 }
 

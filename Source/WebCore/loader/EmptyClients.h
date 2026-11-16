@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2006 Eric Seidel (eric@webkit.org)
- * Copyright (C) 2008-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2025 Apple Inc. All rights reserved.
  * Copyright (C) 2010 Nokia Corporation and/or its subsidiary(-ies).
  * Copyright (C) 2012 Samsung Electronics. All rights reserved.
  *
@@ -28,7 +28,14 @@
 
 #pragma once
 
-#include "ChromeClient.h"
+#include <WebCore/ChromeClient.h>
+#include <WebCore/CryptoClient.h>
+#include <WebCore/ExceptionOr.h>
+#include <WebCore/FocusOptions.h>
+#include <WebCore/PageIdentifier.h>
+#include <wtf/CompletionHandler.h>
+#include <wtf/Platform.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/UniqueRef.h>
 
 // Empty client classes for use by WebCore.
@@ -36,72 +43,69 @@
 // First created for SVGImage as it had no way to access the current Page (nor should it, since Images are not tied to a page).
 // See http://bugs.webkit.org/show_bug.cgi?id=5971 for the original discussion about this file.
 
+namespace PAL {
+class SessionID;
+}
+
 namespace WebCore {
 
 class DiagnosticLoggingClient;
 class EditorClient;
 class HTMLImageElement;
 class PageConfiguration;
+enum class BroadcastFocusedElement : bool;
+enum class ContentChange : uint8_t;
+struct FocusOptions;
 
 class EmptyChromeClient : public ChromeClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(EmptyChromeClient);
 
     void chromeDestroyed() override { }
 
     void setWindowRect(const FloatRect&) final { }
-    FloatRect windowRect() final { return FloatRect(); }
+    FloatRect windowRect() const final { return FloatRect(); }
 
-    FloatRect pageRect() final { return FloatRect(); }
+    FloatRect pageRect() const final { return FloatRect(); }
 
     void focus() final { }
     void unfocus() final { }
 
-    bool canTakeFocus(FocusDirection) final { return false; }
+    bool canTakeFocus(FocusDirection) const final { return false; }
     void takeFocus(FocusDirection) final { }
 
-    void focusedElementChanged(Element*) final { }
+    void focusedElementChanged(Element*, LocalFrame*, FocusOptions, BroadcastFocusedElement) final { }
     void focusedFrameChanged(Frame*) final { }
 
-    Page* createWindow(Frame&, const WindowFeatures&, const NavigationAction&) final { return nullptr; }
+    RefPtr<Page> createWindow(LocalFrame&, const String&, const WindowFeatures&, const NavigationAction&) final;
     void show() final { }
 
-    bool canRunModal() final { return false; }
+    bool canRunModal() const final { return false; }
     void runModal() final { }
 
-    void setToolbarsVisible(bool) final { }
-    bool toolbarsVisible() final { return false; }
-
-    void setStatusbarVisible(bool) final { }
-    bool statusbarVisible() final { return false; }
-
-    void setScrollbarsVisible(bool) final { }
-    bool scrollbarsVisible() final { return false; }
-
-    void setMenubarVisible(bool) final { }
-    bool menubarVisible() final { return false; }
+    bool isPopup() const final { return false; }
 
     void setResizable(bool) final { }
 
-    void addMessageToConsole(MessageSource, MessageLevel, const String&, unsigned, unsigned, const String&) final { }
+    void addMessageToConsole(JSC::MessageSource, JSC::MessageLevel, const String&, unsigned, unsigned, const String&) final { }
 
     bool canRunBeforeUnloadConfirmPanel() final { return false; }
-    bool runBeforeUnloadConfirmPanel(const String&, Frame&) final { return true; }
+    bool runBeforeUnloadConfirmPanel(String&&, LocalFrame&) final { return true; }
 
-    void closeWindowSoon() final { }
+    void closeWindow() final { }
 
-    void runJavaScriptAlert(Frame&, const String&) final { }
-    bool runJavaScriptConfirm(Frame&, const String&) final { return false; }
-    bool runJavaScriptPrompt(Frame&, const String&, const String&, String&) final { return false; }
+    void rootFrameAdded(const LocalFrame&) final { }
+    void rootFrameRemoved(const LocalFrame&) final { }
 
-    bool selectItemWritingDirectionIsNatural() final { return false; }
-    bool selectItemAlignmentFollowsMenuWritingDirection() final { return false; }
+    void runJavaScriptAlert(LocalFrame&, const String&) final { }
+    bool runJavaScriptConfirm(LocalFrame&, const String&) final { return false; }
+    bool runJavaScriptPrompt(LocalFrame&, const String&, const String&, String&) final { return false; }
+
     RefPtr<PopupMenu> createPopupMenu(PopupMenuClient&) const final;
     RefPtr<SearchPopupMenu> createSearchPopupMenu(PopupMenuClient&) const final;
 
-    void setStatusbarText(const String&) final { }
-
     KeyboardUIMode keyboardUIMode() final { return KeyboardAccessDefault; }
 
+    bool hasAccessoryMousePointingDevice() const final { return false; }
     bool hoverSupportedByPrimaryPointingDevice() const final { return false; };
     bool hoverSupportedByAnyAvailablePointingDevice() const final { return false; }
     std::optional<PointerCharacteristics> pointerCharacteristicsOfPrimaryPointingDevice() const final { return std::nullopt; };
@@ -113,51 +117,45 @@ class EmptyChromeClient : public ChromeClient {
     void scroll(const IntSize&, const IntRect&, const IntRect&) final { }
 
     IntPoint screenToRootView(const IntPoint& p) const final { return p; }
+    IntPoint rootViewToScreen(const IntPoint& p) const final { return p; }
     IntRect rootViewToScreen(const IntRect& r) const final { return r; }
     IntPoint accessibilityScreenToRootView(const IntPoint& p) const final { return p; };
     IntRect rootViewToAccessibilityScreen(const IntRect& r) const final { return r; };
+#if PLATFORM(IOS_FAMILY)
+    void relayAccessibilityNotification(String&&, RetainPtr<NSData>&&) const final { };
+    void relayAriaNotifyNotification(AriaNotifyData&&) const final { };
+    void relayLiveRegionNotification(LiveRegionAnnouncementData&&) const final { };
+#endif
 
     void didFinishLoadingImageForElement(HTMLImageElement&) final { }
 
     PlatformPageClient platformPageClient() const final { return 0; }
-    void contentsSizeChanged(Frame&, const IntSize&) const final { }
+    void contentsSizeChanged(LocalFrame&, const IntSize&) const final { }
     void intrinsicContentsSizeChanged(const IntSize&) const final { }
 
-    void mouseDidMoveOverElement(const HitTestResult&, unsigned, const String&, TextDirection) final { }
+    void mouseDidMoveOverElement(const HitTestResult&, OptionSet<PlatformEventModifier>, const String&, TextDirection) final { }
 
-    void print(Frame&, const StringWithDirection&) final { }
+    void print(LocalFrame&, const StringWithDirection&) final { }
 
-    void exceededDatabaseQuota(Frame&, const String&, DatabaseDetails) final { }
+    void exceededDatabaseQuota(LocalFrame&, const String&, DatabaseDetails) final { }
 
-    void reachedMaxAppCacheSize(int64_t) final { }
-    void reachedApplicationCacheOriginQuota(SecurityOrigin&, int64_t) final { }
+    RefPtr<ColorChooser> createColorChooser(ColorChooserClient&, const Color&) final;
 
-#if ENABLE(INPUT_TYPE_COLOR)
-    std::unique_ptr<ColorChooser> createColorChooser(ColorChooserClient&, const Color&) final;
-#endif
-
-#if ENABLE(DATALIST_ELEMENT)
-    std::unique_ptr<DataListSuggestionPicker> createDataListSuggestionPicker(DataListSuggestionsClient&) final;
+    RefPtr<DataListSuggestionPicker> createDataListSuggestionPicker(DataListSuggestionsClient&) final;
     bool canShowDataListSuggestionLabels() const final { return false; }
-#endif
 
-#if ENABLE(DATE_AND_TIME_INPUT_TYPES)
-    std::unique_ptr<DateTimeChooser> createDateTimeChooser(DateTimeChooserClient&) final;
-#endif
+    RefPtr<DateTimeChooser> createDateTimeChooser(DateTimeChooserClient&) final;
 
-#if ENABLE(APP_HIGHLIGHTS)
-    void storeAppHighlight(AppHighlight&&) const final;
-#endif
+    void NODELETE setTextIndicator(RefPtr<TextIndicator>&&) const final;
+    void NODELETE updateTextIndicator(RefPtr<TextIndicator>&&) const final;
 
-    void setTextIndicator(const TextIndicatorData&) const final;
+    DisplayRefreshMonitorFactory* NODELETE displayRefreshMonitorFactory() const final;
 
-    DisplayRefreshMonitorFactory* displayRefreshMonitorFactory() const final;
-
-    void runOpenPanel(Frame&, FileChooser&) final;
-    void showShareSheet(ShareDataWithParsedURL&, CompletionHandler<void(bool)>&&) final;
+    void NODELETE runOpenPanel(LocalFrame&, FileChooser&) final;
+    void NODELETE showShareSheet(ShareDataWithParsedURL&&, CompletionHandler<void(bool)>&&) final;
     void loadIconForFiles(const Vector<String>&, FileIconLoader&) final { }
 
-    void elementDidFocus(Element&) final { }
+    void elementDidFocus(Element&, const FocusOptions&) final { }
     void elementDidBlur(Element&) final { }
 
     void setCursor(const Cursor&) final { }
@@ -166,15 +164,20 @@ class EmptyChromeClient : public ChromeClient {
     void scrollContainingScrollViewsToRevealRect(const IntRect&) const final { }
     void scrollMainFrameToRevealRect(const IntRect&) const final { }
 
-    void attachRootGraphicsLayer(Frame&, GraphicsLayer*) final { }
+    void attachRootGraphicsLayer(LocalFrame&, GraphicsLayer*) final { }
     void attachViewOverlayGraphicsLayer(GraphicsLayer*) final { }
     void setNeedsOneShotDrawingSynchronization() final { }
     void triggerRenderingUpdate() final { }
 
 #if PLATFORM(WIN)
-    void setLastSetCursorToCurrentCursor() final { }
     void AXStartFrameLoad() final { }
     void AXFinishFrameLoad() final { }
+#endif
+
+#if PLATFORM(PLAYSTATION) || PLATFORM(HAIKU)
+    void postAccessibilityNotification(AccessibilityObject&, AXNotification) final { }
+    void postAccessibilityNodeTextChangeNotification(AccessibilityObject*, AXTextChange, unsigned, const String&) final { }
+    void postAccessibilityFrameLoadingEventNotification(AccessibilityObject*, AXLoadingEvent) final { }
 #endif
 
 #if ENABLE(IOS_TOUCH_EVENTS)
@@ -183,9 +186,8 @@ class EmptyChromeClient : public ChromeClient {
 
 #if PLATFORM(IOS_FAMILY)
     void didReceiveMobileDocType(bool) final { }
-    void setNeedsScrollNotifications(Frame&, bool) final { }
-    void didFinishContentChangeObserving(Frame&, WKContentChange) final { }
-    void notifyRevealedSelectionByScrollingFrame(Frame&) final { }
+    void setNeedsScrollNotifications(LocalFrame&, bool) final { }
+    void notifyRevealedSelectionByScrollingFrame(LocalFrame&) final { }
     void didLayout(LayoutType) final { }
     void didStartOverflowScroll() final { }
     void didEndOverflowScroll() final { }
@@ -202,8 +204,12 @@ class EmptyChromeClient : public ChromeClient {
     bool showDataDetectorsUIForElement(const Element&, const Event&) final { return false; }
 #endif // PLATFORM(IOS_FAMILY)
 
+#if ENABLE(CONTENT_CHANGE_OBSERVER)
+    void didFinishContentChangeObserving(LocalFrame&, ContentChange) final { }
+#endif
+
 #if ENABLE(ORIENTATION_EVENTS)
-    int deviceOrientation() const final { return 0; }
+    IntDegrees deviceOrientation() const final { return 0; }
 #endif
 
 #if PLATFORM(IOS_FAMILY)
@@ -214,21 +220,17 @@ class EmptyChromeClient : public ChromeClient {
     
     bool isEmptyChromeClient() const final { return true; }
 
-    void didAssociateFormControls(const Vector<RefPtr<Element>>&, Frame&) final { }
+    void didAssociateFormControls(const Vector<Ref<Element>>&, LocalFrame&) final { }
     bool shouldNotifyOnFormChanges() final { return false; }
 
-#if HAVE(ARKIT_INLINE_PREVIEW_IOS)
-    void takeModelElementFullscreen(WebCore::GraphicsLayer::PlatformLayerID) const final;
-#endif
-
-    RefPtr<Icon> createIconForFiles(const Vector<String>& /* filenames */) final { return nullptr; }
-
-#if HAVE(ARKIT_INLINE_PREVIEW_MAC)
-    void modelElementDidCreatePreview(WebCore::HTMLModelElement&, const URL&, const String&, const WebCore::FloatSize&) const final;
-#endif
+    RefPtr<Icon> createIconForFiles(const Vector<String>& /* filenames */) final;
 };
 
-DiagnosticLoggingClient& emptyDiagnosticLoggingClient();
-WEBCORE_EXPORT PageConfiguration pageConfigurationWithEmptyClients(PAL::SessionID);
+DiagnosticLoggingClient& NODELETE emptyDiagnosticLoggingClient();
+WEBCORE_EXPORT PageConfiguration pageConfigurationWithEmptyClients(std::optional<PageIdentifier>, PAL::SessionID);
+
+class EmptyCryptoClient: public CryptoClient {
+    WTF_MAKE_TZONE_ALLOCATED(EmptyCryptoClient);
+};
 
 }

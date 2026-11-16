@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Copyright (c) 2016-2019 Apple Inc. All rights reserved.
 #
@@ -49,6 +49,7 @@ class BuiltinsWrapperHeaderGenerator(BuiltinsGenerator):
         sections.append(self.generate_license())
         sections.append(Template(Templates.DoNotEditWarning).substitute(args))
         sections.append(Template(Templates.HeaderIncludeGuard).substitute(args))
+        sections.append(Template(Templates.RequiredHeaderIncludes).substitute(args))
         sections.append(self.generate_secondary_header_includes())
 
         sections.append(Template(Templates.NamespaceTop).substitute(args))

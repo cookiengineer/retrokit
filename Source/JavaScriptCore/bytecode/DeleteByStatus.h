@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,16 +32,17 @@
 #include "DeleteByVariant.h"
 #include "ExitFlag.h"
 #include "ICStatusMap.h"
-#include "StubInfoSummary.h"
+#include "PropertyInlineCacheSummary.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC {
 
 class AccessCase;
 class CodeBlock;
-class StructureStubInfo;
+class PropertyInlineCache;
 
 class DeleteByStatus final {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(DeleteByStatus);
 public:
     enum State : uint8_t {
         // It's uncached so we have no information.
@@ -73,10 +74,10 @@ public:
     bool operator!() const { return !isSet(); }
     bool observedSlowPath() const { return m_state == ObservedTakesSlowPath; }
     bool isSimple() const { return m_state == Simple; }
-    const Vector<DeleteByVariant, 1>& variants() { return m_variants; }
-    CacheableIdentifier singleIdentifier() const;
+    const Vector<DeleteByVariant, 1>& variants() LIFETIME_BOUND { return m_variants; }
+    CacheableIdentifier NODELETE singleIdentifier() const;
 
-    DeleteByStatus slowVersion() const;
+    DeleteByStatus NODELETE slowVersion() const;
 
     // Attempts to reduce the set of variants to fit the given structure set. This may be approximate.
     void filter(const StructureSet&);
@@ -91,13 +92,13 @@ public:
     void dump(PrintStream&) const;
 
 private:
-    explicit DeleteByStatus(StubInfoSummary, StructureStubInfo&);
+    explicit DeleteByStatus(PropertyInlineCacheSummary, PropertyInlineCache&);
     void merge(const DeleteByStatus&);
 
     static DeleteByStatus computeForBaseline(CodeBlock*, ICStatusMap&, BytecodeIndex, ExitFlag);
 #if ENABLE(JIT)
-    static DeleteByStatus computeForStubInfoWithoutExitSiteFeedback(
-        const ConcurrentJSLocker&, CodeBlock* profiledBlock, StructureStubInfo*);
+    static DeleteByStatus computeForPropertyInlineCacheWithoutExitSiteFeedback(
+        const ConcurrentJSLocker&, CodeBlock* profiledBlock, PropertyInlineCache*);
 #endif
 
     Vector<DeleteByVariant, 1> m_variants;

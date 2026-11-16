@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,6 +28,7 @@
 
 #include "APISecurityOrigin.h"
 #include "WKAPICast.h"
+#include "WKData.h"
 #include "WKString.h"
 #include "WebNotification.h"
 #include <WebCore/NotificationDirection.h>
@@ -80,10 +81,36 @@ WKStringRef WKNotificationCopyDir(WKNotificationRef notification)
 
 WKSecurityOriginRef WKNotificationGetSecurityOrigin(WKNotificationRef notification)
 {
-    return toAPI(toImpl(notification)->origin());
+    return toAPI(protect(toImpl(notification)->origin()).get());
 }
 
 uint64_t WKNotificationGetID(WKNotificationRef notification)
 {
-    return toImpl(notification)->notificationID();
+    return toImpl(notification)->identifier().toUInt64();
+}
+
+WKStringRef WKNotificationCopyDataStoreIdentifier(WKNotificationRef notification)
+{
+    auto identifier = toImpl(notification)->dataStoreIdentifier();
+    return identifier ? toCopiedAPI(identifier->toString()) : nullptr;
+}
+
+WKDataRef WKNotificationCopyCoreIDForTesting(WKNotificationRef notification)
+{
+    auto identifier = toImpl(notification)->coreNotificationID();
+    auto span = identifier.span();
+    return WKDataCreate(span.data(), span.size());
+}
+
+bool WKNotificationGetIsPersistent(WKNotificationRef notification)
+{
+    return toImpl(notification)->isPersistentNotification();
+}
+
+WKNotificationAlert WKNotificationGetAlert(WKNotificationRef notification)
+{
+    auto silent = toImpl(notification)->data().silent;
+    if (silent == std::nullopt)
+        return kWKNotificationAlertDefault;
+    return *silent ? kWKNotificationAlertSilent : kWKNotificationAlertEnabled;
 }

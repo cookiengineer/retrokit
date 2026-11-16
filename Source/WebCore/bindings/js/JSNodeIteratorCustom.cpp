@@ -21,17 +21,19 @@
 #include "JSNodeIterator.h"
 
 #include "Node.h"
+#include "WebCoreOpaqueRootInlines.h"
 #include <JavaScriptCore/SlotVisitorInlines.h>
 
 namespace WebCore {
 
 template<typename Visitor>
-void JSNodeIterator::visitAdditionalChildren(Visitor& visitor)
+void JSNodeIterator::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    if (NodeFilter* filter = wrapped().filter())
-        visitor.addOpaqueRoot(filter);
+    if (auto filter = wrapped().filter())
+        addWebCoreOpaqueRoot(visitor, *filter);
+    addWebCoreOpaqueRoot(visitor, wrapped().root());
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSNodeIterator);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSNodeIterator);
 
 } // namespace WebCore

@@ -25,6 +25,8 @@
 
 #pragma once
 
+#if ENABLE(GPU_PROCESS) && ENABLE(WEBGL)
+
 #include "ScopedRenderingResourcesRequest.h"
 #include <atomic>
 #include <wtf/StdLibExtras.h>
@@ -36,7 +38,7 @@ public:
     ScopedWebGLRenderingResourcesRequest() = default;
     ScopedWebGLRenderingResourcesRequest(ScopedWebGLRenderingResourcesRequest&& other)
         : m_requested(std::exchange(other.m_requested, false))
-        , m_renderingResourcesRequest(WTFMove(other.m_renderingResourcesRequest))
+        , m_renderingResourcesRequest(WTF::move(other.m_renderingResourcesRequest))
     {
     }
     ~ScopedWebGLRenderingResourcesRequest()
@@ -48,7 +50,7 @@ public:
         if (this != &other) {
             reset();
             m_requested = std::exchange(other.m_requested, false);
-            m_renderingResourcesRequest = WTFMove(other.m_renderingResourcesRequest);
+            m_renderingResourcesRequest = WTF::move(other.m_renderingResourcesRequest);
         }
         return *this;
     }
@@ -82,3 +84,5 @@ private:
 };
 
 }
+
+#endif

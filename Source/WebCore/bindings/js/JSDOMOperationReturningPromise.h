@@ -41,16 +41,39 @@ public:
         return JSC::JSValue::encode(callPromiseFunction(lexicalGlobalObject, callFrame, [&operationName] (JSC::JSGlobalObject& lexicalGlobalObject, JSC::CallFrame& callFrame, Ref<DeferredPromise>&& promise) {
             auto* thisObject = IDLOperation<JSClass>::cast(lexicalGlobalObject, callFrame);
             if constexpr (shouldThrow != CastedThisErrorBehavior::Assert) {
-                if (UNLIKELY(!thisObject))
+                if (!thisObject) [[unlikely]]
                     return rejectPromiseWithThisTypeError(promise.get(), JSClass::info()->className, operationName);
-            } else
+            } else {
+                UNUSED_PARAM(operationName);
                 ASSERT(thisObject);
+            }
 
             ASSERT_GC_OBJECT_INHERITS(thisObject, JSClass::info());
             
             // FIXME: We should refactor the binding generated code to use references for lexicalGlobalObject and thisObject.
-            return operation(&lexicalGlobalObject, &callFrame, thisObject, WTFMove(promise));
+            return operation(&lexicalGlobalObject, &callFrame, thisObject, WTF::move(promise));
         }));
+    }
+
+    using Operation2 = JSC::EncodedJSValue(JSC::JSGlobalObject*, JSC::CallFrame*, ClassParameter, Ref<DeferredPromise>&&, Ref<DeferredPromise>&&);
+    template<Operation2 operation, typename DictionaryType, CastedThisErrorBehavior shouldThrow = CastedThisErrorBehavior::RejectPromise>
+    static JSC::EncodedJSValue callReturningPromisePair(JSC::JSGlobalObject& lexicalGlobalObject, JSC::CallFrame& callFrame, const char* operationName)
+    {
+        return callPromisePairFunction<DictionaryType>(lexicalGlobalObject, callFrame, [&operationName] (JSC::JSGlobalObject& lexicalGlobalObject, JSC::CallFrame& callFrame, Ref<DeferredPromise>&& promise, Ref<DeferredPromise>&& promise2) {
+            auto* thisObject = IDLOperation<JSClass>::cast(lexicalGlobalObject, callFrame);
+            if constexpr (shouldThrow != CastedThisErrorBehavior::Assert) {
+                if (!thisObject) [[unlikely]]
+                    return rejectPromiseWithThisTypeError(promise.get(), JSClass::info()->className, operationName);
+            } else {
+                UNUSED_PARAM(operationName);
+                ASSERT(thisObject);
+            }
+
+            ASSERT_GC_OBJECT_INHERITS(thisObject, JSClass::info());
+
+            // FIXME: We should refactor the binding generated code to use references for lexicalGlobalObject and thisObject.
+            return operation(&lexicalGlobalObject, &callFrame, thisObject, WTF::move(promise), WTF::move(promise2));
+        });
     }
 
     // This function is a special case for custom operations want to handle the creation of the promise themselves.
@@ -60,7 +83,7 @@ public:
     {
         auto* thisObject = IDLOperation<JSClass>::cast(lexicalGlobalObject, callFrame);
         if constexpr (shouldThrow != CastedThisErrorBehavior::Assert) {
-            if (UNLIKELY(!thisObject))
+            if (!thisObject) [[unlikely]]
                 return rejectPromiseWithThisTypeError(lexicalGlobalObject, JSClass::info()->className, operationName);
         } else
             ASSERT(thisObject);
@@ -76,7 +99,7 @@ public:
     {
         return JSC::JSValue::encode(callPromiseFunction(lexicalGlobalObject, callFrame, [] (JSC::JSGlobalObject& lexicalGlobalObject, JSC::CallFrame& callFrame, Ref<DeferredPromise>&& promise) {
             // FIXME: We should refactor the binding generated code to use references for lexicalGlobalObject.
-            return operation(&lexicalGlobalObject, &callFrame, WTFMove(promise));
+            return operation(&lexicalGlobalObject, &callFrame, WTF::move(promise));
         }));
     }
 

@@ -25,33 +25,33 @@
 
 #pragma once
 
-#include "CachedResourceHandle.h"
 #include <wtf/HashMap.h>
+#include <wtf/WeakHashMap.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
 class CachedResource;
 class Document;
-class Frame;
+class LocalFrame;
 class ResourceTiming;
 
 class ResourceTimingInformation {
 public:
     static bool shouldAddResourceTiming(CachedResource&);
+    static WEBCORE_EXPORT void addResourceTimingToDocument(Document&, ResourceTiming&&);
 
     void addResourceTiming(CachedResource&, Document&, ResourceTiming&&);
     void removeResourceTiming(CachedResource&);
-    void storeResourceTimingInitiatorInformation(const CachedResourceHandle<CachedResource>&, const AtomString&, Frame*);
+    void storeResourceTimingInitiatorInformation(CachedResource&, const AtomString&, LocalFrame*);
 
 private:
     enum AlreadyAdded { NotYetAdded, Added };
     struct InitiatorInfo {
-        AtomString name;
-        AlreadyAdded added;
+        AtomString type;
+        AlreadyAdded added { NotYetAdded };
     };
-    // FIXME: This shoudn't use raw pointer as identifier (though it is not dereferenced).
-    HashMap<CachedResource*, InitiatorInfo> m_initiatorMap;
+    WeakHashMap<CachedResource, InitiatorInfo> m_initiatorMap;
 };
 
 }

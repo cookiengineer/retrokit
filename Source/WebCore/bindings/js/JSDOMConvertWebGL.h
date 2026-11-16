@@ -29,18 +29,16 @@
 
 #include "IDLTypes.h"
 #include "JSDOMConvertBase.h"
+#include "WebGLAny.h"
+#include "WebGLExtensionAny.h"
 
 namespace WebCore {
 
-JSC::JSValue convertToJSValue(JSC::JSGlobalObject&, JSDOMGlobalObject&, const WebGLAny&);
-JSC::JSValue convertToJSValue(JSC::JSGlobalObject&, JSDOMGlobalObject&, WebGLExtension&);
+struct IDLWebGLAny : IDLType<WebGLAny> { };
+struct IDLWebGLExtensionAny : IDLType<WebGLExtensionAny> { };
 
-inline JSC::JSValue convertToJSValue(JSC::JSGlobalObject& lexicalGlobalObject, JSDOMGlobalObject& globalObject, WebGLExtension* extension)
-{
-    if (!extension)
-        return JSC::jsNull();
-    return convertToJSValue(lexicalGlobalObject, globalObject, *extension);
-}
+JSC::JSValue convertToJSValue(JSC::JSGlobalObject&, JSDOMGlobalObject&, const WebGLAny&);
+JSC::JSValue convertToJSValue(JSC::JSGlobalObject&, JSDOMGlobalObject&, WebGLExtensionAny);
 
 template<> struct JSConverter<IDLWebGLAny> {
     static constexpr bool needsState = true;
@@ -52,14 +50,13 @@ template<> struct JSConverter<IDLWebGLAny> {
     }
 };
 
-template<> struct JSConverter<IDLWebGLExtension> {
+template<> struct JSConverter<IDLWebGLExtensionAny> {
     static constexpr bool needsState = true;
     static constexpr bool needsGlobalObject = true;
 
-    template <typename T>
-    static JSC::JSValue convert(JSC::JSGlobalObject& lexicalGlobalObject, JSDOMGlobalObject& globalObject, const T& value)
+    static JSC::JSValue convert(JSC::JSGlobalObject& lexicalGlobalObject, JSDOMGlobalObject& globalObject, WebGLExtensionAny value)
     {
-        return convertToJSValue(lexicalGlobalObject, globalObject, Detail::getPtrOrRef(value));
+        return convertToJSValue(lexicalGlobalObject, globalObject, WTF::move(value));
     }
 };
 

@@ -27,7 +27,6 @@
 #define PAS_FIRST_LEVEL_TINY_LARGE_MAP_ENTRY_H
 
 #include "pas_hashtable.h"
-#include "pas_internal_config.h"
 #include "pas_tiny_large_map_entry.h"
 #include "pas_utils.h"
 

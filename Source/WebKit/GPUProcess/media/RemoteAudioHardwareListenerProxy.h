@@ -30,6 +30,9 @@
 #include "MessageReceiver.h"
 #include "RemoteAudioHardwareListenerIdentifier.h"
 #include <WebCore/AudioHardwareListener.h>
+#include <wtf/RefCounted.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/UniqueRef.h>
 #include <wtf/WeakPtr.h>
 
@@ -41,21 +44,29 @@ namespace WebKit {
 
 class GPUConnectionToWebProcess;
 
-class RemoteAudioHardwareListenerProxy final : private WebCore::AudioHardwareListener::Client {
-    WTF_MAKE_FAST_ALLOCATED;
+class RemoteAudioHardwareListenerProxy final : public RefCounted<RemoteAudioHardwareListenerProxy>, private WebCore::AudioHardwareListener::Client {
+    WTF_MAKE_TZONE_ALLOCATED(RemoteAudioHardwareListenerProxy);
 public:
-    RemoteAudioHardwareListenerProxy(GPUConnectionToWebProcess&, RemoteAudioHardwareListenerIdentifier&&);
+    static Ref<RemoteAudioHardwareListenerProxy> create(GPUConnectionToWebProcess& connection, RemoteAudioHardwareListenerIdentifier&& identifier)
+    {
+        return adoptRef(*new RemoteAudioHardwareListenerProxy(connection, WTF::move(identifier)));
+    }
     virtual ~RemoteAudioHardwareListenerProxy();
 
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
 private:
+    RemoteAudioHardwareListenerProxy(GPUConnectionToWebProcess&, RemoteAudioHardwareListenerIdentifier&&);
+
     // AudioHardwareListener::Client
     void audioHardwareDidBecomeActive() final;
     void audioHardwareDidBecomeInactive() final;
     void audioOutputDeviceChanged() final;
 
-    WeakPtr<GPUConnectionToWebProcess> m_gpuConnection;
+    ThreadSafeWeakPtr<GPUConnectionToWebProcess> m_gpuConnection;
     RemoteAudioHardwareListenerIdentifier m_identifier;
-    Ref<WebCore::AudioHardwareListener> m_listener;
+    const Ref<WebCore::AudioHardwareListener> m_listener;
 };
 
 }

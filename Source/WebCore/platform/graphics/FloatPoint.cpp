@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2004, 2006, 2007 Apple Inc.  All rights reserved.
- * Copyright (C) 2005 Nokia.  All rights reserved.
+ * Copyright (C) 2004, 2006, 2007 Apple Inc. All rights reserved.
+ * Copyright (C) 2005 Nokia. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,13 +29,17 @@
 
 #include "AffineTransform.h"
 #include "FloatConversion.h"
+#include "FloatRect.h"
 #include "IntPoint.h"
 #include "TransformationMatrix.h"
 #include <limits>
 #include <math.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(FloatPoint);
 
 FloatPoint::FloatPoint(const IntPoint& p) : m_x(p.x()), m_y(p.y())
 {
@@ -47,6 +51,11 @@ FloatPoint FloatPoint::constrainedBetween(const FloatPoint& min, const FloatPoin
         std::max(min.x(), std::min(max.x(), m_x)),
         std::max(min.y(), std::min(max.y(), m_y))
     };
+}
+
+FloatPoint FloatPoint::constrainedWithin(const FloatRect& rect) const
+{
+    return constrainedBetween(rect.minXMinYCorner(), rect.maxXMaxYCorner());
 }
 
 void FloatPoint::normalize()
@@ -86,7 +95,22 @@ FloatPoint FloatPoint::narrowPrecision(double x, double y)
 TextStream& operator<<(TextStream& ts, const FloatPoint& p)
 {
     // FIXME: callers should use the NumberRespectingIntegers flag.
-    return ts << "(" << TextStream::FormatNumberRespectingIntegers(p.x()) << "," << TextStream::FormatNumberRespectingIntegers(p.y()) << ")";
+    return ts << '(' << TextStream::FormatNumberRespectingIntegers(p.x()) << ',' << TextStream::FormatNumberRespectingIntegers(p.y()) << ')';
+}
+
+Ref<JSON::Object> FloatPoint::toJSONObject() const
+{
+    auto object = JSON::Object::create();
+
+    object->setDouble("x"_s, m_x);
+    object->setDouble("y"_s, m_y);
+
+    return object;
+}
+
+String FloatPoint::toJSONString() const
+{
+    return toJSONObject()->toJSONString();
 }
 
 }

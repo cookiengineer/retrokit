@@ -29,43 +29,69 @@
 
 #include <system_error>
 
+#include <wtf/Forward.h>
+
 namespace WebCore {
 namespace ContentExtensions {
 
 enum class ContentExtensionError {
     // JSON parser error
     JSONInvalid = 1,
-    
+
     // JSON semantics error
-    JSONTopLevelStructureNotAnObject,
     JSONTopLevelStructureNotAnArray,
     JSONInvalidObjectInTopLevelArray,
     JSONInvalidRule,
+    JSONInvalidRuleIdentifier,
     JSONContainsNoRules,
-    
+
     JSONInvalidTrigger,
     JSONInvalidURLFilterInTrigger,
     JSONInvalidTriggerFlagsArray,
-    JSONInvalidObjectInTriggerFlagsArray,
     JSONInvalidStringInTriggerFlagsArray,
     JSONInvalidConditionList,
     JSONDomainNotLowerCaseASCII,
     JSONMultipleConditions,
-    JSONTopURLAndDomainConditions,
     JSONTooManyRules,
-    
+    JSONInvalidRequestMethod,
+
     JSONInvalidAction,
     JSONInvalidActionType,
     JSONInvalidCSSDisplayNoneActionType,
     JSONInvalidNotification,
     JSONInvalidRegex,
 
+    JSONRedirectMissing,
+    JSONRedirectExtensionPathDoesNotStartWithSlash,
+    JSONRedirectURLSchemeInvalid,
+    JSONRedirectToJavaScriptURL,
+    JSONRedirectURLInvalid,
+    JSONRedirectInvalidType,
+    JSONRedirectInvalidPort,
+    JSONRedirectInvalidQuery,
+    JSONRedirectInvalidFragment,
+
+    JSONRemoveParametersNotStringArray,
+
+    JSONAddOrReplaceParametersNotArray,
+    JSONAddOrReplaceParametersKeyValueNotADictionary,
+    JSONAddOrReplaceParametersKeyValueMissingKeyString,
+    JSONAddOrReplaceParametersKeyValueMissingValueString,
+
+    JSONModifyHeadersNotArray,
+    JSONModifyHeadersInfoNotADictionary,
+    JSONModifyHeadersMissingOperation,
+    JSONModifyHeadersInvalidOperation,
+    JSONModifyHeadersMissingHeader,
+    JSONModifyHeadersMissingValue,
+    JSONModifyHeadersInvalidPriority,
+
     ErrorWritingSerializedNFA,
 };
 
-extern const char* WebKitContentBlockerDomain;
+extern ASCIILiteral WebKitContentBlockerDomain;
     
-WEBCORE_EXPORT const std::error_category& contentExtensionErrorCategory();
+WEBCORE_EXPORT const std::error_category& NODELETE contentExtensionErrorCategory();
 
 inline std::error_code make_error_code(ContentExtensionError error)
 {

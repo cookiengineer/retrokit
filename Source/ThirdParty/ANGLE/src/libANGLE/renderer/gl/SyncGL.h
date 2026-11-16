@@ -10,15 +10,18 @@
 #define LIBANGLE_RENDERER_GL_FENCESYNCGL_H_
 
 #include "libANGLE/renderer/SyncImpl.h"
+#include "libANGLE/renderer/gl/StateManagerGL.h"
+
+#include <memory>
 
 namespace rx
 {
-class FunctionsGL;
+class RendererGL;
 
 class SyncGL : public SyncImpl
 {
   public:
-    explicit SyncGL(const FunctionsGL *functions);
+    explicit SyncGL(const std::shared_ptr<RendererGL> &renderer);
     ~SyncGL() override;
 
     void onDestroy(const gl::Context *context) override;
@@ -34,8 +37,9 @@ class SyncGL : public SyncImpl
     angle::Result getStatus(const gl::Context *context, GLint *outResult) override;
 
   private:
-    const FunctionsGL *mFunctions;
+    std::shared_ptr<RendererGL> mRenderer;
     GLsync mSyncObject;
+    StateManagerGL::ExecutionSerial mDeferredBufferDeletionSerial;
 };
 }  // namespace rx
 

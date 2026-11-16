@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,14 +25,15 @@
 
 #pragma once
 
-#include <wtf/AutomaticThread.h>
+#include <JavaScriptCore/JSExportMacros.h>
+#include <JavaScriptCore/StackManager.h>
 #include <wtf/Box.h>
-#include <wtf/Expected.h>
-#include <wtf/HashSet.h>
+#include <wtf/Condition.h>
 #include <wtf/Lock.h>
 #include <wtf/Locker.h>
 #include <wtf/RefPtr.h>
 #include <wtf/StackBounds.h>
+#include <wtf/WorkQueue.h>
 
 namespace JSC {
 
@@ -144,19 +145,25 @@ public:
     //    check to determine if the VM possibly has a pending exception to handle,
     //    as well as if there are asynchronous VMTraps events to handle.
 
+// WARNING: Do NOT sort this list. Read comment above for the reason.
 #define FOR_EACH_VMTRAPS_EVENTS(v) \
     v(NeedShellTimeoutCheck) \
     v(NeedTermination) \
     v(NeedWatchdogCheck) \
     v(NeedDebuggerBreak) \
+    v(NeedStopTheWorld) \
     v(NeedExceptionHandling)
 
 #define DECLARE_VMTRAPS_EVENT_BIT_SHIFT(event__)  event__##BitShift,
     enum EventBitShift {
         FOR_EACH_VMTRAPS_EVENTS(DECLARE_VMTRAPS_EVENT_BIT_SHIFT)
-        NumberOfEvents, // This entry must be last in this list.
     };
 #undef DECLARE_VMTRAPS_EVENT_BIT_SHIFT
+
+
+#define COUNT_EVENT(event) + 1
+    static constexpr BitField NumberOfEvents = FOR_EACH_VMTRAPS_EVENTS(COUNT_EVENT);
+#undef COUNT_EVENT
 
     using Event = BitField;
 
@@ -176,6 +183,11 @@ public:
     static constexpr BitField NonDebuggerEvents = AllEvents & ~NeedDebuggerBreak;
     static constexpr BitField NonDebuggerAsyncEvents = AsyncEvents & ~NeedDebuggerBreak;
 
+    static constexpr bool isAsyncEvent(BitField event)
+    {
+        return AsyncEvents & event;
+    }
+
     static constexpr bool onlyContainsAsyncEvents(BitField events)
     {
         return (AsyncEvents & events) && !(~AsyncEvents & events);
@@ -188,8 +200,14 @@ public:
 
     void willDestroyVM();
 
-    bool needHandling(BitField mask) const { return m_trapBits.loadRelaxed() & mask; }
-    void* trapBitsAddress() { return &m_trapBits; }
+    ALWAYS_INLINE bool needHandling(BitField mask) const
+    {
+        return m_trapBits.loadRelaxed() & mask;
+    }
+    // Designed to be a fast check to rule out if we might need handling, and we need to ensure needHandling on the slow path.
+    ALWAYS_INLINE bool maybeNeedHandling() const { return m_trapBits.loadRelaxed(); }
+    void* trapBitsAddress() LIFETIME_BOUND { return &m_trapBits; }
+    static constexpr ptrdiff_t offsetOfTrapsBits() { return OBJECT_OFFSETOF(VMTraps, m_trapBits); }
 
     enum class DeferAction {
         DeferForAWhile,
@@ -197,41 +215,91 @@ public:
     };
 
     bool isDeferringTermination() const { return m_deferTerminationCount; }
-    void deferTermination(DeferAction);
-    void undoDeferTermination(DeferAction);
+    inline void deferTermination(DeferAction);
+    inline void undoDeferTermination(DeferAction);
 
-    void notifyGrabAllLocks()
+    inline void notifyGrabAllLocks();
+
+    bool hasTrapBit(Event event)
     {
-        if (needHandling(AsyncEvents))
-            invalidateCodeBlocksOnStack();
+        return m_trapBits.loadRelaxed() & event;
     }
-
     bool hasTrapBit(Event event, BitField mask)
     {
         BitField maskedBits = event & mask;
         return m_trapBits.loadRelaxed() & maskedBits;
     }
-    void clearTrapBit(Event event) { m_trapBits.exchangeAnd(~event); }
-    void setTrapBit(Event event)
+
+    bool isInBlockingScope() const { return m_isInBlockingScope; }
+
+    ALWAYS_INLINE CONCURRENT_SAFE bool clearTrap(Event event)
     {
-        ASSERT((event & ~AllEvents) == 0);
+        ASSERT(!(event & ~AllEvents));
+        auto oldBits = clearTrapWithoutCancellingThreadStop(event);
+        // Trap bit must be cleared before we update the thread stop request.
+        if (isAsyncEvent(event))
+            updateThreadStopRequestIfNeeded();
+        return oldBits & event;
+    }
+    ALWAYS_INLINE CONCURRENT_SAFE void fireTrap(Event event)
+    {
+        ASSERT(!(event & ~AllEvents));
         m_trapBits.exchangeOr(event);
+        // Trap bit must be set before we update the thread stop request.
+        if (isAsyncEvent(event))
+            updateThreadStopRequestIfNeeded();
     }
 
-    JS_EXPORT_PRIVATE void fireTrap(Event);
-    void handleTraps(BitField mask = AsyncEvents);
+    // The following returns true if a trap was handled.
+    bool handleTraps(BitField mask = AsyncEvents);
+    bool handleTrapsIfNeeded(BitField mask = AsyncEvents);
 
 #if ENABLE(SIGNAL_BASED_VM_TRAPS)
     struct SignalContext;
     void tryInstallTrapBreakpoints(struct VMTraps::SignalContext&, StackBounds);
 #endif
 
-private:
+    static WorkQueue& queue();
+
+#if ENABLE(C_LOOP)
+    ALWAYS_INLINE CLoopStack& cloopStack() { return m_stack.cloopStack(); }
+    ALWAYS_INLINE const CLoopStack& cloopStack() const { return m_stack.cloopStack(); }
+    ALWAYS_INLINE void* cloopStackLimit() { return m_stack.cloopStackLimit(); }
+    ALWAYS_INLINE void* currentCLoopStackPointer() const { return m_stack.currentCLoopStackPointer(); }
+#endif
+
+    ALWAYS_INLINE void* softStackLimit() const { return m_stack.softStackLimit(); };
+    inline void setStackSoftLimit(void*);
+
+    ALWAYS_INLINE void** addressOfSoftStackLimit() { return m_stack.addressOfSoftStackLimit(); }
+
+    static constexpr ptrdiff_t offsetOfStackManager() { return OBJECT_OFFSETOF(VMTraps, m_stack); }
+    static constexpr ptrdiff_t offsetOfSoftStackLimit()
+    {
+        return offsetOfStackManager() + StackManager::offsetOfSoftStackLimit();
+    }
+
+    using Mirror = StackManager::Mirror;
+    inline void registerMirror(Mirror&);
+    inline void unregisterMirror(Mirror&);
+
     VM& vm() const;
+
+    inline void requestStop();
+    inline void cancelStop();
+
+private:
+    ALWAYS_INLINE BitField clearTrapWithoutCancellingThreadStop(Event event)
+    {
+        return m_trapBits.exchangeAnd(~event);
+    }
+
+    CONCURRENT_SAFE void cancelThreadStopIfNeeded() WTF_REQUIRES_LOCK(m_trapSignalingLock);
+    CONCURRENT_SAFE void requestThreadStopIfNeeded(Locker<Lock>&) WTF_REQUIRES_LOCK(m_trapSignalingLock);
+    JS_EXPORT_PRIVATE CONCURRENT_SAFE void updateThreadStopRequestIfNeeded();
 
     JS_EXPORT_PRIVATE void deferTerminationSlow(DeferAction);
     JS_EXPORT_PRIVATE void undoDeferTerminationSlow(DeferAction);
-    Event takeTopPriorityTrap(BitField mask);
 
 #if ENABLE(SIGNAL_BASED_VM_TRAPS)
     class SignalSender;
@@ -248,15 +316,26 @@ private:
     void invalidateCodeBlocksOnStack(CallFrame*) { }
 #endif
 
-    static constexpr BitField NeedExceptionHandlingMask = ~(1 << NeedExceptionHandling);
-
-    Box<Lock> m_lock;
-    Ref<AutomaticThreadCondition> m_condition;
+    StackManager m_stack;
     Atomic<BitField> m_trapBits { 0 };
-    bool m_needToInvalidatedCodeBlocks { false };
+    unsigned m_deferTerminationCount { 0 };
+    bool m_needToInvalidateCodeBlocks { false };
     bool m_isShuttingDown { false };
     bool m_suspendedTerminationException { false };
-    unsigned m_deferTerminationCount { 0 };
+    bool m_threadStopRequested { false };
+    bool m_trapsDeferred { false };
+
+    // Protects against a race between VMManager::requestResumeAll() and VMManager::notifyVMActivation()
+    // to increment their m_numberOfActiveVMs.
+    bool m_hasBeenCountedAsActive { false };
+
+    bool m_isInBlockingScope { false };
+
+    // Prevents dispatching multiple idle stop handlers for a single stop cycle.
+    Atomic<bool> m_hasDispatchedIdleStopHandler { false };
+
+    Box<Lock> m_trapSignalingLock;
+    Box<Condition> m_condition;
 
 #if ENABLE(SIGNAL_BASED_VM_TRAPS)
     RefPtr<SignalSender> m_signalSender;
@@ -264,6 +343,17 @@ private:
 
     friend class LLIntOffsetsExtractor;
     friend class SignalSender;
+    friend class DeferTraps;
+    friend class VMManager;
+};
+
+class DeferTraps {
+public:
+    DeferTraps(VM&);
+    ~DeferTraps();
+private:
+    VMTraps& m_traps;
+    bool m_previousTrapsDeferred;
 };
 
 } // namespace JSC

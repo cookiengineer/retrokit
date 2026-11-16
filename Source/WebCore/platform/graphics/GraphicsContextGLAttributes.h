@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,52 +25,48 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
 #if ENABLE(WEBGL)
+#include <optional>
 
 namespace WebCore {
 
-enum class GraphicsContextGLPowerPreference {
+enum class GraphicsContextGLPowerPreference : uint8_t {
     Default,
     LowPower,
     HighPerformance
 };
 
-enum class GraphicsContextGLWebGLVersion {
-    WebGL1,
-#if ENABLE(WEBGL2)
-    WebGL2
-#endif
+enum class GraphicsContextGLSimulatedCreationFailure : uint8_t {
+    None,
+    IPCBufferOOM,
+    CreationTimeout,
+    FailPlatformContextCreation
 };
 
+#if PLATFORM(MAC)
+using PlatformGPUID = uint64_t;
+#endif
+
 struct GraphicsContextGLAttributes {
-    // WebGLContextAttributes
     bool alpha { true };
     bool depth { true };
     bool stencil { false };
     bool antialias { true };
     bool premultipliedAlpha { true };
     bool preserveDrawingBuffer { false };
-    bool failIfMajorPerformanceCaveat { false };
-    using PowerPreference = GraphicsContextGLPowerPreference;
-    PowerPreference powerPreference { PowerPreference::Default };
-
-    // Additional attributes.
-    bool shareResources { true };
-    bool noExtensions { false };
-    float devicePixelRatio { 1 };
-    PowerPreference initialPowerPreference { PowerPreference::Default };
-    using WebGLVersion = GraphicsContextGLWebGLVersion;
-    WebGLVersion webGLVersion { WebGLVersion::WebGL1 };
-    bool forceRequestForHighPerformanceGPU { false };
-#if PLATFORM(COCOA)
-    bool useMetal { true };
-    bool hasFenceSync { false };
+    GraphicsContextGLPowerPreference powerPreference { GraphicsContextGLPowerPreference::Default };
+    bool isWebGL2 { false };
+    bool supportWebGLDraftExtensions { false };
+#if PLATFORM(MAC)
+    PlatformGPUID windowGPUID { 0 };
 #endif
 #if ENABLE(WEBXR)
     bool xrCompatible { false };
 #endif
+    using SimulatedCreationFailure = GraphicsContextGLSimulatedCreationFailure;
+    SimulatedCreationFailure failContextCreationForTesting { SimulatedCreationFailure::None };
 };
-
 }
 
 #endif // ENABLE(WEBGL)

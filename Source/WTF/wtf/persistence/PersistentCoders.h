@@ -30,23 +30,26 @@
 #include <wtf/Forward.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
-#include <wtf/SHA1.h>
-#include <wtf/Seconds.h>
+#include <wtf/StdLibExtras.h>
 #include <wtf/Vector.h>
-#include <wtf/WallTime.h>
 #include <wtf/persistence/PersistentDecoder.h>
 #include <wtf/persistence/PersistentEncoder.h>
 
-namespace WTF {
-namespace Persistence {
+namespace WTF::Persistence {
+
+template<typename> struct Coder;
+class Decoder;
+class Encoder;
 
 template<typename T, typename U> struct Coder<std::pair<T, U>> {
-    static void encode(Encoder& encoder, const std::pair<T, U>& pair)
+    template<typename Encoder>
+    static void encodeForPersistence(Encoder& encoder, const std::pair<T, U>& pair)
     {
         encoder << pair.first << pair.second;
     }
 
-    static std::optional<std::pair<T, U>> decode(Decoder& decoder)
+    template<typename Decoder>
+    static std::optional<std::pair<T, U>> decodeForPersistence(Decoder& decoder)
     {
         std::optional<T> first;
         decoder >> first;
@@ -58,12 +61,13 @@ template<typename T, typename U> struct Coder<std::pair<T, U>> {
         if (!second)
             return std::nullopt;
 
-        return {{ WTFMove(*first), WTFMove(*second) }};
+        return {{ WTF::move(*first), WTF::move(*second) }};
     }
 };
 
 template<typename T> struct Coder<std::optional<T>> {
-    static void encode(Encoder& encoder, const std::optional<T>& optional)
+    template<typename Encoder>
+    static void encodeForPersistence(Encoder& encoder, const std::optional<T>& optional)
     {
         if (!optional) {
             encoder << false;
@@ -74,7 +78,8 @@ template<typename T> struct Coder<std::optional<T>> {
         encoder << optional.value();
     }
     
-    static std::optional<std::optional<T>> decode(Decoder& decoder)
+    template<typename Decoder>
+    static std::optional<std::optional<T>> decodeForPersistence(Decoder& decoder)
     {
         std::optional<bool> isEngaged;
         decoder >> isEngaged;
@@ -88,17 +93,19 @@ template<typename T> struct Coder<std::optional<T>> {
         if (!value)
             return std::nullopt;
         
-        return std::optional<std::optional<T>> { std::optional<T> { WTFMove(*value) } };
+        return std::optional<std::optional<T>> { std::optional<T> { WTF::move(*value) } };
     }
 };
 
 template<typename KeyType, typename ValueType> struct Coder<WTF::KeyValuePair<KeyType, ValueType>> {
-    static void encode(Encoder& encoder, const WTF::KeyValuePair<KeyType, ValueType>& pair)
+    template<typename Encoder>
+    static void encodeForPersistence(Encoder& encoder, const WTF::KeyValuePair<KeyType, ValueType>& pair)
     {
         encoder << pair.key << pair.value;
     }
 
-    static std::optional<WTF::KeyValuePair<KeyType, ValueType>> decode(Decoder& decoder)
+    template<typename Decoder>
+    static std::optional<WTF::KeyValuePair<KeyType, ValueType>> decodeForPersistence(Decoder& decoder)
     {
         std::optional<KeyType> key;
         decoder >> key;
@@ -110,21 +117,23 @@ template<typename KeyType, typename ValueType> struct Coder<WTF::KeyValuePair<Ke
         if (!value)
             return std::nullopt;
 
-        return {{ WTFMove(*key), WTFMove(*value) }};
+        return {{ WTF::move(*key), WTF::move(*value) }};
     }
 };
 
 template<bool fixedSizeElements, typename T, size_t inlineCapacity> struct VectorCoder;
 
 template<typename T, size_t inlineCapacity> struct VectorCoder<false, T, inlineCapacity> {
-    static void encode(Encoder& encoder, const Vector<T, inlineCapacity>& vector)
+    template<typename Encoder>
+    static void encodeForPersistence(Encoder& encoder, const Vector<T, inlineCapacity>& vector)
     {
         encoder << static_cast<uint64_t>(vector.size());
         for (size_t i = 0; i < vector.size(); ++i)
             encoder << vector[i];
     }
 
-    static std::optional<Vector<T, inlineCapacity>> decode(Decoder& decoder)
+    template<typename Decoder>
+    static std::optional<Vector<T, inlineCapacity>> decodeForPersistence(Decoder& decoder)
     {
         std::optional<uint64_t> size;
         decoder >> size;
@@ -137,7 +146,7 @@ template<typename T, size_t inlineCapacity> struct VectorCoder<false, T, inlineC
             decoder >> element;
             if (!element)
                 return std::nullopt;
-            tmp.append(WTFMove(*element));
+            tmp.append(WTF::move(*element));
         }
 
         tmp.shrinkToFit();
@@ -146,13 +155,15 @@ template<typename T, size_t inlineCapacity> struct VectorCoder<false, T, inlineC
 };
 
 template<typename T, size_t inlineCapacity> struct VectorCoder<true, T, inlineCapacity> {
-    static void encode(Encoder& encoder, const Vector<T, inlineCapacity>& vector)
+    template<typename Encoder>
+    static void encodeForPersistence(Encoder& encoder, const Vector<T, inlineCapacity>& vector)
     {
         encoder << static_cast<uint64_t>(vector.size());
-        encoder.encodeFixedLengthData({ reinterpret_cast<const uint8_t*>(vector.data()), vector.size() * sizeof(T) });
+        encoder.encodeFixedLengthData(asBytes(vector.span()));
     }
     
-    static std::optional<Vector<T, inlineCapacity>> decode(Decoder& decoder)
+    template<typename Decoder>
+    static std::optional<Vector<T, inlineCapacity>> decodeForPersistence(Decoder& decoder)
     {
         std::optional<uint64_t> decodedSize;
         decoder >> decodedSize;
@@ -167,13 +178,13 @@ template<typename T, size_t inlineCapacity> struct VectorCoder<true, T, inlineCa
         // Since we know the total size of the elements, we can allocate the vector in
         // one fell swoop. Before allocating we must however make sure that the decoder buffer
         // is big enough.
-        if (!decoder.bufferIsLargeEnoughToContain<T>(size))
+        if (!decoder.template bufferIsLargeEnoughToContain<T>(size))
             return std::nullopt;
 
         Vector<T, inlineCapacity> temp;
         temp.grow(size);
 
-        if (!decoder.decodeFixedLengthData({ temp.data(), size * sizeof(T) }))
+        if (!decoder.decodeFixedLengthData(temp.mutableSpan()))
             return std::nullopt;
 
         return temp;
@@ -185,14 +196,16 @@ template<typename T, size_t inlineCapacity> struct Coder<Vector<T, inlineCapacit
 template<typename KeyArg, typename MappedArg, typename HashArg, typename KeyTraitsArg, typename MappedTraitsArg> struct Coder<HashMap<KeyArg, MappedArg, HashArg, KeyTraitsArg, MappedTraitsArg>> {
     typedef HashMap<KeyArg, MappedArg, HashArg, KeyTraitsArg, MappedTraitsArg> HashMapType;
 
-    static void encode(Encoder& encoder, const HashMapType& hashMap)
+    template<typename Encoder>
+    static void encodeForPersistence(Encoder& encoder, const HashMapType& hashMap)
     {
         encoder << static_cast<uint64_t>(hashMap.size());
         for (typename HashMapType::const_iterator it = hashMap.begin(), end = hashMap.end(); it != end; ++it)
             encoder << *it;
     }
 
-    static std::optional<HashMapType> decode(Decoder& decoder)
+    template<typename Decoder>
+    static std::optional<HashMapType> decodeForPersistence(Decoder& decoder)
     {
         std::optional<uint64_t> hashMapSize;
         decoder >> hashMapSize;
@@ -211,7 +224,7 @@ template<typename KeyArg, typename MappedArg, typename HashArg, typename KeyTrai
             if (!value)
                 return std::nullopt;
 
-            if (!tempHashMap.add(WTFMove(*key), WTFMove(*value)).isNewEntry) {
+            if (!tempHashMap.add(WTF::move(*key), WTF::move(*value)).isNewEntry) {
                 // The hash map already has the specified key, bail.
                 return std::nullopt;
             }
@@ -224,14 +237,16 @@ template<typename KeyArg, typename MappedArg, typename HashArg, typename KeyTrai
 template<typename KeyArg, typename HashArg, typename KeyTraitsArg> struct Coder<HashSet<KeyArg, HashArg, KeyTraitsArg>> {
     typedef HashSet<KeyArg, HashArg, KeyTraitsArg> HashSetType;
 
-    static void encode(Encoder& encoder, const HashSetType& hashSet)
+    template<typename Encoder>
+    static void encodeForPersistence(Encoder& encoder, const HashSetType& hashSet)
     {
         encoder << static_cast<uint64_t>(hashSet.size());
         for (typename HashSetType::const_iterator it = hashSet.begin(), end = hashSet.end(); it != end; ++it)
             encoder << *it;
     }
 
-    static std::optional<HashSetType> decode(Decoder& decoder)
+    template<typename Decoder>
+    static std::optional<HashSetType> decodeForPersistence(Decoder& decoder)
     {
         std::optional<uint64_t> hashSetSize;
         decoder >> hashSetSize;
@@ -245,7 +260,7 @@ template<typename KeyArg, typename HashArg, typename KeyTraitsArg> struct Coder<
             if (!key)
                 return std::nullopt;
 
-            if (!tempHashSet.add(WTFMove(*key)).isNewEntry) {
+            if (!tempHashSet.add(WTF::move(*key)).isNewEntry) {
                 // The hash map already has the specified key, bail.
                 return std::nullopt;
             }
@@ -255,58 +270,75 @@ template<typename KeyArg, typename HashArg, typename KeyTraitsArg> struct Coder<
     }
 };
 
-template<> struct Coder<Seconds> {
-    static void encode(Encoder& encoder, const Seconds& seconds)
+template<typename... Types> struct Coder<Variant<Types...>> {
+    using PersistentEncodedVariantIndex = uint8_t;
+
+    template<typename Encoder, typename T>
+    static void encodeForPersistence(Encoder& encoder, T&& variant)
     {
-        encoder << seconds.value();
+        static_assert(std::is_same_v<std::remove_cvref_t<T>, Variant<Types...>>);
+        static_assert(sizeof...(Types) <= static_cast<size_t>(std::numeric_limits<PersistentEncodedVariantIndex>::max()));
+
+        PersistentEncodedVariantIndex i = variant.index();
+        encoder << i;
+        encodeForPersistence(encoder, std::forward<T>(variant), std::index_sequence<> { }, i);
     }
 
-    static std::optional<Seconds> decode(Decoder& decoder)
+    template<typename Encoder, typename T, size_t... Indices>
+    static void encodeForPersistence(Encoder& encoder, T&& variant, std::index_sequence<Indices...>, size_t i)
     {
-        std::optional<double> value;
-        decoder >> value;
-        if (!value)
+        constexpr size_t index = sizeof...(Indices);
+        if constexpr (index < sizeof...(Types)) {
+            if (index == i) {
+                encoder << std::get<index>(std::forward<T>(variant));
+                return;
+            }
+            encodeForPersistence(encoder, std::forward<T>(variant), std::make_index_sequence<index + 1> { }, i);
+        }
+    }
+
+    template<typename Decoder>
+    static std::optional<Variant<Types...>> decodeForPersistence(Decoder& decoder)
+    {
+        std::optional<PersistentEncodedVariantIndex> i;
+        decoder >> i;
+        if (!i || *i >= sizeof...(Types))
             return std::nullopt;
-        return Seconds(*value);
-    }
-};
-
-template<> struct Coder<WallTime> {
-    static void encode(Encoder& encoder, const WallTime& time)
-    {
-        encoder << time.secondsSinceEpoch().value();
+        return decodeForPersistence(decoder, std::index_sequence<> { }, *i);
     }
 
-    static std::optional<WallTime> decode(Decoder& decoder)
+    template<typename Decoder, size_t... Indices>
+    static std::optional<Variant<Types...>> decodeForPersistence(Decoder& decoder, std::index_sequence<Indices...>, size_t i)
     {
-        std::optional<double> value;
-        decoder >> value;
-        if (!value)
+        constexpr size_t index = sizeof...(Indices);
+        if constexpr (index < sizeof...(Types)) {
+            if (index == i) {
+                std::optional<typename WTF::VariantAlternativeT<index, Variant<Types...>>> optional;
+                decoder >> optional;
+                if (!optional)
+                    return std::nullopt;
+                return std::make_optional<Variant<Types...>>(WTF::InPlaceIndex<index>, WTF::move(*optional));
+            }
+            return decodeForPersistence(decoder, std::make_index_sequence<index + 1> { }, i);
+        } else
             return std::nullopt;
-
-        return WallTime::fromRawSeconds(*value);
     }
 };
 
-template<> struct Coder<AtomString> {
-    WTF_EXPORT_PRIVATE static void encode(Encoder&, const AtomString&);
-    WTF_EXPORT_PRIVATE static std::optional<AtomString> decode(Decoder&);
-};
-
-template<> struct Coder<CString> {
-    WTF_EXPORT_PRIVATE static void encode(Encoder&, const CString&);
-    WTF_EXPORT_PRIVATE static std::optional<CString> decode(Decoder&);
-};
-
-template<> struct Coder<String> {
-    WTF_EXPORT_PRIVATE static void encode(Encoder&, const String&);
-    WTF_EXPORT_PRIVATE static std::optional<String> decode(Decoder&);
-};
-
-template<> struct Coder<SHA1::Digest> {
-    WTF_EXPORT_PRIVATE static void encode(Encoder&, const SHA1::Digest&);
-    WTF_EXPORT_PRIVATE static std::optional<SHA1::Digest> decode(Decoder&);
-};
-
+#define DECLARE_CODER(class) \
+template<> struct Coder<class> { \
+    WTF_EXPORT_PRIVATE static void encodeForPersistence(Encoder&, const class&); \
+    WTF_EXPORT_PRIVATE static std::optional<class> decodeForPersistence(Decoder&); \
 }
+
+DECLARE_CODER(AtomString);
+DECLARE_CODER(CString);
+DECLARE_CODER(Seconds);
+DECLARE_CODER(String);
+DECLARE_CODER(SHA1::Digest);
+DECLARE_CODER(URL);
+DECLARE_CODER(WallTime);
+
+#undef DECLARE_CODER
+
 }

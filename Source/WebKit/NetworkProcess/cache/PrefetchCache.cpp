@@ -27,16 +27,21 @@
 #include "PrefetchCache.h"
 
 #include <WebCore/HTTPHeaderNames.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 
-PrefetchCache::Entry::Entry(WebCore::ResourceResponse&& response, RefPtr<WebCore::SharedBuffer>&& buffer)
-    : response(WTFMove(response)), buffer(WTFMove(buffer))
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PrefetchCache);
+
+PrefetchCache::Entry::Entry(WebCore::ResourceResponse&& response, PrivateRelayed privateRelayed, RefPtr<WebCore::FragmentedSharedBuffer>&& buffer)
+    : response(WTF::move(response))
+    , privateRelayed(privateRelayed)
+    , buffer(WTF::move(buffer))
 {
 }
 
 PrefetchCache::Entry::Entry(WebCore::ResourceResponse&& redirectResponse, WebCore::ResourceRequest&& redirectRequest)
-    : response(WTFMove(redirectResponse)), redirectRequest(WTFMove(redirectRequest))
+    : response(WTF::move(redirectResponse)), redirectRequest(WTF::move(redirectRequest))
 {
 }
 
@@ -45,9 +50,7 @@ PrefetchCache::PrefetchCache()
 {
 }
 
-PrefetchCache::~PrefetchCache()
-{
-}
+PrefetchCache::~PrefetchCache() = default;
 
 void PrefetchCache::clear()
 {
@@ -66,21 +69,21 @@ std::unique_ptr<PrefetchCache::Entry> PrefetchCache::take(const URL& url)
         return std::get<0>(tuple) == url;
     });
     auto entry = resources->take(url);
-    ASSERT(!entry || !entry->response.httpHeaderField(WebCore::HTTPHeaderName::Vary).contains("Cookie"));
+    ASSERT(!entry || !entry->response.httpHeaderField(WebCore::HTTPHeaderName::Vary).contains("Cookie"_s));
     return entry;
 }
 
 static const Seconds expirationTimeout { 5_s };
 
-void PrefetchCache::store(const URL& requestUrl, WebCore::ResourceResponse&& response, RefPtr<WebCore::SharedBuffer>&& buffer)
+void PrefetchCache::store(const URL& requestURL, WebCore::ResourceResponse&& response, PrivateRelayed privateRelayed, RefPtr<WebCore::FragmentedSharedBuffer>&& buffer)
 {
     if (!m_sessionPrefetches)
         m_sessionPrefetches = makeUnique<PrefetchEntriesMap>();
-    auto addResult = m_sessionPrefetches->add(requestUrl, makeUnique<PrefetchCache::Entry>(WTFMove(response), WTFMove(buffer)));
+    auto addResult = m_sessionPrefetches->add(requestURL, makeUnique<PrefetchCache::Entry>(WTF::move(response), privateRelayed, WTF::move(buffer)));
     // Limit prefetches for same url to 1.
     if (!addResult.isNewEntry)
         return;
-    m_sessionExpirationList.append(std::make_tuple(requestUrl, WallTime::now()));
+    m_sessionExpirationList.append(std::make_tuple(requestURL, WallTime::now()));
     if (!m_expirationTimer.isActive())
         m_expirationTimer.startOneShot(expirationTimeout);
 }
@@ -90,7 +93,7 @@ void PrefetchCache::storeRedirect(const URL& requestUrl, WebCore::ResourceRespon
     if (!m_sessionPrefetches)
         m_sessionPrefetches = makeUnique<PrefetchEntriesMap>();
     redirectRequest.clearPurpose();
-    m_sessionPrefetches->set(requestUrl, makeUnique<PrefetchCache::Entry>(WTFMove(redirectResponse), WTFMove(redirectRequest)));
+    m_sessionPrefetches->set(requestUrl, makeUnique<PrefetchCache::Entry>(WTF::move(redirectResponse), WTF::move(redirectRequest)));
     m_sessionExpirationList.append(std::make_tuple(requestUrl, WallTime::now()));
     if (!m_expirationTimer.isActive())
         m_expirationTimer.startOneShot(expirationTimeout);
@@ -100,7 +103,7 @@ void PrefetchCache::clearExpiredEntries()
 {
     auto timeout = WallTime::now();
     while (!m_sessionExpirationList.isEmpty()) {
-        auto [requestUrl, timestamp] = m_sessionExpirationList.first();
+        auto& [requestUrl, timestamp] = m_sessionExpirationList.first();
         auto* resources = m_sessionPrefetches.get();
         ASSERT(resources);
         ASSERT(resources->contains(requestUrl));

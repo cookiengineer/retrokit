@@ -23,8 +23,10 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// https://github.com/whsieh/UndoManager/blob/master/README.md
+
 [
-    EnabledBySetting=UndoManagerAPI,
+    EnabledBySetting=UndoManagerAPIEnabled,
 ] dictionary UndoItemInit {
     required DOMString label;
     required VoidCallback undo;
@@ -32,8 +34,7 @@
 };
 
 [
-    EnabledBySetting=UndoManagerAPI,
-    ImplementationLacksVTable,
+    EnabledBySetting=UndoManagerAPIEnabled,
     JSCustomMarkFunction,
     CustomIsReachable,
     Exposed=Window

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,15 +30,16 @@ class MediaControls extends LayoutNode
     {
         super(`<div class="media-controls"></div>`);
 
+        if (layoutTraits?.inheritsBorderRadius())
+            this.element.classList.add("inherits-border-radius");
+
         this._scaleFactor = 1;
-        this._shouldCenterControlsVertically = false;
 
         this.width = width;
         this.height = height;
         this.layoutTraits = layoutTraits;
 
         this.playPauseButton = new PlayPauseButton(this);
-        this.airplayButton = new AirplayButton(this);
         this.pipButton = new PiPButton(this);
         this.fullscreenButton = new FullscreenButton(this);
         this.muteButton = new MuteButton(this);
@@ -55,9 +56,22 @@ class MediaControls extends LayoutNode
         this.autoHideController.hasSecondaryUIAttached = false;
 
         this._placard = null;
-        this.airplayPlacard = new AirplayPlacard(this);
         this.invalidPlacard = new InvalidPlacard(this);
-        this.pipPlacard = new PiPPlacard(this);
+        this.fullscreenPlacard = new FullscreenPlacard(this);
+
+        // FIXME: Adwaita layout doesn't have an icon for pip-placard.
+        if (this.layoutTraits?.supportsPiP())
+            this.pipPlacard = new PiPPlacard(this);
+        else
+            this.pipPlacard = null;
+
+        if (this.layoutTraits?.supportsAirPlay()) {
+            this.airplayButton = new AirplayButton(this);
+            this.airplayPlacard = new AirplayPlacard(this);
+        } else {
+            this.airplayButton = null;
+            this.airplayPlacard = null;
+        }
 
         this.element.addEventListener("focusin", this);
         window.addEventListener("dragstart", this, true);
@@ -135,20 +149,6 @@ class MediaControls extends LayoutNode
         this.markDirtyProperty("scaleFactor");
     }
 
-    get shouldCenterControlsVertically()
-    {
-        return this._shouldCenterControlsVertically;
-    }
-
-    set shouldCenterControlsVertically(flag)
-    {
-        if (this._shouldCenterControlsVertically === flag)
-            return;
-
-        this._shouldCenterControlsVertically = flag;
-        this.markDirtyProperty("scaleFactor");
-    }
-
     get placard()
     {
         return this._placard;
@@ -173,7 +173,7 @@ class MediaControls extends LayoutNode
         this.element.classList.add("fade-in");
     }
 
-    isPointInControls(point, includeContainer)
+    isPointInControls(point)
     {
         let ancestor = this.element.parentNode;
         while (ancestor && !(ancestor instanceof ShadowRoot))
@@ -184,9 +184,6 @@ class MediaControls extends LayoutNode
             return false;
 
         const tappedElement = shadowRoot.elementFromPoint(point.x, point.y);
-
-        if (includeContainer && this.element === tappedElement)
-            return true;
 
         return this.children.some(child => child.element.contains(tappedElement));
     }
@@ -227,12 +224,21 @@ class MediaControls extends LayoutNode
                 this.element.style.zoom = zoom;
                 this.element.style.removeProperty("transform");
             }
-            // We also want to optionally center them vertically compared to their container.
-            this.element.style.top = this._shouldCenterControlsVertically ? `${(this.height / 2) * (zoom - 1)}px` : "auto"; 
         } else if (propertyName === "faded")
             this.element.classList.toggle("faded", this.faded);
         else
             super.commitProperty(propertyName);
     }
 
+    disable()
+    {
+        this.element.removeEventListener("focusin", this);
+        window.removeEventListener("dragstart", this, true);
+    }
+
+    reenable()
+    {
+        this.element.addEventListener("focusin", this);
+        window.addEventListener("dragstart", this, true);
+    }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2013 Apple Inc. All rights reserved.
  * Copyright (C) 2011 The Chromium Authors. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,6 +29,7 @@
 #include <wtf/Assertions.h>
 #include <wtf/Expected.h>
 #include <wtf/JSONValues.h>
+#include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
 namespace Inspector {
@@ -55,8 +56,8 @@ template<typename T> struct BindingTraits<JSON::ArrayOf<T>> {
     {
         auto array = value->asArray();
         BindingTraits<JSON::ArrayOf<T>>::assertValueHasExpectedType(array.get());
-        COMPILE_ASSERT(sizeof(JSON::ArrayOf<T>) == sizeof(JSON::Array), type_cast_problem);
-        return static_reference_cast<JSON::ArrayOf<T>>(static_reference_cast<JSON::ArrayBase>(array.releaseNonNull()));
+        static_assert(sizeof(JSON::ArrayOf<T>) == sizeof(JSON::Array), "type cast problem");
+        return unsafeRefDowncast<JSON::ArrayOf<T>>(upcast<JSON::ArrayBase>(array.releaseNonNull()));
     }
 
     static void assertValueHasExpectedType(JSON::Value* value)
@@ -83,6 +84,14 @@ template<> struct BindingTraits<String> : PrimitiveBindingTraits<JSON::Value::Ty
 template<> struct BindingTraits<bool> : PrimitiveBindingTraits<JSON::Value::Type::Boolean> { };
 template<> struct BindingTraits<double> : PrimitiveBindingTraits<JSON::Value::Type::Double> { };
 template<> struct BindingTraits<int> : PrimitiveBindingTraits<JSON::Value::Type::Integer> { };
+
+template<typename T> Ref<JSON::ArrayOf<JSON::Value>> buildArray(const Vector<T>& vector)
+{
+    auto array = JSON::ArrayOf<JSON::Value>::create();
+    for (auto& item : vector)
+        array->addItem(item);
+    return array;
+}
 
 }
 

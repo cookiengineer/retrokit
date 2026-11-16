@@ -35,12 +35,17 @@ WKTypeID WKURLGetTypeID()
 
 WKURLRef WKURLCreateWithUTF8CString(const char* string)
 {
-    return WebKit::toAPI(&API::URL::create(String::fromUTF8(string)).leakRef());
+    return WebKit::toAPILeakingRef(API::URL::create(String::fromUTF8(string)));
+}
+
+WKURLRef WKURLCreateWithUTF8String(const char* string, size_t length)
+{
+    return WebKit::toAPILeakingRef(API::URL::create(String::fromUTF8(unsafeMakeSpan(string, length))));
 }
 
 WKURLRef WKURLCreateWithBaseURL(WKURLRef baseURL, const char* relative)
 {
-    return WebKit::toAPI(&API::URL::create(WebKit::toImpl(baseURL), String::fromUTF8(relative)).leakRef());
+    return WebKit::toAPILeakingRef(API::URL::create(protect(WebKit::toImpl(baseURL)).get(), String::fromUTF8(relative)));
 }
 
 WKStringRef WKURLCopyString(WKURLRef url)
@@ -50,25 +55,25 @@ WKStringRef WKURLCopyString(WKURLRef url)
 
 bool WKURLIsEqual(WKURLRef a, WKURLRef b)
 {
-    return API::URL::equals(*WebKit::toImpl(a), *WebKit::toImpl(b));
+    return API::URL::equals(*protect(WebKit::toImpl(a)), *protect(WebKit::toImpl(b)));
 }
 
 WKStringRef WKURLCopyHostName(WKURLRef url)
 {
-    return WebKit::toCopiedAPI(WebKit::toImpl(url)->host());
+    return WebKit::toCopiedAPI(protect(WebKit::toImpl(url))->host());
 }
 
 WKStringRef WKURLCopyScheme(WKURLRef url)
 {
-    return WebKit::toCopiedAPI(WebKit::toImpl(url)->protocol());
+    return WebKit::toCopiedAPI(protect(WebKit::toImpl(url))->protocol());
 }
 
 WK_EXPORT WKStringRef WKURLCopyPath(WKURLRef url)
 {
-    return WebKit::toCopiedAPI(WebKit::toImpl(url)->path());
+    return WebKit::toCopiedAPI(protect(WebKit::toImpl(url))->path());
 }
 
 WKStringRef WKURLCopyLastPathComponent(WKURLRef url)
 {
-    return WebKit::toCopiedAPI(WebKit::toImpl(url)->lastPathComponent());
+    return WebKit::toCopiedAPI(protect(WebKit::toImpl(url))->lastPathComponent());
 }

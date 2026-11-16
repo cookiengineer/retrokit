@@ -30,14 +30,17 @@
 #include "pas_megapage_cache.h"
 
 #include "pas_bootstrap_free_heap.h"
-#include "pas_internal_config.h"
 #include "pas_large_free_heap_config.h"
+#include "pas_mte.h"
 #include "pas_payload_reservation_page_list.h"
+#include "pas_zero_memory.h"
 #include <stdio.h>
 
 typedef struct {
     pas_megapage_cache* cache;
     pas_megapage_cache_config* cache_config;
+    pas_heap* heap;
+    pas_physical_memory_transaction* transaction;
 } megapage_cache_allocate_aligned_data;
 
 static pas_aligned_allocation_result megapage_cache_allocate_aligned(size_t size,
@@ -92,6 +95,8 @@ static pas_aligned_allocation_result megapage_cache_allocate_aligned(size_t size
     bootstrap_result = cache->provider(
         new_size, new_alignment,
         "pas_megapage_cache/chunk",
+        data->heap,
+        data->transaction,
         cache->provider_arg);
     if (!bootstrap_result.did_succeed)
         return result;
@@ -115,6 +120,9 @@ static pas_aligned_allocation_result megapage_cache_allocate_aligned(size_t size
     }
     
     begin = (uintptr_t)base_before_exclusion;
+    PAS_PROFILE(MEGAPAGE_SET, begin);
+    PAS_MTE_HANDLE(MEGAPAGE_SET, begin);
+
     end = begin + new_size;
 
     PAS_ASSERT(pas_alignment_is_ptr_aligned(cache_config->allocation_alignment, begin));
@@ -164,15 +172,17 @@ static pas_aligned_allocation_result megapage_cache_allocate_aligned(size_t size
 
 void pas_megapage_cache_construct(pas_megapage_cache* cache,
                                   pas_heap_page_provider provider,
-                                  void* provider_arg)
+                                  pas_megapage_cache_size cache_size)
 {
     pas_simple_large_free_heap_construct(&cache->free_heap);
     cache->provider = provider;
-    cache->provider_arg = provider_arg;
+    cache->provider_arg = (void*)(uintptr_t)cache_size;
 }
 
 void* pas_megapage_cache_try_allocate(pas_megapage_cache* cache,
-                                      pas_megapage_cache_config* cache_config)
+                                      pas_megapage_cache_config* cache_config,
+                                      pas_heap* heap,
+                                      pas_physical_memory_transaction* transaction)
 {
     megapage_cache_allocate_aligned_data data;
     pas_large_free_heap_config config;
@@ -182,6 +192,8 @@ void* pas_megapage_cache_try_allocate(pas_megapage_cache* cache,
 
     data.cache = cache;
     data.cache_config = cache_config;
+    data.heap = heap;
+    data.transaction = transaction;
     
     pas_zero_memory(&config, sizeof(config));
     config.type_size = 1;

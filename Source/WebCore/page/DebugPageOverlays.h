@@ -25,11 +25,13 @@
 
 #pragma once
 
-#include "DebugOverlayRegions.h"
-#include "Frame.h"
+#include <WebCore/DebugOverlayRegions.h>
+#include <WebCore/DocumentPage.h>
+#include <WebCore/LocalFrame.h>
 #include <wtf/HashMap.h>
 #include <wtf/OptionSet.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakHashMap.h>
 
 namespace WebCore {
 
@@ -38,17 +40,22 @@ class RegionOverlay;
 
 class DebugPageOverlays {
 public:
-    static DebugPageOverlays& singleton();
+    static DebugPageOverlays& NODELETE singleton();
 
-    enum class RegionType {
+    enum class RegionType : uint8_t {
         WheelEventHandlers,
         NonFastScrollableRegion,
+        InteractionRegion,
+        EnhancedSecurity,
     };
-    static constexpr unsigned NumberOfRegionTypes = static_cast<unsigned>(RegionType::NonFastScrollableRegion) + 1;
 
-    static void didLayout(Frame&);
-    static void didChangeEventHandlers(Frame&);
+    static constexpr unsigned NumberOfRegionTypes = static_cast<unsigned>(RegionType::EnhancedSecurity) + 1;
+
+    static void didLayout(LocalFrame&);
+    static void didChangeEventHandlers(LocalFrame&);
     static void doAfterUpdateRendering(Page&);
+
+    static bool shouldPaintOverlayIntoLayerForRegionType(Page&, RegionType);
 
     WEBCORE_EXPORT static void settingsChanged(Page&);
 
@@ -60,24 +67,23 @@ private:
 
     void updateRegionIfNecessary(Page&, RegionType);
 
-    void regionChanged(Frame&, RegionType);
+    void NODELETE regionChanged(LocalFrame&, RegionType);
 
-    bool hasOverlaysForPage(Page& page) const
-    {
-        return m_pageRegionOverlays.contains(&page);
-    }
+    bool NODELETE hasOverlaysForPage(Page&) const;
     
     void updateOverlayRegionVisibility(Page&, OptionSet<DebugOverlayRegions>);
 
-    RegionOverlay* regionOverlayForPage(Page&, RegionType) const;
-    RegionOverlay& ensureRegionOverlayForPage(Page&, RegionType);
+    bool shouldPaintOverlayIntoLayer(Page&, RegionType) const;
 
-    HashMap<Page*, Vector<RefPtr<RegionOverlay>>> m_pageRegionOverlays;
+    RegionOverlay* NODELETE regionOverlayForPage(Page&, RegionType) const;
+    Ref<RegionOverlay> ensureRegionOverlayForPage(Page&, RegionType);
+
+    WeakHashMap<Page, Vector<RefPtr<RegionOverlay>>> m_pageRegionOverlays;
 
     static DebugPageOverlays* sharedDebugOverlays;
 };
 
-#define FAST_RETURN_IF_NO_OVERLAYS(page) if (LIKELY(!page || !hasOverlays(*page))) return;
+#define FAST_RETURN_IF_NO_OVERLAYS(page) if (!page || !hasOverlays(*page)) [[likely]] return;
 
 inline bool DebugPageOverlays::hasOverlays(Page& page)
 {
@@ -87,29 +93,40 @@ inline bool DebugPageOverlays::hasOverlays(Page& page)
     return sharedDebugOverlays->hasOverlaysForPage(page);
 }
 
-inline void DebugPageOverlays::didLayout(Frame& frame)
+inline void DebugPageOverlays::didLayout(LocalFrame& frame)
 {
     FAST_RETURN_IF_NO_OVERLAYS(frame.page());
 
     sharedDebugOverlays->regionChanged(frame, RegionType::WheelEventHandlers);
     sharedDebugOverlays->regionChanged(frame, RegionType::NonFastScrollableRegion);
+    sharedDebugOverlays->regionChanged(frame, RegionType::InteractionRegion);
 }
 
-inline void DebugPageOverlays::didChangeEventHandlers(Frame& frame)
+inline void DebugPageOverlays::didChangeEventHandlers(LocalFrame& frame)
 {
     FAST_RETURN_IF_NO_OVERLAYS(frame.page());
 
     sharedDebugOverlays->regionChanged(frame, RegionType::WheelEventHandlers);
     sharedDebugOverlays->regionChanged(frame, RegionType::NonFastScrollableRegion);
+    sharedDebugOverlays->regionChanged(frame, RegionType::InteractionRegion);
 }
 
 inline void DebugPageOverlays::doAfterUpdateRendering(Page& page)
 {
-    if (LIKELY(!hasOverlays(page)))
+    if (!hasOverlays(page)) [[likely]]
         return;
 
     sharedDebugOverlays->updateRegionIfNecessary(page, RegionType::WheelEventHandlers);
     sharedDebugOverlays->updateRegionIfNecessary(page, RegionType::NonFastScrollableRegion);
+    sharedDebugOverlays->updateRegionIfNecessary(page, RegionType::InteractionRegion);
+    sharedDebugOverlays->updateRegionIfNecessary(page, RegionType::EnhancedSecurity);
+}
+
+inline bool DebugPageOverlays::shouldPaintOverlayIntoLayerForRegionType(Page& page, RegionType regionType)
+{
+    if (!hasOverlays(page)) [[likely]]
+        return false;
+    return sharedDebugOverlays->shouldPaintOverlayIntoLayer(page, regionType);
 }
 
 } // namespace WebCore

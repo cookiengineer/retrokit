@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2022 Apple Inc. All rights reserved.
  * Copyright (C) 2006 Samuel Weinig <sam.weinig@gmail.com>
  *
  * This library is free software; you can redistribute it and/or
@@ -18,9 +18,18 @@
  * Boston, MA 02110-1301, USA.
  */
 
+// https://drafts.csswg.org/cssom/#cssstylerule
+
+typedef USVString CSSOMString;
+
+// FIXME: This should inherit from CSSGroupRule.
 [
     Exposed=Window
 ] interface CSSStyleRule : CSSRule {
-    attribute DOMString? selectorText;
-    [SameObject, PutForwards=cssText] readonly attribute CSSStyleDeclaration style;
+    attribute DOMString selectorText;
+    [SameObject, PutForwards=cssText] readonly attribute CSSStyleProperties style;
+
+    [SameObject] readonly attribute CSSRuleList cssRules;
+    unsigned long insertRule(CSSOMString rule, optional unsigned long index = 0);
+    undefined deleteRule(unsigned long index);
 };

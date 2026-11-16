@@ -21,83 +21,177 @@
 
 #pragma once
 
-#include "CSSSelector.h"
+#include "CSSSelectorList.h"
+#include "CommonAtomStrings.h"
 #include <wtf/Forward.h>
+#include <wtf/GenericHashKey.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
+#include <wtf/Markable.h>
 #include <wtf/text/AtomString.h>
 #include <wtf/text/AtomStringHash.h>
 
 namespace WebCore {
 
 class StyleRule;
+class StyleRuleScope;
 
 namespace Style {
 
 class RuleData;
 
-enum class MatchElement : uint8_t { Subject, Parent, Ancestor, DirectSibling, IndirectSibling, AnySibling, ParentSibling, AncestorSibling, Host };
-constexpr unsigned matchElementCount = static_cast<unsigned>(MatchElement::Host) + 1;
+// MatchElement characterizes which elements a change in an element matched by a simple selector (as a part of a complex selector) may affect.
+// Style::Invalidator uses these classifications to traverse a minimal number of elements after a DOM mutation.
+// In the examples below the '.changed' simple selector will be classified with the given enum value.
+// For :has() features, the matchElement field describes the position of :has() in the overall selector,
+// while hasRelation describes the changed element's relationship to the :has() scope element.
+struct MatchElement {
+    enum class Relation : uint8_t {
+        Subject, // .changed
+        Parent, // .changed > .subject
+        Ancestor, // .changed .subject
+        DirectSibling, // .changed + .subject
+        IndirectSibling, // .changed ~ .subject
+        AnySibling, // :nth-last-child(even of .changed)
+        ParentSibling, // .changed ~ .a > .subject
+        AncestorSibling, // .changed ~ .a .subject
+        ParentAnySibling, // :nth-last-child(even of .changed) > .subject
+        AncestorAnySibling, // :nth-last-child(even of .changed) .subject
+        Host, // :host(.changed) .subject
+        HostChild // ::slotted(.changed)
+    };
 
-struct RuleFeature {
-    RuleFeature(const RuleData&, std::optional<MatchElement> = std::nullopt);
+    // Relationship of the :has() argument subject element to the :has() scope element.
+    enum class HasRelation : uint8_t {
+        Child, // :has(> .changed)
+        Descendant, // :has(.changed)
+        DirectSibling, // :has(+ .changed)
+        IndirectSibling, // :has(~ .changed)
+        SiblingChild, // :has(~ .a > .changed)
+        SiblingDescendant, // :has(~ .a .changed)
+        HostDescendant, // :host:has(...) — has-bearer is a shadow host, .changed is anywhere in its shadow tree (covers the Child case too).
+    };
+
+    Relation relation;
+    Markable<HasRelation> hasRelation;
+
+    bool operator==(const MatchElement&) const = default;
+    unsigned hash() const { return pairIntHash(static_cast<unsigned>(relation), hasRelation ? static_cast<unsigned>(*hasRelation) : 255u); }
+};
+constexpr unsigned matchRelationCount = static_cast<unsigned>(MatchElement::Relation::HostChild) + 1;
+
+enum class IsNegation : bool { No, Yes };
+
+// For MSVC.
+#pragma pack(push, 4)
+struct RuleAndSelector {
+    RuleAndSelector(const RuleData&);
 
     RefPtr<const StyleRule> styleRule;
     uint16_t selectorIndex; // Keep in sync with RuleData's selectorIndex size.
     uint16_t selectorListIndex; // Keep in sync with RuleData's selectorListIndex size.
-    std::optional<MatchElement> matchElement { };
-};
-static_assert(sizeof(RuleFeature) <= 16, "RuleFeature is a frquently alocated object. Keep it small.");
 
-struct RuleFeatureWithInvalidationSelector : public RuleFeature {
-    RuleFeatureWithInvalidationSelector(const RuleData& data, std::optional<MatchElement> matchElement = std::nullopt, const CSSSelector* invalidationSelector = nullptr)
-        : RuleFeature(data, WTFMove(matchElement))
-        , invalidationSelector(invalidationSelector)
-    { }
-
-    const CSSSelector* invalidationSelector { nullptr };
+    const CSSSelector& NODELETE selector() const;
 };
+
+struct RuleFeature : public RuleAndSelector {
+    RuleFeature(const RuleData&, MatchElement, IsNegation, CSSSelectorList&& invalidationSelector = { }, CSSSelectorList&& scopeSelector = { });
+
+    MatchElement matchElement;
+    IsNegation isNegation; // Whether the selector is in a (non-paired) :not() context.
+    // Invalidation selector is used for attribute selector and :has() invalidation.
+    // For attribute selectors it is the simple selector for fast testing whether an attribute mutation may have an effect.
+    // For :has() it is the complex argument selector for testing if adding or removing a node may affect :has() matching.
+    CSSSelectorList invalidationSelector;
+    // Selector for the :has() scope element, used to bound invalidation traversal.
+    CSSSelectorList scopeSelector;
+};
+static_assert(sizeof(RuleFeature) <= 32, "RuleFeature is a frequently allocated object. Keep it small.");
+#pragma pack(pop)
+
+using PseudoClassInvalidationKey = std::tuple<unsigned, uint8_t, AtomString>;
 
 using RuleFeatureVector = Vector<RuleFeature>;
+
+struct SelectorDeduplicationKey {
+    SelectorDeduplicationKey(const CSSSelector&);
+
+    const CSSSelector* selector;
+    unsigned cachedHash;
+
+    unsigned hash() const { return cachedHash; }
+    bool operator==(const SelectorDeduplicationKey&) const;
+};
 
 struct RuleFeatureSet {
     void add(const RuleFeatureSet&);
     void clear();
     void shrinkToFit();
-    void collectFeatures(const RuleData&);
-    void registerContentAttribute(const AtomString&);
+
+    struct CollectionContext {
+        HashSet<GenericHashKey<SelectorDeduplicationKey>> selectorDeduplicationSet;
+    };
+    void collectFeatures(CollectionContext&, const RuleData&, const Vector<Ref<const StyleRuleScope>>& scopeRules = { });
+
+    enum class AffectsShadowTree : bool { No, Yes };
+    void registerSubstitutionAttribute(const AtomString&, AffectsShadowTree = AffectsShadowTree::No);
+
+    bool usesRelation(MatchElement::Relation relation) const { return usedRelations[std::to_underlying(relation)]; }
+    void setUsesRelation(MatchElement::Relation relation) { usedRelations[std::to_underlying(relation)] = true; }
 
     HashSet<AtomString> idsInRules;
     HashSet<AtomString> idsMatchingAncestorsInRules;
-    HashSet<AtomString> attributeCanonicalLocalNamesInRules;
+    HashSet<AtomString> attributeLowercaseLocalNamesInRules;
     HashSet<AtomString> attributeLocalNamesInRules;
-    HashSet<AtomString> contentAttributeNamesInRules;
-    RuleFeatureVector siblingRules;
-    RuleFeatureVector uncommonAttributeRules;
-    
+    // Maps the attribute name to whether at least one rule referencing it via attr() pierces a
+    // shadow boundary (e.g. ::part(), document author rules matching UA-shadow pseudos).
+    HashMap<AtomString, AffectsShadowTree> substitutionAttributeNamesInRules;
+
+    HashMap<AtomString, std::unique_ptr<RuleFeatureVector>> idRules;
     HashMap<AtomString, std::unique_ptr<RuleFeatureVector>> classRules;
-    HashMap<AtomString, std::unique_ptr<Vector<RuleFeatureWithInvalidationSelector>>> attributeRules;
-    HashMap<CSSSelector::PseudoClassType, std::unique_ptr<RuleFeatureVector>, WTF::IntHash<CSSSelector::PseudoClassType>, WTF::StrongEnumHashTraits<CSSSelector::PseudoClassType>> pseudoClassRules;
+    HashMap<AtomString, std::unique_ptr<RuleFeatureVector>> attributeRules;
+    HashMap<PseudoClassInvalidationKey, std::unique_ptr<RuleFeatureVector>> pseudoClassRules;
+    HashMap<PseudoClassInvalidationKey, std::unique_ptr<RuleFeatureVector>> hasPseudoClassRules;
+
     HashSet<AtomString> classesAffectingHost;
     HashSet<AtomString> attributesAffectingHost;
-    HashSet<CSSSelector::PseudoClassType, WTF::IntHash<CSSSelector::PseudoClassType>, WTF::StrongEnumHashTraits<CSSSelector::PseudoClassType>> pseudoClassesAffectingHost;
+    HashSet<CSSSelector::PseudoClass, IntHash<CSSSelector::PseudoClass>, WTF::StrongEnumHashTraits<CSSSelector::PseudoClass>> pseudoClassesAffectingHost;
+    HashSet<CSSSelector::PseudoClass, IntHash<CSSSelector::PseudoClass>, WTF::StrongEnumHashTraits<CSSSelector::PseudoClass>> pseudoClasses;
+
+    std::array<bool, matchRelationCount> usedRelations { };
 
     bool usesFirstLineRules { false };
     bool usesFirstLetterRules { false };
+    bool hasStartingStyleRules { false };
+    bool usesHasPseudoClass { false };
 
 private:
-    static MatchElement computeNextMatchElement(MatchElement, CSSSelector::RelationType);
-    static MatchElement computeSubSelectorMatchElement(MatchElement, const CSSSelector&);
-
     struct SelectorFeatures {
-        bool hasSiblingSelector { false };
+        using InvalidationFeature = std::tuple<const CSSSelector*, MatchElement, IsNegation, Vector<const CSSSelector*>>;
 
-        Vector<std::pair<AtomString, MatchElement>, 32> classes;
-        Vector<std::pair<const CSSSelector*, MatchElement>, 32> attributes;
-        Vector<std::pair<CSSSelector::PseudoClassType, MatchElement>, 32> pseudoClasses;
+        Vector<InvalidationFeature> ids;
+        Vector<InvalidationFeature> classes;
+        Vector<InvalidationFeature> attributes;
+        Vector<InvalidationFeature> pseudoClasses;
+        Vector<InvalidationFeature> hasPseudoClasses;
     };
-    void recursivelyCollectFeaturesFromSelector(SelectorFeatures&, const CSSSelector&, MatchElement = MatchElement::Subject);
+    struct RecursiveCollectionContext;
+    void collectFeaturesFromSelector(SelectorFeatures&, const CSSSelector&, MatchElement = { MatchElement::Relation::Subject, { } });
+    void recursivelyCollectFeaturesFromSelector(SelectorFeatures&, const CSSSelector&, const RecursiveCollectionContext&);
+    void NODELETE collectPseudoElementFeatures(const RuleData&);
 };
+
+MatchElement::HasRelation computeHasArgumentRelation(const CSSSelector&);
+
+enum class InvalidationKeyType : uint8_t { Universal = 1, Class, Id, Attribute, Tag };
+PseudoClassInvalidationKey makePseudoClassInvalidationKey(CSSSelector::PseudoClass, InvalidationKeyType, const AtomString& = starAtom());
+
+bool NODELETE unlikelyToHaveSelectorForAttribute(const AtomString&);
+
+inline bool isUniversalInvalidation(const PseudoClassInvalidationKey& key)
+{
+    return static_cast<InvalidationKeyType>(std::get<1>(key)) == InvalidationKeyType::Universal;
+}
 
 } // namespace Style
 } // namespace WebCore

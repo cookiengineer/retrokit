@@ -29,9 +29,12 @@
 
 #include "ContentSecurityPolicy.h"
 #include "ContentSecurityPolicyDirectiveList.h"
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/URL.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ContentSecurityPolicySourceListDirective);
 
 ContentSecurityPolicySourceListDirective::ContentSecurityPolicySourceListDirective(const ContentSecurityPolicyDirectiveList& directiveList, const String& name, const String& value)
     : ContentSecurityPolicyDirective(directiveList, name, value)
@@ -40,10 +43,10 @@ ContentSecurityPolicySourceListDirective::ContentSecurityPolicySourceListDirecti
     m_sourceList.parse(value);
 }
 
-bool ContentSecurityPolicySourceListDirective::allows(const URL& url, bool didReceiveRedirectResponse, ShouldAllowEmptyURLIfSourceListIsNotNone shouldAllowEmptyURLIfSourceListEmpty)
+bool ContentSecurityPolicySourceListDirective::allows(const URL& url, bool didReceiveRedirectResponse)
 {
     if (url.isEmpty())
-        return shouldAllowEmptyURLIfSourceListEmpty == ShouldAllowEmptyURLIfSourceListIsNotNone::Yes && !m_sourceList.isNone();
+        return false;
     return m_sourceList.matches(url, didReceiveRedirectResponse);
 }
 
@@ -52,9 +55,19 @@ bool ContentSecurityPolicySourceListDirective::allows(const String& nonce) const
     return m_sourceList.matches(nonce);
 }
 
-bool ContentSecurityPolicySourceListDirective::allows(const ContentSecurityPolicyHash& hash) const
+bool ContentSecurityPolicySourceListDirective::containsAllHashes(const Vector<ContentSecurityPolicyHash>& hashes) const
 {
-    return m_sourceList.matches(hash);
+    return m_sourceList.matchesAll(hashes);
+}
+
+bool ContentSecurityPolicySourceListDirective::allows(const Vector<ContentSecurityPolicyHash>& hashes) const
+{
+    return m_sourceList.matches(hashes);
+}
+
+bool ContentSecurityPolicySourceListDirective::allowUnsafeHashes(const Vector<ContentSecurityPolicyHash>& hashes) const
+{
+    return m_sourceList.allowUnsafeHashes() && allows(hashes);
 }
 
 } // namespace WebCore

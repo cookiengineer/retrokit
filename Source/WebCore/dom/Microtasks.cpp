@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2014 Yoav Weiss (yoav@yoav.ws)
  * Copyright (C) 2015 Akamai Technologies Inc. All rights reserved.
+ * Copyright (C) 2023 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -24,68 +25,107 @@
 
 #include "CommonVM.h"
 #include "EventLoop.h"
+#include "JSExecState.h"
+#include "RejectedPromiseTracker.h"
+#include "ScriptExecutionContext.h"
 #include "WorkerGlobalScope.h"
+#include <JavaScriptCore/JSGlobalObject.h>
+#include <JavaScriptCore/MicrotaskQueueInlines.h>
+#include <JavaScriptCore/TopExceptionScope.h>
 #include <wtf/MainThread.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/SetForScope.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-MicrotaskQueue::MicrotaskQueue(JSC::VM& vm)
-    : m_vm(makeRef(vm))
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MicrotaskQueue);
+WTF_MAKE_COMPACT_TZONE_ALLOCATED_IMPL(WebCoreMicrotaskDispatcher);
+
+
+JSC::QueuedTask::Result WebCoreMicrotaskDispatcher::currentRunnability() const
+{
+    auto group = m_group.get();
+    if (!group || group->isStoppedPermanently())
+        return JSC::QueuedTask::Result::Discard;
+    if (group->isSuspended())
+        return JSC::QueuedTask::Result::Suspended;
+    return JSC::QueuedTask::Result::Executed;
+}
+
+Ref<MicrotaskQueue> MicrotaskQueue::create(JSC::VM& vm, EventLoop& eventLoop)
+{
+    return adoptRef(*new MicrotaskQueue(vm, eventLoop));
+}
+
+MicrotaskQueue::MicrotaskQueue(JSC::VM& vm, EventLoop& eventLoop)
+    : JSC::MicrotaskQueue(vm)
+    , m_eventLoop(eventLoop)
 {
 }
 
 MicrotaskQueue::~MicrotaskQueue() = default;
 
-void MicrotaskQueue::append(std::unique_ptr<EventLoopTask>&& task)
-{
-    m_microtaskQueue.append(WTFMove(task));
-}
-
-void MicrotaskQueue::performMicrotaskCheckpoint()
+void MicrotaskQueue::performMicrotaskCheckpoint(JSC::VM& vm)
 {
     if (m_performingMicrotaskCheckpoint)
         return;
 
-    SetForScope<bool> change(m_performingMicrotaskCheckpoint, true);
-    JSC::JSLockHolder locker(vm());
+    SetForScope change(m_performingMicrotaskCheckpoint, true);
+    JSC::JSLockHolder locker(vm);
+    auto catchScope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
+    {
+        SUPPRESS_UNCOUNTED_ARG auto& data = threadGlobalDataSingleton();
+        auto* previousState = data.currentState();
+        JSC::MicrotaskQueue::performMicrotaskCheckpoint</* useCallOnEachMicrotask */ false>(vm,
+            [&](JSC::JSGlobalObject*, JSC::JSGlobalObject* nextGlobalObject) ALWAYS_INLINE_LAMBDA {
+                data.setCurrentState(nextGlobalObject ? nextGlobalObject : previousState);
+            });
+        data.setCurrentState(previousState);
+    }
+    vm.finalizeSynchronousJSExecution();
 
-    Vector<std::unique_ptr<EventLoopTask>> toKeep;
-    while (!m_microtaskQueue.isEmpty()) {
-        Vector<std::unique_ptr<EventLoopTask>> queue = WTFMove(m_microtaskQueue);
-        for (auto& task : queue) {
-            auto* group = task->group();
+    if (!vm.executionForbidden()) {
+        auto checkpointTasks = std::exchange(m_checkpointTasks, { });
+        for (auto& checkpointTask : checkpointTasks) {
+            CheckedPtr group = checkpointTask->group();
             if (!group || group->isStoppedPermanently())
                 continue;
-            if (group->isSuspended())
-                toKeep.append(WTFMove(task));
-            else
-                task->execute();
+
+            if (group->isSuspended()) {
+                m_checkpointTasks.append(WTF::move(checkpointTask));
+                continue;
+            }
+
+            checkpointTask->execute();
+            if (!catchScope.clearExceptionExceptTermination()) [[unlikely]]
+                break; // Encountered termination.
         }
     }
 
-    vm().finalizeSynchronousJSExecution();
-    m_microtaskQueue = WTFMove(toKeep);
+    // https://html.spec.whatwg.org/multipage/webappapis.html#perform-a-microtask-checkpoint (step 4).
+    Ref { *m_eventLoop }->forEachAssociatedContext([&vm](auto& context) {
+        if (vm.executionForbidden()) [[unlikely]]
+            return;
+        auto catchScope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
+        if (CheckedPtr tracker = context.rejectedPromiseTracker())
+            tracker->processQueueSoon();
+        catchScope.clearExceptionExceptTermination();
+    });
 
-    auto checkpointTasks = std::exchange(m_checkpointTasks, { });
-    for (auto& checkpointTask : checkpointTasks) {
-        auto* group = checkpointTask->group();
-        if (!group || group->isStoppedPermanently())
-            continue;
-
-        if (group->isSuspended()) {
-            m_checkpointTasks.append(WTFMove(checkpointTask));
-            continue;
-        }
-
-        checkpointTask->execute();
-    }
+    // FIXME: We should cleanup Indexed Database transactions as per:
+    // https://html.spec.whatwg.org/multipage/webappapis.html#perform-a-microtask-checkpoint (step 5).
 }
 
 void MicrotaskQueue::addCheckpointTask(std::unique_ptr<EventLoopTask>&& task)
 {
-    m_checkpointTasks.append(WTFMove(task));
+    m_checkpointTasks.append(WTF::move(task));
+}
+
+void MicrotaskQueue::scheduleToRunIfNeeded()
+{
+    if (RefPtr eventLoop = m_eventLoop.get())
+        eventLoop->scheduleToRunIfNeeded();
 }
 
 } // namespace WebCore

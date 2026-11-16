@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,9 +25,9 @@
 
 #pragma once
 
-#include "DeferGC.h"
-#include "DisallowVMEntry.h"
-#include "VM.h"
+#include <JavaScriptCore/DeferGC.h>
+#include <JavaScriptCore/DisallowVMEntry.h>
+#include <JavaScriptCore/VM.h>
 
 namespace JSC {
 
@@ -49,7 +49,7 @@ private:
     void verifyPropertiesAreInitialized(JSObject*);
 
     VM& m_vm;
-    std::optional<DisallowGC> m_disallowGC;
+    std::optional<AssertNoGC> m_assertNoGC;
     std::optional<DisallowVMEntry> m_disallowVMEntry;
     JSObject* m_object { nullptr };
 };
@@ -63,7 +63,7 @@ public:
     { }
     ALWAYS_INLINE ~ObjectInitializationScope()
     {
-        m_vm.heap.mutatorFence();
+        m_vm.mutatorFence();
     }
 
     ALWAYS_INLINE VM& vm() const { return m_vm; }

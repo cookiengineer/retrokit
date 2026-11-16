@@ -25,10 +25,13 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if ENABLE(ASSEMBLER)
 
 #include "CallFrame.h"
 #include "ProbeStack.h"
+#include "VirtualRegister.h"
 
 namespace JSC {
 namespace Probe {
@@ -36,7 +39,7 @@ namespace Probe {
 class Frame {
 public:
     Frame(void* frameBase, Stack& stack)
-        : m_frameBase { reinterpret_cast<uint8_t*>(frameBase) }
+        : m_frameBase { static_cast<uint8_t*>(frameBase) }
         , m_stack { stack }
     { }
 

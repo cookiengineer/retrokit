@@ -25,15 +25,16 @@
 
 WI.ScriptTimelineRecord = class ScriptTimelineRecord extends WI.TimelineRecord
 {
-    constructor(eventType, startTime, endTime, callFrames, sourceCodeLocation, details, profilePayload, extraDetails)
+    constructor(target, eventType, startTime, endTime, {stackTrace, sourceCodeLocation, details, profilePayload, extraDetails} = {})
     {
-        super(WI.TimelineRecord.Type.Script, startTime, endTime, callFrames, sourceCodeLocation);
+        super(WI.TimelineRecord.Type.Script, startTime, endTime, stackTrace, sourceCodeLocation);
 
         console.assert(eventType);
 
         if (eventType in WI.ScriptTimelineRecord.EventType)
             eventType = WI.ScriptTimelineRecord.EventType[eventType];
 
+        this._target = target;
         this._eventType = eventType;
         this._details = details || "";
         this._profilePayload = profilePayload || null;
@@ -48,21 +49,22 @@ WI.ScriptTimelineRecord = class ScriptTimelineRecord extends WI.TimelineRecord
 
     static async fromJSON(json)
     {
-        let {eventType, startTime, endTime, callFrames, sourceCodeLocation, details, profilePayload, extraDetails} = json;
+        let {target, eventType, startTime, endTime, stackTrace, sourceCodeLocation, details, profilePayload, extraDetails} = json;
 
         if (typeof details === "object" && details.__type === "GarbageCollection")
             details = WI.GarbageCollection.fromJSON(details);
 
-        return new WI.ScriptTimelineRecord(eventType, startTime, endTime, callFrames, sourceCodeLocation, details, profilePayload, extraDetails);
+        return new WI.ScriptTimelineRecord(target ? WI.ImportedTarget.import(target) : WI.assumingMainTarget(), eventType, startTime, endTime, {stackTrace, sourceCodeLocation, details, profilePayload, extraDetails});
     }
 
     toJSON()
     {
-        // FIXME: CallFrames
-        // FIXME: SourceCodeLocation
+        // FIXME: stackTrace
+        // FIXME: sourceCodeLocation
         // FIXME: profilePayload
 
         return {
+            target: this._target.exportData(),
             type: this.type,
             eventType: this._eventType,
             startTime: this.startTime,
@@ -74,6 +76,7 @@ WI.ScriptTimelineRecord = class ScriptTimelineRecord extends WI.TimelineRecord
 
     // Public
 
+    get target() { return this._target; }
     get eventType() { return this._eventType; }
     get details() { return this._details; }
     get extraDetails() { return this._extraDetails; }
@@ -120,14 +123,13 @@ WI.ScriptTimelineRecord = class ScriptTimelineRecord extends WI.TimelineRecord
 
         console.assert(payload.rootNodes instanceof Array);
 
-        function profileNodeFromPayload(nodePayload)
-        {
+        let profileNodeFromPayload = (nodePayload) => {
             console.assert("id" in nodePayload);
 
             if (nodePayload.url) {
                 let sourceCode = WI.networkManager.resourcesForURL(nodePayload.url).firstValue;
                 if (!sourceCode)
-                    sourceCode = WI.debuggerManager.scriptsForURL(nodePayload.url, WI.assumingMainTarget())[0];
+                    sourceCode = WI.debuggerManager.scriptsForURL(nodePayload.url, this._target)[0];
 
                 // The lineNumber is 1-based, but we expect 0-based.
                 var lineNumber = nodePayload.lineNumber - 1;
@@ -142,7 +144,7 @@ WI.ScriptTimelineRecord = class ScriptTimelineRecord extends WI.TimelineRecord
             var functionName = !isProgramCode && !isAnonymousFunction && nodePayload.functionName !== "(unknown)" ? nodePayload.functionName : null;
 
             return new WI.ProfileNode(nodePayload.id, type, functionName, sourceCodeLocation, nodePayload.callInfo, nodePayload.children);
-        }
+        };
 
         function profileNodeCallFromPayload(nodeCallPayload)
         {
@@ -212,8 +214,6 @@ WI.ScriptTimelineRecord.EventType.displayName = function(eventType, details, inc
         nameMap.set("DOMActivate", "DOM Activate");
         nameMap.set("DOMCharacterDataModified", "DOM Character Data Modified");
         nameMap.set("DOMContentLoaded", "DOM Content Loaded");
-        nameMap.set("DOMFocusIn", "DOM Focus In");
-        nameMap.set("DOMFocusOut", "DOM Focus Out");
         nameMap.set("DOMNodeInserted", "DOM Node Inserted");
         nameMap.set("DOMNodeInsertedIntoDocument", "DOM Node Inserted Into Document");
         nameMap.set("DOMNodeRemoved", "DOM Node Removed");
@@ -222,6 +222,7 @@ WI.ScriptTimelineRecord.EventType.displayName = function(eventType, details, inc
         nameMap.set("addsourcebuffer", "Add Source Buffer");
         nameMap.set("addstream", "Add Stream");
         nameMap.set("addtrack", "Add Track");
+        nameMap.set("animationcancel", "Animation Cancel");
         nameMap.set("animationend", "Animation End");
         nameMap.set("animationiteration", "Animation Iteration");
         nameMap.set("animationstart", "Animation Start");
@@ -233,6 +234,7 @@ WI.ScriptTimelineRecord.EventType.displayName = function(eventType, details, inc
         nameMap.set("beforeload", "Before Load");
         nameMap.set("beforepaste", "Before Paste");
         nameMap.set("beforeunload", "Before Unload");
+        nameMap.set("cancel", "Animation Cancel");
         nameMap.set("canplay", "Can Play");
         nameMap.set("canplaythrough", "Can Play Through");
         nameMap.set("chargingchange", "Charging Change");
@@ -253,6 +255,7 @@ WI.ScriptTimelineRecord.EventType.displayName = function(eventType, details, inc
         nameMap.set("dragover", "Drag Over");
         nameMap.set("dragstart", "Drag Start");
         nameMap.set("durationchange", "Duration Change");
+        nameMap.set("finish", "Animation Finish");
         nameMap.set("focusin", "Focus In");
         nameMap.set("focusout", "Focus Out");
         nameMap.set("formdata", "Form submission or invocation of FormData()");
@@ -294,6 +297,7 @@ WI.ScriptTimelineRecord.EventType.displayName = function(eventType, details, inc
         nameMap.set("popstate", "Pop State");
         nameMap.set("ratechange", "Rate Change");
         nameMap.set("readystatechange", "Ready State Change");
+        nameMap.set("remove", "Animation Remove");
         nameMap.set("removesourcebuffer", "Remove Source Buffer");
         nameMap.set("removestream", "Remove Stream");
         nameMap.set("removetrack", "Remove Track");
@@ -316,7 +320,10 @@ WI.ScriptTimelineRecord.EventType.displayName = function(eventType, details, inc
         nameMap.set("touchend", "Touch End");
         nameMap.set("touchmove", "Touch Move");
         nameMap.set("touchstart", "Touch Start");
+        nameMap.set("transitioncancel", "Transition Cancel");
         nameMap.set("transitionend", "Transition End");
+        nameMap.set("transitionrun", "Transition Run");
+        nameMap.set("transitionstart", "Transition Start");
         nameMap.set("updateend", "Update End");
         nameMap.set("updateready", "Update Ready");
         nameMap.set("updatestart", "Update Start");
@@ -347,13 +354,11 @@ WI.ScriptTimelineRecord.EventType.displayName = function(eventType, details, inc
         nameMap.set("webkitplaybacktargetavailabilitychanged", "Playback Target Availability Changed");
         nameMap.set("webkitpointerlockchange", "Pointer Lock Change");
         nameMap.set("webkitpointerlockerror", "Pointer Lock Error");
-        nameMap.set("webkitregionoversetchange", "Region Overset Change");
         nameMap.set("webkitremovesourcebuffer", "Remove Source Buffer");
         nameMap.set("webkitresourcetimingbufferfull", "Resource Timing Buffer Full");
         nameMap.set("webkitsourceclose", "Source Close");
         nameMap.set("webkitsourceended", "Source Ended");
         nameMap.set("webkitsourceopen", "Source Open");
-        nameMap.set("webkitspeechchange", "Speech Change");
         nameMap.set("writeend", "Write End");
         nameMap.set("writestart", "Write Start");
 

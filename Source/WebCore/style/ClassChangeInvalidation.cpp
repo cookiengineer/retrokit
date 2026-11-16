@@ -26,7 +26,8 @@
 #include "config.h"
 #include "ClassChangeInvalidation.h"
 
-#include "ElementChildIterator.h"
+#include "ElementChildIteratorInlines.h"
+#include "ElementRareData.h"
 #include "SpaceSplitString.h"
 #include "StyleInvalidationFunctions.h"
 #include <wtf/BitVector.h>
@@ -34,49 +35,54 @@
 namespace WebCore {
 namespace Style {
 
-using ClassChangeVector = Vector<AtomStringImpl*, 4>;
+enum class ClassChangeType : bool { Add, Remove };
 
-static ClassChangeVector collectClasses(const SpaceSplitString& classes)
+struct ClassChange {
+    AtomStringImpl* className { };
+    ClassChangeType type;
+};
+
+constexpr size_t classChangeVectorInlineCapacity = 4;
+using ClassChangeVector = Vector<ClassChange, classChangeVectorInlineCapacity>;
+
+static ClassChangeVector collectClasses(const SpaceSplitString& classes, ClassChangeType changeType)
 {
-    ClassChangeVector result;
-    result.reserveCapacity(classes.size());
-    for (unsigned i = 0; i < classes.size(); ++i)
-        result.uncheckedAppend(classes[i].impl());
-    return result;
+    return WTF::map<classChangeVectorInlineCapacity>(classes, [changeType](auto& className) {
+        return ClassChange { className.impl(), changeType };
+    });
 }
 
-static ClassChangeVector computeClassChange(const SpaceSplitString& oldClasses, const SpaceSplitString& newClasses)
+static ClassChangeVector computeClassChanges(const SpaceSplitString& oldClasses, const SpaceSplitString& newClasses)
 {
     unsigned oldSize = oldClasses.size();
-    unsigned newSize = newClasses.size();
 
     if (!oldSize)
-        return collectClasses(newClasses);
-    if (!newSize)
-        return collectClasses(oldClasses);
+        return collectClasses(newClasses, ClassChangeType::Add);
+    if (newClasses.isEmpty())
+        return collectClasses(oldClasses, ClassChangeType::Remove);
 
     ClassChangeVector changedClasses;
 
     BitVector remainingClassBits;
     remainingClassBits.ensureSize(oldSize);
     // Class vectors tend to be very short. This is faster than using a hash table.
-    for (unsigned i = 0; i < newSize; ++i) {
+    for (auto& newClass : newClasses) {
         bool foundFromBoth = false;
-        for (unsigned j = 0; j < oldSize; ++j) {
-            if (newClasses[i] == oldClasses[j]) {
-                remainingClassBits.quickSet(j);
+        for (unsigned i = 0; i < oldSize; ++i) {
+            if (newClass == oldClasses[i]) {
+                remainingClassBits.quickSet(i);
                 foundFromBoth = true;
             }
         }
         if (foundFromBoth)
             continue;
-        changedClasses.append(newClasses[i].impl());
+        changedClasses.append({ newClass.impl(), ClassChangeType::Add });
     }
     for (unsigned i = 0; i < oldSize; ++i) {
         // If the bit is not set the corresponding class has been removed.
         if (remainingClassBits.quickGet(i))
             continue;
-        changedClasses.append(oldClasses[i].impl());
+        changedClasses.append({ oldClasses[i].impl(), ClassChangeType::Remove });
     }
 
     return changedClasses;
@@ -84,41 +90,91 @@ static ClassChangeVector computeClassChange(const SpaceSplitString& oldClasses, 
 
 void ClassChangeInvalidation::computeInvalidation(const SpaceSplitString& oldClasses, const SpaceSplitString& newClasses)
 {
-    auto changedClasses = computeClassChange(oldClasses, newClasses);
+    auto classChanges = computeClassChanges(oldClasses, newClasses);
 
     bool shouldInvalidateCurrent = false;
     bool mayAffectStyleInShadowTree = false;
 
     traverseRuleFeatures(m_element, [&] (const RuleFeatureSet& features, bool mayAffectShadowTree) {
-        for (auto* changedClass : changedClasses) {
-            if (mayAffectShadowTree && features.classRules.contains(changedClass))
+        for (auto& classChange : classChanges) {
+            if (mayAffectShadowTree && features.classRules.contains(classChange.className))
                 mayAffectStyleInShadowTree = true;
-            if (features.classesAffectingHost.contains(changedClass))
+            if (features.classesAffectingHost.contains(classChange.className))
                 shouldInvalidateCurrent = true;
         }
     });
 
     if (mayAffectStyleInShadowTree) {
         // FIXME: We should do fine-grained invalidation for shadow tree.
-        m_element.invalidateStyleForSubtree();
+        m_element->invalidateStyleForSubtree();
     }
 
     if (shouldInvalidateCurrent)
-        m_element.invalidateStyle();
+        m_element->invalidateStyle();
 
-    auto& ruleSets = m_element.styleResolver().ruleSets();
-
-    for (auto* changedClass : changedClasses) {
-        if (auto* invalidationRuleSets = ruleSets.classInvalidationRuleSets(changedClass)) {
-            for (auto& invalidationRuleSet : *invalidationRuleSets)
-                Invalidator::addToMatchElementRuleSets(m_matchElementRuleSets, invalidationRuleSet);
+    auto invalidateBeforeAndAfterChange = [](const InvalidationRuleSet& ruleSet) {
+        switch (ruleSet.matchElement.relation) {
+        case MatchElement::Relation::AnySibling:
+        case MatchElement::Relation::ParentAnySibling:
+        case MatchElement::Relation::AncestorAnySibling:
+            return true;
+        case MatchElement::Relation::Subject:
+        case MatchElement::Relation::Parent:
+        case MatchElement::Relation::Ancestor:
+        case MatchElement::Relation::DirectSibling:
+        case MatchElement::Relation::IndirectSibling:
+        case MatchElement::Relation::ParentSibling:
+        case MatchElement::Relation::AncestorSibling:
+        case MatchElement::Relation::Host:
+        case MatchElement::Relation::HostChild:
+            return false;
         }
-    }
+        ASSERT_NOT_REACHED();
+        return false;
+    };
+
+    auto invalidateBeforeChange = [&](ClassChangeType type, IsNegation isNegation, const InvalidationRuleSet& ruleSet) {
+        if (invalidateBeforeAndAfterChange(ruleSet))
+            return true;
+        return type == ClassChangeType::Remove ? isNegation == IsNegation::No : isNegation == IsNegation::Yes;
+    };
+
+    auto invalidateAfterChange = [&](ClassChangeType type, IsNegation isNegation, const InvalidationRuleSet& ruleSet) {
+        if (invalidateBeforeAndAfterChange(ruleSet))
+            return true;
+        return type == ClassChangeType::Add ? isNegation == IsNegation::No : isNegation == IsNegation::Yes;
+    };
+
+    auto collect = [&](auto& ruleSets, std::optional<MatchElement::Relation> onlyRelation = { }) {
+        for (auto& classChange : classChanges) {
+            if (auto* invalidationRuleSets = ruleSets.classInvalidationRuleSets(classChange.className)) {
+                for (auto& invalidationRuleSet : *invalidationRuleSets) {
+                    if (onlyRelation && invalidationRuleSet.matchElement.relation != onlyRelation)
+                        continue;
+
+                    if (invalidateBeforeChange(classChange.type, invalidationRuleSet.isNegation, invalidationRuleSet))
+                        Invalidator::addToMatchElementRuleSets(m_beforeChangeRuleSets, invalidationRuleSet);
+                    if (invalidateAfterChange(classChange.type, invalidationRuleSet.isNegation, invalidationRuleSet))
+                        Invalidator::addToMatchElementRuleSets(m_afterChangeRuleSets, invalidationRuleSet);
+                }
+            }
+        }
+    };
+
+    collect(m_element->styleResolver().ruleSets());
+
+    if (RefPtr shadowRoot = m_element->shadowRoot())
+        collect(shadowRoot->styleScope().resolver().ruleSets(), MatchElement::Relation::Host);
 }
 
-void ClassChangeInvalidation::invalidateStyleWithRuleSets()
+void ClassChangeInvalidation::invalidateBeforeChange()
 {
-    Invalidator::invalidateWithMatchElementRuleSets(m_element, m_matchElementRuleSets);
+    Invalidator::invalidateWithMatchElementRuleSets(m_element, m_beforeChangeRuleSets);
+}
+
+void ClassChangeInvalidation::invalidateAfterChange()
+{
+    Invalidator::invalidateWithMatchElementRuleSets(m_element, m_afterChangeRuleSets);
 }
 
 }

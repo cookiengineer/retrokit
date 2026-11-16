@@ -26,348 +26,197 @@
 #include "config.h"
 #include "EditorState.h"
 
-#include "WebCoreArgumentCoders.h"
 #include <wtf/text/TextStream.h>
 
 namespace WebKit {
 using namespace WebCore;
 
-void EditorState::encode(IPC::Encoder& encoder) const
-{
-    encoder << identifier;
-    encoder << originIdentifierForPasteboard;
-    encoder << shouldIgnoreSelectionChanges;
-    encoder << selectionIsNone;
-    encoder << selectionIsRange;
-    encoder << selectionIsRangeInsideImageOverlay;
-    encoder << isContentEditable;
-    encoder << isContentRichlyEditable;
-    encoder << isInPasswordField;
-    encoder << isInPlugin;
-    encoder << hasComposition;
-    encoder << triggeredByAccessibilitySelectionChange;
-    encoder << isMissingPostLayoutData;
-    if (!isMissingPostLayoutData)
-        m_postLayoutData.encode(encoder);
-}
-
-bool EditorState::decode(IPC::Decoder& decoder, EditorState& result)
-{
-    if (!decoder.decode(result.identifier))
-        return false;
-
-    if (!decoder.decode(result.originIdentifierForPasteboard))
-        return false;
-
-    if (!decoder.decode(result.shouldIgnoreSelectionChanges))
-        return false;
-
-    if (!decoder.decode(result.selectionIsNone))
-        return false;
-
-    if (!decoder.decode(result.selectionIsRange))
-        return false;
-
-    if (!decoder.decode(result.selectionIsRangeInsideImageOverlay))
-        return false;
-
-    if (!decoder.decode(result.isContentEditable))
-        return false;
-
-    if (!decoder.decode(result.isContentRichlyEditable))
-        return false;
-
-    if (!decoder.decode(result.isInPasswordField))
-        return false;
-
-    if (!decoder.decode(result.isInPlugin))
-        return false;
-
-    if (!decoder.decode(result.hasComposition))
-        return false;
-
-    if (!decoder.decode(result.triggeredByAccessibilitySelectionChange))
-        return false;
-
-    if (!decoder.decode(result.isMissingPostLayoutData))
-        return false;
-
-    if (!result.isMissingPostLayoutData) {
-        if (!PostLayoutData::decode(decoder, result.postLayoutData()))
-            return false;
-    }
-
-    return true;
-}
-
-void EditorState::PostLayoutData::encode(IPC::Encoder& encoder) const
-{
-    encoder << typingAttributes;
-#if PLATFORM(IOS_FAMILY) || PLATFORM(GTK) || PLATFORM(WPE)
-    encoder << caretRectAtStart;
-#endif
-#if PLATFORM(COCOA)
-    encoder << selectedTextLength;
-    encoder << textAlignment;
-    encoder << textColor;
-    encoder << enclosingListType;
-    encoder << baseWritingDirection;
-#endif
-#if PLATFORM(IOS_FAMILY)
-    encoder << selectionClipRect;
-    encoder << caretRectAtEnd;
-    encoder << selectionGeometries;
-    encoder << markedTextRects;
-    encoder << markedText;
-    encoder << markedTextCaretRectAtStart;
-    encoder << markedTextCaretRectAtEnd;
-    encoder << wordAtSelection;
-    encoder << characterAfterSelection;
-    encoder << characterBeforeSelection;
-    encoder << twoCharacterBeforeSelection;
-#if USE(DICTATION_ALTERNATIVES)
-    encoder << dictationContextsForSelection;
-#endif
-    encoder << isReplaceAllowed;
-    encoder << hasContent;
-    encoder << isStableStateUpdate;
-    encoder << insideFixedPosition;
-    encoder << hasPlainText;
-    encoder << editableRootIsTransparentOrFullyClipped;
-    encoder << caretColor;
-    encoder << atStartOfSentence;
-    encoder << selectionStartIsAtParagraphBoundary;
-    encoder << selectionEndIsAtParagraphBoundary;
-#endif
-#if PLATFORM(MAC)
-    encoder << selectionBoundingRect;
-    encoder << candidateRequestStartPosition;
-    encoder << paragraphContextForCandidateRequest;
-    encoder << stringForCandidateRequest;
-    encoder << canEnableAutomaticSpellingCorrection;
-#endif
-#if PLATFORM(GTK) || PLATFORM(WPE)
-    encoder << surroundingContext;
-    encoder << surroundingContextCursorPosition;
-    encoder << surroundingContextSelectionPosition;
-#endif
-    encoder << fontAttributes;
-    encoder << canCut;
-    encoder << canCopy;
-    encoder << canPaste;
-}
-
-bool EditorState::PostLayoutData::decode(IPC::Decoder& decoder, PostLayoutData& result)
-{
-    if (!decoder.decode(result.typingAttributes))
-        return false;
-#if PLATFORM(IOS_FAMILY) || PLATFORM(GTK) || PLATFORM(WPE)
-    if (!decoder.decode(result.caretRectAtStart))
-        return false;
-#endif
-#if PLATFORM(COCOA)
-    if (!decoder.decode(result.selectedTextLength))
-        return false;
-    if (!decoder.decode(result.textAlignment))
-        return false;
-    if (!decoder.decode(result.textColor))
-        return false;
-    if (!decoder.decode(result.enclosingListType))
-        return false;
-    if (!decoder.decode(result.baseWritingDirection))
-        return false;
-#endif
-#if PLATFORM(IOS_FAMILY)
-    if (!decoder.decode(result.selectionClipRect))
-        return false;
-    if (!decoder.decode(result.caretRectAtEnd))
-        return false;
-    if (!decoder.decode(result.selectionGeometries))
-        return false;
-    if (!decoder.decode(result.markedTextRects))
-        return false;
-    if (!decoder.decode(result.markedText))
-        return false;
-    if (!decoder.decode(result.markedTextCaretRectAtStart))
-        return false;
-    if (!decoder.decode(result.markedTextCaretRectAtEnd))
-        return false;
-    if (!decoder.decode(result.wordAtSelection))
-        return false;
-    if (!decoder.decode(result.characterAfterSelection))
-        return false;
-    if (!decoder.decode(result.characterBeforeSelection))
-        return false;
-    if (!decoder.decode(result.twoCharacterBeforeSelection))
-        return false;
-#if USE(DICTATION_ALTERNATIVES)
-    if (!decoder.decode(result.dictationContextsForSelection))
-        return false;
-#endif
-    if (!decoder.decode(result.isReplaceAllowed))
-        return false;
-    if (!decoder.decode(result.hasContent))
-        return false;
-    if (!decoder.decode(result.isStableStateUpdate))
-        return false;
-    if (!decoder.decode(result.insideFixedPosition))
-        return false;
-    if (!decoder.decode(result.hasPlainText))
-        return false;
-    if (!decoder.decode(result.editableRootIsTransparentOrFullyClipped))
-        return false;
-    if (!decoder.decode(result.caretColor))
-        return false;
-    if (!decoder.decode(result.atStartOfSentence))
-        return false;
-    if (!decoder.decode(result.selectionStartIsAtParagraphBoundary))
-        return false;
-    if (!decoder.decode(result.selectionEndIsAtParagraphBoundary))
-        return false;
-#endif
-#if PLATFORM(MAC)
-    if (!decoder.decode(result.selectionBoundingRect))
-        return false;
-
-    if (!decoder.decode(result.candidateRequestStartPosition))
-        return false;
-
-    if (!decoder.decode(result.paragraphContextForCandidateRequest))
-        return false;
-
-    if (!decoder.decode(result.stringForCandidateRequest))
-        return false;
-
-    if (!decoder.decode(result.canEnableAutomaticSpellingCorrection))
-        return false;
-#endif
-#if PLATFORM(GTK) || PLATFORM(WPE)
-    if (!decoder.decode(result.surroundingContext))
-        return false;
-    if (!decoder.decode(result.surroundingContextCursorPosition))
-        return false;
-    if (!decoder.decode(result.surroundingContextSelectionPosition))
-        return false;
-#endif
-
-    std::optional<std::optional<FontAttributes>> optionalFontAttributes;
-    decoder >> optionalFontAttributes;
-    if (!optionalFontAttributes)
-        return false;
-
-    result.fontAttributes = optionalFontAttributes.value();
-
-    if (!decoder.decode(result.canCut))
-        return false;
-    if (!decoder.decode(result.canCopy))
-        return false;
-    if (!decoder.decode(result.canPaste))
-        return false;
-
-    return true;
-}
-
 TextStream& operator<<(TextStream& ts, const EditorState& editorState)
 {
     if (editorState.shouldIgnoreSelectionChanges)
-        ts.dumpProperty("shouldIgnoreSelectionChanges", editorState.shouldIgnoreSelectionChanges);
-    if (!editorState.selectionIsNone)
-        ts.dumpProperty("selectionIsNone", editorState.selectionIsNone);
-    if (editorState.selectionIsRange)
-        ts.dumpProperty("selectionIsRange", editorState.selectionIsRange);
+        ts.dumpProperty("shouldIgnoreSelectionChanges"_s, editorState.shouldIgnoreSelectionChanges);
+    if (editorState.selectionType != WebCore::SelectionType::None)
+        ts.dumpProperty("selectionType"_s, editorState.selectionType);
     if (editorState.isContentEditable)
-        ts.dumpProperty("isContentEditable", editorState.isContentEditable);
+        ts.dumpProperty("isContentEditable"_s, editorState.isContentEditable);
     if (editorState.isContentRichlyEditable)
-        ts.dumpProperty("isContentRichlyEditable", editorState.isContentRichlyEditable);
+        ts.dumpProperty("isContentRichlyEditable"_s, editorState.isContentRichlyEditable);
     if (editorState.isInPasswordField)
-        ts.dumpProperty("isInPasswordField", editorState.isInPasswordField);
-    if (editorState.isInPlugin)
-        ts.dumpProperty("isInPlugin", editorState.isInPlugin);
+        ts.dumpProperty("isInPasswordField"_s, editorState.isInPasswordField);
     if (editorState.hasComposition)
-        ts.dumpProperty("hasComposition", editorState.hasComposition);
+        ts.dumpProperty("hasComposition"_s, editorState.hasComposition);
     if (editorState.triggeredByAccessibilitySelectionChange)
-        ts.dumpProperty("triggeredByAccessibilitySelectionChange", editorState.triggeredByAccessibilitySelectionChange);
-    if (editorState.isMissingPostLayoutData)
-        ts.dumpProperty("isMissingPostLayoutData", editorState.isMissingPostLayoutData);
-
-    if (editorState.isMissingPostLayoutData)
-        return ts;
-
-    TextStream::GroupScope scope(ts);
-    ts << "postLayoutData";
-    if (editorState.postLayoutData().typingAttributes != AttributeNone)
-        ts.dumpProperty("typingAttributes", editorState.postLayoutData().typingAttributes);
-#if PLATFORM(IOS_FAMILY) || PLATFORM(GTK) || PLATFORM(WPE)
-    if (editorState.postLayoutData().caretRectAtStart != IntRect())
-        ts.dumpProperty("caretRectAtStart", editorState.postLayoutData().caretRectAtStart);
+        ts.dumpProperty("triggeredByAccessibilitySelectionChange"_s, editorState.triggeredByAccessibilitySelectionChange);
+    if (editorState.isInPlugin)
+        ts.dumpProperty("isInPlugin"_s, editorState.isInPlugin);
+#if PLATFORM(MAC)
+    if (!editorState.canEnableAutomaticSpellingCorrection)
+        ts.dumpProperty("canEnableAutomaticSpellingCorrection"_s, editorState.canEnableAutomaticSpellingCorrection);
 #endif
+
+    ts.dumpProperty("hasPostLayoutData"_s, editorState.hasPostLayoutData());
+
+    if (editorState.hasPostLayoutData()) {
+        TextStream::GroupScope scope(ts);
+        ts << "postLayoutData"_s;
+        if (!editorState.postLayoutData->typingAttributes.isEmpty())
+            ts.dumpProperty("typingAttributes"_s, editorState.postLayoutData->typingAttributes.toRaw());
 #if PLATFORM(COCOA)
-    if (editorState.postLayoutData().selectedTextLength)
-        ts.dumpProperty("selectedTextLength", editorState.postLayoutData().selectedTextLength);
-    if (editorState.postLayoutData().textAlignment != NoAlignment)
-        ts.dumpProperty("textAlignment", editorState.postLayoutData().textAlignment);
-    if (editorState.postLayoutData().textColor.isValid())
-        ts.dumpProperty("textColor", editorState.postLayoutData().textColor);
-    if (editorState.postLayoutData().enclosingListType != NoList)
-        ts.dumpProperty("enclosingListType", editorState.postLayoutData().enclosingListType);
-    if (editorState.postLayoutData().baseWritingDirection != WebCore::WritingDirection::Natural)
-        ts.dumpProperty("baseWritingDirection", static_cast<uint8_t>(editorState.postLayoutData().baseWritingDirection));
+        if (editorState.postLayoutData->selectedTextLength)
+            ts.dumpProperty("selectedTextLength"_s, editorState.postLayoutData->selectedTextLength);
+        if (editorState.postLayoutData->textAlignment != TextAlignment::Natural)
+            ts.dumpProperty("textAlignment"_s, std::to_underlying(editorState.postLayoutData->textAlignment));
+        if (editorState.postLayoutData->textColor.isValid())
+            ts.dumpProperty("textColor"_s, editorState.postLayoutData->textColor);
+        if (editorState.postLayoutData->enclosingListType != ListType::None)
+            ts.dumpProperty("enclosingListType"_s, std::to_underlying(editorState.postLayoutData->enclosingListType));
+        if (editorState.postLayoutData->baseWritingDirection != WebCore::WritingDirection::Natural)
+            ts.dumpProperty("baseWritingDirection"_s, static_cast<uint8_t>(editorState.postLayoutData->baseWritingDirection));
+        if (editorState.postLayoutData->canEnableWritingSuggestions)
+            ts.dumpProperty("canEnableWritingSuggestions"_s, editorState.postLayoutData->canEnableWritingSuggestions);
+        if (editorState.postLayoutData->insideFixedPosition)
+            ts.dumpProperty("insideFixedPosition"_s, editorState.postLayoutData->insideFixedPosition);
 #endif // PLATFORM(COCOA)
 #if PLATFORM(IOS_FAMILY)
-    if (editorState.postLayoutData().selectionClipRect != IntRect())
-        ts.dumpProperty("selectionClipRect", editorState.postLayoutData().selectionClipRect);
-    if (editorState.postLayoutData().caretRectAtEnd != IntRect())
-        ts.dumpProperty("caretRectAtEnd", editorState.postLayoutData().caretRectAtEnd);
-    if (!editorState.postLayoutData().selectionGeometries.isEmpty())
-        ts.dumpProperty("selectionGeometries", editorState.postLayoutData().selectionGeometries);
-    if (!editorState.postLayoutData().markedTextRects.isEmpty())
-        ts.dumpProperty("markedTextRects", editorState.postLayoutData().markedTextRects);
-    if (editorState.postLayoutData().markedText.length())
-        ts.dumpProperty("markedText", editorState.postLayoutData().markedText);
-    if (editorState.postLayoutData().markedTextCaretRectAtStart != IntRect())
-        ts.dumpProperty("markedTextCaretRectAtStart", editorState.postLayoutData().markedTextCaretRectAtStart);
-    if (editorState.postLayoutData().markedTextCaretRectAtEnd != IntRect())
-        ts.dumpProperty("markedTextCaretRectAtEnd", editorState.postLayoutData().markedTextCaretRectAtEnd);
-    if (editorState.postLayoutData().wordAtSelection.length())
-        ts.dumpProperty("wordAtSelection", editorState.postLayoutData().wordAtSelection);
-    if (editorState.postLayoutData().characterAfterSelection)
-        ts.dumpProperty("characterAfterSelection", editorState.postLayoutData().characterAfterSelection);
-    if (editorState.postLayoutData().characterBeforeSelection)
-        ts.dumpProperty("characterBeforeSelection", editorState.postLayoutData().characterBeforeSelection);
-    if (editorState.postLayoutData().twoCharacterBeforeSelection)
-        ts.dumpProperty("twoCharacterBeforeSelection", editorState.postLayoutData().twoCharacterBeforeSelection);
+        if (editorState.postLayoutData->markedText.length())
+            ts.dumpProperty("markedText"_s, editorState.postLayoutData->markedText);
+        if (editorState.postLayoutData->wordAtSelection.length())
+            ts.dumpProperty("wordAtSelection"_s, editorState.postLayoutData->wordAtSelection);
+        if (editorState.postLayoutData->characterAfterSelection)
+            ts.dumpProperty("characterAfterSelection"_s, editorState.postLayoutData->characterAfterSelection);
+        if (editorState.postLayoutData->characterBeforeSelection)
+            ts.dumpProperty("characterBeforeSelection"_s, editorState.postLayoutData->characterBeforeSelection);
+        if (editorState.postLayoutData->twoCharacterBeforeSelection)
+            ts.dumpProperty("twoCharacterBeforeSelection"_s, editorState.postLayoutData->twoCharacterBeforeSelection);
 
-    if (editorState.postLayoutData().isReplaceAllowed)
-        ts.dumpProperty("isReplaceAllowed", editorState.postLayoutData().isReplaceAllowed);
-    if (editorState.postLayoutData().hasContent)
-        ts.dumpProperty("hasContent", editorState.postLayoutData().hasContent);
-    ts.dumpProperty("isStableStateUpdate", editorState.postLayoutData().isStableStateUpdate);
-    if (editorState.postLayoutData().insideFixedPosition)
-        ts.dumpProperty("insideFixedPosition", editorState.postLayoutData().insideFixedPosition);
-    if (editorState.postLayoutData().caretColor.isValid())
-        ts.dumpProperty("caretColor", editorState.postLayoutData().caretColor);
+        if (editorState.postLayoutData->isReplaceAllowed)
+            ts.dumpProperty("isReplaceAllowed"_s, editorState.postLayoutData->isReplaceAllowed);
+        if (editorState.postLayoutData->hasContent)
+            ts.dumpProperty("hasContent"_s, editorState.postLayoutData->hasContent);
+        ts.dumpProperty("isStableStateUpdate"_s, editorState.postLayoutData->isStableStateUpdate);
+        if (editorState.postLayoutData->caretColor.isValid())
+            ts.dumpProperty("caretColor"_s, editorState.postLayoutData->caretColor);
+        if (editorState.postLayoutData->hasCaretColorAuto)
+            ts.dumpProperty("hasCaretColorAuto"_s, editorState.postLayoutData->hasCaretColorAuto);
 #endif
 #if PLATFORM(MAC)
-    if (editorState.postLayoutData().selectionBoundingRect != IntRect())
-        ts.dumpProperty("selectionBoundingRect", editorState.postLayoutData().selectionBoundingRect);
-    if (editorState.postLayoutData().candidateRequestStartPosition)
-        ts.dumpProperty("candidateRequestStartPosition", editorState.postLayoutData().candidateRequestStartPosition);
-    if (editorState.postLayoutData().paragraphContextForCandidateRequest.length())
-        ts.dumpProperty("paragraphContextForCandidateRequest", editorState.postLayoutData().paragraphContextForCandidateRequest);
-    if (editorState.postLayoutData().stringForCandidateRequest.length())
-        ts.dumpProperty("stringForCandidateRequest", editorState.postLayoutData().stringForCandidateRequest);
-    if (editorState.postLayoutData().canEnableAutomaticSpellingCorrection)
-        ts.dumpProperty("canEnableAutomaticSpellingCorrection", editorState.postLayoutData().canEnableAutomaticSpellingCorrection);
+        if (editorState.postLayoutData->selectionBoundingRect != IntRect())
+            ts.dumpProperty("selectionBoundingRect"_s, editorState.postLayoutData->selectionBoundingRect);
+        if (editorState.postLayoutData->candidateRequestStartPosition)
+            ts.dumpProperty("candidateRequestStartPosition"_s, editorState.postLayoutData->candidateRequestStartPosition);
+        if (editorState.postLayoutData->paragraphContextForCandidateRequest.length())
+            ts.dumpProperty("paragraphContextForCandidateRequest"_s, editorState.postLayoutData->paragraphContextForCandidateRequest);
+        if (editorState.postLayoutData->stringForCandidateRequest.length())
+            ts.dumpProperty("stringForCandidateRequest"_s, editorState.postLayoutData->stringForCandidateRequest);
 #endif
 
-    if (editorState.postLayoutData().canCut)
-        ts.dumpProperty("canCut", editorState.postLayoutData().canCut);
-    if (editorState.postLayoutData().canCopy)
-        ts.dumpProperty("canCopy", editorState.postLayoutData().canCopy);
-    if (editorState.postLayoutData().canPaste)
-        ts.dumpProperty("canPaste", editorState.postLayoutData().canPaste);
+        if (editorState.postLayoutData->canCut)
+            ts.dumpProperty("canCut"_s, editorState.postLayoutData->canCut);
+        if (editorState.postLayoutData->canCopy)
+            ts.dumpProperty("canCopy"_s, editorState.postLayoutData->canCopy);
+        if (editorState.postLayoutData->canPaste)
+            ts.dumpProperty("canPaste"_s, editorState.postLayoutData->canPaste);
+    }
 
+    ts.dumpProperty("hasVisualData"_s, editorState.hasVisualData());
+
+    if (editorState.hasVisualData()) {
+        TextStream::GroupScope scope(ts);
+        ts << "visualData"_s;
+#if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
+        if (editorState.visualData->caretRectAtStart != IntRect())
+            ts.dumpProperty("caretRectAtStart"_s, editorState.visualData->caretRectAtStart);
+#endif
+#if PLATFORM(COCOA)
+        if (editorState.visualData->caretRectAtEnd != IntRect())
+            ts.dumpProperty("caretRectAtEnd"_s, editorState.visualData->caretRectAtEnd);
+        if (!editorState.visualData->selectionGeometries.isEmpty())
+            ts.dumpProperty("selectionGeometries"_s, editorState.visualData->selectionGeometries);
+#endif
+#if PLATFORM(IOS_FAMILY)
+        if (editorState.visualData->selectionClipRect != IntRect())
+            ts.dumpProperty("selectionClipRect"_s, editorState.visualData->selectionClipRect);
+        if (editorState.visualData->editableRootBounds != IntRect())
+            ts.dumpProperty("editableRootBounds"_s, editorState.visualData->editableRootBounds);
+        if (!editorState.visualData->markedTextRects.isEmpty())
+            ts.dumpProperty("markedTextRects"_s, editorState.visualData->markedTextRects);
+        if (editorState.visualData->markedTextCaretRectAtStart != IntRect())
+            ts.dumpProperty("markedTextCaretRectAtStart"_s, editorState.visualData->markedTextCaretRectAtStart);
+        if (editorState.visualData->markedTextCaretRectAtEnd != IntRect())
+            ts.dumpProperty("markedTextCaretRectAtEnd"_s, editorState.visualData->markedTextCaretRectAtEnd);
+#endif
+    }
     return ts;
+}
+
+void EditorState::clipOwnedRectExtentsToNumericLimits()
+{
+    auto sanitizePostLayoutData = [](auto& postLayoutData) {
+#if PLATFORM(MAC)
+        postLayoutData.selectionBoundingRect = postLayoutData.selectionBoundingRect.toRectWithExtentsClippedToNumericLimits();
+#else
+        UNUSED_PARAM(postLayoutData);
+#endif
+    };
+    if (hasPostLayoutData())
+        sanitizePostLayoutData(*postLayoutData);
+
+    auto sanitizeVisualData = [](auto& visualData) {
+#if PLATFORM(COCOA)
+        visualData.caretRectAtEnd = visualData.caretRectAtEnd.toRectWithExtentsClippedToNumericLimits();
+#endif
+#if PLATFORM(IOS_FAMILY)
+        visualData.selectionClipRect = visualData.selectionClipRect.toRectWithExtentsClippedToNumericLimits();
+        visualData.editableRootBounds = visualData.editableRootBounds.toRectWithExtentsClippedToNumericLimits();
+        visualData.markedTextCaretRectAtStart = visualData.markedTextCaretRectAtStart.toRectWithExtentsClippedToNumericLimits();
+        visualData.markedTextCaretRectAtEnd = visualData.markedTextCaretRectAtEnd.toRectWithExtentsClippedToNumericLimits();
+#endif
+#if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
+        visualData.caretRectAtStart = visualData.caretRectAtStart.toRectWithExtentsClippedToNumericLimits();
+#else
+        UNUSED_PARAM(visualData);
+#endif
+    };
+    if (hasVisualData())
+        sanitizeVisualData(*visualData);
+}
+
+void EditorState::move(float x, float y)
+{
+    if (!hasVisualData())
+        return;
+
+    if (!x && !y)
+        return;
+
+#if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
+    int roundedX = std::round(x);
+    int roundedY = std::round(y);
+    visualData->caretRectAtStart.move(roundedX, roundedY);
+#endif
+
+#if PLATFORM(COCOA)
+    visualData->caretRectAtEnd.move(roundedX, roundedY);
+
+    for (auto& geometry : visualData->selectionGeometries)
+        geometry.move(x, y);
+#endif
+
+#if PLATFORM(IOS_FAMILY)
+    visualData->selectionClipRect.move(roundedX, roundedY);
+    visualData->editableRootBounds.move(roundedX, roundedY);
+    visualData->markedTextCaretRectAtStart.move(roundedX, roundedY);
+    visualData->markedTextCaretRectAtEnd.move(roundedX, roundedY);
+    for (auto& geometry : visualData->markedTextRects)
+        geometry.move(x, y);
+#endif // PLATFORM(IOS_FAMILY)
+
+    clipOwnedRectExtentsToNumericLimits();
+}
+
+bool EditorState::isEditableOrRanged() const
+{
+    return isContentEditable || selectionType == WebCore::SelectionType::Range;
 }
 
 } // namespace WebKit

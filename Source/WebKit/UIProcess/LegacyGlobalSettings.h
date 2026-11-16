@@ -28,29 +28,35 @@
 #include "CacheModel.h"
 #include <wtf/Forward.h>
 #include <wtf/HashSet.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebKit {
 
 class LegacyGlobalSettings {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(LegacyGlobalSettings);
 public:
     static LegacyGlobalSettings& singleton();
 
     void setCacheModel(CacheModel);
     CacheModel cacheModel() const { return m_cacheModel; }
 
-    const HashSet<String>& schemesToRegisterAsSecure() { return m_schemesToRegisterAsSecure; }
+    const HashSet<String>& schemesToRegisterAsSecure() LIFETIME_BOUND { return m_schemesToRegisterAsSecure; }
     void registerURLSchemeAsSecure(const String& scheme) { m_schemesToRegisterAsSecure.add(scheme); }
 
-    const HashSet<String>& schemesToRegisterAsBypassingContentSecurityPolicy() { return m_schemesToRegisterAsBypassingContentSecurityPolicy; }
+    const HashSet<String>& schemesToRegisterAsBypassingContentSecurityPolicy() LIFETIME_BOUND { return m_schemesToRegisterAsBypassingContentSecurityPolicy; }
     void registerURLSchemeAsBypassingContentSecurityPolicy(const String& scheme) { m_schemesToRegisterAsBypassingContentSecurityPolicy.add(scheme); }
 
-    const HashSet<String>& schemesToRegisterAsLocal() { return m_schemesToRegisterAsLocal; }
+    const HashSet<String>& schemesToRegisterAsLocal() LIFETIME_BOUND { return m_schemesToRegisterAsLocal; }
     void registerURLSchemeAsLocal(const String& scheme) { m_schemesToRegisterAsLocal.add(scheme); }
 
-    const HashSet<String>& schemesToRegisterAsNoAccess() { return m_schemesToRegisterAsNoAccess; }
+#if ENABLE(ALL_LEGACY_REGISTERED_SPECIAL_URL_SCHEMES)
+    const HashSet<String>& schemesToRegisterAsNoAccess() LIFETIME_BOUND { return m_schemesToRegisterAsNoAccess; }
     void registerURLSchemeAsNoAccess(const String& scheme) { m_schemesToRegisterAsNoAccess.add(scheme); }
+#endif
+
+    const HashSet<String>& hostnamesToRegisterAsLocal() const LIFETIME_BOUND { return m_hostnamesToRegisterAsLocal; }
+    void registerHostnameAsLocal(const String& hostname) { m_hostnamesToRegisterAsLocal.add(hostname); }
 
 private:
     friend class NeverDestroyed<LegacyGlobalSettings>;
@@ -60,7 +66,12 @@ private:
     HashSet<String> m_schemesToRegisterAsSecure;
     HashSet<String> m_schemesToRegisterAsBypassingContentSecurityPolicy;
     HashSet<String> m_schemesToRegisterAsLocal;
+#if ENABLE(ALL_LEGACY_REGISTERED_SPECIAL_URL_SCHEMES)
     HashSet<String> m_schemesToRegisterAsNoAccess;
+#endif
+    HashSet<String> m_hostnamesToRegisterAsLocal;
 };
+
+bool experimentalFeatureEnabled(const String& key, bool defaultValue = false);
 
 } // namespace WebKit

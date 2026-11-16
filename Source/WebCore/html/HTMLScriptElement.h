@@ -23,52 +23,80 @@
 
 #pragma once
 
-#include "HTMLElement.h"
-#include "ScriptElement.h"
+#include <WebCore/DOMTokenList.h>
+#include <WebCore/HTMLElement.h>
+#include <WebCore/ScriptElement.h>
 
 namespace WebCore {
 
+class TrustedScript;
+class TrustedScriptURL;
+
+enum class RequestPriority : uint8_t;
+
 class HTMLScriptElement final : public HTMLElement, public ScriptElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLScriptElement);
+    WTF_MAKE_TZONE_ALLOCATED(HTMLScriptElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLScriptElement);
 public:
     static Ref<HTMLScriptElement> create(const QualifiedName&, Document&, bool wasInsertedByParser, bool alreadyStarted = false);
 
     String text() const { return scriptContent(); }
-    WEBCORE_EXPORT void setText(const String&);
+    WEBCORE_EXPORT void setText(String&&);
+    ExceptionOr<void> setText(Variant<Ref<TrustedScript>, String>&&);
 
-    URL src() const;
+    using Node::setTextContent;
+    ExceptionOr<void> setTextContent(std::optional<Variant<Ref<TrustedScript>, String>>&&);
+
+    using HTMLElement::setInnerText;
+    ExceptionOr<void> setInnerText(Variant<Ref<TrustedScript>, String>&&);
+
+    String src() const;
+    ExceptionOr<void> setSrc(Variant<Ref<TrustedScriptURL>, String>&&);
 
     WEBCORE_EXPORT void setAsync(bool);
-    WEBCORE_EXPORT bool async() const;
+    WEBCORE_EXPORT bool NODELETE async() const;
 
-    WEBCORE_EXPORT void setCrossOrigin(const AtomString&);
     WEBCORE_EXPORT String crossOrigin() const;
 
-    void setReferrerPolicyForBindings(const AtomString&);
     String referrerPolicyForBindings() const;
     ReferrerPolicy referrerPolicy() const final;
 
-    using HTMLElement::ref;
-    using HTMLElement::deref;
+    // ActiveDOMObject
+    void ref() const final { HTMLElement::ref(); }
+    void deref() const final { HTMLElement::deref(); }
+
+    static bool supports(StringView type) { return type == "classic"_s || type == "module"_s || type == "importmap"_s || type == "speculationrules"_s; }
+
+    String fetchPriorityForBindings() const;
+    RequestPriority fetchPriority() const final;
+
+    WEBCORE_EXPORT DOMTokenList& blocking();
 
 private:
     HTMLScriptElement(const QualifiedName&, Document&, bool wasInsertedByParser, bool alreadyStarted);
 
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    void didFinishInsertingNode() final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void postConnectionSteps() final;
     void childrenChanged(const ChildChange&) final;
+    void finishParsingChildren() final;
+    void removingSteps(RemovalType, ContainerNode&) final;
+    void didMoveToNewDocument(Document& oldDocument, Document& newDocument) final;
 
-    bool isURLAttribute(const Attribute&) const final;
+    void potentiallyBlockRendering() final;
+    void unblockRendering() final;
+    bool isImplicitlyPotentiallyRenderBlocking() const;
 
-    void addSubresourceAttributeURLs(ListHashSet<URL>&) const final;
+    ExceptionOr<void> setTextContent(ExceptionOr<String>);
+
+    bool NODELETE isURLAttribute(const Attribute&) const final;
+
+    void addSubresourceAttributeURLs(OrderedHashSet<URL>&) const final;
 
     String sourceAttributeValue() const final;
-    String charsetAttributeValue() const final;
+    AtomString charsetAttributeValue() const final;
     String typeAttributeValue() const final;
     String languageAttributeValue() const final;
-    String forAttributeValue() const final;
-    String eventAttributeValue() const final;
     bool hasAsyncAttribute() const final;
     bool hasDeferAttribute() const final;
     bool hasNoModuleAttribute() const final;
@@ -76,7 +104,17 @@ private:
 
     void dispatchLoadEvent() final;
 
-    Ref<Element> cloneElementWithoutAttributesAndChildren(Document&) final;
+    bool isScriptPreventedByAttributes() const final;
+
+    Ref<Element> cloneElementWithoutAttributesAndChildren(Document&, CustomElementRegistry*) const final;
+
+    // EventTarget
+    void eventListenersDidChange() final;
+
+    using HTMLElement::scriptExecutionContext;
+
+    const std::unique_ptr<DOMTokenList> m_blockingList;
+    bool m_isRenderBlocking { false };
 };
 
 } //namespace

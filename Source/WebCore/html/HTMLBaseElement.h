@@ -22,26 +22,26 @@
 
 #pragma once
 
-#include "HTMLElement.h"
+#include <WebCore/HTMLElement.h>
 
 namespace WebCore {
 
 class HTMLBaseElement final : public HTMLElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLBaseElement);
+    WTF_MAKE_TZONE_ALLOCATED(HTMLBaseElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLBaseElement);
 public:
     static Ref<HTMLBaseElement> create(const QualifiedName&, Document&);
 
     WEBCORE_EXPORT String href() const;
-    WEBCORE_EXPORT void setHref(const AtomString&);
 
 private:
     HTMLBaseElement(const QualifiedName&, Document&);
 
-    String target() const final;
-    bool isURLAttribute(const Attribute&) const final;
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    void removedFromAncestor(RemovalType, ContainerNode&) final;
+    AtomString target() const final;
+    bool NODELETE isURLAttribute(const Attribute&) const final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void removingSteps(RemovalType, ContainerNode&) final;
 };
 
 } // namespace

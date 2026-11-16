@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,31 +26,60 @@
 #include "config.h"
 #include "WasmIndexOrName.h"
 
+#include <wtf/PrintStream.h>
+#include <wtf/text/MakeString.h>
+
 namespace JSC { namespace Wasm {
 
 IndexOrName::IndexOrName(Index index, std::pair<const Name*, RefPtr<NameSection>>&& name)
 {
+#if USE(JSVALUE64)
     static_assert(sizeof(m_indexName.index) == sizeof(m_indexName.name), "bit-tagging depends on sizes being equal");
-
-    if ((index & allTags) || (bitwise_cast<Index>(name.first) & allTags))
-        *this = IndexOrName();
-    else {
-        if (name.first)
-            m_indexName.name = name.first;
-        else
-            m_indexName.index = indexTag | index;
+    ASSERT(!(index & allTags));
+    ASSERT(!(std::bit_cast<Index>(name.first) & allTags));
+    if (name.first)
+        m_indexName.name = name.first;
+    else
+        m_indexName.index = indexTag | index;
+#elif USE(JSVALUE32_64)
+    if (name.first) {
+        m_indexName.name = name.first;
+        m_kind = Kind::Name;
+    } else {
+        m_indexName.index = index;
+        m_kind = Kind::Index;
     }
-    m_nameSection = WTFMove(name.second);
+#endif
+    m_nameSection = WTF::move(name.second);
+}
+
+void IndexOrName::dump(PrintStream& out) const
+{
+    if (isEmpty() || !nameSection()) {
+        out.print("wasm-stub"_s);
+        if (isIndex())
+            out.print('[', index(), ']');
+        return;
+    }
+
+    auto moduleName = nameSection()->moduleName.size() ? nameSection()->moduleName.span() : nameSection()->moduleHash.span();
+    if (isIndex())
+        out.print(moduleName, ".wasm-function["_s, index(), "]");
+    else
+        out.print(moduleName, ".wasm-function["_s, name()->span(), "]");
 }
 
 String makeString(const IndexOrName& ion)
 {
-    if (ion.isEmpty())
+    if (ion.isEmpty() || !ion.nameSection()) {
+        if (ion.isIndex())
+            return makeString("wasm-stub["_s, ion.index(), "]"_s);
         return "wasm-stub"_s;
-    const String moduleName = ion.nameSection()->moduleName.size() ? String(ion.nameSection()->moduleName.data(), ion.nameSection()->moduleName.size()) : String(ion.nameSection()->moduleHash.data(), ion.nameSection()->moduleHash.size());
+    }
+    auto moduleName = ion.moduleName();
     if (ion.isIndex())
-        return makeString(moduleName, ".wasm-function[", String::number(ion.m_indexName.index & ~IndexOrName::indexTag), ']');
-    return makeString(moduleName, ".wasm-function[", String(ion.m_indexName.name->data(), ion.m_indexName.name->size()), ']');
+        return makeString(moduleName, ".wasm-function["_s, ion.index(), ']');
+    return makeString(moduleName, ".wasm-function["_s, ion.name()->span(), ']');
 }
 
 } } // namespace JSC::Wasm

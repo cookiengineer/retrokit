@@ -29,6 +29,7 @@
 
 #include <wtf/ASCIICType.h>
 #include <wtf/dtoa.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
@@ -49,7 +50,7 @@ public:
     {
     }
 
-    TokenType currentTokenType() const { return m_currentTokenType; }
+    TokenType NODELETE currentTokenType() const { return m_currentTokenType; }
 
     TokenType nextTokenType()
     {
@@ -57,7 +58,7 @@ public:
         return m_currentTokenType;
     }
 
-    const String& currentElement() { return m_currentElement; }
+    const String& NODELETE currentElement() { return m_currentElement; }
 
 private:
     TokenType lex(String&);
@@ -89,15 +90,15 @@ const uint32_t unicodeLetter = U_GC_L_MASK | U_GC_NL_MASK;
 const uint32_t unicodeCombiningMark = U_GC_MN_MASK | U_GC_MC_MASK;
 const uint32_t unicodeDigit = U_GC_ND_MASK;
 const uint32_t unicodeConnectorPunctuation = U_GC_PC_MASK;
-const UChar ZWNJ = 0x200C;
-const UChar ZWJ = 0x200D;
+const char16_t ZWNJ = 0x200C;
+const char16_t ZWJ = 0x200D;
 
-static inline bool isIdentifierStartCharacter(UChar c)
+static inline bool isIdentifierStartCharacter(char16_t c)
 {
     return (U_GET_GC_MASK(c) & unicodeLetter) || (c == '$') || (c == '_');
 }
 
-static inline bool isIdentifierCharacter(UChar c)
+static inline bool isIdentifierCharacter(char16_t c)
 {
     return (U_GET_GC_MASK(c) & (unicodeLetter | unicodeCombiningMark | unicodeDigit | unicodeConnectorPunctuation)) || (c == '$') || (c == '_') || (c == ZWNJ) || (c == ZWJ);
 }
@@ -115,7 +116,7 @@ IDBKeyPathLexer::TokenType IDBKeyPathLexer::lexIdentifier(String& element)
     while (!m_remainingText.isEmpty() && isIdentifierCharacter(m_remainingText[0]))
         m_remainingText = m_remainingText.substring(1);
 
-    element = start.substring(0, start.length() - m_remainingText.length()).toString();
+    element = start.left(start.length() - m_remainingText.length()).toString();
     return TokenIdentifier;
 }
 
@@ -206,38 +207,20 @@ bool isIDBKeyPathValid(const IDBKeyPath& keyPath)
     return WTF::visit(visitor, keyPath);
 }
 
-IDBKeyPath isolatedCopy(const IDBKeyPath& keyPath)
-{
-    auto visitor = WTF::makeVisitor([](const String& string) -> IDBKeyPath {
-        return string.isolatedCopy();
-    }, [](const Vector<String>& vector) -> IDBKeyPath {
-        Vector<String> vectorCopy;
-        vectorCopy.reserveInitialCapacity(vector.size());
-        for (auto& string : vector)
-            vectorCopy.uncheckedAppend(string.isolatedCopy());
-        return vectorCopy;
-    });
-
-    return WTF::visit(visitor, keyPath);
-}
-
 #if !LOG_DISABLED
 String loggingString(const IDBKeyPath& path)
 {
     auto visitor = WTF::makeVisitor([](const String& string) {
-        return makeString("< ", string, " >");
+        return makeString("< "_s, string, " >"_s);
     }, [](const Vector<String>& strings) {
         if (strings.isEmpty())
             return "< >"_str;
 
         StringBuilder builder;
-        builder.append("< ");
-        for (size_t i = 0; i < strings.size() - 1; ++i) {
-            builder.append(strings[i]);
-            builder.append(", ");
-        }
-        builder.append(strings.last());
-        builder.append(" >");
+        builder.append("< "_s);
+        for (size_t i = 0; i < strings.size() - 1; ++i)
+            builder.append(strings[i], ", "_s);
+        builder.append(strings.last(), " >"_s);
 
         return builder.toString();
     });

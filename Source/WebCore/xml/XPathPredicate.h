@@ -1,6 +1,6 @@
 /*
  * Copyright 2005 Frerich Raabe <raabe@kde.org>
- * Copyright (C) 2006, 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,90 +27,96 @@
 #pragma once
 
 #include "XPathExpressionNode.h"
+#include <wtf/TZoneMalloc.h>
 
-namespace WebCore {
-    namespace XPath {
-        
-        class Number final : public Expression {
-        public:
-            explicit Number(double);
+namespace WebCore::XPath {
 
-        private:
-            Value evaluate() const override;
-            Value::Type resultType() const override { return Value::NumberValue; }
+class Number final : public Expression {
+    WTF_MAKE_TZONE_ALLOCATED(Number);
+public:
+    explicit Number(double);
 
-            Value m_value;
-        };
+private:
+    Value evaluate() const final;
+    Value::Type resultType() const final { return Value::Type::Number; }
 
-        class StringExpression final : public Expression {
-        public:
-            explicit StringExpression(String&&);
+    Value m_value;
+};
 
-        private:
-            Value evaluate() const override;
-            Value::Type resultType() const override { return Value::StringValue; }
+class StringExpression final : public Expression {
+    WTF_MAKE_TZONE_ALLOCATED(StringExpression);
+public:
+    explicit StringExpression(String&&);
 
-            Value m_value;
-        };
+private:
+    Value evaluate() const final;
+    Value::Type resultType() const final { return Value::Type::String; }
 
-        class Negative final : public Expression {
-        public:
-            explicit Negative(std::unique_ptr<Expression>);
+    Value m_value;
+};
 
-        private:
-            Value evaluate() const override;
-            Value::Type resultType() const override { return Value::NumberValue; }
-        };
+class Negative final : public Expression {
+    WTF_MAKE_TZONE_ALLOCATED(Negative);
+public:
+    explicit Negative(std::unique_ptr<Expression>);
 
-        class NumericOp final : public Expression {
-        public:
-            enum Opcode { OP_Add, OP_Sub, OP_Mul, OP_Div, OP_Mod };
-            NumericOp(Opcode, std::unique_ptr<Expression> lhs, std::unique_ptr<Expression> rhs);
+private:
+    Value evaluate() const final;
+    Value::Type resultType() const final { return Value::Type::Number; }
+};
 
-        private:
-            Value evaluate() const override;
-            Value::Type resultType() const override { return Value::NumberValue; }
+class NumericOp final : public Expression {
+    WTF_MAKE_TZONE_ALLOCATED(NumericOp);
+public:
+    enum class Opcode : uint8_t { Add, Sub, Mul, Div, Mod };
+    NumericOp(Opcode, std::unique_ptr<Expression> lhs, std::unique_ptr<Expression> rhs);
 
-            Opcode m_opcode;
-        };
+private:
+    Value evaluate() const final;
+    Value::Type resultType() const final { return Value::Type::Number; }
 
-        class EqTestOp final : public Expression {
-        public:
-            enum Opcode { OP_EQ, OP_NE, OP_GT, OP_LT, OP_GE, OP_LE };
-            EqTestOp(Opcode, std::unique_ptr<Expression> lhs, std::unique_ptr<Expression> rhs);
-            Value evaluate() const override;
+    Opcode m_opcode;
+};
 
-        private:
-            Value::Type resultType() const override { return Value::BooleanValue; }
-            bool compare(const Value&, const Value&) const;
+class EqTestOp final : public Expression {
+    WTF_MAKE_TZONE_ALLOCATED(EqTestOp);
+public:
+    enum class Opcode : uint8_t { Eq, Ne, Gt, Lt, Ge, Le };
+    EqTestOp(Opcode, std::unique_ptr<Expression> lhs, std::unique_ptr<Expression> rhs);
+    Value evaluate() const final;
 
-            Opcode m_opcode;
-        };
+private:
+    Value::Type resultType() const final { return Value::Type::Boolean; }
+    bool compare(const Value&, const Value&) const;
 
-        class LogicalOp final : public Expression {
-        public:
-            enum Opcode { OP_And, OP_Or };
-            LogicalOp(Opcode, std::unique_ptr<Expression> lhs, std::unique_ptr<Expression> rhs);
+    Opcode m_opcode;
+};
 
-        private:
-            Value::Type resultType() const override { return Value::BooleanValue; }
-            bool shortCircuitOn() const;
-            Value evaluate() const override;
+class LogicalOp final : public Expression {
+    WTF_MAKE_TZONE_ALLOCATED(LogicalOp);
+public:
+    enum class Opcode : bool { And, Or };
+    LogicalOp(Opcode, std::unique_ptr<Expression> lhs, std::unique_ptr<Expression> rhs);
 
-            Opcode m_opcode;
-        };
+private:
+    Value::Type resultType() const final { return Value::Type::Boolean; }
+    bool NODELETE shortCircuitOn() const;
+    Value evaluate() const final;
 
-        class Union final : public Expression {
-        public:
-            Union(std::unique_ptr<Expression>, std::unique_ptr<Expression>);
+    Opcode m_opcode;
+};
 
-        private:
-            Value evaluate() const override;
-            Value::Type resultType() const override { return Value::NodeSetValue; }
-        };
+class Union final : public Expression {
+    WTF_MAKE_TZONE_ALLOCATED(Union);
+public:
+    Union(std::unique_ptr<Expression>, std::unique_ptr<Expression>);
 
-        bool evaluatePredicate(const Expression&);
-        bool predicateIsContextPositionSensitive(const Expression&);
+private:
+    Value evaluate() const final;
+    Value::Type resultType() const final { return Value::Type::NodeSet; }
+};
 
-    } // namespace XPath
-} // namespace WebCore
+bool evaluatePredicate(const Expression&);
+bool predicateIsContextPositionSensitive(const Expression&);
+
+} // namespace WebCore::XPath

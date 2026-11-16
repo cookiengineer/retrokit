@@ -39,7 +39,7 @@ namespace WebCore {
 BlobData::BlobData(const String& contentType)
     : m_contentType(contentType)
 {
-    ASSERT(Blob::isNormalizedContentType(contentType));
+    ASSERT(isMainThread());
 }
 
 const long long BlobDataItem::toEndOfFile = -1;
@@ -49,33 +49,36 @@ long long BlobDataItem::length() const
     if (m_length != toEndOfFile)
         return m_length;
 
-    switch (m_type) {
-    case Type::Data:
-        ASSERT_NOT_REACHED();
-        return m_length;
-    case Type::File:
-        return m_file->size();
+    return protect(std::get<Ref<BlobDataFileReference>>(m_data))->size();
+}
+
+void BlobData::appendData(Ref<DataSegment>&& data)
+{
+    auto dataSize = data->size();
+    appendData(WTF::move(data), 0, dataSize);
+}
+
+void BlobData::appendData(Ref<DataSegment>&& data, long long offset, long long length)
+{
+    m_items.append(BlobDataItem(WTF::move(data), offset, length));
+}
+
+void BlobData::replaceData(const DataSegment& oldData, Ref<DataSegment>&& newData)
+{
+    for (auto& blobItem : m_items) {
+        if (auto* data = std::get_if<Ref<DataSegment>>(&blobItem.m_data)) {
+            if (&data->get() == &oldData) {
+                blobItem.m_data = WTF::move(newData);
+                break;
+            }
+        }
     }
-
-    ASSERT_NOT_REACHED();
-    return m_length;
-}
-
-void BlobData::appendData(const ThreadSafeDataBuffer& data)
-{
-    size_t dataSize = data.data() ? data.data()->size() : 0;
-    appendData(data, 0, dataSize);
-}
-
-void BlobData::appendData(const ThreadSafeDataBuffer& data, long long offset, long long length)
-{
-    m_items.append(BlobDataItem(data, offset, length));
 }
 
 void BlobData::appendFile(Ref<BlobDataFileReference>&& file)
 {
     file->startTrackingModifications();
-    m_items.append(BlobDataItem(WTFMove(file)));
+    m_items.append(BlobDataItem(WTF::move(file)));
 }
 
 Ref<BlobData> BlobData::clone() const
@@ -86,14 +89,9 @@ Ref<BlobData> BlobData::clone() const
     return blobData;
 }
 
-void BlobData::appendFile(BlobDataFileReference* file, long long offset, long long length)
+void BlobData::appendFile(Ref<BlobDataFileReference>&& file, long long offset, long long length)
 {
-    m_items.append(BlobDataItem(file, offset, length));
-}
-
-void BlobData::swapItems(BlobDataItemList& items)
-{
-    m_items.swap(items);
+    m_items.append(BlobDataItem(WTF::move(file), offset, length));
 }
 
 } // namespace WebCore

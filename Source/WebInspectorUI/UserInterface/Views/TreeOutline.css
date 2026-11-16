@@ -66,16 +66,16 @@
     --tree-outline-icon-margin-end: 6px;
 }
 
-.tree-outline.non-selectable .item:hover {
+.tree-outline.non-selectable .item:not(.non-selectable):hover {
     background-color: var(--selected-background-color-unfocused);
 }
 
-body[dir=ltr] .tree-outline .item :matches(.disclosure-button, .icon),
-body[dir=rtl] [dir=ltr] .tree-outline .item :matches(.disclosure-button, .icon) {
+body[dir=ltr] .tree-outline .item :is(.disclosure-button, .icon),
+body[dir=rtl] [dir=ltr] .tree-outline .item :is(.disclosure-button, .icon) {
     float: left;
 }
 
-body[dir=rtl] .tree-outline .item :matches(.disclosure-button, .icon) {
+body[dir=rtl] .tree-outline .item :is(.disclosure-button, .icon) {
     float: right;
 }
 
@@ -101,7 +101,7 @@ body[dir=rtl] .tree-outline .item :matches(.disclosure-button, .icon) {
     background-position: center;
     background-size: 13px 13px;
     border: none;
-    -webkit-appearance: none;
+    appearance: none;
 }
 
 body[dir=rtl] .tree-outline .item .disclosure-button {

@@ -27,91 +27,38 @@
 
 #pragma once
 
-#include "CSSImageGeneratorValue.h"
-#include "CachedImageClient.h"
-#include "CachedResourceHandle.h"
-#include "FilterOperations.h"
-#include "Image.h"
+#include "CSSFilter.h"
+#include "CSSValue.h"
 #include <wtf/Function.h>
 
 namespace WebCore {
 
-class FilterSubimageObserverProxy;
-class RenderElement;
-
 namespace Style {
 class BuilderState;
+class Image;
 }
 
-class CSSFilterImageValue final : public CSSImageGeneratorValue {
-    friend class FilterSubimageObserverProxy;
+class CSSFilterImageValue final : public CSSValue {
 public:
-    static Ref<CSSFilterImageValue> create(Ref<CSSValue>&& imageValue, Ref<CSSValue>&& filterValue)
+    static Ref<CSSFilterImageValue> create(Ref<CSSValue>&& imageValueOrNone, CSS::Filter&& filter)
     {
-        return adoptRef(*new CSSFilterImageValue(WTFMove(imageValue), WTFMove(filterValue)));
+        return adoptRef(*new CSSFilterImageValue(WTF::move(imageValueOrNone), WTF::move(filter)));
     }
-
     ~CSSFilterImageValue();
 
-    String customCSSText() const;
-
-    RefPtr<Image> image(RenderElement&, const FloatSize&);
-    bool isFixedSize() const { return true; }
-    FloatSize fixedSize(const RenderElement&);
-
-    bool isPending() const;
-    bool knownToBeOpaque(const RenderElement&) const;
-
-    void loadSubimages(CachedResourceLoader&, const ResourceLoaderOptions&);
-
-    bool traverseSubresources(const WTF::Function<bool (const CachedResource&)>& handler) const;
-
     bool equals(const CSSFilterImageValue&) const;
-
     bool equalInputImages(const CSSFilterImageValue&) const;
 
-    const FilterOperations& filterOperations() const { return m_filterOperations; }
-    void setFilterOperations(const FilterOperations& filterOperations) { m_filterOperations = filterOperations; }
-    CachedImage* cachedImage() const { return m_cachedImage.get(); }
+    String customCSSText(const CSS::SerializationContext&) const;
+    IterationStatus customVisitChildren(NOESCAPE const Function<IterationStatus(CSSValue&)>&) const;
 
-    Ref<CSSFilterImageValue> valueWithStylesResolved(Style::BuilderState&);
+    RefPtr<Style::Image> createStyleImage(const Style::BuilderState&) const;
 
 private:
-    CSSFilterImageValue(Ref<CSSValue>&& imageValue, Ref<CSSValue>&& filterValue)
-        : CSSImageGeneratorValue(FilterImageClass)
-        , m_imageValue(WTFMove(imageValue))
-        , m_filterValue(WTFMove(filterValue))
-        , m_filterSubimageObserver(this)
-    {
-    }
+    explicit CSSFilterImageValue(Ref<CSSValue>&& imageValueOrNone, CSS::Filter&&);
 
-    class FilterSubimageObserverProxy final : public CachedImageClient {
-    public:
-        FilterSubimageObserverProxy(CSSFilterImageValue* ownerValue)
-            : m_ownerValue(ownerValue)
-            , m_ready(false)
-        {
-        }
-
-        virtual ~FilterSubimageObserverProxy() = default;
-        void imageChanged(CachedImage*, const IntRect* = nullptr) final;
-        void setReady(bool ready) { m_ready = ready; }
-    private:
-        CSSFilterImageValue* m_ownerValue;
-        bool m_ready;
-    };
-
-    void filterImageChanged(const IntRect&);
-    void createFilterOperations(Style::BuilderState&);
-
-    Ref<CSSValue> m_imageValue;
-    Ref<CSSValue> m_filterValue;
-
-    FilterOperations m_filterOperations;
-
-    CachedResourceHandle<CachedImage> m_cachedImage;
-
-    FilterSubimageObserverProxy m_filterSubimageObserver;
+    const Ref<CSSValue> m_imageValueOrNone;
+    CSS::Filter m_filter;
 };
 
 } // namespace WebCore

@@ -3,67 +3,105 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
-// TracePerf:
+// TracePerfTest.cpp:
 //   Performance test for ANGLE replaying traces.
 //
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
+#include "tests/perf_tests/TracePerfTest.h"
 #include <gtest/gtest.h>
 #include "common/PackedEnums.h"
+#include "common/string_utils.h"
 #include "common/system_utils.h"
 #include "tests/perf_tests/ANGLEPerfTest.h"
 #include "tests/perf_tests/ANGLEPerfTestArgs.h"
 #include "tests/perf_tests/DrawCallPerfParams.h"
+#include "util/capture/frame_capture_test_utils.h"
+#include "util/capture/traces_export.h"
 #include "util/egl_loader_autogen.h"
-#include "util/frame_capture_test_utils.h"
 #include "util/png_utils.h"
+#include "util/test_utils.h"
 
-#include "restricted_traces/restricted_traces_autogen.h"
+#if defined(ANGLE_PLATFORM_ANDROID)
+#    include "util/android/AndroidWindow.h"
+#endif
+
+#include <rapidjson/document.h>
+#include <rapidjson/istreamwrapper.h>
 
 #include <cassert>
+#include <fstream>
 #include <functional>
 #include <sstream>
+
+#if defined(ANGLE_USE_PERFETTO)
+#    include <perfetto/tracing/track.h>
+#endif
+
+// When --minimize-gpu-work is specified, we want to reduce GPU work to minimum and lift up the CPU
+// overhead to surface so that we can see how much CPU overhead each driver has for each app trace.
+// On some driver(s) the bufferSubData/texSubImage calls end up dominating the frame time when the
+// actual GPU work is minimized. Even reducing the texSubImage calls to only update 1x1 area is not
+// enough. The driver may be implementing copy on write by cloning the entire texture to another
+// memory storage for texSubImage call. While this information is also important for performance,
+// they should be evaluated separately in real app usage scenario, or write stand alone tests for
+// these. For the purpose of CPU overhead and avoid data copy to dominate the trace, I am using this
+// flag to noop the texSubImage and bufferSubData call when --minimize-gpu-work is specified. Feel
+// free to disable this when you have other needs. Or it can be turned to another run time option
+// when desired.
+#define NOOP_SUBDATA_SUBIMAGE_FOR_MINIMIZE_GPU_WORK
 
 using namespace angle;
 using namespace egl_platform;
 
 namespace
 {
-struct TracePerfParams final : public RenderTestParams
-{
-    // Common default options
-    TracePerfParams()
-    {
-        majorVersion = 3;
-        minorVersion = 1;
 
-        // Display the frame after every drawBenchmark invocation
-        iterationsPerStep = 1;
-    }
-
-    std::string story() const override
-    {
-        std::stringstream strstr;
-        strstr << RenderTestParams::story() << "_" << GetTraceInfo(testID).name;
-        return strstr.str();
-    }
-
-    RestrictedTraceID testID;
-};
-
-std::ostream &operator<<(std::ostream &os, const TracePerfParams &params)
-{
-    os << params.backendAndStory().substr(1);
-    return os;
-}
-
-class TracePerfTest : public ANGLERenderTest, public ::testing::WithParamInterface<TracePerfParams>
+class TracePerfTest : public ANGLERenderTest
 {
   public:
-    TracePerfTest();
+    TracePerfTest(std::unique_ptr<const TracePerfParams> params);
 
+    void startTest() override;
     void initializeBenchmark() override;
     void destroyBenchmark() override;
     void drawBenchmark() override;
+    void startGpuTimer() override;
+    void stopGpuTimer(bool mayNeedFlush = true) override;
+
+    // TODO(http://anglebug.com/42264418): Add support for creating EGLSurface:
+    // - eglCreatePbufferSurface()
+    // - eglCreateWindowSurface()
+    EGLContext onEglCreateContext(EGLDisplay display,
+                                  EGLConfig config,
+                                  EGLContext share_context,
+                                  EGLint const *attrib_list);
+    void onEglMakeCurrent(EGLDisplay display, EGLSurface draw, EGLSurface read, EGLContext context);
+    EGLContext onEglGetCurrentContext();
+    EGLImage onEglCreateImage(EGLDisplay display,
+                              EGLContext context,
+                              EGLenum target,
+                              EGLClientBuffer buffer,
+                              const EGLAttrib *attrib_list);
+    EGLImageKHR onEglCreateImageKHR(EGLDisplay display,
+                                    EGLContext context,
+                                    EGLenum target,
+                                    EGLClientBuffer buffer,
+                                    const EGLint *attrib_list);
+    EGLBoolean onEglDestroyImage(EGLDisplay display, EGLImage image);
+    EGLBoolean onEglDestroyImageKHR(EGLDisplay display, EGLImage image);
+    EGLSync onEglCreateSync(EGLDisplay dpy, EGLenum type, const EGLAttrib *attrib_list);
+    EGLSync onEglCreateSyncKHR(EGLDisplay dpy, EGLenum type, const EGLint *attrib_list);
+    EGLBoolean onEglDestroySync(EGLDisplay dpy, EGLSync sync);
+    EGLBoolean onEglDestroySyncKHR(EGLDisplay dpy, EGLSync sync);
+    EGLint onEglClientWaitSync(EGLDisplay dpy, EGLSync sync, EGLint flags, EGLTimeKHR timeout);
+    EGLint onEglClientWaitSyncKHR(EGLDisplay dpy, EGLSync sync, EGLint flags, EGLTimeKHR timeout);
+    EGLint onEglGetError();
+    EGLDisplay onEglGetCurrentDisplay();
+    EGLSurface onEglGetCurrentSurface(EGLint readdraw);
 
     void onReplayFramebufferChange(GLenum target, GLuint framebuffer);
     void onReplayInvalidateFramebuffer(GLenum target,
@@ -82,12 +120,34 @@ class TracePerfTest : public ANGLERenderTest, public ::testing::WithParamInterfa
                                        GLsizei numAttachments,
                                        const GLenum *attachments);
 
+    void validateSerializedState(const char *serializedState, const char *fileName, uint32_t line);
+
     bool isDefaultFramebuffer(GLenum target) const;
 
-    uint32_t mStartFrame;
-    uint32_t mEndFrame;
-
     double getHostTimeFromGLTime(GLint64 glTime);
+
+    uint32_t frameCount() const
+    {
+        const TraceInfo &traceInfo = mParams->traceInfo;
+        return traceInfo.frameEnd - traceInfo.frameStart + 1;
+    }
+
+    int getStepAlignment() const override
+    {
+        // Align step counts to the number of frames in a trace.
+        return static_cast<int>(frameCount());
+    }
+
+    void TestBody() override { run(); }
+
+    bool traceNameIs(const char *name) const
+    {
+        return strncmp(name, mParams->traceInfo.name, kTraceInfoMaxNameLen) == 0;
+    }
+
+    bool loadTestExpectationsFromFileWithConfig(const GPUTestConfig &config,
+                                                const std::string &fileName);
+    void initializeConfigParams(GPUTestConfig::API api);
 
   private:
     struct QueryInfo
@@ -104,28 +164,150 @@ class TracePerfTest : public ANGLERenderTest, public ::testing::WithParamInterfa
     };
 
     void sampleTime();
-    void saveScreenshot(const std::string &screenshotName) override;
+
+    enum class ScreenshotType
+    {
+        kFrame,
+        kGrid,  // Grid of frames (framebuffer 0) in offscreen mode
+    };
+    void saveScreenshotIfEnabled(ScreenshotType screenshotType);
+    void saveScreenshot(const std::string &screenshotName);
+
+    void MaybeSwitchToMainContext(EGLContext currentEglContext);
+    void MaybeSwitchToTraceContext(EGLContext currentEglContext);
+
+    std::unique_ptr<const TracePerfParams> mParams;
+
+    uint32_t mStartFrame;
+    uint32_t mEndFrame;
 
     // For tracking RenderPass/FBO change timing.
     QueryInfo mCurrentQuery = {};
     std::vector<QueryInfo> mRunningQueries;
     std::vector<TimeSample> mTimeline;
 
-    std::string mStartingDirectory;
-    bool mUseTimestampQueries      = false;
-    GLuint mOffscreenFramebuffer   = 0;
-    GLuint mOffscreenTexture       = 0;
-    GLuint mOffscreenDepthStencil  = 0;
-    int mWindowWidth               = 0;
-    int mWindowHeight              = 0;
-    GLuint mDrawFramebufferBinding = 0;
-    GLuint mReadFramebufferBinding = 0;
+    bool mUseTimestampQueries                                           = false;
+    // Note: more than 2 offscreen buffers can cause races, surface is double buffered so real-world
+    // apps can rely on (now broken) assumptions about GPU completion of a previous frame
+    static constexpr int mMaxOffscreenBufferCount                       = 2;
+    std::array<GLuint, mMaxOffscreenBufferCount> mOffscreenFramebuffers = {0, 0};
+    std::array<GLuint, mMaxOffscreenBufferCount> mOffscreenTextures     = {0, 0};
+    std::array<GLsync, mMaxOffscreenBufferCount> mOffscreenSyncs        = {0, 0};
+    GLuint mOffscreenDepthStencil                                       = 0;
+    int mWindowWidth                                                    = 0;
+    int mWindowHeight                                                   = 0;
+    GLuint mDrawFramebufferBinding                                      = 0;
+    GLuint mReadFramebufferBinding                                      = 0;
+    EGLContext mEglContext                                              = 0;
+    uint32_t mCurrentFrame                                              = 0;
+    uint32_t mCurrentIteration                                          = 0;
+    uint32_t mCurrentOffscreenGridIteration                             = 0;
+    uint32_t mOffscreenFrameCount                                       = 0;
+    uint32_t mTotalFrameCount                                           = 0;
+    bool mScreenshotSaved                                               = false;
+    int32_t mScreenshotFrame                                            = gScreenshotFrame;
+    std::unique_ptr<TraceLibrary> mTraceReplay;
+    GPUTestExpectationsParser mTestExpectationsParser;
 };
 
-class TracePerfTest;
 TracePerfTest *gCurrentTracePerfTest = nullptr;
 
-// Don't forget to include KHRONOS_APIENTRY in override methods. Neccessary on Win/x86.
+// Don't forget to include KHRONOS_APIENTRY in override methods. Necessary on Win/x86.
+EGLContext KHRONOS_APIENTRY EglCreateContext(EGLDisplay display,
+                                             EGLConfig config,
+                                             EGLContext share_context,
+                                             EGLint const *attrib_list)
+{
+    return gCurrentTracePerfTest->onEglCreateContext(display, config, share_context, attrib_list);
+}
+
+void KHRONOS_APIENTRY EglMakeCurrent(EGLDisplay display,
+                                     EGLSurface draw,
+                                     EGLSurface read,
+                                     EGLContext context)
+{
+    gCurrentTracePerfTest->onEglMakeCurrent(display, draw, read, context);
+}
+
+EGLContext KHRONOS_APIENTRY EglGetCurrentContext()
+{
+    return gCurrentTracePerfTest->onEglGetCurrentContext();
+}
+
+EGLImage KHRONOS_APIENTRY EglCreateImage(EGLDisplay display,
+                                         EGLContext context,
+                                         EGLenum target,
+                                         EGLClientBuffer buffer,
+                                         const EGLAttrib *attrib_list)
+{
+    return gCurrentTracePerfTest->onEglCreateImage(display, context, target, buffer, attrib_list);
+}
+
+EGLImageKHR KHRONOS_APIENTRY EglCreateImageKHR(EGLDisplay display,
+                                               EGLContext context,
+                                               EGLenum target,
+                                               EGLClientBuffer buffer,
+                                               const EGLint *attrib_list)
+{
+    return gCurrentTracePerfTest->onEglCreateImageKHR(display, context, target, buffer,
+                                                      attrib_list);
+}
+
+EGLBoolean KHRONOS_APIENTRY EglDestroyImage(EGLDisplay display, EGLImage image)
+{
+    return gCurrentTracePerfTest->onEglDestroyImage(display, image);
+}
+
+EGLBoolean KHRONOS_APIENTRY EglDestroyImageKHR(EGLDisplay display, EGLImage image)
+{
+    return gCurrentTracePerfTest->onEglDestroyImageKHR(display, image);
+}
+
+EGLSync KHRONOS_APIENTRY EglCreateSync(EGLDisplay dpy, EGLenum type, const EGLAttrib *attrib_list)
+{
+    return gCurrentTracePerfTest->onEglCreateSync(dpy, type, attrib_list);
+}
+
+EGLSync KHRONOS_APIENTRY EglCreateSyncKHR(EGLDisplay dpy, EGLenum type, const EGLint *attrib_list)
+{
+    return gCurrentTracePerfTest->onEglCreateSyncKHR(dpy, type, attrib_list);
+}
+
+EGLBoolean KHRONOS_APIENTRY EglDestroySync(EGLDisplay dpy, EGLSync sync)
+{
+    return gCurrentTracePerfTest->onEglDestroySync(dpy, sync);
+}
+
+EGLBoolean KHRONOS_APIENTRY EglDestroySyncKHR(EGLDisplay dpy, EGLSync sync)
+{
+    return gCurrentTracePerfTest->onEglDestroySyncKHR(dpy, sync);
+}
+
+EGLint KHRONOS_APIENTRY EglClientWaitSync(EGLDisplay dpy,
+                                          EGLSync sync,
+                                          EGLint flags,
+                                          EGLTimeKHR timeout)
+{
+    return gCurrentTracePerfTest->onEglClientWaitSync(dpy, sync, flags, timeout);
+}
+EGLint KHRONOS_APIENTRY EglClientWaitSyncKHR(EGLDisplay dpy,
+                                             EGLSync sync,
+                                             EGLint flags,
+                                             EGLTimeKHR timeout)
+{
+    return gCurrentTracePerfTest->onEglClientWaitSyncKHR(dpy, sync, flags, timeout);
+}
+
+EGLint KHRONOS_APIENTRY EglGetError()
+{
+    return gCurrentTracePerfTest->onEglGetError();
+}
+
+EGLDisplay KHRONOS_APIENTRY EglGetCurrentDisplay()
+{
+    return gCurrentTracePerfTest->onEglGetCurrentDisplay();
+}
+
 void KHRONOS_APIENTRY BindFramebufferProc(GLenum target, GLuint framebuffer)
 {
     gCurrentTracePerfTest->onReplayFramebufferChange(target, framebuffer);
@@ -167,9 +349,378 @@ void KHRONOS_APIENTRY DiscardFramebufferEXTProc(GLenum target,
     gCurrentTracePerfTest->onReplayDiscardFramebufferEXT(target, numAttachments, attachments);
 }
 
+void KHRONOS_APIENTRY ViewportMinimizedProc(GLint x, GLint y, GLsizei width, GLsizei height)
+{
+    glViewport(x, y, 1, 1);
+}
+
+void KHRONOS_APIENTRY ScissorMinimizedProc(GLint x, GLint y, GLsizei width, GLsizei height)
+{
+    glScissor(x, y, 1, 1);
+}
+
+// Interpose the calls that generate actual GPU work
+void KHRONOS_APIENTRY DrawElementsMinimizedProc(GLenum mode,
+                                                GLsizei count,
+                                                GLenum type,
+                                                const void *indices)
+{
+    glDrawElements(GL_POINTS, 1, type, indices);
+}
+
+void KHRONOS_APIENTRY DrawElementsIndirectMinimizedProc(GLenum mode,
+                                                        GLenum type,
+                                                        const void *indirect)
+{
+    glDrawElementsInstancedBaseVertex(GL_POINTS, 1, type, 0, 1, 0);
+}
+
+void KHRONOS_APIENTRY DrawElementsInstancedMinimizedProc(GLenum mode,
+                                                         GLsizei count,
+                                                         GLenum type,
+                                                         const void *indices,
+                                                         GLsizei instancecount)
+{
+    glDrawElementsInstanced(GL_POINTS, 1, type, indices, 1);
+}
+
+void KHRONOS_APIENTRY DrawElementsInstancedEXTMinimizedProc(GLenum mode,
+                                                            GLsizei count,
+                                                            GLenum type,
+                                                            const void *indices,
+                                                            GLsizei instancecount)
+{
+    glDrawElementsInstancedEXT(GL_POINTS, 1, type, indices, 1);
+}
+
+void KHRONOS_APIENTRY DrawElementsBaseVertexMinimizedProc(GLenum mode,
+                                                          GLsizei count,
+                                                          GLenum type,
+                                                          const void *indices,
+                                                          GLint basevertex)
+{
+    glDrawElementsBaseVertex(GL_POINTS, 1, type, indices, basevertex);
+}
+
+void KHRONOS_APIENTRY DrawElementsBaseVertexEXTMinimizedProc(GLenum mode,
+                                                             GLsizei count,
+                                                             GLenum type,
+                                                             const void *indices,
+                                                             GLint basevertex)
+{
+    glDrawElementsBaseVertexEXT(GL_POINTS, 1, type, indices, basevertex);
+}
+
+void KHRONOS_APIENTRY DrawElementsBaseVertexOESMinimizedProc(GLenum mode,
+                                                             GLsizei count,
+                                                             GLenum type,
+                                                             const void *indices,
+                                                             GLint basevertex)
+{
+    glDrawElementsBaseVertexOES(GL_POINTS, 1, type, indices, basevertex);
+}
+
+void KHRONOS_APIENTRY DrawElementsInstancedBaseVertexMinimizedProc(GLenum mode,
+                                                                   GLsizei count,
+                                                                   GLenum type,
+                                                                   const void *indices,
+                                                                   GLsizei instancecount,
+                                                                   GLint basevertex)
+{
+    glDrawElementsInstancedBaseVertex(GL_POINTS, 1, type, indices, 1, basevertex);
+}
+
+void KHRONOS_APIENTRY DrawElementsInstancedBaseVertexEXTMinimizedProc(GLenum mode,
+                                                                      GLsizei count,
+                                                                      GLenum type,
+                                                                      const void *indices,
+                                                                      GLsizei instancecount,
+                                                                      GLint basevertex)
+{
+    glDrawElementsInstancedBaseVertexEXT(GL_POINTS, 1, type, indices, 1, basevertex);
+}
+
+void KHRONOS_APIENTRY DrawElementsInstancedBaseVertexOESMinimizedProc(GLenum mode,
+                                                                      GLsizei count,
+                                                                      GLenum type,
+                                                                      const void *indices,
+                                                                      GLsizei instancecount,
+                                                                      GLint basevertex)
+{
+    glDrawElementsInstancedBaseVertexOES(GL_POINTS, 1, type, indices, 1, basevertex);
+}
+
+void KHRONOS_APIENTRY DrawRangeElementsMinimizedProc(GLenum mode,
+                                                     GLuint start,
+                                                     GLuint end,
+                                                     GLsizei count,
+                                                     GLenum type,
+                                                     const void *indices)
+{
+    glDrawRangeElements(GL_POINTS, start, end, 1, type, indices);
+}
+
+void KHRONOS_APIENTRY DrawArraysMinimizedProc(GLenum mode, GLint first, GLsizei count)
+{
+    glDrawArrays(GL_POINTS, first, 1);
+}
+
+void KHRONOS_APIENTRY DrawArraysInstancedMinimizedProc(GLenum mode,
+                                                       GLint first,
+                                                       GLsizei count,
+                                                       GLsizei instancecount)
+{
+    glDrawArraysInstanced(GL_POINTS, first, 1, 1);
+}
+
+void KHRONOS_APIENTRY DrawArraysInstancedEXTMinimizedProc(GLenum mode,
+                                                          GLint first,
+                                                          GLsizei count,
+                                                          GLsizei instancecount)
+{
+    glDrawArraysInstancedEXT(GL_POINTS, first, 1, 1);
+}
+
+void KHRONOS_APIENTRY DrawArraysIndirectMinimizedProc(GLenum mode, const void *indirect)
+{
+    glDrawArraysInstanced(GL_POINTS, 0, 1, 1);
+}
+
+void KHRONOS_APIENTRY DispatchComputeMinimizedProc(GLuint num_groups_x,
+                                                   GLuint num_groups_y,
+                                                   GLuint num_groups_z)
+{
+    glDispatchCompute(1, 1, 1);
+}
+
+void KHRONOS_APIENTRY DispatchComputeIndirectMinimizedProc(GLintptr indirect)
+{
+    glDispatchCompute(1, 1, 1);
+}
+
+// Interpose the calls that generate data copying work
+void KHRONOS_APIENTRY BufferDataMinimizedProc(GLenum target,
+                                              GLsizeiptr size,
+                                              const void *data,
+                                              GLenum usage)
+{
+    glBufferData(target, size, nullptr, usage);
+}
+
+void KHRONOS_APIENTRY BufferSubDataMinimizedProc(GLenum target,
+                                                 GLintptr offset,
+                                                 GLsizeiptr size,
+                                                 const void *data)
+{
+#if !defined(NOOP_SUBDATA_SUBIMAGE_FOR_MINIMIZE_GPU_WORK)
+    glBufferSubData(target, offset, 1, data);
+#endif
+}
+
+void *KHRONOS_APIENTRY MapBufferRangeMinimizedProc(GLenum target,
+                                                   GLintptr offset,
+                                                   GLsizeiptr length,
+                                                   GLbitfield access)
+{
+    access |= GL_MAP_UNSYNCHRONIZED_BIT;
+    return glMapBufferRange(target, offset, length, access);
+}
+
+void *KHRONOS_APIENTRY MapBufferRangeEXTMinimizedProc(GLenum target,
+                                                      GLintptr offset,
+                                                      GLsizeiptr length,
+                                                      GLbitfield access)
+{
+    access |= GL_MAP_UNSYNCHRONIZED_BIT;
+    return glMapBufferRangeEXT(target, offset, length, access);
+}
+
+void KHRONOS_APIENTRY TexImage2DMinimizedProc(GLenum target,
+                                              GLint level,
+                                              GLint internalformat,
+                                              GLsizei width,
+                                              GLsizei height,
+                                              GLint border,
+                                              GLenum format,
+                                              GLenum type,
+                                              const void *pixels)
+{
+    GLint unpackBuffer = 0;
+    glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &unpackBuffer);
+    if (unpackBuffer)
+    {
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+    }
+    glTexImage2D(target, level, internalformat, width, height, border, format, type, nullptr);
+    if (unpackBuffer)
+    {
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, unpackBuffer);
+    }
+}
+
+void KHRONOS_APIENTRY TexSubImage2DMinimizedProc(GLenum target,
+                                                 GLint level,
+                                                 GLint xoffset,
+                                                 GLint yoffset,
+                                                 GLsizei width,
+                                                 GLsizei height,
+                                                 GLenum format,
+                                                 GLenum type,
+                                                 const void *pixels)
+{
+#if !defined(NOOP_SUBDATA_SUBIMAGE_FOR_MINIMIZE_GPU_WORK)
+    glTexSubImage2D(target, level, xoffset, yoffset, 1, 1, format, type, pixels);
+#endif
+}
+
+void KHRONOS_APIENTRY TexImage3DMinimizedProc(GLenum target,
+                                              GLint level,
+                                              GLint internalformat,
+                                              GLsizei width,
+                                              GLsizei height,
+                                              GLsizei depth,
+                                              GLint border,
+                                              GLenum format,
+                                              GLenum type,
+                                              const void *pixels)
+{
+    GLint unpackBuffer = 0;
+    glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &unpackBuffer);
+    if (unpackBuffer)
+    {
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+    }
+    glTexImage3D(target, level, internalformat, width, height, depth, border, format, type,
+                 nullptr);
+    if (unpackBuffer)
+    {
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, unpackBuffer);
+    }
+}
+
+void KHRONOS_APIENTRY TexSubImage3DMinimizedProc(GLenum target,
+                                                 GLint level,
+                                                 GLint xoffset,
+                                                 GLint yoffset,
+                                                 GLint zoffset,
+                                                 GLsizei width,
+                                                 GLsizei height,
+                                                 GLsizei depth,
+                                                 GLenum format,
+                                                 GLenum type,
+                                                 const void *pixels)
+{
+#if !defined(NOOP_SUBDATA_SUBIMAGE_FOR_MINIMIZE_GPU_WORK)
+    glTexSubImage3D(target, level, xoffset, yoffset, zoffset, 1, 1, 1, format, type, pixels);
+#endif
+}
+
+void KHRONOS_APIENTRY GenerateMipmapMinimizedProc(GLenum target)
+{
+    // Noop it for now. There is a risk that this will leave an incomplete mipmap chain and cause
+    // other issues. If this turns out to be a real issue with app traces, we can turn this into a
+    // glTexImage2D call for each generated level.
+}
+
+void KHRONOS_APIENTRY GenerateMipmapOESMinimizedProc(GLenum target) {}
+
+void KHRONOS_APIENTRY BlitFramebufferMinimizedProc(GLint srcX0,
+                                                   GLint srcY0,
+                                                   GLint srcX1,
+                                                   GLint srcY1,
+                                                   GLint dstX0,
+                                                   GLint dstY0,
+                                                   GLint dstX1,
+                                                   GLint dstY1,
+                                                   GLbitfield mask,
+                                                   GLenum filter)
+{
+    glBlitFramebuffer(srcX0, srcY0, srcX0 + 1, srcY0 + 1, dstX0, dstY0, dstX0 + 1, dstY0 + 1, mask,
+                      filter);
+}
+
+void KHRONOS_APIENTRY ReadPixelsMinimizedProc(GLint x,
+                                              GLint y,
+                                              GLsizei width,
+                                              GLsizei height,
+                                              GLenum format,
+                                              GLenum type,
+                                              void *pixels)
+{
+    glReadPixels(x, y, 1, 1, format, type, pixels);
+}
+
+void KHRONOS_APIENTRY BeginTransformFeedbackMinimizedProc(GLenum primitiveMode)
+{
+    glBeginTransformFeedback(GL_POINTS);
+}
+
 angle::GenericProc KHRONOS_APIENTRY TraceLoadProc(const char *procName)
 {
-    if (strcmp(procName, "glBindFramebuffer") == 0)
+    // EGL
+    if (strcmp(procName, "eglCreateContext") == 0)
+    {
+        return reinterpret_cast<angle::GenericProc>(EglCreateContext);
+    }
+    if (strcmp(procName, "eglMakeCurrent") == 0)
+    {
+        return reinterpret_cast<angle::GenericProc>(EglMakeCurrent);
+    }
+    if (strcmp(procName, "eglGetCurrentContext") == 0)
+    {
+        return reinterpret_cast<angle::GenericProc>(EglGetCurrentContext);
+    }
+    if (strcmp(procName, "eglCreateImage") == 0)
+    {
+        return reinterpret_cast<angle::GenericProc>(EglCreateImage);
+    }
+    if (strcmp(procName, "eglCreateImageKHR") == 0)
+    {
+        return reinterpret_cast<angle::GenericProc>(EglCreateImageKHR);
+    }
+    if (strcmp(procName, "eglDestroyImage") == 0)
+    {
+        return reinterpret_cast<angle::GenericProc>(EglDestroyImage);
+    }
+    if (strcmp(procName, "eglDestroyImageKHR") == 0)
+    {
+        return reinterpret_cast<angle::GenericProc>(EglDestroyImageKHR);
+    }
+    if (strcmp(procName, "eglCreateSync") == 0)
+    {
+        return reinterpret_cast<angle::GenericProc>(EglCreateSync);
+    }
+    if (strcmp(procName, "eglCreateSyncKHR") == 0)
+    {
+        return reinterpret_cast<angle::GenericProc>(EglCreateSyncKHR);
+    }
+    if (strcmp(procName, "eglDestroySync") == 0)
+    {
+        return reinterpret_cast<angle::GenericProc>(EglDestroySync);
+    }
+    if (strcmp(procName, "eglDestroySyncKHR") == 0)
+    {
+        return reinterpret_cast<angle::GenericProc>(EglDestroySyncKHR);
+    }
+    if (strcmp(procName, "eglClientWaitSync") == 0)
+    {
+        return reinterpret_cast<angle::GenericProc>(EglClientWaitSync);
+    }
+    if (strcmp(procName, "eglClientWaitSyncKHR") == 0)
+    {
+        return reinterpret_cast<angle::GenericProc>(EglClientWaitSyncKHR);
+    }
+    if (strcmp(procName, "eglGetError") == 0)
+    {
+        return reinterpret_cast<angle::GenericProc>(EglGetError);
+    }
+    if (strcmp(procName, "eglGetCurrentDisplay") == 0)
+    {
+        return reinterpret_cast<angle::GenericProc>(EglGetCurrentDisplay);
+    }
+
+    // GLES
+    if (strcmp(procName, "glBindFramebuffer") == 0 || strcmp(procName, "glBindFramebufferOES") == 0)
     {
         return reinterpret_cast<angle::GenericProc>(BindFramebufferProc);
     }
@@ -193,115 +744,729 @@ angle::GenericProc KHRONOS_APIENTRY TraceLoadProc(const char *procName)
     {
         return reinterpret_cast<angle::GenericProc>(DiscardFramebufferEXTProc);
     }
+
+    if (gMinimizeGPUWork)
+    {
+#define MINIMIZED(EntryPoint)                                                   \
+    if (strcmp(procName, "gl" #EntryPoint) == 0)                                \
+    {                                                                           \
+        return reinterpret_cast<angle::GenericProc>(EntryPoint##MinimizedProc); \
+    }
+
+        MINIMIZED(Viewport)
+        MINIMIZED(Scissor)
+
+        // Interpose the calls that generate actual GPU work
+        MINIMIZED(DrawElements)
+        MINIMIZED(DrawElementsIndirect)
+        MINIMIZED(DrawElementsInstanced)
+        MINIMIZED(DrawElementsInstancedEXT)
+        MINIMIZED(DrawElementsBaseVertex)
+        MINIMIZED(DrawElementsBaseVertexEXT)
+        MINIMIZED(DrawElementsBaseVertexOES)
+        MINIMIZED(DrawElementsInstancedBaseVertex)
+        MINIMIZED(DrawElementsInstancedBaseVertexEXT)
+        MINIMIZED(DrawElementsInstancedBaseVertexOES)
+        MINIMIZED(DrawRangeElements)
+        MINIMIZED(DrawArrays)
+        MINIMIZED(DrawArraysInstanced)
+        MINIMIZED(DrawArraysInstancedEXT)
+        MINIMIZED(DrawArraysIndirect)
+        MINIMIZED(DispatchCompute)
+        MINIMIZED(DispatchComputeIndirect)
+
+        // Interpose the calls that generate data copying work
+        MINIMIZED(BufferData)
+        MINIMIZED(BufferSubData)
+        MINIMIZED(MapBufferRange)
+        MINIMIZED(MapBufferRangeEXT)
+        MINIMIZED(TexImage2D)
+        MINIMIZED(TexImage3D)
+        MINIMIZED(TexSubImage2D)
+        MINIMIZED(TexSubImage3D)
+        MINIMIZED(GenerateMipmap)
+        MINIMIZED(GenerateMipmapOES)
+        MINIMIZED(BlitFramebuffer)
+        MINIMIZED(ReadPixels)
+        MINIMIZED(BeginTransformFeedback)
+    }
+
     return gCurrentTracePerfTest->getGLWindow()->getProcAddress(procName);
 }
 
-TracePerfTest::TracePerfTest()
-    : ANGLERenderTest("TracePerf", GetParam(), "ms"), mStartFrame(0), mEndFrame(0)
+void ValidateSerializedState(const char *serializedState, const char *fileName, uint32_t line)
 {
-    const TracePerfParams &param = GetParam();
+    gCurrentTracePerfTest->validateSerializedState(serializedState, fileName, line);
+}
 
-    // TODO: http://anglebug.com/4533 This fails after the upgrade to the 26.20.100.7870 driver.
-    if (IsWindows() && IsIntel() && param.getRenderer() == EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE &&
-        param.testID == RestrictedTraceID::manhattan_10)
+bool FindTraceTestDataPath(const char *traceName, char *testDataDirOut, size_t maxDataDirLen)
+{
+    char relativeTestDataDir[kMaxPath] = {};
+    snprintf(relativeTestDataDir, kMaxPath, "%s%c%s", kTraceTestFolder, GetPathSeparator(),
+             traceName);
+    return angle::FindTestDataPath(relativeTestDataDir, testDataDirOut, maxDataDirLen);
+}
+
+bool FindRootTraceTestDataPath(char *testDataDirOut, size_t maxDataDirLen)
+{
+    return angle::FindTestDataPath(kTraceTestFolder, testDataDirOut, maxDataDirLen);
+}
+
+GPUTestConfig::API getTestConfigAPIFromRenderer(angle::GLESDriverType driverType,
+                                                EGLenum renderer,
+                                                EGLenum deviceType)
+{
+    if (driverType == angle::GLESDriverType::SystemEGL ||
+        driverType == angle::GLESDriverType::SystemWGL)
     {
-        mSkipTest = true;
+        return GPUTestConfig::kAPINative;
     }
 
-    // TODO: http://anglebug.com/4731 Fails on older Intel drivers. Passes in newer.
-    if (IsWindows() && IsIntel() && param.driver != GLESDriverType::AngleEGL &&
-        param.testID == RestrictedTraceID::angry_birds_2_1500)
+    if (driverType != angle::GLESDriverType::AngleEGL &&
+        driverType != angle::GLESDriverType::AngleVulkanSecondariesEGL)
     {
-        mSkipTest = true;
+        return GPUTestConfig::kAPIUnknown;
     }
 
-    if (param.surfaceType != SurfaceType::Window && !gEnableAllTraceTests)
+    switch (renderer)
     {
-        printf("Test skipped. Use --enable-all-trace-tests to run.\n");
-        mSkipTest = true;
+        case EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE:
+            return GPUTestConfig::kAPID3D11;
+        case EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE:
+            return GPUTestConfig::kAPIGLDesktop;
+        case EGL_PLATFORM_ANGLE_TYPE_OPENGLES_ANGLE:
+            return GPUTestConfig::kAPIGLES;
+        case EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE:
+            if (deviceType == EGL_PLATFORM_ANGLE_DEVICE_TYPE_SWIFTSHADER_ANGLE)
+            {
+                return GPUTestConfig::kAPISwiftShader;
+            }
+            else
+            {
+                return GPUTestConfig::kAPIVulkan;
+            }
+        case EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE:
+            return GPUTestConfig::kAPIMetal;
+        case EGL_PLATFORM_ANGLE_TYPE_WEBGPU_ANGLE:
+            return GPUTestConfig::kAPIWgpu;
+        default:
+            std::cerr << "Unknown Renderer enum: 0x" << std::hex << renderer << "\n";
+            return GPUTestConfig::kAPIUnknown;
+    }
+}
+
+bool TracePerfTest::loadTestExpectationsFromFileWithConfig(const GPUTestConfig &config,
+                                                           const std::string &fileName)
+{
+    if (!mTestExpectationsParser.loadTestExpectationsFromFile(config, fileName))
+    {
+        std::stringstream errorMsgStream;
+        for (const auto &message : mTestExpectationsParser.getErrorMessages())
+        {
+            errorMsgStream << std::endl << " " << message;
+        }
+
+        std::cerr << "Failed to load test expectations." << errorMsgStream.str() << std::endl;
+        return false;
+    }
+    return true;
+}
+
+void TracePerfTest::initializeConfigParams(GPUTestConfig::API api)
+{
+    // TODO (b/423678565): These config parameters will be overridden by ANGLERenderTest::SetUp().
+    ConfigParameters &configParams = getConfigParams();
+    configParams.redBits           = mParams->traceInfo.configRedBits;
+    configParams.greenBits         = mParams->traceInfo.configGreenBits;
+    configParams.blueBits          = mParams->traceInfo.configBlueBits;
+    configParams.alphaBits         = mParams->traceInfo.configAlphaBits;
+    configParams.depthBits         = mParams->traceInfo.configDepthBits;
+    configParams.stencilBits       = mParams->traceInfo.configStencilBits;
+    configParams.robustAccess      = mParams->traceInfo.isRobustAccessEnabled;
+    configParams.colorSpace        = mParams->traceInfo.drawSurfaceColorSpace;
+
+    // TODO (b/423680521): App traces shouldn't be relying on these extensions anyway, since they
+    // are not available when the real app is running on a real device, so these values should
+    // always match the defaults to begin with.
+    configParams.webGLCompatibility    = mParams->traceInfo.isWebGLCompatibilityEnabled;
+    configParams.robustResourceInit    = mParams->traceInfo.isRobustResourceInitEnabled;
+    configParams.bindGeneratesResource = mParams->traceInfo.isBindGeneratesResourcesEnabled;
+    configParams.clientArraysEnabled   = mParams->traceInfo.areClientArraysEnabled;
+    configParams.extensionsEnabled     = mParams->traceInfo.areExtensionsEnabled;
+}
+
+TracePerfTest::TracePerfTest(std::unique_ptr<const TracePerfParams> params)
+    : ANGLERenderTest("TracePerf", *params.get(), "ms"),
+      mParams(std::move(params)),
+      mStartFrame(0),
+      mEndFrame(0)
+{
+    constexpr char kTestExpectationsPath[] =
+        "src/tests/perf_tests/angle_trace_tests_expectations.txt";
+    constexpr size_t kMaxPath = 512;
+    std::array<char, kMaxPath> foundDataPath;
+    if (!angle::FindTestDataPath(kTestExpectationsPath, foundDataPath.data(), foundDataPath.size()))
+    {
+        failTest(std::string("Unable to find ANGLE trace tests expectations path: ") +
+                 std::string(kTestExpectationsPath));
+        return;
     }
 
-    if (param.eglParameters.deviceType != EGL_PLATFORM_ANGLE_DEVICE_TYPE_HARDWARE_ANGLE &&
-        !gEnableAllTraceTests)
+    angle::GPUTestConfig::API api = getTestConfigAPIFromRenderer(
+        mParams->driver, mParams->eglParameters.renderer, mParams->eglParameters.deviceType);
+
+    GPUTestConfig testConfig = GPUTestConfig(api, 0);
+    if (!loadTestExpectationsFromFileWithConfig(testConfig, std::string(foundDataPath.data())))
     {
-        printf("Test skipped. Use --enable-all-trace-tests to run.\n");
-        mSkipTest = true;
+        failTest(std::string("Unable to load ANGLE trace tests expectations file: ") +
+                 std::string(foundDataPath.data()));
+        return;
+    }
+    else
+    {
+        int32_t testExpectation =
+            mTestExpectationsParser.getTestExpectation(mParams->traceInfo.name);
+
+        if (testExpectation == GPUTestExpectationsParser::kGpuTestSkip)
+        {
+            skipTest("Test skipped on this config");
+        }
     }
 
-    if (param.testID == RestrictedTraceID::cod_mobile)
+    if (!mParams->traceInfo.initialized)
     {
-        // TODO: http://anglebug.com/4967 Vulkan: GL_EXT_color_buffer_float not supported on Pixel 2
-        // The COD:Mobile trace uses a framebuffer attachment with:
-        //   format = GL_RGB
-        //   type = GL_UNSIGNED_INT_10F_11F_11F_REV
-        // That combination is only renderable if GL_EXT_color_buffer_float is supported.
-        // It happens to not be supported on Pixel 2's Vulkan driver.
-        addExtensionPrerequisite("GL_EXT_color_buffer_float");
-
-        // TODO: http://anglebug.com/4731 This extension is missing on older Intel drivers.
-        addExtensionPrerequisite("GL_OES_EGL_image_external");
+        failTest("Failed to load trace json.");
+        return;
     }
 
-    if (param.testID == RestrictedTraceID::brawl_stars)
+    initializeConfigParams(api);
+
+    for (std::string extension : mParams->traceInfo.requiredExtensions)
+    {
+        addExtensionPrerequisite(extension);
+    }
+
+    if (!mParams->traceInfo.keyFrames.empty())
+    {
+        // Only support one keyFrame for now
+        if (mParams->traceInfo.keyFrames.size() != 1)
+        {
+            WARN() << "Multiple keyframes detected, only using the first";
+        }
+
+        // Only use keyFrame if the user didn't specify a value.
+        if (gScreenshotFrame == kDefaultScreenshotFrame)
+        {
+            mScreenshotFrame = mParams->traceInfo.keyFrames[0];
+            INFO() << "Trace contains keyframe, using frame " << mScreenshotFrame
+                   << " for screenshot";
+        }
+        else
+        {
+            WARN() << "Ignoring keyframe, user requested frame " << mScreenshotFrame
+                   << " for screenshot";
+            if (mScreenshotFrame == kAllFrames)
+            {
+                WARN() << "Capturing screenshots of all frames since requested frame was "
+                       << kAllFrames;
+            }
+        }
+    }
+
+    // Configuration-specific test exceptions. Only include exceptions that are outside the scope
+    // of the trace tests expectations file, "angle_trace_tests_expectations.txt".
+
+    if (traceNameIs("modern_combat_5"))
+    {
+        if (IsPixel6() && !IsAndroid14OrNewer())
+        {
+            skipTest(
+                "https://issuetracker.google.com/42267261 Causing thermal failures on Pixel 6 with "
+                "Android 13");
+        }
+    }
+
+    if (traceNameIs("genshin_impact"))
+    {
+        if (!Is64Bit())
+        {
+            skipTest("Genshin is too large to handle in 32-bit mode");
+        }
+    }
+
+    // Legacy trace-specific extension dependencies. For new traces this information will be
+    // included in the trace's json file.
+
+    if (traceNameIs("brawl_stars"))
     {
         addExtensionPrerequisite("GL_EXT_shadow_samplers");
     }
 
-    if (param.testID == RestrictedTraceID::free_fire)
+    if (traceNameIs("free_fire"))
     {
         addExtensionPrerequisite("GL_OES_EGL_image_external");
     }
 
-    if (param.testID == RestrictedTraceID::marvel_contest_of_champions)
+    if (traceNameIs("marvel_contest_of_champions"))
     {
         addExtensionPrerequisite("GL_EXT_color_buffer_half_float");
     }
 
-    if (param.testID == RestrictedTraceID::world_of_tanks_blitz)
+    if (traceNameIs("world_of_tanks_blitz"))
     {
         addExtensionPrerequisite("GL_EXT_disjoint_timer_query");
     }
 
-    if (param.testID == RestrictedTraceID::dragon_ball_legends)
+    if (traceNameIs("dragon_ball_legends"))
     {
         addExtensionPrerequisite("GL_KHR_texture_compression_astc_ldr");
+    }
+
+    if (traceNameIs("lego_legacy"))
+    {
+        addExtensionPrerequisite("GL_EXT_shadow_samplers");
+    }
+
+    if (traceNameIs("world_war_doh"))
+    {
+        // Linux+NVIDIA doesn't support GL_KHR_texture_compression_astc_ldr (possibly others also)
+        addExtensionPrerequisite("GL_KHR_texture_compression_astc_ldr");
+    }
+
+    if (traceNameIs("magic_tiles_3"))
+    {
+        // Linux+NVIDIA doesn't support GL_KHR_texture_compression_astc_ldr (possibly others also)
+        addExtensionPrerequisite("GL_KHR_texture_compression_astc_ldr");
+    }
+
+    if (traceNameIs("real_gangster_crime"))
+    {
+        // Linux+NVIDIA doesn't support GL_KHR_texture_compression_astc_ldr (possibly others also)
+        addExtensionPrerequisite("GL_KHR_texture_compression_astc_ldr");
+
+        // Intel doesn't support external images.
+        addExtensionPrerequisite("GL_OES_EGL_image_external");
+    }
+
+    if (traceNameIs("asphalt_8"))
+    {
+        addExtensionPrerequisite("GL_KHR_texture_compression_astc_ldr");
+    }
+
+    if (traceNameIs("hearthstone"))
+    {
+        addExtensionPrerequisite("GL_KHR_texture_compression_astc_ldr");
+    }
+
+    if (traceNameIs("shadow_fight_2"))
+    {
+        addExtensionPrerequisite("GL_OES_EGL_image_external");
+        addExtensionPrerequisite("GL_KHR_texture_compression_astc_ldr");
+    }
+
+    if (traceNameIs("rise_of_kingdoms"))
+    {
+        addExtensionPrerequisite("GL_OES_EGL_image_external");
+    }
+
+    if (traceNameIs("among_us"))
+    {
+        addExtensionPrerequisite("GL_KHR_texture_compression_astc_ldr");
+    }
+
+    if (traceNameIs("extreme_car_driving_simulator"))
+    {
+        addExtensionPrerequisite("GL_KHR_texture_compression_astc_ldr");
+    }
+
+    if (traceNameIs("junes_journey"))
+    {
+        addExtensionPrerequisite("GL_OES_EGL_image_external");
+    }
+
+    if (traceNameIs("ragnarok_m_eternal_love"))
+    {
+        addExtensionPrerequisite("GL_OES_EGL_image_external");
+        addExtensionPrerequisite("GL_KHR_texture_compression_astc_ldr");
+    }
+
+    if (traceNameIs("league_of_legends_wild_rift"))
+    {
+        addExtensionPrerequisite("GL_OES_EGL_image_external");
+        addExtensionPrerequisite("GL_KHR_texture_compression_astc_ldr");
+    }
+
+    if (traceNameIs("aztec_ruins"))
+    {
+        addExtensionPrerequisite("GL_KHR_texture_compression_astc_ldr");
+    }
+
+    if (traceNameIs("dragon_raja"))
+    {
+        addExtensionPrerequisite("GL_OES_EGL_image_external");
+    }
+
+    if (traceNameIs("avakin_life"))
+    {
+        addExtensionPrerequisite("GL_OES_EGL_image_external");
+    }
+
+    if (traceNameIs("ludo_king"))
+    {
+        addExtensionPrerequisite("GL_KHR_texture_compression_astc_ldr");
+    }
+
+    if (traceNameIs("cookie_run_kingdom"))
+    {
+        addExtensionPrerequisite("GL_OES_EGL_image_external");
+    }
+
+    if (traceNameIs("scrabble_go"))
+    {
+        addExtensionPrerequisite("GL_KHR_texture_compression_astc_ldr");
+    }
+
+    if (traceNameIs("world_of_kings"))
+    {
+        addExtensionPrerequisite("GL_OES_EGL_image_external");
+    }
+
+    if (traceNameIs("nier_reincarnation"))
+    {
+        addExtensionPrerequisite("GL_KHR_texture_compression_astc_ldr");
+    }
+
+    if (traceNameIs("world_cricket_championship_2"))
+    {
+        addExtensionPrerequisite("GL_KHR_texture_compression_astc_ldr");
+    }
+
+    if (traceNameIs("township"))
+    {
+        addExtensionPrerequisite("GL_OES_EGL_image_external");
+    }
+
+    if (traceNameIs("asphalt_9"))
+    {
+        addExtensionPrerequisite("GL_KHR_texture_compression_astc_ldr");
+    }
+
+    if (traceNameIs("dead_by_daylight"))
+    {
+        addExtensionPrerequisite("GL_EXT_shader_framebuffer_fetch");
+    }
+
+    if (traceNameIs("lords_mobile"))
+    {
+        // http://anglebug.com/42265475 - glTexStorage2DEXT is not exposed on Pixel 4 native
+        addExtensionPrerequisite("GL_EXT_texture_storage");
+    }
+
+    if (traceNameIs("blade_and_soul_revolution"))
+    {
+        addExtensionPrerequisite("GL_EXT_texture_buffer");
+        addExtensionPrerequisite("GL_EXT_shader_framebuffer_fetch");
+        addExtensionPrerequisite("GL_KHR_texture_compression_astc_ldr");
+    }
+
+    if (traceNameIs("scary_teacher_3d"))
+    {
+        addExtensionPrerequisite("GL_KHR_texture_compression_astc_ldr");
+    }
+
+    if (traceNameIs("car_chase"))
+    {
+        addExtensionPrerequisite("GL_EXT_geometry_shader");
+        addExtensionPrerequisite("GL_EXT_primitive_bounding_box");
+        addExtensionPrerequisite("GL_EXT_tessellation_shader");
+        addExtensionPrerequisite("GL_KHR_texture_compression_astc_ldr");
+        addExtensionPrerequisite("GL_EXT_texture_cube_map_array");
+    }
+
+    if (traceNameIs("aztec_ruins_high"))
+    {
+        addExtensionPrerequisite("GL_KHR_texture_compression_astc_ldr");
+    }
+
+    if (traceNameIs("special_forces_group_2"))
+    {
+        addExtensionPrerequisite("GL_EXT_texture_buffer");
+    }
+
+    if (traceNameIs("tessellation"))
+    {
+        addExtensionPrerequisite("GL_EXT_geometry_shader");
+        addExtensionPrerequisite("GL_EXT_primitive_bounding_box");
+        addExtensionPrerequisite("GL_EXT_tessellation_shader");
+        addExtensionPrerequisite("GL_EXT_texture_cube_map_array");
+    }
+
+    if (traceNameIs("basemark_gpu"))
+    {
+        addExtensionPrerequisite("GL_KHR_texture_compression_astc_ldr");
+    }
+
+    if (traceNameIs("mortal_kombat"))
+    {
+        addExtensionPrerequisite("GL_EXT_texture_buffer");
+    }
+
+    if (traceNameIs("ni_no_kuni"))
+    {
+        addExtensionPrerequisite("GL_EXT_shader_framebuffer_fetch");
+        addExtensionPrerequisite("GL_KHR_texture_compression_astc_ldr");
+    }
+
+    if (traceNameIs("octopath_traveler"))
+    {
+        addExtensionPrerequisite("GL_EXT_shader_framebuffer_fetch");
+        addExtensionPrerequisite("GL_KHR_texture_compression_astc_ldr");
+    }
+
+    if (traceNameIs("antutu_refinery"))
+    {
+        addExtensionPrerequisite("GL_ANDROID_extension_pack_es31a");
+    }
+
+    if (traceNameIs("botworld_adventure"))
+    {
+        addExtensionPrerequisite("GL_KHR_texture_compression_astc_ldr");
+    }
+
+    if (traceNameIs("life_is_strange"))
+    {
+        addExtensionPrerequisite("GL_EXT_sRGB_write_control");
+        addExtensionPrerequisite("GL_EXT_texture_buffer");
+        addExtensionPrerequisite("GL_EXT_texture_cube_map_array");
+    }
+
+    if (traceNameIs("minetest"))
+    {
+        addExtensionPrerequisite("GL_EXT_texture_format_BGRA8888");
+        addIntegerPrerequisite(GL_MAX_TEXTURE_UNITS, 4);
+    }
+
+    if (traceNameIs("diablo_immortal"))
+    {
+        addExtensionPrerequisite("GL_EXT_shader_framebuffer_fetch");
+    }
+
+    if (traceNameIs("mu_origin_3"))
+    {
+        addExtensionPrerequisite("GL_EXT_texture_buffer");
+        addExtensionPrerequisite("GL_EXT_shader_framebuffer_fetch");
+        addExtensionPrerequisite("GL_OES_EGL_image_external");
+    }
+
+    if (traceNameIs("catalyst_black"))
+    {
+        addExtensionPrerequisite("GL_EXT_shader_framebuffer_fetch");
+    }
+
+    if (traceNameIs("limbo"))
+    {
+        addExtensionPrerequisite("GL_EXT_shader_framebuffer_fetch");
+
+        // For LUMINANCE8_ALPHA8_EXT
+        addExtensionPrerequisite("GL_EXT_texture_storage");
+    }
+
+    if (traceNameIs("arknights"))
+    {
+        // Intel doesn't support external images.
+        addExtensionPrerequisite("GL_OES_EGL_image_external");
+    }
+
+    if (traceNameIs("honkai_star_rail"))
+    {
+        addExtensionPrerequisite("GL_KHR_texture_compression_astc_ldr");
+    }
+
+    if (traceNameIs("toca_life_world"))
+    {
+        addExtensionPrerequisite("GL_OES_EGL_image_external");
+    }
+
+    if (traceNameIs("poppy_playtime"))
+    {
+        addExtensionPrerequisite("GL_OES_EGL_image_external");
+        addIntegerPrerequisite(GL_MAX_TEXTURE_SIZE, 16383);
+    }
+
+    if (traceNameIs("grand_mountain_adventure"))
+    {
+        addIntegerPrerequisite(GL_MAX_TEXTURE_SIZE, 11016);
+    }
+
+    if (traceNameIs("passmark_simple"))
+    {
+        addExtensionPrerequisite("GL_OES_framebuffer_object");
+    }
+
+    if (traceNameIs("minecraft_vibrant_visuals"))
+    {
+        addExtensionPrerequisite("GL_EXT_sRGB_write_control");
+        addIntegerPrerequisite(GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS, 1024);
+    }
+
+    if (traceNameIs("love_and_deepspace"))
+    {
+        addIntegerPrerequisite(GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS, 6);
+    }
+
+    if (traceNameIs("dota_underlords") || traceNameIs("minecraft_bedrock") ||
+        traceNameIs("my_talking_angela_2") || traceNameIs("my_talking_tom_friends") ||
+        traceNameIs("my_talking_tom2") || traceNameIs("tower_of_fantasy"))
+    {
+        addExtensionPrerequisite("GL_EXT_sRGB_write_control");
+    }
+
+    if (traceNameIs("tiles_hop"))
+    {
+        addIntegerPrerequisite(GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS, 1024);
+    }
+
+    // GL_KHR_debug does not work on Android for GLES1
+    if (IsAndroid() && mParams->traceInfo.contextClientMajorVersion == 1)
+    {
+        mEnableDebugCallback = false;
     }
 
     // We already swap in TracePerfTest::drawBenchmark, no need to swap again in the harness.
     disableTestHarnessSwap();
 
     gCurrentTracePerfTest = this;
+
+    if (gTraceTestValidation)
+    {
+        mStepsToRun = frameCount();
+    }
+
+    if (gCapturedFrameCountOnly)
+    {
+        // Run exactly the number of frames that were captured
+        mStepsToRun = frameCount();
+    }
+
+    if (gRunToKeyFrame)
+    {
+        if (mParams->traceInfo.keyFrames.empty())
+        {
+            // If we don't have a keyFrame, run one step
+            INFO() << "No keyframe available for trace, running to frame 1";
+            mStepsToRun = 1;
+        }
+        else
+        {
+            int keyFrame = mParams->traceInfo.keyFrames[0];
+            INFO() << "Running to keyframe: " << keyFrame;
+            mStepsToRun = keyFrame;
+        }
+    }
+}
+
+void TracePerfTest::startTest()
+{
+    // If the previous run didn't align with the frame count (e.g., due to gRunToKeyFrame
+    // or unaligned warmup iterations), reset the replay state to ensure a clean start.
+    if (mCurrentFrame != mStartFrame)
+    {
+        mTraceReplay->resetReplay();
+        mCurrentFrame = mStartFrame;
+
+        // Flush to avoid potential GPU time tracking issues on some platforms if the previous
+        // unaligned run left pending work.
+        glFlush();
+    }
+
+    ANGLERenderTest::startTest();
+}
+
+std::string FindTraceGzPath(const std::string &traceName)
+{
+    std::stringstream pathStream;
+
+    char genDir[kMaxPath] = {};
+    if (!angle::FindTestDataPath("gen", genDir, kMaxPath))
+    {
+        return "";
+    }
+    pathStream << genDir << angle::GetPathSeparator() << "tracegz_" << traceName << ".gz";
+
+    return pathStream.str();
 }
 
 void TracePerfTest::initializeBenchmark()
 {
-    const auto &params = GetParam();
+    const TraceInfo &traceInfo = mParams->traceInfo;
 
-    mStartingDirectory = angle::GetCWD().value();
-
-    // To load the trace data path correctly we set the CWD to the executable dir.
-    if (!IsAndroid())
+    char testDataDir[kMaxPath] = {};
+    if (!FindTraceTestDataPath(traceInfo.name, testDataDir, kMaxPath))
     {
-        std::string exeDir = angle::GetExecutableDirectory();
-        angle::SetCWD(exeDir.c_str());
+        failTest("Could not find test data folder.");
+        return;
     }
 
-    trace_angle::LoadGLES(TraceLoadProc);
+    std::string baseDir = "";
+#if defined(ANGLE_TRACE_EXTERNAL_BINARIES)
+    baseDir += AndroidWindow::GetApplicationDirectory() + "/angle_traces/";
+#endif
 
-    const TraceInfo &traceInfo = GetTraceInfo(params.testID);
-    mStartFrame                = traceInfo.startFrame;
-    mEndFrame                  = traceInfo.endFrame;
-    SetBinaryDataDecompressCallback(params.testID, DecompressBinaryData);
+    if (gTraceInterpreter)
+    {
+        mTraceReplay.reset(new TraceLibrary("angle_trace_interpreter", traceInfo, baseDir));
+        if (strcmp(gTraceInterpreter, "gz") == 0)
+        {
+            std::string traceGzPath = FindTraceGzPath(traceInfo.name);
+            if (traceGzPath.empty())
+            {
+                failTest("Could not find trace gz.");
+                return;
+            }
+            mTraceReplay->setTraceGzPath(traceGzPath);
+        }
+    }
+    else
+    {
+        std::stringstream traceNameStr;
+        traceNameStr << "angle_restricted_traces_" << traceInfo.name;
+        std::string traceName = traceNameStr.str();
+        mTraceReplay.reset(new TraceLibrary(traceNameStr.str(), traceInfo, baseDir));
+    }
 
-    setStepsPerRunLoopStep(mEndFrame - mStartFrame + 1);
+    LoadTraceEGL(TraceLoadProc);
+    LoadTraceGLES(TraceLoadProc);
 
-    std::stringstream testDataDirStr;
-    testDataDirStr << ANGLE_TRACE_DATA_DIR << "/" << traceInfo.name;
-    std::string testDataDir = testDataDirStr.str();
-    SetBinaryDataDir(params.testID, testDataDir.c_str());
+    if (!mTraceReplay->valid())
+    {
+        failTest("Could not load trace.");
+        return;
+    }
 
-    mWindowWidth  = mTestParams.windowWidth;
-    mWindowHeight = mTestParams.windowHeight;
+    mStartFrame = traceInfo.frameStart;
+    mEndFrame   = traceInfo.frameEnd;
+    mTraceReplay->setValidateSerializedStateCallback(ValidateSerializedState);
+    mTraceReplay->setBinaryDataDir(testDataDir);
+    mTraceReplay->setReplayResourceMode(gIncludeInactiveResources);
+    if (gScreenshotDir)
+    {
+        mTraceReplay->setDebugOutputDir(gScreenshotDir);
+    }
+
+    if (gMinimizeGPUWork)
+    {
+        // Shrink the offscreen window to 1x1.
+        mWindowWidth  = 1;
+        mWindowHeight = 1;
+    }
+    else
+    {
+        mWindowWidth  = mTestParams.windowWidth;
+        mWindowHeight = mTestParams.windowHeight;
+    }
+    mCurrentFrame     = mStartFrame;
+    mCurrentIteration = mStartFrame;
+    mCurrentOffscreenGridIteration = 0;
 
     if (IsAndroid())
     {
@@ -309,53 +1474,72 @@ void TracePerfTest::initializeBenchmark()
         getWindow()->setOrientation(mTestParams.windowWidth, mTestParams.windowHeight);
     }
 
-    // If we're rendering offscreen we set up a default backbuffer.
-    if (params.surfaceType == SurfaceType::Offscreen)
+    // Track the context we're using to run this test so we can switch to it for queries and
+    // offscreen rendering.
+    mEglContext = getGLWindow()->getCurrentContext();
+
+    // If we're rendering offscreen we set up a default back buffer.
+    if (mParams->surfaceType == SurfaceType::Offscreen)
     {
-        if (!IsAndroid())
+        bool gles1 = mParams->traceInfo.contextClientMajorVersion == 1;
+        if (gles1 &&
+            !CheckExtensionExists(reinterpret_cast<const char *>(glGetString(GL_EXTENSIONS)),
+                                  "GL_OES_framebuffer_object"))
         {
-            mWindowWidth *= 4;
-            mWindowHeight *= 4;
+            failTest("GLES1 --offscreen requires GL_OES_framebuffer_object");
+            return;
         }
 
-        glGenFramebuffers(1, &mOffscreenFramebuffer);
-        glBindFramebuffer(GL_FRAMEBUFFER, mOffscreenFramebuffer);
+        auto genRenderbuffers     = gles1 ? glGenRenderbuffersOES : glGenRenderbuffers;
+        auto bindRenderbuffer     = gles1 ? glBindRenderbufferOES : glBindRenderbuffer;
+        auto renderbufferStorage  = gles1 ? glRenderbufferStorageOES : glRenderbufferStorage;
+        auto genFramebuffers      = gles1 ? glGenFramebuffersOES : glGenFramebuffers;
+        auto bindFramebuffer      = gles1 ? glBindFramebufferOES : glBindFramebuffer;
+        auto framebufferTexture2D = gles1 ? glFramebufferTexture2DOES : glFramebufferTexture2D;
+        auto framebufferRenderbuffer =
+            gles1 ? glFramebufferRenderbufferOES : glFramebufferRenderbuffer;
 
-        // Hard-code RGBA8/D24S8. This should be specified in the trace info.
-        glGenTextures(1, &mOffscreenTexture);
-        glBindTexture(GL_TEXTURE_2D, mOffscreenTexture);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, mWindowWidth, mWindowHeight, 0, GL_RGBA,
-                     GL_UNSIGNED_BYTE, nullptr);
+        genRenderbuffers(1, &mOffscreenDepthStencil);
+        bindRenderbuffer(GL_RENDERBUFFER, mOffscreenDepthStencil);
+        renderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, mWindowWidth, mWindowHeight);
+        bindRenderbuffer(GL_RENDERBUFFER, 0);
 
-        glGenRenderbuffers(1, &mOffscreenDepthStencil);
-        glBindRenderbuffer(GL_RENDERBUFFER, mOffscreenDepthStencil);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, mWindowWidth, mWindowHeight);
+        genFramebuffers(mMaxOffscreenBufferCount, mOffscreenFramebuffers.data());
+        glGenTextures(mMaxOffscreenBufferCount, mOffscreenTextures.data());
+        for (int i = 0; i < mMaxOffscreenBufferCount; i++)
+        {
+            bindFramebuffer(GL_FRAMEBUFFER, mOffscreenFramebuffers[i]);
 
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
-                               mOffscreenTexture, 0);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER,
-                                  mOffscreenDepthStencil);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER,
-                                  mOffscreenDepthStencil);
-        glBindTexture(GL_TEXTURE_2D, 0);
-        glBindRenderbuffer(GL_RENDERBUFFER, 0);
+            // Hard-code RGBA8/D24S8. This should be specified in the trace info.
+            glBindTexture(GL_TEXTURE_2D, mOffscreenTextures[i]);
+            glTexImage2D(GL_TEXTURE_2D, 0,
+                         mParams->colorSpace == EGL_GL_COLORSPACE_SRGB ? GL_SRGB8_ALPHA8 : GL_RGBA,
+                         mWindowWidth, mWindowHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+
+            framebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                                 mOffscreenTextures[i], 0);
+            framebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER,
+                                    mOffscreenDepthStencil);
+            framebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER,
+                                    mOffscreenDepthStencil);
+            glBindTexture(GL_TEXTURE_2D, 0);
+        }
     }
 
     // Potentially slow. Can load a lot of resources.
-    SetupReplay(params.testID);
+    mTraceReplay->setupReplay();
 
     glFinish();
 
-    ASSERT_TRUE(mEndFrame > mStartFrame);
+    ASSERT_GE(mEndFrame, mStartFrame);
 
     getWindow()->ignoreSizeEvents();
     getWindow()->setVisible(true);
 
     // If we're re-tracing, trigger capture start after setup. This ensures the Setup function gets
     // recaptured into another Setup function and not merged with the first frame.
-    if (angle::gStartTraceAfterSetup)
+    if (gRetraceMode)
     {
-        angle::SetEnvironmentVar("ANGLE_CAPTURE_TRIGGER", "0");
         getGLWindow()->swap();
     }
 }
@@ -364,26 +1548,24 @@ void TracePerfTest::initializeBenchmark()
 
 void TracePerfTest::destroyBenchmark()
 {
-    if (mOffscreenTexture != 0)
+    if (mParams->surfaceType == SurfaceType::Offscreen)
     {
-        glDeleteTextures(1, &mOffscreenTexture);
-        mOffscreenTexture = 0;
-    }
+        glDeleteTextures(mMaxOffscreenBufferCount, mOffscreenTextures.data());
+        mOffscreenTextures.fill(0);
 
-    if (mOffscreenDepthStencil != 0)
-    {
-        glDeleteRenderbuffers(1, &mOffscreenDepthStencil);
+        bool gles1               = mParams->traceInfo.contextClientMajorVersion == 1;
+        auto deleteRenderbuffers = gles1 ? glDeleteRenderbuffersOES : glDeleteRenderbuffers;
+        auto deleteFramebuffers  = gles1 ? glDeleteFramebuffersOES : glDeleteFramebuffers;
+
+        deleteRenderbuffers(1, &mOffscreenDepthStencil);
         mOffscreenDepthStencil = 0;
+
+        deleteFramebuffers(mMaxOffscreenBufferCount, mOffscreenFramebuffers.data());
+        mOffscreenFramebuffers.fill(0);
     }
 
-    if (mOffscreenFramebuffer != 0)
-    {
-        glDeleteFramebuffers(1, &mOffscreenFramebuffer);
-        mOffscreenFramebuffer = 0;
-    }
-
-    // In order for the next test to load, restore the working directory
-    angle::SetCWD(mStartingDirectory.c_str());
+    mTraceReplay->finishReplay();
+    mTraceReplay.reset(nullptr);
 }
 
 void TracePerfTest::sampleTime()
@@ -401,7 +1583,25 @@ void TracePerfTest::sampleTime()
         {
             glGetInteger64v(GL_TIMESTAMP_EXT, &glTime);
         }
-        mTimeline.push_back({glTime, angle::GetHostTimeSeconds()});
+        mTimeline.push_back({glTime, angle::GetCurrentSystemTime()});
+    }
+}
+
+void TracePerfTest::MaybeSwitchToMainContext(EGLContext currentEglContext)
+{
+    if (currentEglContext != mEglContext)
+    {
+        onEglMakeCurrent(onEglGetCurrentDisplay(), onEglGetCurrentSurface(EGL_DRAW),
+                         onEglGetCurrentSurface(EGL_READ), mEglContext);
+    }
+}
+
+void TracePerfTest::MaybeSwitchToTraceContext(EGLContext currentEglContext)
+{
+    if (currentEglContext != mEglContext)
+    {
+        onEglMakeCurrent(onEglGetCurrentDisplay(), onEglGetCurrentSurface(EGL_DRAW),
+                         onEglGetCurrentSurface(EGL_READ), currentEglContext);
     }
 }
 
@@ -409,67 +1609,117 @@ void TracePerfTest::drawBenchmark()
 {
     constexpr uint32_t kFramesPerX  = 6;
     constexpr uint32_t kFramesPerY  = 4;
-    constexpr uint32_t kFramesPerXY = kFramesPerY * kFramesPerX;
+    constexpr uint32_t kFramesPerSwap = kFramesPerY * kFramesPerX;
 
-    const uint32_t kOffscreenOffsetX =
-        static_cast<uint32_t>(static_cast<double>(mTestParams.windowWidth) / 3.0f);
-    const uint32_t kOffscreenOffsetY =
-        static_cast<uint32_t>(static_cast<double>(mTestParams.windowHeight) / 3.0f);
-    const uint32_t kOffscreenWidth  = kOffscreenOffsetX;
-    const uint32_t kOffscreenHeight = kOffscreenOffsetY;
+    const uint32_t kOffscreenOffsetX = 0;
+    const uint32_t kOffscreenOffsetY = 0;
+    const uint32_t kOffscreenWidth   = mTestParams.windowWidth;
+    const uint32_t kOffscreenHeight  = mTestParams.windowHeight;
 
     const uint32_t kOffscreenFrameWidth = static_cast<uint32_t>(
         static_cast<double>(kOffscreenWidth / static_cast<double>(kFramesPerX)));
     const uint32_t kOffscreenFrameHeight = static_cast<uint32_t>(
         static_cast<double>(kOffscreenHeight / static_cast<double>(kFramesPerY)));
 
-    const TracePerfParams &params = GetParam();
-
     // Add a time sample from GL and the host.
-    sampleTime();
-
-    uint32_t endFrame = mEndFrame;
-    if (gMaxStepsPerformed > 0)
+    if (mCurrentFrame == mStartFrame)
     {
-        endFrame =
-            std::min(endFrame, gMaxStepsPerformed - mTotalNumStepsPerformed - 1 + mStartFrame);
-        mStepsPerRunLoopStep = endFrame - mStartFrame + 1;
+        sampleTime();
     }
 
-    for (uint32_t frame = mStartFrame; frame <= mEndFrame; ++frame)
+    bool gles1           = mParams->traceInfo.contextClientMajorVersion == 1;
+    auto bindFramebuffer = gles1 ? glBindFramebufferOES : glBindFramebuffer;
+    int offscreenBufferIndex = mTotalFrameCount % mMaxOffscreenBufferCount;
+
+    if (mParams->surfaceType == SurfaceType::Offscreen)
     {
-        char frameName[32];
-        sprintf(frameName, "Frame %u", frame);
-        beginInternalTraceEvent(frameName);
+        // Some driver (ARM and ANGLE) try to nop or defer the glFlush if it is called within the
+        // renderpass to avoid breaking renderpass (performance reason). For app traces that does
+        // not use any FBO, when we run in the offscreen mode, there is no frame boundary and
+        // glFlush call we issued at end of frame will get skipped. To overcome this (and also
+        // matches what onscreen double buffering behavior as well), we use two offscreen FBOs and
+        // ping pong between them for each frame.
+        GLuint buffer = mOffscreenFramebuffers[offscreenBufferIndex];
 
-        startGpuTimer();
-        ReplayFrame(params.testID, frame);
-        stopGpuTimer();
-
-        if (params.surfaceType != SurfaceType::Offscreen)
+        if (gles1 && mOffscreenFrameCount == kFramesPerSwap - 1)
         {
-            getGLWindow()->swap();
+            buffer = 0;  // gles1: a single frame is rendered to buffer 0
+        }
+        bindFramebuffer(GL_FRAMEBUFFER, buffer);
+    }
+
+    char frameName[32];
+    snprintf(frameName, sizeof(frameName), "Frame %u", mCurrentFrame);
+    ANGLE_TRACE_EVENT_BEGIN("gpu.angle", perfetto::DynamicString(frameName));
+
+    // Only insert gpu-timer calls for when requested
+    if (mParams->trackGpuTime)
+    {
+        startGpuTimer();
+    }
+    atraceCounter("TraceFrameIndex", mCurrentFrame);
+
+    startVulkanApiTimer();
+    const double beginReplayFrameTimeSec =
+        gTrackFrameWallTime ? mTrialTimer.getElapsedWallClockTime() : 0.0;
+    mTraceReplay->replayFrame(mCurrentFrame);
+    if (gTrackFrameWallTime)
+    {
+        mFrameWallTimeSec += mTrialTimer.getElapsedWallClockTime() - beginReplayFrameTimeSec;
+    }
+    stopVulkanApiTimer();
+
+    if (!gAddSwapIntoGPUTime && mParams->trackGpuTime)
+    {
+        stopGpuTimer();
+    }
+
+    updatePerfCounters();
+
+    // Need to exclude potentially expensive calls above from the Frame Time.
+    ASSERT(!gAddSwapIntoFrameWallTime || gTrackFrameWallTime);
+    const double beginSwapTimeSec =
+        gAddSwapIntoFrameWallTime ? mTrialTimer.getElapsedWallClockTime() : 0.0;
+    if (gAddSwapIntoFrameWallTime)
+    {
+        startVulkanApiTimer();
+    }
+
+    if (mParams->surfaceType == SurfaceType::Offscreen)
+    {
+        if (gMinimizeGPUWork || gSkipBlitInOffscreen)
+        {
+            // To keep GPU work minimum, we skip the blit.
+            glFlush();
+            mOffscreenFrameCount++;
         }
         else
         {
+            GLuint offscreenBuffer = mOffscreenFramebuffers[offscreenBufferIndex];
+
+            EGLContext currentEglContext = getGLWindow()->getCurrentContext();
+            MaybeSwitchToMainContext(currentEglContext);
+
             GLint currentDrawFBO, currentReadFBO;
-            glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &currentDrawFBO);
-            glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &currentReadFBO);
+            if (gles1)
+            {
+                // OES_framebuffer_object doesn't define a separate "read" binding
+                glGetIntegerv(GL_FRAMEBUFFER_BINDING_OES, &currentDrawFBO);
+                bindFramebuffer(GL_FRAMEBUFFER, offscreenBuffer);
+            }
+            else
+            {
+                glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &currentDrawFBO);
+                glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &currentReadFBO);
 
-            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-            glBindFramebuffer(GL_READ_FRAMEBUFFER, mOffscreenFramebuffer);
+                bindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+                bindFramebuffer(GL_READ_FRAMEBUFFER, offscreenBuffer);
+            }
 
-            uint32_t frames  = getNumStepsPerformed() + (frame - mStartFrame);
-            uint32_t frameX  = (frames % kFramesPerXY) % kFramesPerX;
-            uint32_t frameY  = (frames % kFramesPerXY) / kFramesPerX;
+            uint32_t frameX  = (mOffscreenFrameCount % kFramesPerSwap) % kFramesPerX;
+            uint32_t frameY  = (mOffscreenFrameCount % kFramesPerSwap) / kFramesPerX;
             uint32_t windowX = kOffscreenOffsetX + frameX * kOffscreenFrameWidth;
             uint32_t windowY = kOffscreenOffsetY + frameY * kOffscreenFrameHeight;
-
-            if (angle::gVerboseLogging)
-            {
-                printf("Frame %d: x %d y %d (screen x %d, screen y %d)\n", frames, frameX, frameY,
-                       windowX, windowY);
-            }
 
             GLboolean scissorTest = GL_FALSE;
             glGetBooleanv(GL_SCISSOR_TEST, &scissorTest);
@@ -479,35 +1729,114 @@ void TracePerfTest::drawBenchmark()
                 glDisable(GL_SCISSOR_TEST);
             }
 
-            glBlitFramebuffer(0, 0, mWindowWidth, mWindowHeight, windowX, windowY,
-                              windowX + kOffscreenFrameWidth, windowY + kOffscreenFrameHeight,
-                              GL_COLOR_BUFFER_BIT, GL_NEAREST);
+            if (!gles1)  // gles1: no glBlitFramebuffer, a single frame is rendered to buffer 0
+            {
+                mOffscreenSyncs[offscreenBufferIndex] =
+                    glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+
+                glBlitFramebuffer(0, 0, mWindowWidth, mWindowHeight, windowX, windowY,
+                                  windowX + kOffscreenFrameWidth, windowY + kOffscreenFrameHeight,
+                                  GL_COLOR_BUFFER_BIT, GL_NEAREST);
+            }
+
+            // GL_READ_FRAMEBUFFER is already set correctly for glReadPixels
+            saveScreenshotIfEnabled(ScreenshotType::kFrame);
 
             if (frameX == kFramesPerX - 1 && frameY == kFramesPerY - 1)
             {
+                bindFramebuffer(GL_FRAMEBUFFER, 0);
+                if (!gles1)  // gles1: no grid, a single frame is rendered to buffer 0
+                {
+                    mCurrentOffscreenGridIteration++;
+                    saveScreenshotIfEnabled(ScreenshotType::kGrid);
+                }
                 getGLWindow()->swap();
-                glBindFramebuffer(GL_FRAMEBUFFER, 0);
-                glClear(GL_COLOR_BUFFER_BIT);
+                mOffscreenFrameCount = 0;
+            }
+            else
+            {
+                glFlush();
+                mOffscreenFrameCount++;
             }
 
             if (scissorTest)
             {
                 glEnable(GL_SCISSOR_TEST);
             }
-            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, currentDrawFBO);
-            glBindFramebuffer(GL_READ_FRAMEBUFFER, currentReadFBO);
-        }
 
-        endInternalTraceEvent(frameName);
+            if (gles1)
+            {
+                bindFramebuffer(GL_FRAMEBUFFER, currentDrawFBO);
+            }
+            else
+            {
+                bindFramebuffer(GL_DRAW_FRAMEBUFFER, currentDrawFBO);
+                bindFramebuffer(GL_READ_FRAMEBUFFER, currentReadFBO);
+            }
 
-        // Check for abnormal exit.
-        if (!mRunning)
-        {
-            return;
+            // Wait for the next frame here to simulate the behaviour of the swap buffers call
+            GLsync sync = mOffscreenSyncs[(offscreenBufferIndex + 1) % mMaxOffscreenBufferCount];
+            if (sync)
+            {
+                constexpr GLuint64 kTimeout = 2'000'000'000;  // 2 seconds
+                GLenum result = glClientWaitSync(sync, GL_SYNC_FLUSH_COMMANDS_BIT, kTimeout);
+                if (result != GL_CONDITION_SATISFIED && result != GL_ALREADY_SIGNALED)
+                {
+                    failTest(std::string("glClientWaitSync unexpected result: ") +
+                             std::to_string(result));
+                }
+                glDeleteSync(sync);
+            }
+
+            MaybeSwitchToTraceContext(currentEglContext);
         }
     }
+    else
+    {
+        // Skip setup and screenshot if upgrading trace
+        if (!gRetraceMode)
+        {
+            bindFramebuffer(GL_FRAMEBUFFER, 0);
+            saveScreenshotIfEnabled(ScreenshotType::kFrame);
+        }
+        getGLWindow()->swap();
+    }
 
-    ResetReplay(params.testID);
+    if (gAddSwapIntoFrameWallTime)
+    {
+        const double endSwapTimeSec = mTrialTimer.getElapsedWallClockTime();
+        mFrameWallTimeSec += endSwapTimeSec - beginSwapTimeSec;
+        stopVulkanApiTimer();
+    }
+
+    if (gAddSwapIntoGPUTime && mParams->trackGpuTime)
+    {
+        // No need flush here since swap already performs it implicitly and we already call flush
+        // in case of the offscreen test.
+        stopGpuTimer(false);
+        // Need this flush to submit the timestamp query to the GPU right now, instead of delaying
+        // it until some time later in the next frame.
+        glFlush();
+    }
+
+    ANGLE_TRACE_EVENT_END("gpu.angle");
+
+    mTotalFrameCount++;
+
+    if (mCurrentFrame == mEndFrame)
+    {
+        mTraceReplay->resetReplay();
+        mCurrentFrame = mStartFrame;
+        // Flush to avoid gpu_time tracking issues on some platforms (Native GLES Qualcomm).
+        glFlush();
+    }
+    else
+    {
+        mCurrentFrame++;
+    }
+
+    // Always iterated for saving screenshots after reset
+    mCurrentIteration++;
 
     // Process any running queries once per iteration.
     for (size_t queryIndex = 0; queryIndex < mRunningQueries.size();)
@@ -521,19 +1850,29 @@ void TracePerfTest::drawBenchmark()
         if (endResultAvailable == GL_TRUE)
         {
             char fboName[32];
-            sprintf(fboName, "FBO %u", query.framebuffer);
+            snprintf(fboName, sizeof(fboName), "FBO %u", query.framebuffer);
 
             GLint64 beginTimestamp = 0;
             glGetQueryObjecti64vEXT(query.beginTimestampQuery, GL_QUERY_RESULT, &beginTimestamp);
             glDeleteQueriesEXT(1, &query.beginTimestampQuery);
+#if defined(ANGLE_USE_PERFETTO)
             double beginHostTime = getHostTimeFromGLTime(beginTimestamp);
-            beginGLTraceEvent(fboName, beginHostTime);
+            uint64_t beginTimestampNs = static_cast<uint64_t>(beginHostTime * 1e9);
+            ANGLE_TRACE_EVENT_BEGIN("gpu.angle.gpu", perfetto::DynamicString(fboName),
+                                    perfetto::NamedTrack::FromPointer("GPU Work", this),
+                                    beginTimestampNs);
+#endif
 
             GLint64 endTimestamp = 0;
             glGetQueryObjecti64vEXT(query.endTimestampQuery, GL_QUERY_RESULT, &endTimestamp);
             glDeleteQueriesEXT(1, &query.endTimestampQuery);
+#if defined(ANGLE_USE_PERFETTO)
             double endHostTime = getHostTimeFromGLTime(endTimestamp);
-            endGLTraceEvent(fboName, endHostTime);
+            uint64_t endTimestampNs = static_cast<uint64_t>(endHostTime * 1e9);
+            ANGLE_TRACE_EVENT_END("gpu.angle.gpu",
+                                  perfetto::NamedTrack::FromPointer("GPU Work", this),
+                                  endTimestampNs);
+#endif
 
             mRunningQueries.erase(mRunningQueries.begin() + queryIndex);
         }
@@ -542,6 +1881,26 @@ void TracePerfTest::drawBenchmark()
             queryIndex++;
         }
     }
+}
+
+void TracePerfTest::startGpuTimer()
+{
+    // Some traces will switch contexts mid-frame and not switch back.  Since our
+    // queries are per context, we need to switch back before gathering data.
+    EGLContext currentEglContext = getGLWindow()->getCurrentContext();
+    MaybeSwitchToMainContext(currentEglContext);
+    // Call the base class to start timer on the correct context.
+    ANGLERenderTest::startGpuTimer();
+    MaybeSwitchToTraceContext(currentEglContext);
+}
+
+void TracePerfTest::stopGpuTimer(bool mayNeedFlush)
+{
+    EGLContext currentEglContext = getGLWindow()->getCurrentContext();
+    MaybeSwitchToMainContext(currentEglContext);
+    // Call the base class to stop timer on the correct context.
+    ANGLERenderTest::stopGpuTimer(mayNeedFlush);
+    MaybeSwitchToTraceContext(currentEglContext);
 }
 
 // Converts a GL timestamp into a host-side CPU time aligned with "GetHostTimeSeconds".
@@ -585,16 +1944,126 @@ double TracePerfTest::getHostTimeFromGLTime(GLint64 glTime)
     return mTimeline[firstSampleIndex].hostTime + hostRange * t;
 }
 
+EGLContext TracePerfTest::onEglCreateContext(EGLDisplay display,
+                                             EGLConfig config,
+                                             EGLContext share_context,
+                                             EGLint const *attrib_list)
+{
+    GLWindowContext newContext =
+        getGLWindow()->createContextGeneric(reinterpret_cast<GLWindowContext>(share_context));
+    return reinterpret_cast<EGLContext>(newContext);
+}
+
+void TracePerfTest::onEglMakeCurrent(EGLDisplay display,
+                                     EGLSurface draw,
+                                     EGLSurface read,
+                                     EGLContext context)
+{
+    getGLWindow()->makeCurrentGeneric(reinterpret_cast<GLWindowContext>(context));
+}
+
+EGLContext TracePerfTest::onEglGetCurrentContext()
+{
+    return getGLWindow()->getCurrentContextGeneric();
+}
+
+EGLImage TracePerfTest::onEglCreateImage(EGLDisplay display,
+                                         EGLContext context,
+                                         EGLenum target,
+                                         EGLClientBuffer buffer,
+                                         const EGLAttrib *attrib_list)
+{
+    GLWindowBase::Image image = getGLWindow()->createImage(
+        reinterpret_cast<GLWindowContext>(context), target, buffer, attrib_list);
+    return reinterpret_cast<EGLImage>(image);
+}
+
+EGLImageKHR TracePerfTest::onEglCreateImageKHR(EGLDisplay display,
+                                               EGLContext context,
+                                               EGLenum target,
+                                               EGLClientBuffer buffer,
+                                               const EGLint *attrib_list)
+{
+    GLWindowBase::Image image = getGLWindow()->createImageKHR(
+        reinterpret_cast<GLWindowContext>(context), target, buffer, attrib_list);
+    return reinterpret_cast<EGLImage>(image);
+}
+
+EGLBoolean TracePerfTest::onEglDestroyImage(EGLDisplay display, EGLImage image)
+{
+    return getGLWindow()->destroyImage(image);
+}
+
+EGLBoolean TracePerfTest::onEglDestroyImageKHR(EGLDisplay display, EGLImage image)
+{
+    return getGLWindow()->destroyImageKHR(image);
+}
+
+EGLSync TracePerfTest::onEglCreateSync(EGLDisplay dpy, EGLenum type, const EGLAttrib *attrib_list)
+{
+    return getGLWindow()->createSync(dpy, type, attrib_list);
+}
+
+EGLSync TracePerfTest::onEglCreateSyncKHR(EGLDisplay dpy, EGLenum type, const EGLint *attrib_list)
+{
+    return getGLWindow()->createSyncKHR(dpy, type, attrib_list);
+}
+
+EGLBoolean TracePerfTest::onEglDestroySync(EGLDisplay dpy, EGLSync sync)
+{
+    return getGLWindow()->destroySync(dpy, sync);
+}
+
+EGLBoolean TracePerfTest::onEglDestroySyncKHR(EGLDisplay dpy, EGLSync sync)
+{
+    return getGLWindow()->destroySyncKHR(dpy, sync);
+}
+
+EGLint TracePerfTest::onEglClientWaitSync(EGLDisplay dpy,
+                                          EGLSync sync,
+                                          EGLint flags,
+                                          EGLTimeKHR timeout)
+{
+    return getGLWindow()->clientWaitSync(dpy, sync, flags, timeout);
+}
+
+EGLint TracePerfTest::onEglClientWaitSyncKHR(EGLDisplay dpy,
+                                             EGLSync sync,
+                                             EGLint flags,
+                                             EGLTimeKHR timeout)
+{
+    return getGLWindow()->clientWaitSyncKHR(dpy, sync, flags, timeout);
+}
+
+EGLint TracePerfTest::onEglGetError()
+{
+    return getGLWindow()->getEGLError();
+}
+
+EGLDisplay TracePerfTest::onEglGetCurrentDisplay()
+{
+    return getGLWindow()->getCurrentDisplay();
+}
+
+EGLSurface TracePerfTest::onEglGetCurrentSurface(EGLint readdraw)
+{
+    return getGLWindow()->getCurrentSurface(readdraw);
+}
+
 // Triggered when the replay calls glBindFramebuffer.
 void TracePerfTest::onReplayFramebufferChange(GLenum target, GLuint framebuffer)
 {
-    if (framebuffer == 0 && GetParam().surfaceType == SurfaceType::Offscreen)
+    bool gles1           = mParams->traceInfo.contextClientMajorVersion == 1;
+    auto bindFramebuffer = gles1 ? glBindFramebufferOES : glBindFramebuffer;
+
+    if (framebuffer == 0 && mParams->surfaceType == SurfaceType::Offscreen)
     {
-        glBindFramebuffer(target, mOffscreenFramebuffer);
+        bindFramebuffer(target,
+                        mOffscreenFramebuffers[mTotalFrameCount % mMaxOffscreenBufferCount]);
     }
     else
     {
-        glBindFramebuffer(target, framebuffer);
+        bindFramebuffer(target, framebuffer);
     }
 
     switch (target)
@@ -633,6 +2102,96 @@ void TracePerfTest::onReplayFramebufferChange(GLenum target, GLuint framebuffer)
     glGenQueriesEXT(1, &mCurrentQuery.beginTimestampQuery);
     glQueryCounterEXT(mCurrentQuery.beginTimestampQuery, GL_TIMESTAMP_EXT);
     mCurrentQuery.framebuffer = framebuffer;
+}
+
+std::string GetDiffPath()
+{
+#if defined(ANGLE_PLATFORM_WINDOWS)
+    std::array<char, MAX_PATH> filenameBuffer = {};
+    char *filenamePtr                         = nullptr;
+    if (SearchPathA(NULL, "diff", ".exe", MAX_PATH, filenameBuffer.data(), &filenamePtr) == 0)
+    {
+        return "";
+    }
+    return std::string(filenameBuffer.data());
+#else
+    return "/usr/bin/diff";
+#endif  // defined(ANGLE_PLATFORM_WINDOWS)
+}
+
+void PrintFileDiff(const char *aFilePath, const char *bFilePath)
+{
+    std::string pathToDiff = GetDiffPath();
+    if (pathToDiff.empty())
+    {
+        printf("Could not find diff in the path.\n");
+        return;
+    }
+
+    std::vector<const char *> args;
+    args.push_back(pathToDiff.c_str());
+    args.push_back(aFilePath);
+    args.push_back(bFilePath);
+    args.push_back("-u3");
+
+    printf("Calling");
+    for (const char *arg : args)
+    {
+        printf(" %s", arg);
+    }
+    printf("\n");
+
+    ProcessHandle proc(LaunchProcess(args, ProcessOutputCapture::StdoutOnly));
+    if (proc && proc->finish())
+    {
+        printf("\n%s\n", proc->getStdout().c_str());
+    }
+}
+
+void TracePerfTest::validateSerializedState(const char *expectedCapturedSerializedState,
+                                            const char *fileName,
+                                            uint32_t line)
+{
+    if (!gTraceTestValidation)
+    {
+        return;
+    }
+
+    printf("Serialization checkpoint %s:%u...\n", fileName, line);
+
+    const GLubyte *bytes                      = glGetString(GL_SERIALIZED_CONTEXT_STRING_ANGLE);
+    const char *actualReplayedSerializedState = reinterpret_cast<const char *>(bytes);
+    if (strcmp(expectedCapturedSerializedState, actualReplayedSerializedState) == 0)
+    {
+        printf("Serialization match.\n");
+        return;
+    }
+
+    GTEST_NONFATAL_FAILURE_("Serialization mismatch!");
+
+    const Optional<std::string> aFilePath = CreateTemporaryFile();
+    const char *aFilePathCStr             = aFilePath.value().c_str();
+    if (aFilePath.valid())
+    {
+        printf("Saving \"expected\" capture serialization to \"%s\".\n", aFilePathCStr);
+        FILE *fpA = fopen(aFilePathCStr, "wt");
+        ASSERT(fpA);
+        fprintf(fpA, "%s", expectedCapturedSerializedState);
+        fclose(fpA);
+    }
+
+    const Optional<std::string> bFilePath = CreateTemporaryFile();
+    const char *bFilePathCStr             = bFilePath.value().c_str();
+    if (bFilePath.valid())
+    {
+        printf("Saving \"actual\" replay serialization to \"%s\".\n", bFilePathCStr);
+        FILE *fpB = fopen(bFilePathCStr, "wt");
+        ASSERT(fpB);
+        fprintf(fpB, "%s", actualReplayedSerializedState);
+        fclose(fpB);
+    }
+
+    PrintFileDiff(aFilePathCStr, bFilePathCStr);
 }
 
 bool TracePerfTest::isDefaultFramebuffer(GLenum target) const
@@ -690,7 +2249,7 @@ void TracePerfTest::onReplayInvalidateFramebuffer(GLenum target,
                                                   GLsizei numAttachments,
                                                   const GLenum *attachments)
 {
-    if (GetParam().surfaceType != SurfaceType::Offscreen || !isDefaultFramebuffer(target))
+    if (mParams->surfaceType != SurfaceType::Offscreen || !isDefaultFramebuffer(target))
     {
         glInvalidateFramebuffer(target, numAttachments, attachments);
     }
@@ -710,7 +2269,7 @@ void TracePerfTest::onReplayInvalidateSubFramebuffer(GLenum target,
                                                      GLsizei width,
                                                      GLsizei height)
 {
-    if (GetParam().surfaceType != SurfaceType::Offscreen || !isDefaultFramebuffer(target))
+    if (mParams->surfaceType != SurfaceType::Offscreen || !isDefaultFramebuffer(target))
     {
         glInvalidateSubFramebuffer(target, numAttachments, attachments, x, y, width, height);
     }
@@ -725,7 +2284,7 @@ void TracePerfTest::onReplayInvalidateSubFramebuffer(GLenum target,
 
 void TracePerfTest::onReplayDrawBuffers(GLsizei n, const GLenum *bufs)
 {
-    if (GetParam().surfaceType != SurfaceType::Offscreen ||
+    if (mParams->surfaceType != SurfaceType::Offscreen ||
         !isDefaultFramebuffer(GL_DRAW_FRAMEBUFFER))
     {
         glDrawBuffers(n, bufs);
@@ -739,7 +2298,7 @@ void TracePerfTest::onReplayDrawBuffers(GLsizei n, const GLenum *bufs)
 
 void TracePerfTest::onReplayReadBuffer(GLenum src)
 {
-    if (GetParam().surfaceType != SurfaceType::Offscreen ||
+    if (mParams->surfaceType != SurfaceType::Offscreen ||
         !isDefaultFramebuffer(GL_READ_FRAMEBUFFER))
     {
         glReadBuffer(src);
@@ -755,7 +2314,7 @@ void TracePerfTest::onReplayDiscardFramebufferEXT(GLenum target,
                                                   GLsizei numAttachments,
                                                   const GLenum *attachments)
 {
-    if (GetParam().surfaceType != SurfaceType::Offscreen || !isDefaultFramebuffer(target))
+    if (mParams->surfaceType != SurfaceType::Offscreen || !isDefaultFramebuffer(target))
     {
         glDiscardFramebufferEXT(target, numAttachments, attachments);
     }
@@ -767,20 +2326,74 @@ void TracePerfTest::onReplayDiscardFramebufferEXT(GLenum target,
     }
 }
 
+void TracePerfTest::saveScreenshotIfEnabled(ScreenshotType screenshotType)
+{
+    if (gScreenshotDir != nullptr && gSaveScreenshots && !mScreenshotSaved &&
+        (static_cast<uint32_t>(mScreenshotFrame) == mCurrentIteration ||
+         mScreenshotFrame == kAllFrames))
+    {
+        std::stringstream screenshotNameStr;
+        screenshotNameStr << gScreenshotDir << GetPathSeparator() << "angle" << mBackend << "_"
+                          << mStory;
+
+        // Add a marker to the name for any screenshot that isn't start frame
+        if (mStartFrame != static_cast<uint32_t>(mScreenshotFrame))
+        {
+            if (screenshotType == ScreenshotType::kFrame)
+            {
+                screenshotNameStr << "_frame" << mCurrentIteration;
+            }
+            else
+            {
+                screenshotNameStr << "_grid" << mCurrentOffscreenGridIteration;
+            }
+        }
+
+        screenshotNameStr << ".png";
+
+        std::string screenshotName = screenshotNameStr.str();
+        saveScreenshot(screenshotName);
+
+        // Only set this value if we're capturing a single frame
+        mScreenshotSaved = mScreenshotFrame != kAllFrames;
+    }
+}
+
 void TracePerfTest::saveScreenshot(const std::string &screenshotName)
 {
-    // Render a single frame.
-    RestrictedTraceID testID   = GetParam().testID;
-    const TraceInfo &traceInfo = GetTraceInfo(testID);
-    ReplayFrame(testID, traceInfo.startFrame);
+    // The frame is already rendered and is waiting in the default framebuffer.
 
     // RGBA 4-byte data.
     uint32_t pixelCount = mTestParams.windowWidth * mTestParams.windowHeight;
     std::vector<uint8_t> pixelData(pixelCount * 4);
 
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glFinish();
+
+    // Backup the current pixel pack state
+    GLint originalPackRowLength;
+    GLint originalPackSkipRows;
+    GLint originalPackSkipPixels;
+    GLint originalPackAlignment;
+
+    glGetIntegerv(GL_PACK_ROW_LENGTH, &originalPackRowLength);
+    glGetIntegerv(GL_PACK_SKIP_ROWS, &originalPackSkipRows);
+    glGetIntegerv(GL_PACK_SKIP_PIXELS, &originalPackSkipPixels);
+    glGetIntegerv(GL_PACK_ALIGNMENT, &originalPackAlignment);
+
+    // Set default pixel pack parameters (per ES 3.2 Table 16.1)
+    glPixelStorei(GL_PACK_ROW_LENGTH, 0);
+    glPixelStorei(GL_PACK_SKIP_ROWS, 0);
+    glPixelStorei(GL_PACK_SKIP_PIXELS, 0);
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+
     glReadPixels(0, 0, mTestParams.windowWidth, mTestParams.windowHeight, GL_RGBA, GL_UNSIGNED_BYTE,
                  pixelData.data());
+
+    // Restore the original pixel pack state
+    glPixelStorei(GL_PACK_ROW_LENGTH, originalPackRowLength);
+    glPixelStorei(GL_PACK_SKIP_ROWS, originalPackSkipRows);
+    glPixelStorei(GL_PACK_SKIP_PIXELS, originalPackSkipPixels);
+    glPixelStorei(GL_PACK_ALIGNMENT, originalPackAlignment);
 
     // Convert to RGB and flip y.
     std::vector<uint8_t> rgbData(pixelCount * 3);
@@ -797,75 +2410,86 @@ void TracePerfTest::saveScreenshot(const std::string &screenshotName)
     if (!angle::SavePNGRGB(screenshotName.c_str(), "ANGLE Screenshot", mTestParams.windowWidth,
                            mTestParams.windowHeight, rgbData))
     {
-        FAIL() << "Error saving screenshot: " << screenshotName;
+        failTest(std::string("Error saving screenshot: ") + screenshotName);
+        return;
     }
     else
     {
         printf("Saved screenshot: '%s'\n", screenshotName.c_str());
     }
-
-    // Finish the frame loop.
-    for (uint32_t nextFrame = traceInfo.startFrame + 1; nextFrame <= traceInfo.endFrame;
-         ++nextFrame)
-    {
-        ReplayFrame(testID, nextFrame);
-    }
-    ResetReplay(testID);
-    getGLWindow()->swap();
-    glFinish();
 }
-
-TEST_P(TracePerfTest, Run)
-{
-    run();
-}
-
-TracePerfParams CombineTestID(const TracePerfParams &in, RestrictedTraceID id)
-{
-    const TraceInfo &traceInfo = GetTraceInfo(id);
-
-    TracePerfParams out = in;
-    out.testID          = id;
-    out.windowWidth     = traceInfo.drawSurfaceWidth;
-    out.windowHeight    = traceInfo.drawSurfaceHeight;
-    return out;
-}
-
-bool NoAndroidMockICD(const TracePerfParams &in)
-{
-    return in.eglParameters.deviceType != EGL_PLATFORM_ANGLE_DEVICE_TYPE_NULL_ANGLE || !IsAndroid();
-}
-
-TracePerfParams CombineWithSurfaceType(const TracePerfParams &in, SurfaceType surfaceType)
-{
-    TracePerfParams out = in;
-    out.surfaceType     = surfaceType;
-
-    if (!IsAndroid() && surfaceType == SurfaceType::Offscreen)
-    {
-        out.windowWidth /= 4;
-        out.windowHeight /= 4;
-    }
-
-    // We track GPU time only in frame-rate-limited cases.
-    out.trackGpuTime = surfaceType == SurfaceType::WindowWithVSync;
-
-    return out;
-}
+}  // anonymous namespace
 
 using namespace params;
-using P = TracePerfParams;
 
-std::vector<P> gTestsWithID =
-    CombineWithValues({P()}, AllEnums<RestrictedTraceID>(), CombineTestID);
-std::vector<P> gTestsWithSurfaceType =
-    CombineWithValues(gTestsWithID,
-                      {SurfaceType::Offscreen, SurfaceType::Window, SurfaceType::WindowWithVSync},
-                      CombineWithSurfaceType);
-std::vector<P> gTestsWithRenderer =
-    CombineWithFuncs(gTestsWithSurfaceType,
-                     {Vulkan<P>, VulkanMockICD<P>, VulkanSwiftShader<P>, Native<P>});
-std::vector<P> gTestsWithoutMockICD = FilterWithFunc(gTestsWithRenderer, NoAndroidMockICD);
-ANGLE_INSTANTIATE_TEST_ARRAY(TracePerfTest, gTestsWithoutMockICD);
+void RegisterTraceTests()
+{
+    GLESDriverType driverType = GetDriverTypeFromString(gUseGL, GLESDriverType::AngleEGL);
+    GLenum platformType       = EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE;
+    GLenum deviceType         = EGL_PLATFORM_ANGLE_DEVICE_TYPE_HARDWARE_ANGLE;
+    if (IsANGLE(driverType))
+    {
+        platformType = GetPlatformANGLETypeFromArg(gUseANGLE, EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE);
+        deviceType =
+            GetANGLEDeviceTypeFromArg(gUseANGLE, EGL_PLATFORM_ANGLE_DEVICE_TYPE_HARDWARE_ANGLE);
+    }
 
-}  // anonymous namespace
+    char rootTracePath[kMaxPath] = {};
+    if (!FindRootTraceTestDataPath(rootTracePath, kMaxPath))
+    {
+        ERR() << "Unable to find trace folder " << rootTracePath;
+        return;
+    }
+
+    // Load JSON data.
+    std::vector<std::string> traces;
+    {
+        char traceListPath[kMaxPath] = {};
+        if (!angle::FindTestDataPath("gen/trace_list.json", traceListPath, kMaxPath))
+        {
+            ERR() << "Cannot find gen/trace_list.json";
+            return;
+        }
+
+        if (!LoadTraceNamesFromJSON(traceListPath, &traces))
+        {
+            ERR() << "Unable to load traces from JSON file: " << traceListPath;
+            return;
+        }
+    }
+
+    std::vector<TraceInfo> traceInfos;
+    for (const std::string &trace : traces)
+    {
+        std::stringstream traceJsonStream;
+        traceJsonStream << rootTracePath << GetPathSeparator() << trace << GetPathSeparator()
+                        << trace << ".json";
+        std::string traceJsonPath = traceJsonStream.str();
+
+        TraceInfo traceInfo = {};
+        strncpy(traceInfo.name, trace.c_str(), kTraceInfoMaxNameLen);
+        traceInfo.initialized = LoadTraceInfoFromJSON(trace, traceJsonPath, &traceInfo);
+
+        traceInfos.push_back(traceInfo);
+    }
+
+    for (const TraceInfo &traceInfo : traceInfos)
+    {
+        const TracePerfParams params(traceInfo, driverType, platformType, deviceType);
+
+        if (!IsPlatformAvailable(params))
+        {
+            continue;
+        }
+
+        std::function<ANGLEPerfTest *()> factory = [params]() -> ANGLEPerfTest * {
+            if (params.isCL)
+            {
+                return CreateTracePerfTestCL(std::make_unique<TracePerfParams>(params));
+            }
+            return new TracePerfTest(std::make_unique<TracePerfParams>(params));
+        };
+        testing::RegisterTest("TraceTest", traceInfo.name, nullptr, nullptr, __FILE__, __LINE__,
+                              factory);
+    }
+}

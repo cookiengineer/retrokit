@@ -26,37 +26,47 @@
 #include "config.h"
 #include "JSCSSStyleDeclaration.h"
 
+#include "CSSFontFaceDescriptors.h"
+#include "CSSFunctionDescriptors.h"
+#include "CSSPageDescriptors.h"
+#include "CSSPositionTryDescriptors.h"
+#include "CSSStyleProperties.h"
 #include "DOMWrapperWorld.h"
+#include "JSCSSFontFaceDescriptors.h"
+#include "JSCSSFunctionDescriptors.h"
+#include "JSCSSPageDescriptors.h"
+#include "JSCSSPositionTryDescriptors.h"
 #include "JSCSSRuleCustom.h"
+#include "JSCSSStyleProperties.h"
 #include "JSDOMConvertInterface.h"
 #include "JSDOMConvertStrings.h"
 #include "JSDeprecatedCSSOMValue.h"
 #include "JSNodeCustom.h"
 #include "JSStyleSheetCustom.h"
 #include "StyledElement.h"
-
+#include "WebCoreOpaqueRootInlines.h"
 
 namespace WebCore {
 using namespace JSC;
 
-void* root(CSSStyleDeclaration* style)
+WebCoreOpaqueRoot root(CSSStyleDeclaration* style)
 {
     ASSERT(style);
     if (auto* parentRule = style->parentRule())
         return root(parentRule);
     if (auto* styleSheet = style->parentStyleSheet())
         return root(styleSheet);
-    if (auto* parentElement = style->parentElement())
+    if (SUPPRESS_UNCHECKED_LOCAL auto* parentElement = style->parentElement())
         return root(parentElement);
-    return style;
+    return WebCoreOpaqueRoot { style };
 }
 
 template<typename Visitor>
-void JSCSSStyleDeclaration::visitAdditionalChildren(Visitor& visitor)
+void JSCSSStyleDeclaration::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    visitor.addOpaqueRoot(root(&wrapped()));
+    addWebCoreOpaqueRoot(visitor, wrapped());
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSCSSStyleDeclaration);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSCSSStyleDeclaration);
 
 } // namespace WebCore

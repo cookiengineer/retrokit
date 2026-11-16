@@ -25,9 +25,9 @@
 
 typedef Uint8Array BigInteger;
 
+// https://w3c.github.io/webcrypto/#dfn-RsaKeyAlgorithm
 [
-    Conditional=WEB_CRYPTO,
-    JSGenerateToJSObject
+    JSGenerateToJSObject,
 ] dictionary CryptoRsaKeyAlgorithm : CryptoKeyAlgorithm {
     // The length, in bits, of the RSA modulus
     required unsigned long modulusLength;

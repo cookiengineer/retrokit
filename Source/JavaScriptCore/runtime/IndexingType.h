@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012, 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,11 +25,14 @@
 
 #pragma once
 
-#include "SpeculatedType.h"
+#include <cstdint>
+#include <wtf/Forward.h>
 #include <wtf/LockAlgorithm.h>
-#include <wtf/StdLibExtras.h>
+#include <wtf/PrintStream.h>
 
 namespace JSC {
+
+class JSValue;
 
 /*
     Structure of the IndexingType
@@ -76,7 +79,7 @@ static const IndexingType IndexingShapeShift              = 1;
 static const IndexingType NumberOfIndexingShapes          = 7;
 static const IndexingType IndexingTypeMask                = IndexingShapeMask | IsArray;
 
-// Whether or not the butterfly is copy on write. If it is copy on write then the butterfly is actually a JSImmutableButterfly. This should only ever be set if there are no named properties.
+// Whether or not the butterfly is copy on write. If it is copy on write then the butterfly is actually a JSCellButterfly. This should only ever be set if there are no named properties.
 static const IndexingType CopyOnWrite                      = 0x10;
 static const IndexingType IndexingShapeAndWritabilityMask  = CopyOnWrite | IndexingShapeMask;
 static const IndexingType IndexingModeMask                 = CopyOnWrite | IndexingTypeMask;
@@ -209,24 +212,14 @@ inline unsigned arrayIndexFromIndexingType(IndexingType indexingType)
     return (indexingType & IndexingShapeMask) >> IndexingShapeShift;
 }
 
-inline IndexingType indexingTypeForValue(JSValue value)
-{
-    if (value.isInt32())
-        return Int32Shape;
-
-    if (value.isNumber() && value.asNumber() == value.asNumber())
-        return DoubleShape;
-
-    return ContiguousShape;
-}
+inline IndexingType indexingTypeForValue(JSValue); // Defined in IndexingTypeInlines.h
 
 // Return an indexing type that can handle all of the elements of both indexing types.
 IndexingType leastUpperBoundOfIndexingTypes(IndexingType, IndexingType);
 
-IndexingType leastUpperBoundOfIndexingTypeAndType(IndexingType, SpeculatedType);
 IndexingType leastUpperBoundOfIndexingTypeAndValue(IndexingType, JSValue);
 
-void dumpIndexingType(PrintStream&, IndexingType);
+JS_EXPORT_PRIVATE void dumpIndexingType(PrintStream&, IndexingType);
 MAKE_PRINT_ADAPTOR(IndexingTypeDump, IndexingType, dumpIndexingType);
 
 static const IndexingType AllWritableArrayTypes    = IndexingShapeMask | IsArray;

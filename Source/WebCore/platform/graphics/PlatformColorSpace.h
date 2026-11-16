@@ -28,9 +28,13 @@
 #if USE(CG)
 #include <wtf/RetainPtr.h>
 typedef struct CGColorSpace* CGColorSpaceRef;
+#elif USE(SKIA)
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <skia/core/SkColorSpace.h>
+#include <skia/core/SkData.h>
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 #else
 #include <optional>
-#include <wtf/EnumTraits.h>
 #endif
 
 namespace WebCore {
@@ -40,17 +44,21 @@ namespace WebCore {
 using PlatformColorSpace = RetainPtr<CGColorSpaceRef>;
 using PlatformColorSpaceValue = CGColorSpaceRef;
 
+#elif USE(SKIA)
+
+using PlatformColorSpace = sk_sp<SkColorSpace>;
+using PlatformColorSpaceValue = sk_sp<SkColorSpace>;
+
 #else
 
 class PlatformColorSpace {
 public:
     enum class Name : uint8_t {
-        SRGB
-#if ENABLE(DESTINATION_COLOR_SPACE_LINEAR_SRGB)
-        , LinearSRGB
-#endif
+        SRGB,
+        LinearSRGB,
 #if ENABLE(DESTINATION_COLOR_SPACE_DISPLAY_P3)
-        , DisplayP3
+        DisplayP3,
+        LinearDisplayP3,
 #endif
     };
 
@@ -61,51 +69,11 @@ public:
 
     Name get() const { return m_name; }
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<PlatformColorSpace> decode(Decoder&);
-
 private:
     Name m_name;
-
 };
 using PlatformColorSpaceValue = PlatformColorSpace::Name;
 
-template<class Encoder> void PlatformColorSpace::encode(Encoder& encoder) const
-{
-    encoder << m_name;
-}
-
-template<class Decoder> std::optional<PlatformColorSpace> PlatformColorSpace::decode(Decoder& decoder)
-{
-    std::optional<PlatformColorSpace::Name> name;
-    decoder >> name;
-    if (!name)
-        return std::nullopt;
-
-    return { { *name } };
-}
-
 #endif
 
 }
-
-#if !USE(CG)
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::PlatformColorSpace::Name> {
-    using values = EnumValues<
-        WebCore::PlatformColorSpace::Name,
-        WebCore::PlatformColorSpace::Name::SRGB
-#if ENABLE(DESTINATION_COLOR_SPACE_LINEAR_SRGB)
-        , WebCore::PlatformColorSpace::Name::LinearSRGB
-#endif
-#if ENABLE(DESTINATION_COLOR_SPACE_DISPLAY_P3)
-        , WebCore::PlatformColorSpace::Name::DisplayP3
-#endif
-    >;
-};
-
-} // namespace WTF
-
-#endif // !USE(CG)

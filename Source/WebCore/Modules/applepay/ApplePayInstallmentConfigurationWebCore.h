@@ -27,9 +27,9 @@
 
 #if ENABLE(APPLE_PAY_INSTALLMENTS)
 
-#include "ApplePayInstallmentItem.h"
-#include "ApplePayInstallmentRetailChannel.h"
-#include "ApplePaySetupFeatureTypeWebCore.h"
+#include <WebCore/ApplePayInstallmentItem.h>
+#include <WebCore/ApplePayInstallmentRetailChannel.h>
+#include <WebCore/ApplePaySetupFeatureTypeWebCore.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
@@ -37,7 +37,7 @@ namespace WebCore {
 
 struct ApplePayInstallmentConfiguration {
     ApplePaySetupFeatureType featureType { ApplePaySetupFeatureType::AppleCard };
-    String merchandisingImageData;
+    String merchandisingImageData; // This property remains here because it is web-exposed, but has no effect and is no longer serialized.
     String openToBuyThresholdAmount;
     String bindingTotalAmount;
     String currencyCode;
@@ -47,6 +47,8 @@ struct ApplePayInstallmentConfiguration {
     Vector<ApplePayInstallmentItem> items;
     String applicationMetadata;
     ApplePayInstallmentRetailChannel retailChannel { ApplePayInstallmentRetailChannel::Unknown };
+
+    WEBCORE_EXPORT static std::optional<ApplePayInstallmentConfiguration> fromInstallmentConfiguration(ApplePaySetupFeatureType, String&& openToBuyThresholdAmount, String&& bindingTotalAmount, String&& currencyCode, bool isInStorePurchase, String&& merchantIdentifier, String&& referrerIdentifier, Vector<ApplePayInstallmentItem>&&, String&& applicationMetadata, ApplePayInstallmentRetailChannel);
 };
 
 } // namespace WebCore

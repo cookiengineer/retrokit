@@ -26,6 +26,14 @@
 
 using namespace WebKit;
 
+/**
+ * WebKitCredential:
+ *
+ * Groups information used for user authentication.
+ *
+ * Since: 2.2
+ */
+
 struct _WebKitCredential {
     _WebKitCredential(const WebCore::Credential& coreCredential)
         : credential(coreCredential)
@@ -42,11 +50,11 @@ G_DEFINE_BOXED_TYPE(WebKitCredential, webkit_credential, webkit_credential_copy,
 static inline WebKitCredentialPersistence toWebKitCredentialPersistence(WebCore::CredentialPersistence corePersistence)
 {
     switch (corePersistence) {
-    case WebCore::CredentialPersistenceNone:
+    case WebCore::CredentialPersistence::None:
         return WEBKIT_CREDENTIAL_PERSISTENCE_NONE;
-    case WebCore::CredentialPersistenceForSession:
+    case WebCore::CredentialPersistence::ForSession:
         return WEBKIT_CREDENTIAL_PERSISTENCE_FOR_SESSION;
-    case WebCore::CredentialPersistencePermanent:
+    case WebCore::CredentialPersistence::Permanent:
         return WEBKIT_CREDENTIAL_PERSISTENCE_PERMANENT;
     default:
         ASSERT_NOT_REACHED();
@@ -58,14 +66,14 @@ static inline WebCore::CredentialPersistence toWebCoreCredentialPersistence(WebK
 {
     switch (kitPersistence) {
     case WEBKIT_CREDENTIAL_PERSISTENCE_NONE:
-        return WebCore::CredentialPersistenceNone;
+        return WebCore::CredentialPersistence::None;
     case WEBKIT_CREDENTIAL_PERSISTENCE_FOR_SESSION:
-        return WebCore::CredentialPersistenceForSession;
+        return WebCore::CredentialPersistence::ForSession;
     case WEBKIT_CREDENTIAL_PERSISTENCE_PERMANENT:
-        return WebCore::CredentialPersistencePermanent;
+        return WebCore::CredentialPersistence::Permanent;
     default:
         ASSERT_NOT_REACHED();
-        return WebCore::CredentialPersistenceNone;
+        return WebCore::CredentialPersistence::None;
     }
 }
 
@@ -108,6 +116,7 @@ WebKitCredential* webkit_credential_new(const gchar* username, const gchar* pass
  * @persistence: The #WebKitCredentialPersistence of the new credential
  *
  * Create a new credential from the provided PIN and persistence mode.
+ *
  * Note that %WEBKIT_CREDENTIAL_PERSISTENCE_PERMANENT is not supported for certificate pin credentials.
  *
  * Returns: (transfer full): A #WebKitCredential.
@@ -123,7 +132,7 @@ WebKitCredential* webkit_credential_new_for_certificate_pin(const gchar* pin, We
         persistence = WEBKIT_CREDENTIAL_PERSISTENCE_FOR_SESSION;
     }
 
-    return webkitCredentialCreate(WebCore::Credential("", String::fromUTF8(pin), toWebCoreCredentialPersistence(persistence)));
+    return webkitCredentialCreate(WebCore::Credential(emptyString(), String::fromUTF8(pin), toWebCoreCredentialPersistence(persistence)));
 }
 
 /**
@@ -132,6 +141,7 @@ WebKitCredential* webkit_credential_new_for_certificate_pin(const gchar* pin, We
  * @persistence: The #WebKitCredentialPersistence of the new credential
  *
  * Create a new credential from the @certificate and persistence mode.
+ *
  * Note that %WEBKIT_CREDENTIAL_PERSISTENCE_PERMANENT is not supported for certificate credentials.
  *
  * Returns: (transfer full): A #WebKitCredential.

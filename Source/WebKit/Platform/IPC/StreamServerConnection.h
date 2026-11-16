@@ -29,97 +29,43 @@
 #include "Decoder.h"
 #include "Encoder.h"
 #include "MessageNames.h"
-#include "StreamConnectionBuffer.h"
-#include "StreamConnectionEncoder.h"
+#include "StreamMessageReceiver.h"
+#include "StreamServerConnectionBuffer.h"
 #include <wtf/Deque.h>
 #include <wtf/Lock.h>
-#include <wtf/Threading.h>
 
 namespace IPC {
 
 class StreamConnectionWorkQueue;
 
-class StreamServerConnectionBase : public ThreadSafeRefCounted<StreamServerConnectionBase>, protected MessageReceiveQueue {
-    WTF_MAKE_NONCOPYABLE(StreamServerConnectionBase);
-public:
-    ~StreamServerConnectionBase() override = default;
+struct StreamServerConnectionHandle {
+    WTF_MAKE_NONCOPYABLE(StreamServerConnectionHandle);
+    StreamServerConnectionHandle(Connection::Handle&& connection, StreamConnectionBuffer::Handle&& bufferHandle)
+        : outOfStreamConnection(WTF::move(connection))
+        , buffer(WTF::move(bufferHandle))
+    { }
+    StreamServerConnectionHandle(StreamServerConnectionHandle&&) = default;
+    StreamServerConnectionHandle& operator=(StreamServerConnectionHandle&&) = default;
 
-    Connection& connection() { return m_connection; }
-
-    enum DispatchResult : bool {
-        HasNoMessages,
-        HasMoreMessages
-    };
-    virtual DispatchResult dispatchStreamMessages(size_t messageLimit) = 0;
-
-    template<typename T, typename... Arguments>
-    void sendSyncReply(Connection::SyncRequestID, Arguments&&...);
-
-protected:
-    StreamServerConnectionBase(IPC::Connection&, StreamConnectionBuffer&&, StreamConnectionWorkQueue&);
-
-    void startReceivingMessagesImpl(ReceiverName, uint64_t destinationID);
-    void stopReceivingMessagesImpl(ReceiverName, uint64_t destinationID);
-
-    // MessageReceiveQueue
-    void enqueueMessage(Connection&, std::unique_ptr<Decoder>&&) final;
-
-    struct Span {
-        uint8_t* data;
-        size_t size;
-    };
-    std::optional<Span> tryAcquire();
-    Span acquireAll();
-
-    void release(size_t readSize);
-    void releaseAll();
-    static constexpr size_t minimumMessageSize = StreamConnectionEncoder::minimumMessageSize;
-    static constexpr size_t messageAlignment = StreamConnectionEncoder::messageAlignment;
-    Span alignedSpan(size_t offset, size_t limit);
-    size_t size(size_t offset, size_t limit);
-    size_t wrapOffset(size_t offset) const { return m_buffer.wrapOffset(offset); }
-    size_t alignOffset(size_t offset) const { return m_buffer.alignOffset<messageAlignment>(offset, minimumMessageSize); }
-    using ServerLimit = StreamConnectionBuffer::ClientOffset;
-    Atomic<ServerLimit>& sharedServerLimit() { return m_buffer.clientOffset(); }
-    using ServerOffset = StreamConnectionBuffer::ServerOffset;
-    Atomic<ServerOffset>& sharedServerOffset() { return m_buffer.serverOffset(); }
-    size_t clampedLimit(ServerLimit) const;
-    uint8_t* data() const { return m_buffer.data(); }
-    size_t dataSize() const { return m_buffer.dataSize(); }
-
-    Ref<IPC::Connection> m_connection;
-    StreamConnectionWorkQueue& m_workQueue;
-
-    size_t m_serverOffset { 0 };
-    StreamConnectionBuffer m_buffer;
-
-    Lock m_outOfStreamMessagesLock;
-    Deque<std::unique_ptr<Decoder>> m_outOfStreamMessages WTF_GUARDED_BY_LOCK(m_outOfStreamMessagesLock);
-
-    bool m_isDispatchingStreamMessage { false };
-
-    friend class StreamConnectionWorkQueue;
+    Connection::Handle outOfStreamConnection;
+    StreamConnectionBuffer::Handle buffer;
 };
 
-template<typename T, typename... Arguments>
-void StreamServerConnectionBase::sendSyncReply(Connection::SyncRequestID syncRequestID, Arguments&&... arguments)
-{
-    if constexpr(T::isReplyStreamEncodable) {
-        if (m_isDispatchingStreamMessage) {
-            auto span = acquireAll();
-            {
-                StreamConnectionEncoder messageEncoder { MessageName::SyncMessageReply, span.data, span.size };
-                if ((messageEncoder << ... << arguments))
-                    return;
-            }
-            StreamConnectionEncoder outOfStreamEncoder { MessageName::ProcessOutOfStreamMessage, span.data, span.size };
-        }
-    }
-    auto encoder = makeUniqueRef<Encoder>(MessageName::SyncMessageReply, syncRequestID.toUInt64());
+struct StreamServerConnectionParameters {
+#if ENABLE(IPC_TESTING_API)
+    bool ignoreInvalidMessageForTesting { false };
+#endif
+};
 
-    (encoder.get() << ... << arguments);
-    m_connection->sendSyncReply(WTFMove(encoder));
-}
+class StreamServerConnectionClient : public StreamMessageReceiver, public CanMakeThreadSafeCheckedPtr<StreamServerConnectionClient> {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(StreamServerConnectionClient);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(StreamServerConnectionClient);
+public:
+    virtual void didReceiveInvalidMessage(StreamServerConnection&, MessageName, const Vector<uint32_t>& indicesOfObjectsFailingDecoding) = 0;
+
+protected:
+    virtual ~StreamServerConnectionClient() = default;
+};
 
 // StreamServerConnection represents the connection between stream client and server, as used by the server.
 //
@@ -128,181 +74,143 @@ void StreamServerConnectionBase::sendSyncReply(Connection::SyncRequestID syncReq
 //  * Sends the replies back to the client via the stream or normal Connection fallback.
 //
 // Receiver template contract:
-//   void didReceiveStreamMessage(StreamServerConnectionBase&, Decoder&);
+//   void didReceiveStreamMessage(StreamServerConnection&, Decoder&);
 //
 // The StreamServerConnection does not trust the StreamClientConnection.
-template<typename Receiver>
-class StreamServerConnection final : public StreamServerConnectionBase {
+class StreamServerConnection final : public ThreadSafeRefCounted<StreamServerConnection>, private MessageReceiveQueue, private Connection::Client {
+    WTF_MAKE_NONCOPYABLE(StreamServerConnection);
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(StreamServerConnection);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(StreamServerConnection);
 public:
-    static Ref<StreamServerConnection> create(Connection& connection, StreamConnectionBuffer&& streamBuffer, StreamConnectionWorkQueue& workQueue)
-    {
-        return adoptRef(*new StreamServerConnection(connection, WTFMove(streamBuffer), workQueue));
-    }
-    ~StreamServerConnection() final = default;
+    using AsyncReplyID = Connection::AsyncReplyID;
+    using Handle = StreamServerConnectionHandle;
+    using Client = StreamServerConnectionClient;
 
-    void startReceivingMessages(Receiver&, ReceiverName, uint64_t destinationID);
+    static RefPtr<StreamServerConnection> tryCreate(Handle&&, const StreamServerConnectionParameters&);
+    ~StreamServerConnection() final;
+
+    void ref() const final { ThreadSafeRefCounted::ref(); }
+    void deref() const final { ThreadSafeRefCounted::deref(); }
+
+    void startReceivingMessages(StreamMessageReceiver&, ReceiverName, uint64_t destinationID);
     // Stops the message receipt. Note: already received messages might still be delivered.
     void stopReceivingMessages(ReceiverName, uint64_t destinationID);
 
-    // StreamServerConnectionBase overrides.
-    DispatchResult dispatchStreamMessages(size_t messageLimit) final;
+    Connection& connection() { return m_connection; }
+
+    enum DispatchResult : bool {
+        HasNoMessages,
+        HasMoreMessages
+    };
+    DispatchResult dispatchStreamMessages(size_t messageLimit);
+    void NODELETE markCurrentlyDispatchedMessageAsInvalid(ASCIILiteral error);
+
+    void open(Client&, StreamConnectionWorkQueue&);
+    void invalidate();
+    template<typename T, typename RawValue> Error send(T&& message, const ObjectIdentifierGenericBase<RawValue>& destinationID);
+
+    template<typename T, typename... Arguments>
+    void sendSyncReply(Connection::SyncRequestID, Arguments&&...);
+
+#if ENABLE(IPC_TESTING_API)
+    void setIgnoreInvalidMessageForTesting() { m_connection->setIgnoreInvalidMessageForTesting(); }
+    bool ignoreInvalidMessageForTesting() const { return m_connection->ignoreInvalidMessageForTesting(); }
+#endif
+
+    template<typename T, typename... Arguments>
+    void sendAsyncReply(AsyncReplyID, Arguments&&...);
+
+    Semaphore& clientWaitSemaphore() LIFETIME_BOUND { return m_clientWaitSemaphore; }
 
 private:
-    StreamServerConnection(Connection& connection, StreamConnectionBuffer&& streamBuffer, StreamConnectionWorkQueue& workQueue)
-        : StreamServerConnectionBase(connection, WTFMove(streamBuffer), workQueue)
-    {
-    }
-    bool processSetStreamDestinationID(Decoder&&, RefPtr<Receiver>& currentReceiver);
-    bool dispatchStreamMessage(Decoder&&, Receiver&);
-    bool dispatchOutOfStreamMessage(Decoder&&);
+    StreamServerConnection(Ref<Connection>, StreamServerConnectionBuffer&&);
+
+    // MessageReceiveQueue
+    void enqueueMessage(Connection&, UniqueRef<Decoder>&&) final;
+
+    // Connection::Client
+    void didReceiveMessage(Connection&, Decoder&) final;
+    void didReceiveSyncMessage(Connection&, Decoder&, UniqueRef<Encoder>&) final;
+    void didClose(Connection&) final;
+    void didReceiveInvalidMessage(Connection&, MessageName, const Vector<uint32_t>& indicesOfObjectsFailingDecoding) final;
+
+    bool processSetStreamDestinationID(Decoder&, RefPtr<StreamMessageReceiver>& currentReceiver);
+    bool processStreamMessage(Decoder&, StreamMessageReceiver&);
+    bool processOutOfStreamMessage(Decoder&);
+    bool dispatchStreamMessage(Decoder&, StreamMessageReceiver&);
+    void dispatchDidReceiveInvalidMessage(Decoder&);
+
+    using WakeUpClient = StreamServerConnectionBuffer::WakeUpClient;
+    const Ref<IPC::Connection> m_connection;
+    RefPtr<StreamConnectionWorkQueue> m_workQueue;
+    CheckedPtr<Client> m_client;
+    StreamServerConnectionBuffer m_buffer;
+
+    Lock m_outOfStreamMessagesLock;
+    Deque<UniqueRef<Decoder>> m_outOfStreamMessages WTF_GUARDED_BY_LOCK(m_outOfStreamMessagesLock);
+
+    std::unique_ptr<IPC::Encoder> m_syncReplyToDispatch;
     Lock m_receiversLock;
-    using ReceiversMap = HashMap<std::pair<uint8_t, uint64_t>, Ref<Receiver>>;
+    using ReceiversMap = HashMap<std::pair<uint8_t, uint64_t>, Ref<StreamMessageReceiver>>;
     ReceiversMap m_receivers WTF_GUARDED_BY_LOCK(m_receiversLock);
     uint64_t m_currentDestinationID { 0 };
+    Semaphore m_clientWaitSemaphore;
+    bool m_isProcessingStreamMessage { false };
+    bool m_didReceiveInvalidMessage { false };
+#if ASSERT_ENABLED
+    bool m_isDispatchingMessage { false };
+#endif
+    friend class StreamConnectionWorkQueue;
 };
 
-template<typename Receiver>
-void StreamServerConnection<Receiver>::startReceivingMessages(Receiver& receiver, ReceiverName receiverName, uint64_t destinationID)
+template<typename T, typename RawValue>
+Error StreamServerConnection::send(T&& message, const ObjectIdentifierGenericBase<RawValue>& destinationID)
 {
-    {
-        auto key = std::make_pair(static_cast<uint8_t>(receiverName), destinationID);
-        Locker locker { m_receiversLock };
-        ASSERT(!m_receivers.contains(key));
-        m_receivers.add(key, makeRef(receiver));
-    }
-    StreamServerConnectionBase::startReceivingMessagesImpl(receiverName, destinationID);
+    return m_connection->send(std::forward<T>(message), destinationID);
 }
 
-template<typename Receiver>
-void StreamServerConnection<Receiver>::stopReceivingMessages(ReceiverName receiverName, uint64_t destinationID)
+template<typename T, typename... Arguments>
+void StreamServerConnection::sendSyncReply(Connection::SyncRequestID syncRequestID, Arguments&&... arguments)
 {
-    StreamServerConnectionBase::stopReceivingMessagesImpl(receiverName, destinationID);
-    auto key = std::make_pair(static_cast<uint8_t>(receiverName), destinationID);
-    Locker locker { m_receiversLock };
-    ASSERT(m_receivers.contains(key));
-    m_receivers.remove(key);
-}
-
-template<typename Receiver>
-StreamServerConnectionBase::DispatchResult StreamServerConnection<Receiver>::dispatchStreamMessages(size_t messageLimit)
-{
-    RefPtr<Receiver> currentReceiver;
-    // FIXME: Implement WTF::isValid(ReceiverName).
-    uint8_t currentReceiverName = static_cast<uint8_t>(ReceiverName::Invalid);
-
-    for (size_t i = 0; i < messageLimit; ++i) {
-        auto span = tryAcquire();
-        if (!span)
-            return DispatchResult::HasNoMessages;
-        IPC::Decoder decoder { span->data, span->size, m_currentDestinationID };
-        if (!decoder.isValid()) {
-            m_connection->dispatchDidReceiveInvalidMessage(decoder.messageName());
-            return DispatchResult::HasNoMessages;
-        }
-        if (decoder.messageName() == MessageName::SetStreamDestinationID) {
-            if (!processSetStreamDestinationID(WTFMove(decoder), currentReceiver))
-                return DispatchResult::HasNoMessages;
-            continue;
-        }
-        if (decoder.messageName() == MessageName::ProcessOutOfStreamMessage) {
-            if (!dispatchOutOfStreamMessage(WTFMove(decoder)))
-                return DispatchResult::HasNoMessages;
-            continue;
-        }
-        if (currentReceiverName != static_cast<uint8_t>(decoder.messageReceiverName())) {
-            currentReceiverName = static_cast<uint8_t>(decoder.messageReceiverName());
-            currentReceiver = nullptr;
-        }
-        if (!currentReceiver) {
-            auto key = std::make_pair(static_cast<uint8_t>(currentReceiverName), m_currentDestinationID);
-            if (!ReceiversMap::isValidKey(key)) {
-                m_connection->dispatchDidReceiveInvalidMessage(decoder.messageName());
-                return DispatchResult::HasNoMessages;
+    if constexpr(T::isReplyStreamEncodable) {
+        if (m_isProcessingStreamMessage) {
+            auto span = m_buffer.acquireAll();
+            {
+                StreamConnectionEncoder messageEncoder { MessageName::SyncMessageReply, span };
+                if ((messageEncoder << ... << arguments))
+                    return;
             }
-            Locker locker { m_receiversLock };
-            currentReceiver = m_receivers.get(key);
-        }
-        if (!currentReceiver) {
-            // Valid scenario is when receiver has been removed, but there are messages for it in the buffer.
-            // FIXME: Since we do not have a receiver, we don't know how to decode the message.
-            // This means we must timeout every receiver in the stream connection.
-            // Currently we assert that the receivers are empty, as we only have up to one receiver in
-            // a stream connection until possibility of skipping is implemented properly.
-            Locker locker { m_receiversLock };
-            ASSERT(m_receivers.isEmpty());
-            return DispatchResult::HasNoMessages;
-        }
-        if (!dispatchStreamMessage(WTFMove(decoder), *currentReceiver))
-            return DispatchResult::HasNoMessages;
-    }
-    return DispatchResult::HasMoreMessages;
-}
-
-template<typename Receiver>
-bool StreamServerConnection<Receiver>::processSetStreamDestinationID(Decoder&& decoder, RefPtr<Receiver>& currentReceiver)
-{
-    uint64_t destinationID = 0;
-    if (!decoder.decode(destinationID)) {
-        m_connection->dispatchDidReceiveInvalidMessage(decoder.messageName());
-        return false;
-    }
-    if (m_currentDestinationID != destinationID) {
-        m_currentDestinationID = destinationID;
-        currentReceiver = nullptr;
-    }
-    release(decoder.currentBufferPosition());
-    return true;
-}
-
-template<typename Receiver>
-bool StreamServerConnection<Receiver>::dispatchStreamMessage(Decoder&& decoder, Receiver& receiver)
-{
-    ASSERT(!m_isDispatchingStreamMessage);
-    m_isDispatchingStreamMessage = true;
-    receiver.didReceiveStreamMessage(*this, decoder);
-    m_isDispatchingStreamMessage = false;
-    if (!decoder.isValid()) {
-        m_connection->dispatchDidReceiveInvalidMessage(decoder.messageName());
-        return false;
-    }
-    if (decoder.isSyncMessage())
-        releaseAll();
-    else
-        release(decoder.currentBufferPosition());
-    return true;
-}
-
-template<typename Receiver>
-bool StreamServerConnection<Receiver>::dispatchOutOfStreamMessage(Decoder&& decoder)
-{
-    std::unique_ptr<Decoder> message;
-    {
-        Locker locker { m_outOfStreamMessagesLock };
-        if (m_outOfStreamMessages.isEmpty())
-            return false;
-        message = m_outOfStreamMessages.takeFirst();
-    }
-    if (!message)
-        return false;
-
-    RefPtr<Receiver> receiver;
-    {
-        auto key = std::make_pair(static_cast<uint8_t>(message->messageReceiverName()), message->destinationID());
-        Locker locker { m_receiversLock };
-        receiver = m_receivers.get(key);
-    }
-    if (receiver) {
-        receiver->didReceiveStreamMessage(*this, *message);
-        if (!message->isValid()) {
-            m_connection->dispatchDidReceiveInvalidMessage(message->messageName());
-            return false;
+            StreamConnectionEncoder outOfStreamEncoder { MessageName::ProcessOutOfStreamMessage, span };
         }
     }
-    // If receiver does not exist if it has been removed but messages are still pending to be
-    // processed. It's ok to skip such messages.
-    // FIXME: Note, corresponding skip is not possible at the moment for stream messages.
-    release(decoder.currentBufferPosition());
-    return true;
+    auto encoder = makeUniqueRef<Encoder>(MessageName::SyncMessageReply, syncRequestID.toUInt64());
+    (encoder.get() << ... << std::forward<Arguments>(arguments));
+    if (m_isProcessingStreamMessage) {
+        // Send sync reply only after releasing the buffer. Otherwise client might receive the message before server
+        // releases the buffer. Client would the send a new message, and release would happen only after.
+        m_syncReplyToDispatch = encoder.moveToUniquePtr();
+    } else {
+        // Asynchronously replying from the current thread is supported. Note: This is not thread safe,
+        // as any other thread might execute before the buffer release.
+        m_connection->sendSyncReply(WTF::move(encoder));
+    }
+}
+
+template<typename T, typename... Arguments>
+void StreamServerConnection::sendAsyncReply(AsyncReplyID asyncReplyID, Arguments&&... arguments)
+{
+    m_connection->sendAsyncReply<T>(asyncReplyID, std::forward<Arguments>(arguments)...);
+}
+
+inline void markCurrentlyDispatchedMessageAsInvalid(StreamServerConnection& connection, ASCIILiteral error)
+{
+    connection.markCurrentlyDispatchedMessageAsInvalid(error);
+}
+
+inline void markCurrentlyDispatchedMessageAsInvalid(const RefPtr<StreamServerConnection>& connection, ASCIILiteral error)
+{
+    if (connection)
+        connection->markCurrentlyDispatchedMessageAsInvalid(error);
 }
 
 }

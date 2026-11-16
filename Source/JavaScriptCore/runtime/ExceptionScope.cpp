@@ -26,6 +26,8 @@
 #include "config.h"
 #include "ExceptionScope.h"
 
+#include "ErrorInstance.h"
+#include "Exception.h"
 #include <wtf/StackTrace.h>
 #include <wtf/StringPrintStream.h>
 #include <wtf/Threading.h>
@@ -53,15 +55,20 @@ CString ExceptionScope::unexpectedExceptionMessage()
 {
     StringPrintStream out;
 
-    out.println("Unexpected exception observed on thread ", Thread::current(), " at:");
+    out.println("Unexpected exception observed on thread ", Thread::currentSingleton(), " at:");
     auto currentStack = StackTrace::captureStackTrace(Options::unexpectedExceptionStackTraceLimit(), 1);
-    currentStack->dump(out, "    ");
+    out.print(StackTracePrinter { *currentStack, "    " });
 
     if (!m_vm.nativeStackTraceOfLastThrow())
         return CString();
     
     out.println("The exception was thrown from thread ", *m_vm.throwingThread(), " at:");
-    m_vm.nativeStackTraceOfLastThrow()->dump(out, "    ");
+    out.print(StackTracePrinter { *m_vm.nativeStackTraceOfLastThrow(), "    " });
+
+    if (auto* error = dynamicDowncast<ErrorInstance>(exception()->value()))
+        out.println("Error Exception: ", error->tryGetMessageForDebugging());
+    else
+        out.println("non-Error Exception: ", exception()->value());
 
     return out.toCString();
 }

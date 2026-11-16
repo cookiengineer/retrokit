@@ -25,11 +25,13 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace JSC {
 
 enum class CollectionScope : uint8_t { Eden, Full };
 
-const char* collectionScopeName(CollectionScope);
+const char* NODELETE collectionScopeName(CollectionScope);
 
 } // namespace JSC
 

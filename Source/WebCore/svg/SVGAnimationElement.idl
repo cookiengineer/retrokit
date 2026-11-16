@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2025 Apple Inc. All rights reserved.
  * Copyright (C) 2009 Cameron McCormack <cam@mcc.id.au>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -24,19 +24,25 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
+// https://svgwg.org/specs/animations/#InterfaceSVGAnimationElement
+
 [
     Exposed=Window
 ] interface SVGAnimationElement : SVGElement {
-    readonly attribute SVGElement targetElement;
+    readonly attribute SVGElement? targetElement;
 
-    unrestricted float getStartTime();
-    unrestricted float getCurrentTime();
-    unrestricted float getSimpleDuration();
+    float getStartTime();
+    float getCurrentTime();
+    float getSimpleDuration();
 
     undefined beginElement();
-    undefined beginElementAt(optional unrestricted float offset = NaN);
+    undefined beginElementAt(float offset);
     undefined endElement();
-    undefined endElementAt(optional unrestricted float offset = NaN);
+    undefined endElementAt(float offset);
+
+    [ImplementedAs=onbeginEvent] attribute EventHandler onbegin;
+    [ImplementedAs=onendEvent] attribute EventHandler onend;
+    [ImplementedAs=onrepeatEvent] attribute EventHandler onrepeat;
 };
 
 SVGAnimationElement includes SVGTests;

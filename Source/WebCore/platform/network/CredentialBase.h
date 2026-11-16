@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007-2020 Apple Inc.  All rights reserved.
+ * Copyright (C) 2007-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,33 +25,40 @@
 
 #pragma once
 
-#include <wtf/EnumTraits.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
 class Credential;
 
-enum CredentialPersistence {
-    CredentialPersistenceNone,
-    CredentialPersistenceForSession,
-    CredentialPersistencePermanent
+enum class CredentialPersistence : uint8_t {
+    None,
+    ForSession,
+    Permanent
 };
 
 class CredentialBase {
 public:
-    WEBCORE_EXPORT bool isEmpty() const;
+    WEBCORE_EXPORT bool NODELETE isEmpty() const;
     
-    WEBCORE_EXPORT const String& user() const;
-    WEBCORE_EXPORT const String& password() const;
-    WEBCORE_EXPORT bool hasPassword() const;
-    WEBCORE_EXPORT CredentialPersistence persistence() const;
+    WEBCORE_EXPORT const String& NODELETE user() const;
+    WEBCORE_EXPORT const String& NODELETE password() const;
+    WEBCORE_EXPORT bool NODELETE hasPassword() const;
+    WEBCORE_EXPORT CredentialPersistence NODELETE persistence() const;
 
     bool encodingRequiresPlatformData() const { return false; }
 
     WEBCORE_EXPORT static bool compare(const Credential&, const Credential&);
 
     WEBCORE_EXPORT String serializationForBasicAuthorizationHeader() const;
+
+    struct NonPlatformData {
+        String user;
+        String password;
+        CredentialPersistence persistence;
+    };
+
+    WEBCORE_EXPORT NonPlatformData NODELETE nonPlatformData() const;
 
 protected:
     WEBCORE_EXPORT CredentialBase();
@@ -67,19 +74,5 @@ private:
 };
 
 inline bool operator==(const Credential& a, const Credential& b) { return CredentialBase::compare(a, b); }
-inline bool operator!=(const Credential& a, const Credential& b) { return !(a == b); }
     
 } // namespace WebCore
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::CredentialPersistence> {
-    using values = EnumValues<
-        WebCore::CredentialPersistence,
-        WebCore::CredentialPersistence::CredentialPersistenceNone,
-        WebCore::CredentialPersistence::CredentialPersistenceForSession,
-        WebCore::CredentialPersistence::CredentialPersistencePermanent
-    >;
-};
-
-} // namespace WTF

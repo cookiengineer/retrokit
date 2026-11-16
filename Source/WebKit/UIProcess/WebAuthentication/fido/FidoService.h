@@ -29,23 +29,27 @@
 
 #include "AuthenticatorTransportService.h"
 #include "CtapDriver.h"
+#include <wtf/HashSet.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/UniqueRef.h>
 
 namespace WebKit {
 
-class FidoService : public AuthenticatorTransportService {
+class FidoService : public AuthenticatorTransportService, public RefCounted<FidoService> {
+    WTF_MAKE_TZONE_ALLOCATED(FidoService);
 public:
-    explicit FidoService(Observer&);
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
 
 protected:
-    void getInfo(std::unique_ptr<CtapDriver>&&);
+    explicit FidoService(AuthenticatorTransportServiceObserver&);
+    void getInfo(Ref<CtapDriver>&&);
 
 private:
-    void continueAfterGetInfo(WeakPtr<CtapDriver>&&, Vector<uint8_t>&& info);
+    void continueAfterGetInfo(CtapDriver&, Vector<uint8_t>&& info);
 
     // Keeping drivers alive when they are getting info from devices.
-    HashSet<std::unique_ptr<CtapDriver>> m_drivers;
+    HashSet<Ref<CtapDriver>> m_drivers;
 };
 
 } // namespace WebKit

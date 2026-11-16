@@ -18,8 +18,7 @@
  *
  */
 
-#ifndef GUniquePtr_h
-#define GUniquePtr_h
+#pragma once
 
 #if USE(GLIB)
 
@@ -35,7 +34,12 @@ struct GPtrDeleter {
 };
 
 template<typename T>
-using GUniquePtr = std::unique_ptr<T, GPtrDeleter<T>>;
+struct GFreeDeleter {
+    void operator()(T* ptr) const { g_free(ptr); }
+};
+
+template<typename T, typename U = GPtrDeleter<T>>
+using GUniquePtr = std::unique_ptr<T, U>;
 
 #define FOR_EACH_GLIB_DELETER(macro) \
     macro(GError, g_error_free) \
@@ -62,6 +66,19 @@ using GUniquePtr = std::unique_ptr<T, GPtrDeleter<T>>;
 FOR_EACH_GLIB_DELETER(WTF_DEFINE_GPTR_DELETER)
 #undef FOR_EACH_GLIB_DELETER
 
+#define WTF_DEFINE_DEPRECATED_GPTR_DELETER(typeName, deleterFunc) \
+    template<> struct GPtrDeleter<typeName> { \
+        void operator()(typeName* ptr) const \
+        { \
+            ALLOW_DEPRECATED_DECLARATIONS_BEGIN; \
+            deleterFunc(ptr); \
+            ALLOW_DEPRECATED_DECLARATIONS_END; \
+        } \
+    };
+
+WTF_DEFINE_DEPRECATED_GPTR_DELETER(GValueArray, g_value_array_free)
+#undef WTF_DEFINE_DEPRECATED_GPTR_DELETER
+
 template <typename T> class GUniqueOutPtr {
     WTF_MAKE_NONCOPYABLE(GUniqueOutPtr);
 public:
@@ -75,30 +92,30 @@ public:
         reset();
     }
 
-    T*& outPtr()
+    T*& outPtr() LIFETIME_BOUND
     {
         reset();
         return m_ptr;
     }
 
-    T* release()
+    [[nodiscard]] T* release()
     {
         return std::exchange(m_ptr, nullptr);
     }
 
-    T& operator*() const
+    T& operator*() const LIFETIME_BOUND
     {
         ASSERT(m_ptr);
         return *m_ptr;
     }
 
-    T* operator->() const
+    T* operator->() const LIFETIME_BOUND
     {
         ASSERT(m_ptr);
         return m_ptr;
     }
 
-    T* get() const { return m_ptr; }
+    T* get() const LIFETIME_BOUND { return m_ptr; }
 
     bool operator!() const { return !m_ptr; }
 
@@ -122,8 +139,6 @@ private:
 
 using WTF::GUniquePtr;
 using WTF::GUniqueOutPtr;
+using WTF::GFreeDeleter;
 
 #endif // USE(GLIB)
-
-#endif // GUniquePtr_h
-

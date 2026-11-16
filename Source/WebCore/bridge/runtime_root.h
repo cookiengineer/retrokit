@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004 Apple Inc.  All rights reserved.
+ * Copyright (C) 2004 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -65,8 +65,8 @@ public:
     void gcUnprotect(JSObject*);
     bool gcIsProtected(JSObject*);
 
-    const void* nativeHandle() const;
-    WEBCORE_EXPORT JSGlobalObject* globalObject() const;
+    const void* NODELETE nativeHandle() const;
+    WEBCORE_EXPORT JSGlobalObject* NODELETE globalObject() const;
     void updateGlobalObject(JSGlobalObject*);
 
     void addRuntimeObject(VM&, RuntimeObject*);

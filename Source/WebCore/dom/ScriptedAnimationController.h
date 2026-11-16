@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2011 Google Inc. All Rights Reserved.
- * Copyright (C) 2020 Apple Inc.  All rights reserved.
+ * Copyright (C) 2011 Google Inc. All rights reserved.
+ * Copyright (C) 2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,19 +27,22 @@
 #pragma once
 
 #include "AnimationFrameRate.h"
-#include "ReducedResolutionSeconds.h"
+#include "Document.h"
 #include "Timer.h"
+#include <wtf/CheckedPtr.h>
 #include <wtf/OptionSet.h>
+#include <wtf/ReducedResolutionSeconds.h>
 #include <wtf/RefCounted.h>
 #include <wtf/RefPtr.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
 
-class Document;
+class ImminentlyScheduledWorkScope;
 class Page;
 class RequestAnimationFrameCallback;
 class UserGestureToken;
+class WeakPtrImplWithEventTargetData;
 
 class ScriptedAnimationController : public RefCounted<ScriptedAnimationController>
 {
@@ -50,12 +53,11 @@ public:
     }
     ~ScriptedAnimationController();
     void clearDocumentPointer() { m_document = nullptr; }
-    bool requestAnimationFrameEnabled() const;
 
-    WEBCORE_EXPORT Seconds interval() const;
-    WEBCORE_EXPORT OptionSet<ThrottlingReason> throttlingReasons() const;
+    WEBCORE_EXPORT Seconds NODELETE interval() const;
+    WEBCORE_EXPORT OptionSet<ThrottlingReason> NODELETE throttlingReasons() const;
 
-    void suspend();
+    void NODELETE suspend();
     void resume();
 
     void addThrottlingReason(ThrottlingReason reason) { m_throttlingReasons.add(reason); }
@@ -69,8 +71,8 @@ public:
 private:
     ScriptedAnimationController(Document&);
 
-    Page* page() const;
-    Seconds preferredScriptedAnimationInterval() const;
+    Page* NODELETE page() const;
+    Seconds NODELETE preferredScriptedAnimationInterval() const;
     bool isThrottledRelativeToPage() const;
     bool shouldRescheduleRequestAnimationFrame(ReducedResolutionSeconds) const;
     void scheduleAnimation();
@@ -78,10 +80,11 @@ private:
     struct CallbackData {
         Ref<RequestAnimationFrameCallback> callback;
         RefPtr<UserGestureToken> userGestureTokenToForward;
+        RefPtr<ImminentlyScheduledWorkScope> scheduledWorkScope;
     };
     Vector<CallbackData> m_callbackDataList;
 
-    WeakPtr<Document> m_document;
+    WeakPtr<Document, WeakPtrImplWithEventTargetData> m_document;
     CallbackId m_nextCallbackId { 0 };
     int m_suspendCount { 0 };
 

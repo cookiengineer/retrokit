@@ -1,10 +1,8 @@
 //
-// Copyright 2019 The ANGLE Project Authors. All rights reserved.
+// Copyright 2026 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
-
-// RendererGLX.cpp: Implements the class methods for RendererGLX.
 
 #include "libANGLE/renderer/gl/glx/RendererGLX.h"
 
@@ -13,17 +11,39 @@
 namespace rx
 {
 
-RendererGLX::RendererGLX(std::unique_ptr<FunctionsGL> functions,
+RendererGLX::RendererGLX(std::unique_ptr<FunctionsGL> functionsGL,
                          const egl::AttributeMap &attribMap,
-                         DisplayGLX *display)
-    : RendererGL(std::move(functions), attribMap, display), mDisplay(display)
+                         const FunctionsGLX &glx,
+                         DisplayGLX *display,
+                         glx::Context context,
+                         glx::Pbuffer pbuffer)
+    : RendererGL(std::move(functionsGL), attribMap, display),
+      mGLX(glx),
+      mContext(context),
+      mPbuffer(pbuffer)
 {}
 
-RendererGLX::~RendererGLX() {}
-
-WorkerContext *RendererGLX::createWorkerContext(std::string *infoLog)
+RendererGLX::~RendererGLX()
 {
-    return mDisplay->createWorkerContext(infoLog);
+    if (mPbuffer)
+    {
+        mGLX.destroyPbuffer(mPbuffer);
+    }
+
+    if (mContext)
+    {
+        mGLX.destroyContext(mContext);
+    }
+}
+
+glx::Context RendererGLX::getContext() const
+{
+    return mContext;
+}
+
+glx::Pbuffer RendererGLX::getPbuffer() const
+{
+    return mPbuffer;
 }
 
 }  // namespace rx

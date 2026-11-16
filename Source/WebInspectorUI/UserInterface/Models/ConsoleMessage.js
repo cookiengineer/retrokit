@@ -25,7 +25,7 @@
 
 WI.ConsoleMessage = class ConsoleMessage
 {
-    constructor(target, source, level, message, type, url, line, column, repeatCount, parameters, callFrames, request)
+    constructor(target, source, level, message, type, url, line, column, repeatCount, parameters, stackTrace, request, timestamp)
     {
         console.assert(target instanceof WI.Target);
         console.assert(typeof source === "string");
@@ -33,25 +33,23 @@ WI.ConsoleMessage = class ConsoleMessage
         console.assert(typeof message === "string");
         console.assert(!type || Object.values(WI.ConsoleMessage.MessageType).includes(type));
         console.assert(!parameters || parameters.every((x) => x instanceof WI.RemoteObject));
+        console.assert(!stackTrace || stackTrace instanceof WI.StackTrace, stackTrace);
+        console.assert(!timestamp || !isNaN(timestamp), timestamp);
 
         this._target = target;
         this._source = source;
         this._level = level;
         this._messageText = message;
         this._type = type || WI.ConsoleMessage.MessageType.Log;
-
         this._url = url || null;
         this._line = line || 0;
         this._column = column || 0;
         this._sourceCodeLocation = undefined;
-
         this._repeatCount = repeatCount || 0;
         this._parameters = parameters;
-
-        callFrames = callFrames || [];
-        this._stackTrace = WI.StackTrace.fromPayload(this._target, {callFrames});
-
+        this._stackTrace = stackTrace || null;
         this._request = request;
+        this._timestamp = timestamp ?? NaN;
     }
 
     // Public
@@ -68,6 +66,7 @@ WI.ConsoleMessage = class ConsoleMessage
     get parameters() { return this._parameters; }
     get stackTrace() { return this._stackTrace; }
     get request() { return this._request; }
+    get timestamp() { return this._timestamp; }
 
     get sourceCodeLocation()
     {
@@ -75,7 +74,7 @@ WI.ConsoleMessage = class ConsoleMessage
             return this._sourceCodeLocation;
 
         // First try to get the location from the top frame of the stack trace.
-        let topCallFrame = this._stackTrace.callFrames[0];
+        let topCallFrame = this._stackTrace?.callFrames[0];
         if (topCallFrame && topCallFrame.sourceCodeLocation) {
             this._sourceCodeLocation = topCallFrame.sourceCodeLocation;
             return this._sourceCodeLocation;
@@ -105,9 +104,9 @@ WI.ConsoleMessage.MessageSource = {
     Network: "network",
     ConsoleAPI: "console-api",
     Storage: "storage",
-    Appcache: "appcache",
     Rendering: "rendering",
     CSS: "css",
+    Accessibility: "accessibility",
     Security: "security",
     Media: "media",
     MediaSource: "mediasource",

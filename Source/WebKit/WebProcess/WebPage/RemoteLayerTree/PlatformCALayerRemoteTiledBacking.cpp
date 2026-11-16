@@ -36,13 +36,12 @@ using namespace WebCore;
 
 PlatformCALayerRemoteTiledBacking::PlatformCALayerRemoteTiledBacking(LayerType layerType, PlatformCALayerClient* owner, RemoteLayerTreeContext& context)
     : PlatformCALayerRemote(layerType, owner, context)
-    , m_tileController(makeUnique<TileController>(this))
+    , m_tileController(makeUniqueRef<TileController>(this, WebCore::TileController::AllowScrollPerformanceLogging::No))
 {
+    PlatformCALayerRemote::setContentsScale(m_tileController->contentsScale());
 }
 
-PlatformCALayerRemoteTiledBacking::~PlatformCALayerRemoteTiledBacking()
-{
-}
+PlatformCALayerRemoteTiledBacking::~PlatformCALayerRemoteTiledBacking() = default;
 
 void PlatformCALayerRemoteTiledBacking::setNeedsDisplayInRect(const FloatRect& dirtyRect)
 {
@@ -86,24 +85,28 @@ void PlatformCALayerRemoteTiledBacking::setAcceleratesDrawing(bool acceleratesDr
     m_tileController->setAcceleratesDrawing(acceleratesDrawing);
 }
 
-bool PlatformCALayerRemoteTiledBacking::wantsDeepColorBackingStore() const
+#if HAVE(SUPPORT_HDR_DISPLAY)
+bool PlatformCALayerRemoteTiledBacking::setNeedsDisplayIfEDRHeadroomExceeds(float headroom)
 {
-    return m_tileController->wantsDeepColorBackingStore();
+    return m_tileController->setNeedsDisplayIfEDRHeadroomExceeds(headroom);
 }
 
-void PlatformCALayerRemoteTiledBacking::setWantsDeepColorBackingStore(bool wantsDeepColorBackingStore)
+void PlatformCALayerRemoteTiledBacking::setTonemappingEnabled(bool enabled)
 {
-    m_tileController->setWantsDeepColorBackingStore(wantsDeepColorBackingStore);
+    PlatformCALayerRemote::setTonemappingEnabled(enabled);
+    m_tileController->setTonemappingEnabled(enabled);
+}
+#endif
+
+
+ContentsFormat PlatformCALayerRemoteTiledBacking::contentsFormat() const
+{
+    return m_tileController->contentsFormat();
 }
 
-bool PlatformCALayerRemoteTiledBacking::supportsSubpixelAntialiasedText() const
+void PlatformCALayerRemoteTiledBacking::setContentsFormat(ContentsFormat contentsFormat)
 {
-    return m_tileController->supportsSubpixelAntialiasedText();
-}
-
-void PlatformCALayerRemoteTiledBacking::setSupportsSubpixelAntialiasedText(bool supportsSubpixelAntialiasedText)
-{
-    m_tileController->setSupportsSubpixelAntialiasedText(supportsSubpixelAntialiasedText);
+    m_tileController->setContentsFormat(contentsFormat);
 }
 
 float PlatformCALayerRemoteTiledBacking::contentsScale() const
@@ -113,6 +116,7 @@ float PlatformCALayerRemoteTiledBacking::contentsScale() const
 
 void PlatformCALayerRemoteTiledBacking::setContentsScale(float scale)
 {
+    PlatformCALayerRemote::setContentsScale(scale);
     m_tileController->setContentsScale(scale);
 }
 

@@ -23,13 +23,15 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// https://immersive-web.github.io/webxr/#dictdef-xrrenderstateinit
 [
-    EnabledBySetting=WebXR,
     Conditional=WEBXR,
+    EnabledBySetting=WebXREnabled,
 ] dictionary XRRenderStateInit {
     double depthNear;
     double depthFar;
+    boolean passthroughFullyObscured;
     double inlineVerticalFieldOfView;
     WebXRWebGLLayer? baseLayer;
-    sequence<WebXRLayer>? layers;
+    [ImplementationDefaultValue=null] sequence<WebXRLayer>? layers;
 };

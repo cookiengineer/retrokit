@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2014 Apple Inc. All rights reserved.
+// Copyright (C) 2014-2022 Apple Inc. All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions
@@ -39,6 +39,7 @@ Access-Control-Request-Method
 Age
 Authorization
 Cache-Control
+Clear-Site-Data
 Connection
 Content-Disposition
 Content-Encoding
@@ -68,21 +69,32 @@ If-Modified-Since
 If-None-Match
 If-Range
 If-Unmodified-Since
+Integrity-Policy
+Integrity-Policy-Report-Only
 Keep-Alive
 Last-Event-ID
 Last-Modified
 Link
 Location
 Origin
+Origin-Agent-Cluster
 Ping-From
 Ping-To
-Purpose
 Pragma
 Proxy-Authorization
 Range
 Referer
 Referrer-Policy
 Refresh
+Report-To
+Reporting-Endpoints
+Sec-Fetch-Dest
+Sec-Fetch-Mode
+Sec-Fetch-Site
+Sec-GPC
+Sec-Purpose
+Sec-Speculation-Tags
+Speculation-Rules
 Sec-WebSocket-Accept
 Sec-WebSocket-Extensions
 Sec-WebSocket-Key
@@ -91,6 +103,7 @@ Sec-WebSocket-Version
 Server-Timing
 Service-Worker
 Service-Worker-Allowed
+Service-Worker-Navigation-Preload
 Set-Cookie
 Set-Cookie2
 SourceMap
@@ -104,7 +117,6 @@ User-Agent
 Vary
 Via
 X-Content-Type-Options
-X-DNS-Prefetch-Control
 X-Frame-Options
 X-SourceMap
 X-XSS-Protection

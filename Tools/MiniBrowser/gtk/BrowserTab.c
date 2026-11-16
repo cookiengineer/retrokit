@@ -61,6 +61,8 @@ struct _BrowserTab {
 
 static GHashTable *userMediaPermissionGrantedOrigins;
 static GHashTable *mediaKeySystemPermissionGrantedOrigins;
+static GHashTable *clipboardPermissionGrantedOrigins;
+static GHashTable *xrPermissionGrantedOrigins;
 struct _BrowserTabClass {
     GtkBoxClass parent;
 };
@@ -125,10 +127,7 @@ static gboolean decidePolicy(WebKitWebView *webView, WebKitPolicyDecision *decis
     if (webkit_response_policy_decision_is_mime_type_supported(responseDecision))
         return FALSE;
 
-    WebKitWebResource *mainResource = webkit_web_view_get_main_resource(webView);
-    WebKitURIRequest *request = webkit_response_policy_decision_get_request(responseDecision);
-    const char *requestURI = webkit_uri_request_get_uri(request);
-    if (g_strcmp0(webkit_web_resource_get_uri(mainResource), requestURI))
+    if (!webkit_response_policy_decision_is_main_frame_main_resource(responseDecision))
         return FALSE;
 
     webkit_policy_decision_download(decision);
@@ -143,8 +142,29 @@ static void removeChildIfInfoBar(GtkWidget *child, GtkContainer *tab)
 }
 #endif
 
+static void toggleAboutDataScriptMessageHandler(WebKitWebView *webView)
+{
+    WebKitUserContentManager *userContentManager = webkit_web_view_get_user_content_manager(webView);
+    if (g_str_has_prefix(webkit_web_view_get_uri(webView), BROWSER_ABOUT_SCHEME)) {
+#if GTK_CHECK_VERSION(3, 98, 0)
+        webkit_user_content_manager_register_script_message_handler(userContentManager, "aboutData", NULL);
+#else
+        webkit_user_content_manager_register_script_message_handler(userContentManager, "aboutData");
+#endif
+    } else {
+#if GTK_CHECK_VERSION(3, 98, 0)
+        webkit_user_content_manager_unregister_script_message_handler(userContentManager, "aboutData", NULL);
+#else
+        webkit_user_content_manager_unregister_script_message_handler(userContentManager, "aboutData");
+#endif
+    }
+}
+
 static void loadChanged(WebKitWebView *webView, WebKitLoadEvent loadEvent, BrowserTab *tab)
 {
+    if (loadEvent == WEBKIT_LOAD_COMMITTED)
+        toggleAboutDataScriptMessageHandler(webView);
+
     if (loadEvent != WEBKIT_LOAD_STARTED)
         return;
 
@@ -221,7 +241,11 @@ static void tlsErrorsDialogResponse(GtkWidget *dialog, gint response, BrowserTab
         GTlsCertificate *certificate = (GTlsCertificate *)g_object_get_data(G_OBJECT(dialog), "certificate");
 #if SOUP_CHECK_VERSION(2, 91, 0)
         GUri *uri = g_uri_parse(failingURI, SOUP_HTTP_URI_FLAGS, NULL);
+#if GTK_CHECK_VERSION(3, 98, 5)
+        webkit_network_session_allow_tls_certificate_for_host(webkit_web_view_get_network_session(tab->webView), certificate, g_uri_get_host(uri));
+#else
         webkit_web_context_allow_tls_certificate_for_host(webkit_web_view_get_context(tab->webView), certificate, g_uri_get_host(uri));
+#endif
         g_uri_unref(uri);
 #else
         SoupURI *uri = soup_uri_new(failingURI);
@@ -273,6 +297,10 @@ static void permissionRequestDialogResponse(GtkWidget *dialog, gint response, Pe
             g_hash_table_add(userMediaPermissionGrantedOrigins, g_strdup(requestData->origin));
         if (WEBKIT_IS_MEDIA_KEY_SYSTEM_PERMISSION_REQUEST(requestData->request))
             g_hash_table_add(mediaKeySystemPermissionGrantedOrigins, g_strdup(requestData->origin));
+        if (WEBKIT_IS_CLIPBOARD_PERMISSION_REQUEST(requestData->request))
+            g_hash_table_add(clipboardPermissionGrantedOrigins, g_strdup(requestData->origin));
+        if (WEBKIT_IS_XR_PERMISSION_REQUEST(requestData->request))
+            g_hash_table_add(xrPermissionGrantedOrigins, g_strdup(requestData->origin));
 
         webkit_permission_request_allow(requestData->request);
         break;
@@ -281,6 +309,10 @@ static void permissionRequestDialogResponse(GtkWidget *dialog, gint response, Pe
             g_hash_table_remove(userMediaPermissionGrantedOrigins, requestData->origin);
         if (WEBKIT_IS_MEDIA_KEY_SYSTEM_PERMISSION_REQUEST(requestData->request))
             g_hash_table_remove(mediaKeySystemPermissionGrantedOrigins, requestData->origin);
+        if (WEBKIT_IS_CLIPBOARD_PERMISSION_REQUEST(requestData->request))
+            g_hash_table_remove(clipboardPermissionGrantedOrigins, requestData->origin);
+        if (WEBKIT_IS_XR_PERMISSION_REQUEST(requestData->request))
+            g_hash_table_remove(xrPermissionGrantedOrigins, requestData->origin);
 
         webkit_permission_request_deny(requestData->request);
         break;
@@ -292,6 +324,41 @@ static void permissionRequestDialogResponse(GtkWidget *dialog, gint response, Pe
     gtk_widget_destroy(dialog);
 #endif
     g_clear_pointer(&requestData, permissionRequestDataFree);
+}
+
+static const gchar *webKitXRSessionModeToString(WebKitXRSessionMode mode)
+{
+    switch (mode) {
+    case WEBKIT_XR_SESSION_MODE_INLINE:
+        return "inline";
+    case WEBKIT_XR_SESSION_MODE_IMMERSIVE_VR:
+        return "immersive-vr";
+    case WEBKIT_XR_SESSION_MODE_IMMERSIVE_AR:
+        return "immersive-ar";
+    default:
+        break;
+    }
+    return "unknown";
+}
+
+static gchar *WebKitXRSessionFeaturesToString(WebKitXRSessionFeatures features)
+{
+    unsigned count = 0;
+    GString *str = g_string_new(NULL);
+#define APPEND_FEATURE(feature, name) \
+    if (features & feature) \
+        g_string_append(str, (" " name) + !(count++));
+    APPEND_FEATURE(WEBKIT_XR_SESSION_FEATURES_VIEWER, "viewer");
+    APPEND_FEATURE(WEBKIT_XR_SESSION_FEATURES_LOCAL, "local");
+    APPEND_FEATURE(WEBKIT_XR_SESSION_FEATURES_LOCAL_FLOOR, "local-floor");
+    APPEND_FEATURE(WEBKIT_XR_SESSION_FEATURES_BOUNDED_FLOOR, "bounded-floor");
+    APPEND_FEATURE(WEBKIT_XR_SESSION_FEATURES_UNBOUNDED, "unbounded");
+    APPEND_FEATURE(WEBKIT_XR_SESSION_FEATURES_HAND_TRACKING, "hand-tracking");
+    APPEND_FEATURE(WEBKIT_XR_SESSION_FEATURES_HIT_TEST, "hit-test");
+#undef APPEND_FEATURE
+    gchar *result = str->str;
+    g_string_free(str, FALSE);
+    return result;
 }
 
 static gboolean decidePermissionRequest(WebKitWebView *webView, WebKitPermissionRequest *request, BrowserTab *tab)
@@ -322,10 +389,6 @@ static gboolean decidePermissionRequest(WebKitWebView *webView, WebKitPermission
         else if (isForDisplayDevice)
             mediaType = "display";
         text = g_strdup_printf("Allow access to %s device?", mediaType);
-    } else if (WEBKIT_IS_INSTALL_MISSING_MEDIA_PLUGINS_PERMISSION_REQUEST(request)) {
-        title = "Media plugin missing request";
-        text = g_strdup_printf("The media backend was unable to find a plugin to play the requested media:\n%s.\nAllow to search and install the missing plugin?",
-            webkit_install_missing_media_plugins_permission_request_get_description(WEBKIT_INSTALL_MISSING_MEDIA_PLUGINS_PERMISSION_REQUEST(request)));
     } else if (WEBKIT_IS_DEVICE_INFO_PERMISSION_REQUEST(request)) {
         char* origin = getWebViewOrigin(webView);
         if (g_hash_table_contains(userMediaPermissionGrantedOrigins, origin)) {
@@ -365,6 +428,36 @@ static gboolean decidePermissionRequest(WebKitWebView *webView, WebKitPermission
         g_free(origin);
         title = "DRM system access request";
         text = g_strdup_printf("Allow to use a CDM providing access to %s?", webkit_media_key_system_permission_get_name(WEBKIT_MEDIA_KEY_SYSTEM_PERMISSION_REQUEST(request)));
+    } else if (WEBKIT_IS_CLIPBOARD_PERMISSION_REQUEST(request)) {
+        char *origin = getWebViewOrigin(webView);
+        if (g_hash_table_contains(clipboardPermissionGrantedOrigins, origin)) {
+            webkit_permission_request_allow(request);
+            g_free(origin);
+            return TRUE;
+        }
+        title = "Clipboard access request";
+        text = g_strdup_printf("Do you want to allow \"%s\" to read the contents of the clipboard?", origin);
+        g_free(origin);
+    } else if (WEBKIT_IS_XR_PERMISSION_REQUEST(request)) {
+        title = "XR session request";
+        WebKitXRPermissionRequest *xrRequest = WEBKIT_XR_PERMISSION_REQUEST(request);
+        WebKitSecurityOrigin *origin = webkit_xr_permission_request_get_security_origin(xrRequest);
+        WebKitXRSessionMode mode = webkit_xr_permission_request_get_session_mode(xrRequest);
+        g_autofree gchar *originStr = webkit_security_origin_to_string(origin);
+        if (g_hash_table_contains(xrPermissionGrantedOrigins, originStr)) {
+            webkit_permission_request_allow(request);
+            return TRUE;
+        }
+        g_autofree gchar *grantedFeatures = WebKitXRSessionFeaturesToString(webkit_xr_permission_request_get_granted_features(xrRequest));
+        g_autofree gchar *consentRequiredFeatures = WebKitXRSessionFeaturesToString(webkit_xr_permission_request_get_consent_required_features(xrRequest));
+        g_autofree gchar *consentOptionalFeatures = WebKitXRSessionFeaturesToString(webkit_xr_permission_request_get_consent_optional_features(xrRequest));
+        g_autofree gchar *requiredFeaturesRequested = WebKitXRSessionFeaturesToString(webkit_xr_permission_request_get_required_features_requested(xrRequest));
+        g_autofree gchar *optionalFeaturesRequested = WebKitXRSessionFeaturesToString(webkit_xr_permission_request_get_optional_features_requested(xrRequest));
+        text = g_strdup_printf("Allow XR device access?\n"
+            "origin=%s mode=%s granted=(%s) consentRequired=(%s) consentOptional=(%s) requiredFeaturesRequested=(%s) optionalFeaturesRequested=(%s)",
+            originStr, webKitXRSessionModeToString(mode), grantedFeatures, consentRequiredFeatures, consentOptionalFeatures, requiredFeaturesRequested, optionalFeaturesRequested);
+        /* Needs UI to select optional features to grant */
+        webkit_xr_permission_request_set_granted_optional_features(xrRequest, webkit_xr_permission_request_get_consent_optional_features(xrRequest));
     } else {
         g_print("%s request not handled\n", G_OBJECT_TYPE_NAME(request));
         return FALSE;
@@ -633,7 +726,12 @@ static void browserTabConstructed(GObject *gObject)
     gtk_overlay_add_overlay(GTK_OVERLAY(overlay), tab->pointerLockMessageLabel);
 
     gtk_widget_set_vexpand(GTK_WIDGET(tab->webView), TRUE);
-#if GTK_CHECK_VERSION(3, 98, 5)
+
+#if GTK_CHECK_VERSION(4, 14, 0)
+    GtkWidget *offload = gtk_graphics_offload_new(GTK_WIDGET(tab->webView));
+    gtk_overlay_set_child(GTK_OVERLAY(overlay), offload);
+    gtk_widget_set_vexpand(offload, TRUE);
+#elif GTK_CHECK_VERSION(3, 98, 5)
     gtk_overlay_set_child(GTK_OVERLAY(overlay), GTK_WIDGET(tab->webView));
 #else
     gtk_container_add(GTK_CONTAINER(overlay), GTK_WIDGET(tab->webView));
@@ -738,13 +836,18 @@ static void browser_tab_class_init(BrowserTabClass *klass)
     if (!mediaKeySystemPermissionGrantedOrigins)
         mediaKeySystemPermissionGrantedOrigins = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
 
+    if (!clipboardPermissionGrantedOrigins)
+        clipboardPermissionGrantedOrigins = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+
+    if (!xrPermissionGrantedOrigins)
+        xrPermissionGrantedOrigins = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+
     g_object_class_install_property(
         gobjectClass,
         PROP_VIEW,
         g_param_spec_object(
             "view",
-            "View",
-            "The web view of this tab",
+            NULL, NULL,
             WEBKIT_TYPE_WEB_VIEW,
             G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY));
 }
@@ -788,7 +891,7 @@ void browser_tab_load_uri(BrowserTab *tab, const char *uri)
         return;
     }
 
-    webkit_web_view_run_javascript(tab->webView, strstr(uri, "javascript:"), NULL, NULL, NULL);
+    webkit_web_view_evaluate_javascript(tab->webView, strstr(uri, "javascript:"), -1, NULL, NULL, NULL, NULL, NULL);
 }
 
 GtkWidget *browser_tab_get_title_widget(BrowserTab *tab)

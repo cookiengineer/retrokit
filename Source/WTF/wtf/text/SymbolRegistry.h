@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2015 Yusuke Suzuki <utatane.tea@gmail.com>.
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,57 +26,18 @@
 
 #pragma once
 
+#include <wtf/CheckedRef.h>
 #include <wtf/HashSet.h>
 #include <wtf/text/StringHash.h>
-#include <wtf/text/SymbolImpl.h>
-#include <wtf/text/WTFString.h>
 
 namespace WTF {
 
-// Since StringImpl* used for Symbol uid doesn't have a hash value reflecting the string content,
-// to compare with an external string in string contents, introduce SymbolRegistryKey.
-// SymbolRegistryKey holds a hash value reflecting the string content additionally.
-class SymbolRegistryKey {
-public:
-    SymbolRegistryKey() = default;
-    explicit SymbolRegistryKey(StringImpl* uid);
-    SymbolRegistryKey(WTF::HashTableDeletedValueType);
+class RegisteredSymbolImpl;
 
-    unsigned hash() const { return m_hash; }
-    StringImpl* impl() const { return m_impl; }
-
-    bool isHashTableDeletedValue() const { return m_impl == hashTableDeletedValue(); }
-
-private:
-    static StringImpl* hashTableDeletedValue() { return reinterpret_cast<StringImpl*>(-1); }
-
-    StringImpl* m_impl { nullptr };
-    unsigned m_hash { 0 };
-};
-
-template<typename> struct DefaultHash;
-template<> struct DefaultHash<SymbolRegistryKey> : StringHash {
-    static unsigned hash(const SymbolRegistryKey& key)
-    {
-        return key.hash();
-    }
-    static bool equal(const SymbolRegistryKey& a, const SymbolRegistryKey& b)
-    {
-        return StringHash::equal(a.impl(), b.impl());
-    }
-};
-
-template<> struct HashTraits<SymbolRegistryKey> : SimpleClassHashTraits<SymbolRegistryKey> {
-    static constexpr bool hasIsEmptyValueFunction = true;
-    static bool isEmptyValue(const SymbolRegistryKey& key)
-    {
-        return key.impl() == nullptr;
-    }
-};
-
-class SymbolRegistry {
-    WTF_MAKE_FAST_ALLOCATED;
+class SymbolRegistry final : public CanMakeThreadSafeCheckedPtr<SymbolRegistry> {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(SymbolRegistry);
     WTF_MAKE_NONCOPYABLE(SymbolRegistry);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SymbolRegistry);
 public:
     enum class Type : uint8_t { PublicSymbol, PrivateSymbol };
     WTF_EXPORT_PRIVATE SymbolRegistry(Type = Type::PublicSymbol);
@@ -87,25 +48,10 @@ public:
     void remove(RegisteredSymbolImpl&);
 
 private:
-    HashSet<SymbolRegistryKey> m_table;
+    UncheckedKeyHashSet<RefPtr<StringImpl>> m_table;
     Type m_symbolType;
 };
 
-inline SymbolRegistryKey::SymbolRegistryKey(StringImpl* uid)
-    : m_impl(uid)
-{
-    if (uid->isSymbol()) {
-        if (uid->is8Bit())
-            m_hash = StringHasher::computeHashAndMaskTop8Bits(uid->characters8(), uid->length());
-        else
-            m_hash = StringHasher::computeHashAndMaskTop8Bits(uid->characters16(), uid->length());
-    } else
-        m_hash = uid->hash();
-}
+} // namespace WTF
 
-inline SymbolRegistryKey::SymbolRegistryKey(WTF::HashTableDeletedValueType)
-    : m_impl(hashTableDeletedValue())
-{
-}
-
-}
+using WTF::SymbolRegistry;

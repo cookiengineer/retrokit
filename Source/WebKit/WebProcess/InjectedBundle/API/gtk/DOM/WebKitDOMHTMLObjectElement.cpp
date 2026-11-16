@@ -24,9 +24,10 @@
 #include "DOMObjectCache.h"
 #include <WebCore/DOMException.h>
 #include <WebCore/Document.h>
-#include "GObjectEventListener.h"
+#include <WebCore/ElementInlines.h>
 #include <WebCore/HTMLNames.h>
 #include <WebCore/JSExecState.h>
+#include "GObjectEventListener.h"
 #include "WebKitDOMDocumentPrivate.h"
 #include "WebKitDOMEventPrivate.h"
 #include "WebKitDOMEventTarget.h"
@@ -95,7 +96,9 @@ static void webkit_dom_html_object_element_dom_event_target_init(WebKitDOMEventT
     iface->remove_event_listener = webkit_dom_html_object_element_remove_event_listener;
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK port
 G_DEFINE_TYPE_WITH_CODE(WebKitDOMHTMLObjectElement, webkit_dom_html_object_element, WEBKIT_DOM_TYPE_HTML_ELEMENT, G_IMPLEMENT_INTERFACE(WEBKIT_DOM_TYPE_EVENT_TARGET, webkit_dom_html_object_element_dom_event_target_init))
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 enum {
     DOM_HTML_OBJECT_ELEMENT_PROP_0,
@@ -460,8 +463,7 @@ void webkit_dom_html_object_element_set_code(WebKitDOMHTMLObjectElement* self, c
     g_return_if_fail(WEBKIT_DOM_IS_HTML_OBJECT_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLObjectElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::codeAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::codeAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_html_object_element_get_align(WebKitDOMHTMLObjectElement* self)
@@ -479,8 +481,7 @@ void webkit_dom_html_object_element_set_align(WebKitDOMHTMLObjectElement* self, 
     g_return_if_fail(WEBKIT_DOM_IS_HTML_OBJECT_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLObjectElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::alignAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::alignAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_html_object_element_get_archive(WebKitDOMHTMLObjectElement* self)
@@ -498,8 +499,7 @@ void webkit_dom_html_object_element_set_archive(WebKitDOMHTMLObjectElement* self
     g_return_if_fail(WEBKIT_DOM_IS_HTML_OBJECT_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLObjectElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::archiveAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::archiveAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_html_object_element_get_border(WebKitDOMHTMLObjectElement* self)
@@ -517,8 +517,7 @@ void webkit_dom_html_object_element_set_border(WebKitDOMHTMLObjectElement* self,
     g_return_if_fail(WEBKIT_DOM_IS_HTML_OBJECT_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLObjectElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::borderAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::borderAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_html_object_element_get_code_base(WebKitDOMHTMLObjectElement* self)
@@ -536,8 +535,7 @@ void webkit_dom_html_object_element_set_code_base(WebKitDOMHTMLObjectElement* se
     g_return_if_fail(WEBKIT_DOM_IS_HTML_OBJECT_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLObjectElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::codebaseAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::codebaseAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_html_object_element_get_code_type(WebKitDOMHTMLObjectElement* self)
@@ -555,8 +553,7 @@ void webkit_dom_html_object_element_set_code_type(WebKitDOMHTMLObjectElement* se
     g_return_if_fail(WEBKIT_DOM_IS_HTML_OBJECT_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLObjectElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::codetypeAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::codetypeAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_html_object_element_get_data(WebKitDOMHTMLObjectElement* self)
@@ -574,8 +571,7 @@ void webkit_dom_html_object_element_set_data(WebKitDOMHTMLObjectElement* self, c
     g_return_if_fail(WEBKIT_DOM_IS_HTML_OBJECT_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLObjectElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::dataAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::dataAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gboolean webkit_dom_html_object_element_get_declare(WebKitDOMHTMLObjectElement* self)
@@ -610,8 +606,7 @@ void webkit_dom_html_object_element_set_height(WebKitDOMHTMLObjectElement* self,
     g_return_if_fail(WEBKIT_DOM_IS_HTML_OBJECT_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLObjectElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::heightAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::heightAttr, WTF::AtomString::fromUTF8(value));
 }
 
 glong webkit_dom_html_object_element_get_hspace(WebKitDOMHTMLObjectElement* self)
@@ -619,7 +614,7 @@ glong webkit_dom_html_object_element_get_hspace(WebKitDOMHTMLObjectElement* self
     WebCore::JSMainThreadNullState state;
     g_return_val_if_fail(WEBKIT_DOM_IS_HTML_OBJECT_ELEMENT(self), 0);
     WebCore::HTMLObjectElement* item = WebKit::core(self);
-    glong result = item->getIntegralAttribute(WebCore::HTMLNames::hspaceAttr);
+    glong result = item->integralAttribute(WebCore::HTMLNames::hspaceAttr);
     return result;
 }
 
@@ -646,8 +641,7 @@ void webkit_dom_html_object_element_set_name(WebKitDOMHTMLObjectElement* self, c
     g_return_if_fail(WEBKIT_DOM_IS_HTML_OBJECT_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLObjectElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::nameAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::nameAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_html_object_element_get_standby(WebKitDOMHTMLObjectElement* self)
@@ -665,8 +659,7 @@ void webkit_dom_html_object_element_set_standby(WebKitDOMHTMLObjectElement* self
     g_return_if_fail(WEBKIT_DOM_IS_HTML_OBJECT_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLObjectElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::standbyAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::standbyAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_html_object_element_get_type_attr(WebKitDOMHTMLObjectElement* self)
@@ -684,27 +677,18 @@ void webkit_dom_html_object_element_set_type_attr(WebKitDOMHTMLObjectElement* se
     g_return_if_fail(WEBKIT_DOM_IS_HTML_OBJECT_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLObjectElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::typeAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::typeAttr, WTF::AtomString::fromUTF8(value));
 }
 
-gchar* webkit_dom_html_object_element_get_use_map(WebKitDOMHTMLObjectElement* self)
+gchar* webkit_dom_html_object_element_get_use_map(WebKitDOMHTMLObjectElement*)
 {
-    WebCore::JSMainThreadNullState state;
-    g_return_val_if_fail(WEBKIT_DOM_IS_HTML_OBJECT_ELEMENT(self), 0);
-    WebCore::HTMLObjectElement* item = WebKit::core(self);
-    gchar* result = convertToUTF8String(item->attributeWithoutSynchronization(WebCore::HTMLNames::usemapAttr));
-    return result;
+    g_warning("%s: <object usemap> has been removed from HTML spec, this function does nothing.", __func__);
+    return nullptr;
 }
 
-void webkit_dom_html_object_element_set_use_map(WebKitDOMHTMLObjectElement* self, const gchar* value)
+void webkit_dom_html_object_element_set_use_map(WebKitDOMHTMLObjectElement*, const gchar*)
 {
-    WebCore::JSMainThreadNullState state;
-    g_return_if_fail(WEBKIT_DOM_IS_HTML_OBJECT_ELEMENT(self));
-    g_return_if_fail(value);
-    WebCore::HTMLObjectElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::usemapAttr, convertedValue);
+    g_warning("%s: <object usemap> has been removed from HTML spec, this function does nothing.", __func__);
 }
 
 glong webkit_dom_html_object_element_get_vspace(WebKitDOMHTMLObjectElement* self)
@@ -712,7 +696,7 @@ glong webkit_dom_html_object_element_get_vspace(WebKitDOMHTMLObjectElement* self
     WebCore::JSMainThreadNullState state;
     g_return_val_if_fail(WEBKIT_DOM_IS_HTML_OBJECT_ELEMENT(self), 0);
     WebCore::HTMLObjectElement* item = WebKit::core(self);
-    glong result = item->getIntegralAttribute(WebCore::HTMLNames::vspaceAttr);
+    glong result = item->integralAttribute(WebCore::HTMLNames::vspaceAttr);
     return result;
 }
 
@@ -739,8 +723,7 @@ void webkit_dom_html_object_element_set_width(WebKitDOMHTMLObjectElement* self, 
     g_return_if_fail(WEBKIT_DOM_IS_HTML_OBJECT_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLObjectElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::widthAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::widthAttr, WTF::AtomString::fromUTF8(value));
 }
 
 WebKitDOMDocument* webkit_dom_html_object_element_get_content_document(WebKitDOMHTMLObjectElement* self)

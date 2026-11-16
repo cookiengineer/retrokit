@@ -20,6 +20,7 @@
 #pragma once
 
 #include "SVGTextMetricsBuilder.h"
+#include "SVGTextPositioningElement.h"
 
 namespace WebCore {
 
@@ -27,7 +28,6 @@ class RenderBoxModelObject;
 class RenderObject;
 class RenderSVGInlineText;
 class RenderSVGText;
-class SVGTextPositioningElement;
 
 // SVGTextLayoutAttributesBuilder performs the first layout phase for SVG text.
 //
@@ -40,11 +40,11 @@ class SVGTextPositioningElement;
 class SVGTextLayoutAttributesBuilder {
     WTF_MAKE_NONCOPYABLE(SVGTextLayoutAttributesBuilder);
 public:
-    SVGTextLayoutAttributesBuilder();
-    bool buildLayoutAttributesForForSubtree(RenderSVGText&);
+    SVGTextLayoutAttributesBuilder() = default;
+    bool buildLayoutAttributesForSubtree(RenderSVGText&);
     void buildLayoutAttributesForTextRenderer(RenderSVGInlineText&);
 
-    void rebuildMetricsForTextRenderer(RenderSVGInlineText&);
+    void rebuildMetricsForSubtree(RenderSVGText&);
 
     // Invoked whenever the underlying DOM tree changes, so that m_textPositions is rebuild.
     void clearTextPositioningElements() { m_textPositions.clear(); }
@@ -52,14 +52,14 @@ public:
 
 private:
     struct TextPosition {
-        TextPosition(SVGTextPositioningElement* newElement = 0, unsigned newStart = 0, unsigned newLength = 0)
+        TextPosition(SVGTextPositioningElement* newElement, unsigned newStart = 0, unsigned newLength = 0)
             : element(newElement)
             , start(newStart)
             , length(newLength)
         {
         }
 
-        SVGTextPositioningElement* element;
+        CheckedPtr<SVGTextPositioningElement> element;
         unsigned start;
         unsigned length;
     };
@@ -69,7 +69,7 @@ private:
     void fillCharacterDataMap(const TextPosition&);
 
 private:
-    unsigned m_textLength;
+    unsigned m_textLength { 0 };
     Vector<TextPosition> m_textPositions;
     SVGCharacterDataMap m_characterDataMap;
     SVGTextMetricsBuilder m_metricsBuilder;

@@ -28,9 +28,8 @@
 
 [
     Conditional=WEB_AUDIO,
-    EnabledBySetting=WebAudio,
+    EnabledBySetting=WebAudioEnabled,
     Exposed=Window,
-    JSGenerateToJSObject,
     SecureContext
 ] interface AudioWorklet : Worklet {
 };

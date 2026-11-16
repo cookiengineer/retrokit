@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,11 +25,11 @@
 
 #pragma once
 
-#include "AbstractSlotVisitor.h"
-#include "HandleTypes.h"
-#include "IterationStatus.h"
+#include <JavaScriptCore/AbstractSlotVisitor.h>
 #include <wtf/Forward.h>
+#include <wtf/IterationStatus.h>
 #include <wtf/MonotonicTime.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC {
 
@@ -43,7 +43,7 @@ typedef uint32_t HeapVersion;
 
 class SlotVisitor final : public AbstractSlotVisitor {
     WTF_MAKE_NONCOPYABLE(SlotVisitor);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(SlotVisitor);
 
     using Base = AbstractSlotVisitor;
 
@@ -92,7 +92,10 @@ public:
 
     template<typename T, typename Traits> void append(const WriteBarrierBase<T, Traits>&);
     template<typename T, typename Traits> void appendHidden(const WriteBarrierBase<T, Traits>&);
+    void append(const WriteBarrierStructureID&);
+    void appendHidden(const WriteBarrierStructureID&);
     template<typename Iterator> void append(Iterator begin , Iterator end);
+    ALWAYS_INLINE void appendValues(std::span<const WriteBarrier<Unknown, RawValueTraits<Unknown>>>);
     ALWAYS_INLINE void appendValues(const WriteBarrierBase<Unknown, RawValueTraits<Unknown>>*, size_t count);
     ALWAYS_INLINE void appendValuesHidden(const WriteBarrierBase<Unknown, RawValueTraits<Unknown>>*, size_t count);
 
@@ -121,8 +124,8 @@ public:
     bool isMarked(MarkedBlock&, HeapCell*) const final;
     bool isMarked(PreciseAllocation&, HeapCell*) const final;
 
-    void didStartMarking();
-    void reset();
+    void NODELETE didStartMarking();
+    void NODELETE reset();
     void clearMarkStacks();
 
     size_t bytesVisited() const { return m_bytesVisited; }
@@ -161,18 +164,18 @@ public:
 
     bool mutatorIsStopped() const final { return m_mutatorIsStopped; }
     
-    Lock& rightToRun() WTF_RETURNS_LOCK(m_rightToRun) { return m_rightToRun; }
+    Lock& rightToRun() LIFETIME_BOUND WTF_RETURNS_LOCK(m_rightToRun) { return m_rightToRun; }
     
-    void updateMutatorIsStopped(const AbstractLocker&);
+    void NODELETE updateMutatorIsStopped(const AbstractLocker&);
     void updateMutatorIsStopped();
     
-    bool hasAcknowledgedThatTheMutatorIsResumed() const;
-    bool mutatorIsStoppedIsUpToDate() const;
+    bool NODELETE hasAcknowledgedThatTheMutatorIsResumed() const;
+    bool NODELETE mutatorIsStoppedIsUpToDate() const;
     
-    void optimizeForStoppedMutator();
+    void NODELETE optimizeForStoppedMutator();
     
     void didRace(const VisitRaceKey&) final;
-    void didRace(JSCell* cell, const char* reason) { didRace(VisitRaceKey(cell, reason)); }
+    inline void didRace(JSCell* cell, const char* reason); // Defined in SlotVisitorInlines.h
     
     void visitAsConstraint(const JSCell*) final;
     
@@ -212,13 +215,13 @@ private:
 
     void donateAll(const AbstractLocker&);
 
-    bool hasWork(const AbstractLocker&);
+    bool NODELETE hasWork(const AbstractLocker&);
     bool didReachTermination(const AbstractLocker&);
 
     template<typename Func>
     IterationStatus forEachMarkStack(const Func&);
 
-    MarkStackArray& correspondingGlobalStack(MarkStackArray&);
+    MarkStackArray& NODELETE correspondingGlobalStack(MarkStackArray&);
 
     HeapVersion m_markingVersion;
 

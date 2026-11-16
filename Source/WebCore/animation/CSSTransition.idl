@@ -26,7 +26,8 @@
 typedef USVString CSSOMString;
 
 [
-    Exposed=Window
+    Exposed=Window,
+    JSGenerateToNativeObject
 ] interface CSSTransition : WebAnimation {
     readonly attribute CSSOMString transitionProperty;
 };

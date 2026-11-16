@@ -45,11 +45,13 @@
 enum class Shader : uint8_t
 {
     ALL,
-    FRAGMENT,      // GL_FRAGMENT_SHADER
-    VERTEX,        // GL_VERTEX_SHADER
-    COMPUTE,       // GL_COMPUTE_SHADER
-    GEOMETRY,      // GL_GEOMETRY_SHADER
-    GEOMETRY_EXT,  // GL_GEOMETRY_SHADER_EXT
+    FRAGMENT,             // GL_FRAGMENT_SHADER
+    VERTEX,               // GL_VERTEX_SHADER
+    COMPUTE,              // GL_COMPUTE_SHADER
+    GEOMETRY,             // GL_GEOMETRY_SHADER
+    GEOMETRY_EXT,         // GL_GEOMETRY_SHADER_EXT
+    TESS_CONTROL_EXT,     // GL_TESS_CONTROL_SHADER_EXT
+    TESS_EVALUATION_EXT,  // GL_TESS_EVALUATION_SHADER_EXT
     NOT_COMPUTE
 };
 
@@ -66,13 +68,15 @@ struct UnmangledBuiltIn
 using VarPointer        = TSymbol *(TSymbolTableBase::*);
 using ValidateExtension = int ShBuiltInResources::*;
 
-enum class Spec : uint8_t
-{
-    GLSL,
-    ESSL
-};
-
 constexpr uint16_t kESSL1Only = 100;
+// Some built-ins from backend shader languages are made available internally to ESSL for use in
+// tree transformations.  This (invalid) shader version is used to select those built-ins.  This
+// value needs to be larger than all other shader versions.
+constexpr uint16_t kESSLInternalBackendBuiltIns = 0x3FFF;
+
+// The version assigned to |kESSLInternalBackendBuiltIns| should be good until OpenGL 20.0!
+static_assert(kESSLInternalBackendBuiltIns > 2000,
+              "Accidentally exposing internal backend built-ins in OpenGL");
 
 static_assert(offsetof(ShBuiltInResources, OES_standard_derivatives) != 0,
               "Update SymbolTable extension logic");
@@ -88,18 +92,13 @@ class SymbolRule
                        const ShBuiltInResources &resources,
                        const TSymbolTableBase &symbolTable) const;
 
-    template <Spec spec, int version, Shader shaders, size_t extensionIndex, typename T>
+    template <int version, Shader shaders, size_t extensionIndex, typename T>
     constexpr static SymbolRule Get(T value);
 
   private:
-    constexpr SymbolRule(Spec spec,
-                         int version,
-                         Shader shaders,
-                         size_t extensionIndex,
-                         const TSymbol *symbol);
+    constexpr SymbolRule(int version, Shader shaders, size_t extensionIndex, const TSymbol *symbol);
 
-    constexpr SymbolRule(Spec spec,
-                         int version,
+    constexpr SymbolRule(int version,
                          Shader shaders,
                          size_t extensionIndex,
                          VarPointer resourceVar);
@@ -113,7 +112,6 @@ class SymbolRule
         VarPointer var;
     };
 
-    uint16_t mIsDesktop : 1;
     uint16_t mIsVar : 1;
     uint16_t mVersion : 14;
     uint8_t mShaders;
@@ -121,40 +119,36 @@ class SymbolRule
     SymbolOrVar mSymbolOrVar;
 };
 
-constexpr SymbolRule::SymbolRule(Spec spec,
-                                 int version,
+constexpr SymbolRule::SymbolRule(int version,
                                  Shader shaders,
                                  size_t extensionIndex,
                                  const TSymbol *symbol)
-    : mIsDesktop(spec == Spec::GLSL ? 1u : 0u),
-      mIsVar(0u),
+    : mIsVar(0u),
       mVersion(static_cast<uint16_t>(version)),
       mShaders(static_cast<uint8_t>(shaders)),
       mExtensionIndex(extensionIndex),
       mSymbolOrVar(symbol)
 {}
 
-constexpr SymbolRule::SymbolRule(Spec spec,
-                                 int version,
+constexpr SymbolRule::SymbolRule(int version,
                                  Shader shaders,
                                  size_t extensionIndex,
                                  VarPointer resourceVar)
-    : mIsDesktop(spec == Spec::GLSL ? 1u : 0u),
-      mIsVar(1u),
+    : mIsVar(1u),
       mVersion(static_cast<uint16_t>(version)),
       mShaders(static_cast<uint8_t>(shaders)),
       mExtensionIndex(extensionIndex),
       mSymbolOrVar(resourceVar)
 {}
 
-template <Spec spec, int version, Shader shaders, size_t extensionIndex, typename T>
+template <int version, Shader shaders, size_t extensionIndex, typename T>
 // static
 constexpr SymbolRule SymbolRule::Get(T value)
 {
     static_assert(version < 0x4000u, "version OOR");
     static_assert(static_cast<uint8_t>(shaders) < 0xFFu, "shaders OOR");
     static_assert(static_cast<uint8_t>(extensionIndex) < 0xFF, "extensionIndex OOR");
-    return SymbolRule(spec, version, shaders, extensionIndex, value);
+    return SymbolRule(version, shaders, extensionIndex, value);
 }
 
 const TSymbol *FindMangledBuiltIn(ShShaderSpec shaderSpec,
@@ -169,11 +163,10 @@ const TSymbol *FindMangledBuiltIn(ShShaderSpec shaderSpec,
 class UnmangledEntry
 {
   public:
+    template <size_t ESSLExtCount>
     constexpr UnmangledEntry(const char *name,
-                             TExtension esslExtension,
-                             TExtension glslExtension,
+                             const std::array<TExtension, ESSLExtCount> &esslExtensions,
                              int esslVersion,
-                             int glslVersion,
                              Shader shaderType);
 
     bool matches(const ImmutableString &name,
@@ -184,27 +177,22 @@ class UnmangledEntry
 
   private:
     const char *mName;
-    uint8_t mESSLExtension;
-    uint8_t mGLSLExtension;
+    std::array<TExtension, 2u> mESSLExtensions;
     uint8_t mShaderType;
     uint16_t mESSLVersion;
-    uint16_t mGLSLVersion;
 };
 
+template <size_t ESSLExtCount>
 constexpr UnmangledEntry::UnmangledEntry(const char *name,
-                                         TExtension esslExtension,
-                                         TExtension glslExtension,
+                                         const std::array<TExtension, ESSLExtCount> &esslExtensions,
                                          int esslVersion,
-                                         int glslVersion,
                                          Shader shaderType)
     : mName(name),
-      mESSLExtension(static_cast<uint8_t>(esslExtension)),
-      mGLSLExtension(static_cast<uint8_t>(glslExtension)),
+      mESSLExtensions{(ESSLExtCount >= 1) ? esslExtensions[0] : TExtension::UNDEFINED,
+                      (ESSLExtCount >= 2) ? esslExtensions[1] : TExtension::UNDEFINED},
       mShaderType(static_cast<uint8_t>(shaderType)),
       mESSLVersion(esslVersion < 0 ? std::numeric_limits<uint16_t>::max()
-                                   : static_cast<uint16_t>(esslVersion)),
-      mGLSLVersion(glslVersion < 0 ? std::numeric_limits<uint16_t>::max()
-                                   : static_cast<uint16_t>(glslVersion))
+                                   : static_cast<uint16_t>(esslVersion))
 {}
 
 class TSymbolTable : angle::NonCopyable, TSymbolTableBase
@@ -227,8 +215,13 @@ class TSymbolTable : angle::NonCopyable, TSymbolTableBase
     // successful, and false if the declaration failed due to redefinition.
     bool declare(TSymbol *symbol);
 
+#ifdef ANGLE_IR
+    // Going from IR back to AST, the symbols get redeclared.  Make sure the symbol table is
+    // updated.
+    void redeclare(TSymbol *symbol);
     // Only used to declare internal variables.
     bool declareInternal(TSymbol *symbol);
+#endif
 
     // Functions are always declared at global scope.
     void declareUserDefinedFunction(TFunction *function, bool insertUnmangledName);
@@ -240,14 +233,15 @@ class TSymbolTable : angle::NonCopyable, TSymbolTableBase
                                                              bool *wasDefinedOut) const;
 
     // Return false if the gl_in array size has already been initialized with a mismatching value.
-    bool setGlInArraySize(unsigned int inputArraySize);
-    TVariable *getGlInVariableWithArraySize() const;
+    bool setGlInArraySize(unsigned int inputArraySize, int shaderVersion);
+    void onGlInVariableRedeclaration(const TVariable *redeclaredGlIn);
+    const TVariable *getGlInVariableWithArraySize() const;
 
     const TVariable *gl_FragData() const;
     const TVariable *gl_SecondaryFragDataEXT() const;
+    bool isSecondaryFragDataUsed() const;
 
-    void markStaticRead(const TVariable &variable);
-    void markStaticWrite(const TVariable &variable);
+    void markStaticUse(const TVariable &variable);
 
     // Note: Should not call this for constant variables.
     bool isStaticallyUsed(const TVariable &variable) const;
@@ -261,11 +255,8 @@ class TSymbolTable : angle::NonCopyable, TSymbolTableBase
     TFunction *findUserDefinedFunction(const ImmutableString &name) const;
 
     const TSymbol *findGlobal(const ImmutableString &name) const;
-    const TSymbol *findGlobalWithConversion(const std::vector<ImmutableString> &names) const;
 
     const TSymbol *findBuiltIn(const ImmutableString &name, int shaderVersion) const;
-    const TSymbol *findBuiltInWithConversion(const std::vector<ImmutableString> &names,
-                                             int shaderVersion) const;
 
     void setDefaultPrecision(TBasicType type, TPrecision prec);
 
@@ -295,14 +286,15 @@ class TSymbolTable : angle::NonCopyable, TSymbolTableBase
                             const ShBuiltInResources &resources);
     void clearCompilationResults();
 
+    ShShaderSpec getShaderSpec() const { return mShaderSpec; }
+
   private:
     friend class TSymbolUniqueId;
 
     struct VariableMetadata
     {
         VariableMetadata();
-        bool staticRead;
-        bool staticWrite;
+        bool staticUse;
         bool invariant;
     };
 
@@ -329,7 +321,7 @@ class TSymbolTable : angle::NonCopyable, TSymbolTableBase
 
     int mUniqueIdCounter;
 
-    static const int kLastBuiltInId;
+    static constexpr int kFirstUserDefinedSymbolId = 3000;
 
     sh::GLenum mShaderType;
     ShShaderSpec mShaderSpec;
@@ -340,7 +332,8 @@ class TSymbolTable : angle::NonCopyable, TSymbolTableBase
 
     // Store gl_in variable with its array size once the array size can be determined. The array
     // size can also be checked against latter input primitive type declaration.
-    TVariable *mGlInVariableWithArraySize;
+    const TVariable *mGlInVariableWithArraySize;
+    friend struct SymbolIdChecker;
 };
 
 }  // namespace sh

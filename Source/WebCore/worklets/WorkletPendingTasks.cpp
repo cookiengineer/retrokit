@@ -26,17 +26,25 @@
 #include "config.h"
 #include "WorkletPendingTasks.h"
 
+#include "JSDOMPromiseDeferred.h"
 #include "Worklet.h"
 
 namespace WebCore {
 
-WorkletPendingTasks::WorkletPendingTasks(Worklet& worklet, DOMPromiseDeferred<void>&& promise, int counter)
-    : m_worklet(makeWeakPtr(worklet))
-    , m_promise(WTFMove(promise))
+Ref<WorkletPendingTasks> WorkletPendingTasks::create(Worklet& worklet, PendingTaskPromise&& promise, int counter)
+{
+    return adoptRef(*new WorkletPendingTasks(worklet, WTF::move(promise), counter));
+}
+
+WorkletPendingTasks::WorkletPendingTasks(Worklet& worklet, PendingTaskPromise&& promise, int counter)
+    : m_worklet(worklet)
+    , m_promise(makeUniqueRef<PendingTaskPromise>(WTF::move(promise)))
     , m_counter(counter)
 {
     ASSERT(isMainThread());
 }
+
+WorkletPendingTasks::~WorkletPendingTasks() = default;
 
 void WorkletPendingTasks::abort(Exception&& exception)
 {
@@ -46,9 +54,9 @@ void WorkletPendingTasks::abort(Exception&& exception)
         return;
 
     m_counter = -1;
-    m_promise.reject(WTFMove(exception));
+    m_promise->reject(WTF::move(exception));
     if (m_worklet)
-        m_worklet->finishPendingTasks(*this);
+        protect(m_worklet)->finishPendingTasks(*this);
 }
 
 void WorkletPendingTasks::decrementCounter()
@@ -60,9 +68,9 @@ void WorkletPendingTasks::decrementCounter()
 
     --m_counter;
     if (!m_counter) {
-        m_promise.resolve();
+        m_promise->resolve();
         if (m_worklet)
-            m_worklet->finishPendingTasks(*this);
+            protect(m_worklet)->finishPendingTasks(*this);
     }
 }
 

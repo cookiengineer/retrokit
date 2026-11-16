@@ -31,16 +31,28 @@
 #pragma once
 
 #include "BaseTextInputType.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class TelephoneInputType final : public BaseTextInputType {
-    template<typename DowncastedType> friend bool isInvalidInputType(const InputType&, const String&);
+    WTF_MAKE_TZONE_ALLOCATED(TelephoneInputType);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(TelephoneInputType);
 public:
-    explicit TelephoneInputType(HTMLInputElement& element) : BaseTextInputType(Type::Telephone, element) { }
+    static Ref<TelephoneInputType> create(HTMLInputElement& element)
+    {
+        return adoptRef(*new TelephoneInputType(element));
+    }
 
 private:
-    const AtomString& formControlType() const override;
+    explicit TelephoneInputType(HTMLInputElement& element)
+        : BaseTextInputType(Type::Telephone, element)
+    {
+    }
+
+    const AtomString& formControlType() const final;
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_INPUT_TYPE(TelephoneInputType, Type::Telephone)

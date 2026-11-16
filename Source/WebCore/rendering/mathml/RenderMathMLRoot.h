@@ -39,38 +39,42 @@ enum class RootType { SquareRoot, RootWithIndex };
 
 // Render base^(1/index), or sqrt(base) using radical notation.
 class RenderMathMLRoot final : public RenderMathMLRow {
-    WTF_MAKE_ISO_ALLOCATED(RenderMathMLRoot);
+    WTF_MAKE_TZONE_ALLOCATED(RenderMathMLRoot);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderMathMLRoot);
 public:
-    RenderMathMLRoot(MathMLRootElement&, RenderStyle&&);
+    RenderMathMLRoot(MathMLRootElement&, Style::ComputedStyle&&);
+    virtual ~RenderMathMLRoot();
+
     void updateStyle();
+    void resetRadicalOperator() { m_radicalOperator.reset(protect(style())); }
 
 private:
     bool isValid() const;
     RenderBox& getBase() const;
     RenderBox& getIndex() const;
-    bool isRenderMathMLRoot() const final { return true; }
-    const char* renderName() const final { return "RenderMathMLRoot"; }
-    MathMLRootElement& element() const;
-    RootType rootType() const;
+    ASCIILiteral renderName() const final { return "RenderMathMLRoot"_s; }
+    MathMLRootElement& NODELETE element() const;
+    RootType NODELETE rootType() const;
 
-    void styleDidChange(StyleDifference, const RenderStyle* oldStyle) final;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) final;
 
-    void computePreferredLogicalWidths() final;
-    void layoutBlock(bool relayoutChildren, LayoutUnit pageLogicalHeight = 0_lu) final;
+    void computeIntrinsicLogicalWidthContributions() final;
+    void layoutBlock(RelayoutChildren, LayoutUnit pageLogicalHeight = 0_lu) final;
     void paint(PaintInfo&, const LayoutPoint&) final;
+    std::optional<LayoutUnit> firstLineBaseline() const final;
 
     struct HorizontalParameters {
         LayoutUnit kernBeforeDegree;
         LayoutUnit kernAfterDegree;
     };
-    HorizontalParameters horizontalParameters();
+    HorizontalParameters horizontalParameters(LayoutUnit indexWidth);
     struct VerticalParameters {
         LayoutUnit verticalGap;
         LayoutUnit ruleThickness;
         LayoutUnit extraAscender;
         float degreeBottomRaisePercent;
     };
-    VerticalParameters verticalParameters();
+    VerticalParameters verticalParameters() const;
 
     MathOperator m_radicalOperator;
     LayoutUnit m_radicalOperatorTop;

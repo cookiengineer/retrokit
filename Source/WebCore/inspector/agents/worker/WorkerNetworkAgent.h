@@ -26,25 +26,38 @@
 #pragma once
 
 #include "InspectorNetworkAgent.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
-class WorkerNetworkAgent final : public InspectorNetworkAgent {
+class WorkerNetworkAgent final : public InspectorNetworkAgent, public CanMakeCheckedPtr<WorkerNetworkAgent> {
     WTF_MAKE_NONCOPYABLE(WorkerNetworkAgent);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(WorkerNetworkAgent);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WorkerNetworkAgent);
 public:
     WorkerNetworkAgent(WorkerAgentContext&);
     ~WorkerNetworkAgent();
 
+    // AbstractCanMakeCheckedPtr overrides
+    uint32_t checkedPtrCount() const final { return CanMakeCheckedPtr::checkedPtrCount(); }
+    uint32_t checkedPtrCountWithoutThreadCheck() const final { return CanMakeCheckedPtr::checkedPtrCountWithoutThreadCheck(); }
+    void incrementCheckedPtrCount() const final { CanMakeCheckedPtr::incrementCheckedPtrCount(); }
+    void decrementCheckedPtrCount() const final { CanMakeCheckedPtr::decrementCheckedPtrCount(); }
+    void setDidBeginCheckedPtrDeletion() final { CanMakeCheckedPtr::setDidBeginCheckedPtrDeletion(); }
+
 private:
     Inspector::Protocol::Network::LoaderId loaderIdentifier(DocumentLoader*);
     Inspector::Protocol::Network::FrameId frameIdentifier(DocumentLoader*);
-    Vector<WebSocket*> activeWebSockets() WTF_REQUIRES_LOCK(WebSocket::allActiveWebSocketsLock());
+    Vector<Ref<WebSocket>> activeWebSockets() WTF_REQUIRES_LOCK(WebSocket::allActiveWebSocketsLock());
     void setResourceCachingDisabledInternal(bool);
-    ScriptExecutionContext* scriptExecutionContext(Inspector::Protocol::ErrorString&, const Inspector::Protocol::Network::FrameId&);
+#if ENABLE(INSPECTOR_NETWORK_THROTTLING)
+    bool setEmulatedConditionsInternal(std::optional<int>&& bytesPerSecondLimit);
+#endif
+    ScriptExecutionContext* NODELETE scriptExecutionContext(Inspector::Protocol::ErrorString&, const Inspector::Protocol::Network::FrameId&);
+    void addConsoleMessage(std::unique_ptr<Inspector::ConsoleMessage>&&);
     bool shouldForceBufferingNetworkResourceData() const { return true; }
 
-    WorkerOrWorkletGlobalScope& m_globalScope;
+    WeakRef<WorkerOrWorkletGlobalScope> m_globalScope;
 };
 
 } // namespace WebCore

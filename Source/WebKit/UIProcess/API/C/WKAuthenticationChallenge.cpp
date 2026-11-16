@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,7 +29,6 @@
 #include "AuthenticationChallengeProxy.h"
 #include "AuthenticationDecisionListener.h"
 #include "WKAPICast.h"
-#include "WebCertificateInfo.h"
 #include "WebCredential.h"
 #include "WebProtectionSpace.h"
 
@@ -47,12 +46,12 @@ WKAuthenticationDecisionListenerRef WKAuthenticationChallengeGetDecisionListener
 
 WKProtectionSpaceRef WKAuthenticationChallengeGetProtectionSpace(WKAuthenticationChallengeRef challenge)
 {
-    return toAPI(toImpl(challenge)->protectionSpace());
+    return toAPI(protect(protect(toImpl(challenge))->protectionSpace()).get());
 }
 
 WKCredentialRef WKAuthenticationChallengeGetProposedCredential(WKAuthenticationChallengeRef challenge)
 {
-    return toAPI(toImpl(challenge)->proposedCredential());
+    return toAPI(protect(protect(toImpl(challenge))->proposedCredential()).get());
 }
 
 int WKAuthenticationChallengeGetPreviousFailureCount(WKAuthenticationChallengeRef challenge)

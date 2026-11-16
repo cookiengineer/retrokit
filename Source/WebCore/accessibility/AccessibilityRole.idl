@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,9 +23,8 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// https://wicg.github.io/aom/spec/aria-reflection.html#AccessibilityRole
-[
-    EnabledAtRuntime=AriaReflection
-] interface mixin AccessibilityRole {
-    [Reflect] attribute DOMString? role;
+// https://w3c.github.io/aria/#idl-interface
+
+interface mixin AccessibilityRole {
+    [CEReactions=Needed, Reflect] attribute DOMString? role;
 };

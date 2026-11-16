@@ -25,6 +25,8 @@
 
 #pragma once
 
+#include <wtf/ArgumentCoder.h>
+#include <wtf/Hasher.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/Vector.h>
 
@@ -33,49 +35,47 @@ namespace WebCore {
 class ThreadSafeDataBuffer;
 
 class ThreadSafeDataBufferImpl : public ThreadSafeRefCounted<ThreadSafeDataBufferImpl> {
-friend class ThreadSafeDataBuffer;
 private:
-    ThreadSafeDataBufferImpl(Vector<uint8_t>&& data)
+    friend class ThreadSafeDataBuffer;
+    friend struct IPC::ArgumentCoder<ThreadSafeDataBufferImpl>;
+
+    static Ref<ThreadSafeDataBufferImpl> create(Vector<uint8_t>&& data)
     {
-        m_data = WTFMove(data);
+        return adoptRef(*new ThreadSafeDataBufferImpl(WTF::move(data)));
     }
 
-    ThreadSafeDataBufferImpl(const Vector<uint8_t>& data)
+    ThreadSafeDataBufferImpl(Vector<uint8_t>&& data)
+        : m_data(WTF::move(data))
+    {
+    }
+
+    ThreadSafeDataBufferImpl(std::span<const uint8_t> data)
         : m_data(data)
     {
-    }
-
-    ThreadSafeDataBufferImpl(const void* data, unsigned length)
-        : m_data(length)
-    {
-        memcpy(m_data.data(), data, length);
     }
 
     Vector<uint8_t> m_data;
 };
 
 class ThreadSafeDataBuffer {
+private:
+    friend struct IPC::ArgumentCoder<ThreadSafeDataBuffer>;
 public:
     static ThreadSafeDataBuffer create(Vector<uint8_t>&& data)
     {
-        return ThreadSafeDataBuffer(WTFMove(data));
+        return ThreadSafeDataBuffer(WTF::move(data));
     }
-    
-    static ThreadSafeDataBuffer copyVector(const Vector<uint8_t>& data)
+
+    static ThreadSafeDataBuffer copyData(std::span<const uint8_t> data)
     {
         return ThreadSafeDataBuffer(data);
     }
 
-    static ThreadSafeDataBuffer copyData(const void* data, unsigned length)
-    {
-        return ThreadSafeDataBuffer(data, length);
-    }
+    ThreadSafeDataBuffer() = default;
 
-    ThreadSafeDataBuffer()
-    {
-    }
+    ThreadSafeDataBuffer isolatedCopy() const { return *this; }
     
-    const Vector<uint8_t>* data() const
+    const Vector<uint8_t>* data() const LIFETIME_BOUND
     {
         return m_impl ? &m_impl->m_data : nullptr;
     }
@@ -93,54 +93,39 @@ public:
         return m_impl->m_data == other.m_impl->m_data;
     }
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static WARN_UNUSED_RETURN bool decode(Decoder&, ThreadSafeDataBuffer&);
-
 private:
+    static ThreadSafeDataBuffer create(RefPtr<ThreadSafeDataBufferImpl>&& impl)
+    {
+        return ThreadSafeDataBuffer(WTF::move(impl));
+    }
+
+    explicit ThreadSafeDataBuffer(RefPtr<ThreadSafeDataBufferImpl>&& impl)
+        : m_impl(WTF::move(impl))
+    {
+    }
+
     explicit ThreadSafeDataBuffer(Vector<uint8_t>&& data)
+        : m_impl(adoptRef(new ThreadSafeDataBufferImpl(WTF::move(data))))
     {
-        m_impl = adoptRef(new ThreadSafeDataBufferImpl(WTFMove(data)));
     }
 
-    explicit ThreadSafeDataBuffer(const Vector<uint8_t>& data)
+    explicit ThreadSafeDataBuffer(std::span<const uint8_t> data)
+        : m_impl(adoptRef(new ThreadSafeDataBufferImpl(data)))
     {
-        m_impl = adoptRef(new ThreadSafeDataBufferImpl(data));
-    }
-
-    explicit ThreadSafeDataBuffer(const void* data, unsigned length)
-    {
-        m_impl = adoptRef(new ThreadSafeDataBufferImpl(data, length));
     }
 
     RefPtr<ThreadSafeDataBufferImpl> m_impl;
 };
 
-template<class Encoder>
-void ThreadSafeDataBuffer::encode(Encoder& encoder) const
+inline void add(Hasher& hasher, const ThreadSafeDataBuffer& buffer)
 {
-    bool hasData = m_impl;
-    encoder << hasData;
-
-    if (hasData)
-        encoder << m_impl->m_data;
-}
-
-template<class Decoder>
-bool ThreadSafeDataBuffer::decode(Decoder& decoder, ThreadSafeDataBuffer& result)
-{
-    bool hasData;
-    if (!decoder.decode(hasData))
-        return false;
-
-    if (hasData) {
-        Vector<uint8_t> data;
-        if (!decoder.decode(data))
-            return false;
-
-        result = ThreadSafeDataBuffer::create(WTFMove(data));
+    auto* data = buffer.data();
+    if (!data) {
+        add(hasher, true);
+        return;
     }
-
-    return true;
+    add(hasher, false);
+    add(hasher, *data);
 }
 
 } // namespace WebCore

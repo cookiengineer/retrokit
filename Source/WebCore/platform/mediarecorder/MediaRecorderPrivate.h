@@ -27,10 +27,12 @@
 #include "ExceptionOr.h"
 #include "MediaRecorderPrivateOptions.h"
 #include "RealtimeMediaSource.h"
+#include <wtf/CheckedRef.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
 
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(MEDIA_RECORDER)
 
 namespace WTF {
 class MediaTime;
@@ -43,25 +45,35 @@ class MediaSample;
 class MediaStreamPrivate;
 class MediaStreamTrackPrivate;
 class PlatformAudioData;
-class SharedBuffer;
+class FragmentedSharedBuffer;
 
 struct MediaRecorderPrivateOptions;
 
 class MediaRecorderPrivate
     : public RealtimeMediaSource::AudioSampleObserver
-    , public RealtimeMediaSource::VideoSampleObserver {
+    , public RealtimeMediaSource::VideoFrameObserver
+    , public CanMakeCheckedPtr<MediaRecorderPrivate> {
+    WTF_MAKE_TZONE_ALLOCATED(MediaRecorderPrivate);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(MediaRecorderPrivate);
 public:
     ~MediaRecorderPrivate();
 
+    // CheckedPtr interface
+    uint32_t checkedPtrCount() const final { return CanMakeCheckedPtr::checkedPtrCount(); }
+    uint32_t checkedPtrCountWithoutThreadCheck() const final { return CanMakeCheckedPtr::checkedPtrCountWithoutThreadCheck(); }
+    void incrementCheckedPtrCount() const final { CanMakeCheckedPtr::incrementCheckedPtrCount(); }
+    void decrementCheckedPtrCount() const final { CanMakeCheckedPtr::decrementCheckedPtrCount(); }
+    void setDidBeginCheckedPtrDeletion() final { CanMakeCheckedPtr::setDidBeginCheckedPtrDeletion(); }
+
     struct AudioVideoSelectedTracks {
-        MediaStreamTrackPrivate* audioTrack { nullptr };
-        MediaStreamTrackPrivate* videoTrack { nullptr };
+        WeakPtr<MediaStreamTrackPrivate> audioTrack;
+        WeakPtr<MediaStreamTrackPrivate> videoTrack;
     };
     WEBCORE_EXPORT static AudioVideoSelectedTracks selectTracks(MediaStreamPrivate&);
 
-    using FetchDataCallback = CompletionHandler<void(RefPtr<SharedBuffer>&&, const String& mimeType, double)>;
+    using FetchDataCallback = CompletionHandler<void(Ref<FragmentedSharedBuffer>&&, const String& mimeType, double)>;
     virtual void fetchData(FetchDataCallback&&) = 0;
-    virtual const String& mimeType() const = 0;
+    virtual String mimeType() const = 0;
 
     void stop(CompletionHandler<void()>&&);
     void pause(CompletionHandler<void()>&&);
@@ -73,25 +85,30 @@ public:
     void trackMutedChanged(MediaStreamTrackPrivate& track) { checkTrackState(track); }
     void trackEnabledChanged(MediaStreamTrackPrivate& track) { checkTrackState(track); }
 
-    static void updateOptions(MediaRecorderPrivateOptions&);
+    struct BitRates {
+        unsigned audio;
+        unsigned video;
+    };
+    static BitRates computeBitRates(const MediaRecorderPrivateOptions&, const MediaStreamPrivate* = nullptr);
 
 protected:
     void setAudioSource(RefPtr<RealtimeMediaSource>&&);
     void setVideoSource(RefPtr<RealtimeMediaSource>&&);
 
-    void checkTrackState(const MediaStreamTrackPrivate&);
+    void NODELETE checkTrackState(const MediaStreamTrackPrivate&);
 
     bool shouldMuteAudio() const { return m_shouldMuteAudio; }
     bool shouldMuteVideo() const { return m_shouldMuteVideo; }
 
 private:
+
     virtual void stopRecording(CompletionHandler<void()>&&) = 0;
     virtual void pauseRecording(CompletionHandler<void()>&&) = 0;
     virtual void resumeRecording(CompletionHandler<void()>&&) = 0;
 
 private:
-    bool m_shouldMuteAudio { false };
-    bool m_shouldMuteVideo { false };
+    std::atomic<bool> m_shouldMuteAudio { false };
+    std::atomic<bool> m_shouldMuteVideo { false };
     RefPtr<RealtimeMediaSource> m_audioSource;
     RefPtr<RealtimeMediaSource> m_videoSource;
     RefPtr<RealtimeMediaSource> m_pausedAudioSource;
@@ -100,24 +117,24 @@ private:
 
 inline void MediaRecorderPrivate::setAudioSource(RefPtr<RealtimeMediaSource>&& audioSource)
 {
-    if (m_audioSource)
-        m_audioSource->removeAudioSampleObserver(*this);
+    if (RefPtr audioSource = m_audioSource)
+        audioSource->removeAudioSampleObserver(*this);
 
-    m_audioSource = WTFMove(audioSource);
+    m_audioSource = WTF::move(audioSource);
 
-    if (m_audioSource)
-        m_audioSource->addAudioSampleObserver(*this);
+    if (RefPtr audioSource = m_audioSource)
+        audioSource->addAudioSampleObserver(*this);
 }
 
 inline void MediaRecorderPrivate::setVideoSource(RefPtr<RealtimeMediaSource>&& videoSource)
 {
-    if (m_videoSource)
-        m_videoSource->removeVideoSampleObserver(*this);
+    if (RefPtr videoSource = m_videoSource)
+        videoSource->removeVideoFrameObserver(*this);
 
-    m_videoSource = WTFMove(videoSource);
+    m_videoSource = WTF::move(videoSource);
 
-    if (m_videoSource)
-        m_videoSource->addVideoSampleObserver(*this);
+    if (RefPtr videoSource = m_videoSource)
+        videoSource->addVideoFrameObserver(*this);
 }
 
 inline MediaRecorderPrivate::~MediaRecorderPrivate()
@@ -125,12 +142,12 @@ inline MediaRecorderPrivate::~MediaRecorderPrivate()
     // Subclasses should stop observing sonner than here. Otherwise they might be called from a background thread while half destroyed
     ASSERT(!m_audioSource);
     ASSERT(!m_videoSource);
-    if (m_audioSource)
-        m_audioSource->removeAudioSampleObserver(*this);
-    if (m_videoSource)
-        m_videoSource->removeVideoSampleObserver(*this);
+    if (RefPtr audioSource = m_audioSource)
+        audioSource->removeAudioSampleObserver(*this);
+    if (RefPtr videoSource = m_videoSource)
+        videoSource->removeVideoFrameObserver(*this);
 }
 
 } // namespace WebCore
 
-#endif // ENABLE(MEDIA_STREAM)
+#endif // ENABLE(MEDIA_RECORDER)

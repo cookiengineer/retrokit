@@ -41,37 +41,40 @@ typedef uint64_t pas_compact_atomic_ptr_impl;
 #error "Cannot use PAS_COMPACT_PTR_SIZE > 8"
 #endif
 
-#define PAS_COMPACT_ATOMIC_PTR_INITIALIZER { .payload = 0 }
+#define PAS_COMPACT_ATOMIC_PTR_INITIALIZER { .payload = 0u }
 
 #define PAS_DEFINE_COMPACT_ATOMIC_PTR(type, name) \
     struct name; \
     typedef struct name name; \
     \
     struct name { \
-        pas_compact_atomic_ptr_impl payload; \
+        PAS_ATOMIC_TYPE(pas_compact_atomic_ptr_impl) payload; \
     }; \
     \
     PAS_DEFINE_COMPACT_PTR_HELPERS(type, name); \
     \
     static inline void name ## _store(name* ptr, type* value) \
     { \
-        ptr->payload = (pas_compact_atomic_ptr_impl)name ## _index_for_ptr(value); \
+        PAS_ATOMIC_STORE_RELAXED(&ptr->payload, \
+            (pas_compact_atomic_ptr_impl)name ## _index_for_ptr(value)); \
     } \
     \
     static inline type* name ## _load(name* ptr) \
     { \
-        return name ## _ptr_for_index(ptr->payload); \
+        return name ## _ptr_for_index( \
+            PAS_ATOMIC_LOAD_RELAXED(&ptr->payload)); \
     } \
     \
     static inline type* name ## _load_non_null(name* ptr) \
     { \
-        return name ## _ptr_for_index_non_null(ptr->payload); \
+        return name ## _ptr_for_index_non_null( \
+            PAS_ATOMIC_LOAD_RELAXED(&ptr->payload)); \
     } \
     \
     static inline bool name ## _weak_cas(name* ptr, type* old_value, type* new_value) \
     { \
         return pas_compare_and_swap_uint32_weak( \
-            &ptr->payload, \
+            (unsigned*)&ptr->payload, \
             (pas_compact_atomic_ptr_impl)name ## _index_for_ptr(old_value), \
             (pas_compact_atomic_ptr_impl)name ## _index_for_ptr(new_value)); \
     } \
@@ -80,19 +83,20 @@ typedef uint64_t pas_compact_atomic_ptr_impl;
     { \
         return name ## _ptr_for_index( \
             pas_compare_and_swap_uint32_strong( \
-                &ptr->payload, \
+                (unsigned*)&ptr->payload, \
                 (pas_compact_atomic_ptr_impl)name ## _index_for_ptr(old_value), \
                 (pas_compact_atomic_ptr_impl)name ## _index_for_ptr(new_value))); \
     } \
     \
     static inline bool name ## _is_null(name* ptr) \
     { \
-        return !ptr->payload; \
+        return !PAS_ATOMIC_LOAD_RELAXED(&ptr->payload); \
     } \
     \
     static inline type* name ## _load_remote(pas_enumerator* enumerator, name* ptr) \
     { \
-        return name ## _ptr_for_remote_index(enumerator, ptr->payload); \
+        return name ## _ptr_for_remote_index(enumerator, \
+            PAS_ATOMIC_LOAD_RELAXED(&ptr->payload)); \
     } \
     \
     struct pas_dummy

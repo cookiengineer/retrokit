@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011 Motorola Mobility, Inc.  All rights reserved.
+ * Copyright (c) 2011 Motorola Mobility, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without modification, 
  * are permitted provided that the following conditions are met:
@@ -33,11 +33,31 @@
 
 #include "WebKit2Initialize.h"
 
+#include <wtf/ThreadSpecific.h>
+
+#define DELEGATE_REF_COUNTING_TO_COCOA PLATFORM(COCOA)
+
 namespace API {
 
-Object::Object()
+#if DELEGATE_REF_COUNTING_TO_COCOA
+
+HashMap<Object*, CFTypeRef>& Object::apiObjectsUnderConstruction()
 {
+    static NeverDestroyed<ThreadSpecific<HashMap<Object*, CFTypeRef>>> s_apiObjectsUnderConstruction;
+    return *s_apiObjectsUnderConstruction.get();
+}
+
+#endif
+
+Object::Object()
+#if DELEGATE_REF_COUNTING_TO_COCOA
+    : m_wrapper(apiObjectsUnderConstruction().take(this))
+#endif
+{
+#if DELEGATE_REF_COUNTING_TO_COCOA
+    ASSERT(m_wrapper);
+#endif
     WebKit::InitializeWebKit2();
 }
 
-} // namespace WebKit
+} // namespace API

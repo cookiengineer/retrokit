@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -38,10 +38,18 @@ bool GCActivityCallback::s_shouldCreateGCTimer = true;
 
 const double timerSlop = 2.0; // Fudge factor to avoid performance cost of resetting timer.
 
-GCActivityCallback::GCActivityCallback(Heap* heap)
-    : GCActivityCallback(heap->vm())
+GCActivityCallback::GCActivityCallback(JSC::Heap& heap, Synchronousness synchronousness)
+    : GCActivityCallback(heap.vm(), synchronousness)
 {
 }
+
+GCActivityCallback::GCActivityCallback(VM& vm, Synchronousness synchronousness)
+    : Base(vm)
+    , m_synchronousness(synchronousness)
+{
+}
+
+GCActivityCallback::~GCActivityCallback() = default;
 
 void GCActivityCallback::doWork(VM& vm)
 {
@@ -49,7 +57,7 @@ void GCActivityCallback::doWork(VM& vm)
         return;
     
     ASSERT(vm.currentThreadIsHoldingAPILock());
-    Heap& heap = vm.heap;
+    JSC::Heap& heap = vm.heap;
     if (heap.isDeferred()) {
         scheduleTimer(0_s);
         return;
@@ -65,12 +73,25 @@ void GCActivityCallback::scheduleTimer(Seconds newDelay)
     Seconds delta = m_delay - newDelay;
     m_delay = newDelay;
     if (auto timeUntilFire = this->timeUntilFire())
-        setTimeUntilFire(*timeUntilFire - delta);
-    else
-        setTimeUntilFire(newDelay);
+        newDelay = *timeUntilFire - delta;
+    setTimeUntilFire(newDelay);
 }
 
-void GCActivityCallback::didAllocate(Heap& heap, size_t bytes)
+double GCActivityCallback::deathRate(size_t sizeBefore, size_t sizeAfter)
+{
+    if (!sizeBefore)
+        return 1.0;
+    if (sizeAfter > sizeBefore) {
+        // GC caused the heap to grow(!)
+        // This could happen if the we visited more extra memory than was reported allocated.
+        // We don't return a negative death rate, since that would schedule the next GC in the past.
+        return 0;
+    }
+    return static_cast<double>(sizeBefore - sizeAfter) / static_cast<double>(sizeBefore);
+}
+
+
+void GCActivityCallback::didAllocate(JSC::Heap& heap, size_t bytes)
 {
     // The first byte allocated in an allocation cycle will report 0 bytes to didAllocate. 
     // We pretend it's one byte so that we don't ignore this allocation entirely.

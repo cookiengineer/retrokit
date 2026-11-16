@@ -27,6 +27,7 @@
 
 #include <wtf/Noncopyable.h>
 #include <wtf/RunLoop.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/glib/GRefPtr.h>
 #include <wtf/text/CString.h>
 
@@ -39,7 +40,8 @@ class GeolocationPositionData;
 namespace WebKit {
 
 class GeoclueGeolocationProvider {
-    WTF_MAKE_NONCOPYABLE(GeoclueGeolocationProvider); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(GeoclueGeolocationProvider);
+    WTF_MAKE_NONCOPYABLE(GeoclueGeolocationProvider);
 public:
     GeoclueGeolocationProvider();
     ~GeoclueGeolocationProvider();
@@ -50,29 +52,49 @@ public:
     void setEnableHighAccuracy(bool);
 
 private:
-    void destroyManager();
-    void destroyManagerLater();
+    enum class LocationProviderSource : uint8_t { Unknown, Portal, Geoclue };
 
-    void setupManager(GRefPtr<GDBusProxy>&&);
-    void createClient(const char*);
-    void setupClient(GRefPtr<GDBusProxy>&&);
+    void destroyState();
+    void destroyStateLater();
+
+    void acquirePortalProxy();
+    void setupPortalProxy(GRefPtr<GDBusProxy>&&);
+    void createPortalSession();
+    void startPortalSession();
+    void portalLocationUpdated(GVariant*);
+    void stopPortalSession();
+
+    void createGeoclueManager();
+    void setupGeoclueManager(GRefPtr<GDBusProxy>&&);
+    void createGeoclueClient(const char*);
+    void setupGeoclueClient(GRefPtr<GDBusProxy>&&);
     void requestAccuracyLevel();
     void createLocation(const char*);
     void locationUpdated(GRefPtr<GDBusProxy>&&);
     void didFail(CString);
 
-    void startClient();
-    void stopClient();
+    void startGeoclueClient();
+    void stopGeoclueClient();
 
     static void clientLocationUpdatedCallback(GDBusProxy*, gchar*, gchar*, GVariant*, gpointer);
 
     bool m_isRunning { false };
     bool m_isHighAccuracyEnabled { false };
-    GRefPtr<GDBusProxy> m_manager;
-    GRefPtr<GDBusProxy> m_client;
+    struct {
+        GRefPtr<GDBusProxy> manager;
+        GRefPtr<GDBusProxy> client;
+    } m_geoclue;
+    struct {
+        GRefPtr<GDBusProxy> locationPortal;
+        std::optional<String> senderName;
+        std::optional<String> sessionId;
+        unsigned locationUpdatedSignalId;
+        unsigned responseSignalId;
+    } m_portal;
     GRefPtr<GCancellable> m_cancellable;
     UpdateNotifyFunction m_updateNotifyFunction;
-    RunLoop::Timer<GeoclueGeolocationProvider> m_destroyManagerLaterTimer;
+    LocationProviderSource m_sourceType { LocationProviderSource::Unknown };
+    RunLoop::Timer m_destroyLaterTimer;
 };
 
 } // namespace WebKit

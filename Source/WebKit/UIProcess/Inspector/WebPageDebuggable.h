@@ -29,17 +29,19 @@
 
 #include <JavaScriptCore/RemoteInspectionTarget.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebKit {
 
 class WebPageProxy;
 
 class WebPageDebuggable final : public Inspector::RemoteInspectionTarget {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(WebPageDebuggable);
     WTF_MAKE_NONCOPYABLE(WebPageDebuggable);
 public:
-    WebPageDebuggable(WebPageProxy&);
-    ~WebPageDebuggable() = default;
+    static Ref<WebPageDebuggable> create(WebPageProxy&);
+    ~WebPageDebuggable();
 
     Inspector::RemoteControllableTarget::Type type() const final { return Inspector::RemoteControllableTarget::Type::WebPage; }
 
@@ -49,14 +51,18 @@ public:
 
     void connect(Inspector::FrontendChannel&, bool isAutomaticConnection = false, bool immediatelyPause = false) final;
     void disconnect(Inspector::FrontendChannel&) final;
-    void dispatchMessageFromRemote(const String& message) final;
+    void dispatchMessageFromRemote(String&& message) final;
     void setIndicating(bool) final;
 
-    const String& nameOverride() const { return m_nameOverride; }
+    const String& nameOverride() const LIFETIME_BOUND final { return m_nameOverride; }
     void setNameOverride(const String&);
 
+    void NODELETE detachFromPage();
+
 private:
-    WebPageProxy& m_page;
+    explicit WebPageDebuggable(WebPageProxy&);
+
+    WeakPtr<WebPageProxy> m_page;
     String m_nameOverride;
 };
 

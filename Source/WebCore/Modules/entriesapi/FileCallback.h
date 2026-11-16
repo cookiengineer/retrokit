@@ -38,7 +38,17 @@ class FileCallback : public RefCounted<FileCallback>, public ActiveDOMCallback {
 public:
     using ActiveDOMCallback::ActiveDOMCallback;
 
-    virtual CallbackResult<void> handleEvent(File&) = 0;
+    // ContextDestructionObserver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
+    virtual bool isJSFileCallback() const { return false; }
+
+    virtual CallbackResult<void> invoke(File&) = 0;
+    virtual CallbackResult<void> invokeRethrowingException(File&) = 0;
+
+private:
+    virtual bool hasCallback() const = 0;
 };
 
 } // namespace WebCore

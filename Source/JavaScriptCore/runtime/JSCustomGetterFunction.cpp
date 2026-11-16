@@ -28,10 +28,11 @@
 
 #include "IdentifierInlines.h"
 #include "JSCJSValueInlines.h"
+#include <wtf/text/MakeString.h>
 
 namespace JSC {
 
-const ClassInfo JSCustomGetterFunction::s_info = { "Function", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSCustomGetterFunction) };
+const ClassInfo JSCustomGetterFunction::s_info = { "Function"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSCustomGetterFunction) };
 static JSC_DECLARE_HOST_FUNCTION(customGetterFunctionCall);
 
 JSC_DEFINE_HOST_FUNCTION(customGetterFunctionCall, (JSGlobalObject* globalObject, CallFrame* callFrame))
@@ -39,12 +40,12 @@ JSC_DEFINE_HOST_FUNCTION(customGetterFunctionCall, (JSGlobalObject* globalObject
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    JSCustomGetterFunction* customGetterFunction = jsCast<JSCustomGetterFunction*>(callFrame->jsCallee());
+    JSCustomGetterFunction* customGetterFunction = uncheckedDowncast<JSCustomGetterFunction>(callFrame->jsCallee());
     JSValue thisValue = callFrame->thisValue();
     auto getter = customGetterFunction->getter();
 
     if (auto domAttribute = customGetterFunction->domAttribute()) {
-        if (!thisValue.inherits(vm, domAttribute->classInfo))
+        if (!thisValue.inherits(domAttribute->classInfo))
             return throwVMDOMAttributeGetterTypeError(globalObject, scope, domAttribute->classInfo, customGetterFunction->propertyName());
     }
 
@@ -62,13 +63,16 @@ JSCustomGetterFunction::JSCustomGetterFunction(VM& vm, NativeExecutable* executa
 JSCustomGetterFunction* JSCustomGetterFunction::create(VM& vm, JSGlobalObject* globalObject, const PropertyName& propertyName, CustomFunctionPointer getter, std::optional<DOMAttributeAnnotation> domAttribute)
 {
     ASSERT(getter);
-    NativeExecutable* executable = vm.getHostFunction(customGetterFunctionCall, callHostFunctionAsConstructor, String(propertyName.publicName()));
+    NativeExecutable* executable = vm.getHostFunction(customGetterFunctionCall, ImplementationVisibility::Public, callHostFunctionAsConstructor, 0, String(propertyName.publicName()));
     Structure* structure = globalObject->customGetterFunctionStructure();
-    JSCustomGetterFunction* function = new (NotNull, allocateCell<JSCustomGetterFunction>(vm.heap)) JSCustomGetterFunction(vm, executable, globalObject, structure, propertyName, getter, domAttribute);
-
-    // Can't do this during initialization because getHostFunction might do a GC allocation.
-    auto name = makeString("get ", propertyName.publicName());
-    function->finishCreation(vm, executable, 0, name);
+    JSCustomGetterFunction* function = new (NotNull, allocateCell<JSCustomGetterFunction>(vm)) JSCustomGetterFunction(vm, executable, globalObject, structure, propertyName, getter, domAttribute);
+    function->finishCreation(vm);
+    // ECMAScript-style "get foo" name is exposed via the JSFunction's `name` property; keep the
+    // raw NativeExecutable name unprefixed so toString() renders as `function foo() { [native code] }`.
+    auto name = makeString("get "_s, propertyName.publicName());
+    FunctionRareData* rareData = function->ensureRareData(vm);
+    rareData->setHasReifiedName();
+    function->putDirect(vm, vm.propertyNames->name, jsString(vm, WTF::move(name)), PropertyAttribute::ReadOnly | PropertyAttribute::DontEnum);
     return function;
 }
 

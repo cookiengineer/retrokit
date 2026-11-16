@@ -28,9 +28,10 @@
 
 #pragma once
 
-#include "FloatRect.h"
-#include "IntRect.h"
+#include <WebCore/FloatRect.h>
+#include <WebCore/IntRect.h>
 #include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WTF {
 class TextStream;
@@ -44,7 +45,7 @@ namespace WebCore {
 // mapping a rectangle through transforms. When initialized from a rect, the
 // points are in clockwise order from top left.
 class FloatQuad {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(FloatQuad);
 public:
     FloatQuad()
     {
@@ -66,10 +67,10 @@ public:
     {
     }
 
-    const FloatPoint& p1() const { return m_p1; }
-    const FloatPoint& p2() const { return m_p2; }
-    const FloatPoint& p3() const { return m_p3; }
-    const FloatPoint& p4() const { return m_p4; }
+    const FloatPoint& p1() const LIFETIME_BOUND { return m_p1; }
+    const FloatPoint& p2() const LIFETIME_BOUND { return m_p2; }
+    const FloatPoint& p3() const LIFETIME_BOUND { return m_p3; }
+    const FloatPoint& p4() const LIFETIME_BOUND { return m_p4; }
 
     void setP1(const FloatPoint& p) { m_p1 = p; }
     void setP2(const FloatPoint& p) { m_p2 = p; }
@@ -85,24 +86,26 @@ public:
     // that is, if two edges are parallel to the x-axis and the other two
     // are parallel to the y-axis. If this method returns true, the
     // corresponding FloatRect can be retrieved with boundingBox().
-    WEBCORE_EXPORT bool isRectilinear() const;
+    WEBCORE_EXPORT bool NODELETE isRectilinear() const;
 
     // Tests whether the given point is inside, or on an edge or corner of this quad.
-    WEBCORE_EXPORT bool containsPoint(const FloatPoint&) const;
+    WEBCORE_EXPORT bool NODELETE containsPoint(const FloatPoint&) const;
 
     // Tests whether the four corners of other are inside, or coincident with the sides of this quad.
     // Note that this only works for convex quads, but that includes all quads that originate
     // from transformed rects.
-    WEBCORE_EXPORT bool containsQuad(const FloatQuad&) const;
+    WEBCORE_EXPORT bool NODELETE containsQuad(const FloatQuad&) const;
 
     // Tests whether any part of the rectangle intersects with this quad.
     // This only works for convex quads.
-    bool intersectsRect(const FloatRect&) const;
+    bool NODELETE intersectsRect(const FloatRect&) const;
 
     // Test whether any part of the circle/ellipse intersects with this quad.
     // Note that these two functions only work for convex quads.
-    bool intersectsCircle(const FloatPoint& center, float radius) const;
-    bool intersectsEllipse(const FloatPoint& center, const FloatSize& radii) const;
+    bool NODELETE intersectsCircle(const FloatPoint& center, float radius) const;
+    bool NODELETE intersectsEllipse(const FloatPoint& center, const FloatSize& radii) const;
+
+    WEBCORE_EXPORT bool intersectsQuad(const FloatQuad&) const;
 
     // The center of the quad. If the quad is the result of a affine-transformed rectangle this is the same as the original center transformed.
     FloatPoint center() const
@@ -148,10 +151,9 @@ public:
 
     // Tests whether points are in clock-wise, or counter clock-wise order.
     // Note that output is undefined when all points are colinear.
-    bool isCounterclockwise() const;
+    bool NODELETE isCounterclockwise() const;
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<FloatQuad> decode(Decoder&);
+    friend bool operator==(const FloatQuad&, const FloatQuad&) = default;
 
 private:
     FloatPoint m_p1;
@@ -159,39 +161,6 @@ private:
     FloatPoint m_p3;
     FloatPoint m_p4;
 };
-
-template<class Encoder> void FloatQuad::encode(Encoder& encoder) const
-{
-    encoder << m_p1;
-    encoder << m_p2;
-    encoder << m_p3;
-    encoder << m_p4;
-}
-
-template<class Decoder> std::optional<FloatQuad> FloatQuad::decode(Decoder& decoder)
-{
-    std::optional<FloatPoint> p1;
-    decoder >> p1;
-    if (!p1)
-        return std::nullopt;
-
-    std::optional<FloatPoint> p2;
-    decoder >> p2;
-    if (!p2)
-        return std::nullopt;
-
-    std::optional<FloatPoint> p3;
-    decoder >> p3;
-    if (!p3)
-        return std::nullopt;
-
-    std::optional<FloatPoint> p4;
-    decoder >> p4;
-    if (!p4)
-        return std::nullopt;
-
-    return {{ *p1, *p2, *p3, *p4 }};
-}
 
 inline FloatQuad& operator+=(FloatQuad& a, const FloatSize& b)
 {
@@ -203,16 +172,6 @@ inline FloatQuad& operator-=(FloatQuad& a, const FloatSize& b)
 {
     a.move(-b.width(), -b.height());
     return a;
-}
-
-inline bool operator==(const FloatQuad& a, const FloatQuad& b)
-{
-    return a.p1() == b.p1() && a.p2() == b.p2() && a.p3() == b.p3() && a.p4() == b.p4();
-}
-
-inline bool operator!=(const FloatQuad& a, const FloatQuad& b)
-{
-    return !(a == b);
 }
 
 WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const FloatQuad&);

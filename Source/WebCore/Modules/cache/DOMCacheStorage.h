@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,14 +32,19 @@
 
 namespace WebCore {
 
+struct MultiCacheQueryOptions;
+
 class DOMCacheStorage : public RefCounted<DOMCacheStorage>, public ActiveDOMObject {
 public:
-    static Ref<DOMCacheStorage> create(ScriptExecutionContext& context, Ref<CacheStorageConnection>&& connection) { return adoptRef(*new DOMCacheStorage(context, WTFMove(connection))); }
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
+    static Ref<DOMCacheStorage> create(ScriptExecutionContext&, Ref<CacheStorageConnection>&&);
     ~DOMCacheStorage();
 
     using KeysPromise = DOMPromiseDeferred<IDLSequence<IDLDOMString>>;
 
-    void match(DOMCache::RequestInfo&&, CacheQueryOptions&&, Ref<DeferredPromise>&&);
+    void match(DOMCache::RequestInfo&&, MultiCacheQueryOptions&&, Ref<DeferredPromise>&&);
     void has(const String&, DOMPromiseDeferred<IDLBoolean>&&);
     void open(const String&, DOMPromiseDeferred<IDLInterface<DOMCache>>&&);
     void remove(const String&, DOMPromiseDeferred<IDLBoolean>&&);
@@ -49,19 +54,18 @@ private:
     DOMCacheStorage(ScriptExecutionContext&, Ref<CacheStorageConnection>&&);
 
     // ActiveDOMObject
-    void stop() final;
-    const char* activeDOMObjectName() const final;
+    void NODELETE stop() final;
 
     void doOpen(const String& name, DOMPromiseDeferred<IDLInterface<DOMCache>>&&);
     void doRemove(const String&, DOMPromiseDeferred<IDLBoolean>&&);
     void doSequentialMatch(DOMCache::RequestInfo&&, CacheQueryOptions&&, Ref<DeferredPromise>&&);
     void retrieveCaches(CompletionHandler<void(std::optional<Exception>&&)>&&);
-    Ref<DOMCache> findCacheOrCreate(DOMCacheEngine::CacheInfo&&);
+    Ref<DOMCache> findCacheOrCreate(DOMCacheEngine::CacheInfo&&, ScriptExecutionContext&);
     std::optional<ClientOrigin> origin() const;
 
     Vector<Ref<DOMCache>> m_caches;
     uint64_t m_updateCounter { 0 };
-    Ref<CacheStorageConnection> m_connection;
+    const Ref<CacheStorageConnection> m_connection;
     bool m_isStopped { false };
 };
 

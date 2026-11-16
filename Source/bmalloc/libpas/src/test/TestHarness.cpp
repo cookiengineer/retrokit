@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2021 Apple Inc. All rights reserved.
+ * Copyright (c) 2018-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,13 +26,15 @@
 #include "TestHarness.h"
 
 #include "Verifier.h"
+#include <atomic>
+#include "bmalloc_heap_config.h"
+#include "hotbit_heap_config.h"
 #include "iso_heap_config.h"
 #include "iso_test_heap_config.h"
 #include "jit_heap.h"
 #include "jit_heap_config.h"
 #include "minalign32_heap_config.h"
 #include "pagesize64k_heap_config.h"
-#include "pas_all_magazines.h"
 #include "pas_epoch.h"
 #include "pas_fd_stream.h"
 #include "pas_heap.h"
@@ -43,6 +45,8 @@
 #include "pas_utility_heap.h"
 #include "pas_utils.h"
 #include "thingy_heap_config.h"
+#include <cstdlib>
+#include <optional>
 #include <sstream>
 #include <sys/wait.h>
 #include <vector>
@@ -86,10 +90,10 @@ struct TestScopeImpl {
 };
 
 #define FOR_EACH_RUNTIME_CONFIG(name, callback) ({ \
-        (callback)(name ## _intrinsic_primitive_runtime_config.base); \
+        (callback)(name ## _intrinsic_runtime_config.base); \
         (callback)(name ## _primitive_runtime_config.base); \
         (callback)(name ## _typed_runtime_config.base); \
-        (callback)(name ## _objc_runtime_config.base); \
+        (callback)(name ## _flex_runtime_config.base); \
     })
 
 RuntimeConfigTestScope::RuntimeConfigTestScope(
@@ -103,17 +107,10 @@ RuntimeConfigTestScope::RuntimeConfigTestScope(
             FOR_EACH_RUNTIME_CONFIG(iso_test, setUp);
             FOR_EACH_RUNTIME_CONFIG(minalign32, setUp);
             FOR_EACH_RUNTIME_CONFIG(pagesize64k, setUp);
+            FOR_EACH_RUNTIME_CONFIG(bmalloc, setUp);
+            FOR_EACH_RUNTIME_CONFIG(hotbit, setUp);
             setUp(pas_utility_heap_runtime_config);
             setUp(jit_heap_runtime_config);
-        })
-{
-}
-
-ForceExclusives::ForceExclusives()
-    : RuntimeConfigTestScope(
-        "force-exclusives",
-        [] (pas_heap_runtime_config& runtimeConfig) {
-            runtimeConfig.directory_size_bound_for_partial_views = 0;
         })
 {
 }
@@ -144,17 +141,6 @@ DisableBitfit::DisableBitfit()
         "disable-bitfit",
         [] (pas_heap_runtime_config& runtimeConfig) {
             runtimeConfig.max_bitfit_object_size = 0;
-        })
-{
-}
-
-ForcePartials::ForcePartials()
-    : RuntimeConfigTestScope(
-        "force-partials",
-        [] (pas_heap_runtime_config& runtimeConfig) {
-            if (&runtimeConfig == &pas_utility_heap_runtime_config)
-                return;
-            runtimeConfig.directory_size_bound_for_partial_views = UINT8_MAX;
         })
 {
 }
@@ -209,34 +195,11 @@ InstallVerifier::InstallVerifier()
 {
 }
 
-DisableExplosion::DisableExplosion()
+NoVerifier::NoVerifier()
     : TestScope(
-        "disable-explosion",
-        [] () {
-            pas_segregated_global_size_directory_can_explode = false;
-            pas_segregated_global_size_directory_force_explode = false;
-        })
-{
-}
-
-ForceExplosion::ForceExplosion()
-    : TestScope(
-        "force-explosion",
-        [] () {
-            pas_segregated_global_size_directory_can_explode = true;
-            pas_segregated_global_size_directory_force_explode = true;
-        })
-{
-}
-
-ForceOneMagazine::ForceOneMagazine()
-    : TestScope(
-        "force-one-magazine",
-        [] () {
-            pas_all_magazines_forced_cpu_number = 0;
-        })
-{
-}
+        "no-verifier",
+        [] () { })
+{ }
 
 EpochIsCounter::EpochIsCounter()
     : TestScope(
@@ -253,18 +216,46 @@ BootJITHeap::BootJITHeap()
         "boot-jit-heap",
         [] () {
 #if PAS_ENABLE_JIT
-            constexpr unsigned numRegions = 10;
-            
+            constexpr unsigned numRegions = 50;
+
             for (unsigned i = numRegions; i--;) {
-                constexpr size_t size = 5000000;
-                
-                void* base = malloc(size);
-                
+                size_t pageSize = pas_page_malloc_alignment();
+                size_t size = pas_round_up_to_power_of_2(5000000, pageSize);
+                void* base = aligned_alloc(pageSize, size);
                 jit_heap_add_fresh_memory(
                     pas_range_create(reinterpret_cast<uintptr_t>(base),
                                      reinterpret_cast<uintptr_t>(base) + size));
             }
 #endif // PAS_ENABLE_JIT
+        })
+{
+}
+
+EnablePageBalancing::EnablePageBalancing()
+    : TestScope(
+        "enable-page-balancing",
+        [] () {
+            pas_physical_page_sharing_pool_balancing_enabled = true;
+        })
+{
+}
+
+DisablePageBalancing::DisablePageBalancing()
+    : TestScope(
+        "disable-page-balancing",
+        [] () {
+            pas_physical_page_sharing_pool_balancing_enabled = false;
+        })
+{
+}
+
+DecommitZeroFill::DecommitZeroFill()
+    : TestScope(
+        "decommit-zero-fill",
+        [] () {
+#if PAS_OS(DARWIN)
+            pas_page_malloc_decommit_zero_fill = true;
+#endif // PAS_OS(DARWIN)
         })
 {
 }
@@ -281,7 +272,7 @@ void iterateForward(TestScopeImpl* scope, const Func& func)
 }
 
 string currentSuite;
-bool runningOneTest;
+bool runningOneTestInProcess;
 
 struct Test {
     Test() = default;
@@ -333,6 +324,23 @@ struct Test {
     TestScopeImpl* scope;
 };
 
+struct RunningTest {
+    RunningTest() = default;
+
+    RunningTest(pid_t pid, int readPipe, const Test& test, size_t testIndex)
+        : pid(pid)
+        , readPipe(readPipe)
+        , test(test)
+        , testIndex(testIndex)
+    {
+    }
+
+    pid_t pid { -1 };
+    int readPipe { -1 };
+    Test test;
+    size_t testIndex;
+};
+
 vector<Test> tests;
 TestScopeImpl* topScope;
 
@@ -340,38 +348,57 @@ unsigned testsPassed;
 unsigned testsRan;
 
 static constexpr char successByte = 'S';
-
-int resultPipe[2];
+int childSuccessReportingPipe = -1;
+[[noreturn]] void reportSuccessAndExitForkedProcess()
+{
+    PAS_ASSERT(childSuccessReportingPipe > 0);
+    ssize_t writeResult = write(childSuccessReportingPipe, &successByte, 1);
+    PAS_ASSERT(writeResult == 1);
+    exit(0);
+    PAS_ASSERT(!"Should have exited");
+}
 
 } // anonymous namespace
 
+void addAllocationZeroingTests();
 void addBitfieldVectorTests();
+void addBitfitTests();
 void addBitvectorTests();
+void addBmallocTests();
 void addCartesianTreeTests();
 void addCoalignTests();
+void addEnumerationTests();
+void addExpendableMemoryTests();
 void addExtendedGCDTests();
 void addHashtableTests();
+void addHeapRefAllocatorIndexTests();
 void addIsoDynamicPrimitiveHeapTests();
 void addIsoHeapChaosTests();
 void addIsoHeapPageSharingTests();
 void addIsoHeapPartialAndBaselineTests();
 void addIsoHeapReservedMemoryTests();
-void addIsoHeapTablingTests();
 void addJITHeapTests();
 void addLargeFreeHeapTests();
 void addLargeSharingPoolTests();
 void addLockFreeReadPtrPtrHashtableTests();
+void addLotsOfHeapsAndThreadsTests();
+void addMARTests();
+void addMemalignTests();
 void addMinHeapTests();
+void addPGMTests();
 void addRaceTests();
 void addRedBlackTreeTests();
-void addSkipListTests();
+void addReallocFastPathTests();
+void addScavengerExternalWorkTests();
+void addTLCDecommitTests();
 void addTSDTests();
 void addThingyAndUtilityHeapAllocationTests();
 void addUtilsTests();
+void addViewCacheTests();
 
 void testSucceeded()
 {
-    if (runningOneTest) {
+    if (runningOneTestInProcess) {
         cout << "    PASS!" << endl;
         cout << endl;
         cout << "Exiting early due to test success." << endl;
@@ -380,10 +407,7 @@ void testSucceeded()
         exit(0);
     }
 
-    ssize_t writeResult = write(resultPipe[1], &successByte, 1);
-    PAS_ASSERT(writeResult == 1);
-    exit(0);
-    PAS_ASSERT(!"Should have exited");
+    reportSuccessAndExitForkedProcess();
 }
 
 unsigned deterministicRandomNumber(unsigned exclusiveUpperBound)
@@ -538,7 +562,7 @@ void verifyExactObjectDistance(const set<void*>& objects,
     bool hasLast = false;
     for (void* object : objects) {
         uintptr_t begin = reinterpret_cast<uintptr_t>(object);
-        
+
         CHECK_GREATER_EQUAL(begin, lastBegin);
 
         if (hasLast) {
@@ -546,112 +570,232 @@ void verifyExactObjectDistance(const set<void*>& objects,
                 cout << "Object " << reinterpret_cast<void*>(lastBegin) << " is wrong distance to " << object << endl;
                 dumpObjectSet(objects);
             }
-            
+
             CHECK_EQUAL(begin - lastBegin, exactDistance);
         }
-        
+
         lastBegin = begin;
         hasLast = true;
     }
 }
 
-void runOneTest(const Test& test)
+struct ParsedArguments {
+    string filter;
+    std::optional<int> childProcesses { };
+};
+
+unsigned computeTestConcurrency(std::optional<int> childProcesses);
+
+void printUsage(const char* programName)
 {
-    runningOneTest = true;
+    cerr << "Usage: " << programName << " [options] [filter]" << endl;
+    cerr << endl;
+    cerr << "Options:" << endl;
+    cerr << "  --child-processes N  Maximum number of child processes to fork at once" << endl;
+    cerr << "                       (default: " << computeTestConcurrency(std::nullopt) << ", auto-detected based on CPU count)" << endl;
+    cerr << "  --help               Show this help message" << endl;
+    cerr << endl;
+    cerr << "Arguments:" << endl;
+    cerr << "  filter               Run only tests matching this filter string" << endl;
+    cerr << endl;
+}
+
+ParsedArguments parseArguments(int argc, char** argv)
+{
+    ParsedArguments args;
+
+    for (int i = 1; i < argc; i++) {
+        string arg = argv[i];
+
+        if (arg == "--help" || arg == "-h") {
+            printUsage(argv[0]);
+            exit(0);
+        } else if (arg == "--child-processes") {
+            if (i + 1 >= argc) {
+                cerr << "Error: --child-processes requires a numeric argument" << endl;
+                printUsage(argv[0]);
+                exit(1);
+            }
+            i++;
+            int value = atoi(argv[i]);
+            if (value < 0) {
+                cerr << "Error: --child-processes must be a non-negative integer, got: " << argv[i] << endl;
+                exit(1);
+            }
+            args.childProcesses = value;
+        } else if (arg[0] == '-') {
+            cerr << "Error: unknown option: " << arg << endl;
+            printUsage(argv[0]);
+            exit(1);
+        } else {
+            // Positional argument - this is the filter
+            if (!args.filter.empty()) {
+                cerr << "Error: multiple filter arguments specified" << endl;
+                printUsage(argv[0]);
+                exit(1);
+            }
+            args.filter = arg;
+        }
+    }
+
+    return args;
+}
+
+unsigned computeTestConcurrency(std::optional<int> childProcesses)
+{
+    if (childProcesses.has_value() && !(*childProcesses))
+        return 1;
+
+    const char* envConcurrency = getenv("PasTestConcurrency");
+    if (envConcurrency) {
+        int concurrency = atoi(envConcurrency);
+        if (concurrency > 0)
+            return static_cast<unsigned>(concurrency);
+    }
+
+    if (childProcesses.value_or(0) > 0)
+        return static_cast<unsigned>(*childProcesses);
+
+    unsigned numCpus = 1;
+
+    long result = sysconf(_SC_NPROCESSORS_ONLN);
+    if (result > 0)
+        numCpus = static_cast<unsigned>(result);
+
+    return numCpus > 1 ? numCpus / 2 : 1;
+}
+
+
+void runOneTestInProcess(const Test& test)
+{
+    runningOneTestInProcess = true;
     cout << "Running " << test.fullName() << "..." << endl;
     test.run();
     testSucceeded();
     CHECK(!"Should not have gotten here.");
 }
 
-void runForkedTest(const Test& test)
+// Start a test without waiting for it to finish;
+// the handle returned can be used to wait for its completion,
+// via waitForAnyProcess.
+RunningTest startForkedTest(const Test& test, size_t testIndex)
 {
     cout << "Running " << test.fullName() << "..." << endl;
-    
+
     testsRan++;
 
-    int pipeResult = pipe(resultPipe);
+    int pipefd[2];
+    int pipeResult = pipe(pipefd);
     PAS_ASSERT(!pipeResult);
-    
+
     int forkResult = fork();
     PAS_ASSERT(forkResult >= 0);
-    
+
     if (!forkResult) {
-        close(resultPipe[0]);
+        // Child process
+        close(pipefd[0]);
+        childSuccessReportingPipe = pipefd[1];
         test.run();
-        ssize_t writeResult = write(resultPipe[1], &successByte, 1);
-        PAS_ASSERT(writeResult == 1);
-        exit(0);
-        PAS_ASSERT(!"Should have exited");
+        reportSuccessAndExitForkedProcess();
     }
-    
-    close(resultPipe[1]);
-    
+
+    // Parent process
+    close(pipefd[1]);
+    return RunningTest(forkResult, pipefd[0], test, testIndex);
+}
+
+size_t waitForAnyProcess(vector<RunningTest>& runningTests)
+{
+    PAS_ASSERT(!runningTests.empty());
+
+    int waitStatus;
+    pid_t completedPid = wait(&waitStatus);
+    PAS_ASSERT(completedPid > 0);
+
+    // Find which test completed
+    size_t completedIndex = SIZE_MAX;
+    RunningTest completedTest;
+    for (size_t i = 0; i < runningTests.size(); i++) {
+        if (runningTests[i].pid == completedPid) {
+            completedIndex = i;
+            completedTest = runningTests[i];
+            break;
+        }
+    }
+
+    PAS_ASSERT(completedIndex != SIZE_MAX);
+
+    // Read result from pipe
     bool didReadAByte = false;
     char resultByte;
     for (;;) {
-        ssize_t readResult = read(resultPipe[0], &resultByte, 1);
+        ssize_t readResult = read(completedTest.readPipe, &resultByte, 1);
 
         if (readResult == 1) {
             didReadAByte = true;
             break;
         }
-        
+
         if (!readResult)
             break;
-        
+
         PAS_ASSERT(readResult == -1);
         PAS_ASSERT(errno == EINTR);
     }
-    
-    close(resultPipe[0]);
-    
-    int waitStatus;
-    for (;;) {
-        int pid = wait(&waitStatus);
-        
-        if (pid >= 0) {
-            if (WIFSTOPPED(waitStatus))
-                continue;
-            break;
-        }
-        
-        PAS_ASSERT(errno == EINTR);
-    }
-    
+
+    close(completedTest.readPipe);
+
     if (WIFEXITED(waitStatus)) {
         if (!WEXITSTATUS(waitStatus) && didReadAByte) {
             if (resultByte == successByte) {
                 cout << "    PASS!" << endl;
                 testsPassed++;
-                return;
+            } else {
+                cout << "     FAIL: unexpected result byte: " << static_cast<int>(resultByte) << endl;
             }
-            
-            cout << "     FAIL: unexpected result byte: " << static_cast<int>(resultByte) << endl;
-            return;
+        } else {
+            cout << "    FAIL: unexpected exit with code " << WEXITSTATUS(waitStatus) << endl;
         }
+    } else if (WIFSIGNALED(waitStatus)) {
+        cout << "    FAIL: CRASH with signal " << WTERMSIG(waitStatus) << endl;
+    } else
+        cout << "    FAIL: child process terminated with unknown status code " << waitStatus << endl;
 
-        cout << "    FAIL: unexpected exit with code " << WEXITSTATUS(waitStatus) << endl;
-        return;
-    }
-    
-    if (WIFSIGNALED(waitStatus)) {
-        cout << "    CRASH: with signal " << WTERMSIG(waitStatus) << endl;
-        return;
-    }
-    
-    cout << "    FAIL: child process terminated with unknown status code " << waitStatus << endl;
+    // Remove completed test from running list
+    runningTests.erase(runningTests.begin() + completedIndex);
+
+    return completedTest.testIndex;
 }
 
-void runTests(const vector<Test>& tests)
+void runTests(const vector<Test>& tests, std::optional<int> childProcesses)
 {
     CHECK(tests.size());
-    
-    if (tests.size() == 1)
-        runOneTest(tests[0]);
-    
-    for (const Test& test : tests)
-        runForkedTest(test);
+
+    if (tests.size() == 1) {
+        runOneTestInProcess(tests[0]);
+        return;
+    }
+
+    vector<RunningTest> runningTests;
+    size_t nextTestIndex = 0;
+    unsigned maxConcurrentTests = computeTestConcurrency(childProcesses);
+
+    // Start initial batch of tests (up to maxConcurrentTests)
+    while (nextTestIndex < tests.size() && runningTests.size() < maxConcurrentTests) {
+        RunningTest runningTest = startForkedTest(tests[nextTestIndex], nextTestIndex);
+        runningTests.push_back(runningTest);
+        nextTestIndex++;
+    }
+
+    while (!runningTests.empty()) {
+        // wait(2) will return exactly once per exited child
+        waitForAnyProcess(runningTests);
+        if (nextTestIndex < tests.size()) {
+            RunningTest runningTest = startForkedTest(tests[nextTestIndex], nextTestIndex);
+            runningTests.push_back(runningTest);
+            nextTestIndex++;
+        }
+    }
 
     PAS_ASSERT(testsPassed <= testsRan);
     cout << endl;
@@ -661,7 +805,7 @@ void runTests(const vector<Test>& tests)
         cout << "ALL TESTS PASSED!" << endl;
         exit(0);
     }
-    
+
     cout << endl;
     cout << (testsRan - testsPassed) << "/" << testsRan << " TESTS FAILED!" << endl;
     cout << endl;
@@ -672,21 +816,21 @@ void runTests(const vector<Test>& tests)
     exit(1);
 }
 
-void runFilteredTests(const string& filter)
+static void runFilteredTests(const string& filter, std::optional<int> childProcesses)
 {
     vector<Test> filteredTests;
-    
+
     for (const Test& test : tests) {
         if (test.fullName().find(filter) != string::npos)
             filteredTests.push_back(test);
     }
-    
+
     if (filteredTests.empty()) {
         cerr << "Error: Did not find any tests to run for filter " << filter << endl;
         exit(1);
     }
-    
-    runTests(filteredTests);
+
+    runTests(filteredTests, childProcesses);
 }
 
 #define ADD_SUITE(name) do { \
@@ -698,51 +842,58 @@ void runFilteredTests(const string& filter)
 int main(int argc, char** argv)
 {
     setvbuf(stdout, NULL, _IOLBF, 0);
-    
+
 #if SEGHEAP
     pas_segregated_page_config_do_validate = true;
 #endif
-    
+
+    // This list should be kept in sync with the
+    // LIBPAS_SUITE() list in src/test/xctest/LibpasTests.mm;
+    // missing entries in that list will not be run in xctest-based configs,
+    // e.g. CI.
+
+    // Run the Thingy tests first because they catch the most bugs.
+    ADD_SUITE(ThingyAndUtilityHeapAllocation);
+
+    // Run the rest of the tests in alphabetical order.
+    ADD_SUITE(AllocationZeroing);
     ADD_SUITE(BitfieldVector);
+    ADD_SUITE(Bitfit);
     ADD_SUITE(Bitvector);
+    ADD_SUITE(Bmalloc);
     ADD_SUITE(CartesianTree);
     ADD_SUITE(Coalign);
+    ADD_SUITE(Enumeration);
+    ADD_SUITE(ExpendableMemory);
     ADD_SUITE(ExtendedGCD);
     ADD_SUITE(Hashtable);
+    ADD_SUITE(HeapRefAllocatorIndex);
     ADD_SUITE(IsoDynamicPrimitiveHeap);
     ADD_SUITE(IsoHeapChaos);
     ADD_SUITE(IsoHeapPageSharing);
-    ADD_SUITE(IsoHeapPartialAndBaseline);
     ADD_SUITE(IsoHeapReservedMemory);
-    ADD_SUITE(IsoHeapTabling);
     ADD_SUITE(JITHeap);
     ADD_SUITE(LargeFreeHeap);
     ADD_SUITE(LargeSharingPool);
     ADD_SUITE(LockFreeReadPtrPtrHashtable);
+    ADD_SUITE(LotsOfHeapsAndThreads);
+    ADD_SUITE(MAR);
+    ADD_SUITE(Memalign);
     ADD_SUITE(MinHeap);
+    ADD_SUITE(PGM);
     ADD_SUITE(Race);
     ADD_SUITE(RedBlackTree);
-    ADD_SUITE(SkipList);
+    ADD_SUITE(ReallocFastPath);
+    ADD_SUITE(ScavengerExternalWork);
+    ADD_SUITE(TLCDecommit);
     ADD_SUITE(TSD);
-    ADD_SUITE(ThingyAndUtilityHeapAllocation);
     ADD_SUITE(Utils);
-    
-    string filter;
-    
-    switch (argc) {
-    case 1:
-        break;
-        
-    case 2:
-        filter = argv[1];
-        break;
-        
-    default:
-        PAS_ASSERT(!"Wrong number of arguments");
-    }
-    
-    runFilteredTests(filter);
-    
+    ADD_SUITE(ViewCache);
+
+    ParsedArguments args = parseArguments(argc, argv);
+
+    runFilteredTests(args.filter, args.childProcesses);
+
     CHECK(!"Should not have reached here.");
     return 1;
 }

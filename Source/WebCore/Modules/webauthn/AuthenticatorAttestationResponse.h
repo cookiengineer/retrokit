@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,26 +27,35 @@
 
 #if ENABLE(WEB_AUTHN)
 
-#include "AuthenticatorResponse.h"
+#include <WebCore/AuthenticatorResponse.h>
+#include <WebCore/AuthenticatorTransport.h>
+#include <WebCore/RegistrationResponseJSON.h>
 
 namespace WebCore {
 
 class AuthenticatorAttestationResponse : public AuthenticatorResponse {
 public:
-    static Ref<AuthenticatorAttestationResponse> create(Ref<ArrayBuffer>&& rawId, Ref<ArrayBuffer>&& attestationObject, AuthenticatorAttachment);
-    WEBCORE_EXPORT static Ref<AuthenticatorAttestationResponse> create(const Vector<uint8_t>& rawId, const Vector<uint8_t>& attestationObject, AuthenticatorAttachment);
+    static Ref<AuthenticatorAttestationResponse> create(Ref<ArrayBuffer>&& rawId, Ref<ArrayBuffer>&& attestationObject, AuthenticatorAttachment, Vector<AuthenticatorTransport>&&);
+    WEBCORE_EXPORT static Ref<AuthenticatorAttestationResponse> create(const Vector<uint8_t>& rawId, const Vector<uint8_t>& attestationObject, AuthenticatorAttachment, Vector<AuthenticatorTransport>&&);
+    WEBCORE_EXPORT static Ref<AuthenticatorAttestationResponse> create(const Vector<uint8_t>& rawId, const Vector<uint8_t>& attestationObject, std::optional<AuthenticationExtensionsClientOutputs>&&, AuthenticatorAttachment, Vector<AuthenticatorTransport>&&);
 
     virtual ~AuthenticatorAttestationResponse() = default;
 
-    ArrayBuffer* attestationObject() const { return m_attestationObject.ptr(); }
+    ArrayBuffer& attestationObject() const { return m_attestationObject; }
+    const Vector<AuthenticatorTransport>& getTransports() const LIFETIME_BOUND { return m_transports; }
+    RefPtr<ArrayBuffer> getAuthenticatorData() const;
+    RefPtr<ArrayBuffer> getPublicKey() const;
+    int64_t getPublicKeyAlgorithm() const;
+    RegistrationResponseJSON::AuthenticatorAttestationResponseJSON toJSON();
 
 private:
-    AuthenticatorAttestationResponse(Ref<ArrayBuffer>&&, Ref<ArrayBuffer>&&, AuthenticatorAttachment);
+    AuthenticatorAttestationResponse(Ref<ArrayBuffer>&&, Ref<ArrayBuffer>&&, AuthenticatorAttachment, Vector<AuthenticatorTransport>&&);
 
     Type type() const final { return Type::Attestation; }
     AuthenticatorResponseData data() const final;
 
-    Ref<ArrayBuffer> m_attestationObject;
+    const Ref<ArrayBuffer> m_attestationObject;
+    Vector<AuthenticatorTransport> m_transports;
 };
 
 } // namespace WebCore

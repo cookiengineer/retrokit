@@ -30,63 +30,44 @@
 
 namespace WebKit {
 
-Ref<WebCompiledContentRuleList> WebCompiledContentRuleList::create(WebCompiledContentRuleListData&& data)
+RefPtr<WebCompiledContentRuleList> WebCompiledContentRuleList::create(WebCompiledContentRuleListData&& data)
 {
-    return adoptRef(*new WebCompiledContentRuleList(WTFMove(data)));
+    if (!data.data)
+        return nullptr;
+    return adoptRef(*new WebCompiledContentRuleList(WTF::move(data)));
 }
 
 WebCompiledContentRuleList::WebCompiledContentRuleList(WebCompiledContentRuleListData&& data)
-    : m_data(WTFMove(data))
+    : m_data(WTF::move(data))
 {
 }
 
-WebCompiledContentRuleList::~WebCompiledContentRuleList()
+WebCompiledContentRuleList::~WebCompiledContentRuleList() = default;
+
+std::span<const uint8_t> WebCompiledContentRuleList::urlFiltersBytecode() const
 {
+    return spanWithOffsetAndLength(m_data.urlFiltersBytecodeOffset, m_data.urlFiltersBytecodeSize);
 }
 
-bool WebCompiledContentRuleList::conditionsApplyOnlyToDomain() const
+std::span<const uint8_t> WebCompiledContentRuleList::topURLFiltersBytecode() const
 {
-    return *reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(m_data.data->data()) + m_data.conditionsApplyOnlyToDomainOffset);
+    return spanWithOffsetAndLength(m_data.topURLFiltersBytecodeOffset, m_data.topURLFiltersBytecodeSize);
 }
 
-const WebCore::ContentExtensions::DFABytecode* WebCompiledContentRuleList::filtersWithoutConditionsBytecode() const
+std::span<const uint8_t> WebCompiledContentRuleList::frameURLFiltersBytecode() const
 {
-    return static_cast<const WebCore::ContentExtensions::DFABytecode*>(m_data.data->data()) + m_data.filtersWithoutConditionsBytecodeOffset;
+    return spanWithOffsetAndLength(m_data.frameURLFiltersBytecodeOffset, m_data.frameURLFiltersBytecodeSize);
 }
 
-unsigned WebCompiledContentRuleList::filtersWithoutConditionsBytecodeLength() const
+std::span<const uint8_t> WebCompiledContentRuleList::serializedActions() const
 {
-    return m_data.filtersWithoutConditionsBytecodeSize;
+    return spanWithOffsetAndLength(m_data.actionsOffset, m_data.actionsSize);
 }
 
-const WebCore::ContentExtensions::DFABytecode* WebCompiledContentRuleList::filtersWithConditionsBytecode() const
+std::span<const uint8_t> WebCompiledContentRuleList::spanWithOffsetAndLength(size_t offset, size_t length) const
 {
-    return static_cast<const WebCore::ContentExtensions::DFABytecode*>(m_data.data->data()) + m_data.filtersWithConditionsBytecodeOffset;
-}
-
-unsigned WebCompiledContentRuleList::filtersWithConditionsBytecodeLength() const
-{
-    return m_data.filtersWithConditionsBytecodeSize;
-}
-
-const WebCore::ContentExtensions::DFABytecode* WebCompiledContentRuleList::topURLFiltersBytecode() const
-{
-    return static_cast<const WebCore::ContentExtensions::DFABytecode*>(m_data.data->data()) + m_data.topURLFiltersBytecodeOffset;
-}
-
-unsigned WebCompiledContentRuleList::topURLFiltersBytecodeLength() const
-{
-    return m_data.topURLFiltersBytecodeSize;
-}
-
-const WebCore::ContentExtensions::SerializedActionByte* WebCompiledContentRuleList::actions() const
-{
-    return static_cast<const WebCore::ContentExtensions::SerializedActionByte*>(m_data.data->data()) + m_data.actionsOffset;
-}
-
-unsigned WebCompiledContentRuleList::actionsLength() const
-{
-    return m_data.actionsSize;
+    RELEASE_ASSERT(offset + length <= m_data.data->size());
+    return m_data.data->span().subspan(offset, length);
 }
 
 } // namespace WebKit

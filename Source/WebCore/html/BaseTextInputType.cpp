@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2009 Michelangelo De Simone <micdesim@gmail.com>
  * Copyright (C) 2010 Google Inc. All rights reserved.
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2025 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -25,27 +25,50 @@
 #include "config.h"
 #include "BaseTextInputType.h"
 
+#include "Document.h"
+#include "ElementInlines.h"
 #include "HTMLInputElement.h"
 #include "HTMLNames.h"
+#include <JavaScriptCore/ConsoleTypes.h>
 #include <JavaScriptCore/RegularExpression.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(BaseTextInputType);
+
 using namespace HTMLNames;
 
-bool BaseTextInputType::patternMismatch(const String& value) const
+bool BaseTextInputType::patternMismatch(StringView value) const
 {
     ASSERT(element());
-    // FIXME: We should execute RegExp parser first to check validity instead of creating an actual RegularExpression.
-    // https://bugs.webkit.org/show_bug.cgi?id=183361
-    const AtomString& rawPattern = element()->attributeWithoutSynchronization(patternAttr);
-    if (rawPattern.isNull() || value.isEmpty() || !JSC::Yarr::RegularExpression(rawPattern, JSC::Yarr::TextCaseSensitive, JSC::Yarr::MultilineDisabled, JSC::Yarr::UnicodeAwareMode).isValid())
+    Ref element = *this->element();
+    const AtomString& rawPattern = element->attributeWithoutSynchronization(patternAttr);
+    if (rawPattern.isNull() || value.isEmpty())
         return false;
-    String pattern = "^(?:" + rawPattern + ")$";
-    int matchLength = 0;
-    int valueLength = value.length();
-    int matchOffset = JSC::Yarr::RegularExpression(pattern, JSC::Yarr::TextCaseSensitive, JSC::Yarr::MultilineDisabled, JSC::Yarr::UnicodeAwareMode).match(value, 0, &matchLength);
-    return matchOffset || matchLength != valueLength;
+
+    JSC::Yarr::RegularExpression regex(rawPattern, { JSC::Yarr::Flags::UnicodeSets }, JSC::Yarr::MatchMode::EntireInput);
+    if (!regex.isValid()) {
+        protect(element->document())->addConsoleMessage(MessageSource::Other, MessageLevel::Warning, makeString("Pattern attribute value '"_s, rawPattern, "' is not a valid regular expression."_s));
+        return false;
+    }
+
+    auto valuePatternMismatch = [&regex](auto value) {
+        int matchLength = 0;
+        int valueLength = value.length();
+        int matchOffset = regex.match(value, 0, &matchLength);
+        return matchOffset || matchLength != valueLength;
+    };
+
+    if (isEmailField() && element->multiple()) {
+        for (auto splitValue : value.split(',')) {
+            if (valuePatternMismatch(splitValue))
+                return true;
+        }
+        return false;
+    }
+    return valuePatternMismatch(value);
 }
 
 bool BaseTextInputType::supportsPlaceholder() const
@@ -54,6 +77,11 @@ bool BaseTextInputType::supportsPlaceholder() const
 }
 
 bool BaseTextInputType::supportsSelectionAPI() const
+{
+    return true;
+}
+
+bool BaseTextInputType::dirAutoUsesValue() const
 {
     return true;
 }

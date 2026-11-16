@@ -2,6 +2,7 @@
  * Copyright (C) 2004, 2005, 2006, 2007 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005 Rob Buis <buis@kde.org>
  * Copyright (C) 2005 Eric Seidel <eric@webkit.org>
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -21,15 +22,13 @@
 
 #pragma once
 
-#include "FilterEffect.h"
-
-#include "Filter.h"
+#include <WebCore/FilterEffect.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
-enum CompositeOperationType {
-    FECOMPOSITE_OPERATOR_UNKNOWN    = 0, 
+enum class CompositeOperationType : uint8_t {
+    FECOMPOSITE_OPERATOR_UNKNOWN    = 0,
     FECOMPOSITE_OPERATOR_OVER       = 1,
     FECOMPOSITE_OPERATOR_IN         = 2,
     FECOMPOSITE_OPERATOR_OUT        = 3,
@@ -39,40 +38,45 @@ enum CompositeOperationType {
     FECOMPOSITE_OPERATOR_LIGHTER    = 7
 };
 
-class FEComposite : public FilterEffect {
+class FEComposite final : public FilterEffect {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(FEComposite);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(FEComposite);
 public:
-    static Ref<FEComposite> create(Filter&, const CompositeOperationType&, float, float, float, float);
+    WEBCORE_EXPORT static Ref<FEComposite> create(const CompositeOperationType&, float k1, float k2, float k3, float k4, DestinationColorSpace = DestinationColorSpace::SRGB());
+
+    bool operator==(const FEComposite&) const;
 
     CompositeOperationType operation() const { return m_type; }
-    bool setOperation(CompositeOperationType);
+    bool NODELETE setOperation(CompositeOperationType);
 
     float k1() const { return m_k1; }
-    bool setK1(float);
+    bool NODELETE setK1(float);
 
     float k2() const { return m_k2; }
-    bool setK2(float);
+    bool NODELETE setK2(float);
 
     float k3() const { return m_k3; }
-    bool setK3(float);
+    bool NODELETE setK3(float);
 
     float k4() const { return m_k4; }
-    bool setK4(float);
-
-protected:
-    bool requiresValidPreMultipliedPixels() override { return m_type != FECOMPOSITE_OPERATOR_ARITHMETIC; }
+    bool NODELETE setK4(float);
 
 private:
-    FEComposite(Filter&, const CompositeOperationType&, float, float, float, float);
+    FEComposite(const CompositeOperationType&, float k1, float k2, float k3, float k4, DestinationColorSpace);
 
-    const char* filterName() const final { return "FEComposite"; }
+    bool operator==(const FilterEffect& other) const override { return areEqual<FEComposite>(*this, other); }
 
-    void correctFilterResultIfNeeded() override;
-    void determineAbsolutePaintRect() override;
+    unsigned numberOfEffectInputs() const override { return 2; }
 
-    void platformApplySoftware() override;
-    WTF::TextStream& externalRepresentation(WTF::TextStream&, RepresentationType) const override;
+    FloatRect calculateImageRect(const Filter&, std::span<const FloatRect> inputImageRects, const FloatRect& primitiveSubregion) const override;
 
-    inline void platformArithmeticSoftware(const Uint8ClampedArray& source, Uint8ClampedArray& destination, float k1, float k2, float k3, float k4);
+    bool resultIsValidPremultiplied() const override { return m_type != CompositeOperationType::FECOMPOSITE_OPERATOR_ARITHMETIC; }
+
+    OptionSet<FilterRenderingMode> supportedFilterRenderingModes(OptionSet<FilterRenderingMode>) const override;
+    std::unique_ptr<FilterEffectApplier> createAcceleratedApplier() const override;
+    std::unique_ptr<FilterEffectApplier> createSoftwareApplier() const override;
+
+    WTF::TextStream& externalRepresentation(WTF::TextStream&, FilterRepresentation) const override;
 
 #if HAVE(ARM_NEON_INTRINSICS)
     template <int b1, int b4>
@@ -90,3 +94,4 @@ private:
 
 } // namespace WebCore
 
+SPECIALIZE_TYPE_TRAITS_FILTER_FUNCTION(FEComposite)

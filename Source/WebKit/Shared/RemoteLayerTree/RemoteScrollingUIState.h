@@ -25,8 +25,10 @@
 
 #pragma once
 
+#include <WebCore/ProcessQualified.h>
 #include <wtf/HashSet.h>
 #include <wtf/OptionSet.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace IPC {
 class Decoder;
@@ -34,51 +36,50 @@ class Encoder;
 }
 
 namespace WebCore {
-using ScrollingNodeID = uint64_t;
+struct ScrollingNodeIDType;
+using ScrollingNodeID = ProcessQualified<ObjectIdentifier<ScrollingNodeIDType>>;
 }
 
 namespace WebKit {
 
+enum class RemoteScrollingUIStateChanges : uint8_t {
+    ScrollSnapNodes     = 1 << 0,
+    UserScrollNodes     = 1 << 1,
+    RubberbandingNodes  = 1 << 2,
+};
+
 class RemoteScrollingUIState {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(RemoteScrollingUIState);
 public:
-    enum class Changes : uint8_t {
-        ScrollSnapNodes     = 1 << 0,
-        UserScrollNodes     = 1 << 1,
-    };
+    using Changes = RemoteScrollingUIStateChanges;
 
-    void encode(IPC::Encoder&) const;
-    static std::optional<RemoteScrollingUIState> decode(IPC::Decoder&);
+    RemoteScrollingUIState() = default;
+    RemoteScrollingUIState(OptionSet<RemoteScrollingUIStateChanges>, HashSet<WebCore::ScrollingNodeID>&& nodesWithActiveScrollSnap, HashSet<WebCore::ScrollingNodeID>&& nodesWithActiveUserScrolls, HashSet<WebCore::ScrollingNodeID>&& nodesWithActiveRubberband);
 
-    OptionSet<Changes> changes() const { return m_changes; }
+    OptionSet<RemoteScrollingUIStateChanges> changes() const { return m_changes; }
     void clearChanges() { m_changes = { }; }
     
     void reset();
 
-    const HashSet<WebCore::ScrollingNodeID>& nodesWithActiveScrollSnap() const { return m_nodesWithActiveScrollSnap; }
+    const HashSet<WebCore::ScrollingNodeID>& nodesWithActiveScrollSnap() const LIFETIME_BOUND { return m_nodesWithActiveScrollSnap; }
     void addNodeWithActiveScrollSnap(WebCore::ScrollingNodeID);
     void removeNodeWithActiveScrollSnap(WebCore::ScrollingNodeID);
     
-    const HashSet<WebCore::ScrollingNodeID>& nodesWithActiveUserScrolls() const { return m_nodesWithActiveUserScrolls; }
+    const HashSet<WebCore::ScrollingNodeID>& nodesWithActiveUserScrolls() const LIFETIME_BOUND { return m_nodesWithActiveUserScrolls; }
     void addNodeWithActiveUserScroll(WebCore::ScrollingNodeID);
     void removeNodeWithActiveUserScroll(WebCore::ScrollingNodeID);
+    void clearNodesWithActiveUserScroll();
+
+    const HashSet<WebCore::ScrollingNodeID>& nodesWithActiveRubberband() const LIFETIME_BOUND { return m_nodesWithActiveRubberband; }
+    void addNodeWithActiveRubberband(WebCore::ScrollingNodeID);
+    void removeNodeWithActiveRubberband(WebCore::ScrollingNodeID);
+    void clearNodesWithActiveRubberband();
 
 private:
-    OptionSet<Changes> m_changes;
+    OptionSet<RemoteScrollingUIStateChanges> m_changes;
     HashSet<WebCore::ScrollingNodeID> m_nodesWithActiveScrollSnap;
     HashSet<WebCore::ScrollingNodeID> m_nodesWithActiveUserScrolls;
+    HashSet<WebCore::ScrollingNodeID> m_nodesWithActiveRubberband;
 };
 
 } // namespace WebKit
-
-namespace WTF {
-
-template<> struct EnumTraits<WebKit::RemoteScrollingUIState::Changes> {
-    using values = EnumValues<
-        WebKit::RemoteScrollingUIState::Changes,
-        WebKit::RemoteScrollingUIState::Changes::ScrollSnapNodes,
-        WebKit::RemoteScrollingUIState::Changes::UserScrollNodes
-    >;
-};
-
-} // namespace WTF

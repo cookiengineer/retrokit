@@ -29,11 +29,13 @@
 #if ENABLE(WEBASSEMBLY)
 
 #include "WasmCallee.h"
-#include "WasmCodeBlock.h"
+#include "WasmCalleeGroup.h"
 #include "WasmMachineThreads.h"
 #include <wtf/DataLog.h>
 #include <wtf/Locker.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/StringPrintStream.h>
+#include <wtf/SystemTracing.h>
 
 namespace JSC { namespace Wasm {
 
@@ -41,15 +43,15 @@ namespace WasmPlanInternal {
 static constexpr bool verbose = false;
 }
 
-Plan::Plan(Context* context, Ref<ModuleInformation> info, CompletionTask&& task)
-    : m_moduleInformation(WTFMove(info))
+Plan::Plan(VM& vm, Ref<ModuleInformation> info, CompletionTask&& task)
+    : m_moduleInformation(WTF::move(info))
 {
-    m_completionTasks.append(std::make_pair(context, WTFMove(task)));
+    m_completionTasks.append(std::make_pair(&vm, WTF::move(task)));
 }
-Plan::Plan(Context* context, CompletionTask&& task)
+Plan::Plan(VM& vm, CompletionTask&& task)
     : m_moduleInformation(ModuleInformation::create())
 {
-    m_completionTasks.append(std::make_pair(context, WTFMove(task)));
+    m_completionTasks.append(std::make_pair(&vm, WTF::move(task)));
 }
 
 void Plan::runCompletionTasks()
@@ -62,13 +64,14 @@ void Plan::runCompletionTasks()
     m_completed.notifyAll();
 }
 
-void Plan::addCompletionTask(Context* context, CompletionTask&& task)
+bool Plan::addCompletionTaskIfNecessary(VM& vm, CompletionTask&& task)
 {
     Locker locker { m_lock };
-    if (!isComplete())
-        m_completionTasks.append(std::make_pair(context, WTFMove(task)));
-    else
-        task->run(*this);
+    if (!isComplete()) {
+        m_completionTasks.append(std::make_pair(&vm, WTF::move(task)));
+        return true;
+    }
+    return false;
 }
 
 void Plan::waitForCompletion()
@@ -79,19 +82,19 @@ void Plan::waitForCompletion()
     }
 }
 
-bool Plan::tryRemoveContextAndCancelIfLast(Context& context)
+bool Plan::tryRemoveContextAndCancelIfLast(VM& vm)
 {
     Locker locker { m_lock };
 
     if (ASSERT_ENABLED) {
-        // We allow the first completion task to not have a Context.
+        // We allow the first completion task to not have a VM.
         for (unsigned i = 1; i < m_completionTasks.size(); ++i)
             ASSERT(m_completionTasks[i].first);
     }
 
     bool removedAnyTasks = false;
-    m_completionTasks.removeAllMatching([&] (const std::pair<Context*, CompletionTask>& pair) {
-        bool shouldRemove = pair.first == &context;
+    m_completionTasks.removeAllMatching([&] (const std::pair<VM*, CompletionTask>& pair) {
+        bool shouldRemove = pair.first == &vm;
         removedAnyTasks |= shouldRemove;
         return shouldRemove;
     });
@@ -113,84 +116,53 @@ bool Plan::tryRemoveContextAndCancelIfLast(Context& context)
     return false;
 }
 
-void Plan::fail(String&& errorMessage)
+void Plan::fail(String&& errorMessage, CompilationError error)
 {
     if (failed())
         return;
     ASSERT(errorMessage);
     dataLogLnIf(WasmPlanInternal::verbose, "failing with message: ", errorMessage);
-    m_errorMessage = WTFMove(errorMessage);
+    m_errorMessage = WTF::move(errorMessage);
+    m_error = error;
     complete();
 }
 
-#if ENABLE(WEBASSEMBLY_B3JIT)
-void Plan::updateCallSitesToCallUs(CodeBlock& codeBlock, CodeLocationLabel<WasmEntryPtrTag> entrypoint, uint32_t functionIndex, uint32_t functionIndexSpace)
+Plan::~Plan() = default;
+
+CString Plan::signpostMessage(CompilationMode compilationMode, uint32_t functionIndexSpace) const
 {
-    HashMap<void*, CodeLocationLabel<WasmEntryPtrTag>> stagedCalls;
-    auto stageRepatch = [&] (const Vector<UnlinkedWasmToWasmCall>& callsites) {
-        for (auto& call : callsites) {
-            if (call.functionIndexSpace == functionIndexSpace) {
-                CodeLocationLabel<WasmEntryPtrTag> target = MacroAssembler::prepareForAtomicRepatchNearCallConcurrently(call.callLocation, entrypoint);
-                stagedCalls.add(call.callLocation.dataLocation(), target);
-            }
-        }
-    };
-    for (unsigned i = 0; i < codeBlock.m_wasmToWasmCallsites.size(); ++i) {
-        stageRepatch(codeBlock.m_wasmToWasmCallsites[i]);
-        if (codeBlock.m_llintCallees) {
-            LLIntCallee& llintCallee = codeBlock.m_llintCallees->at(i).get();
-            if (JITCallee* replacementCallee = llintCallee.replacement())
-                stageRepatch(replacementCallee->wasmToWasmCallsites());
-            if (OMGForOSREntryCallee* osrEntryCallee = llintCallee.osrEntryCallee())
-                stageRepatch(osrEntryCallee->wasmToWasmCallsites());
-        }
-        if (BBQCallee* bbqCallee = codeBlock.m_bbqCallees[i].get()) {
-            if (OMGCallee* replacementCallee = bbqCallee->replacement())
-                stageRepatch(replacementCallee->wasmToWasmCallsites());
-            if (OMGForOSREntryCallee* osrEntryCallee = bbqCallee->osrEntryCallee())
-                stageRepatch(osrEntryCallee->wasmToWasmCallsites());
-        }
-    }
-
-    // It's important to make sure we do this before we make any of the code we just compiled visible. If we didn't, we could end up
-    // where we are tiering up some function A to A' and we repatch some function B to call A' instead of A. Another CPU could see
-    // the updates to B but still not have reset its cache of A', which would lead to all kinds of badness.
-    resetInstructionCacheOnAllThreads();
-    WTF::storeStoreFence(); // This probably isn't necessary but it's good to be paranoid.
-
-    codeBlock.m_wasmIndirectCallEntryPoints[functionIndex] = entrypoint;
-
-    auto repatchCalls = [&] (const Vector<UnlinkedWasmToWasmCall>& callsites) {
-        for (auto& call : callsites) {
-            dataLogLnIf(WasmPlanInternal::verbose, "Considering repatching call at: ", RawPointer(call.callLocation.dataLocation()), " that targets ", call.functionIndexSpace);
-            if (call.functionIndexSpace == functionIndexSpace) {
-                dataLogLnIf(WasmPlanInternal::verbose, "Repatching call at: ", RawPointer(call.callLocation.dataLocation()), " to ", RawPointer(entrypoint.executableAddress()));
-                MacroAssembler::repatchNearCall(call.callLocation, stagedCalls.get(call.callLocation.dataLocation()));
-            }
-        }
-    };
-
-    for (unsigned i = 0; i < codeBlock.m_wasmToWasmCallsites.size(); ++i) {
-        repatchCalls(codeBlock.m_wasmToWasmCallsites[i]);
-        if (codeBlock.m_llintCallees) {
-            LLIntCallee& llintCallee = codeBlock.m_llintCallees->at(i).get();
-            if (JITCallee* replacementCallee = llintCallee.replacement())
-                repatchCalls(replacementCallee->wasmToWasmCallsites());
-            if (OMGForOSREntryCallee* osrEntryCallee = llintCallee.osrEntryCallee())
-                repatchCalls(osrEntryCallee->wasmToWasmCallsites());
-        }
-        if (BBQCallee* bbqCallee = codeBlock.m_bbqCallees[i].get()) {
-            if (OMGCallee* replacementCallee = bbqCallee->replacement())
-                repatchCalls(replacementCallee->wasmToWasmCallsites());
-            if (OMGForOSREntryCallee* osrEntryCallee = bbqCallee->osrEntryCallee())
-                repatchCalls(osrEntryCallee->wasmToWasmCallsites());
-        }
-    }
-
+    CString signpostMessage;
+    const FunctionData& function = m_moduleInformation->functions[functionIndexSpace - m_moduleInformation->importFunctionTypeSignatureIndices.size()];
+    StringPrintStream stream;
+    stream.print(compilationMode, " ", makeString(IndexOrName(functionIndexSpace, m_moduleInformation->nameSection().get(functionIndexSpace))), " instructions size = ", function.data.size());
+    return stream.toCString();
 }
-#endif
 
-Plan::~Plan() { }
+void Plan::beginCompilerSignpost(CompilationMode compilationMode, uint32_t functionIndexSpace) const
+{
+    if (Options::useCompilerSignpost()) [[unlikely]] {
+        auto message = signpostMessage(compilationMode, functionIndexSpace);
+        WTFBeginSignpost(this, JSCJITCompiler, "%" PUBLIC_LOG_STRING, message.data() ? message.data() : "(nullptr)");
+    }
+}
+
+void Plan::beginCompilerSignpost(const Callee& callee) const
+{
+    beginCompilerSignpost(callee.compilationMode(), callee.index());
+}
+
+void Plan::endCompilerSignpost(CompilationMode compilationMode, uint32_t functionIndexSpace) const
+{
+    if (Options::useCompilerSignpost()) [[unlikely]] {
+        auto message = signpostMessage(compilationMode, functionIndexSpace);
+        WTFEndSignpost(this, JSCJITCompiler, "%" PUBLIC_LOG_STRING, message.data() ? message.data() : "(nullptr)");
+    }
+}
+
+void Plan::endCompilerSignpost(const Callee& callee) const
+{
+    endCompilerSignpost(callee.compilationMode(), callee.index());
+}
 
 } } // namespace JSC::Wasm
 

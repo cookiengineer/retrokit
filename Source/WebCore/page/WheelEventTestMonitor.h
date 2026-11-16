@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2019 Apple Inc.  All rights reserved.
+ * Copyright (C) 2015-2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,50 +28,55 @@
 
 #pragma once
 
-#include "PlatformWheelEvent.h"
+#include <WebCore/PlatformWheelEvent.h>
+#include <WebCore/ScrollingNodeID.h>
 #include <functional>
 #include <wtf/Function.h>
 #include <wtf/HashMap.h>
 #include <wtf/Lock.h>
 #include <wtf/ThreadSafeRefCounted.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 
 namespace WebCore {
 
 class Page;
 
-class WheelEventTestMonitor : public ThreadSafeRefCounted<WheelEventTestMonitor> {
-    WTF_MAKE_NONCOPYABLE(WheelEventTestMonitor); WTF_MAKE_FAST_ALLOCATED;
+enum class WheelEventTestMonitorDeferReason : uint16_t {
+    None                                = 1 << 0,
+    HandlingWheelEvent                  = 1 << 1,
+    HandlingWheelEventOnMainThread      = 1 << 2,
+    PostMainThreadWheelEventHandling    = 1 << 3,
+    RubberbandInProgress                = 1 << 4,
+    ScrollSnapInProgress                = 1 << 5,
+    ScrollAnimationInProgress           = 1 << 6,
+    ScrollingThreadSyncNeeded           = 1 << 7,
+    ContentScrollInProgress             = 1 << 8,
+    RequestedScrollPosition             = 1 << 9,
+    CommittingTransientZoom             = 1 << 10,
+};
+
+class WheelEventTestMonitor : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<WheelEventTestMonitor> {
 public:
     WheelEventTestMonitor(Page&);
 
-    WEBCORE_EXPORT void setTestCallbackAndStartMonitoring(bool expectWheelEndOrCancel, bool expectMomentumEnd, WTF::Function<void()>&&);
+    WEBCORE_EXPORT void setTestCallbackAndStartMonitoring(bool expectWheelEndOrCancel, bool expectMomentumEnd, Function<void()>&&);
     WEBCORE_EXPORT void clearAllTestDeferrals();
     
-    enum DeferReason {
-        HandlingWheelEvent                  = 1 << 0,
-        HandlingWheelEventOnMainThread      = 1 << 1,
-        PostMainThreadWheelEventHandling    = 1 << 2,
-        RubberbandInProgress                = 1 << 3,
-        ScrollSnapInProgress                = 1 << 4,
-        ScrollingThreadSyncNeeded           = 1 << 5,
-        ContentScrollInProgress             = 1 << 6,
-        RequestedScrollPosition             = 1 << 7,
-    };
-    typedef const void* ScrollableAreaIdentifier;
+    using DeferReason = WheelEventTestMonitorDeferReason;
 
-    WEBCORE_EXPORT void receivedWheelEvent(const PlatformWheelEvent&);
-    WEBCORE_EXPORT void deferForReason(ScrollableAreaIdentifier, DeferReason);
-    WEBCORE_EXPORT void removeDeferralForReason(ScrollableAreaIdentifier, DeferReason);
+    WEBCORE_EXPORT void receivedWheelEventWithPhases(PlatformWheelEventPhase phase, PlatformWheelEventPhase momentumPhase);
+    WEBCORE_EXPORT void deferForReason(ScrollingNodeID, OptionSet<DeferReason>);
+    WEBCORE_EXPORT void removeDeferralForReason(ScrollingNodeID, OptionSet<DeferReason>);
     
     void checkShouldFireCallbacks();
 
-    using ScrollableAreaReasonMap = WTF::HashMap<ScrollableAreaIdentifier, OptionSet<DeferReason>>;
+    using ScrollableAreaReasonMap = HashMap<ScrollingNodeID, OptionSet<DeferReason>>;
 
 private:
     void scheduleCallbackCheck();
 
-    WTF::Function<void()> m_completionCallback;
-    Page& m_page;
+    Function<void()> m_completionCallback;
+    WeakRef<Page> m_page;
 
     Lock m_lock;
     ScrollableAreaReasonMap m_deferCompletionReasons WTF_GUARDED_BY_LOCK(m_lock);
@@ -83,8 +88,10 @@ private:
 };
 
 class WheelEventTestMonitorCompletionDeferrer {
+    WTF_MAKE_NONCOPYABLE(WheelEventTestMonitorCompletionDeferrer);
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(WheelEventTestMonitorCompletionDeferrer);
 public:
-    WheelEventTestMonitorCompletionDeferrer(WheelEventTestMonitor* monitor, WheelEventTestMonitor::ScrollableAreaIdentifier identifier, WheelEventTestMonitor::DeferReason reason)
+    WheelEventTestMonitorCompletionDeferrer(WheelEventTestMonitor* monitor, ScrollingNodeID identifier, WheelEventTestMonitor::DeferReason reason)
         : m_monitor(monitor)
         , m_identifier(identifier)
         , m_reason(reason)
@@ -94,7 +101,7 @@ public:
     }
     
     WheelEventTestMonitorCompletionDeferrer(WheelEventTestMonitorCompletionDeferrer&& other)
-        : m_monitor(WTFMove(other.m_monitor))
+        : m_monitor(WTF::move(other.m_monitor))
         , m_identifier(other.m_identifier)
         , m_reason(other.m_reason)
     {
@@ -108,11 +115,11 @@ public:
 
 private:
     RefPtr<WheelEventTestMonitor> m_monitor;
-    WheelEventTestMonitor::ScrollableAreaIdentifier m_identifier;
+    ScrollingNodeID m_identifier;
     WheelEventTestMonitor::DeferReason m_reason;
 };
 
-WTF::TextStream& operator<<(WTF::TextStream&, WheelEventTestMonitor::DeferReason);
+WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, WheelEventTestMonitor::DeferReason);
 WTF::TextStream& operator<<(WTF::TextStream&, const WheelEventTestMonitor::ScrollableAreaReasonMap&);
 
 } // namespace WebCore

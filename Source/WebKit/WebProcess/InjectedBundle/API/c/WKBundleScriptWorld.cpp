@@ -37,18 +37,18 @@ WKTypeID WKBundleScriptWorldGetTypeID()
 
 WKBundleScriptWorldRef WKBundleScriptWorldCreateWorld()
 {
-    RefPtr<WebKit::InjectedBundleScriptWorld> world = WebKit::InjectedBundleScriptWorld::create();
-    return toAPI(world.leakRef());
+    RefPtr<WebKit::InjectedBundleScriptWorld> world = WebKit::InjectedBundleScriptWorld::create(WebKit::ContentWorldIdentifier::generate());
+    return toAPILeakingRef(WTF::move(world));
 }
 
 WKBundleScriptWorldRef WKBundleScriptWorldNormalWorld()
 {
-    return toAPI(&WebKit::InjectedBundleScriptWorld::normalWorld());
+    return toAPI(&WebKit::InjectedBundleScriptWorld::normalWorldSingleton());
 }
 
 void WKBundleScriptWorldClearWrappers(WKBundleScriptWorldRef scriptWorldRef)
 {
-    WebKit::toImpl(scriptWorldRef)->clearWrappers();
+    protect(WebKit::toImpl(scriptWorldRef))->clearWrappers();
 }
 
 void WKBundleScriptWorldMakeAllShadowRootsOpen(WKBundleScriptWorldRef scriptWorldRef)
@@ -56,12 +56,27 @@ void WKBundleScriptWorldMakeAllShadowRootsOpen(WKBundleScriptWorldRef scriptWorl
     WebKit::toImpl(scriptWorldRef)->makeAllShadowRootsOpen();
 }
 
+void WKBundleScriptWorldExposeClosedShadowRootsForExtensions(WKBundleScriptWorldRef scriptWorldRef)
+{
+    WebKit::toImpl(scriptWorldRef)->exposeClosedShadowRootsForExtensions();
+}
+
 void WKBundleScriptWorldDisableOverrideBuiltinsBehavior(WKBundleScriptWorldRef scriptWorldRef)
 {
     WebKit::toImpl(scriptWorldRef)->disableOverrideBuiltinsBehavior();
 }
 
+void WKBundleScriptWorldSetAllowElementUserInfo(WKBundleScriptWorldRef scriptWorldRef)
+{
+    WebKit::toImpl(scriptWorldRef)->setAllowElementUserInfo();
+}
+
 WKStringRef WKBundleScriptWorldCopyName(WKBundleScriptWorldRef scriptWorldRef)
 {
     return WebKit::toCopiedAPI(WebKit::toImpl(scriptWorldRef)->name());
+}
+
+void WKBundleScriptWorldSetAllowJSHandleCreation(WKBundleScriptWorldRef scriptWorldRef)
+{
+    WebKit::toImpl(scriptWorldRef)->setAllowJSHandleCreation();
 }

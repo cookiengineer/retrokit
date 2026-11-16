@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "ProfilerBytecode.h"
+#include <JavaScriptCore/ProfilerBytecode.h>
 #include <wtf/Vector.h>
 #include <wtf/text/CString.h>
 #include <wtf/text/WTFString.h>
@@ -35,6 +35,8 @@ namespace JSC {
 class CodeBlock;
 
 namespace Profiler {
+
+class Dumper;
 
 class BytecodeSequence {
 public:
@@ -49,7 +51,7 @@ public:
     const Bytecode& forBytecodeIndex(unsigned bytecodeIndex) const;
 
 protected:
-    void addSequenceProperties(JSGlobalObject*, JSObject*) const;
+    void addSequenceProperties(Dumper&, JSON::Object&) const;
     
 private:
     Vector<CString> m_header;

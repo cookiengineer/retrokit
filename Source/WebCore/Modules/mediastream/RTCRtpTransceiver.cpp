@@ -34,111 +34,102 @@
 
 #if ENABLE(WEB_RTC)
 
+#include "ContextDestructionObserverInlines.h"
+#include "ExceptionOr.h"
+#include "Logging.h"
 #include "RTCPeerConnection.h"
-#include <wtf/IsoMallocInlines.h>
+#include "ScriptWrappableInlines.h"
 #include <wtf/NeverDestroyed.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(RTCRtpTransceiver);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RTCRtpTransceiver);
 
-RTCRtpTransceiver::RTCRtpTransceiver(Ref<RTCRtpSender>&& sender, Ref<RTCRtpReceiver>&& receiver, std::unique_ptr<RTCRtpTransceiverBackend>&& backend)
-    : m_direction(RTCRtpTransceiverDirection::Sendrecv)
-    , m_sender(WTFMove(sender))
-    , m_receiver(WTFMove(receiver))
-    , m_backend(WTFMove(backend))
+RTCRtpTransceiver::RTCRtpTransceiver(Ref<RTCRtpSender>&& sender, Ref<RTCRtpReceiver>&& receiver, UniqueRef<RTCRtpTransceiverBackend>&& backend)
+    : m_sender(WTF::move(sender))
+    , m_receiver(WTF::move(receiver))
+    , m_backend(WTF::move(backend))
 {
 }
+
+RTCRtpTransceiver::~RTCRtpTransceiver() = default;
 
 String RTCRtpTransceiver::mid() const
 {
-    return m_backend ? m_backend->mid() : String { };
-}
-
-bool RTCRtpTransceiver::hasSendingDirection() const
-{
-    return m_direction == RTCRtpTransceiverDirection::Sendrecv || m_direction == RTCRtpTransceiverDirection::Sendonly;
+    return m_backend->mid();
 }
 
 RTCRtpTransceiverDirection RTCRtpTransceiver::direction() const
 {
-    if (!m_backend)
-        return m_direction;
     return m_backend->direction();
 }
 
 std::optional<RTCRtpTransceiverDirection> RTCRtpTransceiver::currentDirection() const
 {
-    if (!m_backend)
-        return std::nullopt;
     return m_backend->currentDirection();
 }
 
-void RTCRtpTransceiver::setDirection(RTCRtpTransceiverDirection direction)
+ExceptionOr<void> RTCRtpTransceiver::setDirection(RTCRtpTransceiverDirection direction)
 {
-    m_direction = direction;
-    if (m_backend)
-        m_backend->setDirection(direction);
-}
+    if (m_isStopping)
+        return Exception { ExceptionCode::InvalidStateError, "RTCRtpTransceiver has been stopped"_s };
 
+    if (direction == RTCRtpTransceiverDirection::Stopped && this->direction() != RTCRtpTransceiverDirection::Stopped)
+        return Exception { ExceptionCode::TypeError, "RTCRtpTransceiver direction is stopped"_s };
 
-void RTCRtpTransceiver::enableSendingDirection()
-{
-    if (m_direction == RTCRtpTransceiverDirection::Recvonly)
-        m_direction = RTCRtpTransceiverDirection::Sendrecv;
-    else if (m_direction == RTCRtpTransceiverDirection::Inactive)
-        m_direction = RTCRtpTransceiverDirection::Sendonly;
-}
-
-void RTCRtpTransceiver::disableSendingDirection()
-{
-    if (m_direction == RTCRtpTransceiverDirection::Sendrecv)
-        m_direction = RTCRtpTransceiverDirection::Recvonly;
-    else if (m_direction == RTCRtpTransceiverDirection::Sendonly)
-        m_direction = RTCRtpTransceiverDirection::Inactive;
+    m_backend->setDirection(direction);
+    return { };
 }
 
 void RTCRtpTransceiver::setConnection(RTCPeerConnection& connection)
 {
     ASSERT(!m_connection);
-    m_connection = makeWeakPtr(connection);
+    m_connection = connection;
 }
 
 ExceptionOr<void> RTCRtpTransceiver::stop()
 {
     if (!m_connection || m_connection->isClosed())
-        return Exception { InvalidStateError, "RTCPeerConnection is closed"_s };
+        return Exception { ExceptionCode::InvalidStateError, "RTCPeerConnection is closed"_s };
 
-    if (m_stopped)
+    if (m_isStopping)
         return { };
 
-    m_stopped = true;
+    m_isStopping = true;
     m_receiver->stop();
     m_sender->stop();
-    if (m_backend)
-        m_backend->stop();
+    m_backend->stop();
 
-    m_connection->scheduleNegotiationNeededEvent();
+    // No need to call negotiation needed, it will be done by the backend itself.
     return { };
 }
 
-ExceptionOr<void> RTCRtpTransceiver::setCodecPreferences(const Vector<RTCRtpCodecCapability>& codecs)
+ExceptionOr<void> RTCRtpTransceiver::setCodecPreferences(const Vector<RTCRtpCodec>& codecs)
 {
-    if (!m_backend)
+    RefPtr connection = m_connection;
+    if (!connection || connection->isClosed())
         return { };
+
+    RELEASE_LOG_INFO(WebRTC, "RTCRtpTransceiver::setCodecPreferences");
     return m_backend->setCodecPreferences(codecs);
 }
 
 bool RTCRtpTransceiver::stopped() const
 {
-    if (m_backend)
-        return m_backend->stopped();
-    return m_stopped;
+    return m_backend->stopped();
 }
 
 void RtpTransceiverSet::append(Ref<RTCRtpTransceiver>&& transceiver)
 {
-    m_transceivers.append(WTFMove(transceiver));
+    m_transceivers.append(WTF::move(transceiver));
+}
+
+void RtpTransceiverSet::remove(const RTCRtpTransceiver& transceiver)
+{
+    m_transceivers.removeFirstMatching([&](auto& existing) {
+        return existing.ptr() == &transceiver;
+    });
 }
 
 Vector<std::reference_wrapper<RTCRtpSender>> RtpTransceiverSet::senders() const

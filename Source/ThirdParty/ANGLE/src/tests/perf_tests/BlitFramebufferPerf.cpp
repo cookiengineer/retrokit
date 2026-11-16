@@ -10,6 +10,7 @@
 
 #include "ANGLEPerfTest.h"
 
+#include "test_utils/ANGLETest.h"
 #include "util/gles_loader_autogen.h"
 
 namespace
@@ -166,12 +167,12 @@ void BlitFramebufferPerf::initializeBenchmark()
     glBindRenderbuffer(GL_RENDERBUFFER, mReadRenderbuffer);
     glRenderbufferStorageMultisample(GL_RENDERBUFFER, param.samples, format, size, size);
     glFramebufferRenderbuffer(GL_READ_FRAMEBUFFER, attachment, GL_RENDERBUFFER, mReadRenderbuffer);
-    ASSERT_GLENUM_EQ(GL_FRAMEBUFFER_COMPLETE, glCheckFramebufferStatus(GL_READ_FRAMEBUFFER));
+    ASSERT_GL_FRAMEBUFFER_COMPLETE(GL_READ_FRAMEBUFFER);
 
     glBindRenderbuffer(GL_RENDERBUFFER, mDrawRenderbuffer);
     glRenderbufferStorageMultisample(GL_RENDERBUFFER, 0, format, size, size);
     glFramebufferRenderbuffer(GL_DRAW_FRAMEBUFFER, attachment, GL_RENDERBUFFER, mDrawRenderbuffer);
-    ASSERT_GLENUM_EQ(GL_FRAMEBUFFER_COMPLETE, glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER));
+    ASSERT_GL_FRAMEBUFFER_COMPLETE(GL_DRAW_FRAMEBUFFER);
 
     ASSERT_GL_NO_ERROR();
 }
@@ -230,6 +231,14 @@ TEST_P(BlitFramebufferPerf, Run)
     run();
 }
 
+BlitFramebufferParams Vulkan(BufferType type, unsigned int samples)
+{
+    BlitFramebufferParams params;
+    params.eglParameters = angle::egl_platform::VULKAN();
+    params.type          = type;
+    params.samples       = samples;
+    return params;
+}
 BlitFramebufferParams D3D11(BufferType type, unsigned int samples)
 {
     BlitFramebufferParams params;
@@ -249,4 +258,15 @@ ANGLE_INSTANTIATE_TEST(BlitFramebufferPerf,
                        D3D11(BufferType::COLOR, 2),
                        D3D11(BufferType::DEPTH, 2),
                        D3D11(BufferType::STENCIL, 2),
-                       D3D11(BufferType::DEPTH_STENCIL, 2));
+                       D3D11(BufferType::DEPTH_STENCIL, 2),
+                       Vulkan(BufferType::COLOR, 0),
+                       Vulkan(BufferType::DEPTH, 0),
+                       Vulkan(BufferType::STENCIL, 0),
+                       Vulkan(BufferType::DEPTH_STENCIL, 0),
+                       Vulkan(BufferType::COLOR, 2),
+                       Vulkan(BufferType::DEPTH, 2),
+                       Vulkan(BufferType::STENCIL, 2),
+                       Vulkan(BufferType::DEPTH_STENCIL, 2));
+
+// This test suite is not instantiated on some OSes.
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(BlitFramebufferPerf);

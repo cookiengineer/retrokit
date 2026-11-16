@@ -28,6 +28,7 @@
 
 #include "CodeBlock.h"
 #include "JSCInlines.h"
+#include "ProfilerDumper.h"
 #include <wtf/StringPrintStream.h>
 
 namespace JSC { namespace Profiler {
@@ -35,15 +36,18 @@ namespace JSC { namespace Profiler {
 BytecodeSequence::BytecodeSequence(CodeBlock* codeBlock)
 {
     StringPrintStream out;
-    
-    for (unsigned i = 0; i < codeBlock->numberOfArgumentValueProfiles(); ++i) {
-        ConcurrentJSLocker locker(codeBlock->m_lock);
-        CString description = codeBlock->valueProfileForArgument(i).briefDescription(locker);
-        if (!description.length())
-            continue;
-        out.reset();
-        out.print("arg", i, ": ", description);
-        m_header.append(out.toCString());
+
+    {
+        unsigned index = 0;
+        ConcurrentJSLocker locker(codeBlock->valueProfileLock());
+        for (auto& profile : codeBlock->argumentValueProfiles()) {
+            CString description = profile.briefDescription(locker);
+            if (!description.length())
+                continue;
+            out.reset();
+            out.print("arg", index++, ": ", description);
+            m_header.append(out.toCString());
+        }
     }
     
     ICStatusMap statusMap;
@@ -59,9 +63,7 @@ BytecodeSequence::BytecodeSequence(CodeBlock* codeBlock)
     }
 }
 
-BytecodeSequence::~BytecodeSequence()
-{
-}
+BytecodeSequence::~BytecodeSequence() = default;
 
 unsigned BytecodeSequence::indexForBytecodeIndex(unsigned bytecodeIndex) const
 {
@@ -73,25 +75,17 @@ const Bytecode& BytecodeSequence::forBytecodeIndex(unsigned bytecodeIndex) const
     return at(indexForBytecodeIndex(bytecodeIndex));
 }
 
-void BytecodeSequence::addSequenceProperties(JSGlobalObject* globalObject, JSObject* result) const
+void BytecodeSequence::addSequenceProperties(Dumper& dumper, JSON::Object& result) const
 {
-    VM& vm = globalObject->vm();
-    auto scope = DECLARE_THROW_SCOPE(vm);
-    JSArray* header = constructEmptyArray(globalObject, nullptr);
-    RETURN_IF_EXCEPTION(scope, void());
-    for (unsigned i = 0; i < m_header.size(); ++i) {
-        header->putDirectIndex(globalObject, i, jsString(vm, String::fromUTF8(m_header[i])));
-        RETURN_IF_EXCEPTION(scope, void());
-    }
-    result->putDirect(vm, vm.propertyNames->header, header);
-    
-    JSArray* sequence = constructEmptyArray(globalObject, nullptr);
-    RETURN_IF_EXCEPTION(scope, void());
-    for (unsigned i = 0; i < m_sequence.size(); ++i) {
-        sequence->putDirectIndex(globalObject, i, m_sequence[i].toJS(globalObject));
-        RETURN_IF_EXCEPTION(scope, void());
-    }
-    result->putDirect(vm, vm.propertyNames->bytecode, sequence);
+    Ref jsonHeader = JSON::Array::create();
+    for (auto& header : m_header)
+        jsonHeader->pushString(String::fromUTF8(header.span()));
+    result.setValue(dumper.keys().m_header, WTF::move(jsonHeader));
+
+    Ref jsonSequence = JSON::Array::create();
+    for (auto& sequence : m_sequence)
+        jsonSequence->pushValue(sequence.toJSON(dumper));
+    result.setValue(dumper.keys().m_bytecode, WTF::move(jsonSequence));
 }
 
 } } // namespace JSC::Profiler

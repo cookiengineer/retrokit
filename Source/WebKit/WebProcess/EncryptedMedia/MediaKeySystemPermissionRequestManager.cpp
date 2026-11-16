@@ -29,18 +29,23 @@
 #if ENABLE(ENCRYPTED_MEDIA)
 
 #include "Logging.h"
-#include "WebCoreArgumentCoders.h"
+#include "MessageSenderInlines.h"
 #include "WebFrame.h"
 #include "WebPage.h"
 #include "WebPageProxyMessages.h"
-#include <WebCore/Document.h>
-#include <WebCore/Frame.h>
+#include <WebCore/DocumentInlines.h>
+#include <WebCore/DocumentPage.h>
+#include <WebCore/FrameDestructionObserverInlines.h>
 #include <WebCore/FrameLoader.h>
+#include <WebCore/LocalFrame.h>
 #include <WebCore/SecurityOrigin.h>
 #include <WebCore/SecurityOriginData.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 using namespace WebCore;
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MediaKeySystemPermissionRequestManager);
 
 MediaKeySystemPermissionRequestManager::MediaKeySystemPermissionRequestManager(WebPage& page)
     : m_page(page)
@@ -49,85 +54,51 @@ MediaKeySystemPermissionRequestManager::MediaKeySystemPermissionRequestManager(W
 
 void MediaKeySystemPermissionRequestManager::startMediaKeySystemRequest(MediaKeySystemRequest& request)
 {
-    Document* document = request.document();
-    Frame* frame = document ? document->frame() : nullptr;
+    RefPtr document = request.document();
+    RefPtr frame = document ? document->frame() : nullptr;
 
     if (!frame || !document->page()) {
         request.deny(emptyString());
         return;
     }
 
-    if (document->page()->canStartMedia()) {
-        sendMediaKeySystemRequest(request);
-        return;
-    }
-
-    auto& pendingRequests = m_pendingMediaKeySystemRequests.add(document, Vector<Ref<MediaKeySystemRequest>>()).iterator->value;
-    if (pendingRequests.isEmpty())
-        document->addMediaCanStartListener(*this);
-    pendingRequests.append(request);
+    sendMediaKeySystemRequest(request);
 }
 
 void MediaKeySystemPermissionRequestManager::sendMediaKeySystemRequest(MediaKeySystemRequest& userRequest)
 {
-    auto* frame = userRequest.document() ? userRequest.document()->frame() : nullptr;
+    RefPtr document = userRequest.document();
+    if (!document) {
+        userRequest.deny(emptyString());
+        return;
+    }
+
+    RefPtr frame = document->frame();
     if (!frame) {
         userRequest.deny(emptyString());
         return;
     }
 
-    m_ongoingMediaKeySystemRequests.add(userRequest.identifier(), makeRef(userRequest));
+    m_ongoingMediaKeySystemRequests.add(userRequest.identifier(), userRequest);
 
-    WebFrame* webFrame = WebFrame::fromCoreFrame(*frame);
+    RefPtr webFrame = WebFrame::fromCoreFrame(*frame);
     ASSERT(webFrame);
 
-    auto* topLevelDocumentOrigin = userRequest.topLevelDocumentOrigin();
-    m_page.send(Messages::WebPageProxy::RequestMediaKeySystemPermissionForFrame(userRequest.identifier(), webFrame->frameID(), topLevelDocumentOrigin->data(), userRequest.keySystem()));
+    Ref { m_page.get() }->send(Messages::WebPageProxy::RequestMediaKeySystemPermissionForFrame(userRequest.identifier(), webFrame->frameID(), document->clientOrigin(), userRequest.keySystem()));
 }
 
 void MediaKeySystemPermissionRequestManager::cancelMediaKeySystemRequest(MediaKeySystemRequest& request)
 {
-    if (auto removedRequest = m_ongoingMediaKeySystemRequests.take(request.identifier()))
-        return;
-
-    auto* document = request.document();
-    if (!document)
-        return;
-
-    auto iterator = m_pendingMediaKeySystemRequests.find(document);
-    if (iterator == m_pendingMediaKeySystemRequests.end())
-        return;
-
-    auto& pendingRequests = iterator->value;
-    pendingRequests.removeFirstMatching([&request](auto& item) {
-        return &request == item.ptr();
-    });
-
-    if (!pendingRequests.isEmpty())
-        return;
-
-    document->removeMediaCanStartListener(*this);
-    m_pendingMediaKeySystemRequests.remove(iterator);
+    m_ongoingMediaKeySystemRequests.take(request.identifier());
 }
 
-void MediaKeySystemPermissionRequestManager::mediaCanStart(Document& document)
-{
-    ASSERT(document.page()->canStartMedia());
-
-    auto pendingRequests = m_pendingMediaKeySystemRequests.take(&document);
-    for (auto& pendingRequest : pendingRequests)
-        sendMediaKeySystemRequest(pendingRequest);
-}
-
-void MediaKeySystemPermissionRequestManager::mediaKeySystemWasGranted(MediaKeySystemRequestIdentifier requestID, CompletionHandler<void()>&& completionHandler)
+void MediaKeySystemPermissionRequestManager::mediaKeySystemWasGranted(MediaKeySystemRequestIdentifier requestID, String&& mediaKeysHashSalt)
 {
     auto request = m_ongoingMediaKeySystemRequests.take(requestID);
-    if (!request) {
-        completionHandler();
+    if (!request)
         return;
-    }
 
-    request->allow(WTFMove(completionHandler));
+    request->allow(WTF::move(mediaKeysHashSalt));
 }
 
 void MediaKeySystemPermissionRequestManager::mediaKeySystemWasDenied(MediaKeySystemRequestIdentifier requestID, String&& message)
@@ -136,7 +107,17 @@ void MediaKeySystemPermissionRequestManager::mediaKeySystemWasDenied(MediaKeySys
     if (!request)
         return;
 
-    request->deny(WTFMove(message));
+    request->deny(WTF::move(message));
+}
+
+void MediaKeySystemPermissionRequestManager::ref() const
+{
+    m_page->ref();
+}
+
+void MediaKeySystemPermissionRequestManager::deref() const
+{
+    m_page->deref();
 }
 
 } // namespace WebKit

@@ -14,7 +14,7 @@ using namespace angle;
 namespace
 {
 
-class TextureRectangleTest : public ANGLETest
+class TextureRectangleTest : public ANGLETest<>
 {
   protected:
     TextureRectangleTest()
@@ -50,6 +50,9 @@ TEST_P(TextureRectangleTest, TexImage2D)
 {
     ANGLE_SKIP_TEST_IF(!checkExtensionSupported());
 
+    // http://anglebug.com/42264188
+    ANGLE_SKIP_TEST_IF(IsLinux() && IsNVIDIA() && IsOpenGL());
+
     GLTexture tex;
     glBindTexture(GL_TEXTURE_RECTANGLE_ANGLE, tex);
 
@@ -73,7 +76,8 @@ TEST_P(TextureRectangleTest, TexImage2D)
         glTexImage2D(GL_TEXTURE_RECTANGLE_ANGLE, 0, GL_RGBA, maxSize, maxSize, 0, GL_RGBA,
                      GL_UNSIGNED_BYTE, nullptr);
         GLenum error = glGetError();
-        ASSERT_TRUE(error == GL_NO_ERROR || error == GL_OUT_OF_MEMORY);
+        ASSERT_TRUE(error == GL_NO_ERROR || error == GL_OUT_OF_MEMORY ||
+                    error == GL_INVALID_OPERATION);
     }
 
     // Defining a texture of the max size is allowed
@@ -119,6 +123,9 @@ TEST_P(TextureRectangleTest, TexStorage2D)
     ANGLE_SKIP_TEST_IF(getClientMajorVersion() < 3 &&
                        !IsGLExtensionEnabled("GL_EXT_texture_storage"));
 
+    // http://anglebug.com/42264188
+    ANGLE_SKIP_TEST_IF(IsLinux() && IsNVIDIA() && IsOpenGL());
+
     bool useES3       = getClientMajorVersion() >= 3;
     auto TexStorage2D = [useES3](GLenum target, GLint levels, GLenum format, GLint width,
                                  GLint height) {
@@ -136,7 +143,7 @@ TEST_P(TextureRectangleTest, TexStorage2D)
     {
         GLTexture tex;
         glBindTexture(GL_TEXTURE_RECTANGLE_ANGLE, tex);
-        TexStorage2D(GL_TEXTURE_RECTANGLE_ANGLE, 1, GL_RGBA8UI, 16, 16);
+        TexStorage2D(GL_TEXTURE_RECTANGLE_ANGLE, 1, GL_RGBA8, 16, 16);
         ASSERT_GL_NO_ERROR();
     }
 
@@ -146,8 +153,8 @@ TEST_P(TextureRectangleTest, TexStorage2D)
         glBindTexture(GL_TEXTURE_RECTANGLE_ANGLE, tex);
         // Use 5 levels because the EXT_texture_storage extension requires a mip chain all the way
         // to a 1x1 mip.
-        TexStorage2D(GL_TEXTURE_RECTANGLE_ANGLE, 5, GL_RGBA8UI, 16, 16);
-        ASSERT_GL_ERROR(GL_INVALID_VALUE);
+        TexStorage2D(GL_TEXTURE_RECTANGLE_ANGLE, 5, GL_RGBA8, 16, 16);
+        ASSERT_GL_ERROR(GL_INVALID_OPERATION);
     }
 
     GLint maxSize = 0;
@@ -159,18 +166,19 @@ TEST_P(TextureRectangleTest, TexStorage2D)
 
         GLTexture tex;
         glBindTexture(GL_TEXTURE_RECTANGLE_ANGLE, tex);
-        TexStorage2D(GL_TEXTURE_RECTANGLE_ANGLE, 1, GL_RGBA8UI, maxSize, maxSize);
+        TexStorage2D(GL_TEXTURE_RECTANGLE_ANGLE, 1, GL_RGBA8, maxSize, maxSize);
         GLenum error = glGetError();
-        ASSERT_TRUE(error == GL_NO_ERROR || error == GL_OUT_OF_MEMORY);
+        ASSERT_TRUE(error == GL_NO_ERROR || error == GL_OUT_OF_MEMORY ||
+                    error == GL_INVALID_OPERATION);
     }
 
     // Defining a texture of the max size is disallowed
     {
         GLTexture tex;
         glBindTexture(GL_TEXTURE_RECTANGLE_ANGLE, tex);
-        TexStorage2D(GL_TEXTURE_RECTANGLE_ANGLE, 1, GL_RGBA8UI, maxSize + 1, maxSize);
+        TexStorage2D(GL_TEXTURE_RECTANGLE_ANGLE, 1, GL_RGBA8, maxSize + 1, maxSize);
         ASSERT_GL_ERROR(GL_INVALID_VALUE);
-        TexStorage2D(GL_TEXTURE_RECTANGLE_ANGLE, 1, GL_RGBA8UI, maxSize, maxSize + 1);
+        TexStorage2D(GL_TEXTURE_RECTANGLE_ANGLE, 1, GL_RGBA8, maxSize, maxSize + 1);
         ASSERT_GL_ERROR(GL_INVALID_VALUE);
     }
 
@@ -180,7 +188,7 @@ TEST_P(TextureRectangleTest, TexStorage2D)
         GLTexture tex;
         glBindTexture(GL_TEXTURE_RECTANGLE_ANGLE, tex);
         TexStorage2D(GL_TEXTURE_RECTANGLE_ANGLE, 1, GL_COMPRESSED_RGBA_S3TC_DXT1_EXT, 16, 16);
-        ASSERT_GL_ERROR(GL_INVALID_ENUM);
+        ASSERT_GL_ERROR(GL_INVALID_OPERATION);
     }
 }
 
@@ -271,7 +279,7 @@ TEST_P(TextureRectangleTest, FramebufferTexture2DLevel)
     // Using level 0 of a rectangle texture is valid.
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_RECTANGLE_ANGLE, tex,
                            0);
-    EXPECT_GLENUM_EQ(GL_FRAMEBUFFER_COMPLETE, glCheckFramebufferStatus(GL_FRAMEBUFFER));
+    EXPECT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
     ASSERT_GL_NO_ERROR();
 
     // Setting level != 0 is invalid
@@ -362,7 +370,7 @@ TEST_P(TextureRectangleTest, RenderToRectangle)
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_RECTANGLE_ANGLE, tex,
                            0);
-    EXPECT_GLENUM_EQ(GL_FRAMEBUFFER_COMPLETE, glCheckFramebufferStatus(GL_FRAMEBUFFER));
+    EXPECT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
     ASSERT_GL_NO_ERROR();
 
     // Clearing a texture is just as good as checking we can render to it, right?
@@ -453,6 +461,10 @@ TEST_P(TextureRectangleTestES3, CopyTexSubImage)
 }
 
 ANGLE_INSTANTIATE_TEST_ES2(TextureRectangleTest);
+
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(TextureRectangleTestES3);
 ANGLE_INSTANTIATE_TEST_ES3(TextureRectangleTestES3);
+
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(TextureRectangleTestES31);
 ANGLE_INSTANTIATE_TEST_ES31(TextureRectangleTestES31);
 }  // anonymous namespace

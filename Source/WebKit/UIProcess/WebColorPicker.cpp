@@ -27,42 +27,32 @@
 #include "config.h"
 #include "WebColorPicker.h"
 
-#if ENABLE(INPUT_TYPE_COLOR)
-
 namespace WebKit {
 
-WebColorPicker::WebColorPicker(Client* client)
+WebColorPicker::WebColorPicker(Client* client, std::optional<WebCore::FrameIdentifier> frameID)
     : m_client(client)
+    , m_frameID(frameID)
 {
 }
 
-WebColorPicker::~WebColorPicker()
-{
-}
+WebColorPicker::~WebColorPicker() = default;
 
 void WebColorPicker::endPicker()
 {
-    if (!m_client)
-        return;
-
-    if (auto client = std::exchange(m_client, nullptr))
+    if (CheckedPtr client = std::exchange(m_client, nullptr))
         client->didEndColorPicker();
 }
 
 void WebColorPicker::setSelectedColor(const WebCore::Color& color)
 {
-    if (!m_client)
-        return;
-
-    m_client->didChooseColor(color);
+    if (CheckedPtr client = m_client)
+        client->didChooseColor(color);
 }
 
-void WebColorPicker::showColorPicker(const WebCore::Color&)
+void WebColorPicker::showColorPicker(const WebCore::Color&, const WebCore::IntRect&)
 {
     ASSERT_NOT_REACHED();
     return;
 }
 
 } // namespace WebKit
-
-#endif // ENABLE(INPUT_TYPE_COLOR)

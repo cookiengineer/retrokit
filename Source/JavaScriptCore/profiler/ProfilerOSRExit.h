@@ -25,11 +25,14 @@
 
 #pragma once
 
-#include "ExitKind.h"
-#include "JSCJSValue.h"
-#include "ProfilerOriginStack.h"
+#include <JavaScriptCore/ExitKind.h>
+#include <JavaScriptCore/JSCJSValue.h>
+#include <JavaScriptCore/ProfilerOriginStack.h>
 
 namespace JSC { namespace Profiler {
+
+class Database;
+class Dumper;
 
 class OSRExit {
 public:
@@ -37,15 +40,15 @@ public:
     ~OSRExit();
     
     unsigned id() const { return m_id; }
-    const OriginStack& origin() const { return m_origin; }
+    const OriginStack& origin() const LIFETIME_BOUND { return m_origin; }
     ExitKind exitKind() const { return m_exitKind; }
     bool isWatchpoint() const { return m_isWatchpoint; }
     
-    uint64_t* counterAddress() { return &m_counter; }
+    uint64_t* counterAddress() LIFETIME_BOUND { return &m_counter; }
     uint64_t count() const { return m_counter; }
     void incCount() { m_counter++; }
 
-    JSValue toJS(JSGlobalObject*) const;
+    Ref<JSON::Value> toJSON(Dumper&) const;
 
 private:
     OriginStack m_origin;

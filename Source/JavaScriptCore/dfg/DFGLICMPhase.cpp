@@ -55,7 +55,7 @@ class LICMPhase : public Phase {
     
 public:
     LICMPhase(Graph& graph)
-        : Phase(graph, "LICM")
+        : Phase(graph, "LICM"_s)
         , m_state(graph)
         , m_interpreter(graph, m_state)
     {
@@ -63,16 +63,16 @@ public:
     
     bool run()
     {
+        ASSERT(m_graph.m_planStage <= PlanStage::LICMAndLater);
+        m_graph.m_planStage = PlanStage::LICMAndLater;
+
         DFG_ASSERT(m_graph, nullptr, m_graph.m_form == SSA);
         
         m_graph.ensureSSADominators();
         m_graph.ensureSSANaturalLoops();
         m_graph.ensureControlEquivalenceAnalysis();
 
-        if (verbose) {
-            dataLog("Graph before LICM:\n");
-            m_graph.dump();
-        }
+        dataLogIf(verbose, "Graph before LICM:\n", m_graph);
         
         m_data.resize(m_graph.m_ssaNaturalLoops->numLoops());
         
@@ -203,13 +203,14 @@ public:
             // to bias hoisting to outer loops then we need to use a reverse loop.
             
             if (verbose) {
-                dataLog(
-                    "Attempting to hoist out of block ", *block, " in loops:\n");
-                for (unsigned stackIndex = loopStack.size(); stackIndex--;) {
-                    dataLog(
-                        "        ", *loopStack[stackIndex], ", which writes ",
-                        m_data[loopStack[stackIndex]->index()].writes, "\n");
-                }
+                WTF::dataFile().atomically([&](auto&) {
+                    dataLogLn("Attempting to hoist out of block ", *block, " in loops:");
+                    for (unsigned stackIndex = loopStack.size(); stackIndex--;) {
+                        dataLogLn(
+                            "        ", *loopStack[stackIndex], ", which writes ",
+                            m_data[loopStack[stackIndex]->index()].writes);
+                    }
+                });
             }
             
             for (unsigned nodeIndex = 0; nodeIndex < block->size(); ++nodeIndex) {
@@ -217,9 +218,9 @@ public:
                 if (nodeRef->op() == ForceOSRExit)
                     break;
                 for (unsigned stackIndex = loopStack.size(); stackIndex--;) {
-                    if (UNLIKELY(Options::useLICMFuzzing())) {
+                    if (Options::useLICMFuzzing()) [[unlikely]] {
                         bool shouldAttemptHoist = random.returnTrueWithProbability(Options::allowHoistingLICMProbability());
-                        if (!shouldAttemptHoist)
+                        if (!shouldAttemptHoist && !nodeRef->isCheckNode())
                             continue;
                     }
 
@@ -237,15 +238,20 @@ private:
         Node* node = nodeRef;
         LoopData& data = m_data[loop->index()];
 
+        // Currently safeToExecute does not support children having a tuple, and ExtractFromTuple is the only one node which
+        // does it (and guaranteed since we need to extract a value from a tuple).
+        if (node->op() == ExtractFromTuple) {
+            dataLogLnIf(verbose, "    Not hoisting ", node, " because its children are tuples.");
+            return false;
+        }
+
         if (!data.preHeader) {
-            if (verbose)
-                dataLog("    Not hoisting ", node, " because the pre-header is invalid.\n");
+            dataLogLnIf(verbose, "    Not hoisting ", node, " because the pre-header is invalid.");
             return false;
         }
         
         if (!data.preHeader->cfaDidFinish) {
-            if (verbose)
-                dataLog("    Not hoisting ", node, " because CFA is invalid.\n");
+            dataLogLnIf(verbose, "    Not hoisting ", node, " because CFA is invalid.");
             return false;
         }
         
@@ -387,16 +393,12 @@ private:
         };
 
         if (!edgesDominate(m_graph, node, data.preHeader)) {
-            if (verbose) {
-                dataLog(
-                    "    Not hoisting ", node, " because it isn't loop invariant.\n");
-            }
+            dataLogLnIf(verbose, "    Not hoisting ", node, " because it isn't loop invariant.");
             return tryHoistChecks();
         }
 
         if (doesWrites(m_graph, node)) {
-            if (verbose)
-                dataLog("    Not hoisting ", node, " because it writes things.\n");
+            dataLogLnIf(verbose, "    Not hoisting ", node, " because it writes things.");
             return tryHoistChecks();
         }
 
@@ -407,21 +409,17 @@ private:
         addsBlindSpeculation = mayExit(m_graph, node, m_state) && !isControlEquivalent;
 
         if (readsOverlap(m_graph, node, data.writes)) {
-            if (verbose) {
-                dataLog(
-                    "    Not hoisting ", node,
-                    " because it reads things that the loop writes.\n");
-            }
+            dataLogLnIf(verbose,
+                "    Not hoisting ", node,
+                " because it reads things that the loop writes.");
             return tryHoistChecks();
         }
         
         if (addsBlindSpeculation && !canSpeculateBlindly) {
-            if (verbose) {
-                dataLog(
-                    "    Not hoisting ", node, " because it may exit and the pre-header (",
-                    *data.preHeader, ") is not control equivalent to the node's original block (",
-                    *fromBlock, ") and hoisting had previously failed.\n");
-            }
+            dataLogLnIf(verbose,
+                "    Not hoisting ", node, " because it may exit and the pre-header (",
+                *data.preHeader, ") is not control equivalent to the node's original block (",
+                *fromBlock, ") and hoisting had previously failed.");
             return tryHoistChecks();
         }
         
@@ -430,10 +428,7 @@ private:
             bool ignoreEmptyChildren = true;
             if (canSpeculateBlindly
                 && safeToExecute(m_state, m_graph, node, ignoreEmptyChildren)) {
-                if (verbose) {
-                    dataLog(
-                        "    Rescuing hoisting by inserting empty checks.\n");
-                }
+                dataLogLnIf(verbose, "    Rescuing hoisting by inserting empty checks.");
                 m_graph.doToChildren(
                     node,
                     [&] (Edge& edge) {
@@ -444,19 +439,12 @@ private:
                         insertHoistedNode(check);
                     });
             } else {
-                if (verbose) {
-                    dataLog(
-                        "    Not hoisting ", node, " because it isn't safe to execute.\n");
-                }
+                dataLogLnIf(verbose, "    Not hoisting ", node, " because it isn't safe to execute.");
                 return tryHoistChecks();
             }
         }
         
-        if (verbose) {
-            dataLog(
-                "    Hoisting ", node, " from ", *fromBlock, " to ", *data.preHeader,
-                "\n");
-        }
+        dataLogLnIf(verbose, "    Hoisting ", node, " from ", *fromBlock, " to ", *data.preHeader);
 
         insertHoistedNode(node);
         updateAbstractState();

@@ -27,40 +27,39 @@
 
 #include "AnimationEventBase.h"
 #include "AnimationPlaybackEventInit.h"
+#include "WebAnimationTypes.h"
 #include <wtf/Markable.h>
 
 namespace WebCore {
 
 class AnimationPlaybackEvent final : public AnimationEventBase {
-    WTF_MAKE_ISO_ALLOCATED(AnimationPlaybackEvent);
+    WTF_MAKE_TZONE_ALLOCATED(AnimationPlaybackEvent);
 public:
-    static Ref<AnimationPlaybackEvent> create(const AtomString& type, std::optional<Seconds> currentTime, std::optional<Seconds> timelineTime, WebAnimation* animation)
+    using Init = AnimationPlaybackEventInit;
+
+    static Ref<AnimationPlaybackEvent> create(const AtomString& type, WebAnimation* animation, std::optional<WebAnimationTime> scheduledTime, std::optional<WebAnimationTime> timelineTime, std::optional<WebAnimationTime> currentTime)
     {
-        return adoptRef(*new AnimationPlaybackEvent(type, currentTime, timelineTime, animation));
+        return adoptRef(*new AnimationPlaybackEvent(type, animation, scheduledTime, timelineTime, currentTime));
     }
 
-    static Ref<AnimationPlaybackEvent> create(const AtomString& type, const AnimationPlaybackEventInit& initializer, IsTrusted isTrusted = IsTrusted::No)
+    static Ref<AnimationPlaybackEvent> create(const AtomString& type, Init&& initializer, IsTrusted isTrusted = IsTrusted::No)
     {
-        return adoptRef(*new AnimationPlaybackEvent(type, initializer, isTrusted));
+        return adoptRef(*new AnimationPlaybackEvent(type, WTF::move(initializer), isTrusted));
     }
 
     virtual ~AnimationPlaybackEvent();
 
-    bool isAnimationPlaybackEvent() const final { return true; }
-
-    std::optional<double> bindingsCurrentTime() const;
-    std::optional<Seconds> currentTime() const { return m_currentTime; }
-    std::optional<double> bindingsTimelineTime() const;
-
-    EventInterface eventInterface() const override { return AnimationPlaybackEventInterfaceType; }
+    std::optional<WebAnimationTime> timelineTime() const { return m_timelineTime; }
+    std::optional<WebAnimationTime> currentTime() const { return m_currentTime; }
 
 private:
-    AnimationPlaybackEvent(const AtomString&, std::optional<Seconds>, std::optional<Seconds>, WebAnimation*);
-    AnimationPlaybackEvent(const AtomString&, const AnimationPlaybackEventInit&, IsTrusted);
+    AnimationPlaybackEvent(const AtomString&, WebAnimation*, std::optional<WebAnimationTime> scheduledTime, std::optional<WebAnimationTime> timelineTime, std::optional<WebAnimationTime> currentTime);
+    AnimationPlaybackEvent(const AtomString&, Init&&, IsTrusted);
 
-    Markable<Seconds, Seconds::MarkableTraits> m_currentTime;
+    std::optional<WebAnimationTime> m_timelineTime;
+    std::optional<WebAnimationTime> m_currentTime;
 };
 
-}
+} // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_ANIMATION_EVENT_BASE(AnimationPlaybackEvent, isAnimationPlaybackEvent())
+SPECIALIZE_TYPE_TRAITS_EVENT(AnimationPlaybackEvent)

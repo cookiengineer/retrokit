@@ -25,21 +25,23 @@
 
 #pragma once
 
-#include "IDBDatabaseInfo.h"
-#include "IDBError.h"
-#include "IDBGetAllResult.h"
-#include "IDBGetResult.h"
-#include "IDBKeyData.h"
-#include "IDBResourceIdentifier.h"
-#include "IDBTransactionInfo.h"
-#include "ThreadSafeDataBuffer.h"
-#include <wtf/EnumTraits.h>
+#include <WebCore/ClientOrigin.h>
+#include <WebCore/IDBDatabaseConnectionIdentifier.h>
+#include <WebCore/IDBDatabaseInfo.h>
+#include <WebCore/IDBError.h>
+#include <WebCore/IDBGetAllResult.h>
+#include <WebCore/IDBGetResult.h>
+#include <WebCore/IDBKeyData.h>
+#include <WebCore/IDBResourceIdentifier.h>
+#include <WebCore/IDBTransactionInfo.h>
+#include <WebCore/ThreadSafeDataBuffer.h>
+#include <wtf/ArgumentCoder.h>
 
 namespace WebCore {
 
 class ThreadSafeDataBuffer;
 
-enum class IDBResultType {
+enum class IDBResultType : uint8_t {
     Error,
     OpenDatabaseSuccess,
     OpenDatabaseUpgradeNeeded,
@@ -69,7 +71,7 @@ class IDBResultData {
 public:
     static IDBResultData error(const IDBResourceIdentifier&, const IDBError&);
     static IDBResultData openDatabaseSuccess(const IDBResourceIdentifier&, IDBServer::UniqueIDBDatabaseConnection&);
-    static IDBResultData openDatabaseUpgradeNeeded(const IDBResourceIdentifier&, IDBServer::UniqueIDBDatabaseTransaction&);
+    static IDBResultData openDatabaseUpgradeNeeded(const IDBResourceIdentifier&, IDBServer::UniqueIDBDatabaseTransaction&, IDBServer::UniqueIDBDatabaseConnection&);
     static IDBResultData deleteDatabaseSuccess(const IDBResourceIdentifier&, const IDBDatabaseInfo&);
     static IDBResultData createObjectStoreSuccess(const IDBResourceIdentifier&);
     static IDBResultData deleteObjectStoreSuccess(const IDBResourceIdentifier&);
@@ -79,12 +81,12 @@ public:
     static IDBResultData deleteIndexSuccess(const IDBResourceIdentifier&);
     static IDBResultData renameIndexSuccess(const IDBResourceIdentifier&);
     static IDBResultData putOrAddSuccess(const IDBResourceIdentifier&, const IDBKeyData&);
-    static IDBResultData getRecordSuccess(const IDBResourceIdentifier&, const IDBGetResult&);
-    static IDBResultData getAllRecordsSuccess(const IDBResourceIdentifier&, const IDBGetAllResult&);
+    static IDBResultData getRecordSuccess(const IDBResourceIdentifier&, const IDBGetResult&, ClientOrigin&&);
+    static IDBResultData getAllRecordsSuccess(const IDBResourceIdentifier&, const IDBGetAllResult&, ClientOrigin&&);
     static IDBResultData getCountSuccess(const IDBResourceIdentifier&, uint64_t count);
     static IDBResultData deleteRecordSuccess(const IDBResourceIdentifier&);
-    static IDBResultData openCursorSuccess(const IDBResourceIdentifier&, const IDBGetResult&);
-    static IDBResultData iterateCursorSuccess(const IDBResourceIdentifier&, const IDBGetResult&);
+    static IDBResultData openCursorSuccess(const IDBResourceIdentifier&, const IDBGetResult&, ClientOrigin&&);
+    static IDBResultData iterateCursorSuccess(const IDBResourceIdentifier&, const IDBGetResult&, ClientOrigin&&);
 
     WEBCORE_EXPORT IDBResultData(const IDBResultData&);
     IDBResultData(IDBResultData&&) = default;
@@ -97,24 +99,29 @@ public:
     IDBResultType type() const { return m_type; }
     IDBResourceIdentifier requestIdentifier() const { return m_requestIdentifier; }
 
-    const IDBError& error() const { return m_error; }
-    uint64_t databaseConnectionIdentifier() const { return m_databaseConnectionIdentifier; }
+    const IDBError& error() const LIFETIME_BOUND { return m_error; }
+    IDBDatabaseConnectionIdentifier databaseConnectionIdentifier() const { return *m_databaseConnectionIdentifier; }
 
-    const IDBDatabaseInfo& databaseInfo() const;
-    const IDBTransactionInfo& transactionInfo() const;
+    const IDBDatabaseInfo& NODELETE databaseInfo() const;
+    const IDBTransactionInfo& NODELETE transactionInfo() const;
 
-    const IDBKeyData* resultKey() const { return m_resultKey.get(); }
+    const IDBKeyData* resultKey() const LIFETIME_BOUND { return m_resultKey.get(); }
     uint64_t resultInteger() const { return m_resultInteger; }
 
-    WEBCORE_EXPORT const IDBGetResult& getResult() const;
-    WEBCORE_EXPORT IDBGetResult& getResultRef();
-    WEBCORE_EXPORT const IDBGetAllResult& getAllResult() const;
+    WEBCORE_EXPORT const IDBGetResult& NODELETE getResult() const;
+    WEBCORE_EXPORT const IDBGetAllResult& NODELETE getAllResult() const;
+
+    // NetworkProcess-internal: set by UniqueIDBDatabaseTransaction before delegate dispatch so
+    // IDBStorageConnectionToClient can route per-origin work without a side map. Never encoded
+    // for IPC; stays empty on the WebProcess side.
+    WEBCORE_EXPORT const ClientOrigin* clientOrigin() const LIFETIME_BOUND;
+    void setClientOrigin(ClientOrigin&&);
 
     WEBCORE_EXPORT IDBResultData();
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<IDBResultData> decode(Decoder&);
 
 private:
+    friend struct IPC::ArgumentCoder<IDBResultData>;
+
     IDBResultData(const IDBResourceIdentifier&);
     IDBResultData(IDBResultType, const IDBResourceIdentifier&);
 
@@ -124,140 +131,15 @@ private:
     IDBResourceIdentifier m_requestIdentifier;
 
     IDBError m_error;
-    uint64_t m_databaseConnectionIdentifier { 0 };
+    std::optional<IDBDatabaseConnectionIdentifier> m_databaseConnectionIdentifier;
     std::unique_ptr<IDBDatabaseInfo> m_databaseInfo;
     std::unique_ptr<IDBTransactionInfo> m_transactionInfo;
     std::unique_ptr<IDBKeyData> m_resultKey;
     std::unique_ptr<IDBGetResult> m_getResult;
     std::unique_ptr<IDBGetAllResult> m_getAllResult;
     uint64_t m_resultInteger { 0 };
+    std::unique_ptr<ClientOrigin> m_clientOrigin;
 };
-
-template<class Encoder>
-void IDBResultData::encode(Encoder& encoder) const
-{
-    encoder << m_requestIdentifier << m_error << m_databaseConnectionIdentifier << m_resultInteger;
-
-    encoder << m_type;
-
-    encoder << !!m_databaseInfo;
-    if (m_databaseInfo)
-        encoder << *m_databaseInfo;
-
-    encoder << !!m_transactionInfo;
-    if (m_transactionInfo)
-        encoder << *m_transactionInfo;
-
-    encoder << !!m_resultKey;
-    if (m_resultKey)
-        encoder << *m_resultKey;
-
-    encoder << !!m_getResult;
-    if (m_getResult)
-        encoder << *m_getResult;
-
-    encoder << !!m_getAllResult;
-    if (m_getAllResult)
-        encoder << *m_getAllResult;
-}
-
-template<class Decoder> std::optional<IDBResultData> IDBResultData::decode(Decoder& decoder)
-{
-    IDBResultData result;
-    if (!decoder.decode(result.m_requestIdentifier))
-        return std::nullopt;
-
-    if (!decoder.decode(result.m_error))
-        return std::nullopt;
-
-    if (!decoder.decode(result.m_databaseConnectionIdentifier))
-        return std::nullopt;
-
-    if (!decoder.decode(result.m_resultInteger))
-        return std::nullopt;
-
-    if (!decoder.decode(result.m_type))
-        return std::nullopt;
-
-    bool hasObject;
-
-    if (!decoder.decode(hasObject))
-        return std::nullopt;
-    if (hasObject) {
-        auto object = makeUnique<IDBDatabaseInfo>();
-        if (!decoder.decode(*object))
-            return std::nullopt;
-        result.m_databaseInfo = WTFMove(object);
-    }
-
-    if (!decoder.decode(hasObject))
-        return std::nullopt;
-    if (hasObject) {
-        auto object = makeUnique<IDBTransactionInfo>();
-        if (!decoder.decode(*object))
-            return std::nullopt;
-        result.m_transactionInfo = WTFMove(object);
-    }
-
-    if (!decoder.decode(hasObject))
-        return std::nullopt;
-    if (hasObject) {
-        auto object = makeUnique<IDBKeyData>();
-        std::optional<IDBKeyData> optional;
-        decoder >> optional;
-        if (!optional)
-            return std::nullopt;
-        *object = WTFMove(*optional);
-        result.m_resultKey = WTFMove(object);
-    }
-
-    if (!decoder.decode(hasObject))
-        return std::nullopt;
-    if (hasObject) {
-        auto object = makeUnique<IDBGetResult>();
-        if (!decoder.decode(*object))
-            return std::nullopt;
-        result.m_getResult = WTFMove(object);
-    }
-
-    if (!decoder.decode(hasObject))
-        return std::nullopt;
-    if (hasObject) {
-        auto object = makeUnique<IDBGetAllResult>();
-        if (!decoder.decode(*object))
-            return std::nullopt;
-        result.m_getAllResult = WTFMove(object);
-    }
-
-    return result;
-}
 
 } // namespace WebCore
 
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::IDBResultType> {
-    using values = EnumValues<
-        WebCore::IDBResultType,
-        WebCore::IDBResultType::Error,
-        WebCore::IDBResultType::OpenDatabaseSuccess,
-        WebCore::IDBResultType::OpenDatabaseUpgradeNeeded,
-        WebCore::IDBResultType::DeleteDatabaseSuccess,
-        WebCore::IDBResultType::CreateObjectStoreSuccess,
-        WebCore::IDBResultType::DeleteObjectStoreSuccess,
-        WebCore::IDBResultType::ClearObjectStoreSuccess,
-        WebCore::IDBResultType::PutOrAddSuccess,
-        WebCore::IDBResultType::GetRecordSuccess,
-        WebCore::IDBResultType::GetAllRecordsSuccess,
-        WebCore::IDBResultType::GetCountSuccess,
-        WebCore::IDBResultType::DeleteRecordSuccess,
-        WebCore::IDBResultType::CreateIndexSuccess,
-        WebCore::IDBResultType::DeleteIndexSuccess,
-        WebCore::IDBResultType::OpenCursorSuccess,
-        WebCore::IDBResultType::IterateCursorSuccess,
-        WebCore::IDBResultType::RenameObjectStoreSuccess,
-        WebCore::IDBResultType::RenameIndexSuccess
-    >;
-};
-
-} // namespace WTF

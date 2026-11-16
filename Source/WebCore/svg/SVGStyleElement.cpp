@@ -24,19 +24,23 @@
 #include "SVGStyleElement.h"
 
 #include "CSSStyleSheet.h"
+#include "CommonAtomStrings.h"
 #include "Document.h"
+#include "MediaQueryParser.h"
+#include "NodeName.h"
+#include "SVGElementInlines.h"
 #include "SVGNames.h"
-#include <wtf/IsoMallocInlines.h>
+#include "SVGPropertyOwnerRegistry.h"
 #include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(SVGStyleElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGStyleElement);
 
 inline SVGStyleElement::SVGStyleElement(const QualifiedName& tagName, Document& document, bool createdByParser)
-    : SVGElement(tagName, document)
+    : SVGElement(tagName, document, makeUniqueRef<PropertyRegistry>(*this))
     , m_styleSheetOwner(document, createdByParser)
-    , m_loadEventTimer(*this, &SVGElement::loadEventTimerFired)
 {
     ASSERT(hasTagName(SVGNames::styleTag));
 }
@@ -53,37 +57,13 @@ Ref<SVGStyleElement> SVGStyleElement::create(const QualifiedName& tagName, Docum
 
 bool SVGStyleElement::disabled() const
 {
-    return sheet() && sheet()->disabled();
+    return sheet() && protect(sheet())->disabled();
 }
 
 void SVGStyleElement::setDisabled(bool setDisabled)
 {
-    if (auto styleSheet = makeRefPtr(sheet()))
+    if (RefPtr styleSheet = sheet())
         styleSheet->setDisabled(setDisabled);
-}
-
-const AtomString& SVGStyleElement::type() const
-{
-    static MainThreadNeverDestroyed<const AtomString> defaultValue("text/css", AtomString::ConstructFromLiteral);
-    const AtomString& n = getAttribute(SVGNames::typeAttr);
-    return n.isNull() ? defaultValue.get() : n;
-}
-
-void SVGStyleElement::setType(const AtomString& type)
-{
-    setAttribute(SVGNames::typeAttr, type);
-}
-
-const AtomString& SVGStyleElement::media() const
-{
-    static MainThreadNeverDestroyed<const AtomString> defaultValue("all", AtomString::ConstructFromLiteral);
-    const AtomString& n = attributeWithoutSynchronization(SVGNames::mediaAttr);
-    return n.isNull() ? defaultValue.get() : n;
-}
-
-void SVGStyleElement::setMedia(const AtomString& media)
-{
-    setAttributeWithoutSynchronization(SVGNames::mediaAttr, media);
 }
 
 String SVGStyleElement::title() const
@@ -91,23 +71,33 @@ String SVGStyleElement::title() const
     return attributeWithoutSynchronization(SVGNames::titleAttr);
 }
 
-void SVGStyleElement::parseAttribute(const QualifiedName& name, const AtomString& value)
+void SVGStyleElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
-    if (name == SVGNames::titleAttr) {
-        if (sheet() && !isInShadowTree())
-            sheet()->setTitle(value);
-        return;
-    }
-    if (name == SVGNames::typeAttr) {
-        m_styleSheetOwner.setContentType(value);
-        return;
-    }
-    if (name == SVGNames::mediaAttr) {
-        m_styleSheetOwner.setMedia(value);
-        return;
+    switch (name.nodeName()) {
+    case AttributeNames::titleAttr:
+        if (RefPtr sheet = this->sheet(); sheet && !isInShadowTree())
+            sheet->setTitle(newValue);
+        break;
+    case AttributeNames::typeAttr:
+        m_styleSheetOwner.setContentType(newValue);
+        m_styleSheetOwner.childrenChanged(*this);
+        if (CheckedPtr scope = m_styleSheetOwner.styleScope())
+            scope->didChangeStyleSheetContents();
+        break;
+    case AttributeNames::mediaAttr:
+        m_styleSheetOwner.setMedia(newValue);
+        if (RefPtr sheet = this->sheet()) {
+            sheet->setMediaQueries(MQ::MediaQueryParser::parse(newValue, protect(document())->cssParserContext()));
+            if (CheckedPtr scope = m_styleSheetOwner.styleScope())
+                scope->didChangeStyleSheetContents();
+        } else
+            m_styleSheetOwner.childrenChanged(*this);
+        break;
+    default:
+        break;
     }
 
-    SVGElement::parseAttribute(name, value);
+    SVGElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
 }
 
 void SVGStyleElement::finishParsingChildren()
@@ -116,17 +106,17 @@ void SVGStyleElement::finishParsingChildren()
     SVGElement::finishParsingChildren();
 }
 
-Node::InsertedIntoAncestorResult SVGStyleElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+Node::NeedsPostConnectionSteps SVGStyleElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    auto result = SVGElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    auto result = SVGElement::insertionSteps(insertionType, parentOfInsertedTree);
     if (insertionType.connectedToDocument)
         m_styleSheetOwner.insertedIntoDocument(*this);
     return result;
 }
 
-void SVGStyleElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void SVGStyleElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
-    SVGElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    SVGElement::removingSteps(removalType, oldParentOfRemovedTree);
     if (removalType.disconnectedFromDocument)
         m_styleSheetOwner.removedFromDocument(*this);
 }

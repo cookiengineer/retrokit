@@ -28,61 +28,104 @@
 #if USE(LIBWEBRTC)
 
 #include <WebCore/LibWebRTCMacros.h>
-#include <webrtc/rtc_base/network.h>
-#include <webrtc/rtc_base/socket_address.h>
+#include <optional>
 #include <wtf/Forward.h>
+#include <wtf/Vector.h>
+#include <wtf/text/WTFString.h>
 
-namespace IPC {
-class Decoder;
-class Encoder;
-}
+IGNORE_CLANG_WARNINGS_BEGIN("nullability-completeness")
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <webrtc/api/transport/ecn_marking.h>
+#include <webrtc/rtc_base/ip_address.h>
+#include <webrtc/rtc_base/socket_address.h>
+#include <webrtc/rtc_base/network.h>
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
+IGNORE_CLANG_WARNINGS_END
 
 namespace WebKit {
 
-struct RTCNetwork {
-    RTCNetwork() = default;
-    explicit RTCNetwork(const rtc::Network&);
+namespace WebRTCNetwork {
 
-    rtc::Network value() const;
+// This enums corresponds to webrtc::EcnMarking.
+enum class EcnMarking : int {
+    kNotEct = static_cast<int>(webrtc::EcnMarking::kNotEct), // Not ECN-Capable Transport
+    kEct1 = static_cast<int>(webrtc::EcnMarking::kEct1), // ECN-Capable Transport
+    kEct0 = static_cast<int>(webrtc::EcnMarking::kEct0), // Not used by L4s (or webrtc.)
+    kCe = static_cast<int>(webrtc::EcnMarking::kCe), // Congestion experienced
+};
 
-    void encode(IPC::Encoder&) const;
-    static std::optional<RTCNetwork> decode(IPC::Decoder&);
+struct IPAddress {
+    struct UnspecifiedFamily { };
 
-    struct IPAddress {
-        IPAddress() = default;
-        explicit IPAddress(const rtc::IPAddress& address): value(address) { }
+    IPAddress() = default;
+    explicit IPAddress(const webrtc::IPAddress&);
+    explicit IPAddress(const struct sockaddr&);
+    explicit IPAddress(Variant<UnspecifiedFamily, uint32_t, std::array<uint32_t, 4>> value)
+        : value(value)
+    {
+    }
 
-        void encode(IPC::Encoder&) const;
-        static std::optional<IPAddress> decode(IPC::Decoder&);
+    IPAddress isolatedCopy() const { return *this; }
+    webrtc::IPAddress rtcAddress() const;
 
-        rtc::IPAddress value;
-    };
+    bool isUnspecified() const { return std::holds_alternative<UnspecifiedFamily>(value); }
 
-    static rtc::SocketAddress isolatedCopy(const rtc::SocketAddress&);
+    Variant<UnspecifiedFamily, uint32_t, std::array<uint32_t, 4>> value;
+};
 
-    struct SocketAddress {
-        SocketAddress() = default;
-        explicit SocketAddress(const rtc::SocketAddress& address): value(address) { }
+struct InterfaceAddress {
+    explicit InterfaceAddress(IPAddress address, int ipv6Flags)
+        : address(address), ipv6Flags(ipv6Flags)
+    {
+    }
 
-        void encode(IPC::Encoder&) const;
-        static std::optional<SocketAddress> decode(IPC::Decoder&);
+    webrtc::InterfaceAddress rtcAddress() const;
+    InterfaceAddress isolatedCopy() const { return *this; }
 
-        rtc::SocketAddress value;
-    };
+    IPAddress address;
+    int ipv6Flags;
+};
 
-    std::string name;
-    std::string description;
-    IPAddress prefix;
-    int prefixLength;
-    int type;
-    uint16_t id;
-    int preference;
-    bool active;
-    bool ignored;
+struct SocketAddress {
+    explicit SocketAddress(const webrtc::SocketAddress&);
+    explicit SocketAddress(uint16_t port, int scopeID, String&& hostname, std::optional<IPAddress> ipAddress)
+        : port(port)
+        , scopeID(scopeID)
+        , hostname(WTF::move(hostname))
+        , ipAddress(ipAddress) { }
+
+    webrtc::SocketAddress rtcAddress() const;
+
+    uint16_t port;
     int scopeID;
-    std::string key;
-    size_t length;
-    std::vector<rtc::InterfaceAddress> ips;
+    String hostname;
+    std::optional<IPAddress> ipAddress;
+};
+
+} // namespace WebRTCNetwork
+
+struct RTCNetwork {
+    using SocketAddress = WebRTCNetwork::SocketAddress;
+    using IPAddress = WebRTCNetwork::IPAddress;
+    using InterfaceAddress = WebRTCNetwork::InterfaceAddress;
+
+    RTCNetwork() = default;
+    explicit RTCNetwork(String&& name, String&& description, IPAddress prefix, int prefixLength, int type, uint16_t id, int preference, bool active, bool ignored, int scopeID, Vector<InterfaceAddress>&& ips);
+    RTCNetwork isolatedCopy() const;
+
+    std::unique_ptr<webrtc::Network> value() const;
+
+    String name;
+    String description;
+    IPAddress prefix;
+    int prefixLength { 0 };
+    int type { 0 };
+    uint16_t id { 0 };
+    int preference { 0 };
+    bool active { 0 };
+    bool ignored { false };
+    int scopeID { 0 };
+    Vector<InterfaceAddress> ips;
 };
 
 }

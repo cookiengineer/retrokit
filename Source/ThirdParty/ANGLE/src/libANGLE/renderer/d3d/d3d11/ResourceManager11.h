@@ -24,12 +24,16 @@ namespace rx
 // These two methods are declared here to prevent circular includes.
 namespace d3d11
 {
-HRESULT SetDebugName(ID3D11DeviceChild *resource, const char *name);
+HRESULT SetDebugName(ID3D11DeviceChild *resource,
+                     const char *internalName,
+                     const std::string *khrDebugName);
 
 template <typename T>
-HRESULT SetDebugName(angle::ComPtr<T> &resource, const char *name)
+HRESULT SetDebugName(angle::ComPtr<T> &resource,
+                     const char *internalName,
+                     const std::string *khrDebugName)
 {
-    return SetDebugName(resource.Get(), name);
+    return SetDebugName(resource.Get(), internalName, khrDebugName);
 }
 }  // namespace d3d11
 
@@ -51,7 +55,6 @@ using ShaderData        = WrappedArray<uint8_t>;
 #define ANGLE_RESOURCE_TYPE_OP(NAME, OP)                                                       \
     OP(NAME, BlendState, ID3D11BlendState, D3D11_BLEND_DESC, void)                             \
     OP(NAME, Buffer, ID3D11Buffer, D3D11_BUFFER_DESC, const D3D11_SUBRESOURCE_DATA)            \
-    OP(NAME, ComputeShader, ID3D11ComputeShader, ShaderData, void)                             \
     OP(NAME, DepthStencilState, ID3D11DepthStencilState, D3D11_DEPTH_STENCIL_DESC, void)       \
     OP(NAME, DepthStencilView, ID3D11DepthStencilView, D3D11_DEPTH_STENCIL_VIEW_DESC,          \
        ID3D11Resource)                                                                         \
@@ -176,77 +179,148 @@ constexpr size_t ResourceTypeIndex()
 template <typename T>
 struct TypedData
 {
-    TypedData() {}
+    TypedData()                             = default;
+    TypedData(const TypedData &)            = delete;
+    TypedData(TypedData &&)                 = delete;
+    TypedData &operator=(const TypedData &) = delete;
+    TypedData &operator=(TypedData &&)      = delete;
     ~TypedData();
 
-    T *object                  = nullptr;
+    void reset();
+
+    angle::ComPtr<T> object;
     ResourceManager11 *manager = nullptr;
 };
 
+template <typename T>
+struct ResourceDataTraits
+{
+    using Data = T;
+
+    static T Create() { return T(); }
+    static T &Get(T &data) { return data; }
+    static const T &Get(const T &data) { return data; }
+    static void Reset(T &data) { data.reset(); }
+    static void Swap(T &a, T &b)
+    {
+        a.object.Swap(b.object);
+        std::swap(a.manager, b.manager);
+    }
+};
+
+template <typename T>
+struct ResourceDataTraits<std::shared_ptr<T>>
+{
+    using Data = T;
+
+    static std::shared_ptr<T> Create() { return std::make_shared<T>(); }
+    static T &Get(std::shared_ptr<T> &data) { return *data; }
+    static const T &Get(const std::shared_ptr<T> &data) { return *data; }
+    static void Reset(std::shared_ptr<T> &data) { data = std::make_shared<T>(); }
+    static void Swap(std::shared_ptr<T> &a, std::shared_ptr<T> &b) { a.swap(b); }
+};
+
 // Smart pointer type. Wraps the resource and a factory for safe deletion.
-template <typename T, template <class> class Pointer, typename DataT>
+template <typename T, typename DataT>
 class Resource11Base : angle::NonCopyable
 {
   public:
-    T *get() const { return mData->object; }
-    T *const *getPointer() const { return &mData->object; }
+    T *get() const { return data().object.Get(); }
+    T *const *getPointer() const { return data().object.GetAddressOf(); }
 
-    void setDebugName(const char *name) { d3d11::SetDebugName(mData->object, name); }
-
-    void set(T *object)
+    void setInternalName(const char *name)
     {
-        ASSERT(!valid());
-        mData->object = object;
+        mInternalDebugName = name;
+        UpdateDebugNameWithD3D();
     }
 
-    bool valid() const { return (mData->object != nullptr); }
+    void setKHRDebugLabel(const std::string *label)
+    {
+        mKhrDebugName = label;
+        UpdateDebugNameWithD3D();
+    }
+
+    void setLabels(const char *name, const std::string *label)
+    {
+        mInternalDebugName = name;
+        mKhrDebugName      = label;
+        UpdateDebugNameWithD3D();
+    }
+
+    void set(angle::ComPtr<T> object)
+    {
+        ASSERT(!valid());
+        data().object = std::move(object);
+    }
+
+    bool valid() const { return (data().object != nullptr); }
 
     void reset()
     {
         if (valid())
-            mData.reset(new DataT());
+            ResourceDataTraits<DataT>::Reset(mData);
     }
 
     ResourceSerial getSerial() const
     {
-        return ResourceSerial(reinterpret_cast<uintptr_t>(mData->object));
+        return ResourceSerial(reinterpret_cast<uintptr_t>(data().object.Get()));
     }
 
   protected:
     friend class TextureHelper11;
 
-    Resource11Base() : mData(new DataT()) {}
+    Resource11Base() : mData(ResourceDataTraits<DataT>::Create()) {}
 
-    Resource11Base(Resource11Base &&movedObj) : mData(new DataT())
-    {
-        std::swap(mData, movedObj.mData);
-    }
+    Resource11Base(Resource11Base &&movedObj) : Resource11Base() { swapData(movedObj); }
 
-    virtual ~Resource11Base() { mData.reset(); }
+    virtual ~Resource11Base() = default;
 
     Resource11Base &operator=(Resource11Base &&movedObj)
     {
-        std::swap(mData, movedObj.mData);
+        swapData(movedObj);
         return *this;
     }
 
-    Pointer<DataT> mData;
+    typename ResourceDataTraits<DataT>::Data &data()
+    {
+        return ResourceDataTraits<DataT>::Get(mData);
+    }
+
+    const typename ResourceDataTraits<DataT>::Data &data() const
+    {
+        return ResourceDataTraits<DataT>::Get(mData);
+    }
+
+    void swapData(Resource11Base &other)
+    {
+        ResourceDataTraits<DataT>::Swap(mData, other.mData);
+        std::swap(mKhrDebugName, other.mKhrDebugName);
+        std::swap(mInternalDebugName, other.mInternalDebugName);
+    }
+
+    DataT mData;
+
+  private:
+    void UpdateDebugNameWithD3D()
+    {
+        d3d11::SetDebugName(data().object.Get(), mInternalDebugName, mKhrDebugName);
+    }
+
+    const std::string *mKhrDebugName = nullptr;
+    const char *mInternalDebugName   = nullptr;
 };
 
-template <typename T>
-using UniquePtr = typename std::unique_ptr<T, std::default_delete<T>>;
-
 template <typename ResourceT>
-class Resource11 : public Resource11Base<ResourceT, UniquePtr, TypedData<ResourceT>>
+class Resource11 : public Resource11Base<ResourceT, TypedData<ResourceT>>
 {
   public:
     Resource11() {}
     Resource11(Resource11 &&other)
-        : Resource11Base<ResourceT, UniquePtr, TypedData<ResourceT>>(std::move(other))
+        : Resource11Base<ResourceT, TypedData<ResourceT>>(std::move(other))
     {}
     Resource11 &operator=(Resource11 &&other)
     {
-        std::swap(this->mData, other.mData);
+        this->swapData(other);
         return *this;
     }
 
@@ -255,25 +329,25 @@ class Resource11 : public Resource11Base<ResourceT, UniquePtr, TypedData<Resourc
     friend class SharedResource11;
     friend class ResourceManager11;
 
-    Resource11(ResourceT *object, ResourceManager11 *manager)
+    Resource11(angle::ComPtr<ResourceT> object, ResourceManager11 *manager)
     {
-        this->mData->object  = object;
-        this->mData->manager = manager;
+        this->data().object  = std::move(object);
+        this->data().manager = manager;
     }
 };
 
 template <typename T>
-class SharedResource11 : public Resource11Base<T, std::shared_ptr, TypedData<T>>
+class SharedResource11 : public Resource11Base<T, std::shared_ptr<TypedData<T>>>
 {
   public:
     SharedResource11() {}
     SharedResource11(SharedResource11 &&movedObj)
-        : Resource11Base<T, std::shared_ptr, TypedData<T>>(std::move(movedObj))
+        : Resource11Base<T, std::shared_ptr<TypedData<T>>>(std::move(movedObj))
     {}
 
     SharedResource11 &operator=(SharedResource11 &&other)
     {
-        std::swap(this->mData, other.mData);
+        this->swapData(other);
         return *this;
     }
 
@@ -286,21 +360,18 @@ class SharedResource11 : public Resource11Base<T, std::shared_ptr, TypedData<T>>
 
   private:
     friend class ResourceManager11;
-    SharedResource11(Resource11<T> &&obj) : Resource11Base<T, std::shared_ptr, TypedData<T>>()
+    SharedResource11(Resource11<T> &&obj) : Resource11Base<T, std::shared_ptr<TypedData<T>>>()
     {
-        std::swap(this->mData->manager, obj.mData->manager);
-
-        // Can't use std::swap because of ID3D11Resource.
-        auto temp           = this->mData->object;
-        this->mData->object = obj.mData->object;
-        obj.mData->object   = static_cast<T *>(temp);
+        this->data().manager = obj.data().manager;
+        obj.data().manager   = nullptr;
+        this->data().object  = std::move(obj.data().object);
     }
 };
 
 class ResourceManager11 final : angle::NonCopyable
 {
   public:
-    ResourceManager11();
+    ResourceManager11(Renderer11 *renderer);
     ~ResourceManager11();
 
     template <typename T>
@@ -340,6 +411,7 @@ class ResourceManager11 final : angle::NonCopyable
     template <typename T>
     GetInitDataFromD3D11<T> *createInitDataIfNeeded(const GetDescFromD3D11<T> *desc);
 
+    Renderer11 *mRenderer;
     bool mInitializeAllocations;
 
     std::array<std::atomic_size_t, NumResourceTypes> mAllocatedResourceCounts;
@@ -352,14 +424,21 @@ class ResourceManager11 final : angle::NonCopyable
 template <typename ResourceT>
 TypedData<ResourceT>::~TypedData()
 {
+    reset();
+}
+
+template <typename ResourceT>
+void TypedData<ResourceT>::reset()
+{
     if (object)
     {
         // We can have a nullptr factory when holding passed-in resources.
         if (manager)
         {
-            manager->onRelease(object);
+            manager->onRelease(object.Get());
         }
-        object->Release();
+        manager = nullptr;
+        object.Reset();
     }
 }
 

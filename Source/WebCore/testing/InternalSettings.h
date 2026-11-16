@@ -26,7 +26,6 @@
 
 #pragma once
 
-#include "ExceptionOr.h"
 #include "FontGenericFamilies.h"
 #include "InternalSettingsGenerated.h"
 #include "Settings.h"
@@ -34,12 +33,13 @@
 namespace WebCore {
 
 class Page;
+template<typename> class ExceptionOr;
 
 class InternalSettings : public InternalSettingsGenerated {
 public:
     static Ref<InternalSettings> create(Page*);
     static InternalSettings* from(Page*);
-    void hostDestroyed();
+    void NODELETE hostDestroyed();
     void resetToConsistentState();
 
     // Settings
@@ -58,13 +58,7 @@ public:
 
     using EditingBehaviorType = WebCore::EditingBehaviorType;
     ExceptionOr<void> setEditingBehavior(EditingBehaviorType);
-    
-    using PDFImageCachingPolicy = WebCore::PDFImageCachingPolicy;
-    ExceptionOr<void> setPDFImageCachingPolicy(PDFImageCachingPolicy);
 
-    using StorageBlockingPolicy = WebCore::StorageBlockingPolicy;
-    ExceptionOr<void> setStorageBlockingPolicy(StorageBlockingPolicy);
-    
     using UserInterfaceDirectionPolicy = WebCore::UserInterfaceDirectionPolicy;
     ExceptionOr<void> setUserInterfaceDirectionPolicy(UserInterfaceDirectionPolicy);
 
@@ -74,28 +68,25 @@ public:
     using FontLoadTimingOverride = WebCore::FontLoadTimingOverride;
     ExceptionOr<void> setFontLoadTimingOverride(FontLoadTimingOverride);
 
-    using FrameFlatteningValue = FrameFlattening;
-    ExceptionOr<void> setFrameFlattening(FrameFlatteningValue);
-
     using ForcedAccessibilityValue = WebCore::ForcedAccessibilityValue;
-    ForcedAccessibilityValue forcedColorsAreInvertedAccessibilityValue() const;
-    void setForcedColorsAreInvertedAccessibilityValue(ForcedAccessibilityValue);
-    ForcedAccessibilityValue forcedDisplayIsMonochromeAccessibilityValue() const;
-    void setForcedDisplayIsMonochromeAccessibilityValue(ForcedAccessibilityValue);
-    ForcedAccessibilityValue forcedPrefersContrastAccessibilityValue() const;
-    void setForcedPrefersContrastAccessibilityValue(ForcedAccessibilityValue);
-    ForcedAccessibilityValue forcedPrefersReducedMotionAccessibilityValue() const;
-    void setForcedPrefersReducedMotionAccessibilityValue(ForcedAccessibilityValue);
-    ForcedAccessibilityValue forcedSupportsHighDynamicRangeValue() const;
+    ForcedAccessibilityValue NODELETE forcedColorsAreInvertedAccessibilityValue() const;
+    void NODELETE setForcedColorsAreInvertedAccessibilityValue(ForcedAccessibilityValue);
+    ForcedAccessibilityValue NODELETE forcedDisplayIsMonochromeAccessibilityValue() const;
+    void NODELETE setForcedDisplayIsMonochromeAccessibilityValue(ForcedAccessibilityValue);
+    ForcedAccessibilityValue NODELETE forcedPrefersContrastAccessibilityValue() const;
+    void NODELETE setForcedPrefersContrastAccessibilityValue(ForcedAccessibilityValue);
+    ForcedAccessibilityValue NODELETE forcedPrefersReducedMotionAccessibilityValue() const;
+    void NODELETE setForcedPrefersReducedMotionAccessibilityValue(ForcedAccessibilityValue);
+    ForcedAccessibilityValue NODELETE forcedSupportsHighDynamicRangeValue() const;
     void setForcedSupportsHighDynamicRangeValue(ForcedAccessibilityValue);
 
-    // RuntimeEnabledFeatures.
-    ExceptionOr<void> setFetchAPIKeepAliveEnabled(bool);
-    ExceptionOr<void> setCustomPasteboardDataEnabled(bool);
-
-    bool vp9DecoderEnabled() const;
+    ExceptionOr<void> setAllowAnimationControlsOverride(bool);
 
     // DeprecatedGlobalSettings.
+    ExceptionOr<void> setCustomPasteboardDataEnabled(bool);
+
+    bool NODELETE vp9DecoderEnabled() const;
+
     ExceptionOr<void> setShouldManageAudioSessionCategory(bool);
 
     // CaptionUserPreferences.
@@ -121,11 +112,19 @@ public:
     // AudioContext
     ExceptionOr<void> setDefaultAudioContextSampleRate(float);
 
+    ExceptionOr<void> setAllowedMediaContainerTypes(const String&);
+    ExceptionOr<void> setAllowedMediaCodecTypes(const String&);
+    ExceptionOr<void> setAllowedMediaVideoCodecIDs(const String&);
+    ExceptionOr<void> setAllowedMediaAudioCodecIDs(const String&);
+    ExceptionOr<void> setAllowedMediaCaptionFormatTypes(const String&);
+
 private:
     explicit InternalSettings(Page*);
 
-    Settings& settings() const;
-    static const char* supplementName();
+    bool isInternalSettings() const final { return true; }
+
+    Settings& NODELETE settings() const;
+    static ASCIILiteral supplementName();
 
     class Backup {
     public:
@@ -144,22 +143,16 @@ private:
         Seconds m_minimumDOMTimerInterval;
         Seconds m_originalTimeWithoutMouseMovementBeforeHidingControls;
         WebCore::EditingBehaviorType m_originalEditingBehavior;
-        WebCore::StorageBlockingPolicy m_storageBlockingPolicy;
         WebCore::UserInterfaceDirectionPolicy m_userInterfaceDirectionPolicy;
         TextDirection m_systemLayoutDirection;
-        WebCore::PDFImageCachingPolicy m_pdfImageCachingPolicy;
         WebCore::ForcedAccessibilityValue m_forcedColorsAreInvertedAccessibilityValue;
         WebCore::ForcedAccessibilityValue m_forcedDisplayIsMonochromeAccessibilityValue;
         WebCore::ForcedAccessibilityValue m_forcedPrefersContrastAccessibilityValue;
         WebCore::ForcedAccessibilityValue m_forcedPrefersReducedMotionAccessibilityValue;
         WebCore::FontLoadTimingOverride m_fontLoadTimingOverride;
-        WebCore::FrameFlattening m_frameFlattening;
-
-        // RuntimeEnabledFeatures
-        bool m_fetchAPIKeepAliveAPIEnabled;
-        bool m_customPasteboardDataEnabled;
 
         // DeprecatedGlobalSettings
+        bool m_customPasteboardDataEnabled;
         bool m_originalMockScrollbarsEnabled;
 #if USE(AUDIO_SESSION)
         bool m_shouldManageAudioSessionCategory;
@@ -167,13 +160,14 @@ private:
 
         // PlatformMediaSessionManager
         bool m_shouldDeactivateAudioSession;
-
-        // RenderTheme/FontCache
-        bool m_shouldMockBoldSystemFontForAccessibility;
     };
 
-    Page* m_page;
+    WeakPtr<Page> m_page;
     Backup m_backup;
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::InternalSettings)
+    static bool isType(const WebCore::InternalSettingsGenerated& settings) { return settings.isInternalSettings(); }
+SPECIALIZE_TYPE_TRAITS_END()

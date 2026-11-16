@@ -96,7 +96,7 @@ public:
     void assertIsRegistered(Graph&) const { }
 #endif
     
-    void clobber();
+    void clobber(Graph&);
     void observeInvalidationPoint() { setClobbered(false); }
     
     void observeTransition(RegisteredStructure from, RegisteredStructure to);
@@ -227,9 +227,9 @@ public:
     
     // The methods below are all conservative and err on the side of making 'this' appear bigger
     // than it is. For example, contains() may return true if the set is clobbered or TOP.
-    // isSubsetOf() may return false in case of ambiguities. Therefore you should only perform
+    // NODELETE isSubsetOf() may return false in case of ambiguities. Therefore you should only perform
     // optimizations as a consequence of the "this is smaller" return value - so false for
-    // contains(), true for isSubsetOf(), false for isSupersetOf(), and false for overlaps().
+    // NODELETE contains(), true for isSubsetOf(), false for isSupersetOf(), and false for overlaps().
 
     bool contains(RegisteredStructure) const;
     JS_EXPORT_PRIVATE bool contains(Structure* structure) const;
@@ -246,8 +246,8 @@ public:
     bool overlaps(const RegisteredStructureSet& other) const;
     bool overlaps(const StructureAbstractValue& other) const;
 
-    bool isSubClassOf(const ClassInfo*) const;
-    bool isNotSubClassOf(const ClassInfo*) const;
+    bool NODELETE isSubClassOf(const ClassInfo*) const;
+    bool NODELETE isNotSubClassOf(const ClassInfo*) const;
     
     void validateReferences(const TrackedReferences&) const;
     
@@ -261,7 +261,7 @@ private:
     void filterClassInfoSlow(const ClassInfo*);
     bool mergeSlow(const StructureAbstractValue& other);
     
-    bool equalsSlow(const StructureAbstractValue& other) const;
+    bool NODELETE equalsSlow(const StructureAbstractValue& other) const;
     
     void makeTopWhenThin()
     {

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -37,7 +37,7 @@ class RenderScrollbarTheme final : public ScrollbarThemeComposite {
 public:
     virtual ~RenderScrollbarTheme() = default;
     
-    int scrollbarThickness(ScrollbarControlSize controlSize, ScrollbarExpansionState expansionState = ScrollbarExpansionState::Expanded) override { return ScrollbarTheme::theme().scrollbarThickness(controlSize, expansionState); }
+    int scrollbarThickness(ScrollbarWidth scrollbarWidth = ScrollbarWidth::Auto, OverlayScrollbarSizeRelevancy overlayRelevancy = OverlayScrollbarSizeRelevancy::IncludeOverlayScrollbarSize) override { return ScrollbarTheme::theme().scrollbarThickness(scrollbarWidth, overlayRelevancy); }
 
     ScrollbarButtonsPlacement buttonsPlacement() const override { return ScrollbarTheme::theme().buttonsPlacement(); }
 
@@ -57,7 +57,7 @@ public:
 
     void buttonSizesAlongTrackAxis(Scrollbar&, int& beforeSize, int& afterSize);
     
-    static RenderScrollbarTheme* renderScrollbarTheme();
+    static RenderScrollbarTheme* NODELETE renderScrollbarTheme();
 
 private:
     bool hasButtons(Scrollbar&) override;

@@ -45,9 +45,9 @@ public:
     int location() const { return m_grammarDetail.range.location; }
     int length() const { return m_grammarDetail.range.length; }
     Ref<API::Array> guesses() const;
-    const String& userDescription() const { return m_grammarDetail.userDescription; }
+    const String& userDescription() const LIFETIME_BOUND { return m_grammarDetail.userDescription; }
 
-    const WebCore::GrammarDetail& grammarDetail() { return m_grammarDetail; }
+    const WebCore::GrammarDetail& grammarDetail() LIFETIME_BOUND { return m_grammarDetail; }
 
 private:
     WebGrammarDetail(int location, int length, API::Array* guesses, const String& userDescription);
@@ -57,5 +57,9 @@ private:
 };
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebGrammarDetail) \
+static bool isType(const API::Object& object) { return object.type() == API::Object::Type::GrammarDetail; } \
+SPECIALIZE_TYPE_TRAITS_END()
 
 #endif // WebGrammarDetail_h

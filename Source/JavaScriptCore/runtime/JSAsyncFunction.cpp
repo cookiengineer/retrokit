@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2016 Caitlin Potter <caitp@igalia.com>.
+ * Copyright (C) 2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,13 +27,14 @@
 #include "config.h"
 #include "JSAsyncFunction.h"
 
+#include "FunctionExecutableInlines.h"
 #include "JSCellInlines.h"
 #include "JSFunctionInlines.h"
 #include "VM.h"
 
 namespace JSC {
 
-const ClassInfo JSAsyncFunction::s_info = { "AsyncFunction",  &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSAsyncFunction) };
+const ClassInfo JSAsyncFunction::s_info = { "AsyncFunction"_s,  &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSAsyncFunction) };
 
 JSAsyncFunction::JSAsyncFunction(VM& vm, FunctionExecutable* executable, JSScope* scope, Structure* structure)
     : Base(vm, executable, scope, structure)
@@ -41,29 +43,32 @@ JSAsyncFunction::JSAsyncFunction(VM& vm, FunctionExecutable* executable, JSScope
 
 JSAsyncFunction* JSAsyncFunction::createImpl(VM& vm, FunctionExecutable* executable, JSScope* scope, Structure* structure)
 {
-    JSAsyncFunction* asyncFunction = new (NotNull, allocateCell<JSAsyncFunction>(vm.heap)) JSAsyncFunction(vm, executable, scope, structure);
-    ASSERT(asyncFunction->structure(vm)->globalObject());
+    JSAsyncFunction* asyncFunction = new (NotNull, allocateCell<JSAsyncFunction>(vm)) JSAsyncFunction(vm, executable, scope, structure);
+    ASSERT(asyncFunction->realm());
     asyncFunction->finishCreation(vm);
     return asyncFunction;
 }
 
-JSAsyncFunction* JSAsyncFunction::create(VM& vm, FunctionExecutable* executable, JSScope* scope)
+JSAsyncFunction* JSAsyncFunction::create(VM& vm, JSGlobalObject* globalObject, FunctionExecutable* executable, JSScope* scope)
 {
-    JSAsyncFunction* asyncFunction = createImpl(vm, executable, scope, scope->globalObject(vm)->asyncFunctionStructure());
-    executable->notifyCreation(vm, asyncFunction, "Allocating an async function");
-    return asyncFunction;
+    return create(vm, globalObject, executable, scope, globalObject->asyncFunctionStructure());
 }
 
-JSAsyncFunction* JSAsyncFunction::create(VM& vm, FunctionExecutable* executable, JSScope* scope, Structure* structure)
+JSAsyncFunction* JSAsyncFunction::create(VM& vm, JSGlobalObject*, FunctionExecutable* executable, JSScope* scope, Structure* structure)
 {
     JSAsyncFunction* asyncFunction = createImpl(vm, executable, scope, structure);
     executable->notifyCreation(vm, asyncFunction, "Allocating an async function");
     return asyncFunction;
 }
 
-JSAsyncFunction* JSAsyncFunction::createWithInvalidatedReallocationWatchpoint(VM& vm, FunctionExecutable* executable, JSScope* scope)
+JSAsyncFunction* JSAsyncFunction::createWithInvalidatedReallocationWatchpoint(VM& vm, JSGlobalObject* globalObject, FunctionExecutable* executable, JSScope* scope)
 {
-    return createImpl(vm, executable, scope, scope->globalObject(vm)->asyncFunctionStructure());
+    return createWithInvalidatedReallocationWatchpoint(vm, globalObject, executable, scope, globalObject->asyncFunctionStructure());
+}
+
+JSAsyncFunction* JSAsyncFunction::createWithInvalidatedReallocationWatchpoint(VM& vm, JSGlobalObject*, FunctionExecutable* executable, JSScope* scope, Structure* structure)
+{
+    return createImpl(vm, executable, scope, structure);
 }
 
 }

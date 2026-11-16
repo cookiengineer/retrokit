@@ -29,6 +29,8 @@
 #include "FetchBody.h"
 #include "FetchHeaders.h"
 #include "FetchOptions.h"
+#include "IPAddressSpace.h"
+#include "RequestPriority.h"
 #include <JavaScriptCore/JSCJSValue.h>
 #include <wtf/text/WTFString.h>
 
@@ -37,7 +39,7 @@ namespace WebCore {
 struct FetchRequestInit {
     String method;
     std::optional<FetchHeaders::Init> headers;
-    std::optional<FetchBody::Init> body;
+    std::optional<std::optional<FetchBody::Init>> body;
     String referrer;
     std::optional<ReferrerPolicy> referrerPolicy;
     std::optional<FetchOptions::Mode> mode;
@@ -47,9 +49,11 @@ struct FetchRequestInit {
     String integrity;
     std::optional<bool> keepalive;
     JSC::JSValue signal;
+    std::optional<RequestPriority> priority;
     JSC::JSValue window;
+    std::optional<IPAddressSpace> targetAddressSpace;
 
-    bool hasMembers() const { return !method.isEmpty() || headers || body || !referrer.isEmpty() || referrerPolicy || mode || credentials || cache || redirect || !integrity.isEmpty() || keepalive || !window.isUndefined() || !signal.isUndefined(); }
+    bool hasMembers() const { return !method.isEmpty() || headers || body || !referrer.isEmpty() || referrerPolicy || mode || credentials || cache || redirect || !integrity.isEmpty() || keepalive || !window.isUndefined() || !signal.isUndefined() || (targetAddressSpace && *targetAddressSpace != IPAddressSpace::Public); }
 };
 
 }

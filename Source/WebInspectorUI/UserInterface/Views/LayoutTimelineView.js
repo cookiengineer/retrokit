@@ -31,7 +31,7 @@ WI.LayoutTimelineView = class LayoutTimelineView extends WI.TimelineView
 
         console.assert(timeline.type === WI.TimelineRecord.Type.Layout, timeline);
 
-        let columns = {type: {}, name: {}, initiator: {}, area: {}, width: {}, height: {}, startTime: {}, totalTime: {}};
+        let columns = {type: {}, name: {}, node: {}, initiator: {}, area: {}, width: {}, height: {}, startTime: {}, totalTime: {}};
 
         columns.name.title = WI.UIString("Type");
         columns.name.width = "15%";
@@ -52,8 +52,11 @@ WI.LayoutTimelineView = class LayoutTimelineView extends WI.TimelineView
 
         this._scopeBar = columns.type.scopeBar;
 
+        columns.node.title = WI.UIString("Node");
+        columns.node.width = "10%";
+
         columns.initiator.title = WI.UIString("Initiator");
-        columns.initiator.width = "25%";
+        columns.initiator.width = "15%";
 
         columns.area.title = WI.UIString("Area");
         columns.area.width = "8%";
@@ -146,6 +149,8 @@ WI.LayoutTimelineView = class LayoutTimelineView extends WI.TimelineView
         this.representedObject.removeEventListener(WI.Timeline.Event.RecordAdded, this._layoutTimelineRecordAdded, this);
 
         this._dataGrid.closed();
+
+        super.closed();
     }
 
     reset()
@@ -276,6 +281,12 @@ WI.LayoutTimelineView = class LayoutTimelineView extends WI.TimelineView
 
         this._showingHighlightForRecord = record;
 
+        if (record.domNodeOrInfo instanceof WI.DOMNode) {
+            record.domNodeOrInfo.highlight();
+            this._showingHighlight = true;
+            return;
+        }
+
         let target = WI.assumingMainTarget();
 
         const contentColor = {r: 111, g: 168, b: 220, a: 0.66};
@@ -339,3 +350,5 @@ WI.LayoutTimelineView = class LayoutTimelineView extends WI.TimelineView
         this._updateHighlight();
     }
 };
+
+WI.LayoutTimelineView.ReferencePage = WI.ReferencePage.TimelinesTab.LayoutAndRenderingTimeline;

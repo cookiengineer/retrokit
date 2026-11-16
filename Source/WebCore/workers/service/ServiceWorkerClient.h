@@ -25,10 +25,8 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
 #include "ContextDestructionObserver.h"
-#include "ExceptionOr.h"
+#include "ScriptExecutionContextIdentifier.h"
 #include "ServiceWorkerClientData.h"
 #include <JavaScriptCore/Strong.h>
 #include <wtf/RefCounted.h>
@@ -44,32 +42,40 @@ class ServiceWorkerGlobalScope;
 
 struct StructuredSerializeOptions;
 
+template<typename> class ExceptionOr;
+
 class ServiceWorkerClient : public RefCounted<ServiceWorkerClient>, public ContextDestructionObserver {
 public:
-    using Identifier = ServiceWorkerClientIdentifier;
+    using Identifier = ScriptExecutionContextIdentifier;
 
     using Type = ServiceWorkerClientType;
     using FrameType = ServiceWorkerClientFrameType;
 
-    static Ref<ServiceWorkerClient> getOrCreate(ServiceWorkerGlobalScope&, ServiceWorkerClientData&&);
+    static Ref<ServiceWorkerClient> create(ServiceWorkerGlobalScope&, ServiceWorkerClientData&&);
 
     ~ServiceWorkerClient();
 
-    const URL& url() const;
-    FrameType frameType() const;
-    Type type() const;
+    // ContextDestructionObserver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
+    const URL& NODELETE url() const;
+    FrameType NODELETE frameType() const;
+    Type NODELETE type() const;
     String id() const;
 
     Identifier identifier() const { return m_data.identifier; }
 
     ExceptionOr<void> postMessage(JSC::JSGlobalObject&, JSC::JSValue message, StructuredSerializeOptions&&);
+    ExceptionOr<void> postMessage(JSC::JSGlobalObject&, JSC::JSValue message, Vector<JSC::Strong<JSC::JSObject>>&&);
+
+    const ServiceWorkerClientData& data() const LIFETIME_BOUND { return m_data; }
 
 protected:
     ServiceWorkerClient(ServiceWorkerGlobalScope&, ServiceWorkerClientData&&);
 
+private:
     ServiceWorkerClientData m_data;
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)

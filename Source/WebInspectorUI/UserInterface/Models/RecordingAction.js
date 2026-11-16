@@ -25,19 +25,19 @@
 
 WI.RecordingAction = class RecordingAction extends WI.Object
 {
-    constructor(name, parameters, swizzleTypes, trace, snapshot)
+    constructor(name, parameters, swizzleTypes, stackTrace, snapshot)
     {
         super();
 
         this._payloadName = name;
         this._payloadParameters = parameters;
         this._payloadSwizzleTypes = swizzleTypes;
-        this._payloadTrace = trace;
+        this._payloadStackTrace = stackTrace;
         this._payloadSnapshot = snapshot ?? -1;
 
         this._name = "";
         this._parameters = [];
-        this._trace = [];
+        this._stackTrace = null;
         this._snapshot = "";
 
         this._valid = true;
@@ -57,7 +57,7 @@ WI.RecordingAction = class RecordingAction extends WI.Object
 
     // Static
 
-    // Payload format: (name, parameters, swizzleTypes, [trace, [snapshot]])
+    // Payload format: (name, parameters, swizzleTypes, [stackTrace, [snapshot]])
     static fromPayload(payload)
     {
         if (!Array.isArray(payload))
@@ -85,13 +85,10 @@ WI.RecordingAction = class RecordingAction extends WI.Object
         }
 
         if (typeof payload[3] !== "number" || isNaN(payload[3]) || (!payload[3] && payload[3] !== 0)) {
-            // COMPATIBILITY (iOS 12.1): "trace" was sent as an array of call frames instead of a single call stack
-            if (!Array.isArray(payload[3])) {
-                if (payload.length > 3)
-                    WI.Recording.synthesizeWarning(WI.UIString("non-number %s").format(WI.unlocalizedString("trace")));
+            if (payload.length > 3)
+                WI.Recording.synthesizeWarning(WI.UIString("non-number %s").format(WI.unlocalizedString("stackTrace")));
 
-                payload[3] = [];
-            }
+            payload[3] = [];
         }
 
         if (typeof payload[4] !== "number" || isNaN(payload[4])) {
@@ -115,6 +112,53 @@ WI.RecordingAction = class RecordingAction extends WI.Object
         return typeof propertyDescriptor.value === "function";
     }
 
+    static bitfieldNamesForParameter(type, name, value, index, count)
+    {
+        if (!value)
+            return null;
+
+        let prototype = WI.RecordingAction._prototypeForType(type);
+        if (!prototype)
+            return null;
+
+        function testAndClearBit(name) {
+            let bit = prototype[name];
+            if (!bit)
+                return;
+
+            if (value & bit)
+                names.push(name);
+
+            value = value & ~bit;
+        }
+
+        function hexString(value) {
+            return "0x" + value.toString(16);
+        }
+
+        let names = [];
+
+        if ((name === "clear" && index === 0 && (type === WI.Recording.Type.CanvasWebGL || type === WI.Recording.Type.CanvasWebGL2)) ||
+            (name === "blitFramebuffer" && index === 8 && type === WI.Recording.Type.CanvasWebGL2)) {
+            testAndClearBit("COLOR_BUFFER_BIT");
+            testAndClearBit("DEPTH_BUFFER_BIT");
+            testAndClearBit("STENCIL_BUFFER_BIT");
+            if (value)
+                names.push(hexString(value));
+        }
+
+        if (name === "clientWaitSync" && index === 1 && type === WI.Recording.Type.CanvasWebGL2) {
+            testAndClearBit("SYNC_FLUSH_COMMANDS_BIT");
+            if (value)
+                names.push(hexString(value));
+        }
+
+        if (!names.length)
+            return null;
+
+        return names;
+    }
+
     static constantNameForParameter(type, name, value, index, count)
     {
         let indexesForType = WI.RecordingAction._constantIndexes[type];
@@ -125,10 +169,10 @@ WI.RecordingAction = class RecordingAction extends WI.Object
         if (!indexesForAction)
             return null;
 
-        if (Array.isArray(indexesForAction) && !indexesForAction.includes(index))
-            return null;
-
-        if (typeof indexesForAction === "object") {
+        if (Array.isArray(indexesForAction)) {
+            if (!indexesForAction.includes(index))
+                return null;
+        } else if (typeof indexesForAction === "object") {
             let indexesForActionVariant = indexesForAction[count];
             if (!indexesForActionVariant)
                 return null;
@@ -165,15 +209,22 @@ WI.RecordingAction = class RecordingAction extends WI.Object
         switch (type) {
         case WI.Recording.Type.Canvas2D:
             return CanvasRenderingContext2D.prototype;
+        case WI.Recording.Type.OffscreenCanvas2D:
+            if (window.OffscreenCanvasRenderingContext2D)
+                return OffscreenCanvasRenderingContext2D.prototype;
+            break;
         case WI.Recording.Type.CanvasBitmapRenderer:
+        case WI.Recording.Type.OffscreenCanvasBitmapRenderer:
             if (window.ImageBitmapRenderingContext)
                 return ImageBitmapRenderingContext.prototype;
             break;
         case WI.Recording.Type.CanvasWebGL:
+        case WI.Recording.Type.OffscreenCanvasWebGL:
             if (window.WebGLRenderingContext)
                 return WebGLRenderingContext.prototype;
             break;
         case WI.Recording.Type.CanvasWebGL2:
+        case WI.Recording.Type.OffscreenCanvasWebGL2:
             if (window.WebGL2RenderingContext)
                 return WebGL2RenderingContext.prototype;
             break;
@@ -188,7 +239,7 @@ WI.RecordingAction = class RecordingAction extends WI.Object
     get name() { return this._name; }
     get parameters() { return this._parameters; }
     get swizzleTypes() { return this._payloadSwizzleTypes; }
-    get trace() { return this._trace; }
+    get stackTrace() { return this._stackTrace; }
     get snapshot() { return this._snapshot; }
     get valid() { return this._valid; }
     get isFunction() { return this._isFunction; }
@@ -222,7 +273,7 @@ WI.RecordingAction = class RecordingAction extends WI.Object
         }
 
         function getContent() {
-            if (context instanceof CanvasRenderingContext2D)
+            if (context instanceof CanvasRenderingContext2D || (window.OffscreenCanvasRenderingContext2D && context instanceof OffscreenCanvasRenderingContext2D))
                 return context.getImageData(0, 0, context.canvas.width, context.canvas.height).data;
 
             if ((window.WebGLRenderingContext && context instanceof WebGLRenderingContext) || (window.WebGL2RenderingContext && context instanceof WebGL2RenderingContext)) {
@@ -251,8 +302,8 @@ WI.RecordingAction = class RecordingAction extends WI.Object
                 this._warning = WI.UIString("This action causes no visual change");
         }
 
-        if (recording.type === WI.Recording.Type.Canvas2D) {
-            let currentState = WI.RecordingState.fromContext(recording.type, context, {source: this});
+        if (recording.isCanvas2D) {
+            let currentState = WI.RecordingState.fromCanvasContext2D(context, {source: this});
             console.assert(currentState);
 
             if (this.name === "save")
@@ -273,16 +324,14 @@ WI.RecordingAction = class RecordingAction extends WI.Object
                 }
             }
 
-            if (WI.ImageUtilities.supportsCanvasPathDebugging()) {
-                let currentX = currentState.get("currentX");
-                let invalidX = (currentX < 0 || currentX >= context.canvas.width) && (!lastState || currentX !== lastState.get("currentX"));
+            let currentX = currentState.get("currentX");
+            let invalidX = (currentX < 0 || currentX >= context.canvas.width) && (!lastState || currentX !== lastState.get("currentX"));
 
-                let currentY = currentState.get("currentY");
-                let invalidY = (currentY < 0 || currentY >= context.canvas.height) && (!lastState || currentY !== lastState.get("currentY"));
+            let currentY = currentState.get("currentY");
+            let invalidY = (currentY < 0 || currentY >= context.canvas.height) && (!lastState || currentY !== lastState.get("currentY"));
 
-                if (invalidX || invalidY)
-                    this._warning = WI.UIString("This action moves the path outside the visible area");
-            }
+            if (invalidX || invalidY)
+                this._warning = WI.UIString("This action moves the path outside the visible area");
         }
     }
 
@@ -302,34 +351,26 @@ WI.RecordingAction = class RecordingAction extends WI.Object
         let swizzlePromises = [
             recording.swizzle(this._payloadName, WI.Recording.Swizzle.String),
             Promise.all(this._payloadParameters.map(swizzleParameter)),
+            recording.swizzle(this._payloadStackTrace, WI.Recording.Swizzle.CallStack),
         ];
-
-        if (!isNaN(this._payloadTrace))
-            swizzlePromises.push(recording.swizzle(this._payloadTrace, WI.Recording.Swizzle.CallStack))
-        else {
-            // COMPATIBILITY (iOS 12.1): "trace" was sent as an array of call frames instead of a single call stack
-            swizzlePromises.push(Promise.all(this._payloadTrace.map((item) => recording.swizzle(item, WI.Recording.Swizzle.CallFrame))));
-        }
 
         if (this._payloadSnapshot >= 0)
             swizzlePromises.push(recording.swizzle(this._payloadSnapshot, WI.Recording.Swizzle.String));
 
-        let [name, parameters, callFrames, snapshot] = await Promise.all(swizzlePromises);
+        let [name, parameters, stackTrace, snapshot] = await Promise.all(swizzlePromises);
         this._name = name;
         this._parameters = parameters;
-        this._trace = callFrames;
+        this._stackTrace = stackTrace;
         if (this._payloadSnapshot >= 0)
             this._snapshot = snapshot;
 
-        if (recording.type === WI.Recording.Type.Canvas2D || recording.type === WI.Recording.Type.CanvasBitmapRenderer || recording.type === WI.Recording.Type.CanvasWebGL || recording.type === WI.Recording.Type.CanvasWebGL2) {
+        if (recording.isCanvas) {
             if (this._name === "width" || this._name === "height") {
                 this._contextReplacer = "canvas";
                 this._isFunction = false;
                 this._isGetter = !this._parameters.length;
                 this._isVisual = !this._isGetter;
             }
-
-            // FIXME: <https://webkit.org/b/180833>
         }
 
         if (!this._contextReplacer) {
@@ -446,8 +487,6 @@ WI.RecordingAction = class RecordingAction extends WI.Object
         case "fillStyle":
         case "putImageData":
         case "strokeStyle":
-        // 2D (non-standard)
-        case "drawImageFromRect":
         // BitmapRenderer
         case "transferFromImageBitmap":
             return this._parameters.slice(0, 1);
@@ -464,7 +503,7 @@ WI.RecordingAction = class RecordingAction extends WI.Object
 
     toJSON()
     {
-        let json = [this._payloadName, this._payloadParameters, this._payloadSwizzleTypes, this._payloadTrace];
+        let json = [this._payloadName, this._payloadParameters, this._payloadSwizzleTypes, this._payloadStackTrace];
         if (this._payloadSnapshot >= 0)
             json.push(this._payloadSnapshot);
         return json;
@@ -648,13 +687,14 @@ WI.RecordingAction._constantIndexes = {
         "vertexAttribPointer": [2],
     },
 };
+WI.RecordingAction._constantIndexes[WI.Recording.Type.OffscreenCanvasWebGL] = WI.RecordingAction._constantIndexes[WI.Recording.Type.CanvasWebGL];
+WI.RecordingAction._constantIndexes[WI.Recording.Type.OffscreenCanvasWebGL2] = WI.RecordingAction._constantIndexes[WI.Recording.Type.CanvasWebGL2];
 
 WI.RecordingAction._visualNames = {
     [WI.Recording.Type.Canvas2D]: new Set([
         "clearRect",
         "drawFocusIfNeeded",
         "drawImage",
-        "drawImageFromRect",
         "fill",
         "fillRect",
         "fillText",
@@ -662,6 +702,16 @@ WI.RecordingAction._visualNames = {
         "stroke",
         "strokeRect",
         "strokeText",
+    ]),
+    [WI.Recording.Type.OffscreenCanvas2D]: new Set([
+        "clearRect",
+        "drawImage",
+        "fill",
+        "fillRect",
+        "fillText",
+        "putImageData",
+        "strokeRect",
+        "strokeText",   
     ]),
     [WI.Recording.Type.CanvasBitmapRenderer]: new Set([
         "transferFromImageBitmap",
@@ -679,6 +729,9 @@ WI.RecordingAction._visualNames = {
         "drawElementsInstanced",
     ]),
 };
+WI.RecordingAction._visualNames[WI.Recording.Type.OffscreenCanvasBitmapRenderer] = WI.RecordingAction._visualNames[WI.Recording.Type.CanvasBitmapRenderer];
+WI.RecordingAction._visualNames[WI.Recording.Type.OffscreenCanvasWebGL] = WI.RecordingAction._visualNames[WI.Recording.Type.CanvasWebGL];
+WI.RecordingAction._visualNames[WI.Recording.Type.OffscreenCanvasWebGL2] = WI.RecordingAction._visualNames[WI.Recording.Type.CanvasWebGL2];
 
 WI.RecordingAction._stateModifiers = {
     [WI.Recording.Type.Canvas2D]: {
@@ -705,6 +758,23 @@ WI.RecordingAction._stateModifiers = {
         setMiterLimit: ["miterLimit"],
         setShadow: ["shadowOffsetX", "shadowOffsetY", "shadowBlur", "shadowColor"],
         setStrokeColor: ["strokeStyle"],
+        setTransform: ["transform"],
+        translate: ["transform"],
+    },
+    [WI.Recording.Type.OffscreenCanvas2D]: {
+        arc: ["currentX", "currentY"],
+        arcTo: ["currentX", "currentY"],
+        beginPath: ["currentX", "currentY"],
+        bezierCurveTo: ["currentX", "currentY"],
+        closePath: ["currentX", "currentY"],
+        ellipse: ["currentX", "currentY"],
+        lineTo: ["currentX", "currentY"],
+        moveTo: ["currentX", "currentY"],
+        quadraticCurveTo: ["currentX", "currentY"],
+        rect: ["currentX", "currentY"],
+        resetTransform: ["transform"],
+        rotate: ["transform"],
+        scale: ["transform"],
         setTransform: ["transform"],
         translate: ["transform"],
     },

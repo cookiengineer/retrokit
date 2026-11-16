@@ -31,10 +31,11 @@
 
 #include "HeapAnalyzer.h"
 #include "JSCInlines.h"
+#include "JSSymbolTableObjectInlines.h"
 
 namespace JSC {
 
-const ClassInfo JSSegmentedVariableObject::s_info = { "SegmentedVariableObject", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSSegmentedVariableObject) };
+const ClassInfo JSSegmentedVariableObject::s_info = { "SegmentedVariableObject"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSSegmentedVariableObject) };
 
 ScopeOffset JSSegmentedVariableObject::findVariableIndex(void* variableAddress)
 {
@@ -65,7 +66,7 @@ ScopeOffset JSSegmentedVariableObject::addVariables(unsigned numberOfVariablesTo
 template<typename Visitor>
 void JSSegmentedVariableObject::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    JSSegmentedVariableObject* thisObject = jsCast<JSSegmentedVariableObject*>(cell);
+    JSSegmentedVariableObject* thisObject = uncheckedDowncast<JSSegmentedVariableObject>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
     
@@ -80,7 +81,7 @@ DEFINE_VISIT_CHILDREN_WITH_MODIFIER(JS_EXPORT_PRIVATE, JSSegmentedVariableObject
 
 void JSSegmentedVariableObject::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
 {
-    JSSegmentedVariableObject* thisObject = jsCast<JSSegmentedVariableObject*>(cell);
+    JSSegmentedVariableObject* thisObject = uncheckedDowncast<JSSegmentedVariableObject>(cell);
     Base::analyzeHeap(cell, analyzer);
 
     ConcurrentJSLocker locker(thisObject->symbolTable()->m_lock);

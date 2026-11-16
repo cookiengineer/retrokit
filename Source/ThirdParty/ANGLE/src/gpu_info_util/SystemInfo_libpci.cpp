@@ -11,6 +11,7 @@
 #include <dlfcn.h>
 #include <pci/pci.h>
 #include <unistd.h>
+#include <fstream>
 
 #include "common/angleutils.h"
 #include "common/debug.h"
@@ -29,7 +30,7 @@ struct LibPCI : private angle::NonCopyable
 {
     LibPCI()
     {
-        if (access("/sys/bus/pci/", F_OK) != 0 && access("/sys/bs/pci_express/", F_OK) != 0)
+        if (access("/sys/bus/pci/", F_OK) != 0 && access("/sys/bus/pci_express/", F_OK) != 0)
         {
             return;
         }
@@ -56,7 +57,9 @@ struct LibPCI : private angle::NonCopyable
             (FillInfo = reinterpret_cast<decltype(FillInfo)>(dlsym(mHandle, "pci_fill_info"))) !=
                 nullptr &&
             (LookupName = reinterpret_cast<decltype(LookupName)>(
-                 dlsym(mHandle, "pci_lookup_name"))) != nullptr;
+                 dlsym(mHandle, "pci_lookup_name"))) != nullptr &&
+            (PCIReadByte = reinterpret_cast<decltype(PCIReadByte)>(
+                 dlsym(mHandle, "pci_read_byte"))) != nullptr;
     }
 
     bool IsValid() const { return mValid; }
@@ -75,6 +78,27 @@ struct LibPCI : private angle::NonCopyable
     decltype(&::pci_scan_bus) ScanBus       = nullptr;
     decltype(&::pci_fill_info) FillInfo     = nullptr;
     decltype(&::pci_lookup_name) LookupName = nullptr;
+    decltype(&::pci_read_byte) PCIReadByte  = nullptr;
+
+    uint8_t GetRevisionId(pci_dev *device)
+    {
+        char revision_path[100];
+        snprintf(revision_path, sizeof(revision_path),
+                 "/sys/bus/pci/devices/%04x:%02x:%02x.%d/revision", device->domain, device->bus,
+                 device->dev, device->func);
+
+        std::ifstream file(revision_path);
+        if (file.is_open())
+        {
+            uint8_t rev;
+            if (file >> std::hex >> rev)
+            {
+                return rev;
+            }
+        }
+
+        return PCIReadByte(device, PCI_REVISION_ID);
+    }
 
   private:
     void *mHandle = nullptr;
@@ -99,17 +123,16 @@ bool GetPCIDevicesWithLibPCI(std::vector<GPUDeviceInfo> *devices)
 
     for (pci_dev *device = access->devices; device != nullptr; device = device->next)
     {
+#if PCI_LIB_VERSION >= 0x030800
+        pci.FillInfo(device, PCI_FILL_IDENT | PCI_FILL_CLASS | PCI_FILL_CLASS_EXT);
+#else
         pci.FillInfo(device, PCI_FILL_IDENT | PCI_FILL_CLASS);
+#endif
 
         // Skip non-GPU devices
-        switch (device->device_class)
+        if (device->device_class >> 8 != PCI_BASE_CLASS_DISPLAY)
         {
-            case PCI_CLASS_DISPLAY_VGA:
-            case PCI_CLASS_DISPLAY_XGA:
-            case PCI_CLASS_DISPLAY_3D:
-                break;
-            default:
-                continue;
+            continue;
         }
 
         // Skip unknown devices
@@ -119,8 +142,13 @@ bool GetPCIDevicesWithLibPCI(std::vector<GPUDeviceInfo> *devices)
         }
 
         GPUDeviceInfo info;
-        info.vendorId = device->vendor_id;
-        info.deviceId = device->device_id;
+        info.vendorId   = device->vendor_id;
+        info.deviceId   = device->device_id;
+#if PCI_LIB_VERSION >= 0x030800
+        info.revisionId = device->rev_id;
+#else
+        info.revisionId = pci.GetRevisionId(device);
+#endif
 
         devices->push_back(info);
     }

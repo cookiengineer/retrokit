@@ -29,12 +29,13 @@
 #include "AsyncGeneratorFunctionPrototype.h"
 #include "FunctionConstructor.h"
 #include "JSCInlines.h"
+#include "StructureCreateInlines.h"
 
 namespace JSC {
 
 STATIC_ASSERT_IS_TRIVIALLY_DESTRUCTIBLE(AsyncGeneratorFunctionConstructor);
 
-const ClassInfo AsyncGeneratorFunctionConstructor::s_info = { "AsyncGeneratorFunction", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(AsyncGeneratorFunctionConstructor) };
+const ClassInfo AsyncGeneratorFunctionConstructor::s_info = { "AsyncGeneratorFunction"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(AsyncGeneratorFunctionConstructor) };
 
 static JSC_DECLARE_HOST_FUNCTION(callAsyncGeneratorFunctionConstructor);
 static JSC_DECLARE_HOST_FUNCTION(constructAsyncGeneratorFunctionConstructor);
@@ -60,6 +61,11 @@ void AsyncGeneratorFunctionConstructor::finishCreation(VM& vm, AsyncGeneratorFun
 {
     Base::finishCreation(vm, 1, "AsyncGeneratorFunction"_s, PropertyAdditionMode::WithoutStructureTransition);
     putDirectWithoutTransition(vm, vm.propertyNames->prototype, prototype, PropertyAttribute::DontEnum | PropertyAttribute::DontDelete | PropertyAttribute::ReadOnly);
+}
+
+Structure* AsyncGeneratorFunctionConstructor::createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
+{
+    return Structure::create(vm, globalObject, prototype, TypeInfo(InternalFunctionType, StructureFlags), info());
 }
 
 } // namespace JSC

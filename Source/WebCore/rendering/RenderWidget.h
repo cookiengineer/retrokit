@@ -21,12 +21,14 @@
 
 #pragma once
 
-#include "HTMLFrameOwnerElement.h"
-#include "OverlapTestRequestClient.h"
-#include "RenderReplaced.h"
-#include "Widget.h"
+#include <WebCore/HTMLFrameOwnerElement.h>
+#include <WebCore/OverlapTestRequestClient.h>
+#include <WebCore/RenderReplaced.h>
+#include <WebCore/Widget.h>
 
 namespace WebCore {
+
+class RemoteFrame;
 
 class WidgetHierarchyUpdatesSuspensionScope {
 public:
@@ -37,61 +39,60 @@ public:
     ~WidgetHierarchyUpdatesSuspensionScope()
     {
         ASSERT(s_widgetHierarchyUpdateSuspendCount);
-        if (s_widgetHierarchyUpdateSuspendCount == 1)
+        if (s_widgetHierarchyUpdateSuspendCount == 1 && s_haveScheduledWidgetToMove)
             moveWidgets();
         s_widgetHierarchyUpdateSuspendCount--;
     }
 
     static bool isSuspended() { return s_widgetHierarchyUpdateSuspendCount; }
-    static void scheduleWidgetToMove(Widget& widget, FrameView* frame) { widgetNewParentMap().set(&widget, frame); }
+    static void scheduleWidgetToMove(Widget&, LocalFrameView*);
 
 private:
-    using WidgetToParentMap = HashMap<RefPtr<Widget>, FrameView*>;
-    static WidgetToParentMap& widgetNewParentMap();
+    using WidgetToParentMap = HashMap<Ref<Widget>, SingleThreadWeakPtr<LocalFrameView>>;
+    static WidgetToParentMap& NODELETE widgetNewParentMap();
 
     WEBCORE_EXPORT void moveWidgets();
     WEBCORE_EXPORT static unsigned s_widgetHierarchyUpdateSuspendCount;
+    WEBCORE_EXPORT static bool s_haveScheduledWidgetToMove;
 };
-    
-class RenderWidget : public RenderReplaced, private OverlapTestRequestClient {
-    WTF_MAKE_ISO_ALLOCATED(RenderWidget);
+
+class RenderWidget : public RenderReplaced, private OverlapTestRequestClient, public RefCounted<RenderWidget> {
+    WTF_MAKE_TZONE_ALLOCATED(RenderWidget);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderWidget);
 public:
     virtual ~RenderWidget();
 
-    HTMLFrameOwnerElement& frameOwnerElement() const { return downcast<HTMLFrameOwnerElement>(nodeForNonAnonymous()); }
+    inline HTMLFrameOwnerElement& frameOwnerElement() const; // Defined in RenderWidgetInlines.h
 
     Widget* widget() const { return m_widget.get(); }
     WEBCORE_EXPORT void setWidget(RefPtr<Widget>&&);
 
-    static RenderWidget* find(const Widget&);
+    static RenderWidget* NODELETE find(const Widget&);
 
     enum class ChildWidgetState { Valid, Destroyed };
-    ChildWidgetState updateWidgetPosition() WARN_UNUSED_RETURN;
+    [[nodiscard]] ChildWidgetState updateWidgetPosition();
     WEBCORE_EXPORT IntRect windowClipRect() const;
 
-    bool requiresAcceleratedCompositing() const;
+    virtual bool requiresAcceleratedCompositing() const;
 
-    void ref() { ++m_refCount; }
-    void deref();
+    RemoteFrame* NODELETE remoteFrame() const;
 
 protected:
-    RenderWidget(HTMLFrameOwnerElement&, RenderStyle&&);
+    RenderWidget(Type, HTMLFrameOwnerElement&, Style::ComputedStyle&&);
 
     void willBeDestroyed() override;
-    void styleDidChange(StyleDifference, const RenderStyle* oldStyle) final;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) override;
     void layout() override;
     void paint(PaintInfo&, const LayoutPoint&) override;
     bool nodeAtPoint(const HitTestRequest&, HitTestResult&, const HitTestLocation& locationInContainer, const LayoutPoint& accumulatedOffset, HitTestAction) override;
-    virtual void paintContents(PaintInfo&, const LayoutPoint&);
     bool requiresLayer() const override;
 
 private:
     void element() const = delete;
 
-    bool isWidget() const final { return true; }
-
-    bool needsPreferredWidthsRecalculation() const final;
-    RenderBox* embeddedContentBox() const final;
+    bool shouldInvalidateContentWidths() const final;
+    RenderReplaced* embeddedSVGRoot() const final;
+    FloatSize preferredAspectRatioAsSize() const final;
 
     void setSelectionState(HighlightState) final;
     void setOverlapTestResult(bool) final;
@@ -99,18 +100,12 @@ private:
     bool setWidgetGeometry(const LayoutRect&);
     bool updateWidgetGeometry();
 
+    void paintContents(PaintInfo&, const LayoutPoint&);
+
     RefPtr<Widget> m_widget;
     IntRect m_clipRect; // The rectangle needs to remain correct after scrolling, so it is stored in content view coordinates, and not clipped to window.
-    unsigned m_refCount { 1 };
 };
-
-inline void RenderWidget::deref()
-{
-    ASSERT(m_refCount);
-    if (!--m_refCount)
-        delete this;
-}
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderWidget, isWidget())
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderWidget, isRenderWidget())

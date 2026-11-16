@@ -25,8 +25,10 @@
 
 #pragma once
 
-#include "AuxiliaryBarrier.h"
+#include <JavaScriptCore/AuxiliaryBarrier.h>
 #include <wtf/CagedPtr.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
@@ -35,46 +37,41 @@ class VM;
 
 // This is a convenient combo of AuxiliaryBarrier and CagedPtr.
 
-template<Gigacage::Kind passedKind, typename T, bool shouldTag = false>
+template<Gigacage::Kind passedKind, typename T>
 class CagedBarrierPtr {
 public:
     static constexpr Gigacage::Kind kind = passedKind;
     using Type = T;
-    using CagedType = CagedPtr<kind, Type, shouldTag>;
+    using CagedType = CagedPtr<kind, Type>;
     
     CagedBarrierPtr() = default;
     
     template<typename U>
-    CagedBarrierPtr(VM& vm, JSCell* cell, U&& value, size_t size)
+    CagedBarrierPtr(VM& vm, JSCell* cell, U&& value)
     {
-        m_barrier.set(vm, cell, CagedType(std::forward<U>(value), size));
+        m_barrier.set(vm, cell, CagedType(std::forward<U>(value)));
     }
     
     void clear() { m_barrier.clear(); }
     
     template<typename U>
-    void set(VM& vm, JSCell* cell, U&& value, size_t size)
+    void set(VM& vm, JSCell* cell, U&& value)
     {
-        m_barrier.set(vm, cell, CagedType(std::forward<U>(value), size));
+        m_barrier.set(vm, cell, CagedType(std::forward<U>(value)));
     }
     
-    T* get(size_t size) const { return m_barrier.get().get(size); }
-    T* getMayBeNull(size_t size) const { return m_barrier.get().getMayBeNull(size); }
-    T* getUnsafe() const { return m_barrier.get().getUnsafe(); }
+    T* get() const LIFETIME_BOUND { return m_barrier.get().get(); }
+    T* getMayBeNull() const LIFETIME_BOUND { return m_barrier.get().getMayBeNull(); }
+    T* getUnsafe() const LIFETIME_BOUND { return m_barrier.get().getUnsafe(); }
 
     // We need the template here so that the type of U is deduced at usage time rather than class time. U should always be T.
     template<typename U = T>
-    typename std::enable_if<!std::is_same<void, U>::value, T>::type&
-    /* T& */ at(size_t index, size_t size) const { return get(size)[index]; }
+        requires (!std::is_void_v<U>)
+    U& at(size_t index) const { return get()[index]; }
 
     bool operator==(const CagedBarrierPtr& other) const
     {
         return m_barrier.get() == other.m_barrier.get();
-    }
-    
-    bool operator!=(const CagedBarrierPtr& other) const
-    {
-        return !(*this == other);
     }
     
     explicit operator bool() const
@@ -83,7 +80,7 @@ public:
     }
     
     template<typename U>
-    void setWithoutBarrier(U&& value, size_t size) { m_barrier.setWithoutBarrier(CagedType(std::forward<U>(value), size)); }
+    void setWithoutBarrier(U&& value) { m_barrier.setWithoutBarrier(CagedType(std::forward<U>(value))); }
 
     T* rawBits() const
     {
@@ -95,3 +92,5 @@ private:
 };
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

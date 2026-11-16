@@ -25,17 +25,19 @@
 
 #pragma once
 
+#include <WebCore/PlatformExportMacros.h>
 #include <wtf/ObjectIdentifier.h>
 
 namespace WebCore {
 
-enum ProcessIdentifierType { };
+struct ProcessIdentifierType;
 using ProcessIdentifier = ObjectIdentifier<ProcessIdentifierType>;
 
 namespace Process {
 
-WEBCORE_EXPORT void setIdentifier(ProcessIdentifier);
+WEBCORE_EXPORT void NODELETE setIdentifier(ProcessIdentifier);
 WEBCORE_EXPORT ProcessIdentifier identifier();
+WEBCORE_EXPORT ProcessIdentifier NODELETE generateIdentifier();
 
 } // namespace Process
 } // namespace WebCore

@@ -30,10 +30,12 @@
 
 #pragma once
 
+#include "BoundaryPoint.h"
 #include "CaretRectComputation.h"
-#include "LayoutIntegrationLineIterator.h"
-#include "LayoutIntegrationRunIterator.h"
+#include "InlineIteratorBox.h"
+#include "InlineIteratorLineBox.h"
 #include "TextAffinity.h"
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -50,12 +52,14 @@ public:
     bool isEquivalent(const RenderedPosition&) const;
 
     bool isNull() const { return !m_renderer; }
-    LayoutIntegration::LineIterator line() const { return m_run ? m_run.line() : LayoutIntegration::LineIterator(); }
+    InlineIterator::LineBoxIterator lineBox() const { return m_box ? m_box->lineBox() : InlineIterator::LineBoxIterator(); }
+    InlineIterator::LeafBoxIterator box() const { return m_box; }
+    unsigned offset() const { return m_offset; }
 
     unsigned char bidiLevelOnLeft() const;
     unsigned char bidiLevelOnRight() const;
-    RenderedPosition leftBoundaryOfBidiRun(unsigned char bidiLevelOfRun);
-    RenderedPosition rightBoundaryOfBidiRun(unsigned char bidiLevelOfRun);
+    RenderedPosition leftBoundaryOfBidiRun(unsigned char bidiLevelOfRun) const;
+    RenderedPosition rightBoundaryOfBidiRun(unsigned char bidiLevelOfRun) const;
 
     enum ShouldMatchBidiLevel { MatchBidiLevel, IgnoreBidiLevel };
     bool atLeftBoundaryOfBidiRun() const { return atLeftBoundaryOfBidiRun(IgnoreBidiLevel, 0); }
@@ -68,27 +72,31 @@ public:
     Position positionAtLeftBoundaryOfBiDiRun() const;
     Position positionAtRightBoundaryOfBiDiRun() const;
 
+    bool atLeftmostOffsetInBox() const { return m_box && m_offset == m_box->leftmostCaretOffset(); }
+    bool atRightmostOffsetInBox() const { return m_box && m_offset == m_box->rightmostCaretOffset(); }
+
     IntRect absoluteRect(CaretRectMode = CaretRectMode::Normal) const;
+
+    std::optional<BoundaryPoint> boundaryPoint() const;
 
 private:
     bool operator==(const RenderedPosition&) const { return false; }
-    explicit RenderedPosition(const RenderObject*, LayoutIntegration::RunIterator, unsigned offset);
+    explicit RenderedPosition(const RenderObject*, InlineIterator::LeafBoxIterator, unsigned offset);
 
-    LayoutIntegration::RunIterator previousLeafOnLine() const;
-    LayoutIntegration::RunIterator nextLeafOnLine() const;
-    bool atLeftmostOffsetInBox() const { return m_run && m_offset == m_run->leftmostCaretOffset(); }
-    bool atRightmostOffsetInBox() const { return m_run && m_offset == m_run->rightmostCaretOffset(); }
+    InlineIterator::LeafBoxIterator previousLeafOnLine() const;
+    InlineIterator::LeafBoxIterator nextLeafOnLine() const;
     bool atLeftBoundaryOfBidiRun(ShouldMatchBidiLevel, unsigned char bidiLevelOfRun) const;
     bool atRightBoundaryOfBidiRun(ShouldMatchBidiLevel, unsigned char bidiLevelOfRun) const;
 
-    const RenderObject* m_renderer { nullptr };
-    LayoutIntegration::RunIterator m_run;
+    SingleThreadWeakPtr<const RenderObject> m_renderer;
+    RefPtr<Node> m_node;
+    InlineIterator::LeafBoxIterator m_box;
     unsigned m_offset { 0 };
 
-    mutable std::optional<LayoutIntegration::RunIterator> m_previousLeafOnLine;
-    mutable std::optional<LayoutIntegration::RunIterator> m_nextLeafOnLine;
+    mutable std::optional<InlineIterator::LeafBoxIterator> m_previousLeafOnLine;
+    mutable std::optional<InlineIterator::LeafBoxIterator> m_nextLeafOnLine;
 };
 
-bool renderObjectContainsPosition(const RenderObject*, const Position&);
+bool NODELETE renderObjectContainsPosition(const RenderObject*, const Position&);
 
 } // namespace WebCore

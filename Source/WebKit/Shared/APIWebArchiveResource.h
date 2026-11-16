@@ -51,20 +51,22 @@ public:
     static Ref<WebArchiveResource> create(RefPtr<WebCore::ArchiveResource>&&);
 
     Ref<API::Data> data();
-    WTF::String URL();
-    WTF::String MIMEType();
-    WTF::String textEncoding();
+    WTF::String NODELETE url();
+    WTF::String NODELETE mimeType();
+    WTF::String NODELETE textEncoding();
 
-    WebCore::ArchiveResource* coreArchiveResource();
+    WebCore::ArchiveResource* NODELETE coreArchiveResource();
 
 private:
     WebArchiveResource(API::Data*, const WTF::String& URL, const WTF::String& MIMEType, const WTF::String& textEncoding);
     WebArchiveResource(RefPtr<WebCore::ArchiveResource>&&);
 
-    RefPtr<WebCore::ArchiveResource> m_archiveResource;
+    const RefPtr<WebCore::ArchiveResource> m_archiveResource;
 };
 
 } // namespace API
+
+SPECIALIZE_TYPE_TRAITS_API_OBJECT(WebArchiveResource);
 
 #endif // PLATFORM(COCOA)
 

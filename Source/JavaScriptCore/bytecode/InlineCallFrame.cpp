@@ -27,20 +27,23 @@
 #include "InlineCallFrame.h"
 
 #include "CodeBlock.h"
+#include "FunctionExecutable.h"
 #include "JSCJSValueInlines.h"
 
 namespace JSC {
 
+DEFINE_COMPACT_ALLOCATOR_WITH_HEAP_IDENTIFIER(InlineCallFrame);
+
 JSFunction* InlineCallFrame::calleeConstant() const
 {
     if (calleeRecovery.isConstant())
-        return jsCast<JSFunction*>(calleeRecovery.constant());
+        return uncheckedDowncast<JSFunction>(calleeRecovery.constant());
     return nullptr;
 }
 
 JSFunction* InlineCallFrame::calleeForCallFrame(CallFrame* callFrame) const
 {
-    return jsCast<JSFunction*>(calleeRecovery.recover(callFrame));
+    return uncheckedDowncast<JSFunction>(calleeRecovery.recover(callFrame));
 }
 
 CodeBlockHash InlineCallFrame::hash() const
@@ -48,19 +51,19 @@ CodeBlockHash InlineCallFrame::hash() const
     return baselineCodeBlock->hash();
 }
 
-CString InlineCallFrame::hashAsStringIfPossible() const
-{
-    return baselineCodeBlock->hashAsStringIfPossible();
-}
-
 CString InlineCallFrame::inferredName() const
 {
-    return jsCast<FunctionExecutable*>(baselineCodeBlock->ownerExecutable())->ecmaName().utf8();
+    return uncheckedDowncast<FunctionExecutable>(baselineCodeBlock->ownerExecutable())->ecmaName().utf8();
+}
+
+String InlineCallFrame::inferredNameWithHash() const
+{
+    return makeString(inferredName(), "#"_s, hash());
 }
 
 void InlineCallFrame::dumpBriefFunctionInformation(PrintStream& out) const
 {
-    out.print(inferredName(), "#", hashAsStringIfPossible());
+    out.print(inferredName(), "#", hash());
 }
 
 void InlineCallFrame::dumpInContext(PrintStream& out, DumpContext* context) const
@@ -114,6 +117,24 @@ void printInternal(PrintStream& out, JSC::InlineCallFrame::Kind kind)
         return;
     case JSC::InlineCallFrame::SetterCall:
         out.print("SetterCall");
+        return;
+    case JSC::InlineCallFrame::ProxyObjectLoadCall:
+        out.print("ProxyObjectLoadCall");
+        return;
+    case JSC::InlineCallFrame::ProxyObjectStoreCall:
+        out.print("ProxyObjectStoreCall");
+        return;
+    case JSC::InlineCallFrame::ProxyObjectInCall:
+        out.print("ProxyObjectInCall");
+        return;
+    case JSC::InlineCallFrame::BoundFunctionCall:
+        out.print("BoundFunctionCall");
+        return;
+    case JSC::InlineCallFrame::BoundFunctionTailCall:
+        out.print("BoundFunctionTailCall");
+        return;
+    case JSC::InlineCallFrame::ArraySortComparatorCall:
+        out.print("ArraySortComparatorCall");
         return;
     }
     RELEASE_ASSERT_NOT_REACHED();

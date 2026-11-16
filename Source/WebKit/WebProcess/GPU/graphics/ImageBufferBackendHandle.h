@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,25 +25,23 @@
 
 #pragma once
 
-#if ENABLE(GPU_PROCESS)
-
-#include "ShareableBitmap.h"
-#include "SharedBufferCopy.h"
+#include <WebCore/ShareableBitmap.h>
 #include <wtf/MachSendRight.h>
-#include <wtf/Variant.h>
+
+#if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
+#include <WebCore/DynamicContentScalingDisplayList.h>
+#endif
 
 namespace WebKit {
 
 using ImageBufferBackendHandle = Variant<
-    ShareableBitmap::Handle
+    WebCore::ShareableBitmap::Handle
 #if PLATFORM(COCOA) // FIXME: This is really about IOSurface.
     , MachSendRight
 #endif
-#if ENABLE(CG_DISPLAY_LIST_BACKED_IMAGE_BUFFER)
-    , IPC::SharedBufferCopy
+#if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
+    , WebCore::DynamicContentScalingDisplayList
 #endif
 >;
 
 } // namespace WebKit
-
-#endif // ENABLE(GPU_PROCESS)

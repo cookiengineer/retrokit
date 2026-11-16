@@ -24,8 +24,9 @@
  */
 
 [
-    EnabledBySetting=WebXR,
     Conditional=WEBXR,
+    EnabledBySetting=WebXREnabled,
 ] dictionary FakeXRBoundsPoint {
-    double x; double z;
+    double x = 0;
+    double z = 0;
 };

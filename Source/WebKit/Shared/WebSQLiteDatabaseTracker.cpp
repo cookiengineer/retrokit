@@ -31,8 +31,13 @@
 namespace WebKit {
 using namespace WebCore;
 
+Ref<WebSQLiteDatabaseTracker> WebSQLiteDatabaseTracker::create(IsHoldingLockedFilesHandler&& isHoldingLockedFilesHandler)
+{
+    return adoptRef(*new WebSQLiteDatabaseTracker(WTF::move(isHoldingLockedFilesHandler)));
+}
+
 WebSQLiteDatabaseTracker::WebSQLiteDatabaseTracker(IsHoldingLockedFilesHandler&& isHoldingLockedFilesHandler)
-    : m_isHoldingLockedFilesHandler(WTFMove(isHoldingLockedFilesHandler))
+    : m_isHoldingLockedFilesHandler(WTF::move(isHoldingLockedFilesHandler))
 {
     ASSERT(RunLoop::isMain());
     SQLiteDatabaseTracker::setClient(this);
@@ -64,22 +69,28 @@ void WebSQLiteDatabaseTracker::willBeginFirstTransaction()
         return;
     }
 
-    setIsHoldingLockedFiles(true);
+    RunLoop::mainSingleton().dispatch([weakThis = WeakPtr { *this }] {
+        if (RefPtr protectedThis = weakThis.get()) {
+            Locker locker { protectedThis->m_lock };
+            protectedThis->setIsHoldingLockedFiles(true);
+        }
+    });
 }
 
 void WebSQLiteDatabaseTracker::didFinishLastTransaction()
 {
     Locker locker { m_lock };
-    RunLoop::main().dispatchAfter(1_s, [this, weakThis = makeWeakPtr(*this), hystererisID = ++m_currentHystererisID] {
-        if (!weakThis)
+    RunLoop::mainSingleton().dispatchAfter(1_s, [weakThis = WeakPtr { *this }, hystererisID = ++m_currentHystererisID] {
+        RefPtr protectedThis = weakThis.get();
+        if (!protectedThis)
             return;
 
-        Locker locker { m_lock };
-        if (m_currentHystererisID != hystererisID)
+        Locker locker { protectedThis->m_lock };
+        if (protectedThis->m_currentHystererisID != hystererisID)
             return; // Cancelled.
 
-        m_currentHystererisID = 0;
-        setIsHoldingLockedFiles(false);
+        protectedThis->m_currentHystererisID = 0;
+        protectedThis->setIsHoldingLockedFiles(false);
     });
 }
 

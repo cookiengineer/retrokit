@@ -25,17 +25,18 @@
 
 #pragma once
 
-#include "HTMLNames.h"
-#include "HTMLTablePartElement.h"
+#include <WebCore/HTMLNames.h>
+#include <WebCore/HTMLTablePartElement.h>
 
 namespace WebCore {
 
 class HTMLTableSectionElement final : public HTMLTablePartElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLTableSectionElement);
+    WTF_MAKE_TZONE_ALLOCATED(HTMLTableSectionElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLTableSectionElement);
 public:
     static Ref<HTMLTableSectionElement> create(const QualifiedName&, Document&);
 
-    WEBCORE_EXPORT ExceptionOr<Ref<HTMLElement>> insertRow(int index = -1);
+    WEBCORE_EXPORT ExceptionOr<Ref<HTMLTableRowElement>> insertRow(int index = -1);
     WEBCORE_EXPORT ExceptionOr<void> deleteRow(int index);
 
     int numRows() const;
@@ -45,12 +46,16 @@ public:
 private:
     HTMLTableSectionElement(const QualifiedName& tagName, Document&);
 
-    const StyleProperties* additionalPresentationalHintStyle() const final;
+    const MutableStyleProperties* additionalPresentationalHintStyle() const final;
 };
 
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::HTMLTableSectionElement)
     static bool isType(const WebCore::HTMLElement& element) { return element.hasTagName(WebCore::HTMLNames::theadTag) || element.hasTagName(WebCore::HTMLNames::tfootTag) || element.hasTagName(WebCore::HTMLNames::tbodyTag); }
-    static bool isType(const WebCore::Node& node) { return is<WebCore::HTMLElement>(node) && isType(downcast<WebCore::HTMLElement>(node)); }
+    static bool isType(const WebCore::Node& node)
+    {
+        auto* htmlElement = dynamicDowncast<WebCore::HTMLElement>(node);
+        return htmlElement && isType(*htmlElement);
+    }
 SPECIALIZE_TYPE_TRAITS_END()

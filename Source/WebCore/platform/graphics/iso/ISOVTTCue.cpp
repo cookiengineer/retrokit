@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,6 +28,7 @@
 
 #include "Logging.h"
 #include <JavaScriptCore/DataView.h>
+#include <wtf/CrossThreadCopier.h>
 #include <wtf/JSONValues.h>
 #include <wtf/URL.h>
 
@@ -37,7 +38,7 @@ namespace WebCore {
 
 class ISOStringBox final : public ISOBox {
 public:
-    const String& contents() { return m_contents; }
+    const String& NODELETE contents() { return m_contents; }
 
 private:
     bool parse(JSC::DataView& view, unsigned& offset) override
@@ -52,13 +53,17 @@ private:
             return true;
         }
 
-        Vector<LChar> characters;
+        auto bytesRemaining = view.byteLength() - localOffset;
+        if (characterCount > bytesRemaining)
+            return false;
+
+        Vector<Latin1Character> characters;
         characters.reserveInitialCapacity(static_cast<size_t>(characterCount));
         while (characterCount--) {
             int8_t character = 0;
             if (!checkedRead<int8_t>(character, view, localOffset, BigEndian))
                 return false;
-            characters.uncheckedAppend(character);
+            characters.append(character);
         }
 
         m_contents = String::fromUTF8(characters);
@@ -68,11 +73,11 @@ private:
     String m_contents;
 };
 
-static FourCC vttIdBoxType() { return "iden"; }
-static FourCC vttSettingsBoxType() { return "sttg"; }
-static FourCC vttPayloadBoxType() { return "payl"; }
-static FourCC vttCurrentTimeBoxType() { return "ctim"; }
-static FourCC vttCueSourceIDBoxType() { return "vsid"; }
+static FourCC NODELETE vttIdBoxType() { return std::span { "iden" }; }
+static FourCC NODELETE vttSettingsBoxType() { return std::span { "sttg" }; }
+static FourCC NODELETE vttPayloadBoxType() { return std::span { "payl" }; }
+static FourCC NODELETE vttCurrentTimeBoxType() { return std::span { "ctim" }; }
+static FourCC NODELETE vttCueSourceIDBoxType() { return std::span { "vsid" }; }
 
 ISOWebVTTCue::ISOWebVTTCue(const MediaTime& presentationTime, const MediaTime& duration)
     : m_presentationTime(presentationTime)
@@ -80,16 +85,20 @@ ISOWebVTTCue::ISOWebVTTCue(const MediaTime& presentationTime, const MediaTime& d
 {
 }
 
-ISOWebVTTCue::ISOWebVTTCue(MediaTime&& presentationTime, MediaTime&& duration, String&& sourceID, String&& id, String&& originalStartTime, String&& settings, String&& cueText)
-    : m_presentationTime(WTFMove(presentationTime))
-    , m_duration(WTFMove(duration))
-    , m_sourceID(WTFMove(sourceID))
-    , m_identifier(WTFMove(id))
-    , m_originalStartTime(WTFMove(originalStartTime))
-    , m_settings(WTFMove(settings))
-    , m_cueText(WTFMove(cueText))
+ISOWebVTTCue::ISOWebVTTCue(const MediaTime& presentationTime, const MediaTime& duration, String&& cueID, String&& cueText, String&& settings, String&& sourceID, String&& originalStartTime)
+    : m_presentationTime(presentationTime)
+    , m_duration(duration)
+    , m_sourceID(WTF::move(sourceID))
+    , m_identifier(WTF::move(cueID))
+    , m_originalStartTime(WTF::move(originalStartTime))
+    , m_settings(WTF::move(settings))
+    , m_cueText(WTF::move(cueText))
 {
 }
+
+ISOWebVTTCue::ISOWebVTTCue() = default;
+ISOWebVTTCue::ISOWebVTTCue(ISOWebVTTCue&&) = default;
+ISOWebVTTCue::~ISOWebVTTCue() = default;
 
 bool ISOWebVTTCue::parse(DataView& view, unsigned& offset)
 {
@@ -102,7 +111,7 @@ bool ISOWebVTTCue::parse(DataView& view, unsigned& offset)
         if (stringBox.boxType() == vttCueSourceIDBoxType())
             m_sourceID = stringBox.contents();
         else if (stringBox.boxType() == vttIdBoxType())
-            m_identifier = stringBox.contents();
+            m_identifier = AtomString { stringBox.contents() };
         else if (stringBox.boxType() == vttCurrentTimeBoxType())
             m_originalStartTime = stringBox.contents();
         else if (stringBox.boxType() == vttSettingsBoxType())
@@ -110,7 +119,7 @@ bool ISOWebVTTCue::parse(DataView& view, unsigned& offset)
         else if (stringBox.boxType() == vttPayloadBoxType())
             m_cueText = stringBox.contents();
         else
-            LOG(Media, "ISOWebVTTCue::ISOWebVTTCue - skipping box id = \"%s\", size = %zu", stringBox.boxType().toString().utf8().data(), (size_t)stringBox.size());
+            LOG(Media, "ISOWebVTTCue::ISOWebVTTCue - skipping box id = \"%s\", size = %" PRIu64, stringBox.boxType().string().data(), stringBox.size());
     }
     return true;
 }
@@ -119,9 +128,7 @@ String ISOWebVTTCue::toJSONString() const
 {
     auto object = JSON::Object::create();
 
-#if !LOG_DISABLED
     object->setString("text"_s, m_cueText);
-#endif
     object->setString("sourceId"_s, encodeWithURLEscapeSequences(m_sourceID));
     object->setString("id"_s, encodeWithURLEscapeSequences(m_identifier));
 
@@ -132,6 +139,16 @@ String ISOWebVTTCue::toJSONString() const
     object->setDouble("duration"_s, m_duration.toDouble());
 
     return object->toJSONString();
+}
+
+ISOWebVTTCue ISOWebVTTCue::isolatedCopy() const &
+{
+    return { m_presentationTime, m_duration, crossThreadCopy(m_identifier), crossThreadCopy(m_cueText), crossThreadCopy(m_settings), crossThreadCopy(m_sourceID), crossThreadCopy(m_originalStartTime) };
+}
+
+ISOWebVTTCue ISOWebVTTCue::isolatedCopy() &&
+{
+    return { m_presentationTime, m_duration, crossThreadCopy(WTF::move(m_identifier)), crossThreadCopy(WTF::move(m_cueText)), crossThreadCopy(WTF::move(m_settings)), crossThreadCopy(WTF::move(m_sourceID)), crossThreadCopy(WTF::move(m_originalStartTime)) };
 }
 
 } // namespace WebCore

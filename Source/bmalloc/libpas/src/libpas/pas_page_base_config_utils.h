@@ -27,14 +27,13 @@
 #define PAS_PAGE_BASE_CONFIG_UTILS_H
 
 #include "pas_config.h"
-#include "pas_internal_config.h"
-#include "pas_page_base_config.h"
+#include "pas_mte.h"
 #include "pas_page_header_placement_mode.h"
 #include "pas_page_header_table.h"
 
 PAS_BEGIN_EXTERN_C;
 
-#define PAS_BASIC_PAGE_BASE_CONFIG_FORWARD_DECLARATIONS(name)     \
+#define PAS_BASIC_PAGE_BASE_CONFIG_FORWARD_DECLARATIONS(name) \
     static PAS_ALWAYS_INLINE pas_page_base* \
     name ## _page_header_for_boundary(void* boundary); \
     static PAS_ALWAYS_INLINE void* \
@@ -43,7 +42,7 @@ PAS_BEGIN_EXTERN_C;
     name ## _page_header_for_boundary_remote(pas_enumerator* enumerator, void* boundary); \
     \
     PAS_API pas_page_base* name ## _create_page_header( \
-        void* boundary, pas_lock_hold_mode heap_lock_hold_mode); \
+        void* boundary, pas_page_kind kind, pas_lock_hold_mode heap_lock_hold_mode); \
     PAS_API void name ## _destroy_page_header( \
         pas_page_base* page, pas_lock_hold_mode heap_lock_hold_mode)
 
@@ -54,16 +53,12 @@ typedef struct {
                                             are dealing with. */
 } pas_basic_page_base_config_declarations_arguments;
 
-#define PAS_BASIC_PAGE_BASE_CONFIG_DECLARATIONS(name, config_value, ...) \
-    static const pas_page_header_placement_mode name ## _header_placement_mode = \
-        ((pas_basic_page_base_config_declarations_arguments){__VA_ARGS__}) \
-        .header_placement_mode; \
-    \
+#define PAS_BASIC_PAGE_BASE_CONFIG_DECLARATIONS(name, config_value, header_placement_mode_value, header_table_value) \
+    static const pas_page_header_placement_mode name ## _header_placement_mode = (header_placement_mode_value); \
     static PAS_ALWAYS_INLINE pas_page_base* \
     name ## _page_header_for_boundary(void* boundary) \
     { \
-        pas_basic_page_base_config_declarations_arguments arguments = \
-            ((pas_basic_page_base_config_declarations_arguments){__VA_ARGS__}); \
+        pas_basic_page_base_config_declarations_arguments arguments = { .header_placement_mode = (header_placement_mode_value), .header_table = (header_table_value) }; \
         pas_page_base_config config; \
         \
         config = (config_value); \
@@ -71,27 +66,34 @@ typedef struct {
         \
         switch (arguments.header_placement_mode) { \
         case pas_page_header_at_head_of_page: { \
-            return (pas_page_base*)boundary; \
+            uintptr_t ptr = (uintptr_t)boundary; \
+            PAS_PROFILE(PAGE_BASE_FROM_BOUNDARY, ptr); \
+            PAS_MTE_HANDLE(PAGE_BASE_FROM_BOUNDARY, ptr); \
+            return (pas_page_base*)ptr; \
         } \
         \
         case pas_page_header_in_table: { \
-            pas_page_base* page_base; \
-            \
-            page_base = pas_page_header_table_get_for_boundary( \
-                arguments.header_table, config.page_size, boundary); \
+            uintptr_t page_base = (uintptr_t)boundary; \
+            PAS_PROFILE(PAGE_BASE_FROM_BOUNDARY, page_base); \
+            PAS_MTE_HANDLE(PAGE_BASE_FROM_BOUNDARY, page_base); \
+            page_base = (uintptr_t)pas_page_header_table_get_for_boundary( \
+                arguments.header_table, config.page_size, (pas_page_base*)page_base); \
             PAS_TESTING_ASSERT(page_base); \
-            return page_base; \
+            PAS_PROFILE(PAGE_BASE_FROM_TABLE, page_base); \
+            /* Does not need to be MTE-tagged since page-bases should always */ \
+            /* be zero-tagged, and the page header table should already have */ \
+            /* cleared the pointer it gave us. */ \
+            return (pas_page_base*)page_base; \
         } } \
         \
-        PAS_ASSERT(!"Should not be reached"); \
+        PAS_ASSERT_NOT_REACHED(); \
         return NULL; \
     } \
     \
     static PAS_ALWAYS_INLINE void* \
     name ## _boundary_for_page_header(pas_page_base* page) \
     { \
-        pas_basic_page_base_config_declarations_arguments arguments = \
-            ((pas_basic_page_base_config_declarations_arguments){__VA_ARGS__}); \
+        pas_basic_page_base_config_declarations_arguments arguments = { .header_placement_mode = (header_placement_mode_value), .header_table = (header_table_value) }; \
         pas_page_base_config config; \
         \
         config = (config_value); \
@@ -111,7 +113,7 @@ typedef struct {
             return boundary; \
         } } \
         \
-        PAS_ASSERT(!"Should not be reached"); \
+        PAS_ASSERT_NOT_REACHED(); \
         return NULL; \
     } \
     \

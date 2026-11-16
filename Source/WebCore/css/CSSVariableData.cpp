@@ -33,50 +33,65 @@
 #include "CSSCustomPropertyValue.h"
 #include "CSSParserTokenRange.h"
 #include "CSSValuePool.h"
-#include "RenderStyle.h"
+#include "StyleComputedStyle.h"
+#include "StyleCustomProperty.h"
 #include <wtf/text/AtomStringHash.h>
+#include <wtf/text/ParsingUtilities.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/StringView.h>
 
 namespace WebCore {
+DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(CSSVariableData);
 
-template<typename CharacterType> void CSSVariableData::updateTokens(const CSSParserTokenRange& range)
+template<typename CharacterType> void CSSVariableData::updateBackingStringsInTokens()
 {
-    const CharacterType* currentOffset = m_backingString.characters<CharacterType>();
-    for (const CSSParserToken& token : range) {
-        if (token.hasStringBacking()) {
-            unsigned length = token.value().length();
-            StringView string(currentOffset, length);
-            m_tokens.append(token.copyWithUpdatedString(string));
-            currentOffset += length;
-        } else
-            m_tokens.append(token);
+    auto currentOffset = m_backingString.span<CharacterType>();
+    for (auto& token : m_tokens) {
+        if (!token.hasStringBacking() || token.isBackedByStringLiteral())
+            continue;
+        unsigned length = token.value().length();
+        token.updateCharacters(consumeSpan(currentOffset, length));
     }
-    ASSERT(currentOffset == m_backingString.characters<CharacterType>() + m_backingString.length());
+    ASSERT(currentOffset.empty());
 }
 
 bool CSSVariableData::operator==(const CSSVariableData& other) const
 {
+    // Attr-taint is not compared here. It is tracked separately in CustomProperty where it affects equality.
     return tokens() == other.tokens();
 }
 
-CSSVariableData::CSSVariableData(const CSSParserTokenRange& range)
+CSSVariableData::CSSVariableData(const CSSParserTokenRange& range, const CSSParserContext& context)
+    : CSSVariableData(range, Style::IsAttrTainted::No, context)
+{
+}
+
+CSSVariableData::CSSVariableData(const CSSParserTokenRange& range, Style::IsAttrTainted isAttrTainted, const CSSParserContext& context)
+    : m_tokens(range.span())
+    , m_context(context)
+    , m_isAttrTainted(isAttrTainted)
 {
     StringBuilder stringBuilder;
-    CSSParserTokenRange localRange = range;
-
-    while (!localRange.atEnd()) {
-        CSSParserToken token = localRange.consume();
-        if (token.hasStringBacking())
-            stringBuilder.append(token.value());
+    for (auto& token : m_tokens) {
+        if (!token.hasStringBacking())
+            continue;
+        if (token.tryUseStringLiteralBacking())
+            continue;
+        stringBuilder.append(token.value());
     }
-    m_backingString = stringBuilder.toString();
-    if (m_backingString.is8Bit())
-        updateTokens<LChar>(range);
-    else
-        updateTokens<UChar>(range);
 
-    m_tokens.shrinkToFit();
+    if (!stringBuilder.isEmpty()) {
+        m_backingString = stringBuilder.toString();
+        if (m_backingString.is8Bit())
+            updateBackingStringsInTokens<Latin1Character>();
+        else
+            updateBackingStringsInTokens<char16_t>();
+    }
+}
+
+String CSSVariableData::serialize() const
+{
+    return tokenRange().serialize(CSSParserToken::SerializationMode::CustomProperty);
 }
 
 } // namespace WebCore

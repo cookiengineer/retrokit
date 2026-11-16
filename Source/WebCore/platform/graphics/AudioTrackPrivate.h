@@ -25,81 +25,82 @@
 
 #pragma once
 
-#include "TrackPrivateBase.h"
+#include <WebCore/AudioTrackPrivateClient.h>
+#include <WebCore/PlatformAudioTrackConfiguration.h>
+#include <WebCore/TrackPrivateBase.h>
 #include <wtf/Function.h>
+#include <wtf/TZoneMallocInlines.h>
 
 #if ENABLE(VIDEO)
 
 namespace WebCore {
 
-class AudioTrackPrivate;
-
-class AudioTrackPrivateClient : public TrackPrivateBaseClient {
-public:
-    virtual void enabledChanged(bool) = 0;
-};
+class AudioInfo;
 
 class AudioTrackPrivate : public TrackPrivateBase {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(AudioTrackPrivate);
 public:
-    static Ref<AudioTrackPrivate> create()
-    {
-        return adoptRef(*new AudioTrackPrivate);
-    }
-
-    void setClient(AudioTrackPrivateClient* client) { m_client = client; }
-    AudioTrackPrivateClient* client() const override { return m_client; }
-
     virtual void setEnabled(bool enabled)
     {
         if (m_enabled == enabled)
             return;
         m_enabled = enabled;
-        if (m_client)
-            m_client->enabledChanged(enabled);
+        notifyClients([enabled](auto& client) {
+            downcast<AudioTrackPrivateClient>(client).enabledChanged(enabled);
+        });
         if (m_enabledChangedCallback)
             m_enabledChangedCallback(*this, m_enabled);
     }
 
     bool enabled() const { return m_enabled; }
 
-    enum Kind { Alternative, Description, Main, MainDesc, Translation, Commentary, None };
-    virtual Kind kind() const { return None; }
+    enum class Kind : uint8_t { Alternative, Description, Main, MainDesc, Translation, Commentary, None };
+    virtual Kind kind() const { return Kind::None; }
 
     virtual bool isBackedByMediaStreamTrack() const { return false; }
 
     using EnabledChangedCallback = Function<void(AudioTrackPrivate&, bool enabled)>;
-    void setEnabledChangedCallback(EnabledChangedCallback&& callback) { m_enabledChangedCallback = WTFMove(callback); }
+    void setEnabledChangedCallback(EnabledChangedCallback&& callback) { m_enabledChangedCallback = WTF::move(callback); }
+
+    const PlatformAudioTrackConfiguration& configuration() const LIFETIME_BOUND { return m_configuration; }
+    void setConfiguration(PlatformAudioTrackConfiguration&& configuration)
+    {
+        if (configuration == m_configuration)
+            return;
+        m_configuration = WTF::move(configuration);
+        notifyClients([configuration = m_configuration](auto& client) {
+            downcast<AudioTrackPrivateClient>(client).configurationChanged(configuration);
+        });
+    }
+
+    virtual void setFormatDescription(Ref<AudioInfo>&&) { }
+
+    bool operator==(const AudioTrackPrivate& track) const
+    {
+        return TrackPrivateBase::operator==(track)
+            && configuration() == track.configuration()
+            && kind() == track.kind();
+    }
 
 #if !RELEASE_LOG_DISABLED
-    const char* logClassName() const override { return "AudioTrackPrivate"; }
+    ASCIILiteral logClassName() const override { return "AudioTrackPrivate"_s; }
 #endif
+
+    Type type() const final { return Type::Audio; }
 
 protected:
     AudioTrackPrivate() = default;
 
 private:
-    AudioTrackPrivateClient* m_client { nullptr };
     bool m_enabled { false };
+    PlatformAudioTrackConfiguration m_configuration;
     EnabledChangedCallback m_enabledChangedCallback;
 };
 
 } // namespace WebCore
 
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::AudioTrackPrivate::Kind> {
-    using values = EnumValues<
-        WebCore::AudioTrackPrivate::Kind,
-        WebCore::AudioTrackPrivate::Kind::Alternative,
-        WebCore::AudioTrackPrivate::Kind::Description,
-        WebCore::AudioTrackPrivate::Kind::Main,
-        WebCore::AudioTrackPrivate::Kind::MainDesc,
-        WebCore::AudioTrackPrivate::Kind::Translation,
-        WebCore::AudioTrackPrivate::Kind::Commentary,
-        WebCore::AudioTrackPrivate::Kind::None
-    >;
-};
-
-} // namespace WTF
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::AudioTrackPrivate)
+static bool isType(const WebCore::TrackPrivateBase& track) { return track.type() == WebCore::TrackPrivateBase::Type::Audio; }
+SPECIALIZE_TYPE_TRAITS_END()
 
 #endif

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Google, Inc. All Rights Reserved.
+ * Copyright (C) 2010 Google, Inc. All rights reserved.
  * Copyright (C) 2011 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,6 +30,7 @@
 #include <wtf/Forward.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/Ref.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -40,36 +41,38 @@ class QualifiedName;
 // NOTE: The HTML5 spec uses a backwards (grows downward) stack.  We're using
 // more standard (grows upwards) stack terminology here.
 class HTMLElementStack {
-    WTF_MAKE_NONCOPYABLE(HTMLElementStack); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(HTMLElementStack);
+    WTF_MAKE_NONCOPYABLE(HTMLElementStack);
 public:
     HTMLElementStack() = default;
     ~HTMLElementStack();
 
     class ElementRecord {
-        WTF_MAKE_NONCOPYABLE(ElementRecord); WTF_MAKE_FAST_ALLOCATED;
+        WTF_MAKE_TZONE_ALLOCATED(ElementRecord);
+        WTF_MAKE_NONCOPYABLE(ElementRecord);
     public:
-        ElementRecord(Ref<HTMLStackItem>&&, std::unique_ptr<ElementRecord>);
+        ElementRecord(HTMLStackItem&&, std::unique_ptr<ElementRecord>);
         ~ElementRecord();
-    
-        Element& element() const { return m_item->element(); }
-        ContainerNode& node() const { return m_item->node(); }
-        const AtomString& namespaceURI() const { return m_item->namespaceURI(); }
-        HTMLStackItem& stackItem() { return m_item.get(); }
-        const HTMLStackItem& stackItem() const { return m_item.get(); }
 
-        void replaceElement(Ref<HTMLStackItem>&&);
+        Element& element() const { return m_item.element(); }
+        ContainerNode& node() const { return m_item.node(); }
+        ElementName elementName() const { return m_item.elementName(); }
+        HTMLStackItem& stackItem() LIFETIME_BOUND { return m_item; }
+        const HTMLStackItem& stackItem() const LIFETIME_BOUND { return m_item; }
 
-        bool isAbove(ElementRecord&) const;
+        void replaceElement(HTMLStackItem&&);
 
-        ElementRecord* next() const { return m_next.get(); }
+        bool NODELETE isAbove(ElementRecord&) const;
+
+        ElementRecord* next() const LIFETIME_BOUND { return m_next.get(); }
 
     private:
         friend class HTMLElementStack;
 
-        std::unique_ptr<ElementRecord> releaseNext() { return WTFMove(m_next); }
-        void setNext(std::unique_ptr<ElementRecord> next) { m_next = WTFMove(next); }
+        std::unique_ptr<ElementRecord> releaseNext() { return WTF::move(m_next); }
+        void setNext(std::unique_ptr<ElementRecord> next) { m_next = WTF::move(next); }
 
-        Ref<HTMLStackItem> m_item;
+        HTMLStackItem m_item;
         std::unique_ptr<ElementRecord> m_next;
     };
 
@@ -77,41 +80,31 @@ public:
 
     // Inlining this function is a (small) performance win on the parsing
     // benchmark.
-    Element& top() const
-    {
-        return m_top->element();
-    }
+    Element& top() const { return m_top->element(); }
+    ContainerNode& topNode() const { return m_top->node(); }
+    ElementName topElementName() const { return m_top->elementName(); }
+    HTMLStackItem& topStackItem() const LIFETIME_BOUND { return m_top->stackItem(); }
 
-    ContainerNode& topNode() const
-    {
-        return m_top->node();
-    }
+    HTMLStackItem* NODELETE oneBelowTop() const LIFETIME_BOUND;
+    ElementRecord& NODELETE topRecord() const LIFETIME_BOUND;
+    ElementRecord* NODELETE find(Element&) const LIFETIME_BOUND;
+    ElementRecord* NODELETE furthestBlockForFormattingElement(Element&) const LIFETIME_BOUND;
+    ElementRecord* NODELETE topmost(ElementName) const LIFETIME_BOUND;
 
-    HTMLStackItem& topStackItem() const
-    {
-        return m_top->stackItem();
-    }
+    bool containsTemplateElement() const { return m_templateElementCount; }
 
-    HTMLStackItem* oneBelowTop() const;
-    ElementRecord& topRecord() const;
-    ElementRecord* find(Element&) const;
-    ElementRecord* furthestBlockForFormattingElement(Element&) const;
-    ElementRecord* topmost(const AtomString& tagName) const;
+    void insertAbove(HTMLStackItem&&, ElementRecord&);
 
-    void insertAbove(Ref<HTMLStackItem>&&, ElementRecord&);
-
-    void push(Ref<HTMLStackItem>&&);
-    void pushRootNode(Ref<HTMLStackItem>&&);
-    void pushHTMLHtmlElement(Ref<HTMLStackItem>&&);
-    void pushHTMLHeadElement(Ref<HTMLStackItem>&&);
-    void pushHTMLBodyElement(Ref<HTMLStackItem>&&);
+    void push(HTMLStackItem&&);
+    void pushRootNode(HTMLStackItem&&);
+    void pushHTMLHtmlElement(HTMLStackItem&&);
+    void pushHTMLHeadElement(HTMLStackItem&&);
+    void pushHTMLBodyElement(HTMLStackItem&&);
 
     void pop();
-    void popUntil(const AtomString& tagName);
+    void popUntil(ElementName);
     void popUntil(Element&);
-    void popUntilPopped(const AtomString& tagName);
-    void popUntilPopped(const QualifiedName& tagName) { popUntilPopped(tagName.localName()); }
-
+    void popUntilPopped(ElementName);
     void popUntilPopped(Element&);
     void popUntilNumberedHeaderElementPopped();
     void popUntilTableScopeMarker(); // "clear the stack back to a table context" in the spec.
@@ -122,45 +115,40 @@ public:
     void popHTMLBodyElement();
     void popAll();
 
-    static bool isMathMLTextIntegrationPoint(HTMLStackItem&);
+    static bool NODELETE isMathMLTextIntegrationPoint(HTMLStackItem&);
     static bool isHTMLIntegrationPoint(HTMLStackItem&);
 
     void remove(Element&);
     void removeHTMLHeadElement(Element&);
 
-    bool contains(Element&) const;
-    bool contains(const AtomString& tagName) const;
+    bool NODELETE contains(Element&) const;
 
-    bool inScope(Element&) const;
-    bool inScope(const AtomString& tagName) const;
-    bool inScope(const QualifiedName&) const;
-    bool inListItemScope(const AtomString& tagName) const;
-    bool inListItemScope(const QualifiedName&) const;
-    bool inTableScope(const AtomString& tagName) const;
-    bool inTableScope(const QualifiedName&) const;
-    bool inButtonScope(const AtomString& tagName) const;
-    bool inButtonScope(const QualifiedName&) const;
-    bool inSelectScope(const AtomString& tagName) const;
-    bool inSelectScope(const QualifiedName&) const;
+    bool NODELETE inScope(Element&) const;
+    bool NODELETE inScope(ElementName) const;
+    bool NODELETE inListItemScope(ElementName) const;
+    bool NODELETE inTableScope(ElementName) const;
+    bool NODELETE hasAnyInTableScope(std::initializer_list<ElementName> targetElements) const;
+    bool NODELETE inButtonScope(ElementName) const;
+    bool NODELETE inSelectScope(ElementName) const;
 
-    bool hasNumberedHeaderElementInScope() const;
+    bool NODELETE hasNumberedHeaderElementInScope() const;
 
-    bool hasOnlyOneElement() const;
-    bool secondElementIsHTMLBodyElement() const;
-    bool hasTemplateInHTMLScope() const;
-    Element& htmlElement() const;
-    Element& headElement() const;
-    Element& bodyElement() const;
+    bool NODELETE hasOnlyOneElement() const;
+    bool NODELETE secondElementIsHTMLBodyElement() const;
+    bool NODELETE hasTemplateInHTMLScope() const;
+    Element& NODELETE htmlElement() const;
+    Element& NODELETE headElement() const;
+    Element& NODELETE bodyElement() const;
 
-    ContainerNode& rootNode() const;
+    ContainerNode& NODELETE rootNode() const;
 
 #if ENABLE(TREE_DEBUGGING)
     void show();
 #endif
 
 private:
-    void pushCommon(Ref<HTMLStackItem>&&);
-    void pushRootNodeCommon(Ref<HTMLStackItem>&&);
+    void pushCommon(HTMLStackItem&&);
+    void pushRootNodeCommon(HTMLStackItem&&);
     void popCommon();
     void removeNonTopCommon(Element&);
 
@@ -171,10 +159,11 @@ private:
     // FIXME: We don't currently require type-specific information about
     // these elements so we haven't yet bothered to plumb the types all the
     // way down through createElement, etc.
-    ContainerNode* m_rootNode { nullptr };
-    Element* m_headElement { nullptr };
-    Element* m_bodyElement { nullptr };
+    CheckedPtr<ContainerNode> m_rootNode;
+    CheckedPtr<Element> m_headElement;
+    CheckedPtr<Element> m_bodyElement;
     unsigned m_stackDepth { 0 };
+    unsigned m_templateElementCount { 0 };
 };
     
 } // namespace WebCore

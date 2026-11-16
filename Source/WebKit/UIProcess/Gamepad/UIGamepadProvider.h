@@ -31,6 +31,7 @@
 #include <wtf/HashSet.h>
 #include <wtf/RunLoop.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakHashSet.h>
 
 namespace WebKit {
 
@@ -43,6 +44,10 @@ class UIGamepadProvider final : public WebCore::GamepadProviderClient {
 public:
     static UIGamepadProvider& singleton();
 
+    // Do nothing since this is a singleton.
+    void ref() const { }
+    void deref() const { }
+
     void processPoolStartedUsingGamepads(WebProcessPool&);
     void processPoolStoppedUsingGamepads(WebProcessPool&);
 
@@ -52,12 +57,14 @@ public:
     Vector<GamepadData> gamepadStates() const;
 
 #if PLATFORM(COCOA)
-    static void setUsesGameControllerFramework();
+    static void NODELETE setUsesGameControllerFramework();
 #endif
 
-    Vector<GamepadData> snapshotGamepads();
+    Vector<std::optional<GamepadData>> snapshotGamepads();
 
     size_t numberOfConnectedGamepads() const { return m_gamepads.size(); }
+
+    WebPageProxy* platformWebPageProxyForGamepadInput();
 
 private:
     friend NeverDestroyed<UIGamepadProvider>;
@@ -68,7 +75,6 @@ private:
     void stopMonitoringGamepads();
 
     void platformSetDefaultGamepadProvider();
-    WebPageProxy* platformWebPageProxyForGamepadInput();
     void platformStopMonitoringInput();
     void platformStartMonitoringInput();
 
@@ -79,11 +85,15 @@ private:
     void scheduleGamepadStateSync();
     void gamepadSyncTimerFired();
 
-    HashSet<WebProcessPool*> m_processPoolsUsingGamepads;
+#if PLATFORM(VISION)
+    bool isAnyGamepadConnected() const;
+#endif
+
+    WeakHashSet<WebProcessPool> m_processPoolsUsingGamepads;
 
     Vector<std::unique_ptr<UIGamepad>> m_gamepads;
 
-    RunLoop::Timer<UIGamepadProvider> m_gamepadSyncTimer;
+    RunLoop::Timer m_gamepadSyncTimer;
 
     bool m_isMonitoringGamepads { false };
     bool m_shouldMakeGamepadsVisibleOnSync { false };

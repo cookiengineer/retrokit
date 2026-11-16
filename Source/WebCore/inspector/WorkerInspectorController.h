@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,12 +25,15 @@
 
 #pragma once
 
-#include "WorkerDebugger.h"
+#include "WorkerDebuggerAgent.h"
+#include "WorkerOrWorkletGlobalScope.h"
 #include <JavaScriptCore/InspectorAgentRegistry.h>
 #include <JavaScriptCore/InspectorEnvironment.h>
+#include <wtf/CheckedRef.h>
 #include <wtf/Forward.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/Stopwatch.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace Inspector {
 class FrontendChannel;
@@ -41,31 +44,41 @@ namespace WebCore {
 
 class InstrumentingAgents;
 class WebInjectedScriptManager;
-class WorkerOrWorkletGlobalScope;
+class WorkerDebugger;
 struct WorkerAgentContext;
 
-class WorkerInspectorController final : public Inspector::InspectorEnvironment {
+class WorkerInspectorController final : public Inspector::InspectorEnvironment, public CanMakeThreadSafeCheckedPtr<WorkerInspectorController> {
     WTF_MAKE_NONCOPYABLE(WorkerInspectorController);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(WorkerInspectorController);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WorkerInspectorController);
 public:
     explicit WorkerInspectorController(WorkerOrWorkletGlobalScope&);
     ~WorkerInspectorController() override;
 
+    // AbstractCanMakeCheckedPtr overrides
+    uint32_t checkedPtrCount() const final { return CanMakeThreadSafeCheckedPtr::checkedPtrCount(); }
+    uint32_t checkedPtrCountWithoutThreadCheck() const final { return CanMakeThreadSafeCheckedPtr::checkedPtrCountWithoutThreadCheck(); }
+    void incrementCheckedPtrCount() const final { CanMakeThreadSafeCheckedPtr::incrementCheckedPtrCount(); }
+    void decrementCheckedPtrCount() const final { CanMakeThreadSafeCheckedPtr::decrementCheckedPtrCount(); }
+    void setDidBeginCheckedPtrDeletion() final { CanMakeThreadSafeCheckedPtr::setDidBeginCheckedPtrDeletion(); }
+
     void workerTerminating();
 
-    void connectFrontend();
+    void connectFrontend(bool isAutomaticInspection = false, bool immediatelyPause = false);
     void disconnectFrontend(Inspector::DisconnectReason);
 
     void dispatchMessageFromFrontend(const String&);
+
+    InstrumentingAgents& instrumentingAgents() const { return m_instrumentingAgents.get(); }
 
     // InspectorEnvironment
     bool developerExtrasEnabled() const override { return true; }
     bool canAccessInspectedScriptState(JSC::JSGlobalObject*) const override { return true; }
     Inspector::InspectorFunctionCallHandler functionCallHandler() const override;
     Inspector::InspectorEvaluateHandler evaluateHandler() const override;
-    void frontendInitialized() override { }
-    WTF::Stopwatch& executionStopwatch() const final { return m_executionStopwatch; }
-    WorkerDebugger& debugger() override { return m_debugger; }
+    void frontendInitialized() final;
+    WTF::Stopwatch& executionStopwatch() const override;
+    JSC::Debugger* debugger() override;
     JSC::VM& vm() override;
 
 private:
@@ -73,17 +86,24 @@ private:
 
     WorkerAgentContext workerAgentContext();
     void createLazyAgents();
+    WorkerDebuggerAgent& ensureDebuggerAgent();
 
-    Ref<InstrumentingAgents> m_instrumentingAgents;
-    std::unique_ptr<WebInjectedScriptManager> m_injectedScriptManager;
-    Ref<Inspector::FrontendRouter> m_frontendRouter;
-    Ref<Inspector::BackendDispatcher> m_backendDispatcher;
-    Ref<WTF::Stopwatch> m_executionStopwatch;
-    WorkerDebugger m_debugger;
+    void updateServiceWorkerPageFrontendCount();
+
+    const Ref<InstrumentingAgents> m_instrumentingAgents;
+    const Ref<WebInjectedScriptManager> m_injectedScriptManager;
+    const Ref<Inspector::FrontendRouter> m_frontendRouter;
+    const Ref<Inspector::BackendDispatcher> m_backendDispatcher;
+    const Ref<WTF::Stopwatch> m_executionStopwatch;
+    std::unique_ptr<WorkerDebugger> m_debugger;
     Inspector::AgentRegistry m_agents;
-    WorkerOrWorkletGlobalScope& m_globalScope;
+    CheckedPtr<WorkerDebuggerAgent> m_debuggerAgent;
+    WeakRef<WorkerOrWorkletGlobalScope> m_globalScope;
     std::unique_ptr<Inspector::FrontendChannel> m_forwardingChannel;
     bool m_didCreateLazyAgents { false };
+    bool m_isAutomaticInspection { false };
+    bool m_pauseAfterInitialization { false };
+    Function<void()> m_frontendInitializedCallback;
 };
 
 } // namespace WebCore

@@ -26,14 +26,9 @@
 #pragma once
 
 #include "ErrorInstance.h"
-#include "JSCJSValue.h"
-#include "JSCell.h"
-#include "JSGlobalObject.h"
-#include "Structure.h"
-#include "VM.h"
 
 namespace JSC {
 
-ErrorInstance* createAggregateError(JSGlobalObject*, VM&, Structure*, JSValue errors, JSValue message, JSValue options, ErrorInstance::SourceAppender = nullptr, RuntimeType = TypeNothing, bool useCurrentFrame = true);
+ErrorInstance* createAggregateError(VM&, Structure*, JSArray* errors, const String& message, JSValue cause, ErrorInstance::SourceAppender = nullptr, RuntimeType = TypeNothing, bool useCurrentFrame = true);
 
 } // namespace JSC

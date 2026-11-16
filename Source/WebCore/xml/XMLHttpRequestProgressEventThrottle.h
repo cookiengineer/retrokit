@@ -26,9 +26,15 @@
 
 #pragma once
 
-#include "SuspendableTimer.h"
+#include "EventLoop.h"
+#include "XMLHttpRequest.h"
 #include <wtf/Forward.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakPtr.h>
+
+namespace WebCore {
+class XMLHttpRequestProgressEventThrottle;
+}
 
 namespace WebCore {
 
@@ -43,6 +49,7 @@ enum ProgressEventAction {
 // This implements the XHR2 progress event dispatching: "dispatch a progress event called progress
 // about every 50ms or for every byte received, whichever is least frequent".
 class XMLHttpRequestProgressEventThrottle {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(XMLHttpRequestProgressEventThrottle);
 public:
     explicit XMLHttpRequestProgressEventThrottle(XMLHttpRequest&);
     virtual ~XMLHttpRequestProgressEventThrottle();
@@ -50,24 +57,26 @@ public:
     void updateProgress(bool isAsync, bool lengthComputable, unsigned long long loaded, unsigned long long total);
     void dispatchReadyStateChangeEvent(Event&, ProgressEventAction = DoNotFlushProgressEvent);
     void dispatchProgressEvent(const AtomString&);
+    void dispatchErrorProgressEvent(const AtomString&);
 
     void suspend();
     void resume();
 
+    void dispatchThrottledProgressEventIfNeeded();
+
 private:
     static const Seconds minimumProgressEventDispatchingInterval;
 
-    void dispatchThrottledProgressEventTimerFired();
     void flushProgressEvent();
     void dispatchEventWhenPossible(Event&);
 
-    // Weak pointer to our XMLHttpRequest object as it is the one holding us.
-    XMLHttpRequest& m_target;
+    // Weak reference to our XMLHttpRequest object as it is the one holding us.
+    WeakRef<XMLHttpRequest, WeakPtrImplWithEventTargetData> m_target;
 
     unsigned long long m_loaded { 0 };
     unsigned long long m_total { 0 };
 
-    SuspendableTimer m_dispatchThrottledProgressEventTimer;
+    EventLoopTimerHandle m_dispatchThrottledProgressEventTimer;
 
     bool m_hasPendingThrottledProgressEvent { false };
     bool m_lengthComputable { false };

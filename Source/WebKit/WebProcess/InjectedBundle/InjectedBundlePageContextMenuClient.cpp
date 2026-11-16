@@ -37,29 +37,30 @@
 #include "WKBundleAPICast.h"
 #include "WebPage.h"
 #include <WebCore/ContextMenu.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 using namespace WebCore;
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(InjectedBundlePageContextMenuClient);
 
 InjectedBundlePageContextMenuClient::InjectedBundlePageContextMenuClient(const WKBundlePageContextMenuClientBase* client)
 {
     initialize(client);
 }
 
-bool InjectedBundlePageContextMenuClient::getCustomMenuFromDefaultItems(WebPage& page, const HitTestResult& hitTestResult, const Vector<ContextMenuItem>& proposedMenu, Vector<WebContextMenuItemData>& newMenu, RefPtr<API::Object>& userData)
+bool InjectedBundlePageContextMenuClient::getCustomMenuFromDefaultItems(WebPage& page, const HitTestResult& hitTestResult, const Vector<ContextMenuItem>& proposedMenu, Vector<WebContextMenuItemData>& newMenu, const WebCore::ContextMenuContext&, RefPtr<API::Object>& userData)
 {
     if (!m_client.getContextMenuFromDefaultMenu)
         return false;
 
-    Vector<WebContextMenuItemData> defaultMenu = kitItems(proposedMenu);
-    Vector<RefPtr<API::Object>> defaultMenuItems;
-    defaultMenuItems.reserveInitialCapacity(defaultMenu.size());
-    for (const auto& item : defaultMenu)
-        defaultMenuItems.uncheckedAppend(WebContextMenuItem::create(item));
+    auto defaultMenuItems = kitItems(proposedMenu).map([](auto& item) -> RefPtr<API::Object> {
+        return WebContextMenuItem::create(item);
+    });
 
     WKArrayRef newMenuWK = nullptr;
     WKTypeRef userDataToPass = nullptr;
-    m_client.getContextMenuFromDefaultMenu(toAPI(&page), toAPI(&InjectedBundleHitTestResult::create(hitTestResult).get()), toAPI(API::Array::create(WTFMove(defaultMenuItems)).ptr()), &newMenuWK, &userDataToPass, m_client.base.clientInfo);
+    m_client.getContextMenuFromDefaultMenu(toAPI(&page), toAPI(&InjectedBundleHitTestResult::create(hitTestResult).get()), toAPI(API::Array::create(WTF::move(defaultMenuItems)).ptr()), &newMenuWK, &userDataToPass, m_client.base.clientInfo);
     RefPtr<API::Array> array = adoptRef(toImpl(newMenuWK));
     userData = adoptRef(toImpl(userDataToPass));
     
@@ -70,7 +71,7 @@ bool InjectedBundlePageContextMenuClient::getCustomMenuFromDefaultItems(WebPage&
     
     size_t size = array->size();
     for (size_t i = 0; i < size; ++i) {
-        WebContextMenuItem* item = array->at<WebContextMenuItem>(i);
+        RefPtr item = array->at<WebContextMenuItem>(i);
         if (!item) {
             LOG(ContextMenu, "New menu entry at index %i is not a WebContextMenuItem", (int)i);
             continue;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2015 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,9 +31,11 @@ interface mixin ParentNode {
     readonly attribute Element? lastElementChild;
     readonly attribute unsigned long childElementCount;
 
-    [CEReactions, Unscopable] undefined prepend((Node or DOMString)... nodes);
-    [CEReactions, Unscopable] undefined append((Node or DOMString)... nodes);
-    [CEReactions, Unscopable] undefined replaceChildren((Node or DOMString)... nodes);
+    [CEReactions=Needed, Unscopable] undefined prepend((Node or DOMString)... nodes);
+    [CEReactions=Needed, Unscopable] undefined append((Node or DOMString)... nodes);
+    [CEReactions=Needed, Unscopable] undefined replaceChildren((Node or DOMString)... nodes);
+
+    [CEReactions=Needed, EnabledBySetting=MoveBeforeEnabled] undefined moveBefore(Node node, Node? child);
 
     Element? querySelector(DOMString selectors);
     [NewObject] NodeList querySelectorAll(DOMString selectors);

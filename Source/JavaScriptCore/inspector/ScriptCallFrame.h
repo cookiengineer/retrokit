@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Apple Inc. All rights reserved.
  * Copyright (c) 2010 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,25 +31,30 @@
 
 #pragma once
 
-#include "DebuggerPrimitives.h"
-#include "InspectorProtocolObjects.h"
+#include <JavaScriptCore/DebuggerPrimitives.h>
+#include <JavaScriptCore/InspectorProtocolObjects.h>
+#include <JavaScriptCore/LineColumn.h>
 #include <wtf/Forward.h>
 #include <wtf/text/WTFString.h>
 
 namespace Inspector {
 
-class JS_EXPORT_PRIVATE ScriptCallFrame  {
+class ScriptCallFrame  {
 public:
-    ScriptCallFrame(const String& functionName, const String& scriptName, JSC::SourceID sourceID, unsigned lineNumber, unsigned column);
-    ~ScriptCallFrame();
+    using LineColumn = JSC::LineColumn;
 
-    const String& functionName() const { return m_functionName; }
-    const String& sourceURL() const { return m_scriptName; }
-    unsigned lineNumber() const { return m_lineNumber; }
-    unsigned columnNumber() const { return m_column; }
+    ScriptCallFrame(const String& functionName, const String& scriptName, JSC::SourceID, LineColumn);
+    ScriptCallFrame(const String& functionName, const String& scriptName, const String& preRedirectURL, JSC::SourceID, LineColumn);
+    JS_EXPORT_PRIVATE ~ScriptCallFrame();
+
+    const String& functionName() const LIFETIME_BOUND { return m_functionName; }
+    const String& sourceURL() const LIFETIME_BOUND { return m_scriptName; }
+    const String& preRedirectURL() const LIFETIME_BOUND { return m_preRedirectURL; }
+    unsigned lineNumber() const { return m_lineColumn.line; }
+    unsigned columnNumber() const { return m_lineColumn.column; }
     JSC::SourceID sourceID() const { return m_sourceID; }
 
-    bool isEqual(const ScriptCallFrame&) const;
+    JS_EXPORT_PRIVATE bool NODELETE isEqual(const ScriptCallFrame&) const;
     bool isNative() const;
 
     bool operator==(const ScriptCallFrame& other) const { return isEqual(other); }
@@ -59,9 +64,9 @@ public:
 private:
     String m_functionName;
     String m_scriptName;
+    String m_preRedirectURL;
     JSC::SourceID m_sourceID;
-    unsigned m_lineNumber;
-    unsigned m_column;
+    LineColumn m_lineColumn;
 };
 
 } // namespace Inspector

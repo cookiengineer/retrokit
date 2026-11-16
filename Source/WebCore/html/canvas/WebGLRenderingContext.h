@@ -32,29 +32,39 @@
 
 namespace WebCore {
 
+class WebGLTimerQueryEXT;
+
 class WebGLRenderingContext final : public WebGLRenderingContextBase {
-    WTF_MAKE_ISO_ALLOCATED(WebGLRenderingContext);
+    WTF_MAKE_TZONE_ALLOCATED(WebGLRenderingContext);
 public:
-    static std::unique_ptr<WebGLRenderingContext> create(CanvasBase&, GraphicsContextGLAttributes);
-    static std::unique_ptr<WebGLRenderingContext> create(CanvasBase&, Ref<GraphicsContextGL>&&, GraphicsContextGLAttributes);
+    static std::unique_ptr<WebGLRenderingContext> create(CanvasBase&, WebGLContextAttributes&&);
 
-    bool isWebGL1() const final { return true; }
+    ~WebGLRenderingContext();
 
-    WebGLExtension* getExtension(const String&) final;
+    std::optional<WebGLExtensionAny> getExtension(const String&) final;
     std::optional<Vector<String>> getSupportedExtensions() final;
 
     WebGLAny getFramebufferAttachmentParameter(GCGLenum target, GCGLenum attachment, GCGLenum pname) final;
 
-    GCGLint getMaxDrawBuffers() final;
-    GCGLint getMaxColorAttachments() final;
-    void initializeVertexArrayObjects() final;
-    bool validateIndexArrayConservative(GCGLenum type, unsigned& numElementsRequired) final;
-    bool validateBlendEquation(const char* functionName, GCGLenum mode) final;
+    long long getInt64Parameter(GCGLenum) final;
+
+    GCGLint maxDrawBuffers() final;
+    GCGLint maxColorAttachments() final;
+
+    void addMembersToOpaqueRoots(JSC::AbstractSlotVisitor&) final;
+
+protected:
+    friend class EXTDisjointTimerQuery;
+
+    WebGLBindingPoint<WebGLTimerQueryEXT, GraphicsContextGL::TIME_ELAPSED_EXT> m_activeQuery;
 
 private:
-    WebGLRenderingContext(CanvasBase&, GraphicsContextGLAttributes);
-    WebGLRenderingContext(CanvasBase&, Ref<GraphicsContextGL>&&, GraphicsContextGLAttributes);
+    using WebGLRenderingContextBase::WebGLRenderingContextBase;
+    void initializeDefaultObjects() WTF_REQUIRES_LOCK(objectGraphLock()) final;
+    void detachAndRemoveAllObjects() WTF_REQUIRES_LOCK(objectGraphLock()) final;
 };
+
+WebCoreOpaqueRoot NODELETE root(const WebGLExtension<WebGLRenderingContext>*);
 
 } // namespace WebCore
 

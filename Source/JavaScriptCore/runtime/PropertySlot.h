@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2005-2020 Apple Inc. All rights reserved.
+ *  Copyright (C) 2005-2022 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Library General Public
@@ -20,17 +20,21 @@
 
 #pragma once
 
-#include "DOMAnnotation.h"
-#include "DisallowVMEntry.h"
-#include "GetVM.h"
-#include "JSCJSValue.h"
-#include "PropertyName.h"
-#include "PropertyOffset.h"
-#include "ScopeOffset.h"
+#include <JavaScriptCore/DOMAnnotation.h>
+#include <JavaScriptCore/DisallowVMEntry.h>
+#include <JavaScriptCore/GetVM.h>
+#include <JavaScriptCore/JSCJSValue.h>
+#include <JavaScriptCore/JSCPtrTag.h>
+#include <JavaScriptCore/PropertyName.h>
+#include <JavaScriptCore/PropertyOffset.h>
+#include <JavaScriptCore/ScopeOffset.h>
+#include <JavaScriptCore/Watchpoint.h>
 #include <wtf/Assertions.h>
 #include <wtf/ForbidHeapAllocation.h>
+#include <wtf/FunctionPtr.h>
 
 namespace JSC {
+
 class GetterSetter;
 class JSObject;
 class JSModuleEnvironment;
@@ -38,6 +42,7 @@ class JSModuleEnvironment;
 // ECMA 262-3 8.6.1
 // Property attributes
 enum class PropertyAttribute : unsigned {
+    // This must be 7 bits. Keep in sync with Structure's definition.
     None              = 0,
     ReadOnly          = 1 << 1,  // property can be only read, not written
     DontEnum          = 1 << 2,  // property doesn't appear in (for .. in ..)
@@ -48,8 +53,9 @@ enum class PropertyAttribute : unsigned {
     CustomAccessorOrValue = CustomAccessor | CustomValue,
     AccessorOrCustomAccessorOrValue = Accessor | CustomAccessor | CustomValue,
     ReadOnlyOrAccessorOrCustomAccessor = ReadOnly | Accessor | CustomAccessor,
+    ReadOnlyOrAccessorOrCustomAccessorOrValue = ReadOnly | Accessor | CustomAccessor | CustomValue,
 
-    // Things that are used by static hashtables are not in the attributes byte in PropertyMapEntry.
+    // Things that are used by static hashtables are not in the attributes byte in PropertyTableEntry.
     Function          = 1 << 8,  // property is a function - only used by static hashtables
     Builtin           = 1 << 9,  // property is a builtin function - only used by static hashtables
     ConstantInteger   = 1 << 10, // property is a constant integer - only used by static hashtables
@@ -59,10 +65,14 @@ enum class PropertyAttribute : unsigned {
     DOMAttribute      = 1 << 14, // property is a simple DOM attribute - only used by static hashtables
     DOMJITAttribute   = 1 << 15, // property is a DOM JIT attribute - only used by static hashtables
     DOMJITFunction    = 1 << 16, // property is a DOM JIT function - only used by static hashtables
+
+    LastAttribute = DOMJITFunction,
+
     BuiltinOrFunction = Builtin | Function, // helper only used by static hashtables
     BuiltinOrFunctionOrLazyProperty = Builtin | Function | CellProperty | ClassStructure | PropertyCallback, // helper only used by static hashtables
     BuiltinOrFunctionOrAccessorOrLazyProperty = Builtin | Function | Accessor | CellProperty | ClassStructure | PropertyCallback, // helper only used by static hashtables
     BuiltinOrFunctionOrAccessorOrLazyPropertyOrConstant = Builtin | Function | Accessor | CellProperty | ClassStructure | PropertyCallback | ConstantInteger // helper only used by static hashtables
+
 };
 
 static constexpr unsigned operator| (PropertyAttribute a, PropertyAttribute b) { return static_cast<unsigned>(a) | static_cast<unsigned>(b); }
@@ -85,11 +95,11 @@ inline unsigned attributesForStructure(unsigned attributes)
     return static_cast<uint8_t>(attributes);
 }
 
-using GetValueFunc = EncodedJSValue(JIT_OPERATION_ATTRIBUTES*)(JSGlobalObject*, EncodedJSValue thisValue, PropertyName);
-using GetValueFuncWithPtr = EncodedJSValue(JIT_OPERATION_ATTRIBUTES*)(JSGlobalObject*, EncodedJSValue thisValue, PropertyName, void*);
+using GetValueFunc = FunctionPtr<GetValueFuncPtrTag, EncodedJSValue(JSGlobalObject*, EncodedJSValue, PropertyName), FunctionAttributes::JITOperation>;
+using GetValueFuncWithPtr = FunctionPtr<GetValueFuncWithPtrPtrTag, EncodedJSValue(JSGlobalObject*, EncodedJSValue, PropertyName, void*), FunctionAttributes::JITOperation>;
 
-using PutValueFunc = bool (JIT_OPERATION_ATTRIBUTES*)(JSGlobalObject*, EncodedJSValue baseObject, EncodedJSValue value, PropertyName);
-using PutValueFuncWithPtr = bool (JIT_OPERATION_ATTRIBUTES*)(JSGlobalObject*, EncodedJSValue baseObject, EncodedJSValue value, PropertyName, void*);
+using PutValueFunc = FunctionPtr<PutValueFuncPtrTag, bool(JSGlobalObject*, EncodedJSValue, EncodedJSValue, PropertyName), FunctionAttributes::JITOperation>;
+using PutValueFuncWithPtr = FunctionPtr<PutValueFuncWithPtrPtrTag, bool(JSGlobalObject*, EncodedJSValue, EncodedJSValue, PropertyName, void*), FunctionAttributes::JITOperation>;
 
 class PropertySlot {
 
@@ -127,12 +137,9 @@ public:
             disallowVMEntry.emplace(*vmForInquiry);
     }
 
-    using GetValueFunc = JSC::GetValueFunc;
-    using GetValueFuncWithPtr = JSC::GetValueFuncWithPtr;
-
     JSValue getValue(JSGlobalObject*, PropertyName) const;
     JSValue getValue(JSGlobalObject*, uint64_t propertyName) const;
-    JSValue getPureResult() const;
+    JSValue NODELETE getPureResult() const;
 
     bool isCacheable() const { return isUnset() || m_cacheability == CachingAllowed; }
     bool isUnset() const { return m_propertyType == TypeUnset; }
@@ -210,7 +217,7 @@ public:
 
     void setValue(JSObject* slotBase, unsigned attributes, JSValue value)
     {
-        ASSERT(attributes == attributesForStructure(attributes));
+        ASSERT(attributes == attributesForStructure(attributes) && !(attributes & PropertyAttribute::Accessor));
         
         m_data.value = JSValue::encode(value);
         m_attributes = attributes;
@@ -224,7 +231,7 @@ public:
     
     void setValue(JSObject* slotBase, unsigned attributes, JSValue value, PropertyOffset offset)
     {
-        ASSERT(attributes == attributesForStructure(attributes));
+        ASSERT(attributes == attributesForStructure(attributes) && !(attributes & PropertyAttribute::Accessor));
         
         ASSERT(value);
         m_data.value = JSValue::encode(value);
@@ -240,7 +247,7 @@ public:
 
     void setValue(JSString*, unsigned attributes, JSValue value)
     {
-        ASSERT(attributes == attributesForStructure(attributes));
+        ASSERT(attributes == attributesForStructure(attributes) && !(attributes & PropertyAttribute::Accessor));
         
         ASSERT(value);
         m_data.value = JSValue::encode(value);
@@ -265,9 +272,9 @@ public:
         ASSERT(attributes == attributesForStructure(attributes));
         
         ASSERT(getValue);
-        assertIsCFunctionPtr(getValue);
+        assertIsTaggedWith<GetValueFuncPtrTag>(std::bit_cast<void*>(getValue));
         m_data.custom.getValue = getValue;
-        assertIsNullOrCFunctionPtr(putValue);
+        assertIsNullOrTaggedWith<PutValueFuncPtrTag>(std::bit_cast<void*>(putValue));
         m_data.custom.putValue = putValue;
         m_attributes = attributes;
 
@@ -289,9 +296,7 @@ public:
         ASSERT(attributes == attributesForStructure(attributes));
         
         ASSERT(getValue);
-        assertIsCFunctionPtr(getValue);
         m_data.custom.getValue = getValue;
-        assertIsNullOrCFunctionPtr(putValue);
         m_data.custom.putValue = putValue;
         m_attributes = attributes;
 
@@ -369,7 +374,8 @@ private:
     JS_EXPORT_PRIVATE JSValue functionGetter(JSGlobalObject*) const;
     JS_EXPORT_PRIVATE JSValue customGetter(VM&, PropertyName) const;
 
-    union {
+    union Data {
+        Data() { } // Needed because of GetValueFunc and PutValueFunc.
         EncodedJSValue value;
         struct {
             GetterSetter* getterSetter;

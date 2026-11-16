@@ -31,11 +31,13 @@
 #pragma once
 
 #include "InputType.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 // Base of input types that dispatches a simulated click on space/return key.
 class BaseClickableWithKeyInputType : public InputType {
+    WTF_MAKE_TZONE_ALLOCATED(BaseClickableWithKeyInputType);
 public:
     static ShouldCallBaseEventHandler handleKeydownEvent(HTMLInputElement&, KeyboardEvent&);
     static void handleKeypressEvent(HTMLInputElement&, KeyboardEvent&);
@@ -43,13 +45,16 @@ public:
     static bool accessKeyAction(HTMLInputElement&, bool sendMouseEvents);
     
 protected:
-    explicit BaseClickableWithKeyInputType(Type type, HTMLInputElement& element) : InputType(type, element) { }
+    explicit BaseClickableWithKeyInputType(Type type, HTMLInputElement& element)
+        : InputType(type, element)
+    {
+    }
 
 private:
-    ShouldCallBaseEventHandler handleKeydownEvent(KeyboardEvent&) override;
-    void handleKeypressEvent(KeyboardEvent&) override;
-    void handleKeyupEvent(KeyboardEvent&) override;
-    bool accessKeyAction(bool sendMouseEvents) override;
+    ShouldCallBaseEventHandler handleKeydownEvent(KeyboardEvent&) final;
+    void handleKeypressEvent(KeyboardEvent&) final;
+    void handleKeyupEvent(KeyboardEvent&) final;
+    bool accessKeyAction(bool sendMouseEvents) final;
 };
 
 } // namespace WebCore

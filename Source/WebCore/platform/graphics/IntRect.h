@@ -25,19 +25,18 @@
 
 #pragma once
 
-#include "IntPoint.h"
-#include "LayoutUnit.h"
+#include <WebCore/IntPoint.h>
+#include <WebCore/LayoutUnit.h>
+#include <wtf/Platform.h>
+#include <wtf/SwiftBridging.h>
+#include <wtf/TZoneMalloc.h>
 
 #if USE(CG)
 typedef struct CGRect CGRect;
 #endif
 
 #if PLATFORM(MAC)
-#ifdef NSGEOMETRY_TYPES_SAME_AS_CGGEOMETRY_TYPES
 typedef struct CGRect NSRect;
-#else
-typedef struct _NSRect NSRect;
-#endif
 #endif
 
 #if PLATFORM(IOS_FAMILY)
@@ -46,17 +45,15 @@ typedef struct _NSRect NSRect;
 #endif
 #endif
 
-#if PLATFORM(WIN)
-typedef struct tagRECT RECT;
-
-struct D2D_RECT_U;
-typedef D2D_RECT_U D2D1_RECT_U;
-
-struct D2D_RECT_F;
-typedef D2D_RECT_F D2D1_RECT_F;
+#if USE(SKIA)
+struct SkIRect;
 #endif
 
-#if USE(CAIRO)
+#if PLATFORM(WIN)
+typedef struct tagRECT RECT;
+#endif
+
+#if USE(CAIRO) || PLATFORM(GTK)
 typedef struct _cairo_rectangle_int cairo_rectangle_int_t;
 #endif
 
@@ -70,9 +67,9 @@ class FloatRect;
 class LayoutRect;
 
 class IntRect {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(IntRect);
 public:
-    IntRect() { }
+    IntRect() = default;
     IntRect(const IntPoint& location, const IntSize& size)
         : m_location(location), m_size(size) { }
     IntRect(int x, int y, int width, int height)
@@ -94,7 +91,7 @@ public:
     int width() const { return m_size.width(); }
     int height() const { return m_size.height(); }
 
-    template <typename T = WTF::CrashOnOverflow>
+    template <typename T = CrashOnOverflow>
     Checked<unsigned, T> area() const { return m_size.area<T>(); }
 
     void setX(int x) { m_location.setX(x); }
@@ -103,6 +100,7 @@ public:
     void setHeight(int height) { m_size.setHeight(height); }
 
     bool isEmpty() const { return m_size.isEmpty(); }
+    bool isZero() const { return m_size.isZero(); }
 
     // NOTE: The result is rounded to integer values, and thus may be not the exact
     // center point.
@@ -149,10 +147,20 @@ public:
         setWidth(std::max(0, width() - delta));
     }
 
+    void shiftMaxXEdgeBy(int delta)
+    {
+        setWidth(std::max(0, width() + delta));
+    }
+
     void shiftYEdgeBy(int delta)
     {
         move(0, delta);
         setHeight(std::max(0, height() - delta));
+    }
+
+    void shiftMaxYEdgeBy(int delta)
+    {
+        setHeight(std::max(0, height() + delta));
     }
 
     IntPoint minXMinYCorner() const { return m_location; } // typically topLeft
@@ -160,8 +168,8 @@ public:
     IntPoint minXMaxYCorner() const { return IntPoint(m_location.x(), m_location.y() + m_size.height()); } // typically bottomLeft
     IntPoint maxXMaxYCorner() const { return IntPoint(m_location.x() + m_size.width(), m_location.y() + m_size.height()); } // typically bottomRight
     
-    WEBCORE_EXPORT bool intersects(const IntRect&) const;
-    WEBCORE_EXPORT bool contains(const IntRect&) const;
+    WEBCORE_EXPORT bool NODELETE intersects(const IntRect&) const;
+    WEBCORE_EXPORT bool NODELETE contains(const IntRect&) const;
 
     // This checks to see if the rect contains x,y in the traditional sense.
     // Equivalent to checking if the rect contains a 1x1 rect below and to the right of (px,py).
@@ -185,26 +193,25 @@ public:
     }
     void inflate(int d) { inflateX(d); inflateY(d); }
     void inflate(IntSize size) { inflateX(size.width()); inflateY(size.height()); }
-    WEBCORE_EXPORT void scale(float s);
+    WEBCORE_EXPORT void NODELETE scale(float s);
 
-    IntSize differenceToPoint(const IntPoint&) const;
+    WEBCORE_EXPORT IntSize NODELETE differenceToPoint(const IntPoint&) const;
     int distanceSquaredToPoint(const IntPoint& p) const { return differenceToPoint(p).diagonalLengthSquared(); }
 
     IntRect transposedRect() const { return IntRect(m_location.transposedPoint(), m_size.transposedSize()); }
 
     // Return false if x + width or y + height overflows.
-    bool isValid() const;
+    WEBCORE_EXPORT bool NODELETE isValid() const;
+    [[nodiscard]] WEBCORE_EXPORT IntRect NODELETE toRectWithExtentsClippedToNumericLimits() const;
+
+    friend bool operator==(const IntRect&, const IntRect&) = default;
 
 #if PLATFORM(WIN)
-    IntRect(const RECT&);
-    operator RECT() const;
-    explicit IntRect(const D2D1_RECT_F&);
-    IntRect(const D2D1_RECT_U&);
-    operator D2D1_RECT_F() const;
-    operator D2D1_RECT_U() const;
+    WEBCORE_EXPORT IntRect(const RECT&);
+    WEBCORE_EXPORT operator RECT() const;
 #endif
 
-#if USE(CAIRO)
+#if USE(CAIRO) || PLATFORM(GTK)
     IntRect(const cairo_rectangle_int_t&);
     operator cairo_rectangle_int_t() const;
 #endif
@@ -213,14 +220,15 @@ public:
     WEBCORE_EXPORT operator CGRect() const;
 #endif
 
-#if PLATFORM(MAC) && !defined(NSGEOMETRY_TYPES_SAME_AS_CGGEOMETRY_TYPES)
-    WEBCORE_EXPORT operator NSRect() const;
+#if USE(SKIA)
+    IntRect(const SkIRect&);
+    WEBCORE_EXPORT operator SkIRect() const;
 #endif
 
 private:
     IntPoint m_location;
     IntSize m_size;
-};
+} SWIFT_ESCAPABLE;
 
 inline IntRect intersection(const IntRect& a, const IntRect& b)
 {
@@ -234,16 +242,6 @@ inline IntRect unionRect(const IntRect& a, const IntRect& b)
     IntRect c = a;
     c.unite(b);
     return c;
-}
-
-inline bool operator==(const IntRect& a, const IntRect& b)
-{
-    return a.location() == b.location() && a.size() == b.size();
-}
-
-inline bool operator!=(const IntRect& a, const IntRect& b)
-{
-    return a.location() != b.location() || a.size() != b.size();
 }
 
 inline IntRect& operator-=(IntRect& r, const IntPoint& offset)
@@ -260,10 +258,6 @@ inline IntRect operator-(const IntRect& r, const IntPoint& offset)
 
 #if USE(CG)
 WEBCORE_EXPORT IntRect enclosingIntRect(const CGRect&);
-#endif
-
-#if PLATFORM(MAC) && !defined(NSGEOMETRY_TYPES_SAME_AS_CGGEOMETRY_TYPES)
-WEBCORE_EXPORT IntRect enclosingIntRect(const NSRect&);
 #endif
 
 WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const IntRect&);

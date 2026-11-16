@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,36 +25,46 @@
 
 #include "config.h"
 
-#if ENABLE(WEBGL2)
+#if ENABLE(WEBGL)
 #include "WebGLTransformFeedback.h"
 
+#include "WebCoreOpaqueRootInlines.h"
 #include "WebGL2RenderingContext.h"
-#include "WebGLContextGroup.h"
+#include "WebGLBuffer.h"
 #include <JavaScriptCore/AbstractSlotVisitorInlines.h>
 #include <wtf/Lock.h>
 #include <wtf/Locker.h>
 
 namespace WebCore {
 
-Ref<WebGLTransformFeedback> WebGLTransformFeedback::create(WebGL2RenderingContext& ctx)
+Ref<WebGLTransformFeedback> WebGLTransformFeedback::createLost()
 {
-    return adoptRef(*new WebGLTransformFeedback(ctx));
+    return adoptRef(*new WebGLTransformFeedback { });
+}
+
+Ref<WebGLTransformFeedback> WebGLTransformFeedback::create(WebGL2RenderingContext& context)
+{
+    auto object = protect(context.graphicsContextGL())->createTransformFeedback();
+    if (!object)
+        return createLost();
+    return adoptRef(*new WebGLTransformFeedback { context, object });
 }
 
 WebGLTransformFeedback::~WebGLTransformFeedback()
 {
-    if (!hasGroupOrContext())
+    if (!m_context)
         return;
 
     runDestructor();
 }
 
-WebGLTransformFeedback::WebGLTransformFeedback(WebGL2RenderingContext& ctx)
-    : WebGLSharedObject(ctx)
+WebGLTransformFeedback::WebGLTransformFeedback(WebGL2RenderingContext& context, PlatformGLObject object)
+    : WebGLObject(context, object)
 {
-    setObject(ctx.graphicsContextGL()->createTransformFeedback());
-    m_boundIndexedTransformFeedbackBuffers.resize(ctx.maxTransformFeedbackSeparateAttribs());
+    m_boundIndexedTransformFeedbackBuffers.grow(context.maxTransformFeedbackSeparateAttribs());
 }
+
+WebGLTransformFeedback::WebGLTransformFeedback() = default;
 
 void WebGLTransformFeedback::deleteObjectImpl(const AbstractLocker&, GraphicsContextGL* context3d, PlatformGLObject object)
 {
@@ -63,7 +73,7 @@ void WebGLTransformFeedback::deleteObjectImpl(const AbstractLocker&, GraphicsCon
 
 void WebGLTransformFeedback::setProgram(const AbstractLocker&, WebGLProgram& program)
 {
-    m_program = &program;
+    m_program = program;
     m_programLinkCount = program.getLinkCount();
 }
 
@@ -95,11 +105,11 @@ bool WebGLTransformFeedback::hasEnoughBuffers(GCGLuint numRequired) const
 void WebGLTransformFeedback::addMembersToOpaqueRoots(const AbstractLocker& locker, JSC::AbstractSlotVisitor& visitor)
 {
     for (auto& buffer : m_boundIndexedTransformFeedbackBuffers)
-        visitor.addOpaqueRoot(buffer.get());
+        SUPPRESS_UNCOUNTED_ARG addWebCoreOpaqueRoot(visitor, buffer.get());
 
-    visitor.addOpaqueRoot(m_program.get());
+    addWebCoreOpaqueRoot(visitor, m_program.get());
     if (m_program)
-        m_program->addMembersToOpaqueRoots(locker, visitor);
+        SUPPRESS_UNCOUNTED_ARG m_program->addMembersToOpaqueRoots(locker, visitor);
 }
 
 void WebGLTransformFeedback::unbindBuffer(const AbstractLocker&, WebGLBuffer& buffer)
@@ -117,4 +127,4 @@ bool WebGLTransformFeedback::validateProgramForResume(WebGLProgram* program) con
 
 }
 
-#endif // ENABLE(WEBGL2)
+#endif // ENABLE(WEBGL)

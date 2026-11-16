@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 Google Inc.  All rights reserved.
+ * Copyright (C) 2011 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,6 +23,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
+ // https://html.spec.whatwg.org/#texttrack
+
 enum TextTrackMode { "disabled", "hidden", "showing" };
 enum TextTrackKind { "subtitles", "captions", "descriptions", "chapters", "metadata", "forced" };
 
@@ -30,15 +32,16 @@ enum TextTrackKind { "subtitles", "captions", "descriptions", "chapters", "metad
     ActiveDOMObject,
     Conditional=VIDEO,
     ExportToWrappedFunction,
-    GenerateIsReachable=ImplElementRoot,
+    GenerateIsReachable,
     GenerateAddOpaqueRoot,
     SkipVTableValidation,
     Exposed=Window
 ] interface TextTrack : EventTarget {
-    readonly attribute DOMString id;
-    [ImplementedAs=kindForBindings] attribute TextTrackKind kind;
+    [ImplementedAs=kindForBindings] readonly attribute TextTrackKind kind;
     readonly attribute DOMString label;
-    [SettingsConditionallyReadWrite=MediaSource] attribute DOMString language;
+    readonly attribute [AtomString] DOMString language;
+
+    readonly attribute DOMString id;
     readonly attribute DOMString inBandMetadataTrackDispatchType;
 
     attribute TextTrackMode mode;
@@ -50,8 +53,4 @@ enum TextTrackKind { "subtitles", "captions", "descriptions", "chapters", "metad
     undefined removeCue(TextTrackCue cue);
 
     attribute EventHandler oncuechange;
-
-    readonly attribute VTTRegionList regions;
-    undefined addRegion(VTTRegion region);
-    undefined removeRegion(VTTRegion region);
 };

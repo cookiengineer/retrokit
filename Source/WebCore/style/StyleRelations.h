@@ -30,10 +30,10 @@
 namespace WebCore {
 
 class Element;
-class RenderStyle;
 
 namespace Style {
 
+class ComputedStyle;
 class Update;
 
 struct Relation {
@@ -48,12 +48,13 @@ struct Relation {
         ChildrenAffectedByBackwardPositionalRules,
         DescendantsAffectedByBackwardPositionalRules,
         ChildrenAffectedByFirstChildRules,
-        ChildrenAffectedByPropertyBasedBackwardPositionalRules,
         ChildrenAffectedByLastChildRules,
         FirstChild,
         LastChild,
         NthChildIndex,
-        Unique,
+        AffectedByHasWithBackwardSiblingRelationship,
+        AffectedByHasWithForwardSiblingRelationship,
+        AffectedByHasWithAdjacentSiblingRelationship,
     };
     const Element* element;
     Type type;
@@ -68,7 +69,8 @@ struct Relation {
 
 using Relations = Vector<Relation, 8>;
 
-std::unique_ptr<Relations> commitRelationsToRenderStyle(RenderStyle&, const Element&, const Relations&);
+std::unique_ptr<Relations> commitRelationsToRenderStyle(Style::ComputedStyle&, const Element&, const Relations&);
+void NODELETE copyRelations(Style::ComputedStyle&, const Style::ComputedStyle&);
 void commitRelations(std::unique_ptr<Relations>, Update&);
 
 }

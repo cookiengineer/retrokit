@@ -24,6 +24,7 @@
 #include "FloatPoint.h"
 #include "Path.h"
 #include "PathTraversalState.h"
+#include "SVGPathAbsoluteConverter.h"
 #include "SVGPathBlender.h"
 #include "SVGPathBuilder.h"
 #include "SVGPathByteStreamBuilder.h"
@@ -34,19 +35,19 @@
 #include "SVGPathSegListBuilder.h"
 #include "SVGPathSegListSource.h"
 #include "SVGPathStringBuilder.h"
-#include "SVGPathStringSource.h"
+#include "SVGPathStringViewSource.h"
 #include "SVGPathTraversalStateBuilder.h"
 
 namespace WebCore {
 
-Path buildPathFromString(const String& d)
+Path buildPathFromString(StringView d)
 {
     if (d.isEmpty())
         return { };
 
     Path path;
     SVGPathBuilder builder(path);
-    SVGPathStringSource source(d);
+    SVGPathStringViewSource source(d);
     SVGPathParser::parse(source, builder);
     return path;
 }
@@ -55,8 +56,8 @@ String buildStringFromPath(const Path& path)
 {
     StringBuilder builder;
 
-    if (!path.isNull() && !path.isEmpty()) {
-        path.apply([&builder] (const PathElement& element) {
+    if (!path.isEmpty()) {
+        path.applyElements([&builder] (const PathElement& element) {
             switch (element.type) {
             case PathElement::Type::MoveToPoint:
                 builder.append('M', element.points[0].x(), ' ', element.points[0].y());
@@ -95,10 +96,14 @@ Path buildPathFromByteStream(const SVGPathByteStream& stream)
     if (stream.isEmpty())
         return { };
 
+    if (auto path = stream.cachedPath())
+        return path.value();
+
     Path path;
     SVGPathBuilder builder(path);
     SVGPathByteStreamSource source(stream);
     SVGPathParser::parse(source, builder);
+    stream.cachePath(path);
     return path;
 }
 
@@ -121,13 +126,13 @@ bool buildStringFromByteStream(const SVGPathByteStream& stream, String& result, 
     return SVGPathParser::parseToString(source, result, parsingMode, checkForInitialMoveTo);
 }
 
-bool buildSVGPathByteStreamFromString(const String& d, SVGPathByteStream& result, PathParsingMode parsingMode)
+bool buildSVGPathByteStreamFromString(StringView d, SVGPathByteStream& result, PathParsingMode parsingMode)
 {
     result.clear();
     if (d.isEmpty())
         return true;
 
-    SVGPathStringSource source(d);
+    SVGPathStringViewSource source(d);
     return SVGPathParser::parseToByteStream(source, result, parsingMode);
 }
 
@@ -162,7 +167,7 @@ bool addToSVGPathByteStream(SVGPathByteStream& streamToAppendTo, const SVGPathBy
     // (i.e. streamToAppendTo) has to be cleared before calling addAnimatedPath.
     SVGPathByteStreamBuilder builder(streamToAppendTo);
 
-    SVGPathByteStream fromStreamCopy = WTFMove(streamToAppendTo);
+    SVGPathByteStream fromStreamCopy = WTF::move(streamToAppendTo);
 
     SVGPathByteStreamSource fromSource(fromStreamCopy);
     SVGPathByteStreamSource bySource(byStream);
@@ -208,6 +213,23 @@ FloatPoint getPointAtLengthOfSVGPathByteStream(const SVGPathByteStream& stream, 
     SVGPathByteStreamSource source(stream);
     SVGPathParser::parse(source, builder);
     return builder.currentPoint();
+}
+
+std::optional<SVGPathByteStream> convertSVGPathByteStreamToAbsoluteCoordinates(const SVGPathByteStream& stream)
+{
+    SVGPathByteStream result;
+    if (stream.isEmpty())
+        return result;
+
+    SVGPathByteStreamBuilder builder(result);
+    SVGPathAbsoluteConverter converter(builder);
+
+    SVGPathByteStreamSource source(stream);
+
+    if (!SVGPathParser::parse(source, converter, UnalteredParsing, false))
+        return std::nullopt;
+
+    return result;
 }
 
 }

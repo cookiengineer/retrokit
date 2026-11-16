@@ -29,7 +29,7 @@ end
 class Sequence
     def getModifiedListARM64E
         result = riscLowerMisplacedAddresses(@list)
-        getModifiedListARM64(result)
+        getModifiedListARM64Common(result)
     end
 end
 
@@ -100,7 +100,7 @@ class Instruction
                 newList << node.cloneWithNewOperands(newOperands)
                 wasHandled = true
             end
-            newList += postInstructions if wasHandled
+            newList.concat(postInstructions) if wasHandled
         end
         return wasHandled, newList
     end
@@ -116,7 +116,7 @@ class Instruction
                 emitARM64Unflipped("blrab", operands, :ptr)
             end
         when "jmp"
-            if operands[0].label?
+            if operands.size == 1 or operands[0].label?
                 lowerARM64
             else
                 emitARM64Unflipped("brab", operands, :ptr)

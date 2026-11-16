@@ -27,8 +27,6 @@
 #define PAS_COMPACT_HEAP_RESERVATION_H
 
 #include "pas_aligned_allocation_result.h"
-#include "pas_allocation_config.h"
-#include "pas_simple_large_free_heap.h"
 #include "pas_utils.h"
 
 PAS_BEGIN_EXTERN_C;

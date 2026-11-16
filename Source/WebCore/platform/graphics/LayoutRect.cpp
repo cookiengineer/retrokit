@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, Google Inc. All rights reserved.
+ * Copyright (c) 2012 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -103,6 +103,18 @@ void LayoutRect::unite(const LayoutRect& other)
     uniteEvenIfEmpty(other);
 }
 
+void LayoutRect::uniteXEvenIfEmpty(const LayoutRect& other)
+{
+    setX(std::min(x(), other.x()));
+    setWidth(std::max(maxX(), other.maxX()) - x());
+}
+
+void LayoutRect::uniteYEvenIfEmpty(const LayoutRect& other)
+{
+    setY(std::min(y(), other.y()));
+    setHeight(std::max(maxY(), other.maxY()) - y());
+}
+
 void LayoutRect::uniteEvenIfEmpty(const LayoutRect& other)
 {
     auto minX = std::min(x(), other.x());
@@ -110,7 +122,7 @@ void LayoutRect::uniteEvenIfEmpty(const LayoutRect& other)
     auto maxX = std::max(this->maxX(), other.maxX());
     auto maxY = std::max(this->maxY(), other.maxY());
 
-    setLocationAndSizeFromEdges(minX, minY, maxX, maxY);
+    shiftEdgesTo(minX, minY, maxX, maxY);
 }
 
 bool LayoutRect::checkedUnite(const LayoutRect& other)
@@ -164,12 +176,28 @@ void LayoutRect::scale(float xScale, float yScale)
     m_size.scale(xScale, yScale);
 }
 
+void LayoutRect::expandToInfiniteY()
+{
+    LayoutRect infRect = LayoutRect::infiniteRect();
+    setY(infRect.y());
+    setHeight(infRect.height());
+}
+
+void LayoutRect::expandToInfiniteX()
+{
+    LayoutRect infRect = LayoutRect::infiniteRect();
+    setX(infRect.x());
+    setWidth(infRect.width());
+}
+
 LayoutRect unionRect(const Vector<LayoutRect>& rects)
 {
-    LayoutRect result;
+    if (rects.isEmpty())
+        return { };
 
+    LayoutRect result = rects[0];
     size_t count = rects.size();
-    for (size_t i = 0; i < count; ++i)
+    for (size_t i = 1; i < count; ++i)
         result.unite(rects[i]);
 
     return result;

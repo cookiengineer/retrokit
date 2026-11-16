@@ -28,33 +28,29 @@
 
 #pragma once
 
-#include "ExceptionOr.h"
-#include "HTTPHeaderMap.h"
+#include <WebCore/FetchHeadersGuard.h>
+#include <WebCore/HTTPHeaderMap.h>
 #include <wtf/HashTraits.h>
-#include <wtf/Variant.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
 
+class ScriptExecutionContext;
+template<typename> class ExceptionOr;
+
 class FetchHeaders : public RefCounted<FetchHeaders> {
 public:
-    enum class Guard {
-        None,
-        Immutable,
-        Request,
-        RequestNoCors,
-        Response
-    };
-
-    using Init = Variant<Vector<Vector<String>>, Vector<WTF::KeyValuePair<String, String>>>;
+    using Guard = FetchHeadersGuard;
+    using Init = Variant<Vector<Vector<String>>, Vector<KeyValuePair<String, String>>>;
     static ExceptionOr<Ref<FetchHeaders>> create(std::optional<Init>&&);
 
-    static Ref<FetchHeaders> create(Guard guard = Guard::None, HTTPHeaderMap&& headers = { }) { return adoptRef(*new FetchHeaders { guard, WTFMove(headers) }); }
+    static Ref<FetchHeaders> create(Guard guard = Guard::None, HTTPHeaderMap&& headers = { }, Vector<String>&& setCookieValues = { }) { return adoptRef(*new FetchHeaders { guard, WTF::move(headers), WTF::move(setCookieValues) }); }
     static Ref<FetchHeaders> create(const FetchHeaders& headers) { return adoptRef(*new FetchHeaders { headers }); }
 
     ExceptionOr<void> append(const String& name, const String& value);
     ExceptionOr<void> remove(const String&);
     ExceptionOr<String> get(const String&) const;
+    const Vector<String>& NODELETE getSetCookie() const;
     ExceptionOr<bool> has(const String&) const;
     ExceptionOr<void> set(const String& name, const String& value);
 
@@ -62,39 +58,44 @@ public:
     ExceptionOr<void> fill(const FetchHeaders&);
     void filterAndFill(const HTTPHeaderMap&, Guard);
 
-    String fastGet(HTTPHeaderName name) const { return m_headers.get(name); }
-    bool fastHas(HTTPHeaderName name) const { return m_headers.contains(name); }
-    void fastSet(HTTPHeaderName name, const String& value) { m_headers.set(name, value); }
+    String fastGet(HTTPHeaderName) const;
+    bool fastHas(HTTPHeaderName) const;
+    void fastSet(HTTPHeaderName, const String& value);
 
     class Iterator {
     public:
         explicit Iterator(FetchHeaders&);
-        std::optional<WTF::KeyValuePair<String, String>> next();
+        std::optional<KeyValuePair<String, String>> next();
 
     private:
-        Ref<FetchHeaders> m_headers;
+        const Ref<FetchHeaders> m_headers;
         size_t m_currentIndex { 0 };
+        size_t m_setCookieIndex { 0 };
         Vector<String> m_keys;
+        size_t m_updateCounter { 0 };
     };
-    Iterator createIterator() { return Iterator { *this }; }
+    Iterator createIterator(ScriptExecutionContext*) { return Iterator { *this }; }
 
-    void setInternalHeaders(HTTPHeaderMap&& headers) { m_headers = WTFMove(headers); }
-    const HTTPHeaderMap& internalHeaders() const { return m_headers; }
+    void setInternalHeaders(HTTPHeaderMap&& headers) { m_headers = WTF::move(headers); }
+    const HTTPHeaderMap& internalHeaders() const LIFETIME_BOUND { return m_headers; }
 
     void setGuard(Guard);
     Guard guard() const { return m_guard; }
 
 private:
-    FetchHeaders(Guard, HTTPHeaderMap&&);
+    FetchHeaders(Guard, HTTPHeaderMap&&, Vector<String>&&);
     explicit FetchHeaders(const FetchHeaders&);
 
     Guard m_guard;
     HTTPHeaderMap m_headers;
+    Vector<String> m_setCookieValues;
+    uint64_t m_updateCounter { 0 };
 };
 
-inline FetchHeaders::FetchHeaders(Guard guard, HTTPHeaderMap&& headers)
+inline FetchHeaders::FetchHeaders(Guard guard, HTTPHeaderMap&& headers, Vector<String>&& setCookieValues)
     : m_guard(guard)
-    , m_headers(WTFMove(headers))
+    , m_headers(WTF::move(headers))
+    , m_setCookieValues(WTF::move(setCookieValues))
 {
 }
 
@@ -102,7 +103,26 @@ inline FetchHeaders::FetchHeaders(const FetchHeaders& other)
     : RefCounted<FetchHeaders>()
     , m_guard(other.m_guard)
     , m_headers(other.m_headers)
+    , m_setCookieValues(other.m_setCookieValues)
 {
+}
+
+inline String FetchHeaders::fastGet(HTTPHeaderName name) const
+{
+    ASSERT(name != HTTPHeaderName::SetCookie);
+    return m_headers.get(name);
+}
+
+inline bool FetchHeaders::fastHas(HTTPHeaderName name) const
+{
+    ASSERT(name != HTTPHeaderName::SetCookie);
+    return m_headers.contains(name);
+}
+
+inline void FetchHeaders::fastSet(HTTPHeaderName name, const String& value)
+{
+    ASSERT(name != HTTPHeaderName::SetCookie);
+    m_headers.set(name, value);
 }
 
 inline void FetchHeaders::setGuard(Guard guard)
@@ -112,18 +132,3 @@ inline void FetchHeaders::setGuard(Guard guard)
 }
 
 } // namespace WebCore
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::FetchHeaders::Guard> {
-    using values = EnumValues<
-    WebCore::FetchHeaders::Guard,
-    WebCore::FetchHeaders::Guard::None,
-    WebCore::FetchHeaders::Guard::Immutable,
-    WebCore::FetchHeaders::Guard::Request,
-    WebCore::FetchHeaders::Guard::RequestNoCors,
-    WebCore::FetchHeaders::Guard::Response
-    >;
-};
-
-}

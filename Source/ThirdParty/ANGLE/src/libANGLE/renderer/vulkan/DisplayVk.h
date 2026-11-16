@@ -17,35 +17,24 @@
 
 namespace rx
 {
-class RendererVk;
-
-using ShareContextSet = std::set<ContextVk *>;
-
-class ShareGroupVk : public ShareGroupImpl
+class ThreadSafeDisplayVk : public ThreadSafeDisplayImpl, public vk::ErrorContext
 {
   public:
-    ShareGroupVk() {}
-    void onDestroy(const egl::Display *display) override;
+    ThreadSafeDisplayVk(vk::Renderer *renderer) : vk::ErrorContext(renderer) {}
+    ~ThreadSafeDisplayVk() override = default;
 
-    // PipelineLayoutCache and DescriptorSetLayoutCache can be shared between multiple threads
-    // accessing them via shared contexts. The ShareGroup locks around gl entrypoints ensuring
-    // synchronous update to the caches.
-    PipelineLayoutCache &getPipelineLayoutCache() { return mPipelineLayoutCache; }
-    DescriptorSetLayoutCache &getDescriptorSetLayoutCache() { return mDescriptorSetLayoutCache; }
-    ShareContextSet *getShareContextSet() { return &mShareContextSet; }
+    bool testDeviceLost() override;
+    egl::Error restoreLostDevice(const egl::ThreadSafeDisplay *display) override;
 
-  private:
-    // ANGLE uses a PipelineLayout cache to store compatible pipeline layouts.
-    PipelineLayoutCache mPipelineLayoutCache;
+    EGLSyncImpl *createSync() override;
 
-    // DescriptorSetLayouts are also managed in a cache.
-    DescriptorSetLayoutCache mDescriptorSetLayoutCache;
-
-    // The list of contexts within the share group
-    ShareContextSet mShareContextSet;
+    void handleError(VkResult result,
+                     const char *file,
+                     const char *function,
+                     unsigned int line) override;
 };
 
-class DisplayVk : public DisplayImpl, public vk::Context
+class DisplayVk : public DisplayImpl, public vk::GlobalOps, public ThreadSafeDisplayVk
 {
   public:
     DisplayVk(const egl::DisplayState &state);
@@ -59,10 +48,11 @@ class DisplayVk : public DisplayImpl, public vk::Context
                            egl::Surface *readSurface,
                            gl::Context *context) override;
 
-    bool testDeviceLost() override;
-    egl::Error restoreLostDevice(const egl::Display *display) override;
+    std::string getRendererDescription() override;
+    std::string getVendorString() override;
+    std::string getVersionString(bool includeFullVersion) override;
 
-    std::string getVendorString() const override;
+    vk::Renderer *getRenderer() const { return mRenderer; }
 
     DeviceImpl *createDevice() override;
 
@@ -96,11 +86,17 @@ class DisplayVk : public DisplayImpl, public vk::Context
     StreamProducerImpl *createStreamProducerD3DTexture(egl::Stream::ConsumerType consumerType,
                                                        const egl::AttributeMap &attribs) override;
 
-    EGLSyncImpl *createSync(const egl::AttributeMap &attribs) override;
-
     gl::Version getMaxSupportedESVersion() const override;
     gl::Version getMaxConformantESVersion() const override;
 
+    egl::Error validateImageClientBuffer(const gl::Context *context,
+                                         EGLenum target,
+                                         EGLClientBuffer clientBuffer,
+                                         const egl::AttributeMap &attribs) const override;
+    ExternalImageSiblingImpl *createExternalImageSibling(const gl::Context *context,
+                                                         EGLenum target,
+                                                         EGLClientBuffer buffer,
+                                                         const egl::AttributeMap &attribs) override;
     virtual const char *getWSIExtension() const = 0;
     virtual const char *getWSILayer() const;
 
@@ -110,21 +106,29 @@ class DisplayVk : public DisplayImpl, public vk::Context
     // surfaceType, which would still allow the config to be used for pbuffers.
     virtual void checkConfigSupport(egl::Config *config) = 0;
 
-    ANGLE_NO_DISCARD bool getScratchBuffer(size_t requestedSizeBytes,
-                                           angle::MemoryBuffer **scratchBufferOut) const;
-    angle::ScratchBuffer *getScratchBuffer() const { return &mScratchBuffer; }
+    angle::ScratchBuffer *getScratchBuffer() { return &mScratchBuffer; }
 
-    void handleError(VkResult result,
-                     const char *file,
-                     const char *function,
-                     unsigned int line) override;
-
-    // TODO(jmadill): Remove this once refactor is done. http://anglebug.com/3041
-    egl::Error getEGLError(EGLint errorCode);
+    void initializeFrontendFeatures(angle::FrontendFeatures *features) const override;
 
     void populateFeatureList(angle::FeatureList *features) override;
 
-    ShareGroupImpl *createShareGroup() override;
+    ShareGroupImpl *createShareGroup(const egl::ShareGroupState &state) override;
+
+    bool isConfigFormatSupported(VkFormat format) const;
+    bool isSurfaceFormatColorspacePairSupported(VkSurfaceKHR surface,
+                                                VkFormat format,
+                                                VkColorSpaceKHR colorspace) const;
+
+    void lockVulkanQueue() override;
+    void unlockVulkanQueue() override;
+
+    egl::Error querySupportedCompressionRates(const egl::Config *configuration,
+                                              const egl::AttributeMap &attributes,
+                                              EGLint *rates,
+                                              EGLint rate_size,
+                                              EGLint *num_rates) const override;
+
+    ThreadSafeDisplayImpl *getThreadSafeDisplayImpl() override { return this; }
 
   protected:
     void generateExtensions(egl::DisplayExtensions *outExtensions) const override;
@@ -136,9 +140,21 @@ class DisplayVk : public DisplayImpl, public vk::Context
 
     virtual angle::Result waitNativeImpl();
 
-    mutable angle::ScratchBuffer mScratchBuffer;
+    bool isColorspaceSupported(VkColorSpaceKHR colorspace) const;
+    void initSupportedSurfaceFormatColorspaces();
 
-    vk::Error mSavedError;
+    // vk::GlobalOps
+    void putBlob(const angle::BlobCacheKey &key, const angle::MemoryBuffer &value) override;
+    bool getBlob(const angle::BlobCacheKey &key, angle::BlobCacheValue *valueOut) override;
+    std::shared_ptr<angle::WaitableEvent> postMultiThreadWorkerTask(
+        const std::shared_ptr<angle::Closure> &task) override;
+    void notifyDeviceLost() override;
+    GlobalOps::Api getFrontendApi() const override { return GlobalOps::Api::Egl; }
+
+    angle::ScratchBuffer mScratchBuffer;
+
+    // Map of supported colorspace and associated surface format set.
+    angle::HashMap<VkColorSpaceKHR, std::unordered_set<VkFormat>> mSupportedColorspaceFormatsMap;
 };
 
 }  // namespace rx

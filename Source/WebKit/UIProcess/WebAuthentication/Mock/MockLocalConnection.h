@@ -28,19 +28,23 @@
 #if ENABLE(WEB_AUTHN)
 
 #include "LocalConnection.h"
+#include <WebCore/AuthenticatorAssertionResponse.h>
 #include <WebCore/MockWebAuthenticationConfiguration.h>
 
 namespace WebKit {
 
 class MockLocalConnection final : public LocalConnection {
+    WTF_MAKE_TZONE_ALLOCATED(MockLocalConnection);
 public:
-    explicit MockLocalConnection(const WebCore::MockWebAuthenticationConfiguration&);
+    static Ref<MockLocalConnection> create(const WebCore::MockWebAuthenticationConfiguration&);
 
 private:
+    explicit MockLocalConnection(const WebCore::MockWebAuthenticationConfiguration&);
+
+    RetainPtr<NSArray> getExistingCredentials(const String& rpId) final;
     void verifyUser(const String&, WebCore::ClientDataType, SecAccessControlRef, WebCore::UserVerificationRequirement,  UserVerificationCallback&&) final;
     void verifyUser(SecAccessControlRef, LAContext *, CompletionHandler<void(UserVerification)>&&) final;
     RetainPtr<SecKeyRef> createCredentialPrivateKey(LAContext *, SecAccessControlRef, const String& secAttrLabel, NSData *secAttrApplicationTag) const final;
-    void getAttestation(SecKeyRef, NSData *authData, NSData *hash, AttestationCallback&&) const final;
     void filterResponses(Vector<Ref<WebCore::AuthenticatorAssertionResponse>>&) const final;
 
     WebCore::MockWebAuthenticationConfiguration m_configuration;

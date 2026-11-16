@@ -31,6 +31,8 @@
 #include "MessageReceiver.h"
 #include "RemoteAudioHardwareListenerIdentifier.h"
 #include <WebCore/AudioHardwareListener.h>
+#include <wtf/Identified.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace IPC {
 class Connection;
@@ -43,15 +45,19 @@ class WebProcess;
 
 class RemoteAudioHardwareListener final
     : public WebCore::AudioHardwareListener
+    , private Identified<RemoteAudioHardwareListenerIdentifier>
     , private GPUProcessConnection::Client
-    , private IPC::MessageReceiver {
-    WTF_MAKE_FAST_ALLOCATED;
+    , private IPC::MessageReceiver
+    , public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<RemoteAudioHardwareListener> {
+    WTF_MAKE_TZONE_ALLOCATED(RemoteAudioHardwareListener);
 public:
-    static Ref<RemoteAudioHardwareListener> create(WebCore::AudioHardwareListener::Client&, WebProcess&);
+    static Ref<RemoteAudioHardwareListener> create(WebCore::AudioHardwareListener::Client&);
     ~RemoteAudioHardwareListener();
 
+    WTF_ABSTRACT_THREAD_SAFE_REF_COUNTED_AND_CAN_MAKE_WEAK_PTR_IMPL;
+
 private:
-    RemoteAudioHardwareListener(WebCore::AudioHardwareListener::Client&, WebProcess&);
+    explicit RemoteAudioHardwareListener(WebCore::AudioHardwareListener::Client&);
 
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
@@ -62,10 +68,9 @@ private:
     // Messages
     void audioHardwareDidBecomeActive();
     void audioHardwareDidBecomeInactive();
-    void audioOutputDeviceChanged(size_t bufferSizeMinimum, size_t bufferSizeMaximum);
+    void audioOutputDeviceChanged(uint64_t bufferSizeMinimum, uint64_t bufferSizeMaximum);
 
-    RemoteAudioHardwareListenerIdentifier m_identifier;
-    WeakPtr<GPUProcessConnection> m_gpuProcessConnection;
+    ThreadSafeWeakPtr<GPUProcessConnection> m_gpuProcessConnection;
 };
 
 }

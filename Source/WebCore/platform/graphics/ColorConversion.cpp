@@ -27,177 +27,188 @@
 #include "ColorConversion.h"
 
 #include "Color.h"
+#include "ColorNormalization.h"
 #include "ColorSpace.h"
 #include "DestinationColorSpace.h"
+#include <numeric>
 #include <wtf/MathExtras.h>
 
 namespace WebCore {
 
+// MARK: Lab-Like to LCH-Like conversion utilities.
+
+template<typename LCHLike, typename LabLike>
+LCHLike convertToPolarForm(const LabLike& color)
+{
+    // https://drafts.csswg.org/css-color/#lab-to-lch
+    auto [lightness, a, b, alpha] = color.resolved();
+
+    constexpr float epsilon = LabLike::Model::achromaticEpsilon;
+
+    bool achromatic = std::abs(a) < epsilon && std::abs(b) < epsilon;
+
+    if (achromatic)
+        return { lightness, 0, std::numeric_limits<float>::quiet_NaN(), alpha };
+
+    float chroma = std::hypot(a, b);
+    float hue = rad2deg(atan2(b, a));
+
+    return { lightness, chroma, hue >= 0.0f ? hue : hue + 360.0f, alpha };
+}
+
+template<typename LabLike, typename LCHLike>
+LabLike convertToRectangularForm(const LCHLike& color)
+{
+    // https://drafts.csswg.org/css-color/#lch-to-lab
+    auto [lightness, chroma, hue, alpha] = color.resolved();
+
+    if (std::isnan(color.unresolved().hue))
+        return { lightness, 0, 0, alpha };
+
+    float hueAngleRadians = deg2rad(hue);
+    float a = chroma * std::cos(hueAngleRadians);
+    float b = chroma * std::sin(hueAngleRadians);
+
+    return { lightness, a, b, alpha };
+}
+
 // MARK: HSL conversions.
 
-struct HSLHueCalculationResult {
-    float hue;
-    float min;
-    float max;
-    float chroma;
-};
-
-static HSLHueCalculationResult calculateHSLHue(const SRGBA<float>& color)
-{
-    auto [r, g, b, alpha] = color;
-    auto [min, max] = std::minmax({ r, g, b });
-    float chroma = max - min;
-
-    float hue;
-    if (!chroma)
-        hue = 0;
-    else if (max == r)
-        hue = (60.0f * ((g - b) / chroma)) + 360.0f;
-    else if (max == g)
-        hue = (60.0f * ((b - r) / chroma)) + 120.0f;
-    else
-        hue = (60.0f * ((r - g) / chroma)) + 240.0f;
-
-    if (hue >= 360.0f)
-        hue -= 360.0f;
-
-    return { hue, min, max, chroma };
-}
-
-HSLA<float> ColorConversion<HSLA<float>, SRGBA<float>>::convert(const SRGBA<float>& color)
+HSLA<float> ColorConversion<HSLA<float>, ExtendedSRGBA<float>>::convert(const ExtendedSRGBA<float>& color)
 {
     // https://drafts.csswg.org/css-color-4/#hsl-to-rgb
-    auto [r, g, b, alpha] = color;
-    auto [hue, min, max, chroma] = calculateHSLHue(color);
 
-    float lightness = (0.5f * (max + min)) * 100.0f;
+    auto [red, green, blue, alpha] = color.resolved();
+
+    auto [min, max] = std::minmax({ red, green, blue });
+    auto d = max - min;
+
+    float hue = std::numeric_limits<float>::quiet_NaN();
+    float lightness = std::midpoint(min, max);
     float saturation;
-    if (!chroma)
-        saturation = 0;
-    else if (lightness <= 50.0f)
-        saturation = (chroma / (max + min)) * 100.0f;
-    else
-        saturation = (chroma / (2.0f - (max + min))) * 100.0f;
 
-    return { hue, saturation, lightness, alpha };
+    if (d != 0.0f) {
+        if (lightness == 0.0f || lightness == 1.0f)
+            saturation = 0.0f;
+        else
+            saturation = (max - lightness) / std::min(lightness, 1.0f - lightness);
+
+        if (max == red)
+            hue = ((green - blue) / d) + (green < blue ? 6.0f : 0.0f);
+        else if (max == green)
+            hue = ((blue - red) / d) + 2.0f;
+        else if (max == blue)
+            hue = ((red - green) / d) + 4.0f;
+
+        hue *= 60.0f;
+
+        if (saturation < 0.0f) {
+            hue += 180.0f;
+            saturation = std::abs(saturation);
+        }
+
+        if (hue >= 360.0f)
+            hue -= 360.0f;
+    } else
+        saturation = 0.0f;
+
+    return { hue, saturation * 100.0f, lightness * 100.0f, alpha };
 }
 
-SRGBA<float> ColorConversion<SRGBA<float>, HSLA<float>>::convert(const HSLA<float>& color)
+ExtendedSRGBA<float> ColorConversion<ExtendedSRGBA<float>, HSLA<float>>::convert(const HSLA<float>& color)
 {
     // https://drafts.csswg.org/css-color-4/#hsl-to-rgb
-    auto [hue, saturation, lightness, alpha] = color;
 
-    if (!saturation) {
-        auto grey = lightness / 100.0f;
-        return { grey, grey, grey, alpha };
-    }
+    auto [hue, saturation, lightness, alpha] = color.resolved();
 
-    // hueToRGB() wants hue in the 0-6 range.
-    auto normalizedHue = (hue / 360.0f) * 6.0f;
-    auto normalizedLightness = lightness / 100.0f;
-    auto normalizedSaturation = saturation / 100.0f;
+    float scaledHue = hue / 30.0f;
+    float scaledSaturation = saturation * (1.0f / 100.0f);
+    float scaledLightness = lightness * (1.0f / 100.0f);
 
-    auto hueForRed = normalizedHue + 2.0f;
-    auto hueForGreen = normalizedHue;
-    auto hueForBlue = normalizedHue - 2.0f;
-    if (hueForRed > 6.0f)
-        hueForRed -= 6.0f;
-    else if (hueForBlue < 0.0f)
-        hueForBlue += 6.0f;
+    auto a = scaledSaturation * std::min(scaledLightness, 1.0f - scaledLightness);
 
-    float temp2 = normalizedLightness <= 0.5f ? normalizedLightness * (1.0f + normalizedSaturation) : normalizedLightness + normalizedSaturation - normalizedLightness * normalizedSaturation;
-    float temp1 = 2.0f * normalizedLightness - temp2;
-    
-    // Hue is in the range 0-6, other args in 0-1.
-    auto hueToRGB = [](float temp1, float temp2, float hue) {
-        if (hue < 1.0f)
-            return temp1 + (temp2 - temp1) * hue;
-        if (hue < 3.0f)
-            return temp2;
-        if (hue < 4.0f)
-            return temp1 + (temp2 - temp1) * (4.0f - hue);
-        return temp1;
+    auto hueToRGB = [&](float n) {
+        auto k = std::fmod(n + scaledHue, 12.0f);
+        return scaledLightness - (a * std::max(-1.0f, std::min({ k - 3.0f, 9.0f - k, 1.0f })));
     };
 
-    return {
-        hueToRGB(temp1, temp2, hueForRed),
-        hueToRGB(temp1, temp2, hueForGreen),
-        hueToRGB(temp1, temp2, hueForBlue),
-        alpha
-    };
+    return { hueToRGB(0), hueToRGB(8), hueToRGB(4), alpha };
 }
 
 // MARK: HWB conversions.
 
-HWBA<float> ColorConversion<HWBA<float>, SRGBA<float>>::convert(const SRGBA<float>& color)
+HWBA<float> ColorConversion<HWBA<float>, ExtendedSRGBA<float>>::convert(const ExtendedSRGBA<float>& color)
 {
     // https://drafts.csswg.org/css-color-4/#rgb-to-hwb
-    auto [hue, min, max, chroma] = calculateHSLHue(color);
+
+    auto [red, green, blue, alpha] = color.resolved();
+
+    auto [min, max] = std::minmax({ red, green, blue });
+    auto d = max - min;
+
+    float hue = std::numeric_limits<float>::quiet_NaN();
+
+    // Compute `hue` as done in conversion to HSLA, but don't adjust for negative saturation, in order to respect out-of-gamut colors.
+    if (d != 0.0f) {
+        if (max == red)
+            hue = ((green - blue) / d) + (green < blue ? 6.0f : 0.0f);
+        else if (max == green)
+            hue = ((blue - red) / d) + 2.0f;
+        else if (max == blue)
+            hue = ((red - green) / d) + 4.0f;
+
+        hue *= 60.0f;
+
+        if (hue >= 360.0f)
+            hue -= 360.0f;
+    }
+
     auto whiteness = min * 100.0f;
     auto blackness = (1.0f - max) * 100.0f;
     
-    return { hue, whiteness, blackness, color.alpha };
+    return { hue, whiteness, blackness, alpha };
 }
 
-SRGBA<float> ColorConversion<SRGBA<float>, HWBA<float>>::convert(const HWBA<float>& color)
+ExtendedSRGBA<float> ColorConversion<ExtendedSRGBA<float>, HWBA<float>>::convert(const HWBA<float>& color)
 {
     // https://drafts.csswg.org/css-color-4/#hwb-to-rgb
-    auto [hue, whiteness, blackness, alpha] = color;
+    auto [hue, whiteness, blackness, alpha] = color.resolved();
 
-    if (whiteness + blackness == 100.0f) {
-        auto grey = whiteness / 100.0f;
+    float scaledWhiteness = whiteness / 100.0f;
+    float scaledBlackness = blackness / 100.0f;
+
+    if (scaledWhiteness + scaledBlackness >= 1.0f) {
+        auto grey = scaledWhiteness / (scaledWhiteness + scaledBlackness);
         return { grey, grey, grey, alpha };
     }
 
-    // hueToRGB() wants hue in the 0-6 range.
-    auto normalizedHue = (hue / 360.0f) * 6.0f;
+    float scaledHue = hue / 30.0f;
+    float whitenessBlacknessFactor = 1.0f - scaledWhiteness - scaledBlackness;
 
-    auto hueForRed = normalizedHue + 2.0f;
-    auto hueForGreen = normalizedHue;
-    auto hueForBlue = normalizedHue - 2.0f;
-    if (hueForRed > 6.0f)
-        hueForRed -= 6.0f;
-    else if (hueForBlue < 0.0f)
-        hueForBlue += 6.0f;
+    auto hueToRGB = [&](float n) {
+        // Perform RGB selection from HSL conversion as if called with [ hue, 100%, 50% ].
+        auto k = std::fmod(n + scaledHue, 12.0f);
+        auto component = 0.5f - (std::max(-1.0f, std::min({ k - 3.0f, 9.0f - k, 1.0f })) / 2.0f);
 
-    auto normalizedWhiteness = whiteness / 100.0f;
-    auto normalizedBlackness = blackness / 100.0f;
-
-    // This is the hueToRGB function in convertColor<SRGBA<float>>(const HSLA&) with temp1 == 0
-    // and temp2 == 1 strength reduced through it.
-    auto hueToRGB = [](float hue) {
-        if (hue < 1.0f)
-            return hue;
-        if (hue < 3.0f)
-            return 1.0f;
-        if (hue < 4.0f)
-            return 4.0f - hue;
-        return 0.0f;
+        // Then apply whiteness/blackness to the component.
+        return (component * whitenessBlacknessFactor) + scaledWhiteness;
     };
 
-    auto applyWhitenessBlackness = [](float component, auto whiteness, auto blackness) {
-        return (component * (1.0f - whiteness - blackness)) + whiteness;
-    };
-
-    return {
-        applyWhitenessBlackness(hueToRGB(hueForRed), normalizedWhiteness, normalizedBlackness),
-        applyWhitenessBlackness(hueToRGB(hueForGreen), normalizedWhiteness, normalizedBlackness),
-        applyWhitenessBlackness(hueToRGB(hueForBlue), normalizedWhiteness, normalizedBlackness),
-        alpha
-    };
+    return { hueToRGB(0), hueToRGB(8), hueToRGB(4), alpha };
 }
 
 // MARK: Lab conversions.
 
-static constexpr float LABe = 216.0f / 24389.0f;
-static constexpr float LABk = 24389.0f / 27.0f;
-static constexpr float D50WhiteValues[] = { 0.96422f, 1.0f, 0.82521f };
+constexpr float LABe = 216.0 / 24389.0;
+constexpr float LABk = 24389.0 / 27.0;
 
 XYZA<float, WhitePoint::D50> ColorConversion<XYZA<float, WhitePoint::D50>, Lab<float>>::convert(const Lab<float>& color)
 {
-    float f1 = (color.lightness + 16.0f) / 116.0f;
-    float f0 = f1 + (color.a / 500.0f);
-    float f2 = f1 - (color.b / 200.0f);
+    auto [lightness, a, b, alpha] = color.resolved();
+
+    float f1 = (lightness + 16.0f) / 116.0f;
+    float f0 = f1 + (a / 500.0f);
+    float f2 = f1 - (b / 200.0f);
 
     auto computeXAndZ = [](float t) {
         float tCubed = t * t * t;
@@ -216,115 +227,163 @@ XYZA<float, WhitePoint::D50> ColorConversion<XYZA<float, WhitePoint::D50>, Lab<f
         return t / LABk;
     };
 
-    float x = D50WhiteValues[0] * computeXAndZ(f0);
-    float y = D50WhiteValues[1] * computeY(color.lightness);
-    float z = D50WhiteValues[2] * computeXAndZ(f2);
+    float x = D50WhitePoint[0] * computeXAndZ(f0);
+    float y = D50WhitePoint[1] * computeY(lightness);
+    float z = D50WhitePoint[2] * computeXAndZ(f2);
 
-    return { x, y, z, color.alpha };
+    return { x, y, z, alpha };
 }
 
 Lab<float> ColorConversion<Lab<float>, XYZA<float, WhitePoint::D50>>::convert(const XYZA<float, WhitePoint::D50>& color)
 {
-    float x = color.x / D50WhiteValues[0];
-    float y = color.y / D50WhiteValues[1];
-    float z = color.z / D50WhiteValues[2];
+    auto [x, y, z, alpha] = color.resolved();
+
+    float adjustedX = x / D50WhitePoint[0];
+    float adjustedY = y / D50WhitePoint[1];
+    float adjustedZ = z / D50WhitePoint[2];
 
     auto fTransform = [](float value) {
         return value > LABe ? std::cbrt(value) : (LABk * value + 16.0f) / 116.0f;
     };
 
-    float f0 = fTransform(x);
-    float f1 = fTransform(y);
-    float f2 = fTransform(z);
+    float f0 = fTransform(adjustedX);
+    float f1 = fTransform(adjustedY);
+    float f2 = fTransform(adjustedZ);
 
     float lightness = (116.0f * f1) - 16.0f;
     float a = 500.0f * (f0 - f1);
     float b = 200.0f * (f1 - f2);
 
-    return { lightness, a, b, color.alpha };
+    return makeFromComponentsClampingExceptAlpha<Lab<float>>(lightness, a, b, alpha);
 }
-
 
 // MARK: LCH conversions.
 
 LCHA<float> ColorConversion<LCHA<float>, Lab<float>>::convert(const Lab<float>& color)
 {
-    // https://www.w3.org/TR/css-color-4/#lab-to-lch
-    float hue = rad2deg(atan2(color.b, color.a));
-
-    return {
-        color.lightness,
-        std::hypot(color.a, color.b),
-        hue >= 0 ? hue : hue + 360,
-        color.alpha
-    };
+    return convertToPolarForm<LCHA<float>>(color);
 }
 
 Lab<float> ColorConversion<Lab<float>, LCHA<float>>::convert(const LCHA<float>& color)
 {
-    // https://www.w3.org/TR/css-color-4/#lch-to-lab
-    float hueAngleRadians = deg2rad(color.hue);
+    return convertToRectangularForm<Lab<float>>(color);
+}
 
-    return {
-        color.lightness,
-        color.chroma * std::cos(hueAngleRadians),
-        color.chroma * std::sin(hueAngleRadians),
-        color.alpha
+// MARK: OKLab conversions.
+
+XYZA<float, WhitePoint::D65> ColorConversion<XYZA<float, WhitePoint::D65>, OKLab<float>>::convert(const OKLab<float>& color)
+{
+    // FIXME: This could be optimized for when we are not explicitly converting to XYZ-D65 by pre-multiplying the 'LMSToXYZD65'
+    // matrix with any subsequent matrices in the conversion. This would mean teaching the main conversion about this matrix
+    // and adding new logic for this transform.
+
+    // https://bottosson.github.io/posts/oklab/ with XYZ <-> LMS matrices recalculated for consistent reference white in https://github.com/w3c/csswg-drafts/issues/6642#issuecomment-943521484
+
+    constexpr ColorMatrix<3, 3> LinearLMSToXYZD65 {
+         1.2268798758459243, -0.5578149944602171,  0.2813910456659647,
+        -0.0405757452148008,  1.1122868032803170, -0.0717110580655164,
+        -0.0763729366746601, -0.4214933324022432,  1.5869240198367816,
     };
+
+    constexpr ColorMatrix<3, 3> OKLabToNonLinearLMS {
+         1.0000000000000000,  0.3963377773761749,  0.2158037573099136,
+         1.0000000000000000, -0.1055613458156586, -0.0638541728258133,
+         1.0000000000000000, -0.0894841775298119, -1.2914855480194092,
+    };
+
+    auto [lightness, a, b, alpha] = color.resolved();
+
+    auto components = ColorComponents<float, 3> { lightness, a, b };
+
+    // 1. Transform from Lab-coordinates into non-linear LMS "approximate cone responses".
+    auto nonLinearLMS = OKLabToNonLinearLMS.transformedColorComponents(components);
+
+    // 2. Apply linearity.
+    auto linearLMS = nonLinearLMS.map([] (float v) { return v * v * v; });
+
+    // 3. Convert to XYZ.
+    auto [x, y, z] = LinearLMSToXYZD65.transformedColorComponents(linearLMS);
+
+    return { x, y, z, alpha };
+}
+
+OKLab<float> ColorConversion<OKLab<float>, XYZA<float, WhitePoint::D65>>::convert(const XYZA<float, WhitePoint::D65>& color)
+{
+    // FIXME: This could be optimized for when we are not explicitly converting from XYZ-D65 by pre-multiplying the 'XYZD65ToLMS'
+    // matrix with any previous matrices in the conversion. This would mean teaching the main conversion about this matrix
+    // and adding new logic for this transform.
+
+    // https://bottosson.github.io/posts/oklab/ with XYZ <-> LMS matrices recalculated for consistent reference white in https://github.com/w3c/csswg-drafts/issues/6642#issuecomment-943521484
+
+    constexpr ColorMatrix<3, 3> XYZD65ToLinearLMS {
+        0.8190224379967030,  0.3619062600528904, -0.1288737815209879,
+        0.0329836539323885,  0.9292868615863434,  0.0361446663506424,
+        0.0481771893596242,  0.2642395317527308,  0.6335478284694309,
+    };
+
+    constexpr ColorMatrix<3, 3> NonLinearLMSToOKLab {
+        0.2104542683093140,  0.7936177747023054, -0.0040720430116193,
+        1.9779985324311684, -2.4285922420485799,  0.4505937096174110,
+        0.0259040424655478,  0.7827717124575296, -0.8086757549230774,
+    };
+
+    auto [x, y, z, alpha] = color.resolved();
+
+    // 1. Convert XYZ into LMS "approximate cone responses".
+    auto linearLMS = XYZD65ToLinearLMS.transformedColorComponents(ColorComponents<float, 3> { x, y, z });
+
+    // 2. Apply non-linearity.
+    auto nonLinearLMS = linearLMS.map([] (float v) { return std::cbrt(v); });
+
+    // 3. Transform into Lab-coordinates.
+    auto [lightness, a, b] = NonLinearLMSToOKLab.transformedColorComponents(nonLinearLMS);
+
+    return makeFromComponentsClampingExceptAlpha<OKLab<float>>(lightness, a, b, alpha);
+}
+
+// MARK: OKLCH conversions.
+
+OKLCHA<float> ColorConversion<OKLCHA<float>, OKLab<float>>::convert(const OKLab<float>& color)
+{
+    return convertToPolarForm<OKLCHA<float>>(color);
+}
+
+OKLab<float> ColorConversion<OKLab<float>, OKLCHA<float>>::convert(const OKLCHA<float>& color)
+{
+    return convertToRectangularForm<OKLab<float>>(color);
 }
 
 // MARK: Conversion functions for raw color components with associated color spaces.
 
-ColorComponents<float, 4> converColorComponents(ColorSpace inputColorSpace, ColorComponents<float, 4> inputColorComponents, ColorSpace outputColorSpace)
+ColorComponents<float, 4> convertAndResolveColorComponents(ColorSpace inputColorSpace, ColorComponents<float, 4> inputColorComponents, ColorSpace outputColorSpace)
 {
-    return callWithColorType(inputColorComponents, inputColorSpace, [outputColorSpace] (const auto& inputColor) {
-        switch (outputColorSpace) {
-        case ColorSpace::A98RGB:
-            return asColorComponents(convertColor<A98RGB<float>>(inputColor));
-        case ColorSpace::DisplayP3:
-            return asColorComponents(convertColor<DisplayP3<float>>(inputColor));
-        case ColorSpace::LCH:
-            return asColorComponents(convertColor<LCHA<float>>(inputColor));
-        case ColorSpace::Lab:
-            return asColorComponents(convertColor<Lab<float>>(inputColor));
-        case ColorSpace::LinearSRGB:
-            return asColorComponents(convertColor<LinearSRGBA<float>>(inputColor));
-        case ColorSpace::ProPhotoRGB:
-            return asColorComponents(convertColor<ProPhotoRGB<float>>(inputColor));
-        case ColorSpace::Rec2020:
-            return asColorComponents(convertColor<Rec2020<float>>(inputColor));
-        case ColorSpace::SRGB:
-            return asColorComponents(convertColor<SRGBA<float>>(inputColor));
-        case ColorSpace::XYZ_D50:
-            return asColorComponents(convertColor<XYZA<float, WhitePoint::D50>>(inputColor));
-        }
-
-        ASSERT_NOT_REACHED();
-        return asColorComponents(convertColor<SRGBA<float>>(inputColor));
+    return callWithColorType<float>(inputColorSpace, [&]<typename InputColorType>() {
+        auto inputColor = makeFromComponents<InputColorType>(inputColorComponents);
+        return callWithColorType<float>(outputColorSpace, [&]<typename OutputColorType>() {
+            return asColorComponents(convertColor<OutputColorType>(inputColor).resolved());
+        });
     });
 }
 
-ColorComponents<float, 4> converColorComponents(ColorSpace inputColorSpace, ColorComponents<float, 4> inputColorComponents, const DestinationColorSpace& outputColorSpace)
+ColorComponents<float, 4> convertAndResolveColorComponents(ColorSpace inputColorSpace, ColorComponents<float, 4> inputColorComponents, const DestinationColorSpace& outputColorSpace)
 {
 #if USE(CG)
     return platformConvertColorComponents(inputColorSpace, inputColorComponents, outputColorSpace);
 #else
     return callWithColorType(inputColorComponents, inputColorSpace, [outputColorSpace] (const auto& inputColor) {
-        switch (outputColorSpace.platformColorSpace()) {
-        case PlatformColorSpace::Name::SRGB:
-            return asColorComponents(convertColor<SRGBA<float>>(inputColor));
-#if ENABLE(DESTINATION_COLOR_SPACE_LINEAR_SRGB)
-        case PlatformColorSpace::Name::LinearSRGB:
-            return asColorComponents(convertColor<LinearSRGBA<float>>(inputColor));
-#endif
+        if (outputColorSpace == DestinationColorSpace::SRGB())
+            return asColorComponents(convertColor<SRGBA<float>>(inputColor).resolved());
+        if (outputColorSpace == DestinationColorSpace::LinearSRGB())
+            return asColorComponents(convertColor<LinearSRGBA<float>>(inputColor).resolved());
 #if ENABLE(DESTINATION_COLOR_SPACE_DISPLAY_P3)
-        case PlatformColorSpace::Name::DisplayP3:
-            return asColorComponents(convertColor<DisplayP3<float>>(inputColor));
+        if (outputColorSpace == DestinationColorSpace::DisplayP3())
+            return asColorComponents(convertColor<DisplayP3<float>>(inputColor).resolved());
+        if (outputColorSpace == DestinationColorSpace::LinearDisplayP3())
+            return asColorComponents(convertColor<LinearDisplayP3<float>>(inputColor).resolved());
 #endif
-        }
 
         ASSERT_NOT_REACHED();
-        return asColorComponents(convertColor<SRGBA<float>>(inputColor));
+        return asColorComponents(convertColor<SRGBA<float>>(inputColor).resolved());
     });
 #endif
 }

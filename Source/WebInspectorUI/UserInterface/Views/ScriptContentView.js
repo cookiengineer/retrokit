@@ -42,11 +42,16 @@ WI.ScriptContentView = class ScriptContentView extends WI.ContentView
         // This view is only for standalone Scripts with no corresponding Resource. All other Scripts
         // should be handled by TextResourceContentView via the Resource.
         console.assert(!script.resource);
-        console.assert(script.range.startLine === 0);
-        console.assert(script.range.startColumn === 0);
+        // FIXME: <https://webkit.org/b/298909> Frame target inline scripts have non-zero start positions
+        // because they are <script> blocks inside HTML, but frame targets lack a Network agent so there
+        // is no Document resource to display through TextResourceContentView. This is blocked on the
+        // ProxyingNetworkAgent work. Line numbers in the gutter will not match the original HTML
+        // positions for these scripts.
+        console.assert(script.target instanceof WI.FrameTarget || script.range.startLine === 0);
+        console.assert(script.target instanceof WI.FrameTarget || script.range.startColumn === 0);
 
-        var toolTip = WI.UIString("Pretty print");
-        var activatedToolTip = WI.UIString("Original formatting");
+        var toolTip = WI.UIString("Click to pretty print");
+        var activatedToolTip = WI.UIString("Click to show original formatting");
         this._prettyPrintButtonNavigationItem = new WI.ActivateButtonNavigationItem("pretty-print", toolTip, activatedToolTip, "Images/NavigationItemCurleyBraces.svg", 13, 13);
         this._prettyPrintButtonNavigationItem.addEventListener(WI.ButtonNavigationItem.Event.Clicked, this._togglePrettyPrint, this);
         this._prettyPrintButtonNavigationItem.enabled = false; // Enabled when the text editor is populated with content.
@@ -109,9 +114,9 @@ WI.ScriptContentView = class ScriptContentView extends WI.ContentView
         return [WI.debuggerManager.activeCallFrame];
     }
 
-    revealPosition(position, textRangeToSelect, forceUnformatted)
+    revealPosition(position, options = {})
     {
-        this._textEditor.revealPosition(position, textRangeToSelect, forceUnformatted);
+        this._textEditor.revealPosition(position, options);
     }
 
     closed()
@@ -132,13 +137,32 @@ WI.ScriptContentView = class ScriptContentView extends WI.ContentView
 
     restoreFromCookie(cookie)
     {
-        if ("lineNumber" in cookie && "columnNumber" in cookie)
-            this.revealPosition(new WI.SourceCodePosition(cookie.lineNumber, cookie.columnNumber));
+        let textRangeToSelect = null;
+        if (!isNaN(cookie.startLine) && !isNaN(cookie.startColumn) && !isNaN(cookie.endLine) && !isNaN(cookie.endColumn))
+            textRangeToSelect = new WI.TextRange(cookie.startLine, cookie.startColumn, cookie.endLine, cookie.endColumn);
+
+        let position = null;
+        if (!isNaN(cookie.lineNumber) && !isNaN(cookie.columnNumber))
+            position = new WI.SourceCodePosition(cookie.lineNumber, cookie.columnNumber);
+        else if (textRangeToSelect)
+            position = textRangeToSelect.startPosition();
+
+        let scrollOffset = null;
+        if (!isNaN(cookie.scrollOffsetX) && !isNaN(cookie.scrollOffsetY))
+            scrollOffset = new WI.Point(cookie.scrollOffsetX, cookie.scrollOffsetY);
+
+        if (position)
+            this.revealPosition(position, {...cookie, textRangeToSelect, scrollOffset});
     }
 
     get supportsSave()
     {
         return true;
+    }
+
+    get saveMode()
+    {
+        return WI.FileUtilities.SaveMode.SingleFile;
     }
 
     get saveData()
@@ -229,7 +253,10 @@ WI.ScriptContentView = class ScriptContentView extends WI.ContentView
 
     _handleTextEditorContentDidChange(event)
     {
-        this._script.editableRevision.updateRevisionContent(this._textEditor.string);
+        this._updateRevisionContentDebouncer ||= new Debouncer(() => {
+            this._script.editableRevision.updateRevisionContent(this._textEditor.string);
+        });
+        this._updateRevisionContentDebouncer.delayForTime(250);
     }
 
     _togglePrettyPrint(event)

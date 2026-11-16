@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,13 +28,14 @@
 
 #include "APIArray.h"
 #include "APIProcessPoolConfiguration.h"
+#include "OverrideLanguages.h"
 #include "WKAPICast.h"
 
 using namespace WebKit;
 
 WKContextConfigurationRef WKContextConfigurationCreate()
 {
-    return toAPI(&API::ProcessPoolConfiguration::create().leakRef());
+    return toAPILeakingRef(API::ProcessPoolConfiguration::create());
 }
 
 WKContextConfigurationRef WKContextConfigurationCreateWithLegacyOptions()
@@ -48,15 +49,6 @@ WKStringRef WKContextConfigurationCopyDiskCacheDirectory(WKContextConfigurationR
 }
 
 void WKContextConfigurationSetDiskCacheDirectory(WKContextConfigurationRef, WKStringRef)
-{
-}
-
-WKStringRef WKContextConfigurationCopyApplicationCacheDirectory(WKContextConfigurationRef)
-{
-    return nullptr;
-}
-
-void WKContextConfigurationSetApplicationCacheDirectory(WKContextConfigurationRef, WKStringRef)
 {
 }
 
@@ -76,17 +68,16 @@ WKStringRef WKContextConfigurationCopyInjectedBundlePath(WKContextConfigurationR
 
 void WKContextConfigurationSetInjectedBundlePath(WKContextConfigurationRef configuration, WKStringRef injectedBundlePath)
 {
-    toImpl(configuration)->setInjectedBundlePath(toImpl(injectedBundlePath)->string());
+    protect(toImpl(configuration))->setInjectedBundlePath(protect(toImpl(injectedBundlePath))->string());
 }
 
 WKArrayRef WKContextConfigurationCopyCustomClassesForParameterCoder(WKContextConfigurationRef configuration)
 {
-    return toAPI(&API::Array::createStringArray(toImpl(configuration)->customClassesForParameterCoder()).leakRef());
+    return toAPILeakingRef(API::Array::createStringArray(Vector<String>()));
 }
 
 void WKContextConfigurationSetCustomClassesForParameterCoder(WKContextConfigurationRef configuration, WKArrayRef classesForCoder)
 {
-    toImpl(configuration)->setCustomClassesForParameterCoder(toImpl(classesForCoder)->toStringVector());
 }
 
 WKStringRef WKContextConfigurationCopyLocalStorageDirectory(WKContextConfigurationRef)
@@ -145,14 +136,18 @@ void WKContextConfigurationSetIgnoreSynchronousMessagingTimeoutsForTesting(WKCon
     toImpl(configuration)->setIgnoreSynchronousMessagingTimeoutsForTesting(ignore);
 }
 
-WKArrayRef WKContextConfigurationCopyOverrideLanguages(WKContextConfigurationRef configuration)
+WKArrayRef WKContextConfigurationCopyOverrideLanguages(WKContextConfigurationRef)
 {
-    return toAPI(&API::Array::createStringArray(toImpl(configuration)->overrideLanguages()).leakRef());
+    // FIXME: Delete this function.
+    return toAPILeakingRef(API::Array::create());
 }
 
-void WKContextConfigurationSetOverrideLanguages(WKContextConfigurationRef configuration, WKArrayRef overrideLanguages)
+void WKContextConfigurationSetOverrideLanguages(WKContextConfigurationRef, WKArrayRef overrideLanguages)
 {
-    toImpl(configuration)->setOverrideLanguages(toImpl(overrideLanguages)->toStringVector());
+    // FIXME: This is an SPI function, and is only (supposed to be) used for testing.
+    // However, playwright automation tests rely on it.
+    // See https://bugs.webkit.org/show_bug.cgi?id=242827 for details.
+    WebKit::setOverrideLanguages(protect(toImpl(overrideLanguages))->toStringVector());
 }
 
 bool WKContextConfigurationProcessSwapsOnNavigation(WKContextConfigurationRef configuration)
@@ -195,16 +190,6 @@ void WKContextConfigurationSetAlwaysKeepAndReuseSwappedProcesses(WKContextConfig
     toImpl(configuration)->setAlwaysKeepAndReuseSwappedProcesses(keepAndReuse);
 }
 
-bool WKContextConfigurationProcessSwapsOnWindowOpenWithOpener(WKContextConfigurationRef configuration)
-{
-    return toImpl(configuration)->processSwapsOnWindowOpenWithOpener();
-}
-
-void WKContextConfigurationSetProcessSwapsOnWindowOpenWithOpener(WKContextConfigurationRef configuration, bool swaps)
-{
-    toImpl(configuration)->setProcessSwapsOnWindowOpenWithOpener(swaps);
-}
-
 int64_t WKContextConfigurationDiskCacheSizeOverride(WKContextConfigurationRef configuration)
 {
     return 0;
@@ -221,4 +206,14 @@ void WKContextConfigurationSetShouldCaptureAudioInUIProcess(WKContextConfigurati
 void WKContextConfigurationSetShouldConfigureJSCForTesting(WKContextConfigurationRef configuration, bool value)
 {
     toImpl(configuration)->setShouldConfigureJSCForTesting(value);
+}
+
+WKStringRef WKContextConfigurationCopyTimeZoneOverride(WKContextConfigurationRef configuration)
+{
+    return toCopiedAPI(toImpl(configuration)->timeZoneOverride());
+}
+
+void WKContextConfigurationSetTimeZoneOverride(WKContextConfigurationRef configuration, WKStringRef timeZoneOverride)
+{
+    protect(toImpl(configuration))->setTimeZoneOverride(protect(toImpl(timeZoneOverride))->string());
 }

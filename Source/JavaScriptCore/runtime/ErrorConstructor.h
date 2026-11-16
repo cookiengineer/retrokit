@@ -1,6 +1,6 @@
 /*
  *  Copyright (C) 1999-2000 Harri Porten (porten@kde.org)
- *  Copyright (C) 2008-2018 Apple Inc. All rights reserved.
+ *  Copyright (C) 2008-2021 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -32,19 +32,16 @@ public:
     using Base = InternalFunction;
     static constexpr unsigned StructureFlags = Base::StructureFlags | OverridesPut;
 
-    static ErrorConstructor* create(VM& vm, Structure* structure, ErrorPrototype* errorPrototype, GetterSetter*)
+    static ErrorConstructor* create(VM& vm, Structure* structure, ErrorPrototype* errorPrototype)
     {
-        ErrorConstructor* constructor = new (NotNull, allocateCell<ErrorConstructor>(vm.heap)) ErrorConstructor(vm, structure);
+        ErrorConstructor* constructor = new (NotNull, allocateCell<ErrorConstructor>(vm)) ErrorConstructor(vm, structure);
         constructor->finishCreation(vm, errorPrototype);
         return constructor;
     }
 
     DECLARE_INFO;
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype) 
-    { 
-        return Structure::create(vm, globalObject, prototype, TypeInfo(InternalFunctionType, StructureFlags), info()); 
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
 private:
     ErrorConstructor(VM&, Structure*);
@@ -55,6 +52,6 @@ private:
 };
 STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(ErrorConstructor, InternalFunction);
 
-static_assert(sizeof(ErrorConstructor) == sizeof(InternalFunction), "");
+static_assert(sizeof(ErrorConstructor) == sizeof(InternalFunction));
 
 } // namespace JSC

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -74,6 +74,12 @@ class Placard extends LayoutItem
             children.push(this._descriptionNode);
 
         this._container.children = children;
+    }
+    
+    set title(title)
+    {
+        this._titleNode = !!title ? new LayoutNode(`<div class="title">${title}</div>`) : null;
+        this.needsLayout = true;
     }
     
     set description(description)

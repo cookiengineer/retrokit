@@ -25,7 +25,8 @@
 
 #pragma once
 
-#include "MediaSessionIdentifier.h"
+#include <WebCore/MediaSessionIdentifier.h>
+#include <wtf/Platform.h>
 #include <wtf/URL.h>
 #include <wtf/text/WTFString.h>
 
@@ -33,6 +34,7 @@ namespace WebCore {
 
 struct MediaUsageInfo {
     URL mediaURL;
+    bool hasSource { false };
     bool isPlaying { false };
     bool canShowControlsManager { false };
     bool canShowNowPlayingControls { false };
@@ -54,193 +56,20 @@ struct MediaUsageInfo {
     bool isMediaDocumentAndNotOwnerElement { false };
     bool pageExplicitlyAllowsElementToAutoplayInline { false };
     bool requiresFullscreenForVideoPlaybackAndFullscreenNotPermitted { false };
-    bool hasHadUserInteractionAndQuirksContainsShouldAutoplayForArbitraryUserGesture { false };
     bool isVideoAndRequiresUserGestureForVideoRateChange { false };
     bool isAudioAndRequiresUserGestureForAudioRateChange { false };
     bool isVideoAndRequiresUserGestureForVideoDueToLowPowerMode { false };
+    bool isVideoAndRequiresUserGestureForVideoDueToAggressiveThermalMitigation { false };
     bool noUserGestureRequired { false };
     bool requiresPlaybackAndIsNotPlaying { false };
     bool hasEverNotifiedAboutPlaying { false };
     bool outsideOfFullscreen { false };
     bool isLargeEnoughForMainContent { false };
+#if PLATFORM(COCOA) && !HAVE(CGS_FIX_FOR_RADAR_97530095)
+    bool isInViewport { false };
+#endif
 
-    bool operator==(const MediaUsageInfo& other) const
-    {
-        return mediaURL == other.mediaURL
-            && isPlaying == other.isPlaying
-            && canShowControlsManager == other.canShowControlsManager
-            && canShowNowPlayingControls == other.canShowNowPlayingControls
-            && isSuspended == other.isSuspended
-            && isInActiveDocument == other.isInActiveDocument
-            && isFullscreen == other.isFullscreen
-            && isMuted == other.isMuted
-            && isMediaDocumentInMainFrame == other.isMediaDocumentInMainFrame
-            && isVideo == other.isVideo
-            && isAudio == other.isAudio
-            && hasAudio == other.hasAudio
-            && hasVideo == other.hasVideo
-            && hasRenderer == other.hasRenderer
-            && audioElementWithUserGesture == other.audioElementWithUserGesture
-            && userHasPlayedAudioBefore == other.userHasPlayedAudioBefore
-            && isElementRectMostlyInMainFrame == other.isElementRectMostlyInMainFrame
-            && playbackPermitted == other.playbackPermitted
-            && pageMediaPlaybackSuspended == other.pageMediaPlaybackSuspended
-            && isMediaDocumentAndNotOwnerElement == other.isMediaDocumentAndNotOwnerElement
-            && pageExplicitlyAllowsElementToAutoplayInline == other.pageExplicitlyAllowsElementToAutoplayInline
-            && requiresFullscreenForVideoPlaybackAndFullscreenNotPermitted == other.requiresFullscreenForVideoPlaybackAndFullscreenNotPermitted
-            && hasHadUserInteractionAndQuirksContainsShouldAutoplayForArbitraryUserGesture == other.hasHadUserInteractionAndQuirksContainsShouldAutoplayForArbitraryUserGesture
-            && isVideoAndRequiresUserGestureForVideoRateChange == other.isVideoAndRequiresUserGestureForVideoRateChange
-            && isAudioAndRequiresUserGestureForAudioRateChange == other.isAudioAndRequiresUserGestureForAudioRateChange
-            && isVideoAndRequiresUserGestureForVideoDueToLowPowerMode == other.isVideoAndRequiresUserGestureForVideoDueToLowPowerMode
-            && noUserGestureRequired == other.noUserGestureRequired
-            && requiresPlaybackAndIsNotPlaying == other.requiresPlaybackAndIsNotPlaying
-            && hasEverNotifiedAboutPlaying == other.hasEverNotifiedAboutPlaying
-            && outsideOfFullscreen == other.outsideOfFullscreen
-            && isLargeEnoughForMainContent == other.isLargeEnoughForMainContent;
-    }
-
-    bool operator!=(const MediaUsageInfo other) const
-    {
-        return !(*this == other);
-    }
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<MediaUsageInfo> decode(Decoder&);
+    friend bool operator==(const MediaUsageInfo&, const MediaUsageInfo&) = default;
 };
-
-template<class Encoder> inline void MediaUsageInfo::encode(Encoder& encoder) const
-{
-    encoder << mediaURL;
-    encoder << isPlaying;
-    encoder << canShowControlsManager;
-    encoder << canShowNowPlayingControls;
-    encoder << isSuspended;
-    encoder << isInActiveDocument;
-    encoder << isFullscreen;
-    encoder << isMuted;
-    encoder << isMediaDocumentInMainFrame;
-    encoder << isVideo;
-    encoder << isAudio;
-    encoder << hasVideo;
-    encoder << hasAudio;
-    encoder << hasRenderer;
-    encoder << audioElementWithUserGesture;
-    encoder << userHasPlayedAudioBefore;
-    encoder << isElementRectMostlyInMainFrame;
-    encoder << playbackPermitted;
-    encoder << pageMediaPlaybackSuspended;
-    encoder << isMediaDocumentAndNotOwnerElement;
-    encoder << pageExplicitlyAllowsElementToAutoplayInline;
-    encoder << requiresFullscreenForVideoPlaybackAndFullscreenNotPermitted;
-    encoder << hasHadUserInteractionAndQuirksContainsShouldAutoplayForArbitraryUserGesture;
-    encoder << isVideoAndRequiresUserGestureForVideoRateChange;
-    encoder << isAudioAndRequiresUserGestureForAudioRateChange;
-    encoder << isVideoAndRequiresUserGestureForVideoDueToLowPowerMode;
-    encoder << noUserGestureRequired;
-    encoder << requiresPlaybackAndIsNotPlaying;
-    encoder << hasEverNotifiedAboutPlaying;
-    encoder << outsideOfFullscreen;
-    encoder << isLargeEnoughForMainContent;
-}
-
-template<class Decoder> inline std::optional<MediaUsageInfo> MediaUsageInfo::decode(Decoder& decoder)
-{
-    MediaUsageInfo info;
-
-    if (!decoder.decode(info.mediaURL))
-        return { };
-
-    if (!decoder.decode(info.isPlaying))
-        return { };
-
-    if (!decoder.decode(info.canShowControlsManager))
-        return { };
-
-    if (!decoder.decode(info.canShowNowPlayingControls))
-        return { };
-
-    if (!decoder.decode(info.isSuspended))
-        return { };
-
-    if (!decoder.decode(info.isInActiveDocument))
-        return { };
-
-    if (!decoder.decode(info.isFullscreen))
-        return { };
-
-    if (!decoder.decode(info.isMuted))
-        return { };
-
-    if (!decoder.decode(info.isMediaDocumentInMainFrame))
-        return { };
-
-    if (!decoder.decode(info.isVideo))
-        return { };
-
-    if (!decoder.decode(info.isAudio))
-        return { };
-
-    if (!decoder.decode(info.hasVideo))
-        return { };
-
-    if (!decoder.decode(info.hasAudio))
-        return { };
-
-    if (!decoder.decode(info.hasRenderer))
-        return { };
-
-    if (!decoder.decode(info.audioElementWithUserGesture))
-        return { };
-
-    if (!decoder.decode(info.userHasPlayedAudioBefore))
-        return { };
-
-    if (!decoder.decode(info.isElementRectMostlyInMainFrame))
-        return { };
-
-    if (!decoder.decode(info.playbackPermitted))
-        return { };
-
-    if (!decoder.decode(info.pageMediaPlaybackSuspended))
-        return { };
-
-    if (!decoder.decode(info.isMediaDocumentAndNotOwnerElement))
-        return { };
-
-    if (!decoder.decode(info.pageExplicitlyAllowsElementToAutoplayInline))
-        return { };
-
-    if (!decoder.decode(info.requiresFullscreenForVideoPlaybackAndFullscreenNotPermitted))
-        return { };
-
-    if (!decoder.decode(info.hasHadUserInteractionAndQuirksContainsShouldAutoplayForArbitraryUserGesture))
-        return { };
-
-    if (!decoder.decode(info.isVideoAndRequiresUserGestureForVideoRateChange))
-        return { };
-
-    if (!decoder.decode(info.isAudioAndRequiresUserGestureForAudioRateChange))
-        return { };
-
-    if (!decoder.decode(info.isVideoAndRequiresUserGestureForVideoDueToLowPowerMode))
-        return { };
-
-    if (!decoder.decode(info.noUserGestureRequired))
-        return { };
-
-    if (!decoder.decode(info.requiresPlaybackAndIsNotPlaying))
-        return { };
-
-    if (!decoder.decode(info.hasEverNotifiedAboutPlaying))
-        return { };
-
-    if (!decoder.decode(info.outsideOfFullscreen))
-        return { };
-
-    if (!decoder.decode(info.isLargeEnoughForMainContent))
-        return { };
-
-    return info;
-}
 
 } // namespace WebCore

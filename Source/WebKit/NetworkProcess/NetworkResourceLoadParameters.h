@@ -33,6 +33,13 @@
 #include <WebCore/CrossOriginAccessControl.h>
 #include <WebCore/CrossOriginEmbedderPolicy.h>
 #include <WebCore/FetchOptions.h>
+#include <WebCore/FetchingWorkerIdentifier.h>
+#include <WebCore/NavigationIdentifier.h>
+#include <WebCore/NavigationRequester.h>
+#include <WebCore/ResourceLoaderIdentifier.h>
+#include <WebCore/SecurityContext.h>
+#include <WebCore/ServiceWorkerIdentifier.h>
+#include <WebCore/SharedWorkerIdentifier.h>
 #include <wtf/Seconds.h>
 
 namespace IPC {
@@ -42,45 +49,90 @@ class Encoder;
 
 namespace WebKit {
 
-typedef uint64_t ResourceLoadIdentifier;
+struct NetworkResourceLoadParameters {
+    void createSandboxExtensionHandlesIfNecessary();
 
-class NetworkResourceLoadParameters : public NetworkLoadParameters {
-public:
-    void encode(IPC::Encoder&) const;
-    static std::optional<NetworkResourceLoadParameters> decode(IPC::Decoder&);
+    RefPtr<WebCore::SecurityOrigin> NODELETE parentOrigin() const;
+    NetworkLoadParameters networkLoadParameters() const;
+    WebCore::SecurityOriginData topOriginForServiceWorkers(const URL& requestURL) const;
 
-    RefPtr<WebCore::SecurityOrigin> parentOrigin() const;
+    WebPageProxyIdentifier webPageProxyID;
+    WebCore::PageIdentifier webPageID;
+    WebCore::FrameIdentifier webFrameID;
+    WebCore::ResourceRequest request;
+    RefPtr<WebCore::SecurityOrigin> topOrigin { };
+    RefPtr<WebCore::SecurityOrigin> sourceOrigin { };
+    WTF::ProcessID parentPID { 0 };
+    WebCore::ContentSniffingPolicy contentSniffingPolicy { WebCore::ContentSniffingPolicy::SniffContent };
+    WebCore::ContentEncodingSniffingPolicy contentEncodingSniffingPolicy { WebCore::ContentEncodingSniffingPolicy::Default };
+    WebCore::StoredCredentialsPolicy storedCredentialsPolicy { WebCore::StoredCredentialsPolicy::DoNotUse };
+    WebCore::ClientCredentialPolicy clientCredentialPolicy { WebCore::ClientCredentialPolicy::CannotAskClientForCredentials };
+    bool shouldClearReferrerOnHTTPSToHTTPRedirect { true };
+    bool needsCertificateInfo { false };
+    bool isMainFrameNavigation { false };
+    bool navigationLosesFrameSpecificStorageAccess { false };
+    std::optional<NavigationActionData> mainResourceNavigationDataForAnyFrame { };
+    PreconnectOnly shouldPreconnectOnly { PreconnectOnly::No };
+    std::optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain { NavigatingToAppBoundDomain::No };
+    bool hadMainFrameMainResourcePrivateRelayed { false };
+    bool allowPrivacyProxy { true };
+    OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections { };
+    bool mayBlockNetworkRequest { false };
 
-    mutable ResourceLoadIdentifier identifier { 0 };
-    Vector<RefPtr<SandboxExtension>> requestBodySandboxExtensions; // Created automatically for the sender.
-    RefPtr<SandboxExtension> resourceSandboxExtension; // Created automatically for the sender.
-    Seconds maximumBufferingTime;
-    WebCore::FetchOptions options;
-    std::optional<WebCore::ContentSecurityPolicyResponseHeaders> cspResponseHeaders;
-    WebCore::CrossOriginEmbedderPolicy parentCrossOriginEmbedderPolicy;
-    WebCore::CrossOriginEmbedderPolicy crossOriginEmbedderPolicy;
-    WebCore::HTTPHeaderMap originalRequestHeaders;
-    bool shouldRestrictHTTPResponseAccess { false };
+    uint64_t requiredCookiesVersion { 0 };
+
+    Markable<WebCore::ResourceLoaderIdentifier> identifier { };
+    std::optional<SandboxExtensionHandle> resourceSandboxExtension { };
+    Seconds maximumBufferingTime { };
+    WebCore::FetchOptions options { };
+    std::optional<WebCore::ContentSecurityPolicyResponseHeaders> cspResponseHeaders { };
+    URL parentFrameURL { };
+    URL frameURL { };
+    WebCore::CrossOriginEmbedderPolicy parentCrossOriginEmbedderPolicy { };
+    WebCore::CrossOriginEmbedderPolicy crossOriginEmbedderPolicy { };
+    WebCore::HTTPHeaderMap originalRequestHeaders { };
     WebCore::PreflightPolicy preflightPolicy { WebCore::PreflightPolicy::Consider };
     bool shouldEnableCrossOriginResourcePolicy { false };
-    Vector<RefPtr<WebCore::SecurityOrigin>> frameAncestorOrigins;
+    Vector<Ref<WebCore::SecurityOrigin>> frameAncestorOrigins { };
     bool pageHasResourceLoadClient { false };
-    std::optional<WebCore::FrameIdentifier> parentFrameID;
+    std::optional<WebCore::FrameIdentifier> parentFrameID { };
     bool crossOriginAccessControlCheckEnabled { true };
-    URL documentURL;
-    
-#if ENABLE(SERVICE_WORKER)
+    URL documentURL { };
+
+    bool isCrossOriginOpenerPolicyEnabled { false };
+    bool isClearSiteDataHeaderEnabled { false };
+    bool isClearSiteDataExecutionContextEnabled { false };
+    bool isDisplayingInitialEmptyDocument { false };
+    WebCore::SandboxFlags effectiveSandboxFlags { };
+    URL openerURL { };
+    WebCore::CrossOriginOpenerPolicy sourceCrossOriginOpenerPolicy { };
+    std::optional<WebCore::NavigationIdentifier> navigationID { };
+    std::optional<WebCore::NavigationRequester> navigationRequester { };
+
     WebCore::ServiceWorkersMode serviceWorkersMode { WebCore::ServiceWorkersMode::None };
-    std::optional<WebCore::ServiceWorkerRegistrationIdentifier> serviceWorkerRegistrationIdentifier;
-    OptionSet<WebCore::HTTPHeadersToKeepFromCleaning> httpHeadersToKeep;
+    std::optional<WebCore::ServiceWorkerRegistrationIdentifier> serviceWorkerRegistrationIdentifier { };
+    OptionSet<WebCore::HTTPHeadersToKeepFromCleaning> httpHeadersToKeep { };
+    std::optional<WebCore::FetchIdentifier> navigationPreloadIdentifier { };
+    WebCore::FetchingWorkerIdentifier workerIdentifier { };
+
+#if ENABLE(CONTENT_EXTENSIONS) || (ENABLE(CONTENT_FILTERING) && HAVE(WEBCONTENTRESTRICTIONS))
+    URL mainDocumentURL { };
+#endif
+#if ENABLE(CONTENT_EXTENSIONS)
+    std::optional<UserContentControllerIdentifier> userContentControllerIdentifier { };
 #endif
 
-#if ENABLE(CONTENT_EXTENSIONS)
-    URL mainDocumentURL;
-    std::optional<UserContentControllerIdentifier> userContentControllerIdentifier;
+#if ENABLE(WK_WEB_EXTENSIONS)
+    bool pageHasLoadedWebExtensions { false };
 #endif
-    
-    std::optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain { NavigatingToAppBoundDomain::No };
+
+    bool linkPreconnectEarlyHintsEnabled { false };
+    bool shouldRecordFrameLoadForStorageAccess { false };
+
+    bool isInitiatorPrefetch { false };
+    bool isInitiatedByDedicatedWorker { false };
+    bool globalPrivacyControlEnabled { false };
+    bool shouldConsiderEnhancedSecurityForInsecureResponse { false };
 };
 
 } // namespace WebKit

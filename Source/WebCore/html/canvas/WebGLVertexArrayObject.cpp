@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,18 +26,26 @@
 #include "config.h"
 #include "WebGLVertexArrayObject.h"
 
-#if ENABLE(WEBGL2)
+#if ENABLE(WEBGL)
 
 #include "WebGL2RenderingContext.h"
-#include "WebGLContextGroup.h"
 #include <wtf/Lock.h>
 #include <wtf/Locker.h>
 
 namespace WebCore {
+
+
+Ref<WebGLVertexArrayObject> WebGLVertexArrayObject::createLost()
+{
+    return adoptRef(*new WebGLVertexArrayObject { });
+}
     
 Ref<WebGLVertexArrayObject> WebGLVertexArrayObject::create(WebGLRenderingContextBase& context, Type type)
 {
-    return adoptRef(*new WebGLVertexArrayObject(context, type));
+    auto object = protect(context.graphicsContextGL())->createVertexArray();
+    if (!object)
+        return createLost();
+    return adoptRef(*new WebGLVertexArrayObject { context, object, type });
 }
 
 WebGLVertexArrayObject::~WebGLVertexArrayObject()
@@ -48,15 +56,12 @@ WebGLVertexArrayObject::~WebGLVertexArrayObject()
     runDestructor();
 }
 
-WebGLVertexArrayObject::WebGLVertexArrayObject(WebGLRenderingContextBase& context, Type type)
-    : WebGLVertexArrayObjectBase(context, type)
+WebGLVertexArrayObject::WebGLVertexArrayObject(WebGLRenderingContextBase& context, PlatformGLObject object, Type type)
+    : WebGLVertexArrayObjectBase(context, object, type)
 {
-#if USE(OPENGL_ES)
-    if (m_type != Type::User)
-        return;
-#endif
-    setObject(this->context()->graphicsContextGL()->createVertexArray());
 }
+
+WebGLVertexArrayObject::WebGLVertexArrayObject() = default;
 
 void WebGLVertexArrayObject::deleteObjectImpl(const AbstractLocker& locker, GraphicsContextGL* context3d, PlatformGLObject object)
 {
@@ -68,12 +73,12 @@ void WebGLVertexArrayObject::deleteObjectImpl(const AbstractLocker& locker, Grap
         break;
     }
     
-    if (m_boundElementArrayBuffer)
-        m_boundElementArrayBuffer->onDetached(locker, context3d);
+    if (RefPtr boundElementArrayBuffer = m_boundElementArrayBuffer.get())
+        boundElementArrayBuffer->onDetached(locker, context3d);
     
     for (auto& state : m_vertexAttribState) {
-        if (state.bufferBinding)
-            state.bufferBinding->onDetached(locker, context3d);
+        if (RefPtr bufferBinding = state.bufferBinding.get())
+            bufferBinding->onDetached(locker, context3d);
     }
 }
 

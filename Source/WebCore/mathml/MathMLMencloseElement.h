@@ -34,7 +34,8 @@
 namespace WebCore {
 
 class MathMLMencloseElement final: public MathMLRowElement {
-    WTF_MAKE_ISO_ALLOCATED(MathMLMencloseElement);
+    WTF_MAKE_TZONE_ALLOCATED(MathMLMencloseElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(MathMLMencloseElement);
 public:
     static Ref<MathMLMencloseElement> create(const QualifiedName& tagName, Document&);
 
@@ -58,8 +59,8 @@ public:
 
 private:
     MathMLMencloseElement(const QualifiedName&, Document&);
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
     void parseNotationAttribute();
     void clearNotations() { m_notationFlags = 0; }
     void addNotation(MencloseNotationFlag notationFlag) { m_notationFlags.value() |= notationFlag; }

@@ -22,32 +22,32 @@
 #if ENABLE(OFFSCREEN_CANVAS)
 
 #include "JSOffscreenCanvasRenderingContext2D.h"
+#include "WebCoreOpaqueRootInlines.h"
 
 namespace WebCore {
 using namespace JSC;
 
-inline void* root(OffscreenCanvas* canvas)
+inline WebCoreOpaqueRoot NODELETE root(OffscreenCanvas* canvas)
 {
-    return canvas;
+    return WebCoreOpaqueRoot { canvas };
 }
 
-bool JSOffscreenCanvasRenderingContext2DOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, const char** reason)
+bool JSOffscreenCanvasRenderingContext2DOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
-    if (UNLIKELY(reason))
-        *reason = "Canvas is opaque root";
+    if (reason) [[unlikely]]
+        *reason = "Canvas is opaque root"_s;
 
-    JSOffscreenCanvasRenderingContext2D* jsOffscreenCanvasRenderingContext = jsCast<JSOffscreenCanvasRenderingContext2D*>(handle.slot()->asCell());
-    void* root = WebCore::root(&jsOffscreenCanvasRenderingContext->wrapped().canvas());
-    return visitor.containsOpaqueRoot(root);
+    auto* jsOffscreenCanvasRenderingContext = downcast<JSOffscreenCanvasRenderingContext2D>(handle.slot()->asCell());
+    return containsWebCoreOpaqueRoot(visitor, jsOffscreenCanvasRenderingContext->wrapped().canvas());
 }
 
 template<typename Visitor>
-void JSOffscreenCanvasRenderingContext2D::visitAdditionalChildren(Visitor& visitor)
+void JSOffscreenCanvasRenderingContext2D::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    visitor.addOpaqueRoot(root(&wrapped().canvas()));
+    addWebCoreOpaqueRoot(visitor, wrapped().canvas());
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSOffscreenCanvasRenderingContext2D);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSOffscreenCanvasRenderingContext2D);
 
 } // namespace WebCore
 

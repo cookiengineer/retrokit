@@ -30,16 +30,14 @@ namespace API {
 
 Ref<SessionState> SessionState::create(WebKit::SessionState sessionState)
 {
-    return adoptRef(*new SessionState(WTFMove(sessionState)));
+    return adoptRef(*new SessionState(WTF::move(sessionState)));
 }
 
 SessionState::SessionState(WebKit::SessionState sessionState)
-    : m_sessionState(WTFMove(sessionState))
+    : m_sessionState(WTF::move(sessionState))
 {
 }
 
-SessionState::~SessionState()
-{
-}
+SessionState::~SessionState() = default;
 
 } // namespace API

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,10 +24,7 @@
  */
 
 WI.ContentViewCookieType = {
-    ApplicationCache: "application-cache",
     CookieStorage: "cookie-storage",
-    Database: "database",
-    DatabaseTable: "database-table",
     DOMStorage: "dom-storage",
     Resource: "resource", // includes Frame too.
     Timelines: "timelines"
@@ -48,13 +45,21 @@ WI.LayoutDirection = {
     RTL: "rtl",
 };
 
+WI.LayoutMode = {
+    Default: "default",
+    Narrow: "narrow",
+};
+
+WI.NarrowLayoutMaximumWidth = 700;
+
 WI.loaded = function()
 {
+    if (InspectorFrontendHost.connect)
+        InspectorFrontendHost.connect();
+
     // Register observers for events from the InspectorBackend.
     if (InspectorBackend.registerAnimationDispatcher)
         InspectorBackend.registerAnimationDispatcher(WI.AnimationObserver);
-    if (InspectorBackend.registerApplicationCacheDispatcher)
-        InspectorBackend.registerApplicationCacheDispatcher(WI.ApplicationCacheObserver);
     if (InspectorBackend.registerBrowserDispatcher)
         InspectorBackend.registerBrowserDispatcher(WI.BrowserObserver);
     if (InspectorBackend.registerCPUProfilerDispatcher)
@@ -69,8 +74,6 @@ WI.loaded = function()
         InspectorBackend.registerDOMDispatcher(WI.DOMObserver);
     if (InspectorBackend.registerDOMStorageDispatcher)
         InspectorBackend.registerDOMStorageDispatcher(WI.DOMStorageObserver);
-    if (InspectorBackend.registerDatabaseDispatcher)
-        InspectorBackend.registerDatabaseDispatcher(WI.DatabaseObserver);
     if (InspectorBackend.registerDebuggerDispatcher)
         InspectorBackend.registerDebuggerDispatcher(WI.DebuggerObserver);
     if (InspectorBackend.registerHeapDispatcher)
@@ -110,7 +113,7 @@ WI.loaded = function()
         WI.targetManager = new WI.TargetManager,
         WI.networkManager = new WI.NetworkManager,
         WI.domStorageManager = new WI.DOMStorageManager,
-        WI.databaseManager = new WI.DatabaseManager,
+        WI.storageManager = new WI.StorageManager,
         WI.indexedDBManager = new WI.IndexedDBManager,
         WI.domManager = new WI.DOMManager,
         WI.cssManager = new WI.CSSManager,
@@ -118,7 +121,6 @@ WI.loaded = function()
         WI.runtimeManager = new WI.RuntimeManager,
         WI.heapManager = new WI.HeapManager,
         WI.memoryManager = new WI.MemoryManager,
-        WI.applicationCacheManager = new WI.ApplicationCacheManager,
         WI.timelineManager = new WI.TimelineManager,
         WI.auditManager = new WI.AuditManager,
         WI.debuggerManager = new WI.DebuggerManager,
@@ -127,18 +129,22 @@ WI.loaded = function()
         WI.domDebuggerManager = new WI.DOMDebuggerManager,
         WI.canvasManager = new WI.CanvasManager,
         WI.animationManager = new WI.AnimationManager,
-        WI.overlayManager = new WI.OverlayManager,
+        WI.deviceSettingsManager = new WI.DeviceSettingsManager,
     ];
+
+    WI.domUndoCoordinator = new WI.DOMUndoCoordinator;
 
     // Register for events.
     WI.debuggerManager.addEventListener(WI.DebuggerManager.Event.Paused, WI._debuggerDidPause, WI);
+    WI.debuggerManager.addEventListener(WI.DebuggerManager.Event.Resumed, WI._debuggerDidResume, WI);
+    WI.deviceSettingsManager.addEventListener(WI.DeviceSettingsManager.Event.SettingChanged, WI._handleDeviceSettingChanged, WI);
     WI.domManager.addEventListener(WI.DOMManager.Event.InspectModeStateChanged, WI._inspectModeStateChanged, WI);
     WI.domManager.addEventListener(WI.DOMManager.Event.DOMNodeWasInspected, WI._domNodeWasInspected, WI);
     WI.domStorageManager.addEventListener(WI.DOMStorageManager.Event.DOMStorageObjectWasInspected, WI._domStorageWasInspected, WI);
-    WI.databaseManager.addEventListener(WI.DatabaseManager.Event.DatabaseWasInspected, WI._databaseWasInspected, WI);
     WI.networkManager.addEventListener(WI.NetworkManager.Event.MainFrameDidChange, WI._mainFrameDidChange, WI);
     WI.networkManager.addEventListener(WI.NetworkManager.Event.FrameWasAdded, WI._frameWasAdded, WI);
     WI.browserManager.enable();
+    WI.storageManager.enable();
 
     WI.Frame.addEventListener(WI.Frame.Event.MainResourceDidChange, WI._mainResourceDidChange, WI);
 
@@ -168,16 +174,13 @@ WI.loaded = function()
     WI.modifierKeys = {altKey: false, metaKey: false, shiftKey: false};
     WI.visible = false;
     WI._windowKeydownListeners = [];
-    WI._overridenDeviceUserAgent = null;
-    WI._overridenDeviceScreenSize = null;
-    WI._overridenDeviceSettings = new Map;
 
     // Targets.
     WI.backendTarget = null;
-    WI._backendTargetAvailablePromise = new WI.WrappedPromise;
+    WI._backendTargetAvailablePromise = Promise.withResolvers();
 
     WI.pageTarget = null;
-    WI._pageTargetAvailablePromise = new WI.WrappedPromise;
+    WI._pageTargetAvailablePromise = Promise.withResolvers();
 
     // COMPATIBILITY (iOS 13.0): Target.exists was "replaced" by differentiating "web" debuggables
     // into "page" (direct) and "web-page" debuggables (multiplexing).
@@ -212,8 +215,9 @@ WI.contentLoaded = function()
     document.addEventListener("dragover", WI._handleDragOver);
     document.addEventListener("focus", WI._focusChanged, true);
 
-    window.addEventListener("focus", WI._windowFocused);
-    window.addEventListener("blur", WI._windowBlurred);
+    window.addEventListener("focus", WI._updateWindowInactiveState);
+    window.addEventListener("blur", WI._updateWindowInactiveState);
+    window.addEventListener("visibilitychange", WI._updateWindowInactiveState);
     window.addEventListener("resize", WI._windowResized);
     window.addEventListener("keydown", WI._windowKeyDown);
     window.addEventListener("keyup", WI._windowKeyUp);
@@ -229,12 +233,16 @@ WI.contentLoaded = function()
     document.body.classList.add(WI.sharedApp.debuggableType);
     document.body.setAttribute("dir", WI.resolvedLayoutDirection());
 
+    if (WI.Platform.name === "mac")
+        WI._updateAccentColorClass();
+
     WI.layoutMeasurementContainer = document.body.appendChild(document.createElement("div"));
     WI.layoutMeasurementContainer.id = "layout-measurement-container";
 
     WI.settings.showJavaScriptTypeInformation.addEventListener(WI.Setting.Event.Changed, WI._showJavaScriptTypeInformationSettingChanged, WI);
     WI.settings.enableControlFlowProfiler.addEventListener(WI.Setting.Event.Changed, WI._enableControlFlowProfilerSettingChanged, WI);
     WI.settings.resourceCachingDisabled.addEventListener(WI.Setting.Event.Changed, WI._resourceCachingDisabledSettingChanged, WI);
+    WI.settings.clearNetworkOnNavigate.addEventListener(WI.Setting.Event.Changed, WI._clearResourceDataOnNavigateSettingChanged, WI);
     WI.settings.experimentalAllowInspectingInspector.addEventListener(WI.Setting.Event.Changed, WI._allowInspectingInspectorSettingChanged, WI);
 
     function setTabSize() {
@@ -280,14 +288,16 @@ WI.contentLoaded = function()
     WI.consoleLogViewController = WI.consoleContentView.logViewController;
 
     WI.navigationSidebar = new WI.SingleSidebar(document.getElementById("navigation-sidebar"), WI.Sidebar.Sides.Leading, WI.UIString("Navigation", "Navigation @ Sidebar", "Label for the navigation sidebar."));
-    WI.navigationSidebar.addEventListener(WI.Sidebar.Event.WidthDidChange, WI._sidebarWidthDidChange, WI);
-    WI.navigationSidebar.addEventListener(WI.Sidebar.Event.CollapsedStateDidChange, WI._sidebarWidthDidChange, WI);
+    WI.navigationSidebar.addEventListener(WI.Sidebar.Event.WidthDidChange, WI._sidebarSizeDidChange, WI);
+    WI.navigationSidebar.addEventListener(WI.Sidebar.Event.CollapsedStateDidChange, WI._sidebarSizeDidChange, WI);
 
     WI.detailsSidebar = new WI.MultiSidebar(document.getElementById("details-sidebar"), WI.Sidebar.Sides.Trailing, WI.UIString("Details", "Details @ Sidebar", "Label for the details sidebar."));
-    WI.detailsSidebar.addEventListener(WI.Sidebar.Event.WidthDidChange, WI._sidebarWidthDidChange, WI);
-    WI.detailsSidebar.addEventListener(WI.Sidebar.Event.CollapsedStateDidChange, WI._sidebarWidthDidChange, WI);
-    WI.detailsSidebar.addEventListener(WI.MultiSidebar.Event.MultipleSidebarsVisibleChanged, WI._sidebarWidthDidChange, WI);
-
+    WI.detailsSidebar.addEventListener(WI.Sidebar.Event.WidthDidChange, WI._sidebarSizeDidChange, WI);
+    WI.detailsSidebar.addEventListener(WI.Sidebar.Event.HeightDidChange, WI._sidebarSizeDidChange, WI);
+    WI.detailsSidebar.addEventListener(WI.Sidebar.Event.CollapsedStateDidChange, WI._sidebarSizeDidChange, WI);
+    WI.detailsSidebar.addEventListener(WI.MultiSidebar.Event.MultipleSidebarsVisibleChanged, WI._sidebarSizeDidChange, WI);
+    WI.detailsSidebar.canMoveToBottom = true;
+    
     WI.searchKeyboardShortcut = new WI.KeyboardShortcut(WI.KeyboardShortcut.Modifier.CommandOrControl | WI.KeyboardShortcut.Modifier.Shift, "F", WI._focusSearchField);
     WI._findKeyboardShortcut = new WI.KeyboardShortcut(WI.KeyboardShortcut.Modifier.CommandOrControl, "F", WI._find);
     WI.saveKeyboardShortcut = new WI.KeyboardShortcut(WI.KeyboardShortcut.Modifier.CommandOrControl, "S", WI._save);
@@ -342,6 +352,8 @@ WI.contentLoaded = function()
         WI.stepNextAlternateKeyboardShortcut = new WI.KeyboardShortcut(WI.KeyboardShortcut.Modifier.Shift | WI.KeyboardShortcut.Modifier.CommandOrControl, WI.KeyboardShortcut.Key.SingleQuote, WI.debuggerStepNext);
     }
 
+    WI._updateDebuggerKeyboardShortcuts();
+
     WI.settingsKeyboardShortcut = new WI.KeyboardShortcut(WI.KeyboardShortcut.Modifier.CommandOrControl, WI.KeyboardShortcut.Key.Comma, WI._handleSettingsKeyboardShortcut);
 
     WI._togglePreviousDockConfigurationKeyboardShortcut = new WI.KeyboardShortcut(WI.KeyboardShortcut.Modifier.CommandOrControl | WI.KeyboardShortcut.Modifier.Shift, "D", WI._togglePreviousDockConfiguration);
@@ -353,32 +365,46 @@ WI.contentLoaded = function()
     let supportsDockBottom = InspectorFrontendHost.supportsDockSide(WI.DockConfiguration.Bottom);
     let supportsUndocked = InspectorFrontendHost.supportsDockSide(WI.DockConfiguration.Undocked);
 
-    if (supportsDockRight || supportsDockLeft || supportsDockBottom) {
-        WI._closeTabBarButton = new WI.ButtonNavigationItem("dock-close", WI.UIString("Close"), "Images/CloseLarge.svg");
-        WI._closeTabBarButton.addEventListener(WI.ButtonNavigationItem.Event.Clicked, WI.close, WI);
-        dockingConfigurationNavigationItems.push(WI._closeTabBarButton);
+    function addDockButton(identifier, tooltip, image, handler) {
+        let button = new WI.ButtonNavigationItem(identifier, tooltip, image);
+        button.element.classList.add(WI.Popover.IgnoreAutoDismissClassName);
+        button.addEventListener(WI.ButtonNavigationItem.Event.Clicked, handler, WI);
+        dockingConfigurationNavigationItems.push(button);
+        return button;
     }
 
-    if ((supportsDockRight || supportsDockLeft) && (supportsDockBottom || supportsUndocked)) {
-        WI._dockToSideTabBarButton = new WI.ButtonNavigationItem("dock-right", WI.UIString("Dock to side of window"), WI.resolvedLayoutDirection() === WI.LayoutDirection.RTL ? "Images/DockLeft.svg" : "Images/DockRight.svg", 16, 16);
-        WI._dockToSideTabBarButton.element.classList.add(WI.Popover.IgnoreAutoDismissClassName);
-        WI._dockToSideTabBarButton.addEventListener(WI.ButtonNavigationItem.Event.Clicked, WI.resolvedLayoutDirection() === WI.LayoutDirection.RTL ? WI._dockLeft : WI._dockRight, WI);
-        dockingConfigurationNavigationItems.push(WI._dockToSideTabBarButton);
+    function addDockLeftButton() {
+        if (!supportsDockLeft || (!supportsDockRight && !supportsDockBottom && !supportsUndocked))
+            return;
+
+        WI._dockLeftTabBarButton = addDockButton("dock-left", WI.UIString("Dock to left of window"), "Images/DockLeft.svg", WI._dockLeft);
     }
 
-    if (supportsDockBottom && (supportsDockRight || supportsDockLeft || supportsUndocked)) {
-        WI._dockBottomTabBarButton = new WI.ButtonNavigationItem("dock-bottom", WI.UIString("Dock to bottom of window"), "Images/DockBottom.svg", 16, 16);
-        WI._dockBottomTabBarButton.element.classList.add(WI.Popover.IgnoreAutoDismissClassName);
-        WI._dockBottomTabBarButton.addEventListener(WI.ButtonNavigationItem.Event.Clicked, WI._dockBottom, WI);
-        dockingConfigurationNavigationItems.push(WI._dockBottomTabBarButton);
+    function addDockRightButton() {
+        if (!supportsDockRight || (!supportsDockLeft && !supportsDockBottom && !supportsUndocked))
+            return;
+
+        WI._dockRightTabBarButton = addDockButton("dock-right", WI.UIString("Dock to right of window"), "Images/DockRight.svg", WI._dockRight);
     }
 
-    if (supportsUndocked && (supportsDockRight || supportsDockLeft || supportsDockBottom)) {
-        WI._undockTabBarButton = new WI.ButtonNavigationItem("undock", WI.UIString("Detach into separate window"), "Images/Undock.svg", 16, 16);
-        WI._undockTabBarButton.element.classList.add(WI.Popover.IgnoreAutoDismissClassName);
-        WI._undockTabBarButton.addEventListener(WI.ButtonNavigationItem.Event.Clicked, WI._undock, WI);
-        dockingConfigurationNavigationItems.push(WI._undockTabBarButton);
-    }
+    if (supportsDockRight || supportsDockLeft || supportsDockBottom)
+        WI._closeTabBarButton = addDockButton("dock-close", WI.UIString("Close"), "Images/CloseLarge.svg", WI.close);
+
+    if (WI.resolvedLayoutDirection() === WI.LayoutDirection.RTL)
+        addDockRightButton();
+    else
+        addDockLeftButton();
+
+    if (supportsDockBottom && (supportsDockRight || supportsDockLeft || supportsUndocked))
+        WI._dockBottomTabBarButton = addDockButton("dock-bottom", WI.UIString("Dock to bottom of window"), "Images/DockBottom.svg", WI._dockBottom);
+
+    if (WI.resolvedLayoutDirection() === WI.LayoutDirection.RTL)
+        addDockLeftButton();
+    else
+        addDockRightButton();
+
+    if (supportsUndocked && (supportsDockRight || supportsDockLeft || supportsDockBottom))
+        WI._undockTabBarButton = addDockButton("undock", WI.UIString("Detach into separate window"), "Images/Undock.svg", WI._undock);
 
     let inspectedPageControlNavigationItems = [];
 
@@ -388,17 +414,14 @@ WI.contentLoaded = function()
     WI._inspectModeTabBarButton.addEventListener(WI.ButtonNavigationItem.Event.Clicked, WI._toggleInspectMode, WI);
     inspectedPageControlNavigationItems.push(WI._inspectModeTabBarButton);
 
+    const deviceSettingsTooltip = WI.UIString("Device Settings");
+    WI._deviceSettingsTabBarButton = new WI.ActivateButtonNavigationItem("device-settings", deviceSettingsTooltip, deviceSettingsTooltip, InspectorFrontendHost.isRemote ? "Images/Device.svg" : "Images/Computer.svg");
+    WI._deviceSettingsTabBarButton.addEventListener(WI.ButtonNavigationItem.Event.Clicked, WI._handleDeviceSettingsTabBarButtonClicked, WI);
+    inspectedPageControlNavigationItems.push(WI._deviceSettingsTabBarButton);
+
+    WI._deviceSettingsPopover = null;
+
     if (InspectorFrontendHost.isRemote || WI.isDebugUIEnabled()) {
-        // COMPATIBILITY (iOS 12.2): Page.overrideSetting did not exist.
-        if (InspectorBackend.hasCommand("Page.overrideUserAgent") && InspectorBackend.hasCommand("Page.overrideSetting")) {
-            const deviceSettingsTooltip = WI.UIString("Device Settings");
-            WI._deviceSettingsTabBarButton = new WI.ActivateButtonNavigationItem("device-settings", deviceSettingsTooltip, deviceSettingsTooltip, "Images/Device.svg");
-            WI._deviceSettingsTabBarButton.addEventListener(WI.ButtonNavigationItem.Event.Clicked, WI._handleDeviceSettingsTabBarButtonClicked, WI);
-            inspectedPageControlNavigationItems.push(WI._deviceSettingsTabBarButton);
-
-            WI._deviceSettingsPopover = null;
-        }
-
         let reloadToolTip;
         if (WI.sharedApp.debuggableType === WI.DebuggableType.JavaScript || WI.sharedApp.debuggableType === WI.DebuggableType.ITML)
             reloadToolTip = WI.UIString("Restart (%s)").format(WI._reloadPageKeyboardShortcut.displayName);
@@ -422,19 +445,19 @@ WI.contentLoaded = function()
     WI.tabBar.addNavigationItemBefore(WI._consoleDividerNavigationItem);
 
     WI._consoleWarningsTabBarButton = new WI.ButtonNavigationItem("console-warnings", WI.UIString("0 Console warnings"), "Images/IssuesEnabled.svg");
-    WI._consoleWarningsTabBarButton.imageType = WI.ButtonNavigationItem.ImageType.IMG;
     WI._consoleWarningsTabBarButton.hidden = true;
     WI._consoleWarningsTabBarButton.addEventListener(WI.ButtonNavigationItem.Event.Clicked, function(event) {
-        WI.showConsoleTab(WI.LogContentView.Scopes.Warnings, {
+        WI.showConsoleTab({
+            requestedScope: WI.LogContentView.Scopes.Warnings,
             initiatorHint: WI.TabBrowser.TabNavigationInitiator.Dashboard,
         });
     }, WI);
 
     WI._consoleErrorsTabBarButton = new WI.ButtonNavigationItem("console-errors", WI.UIString("0 Console errors"), "Images/ErrorsEnabled.svg");
-    WI._consoleErrorsTabBarButton.imageType = WI.ButtonNavigationItem.ImageType.IMG;
     WI._consoleErrorsTabBarButton.hidden = true;
     WI._consoleErrorsTabBarButton.addEventListener(WI.ButtonNavigationItem.Event.Clicked, function(event) {
-        WI.showConsoleTab(WI.LogContentView.Scopes.Errors, {
+        WI.showConsoleTab({
+            requestedScope: WI.LogContentView.Scopes.Errors,
             initiatorHint: WI.TabBrowser.TabNavigationInitiator.Dashboard,
         });
     }, WI);
@@ -457,11 +480,6 @@ WI.contentLoaded = function()
         WI._dockedResizerElement = document.getElementById("docked-resizer");
         WI._dockedResizerElement.classList.add(WI.Popover.IgnoreAutoDismissClassName);
         WI._dockedResizerElement.addEventListener("mousedown", WI._handleDockedResizerMouseDown);
-    }
-
-    if (supportsUndocked) {
-        let undockedTitleAreaElement = document.getElementById("undocked-title-area");
-        undockedTitleAreaElement.addEventListener("mousedown", WI._handleUndockedTitleAreaMouseDown);
     }
 
     WI._dockingAvailable = false;
@@ -541,6 +559,9 @@ WI.contentLoaded = function()
     WI.tabBar.addEventListener(WI.TabBar.Event.TabBarItemAdded, WI._rememberOpenTabs, WI);
     WI.tabBar.addEventListener(WI.TabBar.Event.TabBarItemRemoved, WI._rememberOpenTabs, WI);
     WI.tabBar.addEventListener(WI.TabBar.Event.TabBarItemsReordered, WI._rememberOpenTabs, WI);
+    
+    WI._updateLayoutMode();
+    WI.settings.enableNarrowLayoutMode.addEventListener(WI.Setting.Event.Changed, WI._updateLayoutMode, WI);
 
     function updateConsoleSavedResultPrefixCSSVariable() {
         document.body.style.setProperty("--console-saved-result-prefix", "\"" + WI.RuntimeManager.preferredSavedResultPrefix() + "\"");
@@ -590,10 +611,8 @@ WI.contentLoaded = function()
         WI.diagnosticController.addRecorder(new WI.TabActivityDiagnosticEventRecorder(WI.diagnosticController));
         WI.diagnosticController.addRecorder(new WI.TabNavigationDiagnosticEventRecorder(WI.diagnosticController));
 
-        if (InspectorBackend.hasCommand("DOM.showGridOverlay")) {
-            WI.diagnosticController.addRecorder(new WI.GridOverlayDiagnosticEventRecorder(WI.diagnosticController));
-            WI.diagnosticController.addRecorder(new WI.GridOverlayConfigurationDiagnosticEventRecorder(WI.diagnosticController));
-        }
+        if (InspectorFrontendHost.supportsWebExtensions)
+            WI.diagnosticController.addRecorder(new WI.ExtensionTabActivationDiagnosticEventRecorder(WI.diagnosticController));
     }
 };
 
@@ -606,26 +625,19 @@ WI.performOneTimeFrontendInitializationsUsingTarget = function(target)
 
     if (!WI.__didPerformCSSInitialization && target.hasDomain("CSS")) {
         WI.__didPerformCSSInitialization = true;
-        WI.CSSCompletions.initializeCSSCompletions(target);
+        WI.cssManager.initializeCSSPropertyNameCompletions(target);
     }
 };
 
 WI.initializeTarget = function(target)
 {
     if (target.hasDomain("Page")) {
-        // COMPATIBILITY (iOS 12.2): Page.overrideUserAgent did not exist.
-        if (target.hasCommand("Page.overrideUserAgent") && WI._overridenDeviceUserAgent)
-            target.PageAgent.overrideUserAgent(WI._overridenDeviceUserAgent);
-
-        // COMPATIBILITY (iOS 12.2): Page.overrideSetting did not exist.
-        if (target.hasCommand("Page.overrideSetting")) {
-            for (let [setting, value] of WI._overridenDeviceSettings)
-                target.PageAgent.overrideSetting(setting, value);
-        }
-
-        // COMPATIBILITY (iOS 11.3): Page.setShowRuleers did not exist yet.
+        // COMPATIBILITY (iOS 13.4): Page.setShowRulers was removed.
         if (target.hasCommand("Page.setShowRulers") && WI.settings.showRulers.value)
-            target.PageAgent.setShowRulers(true);
+            target.PageAgent.setShowRulers(true).catch((error) => {
+                // FIXME <rdar://105244623> iOS platforms without a matching legacy protocol definition will fall back to the local macOS protocol definition.
+                console.error(error);
+            });
     }
 };
 
@@ -671,6 +683,10 @@ WI._createTabContentViewForType = function(tabType)
         console.error("Unknown tab type", tabType);
         return null;
     }
+
+    console.assert(tabClass !== WI.WebInspectorExtensionTabContentView, "Extension tabs must be created via WebInspectorExtensionController.createTabForExtension().");
+    if (tabClass === WI.WebInspectorExtensionTabContentView)
+        return null;
 
     console.assert(WI.TabContentView.isPrototypeOf(tabClass));
     return new tabClass;
@@ -738,6 +754,9 @@ WI._tryToRestorePendingTabs = function()
 
 WI.isNewTabWithTypeAllowed = function(tabType)
 {
+    if (tabType === WI.WebInspectorExtensionTabContentView.Type)
+        return false;
+
     let tabClass = WI._knownTabClassesByType.get(tabType);
     if (!tabClass || !tabClass.isTabAllowed())
         return false;
@@ -786,7 +805,7 @@ WI.activateExtraDomains = function(domains)
             WI.pageTarget = WI.mainTarget;
 
         if (WI.mainTarget.hasDomain("CSS"))
-            WI.CSSCompletions.initializeCSSCompletions(WI.assumingMainTarget());
+            WI.cssManager.initializeCSSPropertyNameCompletions(WI.assumingMainTarget());
 
         if (WI.mainTarget.hasDomain("DOM"))
             WI.domManager.ensureDocument();
@@ -909,56 +928,27 @@ WI.resizeDockedFrameMouseDown = function(event)
 
     let isDockedBottom = WI.dockConfiguration === WI.DockConfiguration.Bottom;
 
-    let windowProperty = isDockedBottom ? "innerHeight" : "innerWidth";
-    let eventScreenProperty = isDockedBottom ? "screenY" : "screenX";
-    let eventClientProperty = isDockedBottom ? "clientY" : "clientX";
+    let windowDimensionProperty = isDockedBottom ? "innerHeight" : "innerWidth";
+    let cursorPositionProperty = isDockedBottom ? "screenY" : "screenX";
 
     let resizerElement = event.target;
-    let firstClientPosition = event[eventClientProperty];
-    let lastScreenPosition = event[eventScreenProperty];
+    let initialWindowDimension = window[windowDimensionProperty] * WI.getZoomFactor();
+    let initialCursorPosition = event[cursorPositionProperty];
 
     function dividerDrag(event)
     {
         if (event.button !== 0)
             return;
 
-        let position = event[eventScreenProperty];
-        let delta = position - lastScreenPosition;
-        let clientPosition = event[eventClientProperty];
-
-        lastScreenPosition = position;
-
-        if (WI.dockConfiguration === WI.DockConfiguration.Left) {
-            // If the mouse is travelling rightward but is positioned left of the resizer, ignore the event.
-            if (delta > 0 && clientPosition < firstClientPosition)
-                return;
-
-            // If the mouse is travelling leftward but is positioned to the right of the resizer, ignore the event.
-            if (delta < 0 && clientPosition > window[windowProperty])
-                return;
-
-            // We later subtract the delta from the current position, but since the inspected view and inspector view
-            // are flipped when docked to left, we want dragging to have the opposite effect from docked to right.
+        let delta = event[cursorPositionProperty] - initialCursorPosition;
+        if (WI.dockConfiguration === WI.DockConfiguration.Left)
             delta *= -1;
-        } else {
-            // If the mouse is travelling downward/rightward but is positioned above/left of the resizer, ignore the event.
-            if (delta > 0 && clientPosition < firstClientPosition)
-                return;
 
-            // If the mouse is travelling upward/leftward but is positioned below/right of the resizer, ignore the event.
-            if (delta < 0 && clientPosition > firstClientPosition)
-                return;
-        }
-
-        let dimension = Math.max(0, window[windowProperty] - delta);
-        // If zoomed in/out, there be greater/fewer document pixels shown, but the inspector's
-        // width or height should be the same in device pixels regardless of the document zoom.
-        dimension *= WI.getZoomFactor();
-
+        let newDimension = Math.max(0, Math.round(initialWindowDimension - delta));
         if (isDockedBottom)
-            InspectorFrontendHost.setAttachedWindowHeight(dimension);
+            InspectorFrontendHost.setAttachedWindowHeight(newDimension);
         else
-            InspectorFrontendHost.setAttachedWindowWidth(dimension);
+            InspectorFrontendHost.setAttachedWindowWidth(newDimension);
     }
 
     function elementDragEnd(event)
@@ -1031,7 +1021,7 @@ WI.updateFindString = function(findString)
     return true;
 };
 
-WI.handlePossibleLinkClick = function(event, frame, options = {})
+WI.handlePossibleLinkClick = function(event, options = {})
 {
     let anchorElement = event.target.closest("a");
     if (!anchorElement || !anchorElement.href)
@@ -1046,7 +1036,7 @@ WI.handlePossibleLinkClick = function(event, frame, options = {})
     event.preventDefault();
     event.stopPropagation();
 
-    WI.openURL(anchorElement.href, frame, {
+    WI.openURL(anchorElement.href, {
         ...options,
         lineNumber: anchorElement.lineNumber,
         ignoreSearchTab: !WI.isShowingSearchTab(),
@@ -1055,19 +1045,17 @@ WI.handlePossibleLinkClick = function(event, frame, options = {})
     return true;
 };
 
-WI.openURL = function(url, frame, options = {})
+WI.openURL = function(url, {alwaysOpenExternally, frame, ...options} = {})
 {
     console.assert(url);
     if (!url)
         return;
 
-    console.assert(typeof options.lineNumber === "undefined" || typeof options.lineNumber === "number", "lineNumber should be a number.");
-
     // If alwaysOpenExternally is not defined, base it off the command/meta key for the current event.
-    if (options.alwaysOpenExternally === undefined || options.alwaysOpenExternally === null)
-        options.alwaysOpenExternally = window.event ? window.event.metaKey : false;
+    if (alwaysOpenExternally === undefined || alwaysOpenExternally === null)
+        alwaysOpenExternally = window.event?.metaKey ?? false;
 
-    if (options.alwaysOpenExternally) {
+    if (alwaysOpenExternally) {
         InspectorFrontendHost.openURLExternally(url);
         return;
     }
@@ -1090,6 +1078,8 @@ WI.openURL = function(url, frame, options = {})
         // Context menu selections may go through this code path; don't clobber the previously-set hint.
         if (!options.initiatorHint)
             options.initiatorHint = WI.TabBrowser.TabNavigationInitiator.LinkClick;
+
+        console.assert(typeof options.lineNumber === "undefined" || typeof options.lineNumber === "number");
         let positionToReveal = new WI.SourceCodePosition(options.lineNumber, 0);
         WI.showSourceCode(resource, {...options, positionToReveal});
         return;
@@ -1170,13 +1160,12 @@ WI.hideSplitConsole = function()
     WI.consoleDrawer.collapsed = true;
 };
 
-WI.showConsoleTab = function(requestedScope, options = {})
+WI.showConsoleTab = function(options = {})
 {
-    requestedScope = requestedScope || WI.LogContentView.Scopes.All;
-
     WI.hideSplitConsole();
 
-    WI.consoleContentView.scopeBar.item(requestedScope).selected = true;
+    if (options.requestedScope)
+        WI.consoleContentView.scopeBar.item(options.requestedScope).selected = true;
 
     const cookie = null;
     WI.showRepresentedObject(WI._consoleRepresentedObject, cookie, options);
@@ -1353,6 +1342,12 @@ WI.getMaximumSidebarWidth = function(sidebar)
     return minimumWidth;
 };
 
+WI.getMaximumSidebarHeight = function(sidebar)
+{
+    console.assert(sidebar instanceof WI.Sidebar);
+    return WI._contentElement.offsetHeight - WI.TabBrowser.MinimumHeight;
+};
+
 WI.tabContentViewClassForRepresentedObject = function(representedObject)
 {
     if (representedObject instanceof WI.DOMTree)
@@ -1376,9 +1371,7 @@ WI.tabContentViewClassForRepresentedObject = function(representedObject)
         return WI.SourcesTabContentView;
 
     if (representedObject instanceof WI.DOMStorageObject || representedObject instanceof WI.CookieStorageObject ||
-        representedObject instanceof WI.DatabaseTableObject || representedObject instanceof WI.DatabaseObject ||
-        representedObject instanceof WI.ApplicationCacheFrame || representedObject instanceof WI.IndexedDatabaseObjectStore ||
-        representedObject instanceof WI.IndexedDatabase || representedObject instanceof WI.IndexedDatabaseObjectStoreIndex)
+        representedObject instanceof WI.IndexedDatabaseObjectStore || representedObject instanceof WI.IndexedDatabase || representedObject instanceof WI.IndexedDatabaseObjectStoreIndex)
         return WI.StorageTabContentView;
 
     if (representedObject instanceof WI.AuditTestCase || representedObject instanceof WI.AuditTestGroup
@@ -1429,7 +1422,38 @@ WI.showRepresentedObject = function(representedObject, cookie, options = {})
 WI.showLocalResourceOverride = function(localResourceOverride, options = {})
 {
     console.assert(localResourceOverride instanceof WI.LocalResourceOverride);
-    const cookie = null;
+
+    let cookie = {preventHighlight: true};
+
+    switch (localResourceOverride.type) {
+    case WI.LocalResourceOverride.InterceptType.Response:
+    case WI.LocalResourceOverride.InterceptType.ResponseMappedDirectory:
+    case WI.LocalResourceOverride.InterceptType.ResponseSkippingNetwork:
+        if (options.overriddenResource) {
+            const onlyExisting = true;
+            let contentView = WI.ContentView.contentViewForRepresentedObject(options.overriddenResource, onlyExisting);
+
+            let textEditor = null;
+            if (contentView instanceof WI.ResourceClusterContentView)
+                contentView = contentView.responseContentView;
+            if (contentView instanceof WI.TextResourceContentView)
+                textEditor = contentView.textEditor;
+
+            if (textEditor) {
+                let selectedTextRange = textEditor.selectedTextRange;
+                cookie.startLine = selectedTextRange.startLine;
+                cookie.startColumn = selectedTextRange.startColumn;
+                cookie.endLine = selectedTextRange.endLine;
+                cookie.endColumn = selectedTextRange.endColumn;
+
+                let scrollOffset = textEditor.scrollOffset;
+                cookie.scrollOffsetX = scrollOffset.x;
+                cookie.scrollOffsetY = scrollOffset.y;
+            }
+        }
+        break;
+    }
+
     WI.showRepresentedObject(localResourceOverride, cookie, {...options, ignoreNetworkTab: true, ignoreSearchTab: true});
 };
 
@@ -1645,8 +1669,32 @@ WI._handleDragOver = function(event)
 WI._debuggerDidPause = function(event)
 {
     WI.showSourcesTab({showScopeChainSidebar: WI.settings.showScopeChainOnPause.value});
+    WI._updateDebuggerKeyboardShortcuts();
 
     InspectorFrontendHost.bringToFront();
+};
+
+WI._debuggerDidResume = function(event)
+{
+    WI._updateDebuggerKeyboardShortcuts();
+};
+
+WI._updateDebuggerKeyboardShortcuts = function()
+{
+    let paused = WI.debuggerManager.paused;
+
+    WI.stepOverKeyboardShortcut.disabled = !paused;
+    WI.stepIntoKeyboardShortcut.disabled = !paused;
+    WI.stepOutKeyboardShortcut.disabled = !paused;
+    WI.stepOverAlternateKeyboardShortcut.disabled = !paused;
+    WI.stepIntoAlternateKeyboardShortcut.disabled = !paused;
+    WI.stepOutAlternateKeyboardShortcut.disabled = !paused;
+
+    // COMPATIBILITY (iOS 13.4): Debugger.stepNext did not exist.
+    if (InspectorBackend.hasCommand("Debugger.stepNext")) {
+        WI.stepNextKeyboardShortcut.disabled = !paused;
+        WI.stepNextAlternateKeyboardShortcut.disabled = !paused;
+    }
 };
 
 WI._frameWasAdded = function(event)
@@ -1738,29 +1786,41 @@ WI._saveCookieForOpenTabs = function()
     }
 };
 
-WI._windowFocused = function(event)
+WI._updateWindowInactiveState = function(event)
 {
-    if (event.target.document.nodeType !== Node.DOCUMENT_NODE)
-        return;
-
     // FIXME: We should use the :window-inactive pseudo class once https://webkit.org/b/38927 is fixed.
-    document.body.classList.remove(WI.dockConfiguration === WI.DockConfiguration.Undocked ? "window-inactive" : "window-docked-inactive");
-};
 
-WI._windowBlurred = function(event)
-{
-    if (event.target.document.nodeType !== Node.DOCUMENT_NODE)
-        return;
+    if (document.activeElement?.tagName === "IFRAME") {
+        // An active iframe means an extension tab is active and we can't tell when the window blurs due to cross-origin restrictions.
+        // In this case we need to keep checking to know if the window loses focus since there is no event we can use.
+        setTimeout(WI._updateWindowInactiveState, 250);
+    }
 
-    // FIXME: We should use the :window-inactive pseudo class once https://webkit.org/b/38927 is fixed.
-    document.body.classList.add(WI.dockConfiguration === WI.DockConfiguration.Undocked ? "window-inactive" : "window-docked-inactive");
+    let inactive = !document.hasFocus();
+    document.body.classList.toggle(WI.dockConfiguration === WI.DockConfiguration.Undocked ? "window-inactive" : "window-docked-inactive", inactive);
 };
 
 WI._windowResized = function(event)
 {
+    WI._updateLayoutMode();
     WI.tabBar.updateLayout(WI.View.LayoutReason.Resize);
-    WI._tabBrowserSizeDidChange();
     WI._updateSheetRect();
+};
+
+WI._updateLayoutMode = function()
+{
+    let computedMode = WI.LayoutMode.Default;
+    
+    if (WI.settings.enableNarrowLayoutMode.value && window.innerWidth < WI.NarrowLayoutMaximumWidth)
+        computedMode = WI.LayoutMode.Narrow;
+    
+    if (WI.layoutMode !== computedMode) {
+        WI.layoutMode = computedMode;
+        document.body.classList.toggle("narrow", WI.layoutMode === WI.LayoutMode.Narrow);
+        WI.detailsSidebar.updateLayout(WI.View.LayoutReason.Resize);
+    }
+    
+    WI._tabBrowserSizeDidChange();
 };
 
 WI._updateSheetRect = function()
@@ -1789,6 +1849,48 @@ WI._updateModifierKeys = function(event)
 
     if (changed)
         WI.notifications.dispatchEventToListeners(WI.Notification.GlobalModifierKeysDidChange, event);
+};
+
+WI._updateAccentColorClass = function()
+{
+    let testElement = document.createElement("div");
+    testElement.style.color = "-apple-system-control-accent";
+    testElement.style.position = "absolute";
+    testElement.style.visibility = "hidden";
+    document.body.appendChild(testElement);
+    let accentColorString = getComputedStyle(testElement).color;
+    document.body.removeChild(testElement);
+
+    let accentColor = WI.Color.fromString(accentColorString);
+    if (!accentColor)
+        return;
+
+    let hsl = accentColor.hsl;
+    if (hsl[1] < 20) {
+        let isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        let darkFallbacks = {
+            accent: "hsl(212, 100%, 71%)",
+            selected: "hsl(219, 80%, 43%)",
+            selectedActive: "hsl(218, 85%, 62%)",
+            selectedText: "hsl(230, 51%, 36%)",
+        };
+        let lightFallbacks = {
+            accent: "hsl(212, 92%, 54%)",
+            selected: "hsl(212, 92%, 54%)",
+            selectedActive: "hsl(218, 85%, 52%)",
+            selectedText: "hsl(210, 98%, 93%)",
+        };
+        let {accent, selected, selectedActive, selectedText} = isDark ? darkFallbacks : lightFallbacks;
+        document.body.style.setProperty("--system-accent-color", accent);
+        document.body.style.setProperty("--selected-background-color", selected);
+        document.body.style.setProperty("--selected-background-color-active", selectedActive);
+        document.body.style.setProperty("--selected-text-background-color", selectedText);
+    } else {
+        document.body.style.removeProperty("--system-accent-color");
+        document.body.style.removeProperty("--selected-background-color");
+        document.body.style.removeProperty("--selected-background-color-active");
+        document.body.style.removeProperty("--selected-text-background-color");
+    }
 };
 
 WI._windowKeyDown = function(event)
@@ -1837,12 +1939,15 @@ WI._contextMenuRequested = function(event)
                 InspectorBackend.activeTracer = new WI.CapturingProtocolTracer;
         }, isCapturingTraffic);
 
-        protocolSubMenu.appendSeparator();
+        let trace = InspectorBackend.activeTracer?.trace;
+        if (trace && WI.FileUtilities.canSave(trace.saveMode)) {
+            protocolSubMenu.appendSeparator();
 
-        protocolSubMenu.appendItem(WI.unlocalizedString("Export Trace\u2026"), () => {
-            const forceSaveAs = true;
-            WI.FileUtilities.save(InspectorBackend.activeTracer.trace.saveData, forceSaveAs);
-        }, !isCapturingTraffic);
+            protocolSubMenu.appendItem(WI.unlocalizedString("Export Trace\u2026"), () => {
+                const forceSaveAs = true;
+                WI.FileUtilities.save(trace.saveMode, trace.saveData, forceSaveAs);
+            }, !isCapturingTraffic);
+        }
     } else {
         const onlyExisting = true;
         proposedContextMenu = WI.ContextMenu.createFromEvent(event, onlyExisting);
@@ -1889,19 +1994,23 @@ WI._updateDockNavigationItems = function()
     if (WI._dockingAvailable || docked) {
         if (WI._closeTabBarButton)
             WI._closeTabBarButton.hidden = !docked;
-        if (WI._dockToSideTabBarButton)
-            WI._dockToSideTabBarButton.hidden = WI.dockConfiguration === WI.DockConfiguration.Right || WI.dockConfiguration === WI.DockConfiguration.Left;
+        if (WI._dockLeftTabBarButton)
+            WI._dockLeftTabBarButton.hidden = WI.dockConfiguration === WI.DockConfiguration.Left;
         if (WI._dockBottomTabBarButton)
             WI._dockBottomTabBarButton.hidden = WI.dockConfiguration === WI.DockConfiguration.Bottom;
+        if (WI._dockRightTabBarButton)
+            WI._dockRightTabBarButton.hidden = WI.dockConfiguration === WI.DockConfiguration.Right;
         if (WI._undockTabBarButton)
             WI._undockTabBarButton.hidden = WI.dockConfiguration === WI.DockConfiguration.Undocked;
     } else {
         if (WI._closeTabBarButton)
             WI._closeTabBarButton.hidden = true;
-        if (WI._dockToSideTabBarButton)
-            WI._dockToSideTabBarButton.hidden = true;
+        if (WI._dockLeftTabBarButton)
+            WI._dockLeftTabBarButton.hidden = true;
         if (WI._dockBottomTabBarButton)
             WI._dockBottomTabBarButton.hidden = true;
+        if (WI._dockRightTabBarButton)
+            WI._dockRightTabBarButton.hidden = true;
         if (WI._undockTabBarButton)
             WI._undockTabBarButton.hidden = true;
     }
@@ -1930,7 +2039,7 @@ WI._consoleDrawerDidResize = function(event)
     WI.tabBrowser.updateLayout(WI.View.LayoutReason.Resize);
 };
 
-WI._sidebarWidthDidChange = function(event)
+WI._sidebarSizeDidChange = function(event)
 {
     WI._tabBrowserSizeDidChange();
 };
@@ -1973,21 +2082,10 @@ WI._handleDockedResizerMouseDown = function(event)
     WI.resizeDockedFrameMouseDown(event);
 };
 
-WI._handleUndockedTitleAreaMouseDown = function(event)
-{
-    WI.moveUndockedWindowMouseDown(event);
-};
-
 WI._domStorageWasInspected = function(event)
 {
     WI.showStorageTab({initiatorHint: WI.TabBrowser.TabNavigationInitiator.Inspect});
     WI.showRepresentedObject(event.data.domStorage, null, {ignoreSearchTab: true});
-};
-
-WI._databaseWasInspected = function(event)
-{
-    WI.showStorageTab({initiatorHint: WI.TabBrowser.TabNavigationInitiator.Inspect});
-    WI.showRepresentedObject(event.data.database, null, {ignoreSearchTab: true});
 };
 
 WI._domNodeWasInspected = function(event)
@@ -2016,388 +2114,17 @@ WI._toggleInspectMode = function(event)
 
 WI._handleDeviceSettingsTabBarButtonClicked = function(event)
 {
-    if (WI._deviceSettingsPopover) {
-        WI._deviceSettingsPopover.dismiss();
-        WI._deviceSettingsPopover = null;
-        return;
-    }
-
-    let target = WI.assumingMainTarget();
-
-    function updateActivatedState() {
-        WI._deviceSettingsTabBarButton.activated = WI._overridenDeviceUserAgent || WI._overridenDeviceSettings.size > 0;
-    }
-
-    function applyOverriddenUserAgent(value, force) {
-        if (value === WI._overridenDeviceUserAgent)
-            return;
-
-        if (!force && (!value || value === "default")) {
-            target.PageAgent.overrideUserAgent((error) => {
-                if (error) {
-                    console.error(error);
-                    return;
-                }
-
-                WI._overridenDeviceUserAgent = null;
-                updateActivatedState();
-                target.PageAgent.reload();
-            });
-        } else {
-            target.PageAgent.overrideUserAgent(value, (error) => {
-                if (error) {
-                    console.error(error);
-                    return;
-                }
-
-                WI._overridenDeviceUserAgent = value;
-                updateActivatedState();
-                target.PageAgent.reload();
-            });
-        }
-    }
-
-    function applyOverriddenSetting(setting, value, callback) {
-        if (WI._overridenDeviceSettings.has(setting)) {
-            // We've just "disabled" the checkbox, so clear the override instead of applying it.
-            target.PageAgent.overrideSetting(setting, (error) => {
-                if (error) {
-                    console.error(error);
-                    return;
-                }
-
-                WI._overridenDeviceSettings.delete(setting);
-                callback(false);
-                updateActivatedState();
-            });
-        } else {
-            target.PageAgent.overrideSetting(setting, value, (error) => {
-                if (error) {
-                    console.error(error);
-                    return;
-                }
-
-                WI._overridenDeviceSettings.set(setting, value);
-                callback(true);
-                updateActivatedState();
-            });
-        }
-    }
-
-    function createCheckbox(container, label, setting, value) {
-        if (!setting)
-            return;
-
-        let labelElement = container.appendChild(document.createElement("label"));
-
-        let checkboxElement = labelElement.appendChild(document.createElement("input"));
-        checkboxElement.type = "checkbox";
-        checkboxElement.checked = WI._overridenDeviceSettings.has(setting);
-        checkboxElement.addEventListener("change", (event) => {
-            applyOverriddenSetting(setting, value, (enabled) => {
-                checkboxElement.checked = enabled;
-            });
-        });
-
-        labelElement.append(label);
-    }
-
-    function calculateTargetFrame() {
-        return WI.Rect.rectFromClientRect(WI._deviceSettingsTabBarButton.element.getBoundingClientRect()).pad(2);
-    }
-
-    const preferredEdges = [WI.RectEdge.MAX_Y, WI.RectEdge.MAX_X];
-
-    WI._deviceSettingsPopover = new WI.Popover(WI);
-    WI._deviceSettingsPopover.windowResizeHandler = function(event) {
-        WI._deviceSettingsPopover.present(calculateTargetFrame(), preferredEdges);
-    };
-
-    let contentElement = document.createElement("div");
-    contentElement.classList.add("device-settings-content");
-
-    let table = contentElement.appendChild(document.createElement("table"));
-
-    let userAgentRow = table.appendChild(document.createElement("tr"));
-
-    let userAgentTitle = userAgentRow.appendChild(document.createElement("td"));
-    userAgentTitle.textContent = WI.UIString("User Agent:");
-
-    let userAgentValue = userAgentRow.appendChild(document.createElement("td"));
-    userAgentValue.classList.add("user-agent");
-
-    let userAgentValueSelect = userAgentValue.appendChild(document.createElement("select"));
-
-    let userAgentValueInput = null;
-
-    const userAgents = [
-        [
-            { name: WI.UIString("Default"), value: "default" },
-        ],
-        [
-            { name: "Safari 13.0", value: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0 Safari/605.1.15" },
-        ],
-        [
-            { name: `Safari ${emDash} iOS 12.1.3 ${emDash} iPhone`, value: "Mozilla/5.0 (iPhone; CPU iPhone OS 12_1_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/12.0 Mobile/15E148 Safari/604.1" },
-            { name: `Safari ${emDash} iOS 12.1.3 ${emDash} iPod touch`, value: "Mozilla/5.0 (iPod; CPU iPhone OS 12_1_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/12.0 Mobile/15E148 Safari/604.1" },
-            { name: `Safari ${emDash} iOS 12.1.3 ${emDash} iPad`, value: "Mozilla/5.0 (iPad; CPU iPhone OS 12_1_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/12.0 Mobile/15E148 Safari/604.1" },
-        ],
-        [
-            { name: `Microsoft Edge`, value: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36 Edge/16.16299" },
-        ],
-        [
-            { name: `Google Chrome ${emDash} macOS`, value: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/71.0.3578.98 Safari/537.36" },
-            { name: `Google Chrome ${emDash} Windows`, value: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/71.0.3578.98 Safari/537.36" },
-        ],
-        [
-            { name: `Firefox ${emDash} macOS`, value: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.14; rv:63.0) Gecko/20100101 Firefox/63.0" },
-            { name: `Firefox ${emDash} Windows`, value: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:63.0) Gecko/20100101 Firefox/63.0" },
-        ],
-        [
-            { name: WI.UIString("Other\u2026"), value: "other" },
-        ],
-    ];
-
-    let selectedOptionElement = null;
-
-    for (let group of userAgents) {
-        for (let {name, value} of group) {
-            let optionElement = userAgentValueSelect.appendChild(document.createElement("option"));
-            optionElement.value = value;
-            optionElement.textContent = name;
-
-            if (value === WI._overridenDeviceUserAgent)
-                selectedOptionElement = optionElement;
-        }
-
-        if (group !== userAgents.lastValue)
-            userAgentValueSelect.appendChild(document.createElement("hr"));
-    }
-
-    function showUserAgentInput() {
-        if (userAgentValueInput)
-            return;
-
-        userAgentValueInput = userAgentValue.appendChild(document.createElement("input"));
-        userAgentValueInput.spellcheck = false;
-        userAgentValueInput.value = userAgentValueInput.placeholder = WI._overridenDeviceUserAgent || navigator.userAgent;
-        userAgentValueInput.addEventListener("click", (clickEvent) => {
-            clickEvent.preventDefault();
-        });
-        userAgentValueInput.addEventListener("change", (inputEvent) => {
-            applyOverriddenUserAgent(userAgentValueInput.value, true);
-        });
-
-        WI._deviceSettingsPopover.update();
-    }
-
-    if (selectedOptionElement)
-        userAgentValueSelect.value = selectedOptionElement.value;
-    else if (WI._overridenDeviceUserAgent) {
-        userAgentValueSelect.value = "other";
-        showUserAgentInput();
-    }
-
-    userAgentValueSelect.addEventListener("change", () => {
-        let value = userAgentValueSelect.value;
-        if (value === "other") {
-            showUserAgentInput();
-            userAgentValueInput.select();
-        } else {
-            if (userAgentValueInput) {
-                userAgentValueInput.remove();
-                userAgentValueInput = null;
-
-                WI._deviceSettingsPopover.update();
-            }
-
-            applyOverriddenUserAgent(value);
-        }
-    });
-
-    if (InspectorBackend.hasCommand("Page.setScreenSizeOverride")) {
-        function applyOverriddenScreenSize(value, force) {
-            if (value === WI._overridenDeviceScreenSize)
-                return;
-
-            if (!force && (!value || value === "default")) {
-                target.PageAgent.setScreenSizeOverride((error) => {
-                    if (error) {
-                        WI.reportInternalError(error);
-                        return;
-                    }
-
-                    WI._overridenDeviceScreenSize = null;
-                    updateActivatedState();
-                    target.PageAgent.reload();
-                });
-            } else {
-                let tokens = value.split("x");
-                let width = parseInt(tokens[0]);
-                let height = parseInt(tokens[1]);
-                target.PageAgent.setScreenSizeOverride(width, height, (error) => {
-                    if (error) {
-                        WI.reportInternalError(error);
-                        return;
-                    }
-
-                    WI._overridenDeviceScreenSize = value;
-                    updateActivatedState();
-                    target.PageAgent.reload();
-                });
-            }
-        }
-
-
-        let screenSizeRow = table.appendChild(document.createElement("tr"));
-
-        let screenSizeTitle = screenSizeRow.appendChild(document.createElement("td"));
-        screenSizeTitle.textContent = WI.UIString("Screen size:");
-
-        let screenSizeValue = screenSizeRow.appendChild(document.createElement("td"));
-        screenSizeValue.classList.add("screen-size");
-
-        let screenSizeValueSelect = screenSizeValue.appendChild(document.createElement("select"));
-
-        let screenSizeValueInput = null;
-
-        const screenSizes = [
-            [
-                {name: WI.UIString("Default"), value: "default"},
-            ],
-            [
-                {name: WI.UIString("1080p"), value: "1920x1080"},
-                {name: WI.UIString("720p"), value: "1280x720"},
-            ],
-            [
-                {name: WI.UIString("Other\u2026"), value: "other"},
-            ],
-        ];
-
-        let selectedScreenSizeOptionElement = null;
-
-        for (let group of screenSizes) {
-            for (let {name, value} of group) {
-                let optionElement = screenSizeValueSelect.appendChild(document.createElement("option"));
-                optionElement.value = value;
-                optionElement.textContent = name;
-
-                if (value === WI._overridenDeviceScreenSize)
-                    selectedScreenSizeOptionElement = optionElement;
-            }
-
-            if (group !== screenSizes.lastValue)
-                screenSizeValueSelect.appendChild(document.createElement("hr"));
-        }
-
-        function showScreenSizeInput() {
-            if (screenSizeValueInput)
-                return;
-
-            screenSizeValueInput = screenSizeValue.appendChild(document.createElement("input"));
-            screenSizeValueInput.spellcheck = false;
-            screenSizeValueInput.value = screenSizeValueInput.placeholder = WI._overridenDeviceScreenSize || (window.screen.width + "x" + window.screen.height);
-            screenSizeValueInput.addEventListener("click", (clickEvent) => {
-                clickEvent.preventDefault();
-            });
-            screenSizeValueInput.addEventListener("change", (inputEvent) => {
-                applyOverriddenScreenSize(screenSizeValueInput.value, true);
-            });
-
-            WI._deviceSettingsPopover.update();
-        }
-
-        if (selectedScreenSizeOptionElement)
-            screenSizeValueSelect.value = selectedScreenSizeOptionElement.value;
-        else if (WI._overridenDeviceScreenSize) {
-            screenSizeValueSelect.value = "other";
-            showScreenSizeInput();
-        }
-
-        screenSizeValueSelect.addEventListener("change", () => {
-            let value = screenSizeValueSelect.value;
-            if (value === "other") {
-                showScreenSizeInput();
-                screenSizeValueInput.select();
-            } else {
-                if (screenSizeValueInput) {
-                    screenSizeValueInput.remove();
-                    screenSizeValueInput = null;
-
-                    WI._deviceSettingsPopover.update();
-                }
-
-                applyOverriddenScreenSize(value);
-            }
-        });
-    }
-
-    const settings = [
-        {
-            name: WI.UIString("Disable:"),
-            columns: [
-                [
-                    {name: WI.UIString("Images"), setting: InspectorBackend.Enum.Page.Setting.ImagesEnabled, value: false},
-                    {name: WI.UIString("Styles"), setting: InspectorBackend.Enum.Page.Setting.AuthorAndUserStylesEnabled, value: false},
-                    {name: WI.UIString("JavaScript"), setting: InspectorBackend.Enum.Page.Setting.ScriptEnabled, value: false},
-                ],
-                [
-                    {name: WI.UIString("Site-specific Hacks"), setting: InspectorBackend.Enum.Page.Setting.NeedsSiteSpecificQuirks, value: false},
-                    {name: WI.UIString("Cross-Origin Restrictions"), setting: InspectorBackend.Enum.Page.Setting.WebSecurityEnabled, value: false},
-                ]
-            ],
-        },
-        {
-            name: WI.UIString("Enable:"),
-            columns: [
-                [
-                    {name: WI.UIString("ITP Debug Mode"), setting: InspectorBackend.Enum.Page.Setting.ITPDebugModeEnabled, value: true},
-                    // COMPATIBILITY (iOS 14.0): `Page.Setting.AdClickAttributionDebugModeEnabled` was renamed to `Page.Setting.PrivateClickMeasurementDebugModeEnabled`.
-                    {name: WI.UIString("Private Click Measurement Debug Mode"), setting: InspectorBackend.Enum.Page.Setting.PrivateClickMeasurementDebugModeEnabled, value: true},
-                    {name: WI.UIString("Ad Click Attribution Debug Mode"), setting: InspectorBackend.Enum.Page.Setting.AdClickAttributionDebugModeEnabled, value: true},
-                ],
-            ],
-        },
-        {
-            name: WI.UIString("%s:").format(WI.unlocalizedString("WebRTC")),
-            columns: [
-                [
-                    {name: WI.UIString("Allow Media Capture on Insecure Sites"), setting: InspectorBackend.Enum.Page.Setting.MediaCaptureRequiresSecureConnection, value: false},
-                    {name: WI.UIString("Disable ICE Candidate Restrictions"), setting: InspectorBackend.Enum.Page.Setting.ICECandidateFilteringEnabled, value: false},
-                    {name: WI.UIString("Use Mock Capture Devices"), setting: InspectorBackend.Enum.Page.Setting.MockCaptureDevicesEnabled, value: true},
-                    {name: WI.UIString("Disable Encryption"), setting: InspectorBackend.Enum.Page.Setting.WebRTCEncryptionEnabled, value: false},
-                ],
-            ],
-        },
-    ];
-
-    for (let group of settings) {
-        if (!group.columns.some((column) => column.some((item) => item.setting)))
-            continue;
-
-        let settingsGroupRow = table.appendChild(document.createElement("tr"));
-
-        let settingsGroupTitle = settingsGroupRow.appendChild(document.createElement("td"));
-        settingsGroupTitle.textContent = group.name;
-
-        let settingsGroupValue = settingsGroupRow.appendChild(document.createElement("td"));
-
-        let settingsGroupItemContainer = settingsGroupValue.appendChild(document.createElement("div"));
-        settingsGroupItemContainer.classList.add("container");
-
-        for (let column of group.columns) {
-            let columnElement = settingsGroupItemContainer.appendChild(document.createElement("div"));
-            columnElement.classList.add("column");
-
-            for (let item of column)
-                createCheckbox(columnElement, item.name, item.setting, item.value);
-        }
-    }
-
-    contentElement.appendChild(WI.createReferencePageLink("device-settings"));
-
-    WI._deviceSettingsPopover.presentNewContentWithFrame(contentElement, calculateTargetFrame(), preferredEdges);
+    if (WI._deviceSettingsPopover)
+        return; // Clicking the button while the popover is shown will automatically dismiss the popover. The object is cleared by `WI.didDismissPopover()`.
+
+    WI._deviceSettingsPopover = new WI.OverrideDeviceSettingsPopover(WI);
+    WI._deviceSettingsPopover.show(WI._deviceSettingsTabBarButton.element);
 };
+
+WI._handleDeviceSettingChanged = function()
+{
+    WI._deviceSettingsTabBarButton.activated = WI.deviceSettingsManager.hasOverridenDefaultSettings;
+}
 
 WI._downloadWebArchive = function(event)
 {
@@ -2468,7 +2195,7 @@ WI._updateDownloadTabBarButton = function()
     if (!WI._reloadTabBarButton)
         return;
 
-    if (!InspectorBackend.hasCommand("Page.archive")) {
+    if (!WI.FileUtilities.canSave(WI.FileUtilities.SaveMode.SingleFile) || !InspectorBackend.hasCommand("Page.archive")) {
         WI._downloadTabBarButton.hidden = true;
         WI._updateTabBarDividers();
         return;
@@ -2495,8 +2222,9 @@ WI._updateTabBarDividers = function()
     }
 
     let closeHidden = isHidden(WI._closeTabBarButton);
-    let dockToSideHidden = isHidden(WI._dockToSideTabBarButton);
+    let dockLeftHidden = isHidden(WI._dockLeftTabBarButton);
     let dockBottomHidden = isHidden(WI._dockBottomTabBarButton);
+    let dockRightHidden = isHidden(WI._dockRightTabBarButton);
     let undockHidden = isHidden(WI._undockTabBarButton);
 
     let inspectModeHidden = isHidden(WI._inspectModeTabBarButton);
@@ -2508,7 +2236,7 @@ WI._updateTabBarDividers = function()
     let errorsHidden = WI._consoleErrorsTabBarButton.hidden;
 
     // Hide the divider if everything to the left is hidden OR if everything to the right is hidden.
-    WI._consoleDividerNavigationItem.hidden = (closeHidden && dockToSideHidden && dockBottomHidden && undockHidden && inspectModeHidden && deviceSettingsHidden && reloadHidden && downloadHidden) || (warningsHidden && errorsHidden);
+    WI._consoleDividerNavigationItem.hidden = (closeHidden && dockLeftHidden && dockBottomHidden && dockRightHidden && undockHidden && inspectModeHidden && deviceSettingsHidden && reloadHidden && downloadHidden) || (warningsHidden && errorsHidden);
 
     WI.tabBar.needsLayout();
 };
@@ -2680,7 +2408,10 @@ WI._save = function(event)
     if (!contentView || !contentView.supportsSave)
         return;
 
-    WI.FileUtilities.save(contentView.saveData);
+    if (!WI.FileUtilities.canSave(contentView.saveMode))
+        return;
+
+    WI.FileUtilities.save(contentView.saveMode, contentView.saveData);
 };
 
 WI._saveAs = function(event)
@@ -2689,7 +2420,10 @@ WI._saveAs = function(event)
     if (!contentView || !contentView.supportsSave)
         return;
 
-    WI.FileUtilities.save(contentView.saveData, true);
+    if (!WI.FileUtilities.canSave(contentView.saveMode))
+        return;
+
+    WI.FileUtilities.save(contentView.saveMode, contentView.saveData, true);
 };
 
 WI._clear = function(event)
@@ -2863,10 +2597,14 @@ WI.setZoomFactor = function(factor)
 
 WI.resolvedLayoutDirection = function()
 {
-    let layoutDirection = WI.settings.debugLayoutDirection.value;
-    if (layoutDirection === WI.LayoutDirection.System)
-        layoutDirection = InspectorFrontendHost.userInterfaceLayoutDirection();
-    return layoutDirection;
+    // When the value is changed from Web Inspector Settings, Web Inspector reopens automatically.
+    // When the value is changed at the system level, the user is prompted to restart the computer.
+    if (!WI._layoutDirection) {
+        let layoutDirection = WI.settings.debugLayoutDirection.value;
+        WI._layoutDirection = layoutDirection === WI.LayoutDirection.System ? InspectorFrontendHost.userInterfaceLayoutDirection() : layoutDirection;
+    }
+
+    return WI._layoutDirection;
 };
 
 WI.resolveLayoutDirectionForElement = function(element)
@@ -2893,35 +2631,7 @@ WI.setLayoutDirection = function(value)
 
     WI.settings.debugLayoutDirection.value = value;
 
-    if (WI.resolvedLayoutDirection() === WI.LayoutDirection.RTL && WI.dockConfiguration === WI.DockConfiguration.Right)
-        WI._dockLeft();
-
-    if (WI.resolvedLayoutDirection() === WI.LayoutDirection.LTR && WI.dockConfiguration === WI.DockConfiguration.Left)
-        WI._dockRight();
-
     InspectorFrontendHost.reopen();
-};
-
-WI.undockedTitleAreaHeight = function()
-{
-    if (WI.dockConfiguration !== WI.DockConfiguration.Undocked)
-        return 0;
-
-    if (WI.Platform.name === "mac") {
-        switch (WI.Platform.version.name) {
-        case "monterey":
-        case "big-sur":
-            /* Keep in sync with `--undocked-title-area-height` CSS variable. */
-            return 27 / WI.getZoomFactor();
-
-        case "catalina":
-        case "mojave":
-            /* Keep in sync with `--undocked-title-area-height` CSS variable. */
-            return 22 / WI.getZoomFactor();
-        }
-    }
-
-    return 0;
 };
 
 WI._showTabAtIndexFromShortcut = function(i)
@@ -2935,30 +2645,51 @@ WI._showTabAtIndexFromShortcut = function(i)
 
 WI._showJavaScriptTypeInformationSettingChanged = function(event)
 {
-    if (WI.settings.showJavaScriptTypeInformation.value) {
-        for (let target of WI.targets)
+    let shouldEnable = WI.settings.showJavaScriptTypeInformation.value;
+    for (let target of WI.targets) {
+        // FIXME: <https://webkit.org/b/298910> Add Runtime support for FrameTarget.
+        if (target instanceof WI.FrameTarget)
+            continue;
+
+        if (shouldEnable)
             target.RuntimeAgent.enableTypeProfiler();
-    } else {
-        for (let target of WI.targets)
+        else
             target.RuntimeAgent.disableTypeProfiler();
     }
 };
 
 WI._enableControlFlowProfilerSettingChanged = function(event)
 {
-    if (WI.settings.enableControlFlowProfiler.value) {
-        for (let target of WI.targets)
+    let shouldEnable = WI.settings.enableControlFlowProfiler.value;
+    for (let target of WI.targets) {
+        // FIXME: <https://webkit.org/b/298910> Add Runtime support for FrameTarget.
+        if (target instanceof WI.FrameTarget)
+            continue;
+
+        if (shouldEnable)
             target.RuntimeAgent.enableControlFlowProfiler();
-    } else {
-        for (let target of WI.targets)
+        else
             target.RuntimeAgent.disableControlFlowProfiler();
     }
 };
 
 WI._resourceCachingDisabledSettingChanged = function(event)
 {
-    for (let target of WI.targets)
+    for (let target of WI.targets) {
+        // FIXME: <https://webkit.org/b/298979> Add Network support for FrameTarget.
+        if (target instanceof WI.FrameTarget)
+            continue;
+
         target.NetworkAgent.setResourceCachingDisabled(WI.settings.resourceCachingDisabled.value);
+    }
+};
+
+WI._clearResourceDataOnNavigateSettingChanged = function(event)
+{
+    for (let target of WI.targets) {
+        if (target.hasCommand("Network.setClearResourceDataOnNavigate"))
+            target.NetworkAgent.setClearResourceDataOnNavigate(WI.settings.clearNetworkOnNavigate.value);
+    }
 };
 
 WI._allowInspectingInspectorSettingChanged = function(event)
@@ -3032,7 +2763,7 @@ WI.createMessageTextView = function(message, isError)
 
     let textElement = messageElement.appendChild(document.createElement("div"));
     textElement.className = "message";
-    textElement.textContent = message;
+    textElement.append(message);
 
     return messageElement;
 };
@@ -3057,23 +2788,6 @@ WI.createNavigationItemHelp = function(formatString, navigationItem)
 
     String.format(formatString, [wrapperElement], String.standardFormatters, containerElement, append);
     return containerElement;
-};
-
-WI.createReferencePageLink = function(page, fragment)
-{
-    let url = "https://webkit.org/web-inspector/" + page + "/";
-    if (fragment)
-        url += "#" + fragment;
-
-    let wrapper = document.createElement("span");
-    wrapper.className = "reference-page-link-container";
-
-    let link = wrapper.appendChild(document.createElement("a"));
-    link.className = "reference-page-link";
-    link.href = link.title = url;
-    link.textContent = "?";
-
-    return wrapper;
 };
 
 WI.createGoToArrowButton = function()
@@ -3156,7 +2870,7 @@ WI.linkifyElement = function(linkElement, sourceCodeLocation, options = {}) {
     linkElement.addEventListener("click", showSourceCodeLocation);
     linkElement.addEventListener("contextmenu", (event) => {
         let contextMenu = WI.ContextMenu.createFromEvent(event);
-        WI.appendContextMenuItemsForSourceCode(contextMenu, sourceCodeLocation);
+        WI.appendContextMenuItemsForNetworkResource(contextMenu, sourceCodeLocation);
     });
 };
 
@@ -3274,16 +2988,12 @@ WI._redoKeyboardShortcut = function(event)
 
 WI.undo = function()
 {
-    let target = WI.assumingMainTarget();
-    if (target.hasCommand("DOM.undo"))
-        target.DOMAgent.undo();
+    WI.domUndoCoordinator.undo();
 };
 
 WI.redo = function()
 {
-    let target = WI.assumingMainTarget();
-    if (target.hasCommand("DOM.redo"))
-        target.DOMAgent.redo();
+    WI.domUndoCoordinator.redo();
 };
 
 WI.highlightRangesWithStyleClass = function(element, resultRanges, styleClass, changes)
@@ -3390,19 +3100,28 @@ WI.archiveMainFrame = function()
         WI._downloadingPage = false;
         WI._updateDownloadTabBarButton();
 
-        if (error)
+        if (error) {
+            WI.reportInternalError(error);
             return;
+        }
 
         let mainFrame = WI.networkManager.mainFrame;
         let archiveName = mainFrame.mainResource.urlComponents.host || mainFrame.mainResource.displayName || "Archive";
-        let url = WI.FileUtilities.inspectorURLForFilename(archiveName + ".webarchive");
 
-        InspectorFrontendHost.save(url, data, true, true);
+        const forceSaveAs = true;
+        WI.FileUtilities.save(WI.FileUtilities.SaveMode.SingleFile, {
+            suggestedName: archiveName + ".webarchive",
+            content: data,
+            base64Encoded: true,
+        }, forceSaveAs);
     });
 };
 
 WI.canArchiveMainFrame = function()
 {
+    if (!WI.FileUtilities.canSave(WI.FileUtilities.SaveMode.SingleFile))
+        return false;
+
     if (!InspectorBackend.hasCommand("Page.archive"))
         return false;
 
@@ -3495,6 +3214,14 @@ WI.assumingMainTarget = function()
     return WI.mainTarget;
 };
 
+// Site Isolation runs cross-origin iframes in separate WebContent processes, each surfaced to the
+// frontend as its own WI.FrameTarget (rather than a WI.Frame in the page tree). The presence of any
+// FrameTarget is therefore the signal that Site Isolation is active for this inspection.
+WI.isSiteIsolationEnabled = function()
+{
+    return WI.targets.some((target) => target instanceof WI.FrameTarget);
+};
+
 WI.reset = async function()
 {
     await WI.ObjectStore.reset();
@@ -3503,7 +3230,11 @@ WI.reset = async function()
 };
 
 WI.isEngineeringBuild = false;
-WI.isExperimentalBuild = InspectorFrontendHost.isExperimentalBuild();
+WI.inspectorFrontendHostAllowsEngineeringSettings = InspectorFrontendHost.engineeringSettingsAllowed();
+
+WI.engineeringSettingsAllowed = function() {
+    return WI.isEngineeringBuild || WI.inspectorFrontendHostAllowsEngineeringSettings;
+}
 
 // OpenResourceDialog delegate
 

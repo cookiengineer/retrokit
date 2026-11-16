@@ -39,28 +39,28 @@ namespace {
 // with something else. And after the exit sideways case, we don't have to worry about either
 // exitsSideways or terminal. And so on...
 
-bool interferesWithTerminal(const Effects& terminal, const Effects& other)
+bool NODELETE interferesWithTerminal(const Effects& terminal, const Effects& other)
 {
     if (!terminal.terminal)
         return false;
     return other.terminal || other.controlDependent || other.writesLocalState || other.writes || other.writesPinned;
 }
 
-bool interferesWithExitSideways(const Effects& exitsSideways, const Effects& other)
+bool NODELETE interferesWithExitSideways(const Effects& exitsSideways, const Effects& other)
 {
     if (!exitsSideways.exitsSideways)
         return false;
     return other.controlDependent || other.writes || other.writesPinned;
 }
 
-bool interferesWithWritesLocalState(const Effects& writesLocalState, const Effects& other)
+bool NODELETE interferesWithWritesLocalState(const Effects& writesLocalState, const Effects& other)
 {
     if (!writesLocalState.writesLocalState)
         return false;
     return other.writesLocalState || other.readsLocalState;
 }
 
-bool interferesWithWritesPinned(const Effects& writesPinned, const Effects& other)
+bool NODELETE interferesWithWritesPinned(const Effects& writesPinned, const Effects& other)
 {
     if (!writesPinned.writesPinned)
         return false;
@@ -85,48 +85,31 @@ bool Effects::interferes(const Effects& other) const
         || (fence && other.fence);
 }
 
-bool Effects::operator==(const Effects& other) const
-{
-    return terminal == other.terminal
-        && exitsSideways == other.exitsSideways
-        && controlDependent == other.controlDependent
-        && writesLocalState == other.writesLocalState
-        && readsLocalState == other.readsLocalState
-        && writesPinned == other.writesPinned
-        && readsPinned == other.readsPinned
-        && writes == other.writes
-        && reads == other.reads
-        && fence == other.fence;
-}
-
-bool Effects::operator!=(const Effects& other) const
-{
-    return !(*this == other);
-}
-
 void Effects::dump(PrintStream& out) const
 {
-    CommaPrinter comma("|");
+    CommaPrinter comma("|"_s);
     if (terminal)
-        out.print(comma, "Terminal");
+        out.print(comma, "Terminal"_s);
     if (exitsSideways)
-        out.print(comma, "ExitsSideways");
+        out.print(comma, "ExitsSideways"_s);
     if (controlDependent)
-        out.print(comma, "ControlDependent");
+        out.print(comma, "ControlDependent"_s);
+    if (readsMutability == Mutability::Immutable)
+        out.print(comma, "ReadsImmutable"_s);
     if (writesLocalState)
-        out.print(comma, "WritesLocalState");
+        out.print(comma, "WritesLocalState"_s);
     if (readsLocalState)
-        out.print(comma, "ReadsLocalState");
+        out.print(comma, "ReadsLocalState"_s);
     if (writesPinned)
-        out.print(comma, "WritesPinned");
+        out.print(comma, "WritesPinned"_s);
     if (readsPinned)
-        out.print(comma, "ReadsPinned");
+        out.print(comma, "ReadsPinned"_s);
     if (fence)
-        out.print(comma, "Fence");
+        out.print(comma, "Fence"_s);
     if (writes)
-        out.print(comma, "Writes:", writes);
+        out.print(comma, "Writes:"_s, writes);
     if (reads)
-        out.print(comma, "Reads:", reads);
+        out.print(comma, "Reads:"_s, reads);
 }
 
 } } // namespace JSC::B3

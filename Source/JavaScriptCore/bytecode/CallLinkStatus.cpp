@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,15 +30,19 @@
 #include "CallLinkInfo.h"
 #include "CodeBlock.h"
 #include "JSCInlines.h"
-#include "LLIntCallLinkInfo.h"
 #include <wtf/CommaPrinter.h>
 #include <wtf/ListDump.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC {
 
+#if ENABLE(JIT)
 namespace CallLinkStatusInternal {
 static constexpr bool verbose = false;
 }
+#endif
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(CallLinkStatus);
 
 CallLinkStatus::CallLinkStatus(JSValue value)
     : m_couldTakeSlowPath(false)
@@ -50,47 +54,6 @@ CallLinkStatus::CallLinkStatus(JSValue value)
     }
     
     m_variants.append(CallVariant(value.asCell()));
-}
-
-CallLinkStatus CallLinkStatus::computeFromLLInt(const ConcurrentJSLocker&, CodeBlock* profiledBlock, BytecodeIndex bytecodeIndex)
-{
-    UNUSED_PARAM(profiledBlock);
-    UNUSED_PARAM(bytecodeIndex);
-#if ENABLE(DFG_JIT)
-    if (profiledBlock->unlinkedCodeBlock()->hasExitSite(DFG::FrequentExitSite(bytecodeIndex, BadConstantValue))) {
-        // We could force this to be a closure call, but instead we'll just assume that it
-        // takes slow path.
-        return takesSlowPath();
-    }
-#endif
-
-    auto instruction = profiledBlock->instructions().at(bytecodeIndex.offset());
-    OpcodeID op = instruction->opcodeID();
-
-    LLIntCallLinkInfo* callLinkInfo;
-    switch (op) {
-    case op_call:
-        callLinkInfo = &instruction->as<OpCall>().metadata(profiledBlock).m_callLinkInfo;
-        break;
-    case op_construct:
-        callLinkInfo = &instruction->as<OpConstruct>().metadata(profiledBlock).m_callLinkInfo;
-        break;
-    case op_tail_call:
-        callLinkInfo = &instruction->as<OpTailCall>().metadata(profiledBlock).m_callLinkInfo;
-        break;
-    case op_iterator_open:
-        callLinkInfo = &instruction->as<OpIteratorOpen>().metadata(profiledBlock).m_callLinkInfo;
-        break;
-    case op_iterator_next:
-        callLinkInfo = &instruction->as<OpIteratorNext>().metadata(profiledBlock).m_callLinkInfo;
-        break;
-
-    default:
-        return CallLinkStatus();
-    }
-    
-    
-    return CallLinkStatus(callLinkInfo->lastSeenCallee());
 }
 
 CallLinkStatus CallLinkStatus::computeFor(
@@ -105,10 +68,19 @@ CallLinkStatus CallLinkStatus::computeFor(
     UNUSED_PARAM(exitSiteData);
 #if ENABLE(DFG_JIT)
     CallLinkInfo* callLinkInfo = map.get(CodeOrigin(bytecodeIndex)).callLinkInfo;
-    if (!callLinkInfo) {
+    if (!callLinkInfo)
+        return CallLinkStatus();
+    // m_jitData is nullptr when it is tied to LLInt (not Baseline).
+    if (callLinkInfo->type() == CallLinkInfo::Type::DataOnly && !profiledBlock->m_jitData) {
         if (exitSiteData.takesSlowPath)
             return takesSlowPath();
-        return computeFromLLInt(locker, profiledBlock, bytecodeIndex);
+#if ENABLE(DFG_JIT)
+        if (profiledBlock->unlinkedCodeBlock()->hasExitSite(DFG::FrequentExitSite(bytecodeIndex, BadConstantValue))) {
+            // We could force this to be a closure call, but instead we'll just assume that it
+            // takes slow path.
+            return takesSlowPath();
+        }
+#endif
     }
     
     return computeFor(locker, profiledBlock, *callLinkInfo, exitSiteData);
@@ -161,23 +133,19 @@ CallLinkStatus CallLinkStatus::computeFor(
     UNUSED_PARAM(profiledBlock);
     
     CallLinkStatus result = computeFromCallLinkInfo(locker, callLinkInfo);
-    result.m_maxArgumentCountIncludingThis = callLinkInfo.maxArgumentCountIncludingThis();
+    result.m_maxArgumentCountIncludingThisForVarargs = callLinkInfo.maxArgumentCountIncludingThisForVarargs();
     return result;
 }
 
 CallLinkStatus CallLinkStatus::computeFromCallLinkInfo(
     const ConcurrentJSLocker&, CallLinkInfo& callLinkInfo)
 {
-    // We cannot tell you anything about direct calls.
-    if (callLinkInfo.isDirect())
-        return CallLinkStatus();
-    
     if (callLinkInfo.clearedByGC() || callLinkInfo.clearedByVirtual())
         return takesSlowPath();
     
     // Note that despite requiring that the locker is held, this code is racy with respect
     // to the CallLinkInfo: it may get cleared while this code runs! This is because
-    // CallLinkInfo::unlink() may be called from a different CodeBlock than the one that owns
+    // CallLinkInfoBase::unlinkOrUpgrade() may be called from a different CodeBlock than the one that owns
     // the CallLinkInfo and currently we save space by not having CallLinkInfos know who owns
     // them. So, there is no way for either the caller of CallLinkInfo::unlock() or unlock()
     // itself to figure out which lock to lock.
@@ -214,11 +182,7 @@ CallLinkStatus CallLinkStatus::computeFromCallLinkInfo(
         
         RELEASE_ASSERT(edges.size());
         
-        std::sort(
-            edges.begin(), edges.end(),
-            [] (CallEdge a, CallEdge b) {
-                return a.count() > b.count();
-            });
+        std::ranges::sort(edges, std::ranges::greater { }, &CallEdge::count);
         RELEASE_ASSERT(edges.first().count() >= edges.last().count());
         
         double totalCallsToKnown = 0;
@@ -357,8 +321,7 @@ CallLinkStatus CallLinkStatus::computeFor(
             if (!status.callLinkInfo)
                 return CallLinkStatus();
             
-            if (CallLinkStatusInternal::verbose)
-                dataLog("Have CallLinkInfo with CodeOrigin = ", status.callLinkInfo->codeOrigin(), "\n");
+            dataLogLnIf(CallLinkStatusInternal::verbose, "Have CallLinkInfo with CodeOrigin = ", codeOrigin, "\n");
             CallLinkStatus result;
             {
                 ConcurrentJSLocker locker(context->optimizedCodeBlock->m_lock);
@@ -448,11 +411,11 @@ void CallLinkStatus::merge(const CallLinkStatus& other)
     }
 }
 
-void CallLinkStatus::filter(VM& vm, JSValue value)
+void CallLinkStatus::filter(JSValue value)
 {
     m_variants.removeAllMatching(
         [&] (CallVariant& variant) -> bool {
-            variant.filter(vm, value);
+            variant.filter(value);
             return !variant;
         });
 }
@@ -460,26 +423,26 @@ void CallLinkStatus::filter(VM& vm, JSValue value)
 void CallLinkStatus::dump(PrintStream& out) const
 {
     if (!isSet()) {
-        out.print("Not Set");
+        out.print("Not Set"_s);
         return;
     }
     
     CommaPrinter comma;
     
     if (m_isProved)
-        out.print(comma, "Statically Proved");
+        out.print(comma, "Statically Proved"_s);
     
     if (m_couldTakeSlowPath)
-        out.print(comma, "Could Take Slow Path");
+        out.print(comma, "Could Take Slow Path"_s);
     
     if (m_isBasedOnStub)
-        out.print(comma, "Based On Stub");
+        out.print(comma, "Based On Stub"_s);
     
     if (!m_variants.isEmpty())
         out.print(comma, listDump(m_variants));
     
-    if (m_maxArgumentCountIncludingThis)
-        out.print(comma, "maxArgumentCountIncludingThis = ", m_maxArgumentCountIncludingThis);
+    if (m_maxArgumentCountIncludingThisForVarargs)
+        out.print(comma, "maxArgumentCountIncludingThisForVarargs = "_s, m_maxArgumentCountIncludingThisForVarargs);
 }
 
 } // namespace JSC

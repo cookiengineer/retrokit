@@ -19,45 +19,56 @@
 
 #include "config.h"
 #include "RenderSVGGradientStop.h"
+#include "RenderObjectNode.h"
 
-#include "RenderSVGResourceContainer.h"
+#include "ContainerNodeInlines.h"
+#include "ElementInlines.h"
+#include "LegacyRenderSVGResourceContainer.h"
+#include "RenderSVGGradientStopInlines.h"
+#include "RenderSVGResourceGradient.h"
+#include "SVGElementTypeHelpers.h"
 #include "SVGGradientElement.h"
 #include "SVGNames.h"
-#include "SVGResourcesCache.h"
 #include "SVGStopElement.h"
-#include <wtf/IsoMallocInlines.h>
 #include <wtf/StackStats.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
     
 using namespace SVGNames;
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(RenderSVGGradientStop);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderSVGGradientStop);
 
-RenderSVGGradientStop::RenderSVGGradientStop(SVGStopElement& element, RenderStyle&& style)
-    : RenderElement(element, WTFMove(style), 0)
+RenderSVGGradientStop::RenderSVGGradientStop(SVGStopElement& element, Style::ComputedStyle&& style)
+    : RenderElement(Type::SVGGradientStop, element, WTF::move(style), { }, { })
 {
+    ASSERT(isRenderSVGGradientStop());
 }
 
 RenderSVGGradientStop::~RenderSVGGradientStop() = default;
 
-void RenderSVGGradientStop::styleDidChange(StyleDifference diff, const RenderStyle* oldStyle)
+void RenderSVGGradientStop::styleDidChange(Style::Difference diff, const Style::ComputedStyle* oldStyle)
 {
     RenderElement::styleDidChange(diff, oldStyle);
-    if (diff == StyleDifference::Equal)
+    if (diff == Style::DifferenceResult::Equal)
         return;
 
     // <stop> elements should only be allowed to make renderers under gradient elements
     // but I can imagine a few cases we might not be catching, so let's not crash if our parent isn't a gradient.
-    const auto* gradient = gradientElement();
+    RefPtr gradient = gradientElement();
     if (!gradient)
         return;
 
-    RenderElement* renderer = gradient->renderer();
+    CheckedPtr renderer = gradient->renderer();
     if (!renderer)
         return;
 
-    downcast<RenderSVGResourceContainer>(*renderer).removeAllClientsFromCache();
+    if (CheckedPtr gradientRenderer = dynamicDowncast<RenderSVGResourceGradient>(renderer.get())) {
+        gradientRenderer->invalidateGradient();
+        return;
+    }
+
+    downcast<LegacyRenderSVGResourceContainer>(*renderer).removeAllClientsFromCacheAndMarkForInvalidation();
 }
 
 void RenderSVGGradientStop::layout()
@@ -68,9 +79,7 @@ void RenderSVGGradientStop::layout()
 
 SVGGradientElement* RenderSVGGradientStop::gradientElement()
 {
-    if (is<SVGGradientElement>(element().parentElement()))
-        return downcast<SVGGradientElement>(element().parentElement());
-    return nullptr;
+    return dynamicDowncast<SVGGradientElement>(element().parentElement());
 }
 
 }

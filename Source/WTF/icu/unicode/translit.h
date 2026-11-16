@@ -14,11 +14,13 @@
 
 #include "unicode/utypes.h"
 
+#if U_SHOW_CPLUSPLUS_API
+
 /**
- * \file 
- * \brief C++ API: Tranforms text from one format to another.
+ * \file
+ * \brief C++ API: Transforms text from one format to another.
  */
- 
+
 #if !UCONFIG_NO_TRANSLITERATION
 
 #include "unicode/uobject.h"
@@ -31,7 +33,6 @@ U_NAMESPACE_BEGIN
 
 class UnicodeFilter;
 class UnicodeSet;
-class CompoundTransliterator;
 class TransliteratorParser;
 class NormalizationTransliterator;
 class TransliteratorIDParser;
@@ -77,8 +78,7 @@ class TransliteratorIDParser;
  * transliteration.  For example, given a string <code>input</code>
  * and a transliterator <code>t</code>, the call
  *
- * \htmlonly<blockquote>\endhtmlonly<code>String result = t.transliterate(input);
- * </code>\htmlonly</blockquote>\endhtmlonly
+ *     String result = t.transliterate(input);
  *
  * will transliterate it and return the result.  Other methods allow
  * the client to specify a substring to be transliterated and to use
@@ -98,22 +98,20 @@ class TransliteratorIDParser;
  * contents of the buffer may show text being modified as each new
  * character arrives.
  *
- * <p>Consider the simple <code>RuleBasedTransliterator</code>:
- *
- * \htmlonly<blockquote>\endhtmlonly<code>
- * th&gt;{theta}<br>
- * t&gt;{tau}
- * </code>\htmlonly</blockquote>\endhtmlonly
+ * <p>Consider the simple rule-based Transliterator:
+ * <pre>
+ *     th>{theta}
+ *     t>{tau}
+ * </pre>
  *
  * When the user types 't', nothing will happen, since the
  * transliterator is waiting to see if the next character is 'h'.  To
  * remedy this, we introduce the notion of a cursor, marked by a '|'
  * in the output string:
- *
- * \htmlonly<blockquote>\endhtmlonly<code>
- * t&gt;|{tau}<br>
- * {tau}h&gt;{theta}
- * </code>\htmlonly</blockquote>\endhtmlonly
+ * <pre>
+ *     t>|{tau}
+ *     {tau}h>{theta}
+ * </pre>
  *
  * Now when the user types 't', tau appears, and if the next character
  * is 'h', the tau changes to a theta.  This is accomplished by
@@ -135,7 +133,7 @@ class TransliteratorIDParser;
  * which the transliterator last stopped, either because it reached
  * the end, or because it required more characters to disambiguate
  * between possible inputs.  The <code>CURSOR</code> can also be
- * explicitly set by rules in a <code>RuleBasedTransliterator</code>.
+ * explicitly set by rules in a rule-based Transliterator.
  * Any characters before the <code>CURSOR</code> index are frozen;
  * future keyboard transliteration calls within this input sequence
  * will not change them.  New text is inserted at the
@@ -159,7 +157,7 @@ class TransliteratorIDParser;
  * transliterator <b>B</b> decrements character values, then <b>A</b>
  * is an inverse of <b>B</b> and vice versa.  If we compose <b>A</b>
  * with <b>B</b> in a compound transliterator, the result is the
- * indentity transliterator, that is, a transliterator that does not
+ * identity transliterator, that is, a transliterator that does not
  * change its input text.
  *
  * The <code>Transliterator</code> method <code>getInverse()</code>
@@ -221,7 +219,7 @@ class TransliteratorIDParser;
  * acts a template; future calls to {@link #createInstance } with the ID
  * of the registered object return clones of that object.  Thus any
  * object passed to <tt>registerInstance()</tt> must implement
- * <tt>clone()</tt> propertly.  To register a transliterator subclass
+ * <tt>clone()</tt> properly.  To register a transliterator subclass
  * without instantiating it (until it is needed), users may call
  * {@link #registerFactory }.  In this case, the objects are
  * instantiated by invoking the zero-argument public constructor of
@@ -236,6 +234,255 @@ class TransliteratorIDParser;
  * method taking a <code>String</code> and <code>StringBuffer</code>
  * if the performance of these methods can be improved over the
  * performance obtained by the default implementations in this class.
+ *
+ * <p><b>Rule syntax</b>
+ *
+ * <p>A set of rules determines how to perform translations.
+ * Rules within a rule set are separated by semicolons (';').
+ * To include a literal semicolon, prefix it with a backslash ('\').
+ * Unicode Pattern_White_Space is ignored.
+ * If the first non-blank character on a line is '#',
+ * the entire line is ignored as a comment.
+ *
+ * <p>Each set of rules consists of two groups, one forward, and one
+ * reverse. This is a convention that is not enforced; rules for one
+ * direction may be omitted, with the result that translations in
+ * that direction will not modify the source text. In addition,
+ * bidirectional forward-reverse rules may be specified for
+ * symmetrical transformations.
+ *
+ * <p>Note: Another description of the Transliterator rule syntax is available in
+ * <a href="https://www.unicode.org/reports/tr35/tr35-general.html#Transform_Rules_Syntax">section
+ * Transform Rules Syntax of UTS #35: Unicode LDML</a>.
+ * The rules are shown there using arrow symbols ← and → and ↔.
+ * ICU supports both those and the equivalent ASCII symbols &lt; and &gt; and &lt;&gt;.
+ *
+ * <p>Rule statements take one of the following forms:
+ *
+ * <dl>
+ *     <dt><code>$alefmadda=\\u0622;</code></dt>
+ *     <dd><strong>Variable definition.</strong> The name on the
+ *         left is assigned the text on the right. In this example,
+ *         after this statement, instances of the left hand name,
+ *         &quot;<code>$alefmadda</code>&quot;, will be replaced by
+ *         the Unicode character U+0622. Variable names must begin
+ *         with a letter and consist only of letters, digits, and
+ *         underscores. Case is significant. Duplicate names cause
+ *         an exception to be thrown, that is, variables cannot be
+ *         redefined. The right hand side may contain well-formed
+ *         text of any length, including no text at all (&quot;<code>$empty=;</code>&quot;).
+ *         The right hand side may contain embedded <code>UnicodeSet</code>
+ *         patterns, for example, &quot;<code>$softvowel=[eiyEIY]</code>&quot;.</dd>
+ *     <dt><code>ai&gt;$alefmadda;</code></dt>
+ *     <dd><strong>Forward translation rule.</strong> This rule
+ *         states that the string on the left will be changed to the
+ *         string on the right when performing forward
+ *         transliteration.</dd>
+ *     <dt><code>ai&lt;$alefmadda;</code></dt>
+ *     <dd><strong>Reverse translation rule.</strong> This rule
+ *         states that the string on the right will be changed to
+ *         the string on the left when performing reverse
+ *         transliteration.</dd>
+ * </dl>
+ *
+ * <dl>
+ *     <dt><code>ai&lt;&gt;$alefmadda;</code></dt>
+ *     <dd><strong>Bidirectional translation rule.</strong> This
+ *         rule states that the string on the right will be changed
+ *         to the string on the left when performing forward
+ *         transliteration, and vice versa when performing reverse
+ *         transliteration.</dd>
+ * </dl>
+ *
+ * <p>Translation rules consist of a <em>match pattern</em> and an <em>output
+ * string</em>. The match pattern consists of literal characters,
+ * optionally preceded by context, and optionally followed by
+ * context. Context characters, like literal pattern characters,
+ * must be matched in the text being transliterated. However, unlike
+ * literal pattern characters, they are not replaced by the output
+ * text. For example, the pattern &quot;<code>abc{def}</code>&quot;
+ * indicates the characters &quot;<code>def</code>&quot; must be
+ * preceded by &quot;<code>abc</code>&quot; for a successful match.
+ * If there is a successful match, &quot;<code>def</code>&quot; will
+ * be replaced, but not &quot;<code>abc</code>&quot;. The final '<code>}</code>'
+ * is optional, so &quot;<code>abc{def</code>&quot; is equivalent to
+ * &quot;<code>abc{def}</code>&quot;. Another example is &quot;<code>{123}456</code>&quot;
+ * (or &quot;<code>123}456</code>&quot;) in which the literal
+ * pattern &quot;<code>123</code>&quot; must be followed by &quot;<code>456</code>&quot;.
+ *
+ * <p>The output string of a forward or reverse rule consists of
+ * characters to replace the literal pattern characters. If the
+ * output string contains the character '<code>|</code>', this is
+ * taken to indicate the location of the <em>cursor</em> after
+ * replacement. The cursor is the point in the text at which the
+ * next replacement, if any, will be applied. The cursor is usually
+ * placed within the replacement text; however, it can actually be
+ * placed into the preceding or following context by using the
+ * special character '@'. Examples:
+ *
+ * <pre>
+ *     a {foo} z &gt; | @ bar; # foo -&gt; bar, move cursor before a
+ *     {foo} xyz &gt; bar @@|; #&nbsp;foo -&gt; bar, cursor between y and z
+ * </pre>
+ *
+ * <p><b>UnicodeSet</b>
+ *
+ * <p><code>UnicodeSet</code> patterns may appear anywhere that
+ * makes sense. They may appear in variable definitions.
+ * Contrariwise, <code>UnicodeSet</code> patterns may themselves
+ * contain variable references, such as &quot;<code>$a=[a-z];$not_a=[^$a]</code>&quot;,
+ * or &quot;<code>$range=a-z;$ll=[$range]</code>&quot;.
+ *
+ * <p><code>UnicodeSet</code> patterns may also be embedded directly
+ * into rule strings. Thus, the following two rules are equivalent:
+ *
+ * <pre>
+ *     $vowel=[aeiou]; $vowel&gt;'*'; # One way to do this
+ *     [aeiou]&gt;'*'; # Another way
+ * </pre>
+ *
+ * <p>See {@link UnicodeSet} for more documentation and examples.
+ *
+ * <p><b>Segments</b>
+ *
+ * <p>Segments of the input string can be matched and copied to the
+ * output string. This makes certain sets of rules simpler and more
+ * general, and makes reordering possible. For example:
+ *
+ * <pre>
+ *     ([a-z]) &gt; $1 $1; # double lowercase letters
+ *     ([:Lu:]) ([:Ll:]) &gt; $2 $1; # reverse order of Lu-Ll pairs
+ * </pre>
+ *
+ * <p>The segment of the input string to be copied is delimited by
+ * &quot;<code>(</code>&quot; and &quot;<code>)</code>&quot;. Up to
+ * nine segments may be defined. Segments may not overlap. In the
+ * output string, &quot;<code>$1</code>&quot; through &quot;<code>$9</code>&quot;
+ * represent the input string segments, in left-to-right order of
+ * definition.
+ *
+ * <p><b>Anchors</b>
+ *
+ * <p>Patterns can be anchored to the beginning or the end of the text. This is done with the
+ * special characters '<code>^</code>' and '<code>$</code>'. For example:
+ *
+ * <pre>
+ *   ^ a&nbsp;&nbsp; &gt; 'BEG_A'; &nbsp;&nbsp;# match 'a' at start of text
+ *   &nbsp; a&nbsp;&nbsp; &gt; 'A'; # match other instances of 'a'
+ *   &nbsp; z $ &gt; 'END_Z'; &nbsp;&nbsp;# match 'z' at end of text
+ *   &nbsp; z&nbsp;&nbsp; &gt; 'Z';&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; # match other instances of 'z'
+ * </pre>
+ *
+ * <p>It is also possible to match the beginning or the end of the text using a <code>UnicodeSet</code>.
+ * This is done by including a virtual anchor character '<code>$</code>' at the end of the
+ * set pattern. Although this is usually the match character for the end anchor, the set will
+ * match either the beginning or the end of the text, depending on its placement. For
+ * example:
+ *
+ * <pre>
+ *   $x = [a-z$]; &nbsp;&nbsp;# match 'a' through 'z' OR anchor
+ *   $x 1&nbsp;&nbsp;&nbsp; &gt; 2;&nbsp;&nbsp; # match '1' after a-z or at the start
+ *   &nbsp;&nbsp; 3 $x &gt; 4; &nbsp;&nbsp;# match '3' before a-z or at the end
+ * </pre>
+ *
+ * <p><b>Example</b>
+ *
+ * <p>The following example rules illustrate many of the features of
+ * the rule language.
+ *
+ * <table border="0" cellpadding="4">
+ *     <tr>
+ *         <td style="vertical-align: top;">Rule 1.</td>
+ *         <td style="vertical-align: top; write-space: nowrap;"><code>abc{def}&gt;x|y</code></td>
+ *     </tr>
+ *     <tr>
+ *         <td style="vertical-align: top;">Rule 2.</td>
+ *         <td style="vertical-align: top; write-space: nowrap;"><code>xyz&gt;r</code></td>
+ *     </tr>
+ *     <tr>
+ *         <td style="vertical-align: top;">Rule 3.</td>
+ *         <td style="vertical-align: top; write-space: nowrap;"><code>yz&gt;q</code></td>
+ *     </tr>
+ * </table>
+ *
+ * <p>Applying these rules to the string &quot;<code>adefabcdefz</code>&quot;
+ * yields the following results:
+ *
+ * <table border="0" cellpadding="4">
+ *     <tr>
+ *         <td style="vertical-align: top; write-space: nowrap;"><code>|adefabcdefz</code></td>
+ *         <td style="vertical-align: top;">Initial state, no rules match. Advance
+ *         cursor.</td>
+ *     </tr>
+ *     <tr>
+ *         <td style="vertical-align: top; write-space: nowrap;"><code>a|defabcdefz</code></td>
+ *         <td style="vertical-align: top;">Still no match. Rule 1 does not match
+ *         because the preceding context is not present.</td>
+ *     </tr>
+ *     <tr>
+ *         <td style="vertical-align: top; write-space: nowrap;"><code>ad|efabcdefz</code></td>
+ *         <td style="vertical-align: top;">Still no match. Keep advancing until
+ *         there is a match...</td>
+ *     </tr>
+ *     <tr>
+ *         <td style="vertical-align: top; write-space: nowrap;"><code>ade|fabcdefz</code></td>
+ *         <td style="vertical-align: top;">...</td>
+ *     </tr>
+ *     <tr>
+ *         <td style="vertical-align: top; write-space: nowrap;"><code>adef|abcdefz</code></td>
+ *         <td style="vertical-align: top;">...</td>
+ *     </tr>
+ *     <tr>
+ *         <td style="vertical-align: top; write-space: nowrap;"><code>adefa|bcdefz</code></td>
+ *         <td style="vertical-align: top;">...</td>
+ *     </tr>
+ *     <tr>
+ *         <td style="vertical-align: top; write-space: nowrap;"><code>adefab|cdefz</code></td>
+ *         <td style="vertical-align: top;">...</td>
+ *     </tr>
+ *     <tr>
+ *         <td style="vertical-align: top; write-space: nowrap;"><code>adefabc|defz</code></td>
+ *         <td style="vertical-align: top;">Rule 1 matches; replace &quot;<code>def</code>&quot;
+ *         with &quot;<code>xy</code>&quot; and back up the cursor
+ *         to before the '<code>y</code>'.</td>
+ *     </tr>
+ *     <tr>
+ *         <td style="vertical-align: top; write-space: nowrap;"><code>adefabcx|yz</code></td>
+ *         <td style="vertical-align: top;">Although &quot;<code>xyz</code>&quot; is
+ *         present, rule 2 does not match because the cursor is
+ *         before the '<code>y</code>', not before the '<code>x</code>'.
+ *         Rule 3 does match. Replace &quot;<code>yz</code>&quot;
+ *         with &quot;<code>q</code>&quot;.</td>
+ *     </tr>
+ *     <tr>
+ *         <td style="vertical-align: top; write-space: nowrap;"><code>adefabcxq|</code></td>
+ *         <td style="vertical-align: top;">The cursor is at the end;
+ *         transliteration is complete.</td>
+ *     </tr>
+ * </table>
+ *
+ * <p>The order of rules is significant. If multiple rules may match
+ * at some point, the first matching rule is applied.
+ *
+ * <p>Forward and reverse rules may have an empty output string.
+ * Otherwise, an empty left or right hand side of any statement is a
+ * syntax error.
+ *
+ * <p>Single quotes are used to quote any character other than a
+ * digit or letter. To specify a single quote itself, inside or
+ * outside of quotes, use two single quotes in a row. For example,
+ * the rule &quot;<code>'&gt;'&gt;o''clock</code>&quot; changes the
+ * string &quot;<code>&gt;</code>&quot; to the string &quot;<code>o'clock</code>&quot;.
+ *
+ * <p><b>Notes</b>
+ *
+ * <p>While a Transliterator is being built from rules, it checks that
+ * the rules are added in proper order. For example, if the rule
+ * &quot;a&gt;x&quot; is followed by the rule &quot;ab&gt;y&quot;,
+ * then the second rule will throw an exception. The reason is that
+ * the second rule can never be triggered, since the first rule
+ * always matches anything it matches. In other words, the first
+ * rule <em>masks</em> the second rule.
  *
  * @author Alan Liu
  * @stable ICU 2.0
@@ -343,7 +590,7 @@ protected:
      * variant.
      * @param id a basic ID of the form S-T or S-T/V.
      * @param canon canonical ID to assign to the object, or
-     * NULL to leave the ID unchanged
+     * nullptr to leave the ID unchanged
      * @return a newly created Transliterator or null if the ID is
      * invalid.
      * @stable ICU 2.4
@@ -436,8 +683,8 @@ public:
      * unambiguous transliterations.  After the last call to this
      * method, there may be untransliterated text that is waiting for
      * more input to resolve an ambiguity.  In order to perform these
-     * pending transliterations, clients should call {@link
-     * #finishTransliteration } after the last call to this
+     * pending transliterations, clients should call
+     * {@link #finishTransliteration } after the last call to this
      * method has been made.
      *
      * @param text the buffer holding transliterated and untransliterated text
@@ -494,14 +741,13 @@ public:
     /**
      * Transliterates the portion of the text buffer that can be
      * transliterated unambiguosly.  This is a convenience method; see
-     * {@link
-     * #transliterate(Replaceable&, UTransPosition&, const UnicodeString&, UErrorCode&) const }
+     * {@link #transliterate(Replaceable&, UTransPosition&, const UnicodeString&, UErrorCode&) const }
      * for details.
      * @param text the buffer holding transliterated and
      * untransliterated text
-     * @param index an array of three integers.  See {@link #transliterate(Replaceable&, UTransPosition&, const UnicodeString*, UErrorCode&) const }.
+     * @param index an array of three integers.
      * @param status    Output param to filled in with a success or an error.
-     * @see #transliterate(Replaceable, int[], String)
+     * @see #transliterate(Replaceable&, UTransPosition&, const UnicodeString&, UErrorCode &) const
      * @stable ICU 2.0
      */
     virtual void transliterate(Replaceable& text, UTransPosition& index,
@@ -514,8 +760,7 @@ public:
      * <code>transliterate()</code>.
      * @param text the buffer holding transliterated and
      * untransliterated text.
-     * @param index the array of indices previously passed to {@link
-     * #transliterate }
+     * @param index the array of indices previously passed to {@link #transliterate }
      * @stable ICU 2.0
      */
     virtual void finishTransliteration(Replaceable& text,
@@ -632,11 +877,11 @@ public:
     /**
      * Transliterate a substring of text, as specified by index, taking filters
      * into account.  This method is for subclasses that need to delegate to
-     * another transliterator, such as CompoundTransliterator.
+     * another transliterator.
      * @param text the text to be transliterated
      * @param index the position indices
-     * @param incremental if TRUE, then assume more characters may be inserted
-     * at index.limit, and postpone processing to accomodate future incoming
+     * @param incremental if true, then assume more characters may be inserted
+     * at index.limit, and postpone processing to accommodate future incoming
      * characters
      * @stable ICU 2.4
      */
@@ -650,14 +895,14 @@ private:
      * Top-level transliteration method, handling filtering, incremental and
      * non-incremental transliteration, and rollback.  All transliteration
      * public API methods eventually call this method with a rollback argument
-     * of TRUE.  Other entities may call this method but rollback should be
-     * FALSE.
+     * of true.  Other entities may call this method but rollback should be
+     * false.
      *
      * <p>If this transliterator has a filter, break up the input text into runs
      * of unfiltered characters.  Pass each run to
      * subclass.handleTransliterate().
      *
-     * <p>In incremental mode, if rollback is TRUE, perform a special
+     * <p>In incremental mode, if rollback is true, perform a special
      * incremental procedure in which several passes are made over the input
      * text, adding one character at a time, and committing successful
      * transliterations as they occur.  Unsuccessful transliterations are rolled
@@ -665,12 +910,12 @@ private:
      *
      * @param text the text to be transliterated
      * @param index the position indices
-     * @param incremental if TRUE, then assume more characters may be inserted
-     * at index.limit, and postpone processing to accomodate future incoming
+     * @param incremental if true, then assume more characters may be inserted
+     * at index.limit, and postpone processing to accommodate future incoming
      * characters
-     * @param rollback if TRUE and if incremental is TRUE, then perform special
+     * @param rollback if true and if incremental is true, then perform special
      * incremental processing, as described above, and undo partial
-     * transliterations where necessary.  If incremental is FALSE then this
+     * transliterations where necessary.  If incremental is false then this
      * parameter is ignored.
      */
     virtual void filteredTransliterate(Replaceable& text,
@@ -721,8 +966,8 @@ public:
 
     /**
      * Returns a name for this transliterator that is appropriate for
-     * display to the user in the default locale.  See {@link
-     * #getDisplayName } for details.
+     * display to the user in the default locale.  See {@link #getDisplayName }
+     * for details.
      * @param ID     the string identifier for this transliterator
      * @param result Output param to receive the display name
      * @return       A reference to 'result'.
@@ -757,20 +1002,20 @@ public:
                                          UnicodeString& result);
 
     /**
-     * Returns the filter used by this transliterator, or <tt>NULL</tt>
+     * Returns the filter used by this transliterator, or <tt>nullptr</tt>
      * if this transliterator uses no filter.
-     * @return the filter used by this transliterator, or <tt>NULL</tt>
+     * @return the filter used by this transliterator, or <tt>nullptr</tt>
      *         if this transliterator uses no filter.
      * @stable ICU 2.0
      */
     const UnicodeFilter* getFilter(void) const;
 
     /**
-     * Returns the filter used by this transliterator, or <tt>NULL</tt> if this
+     * Returns the filter used by this transliterator, or <tt>nullptr</tt> if this
      * transliterator uses no filter.  The caller must eventually delete the
      * result.  After this call, this transliterator's filter is set to
-     * <tt>NULL</tt>.
-     * @return the filter used by this transliterator, or <tt>NULL</tt> if this
+     * <tt>nullptr</tt>.
+     * @return the filter used by this transliterator, or <tt>nullptr</tt> if this
      *         transliterator uses no filter.
      * @stable ICU 2.4
      */
@@ -816,7 +1061,7 @@ public:
      *
      * @param ID a valid ID, as enumerated by <code>getAvailableIDs()</code>
      * @param dir        either FORWARD or REVERSE.
-     * @param parseError Struct to recieve information on position
+     * @param parseError Struct to receive information on position
      *                   of error if an error is encountered
      * @param status     Output param to filled in with a success or an error.
      * @return A <code>Transliterator</code> object with the given ID
@@ -846,17 +1091,19 @@ public:
 
     /**
      * Returns a <code>Transliterator</code> object constructed from
-     * the given rule string.  This will be a RuleBasedTransliterator,
+     * the given rule string.  This will be a rule-based Transliterator,
      * if the rule string contains only rules, or a
-     * CompoundTransliterator, if it contains ID blocks, or a
-     * NullTransliterator, if it contains ID blocks which parse as
+     * compound Transliterator, if it contains ID blocks, or a
+     * null Transliterator, if it contains ID blocks which parse as
      * empty for the given direction.
+     *
      * @param ID            the id for the transliterator.
      * @param rules         rules, separated by ';'
      * @param dir           either FORWARD or REVERSE.
-     * @param parseError    Struct to recieve information on position
+     * @param parseError    Struct to receive information on position
      *                      of error if an error is encountered
      * @param status        Output param set to success/failure code.
+     * @return a newly created Transliterator
      * @stable ICU 2.0
      */
     static Transliterator* U_EXPORT2 createFromRules(const UnicodeString& ID,
@@ -870,7 +1117,7 @@ public:
      * to recreate this transliterator.
      * @param result the string to receive the rules.  Previous
      * contents will be deleted.
-     * @param escapeUnprintable if TRUE then convert unprintable
+     * @param escapeUnprintable if true then convert unprintable
      * character to their hex escape representations, \\uxxxx or
      * \\Uxxxxxxxx.  Unprintable characters are those other than
      * U+000A, U+0020..U+007E.
@@ -919,8 +1166,8 @@ public:
      * input text by this Transliterator.  This incorporates this
      * object's current filter; if the filter is changed, the return
      * value of this function will change.  The default implementation
-     * returns an empty set.  Some subclasses may override {@link
-     * #handleGetSourceSet } to return a more precise result.  The
+     * returns an empty set.  Some subclasses may override
+     * {@link #handleGetSourceSet } to return a more precise result. The
      * return result is approximate in any case and is intended for
      * use by tests, tools, or utilities.
      * @param result receives result set; previous contents lost
@@ -1133,7 +1380,7 @@ public:
      * Return a registered source specifier.
      * @param index which specifier to return, from 0 to n-1, where
      * n = countAvailableSources()
-     * @param result fill-in paramter to receive the source specifier.
+     * @param result fill-in parameter to receive the source specifier.
      * If index is out of range, result will be empty.
      * @return reference to result
      * @stable ICU 2.0
@@ -1156,7 +1403,7 @@ public:
      * @param index which specifier to return, from 0 to n-1, where
      * n = countAvailableTargets(source)
      * @param source the source specifier
-     * @param result fill-in paramter to receive the target specifier.
+     * @param result fill-in parameter to receive the target specifier.
      * If source is invalid or if index is out of range, result will
      * be empty.
      * @return reference to result
@@ -1183,7 +1430,7 @@ public:
      * n = countAvailableVariants(source, target)
      * @param source the source specifier
      * @param target the target specifier
-     * @param result fill-in paramter to receive the variant
+     * @param result fill-in parameter to receive the variant
      * specifier.  If source is invalid or if target is invalid or if
      * index is out of range, result will be empty.
      * @return reference to result
@@ -1280,7 +1527,7 @@ public:
      * different class IDs.
      * @stable ICU 2.0
      */
-    virtual UClassID getDynamicClassID(void) const = 0;
+    virtual UClassID getDynamicClassID(void) const override = 0;
 
 private:
     static UBool initializeRegistry(UErrorCode &status);
@@ -1340,5 +1587,7 @@ inline Transliterator::Token Transliterator::pointerToken(void* p) {
 U_NAMESPACE_END
 
 #endif /* #if !UCONFIG_NO_TRANSLITERATION */
+
+#endif /* U_SHOW_CPLUSPLUS_API */
 
 #endif

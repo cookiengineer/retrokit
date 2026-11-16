@@ -25,12 +25,14 @@
 
 #include "config.h"
 #include "NetworkResourceLoadMap.h"
+
 #include "NetworkResourceLoader.h"
+#include <algorithm>
 
 namespace WebKit {
 
 NetworkResourceLoadMap::NetworkResourceLoadMap(Function<void(bool hasUpload)>&& hasUploadChangeListener)
-    : m_hasUploadChangeListener(WTFMove(hasUploadChangeListener))
+    : m_hasUploadChangeListener(WTF::move(hasUploadChangeListener))
 {
 }
 
@@ -39,17 +41,17 @@ NetworkResourceLoadMap::~NetworkResourceLoadMap()
     clear();
 }
 
-NetworkResourceLoadMap::MapType::AddResult NetworkResourceLoadMap::add(ResourceLoadIdentifier identifier, Ref<NetworkResourceLoader>&& loader)
+NetworkResourceLoadMap::MapType::AddResult NetworkResourceLoadMap::add(WebCore::ResourceLoaderIdentifier identifier, Ref<NetworkResourceLoader>&& loader) LIFETIME_BOUND
 {
     ASSERT(!m_loaders.contains(identifier));
     bool hasUpload = loader->originalRequest().hasUpload();
-    auto result = m_loaders.add(identifier, WTFMove(loader));
+    auto result = m_loaders.add(identifier, WTF::move(loader));
     if (hasUpload)
         setHasUpload(true);
     return result;
 }
 
-bool NetworkResourceLoadMap::remove(ResourceLoadIdentifier identifier)
+bool NetworkResourceLoadMap::remove(WebCore::ResourceLoaderIdentifier identifier)
 {
     return !!take(identifier);
 }
@@ -60,19 +62,19 @@ void NetworkResourceLoadMap::clear()
     setHasUpload(false);
 }
 
-RefPtr<NetworkResourceLoader> NetworkResourceLoadMap::take(ResourceLoadIdentifier identifier)
+RefPtr<NetworkResourceLoader> NetworkResourceLoadMap::take(WebCore::ResourceLoaderIdentifier identifier)
 {
     auto loader = m_loaders.take(identifier);
     if (!loader)
         return nullptr;
 
     if (loader->originalRequest().hasUpload())
-        setHasUpload(WTF::anyOf(m_loaders.values(), [](auto& loader) { return loader->originalRequest().hasUpload(); }));
+        setHasUpload(std::ranges::any_of(m_loaders.values(), [](auto& loader) { return loader->originalRequest().hasUpload(); }));
 
     return loader;
 }
 
-NetworkResourceLoader* NetworkResourceLoadMap::get(ResourceLoadIdentifier identifier) const
+NetworkResourceLoader* NetworkResourceLoadMap::get(WebCore::ResourceLoaderIdentifier identifier) const LIFETIME_BOUND
 {
     return m_loaders.get(identifier);
 }

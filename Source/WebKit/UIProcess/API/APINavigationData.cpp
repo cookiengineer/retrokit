@@ -33,8 +33,6 @@ NavigationData::NavigationData(const WebKit::WebNavigationDataStore& store)
 {
 }
 
-NavigationData::~NavigationData()
-{
-}
+NavigationData::~NavigationData() = default;
 
 } // namespace WebKit

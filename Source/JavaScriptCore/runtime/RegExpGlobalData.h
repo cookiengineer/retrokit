@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2019-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,7 +25,8 @@
 
 #pragma once
 
-#include "RegExpCachedResult.h"
+#include <JavaScriptCore/RegExpCachedResult.h>
+#include <JavaScriptCore/RegExpSubstringGlobalAtomCache.h>
 
 namespace JSC {
 
@@ -33,13 +34,13 @@ class JSGlobalObject;
 
 class RegExpGlobalData {
 public:
-    RegExpCachedResult& cachedResult() { return m_cachedResult; }
+    RegExpCachedResult& cachedResult() LIFETIME_BOUND { return m_cachedResult; }
 
     void setMultiline(bool multiline) { m_multiline = multiline; }
     bool multiline() const { return m_multiline; }
 
     void setInput(JSGlobalObject*, JSString*);
-    JSString* input() { return m_cachedResult.input(); }
+    JSString* input() LIFETIME_BOUND { return m_cachedResult.input(); }
 
     DECLARE_VISIT_AGGREGATE;
 
@@ -48,16 +49,21 @@ public:
     JSValue getLeftContext(JSGlobalObject*);
     JSValue getRightContext(JSGlobalObject*);
 
-    MatchResult performMatch(JSGlobalObject*, RegExp*, JSString*, const String&, int startOffset, int** ovector);
-    MatchResult performMatch(JSGlobalObject*, RegExp*, JSString*, const String&, int startOffset);
-    void recordMatch(VM&, JSGlobalObject*, RegExp*, JSString*, const MatchResult&);
+    MatchResult performMatch(JSGlobalObject*, RegExp*, JSString*, StringView, int startOffset, int** ovector);
+    MatchResult performMatch(JSGlobalObject*, RegExp*, JSString*, StringView, int startOffset);
+    void recordMatch(VM&, JSGlobalObject*, RegExp*, JSString*, const MatchResult&, bool oneCharacterMatch);
 
-    static ptrdiff_t offsetOfCachedResult() { return OBJECT_OFFSETOF(RegExpGlobalData, m_cachedResult); }
+    static constexpr ptrdiff_t offsetOfCachedResult() { return OBJECT_OFFSETOF(RegExpGlobalData, m_cachedResult); }
+
+    inline MatchResult matchResult() const;
+    void resetResultFromCache(JSGlobalObject* owner, RegExp*, JSString*, MatchResult, std::span<const int> ovector);
+
+    RegExpSubstringGlobalAtomCache& substringGlobalAtomCache() LIFETIME_BOUND { return m_substringGlobalAtomCache; }
 
 private:
     RegExpCachedResult m_cachedResult;
+    RegExpSubstringGlobalAtomCache m_substringGlobalAtomCache;
     bool m_multiline { false };
-    Vector<int> m_ovector;
 };
 
 }

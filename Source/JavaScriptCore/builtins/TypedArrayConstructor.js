@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2022 Jarred Sumner. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,24 +24,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-function of(/* items... */)
-{
-    "use strict";
-    var len = arguments.length;
-
-    if (!@isConstructor(this))
-        @throwTypeError("TypedArray.of requires |this| to be a constructor");
-
-    var result = new this(len);
-    if (@typedArrayLength(result) < len)
-        @throwTypeError("TypedArray.of constructed typed array of insufficient length");
-
-    for (var i = 0; i < len; i++)
-        result[i] = arguments[i];
-
-    return result;
-}
-
 function from(items /* [ , mapfn [ , thisArg ] ] */)
 {
     "use strict";
@@ -58,6 +41,12 @@ function from(items /* [ , mapfn [ , thisArg ] ] */)
     }
 
     var arrayLike = @toObject(items, "TypedArray.from requires an array-like object - not null or undefined");
+
+    if (mapFn === @undefined) {
+        var fastResult = @typedArrayFromFast(this, arrayLike);
+        if (fastResult)
+            return fastResult;
+    }
 
     var iteratorMethod = items.@@iterator;
     if (!@isUndefinedOrNull(iteratorMethod)) {
@@ -86,10 +75,10 @@ function from(items /* [ , mapfn [ , thisArg ] ] */)
 
         for (var k = 0; k < count; k++) {
             var value = accumulator[k];
-            if (mapFn)
-                result[k] = thisArg === @undefined ? mapFn(value, k) : mapFn.@call(thisArg, value, k);
-            else
+            if (mapFn === @undefined)
                 result[k] = value;
+            else
+                result[k] = thisArg === @undefined ? mapFn(value, k) : mapFn.@call(thisArg, value, k);
         }
 
         return result;
@@ -102,11 +91,17 @@ function from(items /* [ , mapfn [ , thisArg ] ] */)
         @throwTypeError("TypedArray.from constructed typed array of insufficient length");
 
     for (var k = 0; k < arrayLikeLength; k++) {
+        if (@isTypedArrayView(arrayLike) && (@isTypedArrayOutOfBounds(arrayLike) || k >= @typedArrayLength(arrayLike)))
+            break;
         var value = arrayLike[k];
-        if (mapFn)
-            result[k] = thisArg === @undefined ? mapFn(value, k) : mapFn.@call(thisArg, value, k);
-        else
+        if (mapFn === @undefined)
             result[k] = value;
+        else {
+            var mapped = thisArg === @undefined ? mapFn(value, k) : mapFn.@call(thisArg, value, k);
+            if (@isTypedArrayView(result) && (@isTypedArrayOutOfBounds(result) || k >= @typedArrayLength(result)))
+                break;
+            result[k] = mapped;
+        }
     }
 
     return result;

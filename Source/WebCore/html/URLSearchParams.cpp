@@ -26,34 +26,37 @@
 #include "URLSearchParams.h"
 
 #include "DOMURL.h"
+#include <ranges>
 #include <wtf/URLParser.h>
 
 namespace WebCore {
 
 URLSearchParams::URLSearchParams(const String& init, DOMURL* associatedURL)
-    : m_associatedURL(makeWeakPtr(associatedURL))
+    : m_associatedURL(associatedURL)
     , m_pairs(init.startsWith('?') ? WTF::URLParser::parseURLEncodedForm(StringView(init).substring(1)) : WTF::URLParser::parseURLEncodedForm(init))
 {
 }
 
-URLSearchParams::URLSearchParams(const Vector<WTF::KeyValuePair<String, String>>& pairs)
+URLSearchParams::URLSearchParams(const Vector<KeyValuePair<String, String>>& pairs)
     : m_pairs(pairs)
 {
 }
 
-ExceptionOr<Ref<URLSearchParams>> URLSearchParams::create(Variant<Vector<Vector<String>>, Vector<WTF::KeyValuePair<String, String>>, String>&& variant)
+URLSearchParams::~URLSearchParams() = default;
+
+ExceptionOr<Ref<URLSearchParams>> URLSearchParams::create(Variant<Vector<Vector<String>>, Vector<KeyValuePair<String, String>>, String>&& variant)
 {
     auto visitor = WTF::makeVisitor([&](const Vector<Vector<String>>& vector) -> ExceptionOr<Ref<URLSearchParams>> {
-        Vector<WTF::KeyValuePair<String, String>> pairs;
+        Vector<KeyValuePair<String, String>> pairs;
         for (const auto& pair : vector) {
             if (pair.size() != 2)
-                return Exception { TypeError };
+                return Exception { ExceptionCode::TypeError };
             pairs.append({pair[0], pair[1]});
         }
-        return adoptRef(*new URLSearchParams(WTFMove(pairs)));
-    }, [&](const Vector<WTF::KeyValuePair<String, String>>& pairs) {
+        return adoptRef(*new URLSearchParams(WTF::move(pairs)));
+    }, [&](const Vector<KeyValuePair<String, String>>& pairs) -> ExceptionOr<Ref<URLSearchParams>> {
         return adoptRef(*new URLSearchParams(pairs));
-    }, [&](const String& string) {
+    }, [&](const String& string) -> ExceptionOr<Ref<URLSearchParams>> {
         return adoptRef(*new URLSearchParams(string, nullptr));
     });
     return WTF::visit(visitor, variant);
@@ -68,10 +71,10 @@ String URLSearchParams::get(const String& name) const
     return String();
 }
 
-bool URLSearchParams::has(const String& name) const
+bool URLSearchParams::has(const String& name, const String& value) const
 {
     for (const auto& pair : m_pairs) {
-        if (pair.key == name)
+        if (pair.key == name && (value.isNull() || pair.value == value))
             return true;
     }
     return false;
@@ -79,9 +82,7 @@ bool URLSearchParams::has(const String& name) const
 
 void URLSearchParams::sort()
 {
-    std::stable_sort(m_pairs.begin(), m_pairs.end(), [] (const auto& a, const auto& b) {
-        return WTF::codePointCompareLessThan(a.key, b.key);
-    });
+    std::ranges::stable_sort(m_pairs, WTF::codePointCompareLessThan, &PairType::key);
     updateURL();
 }
 
@@ -116,19 +117,17 @@ void URLSearchParams::append(const String& name, const String& value)
 
 Vector<String> URLSearchParams::getAll(const String& name) const
 {
-    Vector<String> values;
-    values.reserveInitialCapacity(m_pairs.size());
-    for (const auto& pair : m_pairs) {
+    return WTF::compactMap(m_pairs, [&](auto& pair) -> std::optional<String> {
         if (pair.key == name)
-            values.uncheckedAppend(pair.value);
-    }
-    return values;
+            return pair.value;
+        return std::nullopt;
+    });
 }
 
-void URLSearchParams::remove(const String& name)
+void URLSearchParams::remove(const String& name, const String& value)
 {
     m_pairs.removeAllMatching([&] (const auto& pair) {
-        return pair.key == name;
+        return pair.key == name && (value.isNull() || pair.value == value);
     });
     updateURL();
 }
@@ -141,7 +140,7 @@ String URLSearchParams::toString() const
 void URLSearchParams::updateURL()
 {
     if (m_associatedURL)
-        m_associatedURL->setQuery(WTF::URLParser::serialize(m_pairs));
+        m_associatedURL->setSearch(WTF::URLParser::serialize(m_pairs));
 }
 
 void URLSearchParams::updateFromAssociatedURL()
@@ -151,14 +150,14 @@ void URLSearchParams::updateFromAssociatedURL()
     m_pairs = search.startsWith('?') ? WTF::URLParser::parseURLEncodedForm(StringView(search).substring(1)) : WTF::URLParser::parseURLEncodedForm(search);
 }
 
-std::optional<WTF::KeyValuePair<String, String>> URLSearchParams::Iterator::next()
+std::optional<KeyValuePair<String, String>> URLSearchParams::Iterator::next()
 {
     auto& pairs = m_target->pairs();
     if (m_index >= pairs.size())
         return std::nullopt;
 
     auto& pair = pairs[m_index++];
-    return WTF::KeyValuePair<String, String> { pair.key, pair.value };
+    return KeyValuePair<String, String> { pair.key, pair.value };
 }
 
 URLSearchParams::Iterator::Iterator(URLSearchParams& params)

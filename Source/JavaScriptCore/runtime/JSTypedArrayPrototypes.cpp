@@ -31,12 +31,11 @@
 
 namespace JSC {
 
-const ClassInfo JSTypedArrayViewPrototype::s_info = {"Prototype", &JSTypedArrayViewPrototype::Base::s_info, nullptr, nullptr,
-    CREATE_METHOD_TABLE(JSTypedArrayViewPrototype)};
+const ClassInfo JSTypedArrayViewPrototype::s_info = { "Prototype"_s, &JSTypedArrayViewPrototype::Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSTypedArrayViewPrototype) };
 
 #undef MAKE_S_INFO
 #define MAKE_S_INFO(type) \
-    template<> const ClassInfo JS##type##Prototype::s_info = {#type "Prototype", &JS##type##Prototype::Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JS##type##Prototype)}
+    template<> const ClassInfo JS##type##Prototype::s_info = { #type "Prototype"_s, &JS##type##Prototype::Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JS##type##Prototype) }
 
 MAKE_S_INFO(Int8Array);
 MAKE_S_INFO(Int16Array);
@@ -45,6 +44,7 @@ MAKE_S_INFO(Uint8Array);
 MAKE_S_INFO(Uint8ClampedArray);
 MAKE_S_INFO(Uint16Array);
 MAKE_S_INFO(Uint32Array);
+MAKE_S_INFO(Float16Array);
 MAKE_S_INFO(Float32Array);
 MAKE_S_INFO(Float64Array);
 MAKE_S_INFO(BigInt64Array);

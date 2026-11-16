@@ -24,14 +24,18 @@
 #include <wtf/CompletionHandler.h>
 #include <wtf/glib/WTFGType.h>
 
+#if !ENABLE(2022_GLIB_API)
+typedef WebKitPermissionRequestIface WebKitPermissionRequestInterface;
+#endif
+
 /**
- * SECTION: WebKitWebsiteDataAccessPermissionRequest
- * @Short_description: A permission request for accessing website data from third-party domains
- * @Title: WebKitWebsiteDataAccessPermissionRequest
+ * WebKitWebsiteDataAccessPermissionRequest:
  * @See_also: #WebKitPermissionRequest, #WebKitWebView
  *
+ * A permission request for accessing website data from third-party domains.
+ *
  * WebKitWebsiteDataAccessPermissionRequest represents a request for
- * permission to allow a third-party domain access its cookies.
+ * permission to allow a third-party domain to access its cookies.
  *
  * When a WebKitWebsiteDataAccessPermissionRequest is not handled by the user,
  * it is denied by default.
@@ -39,7 +43,7 @@
  * Since: 2.30
  */
 
-static void webkit_permission_request_interface_init(WebKitPermissionRequestIface*);
+static void webkit_permission_request_interface_init(WebKitPermissionRequestInterface*);
 
 struct _WebKitWebsiteDataAccessPermissionRequestPrivate {
     CString requestingDomain;
@@ -47,8 +51,8 @@ struct _WebKitWebsiteDataAccessPermissionRequestPrivate {
     CompletionHandler<void(bool)> completionHandler;
 };
 
-WEBKIT_DEFINE_TYPE_WITH_CODE(
-    WebKitWebsiteDataAccessPermissionRequest, webkit_website_data_access_permission_request, G_TYPE_OBJECT,
+WEBKIT_DEFINE_FINAL_TYPE_WITH_CODE(
+    WebKitWebsiteDataAccessPermissionRequest, webkit_website_data_access_permission_request, G_TYPE_OBJECT, GObject,
     G_IMPLEMENT_INTERFACE(WEBKIT_TYPE_PERMISSION_REQUEST, webkit_permission_request_interface_init))
 
 static void webkitWebsiteDataAccessPermissionRequestAllow(WebKitPermissionRequest* request)
@@ -69,7 +73,7 @@ static void webkitWebsiteDataAccessPermissionRequestDeny(WebKitPermissionRequest
         priv->completionHandler(false);
 }
 
-static void webkit_permission_request_interface_init(WebKitPermissionRequestIface* iface)
+static void webkit_permission_request_interface_init(WebKitPermissionRequestInterface* iface)
 {
     iface->allow = webkitWebsiteDataAccessPermissionRequestAllow;
     iface->deny = webkitWebsiteDataAccessPermissionRequestDeny;
@@ -93,7 +97,7 @@ WebKitWebsiteDataAccessPermissionRequest* webkitWebsiteDataAccessPermissionReque
     auto* websiteDataPermissionRequest = WEBKIT_WEBSITE_DATA_ACCESS_PERMISSION_REQUEST(g_object_new(WEBKIT_TYPE_WEBSITE_DATA_ACCESS_PERMISSION_REQUEST, nullptr));
     websiteDataPermissionRequest->priv->requestingDomain = requestingDomain.string().utf8();
     websiteDataPermissionRequest->priv->currentDomain = currentDomain.string().utf8();
-    websiteDataPermissionRequest->priv->completionHandler = WTFMove(completionHandler);
+    websiteDataPermissionRequest->priv->completionHandler = WTF::move(completionHandler);
     return websiteDataPermissionRequest;
 }
 

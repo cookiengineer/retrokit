@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -41,7 +41,7 @@ namespace ContentExtensions {
 namespace {
 
 template<typename VectorType, typename Iterable, typename Function>
-static inline void iterateIntersections(const VectorType& singularTransitionsFirsts, const Iterable& iterableTransitionList, const Function& intersectionHandler)
+static inline void NODELETE iterateIntersections(const VectorType& singularTransitionsFirsts, const Iterable& iterableTransitionList, NOESCAPE const Function& intersectionHandler)
 {
     ASSERT(!singularTransitionsFirsts.isEmpty());
     auto otherIterator = iterableTransitionList.begin();
@@ -87,7 +87,7 @@ public:
             m_elementPositionInPartitionedNodes[i] = i;
             m_elementToSetMap[i] = 0;
         }
-        m_sets.uncheckedAppend(SetDescriptor { 0, size, 0 });
+        m_sets.append(SetDescriptor { 0, size, 0 });
     }
 
     void reserveUninitializedCapacity(unsigned elementCount)
@@ -102,7 +102,7 @@ public:
         m_sets.append(SetDescriptor { start, size, 0 });
     }
 
-    void setElementUnchecked(unsigned elementIndex, unsigned positionInPartition, unsigned setIndex)
+    void NODELETE setElementUnchecked(unsigned elementIndex, unsigned positionInPartition, unsigned setIndex)
     {
         ASSERT(setIndex < m_sets.size());
         m_partitionedElements[positionInPartition] = elementIndex;
@@ -110,7 +110,7 @@ public:
         m_elementToSetMap[elementIndex] = setIndex;
     }
 
-    unsigned startOffsetOfSet(unsigned setIndex) const
+    unsigned NODELETE startOffsetOfSet(unsigned setIndex) const
     {
         return m_sets[setIndex].start;
     }
@@ -147,7 +147,7 @@ public:
 
     // The function passed as argument MUST not modify the partition.
     template<typename Function>
-    void refineGeneration(const Function& function)
+    void refineGeneration(NOESCAPE const Function& function)
     {
         for (unsigned setIndex : m_setsMarkedInCurrentGeneration) {
             SetDescriptor& setDescriptor = m_sets[setIndex];
@@ -181,7 +181,7 @@ public:
 
     // Call Function() on every node of a given subset.
     template<typename Function>
-    void iterateSet(unsigned setIndex, const Function& function)
+    void iterateSet(unsigned setIndex, NOESCAPE const Function& function)
     {
         SetDescriptor& setDescriptor = m_sets[setIndex];
         for (unsigned i = setDescriptor.start; i < setDescriptor.end(); ++i)
@@ -189,18 +189,18 @@ public:
     }
 
     // Index of the set containing the Node.
-    unsigned setIndex(unsigned elementIndex) const
+    unsigned NODELETE setIndex(unsigned elementIndex) const
     {
         return m_elementToSetMap[elementIndex];
     }
 
     // NodeIndex of the first element in the set.
-    unsigned firstElementInSet(unsigned setIndex) const
+    unsigned NODELETE firstElementInSet(unsigned setIndex) const
     {
         return m_partitionedElements[m_sets[setIndex].start];
     }
 
-    unsigned size() const
+    unsigned NODELETE size() const
     {
         return m_sets.size();
     }
@@ -211,8 +211,8 @@ private:
         unsigned size;
         unsigned markedCount;
 
-        unsigned indexAfterMarkedElements() const { return start + markedCount; }
-        unsigned end() const { return start + size; }
+        unsigned NODELETE indexAfterMarkedElements() const { return start + markedCount; }
+        unsigned NODELETE end() const { return start + size; }
     };
 
     // List of sets.
@@ -257,13 +257,11 @@ public:
         }
 
         // Count the number of incoming transitions per node.
-        m_flattenedTransitionsStartOffsetPerNode.resize(dfa.nodes.size());
-        memset(m_flattenedTransitionsStartOffsetPerNode.data(), 0, m_flattenedTransitionsStartOffsetPerNode.size() * sizeof(unsigned));
+        m_flattenedTransitionsStartOffsetPerNode.fill(0, dfa.nodes.size());
 
-        Vector<char, 0, ContentExtensionsOverflowHandler> singularTransitionsFirsts;
-        singularTransitionsFirsts.reserveInitialCapacity(singularTransitions.m_ranges.size());
-        for (const auto& transition : singularTransitions)
-            singularTransitionsFirsts.uncheckedAppend(transition.first);
+        auto singularTransitionsFirsts = WTF::map<0, ContentExtensionsOverflowHandler>(singularTransitions, [&](auto& transition) {
+            return transition.first;
+        });
 
         for (const DFANode& node : dfa.nodes) {
             if (node.isKilled())
@@ -293,8 +291,7 @@ public:
             counter = 0;
         m_flattenedTransitions.resize(flattenedTransitionsSize);
 
-        Vector<uint32_t> transitionPerRangeOffset(m_transitionPartition.size());
-        memset(transitionPerRangeOffset.data(), 0, transitionPerRangeOffset.size() * sizeof(uint32_t));
+        Vector<uint32_t> transitionPerRangeOffset(FillWith { }, m_transitionPartition.size(), 0);
 
         for (unsigned i = 0; i < dfa.nodes.size(); ++i) {
             const DFANode& node = dfa.nodes[i];
@@ -355,7 +352,7 @@ public:
         }
     }
 
-    unsigned nodeReplacement(unsigned nodeIndex)
+    unsigned NODELETE nodeReplacement(unsigned nodeIndex)
     {
         unsigned setIndex = m_nodePartition.setIndex(nodeIndex);
         return m_nodePartition.firstElementInSet(setIndex);
@@ -367,12 +364,12 @@ private:
     };
 
     struct CounterConverter {
-        uint32_t convert(uint32_t)
+        uint32_t NODELETE convert(uint32_t)
         {
             return 1;
         }
 
-        void extend(uint32_t& destination, uint32_t)
+        void NODELETE extend(uint32_t& destination, uint32_t)
         {
             ++destination;
         }
@@ -401,13 +398,13 @@ struct ActionKey {
         , actionsLength(actionsLength)
         , state(Valid)
     {
-        StringHasher hasher;
-        hasher.addCharactersAssumingAligned(reinterpret_cast<const UChar*>(&dfa->actions[actionsStart]), actionsLength * sizeof(uint64_t) / sizeof(UChar));
-        hash = hasher.hash();
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+        hash = SuperFastHash::computeHash(std::span { reinterpret_cast<const char16_t*>(&dfa->actions[actionsStart]), actionsLength * sizeof(uint64_t) / sizeof(char16_t) });
+        WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     }
 
-    bool isEmptyValue() const { return state == Empty; }
-    bool isDeletedValue() const { return state == Deleted; }
+    bool NODELETE isEmptyValue() const { return state == Empty; }
+    bool NODELETE isDeletedValue() const { return state == Deleted; }
 
     unsigned hash { 0 };
     
@@ -423,12 +420,12 @@ struct ActionKey {
 };
 
 struct ActionKeyHash {
-    static unsigned hash(const ActionKey& actionKey)
+    static unsigned NODELETE hash(const ActionKey& actionKey)
     {
         return actionKey.hash;
     }
 
-    static bool equal(const ActionKey& a, const ActionKey& b)
+    static bool NODELETE equal(const ActionKey& a, const ActionKey& b)
     {
         if (a.state != b.state
             || a.dfa != b.dfa
@@ -475,10 +472,7 @@ void DFAMinimizer::minimize(DFA& dfa)
     // Use every splitter to refine the node partitions.
     fullGraphPartition.splitByUniqueTransitions();
 
-    Vector<unsigned> relocationVector;
-    relocationVector.reserveInitialCapacity(dfa.nodes.size());
-    for (unsigned i = 0; i < dfa.nodes.size(); ++i)
-        relocationVector.uncheckedAppend(i);
+    Vector<unsigned> relocationVector(dfa.nodes.size(), [](size_t i) { return i; });
 
     // Update all the transitions.
     for (unsigned i = 0; i < dfa.nodes.size(); ++i) {

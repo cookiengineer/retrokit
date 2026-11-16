@@ -31,11 +31,18 @@
 
 namespace JSC {
 
-const ClassInfo JSGenerator::s_info = { "Generator", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSGenerator) };
+const ClassInfo JSGenerator::s_info = { "Generator"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSGenerator) };
 
 JSGenerator* JSGenerator::create(VM& vm, Structure* structure)
 {
-    JSGenerator* generator = new (NotNull, allocateCell<JSGenerator>(vm.heap)) JSGenerator(vm, structure);
+    JSGenerator* generator = new (NotNull, allocateCell<JSGenerator>(vm)) JSGenerator(vm, structure);
+    generator->finishCreation(vm);
+    return generator;
+}
+
+JSGenerator* JSGenerator::createWithInitialValues(VM& vm, Structure* structure)
+{
+    JSGenerator* generator = new (NotNull, allocateCell<JSGenerator>(vm)) JSGenerator(vm, structure);
     generator->finishCreation(vm);
     return generator;
 }
@@ -62,7 +69,7 @@ void JSGenerator::finishCreation(VM& vm)
 template<typename Visitor>
 void JSGenerator::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    auto* thisObject = jsCast<JSGenerator*>(cell);
+    auto* thisObject = uncheckedDowncast<JSGenerator>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
 }

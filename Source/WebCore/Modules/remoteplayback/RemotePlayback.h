@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,7 +29,10 @@
 
 #include "ActiveDOMObject.h"
 #include "EventTarget.h"
+#include "EventTargetInterfaces.h"
+#include "WebCoreOpaqueRoot.h"
 #include <wtf/HashMap.h>
+#include <wtf/LoggerHelper.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
 
@@ -38,19 +41,29 @@ namespace WebCore {
 class DeferredPromise;
 class HTMLMediaElement;
 class MediaPlaybackTarget;
+class Node;
 class RemotePlaybackAvailabilityCallback;
 
-class RemotePlayback final : public RefCounted<RemotePlayback>, public ActiveDOMObject, public EventTargetWithInlineData {
-    WTF_MAKE_ISO_ALLOCATED(RemotePlayback);
+class RemotePlayback final
+    : public RefCounted<RemotePlayback>
+    , public ActiveDOMObject
+    , public EventTarget
+{
+    WTF_MAKE_TZONE_ALLOCATED(RemotePlayback);
 public:
     static Ref<RemotePlayback> create(HTMLMediaElement&);
     ~RemotePlayback();
+
+    // ContextDestructionObserver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+    USING_CAN_MAKE_WEAKPTR(EventTarget);
 
     void watchAvailability(Ref<RemotePlaybackAvailabilityCallback>&&, Ref<DeferredPromise>&&);
     void cancelWatchAvailability(std::optional<int32_t> id, Ref<DeferredPromise>&&);
     void prompt(Ref<DeferredPromise>&&);
 
-    bool hasAvailabilityCallbacks() const;
+    bool NODELETE hasAvailabilityCallbacks() const;
     void availabilityChanged(bool);
     void playbackTargetPickerWasDismissed();
     void shouldPlayToRemoteTargetChanged(bool);
@@ -63,30 +76,36 @@ public:
     };
     State state() const { return m_state; }
 
-    void invalidate();
+    void NODELETE invalidate();
 
-    using RefCounted::ref;
-    using RefCounted::deref;
-
-    void* opaqueRootConcurrently() const;
-    Node* ownerNode() const;
+    WebCoreOpaqueRoot opaqueRoot() const final;
+    Node* NODELETE ownerNode() const;
 
 private:
     explicit RemotePlayback(HTMLMediaElement&);
 
+    void setState(State);
+    void NODELETE establishConnection();
+    void disconnect();
+
+    // EventTarget.
+    enum EventTargetInterfaceType eventTargetInterface() const final { return EventTargetInterfaceType::RemotePlayback; }
+    ScriptExecutionContext* NODELETE scriptExecutionContext() const final;
     void refEventTarget() final { ref(); }
     void derefEventTarget() final { deref(); }
 
-    void setState(State);
-    void establishConnection();
-    void disconnect();
+    // ActiveDOMObject
+    void stop() final;
 
-    // ActiveDOMObject.
-    const char* activeDOMObjectName() const final;
+#if !RELEASE_LOG_DISABLED
+    const Logger& logger() const { return m_logger.get(); }
+    uint64_t logIdentifier() const { return m_logIdentifier; }
+    WTFLogChannel& NODELETE logChannel() const;
+    ASCIILiteral logClassName() const { return "RemotePlayback"_s; }
 
-    // EventTargetWithInlineData.
-    EventTargetInterface eventTargetInterface() const final { return RemotePlaybackEventTargetInterfaceType; }
-    ScriptExecutionContext* scriptExecutionContext() const final { return ActiveDOMObject::scriptExecutionContext(); }
+    const Ref<const Logger> m_logger;
+    uint64_t m_logIdentifier { 0 };
+#endif
 
     WeakPtr<HTMLMediaElement> m_mediaElement;
     uint32_t m_nextId { 0 };
@@ -95,14 +114,14 @@ private:
     CallbackMap m_callbackMap;
 
     using PromiseVector = Vector<Ref<DeferredPromise>>;
-    PromiseVector m_availabilityPromises;
-    PromiseVector m_cancelAvailabilityPromises;
     PromiseVector m_promptPromises;
     State m_state { State::Disconnected };
     bool m_available { false };
 };
 
-}
+} // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_EVENTTARGET(RemotePlayback)
 
 #endif // ENABLE(WIRELESS_PLAYBACK_TARGET)
 

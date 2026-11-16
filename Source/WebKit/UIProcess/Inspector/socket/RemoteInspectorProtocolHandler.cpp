@@ -31,13 +31,21 @@
 #include "APIContentWorld.h"
 #include "APILoaderClient.h"
 #include "APINavigation.h"
+#include "APIPageConfiguration.h"
+#include "APISerializedScriptValue.h"
+#include "JavaScriptEvaluationResult.h"
+#include "PageLoadState.h"
+#include "RunJavaScriptParameters.h"
 #include "WebPageGroup.h"
 #include "WebPageProxy.h"
 #include "WebScriptMessageHandler.h"
 #include "WebUserContentControllerProxy.h"
 #include <WebCore/JSDOMExceptionHandling.h>
+#include <WebCore/RunJavaScriptParameters.h>
 #include <WebCore/SerializedScriptValue.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/URL.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/StringToIntegerConversion.h>
 
@@ -46,41 +54,51 @@ namespace WebKit {
 using namespace WebCore;
 
 class ScriptMessageClient final : public WebScriptMessageHandler::Client {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(ScriptMessageClient);
 public:
     ScriptMessageClient(RemoteInspectorProtocolHandler& inspectorProtocolHandler)
         : m_inspectorProtocolHandler(inspectorProtocolHandler) { }
 
     ~ScriptMessageClient() { }
 
-    void didPostMessage(WebPageProxy& page, FrameInfoData&&, API::ContentWorld&, WebCore::SerializedScriptValue& serializedScriptValue) override
+    void didPostMessage(WebPageProxy& page, FrameInfoData&&, API::ContentWorld&, JavaScriptEvaluationResult&& jsMessage, CompletionHandler<void(Expected<JavaScriptEvaluationResult, String>&&)>&& completionHandler) override
     {
-        auto tokens = serializedScriptValue.toString().split(":");
-        if (tokens.size() != 3)
-            return;
+        auto valueAsString = jsMessage.toString();
+        auto tokens = StringView { valueAsString }.split(':');
+        uint32_t connectionID = 0;
+        uint32_t targetID = 0;
+        String type;
+        int i = 0;
+        for (auto token : tokens) {
+            if (!i)
+                connectionID = parseInteger<uint32_t>(token).value_or(0);
+            else if (i == 1)
+                targetID = parseInteger<uint32_t>(token).value_or(0);
+            else if (i == 2)
+                type = token.toString();
+            else
+                return completionHandler(makeUnexpected(String()));
+            ++i;
+        }
+        if (i != 3)
+            return completionHandler(makeUnexpected(String()));
 
-        URL requestURL { { }, page.pageLoadState().url() };
-        m_inspectorProtocolHandler.inspect(requestURL.hostAndPort(), parseInteger<int>(tokens[0]).value_or(0), parseInteger<int>(tokens[1]).value_or(0), tokens[2]);
-    }
-    
-    bool supportsAsyncReply() override
-    {
-        return false;
-    }
-    
-    void didPostMessageWithAsyncReply(WebPageProxy&, FrameInfoData&&, API::ContentWorld&, WebCore::SerializedScriptValue&, WTF::Function<void(API::SerializedScriptValue*, const String&)>&&) override
-    {
+        auto& requestURL = page.pageLoadState().url();
+        m_inspectorProtocolHandler->inspect(requestURL.hostAndPort(), connectionID, targetID, type);
+        completionHandler(makeUnexpected(String()));
     }
 
 private:
-    RemoteInspectorProtocolHandler& m_inspectorProtocolHandler;
+    CheckedRef<RemoteInspectorProtocolHandler> m_inspectorProtocolHandler;
 };
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ScriptMessageClient);
+
 class LoaderClient final : public API::LoaderClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(LoaderClient);
 public:
     LoaderClient(Function<void()>&& loadedCallback)
-        : m_loadedCallback { WTFMove(loadedCallback) } { }
+        : m_loadedCallback { WTF::move(loadedCallback) } { }
 
     void didFinishLoadForFrame(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, API::Navigation*, API::Object*) final
     {
@@ -90,6 +108,8 @@ public:
 private:
     Function<void()> m_loadedCallback;
 };
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(LoaderClient);
 
 static std::optional<Inspector::DebuggableType> parseDebuggableTypeFromString(const String& debuggableTypeString)
 {
@@ -103,6 +123,8 @@ static std::optional<Inspector::DebuggableType> parseDebuggableTypeFromString(co
         return Inspector::DebuggableType::ServiceWorker;
     if (debuggableTypeString == "web-page"_s)
         return Inspector::DebuggableType::WebPage;
+    if (debuggableTypeString == "wasm-debugger"_s)
+        return Inspector::DebuggableType::WasmDebugger;
 
     return std::nullopt;
 }
@@ -121,10 +143,23 @@ void RemoteInspectorProtocolHandler::inspect(const String& hostAndPort, Connecti
 
 void RemoteInspectorProtocolHandler::runScript(const String& script)
 {
-    m_page.runJavaScriptInMainFrame({ script, URL { }, false, std::nullopt, false }, 
-        [] (auto&& result) {
-        if (!result.has_value())
-            LOG_ERROR("Exception running script \"%s\"", result.error().message.utf8().data());
+    constexpr bool wantsResult = true;
+    auto scriptString = IPC::TransferString::create(script);
+    if (!scriptString) {
+        LOG_ERROR("Out of memory running script");
+        return;
+    }
+    protect(m_page)->runJavaScriptInMainFrame(WebKit::RunJavaScriptParameters {
+        WTF::move(*scriptString),
+        JSC::SourceTaintedOrigin::Untainted,
+        URL { },
+        WebCore::RunAsAsyncFunction::No,
+        std::nullopt,
+        WebCore::ForceUserGesture::No,
+        RemoveTransientActivation::Yes
+    }, wantsResult, [] (auto&& result) {
+        if (!result && result.error())
+            LOG_ERROR("Exception running script \"%s\"", result.error()->message.utf8().data());
     });
 }
 
@@ -134,18 +169,18 @@ void RemoteInspectorProtocolHandler::targetListChanged(RemoteInspectorClient& cl
     if (client.targets().isEmpty())
         html.append("<p>No targets found</p>"_s);
     else {
-        html.append("<table>");
+        html.append("<table>"_s);
         for (auto& connectionID : client.targets().keys()) {
             for (auto& target : client.targets().get(connectionID)) {
                 html.append(makeString(
                     "<tbody><tr>"
-                    "<td class=\"data\"><div class=\"targetname\">", target.name, "</div><div class=\"targeturl\">", target.url, "</div></td>"
-                    "<td class=\"input\"><input type=\"button\" value=\"Inspect\" onclick=\"window.webkit.messageHandlers.inspector.postMessage(\\'", connectionID, ":", target.id, ":", target.type, "\\');\"></td>"
-                    "</tr></tbody>"
+                    "<td class=\"data\"><div class=\"targetname\">"_s, target.name, "</div><div class=\"targeturl\">"_s, target.url, "</div></td>"
+                    "<td class=\"input\"><input type=\"button\" value=\"Inspect\" onclick=\"window.webkit.messageHandlers.inspector.postMessage(\\'"_s, connectionID, ':', target.id, ':', target.type, "\\');\"></td>"
+                    "</tr></tbody>"_s
                 ));
             }
         }
-        html.append("</table>");
+        html.append("</table>"_s);
     }
     m_targetListsHtml = html.toString();
     if (m_pageLoaded)
@@ -155,25 +190,25 @@ void RemoteInspectorProtocolHandler::targetListChanged(RemoteInspectorClient& cl
 void RemoteInspectorProtocolHandler::updateTargetList()
 {
     if (!m_targetListsHtml.isEmpty()) {
-        runScript(makeString("updateTargets(`", m_targetListsHtml, "`);"));
+        runScript(makeString("updateTargets(`"_s, m_targetListsHtml, "`);"_s));
         m_targetListsHtml = { };
     }
 }
 
 void RemoteInspectorProtocolHandler::platformStartTask(WebPageProxy& pageProxy, WebURLSchemeTask& task)
 {
-    auto& requestURL = task.request().url();
+    auto requestURL = task.request().url();
 
     // Destroy the client before creating a new connection so it can connect to the same port
     m_inspectorClient = nullptr;
     m_inspectorClient = makeUnique<RemoteInspectorClient>(requestURL, *this);
 
     // Setup target postMessage listener
-    auto handler = WebScriptMessageHandler::create(makeUnique<ScriptMessageClient>(*this), "inspector", API::ContentWorld::pageContentWorld());
-    pageProxy.pageGroup().userContentController().addUserScriptMessageHandler(handler.get());
+    auto handler = WebScriptMessageHandler::create(makeUnique<ScriptMessageClient>(*this), "inspector"_s, API::ContentWorld::pageContentWorldSingleton());
+    pageProxy.configuration().userContentController().addUserScriptMessageHandler(handler.get());
 
     // Setup loader client to get notified of page load
-    m_page.setLoaderClient(makeUnique<LoaderClient>([this] {
+    protect(m_page)->setLoaderClient(makeUnique<LoaderClient>([this] {
         m_pageLoaded = true;
         updateTargetList();
     }));
@@ -205,14 +240,14 @@ void RemoteInspectorProtocolHandler::platformStartTask(WebPageProxy& pageProxy, 
             "let targetDiv = document.getElementById('targetlist');"
             "targetDiv.innerHTML = str;"
         "}"
-        "</script>");
-    htmlBuilder.append("</html>");
+        "</script>"_s);
+    htmlBuilder.append("</html>"_s);
 
     auto html = htmlBuilder.toString().utf8();
-    auto data = SharedBuffer::create(html.data(), html.length());
-    ResourceResponse response(requestURL, "text/html"_s, html.length(), "UTF-8"_s);
-    task.didReceiveResponse(response);
-    task.didReceiveData(WTFMove(data));
+    auto data = SharedBuffer::create(html.span());
+    ResourceResponse response(WTF::move(requestURL), "text/html"_s, html.length(), "UTF-8"_s);
+    task.didReceiveResponse(WTF::move(response));
+    task.didReceiveData(WTF::move(data));
     task.didComplete(ResourceError());
 }
 

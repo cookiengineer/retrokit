@@ -59,9 +59,9 @@ public:
 
     void setArgumentFlushFormats(FixedVector<DFG::FlushFormat>&& argumentFlushFormats)
     {
-        m_argumentFlushFormats = WTFMove(argumentFlushFormats);
+        m_argumentFlushFormats = WTF::move(argumentFlushFormats);
     }
-    const FixedVector<DFG::FlushFormat>& argumentFlushFormats() { return m_argumentFlushFormats; }
+    const FixedVector<DFG::FlushFormat>& argumentFlushFormats() LIFETIME_BOUND { return m_argumentFlushFormats; }
 
 private:
     FixedVector<DFG::FlushFormat> m_argumentFlushFormats;

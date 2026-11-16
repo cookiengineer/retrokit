@@ -26,63 +26,72 @@
 #include "config.h"
 #include "JSDOMPromise.h"
 
-#include "DOMWindow.h"
-#include "JSDOMWindow.h"
+#include "JSDOMGlobalObject.h"
+#include "LocalDOMWindow.h"
 #include <JavaScriptCore/BuiltinNames.h>
-#include <JavaScriptCore/CatchScope.h>
+#include <JavaScriptCore/CallFrameInlines.h>
 #include <JavaScriptCore/Exception.h>
+#include <JavaScriptCore/JSBoundFunction.h>
 #include <JavaScriptCore/JSNativeStdFunction.h>
 #include <JavaScriptCore/JSPromiseConstructor.h>
-
-using namespace JSC;
+#include <JavaScriptCore/MarkedVector.h>
+#include <JavaScriptCore/SourceCode.h>
+#include <JavaScriptCore/TopExceptionScope.h>
 
 namespace WebCore {
 
-auto DOMPromise::whenSettled(std::function<void()>&& callback) -> IsCallbackRegistered
+using namespace JSC;
+
+auto DOMPromise::whenSettledWithResult(Function<void(JSDOMGlobalObject*, bool, JSC::JSValue)>&& callback) -> IsCallbackRegistered
 {
-    return whenPromiseIsSettled(globalObject(), promise(), WTFMove(callback));
+    if (isSuspended())
+        return IsCallbackRegistered::No;
+    return whenPromiseIsSettled(globalObject(), promise(), WTF::move(callback), nullptr);
 }
 
-auto DOMPromise::whenPromiseIsSettled(JSDOMGlobalObject* globalObject, JSC::JSObject* promise, Function<void()>&& callback) -> IsCallbackRegistered
+auto DOMPromise::whenPromiseIsSettled(JSDOMGlobalObject* globalObject, JSC::JSPromise* promise, Function<void(JSDOMGlobalObject*, bool, JSC::JSValue)>&& callback, JSC::JSObject* protectedWrapper, ShouldCallCallbackOnRegistrationFailure shouldCallCallbackOnRegistrationFailure) -> IsCallbackRegistered
 {
     auto& lexicalGlobalObject = *globalObject;
     auto& vm = lexicalGlobalObject.vm();
     JSLockHolder lock(vm);
-    auto* handler = JSC::JSNativeStdFunction::create(vm, globalObject, 1, String { }, [callback = WTFMove(callback)] (JSGlobalObject*, CallFrame*) mutable {
-        callback();
+    auto* handler = JSC::JSNativeStdFunction::create(vm, globalObject, 1, String { }, [callback = WTF::move(callback), shouldCallCallbackOnRegistrationFailure] (JSGlobalObject* globalObject, CallFrame* callFrame) mutable {
+        if (shouldCallCallbackOnRegistrationFailure == ShouldCallCallbackOnRegistrationFailure::Yes && !callFrame) {
+            std::exchange(callback, { })(downcast<JSDOMGlobalObject>(globalObject), false, { });
+            return JSC::JSValue::encode(JSC::jsUndefined());
+        }
+
+        auto* castedThis = dynamicDowncast<JSC::JSPromise>(callFrame->thisValue());
+        ASSERT(castedThis);
+        // We exchange callback so that all captured variables are deallocated after the call. This is quicker than waiting for the handler function to be GCed.
+        if (castedThis)
+            std::exchange(callback, { })(downcast<JSDOMGlobalObject>(globalObject), castedThis->status() == JSC::JSPromise::Status::Fulfilled, castedThis->result());
         return JSC::JSValue::encode(JSC::jsUndefined());
     });
 
-    auto scope = DECLARE_THROW_SCOPE(vm);
-    const JSC::Identifier& privateName = vm.propertyNames->builtinNames().thenPrivateName();
-    auto thenFunction = promise->get(&lexicalGlobalObject, privateName);
+    JSC::MarkedArgumentBuffer boundArgs;
+    if (protectedWrapper)
+        boundArgs.append(protectedWrapper);
+    ASSERT(!boundArgs.hasOverflowed());
 
-    EXCEPTION_ASSERT(!scope.exception() || vm.hasPendingTerminationException());
-    if (scope.exception())
+    auto* thisHandler = JSC::JSBoundFunction::create(vm, globalObject, handler, promise, boundArgs, protectedWrapper ? 1 : 0, jsEmptyString(vm), JSC::makeSource("createWhenPromiseSettledFunction"_s, JSC::SourceOrigin(), JSC::SourceTaintedOrigin::Untainted));
+    if (!thisHandler) [[unlikely]] {
+        if (shouldCallCallbackOnRegistrationFailure == ShouldCallCallbackOnRegistrationFailure::Yes)
+            handler->function()(globalObject, nullptr);
         return IsCallbackRegistered::No;
+    }
 
-    ASSERT(thenFunction.isCallable(vm));
-
-    JSC::MarkedArgumentBuffer arguments;
-    arguments.append(handler);
-    arguments.append(handler);
-
-    auto callData = JSC::getCallData(vm, thenFunction);
-    ASSERT(callData.type != JSC::CallData::Type::None);
-    call(&lexicalGlobalObject, thenFunction, callData, promise, arguments);
-
-    EXCEPTION_ASSERT(!scope.exception() || vm.hasPendingTerminationException());
-    return scope.exception() ? IsCallbackRegistered::No : IsCallbackRegistered::Yes;
+    promise->performPromiseThenExported(vm, globalObject, thisHandler, thisHandler, JSC::jsUndefined());
+    return IsCallbackRegistered::Yes;
 }
 
 JSC::JSValue DOMPromise::result() const
 {
-    return promise()->result(m_globalObject->vm());
+    return promise()->result();
 }
 
 DOMPromise::Status DOMPromise::status() const
 {
-    switch (promise()->status(m_globalObject->vm())) {
+    switch (promise()->status()) {
     case JSC::JSPromise::Status::Pending:
         return Status::Pending;
     case JSC::JSPromise::Status::Fulfilled:
@@ -92,6 +101,11 @@ DOMPromise::Status DOMPromise::status() const
     };
     ASSERT_NOT_REACHED();
     return Status::Rejected;
+}
+
+void DOMPromise::markAsHandled()
+{
+    promise()->markAsHandled();
 }
 
 }

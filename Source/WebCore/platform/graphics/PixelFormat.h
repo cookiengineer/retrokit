@@ -25,32 +25,77 @@
 
 #pragma once
 
-#include <wtf/EnumTraits.h>
+#include <WebCore/ContentsFormat.h>
+
 #include <wtf/Forward.h>
 
 namespace WebCore {
 
 enum class PixelFormat : uint8_t {
     RGBA8,
+    BGRX8,
     BGRA8,
+#if ENABLE(PIXEL_FORMAT_RGB10)
     RGB10,
+#endif
+#if ENABLE(PIXEL_FORMAT_RGB10A8)
     RGB10A8,
+#endif
+#if ENABLE(PIXEL_FORMAT_RGBA16F)
+    RGBA16F,
+#endif
 };
 
-WEBCORE_EXPORT TextStream& operator<<(TextStream&, PixelFormat);
+enum class UseLosslessCompression : bool { No, Yes };
 
+constexpr ContentsFormat convertToContentsFormat(PixelFormat format)
+{
+    switch (format) {
+    case PixelFormat::RGBA8:
+    case PixelFormat::BGRX8:
+    case PixelFormat::BGRA8:
+        return ContentsFormat::RGBA8;
+#if ENABLE(PIXEL_FORMAT_RGB10)
+    case PixelFormat::RGB10:
+        return ContentsFormat::RGBA10;
+#endif
+#if ENABLE(PIXEL_FORMAT_RGB10A8)
+    case PixelFormat::RGB10A8:
+        return ContentsFormat::RGBA10;
+#endif
+#if ENABLE(PIXEL_FORMAT_RGBA16F)
+    case PixelFormat::RGBA16F:
+        return ContentsFormat::RGBA16F;
+#endif
+    default:
+        RELEASE_ASSERT_NOT_REACHED();
+        return ContentsFormat::RGBA8;
+    }
 }
 
-namespace WTF {
+constexpr bool pixelFormatIsOpaque(PixelFormat format)
+{
+    switch (format) {
+    case PixelFormat::BGRX8:
+#if ENABLE(PIXEL_FORMAT_RGB10)
+    case PixelFormat::RGB10:
+#endif
+        return true;
+    case PixelFormat::RGBA8:
+    case PixelFormat::BGRA8:
+#if ENABLE(PIXEL_FORMAT_RGB10A8)
+    case PixelFormat::RGB10A8:
+#endif
+#if ENABLE(PIXEL_FORMAT_RGBA16F)
+    case PixelFormat::RGBA16F:
+#endif
+        return false;
+    }
 
-template<> struct EnumTraits<WebCore::PixelFormat> {
-    using values = EnumValues<
-        WebCore::PixelFormat,
-        WebCore::PixelFormat::RGBA8,
-        WebCore::PixelFormat::BGRA8,
-        WebCore::PixelFormat::RGB10,
-        WebCore::PixelFormat::RGB10A8
-    >;
-};
+    ASSERT_NOT_REACHED();
+    return false;
+}
+
+WEBCORE_EXPORT TextStream& operator<<(TextStream&, PixelFormat);
 
 }

@@ -25,8 +25,8 @@
 
 #pragma once
 
-#include "ImmutableNFA.h"
-#include "MutableRangeList.h"
+#include <WebCore/ImmutableNFA.h>
+#include <WebCore/MutableRangeList.h>
 #include <wtf/HashSet.h>
 
 #if ENABLE(CONTENT_EXTENSIONS)
@@ -55,9 +55,9 @@ public:
 
     ImmutableNFANodeBuilder(ImmutableNFANodeBuilder&& other)
         : m_immutableNFA(other.m_immutableNFA)
-        , m_ranges(WTFMove(other.m_ranges))
-        , m_epsilonTransitionTargets(WTFMove(other.m_epsilonTransitionTargets))
-        , m_actions(WTFMove(other.m_actions))
+        , m_ranges(WTF::move(other.m_ranges))
+        , m_epsilonTransitionTargets(WTF::move(other.m_epsilonTransitionTargets))
+        , m_actions(WTF::move(other.m_actions))
         , m_nodeId(other.m_nodeId)
         , m_finalized(other.m_finalized)
     {
@@ -91,11 +91,10 @@ public:
         CharacterType first() const { return range.first; }
         CharacterType last() const { return range.last; }
         uint32_t data() const { return targetId; }
-        bool operator==(const FakeRangeIterator& other)
+        bool operator==(const FakeRangeIterator& other) const
         {
             return this->isEnd == other.isEnd;
         }
-        bool operator!=(const FakeRangeIterator& other) { return !(*this == other); }
         FakeRangeIterator operator++()
         {
             isEnd = true;
@@ -140,13 +139,13 @@ public:
         m_epsilonTransitionTargets.add(targetNodeId);
     }
 
-    template<typename ActionIterator>
-    void setActions(ActionIterator begin, ActionIterator end)
+    template<typename ActionContainer>
+    void setActions(ActionContainer&& actions)
     {
         ASSERT(!m_finalized);
         ASSERT(m_immutableNFA);
 
-        m_actions.add(begin, end);
+        m_actions.addAll(WTF::move(actions));
     }
 
     ImmutableNFANodeBuilder& operator=(ImmutableNFANodeBuilder&& other)
@@ -155,9 +154,9 @@ public:
             finalize();
 
         m_immutableNFA = other.m_immutableNFA;
-        m_ranges = WTFMove(other.m_ranges);
-        m_epsilonTransitionTargets = WTFMove(other.m_epsilonTransitionTargets);
-        m_actions = WTFMove(other.m_actions);
+        m_ranges = WTF::move(other.m_ranges);
+        m_epsilonTransitionTargets = WTF::move(other.m_epsilonTransitionTargets);
+        m_actions = WTF::move(other.m_actions);
         m_nodeId = other.m_nodeId;
         m_finalized = other.m_finalized;
 
@@ -196,7 +195,12 @@ private:
                 m_immutableNFA->targets.append(target);
             unsigned targetsEnd = m_immutableNFA->targets.size();
 
-            m_immutableNFA->transitions.append(ImmutableRange<CharacterType> { targetsStart, targetsEnd, range.first, range.last });
+            ImmutableRange<CharacterType> transition;
+            transition.targetStart = targetsStart;
+            transition.targetEnd = targetsEnd;
+            transition.first = range.first;
+            transition.last = range.last;
+            m_immutableNFA->transitions.append(WTF::move(transition));
         }
         unsigned transitionsEnd = m_immutableNFA->transitions.size();
 
@@ -218,7 +222,7 @@ private:
     TypedImmutableNFA* m_immutableNFA { nullptr };
     MutableRangeList<CharacterType, TargetSet> m_ranges;
     TargetSet m_epsilonTransitionTargets;
-    HashSet<ActionType, WTF::IntHash<ActionType>, WTF::UnsignedWithZeroKeyHashTraits<ActionType>> m_actions;
+    HashSet<ActionType, IntHash<ActionType>, WTF::UnsignedWithZeroKeyHashTraits<ActionType>> m_actions;
     uint32_t m_nodeId;
     bool m_finalized { true };
 };

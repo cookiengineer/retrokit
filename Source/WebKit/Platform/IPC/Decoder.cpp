@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,104 +27,116 @@
 #include "Decoder.h"
 
 #include "ArgumentCoders.h"
-#include "DataReference.h"
 #include "Logging.h"
 #include "MessageFlags.h"
 #include <stdio.h>
+#include <wtf/MallocSpan.h>
+#include <wtf/ObjectIdentifier.h>
 #include <wtf/StdLibExtras.h>
-
-#if PLATFORM(MAC)
-#include "ImportanceAssertion.h"
-#endif
+#include <wtf/TZoneMallocInlines.h>
 
 namespace IPC {
 
-static const uint8_t* copyBuffer(const uint8_t* buffer, size_t bufferSize)
+static MallocSpan<uint8_t> copyBuffer(std::span<const uint8_t> buffer)
 {
-    uint8_t* bufferCopy;
-    if (!tryFastMalloc(bufferSize).getValue(bufferCopy)) {
-        RELEASE_LOG_FAULT(IPC, "Decoder::copyBuffer: tryFastMalloc(%lu) failed", bufferSize);
-        return nullptr;
+    auto bufferCopy = MallocSpan<uint8_t>::tryMalloc(buffer.size());
+    if (!bufferCopy) {
+        RELEASE_LOG_FAULT(IPC, "Decoder::copyBuffer: tryMalloc(%zu) failed", buffer.size());
+        return { };
     }
-
-    memcpy(bufferCopy, buffer, bufferSize);
+    memcpySpan(bufferCopy.mutableSpan(), buffer);
     return bufferCopy;
 }
 
-std::unique_ptr<Decoder> Decoder::create(const uint8_t* buffer, size_t bufferSize, void (*bufferDeallocator)(const uint8_t*, size_t), Vector<Attachment>&& attachments)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Decoder);
+
+std::unique_ptr<Decoder> Decoder::create(std::span<const uint8_t> buffer, Vector<Attachment>&& attachments)
 {
-    ASSERT(buffer);
-    if (UNLIKELY(!buffer)) {
-        RELEASE_LOG_FAULT(IPC, "Decoder::create() called with a null buffer (bufferSize: %lu)", bufferSize);
+    auto bufferCopy = copyBuffer(buffer);
+    auto bufferCopySpan = bufferCopy.span();
+    return Decoder::create(bufferCopySpan, [bufferCopy = WTF::move(bufferCopy)](auto) { }, WTF::move(attachments)); // NOLINT
+}
+
+std::unique_ptr<Decoder> Decoder::create(std::span<const uint8_t> buffer, BufferDeallocator&& bufferDeallocator, Vector<Attachment>&& attachments)
+{
+    ASSERT(bufferDeallocator);
+    ASSERT(!!buffer.data());
+    if (!buffer.data()) [[unlikely]] {
+        RELEASE_LOG_FAULT(IPC, "Decoder::create() called with a null buffer (buffer size: %zu)", buffer.size_bytes());
         return nullptr;
     }
-
-    const uint8_t* bufferCopy;
-    if (!bufferDeallocator) {
-        bufferCopy = copyBuffer(buffer, bufferSize);
-        ASSERT(bufferCopy);
-        if (UNLIKELY(!bufferCopy))
-            return nullptr;
-    } else
-        bufferCopy = buffer;
-
-    auto decoder = std::unique_ptr<Decoder>(new Decoder(bufferCopy, bufferSize, bufferDeallocator, WTFMove(attachments)));
-    return decoder->isValid() ? WTFMove(decoder) : nullptr;
+    auto decoder = std::unique_ptr<Decoder>(new Decoder(buffer, WTF::move(bufferDeallocator), WTF::move(attachments)));
+    if (!decoder->isValid())
+        return nullptr;
+    return decoder;
 }
 
-Decoder::Decoder(const uint8_t* buffer, size_t bufferSize, void (*bufferDeallocator)(const uint8_t*, size_t), Vector<Attachment>&& attachments)
+Decoder::Decoder(std::span<const uint8_t> buffer, BufferDeallocator&& bufferDeallocator, Vector<Attachment>&& attachments)
     : m_buffer { buffer }
-    , m_bufferPos { m_buffer }
-    , m_bufferEnd { m_buffer + bufferSize }
-    , m_bufferDeallocator { bufferDeallocator }
-    , m_attachments { WTFMove(attachments) }
+    , m_bufferPosition { m_buffer.begin() }
+    , m_bufferDeallocator { WTF::move(bufferDeallocator) }
+    , m_attachments { WTF::move(attachments) }
 {
-    if (UNLIKELY(reinterpret_cast<uintptr_t>(m_buffer) % alignof(uint64_t))) {
+    if (reinterpret_cast<uintptr_t>(m_buffer.data()) % alignof(uint64_t)) [[unlikely]] {
         markInvalid();
         return;
     }
 
-    if (UNLIKELY(!decode(m_messageFlags)))
+    auto messageFlags = decode<OptionSet<MessageFlags>>();
+    if (!messageFlags) [[unlikely]]
         return;
+    m_messageFlags = WTF::move(*messageFlags);
 
-    if (UNLIKELY(!decode(m_messageName)))
+    auto messageName = decode<MessageName>();
+    if (!messageName) [[unlikely]]
         return;
+    m_messageName = WTF::move(*messageName);
 
-    if (UNLIKELY(!decode(m_destinationID)))
+    auto destinationID = decode<uint64_t>();
+    if (!destinationID) [[unlikely]]
         return;
-}
-
-Decoder::Decoder(const uint8_t* buffer, size_t bufferSize, ConstructWithoutHeaderTag)
-    : m_buffer { buffer }
-    , m_bufferPos { m_buffer }
-    , m_bufferEnd { m_buffer + bufferSize }
-    , m_bufferDeallocator([] (const uint8_t*, size_t) { })
-{
-    if (UNLIKELY(reinterpret_cast<uintptr_t>(m_buffer) % alignof(uint64_t)))
+    // 0 is a valid destinationID but we can at least reject -1 which is the HashTable deleted value.
+    if (*destinationID && !WTF::ObjectIdentifierGenericBase<uint64_t>::isValidIdentifier(*destinationID)) {
         markInvalid();
+        return;
+    }
+    m_destinationID = WTF::move(*destinationID);
+    if (messageIsSync(m_messageName)) {
+        auto syncRequestID = decode<SyncRequestID>();
+        if (!syncRequestID) [[unlikely]]
+            return;
+        m_syncRequestID = syncRequestID;
+    }
 }
 
-Decoder::Decoder(const uint8_t* stream, size_t streamSize, uint64_t destinationID)
+Decoder::Decoder(std::span<const uint8_t> stream, uint64_t destinationID)
     : m_buffer { stream }
-    , m_bufferPos { m_buffer }
-    , m_bufferEnd { m_buffer + streamSize }
-    , m_bufferDeallocator([] (const uint8_t*, size_t) { })
-    , m_destinationID(destinationID)
+    , m_bufferPosition { m_buffer.begin() }
+    , m_bufferDeallocator { nullptr }
+    , m_destinationID { destinationID }
 {
-    if (UNLIKELY(!decode(m_messageName)))
+    // 0 is a valid destinationID but we can at least reject -1 which is the HashTable deleted value.
+    if (destinationID && !WTF::ObjectIdentifierGenericBase<uint64_t>::isValidIdentifier(destinationID)) {
+        markInvalid();
         return;
+    }
+
+    auto messageName = decode<MessageName>();
+    if (!messageName) [[unlikely]]
+        return;
+    m_messageName = WTF::move(*messageName);
+    if (messageIsSync(m_messageName)) {
+        auto syncRequestID = decode<SyncRequestID>();
+        if (!syncRequestID) [[unlikely]]
+            return;
+        m_syncRequestID = syncRequestID;
+    }
 }
 
 Decoder::~Decoder()
 {
-    ASSERT(m_buffer);
-
-    if (m_bufferDeallocator)
-        m_bufferDeallocator(m_buffer, m_bufferEnd - m_buffer);
-    else
-        fastFree(const_cast<uint8_t*>(m_buffer));
-
-    // FIXME: We need to dispose of the mach ports in cases of failure.
+    if (isValid())
+        markInvalid();
 }
 
 ShouldDispatchWhenWaitingForSyncReply Decoder::shouldDispatchMessageWhenWaitingForSyncReply() const
@@ -147,9 +159,9 @@ bool Decoder::shouldMaintainOrderingWithAsyncMessages() const
 }
 
 #if PLATFORM(MAC)
-void Decoder::setImportanceAssertion(std::unique_ptr<ImportanceAssertion> assertion)
+void Decoder::setImportanceAssertion(ImportanceAssertion&& assertion)
 {
-    m_importanceAssertion = WTFMove(assertion);
+    m_importanceAssertion = WTF::move(assertion);
 }
 #endif
 
@@ -157,84 +169,26 @@ std::unique_ptr<Decoder> Decoder::unwrapForTesting(Decoder& decoder)
 {
     ASSERT(decoder.isSyncMessage());
 
-    Vector<Attachment> attachments;
-    Attachment attachment;
-    while (decoder.removeAttachment(attachment))
-        attachments.append(WTFMove(attachment));
-    attachments.reverse();
+    auto attachments = std::exchange(decoder.m_attachments, { });
 
-    DataReference wrappedMessage;
-    if (!decoder.decode(wrappedMessage))
+    auto wrappedMessage = decoder.decode<std::span<const uint8_t>>();
+    if (!wrappedMessage)
         return nullptr;
 
-    return Decoder::create(wrappedMessage.data(), wrappedMessage.size(), nullptr, WTFMove(attachments));
+    auto wrappedDecoder = Decoder::create(*wrappedMessage, WTF::move(attachments));
+    if (!wrappedDecoder)
+        return nullptr;
+    wrappedDecoder->setIsAllowedWhenWaitingForSyncReplyOverride(true);
+    return wrappedDecoder;
 }
 
-static inline const uint8_t* roundUpToAlignment(const uint8_t* ptr, size_t alignment)
+std::optional<Attachment> Decoder::takeLastAttachment()
 {
-    // Assert that the alignment is a power of 2.
-    ASSERT(alignment && !(alignment & (alignment - 1)));
-
-    uintptr_t alignmentMask = alignment - 1;
-    return reinterpret_cast<uint8_t*>((reinterpret_cast<uintptr_t>(ptr) + alignmentMask) & ~alignmentMask);
-}
-
-static inline bool alignedBufferIsLargeEnoughToContain(const uint8_t* alignedPosition, const uint8_t* bufferStart, const uint8_t* bufferEnd, size_t size)
-{
-    // When size == 0 for the last argument and it's a variable length byte array,
-    // bufferStart == alignedPosition == bufferEnd, so checking (bufferEnd >= alignedPosition)
-    // is not an off-by-one error since (static_cast<size_t>(bufferEnd - alignedPosition) >= size)
-    // will catch issues when size != 0.
-    return bufferEnd >= alignedPosition && bufferStart <= alignedPosition && static_cast<size_t>(bufferEnd - alignedPosition) >= size;
-}
-
-bool Decoder::alignBufferPosition(size_t alignment, size_t size)
-{
-    const uint8_t* alignedPosition = roundUpToAlignment(m_bufferPos, alignment);
-    if (UNLIKELY(!alignedBufferIsLargeEnoughToContain(alignedPosition, m_buffer, m_bufferEnd, size))) {
-        // We've walked off the end of this buffer.
+    if (m_attachments.isEmpty()) {
         markInvalid();
-        return false;
+        return std::nullopt;
     }
-
-    m_bufferPos = alignedPosition;
-    return true;
-}
-
-bool Decoder::bufferIsLargeEnoughToContain(size_t alignment, size_t size) const
-{
-    return alignedBufferIsLargeEnoughToContain(roundUpToAlignment(m_bufferPos, alignment), m_buffer, m_bufferEnd, size);
-}
-
-bool Decoder::decodeFixedLengthData(uint8_t* data, size_t size, size_t alignment)
-{
-    if (!alignBufferPosition(alignment, size))
-        return false;
-
-    memcpy(data, m_bufferPos, size);
-    m_bufferPos += size;
-
-    return true;
-}
-
-const uint8_t* Decoder::decodeFixedLengthReference(size_t size, size_t alignment)
-{
-    if (!alignBufferPosition(alignment, size))
-        return nullptr;
-
-    const uint8_t* data = m_bufferPos;
-    m_bufferPos += size;
-
-    return data;
-}
-
-bool Decoder::removeAttachment(Attachment& attachment)
-{
-    if (m_attachments.isEmpty())
-        return false;
-
-    attachment = m_attachments.takeLast();
-    return true;
+    return m_attachments.takeLast();
 }
 
 } // namespace IPC

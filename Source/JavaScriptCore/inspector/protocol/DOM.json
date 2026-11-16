@@ -1,8 +1,8 @@
 {
     "domain": "DOM",
     "description": "This domain exposes DOM read/write operations. Each DOM Node is represented with its mirror object that has an <code>id</code>. This <code>id</code> can be used to get additional information on the Node, resolve it into the JavaScript object wrapper, etc. It is important that client receives DOM events only for the nodes that are known to the client. Backend keeps track of the nodes that were sent to the client and never sends the same node twice. It is client's responsibility to collect information about the nodes that were sent to the client.<p>Note that <code>iframe</code> owner elements will return corresponding document elements as their child nodes.</p>",
-    "debuggableTypes": ["itml", "page", "web-page"],
-    "targetTypes": ["itml", "page"],
+    "debuggableTypes": ["itml", "web-page"],
+    "targetTypes": ["itml", "frame", "page"],
     "types": [
         {
             "id": "NodeId",
@@ -67,7 +67,7 @@
                 { "name": "templateContent", "$ref": "Node", "optional": true, "description": "Content document fragment for template elements" },
                 { "name": "pseudoElements", "type": "array", "items": { "$ref": "Node" }, "optional": true, "description": "Pseudo elements associated with this node." },
                 { "name": "contentSecurityPolicyHash", "type": "string", "optional": true, "description": "Computed SHA-256 Content Security Policy hash source for given element." },
-                { "name": "layoutContextType", "$ref": "CSS.LayoutContextType", "optional": true, "description": "The layout context type of the node. When not provided, the <code>LayoutContextType</code> of the node is not a context for which Web Inspector has specific functionality." }
+                { "name": "layoutFlags", "type": "array", "items": { "type": "string", "description": "CSS.LayoutFlag" }, "optional": true, "description": "Relevant information about the layout of the node. When not provided, the layout of the node is not important to Web Inspector." }
             ]
         },
         {
@@ -135,7 +135,8 @@
                 { "name": "required", "type": "boolean", "optional": true, "description": "Required state of form controls." },
                 { "name": "role", "type": "string", "description": "Computed value for first recognized role token, default role per element, or overridden role." },
                 { "name": "selected", "type": "boolean", "optional": true, "description": "Selected state of certain form controls." },
-                { "name": "selectedChildNodeIds", "type": "array", "items": { "$ref": "NodeId" }, "optional": true, "description": "Array of <code>DOMNode</code> ids of any children marked as selected." }
+                { "name": "selectedChildNodeIds", "type": "array", "items": { "$ref": "NodeId" }, "optional": true, "description": "Array of <code>DOMNode</code> ids of any children marked as selected." },
+                { "name": "switchState", "type": "string", "optional": true, "enum": ["off", "on"], "description": "On / off state of switch form controls." }
             ]
         },
         {
@@ -168,6 +169,128 @@
                 { "name": "borderColor", "$ref": "RGBAColor", "optional": true, "description": "The border highlight fill color (default: transparent)." },
                 { "name": "marginColor", "$ref": "RGBAColor", "optional": true, "description": "The margin highlight fill color (default: transparent)." }
             ]
+        },
+        {
+            "id": "GridOverlayConfig",
+            "type": "object",
+            "description": "Configuration data for grid overlays.",
+            "properties": [
+                { "name": "gridColor", "$ref": "RGBAColor", "description": "The primary color to use for the grid overlay." },
+                { "name": "showLineNames", "type": "boolean", "optional": true, "description": "Show labels for grid line names. If not specified, the default value is false." },
+                { "name": "showLineNumbers", "type": "boolean", "optional": true, "description": "Show labels for grid line numbers. If not specified, the default value is false." },
+                { "name": "showExtendedGridLines", "type": "boolean", "optional": true, "description": "Show grid lines that extend beyond the bounds of the grid. If not specified, the default value is false." },
+                { "name": "showTrackSizes", "type": "boolean", "optional": true, "description": "Show grid track size information. If not specified, the default value is false." },
+                { "name": "showAreaNames", "type": "boolean", "optional": true, "description": "Show labels for grid area names. If not specified, the default value is false." },
+                { "name": "showOrderNumbers", "type": "boolean", "optional": true, "description": "Show labels for grid item order. If not specified, the default value is false." }
+            ]
+        },
+        {
+            "id": "FlexOverlayConfig",
+            "type": "object",
+            "description": "Configuration data for flex overlays.",
+            "properties": [
+                { "name": "flexColor", "$ref": "RGBAColor", "description": "The primary color to use for the flex overlay." },
+                { "name": "showOrderNumbers", "type": "boolean", "optional": true, "description": "Show labels for flex order. If not specified, the default value is false." }
+            ]
+        },
+        {
+            "id": "Styleable",
+            "type": "object",
+            "properties": [
+                { "name": "nodeId", "$ref": "NodeId" },
+                { "name": "pseudoId", "$ref": "CSS.PseudoId", "optional": true }
+            ],
+            "description": "An object referencing a node and a pseudo-element, primarily used to identify an animation effect target."
+        },
+        {
+            "id": "MediaStats",
+            "type": "object",
+            "description": "A structure holding media element statistics and configurations.",
+            "properties": [
+                { "name": "audio", "$ref": "AudioMediaStats", "optional": true },
+                { "name": "video", "$ref": "VideoMediaStats", "optional": true },
+                { "name": "devicePixelRatio", "type": "number", "optional": true, "description": "The ratio between physical screen pixels and CSS pixels." },
+                { "name": "viewport", "$ref": "ViewportSize", "optional": true, "description": "The viewport size occupied by the media element." },
+                { "name": "quality", "$ref": "VideoPlaybackQuality", "optional": true },
+                { "name": "source", "type": "string", "optional": true, "description": "The source type of the media element." }
+            ]
+        },
+        {
+            "id": "AudioMediaStats",
+            "type": "object",
+            "description": "A structure holding media element's audio-specific statistics and configurations.",
+            "properties": [
+                { "name": "bitrate", "type": "integer", "description": "The data rate of the primary audio track in bits/s." },
+                { "name": "codec", "type": "string", "description": "The codec string of the primary audio track. (E.g., \"hvc1.1.6.L123.B0\")" },
+                { "name": "humanReadableCodecString", "type": "string", "description": "A human readable version of the `codec` parameter."},
+                { "name": "numberOfChannels", "type": "integer", "description": "The number of audio channels in the primary audio track." },
+                { "name": "sampleRate", "type": "number", "description": "The sample rate of the primary audio track in hertz." },
+                { "name": "isProtected", "type": "boolean", "optional": true, "description": "Whether the track contains protected contents" }
+            ]
+        },
+        {
+            "id": "VideoMediaStats",
+            "type": "object",
+            "description": "A structure holding media element's audio-specific statistics and configurations.",
+            "properties": [
+                { "name": "bitrate", "type": "integer", "description": "The data rate of the video track in bits/s." },
+                { "name": "codec", "type": "string", "description": "The codec string of the video track. (E.g., \"hvc1.1.6.L123.B0\")" },
+                { "name": "humanReadableCodecString", "type": "string", "description": "A human readable version of the `codec` parameter."},
+                { "name": "colorSpace", "$ref": "VideoColorSpace" },
+                { "name": "framerate", "type": "number", "description": "The nominal frame rate of video track in frames per second." },
+                { "name": "height", "type": "integer", "description": "The native height of the video track in CSS pixels" },
+                { "name": "width", "type": "integer", "description": "The native width of the video track in CSS pixels" },
+                { "name": "immersiveVideoMetadata", "$ref": "ImmersiveVideoMetadata", "optional": true },
+                { "name": "isProtected", "type": "boolean", "optional": true, "description": "Whether the track contains protected contents" }
+            ]
+        },
+        {
+            "id": "VideoColorSpace",
+            "type": "object",
+            "description": "WebCodecs VideoColorSpace",
+            "properties": [
+                { "name": "fullRange", "type": "boolean", "optional": true, "description": "A flag indicating whether the colorspace is Full range (true) or Video range (false)" },
+                { "name": "matrix", "type": "string", "optional": true, "description": "The matrix specification of the colorspace" },
+                { "name": "primaries", "type": "string", "optional": true, "description": "The color primaries specification of the colorspace" },
+                { "name": "transfer", "type": "string", "optional": true, "description": "The transfer function specification of the colorspace" }
+            ]
+        },
+        {
+            "id": "VideoPlaybackQuality",
+            "type": "object",
+            "description": "A count of frames enqueued for display by the media element, and a subset count of dropped and display composited frames.",
+            "properties": [
+                { "name": "displayCompositedVideoFrames", "type": "integer", "description": "The number of frames of the total which were composited by the display." },
+                { "name": "droppedVideoFrames", "type": "integer", "description": "The number of frames of the total which were dropped without being displayed." },
+                { "name": "totalVideoFrames", "type": "integer", "description": "The total number of frames enqueued for display by the media element." }
+            ]
+        },
+        {
+            "id": "ImmersiveVideoMetadata",
+            "type": "object",
+            "description": "A structure containing metadata describing spatial video properties.",
+            "properties": [
+                { "name": "kind", "$ref": "VideoProjectionMetadataKind", "description": "The kind of immersive video." },
+                { "name": "width", "type": "number" },
+                { "name": "height", "type": "number" },
+                { "name": "horizontalFieldOfView", "type": "integer", "optional": true, "description": "The horizontal field-of-view measurement, in degrees" },
+                { "name": "stereoCameraBaseline", "type": "integer", "optional": true, "description": "The distance between the centers of the lenses in a camera system, in micrometers" },
+                { "name": "horizontalDisparityAdjustment", "type": "integer", "optional": true, "description": "The relative shift of the left and right eye images, as a percentage" }
+            ]
+        },
+        {
+            "id": "VideoProjectionMetadataKind",
+            "type": "string",
+            "enum": ["unknown", "rectilinear", "equirectangular", "half-equirectangular", "equi-angular-cubemap", "parametric", "pyramid", "apple-immersive-video" ],
+            "description": "Video Projection Metadata Kind."
+        },
+        {
+            "id": "ViewportSize",
+            "type": "object",
+            "properties": [
+                { "name": "width", "type": "number" },
+                { "name": "height", "type": "number" }
+            ]
         }
     ],
     "commands": [
@@ -187,21 +310,41 @@
             ]
         },
         {
+            "name": "requestAssignedSlot",
+            "description": "Requests the <code>HTMLSlotElement</code> that the node with the given id is assigned to.",
+            "parameters": [
+                { "name": "nodeId", "$ref": "NodeId" }
+            ],
+            "returns": [
+                { "name": "slotElementId", "$ref": "NodeId", "optional": true, "description": "Not provided if the given node is not assigned to a <code>HTMLSlotElement</code>." }
+            ]
+        },
+        {
+            "name": "requestAssignedNodes",
+            "description": "Requests the list of assigned nodes for the <code>HTMLSlotElement</code> with the given id.",
+            "parameters": [
+                { "name": "slotElementId", "$ref": "NodeId" }
+            ],
+            "returns": [
+                { "name": "assignedNodeIds", "type": "array", "items": { "$ref": "NodeId" } }
+            ]
+        },
+        {
             "name": "querySelector",
             "description": "Executes <code>querySelector</code> on a given node.",
-            "targetTypes": ["page"],
+            "targetTypes": ["frame", "page"],
             "parameters": [
                 { "name": "nodeId", "$ref": "NodeId", "description": "Id of the node to query upon." },
                 { "name": "selector", "type": "string", "description": "Selector string." }
             ],
             "returns": [
-                { "name": "nodeId", "$ref": "NodeId", "description": "Query selector result." }
+                { "name": "nodeId", "$ref": "NodeId", "optional": true, "description": "Query selector result." }
             ]
         },
         {
             "name": "querySelectorAll",
             "description": "Executes <code>querySelectorAll</code> on a given node.",
-            "targetTypes": ["page"],
+            "targetTypes": ["frame", "page"],
             "parameters": [
                 { "name": "nodeId", "$ref": "NodeId", "description": "Id of the node to query upon." },
                 { "name": "selector", "type": "string", "description": "Selector string." }
@@ -213,7 +356,7 @@
         {
             "name": "setNodeName",
             "description": "Sets node name for a node with given id.",
-            "targetTypes": ["page"],
+            "targetTypes": ["frame", "page"],
             "parameters": [
                 { "name": "nodeId", "$ref": "NodeId", "description": "Id of the node to set name for." },
                 { "name": "name", "type": "string", "description": "New node's name." }
@@ -225,6 +368,7 @@
         {
             "name": "setNodeValue",
             "description": "Sets node value for a node with given id.",
+            "targetTypes": ["frame", "page"],
             "parameters": [
                 { "name": "nodeId", "$ref": "NodeId", "description": "Id of the node to set value for." },
                 { "name": "value", "type": "string", "description": "New node's value." }
@@ -233,6 +377,7 @@
         {
             "name": "removeNode",
             "description": "Removes node with given id.",
+            "targetTypes": ["frame", "page"],
             "parameters": [
                 { "name": "nodeId", "$ref": "NodeId", "description": "Id of the node to remove." }
             ]
@@ -240,6 +385,7 @@
         {
             "name": "setAttributeValue",
             "description": "Sets attribute for an element with given id.",
+            "targetTypes": ["frame", "page"],
             "parameters": [
                 { "name": "nodeId", "$ref": "NodeId", "description": "Id of the element to set attribute for." },
                 { "name": "name", "type": "string", "description": "Attribute name." },
@@ -249,6 +395,7 @@
         {
             "name": "setAttributesAsText",
             "description": "Sets attributes on element with given id. This method is useful when user edits some existing attribute value and types in several attribute name/value pairs.",
+            "targetTypes": ["frame", "page"],
             "parameters": [
                 { "name": "nodeId", "$ref": "NodeId", "description": "Id of the element to set attributes for." },
                 { "name": "text", "type": "string", "description": "Text with a number of attributes. Will parse this text using HTML parser." },
@@ -258,6 +405,7 @@
         {
             "name": "removeAttribute",
             "description": "Removes attribute with given name from an element with given id.",
+            "targetTypes": ["frame", "page"],
             "parameters": [
                 { "name": "nodeId", "$ref": "NodeId", "description": "Id of the element to remove attribute from." },
                 { "name": "name", "type": "string", "description": "Name of the attribute to remove." }
@@ -297,8 +445,10 @@
         {
             "name": "getEventListenersForNode",
             "description": "Returns event listeners relevant to the node.",
+            "targetTypes": ["frame", "page"],
             "parameters": [
-                { "name": "nodeId", "$ref": "NodeId", "description": "Id of the node to get listeners for." }
+                { "name": "nodeId", "$ref": "NodeId", "description": "Id of the node to get listeners for." },
+                { "name": "includeAncestors", "type": "boolean", "optional": true, "description": "Controls whether ancestor event listeners are included. Defaults to true." }
             ],
             "returns": [
                 { "name": "listeners", "type": "array", "items": { "$ref": "EventListener"}, "description": "Array of relevant listeners." }
@@ -307,6 +457,7 @@
         {
             "name": "setEventListenerDisabled",
             "description": "Enable/disable the given event listener. A disabled event listener will not fire.",
+            "targetTypes": ["frame", "page"],
             "parameters": [
                 { "name": "eventListenerId", "$ref": "EventListenerId" },
                 { "name": "disabled", "type": "boolean" }
@@ -332,6 +483,7 @@
         {
             "name": "getAccessibilityPropertiesForNode",
             "description": "Returns a dictionary of accessibility properties for the node.",
+            "targetTypes": ["frame", "page"],
             "parameters": [
                 { "name": "nodeId", "$ref": "NodeId", "description": "Id of the node for which to get accessibility properties." }
             ],
@@ -352,6 +504,7 @@
         {
             "name": "setOuterHTML",
             "description": "Sets node HTML markup, returns new node id.",
+            "targetTypes": ["frame", "page"],
             "parameters": [
                 { "name": "nodeId", "$ref": "NodeId", "description": "Id of the node to set markup for." },
                 { "name": "outerHTML", "type": "string", "description": "Outer HTML markup to set." }
@@ -359,7 +512,7 @@
         },
         {
             "name": "insertAdjacentHTML",
-            "targetTypes": ["page"],
+            "targetTypes": ["frame", "page"],
             "parameters": [
                 { "name": "nodeId", "$ref": "NodeId" },
                 { "name": "position", "type": "string" },
@@ -401,7 +554,7 @@
         {
             "name": "requestNode",
             "description": "Requests that the node is sent to the caller given the JavaScript node object reference. All nodes that form the path from the node to the root are also sent to the client as a series of <code>setChildNodes</code> notifications.",
-            "targetTypes": ["page"],
+            "targetTypes": ["frame", "page"],
             "parameters": [
                 { "name": "objectId", "$ref": "Runtime.RemoteObjectId", "description": "JavaScript object id to convert into node." }
             ],
@@ -415,7 +568,9 @@
             "condition": "defined(WTF_PLATFORM_IOS_FAMILY) && WTF_PLATFORM_IOS_FAMILY",
             "parameters": [
                 { "name": "enabled", "type": "boolean", "description": "True to enable inspection mode, false to disable it." },
-                { "name": "highlightConfig", "$ref": "HighlightConfig", "optional": true, "description": "A descriptor for the highlight appearance of hovered-over nodes. May be omitted if <code>enabled == false</code>." }
+                { "name": "highlightConfig", "$ref": "HighlightConfig", "optional": true, "description": "A descriptor for the highlight appearance of hovered-over nodes. May be omitted if <code>enabled == false</code>." },
+                { "name": "gridOverlayConfig", "$ref": "GridOverlayConfig", "optional": true, "description": "If provided, used to configure a grid overlay shown during element selection. This overrides DOM.showGridOverlay." },
+                { "name": "flexOverlayConfig", "$ref": "FlexOverlayConfig", "optional": true, "description": "If provided, used to configure a flex overlay shown during element selection. This overrides DOM.showFlexOverlay." }
             ]
         },
         {
@@ -425,6 +580,8 @@
             "parameters": [
                 { "name": "enabled", "type": "boolean", "description": "True to enable inspection mode, false to disable it." },
                 { "name": "highlightConfig", "$ref": "HighlightConfig", "optional": true, "description": "A descriptor for the highlight appearance of hovered-over nodes. May be omitted if <code>enabled == false</code>." },
+                { "name": "gridOverlayConfig", "$ref": "GridOverlayConfig", "optional": true, "description": "If provided, used to configure a grid overlay shown during element selection. This overrides DOM.showGridOverlay." },
+                { "name": "flexOverlayConfig", "$ref": "FlexOverlayConfig", "optional": true, "description": "If provided, used to configure a flex overlay shown during element selection. This overrides DOM.showFlexOverlay." },
                 { "name": "showRulers", "type": "boolean", "optional": true, "description": "Whether the rulers should be shown during element selection. This overrides Page.setShowRulers." }
             ]
         },
@@ -457,27 +614,75 @@
             "name": "highlightSelector",
             "description": "Highlights all DOM nodes that match a given selector. A string containing a CSS selector must be specified.",
             "targetTypes": ["page"],
+            "condition": "defined(WTF_PLATFORM_IOS_FAMILY) && WTF_PLATFORM_IOS_FAMILY",
             "parameters": [
-                { "name": "highlightConfig", "$ref": "HighlightConfig", "description": "A descriptor for the highlight appearance." },
                 { "name": "selectorString", "type": "string", "description": "A CSS selector for finding matching nodes to highlight." },
-                { "name": "frameId", "type": "string", "optional": true, "description": "Identifier of the frame which will be searched using the selector.  If not provided, the main frame will be used." }
+                { "name": "frameId", "type": "string", "optional": true, "description": "Identifier of the frame which will be searched using the selector.  If not provided, the main frame will be used." },
+                { "name": "highlightConfig", "$ref": "HighlightConfig", "description": "A descriptor for the highlight appearance." },
+                { "name": "gridOverlayConfig", "$ref": "GridOverlayConfig", "optional": true, "description": "If provided, used to configure a grid overlay shown during element selection. This overrides DOM.showGridOverlay." },
+                { "name": "flexOverlayConfig", "$ref": "FlexOverlayConfig", "optional": true, "description": "If provided, used to configure a flex overlay shown during element selection. This overrides DOM.showFlexOverlay." }
+            ]
+        },
+        {
+            "name": "highlightSelector",
+            "description": "Highlights all DOM nodes that match a given selector. A string containing a CSS selector must be specified.",
+            "targetTypes": ["page"],
+            "condition": "!(defined(WTF_PLATFORM_IOS_FAMILY) && WTF_PLATFORM_IOS_FAMILY)",
+            "parameters": [
+                { "name": "selectorString", "type": "string", "description": "A CSS selector for finding matching nodes to highlight." },
+                { "name": "frameId", "type": "string", "optional": true, "description": "Identifier of the frame which will be searched using the selector.  If not provided, the main frame will be used." },
+                { "name": "highlightConfig", "$ref": "HighlightConfig", "description": "A descriptor for the highlight appearance." },
+                { "name": "gridOverlayConfig", "$ref": "GridOverlayConfig", "optional": true, "description": "If provided, used to configure a grid overlay shown during element selection. This overrides DOM.showGridOverlay." },
+                { "name": "flexOverlayConfig", "$ref": "FlexOverlayConfig", "optional": true, "description": "If provided, used to configure a flex overlay shown during element selection. This overrides DOM.showFlexOverlay." },
+                { "name": "showRulers", "type": "boolean", "optional": true, "description": "Whether the rulers should be shown during element selection. This overrides Page.setShowRulers." }
             ]
         },
         {
             "name": "highlightNode",
             "description": "Highlights DOM node with given id or with the given JavaScript object wrapper. Either nodeId or objectId must be specified.",
+            "condition": "defined(WTF_PLATFORM_IOS_FAMILY) && WTF_PLATFORM_IOS_FAMILY",
             "parameters": [
-                { "name": "highlightConfig", "$ref": "HighlightConfig", "description": "A descriptor for the highlight appearance." },
                 { "name": "nodeId", "$ref": "NodeId", "optional": true, "description": "Identifier of the node to highlight." },
-                { "name": "objectId", "$ref": "Runtime.RemoteObjectId", "optional": true, "description": "JavaScript object id of the node to be highlighted." }
+                { "name": "objectId", "$ref": "Runtime.RemoteObjectId", "optional": true, "description": "JavaScript object id of the node to be highlighted." },
+                { "name": "highlightConfig", "$ref": "HighlightConfig", "description": "A descriptor for the highlight appearance." },
+                { "name": "gridOverlayConfig", "$ref": "GridOverlayConfig", "optional": true, "description": "If provided, used to configure a grid overlay shown during element selection. This overrides DOM.showGridOverlay." },
+                { "name": "flexOverlayConfig", "$ref": "FlexOverlayConfig", "optional": true, "description": "If provided, used to configure a flex overlay shown during element selection. This overrides DOM.showFlexOverlay." }
+            ]
+        },
+        {
+            "name": "highlightNode",
+            "description": "Highlights DOM node with given id or with the given JavaScript object wrapper. Either nodeId or objectId must be specified.",
+            "condition": "!(defined(WTF_PLATFORM_IOS_FAMILY) && WTF_PLATFORM_IOS_FAMILY)",
+            "parameters": [
+                { "name": "nodeId", "$ref": "NodeId", "optional": true, "description": "Identifier of the node to highlight." },
+                { "name": "objectId", "$ref": "Runtime.RemoteObjectId", "optional": true, "description": "JavaScript object id of the node to be highlighted." },
+                { "name": "highlightConfig", "$ref": "HighlightConfig", "description": "A descriptor for the highlight appearance." },
+                { "name": "gridOverlayConfig", "$ref": "GridOverlayConfig", "optional": true, "description": "If provided, used to configure a grid overlay shown during element selection. This overrides DOM.showGridOverlay." },
+                { "name": "flexOverlayConfig", "$ref": "FlexOverlayConfig", "optional": true, "description": "If provided, used to configure a flex overlay shown during element selection. This overrides DOM.showFlexOverlay." },
+                { "name": "showRulers", "type": "boolean", "optional": true, "description": "Whether the rulers should be shown during element selection. This overrides Page.setShowRulers." }
             ]
         },
         {
             "name": "highlightNodeList",
             "description": "Highlights each DOM node in the given list.",
+            "condition": "defined(WTF_PLATFORM_IOS_FAMILY) && WTF_PLATFORM_IOS_FAMILY",
             "parameters": [
                 { "name": "nodeIds", "type": "array", "items": { "$ref": "NodeId" } },
-                { "name": "highlightConfig", "$ref": "HighlightConfig" }
+                { "name": "highlightConfig", "$ref": "HighlightConfig" },
+                { "name": "gridOverlayConfig", "$ref": "GridOverlayConfig", "optional": true, "description": "If provided, used to configure a grid overlay shown during element selection. This overrides DOM.showGridOverlay." },
+                { "name": "flexOverlayConfig", "$ref": "FlexOverlayConfig", "optional": true, "description": "If provided, used to configure a flex overlay shown during element selection. This overrides DOM.showFlexOverlay." }
+            ]
+        },
+        {
+            "name": "highlightNodeList",
+            "description": "Highlights each DOM node in the given list.",
+            "condition": "!(defined(WTF_PLATFORM_IOS_FAMILY) && WTF_PLATFORM_IOS_FAMILY)",
+            "parameters": [
+                { "name": "nodeIds", "type": "array", "items": { "$ref": "NodeId" } },
+                { "name": "highlightConfig", "$ref": "HighlightConfig" },
+                { "name": "gridOverlayConfig", "$ref": "GridOverlayConfig", "optional": true, "description": "If provided, used to configure a grid overlay shown during element selection. This overrides DOM.showGridOverlay." },
+                { "name": "flexOverlayConfig", "$ref": "FlexOverlayConfig", "optional": true, "description": "If provided, used to configure a flex overlay shown during element selection. This overrides DOM.showFlexOverlay." },
+                { "name": "showRulers", "type": "boolean", "optional": true, "description": "Whether the rulers should be shown during element selection. This overrides Page.setShowRulers." }
             ]
         },
         {
@@ -500,12 +705,7 @@
             "targetTypes": ["page"],
             "parameters": [
                 { "name": "nodeId", "$ref": "NodeId", "description": "The node for which a grid overlay should be shown." },
-                { "name": "gridColor", "$ref": "RGBAColor", "description": "The primary color to use for the grid overlay." },
-                { "name": "showLineNames", "type": "boolean", "optional": true, "description": "Show labels for grid line names. If not specified, the default value is false." },
-                { "name": "showLineNumbers", "type": "boolean", "optional": true, "description": "Show labels for grid line numbers. If not specified, the default value is false." },
-                { "name": "showExtendedGridLines", "type": "boolean", "optional": true, "description": "Show grid lines that extend beyond the bounds of the grid. If not specified, the default value is false." },
-                { "name": "showTrackSizes", "type": "boolean", "optional": true, "description": "Show grid track size information. If not specified, the default value is false." },
-                { "name": "showAreaNames", "type": "boolean", "optional": true, "description": "Show labels for grid area names. If not specified, the default value is false." }
+                { "name": "gridOverlayConfig", "$ref": "GridOverlayConfig", "description": "Configuration options for the grid overlay." }
             ]
         },
         {
@@ -517,9 +717,26 @@
             ]
         },
         {
+            "name": "showFlexOverlay",
+            "description": "Shows a flex overlay for a node that begins a 'flex' layout context. The command has no effect if <code>nodeId</code> is invalid or the associated node does not begin a 'flex' layout context. A node can only have one flex overlay at a time; subsequent calls with the same <code>nodeId</code> will override earlier calls.",
+            "targetTypes": ["page"],
+            "parameters": [
+                { "name": "nodeId", "$ref": "NodeId", "description": "The node for which a flex overlay should be shown." },
+                { "name": "flexOverlayConfig", "$ref": "FlexOverlayConfig", "description": "Configuration options for the flex overlay." }
+            ]
+        },
+        {
+            "name": "hideFlexOverlay",
+            "description": "Hides a flex overlay for a node that begins a 'flex' layout context. The command has no effect if <code>nodeId</code> is specified and invalid, or if there is not currently an overlay set for the <code>nodeId</code>.",
+            "targetTypes": ["page"],
+            "parameters": [
+                { "name": "nodeId", "$ref": "NodeId", "optional": true, "description": "The node for which a flex overlay should be hidden. If a <code>nodeId</code> is not specified, all flex overlays will be hidden." }
+            ]
+        },
+        {
             "name": "pushNodeByPathToFrontend",
             "description": "Requests that the node is sent to the caller given its path.",
-            "targetTypes": ["page"],
+            "targetTypes": ["frame", "page"],
             "parameters": [
                 { "name": "path", "type": "string", "description": "Path to node in the proprietary format." }
             ],
@@ -530,7 +747,7 @@
         {
             "name": "resolveNode",
             "description": "Resolves JavaScript node object for given node id.",
-            "targetTypes": ["page"],
+            "targetTypes": ["frame", "page"],
             "parameters": [
                 { "name": "nodeId", "$ref": "NodeId", "description": "Id of the node to resolve." },
                 { "name": "objectGroup", "type": "string", "optional": true, "description": "Symbolic group name that can be used to release multiple objects." }
@@ -552,6 +769,7 @@
         {
             "name": "moveTo",
             "description": "Moves node into the new container, places it before the given anchor.",
+            "targetTypes": ["frame", "page"],
             "parameters": [
                 { "name": "nodeId", "$ref": "NodeId", "description": "Id of the node to drop." },
                 { "name": "targetNodeId", "$ref": "NodeId", "description": "Id of the element to drop into." },
@@ -564,17 +782,17 @@
         {
             "name": "undo",
             "description": "Undoes the last performed action.",
-            "targetTypes": ["page"]
+            "targetTypes": ["frame", "page"]
         },
         {
             "name": "redo",
             "description": "Re-does the last undone action.",
-            "targetTypes": ["page"]
+            "targetTypes": ["frame", "page"]
         },
         {
             "name": "markUndoableState",
             "description": "Marks last undoable state.",
-            "targetTypes": ["page"]
+            "targetTypes": ["frame", "page"]
         },
         {
             "name": "focus",
@@ -587,7 +805,7 @@
         {
             "name": "setInspectedNode",
             "description": "Enables console to refer to the node with given id via $0 (see Command Line API for more details).",
-            "targetTypes": ["page"],
+            "targetTypes": ["frame", "page"],
             "parameters": [
                 { "name": "nodeId", "$ref": "NodeId", "description": "DOM node id to be accessible by means of $0 command line API." }
             ]
@@ -595,9 +813,19 @@
         {
             "name": "setAllowEditingUserAgentShadowTrees",
             "description": "Controls whether any DOM commands work for nodes inside a UserAgent shadow tree.",
-            "targetTypes": ["page"],
+            "targetTypes": ["frame", "page"],
             "parameters": [
                 { "name": "allow", "type": "boolean" }
+            ]
+        },
+        {
+            "name": "getMediaStats",
+            "description": "Returns media stats for the selected node.",
+            "parameters": [
+                { "name": "nodeId", "$ref": "NodeId", "description": "Id of the node to retrieve mediastats for." }
+            ],
+            "returns": [
+                { "name": "mediaStats", "$ref": "MediaStats", "description": "An interleaved array of node attribute names and values." }
             ]
         }
     ],

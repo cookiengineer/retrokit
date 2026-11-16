@@ -28,52 +28,58 @@
 #if ENABLE(GPU_PROCESS) && ENABLE(ENCRYPTED_MEDIA)
 
 #include "Connection.h"
-#include "DataReference.h"
 #include "MessageReceiver.h"
 #include "RemoteCDMInstanceSessionIdentifier.h"
 #include "RemoteCDMProxy.h"
 #include <WebCore/CDMInstanceSession.h>
 #include <wtf/CompletionHandler.h>
+#include <wtf/RefCounted.h>
 #include <wtf/WeakPtr.h>
 
-namespace IPC {
-class SharedBufferCopy;
+namespace WebCore {
+class SharedBuffer;
 }
 
 namespace WebKit {
 
-class RemoteCDMInstanceSessionProxy final : private IPC::MessageReceiver, private WebCore::CDMInstanceSessionClient {
+class RemoteCDMInstanceSessionProxy final : private IPC::MessageReceiver, private WebCore::CDMInstanceSessionClient, public RefCounted<RemoteCDMInstanceSessionProxy> {
 public:
-    static std::unique_ptr<RemoteCDMInstanceSessionProxy> create(WeakPtr<RemoteCDMProxy>&&, Ref<WebCore::CDMInstanceSession>&&, RemoteCDMInstanceSessionIdentifier);
+    static Ref<RemoteCDMInstanceSessionProxy> create(WeakPtr<RemoteCDMProxy>&&, Ref<WebCore::CDMInstanceSession>&&, uint64_t logIdentifier, RemoteCDMInstanceSessionIdentifier);
     virtual ~RemoteCDMInstanceSessionProxy();
+    std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const;
+
+    // WebCore::CDMInstanceSessionClient, IPC::MessageReceiver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
 
 private:
     friend class RemoteCDMFactoryProxy;
-    RemoteCDMInstanceSessionProxy(WeakPtr<RemoteCDMProxy>&&, Ref<WebCore::CDMInstanceSession>&&, RemoteCDMInstanceSessionIdentifier);
+    RemoteCDMInstanceSessionProxy(WeakPtr<RemoteCDMProxy>&&, Ref<WebCore::CDMInstanceSession>&&, uint64_t logIdentifier, RemoteCDMInstanceSessionIdentifier);
 
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
 
     // Types
+    using KeyGroupingStrategy = WebCore::CDMInstanceSession::KeyGroupingStrategy;
     using LicenseType = WebCore::CDMInstanceSession::LicenseType;
     using KeyStatusVector = WebCore::CDMInstanceSession::KeyStatusVector;
     using Message = WebCore::CDMInstanceSession::Message;
     using SessionLoadFailure = WebCore::CDMInstanceSession::SessionLoadFailure;
-    using LicenseCallback = CompletionHandler<void(IPC::SharedBufferCopy&&, const String& sessionId, bool, bool)>;
+    using LicenseCallback = CompletionHandler<void(RefPtr<WebCore::SharedBuffer>&&, const String& sessionId, bool, bool)>;
     using LicenseUpdateCallback = CompletionHandler<void(bool, std::optional<KeyStatusVector>&&, std::optional<double>&&, std::optional<Message>&&, bool)>;
     using LoadSessionCallback = CompletionHandler<void(std::optional<KeyStatusVector>&&, std::optional<double>&&, std::optional<Message>&&, bool, SessionLoadFailure)>;
     using CloseSessionCallback = CompletionHandler<void()>;
-    using RemoveSessionDataCallback = CompletionHandler<void(KeyStatusVector&&, std::optional<IPC::SharedBufferCopy>&&, bool)>;
+    using RemoveSessionDataCallback = CompletionHandler<void(KeyStatusVector&&, RefPtr<WebCore::SharedBuffer>&&, bool)>;
     using StoreRecordCallback = CompletionHandler<void()>;
 
     // Messages
-    void requestLicense(LicenseType, AtomString initDataType, IPC::SharedBufferCopy&& initData, LicenseCallback&&);
-    void updateLicense(String sessionId, LicenseType, IPC::SharedBufferCopy&& response, LicenseUpdateCallback&&);
+    void setLogIdentifier(uint64_t);
+    void requestLicense(LicenseType, KeyGroupingStrategy, String initDataType, RefPtr<WebCore::SharedBuffer>&& initData, LicenseCallback&&);
+    void updateLicense(String sessionId, LicenseType, RefPtr<WebCore::SharedBuffer>&& response, LicenseUpdateCallback&&);
     void loadSession(LicenseType, String sessionId, String origin, LoadSessionCallback&&);
     void closeSession(const String& sessionId, CloseSessionCallback&&);
     void removeSessionData(const String& sessionId, LicenseType, RemoveSessionDataCallback&&);
     void storeRecordOfKeyUsage(const String& sessionId);
-    void displayIDChanged(PlatformDisplayID);
 
     // CDMInstanceSessionClient
     void updateKeyStatuses(KeyStatusVector&&) final;
@@ -82,7 +88,7 @@ private:
     PlatformDisplayID displayID() final { return m_displayID; }
 
     WeakPtr<RemoteCDMProxy> m_cdm;
-    Ref<WebCore::CDMInstanceSession> m_session;
+    const Ref<WebCore::CDMInstanceSession> m_session;
     RemoteCDMInstanceSessionIdentifier m_identifier;
     PlatformDisplayID m_displayID { 0 };
 };

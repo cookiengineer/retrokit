@@ -34,12 +34,12 @@
 #include "WKAPICast.h"
 #include "WKBundleAPICast.h"
 #include "WKBundlePrivate.h"
+#include "WKData.h"
 #include "WKMutableArray.h"
 #include "WKMutableDictionary.h"
 #include "WKNumber.h"
 #include "WKRetainPtr.h"
 #include "WKString.h"
-#include "WebConnection.h"
 #include "WebFrame.h"
 #include "WebPage.h"
 #include "WebPageGroupProxy.h"
@@ -55,70 +55,65 @@ WKTypeID WKBundleGetTypeID()
 
 void WKBundleSetClient(WKBundleRef bundleRef, WKBundleClientBase *wkClient)
 {
-    WebKit::toImpl(bundleRef)->setClient(makeUnique<WebKit::InjectedBundleClient>(wkClient));
+    protect(WebKit::toImpl(bundleRef))->setClient(makeUnique<WebKit::InjectedBundleClient>(wkClient));
 }
 
 void WKBundleSetServiceWorkerProxyCreationCallback(WKBundleRef bundleRef, void (*callback)(uint64_t))
 {
-    WebKit::toImpl(bundleRef)->setServiceWorkerProxyCreationCallback(callback);
+    protect(WebKit::toImpl(bundleRef))->setServiceWorkerProxyCreationCallback(callback);
 }
 
 void WKBundlePostMessage(WKBundleRef bundleRef, WKStringRef messageNameRef, WKTypeRef messageBodyRef)
 {
-    WebKit::toImpl(bundleRef)->postMessage(WebKit::toWTFString(messageNameRef), WebKit::toImpl(messageBodyRef));
+    protect(WebKit::toImpl(bundleRef))->postMessage(WebKit::toWTFString(messageNameRef), protect(WebKit::toImpl(messageBodyRef)).get());
 }
 
 void WKBundlePostSynchronousMessage(WKBundleRef bundleRef, WKStringRef messageNameRef, WKTypeRef messageBodyRef, WKTypeRef* returnRetainedDataRef)
 {
     RefPtr<API::Object> returnData;
-    WebKit::toImpl(bundleRef)->postSynchronousMessage(WebKit::toWTFString(messageNameRef), WebKit::toImpl(messageBodyRef), returnData);
+    protect(WebKit::toImpl(bundleRef))->postSynchronousMessage(WebKit::toWTFString(messageNameRef), protect(WebKit::toImpl(messageBodyRef)).get(), returnData);
     if (returnRetainedDataRef)
-        *returnRetainedDataRef = WebKit::toAPI(returnData.leakRef());
-}
-
-WKConnectionRef WKBundleGetApplicationConnection(WKBundleRef bundleRef)
-{
-    return toAPI(WebKit::toImpl(bundleRef)->webConnectionToUIProcess());
+        *returnRetainedDataRef = WebKit::toAPILeakingRef(WTF::move(returnData));
 }
 
 void WKBundleGarbageCollectJavaScriptObjects(WKBundleRef bundleRef)
 {
-    WebKit::toImpl(bundleRef)->garbageCollectJavaScriptObjects();
+    protect(WebKit::toImpl(bundleRef))->garbageCollectJavaScriptObjects();
 }
 
 void WKBundleGarbageCollectJavaScriptObjectsOnAlternateThreadForDebugging(WKBundleRef bundleRef, bool waitUntilDone)
 {
-    WebKit::toImpl(bundleRef)->garbageCollectJavaScriptObjectsOnAlternateThreadForDebugging(waitUntilDone);
+    protect(WebKit::toImpl(bundleRef))->garbageCollectJavaScriptObjectsOnAlternateThreadForDebugging(waitUntilDone);
 }
 
 size_t WKBundleGetJavaScriptObjectsCount(WKBundleRef bundleRef)
 {
-    return WebKit::toImpl(bundleRef)->javaScriptObjectsCount();
+    return protect(WebKit::toImpl(bundleRef))->javaScriptObjectsCount();
 }
 
 void WKBundleAddOriginAccessAllowListEntry(WKBundleRef bundleRef, WKStringRef sourceOrigin, WKStringRef destinationProtocol, WKStringRef destinationHost, bool allowDestinationSubdomains)
 {
-    WebKit::toImpl(bundleRef)->addOriginAccessAllowListEntry(WebKit::toWTFString(sourceOrigin), WebKit::toWTFString(destinationProtocol), WebKit::toWTFString(destinationHost), allowDestinationSubdomains);
+    protect(WebKit::toImpl(bundleRef))->addOriginAccessAllowListEntry(WebKit::toWTFString(sourceOrigin), WebKit::toWTFString(destinationProtocol), WebKit::toWTFString(destinationHost), allowDestinationSubdomains);
 }
 
 void WKBundleRemoveOriginAccessAllowListEntry(WKBundleRef bundleRef, WKStringRef sourceOrigin, WKStringRef destinationProtocol, WKStringRef destinationHost, bool allowDestinationSubdomains)
 {
-    WebKit::toImpl(bundleRef)->removeOriginAccessAllowListEntry(WebKit::toWTFString(sourceOrigin), WebKit::toWTFString(destinationProtocol), WebKit::toWTFString(destinationHost), allowDestinationSubdomains);
+    protect(WebKit::toImpl(bundleRef))->removeOriginAccessAllowListEntry(WebKit::toWTFString(sourceOrigin), WebKit::toWTFString(destinationProtocol), WebKit::toWTFString(destinationHost), allowDestinationSubdomains);
 }
 
 void WKBundleResetOriginAccessAllowLists(WKBundleRef bundleRef)
 {
-    WebKit::toImpl(bundleRef)->resetOriginAccessAllowLists();
+    protect(WebKit::toImpl(bundleRef))->resetOriginAccessAllowLists();
 }
 
 void WKBundleSetAsynchronousSpellCheckingEnabledForTesting(WKBundleRef bundleRef, bool enabled)
 {
-    WebKit::toImpl(bundleRef)->setAsynchronousSpellCheckingEnabled(enabled);
+    protect(WebKit::toImpl(bundleRef))->setAsynchronousSpellCheckingEnabled(enabled);
 }
 
 WKArrayRef WKBundleGetLiveDocumentURLsForTesting(WKBundleRef bundleRef, bool excludeDocumentsInPageGroupPages)
 {
-    auto liveDocuments = WebKit::toImpl(bundleRef)->liveDocumentURLs(excludeDocumentsInPageGroupPages);
+    auto liveDocuments = protect(WebKit::toImpl(bundleRef))->liveDocumentURLs(excludeDocumentsInPageGroupPages);
 
     auto liveURLs = adoptWK(WKMutableArrayCreate());
 
@@ -128,7 +123,7 @@ WKArrayRef WKBundleGetLiveDocumentURLsForTesting(WKBundleRef bundleRef, bool exc
         auto documentIDKey = adoptWK(WKStringCreateWithUTF8CString("id"));
         auto documentURLKey = adoptWK(WKStringCreateWithUTF8CString("url"));
 
-        auto documentIDValue = adoptWK(WKUInt64Create(it.key));
+        auto documentIDValue = adoptWK(WebKit::toCopiedAPI(it.key.toString()));
         auto documentURLValue = adoptWK(WebKit::toCopiedAPI(it.value));
 
         WKDictionarySetItem(urlInfo.get(), documentIDKey.get(), documentIDValue.get());
@@ -145,15 +140,10 @@ void WKBundleReportException(JSContextRef context, JSValueRef exception)
     WebKit::InjectedBundle::reportException(context, exception);
 }
 
-void WKBundleClearAllDatabases(WKBundleRef)
-{
-    WebCore::DatabaseTracker::singleton().deleteAllDatabasesImmediately();
-}
-
 void WKBundleSetDatabaseQuota(WKBundleRef bundleRef, uint64_t quota)
 {
     // Historically, we've used the following (somewhat nonsensical) string for the databaseIdentifier of local files.
-    WebCore::DatabaseTracker::singleton().setQuota(*WebCore::SecurityOriginData::fromDatabaseIdentifier("file__0"), quota);
+    WebCore::DatabaseTracker::singleton().setQuota(*WebCore::SecurityOriginData::fromDatabaseIdentifier("file__0"_s), quota);
 }
 
 void WKBundleReleaseMemory(WKBundleRef)
@@ -163,27 +153,27 @@ void WKBundleReleaseMemory(WKBundleRef)
 
 WKDataRef WKBundleCreateWKDataFromUInt8Array(WKBundleRef bundle, JSContextRef context, JSValueRef data)
 {
-    return WebKit::toAPI(&WebKit::toImpl(bundle)->createWebDataFromUint8Array(context, data).leakRef());
+    return WebKit::toAPILeakingRef(protect(WebKit::toImpl(bundle))->createWebDataFromUint8Array(context, data));
 }
 
 int WKBundleNumberOfPages(WKBundleRef bundleRef, WKBundleFrameRef frameRef, double pageWidthInPixels, double pageHeightInPixels)
 {
-    return WebKit::toImpl(bundleRef)->numberOfPages(WebKit::toImpl(frameRef), pageWidthInPixels, pageHeightInPixels);
+    return protect(WebKit::toImpl(bundleRef))->numberOfPages(protect(WebKit::toImpl(frameRef)).get(), pageWidthInPixels, pageHeightInPixels);
 }
 
 int WKBundlePageNumberForElementById(WKBundleRef bundleRef, WKBundleFrameRef frameRef, WKStringRef idRef, double pageWidthInPixels, double pageHeightInPixels)
 {
-    return WebKit::toImpl(bundleRef)->pageNumberForElementById(WebKit::toImpl(frameRef), WebKit::toWTFString(idRef), pageWidthInPixels, pageHeightInPixels);
+    return protect(WebKit::toImpl(bundleRef))->pageNumberForElementById(protect(WebKit::toImpl(frameRef)).get(), WebKit::toWTFString(idRef), pageWidthInPixels, pageHeightInPixels);
 }
 
 WKStringRef WKBundlePageSizeAndMarginsInPixels(WKBundleRef bundleRef, WKBundleFrameRef frameRef, int pageIndex, int width, int height, int marginTop, int marginRight, int marginBottom, int marginLeft)
 {
-    return WebKit::toCopiedAPI(WebKit::toImpl(bundleRef)->pageSizeAndMarginsInPixels(WebKit::toImpl(frameRef), pageIndex, width, height, marginTop, marginRight, marginBottom, marginLeft));
+    return WebKit::toCopiedAPI(protect(WebKit::toImpl(bundleRef))->pageSizeAndMarginsInPixels(protect(WebKit::toImpl(frameRef)).get(), pageIndex, width, height, marginTop, marginRight, marginBottom, marginLeft));
 }
 
 bool WKBundleIsPageBoxVisible(WKBundleRef bundleRef, WKBundleFrameRef frameRef, int pageIndex)
 {
-    return WebKit::toImpl(bundleRef)->isPageBoxVisible(WebKit::toImpl(frameRef), pageIndex);
+    return protect(WebKit::toImpl(bundleRef))->isPageBoxVisible(protect(WebKit::toImpl(frameRef)).get(), pageIndex);
 }
 
 bool WKBundleIsProcessingUserGesture(WKBundleRef)
@@ -193,22 +183,22 @@ bool WKBundleIsProcessingUserGesture(WKBundleRef)
 
 void WKBundleSetUserStyleSheetLocationForTesting(WKBundleRef bundleRef, WKStringRef location)
 {
-    WebKit::toImpl(bundleRef)->setUserStyleSheetLocation(WebKit::toWTFString(location));
-}
-
-void WKBundleSetWebNotificationPermission(WKBundleRef bundleRef, WKBundlePageRef pageRef, WKStringRef originStringRef, bool allowed)
-{
-    WebKit::toImpl(bundleRef)->setWebNotificationPermission(WebKit::toImpl(pageRef), WebKit::toWTFString(originStringRef), allowed);
+    protect(WebKit::toImpl(bundleRef))->setUserStyleSheetLocation(WebKit::toWTFString(location));
 }
 
 void WKBundleRemoveAllWebNotificationPermissions(WKBundleRef bundleRef, WKBundlePageRef pageRef)
 {
-    WebKit::toImpl(bundleRef)->removeAllWebNotificationPermissions(WebKit::toImpl(pageRef));
+    protect(WebKit::toImpl(bundleRef))->removeAllWebNotificationPermissions(protect(WebKit::toImpl(pageRef)).get());
 }
 
-uint64_t WKBundleGetWebNotificationID(WKBundleRef bundleRef, JSContextRef context, JSValueRef notification)
+WKDataRef WKBundleCopyWebNotificationID(WKBundleRef bundleRef, JSContextRef context, JSValueRef notification)
 {
-    return WebKit::toImpl(bundleRef)->webNotificationID(context, notification);
+    auto identifier = protect(WebKit::toImpl(bundleRef))->webNotificationID(context, notification);
+    if (!identifier)
+        return nullptr;
+
+    auto span = identifier->span();
+    return WKDataCreate(span.data(), span.size());
 }
 
 void WKBundleSetTabKeyCyclesThroughElements(WKBundleRef bundleRef, WKBundlePageRef pageRef, bool enabled)
@@ -218,26 +208,26 @@ void WKBundleSetTabKeyCyclesThroughElements(WKBundleRef bundleRef, WKBundlePageR
 
 void WKBundleClearResourceLoadStatistics(WKBundleRef)
 {
-    WebCore::ResourceLoadObserver::shared().clearState();
+    WebCore::ResourceLoadObserver::singleton().clearState();
 }
 
-bool WKBundleResourceLoadStatisticsNotifyObserver(WKBundleRef)
+void WKBundleResourceLoadStatisticsNotifyObserver(WKBundleRef, void* context, NotifyObserverCallback callback)
 {
-    if (!WebCore::ResourceLoadObserver::shared().hasStatistics())
-        return false;
+    if (!WebCore::ResourceLoadObserver::singleton().hasStatistics())
+        return callback(context);
 
-    WebCore::ResourceLoadObserver::shared().updateCentralStatisticsStore([] { });
-    return true;
+    WebCore::ResourceLoadObserver::singleton().updateCentralStatisticsStore([context, callback] {
+        callback(context);
+    });
 }
-
 
 void WKBundleExtendClassesForParameterCoder(WKBundleRef bundle, WKArrayRef classes)
 {
 #if PLATFORM(COCOA)
-    auto classList = WebKit::toImpl(classes);
+    RefPtr classList = WebKit::toImpl(classes);
     if (!classList)
         return;
 
-    WebKit::toImpl(bundle)->extendClassesForParameterCoder(*classList);
+    protect(WebKit::toImpl(bundle))->extendClassesForParameterCoder(*classList);
 #endif
 }

@@ -22,22 +22,13 @@
 
 #include "WebKitNetworkProxySettingsPrivate.h"
 #include <WebCore/SoupNetworkProxySettings.h>
+#include <wtf/URL.h>
+#include <wtf/glib/GSpanExtras.h>
 #include <wtf/glib/WTFGType.h>
+#include <wtf/text/WTFString.h>
 
 using namespace WebCore;
 
-/**
- * SECTION: WebKitNetworkProxySettings
- * @Short_description: Network Proxy Settings
- * @Title: WebKitNetworkProxySettings
- * @See_also: #WebKitWebContext
- *
- * WebKitNetworkProxySettings can be used to provide a custom proxy configuration
- * to a #WebKitWebContext. You need to call webkit_web_context_set_network_proxy_settings()
- * with %WEBKIT_NETWORK_PROXY_MODE_CUSTOM and a WebKitNetworkProxySettings.
- *
- * Since: 2.16
- */
 struct _WebKitNetworkProxySettings {
     _WebKitNetworkProxySettings()
         : settings(SoupNetworkProxySettings::Mode::Custom)
@@ -74,28 +65,19 @@ const SoupNetworkProxySettings& webkitNetworkProxySettingsGetNetworkProxySetting
  *
  * @ignore_hosts is a list of hostnames and IP addresses that the resolver should allow direct connections to.
  * Entries can be in one of 4 formats:
- * <itemizedlist>
- * <listitem><para>
- * A hostname, such as "example.com", ".example.com", or "*.example.com", any of which match "example.com" or
- * any subdomain of it.
- * </para></listitem>
- * <listitem><para>
- * An IPv4 or IPv6 address, such as "192.168.1.1", which matches only that address.
- * </para></listitem>
- * <listitem><para>
- * A hostname or IP address followed by a port, such as "example.com:80", which matches whatever the hostname or IP
- * address would match, but only for URLs with the (explicitly) indicated port. In the case of an IPv6 address, the address
- * part must appear in brackets: "[::1]:443"
- * </para></listitem>
- * <listitem><para>
- * An IP address range, given by a base address and prefix length, such as "fe80::/10", which matches any address in that range.
- * </para></listitem>
- * </itemizedlist>
+ *
+ * - A hostname, such as "example.com", ".example.com", or "*.example.com", any of which match "example.com" or
+ *   any subdomain of it.
+ * - An IPv4 or IPv6 address, such as "192.168.1.1", which matches only that address.
+ * - A hostname or IP address followed by a port, such as "example.com:80", which matches whatever the hostname or IP
+ *   address would match, but only for URLs with the (explicitly) indicated port. In the case of an IPv6 address, the address
+ *   part must appear in brackets: "[::1]:443"
+ * - An IP address range, given by a base address and prefix length, such as "fe80::/10", which matches any address in that range.
  *
  * Note that when dealing with Unicode hostnames, the matching is done against the ASCII form of the name.
  * Also note that hostname exclusions apply only to connections made to hosts identified by name, and IP address exclusions apply only
  * to connections made to hosts identified by address. That is, if example.com has an address of 192.168.1.1, and @ignore_hosts
- * contains only "192.168.1.1", then a connection to "example.com" will use the proxy, and a connection to 192.168.1.1" will not.
+ * contains only "192.168.1.1", then a connection to "example.com" will use the proxy, and a connection to "192.168.1.1" will not.
  *
  * Returns: (transfer full): A new #WebKitNetworkProxySettings.
  *
@@ -105,10 +87,12 @@ WebKitNetworkProxySettings* webkit_network_proxy_settings_new(const char* defaul
 {
     WebKitNetworkProxySettings* proxySettings = static_cast<WebKitNetworkProxySettings*>(fastMalloc(sizeof(WebKitNetworkProxySettings)));
     new (proxySettings) WebKitNetworkProxySettings;
-    if (defaultProxyURI)
+    if (defaultProxyURI) {
+        g_return_val_if_fail(URL(String::fromUTF8(defaultProxyURI)).isValid(), nullptr);
         proxySettings->settings.defaultProxyURL = defaultProxyURI;
-    if (ignoreHosts)
-        proxySettings->settings.ignoreHosts.reset(g_strdupv(const_cast<char**>(ignoreHosts)));
+    }
+    for (auto* host : span(ignoreHosts))
+        proxySettings->settings.ignoreHosts.append(CString(host));
     return proxySettings;
 }
 
@@ -151,9 +135,11 @@ void webkit_network_proxy_settings_free(WebKitNetworkProxySettings* proxySetting
  * webkit_network_proxy_settings_add_proxy_for_scheme:
  * @proxy_settings: a #WebKitNetworkProxySettings
  * @scheme: the URI scheme to add a proxy for
- * @proxy_uri: the proxy URI to use for @uri_scheme
+ * @proxy_uri: the proxy URI to use for @scheme
  *
- * Adds a URI-scheme-specific proxy. URIs whose scheme matches @uri_scheme will be proxied via @proxy_uri.
+ * Adds a URI-scheme-specific proxy.
+ *
+ * URIs whose scheme matches @scheme will be proxied via @proxy_uri.
  * As with the default proxy URI, if @proxy_uri starts with "socks://", it will be treated as referring to
  * all three of the socks5, socks4a, and socks4 proxy types.
  *
@@ -164,6 +150,7 @@ void webkit_network_proxy_settings_add_proxy_for_scheme(WebKitNetworkProxySettin
     g_return_if_fail(proxySettings);
     g_return_if_fail(scheme);
     g_return_if_fail(proxyURI);
+    g_return_if_fail(URL(String::fromUTF8(proxyURI)).isValid());
 
     proxySettings->settings.proxyMap.add(scheme, proxyURI);
 }

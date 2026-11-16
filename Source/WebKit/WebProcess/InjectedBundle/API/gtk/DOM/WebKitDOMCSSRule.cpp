@@ -66,7 +66,9 @@ WebKitDOMCSSRule* wrapCSSRule(WebCore::CSSRule* coreObject)
 
 } // namespace WebKit
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK port
 G_DEFINE_TYPE(WebKitDOMCSSRule, webkit_dom_css_rule, WEBKIT_DOM_TYPE_OBJECT)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 enum {
     DOM_CSS_RULE_PROP_0,
@@ -196,7 +198,7 @@ gushort webkit_dom_css_rule_get_rule_type(WebKitDOMCSSRule* self)
     WebCore::JSMainThreadNullState state;
     g_return_val_if_fail(WEBKIT_DOM_IS_CSS_RULE(self), 0);
     WebCore::CSSRule* item = WebKit::core(self);
-    gushort result = item->type();
+    gushort result = item->typeForCSSOM();
     return result;
 }
 

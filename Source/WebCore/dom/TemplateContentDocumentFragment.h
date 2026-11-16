@@ -31,27 +31,35 @@
 
 namespace WebCore {
 
+class HTMLTemplateElement;
+
 class TemplateContentDocumentFragment final : public DocumentFragment {
-    WTF_MAKE_ISO_ALLOCATED(TemplateContentDocumentFragment);
+    WTF_MAKE_TZONE_ALLOCATED(TemplateContentDocumentFragment);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(TemplateContentDocumentFragment);
 public:
-    static Ref<TemplateContentDocumentFragment> create(Document& document, const Element* host)
+    static Ref<TemplateContentDocumentFragment> create(Document& document, const HTMLTemplateElement& host)
     {
         return adoptRef(*new TemplateContentDocumentFragment(document, host));
     }
 
-    const Element* host() const { return m_host; }
-    void clearHost() { m_host = nullptr; }
+    const HTMLTemplateElement* NODELETE host() const;
+    void clearHost();
 
 private:
-    TemplateContentDocumentFragment(Document& document, const Element* host)
-        : DocumentFragment(document, CreateDocumentFragment)
-        , m_host(host)
-    {
-    }
+    TemplateContentDocumentFragment(Document&, const HTMLTemplateElement&);
 
-    bool isTemplateContent() const override { return true; }
+    bool isTemplateContent() const final { return true; }
 
-    const Element* m_host;
+    WeakPtr<const HTMLTemplateElement, WeakPtrImplWithEventTargetData> m_host;
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::TemplateContentDocumentFragment)
+    static bool isType(const WebCore::Node& node)
+    {
+        auto* fragment = dynamicDowncast<WebCore::DocumentFragment>(node);
+        return fragment && is<WebCore::TemplateContentDocumentFragment>(*fragment);
+    }
+    static bool isType(const WebCore::DocumentFragment& node) { return node.isTemplateContent(); }
+SPECIALIZE_TYPE_TRAITS_END()

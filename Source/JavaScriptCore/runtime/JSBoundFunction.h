@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,77 +25,121 @@
 
 #pragma once
 
-#include "JSFunction.h"
+#include <JavaScriptCore/JSFunction.h>
+#include <JavaScriptCore/JSString.h>
 
 namespace JSC {
 
 JSC_DECLARE_HOST_FUNCTION(boundThisNoArgsFunctionCall);
 JSC_DECLARE_HOST_FUNCTION(boundFunctionCall);
-JSC_DECLARE_HOST_FUNCTION(boundThisNoArgsFunctionConstruct);
 JSC_DECLARE_HOST_FUNCTION(boundFunctionConstruct);
-JSC_DECLARE_HOST_FUNCTION(isBoundFunction);
-JSC_DECLARE_HOST_FUNCTION(hasInstanceBoundFunction);
 
 class JSBoundFunction final : public JSFunction {
 public:
-    typedef JSFunction Base;
+    using Base = JSFunction;
     static constexpr unsigned StructureFlags = Base::StructureFlags & ~ImplementsDefaultHasInstance;
-    static_assert(StructureFlags & ImplementsHasInstance, "");
+    static_assert(StructureFlags & ImplementsHasInstance);
+    static constexpr unsigned maxEmbeddedArgs = 3; // Keep sizeof(JSBoundFunction) <= 96.
 
     template<typename CellType, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         return vm.boundFunctionSpace<mode>();
     }
 
-    static JSBoundFunction* create(VM&, JSGlobalObject*, JSObject* targetFunction, JSValue boundThis, JSImmutableButterfly* boundArgs, double length, JSString* nameMayBeNull);
+    JS_EXPORT_PRIVATE static JSBoundFunction* create(VM&, JSGlobalObject*, JSObject* targetFunction, JSValue boundThis, ArgList, double length, JSString* nameMayBeNull, const SourceCode&);
+    static JSBoundFunction* createRaw(VM&, JSGlobalObject*, JSFunction* targetFunction, unsigned boundArgsLength, JSValue boundThis, JSValue arg0, JSValue arg1, JSValue arg2, const SourceCode&);
     
     static bool customHasInstance(JSObject*, JSGlobalObject*, JSValue);
 
-    JSObject* targetFunction() { return m_targetFunction.get(); }
+    JSObject* targetFunction() LIFETIME_BOUND { return m_targetFunction.get(); }
     JSValue boundThis() { return m_boundThis.get(); }
-    JSImmutableButterfly* boundArgs() { return m_boundArgs.get(); } // DO NOT allow this array to be mutated!
+    unsigned boundArgsLength() const { return m_boundArgsLength; }
     JSArray* boundArgsCopy(JSGlobalObject*);
-    JSString* nameMayBeNull() { return m_nameMayBeNull.get(); }
-    const String& nameString()
+    JSString* nameMayBeNull() LIFETIME_BOUND { return m_nameMayBeNull.get(); }
+    JSString* name(VM& vm)
+    {
+        if (m_nameMayBeNull)
+            return m_nameMayBeNull.get();
+        return nameSlow(vm);
+    }
+    String nameString(VM& vm)
     {
         if (!m_nameMayBeNull)
-            return emptyString();
+            name(vm);
         ASSERT(!m_nameMayBeNull->isRope());
         bool allocationAllowed = false;
         return m_nameMayBeNull->tryGetValue(allocationAllowed);
     }
-
-    double length(VM&) { return m_length; }
-
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
+    String nameStringWithoutGC(VM& vm)
     {
-        ASSERT(globalObject);
-        return Structure::create(vm, globalObject, prototype, TypeInfo(JSFunctionType, StructureFlags), info()); 
+        if (m_nameMayBeNull) {
+            ASSERT(!m_nameMayBeNull->isRope());
+            bool allocationAllowed = false;
+            return m_nameMayBeNull->tryGetValue(allocationAllowed);
+        }
+        return nameStringWithoutGCSlow(vm);
     }
-    
-    static ptrdiff_t offsetOfTargetFunction() { return OBJECT_OFFSETOF(JSBoundFunction, m_targetFunction); }
-    static ptrdiff_t offsetOfBoundThis() { return OBJECT_OFFSETOF(JSBoundFunction, m_boundThis); }
-    static ptrdiff_t offsetOfBoundArgs() { return OBJECT_OFFSETOF(JSBoundFunction, m_boundArgs); }
 
-    DECLARE_INFO;
+    double length(VM& vm)
+    {
+        if (std::isnan(m_length))
+            return lengthSlow(vm);
+        return m_length;
+    }
+
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
+    
+    static constexpr ptrdiff_t offsetOfTargetFunction() { return OBJECT_OFFSETOF(JSBoundFunction, m_targetFunction); }
+    static constexpr ptrdiff_t offsetOfBoundThis() { return OBJECT_OFFSETOF(JSBoundFunction, m_boundThis); }
+    static constexpr ptrdiff_t offsetOfBoundArgs() { return OBJECT_OFFSETOF(JSBoundFunction, m_boundArgs); }
+    static constexpr ptrdiff_t offsetOfBoundArgsLength() { return OBJECT_OFFSETOF(JSBoundFunction, m_boundArgsLength); }
+    static constexpr ptrdiff_t offsetOfNameMayBeNull() { return OBJECT_OFFSETOF(JSBoundFunction, m_nameMayBeNull); }
+    static constexpr ptrdiff_t offsetOfLength() { return OBJECT_OFFSETOF(JSBoundFunction, m_length); }
+    static constexpr ptrdiff_t offsetOfCanConstruct() { return OBJECT_OFFSETOF(JSBoundFunction, m_canConstruct); }
+
+    inline void forEachBoundArg(const Invocable<IterationStatus(JSValue)> auto& func);
+
+    bool canConstruct()
+    {
+        if (m_canConstruct == TriState::Indeterminate)
+            return canConstructSlow();
+        return m_canConstruct == TriState::True;
+    }
+
+    bool isTainted() const
+    {
+        return m_isTainted;
+    }
+
+    static bool NODELETE canSkipNameAndLengthMaterialization(JSGlobalObject*, Structure*);
+
+    DECLARE_EXPORT_INFO;
+
+    DECLARE_VISIT_CHILDREN;
 
 private:
-    JSBoundFunction(VM&, NativeExecutable*, JSGlobalObject*, Structure*, JSObject* targetFunction, JSValue boundThis, JSImmutableButterfly* boundArgs, JSString* nameMayBeNull, double length);
+    JSBoundFunction(VM&, NativeExecutable*, JSGlobalObject*, Structure*, JSObject* targetFunction, JSValue boundThis, unsigned boundArgsLength, JSValue arg0, JSValue arg1, JSValue arg2, JSString* nameMayBeNull, double length, const SourceCode&);
 
-    void finishCreation(VM&);
-    DECLARE_VISIT_CHILDREN;
+    JSString* nameSlow(VM&);
+    double NODELETE lengthSlow(VM&);
+    bool canConstructSlow();
+    String nameStringWithoutGCSlow(VM&);
+
+    DECLARE_DEFAULT_FINISH_CREATION;
 
     WriteBarrier<JSObject> m_targetFunction;
     WriteBarrier<Unknown> m_boundThis;
-    WriteBarrier<JSImmutableButterfly> m_boundArgs;
+    std::array<WriteBarrier<Unknown>, maxEmbeddedArgs> m_boundArgs { };
     WriteBarrier<JSString> m_nameMayBeNull;
-    double m_length;
+    double m_length { PNaN };
+    unsigned m_boundArgsLength { 0 };
+    TriState m_canConstruct { TriState::Indeterminate };
+    bool m_isTainted;
 };
 
 JSC_DECLARE_HOST_FUNCTION(boundFunctionCall);
 JSC_DECLARE_HOST_FUNCTION(boundFunctionConstruct);
 JSC_DECLARE_HOST_FUNCTION(boundThisNoArgsFunctionCall);
-JSC_DECLARE_HOST_FUNCTION(boundThisNoArgsFunctionConstruct);
 
 } // namespace JSC

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # Copyright 2020 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -6,6 +6,9 @@
 angle_presubmit_utils: Mock depot_tools class for ANGLE presubmit checks's unittests
 """
 
+
+import os
+import json
 
 class Change_mock():
 
@@ -16,10 +19,48 @@ class Change_mock():
         return self.description_text
 
 
+class AffectedFile_mock():
+
+    def __init__(self, diff, local_path='', old_contents=None, new_contents=None):
+        self.diff = diff
+        self._local_path = local_path
+        self._old_contents = old_contents or []
+        self._new_contents = new_contents or []
+
+    def LocalPath(self):
+        return self._local_path
+
+    def GenerateScmDiff(self):
+        return self.diff
+
+    def OldContents(self):
+        return self._old_contents
+
+    def NewContents(self):
+        return self._new_contents
+
+    def ChangedContents(self):
+        return [(i + 1, line) for i, line in enumerate(self._new_contents)]
+
+
 class InputAPI_mock():
 
-    def __init__(self, description_text):
+    def __init__(self, description_text, source_files=[], affected_files=[]):
         self.change = Change_mock(description_text)
+        self.source_files = source_files
+        self.affected_files = affected_files
+        self.os_path = os.path
+        self.json = json
+        self.re = __import__('re')
+
+    def PresubmitLocalPath(self):
+        return self.cwd
+
+    def AffectedSourceFiles(self, source_filter):
+        return self.source_files
+
+    def AffectedFiles(self):
+        return self.affected_files
 
 
 class _PresubmitResult(object):
@@ -27,7 +68,9 @@ class _PresubmitResult(object):
     fatal = False
     should_prompt = False
 
-    def __init__(self, message):
+    def __init__(self, message, items=None, long_text='', locations=None):
+        self.items = items or []
+        self.locations = locations or []
         self._message = message
 
     def __eq__(self, other):
@@ -56,8 +99,16 @@ class _PresubmitNotifyResult(_PresubmitResult):
     pass
 
 
+class _PresubmitResultLocation(object):
+
+    def __init__(self, file_path, start_line, end_line):
+        self.file_path = file_path
+        self.start_line = start_line
+        self.end_line = end_line
+
 class OutputAPI_mock():
     PresubmitResult = _PresubmitResult
     PresubmitError = _PresubmitError
     PresubmitPromptWarning = _PresubmitPromptWarning
     PresubmitNotifyResult = _PresubmitNotifyResult
+    PresubmitResultLocation = _PresubmitResultLocation

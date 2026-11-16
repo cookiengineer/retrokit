@@ -27,8 +27,8 @@
 
 #if ENABLE(CONTENT_EXTENSIONS)
 
-#include "ContentExtensionsDebugging.h"
-#include "DFANode.h"
+#include <WebCore/ContentExtensionsDebugging.h>
+#include <WebCore/DFANode.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
@@ -40,8 +40,8 @@ struct WEBCORE_EXPORT DFA {
     static DFA empty();
 
     void minimize();
-    unsigned graphSize() const;
-    size_t memoryUsed() const;
+    unsigned NODELETE graphSize() const;
+    size_t NODELETE memoryUsed() const;
 
 #if CONTENT_EXTENSIONS_STATE_MACHINE_DEBUGGING
     void debugPrintDot() const;

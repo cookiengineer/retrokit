@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Apple Inc.  All rights reserved.
+ * Copyright (C) 2018-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,119 +33,145 @@
 
 namespace WebCore {
 
+class SVGRectElement;
+class SVGCircleElement;
+
 class SVGAttributeAnimator;
+class SVGConditionalProcessingAttributes;
+
+template<typename T>
+concept HasFastPropertyForAttribute = requires(const T& element, const QualifiedName& name)
+{
+    { element.propertyForAttribute(name) } -> std::same_as<SVGAnimatedPropertyBase*>;
+};
+
+struct SVGAttributeHashTranslator {
+    static unsigned hash(const QualifiedName& key)
+    {
+        if (key.hasPrefix()) {
+            QualifiedNameComponents components = { nullAtom().impl(), key.localName().impl(), key.namespaceURI().impl() };
+            return computeHash(components);
+        }
+        return DefaultHash<QualifiedName>::hash(key);
+    }
+    static bool equal(const QualifiedName& a, const QualifiedName& b) { return a.matches(b); }
+
+    static constexpr bool safeToCompareToEmptyOrDeleted = false;
+    static constexpr bool hasHashInValue = true;
+};
 
 template<typename OwnerType, typename... BaseTypes>
 class SVGPropertyOwnerRegistry : public SVGPropertyRegistry {
+    WTF_MAKE_TZONE_ALLOCATED_TEMPLATE(SVGPropertyOwnerRegistry);
 public:
     SVGPropertyOwnerRegistry(OwnerType& owner)
         : m_owner(owner)
     {
     }
 
-    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, Ref<SVGStringList> OwnerType::*property>
-    static void registerProperty()
+    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, const Ref<SVGStringList> SVGConditionalProcessingAttributes::*property>
+    static void registerConditionalProcessingAttributeProperty()
     {
-        registerProperty(attributeName, SVGStringListAccessor<OwnerType>::template singleton<property>());
+        registerProperty(attributeName, SVGConditionalProcessingAttributeAccessor<OwnerType>::template singleton<property>());
     }
 
-    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, Ref<SVGTransformList> OwnerType::*property>
+    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, const Ref<SVGTransformList> OwnerType::*property>
     static void registerProperty()
     {
         registerProperty(attributeName, SVGTransformListAccessor<OwnerType>::template singleton<property>());
     }
 
-    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, Ref<SVGAnimatedBoolean> OwnerType::*property>
+    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, const Ref<SVGAnimatedBoolean> OwnerType::*property>
     static void registerProperty()
     {
         registerProperty(attributeName, SVGAnimatedBooleanAccessor<OwnerType>::template singleton<property>());
     }
 
-    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, typename EnumType, Ref<SVGAnimatedEnumeration> OwnerType::*property>
+    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, typename EnumType, const Ref<SVGAnimatedEnumeration> OwnerType::*property>
     static void registerProperty()
     {
         registerProperty(attributeName, SVGAnimatedEnumerationAccessor<OwnerType, EnumType>::template singleton<property>());
     }
 
-    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, Ref<SVGAnimatedInteger> OwnerType::*property>
+    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, const Ref<SVGAnimatedInteger> OwnerType::*property>
     static void registerProperty()
     {
         registerProperty(attributeName, SVGAnimatedIntegerAccessor<OwnerType>::template singleton<property>());
     }
-    
-    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, Ref<SVGAnimatedLength> OwnerType::*property>
+
+    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, const Ref<SVGAnimatedLength> OwnerType::*property>
     static void registerProperty()
     {
         registerProperty(attributeName, SVGAnimatedLengthAccessor<OwnerType>::template singleton<property>());
     }
 
-    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, Ref<SVGAnimatedLengthList> OwnerType::*property>
+    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, const Ref<SVGAnimatedLengthList> OwnerType::*property>
     static void registerProperty()
     {
         registerProperty(attributeName, SVGAnimatedLengthListAccessor<OwnerType>::template singleton<property>());
     }
 
-    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, Ref<SVGAnimatedNumber> OwnerType::*property>
+    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, const Ref<SVGAnimatedNumber> OwnerType::*property>
     static void registerProperty()
     {
         registerProperty(attributeName, SVGAnimatedNumberAccessor<OwnerType>::template singleton<property>());
     }
 
-    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, Ref<SVGAnimatedNumberList> OwnerType::*property>
+    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, const Ref<SVGAnimatedNumberList> OwnerType::*property>
     static void registerProperty()
     {
         registerProperty(attributeName, SVGAnimatedNumberListAccessor<OwnerType>::template singleton<property>());
     }
 
-    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, Ref<SVGAnimatedAngle> OwnerType::*property1, Ref<SVGAnimatedOrientType> OwnerType::*property2>
+    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, const Ref<SVGAnimatedAngle> OwnerType::*property1, const Ref<SVGAnimatedOrientType> OwnerType::*property2>
     static void registerProperty()
     {
         registerProperty(attributeName, SVGAnimatedAngleOrientAccessor<OwnerType>::template singleton<property1, property2>());
     }
 
-    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, Ref<SVGAnimatedPathSegList> OwnerType::*property>
+    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, const Ref<SVGAnimatedPathSegList> OwnerType::*property>
     static void registerProperty()
     {
         registerProperty(attributeName, SVGAnimatedPathSegListAccessor<OwnerType>::template singleton<property>());
     }
 
-    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, Ref<SVGAnimatedPointList> OwnerType::*property>
+    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, const Ref<SVGAnimatedPointList> OwnerType::*property>
     static void registerProperty()
     {
         registerProperty(attributeName, SVGAnimatedPointListAccessor<OwnerType>::template singleton<property>());
     }
 
-    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, Ref<SVGAnimatedPreserveAspectRatio> OwnerType::*property>
+    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, const Ref<SVGAnimatedPreserveAspectRatio> OwnerType::*property>
     static void registerProperty()
     {
         registerProperty(attributeName, SVGAnimatedPreserveAspectRatioAccessor<OwnerType>::template singleton<property>());
     }
 
-    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, Ref<SVGAnimatedRect> OwnerType::*property>
+    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, const Ref<SVGAnimatedRect> OwnerType::*property>
     static void registerProperty()
     {
         registerProperty(attributeName, SVGAnimatedRectAccessor<OwnerType>::template singleton<property>());
     }
 
-    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, Ref<SVGAnimatedString> OwnerType::*property>
+    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, const Ref<SVGAnimatedString> OwnerType::*property>
     static void registerProperty()
     {
         registerProperty(attributeName, SVGAnimatedStringAccessor<OwnerType>::template singleton<property>());
     }
 
-    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, Ref<SVGAnimatedTransformList> OwnerType::*property>
+    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, const Ref<SVGAnimatedTransformList> OwnerType::*property>
     static void registerProperty()
     {
         registerProperty(attributeName, SVGAnimatedTransformListAccessor<OwnerType>::template singleton<property>());
     }
 
-    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, Ref<SVGAnimatedInteger> OwnerType::*property1, Ref<SVGAnimatedInteger> OwnerType::*property2>
+    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, const Ref<SVGAnimatedInteger> OwnerType::*property1, const Ref<SVGAnimatedInteger> OwnerType::*property2>
     static void registerProperty()
     {
         registerProperty(attributeName, SVGAnimatedIntegerPairAccessor<OwnerType>::template singleton<property1, property2>());
     }
 
-    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, Ref<SVGAnimatedNumber> OwnerType::*property1, Ref<SVGAnimatedNumber> OwnerType::*property2>
+    template<const LazyNeverDestroyed<const QualifiedName>& attributeName, const Ref<SVGAnimatedNumber> OwnerType::*property1, const Ref<SVGAnimatedNumber> OwnerType::*property2>
     static void registerProperty()
     {
         registerProperty(attributeName, SVGAnimatedNumberPairAccessor<OwnerType>::template singleton<property1, property2>());
@@ -154,13 +180,23 @@ public:
     // Enumerate all the SVGMemberAccessors recursively. The functor will be called and will
     // be given the pair<QualifiedName, SVGMemberAccessor> till the functor returns false.
     template<typename Functor>
-    static bool enumerateRecursively(const Functor& functor)
+    static bool enumerateRecursively(NOESCAPE const Functor& functor)
     {
         for (const auto& entry : attributeNameToAccessorMap()) {
             if (!functor(entry))
                 return false;
         }
         return enumerateRecursivelyBaseTypes(functor);
+    }
+
+    template<typename Functor>
+    static bool lookupRecursivelyAndApply(const QualifiedName& attributeName, NOESCAPE const Functor& functor)
+    {
+        if (auto* accessor = findAccessor(attributeName)) {
+            functor(*accessor);
+            return true;
+        }
+        return lookupRecursivelyAndApplyBaseTypes(attributeName, functor);
     }
 
     // Returns true if OwnerType owns a property whose name is attributeName.
@@ -190,7 +226,7 @@ public:
         return attributeName;
     }
 
-    QualifiedName animatedPropertyAttributeName(const SVGAnimatedProperty& animatedProperty) const override
+    QualifiedName animatedPropertyAttributeName(const SVGAnimatedPropertyBase& animatedProperty) const override
     {
         QualifiedName attributeName = nullQName();
         enumerateRecursively([&](const auto& entry) -> bool {
@@ -202,13 +238,15 @@ public:
         return attributeName;
     }
 
-    void setAnimatedPropertyDirty(const QualifiedName& attributeName, SVGAnimatedProperty& animatedProperty) const override
+    void setAnimatedPropertyDirty(const QualifiedName& attributeName, SVGAnimatedPropertyBase& animatedProperty) const override
     {
-        enumerateRecursively([&](const auto& entry) -> bool {
-            if (!entry.key.matches(attributeName))
-                return true;
-            entry.value->setDirty(m_owner, animatedProperty);
-            return false;
+        if (RefPtr property = fastAnimatedPropertyLookup(m_owner, attributeName)) {
+            property->setDirty();
+            return;
+        }
+
+        lookupRecursivelyAndApply(attributeName, [&](auto& accessor) {
+            accessor.setDirty(m_owner, animatedProperty);
         });
     }
 
@@ -221,16 +259,26 @@ public:
         });
     }
 
+    static inline SVGAnimatedPropertyBase* fastAnimatedPropertyLookup(OwnerType& owner, const QualifiedName& attributeName)
+    {
+        if constexpr (HasFastPropertyForAttribute<OwnerType>)
+            return owner.propertyForAttribute(attributeName);
+        else {
+            static_assert(!std::is_same_v<OwnerType, SVGRectElement> && !std::is_same_v<OwnerType, SVGCircleElement>, "Element should use fast property path");
+            return nullptr;
+        }
+    }
+
     // Finds the property whose name is attributeName and returns the synchronize
     // string through the associated SVGMemberAccessor.
     std::optional<String> synchronize(const QualifiedName& attributeName) const override
     {
+        if (RefPtr property = fastAnimatedPropertyLookup(m_owner, attributeName))
+            return property->synchronize();
+
         std::optional<String> value;
-        enumerateRecursively([&](const auto& entry) -> bool {
-            if (!entry.key.matches(attributeName))
-                return true;
-            value = entry.value->synchronize(m_owner);
-            return false;
+        lookupRecursivelyAndApply(attributeName, [&](auto& accessor) {
+            value = accessor.synchronize(m_owner);
         });
         return value;
     }
@@ -250,12 +298,12 @@ public:
 
     bool isAnimatedPropertyAttribute(const QualifiedName& attributeName) const override
     {
+        if (auto* property = fastAnimatedPropertyLookup(m_owner, attributeName))
+            return true;
+
         bool isAnimatedPropertyAttribute = false;
-        enumerateRecursively([&attributeName, &isAnimatedPropertyAttribute](const auto& entry) -> bool {
-            if (!entry.key.matches(attributeName))
-                return true;
-            isAnimatedPropertyAttribute = entry.value->isAnimatedProperty();
-            return false;
+        lookupRecursivelyAndApply(attributeName, [&](auto& accessor) {
+            isAnimatedPropertyAttribute = accessor.isAnimatedProperty();
         });
         return isAnimatedPropertyAttribute;
     }
@@ -279,30 +327,26 @@ public:
     RefPtr<SVGAttributeAnimator> createAnimator(const QualifiedName& attributeName, AnimationMode animationMode, CalcMode calcMode, bool isAccumulated, bool isAdditive) const override
     {
         RefPtr<SVGAttributeAnimator> animator;
-        enumerateRecursively([&](const auto& entry) -> bool {
-            if (!entry.key.matches(attributeName))
-                return true;
-            animator = entry.value->createAnimator(m_owner, attributeName, animationMode, calcMode, isAccumulated, isAdditive);
-            return false;
+        lookupRecursivelyAndApply(attributeName, [&](auto& accessor) {
+            animator = accessor.createAnimator(m_owner, attributeName, animationMode, calcMode, isAccumulated, isAdditive);
         });
         return animator;
     }
 
     void appendAnimatedInstance(const QualifiedName& attributeName, SVGAttributeAnimator& animator) const override
     {
-        enumerateRecursively([&](const auto& entry) -> bool {
-            if (!entry.key.matches(attributeName))
-                return true;
-            entry.value->appendAnimatedInstance(m_owner, animator);
-            return false;
+        lookupRecursivelyAndApply(attributeName, [&](auto& accessor) {
+            accessor.appendAnimatedInstance(m_owner, animator);
         });
     }
 
 private:
     // Singleton map for every OwnerType.
-    static HashMap<QualifiedName, const SVGMemberAccessor<OwnerType>*>& attributeNameToAccessorMap()
+    using QualifiedNameAccessorHashMap = HashMap<QualifiedName, const SVGMemberAccessor<OwnerType>*, SVGAttributeHashTranslator>;
+
+    static QualifiedNameAccessorHashMap& attributeNameToAccessorMap()
     {
-        static NeverDestroyed<HashMap<QualifiedName, const SVGMemberAccessor<OwnerType>*>> attributeNameToAccessorMap;
+        static NeverDestroyed<QualifiedNameAccessorHashMap> attributeNameToAccessorMap;
         return attributeNameToAccessorMap;
     }
 
@@ -311,36 +355,59 @@ private:
         attributeNameToAccessorMap().add(attributeName, &propertyAccessor);
     }
 
-    // This is a template function with parameter 'I' whose default value = 0. So you can call it without any parameter
-    // from enumerateRecursively(). It returns true and is enable_if<I == sizeof...(BaseTypes)>. So it is mainly for
-    // breaking the recursion.
     template<typename Functor, size_t I = 0>
-    static typename std::enable_if<I == sizeof...(BaseTypes), bool>::type enumerateRecursivelyBaseTypes(const Functor&) { return true; }
-
-    // This version of animatedTypesBaseTypes() is enable_if<I < sizeof...(BaseTypes)>.
-    template<typename Functor, size_t I = 0>
-    static typename std::enable_if<I < sizeof...(BaseTypes), bool>::type enumerateRecursivelyBaseTypes(const Functor& functor)
+    static bool enumerateRecursivelyBaseTypes(NOESCAPE const Functor&)
+        requires (I == sizeof...(BaseTypes))
     {
-        // Get the base type at index 'I' using std::tuple and std::tuple_element.
-        using BaseType = typename std::tuple_element<I, typename std::tuple<BaseTypes...>>::type;
+        return true;
+    }
+
+    template<typename Functor, size_t I = 0>
+    static bool enumerateRecursivelyBaseTypes(NOESCAPE const Functor& functor)
+        requires (I < sizeof...(BaseTypes))
+    {
+        using BaseType = std::tuple_element_t<I, std::tuple<BaseTypes...>>;
+
         if (!BaseType::PropertyRegistry::enumerateRecursively(functor))
             return false;
-        // BaseType does not want to break the recursion. So recurse to the next BaseType.
+
         return enumerateRecursivelyBaseTypes<Functor, I + 1>(functor);
     }
 
     static const SVGMemberAccessor<OwnerType>* findAccessor(const QualifiedName& attributeName)
     {
-        // Here we need to loop through the entries in the map and use matches() to compare them with attributeName.
-        // m_map.contains() uses QualifiedName::operator==() which compares the impl pointers only while matches()
-        // compares the contents if the impl pointers differ.
-        auto it = std::find_if(attributeNameToAccessorMap().begin(), attributeNameToAccessorMap().end(), [&attributeName](const auto& entry) -> bool {
-            return entry.key.matches(attributeName);
-        });
+        auto it = attributeNameToAccessorMap().find(attributeName);
         return it != attributeNameToAccessorMap().end() ? it->value : nullptr;
+    }
+
+    template<typename Functor, size_t I = 0>
+    static bool lookupRecursivelyAndApplyBaseTypes(const QualifiedName&, NOESCAPE const Functor&)
+        requires (I == sizeof...(BaseTypes))
+    {
+        return false;
+    }
+
+    template<typename Functor, size_t I = 0>
+    static bool lookupRecursivelyAndApplyBaseTypes(const QualifiedName& attributeName, NOESCAPE const Functor& functor)
+        requires (I < sizeof...(BaseTypes))
+    {
+        using BaseType = std::tuple_element_t<I, std::tuple<BaseTypes...>>;
+
+        if (BaseType::PropertyRegistry::lookupRecursivelyAndApply(attributeName, functor))
+            return true;
+
+        return lookupRecursivelyAndApplyBaseTypes<Functor, I + 1>(attributeName, functor);
     }
 
     OwnerType& m_owner;
 };
 
-}
+#define TZONE_TEMPLATE_PARAMS template<typename OwnerType, typename... BaseTypes>
+#define TZONE_TYPE SVGPropertyOwnerRegistry<OwnerType, BaseTypes...>
+
+WTF_MAKE_TZONE_ALLOCATED_TEMPLATE_IMPL_WITH_MULTIPLE_OR_SPECIALIZED_PARAMETERS();
+
+#undef TZONE_TEMPLATE_PARAMS
+#undef TZONE_TYPE
+
+} // namespace WebCore

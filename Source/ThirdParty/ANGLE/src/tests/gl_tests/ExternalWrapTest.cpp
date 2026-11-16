@@ -7,6 +7,9 @@
 //   Tests EXT_EGL_image_external_wrap_modes
 //
 
+#include <array>
+
+#include "common/unsafe_buffers.h"
 #include "test_utils/ANGLETest.h"
 #include "test_utils/gl_raii.h"
 #include "util/EGLWindow.h"
@@ -15,7 +18,7 @@ constexpr int kPixelThreshold = 1;
 
 namespace angle
 {
-class ExternalWrapTest : public ANGLETest
+class ExternalWrapTest : public ANGLETest<>
 {
   protected:
     ExternalWrapTest() : mProgram(0), mSourceTexture(0), mExternalImage(0), mExternalTexture(0)
@@ -64,7 +67,7 @@ void main()
         ASSERT_NE(mProgram, 0u);
 
         constexpr GLsizei texSize = 32;
-        GLubyte data[texSize * texSize * 4];
+        std::array<GLubyte, texSize * texSize * 4> data;
 
         for (int y = 0; y < texSize; y++)
         {
@@ -75,7 +78,6 @@ void main()
 
                 data[(y * texSize + x) * 4 + 0] = static_cast<GLubyte>(red * 255);
                 data[(y * texSize + x) * 4 + 1] = static_cast<GLubyte>(green * 255);
-
                 data[(y * texSize + x) * 4 + 2] = 0;
                 data[(y * texSize + x) * 4 + 3] = 255;
             }
@@ -84,7 +86,7 @@ void main()
         glGenTextures(1, &mSourceTexture);
         glBindTexture(GL_TEXTURE_2D, mSourceTexture);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, texSize, texSize, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-                     data);
+                     data.data());
 
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -119,13 +121,13 @@ void main()
 
         EGLWindow *window = getEGLWindow();
         EGLint attribs[]  = {
-            EGL_IMAGE_PRESERVED,
-            EGL_TRUE,
-            EGL_NONE,
+             EGL_IMAGE_PRESERVED,
+             EGL_TRUE,
+             EGL_NONE,
         };
-        EGLImageKHR image =
-            eglCreateImageKHR(window->getDisplay(), window->getContext(), EGL_GL_TEXTURE_2D_KHR,
-                              reinterpret_cast<EGLClientBuffer>(mSourceTexture), attribs);
+        EGLImageKHR image = eglCreateImageKHR(
+            window->getDisplay(), window->getContext(), EGL_GL_TEXTURE_2D_KHR,
+            reinterpret_cast<EGLClientBuffer>(static_cast<uintptr_t>(mSourceTexture)), attribs);
         ASSERT_EGL_SUCCESS();
 
         glBindTexture(GL_TEXTURE_EXTERNAL_OES, mExternalTexture);

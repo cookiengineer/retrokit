@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "FloatQuad.h"
+#include <WebCore/FloatQuad.h>
 #include <wtf/RefCounted.h>
 #include <wtf/Vector.h>
 
@@ -42,6 +42,7 @@ public:
 
     unsigned length() const { return m_items.size(); }
     DOMRect* item(unsigned index) { return index < m_items.size() ? m_items[index].ptr() : nullptr; }
+    bool isSupportedPropertyIndex(unsigned index) const { return index < m_items.size(); }
 
 private:
     WEBCORE_EXPORT explicit DOMRectList(const Vector<FloatQuad>& quads);

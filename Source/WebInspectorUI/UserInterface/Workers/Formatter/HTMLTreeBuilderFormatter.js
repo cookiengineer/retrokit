@@ -148,7 +148,7 @@ HTMLTreeBuilderFormatter = class HTMLTreeBuilderFormatter
             this._implicitlyCloseTagNamesInsideParentTagNames(["option"], ["select"]);
             break;
         case "optgroup": {
-            let didClose = this._implicitlyCloseTagNamesInsideParentTagNames(["optgroup"], ["select"]);;
+            let didClose = this._implicitlyCloseTagNamesInsideParentTagNames(["optgroup"], ["select"]);
             if (!didClose)
                 this._implicitlyCloseTagNamesInsideParentTagNames(["option"], ["select"]);
             break;
@@ -179,13 +179,13 @@ HTMLTreeBuilderFormatter = class HTMLTreeBuilderFormatter
         case "tbody": {
             let didClose = this._implicitlyCloseTagNamesInsideParentTagNames(["thead"], ["table"]);
             if (!didClose)
-                didClose = this._implicitlyCloseTagNamesInsideParentTagNames(["tr"], ["table"]);
+                this._implicitlyCloseTagNamesInsideParentTagNames(["tr"], ["table"]);
             break;
         }
         case "tfoot": {
             let didClose = this._implicitlyCloseTagNamesInsideParentTagNames(["tbody"], ["table"]);
             if (!didClose)
-                didClose = this._implicitlyCloseTagNamesInsideParentTagNames(["tr"], ["table"]);
+                this._implicitlyCloseTagNamesInsideParentTagNames(["tr"], ["table"]);
             break;
         }
         case "colgroup":
@@ -333,7 +333,6 @@ HTMLTreeBuilderFormatter.TagNamesWithoutChildren = new Set([
     "base",
     "basefont",
     "br",
-    "canvas",
     "col",
     "command",
     "embed",

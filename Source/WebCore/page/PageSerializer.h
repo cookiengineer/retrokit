@@ -33,7 +33,7 @@
 #include "SharedBuffer.h"
 #include <wtf/Forward.h>
 #include <wtf/HashMap.h>
-#include <wtf/ListHashSet.h>
+#include <wtf/OrderedHashSet.h>
 #include <wtf/URLHash.h>
 
 namespace WebCore {
@@ -41,7 +41,7 @@ namespace WebCore {
 class CachedImage;
 class CSSStyleSheet;
 class Document;
-class Frame;
+class LocalFrame;
 class Page;
 class RenderElement;
 class StyleProperties;
@@ -67,9 +67,9 @@ public:
 private:
     class SerializerMarkupAccumulator;
 
-    URL urlForBlankFrame(Frame*);
+    URL urlForBlankFrame(LocalFrame*);
 
-    void serializeFrame(Frame*);
+    void serializeFrame(LocalFrame*);
 
     // Serializes the stylesheet back to text and adds it to the resources if URL is not-empty.
     // It also adds any resources included in that stylesheet (including any imported stylesheets and their own resources).
@@ -80,8 +80,8 @@ private:
     void retrieveResourcesForRule(StyleRule&, Document*);
 
     Vector<Resource>& m_resources;
-    ListHashSet<URL> m_resourceURLs;
-    HashMap<Frame*, URL> m_blankFrameURLs;
+    OrderedHashSet<URL> m_resourceURLs;
+    HashMap<LocalFrame*, URL> m_blankFrameURLs;
     unsigned m_blankFrameCounter { 0 };
 };
 

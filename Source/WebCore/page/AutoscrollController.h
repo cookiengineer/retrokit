@@ -25,62 +25,82 @@
 
 #pragma once
 
-#include "IntPoint.h"
-#include "Timer.h"
-#include <wtf/WallTime.h>
+#include <WebCore/IntPoint.h>
+#include <WebCore/Timer.h>
+#include <wtf/CheckedPtr.h>
+#include <wtf/MonotonicTime.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class EventHandler;
-class Frame;
-class FrameView;
+class LocalFrame;
+class LocalFrameView;
 class Node;
 class PlatformMouseEvent;
 class RenderBox;
 class RenderObject;
 
-enum AutoscrollType {
-    NoAutoscroll,
-    AutoscrollForDragAndDrop,
-    AutoscrollForSelection,
+enum class AutoscrollType : uint8_t {
+    None,
+    DragAndDrop,
+    Selection,
 #if ENABLE(PAN_SCROLLING)
-    AutoscrollForPanCanStop,
-    AutoscrollForPan,
+    PanCanStop,
+    Pan,
 #endif
 };
 
-// AutscrollController handles autoscroll and pan scroll for EventHandler.
-class AutoscrollController {
-    WTF_MAKE_FAST_ALLOCATED;
+// AutoscrollController handles autoscroll and pan scroll for EventHandler.
+class AutoscrollController final : public CanMakeCheckedPtr<AutoscrollController> {
+    WTF_MAKE_TZONE_ALLOCATED(AutoscrollController);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(AutoscrollController);
 public:
+    // When the autoscroll or the panScroll is triggered when do the scroll every 50ms to make it smooth.
+    constexpr static Seconds autoscrollInterval = 50_ms;
+
+    // The band, in root-view points, within which a selection-extend drag autoscrolls.
+    constexpr static float selectionAutoscrollEdgeDistance = 100;
+
+    // This bounds how far past a visible edge the autoscroll target is pushed (and thus the per-tick scroll speed.
+    constexpr static float selectionAutoscrollMaximumSpeed = 40;
+
+    // Maps how far a point reaches into the edge band (`distancePastBandEdge`, root-view points) to how far
+    // past the visible edge the autoscroll target should sit, scaling by the band size so the resulting
+    // scroll speed is independent of the band's size.
+    static inline float rampedSelectionAutoscrollDistance(float distancePastBandEdge, float edgeDistance, float maximumSpeed)
+    {
+        return (distancePastBandEdge / edgeDistance) * maximumSpeed;
+    }
+
     AutoscrollController();
-    RenderBox* autoscrollRenderer() const;
-    bool autoscrollInProgress() const;
-    bool panScrollInProgress() const;
-    void startAutoscrollForSelection(RenderObject*);
+    RenderBox* NODELETE autoscrollRenderer() const;
+    bool NODELETE autoscrollInProgress() const;
+    bool NODELETE panScrollInProgress() const;
+    bool startAutoscrollForSelection(RenderObject*);
     void stopAutoscrollTimer(bool rendererIsBeingDestroyed = false);
     void updateAutoscrollRenderer();
-    void updateDragAndDrop(Node* targetNode, const IntPoint& eventPosition, WallTime eventTime);
+    void updateDragAndDrop(Node* targetNode, const IntPoint& eventPosition, MonotonicTime eventTime);
 #if ENABLE(PAN_SCROLLING)
     void didPanScrollStart();
     void didPanScrollStop();
     void handleMouseReleaseEvent(const PlatformMouseEvent&);
     void setPanScrollInProgress(bool);
-    void startPanScrolling(RenderBox*, const IntPoint&);
+    void startPanScrolling(RenderBox&, const IntPoint&);
 #endif
 
 private:
     void autoscrollTimerFired();
     void startAutoscrollTimer();
 #if ENABLE(PAN_SCROLLING)
-    void updatePanScrollState(FrameView*, const IntPoint&);
+    void updatePanScrollState(LocalFrameView*, const IntPoint&);
 #endif
 
     Timer m_autoscrollTimer;
-    RenderBox* m_autoscrollRenderer;
-    AutoscrollType m_autoscrollType;
+    SingleThreadWeakPtr<RenderBox> m_autoscrollRenderer;
+    AutoscrollType m_autoscrollType { AutoscrollType::None };
     IntPoint m_dragAndDropAutoscrollReferencePosition;
-    WallTime m_dragAndDropAutoscrollStartTime;
+    MonotonicTime m_dragAndDropAutoscrollStartTime;
 #if ENABLE(PAN_SCROLLING)
     IntPoint m_panScrollStartPos;
 #endif

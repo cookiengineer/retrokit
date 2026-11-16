@@ -28,6 +28,7 @@
 
 #include "APIData.h"
 #include "WKAPICast.h"
+#include <wtf/StdLibExtras.h>
 
 WKTypeID WKDataGetTypeID()
 {
@@ -36,15 +37,20 @@ WKTypeID WKDataGetTypeID()
 
 WKDataRef WKDataCreate(const unsigned char* bytes, size_t size)
 {
-    return WebKit::toAPI(&API::Data::create(bytes, size).leakRef());
+    return WebKit::toAPILeakingRef(API::Data::create(unsafeMakeSpan(bytes, size)));
 }
 
 const unsigned char* WKDataGetBytes(WKDataRef dataRef)
 {
-    return WebKit::toImpl(dataRef)->bytes();
+    return WebKit::toImpl(dataRef)->span().data();
 }
 
 size_t WKDataGetSize(WKDataRef dataRef)
 {
     return WebKit::toImpl(dataRef)->size();
+}
+
+std::span<const uint8_t> WKDataGetSpan(WKDataRef dataRef)
+{
+    return unsafeMakeSpan(byteCast<uint8_t>(WKDataGetBytes(dataRef)), WKDataGetSize(dataRef));
 }

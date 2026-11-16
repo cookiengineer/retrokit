@@ -36,22 +36,19 @@
 #include "JSDOMConvertNullable.h"
 #include "JSDOMConvertStrings.h"
 #include "JSDocument.h"
-
+#include "WebCoreOpaqueRootInlines.h"
+#include "XMLHttpRequestUpload.h"
 
 namespace WebCore {
 using namespace JSC;
 
 template<typename Visitor>
-void JSXMLHttpRequest::visitAdditionalChildren(Visitor& visitor)
+void JSXMLHttpRequest::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    if (auto* upload = wrapped().optionalUpload())
-        visitor.addOpaqueRoot(upload);
-
-    if (auto* responseDocument = wrapped().optionalResponseXML())
-        visitor.addOpaqueRoot(responseDocument);
+    wrapped().visitAdditionalChildrenInGCThread(visitor);
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSXMLHttpRequest);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSXMLHttpRequest);
 
 JSValue JSXMLHttpRequest::response(JSGlobalObject& lexicalGlobalObject) const
 {
@@ -70,7 +67,7 @@ JSValue JSXMLHttpRequest::response(JSGlobalObject& lexicalGlobalObject) const
     case XMLHttpRequest::ResponseType::EmptyString:
     case XMLHttpRequest::ResponseType::Text: {
         auto scope = DECLARE_THROW_SCOPE(lexicalGlobalObject.vm());
-        return cacheResult(toJS<IDLNullable<IDLUSVString>>(lexicalGlobalObject, scope, wrapped().responseText()));
+        return cacheResult(toJS<IDLNullable<IDLUSVString>>(lexicalGlobalObject, scope, protect(wrapped())->responseText()));
     }
     default:
         break;
@@ -87,28 +84,28 @@ JSValue JSXMLHttpRequest::response(JSGlobalObject& lexicalGlobalObject) const
         return jsUndefined();
 
     case XMLHttpRequest::ResponseType::Json:
-        value = toJS<IDLJSON>(*globalObject(), wrapped().responseTextIgnoringResponseType());
+        value = toJS<IDLJSON>(*realm(), protect(wrapped())->responseTextIgnoringResponseType());
         if (!value)
             value = jsNull();
         break;
 
     case XMLHttpRequest::ResponseType::Document: {
-        auto document = wrapped().responseXML();
+        auto document = protect(wrapped())->responseXML();
         ASSERT(!document.hasException());
-        value = toJS<IDLInterface<Document>>(lexicalGlobalObject, *globalObject(), document.releaseReturnValue());
+        value = toJS<IDLNullable<IDLInterface<Document>>>(lexicalGlobalObject, *realm(), document.releaseReturnValue());
         break;
     }
 
     case XMLHttpRequest::ResponseType::Blob:
-        value = toJSNewlyCreated<IDLInterface<Blob>>(lexicalGlobalObject, *globalObject(), wrapped().createResponseBlob());
+        value = toJSNewlyCreated<IDLInterface<Blob>>(lexicalGlobalObject, *realm(), protect(wrapped())->createResponseBlob());
         break;
 
     case XMLHttpRequest::ResponseType::Arraybuffer:
-        value = toJS<IDLInterface<ArrayBuffer>>(lexicalGlobalObject, *globalObject(), wrapped().createResponseArrayBuffer());
+        value = toJS<IDLNullable<IDLInterface<ArrayBuffer>>>(lexicalGlobalObject, *realm(), protect(wrapped())->createResponseArrayBuffer());
         break;
     }
 
-    wrapped().didCacheResponse();
+    protect(wrapped())->didCacheResponse();
     return cacheResult(value);
 }
 

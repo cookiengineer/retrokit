@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,6 +30,8 @@
 
 #include "PlatformXRSystemProxy.h"
 #include "XRDeviceInfo.h"
+#include <WebCore/SecurityOriginData.h>
+#include <WebCore/XRCanvasConfiguration.h>
 
 using namespace PlatformXR;
 
@@ -37,18 +39,34 @@ namespace WebKit {
 
 Ref<XRDeviceProxy> XRDeviceProxy::create(XRDeviceInfo&& deviceInfo, PlatformXRSystemProxy& xrSystem)
 {
-    return adoptRef(*new XRDeviceProxy(WTFMove(deviceInfo), xrSystem));
+    return adoptRef(*new XRDeviceProxy(WTF::move(deviceInfo), xrSystem));
 }
 
 XRDeviceProxy::XRDeviceProxy(XRDeviceInfo&& deviceInfo, PlatformXRSystemProxy& xrSystem)
-    : m_xrSystem(makeWeakPtr(xrSystem))
+    : m_identifier(deviceInfo.identifier)
+    , m_xrSystem(xrSystem)
 {
-    m_identifier = deviceInfo.identifier;
     m_supportsStereoRendering = deviceInfo.supportsStereoRendering;
     m_supportsOrientationTracking = deviceInfo.supportsOrientationTracking;
     m_recommendedResolution = deviceInfo.recommendedResolution;
-    if (!deviceInfo.features.isEmpty())
-        setEnabledFeatures(SessionMode::ImmersiveVr, deviceInfo.features);
+    m_minimumNearClipPlane = deviceInfo.minimumNearClipPlane;
+#if ENABLE(WEBXR_LAYERS)
+    m_maxRenderLayers = deviceInfo.maxRenderLayers;
+#endif
+    if (!deviceInfo.vrFeatures.contains(SessionFeature::WebGPU))
+        deviceInfo.vrFeatures.append(SessionFeature::WebGPU);
+#if ENABLE(WEBXR_LAYERS)
+    // Empty feature arrays signals that the feature is unsupported. Don't add support for layers if a list is empty.
+    // FIXME: Move these to the per-platform setup that populates vrFeatures & arFeatures. (https://bugs.webkit.org/show_bug.cgi?id=305458)
+    if (!deviceInfo.vrFeatures.isEmpty() && !deviceInfo.vrFeatures.contains(SessionFeature::Layers))
+        deviceInfo.vrFeatures.append(SessionFeature::Layers);
+    if (!deviceInfo.arFeatures.isEmpty() && !deviceInfo.arFeatures.contains(SessionFeature::Layers))
+        deviceInfo.arFeatures.append(SessionFeature::Layers);
+#endif
+    if (!deviceInfo.vrFeatures.isEmpty())
+        setSupportedFeatures(SessionMode::ImmersiveVr, deviceInfo.vrFeatures);
+    if (!deviceInfo.arFeatures.isEmpty())
+        setSupportedFeatures(SessionMode::ImmersiveAr, deviceInfo.arFeatures);
 }
 
 void XRDeviceProxy::sessionDidEnd()
@@ -57,25 +75,58 @@ void XRDeviceProxy::sessionDidEnd()
         trackingAndRenderingClient()->sessionDidEnd();
 }
 
-void XRDeviceProxy::initializeTrackingAndRendering(PlatformXR::SessionMode sessionMode)
+void XRDeviceProxy::updateSessionVisibilityState(PlatformXR::VisibilityState visibilityState)
 {
-    if (sessionMode != PlatformXR::SessionMode::ImmersiveVr)
+    if (trackingAndRenderingClient())
+        trackingAndRenderingClient()->updateSessionVisibilityState(visibilityState);
+}
+
+void XRDeviceProxy::sessionDidInitializeRendering(uint32_t width, uint32_t height, uint32_t arrayLength)
+{
+    if (trackingAndRenderingClient())
+        trackingAndRenderingClient()->sessionDidInitializeRendering(width, height, arrayLength);
+}
+
+void XRDeviceProxy::initializeTrackingAndRendering(const WebCore::SecurityOriginData& securityOriginData, PlatformXR::SessionMode sessionMode, const PlatformXR::Device::FeatureList& requestedFeatures, std::optional<WebCore::XRCanvasConfiguration>&& init)
+{
+    if (!isImmersive(sessionMode))
         return;
 
-    if (m_xrSystem)
-        m_xrSystem->initializeTrackingAndRendering();
+    RefPtr xrSystem = m_xrSystem.get();
+    if (!xrSystem)
+        return;
+
+    xrSystem->initializeTrackingAndRendering(WTF::move(init));
+
+    // This is called from the constructor of WebXRSession. Since sessionDidInitializeInputSources()
+    // ends up calling queueTaskKeepingObjectAlive() which refs the WebXRSession object, we
+    // should delay this call after the WebXRSession has finished construction.
+    callOnMainRunLoop([this, weakThis = ThreadSafeWeakPtr { *this }]() {
+        auto protectedThis = weakThis.get();
+        if (!protectedThis)
+            return;
+
+        if (trackingAndRenderingClient())
+            trackingAndRenderingClient()->sessionDidInitializeInputSources({ });
+    });
 }
 
 void XRDeviceProxy::shutDownTrackingAndRendering()
 {
-    if (m_xrSystem)
-        m_xrSystem->shutDownTrackingAndRendering();
+    if (RefPtr xrSystem = m_xrSystem.get())
+        xrSystem->shutDownTrackingAndRendering();
+}
+
+void XRDeviceProxy::didCompleteShutdownTriggeredBySystem()
+{
+    if (RefPtr xrSystem = m_xrSystem.get())
+        xrSystem->didCompleteShutdownTriggeredBySystem();
 }
 
 Vector<PlatformXR::Device::ViewData> XRDeviceProxy::views(SessionMode mode) const
 {
     Vector<Device::ViewData> views;
-    if (m_supportsStereoRendering && mode == SessionMode::ImmersiveVr) {
+    if (m_supportsStereoRendering && isImmersive(mode)) {
         views.append({ .active = true, .eye = Eye::Left });
         views.append({ .active = true, .eye = Eye::Right });
     } else
@@ -83,22 +134,77 @@ Vector<PlatformXR::Device::ViewData> XRDeviceProxy::views(SessionMode mode) cons
     return views;
 }
 
-void XRDeviceProxy::requestFrame(PlatformXR::Device::RequestFrameCallback&& callback)
+void XRDeviceProxy::requestFrame(std::optional<PlatformXR::RequestData>&& requestData, PlatformXR::Device::RequestFrameCallback&& callback)
 {
-    if (m_xrSystem)
-        m_xrSystem->requestFrame(WTFMove(callback));
+    if (RefPtr xrSystem = m_xrSystem.get())
+        xrSystem->requestFrame(WTF::move(requestData), WTF::move(callback));
+    else
+        callback({ });
 }
 
-std::optional<PlatformXR::LayerHandle> XRDeviceProxy::createLayerProjection(uint32_t width, uint32_t height, bool alpha)
+std::optional<PlatformXR::LayerInfo> XRDeviceProxy::createLayerProjection(uint32_t width, uint32_t height, bool alpha)
 {
-    return m_xrSystem ? m_xrSystem->createLayerProjection(width, height, alpha) : std::nullopt;
+    RefPtr xrSystem = m_xrSystem.get();
+    return xrSystem ? xrSystem->createLayerProjection(width, height, alpha) : std::nullopt;
 }
 
-void XRDeviceProxy::submitFrame(Vector<PlatformXR::Device::Layer>&&)
+#if ENABLE(WEBXR_LAYERS)
+std::optional<PlatformXR::LayerInfo> XRDeviceProxy::createCompositionLayer(PlatformXR::CompositionLayerType type, WebCore::IntSize size, PlatformXR::LayerLayout layout)
 {
-    if (m_xrSystem)
-        m_xrSystem->submitFrame();
+    RefPtr xrSystem = m_xrSystem.get();
+    return xrSystem ? xrSystem->createCompositionLayer(type, size, layout) : std::nullopt;
 }
+#endif
+
+void XRDeviceProxy::submitFrame(Vector<PlatformXR::DeviceLayer>&& layers)
+{
+    if (RefPtr xrSystem = m_xrSystem.get()) {
+#if USE(OPENXR)
+        xrSystem->submitFrame(WTF::move(layers));
+#else
+        UNUSED_PARAM(layers);
+        xrSystem->submitFrame();
+#endif
+    }
+}
+
+#if ENABLE(WEBXR_HIT_TEST)
+void XRDeviceProxy::requestHitTestSource(const PlatformXR::HitTestOptions& init, CompletionHandler<void(WebCore::ExceptionOr<PlatformXR::HitTestSource>)>&& completionHandler)
+{
+    RefPtr xrSystem = m_xrSystem.get();
+    if (!xrSystem) {
+        completionHandler(WebCore::Exception { WebCore::ExceptionCode::InvalidStateError });
+        return;
+    }
+    xrSystem->requestHitTestSource(init, WTF::move(completionHandler));
+}
+
+void XRDeviceProxy::deleteHitTestSource(PlatformXR::HitTestSource source)
+{
+    RefPtr xrSystem = m_xrSystem.get();
+    if (!xrSystem)
+        return;
+    xrSystem->deleteHitTestSource(source);
+}
+
+void XRDeviceProxy::requestTransientInputHitTestSource(const PlatformXR::TransientInputHitTestOptions& init, CompletionHandler<void(WebCore::ExceptionOr<PlatformXR::TransientInputHitTestSource>)>&& completionHandler)
+{
+    RefPtr xrSystem = m_xrSystem.get();
+    if (!xrSystem) {
+        completionHandler(WebCore::Exception { WebCore::ExceptionCode::InvalidStateError });
+        return;
+    }
+    xrSystem->requestTransientInputHitTestSource(init, WTF::move(completionHandler));
+}
+
+void XRDeviceProxy::deleteTransientInputHitTestSource(PlatformXR::TransientInputHitTestSource source)
+{
+    RefPtr xrSystem = m_xrSystem.get();
+    if (!xrSystem)
+        return;
+    xrSystem->deleteTransientInputHitTestSource(source);
+}
+#endif
 
 } // namespace WebKit
 

@@ -52,11 +52,11 @@ public:
     std::optional<double> heading() const { return m_corePosition.heading; }
     std::optional<double> speed() const { return m_corePosition.speed; }
 
-    const WebCore::GeolocationPositionData& corePosition() const { return m_corePosition; }
+    const WebCore::GeolocationPositionData& corePosition() const LIFETIME_BOUND { return m_corePosition; }
 
 private:
     explicit WebGeolocationPosition(WebCore::GeolocationPositionData&& geolocationPosition)
-        : m_corePosition(WTFMove(geolocationPosition))
+        : m_corePosition(WTF::move(geolocationPosition))
     {
     }
 
@@ -64,5 +64,9 @@ private:
 };
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebGeolocationPosition)
+static bool isType(const API::Object& object) { return object.type() == API::Object::Type::GeolocationPosition; }
+SPECIALIZE_TYPE_TRAITS_END()
 
 #endif // WebGeolocationPosition_h

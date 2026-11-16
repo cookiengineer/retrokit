@@ -29,25 +29,24 @@
 
 #pragma once
 
-#include "LayoutSize.h"
-#include "Shape.h"
+#include <WebCore/LayoutShape.h>
+#include <WebCore/LayoutSize.h>
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class RenderBlockFlow;
 class RenderBox;
-class StyleImage;
 class FloatingObject;
 
+Ref<const LayoutShape> makeShapeForShapeOutside(const RenderBox&);
+
 class ShapeOutsideDeltas final {
+    WTF_MAKE_TZONE_ALLOCATED(ShapeOutsideDeltas);
 public:
-    ShapeOutsideDeltas()
-        : m_lineOverlapsShape(false)
-        , m_isValid(false)
-    {
-    }
+    ShapeOutsideDeltas() = default;
 
     ShapeOutsideDeltas(LayoutUnit leftMarginBoxDelta, LayoutUnit rightMarginBoxDelta, bool lineOverlapsShape, LayoutUnit borderBoxLineTop, LayoutUnit lineHeight)
         : m_leftMarginBoxDelta(leftMarginBoxDelta)
@@ -74,12 +73,12 @@ private:
     LayoutUnit m_rightMarginBoxDelta;
     LayoutUnit m_borderBoxLineTop;
     LayoutUnit m_lineHeight;
-    unsigned m_lineOverlapsShape : 1;
-    unsigned m_isValid : 1;
+    unsigned m_lineOverlapsShape : 1 { false };
+    unsigned m_isValid : 1 { false };
 };
 
 class ShapeOutsideInfo final {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(ShapeOutsideInfo);
 public:
     ShapeOutsideInfo(const RenderBox& renderer)
         : m_renderer(renderer)
@@ -90,52 +89,26 @@ public:
 
     ShapeOutsideDeltas computeDeltasForContainingBlockLine(const RenderBlockFlow&, const FloatingObject&, LayoutUnit lineTop, LayoutUnit lineHeight);
 
-    void setReferenceBoxLogicalSize(LayoutSize);
+    void invalidateForSizeChangeIfNeeded();
 
-    LayoutUnit shapeLogicalTop() const { return computedShape().shapeMarginLogicalBoundingBox().y() + logicalTopOffset(); }
-    LayoutUnit shapeLogicalBottom() const { return computedShape().shapeMarginLogicalBoundingBox().maxY() + logicalTopOffset(); }
-    LayoutUnit shapeLogicalLeft() const { return computedShape().shapeMarginLogicalBoundingBox().x() + logicalLeftOffset(); }
-    LayoutUnit shapeLogicalRight() const { return computedShape().shapeMarginLogicalBoundingBox().maxX() + logicalLeftOffset(); }
-    LayoutUnit shapeLogicalWidth() const { return computedShape().shapeMarginLogicalBoundingBox().width(); }
-    LayoutUnit shapeLogicalHeight() const { return computedShape().shapeMarginLogicalBoundingBox().height(); }
+    LayoutUnit shapeLogicalBottom() const { return computedShape().shapeMarginLogicalBoundingBox().maxY(); }
 
     void markShapeAsDirty() { m_shape = nullptr; }
     bool isShapeDirty() { return !m_shape; }
 
     LayoutRect computedShapePhysicalBoundingBox() const;
-    FloatPoint shapeToRendererPoint(const FloatPoint&) const;
-    FloatSize shapeToRendererSize(const FloatSize&) const;
+    FloatPoint NODELETE shapeToRendererPoint(const FloatPoint&) const;
 
-    const Shape& computedShape() const;
-
-    static ShapeOutsideInfo& ensureInfo(const RenderBox& key)
-    {
-        InfoMap& infoMap = ShapeOutsideInfo::infoMap();
-        if (ShapeOutsideInfo* info = infoMap.get(&key))
-            return *info;
-        auto result = infoMap.add(&key, makeUnique<ShapeOutsideInfo>(key));
-        return *result.iterator->value;
-    }
-    static void removeInfo(const RenderBox& key) { infoMap().remove(&key); }
-    static ShapeOutsideInfo* info(const RenderBox& key) { return infoMap().get(&key); }
+    const LayoutShape& computedShape() const;
 
 private:
-    std::unique_ptr<Shape> createShapeForImage(StyleImage*, float shapeImageThreshold, WritingMode, float margin) const;
-
     LayoutUnit logicalTopOffset() const;
     LayoutUnit logicalLeftOffset() const;
 
-    typedef HashMap<const RenderBox*, std::unique_ptr<ShapeOutsideInfo>> InfoMap;
-    static InfoMap& infoMap()
-    {
-        static NeverDestroyed<InfoMap> staticInfoMap;
-        return staticInfoMap;
-    }
-
     const RenderBox& m_renderer;
 
-    mutable std::unique_ptr<Shape> m_shape;
-    LayoutSize m_referenceBoxLogicalSize;
+    mutable RefPtr<const LayoutShape> m_shape;
+    LayoutSize m_cachedShapeLogicalSize;
 
     ShapeOutsideDeltas m_shapeOutsideDeltas;
 };

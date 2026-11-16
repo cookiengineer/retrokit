@@ -14,7 +14,7 @@
 
 using namespace angle;
 
-class PixmapTest : public ANGLETest
+class PixmapTest : public ANGLETest<>
 {
   protected:
     PixmapTest()
@@ -152,6 +152,8 @@ TEST_P(PixmapTest, BindTexImage)
 
     // This test fails flakily on Linux intel when run with many other tests.
     ANGLE_SKIP_TEST_IF(IsLinux() && IsIntel());
+    // http://anglebug.com/42263925
+    ANGLE_SKIP_TEST_IF(IsLinux() && IsAMD() && IsDesktopOpenGL());
 
     EGLWindow *window = getEGLWindow();
 

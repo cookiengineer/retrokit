@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,9 +25,9 @@
 
 #pragma once
 
-#include "DataReference.h"
 #include "LegacyCustomProtocolID.h"
 #include "MessageReceiver.h"
+#include <wtf/CheckedRef.h>
 #include <wtf/WeakPtr.h>
 
 #if PLATFORM(COCOA)
@@ -44,11 +44,12 @@ class ResourceResponse;
 
 namespace WebKit {
 
+enum class CacheStoragePolicy : uint8_t;
 class NetworkProcessProxy;
 
-class LegacyCustomProtocolManagerProxy : public IPC::MessageReceiver {
+class LegacyCustomProtocolManagerProxy final : public IPC::MessageReceiver {
 public:
-    LegacyCustomProtocolManagerProxy(NetworkProcessProxy&);
+    explicit LegacyCustomProtocolManagerProxy(NetworkProcessProxy&);
     ~LegacyCustomProtocolManagerProxy();
 
     void startLoading(LegacyCustomProtocolID, const WebCore::ResourceRequest&);
@@ -57,16 +58,19 @@ public:
     void invalidate();
 
     void wasRedirectedToRequest(LegacyCustomProtocolID, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&);
-    void didReceiveResponse(LegacyCustomProtocolID, const WebCore::ResourceResponse&, uint32_t cacheStoragePolicy);
-    void didLoadData(LegacyCustomProtocolID, const IPC::DataReference&);
+    void didReceiveResponse(LegacyCustomProtocolID, const WebCore::ResourceResponse&, CacheStoragePolicy);
+    void didLoadData(LegacyCustomProtocolID, std::span<const uint8_t>);
     void didFailWithError(LegacyCustomProtocolID, const WebCore::ResourceError&);
     void didFinishLoading(LegacyCustomProtocolID);
+
+    void ref() const final;
+    void deref() const final;
 
 private:
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
 
-    NetworkProcessProxy& m_networkProcessProxy;
+    WeakRef<NetworkProcessProxy> m_networkProcessProxy;
 };
 
 } // namespace WebKit

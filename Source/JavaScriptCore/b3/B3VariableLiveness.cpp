@@ -28,20 +28,18 @@
 
 #if ENABLE(B3_JIT)
 
-#include "B3TimingScope.h"
+#include "CompilerTimingScope.h"
 
 namespace JSC { namespace B3 {
 
 VariableLiveness::VariableLiveness(Procedure& proc)
     : WTF::Liveness<VariableLivenessAdapter>(proc.cfg(), proc)
 {
-    TimingScope timingScope("B3::VariableLiveness");
+    CompilerTimingScope timingScope("B3"_s, "VariableLiveness"_s);
     compute();
 }
 
-VariableLiveness::~VariableLiveness()
-{
-}
+VariableLiveness::~VariableLiveness() = default;
 
 } } // namespace JSC::B3
 

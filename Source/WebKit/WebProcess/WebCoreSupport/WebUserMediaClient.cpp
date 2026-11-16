@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 Igalia S.L.
- * Copyright (C) 2016-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2025 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -22,47 +22,65 @@
 
 #if ENABLE(MEDIA_STREAM)
 
+#include "MessageSenderInlines.h"
 #include "UserMediaPermissionRequestManager.h"
 #include "WebPage.h"
+#include "WebPageProxyMessages.h"
 #include <WebCore/UserMediaController.h>
 #include <WebCore/UserMediaRequest.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 using namespace WebCore;
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebUserMediaClient);
 
 WebUserMediaClient::WebUserMediaClient(WebPage& page)
     : m_page(page)
 {
 }
 
-void WebUserMediaClient::pageDestroyed()
-{
-    delete this;
-}
-
 void WebUserMediaClient::requestUserMediaAccess(UserMediaRequest& request)
 {
-    m_page.userMediaPermissionRequestManager().startUserMediaRequest(request);
+    if (RefPtr page = m_page.get())
+        page->userMediaPermissionRequestManager().startUserMediaRequest(request);
 }
 
 void WebUserMediaClient::cancelUserMediaAccessRequest(UserMediaRequest& request)
 {
-    m_page.userMediaPermissionRequestManager().cancelUserMediaRequest(request);
+    if (RefPtr page = m_page.get())
+        page->userMediaPermissionRequestManager().cancelUserMediaRequest(request);
 }
 
-void WebUserMediaClient::enumerateMediaDevices(Document& document, CompletionHandler<void(const Vector<CaptureDevice>&, const String&)>&& completionHandler)
+void WebUserMediaClient::enumerateMediaDevices(Document& document, UserMediaClient::EnumerateDevicesCallback&& completionHandler)
 {
-    m_page.userMediaPermissionRequestManager().enumerateMediaDevices(document, WTFMove(completionHandler));
+    if (RefPtr page = m_page.get())
+        page->userMediaPermissionRequestManager().enumerateMediaDevices(document, WTF::move(completionHandler));
 }
 
 WebUserMediaClient::DeviceChangeObserverToken WebUserMediaClient::addDeviceChangeObserver(WTF::Function<void()>&& observer)
 {
-    return m_page.userMediaPermissionRequestManager().addDeviceChangeObserver(WTFMove(observer));
+    if (RefPtr page = m_page.get())
+        return page->userMediaPermissionRequestManager().addDeviceChangeObserver(WTF::move(observer));
+    return DeviceChangeObserverToken { 0 };
 }
 
 void WebUserMediaClient::removeDeviceChangeObserver(DeviceChangeObserverToken token)
 {
-    m_page.userMediaPermissionRequestManager().removeDeviceChangeObserver(token);
+    if (RefPtr page = m_page.get())
+        page->userMediaPermissionRequestManager().removeDeviceChangeObserver(token);
+}
+
+void WebUserMediaClient::updateCaptureState(const WebCore::Document& document, bool isActive, WebCore::MediaProducerMediaCaptureKind kind, CompletionHandler<void(std::optional<WebCore::Exception>&&)>&& completionHandler)
+{
+    if (RefPtr page = m_page.get())
+        page->userMediaPermissionRequestManager().updateCaptureState(document, isActive, kind, WTF::move(completionHandler));
+}
+
+void WebUserMediaClient::setShouldListenToVoiceActivity(bool shouldListen)
+{
+    if (RefPtr page = m_page.get())
+        page->send(Messages::WebPageProxy::SetShouldListenToVoiceActivity { shouldListen });
 }
 
 } // namespace WebKit;

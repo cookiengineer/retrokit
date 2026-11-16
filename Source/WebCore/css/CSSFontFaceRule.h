@@ -21,13 +21,12 @@
 
 #pragma once
 
-#include "CSSRule.h"
+#include <WebCore/CSSRule.h>
 
 namespace WebCore {
 
-class CSSStyleDeclaration;
+class CSSFontFaceDescriptors;
 class StyleRuleFontFace;
-class StyleRuleCSSStyleDeclaration;
 
 class CSSFontFaceRule final : public CSSRule {
 public:
@@ -35,19 +34,21 @@ public:
 
     virtual ~CSSFontFaceRule();
 
-    WEBCORE_EXPORT CSSStyleDeclaration& style();
+    WEBCORE_EXPORT CSSFontFaceDescriptors& style();
 
 private:
     CSSFontFaceRule(StyleRuleFontFace&, CSSStyleSheet* parent);
 
-    CSSRule::Type type() const final { return FONT_FACE_RULE; }
+    StyleRuleType styleRuleType() const final { return StyleRuleType::FontFace; }
     String cssText() const final;
+    String cssText(const CSS::SerializationContext&) const final;
+    String cssTextInternal(const String& declarations) const;
     void reattach(StyleRuleBase&) final;
 
     Ref<StyleRuleFontFace> m_fontFaceRule;
-    RefPtr<StyleRuleCSSStyleDeclaration> m_propertiesCSSOMWrapper;
+    RefPtr<CSSFontFaceDescriptors> m_propertiesCSSOMWrapper;
 };
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_CSS_RULE(CSSFontFaceRule, CSSRule::FONT_FACE_RULE)
+SPECIALIZE_TYPE_TRAITS_CSS_RULE(CSSFontFaceRule, StyleRuleType::FontFace)

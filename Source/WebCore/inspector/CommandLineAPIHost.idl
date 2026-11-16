@@ -32,22 +32,21 @@
 
 [
     LegacyNoInterfaceObject,
-    ImplementationLacksVTable
 ] interface CommandLineAPIHost {
-    undefined clearConsoleMessages();
     undefined copyText(DOMString text);
 
-    [CallWith=GlobalObject] undefined inspect(any objectToInspect, any hints);
-    [CallWith=GlobalObject] any inspectedObject();
+    [CallWith=CurrentGlobalObject] undefined inspect(any objectToInspect, any hints);
+    [CallWith=CurrentGlobalObject] any inspectedObject();
 
-    [CallWith=GlobalObject] record<DOMString, sequence<ListenerEntry>> getEventListeners(EventTarget target);
+    [CallWith=CurrentGlobalObject] record<DOMString, sequence<ListenerEntry>> getEventListeners(EventTarget target);
 
-    DOMString databaseId(Database database);
+    [Conditional=WEB_RTC, CallWith=CurrentGlobalObject] undefined gatherRTCLogs(RTCLogsCallback? callback);
+
     DOMString storageId(Storage storage);
 };
 
 [
-    JSGenerateToJSObject
+    JSGenerateToJSObject,
 ] dictionary ListenerEntry {
     required object listener;
     required boolean useCapture;

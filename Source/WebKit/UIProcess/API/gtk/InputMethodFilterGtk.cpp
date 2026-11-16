@@ -20,10 +20,10 @@
 #include "config.h"
 #include "InputMethodFilter.h"
 
+#include "GUniquePtrGtk.h"
 #include "WebKitInputMethodContextImplGtk.h"
 #include "WebKitInputMethodContextPrivate.h"
 #include "WebKitWebViewBaseInternal.h"
-#include <WebCore/GUniquePtrGtk.h>
 #include <WebCore/IntRect.h>
 #include <gdk/gdk.h>
 #include <wtf/SetForScope.h>
@@ -43,7 +43,7 @@ IntRect InputMethodFilter::platformTransformCursorRectToViewCoordinates(const In
 bool InputMethodFilter::platformEventKeyIsKeyPress(PlatformEventKey* event) const
 {
 #if USE(GTK4)
-    if (UNLIKELY(m_filteringContext.isFakeKeyEventForTesting))
+    if (m_filteringContext.isFakeKeyEventForTesting) [[unlikely]]
         return reinterpret_cast<KeyEvent*>(event)->type == GDK_KEY_PRESS;
 #endif
     return gdk_event_get_event_type(event) == GDK_KEY_PRESS;
@@ -61,7 +61,7 @@ InputMethodFilter::FilterResult InputMethodFilter::filterKeyEvent(unsigned type,
     // In GTK4 we can't create GdkEvents, so here we create a custom KeyEvent struct that is passed
     // as a GdkEvent to the filter. This is only called from tests, and tests know they are receiving
     // a KeyEvent struct instead of an actual GdkEvent.
-    SetForScope<bool> isFakeKeyEventForTesting(m_filteringContext.isFakeKeyEventForTesting, true);
+    SetForScope isFakeKeyEventForTesting(m_filteringContext.isFakeKeyEventForTesting, true);
     KeyEvent event { type, keyval, modifiers };
     return filterKeyEvent(reinterpret_cast<GdkEvent*>(&event));
 #else

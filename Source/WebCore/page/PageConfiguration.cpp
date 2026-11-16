@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,54 +27,119 @@
 #include "PageConfiguration.h"
 
 #include "AlternativeTextClient.h"
-#include "ApplicationCacheStorage.h"
+#include "AttachmentElementClient.h"
 #include "BackForwardClient.h"
+#include "BadgeClient.h"
 #include "BroadcastChannelRegistry.h"
 #include "CacheStorageProvider.h"
+#include "ChromeClient.h"
+#include "ContextMenuClient.h"
 #include "CookieJar.h"
+#include "CryptoClient.h"
 #include "DatabaseProvider.h"
 #include "DiagnosticLoggingClient.h"
+#include "DocumentSyncClient.h"
 #include "DragClient.h"
 #include "EditorClient.h"
-#include "FrameLoaderClient.h"
-#include "LibWebRTCProvider.h"
-#include "MediaRecorderProvider.h"
+#include "Frame.h"
+#include "HistoryItem.h"
+#include "InspectorBackendClient.h"
+#include "LocalFrameLoaderClient.h"
+#include "ModelPlayerProvider.h"
 #include "PerformanceLoggingClient.h"
-#include "PermissionController.h"
 #include "PluginInfoProvider.h"
 #include "ProgressTrackerClient.h"
+#include "RemoteFrameClient.h"
+#include "ScreenOrientationManager.h"
 #include "SocketProvider.h"
 #include "SpeechRecognitionProvider.h"
 #include "SpeechSynthesisClient.h"
 #include "StorageNamespaceProvider.h"
+#include "StorageProvider.h"
 #include "UserContentController.h"
 #include "UserContentURLPattern.h"
 #include "ValidationMessageClient.h"
 #include "VisitedLinkStore.h"
-#if ENABLE(WEBGL)
-#include "WebGLStateTracker.h"
-#endif
+#include "WebRTCProvider.h"
+#include <wtf/TZoneMallocInlines.h>
 #if ENABLE(WEB_AUTHN)
 #include "AuthenticatorCoordinatorClient.h"
+#include "CredentialRequestCoordinatorClient.h"
+#endif
+#if ENABLE(APPLE_PAY)
+#include "PaymentCoordinatorClient.h"
 #endif
 
 namespace WebCore {
 
-PageConfiguration::PageConfiguration(PAL::SessionID sessionID, UniqueRef<EditorClient>&& editorClient, Ref<SocketProvider>&& socketProvider, UniqueRef<LibWebRTCProvider>&& libWebRTCProvider, Ref<CacheStorageProvider>&& cacheStorageProvider, Ref<UserContentProvider>&& userContentProvider, Ref<BackForwardClient>&& backForwardClient, Ref<CookieJar>&& cookieJar, UniqueRef<ProgressTrackerClient>&& progressTrackerClient, UniqueRef<FrameLoaderClient>&& loaderClientForMainFrame, UniqueRef<SpeechRecognitionProvider>&& speechRecognitionProvider, UniqueRef<MediaRecorderProvider>&& mediaRecorderProvider, Ref<BroadcastChannelRegistry>&& broadcastChannelRegistry, Ref<PermissionController>&& permissionController)
-    : sessionID(sessionID)
-    , editorClient(WTFMove(editorClient))
-    , socketProvider(WTFMove(socketProvider))
-    , libWebRTCProvider(WTFMove(libWebRTCProvider))
-    , progressTrackerClient(WTFMove(progressTrackerClient))
-    , backForwardClient(WTFMove(backForwardClient))
-    , cookieJar(WTFMove(cookieJar))
-    , loaderClientForMainFrame(WTFMove(loaderClientForMainFrame))
-    , cacheStorageProvider(WTFMove(cacheStorageProvider))
-    , userContentProvider(WTFMove(userContentProvider))
-    , broadcastChannelRegistry(WTFMove(broadcastChannelRegistry))
-    , speechRecognitionProvider(WTFMove(speechRecognitionProvider))
-    , mediaRecorderProvider(WTFMove(mediaRecorderProvider))
-    , permissionController(WTFMove(permissionController))
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PageConfiguration);
+
+PageConfiguration::PageConfiguration(
+    std::optional<PageIdentifier> identifier,
+    std::optional<BrowsingContextGroupIdentifier> browsingContextGroupIdentifier,
+    PAL::SessionID sessionID,
+    UniqueRef<EditorClient>&& editorClient,
+    Ref<SocketProvider>&& socketProvider,
+    UniqueRef<WebRTCProvider>&& webRTCProvider,
+    Ref<CacheStorageProvider>&& cacheStorageProvider,
+    Ref<UserContentProvider>&& userContentProvider,
+    Ref<BackForwardClient>&& backForwardClient,
+    Ref<CookieJar>&& cookieJar,
+    UniqueRef<ProgressTrackerClient>&& progressTrackerClient,
+    MainFrameCreationParameters&& mainFrameCreationParameters,
+    FrameIdentifier mainFrameIdentifier,
+    RefPtr<Frame>&& mainFrameOpener,
+    UniqueRef<SpeechRecognitionProvider>&& speechRecognitionProvider,
+    Ref<BroadcastChannelRegistry>&& broadcastChannelRegistry,
+    UniqueRef<StorageProvider>&& storageProvider,
+    Ref<ModelPlayerProvider>&& modelPlayerProvider,
+    Ref<BadgeClient>&& badgeClient,
+    Ref<HistoryItemClient>&& historyItemClient,
+#if ENABLE(CONTEXT_MENUS)
+    UniqueRef<ContextMenuClient>&& contextMenuClient,
+#endif
+#if ENABLE(APPLE_PAY)
+    Ref<PaymentCoordinatorClient>&& paymentCoordinatorClient,
+#endif
+    UniqueRef<ChromeClient>&& chromeClient,
+    UniqueRef<CryptoClient>&& cryptoClient,
+    UniqueRef<DocumentSyncClient>&& documentSyncClient
+#if ENABLE(WEB_AUTHN)
+    , Ref<CredentialRequestCoordinatorClient>&& credentialRequestCoordinatorClient
+#endif
+)
+    : identifier(identifier)
+    , browsingContextGroupIdentifier(browsingContextGroupIdentifier)
+    , sessionID(sessionID)
+    , chromeClient(WTF::move(chromeClient))
+#if ENABLE(CONTEXT_MENUS)
+    , contextMenuClient(WTF::move(contextMenuClient))
+#endif
+    , editorClient(WTF::move(editorClient))
+    , socketProvider(WTF::move(socketProvider))
+#if ENABLE(APPLE_PAY)
+    , paymentCoordinatorClient(WTF::move(paymentCoordinatorClient))
+#endif
+    , webRTCProvider(WTF::move(webRTCProvider))
+    , progressTrackerClient(WTF::move(progressTrackerClient))
+    , backForwardClient(WTF::move(backForwardClient))
+    , cookieJar(WTF::move(cookieJar))
+    , mainFrameCreationParameters(WTF::move(mainFrameCreationParameters))
+    , mainFrameIdentifier(WTF::move(mainFrameIdentifier))
+    , mainFrameOpener(WTF::move(mainFrameOpener))
+    , cacheStorageProvider(WTF::move(cacheStorageProvider))
+    , userContentProvider(WTF::move(userContentProvider))
+    , broadcastChannelRegistry(WTF::move(broadcastChannelRegistry))
+    , speechRecognitionProvider(WTF::move(speechRecognitionProvider))
+    , storageProvider(WTF::move(storageProvider))
+    , modelPlayerProvider(WTF::move(modelPlayerProvider))
+    , badgeClient(WTF::move(badgeClient))
+    , historyItemClient(WTF::move(historyItemClient))
+    , cryptoClient(WTF::move(cryptoClient))
+    , documentSyncClient(WTF::move(documentSyncClient))
+#if ENABLE(WEB_AUTHN)
+    , credentialRequestCoordinatorClient(WTF::move(credentialRequestCoordinatorClient))
+#endif
 {
 }
 

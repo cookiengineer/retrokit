@@ -29,7 +29,7 @@
 #ifndef AudioBus_h
 #define AudioBus_h
 
-#include "AudioChannel.h"
+#include <WebCore/AudioChannel.h>
 #include <memory>
 #include <wtf/Noncopyable.h>
 #include <wtf/ThreadSafeRefCounted.h>
@@ -67,24 +67,24 @@ public:
     // allocate indicates whether or not to initially have the AudioChannels created with managed storage.
     // Normal usage is to pass true here, in which case the AudioChannels will memory-manage their own storage.
     // If allocate is false then setChannelMemory() has to be called later on for each channel before the AudioBus is useable...
-    WEBCORE_EXPORT static RefPtr<AudioBus> create(unsigned numberOfChannels, size_t length, bool allocate = true);
+    WEBCORE_EXPORT static Ref<AudioBus> create(unsigned numberOfChannels, size_t length, bool allocate = true);
 
     // Tells the given channel to use an externally allocated buffer.
-    WEBCORE_EXPORT void setChannelMemory(unsigned channelIndex, float* storage, size_t length);
+    WEBCORE_EXPORT void setChannelMemory(unsigned channelIndex, std::span<float> storage);
 
     // Channels
     unsigned numberOfChannels() const { return m_channels.size(); }
 
-    AudioChannel* channel(unsigned channel) { return m_channels[channel].get(); }
-    const AudioChannel* channel(unsigned channel) const { return m_channels[channel].get(); }
-    AudioChannel* channelByType(unsigned type);
-    const AudioChannel* channelByType(unsigned type) const;
+    AudioChannel* channel(unsigned channel) LIFETIME_BOUND { return m_channels[channel].get(); }
+    const AudioChannel* channel(unsigned channel) const LIFETIME_BOUND { return m_channels[channel].get(); }
+    AudioChannel* NODELETE channelByType(unsigned type) LIFETIME_BOUND;
+    const AudioChannel* channelByType(unsigned type) const LIFETIME_BOUND;
 
     // Number of sample-frames
     size_t length() const { return m_length; }
 
     // Reduce the number of frames available without changing the allocated memory size.
-    void setLength(size_t);
+    void NODELETE setLength(size_t);
 
     // Sample-rate : 0.0 if unknown or "don't care"
     float sampleRate() const { return m_sampleRate; }
@@ -94,27 +94,28 @@ public:
     void zero();
 
     // Clears the silent flag on all channels.
-    void clearSilentFlag();
+    void NODELETE clearSilentFlag();
 
     // Returns true if the silent bit is set on all channels.
-    bool isSilent() const;
+    bool NODELETE isSilent() const;
 
     // Returns true if the channel count and frame-size match.
-    bool topologyMatches(const AudioBus &sourceBus) const;
+    bool NODELETE topologyMatches(const AudioBus& sourceBus) const;
+
+    static Ref<AudioBus> createCopy(const AudioBus& sourceBus);
 
     // Creates a new buffer from a range in the source buffer.
     // 0 may be returned if the range does not fit in the sourceBuffer
-    static RefPtr<AudioBus> createBufferFromRange(const AudioBus* sourceBuffer, unsigned startFrame, unsigned endFrame);
-
+    static RefPtr<AudioBus> createBufferFromRange(const AudioBus& sourceBuffer, unsigned startFrame, unsigned endFrame);
 
     // Creates a new AudioBus by sample-rate converting sourceBus to the newSampleRate.
     // setSampleRate() must have been previously called on sourceBus.
     // Note: sample-rate conversion is already handled in the file-reading code for the mac port, so we don't need this.
-    static RefPtr<AudioBus> createBySampleRateConverting(const AudioBus* sourceBus, bool mixToMono, double newSampleRate);
+    static RefPtr<AudioBus> createBySampleRateConverting(const AudioBus& sourceBus, bool mixToMono, double newSampleRate);
 
     // Creates a new AudioBus by mixing all the channels down to mono.
     // If sourceBus is already mono, then the returned AudioBus will simply be a copy.
-    static RefPtr<AudioBus> createByMixingToMono(const AudioBus* sourceBus);
+    static Ref<AudioBus> createByMixingToMono(const AudioBus& sourceBus);
 
     // Scales all samples by the same amount.
     void scale(float scale);
@@ -137,7 +138,7 @@ public:
     void copyWithGainFrom(const AudioBus& sourceBus, float targetGain);
 
     // Copies the sourceBus by scaling with sample-accurate gain values.
-    void copyWithSampleAccurateGainValuesFrom(const AudioBus &sourceBus, float* gainValues, unsigned numberOfGainValues);
+    void copyWithSampleAccurateGainValuesFrom(const AudioBus &sourceBus, std::span<float> gainValues);
 
     // Returns maximum absolute value across all channels (useful for normalization).
     float maxAbsValue() const;
@@ -160,7 +161,6 @@ private:
     Vector<std::unique_ptr<AudioChannel>> m_channels;
     int m_layout;
     float m_busGain { 1 };
-    std::unique_ptr<AudioFloatArray> m_dezipperGainValues;
     bool m_isFirstTime { 0 };
     float m_sampleRate { 0 }; // 0.0 if unknown or N/A
 };

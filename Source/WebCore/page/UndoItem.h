@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,9 +25,10 @@
 
 #pragma once
 
+#include "EventTarget.h"
 #include "VoidCallback.h"
-#include <wtf/IsoMalloc.h>
-#include <wtf/RefCounted.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
@@ -36,45 +37,45 @@ namespace WebCore {
 class Document;
 class UndoManager;
 
-class UndoItem : public RefCounted<UndoItem>, public CanMakeWeakPtr<UndoItem> {
-    WTF_MAKE_ISO_ALLOCATED(UndoItem);
+class UndoItem : public RefCountedAndCanMakeWeakPtr<UndoItem> {
+    WTF_MAKE_TZONE_ALLOCATED(UndoItem);
 public:
     struct Init {
         String label;
-        RefPtr<VoidCallback> undo;
-        RefPtr<VoidCallback> redo;
+        Ref<VoidCallback> undo;
+        Ref<VoidCallback> redo;
     };
 
     static Ref<UndoItem> create(Init&& init)
     {
-        return adoptRef(*new UndoItem(WTFMove(init)));
+        return adoptRef(*new UndoItem(WTF::move(init)));
     }
 
-    bool isValid() const;
+    bool isValid() const { return !!m_undoManager; }
     void invalidate();
 
-    Document* document() const;
+    Document* NODELETE document() const;
 
-    UndoManager* undoManager() const;
+    UndoManager* NODELETE undoManager() const;
     void setUndoManager(UndoManager*);
 
-    const String& label() const { return m_label; }
+    const String& label() const LIFETIME_BOUND { return m_label; }
     VoidCallback& undoHandler() const { return m_undoHandler.get(); }
     VoidCallback& redoHandler() const { return m_redoHandler.get(); }
 
 private:
-    UndoItem(Init&& init)
-        : m_label(WTFMove(init.label))
-        , m_undoHandler(init.undo.releaseNonNull())
-        , m_redoHandler(init.redo.releaseNonNull())
+    explicit UndoItem(Init&& init)
+        : m_label(WTF::move(init.label))
+        , m_undoHandler(WTF::move(init.undo))
+        , m_redoHandler(WTF::move(init.redo))
     {
     }
 
     String m_label;
-    Ref<VoidCallback> m_undoHandler;
-    Ref<VoidCallback> m_redoHandler;
+    const Ref<VoidCallback> m_undoHandler;
+    const Ref<VoidCallback> m_redoHandler;
     WeakPtr<UndoManager> m_undoManager;
-    WeakPtr<Document> m_document;
+    WeakPtr<Document, WeakPtrImplWithEventTargetData> m_document;
 };
 
 } // namespace WebCore

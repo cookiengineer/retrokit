@@ -30,9 +30,12 @@
 
 #include "ScrollingStateTree.h"
 #include "ScrollingTree.h"
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ScrollingTreeOverflowScrollingNode);
 
 ScrollingTreeOverflowScrollingNode::ScrollingTreeOverflowScrollingNode(ScrollingTree& scrollingTree, ScrollingNodeID nodeID)
     : ScrollingTreeScrollingNode(scrollingTree, ScrollingNodeType::Overflow, nodeID)
@@ -41,9 +44,9 @@ ScrollingTreeOverflowScrollingNode::ScrollingTreeOverflowScrollingNode(Scrolling
 
 ScrollingTreeOverflowScrollingNode::~ScrollingTreeOverflowScrollingNode() = default;
 
-void ScrollingTreeOverflowScrollingNode::dumpProperties(TextStream& ts, ScrollingStateTreeAsTextBehavior behavior) const
+void ScrollingTreeOverflowScrollingNode::dumpProperties(TextStream& ts, OptionSet<ScrollingStateTreeAsTextBehavior> behavior) const
 {
-    ts << "overflow scrolling node";
+    ts << "overflow scrolling node"_s;
     ScrollingTreeScrollingNode::dumpProperties(ts, behavior);
 }
 

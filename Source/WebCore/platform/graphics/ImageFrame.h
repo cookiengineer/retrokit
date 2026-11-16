@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc.  All rights reserved.
+ * Copyright (C) 2016-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,51 +25,63 @@
 
 #pragma once
 
-#include "Color.h"
-#include "DecodingOptions.h"
-#include "ImageOrientation.h"
-#include "ImageTypes.h"
-#include "IntSize.h"
-#include "NativeImage.h"
+#include <WebCore/Color.h>
+#include <WebCore/DecodingOptions.h>
+#include <WebCore/ImageOrientation.h>
+#include <WebCore/ImageTypes.h>
+#include <WebCore/IntSize.h>
+#include <WebCore/NativeImage.h>
+#include <wtf/EnumeratedArray.h>
 #include <wtf/Seconds.h>
 
 namespace WebCore {
 
 class ImageFrame {
-    friend class ImageSource;
+    friend class BitmapImageSource;
+    friend class ImageDecoder;
+    friend class ImageDecoderCG;
 public:
     enum class Caching { Metadata, MetadataAndImage };
 
     ImageFrame();
-    ImageFrame(const ImageFrame& other) { operator=(other); }
+    ImageFrame(Ref<NativeImage>&&);
+    ImageFrame(const ImageFrame&);
 
     ~ImageFrame();
 
-    static const ImageFrame& defaultFrame();
+    static const ImageFrame& NODELETE defaultFrame();
 
-    ImageFrame& operator=(const ImageFrame& other);
+    ImageFrame& operator=(const ImageFrame&);
 
-    unsigned clearImage();
-    unsigned clear();
+    size_t clearImage(std::optional<DecodingDestination> = std::nullopt);
+    size_t clear();
 
-    void setDecodingStatus(DecodingStatus);
-    DecodingStatus decodingStatus() const;
+    void NODELETE setDecodingStatus(DecodingStatus);
+    DecodingStatus NODELETE decodingStatus() const;
 
     bool isInvalid() const { return m_decodingStatus == DecodingStatus::Invalid; }
     bool isPartial() const { return m_decodingStatus == DecodingStatus::Partial; }
     bool isComplete() const { return m_decodingStatus == DecodingStatus::Complete; }
 
-    IntSize size() const;
-    unsigned frameBytes() const { return hasNativeImage() ? (size().area() * sizeof(uint32_t)).value() : 0; }
-    SubsamplingLevel subsamplingLevel() const { return m_subsamplingLevel; }
+    void setSize(const IntSize& size) { m_size = size; }
+    IntSize size() const { return m_size; }
 
-    RefPtr<NativeImage> nativeImage() const { return m_nativeImage; }
+    size_t sizeInBytes() const;
 
-    void setOrientation(ImageOrientation orientation) { m_orientation = orientation; };
-    ImageOrientation orientation() const { return m_orientation; }
+    void setDensity(const FloatSize& density) { m_density = density; }
+    FloatSize density() const { return m_density; }
 
     void setDensityCorrectedSize(const IntSize& size) { m_densityCorrectedSize = size; }
     std::optional<IntSize> densityCorrectedSize() const { return m_densityCorrectedSize; }
+
+    SubsamplingLevel subsamplingLevel() const { return m_subsamplingLevel; }
+
+    RefPtr<NativeImage> nativeImage(std::optional<DecodingDestination> decodingDestination) const { return destination(decodingDestination).nativeImage; }
+    DecodingOptions decodingOptions(std::optional<DecodingDestination> decodingDestination) const { return destination(decodingDestination).decodingOptions; }
+    Headroom headroom(std::optional<DecodingDestination> decodingDestination) const { return destination(decodingDestination).headroom; }
+
+    void setOrientation(ImageOrientation orientation) { m_orientation = orientation; };
+    ImageOrientation orientation() const { return m_orientation; }
 
     void setDuration(const Seconds& duration) { m_duration = duration; }
     Seconds duration() const { return m_duration; }
@@ -77,25 +89,81 @@ public:
     void setHasAlpha(bool hasAlpha) { m_hasAlpha = hasAlpha; }
     bool hasAlpha() const { return !hasMetadata() || m_hasAlpha; }
 
-    bool hasNativeImage(const std::optional<SubsamplingLevel>& = { }) const;
-    bool hasFullSizeNativeImage(const std::optional<SubsamplingLevel>& = { }) const;
-    bool hasDecodedNativeImageCompatibleWithOptions(const std::optional<SubsamplingLevel>&, const DecodingOptions&) const;
+    bool hasNativeImage(DecodingDestination decodingDestination) const { return m_destinations[decodingDestination].hasNativeImage(); }
+    bool NODELETE hasNativeImage(DecodingDestination, SubsamplingLevel) const;
+    bool NODELETE hasFullSizeNativeImage(DecodingDestination, SubsamplingLevel) const;
+    std::optional<DecodingDestination> compatibleDecodingDestinationWithOptions(const DecodingOptions&, SubsamplingLevel) const;
     bool hasMetadata() const { return !size().isEmpty(); }
 
-    Color singlePixelSolidColor() const;
-
 private:
+    struct Destination {
+        RefPtr<NativeImage> nativeImage;
+        DecodingOptions decodingOptions { DecodingMode::Auto };
+        Headroom headroom { Headroom::None };
+
+        bool hasNativeImage() const { return nativeImage; }
+
+        bool hasFullSizeNativeImage() const
+        {
+            return hasNativeImage() && decodingOptions.hasFullSize();
+        }
+
+        bool hasDecodedNativeImageCompatibleWithOptions(const DecodingOptions& decodingOptions) const
+        {
+            return hasNativeImage() && this->decodingOptions.isCompatibleWith(decodingOptions);
+        }
+
+        size_t sizeInBytes() const
+        {
+            if (RefPtr nativeImage = this->nativeImage)
+                return nativeImage->sizeInBytes();
+            return 0;
+        }
+
+        size_t clear()
+        {
+            if (RefPtr nativeImage = std::exchange(this->nativeImage, nullptr)) {
+                nativeImage->clearSubimages();
+                decodingOptions = DecodingOptions();
+                headroom = Headroom::None;
+                return nativeImage->sizeInBytes();
+            }
+            return 0;
+        }
+    };
+
+    DecodingDestination decodingDestinationIfExists() const
+    {
+        if (m_destinations[DecodingDestination::ShouldDecodeToHDR].hasNativeImage())
+            return DecodingDestination::ShouldDecodeToHDR;
+        if (m_destinations[DecodingDestination::BaseAndGainMap].hasNativeImage())
+            return DecodingDestination::BaseAndGainMap;
+        return DecodingDestination::Base;
+    }
+
+    Destination& destination(std::optional<DecodingDestination> decodingDestination)
+    {
+        return m_destinations[decodingDestination.value_or(decodingDestinationIfExists())];
+    }
+
+    const Destination& destination(std::optional<DecodingDestination> decodingDestination) const
+    {
+        return m_destinations[decodingDestination.value_or(decodingDestinationIfExists())];
+    }
+
     DecodingStatus m_decodingStatus { DecodingStatus::Invalid };
+
     IntSize m_size;
-
-    RefPtr<NativeImage> m_nativeImage;
-    SubsamplingLevel m_subsamplingLevel { SubsamplingLevel::Default };
-    DecodingOptions m_decodingOptions;
-
-    ImageOrientation m_orientation { ImageOrientation::None };
+    FloatSize m_density;
     std::optional<IntSize> m_densityCorrectedSize;
+
+    SubsamplingLevel m_subsamplingLevel { SubsamplingLevel::Default };
+
+    ImageOrientation m_orientation { ImageOrientation::Orientation::None };
     Seconds m_duration;
     bool m_hasAlpha { true };
+
+    EnumeratedArray<DecodingDestination, Destination, DecodingDestination::ShouldDecodeToHDR> m_destinations;
 };
 
-}
+} // namespace WebCore

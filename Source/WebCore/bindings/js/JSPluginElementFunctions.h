@@ -19,26 +19,31 @@
 
 #pragma once
 
-#include "JSDOMBinding.h"
-
 namespace JSC {
+class JSGlobalObject;
+class JSObject;
+class JSValue;
+class PropertyName;
+class PropertySlot;
+class PutPropertySlot;
 namespace Bindings {
 class Instance;
 }
+struct CallData;
 }
 
 namespace WebCore {
 
-    class HTMLElement;
-    class JSHTMLElement;
+class HTMLElement;
+class JSHTMLElement;
 
-    // JavaScript access to plug-in-exported properties for JSHTMLEmbedElement and JSHTMLObjectElement.
+// JavaScript access to plug-in-exported properties for JSHTMLEmbedElement and JSHTMLObjectElement.
 
-    JSC::Bindings::Instance* pluginInstance(HTMLElement&);
-    WEBCORE_EXPORT JSC::JSObject* pluginScriptObject(JSC::JSGlobalObject*, JSHTMLElement*);
+JSC::Bindings::Instance* pluginInstance(HTMLElement&);
+WEBCORE_EXPORT JSC::JSObject* pluginScriptObject(JSC::JSGlobalObject*, JSHTMLElement*);
 
-    bool pluginElementCustomGetOwnPropertySlot(JSHTMLElement*, JSC::JSGlobalObject*, JSC::PropertyName, JSC::PropertySlot&);
-    bool pluginElementCustomPut(JSHTMLElement*, JSC::JSGlobalObject*, JSC::PropertyName, JSC::JSValue, JSC::PutPropertySlot&, bool& putResult);
-    JSC::CallData pluginElementCustomGetCallData(JSHTMLElement*);
+bool pluginElementCustomGetOwnPropertySlot(JSHTMLElement*, JSC::JSGlobalObject*, JSC::PropertyName, JSC::PropertySlot&);
+bool pluginElementCustomPut(JSHTMLElement*, JSC::JSGlobalObject*, JSC::PropertyName, JSC::JSValue, JSC::PutPropertySlot&, bool& putResult);
+JSC::CallData pluginElementCustomGetCallData(JSHTMLElement*);
 
 } // namespace WebCore

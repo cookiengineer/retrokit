@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2015 Andy VanWagoner (andy@vanwagoner.family)
- * Copyright (C) 2021 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -40,7 +40,7 @@ class IntlCollator final : public JSNonFinalObject {
 public:
     using Base = JSNonFinalObject;
 
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
 
     static void destroy(JSCell* cell)
     {
@@ -48,7 +48,7 @@ public:
     }
 
     template<typename CellType, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         return vm.intlCollatorSpace<mode>();
     }
@@ -58,11 +58,13 @@ public:
 
     DECLARE_INFO;
 
+    DECLARE_VISIT_CHILDREN;
+
     void initializeCollator(JSGlobalObject*, JSValue locales, JSValue optionsValue);
-    JSValue compareStrings(JSGlobalObject*, StringView, StringView) const;
+    UCollationResult compareStrings(JSGlobalObject*, StringView, StringView) const;
     JSObject* resolvedOptions(JSGlobalObject*) const;
 
-    JSBoundFunction* boundCompare() const { return m_boundCompare.get(); }
+    JSBoundFunction* boundCompare() const LIFETIME_BOUND { return m_boundCompare.get(); }
     void setBoundCompare(VM&, JSBoundFunction*);
 
     bool canDoASCIIUCADUCETComparison() const
@@ -80,8 +82,7 @@ public:
 
 private:
     IntlCollator(VM&, Structure*);
-    void finishCreation(VM&);
-    DECLARE_VISIT_CHILDREN;
+    DECLARE_DEFAULT_FINISH_CREATION;
 
     bool updateCanDoASCIIUCADUCETComparison() const;
 

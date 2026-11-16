@@ -24,20 +24,24 @@
 
 #pragma once
 
+#include "DocumentSettingsValues.h"
 #include "HTMLDocument.h"
 
 namespace WebCore {
 
 class TextDocument final : public HTMLDocument {
-    WTF_MAKE_ISO_ALLOCATED(TextDocument);
+    WTF_MAKE_TZONE_ALLOCATED(TextDocument);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(TextDocument);
 public:
-    static Ref<TextDocument> create(Frame* frame, const Settings& settings, const URL& url)
+    static Ref<TextDocument> create(LocalFrame* frame, const Settings& settings, const URL& url, std::optional<ScriptExecutionContextIdentifier> identifier)
     {
-        return adoptRef(*new TextDocument(frame, settings, url));
+        auto document = adoptRef(*new TextDocument(frame, settings, url, identifier));
+        document->addToContextsMap();
+        return document;
     }
 
 private:
-    TextDocument(Frame*, const Settings&, const URL&);
+    TextDocument(LocalFrame*, const Settings&, const URL&, std::optional<ScriptExecutionContextIdentifier>);
     
     Ref<DocumentParser> createParser() override;
 };

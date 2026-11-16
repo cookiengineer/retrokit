@@ -29,24 +29,24 @@
 
 #pragma once
 
-#include "JSDOMConvertBufferSource.h"
 #include "JSReadableStreamDefaultController.h"
 #include <JavaScriptCore/JSCJSValue.h>
-#include <JavaScriptCore/JSCJSValueInlines.h>
 #include <JavaScriptCore/TypedArrays.h>
 
 namespace WebCore {
 
+class Exception;
 class ReadableStreamSource;
 
 class ReadableStreamDefaultController {
 public:
     explicit ReadableStreamDefaultController(JSReadableStreamDefaultController* controller) : m_jsController(controller) { }
 
-    bool enqueue(RefPtr<JSC::ArrayBuffer>&&);
+    WEBCORE_EXPORT bool enqueue(RefPtr<JSC::ArrayBuffer>&&);
     bool enqueue(JSC::JSValue);
-    void error(const Exception&);
-    void close();
+    WEBCORE_EXPORT void error(const Exception&);
+    WEBCORE_EXPORT void error(JSC::JSGlobalObject&, JSC::JSValue);
+    WEBCORE_EXPORT void close();
 
 private:
     JSReadableStreamDefaultController& jsController() const;
@@ -66,8 +66,8 @@ inline JSReadableStreamDefaultController& ReadableStreamDefaultController::jsCon
 inline JSDOMGlobalObject& ReadableStreamDefaultController::globalObject() const
 {
     ASSERT(m_jsController);
-    ASSERT(m_jsController->globalObject());
-    return *static_cast<JSDOMGlobalObject*>(m_jsController->globalObject());
+    ASSERT(m_jsController->realm());
+    return *static_cast<JSDOMGlobalObject*>(m_jsController->realm());
 }
 
 } // namespace WebCore

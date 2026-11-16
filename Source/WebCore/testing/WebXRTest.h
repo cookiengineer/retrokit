@@ -27,15 +27,17 @@
 
 #if ENABLE(WEBXR)
 
-#include "JSDOMPromiseDeferred.h"
+#include "EventTarget.h"
+#include "FakeXRWorldInit.h"
+#include "JSDOMPromiseDeferredForward.h"
 #include "WebFakeXRDevice.h"
 #include "XRSessionMode.h"
 #include "XRSimulateUserActivationFunction.h"
-#include <JavaScriptCore/JSCJSValue.h>
 #include <wtf/RefCounted.h>
 
 namespace WebCore {
 
+class Document;
 class WebXRSystem;
 
 class WebXRTest final : public RefCounted<WebXRTest> {
@@ -45,16 +47,21 @@ public:
         std::optional<Vector<XRSessionMode>> supportedModes;
         Vector<FakeXRViewInit> views;
 
-        std::optional<Vector<JSC::JSValue>> supportedFeatures;
+        Vector<String> supportedFeatures;
+        Vector<String> enabledFeatures;
 
         std::optional<Vector<FakeXRBoundsPoint>> boundsCoordinates;
 
         std::optional<FakeXRRigidTransformInit> floorOrigin;
         std::optional<FakeXRRigidTransformInit> viewerOrigin;
+
+#if ENABLE(WEBXR_HIT_TEST)
+        std::optional<FakeXRWorldInit> world;
+#endif
     };
 
-    static Ref<WebXRTest> create(WeakPtr<WebXRSystem>&& system) { return adoptRef(*new WebXRTest(WTFMove(system))); }
-    virtual ~WebXRTest();
+    static Ref<WebXRTest> create(WeakPtr<WebXRSystem, WeakPtrImplWithEventTargetData>&& system) { return adoptRef(*new WebXRTest(WTF::move(system))); }
+    ~WebXRTest();
 
     using WebFakeXRDevicePromise = DOMPromiseDeferred<IDLInterface<WebFakeXRDevice>>;
     void simulateDeviceConnection(ScriptExecutionContext& state, const FakeXRDeviceInit&, WebFakeXRDevicePromise&&);
@@ -68,10 +75,9 @@ public:
     void disconnectAllDevices(DOMPromiseDeferred<void>&&);
 
 private:
-    WebXRTest(WeakPtr<WebXRSystem>&& system)
-        : m_context(WTFMove(system)) { }
+    WebXRTest(WeakPtr<WebXRSystem, WeakPtrImplWithEventTargetData>&&);
 
-    WeakPtr<WebXRSystem> m_context;
+    WeakPtr<WebXRSystem, WeakPtrImplWithEventTargetData> m_context;
     Vector<Ref<WebFakeXRDevice>> m_devices;
 };
 

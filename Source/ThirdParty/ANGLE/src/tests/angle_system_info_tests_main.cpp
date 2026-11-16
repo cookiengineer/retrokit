@@ -30,34 +30,52 @@
 //     ]
 // }
 
+#include "common/unsafe_buffers.h"
 #include "gpu_info_util/SystemInfo.h"
 
-#include <cstdlib>
-
 #include <gtest/gtest.h>
-
 #include <rapidjson/document.h>
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
+#include <cstdlib>
+
+#include "common/debug.h"
+#if defined(ANGLE_ENABLE_VULKAN)
+#    include "gpu_info_util/SystemInfo_vulkan.h"
+#endif  // defined(ANGLE_ENABLE_VULKAN)
 
 namespace js = rapidjson;
+
+bool gFailedToFindGPU;
+
+constexpr char kRenderTestOutputDir[] = "--render-test-output-dir=";
 
 int main(int argc, char **argv)
 {
     angle::SystemInfo info;
 
-    bool useVulkan = false;
-    bool listTests = false;
+    bool useVulkan      = false;
+    bool listTests      = false;
+    bool useSwiftShader = false;
+    std::string output_dir;
 
     for (int arg = 1; arg < argc; ++arg)
     {
-        if (strcmp(argv[arg], "--vulkan") == 0)
+        if (ANGLE_UNSAFE_TODO(strcmp(argv[arg], "--vulkan")) == 0)
         {
             useVulkan = true;
         }
-        else if (strcmp(argv[arg], "--gtest_list_tests") == 0)
+        else if (ANGLE_UNSAFE_TODO(strcmp(argv[arg], "--gtest_list_tests")) == 0)
         {
             listTests = true;
+        }
+        else if (ANGLE_UNSAFE_TODO(strcmp(argv[arg], "--swiftshader")) == 0)
+        {
+            useSwiftShader = true;
+        }
+        else if (ANGLE_UNSAFE_TODO(strstr(argv[arg], kRenderTestOutputDir)))
+        {
+            output_dir = ANGLE_UNSAFE_TODO(argv[arg] + strlen(kRenderTestOutputDir));
         }
     }
 
@@ -70,8 +88,11 @@ int main(int argc, char **argv)
     if (useVulkan)
     {
 #if defined(ANGLE_ENABLE_VULKAN)
-        angle::GetSystemInfoVulkan(&info);
+        angle::vk::ICD preferredICD =
+            useSwiftShader ? angle::vk::ICD::SwiftShader : angle::vk::ICD::Default;
+        angle::GetSystemInfoVulkanWithICD(&info, preferredICD);
 #else
+        ANGLE_UNUSED_VARIABLE(useSwiftShader);
         printf("Vulkan not supported.\n");
         return EXIT_FAILURE;
 #endif  // defined(ANGLE_ENABLE_VULKAN)
@@ -79,6 +100,11 @@ int main(int argc, char **argv)
     else
     {
         angle::GetSystemInfo(&info);
+    }
+
+    if (info.gpus.empty())
+    {
+        gFailedToFindGPU = true;
     }
 
     js::Document doc;
@@ -97,6 +123,10 @@ int main(int argc, char **argv)
     js::Value machineModelVersion;
     machineModelVersion.SetString(info.machineModelVersion.c_str(), allocator);
     doc.AddMember("machineModelVersion", machineModelVersion, allocator);
+
+    js::Value androidSdkLevel;
+    androidSdkLevel.SetInt(info.androidSdkLevel);
+    doc.AddMember("androidSdkLevel", androidSdkLevel, allocator);
 
     js::Value gpus;
     gpus.SetArray();
@@ -139,10 +169,27 @@ int main(int argc, char **argv)
     doc.Accept(writer);
 
     const char *output = buffer.GetString();
-    printf("%s\n", output);
+    ANGLE_UNSAFE_TODO(printf("%s\n", output));
+
+    if (!output_dir.empty())
+    {
+        std::string outputFile = output_dir + "/angle_system_info.json";
+        FILE *fp               = fopen(outputFile.c_str(), "w");
+        if (fp)
+        {
+            ANGLE_UNSAFE_TODO(fwrite(output, sizeof(char), strlen(output), fp));
+            fclose(fp);
+        }
+    }
 
     testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
 
-TEST(ANGLE, SystemInfo) {}
+TEST(ANGLE, SystemInfo)
+{
+    if (gFailedToFindGPU)
+    {
+        FAIL() << "Failed to find GPU info.";
+    }
+}

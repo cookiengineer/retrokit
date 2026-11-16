@@ -24,22 +24,28 @@
 
 #pragma once
 
-#include "AbstractRange.h"
-#include "RangeBoundaryPoint.h"
+#include <WebCore/AbstractRange.h>
+#include <WebCore/RangeBoundaryPoint.h>
+#include <wtf/CheckedRef.h>
+#include <wtf/Lock.h>
+#include <wtf/Locker.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
 class DOMRect;
 class DOMRectList;
-class DOMWindow;
 class DocumentFragment;
+class LocalDOMWindow;
 class NodeWithIndex;
 class Text;
+class TrustedHTML;
 
 struct SimpleRange;
 
-class Range final : public AbstractRange {
-    WTF_MAKE_ISO_ALLOCATED(Range);
+class Range final : public AbstractRange, public CanMakeSingleThreadWeakPtr<Range> {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(Range, WEBCORE_EXPORT);
+    WTF_MAKE_NONCOPYABLE(Range);
 public:
     WEBCORE_EXPORT static Ref<Range> create(Document&);
     WEBCORE_EXPORT ~Range();
@@ -50,6 +56,9 @@ public:
     unsigned endOffset() const final { return m_end.offset(); }
     bool collapsed() const final { return m_start == m_end; }
     WEBCORE_EXPORT Node* commonAncestorContainer() const;
+
+    void resetDidChangeForHighlight() { m_didChangeForHighlight = false; }
+    bool didChangeForHighlight() const { return m_didChangeForHighlight; }
 
     WEBCORE_EXPORT ExceptionOr<void> setStart(Ref<Node>&&, unsigned offset);
     WEBCORE_EXPORT ExceptionOr<void> setEnd(Ref<Node>&&, unsigned offset);
@@ -81,8 +90,9 @@ public:
 
     Ref<DOMRectList> getClientRects() const;
     Ref<DOMRect> getBoundingClientRect() const;
+    static Ref<DOMRect> boundingClientRect(const SimpleRange&);
 
-    WEBCORE_EXPORT ExceptionOr<Ref<DocumentFragment>> createContextualFragment(const String& fragment);
+    WEBCORE_EXPORT ExceptionOr<Ref<DocumentFragment>> createContextualFragment(Variant<Ref<TrustedHTML>, String>&& fragment);
 
     // Expand range to a unit (word or sentence or block or document) boundary.
     // Please refer to https://bugs.webkit.org/show_bug.cgi?id=27632 comment #5 for details.
@@ -94,7 +104,7 @@ public:
     void nodeChildrenChanged(ContainerNode&);
     void nodeChildrenWillBeRemoved(ContainerNode&);
     void nodeWillBeRemoved(Node&);
-    bool parentlessNodeMovedToNewDocumentAffectsRange(Node&);
+    bool NODELETE parentlessNodeMovedToNewDocumentAffectsRange(Node&);
     void updateRangeForParentlessNodeMovedToNewDocument(Node&);
 
     void textInserted(Node&, unsigned offset, unsigned length);
@@ -106,14 +116,22 @@ public:
     void didDisassociateFromSelection() { m_isAssociatedWithSelection = false; }
     void updateFromSelection(const SimpleRange&);
 
-    // For use by garbage collection. Returns nullptr for ranges not assocated with selection.
-    DOMWindow* window() const;
+    void didAssociateWithHighlight()
+    {
+        m_isAssociatedWithHighlight = true;
+        m_didChangeForHighlight = true;
+    }
 
-    static ExceptionOr<Node*> checkNodeOffsetPair(Node&, unsigned offset);
+    // For use by garbage collection. Returns nullptr for ranges not assocated with selection.
+    LocalDOMWindow* NODELETE window() const;
+
+    static ExceptionOr<RefPtr<Node>> checkNodeOffsetPair(Node&, unsigned offset);
 
 #if ENABLE(TREE_DEBUGGING)
     String debugDescription() const;
 #endif
+
+    void visitNodesInGCThread(JSC::AbstractSlotVisitor&) const;
 
     enum ActionType : uint8_t { Delete, Extract, Clone };
 
@@ -124,12 +142,16 @@ private:
 
     void updateDocument();
     void updateAssociatedSelection();
+    void updateAssociatedHighlight();
     ExceptionOr<RefPtr<DocumentFragment>> processContents(ActionType);
 
     Ref<Document> m_ownerDocument;
     RangeBoundaryPoint m_start;
     RangeBoundaryPoint m_end;
+    mutable Lock m_boundaryPointLock;
     bool m_isAssociatedWithSelection { false };
+    bool m_didChangeForHighlight { false };
+    bool m_isAssociatedWithHighlight { false };
 };
 
 WEBCORE_EXPORT SimpleRange makeSimpleRange(const Range&);

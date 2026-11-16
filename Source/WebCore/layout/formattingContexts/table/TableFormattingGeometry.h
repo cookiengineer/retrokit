@@ -25,8 +25,6 @@
 
 #pragma once
 
-#if ENABLE(LAYOUT_FORMATTING_CONTEXT)
-
 #include "FormattingGeometry.h"
 #include "TableGrid.h"
 
@@ -39,16 +37,16 @@ class TableFormattingGeometry : public FormattingGeometry {
 public:
     TableFormattingGeometry(const TableFormattingContext&);
 
-    LayoutUnit cellBoxContentHeight(const ContainerBox&) const;
-    Edges computedCellBorder(const TableGrid::Cell&) const;
-    std::optional<LayoutUnit> computedColumnWidth(const ContainerBox& columnBox) const;
-    IntrinsicWidthConstraints intrinsicWidthConstraintsForCellContent(const TableGrid::Cell&) const;
-    InlineLayoutUnit usedBaselineForCell(const ContainerBox& cellBox) const;
-    LayoutUnit horizontalSpaceForCellContent(const TableGrid::Cell&) const;
-    LayoutUnit verticalSpaceForCellContent(const TableGrid::Cell&, std::optional<LayoutUnit> availableVerticalSpace) const;
+    LayoutUnit cellBoxContentHeight(const ElementBox&) const;
+    BoxGeometry::Edges computedCellBorder(const TableGridCell&) const;
+    std::optional<LayoutUnit> computedColumnWidth(const ElementBox& columnBox) const;
+    IntrinsicWidthConstraints intrinsicWidthConstraintsForCellContent(const TableGridCell&) const;
+    InlineLayoutUnit usedBaselineForCell(const ElementBox& cellBox) const;
+    LayoutUnit horizontalSpaceForCellContent(const TableGridCell&) const;
+    LayoutUnit verticalSpaceForCellContent(const TableGridCell&, std::optional<LayoutUnit> availableVerticalSpace) const;
 
 private:
-    const TableFormattingContext& formattingContext() const { return downcast<TableFormattingContext>(FormattingGeometry::formattingContext()); }
+    const TableFormattingContext& formattingContext() const LIFETIME_BOUND { return downcast<TableFormattingContext>(FormattingGeometry::formattingContext()); }
 };
 
 }
@@ -56,4 +54,3 @@ private:
 
 SPECIALIZE_TYPE_TRAITS_LAYOUT_FORMATTING_GEOMETRY(TableFormattingGeometry, isTableFormattingGeometry())
 
-#endif

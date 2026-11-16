@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,39 +27,57 @@
 #include "SampleBufferDisplayLayerManager.h"
 
 #include "Decoder.h"
+#include "GPUProcessConnection.h"
 #include <WebCore/IntSize.h>
+#include <wtf/TZoneMallocInlines.h>
 
 #if PLATFORM(COCOA) && ENABLE(GPU_PROCESS) && ENABLE(MEDIA_STREAM)
 
 namespace WebKit {
 using namespace WebCore;
 
-void SampleBufferDisplayLayerManager::didReceiveLayerMessage(IPC::Connection& connection, IPC::Decoder& decoder)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SampleBufferDisplayLayerManager);
+
+SampleBufferDisplayLayerManager::SampleBufferDisplayLayerManager(GPUProcessConnection& gpuProcessConnection)
+    : m_gpuProcessConnection(gpuProcessConnection)
 {
-    if (auto* layer = m_layers.get(makeObjectIdentifier<SampleBufferDisplayLayerIdentifierType>(decoder.destinationID())).get())
-        layer->didReceiveMessage(connection, decoder);
 }
 
-std::unique_ptr<WebCore::SampleBufferDisplayLayer> SampleBufferDisplayLayerManager::createLayer(WebCore::SampleBufferDisplayLayer::Client& client)
+void SampleBufferDisplayLayerManager::didReceiveLayerMessage(IPC::Connection& connection, IPC::Decoder& decoder)
+{
+    if (ObjectIdentifier<SampleBufferDisplayLayerIdentifierType>::isValidIdentifier(decoder.destinationID())) {
+        if (RefPtr layer = m_layers.get(ObjectIdentifier<SampleBufferDisplayLayerIdentifierType>(decoder.destinationID())))
+            layer->didReceiveMessage(connection, decoder);
+    }
+}
+
+RefPtr<WebCore::SampleBufferDisplayLayer> SampleBufferDisplayLayerManager::createLayer(WebCore::SampleBufferDisplayLayerClient& client)
 {
     auto layer = SampleBufferDisplayLayer::create(*this, client);
-    if (!layer)
-        return { };
-
-    m_layers.add(layer->identifier(), makeWeakPtr(*layer));
+    m_layers.add(layer->identifier(), layer.get());
     return layer;
 }
 
 void SampleBufferDisplayLayerManager::addLayer(SampleBufferDisplayLayer& layer)
 {
     ASSERT(!m_layers.contains(layer.identifier()));
-    m_layers.add(layer.identifier(), makeWeakPtr(layer));
+    m_layers.add(layer.identifier(), layer);
 }
 
 void SampleBufferDisplayLayerManager::removeLayer(SampleBufferDisplayLayer& layer)
 {
     ASSERT(m_layers.contains(layer.identifier()));
     m_layers.remove(layer.identifier());
+}
+
+void SampleBufferDisplayLayerManager::ref() const
+{
+    m_gpuProcessConnection.get()->ref();
+}
+
+void SampleBufferDisplayLayerManager::deref() const
+{
+    m_gpuProcessConnection.get()->deref();
 }
 
 }

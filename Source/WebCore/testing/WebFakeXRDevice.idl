@@ -24,10 +24,9 @@
  */
 
 [
-    EnabledBySetting=WebXR,
     Conditional=WEBXR,
+    EnabledBySetting=WebXREnabled,
     InterfaceName=FakeXRDevice,
-    ImplementationLacksVTable,
     LegacyNoInterfaceObject,
 ] interface WebFakeXRDevice {
   // Sets the values to be used for subsequent
@@ -66,4 +65,8 @@
 
   // Simulate session shutdown triggered by system
   undefined simulateShutdown();
+
+  // Hit test extensions:
+  [EnabledBySetting=WebXRHitTestModuleEnabled, Conditional=WEBXR_HIT_TEST] undefined setWorld(FakeXRWorldInit world);
+  [EnabledBySetting=WebXRHitTestModuleEnabled, Conditional=WEBXR_HIT_TEST] undefined clearWorld();
 };

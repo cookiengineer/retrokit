@@ -30,27 +30,25 @@
 #include "IDBConnectionToServer.h"
 #include "IDBRequest.h"
 #include <wtf/MainThread.h>
-#include <wtf/text/StringConcatenateNumbers.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
-static uint64_t nextClientResourceNumber()
+static uint64_t NODELETE nextClientResourceNumber()
 {
     static std::atomic<uint64_t> currentNumber(1);
     return currentNumber += 2;
 }
 
-static uint64_t nextServerResourceNumber()
+static uint64_t NODELETE nextServerResourceNumber()
 {
     static uint64_t currentNumber = 0;
     return currentNumber += 2;
 }
 
-IDBResourceIdentifier::IDBResourceIdentifier()
-{
-}
+IDBResourceIdentifier::IDBResourceIdentifier() = default;
 
-IDBResourceIdentifier::IDBResourceIdentifier(IDBConnectionIdentifier connectionIdentifier, uint64_t resourceIdentifier)
+IDBResourceIdentifier::IDBResourceIdentifier(std::optional<IDBConnectionIdentifier> connectionIdentifier, std::optional<IDBResourceObjectIdentifier> resourceIdentifier)
     : m_idbConnectionIdentifier(connectionIdentifier)
     , m_resourceNumber(resourceIdentifier)
 {
@@ -58,7 +56,7 @@ IDBResourceIdentifier::IDBResourceIdentifier(IDBConnectionIdentifier connectionI
 
 IDBResourceIdentifier::IDBResourceIdentifier(const IDBClient::IDBConnectionProxy& connectionProxy)
     : m_idbConnectionIdentifier(connectionProxy.serverConnectionIdentifier())
-    , m_resourceNumber(nextClientResourceNumber())
+    , m_resourceNumber(IDBResourceObjectIdentifier { nextClientResourceNumber() })
 {
 }
 
@@ -70,7 +68,7 @@ IDBResourceIdentifier::IDBResourceIdentifier(const IDBClient::IDBConnectionProxy
 
 IDBResourceIdentifier::IDBResourceIdentifier(const IDBServer::IDBConnectionToClient& connection)
     : m_idbConnectionIdentifier(connection.identifier())
-    , m_resourceNumber(nextServerResourceNumber())
+    , m_resourceNumber(IDBResourceObjectIdentifier { nextServerResourceNumber() })
 {
 }
 
@@ -79,18 +77,10 @@ IDBResourceIdentifier IDBResourceIdentifier::isolatedCopy() const
     return IDBResourceIdentifier(m_idbConnectionIdentifier, m_resourceNumber);
 }
 
-IDBResourceIdentifier IDBResourceIdentifier::emptyValue()
-{
-    return IDBResourceIdentifier({ }, 0);
-}
-
-#if !LOG_DISABLED
-
 String IDBResourceIdentifier::loggingString() const
 {
-    return makeString('<', m_idbConnectionIdentifier.toUInt64(), ", ", m_resourceNumber, '>');
+    uint64_t resourceNumber = m_resourceNumber ? m_resourceNumber->toUInt64() : 0;
+    return makeString('<', m_idbConnectionIdentifier ? m_idbConnectionIdentifier->toUInt64() : 0, ", "_s, resourceNumber, '>');
 }
-
-#endif
 
 } // namespace WebCore

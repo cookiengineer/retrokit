@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,8 +27,8 @@
 #include "ArgumentCoders.h"
 #include "Connection.h"
 #include "MessageNames.h"
-#include "TestWithIfMessageMessagesReplies.h"
 #include <wtf/Forward.h>
+#include <wtf/RuntimeApplicationChecks.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/text/WTFString.h>
 
@@ -44,46 +44,57 @@ static inline IPC::ReceiverName messageReceiverName()
 #if PLATFORM(COCOA)
 class LoadURL {
 public:
-    using Arguments = std::tuple<const String&>;
+    using Arguments = std::tuple<String>;
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithIfMessage_LoadURL; }
     static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
     explicit LoadURL(const String& url)
-        : m_arguments(url)
+        : m_url(url)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        encoder << m_url;
     }
 
 private:
-    Arguments m_arguments;
+    const String& m_url;
 };
 #endif
 
 #if PLATFORM(GTK)
 class LoadURL {
 public:
-    using Arguments = std::tuple<const String&, int64_t>;
+    using Arguments = std::tuple<String, int64_t>;
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithIfMessage_LoadURL; }
     static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
     LoadURL(const String& url, int64_t value)
-        : m_arguments(url, value)
+        : m_url(url)
+        , m_value(value)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        encoder << m_url;
+        encoder << m_value;
     }
 
 private:
-    Arguments m_arguments;
+    const String& m_url;
+    int64_t m_value;
 };
 #endif
 

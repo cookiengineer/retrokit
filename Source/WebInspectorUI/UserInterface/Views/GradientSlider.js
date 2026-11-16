@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2015 Apple Inc.  All rights reserved.
+ * Copyright (C) 2014-2015 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -317,16 +317,6 @@ WI.GradientSliderKnob = class GradientSliderKnob extends WI.Object
         this._updateTransform();
     }
 
-    get y()
-    {
-        return this._x;
-    }
-
-    set y(y) {
-        this._y = y;
-        this._updateTransform();
-    }
-
     get wellColor()
     {
         return this._wellColor;
@@ -401,9 +391,9 @@ WI.GradientSliderKnob = class GradientSliderKnob extends WI.Object
         if (!this._detaching && Math.abs(event.pageY - this._startMouseY) > 50) {
             this._detaching = this.delegate && typeof this.delegate.knobCanDetach === "function" && this.delegate.knobCanDetach(this);
             if (this._detaching && this.delegate && typeof this.delegate.knobWillDetach === "function") {
-                var translationFromParentToBody = window.webkitConvertPointFromNodeToPage(this.element.parentNode, new WebKitPoint(0, 0));
-                this._startMouseX -= translationFromParentToBody.x;
-                this._startMouseY -= translationFromParentToBody.y;
+                let parentRect = this.element.parentNode.getBoundingClientRect();
+                this._startMouseX -= parentRect.left;
+                this._startMouseY -= parentRect.top;
                 document.body.appendChild(this.element);
                 this.delegate.knobWillDetach(this);
             }
@@ -414,9 +404,10 @@ WI.GradientSliderKnob = class GradientSliderKnob extends WI.Object
             x = Math.min(Math.max(0, x), w);
         this.x = x;
 
-        if (this._detaching)
-            this.y = event.pageY - this._startMouseY;
-        else if (this.delegate && typeof this.delegate.knobXDidChange === "function")
+        if (this._detaching) {
+            this._y = event.pageY - this._startMouseY;
+            this._updateTransform();
+        } else if (this.delegate && typeof this.delegate.knobXDidChange === "function")
             this.delegate.knobXDidChange(this);
     }
 
@@ -442,7 +433,7 @@ WI.GradientSliderKnob = class GradientSliderKnob extends WI.Object
 
     _updateTransform()
     {
-        this.element.style.webkitTransform = "translate3d(" + this._x + "px, " + this._y + "px, 0)";
+        this.element.style.transform = "translate3d(" + this._x + "px, " + this._y + "px, 0)";
     }
 };
 

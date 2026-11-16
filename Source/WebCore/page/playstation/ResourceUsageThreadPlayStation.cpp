@@ -30,6 +30,7 @@
 
 #include <JavaScriptCore/GCActivityCallback.h>
 #include <JavaScriptCore/VM.h>
+#include <memory-extra/showmap.h>
 
 namespace WebCore {
 
@@ -55,17 +56,30 @@ void ResourceUsageThread::platformCollectCPUData(JSC::VM*, ResourceUsageData& da
 
 void ResourceUsageThread::platformCollectMemoryData(JSC::VM* vm, ResourceUsageData& data)
 {
-    // FIXME: Calculate total dirty memory size for ResourceUsageOverlay
-    data.totalDirtySize = 0;
+    auto& categories = data.categories;
 
-    size_t currentGCHeapCapacity = vm->heap.blockBytesAllocated();
-    size_t currentGCOwnedExtra = vm->heap.extraMemorySize();
-    size_t currentGCOwnedExternal = vm->heap.externalMemorySize();
+    auto currentGCHeapCapacity = vm->heap.blockBytesAllocated();
+    auto currentGCOwnedExtra = vm->heap.extraMemorySize();
+    auto currentGCOwnedExternal = vm->heap.externalMemorySize();
     RELEASE_ASSERT(currentGCOwnedExternal <= currentGCOwnedExtra);
 
-    data.categories[MemoryCategory::GCHeap].dirtySize = currentGCHeapCapacity;
-    data.categories[MemoryCategory::GCOwned].dirtySize = currentGCOwnedExtra - currentGCOwnedExternal;
-    data.categories[MemoryCategory::GCOwned].externalSize = currentGCOwnedExternal;
+    categories[MemoryCategory::GCHeap].dirtySize = currentGCHeapCapacity;
+    categories[MemoryCategory::GCOwned].dirtySize = currentGCOwnedExtra - currentGCOwnedExternal;
+    categories[MemoryCategory::GCOwned].externalSize = currentGCOwnedExternal;
+
+    auto currentGCDirtySize = currentGCHeapCapacity + currentGCOwnedExtra - currentGCOwnedExternal;
+
+    // TODO: collect dirty size of "MemoryCategory::Images" and "MemoryCategory::Layers"
+
+    memory_extra::showmap::Result<4> result;
+    auto entry = result.reserve("SceNKFastMalloc");
+    result.collect();
+    data.totalDirtySize = result.rss;
+
+    auto rss = entry->rss;
+    RELEASE_ASSERT(data.totalDirtySize > rss);
+    categories[MemoryCategory::Other].dirtySize = data.totalDirtySize - rss;
+    categories[MemoryCategory::bmalloc].dirtySize = rss - std::min(rss, currentGCDirtySize);
 
     data.totalExternalSize = currentGCOwnedExternal;
 

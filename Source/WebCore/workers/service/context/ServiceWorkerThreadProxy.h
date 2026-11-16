@@ -25,21 +25,23 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
-#include "CacheStorageConnection.h"
-#include "Document.h"
-#include "FetchIdentifier.h"
-#include "Page.h"
-#include "ServiceWorkerDebuggable.h"
-#include "ServiceWorkerIdentifier.h"
-#include "ServiceWorkerInspectorProxy.h"
-#include "ServiceWorkerThread.h"
-#include "StorageBlockingPolicy.h"
-#include "WorkerDebuggerProxy.h"
-#include "WorkerLoaderProxy.h"
+#include <WebCore/CacheStorageConnection.h>
+#include <WebCore/Document.h>
+#include <WebCore/FetchIdentifier.h>
+#include <WebCore/Page.h>
+#include <WebCore/PushSubscriptionData.h>
+#include <WebCore/ServiceWorkerDebuggable.h>
+#include <WebCore/ServiceWorkerIdentifier.h>
+#include <WebCore/ServiceWorkerInspectorProxy.h>
+#include <WebCore/ServiceWorkerThread.h>
+#include <WebCore/StorageBlockingPolicy.h>
+#include <WebCore/WorkerBadgeProxy.h>
+#include <WebCore/WorkerDebuggerProxy.h>
+#include <WebCore/WorkerLoaderProxy.h>
+#include <wtf/CheckedPtr.h>
 #include <wtf/HashMap.h>
 #include <wtf/URLHash.h>
+#include <wtf/WeakRef.h>
 
 namespace WebCore {
 
@@ -47,10 +49,15 @@ class CacheStorageProvider;
 class FetchLoader;
 class FetchLoaderClient;
 class PageConfiguration;
+class NotificationClient;
 class ServiceWorkerInspectorProxy;
+struct NotificationPayload;
 struct ServiceWorkerContextData;
+enum class WorkerThreadMode : bool;
 
-class ServiceWorkerThreadProxy final : public ThreadSafeRefCounted<ServiceWorkerThreadProxy>, public WorkerLoaderProxy, public WorkerDebuggerProxy {
+class ServiceWorkerThreadProxy final : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<ServiceWorkerThreadProxy, WTF::DestructionThread::Main>, public WorkerLoaderProxy, public WorkerDebuggerProxy, public WorkerBadgeProxy, public CanMakeThreadSafeCheckedPtr<ServiceWorkerThreadProxy> {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(ServiceWorkerThreadProxy);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(ServiceWorkerThreadProxy);
 public:
     template<typename... Args> static Ref<ServiceWorkerThreadProxy> create(Args&&... args)
     {
@@ -60,59 +67,85 @@ public:
 
     ServiceWorkerIdentifier identifier() const { return m_serviceWorkerThread->identifier(); }
     ServiceWorkerThread& thread() { return m_serviceWorkerThread.get(); }
-    ServiceWorkerInspectorProxy& inspectorProxy() { return m_inspectorProxy; }
+    ServiceWorkerInspectorProxy& inspectorProxy() LIFETIME_BOUND { return m_inspectorProxy; }
 
     bool isTerminatingOrTerminated() const { return m_isTerminatingOrTerminated; }
     void setAsTerminatingOrTerminated() { m_isTerminatingOrTerminated = true; }
 
-    WEBCORE_EXPORT std::unique_ptr<FetchLoader> createBlobLoader(FetchLoaderClient&, const URL&);
+    WEBCORE_EXPORT RefPtr<FetchLoader> createBlobLoader(FetchLoaderClient&, const URL&);
 
-    const URL& scriptURL() const { return m_document->url(); }
+    const URL& scriptURL() const LIFETIME_BOUND { return m_document->url(); }
 
     WEBCORE_EXPORT void notifyNetworkStateChange(bool isOnline);
 
-    WEBCORE_EXPORT void startFetch(SWServerConnectionIdentifier, FetchIdentifier, Ref<ServiceWorkerFetch::Client>&&, std::optional<ServiceWorkerClientIdentifier>&&, ResourceRequest&&, String&& referrer, FetchOptions&&);
+    WEBCORE_EXPORT void startFetch(SWServerConnectionIdentifier, FetchIdentifier, Ref<ServiceWorkerFetch::Client>&&, ResourceRequest&&, String&& referrer, FetchOptions&&, bool isServiceWorkerNavigationPreloadEnabled, String&& clientIdentifier, String&& resultingClientIdentifier);
     WEBCORE_EXPORT void cancelFetch(SWServerConnectionIdentifier, FetchIdentifier);
-    WEBCORE_EXPORT void continueDidReceiveFetchResponse(SWServerConnectionIdentifier, FetchIdentifier);
     WEBCORE_EXPORT void removeFetch(SWServerConnectionIdentifier, FetchIdentifier);
+    WEBCORE_EXPORT void navigationPreloadIsReady(SWServerConnectionIdentifier, FetchIdentifier, ResourceResponse&&);
+    WEBCORE_EXPORT void navigationPreloadFailed(SWServerConnectionIdentifier, FetchIdentifier, ResourceError&&);
 
-    void postMessageToServiceWorker(MessageWithMessagePorts&&, ServiceWorkerOrClientData&&);
-    void fireInstallEvent();
-    void fireActivateEvent();
-    void didSaveScriptsToDisk(ScriptBuffer&&, HashMap<URL, ScriptBuffer>&& importedScripts);
+    WEBCORE_EXPORT void fireMessageEvent(MessageWithMessagePorts&&, ServiceWorkerOrClientData&&);
 
-    WEBCORE_EXPORT void setLastNavigationWasAppInitiated(bool);
-    WEBCORE_EXPORT bool lastNavigationWasAppInitiated();
+    WEBCORE_EXPORT void fireInstallEvent();
+    WEBCORE_EXPORT void fireActivateEvent();
+    void firePushEvent(std::optional<Vector<uint8_t>>&&, std::optional<NotificationPayload>&&, CompletionHandler<void(bool, std::optional<NotificationPayload>&&)>&&);
+    void firePushSubscriptionChangeEvent(std::optional<PushSubscriptionData>&& newSubscriptionData, std::optional<PushSubscriptionData>&& oldSubscriptionData);
+    void fireNotificationEvent(NotificationData&&, NotificationEventType, CompletionHandler<void(bool)>&&);
+    void fireBackgroundFetchEvent(BackgroundFetchInformation&&, CompletionHandler<void(bool)>&&);
+    void fireBackgroundFetchClickEvent(BackgroundFetchInformation&&, CompletionHandler<void(bool)>&&);
+
+    WEBCORE_EXPORT void didSaveScriptsToDisk(ScriptBuffer&&, HashMap<URL, ScriptBuffer>&& importedScripts);
+
+    WEBCORE_EXPORT void NODELETE setLastNavigationWasAppInitiated(bool);
+    WEBCORE_EXPORT bool NODELETE lastNavigationWasAppInitiated();
+
+    WEBCORE_EXPORT void setInspectable(bool);
+
+#if ENABLE(REMOTE_INSPECTOR)
+    ServiceWorkerDebuggable& remoteDebuggable() { return m_remoteDebuggable; }
+#endif
+
+    uint32_t checkedPtrCount() const final { return CanMakeThreadSafeCheckedPtr<ServiceWorkerThreadProxy>::checkedPtrCount(); }
+    uint32_t checkedPtrCountWithoutThreadCheck() const final { return CanMakeThreadSafeCheckedPtr<ServiceWorkerThreadProxy>::checkedPtrCountWithoutThreadCheck(); }
+    void incrementCheckedPtrCount() const final { CanMakeThreadSafeCheckedPtr<ServiceWorkerThreadProxy>::incrementCheckedPtrCount(); }
+    void decrementCheckedPtrCount() const final { CanMakeThreadSafeCheckedPtr<ServiceWorkerThreadProxy>::decrementCheckedPtrCount(); }
+    void setDidBeginCheckedPtrDeletion() final { CanMakeThreadSafeCheckedPtr<ServiceWorkerThreadProxy>::setDidBeginCheckedPtrDeletion(); }
 
 private:
-    WEBCORE_EXPORT ServiceWorkerThreadProxy(PageConfiguration&&, ServiceWorkerContextData&&, String&& userAgent, CacheStorageProvider&, StorageBlockingPolicy);
+    WEBCORE_EXPORT ServiceWorkerThreadProxy(Ref<Page>&&, ServiceWorkerContextData&&, ServiceWorkerData&&, String&& userAgent, WorkerThreadMode, CacheStorageProvider&, std::unique_ptr<NotificationClient>&&);
 
     WEBCORE_EXPORT static void networkStateChanged(bool isOnLine);
+    bool postTaskForModeToWorkerOrWorkletGlobalScope(ScriptExecutionContext::Task&&, const String& mode);
 
     // WorkerLoaderProxy
-    bool postTaskForModeToWorkerOrWorkletGlobalScope(ScriptExecutionContext::Task&&, const String& mode) final;
     void postTaskToLoader(ScriptExecutionContext::Task&&) final;
+    ScriptExecutionContextIdentifier loaderContextIdentifier() const final;
     RefPtr<CacheStorageConnection> createCacheStorageConnection() final;
+    RefPtr<FileSystemStorageConnection> createFileSystemStorageConnection() final;
     RefPtr<RTCDataChannelRemoteHandlerConnection> createRTCDataChannelRemoteHandlerConnection() final;
+    RefPtr<IDBClient::IDBConnectionProxy> createIDBConnectionProxy() final;
 
     // WorkerDebuggerProxy
     void postMessageToDebugger(const String&) final;
     void setResourceCachingDisabledByWebInspector(bool) final;
 
-    UniqueRef<Page> m_page;
-    Ref<Document> m_document;
+    // WorkerBadgeProxy
+    void setAppBadge(std::optional<uint64_t>) final;
+
+    const Ref<Page> m_page;
+    const Ref<Document> m_document;
 #if ENABLE(REMOTE_INSPECTOR)
-    std::unique_ptr<ServiceWorkerDebuggable> m_remoteDebuggable;
+    const Ref<ServiceWorkerDebuggable> m_remoteDebuggable;
 #endif
-    Ref<ServiceWorkerThread> m_serviceWorkerThread;
-    CacheStorageProvider& m_cacheStorageProvider;
+    const Ref<ServiceWorkerThread> m_serviceWorkerThread;
+    WeakRef<CacheStorageProvider> m_cacheStorageProvider;
     RefPtr<CacheStorageConnection> m_cacheStorageConnection;
     bool m_isTerminatingOrTerminated { false };
 
     ServiceWorkerInspectorProxy m_inspectorProxy;
-    HashMap<std::pair<SWServerConnectionIdentifier, FetchIdentifier>, Ref<ServiceWorkerFetch::Client>> m_ongoingFetchTasks;
+    uint64_t m_functionalEventTasksCounter { 0 };
+    HashMap<uint64_t, CompletionHandler<void(bool)>> m_ongoingFunctionalEventTasks;
+    HashMap<uint64_t, CompletionHandler<void(bool, std::optional<NotificationPayload>&&)>> m_ongoingNotificationPayloadFunctionalEventTasks;
 };
 
 } // namespace WebKit
-
-#endif // ENABLE(SERVICE_WORKER)

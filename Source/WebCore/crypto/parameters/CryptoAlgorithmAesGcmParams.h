@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,49 +26,61 @@
 #pragma once
 
 #include "BufferSource.h"
+#include "CryptoAlgorithmAesGcmParamsInit.h"
 #include "CryptoAlgorithmParameters.h"
 #include <wtf/Vector.h>
-
-#if ENABLE(WEB_CRYPTO)
 
 namespace WebCore {
 
 class CryptoAlgorithmAesGcmParams final : public CryptoAlgorithmParameters {
+    WTF_MAKE_TZONE_ALLOCATED(CryptoAlgorithmAesGcmParams);
 public:
-    BufferSource iv;
+    std::optional<BufferSource> iv;
     // Use additionalDataVector() instead of additionalData. The label will be gone once additionalDataVector() is called.
-    mutable std::optional<BufferSource::VariantType> additionalData;
+    mutable std::optional<BufferSource> additionalData;
     mutable std::optional<uint8_t> tagLength;
+
+    CryptoAlgorithmAesGcmParams(CryptoAlgorithmIdentifier identifier)
+        : CryptoAlgorithmParameters { WTF::move(identifier) }
+    {
+    }
+
+    CryptoAlgorithmAesGcmParams(CryptoAlgorithmIdentifier identifier, CryptoAlgorithmAesGcmParamsInit init)
+        : CryptoAlgorithmParameters { WTF::move(identifier), WTF::move(init) }
+        , iv { WTF::move(init.iv) }
+        , additionalData { WTF::move(init.additionalData) }
+        , tagLength { WTF::move(init.tagLength) }
+    {
+    }
 
     Class parametersClass() const final { return Class::AesGcmParams; }
 
-    const Vector<uint8_t>& ivVector() const
+    const Vector<uint8_t>& ivVector() const LIFETIME_BOUND
     {
-        if (!m_ivVector.isEmpty() || !iv.length())
+        if (!m_ivVector.isEmpty() || !iv || !iv->byteLength())
             return m_ivVector;
 
-        m_ivVector.append(iv.data(), iv.length());
+        if (iv)
+            m_ivVector.append(iv->span());
         return m_ivVector;
     }
 
-    const Vector<uint8_t>& additionalDataVector() const
+    const Vector<uint8_t>& additionalDataVector() const LIFETIME_BOUND
     {
         if (!m_additionalDataVector.isEmpty() || !additionalData)
             return m_additionalDataVector;
 
-        BufferSource additionalDataBuffer = WTFMove(*additionalData);
-        additionalData = std::nullopt;
-        if (!additionalDataBuffer.length())
+        BufferSource additionalDataBuffer = *std::exchange(additionalData, std::nullopt);
+        if (!additionalDataBuffer.byteLength())
             return m_additionalDataVector;
 
-        m_additionalDataVector.append(additionalDataBuffer.data(), additionalDataBuffer.length());
+        m_additionalDataVector.append(additionalDataBuffer.span());
         return m_additionalDataVector;
     }
 
     CryptoAlgorithmAesGcmParams isolatedCopy() const
     {
-        CryptoAlgorithmAesGcmParams result;
-        result.identifier = identifier;
+        CryptoAlgorithmAesGcmParams result { identifier };
         result.m_ivVector = ivVector();
         result.m_additionalDataVector = additionalDataVector();
         result.tagLength = tagLength;
@@ -84,5 +96,3 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_CRYPTO_ALGORITHM_PARAMETERS(AesGcmParams)
-
-#endif // ENABLE(WEB_CRYPTO)

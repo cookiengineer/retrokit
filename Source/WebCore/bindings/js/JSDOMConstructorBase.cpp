@@ -1,6 +1,6 @@
 /*
  *  Copyright (C) 1999-2001 Harri Porten (porten@kde.org)
- *  Copyright (C) 2004-2011, 2013, 2016 Apple Inc. All rights reserved.
+ *  Copyright (C) 2004-2022 Apple Inc. All rights reserved.
  *  Copyright (C) 2007 Samuel Weinig <sam@webkit.org>
  *  Copyright (C) 2013 Michael Pruett <michael@68k.org>
  *
@@ -23,16 +23,16 @@
 #include "JSDOMConstructor.h"
 
 #include "WebCoreJSClientData.h"
+#include <JavaScriptCore/HeapCellInlines.h>
 #include <JavaScriptCore/JSCInlines.h>
+#include <JavaScriptCore/JSCellInlines.h>
 
 namespace WebCore {
 using namespace JSC;
 
 STATIC_ASSERT_IS_TRIVIALLY_DESTRUCTIBLE(JSDOMConstructorBase);
 
-static JSC_DECLARE_HOST_FUNCTION(callThrowTypeError);
-
-JSC_DEFINE_HOST_FUNCTION(callThrowTypeError, (JSGlobalObject* globalObject, CallFrame*))
+JSC_DEFINE_HOST_FUNCTION(callThrowTypeErrorForJSDOMConstructor, (JSGlobalObject* globalObject, CallFrame*))
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
@@ -48,17 +48,9 @@ JSC_DEFINE_HOST_FUNCTION(callThrowTypeErrorForJSDOMConstructorNotConstructable, 
     return JSC::JSValue::encode(JSC::jsNull());
 }
 
-CallData JSDOMConstructorBase::getCallData(JSCell*)
+JSC::GCClient::IsoSubspace* JSDOMConstructorBase::subspaceForImpl(JSC::VM& vm)
 {
-    CallData callData;
-    callData.type = CallData::Type::Native;
-    callData.native.function = callThrowTypeError;
-    return callData;
-}
-
-JSC::IsoSubspace* JSDOMConstructorBase::subspaceForImpl(JSC::VM& vm)
-{
-    return &static_cast<JSVMClientData*>(vm.clientData)->domConstructorSpace();
+    return &downcast<JSVMClientData>(vm.clientData)->domConstructorSpace();
 }
 
 } // namespace WebCore

@@ -33,58 +33,69 @@
 
 #if ENABLE(VIDEO)
 
-#include "DocumentFragment.h"
-#include "HTMLElement.h"
+#include <WebCore/ActiveDOMObject.h>
+#include <WebCore/DocumentFragment.h>
+#include <WebCore/EventTargetInterfaces.h>
+#include <WebCore/HTMLElement.h>
 #include <wtf/JSONValues.h>
+#include <wtf/Lock.h>
 #include <wtf/MediaTime.h>
 
 namespace WebCore {
 
+class SpeechSynthesis;
 class TextTrack;
 class TextTrackCue;
 
 class TextTrackCueBox : public HTMLElement {
-    WTF_MAKE_ISO_ALLOCATED(TextTrackCueBox);
+    WTF_MAKE_TZONE_ALLOCATED(TextTrackCueBox);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(TextTrackCueBox);
 public:
     static Ref<TextTrackCueBox> create(Document&, TextTrackCue&);
 
-    TextTrackCue* getCue() const;
-    virtual void applyCSSProperties(const IntSize&) { }
+    TextTrackCue* NODELETE getCue() const;
+    virtual void applyCSSProperties() { }
 
 protected:
     void initialize();
 
     TextTrackCueBox(Document&, TextTrackCue&);
-    ~TextTrackCueBox() { }
+    ~TextTrackCueBox();
 
 private:
 
-    WeakPtr<TextTrackCue> m_cue;
+    WeakPtr<TextTrackCue, WeakPtrImplWithEventTargetData> m_cue;
 };
 
-class TextTrackCue : public RefCounted<TextTrackCue>, public EventTargetWithInlineData, public ActiveDOMObject {
-    WTF_MAKE_ISO_ALLOCATED(TextTrackCue);
+class TextTrackCue : public RefCounted<TextTrackCue>, public EventTarget, public ActiveDOMObject {
+    WTF_MAKE_TZONE_ALLOCATED(TextTrackCue);
 public:
-    static const AtomString& cueShadowPseudoId();
-    static const AtomString& cueBackdropShadowPseudoId();
-    static const AtomString& cueBoxShadowPseudoId();
-
     static ExceptionOr<Ref<TextTrackCue>> create(Document&, double start, double end, DocumentFragment&);
+    ~TextTrackCue();
 
-    TextTrack* track() const;
+    // ContextDestructionObserver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+    USING_CAN_MAKE_WEAKPTR(EventTarget);
+
+    void didMoveToNewDocument(Document&);
+
+    TextTrack* NODELETE track() const;
     void setTrack(TextTrack*);
 
-    const String& id() const { return m_id; }
-    void setId(const String&);
+    template<typename Visitor> void visitAdditionalChildrenInGCThread(Visitor&);
+
+    const AtomString& id() const LIFETIME_BOUND { return m_id; }
+    void setId(const AtomString&);
 
     double startTime() const { return startMediaTime().toDouble(); }
     void setStartTime(double);
 
     double endTime() const { return endMediaTime().toDouble(); }
-    void setEndTime(double);
+    ExceptionOr<void> setEndTime(double);
 
     bool pauseOnExit() const { return m_pauseOnExit; }
-    void setPauseOnExit(bool);
+    void NODELETE setPauseOnExit(bool);
 
     MediaTime startMediaTime() const { return m_startTime; }
     void setStartTime(const MediaTime&);
@@ -92,7 +103,7 @@ public:
     MediaTime endMediaTime() const { return m_endTime; }
     void setEndTime(const MediaTime&);
 
-    bool isActive() const;
+    bool NODELETE isActive() const;
     virtual void setIsActive(bool);
 
     virtual bool isOrderedBefore(const TextTrackCue*) const;
@@ -102,36 +113,41 @@ public:
 
     enum CueType { Generic, Data, ConvertedToWebVTT, WebVTT };
     virtual CueType cueType() const { return CueType::Generic; }
-    virtual bool isRenderable() const;
+    virtual bool NODELETE isRenderable() const;
 
     enum CueMatchRules { MatchAllFields, IgnoreDuration };
     bool isEqual(const TextTrackCue&, CueMatchRules) const;
 
     void willChange();
-    virtual void didChange();
+    virtual void didChange(bool = false);
 
-    virtual RefPtr<TextTrackCueBox> getDisplayTree(const IntSize& videoSize, int fontSize);
+    virtual RefPtr<TextTrackCueBox> getDisplayTree();
     virtual void removeDisplayTree();
 
     virtual RefPtr<DocumentFragment> getCueAsHTML();
+    virtual const String& text() const { return emptyString(); }
 
     String toJSONString() const;
 
-    using RefCounted::ref;
-    using RefCounted::deref;
-
     virtual void recalculateStyles() { m_displayTreeNeedsUpdate = true; }
-    virtual void setFontSize(int fontSize, const IntSize& videoSize, bool important);
+    virtual void NODELETE setFontSize(int fontSize, bool important);
     virtual void updateDisplayTree(const MediaTime&) { }
 
     unsigned cueIndex() const;
 
+    using SpeakCueCompletionHandler = Function<void(const TextTrackCue&)>;
+    virtual void prepareToSpeak(SpeechSynthesis&, double, double, SpeakCueCompletionHandler&&) { }
+    virtual void beginSpeaking() { }
+    virtual void pauseSpeaking() { }
+    virtual void cancelSpeaking() { }
+
+    virtual bool cueContentsMatch(const TextTrackCue&) const;
+
 protected:
     TextTrackCue(Document&, const MediaTime& start, const MediaTime& end);
 
-    Document& ownerDocument() { return m_document; }
+    Document* document() const;
 
-    virtual bool cueContentsMatch(const TextTrackCue&) const;
     virtual void toJSON(JSON::Object&) const;
 
 private:
@@ -141,26 +157,21 @@ private:
     void refEventTarget() final { ref(); }
     void derefEventTarget() final { deref(); }
     using EventTarget::dispatchEvent;
-    void dispatchEvent(Event&) final;
-    EventTargetInterface eventTargetInterface() const final { return TextTrackCueEventTargetInterfaceType; }
+    enum EventTargetInterfaceType eventTargetInterface() const final { return EventTargetInterfaceType::TextTrackCue; }
     ScriptExecutionContext* scriptExecutionContext() const final;
-
-    // ActiveDOMObject
-    const char* activeDOMObjectName() const final;
 
     void rebuildDisplayTree();
 
-    String m_id;
+    AtomString m_id;
     MediaTime m_startTime;
     MediaTime m_endTime;
     int m_processingCueChanges { 0 };
 
-    TextTrack* m_track { nullptr };
+    Lock m_trackLockForGC;
+    CheckedPtr<TextTrack> m_track;
 
-    Document& m_document;
-
-    RefPtr<DocumentFragment> m_cueNode;
-    RefPtr<TextTrackCueBox> m_displayTree;
+    const RefPtr<DocumentFragment> m_cueNode;
+    const RefPtr<TextTrackCueBox> m_displayTree;
 
     int m_fontSize { 0 };
     bool m_fontSizeIsImportant { false };
@@ -184,6 +195,8 @@ template<> struct LogArgument<WebCore::TextTrackCue> {
     static String toString(const WebCore::TextTrackCue& cue) { return cue.toJSONString(); }
 };
 
-}
+} // namespace WTF
+
+SPECIALIZE_TYPE_TRAITS_EVENTTARGET(TextTrackCue)
 
 #endif

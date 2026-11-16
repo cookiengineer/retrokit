@@ -27,7 +27,7 @@
 
 #include <wtf/Function.h>
 #include <wtf/HashMap.h>
-#include <wtf/Variant.h>
+#include <wtf/Platform.h>
 #include <wtf/Vector.h>
 #include <wtf/persistence/PersistentCoders.h>
 #include <wtf/text/WTFString.h>
@@ -41,6 +41,7 @@ public:
     struct Entry {
         WEBCORE_EXPORT Entry();
         WEBCORE_EXPORT Entry(const Entry&);
+        WEBCORE_EXPORT Entry(const String&, const String&, const Variant<String, Ref<WebCore::SharedBuffer>>&);
         WEBCORE_EXPORT Entry(Entry&&);
         WEBCORE_EXPORT Entry& operator=(const Entry& otherData);
         WEBCORE_EXPORT Entry& operator=(Entry&& otherData);
@@ -57,7 +58,8 @@ public:
     WEBCORE_EXPORT PasteboardCustomData(const PasteboardCustomData&);
     WEBCORE_EXPORT ~PasteboardCustomData();
 
-    const String& origin() const { return m_origin; }
+    const String& origin() const LIFETIME_BOUND { return m_origin; }
+    void setOrigin(String&& origin) { m_origin = WTF::move(origin); }
     void setOrigin(const String& origin) { m_origin = origin; }
 
     WEBCORE_EXPORT Ref<SharedBuffer> createSharedBuffer() const;
@@ -66,7 +68,7 @@ public:
 
     String readString(const String& type) const;
     RefPtr<SharedBuffer> readBuffer(const String& type) const;
-    String readStringInCustomData(const String& type) const;
+    String NODELETE readStringInCustomData(const String& type) const;
 
     void writeString(const String& type, const String& value);
     void writeData(const String& type, Ref<SharedBuffer>&& data);
@@ -76,23 +78,25 @@ public:
     void clear(const String& type);
 
 #if PLATFORM(COCOA)
-    WEBCORE_EXPORT static const char* cocoaType();
+    WEBCORE_EXPORT static ASCIILiteral cocoaType();
 #elif PLATFORM(GTK)
-    static const char* gtkType() { return "org.webkitgtk.WebKit.custom-pasteboard-data"; }
+    static ASCIILiteral gtkType() { return "org.webkitgtk.WebKit.custom-pasteboard-data"_s; }
+#elif PLATFORM(WPE)
+    static ASCIILiteral wpeType() { return "org.wpewebkit.WebKit.custom-pasteboard-data"_s; }
 #endif
 
-    void forEachType(Function<void(const String&)>&&) const;
-    void forEachPlatformString(Function<void(const String& type, const String& data)>&&) const;
-    void forEachPlatformStringOrBuffer(Function<void(const String& type, const Variant<String, Ref<SharedBuffer>>& data)>&&) const;
-    void forEachCustomString(Function<void(const String& type, const String& data)>&&) const;
+    void forEachType(NOESCAPE const Function<void(const String&)>&) const;
+    void forEachPlatformString(NOESCAPE const Function<void(const String& type, const String& data)>&) const;
+    void forEachPlatformStringOrBuffer(NOESCAPE const Function<void(const String& type, const Variant<String, Ref<SharedBuffer>>& data)>&) const;
+    void forEachCustomString(NOESCAPE const Function<void(const String& type, const String& data)>&) const;
 
-    bool hasData() const;
+    bool NODELETE hasData() const;
     bool hasSameOriginCustomData() const;
 
     Vector<String> orderedTypes() const;
     WEBCORE_EXPORT PasteboardCustomData& operator=(const PasteboardCustomData& otherData);
 
-    const Vector<Entry>& data() const { return m_data; }
+    const Vector<Entry>& data() const LIFETIME_BOUND { return m_data; }
 
 private:
     HashMap<String, String> sameOriginCustomStringData() const;

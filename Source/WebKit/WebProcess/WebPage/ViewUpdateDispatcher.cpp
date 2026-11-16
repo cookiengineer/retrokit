@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,21 +28,19 @@
 
 #if ENABLE(UI_SIDE_COMPOSITING)
 
+#include "Connection.h"
 #include "ViewUpdateDispatcherMessages.h"
 #include "WebPage.h"
 #include "WebProcess.h"
 #include <WebCore/PageIdentifier.h>
 #include <wtf/RunLoop.h>
+#include <wtf/WorkQueue.h>
 
 namespace WebKit {
 
-Ref<ViewUpdateDispatcher> ViewUpdateDispatcher::create()
-{
-    return adoptRef(*new ViewUpdateDispatcher);
-}
-
-ViewUpdateDispatcher::ViewUpdateDispatcher()
-    : m_queue(WorkQueue::create("com.apple.WebKit.ViewUpdateDispatcher"))
+ViewUpdateDispatcher::ViewUpdateDispatcher(WebProcess& process)
+    : m_process(process)
+    , m_queue(WorkQueue::create("com.apple.WebKit.ViewUpdateDispatcher"_s))
 {
 }
 
@@ -51,9 +49,19 @@ ViewUpdateDispatcher::~ViewUpdateDispatcher()
     ASSERT_NOT_REACHED();
 }
 
-void ViewUpdateDispatcher::initializeConnection(IPC::Connection* connection)
+void ViewUpdateDispatcher::ref() const
 {
-    connection->addWorkQueueMessageReceiver(Messages::ViewUpdateDispatcher::messageReceiverName(), m_queue.get(), this);
+    m_process->ref();
+}
+
+void ViewUpdateDispatcher::deref() const
+{
+    m_process->deref();
+}
+
+void ViewUpdateDispatcher::initializeConnection(IPC::Connection& connection)
+{
+    connection.addMessageReceiver(m_queue.get(), *this, Messages::ViewUpdateDispatcher::messageReceiverName());
 }
 
 void ViewUpdateDispatcher::visibleContentRectUpdate(WebCore::PageIdentifier pageID, const VisibleContentRectUpdateInfo& visibleContentRectUpdateInfo)
@@ -69,8 +77,8 @@ void ViewUpdateDispatcher::visibleContentRectUpdate(WebCore::PageIdentifier page
             iterator->value.get().visibleContentRectUpdateInfo = visibleContentRectUpdateInfo;
     }
     if (updateListWasEmpty) {
-        RunLoop::main().dispatch([protectedThis = makeRef(*this)]() mutable {
-            protectedThis->dispatchVisibleContentRectUpdate();
+        RunLoop::mainSingleton().dispatch([this, protectedThis = Ref { *this }] {
+            dispatchVisibleContentRectUpdate();
         });
     }
 }
@@ -84,7 +92,7 @@ void ViewUpdateDispatcher::dispatchVisibleContentRectUpdate()
     }
 
     for (auto& slot : update) {
-        if (WebPage* webPage = WebProcess::singleton().webPage(slot.key))
+        if (RefPtr webPage = WebProcess::singleton().webPage(slot.key))
             webPage->updateVisibleContentRects(slot.value.get().visibleContentRectUpdateInfo, slot.value.get().oldestTimestamp);
     }
 }

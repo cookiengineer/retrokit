@@ -22,36 +22,51 @@
 
 #if ENABLE(MEDIA_STREAM)
 
+#include "FrameInfoData.h"
 #include "Logging.h"
-#include "WebCoreArgumentCoders.h"
+#include "MessageSenderInlines.h"
 #include "WebFrame.h"
 #include "WebPage.h"
 #include "WebPageProxyMessages.h"
 #include <WebCore/CaptureDevice.h>
-#include <WebCore/Document.h>
-#include <WebCore/Frame.h>
+#include <WebCore/CaptureDeviceWithCapabilities.h>
+#include <WebCore/DocumentPage.h>
+#include <WebCore/FrameDestructionObserverInlines.h>
 #include <WebCore/FrameLoader.h>
+#include <WebCore/LocalFrame.h>
 #include <WebCore/MediaConstraints.h>
+#include <WebCore/Page.h>
 #include <WebCore/SecurityOrigin.h>
 #include <WebCore/SecurityOriginData.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 using namespace WebCore;
 
-static constexpr OptionSet<ActivityState::Flag> focusedActiveWindow = { ActivityState::IsFocused, ActivityState::WindowIsActive };
+WTF_MAKE_TZONE_ALLOCATED_IMPL(UserMediaPermissionRequestManager);
 
 UserMediaPermissionRequestManager::UserMediaPermissionRequestManager(WebPage& page)
     : m_page(page)
 {
 }
 
+void UserMediaPermissionRequestManager::ref() const
+{
+    m_page->ref();
+}
+
+void UserMediaPermissionRequestManager::deref() const
+{
+    m_page->deref();
+}
+
 void UserMediaPermissionRequestManager::startUserMediaRequest(UserMediaRequest& request)
 {
-    Document* document = request.document();
-    Frame* frame = document ? document->frame() : nullptr;
+    RefPtr document = request.document();
+    RefPtr frame = document ? document->frame() : nullptr;
 
     if (!frame || !document->page()) {
-        request.deny(UserMediaRequest::OtherFailure, emptyString());
+        request.deny(MediaAccessDenialReason::OtherFailure, emptyString());
         return;
     }
 
@@ -60,7 +75,7 @@ void UserMediaPermissionRequestManager::startUserMediaRequest(UserMediaRequest& 
         return;
     }
 
-    auto& pendingRequests = m_pendingUserMediaRequests.add(document, Vector<Ref<UserMediaRequest>>()).iterator->value;
+    auto& pendingRequests = m_pendingUserMediaRequests.add(*document, Vector<Ref<UserMediaRequest>>()).iterator->value;
     if (pendingRequests.isEmpty())
         document->addMediaCanStartListener(*this);
     pendingRequests.append(request);
@@ -68,19 +83,19 @@ void UserMediaPermissionRequestManager::startUserMediaRequest(UserMediaRequest& 
 
 void UserMediaPermissionRequestManager::sendUserMediaRequest(UserMediaRequest& userRequest)
 {
-    auto* frame = userRequest.document() ? userRequest.document()->frame() : nullptr;
+    RefPtr frame = userRequest.document() ? userRequest.document()->frame() : nullptr;
     if (!frame) {
-        userRequest.deny(UserMediaRequest::OtherFailure, emptyString());
+        userRequest.deny(MediaAccessDenialReason::OtherFailure, emptyString());
         return;
     }
 
-    m_ongoingUserMediaRequests.add(userRequest.identifier(), makeRef(userRequest));
+    m_ongoingUserMediaRequests.add(userRequest.identifier(), userRequest);
 
-    WebFrame* webFrame = WebFrame::fromCoreFrame(*frame);
+    RefPtr webFrame = WebFrame::fromCoreFrame(*frame);
     ASSERT(webFrame);
 
-    auto* topLevelDocumentOrigin = userRequest.topLevelDocumentOrigin();
-    m_page.send(Messages::WebPageProxy::RequestUserMediaPermissionForFrame(userRequest.identifier(), webFrame->frameID(), userRequest.userMediaDocumentOrigin()->data(), topLevelDocumentOrigin->data(), userRequest.request()));
+    RefPtr topLevelDocumentOrigin = userRequest.topLevelDocumentOrigin();
+    protect(m_page)->send(Messages::WebPageProxy::RequestUserMediaPermissionForFrame(userRequest.identifier(), webFrame->info(), userRequest.userMediaDocumentOrigin()->data(), topLevelDocumentOrigin->data(), userRequest.request()));
 }
 
 void UserMediaPermissionRequestManager::cancelUserMediaRequest(UserMediaRequest& request)
@@ -88,11 +103,11 @@ void UserMediaPermissionRequestManager::cancelUserMediaRequest(UserMediaRequest&
     if (auto removedRequest = m_ongoingUserMediaRequests.take(request.identifier()))
         return;
         
-    auto* document = request.document();
+    RefPtr document = request.document();
     if (!document)
         return;
     
-    auto iterator = m_pendingUserMediaRequests.find(document);
+    auto iterator = m_pendingUserMediaRequests.find(*document);
     if (iterator == m_pendingUserMediaRequests.end())
         return;
 
@@ -112,12 +127,12 @@ void UserMediaPermissionRequestManager::mediaCanStart(Document& document)
 {
     ASSERT(document.page()->canStartMedia());
 
-    auto pendingRequests = m_pendingUserMediaRequests.take(&document);
+    auto pendingRequests = m_pendingUserMediaRequests.take(document);
     for (auto& pendingRequest : pendingRequests)
         sendUserMediaRequest(pendingRequest);
 }
 
-void UserMediaPermissionRequestManager::userMediaAccessWasGranted(UserMediaRequestIdentifier requestID, CaptureDevice&& audioDevice, CaptureDevice&& videoDevice, String&& deviceIdentifierHashSalt, CompletionHandler<void()>&& completionHandler)
+void UserMediaPermissionRequestManager::userMediaAccessWasGranted(UserMediaRequestIdentifier requestID, CaptureDevice&& audioDevice, CaptureDevice&& videoDevice, WebCore::MediaDeviceHashSalts&& deviceIdentifierHashSalts, CompletionHandler<void()>&& completionHandler)
 {
     auto request = m_ongoingUserMediaRequests.take(requestID);
     if (!request) {
@@ -125,40 +140,40 @@ void UserMediaPermissionRequestManager::userMediaAccessWasGranted(UserMediaReque
         return;
     }
 
-    request->allow(WTFMove(audioDevice), WTFMove(videoDevice), WTFMove(deviceIdentifierHashSalt), WTFMove(completionHandler));
+    request->allow(WTF::move(audioDevice), WTF::move(videoDevice), WTF::move(deviceIdentifierHashSalts), WTF::move(completionHandler));
 }
 
-void UserMediaPermissionRequestManager::userMediaAccessWasDenied(UserMediaRequestIdentifier requestID, UserMediaRequest::MediaAccessDenialReason reason, String&& invalidConstraint)
+void UserMediaPermissionRequestManager::userMediaAccessWasDenied(UserMediaRequestIdentifier requestID, MediaAccessDenialReason reason, String&& message, MediaConstraintType invalidConstraint)
 {
     auto request = m_ongoingUserMediaRequests.take(requestID);
     if (!request)
         return;
 
-    request->deny(reason, WTFMove(invalidConstraint));
+    request->deny(reason, WTF::move(message),  invalidConstraint);
 }
 
-void UserMediaPermissionRequestManager::enumerateMediaDevices(Document& document, CompletionHandler<void(const Vector<CaptureDevice>&, const String&)>&& completionHandler)
+void UserMediaPermissionRequestManager::enumerateMediaDevices(Document& document, CompletionHandler<void(Vector<CaptureDeviceWithCapabilities>&&, MediaDeviceHashSalts&&)>&& completionHandler)
 {
-    auto* frame = document.frame();
+    RefPtr frame = document.frame();
     if (!frame) {
-        completionHandler({ }, emptyString());
+        completionHandler({ }, { });
         return;
     }
 
-    m_page.sendWithAsyncReply(Messages::WebPageProxy::EnumerateMediaDevicesForFrame { WebFrame::fromCoreFrame(*frame)->frameID(), document.securityOrigin().data(), document.topOrigin().data() }, WTFMove(completionHandler));
+    protect(m_page)->sendWithAsyncReply(Messages::WebPageProxy::EnumerateMediaDevicesForFrame { WebFrame::fromCoreFrame(*frame)->frameID(), document.securityOrigin().data(), document.topOrigin().data() }, WTF::move(completionHandler));
 }
 
 #if USE(GSTREAMER)
 void UserMediaPermissionRequestManager::updateCaptureDevices(ShouldNotify shouldNotify)
 {
-    WebCore::RealtimeMediaSourceCenter::singleton().getMediaStreamDevices([weakThis = makeWeakPtr(*this), this, shouldNotify](auto&& newDevices) mutable {
+    WebCore::RealtimeMediaSourceCenter::singleton().getMediaStreamDevices([weakThis = WeakPtr { *this }, this, shouldNotify](auto&& newDevices) mutable {
         if (!weakThis)
             return;
 
         if (!haveDevicesChanged(m_captureDevices, newDevices))
             return;
 
-        m_captureDevices = WTFMove(newDevices);
+        m_captureDevices = WTF::move(newDevices);
         if (shouldNotify == ShouldNotify::Yes)
             captureDevicesChanged();
     });
@@ -173,7 +188,7 @@ void UserMediaPermissionRequestManager::devicesChanged()
 UserMediaClient::DeviceChangeObserverToken UserMediaPermissionRequestManager::addDeviceChangeObserver(Function<void()>&& observer)
 {
     auto identifier = UserMediaClient::DeviceChangeObserverToken::generate();
-    m_deviceChangeObserverMap.add(identifier, WTFMove(observer));
+    m_deviceChangeObserverMap.add(identifier, WTF::move(observer));
 
     if (!m_monitoringDeviceChange) {
         m_monitoringDeviceChange = true;
@@ -181,7 +196,7 @@ UserMediaClient::DeviceChangeObserverToken UserMediaPermissionRequestManager::ad
         updateCaptureDevices(ShouldNotify::No);
         WebCore::RealtimeMediaSourceCenter::singleton().addDevicesChangedObserver(*this);
 #else
-        m_page.send(Messages::WebPageProxy::BeginMonitoringCaptureDevices());
+        protect(m_page)->send(Messages::WebPageProxy::BeginMonitoringCaptureDevices());
 #endif
     }
     return identifier;
@@ -191,6 +206,11 @@ void UserMediaPermissionRequestManager::removeDeviceChangeObserver(UserMediaClie
 {
     bool wasRemoved = m_deviceChangeObserverMap.remove(token);
     ASSERT_UNUSED(wasRemoved, wasRemoved);
+}
+
+void UserMediaPermissionRequestManager::updateCaptureState(const WebCore::Document& document, bool isActive, WebCore::MediaProducerMediaCaptureKind kind, CompletionHandler<void(std::optional<WebCore::Exception>&&)>&& completionHandler)
+{
+    protect(m_page)->updateCaptureState(document, isActive, kind, WTF::move(completionHandler));
 }
 
 void UserMediaPermissionRequestManager::captureDevicesChanged()

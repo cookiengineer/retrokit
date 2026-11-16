@@ -33,70 +33,80 @@
 #include "SerializedScriptValue.h"
 #include "ServiceWorker.h"
 #include "WindowProxy.h"
-#include <wtf/Variant.h>
 
 namespace WebCore {
 
 class Blob;
+class SecurityOrigin;
 
-#if ENABLE(SERVICE_WORKER)
-using MessageEventSource = Variant<RefPtr<WindowProxy>, RefPtr<MessagePort>, RefPtr<ServiceWorker>>;
-#else
-using MessageEventSource = Variant<RefPtr<WindowProxy>, RefPtr<MessagePort>>;
-#endif
+using MessageEventSource = Variant<Ref<WindowProxy>, Ref<MessagePort>, Ref<ServiceWorker>>;
 
 class MessageEvent final : public Event {
-    WTF_MAKE_ISO_ALLOCATED(MessageEvent);
+    WTF_MAKE_TZONE_ALLOCATED(MessageEvent);
 public:
-    static Ref<MessageEvent> create(Vector<RefPtr<MessagePort>>&&, Ref<SerializedScriptValue>&&, const String& origin = { }, const String& lastEventId = { }, std::optional<MessageEventSource>&& source = std::nullopt);
-    static Ref<MessageEvent> create(const AtomString& type, Ref<SerializedScriptValue>&&, const String& origin, const String& lastEventId);
-    static Ref<MessageEvent> create(const String& data, const String& origin = { });
-    static Ref<MessageEvent> create(Ref<Blob>&& data, const String& origin);
-    static Ref<MessageEvent> create(Ref<ArrayBuffer>&& data, const String& origin = { });
+    struct JSValueTag { };
+    using DataType = Variant<JSValueTag, String, Ref<Blob>, Ref<ArrayBuffer>>;
+    static Ref<MessageEvent> create(const AtomString& type, DataType&&, RefPtr<SecurityOrigin>&& origin = nullptr, const String& lastEventId = { }, std::optional<MessageEventSource>&& = std::nullopt, Vector<Ref<MessagePort>>&& = { });
+    static Ref<MessageEvent> create(DataType&&, RefPtr<SecurityOrigin>&& origin = nullptr, const String& lastEventId = { }, std::optional<MessageEventSource>&& = std::nullopt, Vector<Ref<MessagePort>>&& = { });
     static Ref<MessageEvent> createForBindings();
+
+    struct MessageEventWithStrongData {
+        const Ref<MessageEvent> event;
+        JSC::Strong<JSC::JSObject> strongWrapper; // Keep the wrapper alive until the event is fired, since it is what keeps `data` alive.
+    };
+
+    static MessageEventWithStrongData create(JSC::JSGlobalObject&, Ref<SerializedScriptValue>&&, RefPtr<SecurityOrigin>&& origin = nullptr, const String& lastEventId = { }, std::optional<MessageEventSource>&& = std::nullopt, Vector<Ref<MessagePort>>&& = { });
 
     struct Init : EventInit {
         JSC::JSValue data;
         String origin;
         String lastEventId;
         std::optional<MessageEventSource> source;
-        Vector<RefPtr<MessagePort>> ports;
+        Vector<Ref<MessagePort>> ports;
     };
-    static Ref<MessageEvent> create(const AtomString& type, Init&&, IsTrusted = IsTrusted::No);
+    static Ref<MessageEvent> create(JSC::JSGlobalObject&, const AtomString& type, Init&&, IsTrusted = IsTrusted::No);
 
     virtual ~MessageEvent();
 
-    void initMessageEvent(const AtomString& type, bool canBubble, bool cancelable, JSC::JSValue data, const String& origin, const String& lastEventId, std::optional<MessageEventSource>&&, Vector<RefPtr<MessagePort>>&&);
+    void initMessageEvent(JSC::JSGlobalObject&, const AtomString& type, bool canBubble, bool cancelable, JSC::JSValue data, const String& origin, const String& lastEventId, std::optional<MessageEventSource>&&, Vector<Ref<MessagePort>>&&);
 
-    const String& origin() const { return m_origin; }
-    const String& lastEventId() const { return m_lastEventId; }
-    const std::optional<MessageEventSource>& source() const { return m_source; }
-    const Vector<RefPtr<MessagePort>>& ports() const { return m_ports; }
+    String origin() const;
+    const RefPtr<SecurityOrigin> securityOrigin() const;
+    const String& lastEventId() const LIFETIME_BOUND { return m_lastEventId; }
+    const std::optional<MessageEventSource>& source() const LIFETIME_BOUND { return m_source; }
+    const Vector<Ref<MessagePort>>& ports() const LIFETIME_BOUND { return m_ports; }
 
-    using DataType = Variant<JSValueInWrappedObject, Ref<SerializedScriptValue>, String, Ref<Blob>, Ref<ArrayBuffer>>;
-    const DataType& data() const { return m_data; }
+    const DataType& data() const
+    {
+        IGNORE_CLANG_WARNINGS_BEGIN("thread-safety-reference-return")
+        return m_data;
+        IGNORE_CLANG_WARNINGS_END
+    }
 
-    JSValueInWrappedObject& cachedData() { return m_cachedData; }
-    JSValueInWrappedObject& cachedPorts() { return m_cachedPorts; }
+    JSValueInWrappedObject& jsData() LIFETIME_BOUND { return m_jsData; }
+    JSValueInWrappedObject& cachedData() LIFETIME_BOUND { return m_cachedData; }
+    JSValueInWrappedObject& cachedPorts() LIFETIME_BOUND { return m_cachedPorts; }
 
     size_t memoryCost() const;
 
 private:
     MessageEvent();
-    MessageEvent(const AtomString& type, Init&&, IsTrusted);
-    MessageEvent(const AtomString& type, Ref<SerializedScriptValue>&& data, const String& origin, const String& lastEventId);
-    MessageEvent(DataType&&, const String& origin, const String& lastEventId = { }, std::optional<MessageEventSource>&& = std::nullopt, Vector<RefPtr<MessagePort>>&& = { });
+    MessageEvent(JSC::JSGlobalObject&, const AtomString& type, Init&&, IsTrusted);
+    MessageEvent(const AtomString& type, DataType&&, RefPtr<SecurityOrigin>&& origin, const String& lastEventId = { }, std::optional<MessageEventSource>&& = std::nullopt, Vector<Ref<MessagePort>>&& = { });
 
-    EventInterface eventInterface() const final;
-
-    DataType m_data;
-    String m_origin;
+    DataType m_data WTF_GUARDED_BY_LOCK(m_concurrentDataAccessLock);
+    Variant<String, Ref<SecurityOrigin>> m_origin;
     String m_lastEventId;
     std::optional<MessageEventSource> m_source;
-    Vector<RefPtr<MessagePort>> m_ports;
+    Vector<Ref<MessagePort>> m_ports;
 
+    JSValueInWrappedObject m_jsData;
     JSValueInWrappedObject m_cachedData;
     JSValueInWrappedObject m_cachedPorts;
+
+    mutable Lock m_concurrentDataAccessLock;
 };
 
 } // namespace WebCore
+
+extern template class mpark::variant<WTF::Ref<WebCore::WindowProxy>, WTF::Ref<WebCore::MessagePort>, WTF::Ref<WebCore::ServiceWorker>>;

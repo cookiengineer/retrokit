@@ -1,8 +1,8 @@
 {
     "domain": "CSS",
     "description": "This domain exposes CSS read/write operations. All CSS objects, like stylesheets, rules, and styles, have an associated <code>id</code> used in subsequent operations on the related object. Each object type has a specific <code>id</code> structure, and those are not interchangeable between objects of different kinds. CSS objects can be loaded using the <code>get*ForNode()</code> calls (which accept a DOM node id). Alternatively, a client can discover all the existing stylesheets with the <code>getAllStyleSheets()</code> method and subsequently load the required stylesheet contents using the <code>getStyleSheet[Text]()</code> methods.",
-    "debuggableTypes": ["itml", "page", "web-page"],
-    "targetTypes": ["itml", "page"],
+    "debuggableTypes": ["itml", "web-page"],
+    "targetTypes": ["itml", "frame", "page"],
     "types": [
         {
             "id": "StyleSheetId",
@@ -38,19 +38,46 @@
             "enum": [
                 "first-line",
                 "first-letter",
+                "grammar-error",
                 "highlight",
                 "marker",
                 "before",
                 "after",
                 "selection",
                 "backdrop",
-                "scrollbar",
-                "scrollbar-thumb",
-                "scrollbar-button",
-                "scrollbar-track",
-                "scrollbar-track-piece",
-                "scrollbar-corner",
-                "resizer"
+                "spelling-error",
+                "target-text",
+                "checkmark",
+                "picker-icon",
+                "slider-fill",
+                "slider-thumb",
+                "slider-track",
+                "view-transition",
+                "view-transition-group",
+                "view-transition-image-pair",
+                "view-transition-old",
+                "view-transition-new",
+                "-webkit-scrollbar",
+                "-webkit-resizer",
+                "-webkit-scrollbar-thumb",
+                "-webkit-scrollbar-button",
+                "-webkit-scrollbar-track",
+                "-webkit-scrollbar-track-piece",
+                "-webkit-scrollbar-corner"
+            ],
+            "description": "Pseudo-style identifier (see <code>enum PseudoId</code> in <code>RenderStyleConstants.h</code>)."
+        },
+        {
+            "id": "ForceablePseudoClass",
+            "type": "string",
+            "enum": [
+                "active",
+                "focus",
+                "focus-visible",
+                "focus-within",
+                "hover",
+                "target",
+                "visited"
             ],
             "description": "Pseudo-style identifier (see <code>enum PseudoId</code> in <code>RenderStyleConstants.h</code>)."
         },
@@ -147,7 +174,8 @@
                 { "name": "sourceLine", "type": "integer", "description": "Line ordinal of the rule selector start character in the resource."},
                 { "name": "origin", "$ref": "StyleSheetOrigin", "description": "Parent stylesheet's origin."},
                 { "name": "style", "$ref": "CSSStyle", "description": "Associated style declaration." },
-                { "name": "groupings", "type": "array", "items": { "$ref": "Grouping" }, "optional": true, "description": "Grouping list array (for rules involving @media/@supports). The array enumerates CSS groupings starting with the innermost one, going outwards." }
+                { "name": "groupings", "type": "array", "items": { "$ref": "Grouping" }, "optional": true, "description": "Grouping list array (for rules involving @media/@supports). The array enumerates CSS groupings starting with the innermost one, going outwards." },
+                { "name": "isImplicitlyNested", "type": "boolean", "optional": true, "description": "<code>true</code> if this style is for a rule implicitly wrapping properties declared inside of CSSGrouping." }
             ]
         },
         {
@@ -226,11 +254,13 @@
         {
             "id": "Grouping",
             "type": "object",
-            "description": "CSS @media (as well as other users of media queries, like @import, <style>, <link>, etc.) and @supports descriptor.",
+            "description": "CSS @media (as well as other users of media queries, like @import, <style>, <link>, etc.), @supports, and @layer descriptor.",
             "properties": [
-                { "name": "text", "type": "string", "description": "Media query text." },
-                { "name": "type", "type": "string", "enum": ["media-rule", "media-import-rule", "media-link-node", "media-style-node", "supports-rule"], "description": "Source of the media query: \"media-rule\" if specified by a @media rule, \"media-import-rule\" if specified by an @import rule, \"media-link-node\" if specified by a \"media\" attribute in a linked style sheet's LINK tag, \"media-style-node\" if specified by a \"media\" attribute in an inline style sheet's STYLE tag, \"supports-rule\" if specified by an @supports rule, ." },
-                { "name": "sourceURL", "type": "string", "optional": true, "description": "URL of the document containing the CSS grouping." }
+                { "name": "type", "type": "string", "enum": ["media-rule", "media-import-rule", "media-link-node", "media-style-node", "supports-rule", "layer-rule", "layer-import-rule", "container-rule", "scope-rule", "starting-style-rule", "style-rule"], "description": "Source of the media query: \"media-rule\" if specified by a @media rule, \"media-import-rule\" if specified by an @import rule, \"media-link-node\" if specified by a \"media\" attribute in a linked style sheet's LINK tag, \"media-style-node\" if specified by a \"media\" attribute in an inline style sheet's STYLE tag, \"supports-rule\" if specified by an @supports rule, \"layer-rule\" if specified by an @layer rule, \"container-rule\" if specified by an @container rule, \"scope-rule\" if specified by a @scope rule, \"starting-style-rule\" if specified by a @starting-style rule, \"style-rule\" if specified by a CSSStyleRule containing the rule inside this grouping." },
+                { "name": "ruleId", "$ref": "CSSRuleId", "optional": true, "description": "The CSS rule identifier for the `@rule` (absent for non-editable grouping rules) or the nesting parent style rule's selector. In CSSOM terms, this is the parent rule of either the previous Grouping for a CSSRule, or of a CSSRule itself."},
+                { "name": "text", "type": "string", "optional": true, "description": "Query text if specified by a @media, @supports, or @container rule. Layer name (or not present for anonymous layers) for @layer rules." },
+                { "name": "sourceURL", "type": "string", "optional": true, "description": "URL of the document containing the CSS grouping." },
+                { "name": "range", "$ref": "SourceRange", "optional": true, "description": "@-rule's header text range in the enclosing stylesheet (if available). This is from the first non-whitespace character after the @ declarartion to the last non-whitespace character before an opening curly bracket or semicolon." }
             ]
         },
         {
@@ -239,7 +269,9 @@
             "description": "A representation of WebCore::Font. Conceptually this is backed by either a font file on disk or from the network.",
             "properties": [
                 { "name": "displayName", "type": "string", "description": "The display name defined by the font." },
-                { "name": "variationAxes", "type": "array", "items": { "$ref": "FontVariationAxis" }, "description": "The variation axes defined by the font." }
+                { "name": "variationAxes", "type": "array", "items": { "$ref": "FontVariationAxis" }, "description": "The variation axes defined by the font." },
+                { "name": "synthesizedBold", "type": "boolean", "optional": true, "description": "Whether the font has synthesized its boldness or not." },
+                { "name": "synthesizedOblique", "type": "boolean", "optional": true, "description": "Whether the font has synthesized its obliqueness or not" }
             ]
         },
         {
@@ -255,10 +287,20 @@
             ]
         },
         {
-            "id": "LayoutContextType",
+            "id": "LayoutFlag",
             "type": "string",
-            "enum": ["grid"],
-            "description": "The layout context type of a node."
+            "enum": [
+                "rendered",
+                "scrollable",
+                "flex",
+                "grid",
+                "subgrid",
+                "grid-lanes",
+                "event",
+                "slot-assigned",
+                "slot-filled"
+            ],
+            "description": "Relevant layout information about the node. Things not in this list are not important to Web Inspector."
         },
         {
             "id": "LayoutContextTypeChangedMode",
@@ -314,7 +356,7 @@
         {
             "name": "getFontDataForNode",
             "description": "Returns the primary font of the computed font cascade for a DOM node identified by <code>nodeId</code>.",
-            "targetTypes": ["page"],
+            "targetTypes": ["frame", "page"],
             "parameters": [
                 { "name": "nodeId", "$ref": "DOM.NodeId" }
             ],
@@ -371,7 +413,7 @@
         {
             "name": "setRuleSelector",
             "description": "Modifies the rule selector.",
-            "targetTypes": ["page"],
+            "targetTypes": ["frame", "page"],
             "parameters": [
                 { "name": "ruleId", "$ref": "CSSRuleId" },
                 { "name": "selector", "type": "string" }
@@ -381,11 +423,23 @@
             ]
         },
         {
+            "name": "setGroupingHeaderText",
+            "description": "Modifies an @rule grouping's header text.",
+            "targetTypes": ["frame", "page"],
+            "parameters": [
+                { "name": "ruleId", "$ref": "CSSRuleId" },
+                { "name": "headerText", "type": "string" }
+            ],
+            "returns": [
+                { "name": "grouping", "$ref": "Grouping", "description": "The resulting grouping after the header text modification." }
+            ]
+        },
+        {
             "name": "createStyleSheet",
             "description": "Creates a new special \"inspector\" stylesheet in the frame with given <code>frameId</code>.",
-            "targetTypes": ["page"],
+            "targetTypes": ["frame", "page"],
             "parameters": [
-                { "name": "frameId", "$ref": "Network.FrameId", "description": "Identifier of the frame where the new \"inspector\" stylesheet should be created." }
+                { "name": "frameId", "$ref": "Network.FrameId", "description": "Identifier of the frame where the new \"inspector\" stylesheet should be created. Ignored when dispatched to a FrameTarget; the receiving frame is used implicitly." }
             ],
             "returns": [
                 { "name": "styleSheetId", "$ref": "StyleSheetId", "description": "Identifier of the created \"inspector\" stylesheet." }
@@ -394,7 +448,7 @@
         {
             "name": "addRule",
             "description": "Creates a new empty rule with the given <code>selector</code> in a stylesheet with given <code>styleSheetId</code>.",
-            "targetTypes": ["page"],
+            "targetTypes": ["frame", "page"],
             "parameters": [
                 { "name": "styleSheetId", "$ref": "StyleSheetId" },
                 { "name": "selector", "type": "string" }
@@ -421,10 +475,10 @@
         {
             "name": "forcePseudoState",
             "description": "Ensures that the given node will have specified pseudo-classes whenever its style is computed by the browser.",
-            "targetTypes": ["page"],
+            "targetTypes": ["frame", "page"],
             "parameters": [
                 { "name": "nodeId", "$ref": "DOM.NodeId", "description": "The element id for which to force the pseudo state." },
-                { "name": "forcedPseudoClasses", "type": "array", "items": { "type": "string", "enum": ["active", "focus", "hover", "visited"] }, "description": "Element pseudo classes to force when computing the element's style." }
+                { "name": "forcedPseudoClasses", "type": "array", "items": { "$ref": "ForceablePseudoClass" }, "description": "Element pseudo classes to force when computing the element's style." }
             ]
         },
         {
@@ -451,7 +505,7 @@
         {
             "name": "styleSheetAdded",
             "description": "Fired whenever an active document stylesheet is added.",
-            "targetTypes": ["page"],
+            "targetTypes": ["frame", "page"],
             "parameters": [
                 { "name": "header", "$ref": "CSSStyleSheetHeader", "description": "Added stylesheet metainfo." }
             ]
@@ -459,18 +513,18 @@
         {
             "name": "styleSheetRemoved",
             "description": "Fired whenever an active document stylesheet is removed.",
-            "targetTypes": ["page"],
+            "targetTypes": ["frame", "page"],
             "parameters": [
                 { "name": "styleSheetId", "$ref": "StyleSheetId", "description": "Identifier of the removed stylesheet." }
             ]
         },
         {
-            "name": "nodeLayoutContextTypeChanged",
-            "description": "Called when a node's layout context type has changed.",
+            "name": "nodeLayoutFlagsChanged",
+            "description": "Called when the layout of a node changes in a way that is important to Web Inspector.",
             "targetTypes": ["page"],
             "parameters": [
-                { "name": "nodeId", "$ref": "DOM.NodeId", "description": "Identifier of the node whose layout context type changed." },
-                { "name": "layoutContextType", "$ref": "LayoutContextType", "optional": true, "description": "The new layout context type of the node. When not provided, the <code>LayoutContextType</code> of the node is not a context for which Web Inspector has specific functionality." }
+                { "name": "nodeId", "$ref": "DOM.NodeId", "description": "Identifier of the node whose layout changed." },
+                { "name": "layoutFlags", "type": "array", "items": { "type": "string", "description": "CSS.LayoutFlag" }, "optional": true, "description": "Relevant information about the layout of the node. When not provided, the layout of the node is not important to Web Inspector." }
             ]
         }
     ]

@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,9 +26,8 @@
 
 #pragma once
 
-#if ENABLE(LAYOUT_FORMATTING_CONTEXT)
-
-#include "InlineFormattingGeometry.h"
+#include "InlineFormattingContext.h"
+#include "InlineFormattingUtils.h"
 
 namespace WebCore {
 namespace Layout {
@@ -35,24 +35,39 @@ namespace Layout {
 class LineBoxVerticalAligner {
 public:
     LineBoxVerticalAligner(const InlineFormattingContext&);
-    InlineLayoutUnit computeLogicalHeightAndAlign(LineBox&, bool useSimplifiedAlignment) const;
-
-    static bool canUseSimplifiedAlignmentForInlineLevelBox(const InlineLevelBox& rootInlineBox, const InlineLevelBox&, std::optional<const BoxGeometry> nlineLevelBoxGeometry);
+    InlineLayoutUnit computeLogicalHeightAndAlign(LineBox&, bool hasContentfulInlineContent) const;
 
 private:
-    InlineLayoutUnit simplifiedVerticalAlignment(LineBox&) const;
+    InlineLayoutUnit simplifiedVerticalAlignment(LineBox&, bool hasContentfulInlineContent) const;
 
-    InlineLayoutUnit computeLineBoxLogicalHeight(LineBox&) const;
-    void computeRootInlineBoxVerticalPosition(LineBox&) const;
+    struct LineBoxAlignmentContent {
+        InlineLayoutUnit height() const { return std::max(nonLineBoxRelativeAlignedMaximumHeight, std::max(topAndBottomAlignedMaximumHeight.top.value_or(0.f), topAndBottomAlignedMaximumHeight.bottom.value_or(0.f))); }
+
+        InlineLayoutUnit nonLineBoxRelativeAlignedMaximumHeight { 0 };
+        struct TopAndBottomAlignedMaximumHeight {
+            std::optional<InlineLayoutUnit> top { };
+            std::optional<InlineLayoutUnit> bottom { };
+        };
+        TopAndBottomAlignedMaximumHeight topAndBottomAlignedMaximumHeight { };
+        bool hasTextEmphasis { false };
+    };
+    LineBoxAlignmentContent computeLineBoxLogicalHeight(LineBox&) const;
+    void computeRootInlineBoxVerticalPosition(LineBox&, const LineBoxAlignmentContent&) const;
     void alignInlineLevelBoxes(LineBox&, InlineLayoutUnit lineBoxLogicalHeight) const;
+    InlineLayoutUnit adjustForAnnotationIfNeeded(LineBox&, InlineLayoutUnit lineBoxHeight) const;
+    std::optional<InlineLevelBox::AscentAndDescent> layoutBoundsForInlineBoxSubtree(const LineBox::InlineLevelBoxList& nonRootInlineLevelBoxes, size_t inlineBoxIndex) const;
+    enum class IsInlineLevelBoxAlignment : bool { No, Yes };
+    InlineLayoutUnit logicalTopOffsetFromParentBaseline(const InlineLevelBox&, const InlineLevelBox& parentInlineBox, IsInlineLevelBoxAlignment = IsInlineLevelBoxAlignment::No) const;
 
-    const InlineFormattingGeometry& formattingGeometry() const { return m_inlineFormattingGeometry; }
+    const InlineFormattingUtils& formattingUtils() const LIFETIME_BOUND { return formattingContext().formattingUtils(); }
+    const InlineFormattingContext& formattingContext() const LIFETIME_BOUND { return m_inlineFormattingContext; }
+    const ElementBox& rootBox() const { return formattingContext().root(); }
+    const InlineLayoutState& layoutState() const LIFETIME_BOUND { return formattingContext().layoutState(); }
 
 private:
-    const InlineFormattingGeometry m_inlineFormattingGeometry;
+    const InlineFormattingContext& m_inlineFormattingContext;
 };
 
 }
 }
 
-#endif

@@ -26,8 +26,10 @@
 #include "config.h"
 #include "WorkerEventLoop.h"
 
+#include "ContextDestructionObserverInlines.h"
 #include "Microtasks.h"
 #include "WorkerOrWorkletGlobalScope.h"
+#include "WorkerOrWorkletThread.h"
 
 namespace WebCore {
 
@@ -39,30 +41,34 @@ Ref<WorkerEventLoop> WorkerEventLoop::create(WorkerOrWorkletGlobalScope& context
 WorkerEventLoop::WorkerEventLoop(WorkerOrWorkletGlobalScope& context)
     : ContextDestructionObserver(&context)
 {
+    addAssociatedContext(context);
 }
 
-WorkerEventLoop::~WorkerEventLoop()
-{
-}
+WorkerEventLoop::~WorkerEventLoop() = default;
 
 void WorkerEventLoop::scheduleToRun()
 {
-    ASSERT(scriptExecutionContext());
-    scriptExecutionContext()->postTask([eventLoop = makeRef(*this)] (ScriptExecutionContext&) {
-        eventLoop->run();
-    });
+    RefPtr globalScope = downcast<WorkerOrWorkletGlobalScope>(scriptExecutionContext());
+    ASSERT(globalScope);
+    ASSERT(globalScope->workerOrWorkletThread());
+    // Post this task with a special event mode, so that it can be separated from other
+    // kinds of tasks so that queued microtasks can run even if other tasks are ignored.
+    globalScope->postTaskForMode([eventLoop = Ref { *this }] (ScriptExecutionContext& context) {
+        eventLoop->run(context.vm());
+    }, WorkerEventLoop::taskMode());
 }
 
 bool WorkerEventLoop::isContextThread() const
 {
-    return scriptExecutionContext()->isContextThread();
+    return protect(scriptExecutionContext())->isContextThread();
 }
 
 MicrotaskQueue& WorkerEventLoop::microtaskQueue()
 {
-    ASSERT(scriptExecutionContext());
+    RefPtr context = scriptExecutionContext();
+    ASSERT(context);
     if (!m_microtaskQueue)
-        m_microtaskQueue = makeUnique<MicrotaskQueue>(scriptExecutionContext()->vm());
+        m_microtaskQueue = MicrotaskQueue::create(context->vm(), *this);
     return *m_microtaskQueue;
 }
 
@@ -71,5 +77,9 @@ void WorkerEventLoop::clearMicrotaskQueue()
     m_microtaskQueue = nullptr;
 }
 
-} // namespace WebCore
+const String WorkerEventLoop::taskMode()
+{
+    return "workerEventLoopTaskMode"_s;
+}
 
+} // namespace WebCore

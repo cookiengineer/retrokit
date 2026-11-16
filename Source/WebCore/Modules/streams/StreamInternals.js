@@ -26,19 +26,11 @@
 
 // @internal
 
-function markPromiseAsHandled(promise)
-{
-    "use strict";
-
-    @assert(@isPromise(promise));
-    @putPromiseInternalField(promise, @promiseFieldFlags, @getPromiseInternalField(promise, @promiseFieldFlags) | @promiseFlagsIsHandled);
-}
-
 function shieldingPromiseResolve(result)
 {
     "use strict";
 
-    const promise = @Promise.@resolve(result);
+    const promise = @promiseResolve(@Promise, result);
     if (promise.@then === @undefined)
         promise.@then = @Promise.prototype.@then;
     return promise;
@@ -49,7 +41,7 @@ function promiseInvokeOrNoopMethodNoCatch(object, method, args)
     "use strict";
 
     if (method === @undefined)
-        return @Promise.@resolve();
+        return @promiseResolve(@Promise, @undefined);
     return @shieldingPromiseResolve(method.@apply(object, args));
 }
 
@@ -68,7 +60,7 @@ function promiseInvokeOrNoopMethod(object, method, args)
         return @promiseInvokeOrNoopMethodNoCatch(object, method, args);
     }
     catch(error) {
-        return @Promise.@reject(error);
+        return @promiseReject(@Promise, error);
     }
 }
 
@@ -80,7 +72,7 @@ function promiseInvokeOrNoop(object, key, args)
         return @promiseInvokeOrNoopNoCatch(object, key, args);
     }
     catch(error) {
-        return @Promise.@reject(error);
+        return @promiseReject(@Promise, error);
     }
 }
 
@@ -95,7 +87,7 @@ function promiseInvokeOrFallbackOrNoop(object, key1, args1, key2, args2)
         return @shieldingPromiseResolve(method.@apply(object, args1));
     }
     catch(error) {
-        return @Promise.@reject(error);
+        return @promiseReject(@Promise, error);
     }
 }
 
@@ -106,15 +98,12 @@ function validateAndNormalizeQueuingStrategy(size, highWaterMark)
     if (size !== @undefined && typeof size !== "function")
         @throwTypeError("size parameter must be a function");
 
-    const normalizedStrategy = {
-        size: size,
-        highWaterMark: @toNumber(highWaterMark)
-    };
+    highWaterMark = @toNumber(highWaterMark);
 
-    if (@isNaN(normalizedStrategy.highWaterMark) || normalizedStrategy.highWaterMark < 0)
+    if (highWaterMark !== highWaterMark || highWaterMark < 0)
         @throwRangeError("highWaterMark value is negative or not a number");
 
-    return normalizedStrategy;
+    return { size, highWaterMark };
 }
 
 function newQueue()
@@ -170,7 +159,11 @@ function extractSizeAlgorithm(strategy)
 {
     if (!("size" in strategy))
         return () => 1;
+
     const sizeAlgorithm = strategy["size"];
+    if (sizeAlgorithm === @undefined)
+        return () => 1;
+
     if (typeof sizeAlgorithm !== "function")
         @throwTypeError("strategy.size must be a function");
 
@@ -181,17 +174,35 @@ function extractHighWaterMark(strategy, defaultHWM)
 {
     if (!("highWaterMark" in strategy))
         return defaultHWM;
+
     const highWaterMark = strategy["highWaterMark"];
-    if (@isNaN(highWaterMark) || highWaterMark < 0)
+    if (highWaterMark === @undefined)
+        return defaultHWM;
+
+    const result = @toNumber(highWaterMark);
+    if (result !== result || result < 0)
         @throwRangeError("highWaterMark value is negative or not a number");
 
-    return highWaterMark;
+    return result;
+}
+
+function extractHighWaterMarkFromQueuingStrategyInit(init)
+{
+    "use strict";
+
+    if (!@isObject(init))
+        @throwTypeError("QueuingStrategyInit argument must be an object.");
+    const {highWaterMark} = init;
+    if (highWaterMark === @undefined)
+        @throwTypeError("QueuingStrategyInit.highWaterMark member is required.");
+
+    return @toNumber(highWaterMark);
 }
 
 function createFulfilledPromise(value)
 {
     const promise = @newPromise();
-    @fulfillPromise(promise, value);
+    @fulfillPromiseWithFirstResolvingFunctionCallCheck(promise, value);
     return promise;
 }
 

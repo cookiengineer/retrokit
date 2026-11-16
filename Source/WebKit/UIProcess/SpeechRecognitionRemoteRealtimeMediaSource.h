@@ -27,18 +27,19 @@
 
 #if ENABLE(MEDIA_STREAM)
 
-#include "SharedMemory.h"
 #include <WebCore/RealtimeMediaSource.h>
 #include <WebCore/RealtimeMediaSourceIdentifier.h>
+#include <WebCore/SpeechRecognitionConnectionClientIdentifier.h>
+#include <wtf/MediaTime.h>
 
 #if PLATFORM(COCOA)
+#include "SharedCARingBuffer.h"
 #include <WebCore/CAAudioStreamDescription.h>
 #endif
 
 namespace WebCore {
 class CaptureDevice;
 #if PLATFORM(COCOA)
-class CARingBuffer;
 class WebAudioBufferList;
 #endif
 }
@@ -46,38 +47,43 @@ class WebAudioBufferList;
 namespace WebKit {
 class SpeechRecognitionRemoteRealtimeMediaSourceManager;
     
-class SpeechRecognitionRemoteRealtimeMediaSource : public WebCore::RealtimeMediaSource, public CanMakeWeakPtr<SpeechRecognitionRemoteRealtimeMediaSource> {
+class SpeechRecognitionRemoteRealtimeMediaSource : public WebCore::RealtimeMediaSource, public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<SpeechRecognitionRemoteRealtimeMediaSource, WTF::DestructionThread::MainRunLoop> {
 public:
-    static Ref<WebCore::RealtimeMediaSource> create(SpeechRecognitionRemoteRealtimeMediaSourceManager&, const WebCore::CaptureDevice&);
+    static Ref<WebCore::RealtimeMediaSource> create(SpeechRecognitionRemoteRealtimeMediaSourceManager&, const WebCore::CaptureDevice&, WebCore::PageIdentifier, WebCore::SpeechRecognitionConnectionClientIdentifier);
     ~SpeechRecognitionRemoteRealtimeMediaSource();
+    WTF_ABSTRACT_THREAD_SAFE_REF_COUNTED_AND_CAN_MAKE_WEAK_PTR_IMPL;
 
     WebCore::RealtimeMediaSourceIdentifier identifier() const { return m_identifier; }
+    WebCore::SpeechRecognitionConnectionClientIdentifier clientIdentifier() const { return m_clientIdentifier; }
 
 #if PLATFORM(COCOA)
-    void setStorage(const SharedMemory::Handle&, const WebCore::CAAudioStreamDescription&, uint64_t numberOfFrames);
+    void setStorage(ConsumerSharedCARingBuffer::Handle&&, const WebCore::CAAudioStreamDescription&);
 #endif
 
-    void remoteAudioSamplesAvailable(MediaTime, uint64_t numberOfFrames);
+    std::optional<uint32_t> audioBufferFrameCount() const;
+
+    void remoteAudioSamplesAvailable(WTF::MediaTime, uint64_t numberOfFrames);
     void remoteCaptureFailed();
     void remoteSourceStopped();
 
 private:
-    SpeechRecognitionRemoteRealtimeMediaSource(WebCore::RealtimeMediaSourceIdentifier, SpeechRecognitionRemoteRealtimeMediaSourceManager&, const WebCore::CaptureDevice&);
+    SpeechRecognitionRemoteRealtimeMediaSource(WebCore::RealtimeMediaSourceIdentifier, SpeechRecognitionRemoteRealtimeMediaSourceManager&, const WebCore::CaptureDevice&, WebCore::PageIdentifier, WebCore::SpeechRecognitionConnectionClientIdentifier);
 
     // WebCore::RealtimeMediaSource
     void startProducingData() final;
     void stopProducingData() final;
-    const WebCore::RealtimeMediaSourceCapabilities& capabilities() final { return m_capabilities; }
-    const WebCore::RealtimeMediaSourceSettings& settings() final { return m_settings; }
+    const WebCore::RealtimeMediaSourceCapabilities& capabilities() LIFETIME_BOUND final { return m_capabilities; }
+    const WebCore::RealtimeMediaSourceSettings& settings() LIFETIME_BOUND final { return m_settings; }
 
     WebCore::RealtimeMediaSourceIdentifier m_identifier;
+    WebCore::SpeechRecognitionConnectionClientIdentifier m_clientIdentifier;
     WeakPtr<SpeechRecognitionRemoteRealtimeMediaSourceManager> m_manager;
     WebCore::RealtimeMediaSourceCapabilities m_capabilities;
     WebCore::RealtimeMediaSourceSettings m_settings;
 
 #if PLATFORM(COCOA)
-    WebCore::CAAudioStreamDescription m_description;
-    std::unique_ptr<WebCore::CARingBuffer> m_ringBuffer;
+    std::optional<WebCore::CAAudioStreamDescription> m_description;
+    std::unique_ptr<ConsumerSharedCARingBuffer> m_ringBuffer;
     std::unique_ptr<WebCore::WebAudioBufferList> m_buffer;
 #endif
 };

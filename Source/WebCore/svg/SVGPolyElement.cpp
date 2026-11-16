@@ -22,45 +22,55 @@
 #include "config.h"
 #include "SVGPolyElement.h"
 
-#include "Document.h"
+#include "ContainerNodeInlines.h"
+#include "LegacyRenderSVGPath.h"
+#include "LegacyRenderSVGResource.h"
+#include "NodeDocument.h"
 #include "RenderSVGPath.h"
-#include "RenderSVGResource.h"
 #include "SVGDocumentExtensions.h"
-#include "SVGParserUtilities.h"
-#include <wtf/IsoMallocInlines.h>
+#include "SVGPropertyOwnerRegistry.h"
+#include "Settings.h"
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(SVGPolyElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGPolyElement);
 
 SVGPolyElement::SVGPolyElement(const QualifiedName& tagName, Document& document)
-    : SVGGeometryElement(tagName, document)
+    : SVGGeometryElement(tagName, document, makeUniqueRef<PropertyRegistry>(*this))
 {
-    static std::once_flag onceFlag;
-    std::call_once(onceFlag, [] {
+    static bool didRegistration = false;
+    if (!didRegistration) [[unlikely]] {
+        didRegistration = true;
         PropertyRegistry::registerProperty<SVGNames::pointsAttr, &SVGPolyElement::m_points>();
-    });
+    }
 }
 
-void SVGPolyElement::parseAttribute(const QualifiedName& name, const AtomString& value)
+void SVGPolyElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
     if (name == SVGNames::pointsAttr) {
-        if (!m_points->baseVal()->parse(value))
-            document().accessSVGExtensions().reportError("Problem parsing points=\"" + value + "\"");
-        return;
+        if (!protect(m_points)->baseVal()->parse(newValue))
+            protect(protect(document())->svgExtensions())->reportError(makeString("Problem parsing points=\""_s, newValue, "\""_s));
     }
 
-    SVGGeometryElement::parseAttribute(name, value);
+    SVGGeometryElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
 }
 
 void SVGPolyElement::svgAttributeChanged(const QualifiedName& attrName)
 {
-    if (attrName == SVGNames::pointsAttr) {
-        if (auto* renderer = downcast<RenderSVGPath>(this->renderer())) {
-            InstanceInvalidationGuard guard(*this);
-            renderer->setNeedsShapeUpdate();
-            RenderSVGResource::markForLayoutAndParentResourceInvalidation(*renderer);
-        }
+    if (PropertyRegistry::isKnownAttribute(attrName)) {
+        ASSERT(attrName == SVGNames::pointsAttr);
+        InstanceInvalidationGuard guard(*this);
+
+        if (auto* path = dynamicDowncast<RenderSVGPath>(renderer()))
+            path->setNeedsShapeUpdate();
+
+        if (auto* path = dynamicDowncast<LegacyRenderSVGPath>(renderer()))
+            path->setNeedsShapeUpdate();
+
+        updateSVGRendererForElementChange();
+        invalidateResourceImageBuffersIfNeeded();
         return;
     }
 
@@ -70,8 +80,14 @@ void SVGPolyElement::svgAttributeChanged(const QualifiedName& attrName)
 size_t SVGPolyElement::approximateMemoryCost() const
 {
     size_t pointsCost = m_points->baseVal()->items().size() * sizeof(FloatPoint);
-    // We need to account for the memory which is allocated by the RenderSVGPath::m_path.
-    return sizeof(*this) + (renderer() ? pointsCost * 2 + sizeof(RenderSVGPath) : pointsCost);
+
+    if (document().settings().layerBasedSVGEngineEnabled()) {
+        // We need to account for the memory which is allocated by the RenderSVGPath::m_path.
+        return sizeof(*this) + (renderer() ? pointsCost * 2 + sizeof(RenderSVGPath) : pointsCost);
+    }
+
+    // We need to account for the memory which is allocated by the LegacyRenderSVGPath::m_path.
+    return sizeof(*this) + (renderer() ? pointsCost * 2 + sizeof(LegacyRenderSVGPath) : pointsCost);
 }
 
 }

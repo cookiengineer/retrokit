@@ -27,25 +27,38 @@
 
 #include "DownloadID.h"
 #include "NetworkDataTask.h"
-#include "NetworkLoadClient.h"
 #include "NetworkLoadParameters.h"
-#include <WebCore/AuthenticationChallenge.h>
-#include <wtf/CompletionHandler.h>
+#include "NetworkSession.h"
+#include <wtf/CheckedRef.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
-class BlobRegistryImpl;
+class AuthenticationChallenge;
 }
 
 namespace WebKit {
 
+class NetworkLoadClient;
 class NetworkLoadScheduler;
 class NetworkProcess;
 
-class NetworkLoad final : private NetworkDataTaskClient {
-    WTF_MAKE_FAST_ALLOCATED;
+class NetworkLoad final : public RefCounted<NetworkLoad>, public NetworkDataTaskClient {
+    WTF_MAKE_TZONE_ALLOCATED(NetworkLoad);
 public:
-    NetworkLoad(NetworkLoadClient&, WebCore::BlobRegistryImpl*, NetworkLoadParameters&&, NetworkSession&);
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
+    static Ref<NetworkLoad> create(NetworkLoadClient& networkLoadClient, NetworkLoadParameters&& networkLoadParameters, NetworkSession& networkSession)
+    {
+        return adoptRef(*new NetworkLoad(networkLoadClient, WTF::move(networkLoadParameters), networkSession));
+    }
+
+    template<typename CreateTaskCallback> static Ref<NetworkLoad> create(NetworkLoadClient& networkLoadClient, NetworkSession& networkSession, NOESCAPE const CreateTaskCallback& createTask)
+    {
+        return adoptRef(*new NetworkLoad(networkLoadClient, networkSession, createTask));
+    }
+
     ~NetworkLoad();
 
     void start();
@@ -54,48 +67,67 @@ public:
 
     bool isAllowedToAskUserForCredentials() const;
 
-    const WebCore::ResourceRequest& currentRequest() const { return m_currentRequest; }
+    const WebCore::ResourceRequest& currentRequest() const LIFETIME_BOUND { return m_currentRequest; }
     void updateRequestAfterRedirection(WebCore::ResourceRequest&) const;
     void reprioritizeRequest(WebCore::ResourceLoadPriority);
 
-    const NetworkLoadParameters& parameters() const { return m_parameters; }
-    const URL& url() const { return parameters().request.url(); }
-
-    void continueWillSendRequest(WebCore::ResourceRequest&&);
+    const NetworkLoadParameters& parameters() const LIFETIME_BOUND { return m_parameters; }
+    const URL& url() const LIFETIME_BOUND { return parameters().request.url(); }
+    String attributedBundleIdentifier(WebPageProxyIdentifier);
 
     void convertTaskToDownload(PendingDownload&, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&, ResponseCompletionHandler&&);
-    void setPendingDownloadID(DownloadID);
+    void NODELETE setPendingDownloadID(DownloadID);
     void setSuggestedFilename(const String&);
-    void setPendingDownload(PendingDownload&);
-    DownloadID pendingDownloadID() { return m_task->pendingDownloadID(); }
+    void NODELETE setPendingDownload(PendingDownload&);
+    std::optional<DownloadID> pendingDownloadID() { return m_task->pendingDownloadID(); }
 
     bool shouldCaptureExtraNetworkLoadMetrics() const final;
 
     String description() const;
     void setH2PingCallback(const URL&, CompletionHandler<void(Expected<WTF::Seconds, WebCore::ResourceError>&&)>&&);
 
+    void setTimingAllowFailedFlag();
+    std::optional<WebCore::FrameIdentifier> NODELETE webFrameID() const;
+    std::optional<WebCore::PageIdentifier> NODELETE webPageID() const;
+    Ref<NetworkProcess> NODELETE networkProcess();
+
+    size_t NODELETE bytesTransferredOverNetwork() const;
+
+    void clearClient() { m_client = nullptr; }
+
 private:
+    NetworkLoad(NetworkLoadClient&, NetworkLoadParameters&&, NetworkSession&);
+
+    template<typename CreateTaskCallback> NetworkLoad(NetworkLoadClient& client, NetworkSession& networkSession, NOESCAPE const CreateTaskCallback& createTask)
+        : m_client(client)
+        , m_networkProcess(networkSession.networkProcess())
+        , m_task(createTask(*this))
+    {
+    }
+
     // NetworkDataTaskClient
     void willPerformHTTPRedirection(WebCore::ResourceResponse&&, WebCore::ResourceRequest&&, RedirectCompletionHandler&&) final;
     void didReceiveChallenge(WebCore::AuthenticationChallenge&&, NegotiatedLegacyTLS, ChallengeCompletionHandler&&) final;
-    void didReceiveResponse(WebCore::ResourceResponse&&, NegotiatedLegacyTLS, ResponseCompletionHandler&&) final;
-    void didReceiveData(Ref<WebCore::SharedBuffer>&&) final;
+    void didReceiveInformationalResponse(WebCore::ResourceResponse&&) final;
+    void didReceiveResponse(WebCore::ResourceResponse&&, NegotiatedLegacyTLS, PrivateRelayed, ResponseCompletionHandler&&) final;
+    void didReceiveData(const WebCore::SharedBuffer&) final;
     void didCompleteWithError(const WebCore::ResourceError&, const WebCore::NetworkLoadMetrics&) final;
     void didSendData(uint64_t totalBytesSent, uint64_t totalBytesExpectedToSend) final;
     void wasBlocked() final;
     void cannotShowURL() final;
     void wasBlockedByRestrictions() final;
+    void wasBlockedByDisabledFTP() final;
     void didNegotiateModernTLS(const URL&) final;
 
-    void notifyDidReceiveResponse(WebCore::ResourceResponse&&, NegotiatedLegacyTLS, ResponseCompletionHandler&&);
+    void notifyDidReceiveResponse(WebCore::ResourceResponse&&, NegotiatedLegacyTLS, PrivateRelayed, ResponseCompletionHandler&&);
 
-    std::reference_wrapper<NetworkLoadClient> m_client;
-    Ref<NetworkProcess> m_networkProcess;
+    WeakPtr<NetworkLoadClient> m_client;
+    const Ref<NetworkProcess> m_networkProcess;
     const NetworkLoadParameters m_parameters;
-    CompletionHandler<void(WebCore::ResourceRequest&&)> m_redirectCompletionHandler;
     RefPtr<NetworkDataTask> m_task;
     WeakPtr<NetworkLoadScheduler> m_scheduler;
 
+    // FIXME: Deduplicate this with NetworkDataTask's m_previousRequest.
     WebCore::ResourceRequest m_currentRequest; // Updated on redirects.
 };
 

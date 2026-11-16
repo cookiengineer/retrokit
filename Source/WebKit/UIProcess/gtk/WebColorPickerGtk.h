@@ -23,10 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WebColorPickerGtk_h
-#define WebColorPickerGtk_h
-
-#if ENABLE(INPUT_TYPE_COLOR)
+#pragma once
 
 #include "WebColorPicker.h"
 #include <gdk/gdk.h>
@@ -42,18 +39,18 @@ namespace WebKit {
 
 class WebColorPickerGtk : public WebColorPicker {
 public:
-    static Ref<WebColorPickerGtk> create(WebPageProxy&, const WebCore::Color&, const WebCore::IntRect&);
+    static Ref<WebColorPickerGtk> create(WebPageProxy&, const WebCore::Color&, const WebCore::IntRect&, std::optional<WebCore::FrameIdentifier> = std::nullopt);
     virtual ~WebColorPickerGtk();
 
     void endPicker() override;
-    void showColorPicker(const WebCore::Color&) override;
+    void showColorPicker(const WebCore::Color&, const WebCore::IntRect&) override;
 
     void cancel();
 
-    const GdkRGBA* initialColor() const { return &m_initialColor; }
+    const GdkRGBA* initialColor() const LIFETIME_BOUND { return &m_initialColor; }
 
 protected:
-    WebColorPickerGtk(WebPageProxy&, const WebCore::Color&, const WebCore::IntRect&);
+    WebColorPickerGtk(WebPageProxy&, const WebCore::Color&, const WebCore::IntRect&, std::optional<WebCore::FrameIdentifier> = std::nullopt);
 
     void didChooseColor(const WebCore::Color&);
 
@@ -68,6 +65,3 @@ private:
 };
 
 } // namespace WebKit
-
-#endif // ENABLE(INPUT_TYPE_COLOR)
-#endif // WebColorPickerGtk_h

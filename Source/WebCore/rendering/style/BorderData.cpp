@@ -1,5 +1,6 @@
 /*
 * Copyright (C) 2019 Apple Inc. All rights reserved.
+* Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
 *
 * Redistribution and use in source and binary forms, with or without
 * modification, are permitted provided that the following conditions
@@ -26,46 +27,82 @@
 #include "config.h"
 #include "BorderData.h"
 
-#include "OutlineValue.h"
-#include <wtf/text/TextStream.h>
+#include "StyleComputedStyle+DifferenceLogging.h"
+#include "StyleKeyword+Logging.h"
+#include "StylePrimitiveNumericTypes+Logging.h"
 
 namespace WebCore {
 
-TextStream& operator<<(TextStream& ts, const BorderValue& borderValue)
+BorderData::BorderData()
+    : borderImage { Style::BorderImageData::create() }
 {
-    ts << borderValue.width() << " " << borderValue.style() << " " << borderValue.color();
-    return ts;
 }
 
-TextStream& operator<<(TextStream& ts, const OutlineValue& outlineValue)
+// Keep these out of line to work around a clang crash (rdar://178383013).
+bool BorderData::hasBorder() const
 {
-    ts << static_cast<const BorderValue&>(outlineValue);
-    ts.dumpProperty("outline-offset", outlineValue.offset());
-    return ts;
+    return edges.anyOf([](const auto& edge) { return edge.nonZero(); });
+}
+
+bool BorderData::hasVisibleBorder() const
+{
+    return edges.anyOf([](const auto& edge) { return edge.isVisible(); });
+}
+
+bool BorderData::hasBorderRadius() const
+{
+    return radii.anyOf([](auto& corner) { return !Style::isKnownEmpty(corner); });
+}
+
+bool BorderData::containsCurrentColor() const
+{
+    return edges.anyOf([](const auto& edge) {
+        return edge.isVisible() && edge.color.containsCurrentColor();
+    });
 }
 
 void BorderData::dump(TextStream& ts, DumpStyleValues behavior) const
 {
     if (behavior == DumpStyleValues::All || left() != BorderValue())
-        ts.dumpProperty("left", left());
+        ts.dumpProperty("left"_s, left());
     if (behavior == DumpStyleValues::All || right() != BorderValue())
-        ts.dumpProperty("right", right());
+        ts.dumpProperty("right"_s, right());
     if (behavior == DumpStyleValues::All || top() != BorderValue())
-        ts.dumpProperty("top", top());
+        ts.dumpProperty("top"_s, top());
     if (behavior == DumpStyleValues::All || bottom() != BorderValue())
-        ts.dumpProperty("bottom", bottom());
+        ts.dumpProperty("bottom"_s, bottom());
 
-    ts.dumpProperty("image", image());
+    if (behavior == DumpStyleValues::All || topLeftCornerShape() != Style::CornerShapeValue(CSS::Keyword::Round { }))
+        ts.dumpProperty("top-left corner shape"_s, topLeftCornerShape());
+    if (behavior == DumpStyleValues::All || topRightCornerShape() != Style::CornerShapeValue(CSS::Keyword::Round { }))
+        ts.dumpProperty("top-right corner shape"_s, topRightCornerShape());
+    if (behavior == DumpStyleValues::All || bottomLeftCornerShape() != Style::CornerShapeValue(CSS::Keyword::Round { }))
+        ts.dumpProperty("bottom-left corner shape"_s, bottomLeftCornerShape());
+    if (behavior == DumpStyleValues::All || bottomRightCornerShape() != Style::CornerShapeValue(CSS::Keyword::Round { }))
+        ts.dumpProperty("bottom-right corner shape"_s, bottomRightCornerShape());
 
-    if (behavior == DumpStyleValues::All || !topLeftRadius().isZero())
-        ts.dumpProperty("top-left", topLeftRadius());
-    if (behavior == DumpStyleValues::All || !topRightRadius().isZero())
-        ts.dumpProperty("top-right", topRightRadius());
-    if (behavior == DumpStyleValues::All || !bottomLeftRadius().isZero())
-        ts.dumpProperty("bottom-left", bottomLeftRadius());
-    if (behavior == DumpStyleValues::All || !bottomRightRadius().isZero())
-        ts.dumpProperty("bottom-right", bottomRightRadius());
+    if (behavior == DumpStyleValues::All || !Style::isKnownZero(topLeftRadius()))
+        ts.dumpProperty("top-left"_s, topLeftRadius());
+    if (behavior == DumpStyleValues::All || !Style::isKnownZero(topRightRadius()))
+        ts.dumpProperty("top-right"_s, topRightRadius());
+    if (behavior == DumpStyleValues::All || !Style::isKnownZero(bottomLeftRadius()))
+        ts.dumpProperty("bottom-left"_s, bottomLeftRadius());
+    if (behavior == DumpStyleValues::All || !Style::isKnownZero(bottomRightRadius()))
+        ts.dumpProperty("bottom-right"_s, bottomRightRadius());
+
+    borderImage->dump(ts, behavior);
 }
+
+#if !LOG_DISABLED
+void BorderData::dumpDifferences(TextStream& ts, const BorderData& other) const
+{
+    LOG_IF_DIFFERENT(edges);
+    LOG_IF_DIFFERENT(radii);
+    LOG_IF_DIFFERENT(cornerShapes);
+
+    borderImage->dumpDifferences(ts, other.borderImage);
+}
+#endif
 
 TextStream& operator<<(TextStream& ts, const BorderData& borderData)
 {

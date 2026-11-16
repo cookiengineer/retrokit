@@ -24,9 +24,10 @@
 #include "DOMObjectCache.h"
 #include <WebCore/DOMException.h>
 #include <WebCore/Document.h>
-#include "GObjectEventListener.h"
+#include <WebCore/ElementInlines.h>
 #include <WebCore/HTMLNames.h>
 #include <WebCore/JSExecState.h>
+#include "GObjectEventListener.h"
 #include "WebKitDOMEventPrivate.h"
 #include "WebKitDOMEventTarget.h"
 #include "WebKitDOMHTMLElementPrivate.h"
@@ -94,7 +95,9 @@ static void webkit_dom_html_element_dom_event_target_init(WebKitDOMEventTargetIf
     iface->remove_event_listener = webkit_dom_html_element_remove_event_listener;
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK port
 G_DEFINE_TYPE_WITH_CODE(WebKitDOMHTMLElement, webkit_dom_html_element, WEBKIT_DOM_TYPE_ELEMENT, G_IMPLEMENT_INTERFACE(WEBKIT_DOM_TYPE_EVENT_TARGET, webkit_dom_html_element_dom_event_target_init))
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 enum {
     DOM_HTML_ELEMENT_PROP_0,
@@ -393,8 +396,7 @@ void webkit_dom_html_element_set_title(WebKitDOMHTMLElement* self, const gchar* 
     g_return_if_fail(WEBKIT_DOM_IS_HTML_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::titleAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::titleAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_html_element_get_lang(WebKitDOMHTMLElement* self)
@@ -412,8 +414,7 @@ void webkit_dom_html_element_set_lang(WebKitDOMHTMLElement* self, const gchar* v
     g_return_if_fail(WEBKIT_DOM_IS_HTML_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::langAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::langAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gboolean webkit_dom_html_element_get_translate(WebKitDOMHTMLElement* self)
@@ -448,8 +449,7 @@ void webkit_dom_html_element_set_dir(WebKitDOMHTMLElement* self, const gchar* va
     g_return_if_fail(WEBKIT_DOM_IS_HTML_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setDir(convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::dirAttr, WTF::AtomString::fromUTF8(value));
 }
 
 glong webkit_dom_html_element_get_tab_index(WebKitDOMHTMLElement* self)
@@ -501,8 +501,7 @@ void webkit_dom_html_element_set_webkitdropzone(WebKitDOMHTMLElement* self, cons
     g_return_if_fail(WEBKIT_DOM_IS_HTML_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::webkitdropzoneAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::webkitdropzoneAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gboolean webkit_dom_html_element_get_hidden(WebKitDOMHTMLElement* self)
@@ -537,8 +536,7 @@ void webkit_dom_html_element_set_access_key(WebKitDOMHTMLElement* self, const gc
     g_return_if_fail(WEBKIT_DOM_IS_HTML_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::accesskeyAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::accesskeyAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_html_element_get_inner_text(WebKitDOMHTMLElement* self)
@@ -558,7 +556,7 @@ void webkit_dom_html_element_set_inner_text(WebKitDOMHTMLElement* self, const gc
     g_return_if_fail(!error || !*error);
     WebCore::HTMLElement* item = WebKit::core(self);
     WTF::String convertedValue = WTF::String::fromUTF8(value);
-    auto result = item->setInnerText(convertedValue);
+    auto result = item->setInnerText(WTF::move(convertedValue));
     if (result.hasException()) {
         auto description = WebCore::DOMException::description(result.releaseException().code());
         g_set_error_literal(error, g_quark_from_string("WEBKIT_DOM"), description.legacyCode, description.name);
@@ -582,7 +580,7 @@ void webkit_dom_html_element_set_outer_text(WebKitDOMHTMLElement* self, const gc
     g_return_if_fail(!error || !*error);
     WebCore::HTMLElement* item = WebKit::core(self);
     WTF::String convertedValue = WTF::String::fromUTF8(value);
-    auto result = item->setOuterText(convertedValue);
+    auto result = item->setOuterText(WTF::move(convertedValue));
     if (result.hasException()) {
         auto description = WebCore::DOMException::description(result.releaseException().code());
         g_set_error_literal(error, g_quark_from_string("WEBKIT_DOM"), description.legacyCode, description.name);

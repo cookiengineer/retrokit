@@ -2,6 +2,7 @@
  * Copyright (C) 2004, 2005, 2006, 2007 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005 Rob Buis <buis@kde.org>
  * Copyright (C) 2005 Eric Seidel <eric@webkit.org>
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -21,24 +22,34 @@
 
 #pragma once
 
-#include "FilterEffect.h"
-#include "Filter.h"
+#include <WebCore/FilterEffect.h>
 
 namespace WebCore {
 
-class FEMerge : public FilterEffect {
+class FEMerge final : public FilterEffect {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(FEMerge);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(FEMerge);
 public:
-    static Ref<FEMerge> create(Filter&);
+    WEBCORE_EXPORT static Ref<FEMerge> create(unsigned numberOfEffectInputs, DestinationColorSpace = DestinationColorSpace::SRGB());
+
+    bool operator==(const FEMerge&) const;
+
+    unsigned numberOfEffectInputs() const override { return m_numberOfEffectInputs; }
 
 private:
-    FEMerge(Filter&);
+    FEMerge(unsigned numberOfEffectInputs, DestinationColorSpace);
 
-    const char* filterName() const final { return "FEMerge"; }
+    bool operator==(const FilterEffect& other) const override { return areEqual<FEMerge>(*this, other); }
 
-    void platformApplySoftware() override;
+    OptionSet<FilterRenderingMode> supportedFilterRenderingModes(OptionSet<FilterRenderingMode>) const override;
+    std::unique_ptr<FilterEffectApplier> createAcceleratedApplier() const override;
+    std::unique_ptr<FilterEffectApplier> createSoftwareApplier() const override;
 
-    WTF::TextStream& externalRepresentation(WTF::TextStream&, RepresentationType) const override;
+    WTF::TextStream& externalRepresentation(WTF::TextStream&, FilterRepresentation) const override;
+
+    unsigned m_numberOfEffectInputs { 0 };
 };
 
 } // namespace WebCore
 
+SPECIALIZE_TYPE_TRAITS_FILTER_FUNCTION(FEMerge)

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,40 +23,38 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-const SkipSeconds = 15;
 const MinimumSizeToShowAnyControl = 47;
 const MaximumSizeToShowSmallProminentControl = 88;
 
-let mediaControlsHost;
+// If running outside the media element's isolated world, polyfill the MediaControlsUtils object:
+if (!window.utils) {
+    window.utils = {
+        formattedStringForDuration: function(duration) {
+            return "";
+        },
+    };
+}
 
-// This is called from HTMLMediaElement::ensureMediaControlsInjectedScript().
+// This is called from HTMLMediaElement::ensureMediaControls().
 function createControls(shadowRoot, media, host)
 {
     if (host) {
-        mediaControlsHost = host;
-
-        iconService.shadowRoot = shadowRoot;
-        iconService.mediaControlsHost = host;
-
-        shadowRoot.appendChild(document.createElement("style")).textContent = host.shadowRootCSSText;
+        for (let styleSheet of host.shadowRootStyleSheets)
+            shadowRoot.appendChild(document.createElement("style")).textContent = styleSheet;
     }
 
-    return new MediaController(shadowRoot, media, host);
+    controller = new MediaController(shadowRoot, media, host);
+    if (host)
+        host.controller = controller;
+    return controller;
 }
 
-function UIString(stringToLocalize, replacementString)
+function UIString(stringToLocalize, ...replacementStrings)
 {
-    let allLocalizedStrings = {};
-    try {
-        allLocalizedStrings = UIStrings;
-    } catch (error) {}
+    let localizedString = window.UIStrings?.[stringToLocalize] ?? stringToLocalize;
 
-    const localizedString = allLocalizedStrings[stringToLocalize];
-    if (!localizedString)
-        return stringToLocalize;
-
-    if (replacementString)
-        return localizedString.replace("%s", replacementString);
+    for (let replacementString of replacementStrings)
+        localizedString = localizedString.replace("%s", replacementString);
 
     return localizedString;
 }
@@ -65,10 +63,11 @@ function formatTimeByUnit(value)
 {
     const time = value || 0;
     const absTime = Math.abs(time);
+    const sign = Math.sign(time);
     return {
-        seconds: Math.floor(absTime % 60).toFixed(0),
-        minutes: Math.floor((absTime / 60) % 60).toFixed(0),
-        hours: Math.floor(absTime / (60 * 60)).toFixed(0)
+        seconds: sign * Math.floor(absTime % 60).toFixed(0),
+        minutes: sign * Math.floor((absTime / 60) % 60).toFixed(0),
+        hours: sign * Math.floor(absTime / (60 * 60)).toFixed(0)
     };
 }
 
@@ -81,10 +80,3 @@ function unitizeTime(value, unit)
     return `${value} ${returnedUnit}`;
 }
 
-function formattedStringForDuration(timeInSeconds)
-{
-    if (mediaControlsHost)
-        return mediaControlsHost.formattedStringForDuration(Math.abs(timeInSeconds));
-    else
-        return "";
-}

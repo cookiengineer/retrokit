@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2006 Samuel Weinig (sam.weinig@gmail.com)
- * Copyright (C) 2004, 2005, 2006 Apple Inc.  All rights reserved.
+ * Copyright (C) 2004-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,13 +29,17 @@
 
 #include "AffineTransform.h"
 #include "BitmapImage.h"
+#include "DeprecatedGlobalSettings.h"
 #include "GraphicsContext.h"
+#include "ImageAdapter.h"
 #include "ImageObserver.h"
-#include "Length.h"
 #include "MIMETypeRegistry.h"
+#include "NativeImage.h"
 #include "SVGImage.h"
+#include "ShareableBitmap.h"
 #include "SharedBuffer.h"
 #include <math.h>
+#include <wtf/CompletionHandler.h>
 #include <wtf/MainThread.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/URL.h>
@@ -55,11 +59,42 @@ Image::Image(ImageObserver* observer)
 
 Image::~Image() = default;
 
+RefPtr<ImageObserver> Image::imageObserver() const
+{
+    return m_imageObserver.get();
+}
+
+void Image::setImageObserver(RefPtr<ImageObserver>&& observer)
+{
+    m_imageObserver = observer.get();
+}
+
+ImageAdapter& Image::adapter()
+{
+    if (!m_adapter)
+        m_adapter = makeUnique<ImageAdapter>(*this);
+    return *m_adapter;
+}
+
+void Image::invalidateAdapter()
+{
+    if (!m_adapter)
+        return;
+    m_adapter->invalidate();
+}
+
 Image& Image::nullImage()
 {
     ASSERT(isMainThread());
-    static Image& nullImage = BitmapImage::create().leakRef();
-    return nullImage;
+    static NeverDestroyed<Ref<BitmapImage>> nullImage = BitmapImage::create();
+    return nullImage->get();
+}
+
+static bool isPDFResource(const String& mimeType, const URL& url)
+{
+    if (mimeType.isEmpty())
+        return url.path().endsWithIgnoringASCIICase(".pdf"_s);
+    return MIMETypeRegistry::isPDFMIMEType(mimeType);
 }
 
 RefPtr<Image> Image::create(ImageObserver& observer)
@@ -69,12 +104,14 @@ RefPtr<Image> Image::create(ImageObserver& observer)
     ASSERT(isMainThread());
 
     auto mimeType = observer.mimeType();
-    if (mimeType == "image/svg+xml")
-        return SVGImage::create(observer);
+    if (mimeType == "image/svg+xml"_s)
+        return SVGImage::create(&observer);
 
     auto url = observer.sourceUrl();
-    if (isPDFResource(mimeType, url) || isPostScriptResource(mimeType, url)) {
+    if (isPDFResource(mimeType, url)) {
 #if USE(CG) && !USE(WEBKIT_IMAGE_DECODERS)
+        if (!DeprecatedGlobalSettings::arePDFImagesEnabled())
+            return nullptr;
         return PDFDocumentImage::create(&observer);
 #else
         return nullptr;
@@ -84,35 +121,48 @@ RefPtr<Image> Image::create(ImageObserver& observer)
     return BitmapImage::create(&observer);
 }
 
+std::optional<Ref<Image>> Image::create(RefPtr<ShareableBitmap>&& bitmap)
+{
+    if (!bitmap)
+        return std::nullopt;
+    RefPtr image = bitmap->createImage();
+    if (!image)
+        return std::nullopt;
+    return image.releaseNonNull();
+}
+
 bool Image::supportsType(const String& type)
 {
     return MIMETypeRegistry::isSupportedImageMIMEType(type);
-} 
-
-bool Image::isPDFResource(const String& mimeType, const URL& url)
-{
-    if (mimeType.isEmpty())
-        return url.path().endsWithIgnoringASCIICase(".pdf");
-    return MIMETypeRegistry::isPDFMIMEType(mimeType);
 }
 
-bool Image::isPostScriptResource(const String& mimeType, const URL& url)
+void Image::subresourcesAreFinished(Document*, CompletionHandler<void()>&& completionHandler)
 {
-    if (mimeType.isEmpty())
-        return url.path().endsWithIgnoringASCIICase(".ps");
-    return MIMETypeRegistry::isPostScriptMIMEType(mimeType);
+    completionHandler();
 }
 
-
-EncodedDataStatus Image::setData(RefPtr<SharedBuffer>&& data, bool allDataReceived)
+EncodedDataStatus Image::setData(RefPtr<FragmentedSharedBuffer>&& data, bool allDataReceived)
 {
-    m_encodedImageData = WTFMove(data);
+    m_encodedImageData = WTF::move(data);
 
     // Don't do anything; it is an empty image.
     if (!m_encodedImageData.get() || !m_encodedImageData->size())
         return EncodedDataStatus::Complete;
 
     return dataChanged(allDataReceived);
+}
+
+bool Image::tryReplaceData(Ref<FragmentedSharedBuffer>&& data)
+{
+    if (!canReplaceData())
+        return false;
+
+    // replaceData should only be called with an identical copy of previously set encoded data.
+    ASSERT(m_encodedImageData && *m_encodedImageData == data.get());
+    m_encodedImageData = WTF::move(data);
+    dataReplaced();
+
+    return true;
 }
 
 URL Image::sourceURL() const
@@ -134,34 +184,53 @@ void Image::fillWithSolidColor(GraphicsContext& ctxt, const FloatRect& dstRect, 
 {
     if (!color.isVisible())
         return;
-    
+
     CompositeOperator previousOperator = ctxt.compositeOperation();
     ctxt.setCompositeOperation(color.isOpaque() && op == CompositeOperator::SourceOver ? CompositeOperator::Copy : op);
     ctxt.fillRect(dstRect, color);
     ctxt.setCompositeOperation(previousOperator);
 }
 
-void Image::drawPattern(GraphicsContext& ctxt, const FloatRect& destRect, const FloatRect& tileRect, const AffineTransform& patternTransform,  const FloatPoint& phase, const FloatSize& spacing, const ImagePaintingOptions& options)
+RefPtr<NativeImage> Image::nativeImage(const DestinationColorSpace&)
 {
-    auto tileImage = preTransformedNativeImageForCurrentFrame(options.orientation() == ImageOrientation::FromImage);
+    return nullptr;
+}
+
+RefPtr<NativeImage> Image::nativeImageAtIndex(unsigned)
+{
+    return nativeImage();
+}
+
+RefPtr<NativeImage> Image::currentNativeImage()
+{
+    return nativeImage();
+}
+
+RefPtr<NativeImage> Image::currentPreTransformedNativeImage(ImageOrientation)
+{
+    return currentNativeImage();
+}
+
+void Image::drawPattern(GraphicsContext& ctxt, const FloatRect& destRect, const FloatRect& tileRect, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, ImagePaintingOptions options)
+{
+    RefPtr tileImage = currentPreTransformedNativeImage(options.orientation());
     if (!tileImage)
         return;
 
-    ctxt.drawPattern(*tileImage, size(), destRect, tileRect, patternTransform, phase, spacing, options);
+    ctxt.drawPattern(*tileImage, destRect, tileRect, patternTransform, phase, spacing, options);
 
-    if (imageObserver())
-        imageObserver()->didDraw(*this);
+    if (auto observer = imageObserver())
+        observer->didDraw(*this);
 }
 
-ImageDrawResult Image::drawTiled(GraphicsContext& ctxt, const FloatRect& destRect, const FloatPoint& srcPoint, const FloatSize& scaledTileSize, const FloatSize& spacing, const ImagePaintingOptions& options)
+ImageDrawResult Image::drawTiled(GraphicsContext& ctxt, const FloatRect& destRect, const FloatPoint& srcPoint, const FloatSize& scaledTileSize, const FloatSize& spacing, ImagePaintingOptions options)
 {
-    Color color = singlePixelSolidColor();
-    if (color.isValid()) {
-        fillWithSolidColor(ctxt, destRect, color, options.compositeOperator());
+    if (auto color = singlePixelSolidColor()) {
+        fillWithSolidColor(ctxt, destRect, *color, options.compositeOperator());
         return ImageDrawResult::DidDraw;
     }
 
-    ASSERT(!isBitmapImage() || notSolidColor());
+    ASSERT_IMPLIES(isBitmapImage(), !hasSolidColor());
 
     FloatSize intrinsicTileSize = size();
     if (hasRelativeWidth())
@@ -176,7 +245,7 @@ ImageDrawResult Image::drawTiled(GraphicsContext& ctxt, const FloatRect& destRec
     oneTileRect.setX(destRect.x() + fmodf(fmodf(-srcPoint.x(), actualTileSize.width()) - actualTileSize.width(), actualTileSize.width()));
     oneTileRect.setY(destRect.y() + fmodf(fmodf(-srcPoint.y(), actualTileSize.height()) - actualTileSize.height(), actualTileSize.height()));
     oneTileRect.setSize(scaledTileSize);
-    
+
     // Check and see if a single draw of the image can cover the entire area we are supposed to tile.
     if (oneTileRect.contains(destRect) && !ctxt.drawLuminanceMask()) {
         FloatRect visibleSrcRect;
@@ -187,9 +256,7 @@ ImageDrawResult Image::drawTiled(GraphicsContext& ctxt, const FloatRect& destRec
         return draw(ctxt, destRect, visibleSrcRect, options);
     }
 
-#if PLATFORM(IOS_FAMILY)
-    // FIXME: We should re-test this and remove this iOS behavior difference if possible.
-    // When using accelerated drawing on iOS, it's faster to stretch an image than to tile it.
+    // When using accelerated drawing, it's faster to stretch an image than to tile it.
     if (ctxt.renderingMode() == RenderingMode::Accelerated) {
         if (size().width() == 1 && intersection(oneTileRect, destRect).height() == destRect.height()) {
             FloatRect visibleSrcRect;
@@ -197,7 +264,7 @@ ImageDrawResult Image::drawTiled(GraphicsContext& ctxt, const FloatRect& destRec
             visibleSrcRect.setY((destRect.y() - oneTileRect.y()) / scale.height());
             visibleSrcRect.setWidth(1);
             visibleSrcRect.setHeight(destRect.height() / scale.height());
-            return draw(ctxt, destRect, visibleSrcRect, { options, BlendMode::Normal });
+            return draw(ctxt, destRect, visibleSrcRect, options);
         }
         if (size().height() == 1 && intersection(oneTileRect, destRect).width() == destRect.width()) {
             FloatRect visibleSrcRect;
@@ -205,10 +272,9 @@ ImageDrawResult Image::drawTiled(GraphicsContext& ctxt, const FloatRect& destRec
             visibleSrcRect.setY(0);
             visibleSrcRect.setWidth(destRect.width() / scale.width());
             visibleSrcRect.setHeight(1);
-            return draw(ctxt, destRect, visibleSrcRect, { options, BlendMode::Normal });
+            return draw(ctxt, destRect, visibleSrcRect, options);
         }
     }
-#endif
 
     // Patterned images and gradients can use lots of memory for caching when the
     // tile size is large (<rdar://problem/4691859>, <rdar://problem/6239505>).
@@ -237,7 +303,7 @@ ImageDrawResult Image::drawTiled(GraphicsContext& ctxt, const FloatRect& destRec
                 FloatRect fromRect(toFloatPoint(currentTileRect.location() - oneTileRect.location()), currentTileRect.size());
                 fromRect.scale(1 / scale.width(), 1 / scale.height());
 
-                result = draw(ctxt, toRect, fromRect, { options, BlendMode::Normal });
+                result = draw(ctxt, toRect, fromRect, options);
                 if (result == ImageDrawResult::DidRequestDecoding)
                     return result;
                 toX += currentTileRect.width();
@@ -257,32 +323,32 @@ ImageDrawResult Image::drawTiled(GraphicsContext& ctxt, const FloatRect& destRec
 }
 
 // FIXME: Merge with the other drawTiled eventually, since we need a combination of both for some things.
-ImageDrawResult Image::drawTiled(GraphicsContext& ctxt, const FloatRect& dstRect, const FloatRect& srcRect, const FloatSize& tileScaleFactor, TileRule hRule, TileRule vRule, const ImagePaintingOptions& options)
+ImageDrawResult Image::drawTiled(GraphicsContext& ctxt, const FloatRect& dstRect, const FloatRect& srcRect, const FloatSize& tileScaleFactor, TileRule hRule, TileRule vRule, ImagePaintingOptions options)
 {    
-    Color color = singlePixelSolidColor();
-    if (color.isValid()) {
-        fillWithSolidColor(ctxt, dstRect, color, options.compositeOperator());
+    if (auto color = singlePixelSolidColor()) {
+        fillWithSolidColor(ctxt, dstRect, *color, options.compositeOperator());
         return ImageDrawResult::DidDraw;
     }
-    
+
     FloatSize tileScale = tileScaleFactor;
     FloatSize spacing;
-    
+
     // FIXME: These rules follow CSS border-image rules, but they should not be down here in Image.
     bool centerOnGapHorizonally = false;
     bool centerOnGapVertically = false;
     switch (hRule) {
     case RoundTile: {
-        int numItems = std::max<int>(floorf(dstRect.width() / srcRect.width()), 1);
+        float scaledSourceWidth = srcRect.width() * tileScale.width();
+        int numItems = std::max<int>(floorf(dstRect.width() / scaledSourceWidth), 1);
         tileScale.setWidth(dstRect.width() / (srcRect.width() * numItems));
         break;
     }
     case SpaceTile: {
-        int numItems = floorf(dstRect.width() / srcRect.width());
+        float scaledSourceWidth = srcRect.width() * tileScale.width();
+        int numItems = floorf(dstRect.width() / scaledSourceWidth);
         if (!numItems)
             return ImageDrawResult::DidNothing;
-        spacing.setWidth((dstRect.width() - srcRect.width() * numItems) / (numItems + 1));
-        tileScale.setWidth(1);
+        spacing.setWidth((dstRect.width() - scaledSourceWidth * numItems) / (numItems + 1));
         centerOnGapHorizonally = !(numItems & 1);
         break;
     }
@@ -293,16 +359,17 @@ ImageDrawResult Image::drawTiled(GraphicsContext& ctxt, const FloatRect& dstRect
 
     switch (vRule) {
     case RoundTile: {
-        int numItems = std::max<int>(floorf(dstRect.height() / srcRect.height()), 1);
+        float scaledSourceHeight = srcRect.height() * tileScale.height();
+        int numItems = std::max<int>(floorf(dstRect.height() / scaledSourceHeight), 1);
         tileScale.setHeight(dstRect.height() / (srcRect.height() * numItems));
         break;
-        }
+    }
     case SpaceTile: {
-        int numItems = floorf(dstRect.height() / srcRect.height());
+        float scaledSourceHeight = srcRect.height() * tileScale.height();
+        int numItems = floorf(dstRect.height() / scaledSourceHeight);
         if (!numItems)
             return ImageDrawResult::DidNothing;
-        spacing.setHeight((dstRect.height() - srcRect.height() * numItems) / (numItems + 1));
-        tileScale.setHeight(1);
+        spacing.setHeight((dstRect.height() - scaledSourceHeight * numItems) / (numItems + 1));
         centerOnGapVertically = !(numItems & 1);
         break;
     }
@@ -336,11 +403,16 @@ ImageDrawResult Image::drawTiled(GraphicsContext& ctxt, const FloatRect& dstRect
     return ImageDrawResult::DidDraw;
 }
 
-void Image::computeIntrinsicDimensions(Length& intrinsicWidth, Length& intrinsicHeight, FloatSize& intrinsicRatio)
+void Image::computeIntrinsicDimensions(float& intrinsicWidth, float& intrinsicHeight, FloatSize& intrinsicRatio)
 {
     intrinsicRatio = size();
-    intrinsicWidth = Length(intrinsicRatio.width(), LengthType::Fixed);
-    intrinsicHeight = Length(intrinsicRatio.height(), LengthType::Fixed);
+    intrinsicWidth = intrinsicRatio.width();
+    intrinsicHeight = intrinsicRatio.height();
+}
+
+FloatSize Image::sourceSize(ImageOrientation orientation) const
+{
+    return size(orientation);
 }
 
 void Image::startAnimationAsynchronously()
@@ -352,51 +424,75 @@ void Image::startAnimationAsynchronously()
     m_animationStartTimer->startOneShot(0_s);
 }
 
+DestinationColorSpace Image::colorSpace()
+{
+    return DestinationColorSpace::SRGB();
+}
+
+RefPtr<ShareableBitmap> Image::toShareableBitmap() const
+{
+    RefPtr bitmap = ShareableBitmap::create({ IntSize(size()) });
+    if (!bitmap)
+        return nullptr;
+    std::unique_ptr graphicsContext = bitmap->createGraphicsContext();
+    if (!graphicsContext)
+        return nullptr;
+
+    graphicsContext->drawImage(const_cast<Image&>(*this), IntPoint());
+    return bitmap;
+}
+
 void Image::dump(TextStream& ts) const
 {
     if (isAnimated())
-        ts.dumpProperty("animated", isAnimated());
+        ts.dumpProperty("animated"_s, isAnimated());
 
     if (isNull())
-        ts.dumpProperty("is-null-image", true);
+        ts.dumpProperty("is-null-image"_s, true);
 
-    ts.dumpProperty("size", size());
+    ts.dumpProperty("size"_s, size());
 }
 
 TextStream& operator<<(TextStream& ts, const Image& image)
 {
     TextStream::GroupScope scope(ts);
-    
+
     if (image.isBitmapImage())
-        ts << "bitmap image";
+        ts << "bitmap image"_s;
     else if (image.isCrossfadeGeneratedImage())
-        ts << "crossfade image";
+        ts << "crossfade image"_s;
     else if (image.isNamedImageGeneratedImage())
-        ts << "named image";
+        ts << "named image"_s;
     else if (image.isGradientImage())
-        ts << "gradient image";
+        ts << "gradient image"_s;
     else if (image.isSVGImage())
-        ts << "svg image";
+        ts << "svg image"_s;
+    else if (image.isSVGResourceImage())
+        ts << "svg resource image"_s;
     else if (image.isSVGImageForContainer())
-        ts << "svg image for container";
+        ts << "svg image for container"_s;
     else if (image.isPDFDocumentImage())
-        ts << "pdf image";
+        ts << "pdf image"_s;
 
     image.dump(ts);
     return ts;
 }
 
-#if !PLATFORM(COCOA) && !PLATFORM(GTK) && !PLATFORM(WIN)
-
-void BitmapImage::invalidatePlatformData()
+bool Image::animationPending() const
 {
+    return m_animationStartTimer && m_animationStartTimer->isActive();
 }
 
-Ref<Image> Image::loadPlatformResource(const char* resource)
+bool Image::gSystemAllowsAnimationControls = false;
+
+void Image::setSystemAllowsAnimationControls(bool allowsControls)
 {
-    WTFLogAlways("WARNING: trying to load platform resource '%s'", resource);
-    return BitmapImage::create();
+    gSystemAllowsAnimationControls = allowsControls;
 }
 
-#endif // !PLATFORM(COCOA) && !PLATFORM(GTK) && !PLATFORM(WIN)
+std::optional<Color> Image::singlePixelSolidColor() const
+{
+    return std::nullopt;
 }
+
+} // namespace WebCore

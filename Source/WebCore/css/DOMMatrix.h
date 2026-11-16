@@ -42,7 +42,7 @@ public:
 
     static Ref<DOMMatrix> create(TransformationMatrix&& matrix, Is2D is2D)
     {
-        return adoptRef(*new DOMMatrix(WTFMove(matrix), is2D));
+        return adoptRef(*new DOMMatrix(WTF::move(matrix), is2D));
     }
 
     static ExceptionOr<Ref<DOMMatrix>> fromMatrix(DOMMatrixInit&&);
@@ -52,9 +52,9 @@ public:
 
     ExceptionOr<Ref<DOMMatrix>> multiplySelf(DOMMatrixInit&& other);
     ExceptionOr<Ref<DOMMatrix>> preMultiplySelf(DOMMatrixInit&& other);
-    Ref<DOMMatrix> translateSelf(double tx = 0, double ty = 0, double tz = 0);
-    Ref<DOMMatrix> scaleSelf(double scaleX = 1, std::optional<double> scaleY = std::nullopt, double scaleZ = 1, double originX = 0, double originY = 0, double originZ = 0);
-    Ref<DOMMatrix> scale3dSelf(double scale = 1, double originX = 0, double originY = 0, double originZ = 0);
+    Ref<DOMMatrix> NODELETE translateSelf(double tx = 0, double ty = 0, double tz = 0);
+    Ref<DOMMatrix> NODELETE scaleSelf(double scaleX = 1, std::optional<double> scaleY = std::nullopt, double scaleZ = 1, double originX = 0, double originY = 0, double originZ = 0);
+    Ref<DOMMatrix> NODELETE scale3dSelf(double scale = 1, double originX = 0, double originY = 0, double originZ = 0);
     Ref<DOMMatrix> rotateSelf(double rotX = 0, std::optional<double> rotY = std::nullopt, std::optional<double> rotZ = std::nullopt); // Angles are in degrees.
     Ref<DOMMatrix> rotateFromVectorSelf(double x = 0, double y = 0);
     Ref<DOMMatrix> rotateAxisAngleSelf(double x = 0, double y = 0, double z = 0, double angle = 0); // Angle is in degrees.
@@ -62,7 +62,7 @@ public:
     Ref<DOMMatrix> skewYSelf(double sy = 0); // Angle is in degrees.
     Ref<DOMMatrix> invertSelf();
 
-    ExceptionOr<Ref<DOMMatrix>> setMatrixValueForBindings(const String&);
+    ExceptionOr<Ref<DOMMatrix>> setMatrixValueForBindings(Document&, const String&);
 
     void setA(double f) { m_matrix.setA(f); }
     void setB(double f) { m_matrix.setB(f); }
@@ -93,7 +93,7 @@ private:
     DOMMatrix(const TransformationMatrix&, Is2D);
     DOMMatrix(TransformationMatrix&&, Is2D);
 };
-static_assert(sizeof(DOMMatrix) == sizeof(DOMMatrixReadOnly), "");
+static_assert(sizeof(DOMMatrix) == sizeof(DOMMatrixReadOnly));
 
 inline void DOMMatrix::setM13(double f)
 {

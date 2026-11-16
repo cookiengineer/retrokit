@@ -27,7 +27,7 @@
 
 #if ENABLE(APP_HIGHLIGHTS)
 
-#include "SharedBuffer.h"
+#include <WebCore/SharedBuffer.h>
 #include <wtf/persistence/PersistentCoders.h>
 #include <wtf/text/WTFString.h>
 
@@ -42,58 +42,19 @@ struct AppHighlight {
     std::optional<String> text;
     CreateNewGroupForHighlight isNewGroup;
     HighlightRequestOriginatedInApp requestOriginatedInApp;
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<AppHighlight> decode(Decoder&);
 };
 
+} // namespace WebCore
 
-template<class Encoder>
-void AppHighlight::encode(Encoder& encoder) const
-{
-    encoder << static_cast<size_t>(highlight->size());
-    encoder.encodeFixedLengthData(highlight->data(), highlight->size(), 1);
+namespace IPC {
 
-    encoder << text;
+template<typename AsyncReplyResult> struct AsyncReplyError;
 
-    encoder << isNewGroup;
+template<> struct AsyncReplyError<WebCore::AppHighlight> {
+    static WebCore::AppHighlight create() { return { WebCore::SharedBuffer::create(), std::nullopt, WebCore::CreateNewGroupForHighlight::No, WebCore::HighlightRequestOriginatedInApp::No }; }
+};
 
-    encoder << requestOriginatedInApp;
-}
+} // namespace IPC
 
-template<class Decoder>
-std::optional<AppHighlight> AppHighlight::decode(Decoder& decoder)
-{
-
-    std::optional<size_t> length;
-    decoder >> length;
-    if (!length)
-        return std::nullopt;
-
-    if (!decoder.template bufferIsLargeEnoughToContain<uint8_t>(length.value()))
-        return std::nullopt;
-
-    Vector<uint8_t> highlight;
-    highlight.grow(*length);
-    if (!decoder.decodeFixedLengthData(highlight.data(), highlight.size(), 1))
-        return std::nullopt;
-
-    std::optional<std::optional<String>> text;
-    decoder >> text;
-    if (!text)
-        return std::nullopt;
-
-    CreateNewGroupForHighlight isNewGroup;
-    if (!decoder.decode(isNewGroup))
-        return std::nullopt;
-
-    HighlightRequestOriginatedInApp requestOriginatedInApp;
-    if (!decoder.decode(requestOriginatedInApp))
-        return std::nullopt;
-
-    return {{ SharedBuffer::create(WTFMove(highlight)), WTFMove(*text), isNewGroup, requestOriginatedInApp }};
-}
-
-}
 
 #endif // ENABLE(APP_HIGHLIGHTS)

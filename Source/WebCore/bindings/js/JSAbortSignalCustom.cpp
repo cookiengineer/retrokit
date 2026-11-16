@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2019-2021 Apple Inc. All rights reserved.
+* Copyright (C) 2019-2023 Apple Inc. All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
 * modification, are permitted provided that the following conditions
@@ -26,24 +26,52 @@
 #include "config.h"
 #include "JSAbortSignal.h"
 
+#include "JSValueInWrappedObjectInlines.h"
+#include "WebCoreOpaqueRootInlines.h"
+
 namespace WebCore {
 
-bool JSAbortSignalOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, JSC::AbstractSlotVisitor& visitor, const char** reason)
+bool JSAbortSignalOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, JSC::AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
-    auto& abortSignal = JSC::jsCast<JSAbortSignal*>(handle.slot()->asCell())->wrapped();
-    if (abortSignal.isFiringEventListeners()) {
-        if (UNLIKELY(reason))
-            *reason = "EventTarget firing event listeners";
-        return true;
-    }
-
+    auto& abortSignal = downcast<JSAbortSignal>(handle.slot()->asCell())->wrapped();
     if (abortSignal.aborted())
         return false;
 
-    if (abortSignal.isFollowingSignal())
+    if (abortSignal.isFollowingSignal()) {
+        if (reason) [[unlikely]]
+            *reason = "Is Following Signal"_s;
         return true;
+    }
 
-    return visitor.containsOpaqueRoot(&abortSignal);
+    if (abortSignal.hasAbortEventListener()) {
+        if (abortSignal.hasActiveTimeoutTimer()) {
+            if (reason) [[unlikely]]
+                *reason = "Has Timeout And Abort Event Listener"_s;
+            return true;
+        }
+        if (abortSignal.isDependent()) {
+            if (!abortSignal.sourceSignals().isEmptyIgnoringNullReferences()) {
+                if (reason) [[unlikely]]
+                    *reason = "Has Source Signals And Abort Event Listener"_s;
+                return true;
+            }
+        } else {
+            bool isReachable = containsWebCoreOpaqueRoot(visitor, abortSignal);
+            if (isReachable && reason) [[unlikely]]
+                *reason = "Has Abort Event Listener And Is Referenced By Other Objects"_s;
+            return isReachable;
+        }
+    }
+
+    return containsWebCoreOpaqueRoot(visitor, abortSignal);
 }
+
+template<typename Visitor>
+void JSAbortSignal::visitAdditionalChildrenInGCThread(Visitor& visitor)
+{
+    wrapped().reason().visitInGCThread(visitor);
+}
+
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSAbortSignal);
 
 } // namespace WebCore

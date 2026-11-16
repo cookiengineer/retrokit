@@ -20,37 +20,39 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+[
+    ExceptionForEnabledBy,
+    DispatchedFrom=WebContent,
+    DispatchedTo=UI
+]
 messages -> WebInspectorUIProxy {
-    OpenLocalInspectorFrontend(bool canAttach, bool underTest)
-    SetFrontendConnection(IPC::Attachment connectionIdentifier)
+    SetFrontendConnection(IPC::ConnectionHandle connectionHandle)
 
     SendMessageToBackend(String message)
 
     FrontendLoaded()
     DidClose()
     BringToFront()
-    BringInspectedPageToFront()
     Reopen()
     ResetState()
 
-    SetForcedAppearance(WebCore::InspectorFrontendClient::Appearance appearance)
+    SetForcedAppearance(enum:uint8_t WebCore::InspectorFrontendClientAppearance appearance)
+    EffectiveAppearanceDidChange(enum:uint8_t WebCore::InspectorFrontendClientAppearance appearance)
+
     OpenURLExternally(String url)
+    RevealFileExternally(String path)
 
     InspectedURLChanged(String urlString)
     ShowCertificate(WebCore::CertificateInfo certificateInfo)
-    ElementSelectionChanged(bool active)
-    TimelineRecordingChanged(bool active)
-    SetDeveloperPreferenceOverride(WebCore::InspectorClient::DeveloperPreference developerPreference, std::optional<bool> overrideValue)
 
-    Save(String filename, String content, bool base64Encoded, bool forceSaveAs)
-    Append(String filename, String content)
+    Save(Vector<WebCore::InspectorFrontendClientSaveData> saveDatas, bool forceSaveAs)
+    Load(String path) -> (String content)
+    PickColorFromScreen() -> (std::optional<WebCore::Color> color)
 
     AttachBottom()
     AttachRight()
     AttachLeft()
     Detach()
-
-    AttachAvailabilityChanged(bool available)
 
     SetAttachedWindowHeight(unsigned height)
     SetAttachedWindowWidth(unsigned width)
@@ -58,4 +60,8 @@ messages -> WebInspectorUIProxy {
     SetSheetRect(WebCore::FloatRect rect)
 
     StartWindowDrag()
+
+    SetInspectorPageDeveloperExtrasEnabled(bool enabled)
+
+    SetPageAndTextZoomFactors(double pageZoomFactor, double textZoomFactor)
 }

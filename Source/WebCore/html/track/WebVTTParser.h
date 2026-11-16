@@ -1,7 +1,7 @@
 /*
- * Copyright (C) 2011, 2013 Google Inc.  All rights reserved.
+ * Copyright (C) 2011, 2013 Google Inc. All rights reserved.
  * Copyright (C) 2013 Cable Television Labs, Inc.
- * Copyright (C) 2014 Apple Inc.  All rights reserved.
+ * Copyright (C) 2014 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -34,13 +34,14 @@
 
 #if ENABLE(VIDEO)
 
-#include "BufferedLineReader.h"
-#include "DocumentFragment.h"
-#include "HTMLNames.h"
-#include "TextResourceDecoder.h"
-#include "VTTRegion.h"
+#include <WebCore/BufferedLineReader.h>
+#include <WebCore/DocumentFragment.h>
+#include <WebCore/HTMLNames.h>
+#include <WebCore/TextResourceDecoder.h>
+#include <WebCore/VTTRegion.h>
 #include <memory>
 #include <wtf/MediaTime.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
@@ -62,10 +63,9 @@ public:
 };
 
 class WebVTTCueData final : public RefCounted<WebVTTCueData> {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(WebVTTCueData, WEBCORE_EXPORT);
 public:
-
     static Ref<WebVTTCueData> create() { return adoptRef(*new WebVTTCueData()); }
-    ~WebVTTCueData() = default;
 
     MediaTime startTime() const { return m_startTime; }
     void setStartTime(const MediaTime& startTime) { m_startTime = startTime; }
@@ -74,13 +74,13 @@ public:
     void setEndTime(const MediaTime& endTime) { m_endTime = endTime; }
 
     String id() const { return m_id; }
-    void setId(String id) { m_id = id; }
+    void setId(const String& id) { m_id = id; }
 
     String content() const { return m_content; }
-    void setContent(String content) { m_content = content; }
+    void setContent(const String& content) { m_content = content; }
 
     String settings() const { return m_settings; }
-    void setSettings(String settings) { m_settings = settings; }
+    void setSettings(const String& settings) { m_settings = settings; }
 
     MediaTime originalStartTime() const { return m_originalStartTime; }
     void setOriginalStartTime(const MediaTime& time) { m_originalStartTime = time; }
@@ -96,8 +96,8 @@ private:
     String m_settings;
 };
 
-class WebVTTParser final {
-    WTF_MAKE_FAST_ALLOCATED;
+class WEBCORE_EXPORT WebVTTParser final {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(WebVTTParser, WEBCORE_EXPORT);
 public:
     enum ParseState {
         Initial,
@@ -111,39 +111,26 @@ public:
         Finished
     };
 
+    WebVTTParser() = delete;
     WebVTTParser(WebVTTParserClient&, Document&);
 
     static inline bool isRecognizedTag(const AtomString& tagName)
     {
-        return tagName == iTag
-            || tagName == bTag
-            || tagName == uTag
-            || tagName == rubyTag
-            || tagName == rtTag;
+        return iTag->hasLocalName(tagName)
+            || bTag->hasLocalName(tagName)
+            || uTag->hasLocalName(tagName)
+            || rubyTag->hasLocalName(tagName)
+            || rtTag->hasLocalName(tagName);
     }
 
-    static inline bool isASpace(UChar c)
-    {
-        // WebVTT space characters are U+0020 SPACE, U+0009 CHARACTER
-        // TABULATION (tab), U+000A LINE FEED (LF), U+000C FORM FEED (FF), and
-        // U+000D CARRIAGE RETURN (CR).
-        return c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r';
-    }
-
-    static inline bool isValidSettingDelimiter(UChar c)
-    {
-        // ... a WebVTT cue consists of zero or more of the following components, in any order, separated from each other by one or more 
-        // U+0020 SPACE characters or U+0009 CHARACTER TABULATION (tab) characters.
-        return c == ' ' || c == '\t';
-    }
     static bool collectTimeStamp(const String&, MediaTime&);
 
     // Useful functions for parsing percentage settings.
-    static bool parseFloatPercentageValue(VTTScanner& valueScanner, float&);
+    static bool parseFloatPercentageValue(VTTScanner& valueScanner, double&);
     static bool parseFloatPercentageValuePair(VTTScanner& valueScanner, char, FloatPoint&);
 
     // Input data to the parser to parse.
-    void parseBytes(const uint8_t*, unsigned);
+    void parseBytes(std::span<const uint8_t>);
     void parseFileHeader(String&&);
     void parseCueData(const ISOWebVTTCue&);
     void flush();
@@ -160,7 +147,7 @@ public:
 private:
     void parse();
     void flushPendingCue();
-    bool hasRequiredFileIdentifier(const String&);
+    bool NODELETE hasRequiredFileIdentifier(const String&);
     ParseState collectCueId(const String&);
     ParseState collectTimingsAndSettings(const String&);
     ParseState collectCueText(const String&);
@@ -170,21 +157,21 @@ private:
     ParseState collectWebVTTBlock(const String&);
     ParseState checkAndRecoverCue(const String& line);
     ParseState collectStyleSheet(const String&);
-    bool checkAndCreateRegion(const String& line);
-    bool checkAndStoreRegion(const String& line);
-    bool checkStyleSheet(const String& line);
-    bool checkAndStoreStyleSheet(const String& line);
+    bool checkAndCreateRegion(StringView line);
+    bool checkAndStoreRegion(StringView line);
+    bool checkStyleSheet(StringView line);
+    bool checkAndStoreStyleSheet(StringView line);
 
     void createNewCue();
     void resetCueValues();
 
     static bool collectTimeStamp(VTTScanner& input, MediaTime& timeStamp);
 
-    Document& m_document;
+    const WeakRef<Document, WeakPtrImplWithEventTargetData> m_document;
     ParseState m_state { Initial };
 
     BufferedLineReader m_lineReader;
-    RefPtr<TextResourceDecoder> m_decoder;
+    const Ref<TextResourceDecoder> m_decoder;
     String m_currentId;
     MediaTime m_currentStartTime;
     MediaTime m_currentEndTime;
@@ -192,7 +179,7 @@ private:
     String m_previousLine;
     String m_currentSettings;
     RefPtr<VTTRegion> m_currentRegion;
-    String m_currentSourceStyleSheet;
+    StringBuilder m_currentSourceStyleSheet;
     
     WebVTTParserClient& m_client;
 

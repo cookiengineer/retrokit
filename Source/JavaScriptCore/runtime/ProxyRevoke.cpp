@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2021 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2016-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,36 +33,36 @@ namespace JSC {
 
 STATIC_ASSERT_IS_TRIVIALLY_DESTRUCTIBLE(ProxyRevoke);
 
-const ClassInfo ProxyRevoke::s_info = { "ProxyRevoke", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(ProxyRevoke) };
+const ClassInfo ProxyRevoke::s_info = { "ProxyRevoke"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(ProxyRevoke) };
 
 ProxyRevoke* ProxyRevoke::create(VM& vm, Structure* structure, ProxyObject* proxy)
 {
-    ProxyRevoke* revoke = new (NotNull, allocateCell<ProxyRevoke>(vm.heap)) ProxyRevoke(vm, structure);
-    revoke->finishCreation(vm, proxy);
+    ProxyRevoke* revoke = new (NotNull, allocateCell<ProxyRevoke>(vm)) ProxyRevoke(vm, structure, proxy);
+    revoke->finishCreation(vm);
     return revoke;
 }
 
 static JSC_DECLARE_HOST_FUNCTION(performProxyRevoke);
 
-ProxyRevoke::ProxyRevoke(VM& vm, Structure* structure)
+ProxyRevoke::ProxyRevoke(VM& vm, Structure* structure, ProxyObject* proxy)
     : Base(vm, structure, performProxyRevoke, nullptr)
+    , m_proxy(proxy, WriteBarrierEarlyInit)
 {
 }
 
-void ProxyRevoke::finishCreation(VM& vm, ProxyObject* proxy)
+void ProxyRevoke::finishCreation(VM& vm)
 {
     Base::finishCreation(vm, 0, emptyString());
-    m_proxy.set(vm, this, proxy);
 }
 
 JSC_DEFINE_HOST_FUNCTION(performProxyRevoke, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
-    ProxyRevoke* proxyRevoke = jsCast<ProxyRevoke*>(callFrame->jsCallee());
+    ProxyRevoke* proxyRevoke = uncheckedDowncast<ProxyRevoke>(callFrame->jsCallee());
     JSValue proxyValue = proxyRevoke->proxy();
     if (proxyValue.isNull())
         return JSValue::encode(jsUndefined());
 
-    ProxyObject* proxy = jsCast<ProxyObject*>(proxyValue);
+    ProxyObject* proxy = uncheckedDowncast<ProxyObject>(proxyValue);
     VM& vm = globalObject->vm();
     proxy->revoke(vm);
     proxyRevoke->setProxyToNull(vm);
@@ -72,7 +72,7 @@ JSC_DEFINE_HOST_FUNCTION(performProxyRevoke, (JSGlobalObject* globalObject, Call
 template<typename Visitor>
 void ProxyRevoke::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    ProxyRevoke* thisObject = jsCast<ProxyRevoke*>(cell);
+    ProxyRevoke* thisObject = uncheckedDowncast<ProxyRevoke>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
 

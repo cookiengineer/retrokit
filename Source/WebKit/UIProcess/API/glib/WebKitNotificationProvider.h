@@ -19,42 +19,60 @@
 
 #pragma once
 
+#include "NotificationService.h"
 #include "WebKitNotification.h"
 #include "WebKitWebContext.h"
 #include <wtf/Forward.h>
 #include <wtf/HashMap.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/glib/GRefPtr.h>
 #include <wtf/text/StringHash.h>
+
+namespace WebCore {
+class NotificationResources;
+}
 
 namespace WebKit {
 class WebNotificationManagerProxy;
 class WebNotification;
 class WebPageProxy;
 
-class WebKitNotificationProvider {
-    WTF_MAKE_FAST_ALLOCATED;
+class WebKitNotificationProvider final : public NotificationService::Observer {
+    WTF_MAKE_TZONE_ALLOCATED(WebKitNotificationProvider);
 public:
     WebKitNotificationProvider(WebNotificationManagerProxy*, WebKitWebContext*);
     ~WebKitNotificationProvider();
 
-    void show(WebPageProxy&, const WebNotification&);
+    void show(WebPageProxy*, WebNotification&, RefPtr<WebCore::NotificationResources>&&);
     void cancel(const WebNotification&);
-    void clearNotifications(const Vector<uint64_t>&);
+    void clearNotifications(const Vector<WebNotificationIdentifier>&);
 
     HashMap<WTF::String, bool> notificationPermissions();
     void setNotificationPermissions(HashMap<String, bool>&&);
 
 private:
-    void cancelNotificationByID(uint64_t);
-    static void notificationCloseCallback(WebKitNotification*, WebKitNotificationProvider*);
-    static void notificationClickedCallback(WebKitNotification*, WebKitNotificationProvider*);
+    void cancelNotificationByID(WebNotificationIdentifier);
+    static void apiNotificationCloseCallback(WebKitNotification*, WebKitNotificationProvider*);
+    static void apiNotificationClickedCallback(WebKitNotification*, WebKitNotificationProvider*);
+    static void apiNotificationWeakNotify(gpointer, GObject*);
+    void addAPINotification(WebKitNotification*);
+    void removeAPINotification(WebKitNotification*);
+    void removeAPINotification(WebNotificationIdentifier);
+    void closeAPINotification(WebNotificationIdentifier);
 
-    void withdrawAnyPreviousNotificationMatchingTag(const CString&);
+    void withdrawAnyPreviousAPINotificationMatchingTag(const CString&);
+
+    void show(WebNotification&, const RefPtr<WebCore::NotificationResources>&);
+
+    // NotificationService
+    void didClickNotification(WebNotificationIdentifier) final;
+    void didCloseNotification(WebNotificationIdentifier) final;
 
     WebKitWebContext* m_webContext;
     HashMap<WTF::String, bool> m_notificationPermissions;
     RefPtr<WebNotificationManagerProxy> m_notificationManager;
-    HashMap<uint64_t, GRefPtr<WebKitNotification>> m_notifications;
+    HashMap<WebNotificationIdentifier, GRefPtr<WebKitNotification>> m_apiNotifications;
+    bool m_observerRegistered { false };
 };
 
 } // namespace WebKit

@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,11 +27,12 @@
 #include "config.h"
 #include "TableFormattingContext.h"
 
-#if ENABLE(LAYOUT_FORMATTING_CONTEXT)
-
 #include "LayoutBox.h"
 #include "LayoutBoxGeometry.h"
+#include "StyleComputedStyle+GettersInlines.h"
+#include "StylePrimitiveNumericTypes+Evaluation.h"
 #include "TableFormattingGeometry.h"
+#include <ranges>
 
 namespace WebCore {
 namespace Layout {
@@ -43,40 +45,39 @@ TableFormattingContext::TableLayout::TableLayout(const TableFormattingContext& f
 }
 
 struct ColumnSpan {
-    static size_t hasSpan(const TableGrid::Slot& slot) { return slot.hasColumnSpan(); }
-    static size_t isSpanned(const TableGrid::Slot& slot) { return slot.isColumnSpanned(); }
+    static size_t NODELETE hasSpan(const TableGrid::Slot& slot) { return slot.hasColumnSpan(); }
+    static size_t NODELETE isSpanned(const TableGrid::Slot& slot) { return slot.isColumnSpanned(); }
 
-    static size_t spanCount(const TableGrid::Cell& cell) { return cell.columnSpan(); }
-    static size_t startSpan(const TableGrid::Cell& cell) { return cell.startColumn(); }
-    static size_t endSpan(const TableGrid::Cell& cell) { return cell.endColumn(); }
+    static size_t NODELETE spanCount(const TableGridCell& cell) { return cell.columnSpan(); }
+    static size_t NODELETE startSpan(const TableGridCell& cell) { return cell.startColumn(); }
+    static size_t NODELETE endSpan(const TableGridCell& cell) { return cell.endColumn(); }
 
-    static size_t index(size_t columnIndex, size_t /*rowIndex*/) { return columnIndex; }
-    static size_t size(const TableGrid& grid) { return grid.columns().size(); }
+    static size_t NODELETE index(size_t columnIndex, size_t /*rowIndex*/) { return columnIndex; }
+    static size_t NODELETE size(const TableGrid& grid) { return grid.columns().size(); }
 
-    static LayoutUnit spacing(const TableGrid& grid) { return grid.horizontalSpacing(); }
+    static LayoutUnit NODELETE spacing(const TableGrid& grid) { return grid.horizontalSpacing(); }
 };
 
 struct RowSpan {
-    static size_t hasSpan(const TableGrid::Slot& slot) { return slot.hasRowSpan(); }
-    static size_t isSpanned(const TableGrid::Slot& slot) { return slot.isRowSpanned(); }
+    static size_t NODELETE hasSpan(const TableGrid::Slot& slot) { return slot.hasRowSpan(); }
+    static size_t NODELETE isSpanned(const TableGrid::Slot& slot) { return slot.isRowSpanned(); }
 
-    static size_t spanCount(const TableGrid::Cell& cell) { return cell.rowSpan(); }
-    static size_t startSpan(const TableGrid::Cell& cell) { return cell.startRow(); }
-    static size_t endSpan(const TableGrid::Cell& cell) { return cell.endRow(); }
+    static size_t NODELETE spanCount(const TableGridCell& cell) { return cell.rowSpan(); }
+    static size_t NODELETE startSpan(const TableGridCell& cell) { return cell.startRow(); }
+    static size_t NODELETE endSpan(const TableGridCell& cell) { return cell.endRow(); }
 
-    static size_t index(size_t /*columnIndex*/, size_t rowIndex) { return rowIndex; }
-    static size_t size(const TableGrid& grid) { return grid.rows().size(); }
+    static size_t NODELETE index(size_t /*columnIndex*/, size_t rowIndex) { return rowIndex; }
+    static size_t NODELETE size(const TableGrid& grid) { return grid.rows().size(); }
 
-    static LayoutUnit spacing(const TableGrid& grid) { return grid.verticalSpacing(); }
+    static LayoutUnit NODELETE spacing(const TableGrid& grid) { return grid.verticalSpacing(); }
 };
 
 struct GridSpace {
-    bool isEmpty() const { return !preferredSize; }
+    bool NODELETE isEmpty() const { return !preferredSize; }
 
     enum class Type {
         Percent,
         Fixed,
-        Relative,
         Auto
     };
     Type type { Type::Auto };
@@ -95,7 +96,7 @@ inline static GridSpace& operator-(GridSpace& a, const GridSpace& b)
     return a;
 }
 
-inline static GridSpace& operator+=(GridSpace& a, const GridSpace& b)
+inline static GridSpace& NODELETE operator+=(GridSpace& a, const GridSpace& b)
 {
     a.preferredSize += b.preferredSize;
     a.flexBase += b.flexBase;
@@ -107,7 +108,7 @@ inline static GridSpace& operator-=(GridSpace& a, const GridSpace& b)
     return a - b;
 }
 
-inline static GridSpace& operator/(GridSpace& a, unsigned value)
+inline static GridSpace& NODELETE operator/(GridSpace& a, unsigned value)
 {
     a.preferredSize /= value;
     a.flexBase /= value;
@@ -115,7 +116,7 @@ inline static GridSpace& operator/(GridSpace& a, unsigned value)
 }
 
 template <typename SpanType>
-static Vector<LayoutUnit> distributeAvailableSpace(const TableGrid& grid, LayoutUnit availableSpace, const WTF::Function<GridSpace(const TableGrid::Slot&, size_t)>& slotSpace)
+static Vector<LayoutUnit> distributeAvailableSpace(const TableGrid& grid, LayoutUnit availableSpace, NOESCAPE const Function<GridSpace(const TableGrid::Slot&, size_t)>& slotSpace)
 {
     auto& columns = grid.columns();
     auto& rows = grid.rows();
@@ -161,7 +162,7 @@ static Vector<LayoutUnit> distributeAvailableSpace(const TableGrid& grid, Layout
         // we can resolve overlapping spans starting with the shorter ones e.g.
         // <td colspan=4>#a</td><td>#b</td>
         // <td colspan=2>#c</td><td colspan=3>#d</td>
-        std::sort(spanningCells.begin(), spanningCells.end(), [&] (auto& a, auto& b) {
+        std::ranges::sort(spanningCells, [&](auto& a, auto& b) {
             return SpanType::spanCount(grid.slot(a.position)->cell()) < SpanType::spanCount(grid.slot(b.position)->cell());
         });
 
@@ -241,7 +242,6 @@ static Vector<LayoutUnit> distributeAvailableSpace(const TableGrid& grid, Layout
             return;
         // Setup the priority lists. We use these when expanding/shrinking slots.
         Vector<size_t> autoColumnIndexes;
-        Vector<size_t> relativeColumnIndexes;
         Vector<size_t> fixedColumnIndexes;
         Vector<size_t> percentColumnIndexes;
 
@@ -252,9 +252,6 @@ static Vector<LayoutUnit> distributeAvailableSpace(const TableGrid& grid, Layout
                 break;
             case GridSpace::Type::Fixed:
                 fixedColumnIndexes.append(columnIndex);
-                break;
-            case GridSpace::Type::Relative:
-                relativeColumnIndexes.append(columnIndex);
                 break;
             case GridSpace::Type::Auto:
                 autoColumnIndexes.append(columnIndex);
@@ -291,8 +288,6 @@ static Vector<LayoutUnit> distributeAvailableSpace(const TableGrid& grid, Layout
             if (hasSpaceToDistribute())
                 expandSpace(percentColumnIndexes);
             if (hasSpaceToDistribute())
-                expandSpace(relativeColumnIndexes);
-            if (hasSpaceToDistribute())
                 expandSpace(autoColumnIndexes);
             ASSERT(!hasSpaceToDistribute());
             return;
@@ -323,8 +318,6 @@ static Vector<LayoutUnit> distributeAvailableSpace(const TableGrid& grid, Layout
         };
         shrinkSpace(autoColumnIndexes);
         if (needsMoreSpace())
-            shrinkSpace(relativeColumnIndexes);
-        if (needsMoreSpace())
             shrinkSpace(fixedColumnIndexes);
         if (needsMoreSpace())
             shrinkSpace(percentColumnIndexes);
@@ -338,27 +331,20 @@ static Vector<LayoutUnit> distributeAvailableSpace(const TableGrid& grid, Layout
 TableFormattingContext::TableLayout::DistributedSpaces TableFormattingContext::TableLayout::distributedHorizontalSpace(LayoutUnit availableHorizontalSpace)
 {
     auto hasEnoughAvailableSpaceForMaximumWidth = availableHorizontalSpace >= m_grid.widthConstraints()->maximum;
-    return distributeAvailableSpace<ColumnSpan>(m_grid, availableHorizontalSpace, [&] (const TableGrid::Slot& slot, size_t columnIndex) {
+    return distributeAvailableSpace<ColumnSpan>(m_grid, availableHorizontalSpace, [&](const TableGrid::Slot& slot, size_t columnIndex) {
         auto& column = m_grid.columns().list()[columnIndex];
-        auto columnWidth = std::optional<float> { };
-        auto type = GridSpace::Type::Auto;
 
-        auto& computedLogicalWidth = column.computedLogicalWidth();
-        switch (computedLogicalWidth.type()) {
-        case LengthType::Fixed:
-            columnWidth = computedLogicalWidth.value();
-            type = GridSpace::Type::Fixed;
-            break;
-        case LengthType::Percent:
-            columnWidth = computedLogicalWidth.value() * availableHorizontalSpace / 100.0f;
-            type = GridSpace::Type::Percent;
-            break;
-        case LengthType::Relative:
-            ASSERT_NOT_IMPLEMENTED_YET();
-            break;
-        default:
-            break;
-        }
+        auto [columnWidth, type] = WTF::switchOn(column.computedLogicalWidth(),
+            [&](const CSS::Keyword::Auto&) -> std::pair<std::optional<float>, GridSpace::Type> {
+                return { std::nullopt, GridSpace::Type::Auto };
+            },
+            [&](const Style::Length<CSS::Nonnegative, float>& fixed) -> std::pair<std::optional<float>, GridSpace::Type> {
+                return { fixed.resolveZoom(Style::ZoomNeeded { }), GridSpace::Type::Fixed };
+            },
+            [&](const Style::Percentage<CSS::Nonnegative, float>& percentage) -> std::pair<std::optional<float>, GridSpace::Type> {
+                return { Style::evaluate<float>(percentage, availableHorizontalSpace), GridSpace::Type::Percent };
+            }
+        );
 
         float minimumContentWidth = slot.widthConstraints().minimum;
         float maximumContentWidth = slot.widthConstraints().maximum;
@@ -427,12 +413,12 @@ TableFormattingContext::TableLayout::DistributedSpaces TableFormattingContext::T
                 continue;
             // The minimum height of a row (without spanning-related height distribution) is defined as the height of an hypothetical
             // linebox containing the cells originating in the row.
-            auto& cell = slot.cell();
-            auto& cellBox = cell.box();
+            CheckedRef cell = slot.cell();
+            CheckedRef cellBox = cell->box();
             auto height = formattingContext().geometryForBox(cellBox).borderBoxHeight();
-            if (cellBox.style().verticalAlign() == VerticalAlign::Baseline) {
-                maximumColumnAscent = std::max(maximumColumnAscent, cell.baseline());
-                maximumColumnDescent = std::max(maximumColumnDescent, height - cell.baseline());
+            if (WTF::holdsAlternative<CSS::Keyword::Baseline>(cellBox->style().verticalAlign())) {
+                maximumColumnAscent = std::max(maximumColumnAscent, cell->baseline());
+                maximumColumnDescent = std::max(maximumColumnDescent, height - cell->baseline());
                 rowHeight[rowIndex] = std::max(rowHeight[rowIndex], LayoutUnit { maximumColumnAscent + maximumColumnDescent });
             } else
                 rowHeight[rowIndex] = std::max(rowHeight[rowIndex], height);
@@ -459,4 +445,3 @@ TableFormattingContext::TableLayout::DistributedSpaces TableFormattingContext::T
 }
 }
 
-#endif

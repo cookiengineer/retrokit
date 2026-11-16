@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -53,7 +53,7 @@ WKStringRef WKProtectionSpaceCopyRealm(WKProtectionSpaceRef protectionSpaceRef)
 
 bool WKProtectionSpaceGetIsProxy(WKProtectionSpaceRef protectionSpaceRef)
 {
-    return toImpl(protectionSpaceRef)->isProxy();
+    return protect(toImpl(protectionSpaceRef))->isProxy();
 }
 
 WKProtectionSpaceServerType WKProtectionSpaceGetServerType(WKProtectionSpaceRef protectionSpaceRef)
@@ -63,7 +63,7 @@ WKProtectionSpaceServerType WKProtectionSpaceGetServerType(WKProtectionSpaceRef 
 
 bool WKProtectionSpaceGetReceivesCredentialSecurely(WKProtectionSpaceRef protectionSpaceRef)
 {
-    return toImpl(protectionSpaceRef)->receivesCredentialSecurely();
+    return protect(toImpl(protectionSpaceRef))->receivesCredentialSecurely();
 }
 
 WKProtectionSpaceAuthenticationScheme WKProtectionSpaceGetAuthenticationScheme(WKProtectionSpaceRef protectionSpaceRef)

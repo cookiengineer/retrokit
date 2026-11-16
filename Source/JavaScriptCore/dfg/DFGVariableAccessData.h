@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,7 +35,10 @@
 #include "Operands.h"
 #include "SpeculatedType.h"
 #include "VirtualRegister.h"
+#include <wtf/SequesteredMalloc.h>
 #include <wtf/UnionFind.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC { namespace DFG {
 
@@ -44,7 +47,7 @@ struct Node;
 enum DoubleBallot { VoteValue, VoteDouble };
 
 class VariableAccessData : public UnionFind<VariableAccessData> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_SEQUESTERED_ARENA_ALLOCATED(VariableAccessData);
     WTF_MAKE_NONCOPYABLE(VariableAccessData);
 public:
     VariableAccessData();
@@ -72,7 +75,7 @@ public:
         return m_isProfitableToUnbox;
     }
     
-    bool mergeShouldNeverUnbox(bool shouldNeverUnbox);
+    bool NODELETE mergeShouldNeverUnbox(bool shouldNeverUnbox);
     
     // Returns true if it would be unsound to store the value in an unboxed fashion.
     // If this returns false, it simply means that it is sound to unbox; it doesn't
@@ -125,7 +128,7 @@ public:
         return m_isLoadedFrom;
     }
     
-    bool predict(SpeculatedType prediction);
+    bool NODELETE predict(SpeculatedType prediction);
     
     SpeculatedType nonUnifiedPrediction()
     {
@@ -142,7 +145,7 @@ public:
         return find()->m_argumentAwarePrediction;
     }
     
-    bool mergeArgumentAwarePrediction(SpeculatedType prediction);
+    bool NODELETE mergeArgumentAwarePrediction(SpeculatedType prediction);
     
     void clearVotes()
     {
@@ -163,7 +166,7 @@ public:
         return static_cast<double>(m_votes[1]) / m_votes[0];
     }
     
-    bool shouldUseDoubleFormatAccordingToVote();
+    bool NODELETE shouldUseDoubleFormatAccordingToVote();
     
     DoubleFormatState doubleFormatState()
     {
@@ -178,11 +181,11 @@ public:
         return doubleState && isProfitableToUnbox();
     }
     
-    bool tallyVotesForShouldUseDoubleFormat();
+    bool NODELETE tallyVotesForShouldUseDoubleFormat();
     
-    bool mergeDoubleFormatState(DoubleFormatState);
+    bool NODELETE mergeDoubleFormatState(DoubleFormatState);
     
-    bool makePredictionForDoubleFormat();
+    bool NODELETE makePredictionForDoubleFormat();
     
     NodeFlags flags() const { return m_flags; }
     
@@ -191,9 +194,9 @@ public:
         return checkAndSet(m_flags, m_flags | newFlags);
     }
     
-    FlushFormat flushFormat();
+    FlushFormat NODELETE flushFormat();
     
-    bool couldRepresentInt52();
+    bool NODELETE couldRepresentInt52();
     
     FlushedAt flushedAt()
     {
@@ -201,7 +204,7 @@ public:
     }
 
 private:
-    bool couldRepresentInt52Impl();
+    bool NODELETE couldRepresentInt52Impl();
     
     // This is slightly space-inefficient, since anything we're unified with
     // will have the same operand and should have the same prediction. But
@@ -225,5 +228,7 @@ private:
 };
 
 } } // namespace JSC::DFG
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(DFG_JIT)

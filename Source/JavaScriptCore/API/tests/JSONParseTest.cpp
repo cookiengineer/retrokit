@@ -32,6 +32,8 @@
 #include "VM.h"
 #include <wtf/RefPtr.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 using namespace JSC;
 
 int testJSONParse()
@@ -43,13 +45,14 @@ int testJSONParse()
     JSLockHolder locker(vm.get());
     JSGlobalObject* globalObject = JSGlobalObject::create(*vm, JSGlobalObject::createStructure(*vm, jsNull()));
     
-    JSValue v0 = JSONParse(globalObject, "");
-    JSValue v1 = JSONParse(globalObject, "#$%^");
+    JSValue v0 = JSONParse(globalObject, ""_s);
+    JSValue v1 = JSONParse(globalObject, "#$%^"_s);
     JSValue v2 = JSONParse(globalObject, String());
-    UChar emptyUCharArray[1] = { '\0' };
-    JSValue v3 = JSONParse(globalObject, String(emptyUCharArray, 0));
+    char16_t emptyChar16Array[1] = { '\0' };
+    unsigned zeroLength = 0;
+    JSValue v3 = JSONParse(globalObject, String({ emptyChar16Array, zeroLength }));
     JSValue v4;
-    JSValue v5 = JSONParse(globalObject, "123");
+    JSValue v5 = JSONParse(globalObject, "123"_s);
     
     failed = failed || (v0 != v1);
     failed = failed || (v1 != v2);
@@ -66,3 +69,5 @@ int testJSONParse()
 
     return failed;
 }
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

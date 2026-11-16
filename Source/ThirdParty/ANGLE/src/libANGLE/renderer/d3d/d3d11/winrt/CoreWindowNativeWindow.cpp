@@ -22,7 +22,7 @@ CoreWindowNativeWindow::~CoreWindowNativeWindow()
 bool CoreWindowNativeWindow::initialize(EGLNativeWindowType window, IPropertySet *propertySet)
 {
     ComPtr<IPropertySet> props = propertySet;
-    ComPtr<IInspectable> win   = window;
+    ComPtr<IInspectable> win   = reinterpret_cast<IInspectable *>(window);
     SIZE swapChainSize         = {};
     HRESULT result             = S_OK;
 
@@ -116,7 +116,7 @@ bool CoreWindowNativeWindow::registerForSizeChangeEvents()
 {
     ComPtr<IWindowSizeChangedEventHandler> sizeChangedHandler;
     HRESULT result = Microsoft::WRL::MakeAndInitialize<CoreWindowSizeChangedHandler>(
-        sizeChangedHandler.ReleaseAndGetAddressOf(), this->shared_from_this());
+        &sizeChangedHandler, this->shared_from_this());
     if (SUCCEEDED(result))
     {
         result = mCoreWindow->add_SizeChanged(sizeChangedHandler.Get(), &mSizeChangedEventToken);
@@ -145,7 +145,7 @@ HRESULT CoreWindowNativeWindow::createSwapChain(ID3D11Device *device,
                                                 unsigned int width,
                                                 unsigned int height,
                                                 bool containsAlpha,
-                                                IDXGISwapChain1 **swapChain)
+                                                ComPtr<IDXGISwapChain1> *swapChain)
 {
     if (device == nullptr || factory == nullptr || swapChain == nullptr || width == 0 ||
         height == 0)
@@ -167,14 +167,12 @@ HRESULT CoreWindowNativeWindow::createSwapChain(ID3D11Device *device,
     swapChainDesc.Scaling     = DXGI_SCALING_STRETCH;
     swapChainDesc.AlphaMode   = DXGI_ALPHA_MODE_UNSPECIFIED;
 
-    *swapChain = nullptr;
-
     ComPtr<IDXGISwapChain1> newSwapChain;
-    HRESULT result = factory->CreateSwapChainForCoreWindow(
-        device, mCoreWindow.Get(), &swapChainDesc, nullptr, newSwapChain.ReleaseAndGetAddressOf());
+    HRESULT result = factory->CreateSwapChainForCoreWindow(device, mCoreWindow.Get(),
+                                                           &swapChainDesc, nullptr, &newSwapChain);
     if (SUCCEEDED(result))
     {
-        result = newSwapChain.CopyTo(swapChain);
+        *swapChain = std::move(newSwapChain);
     }
 
     if (SUCCEEDED(result))
@@ -213,16 +211,20 @@ HRESULT GetCoreWindowSizeInPixels(const ComPtr<ABI::Windows::UI::Core::ICoreWind
 
 static float GetLogicalDpi()
 {
-    ComPtr<ABI::Windows::Graphics::Display::IDisplayPropertiesStatics> displayProperties;
+    ComPtr<ABI::Windows::Graphics::Display::IDisplayInformationStatics> displayInformationStatics;
+    ComPtr<ABI::Windows::Graphics::Display::IDisplayInformation> displayInformation;
 
     if (SUCCEEDED(GetActivationFactory(
-            HStringReference(RuntimeClass_Windows_Graphics_Display_DisplayProperties).Get(),
-            displayProperties.GetAddressOf())))
+            HStringReference(RuntimeClass_Windows_Graphics_Display_DisplayInformation).Get(),
+            &displayInformationStatics)))
     {
-        float dpi = 96.0f;
-        if (SUCCEEDED(displayProperties->get_LogicalDpi(&dpi)))
+        if (SUCCEEDED(displayInformationStatics->GetForCurrentView(&displayInformation)))
         {
-            return dpi;
+            float dpi = 96.0f;
+            if (SUCCEEDED(displayInformation->get_LogicalDpi(&dpi)))
+            {
+                return dpi;
+            }
         }
     }
 

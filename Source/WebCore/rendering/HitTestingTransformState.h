@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 Apple Inc.  All rights reserved.
+ * Copyright (C) 2011 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -36,7 +36,7 @@ namespace WebCore {
 
 // FIXME: Now that TransformState lazily creates its TransformationMatrix it takes up less space.
 // So there's really no need for a ref counted version. So This class should be removed and replaced
-// with TransformState. There are some minor differences (like the way translate() works slightly
+// with TransformState. There are some minor differences (like the way NODELETE translate() works slightly
 // differently than move()) so care has to be taken when this is done.
 class HitTestingTransformState : public RefCounted<HitTestingTransformState> {
 public:
@@ -50,28 +50,27 @@ public:
         return adoptRef(*new HitTestingTransformState(other));
     }
 
-    enum TransformAccumulation { FlattenTransform, AccumulateTransform };
-    void translate(int x, int y, TransformAccumulation);
-    void applyTransform(const TransformationMatrix& transformFromContainer, TransformAccumulation);
+    void translate(int x, int y);
+    void applyTransform(const TransformationMatrix& transformFromContainer);
 
     FloatPoint mappedPoint() const;
     FloatQuad mappedQuad() const;
     FloatQuad mappedArea() const;
     LayoutRect boundsOfMappedArea() const;
-    void flatten();
+    LayoutRect boundsOfMappedQuad() const;
+
+    void NODELETE flatten();
 
     FloatPoint m_lastPlanarPoint;
     FloatQuad m_lastPlanarQuad;
     FloatQuad m_lastPlanarArea;
     TransformationMatrix m_accumulatedTransform;
-    bool m_accumulatingTransform;
 
 private:
     HitTestingTransformState(const FloatPoint& p, const FloatQuad& quad, const FloatQuad& area)
         : m_lastPlanarPoint(p)
         , m_lastPlanarQuad(quad)
         , m_lastPlanarArea(area)
-        , m_accumulatingTransform(false)
     {
     }
     
@@ -81,11 +80,8 @@ private:
         , m_lastPlanarQuad(other.m_lastPlanarQuad)
         , m_lastPlanarArea(other.m_lastPlanarArea)
         , m_accumulatedTransform(other.m_accumulatedTransform)
-        , m_accumulatingTransform(other.m_accumulatingTransform)
     {
     }
-    
-    void flattenWithTransform(const TransformationMatrix&);
 };
 
 } // namespace WebCore

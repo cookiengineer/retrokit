@@ -38,7 +38,7 @@ class CPSRethreadingPhase : public Phase {
     static constexpr bool verbose = false;
 public:
     CPSRethreadingPhase(Graph& graph)
-        : Phase(graph, "CPS rethreading")
+        : Phase(graph, "CPS rethreading"_s)
     {
     }
     
@@ -65,7 +65,7 @@ public:
 
 private:
     
-    void clearIsLoadedFrom()
+    void NODELETE clearIsLoadedFrom()
     {
         for (unsigned i = 0; i < m_graph.m_variableAccessData.size(); ++i)
             m_graph.m_variableAccessData[i].setIsLoadedFrom(false);
@@ -117,12 +117,12 @@ private:
             
             for (unsigned phiIndex = block->phis.size(); phiIndex--;)
                 m_graph.deleteNode(block->phis[phiIndex]);
-            block->phis.resize(0);
+            block->phis.shrink(0);
         }
     }
     
     template<OperandKind operandKind>
-    void clearVariables()
+    void NODELETE clearVariables()
     {
         ASSERT(
             m_block->variablesAtHead.sizeFor<operandKind>()
@@ -273,8 +273,9 @@ private:
         }
         
         variable->setIsLoadedFrom(true);
-        node->children.setChild1(Edge(addPhi<operandKind>(node->origin, variable, idx)));
-        m_block->variablesAtHead.atFor<operandKind>(idx) = node;
+        Node* phi = addPhi<operandKind>(node->origin, variable, idx);
+        node->children.setChild1(Edge(phi));
+        m_block->variablesAtHead.atFor<operandKind>(idx) = phi;
         m_block->variablesAtTail.atFor<operandKind>(idx) = node;
     }
 
@@ -298,7 +299,7 @@ private:
         }
     }
     
-    void canonicalizeSet(Node* node)
+    void NODELETE canonicalizeSet(Node* node)
     {
         m_block->variablesAtTail.setOperand(node->operand(), node);
     }
@@ -325,7 +326,7 @@ private:
             // The rules for threaded CPS form:
             // 
             // Head variable: describes what is live at the head of the basic block.
-            // Head variable links may refer to Flush, PhantomLocal, Phi, or SetArgumentDefinitely/SetArgumentMaybe.
+            // Head variable links may refer to Phi or SetArgumentDefinitely/SetArgumentMaybe.
             // SetArgumentDefinitely/SetArgumentMaybe may only appear in the root block.
             //
             // Tail variable: the last thing that happened to the variable in the block.
@@ -427,8 +428,10 @@ private:
             size_t index = entry.m_index;
             
             if (verbose) {
-                dataLog(" Iterating on phi from block ", block, " ");
-                m_graph.dump(WTF::dataFile(), "", currentPhi);
+                WTF::dataFile().atomically([&](auto&) {
+                    dataLog(" Iterating on phi from block ", block, " ");
+                    m_graph.dump(WTF::dataFile(), "", currentPhi);
+                });
             }
 
             for (size_t i = predecessors.size(); i--;) {
@@ -460,8 +463,11 @@ private:
                     || variableInPrevious->op() == SetArgumentDefinitely
                     || variableInPrevious->op() == SetArgumentMaybe);
           
-                if (verbose)
-                    m_graph.dump(WTF::dataFile(), "    Adding new variable from predecessor ", variableInPrevious);
+                if (verbose) {
+                    WTF::dataFile().atomically([&](auto& out) {
+                        m_graph.dump(out, "    Adding new variable from predecessor ", variableInPrevious);
+                    });
+                }
 
                 if (!currentPhi->child1()) {
                     currentPhi->children.setChild1(Edge(variableInPrevious));
@@ -497,7 +503,7 @@ private:
     };
     
     template<OperandKind operandKind>
-    Vector<PhiStackEntry, 128>& phiStackFor()
+    Vector<PhiStackEntry, 128>& NODELETE phiStackFor()
     {
         switch (operandKind) {
         case OperandKind::Argument: return m_argumentPhiStack;

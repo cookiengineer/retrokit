@@ -40,18 +40,18 @@ namespace WebCore {
 using namespace JSC;
 
 template<typename Visitor>
-void JSMutationObserver::visitAdditionalChildren(Visitor& visitor)
+void JSMutationObserver::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    wrapped().callback().visitJSFunction(visitor);
+    wrapped().callback().visitJSFunctionInGCThread(visitor);
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSMutationObserver);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSMutationObserver);
 
-bool JSMutationObserverOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, const char**reason)
+bool JSMutationObserverOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
-    if (jsCast<JSMutationObserver*>(handle.slot()->asCell())->wrapped().isReachableFromOpaqueRoots(visitor)) {
-        if (UNLIKELY(reason))
-            *reason = "Reachable from observed nodes";
+    if (downcast<JSMutationObserver>(handle.slot()->asCell())->wrapped().isReachableFromOpaqueRoots(visitor)) {
+        if (reason) [[unlikely]]
+            *reason = "Reachable from observed nodes"_s;
         return true;
     }
     return false;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,39 +28,44 @@
 
 #include "Logging.h"
 #include "NetworkProcessConnection.h"
+#include "NetworkStorageManagerMessages.h"
 #include "StorageAreaImpl.h"
 #include "StorageAreaMapMessages.h"
-#include "StorageManagerSetMessages.h"
 #include "StorageNamespaceImpl.h"
 #include "WebPage.h"
-#include "WebPageGroupProxy.h"
 #include "WebProcess.h"
+#include <WebCore/ClientOrigin.h>
 #include <WebCore/DOMWindow.h>
 #include <WebCore/Document.h>
-#include <WebCore/Frame.h>
+#include <WebCore/EventNames.h>
+#include <WebCore/LocalDOMWindow.h>
+#include <WebCore/LocalFrameInlines.h>
 #include <WebCore/Page.h>
-#include <WebCore/PageGroup.h>
 #include <WebCore/SecurityOriginData.h>
 #include <WebCore/Storage.h>
 #include <WebCore/StorageEventDispatcher.h>
 #include <WebCore/StorageMap.h>
 #include <WebCore/StorageType.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 using namespace WebCore;
 
-StorageAreaMap::StorageAreaMap(StorageNamespaceImpl& storageNamespace, Ref<WebCore::SecurityOrigin>&& securityOrigin)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(StorageAreaMap);
+
+StorageAreaMap::StorageAreaMap(StorageNamespaceImpl& storageNamespace, Ref<const WebCore::SecurityOrigin>&& securityOrigin)
     : m_namespace(storageNamespace)
-    , m_securityOrigin(WTFMove(securityOrigin))
+    , m_securityOrigin(WTF::move(securityOrigin))
     , m_quotaInBytes(storageNamespace.quotaInBytes())
     , m_type(storageNamespace.storageType())
 {
-    connect();
+    WebProcess::singleton().registerStorageAreaMap(*this);
 }
 
 StorageAreaMap::~StorageAreaMap()
 {
     disconnect();
+    WebProcess::singleton().unregisterStorageAreaMap(*this);
 }
 
 unsigned StorageAreaMap::length()
@@ -78,7 +83,7 @@ String StorageAreaMap::item(const String& key)
     return ensureMap().getItem(key);
 }
 
-void StorageAreaMap::setItem(Frame* sourceFrame, StorageAreaImpl* sourceArea, const String& key, const String& value, bool& quotaException)
+void StorageAreaMap::setItem(LocalFrame& sourceFrame, StorageAreaImpl* sourceArea, const String& key, const String& value, bool& quotaException)
 {
     auto& map = ensureMap();
     ASSERT(!map.isShared());
@@ -94,13 +99,20 @@ void StorageAreaMap::setItem(Frame* sourceFrame, StorageAreaImpl* sourceArea, co
 
     m_pendingValueChanges.add(key);
 
-    if (m_mapID)
-        WebProcess::singleton().ensureNetworkProcessConnection().connection().send(Messages::StorageManagerSet::SetItem(*m_mapID, sourceArea->identifier(), m_currentSeed, key, value, sourceFrame->document()->url().string()), 0);
-    else
+    if (!m_remoteAreaIdentifier) {
         RELEASE_LOG_ERROR(Storage, "StorageAreaMap::setItem failed because storage map ID is invalid");
+        return;
+    }
+
+    auto callback = [weakThis = WeakPtr { *this }, seed = m_currentSeed, key](bool hasError, auto&& allItems) mutable {
+        if (weakThis)
+            weakThis->didSetItem(seed, key, hasError, WTF::move(allItems));
+    };
+    Ref connection = WebProcess::singleton().ensureNetworkProcessConnection().connection();
+    connection->sendWithAsyncReply(Messages::NetworkStorageManager::SetItem(*m_remoteAreaIdentifier, sourceArea->identifier(), key, value, protect(sourceFrame.document())->url().string()), WTF::move(callback));
 }
 
-void StorageAreaMap::removeItem(WebCore::Frame* sourceFrame, StorageAreaImpl* sourceArea, const String& key)
+void StorageAreaMap::removeItem(WebCore::LocalFrame& sourceFrame, StorageAreaImpl* sourceArea, const String& key)
 {
     auto& map = ensureMap();
     ASSERT(!map.isShared());
@@ -113,25 +125,35 @@ void StorageAreaMap::removeItem(WebCore::Frame* sourceFrame, StorageAreaImpl* so
 
     m_pendingValueChanges.add(key);
 
-    if (m_mapID)
-        WebProcess::singleton().ensureNetworkProcessConnection().connection().send(Messages::StorageManagerSet::RemoveItem(*m_mapID, sourceArea->identifier(), m_currentSeed, key, sourceFrame->document()->url().string()), 0);
-    else
+    if (!m_remoteAreaIdentifier) {
         RELEASE_LOG_ERROR(Storage, "StorageAreaMap::removeItem failed because storage map ID is invalid");
+        return;
+    }
+
+    auto callback = [weakThis = WeakPtr { *this }, seed = m_currentSeed, key](bool hasError, HashMap<String, String>&& allItems) mutable {
+        if (weakThis)
+            weakThis->didRemoveItem(seed, key, hasError, WTF::move(allItems));
+    };
+    WebProcess::singleton().ensureNetworkProcessConnection().connection().sendWithAsyncReply(Messages::NetworkStorageManager::RemoveItem(*m_remoteAreaIdentifier, sourceArea->identifier(), key, protect(sourceFrame.document())->url().string()), WTF::move(callback));
 }
 
-void StorageAreaMap::clear(WebCore::Frame* sourceFrame, StorageAreaImpl* sourceArea)
+void StorageAreaMap::clear(WebCore::LocalFrame& sourceFrame, StorageAreaImpl* sourceArea)
 {
-    connect();
-
-    resetValues();
-
+    ensureMap().clear();
+    m_pendingValueChanges.clear();
+    ++m_currentSeed;
     m_hasPendingClear = true;
-    m_map = makeUnique<StorageMap>(m_quotaInBytes);
 
-    if (m_mapID)
-        WebProcess::singleton().ensureNetworkProcessConnection().connection().send(Messages::StorageManagerSet::Clear(*m_mapID, sourceArea->identifier(), m_currentSeed, sourceFrame->document()->url().string()), 0);
-    else
+    if (!m_remoteAreaIdentifier) {
         RELEASE_LOG_ERROR(Storage, "StorageAreaMap::clear failed because storage map ID is invalid");
+        return;
+    }
+
+    auto callback = [weakThis = WeakPtr { *this }, seed = m_currentSeed]() mutable {
+        if (weakThis)
+            weakThis->didClear(seed);
+    };
+    WebProcess::singleton().ensureNetworkProcessConnection().connection().sendWithAsyncReply(Messages::NetworkStorageManager::Clear(*m_remoteAreaIdentifier, sourceArea->identifier(), protect(sourceFrame.document())->url().string()), WTF::move(callback));
 }
 
 bool StorageAreaMap::contains(const String& key)
@@ -139,57 +161,37 @@ bool StorageAreaMap::contains(const String& key)
     return ensureMap().contains(key);
 }
 
-void StorageAreaMap::resetValues()
-{
-    m_map = nullptr;
-
-    m_pendingValueChanges.clear();
-    m_hasPendingClear = false;
-    ++m_currentSeed;
-}
-
 StorageMap& StorageAreaMap::ensureMap()
 {
-    connect();
-
-    if (!m_map) {
+    connectSync();
+    if (!m_map)
         m_map = makeUnique<StorageMap>(m_quotaInBytes);
 
-        if (m_mapID) {
-            // We need to use a IPC::UnboundedSynchronousIPCScope to prevent UIProcess hangs in case we receive a synchronous IPC from the UIProcess while we're waiting for a response
-            // from our StorageManagerSet::GetValues() IPC. This IPC may be very slow because it may need to fetch the values from disk and there may be a lot of data.
-            IPC::UnboundedSynchronousIPCScope unboundedSynchronousIPCScope;
-            HashMap<String, String> values;
-            WebProcess::singleton().ensureNetworkProcessConnection().connection().sendSync(Messages::StorageManagerSet::GetValues(*m_mapID), Messages::StorageManagerSet::GetValues::Reply(values), 0);
-            m_map->importItems(WTFMove(values));
-        } else
-            RELEASE_LOG_ERROR(Storage, "StorageAreaMap::ensureMap failed to load from network process because storage map ID is invalid");
-    }
     return *m_map;
 }
 
-void StorageAreaMap::didSetItem(uint64_t mapSeed, const String& key, bool quotaError)
+void StorageAreaMap::didSetItem(uint64_t mapSeed, const String& key, bool hasError, HashMap<String, String>&& remoteItems)
 {
     if (m_currentSeed != mapSeed)
         return;
 
     ASSERT(m_pendingValueChanges.contains(key));
-
-    if (quotaError) {
-        resetValues();
-        return;
-    }
-
     m_pendingValueChanges.remove(key);
+
+    if (hasError)
+        syncItems(WTF::move(remoteItems));
 }
 
-void StorageAreaMap::didRemoveItem(uint64_t mapSeed, const String& key)
+void StorageAreaMap::didRemoveItem(uint64_t mapSeed, const String& key, bool hasError, HashMap<String, String>&& remoteItems)
 {
     if (m_currentSeed != mapSeed)
         return;
 
     ASSERT(m_pendingValueChanges.contains(key));
     m_pendingValueChanges.remove(key);
+
+    if (hasError)
+        syncItems(WTF::move(remoteItems));
 }
 
 void StorageAreaMap::didClear(uint64_t mapSeed)
@@ -201,65 +203,25 @@ void StorageAreaMap::didClear(uint64_t mapSeed)
     m_hasPendingClear = false;
 }
 
-bool StorageAreaMap::shouldApplyChangeForKey(const String& key) const
-{
-    // We have not yet loaded anything from this storage map.
-    if (!m_map)
-        return false;
-
-    // Check if this storage area is currently waiting for the storage manager to update the given key.
-    // If that is the case, we don't want to apply any changes made by other storage areas, since
-    // our change was made last.
-    if (m_pendingValueChanges.contains(key))
-        return false;
-
-    return true;
-}
-
 void StorageAreaMap::applyChange(const String& key, const String& newValue)
 {
     ASSERT(!m_map || !m_map->isShared());
 
-    // There is at least one clear pending we don't want to apply any changes until we get the corresponding DidClear messages.
-    if (m_hasPendingClear)
-        return;
-
+    // A null key means clear.
     if (!key) {
-        // A null key means clear.
-        auto newMap = makeUnique<StorageMap>(m_quotaInBytes);
-
-        // Any changes that were made locally after the clear must still be kept around in the new map.
-        for (auto& change : m_pendingValueChanges) {
-            auto& key = change.key;
-            String value = m_map->getItem(key);
-            if (!value) {
-                // This change must have been a pending remove, ignore it.
-                continue;
-            }
-
-            String oldValue;
-            newMap->setItemIgnoringQuota(key, oldValue);
-        }
-
-        m_map = WTFMove(newMap);
+        syncItems(HashMap<String, String> { });
         return;
     }
 
-    if (!shouldApplyChangeForKey(key))
-        return;
-
-    if (!newValue) {
-        // A null new value means that the item should be removed.
-        String oldValue;
-        m_map->removeItem(key, oldValue);
-        return;
-    }
-
-    m_map->setItemIgnoringQuota(key, newValue);
+    syncOneItem(key, newValue);
 }
 
-void StorageAreaMap::dispatchStorageEvent(const std::optional<StorageAreaImplIdentifier>& storageAreaImplID, const String& key, const String& oldValue, const String& newValue, const String& urlString)
+void StorageAreaMap::dispatchStorageEvent(const std::optional<StorageAreaImplIdentifier>& storageAreaImplID, const String& key, const String& oldValue, const String& newValue, const String& urlString, uint64_t messageIdentifier)
 {
+    if (messageIdentifier < m_lastHandledMessageIdentifier)
+        return;
+
+    m_lastHandledMessageIdentifier = messageIdentifier;
     if (!storageAreaImplID) {
         // This storage event originates from another process so we need to apply the change to our storage area map.
         applyChange(key, newValue);
@@ -271,111 +233,131 @@ void StorageAreaMap::dispatchStorageEvent(const std::optional<StorageAreaImplIde
         dispatchLocalStorageEvent(storageAreaImplID, key, oldValue, newValue, urlString);
 }
 
-void StorageAreaMap::clearCache()
+void StorageAreaMap::clearCache(uint64_t messageIdentifier)
 {
-    resetValues();
-}
+    if (messageIdentifier < m_lastHandledMessageIdentifier)
+        return;
 
-static Vector<RefPtr<Frame>> framesForEventDispatching(Page& page, SecurityOrigin& origin, StorageType storageType, const std::optional<StorageAreaImplIdentifier>& storageAreaImplID)
-{
-    Vector<RefPtr<Frame>> frames;
-    page.forEachDocument([&](auto& document) {
-        if (!document.securityOrigin().equal(&origin))
-            return;
-
-        auto* window = document.domWindow();
-        if (!window)
-            return;
-        
-        Storage* storage = nullptr;
-        switch (storageType) {
-        case StorageType::Session:
-            storage = window->optionalSessionStorage();
-            break;
-        case StorageType::Local:
-        case StorageType::TransientLocal:
-            storage = window->optionalLocalStorage();
-            break;
-        }
-
-        if (!storage)
-            return;
-        
-        auto& storageArea = static_cast<StorageAreaImpl&>(storage->area());
-        if (storageArea.identifier() == storageAreaImplID) {
-            // This is the storage area that caused the event to be dispatched.
-            return;
-        }
-       
-        if (auto* frame = document.frame()) 
-            frames.append(frame);
-    });
-    return frames;
+    m_lastHandledMessageIdentifier = messageIdentifier;
+    syncItems(HashMap<String, String> { });
 }
 
 void StorageAreaMap::dispatchSessionStorageEvent(const std::optional<StorageAreaImplIdentifier>& storageAreaImplID, const String& key, const String& oldValue, const String& newValue, const String& urlString)
 {
     // Namespace IDs for session storage namespaces are equivalent to web page IDs
     // so we can get the right page here.
-    auto* webPage = WebProcess::singleton().webPage(m_namespace.sessionStoragePageID());
+    RefPtr webPage = WebProcess::singleton().webPage(m_namespace->sessionStoragePageID());
     if (!webPage)
         return;
 
-    auto* page = webPage->corePage();
+    RefPtr page = webPage->corePage();
     if (!page)
         return;
 
-    auto frames = framesForEventDispatching(*page, m_securityOrigin, StorageType::Session, storageAreaImplID);
-    StorageEventDispatcher::dispatchSessionStorageEventsToFrames(*page, frames, key, oldValue, newValue, urlString, m_securityOrigin->data());
+    StorageEventDispatcher::dispatchSessionStorageEvents(key, oldValue, newValue, *page, m_securityOrigin, urlString, [storageAreaImplID](auto& storage) {
+        return downcast<StorageAreaImpl>(storage.area()).identifier() == storageAreaImplID;
+    });
 }
 
 void StorageAreaMap::dispatchLocalStorageEvent(const std::optional<StorageAreaImplIdentifier>& storageAreaImplID, const String& key, const String& oldValue, const String& newValue, const String& urlString)
 {
     ASSERT(isLocalStorage(type()));
 
-    Vector<RefPtr<Frame>> frames;
+    StorageEventDispatcher::dispatchLocalStorageEvents(key, oldValue, newValue, nullptr, m_securityOrigin, urlString, [storageAreaImplID](auto& storage) {
+        return downcast<StorageAreaImpl>(storage.area()).identifier() == storageAreaImplID;
+    });
+}
 
-    // Namespace IDs for local storage namespaces are currently equivalent to web page group IDs.
-    auto& pageGroup = *WebProcess::singleton().webPageGroup(m_namespace.pageGroupID())->corePageGroup();
-    for (auto& page : pageGroup.pages())
-        frames.appendVector(framesForEventDispatching(page, m_securityOrigin, StorageType::Local, storageAreaImplID));
+StorageType StorageAreaMap::computeStorageType() const
+{
+    auto type = m_type;
+    if ((type == StorageType::Local || type == StorageType::TransientLocal) && protect(m_namespace)->topLevelOrigin())
+        type = StorageType::TransientLocal;
 
-    StorageEventDispatcher::dispatchLocalStorageEventsToFrames(pageGroup, frames, key, oldValue, newValue, urlString, m_securityOrigin->data());
+    return type;
+}
+
+WebCore::ClientOrigin StorageAreaMap::clientOrigin() const
+{
+    auto originData = m_securityOrigin->data();
+    Ref protectedNamespace = m_namespace.get();
+    auto topOriginData = protectedNamespace->topLevelOrigin() ? protectedNamespace->topLevelOrigin()->data() : originData;
+    return WebCore::ClientOrigin { topOriginData, originData };
+}
+
+void StorageAreaMap::sendConnectMessage(SendMode mode)
+{
+    m_isWaitingForConnectReply = true;
+    Ref ipcConnection = WebProcess::singleton().ensureNetworkProcessConnection().connection();
+    auto namespaceIdentifier = m_namespace->storageNamespaceID();
+    auto origin = clientOrigin();
+    auto type = computeStorageType();
+
+    if (mode == SendMode::Sync) {
+        auto sendResult = ipcConnection->sendSync(Messages::NetworkStorageManager::ConnectToStorageAreaSync(type, identifier(), namespaceIdentifier, origin), 0);
+        if (!sendResult.succeeded()) {
+            didConnect(std::nullopt, { }, 0);
+            return;
+        }
+        auto [remoteAreaIdentifier, items, messageIdentifier] = sendResult.takeReply();
+        didConnect(remoteAreaIdentifier, WTF::move(items), messageIdentifier);
+        return;
+    }
+
+    auto completionHandler = [weakThis = WeakPtr { *this }](auto remoteAreaIdentifier, auto items, auto messageIdentifier) mutable {
+        if (RefPtr protectedThis = weakThis.get())
+            protectedThis->didConnect(remoteAreaIdentifier, WTF::move(items), messageIdentifier);
+    };
+
+    ipcConnection->sendWithAsyncReply(Messages::NetworkStorageManager::ConnectToStorageArea(type, identifier(), namespaceIdentifier, origin), WTF::move(completionHandler));
+}
+
+void StorageAreaMap::connectSync()
+{
+    if (m_remoteAreaIdentifier)
+        return;
+
+    sendConnectMessage(SendMode::Sync);
 }
 
 void StorageAreaMap::connect()
 {
-    if (m_mapID)
+    if (m_remoteAreaIdentifier)
         return;
 
-    switch (m_type) {
-    case StorageType::Local:
-    case StorageType::TransientLocal:
-        if (SecurityOrigin* topLevelOrigin = m_namespace.topLevelOrigin())
-            WebProcess::singleton().ensureNetworkProcessConnection().connection().sendSync(Messages::StorageManagerSet::ConnectToTransientLocalStorageArea(WebProcess::singleton().sessionID(), m_namespace.storageNamespaceID(), topLevelOrigin->data(), m_securityOrigin->data()), Messages::StorageManagerSet::ConnectToTransientLocalStorageArea::Reply(m_mapID), 0);
-        else
-            WebProcess::singleton().ensureNetworkProcessConnection().connection().sendSync(Messages::StorageManagerSet::ConnectToLocalStorageArea(WebProcess::singleton().sessionID(), m_namespace.storageNamespaceID(), m_securityOrigin->data()), Messages::StorageManagerSet::ConnectToLocalStorageArea::Reply(m_mapID), 0);
-        break;
-    case StorageType::Session:
-        WebProcess::singleton().ensureNetworkProcessConnection().connection().sendSync(Messages::StorageManagerSet::ConnectToSessionStorageArea(WebProcess::singleton().sessionID(), m_namespace.storageNamespaceID(), m_securityOrigin->data()), Messages::StorageManagerSet::ConnectToSessionStorageArea::Reply(m_mapID), 0);
-    }
+    sendConnectMessage(SendMode::Async);
+}
 
-    if (m_mapID)
-        WebProcess::singleton().registerStorageAreaMap(*this);
+void StorageAreaMap::didConnect(std::optional<StorageAreaIdentifier> remoteAreaIdentifier, HashMap<String, String>&& items, uint64_t messageIdentifier)
+{
+    m_isWaitingForConnectReply = false;
+    if (messageIdentifier < m_lastHandledMessageIdentifier)
+        return;
+
+    m_lastHandledMessageIdentifier = messageIdentifier;
+    if (!remoteAreaIdentifier)
+        return;
+
+    m_remoteAreaIdentifier = *remoteAreaIdentifier;
+    m_map = makeUnique<StorageMap>(m_quotaInBytes);
+    m_map->importItems(WTF::move(items));
 }
 
 void StorageAreaMap::disconnect()
 {
-    if (!m_mapID)
+    if (!m_remoteAreaIdentifier) {
+        RefPtr networkProcessConnection = WebProcess::singleton().existingNetworkProcessConnection();
+        if (m_isWaitingForConnectReply && networkProcessConnection)
+            networkProcessConnection->connection().send(Messages::NetworkStorageManager::CancelConnectToStorageArea(computeStorageType(), m_namespace->storageNamespaceID(), clientOrigin()), 0);
+
         return;
+    }
 
-    resetValues();
-    WebProcess::singleton().unregisterStorageAreaMap(*this);
+    if (RefPtr networkProcessConnection = WebProcess::singleton().existingNetworkProcessConnection())
+        networkProcessConnection->connection().send(Messages::NetworkStorageManager::DisconnectFromStorageArea(*m_remoteAreaIdentifier), 0);
 
-    if (auto* networkProcessConnection = WebProcess::singleton().existingNetworkProcessConnection())
-        networkProcessConnection->connection().send(Messages::StorageManagerSet::DisconnectFromStorageArea(*m_mapID), 0);
-
-    m_mapID = { };
+    m_remoteAreaIdentifier = { };
+    m_lastHandledMessageIdentifier = 0;
 }
 
 void StorageAreaMap::incrementUseCount()
@@ -386,7 +368,42 @@ void StorageAreaMap::incrementUseCount()
 void StorageAreaMap::decrementUseCount()
 {
     if (!--m_useCount)
-        m_namespace.destroyStorageAreaMap(*this);
+        protect(m_namespace)->destroyStorageAreaMap(*this);
+}
+
+void StorageAreaMap::syncOneItem(const String& key, const String& value)
+{
+    // Once the pending value change request is handled by remote area, this item will be changed.
+    if (!m_map || m_pendingValueChanges.contains(key))
+        return;
+
+    if (!value) {
+        String oldValue;
+        m_map->removeItem(key, oldValue);
+        return;
+    }
+
+    m_map->setItemIgnoringQuota(key, value);
+}
+
+void StorageAreaMap::syncItems(HashMap<String, String>&& items)
+{
+    // Once the pending clear request is handled by remote area, these items will be gone.
+    if (!m_map || m_hasPendingClear)
+        return;
+
+    auto oldMap = std::exchange(m_map, makeUnique<StorageMap>(m_quotaInBytes));
+    m_map->importItems(WTF::move(items));
+    for (auto change : m_pendingValueChanges) {
+        String value = oldMap->getItem(change.key);
+        if (!value.isNull())
+            m_map->setItemIgnoringQuota(change.key, value);
+        else {
+            String oldValue;
+            m_map->removeItem(change.key, oldValue);
+        }
+    }
 }
 
 } // namespace WebKit
+

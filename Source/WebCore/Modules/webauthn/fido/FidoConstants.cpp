@@ -35,6 +35,34 @@
 namespace fido {
 using namespace WebCore;
 
+bool isCtap2Protocol(ProtocolVersion protocol)
+{
+    switch (protocol) {
+    case ProtocolVersion::kCtap2:
+    case ProtocolVersion::kCtap21:
+    case ProtocolVersion::kCtap21Pre:
+        return true;
+    default:
+        return false;
+    }
+}
+
+String toString(ProtocolVersion protocol)
+{
+    switch (protocol) {
+    case ProtocolVersion::kCtap2:
+        return "FIDO_2_0"_s;
+    case ProtocolVersion::kCtap21:
+        return "FIDO_2_1"_s;
+    case ProtocolVersion::kCtap21Pre:
+        return "FIDO_2_1_PRE"_s;
+    case ProtocolVersion::kU2f:
+        return "U2F_V2"_s;
+    default:
+        return "UNKNOWN"_s;
+    }
+}
+
 bool isCtapDeviceResponseCode(CtapDeviceResponseCode code)
 {
     switch (code) {
@@ -72,6 +100,7 @@ bool isCtapDeviceResponseCode(CtapDeviceResponseCode code)
     case CtapDeviceResponseCode::kCtap2ErrKeepAliveCancel:
     case CtapDeviceResponseCode::kCtap2ErrNoCredentials:
     case CtapDeviceResponseCode::kCtap2ErrUserActionTimeout:
+    case CtapDeviceResponseCode::kCtap2ErrUserPresenceRequired:
     case CtapDeviceResponseCode::kCtap2ErrNotAllowed:
     case CtapDeviceResponseCode::kCtap2ErrPinInvalid:
     case CtapDeviceResponseCode::kCtap2ErrPinBlocked:
@@ -82,6 +111,7 @@ bool isCtapDeviceResponseCode(CtapDeviceResponseCode code)
     case CtapDeviceResponseCode::kCtap2ErrPinPolicyViolation:
     case CtapDeviceResponseCode::kCtap2ErrPinTokenExpired:
     case CtapDeviceResponseCode::kCtap2ErrRequestTooLarge:
+    case CtapDeviceResponseCode::kCtap2ErrActionTimeout:
     case CtapDeviceResponseCode::kCtap2ErrOther:
     case CtapDeviceResponseCode::kCtap2ErrSpecLast:
     case CtapDeviceResponseCode::kCtap2ErrExtensionFirst:
@@ -112,7 +142,7 @@ bool isFidoHidDeviceCommand(FidoHidDeviceCommand cmd)
     }
 }
 
-const char* publicKeyCredentialTypeToString(PublicKeyCredentialType type)
+ASCIILiteral publicKeyCredentialTypeToString(PublicKeyCredentialType type)
 {
     switch (type) {
     case PublicKeyCredentialType::PublicKey:

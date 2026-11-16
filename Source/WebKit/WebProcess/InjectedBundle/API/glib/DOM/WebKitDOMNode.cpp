@@ -24,6 +24,8 @@
 #include "WebKitDOMNodePrivate.h"
 #include "WebKitDOMPrivate.h"
 #include <JavaScriptCore/APICast.h>
+#include <JavaScriptCore/JSCellInlines.h>
+#include <JavaScriptCore/JSObjectRef.h>
 #include <WebCore/JSNode.h>
 #include <jsc/JSCContextPrivate.h>
 #include <jsc/JSCValuePrivate.h>
@@ -32,6 +34,8 @@
 #if PLATFORM(GTK)
 #include "WebKitDOMEventTarget.h"
 #endif
+
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS;
 
 #define WEBKIT_DOM_NODE_GET_PRIVATE(obj) G_TYPE_INSTANCE_GET_PRIVATE(obj, WEBKIT_DOM_TYPE_NODE, WebKitDOMNodePrivate)
 
@@ -77,9 +81,9 @@ WebKitDOMNode* wrapNode(WebCore::Node* coreObject)
 } // namespace WebKit
 
 #if PLATFORM(GTK)
-G_GNUC_BEGIN_IGNORE_DEPRECATIONS;
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK port
 G_DEFINE_TYPE_WITH_CODE(WebKitDOMNode, webkit_dom_node, WEBKIT_DOM_TYPE_OBJECT, G_IMPLEMENT_INTERFACE(WEBKIT_DOM_TYPE_EVENT_TARGET, webkitDOMNodeDOMEventTargetInit))
-G_GNUC_END_IGNORE_DEPRECATIONS;
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 #else
 WEBKIT_DEFINE_TYPE(WebKitDOMNode, webkit_dom_node, WEBKIT_DOM_TYPE_OBJECT)
 #endif
@@ -144,6 +148,8 @@ WebCore::Node* webkitDOMNodeGetCoreObject(WebKitDOMNode* node)
  * Returns: (transfer none): a #WebKitDOMNode, or %NULL if @value doesn't reference a DOM node.
  *
  * Since: 2.22
+ *
+ * Deprecated: 2.40
  */
 WebKitDOMNode* webkit_dom_node_for_js_value(JSCValue* value)
 {
@@ -153,3 +159,5 @@ WebKitDOMNode* webkit_dom_node_for_js_value(JSCValue* value)
     auto* jsObject = JSValueToObject(jscContextGetJSContext(jsc_value_get_context(value)), jscValueGetJSValue(value), nullptr);
     return jsObject ? WebKit::kit(WebCore::JSNode::toWrapped(toJS(jsObject)->vm(), toJS(jsObject))) : nullptr;
 }
+
+G_GNUC_END_IGNORE_DEPRECATIONS;

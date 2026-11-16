@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020 Apple Inc. All rights reserved.
+ * Copyright (c) 2020-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,7 +27,7 @@
 #define PAS_OBJECT_KIND_H
 
 #include "pas_bitfit_page_config_variant.h"
-#include "pas_page_config_kind.h"
+#include "pas_page_kind.h"
 #include "pas_segregated_page_config_variant.h"
 
 PAS_BEGIN_EXTERN_C;
@@ -62,7 +62,7 @@ static inline const char* pas_object_kind_get_string(pas_object_kind object_kind
     case pas_not_an_object_kind:
         return "not_an_object";
     }
-    PAS_ASSERT(!"Should not be reached");
+    PAS_ASSERT_NOT_REACHED();
     return NULL;
 }
 
@@ -75,7 +75,7 @@ pas_object_kind_for_segregated_variant(pas_segregated_page_config_variant varian
     case pas_medium_segregated_page_config_variant:
         return pas_medium_segregated_object_kind;
     }
-    PAS_ASSERT(!"Should not be reached");
+    PAS_ASSERT_NOT_REACHED();
     return pas_not_an_object_kind;
 }
 
@@ -90,7 +90,25 @@ pas_object_kind_for_bitfit_variant(pas_bitfit_page_config_variant variant)
     case pas_marge_bitfit_page_config_variant:
         return pas_marge_bitfit_object_kind;
     }
-    PAS_ASSERT(!"Should not be reached");
+    PAS_ASSERT_NOT_REACHED();
+    return pas_not_an_object_kind;
+}
+
+static inline pas_object_kind pas_object_kind_for_page_kind(pas_page_kind page_kind)
+{
+    switch (page_kind) {
+    case pas_small_exclusive_segregated_page_kind:
+        return pas_small_segregated_object_kind;
+    case pas_medium_exclusive_segregated_page_kind:
+        return pas_medium_segregated_object_kind;
+    case pas_small_bitfit_page_kind:
+        return pas_small_bitfit_object_kind;
+    case pas_medium_bitfit_page_kind:
+        return pas_medium_bitfit_object_kind;
+    case pas_marge_bitfit_page_kind:
+        return pas_marge_bitfit_object_kind;
+    }
+    PAS_ASSERT_NOT_REACHED();
     return pas_not_an_object_kind;
 }
 

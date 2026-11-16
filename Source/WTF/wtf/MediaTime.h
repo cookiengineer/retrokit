@@ -30,6 +30,7 @@
 
 #include <wtf/FastMalloc.h>
 #include <wtf/JSONValues.h>
+#include <wtf/Seconds.h>
 #include <wtf/text/WTFString.h>
 
 #include <cmath>
@@ -42,7 +43,7 @@ namespace WTF {
 class PrintStream;
 
 class WTF_EXPORT_PRIVATE MediaTime final {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(MediaTime);
 public:
     enum {
         Valid = 1 << 0,
@@ -55,40 +56,31 @@ public:
 
     constexpr MediaTime();
     constexpr MediaTime(int64_t value, uint32_t scale, uint8_t flags = Valid);
-    MediaTime(const MediaTime& rhs);
+    MediaTime(const MediaTime&) = default;
 
-    static MediaTime createWithFloat(float floatTime);
+    static MediaTime NODELETE createWithFloat(float floatTime);
     static MediaTime createWithFloat(float floatTime, uint32_t timeScale);
-    static MediaTime createWithDouble(double doubleTime);
+    static MediaTime NODELETE createWithDouble(double doubleTime);
     static MediaTime createWithDouble(double doubleTime, uint32_t timeScale);
+    static MediaTime createWithSeconds(Seconds seconds) { return createWithDouble(seconds.value()); }
 
-    float toFloat() const;
-    double toDouble() const;
+    float NODELETE toFloat() const;
+    double NODELETE toDouble() const;
+    int64_t NODELETE toMicroseconds() const;
 
-    MediaTime& operator=(const MediaTime& rhs);
+    MediaTime& NODELETE operator=(const MediaTime&) = default;
     MediaTime& operator+=(const MediaTime& rhs) { return *this = *this + rhs; }
     MediaTime& operator-=(const MediaTime& rhs) { return *this = *this - rhs; }
     MediaTime operator+(const MediaTime& rhs) const;
     MediaTime operator-(const MediaTime& rhs) const;
-    MediaTime operator-() const;
+    MediaTime NODELETE operator-() const;
     MediaTime operator*(int32_t) const;
-    bool operator<(const MediaTime& rhs) const { return compare(rhs) == LessThan; }
-    bool operator>(const MediaTime& rhs) const { return compare(rhs) == GreaterThan; }
-    bool operator!=(const MediaTime& rhs) const { return compare(rhs) != EqualTo; }
-    bool operator==(const MediaTime& rhs) const { return compare(rhs) == EqualTo; }
-    bool operator>=(const MediaTime& rhs) const { return compare(rhs) >= EqualTo; }
-    bool operator<=(const MediaTime& rhs) const { return compare(rhs) <= EqualTo; }
-    bool operator!() const;
+    bool NODELETE operator!() const;
     explicit operator bool() const;
 
-    typedef enum {
-        LessThan = -1,
-        EqualTo = 0,
-        GreaterThan = 1,
-    } ComparisonFlags;
-
-    ComparisonFlags compare(const MediaTime& rhs) const;
-    bool isBetween(const MediaTime&, const MediaTime&) const;
+    WTF_EXPORT_PRIVATE friend std::partial_ordering operator<=>(const MediaTime&, const MediaTime&);
+    friend bool operator==(const MediaTime& a, const MediaTime& b) { return is_eq(a <=> b); }
+    bool NODELETE isBetween(const MediaTime&, const MediaTime&) const;
 
     bool isValid() const { return m_timeFlags & Valid; }
     bool isInvalid() const { return !isValid(); }
@@ -100,14 +92,14 @@ public:
     bool hasDoubleValue() const { return m_timeFlags & DoubleValue; }
     uint8_t timeFlags() const { return m_timeFlags; }
 
-    static const MediaTime& zeroTime();
-    static const MediaTime& invalidTime();
-    static const MediaTime& positiveInfiniteTime();
-    static const MediaTime& negativeInfiniteTime();
-    static const MediaTime& indefiniteTime();
+    static const MediaTime& NODELETE zeroTime();
+    static const MediaTime& NODELETE invalidTime();
+    static const MediaTime& NODELETE positiveInfiniteTime();
+    static const MediaTime& NODELETE negativeInfiniteTime();
+    static const MediaTime& NODELETE indefiniteTime();
 
-    const int64_t& timeValue() const { return m_timeValue; }
-    const uint32_t& timeScale() const { return m_timeScale; }
+    int64_t timeValue() const { return m_timeValue; }
+    uint32_t timeScale() const { return m_timeScale; }
 
     void dump(PrintStream& out) const;
     String toString() const;
@@ -120,7 +112,7 @@ public:
     operator int() const = delete;
     MediaTime(int) = delete;
 
-    friend WTF_EXPORT_PRIVATE MediaTime abs(const MediaTime& rhs);
+    friend WTF_EXPORT_PRIVATE MediaTime NODELETE abs(const MediaTime& rhs);
 
     static const uint32_t DefaultTimeScale = 10000000;
     static const uint32_t MaximumTimeScale;
@@ -134,9 +126,7 @@ public:
     };
 
     MediaTime toTimeScale(uint32_t, RoundingFlags = RoundingFlags::HalfAwayFromZero) const;
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static WARN_UNUSED_RETURN bool decode(Decoder&, MediaTime&);
+    MediaTime NODELETE isolatedCopy() const;
 
 private:
     void setTimeScale(uint32_t, RoundingFlags = RoundingFlags::HalfAwayFromZero);
@@ -164,7 +154,17 @@ constexpr MediaTime::MediaTime(int64_t value, uint32_t scale, uint8_t flags)
     if (scale || !(flags & Valid))
         return;
 
-    *this = value < 0 ? negativeInfiniteTime() : positiveInfiniteTime();
+    if (value < 0) {
+        // Negative infinite time
+        m_timeValue = -1;
+        m_timeScale = 1;
+        m_timeFlags = NegativeInfinite | Valid;
+    } else {
+        // Positive infinite time
+        m_timeValue = 0;
+        m_timeScale = 1;
+        m_timeFlags = PositiveInfinite | Valid;
+    }
 }
 
 inline MediaTime operator*(int32_t lhs, const MediaTime& rhs) { return rhs.operator*(lhs); }
@@ -172,27 +172,13 @@ inline MediaTime operator*(int32_t lhs, const MediaTime& rhs) { return rhs.opera
 WTF_EXPORT_PRIVATE extern MediaTime abs(const MediaTime& rhs);
 
 struct WTF_EXPORT_PRIVATE MediaTimeRange {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(MediaTimeRange);
 
     String toJSONString() const;
 
     const MediaTime start;
     const MediaTime end;
 };
-
-template<class Encoder>
-void MediaTime::encode(Encoder& encoder) const
-{
-    encoder << m_timeValue << m_timeScale << m_timeFlags;
-}
-
-template<class Decoder>
-bool MediaTime::decode(Decoder& decoder, MediaTime& time)
-{
-    return decoder.decode(time.m_timeValue)
-        && decoder.decode(time.m_timeScale)
-        && decoder.decode(time.m_timeFlags);
-}
 
 template<typename> struct LogArgument;
 
@@ -202,10 +188,6 @@ template<> struct LogArgument<MediaTime> {
 template<> struct LogArgument<MediaTimeRange> {
     static String toString(const MediaTimeRange& range) { return range.toJSONString(); }
 };
-
-#ifndef NDEBUG
-WTF_EXPORT_PRIVATE TextStream& operator<<(TextStream&, const MediaTime&);
-#endif
 
 }
 

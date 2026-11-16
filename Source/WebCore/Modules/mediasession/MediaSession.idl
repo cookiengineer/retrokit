@@ -28,6 +28,7 @@
     Conditional=MEDIA_SESSION,
     Exposed=Window,
     ExportMacro=WEBCORE_EXPORT,
+    JSCustomMarkFunction
 ] interface MediaSession
 {
     attribute MediaMetadata? metadata;
@@ -39,6 +40,13 @@
     Promise<undefined> callActionHandler(MediaSessionActionDetails actionDetails);
 
     undefined setPositionState(optional MediaPositionState? state = null);
+
+    [Conditional=MEDIA_STREAM, EnabledBySetting=MediaSessionCaptureToggleAPIEnabled] Promise<undefined> setMicrophoneActive(boolean active);
+    [Conditional=MEDIA_STREAM, EnabledBySetting=MediaSessionCaptureToggleAPIEnabled] Promise<undefined> setCameraActive(boolean active);
+    [Conditional=MEDIA_STREAM, EnabledBySetting=MediaSessionCaptureToggleAPIEnabled] Promise<undefined> setScreenshareActive(boolean active);
+
+    [EnabledByQuirk=needsYouTubeCaptions] attribute sequence<MediaSessionCaptionTrack> captionTracks;
+    [EnabledByQuirk=needsYouTubeCaptions] attribute boolean captionsEnabled;
 };
 
 MediaSession includes MediaSessionCoordinatorMixin;

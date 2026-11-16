@@ -27,9 +27,11 @@
 #include "AggregateErrorConstructor.h"
 
 #include "AggregateError.h"
+#include "AggregateErrorPrototype.h"
 #include "ClassInfo.h"
 #include "ExceptionScope.h"
 #include "GCAssertions.h"
+#include "IteratorOperations.h"
 #include "JSCInlines.h"
 #include "RuntimeType.h"
 
@@ -37,7 +39,7 @@ namespace JSC {
 
 STATIC_ASSERT_IS_TRIVIALLY_DESTRUCTIBLE(AggregateErrorConstructor);
 
-const ClassInfo AggregateErrorConstructor::s_info = { "Function", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(AggregateErrorConstructor) };
+const ClassInfo AggregateErrorConstructor::s_info = { "Function"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(AggregateErrorConstructor) };
 
 static JSC_DECLARE_HOST_FUNCTION(callAggregateErrorConstructor);
 static JSC_DECLARE_HOST_FUNCTION(constructAggregateErrorConstructor);
@@ -50,9 +52,40 @@ AggregateErrorConstructor::AggregateErrorConstructor(VM& vm, Structure* structur
 void AggregateErrorConstructor::finishCreation(VM& vm, AggregateErrorPrototype* prototype)
 {
     Base::finishCreation(vm, 2, errorTypeName(ErrorType::AggregateError), PropertyAdditionMode::WithoutStructureTransition);
-    ASSERT(inherits(vm, info()));
+    ASSERT(inherits(info()));
 
     putDirectWithoutTransition(vm, vm.propertyNames->prototype, prototype, PropertyAttribute::DontDelete | PropertyAttribute::ReadOnly | PropertyAttribute::DontEnum);
+}
+
+namespace {
+
+ErrorInstance* constructAggregateError(JSGlobalObject* globalObject, VM& vm, Structure* structure, JSValue errors, JSValue message, JSValue options, ErrorInstance::SourceAppender appender, RuntimeType type, bool useCurrentFrame)
+{
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    String messageString = message.isUndefined() ? String() : message.toWTFString(globalObject);
+    RETURN_IF_EXCEPTION(scope, nullptr);
+
+    JSValue cause;
+    if (options.isObject()) {
+        // Since `throw undefined;` is valid, we need to distinguish the case where `cause` is an explicit undefined.
+        cause = asObject(options)->getIfPropertyExists(globalObject, vm.propertyNames->cause);
+        RETURN_IF_EXCEPTION(scope, nullptr);
+    }
+
+    MarkedArgumentBuffer errorsList;
+    forEachInIterable(globalObject, errors, [&] (VM&, JSGlobalObject*, JSValue nextValue) {
+        errorsList.append(nextValue);
+        if (errorsList.hasOverflowed()) [[unlikely]]
+            throwOutOfMemoryError(globalObject, scope);
+    });
+    RETURN_IF_EXCEPTION(scope, nullptr);
+
+    auto* array = constructArray(globalObject, static_cast<ArrayAllocationProfile*>(nullptr), errorsList);
+    RETURN_IF_EXCEPTION(scope, nullptr);
+    return createAggregateError(vm, structure, array, messageString, cause, appender, type, useCurrentFrame);
+}
+
 }
 
 JSC_DEFINE_HOST_FUNCTION(callAggregateErrorConstructor, (JSGlobalObject* globalObject, CallFrame* callFrame))
@@ -62,7 +95,7 @@ JSC_DEFINE_HOST_FUNCTION(callAggregateErrorConstructor, (JSGlobalObject* globalO
     JSValue message = callFrame->argument(1);
     JSValue options = callFrame->argument(2);
     Structure* errorStructure = globalObject->errorStructure(ErrorType::AggregateError);
-    return JSValue::encode(createAggregateError(globalObject, vm, errorStructure, errors, message, options, nullptr, TypeNothing, false));
+    return JSValue::encode(constructAggregateError(globalObject, vm, errorStructure, errors, message, options, nullptr, TypeNothing, false));
 }
 
 JSC_DEFINE_HOST_FUNCTION(constructAggregateErrorConstructor, (JSGlobalObject* globalObject, CallFrame* callFrame))
@@ -78,7 +111,7 @@ JSC_DEFINE_HOST_FUNCTION(constructAggregateErrorConstructor, (JSGlobalObject* gl
     RETURN_IF_EXCEPTION(scope, { });
     ASSERT(errorStructure);
 
-    RELEASE_AND_RETURN(scope, JSValue::encode(createAggregateError(globalObject, vm, errorStructure, errors, message, options, nullptr, TypeNothing, false)));
+    RELEASE_AND_RETURN(scope, JSValue::encode(constructAggregateError(globalObject, vm, errorStructure, errors, message, options, nullptr, TypeNothing, false)));
 }
 
 } // namespace JSC

@@ -25,9 +25,12 @@
 
 #pragma once
 
-#include "LayoutRect.h"
-#include "RenderLayer.h"
-#include "ScrollTypes.h"
+#include <WebCore/GraphicsLayer.h>
+#include <WebCore/LayoutRect.h>
+#include <WebCore/RenderLayer.h>
+#include <WebCore/ScrollTypes.h>
+#include <wtf/InlineWeakPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
 
@@ -40,27 +43,17 @@ namespace WebCore {
 class ScrollingCoordinator;
 
 struct CompositedClipData {
-    CompositedClipData(RenderLayer* layer, LayoutRect rect, bool isOverflowScrollEntry)
-        : clippingLayer(makeWeakPtr(layer))
-        , clipRect(rect)
+    CompositedClipData(RenderLayer* layer, const LayoutRoundedRect& roundedRect, bool isOverflowScrollEntry)
+        : clippingLayer(layer)
+        , clipRect(roundedRect)
         , isOverflowScroll(isOverflowScrollEntry)
     {
     }
 
-    bool operator==(const CompositedClipData& other) const
-    {
-        return clippingLayer == other.clippingLayer
-            && clipRect == other.clipRect
-            && isOverflowScroll == other.isOverflowScroll;
-    }
+    friend bool operator==(const CompositedClipData&, const CompositedClipData&) = default;
     
-    bool operator!=(const CompositedClipData& other) const
-    {
-        return !(*this == other);
-    }
-
-    WeakPtr<RenderLayer> clippingLayer; // For scroller entries, the scrolling layer. For other entries, the most-descendant layer that has a clip.
-    LayoutRect clipRect; // In the coordinate system of the RenderLayer that owns the stack.
+    InlineWeakPtr<RenderLayer> clippingLayer; // For scroller entries, the scrolling layer. For other entries, the most-descendant layer that has a clip.
+    LayoutRoundedRect clipRect; // In the coordinate system of the RenderLayer that owns the stack.
     bool isOverflowScroll { false };
 };
 
@@ -68,14 +61,14 @@ struct CompositedClipData {
 // This class encapsulates the set of layers and their scrolling tree nodes representing clipping in the layer's containing block ancestry,
 // but not in its paint order ancestry.
 class LayerAncestorClippingStack {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(LayerAncestorClippingStack);
 public:
     LayerAncestorClippingStack(Vector<CompositedClipData>&&);
     ~LayerAncestorClippingStack() = default;
 
-    bool hasAnyScrollingLayers() const;
+    bool NODELETE hasAnyScrollingLayers() const;
     
-    bool equalToClipData(const Vector<CompositedClipData>&) const;
+    bool NODELETE equalToClipData(const Vector<CompositedClipData>&) const;
     bool updateWithClipData(ScrollingCoordinator*, Vector<CompositedClipData>&&);
     
     Vector<CompositedClipData> compositedClipData() const;
@@ -85,18 +78,29 @@ public:
 
     void updateScrollingNodeLayers(ScrollingCoordinator&);
 
-    GraphicsLayer* firstClippingLayer() const;
-    GraphicsLayer* lastClippingLayer() const;
-    ScrollingNodeID lastOverflowScrollProxyNodeID() const;
+    GraphicsLayer* NODELETE firstLayer() const;
+    GraphicsLayer* NODELETE lastLayer() const;
+    std::optional<ScrollingNodeID> lastOverflowScrollProxyNodeID() const;
 
     struct ClippingStackEntry {
         CompositedClipData clipData;
-        ScrollingNodeID overflowScrollProxyNodeID { 0 }; // The node for repositioning the scrolling proxy layer.
+        Markable<ScrollingNodeID> overflowScrollProxyNodeID; // The node for repositioning the scrolling proxy layer.
         RefPtr<GraphicsLayer> clippingLayer;
+        RefPtr<GraphicsLayer> scrollingLayer; // Only present for scrolling entries.
+
+        GraphicsLayer* parentForSublayers() const
+        {
+            return scrollingLayer ? scrollingLayer.get() : clippingLayer.get();
+        }
+        
+        GraphicsLayer* childForSuperlayers() const
+        {
+            return clippingLayer.get();
+        }
     };
 
-    Vector<ClippingStackEntry>& stack() { return m_stack; }
-    const Vector<ClippingStackEntry>& stack() const { return m_stack; }
+    Vector<ClippingStackEntry>& stack() LIFETIME_BOUND { return m_stack; }
+    const Vector<ClippingStackEntry>& stack() const LIFETIME_BOUND { return m_stack; }
 
 private:
     // Order is ancestors to descendants.

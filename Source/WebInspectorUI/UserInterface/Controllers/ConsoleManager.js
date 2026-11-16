@@ -39,16 +39,40 @@ WI.ConsoleManager = class ConsoleManager extends WI.Object
         this._isNewPageOrReload = false;
         this._remoteObjectsToRelease = null;
 
+        this._customLoggingChannels = [];
+
+        this._snippets = new Set;
+        this._restoringSnippets = false;
+
+        this._failedSourceMapConsoleMessages = new Set;
+
+        WI.settings.consoleClearAPIEnabled.addEventListener(WI.Setting.Event.Changed, this._handleConsoleClearAPIEnabledSettingChanged, this);
+
+        WI.ConsoleSnippet.addEventListener(WI.SourceCode.Event.ContentDidChange, this._handleSnippetContentChanged, this);
+
         WI.Frame.addEventListener(WI.Frame.Event.MainResourceDidChange, this._mainResourceDidChange, this);
 
-        this._customLoggingChannels = [];
+        WI.Target.registerInitializationPromise((async () => {
+            let serializedSnippets = await WI.objectStores.consoleSnippets.getAll();
+
+            this._restoringSnippets = true;
+            for (let serializedSnippet of serializedSnippets) {
+                let snippet = WI.ConsoleSnippet.fromJSON(serializedSnippet);
+
+                const key = null;
+                WI.objectStores.consoleSnippets.associateObject(snippet, key, serializedSnippet);
+
+                this.addSnippet(snippet);
+            }
+            this._restoringSnippets = false;
+        })());
     }
 
     // Static
 
-    static supportsLogChannels()
+    static supportsLogChannels(target)
     {
-        return InspectorBackend.hasCommand("Console.getLoggingChannels");
+        return (target || InspectorBackend).hasCommand("Console.setLoggingChannelLevel");
     }
 
     static issueMatchSourceCode(issue, sourceCode)
@@ -62,11 +86,33 @@ WI.ConsoleManager = class ConsoleManager extends WI.Object
         return false;
     }
 
+    // Target
+
+    initializeTarget(target)
+    {
+        if (!target.hasDomain("Console"))
+            return;
+
+        // Intentionally defer ConsoleAgent initialization to the end. We do this so that any
+        // previous initialization messages will have their responses arrive before a stream
+        // of console message added events come in after enabling Console.
+        // See WI.Target.prototype.initialize.
+
+        this._setConsoleClearAPIEnabled(target);
+
+        if (WI.ConsoleManager.supportsLogChannels(target)) {
+            for (let channel of this._customLoggingChannels)
+                target.ConsoleAgent.setLoggingChannelLevel(channel.source, channel.level);
+        }
+    }
+
     // Public
 
     get warningCount() { return this._warningCount; }
     get errorCount() { return this._errorCount; }
+    get snippets() { return this._snippets; }
     get customLoggingChannels() { return this._customLoggingChannels; }
+    get failedSourceMapConsoleMessages() { return this._failedSourceMapConsoleMessages; }
 
     issuesForSourceCode(sourceCode)
     {
@@ -88,16 +134,57 @@ WI.ConsoleManager = class ConsoleManager extends WI.Object
         this._remoteObjectsToRelease.add(remoteObject);
     }
 
+    addSnippet(snippet)
+    {
+        console.assert(snippet instanceof WI.ConsoleSnippet, snippet);
+        console.assert(!this._snippets.has(snippet), snippet);
+        console.assert(!this._snippets.some((existingSnippet) => snippet.contentIdentifier === existingSnippet.contentIdentifier), snippet);
+
+        this._snippets.add(snippet);
+
+        if (!this._restoringSnippets)
+            WI.objectStores.consoleSnippets.putObject(snippet);
+
+        this.dispatchEventToListeners(WI.ConsoleManager.Event.SnippetAdded, {snippet});
+    }
+
+    removeSnippet(snippet)
+    {
+        console.assert(snippet instanceof WI.ConsoleSnippet, snippet);
+        console.assert(this._snippets.has(snippet), snippet);
+
+        this._snippets.delete(snippet);
+
+        if (!this._restoringSnippets)
+            WI.objectStores.consoleSnippets.deleteObject(snippet);
+
+        this.dispatchEventToListeners(WI.ConsoleManager.Event.SnippetRemoved, {snippet});
+    }
+
     // ConsoleObserver
 
-    messageWasAdded(target, source, level, text, type, url, line, column, repeatCount, parameters, stackTrace, requestId)
+    messageWasAdded(target, source, level, text, type, url, line, column, repeatCount, parameters, stackTrace, requestId, timestamp)
     {
         // FIXME: Get a request from request ID.
 
         if (parameters)
             parameters = parameters.map((x) => WI.RemoteObject.fromPayload(x, target));
 
-        let message = new WI.ConsoleMessage(target, source, level, text, type, url, line, column, repeatCount, parameters, stackTrace, null);
+        // COMPATIBILITY (macOS 13.0, iOS 16.0): `stackTrace` was an array of `Console.CallFrame`.
+        if (Array.isArray(stackTrace))
+            stackTrace = {callFrames: stackTrace};
+
+        if (stackTrace) {
+            let supportedTarget = target;
+            if (!target.hasDomain("Debugger")) {
+                // FIXME: <https://webkit.org/b/298909> Add Debugger support for FrameTarget.
+                supportedTarget = WI.assumingMainTarget();
+            }
+            stackTrace = WI.StackTrace.fromPayload(supportedTarget, stackTrace);
+        }
+
+        const request = null;
+        let message = new WI.ConsoleMessage(target, source, level, text, type, url, line, column, repeatCount, parameters, stackTrace, request, timestamp);
 
         this._incrementMessageLevelCount(message.level, message.repeatCount);
 
@@ -108,10 +195,12 @@ WI.ConsoleManager = class ConsoleManager extends WI.Object
             this._issues.push(issue);
 
             this.dispatchEventToListeners(WI.ConsoleManager.Event.IssueAdded, {issue});
+
+            this._collectFailedSourceMapConsoleMessage(message);
         }
     }
 
-    messagesCleared()
+    messagesCleared(reason)
     {
         if (this._remoteObjectsToRelease) {
             for (let remoteObject of this._remoteObjectsToRelease)
@@ -120,47 +209,74 @@ WI.ConsoleManager = class ConsoleManager extends WI.Object
         }
 
         WI.ConsoleCommandResultMessage.clearMaximumSavedResultIndex();
+        WI.javaScriptRuntimeCompletionProvider.clearCachedPropertyNames();
 
-        if (this._clearMessagesRequested) {
-            // Frontend requested "clear console" and Backend successfully completed the request.
-            this._clearMessagesRequested = false;
+        // COMPATIBILITY (iOS 16.4, macOS 13.3): `Console.ClearReason` did not exist.
+        if (!reason) {
+            if (this._clearMessagesRequested) {
+                // Frontend requested "clear console" and Backend successfully completed the request.
+                this._clearMessagesRequested = false;
+                this._clearMessages();
+                return;
+            }
 
-            this._warningCount = 0;
-            this._errorCount = 0;
-            this._issues = [];
-
-            this._lastMessageLevel = null;
-
-            this.dispatchEventToListeners(WI.ConsoleManager.Event.Cleared);
-        } else {
             // Received an unrequested clear console event.
             // This could be for a navigation or other reasons (like console.clear()).
             // If this was a reload, we may not want to dispatch WI.ConsoleManager.Event.Cleared.
             // To detect if this is a reload we wait a turn and check if there was a main resource change reload.
             setTimeout(this._delayedMessagesCleared.bind(this), 0);
+
+            return;
         }
+
+        switch (reason) {
+        case WI.ConsoleManager.ClearReason.Frontend:
+            // COMPATIBILITY (macOS 14.4, iOS 17.4): `Console.ClearReason.Frontend` did not exist yet.
+            // COMPATIBILITY (macOS 14.4, iOS 17.4): `Console.setConsoleClearAPIEnabled` did not exist yet.
+            console.assert(InspectorBackend.hasCommand("Console.setConsoleClearAPIEnabled"));
+            this._clearMessages();
+            return;
+
+        case WI.ConsoleManager.ClearReason.ConsoleAPI:
+            console.assert(WI.settings.consoleClearAPIEnabled.value);
+            this._clearMessages();
+            return;
+
+        case WI.ConsoleManager.ClearReason.MainFrameNavigation:
+            console.assert(this._isNewPageOrReload);
+            this._isNewPageOrReload = false;
+
+            if (WI.settings.clearLogOnNavigate.value)
+                this._clearMessages();
+
+            return;
+        }
+
+        console.assert(false, "not reached");
     }
 
-    messageRepeatCountUpdated(count)
+    messageRepeatCountUpdated(target, count, timestamp)
     {
         this._incrementMessageLevelCount(this._lastMessageLevel, 1);
 
-        this.dispatchEventToListeners(WI.ConsoleManager.Event.PreviousMessageRepeatCountUpdated, {count});
+        this.dispatchEventToListeners(WI.ConsoleManager.Event.PreviousMessageRepeatCountUpdated, {target, count, timestamp});
     }
 
     requestClearMessages()
     {
         this._clearMessagesRequested = true;
 
-        for (let target of WI.targets)
-            target.ConsoleAgent.clearMessages();
+        for (let target of WI.targets) {
+            if (target.hasDomain("Console"))
+                target.ConsoleAgent.clearMessages();
+        }
     }
 
     initializeLogChannels(target)
     {
         console.assert(target.hasDomain("Console"));
 
-        if (!WI.ConsoleManager.supportsLogChannels())
+        if (!WI.ConsoleManager.supportsLogChannels(target))
             return;
 
         if (this._customLoggingChannels.length)
@@ -190,6 +306,36 @@ WI.ConsoleManager = class ConsoleManager extends WI.Object
         this._lastMessageLevel = level;
     }
 
+    _clearMessages()
+    {
+        this._warningCount = 0;
+        this._errorCount = 0;
+        this._issues = [];
+
+        this._lastMessageLevel = null;
+
+        this.dispatchEventToListeners(WI.ConsoleManager.Event.Cleared);
+    }
+
+    _setConsoleClearAPIEnabled(target)
+    {
+        // COMPATIBILITY (macOS 14.4, iOS 17.4): `Console.setConsoleClearAPIEnabled` did not exist yet.
+        if (target.hasCommand("Console.setConsoleClearAPIEnabled"))
+            target.ConsoleAgent.setConsoleClearAPIEnabled(WI.settings.consoleClearAPIEnabled.value);
+    }
+    
+    _collectFailedSourceMapConsoleMessage(message)
+    {
+        if (!WI.settings.experimentalGroupSourceMapErrors.value)
+            return;
+    
+        if (message.source !== WI.ConsoleMessage.MessageSource.Network && message.level !== WI.ConsoleMessage.MessageLevel.Error)
+            return;
+    
+        if (WI.networkManager.isSourceMapURL(message.url))
+            this._failedSourceMapConsoleMessages.add(message);
+    }
+
     _delayedMessagesCleared()
     {
         if (this._isNewPageOrReload) {
@@ -199,14 +345,22 @@ WI.ConsoleManager = class ConsoleManager extends WI.Object
                 return;
         }
 
-        this._warningCount = 0;
-        this._errorCount = 0;
-        this._issues = [];
+        this._clearMessages();
+    }
 
-        this._lastMessageLevel = null;
+    _handleConsoleClearAPIEnabledSettingChanged(event)
+    {
+        for (let target of WI.targets)
+            this._setConsoleClearAPIEnabled(target);
+    }
 
-        // A console.clear() or command line clear() happened.
-        this.dispatchEventToListeners(WI.ConsoleManager.Event.Cleared);
+    _handleSnippetContentChanged(event)
+    {
+        let snippet = event.target;
+
+        console.assert(this._snippets.has(snippet), snippet);
+
+        WI.objectStores.consoleSnippets.putObject(snippet);
     }
 
     _mainResourceDidChange(event)
@@ -232,4 +386,12 @@ WI.ConsoleManager.Event = {
     MessageAdded: "console-manager-message-added",
     IssueAdded: "console-manager-issue-added",
     PreviousMessageRepeatCountUpdated: "console-manager-previous-message-repeat-count-updated",
+    SnippetAdded: "console-manager-snippet-added",
+    SnippetRemoved: "console-manager-snippet-removed",
 };
+
+WI.ConsoleManager.ClearReason = {
+    ConsoleAPI: "console-api",
+    Frontend: "frontend",
+    MainFrameNavigation: "main-frame-navigation",
+}

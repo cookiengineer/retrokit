@@ -21,6 +21,9 @@
 #define SCHRITER_H
 
 #include "unicode/utypes.h"
+
+#if U_SHOW_CPLUSPLUS_API
+
 #include "unicode/chariter.h"
 #include "unicode/uchriter.h"
 
@@ -121,7 +124,7 @@ public:
    * same string and are pointing at the same character.
    * @stable ICU 2.0
    */
-  virtual UBool          operator==(const ForwardCharacterIterator& that) const;
+  virtual bool           operator==(const ForwardCharacterIterator& that) const override;
 
   /**
    * Returns a new StringCharacterIterator referring to the same
@@ -130,7 +133,7 @@ public:
    * @return the newly cloned object.
    * @stable ICU 2.0
    */
-  virtual CharacterIterator* clone(void) const;
+  virtual StringCharacterIterator* clone() const override;
 
   /**
    * Sets the iterator to iterate over the provided string.
@@ -146,14 +149,14 @@ public:
    * @param result Receives a copy of the text under iteration.
    * @stable ICU 2.0
    */
-  virtual void            getText(UnicodeString& result);
+  virtual void            getText(UnicodeString& result) override;
 
   /**
    * Return a class ID for this object (not really public)
    * @return a class ID for this object.
    * @stable ICU 2.0
    */
-  virtual UClassID         getDynamicClassID(void) const;
+  virtual UClassID         getDynamicClassID(void) const override;
 
   /**
    * Return a class ID for this class (not really public)
@@ -170,14 +173,6 @@ protected:
   StringCharacterIterator();
 
   /**
-   * Sets the iterator to iterate over the provided string.
-   * @param newText The string to be iterated over
-   * @param newTextLength The length of the String
-   * @stable ICU 2.0
-   */
-  void setText(const char16_t* newText, int32_t newTextLength);
-
-  /**
    * Copy of the iterated string object.
    * @stable ICU 2.0
    */
@@ -186,4 +181,7 @@ protected:
 };
 
 U_NAMESPACE_END
+
+#endif /* U_SHOW_CPLUSPLUS_API */
+
 #endif

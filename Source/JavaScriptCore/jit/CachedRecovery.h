@@ -49,7 +49,7 @@ public:
     CachedRecovery& operator=(CachedRecovery&) = delete;
     CachedRecovery& operator=(CachedRecovery&&) = delete;
 
-    const Vector<VirtualRegister, 1>& targets() const { return m_targets; }
+    const Vector<VirtualRegister, 1>& targets() const LIFETIME_BOUND { return m_targets; }
 
     void addTarget(VirtualRegister reg)
     {
@@ -112,8 +112,8 @@ public:
     // able to load a recovery. We only use it when a direct load is
     // currently impossible, to determine whether we should spill a
     // GPR or an FPR for loading this value.
-    bool loadsIntoGPR() const;
-    bool loadsIntoFPR() const;
+    bool NODELETE loadsIntoGPR() const;
+    bool NODELETE loadsIntoFPR() const;
 
     ValueRecovery recovery() const { return m_recovery; }
 

@@ -26,6 +26,7 @@
 
 #pragma once
 
+#include <wtf/RetainPtr.h>
 #include <wtf/URL.h>
 #include <wtf/text/StringHash.h>
 #include <wtf/text/WTFString.h>
@@ -43,15 +44,12 @@ namespace WebCore {
 struct Cookie {
     Cookie() = default;
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<Cookie> decode(Decoder&);
-
     WEBCORE_EXPORT bool operator==(const Cookie&) const;
     WEBCORE_EXPORT unsigned hash() const;
 
 #ifdef __OBJC__
     WEBCORE_EXPORT Cookie(NSHTTPCookie *);
-    WEBCORE_EXPORT operator NSHTTPCookie *() const;
+    WEBCORE_EXPORT RetainPtr<NSHTTPCookie> createNSHTTPCookie() const;
 #elif USE(SOUP)
     explicit Cookie(SoupCookie*);
     SoupCookie* toSoupCookie() const;
@@ -63,6 +61,7 @@ struct Cookie {
             && value.isNull()
             && domain.isNull()
             && path.isNull()
+            && partitionKey.isNull()
             && !created
             && !expires
             && !httpOnly
@@ -83,6 +82,7 @@ struct Cookie {
     String value;
     String domain;
     String path;
+    String partitionKey;
     // Creation and expiration dates are expressed as milliseconds since the UNIX epoch.
     double created { 0 };
     std::optional<double> expires;
@@ -93,79 +93,45 @@ struct Cookie {
     URL commentURL;
     Vector<uint16_t> ports;
 
-    enum class SameSitePolicy { None, Lax, Strict };
+    enum class SameSitePolicy : uint8_t { 
+        None, 
+        Lax, 
+        Strict 
+    };
+
     SameSitePolicy sameSite { SameSitePolicy::None };
-};
 
-struct CookieHash {
-    static unsigned hash(const Cookie& key)
+    Cookie(String&& name, String&& value, String&& domain, String&& path, String&& partitionKey, double created, std::optional<double> expires, bool httpOnly, bool secure, bool session, String&& comment, URL&& commentURL, Vector<uint16_t> ports, SameSitePolicy sameSite)
+        : name(WTF::move(name))
+        , value(WTF::move(value))
+        , domain(WTF::move(domain))
+        , path(WTF::move(path))
+        , partitionKey(WTF::move(partitionKey))
+        , created(created)
+        , expires(expires)
+        , httpOnly(httpOnly)
+        , secure(secure)
+        , session(session)
+        , comment(WTF::move(comment))
+        , commentURL(WTF::move(commentURL))
+        , ports(WTF::move(ports))
+        , sameSite(sameSite)
     {
-        return key.hash();
     }
 
-    static bool equal(const Cookie& a, const Cookie& b)
-    {
-        return a == b;
-    }
-    static const bool safeToCompareToEmptyOrDeleted = false;
+    Cookie isolatedCopy() const & { return { name.isolatedCopy(), value.isolatedCopy(), domain.isolatedCopy(), path.isolatedCopy(), partitionKey.isolatedCopy(), created, expires, httpOnly, secure, session, comment.isolatedCopy(), commentURL.isolatedCopy(), ports, sameSite }; }
+    Cookie isolatedCopy() && { return { WTF::move(name).isolatedCopy(), WTF::move(value).isolatedCopy(), WTF::move(domain).isolatedCopy(), WTF::move(path).isolatedCopy(), WTF::move(partitionKey).isolatedCopy(), created, expires, httpOnly, secure, session, WTF::move(comment).isolatedCopy(), WTF::move(commentURL).isolatedCopy(), WTF::move(ports), sameSite }; }
 };
 
-template<class Encoder>
-void Cookie::encode(Encoder& encoder) const
-{
-    encoder << name;
-    encoder << value;
-    encoder << domain;
-    encoder << path;
-    encoder << created;
-    encoder << expires;
-    encoder << httpOnly;
-    encoder << secure;
-    encoder << session;
-    encoder << comment;
-    encoder << commentURL;
-    encoder << ports;
-    encoder << sameSite;
-}
+namespace CookieUtil {
 
-template<class Decoder>
-std::optional<Cookie> Cookie::decode(Decoder& decoder)
-{
-    Cookie cookie;
-    if (!decoder.decode(cookie.name))
-        return std::nullopt;
-    if (!decoder.decode(cookie.value))
-        return std::nullopt;
-    if (!decoder.decode(cookie.domain))
-        return std::nullopt;
-    if (!decoder.decode(cookie.path))
-        return std::nullopt;
-    if (!decoder.decode(cookie.created))
-        return std::nullopt;
-    if (!decoder.decode(cookie.expires))
-        return std::nullopt;
-    if (!decoder.decode(cookie.httpOnly))
-        return std::nullopt;
-    if (!decoder.decode(cookie.secure))
-        return std::nullopt;
-    if (!decoder.decode(cookie.session))
-        return std::nullopt;
-    if (!decoder.decode(cookie.comment))
-        return std::nullopt;
-    if (!decoder.decode(cookie.commentURL))
-        return std::nullopt;
-    if (!decoder.decode(cookie.ports))
-        return std::nullopt;
-    if (!decoder.decode(cookie.sameSite))
-        return std::nullopt;
-    return cookie;
-}
+WEBCORE_EXPORT String defaultPathForURL(const URL&);
 
-}
+} // namespace CookieUtil
+
+} // namespace WebCore
 
 namespace WTF {
-    template<typename T> struct DefaultHash;
-    template<> struct DefaultHash<WebCore::Cookie> : WebCore::CookieHash { };
     template<> struct HashTraits<WebCore::Cookie> : GenericHashTraits<WebCore::Cookie> {
         static WebCore::Cookie emptyValue() { return { }; }
         static void constructDeletedValue(WebCore::Cookie& slot) { new (NotNull, &slot.name) String(WTF::HashTableDeletedValue); }
@@ -174,12 +140,4 @@ namespace WTF {
         static const bool hasIsEmptyValueFunction = true;
         static bool isEmptyValue(const WebCore::Cookie& slot) { return slot.isNull(); }
     };
-    template<> struct EnumTraits<WebCore::Cookie::SameSitePolicy> {
-    using values = EnumValues<
-        WebCore::Cookie::SameSitePolicy,
-        WebCore::Cookie::SameSitePolicy::None,
-        WebCore::Cookie::SameSitePolicy::Lax,
-        WebCore::Cookie::SameSitePolicy::Strict
-    >;
-};
 }

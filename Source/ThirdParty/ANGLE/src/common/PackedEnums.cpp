@@ -40,8 +40,6 @@ TextureType TextureTargetToType(TextureTarget target)
             return TextureType::_2DMultisampleArray;
         case TextureTarget::_3D:
             return TextureType::_3D;
-        case TextureTarget::VideoImage:
-            return TextureType::VideoImage;
         case TextureTarget::Buffer:
             return TextureType::Buffer;
         case TextureTarget::InvalidEnum:
@@ -77,8 +75,6 @@ TextureTarget NonCubeTextureTypeToTarget(TextureType type)
             return TextureTarget::_3D;
         case TextureType::CubeMapArray:
             return TextureTarget::CubeMapArray;
-        case TextureType::VideoImage:
-            return TextureTarget::VideoImage;
         case TextureType::Buffer:
             return TextureTarget::Buffer;
         default:
@@ -132,6 +128,7 @@ TextureType SamplerTypeToTextureType(GLenum samplerType)
             return TextureType::_2D;
 
         case GL_SAMPLER_EXTERNAL_OES:
+        case GL_SAMPLER_EXTERNAL_2D_Y2Y_EXT:
             return TextureType::External;
 
         case GL_SAMPLER_CUBE:
@@ -175,8 +172,45 @@ TextureType SamplerTypeToTextureType(GLenum samplerType)
         case GL_SAMPLER_2D_RECT_ANGLE:
             return TextureType::Rectangle;
 
-        case GL_SAMPLER_VIDEO_IMAGE_WEBGL:
-            return TextureType::VideoImage;
+        default:
+            UNREACHABLE();
+            return TextureType::InvalidEnum;
+    }
+}
+
+TextureType ImageTypeToTextureType(GLenum imageType)
+{
+    switch (imageType)
+    {
+        case GL_IMAGE_2D:
+        case GL_INT_IMAGE_2D:
+        case GL_UNSIGNED_INT_IMAGE_2D:
+            return TextureType::_2D;
+
+        case GL_IMAGE_CUBE:
+        case GL_INT_IMAGE_CUBE:
+        case GL_UNSIGNED_INT_IMAGE_CUBE:
+            return TextureType::CubeMap;
+
+        case GL_IMAGE_CUBE_MAP_ARRAY:
+        case GL_INT_IMAGE_CUBE_MAP_ARRAY:
+        case GL_UNSIGNED_INT_IMAGE_CUBE_MAP_ARRAY:
+            return TextureType::CubeMapArray;
+
+        case GL_IMAGE_2D_ARRAY:
+        case GL_INT_IMAGE_2D_ARRAY:
+        case GL_UNSIGNED_INT_IMAGE_2D_ARRAY:
+            return TextureType::_2DArray;
+
+        case GL_IMAGE_3D:
+        case GL_INT_IMAGE_3D:
+        case GL_UNSIGNED_INT_IMAGE_3D:
+            return TextureType::_3D;
+
+        case GL_IMAGE_BUFFER:
+        case GL_INT_IMAGE_BUFFER:
+        case GL_UNSIGNED_INT_IMAGE_BUFFER:
+            return TextureType::Buffer;
 
         default:
             UNREACHABLE();
@@ -202,6 +236,21 @@ bool IsArrayTextureType(TextureType type)
     {
         case TextureType::_2DArray:
         case TextureType::_2DMultisampleArray:
+        case TextureType::CubeMapArray:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool IsLayeredTextureType(TextureType type)
+{
+    switch (type)
+    {
+        case TextureType::_2DArray:
+        case TextureType::_2DMultisampleArray:
+        case TextureType::_3D:
+        case TextureType::CubeMap:
         case TextureType::CubeMapArray:
             return true;
         default:
@@ -240,6 +289,9 @@ std::ostream &operator<<(std::ostream &os, PrimitiveMode value)
             break;
         case PrimitiveMode::LineStripAdjacency:
             os << "GL_LINE_STRIP_ADJANCENCY";
+            break;
+        case PrimitiveMode::Patches:
+            os << "GL_PATCHES";
             break;
         case PrimitiveMode::Points:
             os << "GL_POINTS";
@@ -305,6 +357,51 @@ std::ostream &operator<<(std::ostream &os, BlendEquationType value)
             break;
         case BlendEquationType::ReverseSubtract:
             os << "GL_FUNC_REVERSE_SUBTRACT";
+            break;
+        case BlendEquationType::Multiply:
+            os << "GL_MULTIPLY_KHR";
+            break;
+        case BlendEquationType::Screen:
+            os << "GL_SCREEN_KHR";
+            break;
+        case BlendEquationType::Overlay:
+            os << "GL_OVERLAY_KHR";
+            break;
+        case BlendEquationType::Darken:
+            os << "GL_DARKEN_KHR";
+            break;
+        case BlendEquationType::Lighten:
+            os << "GL_LIGHTEN_KHR";
+            break;
+        case BlendEquationType::Colordodge:
+            os << "GL_COLORDODGE_KHR";
+            break;
+        case BlendEquationType::Colorburn:
+            os << "GL_COLORBURN_KHR";
+            break;
+        case BlendEquationType::Hardlight:
+            os << "GL_HARDLIGHT_KHR";
+            break;
+        case BlendEquationType::Softlight:
+            os << "GL_SOFTLIGHT_KHR";
+            break;
+        case BlendEquationType::Difference:
+            os << "GL_DIFFERENCE_KHR";
+            break;
+        case BlendEquationType::Exclusion:
+            os << "GL_EXCLUSION_KHR";
+            break;
+        case BlendEquationType::HslHue:
+            os << "GL_HSL_HUE_KHR";
+            break;
+        case BlendEquationType::HslSaturation:
+            os << "GL_HSL_SATURATION_KHR";
+            break;
+        case BlendEquationType::HslColor:
+            os << "GL_HSL_COLOR_KHR";
+            break;
+        case BlendEquationType::HslLuminosity:
+            os << "GL_HSL_LUMINOSITY_KHR";
             break;
         default:
             os << "GL_INVALID_ENUM";
@@ -383,6 +480,50 @@ std::ostream &operator<<(std::ostream &os, BlendFactorType value)
     return os;
 }
 
+std::ostream &operator<<(std::ostream &os, PackUnpackParameter value)
+{
+    switch (value)
+    {
+        case PackUnpackParameter::UnpackRowLength:
+            os << "GL_UNPACK_ROW_LENGTH";
+            break;
+        case PackUnpackParameter::UnpackSkipRows:
+            os << "GL_UNPACK_SKIP_ROWS";
+            break;
+        case PackUnpackParameter::UnpackSkipPixels:
+            os << "GL_UNPACK_SKIP_PIXELS";
+            break;
+        case PackUnpackParameter::UnpackAlignment:
+            os << "GL_UNPACK_ALIGNMENT";
+            break;
+        case PackUnpackParameter::PackRowLength:
+            os << "GL_PACK_ROW_LENGTH";
+            break;
+        case PackUnpackParameter::PackSkipRows:
+            os << "GL_PACK_SKIP_ROWS";
+            break;
+        case PackUnpackParameter::PackSkipPixels:
+            os << "GL_PACK_SKIP_PIXELS";
+            break;
+        case PackUnpackParameter::PackAlignment:
+            os << "GL_PACK_ALIGNMENT";
+            break;
+        case PackUnpackParameter::UnpackSkipImages:
+            os << "GL_UNPACK_SKIP_IMAGES";
+            break;
+        case PackUnpackParameter::UnpackImageHeight:
+            os << "GL_UNPACK_IMAGE_HEIGHT";
+            break;
+        case PackUnpackParameter::PackReverseRowOrder:
+            os << "GL_PACK_REVERSE_ROW_ORDER_ANGLE";
+            break;
+        default:
+            os << "GL_INVALID_ENUM";
+            break;
+    }
+    return os;
+}
+
 std::ostream &operator<<(std::ostream &os, VertexAttribType value)
 {
     switch (value)
@@ -434,6 +575,68 @@ std::ostream &operator<<(std::ostream &os, VertexAttribType value)
             break;
     }
     return os;
+}
+
+std::ostream &operator<<(std::ostream &os, TessEvaluationType value)
+{
+    switch (value)
+    {
+        case TessEvaluationType::Triangles:
+            os << "GL_TRIANGLES";
+            break;
+        case TessEvaluationType::Quads:
+            os << "GL_QUADS";
+            break;
+        case TessEvaluationType::Isolines:
+            os << "GL_ISOLINES";
+            break;
+        case TessEvaluationType::EqualSpacing:
+            os << "GL_EQUAL";
+            break;
+        case TessEvaluationType::FractionalEvenSpacing:
+            os << "GL_FRACTIONAL_EVEN";
+            break;
+        case TessEvaluationType::FractionalOddSpacing:
+            os << "GL_FRACTIONAL_ODD";
+            break;
+        case TessEvaluationType::Cw:
+            os << "GL_CW";
+            break;
+        case TessEvaluationType::Ccw:
+            os << "GL_CCW";
+            break;
+        case TessEvaluationType::PointMode:
+            os << "GL_TESS_GEN_POINT_MODE";
+            break;
+        default:
+            os << "GL_INVALID_ENUM";
+            break;
+    }
+    return os;
+}
+
+const char *ShaderTypeToString(ShaderType shaderType)
+{
+    constexpr ShaderMap<const char *> kShaderTypeNameMap = {
+        {ShaderType::Vertex, "Vertex"},
+        {ShaderType::TessControl, "Tessellation control"},
+        {ShaderType::TessEvaluation, "Tessellation evaluation"},
+        {ShaderType::Geometry, "Geometry"},
+        {ShaderType::Fragment, "Fragment"},
+        {ShaderType::Compute, "Compute"}};
+    return kShaderTypeNameMap[shaderType];
+}
+
+bool operator<(const UniformLocation &lhs, const UniformLocation &rhs)
+{
+    return lhs.value < rhs.value;
+}
+
+bool IsEmulatedCompressedFormat(GLenum format)
+{
+    // TODO(anglebug.com/42264702): Check for all formats ANGLE will use to emulate a compressed
+    // texture
+    return format == GL_RGBA || format == GL_RG || format == GL_RED;
 }
 }  // namespace gl
 
@@ -520,5 +723,4 @@ gl::TextureType EGLTextureTargetToTextureType(EGLenum eglTarget)
             return gl::TextureType::InvalidEnum;
     }
 }
-
 }  // namespace egl_gl

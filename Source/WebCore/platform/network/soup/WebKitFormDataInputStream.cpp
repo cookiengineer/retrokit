@@ -61,7 +61,7 @@ static bool webkitFormDataInputStreamCreateNextStream(WebKitFormDataInputStream*
     const auto& element = elements[priv->nextIndex++];
     switchOn(element.data,
         [priv] (const Vector<uint8_t>& data) {
-            GRefPtr<GBytes> bytes = adoptGRef(g_bytes_new_static(data.data(), data.size()));
+            GRefPtr<GBytes> bytes = adoptGRef(g_bytes_new_static(data.span().data(), data.size()));
             priv->currentStream = adoptGRef(g_memory_input_stream_new_from_bytes(bytes.get()));
         }, [priv, cancellable] (const FormDataElement::EncodedFileData& fileData) {
             if (fileData.fileModificationTimeMatchesExpectation()) {
@@ -131,13 +131,13 @@ static void webkit_form_data_input_stream_class_init(WebKitFormDataInputStreamCl
 GRefPtr<GInputStream> webkitFormDataInputStreamNew(Ref<FormData>&& formData)
 {
     auto* stream = WEBKIT_FORM_DATA_INPUT_STREAM(g_object_new(WEBKIT_TYPE_FORM_DATA_INPUT_STREAM, nullptr));
-    stream->priv->formData = WTFMove(formData);
+    stream->priv->formData = WTF::move(formData);
     stream->priv->currentStreamRangeLength = BlobDataItem::toEndOfFile;
 
     // GFileInputStream is not pollable, so the stream is only pollable if FormData doesn't contain EncodedFileData elements.
     stream->priv->canPoll = true;
     for (const auto& element : stream->priv->formData->elements()) {
-        if (WTF::holds_alternative<FormDataElement::EncodedFileData>(element.data)) {
+        if (std::holds_alternative<FormDataElement::EncodedFileData>(element.data)) {
             stream->priv->canPoll = false;
             break;
         }

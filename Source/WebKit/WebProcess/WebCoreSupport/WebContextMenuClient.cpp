@@ -30,50 +30,52 @@
 
 #include "WebContextMenu.h"
 #include "WebPage.h"
+#include <WebCore/DocumentPage.h>
 #include <WebCore/Editor.h>
-#include <WebCore/Frame.h>
+#include <WebCore/FrameInlines.h>
 #include <WebCore/FrameLoader.h>
+#include <WebCore/LocalFrame.h>
+#include <WebCore/LocalFrameInlines.h>
 #include <WebCore/NotImplemented.h>
 #include <WebCore/Page.h>
 #include <WebCore/UserGestureIndicator.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebKit {
 
-void WebContextMenuClient::contextMenuDestroyed()
-{
-    delete this;
-}
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebContextMenuClient);
 
 void WebContextMenuClient::downloadURL(const URL&)
 {
     // This is handled in the UI process.
-    ASSERT_NOT_REACHED();
 }
 
 #if !PLATFORM(COCOA)
 
-void WebContextMenuClient::searchWithGoogle(const WebCore::Frame* frame)
+void WebContextMenuClient::searchWithGoogle(const WebCore::LocalFrame* frame)
 {
     auto page = frame->page();
     if (!page)
         return;
 
-    auto searchString = frame->editor().selectedText();
-    searchString.stripWhiteSpace();
-    searchString = encodeWithURLEscapeSequences(searchString);
-    searchString.replace("%20"_s, "+"_s);
-    auto searchURL = URL { { }, "https://www.google.com/search?q=" + searchString + "&ie=UTF-8&oe=UTF-8" };
+    auto searchString = frame->editor().selectedText().trim(deprecatedIsSpaceOrNewline);
+    searchString = makeStringByReplacingAll(encodeWithURLEscapeSequences(searchString), "%20"_s, "+"_s);
+    auto searchURL = URL { makeString("https://www.google.com/search?q="_s, searchString, "&ie=UTF-8&oe=UTF-8"_s) };
 
-    WebCore::UserGestureIndicator indicator { WebCore::ProcessingUserGesture };
-    page->mainFrame().loader().changeLocation(searchURL, { }, nullptr, WebCore::ReferrerPolicy::EmptyString, WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow);
+    WebCore::UserGestureIndicator indicator { WebCore::IsProcessingUserGesture::Yes };
+    auto* localMainFrame = dynamicDowncast<WebCore::LocalFrame>(page->mainFrame());
+    if (!localMainFrame)
+        return;
+    localMainFrame->loader().changeLocation(searchURL, { }, nullptr, WebCore::ReferrerPolicy::EmptyString, WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow);
 }
 
-void WebContextMenuClient::lookUpInDictionary(WebCore::Frame*)
+void WebContextMenuClient::lookUpInDictionary(WebCore::LocalFrame*)
 {
     notImplemented();
 }
 
-bool WebContextMenuClient::isSpeaking()
+bool WebContextMenuClient::isSpeaking() const
 {
     notImplemented();
     return false;
@@ -95,7 +97,7 @@ void WebContextMenuClient::stopSpeaking()
 
 void WebContextMenuClient::showContextMenu()
 {
-    m_page->contextMenu().show();
+    protect(protect(m_page.get())->contextMenu())->show();
 }
 
 #endif

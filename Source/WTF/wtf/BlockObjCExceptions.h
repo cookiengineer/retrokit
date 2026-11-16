@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003, 2016 Apple Inc.  All rights reserved.
+ * Copyright (C) 2003, 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,6 +23,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
+#pragma once
+
+#ifdef __OBJC__
+
 #import <Foundation/NSException.h>
 
 WTF_EXPORT_PRIVATE NO_RETURN_DUE_TO_ASSERT void ReportBlockedObjCException(NSException *);
@@ -30,3 +34,4 @@ WTF_EXPORT_PRIVATE NO_RETURN_DUE_TO_ASSERT void ReportBlockedObjCException(NSExc
 #define BEGIN_BLOCK_OBJC_EXCEPTIONS @try {
 #define END_BLOCK_OBJC_EXCEPTIONS } @catch(NSException *localException) { ReportBlockedObjCException(localException); }
 
+#endif // __OBJC__

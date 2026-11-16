@@ -33,9 +33,12 @@
 
 #if ENABLE(TEST_ARBITARY_CONDTIONAL_GUARD_SEPARATE_A) || USE(TEST_ARBITARY_CONDTIONAL_GUARD_SEPARATE_B)
 
+#include <cstdint>
+
 #include <JavaScriptCore/BuiltinUtils.h>
 #include <JavaScriptCore/Identifier.h>
 #include <JavaScriptCore/JSFunction.h>
+#include <JavaScriptCore/SlotVisitorInlines.h>
 #include <JavaScriptCore/UnlinkedFunctionExecutable.h>
 
 namespace JSC {
@@ -49,6 +52,8 @@ extern const char* const s_arbitraryConditionalGuardIsReadableStreamLockedCode;
 extern const int s_arbitraryConditionalGuardIsReadableStreamLockedCodeLength;
 extern const JSC::ConstructAbility s_arbitraryConditionalGuardIsReadableStreamLockedCodeConstructAbility;
 extern const JSC::ConstructorKind s_arbitraryConditionalGuardIsReadableStreamLockedCodeConstructorKind;
+extern const JSC::ImplementationVisibility s_arbitraryConditionalGuardIsReadableStreamLockedCodeImplementationVisibility;
+extern const JSC::InlineAttribute s_arbitraryConditionalGuardIsReadableStreamLockedCodeInlineAttribute;
 
 #define WEBCORE_FOREACH_ARBITRARYCONDITIONALGUARD_BUILTIN_DATA(macro) \
     macro(isReadableStreamLocked, arbitraryConditionalGuardIsReadableStreamLocked, 1) \
@@ -56,7 +61,7 @@ extern const JSC::ConstructorKind s_arbitraryConditionalGuardIsReadableStreamLoc
 #define WEBCORE_BUILTIN_ARBITRARYCONDITIONALGUARD_ISREADABLESTREAMLOCKED 1
 
 #define WEBCORE_FOREACH_ARBITRARYCONDITIONALGUARD_BUILTIN_CODE(macro) \
-    macro(arbitraryConditionalGuardIsReadableStreamLockedCode, isReadableStreamLocked, static_cast<const char*>(nullptr), s_arbitraryConditionalGuardIsReadableStreamLockedCodeLength) \
+    macro(arbitraryConditionalGuardIsReadableStreamLockedCode, isReadableStreamLocked, ASCIILiteral(), s_arbitraryConditionalGuardIsReadableStreamLockedCodeLength) \
 
 #define WEBCORE_FOREACH_ARBITRARYCONDITIONALGUARD_BUILTIN_FUNCTION_NAME(macro) \
     macro(isReadableStreamLocked) \
@@ -72,7 +77,7 @@ public:
     explicit ArbitraryConditionalGuardBuiltinsWrapper(JSC::VM& vm)
         : m_vm(vm)
         WEBCORE_FOREACH_ARBITRARYCONDITIONALGUARD_BUILTIN_FUNCTION_NAME(INITIALIZE_BUILTIN_NAMES)
-#define INITIALIZE_BUILTIN_SOURCE_MEMBERS(name, functionName, overriddenName, length) , m_##name##Source(JSC::makeSource(StringImpl::createFromLiteral(s_##name, length), { }))
+#define INITIALIZE_BUILTIN_SOURCE_MEMBERS(name, functionName, overriddenName, length) , m_##name##Source(JSC::makeSource(StringImpl::createWithoutCopying(unsafeMakeSpan(s_##name, static_cast<size_t>(length))), { }, JSC::SourceTaintedOrigin::Untainted))
         WEBCORE_FOREACH_ARBITRARYCONDITIONALGUARD_BUILTIN_CODE(INITIALIZE_BUILTIN_SOURCE_MEMBERS)
 #undef INITIALIZE_BUILTIN_SOURCE_MEMBERS
     {
@@ -108,7 +113,7 @@ inline JSC::UnlinkedFunctionExecutable* ArbitraryConditionalGuardBuiltinsWrapper
         JSC::Identifier executableName = functionName##PublicName();\
         if (overriddenName)\
             executableName = JSC::Identifier::fromString(m_vm, overriddenName);\
-        m_##name##Executable = JSC::Weak<JSC::UnlinkedFunctionExecutable>(JSC::createBuiltinExecutable(m_vm, m_##name##Source, executableName, s_##name##ConstructorKind, s_##name##ConstructAbility), this, &m_##name##Executable);\
+        m_##name##Executable = JSC::Weak<JSC::UnlinkedFunctionExecutable>(JSC::createBuiltinExecutable(m_vm, m_##name##Source, executableName, s_##name##ImplementationVisibility, s_##name##ConstructorKind, s_##name##ConstructAbility, s_##name##InlineAttribute), this, &m_##name##Executable);\
     }\
     return m_##name##Executable.get();\
 }
@@ -164,21 +169,21 @@ inline void ArbitraryConditionalGuardBuiltinsWrapper::exportNames()
 #if ENABLE(TEST_ARBITARY_CONDTIONAL_GUARD_SEPARATE_A) || USE(TEST_ARBITARY_CONDTIONAL_GUARD_SEPARATE_B)
 
 #include "WebCoreJSClientData.h"
-#include <JavaScriptCore/HeapInlines.h>
 #include <JavaScriptCore/IdentifierInlines.h>
+#include <JavaScriptCore/ImplementationVisibility.h>
 #include <JavaScriptCore/Intrinsic.h>
-#include <JavaScriptCore/JSCJSValueInlines.h>
-#include <JavaScriptCore/JSCellInlines.h>
-#include <JavaScriptCore/StructureInlines.h>
+#include <JavaScriptCore/JSObjectInlines.h>
 #include <JavaScriptCore/VM.h>
 
 namespace WebCore {
 
-const JSC::ConstructAbility s_arbitraryConditionalGuardIsReadableStreamLockedCodeConstructAbility = JSC::ConstructAbility::CannotConstruct;
-const JSC::ConstructorKind s_arbitraryConditionalGuardIsReadableStreamLockedCodeConstructorKind = JSC::ConstructorKind::None;
-const int s_arbitraryConditionalGuardIsReadableStreamLockedCodeLength = 71;
-static const JSC::Intrinsic s_arbitraryConditionalGuardIsReadableStreamLockedCodeIntrinsic = JSC::NoIntrinsic;
-const char* const s_arbitraryConditionalGuardIsReadableStreamLockedCode =
+constinit const JSC::ConstructAbility s_arbitraryConditionalGuardIsReadableStreamLockedCodeConstructAbility = JSC::ConstructAbility::CannotConstruct;
+constinit const JSC::ConstructorKind s_arbitraryConditionalGuardIsReadableStreamLockedCodeConstructorKind = JSC::ConstructorKind::None;
+constinit const JSC::ImplementationVisibility s_arbitraryConditionalGuardIsReadableStreamLockedCodeImplementationVisibility = JSC::ImplementationVisibility::Public;
+constinit const JSC::InlineAttribute s_arbitraryConditionalGuardIsReadableStreamLockedCodeInlineAttribute = JSC::InlineAttribute::None;
+constinit const int s_arbitraryConditionalGuardIsReadableStreamLockedCodeLength = 71;
+static constinit const JSC::Intrinsic s_arbitraryConditionalGuardIsReadableStreamLockedCodeIntrinsic = JSC::NoIntrinsic;
+constinit const char* const s_arbitraryConditionalGuardIsReadableStreamLockedCode =
     "(function (stream)\n" \
     "{\n" \
     "   \"use strict\";\n" \
@@ -191,7 +196,7 @@ const char* const s_arbitraryConditionalGuardIsReadableStreamLockedCode =
 #define DEFINE_BUILTIN_GENERATOR(codeName, functionName, overriddenName, argumentCount) \
 JSC::FunctionExecutable* codeName##Generator(JSC::VM& vm) \
 {\
-    JSVMClientData* clientData = static_cast<JSVMClientData*>(vm.clientData); \
+    JSVMClientData* clientData = downcast<JSVMClientData>(vm.clientData); \
     return clientData->builtinFunctions().arbitraryConditionalGuardBuiltins().codeName##Executable()->link(vm, nullptr, clientData->builtinFunctions().arbitraryConditionalGuardBuiltins().codeName##Source(), std::nullopt, s_##codeName##Intrinsic); \
 }
 WEBCORE_FOREACH_ARBITRARYCONDITIONALGUARD_BUILTIN_CODE(DEFINE_BUILTIN_GENERATOR)

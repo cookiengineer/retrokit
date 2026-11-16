@@ -34,9 +34,7 @@
 
 namespace WebCore {
 
-MediaQueryBlockWatcher::MediaQueryBlockWatcher()
-{
-}
+MediaQueryBlockWatcher::MediaQueryBlockWatcher() = default;
 
 void MediaQueryBlockWatcher::handleToken(const CSSParserToken& token)
 {

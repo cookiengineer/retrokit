@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2018 Apple Inc. All rights reserved.
+* Copyright (C) 2018-2026 Apple Inc. All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
 * modification, are permitted provided that the following conditions
@@ -23,19 +23,21 @@
 * THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// https://w3c.github.io/webrtc-pc/#dom-rtcrtpencodingparameters
 [
     Conditional=WEB_RTC,
-    EnabledBySetting=PeerConnection,
+    EnabledBySetting=PeerConnectionEnabled,
     JSGenerateToJSObject,
+    JSGenerateToNativeObject,
 ] dictionary RTCRtpEncodingParameters : RTCRtpCodingParameters {
-    unsigned long ssrc;
-    RTCRtpRtxParameters rtx;
-    RTCRtpFecParameters fec;
-    RTCDtxStatus dtx;
+    [ImplementationDefaultValue=0] unsigned long ssrc;
+
     boolean active = true;
-    RTCPriorityType priority;
-    RTCPriorityType networkPriority;
+    RTCRtpCodec codec;
     unsigned long maxBitrate;
-    unsigned long maxFramerate;
-    double scaleResolutionDownBy = 1;
+    double maxFramerate;
+    double scaleResolutionDownBy;
+
+    RTCPriorityType priority = "low";
+    RTCPriorityType networkPriority;
 };

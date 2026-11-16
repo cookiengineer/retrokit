@@ -27,32 +27,35 @@
 
 #if ENABLE(VIDEO)
 
-#include "PlatformLayer.h"
+#include <WebCore/PlatformLayer.h>
 #include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
-class Image;
+class HTMLMediaElement;
+class NativeImage;
 class IntRect;
 
 class TextTrackRepresentationClient {
 public:
     virtual ~TextTrackRepresentationClient() = default;
 
-    virtual RefPtr<Image> createTextTrackRepresentationImage() = 0;
+    virtual RefPtr<NativeImage> createTextTrackRepresentationImage() = 0;
     virtual void textTrackRepresentationBoundsChanged(const IntRect&) = 0;
 };
 
 class TextTrackRepresentation {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(TextTrackRepresentation);
 public:
-    static std::unique_ptr<TextTrackRepresentation> create(TextTrackRepresentationClient&);
+    static std::unique_ptr<TextTrackRepresentation> create(TextTrackRepresentationClient&, HTMLMediaElement&);
 
     virtual ~TextTrackRepresentation() = default;
 
     virtual void update() = 0;
     virtual PlatformLayer* platformLayer() = 0;
     virtual void setContentScale(float) = 0;
+    virtual void setBounds(const IntRect&) = 0;
     virtual IntRect bounds() const = 0;
     virtual void setHidden(bool) const = 0;
 };

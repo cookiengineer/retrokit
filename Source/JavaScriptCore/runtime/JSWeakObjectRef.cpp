@@ -30,9 +30,9 @@
 
 namespace JSC {
 
-const ClassInfo JSWeakObjectRef::s_info = { "WeakRef", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSWeakObjectRef) };
+const ClassInfo JSWeakObjectRef::s_info = { "WeakRef"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSWeakObjectRef) };
 
-void JSWeakObjectRef::finishCreation(VM& vm, JSObject* value)
+void JSWeakObjectRef::finishCreation(VM& vm, JSCell* value)
 {
     m_lastAccessVersion = vm.currentWeakRefVersion();
     m_value.set(vm, this, value);
@@ -42,7 +42,7 @@ void JSWeakObjectRef::finishCreation(VM& vm, JSObject* value)
 template<typename Visitor>
 void JSWeakObjectRef::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    auto* thisObject = jsCast<JSWeakObjectRef*>(cell);
+    auto* thisObject = uncheckedDowncast<JSWeakObjectRef>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
     // This doesn't need to be atomic because if we are out of date we will get write barriered and revisit ourselves.
@@ -54,7 +54,7 @@ void JSWeakObjectRef::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 
 DEFINE_VISIT_CHILDREN(JSWeakObjectRef);
 
-void JSWeakObjectRef::finalizeUnconditionally(VM& vm)
+void JSWeakObjectRef::finalizeUnconditionally(VM& vm, CollectionScope)
 {
     if (m_value && !vm.heap.isMarked(m_value.get()))
         m_value.clear();

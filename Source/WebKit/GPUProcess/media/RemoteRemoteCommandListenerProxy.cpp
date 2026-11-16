@@ -31,14 +31,18 @@
 #include "GPUConnectionToWebProcess.h"
 #include "GPUProcess.h"
 #include "RemoteRemoteCommandListenerMessages.h"
+#include "SharedPreferencesForWebProcess.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 
 using namespace WebCore;
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteRemoteCommandListenerProxy);
+
 RemoteRemoteCommandListenerProxy::RemoteRemoteCommandListenerProxy(GPUConnectionToWebProcess& gpuConnection, RemoteRemoteCommandListenerIdentifier&& identifier)
-    : m_gpuConnection(makeWeakPtr(gpuConnection))
-    , m_identifier(WTFMove(identifier))
+    : m_gpuConnection(gpuConnection)
+    , m_identifier(WTF::move(identifier))
 {
 }
 
@@ -47,11 +51,19 @@ RemoteRemoteCommandListenerProxy::~RemoteRemoteCommandListenerProxy() = default;
 void RemoteRemoteCommandListenerProxy::updateSupportedCommands(Vector<WebCore::PlatformMediaSession::RemoteControlCommandType>&& registeredCommands, bool supportsSeeking)
 {
     m_supportedCommands.clear();
-    m_supportedCommands.add(registeredCommands.begin(), registeredCommands.end());
+    m_supportedCommands.addAll(WTF::move(registeredCommands));
     m_supportsSeeking = supportsSeeking;
 
-    if (m_gpuConnection)
-        m_gpuConnection->updateSupportedRemoteCommands();
+    if (auto connection = m_gpuConnection.get())
+        connection->updateSupportedRemoteCommands();
+}
+
+std::optional<SharedPreferencesForWebProcess> RemoteRemoteCommandListenerProxy::sharedPreferencesForWebProcess() const
+{
+    if (RefPtr gpuConnectionToWebProcess = m_gpuConnection.get())
+        return gpuConnectionToWebProcess->sharedPreferencesForWebProcess();
+
+    return std::nullopt;
 }
 
 }

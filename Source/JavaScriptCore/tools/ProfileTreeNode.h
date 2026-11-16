@@ -25,10 +25,16 @@
 
 #pragma once
 
+#include <wtf/DataLog.h>
+#include <wtf/HashMap.h>
+#include <wtf/Vector.h>
+#include <wtf/text/StringHash.h>
+#include <wtf/text/WTFString.h>
+
 namespace JSC {
 
 class ProfileTreeNode {
-    typedef HashMap<String, ProfileTreeNode> Map;
+    typedef UncheckedKeyHashMap<String, ProfileTreeNode> Map;
     typedef Map::KeyValuePairType MapEntry;
 
 public:

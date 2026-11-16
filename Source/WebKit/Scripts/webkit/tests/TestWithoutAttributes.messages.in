@@ -30,6 +30,11 @@
     #FakeLoadURLC(String url)
     # FakeLoadURLD(String url)
 
+[
+    ExceptionForDispatchedFrom,
+    ExceptionForDispatchedTo,
+    ExceptionForEnabledBy
+]
 messages -> TestWithoutAttributes {
     LoadURL(String url)
 #if ENABLE(TOUCH_EVENTS)
@@ -54,16 +59,18 @@ messages -> TestWithoutAttributes {
     GetPlugins(bool refresh) -> (Vector<WebCore::PluginInfo> plugins)
     GetPluginProcessConnection(String pluginPath) -> (IPC::Connection::Handle connectionHandle) Synchronous
 
-    TestMultipleAttributes() -> () WantsConnection Synchronous
+    TestMultipleAttributes() -> () Synchronous
 
     TestParameterAttributes([AttributeOne AttributeTwo] uint64_t foo, double bar, [AttributeThree] double baz)
 
     TemplateTest(HashMap<String, std::pair<String, uint64_t>> a)
 
-    SetVideoLayerID(WebCore::GraphicsLayer::PlatformLayerID videoLayerID)
+    SetVideoLayerID(WebCore::PlatformLayerIdentifier videoLayerID)
+
+    OpaqueTypeSecurityAssertion(NotDispatchableFromWebContent ping) -> (NotDispatchableFromWebContent pong)
 
 #if PLATFORM(MAC)
-    DidCreateWebProcessConnection(IPC::MachPort connectionIdentifier, OptionSet<WebKit::SelectionFlags> flags)
+    DidCreateWebProcessConnection(MachSendRight connectionIdentifier, OptionSet<WebKit::SelectionFlags> flags)
 #endif
 
 #if PLATFORM(MAC)
@@ -75,7 +82,7 @@ messages -> TestWithoutAttributes {
     DeprecatedOperation(IPC::DummyType dummy)
 #endif
 
-#if ENABLE(EXPERIMENTAL_FEATURE)
+#if ENABLE(FEATURE_FOR_TESTING)
     ExperimentalOperation(IPC::DummyType dummy)
 #endif
 }

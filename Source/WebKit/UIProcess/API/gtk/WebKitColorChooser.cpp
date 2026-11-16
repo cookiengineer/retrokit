@@ -20,6 +20,7 @@
 #include "config.h"
 #include "WebKitColorChooser.h"
 
+#include "GtkUtilities.h"
 #include "WebKitColorChooserRequestPrivate.h"
 #include "WebKitWebViewPrivate.h"
 #include <WebCore/Color.h>
@@ -28,13 +29,13 @@
 namespace WebKit {
 using namespace WebCore;
 
-Ref<WebKitColorChooser> WebKitColorChooser::create(WebPageProxy& page, const WebCore::Color& initialColor, const WebCore::IntRect& rect)
+Ref<WebKitColorChooser> WebKitColorChooser::create(WebPageProxy& page, const WebCore::Color& initialColor, const WebCore::IntRect& rect, std::optional<WebCore::FrameIdentifier> frameID)
 {
-    return adoptRef(*new WebKitColorChooser(page, initialColor, rect));
+    return adoptRef(*new WebKitColorChooser(page, initialColor, rect, frameID));
 }
 
-WebKitColorChooser::WebKitColorChooser(WebPageProxy& page, const Color& initialColor, const IntRect& rect)
-    : WebColorPickerGtk(page, initialColor, rect)
+WebKitColorChooser::WebKitColorChooser(WebPageProxy& page, const Color& initialColor, const IntRect& rect, std::optional<WebCore::FrameIdentifier> frameID)
+    : WebColorPickerGtk(page, initialColor, rect, frameID)
     , m_elementRect(rect)
 {
 }
@@ -63,12 +64,12 @@ void WebKitColorChooser::colorChooserRequestRGBAChanged(WebKitColorChooserReques
 {
     GdkRGBA rgba;
     webkit_color_chooser_request_get_rgba(request, &rgba);
-    colorChooser->didChooseColor(rgba);
+    colorChooser->didChooseColor(gdkRGBAToColor(rgba));
 }
 
-void WebKitColorChooser::showColorPicker(const Color& color)
+void WebKitColorChooser::showColorPicker(const Color& color, const IntRect& rect)
 {
-    m_initialColor = color;
+    m_initialColor = colorToGdkRGBA(color);
     GRefPtr<WebKitColorChooserRequest> request = adoptGRef(webkitColorChooserRequestCreate(this));
     g_signal_connect(request.get(), "notify::rgba", G_CALLBACK(WebKitColorChooser::colorChooserRequestRGBAChanged), this);
     g_signal_connect(request.get(), "finished", G_CALLBACK(WebKitColorChooser::colorChooserRequestFinished), this);
@@ -76,7 +77,7 @@ void WebKitColorChooser::showColorPicker(const Color& color)
     if (webkitWebViewEmitRunColorChooser(WEBKIT_WEB_VIEW(m_webView), request.get()))
         m_request = request;
     else
-        WebColorPickerGtk::showColorPicker(color);
+        WebColorPickerGtk::showColorPicker(color, rect);
 }
 
 } // namespace WebKit

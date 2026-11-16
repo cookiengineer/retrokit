@@ -32,11 +32,11 @@
 #include <WebKit/WKArray.h>
 #include <WebKit/WKBackForwardListRef.h>
 #include <WebKit/WKBackForwardListItemRef.h>
-#include <WebKit/WKConnectionRef.h>
 #include <WebKit/WKContext.h>
 #include <WebKit/WKData.h>
 #include <WebKit/WKDictionary.h>
 #include <WebKit/WKErrorRef.h>
+#include <WebKit/WKFeature.h>
 #include <WebKit/WKFormSubmissionListener.h>
 #include <WebKit/WKFrame.h>
 #include <WebKit/WKFramePolicyListener.h>

@@ -52,8 +52,8 @@ public:
     OriginAccessEntry(const String& protocol, const String& host, SubdomainSetting, IPAddressSetting);
     bool matchesOrigin(const SecurityOrigin&) const;
 
-    const String& protocol() const { return m_protocol; }
-    const String& host() const { return m_host; }
+    const String& protocol() const LIFETIME_BOUND { return m_protocol; }
+    const String& host() const LIFETIME_BOUND { return m_host; }
     SubdomainSetting subdomainSettings() const { return m_subdomainSettings; }
     IPAddressSetting ipAddressSettings() const { return m_ipAddressSettings; }
 
@@ -71,11 +71,6 @@ inline bool operator==(const OriginAccessEntry& a, const OriginAccessEntry& b)
         && equalIgnoringASCIICase(a.host(), b.host())
         && a.subdomainSettings() == b.subdomainSettings()
         && a.ipAddressSettings() == b.ipAddressSettings();
-}
-
-inline bool operator!=(const OriginAccessEntry& a, const OriginAccessEntry& b)
-{
-    return !(a == b);
 }
 
 } // namespace WebCore

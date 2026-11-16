@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Apple Inc.  All rights reserved.
+ * Copyright (C) 2018-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,7 +35,7 @@ class SVGProperty;
 
 template<typename OwnerType>
 class SVGMemberAccessor {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_TEMPLATE(SVGMemberAccessor);
 public:
     virtual ~SVGMemberAccessor() = default;
 
@@ -44,8 +44,8 @@ public:
     virtual bool isAnimatedLength() const { return false; }
 
     virtual bool matches(const OwnerType&, const SVGProperty&) const { return false; }
-    virtual bool matches(const OwnerType&, const SVGAnimatedProperty&) const { return false; }
-    virtual void setDirty(const OwnerType&, SVGAnimatedProperty& animatedProperty) const { animatedProperty.setDirty(); }
+    virtual bool matches(const OwnerType&, const SVGAnimatedPropertyBase&) const { return false; }
+    virtual void setDirty(const OwnerType&, SVGAnimatedPropertyBase& animatedProperty) const { animatedProperty.setDirty(); }
     virtual std::optional<String> synchronize(const OwnerType&) const { return std::nullopt; }
 
     virtual RefPtr<SVGAttributeAnimator> createAnimator(OwnerType&, const QualifiedName&, AnimationMode, CalcMode, bool, bool) const { return nullptr; }
@@ -54,5 +54,7 @@ public:
 protected:
     SVGMemberAccessor() = default;
 };
+
+WTF_MAKE_TZONE_ALLOCATED_TEMPLATE_IMPL(template<typename OwnerType>, SVGMemberAccessor<OwnerType>);
 
 } // namespace WebCore

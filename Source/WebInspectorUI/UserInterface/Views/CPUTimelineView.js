@@ -92,6 +92,8 @@ WI.CPUTimelineView = class CPUTimelineView extends WI.TimelineView
     closed()
     {
         this.representedObject.removeEventListener(WI.Timeline.Event.RecordAdded, this._cpuTimelineRecordAdded, this);
+
+        super.closed();
     }
 
     reset()
@@ -156,6 +158,8 @@ WI.CPUTimelineView = class CPUTimelineView extends WI.TimelineView
 
     initialLayout()
     {
+        super.initialLayout();
+
         this.element.style.setProperty("--cpu-usage-combined-view-height", CPUTimelineView.cpuUsageViewHeight + "px");
         this.element.style.setProperty("--cpu-usage-view-height", CPUTimelineView.threadCPUUsageViewHeight + "px");
         this.element.style.setProperty("--cpu-usage-indicator-view-height", CPUTimelineView.indicatorViewHeight + "px");
@@ -960,7 +964,7 @@ WI.CPUTimelineView = class CPUTimelineView extends WI.TimelineView
                 let sourceCodeLocation = callFrame ? callFrame.sourceCodeLocation : record.sourceCodeLocation;
                 let functionName = callFrame ? callFrame.functionName : "";
                 let key = keyForSourceCodeLocation(sourceCodeLocation);
-                let entry = timerMap.getOrInitialize(key, {sourceCodeLocation, functionName, count: 0, repeating: false});
+                let entry = timerMap.getOrInsert(key, {sourceCodeLocation, functionName, count: 0, repeating: false});
                 if (record.details) {
                     let timerIdentifier = record.details.timerId;
                     let repeatingEntry = statistics.repeatingTimers.get(timerIdentifier);
@@ -984,7 +988,7 @@ WI.CPUTimelineView = class CPUTimelineView extends WI.TimelineView
                     // so that we can provide a function name for these repeating timers lacking an installation point.
                     let sourceCodeLocation = repeatingEntry.record.sourceCodeLocation;
                     let key = keyForSourceCodeLocation(sourceCodeLocation);
-                    let entry = timerMap.getOrInitialize(key, {sourceCodeLocation, count: 0, repeating: false});
+                    let entry = timerMap.getOrInsert(key, {sourceCodeLocation, count: 0, repeating: false});
                     entry.count += repeatingEntry.count;
                     entry.repeating = true;
                 }
@@ -997,7 +1001,7 @@ WI.CPUTimelineView = class CPUTimelineView extends WI.TimelineView
                     continue;
                 let sourceCodeLocation = record.sourceCodeLocation;
                 let key = keyForSourceCodeLocation(sourceCodeLocation);
-                let entry = eventHandlerMap.getOrInitialize(key, {sourceCodeLocation, count: 0});
+                let entry = eventHandlerMap.getOrInsert(key, {sourceCodeLocation, count: 0});
                 entry.count += 1;
             }
         }
@@ -1008,7 +1012,7 @@ WI.CPUTimelineView = class CPUTimelineView extends WI.TimelineView
                     continue;
                 let sourceCodeLocation = record.sourceCodeLocation;
                 let key = keyForSourceCodeLocation(record.sourceCodeLocation);
-                let entry = observerCallbackMap.getOrInitialize(key, {sourceCodeLocation, count: 0});
+                let entry = observerCallbackMap.getOrInsert(key, {sourceCodeLocation, count: 0});
                 entry.count += 1;
             }
         }
@@ -1256,6 +1260,9 @@ WI.CPUTimelineView = class CPUTimelineView extends WI.TimelineView
 
             case WI.LayoutTimelineRecord.EventType.InvalidateStyles:
             case WI.LayoutTimelineRecord.EventType.InvalidateLayout:
+            case WI.LayoutTimelineRecord.EventType.ScheduleLayout:
+            case WI.LayoutTimelineRecord.EventType.FirstContentfulPaint:
+            case WI.LayoutTimelineRecord.EventType.LargestContentfulPaint:
                 // These event types have no time range.
                 return false;
 
@@ -1577,6 +1584,9 @@ WI.CPUTimelineView = class CPUTimelineView extends WI.TimelineView
                 return true;
             case WI.LayoutTimelineRecord.EventType.InvalidateStyles:
             case WI.LayoutTimelineRecord.EventType.InvalidateLayout:
+            case WI.LayoutTimelineRecord.EventType.ScheduleLayout:
+            case WI.LayoutTimelineRecord.EventType.FirstContentfulPaint:
+            case WI.LayoutTimelineRecord.EventType.LargestContentfulPaint:
                 return false;
             default:
                 console.error("Unhandled LayoutTimelineRecord.EventType", record.eventType);
@@ -1821,3 +1831,5 @@ WI.CPUTimelineView.SampleType = {
     Paint: "sample-type-paint",
     Style: "sample-type-style",
 };
+
+WI.CPUTimelineView.ReferencePage = WI.ReferencePage.TimelinesTab.CPUTimeline;

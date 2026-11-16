@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2005 Frerich Raabe <raabe@kde.org>
- * Copyright (C) 2006, 2009 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,37 +28,55 @@
 #include "XPathResult.h"
 
 #include "Document.h"
+#include "ExceptionOr.h"
+#include "WebCoreOpaqueRootInlines.h"
 #include "XPathEvaluator.h"
+#include <JavaScriptCore/SlotVisitorMacros.h>
+#include <wtf/Locker.h>
 
 namespace WebCore {
 
-using namespace XPath;
-
-XPathResult::XPathResult(Document& document, const Value& value)
+XPathResult::XPathResult(Document& document, const XPath::Value& value)
     : m_value(value)
 {
-    switch (m_value.type()) {
-        case Value::BooleanValue:
+    WTF::switchOn(m_value,
+        [&](bool) {
             m_resultType = BOOLEAN_TYPE;
-            return;
-        case Value::NumberValue:
+        },
+        [&](double) {
             m_resultType = NUMBER_TYPE;
-            return;
-        case Value::StringValue:
+        },
+        [&](const String&) {
             m_resultType = STRING_TYPE;
-            return;
-        case Value::NodeSetValue:
+        },
+        [&](const XPath::NodeSet& nodeSet) {
             m_resultType = UNORDERED_NODE_ITERATOR_TYPE;
             m_nodeSetPosition = 0;
-            m_nodeSet = m_value.toNodeSet();
-            m_document = &document;
+            {
+                Locker locker { m_nodeSetLock };
+                m_nodeSet = nodeSet;
+            }
+            m_document = document;
             m_domTreeVersion = document.domTreeVersion();
-            return;
-    }
-    ASSERT_NOT_REACHED();
+        }
+    );
 }
 
-XPathResult::~XPathResult() = default;
+XPathResult::~XPathResult()
+{
+#if ASSERT_ENABLED
+    if (!m_value.isNodeSet())
+        return;
+
+    auto& valueNodeSet = m_value.toNodeSet();
+    ASSERT(valueNodeSet.size() == m_nodeSet.size());
+    HashSet<const Node*> set;
+    for (auto& node : m_nodeSet)
+        set.add(node.ptr());
+    for (auto& node : valueNodeSet)
+        ASSERT(set.contains(node.ptr()));
+#endif
+}
 
 ExceptionOr<void> XPathResult::convertTo(unsigned short type)
 {
@@ -82,18 +100,21 @@ ExceptionOr<void> XPathResult::convertTo(unsigned short type)
     case ANY_UNORDERED_NODE_TYPE:
     case FIRST_ORDERED_NODE_TYPE: // This is correct - singleNodeValue() will take care of ordering.
         if (!m_value.isNodeSet())
-            return Exception { TypeError };
+            return Exception { ExceptionCode::TypeError };
         m_resultType = type;
         break;
     case ORDERED_NODE_ITERATOR_TYPE:
         if (!m_value.isNodeSet())
-            return Exception { TypeError };
-        m_nodeSet.sort();
+            return Exception { ExceptionCode::TypeError };
+        {
+            Locker locker { m_nodeSetLock };
+            m_nodeSet.sort();
+        }
         m_resultType = type;
         break;
     case ORDERED_NODE_SNAPSHOT_TYPE:
         if (!m_value.isNodeSet())
-            return Exception { TypeError };
+            return Exception { ExceptionCode::TypeError };
         m_value.toNodeSet().sort();
         m_resultType = type;
         break;
@@ -109,28 +130,28 @@ unsigned short XPathResult::resultType() const
 ExceptionOr<double> XPathResult::numberValue() const
 {
     if (resultType() != NUMBER_TYPE)
-        return Exception { TypeError };
+        return Exception { ExceptionCode::TypeError };
     return m_value.toNumber();
 }
 
 ExceptionOr<String> XPathResult::stringValue() const
 {
     if (resultType() != STRING_TYPE)
-        return Exception { TypeError };
+        return Exception { ExceptionCode::TypeError };
     return m_value.toString();
 }
 
 ExceptionOr<bool> XPathResult::booleanValue() const
 {
     if (resultType() != BOOLEAN_TYPE)
-        return Exception { TypeError };
+        return Exception { ExceptionCode::TypeError };
     return m_value.toBoolean();
 }
 
 ExceptionOr<Node*> XPathResult::singleNodeValue() const
 {
     if (resultType() != ANY_UNORDERED_NODE_TYPE && resultType() != FIRST_ORDERED_NODE_TYPE)
-        return Exception { TypeError };
+        return Exception { ExceptionCode::TypeError };
 
     auto& nodes = m_value.toNodeSet();
     if (resultType() == FIRST_ORDERED_NODE_TYPE)
@@ -151,7 +172,7 @@ bool XPathResult::invalidIteratorState() const
 ExceptionOr<unsigned> XPathResult::snapshotLength() const
 {
     if (resultType() != UNORDERED_NODE_SNAPSHOT_TYPE && resultType() != ORDERED_NODE_SNAPSHOT_TYPE)
-        return Exception { TypeError };
+        return Exception { ExceptionCode::TypeError };
 
     return m_value.toNodeSet().size();
 }
@@ -159,11 +180,12 @@ ExceptionOr<unsigned> XPathResult::snapshotLength() const
 ExceptionOr<Node*> XPathResult::iterateNext()
 {
     if (resultType() != UNORDERED_NODE_ITERATOR_TYPE && resultType() != ORDERED_NODE_ITERATOR_TYPE)
-        return Exception { TypeError };
+        return Exception { ExceptionCode::TypeError };
 
     if (invalidIteratorState())
-        return Exception { InvalidStateError };
+        return Exception { ExceptionCode::InvalidStateError };
 
+    Locker locker { m_nodeSetLock };
     if (m_nodeSetPosition >= m_nodeSet.size())
         return nullptr;
 
@@ -173,7 +195,7 @@ ExceptionOr<Node*> XPathResult::iterateNext()
 ExceptionOr<Node*> XPathResult::snapshotItem(unsigned index)
 {
     if (resultType() != UNORDERED_NODE_SNAPSHOT_TYPE && resultType() != ORDERED_NODE_SNAPSHOT_TYPE)
-        return Exception { TypeError };
+        return Exception { ExceptionCode::TypeError };
 
     auto& nodes = m_value.toNodeSet();
     if (index >= nodes.size())
@@ -182,4 +204,14 @@ ExceptionOr<Node*> XPathResult::snapshotItem(unsigned index)
     return nodes[index];
 }
 
+template<typename Visitor>
+void XPathResult::visitAdditionalChildrenInGCThread(Visitor& visitor)
+{
+    Locker locker { m_nodeSetLock };
+    for (auto& node : m_nodeSet)
+        addWebCoreOpaqueRoot(visitor, node.get());
 }
+
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(XPathResult);
+
+} // namespace WebCore

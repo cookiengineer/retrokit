@@ -40,75 +40,29 @@ WI.ThreadTreeElement = class ThreadTreeElement extends WI.GeneralTreeElement
 
     refresh()
     {
+        let treeOutline = this.treeOutline;
+        if (treeOutline) {
+            let selectedTreeElement = treeOutline.selectedTreeElement;
+            if (selectedTreeElement && selectedTreeElement.parent === this)
+                selectedTreeElement.deselect(true);
+        }
+
         this.removeChildren();
 
         this._updateStatus();
 
         let targetData = WI.debuggerManager.dataForTarget(this._target);
-        let callFrames = targetData.callFrames;
 
-        if (targetData.pausing || !callFrames.length) {
+        if (targetData.pausing || !targetData.stackTrace?.callFrames.length) {
             this.appendChild(this._idleTreeElement);
             this.expand();
             return;
         }
 
-        let activeCallFrame = WI.debuggerManager.activeCallFrame;
-        let activeCallFrameTreeElement = null;
-
-        let renderCallFrames = (callFrames, shouldSelectActiveFrame) => {
-            if (WI.settings.experimentalCollapseBlackboxedCallFrames.value)
-                callFrames = callFrames.groupBy((callFrame) => callFrame.blackboxed);
-
-            for (let callFrameOrBlackboxedGroup of callFrames) {
-                if (Array.isArray(callFrameOrBlackboxedGroup)) {
-                    this.appendChild(new WI.BlackboxedGroupTreeElement(callFrameOrBlackboxedGroup));
-                    continue;
-                }
-                let callFrameTreeElement = new WI.CallFrameTreeElement(callFrameOrBlackboxedGroup);
-                if (shouldSelectActiveFrame && callFrameOrBlackboxedGroup === activeCallFrame)
-                    activeCallFrameTreeElement = callFrameTreeElement;
-                this.appendChild(callFrameTreeElement);
-            }
-        };
-
-        renderCallFrames(callFrames, true);
-
+        let activeCallFrameTreeElement = WI.StackTraceTreeController.groupBlackboxedStackTrace(this, targetData.stackTrace, {rememberBlackboxedCallFrameGroupToAutoExpand: true});
         if (activeCallFrameTreeElement) {
             activeCallFrameTreeElement.select(true, true);
             activeCallFrameTreeElement.isActiveCallFrame = true;
-        }
-
-        let currentStackTrace = targetData.asyncStackTrace;
-        while (currentStackTrace) {
-            console.assert(currentStackTrace.callFrames.length, "StackTrace should have non-empty call frames array.");
-            if (!currentStackTrace.callFrames.length)
-                break;
-
-            let boundaryCallFrame;
-            if (currentStackTrace.topCallFrameIsBoundary) {
-                boundaryCallFrame = currentStackTrace.callFrames[0];
-                console.assert(boundaryCallFrame.nativeCode && !boundaryCallFrame.sourceCodeLocation);
-            } else {
-                // Create a generic native CallFrame for the asynchronous boundary.
-                const functionName = WI.UIString("(async)");
-                const nativeCode = true;
-                boundaryCallFrame = new WI.CallFrame(null, null, null, functionName, null, null, nativeCode);
-            }
-
-            const isAsyncBoundaryCallFrame = true;
-            this.appendChild(new WI.CallFrameTreeElement(boundaryCallFrame, isAsyncBoundaryCallFrame));
-
-            let startIndex = currentStackTrace.topCallFrameIsBoundary ? 1 : 0;
-            renderCallFrames(startIndex ? currentStackTrace.callFrames.slice(startIndex) : currentStackTrace.callFrames);
-
-            if (currentStackTrace.truncated) {
-                let truncatedTreeElement = new WI.GeneralTreeElement("truncated-call-frames", WI.UIString("Call Frames Truncated"));
-                truncatedTreeElement.selectable = false;
-                this.appendChild(truncatedTreeElement);
-            }
-
-            currentStackTrace = currentStackTrace.parentStackTrace;
         }
 
         this.expand();
@@ -127,10 +81,10 @@ WI.ThreadTreeElement = class ThreadTreeElement extends WI.GeneralTreeElement
     populateContextMenu(contextMenu, event)
     {
         let targetData = WI.debuggerManager.dataForTarget(this._target);
-
-        contextMenu.appendItem(WI.UIString("Resume Thread"), () => {
-            WI.debuggerManager.continueUntilNextRunLoop(this._target);
-        }, !targetData.paused);
+        if (targetData)
+            contextMenu.appendItem(WI.UIString("Resume Thread"), () => {
+                WI.debuggerManager.continueUntilNextRunLoop(this._target);
+            }, !targetData.paused);
 
         super.populateContextMenu(contextMenu, event);
     }
@@ -145,7 +99,7 @@ WI.ThreadTreeElement = class ThreadTreeElement extends WI.GeneralTreeElement
             return;
 
         let targetData = WI.debuggerManager.dataForTarget(this._target);
-        if (!targetData.paused)
+        if (!targetData?.paused)
             return;
 
         if (!this._statusButton) {

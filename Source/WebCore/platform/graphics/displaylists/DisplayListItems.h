@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -20,29 +20,28 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #pragma once
 
-#include "AlphaPremultiplication.h"
-#include "DisplayListFlushIdentifier.h"
-#include "DisplayListItemBufferIdentifier.h"
-#include "DisplayListItemType.h"
-#include "FloatRoundedRect.h"
-#include "Font.h"
-#include "GlyphBuffer.h"
-#include "Gradient.h"
-#include "GraphicsContext.h"
-#include "Image.h"
-#include "MediaPlayerIdentifier.h"
-#include "Pattern.h"
-#include "PixelBuffer.h"
-#include "RenderingResourceIdentifier.h"
-#include "SharedBuffer.h"
-#include <wtf/EnumTraits.h>
+#include <WebCore/AlphaPremultiplication.h>
+#include <WebCore/ControlPart.h>
+#include <WebCore/DashArray.h>
+#include <WebCore/DisplayListItem.h>
+#include <WebCore/Filter.h>
+#include <WebCore/FloatRoundedRect.h>
+#include <WebCore/Font.h>
+#include <WebCore/GlyphBuffer.h>
+#include <WebCore/Gradient.h>
+#include <WebCore/GraphicsContext.h>
+#include <WebCore/Image.h>
+#include <WebCore/NativeImage.h>
+#include <WebCore/SharedBuffer.h>
+#include <WebCore/SystemImage.h>
+#include <WebCore/TextFlags.h>
+#include <wtf/Box.h>
 #include <wtf/TypeCasts.h>
-#include <wtf/Variant.h>
 
 namespace WTF {
 class TextStream;
@@ -50,45 +49,31 @@ class TextStream;
 
 namespace WebCore {
 
-class MediaPlayer;
+class ControlFactory;
 struct ImagePaintingOptions;
 
 namespace DisplayList {
-
-struct ItemHandle;
-
-/* isInlineItem indicates whether the object needs to be passed through IPC::Encoder in order to serialize,
- * or whether we can just use placement new and be done.
- * It needs to match (1) RemoteImageBufferProxy::encodeItem(), (2) RemoteRenderingBackend::decodeItem(),
- * and (3) isInlineItem() in DisplayListItemType.cpp.
- *
- * isDrawingItem indicates if this command can affect dirty rects.
- * We can do things like skip drawing items when replaying them if their extents don't intersect with the current clip.
- * It needs to match isDrawingItem() in DisplayListItemType.cpp. */
+class DisplayList;
 
 class Save {
 public:
-    static constexpr ItemType itemType = ItemType::Save;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = false;
+    static constexpr char name[] = "save";
 
-    void apply(GraphicsContext&) const;
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const { }
 };
 
 class Restore {
 public:
-    static constexpr ItemType itemType = ItemType::Restore;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = false;
+    static constexpr char name[] = "restore";
 
-    void apply(GraphicsContext&) const;
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const { }
 };
 
 class Translate {
 public:
-    static constexpr ItemType itemType = ItemType::Translate;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = false;
+    static constexpr char name[] = "translate";
 
     Translate(float x, float y)
         : m_x(x)
@@ -99,7 +84,8 @@ public:
     float x() const { return m_x; }
     float y() const { return m_y; }
 
-    void apply(GraphicsContext&) const;
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     float m_x { 0 };
@@ -108,9 +94,7 @@ private:
 
 class Rotate {
 public:
-    static constexpr ItemType itemType = ItemType::Rotate;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = false;
+    static constexpr char name[] = "rotate";
 
     Rotate(float angle)
         : m_angle(angle)
@@ -119,7 +103,8 @@ public:
 
     float angle() const { return m_angle; }
 
-    void apply(GraphicsContext&) const;
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     float m_angle { 0 }; // In radians.
@@ -127,18 +112,17 @@ private:
 
 class Scale {
 public:
-    static constexpr ItemType itemType = ItemType::Scale;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = false;
+    static constexpr char name[] = "scale";
 
     Scale(const FloatSize& size)
         : m_size(size)
     {
     }
 
-    const FloatSize& amount() const { return m_size; }
+    const FloatSize& amount() const LIFETIME_BOUND { return m_size; }
 
-    void apply(GraphicsContext&) const;
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     FloatSize m_size;
@@ -146,18 +130,17 @@ private:
 
 class SetCTM {
 public:
-    static constexpr ItemType itemType = ItemType::SetCTM;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = false;
+    static constexpr char name[] = "set-ctm";
 
     SetCTM(const AffineTransform& transform)
         : m_transform(transform)
     {
     }
 
-    const AffineTransform& transform() const { return m_transform; }
+    const AffineTransform& transform() const LIFETIME_BOUND { return m_transform; }
 
-    void apply(GraphicsContext&) const;
+    WEBCORE_EXPORT void apply(GraphicsContext&, const AffineTransform& baseTransform = AffineTransform()) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     AffineTransform m_transform;
@@ -165,439 +148,98 @@ private:
 
 class ConcatenateCTM {
 public:
-    static constexpr ItemType itemType = ItemType::ConcatenateCTM;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = false;
+    static constexpr char name[] = "concatenate-ctm";
 
     ConcatenateCTM(const AffineTransform& transform)
         : m_transform(transform)
     {
     }
 
-    const AffineTransform& transform() const { return m_transform; }
+    const AffineTransform& transform() const LIFETIME_BOUND { return m_transform; }
 
-    void apply(GraphicsContext&) const;
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     AffineTransform m_transform;
 };
 
-class SetInlineFillGradient {
-public:
-    static constexpr ItemType itemType = ItemType::SetInlineFillGradient;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = false;
-    static constexpr uint8_t maxColorStopCount = 4;
-
-    SetInlineFillGradient(const Gradient&, const AffineTransform& gradientSpaceTransform);
-    WEBCORE_EXPORT SetInlineFillGradient(float offsets[maxColorStopCount], SRGBA<uint8_t> colors[maxColorStopCount], const Gradient::Data&, const AffineTransform& gradientSpaceTransform, GradientSpreadMethod, uint8_t colorStopCount);
-    SetInlineFillGradient(const SetInlineFillGradient&);
-    bool isValid() const { return m_isValid; }
-
-    static bool isInline(const Gradient&);
-    Ref<Gradient> gradient() const;
-
-    void apply(GraphicsContext&) const;
-
-private:
-    float m_offsets[maxColorStopCount];
-    SRGBA<uint8_t> m_colors[maxColorStopCount];
-    Gradient::Data m_data;
-    AffineTransform m_gradientSpaceTransform;
-    GradientSpreadMethod m_spreadMethod { GradientSpreadMethod::Pad };
-    uint8_t m_colorStopCount { 0 };
-    bool m_isValid { true };
-};
-
 class SetInlineFillColor {
 public:
-    static constexpr ItemType itemType = ItemType::SetInlineFillColor;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = false;
+    static constexpr char name[] = "set-inline-fill-color";
+
+    SetInlineFillColor(PackedColor::RGBA colorData)
+        : m_colorData(colorData)
+    {
+    }
 
     SetInlineFillColor(SRGBA<uint8_t> colorData)
-        : m_colorData(colorData)
+        : m_colorData(*Color(colorData).tryGetAsPackedInline())
     {
     }
 
-    Color color() const { return { m_colorData }; }
-    void apply(GraphicsContext&) const;
+    Color color() const { return { asSRGBA(colorData()) }; }
+    const PackedColor::RGBA& colorData() const LIFETIME_BOUND { return m_colorData; }
+
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
-    SRGBA<uint8_t> m_colorData;
+    PackedColor::RGBA m_colorData;
 };
 
-class SetInlineStrokeColor {
+class SetInlineStroke {
 public:
-    static constexpr ItemType itemType = ItemType::SetInlineStrokeColor;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = false;
+    static constexpr char name[] = "set-inline-stroke";
 
-    SetInlineStrokeColor(SRGBA<uint8_t> colorData)
+    SetInlineStroke(std::optional<PackedColor::RGBA> colorData, std::optional<float> thickness = std::nullopt)
         : m_colorData(colorData)
+        , m_thickness(thickness)
     {
+        ASSERT(m_colorData || m_thickness);
     }
 
-    Color color() const { return { m_colorData }; }
-
-    void apply(GraphicsContext&) const;
-
-private:
-    SRGBA<uint8_t> m_colorData;
-};
-
-class SetStrokeThickness {
-public:
-    static constexpr ItemType itemType = ItemType::SetStrokeThickness;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = false;
-
-    SetStrokeThickness(float thickness)
+    SetInlineStroke(float thickness)
         : m_thickness(thickness)
     {
     }
 
-    float thickness() const { return m_thickness; }
+    SetInlineStroke(SRGBA<uint8_t> colorData)
+        : m_colorData(PackedColor::RGBA(colorData))
+    {
+    }
 
-    void apply(GraphicsContext&) const;
+    std::optional<Color> color() const { return m_colorData ? std::optional<Color>(asSRGBA(*m_colorData)) : std::nullopt; }
+    std::optional<PackedColor::RGBA> colorData() const { return m_colorData; }
+    std::optional<float> thickness() const { return m_thickness; }
+
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
-    float m_thickness { 0 };
+    std::optional<PackedColor::RGBA> m_colorData;
+    std::optional<float> m_thickness;
 };
 
 class SetState {
 public:
-    static constexpr ItemType itemType = ItemType::SetState;
-    static constexpr bool isInlineItem = false;
-    static constexpr bool isDrawingItem = false;
+    static constexpr char name[] = "set-state";
 
-    WEBCORE_EXPORT SetState(const GraphicsContextState&, GraphicsContextState::StateChangeFlags);
+    WEBCORE_EXPORT SetState(const GraphicsContextState&);
 
-    const GraphicsContextStateChange& stateChange() const { return m_stateChange; }
-    const Pattern::Parameters& strokePatternParameters() const { return m_strokePattern.parameters; }
-    const Pattern::Parameters& fillPatternParameters() const { return m_fillPattern.parameters; }
-    RenderingResourceIdentifier strokePatternImageIdentifier() const { return m_strokePattern.tileImageIdentifier; }
-    RenderingResourceIdentifier fillPatternImageIdentifier() const { return m_fillPattern.tileImageIdentifier; }
+    GraphicsContextState& state() LIFETIME_BOUND { return m_state; }
+    const GraphicsContextState& state() const LIFETIME_BOUND { return m_state; }
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<SetState> decode(Decoder&);
-
-    void apply(GraphicsContext&, NativeImage* strokePatternImage, NativeImage* fillPatternImage);
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
-    struct PatternData {
-        RenderingResourceIdentifier tileImageIdentifier;
-        Pattern::Parameters parameters;
-    };
-
-    WEBCORE_EXPORT SetState(const GraphicsContextStateChange&, const PatternData& strokePattern, const PatternData& fillPattern);
-
-    GraphicsContextStateChange m_stateChange;
-    PatternData m_strokePattern;
-    PatternData m_fillPattern;
+    GraphicsContextState m_state;
 };
-
-template<class Encoder>
-void SetState::encode(Encoder& encoder) const
-{
-    auto changeFlags = m_stateChange.m_changeFlags;
-    encoder << changeFlags;
-
-    auto& state = m_stateChange.m_state;
-
-    if (changeFlags.contains(GraphicsContextState::StrokeGradientChange)) {
-        ASSERT(state.strokeGradient);
-        encoder << *state.strokeGradient;
-    }
-
-    if (changeFlags.contains(GraphicsContextState::StrokePatternChange)) {
-        ASSERT(state.strokePattern);
-        encoder << state.strokePattern->tileImage().renderingResourceIdentifier();
-        encoder << state.strokePattern->parameters();
-    }
-
-    if (changeFlags.contains(GraphicsContextState::FillGradientChange)) {
-        ASSERT(state.fillGradient);
-        encoder << *state.fillGradient;
-    }
-
-    if (changeFlags.contains(GraphicsContextState::FillPatternChange)) {
-        ASSERT(state.fillPattern);
-        encoder << state.fillPattern->tileImage().renderingResourceIdentifier();
-        encoder << state.fillPattern->parameters();
-    }
-
-    if (changeFlags.contains(GraphicsContextState::ShadowChange)) {
-        encoder << state.shadowOffset;
-        encoder << state.shadowBlur;
-        encoder << state.shadowColor;
-        encoder << state.shadowRadiusMode;
-    }
-
-    if (changeFlags.contains(GraphicsContextState::StrokeThicknessChange))
-        encoder << state.strokeThickness;
-
-    if (changeFlags.contains(GraphicsContextState::TextDrawingModeChange))
-        encoder << state.textDrawingMode;
-
-    if (changeFlags.contains(GraphicsContextState::StrokeColorChange))
-        encoder << state.strokeColor;
-
-    if (changeFlags.contains(GraphicsContextState::FillColorChange))
-        encoder << state.fillColor;
-
-    if (changeFlags.contains(GraphicsContextState::StrokeStyleChange))
-        encoder << state.strokeStyle;
-
-    if (changeFlags.contains(GraphicsContextState::FillRuleChange))
-        encoder << state.fillRule;
-
-    if (changeFlags.contains(GraphicsContextState::CompositeOperationChange))
-        encoder << state.compositeOperator;
-
-    if (changeFlags.contains(GraphicsContextState::BlendModeChange))
-        encoder << state.blendMode;
-
-    if (changeFlags.contains(GraphicsContextState::ImageInterpolationQualityChange))
-        encoder << state.imageInterpolationQuality;
-
-    if (changeFlags.contains(GraphicsContextState::AlphaChange))
-        encoder << state.alpha;
-
-    if (changeFlags.contains(GraphicsContextState::ShouldAntialiasChange))
-        encoder << state.shouldAntialias;
-
-    if (changeFlags.contains(GraphicsContextState::ShouldSmoothFontsChange))
-        encoder << state.shouldSmoothFonts;
-
-    if (changeFlags.contains(GraphicsContextState::ShouldSubpixelQuantizeFontsChange))
-        encoder << state.shouldSubpixelQuantizeFonts;
-
-    if (changeFlags.contains(GraphicsContextState::ShadowsIgnoreTransformsChange))
-        encoder << state.shadowsIgnoreTransforms;
-}
-
-template<class Decoder>
-std::optional<SetState> SetState::decode(Decoder& decoder)
-{
-    std::optional<GraphicsContextState::StateChangeFlags> changeFlags;
-    decoder >> changeFlags;
-    if (!changeFlags)
-        return std::nullopt;
-
-    GraphicsContextStateChange stateChange;
-    stateChange.m_changeFlags = *changeFlags;
-
-    PatternData strokePattern;
-    PatternData fillPattern;
-
-    if (stateChange.m_changeFlags.contains(GraphicsContextState::StrokeGradientChange)) {
-        auto strokeGradient = Gradient::decode(decoder);
-        if (!strokeGradient)
-            return std::nullopt;
-
-        stateChange.m_state.strokeGradient = WTFMove(*strokeGradient);
-    }
-
-    if (stateChange.m_changeFlags.contains(GraphicsContextState::StrokePatternChange)) {
-        std::optional<RenderingResourceIdentifier> renderingResourceIdentifier;
-        decoder >> renderingResourceIdentifier;
-        if (!renderingResourceIdentifier)
-            return std::nullopt;
-
-        std::optional<Pattern::Parameters> parameters;
-        decoder >> parameters;
-        if (!parameters)
-            return std::nullopt;
-
-        strokePattern = { *renderingResourceIdentifier, *parameters };
-    }
-
-    if (stateChange.m_changeFlags.contains(GraphicsContextState::FillGradientChange)) {
-        auto fillGradient = Gradient::decode(decoder);
-        if (!fillGradient)
-            return std::nullopt;
-
-        stateChange.m_state.fillGradient = WTFMove(*fillGradient);
-    }
-
-    if (stateChange.m_changeFlags.contains(GraphicsContextState::FillPatternChange)) {
-        std::optional<RenderingResourceIdentifier> renderingResourceIdentifier;
-        decoder >> renderingResourceIdentifier;
-        if (!renderingResourceIdentifier)
-            return std::nullopt;
-
-        std::optional<Pattern::Parameters> parameters;
-        decoder >> parameters;
-        if (!parameters)
-            return std::nullopt;
-
-        fillPattern = { *renderingResourceIdentifier, *parameters };
-    }
-
-    if (stateChange.m_changeFlags.contains(GraphicsContextState::ShadowChange)) {
-        std::optional<FloatSize> shadowOffset;
-        decoder >> shadowOffset;
-        if (!shadowOffset)
-            return std::nullopt;
-
-        stateChange.m_state.shadowOffset = *shadowOffset;
-
-        std::optional<float> shadowBlur;
-        decoder >> shadowBlur;
-        if (!shadowBlur)
-            return std::nullopt;
-
-        stateChange.m_state.shadowBlur = *shadowBlur;
-
-        std::optional<Color> shadowColor;
-        decoder >> shadowColor;
-        if (!shadowColor)
-            return std::nullopt;
-
-        stateChange.m_state.shadowColor = *shadowColor;
-
-        std::optional<ShadowRadiusMode> shadowRadiusMode;
-        decoder >> shadowRadiusMode;
-        if (!shadowRadiusMode)
-            return std::nullopt;
-
-        stateChange.m_state.shadowRadiusMode = WTFMove(*shadowRadiusMode);
-    }
-
-    if (stateChange.m_changeFlags.contains(GraphicsContextState::StrokeThicknessChange)) {
-        std::optional<float> strokeThickness;
-        decoder >> strokeThickness;
-        if (!strokeThickness)
-            return std::nullopt;
-
-        stateChange.m_state.strokeThickness = *strokeThickness;
-    }
-
-    if (stateChange.m_changeFlags.contains(GraphicsContextState::TextDrawingModeChange)) {
-        std::optional<TextDrawingModeFlags> textDrawingMode;
-        decoder >> textDrawingMode;
-        if (!textDrawingMode)
-            return std::nullopt;
-
-        stateChange.m_state.textDrawingMode = WTFMove(*textDrawingMode);
-    }
-
-    if (stateChange.m_changeFlags.contains(GraphicsContextState::StrokeColorChange)) {
-        std::optional<Color> strokeColor;
-        decoder >> strokeColor;
-        if (!strokeColor)
-            return std::nullopt;
-
-        stateChange.m_state.strokeColor = *strokeColor;
-    }
-
-    if (stateChange.m_changeFlags.contains(GraphicsContextState::FillColorChange)) {
-        std::optional<Color> fillColor;
-        decoder >> fillColor;
-        if (!fillColor)
-            return std::nullopt;
-
-        stateChange.m_state.fillColor = *fillColor;
-    }
-
-    if (stateChange.m_changeFlags.contains(GraphicsContextState::StrokeStyleChange)) {
-        StrokeStyle strokeStyle;
-        if (!decoder.decode(strokeStyle))
-            return std::nullopt;
-
-        stateChange.m_state.strokeStyle = strokeStyle;
-    }
-
-    if (stateChange.m_changeFlags.contains(GraphicsContextState::FillRuleChange)) {
-        std::optional<WindRule> fillRule;
-        decoder >> fillRule;
-        if (!fillRule)
-            return std::nullopt;
-
-        stateChange.m_state.fillRule = *fillRule;
-    }
-
-    if (stateChange.m_changeFlags.contains(GraphicsContextState::CompositeOperationChange)) {
-        std::optional<CompositeOperator> compositeOperator;
-        decoder >> compositeOperator;
-        if (!compositeOperator)
-            return std::nullopt;
-
-        stateChange.m_state.compositeOperator = *compositeOperator;
-    }
-
-    if (stateChange.m_changeFlags.contains(GraphicsContextState::BlendModeChange)) {
-        std::optional<BlendMode> blendMode;
-        decoder >> blendMode;
-        if (!blendMode)
-            return std::nullopt;
-
-        stateChange.m_state.blendMode = *blendMode;
-    }
-
-    if (stateChange.m_changeFlags.contains(GraphicsContextState::ImageInterpolationQualityChange)) {
-        std::optional<InterpolationQuality> imageInterpolationQuality;
-        decoder >> imageInterpolationQuality;
-        if (!imageInterpolationQuality)
-            return std::nullopt;
-
-        stateChange.m_state.imageInterpolationQuality = *imageInterpolationQuality;
-    }
-
-    if (stateChange.m_changeFlags.contains(GraphicsContextState::AlphaChange)) {
-        std::optional<float> alpha;
-        decoder >> alpha;
-        if (!alpha)
-            return std::nullopt;
-
-        stateChange.m_state.alpha = *alpha;
-    }
-
-    if (stateChange.m_changeFlags.contains(GraphicsContextState::ShouldAntialiasChange)) {
-        std::optional<bool> shouldAntialias;
-        decoder >> shouldAntialias;
-        if (!shouldAntialias)
-            return std::nullopt;
-
-        stateChange.m_state.shouldAntialias = *shouldAntialias;
-    }
-
-    if (stateChange.m_changeFlags.contains(GraphicsContextState::ShouldSmoothFontsChange)) {
-        std::optional<bool> shouldSmoothFonts;
-        decoder >> shouldSmoothFonts;
-        if (!shouldSmoothFonts)
-            return std::nullopt;
-
-        stateChange.m_state.shouldSmoothFonts = *shouldSmoothFonts;
-    }
-
-    if (stateChange.m_changeFlags.contains(GraphicsContextState::ShouldSubpixelQuantizeFontsChange)) {
-        std::optional<bool> shouldSubpixelQuantizeFonts;
-        decoder >> shouldSubpixelQuantizeFonts;
-        if (!shouldSubpixelQuantizeFonts)
-            return std::nullopt;
-
-        stateChange.m_state.shouldSubpixelQuantizeFonts = *shouldSubpixelQuantizeFonts;
-    }
-
-    if (stateChange.m_changeFlags.contains(GraphicsContextState::ShadowsIgnoreTransformsChange)) {
-        std::optional<bool> shadowsIgnoreTransforms;
-        decoder >> shadowsIgnoreTransforms;
-        if (!shadowsIgnoreTransforms)
-            return std::nullopt;
-
-        stateChange.m_state.shadowsIgnoreTransforms = *shadowsIgnoreTransforms;
-    }
-
-    return {{ stateChange, strokePattern, fillPattern }};
-}
 
 class SetLineCap {
 public:
-    static constexpr ItemType itemType = ItemType::SetLineCap;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = false;
+    static constexpr char name[] = "set-line-cap";
 
     SetLineCap(LineCap lineCap)
         : m_lineCap(lineCap)
@@ -606,7 +248,8 @@ public:
 
     LineCap lineCap() const { return m_lineCap; }
 
-    void apply(GraphicsContext&) const;
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     LineCap m_lineCap;
@@ -614,9 +257,7 @@ private:
 
 class SetLineDash {
 public:
-    static constexpr ItemType itemType = ItemType::SetLineDash;
-    static constexpr bool isInlineItem = false;
-    static constexpr bool isDrawingItem = false;
+    static constexpr char name[] = "set-line-dash";
 
     SetLineDash(const DashArray& dashArray, float dashOffset)
         : m_dashArray(dashArray)
@@ -624,47 +265,20 @@ public:
     {
     }
 
-    const DashArray& dashArray() const { return m_dashArray; }
+    const DashArray& dashArray() const LIFETIME_BOUND { return m_dashArray; }
     float dashOffset() const { return m_dashOffset; }
 
-    void apply(GraphicsContext&) const;
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<SetLineDash> decode(Decoder&);
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     DashArray m_dashArray;
     float m_dashOffset;
 };
 
-template<class Encoder>
-void SetLineDash::encode(Encoder& encoder) const
-{
-    encoder << m_dashArray;
-    encoder << m_dashOffset;
-}
-
-template<class Decoder>
-std::optional<SetLineDash> SetLineDash::decode(Decoder& decoder)
-{
-    std::optional<DashArray> dashArray;
-    decoder >> dashArray;
-    if (!dashArray)
-        return std::nullopt;
-
-    std::optional<float> dashOffset;
-    decoder >> dashOffset;
-    if (!dashOffset)
-        return std::nullopt;
-
-    return {{ *dashArray, *dashOffset }};
-}
-
 class SetLineJoin {
 public:
-    static constexpr ItemType itemType = ItemType::SetLineJoin;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = false;
+    static constexpr char name[] = "set-line-join";
 
     SetLineJoin(LineJoin lineJoin)
         : m_lineJoin(lineJoin)
@@ -673,7 +287,8 @@ public:
 
     LineJoin lineJoin() const { return m_lineJoin; }
 
-    void apply(GraphicsContext&) const;
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     LineJoin m_lineJoin;
@@ -681,9 +296,7 @@ private:
 
 class SetMiterLimit {
 public:
-    static constexpr ItemType itemType = ItemType::SetMiterLimit;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = false;
+    static constexpr char name[] = "set-miter-limit";
 
     SetMiterLimit(float miterLimit)
         : m_miterLimit(miterLimit)
@@ -692,93 +305,112 @@ public:
 
     float miterLimit() const { return m_miterLimit; }
 
-    void apply(GraphicsContext&) const;
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     float m_miterLimit;
 };
 
-class ClearShadow {
-public:
-    static constexpr ItemType itemType = ItemType::ClearShadow;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = false;
-
-    void apply(GraphicsContext&) const;
-};
-
-// FIXME: treat as drawing item?
 class Clip {
 public:
-    static constexpr ItemType itemType = ItemType::Clip;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = false;
+    static constexpr char name[] = "clip";
 
     Clip(const FloatRect& rect)
         : m_rect(rect)
     {
     }
 
-    const FloatRect& rect() const { return m_rect; }
+    const FloatRect& rect() const LIFETIME_BOUND { return m_rect; }
 
-    void apply(GraphicsContext&) const;
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     FloatRect m_rect;
 };
 
+class ClipRoundedRect {
+public:
+    static constexpr char name[] = "clip-rounded-rect";
+
+    ClipRoundedRect(const FloatRoundedRect& rect)
+        : m_rect(rect)
+    {
+    }
+
+    const FloatRoundedRect& rect() const LIFETIME_BOUND { return m_rect; }
+
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
+
+private:
+    FloatRoundedRect m_rect;
+};
+
 class ClipOut {
 public:
-    static constexpr ItemType itemType = ItemType::ClipOut;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = false;
+    static constexpr char name[] = "clip-out";
 
     ClipOut(const FloatRect& rect)
         : m_rect(rect)
     {
     }
 
-    const FloatRect& rect() const { return m_rect; }
+    const FloatRect& rect() const LIFETIME_BOUND { return m_rect; }
 
-    void apply(GraphicsContext&) const;
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     FloatRect m_rect;
 };
 
+class ClipOutRoundedRect {
+public:
+    static constexpr char name[] = "clip-out-rounded-rect";
+
+    ClipOutRoundedRect(const FloatRoundedRect& rect)
+        : m_rect(rect)
+    {
+    }
+
+    const FloatRoundedRect& rect() const LIFETIME_BOUND { return m_rect; }
+
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
+
+private:
+    FloatRoundedRect m_rect;
+};
+
 class ClipToImageBuffer {
 public:
-    static constexpr ItemType itemType = ItemType::ClipToImageBuffer;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = false;
+    static constexpr char name[] = "clip-to-image-buffer";
 
-    ClipToImageBuffer(RenderingResourceIdentifier imageBufferIdentifier, const FloatRect& destinationRect)
-        : m_imageBufferIdentifier(imageBufferIdentifier)
+    ClipToImageBuffer(Ref<ImageBuffer>&& imageBuffer, const FloatRect& destinationRect)
+        : m_imageBuffer(WTF::move(imageBuffer))
         , m_destinationRect(destinationRect)
     {
     }
-    
-    RenderingResourceIdentifier imageBufferIdentifier() const { return m_imageBufferIdentifier; }
+
+    ImageBuffer& imageBuffer() const { return m_imageBuffer; }
     FloatRect destinationRect() const { return m_destinationRect; }
-    bool isValid() const { return m_imageBufferIdentifier.isValid(); }
 
-    void apply(GraphicsContext&, WebCore::ImageBuffer&) const;
-
-    NO_RETURN_DUE_TO_ASSERT void apply(GraphicsContext&) const;
+    void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
-    RenderingResourceIdentifier m_imageBufferIdentifier;
+    const Ref<ImageBuffer> m_imageBuffer;
     FloatRect m_destinationRect;
 };
 
 class ClipOutToPath {
 public:
-    static constexpr ItemType itemType = ItemType::ClipOutToPath;
-    static constexpr bool isInlineItem = false;
-    static constexpr bool isDrawingItem = false;
+    static constexpr char name[] = "clip-out-to-path";
 
     ClipOutToPath(Path&& path)
-        : m_path(WTFMove(path))
+        : m_path(WTF::move(path))
     {
     }
 
@@ -787,42 +419,21 @@ public:
     {
     }
 
-    const Path& path() const { return m_path; }
+    const Path& path() const LIFETIME_BOUND { return m_path; }
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<ClipOutToPath> decode(Decoder&);
-
-    void apply(GraphicsContext&) const;
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     Path m_path;
 };
 
-template<class Encoder>
-void ClipOutToPath::encode(Encoder& encoder) const
-{
-    encoder << m_path;
-}
-
-template<class Decoder>
-std::optional<ClipOutToPath> ClipOutToPath::decode(Decoder& decoder)
-{
-    std::optional<Path> path;
-    decoder >> path;
-    if (!path)
-        return std::nullopt;
-
-    return {{ WTFMove(*path) }};
-}
-
 class ClipPath {
 public:
-    static constexpr ItemType itemType = ItemType::ClipPath;
-    static constexpr bool isInlineItem = false;
-    static constexpr bool isDrawingItem = false;
+    static constexpr char name[] = "clip-path";
 
     ClipPath(Path&& path, WindRule windRule)
-        : m_path(WTFMove(path))
+        : m_path(WTF::move(path))
         , m_windRule(windRule)
     {
     }
@@ -833,223 +444,180 @@ public:
     {
     }
 
-    const Path& path() const { return m_path; }
+    const Path& path() const LIFETIME_BOUND { return m_path; }
     WindRule windRule() const { return m_windRule; }
 
-    void apply(GraphicsContext&) const;
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<ClipPath> decode(Decoder&);
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     Path m_path;
     WindRule m_windRule;
 };
 
-template<class Encoder>
-void ClipPath::encode(Encoder& encoder) const
-{
-    encoder << m_path;
-    encoder << m_windRule;
-}
-
-template<class Decoder>
-std::optional<ClipPath> ClipPath::decode(Decoder& decoder)
-{
-    std::optional<Path> path;
-    decoder >> path;
-    if (!path)
-        return std::nullopt;
-
-    std::optional<WindRule> windRule;
-    decoder >> windRule;
-    if (!windRule)
-        return std::nullopt;
-
-    return {{ WTFMove(*path), *windRule }};
-}
-
-class BeginClipToDrawingCommands {
+class ResetClip {
 public:
-    static constexpr ItemType itemType = ItemType::BeginClipToDrawingCommands;
-    static constexpr bool isInlineItem = false;
-    static constexpr bool isDrawingItem = false;
+    static constexpr char name[] = "reset-clip";
 
-    BeginClipToDrawingCommands(const FloatRect& destination, DestinationColorSpace colorSpace)
-        : m_destination(destination)
-        , m_colorSpace(WTFMove(colorSpace))
+    ResetClip()
     {
     }
 
-    // Explicit destructor added to force non-trivial destructor on all platforms
-    // as the encoding logic currently hardcodes which display list item types need
-    // out of line treatment rather than using the isInlineItem constant.
-    ~BeginClipToDrawingCommands() { }
-
-    const FloatRect& destination() const { return m_destination; }
-    const DestinationColorSpace& colorSpace() const { return m_colorSpace; }
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<BeginClipToDrawingCommands> decode(Decoder&);
-
-private:
-    FloatRect m_destination;
-    DestinationColorSpace m_colorSpace;
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const { }
 };
 
-template<class Encoder>
-void BeginClipToDrawingCommands::encode(Encoder& encoder) const
-{
-    encoder << m_destination;
-    encoder << m_colorSpace;
-}
-
-template<class Decoder>
-std::optional<BeginClipToDrawingCommands> BeginClipToDrawingCommands::decode(Decoder& decoder)
-{
-    std::optional<FloatRect> destination;
-    decoder >> destination;
-    if (!destination)
-        return std::nullopt;
-
-    std::optional<DestinationColorSpace> colorSpace;
-    decoder >> colorSpace;
-    if (!colorSpace)
-        return std::nullopt;
-
-    return {{ *destination, WTFMove(*colorSpace) }};
-}
-
-class EndClipToDrawingCommands {
+class DrawFilteredImageBuffer {
 public:
-    static constexpr ItemType itemType = ItemType::EndClipToDrawingCommands;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = false;
+    static constexpr char name[] = "draw-filtered-image-buffer";
 
-    EndClipToDrawingCommands(const FloatRect& destination)
-        : m_destination(destination)
+    DrawFilteredImageBuffer(RefPtr<ImageBuffer>&& sourceImage, const FloatRect& sourceImageRect, Filter& filter)
+        : m_sourceImage(WTF::move(sourceImage))
+        , m_sourceImageRect(sourceImageRect)
+        , m_filter(filter)
     {
     }
 
-    const FloatRect& destination() const { return m_destination; }
+    ImageBuffer* sourceImage() const { return m_sourceImage.get(); }
+    FloatRect sourceImageRect() const { return m_sourceImageRect; }
+    Filter& filter() const { return m_filter; }
+
+    void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
-    FloatRect m_destination;
+    const RefPtr<ImageBuffer> m_sourceImage;
+    FloatRect m_sourceImageRect;
+    const Ref<Filter> m_filter;
 };
 
 class DrawGlyphs {
 public:
-    static constexpr ItemType itemType = ItemType::DrawGlyphs;
-    static constexpr bool isInlineItem = false;
-    static constexpr bool isDrawingItem = true;
+    static constexpr char name[] = "draw-glyphs";
 
-    RenderingResourceIdentifier fontIdentifier() { return m_fontIdentifier; }
-    const FloatPoint& localAnchor() const { return m_localAnchor; }
-    FloatPoint anchorPoint() const { return m_localAnchor; }
-    const Vector<GlyphBufferGlyph, 16>& glyphs() const { return m_glyphs; }
+    DrawGlyphs(Ref<const Font>&& font, Vector<GlyphBufferGlyph>&& glyphs, Vector<GlyphBufferAdvance>&& advances, const FloatPoint& localAnchor, FontSmoothingMode smoothingMode)
+        : m_font(WTF::move(font))
+        , m_glyphs(WTF::move(glyphs))
+        , m_advances(WTF::move(advances))
+        , m_localAnchor(localAnchor)
+        , m_fontSmoothingMode(smoothingMode)
+    {
+    }
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<DrawGlyphs> decode(Decoder&);
+    Ref<const Font> font() const { return m_font; }
+    const Vector<GlyphBufferGlyph>& glyphs() const LIFETIME_BOUND { return m_glyphs; }
+    const Vector<GlyphBufferAdvance>& advances() const LIFETIME_BOUND { return m_advances; }
+    size_t length() const { return m_glyphs.size(); }
 
-    DrawGlyphs(const Font&, const GlyphBufferGlyph*, const GlyphBufferAdvance*, unsigned count, const FloatPoint& localAnchor, FontSmoothingMode);
-    WEBCORE_EXPORT DrawGlyphs(RenderingResourceIdentifier, Vector<GlyphBufferGlyph, 128>&&, Vector<GlyphBufferAdvance, 128>&&, const FloatRect&, const FloatPoint& localAnchor, FontSmoothingMode);
+    FloatPoint localAnchor() const { return m_localAnchor; }
+    FontSmoothingMode fontSmoothingMode() const { return m_fontSmoothingMode; }
 
-    void apply(GraphicsContext&, const Font&) const;
-
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const { return m_bounds; }
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
-    void computeBounds(const Font&);
-
-    RenderingResourceIdentifier m_fontIdentifier;
-    Vector<GlyphBufferGlyph, 16> m_glyphs;
-    Vector<GlyphBufferAdvance, 16> m_advances;
-    FloatRect m_bounds;
+    Ref<const Font> m_font;
+    Vector<GlyphBufferGlyph> m_glyphs;
+    Vector<GlyphBufferAdvance> m_advances;
     FloatPoint m_localAnchor;
-    FontSmoothingMode m_smoothingMode;
+    FontSmoothingMode m_fontSmoothingMode;
 };
 
-template<class Encoder>
-void DrawGlyphs::encode(Encoder& encoder) const
-{
-    encoder << m_fontIdentifier;
-    encoder << m_glyphs;
-    encoder << m_advances;
-    encoder << m_bounds;
-    encoder << m_localAnchor;
-    encoder << m_smoothingMode;
-}
+#if USE(SKIA)
+class DrawTextBlob {
+public:
+    static constexpr char name[] = "draw-text-blob";
 
-template<class Decoder>
-std::optional<DrawGlyphs> DrawGlyphs::decode(Decoder& decoder)
-{
-    std::optional<RenderingResourceIdentifier> fontIdentifier;
-    decoder >> fontIdentifier;
-    if (!fontIdentifier)
-        return std::nullopt;
+    DrawTextBlob(Ref<const Font>&& font, Vector<GlyphBufferGlyph>&& glyphs, Vector<GlyphBufferAdvance>&& advances, const FloatPoint& localAnchor, FontSmoothingMode smoothingMode)
+        : m_textBlob(font->buildTextBlob(glyphs, advances, smoothingMode))
+        , m_enableAntialiasing(font->enableAntialiasing(smoothingMode))
+        , m_isVertical(font->platformData().orientation() == FontOrientation::Vertical)
+        , m_localAnchor(localAnchor)
+        , m_fontSmoothingMode(smoothingMode)
+    {
+    }
 
-    std::optional<Vector<GlyphBufferGlyph, 128>> glyphs;
-    decoder >> glyphs;
-    if (!glyphs)
-        return std::nullopt;
+    size_t length() const
+    {
+        if (!m_textBlob)
+            return 0;
 
-    std::optional<Vector<GlyphBufferAdvance, 128>> advances;
-    decoder >> advances;
-    if (!advances)
-        return std::nullopt;
+        size_t glyphsCount = 0;
+        auto iter = SkTextBlob::Iter(*m_textBlob);
+        SkTextBlob::Iter::Run run;
+        while (iter.next(&run))
+            glyphsCount += run.fGlyphCount;
+        return glyphsCount;
+    }
 
-    if (glyphs->size() != advances->size())
-        return std::nullopt;
+    FloatPoint localAnchor() const { return m_localAnchor; }
+    FontSmoothingMode fontSmoothingMode() const { return m_fontSmoothingMode; }
 
-    std::optional<FloatRect> bounds;
-    decoder >> bounds;
-    if (!bounds)
-        return std::nullopt;
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
-    std::optional<FloatPoint> localAnchor;
-    decoder >> localAnchor;
-    if (!localAnchor)
-        return std::nullopt;
+private:
+    sk_sp<SkTextBlob> m_textBlob;
+    bool m_enableAntialiasing { false };
+    bool m_isVertical { false };
+    FloatPoint m_localAnchor;
+    FontSmoothingMode m_fontSmoothingMode;
+};
+#endif // USE(SKIA)
 
-    std::optional<FontSmoothingMode> smoothingMode;
-    decoder >> smoothingMode;
-    if (!smoothingMode)
-        return std::nullopt;
+class DrawDisplayList {
+public:
+    static constexpr char name[] = "draw-display-list";
 
-    return {{ *fontIdentifier, WTFMove(*glyphs), WTFMove(*advances), *bounds, *localAnchor, *smoothingMode }};
-}
+    DrawDisplayList(Ref<const DisplayList>&&);
+    ~DrawDisplayList();
+
+    Ref<const DisplayList> NODELETE displayList() const;
+
+    void apply(GraphicsContext&, ControlFactory&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
+
+private:
+    Ref<const DisplayList> m_displayList;
+};
+
+class DrawPlaceholder {
+public:
+    static constexpr char name[] = "draw-placeholder";
+
+    DrawPlaceholder(Function<void(GraphicsContext&)>&&);
+    ~DrawPlaceholder();
+
+    void apply(GraphicsContext&) const;
+    void NODELETE dump(TextStream&, OptionSet<AsTextFlag>) const;
+
+private:
+    using FunctionHolder = Box<Function<void(GraphicsContext&)>>;
+    FunctionHolder m_function;
+};
 
 class DrawImageBuffer {
 public:
-    static constexpr ItemType itemType = ItemType::DrawImageBuffer;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = true;
+    static constexpr char name[] = "draw-image-buffer";
 
-    DrawImageBuffer(RenderingResourceIdentifier imageBufferIdentifier, const FloatRect& destRect, const FloatRect& srcRect, const ImagePaintingOptions& options)
-        : m_imageBufferIdentifier(imageBufferIdentifier)
+    DrawImageBuffer(ImageBuffer& imageBuffer, const FloatRect& destRect, const FloatRect& srcRect, ImagePaintingOptions options)
+        : m_imageBuffer(imageBuffer)
         , m_destinationRect(destRect)
         , m_srcRect(srcRect)
         , m_options(options)
     {
     }
 
-    RenderingResourceIdentifier imageBufferIdentifier() const { return m_imageBufferIdentifier; }
+    ImageBuffer& imageBuffer() const { return m_imageBuffer; }
     FloatRect source() const { return m_srcRect; }
     FloatRect destinationRect() const { return m_destinationRect; }
     ImagePaintingOptions options() const { return m_options; }
-    // FIXME: We might want to validate ImagePaintingOptions.
-    bool isValid() const { return m_imageBufferIdentifier.isValid(); }
 
-    void apply(GraphicsContext&, WebCore::ImageBuffer&) const;
-
-    NO_RETURN_DUE_TO_ASSERT void apply(GraphicsContext&) const;
-
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const { return m_destinationRect; }
+    void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
-    RenderingResourceIdentifier m_imageBufferIdentifier;
+    const Ref<ImageBuffer> m_imageBuffer;
     FloatRect m_destinationRect;
     FloatRect m_srcRect;
     ImagePaintingOptions m_options;
@@ -1057,66 +625,114 @@ private:
 
 class DrawNativeImage {
 public:
-    static constexpr ItemType itemType = ItemType::DrawNativeImage;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = true;
+    static constexpr char name[] = "draw-native-image";
 
-    DrawNativeImage(RenderingResourceIdentifier imageIdentifier, const FloatSize& imageSize, const FloatRect& destRect, const FloatRect& srcRect, const ImagePaintingOptions& options)
-        : m_imageIdentifier(imageIdentifier)
-        , m_imageSize(imageSize)
+    DrawNativeImage(const NativeImage& image, const FloatRect& destRect, const FloatRect& srcRect, ImagePaintingOptions options)
+        : m_image(image)
         , m_destinationRect(destRect)
         , m_srcRect(srcRect)
         , m_options(options)
     {
     }
 
-    RenderingResourceIdentifier imageIdentifier() const { return m_imageIdentifier; }
-    const FloatRect& source() const { return m_srcRect; }
-    const FloatRect& destinationRect() const { return m_destinationRect; }
-    // FIXME: We might want to validate ImagePaintingOptions.
-    bool isValid() const { return m_imageIdentifier.isValid(); }
+    const NativeImage& nativeImage() const { return m_image; }
+    const FloatRect& destinationRect() const LIFETIME_BOUND { return m_destinationRect; }
+    const FloatRect& source() const LIFETIME_BOUND { return m_srcRect; }
+    ImagePaintingOptions options() const { return m_options; }
 
-    NO_RETURN_DUE_TO_ASSERT void apply(GraphicsContext&) const;
-    void apply(GraphicsContext&, NativeImage&) const;
-
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const { return m_destinationRect; }
+    void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
-    RenderingResourceIdentifier m_imageIdentifier;
-    FloatSize m_imageSize;
+    const Ref<const NativeImage> m_image;
     FloatRect m_destinationRect;
     FloatRect m_srcRect;
     ImagePaintingOptions m_options;
 };
 
-class DrawPattern {
+class DrawSystemImage {
 public:
-    static constexpr ItemType itemType = ItemType::DrawPattern;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = true;
+    static constexpr char name[] = "draw-system-image";
 
-    WEBCORE_EXPORT DrawPattern(RenderingResourceIdentifier, const FloatSize& imageSize, const FloatRect& destRect, const FloatRect& tileRect, const AffineTransform&, const FloatPoint& phase, const FloatSize& spacing, const ImagePaintingOptions& = { });
+    DrawSystemImage(SystemImage& systemImage, const FloatRect& destinationRect)
+        : m_systemImage(systemImage)
+        , m_destinationRect(destinationRect)
+    {
+    }
 
-    RenderingResourceIdentifier imageIdentifier() const { return m_imageIdentifier; }
-    FloatSize imageSize() const { return m_imageSize; }
-    FloatRect destRect() const { return m_destination; }
-    FloatRect tileRect() const { return m_tileRect; }
-    const AffineTransform& patternTransform() const { return m_patternTransform; }
-    FloatPoint phase() const { return m_phase; }
-    FloatSize spacing() const { return m_spacing; }
-    // FIXME: We might want to validate ImagePaintingOptions.
-    bool isValid() const { return m_imageIdentifier.isValid(); }
+    const SystemImage& systemImage() const { return m_systemImage; }
+    const FloatRect& destinationRect() const LIFETIME_BOUND { return m_destinationRect; }
 
-    NO_RETURN_DUE_TO_ASSERT void apply(GraphicsContext&) const;
-    void apply(GraphicsContext&, NativeImage&) const;
-
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const { return m_destination; }
+    void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
-    RenderingResourceIdentifier m_imageIdentifier;
-    FloatSize m_imageSize;
+    const Ref<SystemImage> m_systemImage;
+    FloatRect m_destinationRect;
+};
+
+class DrawPatternNativeImage {
+public:
+    static constexpr char name[] = "draw-pattern-nativeimage";
+
+    DrawPatternNativeImage(const NativeImage& image, const FloatRect& destRect, const FloatRect& tileRect, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, ImagePaintingOptions options)
+        : m_image(image)
+        , m_destination(destRect)
+        , m_tileRect(tileRect)
+        , m_patternTransform(patternTransform)
+        , m_phase(phase)
+        , m_spacing(spacing)
+        , m_options(options)
+    {
+    }
+    const NativeImage& nativeImage() const { return m_image; }
+    FloatRect destRect() const { return m_destination; }
+    FloatRect tileRect() const { return m_tileRect; }
+    const AffineTransform& patternTransform() const LIFETIME_BOUND { return m_patternTransform; }
+    FloatPoint phase() const { return m_phase; }
+    FloatSize spacing() const { return m_spacing; }
+    ImagePaintingOptions options() const { return m_options; }
+
+    void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
+
+private:
+    const Ref<const NativeImage> m_image;
+    FloatRect m_destination;
+    FloatRect m_tileRect;
+    AffineTransform m_patternTransform;
+    FloatPoint m_phase;
+    FloatSize m_spacing;
+    ImagePaintingOptions m_options;
+};
+
+class DrawPatternImageBuffer {
+public:
+    static constexpr char name[] = "draw-pattern-imagebuffer";
+
+    DrawPatternImageBuffer(ImageBuffer& image, const FloatRect& destRect, const FloatRect& tileRect, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, ImagePaintingOptions options)
+        : m_imageBuffer(image)
+        , m_destination(destRect)
+        , m_tileRect(tileRect)
+        , m_patternTransform(patternTransform)
+        , m_phase(phase)
+        , m_spacing(spacing)
+        , m_options(options)
+    {
+    }
+    ImageBuffer& imageBuffer() const { return m_imageBuffer; }
+    FloatRect destRect() const { return m_destination; }
+    FloatRect tileRect() const { return m_tileRect; }
+    const AffineTransform& patternTransform() const LIFETIME_BOUND { return m_patternTransform; }
+    FloatPoint phase() const { return m_phase; }
+    FloatSize spacing() const { return m_spacing; }
+    ImagePaintingOptions options() const { return m_options; }
+
+    void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
+
+private:
+    const Ref<ImageBuffer> m_imageBuffer;
     FloatRect m_destination;
     FloatRect m_tileRect;
     AffineTransform m_patternTransform;
@@ -1127,9 +743,7 @@ private:
 
 class BeginTransparencyLayer {
 public:
-    static constexpr ItemType itemType = ItemType::BeginTransparencyLayer;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = true; // Is drawing item because the size of the transparency layer is implicitly the clip bounds.
+    static constexpr char name[] = "begin-transparency-layer";
 
     BeginTransparencyLayer(float opacity)
         : m_opacity(opacity)
@@ -1138,32 +752,42 @@ public:
 
     float opacity() const { return m_opacity; }
 
-    void apply(GraphicsContext&) const;
-
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const { return std::nullopt; }
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     float m_opacity;
 };
 
+class BeginTransparencyLayerWithCompositeMode {
+public:
+    static constexpr char name[] = "begin-transparency-layer-with-composite-mode";
+
+    explicit BeginTransparencyLayerWithCompositeMode(CompositeMode compositeMode)
+        : m_compositeMode(compositeMode)
+    {
+    }
+
+    CompositeMode compositeMode() const { return m_compositeMode; }
+
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
+
+private:
+    CompositeMode m_compositeMode;
+};
+
 class EndTransparencyLayer {
 public:
-    static constexpr ItemType itemType = ItemType::EndTransparencyLayer;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = true;
+    static constexpr char name[] = "end-transparency-layer";
 
-    void apply(GraphicsContext&) const;
-
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const { return std::nullopt; }
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const { }
 };
 
 class DrawRect {
 public:
-    static constexpr ItemType itemType = ItemType::DrawRect;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = true;
+    static constexpr char name[] = "draw-rect";
 
     DrawRect(FloatRect rect, float borderThickness)
         : m_rect(rect)
@@ -1174,10 +798,8 @@ public:
     FloatRect rect() const { return m_rect; }
     float borderThickness() const { return m_borderThickness; }
 
-    void apply(GraphicsContext&) const;
-
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const { return m_rect; }
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     FloatRect m_rect;
@@ -1186,9 +808,7 @@ private:
 
 class DrawLine {
 public:
-    static constexpr ItemType itemType = ItemType::DrawLine;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = true;
+    static constexpr char name[] = "draw-line";
 
     DrawLine(FloatPoint point1, FloatPoint point2)
         : m_point1(point1)
@@ -1199,10 +819,8 @@ public:
     FloatPoint point1() const { return m_point1; }
     FloatPoint point2() const { return m_point2; }
 
-    void apply(GraphicsContext&) const;
-
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const;
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     FloatPoint m_point1;
@@ -1211,127 +829,53 @@ private:
 
 class DrawLinesForText {
 public:
-    static constexpr ItemType itemType = ItemType::DrawLinesForText;
-    static constexpr bool isInlineItem = false;
-    static constexpr bool isDrawingItem = true;
+    static constexpr char name[] = "draw-lines-for-text";
 
-    WEBCORE_EXPORT DrawLinesForText(const FloatPoint& blockLocation, const FloatSize& localAnchor, float thickness, const DashArray& widths, bool printing, bool doubleLines);
+    WEBCORE_EXPORT DrawLinesForText(const FloatPoint&, std::span<const FloatSegment> lineSegments, float thickness, bool printing, bool doubleLines, StrokeStyle);
 
-    void setBlockLocation(const FloatPoint& blockLocation) { m_blockLocation = blockLocation; }
-    const FloatPoint& blockLocation() const { return m_blockLocation; }
-    const FloatSize& localAnchor() const { return m_localAnchor; }
-    FloatPoint point() const { return m_blockLocation + m_localAnchor; }
+    FloatPoint point() const { return m_point; }
     float thickness() const { return m_thickness; }
-    const DashArray& widths() const { return m_widths; }
+    const Vector<FloatSegment>& lineSegments() const LIFETIME_BOUND { return m_lineSegments; }
     bool isPrinting() const { return m_printing; }
     bool doubleLines() const { return m_doubleLines; }
+    StrokeStyle style() const { return m_style; }
 
-    void apply(GraphicsContext&) const;
-
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const;
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<DrawLinesForText> decode(Decoder&);
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
-    FloatPoint m_blockLocation;
-    FloatSize m_localAnchor;
-    DashArray m_widths;
+    FloatPoint m_point;
+    Vector<FloatSegment> m_lineSegments;
     float m_thickness;
     bool m_printing;
     bool m_doubleLines;
+    StrokeStyle m_style;
 };
-
-template<class Encoder>
-void DrawLinesForText::encode(Encoder& encoder) const
-{
-    encoder << m_blockLocation;
-    encoder << m_localAnchor;
-    encoder << m_widths;
-    encoder << m_thickness;
-    encoder << m_printing;
-    encoder << m_doubleLines;
-}
-
-template<class Decoder>
-std::optional<DrawLinesForText> DrawLinesForText::decode(Decoder& decoder)
-{
-    std::optional<FloatPoint> blockLocation;
-    decoder >> blockLocation;
-    if (!blockLocation)
-        return std::nullopt;
-
-    std::optional<FloatSize> localAnchor;
-    decoder >> localAnchor;
-    if (!localAnchor)
-        return std::nullopt;
-
-    std::optional<DashArray> widths;
-    decoder >> widths;
-    if (!widths)
-        return std::nullopt;
-
-    std::optional<float> thickness;
-    decoder >> thickness;
-    if (!thickness)
-        return std::nullopt;
-
-    std::optional<bool> printing;
-    decoder >> printing;
-    if (!printing)
-        return std::nullopt;
-
-    std::optional<bool> doubleLines;
-    decoder >> doubleLines;
-    if (!doubleLines)
-        return std::nullopt;
-
-    return {{ *blockLocation, *localAnchor, *thickness, *widths, *printing, *doubleLines }};
-}
 
 class DrawDotsForDocumentMarker {
 public:
-    static constexpr ItemType itemType = ItemType::DrawDotsForDocumentMarker;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = true;
-
-    using UnderlyingDocumentMarkerLineStyleType = std::underlying_type<DocumentMarkerLineStyle::Mode>::type;
+    static constexpr char name[] = "draw-dots-for-document-marker";
 
     DrawDotsForDocumentMarker(const FloatRect& rect, const DocumentMarkerLineStyle& style)
         : m_rect(rect)
-        , m_styleMode(static_cast<UnderlyingDocumentMarkerLineStyleType>(style.mode))
-        , m_styleShouldUseDarkAppearance(style.shouldUseDarkAppearance)
+        , m_style(style)
     {
     }
-
-    DrawDotsForDocumentMarker(const FloatRect& rect, UnderlyingDocumentMarkerLineStyleType styleMode, bool styleShouldUseDarkAppearance)
-        : m_rect(rect)
-        , m_styleMode(styleMode)
-        , m_styleShouldUseDarkAppearance(styleShouldUseDarkAppearance)
-    {
-    }
-
-    bool isValid() const { return isValidEnum<DocumentMarkerLineStyle::Mode>(m_styleMode); }
 
     FloatRect rect() const { return m_rect; }
+    DocumentMarkerLineStyle style() const { return m_style; }
 
-    void apply(GraphicsContext&) const;
-
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const;
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     FloatRect m_rect;
-    UnderlyingDocumentMarkerLineStyleType m_styleMode { 0 };
-    bool m_styleShouldUseDarkAppearance { false };
+    DocumentMarkerLineStyle m_style;
 };
 
 class DrawEllipse {
 public:
-    static constexpr ItemType itemType = ItemType::DrawEllipse;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = true;
+    static constexpr char name[] = "draw-ellipse";
 
     DrawEllipse(const FloatRect& rect)
         : m_rect(rect)
@@ -1340,10 +884,8 @@ public:
 
     FloatRect rect() const { return m_rect; }
 
-    void apply(GraphicsContext&) const;
-
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const { return m_rect; }
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     FloatRect m_rect;
@@ -1351,9 +893,7 @@ private:
 
 class DrawPath {
 public:
-    static constexpr ItemType itemType = ItemType::DrawPath;
-    static constexpr bool isInlineItem = false;
-    static constexpr bool isDrawingItem = true;
+    static constexpr char name[] = "draw-path";
 
     DrawPath(const Path& path)
         : m_path(path)
@@ -1361,208 +901,113 @@ public:
     }
 
     DrawPath(Path&& path)
-        : m_path(WTFMove(path))
+        : m_path(WTF::move(path))
     {
     }
 
-    const Path& path() const { return m_path; }
+    const Path& path() const LIFETIME_BOUND { return m_path; }
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<DrawPath> decode(Decoder&);
-
-    void apply(GraphicsContext&) const;
-
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const { return m_path.fastBoundingRect(); }
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     Path m_path;
 };
-
-template<class Encoder>
-void DrawPath::encode(Encoder& encoder) const
-{
-    encoder << m_path;
-}
-
-template<class Decoder>
-std::optional<DrawPath> DrawPath::decode(Decoder& decoder)
-{
-    std::optional<Path> path;
-    decoder >> path;
-    if (!path)
-        return std::nullopt;
-
-    return {{ WTFMove(*path) }};
-}
 
 class DrawFocusRingPath {
 public:
-    static constexpr ItemType itemType = ItemType::DrawFocusRingPath;
-    static constexpr bool isInlineItem = false;
-    static constexpr bool isDrawingItem = true;
+    static constexpr char name[] = "draw-focus-ring-path";
 
-    DrawFocusRingPath(Path&& path, float width, float offset, Color color)
-        : m_path(WTFMove(path))
-        , m_width(width)
-        , m_offset(offset)
-        , m_color(color)
-    {
-    }
-
-    DrawFocusRingPath(const Path& path, float width, float offset, Color color)
+    DrawFocusRingPath(const Path& path, float outlineWidth, const Color& color, float zoomFactor)
         : m_path(path)
-        , m_width(width)
-        , m_offset(offset)
+        , m_outlineWidth(outlineWidth)
         , m_color(color)
+        , m_zoomFactor(zoomFactor)
     {
     }
 
-    const Path& path() const { return m_path; }
-    float width() const { return m_width; }
-    float offset() const { return m_offset; }
-    const Color& color() const { return m_color; }
+    DrawFocusRingPath(Path&& path, float outlineWidth, const Color& color, float zoomFactor)
+        : m_path(WTF::move(path))
+        , m_outlineWidth(outlineWidth)
+        , m_color(color)
+        , m_zoomFactor(zoomFactor)
+    {
+    }
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<DrawFocusRingPath> decode(Decoder&);
+    const Path& path() const LIFETIME_BOUND { return m_path; }
+    float outlineWidth() const { return m_outlineWidth; }
+    const Color& color() const LIFETIME_BOUND { return m_color; }
+    float zoomFactor() const { return m_zoomFactor; }
 
-    void apply(GraphicsContext&) const;
-
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const;
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     Path m_path;
-    float m_width;
-    float m_offset;
+    float m_outlineWidth;
     Color m_color;
+    float m_zoomFactor;
 };
-
-template<class Encoder>
-void DrawFocusRingPath::encode(Encoder& encoder) const
-{
-    encoder << m_path;
-    encoder << m_width;
-    encoder << m_offset;
-    encoder << m_color;
-}
-
-template<class Decoder>
-std::optional<DrawFocusRingPath> DrawFocusRingPath::decode(Decoder& decoder)
-{
-    std::optional<Path> path;
-    decoder >> path;
-    if (!path)
-        return std::nullopt;
-
-    std::optional<float> width;
-    decoder >> width;
-    if (!width)
-        return std::nullopt;
-
-    std::optional<float> offset;
-    decoder >> offset;
-    if (!offset)
-        return std::nullopt;
-
-    std::optional<Color> color;
-    decoder >> color;
-    if (!color)
-        return std::nullopt;
-
-    return {{ WTFMove(*path), *width, *offset, *color }};
-}
 
 class DrawFocusRingRects {
 public:
-    static constexpr ItemType itemType = ItemType::DrawFocusRingRects;
-    static constexpr bool isInlineItem = false;
-    static constexpr bool isDrawingItem = true;
+    static constexpr char name[] = "draw-focus-ring-rects";
 
-    WEBCORE_EXPORT DrawFocusRingRects(const Vector<FloatRect>&, float width, float offset, const Color&);
-
-    const Vector<FloatRect> rects() const { return m_rects; }
-    float width() const { return m_width; }
-    float offset() const { return m_offset; }
-    const Color& color() const { return m_color; }
-
-    void apply(GraphicsContext&) const;
-
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const;
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<DrawFocusRingRects> decode(Decoder&);
-
-private:
-    Vector<FloatRect> m_rects;
-    float m_width;
-    float m_offset;
-    Color m_color;
-};
-
-template<class Encoder>
-void DrawFocusRingRects::encode(Encoder& encoder) const
-{
-    encoder << m_rects;
-    encoder << m_width;
-    encoder << m_offset;
-    encoder << m_color;
-}
-
-template<class Decoder>
-std::optional<DrawFocusRingRects> DrawFocusRingRects::decode(Decoder& decoder)
-{
-    std::optional<Vector<FloatRect>> rects;
-    decoder >> rects;
-    if (!rects)
-        return std::nullopt;
-
-    std::optional<float> width;
-    decoder >> width;
-    if (!width)
-        return std::nullopt;
-
-    std::optional<float> offset;
-    decoder >> offset;
-    if (!offset)
-        return std::nullopt;
-
-    std::optional<Color> color;
-    decoder >> color;
-    if (!color)
-        return std::nullopt;
-
-    return {{ *rects, *width, *offset, *color }};
-}
-
-class FillRect {
-public:
-    static constexpr ItemType itemType = ItemType::FillRect;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = true;
-
-    FillRect(const FloatRect& rect)
-        : m_rect(rect)
+    DrawFocusRingRects(const Vector<FloatRect>& rects, float outlineWidth, const Color& color, float zoomFactor)
+        : m_rects(rects)
+        , m_outlineWidth(outlineWidth)
+        , m_color(color)
+        , m_zoomFactor(zoomFactor)
     {
     }
 
-    const FloatRect& rect() const { return m_rect; }
+    DrawFocusRingRects(Vector<FloatRect>&& rects, float outlineWidth, Color color, float zoomFactor)
+        : m_rects(WTF::move(rects))
+        , m_outlineWidth(outlineWidth)
+        , m_color(color)
+        , m_zoomFactor(zoomFactor)
+    {
+    }
 
-    void apply(GraphicsContext&) const;
+    const Vector<FloatRect>& rects() const LIFETIME_BOUND { return m_rects; }
+    float outlineWidth() const { return m_outlineWidth; }
+    const Color& color() const LIFETIME_BOUND { return m_color; }
+    float zoomFactor() const { return m_zoomFactor; }
 
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const { return m_rect; }
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
+
+private:
+    Vector<FloatRect> m_rects;
+    float m_outlineWidth;
+    Color m_color;
+    float m_zoomFactor;
+};
+
+class FillRect {
+public:
+    static constexpr char name[] = "fill-rect";
+
+    FillRect(const FloatRect& rect, GraphicsContext::RequiresClipToRect requiresClipToRect)
+        : m_rect(rect)
+        , m_requiresClipToRect(requiresClipToRect)
+    {
+    }
+
+    const FloatRect& rect() const LIFETIME_BOUND { return m_rect; }
+    GraphicsContext::RequiresClipToRect requiresClipToRect() const { return m_requiresClipToRect; }
+
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     FloatRect m_rect;
+    GraphicsContext::RequiresClipToRect m_requiresClipToRect;
 };
 
 class FillRectWithColor {
 public:
-    static constexpr ItemType itemType = ItemType::FillRectWithColor;
-    static constexpr bool isInlineItem = false;
-    static constexpr bool isDrawingItem = true;
+    static constexpr char name[] = "fill-rect-with-color";
 
     FillRectWithColor(const FloatRect& rect, const Color& color)
         : m_rect(rect)
@@ -1571,95 +1016,59 @@ public:
     }
 
     FloatRect rect() const { return m_rect; }
-    const Color& color() const { return m_color; }
+    const Color& color() const LIFETIME_BOUND { return m_color; }
 
-    void apply(GraphicsContext&) const;
-
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const { return m_rect; }
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<FillRectWithColor> decode(Decoder&);
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     FloatRect m_rect;
     Color m_color;
 };
 
-template<class Encoder>
-void FillRectWithColor::encode(Encoder& encoder) const
-{
-    encoder << m_rect;
-    encoder << m_color;
-}
-
-template<class Decoder>
-std::optional<FillRectWithColor> FillRectWithColor::decode(Decoder& decoder)
-{
-    std::optional<FloatRect> rect;
-    decoder >> rect;
-    if (!rect)
-        return std::nullopt;
-
-    std::optional<Color> color;
-    decoder >> color;
-    if (!color)
-        return std::nullopt;
-
-    return {{ *rect, *color }};
-}
-
 class FillRectWithGradient {
 public:
-    static constexpr ItemType itemType = ItemType::FillRectWithGradient;
-    static constexpr bool isInlineItem = false;
-    static constexpr bool isDrawingItem = true;
+    static constexpr char name[] = "fill-rect-with-gradient";
 
     WEBCORE_EXPORT FillRectWithGradient(const FloatRect&, Gradient&);
+    WEBCORE_EXPORT FillRectWithGradient(FloatRect&&, Ref<Gradient>&&);
 
-    const FloatRect& rect() const { return m_rect; }
-    const Gradient& gradient() const { return m_gradient.get(); }
+    const FloatRect& rect() const LIFETIME_BOUND { return m_rect; }
+    const Gradient& gradient() const { return m_gradient; }
 
-    void apply(GraphicsContext&) const;
-
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const { return m_rect; }
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<FillRectWithGradient> decode(Decoder&);
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     FloatRect m_rect;
-    mutable Ref<Gradient> m_gradient; // FIXME: Make this not mutable
+    const Ref<Gradient> m_gradient;
 };
 
-template<class Encoder>
-void FillRectWithGradient::encode(Encoder& encoder) const
-{
-    encoder << m_rect;
-    encoder << m_gradient.get();
-}
+class FillRectWithGradientAndSpaceTransform {
+public:
+    static constexpr char name[] = "fill-rect-with-gradient-and-space-transform";
 
-template<class Decoder>
-std::optional<FillRectWithGradient> FillRectWithGradient::decode(Decoder& decoder)
-{
-    std::optional<FloatRect> rect;
-    decoder >> rect;
-    if (!rect)
-        return std::nullopt;
+    WEBCORE_EXPORT FillRectWithGradientAndSpaceTransform(const FloatRect&, Gradient&, const AffineTransform&, GraphicsContext::RequiresClipToRect);
+    WEBCORE_EXPORT FillRectWithGradientAndSpaceTransform(FloatRect&&, Ref<Gradient>&&, AffineTransform&&, GraphicsContext::RequiresClipToRect);
 
-    auto gradient = Gradient::decode(decoder);
-    if (!gradient)
-        return std::nullopt;
+    const FloatRect& rect() const LIFETIME_BOUND { return m_rect; }
+    const Gradient& gradient() const { return m_gradient; }
+    const AffineTransform& gradientSpaceTransform() const LIFETIME_BOUND { return m_gradientSpaceTransform; }
+    GraphicsContext::RequiresClipToRect requiresClipToRect() const { return m_requiresClipToRect; }
 
-    return {{ *rect, gradient->get() }};
-}
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
+
+private:
+    FloatRect m_rect;
+    const Ref<Gradient> m_gradient;
+    AffineTransform m_gradientSpaceTransform;
+    GraphicsContext::RequiresClipToRect m_requiresClipToRect;
+};
 
 class FillCompositedRect {
 public:
-    static constexpr ItemType itemType = ItemType::FillCompositedRect;
-    static constexpr bool isInlineItem = false;
-    static constexpr bool isDrawingItem = true;
+    static constexpr char name[] = "fill-composited-rect";
 
     FillCompositedRect(const FloatRect& rect, const Color& color, CompositeOperator op, BlendMode blendMode)
         : m_rect(rect)
@@ -1670,17 +1079,12 @@ public:
     }
 
     FloatRect rect() const { return m_rect; }
-    const Color& color() const { return m_color; }
+    const Color& color() const LIFETIME_BOUND { return m_color; }
     CompositeOperator compositeOperator() const { return m_op; }
     BlendMode blendMode() const { return m_blendMode; }
 
-    void apply(GraphicsContext&) const;
-
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const { return m_rect; }
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<FillCompositedRect> decode(Decoder&);
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     FloatRect m_rect;
@@ -1689,46 +1093,9 @@ private:
     BlendMode m_blendMode;
 };
 
-template<class Encoder>
-void FillCompositedRect::encode(Encoder& encoder) const
-{
-    encoder << m_rect;
-    encoder << m_color;
-    encoder << m_op;
-    encoder << m_blendMode;
-}
-
-template<class Decoder>
-std::optional<FillCompositedRect> FillCompositedRect::decode(Decoder& decoder)
-{
-    std::optional<FloatRect> rect;
-    decoder >> rect;
-    if (!rect)
-        return std::nullopt;
-
-    std::optional<Color> color;
-    decoder >> color;
-    if (!color)
-        return std::nullopt;
-
-    std::optional<CompositeOperator> op;
-    decoder >> op;
-    if (!op)
-        return std::nullopt;
-
-    std::optional<BlendMode> blendMode;
-    decoder >> blendMode;
-    if (!blendMode)
-        return std::nullopt;
-
-    return {{ *rect, *color, *op, *blendMode }};
-}
-
 class FillRoundedRect {
 public:
-    static constexpr ItemType itemType = ItemType::FillRoundedRect;
-    static constexpr bool isInlineItem = false;
-    static constexpr bool isDrawingItem = true;
+    static constexpr char name[] = "fill-rounded-rect";
 
     FillRoundedRect(const FloatRoundedRect& rect, const Color& color, BlendMode blendMode)
         : m_rect(rect)
@@ -1737,17 +1104,12 @@ public:
     {
     }
 
-    const FloatRoundedRect& roundedRect() const { return m_rect; }
-    const Color& color() const { return m_color; }
+    const FloatRoundedRect& roundedRect() const LIFETIME_BOUND { return m_rect; }
+    const Color& color() const LIFETIME_BOUND { return m_color; }
     BlendMode blendMode() const { return m_blendMode; }
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<FillRoundedRect> decode(Decoder&);
-
-    void apply(GraphicsContext&) const;
-
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const { return m_rect.rect(); }
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     FloatRoundedRect m_rect;
@@ -1755,40 +1117,9 @@ private:
     BlendMode m_blendMode;
 };
 
-template<class Encoder>
-void FillRoundedRect::encode(Encoder& encoder) const
-{
-    encoder << m_rect;
-    encoder << m_color;
-    encoder << m_blendMode;
-}
-
-template<class Decoder>
-std::optional<FillRoundedRect> FillRoundedRect::decode(Decoder& decoder)
-{
-    std::optional<FloatRoundedRect> rect;
-    decoder >> rect;
-    if (!rect)
-        return std::nullopt;
-
-    std::optional<Color> color;
-    decoder >> color;
-    if (!color)
-        return std::nullopt;
-
-    std::optional<BlendMode> blendMode;
-    decoder >> blendMode;
-    if (!blendMode)
-        return std::nullopt;
-
-    return {{ *rect, *color, *blendMode }};
-}
-
 class FillRectWithRoundedHole {
 public:
-    static constexpr ItemType itemType = ItemType::FillRectWithRoundedHole;
-    static constexpr bool isInlineItem = false;
-    static constexpr bool isDrawingItem = true;
+    static constexpr char name[] = "fill-rect-with-rounded-hole";
 
     FillRectWithRoundedHole(const FloatRect& rect, const FloatRoundedRect& roundedHoleRect, const Color& color)
         : m_rect(rect)
@@ -1797,17 +1128,12 @@ public:
     {
     }
 
-    const FloatRect& rect() const { return m_rect; }
-    const FloatRoundedRect& roundedHoleRect() const { return m_roundedHoleRect; }
-    const Color& color() const { return m_color; }
+    const FloatRect& rect() const LIFETIME_BOUND { return m_rect; }
+    const FloatRoundedRect& roundedHoleRect() const LIFETIME_BOUND { return m_roundedHoleRect; }
+    const Color& color() const LIFETIME_BOUND { return m_color; }
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<FillRectWithRoundedHole> decode(Decoder&);
-
-    void apply(GraphicsContext&) const;
-
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const { return m_rect; }
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     FloatRect m_rect;
@@ -1815,127 +1141,12 @@ private:
     Color m_color;
 };
 
-template<class Encoder>
-void FillRectWithRoundedHole::encode(Encoder& encoder) const
-{
-    encoder << m_rect;
-    encoder << m_roundedHoleRect;
-    encoder << m_color;
-}
-
-template<class Decoder>
-std::optional<FillRectWithRoundedHole> FillRectWithRoundedHole::decode(Decoder& decoder)
-{
-    std::optional<FloatRect> rect;
-    decoder >> rect;
-    if (!rect)
-        return std::nullopt;
-
-    std::optional<FloatRoundedRect> roundedHoleRect;
-    decoder >> roundedHoleRect;
-    if (!roundedHoleRect)
-        return std::nullopt;
-
-    std::optional<Color> color;
-    decoder >> color;
-    if (!color)
-        return std::nullopt;
-
-    return {{ *rect, *roundedHoleRect, *color }};
-}
-
-#if ENABLE(INLINE_PATH_DATA)
-
-class FillLine {
-public:
-    static constexpr ItemType itemType = ItemType::FillLine;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = true;
-
-    FillLine(const LineData& lineData)
-        : m_lineData(lineData)
-    {
-    }
-
-    Path path() const { return Path::from({m_lineData}); }
-    void apply(GraphicsContext&) const;
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const { return path().fastBoundingRect(); }
-
-private:
-    LineData m_lineData;
-};
-
-class FillArc {
-public:
-    static constexpr ItemType itemType = ItemType::FillArc;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = true;
-
-    FillArc(const ArcData& arcData)
-        : m_arcData(arcData)
-    {
-    }
-
-    Path path() const { return Path::from({m_arcData}); }
-    void apply(GraphicsContext&) const;
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const { return path().fastBoundingRect(); }
-
-private:
-    ArcData m_arcData;
-};
-
-class FillQuadCurve {
-public:
-    static constexpr ItemType itemType = ItemType::FillQuadCurve;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = true;
-
-    FillQuadCurve(const QuadCurveData& quadCurveData)
-        : m_quadCurveData(quadCurveData)
-    {
-    }
-
-    Path path() const { return Path::from({m_quadCurveData}); }
-    void apply(GraphicsContext&) const;
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const { return path().fastBoundingRect(); }
-
-private:
-    QuadCurveData m_quadCurveData;
-};
-
-class FillBezierCurve {
-public:
-    static constexpr ItemType itemType = ItemType::FillBezierCurve;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = true;
-
-    FillBezierCurve(const BezierCurveData& bezierCurveData)
-        : m_bezierCurveData(bezierCurveData)
-    {
-    }
-
-    Path path() const { return Path::from({m_bezierCurveData}); }
-    void apply(GraphicsContext&) const;
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const { return path().fastBoundingRect(); }
-
-private:
-    BezierCurveData m_bezierCurveData;
-};
-
-#endif // ENABLE(INLINE_PATH_DATA)
-
 class FillPath {
 public:
-    static constexpr ItemType itemType = ItemType::FillPath;
-    static constexpr bool isInlineItem = false;
-    static constexpr bool isDrawingItem = true;
+    static constexpr char name[] = "fill-path";
 
     FillPath(Path&& path)
-        : m_path(WTFMove(path))
+        : m_path(WTF::move(path))
     {
     }
 
@@ -1944,42 +1155,18 @@ public:
     {
     }
 
-    const Path& path() const { return m_path; }
+    const Path& path() const LIFETIME_BOUND { return m_path; }
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<FillPath> decode(Decoder&);
-
-    void apply(GraphicsContext&) const;
-
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const { return m_path.fastBoundingRect(); }
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     Path m_path;
 };
 
-template<class Encoder>
-void FillPath::encode(Encoder& encoder) const
-{
-    encoder << m_path;
-}
-
-template<class Decoder>
-std::optional<FillPath> FillPath::decode(Decoder& decoder)
-{
-    std::optional<Path> path;
-    decoder >> path;
-    if (!path)
-        return std::nullopt;
-
-    return {{ WTFMove(*path) }};
-}
-
 class FillEllipse {
 public:
-    static constexpr ItemType itemType = ItemType::FillEllipse;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = true;
+    static constexpr char name[] = "fill-ellipse";
 
     FillEllipse(const FloatRect& rect)
         : m_rect(rect)
@@ -1988,166 +1175,16 @@ public:
 
     FloatRect rect() const { return m_rect; }
 
-    void apply(GraphicsContext&) const;
-
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const { return m_rect; }
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     FloatRect m_rect;
 };
 
-class GetPixelBuffer {
-public:
-    static constexpr ItemType itemType = ItemType::GetPixelBuffer;
-    static constexpr bool isInlineItem = false;
-    static constexpr bool isDrawingItem = false;
-
-    GetPixelBuffer(PixelBufferFormat outputFormat, const IntRect& srcRect)
-        : m_srcRect(srcRect)
-        , m_outputFormat(WTFMove(outputFormat))
-    {
-    }
-
-    // Explicit destructor added to force non-trivial destructor on all platforms
-    // as the encoding logic currently hardcodes which display list item types need
-    // out of line treatment rather than using the isInlineItem constant.
-    ~GetPixelBuffer() { }
-
-    const PixelBufferFormat& outputFormat() const { return m_outputFormat; }
-    IntRect srcRect() const { return m_srcRect; }
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<GetPixelBuffer> decode(Decoder&);
-
-private:
-    IntRect m_srcRect;
-    PixelBufferFormat m_outputFormat;
-};
-
-template<class Encoder>
-void GetPixelBuffer::encode(Encoder& encoder) const
-{
-    encoder << m_srcRect;
-    encoder << m_outputFormat;
-}
-
-template<class Decoder>
-std::optional<GetPixelBuffer> GetPixelBuffer::decode(Decoder& decoder)
-{
-    std::optional<IntRect> srcRect;
-    decoder >> srcRect;
-    if (!srcRect)
-        return std::nullopt;
-
-    std::optional<PixelBufferFormat> outputFormat;
-    decoder >> outputFormat;
-    if (!outputFormat)
-        return std::nullopt;
-
-    return {{ WTFMove(*outputFormat), *srcRect }};
-}
-
-class PutPixelBuffer {
-public:
-    static constexpr ItemType itemType = ItemType::PutPixelBuffer;
-    static constexpr bool isInlineItem = false;
-    static constexpr bool isDrawingItem = true;
-
-    WEBCORE_EXPORT PutPixelBuffer(const PixelBuffer&, const IntRect& srcRect, const IntPoint& destPoint, AlphaPremultiplication destFormat);
-    WEBCORE_EXPORT PutPixelBuffer(PixelBuffer&&, const IntRect& srcRect, const IntPoint& destPoint, AlphaPremultiplication destFormat);
-
-    PutPixelBuffer(const PutPixelBuffer&);
-    PutPixelBuffer(PutPixelBuffer&&) = default;
-    PutPixelBuffer& operator=(const PutPixelBuffer&);
-    PutPixelBuffer& operator=(PutPixelBuffer&&) = default;
-
-    void swap(PutPixelBuffer&);
-
-    const PixelBuffer& pixelBuffer() const { return m_pixelBuffer; }
-    IntRect srcRect() const { return m_srcRect; }
-    IntPoint destPoint() const { return m_destPoint; }
-    AlphaPremultiplication destFormat() const { return m_destFormat; }
-
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const { return std::nullopt; }
-    std::optional<FloatRect> globalBounds() const { return {{ m_destPoint, m_srcRect.size() }}; }
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<PutPixelBuffer> decode(Decoder&);
-
-private:
-    IntRect m_srcRect;
-    IntPoint m_destPoint;
-    PixelBuffer m_pixelBuffer;
-    AlphaPremultiplication m_destFormat;
-};
-
-template<class Encoder>
-void PutPixelBuffer::encode(Encoder& encoder) const
-{
-    encoder << m_pixelBuffer;
-    encoder << m_srcRect;
-    encoder << m_destPoint;
-    encoder << m_destFormat;
-}
-
-template<class Decoder>
-std::optional<PutPixelBuffer> PutPixelBuffer::decode(Decoder& decoder)
-{
-    std::optional<PixelBuffer> pixelBuffer;
-    std::optional<IntRect> srcRect;
-    std::optional<IntPoint> destPoint;
-    std::optional<AlphaPremultiplication> destFormat;
-
-    decoder >> pixelBuffer;
-    if (!pixelBuffer)
-        return std::nullopt;
-
-    decoder >> srcRect;
-    if (!srcRect)
-        return std::nullopt;
-
-    decoder >> destPoint;
-    if (!destPoint)
-        return std::nullopt;
-
-    decoder >> destFormat;
-    if (!destFormat)
-        return std::nullopt;
-
-    return {{ WTFMove(*pixelBuffer), *srcRect, *destPoint, *destFormat }};
-}
-
-#if ENABLE(VIDEO)
-class PaintFrameForMedia {
-public:
-    static constexpr ItemType itemType = ItemType::PaintFrameForMedia;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = true;
-
-    PaintFrameForMedia(MediaPlayer&, const FloatRect& destination);
-
-    const FloatRect& destination() const { return m_destination; }
-    MediaPlayerIdentifier identifier() const { return m_identifier; }
-
-    bool isValid() const { return m_identifier.isValid(); }
-
-    NO_RETURN_DUE_TO_ASSERT void apply(GraphicsContext&) const;
-
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const { return std::nullopt; }
-    std::optional<FloatRect> globalBounds() const { return { m_destination }; }
-
-private:
-    MediaPlayerIdentifier m_identifier;
-    FloatRect m_destination;
-};
-#endif
-
 class StrokeRect {
 public:
-    static constexpr ItemType itemType = ItemType::StrokeRect;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = true;
+    static constexpr char name[] = "stroke-rect";
 
     StrokeRect(const FloatRect& rect, float lineWidth)
         : m_rect(rect)
@@ -2158,120 +1195,20 @@ public:
     FloatRect rect() const { return m_rect; }
     float lineWidth() const { return m_lineWidth; }
 
-    void apply(GraphicsContext&) const;
-
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const;
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     FloatRect m_rect;
     float m_lineWidth;
 };
 
-class StrokeLine {
-public:
-    static constexpr ItemType itemType = ItemType::StrokeLine;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = true;
-
-#if ENABLE(INLINE_PATH_DATA)
-    StrokeLine(const LineData& lineData)
-        : m_start(lineData.start)
-        , m_end(lineData.end)
-    {
-    }
-#endif
-    StrokeLine(const FloatPoint& start, const FloatPoint& end)
-        : m_start(start)
-        , m_end(end)
-    {
-    }
-
-    FloatPoint start() const { return m_start; }
-    FloatPoint end() const { return m_end; }
-
-    void apply(GraphicsContext&) const;
-
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const;
-
-private:
-    FloatPoint m_start;
-    FloatPoint m_end;
-};
-
-#if ENABLE(INLINE_PATH_DATA)
-
-class StrokeArc {
-public:
-    static constexpr ItemType itemType = ItemType::StrokeArc;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = true;
-
-    StrokeArc(const ArcData& arcData)
-        : m_arcData(arcData)
-    {
-    }
-
-    Path path() const { return Path::from({m_arcData}); }
-    void apply(GraphicsContext&) const;
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const;
-
-private:
-    ArcData m_arcData;
-};
-
-class StrokeQuadCurve {
-public:
-    static constexpr ItemType itemType = ItemType::StrokeQuadCurve;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = true;
-
-    StrokeQuadCurve(const QuadCurveData& quadCurveData)
-        : m_quadCurveData(quadCurveData)
-    {
-    }
-
-    Path path() const { return Path::from({m_quadCurveData}); }
-    void apply(GraphicsContext&) const;
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const;
-
-private:
-    QuadCurveData m_quadCurveData;
-};
-
-class StrokeBezierCurve {
-public:
-    static constexpr ItemType itemType = ItemType::StrokeBezierCurve;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = true;
-
-    StrokeBezierCurve(const BezierCurveData& bezierCurveData)
-        : m_bezierCurveData(bezierCurveData)
-    {
-    }
-
-    Path path() const { return Path::from({m_bezierCurveData}); }
-    void apply(GraphicsContext&) const;
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const;
-
-private:
-    BezierCurveData m_bezierCurveData;
-};
-
-#endif // ENABLE(INLINE_PATH_DATA)
-
 class StrokePath {
 public:
-    static constexpr ItemType itemType = ItemType::StrokePath;
-    static constexpr bool isInlineItem = false;
-    static constexpr bool isDrawingItem = true;
+    static constexpr char name[] = "stroke-path";
 
     StrokePath(Path&& path)
-        : m_path(WTFMove(path))
+        : m_path(WTF::move(path))
     {
     }
 
@@ -2280,54 +1217,28 @@ public:
     {
     }
 
-    const Path& path() const { return m_path; }
+    const Path& path() const LIFETIME_BOUND { return m_path; }
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<StrokePath> decode(Decoder&);
-
-    void apply(GraphicsContext&) const;
-
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const;
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     Path m_path;
 };
 
-template<class Encoder>
-void StrokePath::encode(Encoder& encoder) const
-{
-    encoder << m_path;
-}
-
-template<class Decoder>
-std::optional<StrokePath> StrokePath::decode(Decoder& decoder)
-{
-    std::optional<Path> path;
-    decoder >> path;
-    if (!path)
-        return std::nullopt;
-
-    return {{ WTFMove(*path) }};
-}
-
 class StrokeEllipse {
 public:
-    static constexpr ItemType itemType = ItemType::StrokeEllipse;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = true;
+    static constexpr char name[] = "stroke-ellipse";
 
     StrokeEllipse(const FloatRect& rect)
         : m_rect(rect)
     {
     }
 
-    const FloatRect& rect() const { return m_rect; }
+    const FloatRect& rect() const LIFETIME_BOUND { return m_rect; }
 
-    void apply(GraphicsContext&) const;
-
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const;
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     FloatRect m_rect;
@@ -2335,53 +1246,67 @@ private:
 
 class ClearRect {
 public:
-    static constexpr ItemType itemType = ItemType::ClearRect;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = true;
+    static constexpr char name[] = "clear-rect";
 
     ClearRect(const FloatRect& rect)
         : m_rect(rect)
     {
     }
 
-    const FloatRect& rect() const { return m_rect; }
+    const FloatRect& rect() const LIFETIME_BOUND { return m_rect; }
 
-    void apply(GraphicsContext&) const;
-
-    std::optional<FloatRect> globalBounds() const { return std::nullopt; }
-    std::optional<FloatRect> localBounds(const GraphicsContext&) const { return m_rect; }
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     FloatRect m_rect;
+};
+
+class DrawControlPart {
+public:
+    static constexpr char name[] = "draw-control-part";
+
+    WEBCORE_EXPORT DrawControlPart(ControlPart&, const FloatRoundedRect& borderRect, float deviceScaleFactor, const ControlStyle&);
+
+    ControlPart& part() const { return m_part; }
+    FloatRoundedRect borderRect() const { return m_borderRect; }
+    float deviceScaleFactor() const { return m_deviceScaleFactor; }
+    const ControlStyle& style() const LIFETIME_BOUND { return m_style; }
+    StyleAppearance type() const { return m_part->type(); }
+
+    WEBCORE_EXPORT void apply(GraphicsContext&, ControlFactory&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
+
+private:
+    const Ref<ControlPart> m_part;
+    FloatRoundedRect m_borderRect;
+    float m_deviceScaleFactor;
+    ControlStyle m_style;
 };
 
 #if USE(CG)
 
 class ApplyStrokePattern {
 public:
-    static constexpr ItemType itemType = ItemType::ApplyStrokePattern;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = false;
+    static constexpr char name[] = "apply-stroke-pattern";
 
-    void apply(GraphicsContext&) const;
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const { }
 };
 
 class ApplyFillPattern {
 public:
-    static constexpr ItemType itemType = ItemType::ApplyFillPattern;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = false;
+    static constexpr char name[] = "apply-fill-pattern";
 
-    void apply(GraphicsContext&) const;
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const { }
 };
 
 #endif
 
 class ApplyDeviceScaleFactor {
 public:
-    static constexpr ItemType itemType = ItemType::ApplyDeviceScaleFactor;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = false;
+    static constexpr char name[] = "apply-device-scale-factor";
 
     ApplyDeviceScaleFactor(float scaleFactor)
         : m_scaleFactor(scaleFactor)
@@ -2390,239 +1315,59 @@ public:
 
     float scaleFactor() const { return m_scaleFactor; }
 
-    void apply(GraphicsContext&) const;
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
     float m_scaleFactor { 1 };
 };
 
-class FlushContext {
+class BeginPage {
 public:
-    static constexpr ItemType itemType = ItemType::FlushContext;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = false;
+    static constexpr char name[] = "begin-page";
 
-    explicit FlushContext(FlushIdentifier identifier)
-        : m_identifier(identifier)
+    BeginPage(const FloatRect& pageRect)
+        : m_pageRect(pageRect)
     {
     }
 
-    FlushIdentifier identifier() const { return m_identifier; }
-    bool isValid() const { return m_identifier.isValid(); }
+    const FloatRect& pageRect() const LIFETIME_BOUND { return m_pageRect; }
 
-    void apply(GraphicsContext&) const;
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
-    FlushIdentifier m_identifier;
+    FloatRect m_pageRect;
 };
 
-// FIXME: This should be refactored so that the command to "switch to the next item buffer"
-// is not itself a display list item.
-class MetaCommandChangeItemBuffer {
+class EndPage {
 public:
-    static constexpr ItemType itemType = ItemType::MetaCommandChangeItemBuffer;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = false;
+    static constexpr char name[] = "end-page";
 
-    explicit MetaCommandChangeItemBuffer(ItemBufferIdentifier identifier)
-        : m_identifier(identifier)
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const { }
+};
+
+class SetURLForRect {
+public:
+    static constexpr char name[] = "set-URL-for-rect";
+
+    SetURLForRect(const URL& link, const FloatRect& destRect)
+        : m_link(link)
+        , m_destRect(destRect)
     {
     }
 
-    ItemBufferIdentifier identifier() const { return m_identifier; }
-    bool isValid() const { return m_identifier.isValid(); }
+    const URL& link() const LIFETIME_BOUND { return m_link; }
+    const FloatRect& destRect() const LIFETIME_BOUND { return m_destRect; }
+
+    WEBCORE_EXPORT void apply(GraphicsContext&) const;
+    void dump(TextStream&, OptionSet<AsTextFlag>) const;
 
 private:
-    ItemBufferIdentifier m_identifier;
+    URL m_link;
+    FloatRect m_destRect;
 };
-
-class MetaCommandChangeDestinationImageBuffer {
-public:
-    static constexpr ItemType itemType = ItemType::MetaCommandChangeDestinationImageBuffer;
-    static constexpr bool isInlineItem = true;
-    static constexpr bool isDrawingItem = false;
-
-    explicit MetaCommandChangeDestinationImageBuffer(RenderingResourceIdentifier identifier)
-        : m_identifier(identifier)
-    {
-    }
-
-    RenderingResourceIdentifier identifier() const { return m_identifier; }
-    bool isValid() const { return m_identifier.isValid(); }
-
-private:
-    RenderingResourceIdentifier m_identifier;
-};
-
-using DisplayListItem = Variant
-    < ApplyDeviceScaleFactor
-    , BeginClipToDrawingCommands
-    , BeginTransparencyLayer
-    , ClearRect
-    , ClearShadow
-    , Clip
-    , ClipOut
-    , ClipOutToPath
-    , ClipPath
-    , ClipToImageBuffer
-    , ConcatenateCTM
-    , DrawDotsForDocumentMarker
-    , DrawEllipse
-    , DrawFocusRingPath
-    , DrawFocusRingRects
-    , DrawGlyphs
-    , DrawImageBuffer
-    , DrawLine
-    , DrawLinesForText
-    , DrawNativeImage
-    , DrawPath
-    , DrawPattern
-    , DrawRect
-    , EndClipToDrawingCommands
-    , EndTransparencyLayer
-    , FillCompositedRect
-    , FillEllipse
-    , FillPath
-    , FillRect
-    , FillRectWithColor
-    , FillRectWithGradient
-    , FillRectWithRoundedHole
-    , FillRoundedRect
-    , FlushContext
-    , GetPixelBuffer
-    , MetaCommandChangeDestinationImageBuffer
-    , MetaCommandChangeItemBuffer
-    , PutPixelBuffer
-    , Restore
-    , Rotate
-    , Save
-    , Scale
-    , SetCTM
-    , SetInlineFillColor
-    , SetInlineFillGradient
-    , SetInlineStrokeColor
-    , SetLineCap
-    , SetLineDash
-    , SetLineJoin
-    , SetMiterLimit
-    , SetState
-    , SetStrokeThickness
-    , StrokeEllipse
-    , StrokeLine
-    , StrokePath
-    , StrokeRect
-    , Translate
-
-#if ENABLE(INLINE_PATH_DATA)
-    , FillLine
-    , FillArc
-    , FillQuadCurve
-    , FillBezierCurve
-    , StrokeArc
-    , StrokeQuadCurve
-    , StrokeBezierCurve
-#endif
-
-#if ENABLE(VIDEO)
-    , PaintFrameForMedia
-#endif
-
-#if USE(CG)
-    , ApplyFillPattern
-    , ApplyStrokePattern
-#endif
->;
-
-size_t paddedSizeOfTypeAndItemInBytes(const DisplayListItem&);
-ItemType displayListItemType(const DisplayListItem&);
-
-TextStream& operator<<(TextStream&, ItemHandle);
 
 } // namespace DisplayList
 } // namespace WebCore
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::DisplayList::ItemType> {
-    using values = EnumValues<
-    WebCore::DisplayList::ItemType,
-    WebCore::DisplayList::ItemType::Save,
-    WebCore::DisplayList::ItemType::Restore,
-    WebCore::DisplayList::ItemType::Translate,
-    WebCore::DisplayList::ItemType::Rotate,
-    WebCore::DisplayList::ItemType::Scale,
-    WebCore::DisplayList::ItemType::SetCTM,
-    WebCore::DisplayList::ItemType::ConcatenateCTM,
-    WebCore::DisplayList::ItemType::SetInlineFillGradient,
-    WebCore::DisplayList::ItemType::SetInlineFillColor,
-    WebCore::DisplayList::ItemType::SetInlineStrokeColor,
-    WebCore::DisplayList::ItemType::SetStrokeThickness,
-    WebCore::DisplayList::ItemType::SetState,
-    WebCore::DisplayList::ItemType::SetLineCap,
-    WebCore::DisplayList::ItemType::SetLineDash,
-    WebCore::DisplayList::ItemType::SetLineJoin,
-    WebCore::DisplayList::ItemType::SetMiterLimit,
-    WebCore::DisplayList::ItemType::ClearShadow,
-    WebCore::DisplayList::ItemType::Clip,
-    WebCore::DisplayList::ItemType::ClipOut,
-    WebCore::DisplayList::ItemType::ClipToImageBuffer,
-    WebCore::DisplayList::ItemType::ClipOutToPath,
-    WebCore::DisplayList::ItemType::ClipPath,
-    WebCore::DisplayList::ItemType::BeginClipToDrawingCommands,
-    WebCore::DisplayList::ItemType::EndClipToDrawingCommands,
-    WebCore::DisplayList::ItemType::DrawGlyphs,
-    WebCore::DisplayList::ItemType::DrawImageBuffer,
-    WebCore::DisplayList::ItemType::DrawNativeImage,
-    WebCore::DisplayList::ItemType::DrawPattern,
-    WebCore::DisplayList::ItemType::DrawRect,
-    WebCore::DisplayList::ItemType::DrawLine,
-    WebCore::DisplayList::ItemType::DrawLinesForText,
-    WebCore::DisplayList::ItemType::DrawDotsForDocumentMarker,
-    WebCore::DisplayList::ItemType::DrawEllipse,
-    WebCore::DisplayList::ItemType::DrawPath,
-    WebCore::DisplayList::ItemType::DrawFocusRingPath,
-    WebCore::DisplayList::ItemType::DrawFocusRingRects,
-    WebCore::DisplayList::ItemType::FillRect,
-    WebCore::DisplayList::ItemType::FillRectWithColor,
-    WebCore::DisplayList::ItemType::FillRectWithGradient,
-    WebCore::DisplayList::ItemType::FillCompositedRect,
-    WebCore::DisplayList::ItemType::FillRoundedRect,
-    WebCore::DisplayList::ItemType::FillRectWithRoundedHole,
-#if ENABLE(INLINE_PATH_DATA)
-    WebCore::DisplayList::ItemType::FillLine,
-    WebCore::DisplayList::ItemType::FillArc,
-    WebCore::DisplayList::ItemType::FillQuadCurve,
-    WebCore::DisplayList::ItemType::FillBezierCurve,
-#endif
-    WebCore::DisplayList::ItemType::FillPath,
-    WebCore::DisplayList::ItemType::FillEllipse,
-    WebCore::DisplayList::ItemType::FlushContext,
-    WebCore::DisplayList::ItemType::MetaCommandChangeDestinationImageBuffer,
-    WebCore::DisplayList::ItemType::MetaCommandChangeItemBuffer,
-    WebCore::DisplayList::ItemType::GetPixelBuffer,
-    WebCore::DisplayList::ItemType::PutPixelBuffer,
-#if ENABLE(VIDEO)
-    WebCore::DisplayList::ItemType::PaintFrameForMedia,
-#endif
-    WebCore::DisplayList::ItemType::StrokeRect,
-    WebCore::DisplayList::ItemType::StrokeLine,
-#if ENABLE(INLINE_PATH_DATA)
-    WebCore::DisplayList::ItemType::StrokeArc,
-    WebCore::DisplayList::ItemType::StrokeQuadCurve,
-    WebCore::DisplayList::ItemType::StrokeBezierCurve,
-#endif
-    WebCore::DisplayList::ItemType::StrokePath,
-    WebCore::DisplayList::ItemType::StrokeEllipse,
-    WebCore::DisplayList::ItemType::ClearRect,
-    WebCore::DisplayList::ItemType::BeginTransparencyLayer,
-    WebCore::DisplayList::ItemType::EndTransparencyLayer,
-#if USE(CG)
-    WebCore::DisplayList::ItemType::ApplyStrokePattern,
-    WebCore::DisplayList::ItemType::ApplyFillPattern,
-#endif
-    WebCore::DisplayList::ItemType::ApplyDeviceScaleFactor
-    >;
-
-};
-
-} // namespace WTF

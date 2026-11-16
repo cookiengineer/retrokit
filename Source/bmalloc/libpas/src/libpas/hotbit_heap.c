@@ -38,29 +38,29 @@ pas_intrinsic_heap_support hotbit_common_primitive_heap_support =
     PAS_INTRINSIC_HEAP_SUPPORT_INITIALIZER;
 
 pas_heap hotbit_common_primitive_heap =
-    PAS_INTRINSIC_PRIMITIVE_HEAP_INITIALIZER(
+    PAS_INTRINSIC_HEAP_INITIALIZER(
         &hotbit_common_primitive_heap,
         PAS_SIMPLE_TYPE_CREATE(1, 1),
         hotbit_common_primitive_heap_support,
         HOTBIT_HEAP_CONFIG,
-        &hotbit_intrinsic_primitive_runtime_config.base);
+        &hotbit_intrinsic_runtime_config.base);
 
 pas_allocator_counts hotbit_allocator_counts;
 
-void* hotbit_try_allocate(size_t size)
+void* hotbit_try_allocate(size_t size, pas_allocation_mode allocation_mode)
 {
-    return hotbit_try_allocate_inline(size);
+    return hotbit_try_allocate_inline(size, allocation_mode);
 }
 
-void* hotbit_try_allocate_with_alignment(size_t size, size_t alignment)
+void* hotbit_try_allocate_with_alignment(size_t size, size_t alignment, pas_allocation_mode allocation_mode)
 {
-    return hotbit_try_allocate_with_alignment_inline(size, alignment);
+    return hotbit_try_allocate_with_alignment_inline(size, alignment, allocation_mode);
 }
 
 void* hotbit_try_reallocate(void* old_ptr, size_t new_size,
-                             pas_reallocate_free_mode free_mode)
+                             pas_reallocate_free_mode free_mode, pas_allocation_mode allocation_mode)
 {
-    return hotbit_try_reallocate_inline(old_ptr, new_size, free_mode);
+    return hotbit_try_reallocate_inline(old_ptr, new_size, free_mode, allocation_mode);
 }
 
 void hotbit_deallocate(void* ptr)

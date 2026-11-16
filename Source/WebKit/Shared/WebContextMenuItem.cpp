@@ -31,6 +31,7 @@
 
 #include "APIArray.h"
 #include <WebCore/ContextMenuItem.h>
+#include <wtf/NeverDestroyed.h>
 
 namespace WebKit {
 
@@ -44,35 +45,33 @@ Ref<WebContextMenuItem> WebContextMenuItem::create(const String& title, bool ena
     size_t size = submenuItems->size();
 
     Vector<WebContextMenuItemData> submenu;
-    submenu.reserveCapacity(size);
-
+    submenu.reserveInitialCapacity(size);
     for (size_t i = 0; i < size; ++i) {
-        WebContextMenuItem* item = submenuItems->at<WebContextMenuItem>(i);
-        if (item)
+        if (RefPtr item = submenuItems->at<WebContextMenuItem>(i))
             submenu.append(item->data());
     }
+    submenu.shrinkToFit();
 
-    return adoptRef(*new WebContextMenuItem(WebContextMenuItemData(WebCore::ContextMenuItemTagNoAction, title, enabled, submenu))).leakRef();
+    bool checked = false;
+    unsigned indentationLevel = 0;
+    return adoptRef(*new WebContextMenuItem(WebContextMenuItemData(WebCore::ContextMenuItemType::Submenu, WebCore::ContextMenuItemTagNoAction, String { title }, enabled, checked, indentationLevel, WTF::move(submenu))));
 }
 
 WebContextMenuItem* WebContextMenuItem::separatorItem()
 {
-    static WebContextMenuItem* separatorItem = new WebContextMenuItem(WebContextMenuItemData(WebCore::SeparatorType, WebCore::ContextMenuItemTagNoAction, String(), true, false));
-    return separatorItem;
+    static NeverDestroyed<Ref<WebContextMenuItem>> separatorItem = adoptRef(*new WebContextMenuItem(WebContextMenuItemData(WebCore::ContextMenuItemType::Separator, WebCore::ContextMenuItemTagNoAction, String(), true, false)));
+    return separatorItem->ptr();
 }
 
 Ref<API::Array> WebContextMenuItem::submenuItemsAsAPIArray() const
 {
-    if (m_webContextMenuItemData.type() != WebCore::SubmenuType)
+    if (m_webContextMenuItemData.type() != WebCore::ContextMenuItemType::Submenu)
         return API::Array::create();
 
-    Vector<RefPtr<API::Object>> submenuItems;
-    submenuItems.reserveInitialCapacity(m_webContextMenuItemData.submenu().size());
-
-    for (const auto& item : m_webContextMenuItemData.submenu())
-        submenuItems.uncheckedAppend(WebContextMenuItem::create(item));
-
-    return API::Array::create(WTFMove(submenuItems));
+    auto submenuItems = m_webContextMenuItemData.submenu().map([](auto& item) -> RefPtr<API::Object> {
+        return WebContextMenuItem::create(item);
+    });
+    return API::Array::create(WTF::move(submenuItems));
 }
 
 API::Object* WebContextMenuItem::userData() const

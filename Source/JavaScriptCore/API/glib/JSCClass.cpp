@@ -31,20 +31,21 @@
 #include "JSCValuePrivate.h"
 #include "JSCallbackObject.h"
 #include "JSRetainPtr.h"
+#include <wtf/glib/GSpanExtras.h>
 #include <wtf/glib/GUniquePtr.h>
 #include <wtf/glib/WTFGType.h>
 
 /**
- * SECTION: JSCClass
+ * JSCClass:
  * @short_description: JavaScript custom class
  * @title: JSCClass
  * @see_also: JSCContext
  *
- * A JSSClass represents a custom JavaScript class registered by the user in a #JSCContext.
- * It allows to create new JavaScripts objects whose instances are created by the user using
+ * A JSCClass represents a custom JavaScript class registered by the user in a #JSCContext.
+ * It allows creating new JavaScript objects whose instances are created by the user using
  * this API.
- * It's possible to add constructors, properties and methods for a JSSClass by providing
- * #GCallback<!-- -->s to implement them.
+ * It's possible to add constructors, properties and methods for a JSCClass by providing
+ * #GCallback functions to implement them.
  */
 
 enum {
@@ -65,17 +66,13 @@ typedef struct _JSCClassPrivate {
     JSC::Weak<JSC::JSObject> prototype;
 } JSCClassPrivate;
 
-struct _JSCClass {
-    GObject parent;
-
-    JSCClassPrivate* priv;
-};
-
+#if !ENABLE(2022_GLIB_API)
 struct _JSCClassClass {
     GObjectClass parent_class;
 };
+#endif
 
-WEBKIT_DEFINE_TYPE(JSCClass, jsc_class, G_TYPE_OBJECT)
+WEBKIT_DEFINE_FINAL_TYPE(JSCClass, jsc_class, G_TYPE_OBJECT, GObject)
 
 class VTableExceptionHandler {
 public:
@@ -110,27 +107,28 @@ private:
 
 static bool isWrappedObject(JSC::JSObject* jsObject)
 {
-    JSC::JSGlobalObject* globalObject = jsObject->globalObject();
     if (jsObject->isGlobalObject())
-        return jsObject->inherits<JSC::JSCallbackObject<JSC::JSAPIWrapperGlobalObject>>(globalObject->vm());
-    return jsObject->inherits<JSC::JSCallbackObject<JSC::JSAPIWrapperObject>>(globalObject->vm());
+        return jsObject->inherits<JSC::JSCallbackObject<JSC::JSAPIWrapperGlobalObject>>();
+    return jsObject->inherits<JSC::JSCallbackObject<JSC::JSAPIWrapperObject>>();
 }
 
 static JSClassRef wrappedObjectClass(JSC::JSObject* jsObject)
 {
     ASSERT(isWrappedObject(jsObject));
     if (jsObject->isGlobalObject())
-        return JSC::jsCast<JSC::JSCallbackObject<JSC::JSAPIWrapperGlobalObject>*>(jsObject)->classRef();
-    return JSC::jsCast<JSC::JSCallbackObject<JSC::JSAPIWrapperObject>*>(jsObject)->classRef();
+        return uncheckedDowncast<JSC::JSCallbackObject<JSC::JSAPIWrapperGlobalObject>>(jsObject)->classRef();
+    return uncheckedDowncast<JSC::JSCallbackObject<JSC::JSAPIWrapperObject>>(jsObject)->classRef();
 }
 
 static GRefPtr<JSCContext> jscContextForObject(JSC::JSObject* jsObject)
 {
     ASSERT(isWrappedObject(jsObject));
-    JSC::JSGlobalObject* globalObject = jsObject->globalObject();
+    JSC::JSGlobalObject* globalObject = jsObject->realmMayBeNull();
+    if (!globalObject)
+        return nullptr;
     if (jsObject->isGlobalObject()) {
         if (auto* globalScopeExtension = globalObject->globalScopeExtension())
-            globalObject = JSC::JSScope::objectAtScope(globalScopeExtension)->globalObject();
+            globalObject = JSC::JSScope::objectAtScope(globalScopeExtension)->realm();
     }
     return jscContextGetOrCreate(toGlobalRef(globalObject));
 }
@@ -149,8 +147,8 @@ static JSValueRef getProperty(JSContextRef callerContext, JSObjectRef object, JS
 
     VTableExceptionHandler exceptionHandler(context.get(), exception);
 
-    JSClassRef jsClass = wrappedObjectClass(jsObject);
-    for (auto* jscClass = jscContextGetRegisteredClass(context.get(), jsClass); jscClass; jscClass = jscClass->priv->parentClass) {
+    RefPtr jsClass = wrappedObjectClass(jsObject);
+    for (auto* jscClass = jscContextGetRegisteredClass(context.get(), jsClass.get()); jscClass; jscClass = jscClass->priv->parentClass) {
         if (!jscClass->priv->vtable)
             continue;
 
@@ -177,8 +175,8 @@ static bool setProperty(JSContextRef callerContext, JSObjectRef object, JSString
     VTableExceptionHandler exceptionHandler(context.get(), exception);
 
     GRefPtr<JSCValue> propertyValue;
-    JSClassRef jsClass = wrappedObjectClass(jsObject);
-    for (auto* jscClass = jscContextGetRegisteredClass(context.get(), jsClass); jscClass; jscClass = jscClass->priv->parentClass) {
+    RefPtr jsClass = wrappedObjectClass(jsObject);
+    for (auto* jscClass = jscContextGetRegisteredClass(context.get(), jsClass.get()); jscClass; jscClass = jscClass->priv->parentClass) {
         if (!jscClass->priv->vtable)
             continue;
 
@@ -204,8 +202,8 @@ static bool hasProperty(JSContextRef callerContext, JSObjectRef object, JSString
     if (!instance)
         return false;
 
-    JSClassRef jsClass = wrappedObjectClass(jsObject);
-    for (auto* jscClass = jscContextGetRegisteredClass(context.get(), jsClass); jscClass; jscClass = jscClass->priv->parentClass) {
+    RefPtr jsClass = wrappedObjectClass(jsObject);
+    for (auto* jscClass = jscContextGetRegisteredClass(context.get(), jsClass.get()); jscClass; jscClass = jscClass->priv->parentClass) {
         if (!jscClass->priv->vtable)
             continue;
 
@@ -232,8 +230,8 @@ static bool deleteProperty(JSContextRef callerContext, JSObjectRef object, JSStr
 
     VTableExceptionHandler exceptionHandler(context.get(), exception);
 
-    JSClassRef jsClass = wrappedObjectClass(jsObject);
-    for (auto* jscClass = jscContextGetRegisteredClass(context.get(), jsClass); jscClass; jscClass = jscClass->priv->parentClass) {
+    RefPtr jsClass = wrappedObjectClass(jsObject);
+    for (auto* jscClass = jscContextGetRegisteredClass(context.get(), jsClass.get()); jscClass; jscClass = jscClass->priv->parentClass) {
         if (!jscClass->priv->vtable)
             continue;
 
@@ -257,16 +255,15 @@ static void getPropertyNames(JSContextRef callerContext, JSObjectRef object, JSP
     if (!instance)
         return;
 
-    JSClassRef jsClass = wrappedObjectClass(jsObject);
-    for (auto* jscClass = jscContextGetRegisteredClass(context.get(), jsClass); jscClass; jscClass = jscClass->priv->parentClass) {
+    RefPtr jsClass = wrappedObjectClass(jsObject);
+    for (auto* jscClass = jscContextGetRegisteredClass(context.get(), jsClass.get()); jscClass; jscClass = jscClass->priv->parentClass) {
         if (!jscClass->priv->vtable)
             continue;
 
         if (auto* enumeratePropertiesFunction = jscClass->priv->vtable->enumerate_properties) {
             GUniquePtr<char*> properties(enumeratePropertiesFunction(jscClass, context.get(), instance));
             if (properties) {
-                unsigned i = 0;
-                while (const auto* name = properties.get()[i++]) {
+                for (auto* name : span(properties)) {
                     JSRetainPtr<JSStringRef> propertyName(Adopt, JSStringCreateWithUTF8CString(name));
                     JSPropertyNameAccumulatorAddName(propertyNames, propertyName.get());
                 }
@@ -338,8 +335,7 @@ static void jsc_class_class_init(JSCClassClass* klass)
         PROP_CONTEXT,
         g_param_spec_object(
             "context",
-            "JSCContext",
-            "JSC Context",
+            nullptr, nullptr,
             JSC_TYPE_CONTEXT,
             static_cast<GParamFlags>(WEBKIT_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY)));
 
@@ -352,8 +348,7 @@ static void jsc_class_class_init(JSCClassClass* klass)
         PROP_NAME,
         g_param_spec_string(
             "name",
-            "Name",
-            "The class name",
+            nullptr, nullptr,
             nullptr,
             static_cast<GParamFlags>(WEBKIT_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY)));
 
@@ -366,8 +361,7 @@ static void jsc_class_class_init(JSCClassClass* klass)
         PROP_PARENT,
         g_param_spec_object(
             "parent",
-            "Partent",
-            "The parent class",
+            nullptr, nullptr,
             JSC_TYPE_CLASS,
             static_cast<GParamFlags>(WEBKIT_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY)));
 }
@@ -424,7 +418,7 @@ static void jsc_class_class_init(JSCClassClass* klass)
  * The type of delete_property in #JSCClassVTable. This is only required when you need to handle
  * external properties not added to the prototype.
  *
- * Returns: %TRUE if handled or %FALSE to to forward the request to the parent class or prototype chain.
+ * Returns: %TRUE if handled or %FALSE to forward the request to the parent class or prototype chain.
  */
 
 /**
@@ -455,6 +449,7 @@ static void jsc_class_class_init(JSCClassClass* klass)
 
 GRefPtr<JSCClass> jscClassCreate(JSCContext* context, const char* name, JSCClass* parentClass, JSCClassVTable* vtable, GDestroyNotify destroyFunction)
 {
+    JSC::JSLockHolder locker(toJS(jscContextGetJSContext(context))->vm());
     GRefPtr<JSCClass> jscClass = adoptGRef(JSC_CLASS(g_object_new(JSC_TYPE_CLASS, "context", context, "name", name, "parent", parentClass, nullptr)));
 
     JSCClassPrivate* priv = jscClass->priv;
@@ -485,9 +480,9 @@ GRefPtr<JSCClass> jscClassCreate(JSCContext* context, const char* name, JSCClass
     GUniquePtr<char> prototypeName(g_strdup_printf("%sPrototype", priv->name.data()));
     JSClassDefinition prototypeDefinition = kJSClassDefinitionEmpty;
     prototypeDefinition.className = prototypeName.get();
-    JSClassRef prototypeClass = JSClassCreate(&prototypeDefinition);
-    priv->prototype = jscContextGetOrCreateJSWrapper(context, prototypeClass);
-    JSClassRelease(prototypeClass);
+    RefPtr prototypeClass = JSClassCreate(&prototypeDefinition);
+    priv->prototype = jscContextGetOrCreateJSWrapper(context, prototypeClass.get());
+    JSClassRelease(prototypeClass.get());
 
     if (priv->parentClass)
         JSObjectSetPrototype(jscContextGetJSContext(context), toRef(priv->prototype.get()), toRef(priv->parentClass->priv->prototype.get()));
@@ -518,7 +513,7 @@ void jscClassInvalidate(JSCClass* jscClass)
 
 /**
  * jsc_class_get_name:
- * @jsc_class: a @JSCClass
+ * @jsc_class: a #JSCClass
  *
  * Get the class name of @jsc_class
  *
@@ -533,7 +528,7 @@ const char* jsc_class_get_name(JSCClass* jscClass)
 
 /**
  * jsc_class_get_parent:
- * @jsc_class: a @JSCClass
+ * @jsc_class: a #JSCClass
  *
  * Get the parent class of @jsc_class
  *
@@ -557,10 +552,10 @@ static GRefPtr<JSCValue> jscClassCreateConstructor(JSCClass* jscClass, const cha
         closure = adoptGRef(g_cclosure_new(callback, userData, reinterpret_cast<GClosureNotify>(reinterpret_cast<GCallback>(destroyNotify))));
     JSCClassPrivate* priv = jscClass->priv;
     JSC::JSGlobalObject* globalObject = toJS(priv->context);
-    JSC::VM& vm = globalObject->vm();
+    Ref vm = globalObject->vm();
     JSC::JSLockHolder locker(vm);
     auto* functionObject = JSC::JSCCallbackFunction::create(vm, globalObject, String::fromUTF8(name),
-        JSC::JSCCallbackFunction::Type::Constructor, jscClass, WTFMove(closure), returnType, WTFMove(parameters));
+        JSC::JSCCallbackFunction::Type::Constructor, jscClass, WTF::move(closure), returnType, WTF::move(parameters));
     auto context = jscContextGetOrCreate(priv->context);
     auto constructor = jscContextGetOrCreateValue(context.get(), toRef(functionObject));
     GRefPtr<JSCValue> prototype = jscContextGetOrCreateValue(context.get(), toRef(priv->prototype.get()));
@@ -575,13 +570,13 @@ static GRefPtr<JSCValue> jscClassCreateConstructor(JSCClass* jscClass, const cha
  * @jsc_class: a #JSCClass
  * @name: (nullable): the constructor name or %NULL
  * @callback: (scope async): a #GCallback to be called to create an instance of @jsc_class
- * @user_data: (closure): user data to pass to @callback
+ * @user_data: user data to pass to @callback
  * @destroy_notify: (nullable): destroy notifier for @user_data
  * @return_type: the #GType of the constructor return value
  * @n_params: the number of parameter types to follow or 0 if constructor doesn't receive parameters.
- * @...: a list of #GType<!-- -->s, one for each parameter.
+ * @...: a list of #GType values, one for each parameter.
  *
- * Add a constructor to @jsc_class. If @name is %NULL, the class name will be used. When <function>new</function>
+ * Add a constructor to @jsc_class. If @name is %NULL, the class name will be used. When `new`
  * is used with the constructor or jsc_value_constructor_call() is called, @callback is invoked receiving the
  * parameters and @user_data as the last parameter. When the constructor object is cleared in the #JSCClass context,
  * @destroy_notify is called with @user_data as parameter.
@@ -607,15 +602,12 @@ JSCValue* jsc_class_add_constructor(JSCClass* jscClass, const char* name, GCallb
 
     va_list args;
     va_start(args, paramCount);
-    Vector<GType> parameters;
-    if (paramCount) {
-        parameters.reserveInitialCapacity(paramCount);
-        for (unsigned i = 0; i < paramCount; ++i)
-            parameters.uncheckedAppend(va_arg(args, GType));
-    }
+    Vector<GType> parameters(paramCount, [&](size_t) -> GType {
+        return va_arg(args, GType);
+    });
     va_end(args);
 
-    return jscClassCreateConstructor(jscClass, name ? name : priv->name.data(), callback, userData, destroyNotify, returnType, WTFMove(parameters)).leakRef();
+    return jscClassCreateConstructor(jscClass, name ? name : priv->name.data(), callback, userData, destroyNotify, returnType, WTF::move(parameters)).leakRef();
 
 }
 
@@ -624,13 +616,13 @@ JSCValue* jsc_class_add_constructor(JSCClass* jscClass, const char* name, GCallb
  * @jsc_class: a #JSCClass
  * @name: (nullable): the constructor name or %NULL
  * @callback: (scope async): a #GCallback to be called to create an instance of @jsc_class
- * @user_data: (closure): user data to pass to @callback
+ * @user_data: user data to pass to @callback
  * @destroy_notify: (nullable): destroy notifier for @user_data
  * @return_type: the #GType of the constructor return value
  * @n_parameters: the number of parameters
- * @parameter_types: (nullable) (array length=n_parameters) (element-type GType): a list of #GType<!-- -->s, one for each parameter, or %NULL
+ * @parameter_types: (nullable) (array length=n_parameters) (element-type GType): a list of #GType values, one for each parameter, or %NULL
  *
- * Add a constructor to @jsc_class. If @name is %NULL, the class name will be used. When <function>new</function>
+ * Add a constructor to @jsc_class. If @name is %NULL, the class name will be used. When `new`
  * is used with the constructor or jsc_value_constructor_call() is called, @callback is invoked receiving the
  * parameters and @user_data as the last parameter. When the constructor object is cleared in the #JSCClass context,
  * @destroy_notify is called with @user_data as parameter.
@@ -655,14 +647,11 @@ JSCValue* jsc_class_add_constructorv(JSCClass* jscClass, const char* name, GCall
     if (!name)
         name = priv->name.data();
 
-    Vector<GType> parameters;
-    if (parametersCount) {
-        parameters.reserveInitialCapacity(parametersCount);
-        for (unsigned i = 0; i < parametersCount; ++i)
-            parameters.uncheckedAppend(parameterTypes[i]);
-    }
+    Vector<GType> parameters(parametersCount, [parameterTypes = unsafeMakeSpan(parameterTypes, parametersCount)](size_t i) -> GType {
+        return parameterTypes[i];
+    });
 
-    return jscClassCreateConstructor(jscClass, name ? name : priv->name.data(), callback, userData, destroyNotify, returnType, WTFMove(parameters)).leakRef();
+    return jscClassCreateConstructor(jscClass, name ? name : priv->name.data(), callback, userData, destroyNotify, returnType, WTF::move(parameters)).leakRef();
 }
 
 /**
@@ -670,13 +659,13 @@ JSCValue* jsc_class_add_constructorv(JSCClass* jscClass, const char* name, GCall
  * @jsc_class: a #JSCClass
  * @name: (nullable): the constructor name or %NULL
  * @callback: (scope async): a #GCallback to be called to create an instance of @jsc_class
- * @user_data: (closure): user data to pass to @callback
+ * @user_data: user data to pass to @callback
  * @destroy_notify: (nullable): destroy notifier for @user_data
  * @return_type: the #GType of the constructor return value
  *
- * Add a constructor to @jsc_class. If @name is %NULL, the class name will be used. When <function>new</function>
+ * Add a constructor to @jsc_class. If @name is %NULL, the class name will be used. When `new`
  * is used with the constructor or jsc_value_constructor_call() is called, @callback is invoked receiving
- * a #GPtrArray of #JSCValue<!-- -->s as arguments and @user_data as the last parameter. When the constructor object
+ * a #GPtrArray of #JSCValue objects as arguments and @user_data as the last parameter. When the constructor object
  * is cleared in the #JSCClass context, @destroy_notify is called with @user_data as parameter.
  *
  * This function creates the constructor, which needs to be added to an object as a property to be able to use it. Use
@@ -706,10 +695,10 @@ static void jscClassAddMethod(JSCClass* jscClass, const char* name, GCallback ca
     JSCClassPrivate* priv = jscClass->priv;
     GRefPtr<GClosure> closure = adoptGRef(g_cclosure_new(callback, userData, reinterpret_cast<GClosureNotify>(reinterpret_cast<GCallback>(destroyNotify))));
     JSC::JSGlobalObject* globalObject = toJS(priv->context);
-    JSC::VM& vm = globalObject->vm();
+    Ref vm = globalObject->vm();
     JSC::JSLockHolder locker(vm);
     auto* functionObject = toRef(JSC::JSCCallbackFunction::create(vm, globalObject, String::fromUTF8(name),
-        JSC::JSCCallbackFunction::Type::Method, jscClass, WTFMove(closure), returnType, WTFMove(parameters)));
+        JSC::JSCCallbackFunction::Type::Method, jscClass, WTF::move(closure), returnType, WTF::move(parameters)));
     auto context = jscContextGetOrCreate(priv->context);
     auto method = jscContextGetOrCreateValue(context.get(), functionObject);
     GRefPtr<JSCValue> prototype = jscContextGetOrCreateValue(context.get(), toRef(priv->prototype.get()));
@@ -722,11 +711,11 @@ static void jscClassAddMethod(JSCClass* jscClass, const char* name, GCallback ca
  * @jsc_class: a #JSCClass
  * @name: the method name
  * @callback: (scope async): a #GCallback to be called to invoke method @name of @jsc_class
- * @user_data: (closure): user data to pass to @callback
+ * @user_data: user data to pass to @callback
  * @destroy_notify: (nullable): destroy notifier for @user_data
  * @return_type: the #GType of the method return value, or %G_TYPE_NONE if the method is void.
  * @n_params: the number of parameter types to follow or 0 if the method doesn't receive parameters.
- * @...: a list of #GType<!-- -->s, one for each parameter.
+ * @...: a list of #GType values, one for each parameter.
  *
  * Add method with @name to @jsc_class. When the method is called by JavaScript or jsc_value_object_invoke_method(),
  * @callback is called receiving the class instance as first parameter, followed by the method parameters and then
@@ -747,15 +736,12 @@ void jsc_class_add_method(JSCClass* jscClass, const char* name, GCallback callba
 
     va_list args;
     va_start(args, paramCount);
-    Vector<GType> parameters;
-    if (paramCount) {
-        parameters.reserveInitialCapacity(paramCount);
-        for (unsigned i = 0; i < paramCount; ++i)
-            parameters.uncheckedAppend(va_arg(args, GType));
-    }
+    Vector<GType> parameters(paramCount, [&](size_t) -> GType {
+            return va_arg(args, GType);
+    });
     va_end(args);
 
-    jscClassAddMethod(jscClass, name, callback, userData, destroyNotify, returnType, WTFMove(parameters));
+    jscClassAddMethod(jscClass, name, callback, userData, destroyNotify, returnType, WTF::move(parameters));
 }
 
 /**
@@ -763,11 +749,11 @@ void jsc_class_add_method(JSCClass* jscClass, const char* name, GCallback callba
  * @jsc_class: a #JSCClass
  * @name: the method name
  * @callback: (scope async): a #GCallback to be called to invoke method @name of @jsc_class
- * @user_data: (closure): user data to pass to @callback
+ * @user_data: user data to pass to @callback
  * @destroy_notify: (nullable): destroy notifier for @user_data
  * @return_type: the #GType of the method return value, or %G_TYPE_NONE if the method is void.
  * @n_parameters: the number of parameter types to follow or 0 if the method doesn't receive parameters.
- * @parameter_types: (nullable) (array length=n_parameters) (element-type GType): a list of #GType<!-- -->s, one for each parameter, or %NULL
+ * @parameter_types: (nullable) (array length=n_parameters) (element-type GType): a list of #GType values, one for each parameter, or %NULL
  *
  * Add method with @name to @jsc_class. When the method is called by JavaScript or jsc_value_object_invoke_method(),
  * @callback is called receiving the class instance as first parameter, followed by the method parameters and then
@@ -787,14 +773,11 @@ void jsc_class_add_methodv(JSCClass* jscClass, const char* name, GCallback callb
     g_return_if_fail(!parametersCount || parameterTypes);
     g_return_if_fail(jscClass->priv->context);
 
-    Vector<GType> parameters;
-    if (parametersCount) {
-        parameters.reserveInitialCapacity(parametersCount);
-        for (unsigned i = 0; i < parametersCount; ++i)
-            parameters.uncheckedAppend(parameterTypes[i]);
-    }
+    Vector<GType> parameters(parametersCount, [parameterTypes = unsafeMakeSpan(parameterTypes, parametersCount)](size_t i) -> GType {
+        return parameterTypes[i];
+    });
 
-    jscClassAddMethod(jscClass, name, callback, userData, destroyNotify, returnType, WTFMove(parameters));
+    jscClassAddMethod(jscClass, name, callback, userData, destroyNotify, returnType, WTF::move(parameters));
 }
 
 /**
@@ -802,12 +785,12 @@ void jsc_class_add_methodv(JSCClass* jscClass, const char* name, GCallback callb
  * @jsc_class: a #JSCClass
  * @name: the method name
  * @callback: (scope async): a #GCallback to be called to invoke method @name of @jsc_class
- * @user_data: (closure): user data to pass to @callback
+ * @user_data: user data to pass to @callback
  * @destroy_notify: (nullable): destroy notifier for @user_data
  * @return_type: the #GType of the method return value, or %G_TYPE_NONE if the method is void.
  *
  * Add method with @name to @jsc_class. When the method is called by JavaScript or jsc_value_object_invoke_method(),
- * @callback is called receiving the class instance as first parameter, followed by a #GPtrArray of #JSCValue<!-- -->s
+ * @callback is called receiving the class instance as first parameter, followed by a #GPtrArray of #JSCValue objects
  * with the method arguments and then @user_data as last parameter. When the method is cleared in the #JSCClass context,
  * @destroy_notify is called with @user_data as parameter.
  *
@@ -833,12 +816,12 @@ void jsc_class_add_method_variadic(JSCClass* jscClass, const char* name, GCallba
  * @property_type: the #GType of the property value
  * @getter: (scope async) (nullable): a #GCallback to be called to get the property value
  * @setter: (scope async) (nullable): a #GCallback to be called to set the property value
- * @user_data: (closure): user data to pass to @getter and @setter
+ * @user_data: user data to pass to @getter and @setter
  * @destroy_notify: (nullable): destroy notifier for @user_data
  *
- * Add a property with @name to @jsc_class. When the property value needs to be getted, @getter is called
- * receiving the the class instance as first parameter and @user_data as last parameter. When the property
- * value needs to be set, @setter is called receiving the the class instance as first parameter, followed
+ * Add a property with @name to @jsc_class. When the property value is read, @getter is called
+ * receiving the class instance as first parameter and @user_data as last parameter. When the property
+ * value needs to be set, @setter is called receiving the class instance as first parameter, followed
  * by the value to be set and then @user_data as the last parameter. When the property is cleared in the
  * #JSCClass context, @destroy_notify is called with @user_data as parameter.
  *
@@ -859,5 +842,5 @@ void jsc_class_add_property(JSCClass* jscClass, const char* name, GType property
 
     auto context = jscContextGetOrCreate(priv->context);
     GRefPtr<JSCValue> prototype = jscContextGetOrCreateValue(context.get(), toRef(priv->prototype.get()));
-    jsc_value_object_define_property_accessor(prototype.get(), name, JSC_VALUE_PROPERTY_CONFIGURABLE, propertyType, getter, setter, userData, destroyNotify);
+    jscValueAddPropertyAccessor(prototype.get(), name, propertyType, getter, setter, userData, destroyNotify);
 }

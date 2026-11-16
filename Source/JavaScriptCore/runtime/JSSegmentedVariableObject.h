@@ -28,10 +28,7 @@
 
 #pragma once
 
-#include "ConcurrentJSLock.h"
-#include "JSObject.h"
-#include "JSSymbolTableObject.h"
-#include "SymbolTable.h"
+#include <JavaScriptCore/JSSymbolTableObject.h>
 #include <wtf/SegmentedVector.h>
 
 namespace JSC {
@@ -53,9 +50,9 @@ class JSSegmentedVariableObject : public JSSymbolTableObject {
 public:
     using Base = JSSymbolTableObject;
 
-    DECLARE_INFO;
+    DECLARE_EXPORT_INFO;
 
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
     template<typename CellType, SubspaceAccess>
     static void subspaceFor(VM&) { RELEASE_ASSERT_NOT_REACHED(); }
 

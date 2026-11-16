@@ -21,19 +21,20 @@
 #include "config.h"
 #include "SVGTextElement.h"
 
-#include "RenderSVGResource.h"
+#include "LegacyRenderSVGResource.h"
 #include "RenderSVGText.h"
+#include "SVGElementInlines.h"
 #include "SVGNames.h"
-#include "SVGRenderStyle.h"
+#include "SVGPropertyOwnerRegistry.h"
 #include "SVGTSpanElement.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(SVGTextElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGTextElement);
 
 inline SVGTextElement::SVGTextElement(const QualifiedName& tagName, Document& document)
-    : SVGTextPositioningElement(tagName, document)
+    : SVGTextPositioningElement(tagName, document, makeUniqueRef<PropertyRegistry>(*this))
 {
     ASSERT(hasTagName(SVGNames::textTag));
 }
@@ -43,33 +44,9 @@ Ref<SVGTextElement> SVGTextElement::create(const QualifiedName& tagName, Documen
     return adoptRef(*new SVGTextElement(tagName, document));
 }
 
-// We override SVGGraphics::animatedLocalTransform() so that the transform-origin
-// is not taken into account.
-AffineTransform SVGTextElement::animatedLocalTransform() const
+RenderPtr<RenderElement> SVGTextElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
-    AffineTransform matrix;
-    auto* style = renderer() ? &renderer()->style() : nullptr;
-
-    // if CSS property was set, use that, otherwise fallback to attribute (if set)
-    if (style && style->hasTransform()) {
-        TransformationMatrix t;
-        // For now, the transform-origin is not taken into account
-        // Also, any percentage values will not be taken into account
-        style->applyTransform(t, FloatRect(0, 0, 0, 0), RenderStyle::individualTransformOperations);
-        // Flatten any 3D transform
-        matrix = t.toAffineTransform();
-    } else
-        matrix = transform().concatenate();
-
-    const AffineTransform* transform = const_cast<SVGTextElement*>(this)->supplementalTransform();
-    if (transform)
-        return *transform * matrix;
-    return matrix;
-}
-
-RenderPtr<RenderElement> SVGTextElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
-{
-    return createRenderer<RenderSVGText>(*this, WTFMove(style));
+    return createRenderer<RenderSVGText>(*this, WTF::move(style));
 }
 
 bool SVGTextElement::childShouldCreateRenderer(const Node& child) const
@@ -83,6 +60,16 @@ bool SVGTextElement::childShouldCreateRenderer(const Node& child) const
         return true;
 
     return false;
+}
+
+void SVGTextElement::childrenChanged(const ChildChange& change)
+{
+    SVGTextPositioningElement::childrenChanged(change);
+
+    if (change.source == ChildChange::Source::Parser)
+        return;
+
+    invalidateResourceImageBuffersIfNeeded();
 }
 
 }

@@ -25,9 +25,8 @@
 
 #pragma once
 
+#include <wtf/CrossThreadCopier.h>
 #include <wtf/text/WTFString.h>
-
-#if ENABLE(WEB_CRYPTO)
 
 namespace WebCore {
 
@@ -35,8 +34,17 @@ struct RsaOtherPrimesInfo {
     String r;
     String d;
     String t;
+
+    RsaOtherPrimesInfo isolatedCopy() &&;
 };
 
-} // namespace WebCore
+inline RsaOtherPrimesInfo RsaOtherPrimesInfo::isolatedCopy() &&
+{
+    return {
+        crossThreadCopy(WTF::move(r)),
+        crossThreadCopy(WTF::move(d)),
+        crossThreadCopy(WTF::move(t))
+    };
+}
 
-#endif // ENABLE(WEB_CRYPTO)
+} // namespace WebCore

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc.  All rights reserved.
+ * Copyright (C) 2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,7 +33,7 @@ namespace WTF {
 #if !LOG_DISABLED || !RELEASE_LOG_DISABLED
 
 WTF_EXPORT_PRIVATE LogChannels& logChannels();
-WTF_EXPORT_PRIVATE String logLevelString();
+WTF_EXPORT_PRIVATE String NODELETE logLevelString();
 
 #endif // !LOG_DISABLED || !RELEASE_LOG_DISABLED
 

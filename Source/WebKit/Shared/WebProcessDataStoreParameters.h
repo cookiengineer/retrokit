@@ -28,6 +28,7 @@
 #include "SandboxExtension.h"
 #include <WebCore/NetworkStorageSession.h>
 #include <pal/SessionID.h>
+#include <wtf/FileSystem.h>
 #include <wtf/HashMap.h>
 
 namespace WebKit {
@@ -37,156 +38,25 @@ struct WebProcessDataStoreParameters {
     using SubResourceDomain = WebCore::RegistrableDomain;
 
     PAL::SessionID sessionID;
-    String applicationCacheDirectory;
-    SandboxExtension::Handle applicationCacheDirectoryExtensionHandle;
-    String applicationCacheFlatFileSubdirectoryName;
     String mediaCacheDirectory;
+#if !ENABLE(GPU_PROCESS)
     SandboxExtension::Handle mediaCacheDirectoryExtensionHandle;
+#endif
     String mediaKeyStorageDirectory;
     SandboxExtension::Handle mediaKeyStorageDirectoryExtensionHandle;
+    FileSystem::Salt mediaKeysStorageSalt;
     String javaScriptConfigurationDirectory;
     SandboxExtension::Handle javaScriptConfigurationDirectoryExtensionHandle;
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
     WebCore::ThirdPartyCookieBlockingMode thirdPartyCookieBlockingMode { WebCore::ThirdPartyCookieBlockingMode::All };
     HashSet<WebCore::RegistrableDomain> domainsWithUserInteraction;
-    HashMap<TopFrameDomain, SubResourceDomain> domainsWithStorageAccessQuirk;
+    HashMap<TopFrameDomain, Vector<SubResourceDomain>> domainsWithStorageAccessQuirk;
+#if PLATFORM(IOS_FAMILY) && !USE(EXTENSIONKIT)
+    SandboxExtension::Handle containerTemporaryDirectoryExtensionHandle;
 #endif
-#if HAVE(ARKIT_INLINE_PREVIEW)
-    String modelElementCacheDirectory;
-    SandboxExtension::Handle modelElementCacheDirectoryExtensionHandle;
+    bool trackingPreventionEnabled { false };
+#if ENABLE(OPT_IN_PARTITIONED_COOKIES)
+    bool isOptInCookiePartitioningEnabled { false };
 #endif
-    bool resourceLoadStatisticsEnabled { false };
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<WebProcessDataStoreParameters> decode(Decoder&);
 };
-
-template<class Encoder>
-void WebProcessDataStoreParameters::encode(Encoder& encoder) const
-{
-    encoder << sessionID;
-    encoder << applicationCacheDirectory;
-    encoder << applicationCacheDirectoryExtensionHandle;
-    encoder << applicationCacheFlatFileSubdirectoryName;
-    encoder << mediaCacheDirectory;
-    encoder << mediaCacheDirectoryExtensionHandle;
-    encoder << mediaKeyStorageDirectory;
-    encoder << mediaKeyStorageDirectoryExtensionHandle;
-    encoder << javaScriptConfigurationDirectory;
-    encoder << javaScriptConfigurationDirectoryExtensionHandle;
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
-    encoder << thirdPartyCookieBlockingMode;
-    encoder << domainsWithUserInteraction;
-    encoder << domainsWithStorageAccessQuirk;
-#endif
-#if HAVE(ARKIT_INLINE_PREVIEW)
-    encoder << modelElementCacheDirectory;
-    encoder << modelElementCacheDirectoryExtensionHandle;
-#endif
-    encoder << resourceLoadStatisticsEnabled;
-}
-
-template<class Decoder>
-std::optional<WebProcessDataStoreParameters> WebProcessDataStoreParameters::decode(Decoder& decoder)
-{
-    std::optional<PAL::SessionID> sessionID;
-    decoder >> sessionID;
-    if (!sessionID)
-        return std::nullopt;
-
-    String applicationCacheDirectory;
-    if (!decoder.decode(applicationCacheDirectory))
-        return std::nullopt;
-
-    std::optional<SandboxExtension::Handle> applicationCacheDirectoryExtensionHandle;
-    decoder >> applicationCacheDirectoryExtensionHandle;
-    if (!applicationCacheDirectoryExtensionHandle)
-        return std::nullopt;
-
-    String applicationCacheFlatFileSubdirectoryName;
-    if (!decoder.decode(applicationCacheFlatFileSubdirectoryName))
-        return std::nullopt;
-
-    String mediaCacheDirectory;
-    if (!decoder.decode(mediaCacheDirectory))
-        return std::nullopt;
-
-    std::optional<SandboxExtension::Handle> mediaCacheDirectoryExtensionHandle;
-    decoder >> mediaCacheDirectoryExtensionHandle;
-    if (!mediaCacheDirectoryExtensionHandle)
-        return std::nullopt;
-
-    String mediaKeyStorageDirectory;
-    if (!decoder.decode(mediaKeyStorageDirectory))
-        return std::nullopt;
-
-    std::optional<SandboxExtension::Handle> mediaKeyStorageDirectoryExtensionHandle;
-    decoder >> mediaKeyStorageDirectoryExtensionHandle;
-    if (!mediaKeyStorageDirectoryExtensionHandle)
-        return std::nullopt;
-
-    String javaScriptConfigurationDirectory;
-    if (!decoder.decode(javaScriptConfigurationDirectory))
-        return std::nullopt;
-
-    std::optional<SandboxExtension::Handle> javaScriptConfigurationDirectoryExtensionHandle;
-    decoder >> javaScriptConfigurationDirectoryExtensionHandle;
-    if (!javaScriptConfigurationDirectoryExtensionHandle)
-        return std::nullopt;
-        
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
-    std::optional<WebCore::ThirdPartyCookieBlockingMode> thirdPartyCookieBlockingMode;
-    decoder >> thirdPartyCookieBlockingMode;
-    if (!thirdPartyCookieBlockingMode)
-        return std::nullopt;
-
-    std::optional<HashSet<WebCore::RegistrableDomain>> domainsWithUserInteraction;
-    decoder >> domainsWithUserInteraction;
-    if (!domainsWithUserInteraction)
-        return std::nullopt;
-    
-    std::optional<HashMap<TopFrameDomain, SubResourceDomain>> domainsWithStorageAccessQuirk;
-    decoder >> domainsWithStorageAccessQuirk;
-    if (!domainsWithStorageAccessQuirk)
-        return std::nullopt;
-#endif
-#if HAVE(ARKIT_INLINE_PREVIEW)
-        String modelElementCacheDirectory;
-        if (!decoder.decode(modelElementCacheDirectory))
-            return std::nullopt;
-
-        std::optional<SandboxExtension::Handle> modelElementCacheDirectoryExtensionHandle;
-        decoder >> modelElementCacheDirectoryExtensionHandle;
-        if (!modelElementCacheDirectoryExtensionHandle)
-            return std::nullopt;
-#endif
-
-    bool resourceLoadStatisticsEnabled = false;
-    if (!decoder.decode(resourceLoadStatisticsEnabled))
-        return std::nullopt;
-
-    return WebProcessDataStoreParameters {
-        WTFMove(*sessionID),
-        WTFMove(applicationCacheDirectory),
-        WTFMove(*applicationCacheDirectoryExtensionHandle),
-        WTFMove(applicationCacheFlatFileSubdirectoryName),
-        WTFMove(mediaCacheDirectory),
-        WTFMove(*mediaCacheDirectoryExtensionHandle),
-        WTFMove(mediaKeyStorageDirectory),
-        WTFMove(*mediaKeyStorageDirectoryExtensionHandle),
-        WTFMove(javaScriptConfigurationDirectory),
-        WTFMove(*javaScriptConfigurationDirectoryExtensionHandle),
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
-        *thirdPartyCookieBlockingMode,
-        WTFMove(*domainsWithUserInteraction),
-        WTFMove(*domainsWithStorageAccessQuirk),
-#endif
-#if HAVE(ARKIT_INLINE_PREVIEW)
-        WTFMove(modelElementCacheDirectory),
-        WTFMove(*modelElementCacheDirectoryExtensionHandle),
-#endif
-        resourceLoadStatisticsEnabled
-    };
-}
 
 } // namespace WebKit

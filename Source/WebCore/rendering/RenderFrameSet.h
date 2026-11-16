@@ -1,7 +1,8 @@
 /*
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 2000 Simon Hausmann <hausmann@kde.org>
- * Copyright (C) 2006, 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2026 Apple Inc. All rights reserved.
+ * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -23,6 +24,7 @@
 #pragma once
 
 #include "RenderBox.h"
+#include <utility>
 
 namespace WebCore {
 
@@ -30,22 +32,22 @@ class HTMLFrameSetElement;
 class MouseEvent;
 class RenderFrame;
 
-enum FrameEdge { LeftFrameEdge, RightFrameEdge, TopFrameEdge, BottomFrameEdge };
+struct HTMLDimensionsListValue;
+
+enum class FrameEdge : uint8_t { Left, Right, Top, Bottom };
 
 struct FrameEdgeInfo {
     explicit FrameEdgeInfo(bool preventResize = false, bool allowBorder = true)
-        : m_preventResize(4)
-        , m_allowBorder(4)
+        : m_preventResize(FillWith { }, 4, preventResize)
+        , m_allowBorder(FillWith { }, 4, allowBorder)
     {
-        m_preventResize.fill(preventResize);
-        m_allowBorder.fill(allowBorder);
     }
 
-    bool preventResize(FrameEdge edge) const { return m_preventResize[edge]; }
-    bool allowBorder(FrameEdge edge) const { return m_allowBorder[edge]; }
+    bool preventResize(FrameEdge edge) const { return m_preventResize[std::to_underlying(edge)]; }
+    bool allowBorder(FrameEdge edge) const { return m_allowBorder[std::to_underlying(edge)]; }
 
-    void setPreventResize(FrameEdge edge, bool preventResize) { m_preventResize[edge] = preventResize; }
-    void setAllowBorder(FrameEdge edge, bool allowBorder) { m_allowBorder[edge] = allowBorder; }
+    void setPreventResize(FrameEdge edge, bool preventResize) { m_preventResize[std::to_underlying(edge)] = preventResize; }
+    void setAllowBorder(FrameEdge edge, bool allowBorder) { m_allowBorder[std::to_underlying(edge)] = allowBorder; }
 
 private:
     Vector<bool> m_preventResize;
@@ -53,67 +55,62 @@ private:
 };
 
 class RenderFrameSet final : public RenderBox {
-    WTF_MAKE_ISO_ALLOCATED(RenderFrameSet);
+    WTF_MAKE_TZONE_ALLOCATED(RenderFrameSet);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderFrameSet);
 public:
-    RenderFrameSet(HTMLFrameSetElement&, RenderStyle&&);
+    RenderFrameSet(HTMLFrameSetElement&, Style::ComputedStyle&&);
     virtual ~RenderFrameSet();
 
-    HTMLFrameSetElement& frameSetElement() const;
+    HTMLFrameSetElement& NODELETE frameSetElement() const;
 
     FrameEdgeInfo edgeInfo() const;
 
     bool userResize(MouseEvent&);
 
-    bool isResizingRow() const;
-    bool isResizingColumn() const;
-
-    bool canResizeRow(const IntPoint&) const;
-    bool canResizeColumn(const IntPoint&) const;
+    bool NODELETE canResizeRow(const IntPoint&) const;
+    bool NODELETE canResizeColumn(const IntPoint&) const;
 
     void notifyFrameEdgeInfoChanged();
 
 private:
     void element() const = delete;
+    std::pair<LayoutUnit, LayoutUnit> computeIntrinsicLogicalWidths() const override { return { }; }
 
     static const int noSplit = -1;
 
     class GridAxis {
         WTF_MAKE_NONCOPYABLE(GridAxis);
     public:
-        GridAxis();
+        GridAxis() = default;
         void resize(int);
 
         Vector<int> m_sizes;
         Vector<int> m_deltas;
         Vector<bool> m_preventResize;
         Vector<bool> m_allowBorder;
-        int m_splitBeingResized;
-        int m_splitResizeOffset;
+        int m_splitBeingResized { noSplit };
+        int m_splitResizeOffset { 0 };
     };
 
-    const char* renderName() const override { return "RenderFrameSet"; }
-    bool isFrameSet() const override { return true; }
+    ASCIILiteral renderName() const override { return "RenderFrameSet"_s; }
 
     void layout() override;
     void paint(PaintInfo&, const LayoutPoint&) override;
     bool canHaveChildren() const override { return true; }
-    bool isChildAllowed(const RenderObject&, const RenderStyle&) const override;
+    bool isChildAllowed(const RenderObject&, const Style::ComputedStyle&) const override;
     CursorDirective getCursor(const LayoutPoint&, Cursor&) const override;
-
-    bool flattenFrameSet() const;
 
     void setIsResizing(bool);
 
-    void layOutAxis(GridAxis&, const Length*, int availableSpace);
+    void layOutAxis(GridAxis&, std::span<const HTMLDimensionsListValue>, int availableSpace);
     void computeEdgeInfo();
-    void fillFromEdgeInfo(const FrameEdgeInfo& edgeInfo, int r, int c);
+    void NODELETE fillFromEdgeInfo(const FrameEdgeInfo&, int r, int c);
     void positionFrames();
-    void positionFramesWithFlattening();
 
-    int splitPosition(const GridAxis&, int split) const;
-    int hitTestSplit(const GridAxis&, int position) const;
+    int NODELETE splitPosition(const GridAxis&, int split) const;
+    int NODELETE hitTestSplit(const GridAxis&, int position) const;
 
-    void startResizing(GridAxis&, int position);
+    void NODELETE startResizing(GridAxis&, int position);
     void continueResizing(GridAxis&, int position);
 
     void paintRowBorder(const PaintInfo&, const IntRect&);
@@ -122,10 +119,9 @@ private:
     GridAxis m_rows;
     GridAxis m_cols;
 
-    bool m_isResizing;
-    bool m_isChildResizing;
+    bool m_isResizing { false };
 };
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderFrameSet, isFrameSet())
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderFrameSet, isRenderFrameSet())

@@ -17,8 +17,13 @@ typedef _CGLContextObject *CGLContextObj;
 struct __IOSurface;
 typedef __IOSurface *IOSurfaceRef;
 
+#ifdef ANGLE_OUTSIDE_WEBKIT
+// Avoid collisions with the system's WebKit.framework.
+@class ANGLESwapCGLLayer;
+#else
 // WebKit's build process requires that every Objective-C class name has the prefix "Web".
-@class WebSwapLayerCGL;
+@class WebSwapCGLLayer;
+#endif
 
 namespace rx
 {
@@ -64,7 +69,7 @@ class WindowSurfaceCGL : public SurfaceGL
     egl::Error initialize(const egl::Display *display) override;
     egl::Error makeCurrent(const gl::Context *context) override;
 
-    egl::Error swap(const gl::Context *context) override;
+    egl::Error swap(const gl::Context *context, SurfaceSwapFeedback *feedback) override;
     egl::Error postSubBuffer(const gl::Context *context,
                              EGLint x,
                              EGLint y,
@@ -75,19 +80,23 @@ class WindowSurfaceCGL : public SurfaceGL
                             gl::Texture *texture,
                             EGLint buffer) override;
     egl::Error releaseTexImage(const gl::Context *context, EGLint buffer) override;
-    void setSwapInterval(EGLint interval) override;
+    void setSwapInterval(const egl::Display *display, EGLint interval) override;
 
-    EGLint getWidth() const override;
-    EGLint getHeight() const override;
+    gl::Extents getSize() const final;
+    egl::Error getUserSize(const egl::Display *display, EGLint *width, EGLint *height) const final;
 
     EGLint isPostSubBufferSupported() const override;
     EGLint getSwapBehavior() const override;
 
-    FramebufferImpl *createDefaultFramebuffer(const gl::Context *context,
-                                              const gl::FramebufferState &state) override;
+    void attachToFramebuffer(const gl::Context *context, gl::Framebuffer *framebuffer) override;
+    void detachFromFramebuffer(gl::Framebuffer *framebuffer) override;
 
   private:
-    WebSwapLayerCGL *mSwapLayer;
+#ifdef ANGLE_OUTSIDE_WEBKIT
+    ANGLESwapCGLLayer *mSwapLayer;
+#else
+    WebSwapCGLLayer *mSwapLayer;
+#endif
     SharedSwapState mSwapState;
     uint64_t mCurrentSwapId;
 
@@ -97,6 +106,7 @@ class WindowSurfaceCGL : public SurfaceGL
     StateManagerGL *mStateManager;
 
     GLuint mDSRenderbuffer;
+    GLuint mFramebufferID;
 };
 
 }  // namespace rx

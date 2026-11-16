@@ -27,12 +27,12 @@
 #include "IDBTransactionInfo.h"
 
 #include "IDBTransaction.h"
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
-IDBTransactionInfo::IDBTransactionInfo()
-{
-}
+WTF_MAKE_TZONE_ALLOCATED_IMPL(IDBTransactionInfo);
 
 IDBTransactionInfo::IDBTransactionInfo(const IDBResourceIdentifier& identifier)
     : m_identifier(identifier)
@@ -88,9 +88,9 @@ void IDBTransactionInfo::isolatedCopy(const IDBTransactionInfo& source, IDBTrans
     destination.m_durability = source.m_durability;
     destination.m_newVersion = source.m_newVersion;
 
-    destination.m_objectStores.reserveCapacity(source.m_objectStores.size());
-    for (auto& objectStore : source.m_objectStores)
-        destination.m_objectStores.uncheckedAppend(objectStore.isolatedCopy());
+    destination.m_objectStores = source.m_objectStores.map([](auto& objectStore) {
+        return objectStore.isolatedCopy();
+    });
 
     if (source.m_originalDatabaseInfo)
         destination.m_originalDatabaseInfo = makeUnique<IDBDatabaseInfo>(*source.m_originalDatabaseInfo, IDBDatabaseInfo::IsolatedCopy);
@@ -115,7 +115,7 @@ String IDBTransactionInfo::loggingString() const
         ASSERT_NOT_REACHED();
     }
     
-    return makeString("Transaction: ", m_identifier.loggingString(), " mode ", modeString, " newVersion ", m_newVersion);
+    return makeString("Transaction: "_s, m_identifier.loggingString(), " mode "_s, modeString, " newVersion "_s, m_newVersion);
 }
 
 #endif

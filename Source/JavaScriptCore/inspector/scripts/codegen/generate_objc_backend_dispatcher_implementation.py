@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Copyright (c) 2014-2018 Apple Inc. All rights reserved.
 # Copyright (c) 2014 University of Washington. All rights reserved.
@@ -36,7 +36,7 @@ try:
     from .models import PrimitiveType, EnumType, AliasedType, Frameworks
     from .objc_generator import ObjCTypeCategory, ObjCGenerator, join_type_and_name
     from .objc_generator_templates import ObjCGeneratorTemplates as ObjCTemplates
-except ValueError:
+except ImportError:
     from cpp_generator import CppGenerator
     from generator import Generator
     from models import PrimitiveType, EnumType, AliasedType, Frameworks
@@ -173,7 +173,7 @@ class ObjCBackendDispatcherImplementationGenerator(ObjCGenerator):
                 else:
                     lines.append('        if (!!%s)' % out_param_name)
                     lines.append('            protocol_jsonMessage->%s("%s"_s, %s);' % (keyed_set_method, parameter.parameter_name, export_expression))
-        lines.append('        backendDispatcher()->sendResponse(protocol_requestId, WTFMove(protocol_jsonMessage), false);')
+        lines.append('        backendDispatcher()->sendResponse(protocol_requestId, WTF::move(protocol_jsonMessage), false);')
 
         lines.append('    };')
         return '\n'.join(lines)
@@ -199,7 +199,7 @@ class ObjCBackendDispatcherImplementationGenerator(ObjCGenerator):
             if CppGenerator.should_dereference_argument(_type, parameter.is_optional):
                 return '*' + param_name
             if CppGenerator.should_move_argument(_type, parameter.is_optional):
-                return 'WTFMove(%s)' % param_name
+                return 'WTF::move(%s)' % param_name
             return param_name
 
         for parameter in command.call_parameters:
@@ -213,6 +213,8 @@ class ObjCBackendDispatcherImplementationGenerator(ObjCGenerator):
                 objc_type = 'std::optional<%s>' % objc_type
             param_expression = in_param_expression(in_param_name, parameter)
             import_expression = self.objc_protocol_import_expression_for_parameter(param_expression, domain, command.command_name, parameter)
+            if objc_type == "NSString *":
+                import_expression = import_expression + ".createNSString().autorelease()"
             if not parameter.is_optional:
                 lines.append('    %s = %s;' % (join_type_and_name(objc_type, objc_in_param_name), import_expression))
 

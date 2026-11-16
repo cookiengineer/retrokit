@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 # Copyright 2021 The ANGLE Project Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -33,44 +33,30 @@ def append_file_as_byte_array_string(variable_name, filename, dest_src_file):
     string += 'constexpr uint8_t {0}[]={{\n'.format(variable_name)
     bytes_ = open(filename, "rb").read()
     for byte in bytes_:
-        string += '0x{:02x}'.format(ord(byte)) + ", "
+        string += '0x{:02x}'.format(byte) + ", "
     string += "\n};\n"
     with open(dest_src_file, "a") as out_file:
         out_file.write(string)
-        
 
-
-# Compile metal shader.
-# compiled_file: The compiled metallib
-# variable_name: name of C++ variable that will hold the compiled binary data as a C array.
-# additional_flags: additional shader compiler flags
-# src_files: metal source files
-def gen_precompiled_shaders(compiled_file, variable_name, output_file):
-    append_file_as_byte_array_string(variable_name,
-                                     compiled_file,
-                                     output_file)
-    os.system('echo "constexpr size_t {0}_len=sizeof({0});" >> \"{1}\"'
-              .format(variable_name, output_file))
 
 def main():
     input_file = sys.argv[1]
     output_file = sys.argv[2]
     os.chdir(sys.path[0])
-    
+
     boilerplate_code = template_header_boilerplate.format(
-        script_name=sys.argv[0], copyright_year=datetime.today().year)
+        script_name=os.path.basename(sys.argv[0]), copyright_year=datetime.today().year)
 
     # -------- Compile shaders -----------
     # boiler plate code
     os.system("echo \"{0}\" > \"{1}\"".format(boilerplate_code, output_file))
     os.system(
-        'echo "// Compiled binary for Metal default shaders.\n\n" >>  \"{0}\"'.format(output_file)
-    )
+        'echo "// Compiled binary for Metal default shaders.\n\n" >>  \"{0}\"'.format(output_file))
     os.system('echo "#include <TargetConditionals.h>\n\n" >>  \"{0}\"'.format(output_file))
 
     os.system('echo "// clang-format off" >> \"{0}\"'.format(output_file))
-    
-    gen_precompiled_shaders(input_file, 'gMetalBinaryShaders', output_file)
+
+    append_file_as_byte_array_string('gDefaultMetallib', input_file, output_file)
 
     os.system('echo "// clang-format on" >> \"{0}\"'.format(output_file))
 

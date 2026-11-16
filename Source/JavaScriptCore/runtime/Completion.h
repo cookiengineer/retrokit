@@ -22,10 +22,13 @@
 
 #pragma once
 
-#include "CallData.h"
-#include "JSCJSValue.h"
+#include <JavaScriptCore/CallData.h>
+#include <JavaScriptCore/Identifier.h>
+#include <JavaScriptCore/JSCJSValue.h>
+#include <JavaScriptCore/ScriptFetchParameters.h>
 #include <wtf/FileSystem.h>
 #include <wtf/NakedPtr.h>
+#include <wtf/RefPtr.h>
 
 namespace JSC {
 
@@ -35,17 +38,18 @@ class CallFrame;
 class Exception;
 class JSObject;
 class ParserError;
+class ScriptFetcher;
 class SourceCode;
 class Symbol;
 class VM;
-class JSInternalPromise;
+class JSPromise;
 
 JS_EXPORT_PRIVATE bool checkSyntax(VM&, const SourceCode&, ParserError&);
 JS_EXPORT_PRIVATE bool checkSyntax(JSGlobalObject*, const SourceCode&, JSValue* exception = nullptr);
 JS_EXPORT_PRIVATE bool checkModuleSyntax(JSGlobalObject*, const SourceCode&, ParserError&);
 
-JS_EXPORT_PRIVATE RefPtr<CachedBytecode> generateProgramBytecode(VM&, const SourceCode&, FileSystem::PlatformFileHandle fd, BytecodeCacheError&);
-JS_EXPORT_PRIVATE RefPtr<CachedBytecode> generateModuleBytecode(VM&, const SourceCode&, FileSystem::PlatformFileHandle fd, BytecodeCacheError&);
+JS_EXPORT_PRIVATE RefPtr<CachedBytecode> generateProgramBytecode(VM&, const SourceCode&, FileSystem::FileHandle&, BytecodeCacheError&);
+JS_EXPORT_PRIVATE RefPtr<CachedBytecode> generateModuleBytecode(VM&, const SourceCode&, FileSystem::FileHandle&, BytecodeCacheError&);
 
 JS_EXPORT_PRIVATE JSValue evaluate(JSGlobalObject*, const SourceCode&, JSValue thisValue, NakedPtr<Exception>& returnedException);
 inline JSValue evaluate(JSGlobalObject* globalObject, const SourceCode& sourceCode, JSValue thisValue = JSValue())
@@ -64,17 +68,19 @@ inline JSValue profiledEvaluate(JSGlobalObject* globalObject, ProfilingReason re
 JS_EXPORT_PRIVATE JSValue evaluateWithScopeExtension(JSGlobalObject*, const SourceCode&, JSObject* scopeExtension, NakedPtr<Exception>& returnedException);
 
 // Load the module source and evaluate it.
-JS_EXPORT_PRIVATE JSInternalPromise* loadAndEvaluateModule(JSGlobalObject*, Symbol* moduleId, JSValue parameters, JSValue scriptFetcher);
-JS_EXPORT_PRIVATE JSInternalPromise* loadAndEvaluateModule(JSGlobalObject*, const String& moduleName, JSValue parameters, JSValue scriptFetcher);
-JS_EXPORT_PRIVATE JSInternalPromise* loadAndEvaluateModule(JSGlobalObject*, const SourceCode&, JSValue scriptFetcher);
+JS_EXPORT_PRIVATE JSPromise* loadAndEvaluateModule(JSGlobalObject*, const String& moduleName, RefPtr<ScriptFetchParameters>, RefPtr<ScriptFetcher>);
+JS_EXPORT_PRIVATE JSPromise* loadAndEvaluateModule(JSGlobalObject*, SourceCode&&, RefPtr<ScriptFetcher>);
 
 // Fetch the module source, and instantiate the module record.
-JS_EXPORT_PRIVATE JSInternalPromise* loadModule(JSGlobalObject*, const String& moduleName, JSValue parameters, JSValue scriptFetcher);
-JS_EXPORT_PRIVATE JSInternalPromise* loadModule(JSGlobalObject*, const SourceCode&, JSValue scriptFetcher);
+JS_EXPORT_PRIVATE JSPromise* loadModule(JSGlobalObject*, const Identifier& moduleKey, RefPtr<ScriptFetchParameters>, RefPtr<ScriptFetcher>);
+JS_EXPORT_PRIVATE JSPromise* loadModule(JSGlobalObject*, SourceCode&&, RefPtr<ScriptFetcher>);
 
-// Link and evaluate the already linked module. This function is called in a sync manner.
-JS_EXPORT_PRIVATE JSValue linkAndEvaluateModule(JSGlobalObject*, const Identifier& moduleKey, JSValue scriptFetcher);
+// Link and evaluate the already linked module. This function is called in an async manner.
+JS_EXPORT_PRIVATE JSPromise* linkAndEvaluateModule(JSGlobalObject*, const Identifier& moduleKey, RefPtr<ScriptFetcher>);
 
-JS_EXPORT_PRIVATE JSInternalPromise* importModule(JSGlobalObject*, const Identifier& moduleKey, JSValue parameters, JSValue scriptFetcher);
+JS_EXPORT_PRIVATE JSPromise* importModule(JSGlobalObject*, const Identifier& moduleName, const Identifier& referrer, RefPtr<ScriptFetchParameters>, RefPtr<ScriptFetcher>, bool deferred = false);
+
+JS_EXPORT_PRIVATE UncheckedKeyHashMap<RefPtr<UniquedStringImpl>, String> retrieveImportAttributesFromDynamicImportOptions(JSGlobalObject*, JSValue, const Vector<RefPtr<UniquedStringImpl>>& supportedAssertions);
+JS_EXPORT_PRIVATE std::optional<ScriptFetchParameters::Type> retrieveTypeImportAttribute(JSGlobalObject*, const UncheckedKeyHashMap<RefPtr<UniquedStringImpl>, String>&);
 
 } // namespace JSC

@@ -28,18 +28,18 @@ HitTestLocation::HitTestLocation() = default;
 
 HitTestLocation::HitTestLocation(const LayoutPoint& point)
     : m_point(point)
-    , m_boundingBox(LayoutRect { flooredIntPoint(point), LayoutSize { 1, 1 } })
+    , m_boundingBox(LayoutRect { point, LayoutSize { 1, 1 } })
     , m_transformedPoint(point)
     , m_transformedRect(m_boundingBox)
 {
 }
 
-HitTestLocation::HitTestLocation(const FloatPoint& point, const FloatQuad& quad)
+HitTestLocation::HitTestLocation(const FloatPoint& point, const FloatQuad& quad, RectBased rectBased)
     : m_point { flooredLayoutPoint(point) }
     , m_boundingBox { quad.enclosingBoundingBox() }
     , m_transformedPoint { point }
     , m_transformedRect { quad }
-    , m_isRectBased { true }
+    , m_isRectBased { rectBased == RectBased::Yes }
     , m_isRectilinear { quad.isRectilinear() }
 {
 }
@@ -64,36 +64,18 @@ HitTestLocation::HitTestLocation(const HitTestLocation& other, const LayoutSize&
     move(offset);
 }
 
-HitTestLocation::HitTestLocation(const HitTestLocation& other)
-    : m_point(other.m_point)
-    , m_boundingBox(other.m_boundingBox)
-    , m_transformedPoint(other.m_transformedPoint)
-    , m_transformedRect(other.m_transformedRect)
-    , m_isRectBased(other.m_isRectBased)
-    , m_isRectilinear(other.m_isRectilinear)
-{
-}
+HitTestLocation::HitTestLocation(const HitTestLocation&) = default;
 
 HitTestLocation::~HitTestLocation() = default;
 
-HitTestLocation& HitTestLocation::operator=(const HitTestLocation& other)
-{
-    m_point = other.m_point;
-    m_boundingBox = other.m_boundingBox;
-    m_transformedPoint = other.m_transformedPoint;
-    m_transformedRect = other.m_transformedRect;
-    m_isRectBased = other.m_isRectBased;
-    m_isRectilinear = other.m_isRectilinear;
-
-    return *this;
-}
+HitTestLocation& HitTestLocation::operator=(const HitTestLocation&) = default;
 
 void HitTestLocation::move(const LayoutSize& offset)
 {
     m_point.move(offset);
     m_transformedPoint.move(offset);
     m_transformedRect.move(offset);
-    m_boundingBox = enclosingIntRect(m_transformedRect.boundingBox());
+    m_boundingBox = LayoutRect { m_transformedRect.boundingBox() };
 }
 
 template<typename RectType>
@@ -128,7 +110,7 @@ bool HitTestLocation::intersects(const FloatRect& rect) const
     return intersectsRect(rect);
 }
 
-bool HitTestLocation::intersects(const RoundedRect& rect) const
+bool HitTestLocation::intersects(const LayoutRoundedRect& rect) const
 {
     return rect.intersectsQuad(m_transformedRect);
 }

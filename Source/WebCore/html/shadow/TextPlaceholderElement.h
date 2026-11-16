@@ -25,27 +25,34 @@
 
 #pragma once
 
-#include "HTMLDivElement.h"
+#include <WebCore/HTMLDivElement.h>
 
 namespace WebCore {
 
+class LayoutSize;
+
 class TextPlaceholderElement final : public HTMLDivElement {
-    WTF_MAKE_ISO_ALLOCATED(TextPlaceholderElement);
+    WTF_MAKE_TZONE_ALLOCATED(TextPlaceholderElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(TextPlaceholderElement);
 public:
     static Ref<TextPlaceholderElement> create(Document&, const LayoutSize&);
 
 private:
     explicit TextPlaceholderElement(Document&, const LayoutSize&);
 
-    bool isTextPlaceholderElement() const final { return true; }
+    bool NODELETE isTextPlaceholderElement() const final { return true; }
 
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode& parentOfInsertedTree) final;
-    void removedFromAncestor(RemovalType, ContainerNode& oldParentOfRemovedTree) final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode& parentOfInsertedTree) final;
+    void removingSteps(RemovalType, ContainerNode& oldParentOfRemovedTree) final;
 };
 
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::TextPlaceholderElement)
     static bool isType(const WebCore::Element& element) { return element.isTextPlaceholderElement(); }
-    static bool isType(const WebCore::Node& node) { return is<WebCore::Element>(node) && isType(downcast<WebCore::Element>(node)); }
+    static bool isType(const WebCore::Node& node)
+    {
+        auto* element = dynamicDowncast<WebCore::Element>(node);
+        return element && isType(*element);
+    }
 SPECIALIZE_TYPE_TRAITS_END()

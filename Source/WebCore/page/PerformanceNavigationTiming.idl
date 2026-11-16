@@ -35,7 +35,6 @@ enum NavigationType {
 };
 
 [
-    EnabledBySetting=PerformanceNavigationTimingAPI,
     Exposed=Window
 ] interface PerformanceNavigationTiming : PerformanceResourceTiming {
     readonly        attribute DOMHighResTimeStamp unloadEventStart;

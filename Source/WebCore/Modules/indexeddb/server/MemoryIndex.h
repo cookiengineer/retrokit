@@ -26,9 +26,12 @@
 #pragma once
 
 #include "IDBIndexInfo.h"
+#include "IDBKeyData.h"
 #include "IDBResourceIdentifier.h"
+#include <wtf/CheckedPtr.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
+#include <wtf/WeakHashSet.h>
 
 namespace WebCore {
 
@@ -54,13 +57,15 @@ class MemoryBackingStoreTransaction;
 class MemoryIndexCursor;
 class MemoryObjectStore;
 
-class MemoryIndex : public RefCounted<MemoryIndex> {
+class MemoryIndex : public RefCounted<MemoryIndex>, public CanMakeThreadSafeCheckedPtr<MemoryIndex> {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(MemoryIndex);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(MemoryIndex);
 public:
     static Ref<MemoryIndex> create(const IDBIndexInfo&, MemoryObjectStore&);
 
     ~MemoryIndex();
 
-    const IDBIndexInfo& info() const { return m_info; }
+    const IDBIndexInfo& info() const LIFETIME_BOUND { return m_info; }
 
     void rename(const String& newName) { m_info.rename(newName); }
 
@@ -70,23 +75,27 @@ public:
 
     IDBError putIndexKey(const IDBKeyData&, const IndexKey&);
 
+    bool hasRecordForOtherPrimaryKey(const IDBKeyData& indexKey, const IDBKeyData& primaryKey);
+
     void removeEntriesWithValueKey(const IDBKeyData&);
     void removeRecord(const IDBKeyData&, const IndexKey&);
 
     void objectStoreCleared();
-    void clearIndexValueStore();
-    void replaceIndexValueStore(std::unique_ptr<IndexValueStore>&&);
 
-    MemoryIndexCursor* maybeOpenCursor(const IDBCursorInfo&);
-
+    MemoryIndexCursor* maybeOpenCursor(const IDBCursorInfo&, MemoryBackingStoreTransaction&);
     IndexValueStore* valueStore() { return m_records.get(); }
 
-    MemoryObjectStore& objectStore() { return m_objectStore; }
+    MemoryObjectStore* NODELETE objectStore();
 
     void cursorDidBecomeClean(MemoryIndexCursor&);
     void cursorDidBecomeDirty(MemoryIndexCursor&);
 
     void notifyCursorsOfValueChange(const IDBKeyData& indexKey, const IDBKeyData& primaryKey);
+    void transactionFinished(MemoryBackingStoreTransaction&);
+
+    void NODELETE writeTransactionStarted(MemoryBackingStoreTransaction&);
+    void writeTransactionFinished(MemoryBackingStoreTransaction&);
+    void transactionAborted(MemoryBackingStoreTransaction&);
 
 private:
     MemoryIndex(const IDBIndexInfo&, MemoryObjectStore&);
@@ -94,14 +103,19 @@ private:
     uint64_t recordCountForKey(const IDBKeyData&) const;
 
     void notifyCursorsOfAllRecordsChanged();
+    IDBError addIndexRecord(const IDBKeyData& indexKey, const IDBKeyData& valueKey);
+    void removeIndexRecord(const IDBKeyData& indexKey, const IDBKeyData& valueKey);
+    void removeIndexRecord(const IDBKeyData& indexKey);
 
     IDBIndexInfo m_info;
-    MemoryObjectStore& m_objectStore;
+    WeakPtr<MemoryObjectStore> m_objectStore;
 
+    WeakPtr<MemoryBackingStoreTransaction> m_writeTransaction;
+    HashMap<IDBKeyData, Vector<IDBKeyData>, DefaultHash<IDBKeyData>, IDBKeyDataHashTraits> m_transactionModifiedRecords;
     std::unique_ptr<IndexValueStore> m_records;
 
-    HashMap<IDBResourceIdentifier, std::unique_ptr<MemoryIndexCursor>> m_cursors;
-    HashSet<MemoryIndexCursor*> m_cleanCursors;
+    HashMap<IDBResourceIdentifier, Ref<MemoryIndexCursor>> m_cursors;
+    WeakHashSet<MemoryIndexCursor> m_cleanCursors;
 };
 
 } // namespace IDBServer

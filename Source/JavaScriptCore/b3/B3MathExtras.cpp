@@ -42,12 +42,12 @@ namespace JSC { namespace B3 {
 
 std::pair<BasicBlock*, Value*> powDoubleInt32(Procedure& procedure, BasicBlock* start, Origin origin, Value* x, Value* y)
 {
-    BasicBlock* functionCallCase = procedure.addBlock();
-    BasicBlock* loopPreHeaderCase = procedure.addBlock();
-    BasicBlock* loopTestForEvenCase = procedure.addBlock();
-    BasicBlock* loopOdd = procedure.addBlock();
-    BasicBlock* loopEvenOdd = procedure.addBlock();
-    BasicBlock* continuation = procedure.addBlock();
+    BasicBlock* functionCallCase = procedure.addBlock(start->frequency());
+    BasicBlock* loopPreHeaderCase = procedure.addBlock(start->frequency());
+    BasicBlock* loopTestForEvenCase = procedure.addBlock(start->frequency());
+    BasicBlock* loopOdd = procedure.addBlock(start->frequency());
+    BasicBlock* loopEvenOdd = procedure.addBlock(start->frequency());
+    BasicBlock* continuation = procedure.addBlock(start->frequency());
 
     Value* shouldGoSlowPath = start->appendNew<Value>(procedure, Above, origin,
         y,
@@ -59,7 +59,7 @@ std::pair<BasicBlock*, Value*> powDoubleInt32(Procedure& procedure, BasicBlock* 
     Value* yAsDouble = functionCallCase->appendNew<Value>(procedure, IToD, origin, y);
     Value* powResult = functionCallCase->appendNew<CCallValue>(
         procedure, Double, origin,
-        functionCallCase->appendNew<ConstPtrValue>(procedure, origin, bitwise_cast<void*>(tagCFunction<OperationPtrTag>(Math::stdPowDouble))),
+        functionCallCase->appendNew<ConstPtrValue>(procedure, origin, std::bit_cast<void*>(tagCFunction<OperationPtrTag>(Math::stdPowDouble))),
         x, yAsDouble);
     UpsilonValue* powResultUpsilon = functionCallCase->appendNew<UpsilonValue>(procedure, origin, powResult);
     functionCallCase->appendNew<Value>(procedure, Jump, origin);

@@ -26,24 +26,26 @@
 #include "config.h"
 #include "BlockFormattingState.h"
 
-#if ENABLE(LAYOUT_FORMATTING_CONTEXT)
-
-#include <wtf/IsoMallocInlines.h>
+#include "RenderObject.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 namespace Layout {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(BlockFormattingState);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(BlockFormattingState);
 
-BlockFormattingState::BlockFormattingState(Ref<FloatingState>&& floatingState, LayoutState& layoutState)
-    : FormattingState(WTFMove(floatingState), Type::Block, layoutState)
+BlockFormattingState::BlockFormattingState(LayoutState& layoutState, const ElementBox& blockFormattingContextRoot)
+    : FormattingState(Type::Block, layoutState)
+    , m_placedFloats(blockFormattingContextRoot)
 {
 }
 
-BlockFormattingState::~BlockFormattingState()
+BlockFormattingState::~BlockFormattingState() = default;
+
+void BlockFormattingState::shrinkToFit()
 {
+    m_placedFloats.shrinkToFit();
 }
 
 }
 }
-#endif

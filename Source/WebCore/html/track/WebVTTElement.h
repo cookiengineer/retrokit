@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc.  All rights reserved.
+ * Copyright (C) 2013-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,28 +32,29 @@
 
 namespace WebCore {
 
-enum WebVTTNodeType {
-    WebVTTNodeTypeNone = 0,
-    WebVTTNodeTypeClass,
-    WebVTTNodeTypeItalic,
-    WebVTTNodeTypeLanguage,
-    WebVTTNodeTypeBold,
-    WebVTTNodeTypeUnderline,
-    WebVTTNodeTypeRuby,
-    WebVTTNodeTypeRubyText,
-    WebVTTNodeTypeVoice
+enum class WebVTTNodeType : uint8_t {
+    None = 0,
+    Class,
+    Italic,
+    Language,
+    Bold,
+    Underline,
+    Ruby,
+    RubyText,
+    Voice
 };
 
 class WebVTTElement final : public Element {
-    WTF_MAKE_ISO_ALLOCATED(WebVTTElement);
+    WTF_MAKE_TZONE_ALLOCATED(WebVTTElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WebVTTElement);
 public:
-    static Ref<WebVTTElement> create(const WebVTTNodeType, Document&);
+    static Ref<Element> create(const WebVTTNodeType, AtomString language, Document&);
     Ref<HTMLElement> createEquivalentHTMLElement(Document&);
 
-    Ref<Element> cloneElementWithoutAttributesAndChildren(Document&) override;
+    Ref<Element> cloneElementWithoutAttributesAndChildren(Document&, CustomElementRegistry*) const;
 
-    void setWebVTTNodeType(WebVTTNodeType type) { m_webVTTNodeType = static_cast<unsigned>(type); }
-    WebVTTNodeType webVTTNodeType() const { return static_cast<WebVTTNodeType>(m_webVTTNodeType); }
+    void setWebVTTNodeType(WebVTTNodeType type) { m_webVTTNodeType = type; }
+    WebVTTNodeType webVTTNodeType() const { return m_webVTTNodeType; }
 
     bool isPastNode() const { return m_isPastNode; }
     void setIsPastNode(bool value) { m_isPastNode = value; }
@@ -63,24 +64,23 @@ public:
 
     static const QualifiedName& voiceAttributeName()
     {
-        static NeverDestroyed<QualifiedName> voiceAttr(nullAtom(), "voice", nullAtom());
+        static NeverDestroyed<QualifiedName> voiceAttr(nullAtom(), "voice"_s, nullAtom());
         return voiceAttr;
     }
-    
+
     static const QualifiedName& langAttributeName()
     {
-        static NeverDestroyed<QualifiedName> voiceAttr(nullAtom(), "lang", nullAtom());
-        return voiceAttr;
+        static NeverDestroyed<QualifiedName> langAttr(nullAtom(), "lang"_s, nullAtom());
+        return langAttr;
     }
 
-private:
-    WebVTTElement(WebVTTNodeType, Document&);
+protected:
+    WebVTTElement(WebVTTNodeType, AtomString language, Document&);
 
-    bool isWebVTTElement() const override { return true; }
+    bool isWebVTTElement() const final { return true; }
 
-    unsigned m_isPastNode : 1;
-    unsigned m_webVTTNodeType : 4;
-    
+    bool m_isPastNode { false };
+    WebVTTNodeType m_webVTTNodeType;
     AtomString m_language;
 };
 

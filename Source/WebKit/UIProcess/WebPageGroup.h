@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,6 +30,7 @@
 #include "WebPageGroupData.h"
 #include "WebProcessProxy.h"
 #include <WebCore/UserStyleSheetTypes.h>
+#include <wtf/CheckedRef.h>
 #include <wtf/WeakHashSet.h>
 #include <wtf/text/WTFString.h>
 
@@ -37,35 +38,23 @@ namespace WebKit {
 
 class WebPreferences;
 class WebPageProxy;
-class WebUserContentControllerProxy;
 
-class WebPageGroup : public API::ObjectImpl<API::Object::Type::PageGroup> {
+class WebPageGroup : public API::ObjectImpl<API::Object::Type::PageGroup>, public CanMakeWeakPtr<WebPageGroup> {
 public:
     explicit WebPageGroup(const String& identifier = { });
     static Ref<WebPageGroup> create(const String& identifier = { });
 
-    static WebPageGroup* get(PageGroupIdentifier);
-    static void forEach(Function<void(WebPageGroup&)>&&);
-
     virtual ~WebPageGroup();
-
-    void addPage(WebPageProxy&);
-    void removePage(WebPageProxy&);
 
     PageGroupIdentifier pageGroupID() const { return m_data.pageGroupID; }
 
-    const WebPageGroupData& data() const { return m_data; }
+    const WebPageGroupData& data() const LIFETIME_BOUND { return m_data; }
 
-    void setPreferences(WebPreferences*);
-    WebPreferences& preferences() const;
-
-    WebUserContentControllerProxy& userContentController();
+    WebPreferences& preferences() const { return m_preferences; }
 
 private:
     WebPageGroupData m_data;
-    RefPtr<WebPreferences> m_preferences;
-    Ref<WebUserContentControllerProxy> m_userContentController;
-    WeakHashSet<WebPageProxy> m_pages;
+    const Ref<WebPreferences> m_preferences;
 };
 
 } // namespace WebKit

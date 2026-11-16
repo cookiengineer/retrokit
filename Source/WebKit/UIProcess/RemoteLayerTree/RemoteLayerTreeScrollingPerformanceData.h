@@ -26,6 +26,8 @@
 #pragma once
 
 #import <WebCore/FloatRect.h>
+#import <wtf/MonotonicTime.h>
+#import <wtf/TZoneMalloc.h>
 #import <wtf/Vector.h>
 
 namespace WebKit {
@@ -33,41 +35,45 @@ namespace WebKit {
 class RemoteLayerTreeDrawingAreaProxy;
 
 class RemoteLayerTreeScrollingPerformanceData {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(RemoteLayerTreeScrollingPerformanceData);
 public:
     RemoteLayerTreeScrollingPerformanceData(RemoteLayerTreeDrawingAreaProxy&);
     ~RemoteLayerTreeScrollingPerformanceData();
 
     void didCommitLayerTree(const WebCore::FloatRect& visibleRect);
     void didScroll(const WebCore::FloatRect& visibleRect);
+    void didChangeSynchronousScrollingReasons(WTF::MonotonicTime, uint64_t scrollingChangeData);
 
     NSArray *data(); // Array of [ time, event type, unfilled pixel count ]
+    void logData();
 
 private:
-    unsigned blankPixelCount(const WebCore::FloatRect& visibleRect) const;
-    
-    struct BlankPixelCount {
-        enum EventType { Filled, Exposed };
+    struct ScrollingLogEvent {
+        enum EventType { Filled, Exposed, SwitchedScrollingMode };
 
-        double startTime;
-        double endTime;
+        WTF::MonotonicTime startTime;
+        WTF::MonotonicTime endTime;
         EventType eventType;
-        unsigned blankPixelCount;
+        uint64_t value;
         
-        BlankPixelCount(double start, double end, EventType type, unsigned count)
+        ScrollingLogEvent(WTF::MonotonicTime start, WTF::MonotonicTime end, EventType type, uint64_t data)
             : startTime(start)
             , endTime(end)
             , eventType(type)
-            , blankPixelCount(count)
+            , value(data)
         { }
         
-        bool canCoalesce(BlankPixelCount::EventType, unsigned blankPixelCount) const;
+        bool NODELETE canCoalesce(ScrollingLogEvent::EventType, uint64_t blankPixelCount) const;
     };
     
-    void appendBlankPixelCount(BlankPixelCount::EventType, unsigned blankPixelCount);
+    unsigned blankPixelCount(const WebCore::FloatRect& visibleRect) const;
 
-    RemoteLayerTreeDrawingAreaProxy& m_drawingArea;
-    Vector<BlankPixelCount> m_blankPixelCounts;
+    void appendBlankPixelCount(ScrollingLogEvent::EventType, uint64_t blankPixelCount);
+    void appendSynchronousScrollingChange(WTF::MonotonicTime, uint64_t);
+
+    const CheckedRef<RemoteLayerTreeDrawingAreaProxy> m_drawingArea;
+    Vector<ScrollingLogEvent> m_events;
+    uint64_t m_lastUnfilledArea { 0 };
 };
 
 }

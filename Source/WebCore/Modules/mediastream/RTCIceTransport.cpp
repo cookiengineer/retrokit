@@ -28,27 +28,40 @@
 
 #if ENABLE(WEB_RTC)
 
+#include "ContextDestructionObserverInlines.h"
 #include "Event.h"
 #include "EventNames.h"
+#include "EventTargetInlines.h"
 #include "RTCPeerConnection.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(RTCIceTransport);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RTCIceTransport);
+
+Ref<RTCIceTransport> RTCIceTransport::create(ScriptExecutionContext& context, UniqueRef<RTCIceTransportBackend>&& backend, RTCPeerConnection& connection)
+{
+    auto result = adoptRef(*new RTCIceTransport(context, WTF::move(backend), connection));
+    result->suspendIfNeeded();
+    return result;
+}
 
 RTCIceTransport::RTCIceTransport(ScriptExecutionContext& context, UniqueRef<RTCIceTransportBackend>&& backend, RTCPeerConnection& connection)
     : ActiveDOMObject(&context)
-    , m_backend(WTFMove(backend))
-    , m_connection(makeWeakPtr(connection))
+    , m_backend(WTF::move(backend))
+    , m_connection(connection)
 {
-    suspendIfNeeded();
     m_backend->registerClient(*this);
 }
 
 RTCIceTransport::~RTCIceTransport()
 {
     m_backend->unregisterClient();
+}
+
+ScriptExecutionContext* RTCIceTransport::scriptExecutionContext() const
+{
+    return ActiveDOMObject::scriptExecutionContext();
 }
 
 void RTCIceTransport::stop()
@@ -64,31 +77,54 @@ bool RTCIceTransport::virtualHasPendingActivity() const
 
 void RTCIceTransport::onStateChanged(RTCIceTransportState state)
 {
-    queueTaskKeepingObjectAlive(*this, TaskSource::Networking, [this, state]() mutable {
-        if (m_isStopped)
+    queueTaskKeepingObjectAlive(*this, TaskSource::Networking, [state](auto& transport) mutable {
+        if (transport.m_isStopped)
             return;
 
-        if (m_transportState == state)
+        if (transport.m_transportState == state)
             return;
 
-        m_transportState = state;
-        if (m_connection)
-            m_connection->processIceTransportStateChange(*this);
+        transport.m_transportState = state;
+        if (transport.m_transportState == RTCIceTransportState::Failed)
+            transport.m_selectedCandidatePair = { };
+
+        if (RefPtr connection = transport.connection())
+            connection->processIceTransportStateChange(transport);
     });
 }
 
 void RTCIceTransport::onGatheringStateChanged(RTCIceGatheringState state)
 {
-    queueTaskKeepingObjectAlive(*this, TaskSource::Networking, [this, state]() mutable {
-        if (m_isStopped)
+    queueTaskKeepingObjectAlive(*this, TaskSource::Networking, [state](auto& transport) mutable {
+        if (transport.m_isStopped)
             return;
 
-        if (m_gatheringState == state)
+        if (transport.m_gatheringState == state)
             return;
 
-        m_gatheringState = state;
-        dispatchEvent(Event::create(eventNames().gatheringstatechangeEvent, Event::CanBubble::Yes, Event::IsCancelable::No));
+        transport.m_gatheringState = state;
+        transport.dispatchEvent(Event::create(eventNames().gatheringstatechangeEvent, Event::CanBubble::Yes, Event::IsCancelable::No));
     });
+}
+
+void RTCIceTransport::onSelectedCandidatePairChanged(RefPtr<RTCIceCandidate>&& local, RefPtr<RTCIceCandidate>&& remote)
+{
+    queueTaskKeepingObjectAlive(*this, TaskSource::Networking, [local = WTF::move(local), remote = WTF::move(remote)](auto& transport) mutable {
+        if (transport.m_isStopped)
+            return;
+
+        transport.m_selectedCandidatePair = CandidatePair { WTF::move(local), WTF::move(remote) };
+        transport.dispatchEvent(Event::create(eventNames().selectedcandidatepairchangeEvent, Event::CanBubble::Yes, Event::IsCancelable::No));
+    });
+}
+
+std::optional<RTCIceTransport::CandidatePair> RTCIceTransport::getSelectedCandidatePair()
+{
+    if (m_transportState == RTCIceTransportState::Closed)
+        return { };
+
+    ASSERT(m_transportState != RTCIceTransportState::New || !m_selectedCandidatePair);
+    return m_selectedCandidatePair;
 }
 
 } // namespace WebCore

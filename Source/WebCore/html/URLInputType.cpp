@@ -33,27 +33,29 @@
 #include "URLInputType.h"
 
 #include "HTMLInputElement.h"
-#include "HTMLParserIdioms.h"
 #include "InputTypeNames.h"
 #include "LocalizedStrings.h"
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/URL.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(URLInputType);
 
 const AtomString& URLInputType::formControlType() const
 {
     return InputTypeNames::url();
 }
 
-bool URLInputType::typeMismatchFor(const String& value) const
+bool URLInputType::typeMismatchFor(StringView value) const
 {
-    return !value.isEmpty() && !URL(URL(), value).isValid();
+    return !value.isEmpty() && !URL(value.toStringWithoutCopying()).isValid();
 }
 
 bool URLInputType::typeMismatch() const
 {
     ASSERT(element());
-    return typeMismatchFor(element()->value());
+    return typeMismatchFor(protect(element())->value());
 }
 
 String URLInputType::typeMismatchText() const
@@ -61,9 +63,9 @@ String URLInputType::typeMismatchText() const
     return validationMessageTypeMismatchForURLText();
 }
 
-String URLInputType::sanitizeValue(const String& proposedValue) const
+ValueOrReference<String> URLInputType::sanitizeValue(const String& proposedValue LIFETIME_BOUND) const
 {
-    return stripLeadingAndTrailingHTMLSpaces(BaseTextInputType::sanitizeValue(proposedValue));
+    return BaseTextInputType::sanitizeValue(proposedValue)->trim(isASCIIWhitespace);
 }
 
 } // namespace WebCore

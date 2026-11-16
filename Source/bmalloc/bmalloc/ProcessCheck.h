@@ -25,6 +25,8 @@
 
 #pragma once
 
+#ifdef __cplusplus
+
 #include "BPlatform.h"
 
 namespace bmalloc {
@@ -39,8 +41,18 @@ bool gigacageEnabledForProcess();
 inline bool gigacageEnabledForProcess() { return true; }
 #endif
 
+#if BOS(DARWIN)
+const char* processNameString();
+
+bool shouldAllowMiniMode();
+#else
+inline bool shouldAllowMiniMode() { return true; }
+#endif
+
 #if BPLATFORM(IOS_FAMILY)
 bool shouldProcessUnconditionallyUseBmalloc();
 #endif
 
 }
+
+#endif // __cplusplus

@@ -26,24 +26,27 @@
 #include "config.h"
 #include "JSPaymentResponse.h"
 
+#include "JSValueInWrappedObjectInlines.h"
+
 #if ENABLE(PAYMENT_REQUEST)
 
 namespace WebCore {
 
 JSC::JSValue JSPaymentResponse::details(JSC::JSGlobalObject& lexicalGlobalObject) const
 {
-    return cachedPropertyValue(lexicalGlobalObject, *this, wrapped().cachedDetails(), [this, &lexicalGlobalObject] {
+    auto throwScope = DECLARE_THROW_SCOPE(lexicalGlobalObject.vm());
+    return cachedPropertyValue(throwScope, lexicalGlobalObject, *this, wrapped().cachedDetails(), [this, &lexicalGlobalObject](JSC::ThrowScope&) {
         return wrapped().detailsFunction()(lexicalGlobalObject).get();
     });
 }
 
 template<typename Visitor>
-void JSPaymentResponse::visitAdditionalChildren(Visitor& visitor)
+void JSPaymentResponse::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    wrapped().cachedDetails().visit(visitor);
+    wrapped().cachedDetails().visitInGCThread(visitor);
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSPaymentResponse);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSPaymentResponse);
 
 } // namespace WebCore
 

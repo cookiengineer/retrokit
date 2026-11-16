@@ -30,6 +30,7 @@
 
 #include "GamepadProvider.h"
 #include <libmanette.h>
+#include <wtf/CanMakeWeakPtr.h>
 #include <wtf/HashMap.h>
 #include <wtf/RunLoop.h>
 
@@ -38,17 +39,23 @@ namespace WebCore {
 class ManetteGamepad;
 class GamepadProviderClient;
 
-class ManetteGamepadProvider final : public GamepadProvider {
+class ManetteGamepadProvider final : public GamepadProvider, public CanMakeWeakPtr<ManetteGamepadProvider> {
     WTF_MAKE_NONCOPYABLE(ManetteGamepadProvider);
     friend class NeverDestroyed<ManetteGamepadProvider>;
 public:
     static ManetteGamepadProvider& singleton();
 
+    // Do nothing since this is a singleton.
+    void ref() const { }
+    void deref() const { }
+
     virtual ~ManetteGamepadProvider();
 
     void startMonitoringGamepads(GamepadProviderClient&) final;
     void stopMonitoringGamepads(GamepadProviderClient&) final;
-    const Vector<PlatformGamepad*>& platformGamepads() final { return m_gamepadVector; }
+    const Vector<WeakPtr<PlatformGamepad>>& platformGamepads() LIFETIME_BOUND final { return m_gamepadVector; }
+    void playEffect(unsigned, const String&, GamepadHapticEffectType, const GamepadEffectParameters&, CompletionHandler<void(bool)>&&) final;
+    void stopEffects(unsigned, const String&, CompletionHandler<void()>&&) final;
 
     void deviceConnected(ManetteDevice*);
     void deviceDisconnected(ManetteDevice*);
@@ -65,13 +72,12 @@ private:
     void initialGamepadsConnectedTimerFired();
     void inputNotificationTimerFired();
 
-    Vector<PlatformGamepad*> m_gamepadVector;
+    Vector<WeakPtr<PlatformGamepad>> m_gamepadVector;
     HashMap<ManetteDevice*, std::unique_ptr<ManetteGamepad>> m_gamepadMap;
     bool m_initialGamepadsConnected { false };
 
     GRefPtr<ManetteMonitor> m_monitor;
-    RunLoop::Timer<ManetteGamepadProvider> m_initialGamepadsConnectedTimer;
-    RunLoop::Timer<ManetteGamepadProvider> m_inputNotificationTimer;
+    RunLoop::Timer m_inputNotificationTimer;
 };
 
 } // namespace WebCore

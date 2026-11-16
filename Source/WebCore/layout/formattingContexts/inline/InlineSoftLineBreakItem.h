@@ -25,30 +25,32 @@
 
 #pragma once
 
-#if ENABLE(LAYOUT_FORMATTING_CONTEXT)
-
 #include "InlineItem.h"
+#include <wtf/unicode/CharacterNames.h>
 
 namespace WebCore {
 namespace Layout {
 
 class InlineSoftLineBreakItem : public InlineItem {
 public:
-    static InlineSoftLineBreakItem createSoftLineBreakItem(const InlineTextBox&, unsigned position);
+    static InlineSoftLineBreakItem createSoftLineBreakItem(const InlineTextBox&, unsigned position, UBiDiLevel = UBIDI_DEFAULT_LTR);
 
     unsigned position() const { return m_startOrPosition; }
+    char16_t character() const { return inlineTextBox().content()[position()]; }
+    bool isBidiParagraphStart() const { return character() != lineSeparator; }
     const InlineTextBox& inlineTextBox() const { return downcast<InlineTextBox>(layoutBox()); }
 
-    InlineSoftLineBreakItem(const InlineTextBox&, unsigned position);
+private:
+    InlineSoftLineBreakItem(const InlineTextBox&, unsigned position, UBiDiLevel);
 };
 
-inline InlineSoftLineBreakItem InlineSoftLineBreakItem::createSoftLineBreakItem(const InlineTextBox& inlineTextBox, unsigned position)
+inline InlineSoftLineBreakItem InlineSoftLineBreakItem::createSoftLineBreakItem(const InlineTextBox& inlineTextBox, unsigned position, UBiDiLevel bidiLevel)
 {
-    return { inlineTextBox, position };
+    return { inlineTextBox, position, bidiLevel };
 }
 
-inline InlineSoftLineBreakItem::InlineSoftLineBreakItem(const InlineTextBox& inlineTextBox, unsigned position)
-    : InlineItem(inlineTextBox, Type::SoftLineBreak)
+inline InlineSoftLineBreakItem::InlineSoftLineBreakItem(const InlineTextBox& inlineTextBox, unsigned position, UBiDiLevel bidiLevel)
+    : InlineItem(inlineTextBox, Type::SoftLineBreak, bidiLevel)
 {
     m_startOrPosition = position;
 }
@@ -58,4 +60,3 @@ inline InlineSoftLineBreakItem::InlineSoftLineBreakItem(const InlineTextBox& inl
 
 SPECIALIZE_TYPE_TRAITS_INLINE_ITEM(InlineSoftLineBreakItem, isSoftLineBreak())
 
-#endif

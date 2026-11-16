@@ -19,8 +19,7 @@
  *
  */
 
-#ifndef WebPopupMenu_h
-#define WebPopupMenu_h
+#pragma once
 
 #include "WebPopupItem.h"
 #include <WebCore/PopupMenu.h>
@@ -42,16 +41,20 @@ public:
     static Ref<WebPopupMenu> create(WebPage*, WebCore::PopupMenuClient*);
     ~WebPopupMenu();
 
-    WebPage* page() { return m_page; }
+    WebPage* NODELETE page();
 
-    void disconnectFromPage() { m_page = 0; }
+    void disconnectFromPage() { m_page = nullptr; }
+#if !PLATFORM(IOS_FAMILY)
     void didChangeSelectedIndex(int newIndex);
+#endif
+#if !PLATFORM(COCOA)
     void setTextForIndex(int newIndex);
-#if PLATFORM(GTK)
-    WebCore::PopupMenuClient* client() const { return m_popupClient; }
+#endif
+#if PLATFORM(GTK) || PLATFORM(WPE)
+    WebCore::PopupMenuClient* client() const { return m_popupClient.get(); }
 #endif
 
-    void show(const WebCore::IntRect&, WebCore::FrameView*, int selectedIndex) override;
+    void show(const WebCore::IntRect&, WebCore::LocalFrameView&, int selectedIndex) override;
     void hide() override;
     void updateFromElement() override;
     void disconnectClient() override;
@@ -62,10 +65,8 @@ private:
     Vector<WebPopupItem> populateItems();
     void setUpPlatformData(const WebCore::IntRect& pageCoordinates, PlatformPopupMenuData&);
 
-    WebCore::PopupMenuClient* m_popupClient;
-    WebPage* m_page;
+    RefPtr<WebCore::PopupMenuClient> m_popupClient;
+    WeakPtr<WebPage> m_page;
 };
 
 } // namespace WebKit
-
-#endif // WebPopupMenu_h

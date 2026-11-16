@@ -34,46 +34,31 @@ WI.CSSObserver = class CSSObserver extends InspectorBackend.Dispatcher
 
     styleSheetChanged(styleSheetId)
     {
-        WI.cssManager.styleSheetChanged(styleSheetId);
+        WI.cssManager.styleSheetChanged(styleSheetId, this._target);
     }
 
     styleSheetAdded(styleSheetInfo)
     {
-        WI.cssManager.styleSheetAdded(styleSheetInfo);
+        WI.cssManager.styleSheetAdded(styleSheetInfo, this._target);
     }
 
     styleSheetRemoved(id)
     {
-        WI.cssManager.styleSheetRemoved(id);
+        WI.cssManager.styleSheetRemoved(id, this._target);
+    }
+
+    nodeLayoutFlagsChanged(nodeId, layoutFlags)
+    {
+        if (this._target instanceof WI.FrameTarget)
+            return; // FIXME: <https://webkit.org/b/298980> Route to frame-target handler.
+        WI.domManager.nodeLayoutFlagsChanged(nodeId, layoutFlags);
     }
 
     nodeLayoutContextTypeChanged(nodeId, layoutContextType)
     {
-        WI.domManager.nodeLayoutContextTypeChanged(nodeId, layoutContextType);
-    }
-
-    namedFlowCreated(namedFlow)
-    {
-        // COMPATIBILITY (iOS 11.3): Removed.
-    }
-
-    namedFlowRemoved(documentNodeId, flowName)
-    {
-        // COMPATIBILITY (iOS 11.3): Removed.
-    }
-
-    regionOversetChanged(namedFlow)
-    {
-        // COMPATIBILITY (iOS 11.3): Removed.
-    }
-
-    registeredNamedFlowContentElement(documentNodeId, flowName, contentNodeId, nextContentElementNodeId)
-    {
-        // COMPATIBILITY (iOS 11.3): Removed.
-    }
-
-    unregisteredNamedFlowContentElement(documentNodeId, flowName, contentNodeId)
-    {
-        // COMPATIBILITY (iOS 11.3): Removed.
+        if (this._target instanceof WI.FrameTarget)
+            return;
+        // COMPATIBILITY (macOS 13.0, iOS 16.0): CSS.nodeLayoutContextTypeChanged was renamed/expanded to CSS.nodeLayoutFlagsChanged.
+        WI.domManager.nodeLayoutFlagsChanged(nodeId, [WI.DOMNode.LayoutFlag.Rendered, layoutContextType]);
     }
 };

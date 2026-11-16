@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Apple Inc.  All rights reserved.
+ * Copyright (C) 2019-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,23 +26,20 @@
 #include "config.h"
 #include "SVGAnimationAdditiveValueFunctionImpl.h"
 
-#include "RenderElement.h"
-#include "SVGElement.h"
 #include <wtf/text/StringToIntegerConversion.h>
 
 namespace WebCore {
 
-Color SVGAnimationColorFunction::colorFromString(SVGElement& targetElement, const String& string)
+std::optional<float> SVGAnimationColorFunction::calculateDistance(SVGElement& targetElement, const String& from, const String& to) const
 {
-    static MainThreadNeverDestroyed<const AtomString> currentColor("currentColor", AtomString::ConstructFromLiteral);
+    auto simpleFrom = SVGPropertyTraits<Color>::fromString(targetElement, from).toColorTypeLossy<SRGBA<uint8_t>>().resolved();
+    auto simpleTo = SVGPropertyTraits<Color>::fromString(targetElement, to).toColorTypeLossy<SRGBA<uint8_t>>().resolved();
 
-    if (string != currentColor.get())
-        return SVGPropertyTraits<Color>::fromString(string);
+    float red = simpleFrom.red - simpleTo.red;
+    float green = simpleFrom.green - simpleTo.green;
+    float blue = simpleFrom.blue - simpleTo.blue;
 
-    if (auto* renderer = targetElement.renderer())
-        return renderer->style().visitedDependentColor(CSSPropertyColor);
-
-    return { };
+    return std::hypot(red, green, blue);
 }
 
 std::optional<float> SVGAnimationIntegerFunction::calculateDistance(SVGElement&, const String& from, const String& to) const

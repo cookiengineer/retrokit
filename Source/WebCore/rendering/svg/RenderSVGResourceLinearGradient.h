@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2006 Nikolas Zimmermann <zimmermann@kde.org>
- * Copyright (C) Research In Motion Limited 2010. All rights reserved.
+ * Copyright (C) Research In Motion Limited 2009-2010. All rights reserved.
+ * Copyright (C) 2021, 2022, 2023 Igalia S.L.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -20,38 +20,45 @@
 
 #pragma once
 
+#include "AffineTransform.h"
 #include "LinearGradientAttributes.h"
 #include "RenderSVGResourceGradient.h"
-#include "SVGLinearGradientElement.h"
+#include "SVGGradientElement.h"
+#include "SVGUnitTypes.h"
 
 namespace WebCore {
 
+class SVGLinearGradientElement;
+
 class RenderSVGResourceLinearGradient final : public RenderSVGResourceGradient {
-    WTF_MAKE_ISO_ALLOCATED(RenderSVGResourceLinearGradient);
+    WTF_MAKE_TZONE_ALLOCATED(RenderSVGResourceLinearGradient);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderSVGResourceLinearGradient);
 public:
-    RenderSVGResourceLinearGradient(SVGLinearGradientElement&, RenderStyle&&);
+    RenderSVGResourceLinearGradient(SVGLinearGradientElement&, Style::ComputedStyle&&);
     virtual ~RenderSVGResourceLinearGradient();
 
-    SVGLinearGradientElement& linearGradientElement() const { return downcast<SVGLinearGradientElement>(RenderSVGResourceGradient::gradientElement()); }
+    inline SVGLinearGradientElement& linearGradientElement() const;
 
-    FloatPoint startPoint(const LinearGradientAttributes&) const;
-    FloatPoint endPoint(const LinearGradientAttributes&) const;
+    SVGUnitTypes::SVGUnitType gradientUnits() const final { return m_attributes ? m_attributes.value().gradientUnits() : SVGUnitTypes::SVG_UNIT_TYPE_UNKNOWN; }
+    AffineTransform gradientTransform() const final { return m_attributes ? m_attributes.value().gradientTransform() : identity; }
+
+    void invalidateGradient() final
+    {
+        m_gradient = nullptr;
+        m_attributes = std::nullopt;
+        repaintAllClients();
+    }
 
 private:
-    RenderSVGResourceType resourceType() const final { return LinearGradientResourceType; }
+    void collectGradientAttributesIfNeeded() final;
+    RefPtr<Gradient> createGradient(const Style::ComputedStyle&) final;
 
-    SVGUnitTypes::SVGUnitType gradientUnits() const final { return m_attributes.gradientUnits(); }
-    AffineTransform gradientTransform() const final { return m_attributes.gradientTransform(); }
-    bool collectGradientAttributes() final;
-    Ref<Gradient> buildGradient(const RenderStyle&) const final;
+    void element() const = delete;
+    ASCIILiteral renderName() const final { return "RenderSVGResourceLinearGradient"_s; }
 
-    void gradientElement() const = delete;
-
-    const char* renderName() const final { return "RenderSVGResourceLinearGradient"; }
-
-    LinearGradientAttributes m_attributes;
+    std::optional<LinearGradientAttributes> m_attributes;
 };
 
-} // namespace WebCore
+}
 
-SPECIALIZE_TYPE_TRAITS_RENDER_SVG_RESOURCE(RenderSVGResourceLinearGradient, LinearGradientResourceType)
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderSVGResourceLinearGradient, isRenderSVGResourceLinearGradient())

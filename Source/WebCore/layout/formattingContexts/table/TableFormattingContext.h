@@ -25,33 +25,29 @@
 
 #pragma once
 
-#if ENABLE(LAYOUT_FORMATTING_CONTEXT)
-
 #include "FormattingContext.h"
 #include "TableFormattingGeometry.h"
 #include "TableFormattingQuirks.h"
 #include "TableFormattingState.h"
 #include "TableGrid.h"
-#include <wtf/IsoMalloc.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/UniqueRef.h>
 
 namespace WebCore {
 namespace Layout {
 
-class InvalidationState;
-
 // This class implements the layout logic for table formatting contexts.
 // https://www.w3.org/TR/CSS22/tables.html
 class TableFormattingContext final : public FormattingContext {
-    WTF_MAKE_ISO_ALLOCATED(TableFormattingContext);
+    WTF_MAKE_TZONE_ALLOCATED(TableFormattingContext);
 public:
-    TableFormattingContext(const ContainerBox& formattingContextRoot, TableFormattingState&);
-    void layoutInFlowContent(InvalidationState&, const ConstraintsForInFlowContent&) override;
+    TableFormattingContext(const ElementBox& formattingContextRoot, TableFormattingState&);
+    void layoutInFlowContent(const ConstraintsForInFlowContent&) override;
     LayoutUnit usedContentHeight() const override;
 
-    const TableFormattingGeometry& formattingGeometry() const final { return m_tableFormattingGeometry; }
-    const TableFormattingQuirks& formattingQuirks() const final { return m_tableFormattingQuirks; }
-    const TableFormattingState& formattingState() const { return downcast<TableFormattingState>(FormattingContext::formattingState()); }
+    const TableFormattingGeometry& formattingGeometry() const LIFETIME_BOUND { return m_tableFormattingGeometry; }
+    const TableFormattingQuirks& formattingQuirks() const LIFETIME_BOUND { return m_tableFormattingQuirks; }
+    const TableFormattingState& formattingState() const LIFETIME_BOUND { return m_tableFormattingState; }
 
 private:
     class TableLayout {
@@ -63,7 +59,7 @@ private:
         DistributedSpaces distributedVerticalSpace(std::optional<LayoutUnit> availableVerticalSpace);
 
     private:
-        const TableFormattingContext& formattingContext() const { return m_formattingContext; }
+        const TableFormattingContext& formattingContext() const LIFETIME_BOUND { return m_formattingContext; }
 
         const TableFormattingContext& m_formattingContext;
         const TableGrid& m_grid;
@@ -76,11 +72,12 @@ private:
     void setUsedGeometryForRows(LayoutUnit availableHorizontalSpace);
     void setUsedGeometryForSections(const ConstraintsForInFlowContent&);
 
-    IntrinsicWidthConstraints computedPreferredWidthForColumns();
+    IntrinsicWidthConstraints computedIntrinsicWidthForColumns();
     void computeAndDistributeExtraSpace(LayoutUnit availableHorizontalSpace, std::optional<LayoutUnit> availableVerticalSpace);
 
-    TableFormattingState& formattingState() { return downcast<TableFormattingState>(FormattingContext::formattingState()); }
+    TableFormattingState& formattingState() LIFETIME_BOUND { return m_tableFormattingState; }
 
+    TableFormattingState& m_tableFormattingState;
     const TableFormattingGeometry m_tableFormattingGeometry;
     const TableFormattingQuirks m_tableFormattingQuirks;
 };
@@ -90,4 +87,3 @@ private:
 
 SPECIALIZE_TYPE_TRAITS_LAYOUT_FORMATTING_CONTEXT(TableFormattingContext, isTableFormattingContext())
 
-#endif

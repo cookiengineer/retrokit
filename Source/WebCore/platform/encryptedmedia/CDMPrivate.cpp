@@ -32,14 +32,17 @@
 #include "CDMMediaCapability.h"
 #include "CDMRequirement.h"
 #include "CDMRestrictions.h"
-#include "InitDataRegistry.h"
 #include "MediaPlayer.h"
 #include "NotImplemented.h"
 #include "ParsedContentType.h"
+#include "PlatformStrategies.h"
 #include "SharedBuffer.h"
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(CDMPrivate);
 
 CDMPrivate::CDMPrivate() = default;
 CDMPrivate::~CDMPrivate() = default;
@@ -56,7 +59,7 @@ void CDMPrivate::getSupportedConfiguration(CDMKeySystemConfiguration&& candidate
     // 1. Let supported configuration be ConsentDenied.
     // 2. Initialize restrictions to indicate that no configurations have had user consent denied.
     CDMRestrictions restrictions { };
-    doSupportedConfigurationStep(WTFMove(candidateConfiguration), WTFMove(restrictions), access, WTFMove(callback));
+    doSupportedConfigurationStep(WTF::move(candidateConfiguration), WTF::move(restrictions), access, WTF::move(callback));
 }
 
 void CDMPrivate::doSupportedConfigurationStep(CDMKeySystemConfiguration&& candidateConfiguration, CDMRestrictions&& restrictions, LocalStorageAccess access, SupportedConfigurationCallback&& callback)
@@ -75,7 +78,7 @@ void CDMPrivate::doSupportedConfigurationStep(CDMKeySystemConfiguration&& candid
         return;
     }
 
-    auto consentCallback = [weakThis = makeWeakPtr(*this), callback = WTFMove(callback), access] (ConsentStatus status, CDMKeySystemConfiguration&& configuration, CDMRestrictions&& restrictions) mutable {
+    auto consentCallback = [weakThis = WeakPtr { *this }, callback = WTF::move(callback), access] (ConsentStatus status, CDMKeySystemConfiguration&& configuration, CDMRestrictions&& restrictions) mutable {
         if (!weakThis) {
             callback(std::nullopt);
             return;
@@ -87,7 +90,7 @@ void CDMPrivate::doSupportedConfigurationStep(CDMKeySystemConfiguration&& candid
         case ConsentStatus::ConsentDenied:
             // ↳ ConsentDenied:
             //    Return ConsentDenied and updated restrictions.
-            weakThis->doSupportedConfigurationStep(WTFMove(configuration), WTFMove(restrictions), access, WTFMove(callback));
+            CheckedRef { *weakThis }->doSupportedConfigurationStep(WTF::move(configuration), WTF::move(restrictions), access, WTF::move(callback));
             return;
 
         case ConsentStatus::InformUser:
@@ -104,9 +107,9 @@ void CDMPrivate::doSupportedConfigurationStep(CDMKeySystemConfiguration&& candid
             break;
         }
         // 23. Return accumulated configuration.
-        callback(WTFMove(configuration));
+        callback(WTF::move(configuration));
     };
-    getConsentStatus(WTFMove(optionalConfiguration.value()), WTFMove(restrictions), access, WTFMove(consentCallback));
+    getConsentStatus(WTF::move(optionalConfiguration.value()), WTF::move(restrictions), access, WTF::move(consentCallback));
 }
 
 bool CDMPrivate::isPersistentType(CDMSessionType sessionType)
@@ -150,7 +153,7 @@ std::optional<CDMKeySystemConfiguration> CDMPrivate::getSupportedConfiguration(c
     // 3. If the initDataTypes member of candidate configuration is non-empty, run the following steps:
     if (!candidateConfiguration.initDataTypes.isEmpty()) {
         // 3.1. Let supported types be an empty sequence of DOMStrings.
-        Vector<String> supportedTypes;
+        Vector<AtomString> supportedTypes;
 
         // 3.2. For each value in candidate configuration's initDataTypes member:
         for (auto initDataType : candidateConfiguration.initDataTypes) {
@@ -169,7 +172,7 @@ std::optional<CDMKeySystemConfiguration> CDMPrivate::getSupportedConfiguration(c
             return std::nullopt;
 
         // 3.4. Set the initDataTypes member of accumulated configuration to supported types.
-        accumulatedConfiguration.initDataTypes = WTFMove(supportedTypes);
+        accumulatedConfiguration.initDataTypes = WTF::move(supportedTypes);
     }
 
     // 4. Let distinctive identifier requirement be the value of candidate configuration's distinctiveIdentifier member.
@@ -293,7 +296,7 @@ std::optional<CDMKeySystemConfiguration> CDMPrivate::getSupportedConfiguration(c
             return std::nullopt;
 
         // 16.3 Set the videoCapabilities member of accumulated configuration to video capabilities.
-        accumulatedConfiguration.videoCapabilities = WTFMove(videoCapabilities.value());
+        accumulatedConfiguration.videoCapabilities = WTF::move(videoCapabilities.value());
     } else {
         // 16. ↳ Otherwise:
         //     Set the videoCapabilities member of accumulated configuration to an empty sequence.
@@ -311,7 +314,7 @@ std::optional<CDMKeySystemConfiguration> CDMPrivate::getSupportedConfiguration(c
             return std::nullopt;
 
         // 17.3 Set the audioCapabilities member of accumulated configuration to audio capabilities.
-        accumulatedConfiguration.audioCapabilities = WTFMove(audioCapabilities.value());
+        accumulatedConfiguration.audioCapabilities = WTF::move(audioCapabilities.value());
     } else {
         // 17. ↳ Otherwise:
         //     Set the audioCapabilities member of accumulated configuration to an empty sequence.
@@ -387,12 +390,12 @@ std::optional<Vector<CDMMediaCapability>> CDMPrivate::getSupportedCapabilitiesFo
             return std::nullopt;
 
         // 3.4. If content type is an invalid or unrecognized MIME type, continue to the next iteration.
-        std::optional<ParsedContentType> contentType = ParsedContentType::create(requestedCapability.contentType, Mode::Rfc2045);
+        auto contentType = ParsedContentType::create(requestedCapability.contentType);
         if (!contentType)
             continue;
 
         // 3.5. Let container be the container type specified by content type.
-        String container = contentType->mimeType();
+        auto container = contentType->mimeType();
 
         // 3.6. If the user agent does not support container, continue to the next iteration. The case-sensitivity
         //      of string comparisons is determined by the appropriate RFC.
@@ -400,7 +403,7 @@ std::optional<Vector<CDMMediaCapability>> CDMPrivate::getSupportedCapabilitiesFo
         // 3.8. If the user agent does not recognize one or more parameters, continue to the next iteration.
         // 3.9. Let media types be the set of codecs and codec constraints specified by parameters. The case-sensitivity
         //      of string comparisons is determined by the appropriate RFC or other specification.
-        String codecs = contentType->parameterValueForName("codecs");
+        auto codecs = contentType->parameterValueForName("codecs"_s);
         if (contentType->parameterCount() > (codecs.isEmpty() ? 0 : 1))
             continue;
 
@@ -420,17 +423,21 @@ std::optional<Vector<CDMMediaCapability>> CDMPrivate::getSupportedCapabilitiesFo
         // 3.13. If the user agent and implementation definitely support playback of encrypted media data for the
         //       combination of container, media types, robustness and local accumulated configuration in combination
         //       with restrictions:
-        MediaEngineSupportParameters parameters;
-        parameters.type = ContentType(contentType->mimeType());
+        MediaEngineSupportParameters parameters { .type = ContentType(contentType->contentType()) };
         if (MediaPlayer::supportsType(parameters) == MediaPlayer::SupportsType::IsNotSupported) {
-
             // Try with Media Source:
-            parameters.isMediaSource = true;
+            parameters.platformType = PlatformMediaDecodingType::MediaSource;
             if (MediaPlayer::supportsType(parameters) == MediaPlayer::SupportsType::IsNotSupported)
                 continue;
         }
 
-        if (!supportsConfigurationWithRestrictions(accumulatedConfiguration, restrictions))
+        // NOTE: step 3.13 evaluates the combination including the requested capability.
+        CDMKeySystemConfiguration probeConfiguration = accumulatedConfiguration;
+        if (type == AudioVideoType::Video)
+            probeConfiguration.videoCapabilities.append(requestedCapability);
+        else
+            probeConfiguration.audioCapabilities.append(requestedCapability);
+        if (!supportsConfigurationWithRestrictions(probeConfiguration, restrictions))
             continue;
 
         // 3.13.1. Add requested media capability to supported media capabilities.
@@ -465,7 +472,7 @@ void CDMPrivate::getConsentStatus(CDMKeySystemConfiguration&& accumulatedConfigu
     if (accumulatedConfiguration.distinctiveIdentifier == CDMRequirement::Required && !distinctiveIdentifiersAreUniquePerOriginAndClearable(accumulatedConfiguration)) {
         // 21.1. Update restrictions to reflect that all configurations described by accumulated configuration do not have user consent.
         restrictions.distinctiveIdentifierDenied = true;
-        callback(ConsentStatus::ConsentDenied, WTFMove(accumulatedConfiguration), WTFMove(restrictions));
+        callback(ConsentStatus::ConsentDenied, WTF::move(accumulatedConfiguration), WTF::move(restrictions));
         return;
     }
 
@@ -499,13 +506,13 @@ void CDMPrivate::getConsentStatus(CDMKeySystemConfiguration&& accumulatedConfigu
     // NOTE: assume implied consent if the combination of origin and topOrigin allows it.
     if (accumulatedConfiguration.distinctiveIdentifier == CDMRequirement::Required && access == LocalStorageAccess::NotAllowed) {
         restrictions.distinctiveIdentifierDenied = true;
-        callback(ConsentStatus::ConsentDenied, WTFMove(accumulatedConfiguration), WTFMove(restrictions));
+        callback(ConsentStatus::ConsentDenied, WTF::move(accumulatedConfiguration), WTF::move(restrictions));
         return;
     }
 
     // 4. If the distinctiveIdentifier member of accumulated configuration is not "not-allowed", return InformUser.
     if (accumulatedConfiguration.distinctiveIdentifier != CDMRequirement::NotAllowed) {
-        callback(ConsentStatus::InformUser, WTFMove(accumulatedConfiguration), WTFMove(restrictions));
+        callback(ConsentStatus::InformUser, WTF::move(accumulatedConfiguration), WTF::move(restrictions));
         return;
     }
 
@@ -513,12 +520,7 @@ void CDMPrivate::getConsentStatus(CDMKeySystemConfiguration&& accumulatedConfigu
     // NOTE: assume the user agent does not require informing the user.
 
     // 6. Return Allowed.
-    callback(ConsentStatus::Allowed, WTFMove(accumulatedConfiguration), WTFMove(restrictions));
-}
-
-RefPtr<SharedBuffer> CDMPrivate::sanitizeInitData(const AtomString& initDataType, const SharedBuffer& initData) const
-{
-    return InitDataRegistry::shared().sanitizeInitData(initDataType, initData);
+    callback(ConsentStatus::Allowed, WTF::move(accumulatedConfiguration), WTF::move(restrictions));
 }
 
 

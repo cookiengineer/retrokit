@@ -23,6 +23,7 @@
 #include "Options.h"
 #include <glib/gi18n-lib.h>
 #include <wtf/Vector.h>
+#include <wtf/glib/GSpanExtras.h>
 #include <wtf/glib/GUniquePtr.h>
 
 /**
@@ -37,7 +38,7 @@
  * Only a few of them are documented; you can use the undocumented options at
  * your own risk. (You can find the list of options in the WebKit source code).
  *
- * The API allows to set and get any option using the types defined in #JSCOptionType.
+ * The API allows setting and getting any option using the types defined in #JSCOptionType.
  * You can also iterate all the available options using jsc_options_foreach() and
  * passing a #JSCOptionsFunc callback. If your application uses #GOptionContext to handle
  * command line arguments, you can easily integrate the JSCOptions by adding the
@@ -164,8 +165,24 @@ static void valueToGValue(GCLogging::Level value, GValue* gValue)
     }
 }
 
+static bool valueFromGValue(const GValue* gValue, OSLogType& value)
+{
+    unsigned optionValue = g_value_get_uint(gValue);
+    if (optionValue > static_cast<unsigned>(OSLogType::Fault))
+        return false;
+    value = static_cast<OSLogType>(optionValue);
+    return true;
+}
+
+static void valueToGValue(OSLogType value, GValue* gValue)
+{
+    g_value_set_uint(gValue, static_cast<unsigned>(value));
+}
+
 static gboolean jscOptionsSetValue(const char* option, const GValue* value)
 {
+    Options::AllowUnfinalizedAccessScope scope;
+
 #define SET_OPTION_VALUE(type_, name_, defaultValue_, availability_, description_) \
     if (!g_strcmp0(#name_, option)) {                                   \
         OptionsStorage::type_ valueToSet;                                  \
@@ -175,7 +192,7 @@ static gboolean jscOptionsSetValue(const char* option, const GValue* value)
         return TRUE;                                                    \
     }
 
-    Options::initialize();
+    Options::initialize([] { });
     FOR_EACH_JSC_OPTION(SET_OPTION_VALUE)
 #undef SET_OPTION_VALUE
 
@@ -184,6 +201,8 @@ static gboolean jscOptionsSetValue(const char* option, const GValue* value)
 
 static gboolean jscOptionsGetValue(const char* option, GValue* value)
 {
+    Options::AllowUnfinalizedAccessScope scope;
+
 #define GET_OPTION_VALUE(type_, name_, defaultValue_, availability_, description_) \
     if (!g_strcmp0(#name_, option)) {                                   \
         OptionsStorage::type_ valueToGet = Options::name_();               \
@@ -191,7 +210,7 @@ static gboolean jscOptionsGetValue(const char* option, GValue* value)
         return TRUE;                                                    \
     }
 
-    Options::initialize();
+    Options::initialize([] { });
     FOR_EACH_JSC_OPTION(GET_OPTION_VALUE)
 #undef GET_OPTION_VALUE
 
@@ -483,9 +502,9 @@ gboolean jsc_options_get_string(const char* option, char** value)
  * @value: the value to set
  *
  * Set @option as a range string. The string must be in the
- * format <emphasis>[!]&lt;low&gt;[:&lt;high&gt;]</emphasis> where low and high are #guint values.
+ * format `[!]<low>[:<high>]` where low and high are #guint values.
  * Values between low and high (both included) will be considered in
- * the range, unless <emphasis>!</emphasis> is used to invert the range.
+ * the range, unless `!` is used to invert the range.
  *
  * Returns: %TRUE if option was correctly set or %FALSE otherwise.
  *
@@ -509,9 +528,9 @@ gboolean jsc_options_set_range_string(const char* option, const char* value)
  * @value: (out): return location for the option value
  *
  * Get @option as a range string. The string must be in the
- * format <emphasis>[!]&lt;low&gt;[:&lt;high&gt;]</emphasis> where low and high are #guint values.
+ * format `[!]<low>[:<high>]` where low and high are #guint values.
  * Values between low and high (both included) will be considered in
- * the range, unless <emphasis>!</emphasis> is used to invert the range.
+ * the range, unless `!` is used to invert the range.
  *
  * Returns: %TRUE if @value has been set or %FALSE if the option doesn't exist
  *
@@ -569,13 +588,18 @@ static JSCOptionType jscOptionsType(const OptionRange&)
     return JSC_OPTION_RANGE_STRING;
 }
 
+static JSCOptionType jscOptionsType(const OSLogType&)
+{
+    return JSC_OPTION_UINT;
+}
+
 /**
  * JSCOptionType:
  * @JSC_OPTION_BOOLEAN: A #gboolean option type.
  * @JSC_OPTION_INT: A #gint option type.
  * @JSC_OPTION_UINT: A #guint option type.
- * @JSC_OPTION_SIZE: A #gsize options type.
- * @JSC_OPTION_DOUBLE: A #gdouble options type.
+ * @JSC_OPTION_SIZE: A #gsize option type.
+ * @JSC_OPTION_DOUBLE: A #gdouble option type.
  * @JSC_OPTION_STRING: A string option type.
  * @JSC_OPTION_RANGE_STRING: A range string option type.
  *
@@ -593,7 +617,7 @@ static JSCOptionType jscOptionsType(const OptionRange&)
  *
  * Function used to iterate options.
  *
- * Not that @description string is not localized.
+ * Note that @description string is not localized.
  *
  * Returns: %TRUE to stop the iteration, or %FALSE otherwise
  *
@@ -606,7 +630,7 @@ static JSCOptionType jscOptionsType(const OptionRange&)
  * @user_data: callback user data
  *
  * Iterates all available options calling @function for each one. Iteration can
- * stop early if @function returns %FALSE.
+ * stop early if @function returns %TRUE.
  *
  * Since: 2.24
  */
@@ -623,11 +647,12 @@ void jsc_options_foreach(JSCOptionsFunc function, gpointer userData)
             return;                                                     \
     }
 
-    Options::initialize();
+    Options::initialize([] { });
     FOR_EACH_JSC_OPTION(VISIT_OPTION)
 #undef VISIT_OPTION
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GLib port
 static gboolean setOptionEntry(const char* optionNameFull, const char* value, gpointer, GError** error)
 {
     const char* optionName = optionNameFull + 6; // Remove the --jsc- prefix.
@@ -638,17 +663,18 @@ static gboolean setOptionEntry(const char* optionNameFull, const char* value, gp
     }
     return TRUE;
 }
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 /**
  * jsc_options_get_option_group:
  *
  * Create a #GOptionGroup to handle JSCOptions as command line arguments.
  * The options will be exposed as command line arguments with the form
- * <emphasis>--jsc-&lt;option&gt;=&lt;value&gt;</emphasis>.
+ * `--jsc-<option>=<value>`.
  * Each entry in the returned #GOptionGroup is configured to apply the
  * corresponding option during command line parsing. Applications only need to
  * pass the returned group to g_option_context_add_group(), and the rest will
- * be taken care for automatically.
+ * be taken care of automatically.
  *
  * Returns: (transfer full): a #GOptionGroup for the JSCOptions
  *
@@ -663,25 +689,25 @@ GOptionGroup* jsc_options_get_option_group(void)
     });
     g_option_group_set_translation_domain(group, GETTEXT_PACKAGE);
 
-    GArray* entries = g_array_new(TRUE, TRUE, sizeof(GOptionEntry));
+    Vector<GOptionEntry> entries;
 #define REGISTER_OPTION(type_, name_, defaultValue_, availability_, description_) \
     if (Options::Availability::availability_ == Options::Availability::Normal \
         || Options::isAvailable(Options::name_##ID, Options::Availability::availability_)) { \
         GUniquePtr<char> name(g_strdup_printf("jsc-%s", #name_));       \
-        entries = g_array_set_size(entries, entries->len + 1); \
-        GOptionEntry* entry = &g_array_index(entries, GOptionEntry, entries->len - 1); \
-        entry->long_name = name.get();                                  \
-        entry->arg = G_OPTION_ARG_CALLBACK;                             \
-        entry->arg_data = reinterpret_cast<gpointer>(setOptionEntry);   \
-        entry->description = description_;                              \
-        names->append(WTFMove(name));                                   \
+        GOptionEntry entry { };                                         \
+        entry.long_name = name.get();                                   \
+        entry.arg = G_OPTION_ARG_CALLBACK;                              \
+        entry.arg_data = reinterpret_cast<gpointer>(setOptionEntry);    \
+        entry.description = description_;                               \
+        entries.append(entry);                                          \
+        names->append(WTF::move(name));                                 \
     }
-
-    Options::initialize();
+    Options::initialize([] { });
     FOR_EACH_JSC_OPTION(REGISTER_OPTION)
 #undef REGISTER_OPTION
 
-    g_option_group_add_entries(group, reinterpret_cast<GOptionEntry*>(entries->data));
+    entries.append(GOptionEntry { });
+    g_option_group_add_entries(group, entries.span().data());
     return group;
 }
 

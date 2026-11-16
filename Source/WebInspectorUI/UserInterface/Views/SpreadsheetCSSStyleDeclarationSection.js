@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -38,10 +38,12 @@ WI.SpreadsheetCSSStyleDeclarationSection = class SpreadsheetCSSStyleDeclarationS
         this._style = style;
         this._propertiesEditor = null;
         this._selectorElements = [];
+        this._groupingsContainerElement = null;
         this._groupingElements = [];
         this._filterText = null;
         this._shouldFocusSelectorElement = false;
         this._wasEditing = false;
+        this._setSelectorTextPromise = Promise.resolve();
 
         this._isMousePressed = false;
         this._mouseDownIndex = NaN;
@@ -102,28 +104,6 @@ WI.SpreadsheetCSSStyleDeclarationSection = class SpreadsheetCSSStyleDeclarationS
         console.assert(iconClassName);
         this._element.classList.add("has-icon", iconClassName);
 
-        let groupings = this._style.groupings.filter((grouping) => grouping.text !== "all");
-        if (groupings.length) {
-            let groupingsElement = this.element.appendChild(document.createElement("div"));
-            groupingsElement.classList.add("header-groupings");
-
-            let currentGroupingType = null;
-            let groupingTypeElement = null;
-            this._groupingElements = groupings.map((grouping) => {
-                if (grouping.type !== currentGroupingType) {
-                    groupingTypeElement = groupingsElement.appendChild(document.createElement("div"));
-                    groupingTypeElement.classList.add("grouping");
-                    groupingTypeElement.textContent = grouping.prefix + " ";
-                    currentGroupingType = grouping.type;
-                } else
-                    groupingTypeElement.append(", ");
-
-                let span = groupingTypeElement.appendChild(document.createElement("span"));
-                span.textContent = grouping.text;
-                return span;
-            });
-        }
-
         this._headerElement = this._element.appendChild(document.createElement("div"));
         this._headerElement.classList.add("header");
 
@@ -142,13 +122,9 @@ WI.SpreadsheetCSSStyleDeclarationSection = class SpreadsheetCSSStyleDeclarationS
         this._headerElement.append(this._openBrace);
 
         if (this._style.selectorEditable) {
-            this._selectorTextField = new WI.SpreadsheetSelectorField(this, this._selectorElement);
-            this._selectorTextField.addEventListener(WI.SpreadsheetSelectorField.Event.StartedEditing, function(event) {
-                this._headerElement.classList.add("editing-selector");
-            }, this);
-            this._selectorTextField.addEventListener(WI.SpreadsheetSelectorField.Event.StoppedEditing, function(event) {
-                this._headerElement.classList.remove("editing-selector");
-            }, this);
+            this._selectorTextField = new WI.SpreadsheetRuleHeaderField(this, this._selectorElement);
+            this._selectorTextField.addEventListener(WI.SpreadsheetRuleHeaderField.Event.StartedEditing, this._handleSpreadsheetSelectorFieldStartedEditing, this);
+            this._selectorTextField.addEventListener(WI.SpreadsheetRuleHeaderField.Event.StoppedEditing, this._handleSpreadsheetSelectorFieldStoppedEditing, this);
 
             this._selectorElement.tabIndex = 0;
         }
@@ -176,8 +152,10 @@ WI.SpreadsheetCSSStyleDeclarationSection = class SpreadsheetCSSStyleDeclarationS
         if (this._style.editable) {
             this.element.addEventListener("click", this._handleClick.bind(this));
 
-            new WI.KeyboardShortcut(WI.KeyboardShortcut.Modifier.CommandOrControl, "S", this._save.bind(this), this._element);
-            new WI.KeyboardShortcut(WI.KeyboardShortcut.Modifier.CommandOrControl | WI.KeyboardShortcut.Modifier.Shift, "S", this._save.bind(this), this._element);
+            if (WI.FileUtilities.canSave(WI.FileUtilities.SaveMode.SingleFile)) {
+                new WI.KeyboardShortcut(WI.KeyboardShortcut.Modifier.CommandOrControl, "S", this._save.bind(this), this._element);
+                new WI.KeyboardShortcut(WI.KeyboardShortcut.Modifier.CommandOrControl | WI.KeyboardShortcut.Modifier.Shift, "S", this._save.bind(this), this._element);
+            }
         }
     }
 
@@ -187,9 +165,22 @@ WI.SpreadsheetCSSStyleDeclarationSection = class SpreadsheetCSSStyleDeclarationS
 
         this._styleOriginView.update(this._style);
         this._renderSelector();
+        this._renderGroupings();
 
         if (this._shouldFocusSelectorElement)
             this.startEditingRuleSelector();
+    }
+
+    startEditingFirstGroupingOrRuleSelector()
+    {
+        for (let groupingTextElement of this._groupingElements) {
+            if (groupingTextElement.associatedTextField) {
+                groupingTextElement.associatedTextField.startEditing();
+                return;
+            }
+        }
+
+        this.startEditingRuleSelector();
     }
 
     startEditingRuleSelector()
@@ -221,36 +212,59 @@ WI.SpreadsheetCSSStyleDeclarationSection = class SpreadsheetCSSStyleDeclarationS
 
         return false;
     }
-
-    // SpreadsheetSelectorField delegate
-
-    spreadsheetSelectorFieldDidCommit(changed)
+    
+    deselectProperties() 
     {
-        let selectorText = this._selectorElement.textContent.trim();
-        if (selectorText && changed) {
-            this.dispatchEventToListeners(WI.SpreadsheetCSSStyleDeclarationSection.Event.SelectorWillChange);
-            this._style.ownerRule.setSelectorText(selectorText).finally(this._renderSelector.bind(this));
-        } else
-            this._discardSelectorChange();
+        this._propertiesEditor.deselectProperties();
     }
 
-    spreadsheetSelectorFieldWillNavigate(direction)
+    // SpreadsheetRuleHeaderField delegate
+
+    spreadsheetRuleHeaderFieldDidCommit(textField, changed)
+    {
+        if (textField === this._selectorTextField) {
+            this._handleSpreadsheetSelectorFieldDidCommit(changed);
+            return;
+        }
+
+        if (this._groupingElements.includes(textField.element)) {
+            this._handleSpreadsheetGroupingFieldDidCommit(textField, changed);
+            return;
+        }
+
+        console.assert(false, "not reached");
+    }
+
+    spreadsheetRuleHeaderFieldWillNavigate(textField, direction)
     {
         console.assert(direction);
-        if (direction === "forward")
-            this._propertiesEditor.startEditingFirstProperty();
-        else if (direction === "backward") {
-            if (this._delegate.spreadsheetCSSStyleDeclarationSectionStartEditingAdjacentRule) {
-                const delta = -1;
-                this._delegate.spreadsheetCSSStyleDeclarationSectionStartEditingAdjacentRule(this, delta);
-            } else
-                this._propertiesEditor.startEditingLastProperty();
+
+        if (textField === this._selectorTextField) {
+            this._handleSpreadsheetSelectorFieldWillNavigate(direction);
+            return;
         }
+
+        if (this._groupingElements.includes(textField.element)) {
+            this._handleSpreadsheetGroupingFieldWillNavigate(textField, direction);
+            return;
+        }
+
+        console.assert(false, "not reached");
     }
 
-    spreadsheetSelectorFieldDidDiscard()
+    spreadsheetRuleHeaderFieldDidDiscard(textField)
     {
-        this._discardSelectorChange();
+        if (textField === this._selectorTextField) {
+            this._discardSelectorChange();
+            return;
+        }
+
+        if (this._groupingElements.includes(textField.element)) {
+            this._handleSpreadsheetGroupingFieldDidDiscard(textField);
+            return;
+        }
+
+        console.assert(false, "not reached");
     }
 
     // SpreadsheetCSSStyleDeclarationEditor delegate
@@ -294,6 +308,11 @@ WI.SpreadsheetCSSStyleDeclarationSection = class SpreadsheetCSSStyleDeclarationS
         this._delegate?.spreadsheetCSSStyleDeclarationSectionSetAllPropertyVisibilityMode?.(this, propertyVisibilityMode);
     }
 
+    spreadsheetCSSStyleDeclarationEditorStyleLockedChanged(editor, locked)
+    {
+        this._delegate?.spreadsheetCSSStyleDeclarationSectionStyleLockedChanged(this, locked);
+    }
+
     applyFilter(filterText)
     {
         this._filterText = filterText;
@@ -312,6 +331,60 @@ WI.SpreadsheetCSSStyleDeclarationSection = class SpreadsheetCSSStyleDeclarationS
     {
         // Re-render selector for syntax highlighting.
         this._renderSelector();
+    }
+
+    _renderGroupings()
+    {
+        this._groupingElements = [];
+
+        if (!this._style.groupings.length) {
+            this._groupingsContainerElement?.remove();
+            return;
+        }
+
+        if (!this._groupingsContainerElement) {
+            this._groupingsContainerElement = document.createElement("div");
+            this._groupingsContainerElement.classList.add("header-groupings");
+        } else
+            this._groupingsContainerElement.removeChildren();
+
+        let groupings = this._style.groupings;
+        for (let i = groupings.length - 1; i >= 0; --i) {
+            let grouping = groupings[i];
+
+            if (!grouping.prefix && !grouping.text)
+                continue;
+
+            let groupingTypeElement = this._groupingsContainerElement.appendChild(document.createElement("div"));
+            groupingTypeElement.classList.add("grouping");
+
+            if (!grouping.text) {
+                groupingTypeElement.textContent = grouping.prefix;
+                continue;
+            }
+
+            if (grouping.prefix)
+                groupingTypeElement.textContent = grouping.prefix + " ";
+
+            let groupingTextElement = groupingTypeElement.appendChild(document.createElement("span"));
+            groupingTextElement.textContent = grouping.text;
+            groupingTextElement.representedGrouping = grouping;
+
+            if (grouping.editable) {
+                let groupingTextField = new WI.SpreadsheetRuleHeaderField(this, groupingTextElement);
+
+                grouping.addEventListener(WI.CSSGrouping.Event.TextChanged, function(event) {
+                    groupingTextElement.textContent = grouping.text;
+                }, this);
+
+                // Used by _handleSpreadsheetGroupingFieldWillNavigate to allow tabbing between grouping editors.
+                groupingTextElement.associatedTextField = groupingTextField;
+            }
+
+            this._groupingElements.push(groupingTextElement);
+        }
+
+        this._element.insertBefore(this._groupingsContainerElement, this._headerElement);
     }
 
     _renderSelector()
@@ -433,8 +506,8 @@ WI.SpreadsheetCSSStyleDeclarationSection = class SpreadsheetCSSStyleDeclarationS
         } else
             url = sourceCode.url;
 
-        const saveAs = event.shiftKey;
-        WI.FileUtilities.save({url: url, content: sourceCode.content}, saveAs);
+        let forceSaveAs = event.shiftKey;
+        WI.FileUtilities.save(WI.FileUtilities.SaveMode.SingleFile, {url, content: sourceCode.content}, forceSaveAs);
     }
 
     _handleMouseDown(event)
@@ -481,7 +554,7 @@ WI.SpreadsheetCSSStyleDeclarationSection = class SpreadsheetCSSStyleDeclarationS
     _populateIconElementContextMenu(contextMenu)
     {
         contextMenu.appendItem(WI.UIString("Copy Rule"), () => {
-            InspectorFrontendHost.copyText(this._style.generateCSSRuleString());
+            InspectorFrontendHost.copyText(this._style.generateFormattedText({includeGroupingsAndSelectors: true, multiline: true}));
         });
 
         if (this._style.editable && this._style.properties.length) {
@@ -522,17 +595,19 @@ WI.SpreadsheetCSSStyleDeclarationSection = class SpreadsheetCSSStyleDeclarationS
                     createNewRule(selector, text);
                 };
 
-                if (WI.CSSManager.ForceablePseudoClasses.every((className) => !this._style.selectorText.includes(":" + className))) {
+                if (WI.cssManager.canForcePseudoClass() && Object.values(WI.CSSManager.ForceablePseudoClass).every((className) => !this._style.selectorText.includes(":" + className))) {
                     contextMenu.appendSeparator();
 
-                     for (let pseudoClass of WI.CSSManager.ForceablePseudoClasses) {
-                        if (pseudoClass === "visited" && this._style.node.nodeName() !== "A")
+                    for (let pseudoClass of Object.values(WI.CSSManager.ForceablePseudoClass)) {
+                        if (!WI.cssManager.canForcePseudoClass(pseudoClass))
+                            continue;
+
+                        if (pseudoClass === WI.CSSManager.ForceablePseudoClass.Visited && this._style.node.nodeName() !== "A")
                             continue;
 
                         let pseudoClassSelector = ":" + pseudoClass;
                         contextMenu.appendItem(WI.UIString("Add %s Rule").format(pseudoClassSelector), () => {
-                            if (WI.cssManager.canForcePseudoClasses())
-                                this._style.node.setPseudoClassEnabled(pseudoClass, true);
+                            this._style.node.setPseudoClassEnabled(pseudoClass, true);
 
                             addPseudoRule(pseudoClassSelector);
                         });
@@ -662,12 +737,15 @@ WI.SpreadsheetCSSStyleDeclarationSection = class SpreadsheetCSSStyleDeclarationS
 
     _handleEditorFilterApplied(event)
     {
+        let lowerCaseFilterText = this._filterText.toLowerCase();
+
         let matchesGrouping = false;
         for (let groupingElement of this._groupingElements) {
-            groupingElement.classList.remove(WI.GeneralStyleDetailsSidebarPanel.FilterMatchSectionClassName);
+            groupingElement.parentElement.classList.remove(WI.GeneralStyleDetailsSidebarPanel.FilterMatchSectionClassName);
 
-            if (groupingElement.textContent.includes(this._filterText)) {
-                groupingElement.classList.add(WI.GeneralStyleDetailsSidebarPanel.FilterMatchSectionClassName);
+            // Check the parent element to also include the grouping type in the search.
+            if (groupingElement.parentElement.textContent.toLowerCase().includes(lowerCaseFilterText)) {
+                groupingElement.parentElement.classList.add(WI.GeneralStyleDetailsSidebarPanel.FilterMatchSectionClassName);
                 matchesGrouping = true;
             }
         }
@@ -676,7 +754,7 @@ WI.SpreadsheetCSSStyleDeclarationSection = class SpreadsheetCSSStyleDeclarationS
         for (let selectorElement of this._selectorElements) {
             selectorElement.classList.remove(WI.GeneralStyleDetailsSidebarPanel.FilterMatchSectionClassName);
 
-            if (selectorElement.textContent.includes(this._filterText)) {
+            if (selectorElement.textContent.toLowerCase().includes(lowerCaseFilterText)) {
                 selectorElement.classList.add(WI.GeneralStyleDetailsSidebarPanel.FilterMatchSectionClassName);
                 matchesSelector = true;
             }
@@ -688,11 +766,109 @@ WI.SpreadsheetCSSStyleDeclarationSection = class SpreadsheetCSSStyleDeclarationS
 
         this.dispatchEventToListeners(WI.SpreadsheetCSSStyleDeclarationSection.Event.FilterApplied, {matches});
     }
+
+    _handleSpreadsheetSelectorFieldStartedEditing(event)
+    {
+        this._headerElement.classList.add("editing-selector");
+    }
+
+    _handleSpreadsheetSelectorFieldStoppedEditing(event)
+    {
+        this._headerElement.classList.remove("editing-selector");
+    }
+
+    _handleSpreadsheetSelectorFieldDidCommit(changed)
+    {
+        let selectorText = this._selectorElement.textContent.trim();
+        if (selectorText && changed) {
+            this.dispatchEventToListeners(WI.SpreadsheetCSSStyleDeclarationSection.Event.SelectorOrGroupingWillChange);
+            this._setSelectorTextPromise = this._style.ownerRule.setSelectorText(selectorText).finally(this._renderSelector.bind(this));
+        } else
+            this._discardSelectorChange();
+    }
+
+    _handleSpreadsheetSelectorFieldWillNavigate(direction)
+    {
+        if (direction === "forward")
+            this._setSelectorTextPromise.then(() => this._propertiesEditor.startEditingFirstProperty());
+        else if (direction === "backward") {
+            for (let i = this._groupingElements.length - 1; i >= 0; --i) {
+                let groupingElementTextField = this._groupingElements[i].associatedTextField;
+                if (groupingElementTextField) {
+                    groupingElementTextField.startEditing();
+                    return;
+                }
+            }
+            if (this._delegate.spreadsheetCSSStyleDeclarationSectionStartEditingAdjacentRule) {
+                const delta = -1;
+                this._delegate.spreadsheetCSSStyleDeclarationSectionStartEditingAdjacentRule(this, delta);
+            } else
+                this._setSelectorTextPromise.then(() => this._propertiesEditor.startEditingLastProperty());
+        }
+    }
+
+    _handleSpreadsheetGroupingFieldDidCommit(textField, changed)
+    {
+        let groupingTextElement = textField.element;
+        let text = groupingTextElement.textContent.trim();
+
+        if (!changed || !text) {
+            this._handleSpreadsheetGroupingFieldDidDiscard(textField);
+            return;
+        }
+
+        this.dispatchEventToListeners(WI.SpreadsheetCSSStyleDeclarationSection.Event.SelectorOrGroupingWillChange);
+        groupingTextElement.representedGrouping.setText(text).catch((error) => {}).finally(() => {
+            groupingTextElement.textContent = groupingTextElement.representedGrouping.text || "";
+        });
+    }
+
+    _handleSpreadsheetGroupingFieldWillNavigate(textField, direction)
+    {
+        let groupingTextElement = textField.element;
+        let directionOffset = direction === "forward" ? 1 : -1;
+        let currentGroupingIndex = this._groupingElements.indexOf(groupingTextElement);
+        console.assert(currentGroupingIndex >= 0);
+
+        let newGroupingIndex = currentGroupingIndex + directionOffset;
+
+        while (newGroupingIndex >= 0 && newGroupingIndex < this._groupingElements.length) {
+            if (this._groupingElements[newGroupingIndex].associatedTextField)
+                break;
+
+            newGroupingIndex += directionOffset;
+        }
+
+        if (newGroupingIndex < 0) {
+            if (this._delegate?.spreadsheetCSSStyleDeclarationSectionStartEditingAdjacentRule)
+                this._delegate.spreadsheetCSSStyleDeclarationSectionStartEditingAdjacentRule(this, directionOffset);
+            else
+                this._propertiesEditor.startEditingLastProperty();
+
+            return;
+        }
+
+        if (newGroupingIndex >= this._groupingElements.length) {
+            if (this._selectorTextField)
+                this._selectorTextField.startEditing();
+            else
+                this._propertiesEditor.startEditingFirstProperty();
+            return;
+        }
+
+        this._groupingElements[newGroupingIndex].associatedTextField.startEditing();
+    }
+
+    _handleSpreadsheetGroupingFieldDidDiscard(textField)
+    {
+        let groupingTextElement = textField.element;
+        groupingTextElement.textContent = groupingTextElement.representedGrouping.text || "";
+    }
 };
 
 WI.SpreadsheetCSSStyleDeclarationSection.Event = {
     FilterApplied: "spreadsheet-css-style-declaration-section-filter-applied",
-    SelectorWillChange: "spreadsheet-css-style-declaration-section-selector-will-change",
+    SelectorOrGroupingWillChange: "spreadsheet-css-style-declaration-section-selector--or-grouping-will-change",
 };
 
 WI.SpreadsheetCSSStyleDeclarationSection.MatchedSelectorElementStyleClassName = "matched";

@@ -30,6 +30,9 @@
 #include "JSReadableStreamSource.h"
 
 #include "JSDOMPromiseDeferred.h"
+#include <JavaScriptCore/CallFrameInlines.h>
+#include <JavaScriptCore/HeapInlines.h>
+#include <JavaScriptCore/WriteBarrierInlines.h>
 
 namespace WebCore {
 using namespace JSC;
@@ -40,23 +43,23 @@ JSValue JSReadableStreamSource::start(JSGlobalObject& lexicalGlobalObject, CallF
     
     // FIXME: Why is it ok to ASSERT the argument count here?
     ASSERT(callFrame.argumentCount());
-    JSReadableStreamDefaultController* controller = jsDynamicCast<JSReadableStreamDefaultController*>(vm, callFrame.uncheckedArgument(0));
+    JSReadableStreamDefaultController* controller = dynamicDowncast<JSReadableStreamDefaultController>(callFrame.uncheckedArgument(0));
     ASSERT(controller);
 
     m_controller.set(vm, this, controller);
 
-    wrapped().start(ReadableStreamDefaultController(controller), WTFMove(promise));
+    wrapped().start(ReadableStreamDefaultController(controller), WTF::move(promise));
 
     return jsUndefined();
 }
 
 JSValue JSReadableStreamSource::pull(JSGlobalObject&, CallFrame&, Ref<DeferredPromise>&& promise)
 {
-    wrapped().pull(WTFMove(promise));
+    wrapped().pull(WTF::move(promise));
     return jsUndefined();
 }
 
-JSValue JSReadableStreamSource::controller(JSGlobalObject&) const
+JSValue NODELETE JSReadableStreamSource::controller(JSGlobalObject&) const
 {
     ASSERT_NOT_REACHED();
     return jsUndefined();

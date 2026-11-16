@@ -22,6 +22,12 @@
 
 #include <wtf/text/CString.h>
 
+/**
+ * WebKitApplicationInfo: (ref-func webkit_application_info_ref) (unref-func webkit_application_info_unref)
+ *
+ * Information about an application running in automation mode.
+ */
+
 struct _WebKitApplicationInfo {
     CString name;
     uint64_t majorVersion;
@@ -34,13 +40,13 @@ struct _WebKitApplicationInfo {
 G_DEFINE_BOXED_TYPE(WebKitApplicationInfo, webkit_application_info, webkit_application_info_ref, webkit_application_info_unref)
 
 /**
- * webkit_application_info_new:
+ * webkit_application_info_new: (constructor)
  *
  * Creates a new #WebKitApplicationInfo
  *
  * Returns: (transfer full): the newly created #WebKitApplicationInfo.
  *
- * since: 2.18
+ * Since: 2.18
  */
 WebKitApplicationInfo* webkit_application_info_new()
 {
@@ -53,7 +59,9 @@ WebKitApplicationInfo* webkit_application_info_new()
  * webkit_application_info_ref:
  * @info: a #WebKitApplicationInfo
  *
- * Atomically increments the reference count of @info by one. This
+ * Atomically increments the reference count of @info by one.
+ *
+ * This
  * function is MT-safe and may be called from any thread.
  *
  * Returns: The passed in #WebKitApplicationInfo
@@ -70,7 +78,9 @@ WebKitApplicationInfo* webkit_application_info_ref(WebKitApplicationInfo* info)
  * webkit_application_info_unref:
  * @info: a #WebKitApplicationInfo
  *
- * Atomically decrements the reference count of @info by one. If the
+ * Atomically decrements the reference count of @info by one.
+ *
+ * If the
  * reference count drops to 0, all memory allocated by the #WebKitApplicationInfo is
  * released. This function is MT-safe and may be called from any
  * thread.
@@ -90,7 +100,9 @@ void webkit_application_info_unref(WebKitApplicationInfo* info)
  * @info: a #WebKitApplicationInfo
  * @name: the application name
  *
- * Set the name of the application. If not provided, or %NULL is passed,
+ * Set the name of the application.
+ *
+ * If not provided, or %NULL is passed,
  * g_get_prgname() will be used.
  *
  * Since: 2.18
@@ -106,7 +118,9 @@ void webkit_application_info_set_name(WebKitApplicationInfo* info, const char* n
  * webkit_application_info_get_name:
  * @info: a #WebKitApplicationInfo
  *
- * Get the name of the application. If webkit_application_info_set_name() hasn't been
+ * Get the name of the application.
+ *
+ * If webkit_application_info_set_name() hasn't been
  * called with a valid name, this returns g_get_prgname().
  *
  * Returns: the application name
@@ -130,7 +144,9 @@ const char* webkit_application_info_get_name(WebKitApplicationInfo* info)
  * @minor: the minor version number
  * @micro: the micro version number
  *
- * Set the application version. If the application doesn't use the format
+ * Set the application version.
+ *
+ * If the application doesn't use the format
  * major.minor.micro you can pass 0 as the micro to use major.minor, or pass
  * 0 as both micro and minor to use only major number. Any other format must
  * be converted to major.minor.micro so that it can be used in version comparisons.

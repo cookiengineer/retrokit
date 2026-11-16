@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,6 +27,7 @@
 #include "WKNotificationManager.h"
 
 #include "APIArray.h"
+#include "APIData.h"
 #include "WKAPICast.h"
 #include "WebNotification.h"
 #include "WebNotificationManagerProxy.h"
@@ -41,35 +42,44 @@ WKTypeID WKNotificationManagerGetTypeID()
 
 void WKNotificationManagerSetProvider(WKNotificationManagerRef managerRef, const WKNotificationProviderBase* wkProvider)
 {
-    toImpl(managerRef)->setProvider(makeUnique<WebNotificationProvider>(wkProvider));
+    protect(toImpl(managerRef))->setProvider(makeUnique<WebNotificationProvider>(wkProvider));
 }
 
 void WKNotificationManagerProviderDidShowNotification(WKNotificationManagerRef managerRef, uint64_t notificationID)
 {
-    toImpl(managerRef)->providerDidShowNotification(notificationID);
+    protect(toImpl(managerRef))->providerDidShowNotification(WebNotificationIdentifier { notificationID });
 }
 
 void WKNotificationManagerProviderDidClickNotification(WKNotificationManagerRef managerRef, uint64_t notificationID)
 {
-    toImpl(managerRef)->providerDidClickNotification(notificationID);
+    protect(toImpl(managerRef))->providerDidClickNotification(WebNotificationIdentifier { notificationID });
+}
+
+void WKNotificationManagerProviderDidClickNotification_b(WKNotificationManagerRef managerRef, WKDataRef identifier)
+{
+    auto span = toImpl(identifier)->span();
+    if (span.size() != 16)
+        return;
+
+    protect(toImpl(managerRef))->providerDidClickNotification(WTF::UUID { std::span<const uint8_t, 16> { span } });
 }
 
 void WKNotificationManagerProviderDidCloseNotifications(WKNotificationManagerRef managerRef, WKArrayRef notificationIDs)
 {
-    toImpl(managerRef)->providerDidCloseNotifications(toImpl(notificationIDs));
+    protect(toImpl(managerRef))->providerDidCloseNotifications(protect(toImpl(notificationIDs)).get());
 }
 
 void WKNotificationManagerProviderDidUpdateNotificationPolicy(WKNotificationManagerRef managerRef, WKSecurityOriginRef origin, bool allowed)
 {
-    toImpl(managerRef)->providerDidUpdateNotificationPolicy(toImpl(origin), allowed);
+    protect(toImpl(managerRef))->providerDidUpdateNotificationPolicy(protect(toImpl(origin)).get(), allowed);
 }
 
 void WKNotificationManagerProviderDidRemoveNotificationPolicies(WKNotificationManagerRef managerRef, WKArrayRef origins)
 {
-    toImpl(managerRef)->providerDidRemoveNotificationPolicies(toImpl(origins));
+    protect(toImpl(managerRef))->providerDidRemoveNotificationPolicies(protect(toImpl(origins)).get());
 }
 
-uint64_t WKNotificationManagerGetLocalIDForTesting(WKNotificationManagerRef manager, WKNotificationRef notification)
+WKNotificationManagerRef WKNotificationManagerGetSharedServiceWorkerNotificationManager()
 {
-    return toImpl(manager)->notificationLocalIDForTesting(toImpl(notification));
+    return toAPI(&WebNotificationManagerProxy::serviceWorkerManagerSingleton());
 }

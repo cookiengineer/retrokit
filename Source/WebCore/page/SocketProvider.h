@@ -25,28 +25,42 @@
 
 #pragma once
 
-#include "WebSocketIdentifier.h"
-#include <pal/SessionID.h>
+#include <WebCore/WebTransportConnectionInfo.h>
+#include <wtf/CompletionHandler.h>
+#include <wtf/NativePromise.h>
+#include <wtf/Ref.h>
 #include <wtf/ThreadSafeRefCounted.h>
-#include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
 class Document;
+class ScriptExecutionContext;
 class ThreadableWebSocketChannel;
-class ScriptExecutionContext;
-class StorageSessionProvider;
-class ScriptExecutionContext;
-class SocketStreamHandle;
-class SocketStreamHandleClient;
 class WebSocketChannelClient;
+class WebTransportSession;
+class WebTransportSessionClient;
+
+enum class IsInitiatedByDedicatedWorker : bool;
+
+struct WebTransportOptions;
+
+using WebTransportSessionPromise = NativePromise<WebTransportConnectionInfo, void>;
+
+#if USE(LIBRICE)
+class RiceBackend;
+class RiceBackendClient;
+#endif
 
 class WEBCORE_EXPORT SocketProvider : public ThreadSafeRefCounted<SocketProvider> {
 public:
-    static Ref<SocketProvider> create() { return adoptRef(*new SocketProvider); }
-    virtual Ref<SocketStreamHandle> createSocketStreamHandle(const URL&, SocketStreamHandleClient&, WebSocketIdentifier, PAL::SessionID, const String& credentialPartition, const StorageSessionProvider*);
+    virtual RefPtr<ThreadableWebSocketChannel> createWebSocketChannel(Document&, WebSocketChannelClient&, IsInitiatedByDedicatedWorker) = 0;
+    virtual std::pair<RefPtr<WebTransportSession>, Ref<WebTransportSessionPromise>> initializeWebTransportSession(ScriptExecutionContext&, WebTransportSessionClient&, const URL&, const WebTransportOptions&) = 0;
 
-    virtual RefPtr<ThreadableWebSocketChannel> createWebSocketChannel(Document&, WebSocketChannelClient&);
+    virtual void countWebSocketChannelsForTesting(CompletionHandler<void(unsigned)>&& completionHandler) { completionHandler(0); }
+
+#if USE(LIBRICE)
+    virtual RefPtr<RiceBackend> createRiceBackend(RiceBackendClient&) = 0;
+#endif
 
     virtual ~SocketProvider() { };
 };

@@ -52,21 +52,23 @@ WI.addMouseDownContextMenuHandlers = function(element, populateContextMenuCallba
     });
 };
 
-WI.appendContextMenuItemsForSourceCode = function(contextMenu, sourceCodeOrLocation)
+WI.appendContextMenuItemsForNetworkResource = function(contextMenu, sourceCodeOrLocation)
 {
-    console.assert(contextMenu instanceof WI.ContextMenu);
+    console.assert(contextMenu instanceof WI.ContextMenu, contextMenu);
     if (!(contextMenu instanceof WI.ContextMenu))
         return;
 
     let sourceCode = sourceCodeOrLocation;
+    let displaySourceCode = sourceCode;
     let location = null;
     if (sourceCodeOrLocation instanceof WI.SourceCodeLocation) {
         sourceCode = sourceCodeOrLocation.sourceCode;
+        displaySourceCode = sourceCodeOrLocation.displaySourceCode;
         location = sourceCodeOrLocation;
     }
 
-    console.assert(sourceCode instanceof WI.SourceCode);
-    if (!(sourceCode instanceof WI.SourceCode))
+    console.assert(sourceCode instanceof WI.SourceCode || sourceCode instanceof WI.Redirect, sourceCode);
+    if (!(sourceCode instanceof WI.SourceCode) && !(sourceCode instanceof WI.Redirect))
         return;
 
     if (contextMenu.__domBreakpointItemsAdded)
@@ -83,6 +85,7 @@ WI.appendContextMenuItemsForSourceCode = function(contextMenu, sourceCodeOrLocat
                     let localResourceOverride = await sourceCode.createLocalResourceOverride(WI.LocalResourceOverride.InterceptType.Request);
                     WI.networkManager.addLocalResourceOverride(localResourceOverride);
                     WI.showLocalResourceOverride(localResourceOverride, {
+                        overriddenResource: sourceCode,
                         initiatorHint: WI.TabBrowser.TabNavigationInitiator.ContextMenu,
                     });
                 });
@@ -92,9 +95,17 @@ WI.appendContextMenuItemsForSourceCode = function(contextMenu, sourceCodeOrLocat
                 let localResourceOverride = await sourceCode.createLocalResourceOverride(WI.LocalResourceOverride.InterceptType.Response);
                 WI.networkManager.addLocalResourceOverride(localResourceOverride);
                 WI.showLocalResourceOverride(localResourceOverride, {
+                    overriddenResource: sourceCode,
                     initiatorHint: WI.TabBrowser.TabNavigationInitiator.ContextMenu,
                 });
             });
+
+            if (WI.NetworkManager.supportsBlockingRequests()) {
+                contextMenu.appendItem(WI.UIString("Block Request URL"), async () => {
+                    let localResourceOverride = await sourceCode.createLocalResourceOverride(WI.LocalResourceOverride.InterceptType.Block);
+                    WI.networkManager.addLocalResourceOverride(localResourceOverride);
+                });
+            }
         } else {
             let localResourceOverride = WI.networkManager.localResourceOverridesForURL(sourceCode.url)[0];
             if (localResourceOverride) {
@@ -102,6 +113,7 @@ WI.appendContextMenuItemsForSourceCode = function(contextMenu, sourceCodeOrLocat
 
                 contextMenu.appendItem(WI.UIString("Reveal Local Override"), () => {
                     WI.showLocalResourceOverride(localResourceOverride, {
+                        overriddenResource: sourceCode,
                         initiatorHint: WI.TabBrowser.TabNavigationInitiator.ContextMenu,
                     });
                 });
@@ -119,21 +131,35 @@ WI.appendContextMenuItemsForSourceCode = function(contextMenu, sourceCodeOrLocat
 
     contextMenu.appendSeparator();
 
-    if (location && (sourceCode instanceof WI.Script || (sourceCode instanceof WI.Resource && sourceCode.type === WI.Resource.Type.Script && !sourceCode.localResourceOverride))) {
-        let existingBreakpoint = WI.debuggerManager.breakpointForSourceCodeLocation(location);
-        if (existingBreakpoint) {
-            contextMenu.appendItem(WI.UIString("Delete Breakpoint"), () => {
-                WI.debuggerManager.removeBreakpoint(existingBreakpoint);
+    if (location && (displaySourceCode instanceof WI.Script || (displaySourceCode instanceof WI.Resource && displaySourceCode.type === WI.Resource.Type.Script && !displaySourceCode.localResourceOverride))) {
+        let existingJavaScriptBreakpoint = WI.debuggerManager.breakpointForSourceCodeLocation(location);
+        if (existingJavaScriptBreakpoint) {
+            contextMenu.appendItem(WI.UIString("Delete JavaScript Breakpoint"), () => {
+                WI.debuggerManager.removeBreakpoint(existingJavaScriptBreakpoint);
             });
         } else {
-            contextMenu.appendItem(WI.UIString("Add Breakpoint"), () => {
+            contextMenu.appendItem(WI.UIString("Add JavaScript Breakpoint"), () => {
                 WI.debuggerManager.addBreakpoint(new WI.JavaScriptBreakpoint(location));
             });
         }
     }
 
-    if (sourceCode.supportsScriptBlackboxing) {
-        let blackboxData = WI.debuggerManager.blackboxDataForSourceCode(sourceCode);
+    if (sourceCode?.initiatorStackTrace) {
+        let existingURLBreakpoints = WI.domDebuggerManager.urlBreakpointsMatchingURL(sourceCode.url);
+        if (existingURLBreakpoints.length) {
+            contextMenu.appendItem(existingURLBreakpoints.length === 1 ? WI.UIString("Delete URL Breakpoint") : WI.UIString("Delete URL Breakpoints"), () => {
+                for (let urlBreakpoint of existingURLBreakpoints)
+                    WI.domDebuggerManager.removeURLBreakpoint(urlBreakpoint);
+            });
+        } else {
+            contextMenu.appendItem(WI.UIString("Add URL Breakpoint"), () => {
+                WI.domDebuggerManager.addURLBreakpoint(new WI.URLBreakpoint(WI.URLBreakpoint.Type.Text, sourceCode.url));
+            });
+        }
+    }
+
+    if (displaySourceCode.supportsScriptBlackboxing) {
+        let blackboxData = WI.debuggerManager.blackboxDataForSourceCode(displaySourceCode);
         if (blackboxData && blackboxData.type === WI.DebuggerManager.BlackboxType.Pattern) {
             contextMenu.appendItem(WI.UIString("Reveal Blackbox Pattern"), () => {
                 WI.showSettingsTab({
@@ -143,7 +169,7 @@ WI.appendContextMenuItemsForSourceCode = function(contextMenu, sourceCodeOrLocat
             });
         } else {
             contextMenu.appendItem(blackboxData ? WI.UIString("Unblackbox Script") : WI.UIString("Blackbox Script"), () => {
-                WI.debuggerManager.setShouldBlackboxScript(sourceCode, !blackboxData);
+                WI.debuggerManager.setShouldBlackboxScript(displaySourceCode, !blackboxData);
             });
         }
     }
@@ -152,46 +178,56 @@ WI.appendContextMenuItemsForSourceCode = function(contextMenu, sourceCodeOrLocat
 
     WI.appendContextMenuItemsForURL(contextMenu, sourceCode.url, {sourceCode, location});
 
-    if (sourceCode instanceof WI.Resource && !sourceCode.localResourceOverride) {
-        if (sourceCode.urlComponents.scheme !== "data") {
-            contextMenu.appendItem(WI.UIString("Copy as cURL"), () => {
-                InspectorFrontendHost.copyText(sourceCode.generateCURLCommand());
+    let shouldShowCopyOptions = false;
+    if (sourceCode instanceof WI.Resource && !sourceCode.localResourceOverride && sourceCode.hasMetadata)
+        shouldShowCopyOptions = true;
+    else if (sourceCode instanceof WI.Redirect)
+        shouldShowCopyOptions = true;
+
+    if (shouldShowCopyOptions && sourceCode.urlComponents.scheme !== "data") {
+        contextMenu.appendItem(WI.UIString("Copy as fetch", "Copy the URL, method, headers, etc. of the given network request in the format of a JS fetch expression."), () => {
+            InspectorFrontendHost.copyText(sourceCode.generateFetchCode());
+        });
+
+        contextMenu.appendItem(WI.UIString("Copy as cURL"), () => {
+            InspectorFrontendHost.copyText(sourceCode.generateCURLCommand());
+        });
+
+        contextMenu.appendSeparator();
+
+        contextMenu.appendItem(WI.UIString("Copy HTTP Request Headers"), () => {
+            InspectorFrontendHost.copyText(sourceCode.stringifyHTTPRequestHeaders());
+        });
+
+        let hasResponseHeaders = sourceCode instanceof WI.Redirect || (sourceCode instanceof WI.Resource && sourceCode.hasResponse());
+        if (hasResponseHeaders) {
+            contextMenu.appendItem(WI.UIString("Copy HTTP Response Headers"), () => {
+                InspectorFrontendHost.copyText(sourceCode.stringifyHTTPResponseHeaders());
             });
-
-            contextMenu.appendSeparator();
-
-            contextMenu.appendItem(WI.UIString("Copy HTTP Request"), () => {
-                InspectorFrontendHost.copyText(sourceCode.stringifyHTTPRequest());
-            });
-
-            if (sourceCode.hasResponse()) {
-                contextMenu.appendItem(WI.UIString("Copy HTTP Response"), () => {
-                    InspectorFrontendHost.copyText(sourceCode.stringifyHTTPResponse());
-                });
-            }
         }
     }
 
-    contextMenu.appendSeparator();
+    if (WI.FileUtilities.canSave(WI.FileUtilities.SaveMode.SingleFile)) {
+        contextMenu.appendSeparator();
 
-    contextMenu.appendItem(WI.UIString("Save File"), () => {
-        sourceCode.requestContent().then(() => {
-            let saveData = {
-                url: sourceCode.url,
-                content: sourceCode.content,
-                base64Encoded: sourceCode.base64Encoded,
-            };
+        contextMenu.appendItem(WI.UIString("Save File"), () => {
+            displaySourceCode.requestContent().then(() => {
+                let saveData = {
+                    url: displaySourceCode.url,
+                    content: displaySourceCode.content,
+                    base64Encoded: displaySourceCode.base64Encoded,
+                };
 
-            if (sourceCode.urlComponents.path === "/") {
-                let extension = WI.fileExtensionForMIMEType(sourceCode.mimeType);
-                if (extension)
-                    saveData.suggestedName = `index.${extension}`;
-            }
+                if (displaySourceCode.urlComponents.path === "/") {
+                    let extension = WI.fileExtensionForMIMEType(displaySourceCode.mimeType);
+                    if (extension)
+                        saveData.suggestedName = `index.${extension}`;
+                }
 
-            const forceSaveAs = true;
-            WI.FileUtilities.save(saveData, forceSaveAs);
+                WI.FileUtilities.save(WI.FileUtilities.SaveMode.SingleFile, saveData);
+            });
         });
-    });
+    }
 
     contextMenu.appendSeparator();
 };
@@ -208,13 +244,12 @@ WI.appendContextMenuItemsForURL = function(contextMenu, url, options = {})
         else if (options.sourceCode)
             WI.showSourceCode(options.sourceCode, options);
         else
-            WI.openURL(url, options.frame, options);
+            WI.openURL(url, options);
     }
 
     if (!url.startsWith("javascript:") && !url.startsWith("data:")) {
         contextMenu.appendItem(WI.UIString("Open in New Window", "Open in New Window @ Context Menu Item", "Context menu item for opening the target item in a new window."), () => {
-            const frame = null;
-            WI.openURL(url, frame, {alwaysOpenExternally: true});
+            WI.openURL(url, {alwaysOpenExternally: true});
         });
     }
 
@@ -241,11 +276,11 @@ WI.appendContextMenuItemsForURL = function(contextMenu, url, options = {})
 
 WI.appendContextMenuItemsForDOMNode = function(contextMenu, domNode, options = {})
 {
-    console.assert(contextMenu instanceof WI.ContextMenu);
+    console.assert(contextMenu instanceof WI.ContextMenu, contextMenu);
     if (!(contextMenu instanceof WI.ContextMenu))
         return;
 
-    console.assert(domNode instanceof WI.DOMNode);
+    console.assert(domNode instanceof WI.DOMNode, domNode);
     if (!(domNode instanceof WI.DOMNode))
         return;
 
@@ -304,18 +339,21 @@ WI.appendContextMenuItemsForDOMNode = function(contextMenu, domNode, options = {
             contextMenu.appendSeparator();
         }
 
-        if (!options.disallowEditing && WI.cssManager.canForcePseudoClasses() && domNode.attached) {
+        if (!options.disallowEditing && WI.cssManager.canForcePseudoClass() && domNode.attached) {
             contextMenu.appendSeparator();
 
             let pseudoSubMenu = contextMenu.appendSubMenuItem(WI.UIString("Forced Pseudo-Classes", "A context menu item to force (override) a DOM node's pseudo-classes"));
 
             let enabledPseudoClasses = domNode.enabledPseudoClasses;
-            WI.CSSManager.ForceablePseudoClasses.forEach((pseudoClass) => {
+            for (let pseudoClass of Object.values(WI.CSSManager.ForceablePseudoClass)) {
+                if (!WI.cssManager.canForcePseudoClass(pseudoClass))
+                    continue;
+
                 let enabled = enabledPseudoClasses.includes(pseudoClass);
-                pseudoSubMenu.appendCheckboxItem(pseudoClass.capitalize(), () => {
+                pseudoSubMenu.appendCheckboxItem(WI.CSSManager.displayNameForForceablePseudoClass(pseudoClass), () => {
                     domNode.setPseudoClassEnabled(pseudoClass, !enabled);
                 }, enabled);
-            });
+            }
         }
 
         if (WI.domDebuggerManager.supported && isElement && !domNode.isPseudoElement() && attached) {
@@ -332,8 +370,7 @@ WI.appendContextMenuItemsForDOMNode = function(contextMenu, domNode, options = {
             contextMenu.appendItem(label, () => {
                 WI.RemoteObject.resolveNode(domNode, WI.RuntimeManager.ConsoleObjectGroup).then((remoteObject) => {
                     let text = isElement ? WI.UIString("Selected Element", "Selected DOM element") : WI.UIString("Selected Node", "Selected DOM node");
-                    const addSpecialUserLogClass = true;
-                    WI.consoleLogViewController.appendImmediateExecutionWithResult(text, remoteObject, addSpecialUserLogClass);
+                    WI.consoleLogViewController.appendImmediateExecutionWithResult(text, remoteObject, {addSpecialUserLogClass: true, shouldRevealConsole: true});
                 });
             });
         }
@@ -355,7 +392,7 @@ WI.appendContextMenuItemsForDOMNode = function(contextMenu, domNode, options = {
             });
         }
 
-        if (InspectorBackend.hasCommand("Page.snapshotNode") && attached) {
+        if (WI.FileUtilities.canSave(WI.FileUtilities.SaveMode.SingleFile) && InspectorBackend.hasCommand("Page.snapshotNode") && attached) {
             contextMenu.appendItem(WI.UIString("Capture Screenshot", "Capture screenshot of the selected DOM node"), () => {
                 let target = WI.assumingMainTarget();
                 target.PageAgent.snapshotNode(domNode.id, (error, dataURL) => {
@@ -370,7 +407,7 @@ WI.appendContextMenuItemsForDOMNode = function(contextMenu, domNode, options = {
                         return;
                     }
 
-                    WI.FileUtilities.save({
+                    WI.FileUtilities.save(WI.FileUtilities.SaveMode.SingleFile, {
                         content: parseDataURL(dataURL).data,
                         base64Encoded: true,
                         suggestedName: WI.FileUtilities.screenshotString() + ".png",

@@ -23,10 +23,12 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+enum BinaryType { "blob", "arraybuffer" };
+
 [
     ActiveDOMObject,
     Conditional=WEB_RTC,
-    EnabledBySetting=PeerConnection,
+    EnabledBySetting=PeerConnectionEnabled,
     Exposed=(Window,Worker),
 ] interface RTCDataChannel : EventTarget {
     // FIXME: Add support for priority attribute.
@@ -43,7 +45,7 @@
     readonly attribute RTCPriorityType priority;
     attribute unsigned long bufferedAmountLowThreshold;
 
-    attribute DOMString binaryType;
+    attribute BinaryType binaryType;
 
     undefined send(ArrayBuffer data);
     undefined send(ArrayBufferView data);
@@ -55,13 +57,14 @@
     attribute EventHandler onopen;
     attribute EventHandler onerror;
     attribute EventHandler onclose;
+    attribute EventHandler onclosing;
     attribute EventHandler onmessage;
     attribute EventHandler onbufferedamountlow;
 };
 
 [
     Conditional=WEB_RTC,
-    EnabledBySetting=PeerConnection,
+    EnabledBySetting=PeerConnectionEnabled,
     ImplementedAs=RTCDataChannelState
 ] enum RTCDataChannelState {
     "connecting",

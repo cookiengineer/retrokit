@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Apple Inc.  All rights reserved.
+ * Copyright (C) 2012 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,17 +27,21 @@
 #include "RenderFragmentContainerSet.h"
 
 #include "RenderBoxFragmentInfo.h"
+#include "RenderBoxModelObjectInlines.h"
 #include "RenderFragmentedFlow.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(RenderFragmentContainerSet);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderFragmentContainerSet);
 
-RenderFragmentContainerSet::RenderFragmentContainerSet(Document& document, RenderStyle&& style, RenderFragmentedFlow& fragmentedFlow)
-    : RenderFragmentContainer(document, WTFMove(style), &fragmentedFlow)
+RenderFragmentContainerSet::RenderFragmentContainerSet(Type type, Document& document, Style::ComputedStyle&& style, RenderFragmentedFlow& fragmentedFlow)
+    : RenderFragmentContainer(type, document, WTF::move(style), &fragmentedFlow)
 {
+    ASSERT(is<RenderFragmentContainerSet>(*this));
 }
+
+RenderFragmentContainerSet::~RenderFragmentContainerSet() = default;
 
 void RenderFragmentContainerSet::installFragmentedFlow()
 {

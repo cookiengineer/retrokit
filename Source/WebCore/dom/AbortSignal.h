@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,55 +25,99 @@
 
 #pragma once
 
-#include "ContextDestructionObserver.h"
-#include "EventTarget.h"
-#include "JSDOMPromiseDeferred.h"
+#include <WebCore/ContextDestructionObserver.h>
+#include <WebCore/EventTarget.h>
+#include <WebCore/EventTargetInterfaces.h>
+#include <WebCore/JSValueInWrappedObject.h>
 #include <wtf/Function.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
+#include <wtf/WeakListHashSet.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
 class AbortAlgorithm;
+class JSDOMGlobalObject;
 class ScriptExecutionContext;
+class WebCoreOpaqueRoot;
 
-class AbortSignal final : public RefCounted<AbortSignal>, public EventTargetWithInlineData, private ContextDestructionObserver {
-    WTF_MAKE_ISO_ALLOCATED_EXPORT(AbortSignal, WEBCORE_EXPORT);
+class AbortSignal final : public RefCounted<AbortSignal>, public EventTarget, private ContextDestructionObserver {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(AbortSignal, WEBCORE_EXPORT);
 public:
-    static Ref<AbortSignal> create(ScriptExecutionContext&);
+    static Ref<AbortSignal> create(ScriptExecutionContext*);
+    WEBCORE_EXPORT ~AbortSignal();
 
-    static Ref<AbortSignal> abort(ScriptExecutionContext&);
+    // ContextDestructionObserver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+    USING_CAN_MAKE_WEAKPTR(EventTarget);
 
-    static bool whenSignalAborted(AbortSignal&, Ref<AbortAlgorithm>&&);
+    static Ref<AbortSignal> abort(JSDOMGlobalObject&, ScriptExecutionContext&, JSC::JSValue reason);
+    static Ref<AbortSignal> timeout(ScriptExecutionContext&, uint64_t milliseconds);
+    static Ref<AbortSignal> any(ScriptExecutionContext&, const Vector<Ref<AbortSignal>>&);
 
-    void signalAbort();
+    static uint32_t addAbortAlgorithmToSignal(AbortSignal&, Ref<AbortAlgorithm>&&);
+    static void removeAbortAlgorithmFromSignal(AbortSignal&, uint32_t algorithmIdentifier);
+
+    void signalAbort(JSC::JSValue reason);
     void signalFollow(AbortSignal&);
 
     bool aborted() const { return m_aborted; }
+    const JSValueInWrappedObject& reason() const LIFETIME_BOUND { return m_reason; }
 
-    using RefCounted::ref;
-    using RefCounted::deref;
+    bool hasActiveTimeoutTimer() const { return m_hasActiveTimeoutTimer; }
+    bool hasAbortEventListener() const { return m_hasAbortEventListener; }
 
-    using Algorithm = Function<void()>;
-    void addAlgorithm(Algorithm&& algorithm) { m_algorithms.append(WTFMove(algorithm)); }
+    using Algorithm = Function<void(JSC::JSValue reason)>;
+    uint32_t addAlgorithm(Algorithm&&);
+    void removeAlgorithm(uint32_t);
 
     bool isFollowingSignal() const { return !!m_followingSignal; }
 
+    void throwIfAborted(JSC::JSGlobalObject&);
+
+    using AbortSignalSet = WeakListHashSet<AbortSignal, WeakPtrImplWithEventTargetData>;
+    const AbortSignalSet& sourceSignals() const LIFETIME_BOUND { return m_sourceSignals; }
+    AbortSignalSet& sourceSignals() LIFETIME_BOUND { return m_sourceSignals; }
+
+    bool isDependent() const { return m_isDependent; }
+
 private:
     enum class Aborted : bool { No, Yes };
-    explicit AbortSignal(ScriptExecutionContext&, Aborted = Aborted::No);
+    AbortSignal(ScriptExecutionContext*, Aborted = Aborted::No);
+    AbortSignal(JSC::JSGlobalObject&, ScriptExecutionContext*, Aborted, JSC::JSValue reason);
+
+    void setHasActiveTimeoutTimer(bool hasActiveTimeoutTimer) { m_hasActiveTimeoutTimer = hasActiveTimeoutTimer; }
+
+    void markAsDependent() { m_isDependent = true; }
+    void addSourceSignal(AbortSignal&);
+    void addDependentSignal(AbortSignal&);
+
+    void markAborted(JSC::JSGlobalObject&, JSC::JSValue);
+    void runAbortSteps();
 
     // EventTarget.
-    EventTargetInterface eventTargetInterface() const final { return AbortSignalEventTargetInterfaceType; }
-    ScriptExecutionContext* scriptExecutionContext() const final { return ContextDestructionObserver::scriptExecutionContext(); }
+    enum EventTargetInterfaceType eventTargetInterface() const final { return EventTargetInterfaceType::AbortSignal; }
+    ScriptExecutionContext* scriptExecutionContext() const final;
     void refEventTarget() final { ref(); }
     void derefEventTarget() final { deref(); }
-    
+    void eventListenersDidChange() final;
+
+    Vector<std::pair<uint32_t, Algorithm>> m_algorithms;
+    WeakPtr<AbortSignal, WeakPtrImplWithEventTargetData> m_followingSignal;
+    AbortSignalSet m_sourceSignals;
+    AbortSignalSet m_dependentSignals;
+    JSValueInWrappedObject m_reason;
+    uint32_t m_algorithmIdentifier { 0 };
     bool m_aborted { false };
-    Vector<Algorithm> m_algorithms;
-    WeakPtr<AbortSignal> m_followingSignal;
+    bool m_hasActiveTimeoutTimer { false };
+    bool m_hasAbortEventListener { false };
+    bool m_isDependent { false };
 };
 
-}
+WebCoreOpaqueRoot NODELETE root(AbortSignal*);
 
+} // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_EVENTTARGET(AbortSignal)

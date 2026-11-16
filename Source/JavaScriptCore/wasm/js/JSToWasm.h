@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,27 +25,29 @@
 
 #pragma once
 
-#if ENABLE(WEBASSEMBLY)
+#if ENABLE(WEBASSEMBLY) && ENABLE(JIT)
 
 #include "InternalFunction.h"
-#include "WasmB3IRGenerator.h"
 #include "WasmFormat.h"
 #include "WasmMemory.h"
 #include "WasmModuleInformation.h"
-#include "WasmSignature.h"
-#include <wtf/Vector.h>
-
-#include <memory>
+#include "WasmOMGIRGenerator.h"
+#include "WasmTypeDefinition.h"
+#include <wtf/Forward.h>
 
 namespace JSC {
+
+class CCallHelpers;
 
 namespace Wasm {
 
 struct CallInformation;
+class JSToWasmCallee;
+class Module;
 
-void marshallJSResult(CCallHelpers& jit, const Signature&, const CallInformation& wasmFrameConvention, const RegisterAtOffsetList& savedResultRegisters);
-std::unique_ptr<InternalFunction> createJSToWasmWrapper(CCallHelpers&, const Signature&, Vector<UnlinkedWasmToWasmCall>*, const ModuleInformation&, MemoryMode, uint32_t functionIndex);
+MacroAssemblerCodeRef<JITThunkPtrTag> createJSToWasmJITShared();
+MacroAssemblerCodeRef<JITThunkPtrTag> wasmFunctionThunkGenerator(VM&);
 
 } } // namespace JSC::Wasm
 
-#endif // ENABLE(WEBASSEMBLY)
+#endif // ENABLE(WEBASSEMBLY) && ENABLE(JIT)

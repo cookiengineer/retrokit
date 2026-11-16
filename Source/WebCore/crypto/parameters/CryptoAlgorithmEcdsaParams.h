@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,27 +25,37 @@
 
 #pragma once
 
+#include "CryptoAlgorithmEcdsaParamsInit.h"
 #include "CryptoAlgorithmParameters.h"
 #include <JavaScriptCore/JSObject.h>
 #include <JavaScriptCore/Strong.h>
-#include <wtf/Variant.h>
-
-#if ENABLE(WEB_CRYPTO)
 
 namespace WebCore {
 
 class CryptoAlgorithmEcdsaParams final : public CryptoAlgorithmParameters {
+    WTF_MAKE_TZONE_ALLOCATED(CryptoAlgorithmEcdsaParams);
 public:
     // FIXME: Consider merging hash and hashIdentifier.
     Variant<JSC::Strong<JSC::JSObject>, String> hash;
     CryptoAlgorithmIdentifier hashIdentifier;
 
+    CryptoAlgorithmEcdsaParams(CryptoAlgorithmIdentifier identifier)
+        : CryptoAlgorithmParameters { WTF::move(identifier) }
+    {
+    }
+
+    CryptoAlgorithmEcdsaParams(CryptoAlgorithmIdentifier identifier, CryptoAlgorithmEcdsaParamsInit init, CryptoAlgorithmIdentifier hashIdentifier)
+        : CryptoAlgorithmParameters { WTF::move(identifier), WTF::move(init) }
+        , hash { WTF::move(init.hash) }
+        , hashIdentifier { WTF::move(hashIdentifier) }
+    {
+    }
+
     Class parametersClass() const final { return Class::EcdsaParams; }
 
     CryptoAlgorithmEcdsaParams isolatedCopy() const
     {
-        CryptoAlgorithmEcdsaParams result;
-        result.identifier = identifier;
+        CryptoAlgorithmEcdsaParams result { identifier };
         result.hashIdentifier = hashIdentifier;
 
         return result;
@@ -55,5 +65,3 @@ public:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_CRYPTO_ALGORITHM_PARAMETERS(EcdsaParams)
-
-#endif // ENABLE(WEB_CRYPTO)

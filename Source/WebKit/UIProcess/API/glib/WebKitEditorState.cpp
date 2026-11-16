@@ -29,10 +29,10 @@
 using namespace WebKit;
 
 /**
- * SECTION: WebKitEditorState
- * @Short_description: Web editor state
- * @Title: WebKitEditorState
+ * WebKitEditorState:
  * @See_also: #WebKitWebView
+ *
+ * Web editor state.
  *
  * WebKitEditorState represents the state of a #WebKitWebView editor.
  * Use webkit_web_view_get_editor_state() to get the WebKitEditorState
@@ -42,12 +42,17 @@ using namespace WebKit;
  */
 
 enum {
+    CHANGED,
+    LAST_SIGNAL
+};
+
+enum {
     PROP_0,
     PROP_TYPING_ATTRIBUTES,
     N_PROPERTIES,
 };
 
-static GParamSpec* sObjProperties[N_PROPERTIES] = { nullptr, };
+static std::array<GParamSpec*, N_PROPERTIES> sObjProperties;
 
 struct _WebKitEditorStatePrivate {
     WebPageProxy* page;
@@ -59,7 +64,9 @@ struct _WebKitEditorStatePrivate {
     unsigned isRedoAvailable : 1;
 };
 
-WEBKIT_DEFINE_TYPE(WebKitEditorState, webkit_editor_state, G_TYPE_OBJECT)
+static std::array<unsigned, LAST_SIGNAL> signals;
+
+WEBKIT_DEFINE_FINAL_TYPE(WebKitEditorState, webkit_editor_state, G_TYPE_OBJECT, GObject)
 
 static void webkitEditorStateGetProperty(GObject* object, guint propId, GValue* value, GParamSpec* paramSpec)
 {
@@ -90,12 +97,29 @@ static void webkit_editor_state_class_init(WebKitEditorStateClass* editorStateCl
     sObjProperties[PROP_TYPING_ATTRIBUTES] =
         g_param_spec_uint(
             "typing-attributes",
-            _("Typing Attributes"),
-            _("Flags with the typing attributes"),
+            nullptr,
+            nullptr,
             0, G_MAXUINT, 0,
             WEBKIT_PARAM_READABLE);
 
-    g_object_class_install_properties(objectClass, N_PROPERTIES, sObjProperties);
+    g_object_class_install_properties(objectClass, N_PROPERTIES, sObjProperties.data());
+
+    /**
+     * WebKitEditorState::changed:
+     * @editor_state: the #WebKitEditorState on which the signal is emitted
+     *
+     * Emitted when the #WebKitEditorState is changed.
+     *
+     * Since: 2.44
+     */
+    signals[CHANGED] =
+        g_signal_new("changed",
+            G_TYPE_FROM_CLASS(editorStateClass),
+            G_SIGNAL_RUN_LAST,
+            0, 0,
+            nullptr,
+            g_cclosure_marshal_VOID__VOID,
+            G_TYPE_NONE, 0);
 }
 
 static void webkitEditorStateSetTypingAttributes(WebKitEditorState* editorState, unsigned typingAttributes)
@@ -118,18 +142,18 @@ WebKitEditorState* webkitEditorStateCreate(WebPageProxy& page)
 
 void webkitEditorStateChanged(WebKitEditorState* editorState, const EditorState& newState)
 {
-    if (newState.isMissingPostLayoutData)
+    if (!newState.hasPostLayoutData())
         return;
 
     unsigned typingAttributes = WEBKIT_EDITOR_TYPING_ATTRIBUTE_NONE;
-    const auto& postLayoutData = newState.postLayoutData();
-    if (postLayoutData.typingAttributes & AttributeBold)
+    const auto& postLayoutData = *newState.postLayoutData;
+    if (postLayoutData.typingAttributes.contains(WebKit::TypingAttribute::Bold))
         typingAttributes |= WEBKIT_EDITOR_TYPING_ATTRIBUTE_BOLD;
-    if (postLayoutData.typingAttributes & AttributeItalics)
+    if (postLayoutData.typingAttributes.contains(WebKit::TypingAttribute::Italics))
         typingAttributes |= WEBKIT_EDITOR_TYPING_ATTRIBUTE_ITALIC;
-    if (postLayoutData.typingAttributes & AttributeUnderline)
+    if (postLayoutData.typingAttributes.contains(WebKit::TypingAttribute::Underline))
         typingAttributes |= WEBKIT_EDITOR_TYPING_ATTRIBUTE_UNDERLINE;
-    if (postLayoutData.typingAttributes & AttributeStrikeThrough)
+    if (postLayoutData.typingAttributes.contains(WebKit::TypingAttribute::StrikeThrough))
         typingAttributes |= WEBKIT_EDITOR_TYPING_ATTRIBUTE_STRIKETHROUGH;
 
     webkitEditorStateSetTypingAttributes(editorState, typingAttributes);
@@ -140,6 +164,8 @@ void webkitEditorStateChanged(WebKitEditorState* editorState, const EditorState&
 
     editorState->priv->isUndoAvailable = editorState->priv->page->canUndo();
     editorState->priv->isRedoAvailable = editorState->priv->page->canRedo();
+
+    g_signal_emit(editorState, signals[CHANGED], 0, NULL);
 }
 
 /**
@@ -147,6 +173,7 @@ void webkitEditorStateChanged(WebKitEditorState* editorState, const EditorState&
  * @editor_state: a #WebKitEditorState
  *
  * Gets the typing attributes at the current cursor position.
+ *
  * If there is a selection, this returns the typing attributes
  * of the selected text. Note that in case of a selection,
  * typing attributes are considered active only when they are

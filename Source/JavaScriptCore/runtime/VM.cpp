@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,169 +29,140 @@
 #include "config.h"
 #include "VM.h"
 
+#include "AbortReason.h"
 #include "AccessCase.h"
 #include "AggregateError.h"
 #include "ArgList.h"
-#include "BigIntObject.h"
-#include "BooleanObject.h"
-#include "BrandedStructure.h"
 #include "BuiltinExecutables.h"
 #include "BytecodeIntrinsicRegistry.h"
+#include "CallMode.h"
 #include "CheckpointOSRExitSideState.h"
-#include "ClonedArguments.h"
 #include "CodeBlock.h"
 #include "CodeCache.h"
 #include "CommonIdentifiers.h"
 #include "ControlFlowProfiler.h"
-#include "CustomGetterSetter.h"
-#include "DOMAttributeGetterSetter.h"
-#include "DateInstance.h"
-#include "DebuggerScope.h"
+#include "CrossTaskToken.h"
+#include "CustomGetterSetterInlines.h"
+#include "DOMAttributeGetterSetterInlines.h"
+#include "Debugger.h"
 #include "DeferredWorkTimer.h"
 #include "Disassembler.h"
 #include "DoublePredictionFuzzerAgent.h"
 #include "ErrorInstance.h"
-#include "EvalCodeBlock.h"
+#include "EvalCodeBlockInlines.h"
+#include "EvalExecutableInlines.h"
 #include "Exception.h"
-#include "ExecutableToCodeBlockEdge.h"
 #include "FTLThunks.h"
-#include "FastMallocAlignedMemoryAllocator.h"
 #include "FileBasedFuzzerAgent.h"
-#include "FunctionCodeBlock.h"
-#include "FunctionExecutable.h"
-#include "GetterSetter.h"
+#include "FunctionCodeBlockInlines.h"
+#include "FunctionExecutableInlines.h"
+#include "GetterSetterInlines.h"
 #include "GigacageAlignedMemoryAllocator.h"
 #include "HasOwnPropertyCache.h"
 #include "Heap.h"
 #include "HeapProfiler.h"
+#include "IncrementalSweeper.h"
 #include "Interpreter.h"
 #include "IntlCache.h"
-#include "IntlCollator.h"
-#include "IntlDateTimeFormat.h"
-#include "IntlDisplayNames.h"
-#include "IntlListFormat.h"
-#include "IntlLocale.h"
-#include "IntlNumberFormat.h"
-#include "IntlPluralRules.h"
-#include "IntlRelativeTimeFormat.h"
-#include "IntlSegmentIterator.h"
-#include "IntlSegmenter.h"
-#include "IntlSegments.h"
-#include "IsoHeapCellType.h"
-#include "IsoInlinedHeapCellType.h"
+#include "IntlObject.h"
 #include "JITCode.h"
 #include "JITOperationList.h"
 #include "JITSizeStatistics.h"
 #include "JITThunks.h"
 #include "JITWorklist.h"
-#include "JSAPIGlobalObject.h"
 #include "JSAPIValueWrapper.h"
-#include "JSAPIWrapperObject.h"
-#include "JSArray.h"
-#include "JSArrayBuffer.h"
-#include "JSArrayIterator.h"
-#include "JSAsyncGenerator.h"
 #include "JSBigInt.h"
-#include "JSBoundFunction.h"
-#include "JSCallbackConstructor.h"
-#include "JSCallbackFunction.h"
-#include "JSCallbackObject.h"
-#include "JSCallee.h"
-#include "JSCustomGetterFunction.h"
-#include "JSCustomSetterFunction.h"
-#include "JSDestructibleObjectHeapCellType.h"
-#include "JSFinalizationRegistry.h"
-#include "JSFunction.h"
-#include "JSGlobalLexicalEnvironment.h"
+#include "JSCellButterflyInlines.h"
 #include "JSGlobalObject.h"
-#include "JSImmutableButterfly.h"
-#include "JSInjectedScriptHost.h"
-#include "JSJavaScriptCallFrame.h"
+#include "JSIterator.h"
 #include "JSLock.h"
 #include "JSMap.h"
-#include "JSMapIterator.h"
-#include "JSModuleNamespaceObject.h"
-#include "JSModuleRecord.h"
-#include "JSNativeStdFunction.h"
+#include "JSMicrotask.h"
+#include "JSMicrotaskDispatcher.h"
+#include "JSModuleLoaderInlines.h"
 #include "JSPromise.h"
-#include "JSPropertyNameEnumerator.h"
-#include "JSProxy.h"
-#include "JSScriptFetchParameters.h"
-#include "JSScriptFetcher.h"
+#include "JSPromiseCombinatorsContextInlines.h"
+#include "JSPromiseCombinatorsGlobalContext.h"
+#include "JSPromiseConstructor.h"
+#include "JSPromiseReaction.h"
+#include "JSPropertyNameEnumeratorInlines.h"
+#include "JSSentinelInlines.h"
 #include "JSSet.h"
-#include "JSSetIterator.h"
-#include "JSSourceCode.h"
-#include "JSStringIterator.h"
-#include "JSTemplateObjectDescriptor.h"
-#include "JSToWasmICCallee.h"
-#include "JSTypedArrays.h"
-#include "JSWeakMap.h"
-#include "JSWeakObjectRef.h"
-#include "JSWeakSet.h"
-#include "JSWebAssemblyCodeBlock.h"
-#include "JSWebAssemblyGlobal.h"
-#include "JSWebAssemblyInstance.h"
-#include "JSWebAssemblyMemory.h"
-#include "JSWebAssemblyModule.h"
-#include "JSWebAssemblyTable.h"
-#include "JSWithScope.h"
+#include "JSSourceCodeInlines.h"
+#include "JSTemplateObjectDescriptorInlines.h"
+#include "JSToWasm.h"
 #include "LLIntData.h"
+#include "LLIntExceptions.h"
+#include "MarkedBlockInlines.h"
+#include "MegamorphicCache.h"
+#include "MicrotaskCall.h"
+#include "MicrotaskQueueInlines.h"
 #include "MinimumReservedZoneSize.h"
-#include "ModuleProgramCodeBlock.h"
-#include "ModuleProgramExecutable.h"
+#include "ModuleGraphLoadingStateInlines.h"
+#include "ModuleLoadingContextInlines.h"
+#include "ModuleLoaderPayloadInlines.h"
+#include "ModuleProgramCodeBlockInlines.h"
+#include "ModuleProgramExecutableInlines.h"
+#include "ModuleRegistryEntryInlines.h"
 #include "NarrowingNumberPredictionFuzzerAgent.h"
 #include "NativeExecutable.h"
 #include "NumberObject.h"
+#include "PinballCompletion.h"
 #include "PredictionFileCreatingFuzzerAgent.h"
 #include "ProfilerDatabase.h"
-#include "ProgramCodeBlock.h"
-#include "ProgramExecutable.h"
-#include "PropertyMapHashTable.h"
-#include "ProxyRevoke.h"
+#include "ProgramCodeBlockInlines.h"
+#include "ProgramExecutableInlines.h"
+#include "PropertyInlineCache.h"
+#include "PropertyTableInlines.h"
 #include "RandomizingFuzzerAgent.h"
 #include "RegExpCache.h"
-#include "RegExpObject.h"
+#include "RegExpInlines.h"
+#include "ResourceExhaustion.h"
 #include "SamplingProfiler.h"
 #include "ScopedArguments.h"
 #include "ShadowChicken.h"
+#include "SharedJITStubSet.h"
+#include "SideDataRepository.h"
 #include "SimpleTypedArrayController.h"
 #include "SourceProviderCache.h"
-#include "StrictEvalActivation.h"
-#include "StringObject.h"
 #include "StrongInlines.h"
-#include "StructureChain.h"
+#include "StructureChainInlines.h"
 #include "StructureInlines.h"
-#include "SymbolObject.h"
-#include "TemporalCalendar.h"
-#include "TemporalDuration.h"
+#include "SubspaceInlines.h"
+#include "SymbolInlines.h"
+#include "SymbolTableInlines.h"
 #include "TestRunnerUtils.h"
 #include "ThunkGenerators.h"
 #include "TypeProfiler.h"
 #include "TypeProfilerLog.h"
-#include "VMEntryScope.h"
+#include "UnlinkedEvalCodeBlockInlines.h"
+#include "UnlinkedFunctionCodeBlockInlines.h"
+#include "UnlinkedFunctionExecutableInlines.h"
+#include "UnlinkedModuleProgramCodeBlockInlines.h"
+#include "UnlinkedProgramCodeBlockInlines.h"
+#include "VMEntryScopeInlines.h"
 #include "VMInlines.h"
-#include "VMInspector.h"
+#include "VMManager.h"
+#include "VMTrapsInlines.h"
 #include "VariableEnvironment.h"
+#include "WaiterListManager.h"
+#include "WasmExecutionHandler.h"
 #include "WasmWorklist.h"
 #include "Watchdog.h"
 #include "WeakGCMapInlines.h"
-#include "WebAssemblyFunction.h"
-#include "WebAssemblyModuleRecord.h"
-#include "WebAssemblyWrapperFunction.h"
 #include "WideningNumberPredictionFuzzerAgent.h"
+#include <wtf/CryptographicallyRandomNumber.h>
 #include <wtf/ProcessID.h>
 #include <wtf/ReadWriteLock.h>
 #include <wtf/SimpleStats.h>
+#include <wtf/StackTrace.h>
 #include <wtf/StringPrintStream.h>
+#include <wtf/SystemTracing.h>
 #include <wtf/Threading.h>
 #include <wtf/text/AtomStringTable.h>
+#include <wtf/text/StringToIntegerConversion.h>
 
-#if ENABLE(C_LOOP)
-#include "CLoopStack.h"
-#include "CLoopStackInlines.h"
-#endif
-
-#if ENABLE(DFG_JIT)
+#if ENABLE(DFG_JIT) || ENABLE(WEBASSEMBLY)
 #include "ConservativeRoots.h"
 #endif
 
@@ -199,20 +170,30 @@
 #include "RegExp.h"
 #endif
 
-#if JSC_OBJC_API_ENABLED
-#include "ObjCCallbackFunction.h"
+#if ENABLE(WEBASSEMBLY)
+#include "JSWebAssemblyInstance.h"
+#include "JSWebAssemblyStreamingContextInlines.h"
 #endif
 
-#ifdef JSC_GLIB_API_ENABLED
-#include "JSAPIWrapperGlobalObject.h"
-#include "JSCCallbackFunction.h"
+#if PLATFORM(COCOA)
+#include <notify.h>
+#include <wtf/darwin/DispatchExtras.h>
 #endif
+
+#if ENABLE(WEBASSEMBLY_DEBUGGER)
+#include "WasmDebugServerUtilities.h"
+#endif
+
+#include <span>
 
 namespace JSC {
 
-Atomic<unsigned> VM::s_numberOfIDs;
-
 DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(VM);
+
+MicrotaskQueue& VM::defaultMicrotaskQueue() { return m_defaultMicrotaskQueue.get(); }
+
+bool VM::currentThreadIsHoldingAPILock() const { return m_apiLock->currentThreadIsHoldingLock(); }
+JSLock& VM::apiLock() { return m_apiLock.get(); }
 
 // Note: Platform.h will enforce that ENABLE(ASSEMBLER) is true if either
 // ENABLE(JIT) or ENABLE(YARR_JIT) or both are enabled. The code below
@@ -224,8 +205,8 @@ static bool enableAssembler()
     if (!Options::useJIT())
         return false;
 
-    char* canUseJITString = getenv("JavaScriptCoreUseJIT");
-    if (canUseJITString && !atoi(canUseJITString))
+    auto canUseJITString = unsafeSpan(getenv("JavaScriptCoreUseJIT"));
+    if (canUseJITString.data() && !parseInteger<int>(canUseJITString).value_or(0))
         return false;
 
     ExecutableAllocator::initializeUnderlyingAllocator();
@@ -264,259 +245,232 @@ void VM::computeCanUseJIT()
 #endif
 }
 
-inline unsigned VM::nextID()
-{
-    for (;;) {
-        unsigned currentNumberOfIDs = s_numberOfIDs.load();
-        unsigned newID = currentNumberOfIDs + 1;
-        if (s_numberOfIDs.compareExchangeWeak(currentNumberOfIDs, newID))
-            return newID;
-    }
-}
-
 static bool vmCreationShouldCrash = false;
 
 VM::VM(VMType vmType, HeapType heapType, WTF::RunLoop* runLoop, bool* success)
-    : m_id(nextID())
-    , m_apiLock(adoptRef(new JSLock(this)))
-    , m_runLoop(runLoop ? *runLoop : WTF::RunLoop::current())
-    , m_random(Options::seedOfVMRandomForFuzzer() ? Options::seedOfVMRandomForFuzzer() : cryptographicallyRandomNumber())
+    : topCallFrame(CallFrame::noCaller())
+    , m_identifier(VMIdentifier::generate())
+    , m_apiLock(adoptRef(*new JSLock(this)))
+    , m_runLoop(runLoop ? *runLoop : WTF::RunLoop::currentSingleton())
+    , m_random(Options::seedOfVMRandomForFuzzer() ? Options::seedOfVMRandomForFuzzer() : cryptographicallyRandomNumber<uint32_t>())
+    , m_heapRandom(Options::seedOfVMRandomForFuzzer() ? Options::seedOfVMRandomForFuzzer() : cryptographicallyRandomNumber<uint32_t>())
     , m_integrityRandom(*this)
     , heap(*this, heapType)
-    , fastMallocAllocator(makeUnique<FastMallocAlignedMemoryAllocator>())
-    , primitiveGigacageAllocator(makeUnique<GigacageAlignedMemoryAllocator>(Gigacage::Primitive))
-    , jsValueGigacageAllocator(makeUnique<GigacageAlignedMemoryAllocator>(Gigacage::JSValue))
-    , auxiliaryHeapCellType(makeUnique<HeapCellType>(CellAttributes(DoesNotNeedDestruction, HeapCell::Auxiliary)))
-    , immutableButterflyHeapCellType(makeUnique<HeapCellType>(CellAttributes(DoesNotNeedDestruction, HeapCell::JSCellWithIndexingHeader)))
-    , cellHeapCellType(makeUnique<HeapCellType>(CellAttributes(DoesNotNeedDestruction, HeapCell::JSCell)))
-    , destructibleCellHeapCellType(makeUnique<HeapCellType>(CellAttributes(NeedsDestruction, HeapCell::JSCell)))
-    , apiGlobalObjectHeapCellType(IsoHeapCellType::create<JSAPIGlobalObject>())
-    , callbackConstructorHeapCellType(IsoHeapCellType::create<JSCallbackConstructor>())
-    , callbackGlobalObjectHeapCellType(IsoHeapCellType::create<JSCallbackObject<JSGlobalObject>>())
-    , callbackObjectHeapCellType(IsoHeapCellType::create<JSCallbackObject<JSNonFinalObject>>())
-    , customGetterFunctionHeapCellType(IsoHeapCellType::create<JSCustomGetterFunction>())
-    , customSetterFunctionHeapCellType(IsoHeapCellType::create<JSCustomSetterFunction>())
-    , dateInstanceHeapCellType(IsoHeapCellType::create<DateInstance>())
-    , errorInstanceHeapCellType(IsoHeapCellType::create<ErrorInstance>())
-    , finalizationRegistryCellType(IsoHeapCellType::create<JSFinalizationRegistry>())
-    , globalLexicalEnvironmentHeapCellType(IsoHeapCellType::create<JSGlobalLexicalEnvironment>())
-    , globalObjectHeapCellType(IsoHeapCellType::create<JSGlobalObject>())
-    , injectedScriptHostSpaceHeapCellType(IsoHeapCellType::create<Inspector::JSInjectedScriptHost>())
-    , javaScriptCallFrameHeapCellType(IsoHeapCellType::create<Inspector::JSJavaScriptCallFrame>())
-    , jsModuleRecordHeapCellType(IsoHeapCellType::create<JSModuleRecord>())
-    , moduleNamespaceObjectHeapCellType(IsoHeapCellType::create<JSModuleNamespaceObject>())
-    , nativeStdFunctionHeapCellType(IsoHeapCellType::create<JSNativeStdFunction>())
-    , stringHeapCellType(makeUnique<IsoInlinedHeapCellType<JSString>>())
-    , weakMapHeapCellType(IsoHeapCellType::create<JSWeakMap>())
-    , weakSetHeapCellType(IsoHeapCellType::create<JSWeakSet>())
-    , destructibleObjectHeapCellType(makeUnique<JSDestructibleObjectHeapCellType>())
-#if JSC_OBJC_API_ENABLED
-    , apiWrapperObjectHeapCellType(IsoHeapCellType::create<JSCallbackObject<JSAPIWrapperObject>>())
-    , objCCallbackFunctionHeapCellType(IsoHeapCellType::create<ObjCCallbackFunction>())
-#endif
-#ifdef JSC_GLIB_API_ENABLED
-    , apiWrapperObjectHeapCellType(IsoHeapCellType::create<JSCallbackObject<JSAPIWrapperObject>>())
-    , callbackAPIWrapperGlobalObjectHeapCellType(IsoHeapCellType::create<JSCallbackObject<JSAPIWrapperGlobalObject>>())
-    , jscCallbackFunctionHeapCellType(IsoHeapCellType::create<JSCCallbackFunction>())
-#endif
-    , intlCollatorHeapCellType(IsoHeapCellType::create<IntlCollator>())
-    , intlDateTimeFormatHeapCellType(IsoHeapCellType::create<IntlDateTimeFormat>())
-    , intlDisplayNamesHeapCellType(IsoHeapCellType::create<IntlDisplayNames>())
-    , intlListFormatHeapCellType(IsoHeapCellType::create<IntlListFormat>())
-    , intlLocaleHeapCellType(IsoHeapCellType::create<IntlLocale>())
-    , intlNumberFormatHeapCellType(IsoHeapCellType::create<IntlNumberFormat>())
-    , intlPluralRulesHeapCellType(IsoHeapCellType::create<IntlPluralRules>())
-    , intlRelativeTimeFormatHeapCellType(IsoHeapCellType::create<IntlRelativeTimeFormat>())
-    , intlSegmentIteratorHeapCellType(IsoHeapCellType::create<IntlSegmentIterator>())
-    , intlSegmenterHeapCellType(IsoHeapCellType::create<IntlSegmenter>())
-    , intlSegmentsHeapCellType(IsoHeapCellType::create<IntlSegments>())
-#if ENABLE(WEBASSEMBLY)
-    , webAssemblyCodeBlockHeapCellType(IsoHeapCellType::create<JSWebAssemblyCodeBlock>())
-    , webAssemblyFunctionHeapCellType(IsoHeapCellType::create<WebAssemblyFunction>())
-    , webAssemblyGlobalHeapCellType(IsoHeapCellType::create<JSWebAssemblyGlobal>())
-    , webAssemblyInstanceHeapCellType(IsoHeapCellType::create<JSWebAssemblyInstance>())
-    , webAssemblyMemoryHeapCellType(IsoHeapCellType::create<JSWebAssemblyMemory>())
-    , webAssemblyModuleHeapCellType(IsoHeapCellType::create<JSWebAssemblyModule>())
-    , webAssemblyModuleRecordHeapCellType(IsoHeapCellType::create<WebAssemblyModuleRecord>())
-    , webAssemblyTableHeapCellType(IsoHeapCellType::create<JSWebAssemblyTable>())
-#endif
-    , primitiveGigacageAuxiliarySpace("Primitive Gigacage Auxiliary", heap, auxiliaryHeapCellType.get(), primitiveGigacageAllocator.get()) // Hash:0x3e7cd762
-    , jsValueGigacageAuxiliarySpace("JSValue Gigacage Auxiliary", heap, auxiliaryHeapCellType.get(), jsValueGigacageAllocator.get()) // Hash:0x241e946
-    , immutableButterflyJSValueGigacageAuxiliarySpace("ImmutableButterfly Gigacage JSCellWithIndexingHeader", heap, immutableButterflyHeapCellType.get(), jsValueGigacageAllocator.get()) // Hash:0x7a945300
-    , cellSpace("JSCell", heap, cellHeapCellType.get(), fastMallocAllocator.get()) // Hash:0xadfb5a79
-    , variableSizedCellSpace("Variable Sized JSCell", heap, cellHeapCellType.get(), fastMallocAllocator.get()) // Hash:0xbcd769cc
-    , destructibleObjectSpace("JSDestructibleObject", heap, destructibleObjectHeapCellType.get(), fastMallocAllocator.get()) // Hash:0x4f5ed7a9
-    , arraySpace ISO_SUBSPACE_INIT(heap, cellHeapCellType.get(), JSArray)
-    , bigIntSpace ISO_SUBSPACE_INIT(heap, cellHeapCellType.get(), JSBigInt)
-    , calleeSpace ISO_SUBSPACE_INIT(heap, cellHeapCellType.get(), JSCallee)
-    , clonedArgumentsSpace ISO_SUBSPACE_INIT(heap, cellHeapCellType.get(), ClonedArguments)
-    , customGetterSetterSpace ISO_SUBSPACE_INIT(heap, cellHeapCellType.get(), CustomGetterSetter)
-    , dateInstanceSpace ISO_SUBSPACE_INIT(heap, dateInstanceHeapCellType.get(), DateInstance)
-    , domAttributeGetterSetterSpace ISO_SUBSPACE_INIT(heap, cellHeapCellType.get(), DOMAttributeGetterSetter)
-    , exceptionSpace ISO_SUBSPACE_INIT(heap, destructibleCellHeapCellType.get(), Exception)
-    , executableToCodeBlockEdgeSpace ISO_SUBSPACE_INIT(heap, cellHeapCellType.get(), ExecutableToCodeBlockEdge) // Hash:0x7b730b20
-    , functionSpace ISO_SUBSPACE_INIT(heap, cellHeapCellType.get(), JSFunction) // Hash:0x800fca72
-    , getterSetterSpace ISO_SUBSPACE_INIT(heap, cellHeapCellType.get(), GetterSetter)
-    , globalLexicalEnvironmentSpace ISO_SUBSPACE_INIT(heap, globalLexicalEnvironmentHeapCellType.get(), JSGlobalLexicalEnvironment)
-    , internalFunctionSpace ISO_SUBSPACE_INIT(heap, cellHeapCellType.get(), InternalFunction) // Hash:0xf845c464
-    , jsProxySpace ISO_SUBSPACE_INIT(heap, cellHeapCellType.get(), JSProxy)
-    , nativeExecutableSpace ISO_SUBSPACE_INIT(heap, destructibleCellHeapCellType.get(), NativeExecutable) // Hash:0x67567f95
-    , numberObjectSpace ISO_SUBSPACE_INIT(heap, cellHeapCellType.get(), NumberObject)
-    , plainObjectSpace ISO_SUBSPACE_INIT(heap, cellHeapCellType.get(), JSNonFinalObject) // Mainly used for prototypes.
-    , promiseSpace ISO_SUBSPACE_INIT(heap, cellHeapCellType.get(), JSPromise)
-    , propertyNameEnumeratorSpace ISO_SUBSPACE_INIT(heap, cellHeapCellType.get(), JSPropertyNameEnumerator)
-    , propertyTableSpace ISO_SUBSPACE_INIT(heap, destructibleCellHeapCellType.get(), PropertyTable) // Hash:0xc6bc9f12
-    , regExpSpace ISO_SUBSPACE_INIT(heap, destructibleCellHeapCellType.get(), RegExp)
-    , regExpObjectSpace ISO_SUBSPACE_INIT(heap, cellHeapCellType.get(), RegExpObject)
-    , ropeStringSpace ISO_SUBSPACE_INIT(heap, stringHeapCellType.get(), JSRopeString)
-    , scopedArgumentsSpace ISO_SUBSPACE_INIT(heap, cellHeapCellType.get(), ScopedArguments)
-    , sparseArrayValueMapSpace ISO_SUBSPACE_INIT(heap, destructibleCellHeapCellType.get(), SparseArrayValueMap)
-    , stringSpace ISO_SUBSPACE_INIT(heap, stringHeapCellType.get(), JSString) // Hash:0x90cf758f
-    , stringObjectSpace ISO_SUBSPACE_INIT(heap, cellHeapCellType.get(), StringObject)
-    , structureChainSpace ISO_SUBSPACE_INIT(heap, cellHeapCellType.get(), StructureChain)
-    , structureRareDataSpace ISO_SUBSPACE_INIT(heap, destructibleCellHeapCellType.get(), StructureRareData) // Hash:0xaca4e62d
-    , structureSpace ISO_SUBSPACE_INIT(heap, destructibleCellHeapCellType.get(), Structure) // Hash:0x1f1bcdca
-    , brandedStructureSpace ISO_SUBSPACE_INIT(heap, destructibleCellHeapCellType.get(), BrandedStructure)
-    , symbolTableSpace ISO_SUBSPACE_INIT(heap, destructibleCellHeapCellType.get(), SymbolTable) // Hash:0xc5215afd
-    , executableToCodeBlockEdgesWithConstraints(executableToCodeBlockEdgeSpace)
-    , executableToCodeBlockEdgesWithFinalizers(executableToCodeBlockEdgeSpace)
-    , codeBlockSpace ISO_SUBSPACE_INIT(heap, destructibleCellHeapCellType.get(), CodeBlock) // Hash:0x77e66ec9
-    , functionExecutableSpace ISO_SUBSPACE_INIT(heap, destructibleCellHeapCellType.get(), FunctionExecutable) // Hash:0x5d158f3
-    , programExecutableSpace ISO_SUBSPACE_INIT(heap, destructibleCellHeapCellType.get(), ProgramExecutable) // Hash:0x527c77e7
-    , unlinkedFunctionExecutableSpace ISO_SUBSPACE_INIT(heap, destructibleCellHeapCellType.get(), UnlinkedFunctionExecutable) // Hash:0xf6b828d9
+    , clientHeap(heap)
     , vmType(vmType)
-    , clientData(nullptr)
-    , topEntryFrame(nullptr)
-    , topCallFrame(CallFrame::noCaller())
     , deferredWorkTimer(DeferredWorkTimer::create(*this))
-    , m_atomStringTable(vmType == Default ? Thread::current().atomStringTable() : new AtomStringTable)
-    , m_privateSymbolRegistry(WTF::SymbolRegistry::Type::PrivateSymbol)
-    , propertyNames(nullptr)
+    , m_atomStringTable(vmType == VMType::Default ? Thread::currentSingleton().atomStringTable() : new AtomStringTable)
+    , m_symbolRegistry(makeUniqueRef<SymbolRegistry>())
+    , m_privateSymbolRegistry(makeUniqueRef<SymbolRegistry>(SymbolRegistry::Type::PrivateSymbol))
     , emptyList(new ArgList)
     , machineCodeBytesPerBytecodeWordForBaselineJIT(makeUnique<SimpleStats>())
-    , stringCache(*this)
     , symbolImplToSymbolMap(*this)
-    , structureCache(*this)
-    , interpreter(nullptr)
-    , entryScope(nullptr)
-    , m_regExpCache(new RegExpCache(this))
-    , m_compactVariableMap(adoptRef(*(new CompactTDZEnvironmentMap)))
-#if ENABLE(REGEXP_TRACING)
-    , m_rtTraceList(new RTTraceList())
+    , atomStringToJSStringMap(*this)
+#if ENABLE(WEBASSEMBLY)
+    , wasmGCStructureMap(*this)
 #endif
-#if ENABLE(GC_VALIDATION)
-    , m_initializingObjectClass(0)
-#endif
-    , m_stackPointerAtVMEntry(nullptr)
+    , m_regExpCache(makeUnique<RegExpCache>())
+    , m_compactVariableMap(adoptRef(*new CompactTDZEnvironmentMap))
+    , m_syncResumeCallCache(makeUniqueRef<MicrotaskCallCache>())
     , m_codeCache(makeUnique<CodeCache>())
     , m_intlCache(makeUnique<IntlCache>())
     , m_builtinExecutables(makeUnique<BuiltinExecutables>(*this))
-    , m_typeProfilerEnabledCount(0)
-    , m_primitiveGigacageEnabled(IsWatched)
-    , m_controlFlowProfilerEnabledCount(0)
+    , m_defaultMicrotaskQueue(MicrotaskQueue::create(*this))
+    , m_syncWaiter(adoptRef(*new Waiter(this)))
 {
-    if (UNLIKELY(vmCreationShouldCrash))
-        CRASH_WITH_INFO(0x4242424220202020, 0xbadbeef0badbeef, 0x1234123412341234, 0x1337133713371337);
+    if (vmCreationShouldCrash || g_jscConfig.vmCreationDisallowed) [[unlikely]]
+        CRASH_WITH_EXTRA_SECURITY_IMPLICATION_AND_INFO(VMCreationDisallowed, "VM creation disallowed"_s, 0x4242424220202020, 0xbadbeef0badbeef, 0x1234123412341234, 0x1337133713371337);
 
-    interpreter = new Interpreter(*this);
-    StackBounds stack = Thread::current().stack();
+    // Set up lazy initializers.
+    {
+        m_hasOwnPropertyCache.initLater([](VM&, auto& ref) {
+            ref.set(HasOwnPropertyCache::create());
+        });
+
+        m_megamorphicCache.initLater([](VM&, auto& ref) {
+            ref.set(makeUniqueRef<MegamorphicCache>());
+        });
+
+        m_shadowChicken.initLater([](VM&, auto& ref) {
+            ref.set(makeUniqueRef<ShadowChicken>());
+        });
+
+        m_heapProfiler.initLater([](VM& vm, auto& ref) {
+            ref.set(makeUniqueRef<HeapProfiler>(vm));
+        });
+
+        m_stringSearcherTables.initLater([](VM&, auto& ref) {
+            ref.set(makeUniqueRef<AdaptiveStringSearcherTables>());
+        });
+
+        m_watchdog.initLater([](VM& vm, auto& ref) {
+            ref.set(adoptRef(*new Watchdog(&vm)));
+            vm.ensureTerminationException();
+            vm.requestEntryScopeService(EntryScopeService::Watchdog);
+        });
+    }
+
     updateSoftReservedZoneSize(Options::softReservedZoneSize());
-    setLastStackTop(stack.origin());
+    setLastStackTop(Thread::currentSingleton());
+    stringSplitIndice.reserveInitialCapacity(256);
 
-    JSRunLoopTimer::Manager::shared().registerVM(*this);
+    JSRunLoopTimer::Manager::singleton().registerVM(*this);
 
     // Need to be careful to keep everything consistent here
     JSLockHolder lock(this);
-    AtomStringTable* existingEntryAtomStringTable = Thread::current().setCurrentAtomStringTable(m_atomStringTable);
-    structureStructure.set(*this, Structure::createStructure(*this));
-    structureRareDataStructure.set(*this, StructureRareData::createStructure(*this, nullptr, jsNull()));
-    stringStructure.set(*this, JSString::createStructure(*this, nullptr, jsNull()));
+    AtomStringTable* existingEntryAtomStringTable = Thread::currentSingleton().setCurrentAtomStringTable(m_atomStringTable);
+    structureStructure.setWithoutWriteBarrier(Structure::createStructure(*this));
+    structureRareDataStructure.setWithoutWriteBarrier(StructureRareData::createStructure(*this, nullptr, jsNull()));
+    stringStructure.setWithoutWriteBarrier(JSString::createStructure(*this, nullptr, jsNull()));
 
     smallStrings.initializeCommonStrings(*this);
+    numericStrings.initializeSmallIntCache(*this);
 
     propertyNames = new CommonIdentifiers(*this);
-    propertyNameEnumeratorStructure.set(*this, JSPropertyNameEnumerator::createStructure(*this, nullptr, jsNull()));
-    getterSetterStructure.set(*this, GetterSetter::createStructure(*this, nullptr, jsNull()));
-    customGetterSetterStructure.set(*this, CustomGetterSetter::createStructure(*this, nullptr, jsNull()));
-    domAttributeGetterSetterStructure.set(*this, DOMAttributeGetterSetter::createStructure(*this, nullptr, jsNull()));
-    scopedArgumentsTableStructure.set(*this, ScopedArgumentsTable::createStructure(*this, nullptr, jsNull()));
-    apiWrapperStructure.set(*this, JSAPIValueWrapper::createStructure(*this, nullptr, jsNull()));
-    nativeExecutableStructure.set(*this, NativeExecutable::createStructure(*this, nullptr, jsNull()));
-    evalExecutableStructure.set(*this, EvalExecutable::createStructure(*this, nullptr, jsNull()));
-    programExecutableStructure.set(*this, ProgramExecutable::createStructure(*this, nullptr, jsNull()));
-    functionExecutableStructure.set(*this, FunctionExecutable::createStructure(*this, nullptr, jsNull()));
+    propertyNameEnumeratorStructure.setWithoutWriteBarrier(JSPropertyNameEnumerator::createStructure(*this, nullptr, jsNull()));
+    getterSetterStructure.setWithoutWriteBarrier(GetterSetter::createStructure(*this, nullptr, jsNull()));
+    customGetterSetterStructure.setWithoutWriteBarrier(CustomGetterSetter::createStructure(*this, nullptr, jsNull()));
+    domAttributeGetterSetterStructure.setWithoutWriteBarrier(DOMAttributeGetterSetter::createStructure(*this, nullptr, jsNull()));
+    scopedArgumentsTableStructure.setWithoutWriteBarrier(ScopedArgumentsTable::createStructure(*this, nullptr, jsNull()));
+    apiWrapperStructure.setWithoutWriteBarrier(JSAPIValueWrapper::createStructure(*this, nullptr, jsNull()));
+    nativeExecutableStructure.setWithoutWriteBarrier(NativeExecutable::createStructure(*this, nullptr, jsNull()));
+    evalExecutableStructure.setWithoutWriteBarrier(EvalExecutable::createStructure(*this, nullptr, jsNull()));
+    programExecutableStructure.setWithoutWriteBarrier(ProgramExecutable::createStructure(*this, nullptr, jsNull()));
+    functionExecutableStructure.setWithoutWriteBarrier(FunctionExecutable::createStructure(*this, nullptr, jsNull()));
 #if ENABLE(WEBASSEMBLY)
-    webAssemblyCodeBlockStructure.set(*this, JSWebAssemblyCodeBlock::createStructure(*this, nullptr, jsNull()));
+    pinballCompletionStructure.setWithoutWriteBarrier(PinballCompletion::createStructure(*this, nullptr, jsNull()));
+    webAssemblyStreamingContextStructure.setWithoutWriteBarrier(JSWebAssemblyStreamingContext::createStructure(*this, nullptr, jsNull()));
 #endif
-    moduleProgramExecutableStructure.set(*this, ModuleProgramExecutable::createStructure(*this, nullptr, jsNull()));
-    regExpStructure.set(*this, RegExp::createStructure(*this, nullptr, jsNull()));
-    symbolStructure.set(*this, Symbol::createStructure(*this, nullptr, jsNull()));
-    symbolTableStructure.set(*this, SymbolTable::createStructure(*this, nullptr, jsNull()));
+    moduleProgramExecutableStructure.setWithoutWriteBarrier(ModuleProgramExecutable::createStructure(*this, nullptr, jsNull()));
+    slimPromiseReactionStructure.setWithoutWriteBarrier(JSSlimPromiseReaction::createStructure(*this, nullptr, jsNull()));
+    fullPromiseReactionStructure.setWithoutWriteBarrier(JSFullPromiseReaction::createStructure(*this, nullptr, jsNull()));
+    jsMicrotaskDispatcherStructure.setWithoutWriteBarrier(JSMicrotaskDispatcher::createStructure(*this, nullptr, jsNull()));
+    moduleLoaderStructure.setWithoutWriteBarrier(JSModuleLoader::createStructure(*this, nullptr, jsNull()));
+    moduleRegistryEntryStructure.setWithoutWriteBarrier(ModuleRegistryEntry::createStructure(*this, nullptr, jsNull()));
+    moduleLoadingContextStructure.setWithoutWriteBarrier(ModuleLoadingContext::createStructure(*this, nullptr, jsNull()));
+    moduleLoaderPayloadStructure.setWithoutWriteBarrier(ModuleLoaderPayload::createStructure(*this, nullptr, jsNull()));
+    moduleGraphLoadingStateStructure.setWithoutWriteBarrier(ModuleGraphLoadingState::createStructure(*this, nullptr, jsNull()));
+    promiseCombinatorsContextStructure.setWithoutWriteBarrier(JSPromiseCombinatorsContext::createStructure(*this, nullptr, jsNull()));
+    promiseCombinatorsGlobalContextStructure.setWithoutWriteBarrier(JSPromiseCombinatorsGlobalContext::createStructure(*this, nullptr, jsNull()));
+    regExpStructure.setWithoutWriteBarrier(RegExp::createStructure(*this, nullptr, jsNull()));
+    symbolStructure.setWithoutWriteBarrier(Symbol::createStructure(*this, nullptr, jsNull()));
+    symbolTableStructure.setWithoutWriteBarrier(SymbolTable::createStructure(*this, nullptr, jsNull()));
 
-    immutableButterflyStructures[arrayIndexFromIndexingType(CopyOnWriteArrayWithInt32) - NumberOfIndexingShapes].set(*this, JSImmutableButterfly::createStructure(*this, nullptr, jsNull(), CopyOnWriteArrayWithInt32));
-    immutableButterflyStructures[arrayIndexFromIndexingType(CopyOnWriteArrayWithDouble) - NumberOfIndexingShapes].set(*this, JSImmutableButterfly::createStructure(*this, nullptr, jsNull(), CopyOnWriteArrayWithDouble));
-    immutableButterflyStructures[arrayIndexFromIndexingType(CopyOnWriteArrayWithContiguous) - NumberOfIndexingShapes].set(*this, JSImmutableButterfly::createStructure(*this, nullptr, jsNull(), CopyOnWriteArrayWithContiguous));
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+    rawImmutableButterflyStructure(CopyOnWriteArrayWithInt32).setWithoutWriteBarrier(JSCellButterfly::createStructure(*this, nullptr, jsNull(), CopyOnWriteArrayWithInt32));
+    Structure* copyOnWriteArrayWithContiguousStructure = JSCellButterfly::createStructure(*this, nullptr, jsNull(), CopyOnWriteArrayWithContiguous);
+    rawImmutableButterflyStructure(CopyOnWriteArrayWithDouble).setWithoutWriteBarrier(Options::allowDoubleShape() ? JSCellButterfly::createStructure(*this, nullptr, jsNull(), CopyOnWriteArrayWithDouble) : copyOnWriteArrayWithContiguousStructure);
+    rawImmutableButterflyStructure(CopyOnWriteArrayWithContiguous).setWithoutWriteBarrier(copyOnWriteArrayWithContiguousStructure);
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
-    sourceCodeStructure.set(*this, JSSourceCode::createStructure(*this, nullptr, jsNull()));
-    scriptFetcherStructure.set(*this, JSScriptFetcher::createStructure(*this, nullptr, jsNull()));
-    scriptFetchParametersStructure.set(*this, JSScriptFetchParameters::createStructure(*this, nullptr, jsNull()));
-    structureChainStructure.set(*this, StructureChain::createStructure(*this, nullptr, jsNull()));
-    sparseArrayValueMapStructure.set(*this, SparseArrayValueMap::createStructure(*this, nullptr, jsNull()));
-    templateObjectDescriptorStructure.set(*this, JSTemplateObjectDescriptor::createStructure(*this, nullptr, jsNull()));
-    unlinkedFunctionExecutableStructure.set(*this, UnlinkedFunctionExecutable::createStructure(*this, nullptr, jsNull()));
-    unlinkedProgramCodeBlockStructure.set(*this, UnlinkedProgramCodeBlock::createStructure(*this, nullptr, jsNull()));
-    unlinkedEvalCodeBlockStructure.set(*this, UnlinkedEvalCodeBlock::createStructure(*this, nullptr, jsNull()));
-    unlinkedFunctionCodeBlockStructure.set(*this, UnlinkedFunctionCodeBlock::createStructure(*this, nullptr, jsNull()));
-    unlinkedModuleProgramCodeBlockStructure.set(*this, UnlinkedModuleProgramCodeBlock::createStructure(*this, nullptr, jsNull()));
-    propertyTableStructure.set(*this, PropertyTable::createStructure(*this, nullptr, jsNull()));
-    functionRareDataStructure.set(*this, FunctionRareData::createStructure(*this, nullptr, jsNull()));
-    exceptionStructure.set(*this, Exception::createStructure(*this, nullptr, jsNull()));
-    programCodeBlockStructure.set(*this, ProgramCodeBlock::createStructure(*this, nullptr, jsNull()));
-    moduleProgramCodeBlockStructure.set(*this, ModuleProgramCodeBlock::createStructure(*this, nullptr, jsNull()));
-    evalCodeBlockStructure.set(*this, EvalCodeBlock::createStructure(*this, nullptr, jsNull()));
-    functionCodeBlockStructure.set(*this, FunctionCodeBlock::createStructure(*this, nullptr, jsNull()));
-    hashMapBucketSetStructure.set(*this, HashMapBucket<HashMapBucketDataKey>::createStructure(*this, nullptr, jsNull()));
-    hashMapBucketMapStructure.set(*this, HashMapBucket<HashMapBucketDataKeyValue>::createStructure(*this, nullptr, jsNull()));
-    bigIntStructure.set(*this, JSBigInt::createStructure(*this, nullptr, jsNull()));
-    executableToCodeBlockEdgeStructure.set(*this, ExecutableToCodeBlockEdge::createStructure(*this, nullptr, jsNull()));
+    // This is only for JSCellButterfly filled with atom strings.
+    cellButterflyOnlyAtomStringsStructure.setWithoutWriteBarrier(JSCellButterfly::createStructure(*this, nullptr, jsNull(), CopyOnWriteArrayWithContiguous));
+
+    sourceCodeStructure.setWithoutWriteBarrier(JSSourceCode::createStructure(*this, nullptr, jsNull()));
+    structureChainStructure.setWithoutWriteBarrier(StructureChain::createStructure(*this, nullptr, jsNull()));
+    sparseArrayValueMapStructure.setWithoutWriteBarrier(SparseArrayValueMap::createStructure(*this, nullptr, jsNull()));
+    templateObjectDescriptorStructure.setWithoutWriteBarrier(JSTemplateObjectDescriptor::createStructure(*this, nullptr, jsNull()));
+    unlinkedFunctionExecutableStructure.setWithoutWriteBarrier(UnlinkedFunctionExecutable::createStructure(*this, nullptr, jsNull()));
+    unlinkedProgramCodeBlockStructure.setWithoutWriteBarrier(UnlinkedProgramCodeBlock::createStructure(*this, nullptr, jsNull()));
+    unlinkedEvalCodeBlockStructure.setWithoutWriteBarrier(UnlinkedEvalCodeBlock::createStructure(*this, nullptr, jsNull()));
+    unlinkedFunctionCodeBlockStructure.setWithoutWriteBarrier(UnlinkedFunctionCodeBlock::createStructure(*this, nullptr, jsNull()));
+    unlinkedModuleProgramCodeBlockStructure.setWithoutWriteBarrier(UnlinkedModuleProgramCodeBlock::createStructure(*this, nullptr, jsNull()));
+    propertyTableStructure.setWithoutWriteBarrier(PropertyTable::createStructure(*this, nullptr, jsNull()));
+    functionRareDataStructure.setWithoutWriteBarrier(FunctionRareData::createStructure(*this, nullptr, jsNull()));
+    exceptionStructure.setWithoutWriteBarrier(Exception::createStructure(*this, nullptr, jsNull()));
+    programCodeBlockStructure.setWithoutWriteBarrier(ProgramCodeBlock::createStructure(*this, nullptr, jsNull()));
+    moduleProgramCodeBlockStructure.setWithoutWriteBarrier(ModuleProgramCodeBlock::createStructure(*this, nullptr, jsNull()));
+    evalCodeBlockStructure.setWithoutWriteBarrier(EvalCodeBlock::createStructure(*this, nullptr, jsNull()));
+    functionCodeBlockStructure.setWithoutWriteBarrier(FunctionCodeBlock::createStructure(*this, nullptr, jsNull()));
+    bigIntStructure.setWithoutWriteBarrier(JSBigInt::createStructure(*this, nullptr, jsNull()));
+    m_orderedHashTableDeletedValue.setWithoutWriteBarrier(JSOrderedHashMap::createDeletedValue(*this));
+    m_orderedHashTableSentinel.setWithoutWriteBarrier(JSOrderedHashMap::createSentinel(*this));
+    m_sortScratchSentinel.setWithoutWriteBarrier(JSCellButterfly::create(*this, CopyOnWriteArrayWithContiguous, 0));
+
+    {
+        Structure* sentinelStructure = JSSentinel::createStructure(*this, nullptr, jsNull());
+        m_sentinelStructure.setWithoutWriteBarrier(sentinelStructure);
+        m_fastArrayValuesSentinel.setWithoutWriteBarrier(JSSentinel::create(*this, sentinelStructure));
+        m_fastArrayKeysSentinel.setWithoutWriteBarrier(JSSentinel::create(*this, sentinelStructure));
+        m_fastArrayEntriesSentinel.setWithoutWriteBarrier(JSSentinel::create(*this, sentinelStructure));
+        m_fastMapKeysSentinel.setWithoutWriteBarrier(JSSentinel::create(*this, sentinelStructure));
+        m_fastMapValuesSentinel.setWithoutWriteBarrier(JSSentinel::create(*this, sentinelStructure));
+        m_fastMapEntriesSentinel.setWithoutWriteBarrier(JSSentinel::create(*this, sentinelStructure));
+        m_fastSetValuesSentinel.setWithoutWriteBarrier(JSSentinel::create(*this, sentinelStructure));
+        m_fastSetEntriesSentinel.setWithoutWriteBarrier(JSSentinel::create(*this, sentinelStructure));
+        m_fastStringValuesSentinel.setWithoutWriteBarrier(JSSentinel::create(*this, sentinelStructure));
+        m_fastAsyncGeneratorSentinel.setWithoutWriteBarrier(JSSentinel::create(*this, sentinelStructure));
+    }
 
     // Eagerly initialize constant cells since the concurrent compiler can access them.
     if (Options::useJIT()) {
-        sentinelMapBucket();
-        sentinelSetBucket();
+        emptyPropertyNameEnumerator();
+        ensureMegamorphicCache();
     }
     {
         auto* bigInt = JSBigInt::tryCreateFrom(*this, 1);
         if (bigInt)
-            heapBigIntConstantOne.set(*this, bigInt);
+            heapBigIntConstantOne.setWithoutWriteBarrier(bigInt);
         else {
             if (success)
                 *success = false;
             else
-                RELEASE_ASSERT(bigInt);
+                RELEASE_ASSERT_RESOURCE_AVAILABLE(bigInt, MemoryExhaustion, "Crash intentionally because memory is exhausted.");
+        }
+    }
+    {
+        auto* bigInt = JSBigInt::tryCreateWithLength(*this, 0);
+        if (bigInt)
+            heapBigIntConstantZero.setWithoutWriteBarrier(bigInt);
+        else {
+            if (success)
+                *success = false;
+            else
+                RELEASE_ASSERT_RESOURCE_AVAILABLE(bigInt, MemoryExhaustion, "Crash intentionally because memory is exhausted.");
         }
     }
 
-    Thread::current().setCurrentAtomStringTable(existingEntryAtomStringTable);
+    Thread::currentSingleton().setCurrentAtomStringTable(existingEntryAtomStringTable);
     
     Gigacage::addPrimitiveDisableCallback(primitiveGigacageDisabledCallback, this);
 
     heap.notifyIsSafeToCollect();
     
-    LLInt::Data::performAssertions(*this);
-    
-    if (UNLIKELY(Options::useProfiler())) {
+    if (Options::useProfiler()) [[unlikely]] {
         m_perBytecodeProfiler = makeUnique<Profiler::Database>(*this);
 
         StringPrintStream pathOut;
         const char* profilerPath = getenv("JSC_PROFILER_PATH");
         if (profilerPath)
             pathOut.print(profilerPath, "/");
+        else
+            pathOut.print("/tmp/");
         pathOut.print("JSCProfile-", getCurrentProcessID(), "-", m_perBytecodeProfiler->databaseID(), ".json");
-        m_perBytecodeProfiler->registerToSaveAtExit(pathOut.toCString().data());
-    }
+        static NeverDestroyed<CString> pathOutString = pathOut.toCString();
 
-    callFrameForCatch = nullptr;
+#if PLATFORM(COCOA)
+        static std::once_flag registerFlag;
+        std::call_once(registerFlag, [this]() {
+            int pid = getpid();
+            const char* key = "com.apple.WebKit.bytecode.profiler";
+            dataLogLn("<BYTECODE.STAT><", pid, "> Registering callback for dumping profiles, dumping to ", pathOutString.get(), ".");
+            dataLogLn("<BYTECODE.STAT><", pid, "> Use `notifyutil -v -p ", key, "` to dump statistics.");
+
+            int token;
+            notify_register_dispatch(key, &token, mainDispatchQueueSingleton(), ^(int) {
+                dataLogLn("<BYTECODE.STAT><", pid, "> Dumping");
+                if (!m_perBytecodeProfiler->save(pathOutString->data()))
+                    dataLogLn("<BYTECODE.STAT><", pid, "> Failed to dump to ", pathOutString.get(), ". Do you need to add a sandbox extension? ((allow file-write* (subpath \"/private/tmp/\")) in WebProcess.sb.in");
+                else
+                    dataLogLn("<BYTECODE.STAT><", pid, "> Dumped to ", pathOutString.get());
+                dataLogLn("<BYTECODE.STAT><", pid, "> Dumping finished");
+            });
+        });
+#endif
+
+        if (Options::dumpProfilerDataAtExit()) [[unlikely]]
+            m_perBytecodeProfiler->registerToSaveAtExit(pathOutString->data());
+    }
 
     // Initialize this last, as a free way of asserting that VM initialization itself
     // won't use this.
@@ -533,7 +487,7 @@ VM::VM(VMType vmType, HeapType heapType, WTF::RunLoop* runLoop, bool* success)
         setShouldBuildPCToCodeOriginMapping();
         Ref<Stopwatch> stopwatch = Stopwatch::create();
         stopwatch->start();
-        m_samplingProfiler = adoptRef(new SamplingProfiler(*this, WTFMove(stopwatch)));
+        ensureSamplingProfiler(WTF::move(stopwatch));
         if (Options::samplingProfilerPath())
             m_samplingProfiler->registerForReportAtExit();
         m_samplingProfiler->start();
@@ -557,20 +511,28 @@ VM::VM(VMType vmType, HeapType heapType, WTF::RunLoop* runLoop, bool* success)
         setShouldBuildPCToCodeOriginMapping();
 
     if (Options::watchdog()) {
-        Watchdog& watchdog = ensureWatchdog();
-        watchdog.setTimeLimit(Seconds::fromMilliseconds(Options::watchdog()));
+        Ref watchdog = ensureWatchdog();
+        watchdog->setTimeLimit(Seconds::fromMilliseconds(Options::watchdog()));
     }
+
+    if (Options::useTracePoints())
+        requestEntryScopeService(EntryScopeService::TracePoints);
+
+#if ENABLE(WEBASSEMBLY_DEBUGGER)
+    if (Options::enableWasmDebugger()) [[unlikely]]
+        m_debugState = makeUnique<Wasm::DebugState>();
+#endif
 
 #if ENABLE(JIT)
     // Make sure that any stubs that the JIT is going to use are initialized in non-compilation threads.
     if (Options::useJIT()) {
         jitStubs = makeUnique<JITThunks>();
+        jitStubs->initialize(*this);
 #if ENABLE(FTL_JIT)
         ftlThunks = makeUnique<FTL::Thunks>();
 #endif // ENABLE(FTL_JIT)
-        getCTIInternalFunctionTrampolineFor(CodeForCall);
-        getCTIInternalFunctionTrampolineFor(CodeForConstruct);
         m_sharedJITStubs = makeUnique<SharedJITStubSet>();
+        getBoundFunction(/* isJSFunction */ true, SourceTaintedOrigin::Untainted);
     }
 #endif // ENABLE(JIT)
 
@@ -582,10 +544,21 @@ VM::VM(VMType vmType, HeapType heapType, WTF::RunLoop* runLoop, bool* success)
         jitSizeStatistics = makeUnique<JITSizeStatistics>();
 #endif
 
-    VMInspector::instance().add(this);
+    Config::finalize();
 
-    if (!g_jscConfig.disabledFreezingForTesting)
-        Config::permanentlyFreeze();
+    if (!isInMiniMode()) {
+        initializeAvailableTimeZones();
+        if (heapType == HeapType::Large)
+            dateCache.timeZoneDisplayName(/* isDST */ false);
+    }
+
+    // We must set this at the end only after the VM is fully initialized.
+    WTF::storeStoreFence();
+    m_isInService = true;
+
+    // Register after all VM state is initialized so that a stop-the-world triggered
+    // immediately on registration sees a fully constructed VM.
+    VMManager::singleton().notifyVMConstruction(*this);
 }
 
 static ReadWriteLock s_destructionLock;
@@ -595,20 +568,36 @@ void waitForVMDestruction()
     Locker locker { s_destructionLock.write() };
 }
 
+void VM::setCrossTaskToken(RefPtr<CrossTaskToken>&& token)
+{
+    m_crossTaskToken = WTF::move(token);
+}
+
 VM::~VM()
 {
+    // Remove from VMManager before marking as no longer in service or cancelling traps,
+    // so requestStopAllInternal() never iterates a VM with m_isShuttingDown set.
+    VMManager::singleton().notifyVMDestruction(*this);
+
     Locker destructionLocker { s_destructionLock.read() };
-    
+
+    if (vmType == VMType::Default)
+        WaiterListManager::singleton().unregister(this);
+
     Gigacage::removePrimitiveDisableCallback(primitiveGigacageDisabledCallback, this);
     deferredWorkTimer->stopRunningTasks();
 #if ENABLE(WEBASSEMBLY)
     if (Wasm::Worklist* worklist = Wasm::existingWorklistOrNull())
-        worklist->stopAllPlansForContext(wasmContext);
+        worklist->stopAllPlansForContext(*this);
 #endif
-    if (UNLIKELY(m_watchdog))
-        m_watchdog->willDestroyVM(this);
-    m_traps.willDestroyVM();
-    VMInspector::instance().remove(this);
+    if (RefPtr watchdog = this->watchdog(); watchdog) [[unlikely]]
+        watchdog->willDestroyVM(this);
+    traps().willDestroyVM();
+    m_isInService = false;
+    WTF::storeStoreFence();
+
+    if (m_hasSideData)
+        sideDataRepository().deleteAll(this);
 
     // Never GC, ever again.
     heap.incrementDeferralDepth();
@@ -625,8 +614,6 @@ VM::~VM()
         worklist->cancelAllPlansForVM(*this);
 #endif // ENABLE(JIT)
     
-    waitForAsynchronousDisassembly();
-    
     // Clear this first to ensure that nobody tries to remove themselves from it.
     m_perBytecodeProfiler = nullptr;
 
@@ -635,25 +622,19 @@ VM::~VM()
     smallStrings.setIsInitialized(false);
     heap.lastChanceToFinalize();
 
-    JSRunLoopTimer::Manager::shared().unregisterVM(*this);
-    
-    delete interpreter;
-#ifndef NDEBUG
-    interpreter = reinterpret_cast<Interpreter*>(0xbbadbeef);
-#endif
+    while (!m_microtaskQueues.isEmpty())
+        m_microtaskQueues.begin()->remove();
+
+    JSRunLoopTimer::Manager::singleton().unregisterVM(*this);
 
     delete emptyList;
 
     delete propertyNames;
-    if (vmType != Default)
+    if (vmType != VMType::Default)
         delete m_atomStringTable;
 
     delete clientData;
-    delete m_regExpCache;
-
-#if ENABLE(REGEXP_TRACING)
-    delete m_rtTraceList;
-#endif
+    m_regExpCache.reset();
 
 #if ENABLE(DFG_JIT)
     for (unsigned i = 0; i < m_scratchBuffers.size(); ++i)
@@ -662,6 +643,14 @@ VM::~VM()
 
 #if ENABLE(JIT)
     m_sharedJITStubs = nullptr;
+#endif
+
+#if ENABLE(WEBASSEMBLY_DEBUGGER)
+    if (Options::enableWasmDebugger()) [[unlikely]] {
+        auto& debugServer = Wasm::DebugServer::singleton();
+        if (debugServer.hasDebugger())
+            debugServer.execution().notifyVMDestruction(this);
+    }
 #endif
 }
 
@@ -679,28 +668,30 @@ void VM::primitiveGigacageDisabled()
  
     // This is totally racy, and that's OK. The point is, it's up to the user to ensure that they pass the
     // uncaged buffer in a nicely synchronized manner.
-    m_needToFirePrimitiveGigacageEnabled = true;
+    requestEntryScopeService(EntryScopeService::FirePrimitiveGigacageEnabled);
 }
 
-void VM::setLastStackTop(void* lastStackTop)
-{ 
-    m_lastStackTop = lastStackTop;
+void VM::setLastStackTop(const Thread& thread)
+{
+    m_lastStackTop = thread.savedLastStackTop();
+    auto& stack = thread.stack();
+    RELEASE_ASSERT(stack.contains(m_lastStackTop), 0x5510, m_lastStackTop, stack.origin(), stack.end());
 }
 
 Ref<VM> VM::createContextGroup(HeapType heapType)
 {
-    return adoptRef(*new VM(APIContextGroup, heapType));
+    return adoptRef(*new VM(VMType::APIContextGroup, heapType));
 }
 
 Ref<VM> VM::create(HeapType heapType, WTF::RunLoop* runLoop)
 {
-    return adoptRef(*new VM(Default, heapType, runLoop));
+    return adoptRef(*new VM(VMType::Default, heapType, runLoop));
 }
 
 RefPtr<VM> VM::tryCreate(HeapType heapType, WTF::RunLoop* runLoop)
 {
     bool success = true;
-    RefPtr<VM> vm = adoptRef(new VM(Default, heapType, runLoop, &success));
+    RefPtr<VM> vm = adoptRef(new VM(VMType::Default, heapType, runLoop, &success));
     if (!success) {
         // Here, we're destructing a partially constructed VM and we know that
         // no one else can be using it at the same time. So, acquiring the lock
@@ -719,49 +710,41 @@ RefPtr<VM> VM::tryCreate(HeapType heapType, WTF::RunLoop* runLoop)
     return vm;
 }
 
-bool VM::sharedInstanceExists()
-{
-    return sharedInstanceInternal();
-}
-
-VM& VM::sharedInstance()
-{
-    GlobalJSLock globalLock;
-    VM*& instance = sharedInstanceInternal();
-    if (!instance)
-        instance = adoptRef(new VM(APIShared, SmallHeap)).leakRef();
-    return *instance;
-}
-
-VM*& VM::sharedInstanceInternal()
-{
-    static VM* sharedInstance;
-    return sharedInstance;
-}
-
-Watchdog& VM::ensureWatchdog()
-{
-    if (!m_watchdog) {
-        m_watchdog = adoptRef(new Watchdog(this));
-        ensureTerminationException();
-    }
-    return *m_watchdog;
-}
-
-HeapProfiler& VM::ensureHeapProfiler()
-{
-    if (!m_heapProfiler)
-        m_heapProfiler = makeUnique<HeapProfiler>(*this);
-    return *m_heapProfiler;
-}
-
 #if ENABLE(SAMPLING_PROFILER)
 SamplingProfiler& VM::ensureSamplingProfiler(Ref<Stopwatch>&& stopwatch)
 {
-    if (!m_samplingProfiler)
-        m_samplingProfiler = adoptRef(new SamplingProfiler(*this, WTFMove(stopwatch)));
+    if (!m_samplingProfiler) {
+        lazyInitialize(m_samplingProfiler, adoptRef(*new SamplingProfiler(*this, WTF::move(stopwatch))));
+        requestEntryScopeService(EntryScopeService::SamplingProfiler);
+    }
     return *m_samplingProfiler;
 }
+
+void VM::enableSamplingProfiler()
+{
+    RefPtr profiler = samplingProfiler();
+    if (!profiler)
+        profiler = &ensureSamplingProfiler(Stopwatch::create());
+    profiler->start();
+}
+
+void VM::disableSamplingProfiler()
+{
+    RefPtr profiler = samplingProfiler();
+    if (!profiler)
+        profiler = &ensureSamplingProfiler(Stopwatch::create());
+    {
+        Locker locker { profiler->getLock() };
+        profiler->pause();
+    }
+}
+
+RefPtr<JSON::Value> VM::takeSamplingProfilerSamplesAsJSON()
+{
+    RefPtr profiler = samplingProfiler();
+    return profiler ? RefPtr { profiler->stackTracesAsJSON() } : nullptr;
+}
+
 #endif // ENABLE(SAMPLING_PROFILER)
 
 static StringImpl::StaticStringImpl terminationErrorString { "JavaScript execution terminated." };
@@ -769,25 +752,39 @@ Exception* VM::ensureTerminationException()
 {
     if (!m_terminationException) {
         JSString* terminationError = jsNontrivialString(*this, terminationErrorString);
-        m_terminationException = Exception::create(*this, terminationError, Exception::DoNotCaptureStack);
+        m_terminationException = Exception::create(*this, terminationError, Exception::StackCaptureAction::DoNotCaptureStack);
     }
     return m_terminationException;
 }
 
 #if ENABLE(JIT)
-static ThunkGenerator thunkGeneratorForIntrinsic(Intrinsic intrinsic)
+static ThunkGenerator NODELETE thunkGeneratorForIntrinsic(Intrinsic intrinsic)
 {
     switch (intrinsic) {
     case CharCodeAtIntrinsic:
         return charCodeAtThunkGenerator;
     case CharAtIntrinsic:
         return charAtThunkGenerator;
+    case StringPrototypeAtIntrinsic:
+        return stringAtThunkGenerator;
     case StringPrototypeCodePointAtIntrinsic:
         return stringPrototypeCodePointAtThunkGenerator;
     case Clz32Intrinsic:
         return clz32ThunkGenerator;
     case FromCharCodeIntrinsic:
         return fromCharCodeThunkGenerator;
+    case FromCodePointIntrinsic:
+        return fromCodePointThunkGenerator;
+    case GlobalIsNaNIntrinsic:
+        return globalIsNaNThunkGenerator;
+    case NumberIsNaNIntrinsic:
+        return numberIsNaNThunkGenerator;
+    case GlobalIsFiniteIntrinsic:
+        return globalIsFiniteThunkGenerator;
+    case NumberIsFiniteIntrinsic:
+        return numberIsFiniteThunkGenerator;
+    case NumberIsSafeIntegerIntrinsic:
+        return numberIsSafeIntegerThunkGenerator;
     case SqrtIntrinsic:
         return sqrtThunkGenerator;
     case AbsIntrinsic:
@@ -806,10 +803,36 @@ static ThunkGenerator thunkGeneratorForIntrinsic(Intrinsic intrinsic)
         return logThunkGenerator;
     case IMulIntrinsic:
         return imulThunkGenerator;
+#if CPU(ARM64)
+    case MaxIntrinsic:
+        return maxThunkGenerator;
+    case MinIntrinsic:
+        return minThunkGenerator;
+#endif
     case RandomIntrinsic:
         return randomThunkGenerator;
+#if USE(JSVALUE64)
+    case ObjectIsIntrinsic:
+        return objectIsThunkGenerator;
+#endif
     case BoundFunctionCallIntrinsic:
         return boundFunctionCallGenerator;
+    case RemoteFunctionCallIntrinsic:
+        return remoteFunctionCallGenerator;
+    case NumberConstructorIntrinsic:
+        return numberConstructorCallThunkGenerator;
+    case StringConstructorIntrinsic:
+        return stringConstructorCallThunkGenerator;
+    case ToIntegerOrInfinityIntrinsic:
+        return toIntegerOrInfinityThunkGenerator;
+    case ToLengthIntrinsic:
+        return toLengthThunkGenerator;
+    case WasmFunctionIntrinsic:
+#if ENABLE(WEBASSEMBLY) && ENABLE(JIT)
+        return Wasm::wasmFunctionThunkGenerator;
+#else
+        return nullptr;
+#endif
     default:
         return nullptr;
     }
@@ -820,89 +843,161 @@ MacroAssemblerCodeRef<JITThunkPtrTag> VM::getCTIStub(ThunkGenerator generator)
     return jitStubs->ctiStub(*this, generator);
 }
 
-#endif // ENABLE(JIT)
-
-NativeExecutable* VM::getHostFunction(NativeFunction function, NativeFunction constructor, const String& name)
+MacroAssemblerCodeRef<JITThunkPtrTag> VM::getCTIStub(CommonJITThunkID thunkID)
 {
-    return getHostFunction(function, NoIntrinsic, constructor, nullptr, name);
+    return jitStubs->ctiStub(thunkID);
 }
 
-static Ref<NativeJITCode> jitCodeForCallTrampoline()
+#endif // ENABLE(JIT)
+
+NativeExecutable* VM::getHostFunction(NativeFunction function, ImplementationVisibility implementationVisibility, NativeFunction constructor, unsigned length, const String& name)
 {
-    static NativeJITCode* result;
-    static std::once_flag onceKey;
-    std::call_once(onceKey, [&] {
-        result = new NativeJITCode(LLInt::getCodeRef<JSEntryPtrTag>(llint_native_call_trampoline), JITType::HostCallThunk, NoIntrinsic);
-    });
-    return makeRef(*result);
+    return getHostFunction(function, implementationVisibility, NoIntrinsic, constructor, nullptr, length, name);
+}
+
+static Ref<NativeJITCode> jitCodeForCallTrampoline(Intrinsic intrinsic)
+{
+    switch (intrinsic) {
+#if ENABLE(WEBASSEMBLY)
+    case WasmFunctionIntrinsic: {
+        static LazyNeverDestroyed<Ref<NativeJITCode>> result;
+        static std::once_flag onceKey;
+        std::call_once(onceKey, [&] {
+            result.construct(adoptRef(*new NativeJITCode(LLInt::getCodeRef<JSEntryPtrTag>(js_to_wasm_wrapper_entry), JITType::HostCallThunk, intrinsic)));
+        });
+        return result.get();
+    }
+#endif
+    default: {
+        static LazyNeverDestroyed<Ref<NativeJITCode>> result;
+        static std::once_flag onceKey;
+        std::call_once(onceKey, [&] {
+            result.construct(adoptRef(*new NativeJITCode(LLInt::getCodeRef<JSEntryPtrTag>(llint_native_call_trampoline), JITType::HostCallThunk, NoIntrinsic)));
+        });
+        return result.get();
+    }
+    }
 }
 
 static Ref<NativeJITCode> jitCodeForConstructTrampoline()
 {
-    static NativeJITCode* result;
+    static LazyNeverDestroyed<Ref<NativeJITCode>> result;
     static std::once_flag onceKey;
     std::call_once(onceKey, [&] {
-        result = new NativeJITCode(LLInt::getCodeRef<JSEntryPtrTag>(llint_native_construct_trampoline), JITType::HostCallThunk, NoIntrinsic);
+        result.construct(adoptRef(*new NativeJITCode(LLInt::getCodeRef<JSEntryPtrTag>(llint_native_construct_trampoline), JITType::HostCallThunk, NoIntrinsic)));
     });
-    return makeRef(*result);
+    return result.get();
 }
 
-NativeExecutable* VM::getHostFunction(NativeFunction function, Intrinsic intrinsic, NativeFunction constructor, const DOMJIT::Signature* signature, const String& name)
+NativeExecutable* VM::getHostFunction(NativeFunction function, ImplementationVisibility implementationVisibility, Intrinsic intrinsic, NativeFunction constructor, const DOMJIT::Signature* signature, unsigned length, const String& name)
 {
 #if ENABLE(JIT)
     if (Options::useJIT()) {
         return jitStubs->hostFunctionStub(
-            *this, function, constructor,
+            *this, toTagged(function), toTagged(constructor),
             intrinsic != NoIntrinsic ? thunkGeneratorForIntrinsic(intrinsic) : nullptr,
-            intrinsic, signature, name);
+            implementationVisibility, intrinsic, signature, length, name);
     }
 #endif // ENABLE(JIT)
     UNUSED_PARAM(intrinsic);
     UNUSED_PARAM(signature);
-    return NativeExecutable::create(*this, jitCodeForCallTrampoline(), function, jitCodeForConstructTrampoline(), constructor, name);
+    return NativeExecutable::create(*this, jitCodeForCallTrampoline(intrinsic), toTagged(function), jitCodeForConstructTrampoline(), toTagged(constructor), implementationVisibility, length, name);
 }
 
-NativeExecutable* VM::getBoundFunction(bool isJSFunction, bool canConstruct)
+NativeExecutable* VM::getBoundFunction(bool isJSFunction, SourceTaintedOrigin taintedness)
 {
     bool slowCase = !isJSFunction;
 
+    auto getOrCreate = [&](WriteBarrier<NativeExecutable>& slot) -> NativeExecutable* {
+        if (taintedness < SourceTaintedOrigin::IndirectlyTainted) {
+            if (auto* cached = slot.get())
+                return cached;
+        }
+        NativeExecutable* result = getHostFunction(
+            slowCase ? boundFunctionCall : boundThisNoArgsFunctionCall,
+            ImplementationVisibility::Private, // Bound function's visibility is private on the stack.
+            slowCase ? NoIntrinsic : BoundFunctionCallIntrinsic,
+            boundFunctionConstruct, nullptr, 0, String());
+        slot.setWithoutWriteBarrier(result);
+        return result;
+    };
+
+    if (slowCase)
+        return getOrCreate(m_slowCanConstructBoundExecutable);
+    return getOrCreate(m_fastCanConstructBoundExecutable);
+}
+
+NativeExecutable* VM::getRemoteFunction(bool isJSFunction)
+{
+    bool slowCase = !isJSFunction;
     auto getOrCreate = [&] (Weak<NativeExecutable>& slot) -> NativeExecutable* {
         if (auto* cached = slot.get())
             return cached;
+
+        Intrinsic intrinsic = NoIntrinsic;
+        if (!slowCase)
+            intrinsic = RemoteFunctionCallIntrinsic;
+
         NativeExecutable* result = getHostFunction(
-            slowCase ? boundFunctionCall : boundThisNoArgsFunctionCall,
-            slowCase ? NoIntrinsic : BoundFunctionCallIntrinsic,
-            canConstruct ? (slowCase ? boundFunctionConstruct : boundThisNoArgsFunctionConstruct) : callHostFunctionAsConstructor, nullptr, String());
+            slowCase ? remoteFunctionCallGeneric : remoteFunctionCallForJSFunction,
+            ImplementationVisibility::Public, intrinsic,
+            callHostFunctionAsConstructor, nullptr, 0, String());
         slot = Weak<NativeExecutable>(result);
         return result;
     };
 
-    if (slowCase) {
-        if (canConstruct)
-            return getOrCreate(m_slowCanConstructBoundExecutable);
-        return getOrCreate(m_slowBoundExecutable);
-    }
-    if (canConstruct)
-        return getOrCreate(m_fastCanConstructBoundExecutable);
-    return getOrCreate(m_fastBoundExecutable);
+    if (slowCase)
+        return getOrCreate(m_slowRemoteFunctionExecutable);
+    return getOrCreate(m_fastRemoteFunctionExecutable);
 }
 
-MacroAssemblerCodePtr<JSEntryPtrTag> VM::getCTIInternalFunctionTrampolineFor(CodeSpecializationKind kind)
+CodePtr<JSEntryPtrTag> VM::getCTIInternalFunctionTrampolineFor(CodeSpecializationKind kind)
 {
 #if ENABLE(JIT)
     if (Options::useJIT()) {
-        if (kind == CodeForCall)
+        if (kind == CodeSpecializationKind::CodeForCall)
             return jitStubs->ctiInternalFunctionCall(*this).retagged<JSEntryPtrTag>();
         return jitStubs->ctiInternalFunctionConstruct(*this).retagged<JSEntryPtrTag>();
     }
 #endif
-    if (kind == CodeForCall)
+    if (kind == CodeSpecializationKind::CodeForCall)
         return LLInt::getCodePtr<JSEntryPtrTag>(llint_internal_function_call_trampoline);
     return LLInt::getCodePtr<JSEntryPtrTag>(llint_internal_function_construct_trampoline);
 }
 
-VM::ClientData::~ClientData()
+MacroAssemblerCodeRef<JSEntryPtrTag> VM::getCTIThrowExceptionFromCallSlowPath()
 {
+#if ENABLE(JIT)
+    if (Options::useJIT())
+        return getCTIStub(CommonJITThunkID::ThrowExceptionFromCallSlowPath).template retagged<JSEntryPtrTag>();
+#endif
+    return LLInt::callToThrow(*this).template retagged<JSEntryPtrTag>();
+}
+
+MacroAssemblerCodeRef<JITStubRoutinePtrTag> VM::getCTIVirtualCall(CallMode callMode)
+{
+#if ENABLE(JIT)
+    if (Options::useJIT()) {
+        switch (callMode) {
+        case CallMode::Regular:
+            return getCTIStub(CommonJITThunkID::VirtualThunkForRegularCall).template retagged<JITStubRoutinePtrTag>();
+        case CallMode::Tail:
+            return getCTIStub(CommonJITThunkID::VirtualThunkForTailCall).template retagged<JITStubRoutinePtrTag>();
+        case CallMode::Construct:
+            return getCTIStub(CommonJITThunkID::VirtualThunkForConstruct).template retagged<JITStubRoutinePtrTag>();
+        }
+        RELEASE_ASSERT_NOT_REACHED();
+    }
+#endif
+    switch (callMode) {
+    case CallMode::Regular:
+        return LLInt::getCodeRef<JITStubRoutinePtrTag>(llint_virtual_call_trampoline);
+    case CallMode::Tail:
+        return LLInt::getCodeRef<JITStubRoutinePtrTag>(llint_virtual_tail_call_trampoline);
+    case CallMode::Construct:
+        return LLInt::getCodeRef<JITStubRoutinePtrTag>(llint_virtual_construct_trampoline);
+    }
+    return LLInt::getCodeRef<JITStubRoutinePtrTag>(llint_virtual_call_trampoline);
 }
 
 void VM::whenIdle(Function<void()>&& callback)
@@ -911,21 +1006,22 @@ void VM::whenIdle(Function<void()>&& callback)
         callback();
         return;
     }
-
-    entryScope->addDidPopListener(WTFMove(callback));
+    m_didPopListeners.append(WTF::move(callback));
+    requestEntryScopeService(EntryScopeService::PopListeners);
 }
 
 void VM::deleteAllLinkedCode(DeleteAllCodeEffort effort)
 {
-    whenIdle([=] () {
+    whenIdle([=, this] () {
         heap.deleteAllCodeBlocks(effort);
     });
 }
 
 void VM::deleteAllCode(DeleteAllCodeEffort effort)
 {
-    whenIdle([=] () {
+    whenIdle([=, this] () {
         m_codeCache->clear();
+        m_builtinExecutables->clear();
         m_regExpCache->deleteAllCode();
         heap.deleteAllCodeBlocks(effort);
         heap.deleteAllUnlinkedCodeBlocks(effort);
@@ -935,7 +1031,7 @@ void VM::deleteAllCode(DeleteAllCodeEffort effort)
 
 void VM::shrinkFootprintWhenIdle()
 {
-    whenIdle([=] () {
+    whenIdle([=, this] () {
         sanitizeStackForVM(*this);
         deleteAllCode(DeleteAllCodeIfNotCollecting);
         heap.collectNow(Synchronousness::Sync, CollectionScope::Full);
@@ -960,34 +1056,38 @@ void VM::clearSourceProviderCaches()
 
 bool VM::hasExceptionsAfterHandlingTraps()
 {
-    if (UNLIKELY(traps().needHandling(VMTraps::NonDebuggerAsyncEvents)))
-        m_traps.handleTraps(VMTraps::NonDebuggerAsyncEvents);
+    if (traps().needHandling(VMTraps::NonDebuggerAsyncEvents)) [[unlikely]]
+        traps().handleTraps(VMTraps::NonDebuggerAsyncEvents);
     return exception();
 }
 
-void VM::clearException()
+void VM::setHasTerminationRequest()
 {
-#if ENABLE(EXCEPTION_SCOPE_VERIFICATION)
-    m_needExceptionCheck = false;
-    m_nativeStackTraceOfLastThrow = nullptr;
-    m_throwingThread = nullptr;
-#endif
-    m_exception = nullptr;
-    traps().clearTrapBit(VMTraps::NeedExceptionHandling);
+    m_hasTerminationRequest = true;
+    requestEntryScopeService(ConcurrentEntryScopeService::ResetTerminationRequest);
 }
 
 void VM::setException(Exception* exception)
 {
+    ASSERT(!isTerminationException(exception) || hasTerminationRequest());
     m_exception = exception;
     m_lastException = exception;
     if (exception)
-        traps().setTrapBit(VMTraps::NeedExceptionHandling);
+        traps().fireTrap(VMTraps::NeedExceptionHandling);
 }
 
 void VM::throwTerminationException()
 {
-    ASSERT(!m_traps.isDeferringTermination());
+    ASSERT(hasTerminationRequest());
+    ASSERT(!traps().isDeferringTermination());
+    // Termination can occur while executing DFG/FTL code that has set
+    // doesGC expectations. Reset the expectation so that subsequent
+    // heap access (e.g. JSLock re-acquisition) doesn't hit a stale
+    // doesGC assertion.
+    setDoesGCExpectation(true, DoesGCCheck::Special::Termination);
     setException(terminationException());
+    if (m_executionForbiddenOnTermination)
+        setExecutionForbidden();
 }
 
 Exception* VM::throwException(JSGlobalObject* globalObject, Exception* exceptionToThrow)
@@ -1009,30 +1109,26 @@ Exception* VM::throwException(JSGlobalObject* globalObject, Exception* exception
     }
 
     CallFrame* throwOriginFrame = topJSCallFrame();
-    if (!throwOriginFrame)
-        throwOriginFrame = globalObject->deprecatedCallFrameForDebugger();
-
-    if (UNLIKELY(Options::breakOnThrow())) {
-        CodeBlock* codeBlock = throwOriginFrame ? throwOriginFrame->codeBlock() : nullptr;
+    if (Options::breakOnThrow()) [[unlikely]] {
+        CodeBlock* codeBlock = throwOriginFrame && !throwOriginFrame->isNativeCalleeFrame() ? throwOriginFrame->codeBlock() : nullptr;
         dataLog("Throwing exception in call frame ", RawPointer(throwOriginFrame), " for code block ", codeBlock, "\n");
-        CRASH();
+        WTFBreakpointTrap();
     }
 
-    interpreter->notifyDebuggerOfExceptionToBeThrown(*this, globalObject, throwOriginFrame, exceptionToThrow);
+    interpreter.notifyDebuggerOfExceptionToBeThrown(*this, globalObject, throwOriginFrame, exceptionToThrow);
 
     setException(exceptionToThrow);
 
 #if ENABLE(EXCEPTION_SCOPE_VERIFICATION)
     m_nativeStackTraceOfLastThrow = StackTrace::captureStackTrace(Options::unexpectedExceptionStackTraceLimit());
-    m_throwingThread = &Thread::current();
+    m_throwingThread = &Thread::currentSingleton();
 #endif
     return exceptionToThrow;
 }
 
 Exception* VM::throwException(JSGlobalObject* globalObject, JSValue thrownValue)
 {
-    VM& vm = *this;
-    Exception* exception = jsDynamicCast<Exception*>(vm, thrownValue);
+    Exception* exception = dynamicDowncast<Exception>(thrownValue);
     if (!exception)
         exception = Exception::create(*this, thrownValue);
 
@@ -1055,7 +1151,7 @@ size_t VM::updateSoftReservedZoneSize(size_t softReservedZoneSize)
     size_t oldSoftReservedZoneSize = m_currentSoftReservedZoneSize;
     m_currentSoftReservedZoneSize = softReservedZoneSize;
 #if ENABLE(C_LOOP)
-    interpreter->cloopStack().setSoftReservedZoneSize(softReservedZoneSize);
+    cloopStack().setSoftReservedZoneSize(softReservedZoneSize);
 #endif
 
     updateStackLimits();
@@ -1090,11 +1186,9 @@ static void preCommitStackMemory(void* stackLimit)
 
 void VM::updateStackLimits()
 {
-#if OS(WINDOWS)
-    void* lastSoftStackLimit = m_softStackLimit;
-#endif
+    void* lastSoftStackLimit = traps().softStackLimit();
 
-    const StackBounds& stack = Thread::current().stack();
+    const StackBounds& stack = Thread::currentSingleton().stack();
     size_t reservedZoneSize = Options::reservedZoneSize();
     // We should have already ensured that Options::reservedZoneSize() >= minimumReserveZoneSize at
     // options initialization time, and the option value should not have been changed thereafter.
@@ -1102,30 +1196,35 @@ void VM::updateStackLimits()
     // that the value is sane.
     RELEASE_ASSERT(reservedZoneSize >= minimumReservedZoneSize);
 
+    void* newSoftStackLimit = 0;
     if (m_stackPointerAtVMEntry) {
         char* startOfStack = reinterpret_cast<char*>(m_stackPointerAtVMEntry);
-        m_softStackLimit = stack.recursionLimit(startOfStack, Options::maxPerThreadStackUsage(), m_currentSoftReservedZoneSize);
+        newSoftStackLimit = stack.recursionLimit(startOfStack, Options::maxPerThreadStackUsage(), m_currentSoftReservedZoneSize);
         m_stackLimit = stack.recursionLimit(startOfStack, Options::maxPerThreadStackUsage(), reservedZoneSize);
     } else {
-        m_softStackLimit = stack.recursionLimit(m_currentSoftReservedZoneSize);
+        newSoftStackLimit = stack.recursionLimit(m_currentSoftReservedZoneSize);
         m_stackLimit = stack.recursionLimit(reservedZoneSize);
     }
 
+    if (lastSoftStackLimit != newSoftStackLimit) {
+        traps().setStackSoftLimit(newSoftStackLimit);
 #if OS(WINDOWS)
-    // We only need to precommit stack memory dictated by the VM::m_softStackLimit limit.
-    // This is because VM::m_softStackLimit applies to stack usage by LLINT asm or JIT
-    // generated code which can allocate stack space that the C++ compiler does not know
-    // about. As such, we have to precommit that stack memory manually.
-    //
-    // In contrast, we do not need to worry about VM::m_stackLimit because that limit is
-    // used exclusively by C++ code, and the C++ compiler will automatically commit the
-    // needed stack pages.
-    if (lastSoftStackLimit != m_softStackLimit)
-        preCommitStackMemory(m_softStackLimit);
+        // We only need to precommit stack memory dictated by the VM::softStackLimit() limit.
+        // This is because VM::softStackLimit() applies to stack usage by LLINT asm or JIT
+        // generated code which can allocate stack space that the C++ compiler does not know
+        // about. As such, we have to precommit that stack memory manually.
+        //
+        // In contrast, we do not need to worry about VM::m_stackLimit because that limit is
+        // used exclusively by C++ code, and the C++ compiler will automatically commit the
+        // needed stack pages.
+        preCommitStackMemory(newSoftStackLimit);
 #endif
+    }
 }
 
 #if ENABLE(DFG_JIT)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 void VM::gatherScratchBufferRoots(ConservativeRoots& conservativeRoots)
 {
     Locker locker { m_scratchBufferLock };
@@ -1145,7 +1244,9 @@ void VM::scanSideState(ConservativeRoots& roots) const
         roots.add(sideState->tmps, sideState->tmps + maxNumCheckpointTmps);
     }
 }
-#endif
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+#endif // ENABLE(DFG_JIT)
 
 void VM::pushCheckpointOSRSideState(std::unique_ptr<CheckpointOSRExitSideState>&& payload)
 {
@@ -1155,10 +1256,11 @@ void VM::pushCheckpointOSRSideState(std::unique_ptr<CheckpointOSRExitSideState>&
     for (const auto& sideState : m_checkpointSideState)
         ASSERT(sideState->associatedCallFrame != payload->associatedCallFrame);
 #endif
-    m_checkpointSideState.append(WTFMove(payload));
+    m_checkpointSideState.append(WTF::move(payload));
 
 #if ASSERT_ENABLED
-    auto bounds = StackBounds::currentThreadStackBounds();
+    const auto& bounds = Thread::currentSingleton().stack();
+    ASSERT(bounds.contains(currentStackPointer()));
     void* previousCallFrame = bounds.end();
     for (size_t i = m_checkpointSideState.size(); i--;) {
         auto* callFrame = m_checkpointSideState[i]->associatedCallFrame;
@@ -1181,7 +1283,7 @@ std::unique_ptr<CheckpointOSRExitSideState> VM::popCheckpointOSRSideState(CallFr
 void VM::popAllCheckpointOSRSideStateUntil(CallFrame* target)
 {
     ASSERT(currentThreadIsHoldingAPILock());
-    auto bounds = StackBounds::currentThreadStackBounds().withSoftOrigin(target);
+    auto bounds = Thread::currentSingleton().stack().withSoftOrigin(target);
     ASSERT(bounds.contains(target));
 
     // We have to worry about migrating from another thread since there may be no checkpoints in our thread but one in the other threads.
@@ -1190,58 +1292,36 @@ void VM::popAllCheckpointOSRSideStateUntil(CallFrame* target)
     m_checkpointSideState.shrinkToFit();
 }
 
-void logSanitizeStack(VM& vm)
+static void logSanitizeStack(VM& vm)
 {
-    if (Options::verboseSanitizeStack() && vm.topCallFrame) {
-        int dummy;
-        auto& stackBounds = Thread::current().stack();
-        dataLog(
-            "Sanitizing stack for VM = ", RawPointer(&vm), " with top call frame at ", RawPointer(vm.topCallFrame),
-            ", current stack pointer at ", RawPointer(&dummy), ", in ",
-            pointerDump(vm.topCallFrame->codeBlock()), ", last code origin = ",
-            vm.topCallFrame->codeOrigin(), ", last stack top = ", RawPointer(vm.lastStackTop()), ", in stack range [", RawPointer(stackBounds.origin()), ", ", RawPointer(stackBounds.end()), "]\n");
+    if (Options::verboseSanitizeStack()) [[unlikely]] {
+        auto& stackBounds = Thread::currentSingleton().stack();
+        dataLogLn("Sanitizing stack for VM = ", RawPointer(&vm), ", current stack pointer at ", RawPointer(currentStackPointer()), ", last stack top = ", RawPointer(vm.lastStackTop()), ", in stack range (", RawPointer(stackBounds.end()), ", ", RawPointer(stackBounds.origin()), "]");
     }
 }
 
-#if ENABLE(YARR_JIT_ALL_PARENS_EXPRESSIONS)
-char* VM::acquireRegExpPatternContexBuffer()
-{
-    m_regExpPatternContextLock.lock();
-    ASSERT(m_regExpPatternContextLock.isLocked());
-    if (!m_regExpPatternContexBuffer)
-        m_regExpPatternContexBuffer = makeUniqueArray<char>(VM::patternContextBufferSize);
-    return m_regExpPatternContexBuffer.get();
-}
-
-void VM::releaseRegExpPatternContexBuffer()
-{
-    ASSERT(m_regExpPatternContextLock.isLocked());
-
-    m_regExpPatternContextLock.unlock();
-}
-#endif
-
 #if ENABLE(REGEXP_TRACING)
+
 void VM::addRegExpToTrace(RegExp* regExp)
 {
     gcProtect(regExp);
-    m_rtTraceList->add(regExp);
+    m_rtTraceList.add(regExp);
 }
 
 void VM::dumpRegExpTrace()
 {
-    // The first RegExp object is ignored.  It is create by the RegExpPrototype ctor and not used.
-    RTTraceList::iterator iter = ++m_rtTraceList->begin();
+    if (m_rtTraceList.size() <= 1)
+        return;
+
+    // The first RegExp object is ignored. It is created by the RegExpPrototype ctor and not used.
+    RTTraceList::iterator iter = ++m_rtTraceList.begin();
     
-    if (iter != m_rtTraceList->end()) {
-        dataLogF("\nRegExp Tracing\n");
-        dataLogF("Regular Expression                              8 Bit          16 Bit        match()    Matches    Average\n");
-        dataLogF(" <Match only / Match>                         JIT Addr      JIT Address       calls      found   String len\n");
-        dataLogF("----------------------------------------+----------------+----------------+----------+----------+-----------\n");
-    
+    if (iter != m_rtTraceList.end()) {
+        RegExp::printTraceHeader();
+
         unsigned reCount = 0;
     
-        for (; iter != m_rtTraceList->end(); ++iter, ++reCount) {
+        for (; iter != m_rtTraceList.end(); ++iter, ++reCount) {
             (*iter)->printTraceData();
             gcUnprotect(*iter);
         }
@@ -1249,12 +1329,9 @@ void VM::dumpRegExpTrace()
         dataLogF("%d Regular Expressions\n", reCount);
     }
     
-    m_rtTraceList->clear();
+    m_rtTraceList.clear();
 }
-#else
-void VM::dumpRegExpTrace()
-{
-}
+
 #endif
 
 WatchpointSet* VM::ensureWatchpointSetForImpureProperty(UniquedStringImpl* propertyName)
@@ -1345,38 +1422,36 @@ void VM::dumpTypeProfilerData()
     typeProfiler()->dumpTypeProfilerData(*this);
 }
 
-void VM::queueMicrotask(JSGlobalObject& globalObject, Ref<Microtask>&& task)
-{
-    m_microtaskQueue.append(makeUnique<QueuedTask>(*this, &globalObject, WTFMove(task)));
-}
-
 void VM::callPromiseRejectionCallback(Strong<JSPromise>& promise)
 {
-    JSObject* callback = promise->globalObject()->unhandledRejectionCallback();
+    JSObject* callback = promise->realm()->unhandledRejectionCallback();
     if (!callback)
         return;
 
-    auto scope = DECLARE_CATCH_SCOPE(*this);
+    auto scope = DECLARE_TOP_EXCEPTION_SCOPE(*this);
 
-    auto callData = getCallData(*this, callback);
+    auto callData = JSC::getCallDataInline(callback);
     ASSERT(callData.type != CallData::Type::None);
 
     MarkedArgumentBuffer args;
     args.append(promise.get());
-    args.append(promise->result(*this));
-    call(promise->globalObject(), callback, callData, jsNull(), args);
+    args.append(promise->result());
+    ASSERT(!args.hasOverflowed());
+    call(promise->realm(), callback, callData, jsNull(), args);
     scope.clearException();
 }
 
 void VM::didExhaustMicrotaskQueue()
 {
     do {
-        auto unhandledRejections = WTFMove(m_aboutToBeNotifiedRejectedPromises);
+        auto unhandledRejections = WTF::move(m_aboutToBeNotifiedRejectedPromises);
         for (auto& promise : unhandledRejections) {
-            if (promise->isHandled(*this))
+            if (promise->isHandled())
                 continue;
 
             callPromiseRejectionCallback(promise);
+            if (hasPendingTerminationException()) [[unlikely]]
+                return;
         }
     } while (!m_aboutToBeNotifiedRejectedPromises.isEmpty());
 }
@@ -1388,39 +1463,51 @@ void VM::promiseRejected(JSPromise* promise)
 
 void VM::drainMicrotasks()
 {
-    if (UNLIKELY(executionForbidden()))
-        m_microtaskQueue.clear();
+    if (m_drainMicrotaskDelayScopeCount) [[unlikely]]
+        return;
+
+    if (executionForbidden()) [[unlikely]]
+        m_defaultMicrotaskQueue->clear();
     else {
-        do {
-            while (!m_microtaskQueue.isEmpty()) {
-                m_microtaskQueue.takeFirst()->run();
-                if (m_onEachMicrotaskTick)
-                    m_onEachMicrotaskTick(*this);
-            }
+        std::optional<VMEntryScope> entryScope;
+        if (!m_defaultMicrotaskQueue->isEmpty())
+            entryScope.emplace(*this, nullptr);
+        while (true) {
+            m_defaultMicrotaskQueue->performMicrotaskCheckpoint</* useCallOnEachMicrotask */ true>(*this,
+                [&](JSGlobalObject*, JSGlobalObject* nextGlobalObject) {
+                    if (entryScope && nextGlobalObject)
+                        entryScope->setGlobalObject(nextGlobalObject);
+                });
+            if (hasPendingTerminationException()) [[unlikely]]
+                return;
             didExhaustMicrotaskQueue();
-        } while (!m_microtaskQueue.isEmpty());
+            if (hasPendingTerminationException()) [[unlikely]]
+                return;
+            if (m_defaultMicrotaskQueue->isEmpty())
+                break;
+            if (!entryScope)
+                entryScope.emplace(*this, nullptr);
+        }
     }
     finalizeSynchronousJSExecution();
 }
 
-void QueuedTask::run()
-{
-    m_microtask->run(m_globalObject.get());
-}
-
 void sanitizeStackForVM(VM& vm)
 {
+    auto& thread = Thread::currentSingleton();
+    auto& stack = thread.stack();
+    if (!vm.currentThreadIsHoldingAPILock())
+        return; // vm.lastStackTop() may not be set up correctly if JSLock is not held.
+
     logSanitizeStack(vm);
-    if (vm.topCallFrame) {
-        auto& stackBounds = Thread::current().stack();
-        ASSERT(vm.currentThreadIsHoldingAPILock());
-        ASSERT_UNUSED(stackBounds, stackBounds.contains(vm.lastStackTop()));
-    }
+
+    RELEASE_ASSERT(stack.contains(vm.lastStackTop()), 0xaa10, vm.lastStackTop(), stack.origin(), stack.end());
 #if ENABLE(C_LOOP)
-    vm.interpreter->cloopStack().sanitizeStack();
+    vm.cloopStack().sanitizeStack();
 #else
     sanitizeStackForVMImpl(&vm);
 #endif
+    RELEASE_ASSERT(stack.contains(vm.lastStackTop()), 0xaa20, vm.lastStackTop(), stack.origin(), stack.end());
 }
 
 size_t VM::committedStackByteCount()
@@ -1428,30 +1515,13 @@ size_t VM::committedStackByteCount()
 #if !ENABLE(C_LOOP)
     // When using the C stack, we don't know how many stack pages are actually
     // committed. So, we use the current stack usage as an estimate.
-    uint8_t* current = bitwise_cast<uint8_t*>(currentStackPointer());
-    uint8_t* high = bitwise_cast<uint8_t*>(Thread::current().stack().origin());
+    uint8_t* current = std::bit_cast<uint8_t*>(currentStackPointer());
+    uint8_t* high = std::bit_cast<uint8_t*>(Thread::currentSingleton().stack().origin());
     return high - current;
 #else
     return CLoopStack::committedByteCount();
 #endif
 }
-
-#if ENABLE(C_LOOP)
-bool VM::ensureStackCapacityForCLoop(Register* newTopOfStack)
-{
-    return interpreter->cloopStack().ensureCapacityFor(newTopOfStack);
-}
-
-bool VM::isSafeToRecurseSoftCLoop() const
-{
-    return interpreter->cloopStack().isSafeToRecurse();
-}
-
-void* VM::currentCLoopStackPointer() const
-{
-    return interpreter->cloopStack().currentStackPointer();
-}
-#endif // ENABLE(C_LOOP)
 
 #if ENABLE(EXCEPTION_SCOPE_VERIFICATION)
 void VM::verifyExceptionCheckNeedIsSatisfied(unsigned recursionDepth, ExceptionEventLocation& location)
@@ -1459,7 +1529,7 @@ void VM::verifyExceptionCheckNeedIsSatisfied(unsigned recursionDepth, ExceptionE
     if (!Options::validateExceptionChecks())
         return;
 
-    if (UNLIKELY(m_needExceptionCheck)) {
+    if (m_needExceptionCheck) [[unlikely]] {
         auto throwDepth = m_simulatedThrowPointRecursionDepth;
         auto& throwLocation = m_simulatedThrowPointLocation;
 
@@ -1476,16 +1546,19 @@ void VM::verifyExceptionCheckNeedIsSatisfied(unsigned recursionDepth, ExceptionE
 
         if (Options::dumpSimulatedThrows()) {
             out.println("The simulated exception was thrown at:");
-            m_nativeStackTraceOfLastSimulatedThrow->dump(out, "    ");
-            out.println();
+            out.println(StackTracePrinter { *m_nativeStackTraceOfLastSimulatedThrow, "    " });
         }
         out.println("Unchecked exception detected at:");
-        currentTrace->dump(out, "    ");
-        out.println();
+        out.println(StackTracePrinter { *currentTrace, "    " });
 
         dataLog(out.toCString());
-        RELEASE_ASSERT(!m_needExceptionCheck);
+        RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE("exception check validation failed");
     }
+}
+
+void VM::clearNativeStackTraceOfLastThrow()
+{
+    m_nativeStackTraceOfLastThrow = nullptr;
 }
 #endif
 
@@ -1517,163 +1590,232 @@ void VM::clearScratchBuffers()
     Locker locker { m_scratchBufferLock };
     for (auto* scratchBuffer : m_scratchBuffers)
         scratchBuffer->setActiveLength(0);
+    clearEntryScopeService(EntryScopeService::ClearScratchBuffers);
 }
 
-void VM::ensureShadowChicken()
+bool VM::isScratchBuffer(void* ptr)
 {
-    if (m_shadowChicken)
-        return;
-    m_shadowChicken = makeUnique<ShadowChicken>();
-}
-
-#define DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(name, heapCellType, type) \
-    IsoSubspace* VM::name##Slow() \
-    { \
-        ASSERT(!m_##name); \
-        auto space = makeUnique<IsoSubspace> ISO_SUBSPACE_INIT(heap, heapCellType, type); \
-        WTF::storeStoreFence(); \
-        m_##name = WTFMove(space); \
-        return m_##name.get(); \
+    Locker locker { m_scratchBufferLock };
+    for (auto* scratchBuffer : m_scratchBuffers) {
+        if (scratchBuffer->dataBuffer() == ptr)
+            return true;
     }
-
-
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(apiGlobalObjectSpace, apiGlobalObjectHeapCellType.get(), JSAPIGlobalObject)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(apiValueWrapperSpace, cellHeapCellType.get(), JSAPIValueWrapper)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(arrayBufferSpace, cellHeapCellType.get(), JSArrayBuffer)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(arrayIteratorSpace, cellHeapCellType.get(), JSArrayIterator)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(asyncGeneratorSpace, cellHeapCellType.get(), JSAsyncGenerator)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(bigInt64ArraySpace, cellHeapCellType.get(), JSBigInt64Array)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(bigIntObjectSpace, cellHeapCellType.get(), BigIntObject)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(bigUint64ArraySpace, cellHeapCellType.get(), JSBigUint64Array)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(booleanObjectSpace, cellHeapCellType.get(), BooleanObject)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(boundFunctionSpace, cellHeapCellType.get(), JSBoundFunction) // Hash:0xd7916d41
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(callbackConstructorSpace, callbackConstructorHeapCellType.get(), JSCallbackConstructor)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(callbackGlobalObjectSpace, callbackGlobalObjectHeapCellType.get(), JSCallbackObject<JSGlobalObject>)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(callbackFunctionSpace, cellHeapCellType.get(), JSCallbackFunction) // Hash:0xe7648ebc
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(callbackObjectSpace, callbackObjectHeapCellType.get(), JSCallbackObject<JSNonFinalObject>)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(customGetterFunctionSpace, customGetterFunctionHeapCellType.get(), JSCustomGetterFunction)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(customSetterFunctionSpace, customSetterFunctionHeapCellType.get(), JSCustomSetterFunction)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(dataViewSpace, cellHeapCellType.get(), JSDataView)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(debuggerScopeSpace, cellHeapCellType.get(), DebuggerScope)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(errorInstanceSpace, errorInstanceHeapCellType.get(), ErrorInstance) // Hash:0x3f40d4a
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(float32ArraySpace, cellHeapCellType.get(), JSFloat32Array)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(float64ArraySpace, cellHeapCellType.get(), JSFloat64Array)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(functionRareDataSpace, destructibleCellHeapCellType.get(), FunctionRareData)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(generatorSpace, cellHeapCellType.get(), JSGenerator)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(globalObjectSpace, globalObjectHeapCellType.get(), JSGlobalObject)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(injectedScriptHostSpace, injectedScriptHostSpaceHeapCellType.get(), Inspector::JSInjectedScriptHost)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(int8ArraySpace, cellHeapCellType.get(), JSInt8Array)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(int16ArraySpace, cellHeapCellType.get(), JSInt16Array)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(int32ArraySpace, cellHeapCellType.get(), JSInt32Array)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(javaScriptCallFrameSpace, javaScriptCallFrameHeapCellType.get(), Inspector::JSJavaScriptCallFrame)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(jsModuleRecordSpace, jsModuleRecordHeapCellType.get(), JSModuleRecord)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(mapBucketSpace, cellHeapCellType.get(), JSMap::BucketType)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(mapIteratorSpace, cellHeapCellType.get(), JSMapIterator)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(mapSpace, cellHeapCellType.get(), JSMap)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(moduleNamespaceObjectSpace, moduleNamespaceObjectHeapCellType.get(), JSModuleNamespaceObject)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(nativeStdFunctionSpace, nativeStdFunctionHeapCellType.get(), JSNativeStdFunction) // Hash:0x70ed61e4
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(proxyObjectSpace, cellHeapCellType.get(), ProxyObject)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(proxyRevokeSpace, cellHeapCellType.get(), ProxyRevoke) // Hash:0xb506a939
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(scopedArgumentsTableSpace, destructibleCellHeapCellType.get(), ScopedArgumentsTable)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(scriptFetchParametersSpace, destructibleCellHeapCellType.get(), JSScriptFetchParameters)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(scriptFetcherSpace, destructibleCellHeapCellType.get(), JSScriptFetcher)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(setBucketSpace, cellHeapCellType.get(), JSSet::BucketType)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(setIteratorSpace, cellHeapCellType.get(), JSSetIterator)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(setSpace, cellHeapCellType.get(), JSSet)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(strictEvalActivationSpace, cellHeapCellType.get(), StrictEvalActivation)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(stringIteratorSpace, cellHeapCellType.get(), JSStringIterator)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(sourceCodeSpace, destructibleCellHeapCellType.get(), JSSourceCode)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(symbolSpace, destructibleCellHeapCellType.get(), Symbol)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(symbolObjectSpace, cellHeapCellType.get(), SymbolObject)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(templateObjectDescriptorSpace, destructibleCellHeapCellType.get(), JSTemplateObjectDescriptor)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(temporalCalendarSpace, cellHeapCellType.get(), TemporalCalendar)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(uint8ArraySpace, cellHeapCellType.get(), JSUint8Array)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(uint8ClampedArraySpace, cellHeapCellType.get(), JSUint8ClampedArray)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(uint16ArraySpace, cellHeapCellType.get(), JSUint16Array)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(uint32ArraySpace, cellHeapCellType.get(), JSUint32Array)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(unlinkedEvalCodeBlockSpace, destructibleCellHeapCellType.get(), UnlinkedEvalCodeBlock)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(unlinkedFunctionCodeBlockSpace, destructibleCellHeapCellType.get(), UnlinkedFunctionCodeBlock)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(unlinkedModuleProgramCodeBlockSpace, destructibleCellHeapCellType.get(), UnlinkedModuleProgramCodeBlock)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(unlinkedProgramCodeBlockSpace, destructibleCellHeapCellType.get(), UnlinkedProgramCodeBlock)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(weakMapSpace, weakMapHeapCellType.get(), JSWeakMap) // Hash:0x662b12a3
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(weakSetSpace, weakSetHeapCellType.get(), JSWeakSet) // Hash:0x4c781b30
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(weakObjectRefSpace, cellHeapCellType.get(), JSWeakObjectRef) // Hash:0x8ec68f1f
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(withScopeSpace, cellHeapCellType.get(), JSWithScope)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(finalizationRegistrySpace, finalizationRegistryCellType.get(), JSFinalizationRegistry)
-#if JSC_OBJC_API_ENABLED
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(apiWrapperObjectSpace, apiWrapperObjectHeapCellType.get(), JSCallbackObject<JSAPIWrapperObject>)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(objCCallbackFunctionSpace, objCCallbackFunctionHeapCellType.get(), ObjCCallbackFunction) // Hash:0x10f610b8
-#endif
-#ifdef JSC_GLIB_API_ENABLED
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(apiWrapperObjectSpace, apiWrapperObjectHeapCellType.get(), JSCallbackObject<JSAPIWrapperObject>)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(jscCallbackFunctionSpace, jscCallbackFunctionHeapCellType.get(), JSCCallbackFunction)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(callbackAPIWrapperGlobalObjectSpace, callbackAPIWrapperGlobalObjectHeapCellType.get(), JSCallbackObject<JSAPIWrapperGlobalObject>)
-#endif
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(intlCollatorSpace, intlCollatorHeapCellType.get(), IntlCollator)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(intlDateTimeFormatSpace, intlDateTimeFormatHeapCellType.get(), IntlDateTimeFormat)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(intlDisplayNamesSpace, intlDisplayNamesHeapCellType.get(), IntlDisplayNames)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(intlListFormatSpace, intlListFormatHeapCellType.get(), IntlListFormat)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(intlLocaleSpace, intlLocaleHeapCellType.get(), IntlLocale)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(intlNumberFormatSpace, intlNumberFormatHeapCellType.get(), IntlNumberFormat)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(intlPluralRulesSpace, intlPluralRulesHeapCellType.get(), IntlPluralRules)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(intlRelativeTimeFormatSpace, intlRelativeTimeFormatHeapCellType.get(), IntlRelativeTimeFormat)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(intlSegmentIteratorSpace, intlSegmentIteratorHeapCellType.get(), IntlSegmentIterator)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(intlSegmenterSpace, intlSegmenterHeapCellType.get(), IntlSegmenter)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(intlSegmentsSpace, intlSegmentsHeapCellType.get(), IntlSegments)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(temporalDurationSpace, cellHeapCellType.get(), TemporalDuration)
-#if ENABLE(WEBASSEMBLY)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(jsToWasmICCalleeSpace, cellHeapCellType.get(), JSToWasmICCallee)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(webAssemblyCodeBlockSpace, webAssemblyCodeBlockHeapCellType.get(), JSWebAssemblyCodeBlock) // Hash:0x9ad995cd
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(webAssemblyFunctionSpace, webAssemblyFunctionHeapCellType.get(), WebAssemblyFunction) // Hash:0x8b7c32db
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(webAssemblyGlobalSpace, webAssemblyGlobalHeapCellType.get(), JSWebAssemblyGlobal)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(webAssemblyInstanceSpace, webAssemblyInstanceHeapCellType.get(), JSWebAssemblyInstance)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(webAssemblyMemorySpace, webAssemblyMemoryHeapCellType.get(), JSWebAssemblyMemory)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(webAssemblyModuleSpace, webAssemblyModuleHeapCellType.get(), JSWebAssemblyModule)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(webAssemblyModuleRecordSpace, webAssemblyModuleRecordHeapCellType.get(), WebAssemblyModuleRecord)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(webAssemblyTableSpace, webAssemblyTableHeapCellType.get(), JSWebAssemblyTable)
-DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW(webAssemblyWrapperFunctionSpace, cellHeapCellType.get(), WebAssemblyWrapperFunction) // Hash:0xd4a5ff01
-#endif
-
-#undef DYNAMIC_ISO_SUBSPACE_DEFINE_MEMBER_SLOW
-
-#define DYNAMIC_SPACE_AND_SET_DEFINE_MEMBER_SLOW(name, heapCellType, type) \
-    IsoSubspace* VM::name##Slow() \
-    { \
-        ASSERT(!m_##name); \
-        auto space = makeUnique<SpaceAndSet> ISO_SUBSPACE_INIT(heap, heapCellType, type); \
-        WTF::storeStoreFence(); \
-        m_##name = WTFMove(space); \
-        return &m_##name->space; \
-    }
-
-DYNAMIC_SPACE_AND_SET_DEFINE_MEMBER_SLOW(evalExecutableSpace, destructibleCellHeapCellType.get(), EvalExecutable) // Hash:0x958e3e9d
-DYNAMIC_SPACE_AND_SET_DEFINE_MEMBER_SLOW(moduleProgramExecutableSpace, destructibleCellHeapCellType.get(), ModuleProgramExecutable) // Hash:0x6506fa3c
-
-#undef DYNAMIC_SPACE_AND_SET_DEFINE_MEMBER_SLOW
-
-JSCell* VM::sentinelSetBucketSlow()
-{
-    ASSERT(!m_sentinelSetBucket);
-    auto* sentinel = JSSet::BucketType::createSentinel(*this);
-    m_sentinelSetBucket.set(*this, sentinel);
-    return sentinel;
+    return false;
 }
 
-JSCell* VM::sentinelMapBucketSlow()
+Ref<Waiter> VM::syncWaiter()
 {
-    ASSERT(!m_sentinelMapBucket);
-    auto* sentinel = JSMap::BucketType::createSentinel(*this);
-    m_sentinelMapBucket.set(*this, sentinel);
-    return sentinel;
+    return m_syncWaiter;
+}
+
+JSValue VM::checkVMEntryPermission()
+{
+    if (Options::crashOnDisallowedVMEntry() || g_jscConfig.vmEntryDisallowed)
+        CRASH_WITH_EXTRA_SECURITY_IMPLICATION_AND_INFO(VMEntryDisallowed, "VM entry disallowed"_s);
+    return jsUndefined();
 }
 
 JSPropertyNameEnumerator* VM::emptyPropertyNameEnumeratorSlow()
 {
     ASSERT(!m_emptyPropertyNameEnumerator);
-    PropertyNameArray propertyNames(*this, PropertyNameMode::Strings, PrivateSymbolMode::Exclude);
-    auto* enumerator = JSPropertyNameEnumerator::create(*this, nullptr, 0, 0, WTFMove(propertyNames));
-    m_emptyPropertyNameEnumerator.set(*this, enumerator);
+    PropertyNameArrayBuilder propertyNames(*this, PropertyNameMode::Strings, PrivateSymbolMode::Exclude);
+    auto* enumerator = JSPropertyNameEnumerator::create(*this, nullptr, 0, 0, WTF::move(propertyNames));
+    m_emptyPropertyNameEnumerator.setWithoutWriteBarrier(enumerator);
     return enumerator;
+}
+
+NativeExecutable* VM::promiseResolvingFunctionResolveExecutableSlow()
+{
+    ASSERT(!m_promiseResolvingFunctionResolveExecutable);
+    auto* executable = getHostFunction(promiseResolvingFunctionResolve, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, emptyString());
+    m_promiseResolvingFunctionResolveExecutable.setWithoutWriteBarrier(executable);
+    return executable;
+}
+
+NativeExecutable* VM::promiseResolvingFunctionRejectExecutableSlow()
+{
+    ASSERT(!m_promiseResolvingFunctionRejectExecutable);
+    auto* executable = getHostFunction(promiseResolvingFunctionReject, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, emptyString());
+    m_promiseResolvingFunctionRejectExecutable.setWithoutWriteBarrier(executable);
+    return executable;
+}
+
+NativeExecutable* VM::promiseFirstResolvingFunctionResolveExecutableSlow()
+{
+    ASSERT(!m_promiseFirstResolvingFunctionResolveExecutable);
+    auto* executable = getHostFunction(promiseFirstResolvingFunctionResolve, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, emptyString());
+    m_promiseFirstResolvingFunctionResolveExecutable.setWithoutWriteBarrier(executable);
+    return executable;
+}
+
+NativeExecutable* VM::promiseFirstResolvingFunctionRejectExecutableSlow()
+{
+    ASSERT(!m_promiseFirstResolvingFunctionRejectExecutable);
+    auto* executable = getHostFunction(promiseFirstResolvingFunctionReject, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, emptyString());
+    m_promiseFirstResolvingFunctionRejectExecutable.setWithoutWriteBarrier(executable);
+    return executable;
+}
+
+NativeExecutable* VM::promiseResolvingFunctionResolveWithInternalMicrotaskExecutableSlow()
+{
+    ASSERT(!m_promiseResolvingFunctionResolveWithInternalMicrotaskExecutable);
+    auto* executable = getHostFunction(promiseResolvingFunctionResolveWithInternalMicrotask, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, emptyString());
+    m_promiseResolvingFunctionResolveWithInternalMicrotaskExecutable.setWithoutWriteBarrier(executable);
+    return executable;
+}
+
+NativeExecutable* VM::promiseResolvingFunctionRejectWithInternalMicrotaskExecutableSlow()
+{
+    ASSERT(!m_promiseResolvingFunctionRejectWithInternalMicrotaskExecutable);
+    auto* executable = getHostFunction(promiseResolvingFunctionRejectWithInternalMicrotask, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, emptyString());
+    m_promiseResolvingFunctionRejectWithInternalMicrotaskExecutable.setWithoutWriteBarrier(executable);
+    return executable;
+}
+
+NativeExecutable* VM::promiseCapabilityExecutorExecutableSlow()
+{
+    ASSERT(!m_promiseCapabilityExecutorExecutable);
+    auto* executable = getHostFunction(promiseCapabilityExecutor, ImplementationVisibility::Public, callHostFunctionAsConstructor, 2, emptyString());
+    m_promiseCapabilityExecutorExecutable.setWithoutWriteBarrier(executable);
+    return executable;
+}
+
+NativeExecutable* VM::promiseAllFulfillFunctionExecutableSlow()
+{
+    ASSERT(!m_promiseAllFulfillFunctionExecutable);
+    auto* executable = getHostFunction(promiseAllFulfillFunction, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, emptyString());
+    m_promiseAllFulfillFunctionExecutable.setWithoutWriteBarrier(executable);
+    return executable;
+}
+
+NativeExecutable* VM::promiseAllSlowFulfillFunctionExecutableSlow()
+{
+    ASSERT(!m_promiseAllSlowFulfillFunctionExecutable);
+    auto* executable = getHostFunction(promiseAllSlowFulfillFunction, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, emptyString());
+    m_promiseAllSlowFulfillFunctionExecutable.setWithoutWriteBarrier(executable);
+    return executable;
+}
+
+NativeExecutable* VM::promiseAllSettledFulfillFunctionExecutableSlow()
+{
+    ASSERT(!m_promiseAllSettledFulfillFunctionExecutable);
+    auto* executable = getHostFunction(promiseAllSettledFulfillFunction, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, emptyString());
+    m_promiseAllSettledFulfillFunctionExecutable.setWithoutWriteBarrier(executable);
+    return executable;
+}
+
+NativeExecutable* VM::promiseAllSettledRejectFunctionExecutableSlow()
+{
+    ASSERT(!m_promiseAllSettledRejectFunctionExecutable);
+    auto* executable = getHostFunction(promiseAllSettledRejectFunction, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, emptyString());
+    m_promiseAllSettledRejectFunctionExecutable.setWithoutWriteBarrier(executable);
+    return executable;
+}
+
+NativeExecutable* VM::promiseAllSettledSlowFulfillFunctionExecutableSlow()
+{
+    ASSERT(!m_promiseAllSettledSlowFulfillFunctionExecutable);
+    auto* executable = getHostFunction(promiseAllSettledSlowFulfillFunction, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, emptyString());
+    m_promiseAllSettledSlowFulfillFunctionExecutable.setWithoutWriteBarrier(executable);
+    return executable;
+}
+
+NativeExecutable* VM::promiseAllSettledSlowRejectFunctionExecutableSlow()
+{
+    ASSERT(!m_promiseAllSettledSlowRejectFunctionExecutable);
+    auto* executable = getHostFunction(promiseAllSettledSlowRejectFunction, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, emptyString());
+    m_promiseAllSettledSlowRejectFunctionExecutable.setWithoutWriteBarrier(executable);
+    return executable;
+}
+
+NativeExecutable* VM::promiseAnyRejectFunctionExecutableSlow()
+{
+    ASSERT(!m_promiseAnyRejectFunctionExecutable);
+    auto* executable = getHostFunction(promiseAnyRejectFunction, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, emptyString());
+    m_promiseAnyRejectFunctionExecutable.setWithoutWriteBarrier(executable);
+    return executable;
+}
+
+NativeExecutable* VM::promiseAnySlowRejectFunctionExecutableSlow()
+{
+    ASSERT(!m_promiseAnySlowRejectFunctionExecutable);
+    auto* executable = getHostFunction(promiseAnySlowRejectFunction, ImplementationVisibility::Public, callHostFunctionAsConstructor, 1, emptyString());
+    m_promiseAnySlowRejectFunctionExecutable.setWithoutWriteBarrier(executable);
+    return executable;
+}
+
+bool VM::hasLanguageChange()
+{
+    return m_intlCache->hasLanguageChange();
+}
+
+void VM::executeEntryScopeServicesOnEntry()
+{
+    if (hasEntryScopeServiceRequest(EntryScopeService::FirePrimitiveGigacageEnabled)) [[unlikely]] {
+        m_primitiveGigacageEnabled.fireAll(*this, "Primitive gigacage disabled asynchronously");
+        clearEntryScopeService(EntryScopeService::FirePrimitiveGigacageEnabled);
+    }
+
+    if (dateCache.hasTimeZoneChange()) [[unlikely]] {
+        intlCache().clearForTimeZoneChange();
+        dateCache.clearForTimeZoneChange();
+    }
+
+    if (intlCache().hasLanguageChange()) [[unlikely]]
+        intlCache().clearForLanguageChange();
+
+    RefPtr watchdog = this->watchdog();
+    if (watchdog) [[unlikely]]
+        watchdog->enteredVM();
+
+#if ENABLE(SAMPLING_PROFILER)
+    RefPtr samplingProfiler = this->samplingProfiler();
+    if (samplingProfiler) [[unlikely]]
+        samplingProfiler->noticeVMEntry();
+#endif
+
+    if (Options::useTracePoints()) [[unlikely]]
+        tracePoint(VMEntryScopeStart);
+
+    if (hasEntryScopeServiceRequest(ConcurrentEntryScopeService::NeedStopTheWorld)) [[unlikely]]
+        VMManager::singleton().notifyVMActivation(*this);
+}
+
+void VM::executeEntryScopeServicesOnExit()
+{
+    if (hasEntryScopeServiceRequest(ConcurrentEntryScopeService::NeedStopTheWorld)) [[unlikely]]
+        VMManager::singleton().notifyVMDeactivation(*this);
+
+    if (Options::useTracePoints()) [[unlikely]]
+        tracePoint(VMEntryScopeEnd);
+
+    RefPtr watchdog = this->watchdog();
+    if (watchdog) [[unlikely]]
+        watchdog->exitedVM();
+
+    if (hasEntryScopeServiceRequest(EntryScopeService::PopListeners)) {
+        auto listeners = WTF::move(m_didPopListeners);
+        for (auto& listener : listeners)
+            listener();
+        clearEntryScopeService(EntryScopeService::PopListeners);
+    }
+
+    // Normally, we want to clear the hasTerminationRequest flag here. However, if the
+    // VMTraps::NeedTermination bit is still set at this point, then it means that
+    // VMTraps::handleTraps() has not yet been called for this termination request. As a
+    // result, the TerminationException has not been thrown yet. Some client code relies
+    // on detecting the presence of the TerminationException in order to signal that a
+    // termination was requested. Hence, don't clear the hasTerminationRequest flag until
+    // VMTraps::handleTraps() has been called, and the TerminationException is thrown.
+    //
+    // Note: perhaps there's a better way for the client to know that a termination was
+    // requested (after all, the request came from the client). However, this is how the
+    // client code currently works. Changing that will take some significant effort to hunt
+    // down all the places in client code that currently rely on this behavior.
+    if (!traps().needHandling(VMTraps::NeedTermination))
+        clearHasTerminationRequest();
+
+    clearScratchBuffers();
 }
 
 JSGlobalObject* VM::deprecatedVMEntryGlobalObject(JSGlobalObject* globalObject) const
@@ -1688,26 +1830,26 @@ void VM::setCrashOnVMCreation(bool shouldCrash)
     vmCreationShouldCrash = shouldCrash;
 }
 
-void VM::addLoopHintExecutionCounter(const Instruction* instruction)
+void VM::addLoopHintExecutionCounter(const JSInstruction* instruction)
 {
     Locker locker { m_loopHintExecutionCountLock };
     auto addResult = m_loopHintExecutionCounts.add(instruction, std::pair<unsigned, std::unique_ptr<uintptr_t>>(0, nullptr));
     if (addResult.isNewEntry) {
         auto ptr = WTF::makeUniqueWithoutFastMallocCheck<uintptr_t>();
         *ptr = 0;
-        addResult.iterator->value.second = WTFMove(ptr);
+        addResult.iterator->value.second = WTF::move(ptr);
     }
     ++addResult.iterator->value.first;
 }
 
-uintptr_t* VM::getLoopHintExecutionCounter(const Instruction* instruction)
+uintptr_t* VM::getLoopHintExecutionCounter(const JSInstruction* instruction)
 {
     Locker locker { m_loopHintExecutionCountLock };
     auto iter = m_loopHintExecutionCounts.find(instruction);
     return iter->value.second.get();
 }
 
-void VM::removeLoopHintExecutionCounter(const Instruction* instruction)
+void VM::removeLoopHintExecutionCounter(const JSInstruction* instruction)
 {
     Locker locker { m_loopHintExecutionCountLock };
     auto iter = m_loopHintExecutionCounts.find(instruction);
@@ -1716,5 +1858,260 @@ void VM::removeLoopHintExecutionCounter(const Instruction* instruction)
     if (!iter->value.first)
         m_loopHintExecutionCounts.remove(iter);
 }
+
+void VM::beginMarking()
+{
+    m_microtaskQueues.forEach([&](MicrotaskQueue* microtaskQueue) {
+        microtaskQueue->beginMarking();
+    });
+}
+
+void VM::finalizeUnconditionally()
+{
+    m_syncResumeCallCache->finalizeUnconditionally(*this);
+}
+
+template<typename Visitor>
+void VM::visitAggregateImpl(Visitor& visitor)
+{
+    m_microtaskQueues.forEach([&](MicrotaskQueue* microtaskQueue) {
+        microtaskQueue->visitAggregate(visitor);
+    });
+    numericStrings.visitAggregate(visitor);
+    m_builtinExecutables->visitAggregate(visitor);
+    m_regExpCache->visitAggregate(visitor);
+
+    if (heap.collectionScope() != CollectionScope::Full)
+        stringReplaceCache.visitAggregate(visitor);
+
+    visitor.append(structureStructure);
+    visitor.append(structureRareDataStructure);
+    visitor.append(stringStructure);
+    visitor.append(propertyNameEnumeratorStructure);
+    visitor.append(getterSetterStructure);
+    visitor.append(customGetterSetterStructure);
+    visitor.append(domAttributeGetterSetterStructure);
+    visitor.append(scopedArgumentsTableStructure);
+    visitor.append(apiWrapperStructure);
+    visitor.append(nativeExecutableStructure);
+    visitor.append(evalExecutableStructure);
+    visitor.append(programExecutableStructure);
+    visitor.append(functionExecutableStructure);
+#if ENABLE(WEBASSEMBLY)
+    visitor.append(pinballCompletionStructure);
+    visitor.append(webAssemblyCalleeGroupStructure);
+    visitor.append(webAssemblyStreamingContextStructure);
+#endif
+    visitor.append(moduleProgramExecutableStructure);
+    visitor.append(slimPromiseReactionStructure);
+    visitor.append(fullPromiseReactionStructure);
+    visitor.append(jsMicrotaskDispatcherStructure);
+    visitor.append(moduleLoaderStructure);
+    visitor.append(moduleRegistryEntryStructure);
+    visitor.append(moduleLoadingContextStructure);
+    visitor.append(moduleLoaderPayloadStructure);
+    visitor.append(moduleGraphLoadingStateStructure);
+    visitor.append(promiseCombinatorsContextStructure);
+    visitor.append(promiseCombinatorsGlobalContextStructure);
+    visitor.append(regExpStructure);
+    visitor.append(symbolStructure);
+    visitor.append(symbolTableStructure);
+    for (auto& structure : cellButterflyStructures)
+        visitor.append(structure);
+    visitor.append(cellButterflyOnlyAtomStringsStructure);
+    visitor.append(sourceCodeStructure);
+    visitor.append(structureChainStructure);
+    visitor.append(sparseArrayValueMapStructure);
+    visitor.append(templateObjectDescriptorStructure);
+    visitor.append(unlinkedFunctionExecutableStructure);
+    visitor.append(unlinkedProgramCodeBlockStructure);
+    visitor.append(unlinkedEvalCodeBlockStructure);
+    visitor.append(unlinkedFunctionCodeBlockStructure);
+    visitor.append(unlinkedModuleProgramCodeBlockStructure);
+    visitor.append(propertyTableStructure);
+    visitor.append(functionRareDataStructure);
+    visitor.append(exceptionStructure);
+    visitor.append(programCodeBlockStructure);
+    visitor.append(moduleProgramCodeBlockStructure);
+    visitor.append(evalCodeBlockStructure);
+    visitor.append(functionCodeBlockStructure);
+    visitor.append(hashMapBucketSetStructure);
+    visitor.append(hashMapBucketMapStructure);
+    visitor.append(bigIntStructure);
+
+    visitor.append(m_emptyPropertyNameEnumerator);
+    visitor.append(m_orderedHashTableDeletedValue);
+    visitor.append(m_orderedHashTableSentinel);
+    visitor.append(m_sentinelStructure);
+    visitor.append(m_fastArrayValuesSentinel);
+    visitor.append(m_fastArrayKeysSentinel);
+    visitor.append(m_fastArrayEntriesSentinel);
+    visitor.append(m_fastMapKeysSentinel);
+    visitor.append(m_fastMapValuesSentinel);
+    visitor.append(m_fastMapEntriesSentinel);
+    visitor.append(m_fastSetValuesSentinel);
+    visitor.append(m_fastSetEntriesSentinel);
+    visitor.append(m_fastStringValuesSentinel);
+    visitor.append(m_fastAsyncGeneratorSentinel);
+    visitor.append(m_cachedSortScratch);
+    visitor.append(m_sortScratchSentinel);
+    visitor.append(m_fastCanConstructBoundExecutable);
+    visitor.append(m_slowCanConstructBoundExecutable);
+    visitor.append(lastCachedString);
+    visitor.append(heapBigIntConstantOne);
+    visitor.append(heapBigIntConstantZero);
+    visitor.append(m_cachedBigIntDivisor);
+    visitor.append(m_nextCachedBigIntDivisor);
+
+    visitor.append(m_promiseResolvingFunctionResolveExecutable);
+    visitor.append(m_promiseResolvingFunctionRejectExecutable);
+    visitor.append(m_promiseFirstResolvingFunctionResolveExecutable);
+    visitor.append(m_promiseFirstResolvingFunctionRejectExecutable);
+    visitor.append(m_promiseResolvingFunctionResolveWithInternalMicrotaskExecutable);
+    visitor.append(m_promiseResolvingFunctionRejectWithInternalMicrotaskExecutable);
+    visitor.append(m_promiseCapabilityExecutorExecutable);
+    visitor.append(m_promiseAllFulfillFunctionExecutable);
+    visitor.append(m_promiseAllSlowFulfillFunctionExecutable);
+    visitor.append(m_promiseAllSettledFulfillFunctionExecutable);
+    visitor.append(m_promiseAllSettledRejectFunctionExecutable);
+    visitor.append(m_promiseAllSettledSlowFulfillFunctionExecutable);
+    visitor.append(m_promiseAllSettledSlowRejectFunctionExecutable);
+    visitor.append(m_promiseAnyRejectFunctionExecutable);
+    visitor.append(m_promiseAnySlowRejectFunctionExecutable);
+}
+DEFINE_VISIT_AGGREGATE(VM);
+
+void VM::addDebugger(Debugger& debugger)
+{
+    m_debuggers.append(&debugger);
+}
+
+void VM::removeDebugger(Debugger& debugger)
+{
+    m_debuggers.remove(&debugger);
+}
+
+void VM::performOpportunisticallyScheduledTasks(ApproximateTime deadline, OptionSet<SchedulerOptions> options)
+{
+    constexpr bool verbose = false;
+
+    dataLogLnIf(verbose, "[OPPORTUNISTIC TASK] QUERY", " signpost:(", JSC::activeJSGlobalObjectSignpostIntervalCount.load(), ")");
+    JSLockHolder locker { *this };
+    if (deferredWorkTimer->hasImminentlyScheduledWork()) {
+        dataLogLnIf(verbose, "[OPPORTUNISTIC TASK] GaveUp: DeferredWorkTimer hasImminentlyScheduledWork signpost:(", JSC::activeJSGlobalObjectSignpostIntervalCount.load(), ")");
+        return;
+    }
+
+    SetForScope insideOpportunisticTaskScope { heap.m_isInOpportunisticTask, true };
+    [&] {
+        auto secondsSinceEpoch = ApproximateTime::now().secondsSinceEpoch();
+        auto remainingTime = deadline.secondsSinceEpoch() - secondsSinceEpoch;
+
+        if (options.contains(SchedulerOptions::HasImminentlyScheduledWork)) {
+            dataLogLnIf(verbose, "[OPPORTUNISTIC TASK] GaveUp: HasImminentlyScheduledWork ", remainingTime, " signpost:(", JSC::activeJSGlobalObjectSignpostIntervalCount.load(), ")");
+            return;
+        }
+
+        static constexpr auto minimumDelayBeforeOpportunisticFullGC = 30_ms;
+        static constexpr auto minimumDelayBeforeOpportunisticEdenGC = 10_ms;
+        static constexpr auto extraDurationToAvoidExceedingDeadlineDuringFullGC = 2_ms;
+        static constexpr auto extraDurationToAvoidExceedingDeadlineDuringEdenGC = 1_ms;
+
+        auto timeSinceFinishingLastFullGC = secondsSinceEpoch - heap.m_lastFullGCEndTime.secondsSinceEpoch();
+        if (timeSinceFinishingLastFullGC > minimumDelayBeforeOpportunisticFullGC && heap.m_shouldDoOpportunisticFullCollection && heap.m_totalBytesVisitedAfterLastFullCollect) {
+            auto estimatedGCDuration = (heap.lastFullGCLength() * heap.m_totalBytesVisited) / heap.m_totalBytesVisitedAfterLastFullCollect;
+            if (estimatedGCDuration + extraDurationToAvoidExceedingDeadlineDuringFullGC < remainingTime) {
+                dataLogLnIf(verbose, "[OPPORTUNISTIC TASK] FULL", " signpost:(", JSC::activeJSGlobalObjectSignpostIntervalCount.load(), ")");
+                heap.collectSync(CollectionScope::Full);
+                return;
+            }
+        }
+
+        auto timeSinceLastGC = secondsSinceEpoch - std::max(heap.m_lastGCEndTime, heap.m_currentGCStartTime).secondsSinceEpoch();
+        if (timeSinceLastGC > minimumDelayBeforeOpportunisticEdenGC && heap.totalBytesAllocatedThisCycle() && heap.m_bytesAllocatedBeforeLastEdenCollect) {
+            auto estimatedGCDuration = (heap.lastEdenGCLength() * heap.totalBytesAllocatedThisCycle()) / heap.m_bytesAllocatedBeforeLastEdenCollect;
+            if (estimatedGCDuration + extraDurationToAvoidExceedingDeadlineDuringEdenGC < remainingTime) {
+                dataLogLnIf(verbose, "[OPPORTUNISTIC TASK] EDEN: ", timeSinceFinishingLastFullGC, " ", timeSinceLastGC, " ", heap.m_shouldDoOpportunisticFullCollection, " ", heap.m_totalBytesVisitedAfterLastFullCollect, " ", heap.totalBytesAllocatedThisCycle(), " ", heap.m_bytesAllocatedBeforeLastEdenCollect, " ", heap.m_lastGCEndTime, " ", heap.m_currentGCStartTime, " ", (heap.lastFullGCLength() * heap.m_totalBytesVisited) / heap.m_totalBytesVisitedAfterLastFullCollect, " ", remainingTime, " ", (heap.lastEdenGCLength() * heap.totalBytesAllocatedThisCycle()) / heap.m_bytesAllocatedBeforeLastEdenCollect, " signpost:(", JSC::activeJSGlobalObjectSignpostIntervalCount.load(), ")");
+                heap.collectSync(CollectionScope::Eden);
+                return;
+            } else if (estimatedGCDuration < 2 * remainingTime) {
+                if (heap.totalBytesAllocatedThisCycle() * 2 > heap.m_minBytesPerCycle) {
+                    heap.collectAsync(CollectionScope::Eden);
+                    return;
+                }
+            }
+        }
+
+        dataLogLnIf(verbose, "[OPPORTUNISTIC TASK] GaveUp: nothing met. ", timeSinceFinishingLastFullGC, " ", timeSinceLastGC, " ", heap.m_shouldDoOpportunisticFullCollection, " ", heap.m_totalBytesVisitedAfterLastFullCollect, " ", heap.totalBytesAllocatedThisCycle(), " ", heap.m_bytesAllocatedBeforeLastEdenCollect, " ", heap.m_lastGCEndTime, " ", heap.m_currentGCStartTime, " ", (heap.lastFullGCLength() * heap.m_totalBytesVisited) / heap.m_totalBytesVisitedAfterLastFullCollect, " ", remainingTime, " ", (heap.lastEdenGCLength() * heap.totalBytesAllocatedThisCycle()) / heap.m_bytesAllocatedBeforeLastEdenCollect, " signpost:(", JSC::activeJSGlobalObjectSignpostIntervalCount.load(), ")");
+    }();
+
+    heap.sweeper().doWorkUntil(*this, deadline);
+}
+
+void VM::invalidateStructureChainIntegrity(StructureChainIntegrityEvent)
+{
+    if (auto* megamorphicCache = this->megamorphicCache())
+        megamorphicCache->bumpEpoch();
+}
+
+VM::DrainMicrotaskDelayScope::DrainMicrotaskDelayScope(VM& vm)
+    : m_vm(&vm)
+{
+    increment();
+}
+
+VM::DrainMicrotaskDelayScope::~DrainMicrotaskDelayScope()
+{
+    decrement();
+}
+
+VM::DrainMicrotaskDelayScope::DrainMicrotaskDelayScope(const VM::DrainMicrotaskDelayScope& other)
+    : m_vm(other.m_vm)
+{
+    increment();
+}
+
+VM::DrainMicrotaskDelayScope& VM::DrainMicrotaskDelayScope::operator=(const VM::DrainMicrotaskDelayScope& other)
+{
+    if (this == &other)
+        return *this;
+    decrement();
+    m_vm = other.m_vm;
+    increment();
+    return *this;
+}
+
+VM::DrainMicrotaskDelayScope& VM::DrainMicrotaskDelayScope::operator=(VM::DrainMicrotaskDelayScope&& other)
+{
+    decrement();
+    m_vm = std::exchange(other.m_vm, nullptr);
+    increment();
+    return *this;
+}
+
+void VM::DrainMicrotaskDelayScope::increment()
+{
+    if (m_vm)
+        ++m_vm->m_drainMicrotaskDelayScopeCount;
+}
+
+void VM::DrainMicrotaskDelayScope::decrement()
+{
+    if (!m_vm)
+        return;
+    ASSERT(m_vm->m_drainMicrotaskDelayScopeCount);
+    if (!--m_vm->m_drainMicrotaskDelayScopeCount) {
+        JSLockHolder locker(*m_vm);
+        m_vm->drainMicrotasks();
+    }
+}
+
+#if ENABLE(WEBASSEMBLY_DEBUGGER)
+Wasm::DebugState* VM::debugState()
+{
+    RELEASE_ASSERT(!!m_debugState);
+    return m_debugState.get();
+}
+#endif
 
 } // namespace JSC

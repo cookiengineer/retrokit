@@ -25,17 +25,21 @@
 
 #pragma once
 
-#include "ArgumentCoders.h"
 #include "IdentifierTypes.h"
 #include <WebCore/Color.h>
+#include <WebCore/ElementContext.h>
 #include <WebCore/FontAttributes.h>
+#include <WebCore/FrameIdentifier.h>
 #include <WebCore/IntRect.h>
-#include <WebCore/WritingDirection.h>
-#include <wtf/text/WTFString.h>
-
-#if PLATFORM(IOS_FAMILY)
+#include <WebCore/PlatformLayerIdentifier.h>
+#include <WebCore/ScrollTypes.h>
 #include <WebCore/SelectionGeometry.h>
-#endif
+#include <WebCore/SelectionType.h>
+#include <WebCore/WritingDirection.h>
+#include <optional>
+#include <wtf/Markable.h>
+#include <wtf/Vector.h>
+#include <wtf/text/WTFString.h>
 
 #if USE(DICTATION_ALTERNATIVES)
 #include <WebCore/DictationContext.h>
@@ -47,87 +51,85 @@ class TextStream;
 
 namespace WebKit {
 
-enum TypingAttributes {
-    AttributeNone = 0,
-    AttributeBold = 1,
-    AttributeItalics = 2,
-    AttributeUnderline = 4,
-    AttributeStrikeThrough = 8
+enum class TypingAttribute : uint8_t {
+    Bold          = 1 << 0,
+    Italics       = 1 << 1,
+    Underline     = 1 << 2,
+    StrikeThrough = 1 << 3,
 };
 
-enum TextAlignment {
-    NoAlignment = 0,
-    LeftAlignment = 1,
-    RightAlignment = 2,
-    CenterAlignment = 3,
-    JustifiedAlignment = 4,
+enum class TextAlignment : uint8_t {
+    Natural,
+    Left,
+    Right,
+    Center,
+    Justified,
 };
 
-enum ListType {
-    NoList = 0,
+enum class ListType : uint8_t {
+    None,
     OrderedList,
     UnorderedList
 };
 
 struct EditorState {
+    void move(float x, float y);
+
     EditorStateIdentifier identifier;
-    String originIdentifierForPasteboard;
+    WebCore::SelectionType selectionType { WebCore::SelectionType::None };
     bool shouldIgnoreSelectionChanges { false };
-    bool selectionIsNone { true }; // This will be false when there is a caret selection.
-    bool selectionIsRange { false };
     bool selectionIsRangeInsideImageOverlay { false };
+    bool selectionIsRangeInAutoFilledAndViewableField { false };
     bool isContentEditable { false };
     bool isContentRichlyEditable { false };
     bool isInPasswordField { false };
-    bool isInPlugin { false };
     bool hasComposition { false };
     bool triggeredByAccessibilitySelectionChange { false };
-    bool isMissingPostLayoutData { true };
+    bool isInPlugin { false };
+#if PLATFORM(MAC)
+    bool canEnableAutomaticSpellingCorrection { true };
+    bool inputMethodUsesCorrectKeyEventOrder { false };
+    bool inputMethodMustUseCompositionEvents { false };
+#endif
 
     struct PostLayoutData {
-        uint32_t typingAttributes { AttributeNone };
-#if PLATFORM(IOS_FAMILY) || PLATFORM(GTK) || PLATFORM(WPE)
-        WebCore::IntRect caretRectAtStart;
-#endif
+        OptionSet<TypingAttribute> typingAttributes;
 #if PLATFORM(COCOA)
         uint64_t selectedTextLength { 0 };
-        uint32_t textAlignment { NoAlignment };
-        WebCore::Color textColor { WebCore::Color::black };
-        uint32_t enclosingListType { NoList };
+        TextAlignment textAlignment { TextAlignment::Natural };
+        WebCore::Color textColor { WebCore::Color::black }; // FIXME: Maybe this should be on VisualData?
+        ListType enclosingListType { ListType::None };
         WebCore::WritingDirection baseWritingDirection { WebCore::WritingDirection::Natural };
+        bool selectionIsTransparentOrFullyClipped { false };
+        bool canEnableWritingSuggestions { false };
+        bool insideFixedPosition { false };
 #endif
 #if PLATFORM(IOS_FAMILY)
-        WebCore::IntRect selectionClipRect;
-        WebCore::IntRect caretRectAtEnd;
-        Vector<WebCore::SelectionGeometry> selectionGeometries;
-        Vector<WebCore::SelectionGeometry> markedTextRects;
         String markedText;
-        WebCore::IntRect markedTextCaretRectAtStart;
-        WebCore::IntRect markedTextCaretRectAtEnd;
         String wordAtSelection;
-        UChar32 characterAfterSelection { 0 };
-        UChar32 characterBeforeSelection { 0 };
-        UChar32 twoCharacterBeforeSelection { 0 };
+        char32_t characterAfterSelection { 0 };
+        char32_t characterBeforeSelection { 0 };
+        char32_t twoCharacterBeforeSelection { 0 };
 #if USE(DICTATION_ALTERNATIVES)
         Vector<WebCore::DictationContext> dictationContextsForSelection;
 #endif
         bool isReplaceAllowed { false };
         bool hasContent { false };
         bool isStableStateUpdate { false };
-        bool insideFixedPosition { false };
         bool hasPlainText { false };
-        bool editableRootIsTransparentOrFullyClipped { false };
-        WebCore::Color caretColor;
+        WebCore::Color caretColor; // FIXME: Maybe this should be on VisualData?
+        bool hasCaretColorAuto { false };
         bool atStartOfSentence { false };
         bool selectionStartIsAtParagraphBoundary { false };
         bool selectionEndIsAtParagraphBoundary { false };
-#endif
+        bool hasGrammarDocumentMarkers { false };
+        std::optional<WebCore::ElementContext> selectedEditableImage;
+#endif // PLATFORM(IOS_FAMILY)
 #if PLATFORM(MAC)
-        WebCore::IntRect selectionBoundingRect;
+        WebCore::IntRect selectionBoundingRect; // FIXME: Maybe this should be on VisualData?
         uint64_t candidateRequestStartPosition { 0 };
         String paragraphContextForCandidateRequest;
         String stringForCandidateRequest;
-        bool canEnableAutomaticSpellingCorrection { true };
 #endif
 #if PLATFORM(GTK) || PLATFORM(WPE)
         String surroundingContext;
@@ -135,37 +137,55 @@ struct EditorState {
         uint64_t surroundingContextSelectionPosition { 0 };
 #endif
 
-        std::optional<WebCore::FontAttributes> fontAttributes;
-
         bool canCut { false };
         bool canCopy { false };
         bool canPaste { false };
-
-        void encode(IPC::Encoder&) const;
-        static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, PostLayoutData&);
     };
 
-    const PostLayoutData& postLayoutData() const;
-    PostLayoutData& postLayoutData();
+    bool NODELETE isEditableOrRanged() const;
+    bool hasPostLayoutData() const { return !!postLayoutData; }
 
-    void encode(IPC::Encoder&) const;
-    static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, EditorState&);
+    // Visual data is only updated in sync with rendering updates.
+    struct VisualData {
+        // Local root frame the rects below are relative to, so the UIProcess can map them to
+        // main-frame coordinates when the selection is in a cross-origin subframe.
+        Markable<WebCore::FrameIdentifier> rootFrameID;
+#if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
+        WebCore::IntRect caretRectAtStart;
+#endif
+#if PLATFORM(COCOA)
+        Vector<WebCore::SelectionGeometry> selectionGeometries;
+        Vector<WebCore::PlatformLayerIdentifier> intersectingLayerIDs;
+        WebCore::IntRect caretRectAtEnd;
+#endif
+#if PLATFORM(IOS_FAMILY)
+        WebCore::IntRect selectionClipRect;
+        WebCore::IntRect editableRootBounds;
+        Vector<WebCore::SelectionGeometry> markedTextRects;
+        WebCore::IntRect markedTextCaretRectAtStart;
+        WebCore::IntRect markedTextCaretRectAtEnd;
+        std::optional<WebCore::PlatformLayerIdentifier> enclosingLayerID;
+        std::optional<WebCore::ScrollingNodeID> enclosingScrollingNodeID;
+        std::optional<WebCore::ScrollingNodeID> scrollingNodeIDAtStart;
+        std::optional<WebCore::ScrollingNodeID> scrollingNodeIDAtEnd;
+        WebCore::ScrollOffset enclosingScrollOffset;
+        bool enclosingLayerUsesContentsLayer { false };
+        bool needsHideSelectionDuringOverflowScrollQuirk { false };
+#endif // PLATFORM(IOS_FAMILY)
+    };
+
+    bool hasVisualData() const { return !!visualData; }
+
+    bool hasPostLayoutAndVisualData() const { return hasPostLayoutData() && hasVisualData(); }
+
+    std::optional<PostLayoutData> postLayoutData;
+    std::optional<VisualData> visualData;
+
+    void clipOwnedRectExtentsToNumericLimits();
 
 private:
-    PostLayoutData m_postLayoutData;
+    friend TextStream& operator<<(TextStream&, const EditorState&);
 };
-
-inline auto EditorState::postLayoutData() -> PostLayoutData&
-{
-    ASSERT_WITH_MESSAGE(!isMissingPostLayoutData, "Attempt to access post layout data before receiving it");
-    return m_postLayoutData;
-}
-
-inline auto EditorState::postLayoutData() const -> const PostLayoutData&
-{
-    ASSERT_WITH_MESSAGE(!isMissingPostLayoutData, "Attempt to access post layout data before receiving it");
-    return m_postLayoutData;
-}
 
 WTF::TextStream& operator<<(WTF::TextStream&, const EditorState&);
 

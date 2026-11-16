@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003 Apple Inc.
+ * Copyright (C) 2003 Apple Inc. All rights reserved.
  *
  * Portions are Copyright (C) 1998 Netscape Communications Corporation.
  *
@@ -43,22 +43,26 @@
 
 #pragma once
 
-#include "Length.h"
 #include "RenderStyleConstants.h"
 #include "Timer.h"
+#include <wtf/CheckedRef.h>
+#include <wtf/InlineWeakRef.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class RenderLayer;
 
 // This class handles the auto-scrolling for <marquee>
-class RenderMarquee final {
-    WTF_MAKE_NONCOPYABLE(RenderMarquee); WTF_MAKE_FAST_ALLOCATED;
+class RenderMarquee final : public CanMakeCheckedPtr<RenderMarquee> {
+    WTF_MAKE_TZONE_ALLOCATED(RenderMarquee);
+    WTF_MAKE_NONCOPYABLE(RenderMarquee);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderMarquee);
 public:
     explicit RenderMarquee(RenderLayer*);
     ~RenderMarquee();
 
-    bool isHorizontal() const;
+    bool NODELETE isHorizontal() const;
 
     void start();
     void suspend();
@@ -68,11 +72,10 @@ public:
     void updateMarqueePosition();
 
 private:
-
     int speed() const { return m_speed; }
     int marqueeSpeed() const;
 
-    MarqueeDirection direction() const;
+    MarqueeDirection NODELETE direction() const;
 
     int computePosition(MarqueeDirection, bool stopAtClientEdge);
 
@@ -80,14 +83,15 @@ private:
 
     void timerFired();
 
-    RenderLayer* m_layer;
+    RenderLayer& layer() { return m_layer.get(); }
+
+    InlineWeakRef<RenderLayer> m_layer;
     Timer m_timer;
     int m_currentLoop { 0 };
     int m_totalLoops { 0 };
     int m_start { 0 };
     int m_end { 0 };
     int m_speed { 0 };
-    Length m_height;
     MarqueeDirection m_direction { MarqueeDirection::Auto };
     bool m_reset { false };
     bool m_suspended { false };

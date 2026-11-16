@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,20 +26,19 @@
 #include "config.h"
 #include "CommonCryptoUtilities.h"
 
-#if ENABLE(WEB_CRYPTO)
-
 namespace WebCore {
 
 bool getCommonCryptoDigestAlgorithm(CryptoAlgorithmIdentifier hashFunction, CCDigestAlgorithm& algorithm)
 {
     switch (hashFunction) {
     case CryptoAlgorithmIdentifier::SHA_1:
-        ALLOW_DEPRECATED_DECLARATIONS_BEGIN
+ALLOW_DEPRECATED_DECLARATIONS_BEGIN
         algorithm = kCCDigestSHA1;
-        ALLOW_DEPRECATED_DECLARATIONS_END
+ALLOW_DEPRECATED_DECLARATIONS_END
         return true;
-    case CryptoAlgorithmIdentifier::SHA_224:
-        algorithm = kCCDigestSHA224;
+    case CryptoAlgorithmIdentifier::DEPRECATED_SHA_224:
+        RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE(sha224DeprecationMessage);
+        algorithm = kCCDigestSHA256;
         return true;
     case CryptoAlgorithmIdentifier::SHA_256:
         algorithm = kCCDigestSHA256;
@@ -56,5 +55,3 @@ bool getCommonCryptoDigestAlgorithm(CryptoAlgorithmIdentifier hashFunction, CCDi
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(WEB_CRYPTO)

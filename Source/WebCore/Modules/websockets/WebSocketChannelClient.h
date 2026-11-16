@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 Google Inc.  All rights reserved.
+ * Copyright (C) 2011 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -31,17 +31,17 @@
 #pragma once
 
 #include <wtf/Forward.h>
-#include <wtf/WeakPtr.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 
 namespace WebCore {
 
-class WebSocketChannelClient : public CanMakeWeakPtr<WebSocketChannelClient> {
+class WebSocketChannelClient : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<WebSocketChannelClient, WTF::DestructionThread::Main> {
 public:
     virtual ~WebSocketChannelClient() = default;
     virtual void didConnect() = 0;
-    virtual void didReceiveMessage(const String&) = 0;
+    virtual void didReceiveMessage(String&&) = 0;
     virtual void didReceiveBinaryData(Vector<uint8_t>&&) = 0;
-    virtual void didReceiveMessageError() = 0;
+    virtual void didReceiveMessageError(String&&) = 0;
     virtual void didUpdateBufferedAmount(unsigned bufferedAmount) = 0;
     virtual void didStartClosingHandshake() = 0;
     enum ClosingHandshakeCompletionStatus {

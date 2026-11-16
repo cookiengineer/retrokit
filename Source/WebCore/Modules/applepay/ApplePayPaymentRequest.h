@@ -27,31 +27,48 @@
 
 #if ENABLE(APPLE_PAY)
 
+#include "ApplePayAutomaticReloadPaymentRequest.h"
+#include "ApplePayDeferredPaymentRequest.h"
+#include "ApplePayDisbursementRequest.h"
 #include "ApplePayLineItem.h"
 #include "ApplePayPaymentContact.h"
+#include "ApplePayPaymentTokenContext.h"
+#include "ApplePayRecurringPaymentRequest.h"
 #include "ApplePayRequestBase.h"
 #include "ApplePaySessionPaymentRequest.h"
 #include "ApplePayShippingMethod.h"
-
-#if USE(APPLE_INTERNAL_SDK)
-#include <WebKitAdditions/ApplePayPaymentRequestAdditions.h>
-#endif
 
 namespace WebCore {
 
 struct ApplePayPaymentRequest : ApplePayRequestBase {
     using ShippingType = ApplePaySessionPaymentRequest::ShippingType;
 
+    ApplePayLineItem total;
+    std::optional<Vector<ApplePayLineItem>> lineItems;
+
     String currencyCode;
 
     ShippingType shippingType { ShippingType::Shipping };
     std::optional<Vector<ApplePayShippingMethod>> shippingMethods;
 
-    ApplePayLineItem total;
-    std::optional<Vector<ApplePayLineItem>> lineItems;
+#if ENABLE(APPLE_PAY_RECURRING_PAYMENTS)
+    std::optional<ApplePayRecurringPaymentRequest> recurringPaymentRequest;
+#endif
 
-#if defined(ApplePayPaymentRequestAdditions_members)
-    ApplePayPaymentRequestAdditions_members
+#if ENABLE(APPLE_PAY_AUTOMATIC_RELOAD_PAYMENTS)
+    std::optional<ApplePayAutomaticReloadPaymentRequest> automaticReloadPaymentRequest;
+#endif
+
+#if ENABLE(APPLE_PAY_MULTI_MERCHANT_PAYMENTS)
+    std::optional<Vector<ApplePayPaymentTokenContext>> multiTokenContexts;
+#endif
+
+#if ENABLE(APPLE_PAY_DEFERRED_PAYMENTS)
+    std::optional<ApplePayDeferredPaymentRequest> deferredPaymentRequest;
+#endif
+
+#if ENABLE(APPLE_PAY_DISBURSEMENTS)
+    std::optional<ApplePayDisbursementRequest> disbursementRequest;
 #endif
 };
 

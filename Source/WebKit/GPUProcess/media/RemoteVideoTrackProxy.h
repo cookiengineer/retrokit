@@ -26,14 +26,15 @@
 
 #pragma once
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
 #include "MessageReceiver.h"
-#include "TrackPrivateRemoteIdentifier.h"
 #include <WebCore/MediaPlayerIdentifier.h>
 #include <WebCore/TrackBase.h>
 #include <WebCore/VideoTrackPrivate.h>
 #include <wtf/Ref.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/WeakPtr.h>
 
 namespace IPC {
@@ -44,48 +45,56 @@ class Decoder;
 namespace WebKit {
 
 class GPUConnectionToWebProcess;
-struct TrackPrivateRemoteConfiguration;
+struct VideoTrackPrivateRemoteConfiguration;
 
 class RemoteVideoTrackProxy final
     : public ThreadSafeRefCounted<RemoteVideoTrackProxy, WTF::DestructionThread::Main>
     , private WebCore::VideoTrackPrivateClient {
+    WTF_MAKE_TZONE_ALLOCATED(RemoteVideoTrackProxy);
 public:
-    static Ref<RemoteVideoTrackProxy> create(GPUConnectionToWebProcess& connectionToWebProcess, TrackPrivateRemoteIdentifier identifier, WebCore::VideoTrackPrivate& trackPrivate, WebCore::MediaPlayerIdentifier mediaPlayerIdentifier)
+    static Ref<RemoteVideoTrackProxy> create(GPUConnectionToWebProcess& connectionToWebProcess, WebCore::VideoTrackPrivate& trackPrivate, WebCore::MediaPlayerIdentifier mediaPlayerIdentifier)
     {
-        return adoptRef(*new RemoteVideoTrackProxy(connectionToWebProcess, identifier, trackPrivate, mediaPlayerIdentifier));
+        return adoptRef(*new RemoteVideoTrackProxy(connectionToWebProcess, trackPrivate, mediaPlayerIdentifier));
     }
 
     virtual ~RemoteVideoTrackProxy();
 
-    TrackPrivateRemoteIdentifier identifier() const { return m_identifier; };
+    // WebCore::VideoTrackPrivateClient.
+    void ref() const final { ThreadSafeRefCounted::ref(); }
+    void deref() const final { ThreadSafeRefCounted::deref(); }
+
+    WebCore::TrackID id() const { return m_trackPrivate->id(); };
     void setSelected(bool selected)
     {
         m_selected = selected;
         m_trackPrivate->setSelected(selected);
     }
+    bool operator==(const WebCore::VideoTrackPrivate& track) const { return track == m_trackPrivate.get(); }
 
 private:
-    RemoteVideoTrackProxy(GPUConnectionToWebProcess&, TrackPrivateRemoteIdentifier, WebCore::VideoTrackPrivate&, WebCore::MediaPlayerIdentifier);
+    RemoteVideoTrackProxy(GPUConnectionToWebProcess&, WebCore::VideoTrackPrivate&, WebCore::MediaPlayerIdentifier);
 
     // VideoTrackPrivateClient
     void selectedChanged(bool) final;
+    void configurationChanged(const WebCore::PlatformVideoTrackConfiguration&) final { updateConfiguration(); }
 
     // TrackPrivateBaseClient
-    void idChanged(const AtomString&) final;
-    void labelChanged(const AtomString&) final;
-    void languageChanged(const AtomString&) final;
+    void idChanged(WebCore::TrackID) final;
+    void labelChanged(const String&) final;
+    void languageChanged(const String&) final;
     void willRemove() final;
 
-    TrackPrivateRemoteConfiguration& configuration();
-    void configurationChanged();
+    VideoTrackPrivateRemoteConfiguration configuration();
+    void updateConfiguration();
 
-    WeakPtr<GPUConnectionToWebProcess> m_connectionToWebProcess;
-    TrackPrivateRemoteIdentifier m_identifier;
-    Ref<WebCore::VideoTrackPrivate> m_trackPrivate;
+    ThreadSafeWeakPtr<GPUConnectionToWebProcess> m_connectionToWebProcess;
+    const Ref<WebCore::VideoTrackPrivate> m_trackPrivate;
+    WebCore::TrackID m_id;
     WebCore::MediaPlayerIdentifier m_mediaPlayerIdentifier;
     bool m_selected { false };
+    size_t m_clientRegistrationId { 0 };
 };
 
 } // namespace WebKit
 
-#endif // ENABLE(GPU_PROCESS)
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

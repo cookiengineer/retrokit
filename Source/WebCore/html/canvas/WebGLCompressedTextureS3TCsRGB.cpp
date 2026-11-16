@@ -28,37 +28,27 @@
 #if ENABLE(WEBGL)
 #include "WebGLCompressedTextureS3TCsRGB.h"
 
-#include "ExtensionsGL.h"
-#include "WebGLRenderingContextBase.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(WebGLCompressedTextureS3TCsRGB);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebGLCompressedTextureS3TCsRGB);
 
 WebGLCompressedTextureS3TCsRGB::WebGLCompressedTextureS3TCsRGB(WebGLRenderingContextBase& context)
-    : WebGLExtension(context)
+    : WebGLExtension(context, WebGLExtensionName::WebGLCompressedTextureS3TCsRGB)
 {
-    auto& extensions = context.graphicsContextGL()->getExtensions();
-    extensions.ensureEnabled("GL_EXT_texture_compression_s3tc_srgb");
-
-    context.addCompressedTextureFormat(ExtensionsGL::COMPRESSED_SRGB_S3TC_DXT1_EXT);
-    context.addCompressedTextureFormat(ExtensionsGL::COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT);
-    context.addCompressedTextureFormat(ExtensionsGL::COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT);
-    context.addCompressedTextureFormat(ExtensionsGL::COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT);
+    protect(context.graphicsContextGL())->enableExtension(GCGLExtension::EXT_texture_compression_s3tc_srgb);
+    context.addCompressedTextureFormat(GraphicsContextGL::COMPRESSED_SRGB_S3TC_DXT1_EXT);
+    context.addCompressedTextureFormat(GraphicsContextGL::COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT);
+    context.addCompressedTextureFormat(GraphicsContextGL::COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT);
+    context.addCompressedTextureFormat(GraphicsContextGL::COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT);
 }
 
 WebGLCompressedTextureS3TCsRGB::~WebGLCompressedTextureS3TCsRGB() = default;
 
-WebGLExtension::ExtensionName WebGLCompressedTextureS3TCsRGB::getName() const
+bool WebGLCompressedTextureS3TCsRGB::supported(GraphicsContextGL& context)
 {
-    return WebGLCompressedTextureS3TCsRGBName;
-}
-
-bool WebGLCompressedTextureS3TCsRGB::supported(WebGLRenderingContextBase& context)
-{
-    auto& extensions = context.graphicsContextGL()->getExtensions();
-    return extensions.supports("GL_EXT_texture_compression_s3tc_srgb");
+    return context.supportsExtension(GCGLExtension::EXT_texture_compression_s3tc_srgb);
 }
 
 } // namespace WebCore

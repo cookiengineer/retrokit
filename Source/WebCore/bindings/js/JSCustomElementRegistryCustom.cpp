@@ -26,6 +26,7 @@
 #include "config.h"
 #include "JSCustomElementRegistry.h"
 
+#include "ContextDestructionObserverInlines.h"
 #include "CustomElementRegistry.h"
 #include "Document.h"
 #include "HTMLNames.h"
@@ -34,6 +35,8 @@
 #include "JSDOMConvertSequences.h"
 #include "JSDOMConvertStrings.h"
 #include "JSDOMPromiseDeferred.h"
+#include "Settings.h"
+#include <JavaScriptCore/JSObjectInlines.h>
 #include <wtf/SetForScope.h>
 
 
@@ -49,7 +52,7 @@ static JSObject* getCustomElementCallback(JSGlobalObject& lexicalGlobalObject, J
     RETURN_IF_EXCEPTION(scope, nullptr);
     if (callback.isUndefined())
         return nullptr;
-    if (!callback.isCallable(vm)) {
+    if (!callback.isCallable()) {
         throwTypeError(&lexicalGlobalObject, scope, "A custom element callback must be a function"_s);
         return nullptr;
     }
@@ -88,14 +91,14 @@ JSValue JSCustomElementRegistry::define(JSGlobalObject& lexicalGlobalObject, Cal
     VM& vm = lexicalGlobalObject.vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    if (UNLIKELY(callFrame.argumentCount() < 2))
+    if (callFrame.argumentCount() < 2) [[unlikely]]
         return throwException(&lexicalGlobalObject, scope, createNotEnoughArgumentsError(&lexicalGlobalObject));
 
     AtomString localName(callFrame.uncheckedArgument(0).toString(&lexicalGlobalObject)->toAtomString(&lexicalGlobalObject));
-    RETURN_IF_EXCEPTION(scope, JSValue());
+    RETURN_IF_EXCEPTION(scope, { });
 
     JSValue constructorValue = callFrame.uncheckedArgument(1);
-    if (!constructorValue.isConstructor(vm))
+    if (!constructorValue.isConstructor())
         return throwTypeError(&lexicalGlobalObject, scope, "The second argument must be a constructor"_s);
     JSObject* constructor = constructorValue.getObject();
 
@@ -108,7 +111,7 @@ JSValue JSCustomElementRegistry::define(JSGlobalObject& lexicalGlobalObject, Cal
         throwNotSupportedError(lexicalGlobalObject, scope, "Cannot define a custom element while defining another custom element"_s);
         return jsUndefined();
     }
-    SetForScope<bool> change(registry.elementDefinitionIsRunning(), true);
+    SetForScope change(registry.elementDefinitionIsRunning(), true);
 
     if (registry.findInterface(localName)) {
         throwNotSupportedError(lexicalGlobalObject, scope, "Cannot define multiple custom elements with the same tag name"_s);
@@ -121,55 +124,91 @@ JSValue JSCustomElementRegistry::define(JSGlobalObject& lexicalGlobalObject, Cal
     }
 
     JSValue prototypeValue = constructor->get(&lexicalGlobalObject, vm.propertyNames->prototype);
-    RETURN_IF_EXCEPTION(scope, JSValue());
+    RETURN_IF_EXCEPTION(scope, { });
     if (!prototypeValue.isObject())
         return throwTypeError(&lexicalGlobalObject, scope, "Custom element constructor's prototype must be an object"_s);
     JSObject& prototypeObject = *asObject(prototypeValue);
 
     QualifiedName name(nullAtom(), localName, HTMLNames::xhtmlNamespaceURI);
-    auto elementInterface = JSCustomElementInterface::create(name, constructor, globalObject());
+    auto elementInterface = JSCustomElementInterface::create(name, constructor, realm());
 
-    auto* connectedCallback = getCustomElementCallback(lexicalGlobalObject, prototypeObject, Identifier::fromString(vm, "connectedCallback"));
+    auto* connectedCallback = getCustomElementCallback(lexicalGlobalObject, prototypeObject, Identifier::fromString(vm, "connectedCallback"_s));
     if (connectedCallback)
         elementInterface->setConnectedCallback(connectedCallback);
-    RETURN_IF_EXCEPTION(scope, JSValue());
+    RETURN_IF_EXCEPTION(scope, { });
 
-    auto* disconnectedCallback = getCustomElementCallback(lexicalGlobalObject, prototypeObject, Identifier::fromString(vm, "disconnectedCallback"));
+    auto* disconnectedCallback = getCustomElementCallback(lexicalGlobalObject, prototypeObject, Identifier::fromString(vm, "disconnectedCallback"_s));
     if (disconnectedCallback)
         elementInterface->setDisconnectedCallback(disconnectedCallback);
-    RETURN_IF_EXCEPTION(scope, JSValue());
+    RETURN_IF_EXCEPTION(scope, { });
 
-    auto* adoptedCallback = getCustomElementCallback(lexicalGlobalObject, prototypeObject, Identifier::fromString(vm, "adoptedCallback"));
+    RefPtr document = dynamicDowncast<Document>(registry.scriptExecutionContext());
+    bool moveBeforeEnabled = document && document->settings().moveBeforeEnabled();
+    if (moveBeforeEnabled) {
+        auto* connectedMoveCallback = getCustomElementCallback(lexicalGlobalObject, prototypeObject, Identifier::fromString(vm, "connectedMoveCallback"_s));
+        if (connectedMoveCallback)
+            elementInterface->setConnectedMoveCallback(connectedMoveCallback);
+        RETURN_IF_EXCEPTION(scope, { });
+    }
+
+    auto* adoptedCallback = getCustomElementCallback(lexicalGlobalObject, prototypeObject, Identifier::fromString(vm, "adoptedCallback"_s));
     if (adoptedCallback)
         elementInterface->setAdoptedCallback(adoptedCallback);
-    RETURN_IF_EXCEPTION(scope, JSValue());
+    RETURN_IF_EXCEPTION(scope, { });
 
-    auto* attributeChangedCallback = getCustomElementCallback(lexicalGlobalObject, prototypeObject, Identifier::fromString(vm, "attributeChangedCallback"));
-    RETURN_IF_EXCEPTION(scope, JSValue());
+    auto* attributeChangedCallback = getCustomElementCallback(lexicalGlobalObject, prototypeObject, Identifier::fromString(vm, "attributeChangedCallback"_s));
+    RETURN_IF_EXCEPTION(scope, { });
     if (attributeChangedCallback) {
-        auto observedAttributesValue = constructor->get(&lexicalGlobalObject, Identifier::fromString(vm, "observedAttributes"));
-        RETURN_IF_EXCEPTION(scope, JSValue());
+        auto observedAttributesValue = constructor->get(&lexicalGlobalObject, Identifier::fromString(vm, "observedAttributes"_s));
+        RETURN_IF_EXCEPTION(scope, { });
         if (!observedAttributesValue.isUndefined()) {
-            auto observedAttributes = convert<IDLSequence<IDLDOMString>>(lexicalGlobalObject, observedAttributesValue);
-            RETURN_IF_EXCEPTION(scope, JSValue());
-            elementInterface->setAttributeChangedCallback(attributeChangedCallback, observedAttributes);
+            auto observedAttributes = convert<IDLSequence<IDLAtomStringAdaptor<IDLDOMString>>>(lexicalGlobalObject, observedAttributesValue);
+            if (observedAttributes.hasException(scope)) [[unlikely]]
+                return { };
+            elementInterface->setAttributeChangedCallback(attributeChangedCallback, observedAttributes.releaseReturnValue());
         }
     }
 
-    auto addToGlobalObjectWithPrivateName = [&] (JSObject* objectToAdd) {
-        if (objectToAdd) {
-            PrivateName uniquePrivateName;
-            globalObject()->putDirect(vm, uniquePrivateName, objectToAdd);
-        }
-    };
+    auto disabledFeaturesValue = constructor->get(&lexicalGlobalObject, Identifier::fromString(vm, "disabledFeatures"_s));
+    RETURN_IF_EXCEPTION(scope, { });
+    if (!disabledFeaturesValue.isUndefined()) {
+        auto disabledFeatures = convert<IDLSequence<IDLDOMString>>(lexicalGlobalObject, disabledFeaturesValue);
+        if (disabledFeatures.hasException(scope)) [[unlikely]]
+            return { };
 
-    addToGlobalObjectWithPrivateName(constructor);
-    addToGlobalObjectWithPrivateName(connectedCallback);
-    addToGlobalObjectWithPrivateName(disconnectedCallback);
-    addToGlobalObjectWithPrivateName(adoptedCallback);
-    addToGlobalObjectWithPrivateName(attributeChangedCallback);
+        if (disabledFeatures.returnValue().contains("internals"_s))
+            elementInterface->disableElementInternals();
+        if (disabledFeatures.returnValue().contains("shadow"_s))
+            elementInterface->disableShadow();
+    }
 
-    if (auto promise = registry.addElementDefinition(WTFMove(elementInterface)))
+    auto formAssociatedValue = constructor->get(&lexicalGlobalObject, Identifier::fromString(vm, "formAssociated"_s));
+    RETURN_IF_EXCEPTION(scope, { });
+    if (formAssociatedValue.toBoolean(&lexicalGlobalObject)) {
+        elementInterface->setIsFormAssociated();
+
+        auto* formAssociatedCallback = getCustomElementCallback(lexicalGlobalObject, prototypeObject, Identifier::fromString(vm, "formAssociatedCallback"_s));
+        RETURN_IF_EXCEPTION(scope, { });
+        if (formAssociatedCallback)
+            elementInterface->setFormAssociatedCallback(formAssociatedCallback);
+
+        auto* formResetCallback = getCustomElementCallback(lexicalGlobalObject, prototypeObject, Identifier::fromString(vm, "formResetCallback"_s));
+        RETURN_IF_EXCEPTION(scope, { });
+        if (formResetCallback)
+            elementInterface->setFormResetCallback(formResetCallback);
+
+        auto* formDisabledCallback = getCustomElementCallback(lexicalGlobalObject, prototypeObject, Identifier::fromString(vm, "formDisabledCallback"_s));
+        RETURN_IF_EXCEPTION(scope, { });
+        if (formDisabledCallback)
+            elementInterface->setFormDisabledCallback(formDisabledCallback);
+
+        auto* formStateRestoreCallback = getCustomElementCallback(lexicalGlobalObject, prototypeObject, Identifier::fromString(vm, "formStateRestoreCallback"_s));
+        RETURN_IF_EXCEPTION(scope, { });
+        if (formStateRestoreCallback)
+            elementInterface->setFormStateRestoreCallback(formStateRestoreCallback);
+    }
+
+    if (auto promise = registry.addElementDefinition(WTF::move(elementInterface)))
         promise->resolveWithJSValue(constructor);
 
     return jsUndefined();
@@ -180,18 +219,18 @@ static JSValue whenDefinedPromise(JSGlobalObject& lexicalGlobalObject, CallFrame
 {
     auto scope = DECLARE_THROW_SCOPE(lexicalGlobalObject.vm());
 
-    if (UNLIKELY(callFrame.argumentCount() < 1))
+    if (callFrame.argumentCount() < 1) [[unlikely]]
         return throwException(&lexicalGlobalObject, scope, createNotEnoughArgumentsError(&lexicalGlobalObject));
 
     AtomString localName(callFrame.uncheckedArgument(0).toString(&lexicalGlobalObject)->toAtomString(&lexicalGlobalObject));
-    RETURN_IF_EXCEPTION(scope, JSValue());
+    RETURN_IF_EXCEPTION(scope, { });
 
     if (!validateCustomElementNameAndThrowIfNeeded(lexicalGlobalObject, localName)) {
         EXCEPTION_ASSERT(scope.exception());
         return jsUndefined();
     }
 
-    if (auto* elementInterface = registry.findInterface(localName)) {
+    if (RefPtr elementInterface = registry.findInterface(localName)) {
         DeferredPromise::create(globalObject, promise)->resolveWithJSValue(elementInterface->constructor());
         return &promise;
     }
@@ -205,14 +244,14 @@ static JSValue whenDefinedPromise(JSGlobalObject& lexicalGlobalObject, CallFrame
 
 JSValue JSCustomElementRegistry::whenDefined(JSGlobalObject& lexicalGlobalObject, CallFrame& callFrame)
 {
-    auto catchScope = DECLARE_CATCH_SCOPE(lexicalGlobalObject.vm());
+    auto catchScope = DECLARE_TOP_EXCEPTION_SCOPE(lexicalGlobalObject.vm());
 
-    ASSERT(globalObject());
+    ASSERT(realm());
     auto* result = JSPromise::create(lexicalGlobalObject.vm(), lexicalGlobalObject.promiseStructure());
-    JSValue promise = whenDefinedPromise(lexicalGlobalObject, callFrame, *globalObject(), wrapped(), *result);
+    JSValue promise = whenDefinedPromise(lexicalGlobalObject, callFrame, *realm(), wrapped(), *result);
 
-    if (UNLIKELY(catchScope.exception())) {
-        rejectPromiseWithExceptionIfAny(lexicalGlobalObject, *globalObject(), *result, catchScope);
+    if (catchScope.exception()) [[unlikely]] {
+        rejectPromiseWithExceptionIfAny(lexicalGlobalObject, *realm(), *result, catchScope);
         // FIXME: We could have error since any JS call can throw stack-overflow errors.
         // https://bugs.webkit.org/show_bug.cgi?id=203402
         RETURN_IF_EXCEPTION(catchScope, JSC::jsUndefined());
@@ -221,5 +260,13 @@ JSValue JSCustomElementRegistry::whenDefined(JSGlobalObject& lexicalGlobalObject
 
     return promise;
 }
+
+template<typename Visitor>
+void JSCustomElementRegistry::visitAdditionalChildrenInGCThread(Visitor& visitor)
+{
+    wrapped().visitJSCustomElementInterfacesInGCThread(visitor);
+}
+
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSCustomElementRegistry);
 
 } // namespace WebCore

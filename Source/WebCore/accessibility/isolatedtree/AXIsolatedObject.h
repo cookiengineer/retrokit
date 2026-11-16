@@ -25,641 +25,688 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
 #if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
 
-#include "AXObjectCache.h"
-#include "AccessibilityObjectInterface.h"
-#include "IntPoint.h"
-#include "LayoutRect.h"
-#include "Path.h"
+#include <WebCore/AXCoreObject.h>
+#include <WebCore/AXIsolatedTree.h>
+#include <WebCore/AXLoggerBase.h>
+#include <WebCore/AXObjectCache.h>
+#include <WebCore/AXTreeStoreInlines.h>
+#include <WebCore/IntPoint.h>
+#include <WebCore/LayoutRect.h>
+#include <WebCore/NodeName.h>
+#include <WebCore/Path.h>
+#include <WebCore/RenderStyleConstants.h>
 #include <wtf/Forward.h>
 #include <wtf/HashMap.h>
 #include <wtf/RefPtr.h>
 #include <wtf/ThreadSafeRefCounted.h>
-#include <wtf/Variant.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
 class AXIsolatedTree;
+struct AXTextRuns;
 
 class AXIsolatedObject final : public AXCoreObject {
     friend class AXIsolatedTree;
 public:
-    static Ref<AXIsolatedObject> create(AXCoreObject&, AXIsolatedTree*, AXID parentID);
+    static Ref<AXIsolatedObject> create(IsolatedObjectData&&);
     ~AXIsolatedObject();
 
-    void setObjectID(AXID id) override { m_id = id; }
-    AXID objectID() const override { return m_id; }
-    void init() override;
+    RefPtr<AXIsolatedObject> approximateHitTest(const IntPoint&) const;
+
+    std::optional<AXTreeID> treeID() const final { return tree().treeID(); }
+    String debugDescriptionInternal(bool, std::optional<OptionSet<AXDebugStringOption>> = std::nullopt) const final;
+
+    void updateFromData(IsolatedObjectData&&);
 
     void attachPlatformWrapper(AccessibilityObjectWrapper*);
-    bool isDetached() const override;
+    bool isDetached() const final;
+    bool isTable() const final { return boolAttributeValue(AXProperty::IsTable); }
+    bool isExposableTable() const final { return boolAttributeValue(AXProperty::IsExposableTable); }
+    bool hasClickHandler() const final { return boolAttributeValue(AXProperty::HasClickHandler); }
+    bool hasCursorPointer() const final { return boolAttributeValue(AXProperty::HasCursorPointer);  }
+    bool hasPointerEventsNone() const final { return boolAttributeValue(AXProperty::HasPointerEventsNone);  }
+    bool showsCursorOnHover() const final { return boolAttributeValue(AXProperty::ShowsCursorOnHover); }
+    FloatRect relativeFrame() const final;
 
-    void setParent(AXID);
+    bool hasAttachmentTag() const final { return elementName() == ElementName::HTML_attachment; }
+    bool hasBodyTag() const final { return elementName() == ElementName::HTML_body; }
+    bool hasMarkTag() const final { return elementName() == ElementName::HTML_mark; }
+    bool hasRowGroupTag() const final;
+
+    const AccessibilityChildrenVector& children(bool updateChildrenIfNeeded = true) LIFETIME_BOUND final;
+#if ENABLE(INCLUDE_IGNORED_IN_CORE_AX_TREE)
+    AccessibilityChildrenVector unignoredChildren(bool updateChildrenIfNeeded = true) final;
+#endif
+    AccessibilityChildrenVector stitchedUnignoredChildren() final;
+    size_t stitchedUnignoredChildrenCount() final;
+    const AccessibilityChildrenVector* cachedUnignoredChildren() final;
+    const AccessibilityChildrenVector* cachedStitchedUnignoredChildren() final;
+    AccessibilityChildrenVector crossFrameUnignoredChildrenInRange(size_t start, size_t maxCount) final;
+    std::optional<bool> cachedHasCrossFrameChild() final;
+    AXIsolatedObject* parentObject() const final { return tree().objectForID(parent()); }
+    AXIsolatedObject* parentObjectUnignored() const final { return downcast<AXIsolatedObject>(AXCoreObject::parentObjectUnignored()); }
+    bool isEditableWebArea() const final { return boolAttributeValue(AXProperty::IsEditableWebArea); }
+    bool canSetFocusAttribute() const final { return boolAttributeValue(AXProperty::CanSetFocusAttribute); }
+    AttributedStringStyle stylesForAttributedString() const final;
+    Color textColor() const final { return colorAttributeValue(AXProperty::TextColor); }
+
+#if ENABLE_ACCESSIBILITY_LOCAL_FRAME
+    // Returns the child or parent object that crosses a local frame boundary.
+    AXIsolatedObject* crossFrameParentObject() const final;
+    AXIsolatedObject* crossFrameChildObject() const final;
+    bool isFrameGeometryInitialized() const final;
+#endif
+
+    const AXTextRuns* textRuns() const;
+    bool hasTextRuns() final
+    {
+        const auto* runs = textRuns();
+        return runs && runs->size();
+    }
+    TextEmissionBehavior textEmissionBehavior() const final;
+    AXTextRunLineID listMarkerLineID() const final { return propertyValue<AXTextRunLineID>(AXProperty::ListMarkerLineID); };
+    String listMarkerText() const final { return stringAttributeValue(AXProperty::ListMarkerText); }
+    FontOrientation fontOrientation() const final { return propertyValue<FontOrientation>(AXProperty::FontOrientation); }
+
+    String description() const final { return stringAttributeValue(AXProperty::Description); }
+
+    bool isIgnored() const final { return boolAttributeValue(AXProperty::IsIgnored); }
+    std::optional<bool> cachedIsIgnored() const final { return isIgnored(); }
+    bool isARIAHidden() const final { return boolAttributeValue(AXProperty::IsARIAHidden); }
+
+    AXTextMarkerRange textMarkerRange() const final;
+
+#if PLATFORM(COCOA)
+    RetainPtr<CTFontRef> font() const final { return fontAttributeValue(AXProperty::Font); }
+#endif
+
+    bool isBlockFlow() const final { return boolAttributeValue(AXProperty::IsBlockFlow); }
 
 private:
-    void detachRemoteParts(AccessibilityDetachmentType) override;
-    void detachPlatformWrapper(AccessibilityDetachmentType) override;
+    AXIsolatedTree::CachedUnignoredChildren& ensureCachedUnignoredChildren();
 
-    AXID parent() const { return m_parentID; }
+    constexpr ProcessID processID() const final { return tree().processID(); }
+    void detachRemoteParts(AccessibilityDetachmentType) final;
+    void detachPlatformWrapper(AccessibilityDetachmentType) final;
 
-    AXIsolatedTree* tree() const { return m_cachedTree.get(); }
+    std::optional<AXID> parent() const { return m_parentID; }
+    void setParent(std::optional<AXID> axID) { m_parentID = axID; }
 
-    AXIsolatedObject() = default;
-    AXIsolatedObject(AXCoreObject&, AXIsolatedTree*, AXID parentID);
-    bool isAXIsolatedObjectInstance() const override { return true; }
-    void initializeAttributeData(AXCoreObject&, bool isRoot);
-    void initializePlatformProperties(const AXCoreObject&);
-    AXCoreObject* associatedAXObject() const;
+    AXIsolatedTree& tree() const { return m_tree; }
 
-    void setProperty(AXPropertyName, AXPropertyValueVariant&&, bool shouldRemove = false);
-    void setObjectProperty(AXPropertyName, AXCoreObject*);
-    void setObjectVectorProperty(AXPropertyName, const AccessibilityChildrenVector&);
+    AXIsolatedObject(const Ref<AccessibilityObject>&, AXIsolatedTree*);
+    AXIsolatedObject(IsolatedObjectData&&);
+    bool isAXIsolatedObjectInstance() const final { return true; }
+    AccessibilityObject* associatedAXObject() const;
+
+    void setProperty(AXProperty, AXPropertyValueVariant&&);
+    void setPropertyInVector(AXProperty property, AXPropertyValueVariant&& value)
+    {
+        if (size_t existingIndex = indexOfProperty(property); existingIndex != notFound)
+            m_properties[existingIndex].second = WTF::move(value);
+        else
+            m_properties.append(std::pair(property, WTF::move(value)));
+    }
+    void removePropertyInVector(AXProperty property)
+    {
+        m_properties.removeFirstMatching([&property] (const auto& propertyAndValue) {
+            return propertyAndValue.first == property;
+        });
+    }
+    size_t indexOfProperty(AXProperty property) const
+    {
+        return m_properties.findIf([&property] (const auto& propertyAndValue) {
+            return propertyAndValue.first == property;
+        });
+    }
+    void shrinkPropertiesAfterUpdates() { m_properties.shrinkToFit(); }
+    void setObjectProperty(AXProperty, AXCoreObject*);
+    void setObjectVectorProperty(AXProperty, const AccessibilityChildrenVector&);
+
+    void setPropertyFlag(AXPropertyFlag, bool);
+    bool hasPropertyFlag(AXPropertyFlag) const;
+    bool hasPropertyFlag(AXProperty) const;
 
     // FIXME: consolidate all AttributeValue retrieval in a single template method.
-    bool boolAttributeValue(AXPropertyName) const;
-    String stringAttributeValue(AXPropertyName) const;
-    int intAttributeValue(AXPropertyName) const;
-    unsigned unsignedAttributeValue(AXPropertyName) const;
-    double doubleAttributeValue(AXPropertyName) const;
-    float floatAttributeValue(AXPropertyName) const;
-    AXCoreObject* objectAttributeValue(AXPropertyName) const;
-    IntPoint intPointAttributeValue(AXPropertyName) const;
-    Color colorAttributeValue(AXPropertyName) const;
-    URL urlAttributeValue(AXPropertyName) const;
-    uint64_t uint64AttributeValue(AXPropertyName) const;
-    Path pathAttributeValue(AXPropertyName) const;
-    template<typename T> T rectAttributeValue(AXPropertyName) const;
-    template<typename T> Vector<T> vectorAttributeValue(AXPropertyName) const;
-    template<typename T> OptionSet<T> optionSetAttributeValue(AXPropertyName) const;
-    template<typename T> std::pair<T, T> pairAttributeValue(AXPropertyName) const;
-    template<typename T> T propertyValue(AXPropertyName) const;
+    bool boolAttributeValue(AXProperty) const;
+    String stringAttributeValue(AXProperty) const;
+    String stringAttributeValueNullIfMissing(AXProperty) const;
+    int intAttributeValue(AXProperty) const;
+    unsigned unsignedAttributeValue(AXProperty) const;
+    double doubleAttributeValue(AXProperty) const;
+    float floatAttributeValue(AXProperty) const;
+    AXIsolatedObject* objectAttributeValue(AXProperty) const;
+    IntPoint intPointAttributeValue(AXProperty) const;
+    Color colorAttributeValue(AXProperty) const;
+    RetainPtr<CTFontRef> fontAttributeValue(AXProperty) const;
+    URL urlAttributeValue(AXProperty) const;
+    uint64_t uint64AttributeValue(AXProperty) const;
+    Style::SpeakAs speakAsAttributeValue(AXProperty) const;
+    std::pair<unsigned, unsigned> indexRangePairAttributeValue(AXProperty) const;
+    template<typename T> T rectAttributeValue(AXProperty) const;
+    template<typename T> Vector<T> vectorAttributeValue(AXProperty) const;
+    template<typename T> std::optional<T> optionalAttributeValue(AXProperty) const;
+    template<typename T> T propertyValue(AXProperty) const;
 
-    void fillChildrenVectorForProperty(AXPropertyName, AccessibilityChildrenVector&) const;
-    void setMathscripts(AXPropertyName, AXCoreObject&);
-    void insertMathPairs(Vector<std::pair<AXID, AXID>>&, AccessibilityMathMultiscriptPairs&);
-    template<typename U> void performFunctionOnMainThread(U&&) const;
+#ifndef NDEBUG
+    // The color of |this| without any ancestry traversal.
+    Color cachedTextColor() const;
+#if PLATFORM(COCOA)
+    // The font of |this| without any ancestry traversal.
+    RetainPtr<CTFontRef> cachedFont() const;
+#endif // PLATFORM(COCOA)
+#endif // NDEBUG
+
+    // The following method performs a lazy caching of the given property.
+    // If the property is already in m_properties, returns the existing value.
+    // If not, retrieves the property from the main thread and cache it for later use.
+    template<typename T> T getOrRetrievePropertyValue(AXProperty);
+
+    void fillChildrenVectorForProperty(AXProperty, AccessibilityChildrenVector&) const;
+    void setMathscripts(AXProperty, AccessibilityObject&);
+    void insertMathPairs(Vector<std::pair<Markable<AXID>, Markable<AXID>>>&, AccessibilityMathMultiscriptPairs&);
+    template<typename U> void performFunctionOnMainThreadAndWait(U&& lambda) const
+    {
+        Accessibility::performFunctionOnMainThreadAndWait([&lambda, context = mainThreadContext()] {
+            if (RefPtr object = context.axObjectOnMainThread())
+                lambda(object.get());
+        });
+    }
+    template<typename U> void performFunctionOnMainThread(U&& lambda) const
+    {
+        // Because this is an async dispatch to the main-thread, there's no guarantee |this| will be kept
+        // alive by the secondary thread. Avoid any issues by simply sending our object ID, and our associated
+        // AXObjectCache ID, then having the main-thread re-hydrate the equivalent main-thread accessibility object,
+        // if it's still alive by the time the dispatch is serviced.
+        Accessibility::performFunctionOnMainThread([lambda = WTF::move(lambda), axID = objectID(), cacheID = treeID()] () mutable {
+            WeakPtr cache = AXTreeStore<AXObjectCache>::axObjectCacheForID(cacheID);
+            if (!cache)
+                return;
+            if (RefPtr object = cache->objectForID(axID))
+                lambda(object.get());
+        });
+    }
 
     // Attribute retrieval overrides.
-    bool isHeading() const override { return boolAttributeValue(AXPropertyName::IsHeading); }
-    bool isLandmark() const override { return boolAttributeValue(AXPropertyName::IsLandmark); }
-    bool isLink() const override { return boolAttributeValue(AXPropertyName::IsLink); }
-    bool isPasswordField() const override { return boolAttributeValue(AXPropertyName::IsPasswordField); }
-    bool isSearchField() const override { return boolAttributeValue(AXPropertyName::IsSearchField); }
-    bool isAttachment() const override { return boolAttributeValue(AXPropertyName::IsAttachment); }
-    bool isMediaTimeline() const override { return boolAttributeValue(AXPropertyName::IsMediaTimeline); }
-    bool isMenuRelated() const override { return boolAttributeValue(AXPropertyName::IsMenuRelated); }
-    bool isMenu() const override { return boolAttributeValue(AXPropertyName::IsMenu); }
-    bool isMenuBar() const override { return boolAttributeValue(AXPropertyName::IsMenuBar); }
-    bool isMenuButton() const override { return boolAttributeValue(AXPropertyName::IsMenuButton); }
-    bool isMenuItem() const override { return boolAttributeValue(AXPropertyName::IsMenuItem); }
-    bool isFileUploadButton() const override { return boolAttributeValue(AXPropertyName::IsFileUploadButton); }
-    bool isInputImage() const override { return boolAttributeValue(AXPropertyName::IsInputImage); }
-    bool isProgressIndicator() const override { return boolAttributeValue(AXPropertyName::IsProgressIndicator); }
-    bool isSlider() const override { return boolAttributeValue(AXPropertyName::IsSlider); }
-    bool isControl() const override { return boolAttributeValue(AXPropertyName::IsControl); }
+    bool isSecureField() const final { return boolAttributeValue(AXProperty::IsSecureField); }
+    bool isAttachment() const final { return boolAttributeValue(AXProperty::IsAttachment); }
 
-    bool isList() const override { return boolAttributeValue(AXPropertyName::IsList); }
-    bool isUnorderedList() const override { return boolAttributeValue(AXPropertyName::IsUnorderedList); }
-    bool isOrderedList() const override { return boolAttributeValue(AXPropertyName::IsOrderedList); }
-    bool isDescriptionList() const override { return boolAttributeValue(AXPropertyName::IsDescriptionList); }
-    bool isKeyboardFocusable() const override { return boolAttributeValue(AXPropertyName::IsKeyboardFocusable); }
-    
+    bool isKeyboardFocusable() const final { return boolAttributeValue(AXProperty::IsKeyboardFocusable); }
+    bool isOutput() const final { return elementName() == ElementName::HTML_output; }
+
     // Table support.
-    bool isTable() const override { return boolAttributeValue(AXPropertyName::IsTable); }
-    bool isExposable() const override { return boolAttributeValue(AXPropertyName::IsExposable); }
-    bool isDataTable() const override { return boolAttributeValue(AXPropertyName::IsDataTable); }
-    int tableLevel() const override { return intAttributeValue(AXPropertyName::TableLevel); }
-    bool supportsSelectedRows() const override { return boolAttributeValue(AXPropertyName::SupportsSelectedRows); }
-    AccessibilityChildrenVector columns() override { return tree()->objectsForIDs(vectorAttributeValue<AXID>(AXPropertyName::Columns)); }
-    AccessibilityChildrenVector rows() override { return tree()->objectsForIDs(vectorAttributeValue<AXID>(AXPropertyName::Rows)); }
-    unsigned columnCount() override { return unsignedAttributeValue(AXPropertyName::ColumnCount); }
-    unsigned rowCount() override { return unsignedAttributeValue(AXPropertyName::RowCount); }
-    AccessibilityChildrenVector cells() override { return tree()->objectsForIDs(vectorAttributeValue<AXID>(AXPropertyName::Cells)); }
-    AXCoreObject* cellForColumnAndRow(unsigned, unsigned) override;
-    AccessibilityChildrenVector columnHeaders() override { return tree()->objectsForIDs(vectorAttributeValue<AXID>(AXPropertyName::ColumnHeaders)); }
-    AccessibilityChildrenVector rowHeaders() override { return tree()->objectsForIDs(vectorAttributeValue<AXID>(AXPropertyName::RowHeaders)); }
-    AccessibilityChildrenVector visibleRows() override { return tree()->objectsForIDs(vectorAttributeValue<AXID>(AXPropertyName::VisibleRows)); }
-    AXCoreObject* headerContainer() override { return objectAttributeValue(AXPropertyName::HeaderContainer); }
-    int axColumnCount() const override { return intAttributeValue(AXPropertyName::AXColumnCount); }
-    int axRowCount() const override { return intAttributeValue(AXPropertyName::AXRowCount); }
+    AccessibilityChildrenVector columns() final { return tree().objectsForIDs(vectorAttributeValue<AXID>(AXProperty::Columns)); }
+    AccessibilityChildrenVector rows() final { return tree().objectsForIDs(vectorAttributeValue<AXID>(AXProperty::Rows)); }
+    unsigned columnCount() final { return static_cast<unsigned>(columns().size()); }
+    unsigned rowCount() final { return static_cast<unsigned>(rows().size()); }
+    AccessibilityChildrenVector cells() final { return tree().objectsForIDs(vectorAttributeValue<AXID>(AXProperty::Cells)); }
+    AXIsolatedObject* cellForColumnAndRow(unsigned, unsigned) final;
+    AccessibilityChildrenVector rowHeaders() final;
+    AccessibilityChildrenVector visibleRows() final { return tree().objectsForIDs(vectorAttributeValue<AXID>(AXProperty::VisibleRows)); }
+    AXIsolatedObject* tableHeaderContainer() final;
+    int axColumnCount() const final { return intAttributeValue(AXProperty::AXColumnCount); }
+    int axRowCount() const final { return intAttributeValue(AXProperty::AXRowCount); }
 
     // Table cell support.
-    bool isTableCell() const override { return boolAttributeValue(AXPropertyName::IsTableCell); }
+    bool isTableCell() const final;
+    bool isExposedTableCell() const final { return boolAttributeValue(AXProperty::IsExposedTableCell); }
+    AXCoreObject* parentTableIfTableCell() const final;
     // Returns the start location and row span of the cell.
-    std::pair<unsigned, unsigned> rowIndexRange() const override { return pairAttributeValue<unsigned>(AXPropertyName::RowIndexRange); }
+    std::pair<unsigned, unsigned> rowIndexRange() const final { return indexRangePairAttributeValue(AXProperty::RowIndexRange); }
     // Returns the start location and column span of the cell.
-    std::pair<unsigned, unsigned> columnIndexRange() const override { return pairAttributeValue<unsigned>(AXPropertyName::ColumnIndexRange); }
-    bool isColumnHeaderCell() const override { return boolAttributeValue(AXPropertyName::IsColumnHeaderCell); }
-    bool isRowHeaderCell() const override { return boolAttributeValue(AXPropertyName::IsRowHeaderCell); }
-    int axColumnIndex() const override { return intAttributeValue(AXPropertyName::AXColumnIndex); }
-    int axRowIndex() const override { return intAttributeValue(AXPropertyName::AXRowIndex); }
+    std::pair<unsigned, unsigned> columnIndexRange() const final { return indexRangePairAttributeValue(AXProperty::ColumnIndexRange); }
+    std::optional<unsigned> axColumnIndex() const final { return optionalAttributeValue<unsigned>(AXProperty::AXColumnIndex); }
+    std::optional<unsigned> axRowIndex() const final { return optionalAttributeValue<unsigned>(AXProperty::AXRowIndex); }
+    String axColumnIndexText() const final { return stringAttributeValueNullIfMissing(AXProperty::AXColumnIndexText); }
+    String axRowIndexText() const final { return stringAttributeValueNullIfMissing(AXProperty::AXRowIndexText); }
+    bool isColumnHeader() const final { return boolAttributeValue(AXProperty::IsColumnHeader); }
+    bool isRowHeader() const final { return boolAttributeValue(AXProperty::IsRowHeader); }
+    String cellScope() const final { return stringAttributeValue(AXProperty::CellScope); }
 
     // Table column support.
-    bool isTableColumn() const override { return boolAttributeValue(AXPropertyName::IsTableColumn); }
-    unsigned columnIndex() const override { return unsignedAttributeValue(AXPropertyName::ColumnIndex); }
-    AXCoreObject* columnHeader() override { return objectAttributeValue(AXPropertyName::ColumnHeader); }
+    unsigned columnIndex() const final { return unsignedAttributeValue(AXProperty::ColumnIndex); }
 
     // Table row support.
-    bool isTableRow() const override { return boolAttributeValue(AXPropertyName::IsTableRow); }
-    unsigned rowIndex() const override { return unsignedAttributeValue(AXPropertyName::RowIndex); }
+    AXCoreObject* parentTable() const final;
+    bool isTableRow() const final;
+    AXCoreObject* parentTableIfExposedTableRow() const final;
+    bool isExposedTableRow() const final { return boolAttributeValue(AXProperty::IsExposedTableRow); }
+    unsigned rowIndex() const final { return unsignedAttributeValue(AXProperty::RowIndex); }
 
     // ARIA tree/grid row support.
-    bool isARIATreeGridRow() const override { return boolAttributeValue(AXPropertyName::IsARIATreeGridRow); }
-    AccessibilityChildrenVector disclosedRows() override { return tree()->objectsForIDs(vectorAttributeValue<AXID>(AXPropertyName::DisclosedRows)); }
-    AXCoreObject* disclosedByRow() const override { return objectAttributeValue(AXPropertyName::DisclosedByRow); }
+    bool isARIATreeGridRow() const final { return boolAttributeValue(AXProperty::IsARIATreeGridRow); }
+    bool isARIAGridRow() const final { return boolAttributeValue(AXProperty::IsARIAGridRow) || isARIATreeGridRow(); }
+    AccessibilityChildrenVector disclosedRows() final { return tree().objectsForIDs(vectorAttributeValue<AXID>(AXProperty::DisclosedRows)); }
+    AXIsolatedObject* disclosedByRow() const final { return objectAttributeValue(AXProperty::DisclosedByRow); }
 
-    bool isFieldset() const override { return boolAttributeValue(AXPropertyName::IsFieldset); }
-    bool isGroup() const override { return boolAttributeValue(AXPropertyName::IsGroup); }
-    bool isMenuList() const override { return boolAttributeValue(AXPropertyName::IsMenuList); }
-    bool isMenuListPopup() const override { return boolAttributeValue(AXPropertyName::IsMenuListPopup); }
-    bool isMenuListOption() const override { return boolAttributeValue(AXPropertyName::IsMenuListOption); }
-    bool isTextControl() const override { return boolAttributeValue(AXPropertyName::IsTextControl); }
-    bool isButton() const override { return boolAttributeValue(AXPropertyName::IsButton); }
-    bool isRangeControl() const override { return boolAttributeValue(AXPropertyName::IsRangeControl); }
-    bool isMeter() const override { return boolAttributeValue(AXPropertyName::IsMeter); }
-    bool isStyleFormatGroup() const override { return boolAttributeValue(AXPropertyName::IsStyleFormatGroup); }
-    bool isOutput() const override { return boolAttributeValue(AXPropertyName::IsOutput); }
-    bool isChecked() const override { return boolAttributeValue(AXPropertyName::IsChecked); }
-    bool isEnabled() const override { return boolAttributeValue(AXPropertyName::IsEnabled); }
-    bool isSelected() const override { return boolAttributeValue(AXPropertyName::IsSelected); }
-    bool isFocused() const override { return boolAttributeValue(AXPropertyName::IsFocused); }
-    bool isMultiSelectable() const override { return boolAttributeValue(AXPropertyName::IsMultiSelectable); }
-    bool isVisited() const override { return boolAttributeValue(AXPropertyName::IsVisited); }
-    bool isRequired() const override { return boolAttributeValue(AXPropertyName::IsRequired); }
-    bool supportsRequiredAttribute() const override { return boolAttributeValue(AXPropertyName::SupportsRequiredAttribute); }
-    bool isExpanded() const override { return boolAttributeValue(AXPropertyName::IsExpanded); }
-    FloatRect relativeFrame() const override;
-    bool supportsDatetimeAttribute() const override { return boolAttributeValue(AXPropertyName::SupportsDatetimeAttribute); }
-    String datetimeAttributeValue() const override { return stringAttributeValue(AXPropertyName::DatetimeAttributeValue); }
-    bool canSetFocusAttribute() const override { return boolAttributeValue(AXPropertyName::CanSetFocusAttribute); }
-    bool canSetTextRangeAttributes() const override { return boolAttributeValue(AXPropertyName::CanSetTextRangeAttributes); }
-    bool canSetValueAttribute() const override { return boolAttributeValue(AXPropertyName::CanSetValueAttribute); }
-    bool canSetNumericValue() const override { return boolAttributeValue(AXPropertyName::CanSetNumericValue); }
-    bool canSetSelectedAttribute() const override { return boolAttributeValue(AXPropertyName::CanSetSelectedAttribute); }
-    bool canSetSelectedChildren() const override { return boolAttributeValue(AXPropertyName::CanSetSelectedChildren); }
-    bool canSetExpandedAttribute() const override { return boolAttributeValue(AXPropertyName::CanSetExpandedAttribute); }
-    bool accessibilityIsIgnored() const override { return boolAttributeValue(AXPropertyName::IsAccessibilityIgnored); }
-    bool isShowingValidationMessage() const override { return boolAttributeValue(AXPropertyName::IsShowingValidationMessage); }
-    String validationMessage() const override { return stringAttributeValue(AXPropertyName::ValidationMessage); }
-    unsigned blockquoteLevel() const override { return unsignedAttributeValue(AXPropertyName::BlockquoteLevel); }
-    int headingLevel() const override { return intAttributeValue(AXPropertyName::HeadingLevel); }
-    AccessibilityButtonState checkboxOrRadioValue() const override { return static_cast<AccessibilityButtonState>(intAttributeValue(AXPropertyName::AccessibilityButtonState)); }
-    String valueDescription() const override { return stringAttributeValue(AXPropertyName::ValueDescription); }
-    float valueForRange() const override { return floatAttributeValue(AXPropertyName::ValueForRange); }
-    float maxValueForRange() const override { return floatAttributeValue(AXPropertyName::MaxValueForRange); }
-    float minValueForRange() const override { return floatAttributeValue(AXPropertyName::MinValueForRange); }
-    AXCoreObject* selectedRadioButton() override { return objectAttributeValue(AXPropertyName::SelectedRadioButton); }
-    AXCoreObject* selectedTabItem() override { return objectAttributeValue(AXPropertyName::SelectedTabItem); }
-    int layoutCount() const override { return intAttributeValue(AXPropertyName::LayoutCount); }
-    double estimatedLoadingProgress() const override { return doubleAttributeValue(AXPropertyName::EstimatedLoadingProgress); }
-    bool supportsARIAOwns() const override { return boolAttributeValue(AXPropertyName::SupportsARIAOwns); }
-    bool isActiveDescendantOfFocusedContainer() const override { return boolAttributeValue(AXPropertyName::IsActiveDescendantOfFocusedContainer); }
-    void ariaControlsElements(AccessibilityChildrenVector& children) const override { fillChildrenVectorForProperty(AXPropertyName::ARIAControlsElements, children); }
-    void ariaDetailsElements(AccessibilityChildrenVector& children) const override { fillChildrenVectorForProperty(AXPropertyName::ARIADetailsElements, children); }
-    void ariaErrorMessageElements(AccessibilityChildrenVector& children) const override { fillChildrenVectorForProperty(AXPropertyName::ARIAErrorMessageElements, children); }
-    void ariaFlowToElements(AccessibilityChildrenVector& children) const override { fillChildrenVectorForProperty(AXPropertyName::ARIAFlowToElements, children); }
-    void ariaOwnsElements(AccessibilityChildrenVector& children) const override { fillChildrenVectorForProperty(AXPropertyName::ARIAOwnsElements, children); }
-    bool hasPopup() const override { return boolAttributeValue(AXPropertyName::HasPopup); }
-    String popupValue() const override { return stringAttributeValue(AXPropertyName::PopupValue); }
-    bool pressedIsPresent() const override { return boolAttributeValue(AXPropertyName::PressedIsPresent); }
-    bool ariaIsMultiline() const override { return boolAttributeValue(AXPropertyName::ARIAIsMultiline); }
-    String invalidStatus() const override { return stringAttributeValue(AXPropertyName::InvalidStatus); }
-    bool supportsExpanded() const override { return boolAttributeValue(AXPropertyName::SupportsExpanded); }
-    AccessibilitySortDirection sortDirection() const override { return static_cast<AccessibilitySortDirection>(intAttributeValue(AXPropertyName::SortDirection)); }
-    bool canvasHasFallbackContent() const override { return boolAttributeValue(AXPropertyName::CanvasHasFallbackContent); }
-    bool supportsRangeValue() const override { return boolAttributeValue(AXPropertyName::SupportsRangeValue); }
-    String identifierAttribute() const override { return stringAttributeValue(AXPropertyName::IdentifierAttribute); }
-    String linkRelValue() const override { return stringAttributeValue(AXPropertyName::LinkRelValue); }
-    void classList(Vector<String>&) const override;
-    AccessibilityCurrentState currentState() const override { return static_cast<AccessibilityCurrentState>(intAttributeValue(AXPropertyName::CurrentState)); }
-    String currentValue() const override { return stringAttributeValue(AXPropertyName::CurrentValue); }
-    bool supportsCurrent() const override { return boolAttributeValue(AXPropertyName::SupportsCurrent); }
-    const String keyShortcutsValue() const override { return stringAttributeValue(AXPropertyName::KeyShortcutsValue); }
-    bool supportsSetSize() const override { return boolAttributeValue(AXPropertyName::SupportsSetSize); }
-    bool supportsPosInSet() const override { return boolAttributeValue(AXPropertyName::SupportsPosInSet); }
-    int setSize() const override { return intAttributeValue(AXPropertyName::SetSize); }
-    int posInSet() const override { return intAttributeValue(AXPropertyName::PosInSet); }
-    bool supportsDropping() const override { return boolAttributeValue(AXPropertyName::SupportsDropping); }
-    bool supportsDragging() const override { return boolAttributeValue(AXPropertyName::SupportsDragging); }
-    bool isGrabbed() override { return boolAttributeValue(AXPropertyName::IsGrabbed); }
-    Vector<String> determineDropEffects() const override { return vectorAttributeValue<String>(AXPropertyName::DropEffects); }
-    AXCoreObject* accessibilityHitTest(const IntPoint&) const override;
-    AXCoreObject* focusedUIElement() const override;
-    AXCoreObject* parentObject() const override { return parentObjectUnignored(); }
-    AXCoreObject* parentObjectUnignored() const override;
-    void linkedUIElements(AccessibilityChildrenVector& children) const override { fillChildrenVectorForProperty(AXPropertyName::LinkedUIElements, children); }
-    AXCoreObject* titleUIElement() const override { return objectAttributeValue(AXPropertyName::TitleUIElement); }
-    AXCoreObject* scrollBar(AccessibilityOrientation) override;
-    AccessibilityRole ariaRoleAttribute() const override { return static_cast<AccessibilityRole>(intAttributeValue(AXPropertyName::ARIARoleAttribute)); }
-    String computedLabel() override { return stringAttributeValue(AXPropertyName::ComputedLabel); }
-    int textLength() const override { return intAttributeValue(AXPropertyName::TextLength); }
-    const String placeholderValue() const override { return stringAttributeValue(AXPropertyName::PlaceholderValue); }
-    String expandedTextValue() const override { return stringAttributeValue(AXPropertyName::ExpandedTextValue); }
-    bool supportsExpandedTextValue() const override { return boolAttributeValue(AXPropertyName::SupportsExpandedTextValue); }
-    SRGBA<uint8_t> colorValue() const override;
-    AccessibilityRole roleValue() const override { return static_cast<AccessibilityRole>(intAttributeValue(AXPropertyName::RoleValue)); }
-    String rolePlatformString() const override { return stringAttributeValue(AXPropertyName::RolePlatformString); }
-    String roleDescription() const override { return stringAttributeValue(AXPropertyName::RoleDescription); }
-    String ariaLandmarkRoleDescription() const override { return stringAttributeValue(AXPropertyName::ARIALandmarkRoleDescription); }
-    bool supportsPressAction() const override { return boolAttributeValue(AXPropertyName::SupportsPressAction); }
-    LayoutRect boundingBoxRect() const override { return rectAttributeValue<LayoutRect>(AXPropertyName::BoundingBoxRect); }
-    LayoutRect elementRect() const override { return rectAttributeValue<LayoutRect>(AXPropertyName::ElementRect); }
-    IntPoint clickPoint() override { return intPointAttributeValue(AXPropertyName::ClickPoint); }
-    void accessibilityText(Vector<AccessibilityText>& texts) const override;
-    String brailleLabel() const override { return stringAttributeValue(AXPropertyName::BrailleLabel); }
-    String brailleRoleDescription() const override { return stringAttributeValue(AXPropertyName::BrailleRoleDescription); }
-    String embeddedImageDescription() const override { return stringAttributeValue(AXPropertyName::EmbeddedImageDescription); }
-    std::optional<AccessibilityChildrenVector> imageOverlayElements() override { return std::nullopt; }
-
-    String computedRoleString() const override { return stringAttributeValue(AXPropertyName::ComputedRoleString); }
-    bool isValueAutofilled() const override { return boolAttributeValue(AXPropertyName::IsValueAutofilled); }
-    bool isValueAutofillAvailable() const override { return boolAttributeValue(AXPropertyName::IsValueAutofillAvailable); }
-    AutoFillButtonType valueAutofillButtonType() const override { return static_cast<AutoFillButtonType>(intAttributeValue(AXPropertyName::ValueAutofillButtonType)); }
-    void ariaTreeRows(AccessibilityChildrenVector& children) override { fillChildrenVectorForProperty(AXPropertyName::ARIATreeRows, children); }
-    void ariaTreeItemContent(AccessibilityChildrenVector& children) override { fillChildrenVectorForProperty(AXPropertyName::ARIATreeItemContent, children); }
-    URL url() const override { return urlAttributeValue(AXPropertyName::URL); }
-    String accessKey() const override { return stringAttributeValue(AXPropertyName::AccessKey); }
-    String actionVerb() const override { return stringAttributeValue(AXPropertyName::ActionVerb); }
-    String readOnlyValue() const override { return stringAttributeValue(AXPropertyName::ReadOnlyValue); }
-    String autoCompleteValue() const override { return stringAttributeValue(AXPropertyName::AutoCompleteValue); }
-    OptionSet<SpeakAs> speakAsProperty() const override { return optionSetAttributeValue<SpeakAs>(AXPropertyName::SpeakAs); }
-    bool isMathElement() const override { return boolAttributeValue(AXPropertyName::IsMathElement); }
-    bool isMathFraction() const override { return boolAttributeValue(AXPropertyName::IsMathFraction); }
-    bool isMathFenced() const override { return boolAttributeValue(AXPropertyName::IsMathFenced); }
-    bool isMathSubscriptSuperscript() const override { return boolAttributeValue(AXPropertyName::IsMathSubscriptSuperscript); }
-    bool isMathRow() const override { return boolAttributeValue(AXPropertyName::IsMathRow); }
-    bool isMathUnderOver() const override { return boolAttributeValue(AXPropertyName::IsMathUnderOver); }
-    bool isMathRoot() const override { return boolAttributeValue(AXPropertyName::IsMathRoot); }
-    bool isMathSquareRoot() const override { return boolAttributeValue(AXPropertyName::IsMathSquareRoot); }
-    bool isMathText() const override { return boolAttributeValue(AXPropertyName::IsMathText); }
-    bool isMathNumber() const override { return boolAttributeValue(AXPropertyName::IsMathNumber); }
-    bool isMathOperator() const override { return boolAttributeValue(AXPropertyName::IsMathOperator); }
-    bool isMathFenceOperator() const override { return boolAttributeValue(AXPropertyName::IsMathFenceOperator); }
-    bool isMathSeparatorOperator() const override { return boolAttributeValue(AXPropertyName::IsMathSeparatorOperator); }
-    bool isMathIdentifier() const override { return boolAttributeValue(AXPropertyName::IsMathIdentifier); }
-    bool isMathTable() const override { return boolAttributeValue(AXPropertyName::IsMathTable); }
-    bool isMathTableRow() const override { return boolAttributeValue(AXPropertyName::IsMathTableRow); }
-    bool isMathTableCell() const override { return boolAttributeValue(AXPropertyName::IsMathTableCell); }
-    bool isMathMultiscript() const override { return boolAttributeValue(AXPropertyName::IsMathMultiscript); }
-    bool isMathToken() const override { return boolAttributeValue(AXPropertyName::IsMathToken); }
-    AXCoreObject* mathRadicandObject() override { return objectAttributeValue(AXPropertyName::MathRadicandObject); }
-    AXCoreObject* mathRootIndexObject() override { return objectAttributeValue(AXPropertyName::MathRootIndexObject); }
-    AXCoreObject* mathUnderObject() override { return objectAttributeValue(AXPropertyName::MathUnderObject); }
-    AXCoreObject* mathOverObject() override { return objectAttributeValue(AXPropertyName::MathOverObject); }
-    AXCoreObject* mathNumeratorObject() override { return objectAttributeValue(AXPropertyName::MathNumeratorObject); }
-    AXCoreObject* mathDenominatorObject() override { return objectAttributeValue(AXPropertyName::MathDenominatorObject); }
-    AXCoreObject* mathBaseObject() override { return objectAttributeValue(AXPropertyName::MathBaseObject); }
-    AXCoreObject* mathSubscriptObject() override { return objectAttributeValue(AXPropertyName::MathSubscriptObject); }
-    AXCoreObject* mathSuperscriptObject() override { return objectAttributeValue(AXPropertyName::MathSuperscriptObject); }
-    String mathFencedOpenString() const override { return stringAttributeValue(AXPropertyName::MathFencedOpenString); }
-    String mathFencedCloseString() const override { return stringAttributeValue(AXPropertyName::MathFencedCloseString); }
-    int mathLineThickness() const override { return intAttributeValue(AXPropertyName::MathLineThickness); }
-    bool isAnonymousMathOperator() const override { return boolAttributeValue(AXPropertyName::IsAnonymousMathOperator); }
-    void mathPrescripts(AccessibilityMathMultiscriptPairs&) override;
-    void mathPostscripts(AccessibilityMathMultiscriptPairs&) override;
-    bool fileUploadButtonReturnsValueInTitle() const override { return boolAttributeValue(AXPropertyName::FileUploadButtonReturnsValueInTitle); }
-    String speechHintAttributeValue() const override { return stringAttributeValue(AXPropertyName::SpeechHint); }
-    String descriptionAttributeValue() const override { return stringAttributeValue(AXPropertyName::Description); }
-    String helpTextAttributeValue() const override { return stringAttributeValue(AXPropertyName::HelpText); }
-    String titleAttributeValue() const override { return stringAttributeValue(AXPropertyName::TitleAttributeValue); }
-#if PLATFORM(MAC)
-    bool caretBrowsingEnabled() const override { return boolAttributeValue(AXPropertyName::CaretBrowsingEnabled); }
+    bool isFieldset() const final { return boolAttributeValue(AXProperty::IsFieldset); }
+    bool isChecked() const final { return boolAttributeValue(AXProperty::IsChecked); }
+    bool isEnabled() const final { return boolAttributeValue(AXProperty::IsEnabled); }
+    bool isSelected() const final { return boolAttributeValue(AXProperty::IsSelected); }
+    bool isFocused() const final;
+    bool isMultiSelectable() const final { return boolAttributeValue(AXProperty::IsMultiSelectable); }
+    bool isVisited() const final { return boolAttributeValue(AXProperty::IsVisited); }
+    bool isRequired() const final { return boolAttributeValue(AXProperty::IsRequired); }
+    bool isExpanded() const final { return boolAttributeValue(AXProperty::IsExpanded); }
+    bool isDescriptionList() const final { return elementName() == ElementName::HTML_dl; }
+    std::optional<InputType::Type> inputType() const final { return optionalAttributeValue<InputType::Type>(AXProperty::InputType); };
+    FloatPoint screenRelativePosition() const final;
+    FloatRect screenRelativeRect() const;
+    IntPoint remoteFrameOffset() const final;
+#if ENABLE(ACCESSIBILITY_LOCAL_FRAME)
+    IntPoint frameScreenPosition() const final;
+    AffineTransform frameScreenTransform() const final;
 #endif
-    AXCoreObject* focusableAncestor() override { return objectAttributeValue(AXPropertyName::FocusableAncestor); }
-    AXCoreObject* editableAncestor() override { return objectAttributeValue(AXPropertyName::EditableAncestor); }
-    AXCoreObject* highestEditableAncestor() override { return objectAttributeValue(AXPropertyName::HighestEditableAncestor); }
-    AccessibilityOrientation orientation() const override { return static_cast<AccessibilityOrientation>(intAttributeValue(AXPropertyName::Orientation)); }
-    unsigned hierarchicalLevel() const override { return unsignedAttributeValue(AXPropertyName::HierarchicalLevel); }
-    String language() const override { return stringAttributeValue(AXPropertyName::Language); }
-    bool canHaveSelectedChildren() const override { return boolAttributeValue(AXPropertyName::CanHaveSelectedChildren); }
-    void selectedChildren(AccessibilityChildrenVector& children) override { fillChildrenVectorForProperty(AXPropertyName::SelectedChildren, children); }
-    void setSelectedChildren(const AccessibilityChildrenVector&) override;
-    void visibleChildren(AccessibilityChildrenVector& children) override { fillChildrenVectorForProperty(AXPropertyName::VisibleChildren, children); }
-    void tabChildren(AccessibilityChildrenVector& children) override { fillChildrenVectorForProperty(AXPropertyName::TabChildren, children); }
-    bool hasARIAValueNow() const override { return boolAttributeValue(AXPropertyName::HasARIAValueNow); }
-    String tagName() const override { return stringAttributeValue(AXPropertyName::TagName); }
-    const AccessibilityChildrenVector& children(bool updateChildrenIfNeeded = true) override;
-    void updateChildrenIfNecessary() override;
-    bool isDetachedFromParent() override;
-    bool supportsLiveRegion(bool = true) const override { return boolAttributeValue(AXPropertyName::SupportsLiveRegion); }
-    bool isInsideLiveRegion(bool = true) const override { return boolAttributeValue(AXPropertyName::IsInsideLiveRegion); }
-    const String liveRegionStatus() const override { return stringAttributeValue(AXPropertyName::LiveRegionStatus); }
-    const String liveRegionRelevant() const override { return stringAttributeValue(AXPropertyName::LiveRegionRelevant); }
-    bool liveRegionAtomic() const override { return boolAttributeValue(AXPropertyName::LiveRegionAtomic); }
-    bool isBusy() const override { return boolAttributeValue(AXPropertyName::IsBusy); }
-    bool isInlineText() const override { return boolAttributeValue(AXPropertyName::IsInlineText); }
-    // Spin button support.
-    AXCoreObject* incrementButton() override { return objectAttributeValue(AXPropertyName::IncrementButton); }
-    AXCoreObject* decrementButton() override { return objectAttributeValue(AXPropertyName::DecrementButton); }
-    bool isIncrementor() const override { return boolAttributeValue(AXPropertyName::IsIncrementor); }
-    AccessibilityChildrenVector documentLinks() override { return tree()->objectsForIDs(vectorAttributeValue<AXID>(AXPropertyName::DocumentLinks)); }
-    bool supportsCheckedState() const override { return boolAttributeValue(AXPropertyName::SupportsCheckedState); }
+    std::optional<IntRect> cachedRelativeFrame() const { return optionalAttributeValue<IntRect>(AXProperty::RelativeFrame); }
+#if PLATFORM(MAC)
+    FloatRect primaryScreenRect() const final;
+#endif
+    IntSize size() const final { return snappedIntRect(LayoutRect(relativeFrame())).size(); }
+    FloatRect relativeFrameFromChildren() const;
+    WallTime dateTimeValue() const final { return propertyValue<WallTime>(AXProperty::DateTimeValue); }
+    DateComponentsType dateTimeComponentsType() const final { return propertyValue<DateComponentsType>(AXProperty::DateTimeComponentsType); }
+    String datetimeAttributeValue() const final { return stringAttributeValue(AXProperty::DatetimeAttributeValue); }
+    bool canSetValueAttribute() const final { return boolAttributeValue(AXProperty::CanSetValueAttribute); }
+    bool canSetSelectedAttribute() const final { return boolAttributeValue(AXProperty::CanSetSelectedAttribute); }
+    AccessibilityButtonState checkboxOrRadioValue() const final { return propertyValue<AccessibilityButtonState>(AXProperty::ButtonState); }
+    String valueDescription() const final { return stringAttributeValue(AXProperty::ValueDescription); }
+    float valueForRange() const final { return floatAttributeValue(AXProperty::ValueForRange); }
+    float maxValueForRange() const final { return floatAttributeValue(AXProperty::MaxValueForRange); }
+    float minValueForRange() const final { return floatAttributeValue(AXProperty::MinValueForRange); }
+    int layoutCount() const final;
+    double loadingProgress() const final { return tree().loadingProgress(); }
+    bool supportsARIAOwns() const final { return boolAttributeValue(AXProperty::SupportsARIAOwns); }
+    AccessibilityPopupValue popupValue() const final { return static_cast<AccessibilityPopupValue>(intAttributeValue(AXProperty::PopupValue)); }
+    bool pressedIsPresent() const final;
+    String explicitInvalidStatus() const final { return stringAttributeValue(AXProperty::ExplicitInvalidStatus); }
+    bool supportsExpanded() const final { return boolAttributeValue(AXProperty::SupportsExpanded); }
+    AccessibilitySortDirection sortDirection() const final { return static_cast<AccessibilitySortDirection>(intAttributeValue(AXProperty::SortDirection)); }
+    String identifierAttribute() const final;
+    String linkRelValue() const final;
+    Vector<String> classList() const final;
+    AccessibilityCurrentState currentState() const final { return static_cast<AccessibilityCurrentState>(intAttributeValue(AXProperty::CurrentState)); }
+    bool supportsCurrent() const final { return boolAttributeValue(AXProperty::SupportsCurrent); }
+    bool supportsKeyShortcuts() const final { return boolAttributeValue(AXProperty::SupportsKeyShortcuts); }
+    String keyShortcuts() const final { return stringAttributeValue(AXProperty::KeyShortcuts); }
+    bool supportsSetSize() const final { return boolAttributeValue(AXProperty::SupportsSetSize); }
+    bool supportsPosInSet() const final { return boolAttributeValue(AXProperty::SupportsPosInSet); }
+    int setSize() const final { return intAttributeValue(AXProperty::SetSize); }
+    int posInSet() const final { return intAttributeValue(AXProperty::PosInSet); }
+    bool supportsDropping() const final { return boolAttributeValue(AXProperty::SupportsDropping); }
+    bool supportsDragging() const final { return boolAttributeValue(AXProperty::SupportsDragging); }
+    bool isGrabbed() final { return boolAttributeValue(AXProperty::IsGrabbed); }
+    bool isHiddenUntilFoundContainer() const final { return boolAttributeValue(AXProperty::IsHiddenUntilFoundContainer); }
+    Vector<String> determineDropEffects() const final;
 
-    String stringValue() const override { return stringAttributeValue(AXPropertyName::StringValue); }
+    RefPtr<AXCoreObject> accessibilityHitTest(const IntPoint&) const final;
+
+    AXIsolatedObject* focusedUIElement() const final
+    {
+        return tree().focusedNode().unsafeGet();
+    }
+    AXIsolatedObject* focusedUIElementInAnyLocalFrame() const final;
+    AXIsolatedObject* internalLinkElement() const final { return objectAttributeValue(AXProperty::InternalLinkElement); }
+    AccessibilityChildrenVector radioButtonGroup() const final { return tree().objectsForIDs(vectorAttributeValue<AXID>(AXProperty::RadioButtonGroupMembers)); }
+    AXIsolatedObject* scrollBar(AccessibilityOrientation) final;
+    const String placeholderValue() const final { return stringAttributeValue(AXProperty::PlaceholderValue); }
+    String abbreviation() const final { return stringAttributeValue(AXProperty::Abbreviation); }
+    SRGBA<uint8_t> colorValue() const final;
+    String subrolePlatformString() const final { return stringAttributeValue(AXProperty::SubrolePlatformString); }
+    String ariaRoleDescription() const final { return stringAttributeValue(AXProperty::ARIARoleDescription); };
+    LayoutRect elementRect() const final;
+    IntPoint clickPoint() final;
+    void accessibilityText(Vector<AccessibilityText>& texts) const final;
+    String brailleLabel() const final { return stringAttributeValue(AXProperty::BrailleLabel); }
+    String brailleRoleDescription() const final { return stringAttributeValue(AXProperty::BrailleRoleDescription); }
+    String embeddedImageDescription() const final { return stringAttributeValue(AXProperty::EmbeddedImageDescription); }
+    std::optional<AccessibilityChildrenVector> imageOverlayElements() final { return std::nullopt; }
+    FloatSize imageDataSize() const final;
+    RefPtr<SharedBuffer> imageData(const AXImageDataParameters&) const final;
+    String extendedDescription() const final { return stringAttributeValue(AXProperty::ExtendedDescription); }
+    String computedRoleString() const final;
+    bool isValueAutofillAvailable() const final { return boolAttributeValue(AXProperty::IsValueAutofillAvailable); }
+    AutoFillButtonType valueAutofillButtonType() const final { return static_cast<AutoFillButtonType>(intAttributeValue(AXProperty::ValueAutofillButtonType)); }
+    URL url() const final { return urlAttributeValue(AXProperty::URL); }
+    String accessKey() const final { return stringAttributeValueNullIfMissing(AXProperty::AccessKey); }
+    String localizedActionVerb() const final { return stringAttributeValue(AXProperty::LocalizedActionVerb); }
+    String actionVerb() const final { return stringAttributeValue(AXProperty::ActionVerb); }
+    String explicitAutoCompleteValue() const final { return stringAttributeValue(AXProperty::ExplicitAutoCompleteValue); }
+    bool isMathElement() const final { return boolAttributeValue(AXProperty::IsMathElement); }
+    bool isMathFraction() const final { return boolAttributeValue(AXProperty::IsMathFraction); }
+    bool isMathFenced() const final { return boolAttributeValue(AXProperty::IsMathFenced); }
+    bool isMathSubscriptSuperscript() const final { return boolAttributeValue(AXProperty::IsMathSubscriptSuperscript); }
+    bool isMathRow() const final { return boolAttributeValue(AXProperty::IsMathRow); }
+    bool isMathUnderOver() const final { return boolAttributeValue(AXProperty::IsMathUnderOver); }
+    bool isMathRoot() const final { return boolAttributeValue(AXProperty::IsMathRoot); }
+    bool isMathSquareRoot() const final { return boolAttributeValue(AXProperty::IsMathSquareRoot); }
+    bool isMathTable() const final { return boolAttributeValue(AXProperty::IsMathTable); }
+    bool isMathTableRow() const final { return boolAttributeValue(AXProperty::IsMathTableRow); }
+    bool isMathTableCell() const final { return boolAttributeValue(AXProperty::IsMathTableCell); }
+    bool isMathMultiscript() const final { return boolAttributeValue(AXProperty::IsMathMultiscript); }
+    bool isMathToken() const final { return boolAttributeValue(AXProperty::IsMathToken); }
+    bool isAnonymousMathOperator() const final { return boolAttributeValue(AXProperty::IsAnonymousMathOperator); }
+    std::optional<AccessibilityChildrenVector> mathRadicand() final;
+    AXIsolatedObject* mathRootIndexObject() final { return objectAttributeValue(AXProperty::MathRootIndexObject); }
+    AXIsolatedObject* mathUnderObject() final { return objectAttributeValue(AXProperty::MathUnderObject); }
+    AXIsolatedObject* mathOverObject() final { return objectAttributeValue(AXProperty::MathOverObject); }
+    AXIsolatedObject* mathNumeratorObject() final { return objectAttributeValue(AXProperty::MathNumeratorObject); }
+    AXIsolatedObject* mathDenominatorObject() final { return objectAttributeValue(AXProperty::MathDenominatorObject); }
+    AXIsolatedObject* mathBaseObject() final { return objectAttributeValue(AXProperty::MathBaseObject); }
+    AXIsolatedObject* mathSubscriptObject() final { return objectAttributeValue(AXProperty::MathSubscriptObject); }
+    AXIsolatedObject* mathSuperscriptObject() final { return objectAttributeValue(AXProperty::MathSuperscriptObject); }
+    String mathFencedOpenString() const final { return stringAttributeValue(AXProperty::MathFencedOpenString); }
+    String mathFencedCloseString() const final { return stringAttributeValue(AXProperty::MathFencedCloseString); }
+    int mathLineThickness() const final { return intAttributeValue(AXProperty::MathLineThickness); }
+    void mathPrescripts(AccessibilityMathMultiscriptPairs&) final;
+    void mathPostscripts(AccessibilityMathMultiscriptPairs&) final;
+#if PLATFORM(COCOA)
+    Style::SpeakAs speakAs() const final { return speakAsAttributeValue(AXProperty::SpeakAs); }
+#endif
+#if PLATFORM(MAC)
+    bool caretBrowsingEnabled() const final { return boolAttributeValue(AXProperty::CaretBrowsingEnabled); }
+    AccessibilityChildrenVector allSortedLiveRegions() const final;
+    AccessibilityChildrenVector allSortedNonRootWebAreas() const final;
+#endif
+    std::optional<AccessibilityOrientation> explicitOrientation() const { return optionalAttributeValue<AccessibilityOrientation>(AXProperty::ExplicitOrientation); }
+    unsigned ariaLevel() const final { return unsignedAttributeValue(AXProperty::ARIALevel); }
+    bool hasExplicitGroupRole() const final { return boolAttributeValue(AXProperty::HasExplicitGroupRole); }
+    unsigned computedHeadingLevel() const final { return unsignedAttributeValue(AXProperty::HeadingLevel); }
+    String language() const final { return stringAttributeValue(AXProperty::Language); }
+    void setSelectedChildren(const AccessibilityChildrenVector&) final;
+    AccessibilityChildrenVector visibleChildren() final { return tree().objectsForIDs(vectorAttributeValue<AXID>(AXProperty::VisibleChildren)); }
+    void setChildrenIDs(Vector<AXID>&&);
+    const String explicitLiveRegionStatus() const final { return stringAttributeValue(AXProperty::ExplicitLiveRegionStatus); }
+    const String explicitLiveRegionRelevant() const final { return stringAttributeValue(AXProperty::ExplicitLiveRegionRelevant); }
+    bool liveRegionAtomic() const final { return boolAttributeValue(AXProperty::LiveRegionAtomic); }
+    bool isBusy() const final { return boolAttributeValue(AXProperty::IsBusy); }
+    bool isInlineText() const final { return boolAttributeValue(AXProperty::IsInlineText); }
+    // Spin button support.
+    AXIsolatedObject* incrementButton() final { return objectAttributeValue(AXProperty::IncrementButton); }
+    AXIsolatedObject* decrementButton() final { return objectAttributeValue(AXProperty::DecrementButton); }
+    AccessibilityChildrenVector documentLinks() final { return tree().objectsForIDs(vectorAttributeValue<AXID>(AXProperty::DocumentLinks)); }
+    bool supportsCheckedState() const final { return boolAttributeValue(AXProperty::SupportsCheckedState); }
+
+    String stringValue() const final;
+    std::optional<String> platformStringValue() const;
 
     // Parameterized attribute retrieval.
-    Vector<SimpleRange> findTextRanges(const AccessibilitySearchTextCriteria&) const override;
-    Vector<String> performTextOperation(AccessibilityTextOperation const&) override;
-    void findMatchingObjects(AccessibilitySearchCriteria*, AccessibilityChildrenVector&) override;
+    Vector<SimpleRange> findTextRanges(const AccessibilitySearchTextCriteria&) const final;
+    Vector<String> performTextOperation(const AccessibilityTextOperation&) final;
 
-    // Attributes retrieved from the root node only so that the data isn't duplicated on each node.
-    uint64_t sessionID() const override;
-    String documentURI() const override;
-    String documentEncoding() const override;
-    bool preventKeyboardDOMEventDispatch() const override;
-
-    // PlainTextRange support.
-    PlainTextRange selectedTextRange() const override;
-    int insertionPointLineNumber() const override;
-    PlainTextRange doAXRangeForLine(unsigned) const override;
-    String doAXStringForRange(const PlainTextRange&) const override;
-    PlainTextRange doAXRangeForPosition(const IntPoint&) const override;
-    PlainTextRange doAXRangeForIndex(unsigned) const override;
-    PlainTextRange doAXStyleRangeForIndex(unsigned) const override;
-    IntRect doAXBoundsForRangeUsingCharacterOffset(const PlainTextRange&) const override;
-    IntRect doAXBoundsForRange(const PlainTextRange&) const override;
-    unsigned doAXLineForIndex(unsigned) override;
-
-    VisibleSelection selection() const override;
-    VisiblePositionRange selectedVisiblePositionRange() const override;
-    void setSelectedVisiblePositionRange(const VisiblePositionRange&) const override;
-
-    // TODO: Text ranges and selection.
-    String selectedText() const override;
-    VisiblePositionRange visiblePositionRange() const override;
-    VisiblePositionRange visiblePositionRangeForLine(unsigned) const override;
-    std::optional<SimpleRange> elementRange() const override;
-    VisiblePositionRange visiblePositionRangeForUnorderedPositions(const VisiblePosition&, const VisiblePosition&) const override;
-    VisiblePositionRange positionOfLeftWord(const VisiblePosition&) const override;
-    VisiblePositionRange positionOfRightWord(const VisiblePosition&) const override;
-    VisiblePositionRange leftLineVisiblePositionRange(const VisiblePosition&) const override;
-    VisiblePositionRange rightLineVisiblePositionRange(const VisiblePosition&) const override;
-    VisiblePositionRange sentenceForPosition(const VisiblePosition&) const override;
-    VisiblePositionRange paragraphForPosition(const VisiblePosition&) const override;
-    VisiblePositionRange styleRangeForPosition(const VisiblePosition&) const override;
-    VisiblePositionRange visiblePositionRangeForRange(const PlainTextRange&) const override;
-    VisiblePositionRange lineRangeForPosition(const VisiblePosition&) const override;
-    std::optional<SimpleRange> rangeForPlainTextRange(const PlainTextRange&) const override;
-#if PLATFORM(MAC)
-    AXTextMarkerRangeRef textMarkerRangeForNSRange(const NSRange&) const override;
+#if PLATFORM(COCOA)
+    bool preventKeyboardDOMEventDispatch() const final { return boolAttributeValue(AXProperty::PreventKeyboardDOMEventDispatch); }
 #endif
-    String stringForRange(const SimpleRange&) const override;
-    IntRect boundsForVisiblePositionRange(const VisiblePositionRange&) const override;
-    IntRect boundsForRange(const SimpleRange&) const override;
-    int lengthForVisiblePositionRange(const VisiblePositionRange&) const override;
-    VisiblePosition visiblePositionForBounds(const IntRect&, AccessibilityVisiblePositionForBounds) const override;
-    VisiblePosition visiblePositionForPoint(const IntPoint&) const override;
-    VisiblePosition nextVisiblePosition(const VisiblePosition&) const override;
-    VisiblePosition previousVisiblePosition(const VisiblePosition&) const override;
-    VisiblePosition nextWordEnd(const VisiblePosition&) const override;
-    VisiblePosition previousWordStart(const VisiblePosition&) const override;
-    VisiblePosition nextLineEndPosition(const VisiblePosition&) const override;
-    VisiblePosition previousLineStartPosition(const VisiblePosition&) const override;
-    VisiblePosition nextSentenceEndPosition(const VisiblePosition&) const override;
-    VisiblePosition previousSentenceStartPosition(const VisiblePosition&) const override;
-    VisiblePosition nextParagraphEndPosition(const VisiblePosition&) const override;
-    VisiblePosition previousParagraphStartPosition(const VisiblePosition&) const override;
-    VisiblePosition visiblePositionForIndex(unsigned, bool lastIndexOK) const override;
-    VisiblePosition visiblePositionForIndex(int) const override;
-    int indexForVisiblePosition(const VisiblePosition&) const override;
-    AXCoreObject* accessibilityObjectForPosition(const VisiblePosition&) const override;
-    int lineForPosition(const VisiblePosition&) const override;
-    PlainTextRange plainTextRangeForVisiblePositionRange(const VisiblePositionRange&) const override;
-    int index(const VisiblePosition&) const override;
-    void lineBreaks(Vector<int>&) const override;
+
+    // CharacterRange support.
+    CharacterRange selectedTextRange() const final { return propertyValue<CharacterRange>(AXProperty::SelectedTextRange); }
+    int insertionPointLineNumber() const final;
+    CharacterRange doAXRangeForLine(unsigned) const final;
+    String doAXStringForRange(const CharacterRange&) const final;
+    CharacterRange characterRangeForPoint(const IntPoint&) const final;
+    CharacterRange doAXRangeForIndex(unsigned) const final;
+    CharacterRange doAXStyleRangeForIndex(unsigned) const final;
+    IntRect doAXBoundsForRangeUsingCharacterOffset(const CharacterRange&) const final;
+    IntRect doAXBoundsForRange(const CharacterRange&) const final;
+    unsigned doAXLineForIndex(unsigned) final;
+
+    VisibleSelection selection() const final;
+    void setSelectedVisiblePositionRange(const VisiblePositionRange&) const final;
+
+    std::optional<SimpleRange> simpleRange() const final;
+    VisiblePositionRange visiblePositionRange() const final;
+
+    String selectedText() const final;
+    VisiblePositionRange visiblePositionRangeForLine(unsigned) const final;
+    VisiblePositionRange visiblePositionRangeForUnorderedPositions(const VisiblePosition&, const VisiblePosition&) const final;
+    VisiblePositionRange leftLineVisiblePositionRange(const VisiblePosition&) const final;
+    VisiblePositionRange rightLineVisiblePositionRange(const VisiblePosition&) const final;
+    VisiblePositionRange styleRangeForPosition(const VisiblePosition&) const final;
+    VisiblePositionRange lineRangeForPosition(const VisiblePosition&) const final;
+    std::optional<SimpleRange> rangeForCharacterRange(const CharacterRange&) const final;
+#if PLATFORM(COCOA)
+    AXTextMarkerRange textMarkerRangeForNSRange(const NSRange&) const final;
+#endif
+#if PLATFORM(MAC)
+    AXTextMarkerRange selectedTextMarkerRange() const final;
+#endif
+    IntRect boundsForRange(const SimpleRange&) const final;
+    VisiblePosition visiblePositionForPoint(const IntPoint&) const final;
+    VisiblePosition nextLineEndPosition(const VisiblePosition&) const final;
+    VisiblePosition previousLineStartPosition(const VisiblePosition&) const final;
+    VisiblePosition visiblePositionForIndex(unsigned, bool lastIndexOK) const final;
+    VisiblePosition visiblePositionForIndex(int) const final;
+    int indexForVisiblePosition(const VisiblePosition&) const final;
+    int lineForPosition(const VisiblePosition&) const final;
 
     // Attribute setters.
-    void setARIAGrabbed(bool) override;
-    void setIsExpanded(bool) override;
-    bool setValue(float) override;
-    void setSelected(bool) override;
-    void setSelectedRows(AccessibilityChildrenVector&) override;
-    void setFocused(bool) override;
-    void setSelectedText(const String&) override;
-    void setSelectedTextRange(const PlainTextRange&) override;
-    bool setValue(const String&) override;
+    void setARIAGrabbed(bool) final;
+    void setIsExpanded(bool) final;
+    bool setValue(float) final;
+    void setValueIgnoringResult(float) final;
+    void setSelected(bool) final;
+    void setSelectedRows(AccessibilityChildrenVector&&) final;
+    void setFocused(bool) final;
+    void setSelectedText(const String&) final;
+    void setSelectedTextRange(CharacterRange&&) final;
+    bool setValue(const String&) final;
+    void setValueIgnoringResult(const String&) final;
 #if PLATFORM(MAC)
-    void setCaretBrowsingEnabled(bool) override;
+    void setCaretBrowsingEnabled(bool) final;
 #endif
-    void setPreventKeyboardDOMEventDispatch(bool) override;
+#if PLATFORM(COCOA)
+    void setPreventKeyboardDOMEventDispatch(bool) final;
+    std::optional<NSRange> visibleCharacterRange() const final;
+#endif
 
-    String textUnderElement(AccessibilityTextUnderElementMode = AccessibilityTextUnderElementMode()) const override;
-    std::optional<SimpleRange> misspellingRange(const SimpleRange&, AccessibilitySearchDirection) const override;
-    FloatRect convertFrameToSpace(const FloatRect&, AccessibilityConversionSpace) const override;
-    void increment() override;
-    void decrement() override;
-    bool performDismissAction() override;
-    void scrollToMakeVisible() const override;
-    void scrollToMakeVisibleWithSubFocus(const IntRect&) const override;
-    void scrollToGlobalPoint(const IntPoint&) const override;
-    bool replaceTextInRange(const String&, const PlainTextRange&) override;
-    bool insertText(const String&) override;
-    void makeRangeVisible(const PlainTextRange&) override;
-    bool press() override;
-    bool performDefaultAction() override;
+    String textUnderElement(TextUnderElementMode = { }) const final;
+    std::optional<SimpleRange> misspellingRange(const SimpleRange&, AccessibilitySearchDirection) const final;
+    FloatRect convertFrameToSpace(const FloatRect&, AccessibilityConversionSpace) const final;
+    void increment() final;
+    void decrement() final;
+    void syncIncrement() final;
+    void syncDecrement() final;
+    bool performDismissAction() final;
+    void performDismissActionIgnoringResult() final;
+    void scrollToMakeVisible() const final;
+    void scrollToMakeVisibleWithSubFocus(IntRect&&) const final;
+    void scrollToGlobalPoint(IntPoint&&) const final;
+    bool replaceTextInRange(const String&, const CharacterRange&) final;
+    bool insertText(const String&) final;
+    bool press() final;
+    bool syncPress() final;
+
+    bool isAccessibilityObject() const final { return false; }
 
     // Functions that should never be called on an isolated tree object. ASSERT that these are not reached;
-    bool isAccessibilityObject() const override;
-    bool isAccessibilityNodeObject() const override;
-    bool isAccessibilityRenderObject() const override;
-    bool isAccessibilityScrollbar() const override;
-    bool isAccessibilityScrollViewInstance() const override;
-    bool isAXImageInstance() const override;
-    bool isAccessibilitySVGRoot() const override;
-    bool isAccessibilitySVGElement() const override;
-    bool isAccessibilityTableInstance() const override;
-    bool isAccessibilityTableColumnInstance() const override;
-    bool isAccessibilityProgressIndicatorInstance() const override;
-    bool isAccessibilityListBoxInstance() const override;
+    bool isAccessibilityRenderObject() const final;
+    bool isAccessibilityNodeObject() const final;
+    bool isAXLocalFrame() const final { return false; }
+    bool isAXRemoteFrame() const final { return false; }
+    bool isNativeTextControl() const final;
+    bool isMockObject() const final;
+    bool isNonNativeTextControl() const final;
+    bool isIndeterminate() const final { return boolAttributeValue(AXProperty::IsIndeterminate); }
+    bool isLoaded() const final { return loadingProgress() >= 1; }
+    bool isOnScreen() const final;
+    bool isOffScreen() const final;
+    bool isPressed() const final;
+    bool isNonLayerSVGObject() const { return boolAttributeValue(AXProperty::IsNonLayerSVGObject); }
+    // FIXME: isVisible should be accurate for all objects, not just widgets, on COCOA.
+    bool isVisible() const final { return boolAttributeValue(AXProperty::IsVisible); }
+    bool isSelectedOptionActive() const final;
+    bool hasBoldFont() const final { return boolAttributeValue(AXProperty::HasBoldFont); }
+    bool hasItalicFont() const final { return boolAttributeValue(AXProperty::HasItalicFont); }
+    Vector<AXTextMarkerRange> misspellingRanges() const final;
+    bool hasPlainText() const final { return boolAttributeValue(AXProperty::HasPlainText); }
+    bool hasSameFont(AXCoreObject&) final;
+    bool hasSameFontColor(AXCoreObject&) final;
+    bool hasSameStyle(AXCoreObject&) final;
+    bool hasUnderline() const final { return colorAttributeValue(AXProperty::UnderlineColor) != Accessibility::defaultColor(); }
+    AXTextMarkerRange textInputMarkedTextMarkerRange() const final;
+    Element* element() const final;
+    Node* NODELETE node() const final;
+    RenderObject* renderer() const final;
 
-    bool isAttachmentElement() const override;
-    bool isNativeImage() const override;
-    bool isImageButton() const override;
-    bool isContainedByPasswordField() const override;
-    AXCoreObject* passwordFieldOrContainingPasswordField() override;
-    bool isNativeTextControl() const override;
-    bool isListBoxOption() const override;
-    bool isSliderThumb() const override;
-    bool isInputSlider() const override;
-    bool isLabel() const override;
-    bool isImageMapLink() const override;
-    bool isNativeSpinButton() const override;
-    bool isSpinButtonPart() const override;
-    bool isMockObject() const override;
-    bool isMediaObject() const override;
-    bool isARIATextControl() const override;
-    bool isNonNativeTextControl() const override;
-    bool isFigureElement() const override;
-    bool isHovered() const override;
-    bool isIndeterminate() const override;
-    bool isLoaded() const override { return boolAttributeValue(AXPropertyName::IsLoaded); }
-    bool isOnScreen() const override;
-    bool isOffScreen() const override;
-    bool isPressed() const override;
-    bool isUnvisited() const override { return boolAttributeValue(AXPropertyName::IsUnvisited); }
-    bool isLinked() const override;
-    bool isVisible() const override { return boolAttributeValue(AXPropertyName::IsVisible); }
-    bool isCollapsed() const override;
-    bool isSelectedOptionActive() const override;
-    bool hasBoldFont() const override { return boolAttributeValue(AXPropertyName::HasBoldFont); }
-    bool hasItalicFont() const override { return boolAttributeValue(AXPropertyName::HasItalicFont); }
-    bool hasMisspelling() const override;
-    bool hasPlainText() const override { return boolAttributeValue(AXPropertyName::HasPlainText); }
-    bool hasSameFont(const AXCoreObject&) const override;
-    bool hasSameFontColor(const AXCoreObject&) const override;
-    bool hasSameStyle(const AXCoreObject&) const override;
-    bool hasUnderline() const override { return boolAttributeValue(AXPropertyName::HasUnderline); }
-    bool hasHighlighting() const override { return boolAttributeValue(AXPropertyName::HasHighlighting); }
-    Element* element() const override;
-    Node* node() const override;
-    RenderObject* renderer() const override;
-    AccessibilityObjectInclusion defaultObjectInclusion() const override;
-    bool accessibilityIsIgnoredByDefault() const override;
-    float stepValueForRange() const override;
-    AXCoreObject* selectedListItem() override;
-    void ariaActiveDescendantReferencingElements(AccessibilityChildrenVector&) const override;
-    void ariaControlsReferencingElements(AccessibilityChildrenVector&) const override;
-    void ariaDescribedByElements(AccessibilityChildrenVector&) const override;
-    void ariaDescribedByReferencingElements(AccessibilityChildrenVector&) const override;
-    void ariaDetailsReferencingElements(AccessibilityChildrenVector&) const override;
-    void ariaErrorMessageReferencingElements(AccessibilityChildrenVector&) const override;
-    void ariaFlowToReferencingElements(AccessibilityChildrenVector&) const override;
-    void ariaLabelledByElements(AccessibilityChildrenVector&) const override;
-    void ariaLabelledByReferencingElements(AccessibilityChildrenVector&) const override;
-    void ariaOwnsReferencingElements(AccessibilityChildrenVector&) const override;
-    bool hasDatalist() const override;
-    bool supportsHasPopup() const override;
-    bool supportsPressed() const override;
-    bool supportsChecked() const override;
-    bool supportsRowCountChange() const override { return boolAttributeValue(AXPropertyName::SupportsRowCountChange); }
-    bool ignoredFromModalPresence() const override;
-    bool isModalDescendant(Node*) const override;
-    bool isModalNode() const override;
-    AXCoreObject* elementAccessibilityHitTest(const IntPoint&) const override;
-    AXCoreObject* firstChild() const override;
-    AXCoreObject* lastChild() const override;
-    AXCoreObject* previousSibling() const override { return objectAttributeValue(AXPropertyName::PreviousSibling); }
-    AXCoreObject* nextSibling() const override { return objectAttributeValue(AXPropertyName::NextSibling); }
-    AXCoreObject* nextSiblingUnignored(int limit) const override;
-    AXCoreObject* previousSiblingUnignored(int limit) const override;
-    AXCoreObject* parentObjectIfExists() const override;
-    bool isDescendantOfBarrenParent() const override;
-    bool isDescendantOfRole(AccessibilityRole) const override;
-    AXCoreObject* observableObject() const override;
-    AXCoreObject* correspondingLabelForControlElement() const override;
-    AXCoreObject* correspondingControlForLabelElement() const override;
-    bool isPresentationalChildOfAriaRole() const override;
-    bool ariaRoleHasPresentationalChildren() const override;
-    bool inheritsPresentationalRole() const override;
-    void setAccessibleName(const AtomString&) override;
-    bool hasAttributesRequiredForInclusion() const override;
-    String accessibilityDescription() const override { return stringAttributeValue(AXPropertyName::AccessibilityDescription); }
-    String title() const override { return stringAttributeValue(AXPropertyName::Title); }
-    String helpText() const override;
-    bool isARIAStaticText() const override;
-    String text() const override;
-    String ariaLabeledByAttribute() const override;
-    String ariaDescribedByAttribute() const override;
-    bool accessibleNameDerivesFromContent() const override;
-    void elementsFromAttribute(Vector<Element*>&, const QualifiedName&) const override;
-    AXObjectCache* axObjectCache() const override;
-    Element* anchorElement() const override;
-    Element* actionElement() const override;
-    Path elementPath() const override { return pathAttributeValue(AXPropertyName::Path); };
-    bool supportsPath() const override { return boolAttributeValue(AXPropertyName::SupportsPath); }
-    TextIteratorBehaviors textIteratorBehaviorForTextRange() const override;
-    Widget* widget() const override;
-    PlatformWidget platformWidget() const override;
-    
-    HashMap<String, AXEditingStyleValueVariant> resolvedEditingStyles() const override;
+    AccessibilityChildrenVector relatedObjects(AXRelation) const final;
+
+    bool supportsHasPopup() const final;
+    bool supportsChecked() const final;
+    bool isModalNode() const final;
+    bool isDescendantOfRole(AccessibilityRole) const final;
+    bool inheritsPresentationalRole() const final;
+    void setAccessibleName(const AtomString&) final;
+
+    String textContentPrefixFromListMarker() const final;
+    String webAreaTitle() const final { return stringAttributeValue(AXProperty::WebAreaTitle); }
+    String titleAttribute() const final { return stringAttributeValue(AXProperty::TitleAttribute); }
+
+    std::optional<String> textContent() const final;
+    std::optional<AXStitchGroup> stitchGroup(IncludeGroupMembers = IncludeGroupMembers::Yes) const final;
+    const Vector<AXStitchGroup>* stitchGroupsView() const;
+
+    String text() const final;
+    unsigned textLength() const final;
+    String revealableText() const final { return stringAttributeValue(AXProperty::RevealableText); }
 #if PLATFORM(COCOA)
-    RemoteAXObjectRef remoteParentObject() const override;
-    FloatRect convertRectToPlatformSpace(const FloatRect&, AccessibilityConversionSpace) const override;
+    RetainPtr<NSAttributedString> attributedStringForTextMarkerRange(AXTextMarkerRange&&, SpellCheck) const final;
 #endif
-    Widget* widgetForAttachmentView() const override;
-    Page* page() const override;
-    Document* document() const override;
-    FrameView* documentFrameView() const override;
-    Frame* frame() const override;
-    Frame* mainFrame() const override;
-    Document* topDocument() const override;
-    ScrollView* scrollView() const override;
-    ScrollView* scrollViewAncestor() const override;
-    void childrenChanged() override;
-    void updateAccessibilityRole() override;
-    void addChildren() override;
-    void addChild(AXCoreObject*) override;
-    void insertChild(AXCoreObject*, unsigned) override;
-    bool canHaveChildren() const override;
-    bool hasChildren() const override { return boolAttributeValue(AXPropertyName::HasChildren); }
-    void setNeedsToUpdateChildren() override;
-    void setNeedsToUpdateSubtree() override;
-    void clearChildren() override;
-    bool needsToUpdateChildren() const override;
-    void detachFromParent() override;
-    bool shouldFocusActiveDescendant() const override;
-    AXCoreObject* activeDescendant() const override;
-    void handleActiveDescendantChanged() override;
-    AXCoreObject* firstAnonymousBlockChild() const override;
-    bool hasAttribute(const QualifiedName&) const override;
-    const AtomString& getAttribute(const QualifiedName&) const override;
-    bool hasTagName(const QualifiedName&) const override;
-    String stringValueForMSAA() const override;
-    String stringRoleForMSAA() const override;
-    String nameForMSAA() const override;
-    String descriptionForMSAA() const override;
-    AccessibilityRole roleValueForMSAA() const override;
-    String passwordFieldValue() const override;
-    AXCoreObject* liveRegionAncestor(bool excludeIfOff = true) const override;
-    bool hasContentEditableAttributeSet() const override;
-    bool supportsReadOnly() const override;
-    bool supportsAutoComplete() const override;
-    bool supportsARIAAttributes() const override;
-    bool scrollByPage(ScrollByPageDirection) const override;
-    IntPoint scrollPosition() const override;
-    IntSize scrollContentsSize() const override;
-    IntRect scrollVisibleContentRect() const override;
-    void scrollToMakeVisible(const ScrollRectToVisibleOptions&) const override;
-    bool lastKnownIsIgnoredValue() override;
-    void setLastKnownIsIgnoredValue(bool) override;
-    void notifyIfIgnoredValueChanged() override;
-    bool isMathScriptObject(AccessibilityMathScriptObjectType) const override;
-    bool isMathMultiscriptObject(AccessibilityMathMultiscriptObjectType) const override;
-    bool isAXHidden() const override;
-    bool isDOMHidden() const override;
-    bool isHidden() const override;
-    void overrideAttachmentParent(AXCoreObject* parent) override;
-    bool accessibilityIgnoreAttachment() const override;
-    AccessibilityObjectInclusion accessibilityPlatformIncludesObject() const override;
-    bool hasApplePDFAnnotationAttribute() const override { return boolAttributeValue(AXPropertyName::HasApplePDFAnnotationAttribute); }
-    const AccessibilityScrollView* ancestorAccessibilityScrollView(bool includeSelf) const override;
-    AXCoreObject* webAreaObject() const override { return objectAttributeValue(AXPropertyName::WebArea); }
-    void setIsIgnoredFromParentData(AccessibilityIsIgnoredFromParentData&) override;
-    void clearIsIgnoredFromParentData() override;
-    void setIsIgnoredFromParentDataForChild(AXCoreObject*) override;
+    AXObjectCache* NODELETE axObjectCache() const;
+    Element* actionElement() const final;
+    Path elementPath() const final;
+    bool supportsPath() const final;
 
-    void updateBackingStore() override;
-
-    String innerHTML() const override;
-    String outerHTML() const override;
-
-    RefPtr<AXIsolatedTree> m_cachedTree;
-    AXID m_parentID { InvalidAXID };
-    AXID m_id { InvalidAXID };
-    Vector<AXID> m_childrenIDs;
-    Vector<RefPtr<AXCoreObject>> m_children;
-    AXPropertyMap m_propertyMap;
+    bool isWidget() const final
+    {
+        // Plugins are a widget subclass.
+        return boolAttributeValue(AXProperty::IsPlugin) || boolAttributeValue(AXProperty::IsWidget);
+    }
+    Widget* widget() const final;
+    PlatformWidget platformWidget() const final;
+    Widget* widgetForAttachmentView() const final;
+    bool isPlugin() const final { return boolAttributeValue(AXProperty::IsPlugin); }
 
 #if PLATFORM(COCOA)
-    RetainPtr<NSView> m_platformWidget;
-    RetainPtr<RemoteAXObjectRef> m_remoteParent;
-#else
+    RetainPtr<RemoteAXObjectRef> remoteParent() const final;
+    FloatRect convertRectToPlatformSpace(const FloatRect&, AccessibilityConversionSpace) const final;
+#endif
+    Page* page() const final;
+    Document* document() const final;
+    LocalFrameView* documentFrameView() const final;
+    void detachFromParent() final;
+
+    bool isInDescriptionListTerm() const final;
+
+    String nameAttribute() const final { return stringAttributeValue(AXProperty::NameAttribute); }
+    bool hasElementName(ElementName name) const final { return elementName() == name; };
+    ElementName elementName() const final { return propertyValue<ElementName>(AXProperty::ElementName); }
+#if PLATFORM(COCOA)
+    bool hasApplePDFAnnotationAttribute() const final { return boolAttributeValue(AXProperty::HasApplePDFAnnotationAttribute); }
+    RetainPtr<id> remoteFramePlatformElement() const final;
+    pid_t remoteFramePID() const final { return propertyValue<pid_t>(AXProperty::RemoteFrameProcessIdentifier); }
+    std::optional<FrameIdentifier> remoteFrameID() const final { return optionalAttributeValue<FrameIdentifier>(AXProperty::RemoteFrameID); }
+#endif
+    bool hasRemoteFrameChild() const final { return boolAttributeValue(AXProperty::HasRemoteFrameChild); }
+
+#if ENABLE(MODEL_ELEMENT_ACCESSIBILITY)
+    ModelPlayerAccessibilityChildren modelElementChildren() final;
+#endif
+
+    void updateBackingStore() final;
+
+    String innerHTML() const final;
+    String outerHTML() const final;
+
+#if ASSERT_ENABLED
+    void verifyChildrenIndexInParent() const final { return AXCoreObject::verifyChildrenIndexInParent(m_children); }
+#endif
+
+    class MainThreadContext {
+    // Contains context necessary to get an AXIsolatedObject's main-thread equivalent AccessibilityObject.
+
+    public:
+        MainThreadContext() = delete;
+
+        explicit MainThreadContext(Ref<AXIsolatedTree>&& tree, AXID axID)
+            : m_tree(WTF::move(tree))
+            , m_axID(axID)
+        { }
+
+        RefPtr<AccessibilityObject> axObjectOnMainThread() const
+        {
+            AX_ASSERT(isMainThread());
+
+            CheckedPtr cache = m_tree->axObjectCache();
+            return cache ? cache->objectForID(m_axID) : nullptr;
+        }
+
+    private:
+        // Ref'ing AXIsolatedTree is OK because AXIsolatedTree is ThreadSafeRefCounted.
+        const Ref<AXIsolatedTree> m_tree;
+        // The object ID to hydrate into an AccessibilityObject on the main-thread.
+        AXID m_axID;
+    }; // class MainThreadContext
+
+    MainThreadContext mainThreadContext() const { return MainThreadContext { tree(), objectID() }; }
+
+    // IDs that haven't been resolved into actual objects in m_children.
+    FixedVector<AXID> m_unresolvedChildrenIDs;
+    Vector<Ref<AXCoreObject>> m_children;
+    AXPropertyVector m_properties;
+
+    // FIXME: Make this a ThreadSafeWeakPtr<AXIsolatedTree>.
+    const Ref<AXIsolatedTree> m_tree;
+    Markable<AXID> m_parentID;
+
+    OptionSet<AXPropertyFlag> m_propertyFlags;
+
+#if !PLATFORM(COCOA)
     PlatformWidget m_platformWidget;
 #endif
 };
+
+void appendPlatformProperties(AXPropertyVector&, OptionSet<AXPropertyFlag>&, const Ref<AccessibilityObject>&);
+void appendBasePlatformProperties(AXPropertyVector&, OptionSet<AXPropertyFlag>&, const Ref<AccessibilityObject>&);
+
+template<typename T>
+inline T AXIsolatedObject::propertyValue(AXProperty property) const
+{
+    size_t index = indexOfProperty(property);
+    if (index == notFound)
+        return { };
+
+    return WTF::switchOn(m_properties[index].second,
+        [] (const T& typedValue) { return typedValue; },
+        [] (auto&) { AX_ASSERT_NOT_REACHED();
+            return T(); }
+    );
+}
+
+inline void AXIsolatedObject::setPropertyFlag(AXPropertyFlag flag, bool set)
+{
+    if (set)
+        m_propertyFlags.add(flag);
+    else
+        m_propertyFlags.remove(flag);
+}
+
+inline bool AXIsolatedObject::hasPropertyFlag(AXPropertyFlag flag) const
+{
+    return m_propertyFlags.contains(flag);
+}
+
+inline bool AXIsolatedObject::hasPropertyFlag(AXProperty property) const
+{
+    AX_ASSERT(static_cast<uint16_t>(property) <= lastPropertyFlagIndex);
+    uint16_t propertyIndex = static_cast<uint16_t>(property);
+    return hasPropertyFlag(static_cast<AXPropertyFlag>(1 << propertyIndex));
+}
+
+bool isDefaultValue(AXProperty, AXPropertyValueVariant&);
 
 } // namespace WebCore
 

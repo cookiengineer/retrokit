@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,110 +26,128 @@
 
 #pragma once
 
-#include "ActiveDOMObject.h"
-#include "EventTarget.h"
-#include "ExceptionOr.h"
-#include "MessagePortChannel.h"
-#include "MessagePortIdentifier.h"
-#include "MessageWithMessagePorts.h"
+#include <WebCore/ActiveDOMObject.h>
+#include <WebCore/EventTarget.h>
+#include <WebCore/EventTargetInterfaces.h>
+#include <WebCore/MessagePortChannel.h>
+#include <WebCore/MessagePortIdentifier.h>
+#include <WebCore/MessageWithMessagePorts.h>
+#include <wtf/Deque.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/WeakPtr.h>
 
 namespace JSC {
 class CallFrame;
+class JSGlobalObject;
 class JSObject;
 class JSValue;
 }
 
 namespace WebCore {
 
-class Frame;
+class JSDOMGlobalObject;
+class LocalFrame;
+class SerializedScriptValue;
+class WebCoreOpaqueRoot;
 
 struct StructuredSerializeOptions;
 
-class MessagePort final : public ActiveDOMObject, public EventTargetWithInlineData {
+template<typename> class ExceptionOr;
+
+class MessagePort final : public ActiveDOMObject, public EventTarget, public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<MessagePort> {
     WTF_MAKE_NONCOPYABLE(MessagePort);
-    WTF_MAKE_ISO_ALLOCATED(MessagePort);
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(MessagePort, WEBCORE_EXPORT);
 public:
     static Ref<MessagePort> create(ScriptExecutionContext&, const MessagePortIdentifier& local, const MessagePortIdentifier& remote);
-    virtual ~MessagePort();
+    WEBCORE_EXPORT virtual ~MessagePort();
+
+    // ActiveDOMObject.
+    void ref() const final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::ref(); }
+    void deref() const final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::deref(); }
+    USING_CAN_MAKE_WEAKPTR(EventTarget);
 
     ExceptionOr<void> postMessage(JSC::JSGlobalObject&, JSC::JSValue message, StructuredSerializeOptions&&);
+    ExceptionOr<void> postMessage(JSC::JSGlobalObject&, JSC::JSValue message, Vector<JSC::Strong<JSC::JSObject>>&&);
 
     void start();
     void close();
     void entangle();
 
-    // Returns nullptr if the passed-in vector is empty.
-    static ExceptionOr<TransferredMessagePortArray> disentanglePorts(Vector<RefPtr<MessagePort>>&&);
-    static Vector<RefPtr<MessagePort>> entanglePorts(ScriptExecutionContext&, TransferredMessagePortArray&&);
+    using MessageHandler = Function<void(JSDOMGlobalObject&, SerializedScriptValue&)>;
+    void setMessageHandler(MessageHandler&&);
 
-    WEBCORE_EXPORT static bool isExistingMessagePortLocallyReachable(const MessagePortIdentifier&);
+    // Returns nullptr if the passed-in vector is empty.
+    static ExceptionOr<Vector<TransferredMessagePort>> disentanglePorts(Vector<Ref<MessagePort>>&&);
+    static Vector<Ref<MessagePort>> entanglePorts(ScriptExecutionContext&, Vector<TransferredMessagePort>&&);
+
+    WEBCORE_EXPORT static bool isMessagePortAliveForTesting(const MessagePortIdentifier&);
     WEBCORE_EXPORT static void notifyMessageAvailable(const MessagePortIdentifier&);
+    WEBCORE_EXPORT static void notifyAllConnectionsClosed();
 
     WEBCORE_EXPORT void messageAvailable();
-    bool started() const { return m_started; }
-    bool closed() const { return m_closed; }
+    bool isStarted() const { return m_state == State::Started; }
+    bool isDetached() const { return m_state == State::Disentangled; }
 
     void dispatchMessages();
 
     // Returns null if there is no entangled port, or if the entangled port is run by a different thread.
     // This is used solely to enable a GC optimization. Some platforms may not be able to determine ownership
     // of the remote port (since it may live cross-process) - those platforms may always return null.
-    MessagePort* locallyEntangledPort() const;
+    MessagePort* NODELETE locallyEntangledPort() const;
 
-    const MessagePortIdentifier& identifier() const { return m_identifier; }
-    const MessagePortIdentifier& remoteIdentifier() const { return m_remoteIdentifier; }
+    const MessagePortIdentifier& identifier() const LIFETIME_BOUND { return m_identifier; }
+    const MessagePortIdentifier& remoteIdentifier() const LIFETIME_BOUND { return m_remoteIdentifier; }
 
-    WEBCORE_EXPORT void ref() const;
-    WEBCORE_EXPORT void deref() const;
-
-    WEBCORE_EXPORT bool isLocallyReachable() const;
-
-    // EventTargetWithInlineData.
-    EventTargetInterface eventTargetInterface() const final { return MessagePortEventTargetInterfaceType; }
-    ScriptExecutionContext* scriptExecutionContext() const final { return ActiveDOMObject::scriptExecutionContext(); }
+    // EventTarget.
+    enum EventTargetInterfaceType eventTargetInterface() const final { return EventTargetInterfaceType::MessagePort; }
+    ScriptExecutionContext* scriptExecutionContext() const final;
     void refEventTarget() final { ref(); }
     void derefEventTarget() final { deref(); }
 
     void dispatchEvent(Event&) final;
 
     TransferredMessagePort disentangle();
+    // FIXME: remove lenientDisentangle() after fixing its call sites - it only exists to
+    // avoid tripping an assert when trying to disentangle an already closed port
+    TransferredMessagePort lenientDisentangle();
     static Ref<MessagePort> entangle(ScriptExecutionContext&, TransferredMessagePort&&);
 
+    // Short-circuits message delivery for same-context ports. Should only be used for
+    // ports that have never been shippped, to avoid potential message reordering.
+    static void NODELETE entangleLocally(MessagePort&, MessagePort&);
+
 private:
-    explicit MessagePort(ScriptExecutionContext&, const MessagePortIdentifier& local, const MessagePortIdentifier& remote);
+    MessagePort(ScriptExecutionContext&, const MessagePortIdentifier& local, const MessagePortIdentifier& remote);
 
     bool addEventListener(const AtomString& eventType, Ref<EventListener>&&, const AddEventListenerOptions&) final;
+    using EventTarget::addEventListener;
     bool removeEventListener(const AtomString& eventType, EventListener&, const EventListenerOptions&) final;
+    void drainOneLocalMessage();
 
-    // ActiveDOMObject
-    const char* activeDOMObjectName() const final;
+    // ActiveDOMObject.
     void contextDestroyed() final;
     void stop() final { close(); }
     bool virtualHasPendingActivity() const final;
 
-    void registerLocalActivity();
-
-    // A port starts out its life entangled, and remains entangled until it is closed or is cloned.
-    bool isEntangled() const { return !m_closed && m_entangled; }
-
-    void updateActivity(MessagePortChannelProvider::HasActivity);
-
-    bool m_started { false };
-    bool m_closed { false };
-    bool m_entangled { true };
-
-    // Flags to manage querying the remote port for GC purposes
-    mutable bool m_mightBeEligibleForGC { false };
-    mutable bool m_hasHadLocalActivitySinceLastCheck { false };
-    mutable bool m_isRemoteEligibleForGC { false };
-    mutable bool m_isAskingRemoteAboutGC { false };
+    // A port starts out its life entangled, and remains entangled until it is closed or transferred.
+    // The spec implies an intermediate "detached, still entangled" state while the port is
+    // in flight, but we don't do this - the original port is disentangled immediately when sent,
+    // and the channel is re-attached later, upon reception, to the new port. See https://github.com/whatwg/html/issues/12490
+    enum class State : uint8_t { NotStartedYet, Started, Disentangled };
+    State m_state { State::NotStartedYet };
     bool m_hasMessageEventListener { false };
 
     MessagePortIdentifier m_identifier;
     MessagePortIdentifier m_remoteIdentifier;
 
-    mutable std::atomic<unsigned> m_refCount { 1 };
+    MessageHandler m_messageHandler;
+    Deque<MessageWithMessagePorts> m_localQueue;
+    ThreadSafeWeakPtr<MessagePort> m_localPartner;
+    unsigned m_newLocalMessages { 0 };
 };
 
+WebCoreOpaqueRoot NODELETE root(MessagePort*);
+
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_EVENTTARGET(MessagePort)

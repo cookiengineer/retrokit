@@ -25,8 +25,11 @@
 
 #include "config.h"
 #include "FrameRateMonitor.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(FrameRateMonitor);
 
 static constexpr Seconds MinimumAverageDuration = 1_s;
 static constexpr Seconds MaxQueueDuration = 2_s;
@@ -42,7 +45,7 @@ void FrameRateMonitor::update()
     if (m_observedFrameRate) {
         auto maxDelay = MaxFrameDelayCount / m_observedFrameRate;
         if ((frameTime - lastFrameTime) > maxDelay)
-            m_lateFrameCallback({ MonotonicTime::fromRawSeconds(frameTime), MonotonicTime::fromRawSeconds(lastFrameTime) });
+            m_lateFrameCallback({ MonotonicTime::fromRawSeconds(frameTime), MonotonicTime::fromRawSeconds(lastFrameTime), m_observedFrameRate, m_frameCount });
     }
     m_observedFrameTimeStamps.append(frameTime);
     m_observedFrameTimeStamps.removeAllMatching([&](auto time) {

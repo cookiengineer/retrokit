@@ -25,22 +25,28 @@
 
 #pragma once
 
-#include <WebCore/ResourceError.h>
-#include <WebCore/ResourceRequest.h>
-#include <WebCore/ResourceResponse.h>
+#include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
+#include <wtf/CheckedPtr.h>
+#include <wtf/Forward.h>
 
 namespace WebCore {
 class AuthenticationChallenge;
 class NetworkLoadMetrics;
-class SharedBuffer;
+class FragmentedSharedBuffer;
+class ResourceError;
+class ResourceRequest;
+class ResourceResponse;
 enum class PolicyAction : uint8_t;
 }
 
 namespace WebKit {
 
+enum class PrivateRelayed : bool;
 using ResponseCompletionHandler = CompletionHandler<void(WebCore::PolicyAction)>;
 
-class NetworkLoadClient {
+class NetworkLoadClient : public AbstractRefCountedAndCanMakeWeakPtr<NetworkLoadClient>, public CanMakeThreadSafeCheckedPtr<NetworkLoadClient> {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(NetworkLoadClient);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(NetworkLoadClient);
 public:
     virtual ~NetworkLoadClient() { }
 
@@ -48,10 +54,11 @@ public:
 
     virtual bool isAllowedToAskUserForCredentials() const = 0;
 
-    virtual void didSendData(unsigned long long bytesSent, unsigned long long totalBytesToBeSent) = 0;
-    virtual void willSendRedirectedRequest(WebCore::ResourceRequest&&, WebCore::ResourceRequest&& redirectRequest, WebCore::ResourceResponse&& redirectResponse) = 0;
-    virtual void didReceiveResponse(WebCore::ResourceResponse&&, ResponseCompletionHandler&&) = 0;
-    virtual void didReceiveBuffer(Ref<WebCore::SharedBuffer>&&, int reportedEncodedDataLength) = 0;
+    virtual void didSendData(uint64_t bytesSent, uint64_t totalBytesToBeSent) = 0;
+    virtual void willSendRedirectedRequest(WebCore::ResourceRequest&&, WebCore::ResourceRequest&& redirectRequest, WebCore::ResourceResponse&& redirectResponse, CompletionHandler<void(WebCore::ResourceRequest&&)>&&) = 0;
+    virtual void didReceiveInformationalResponse(WebCore::ResourceResponse&&) { };
+    virtual void didReceiveResponse(WebCore::ResourceResponse&&, PrivateRelayed, ResponseCompletionHandler&&) = 0;
+    virtual void didReceiveBuffer(const WebCore::FragmentedSharedBuffer&) = 0;
     virtual void didFinishLoading(const WebCore::NetworkLoadMetrics&) = 0;
     virtual void didFailLoading(const WebCore::ResourceError&) = 0;
     virtual void didBlockAuthenticationChallenge() { };

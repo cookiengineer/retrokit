@@ -35,9 +35,11 @@
 #include "pas_large_free.h"
 #include "pas_large_free_heap_config.h"
 #include "pas_log.h"
+#include "pas_zero_memory.h"
 #include <stdio.h>
 
-static const unsigned verbose = 0;
+static const bool verbose = PAS_SHOULD_LOG(PAS_LOG_LARGE_HEAPS);
+static const unsigned verbosity = 0;
 
 #define BOOTSTRAP_FREE_LIST_CAPACITY 4
 static pas_large_free bootstrap_free_list[BOOTSTRAP_FREE_LIST_CAPACITY];
@@ -69,8 +71,8 @@ static void dump_free_list(pas_simple_large_free_heap* heap)
         free = free_list_entry(heap, index);
         
         printf("    %p...%p: size = %zu\n",
-               (void*)free->begin,
-               (void*)free->end,
+               (void*)((uintptr_t)free->begin),
+               (void*)((uintptr_t)free->end),
                pas_large_free_size(*free));
         
         PAS_ASSERT(free->begin);
@@ -116,7 +118,7 @@ static void append(pas_simple_large_free_heap* heap, pas_large_free new_free)
 {
     if (verbose) {
         pas_log("%p: Appending %p...%p (%s)\n",
-                heap, (void*)new_free.begin, (void*)new_free.end,
+                heap, (void*)((uintptr_t)new_free.begin), (void*)((uintptr_t)new_free.end),
                 new_free.zero_mode ? "zero" : "non-zero");
     }
     
@@ -136,7 +138,7 @@ PAS_API uint64_t pas_simple_large_free_heap_num_merge_nodes_considered;
 static void merge(pas_simple_large_free_heap* heap, pas_large_free new_free,
                   pas_large_free_heap_config* config)
 {
-    static const size_t max_num_victims = 2;
+    enum { max_num_victims = 2 };
     
     size_t victim_indices[max_num_victims];
     size_t num_victims = 0;
@@ -145,7 +147,7 @@ static void merge(pas_simple_large_free_heap* heap, pas_large_free new_free,
 
     if (verbose) {
         pas_log("%p: Merging %p...%p (%s)\n",
-                heap, (void*)new_free.begin, (void*)new_free.end,
+                heap, (void*)((uintptr_t)new_free.begin), (void*)((uintptr_t)new_free.end),
                 new_free.zero_mode ? "zero" : "non-zero");
     }
     
@@ -284,7 +286,7 @@ static PAS_ALWAYS_INLINE void simple_write_cursor(
 
     if (verbose) {
         pas_log("%p: Writing %p...%p (%s)\n",
-                heap, (void*)value.begin, (void*)value.end,
+                heap, (void*)((uintptr_t)value.begin), (void*)((uintptr_t)value.end),
                 value.zero_mode ? "zero" : "non-zero");
     }
     
@@ -421,8 +423,8 @@ static void fix_free_list_if_necessary(pas_simple_large_free_heap* heap,
     
     new_capacity = PAS_MAX(heap->free_list_size << 1, PAS_BOOTSTRAP_FREE_LIST_MINIMUM_SIZE);
     
-    if (verbose >= 2)
-        printf("Allocating new free list with new_capacity = %zu:\n", new_capacity);
+    if (verbose && verbosity >= 2)
+        pas_log("Allocating new free list with new_capacity = %zu:\n", new_capacity);
     new_free_list = (void*)try_allocate_without_fixing(
         heap,
         new_capacity * sizeof(pas_large_free),
@@ -456,8 +458,8 @@ static void fix_free_list_if_necessary(pas_simple_large_free_heap* heap,
             config);
     }
 
-    if (verbose >= 2) {
-        printf("Fixed:\n");
+    if (verbose && verbosity >= 2) {
+        pas_log("Fixed:\n");
         dump_free_list(heap);
     }
 }
@@ -474,7 +476,7 @@ pas_allocation_result pas_simple_large_free_heap_try_allocate(pas_simple_large_f
     fix_free_list_if_necessary(heap, config);
     
     if (verbose) {
-        printf("After allocating %p for size %zu:\n", (void*)result.begin, size);
+        pas_log("After allocating %p for size %zu:\n", (void*)result.begin, size);
         dump_free_list(heap);
     }
 
@@ -494,7 +496,7 @@ void pas_simple_large_free_heap_deallocate(pas_simple_large_free_heap* heap,
     fix_free_list_if_necessary(heap, config);
 
     if (verbose) {
-        printf("After deallocating %p for size %zu:\n", (void*)begin, end - begin);
+        pas_log("After deallocating %p for size %zu:\n", (void*)begin, end - begin);
         dump_free_list(heap);
     }
 }

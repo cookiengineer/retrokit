@@ -25,8 +25,7 @@
 
 #pragma once
 
-#include "AllocationFailureMode.h"
-#include <climits>
+#include <JavaScriptCore/AllocationFailureMode.h>
 
 namespace JSC {
 
@@ -46,14 +45,13 @@ public:
     {
     }
     
-    void* allocate(Heap&, GCDeferralContext*, AllocationFailureMode) const;
+    void* allocate(Heap&, size_t cellSize, GCDeferralContext*, AllocationFailureMode) const;
     
     unsigned cellSize() const;
     
     LocalAllocator* localAllocator() const { return m_localAllocator; }
     
-    bool operator==(const Allocator& other) const { return m_localAllocator == other.localAllocator(); }
-    bool operator!=(const Allocator& other) const { return !(*this == other); }
+    friend bool operator==(const Allocator&, const Allocator&) = default;
     explicit operator bool() const { return *this != Allocator(); }
     
 private:

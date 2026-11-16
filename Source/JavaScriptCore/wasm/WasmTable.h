@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,40 +25,49 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if ENABLE(WEBASSEMBLY)
 
-#include "SlotVisitorMacros.h"
-#include "WasmFormat.h"
-#include "WasmLimits.h"
-#include "WriteBarrier.h"
+#include <JavaScriptCore/SlotVisitorMacros.h>
+#include <JavaScriptCore/WasmAddressType.h>
+#include <JavaScriptCore/WasmCallee.h>
+#include <JavaScriptCore/WasmFormat.h>
+#include <JavaScriptCore/WasmLimits.h>
+#include <JavaScriptCore/WriteBarrier.h>
 #include <wtf/MallocPtr.h>
 #include <wtf/Ref.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeRefCounted.h>
 
-namespace JSC { namespace Wasm {
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
-class Instance;
+namespace JSC {
+
+class JSWebAssemblyTable;
+class WebAssemblyFunctionBase;
+
+namespace Wasm {
+
 class FuncRefTable;
 
 class Table : public ThreadSafeRefCounted<Table> {
     WTF_MAKE_NONCOPYABLE(Table);
-    WTF_MAKE_FAST_ALLOCATED(Table);
+    WTF_MAKE_TZONE_ALLOCATED(Table);
 public:
-    static RefPtr<Table> tryCreate(uint32_t initial, std::optional<uint32_t> maximum, TableElementType);
+    static RefPtr<Table> tryCreate(VM&, uint32_t initial, std::optional<uint64_t> maximum, TableElementType, Type, Wasm::AddressType);
 
     JS_EXPORT_PRIVATE ~Table() = default;
 
-    std::optional<uint32_t> maximum() const { return m_maximum; }
+    std::optional<uint64_t> maximum() const { return m_maximum; }
     uint32_t length() const { return m_length; }
 
-    static ptrdiff_t offsetOfLength() { return OBJECT_OFFSETOF(Table, m_length); }
-    static ptrdiff_t offsetOfMask() { return OBJECT_OFFSETOF(Table, m_mask); }
+    static constexpr ptrdiff_t offsetOfLength() { return OBJECT_OFFSETOF(Table, m_length); }
 
-    static uint32_t allocatedLength(uint32_t length);
-    uint32_t mask() const { return m_mask; }
+    static uint32_t NODELETE allocatedLength(uint32_t length);
 
-    template<typename T> T* owner() const { return reinterpret_cast<T*>(m_owner); }
-    void setOwner(JSObject* owner)
+    JSWebAssemblyTable* owner() const { return m_owner; }
+    void setOwner(JSWebAssemblyTable* owner)
     {
         ASSERT(!m_owner);
         ASSERT(owner);
@@ -68,57 +77,115 @@ public:
     TableElementType type() const { return m_type; }
     bool isExternrefTable() const { return m_type == TableElementType::Externref; }
     bool isFuncrefTable() const { return m_type == TableElementType::Funcref; }
-    Type wasmType() const;
-    FuncRefTable* asFuncrefTable();
+    Type wasmType() const { return m_wasmType; }
+    Wasm::AddressType addressType() const { return m_addressType; }
+    FuncRefTable* NODELETE asFuncrefTable();
 
     static bool isValidLength(uint32_t length) { return length < maxTableEntries; }
 
     void clear(uint32_t);
     void set(uint32_t, JSValue);
-    JSValue get(uint32_t) const;
+    JSValue get(uint32_t);
 
     std::optional<uint32_t> grow(uint32_t delta, JSValue defaultValue);
-    void copy(const Table* srcTable, uint32_t dstIndex, uint32_t srcIndex);
+    void copy(Table* srcTable, uint32_t dstIndex, uint32_t srcIndex);
 
     DECLARE_VISIT_AGGREGATE;
 
-protected:
-    Table(uint32_t initial, std::optional<uint32_t> maximum, TableElementType = TableElementType::Externref);
+    void operator delete(Table*, std::destroying_delete_t);
 
-    void setLength(uint32_t);
+protected:
+    Table(uint32_t initial, std::optional<uint64_t> maximum, Type, Wasm::AddressType, TableElementType = TableElementType::Externref);
+
+    template<typename Visitor> constexpr decltype(auto) NODELETE visitDerived(Visitor&&);
+    template<typename Visitor> constexpr decltype(auto) visitDerived(Visitor&&) const;
+
+    void NODELETE setLength(uint32_t);
+
+    bool isFixedSized() const { return m_isFixedSized; }
 
     uint32_t m_length;
-    uint32_t m_mask;
+    NO_UNIQUE_ADDRESS const std::optional<uint64_t> m_maximum;
     const TableElementType m_type;
-    const std::optional<uint32_t> m_maximum;
-
-    MallocPtr<WriteBarrier<Unknown>, VMMalloc> m_jsValues;
-    JSObject* m_owner;
+    Type m_wasmType;
+    // For concrete (RTT-bearing) heap types, retain the canonical RTT so the
+    // pointer embedded in m_wasmType does not dangle.
+    RefPtr<const RTT> m_wasmTypeRTT;
+    bool m_isFixedSized { false };
+    Wasm::AddressType m_addressType;
+    JSWebAssemblyTable* m_owner;
 };
 
-class FuncRefTable : public Table {
+class ExternOrAnyRefTable final : public Table {
+    WTF_MAKE_TZONE_ALLOCATED(ExternOrAnyRefTable);
 public:
-    JS_EXPORT_PRIVATE ~FuncRefTable() = default;
+    friend class Table;
 
-    void setFunction(uint32_t, JSObject*, WasmToWasmImportableFunction, Instance*);
-    const WasmToWasmImportableFunction& function(uint32_t) const;
-    Instance* instance(uint32_t) const;
-
-    void copyFunction(const FuncRefTable* srcTable, uint32_t dstIndex, uint32_t srcIndex);
-
-    static ptrdiff_t offsetOfFunctions() { return OBJECT_OFFSETOF(FuncRefTable, m_importableFunctions); }
-    static ptrdiff_t offsetOfInstances() { return OBJECT_OFFSETOF(FuncRefTable, m_instances); }
+    void clear(uint32_t);
+    void set(uint32_t, JSValue);
+    JSValue get(uint32_t index) const { return m_jsValues.get()[index].get(); }
 
 private:
-    FuncRefTable(uint32_t initial, std::optional<uint32_t> maximum);
+    ExternOrAnyRefTable(uint32_t initial, std::optional<uint64_t> maximum, Type wasmType, Wasm::AddressType);
 
-    MallocPtr<WasmToWasmImportableFunction, VMMalloc> m_importableFunctions;
-    // call_indirect needs to do an Instance check to potentially context switch when calling a function to another instance. We can hold raw pointers to Instance here because the embedder ensures that Table keeps all the instances alive. We couldn't hold a Ref here because it would cause cycles.
-    MallocPtr<Instance*, VMMalloc> m_instances;
-
-    friend class Table;
+    MallocPtr<WriteBarrier<Unknown>, VMMalloc> m_jsValues;
 };
 
+class FuncRefTable final : public Table {
+    WTF_MAKE_TZONE_ALLOCATED(FuncRefTable);
+public:
+    friend class Table;
+
+    using JSWebAssemblyInstanceWeakCGSet = WeakGCSet<JSWebAssemblyInstance>;
+    using Function = WasmToWasmImportableFunction;
+
+    JS_EXPORT_PRIVATE ~FuncRefTable();
+
+    void setFunction(uint32_t, WebAssemblyFunctionBase*);
+    void setLazy(uint32_t, JSWebAssemblyInstance* targetInstance, FunctionSpaceIndex);
+    const Function& NODELETE function(uint32_t) const;
+    void copyFunction(FuncRefTable* srcTable, uint32_t dstIndex, uint32_t srcIndex);
+
+    static constexpr ptrdiff_t offsetOfFunctions() { return OBJECT_OFFSETOF(FuncRefTable, m_importableFunctions); }
+    static constexpr ptrdiff_t offsetOfTail() { return WTF::roundUpToMultipleOf<alignof(Function)>(sizeof(FuncRefTable)); }
+    static constexpr ptrdiff_t offsetOfFunctionsForFixedSizedTable() { return offsetOfTail(); }
+
+    Function* functions()
+    {
+        if (isFixedSized())
+            return std::bit_cast<Function*>(std::bit_cast<uint8_t*>(this) + offsetOfFunctionsForFixedSizedTable());
+        return m_importableFunctions.get();
+    }
+
+    static size_t allocationSize(uint32_t size)
+    {
+        return offsetOfTail() + sizeof(Function) * size;
+    }
+
+    void clear(uint32_t);
+    void set(uint32_t, JSValue);
+    WebAssemblyFunctionBase* get(uint32_t index);
+
+    void registerInstance(JSWebAssemblyInstance&);
+
+private:
+    FuncRefTable(VM&, uint32_t initial, std::optional<uint64_t> maximum, Type wasmType, Wasm::AddressType);
+
+    Function* tailPointer() { return std::bit_cast<Function*>(std::bit_cast<uint8_t*>(this) + offsetOfTail()); }
+
+    static Ref<FuncRefTable> createFixedSized(VM&, uint32_t size, Type wasmType, Wasm::AddressType);
+
+    MallocPtr<Function, VMMalloc> m_importableFunctions;
+    // FIXME: It seems like we should be able to recover this from the Wasm::Callee + instance but there might be problems for JS
+    // wrapped functions. WasmToJSCallee's are currently a singleton, which would have to change.
+    MallocPtr<WriteBarrier<WebAssemblyFunctionBase>, VMMalloc> m_wrappers;
+    JSWebAssemblyInstanceWeakCGSet m_instances;
+};
+
+static_assert(sizeof(FuncRefTable::Function) == sizeof(void*) * 4);
+
 } } // namespace JSC::Wasm
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(WEBASSEMBLY)

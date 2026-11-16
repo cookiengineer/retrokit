@@ -27,24 +27,21 @@ class AffineTransform;
     
 class SVGTransformDistance {
 public:
-    SVGTransformDistance();
+    SVGTransformDistance() = default;
     SVGTransformDistance(const SVGTransformValue& fromTransform, const SVGTransformValue& toTransform);
-    
+
     SVGTransformDistance scaledDistance(float scaleFactor) const;
     SVGTransformValue addToSVGTransform(const SVGTransformValue&) const;
 
     static SVGTransformValue addSVGTransforms(const SVGTransformValue&, const SVGTransformValue&, unsigned repeatCount = 1);
-    
-    bool isZero() const;
-    
-    float distance() const;
+
 private:
     SVGTransformDistance(SVGTransformValue::SVGTransformType, float angle, float cx, float cy, const AffineTransform&);
-        
-    SVGTransformValue::SVGTransformType m_type;
-    float m_angle;
-    float m_cx;
-    float m_cy;
+
+    SVGTransformValue::SVGTransformType m_type { SVGTransformValue::SVG_TRANSFORM_UNKNOWN };
+    float m_angle { 0 };
+    float m_cx { 0 };
+    float m_cy { 0 };
     AffineTransform m_transform; // for storing scale, translation or matrix transforms
 };
 

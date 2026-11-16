@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2011, 2012 Google Inc. All rights reserved.
  * Copyright (C) 2014-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2024 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -32,311 +33,318 @@
 #include "config.h"
 #include "CSSCalcValue.h"
 
-#include "CSSCalcExpressionNodeParser.h"
-#include "CSSCalcInvertNode.h"
-#include "CSSCalcNegateNode.h"
-#include "CSSCalcOperationNode.h"
-#include "CSSCalcPrimitiveValueNode.h"
 #include "CSSCalcSymbolTable.h"
+#include "CSSCalcTree+ComputedStyleDependencies.h"
+#include "CSSCalcTree+Evaluation.h"
+#include "CSSCalcTree+Parser.h"
+#include "CSSCalcTree+Serialization.h"
+#include "CSSCalcTree+Simplification.h"
+#include "CSSNoConversionDataRequiredToken.h"
 #include "CSSParser.h"
 #include "CSSParserTokenRange.h"
-#include "CSSPrimitiveValueMappings.h"
-#include "CalcExpressionBlendLength.h"
-#include "CalcExpressionInversion.h"
-#include "CalcExpressionLength.h"
-#include "CalcExpressionNegation.h"
-#include "CalcExpressionNumber.h"
-#include "CalcExpressionOperation.h"
+#include "CSSPrimitiveNumericCategory.h"
+#include "CSSPropertyParserOptions.h"
+#include "CSSSerializationContext.h"
 #include "Logging.h"
-#include "StyleResolver.h"
+#include "StyleCalculationTree+Conversion.h"
+#include "StyleCalculationValue.h"
+#include "StyleLengthResolution.h"
+#include "StylePrimitiveNumericTypes.h"
 #include <wtf/MathExtras.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
+namespace CSSCalc {
 
-static RefPtr<CSSCalcExpressionNode> createCSS(const CalcExpressionNode&, const RenderStyle&);
-static RefPtr<CSSCalcExpressionNode> createCSS(const Length&, const RenderStyle&);
-
-static inline RefPtr<CSSCalcOperationNode> createBlendHalf(const Length& length, const RenderStyle& style, float progress)
+RefPtr<Value> Value::parse(CSSParserTokenRange& tokens, CSS::PropertyParserState& state, CSS::Category category, CSS::Range range, CSSCalcSymbolsAllowed symbolsAllowed, CSSPropertyParserOptions propertyOptions)
 {
-    return CSSCalcOperationNode::create(CalcOperator::Multiply, createCSS(length, style),
-        CSSCalcPrimitiveValueNode::create(CSSPrimitiveValue::create(progress, CSSUnitType::CSS_NUMBER)));
-}
+    auto parserOptions = ParserOptions {
+        .category = category,
+        .range = range,
+        .allowedSymbols = WTF::move(symbolsAllowed),
+        .propertyOptions = propertyOptions
+    };
+    auto simplificationOptions = SimplificationOptions {
+        .category = category,
+        .range = range,
+        .conversionData = std::nullopt,
+        .symbolTable = { },
+        .allowZeroValueLengthRemovalFromSum = false,
+    };
 
-static Vector<Ref<CSSCalcExpressionNode>> createCSS(const Vector<std::unique_ptr<CalcExpressionNode>>& nodes, const RenderStyle& style)
-{
-    Vector<Ref<CSSCalcExpressionNode>> values;
-    values.reserveInitialCapacity(nodes.size());
-    for (auto& node : nodes) {
-        auto cssNode = createCSS(*node, style);
-        if (!cssNode)
-            continue;
-        values.uncheckedAppend(cssNode.releaseNonNull());
-    }
-    return values;
-}
-
-static RefPtr<CSSCalcExpressionNode> createCSS(const CalcExpressionNode& node, const RenderStyle& style)
-{
-    switch (node.type()) {
-    case CalcExpressionNodeType::Number: {
-        float value = downcast<CalcExpressionNumber>(node).value(); // double?
-        return CSSCalcPrimitiveValueNode::create(CSSPrimitiveValue::create(value, CSSUnitType::CSS_NUMBER));
-    }
-    case CalcExpressionNodeType::Length: {
-        auto& length = downcast<CalcExpressionLength>(node).length();
-        if (!length.isPercent() && length.isZero())
-            return nullptr;
-        return createCSS(length, style);
-    }
-
-    case CalcExpressionNodeType::Negation: {
-        auto childNode = createCSS(*downcast<CalcExpressionNegation>(node).child(), style);
-        if (!childNode)
-            return nullptr;
-        return CSSCalcNegateNode::create(childNode.releaseNonNull());
-    }
-    case CalcExpressionNodeType::Inversion: {
-        auto childNode = createCSS(*downcast<CalcExpressionInversion>(node).child(), style);
-        if (!childNode)
-            return nullptr;
-        return CSSCalcInvertNode::create(childNode.releaseNonNull());
-    }
-    case CalcExpressionNodeType::Operation: {
-        auto& operationNode = downcast<CalcExpressionOperation>(node);
-        auto& operationChildren = operationNode.children();
-        CalcOperator op = operationNode.getOperator();
-        
-        switch (op) {
-        case CalcOperator::Add: {
-            auto children = createCSS(operationChildren, style);
-            if (children.isEmpty())
-                return nullptr;
-            if (children.size() == 1)
-                return WTFMove(children[0]);
-            return CSSCalcOperationNode::createSum(WTFMove(children));
-        }
-        case CalcOperator::Subtract: {
-            ASSERT(operationChildren.size() == 2);
-
-            Vector<Ref<CSSCalcExpressionNode>> values;
-            values.reserveInitialCapacity(operationChildren.size());
-            
-            auto firstChild = createCSS(*operationChildren[0], style);
-            auto secondChild = createCSS(*operationChildren[1], style);
-
-            if (!secondChild)
-                return firstChild;
-
-            auto negateNode = CSSCalcNegateNode::create(secondChild.releaseNonNull());
-            if (!firstChild)
-                return negateNode;
-
-            values.append(firstChild.releaseNonNull());
-            values.append(WTFMove(negateNode));
-
-            return CSSCalcOperationNode::createSum(WTFMove(values));
-        }
-        case CalcOperator::Multiply: {
-            auto children = createCSS(operationChildren, style);
-            if (children.isEmpty())
-                return nullptr;
-            return CSSCalcOperationNode::createProduct(WTFMove(children));
-        }
-        case CalcOperator::Divide: {
-            ASSERT(operationChildren.size() == 2);
-
-            Vector<Ref<CSSCalcExpressionNode>> values;
-            values.reserveInitialCapacity(operationChildren.size());
-            
-            auto firstChild = createCSS(*operationChildren[0], style);
-            if (!firstChild)
-                return nullptr;
-
-            auto secondChild = createCSS(*operationChildren[1], style);
-            if (!secondChild)
-                return nullptr;
-            auto invertNode = CSSCalcInvertNode::create(secondChild.releaseNonNull());
-
-            values.append(firstChild.releaseNonNull());
-            values.append(WTFMove(invertNode));
-
-            return CSSCalcOperationNode::createProduct(createCSS(operationChildren, style));
-        }
-        case CalcOperator::Min:
-        case CalcOperator::Max:
-        case CalcOperator::Clamp: {
-            auto children = createCSS(operationChildren, style);
-            if (children.isEmpty())
-                return nullptr;
-            return CSSCalcOperationNode::createMinOrMaxOrClamp(op, WTFMove(children), operationNode.destinationCategory());
-        }
-        }
+    auto tree = parseAndSimplify(tokens, state, parserOptions, simplificationOptions);
+    if (!tree)
         return nullptr;
+
+    RefPtr result = adoptRef(new Value(category, range, WTF::move(*tree)));
+    LOG_WITH_STREAM(Calc, stream << "Value::create " << *result);
+    return result;
+}
+
+Ref<Value> Value::create(CSS::Category category, CSS::Range range, const Style::Calculation::Value& value, const Style::ComputedStyle& style)
+{
+    auto toCSSOptions = Style::Calculation::ToCSSOptions {
+        .category = category,
+        .range = range,
+        .style = style,
+    };
+    return Value::create(category, range, Style::Calculation::toCSS(value.tree(), toCSSOptions));
+}
+
+Ref<Value> Value::create(CSS::Category category, CSS::Range range, CSSCalc::Tree&& tree)
+{
+    return adoptRef(*new Value(category, range, WTF::move(tree)));
+}
+
+Ref<Value> Value::copySimplified(const CSSToLengthConversionData& conversionData) const
+{
+    return copySimplified(conversionData, { });
+}
+
+Ref<Value> Value::copySimplified(const CSSToLengthConversionData& conversionData, const CSSCalcSymbolTable& symbolTable) const
+{
+    auto simplificationOptions = SimplificationOptions {
+        .category = m_category,
+        .range = m_range,
+        .conversionData = conversionData,
+        .symbolTable = symbolTable,
+        .allowZeroValueLengthRemovalFromSum = true,
+    };
+
+    if (!canSimplify(m_tree, simplificationOptions))
+        return const_cast<Value&>(*this);
+
+    return create(m_category, m_range, copyAndSimplify(m_tree, simplificationOptions));
+}
+
+Ref<Value> Value::copySimplified(NoConversionDataRequiredToken token) const
+{
+    return copySimplified(token, { });
+}
+
+Ref<Value> Value::copySimplified(NoConversionDataRequiredToken, const CSSCalcSymbolTable& symbolTable) const
+{
+    auto simplificationOptions = SimplificationOptions {
+        .category = m_category,
+        .range = m_range,
+        .conversionData = std::nullopt,
+        .symbolTable = symbolTable,
+        .allowZeroValueLengthRemovalFromSum = true,
+    };
+
+    if (!canSimplify(m_tree, simplificationOptions))
+        return const_cast<Value&>(*this);
+
+    return create(m_category, m_range, copyAndSimplify(m_tree, simplificationOptions));
+}
+
+Value::Value(CSS::Category category, CSS::Range range, CSSCalc::Tree&& tree)
+    : m_category(category)
+    , m_range(range)
+    , m_tree(WTF::move(tree))
+{
+}
+
+Value::~Value() = default;
+
+CSSUnitType Value::primitiveType() const
+{
+    // This returns the CSSUnitType associated with the value returned by doubleValue, or, if CSSUnitType::CSS_CALC_PERCENTAGE_WITH_LENGTH, that a call to createCalculationValue() is needed.
+
+    switch (m_category) {
+    case CSS::Category::Integer:
+        return CSSUnitType::CSS_INTEGER;
+    case CSS::Category::Number:
+        return CSSUnitType::CSS_NUMBER;
+    case CSS::Category::Percentage:
+        return CSSUnitType::CSS_PERCENTAGE;
+    case CSS::Category::Length:
+        return CSSUnitType::CSS_PX;
+    case CSS::Category::Angle:
+        return CSSUnitType::CSS_DEG;
+    case CSS::Category::Time:
+        return CSSUnitType::CSS_S;
+    case CSS::Category::Frequency:
+        return CSSUnitType::CSS_HZ;
+    case CSS::Category::Resolution:
+        return CSSUnitType::CSS_DPPX;
+    case CSS::Category::Flex:
+        return CSSUnitType::CSS_FR;
+    case CSS::Category::LengthPercentage:
+        if (!m_tree.type.percentHint)
+            return CSSUnitType::CSS_PX;
+        if (WTF::holdsAlternative<Percentage>(m_tree.root))
+            return CSSUnitType::CSS_PERCENTAGE;
+        return CSSUnitType::CSS_CALC_PERCENTAGE_WITH_LENGTH;
+    case CSS::Category::AnglePercentage:
+        if (!m_tree.type.percentHint)
+            return CSSUnitType::CSS_DEG;
+        if (WTF::holdsAlternative<Percentage>(m_tree.root))
+            return CSSUnitType::CSS_PERCENTAGE;
+        return CSSUnitType::CSS_CALC_PERCENTAGE_WITH_ANGLE;
     }
-    case CalcExpressionNodeType::BlendLength: {
-        // FIXME: (http://webkit.org/b/122036) Create a CSSCalcExpressionNode equivalent of CalcExpressionBlendLength.
-        auto& blend = downcast<CalcExpressionBlendLength>(node);
-        float progress = blend.progress();
-        return CSSCalcOperationNode::create(CalcOperator::Add, createBlendHalf(blend.from(), style, 1 - progress), createBlendHalf(blend.to(), style, progress));
-    }
-    case CalcExpressionNodeType::Undefined:
-        ASSERT_NOT_REACHED();
-    }
-    return nullptr;
+
+    ASSERT_NOT_REACHED();
+    return CSSUnitType::CSS_NUMBER;
 }
 
-static RefPtr<CSSCalcExpressionNode> createCSS(const Length& length, const RenderStyle& style)
+bool Value::rootNodeIsPercentage() const
 {
-    switch (length.type()) {
-    case LengthType::Percent:
-    case LengthType::Fixed:
-        return CSSCalcPrimitiveValueNode::create(CSSPrimitiveValue::create(length, style));
-    case LengthType::Calculated:
-        return createCSS(length.calculationValue().expression(), style);
-    case LengthType::Auto:
-    case LengthType::Intrinsic:
-    case LengthType::MinIntrinsic:
-    case LengthType::MinContent:
-    case LengthType::MaxContent:
-    case LengthType::FillAvailable:
-    case LengthType::FitContent:
-    case LengthType::Relative:
-    case LengthType::Undefined:
-        ASSERT_NOT_REACHED();
-    }
-    return nullptr;
+    return WTF::holdsAlternative<Percentage>(m_tree.root);
 }
 
-CSSCalcValue::CSSCalcValue(Ref<CSSCalcExpressionNode>&& expression, bool shouldClampToNonNegative)
-    : CSSValue(CalculationClass)
-    , m_expression(WTFMove(expression))
-    , m_shouldClampToNonNegative(shouldClampToNonNegative)
+void Value::collectComputedStyleDependencies(ComputedStyleDependencies& dependencies) const
 {
+    WebCore::CSSCalc::collectComputedStyleDependencies(m_tree, dependencies);
 }
 
-CSSCalcValue::~CSSCalcValue() = default;
-
-CalculationCategory CSSCalcValue::category() const
+String Value::cssText(const CSS::SerializationContext& context) const
 {
-    return m_expression->category();
+    auto options = SerializationOptions {
+        .range = m_range,
+        .serializationContext = context,
+    };
+    return serializationForCSS(m_tree, options);
 }
 
-CSSUnitType CSSCalcValue::primitiveType() const
+bool Value::equals(const Value& other) const
 {
-    return m_expression->primitiveType();
+    return m_tree.root == other.m_tree.root;
 }
 
-Ref<CalculationValue> CSSCalcValue::createCalculationValue(const CSSToLengthConversionData& conversionData) const
+inline double Value::clampToPermittedRange(double value) const
 {
-    return CalculationValue::create(m_expression->createCalcExpression(conversionData), m_shouldClampToNonNegative ? ValueRange::NonNegative : ValueRange::All);
+    // If a top-level calculation would produce a value whose numeric part is NaN,
+    // it instead act as though the numeric part is 0.
+    value = std::isnan(value) ? 0 : value;
+
+    // Signed zeros do not escape a top-level calculation; they are censored into the
+    // "unsigned" (positive) zero. https://drafts.csswg.org/css-values-4/#calc-ieee
+    value = value ? value : 0.0;
+
+    // If an <angle> must be converted due to exceeding the implementation-defined range of supported values,
+    // it must be clamped to the nearest supported multiple of 360deg.
+    if (m_category == CSS::Category::Angle && std::isinf(value))
+        return 0;
+
+    if (m_category == CSS::Category::Integer)
+        value = std::floor(value + 0.5);
+
+    return CSS::clampToRange<double>(value, m_range);
 }
 
-void CSSCalcValue::setPermittedValueRange(ValueRange range)
+double Value::doubleValue(const CSSToLengthConversionData& conversionData) const
 {
-    m_shouldClampToNonNegative = range != ValueRange::All;
+    return doubleValue(conversionData, { });
 }
 
-void CSSCalcValue::collectDirectComputationalDependencies(HashSet<CSSPropertyID>& values) const
+double Value::doubleValue(const CSSToLengthConversionData& conversionData, const CSSCalcSymbolTable& symbolTable) const
 {
-    m_expression->collectDirectComputationalDependencies(values);
+    auto options = EvaluationOptions {
+        .category = m_category,
+        .range = m_range,
+        .conversionData = conversionData,
+        .symbolTable = symbolTable
+    };
+    return clampToPermittedRange(evaluateDouble(m_tree, options).value_or(0));
 }
 
-void CSSCalcValue::collectDirectRootComputationalDependencies(HashSet<CSSPropertyID>& values) const
+double Value::doubleValue(NoConversionDataRequiredToken token) const
 {
-    m_expression->collectDirectRootComputationalDependencies(values);
+    return doubleValue(token, { });
 }
 
-String CSSCalcValue::customCSSText() const
+double Value::doubleValue(NoConversionDataRequiredToken, const CSSCalcSymbolTable& symbolTable) const
 {
-    StringBuilder builder;
-    CSSCalcOperationNode::buildCSSText(m_expression.get(), builder);
-    return builder.toString();
+    auto options = EvaluationOptions {
+        .category = m_category,
+        .range = m_range,
+        .conversionData = std::nullopt,
+        .symbolTable = symbolTable,
+    };
+    return clampToPermittedRange(evaluateDouble(m_tree, options).value_or(0));
 }
 
-bool CSSCalcValue::equals(const CSSCalcValue& other) const
+double Value::doubleValueDeprecated() const
 {
-    return compareCSSValue(m_expression, other.m_expression);
+    if (m_tree.requiresConversionData)
+        ALWAYS_LOG_WITH_STREAM(stream << "ERROR: The value returned from Value::doubleValueDeprecated is likely incorrect as the calculation tree has unresolved units that require CSSToLengthConversionData to interpret. Update caller to use non-deprecated variant of this function.");
+
+    return doubleValue(NoConversionDataRequiredToken { });
 }
 
-inline double CSSCalcValue::clampToPermittedRange(double value) const
+double Value::computeLengthPx(const CSSToLengthConversionData& conversionData) const
 {
-    return m_shouldClampToNonNegative && value < 0 ? 0 : value;
+    return computeLengthPx(conversionData, { });
 }
 
-double CSSCalcValue::doubleValue() const
+double Value::computeLengthPx(const CSSToLengthConversionData& conversionData, const CSSCalcSymbolTable& symbolTable) const
 {
-    return clampToPermittedRange(m_expression->doubleValue(primitiveType()));
+    auto options = EvaluationOptions {
+        .category = m_category,
+        .range = m_range,
+        .conversionData = conversionData,
+        .symbolTable = symbolTable
+    };
+    return clampToPermittedRange(Style::computeNonCalcLengthDouble(evaluateDouble(m_tree, options).value_or(0), CSS::LengthUnit::Px, conversionData));
 }
 
-double CSSCalcValue::computeLengthPx(const CSSToLengthConversionData& conversionData) const
+Ref<Style::Calculation::Value> Value::createCalculationValue(const CSSToLengthConversionData& conversionData) const
 {
-    return clampToPermittedRange(m_expression->computeLengthPx(conversionData));
+    return createCalculationValue(conversionData, { });
 }
 
-bool CSSCalcValue::isCalcFunction(CSSValueID functionId)
+Ref<Style::Calculation::Value> Value::createCalculationValue(const CSSToLengthConversionData& conversionData, const CSSCalcSymbolTable& symbolTable) const
 {
-    switch (functionId) {
-    case CSSValueCalc:
-    case CSSValueWebkitCalc:
-    case CSSValueMin:
-    case CSSValueMax:
-    case CSSValueClamp:
-        return true;
-    default:
-        return false;
-    }
-    return false;
+    auto toStyleOptions = Style::Calculation::ToStyleOptions {
+        .category = m_category,
+        .range = m_range,
+        .conversionData = conversionData,
+        .symbolTable = symbolTable
+    };
+
+    return Style::Calculation::Value::create(Style::Calculation::toStyle(m_tree, toStyleOptions));
 }
 
-void CSSCalcValue::dump(TextStream& ts) const
+Ref<Style::Calculation::Value> Value::createCalculationValue(NoConversionDataRequiredToken token) const
 {
-    ts << indent << "(" << "CSSCalcValue";
+    return createCalculationValue(token, { });
+}
+
+Ref<Style::Calculation::Value> Value::createCalculationValue(NoConversionDataRequiredToken, const CSSCalcSymbolTable& symbolTable) const
+{
+    ASSERT(!m_tree.requiresConversionData);
+
+    auto toStyleOptions = Style::Calculation::ToStyleOptions {
+        .category = m_category,
+        .range = m_range,
+        .conversionData = std::nullopt,
+        .symbolTable = symbolTable
+    };
+    return Style::Calculation::Value::create(Style::Calculation::toStyle(m_tree, toStyleOptions));
+}
+
+void Value::dump(TextStream& ts) const
+{
+    ts << indent << '(' << "Value"_s;
 
     TextStream multilineStream;
     multilineStream.setIndent(ts.indent() + 2);
 
-    multilineStream.dumpProperty("should clamp non-negative", m_shouldClampToNonNegative);
-    multilineStream.dumpProperty("expression", m_expression.get());
+    multilineStream.dumpProperty("minimum value"_s, m_range.min);
+    multilineStream.dumpProperty("maximum value"_s, m_range.max);
+    multilineStream.dumpProperty("expression"_s, cssText(CSS::defaultSerializationContext()));
 
     ts << multilineStream.release();
-    ts << ")\n";
+    ts << ")\n"_s;
 }
 
-RefPtr<CSSCalcValue> CSSCalcValue::create(CSSValueID function, const CSSParserTokenRange& tokens, CalculationCategory destinationCategory, ValueRange range, const CSSCalcSymbolTable& symbolTable)
-{
-    CSSCalcExpressionNodeParser parser(destinationCategory, symbolTable);
-    auto expression = parser.parseCalc(tokens, function);
-    if (!expression)
-        return nullptr;
-    auto result = adoptRef(new CSSCalcValue(expression.releaseNonNull(), range != ValueRange::All));
-    LOG_WITH_STREAM(Calc, stream << "CSSCalcValue::create " << *result);
-    return result;
-}
-
-RefPtr<CSSCalcValue> CSSCalcValue::create(CSSValueID function, const CSSParserTokenRange& tokens, CalculationCategory destinationCategory, ValueRange range)
-{
-    return create(function, tokens, destinationCategory, range, { });
-}
-
-RefPtr<CSSCalcValue> CSSCalcValue::create(const CalculationValue& value, const RenderStyle& style)
-{
-    auto expression = createCSS(value.expression(), style);
-    if (!expression)
-        return nullptr;
-
-    auto simplifiedExpression = CSSCalcOperationNode::simplify(expression.releaseNonNull());
-
-    auto result = adoptRef(new CSSCalcValue(WTFMove(simplifiedExpression), value.shouldClampToNonNegative()));
-    LOG_WITH_STREAM(Calc, stream << "CSSCalcValue::create from CalculationValue: " << *result);
-    return result;
-}
-
-TextStream& operator<<(TextStream& ts, const CSSCalcValue& value)
+TextStream& operator<<(TextStream& ts, const Value& value)
 {
     value.dump(ts);
     return ts;
 }
 
+} // namespace CSSCalc
 } // namespace WebCore

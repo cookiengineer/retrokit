@@ -39,21 +39,16 @@ class StyleRuleKeyframe;
 
 class StyleRuleKeyframes final : public StyleRuleBase {
 public:
-    static Ref<StyleRuleKeyframes> create(const AtomString& name);
-    static Ref<StyleRuleKeyframes> create(const AtomString& name, std::unique_ptr<DeferredStyleGroupRuleList>&&);
+    static Ref<StyleRuleKeyframes> NODELETE create(const AtomString& name);
     ~StyleRuleKeyframes();
     
-    const Vector<Ref<StyleRuleKeyframe>>& keyframes() const;
-    const Vector<Ref<StyleRuleKeyframe>>* keyframesWithoutDeferredParsing() const
-    {
-        return !m_deferredRules ? &m_keyframes : nullptr;
-    }
+    const Vector<Ref<StyleRuleKeyframe>>& NODELETE keyframes() const;
 
     void parserAppendKeyframe(RefPtr<StyleRuleKeyframe>&&);
     void wrapperAppendKeyframe(Ref<StyleRuleKeyframe>&&);
     void wrapperRemoveKeyframe(unsigned);
 
-    const AtomString& name() const { return m_name; }
+    const AtomString& name() const LIFETIME_BOUND { return m_name; }
     void setName(const AtomString& name) { m_name = name; }
 
     std::optional<size_t> findKeyframeIndex(const String& key) const;
@@ -64,15 +59,10 @@ public:
 
 private:
     explicit StyleRuleKeyframes(const AtomString&);
-    StyleRuleKeyframes(const AtomString&, std::unique_ptr<DeferredStyleGroupRuleList>&&);
     StyleRuleKeyframes(const StyleRuleKeyframes&);
-
-    void parseDeferredRulesIfNeeded() const;
     
     mutable Vector<Ref<StyleRuleKeyframe>> m_keyframes;
     AtomString m_name;
-    
-    mutable std::unique_ptr<DeferredStyleGroupRuleList> m_deferredRules;
 };
 
 class CSSKeyframesRule final : public CSSRule {
@@ -81,35 +71,35 @@ public:
 
     virtual ~CSSKeyframesRule();
 
-    CSSRule::Type type() const final { return KEYFRAMES_RULE; }
+    StyleRuleType styleRuleType() const final { return StyleRuleType::Keyframes; }
     String cssText() const final;
-    void reattach(StyleRuleBase&) final;
+    void NODELETE reattach(StyleRuleBase&) final;
 
-    String name() const { return m_keyframesRule->name(); }
-    void setName(const String&);
+    const AtomString& name() const LIFETIME_BOUND { return m_keyframesRule->name(); }
+    void setName(const AtomString&);
 
     CSSRuleList& cssRules();
 
-    void insertRule(const String& rule);
     void appendRule(const String& rule);
     void deleteRule(const String& key);
     CSSKeyframeRule* findRule(const String& key);
 
     // For IndexedGetter and CSSRuleList.
-    unsigned length() const;
+    unsigned NODELETE length() const;
     CSSKeyframeRule* item(unsigned index) const;
+    bool isSupportedPropertyIndex(unsigned index) const { return index < length(); }
 
 private:
     CSSKeyframesRule(StyleRuleKeyframes&, CSSStyleSheet* parent);
 
     Ref<StyleRuleKeyframes> m_keyframesRule;
     mutable Vector<RefPtr<CSSKeyframeRule>> m_childRuleCSSOMWrappers;
-    mutable std::unique_ptr<CSSRuleList> m_ruleListCSSOMWrapper;
+    const std::unique_ptr<CSSRuleList> m_ruleListCSSOMWrapper;
 };
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_CSS_RULE(CSSKeyframesRule, CSSRule::KEYFRAMES_RULE)
+SPECIALIZE_TYPE_TRAITS_CSS_RULE(CSSKeyframesRule, StyleRuleType::Keyframes)
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::StyleRuleKeyframes)
     static bool isType(const WebCore::StyleRuleBase& rule) { return rule.isKeyframesRule(); }

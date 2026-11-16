@@ -17,281 +17,231 @@ package com.android.angle.common;
 
 import android.content.ContentResolver;
 import android.content.Context;
-import android.content.pm.PackageInfo;
 import android.provider.Settings;
 import android.util.Log;
 
+import com.android.angle.R;
+
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 class GlobalSettings
 {
+    public static final String DRIVER_SELECTION_ANGLE = "angle";
+    public static final String DRIVER_SELECTION_DEFAULT = "default";
+    public static final String DRIVER_SELECTION_NATIVE = "native";
 
-    private final String TAG = this.getClass().getSimpleName();
+    static final String DRIVER_SELECTION_PACKAGES = "angle_gl_driver_selection_pkgs";
+    static final String DRIVER_SELECTION_VALUES = "angle_gl_driver_selection_values";
+
+    private static final String TAG = "ANGLEGlobalSettings";
+    private static final boolean DEBUG = false;
+
+    private static final String SHOW_ANGLE_IN_USE_DIALOG_BOX = "show_angle_in_use_dialog_box";
+    private static final String ANGLE_DEBUG_PACKAGE = "angle_debug_package";
 
     private Context mContext;
-    private List<PackageInfo> mInstalledPkgs         = new ArrayList<>();
-    private List<String> mGlobalSettingsDriverPkgs   = new ArrayList<>();
-    private List<String> mGlobalSettingsDriverValues = new ArrayList<>();
+    private List<String> mDriverSelectionPackages = new ArrayList<>();
+    private List<String> mDriverSelectionValues = new ArrayList<>();
 
-    GlobalSettings(Context context, List<PackageInfo> installedPkgs)
+    GlobalSettings(Context context, List<String> predeterminedAnglePackages,
+            List<String> predeterminedNativePackages)
     {
         mContext = context;
-
-        setInstalledPkgs(installedPkgs);
+        initGlobalSettings(predeterminedAnglePackages, predeterminedNativePackages);
     }
 
-    static void clearAllGlobalSettings(Context context)
+    /**
+     * Initialize the global settings by loading the current state from Settings.Global and checking
+     * if the packages with predetermined selections currently have unset or default driver
+     * selection. If so, apply the predetermined selections back to the global settings.
+     *
+     * For example, if a package A is predetermined to use ANGLE, and the current driver selection
+     * for package A is unset or default, then the global settings will be updated to use ANGLE for
+     * package A. On the other hand, if a package B is predetermined to use the native driver,
+     * but the current driver selection is ANGLE, then we preserve the existing selection without
+     * applying the predetermined selection.
+     *
+     * @param predeterminedAnglePackages  The packages predetermined to use ANGLE.
+     * @param predeterminedNativePackages The packages predetermined to use native driver.
+     */
+    void initGlobalSettings(List<String> predeterminedAnglePackages,
+            List<String> predeterminedNativePackages)
     {
-        // angle_gl_driver_all_angle
-        updateAllUseAngle(context, false);
+        syncFromGlobalSettings();
+
+        boolean rulesChanged = false;
+        for (String packageName : predeterminedAnglePackages)
+        {
+            if (getDriverSelectionValue(packageName).equals(DRIVER_SELECTION_DEFAULT))
+            {
+                mDriverSelectionPackages.add(packageName);
+                mDriverSelectionValues.add(DRIVER_SELECTION_ANGLE);
+                rulesChanged = true;
+            }
+        }
+        for (String packageName : predeterminedNativePackages)
+        {
+            if (getDriverSelectionValue(packageName).equals(DRIVER_SELECTION_DEFAULT))
+            {
+                mDriverSelectionPackages.add(packageName);
+                mDriverSelectionValues.add(DRIVER_SELECTION_NATIVE);
+                rulesChanged = true;
+            }
+        }
+        if (rulesChanged)
+        {
+            writeGlobalSettings();
+        }
+    }
+
+    void syncFromGlobalSettings()
+    {
+        mDriverSelectionPackages.clear();
+        mDriverSelectionValues.clear();
+
+        final ContentResolver contentResolver = mContext.getContentResolver();
+        final String globalPackages = Settings.Global.getString(contentResolver,
+                DRIVER_SELECTION_PACKAGES);
+        final String globalValues = Settings.Global.getString(contentResolver,
+                DRIVER_SELECTION_VALUES);
+
+        if (globalPackages != null && !globalPackages.isEmpty() && globalValues != null
+                && !globalValues.isEmpty())
+        {
+            final String[] pkgs = globalPackages.split(",");
+            final String[] vals = globalValues.split(",");
+
+            if (pkgs.length == vals.length)
+            {
+                for (int i = 0; i < pkgs.length; i++)
+                {
+                    mDriverSelectionPackages.add(pkgs[i]);
+                    mDriverSelectionValues.add(vals[i]);
+                }
+            } else
+            {
+                Log.w(TAG, "Global settings packages and values length mismatch, resetting.");
+            }
+        }
+    }
+
+    static void clearGlobalSettings(Context context)
+    {
         // show_angle_in_use_dialog_box
-        updateShowAngleInUseDialog(context, false);
-        // angle_gl_driver_selection_pkgs, angle_gl_driver_selection_values
+        updateShowAngleInUse(context, false);
+
+        // clear angle_gl_driver_selection_pkgs, angle_gl_driver_selection_values
         ContentResolver contentResolver = context.getContentResolver();
-        Settings.Global.putString(contentResolver,
-                context.getString(R.string.global_settings_driver_selection_pkgs), "\"\"");
-        Settings.Global.putString(contentResolver,
-                context.getString(R.string.global_settings_driver_selection_values), "\"\"");
+        Settings.Global.putString(contentResolver, DRIVER_SELECTION_PACKAGES, "");
+        Settings.Global.putString(contentResolver, DRIVER_SELECTION_VALUES, "");
 
         // For completeness, we'll clear the angle_debug_package, but we don't allow setting
-        // it via the APK (currently)
-        Settings.Global.putString(contentResolver,
-                context.getString(R.string.global_settings_angle_debug_package), "");
-
-        // Skip angle_allowlist; not updatable via Developer Options
+        // it via the UI
+        Settings.Global.putString(contentResolver, ANGLE_DEBUG_PACKAGE, "");
     }
 
-    Boolean getAllUseAngle()
+    static void updateShowAngleInUse(Context context, Boolean showAngleInUse)
     {
-        ContentResolver contentResolver = mContext.getContentResolver();
-        try
+        if (DEBUG)
         {
-            int allUseAngle = Settings.Global.getInt(
-                    contentResolver, mContext.getString(R.string.global_settings_driver_all_angle));
-            return (allUseAngle == 1);
+            Log.v(TAG, "Show angle in use: " + showAngleInUse);
         }
-        catch (Settings.SettingNotFoundException e)
-        {
-            return false;
-        }
-    }
-
-    Boolean getShowAngleInUseDialogBox()
-    {
-        ContentResolver contentResolver = mContext.getContentResolver();
-        try
-        {
-            int showAngleInUseDialogBox = Settings.Global.getInt(contentResolver,
-                    mContext.getString(R.string.global_settings_show_angle_in_use_dialog_box));
-            return (showAngleInUseDialogBox == 1);
-        }
-        catch (Settings.SettingNotFoundException e)
-        {
-            return false;
-        }
-    }
-
-    static void updateAllUseAngle(Context context, Boolean allUseAngle)
-    {
         ContentResolver contentResolver = context.getContentResolver();
-        Settings.Global.putInt(contentResolver,
-                context.getString(R.string.global_settings_driver_all_angle), allUseAngle ? 1 : 0);
+        Settings.Global.putInt(contentResolver, SHOW_ANGLE_IN_USE_DIALOG_BOX,
+                showAngleInUse ? 1 : 0);
     }
 
-    static void updateShowAngleInUseDialog(Context context, Boolean showAngleInUseDialog)
+    boolean getShowAngleInUse()
     {
-        ContentResolver contentResolver = context.getContentResolver();
-        Settings.Global.putInt(contentResolver,
-                context.getString(R.string.global_settings_show_angle_in_use_dialog_box),
-                showAngleInUseDialog ? 1 : 0);
+        return Settings.Global.getInt(mContext.getContentResolver(),
+                SHOW_ANGLE_IN_USE_DIALOG_BOX, 0) == 1;
     }
 
-    static void updateAngleAllowlist(Context context, String packageNames)
+    void updatePackageDriverSelection(String packageName, String driverSelectionValue)
     {
-        ContentResolver contentResolver = context.getContentResolver();
-        Settings.Global.putString(contentResolver,
-                context.getString(R.string.global_settings_angle_allowlist), packageNames);
-    }
-
-    void updatePkg(String pkgName, String driver)
-    {
-        int pkgIndex = getGlobalSettingsPkgIndex(pkgName);
-
-        if (!isValidDiverValue(driver))
+        if (!isValidDriverSelectionValue(driverSelectionValue))
         {
-            Log.e(TAG, "Attempting to update a PKG with an invalid driver: '" + driver + "'");
+            Log.v(TAG, "Attempting to update " + packageName
+                    + " with an invalid driver selection value: '" + driverSelectionValue + "'");
             return;
         }
 
-        String defaultDriver = mContext.getString(R.string.default_driver);
-        if (driver.equals(defaultDriver))
-        {
-            if (pkgIndex >= 0)
-            {
-                // We only store global settings for driver values other than the default
-                mGlobalSettingsDriverPkgs.remove(pkgIndex);
-                mGlobalSettingsDriverValues.remove(pkgIndex);
-            }
-        }
-        else
-        {
-            if (pkgIndex >= 0)
-            {
-                mGlobalSettingsDriverValues.set(pkgIndex, driver);
-            }
-            else
-            {
-                mGlobalSettingsDriverPkgs.add(pkgName);
-                mGlobalSettingsDriverValues.add(driver);
-            }
-        }
-
+        updatePackageDriverSelectionInternal(packageName, driverSelectionValue);
         writeGlobalSettings();
     }
 
-    String getDriverForPkg(String pkgName)
+    private void updatePackageDriverSelectionInternal(String packageName,
+            String driverSelectionValue)
     {
-        int pkgIndex = getGlobalSettingsPkgIndex(pkgName);
-
-        if (pkgIndex >= 0)
+        final int packageIndex = getPackageIndex(packageName);
+        if (packageIndex < 0)
         {
-            return mGlobalSettingsDriverValues.get(pkgIndex);
+            if (driverSelectionValue.equals(DRIVER_SELECTION_DEFAULT))
+            {
+                return;
+            }
+            mDriverSelectionPackages.add(packageName);
+            mDriverSelectionValues.add(driverSelectionValue);
+            return;
         }
-
-        return null;
-    }
-
-    void setInstalledPkgs(List<PackageInfo> installedPkgs)
-    {
-        mInstalledPkgs = installedPkgs;
-
-        updateGlobalSettings();
-    }
-
-    private void updateGlobalSettings()
-    {
-        readGlobalSettings();
-
-        validateGlobalSettings();
-
-        writeGlobalSettings();
-    }
-
-    private void readGlobalSettings()
-    {
-        mGlobalSettingsDriverPkgs = getGlobalSettingsString(
-                mContext.getString(R.string.global_settings_driver_selection_pkgs));
-        mGlobalSettingsDriverValues = getGlobalSettingsString(
-                mContext.getString(R.string.global_settings_driver_selection_values));
-    }
-
-    private List<String> getGlobalSettingsString(String globalSetting)
-    {
-        List<String> valueList;
-        ContentResolver contentResolver = mContext.getContentResolver();
-        String settingsValue            = Settings.Global.getString(contentResolver, globalSetting);
-
-        if (settingsValue != null)
+        if (driverSelectionValue.equals(DRIVER_SELECTION_DEFAULT))
         {
-            valueList = new ArrayList<>(Arrays.asList(settingsValue.split(",")));
+            mDriverSelectionPackages.remove(packageIndex);
+            mDriverSelectionValues.remove(packageIndex);
+            return;
         }
-        else
-        {
-            valueList = new ArrayList<>();
-        }
+        mDriverSelectionValues.set(packageIndex, driverSelectionValue);
+    }
 
-        return valueList;
+    String getDriverSelectionValue(String packageName)
+    {
+        final int packageIndex = getPackageIndex(packageName);
+
+        return packageIndex >= 0
+                ? mDriverSelectionValues.get(packageIndex) : DRIVER_SELECTION_DEFAULT;
     }
 
     private void writeGlobalSettings()
     {
-        String driverPkgs   = String.join(",", mGlobalSettingsDriverPkgs);
-        String driverValues = String.join(",", mGlobalSettingsDriverValues);
+        final String driverSelectionPackages = String.join(",", mDriverSelectionPackages);
+        final String driverSelectionValues = String.join(",", mDriverSelectionValues);
 
-        ContentResolver contentResolver = mContext.getContentResolver();
+        final ContentResolver contentResolver = mContext.getContentResolver();
         Settings.Global.putString(contentResolver,
-                mContext.getString(R.string.global_settings_driver_selection_pkgs), driverPkgs);
+                DRIVER_SELECTION_PACKAGES, driverSelectionPackages);
+        Settings.Global.putString(contentResolver, DRIVER_SELECTION_VALUES, driverSelectionValues);
+    }
+
+    static void writeGlobalSettings(Context context, String driverSelectionPackages,
+            String driverSelectionValues)
+    {
+        final ContentResolver contentResolver = context.getContentResolver();
         Settings.Global.putString(contentResolver,
-                mContext.getString(R.string.global_settings_driver_selection_values), driverValues);
+                DRIVER_SELECTION_PACKAGES, driverSelectionPackages);
+        Settings.Global.putString(contentResolver, DRIVER_SELECTION_VALUES, driverSelectionValues);
     }
 
-    private void validateGlobalSettings()
+    private int getPackageIndex(String packageName)
     {
-        // Verify lengths
-        if (mGlobalSettingsDriverPkgs.size() != mGlobalSettingsDriverValues.size())
+        for (int i = 0; i < mDriverSelectionPackages.size(); i++)
         {
-            // The lengths don't match, so clear the values out and rebuild later.
-            mGlobalSettingsDriverPkgs.clear();
-            mGlobalSettingsDriverValues.clear();
-            return;
-        }
-
-        String defaultDriver = mContext.getString(R.string.default_driver);
-        // Use a temp list, since we're potentially modifying the original list.
-        List<String> globalSettingsDriverPkgs = new ArrayList<>(mGlobalSettingsDriverPkgs);
-        for (String pkgName : globalSettingsDriverPkgs)
-        {
-            // Remove any uninstalled packages.
-            if (!isPkgInstalled(pkgName))
+            if (mDriverSelectionPackages.get(i).equals(packageName))
             {
-                removePkgFromGlobalSettings(pkgName);
-            }
-            // Remove any packages with invalid driver values
-            else if (!isValidDiverValue(getDriverForPkg(pkgName)))
-            {
-                removePkgFromGlobalSettings(pkgName);
-            }
-            // Remove any packages with the 'default' driver selected
-            else if (defaultDriver.equals(getDriverForPkg(pkgName)))
-            {
-                removePkgFromGlobalSettings(pkgName);
-            }
-        }
-    }
-
-    private void removePkgFromGlobalSettings(String pkgName)
-    {
-        int pkgIndex = getGlobalSettingsPkgIndex(pkgName);
-
-        mGlobalSettingsDriverPkgs.remove(pkgIndex);
-        mGlobalSettingsDriverValues.remove(pkgIndex);
-    }
-
-    private int getGlobalSettingsPkgIndex(String pkgName)
-    {
-        for (int pkgIndex = 0; pkgIndex < mGlobalSettingsDriverPkgs.size(); pkgIndex++)
-        {
-            if (mGlobalSettingsDriverPkgs.get(pkgIndex).equals(pkgName))
-            {
-                return pkgIndex;
+                return i;
             }
         }
 
         return -1;
     }
 
-    private Boolean isPkgInstalled(String pkgName)
-    {
-        for (PackageInfo pkg : mInstalledPkgs)
-        {
-            if (pkg.packageName.equals(pkgName))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private Boolean isValidDiverValue(String driverValue)
+    private boolean isValidDriverSelectionValue(String driverSelectionValue)
     {
         CharSequence[] drivers = mContext.getResources().getStringArray(R.array.driver_values);
 
         for (CharSequence driver : drivers)
         {
-            if (driverValue.equals(driver.toString()))
+            if (driverSelectionValue.equals(driver.toString()))
             {
                 return true;
             }

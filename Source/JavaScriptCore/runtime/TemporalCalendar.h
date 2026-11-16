@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2022 Apple Inc. All rights reserved.
+ * Copyright (C) 2022 Sony Interactive Entertainment Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,37 +26,66 @@
 
 #pragma once
 
-#include "IntlObject.h"
-#include "JSObject.h"
+#include <JavaScriptCore/CalendarArithmetic.h>
+#include <JavaScriptCore/CalendarFields.h>
+#include <JavaScriptCore/ISO8601.h>
+#include <JavaScriptCore/ISOArithmetic.h>
+#include <JavaScriptCore/IntlObject.h>
+#include <JavaScriptCore/JSObject.h>
+#include <JavaScriptCore/TemporalDuration.h>
+#include <JavaScriptCore/TemporalObject.h>
 
 namespace JSC {
 
-class TemporalCalendar final : public JSNonFinalObject {
-public:
-    using Base = JSNonFinalObject;
+// Free helper functions (previously static methods of the removed TemporalCalendar JSObject class).
 
-    template<typename CellType, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
-    {
-        return vm.temporalCalendarSpace<mode>();
-    }
+JS_EXPORT_PRIVATE std::optional<CalendarID> isBuiltinCalendar(StringView);
 
-    static TemporalCalendar* create(VM&, Structure*, CalendarID);
-    static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
+CalendarID getTemporalCalendarIdentifierWithISODefault(JSGlobalObject*, JSObject* item);
 
-    DECLARE_INFO;
+std::optional<ParsedMonthCode> parseMonthCode(JSGlobalObject*, JSValue argument);
 
-    CalendarID identifier() const { return m_identifier; }
-    bool isISO8601() const { return m_identifier == iso8601CalendarID(); }
+ISO8601::PlainDate isoDateFromFields(JSGlobalObject*, TemporalDateFormat, int32_t, uint32_t, uint32_t, std::optional<ParsedMonthCode>, TemporalOverflow, CalendarID = iso8601CalendarID());
 
-    static std::optional<CalendarID> isBuiltinCalendar(StringView);
+ISO8601::PlainDateTime interpretTemporalDateTimeFields(JSGlobalObject*, CalendarID, const TemporalCore::CalendarFieldsIn&, const TemporalCore::TimeFieldsIn&, TemporalOverflow);
 
-    static JSObject* from(JSGlobalObject*, JSValue);
+ISO8601::PlainDate isoDateAdd(JSGlobalObject*, const ISO8601::PlainDate&, const ISO8601::Duration&, TemporalOverflow);
+ISO8601::PlainDate calendarDateAdd(JSGlobalObject*, CalendarID, const ISO8601::PlainDate&, const ISO8601::Duration&, TemporalOverflow);
+ISO8601::Duration calendarDateUntil(CalendarID, const ISO8601::PlainDate&, const ISO8601::PlainDate&, TemporalUnit);
 
-private:
-    TemporalCalendar(VM&, Structure*, CalendarID);
+enum class FieldSetType { Date, YearMonth, MonthDay };
+template<FieldSetType type = FieldSetType::Date>
+TemporalCore::CalendarFieldsIn readCalendarFieldsFromObject(JSGlobalObject*, JSObject*, CalendarID);
 
-    CalendarID m_identifier { 0 };
+// Fields read from a ZonedDateTime property bag (from() or with()).
+struct ZonedDateTimeFields {
+    // Calendar date fields (from PrepareCalendarFields).
+    TemporalCore::CalendarFieldsIn dateFields;
+    // Time fields — ZDT-specific, read in alphabetical order interleaved.
+    // Stored as optional so with() can distinguish "not provided" from "provided as 0".
+    std::optional<double> hour;
+    std::optional<double> minute;
+    std::optional<double> second;
+    std::optional<double> millisecond;
+    std::optional<double> microsecond;
+    std::optional<double> nanosecond;
+    // ZDT-specific fields — resolved in readZonedDateTimeFieldsFromObject per spec.
+    std::optional<int64_t> offsetNs; // parsed from the "offset" string property
+    TimeZone timeZone; // resolved TimeZone handle (Full mode only)
+    // Presence flags (needed for with() partial validation).
+    bool dayPresent { false };
+    bool monthPresent { false };
+    bool monthCodePresent { false };
+    bool yearPresent { false };
+    bool anyFieldSet { false }; // true if at least one field was present (for with())
 };
+
+enum class ZonedDateTimeFieldMode {
+    Full, // from(): timeZone is the only required field (spec requiredFieldNames = «time-zone»)
+    Partial, // with(): all fields optional, anyFieldSet is tracked (~partial~ mode)
+};
+
+template<ZonedDateTimeFieldMode mode = ZonedDateTimeFieldMode::Full>
+ZonedDateTimeFields readZonedDateTimeFieldsFromObject(JSGlobalObject*, JSObject*, CalendarID);
 
 } // namespace JSC

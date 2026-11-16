@@ -11,144 +11,214 @@
 #include <string.h>
 #include <sstream>
 
+#include "common/debug.h"
+#include "util/test_utils.h"
+
+#if defined(ANGLE_PLATFORM_ANDROID)
+#    include "util/android/AndroidWindow.h"
+#endif
+
 namespace angle
 {
-bool gCalibration              = false;
-int gStepsPerTrial             = 0;
-int gMaxStepsPerformed         = 0;
-bool gEnableTrace              = false;
-const char *gTraceFile         = "ANGLETrace.json";
-const char *gScreenShotDir     = nullptr;
-bool gVerboseLogging           = false;
-double gCalibrationTimeSeconds = 1.0;
-double gTestTimeSeconds        = 10.0;
-int gTestTrials                = 3;
-bool gNoFinish                 = false;
-bool gEnableAllTraceTests      = false;
-bool gStartTraceAfterSetup     = false;
 
-// Default to three warmup loops. There's no science to this. More than two loops was experimentally
-// helpful on a Windows NVIDIA setup when testing with Vulkan and native trace tests.
-int gWarmupLoops = 3;
-}  // namespace angle
+constexpr int kDefaultStepsPerTrial    = std::numeric_limits<int>::max();
+constexpr int kDefaultTrialTimeSeconds = 0;
+constexpr int kDefaultTestTrials       = 3;
+
+int gStepsPerTrial                 = kDefaultStepsPerTrial;
+int gMaxStepsPerformed             = kDefaultMaxStepsPerformed;
+bool gEnableTrace                  = false;
+const char *gTraceFile             = "ANGLETrace.json";
+const char *gScreenshotDir         = nullptr;
+const char *gRenderTestOutputDir   = nullptr;
+bool gSaveScreenshots              = false;
+int gScreenshotFrame               = kDefaultScreenshotFrame;
+bool gVerboseLogging               = false;
+bool gWarmup                       = false;
+int gTrialTimeSeconds              = kDefaultTrialTimeSeconds;
+int gTestTrials                    = kDefaultTestTrials;
+int gSleepBetweenTrialMs           = 0;
+bool gNoFinish                     = false;
+bool gRetraceMode                  = false;
+bool gMinimizeGPUWork              = false;
+bool gSkipBlitInOffscreen          = false;
+bool gTraceTestValidation          = false;
+const char *gPerfCounters          = nullptr;
+const char *gUseANGLE              = nullptr;
+const char *gUseGL                 = nullptr;
+bool gOffscreen                    = false;
+bool gVsync                        = false;
+int gFpsLimit                      = 0;
+bool gFpsLimitUsesBusyWait         = false;
+bool gRunToKeyFrame                = false;
+int gFixedTestTime                 = 0;
+int gFixedTestTimeWithWarmup       = 0;
+const char *gTraceInterpreter      = nullptr;
+const char *gPrintExtensionsToFile = nullptr;
+const char *gRequestedExtensions   = nullptr;
+bool gIncludeInactiveResources     = false;
+bool gTrackGPUTime                 = false;
+bool gAddSwapIntoGPUTime           = false;
+bool gTrackFrameWallTime           = false;
+bool gAddSwapIntoFrameWallTime     = false;
+int gTrackVulkanApiWallTime        = 0;
+bool gCapturedFrameCountOnly       = false;
 
 namespace
 {
-int ReadIntArgument(const char *arg)
+bool PerfTestArg(int *argc, char **argv, int argIndex)
 {
-    std::stringstream strstr;
-    strstr << arg;
-
-    int value;
-    strstr >> value;
-    return value;
+    return ParseFlag("--run-to-key-frame", argc, argv, argIndex, &gRunToKeyFrame) ||
+           ParseFlag("--enable-trace", argc, argv, argIndex, &gEnableTrace) ||
+           ParseFlag("-v", argc, argv, argIndex, &gVerboseLogging) ||
+           ParseFlag("--verbose", argc, argv, argIndex, &gVerboseLogging) ||
+           ParseFlag("--verbose-logging", argc, argv, argIndex, &gVerboseLogging) ||
+           ParseFlag("--no-finish", argc, argv, argIndex, &gNoFinish) ||
+           ParseFlag("--warmup", argc, argv, argIndex, &gWarmup) ||
+           ParseCStringArg("--trace-file", argc, argv, argIndex, &gTraceFile) ||
+           ParseCStringArg("--perf-counters", argc, argv, argIndex, &gPerfCounters) ||
+           ParseIntArg("--steps-per-trial", argc, argv, argIndex, &gStepsPerTrial) ||
+           ParseIntArg("--max-steps-performed", argc, argv, argIndex, &gMaxStepsPerformed) ||
+           ParseIntArg("--fixed-test-time", argc, argv, argIndex, &gFixedTestTime) ||
+           ParseIntArg("--fixed-test-time-with-warmup", argc, argv, argIndex,
+                       &gFixedTestTimeWithWarmup) ||
+           ParseIntArg("--trial-time", argc, argv, argIndex, &gTrialTimeSeconds) ||
+           ParseIntArg("--max-trial-time", argc, argv, argIndex, &gTrialTimeSeconds) ||
+           ParseIntArg("--trials", argc, argv, argIndex, &gTestTrials) ||
+           ParseIntArg("--sleep-between-trials", argc, argv, argIndex, &gSleepBetweenTrialMs);
 }
 
-// The same as --screenshot-dir, but used by Chrome tests.
-constexpr char kRenderTestDirArg[] = "--render-test-output-dir=";
+bool TraceTestArg(int *argc, char **argv, int argIndex)
+{
+    return ParseFlag("--retrace-mode", argc, argv, argIndex, &gRetraceMode) ||
+           ParseFlag("--validation", argc, argv, argIndex, &gTraceTestValidation) ||
+           ParseFlag("--save-screenshots", argc, argv, argIndex, &gSaveScreenshots) ||
+           ParseFlag("--offscreen", argc, argv, argIndex, &gOffscreen) ||
+           ParseFlag("--vsync", argc, argv, argIndex, &gVsync) ||
+           ParseFlag("--minimize-gpu-work", argc, argv, argIndex, &gMinimizeGPUWork) ||
+           ParseFlag("--skip-blit-in-offscreen", argc, argv, argIndex, &gSkipBlitInOffscreen) ||
+           ParseCStringArg("--trace-interpreter", argc, argv, argIndex, &gTraceInterpreter) ||
+           ParseIntArg("--screenshot-frame", argc, argv, argIndex, &gScreenshotFrame) ||
+           ParseIntArg("--fps-limit", argc, argv, argIndex, &gFpsLimit) ||
+           ParseFlag("--fps-limit-uses-busy-wait", argc, argv, argIndex, &gFpsLimitUsesBusyWait) ||
+           ParseCStringArgWithHandling("--render-test-output-dir", argc, argv, argIndex,
+                                       &gRenderTestOutputDir, ArgHandling::Preserve) ||
+           ParseCStringArg("--screenshot-dir", argc, argv, argIndex, &gScreenshotDir) ||
+           ParseCStringArg("--use-angle", argc, argv, argIndex, &gUseANGLE) ||
+           ParseCStringArg("--use-gl", argc, argv, argIndex, &gUseGL) ||
+           ParseCStringArg("--print-extensions-to-file", argc, argv, argIndex,
+                           &gPrintExtensionsToFile) ||
+           ParseCStringArg("--request-extensions", argc, argv, argIndex, &gRequestedExtensions) ||
+           ParseFlag("--include-inactive-resources", argc, argv, argIndex,
+                     &gIncludeInactiveResources) ||
+           ParseFlag("--track-gpu-time", argc, argv, argIndex, &gTrackGPUTime) ||
+           ParseFlag("--add-swap-into-gpu-time", argc, argv, argIndex, &gAddSwapIntoGPUTime) ||
+           ParseFlag("--track-frame-wall-time", argc, argv, argIndex, &gTrackFrameWallTime) ||
+           ParseFlag("--add-swap-into-frame-wall-time", argc, argv, argIndex,
+                     &gAddSwapIntoFrameWallTime) ||
+           ParseIntArg("--track-vulkan-api-wall-time", argc, argv, argIndex,
+                       &gTrackVulkanApiWallTime) ||
+           ParseFlag("--captured-framecount-only", argc, argv, argIndex, &gCapturedFrameCountOnly);
+}
 }  // namespace
+}  // namespace angle
 
 using namespace angle;
 
 void ANGLEProcessPerfTestArgs(int *argc, char **argv)
 {
-    int argcOutCount = 0;
-
-    for (int argIndex = 0; argIndex < *argc; argIndex++)
+    for (int argIndex = 1; argIndex < *argc;)
     {
-        if (strcmp("--one-frame-only", argv[argIndex]) == 0)
+        if (!PerfTestArg(argc, argv, argIndex))
         {
-            gStepsPerTrial = 1;
-            gWarmupLoops   = 0;
-        }
-        else if (strcmp("--enable-trace", argv[argIndex]) == 0)
-        {
-            gEnableTrace = true;
-        }
-        else if (strcmp("--trace-file", argv[argIndex]) == 0 && argIndex < *argc - 1)
-        {
-            gTraceFile = argv[argIndex + 1];
-            // Skip an additional argument.
             argIndex++;
-        }
-        else if (strcmp("--calibration", argv[argIndex]) == 0)
-        {
-            gCalibration = true;
-        }
-        else if (strcmp("--steps-per-trial", argv[argIndex]) == 0 && argIndex < *argc - 1)
-        {
-            gStepsPerTrial = ReadIntArgument(argv[argIndex + 1]);
-            // Skip an additional argument.
-            argIndex++;
-        }
-        else if (strcmp("--max-steps-performed", argv[argIndex]) == 0 && argIndex < *argc - 1)
-        {
-            gMaxStepsPerformed = ReadIntArgument(argv[argIndex + 1]);
-            gWarmupLoops       = 0;
-            gTestTrials        = 1;
-            gTestTimeSeconds   = 36000;
-            // Skip an additional argument.
-            argIndex++;
-        }
-        else if (strcmp("--screenshot-dir", argv[argIndex]) == 0 && argIndex < *argc - 1)
-        {
-            gScreenShotDir = argv[argIndex + 1];
-            argIndex++;
-        }
-        else if (strcmp("--verbose-logging", argv[argIndex]) == 0 ||
-                 strcmp("--verbose", argv[argIndex]) == 0 || strcmp("-v", argv[argIndex]) == 0)
-        {
-            gVerboseLogging = true;
-        }
-        else if (strcmp("--warmup-loops", argv[argIndex]) == 0)
-        {
-            gWarmupLoops = ReadIntArgument(argv[argIndex + 1]);
-            // Skip an additional argument.
-            argIndex++;
-        }
-        else if (strcmp("--no-warmup", argv[argIndex]) == 0)
-        {
-            gWarmupLoops = 0;
-        }
-        else if (strncmp(kRenderTestDirArg, argv[argIndex], strlen(kRenderTestDirArg)) == 0)
-        {
-            gScreenShotDir = argv[argIndex] + strlen(kRenderTestDirArg);
-        }
-        else if (strcmp("--calibration-time", argv[argIndex]) == 0)
-        {
-            gCalibrationTimeSeconds = ReadIntArgument(argv[argIndex + 1]);
-            // Skip an additional argument.
-            argIndex++;
-        }
-        else if (strcmp("--test-time", argv[argIndex]) == 0)
-        {
-            gTestTimeSeconds = ReadIntArgument(argv[argIndex + 1]);
-            // Skip an additional argument.
-            argIndex++;
-        }
-        else if (strcmp("--trials", argv[argIndex]) == 0)
-        {
-            gTestTrials = ReadIntArgument(argv[argIndex + 1]);
-            // Skip an additional argument.
-            argIndex++;
-        }
-        else if (strcmp("--no-finish", argv[argIndex]) == 0)
-        {
-            gNoFinish = true;
-        }
-        else if (strcmp("--enable-all-trace-tests", argv[argIndex]) == 0)
-        {
-            gEnableAllTraceTests = true;
-        }
-        else if (strcmp("--start-trace-after-setup", argv[argIndex]) == 0)
-        {
-            gStartTraceAfterSetup = true;
-        }
-        else
-        {
-            argv[argcOutCount++] = argv[argIndex];
         }
     }
 
-    *argc = argcOutCount;
+    if (gRunToKeyFrame || gMaxStepsPerformed > 0)
+    {
+        // Ensure defaults were provided for params we're about to set
+        ASSERT(gTestTrials == kDefaultTestTrials && gTrialTimeSeconds == kDefaultTrialTimeSeconds);
+
+        gTestTrials       = 1;
+        gTrialTimeSeconds = 36000;
+    }
+
+    if (gFixedTestTime != 0)
+    {
+        // Ensure defaults were provided for params we're about to set
+        ASSERT(gTrialTimeSeconds == kDefaultTrialTimeSeconds &&
+               gStepsPerTrial == kDefaultStepsPerTrial && gTestTrials == kDefaultTestTrials);
+
+        gTrialTimeSeconds = gFixedTestTime;
+        gStepsPerTrial    = std::numeric_limits<int>::max();
+        gTestTrials       = 1;
+    }
+
+    if (gFixedTestTimeWithWarmup != 0)
+    {
+        // Ensure defaults were provided for params we're about to set
+        ASSERT(gTrialTimeSeconds == kDefaultTrialTimeSeconds &&
+               gStepsPerTrial == kDefaultStepsPerTrial && gTestTrials == kDefaultTestTrials);
+
+        // This option is primarily useful for trace replays when you want to iterate once through
+        // the trace to warm caches, then run for a fixed amount of time. It is equivalent to:
+        // --trial-time X --steps-per-trial INF --trials 1 --warmup
+        gTrialTimeSeconds = gFixedTestTimeWithWarmup;
+        gStepsPerTrial    = std::numeric_limits<int>::max();
+        gTestTrials       = 1;
+        gWarmup           = true;
+    }
+
+    if (gTrialTimeSeconds == 0)
+    {
+        gTrialTimeSeconds = 10;
+    }
+}
+
+void ANGLEProcessTraceTestArgs(int *argc, char **argv)
+{
+    ANGLEProcessPerfTestArgs(argc, argv);
+
+    for (int argIndex = 1; argIndex < *argc;)
+    {
+        if (!TraceTestArg(argc, argv, argIndex))
+        {
+            argIndex++;
+        }
+    }
+
+    if (gAddSwapIntoFrameWallTime || gTrackVulkanApiWallTime > 0)
+    {
+        ASSERT(gTrackFrameWallTime);
+    }
+
+    if (gScreenshotDir)
+    {
+        // implicitly set here but not when using kRenderTestOutputDir
+        gSaveScreenshots = true;
+    }
+
+    if (gRenderTestOutputDir)
+    {
+        gScreenshotDir = gRenderTestOutputDir;
+    }
+
+    if (gTraceTestValidation)
+    {
+        gTestTrials       = 1;
+        gTrialTimeSeconds = 600;
+    }
+
+    if (kStandaloneBenchmark)
+    {
+        gVerboseLogging = true;
+#if defined(ANGLE_PLATFORM_ANDROID)
+        gScreenshotDir = strdup((AndroidWindow::GetApplicationDirectory() + "/files").c_str());
+#else
+        gScreenshotDir = ".";
+#endif
+        gSaveScreenshots = true;
+        gUseANGLE        = "vulkan";
+    }
 }

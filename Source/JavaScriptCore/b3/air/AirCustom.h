@@ -27,6 +27,7 @@
 
 #if ENABLE(B3_JIT)
 
+#include "AirCCallingConvention.h"
 #include "AirCode.h"
 #include "AirGenerationContext.h"
 #include "AirInst.h"
@@ -62,9 +63,9 @@ struct PatchCustom {
     {
         // This is basically bogus, but it works for analyses that model Special as an
         // immediate.
-        lambda(inst.args[0], Arg::Use, GP, pointerWidth());
+        lambda(inst.args()[0], Arg::Use, GP, pointerWidth());
         
-        inst.args[0].special()->forEachArg(inst, lambda);
+        inst.args()[0].special()->forEachArg(inst, lambda);
     }
 
     template<typename... Arguments>
@@ -79,40 +80,40 @@ struct PatchCustom {
     {
         if (!argIndex)
             return false;
-        return inst.args[0].special()->admitsStack(inst, argIndex);
+        return inst.args()[0].special()->admitsStack(inst, argIndex);
     }
 
     static bool admitsExtendedOffsetAddr(Inst& inst, unsigned argIndex)
     {
         if (!argIndex)
             return false;
-        return inst.args[0].special()->admitsExtendedOffsetAddr(inst, argIndex);
+        return inst.args()[0].special()->admitsExtendedOffsetAddr(inst, argIndex);
     }
 
     static std::optional<unsigned> shouldTryAliasingDef(Inst& inst)
     {
-        return inst.args[0].special()->shouldTryAliasingDef(inst);
+        return inst.args()[0].special()->shouldTryAliasingDef(inst);
     }
     
     static bool isTerminal(Inst& inst)
     {
-        return inst.args[0].special()->isTerminal(inst);
+        return inst.args()[0].special()->isTerminal(inst);
     }
 
     static bool hasNonArgEffects(Inst& inst)
     {
-        return inst.args[0].special()->hasNonArgEffects(inst);
+        return inst.args()[0].special()->hasNonArgEffects(inst);
     }
 
     static bool hasNonArgNonControlEffects(Inst& inst)
     {
-        return inst.args[0].special()->hasNonArgNonControlEffects(inst);
+        return inst.args()[0].special()->hasNonArgNonControlEffects(inst);
     }
 
     static MacroAssembler::Jump generate(
         Inst& inst, CCallHelpers& jit, GenerationContext& context)
     {
-        return inst.args[0].special()->generate(inst, jit, context);
+        return inst.args()[0].special()->generate(inst, jit, context);
     }
 };
 
@@ -124,33 +125,47 @@ struct CommonCustomBase {
     }
 };
 
-// Definition of CCall instruction. CCall is used for hot path C function calls. It's lowered to a
-// Patch with an Air CCallSpecial along with code to marshal instructions. The lowering happens
-// before register allocation, so that the register allocator sees the clobbers.
+// Definition of the CCall marshalling logic. The CCall opcode is no longer emitted: hot C calls are
+// marshalled inline by B3LowerToAir, and CCallCustom remains as the base that ColdCCall reuses. The
+// inline lowering happens before register allocation, so that the register allocator sees the clobbers.
 struct CCallCustom : public CommonCustomBase<CCallCustom> {
     template<typename Functor>
     static void forEachArg(Inst& inst, const Functor& functor)
     {
-        Value* value = inst.origin;
+        CCallValue* value = inst.origin->as<CCallValue>();
 
-        unsigned index = 0;
+        Code& code = inst.args()[0].special()->code();
 
-        functor(inst.args[index++], Arg::Use, GP, pointerWidth()); // callee
-        
-        if (value->type() != Void) {
-            functor(
-                inst.args[index++], Arg::Def,
-                bankForType(value->type()),
-                widthForType(value->type()));
+        // Skip the CCallSpecial Arg.
+        unsigned index = 1;
+
+        auto next = [&](Arg::Role role, Bank bank, Width width) {
+            functor(inst.args()[index++], role, bank, width);
+        };
+
+        next(Arg::Use, GP, pointerWidth()); // callee
+
+        size_t resultCount = cCallResultCount(code, value);
+        for (size_t n = 0; n < resultCount; ++n) {
+            Type type = value->type().isTuple() ? code.proc().typeAtOffset(value->type(), n) : value->type();
+            next(
+                Arg::Def,
+                bankForType(type),
+                cCallArgumentRegisterWidth(type)
+            );
         }
 
         for (unsigned i = 1; i < value->numChildren(); ++i) {
             Value* child = value->child(i);
-            functor(
-                inst.args[index++], Arg::Use,
-                bankForType(child->type()),
-                widthForType(child->type()));
+            for (size_t j = 0; j < cCallArgumentRegisterCount(child->type()); j++) {
+                next(
+                    Arg::Use,
+                    bankForType(child->type()),
+                    cCallArgumentRegisterWidth(child->type())
+                );
+            }
         }
+        ASSERT(index == inst.args().size());
     }
 
     template<typename... Arguments>
@@ -202,11 +217,11 @@ struct ShuffleCustom : public CommonCustomBase<ShuffleCustom> {
     template<typename Functor>
     static void forEachArg(Inst& inst, const Functor& functor)
     {
-        unsigned limit = inst.args.size() / 3 * 3;
+        unsigned limit = inst.args().size() / 3 * 3;
         for (unsigned i = 0; i < limit; i += 3) {
-            Arg& src = inst.args[i + 0];
-            Arg& dst = inst.args[i + 1];
-            Arg& widthArg = inst.args[i + 2];
+            Arg& src = inst.args()[i + 0];
+            Arg& dst = inst.args()[i + 1];
+            Arg& widthArg = inst.args()[i + 2];
             Width width = widthArg.width();
             Bank bank = src.isGP() && dst.isGP() ? GP : FP;
             functor(src, Arg::Use, bank, width);
@@ -266,7 +281,7 @@ struct EntrySwitchCustom : public CommonCustomBase<EntrySwitchCustom> {
     
     static bool isValidForm(Inst& inst)
     {
-        return inst.args.isEmpty();
+        return inst.args().empty();
     }
     
     static bool admitsStack(Inst&, unsigned)
@@ -302,8 +317,10 @@ struct WasmBoundsCheckCustom : public CommonCustomBase<WasmBoundsCheckCustom> {
     template<typename Func>
     static void forEachArg(Inst& inst, const Func& functor)
     {
-        functor(inst.args[0], Arg::Use, GP, Width64);
-        functor(inst.args[1], Arg::Use, GP, Width64);
+        functor(inst.args()[0], Arg::Use, GP, pointerWidth());
+        functor(inst.args()[1], Arg::Use, GP, pointerWidth());
+        if (inst.args().size() > 2)
+            functor(inst.args()[2], Arg::Use, GP, pointerWidth());
     }
 
     template<typename... Arguments>

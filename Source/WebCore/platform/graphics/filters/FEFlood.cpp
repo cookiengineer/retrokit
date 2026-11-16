@@ -3,6 +3,7 @@
  * Copyright (C) 2004, 2005 Rob Buis <buis@kde.org>
  * Copyright (C) 2005 Eric Seidel <eric@webkit.org>
  * Copyright (C) 2009 Dirk Schulze <krit@webkit.org>
+ * Copyright (C) 2021-2022 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -23,23 +24,38 @@
 #include "config.h"
 #include "FEFlood.h"
 
-#include "ColorSerialization.h"
+#include "FEFloodSoftwareApplier.h"
 #include "Filter.h"
-#include "GraphicsContext.h"
 #include <wtf/text/TextStream.h>
+
+#if USE(CORE_IMAGE)
+#include "FEFloodCoreImageApplier.h"
+#endif
 
 namespace WebCore {
 
-FEFlood::FEFlood(Filter& filter, const Color& floodColor, float floodOpacity)
-    : FilterEffect(filter, Type::Flood)
+Ref<FEFlood> FEFlood::create(const Color& floodColor, float floodOpacity, DestinationColorSpace colorSpace)
+{
+#if USE(CG) || USE(SKIA)
+    return adoptRef(*new FEFlood(floodColor, floodOpacity, colorSpace));
+#else
+    UNUSED_PARAM(colorSpace);
+    return adoptRef(*new FEFlood(floodColor, floodOpacity));
+#endif
+}
+
+FEFlood::FEFlood(const Color& floodColor, float floodOpacity, DestinationColorSpace colorSpace)
+    : FilterEffect(FilterEffect::Type::FEFlood, colorSpace)
     , m_floodColor(floodColor)
     , m_floodOpacity(floodOpacity)
 {
 }
 
-Ref<FEFlood> FEFlood::create(Filter& filter, const Color& floodColor, float floodOpacity)
+bool FEFlood::operator==(const FEFlood& other) const
 {
-    return adoptRef(*new FEFlood(filter, floodColor, floodOpacity));
+    return FilterEffect::operator==(other)
+        && m_floodColor == other.m_floodColor
+        && m_floodOpacity == other.m_floodOpacity;
 }
 
 bool FEFlood::setFloodColor(const Color& color)
@@ -58,22 +74,43 @@ bool FEFlood::setFloodOpacity(float floodOpacity)
     return true;
 }
 
-void FEFlood::platformApplySoftware()
+FloatRect FEFlood::calculateImageRect(const Filter& filter, std::span<const FloatRect>, const FloatRect& primitiveSubregion) const
 {
-    ImageBuffer* resultImage = createImageBufferResult();
-    if (!resultImage)
-        return;
-
-    auto color = floodColor().colorWithAlphaMultipliedBy(floodOpacity());
-    resultImage->context().fillRect(FloatRect(FloatPoint(), absolutePaintRect().size()), color);
+    return filter.maxEffectRect(primitiveSubregion);
 }
 
-TextStream& FEFlood::externalRepresentation(TextStream& ts, RepresentationType representation) const
+OptionSet<FilterRenderingMode> FEFlood::supportedFilterRenderingModes(OptionSet<FilterRenderingMode> preferredFilterRenderingModes) const
 {
-    ts << indent << "[feFlood";
+    OptionSet<FilterRenderingMode> modes = FilterRenderingMode::Software;
+#if USE(CORE_IMAGE)
+    modes.add(FilterRenderingMode::Accelerated);
+#endif
+    return modes & preferredFilterRenderingModes;
+}
+
+std::unique_ptr<FilterEffectApplier> FEFlood::createAcceleratedApplier() const
+{
+#if USE(CORE_IMAGE)
+    return FilterEffectApplier::create<FEFloodCoreImageApplier>(*this);
+#else
+    return nullptr;
+#endif
+}
+
+std::unique_ptr<FilterEffectApplier> FEFlood::createSoftwareApplier() const
+{
+    return FilterEffectApplier::create<FEFloodSoftwareApplier>(*this);
+}
+
+TextStream& FEFlood::externalRepresentation(TextStream& ts, FilterRepresentation representation) const
+{
+    ts << indent << "[feFlood"_s;
     FilterEffect::externalRepresentation(ts, representation);
-    ts << " flood-color=\"" << serializationForRenderTreeAsText(floodColor()) << "\" "
-       << "flood-opacity=\"" << floodOpacity() << "\"]\n";
+
+    ts << " flood-color=\"" << floodColor() << '"';
+    ts << " flood-opacity=\"" << floodOpacity() << '"';
+
+    ts << "]\n"_s;
     return ts;
 }
 

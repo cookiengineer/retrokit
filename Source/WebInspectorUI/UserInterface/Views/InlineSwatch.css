@@ -29,44 +29,47 @@
     position: relative;
     width: 1em;
     height: 1em;
-    margin-right: 3px;
-    vertical-align: -2px;
+    margin-right: var(--inline-swatch-margin-right-override, var(--inline-swatch-margin-right-default));
+    vertical-align: var(--inline-swatch-vertical-align-override, var(--inline-swatch-vertical-align-default));
     border-radius: 2px;
     overflow: hidden;
     cursor: default;
+
+    --inline-swatch-margin-right-default: 3px;
+    --inline-swatch-vertical-align-override: -2px;
 }
 
 .inline-swatch:not(.box-shadow),
-.inline-swatch.box-shadow:matches(:hover, :active) {
+.inline-swatch.box-shadow:is(:hover, :active) {
     background-color: var(--background-color-content);
 }
 
-.inline-swatch:matches(.color, .gradient) {
+.inline-swatch:is(.color, .gradient) {
     /* Make a checkered background for transparent colors to show against. */
     background-image: linear-gradient(to bottom, hsl(0, 0%, 80%), hsl(0, 0%, 80%)),
                       linear-gradient(to bottom, hsl(0, 0%, 80%), hsl(0, 0%, 80%));
-    background-size: 50%;
+    background-size: 50% 50%;
     background-position: top left, bottom right;
     background-repeat: no-repeat;
 }
 
-.inline-swatch:matches(.bezier, .spring, .variable) {
+.inline-swatch:is(.cubic-bezier-timing-function, .linear-timing-function, .spring-timing-function, .steps-timing-function, .linear-timing-function, .variable) {
     color: var(--glyph-color-active);
 }
 
-.inline-swatch:matches(.bezier, .box-shadow, .spring, .variable) {
+.inline-swatch:is(.box-shadow, .cubic-bezier-timing-function, .linear-timing-function, .spring-timing-function, .steps-timing-function, .variable) {
     margin-right: 2px;
 }
 
-.inline-swatch:not(.read-only):matches(.bezier, .box-shadow, .spring, .variable):hover {
+.inline-swatch:not(.read-only):is(.box-shadow, .cubic-bezier-timing-function, .linear-timing-function, .spring-timing-function, .steps-timing-function, .variable, .alignment):hover {
     filter: brightness(0.9);
 }
 
-.inline-swatch:not(.read-only):matches(.bezier, .box-shadow, .spring, .variable):active {
+.inline-swatch:not(.read-only):is(.box-shadow, .cubic-bezier-timing-function, .linear-timing-function, .spring-timing-function, .steps-timing-function, .variable, .alignment):active {
     filter: brightness(0.8);
 }
 
-@media (-webkit-max-device-pixel-ratio: 1) {
+@media (max-resolution: 1dppx) {
     /* Ensure the color swatch is even by even so that it looks okay checkered. */
     .inline-swatch {
         vertical-align: -1px;
@@ -94,13 +97,17 @@
     border-color: hsl(0, 0%, 25%);
 }
 
-.inline-swatch:matches(.bezier, .box-shadow, .spring, .variable) > span {
+.inline-swatch:is(.box-shadow, .cubic-bezier-timing-function, .linear-timing-function, .spring-timing-function, .steps-timing-function, .variable) > span {
     display: none;
 }
 
-.inline-swatch.image > span {
+.inline-swatch:is(.image, .alignment) > span {
     background-size: cover;
     background-repeat: no-repeat;
+}
+
+.inline-swatch.alignment > span.rotate-left {
+    rotate: -90deg;
 }
 
 .inline-swatch-variable-popover {
@@ -119,8 +126,14 @@
     padding: 0 3px;
 }
 
+.inline-swatch-variable-popover .CodeMirror-sizer {
+    /* Override min-height set as inline style by CodeMirror which sizes its container disproportionally tall. */
+    min-height: fit-content !important;
+}
+
 @media (prefers-color-scheme: dark) {
-    .inline-swatch.box-shadow > svg {
+    .inline-swatch.box-shadow > svg,
+    .inline-swatch.alignment > span {
         filter: invert();
     }
 }

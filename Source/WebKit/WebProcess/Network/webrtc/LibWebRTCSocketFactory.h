@@ -32,18 +32,26 @@
 #include "WebPageProxyIdentifier.h"
 #include <WebCore/LibWebRTCMacros.h>
 #include <WebCore/LibWebRTCSocketIdentifier.h>
-#include <webrtc/rtc_base/net_helpers.h>
-#include <webrtc/api/packet_socket_factory.h>
+#include <wtf/CheckedPtr.h>
 #include <wtf/Deque.h>
 #include <wtf/Function.h>
 #include <wtf/HashMap.h>
+#include <wtf/WeakRef.h>
+
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <webrtc/rtc_base/net_helpers.h>
+#include <webrtc/api/packet_socket_factory.h>
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 
 namespace WebKit {
 
 class LibWebRTCNetwork;
 class LibWebRTCSocket;
+struct RTCSocketCreationFlags;
 
-class LibWebRTCSocketFactory {
+class LibWebRTCSocketFactory : public CanMakeThreadSafeCheckedPtr<LibWebRTCSocketFactory> {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(LibWebRTCSocketFactory);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(LibWebRTCSocketFactory);
 public:
     LibWebRTCSocketFactory() = default;
 
@@ -51,27 +59,25 @@ public:
     void removeSocket(LibWebRTCSocket&);
     LibWebRTCSocket* socket(WebCore::LibWebRTCSocketIdentifier identifier) { return m_sockets.get(identifier); }
 
-    void forSocketInGroup(const void* socketGroup, const Function<void(LibWebRTCSocket&)>&);
-    rtc::AsyncPacketSocket* createUdpSocket(const void* socketGroup, const rtc::SocketAddress&, uint16_t minPort, uint16_t maxPort, WebPageProxyIdentifier, bool isFirstParty, bool isRelayDisabled, const WebCore::RegistrableDomain&);
-    rtc::AsyncPacketSocket* createServerTcpSocket(const void* socketGroup, const rtc::SocketAddress&, uint16_t minPort, uint16_t maxPort, int options);
-    rtc::AsyncPacketSocket* createClientTcpSocket(const void* socketGroup, const rtc::SocketAddress& localAddress, const rtc::SocketAddress& remoteAddress, String&& userAgent, const rtc::PacketSocketTcpOptions&, WebPageProxyIdentifier, bool isRelayDisabled);
-    rtc::AsyncPacketSocket* createNewConnectionSocket(LibWebRTCSocket&, WebCore::LibWebRTCSocketIdentifier newConnectionSocketIdentifier, const rtc::SocketAddress&);
+    void forSocketInGroup(WebCore::ScriptExecutionContextIdentifier, NOESCAPE const Function<void(LibWebRTCSocket&)>&);
+    std::unique_ptr<webrtc::AsyncPacketSocket> createUdpSocket(WebCore::ScriptExecutionContextIdentifier, const webrtc::SocketAddress&, uint16_t minPort, uint16_t maxPort, WebPageProxyIdentifier, RTCSocketCreationFlags, const WebCore::RegistrableDomain&);
+    std::unique_ptr<webrtc::AsyncPacketSocket> createClientTcpSocket(WebCore::ScriptExecutionContextIdentifier, const webrtc::SocketAddress& localAddress, const webrtc::SocketAddress& remoteAddress, String&& userAgent, const webrtc::PacketSocketTcpOptions&, WebPageProxyIdentifier, RTCSocketCreationFlags, const WebCore::RegistrableDomain&);
 
-    LibWebRTCResolver* resolver(LibWebRTCResolverIdentifier identifier) { return m_resolvers.get(identifier); }
-    std::unique_ptr<LibWebRTCResolver> takeResolver(LibWebRTCResolverIdentifier identifier) { return m_resolvers.take(identifier); }
-    rtc::AsyncResolverInterface* createAsyncResolver();
-    
+    CheckedPtr<LibWebRTCResolver> resolver(LibWebRTCResolverIdentifier identifier) { return m_resolvers.get(identifier); }
+    void removeResolver(LibWebRTCResolverIdentifier identifier) { m_resolvers.remove(identifier); }
+
+    std::unique_ptr<LibWebRTCResolver> createAsyncDnsResolver();
+
     void disableNonLocalhostConnections() { m_disableNonLocalhostConnections = true; }
 
     void setConnection(RefPtr<IPC::Connection>&&);
-    IPC::Connection* connection();
+    IPC::Connection* NODELETE connection();
 
 private:
     // We cannot own sockets, clients of the factory are responsible to free them.
-    HashMap<WebCore::LibWebRTCSocketIdentifier, LibWebRTCSocket*> m_sockets;
-    
-    // We can own resolvers as we control their Destroy method.
-    HashMap<LibWebRTCResolverIdentifier, std::unique_ptr<LibWebRTCResolver>> m_resolvers;
+    HashMap<WebCore::LibWebRTCSocketIdentifier, CheckedRef<LibWebRTCSocket>> m_sockets;
+
+    HashMap<LibWebRTCResolverIdentifier, CheckedRef<LibWebRTCResolver>> m_resolvers;
     bool m_disableNonLocalhostConnections { false };
 
     RefPtr<IPC::Connection> m_connection;

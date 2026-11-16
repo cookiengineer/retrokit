@@ -6,6 +6,7 @@
 
 // MatrixBuiltinsTest.cpp: Tests basic usage of builtin matrix operations.
 
+#include "common/unsafe_buffers.h"
 #include "test_utils/ANGLETest.h"
 #include "test_utils/gl_raii.h"
 
@@ -16,7 +17,7 @@
 
 using namespace angle;
 
-class MatrixBuiltinsTest : public ANGLETest
+class MatrixBuiltinsTest : public ANGLETest<>
 {
   protected:
     MatrixBuiltinsTest()
@@ -49,6 +50,32 @@ TEST_P(MatrixBuiltinsTest, Rotate)
     EXPECT_GL_NO_ERROR();
 
     EXPECT_TRUE(testMatrix.nearlyEqual(0.00001f, outputMatrix));
+}
+
+// Test that rotation of a (0, 0, 0) Vector doesn't result in NaN values.
+TEST_P(MatrixBuiltinsTest, RotateAxisZero)
+{
+    constexpr float angle = 90.0f;
+    constexpr float x     = 0.0f;
+    constexpr float y     = 0.0f;
+    constexpr float z     = 0.0f;
+
+    angle::Mat4 testMatrix = angle::Mat4::Rotate(angle, angle::Vector3(x, y, z));
+
+    glRotatef(angle, x, y, z);
+    EXPECT_GL_NO_ERROR();
+
+    angle::Mat4 outputMatrix;
+    glGetFloatv(GL_MODELVIEW_MATRIX, outputMatrix.data());
+    EXPECT_GL_NO_ERROR();
+
+    const float *inputArray  = testMatrix.data();
+    const float *outputArray = outputMatrix.data();
+    for (int index = 0; index < 16; index++)
+    {
+        ANGLE_UNSAFE_TODO(EXPECT_FALSE(isnan(inputArray[index])));
+        ANGLE_UNSAFE_TODO(EXPECT_FALSE(isnan(outputArray[index])));
+    }
 }
 
 // Test translation and check the matrix for closeness to a translation matrix.

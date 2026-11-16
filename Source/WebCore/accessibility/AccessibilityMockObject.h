@@ -25,34 +25,33 @@
 
 #pragma once
 
-#include "AccessibilityObject.h"
+#include <WebCore/AccessibilityObject.h>
 
 namespace WebCore {
-    
+
 class AccessibilityMockObject : public AccessibilityObject {
-    
-protected:
-    AccessibilityMockObject();
 public:
     virtual ~AccessibilityMockObject();
-    
-    AccessibilityObject* parentObject() const override { return m_parent; }
+
+    AccessibilityObject* parentObject() const override { return m_parent.get(); }
     virtual void setParent(AccessibilityObject* parent) { m_parent = parent; }
     bool isEnabled() const override { return true; }
 
 protected:
-    AccessibilityObject* m_parent;
+    explicit AccessibilityMockObject(AXID, AXObjectCache&);
+
+    WeakPtr<AccessibilityObject> m_parent;
 
     // Must be called when the parent object clears its children.
     void detachFromParent() override { m_parent = nullptr; }
 
 private:
     bool isMockObject() const final { return true; }
-    bool isDetachedFromParent() override { return !m_parent; }
+    bool isDetachedFromParent() final { return !m_parent; }
 
-    bool computeAccessibilityIsIgnored() const override;
+    bool computeIsIgnored() const override;
 };
 
-} // namespace WebCore 
+} // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_ACCESSIBILITY(AccessibilityMockObject, isMockObject())

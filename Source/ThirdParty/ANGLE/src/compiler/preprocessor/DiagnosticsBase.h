@@ -64,11 +64,12 @@ class Diagnostics
         PP_INVALID_LINE_NUMBER,
         PP_INVALID_FILE_NUMBER,
         PP_INVALID_LINE_DIRECTIVE,
-    // This is just a warning on CHROME OS http://anglebug.com/4023
+    // This is just a warning on CHROME OS http://anglebug.com/42262661
 #if !defined(ANGLE_PLATFORM_CHROMEOS)
         PP_NON_PP_TOKEN_BEFORE_EXTENSION_ESSL1,
 #endif
         PP_NON_PP_TOKEN_BEFORE_EXTENSION_ESSL3,
+        PP_NON_PP_TOKEN_BEFORE_EXTENSION_DISABLE_WEBGL,
         PP_UNDEFINED_SHIFT,
         PP_TOKENIZER_ERROR,
         PP_ERROR_END,

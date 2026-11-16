@@ -23,13 +23,15 @@
 
 #include <enchant.h>
 #include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
 
 class TextCheckerEnchant {
-    WTF_MAKE_NONCOPYABLE(TextCheckerEnchant); WTF_MAKE_FAST_ALLOCATED;
-    friend class WTF::NeverDestroyed<TextCheckerEnchant>;
+    WTF_MAKE_TZONE_ALLOCATED(TextCheckerEnchant);
+    WTF_MAKE_NONCOPYABLE(TextCheckerEnchant);
+    friend class NeverDestroyed<TextCheckerEnchant>;
 public:
     static TextCheckerEnchant& singleton();
 

@@ -31,59 +31,65 @@
 #include <gst/gst.h>
 #include <mutex>
 #include <wtf/Condition.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Threading.h>
 
 namespace WebCore {
 
+typedef MediaSourcePrivateGStreamer::StreamType StreamType;
+typedef MediaSourcePrivateGStreamer::RegisteredTrack RegisteredTrack;
+
 #if !LOG_DISABLED || ENABLE(ENCRYPTED_MEDIA)
 struct PadProbeInformation {
     AppendPipeline* appendPipeline;
-    const char* description;
+    ASCIILiteral description;
     gulong probeId;
 };
 #endif
 
 class AppendPipeline {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(AppendPipeline);
 public:
     AppendPipeline(SourceBufferPrivateGStreamer&, MediaPlayerPrivateGStreamerMSE&);
     virtual ~AppendPipeline();
 
     void pushNewBuffer(GRefPtr<GstBuffer>&&);
     void resetParserState();
+    void stopParser();
+    void startChangingType();
     SourceBufferPrivateGStreamer& sourceBufferPrivate() { return m_sourceBufferPrivate; }
     MediaPlayerPrivateGStreamerMSE* playerPrivate() { return m_playerPrivate; }
 
-private:
-    // Similar to TrackPrivateBaseGStreamer::TrackType, but with a new value (Invalid) for when the codec is
-    // not supported on this system, which should result in ParsingFailed error being thrown in SourceBuffer.
-    enum StreamType { Audio, Video, Text, Unknown, Invalid };
-#ifndef GST_DISABLE_GST_DEBUG
-    static const char * streamTypeToString(StreamType);
-#endif
+    GstElement* pipeline() const { return m_pipeline.get(); }
 
+private:
     struct Track {
         // Track objects are created on pad-added for the first initialization segment, and destroyed after
         // the pipeline state has been set to GST_STATE_NULL.
+        WTF_MAKE_TZONE_ALLOCATED(Track);
         WTF_MAKE_NONCOPYABLE(Track);
-        WTF_MAKE_FAST_ALLOCATED;
     public:
 
-        Track(const AtomString& trackId, StreamType streamType, const GRefPtr<GstCaps>& caps, const FloatSize& presentationSize)
+        Track(TrackID trackId, StreamType streamType, const GRefPtr<GstCaps>& caps, const FloatSize& presentationSize)
             : trackId(trackId)
             , streamType(streamType)
             , caps(caps)
             , presentationSize(presentationSize)
         { }
 
-        AtomString trackId;
+        TrackID trackId;
         StreamType streamType;
         GRefPtr<GstCaps> caps;
+        GRefPtr<GstCaps> finalCaps;
         FloatSize presentationSize;
 
-        // Needed by some formats. To simplify the code, parser can be a GstIdentity when not needed.
+        gboolean ongoingChangeType { false };
+
+        // Needed by some formats. To simplify the code, parser/encoder can be a GstIdentity when not needed.
         GRefPtr<GstElement> parser;
+        GRefPtr<GstElement> encoder;
         GRefPtr<GstElement> appsink;
+        GRefPtr<GstPad> demuxerSrcPad;
         GRefPtr<GstPad> entryPad; // Sink pad of the parser/GstIdentity.
         GRefPtr<GstPad> appsinkPad;
 
@@ -96,9 +102,15 @@ private:
         struct PadProbeInformation appsinkPadEventProbeInformation;
 #endif
 
+        void emplaceOptionalElementsForFormat(GstBin*, const GRefPtr<GstCaps>&);
         void initializeElements(AppendPipeline*, GstBin*);
+        bool isLinked() const { return gst_pad_is_linked(entryPad.get()); }
     };
 
+    void resetElementsForChangeType();
+    void setupDemuxing();
+    void configureOptionalDemuxerFromAnyThread();
+    void removeParserForDemuxerPad(const GRefPtr<GstPad>&);
     void handleErrorSyncMessage(GstMessage*);
     void handleNeedContextSyncMessage(GstMessage*);
     // For debug purposes only:
@@ -109,24 +121,21 @@ private:
     void handleErrorConditionFromStreamingThread();
 
     void hookTrackEvents(Track&);
-    static std::tuple<GRefPtr<GstCaps>, AppendPipeline::StreamType, FloatSize> parseDemuxerSrcPadCaps(GstCaps*);
-    Ref<WebCore::TrackPrivateBase> makeWebKitTrack(int trackIndex);
+    static std::tuple<GRefPtr<GstCaps>, StreamType, FloatSize> parseDemuxerSrcPadCaps(GstCaps*);
+    Ref<WebCore::TrackPrivateBase> makeWebKitTrack(Track& appendPipelineTrack, int trackIndex, TrackID);
     void appsinkCapsChanged(Track&);
     void appsinkNewSample(const Track&, GRefPtr<GstSample>&&);
     void handleEndOfAppend();
     void didReceiveInitializationSegment();
 
-    GstBus* bus() { return m_bus.get(); }
-    GstElement* pipeline() { return m_pipeline.get(); }
     GstElement* appsrc() { return m_appsrc.get(); }
 
     static AtomString generateTrackId(StreamType, int padIndex);
     enum class CreateTrackResult { TrackCreated, TrackIgnored, AppendParsingFailed };
-    std::pair<CreateTrackResult, AppendPipeline::Track*> tryCreateTrackFromPad(GstPad* demuxerSrcPad, int padIndex);
-    AppendPipeline::Track* tryMatchPadToExistingTrack(GstPad* demuxerSrcPad);
-    void linkPadWithTrack(GstPad* demuxerSrcPad, Track&);
+    std::pair<CreateTrackResult, AppendPipeline::Track*> tryCreateTrackFromPad(GstPad* demuxerSrcPad);
 
-    void resetPipeline();
+    bool recycleTrackForPad(GstPad*);
+    void linkPadWithTrack(GstPad* demuxerSrcPad, Track&);
 
     void consumeAppsinksAvailableSamples();
 
@@ -140,9 +149,10 @@ private:
 
     // Used only for asserting that there is only one streaming thread.
     // Only the pointers are compared.
-    WTF::Thread* m_streamingThread;
+    Thread* m_streamingThread;
 
     bool m_hasReceivedFirstInitializationSegment { false };
+    bool m_pendingInitializationSegmentForChangeType { false };
     // Used only for asserting EOS events are only caused by demuxing errors.
     bool m_errorReceived { false };
 
@@ -151,7 +161,6 @@ private:
 
     MediaTime m_initialDuration;
     GRefPtr<GstElement> m_pipeline;
-    GRefPtr<GstBus> m_bus;
     GRefPtr<GstElement> m_appsrc;
     // To simplify the code, mtypefind and m_demux can be a GstIdentity when not needed.
     GRefPtr<GstElement> m_typefind;

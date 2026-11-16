@@ -25,9 +25,11 @@
 
 #pragma once
 
-#include "DumpContext.h"
-#include "Structure.h"
+#include <JavaScriptCore/DumpContext.h>
+#include <JavaScriptCore/Structure.h>
 #include <wtf/TinyPtrSet.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
@@ -39,16 +41,14 @@ public:
     // using TinyPtrSet::TinyPtrSet;
     //
     // But I can't because Windows.
-    
-    StructureSet()
-    {
-    }
-    
+
+    StructureSet() = default;
+
     StructureSet(Structure* structure)
         : TinyPtrSet(structure)
     {
     }
-    
+
     Structure* onlyStructure() const
     {
         return onlyEntry();
@@ -62,3 +62,5 @@ public:
 };
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

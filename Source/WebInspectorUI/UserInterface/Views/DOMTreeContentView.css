@@ -23,6 +23,14 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+.item.button.text-only.configure-dom-tree-badges {
+    border-color: var(--border-color);
+}
+
+.item.button.text-only.configure-dom-tree-badges:hover {
+    background-color: var(--background-color-alternate);
+}
+
 .content-view.dom-tree {
     overflow: auto;
 }
@@ -53,7 +61,7 @@ body[dir=rtl] .content-view.dom-tree .tree-outline.dom li .status-image {
     fill: var(--breakpoint-color);
 }
 
-body:not(.window-inactive, .window-docked-inactive) .content-view.dom-tree .tree-outline.dom:focus-within li:matches(.selected, .hovered) .status-image.breakpoint {
+body:not(.window-inactive, .window-docked-inactive) .content-view.dom-tree .tree-outline.dom:focus-within li:is(.selected, .hovered) .status-image.breakpoint {
     stroke: var(--selected-foreground-color);
 }
 
@@ -70,7 +78,7 @@ body:not(.window-inactive, .window-docked-inactive) .content-view.dom-tree .tree
     stroke: var(--breakpoint-color);
 }
 
-body:not(.window-inactive, .window-docked-inactive) .content-view.dom-tree .tree-outline.dom:focus-within li:matches(.selected, .hovered) .status-image.breakpoint.subtree {
+body:not(.window-inactive, .window-docked-inactive) .content-view.dom-tree .tree-outline.dom:focus-within li:is(.selected, .hovered) .status-image.breakpoint.subtree {
     stroke: var(--selected-foreground-color);
 }
 

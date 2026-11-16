@@ -30,20 +30,22 @@
 
 #if ENABLE(MATHML)
 
+#include "ContainerNodeInlines.h"
 #include "MathMLNames.h"
 #include "RenderMathMLMath.h"
-#include <wtf/IsoMallocInlines.h>
+#include "Settings.h"
+#include "StyleComputedStyle.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(MathMLMathElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MathMLMathElement);
 
 using namespace MathMLNames;
 
 inline MathMLMathElement::MathMLMathElement(const QualifiedName& tagName, Document& document)
-    : MathMLRowElement(tagName, document)
+    : MathMLRowElement(tagName, document, TypeFlag::HasCustomStyleResolveCallbacks)
 {
-    setHasCustomStyleResolveCallbacks();
 }
 
 Ref<MathMLMathElement> MathMLMathElement::create(const QualifiedName& tagName, Document& document)
@@ -51,20 +53,20 @@ Ref<MathMLMathElement> MathMLMathElement::create(const QualifiedName& tagName, D
     return adoptRef(*new MathMLMathElement(tagName, document));
 }
 
-RenderPtr<RenderElement> MathMLMathElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> MathMLMathElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
-    return createRenderer<RenderMathMLMath>(*this, WTFMove(style));
+    return createRenderer<RenderMathMLMath>(*this, WTF::move(style));
 }
 
-void MathMLMathElement::parseAttribute(const QualifiedName& name, const AtomString& value)
+void MathMLMathElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
-    bool mathVariantAttribute = name == mathvariantAttr;
-    if (mathVariantAttribute)
+    if (name == mathvariantAttr && acceptsLegacyMathVariantAttribute()) {
         m_mathVariant = std::nullopt;
-    if ((mathVariantAttribute) && renderer())
-        MathMLStyle::resolveMathMLStyleTree(renderer());
+        if (renderer())
+            MathMLStyle::resolveMathMLStyleTree(renderer());
+    }
 
-    MathMLElement::parseAttribute(name, value);
+    MathMLElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
 }
 
 void MathMLMathElement::didAttachRenderers()
@@ -72,6 +74,11 @@ void MathMLMathElement::didAttachRenderers()
     MathMLRowElement::didAttachRenderers();
 
     MathMLStyle::resolveMathMLStyleTree(renderer());
+}
+
+bool MathMLMathElement::acceptsLegacyMathVariantAttribute()
+{
+    return !document().settings().coreMathMLDeprecateLegacyMathvariant();
 }
 
 }

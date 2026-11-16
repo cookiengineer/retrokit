@@ -30,13 +30,17 @@
 #include "LayoutRect.h"
 #include <algorithm>
 #include <wtf/CheckedArithmetic.h>
+#include <wtf/MathExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(IntRect);
+
 IntRect::IntRect(const FloatRect& r)
-    : m_location(clampToInteger(r.x()), clampToInteger(r.y()))
-    , m_size(clampToInteger(r.width()), clampToInteger(r.height()))
+    : m_location(clampTo<int>(r.x()), clampTo<int>(r.y()))
+    , m_size(clampTo<int>(r.width()), clampTo<int>(r.height()))
 {
 }
 
@@ -105,9 +109,9 @@ void IntRect::unite(const IntRect& other)
 void IntRect::uniteIfNonZero(const IntRect& other)
 {
     // Handle empty special cases first.
-    if (!other.width() && !other.height())
+    if (other.isZero())
         return;
-    if (!width() && !height()) {
+    if (isZero()) {
         *this = other;
         return;
     }
@@ -125,13 +129,13 @@ void IntRect::uniteIfNonZero(const IntRect& other)
 
 void IntRect::scale(float s)
 {
-    m_location.setX((int)(x() * s));
-    m_location.setY((int)(y() * s));
-    m_size.setWidth((int)(width() * s));
-    m_size.setHeight((int)(height() * s));
+    m_location.setX(truncateFloatToInt32(x() * s));
+    m_location.setY(truncateFloatToInt32(y() * s));
+    m_size.setWidth(truncateFloatToInt32(width() * s));
+    m_size.setHeight(truncateFloatToInt32(height() * s));
 }
 
-static inline int distanceToInterval(int pos, int start, int end)
+static inline int NODELETE distanceToInterval(int pos, int start, int end)
 {
     if (pos < start)
         return start - pos;
@@ -158,12 +162,24 @@ bool IntRect::isValid() const
     return !max.hasOverflowed();
 }
 
+IntRect IntRect::toRectWithExtentsClippedToNumericLimits() const
+{
+    using T = int32_t;
+    IntRect clippedRect { *this };
+    constexpr auto max = std::numeric_limits<T>::max();
+    if (sumOverflows<T>(x(), width()))
+        clippedRect.setWidth(max - x());
+    if (sumOverflows<T>(y(), height()))
+        clippedRect.setHeight(max - y());
+    return clippedRect;
+}
+
 TextStream& operator<<(TextStream& ts, const IntRect& r)
 {
     if (ts.hasFormattingFlag(TextStream::Formatting::SVGStyleRect))
-        return ts << "at (" << r.x() << "," << r.y() << ") size " << r.width() << "x" << r.height();
+        return ts << "at ("_s << r.x() << ',' << r.y() << ") size "_s << r.width() << 'x' << r.height();
 
-    return ts << r.location() << " " << r.size();
+    return ts << r.location() << ' ' << r.size();
 }
 
 } // namespace WebCore

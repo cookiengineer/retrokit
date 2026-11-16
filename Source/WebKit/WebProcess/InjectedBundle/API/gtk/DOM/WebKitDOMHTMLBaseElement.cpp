@@ -24,9 +24,10 @@
 #include "DOMObjectCache.h"
 #include <WebCore/DOMException.h>
 #include <WebCore/Document.h>
-#include "GObjectEventListener.h"
+#include <WebCore/ElementInlines.h>
 #include <WebCore/HTMLNames.h>
 #include <WebCore/JSExecState.h>
+#include "GObjectEventListener.h"
 #include "WebKitDOMEventPrivate.h"
 #include "WebKitDOMEventTarget.h"
 #include "WebKitDOMHTMLBaseElementPrivate.h"
@@ -93,7 +94,9 @@ static void webkit_dom_html_base_element_dom_event_target_init(WebKitDOMEventTar
     iface->remove_event_listener = webkit_dom_html_base_element_remove_event_listener;
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK port
 G_DEFINE_TYPE_WITH_CODE(WebKitDOMHTMLBaseElement, webkit_dom_html_base_element, WEBKIT_DOM_TYPE_HTML_ELEMENT, G_IMPLEMENT_INTERFACE(WEBKIT_DOM_TYPE_EVENT_TARGET, webkit_dom_html_base_element_dom_event_target_init))
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 enum {
     DOM_HTML_BASE_ELEMENT_PROP_0,
@@ -183,8 +186,7 @@ void webkit_dom_html_base_element_set_href(WebKitDOMHTMLBaseElement* self, const
     g_return_if_fail(WEBKIT_DOM_IS_HTML_BASE_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLBaseElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setHref(convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::hrefAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_html_base_element_get_target(WebKitDOMHTMLBaseElement* self)
@@ -202,8 +204,7 @@ void webkit_dom_html_base_element_set_target(WebKitDOMHTMLBaseElement* self, con
     g_return_if_fail(WEBKIT_DOM_IS_HTML_BASE_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLBaseElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::targetAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::targetAttr, WTF::AtomString::fromUTF8(value));
 }
 
 G_GNUC_END_IGNORE_DEPRECATIONS;

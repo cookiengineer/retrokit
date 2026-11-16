@@ -25,8 +25,8 @@
 
 #pragma once
 
-#include "JSCJSValue.h"
-#include "ProfilerOrigin.h"
+#include <JavaScriptCore/JSCJSValue.h>
+#include <JavaScriptCore/ProfilerOrigin.h>
 #include <wtf/PrintStream.h>
 #include <wtf/Vector.h>
 
@@ -38,6 +38,7 @@ class CodeOrigin;
 namespace Profiler {
 
 class Database;
+class Dumper;
 
 class OriginStack {
 public:
@@ -53,19 +54,20 @@ public:
     
     void append(const Origin&);
     
-    bool operator!() const { return m_stack.isEmpty(); }
+    bool NODELETE operator!() const { return m_stack.isEmpty(); }
     
     unsigned size() const { return m_stack.size(); }
     const Origin& fromBottom(unsigned i) const { return m_stack[i]; }
     const Origin& fromTop(unsigned i) const { return m_stack[m_stack.size() - i - 1]; }
     
     bool operator==(const OriginStack&) const;
-    unsigned hash() const;
+    unsigned NODELETE hash() const;
     
     bool isHashTableDeletedValue() const;
-    
+    static constexpr bool safeToCompareToHashTableEmptyOrDeletedValue = true;
+
     void dump(PrintStream&) const;
-    JSValue toJS(JSGlobalObject*) const;
+    Ref<JSON::Value> toJSON(Dumper&) const;
     
 private:
     Vector<Origin, 1> m_stack;
@@ -76,18 +78,9 @@ inline bool OriginStack::isHashTableDeletedValue() const
     return m_stack.size() == 1 && m_stack[0].isHashTableDeletedValue();
 }
 
-struct OriginStackHash {
-    static unsigned hash(const OriginStack& key) { return key.hash(); }
-    static bool equal(const OriginStack& a, const OriginStack& b) { return a == b; }
-    static constexpr bool safeToCompareToEmptyOrDeleted = true;
-};
-
 } } // namespace JSC::Profiler
 
 namespace WTF {
-
-template<typename T> struct DefaultHash;
-template<> struct DefaultHash<JSC::Profiler::OriginStack> : JSC::Profiler::OriginStackHash { };
 
 template<typename T> struct HashTraits;
 template<> struct HashTraits<JSC::Profiler::OriginStack> : SimpleClassHashTraits<JSC::Profiler::OriginStack> { };

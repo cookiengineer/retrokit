@@ -1,5 +1,6 @@
 /*
  * Copyright (C) Research In Motion Limited 2010. All rights reserved.
+ * Copyright (c) 2023 Igalia S.L.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -20,87 +21,38 @@
 #pragma once
 
 #include "RenderSVGHiddenContainer.h"
-#include "RenderSVGResource.h"
-#include "SVGDocumentExtensions.h"
 
 namespace WebCore {
 
-class RenderLayer;
-
-class RenderSVGResourceContainer : public RenderSVGHiddenContainer,
-                                   public RenderSVGResource {
-    WTF_MAKE_ISO_ALLOCATED(RenderSVGResourceContainer);
+class RenderSVGResourceContainer : public RenderSVGHiddenContainer {
+    WTF_MAKE_TZONE_ALLOCATED(RenderSVGResourceContainer);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderSVGResourceContainer);
 public:
     virtual ~RenderSVGResourceContainer();
 
-    void layout() override;
-    void styleDidChange(StyleDifference, const RenderStyle* oldStyle) final;
-
-    bool isSVGResourceContainer() const final { return true; }
-
-    static bool shouldTransformOnTextPainting(const RenderElement&, AffineTransform&);
-    static AffineTransform transformOnNonScalingStroke(RenderObject*, const AffineTransform& resourceTransform);
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) override;
 
     void idChanged();
-    void markAllClientsForRepaint();
-    void addClientRenderLayer(RenderLayer*);
-    void removeClientRenderLayer(RenderLayer*);
+    void repaintAllClients() const;
+
+    virtual void addReferencingCSSClient(const RenderElement&) { }
+    virtual void removeReferencingCSSClient(const RenderElement&) { }
 
 protected:
-    RenderSVGResourceContainer(SVGElement&, RenderStyle&&);
+    RenderSVGResourceContainer(Type, SVGElement&, Style::ComputedStyle&&);
 
-    enum InvalidationMode {
-        LayoutAndBoundariesInvalidation,
-        BoundariesInvalidation,
-        RepaintInvalidation,
-        ParentOnlyInvalidation
-    };
-
-    // Used from the invalidateClient/invalidateClients methods from classes, inheriting from us.
-    virtual bool selfNeedsClientInvalidation() const { return everHadLayout() && selfNeedsLayout(); }
-
-    void markAllClientsForInvalidation(InvalidationMode);
-    void markAllClientLayersForInvalidation();
-    void markClientForInvalidation(RenderObject&, InvalidationMode);
+    virtual void clearCacheBeforeLayout() { }
 
 private:
-    friend class SVGResourcesCache;
-    void addClient(RenderElement&);
-    void removeClient(RenderElement&);
-
+    void layout() override;
     void willBeDestroyed() final;
     void registerResource();
 
     AtomString m_id;
-    HashSet<RenderElement*> m_clients;
-    HashSet<RenderLayer*> m_clientLayers;
     bool m_registered { false };
-    bool m_isInvalidating { false };
 };
-
-inline RenderSVGResourceContainer* getRenderSVGResourceContainerById(Document& document, const AtomString& id)
-{
-    if (id.isEmpty())
-        return nullptr;
-
-    if (RenderSVGResourceContainer* renderResource = document.accessSVGExtensions().resourceById(id))
-        return renderResource;
-
-    return nullptr;
-}
-
-template<typename Renderer>
-Renderer* getRenderSVGResourceById(Document& document, const AtomString& id)
-{
-    // Using the RenderSVGResource type here avoids ambiguous casts for types that
-    // descend from both RenderObject and RenderSVGResourceContainer.
-    RenderSVGResource* container = getRenderSVGResourceContainerById(document, id);
-    if (is<Renderer>(container))
-        return downcast<Renderer>(container);
-
-    return nullptr;
-}
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderSVGResourceContainer, isSVGResourceContainer())
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderSVGResourceContainer, isRenderSVGResourceContainer())
+

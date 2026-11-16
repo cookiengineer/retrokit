@@ -10,7 +10,7 @@
 // - From: texelFetchOffset(sampler, Position, lod, offset)
 // - To: texelFetch(sampler, Position+offset, lod)
 //
-// See http://anglebug.com/1469
+// See http://anglebug.com/42260457
 
 #ifndef COMPILER_TRANSLATOR_TREEOPS_REWRITE_TEXELFETCHOFFSET_H_
 #define COMPILER_TRANSLATOR_TREEOPS_REWRITE_TEXELFETCHOFFSET_H_
@@ -24,10 +24,10 @@ class TCompiler;
 class TIntermNode;
 class TSymbolTable;
 
-ANGLE_NO_DISCARD bool RewriteTexelFetchOffset(TCompiler *compiler,
-                                              TIntermNode *root,
-                                              const TSymbolTable &symbolTable,
-                                              int shaderVersion);
+[[nodiscard]] bool RewriteTexelFetchOffset(TCompiler *compiler,
+                                           TIntermNode *root,
+                                           const TSymbolTable &symbolTable,
+                                           int shaderVersion);
 
 }  // namespace sh
 

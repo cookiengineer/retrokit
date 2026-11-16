@@ -32,7 +32,7 @@
 
 #if ENABLE(WEB_RTC)
 
-#include "MediaStreamTrack.h"
+#include "MediaStream.h"
 #include "RTCDtlsTransport.h"
 #include "RTCRtpReceiverBackend.h"
 #include "RTCRtpSynchronizationSource.h"
@@ -43,6 +43,11 @@ namespace WebCore {
 
 class DeferredPromise;
 class PeerConnectionBackend;
+class RTCDtlsTransportBackend;
+class RTCEncodedStreamProducer;
+class RTCRtpTransformBackend;
+
+struct RTCEncodedStreams;
 struct RTCRtpCapabilities;
 
 class RTCRtpReceiver final : public RefCounted<RTCRtpReceiver>
@@ -51,11 +56,11 @@ class RTCRtpReceiver final : public RefCounted<RTCRtpReceiver>
     , private LoggerHelper
 #endif
     {
-    WTF_MAKE_ISO_ALLOCATED(RTCRtpReceiver);
+    WTF_MAKE_TZONE_ALLOCATED(RTCRtpReceiver);
 public:
-    static Ref<RTCRtpReceiver> create(PeerConnectionBackend& connection, Ref<MediaStreamTrack>&& track, std::unique_ptr<RTCRtpReceiverBackend>&& backend)
+    static Ref<RTCRtpReceiver> create(PeerConnectionBackend& connection, Ref<MediaStreamTrack>&& track, UniqueRef<RTCRtpReceiverBackend>&& backend)
     {
-        return adoptRef(*new RTCRtpReceiver(connection, WTFMove(track), WTFMove(backend)));
+        return adoptRef(*new RTCRtpReceiver(connection, WTF::move(track), WTF::move(backend)));
     }
     virtual ~RTCRtpReceiver();
 
@@ -63,40 +68,53 @@ public:
 
     void stop();
 
-    void setBackend(std::unique_ptr<RTCRtpReceiverBackend>&& backend) { m_backend = WTFMove(backend); }
-    RTCRtpParameters getParameters() { return m_backend ? m_backend->getParameters() : RTCRtpParameters(); }
-    Vector<RTCRtpContributingSource> getContributingSources() const { return m_backend ? m_backend->getContributingSources() : Vector<RTCRtpContributingSource> { }; }
-    Vector<RTCRtpSynchronizationSource> getSynchronizationSources() const { return m_backend ? m_backend->getSynchronizationSources() : Vector<RTCRtpSynchronizationSource> { }; }
+    RTCRtpParameters getParameters() { return m_backend->getParameters(); }
+    Vector<RTCRtpContributingSource> getContributingSources() const { return m_backend->getContributingSources(); }
+    Vector<RTCRtpSynchronizationSource> getSynchronizationSources() const { return m_backend->getSynchronizationSources(); }
 
     MediaStreamTrack& track() { return m_track.get(); }
 
     RTCDtlsTransport* transport() { return m_transport.get(); }
-    void setTransport(RefPtr<RTCDtlsTransport>&& transport) { m_transport = WTFMove(transport); }
+    void setTransport(RefPtr<RTCDtlsTransport>&& transport) { m_transport = WTF::move(transport); }
 
-    RTCRtpReceiverBackend* backend() { return m_backend.get(); }
+    RTCRtpReceiverBackend& backend() LIFETIME_BOUND { return m_backend.get(); }
+    std::unique_ptr<RTCDtlsTransportBackend> dtlsTransportBackend();
+    Ref<RTCRtpTransformBackend> rtcRtpTransformBackend();
     void getStats(Ref<DeferredPromise>&&);
 
-    std::optional<RTCRtpTransform::Internal> transform();
+    RefPtr<RTCRtpScriptTransform> transform();
     ExceptionOr<void> setTransform(std::unique_ptr<RTCRtpTransform>&&);
 
+    ExceptionOr<RTCEncodedStreams> createEncodedStreams(ScriptExecutionContext&);
+
+    const Vector<WeakPtr<MediaStream>>& associatedStreams() const LIFETIME_BOUND { return m_associatedStreams; }
+    void setAssociatedStreams(Vector<WeakPtr<MediaStream>>&& streams) { m_associatedStreams = WTF::move(streams); }
+
+    std::optional<double> jitterBufferTarget() const { return m_jitterBufferTarget; }
+    ExceptionOr<void> setJitterBufferTarget(std::optional<double>);
+
 private:
-    RTCRtpReceiver(PeerConnectionBackend&, Ref<MediaStreamTrack>&&, std::unique_ptr<RTCRtpReceiverBackend>&&);
+    RTCRtpReceiver(PeerConnectionBackend&, Ref<MediaStreamTrack>&&, UniqueRef<RTCRtpReceiverBackend>&&);
 
 #if !RELEASE_LOG_DISABLED
     const Logger& logger() const final { return m_logger.get(); }
-    const void* logIdentifier() const final { return m_logIdentifier; }
-    const char* logClassName() const final { return "RTCRtpReceiver"; }
-    WTFLogChannel& logChannel() const final;
+    uint64_t logIdentifier() const final { return m_logIdentifier; }
+    ASCIILiteral logClassName() const final { return "RTCRtpReceiver"_s; }
+    WTFLogChannel& NODELETE logChannel() const final;
 #endif
 
-    Ref<MediaStreamTrack> m_track;
+    bool m_isStopped { false };
+    const Ref<MediaStreamTrack> m_track;
     RefPtr<RTCDtlsTransport> m_transport;
-    std::unique_ptr<RTCRtpReceiverBackend> m_backend;
+    const UniqueRef<RTCRtpReceiverBackend> m_backend;
     WeakPtr<PeerConnectionBackend> m_connection;
     std::unique_ptr<RTCRtpTransform> m_transform;
+    const RefPtr<RTCEncodedStreamProducer> m_encodedStreamProducer;
+    Vector<WeakPtr<MediaStream>> m_associatedStreams;
+    std::optional<double> m_jitterBufferTarget;
 #if !RELEASE_LOG_DISABLED
-    Ref<const Logger> m_logger;
-    const void* m_logIdentifier { nullptr };
+    const Ref<const Logger> m_logger;
+    uint64_t m_logIdentifier { 0 };
 #endif
 };
 

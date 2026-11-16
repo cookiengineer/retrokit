@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020 Apple Inc. All rights reserved.
+ * Copyright (c) 2018-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -20,7 +20,7 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #ifndef PAS_LOCK_H
@@ -29,7 +29,8 @@
 #include "pas_log.h"
 #include "pas_race_test_hooks.h"
 #include "pas_utils.h"
-#include <pthread.h>
+#include "pas_thread.h"
+#include "pas_zero_memory.h"
 
 PAS_BEGIN_EXTERN_C;
 
@@ -51,81 +52,31 @@ typedef enum pas_lock_lock_mode pas_lock_lock_mode;
 
 PAS_END_EXTERN_C;
 
-#if PAS_USE_SPINLOCKS
+#if PAS_OS(DARWIN)
 
-PAS_BEGIN_EXTERN_C;
-
-struct pas_lock;
-typedef struct pas_lock pas_lock;
-
-struct pas_lock {
-    bool lock;
-    bool is_spinning;
-};
-
-#define PAS_LOCK_INITIALIZER ((pas_lock){ .lock = false, .is_spinning = false })
-
-static inline void pas_lock_construct(pas_lock* lock)
-{
-    *lock = PAS_LOCK_INITIALIZER;
-}
-
-static inline void pas_lock_construct_disabled(pas_lock* lock)
-{
-    *lock = PAS_LOCK_INITIALIZER;
-    lock->lock = true; /* This isn't great; it'll just mean that if we use the lock wrong then
-                          we'll infinite loop. But we test in a mode where we don't use this
-                          code path. */
-}
-
-PAS_API void pas_lock_lock_slow(pas_lock* lock);
-
-static inline void pas_lock_lock(pas_lock* lock)
-{
-    pas_race_test_will_lock(lock);
-    if (!pas_compare_and_swap_bool_weak(&lock->lock, false, true))
-        pas_lock_lock_slow(lock);
-    pas_race_test_did_lock(lock);
-}
-
-static inline bool pas_lock_try_lock(pas_lock* lock)
-{
-    bool result;
-    result = !pas_compare_and_swap_bool_strong(&lock->lock, false, true);
-    if (result)
-        pas_race_test_did_try_lock(lock);
-    return result;
-}
-
-static inline void pas_lock_unlock(pas_lock* lock)
-{
-    pas_race_test_will_unlock(lock);
-    __c11_atomic_store((_Atomic bool*)&lock->lock, false, __ATOMIC_SEQ_CST);
-}
-
-static inline void pas_lock_assert_held(pas_lock* lock)
-{
-    PAS_ASSERT(lock->lock);
-}
-
-static inline void pas_lock_testing_assert_held(pas_lock* lock)
-{
-    PAS_TESTING_ASSERT(lock->lock);
-}
-
-PAS_END_EXTERN_C;
-
-#else /* !PAS_USE_SPINLOCKS */
-
-#if defined(__has_include) && __has_include(<os/lock_private.h>) && (defined(LIBPAS) || defined(PAS_BMALLOC)) && (!defined(OS_UNFAIR_LOCK_INLINE) || OS_UNFAIR_LOCK_INLINE)
-#ifndef OS_UNFAIR_LOCK_INLINE
-#define OS_UNFAIR_LOCK_INLINE 1
+#if defined(__has_include) && __has_include(<os/lock_private.h>) && (defined(LIBPAS) || defined(PAS_BMALLOC))
+#define PAS_USE_ULOCK_SPI 1
+#define PAS_USE_ULOCK_FLAGS_API 0
+#if !defined(OS_UNFAIR_LOCK_INLINE) || !OS_UNFAIR_LOCK_INLINE
+#pragma message "OS_UNFAIR_LOCK_INLINE needs to be enabled."
 #endif
 #include <os/lock_private.h>
+
 #else
+#define PAS_USE_ULOCK_SPI 0
 #include <os/lock.h>
 
-#define os_unfair_lock_lock_inline os_unfair_lock_lock
+#define OS_UNFAIR_LOCK_DATA_SYNCHRONIZATION 0x00010000
+#define OS_UNFAIR_LOCK_ADAPTIVE_SPIN 0x00040000
+
+#if PAS_PLATFORM(COCOA)
+/* After this version, OS_UNFAIR_LOCK_DATA_SYNCHRONIZATION etc. are public API */
+#define PAS_USE_ULOCK_FLAGS_API 1
+#else
+#define PAS_USE_ULOCK_FLAGS_API 0
+#endif
+
+#define os_unfair_lock_lock_with_options_inline os_unfair_lock_lock_with_options
 #define os_unfair_lock_trylock_inline os_unfair_lock_trylock
 #define os_unfair_lock_unlock_inline os_unfair_lock_unlock
 #endif
@@ -156,7 +107,20 @@ static inline void pas_lock_lock(pas_lock* lock)
     if (PAS_LOCK_VERBOSE)
         pas_log("Thread %p Locking lock %p\n", pthread_self(), lock);
     pas_race_test_will_lock(lock);
-    os_unfair_lock_lock_inline(&lock->lock);
+#if PAS_USE_ULOCK_SPI
+    const os_unfair_lock_options_t options = (os_unfair_lock_options_t)(OS_UNFAIR_LOCK_DATA_SYNCHRONIZATION | OS_UNFAIR_LOCK_ADAPTIVE_SPIN);
+#if defined(OS_UNFAIR_LOCK_INLINE) && OS_UNFAIR_LOCK_INLINE
+    os_unfair_lock_lock_with_options_inline(&lock->lock, options);
+#else
+    PAS_UNUSED_PARAM(options);
+    PAS_ASSERT_IF(true, !"Should not be reached");
+#endif // defined(OS_UNFAIR_LOCK_INLINE) && OS_UNFAIR_LOCK_INLINE
+#elif PAS_USE_ULOCK_FLAGS_API
+    const os_unfair_lock_flags_t options = (os_unfair_lock_flags_t)(OS_UNFAIR_LOCK_DATA_SYNCHRONIZATION | OS_UNFAIR_LOCK_ADAPTIVE_SPIN);
+    os_unfair_lock_lock_with_flags(&lock->lock, options);
+#else
+    os_unfair_lock_lock(&lock->lock);
+#endif
     pas_race_test_did_lock(lock);
 }
 
@@ -165,7 +129,12 @@ static inline bool pas_lock_try_lock(pas_lock* lock)
     bool result;
     if (PAS_LOCK_VERBOSE)
         pas_log("Thread %p Trylocking lock %p\n", pthread_self(), lock);
+#if PAS_USE_ULOCK_SPI && (!defined(OS_UNFAIR_LOCK_INLINE) || !OS_UNFAIR_LOCK_INLINE)
+    result = false;
+    PAS_ASSERT_IF(true, !"Should not be reached");
+#else
     result = os_unfair_lock_trylock_inline(&lock->lock);
+#endif
     if (result)
         pas_race_test_did_try_lock(lock);
     return result;
@@ -176,7 +145,11 @@ static inline void pas_lock_unlock(pas_lock* lock)
     if (PAS_LOCK_VERBOSE)
         pas_log("Thread %p Unlocking lock %p\n", pthread_self(), lock);
     pas_race_test_will_unlock(lock);
+#if PAS_USE_ULOCK_SPI && (!defined(OS_UNFAIR_LOCK_INLINE) || !OS_UNFAIR_LOCK_INLINE)
+    PAS_ASSERT_IF(true, !"Should not be reached");
+#else
     os_unfair_lock_unlock_inline(&lock->lock);
+#endif
 }
 
 static inline void pas_lock_assert_held(pas_lock* lock)
@@ -192,7 +165,92 @@ static inline void pas_lock_testing_assert_held(pas_lock* lock)
 
 PAS_END_EXTERN_C;
 
-#endif /* !PAS_USE_SPINLOCKS */
+#elif PAS_OS(LINUX) || PAS_OS(WINDOWS) || PAS_OS(FREEBSD)
+
+PAS_BEGIN_EXTERN_C;
+
+struct pas_lock;
+typedef struct pas_lock pas_lock;
+
+struct pas_lock {
+    unsigned futex;
+};
+
+#define PAS_LOCK_INITIALIZER ((pas_lock){ .futex = 0 })
+
+static inline void pas_lock_construct(pas_lock* lock)
+{
+    *lock = PAS_LOCK_INITIALIZER;
+}
+
+static inline void pas_lock_construct_disabled(pas_lock* lock)
+{
+    pas_zero_memory(lock, sizeof(pas_lock));
+}
+
+PAS_API PAS_NEVER_INLINE void pas_lock_lock_slow(pas_lock* lock, unsigned expected);
+PAS_API PAS_NEVER_INLINE void pas_lock_unlock_slow(pas_lock* lock);
+
+static inline void pas_lock_lock(pas_lock* lock)
+{
+    unsigned expected = 0;
+
+    if (PAS_LOCK_VERBOSE)
+        pas_log("Thread %p Locking lock %p\n", (void*)pthread_self(), lock);
+
+    pas_race_test_will_lock(lock);
+
+    /* Fast path: Try to acquire 0 -> 1 */
+    if (PAS_UNLIKELY(!__atomic_compare_exchange_n(&lock->futex, &expected, 1, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)))
+        pas_lock_lock_slow(lock, expected);
+
+    pas_race_test_did_lock(lock);
+}
+
+static inline bool pas_lock_try_lock(pas_lock* lock)
+{
+    unsigned expected = 0;
+    bool result;
+
+    if (PAS_LOCK_VERBOSE)
+        pas_log("Thread %p Trylocking lock %p\n", (void*)pthread_self(), lock);
+
+    result = __atomic_compare_exchange_n(&lock->futex, &expected, 1, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED);
+
+    if (result)
+        pas_race_test_did_try_lock(lock);
+
+    return result;
+}
+
+static inline void pas_lock_unlock(pas_lock* lock)
+{
+    if (PAS_LOCK_VERBOSE)
+        pas_log("Thread %p Unlocking lock %p\n", (void*)pthread_self(), lock);
+
+    pas_race_test_will_unlock(lock);
+
+    /* If we had no waiters (state was 1), just unlock to 0 */
+    if (PAS_UNLIKELY(__atomic_fetch_sub(&lock->futex, 1, __ATOMIC_RELEASE) != 1))
+        pas_lock_unlock_slow(lock);
+}
+
+static inline void pas_lock_assert_held(pas_lock* lock)
+{
+    PAS_ASSERT(__atomic_load_n(&lock->futex, __ATOMIC_RELAXED) != 0);
+}
+
+static inline void pas_lock_testing_assert_held(pas_lock* lock)
+{
+    if (PAS_ENABLE_TESTING)
+        PAS_TESTING_ASSERT(__atomic_load_n(&lock->futex, __ATOMIC_RELAXED) != 0);
+}
+
+PAS_END_EXTERN_C;
+
+#else
+#error "No pas_lock implementation found"
+#endif
 
 PAS_BEGIN_EXTERN_C;
 
@@ -207,6 +265,11 @@ PAS_BEGIN_EXTERN_C;
     PAS_UNUSED static inline bool name##_lock_try_lock(void) \
     { \
         return pas_lock_try_lock(&name##_lock); \
+    } \
+    \
+    PAS_UNUSED static inline bool name##_lock_lock_with_mode(pas_lock_lock_mode mode) \
+    { \
+        return pas_lock_lock_with_mode(&name##_lock, mode); \
     } \
     \
     PAS_UNUSED static inline void name##_lock_unlock(void) \
@@ -268,7 +331,7 @@ static inline bool pas_lock_lock_with_mode(pas_lock* lock,
         pas_lock_lock(lock);
         return true;
     }
-    PAS_ASSERT(!"Should not be reached");
+    PAS_ASSERT_NOT_REACHED();
     return false;
 }
 
@@ -326,7 +389,7 @@ static PAS_ALWAYS_INLINE pas_lock* pas_lock_for_switch_conditionally(pas_lock* l
     case pas_lock_is_not_held:
         return lock;
     }
-    PAS_ASSERT(!"Should not be reached");
+    PAS_ASSERT_NOT_REACHED();
     return NULL;
 }
 

@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2011 Google Inc. All rights reserved.
- * Copyright (C) 2017 Apple Inc.  All rights reserved.
+ * Copyright (C) 2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -29,39 +29,41 @@
 
 #pragma once
 
-#include "InspectorPageAgent.h"
-#include <wtf/Deque.h>
-#include <wtf/HashMap.h>
+#include "CertificateInfo.h"
+#include "InspectorResourceType.h"
+#include "SharedBuffer.h"
+#include "TextResourceDecoder.h"
+#include <wtf/ListHashSet.h>
+#include <wtf/RobinHoodHashMap.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WallTime.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
-
 class CachedResource;
 class ResourceResponse;
-class TextResourceDecoder;
-class SharedBuffer;
 
 class NetworkResourcesData {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(NetworkResourcesData);
 public:
     class ResourceData {
-        WTF_MAKE_FAST_ALLOCATED;
+        WTF_MAKE_TZONE_ALLOCATED(ResourceData);
         friend class NetworkResourcesData;
     public:
         ResourceData(const String& requestId, const String& loaderId);
 
-        const String& requestId() const { return m_requestId; }
-        const String& loaderId() const { return m_loaderId; }
+        const String& requestId() const LIFETIME_BOUND { return m_requestId; }
+        const String& loaderId() const LIFETIME_BOUND { return m_loaderId; }
 
-        const String& frameId() const { return m_frameId; }
+        const String& frameId() const LIFETIME_BOUND { return m_frameId; }
         void setFrameId(const String& frameId) { m_frameId = frameId; }
 
-        const String& url() const { return m_url; }
+        const String& url() const LIFETIME_BOUND { return m_url; }
         void setURL(const String& url) { m_url = url; }
 
         bool hasContent() const { return !m_content.isNull(); }
-        const String& content() const { return m_content; }
+        const String& content() const LIFETIME_BOUND { return m_content; }
         void setContent(const String&, bool base64Encoded);
 
         bool base64Encoded() const { return m_base64Encoded; }
@@ -70,28 +72,28 @@ public:
         unsigned evictContent();
         bool isContentEvicted() const { return m_isContentEvicted; }
 
-        InspectorPageAgent::ResourceType type() const { return m_type; }
-        void setType(InspectorPageAgent::ResourceType type) { m_type = type; }
+        Inspector::ResourceType type() const { return m_type; }
+        void setType(Inspector::ResourceType type) { m_type = type; }
 
         int httpStatusCode() const { return m_httpStatusCode; }
         void setHTTPStatusCode(int httpStatusCode) { m_httpStatusCode = httpStatusCode; }
         
-        const String& httpStatusText() const { return m_httpStatusText; }
+        const String& httpStatusText() const LIFETIME_BOUND { return m_httpStatusText; }
         void setHTTPStatusText(const String& httpStatusText) { m_httpStatusText = httpStatusText; }
 
-        const String& textEncodingName() const { return m_textEncodingName; }
+        const String& textEncodingName() const LIFETIME_BOUND { return m_textEncodingName; }
         void setTextEncodingName(const String& textEncodingName) { m_textEncodingName = textEncodingName; }
         
-        const String& mimeType() const { return m_mimeType; }
+        const String& mimeType() const LIFETIME_BOUND { return m_mimeType; }
         void setMIMEType(const String& mimeType) { m_mimeType = mimeType; }
 
         RefPtr<TextResourceDecoder> decoder() const { return m_decoder.copyRef(); }
-        void setDecoder(RefPtr<TextResourceDecoder>&& decoder) { m_decoder = WTFMove(decoder); }
+        void setDecoder(RefPtr<TextResourceDecoder>&& decoder) { m_decoder = WTF::move(decoder); }
 
-        RefPtr<SharedBuffer> buffer() const { return m_buffer.copyRef(); }
-        void setBuffer(RefPtr<SharedBuffer>&& buffer) { m_buffer = WTFMove(buffer); }
+        RefPtr<FragmentedSharedBuffer> buffer() const { return m_buffer.copyRef(); }
+        void setBuffer(RefPtr<FragmentedSharedBuffer>&& buffer) { m_buffer = WTF::move(buffer); }
 
-        const std::optional<CertificateInfo>& certificateInfo() const { return m_certificateInfo; }
+        const std::optional<CertificateInfo>& certificateInfo() const LIFETIME_BOUND { return m_certificateInfo; }
         void setCertificateInfo(const std::optional<CertificateInfo>& certificateInfo) { m_certificateInfo = certificateInfo; }
 
         CachedResource* cachedResource() const { return m_cachedResource; }
@@ -103,13 +105,13 @@ public:
         WallTime responseTimestamp() const { return m_responseTimestamp; }
         void setResponseTimestamp(WallTime time) { m_responseTimestamp = time; }
 
-        bool hasBufferedData() const { return m_dataBuffer; }
+        bool hasBufferedData() const { return hasData(); }
 
     private:
-        bool hasData() const { return m_dataBuffer; }
-        size_t dataLength() const;
-        void appendData(const uint8_t* data, size_t dataLength);
-        unsigned decodeDataToContent();
+        bool NODELETE hasData() const;
+        size_t NODELETE dataLength() const;
+        void appendData(const SharedBuffer&);
+        void decodeDataToContent();
 
         String m_requestId;
         String m_loaderId;
@@ -119,11 +121,11 @@ public:
         String m_textEncodingName;
         String m_mimeType;
         RefPtr<TextResourceDecoder> m_decoder;
-        RefPtr<SharedBuffer> m_dataBuffer;
-        RefPtr<SharedBuffer> m_buffer;
+        SharedBufferBuilder m_dataBuffer;
+        RefPtr<FragmentedSharedBuffer> m_buffer;
         std::optional<CertificateInfo> m_certificateInfo;
-        CachedResource* m_cachedResource { nullptr };
-        InspectorPageAgent::ResourceType m_type { InspectorPageAgent::OtherResource };
+        WeakPtr<CachedResource> m_cachedResource;
+        Inspector::ResourceType m_type { Inspector::ResourceType::Other };
         int m_httpStatusCode { 0 };
         String m_httpStatusText;
         bool m_isContentEvicted { false };
@@ -132,19 +134,29 @@ public:
         WallTime m_responseTimestamp;
     };
 
-    NetworkResourcesData();
+    struct Settings {
+        Settings(size_t maxResourcesContentSize, bool showingCertificate)
+            : maximumResourcesContentSize(maxResourcesContentSize * MB)
+            , supportsShowingCertificate(showingCertificate)
+        { }
+        size_t maximumResourcesContentSize;
+        size_t maximumSingleResourceContentSize { 50 * MB };
+        bool supportsShowingCertificate;
+    };
+
+    NetworkResourcesData(const Settings&);
     ~NetworkResourcesData();
 
-    void resourceCreated(const String& requestId, const String& loaderId, InspectorPageAgent::ResourceType);
+    void resourceCreated(const String& requestId, const String& loaderId, Inspector::ResourceType);
     void resourceCreated(const String& requestId, const String& loaderId, CachedResource&);
-    void responseReceived(const String& requestId, const String& frameId, const ResourceResponse&, InspectorPageAgent::ResourceType, bool forceBufferData);
-    void setResourceType(const String& requestId, InspectorPageAgent::ResourceType);
-    InspectorPageAgent::ResourceType resourceType(const String& requestId);
+    void responseReceived(const String& requestId, const String& frameId, const ResourceResponse&, Inspector::ResourceType, bool forceBufferData);
+    void setResourceType(const String& requestId, Inspector::ResourceType);
+    Inspector::ResourceType resourceType(const String& requestId);
     void setResourceContent(const String& requestId, const String& content, bool base64Encoded = false);
-    ResourceData const* maybeAddResourceData(const String& requestId, const uint8_t* data, size_t dataLength);
+    ResourceData const* maybeAddResourceData(const String& requestId, const SharedBuffer&);
     void maybeDecodeDataToContent(const String& requestId);
     void addCachedResource(const String& requestId, CachedResource*);
-    void addResourceSharedBuffer(const String& requestId, RefPtr<SharedBuffer>&&, const String& textEncodingName);
+    void addResourceSharedBuffer(const String& requestId, RefPtr<FragmentedSharedBuffer>&&, const String& textEncodingName);
     ResourceData const* data(const String& requestId);
     ResourceData const* dataForURL(const String& url);
     Vector<String> removeCachedResource(CachedResource*);
@@ -156,11 +168,10 @@ private:
     void ensureNoDataForRequestId(const String& requestId);
     bool ensureFreeSpace(size_t);
 
-    Deque<String> m_requestIdsDeque;
-    HashMap<String, std::unique_ptr<ResourceData>> m_requestIdToResourceDataMap;
+    ListHashSet<String> m_requestIdsDeque;
+    MemoryCompactRobinHoodHashMap<String, std::unique_ptr<ResourceData>> m_requestIdToResourceDataMap;
     size_t m_contentSize { 0 };
-    size_t m_maximumResourcesContentSize;
-    size_t m_maximumSingleResourceContentSize;
+    Settings m_settings;
 };
 
 } // namespace WebCore

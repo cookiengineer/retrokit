@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,17 +26,35 @@
 #include "config.h"
 #include <wtf/SuspendableWorkQueue.h>
 
+#include <wtf/Logging.h>
+
 namespace WTF {
 
-Ref<SuspendableWorkQueue> SuspendableWorkQueue::create(const char* name, WorkQueue::QOS qos)
+Ref<SuspendableWorkQueue> SuspendableWorkQueue::create(ASCIILiteral name, WorkQueue::QOS qos, ShouldLog shouldLog)
 {
-    return adoptRef(*new SuspendableWorkQueue(name, qos));
+    return adoptRef(*new SuspendableWorkQueue(name, qos, shouldLog));
 }
 
-SuspendableWorkQueue::SuspendableWorkQueue(const char* name, QOS qos)
-    : WorkQueue(name, Type::Serial, qos)
+SuspendableWorkQueue::SuspendableWorkQueue(ASCIILiteral name, QOS qos, ShouldLog shouldLog)
+    : WorkQueue(name, qos)
+    , m_shouldLog(shouldLog == ShouldLog::Yes)
 {
     ASSERT(isMainThread());
+}
+
+ASCIILiteral SuspendableWorkQueue::stateString(State state)
+{
+    switch (state) {
+    case State::Running:
+        return "Running"_s;
+    case State::WillSuspend:
+        return "WillSuspend"_s;
+    case State::Suspended:
+        return "Suspended"_s;
+    }
+
+    ASSERT_NOT_REACHED();
+    return { };
 }
 
 void SuspendableWorkQueue::suspend(Function<void()>&& suspendFunction, CompletionHandler<void()>&& completionHandler)
@@ -44,16 +62,20 @@ void SuspendableWorkQueue::suspend(Function<void()>&& suspendFunction, Completio
     ASSERT(isMainThread());
     Locker suspensionLocker { m_suspensionLock };
 
+    RELEASE_LOG_IF(m_shouldLog, SuspendableWorkQueue, "%p - SuspendableWorkQueue::suspend current state %" PUBLIC_LOG_STRING, this, stateString(m_state).characters());
+    if (m_state == State::Suspended)
+        return completionHandler();
+
     // Last suspend function will be the one that is used.
-    m_suspendFunction = WTFMove(suspendFunction);
-    m_suspensionCompletionHandlers.append(WTFMove(completionHandler));
-    if (m_isOrWillBeSuspended)
+    m_suspendFunction = WTF::move(suspendFunction);
+    m_suspensionCompletionHandlers.append(WTF::move(completionHandler));
+    if (m_state == State::WillSuspend)
         return;
 
-    m_isOrWillBeSuspended = true;
+    m_state = State::WillSuspend;
     // Make sure queue will be suspended when there is no task scheduled on the queue.
-    WorkQueue::dispatch([this] {
-        suspendIfNeeded();
+    WorkQueue::dispatch([protectedThis = Ref { *this }] {
+        protectedThis->suspendIfNeeded();
     });
 }
 
@@ -62,26 +84,39 @@ void SuspendableWorkQueue::resume()
     ASSERT(isMainThread());
     Locker suspensionLocker { m_suspensionLock };
 
-    if (!m_isOrWillBeSuspended)
+    RELEASE_LOG_IF(m_shouldLog, SuspendableWorkQueue, "%p - SuspendableWorkQueue::resume current state %" PUBLIC_LOG_STRING, this, stateString(m_state).characters());
+    if (m_state == State::Running)
         return;
 
-    m_isOrWillBeSuspended = false;
-    m_suspensionCondition.notifyOne();
+    if (m_state == State::Suspended)
+        m_suspensionCondition.notifyOne();
+
+    m_state = State::Running;
 }
 
 void SuspendableWorkQueue::dispatch(Function<void()>&& function)
 {
-    // WorkQueue will protect this in dispatch().
-    WorkQueue::dispatch([this, function = WTFMove(function)] {
-        suspendIfNeeded();
+    RELEASE_ASSERT(function);
+    WorkQueue::dispatch([protectedThis = Ref { *this }, function = WTF::move(function)] {
+        protectedThis->suspendIfNeeded();
         function();
     });
 }
 
+void SuspendableWorkQueue::dispatchWithQOS(Function<void()>&& function, QOS qos)
+{
+    RELEASE_ASSERT(function);
+    WorkQueue::dispatchWithQOS([protectedThis = Ref { *this }, function = WTF::move(function)] {
+        protectedThis->suspendIfNeeded();
+        function();
+    }, qos);
+}
+
 void SuspendableWorkQueue::dispatchAfter(Seconds seconds, Function<void()>&& function)
 {
-    WorkQueue::dispatchAfter(seconds, [this, function = WTFMove(function)] {
-        suspendIfNeeded();
+    RELEASE_ASSERT(function);
+    WorkQueue::dispatchAfter(seconds, [protectedThis = Ref { *this }, function = WTF::move(function)] {
+        protectedThis->suspendIfNeeded();
         function();
     });
 }
@@ -92,9 +127,9 @@ void SuspendableWorkQueue::dispatchSync(Function<void()>&& function)
     // otherwise thread may be blocked.
     if (isMainThread()) {
         Locker suspensionLocker { m_suspensionLock };
-        RELEASE_ASSERT(!m_isOrWillBeSuspended);
+        RELEASE_ASSERT(m_state == State::Running);
     }
-    WorkQueue::dispatchSync(WTFMove(function));
+    WorkQueue::dispatchSync(WTF::move(function));
 }
 
 void SuspendableWorkQueue::invokeAllSuspensionCompletionHandlers()
@@ -115,16 +150,32 @@ void SuspendableWorkQueue::invokeAllSuspensionCompletionHandlers()
 void SuspendableWorkQueue::suspendIfNeeded()
 {
     ASSERT(!isMainThread());
-
     Locker suspensionLocker { m_suspensionLock };
-    auto suspendFunction = std::exchange(m_suspendFunction, { });
-    if (m_isOrWillBeSuspended)
-        suspendFunction();
 
+    auto suspendFunction = std::exchange(m_suspendFunction, { });
+    if (m_state != State::WillSuspend) {
+        // If state is suspended, we should not reach here.
+        RELEASE_LOG_ERROR_IF(m_shouldLog && m_state == State::Suspended, SuspendableWorkQueue, "%p - SuspendableWorkQueue::suspendIfNeeded current state Suspended", this);
+        return;
+    }
+
+    RELEASE_LOG_IF(m_shouldLog, SuspendableWorkQueue, "%p - SuspendableWorkQueue::suspendIfNeeded set state to Suspended, will begin suspension", this);
+    m_state = State::Suspended;
+    suspendFunction();
     invokeAllSuspensionCompletionHandlers();
 
-    while (m_isOrWillBeSuspended)
+    while (m_state == State::Suspended)
         m_suspensionCondition.wait(m_suspensionLock);
+
+    RELEASE_LOG_IF(m_shouldLog, SuspendableWorkQueue, "%p - SuspendableWorkQueue::suspendIfNeeded end suspension", this);
+}
+
+bool SuspendableWorkQueue::isSuspended() const
+{
+    ASSERT(isMainThread());
+    Locker suspensionLocker { m_suspensionLock };
+
+    return m_state == State::Suspended;
 }
 
 } // namespace WTF

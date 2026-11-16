@@ -39,6 +39,7 @@ WHICH GENERATES THE GLSL ES PARSER (glslang_tab_autogen.cpp AND glslang_tab_auto
 #endif
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wunreachable-code"
+#pragma clang diagnostic ignored "-Wunused-but-set-variable"
 #endif
 
 #include "angle_gl.h"
@@ -151,9 +152,9 @@ extern void yyerror(YYLTYPE* yylloc, TParseContext* context, void *scanner, cons
     }  \
 } while (0)
 
-#define ES3_1_ONLY(TOKEN, LINE, REASON) do {  \
-    if (context->getShaderVersion() != 310) {  \
-        context->error(LINE, REASON " supported in GLSL ES 3.10 only", TOKEN);  \
+#define ES3_1_OR_NEWER(TOKEN, LINE, REASON) do {  \
+    if (context->getShaderVersion() < 310) {  \
+        context->error(LINE, REASON " supported in GLSL ES 3.10 and above only", TOKEN);  \
     }  \
 } while (0)
 %}
@@ -164,7 +165,7 @@ extern void yyerror(YYLTYPE* yylloc, TParseContext* context, void *scanner, cons
 %token <lex> BVEC2 BVEC3 BVEC4 IVEC2 IVEC3 IVEC4 VEC2 VEC3 VEC4 UVEC2 UVEC3 UVEC4
 %token <lex> MATRIX2 MATRIX3 MATRIX4 IN_QUAL OUT_QUAL INOUT_QUAL UNIFORM BUFFER VARYING
 %token <lex> MATRIX2x3 MATRIX3x2 MATRIX2x4 MATRIX4x2 MATRIX3x4 MATRIX4x3
-%token <lex> SAMPLE CENTROID FLAT SMOOTH NOPERSPECTIVE
+%token <lex> SAMPLE CENTROID FLAT SMOOTH NOPERSPECTIVE PATCH
 %token <lex> READONLY WRITEONLY COHERENT RESTRICT VOLATILE SHARED
 %token <lex> STRUCT VOID_TYPE WHILE
 %token <lex> SAMPLER2D SAMPLERCUBE SAMPLER_EXTERNAL_OES SAMPLER2DRECT SAMPLER2DARRAY
@@ -172,7 +173,7 @@ extern void yyerror(YYLTYPE* yylloc, TParseContext* context, void *scanner, cons
 %token <lex> USAMPLER2D USAMPLER3D USAMPLERCUBE USAMPLER2DARRAY
 %token <lex> SAMPLER2DMS ISAMPLER2DMS USAMPLER2DMS
 %token <lex> SAMPLER2DMSARRAY ISAMPLER2DMSARRAY USAMPLER2DMSARRAY
-%token <lex> SAMPLER3D SAMPLER3DRECT SAMPLER2DSHADOW SAMPLERCUBESHADOW SAMPLER2DARRAYSHADOW SAMPLERVIDEOWEBGL
+%token <lex> SAMPLER3D SAMPLER3DRECT SAMPLER2DSHADOW SAMPLERCUBESHADOW SAMPLER2DARRAYSHADOW
 %token <lex> SAMPLERCUBEARRAYOES SAMPLERCUBEARRAYSHADOWOES ISAMPLERCUBEARRAYOES USAMPLERCUBEARRAYOES
 %token <lex> SAMPLERCUBEARRAYEXT SAMPLERCUBEARRAYSHADOWEXT ISAMPLERCUBEARRAYEXT USAMPLERCUBEARRAYEXT
 %token <lex> SAMPLERBUFFER ISAMPLERBUFFER USAMPLERBUFFER
@@ -183,6 +184,7 @@ extern void yyerror(YYLTYPE* yylloc, TParseContext* context, void *scanner, cons
 %token <lex> IMAGECUBEARRAYEXT IIMAGECUBEARRAYEXT UIMAGECUBEARRAYEXT
 %token <lex> IMAGEBUFFER IIMAGEBUFFER UIMAGEBUFFER
 %token <lex> ATOMICUINT
+%token <lex> PIXELLOCALANGLE IPIXELLOCALANGLE UPIXELLOCALANGLE
 %token <lex> LAYOUT
 %token <lex> YUVCSCSTANDARDEXT YUVCSCSTANDARDEXTCONSTANT
 
@@ -222,13 +224,13 @@ extern void yyerror(YYLTYPE* yylloc, TParseContext* context, void *scanner, cons
 %type <interm.intermNode> iteration_statement jump_statement statement_no_new_scope statement_with_scope
 %type <interm> single_declaration init_declarator_list
 
-%type <interm.param> parameter_declaration parameter_declarator parameter_type_specifier
+%type <interm.param> parameter_declaration parameter_declarator
 %type <interm.layoutQualifier> layout_qualifier_id_list layout_qualifier_id
 
 // Note: array_specifier guaranteed to be non-null.
 %type <interm.arraySizes> array_specifier
 
-%type <interm.type> fully_specified_type type_specifier
+%type <interm.type> fully_specified_type type_specifier parameter_type_specifier
 
 %type <interm.precision> precision_qualifier
 %type <interm.layoutQualifier> layout_qualifier
@@ -511,8 +513,10 @@ inclusive_or_expression
 
 logical_and_expression
     : inclusive_or_expression { $$ = $1; }
-    | logical_and_expression AND_OP inclusive_or_expression {
-        $$ = context->addBinaryMathBooleanResult(EOpLogicalAnd, $1, $3, @2);
+    | logical_and_expression AND_OP {
+        context->onShortCircuitAndBegin($1, @2);
+    } inclusive_or_expression {
+        $$ = context->addBinaryMathBooleanResult(EOpLogicalAnd, $1, $4, @2);
     }
     ;
 
@@ -525,15 +529,21 @@ logical_xor_expression
 
 logical_or_expression
     : logical_xor_expression { $$ = $1; }
-    | logical_or_expression OR_OP logical_xor_expression  {
-        $$ = context->addBinaryMathBooleanResult(EOpLogicalOr, $1, $3, @2);
+    | logical_or_expression OR_OP {
+        context->onShortCircuitOrBegin($1, @2);
+    } logical_xor_expression  {
+        $$ = context->addBinaryMathBooleanResult(EOpLogicalOr, $1, $4, @2);
     }
     ;
 
 conditional_expression
     : logical_or_expression { $$ = $1; }
-    | logical_or_expression QUESTION expression COLON assignment_expression {
-        $$ = context->addTernarySelection($1, $3, $5, @2);
+    | logical_or_expression QUESTION {
+        context->onTernaryConditionParsed($1, @2);
+    } expression COLON {
+        context->onTernaryTrueExpressionParsed($4, @2);
+    } assignment_expression {
+        $$ = context->addTernarySelection($1, $4, $7, @2);
     }
     ;
 
@@ -580,8 +590,10 @@ expression
     : assignment_expression {
         $$ = $1;
     }
-    | expression COMMA assignment_expression {
-        $$ = context->addComma($1, $3, @2);
+    | expression COMMA {
+        context->onCommaLeftHandSideParsed($1);
+    } assignment_expression {
+        $$ = context->addComma($1, $4, @2);
     }
     ;
 
@@ -618,9 +630,9 @@ declaration
         ES3_OR_NEWER(ImmutableString($2.string), @1, "interface blocks");
         $$ = context->addInterfaceBlock(*$1, @2, ImmutableString($2.string), $3, ImmutableString($5.string), @5, NULL, @$);
     }
-    | type_qualifier enter_struct struct_declaration_list RIGHT_BRACE IDENTIFIER LEFT_BRACKET constant_expression RIGHT_BRACKET SEMICOLON {
+    | type_qualifier enter_struct struct_declaration_list RIGHT_BRACE IDENTIFIER array_specifier SEMICOLON {
         ES3_OR_NEWER(ImmutableString($2.string), @1, "interface blocks");
-        $$ = context->addInterfaceBlock(*$1, @2, ImmutableString($2.string), $3, ImmutableString($5.string), @5, $7, @6);
+        $$ = context->addInterfaceBlock(*$1, @2, ImmutableString($2.string), $3, ImmutableString($5.string), @5, $6, @6);
     }
     | type_qualifier SEMICOLON {
         context->parseGlobalLayoutQualifier(*$1);
@@ -653,23 +665,34 @@ function_header_with_parameters
     : function_header parameter_declaration {
         // Add the parameter
         $$ = $1;
-        if ($2.type->getBasicType() != EbtVoid)
+        if ($2.type.getBasicType() != EbtVoid)
         {
-            $1->addParameter($2.createVariable(&context->symbolTable));
+            context->addParameter($1, &$2);
+        }
+        else
+        {
+            // Remember that void was seen, so error can be generated if another parameter is seen.
+            $1->setHasVoidParameter();
         }
     }
     | function_header_with_parameters COMMA parameter_declaration {
         $$ = $1;
         // Only first parameter of one-parameter functions can be void
         // The check for named parameters not being void is done in parameter_declarator
-        if ($3.type->getBasicType() == EbtVoid)
+        if ($3.type.getBasicType() == EbtVoid)
         {
             // This parameter > first is void
             context->error(@2, "cannot be a parameter type except for '(void)'", "void");
         }
         else
         {
-            $1->addParameter($3.createVariable(&context->symbolTable));
+            if ($1->hasVoidParameter())
+            {
+                // Only first parameter of one-parameter functions can be void.  This check prevents
+                // (void, non_void) parameters.
+                context->error(@2, "cannot be a parameter type except for '(void)'", "void");
+            }
+            context->addParameter($1, &$3);
         }
     }
     ;
@@ -689,33 +712,32 @@ parameter_declarator
         $$ = context->parseParameterDeclarator($1, ImmutableString($2.string), @2);
     }
     | type_specifier identifier array_specifier {
-        $$ = context->parseParameterArrayDeclarator(ImmutableString($2.string), @2, *($3), @3, &$1);
+        $$ = context->parseParameterArrayDeclarator($1, ImmutableString($2.string), @2, $3, @3);
     }
     ;
 
 parameter_declaration
     : type_qualifier parameter_declarator {
         $$ = $2;
-        context->checkIsParameterQualifierValid(@2, *$1, $2.type);
+        context->parseParameterQualifier(@2, *$1, $$.type);
     }
     | parameter_declarator {
         $$ = $1;
-        $$.type->setQualifier(EvqIn);
+        $$.type.setQualifier(EvqParamIn);
     }
     | type_qualifier parameter_type_specifier {
-        $$ = $2;
-        context->checkIsParameterQualifierValid(@2, *$1, $2.type);
+        $$ = context->parseParameterDeclarator($2, kEmptyImmutableString, @2);
+        context->parseParameterQualifier(@2, *$1, $$.type);
     }
     | parameter_type_specifier {
-        $$ = $1;
-        $$.type->setQualifier(EvqIn);
+        $$ = context->parseParameterDeclarator($1, kEmptyImmutableString, @1);
+        $$.type.setQualifier(EvqParamIn);
     }
     ;
 
 parameter_type_specifier
     : type_specifier {
-        TParameter param = { 0, new TType($1) };
-        $$ = param;
+        $$ = $1;
     }
     ;
 
@@ -811,7 +833,7 @@ invariant_qualifier
 
 precise_qualifier
     : PRECISE {
-        // empty
+        context->markShaderHasPrecise();
     }
     ;
 
@@ -867,11 +889,21 @@ storage_qualifier
         ES3_OR_NEWER("centroid", @1, "storage qualifier");
         $$ = new TStorageQualifierWrapper(EvqCentroid, @1);
     }
+    | PATCH {
+        constexpr std::array<TExtension, 2u> extensions{ { TExtension::OES_tessellation_shader,
+                                                           TExtension::EXT_tessellation_shader } };
+        if (context->getShaderVersion() < 320
+        && !context->checkCanUseOneOfExtensions(@1, extensions))
+        {
+            context->error(@1, "unsupported storage qualifier", "patch");
+        }
+        $$ = new TStorageQualifierWrapper(EvqPatch, @1);
+    }
     | UNIFORM {
         $$ = context->parseGlobalStorageQualifier(EvqUniform, @1);
     }
     | BUFFER {
-        ES3_1_ONLY("buffer", @1, "storage qualifier");
+        ES3_1_OR_NEWER("buffer", @1, "storage qualifier");
         $$ = context->parseGlobalStorageQualifier(EvqBuffer, @1);
     }
     | READONLY {
@@ -920,7 +952,7 @@ precision_qualifier
 
 layout_qualifier
     : LAYOUT LEFT_PAREN layout_qualifier_id_list RIGHT_PAREN {
-        ES3_OR_NEWER("layout", @1, "qualifier");
+        context->checkCanUseLayoutQualifier(@1);
         $$ = $3;
     }
     ;
@@ -973,17 +1005,23 @@ array_specifier
         $$->push_back(size);
     }
     | array_specifier LEFT_BRACKET RIGHT_BRACKET {
-        ES3_1_ONLY("[]", @2, "arrays of arrays");
+        ES3_1_OR_NEWER("[]", @2, "arrays of arrays");
         $$ = $1;
         $$->insert($$->begin(), 0u);
+        if (!context->checkIsValidArrayDimension(@2, $$)) {
+            YYABORT;
+        }
     }
     | array_specifier LEFT_BRACKET constant_expression RIGHT_BRACKET {
-        ES3_1_ONLY("[]", @2, "arrays of arrays");
+        ES3_1_OR_NEWER("[]", @2, "arrays of arrays");
         $$ = $1;
         unsigned int size = context->checkIsValidArraySize(@2, $3);
         // Make the type an array even if size check failed.
         // This ensures useless error messages regarding a variable's non-arrayness won't follow.
         $$->insert($$->begin(), size);
+        if (!context->checkIsValidArrayDimension(@2, $$)) {
+            YYABORT;
+        }
     }
     ;
 
@@ -1251,13 +1289,6 @@ type_specifier_nonarray
         }
         $$.initialize(EbtSamplerCubeArrayShadow, @1);
     }
-    | SAMPLERVIDEOWEBGL {
-        if (!context->checkCanUseExtension(@1, TExtension::WEBGL_video_texture))
-        {
-            context->error(@1, "unsupported type", "samplerVideoWEBGL");
-        }
-        $$.initialize(EbtSamplerVideoWEBGL, @1);
-    }
     | SAMPLER_EXTERNAL_OES {
         constexpr std::array<TExtension, 3u> extensions{ { TExtension::NV_EGL_stream_consumer_external,
                                                            TExtension::OES_EGL_image_external_essl3,
@@ -1399,13 +1430,36 @@ type_specifier_nonarray
     | ATOMICUINT {
         $$.initialize(EbtAtomicCounter, @1);
     }
+    | PIXELLOCALANGLE {
+        if (!context->checkCanUseExtension(@1, TExtension::ANGLE_shader_pixel_local_storage))
+        {
+            context->error(@1, "unsupported type", "__pixelLocalANGLE");
+        }
+        $$.initialize(EbtPixelLocalANGLE, @1);
+    }
+    | IPIXELLOCALANGLE {
+        if (!context->checkCanUseExtension(@1, TExtension::ANGLE_shader_pixel_local_storage))
+        {
+            context->error(@1, "unsupported type", "__ipixelLocalANGLE");
+        }
+        $$.initialize(EbtIPixelLocalANGLE, @1);
+    }
+    | UPIXELLOCALANGLE {
+        if (!context->checkCanUseExtension(@1, TExtension::ANGLE_shader_pixel_local_storage))
+        {
+            context->error(@1, "unsupported type", "__upixelLocalANGLE");
+        }
+        $$.initialize(EbtUPixelLocalANGLE, @1);
+    }
     | struct_specifier {
         $$ = $1;
     }
     | TYPE_NAME {
         // This is for user defined type names. The lexical phase looked up the type.
         const TStructure *structure = static_cast<const TStructure*>($1.symbol);
-        $$.initializeStruct(structure, false, @1);
+        // Temporary check until VK and Metal backends support type name like gl_DepthRangeParameters.
+        context->checkIsNotReserved(@1, ImmutableString($1.string));
+        $$.initializeStruct(structure, false, false, @1);
     }
     ;
 
@@ -1486,7 +1540,7 @@ compound_statement_with_scope
         $$ = new TIntermBlock();
         $$->setLine(@$);
     }
-    | LEFT_BRACE { context->symbolTable.push(); } statement_list { context->symbolTable.pop(); } RIGHT_BRACE {
+    | LEFT_BRACE { context->beginNestedScope(); } statement_list { context->endNestedScope(); } RIGHT_BRACE {
         $3->setLine(@$);
         $$ = $3;
     }
@@ -1494,12 +1548,19 @@ compound_statement_with_scope
 
 statement_no_new_scope
     : compound_statement_no_new_scope { $$ = $1; }
-    | simple_statement                { $$ = $1; }
+    | simple_statement                {
+        context->endStatementWithValue($1);
+        $$ = $1;
+    }
     ;
 
 statement_with_scope
-    : { context->symbolTable.push(); } compound_statement_no_new_scope { context->symbolTable.pop(); $$ = $2; }
-    | { context->symbolTable.push(); } simple_statement                { context->symbolTable.pop(); $$ = $2; }
+    : { context->beginNestedScope(); } compound_statement_no_new_scope { context->endNestedScope(); $$ = $2; }
+    | { context->beginNestedScope(); } simple_statement                {
+        context->endStatementWithValue($2);
+        context->endNestedScope();
+        $$ = $2;
+    }
     ;
 
 compound_statement_no_new_scope
@@ -1527,21 +1588,31 @@ statement_list
 
 expression_statement
     : SEMICOLON  { $$ = context->addEmptyStatement(@$); }
-    | expression SEMICOLON  { $$ = $1; }
+    | expression SEMICOLON  {
+        context->checkIsValidExpressionStatement(@$, $1);
+        $$ = $1;
+    }
     ;
 
 selection_statement
-    : IF LEFT_PAREN expression RIGHT_PAREN selection_rest_statement {
-        $$ = context->addIfElse($3, $5, @1);
+    : IF LEFT_PAREN expression RIGHT_PAREN {
+        context->onIfTrueBlockBegin($3, @1);
+    } selection_rest_statement {
+        $$ = context->addIfElse($3, $6, @1);
     }
     ;
 
 selection_rest_statement
-    : statement_with_scope ELSE statement_with_scope {
+    : statement_with_scope ELSE {
+        context->onIfTrueBlockEnd();
+        context->onIfFalseBlockBegin();
+    } statement_with_scope {
+        context->onIfFalseBlockEnd();
         $$.node1 = $1;
-        $$.node2 = $3;
+        $$.node2 = $4;
     }
     | statement_with_scope {
+        context->onIfTrueBlockEnd();
         $$.node1 = $1;
         $$.node2 = nullptr;
     }
@@ -1550,9 +1621,8 @@ selection_rest_statement
 // Note that we've diverged from the spec grammar here a bit for the sake of simplicity.
 // We're reusing compound_statement_with_scope instead of having separate rules for switch.
 switch_statement
-    : SWITCH LEFT_PAREN expression RIGHT_PAREN { context->incrSwitchNestingLevel(); } compound_statement_with_scope {
+    : SWITCH LEFT_PAREN expression RIGHT_PAREN { context->beginSwitch(@1, $3); } compound_statement_no_new_scope {
         $$ = context->addSwitch($3, $6, @1);
-        context->decrSwitchNestingLevel();
     }
     ;
 
@@ -1576,24 +1646,34 @@ condition
     ;
 
 iteration_statement
-    : WHILE LEFT_PAREN { context->symbolTable.push(); context->incrLoopNestingLevel(); } condition RIGHT_PAREN statement_no_new_scope {
+    : WHILE LEFT_PAREN {
+        context->symbolTable.push(); context->beginLoop(ELoopWhile, @1);
+        context->onLoopConditionBegin(nullptr, @1);
+    } condition {
+        context->onLoopConditionEnd($4, @4);
+    } RIGHT_PAREN statement_no_new_scope {
         context->symbolTable.pop();
-        $$ = context->addLoop(ELoopWhile, 0, $4, 0, $6, @1);
-        context->decrLoopNestingLevel();
+        $$ = context->addLoop(ELoopWhile, 0, $4, 0, $7, @1);
     }
-    | DO { context->incrLoopNestingLevel(); } statement_with_scope WHILE LEFT_PAREN expression RIGHT_PAREN SEMICOLON {
-        $$ = context->addLoop(ELoopDoWhile, 0, $6, 0, $3, @4);
-        context->decrLoopNestingLevel();
+    | DO {
+        context->beginLoop(ELoopDoWhile, @1);
+        context->onDoLoopBegin();
+    } statement_with_scope WHILE LEFT_PAREN {
+        context->onDoLoopConditionBegin();
+    } expression RIGHT_PAREN SEMICOLON {
+        $$ = context->addLoop(ELoopDoWhile, 0, $7, 0, $3, @4);
     }
-    | FOR LEFT_PAREN { context->symbolTable.push(); context->incrLoopNestingLevel(); } for_init_statement for_rest_statement RIGHT_PAREN statement_no_new_scope {
+    | FOR LEFT_PAREN { context->symbolTable.push(); context->beginLoop(ELoopFor, @1); } for_init_statement {
+        context->onLoopConditionBegin($4, @4);
+    } for_rest_statement RIGHT_PAREN statement_no_new_scope {
         context->symbolTable.pop();
-        $$ = context->addLoop(ELoopFor, $4, $5.node1, reinterpret_cast<TIntermTyped*>($5.node2), $7, @1);
-        context->decrLoopNestingLevel();
+        $$ = context->addLoop(ELoopFor, $4, $6.node1, reinterpret_cast<TIntermTyped*>($6.node2), $8, @1);
     }
     ;
 
 for_init_statement
     : expression_statement {
+        context->endStatementWithValue($1);
         $$ = $1;
     }
     | declaration_statement {
@@ -1612,12 +1692,17 @@ conditionopt
 
 for_rest_statement
     : conditionopt SEMICOLON {
+        context->onLoopConditionEnd($1, @1);
+        context->onLoopContinueEnd(nullptr, @1);
         $$.node1 = $1;
         $$.node2 = 0;
     }
-    | conditionopt SEMICOLON expression  {
+    | conditionopt SEMICOLON {
+        context->onLoopConditionEnd($1, @1);
+    } expression {
+        context->onLoopContinueEnd($4, @4);
         $$.node1 = $1;
-        $$.node2 = $3;
+        $$.node2 = $4;
     }
     ;
 

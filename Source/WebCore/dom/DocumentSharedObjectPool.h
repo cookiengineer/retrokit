@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012, 2013 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2012, 2013 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,9 +26,10 @@
 
 #pragma once
 
+#include "SecurityOriginData.h"
 #include <memory>
-#include <wtf/HashMap.h>
-#include <wtf/RefPtr.h>
+#include <wtf/HashSet.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/StringHash.h>
 
 namespace WebCore {
@@ -37,13 +38,17 @@ class Attribute;
 class ShareableElementData;
 
 class DocumentSharedObjectPool {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(DocumentSharedObjectPool);
 public:
-    Ref<ShareableElementData> cachedShareableElementDataWithAttributes(const Vector<Attribute>&);
+    explicit DocumentSharedObjectPool(const SecurityOrigin&);
+    ~DocumentSharedObjectPool();
+    Ref<ShareableElementData> cachedShareableElementDataWithAttributes(std::span<const Attribute>);
 
 private:
-    typedef HashMap<unsigned, RefPtr<ShareableElementData>, AlreadyHashed> ShareableElementDataCache;
+    struct ShareableElementDataHash;
+    using ShareableElementDataCache = HashSet<Ref<ShareableElementData>, ShareableElementDataHash>;
     ShareableElementDataCache m_shareableElementDataCache;
+    SecurityOriginData m_domain;
 };
 
 } // namespace WebCore

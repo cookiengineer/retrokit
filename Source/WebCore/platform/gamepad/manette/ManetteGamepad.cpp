@@ -29,11 +29,18 @@
 #if ENABLE(GAMEPAD) && OS(LINUX)
 
 #include "ManetteGamepadProvider.h"
+#include "SharedGamepadValue.h"
 #include <linux/input-event-codes.h>
 #include <wtf/HexNumber.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/CString.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ManetteGamepad);
+
+static constexpr size_t standardGamepadAxisCount = static_cast<size_t>(ManetteGamepad::StandardGamepadAxis::RightStickY) + 1;
+static constexpr size_t standardGamepadButtonCount = static_cast<size_t>(ManetteGamepad::StandardGamepadButton::Mode) + 1;
 
 static ManetteGamepad::StandardGamepadAxis toStandardGamepadAxis(uint16_t axis)
 {
@@ -47,9 +54,11 @@ static ManetteGamepad::StandardGamepadAxis toStandardGamepadAxis(uint16_t axis)
     case ABS_RY:
         return ManetteGamepad::StandardGamepadAxis::RightStickY;
     default:
-        ASSERT_NOT_REACHED();
+        break;
     }
-    return ManetteGamepad::StandardGamepadAxis::Unknown;
+    // In case could not map axis to a StandardGamepadAxis value, return
+    // a valid StandardGamepadAxis value anyway.
+    return static_cast<ManetteGamepad::StandardGamepadAxis>(axis % standardGamepadAxisCount);
 }
 
 static void onAbsoluteAxisEvent(ManetteDevice* device, ManetteEvent* event, ManetteGamepad* gamepad)
@@ -97,10 +106,14 @@ static ManetteGamepad::StandardGamepadButton toStandardGamepadButton(uint16_t ma
         return ManetteGamepad::StandardGamepadButton::DPadLeft;
     case BTN_DPAD_RIGHT:
         return ManetteGamepad::StandardGamepadButton::DPadRight;
+    case BTN_MODE:
+        return ManetteGamepad::StandardGamepadButton::Mode;
     default:
-        ASSERT_NOT_REACHED();
+        break;
     }
-    return ManetteGamepad::StandardGamepadButton::Unknown;
+    // In case could not map button to a StandardGamepadButton value, return
+    // a valid StandardGamepadButton value anyway.
+    return static_cast<ManetteGamepad::StandardGamepadButton>(manetteButton % standardGamepadButtonCount);
 }
 
 static void onButtonPressEvent(ManetteDevice* device, ManetteEvent* event, ManetteGamepad* gamepad)
@@ -124,6 +137,8 @@ static void onButtonReleaseEvent(ManetteDevice* device, ManetteEvent* event, Man
 ManetteGamepad::ManetteGamepad(ManetteDevice* device, unsigned index)
     : PlatformGamepad(index)
     , m_device(device)
+    , m_effectDelayTimer(RunLoop::currentSingleton(), "ManetteGamepad::EffectDelayTimer"_s, this, &ManetteGamepad::effectDelayTimerFired)
+    , m_effectDurationTimer(RunLoop::currentSingleton(), "ManetteGamepad::EffectDurationTimer"_s, this, &ManetteGamepad::effectDurationTimerFired)
 {
     ASSERT(index < 4);
 
@@ -132,13 +147,16 @@ ManetteGamepad::ManetteGamepad(ManetteDevice* device, unsigned index)
     m_id = String::fromUTF8(manette_device_get_name(m_device.get()));
     m_mapping = String::fromUTF8("standard");
 
-    m_axisValues.resize(static_cast<size_t>(StandardGamepadAxis::Count));
+    m_axisValues.resize(static_cast<size_t>(standardGamepadAxisCount));
     for (auto& value : m_axisValues)
         value.setValue(0.0);
 
-    m_buttonValues.resize(static_cast<size_t>(StandardGamepadButton::Count));
+    m_buttonValues.resize(static_cast<size_t>(standardGamepadButtonCount));
     for (auto& value : m_buttonValues)
         value.setValue(0.0);
+
+    if (manette_device_has_rumble(m_device.get()))
+        m_supportedEffectTypes.add(GamepadHapticEffectType::DualRumble);
 
     g_signal_connect(device, "button-press-event", G_CALLBACK(onButtonPressEvent), this);
     g_signal_connect(device, "button-release-event", G_CALLBACK(onButtonReleaseEvent), this);
@@ -152,9 +170,6 @@ ManetteGamepad::~ManetteGamepad()
 
 void ManetteGamepad::buttonPressedOrReleased(ManetteDevice*, StandardGamepadButton button, bool pressed)
 {
-    if (button == StandardGamepadButton::Unknown)
-        return;
-
     m_lastUpdateTime = MonotonicTime::now();
     m_buttonValues[static_cast<int>(button)].setValue(pressed ? 1.0 : 0.0);
 
@@ -163,13 +178,65 @@ void ManetteGamepad::buttonPressedOrReleased(ManetteDevice*, StandardGamepadButt
 
 void ManetteGamepad::absoluteAxisChanged(ManetteDevice*, StandardGamepadAxis axis, double value)
 {
-    if (axis == StandardGamepadAxis::Unknown)
-        return;
-
     m_lastUpdateTime = MonotonicTime::now();
     m_axisValues[static_cast<int>(axis)].setValue(value);
 
-    ManetteGamepadProvider::singleton().gamepadHadInput(*this, ManetteGamepadProvider::ShouldMakeGamepadsVisible::No);
+    ManetteGamepadProvider::singleton().gamepadHadInput(*this, ManetteGamepadProvider::ShouldMakeGamepadsVisible::Yes);
+}
+
+void ManetteGamepad::playEffect(GamepadHapticEffectType type, const GamepadEffectParameters& parameters, CompletionHandler<void(bool)>&& completionHandler)
+{
+    if (!m_supportedEffectTypes.contains(type))
+        return completionHandler(false);
+
+    if (m_effectCompletionHandler)
+        stopEffects({ });
+
+    m_effectCompletionHandler = WTF::move(completionHandler);
+    if (parameters.startDelay) {
+        m_pendingEffectParameters = parameters;
+        m_effectDelayTimer.startOneShot(Seconds::fromMilliseconds(parameters.startDelay));
+        return;
+    }
+
+    startRumble(parameters);
+}
+
+void ManetteGamepad::stopEffects(CompletionHandler<void()>&& completionHandler)
+{
+    m_effectDelayTimer.stop();
+    m_effectDurationTimer.stop();
+    if (m_effectCompletionHandler)
+        m_effectCompletionHandler(false);
+
+    manette_device_rumble(m_device.get(), 0, 0, 0);
+
+    if (completionHandler)
+        completionHandler();
+}
+
+void ManetteGamepad::effectDelayTimerFired()
+{
+    startRumble(std::exchange(m_pendingEffectParameters, { }));
+}
+
+void ManetteGamepad::startRumble(const GamepadEffectParameters& parameters)
+{
+#if HAVE(MANETTE_NORMALIZED_RUMBLE)
+    manette_device_rumble(m_device.get(), parameters.strongMagnitude, parameters.weakMagnitude, static_cast<guint>(parameters.duration));
+#else
+    manette_device_rumble(m_device.get(), parameters.strongMagnitude * G_MAXUINT16, parameters.weakMagnitude * G_MAXUINT16, static_cast<guint>(parameters.duration));
+#endif
+
+    if (parameters.duration)
+        m_effectDurationTimer.startOneShot(Seconds::fromMilliseconds(parameters.duration));
+    else
+        m_effectCompletionHandler(true);
+}
+
+void ManetteGamepad::effectDurationTimerFired()
+{
+    m_effectCompletionHandler(true);
 }
 
 } // namespace WebCore

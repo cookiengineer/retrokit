@@ -37,7 +37,7 @@ class SQLError;
 
 class ChangeVersionWrapper : public SQLTransactionWrapper {
 public:
-    static Ref<ChangeVersionWrapper> create(const String& oldVersion, const String& newVersion) { return adoptRef(*new ChangeVersionWrapper(oldVersion, newVersion)); }
+    static Ref<ChangeVersionWrapper> create(String&& oldVersion, String&& newVersion) { return adoptRef(*new ChangeVersionWrapper(WTF::move(oldVersion), WTF::move(newVersion))); }
 
     bool performPreflight(SQLTransaction&) override;
     bool performPostflight(SQLTransaction&) override;
@@ -45,7 +45,7 @@ public:
     void handleCommitFailedAfterPostflight(SQLTransaction&) override;
 
 private:
-    ChangeVersionWrapper(const String& oldVersion, const String& newVersion);
+    ChangeVersionWrapper(String&& oldVersion, String&& newVersion);
 
     String m_oldVersion;
     String m_newVersion;

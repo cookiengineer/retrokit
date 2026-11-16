@@ -25,21 +25,23 @@
 
 #pragma once
 
-#include "FetchOptions.h"
-#include "LoadSchedulingMode.h"
-#include "PageIdentifier.h"
-#include "ResourceLoadPriority.h"
-#include "ResourceLoaderOptions.h"
-#include "StoredCredentialsPolicy.h"
+#include <WebCore/FetchOptions.h>
+#include <WebCore/LoadSchedulingMode.h>
+#include <WebCore/PageIdentifier.h>
+#include <WebCore/ResourceLoadPriority.h>
+#include <WebCore/ResourceLoaderIdentifier.h>
+#include <WebCore/ResourceLoaderOptions.h>
+#include <WebCore/StoredCredentialsPolicy.h>
+#include <wtf/CheckedRef.h>
 #include <wtf/Forward.h>
 
 namespace WebCore {
 
 class CachedResource;
 class ContentSecurityPolicy;
-class Frame;
 class FrameLoader;
 class HTTPHeaderMap;
+class LocalFrame;
 class NetscapePlugInStreamLoader;
 class NetscapePlugInStreamLoaderClient;
 struct NetworkTransactionInformation;
@@ -50,17 +52,19 @@ class ResourceLoader;
 class ResourceRequest;
 class ResourceResponse;
 class SecurityOrigin;
-class SharedBuffer;
+class FragmentedSharedBuffer;
 class SubresourceLoader;
 
 struct FetchOptions;
 
-class WEBCORE_EXPORT LoaderStrategy {
+class WEBCORE_EXPORT LoaderStrategy : public CanMakeCheckedPtr<LoaderStrategy> {
+    WTF_MAKE_TZONE_ALLOCATED(LoaderStrategy);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(LoaderStrategy);
 public:
-    virtual void loadResource(Frame&, CachedResource&, ResourceRequest&&, const ResourceLoaderOptions&, CompletionHandler<void(RefPtr<SubresourceLoader>&&)>&&) = 0;
-    virtual void loadResourceSynchronously(FrameLoader&, unsigned long identifier, const ResourceRequest&, ClientCredentialPolicy, const FetchOptions&, const HTTPHeaderMap&, ResourceError&, ResourceResponse&, Vector<uint8_t>& data) = 0;
+    virtual void loadResource(LocalFrame&, CachedResource&, ResourceRequest&&, const ResourceLoaderOptions&, CompletionHandler<void(RefPtr<SubresourceLoader>&&)>&&) = 0;
+    virtual void loadResourceSynchronously(FrameLoader&, ResourceLoaderIdentifier, const ResourceRequest&, ClientCredentialPolicy, const FetchOptions&, const HTTPHeaderMap&, ResourceError&, ResourceResponse&, Vector<uint8_t>& data) = 0;
     virtual void pageLoadCompleted(Page&) = 0;
-    virtual void browsingContextRemoved(Frame&) = 0;
+    virtual void browsingContextRemoved(LocalFrame&) = 0;
 
     virtual void remove(ResourceLoader*) = 0;
     virtual void setDefersLoading(ResourceLoader&, bool) = 0;
@@ -71,31 +75,48 @@ public:
     virtual void resumePendingRequests() = 0;
 
     virtual void setResourceLoadSchedulingMode(Page&, LoadSchedulingMode);
-    virtual void prioritizeResourceLoads(const Vector<SubresourceLoader*>&);
+    virtual void prioritizeResourceLoads(const Vector<Ref<SubresourceLoader>>&);
 
     virtual bool usePingLoad() const { return true; }
-    using PingLoadCompletionHandler = WTF::Function<void(const ResourceError&, const ResourceResponse&)>;
-    virtual void startPingLoad(Frame&, ResourceRequest&, const HTTPHeaderMap& originalRequestHeaders, const FetchOptions&, ContentSecurityPolicyImposition, PingLoadCompletionHandler&& = { }) = 0;
+    using PingLoadCompletionHandler = Function<void(const ResourceError&, const ResourceResponse&)>;
+    virtual void startPingLoad(LocalFrame&, ResourceRequest&, const HTTPHeaderMap& originalRequestHeaders, const FetchOptions&, ContentSecurityPolicyImposition, PingLoadCompletionHandler&& = { }) = 0;
 
-    using PreconnectCompletionHandler = WTF::Function<void(const ResourceError&)>;
-    virtual void preconnectTo(FrameLoader&, const URL&, StoredCredentialsPolicy, PreconnectCompletionHandler&&) = 0;
+    using PreconnectCompletionHandler = Function<void(const ResourceError&)>;
+    enum class ShouldPreconnectAsFirstParty : bool { No, Yes };
+    virtual void preconnectTo(FrameLoader&, ResourceRequest&&, StoredCredentialsPolicy, ShouldPreconnectAsFirstParty, PreconnectCompletionHandler&&) = 0;
 
     virtual void setCaptureExtraNetworkLoadMetricsEnabled(bool) = 0;
 
     virtual bool isOnLine() const = 0;
-    virtual void addOnlineStateChangeListener(WTF::Function<void(bool)>&&) = 0;
+    virtual void addOnlineStateChangeListener(Function<void(bool)>&&) = 0;
 
     virtual bool shouldPerformSecurityChecks() const { return false; }
     virtual bool havePerformedSecurityChecks(const ResourceResponse&) const { return false; }
 
-    virtual ResourceResponse responseFromResourceLoadIdentifier(uint64_t resourceLoadIdentifier);
-    virtual Vector<NetworkTransactionInformation> intermediateLoadInformationFromResourceLoadIdentifier(uint64_t resourceLoadIdentifier);
-    virtual NetworkLoadMetrics networkMetricsFromResourceLoadIdentifier(uint64_t resourceLoadIdentifier);
+    virtual ResourceResponse responseFromResourceLoadIdentifier(ResourceLoaderIdentifier);
+    virtual Vector<NetworkTransactionInformation> intermediateLoadInformationFromResourceLoadIdentifier(ResourceLoaderIdentifier);
+    virtual NetworkLoadMetrics networkMetricsFromResourceLoadIdentifier(ResourceLoaderIdentifier);
 
     virtual void isResourceLoadFinished(CachedResource&, CompletionHandler<void(bool)>&& callback) = 0;
 
     // Used for testing only.
-    virtual Vector<uint64_t> ongoingLoads() const { return { }; }
+    virtual Vector<ResourceLoaderIdentifier> ongoingLoads() const { return { }; }
+
+    virtual ResourceError cancelledError(const ResourceRequest&) const = 0;
+    virtual ResourceError blockedError(const ResourceRequest&) const = 0;
+    virtual bool isBlockedError(const ResourceError&) const = 0;
+    virtual ResourceError blockedByContentBlockerError(const ResourceRequest&) const = 0;
+    virtual ResourceError cannotShowURLError(const ResourceRequest&) const = 0;
+    virtual ResourceError interruptedForPolicyChangeError(const ResourceRequest&) const = 0;
+#if ENABLE(CONTENT_FILTERING)
+    virtual ResourceError blockedByContentFilterError(const ResourceRequest&) const = 0;
+#endif
+    virtual ResourceError cannotShowMIMETypeError(const ResourceResponse&) const = 0;
+    virtual ResourceError fileDoesNotExistError(const ResourceResponse&) const = 0;
+    virtual ResourceError httpsUpgradeRedirectLoopError(const ResourceRequest&) const = 0;
+    virtual ResourceError httpNavigationWithHTTPSOnlyError(const ResourceRequest&) const = 0;
+    virtual bool isHttpNavigationWithHTTPSOnlyError(const ResourceError&) const = 0;
+    virtual ResourceError pluginWillHandleLoadError(const ResourceResponse&) const = 0;
 
 protected:
     virtual ~LoaderStrategy();

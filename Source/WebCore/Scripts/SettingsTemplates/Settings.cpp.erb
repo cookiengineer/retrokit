@@ -28,6 +28,7 @@
 #include "config.h"
 #include "Settings.h"
 
+#include "DeprecatedGlobalSettings.h"
 #include "InspectorInstrumentation.h"
 #include "Page.h"
 
@@ -38,7 +39,11 @@
 #if <%= @setting.condition %>
 <%-   end -%>
 <%-   if @setting.defaultValues.size() == 1 -%>
+<%-     if @setting.type == "String" and @setting.defaultValues['default'][-1] == "\"" -%>
+#define SETTING_DEFAULT_VALUE_FOR_<%= @setting.name %> <%= @setting.defaultValues['default'] %>_s
+<%-     else -%>
 #define SETTING_DEFAULT_VALUE_FOR_<%= @setting.name %> <%= @setting.defaultValues['default'] %>
+<%-     end -%>
 <%-   else -%>
 <%-     @setting.defaultValues.each_with_index do |(key, value), index| -%>
 <%-       if index == 0 -%>
@@ -59,6 +64,8 @@
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Settings);
+
 Ref<Settings> Settings::create(Page* page)
 {
     return adoptRef(*new Settings(page));
@@ -74,7 +81,7 @@ Settings::Settings(Page* page)
     m_page = page;
 }
 
-void Settings::Values::initialize()
+void SettingsValues::initialize()
 {
 <%- for @condition in @allSettingsSet.conditions do -%>
 <%- if @condition.nonBoolSettingsNeedingImplementation.length != 0 -%>
@@ -104,7 +111,7 @@ void Settings::Values::initialize()
 <%- end -%>
 }
 
-Settings::Values Settings::Values::isolatedCopy() const
+SettingsValues SettingsValues::isolatedCopy() const
 {
     return {
 <%- for @setting in @allSettingsSet.inspectorOverrideSettings do -%>
@@ -140,8 +147,47 @@ Settings::Values Settings::Values::isolatedCopy() const
     };
 }
 
-Settings::~Settings()
+Settings::~Settings() = default;
+
+void Settings::disableUnstableFeaturesForModernWebKit()
 {
+<%- for @setting in @unstableFeatures do -%>
+<%-   if @setting.condition -%>
+#if <%= @setting.condition %>
+<%-   end -%>
+    <%= @setting.setterFunctionName %>(false);
+<%-   if @setting.condition -%>
+#endif
+<%-   end -%>
+<%- end -%>
+}
+
+void Settings::disableGlobalUnstableFeaturesForModernWebKit()
+{
+<%- for @setting in @unstableGlobalFeatures do -%>
+<%-   if @setting.condition -%>
+#if <%= @setting.condition %>
+<%-   end -%>
+    <%= @setting.options["webcoreBinding"] %>::<%= @setting.setterFunctionName %>(false);
+<%-   if @setting.condition -%>
+#endif
+<%-   end -%>
+<%- end -%>
+}
+
+void Settings::disableFeaturesForLockdownMode()
+{
+<%- for @setting in @allSettingsSet.settings do -%>
+<%-   if @setting.disableInLockdownMode -%>
+<%-     if @setting.condition -%>
+#if <%= @setting.condition %>
+<%-     end -%>
+    <%= @setting.setterFunctionName %>(false);
+<%-     if @setting.condition -%>
+#endif
+<%-     end -%>
+<%-   end -%>
+<%- end -%>
 }
 
 <%- for @condition in @allSettingsSet.conditions do -%>
@@ -153,7 +199,7 @@ Settings::~Settings()
 <%= @setting.parameterType %> Settings::<%= @setting.getterFunctionName %>() const
 {
 <%- if @setting.hasInspectorOverride? -%>
-    if (UNLIKELY(m_values.<%= @setting.name %>InspectorOverride)) {
+    if (m_values.<%= @setting.name %>InspectorOverride) [[unlikely]] {
         ASSERT(InspectorInstrumentation::hasFrontends());
         return m_values.<%= @setting.name %>InspectorOverride.value();
     }
@@ -183,7 +229,7 @@ void Settings::<%= @setting.setterFunctionName %>InspectorOverride(std::optional
 {
     if (m_values.<%= @setting.name %>InspectorOverride == <%= @setting.name %>InspectorOverride)
         return;
-        m_values.<%= @setting.name %>InspectorOverride = <%= @setting.name %>InspectorOverride;
+    m_values.<%= @setting.name %>InspectorOverride = <%= @setting.name %>InspectorOverride;
 <%- if @setting.condition -%>
 #if <%= @setting.condition %>
 <%- end -%>

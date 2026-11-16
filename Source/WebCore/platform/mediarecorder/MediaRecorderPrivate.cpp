@@ -26,12 +26,17 @@
 #include "config.h"
 #include "MediaRecorderPrivate.h"
 
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(MEDIA_RECORDER)
 
 #include "MediaStreamPrivate.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MediaRecorderPrivate);
+
+constexpr unsigned SmallAudioBitRate = 8000;
+constexpr unsigned SmallVideoBitRate = 80000;
 constexpr unsigned LargeAudioBitRate = 192000;
 constexpr unsigned LargeVideoBitRate = 10000000;
 
@@ -52,8 +57,6 @@ MediaRecorderPrivate::AudioVideoSelectedTracks MediaRecorderPrivate::selectTrack
             if (!selectedTracks.audioTrack)
                 selectedTracks.audioTrack = &track;
             break;
-        case RealtimeMediaSource::Type::None:
-            break;
         }
     });
     return selectedTracks;
@@ -61,11 +64,11 @@ MediaRecorderPrivate::AudioVideoSelectedTracks MediaRecorderPrivate::selectTrack
 
 void MediaRecorderPrivate::checkTrackState(const MediaStreamTrackPrivate& track)
 {
-    if (&track.source() == m_audioSource.get()) {
+    if (track.hasSource(m_audioSource.get())) {
         m_shouldMuteAudio = track.muted() || !track.enabled();
         return;
     }
-    if (&track.source() == m_videoSource.get())
+    if (track.hasSource(m_videoSource.get()))
         m_shouldMuteVideo = track.muted() || !track.enabled();
 }
 
@@ -73,7 +76,7 @@ void MediaRecorderPrivate::stop(CompletionHandler<void()>&& completionHandler)
 {
     setAudioSource(nullptr);
     setVideoSource(nullptr);
-    stopRecording(WTFMove(completionHandler));
+    stopRecording(WTF::move(completionHandler));
 }
 
 void MediaRecorderPrivate::pause(CompletionHandler<void()>&& completionHandler)
@@ -87,28 +90,41 @@ void MediaRecorderPrivate::pause(CompletionHandler<void()>&& completionHandler)
     setAudioSource(nullptr);
     setVideoSource(nullptr);
 
-    pauseRecording(WTFMove(completionHandler));
+    pauseRecording(WTF::move(completionHandler));
 }
 
 void MediaRecorderPrivate::resume(CompletionHandler<void()>&& completionHandler)
 {
     ASSERT(m_pausedAudioSource || m_pausedVideoSource);
 
-    setAudioSource(WTFMove(m_pausedAudioSource));
-    setVideoSource(WTFMove(m_pausedVideoSource));
+    setAudioSource(WTF::move(m_pausedAudioSource));
+    setVideoSource(WTF::move(m_pausedVideoSource));
 
-    resumeRecording(WTFMove(completionHandler));
+    resumeRecording(WTF::move(completionHandler));
 }
 
-void MediaRecorderPrivate::updateOptions(MediaRecorderPrivateOptions& options)
+MediaRecorderPrivate::BitRates MediaRecorderPrivate::computeBitRates(const MediaRecorderPrivateOptions& options, const MediaStreamPrivate* stream)
 {
-    // FIXME: Add support for options.bitsPerSecond.
-    if (!options.audioBitsPerSecond)
-        options.audioBitsPerSecond = LargeAudioBitRate;
-    if (!options.videoBitsPerSecond)
-        options.videoBitsPerSecond = LargeVideoBitRate;
+    if (options.bitsPerSecond) {
+        bool hasAudio = stream ? stream->hasAudio() : true;
+        bool hasVideo = stream ? stream->hasVideo() : true;
+        auto totalBitsPerSecond = *options.bitsPerSecond;
+
+        if (hasAudio && hasVideo) {
+            auto audioBitsPerSecond =  std::min(LargeAudioBitRate, std::max(SmallAudioBitRate, totalBitsPerSecond / 10));
+            auto remainingBitsPerSecond = totalBitsPerSecond > audioBitsPerSecond ? (totalBitsPerSecond - audioBitsPerSecond) : 0;
+            return { audioBitsPerSecond, std::max(remainingBitsPerSecond, SmallVideoBitRate) };
+        }
+
+        if (hasAudio)
+            return { std::max(SmallAudioBitRate, totalBitsPerSecond), 0 };
+
+        return { 0, std::max(SmallVideoBitRate, totalBitsPerSecond) };
+    }
+
+    return { options.audioBitsPerSecond.value_or(LargeAudioBitRate), options.videoBitsPerSecond.value_or(LargeVideoBitRate) };
 }
 
 } // namespace WebCore
 
-#endif // ENABLE(MEDIA_STREAM)
+#endif // ENABLE(MEDIA_RECORDER)

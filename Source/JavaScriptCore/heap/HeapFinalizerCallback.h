@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc.  All rights reserved.
+ * Copyright (C) 2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "JSHeapFinalizerPrivate.h"
+#include <JavaScriptCore/JSHeapFinalizerPrivate.h>
 #include <wtf/PrintStream.h>
 
 namespace JSC {
@@ -40,16 +40,7 @@ public:
     {
     }
     
-    bool operator==(const HeapFinalizerCallback& other) const
-    {
-        return m_finalizer == other.m_finalizer
-            && m_userData == other.m_userData;
-    }
-    
-    bool operator!=(const HeapFinalizerCallback& other) const
-    {
-        return !(*this == other);
-    }
+    friend bool operator==(const HeapFinalizerCallback&, const HeapFinalizerCallback&) = default;
     
     explicit operator bool() const
     {

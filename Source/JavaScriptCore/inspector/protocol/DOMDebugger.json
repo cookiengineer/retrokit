@@ -1,7 +1,7 @@
 {
     "domain": "DOMDebugger",
     "description": "DOM debugging allows setting breakpoints on particular DOM operations and events. JavaScript execution will stop on these operations as if there was a regular breakpoint set.",
-    "debuggableTypes": ["page", "web-page"],
+    "debuggableTypes": ["web-page"],
     "targetTypes": ["page", "worker"],
     "types": [
         {
@@ -21,6 +21,7 @@
         {
             "name": "setDOMBreakpoint",
             "description": "Sets breakpoint on particular operation with DOM.",
+            "targetTypes": ["page"],
             "parameters": [
                 { "name": "nodeId", "$ref": "DOM.NodeId", "description": "Identifier of the node to set breakpoint on." },
                 { "name": "type", "$ref": "DOMBreakpointType", "description": "Type of the operation to stop upon." },
@@ -30,6 +31,7 @@
         {
             "name": "removeDOMBreakpoint",
             "description": "Removes DOM breakpoint that was set using <code>setDOMBreakpoint</code>.",
+            "targetTypes": ["page"],
             "parameters": [
                 { "name": "nodeId", "$ref": "DOM.NodeId", "description": "Identifier of the node to remove breakpoint from." },
                 { "name": "type", "$ref": "DOMBreakpointType", "description": "Type of the breakpoint to remove." }
@@ -41,6 +43,8 @@
             "parameters": [
                 { "name": "breakpointType", "$ref": "EventBreakpointType" },
                 { "name": "eventName", "type": "string", "optional": true, "description": "The name of the specific event to stop on." },
+                { "name": "caseSensitive", "type": "boolean", "optional": true, "description": "If true, eventName is case sensitive. Defaults to true." },
+                { "name": "isRegex", "type": "boolean", "optional": true, "description": "If true, treats eventName as a regex. Defaults to false." },
                 { "name": "options", "$ref": "Debugger.BreakpointOptions", "optional": true, "description": "Options to apply to this breakpoint to modify its behavior." }
             ]
         },
@@ -49,7 +53,9 @@
             "description": "Removes breakpoint on particular event of given type.",
             "parameters": [
                 { "name": "breakpointType", "$ref": "EventBreakpointType" },
-                { "name": "eventName", "type": "string", "optional": true, "description": "The name of the specific event to stop on." }
+                { "name": "eventName", "type": "string", "optional": true, "description": "The name of the specific event to stop on." },
+                { "name": "caseSensitive", "type": "boolean", "optional": true, "description": "If true, eventName is case sensitive. Defaults to true." },
+                { "name": "isRegex", "type": "boolean", "optional": true, "description": "If true, treats eventName as a regex. Defaults to false." }
             ]
         },
         {

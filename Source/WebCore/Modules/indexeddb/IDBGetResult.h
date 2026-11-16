@@ -25,18 +25,18 @@
 
 #pragma once
 
-#include "IDBCursorRecord.h"
-#include "IDBKey.h"
-#include "IDBKeyData.h"
-#include "IDBKeyPath.h"
-#include "IDBValue.h"
-#include "SharedBuffer.h"
-#include <wtf/IsoMalloc.h>
+#include <WebCore/IDBCursorRecord.h>
+#include <WebCore/IDBKey.h>
+#include <WebCore/IDBKeyData.h>
+#include <WebCore/IDBKeyPath.h>
+#include <WebCore/IDBValue.h>
+#include <WebCore/SharedBuffer.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class IDBGetResult {
-    WTF_MAKE_ISO_ALLOCATED_EXPORT(IDBGetResult, WEBCORE_EXPORT);
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(IDBGetResult, WEBCORE_EXPORT);
 public:
     IDBGetResult()
         : m_isDefined(false)
@@ -62,26 +62,19 @@ public:
     }
 
     IDBGetResult(const IDBKeyData& keyData, IDBValue&& value, const std::optional<IDBKeyPath>& keyPath)
-        : m_value(WTFMove(value))
+        : m_value(WTF::move(value))
         , m_keyData(keyData)
         , m_keyPath(keyPath)
     {
     }
 
-    IDBGetResult(const IDBKeyData& keyData, const IDBKeyData& primaryKeyData, IDBValue&& value, const std::optional<IDBKeyPath>& keyPath)
-        : m_value(WTFMove(value))
+    IDBGetResult(const IDBKeyData& keyData, const IDBKeyData& primaryKeyData, IDBValue&& value, const std::optional<IDBKeyPath>& keyPath, Vector<IDBCursorRecord>&& prefetechedRecords = { }, bool isDefined = true)
+        : m_value(WTF::move(value))
         , m_keyData(keyData)
         , m_primaryKeyData(primaryKeyData)
         , m_keyPath(keyPath)
-    {
-    }
-
-    IDBGetResult(const IDBKeyData& keyData, const IDBKeyData& primaryKeyData, IDBValue&& value, const std::optional<IDBKeyPath>& keyPath, Vector<IDBCursorRecord>&& prefetechedRecords)
-        : m_value(WTFMove(value))
-        , m_keyData(keyData)
-        , m_primaryKeyData(primaryKeyData)
-        , m_keyPath(keyPath)
-        , m_prefetchedRecords(WTFMove(prefetechedRecords))
+        , m_prefetchedRecords(WTF::move(prefetechedRecords))
+        , m_isDefined(isDefined)
     {
     }
 
@@ -92,15 +85,12 @@ public:
 
     void setValue(IDBValue&&);
 
-    const IDBValue& value() const { return m_value; }
-    const IDBKeyData& keyData() const { return m_keyData; }
-    const IDBKeyData& primaryKeyData() const { return m_primaryKeyData; }
-    const std::optional<IDBKeyPath>& keyPath() const { return m_keyPath; }
-    const Vector<IDBCursorRecord>& prefetchedRecords() const { return m_prefetchedRecords; }
+    const IDBValue& value() const LIFETIME_BOUND { return m_value; }
+    const IDBKeyData& keyData() const LIFETIME_BOUND { return m_keyData; }
+    const IDBKeyData& primaryKeyData() const LIFETIME_BOUND { return m_primaryKeyData; }
+    const std::optional<IDBKeyPath>& keyPath() const LIFETIME_BOUND { return m_keyPath; }
+    const Vector<IDBCursorRecord>& prefetchedRecords() const LIFETIME_BOUND { return m_prefetchedRecords; }
     bool isDefined() const { return m_isDefined; }
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static WARN_UNUSED_RETURN bool decode(Decoder&, IDBGetResult&);
 
 private:
     static void isolatedCopy(const IDBGetResult& source, IDBGetResult& destination);
@@ -112,47 +102,5 @@ private:
     Vector<IDBCursorRecord> m_prefetchedRecords;
     bool m_isDefined { true };
 };
-
-template<class Encoder>
-void IDBGetResult::encode(Encoder& encoder) const
-{
-    encoder << m_keyData << m_primaryKeyData << m_keyPath << m_isDefined << m_value << m_prefetchedRecords;
-}
-
-template<class Decoder>
-bool IDBGetResult::decode(Decoder& decoder, IDBGetResult& result)
-{
-    std::optional<IDBKeyData> keyData;
-    decoder >> keyData;
-    if (!keyData)
-        return false;
-    result.m_keyData = WTFMove(*keyData);
-
-    std::optional<IDBKeyData> primaryKeyData;
-    decoder >> primaryKeyData;
-    if (!primaryKeyData)
-        return false;
-    result.m_primaryKeyData = WTFMove(*primaryKeyData);
-
-    if (!decoder.decode(result.m_keyPath))
-        return false;
-
-    if (!decoder.decode(result.m_isDefined))
-        return false;
-
-    std::optional<IDBValue> value;
-    decoder >> value;
-    if (!value)
-        return false;
-    result.m_value = WTFMove(*value);
-
-    std::optional<Vector<IDBCursorRecord>> prefetchedRecords;
-    decoder >> prefetchedRecords;
-    if (!prefetchedRecords)
-        return false;
-    result.m_prefetchedRecords = WTFMove(*prefetchedRecords);
-
-    return true;
-}
 
 } // namespace WebCore

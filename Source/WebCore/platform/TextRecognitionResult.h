@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc.  All rights reserved.
+ * Copyright (C) 2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,20 +27,27 @@
 
 #if ENABLE(IMAGE_ANALYSIS)
 
+OBJC_CLASS NSAttributedString;
+OBJC_CLASS NSData;
+OBJC_CLASS VKCImageAnalysis;
+
 #if ENABLE(DATA_DETECTION)
 OBJC_CLASS DDScannerResult;
 #endif
 
-#include "FloatQuad.h"
+#include <WebCore/AttributedString.h>
+#include <WebCore/FloatQuad.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
+struct CharacterRange;
+
 struct TextRecognitionWordData {
     TextRecognitionWordData(const String& theText, FloatQuad&& quad, bool leadingWhitespace)
         : text(theText)
-        , normalizedQuad(WTFMove(quad))
+        , normalizedQuad(WTF::move(quad))
         , hasLeadingWhitespace(leadingWhitespace)
     {
     }
@@ -48,59 +55,30 @@ struct TextRecognitionWordData {
     String text;
     FloatQuad normalizedQuad;
     bool hasLeadingWhitespace { true };
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<TextRecognitionWordData> decode(Decoder&);
 };
 
-template<class Encoder> void TextRecognitionWordData::encode(Encoder& encoder) const
-{
-    encoder << text;
-    encoder << normalizedQuad;
-    encoder << hasLeadingWhitespace;
-}
-
-template<class Decoder> std::optional<TextRecognitionWordData> TextRecognitionWordData::decode(Decoder& decoder)
-{
-    std::optional<String> text;
-    decoder >> text;
-    if (!text)
-        return std::nullopt;
-
-    std::optional<FloatQuad> normalizedQuad;
-    decoder >> normalizedQuad;
-    if (!normalizedQuad)
-        return std::nullopt;
-
-    std::optional<bool> hasLeadingWhitespace;
-    decoder >> hasLeadingWhitespace;
-    if (!hasLeadingWhitespace)
-        return std::nullopt;
-
-    return {{ WTFMove(*text), WTFMove(*normalizedQuad), *hasLeadingWhitespace }};
-}
-
 struct TextRecognitionLineData {
-    TextRecognitionLineData(FloatQuad&& quad, Vector<TextRecognitionWordData>&& theChildren)
-        : normalizedQuad(WTFMove(quad))
-        , children(WTFMove(theChildren))
+    TextRecognitionLineData(FloatQuad&& quad, Vector<TextRecognitionWordData>&& theChildren, bool newline, bool isVertical)
+        : normalizedQuad(WTF::move(quad))
+        , children(WTF::move(theChildren))
+        , hasTrailingNewline(newline)
+        , isVertical(isVertical)
     {
     }
 
     FloatQuad normalizedQuad;
     Vector<TextRecognitionWordData> children;
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<TextRecognitionLineData> decode(Decoder&);
+    bool hasTrailingNewline { true };
+    bool isVertical { false };
 };
 
 #if ENABLE(DATA_DETECTION)
 
 struct TextRecognitionDataDetector {
     TextRecognitionDataDetector() = default;
-    TextRecognitionDataDetector(DDScannerResult *scannerResult, Vector<FloatQuad>&& quads)
-        : result(scannerResult)
-        , normalizedQuads(WTFMove(quads))
+    TextRecognitionDataDetector(RetainPtr<DDScannerResult>&& scannerResult, Vector<FloatQuad>&& quads)
+        : result(WTF::move(scannerResult))
+        , normalizedQuads(WTF::move(quads))
     {
     }
 
@@ -110,26 +88,16 @@ struct TextRecognitionDataDetector {
 
 #endif // ENABLE(DATA_DETECTION)
 
-template<class Encoder> void TextRecognitionLineData::encode(Encoder& encoder) const
-{
-    encoder << normalizedQuad;
-    encoder << children;
-}
+struct TextRecognitionBlockData {
+    TextRecognitionBlockData(const String& theText, FloatQuad&& quad)
+        : text(theText)
+        , normalizedQuad(WTF::move(quad))
+    {
+    }
 
-template<class Decoder> std::optional<TextRecognitionLineData> TextRecognitionLineData::decode(Decoder& decoder)
-{
-    std::optional<FloatQuad> normalizedQuad;
-    decoder >> normalizedQuad;
-    if (!normalizedQuad)
-        return std::nullopt;
-
-    std::optional<Vector<TextRecognitionWordData>> children;
-    decoder >> children;
-    if (!children)
-        return std::nullopt;
-
-    return {{ WTFMove(*normalizedQuad), WTFMove(*children) }};
-}
+    String text;
+    FloatQuad normalizedQuad;
+};
 
 struct TextRecognitionResult {
     Vector<TextRecognitionLineData> lines;
@@ -137,6 +105,11 @@ struct TextRecognitionResult {
 #if ENABLE(DATA_DETECTION)
     Vector<TextRecognitionDataDetector> dataDetectors;
 #endif
+
+    Vector<TextRecognitionBlockData> blocks;
+
+    std::optional<WebCore::AttributedString> imageAnalysisData;
+    WEBCORE_EXPORT static std::optional<WebCore::AttributedString> extractAttributedString(VKCImageAnalysis *);
 
     bool isEmpty() const
     {
@@ -148,42 +121,14 @@ struct TextRecognitionResult {
             return false;
 #endif
 
+        if (!blocks.isEmpty())
+            return false;
+
         return true;
     }
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<TextRecognitionResult> decode(Decoder&);
 };
 
-template<class Encoder> void TextRecognitionResult::encode(Encoder& encoder) const
-{
-    encoder << lines;
-#if ENABLE(DATA_DETECTION)
-    encoder << dataDetectors;
-#endif
-}
-
-template<class Decoder> std::optional<TextRecognitionResult> TextRecognitionResult::decode(Decoder& decoder)
-{
-    std::optional<Vector<TextRecognitionLineData>> lines;
-    decoder >> lines;
-    if (!lines)
-        return std::nullopt;
-
-#if ENABLE(DATA_DETECTION)
-    std::optional<Vector<TextRecognitionDataDetector>> dataDetectors;
-    decoder >> dataDetectors;
-    if (!dataDetectors)
-        return std::nullopt;
-#endif
-
-    return {{
-        WTFMove(*lines),
-#if ENABLE(DATA_DETECTION)
-        WTFMove(*dataDetectors),
-#endif
-    }};
-}
+RetainPtr<NSAttributedString> stringForRange(const TextRecognitionResult&, const CharacterRange&);
 
 } // namespace WebCore
 

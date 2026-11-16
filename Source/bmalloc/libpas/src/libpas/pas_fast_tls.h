@@ -26,7 +26,6 @@
 #ifndef PAS_FAST_TLS_H
 #define PAS_FAST_TLS_H
 
-#include "pas_heap_lock.h"
 #include "pas_utils.h"
 
 PAS_BEGIN_EXTERN_C;
@@ -34,7 +33,39 @@ PAS_BEGIN_EXTERN_C;
 struct pas_fast_tls;
 typedef struct pas_fast_tls pas_fast_tls;
 
-#if PAS_HAVE_PTHREAD_MACHDEP_H
+#if PAS_OS(WINDOWS)
+
+/* Windows uses __declspec(thread) for both GET and SET. Per-thread teardown is
+   registered once at link time via a static TLS callback in the .CRT$XLB
+   segment (see pas_thread_local_cache.c), so there is no runtime destructor
+   registration and no per-TLS state to track. */
+
+#define PAS_HAVE_THREAD_KEYWORD 1
+#define PAS_HAVE_PTHREAD_TLS 0
+
+struct pas_fast_tls {
+    char unused;
+};
+
+#define PAS_FAST_TLS_INITIALIZER { 0 }
+
+#define PAS_FAST_TLS_CONSTRUCT_IF_NECESSARY(static_key, passed_fast_tls, passed_destructor) do { \
+        PAS_UNUSED_PARAM(passed_fast_tls); \
+        PAS_UNUSED_PARAM(passed_destructor); \
+        pas_heap_lock_assert_held(); \
+    } while (false)
+
+#define PAS_FAST_TLS_GET(static_key, fast_tls) static_key
+
+#define PAS_FAST_TLS_SET(static_key, passed_fast_tls, passed_value) do { \
+        PAS_UNUSED_PARAM(passed_fast_tls); \
+        static_key = (passed_value); \
+    } while (false)
+
+#elif PAS_HAVE_PTHREAD_MACHDEP_H
+
+#define PAS_HAVE_THREAD_KEYWORD 0
+#define PAS_HAVE_PTHREAD_TLS 0
 
 struct pas_fast_tls {
     bool is_initialized;
@@ -84,6 +115,13 @@ struct pas_fast_tls {
         } \
     } while (false)
 
+#if PAS_OS(DARWIN)
+
+#define PAS_HAVE_THREAD_KEYWORD 0
+#define PAS_HAVE_PTHREAD_TLS 1
+
+/* __thread keyword implementation does not work since __thread value will be reset to the initial value after it is cleared.
+   This broke our pthread exiting detection. We use repeated pthread_setspecific to successfully shutting down. */
 #define PAS_FAST_TLS_GET(static_key, passed_fast_tls) ({ \
         pas_fast_tls* fast_tls = (passed_fast_tls); \
         void* result; \
@@ -99,6 +137,29 @@ struct pas_fast_tls {
         PAS_ASSERT(fast_tls->is_initialized); \
         pthread_setspecific(fast_tls->key, (value)); \
     } while (false)
+
+#else
+
+#define PAS_HAVE_THREAD_KEYWORD 1
+#define PAS_HAVE_PTHREAD_TLS 0
+
+/* This is the PAS_HAVE_THREAD_KEYWORD case. Hence, static_key here is not actually a key, but a thread
+   local cache of the value (declared with the __thread attribute). Regardless of whether fast_tls has been
+   initialized yet or not, it is safe to access this thread local cache of the value. */
+#define PAS_FAST_TLS_GET(static_key, fast_tls) static_key
+
+#define PAS_FAST_TLS_SET(static_key, passed_fast_tls, passed_value) do { \
+        pas_fast_tls* fast_tls = (passed_fast_tls); \
+        PAS_TYPEOF(passed_value) value = (passed_value); \
+        PAS_ASSERT(fast_tls->is_initialized); \
+        static_key = value; \
+        if (((uintptr_t)value) != PAS_THREAD_LOCAL_CACHE_DESTROYED) { \
+            /* Using pthread_setspecific to configure callback for thread exit. */ \
+            pthread_setspecific(fast_tls->key, value); \
+        } \
+    } while (false)
+
+#endif
 
 #endif /* PAS_HAVE_PTHREAD_MACHDEP_H -> so end of !PAS_HAVE_PTHREAD_MACHDEP_H */
 

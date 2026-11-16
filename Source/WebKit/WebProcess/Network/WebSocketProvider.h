@@ -27,23 +27,32 @@
 
 #include "WebPageProxyIdentifier.h"
 #include <WebCore/SocketProvider.h>
+#include <wtf/Lock.h>
+
+namespace IPC {
+class Connection;
+}
 
 namespace WebKit {
 
 class WebSocketProvider final : public WebCore::SocketProvider {
 public:
     static Ref<WebSocketProvider> create(WebPageProxyIdentifier webPageProxyID) { return adoptRef(*new WebSocketProvider(webPageProxyID)); }
-    WebSocketProvider(WebPageProxyIdentifier webPageProxyID)
-        : m_webPageProxyID(webPageProxyID)
-    {
-    }
-
-    Ref<WebCore::SocketStreamHandle> createSocketStreamHandle(const URL&, WebCore::SocketStreamHandleClient&, WebCore::WebSocketIdentifier, PAL::SessionID, const String& credentialPartition, const WebCore::StorageSessionProvider*) final;
-    RefPtr<WebCore::ThreadableWebSocketChannel> createWebSocketChannel(WebCore::Document&, WebCore::WebSocketChannelClient&) final;
-    virtual ~WebSocketProvider() { }
-
+    ~WebSocketProvider();
 private:
+    RefPtr<WebCore::ThreadableWebSocketChannel> createWebSocketChannel(WebCore::Document&, WebCore::WebSocketChannelClient&, WebCore::IsInitiatedByDedicatedWorker) final;
+    std::pair<RefPtr<WebCore::WebTransportSession>, Ref<WebCore::WebTransportSessionPromise>> initializeWebTransportSession(WebCore::ScriptExecutionContext&, WebCore::WebTransportSessionClient&, const URL&, const WebCore::WebTransportOptions&) final;
+    void countWebSocketChannelsForTesting(CompletionHandler<void(unsigned)>&&) final;
+
+    explicit WebSocketProvider(WebPageProxyIdentifier);
+
+#if USE(LIBRICE)
+    RefPtr<WebCore::RiceBackend> createRiceBackend(WebCore::RiceBackendClient&) final;
+#endif
+
     WebPageProxyIdentifier m_webPageProxyID;
+    Lock m_networkProcessConnectionLock;
+    Ref<IPC::Connection> m_networkProcessConnection WTF_GUARDED_BY_LOCK(m_networkProcessConnectionLock);
 };
 
 }

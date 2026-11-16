@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Google Inc.  All rights reserved.
+ * Copyright (C) 2010 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -34,41 +34,41 @@
 
 #include "Blob.h"
 #include "BlobURL.h"
+#include "ExceptionOr.h"
 #include "FileReaderLoader.h"
 #include <JavaScriptCore/ArrayBuffer.h>
 
 namespace WebCore {
 
-FileReaderSync::FileReaderSync()
-{
-}
+FileReaderSync::FileReaderSync() = default;
 
 ExceptionOr<RefPtr<ArrayBuffer>> FileReaderSync::readAsArrayBuffer(ScriptExecutionContext& scriptExecutionContext, Blob& blob)
 {
-    FileReaderLoader loader(FileReaderLoader::ReadAsArrayBuffer, nullptr);
+    Ref loader = FileReaderLoader::create(FileReaderLoader::ReadAsArrayBuffer, nullptr);
     auto result = startLoading(scriptExecutionContext, loader, blob);
     if (result.hasException())
         return result.releaseException();
-    return loader.arrayBufferResult();
+    return loader->arrayBufferResult();
 }
 
 ExceptionOr<String> FileReaderSync::readAsBinaryString(ScriptExecutionContext& scriptExecutionContext, Blob& blob)
 {
-    FileReaderLoader loader(FileReaderLoader::ReadAsBinaryString, nullptr);
+    Ref loader = FileReaderLoader::create(FileReaderLoader::ReadAsBinaryString, nullptr);
     return startLoadingString(scriptExecutionContext, loader, blob);
 }
 
 ExceptionOr<String> FileReaderSync::readAsText(ScriptExecutionContext& scriptExecutionContext, Blob& blob, const String& encoding)
 {
-    FileReaderLoader loader(FileReaderLoader::ReadAsText, nullptr);
-    loader.setEncoding(encoding);
+    Ref loader = FileReaderLoader::create(FileReaderLoader::ReadAsText, nullptr);
+    loader->setEncoding(encoding);
+    loader->setDataType(blob.type());
     return startLoadingString(scriptExecutionContext, loader, blob);
 }
 
 ExceptionOr<String> FileReaderSync::readAsDataURL(ScriptExecutionContext& scriptExecutionContext, Blob& blob)
 {
-    FileReaderLoader loader(FileReaderLoader::ReadAsDataURL, nullptr);
-    loader.setDataType(blob.type());
+    Ref loader = FileReaderLoader::create(FileReaderLoader::ReadAsDataURL, nullptr);
+    loader->setDataType(blob.type());
     return startLoadingString(scriptExecutionContext, loader, blob);
 }
 

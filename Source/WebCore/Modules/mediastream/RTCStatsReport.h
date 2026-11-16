@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2012 Google Inc. All rights reserved.
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,8 +25,48 @@
 
 #pragma once
 
-#include "LibWebRTCStatsCollector.h"
-#include "RTCIceCandidateType.h"
+#include "RTCDtlsTransportState.h"
+#include <WebCore/RTCIceCandidateType.h>
+#include <WebCore/RTCIceRole.h>
+#include <WebCore/RTCIceServerTransportProtocol.h>
+#include <WebCore/RTCIceTcpCandidateType.h>
+#include "RTCIceTransportState.h"
+#include <wtf/Function.h>
+#include <wtf/KeyValuePair.h>
+#include <wtf/RefCounted.h>
+#include <wtf/text/WTFString.h>
+
+#if USE(GSTREAMER_WEBRTC)
+#define GST_USE_UNSTABLE_API
+#include <gst/webrtc/webrtc.h>
+#undef GST_USE_UNSTABLE_API
+#endif
+
+#if USE(LIBWEBRTC)
+namespace webrtc {
+class RTCAudioPlayoutStats;
+class RTCAudioSourceStats;
+class RTCCertificateStats;
+class RTCCodecStats;
+class RTCDataChannelStats;
+class RTCIceCandidatePairStats;
+class RTCIceCandidateStats;
+class RTCInboundRtpStreamStats;
+class RTCInboundRtpStreamStats;
+class RTCMediaSourceStats;
+class RTCOutboundRtpStreamStats;
+class RTCPeerConnectionStats;
+class RTCReceivedRtpStreamStats;
+class RTCRemoteIceCandidateStats;
+class RTCRemoteInboundRtpStreamStats;
+class RTCRemoteOutboundRtpStreamStats;
+class RTCRtpStreamStats;
+class RTCSentRtpStreamStats;
+class RTCStats;
+class RTCTransportStats;
+class RTCVideoSourceStats;
+}
+#endif
 
 namespace WebCore {
 
@@ -35,92 +75,100 @@ class DOMMapAdapter;
 class RTCStatsReport : public RefCounted<RTCStatsReport> {
 public:
     using MapInitializer = Function<void(DOMMapAdapter&)>;
-    static Ref<RTCStatsReport> create(MapInitializer&& mapInitializer) { return adoptRef(*new RTCStatsReport(WTFMove(mapInitializer))); }
+    static Ref<RTCStatsReport> create(MapInitializer&& mapInitializer) { return adoptRef(*new RTCStatsReport(WTF::move(mapInitializer))); }
 
     void initializeMapLike(DOMMapAdapter& adapter) { m_mapInitializer(adapter); }
 
     enum class Type {
-        CandidatePair,
-        Certificate,
         Codec,
-        DataChannel,
         InboundRtp,
-        LocalCandidate,
-        MediaSource,
         OutboundRtp,
-        PeerConnection,
-        RemoteCandidate,
         RemoteInboundRtp,
-        Track,
-        Transport
+        RemoteOutboundRtp,
+        MediaSource,
+        MediaPlayout,
+        PeerConnection,
+        DataChannel,
+        Transport,
+        CandidatePair,
+        LocalCandidate,
+        RemoteCandidate,
+        Certificate,
     };
+
     struct Stats {
-        double timestamp;
+        double timestamp { 0 };
         Type type;
         String id;
+
+#if USE(LIBWEBRTC)
+        static Stats convert(Type, const webrtc::RTCStats&);
+#elif USE(GSTREAMER_WEBRTC)
+        static Stats convert(Type, const GstStructure*);
+#endif
     };
 
     struct RtpStreamStats : Stats {
         uint32_t ssrc { 0 };
         String kind;
-        String mediaType;
         String transportId;
         String codecId;
+
+#if USE(LIBWEBRTC)
+        static RtpStreamStats convert(Type, const webrtc::RTCRtpStreamStats&);
+#elif USE(GSTREAMER_WEBRTC)
+        static RtpStreamStats convert(Type, const GstStructure*);
+#endif
     };
 
     struct ReceivedRtpStreamStats : RtpStreamStats {
         std::optional<uint64_t> packetsReceived;
         std::optional<int64_t> packetsLost;
         std::optional<double> jitter;
-        std::optional<uint64_t> packetsDiscarded;
-        std::optional<uint64_t> packetsRepaired;
-        std::optional<uint64_t> burstPacketsLost;
-        std::optional<uint64_t> burstPacketsDiscarded;
-        std::optional<uint32_t> burstLossCount;
-        std::optional<uint32_t> burstDiscardCount;
-        std::optional<double> burstLossRate;
-        std::optional<double> burstDiscardRate;
-        std::optional<double> gapLossRate;
-        std::optional<double> gapDiscardRate;
-        std::optional<uint32_t> framesDropped;
-        std::optional<uint32_t> partialFramesLost;
-        std::optional<uint32_t> fullFramesLost;
+
+#if USE(LIBWEBRTC)
+        static ReceivedRtpStreamStats convert(Type, const webrtc::RTCReceivedRtpStreamStats&, std::optional<uint64_t> packetsReceived);
+#elif USE(GSTREAMER_WEBRTC)
+        static ReceivedRtpStreamStats convert(Type, const GstStructure*);
+#endif
     };
 
     struct InboundRtpStreamStats : ReceivedRtpStreamStats {
-        InboundRtpStreamStats() { type = RTCStatsReport::Type::InboundRtp; }
-
-        String receiverId;
+        String trackIdentifier;
+        String mid;
         String remoteId;
         std::optional<uint32_t> framesDecoded;
         std::optional<uint32_t> keyFramesDecoded;
+        std::optional<uint32_t> framesRendered;
+        std::optional<uint32_t> framesDropped;
         std::optional<uint32_t> frameWidth;
         std::optional<uint32_t> frameHeight;
-        std::optional<uint32_t> frameBitDepth;
         std::optional<double> framesPerSecond;
         std::optional<uint64_t> qpSum;
         std::optional<double> totalDecodeTime;
         std::optional<double> totalInterFrameDelay;
         std::optional<double> totalSquaredInterFrameDelay;
-        std::optional<bool>  voiceActivityFlag;
+        std::optional<uint32_t> pauseCount;
+        std::optional<double> totalPausesDuration;
+        std::optional<uint32_t> freezeCount;
+        std::optional<double> totalFreezesDuration;
         std::optional<double> lastPacketReceivedTimestamp;
-        std::optional<double> averageRtcpInterval;
         std::optional<uint64_t> headerBytesReceived;
+        std::optional<uint64_t> packetsDiscarded;
+        std::optional<uint64_t> fecBytesReceived;
         std::optional<uint64_t> fecPacketsReceived;
         std::optional<uint64_t> fecPacketsDiscarded;
         std::optional<uint64_t> bytesReceived;
-        std::optional<uint64_t> packetsFailedDecryption;
-        std::optional<uint64_t> packetsDuplicated;
         std::optional<uint32_t> nackCount;
         std::optional<uint32_t> firCount;
         std::optional<uint32_t> pliCount;
-        std::optional<uint32_t> sliCount;
+        std::optional<double> totalProcessingDelay;
         std::optional<double> estimatedPlayoutTimestamp;
         std::optional<double> jitterBufferDelay;
+        std::optional<double> jitterBufferTargetDelay;
         std::optional<uint64_t> jitterBufferEmittedCount;
+        std::optional<double> jitterBufferMinimumDelay;
         std::optional<uint64_t> totalSamplesReceived;
-        std::optional<uint64_t> samplesDecodedWithSilk;
-        std::optional<uint64_t> samplesDecodedWithCelt;
         std::optional<uint64_t> concealedSamples;
         std::optional<uint64_t> silentConcealedSamples;
         std::optional<uint64_t> concealmentEvents;
@@ -130,139 +178,144 @@ public:
         std::optional<double> totalAudioEnergy;
         std::optional<double> totalSamplesDuration;
         std::optional<uint32_t> framesReceived;
+        String decoderImplementation;
+        String playoutId;
+        std::optional<bool> powerEfficientDecoder;
+        std::optional<uint32_t> framesAssembledFromMultiplePackets;
+        std::optional<double> totalAssemblyTime;
+        std::optional<uint64_t> retransmittedPacketsReceived;
+        std::optional<uint64_t> retransmittedBytesReceived;
+        std::optional<uint32_t> rtxSsrc;
+        std::optional<uint32_t> fecSsrc;
 
-        String trackId;
+#if USE(LIBWEBRTC)
+        static InboundRtpStreamStats convert(const webrtc::RTCInboundRtpStreamStats&, const HashMap<String, String>&);
+#elif USE(GSTREAMER_WEBRTC)
+        static InboundRtpStreamStats convert(const GstStructure*);
+#endif
     };
 
     struct RemoteInboundRtpStreamStats : ReceivedRtpStreamStats {
-        RemoteInboundRtpStreamStats() { type = RTCStatsReport::Type::RemoteInboundRtp; }
-
         String localId;
         std::optional<double> roundTripTime;
         std::optional<double> totalRoundTripTime;
         std::optional<double> fractionLost;
-        std::optional<uint64_t> reportsReceived;
         std::optional<uint64_t> roundTripTimeMeasurements;
+
+#if USE(LIBWEBRTC)
+        static RemoteInboundRtpStreamStats convert(const webrtc::RTCRemoteInboundRtpStreamStats&);
+#elif USE(GSTREAMER_WEBRTC)
+        static RemoteInboundRtpStreamStats convert(const GstStructure*);
+#endif
     };
 
     struct SentRtpStreamStats : RtpStreamStats {
         std::optional<uint32_t> packetsSent;
         std::optional<uint64_t> bytesSent;
+
+#if USE(LIBWEBRTC)
+        static SentRtpStreamStats convert(Type, const webrtc::RTCSentRtpStreamStats&);
+#elif USE(GSTREAMER_WEBRTC)
+        static SentRtpStreamStats convert(Type, const GstStructure*);
+#endif
+    };
+
+    enum class QualityLimitationReason {
+        None,
+        Cpu,
+        Bandwidth,
+        Other
     };
 
     struct OutboundRtpStreamStats : SentRtpStreamStats {
-        OutboundRtpStreamStats() { type = RTCStatsReport::Type::OutboundRtp; }
-
-        std::optional<uint32_t> rtxSsrc;
+        String mid;
         String mediaSourceId;
-        String senderId;
         String remoteId;
         String rid;
-        std::optional<double> lastPacketSentTimestamp;
         std::optional<uint64_t> headerBytesSent;
-        std::optional<uint32_t> packetsDiscardedOnSend;
-        std::optional<uint64_t> bytesDiscardedOnSend;
-        std::optional<uint32_t> fecPacketsSent;
         std::optional<uint64_t> retransmittedPacketsSent;
         std::optional<uint64_t> retransmittedBytesSent;
+        std::optional<uint32_t> rtxSsrc;
         std::optional<double> targetBitrate;
         std::optional<uint64_t> totalEncodedBytesTarget;
         std::optional<uint32_t> frameWidth;
         std::optional<uint32_t> frameHeight;
-        std::optional<uint32_t> frameBitDepth;
         std::optional<double> framesPerSecond;
         std::optional<uint32_t> framesSent;
         std::optional<uint32_t> hugeFramesSent;
         std::optional<uint32_t> framesEncoded;
         std::optional<uint32_t> keyFramesEncoded;
-        std::optional<uint32_t> framesDiscardedOnSend;
         std::optional<uint64_t> qpSum;
-        std::optional<uint64_t> totalSamplesSent;
-        std::optional<uint64_t> samplesEncodedWithSilk;
-        std::optional<uint64_t> samplesEncodedWithCelt;
-        std::optional<bool> voiceActivityFlag;
         std::optional<double> totalEncodeTime;
         std::optional<double> totalPacketSendDelay;
-        std::optional<double> averageRtcpInterval;
-        // std::optional<RTCQualityLimitationReason qualityLimitationReason;
-        // std::optional<record<DOMString, double> qualityLimitationDurations;
+        std::optional<QualityLimitationReason> qualityLimitationReason;
+        std::optional<Vector<KeyValuePair<String, double>>> qualityLimitationDurations;
         std::optional<uint32_t> qualityLimitationResolutionChanges;
-        // std::optional<record<USVString, unsigned long long> perDscpPacketsSent;
         std::optional<uint32_t> nackCount;
         std::optional<uint32_t> firCount;
         std::optional<uint32_t> pliCount;
-        std::optional<uint32_t> sliCount;
-        // DOMString encoderImplementation;
+        std::optional<bool> active;
+        String scalabilityMode;
 
-        String trackId;
+#if USE(LIBWEBRTC)
+        static OutboundRtpStreamStats convert(const webrtc::RTCOutboundRtpStreamStats&);
+#elif USE(GSTREAMER_WEBRTC)
+        static OutboundRtpStreamStats convert(const GstStructure*);
+#endif
     };
 
-    struct MediaStreamTrackStats : Stats {
-        MediaStreamTrackStats() { type = RTCStatsReport::Type::Track; }
+    struct RemoteOutboundRtpStreamStats : SentRtpStreamStats {
+        String localId;
+        std::optional<double> remoteTimestamp;
+        std::optional<uint64_t> reportsSent;
+        std::optional<double> roundTripTime;
+        std::optional<double> totalRoundTripTime;
+        std::optional<uint64_t> roundTripTimeMeasurements;
 
-        String trackIdentifier;
-        std::optional<bool> remoteSource;
-        std::optional<bool> ended;
-        std::optional<bool> detached;
-        std::optional<uint32_t> frameWidth;
-        std::optional<uint32_t> frameHeight;
-        std::optional<double> framesPerSecond;
-        std::optional<uint32_t> framesSent;
-        std::optional<uint32_t> framesReceived;
-        std::optional<uint32_t> framesDecoded;
-        std::optional<uint32_t> framesDropped;
-        std::optional<uint32_t> framesCorrupted;
-        std::optional<uint32_t> partialFramesLost;
-        std::optional<uint32_t> fullFramesLost;
-        std::optional<double> audioLevel;
-        std::optional<double> echoReturnLoss;
-        std::optional<double> echoReturnLossEnhancement;
-
-        std::optional<uint32_t> freezeCount;
-        std::optional<uint32_t> pauseCount;
-        std::optional<double> totalFreezesDuration;
-        std::optional<double> totalPausesDuration;
-        std::optional<double> totalFramesDuration;
-        std::optional<double> sumOfSquaredFramesDuration;
-
-        std::optional<uint64_t> jitterBufferFlushes;
+#if USE(LIBWEBRTC)
+        static RemoteOutboundRtpStreamStats convert(const webrtc::RTCRemoteOutboundRtpStreamStats&);
+#elif USE(GSTREAMER_WEBRTC)
+        static RemoteOutboundRtpStreamStats convert(const GstStructure*);
+#endif
     };
 
     struct DataChannelStats : Stats {
-        DataChannelStats() { type = RTCStatsReport::Type::DataChannel; }
-        
         String label;
         String protocol;
-        std::optional<int> datachannelid;
+        std::optional<int> dataChannelIdentifier;
         String state;
         std::optional<uint32_t> messagesSent;
         std::optional<uint64_t> bytesSent;
         std::optional<uint32_t> messagesReceived;
         std::optional<uint64_t> bytesReceived;
+
+#if USE(LIBWEBRTC)
+        static DataChannelStats convert(const webrtc::RTCDataChannelStats&);
+#elif USE(GSTREAMER_WEBRTC)
+        static DataChannelStats convert(const GstStructure*);
+#endif
     };
 
     enum class IceCandidatePairState {
         Frozen,
         Waiting,
-        Inprogress,
+        InProgress,
         Failed,
-        Succeeded,
-        Cancelled
+        Succeeded
     };
 
     struct IceCandidatePairStats : Stats {
-        IceCandidatePairStats() { type = RTCStatsReport::Type::CandidatePair; }
-
         String transportId;
         String localCandidateId;
         String remoteCandidateId;
         IceCandidatePairState state;
-        std::optional<uint64_t> priority;
         std::optional<bool> nominated;
-        std::optional<bool> writable;
-        std::optional<bool> readable;
+        std::optional<uint64_t> packetsSent;
+        std::optional<uint64_t> packetsReceived;
         std::optional<uint64_t> bytesSent;
         std::optional<uint64_t> bytesReceived;
+        std::optional<double> lastPacketSentTimestamp;
+        std::optional<double> lastPacketReceivedTimestamp;
         std::optional<double> totalRoundTripTime;
         std::optional<double> currentRoundTripTime;
         std::optional<double> availableOutgoingBitrate;
@@ -271,32 +324,50 @@ public:
         std::optional<uint64_t> requestsSent;
         std::optional<uint64_t> responsesReceived;
         std::optional<uint64_t> responsesSent;
-        std::optional<uint64_t> retransmissionsReceived;
-        std::optional<uint64_t> retransmissionsSent;
-        std::optional<uint64_t> consentRequestsReceived;
         std::optional<uint64_t> consentRequestsSent;
-        std::optional<uint64_t> consentResponsesReceived;
-        std::optional<uint64_t> consentResponsesSent;
+        std::optional<uint32_t> packetsDiscardedOnSend;
+        std::optional<uint64_t> bytesDiscardedOnSend;
+
+#if USE(LIBWEBRTC)
+        static IceCandidatePairStats convert(const webrtc::RTCIceCandidatePairStats&);
+#elif USE(GSTREAMER_WEBRTC)
+        static IceCandidatePairStats convert(const GstStructure*);
+#endif
     };
 
     struct IceCandidateStats : Stats {
         String transportId;
-        String address;
+        std::optional<String> address;
         std::optional<int32_t> port;
         String protocol;
-        std::optional<RTCIceCandidateType> candidateType;
+        RTCIceCandidateType candidateType;
         std::optional<int32_t> priority;
         String url;
-        bool deleted { false };
+        std::optional<RTCIceServerTransportProtocol> relayProtocol;
+        String foundation;
+        String relatedAddress;
+        std::optional<int32_t> relatedPort;
+        String usernameFragment;
+        std::optional<RTCIceTcpCandidateType> tcpType;
+
+#if USE(LIBWEBRTC)
+        static IceCandidateStats convert(const webrtc::RTCIceCandidateStats&);
+#elif USE(GSTREAMER_WEBRTC)
+        static IceCandidateStats convert(GstWebRTCStatsType, const GstStructure*);
+#endif
     };
 
     struct CertificateStats : Stats {
-        CertificateStats() { type = RTCStatsReport::Type::Certificate; }
-
         String fingerprint;
         String fingerprintAlgorithm;
         String base64Certificate;
         String issuerCertificateId;
+
+#if USE(LIBWEBRTC)
+        static CertificateStats convert(const webrtc::RTCCertificateStats&);
+#elif USE(GSTREAMER_WEBRTC)
+        static CertificateStats convert(const GstStructure*);
+#endif
     };
 
     enum class CodecType {
@@ -305,64 +376,114 @@ public:
     };
 
     struct CodecStats : Stats {
-        CodecStats() { type = RTCStatsReport::Type::Codec; }
-
-        std::optional<uint32_t> payloadType;
-        std::optional<CodecType> codecType;
+        uint32_t payloadType { 0 };
         String transportId;
         String mimeType;
         std::optional<uint32_t> clockRate;
         std::optional<uint32_t> channels;
         String sdpFmtpLine;
-        String implementation;
+
+#if USE(LIBWEBRTC)
+        static CodecStats convert(const webrtc::RTCCodecStats&);
+#elif USE(GSTREAMER_WEBRTC)
+        static CodecStats convert(const GstStructure*);
+#endif
+    };
+
+    enum class DtlsRole : uint8_t {
+        Client,
+        Server,
+        Unknown
     };
 
     struct TransportStats : Stats {
-        TransportStats() { type = RTCStatsReport::Type::Transport; }
-
+        std::optional<uint64_t> packetsSent;
+        std::optional<uint64_t> packetsReceived;
         std::optional<uint64_t> bytesSent;
         std::optional<uint64_t> bytesReceived;
-        String rtcpTransportStatsId;
+        std::optional<RTCIceRole> iceRole;
+        String iceLocalUsernameFragment;
+        RTCDtlsTransportState dtlsState;
+        std::optional<RTCIceTransportState> iceState;
         String selectedCandidatePairId;
         String localCertificateId;
         String remoteCertificateId;
-        String dtlsState;
         String tlsVersion;
         String dtlsCipher;
+        std::optional<DtlsRole> dtlsRole;
         String srtpCipher;
+        std::optional<uint32_t> selectedCandidatePairChanges;
+
+#if USE(LIBWEBRTC)
+        static TransportStats convert(const webrtc::RTCTransportStats&);
+#elif USE(GSTREAMER_WEBRTC)
+        static TransportStats convert(const GstStructure*);
+#endif
+    };
+
+    struct AudioPlayoutStats : Stats {
+        String kind;
+        std::optional<double> synthesizedSamplesDuration;
+        std::optional<uint32_t> synthesizedSamplesEvents;
+        std::optional<double> totalSamplesDuration;
+        std::optional<double> totalPlayoutDelay;
+        std::optional<uint64_t> totalSamplesCount;
+
+#if USE(LIBWEBRTC)
+        static AudioPlayoutStats convert(const webrtc::RTCAudioPlayoutStats&);
+#elif USE(GSTREAMER_WEBRTC)
+        static AudioPlayoutStats convert(const GstStructure*);
+#endif
     };
 
     struct PeerConnectionStats : Stats {
-        PeerConnectionStats() { type = RTCStatsReport::Type::PeerConnection; }
-
         std::optional<uint32_t> dataChannelsOpened;
         std::optional<uint32_t> dataChannelsClosed;
+
+#if USE(LIBWEBRTC)
+        static PeerConnectionStats convert(const webrtc::RTCPeerConnectionStats&);
+#elif USE(GSTREAMER_WEBRTC)
+        static PeerConnectionStats convert(const GstStructure*);
+#endif
     };
 
     struct MediaSourceStats : Stats {
         String trackIdentifier;
         String kind;
-        std::optional<bool> relayedSource;
+
+#if USE(LIBWEBRTC)
+        static MediaSourceStats convert(Type, const webrtc::RTCMediaSourceStats&);
+#elif USE(GSTREAMER_WEBRTC)
+        static MediaSourceStats convert(Type, const GstStructure*);
+#endif
     };
 
     struct AudioSourceStats : MediaSourceStats {
-        AudioSourceStats() { type = RTCStatsReport::Type::MediaSource; }
-
         std::optional<double> audioLevel;
         std::optional<double> totalAudioEnergy;
         std::optional<double> totalSamplesDuration;
         std::optional<double> echoReturnLoss;
         std::optional<double> echoReturnLossEnhancement;
+
+#if USE(LIBWEBRTC)
+        static AudioSourceStats convert(const webrtc::RTCAudioSourceStats&);
+#elif USE(GSTREAMER_WEBRTC)
+        static AudioSourceStats convert(const GstStructure*);
+#endif
     };
 
-    struct VideoSourceStats : MediaSourceStats {
-        VideoSourceStats() { type = RTCStatsReport::Type::MediaSource; }
 
+    struct VideoSourceStats : MediaSourceStats {
         std::optional<unsigned long> width;
         std::optional<unsigned long> height;
-        std::optional<unsigned long> bitDepth;
         std::optional<unsigned long> frames;
         std::optional<double> framesPerSecond;
+
+#if USE(LIBWEBRTC)
+        static VideoSourceStats convert(const webrtc::RTCVideoSourceStats&);
+#elif USE(GSTREAMER_WEBRTC)
+        static VideoSourceStats convert(const GstStructure*);
+#endif
     };
 
 private:
@@ -372,7 +493,7 @@ private:
 };
 
 inline RTCStatsReport::RTCStatsReport(MapInitializer&& mapInitializer)
-    : m_mapInitializer(WTFMove(mapInitializer))
+    : m_mapInitializer(WTF::move(mapInitializer))
 {
 }
 

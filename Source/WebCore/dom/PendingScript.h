@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Google, Inc. All Rights Reserved.
+ * Copyright (C) 2010 Google, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,6 +27,7 @@
 
 #include "LoadableScript.h"
 #include "LoadableScriptClient.h"
+#include <wtf/CheckedPtr.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
 #include <wtf/text/TextPosition.h>
@@ -46,6 +47,10 @@ public:
 
     virtual ~PendingScript();
 
+    // LoadableScriptClient.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     TextPosition startingPosition() const { return m_startingPosition; }
     void setStartingPosition(const TextPosition& position) { m_startingPosition = position; }
 
@@ -58,7 +63,7 @@ public:
     bool needsLoading() const { return loadableScript(); }
 
     bool isLoaded() const;
-    bool error() const;
+    bool hasError() const;
 
     void notifyFinished(LoadableScript&) override;
 
@@ -71,10 +76,10 @@ private:
 
     void notifyClientFinished();
 
-    Ref<ScriptElement> m_element;
+    const Ref<ScriptElement> m_element;
     TextPosition m_startingPosition; // Only used for inline script tags.
     RefPtr<LoadableScript> m_loadableScript;
-    PendingScriptClient* m_client { nullptr };
+    CheckedPtr<PendingScriptClient> m_client;
 };
 
 inline LoadableScript* PendingScript::loadableScript() const

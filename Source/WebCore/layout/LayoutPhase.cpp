@@ -26,14 +26,12 @@
 #include "config.h"
 #include "LayoutPhase.h"
 
-#if ENABLE(LAYOUT_FORMATTING_CONTEXT)
-
 #include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
 namespace Layout {
 
-static Phase& phase()
+static Phase& NODELETE phase()
 {
     static NeverDestroyed<Phase> phase;
     return phase;
@@ -68,4 +66,3 @@ PhaseScope::~PhaseScope()
 
 }
 }
-#endif

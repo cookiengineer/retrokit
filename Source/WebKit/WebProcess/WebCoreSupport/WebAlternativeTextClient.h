@@ -26,20 +26,22 @@
 #pragma once
 
 #include <WebCore/AlternativeTextClient.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 
 class WebPage;
 
 class WebAlternativeTextClient final : public WebCore::AlternativeTextClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(WebAlternativeTextClient);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WebAlternativeTextClient);
 public:
     explicit WebAlternativeTextClient(WebPage*);
     virtual ~WebAlternativeTextClient();
 
 private:
 #if USE(AUTOCORRECTION_PANEL)
-    void showCorrectionAlternative(WebCore::AlternativeTextType, const WebCore::FloatRect& boundingBoxOfReplacedString, const String& replacedString, const String& replacementString, const Vector<String>& alternativeReplacementStrings) override;
+    void showCorrectionAlternative(WebCore::AlternativeTextType, const WebCore::FloatRect& boundingBoxOfReplacedString, const String& replacedString, const String& replacementString, const Vector<String>& alternativeReplacementStrings, WebCore::FrameIdentifier) override;
     void dismissAlternative(WebCore::ReasonForDismissingAlternativeText) override;
     String dismissAlternativeSoon(WebCore::ReasonForDismissingAlternativeText) override;
     void recordAutocorrectionResponse(WebCore::AutocorrectionResponse, const String& replacedString, const String& replacementString) override;
@@ -54,7 +56,7 @@ private:
 #if !(USE(AUTOCORRECTION_PANEL) || USE(DICTATION_ALTERNATIVES))
     IGNORE_CLANG_WARNINGS_BEGIN("unused-private-field")
 #endif
-    WebPage* m_page;
+    WeakPtr<WebPage> m_page;
 #if !(USE(AUTOCORRECTION_PANEL) || USE(DICTATION_ALTERNATIVES))
     IGNORE_CLANG_WARNINGS_END
 #endif

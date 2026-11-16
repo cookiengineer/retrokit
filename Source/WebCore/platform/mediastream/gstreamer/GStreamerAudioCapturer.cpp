@@ -25,54 +25,96 @@
 #if ENABLE(MEDIA_STREAM) && USE(GSTREAMER)
 #include "GStreamerAudioCapturer.h"
 
-#if USE(LIBWEBRTC)
-#include "LibWebRTCAudioFormat.h"
-#endif
-
 #include <gst/app/gstappsink.h>
+#include <wtf/MediaTime.h>
 
 namespace WebCore {
 
-#if USE(LIBWEBRTC)
-static constexpr size_t AudioCaptureSampleRate = LibWebRTCAudioFormat::sampleRate;
-#else
-static constexpr size_t AudioCaptureSampleRate = 48000;
-#endif
+GST_DEBUG_CATEGORY(webkit_audio_capturer_debug);
+#define GST_CAT_DEFAULT webkit_audio_capturer_debug
 
-GStreamerAudioCapturer::GStreamerAudioCapturer(GStreamerCaptureDevice device)
-    : GStreamerCapturer(device, adoptGRef(gst_caps_new_simple("audio/x-raw", "rate", G_TYPE_INT, AudioCaptureSampleRate, nullptr)))
+static void initializeAudioCapturerDebugCategory()
 {
+    static std::once_flag debugRegisteredFlag;
+    std::call_once(debugRegisteredFlag, [] {
+        GST_DEBUG_CATEGORY_INIT(webkit_audio_capturer_debug, "webkitaudiocapturer", 0, "WebKit Audio Capturer");
+    });
 }
 
-GStreamerAudioCapturer::GStreamerAudioCapturer()
-    : GStreamerCapturer("appsrc", adoptGRef(gst_caps_new_simple("audio/x-raw", "rate", G_TYPE_INT, AudioCaptureSampleRate, nullptr)), CaptureDevice::DeviceType::Microphone)
+GStreamerAudioCapturer::GStreamerAudioCapturer(GStreamerCaptureDevice&& device)
+    : GStreamerCapturer(WTF::move(device), adoptGRef(gst_caps_new_empty_simple("audio/x-raw")))
 {
+    initializeAudioCapturerDebugCategory();
+}
+
+GStreamerAudioCapturer::GStreamerAudioCapturer(const PipeWireCaptureDevice& device)
+    : GStreamerCapturer(device)
+{
+    initializeAudioCapturerDebugCategory();
+}
+
+void GStreamerAudioCapturer::handleSample(GRefPtr<GstSample>&& sample)
+{
+    auto presentationTime = fromGstClockTime(GST_BUFFER_PTS(gst_sample_get_buffer(sample.get())));
+    m_sinkAudioDataCallback.second(WTF::move(sample), WTF::move(presentationTime));
+}
+
+void GStreamerAudioCapturer::setSinkAudioCallback(SinkAudioDataCallback&& callback)
+{
+    if (m_sinkAudioDataCallback.first.newSampleSignalId)
+        g_signal_handler_disconnect(sink(), m_sinkAudioDataCallback.first.newSampleSignalId);
+
+    m_sinkAudioDataCallback.second = WTF::move(callback);
+    m_sinkAudioDataCallback.first.newSampleSignalId = g_signal_connect_swapped(sink(), "new-sample", G_CALLBACK(+[](GStreamerAudioCapturer* capturer, GstElement* sink) -> GstFlowReturn {
+        GRefPtr sample = adoptGRef(gst_app_sink_pull_sample(GST_APP_SINK(sink)));
+        capturer->handleSample(WTF::move(sample));
+        return GST_FLOW_OK;
+    }), this);
 }
 
 GstElement* GStreamerAudioCapturer::createConverter()
 {
-    return makeGStreamerBin("audioconvert ! audioresample", true);
+    auto* bin = gst_bin_new(nullptr);
+    auto* audioconvert = makeGStreamerElement("audioconvert"_s);
+    auto* audioresample = makeGStreamerElement("audioresample"_s);
+    gst_bin_add_many(GST_BIN_CAST(bin), audioconvert, audioresample, nullptr);
+    gst_element_link(audioconvert, audioresample);
+
+#if USE(GSTREAMER_WEBRTC)
+    if (auto audioFilter = makeGStreamerElement("audiornnoise"_s)) {
+        auto audioconvert2 = makeGStreamerElement("audioconvert"_s);
+        auto audioresample2 = makeGStreamerElement("audioresample"_s);
+        gst_bin_add_many(GST_BIN_CAST(bin), audioconvert2, audioresample2, audioFilter, nullptr);
+        gst_element_link_many(audioconvert2, audioresample2, audioFilter, audioconvert, nullptr);
+    }
+#endif
+
+    if (GRefPtr pad = adoptGRef(gst_bin_find_unlinked_pad(GST_BIN_CAST(bin), GST_PAD_SRC)))
+        gst_element_add_pad(GST_ELEMENT_CAST(bin), gst_ghost_pad_new("src", pad.get()));
+    if (GRefPtr pad = adoptGRef(gst_bin_find_unlinked_pad(GST_BIN_CAST(bin), GST_PAD_SINK)))
+        gst_element_add_pad(GST_ELEMENT_CAST(bin), gst_ghost_pad_new("sink", pad.get()));
+
+    return bin;
 }
 
 bool GStreamerAudioCapturer::setSampleRate(int sampleRate)
 {
-
     if (sampleRate <= 0) {
         GST_INFO_OBJECT(m_pipeline.get(), "Not forcing sample rate");
-
         return false;
     }
 
     GST_INFO_OBJECT(m_pipeline.get(), "Setting SampleRate %d", sampleRate);
     m_caps = adoptGRef(gst_caps_new_simple("audio/x-raw", "rate", G_TYPE_INT, sampleRate, nullptr));
 
-    if (!m_capsfilter.get())
+    if (!m_capsfilter)
         return false;
 
     g_object_set(m_capsfilter.get(), "caps", m_caps.get(), nullptr);
-
     return true;
 }
+
+#undef GST_CAT_DEFAULT
 
 } // namespace WebCore
 

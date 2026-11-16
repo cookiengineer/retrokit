@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,10 +23,9 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef PDFPluginTextAnnotation_h
-#define PDFPluginTextAnnotation_h
+#pragma once
 
-#if ENABLE(PDFKIT_PLUGIN)
+#if ENABLE(PDF_PLUGIN)
 
 #include "PDFPluginAnnotation.h"
 
@@ -36,21 +35,23 @@ namespace WebCore {
 class Element;
 }
 
-OBJC_CLASS PDFAnnotationTextWidget;
-
 namespace WebKit {
 
 class PDFPluginTextAnnotation : public PDFPluginAnnotation {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(PDFPluginTextAnnotation);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(PDFPluginTextAnnotation);
 public:
-    static Ref<PDFPluginTextAnnotation> create(PDFAnnotation *, PDFLayerController *, PDFPlugin*);
+    static Ref<PDFPluginTextAnnotation> create(PDFAnnotation *, PDFPluginBase*);
     virtual ~PDFPluginTextAnnotation();
 
     void updateGeometry() override;
     void commit() override;
 
+    void setValue(const String&);
+
 protected:
-    PDFPluginTextAnnotation(PDFAnnotation *annotation, PDFLayerController *pdfLayerController, PDFPlugin* plugin)
-        : PDFPluginAnnotation(annotation, pdfLayerController, plugin)
+    PDFPluginTextAnnotation(PDFAnnotation *annotation, PDFPluginBase* plugin)
+        : PDFPluginAnnotation(annotation, plugin)
     {
     }
 
@@ -59,14 +60,8 @@ protected:
 
 private:
     bool handleEvent(WebCore::Event&) override;
-
-    ALLOW_DEPRECATED_DECLARATIONS_BEGIN
-    PDFAnnotationTextWidget *textAnnotation() const { return static_cast<PDFAnnotationTextWidget *>(annotation()); }
-    ALLOW_DEPRECATED_DECLARATIONS_END
 };
 
 } // namespace WebKit
 
-#endif // ENABLE(PDFKIT_PLUGIN)
-
-#endif // PDFPluginTextAnnotation_h
+#endif // ENABLE(PDF_PLUGIN)

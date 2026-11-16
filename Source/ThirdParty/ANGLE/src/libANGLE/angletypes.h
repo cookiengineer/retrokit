@@ -9,11 +9,15 @@
 #ifndef LIBANGLE_ANGLETYPES_H_
 #define LIBANGLE_ANGLETYPES_H_
 
+#include <anglebase/sha1.h>
 #include "common/Color.h"
 #include "common/FixedVector.h"
+#include "common/MemoryBuffer.h"
 #include "common/PackedEnums.h"
 #include "common/bitset_utils.h"
-#include "common/vector_utils.h"
+#include "common/hash_utils.h"
+#include "common/span.h"
+#include "common/unsafe_buffers.h"
 #include "libANGLE/Constants.h"
 #include "libANGLE/Error.h"
 #include "libANGLE/RefCountObject.h"
@@ -22,8 +26,79 @@
 #include <stdint.h>
 
 #include <bitset>
+#include <functional>
 #include <map>
+#include <memory>
 #include <unordered_map>
+
+namespace angle
+{
+template <typename T>
+struct Extents
+{
+    constexpr Extents() : width(0), height(0), depth(0) {}
+    constexpr Extents(T width_, T height_, T depth_) : width(width_), height(height_), depth(depth_)
+    {}
+
+    Extents(const Extents &other)            = default;
+    Extents &operator=(const Extents &other) = default;
+
+    constexpr bool empty() const { return width == 0 || height == 0 || depth == 0; }
+
+    T width;
+    T height;
+    T depth;
+};
+
+static_assert(Extents(0, 0, 0).empty());
+static_assert(Extents(0, 1, 1).empty());
+static_assert(Extents(1, 0, 1).empty());
+static_assert(Extents(1, 1, 0).empty());
+static_assert(!Extents(1, 1, 1).empty());
+static_assert(!Extents<int32_t>(1, 65536, 65536).empty());
+static_assert(!Extents<int32_t>(65536, 1, 65536).empty());
+static_assert(!Extents<int32_t>(65536, 65536, 1).empty());
+static_assert(!Extents<uint32_t>(1, 65536, 65536).empty());
+static_assert(!Extents<uint32_t>(65536, 1, 65536).empty());
+static_assert(!Extents<uint32_t>(65536, 65536, 1).empty());
+
+template <typename T>
+struct Offset
+{
+  public:
+    constexpr Offset() : x(0), y(0), z(0) {}
+    constexpr Offset(T x_in, T y_in, T z_in) : x(x_in), y(y_in), z(z_in) {}
+
+    T x;
+    T y;
+    T z;
+};
+
+template <typename T>
+inline bool operator==(const Extents<T> &lhs, const Extents<T> &rhs)
+{
+    return lhs.width == rhs.width && lhs.height == rhs.height && lhs.depth == rhs.depth;
+}
+
+template <typename T>
+inline bool operator!=(const Extents<T> &lhs, const Extents<T> &rhs)
+{
+    return !(lhs == rhs);
+}
+
+template <typename T>
+inline bool operator==(const Offset<T> &a, const Offset<T> &b)
+{
+    return a.x == b.x && a.y == b.y && a.z == b.z;
+}
+
+template <typename T>
+inline bool operator!=(const Offset<T> &a, const Offset<T> &b)
+{
+    return !(a == b);
+}
+
+}  // namespace angle
 
 namespace gl
 {
@@ -32,15 +107,32 @@ class Texture;
 
 enum class Command
 {
+    // The Blit command carries the bitmask of which buffers are being blit.  The command passed to
+    // the backends is:
+    //
+    //     Blit + (Color?0x1) + (Depth?0x2) + (Stencil?0x4)
     Blit,
+    BlitAll = Blit + 0x7,
     Clear,
+    ClearTexture,
     CopyImage,
     Dispatch,
     Draw,
     GenerateMipmap,
+    Invalidate,
     ReadPixels,
     TexImage,
-    Other
+    GetMultisample,
+    Other,
+};
+
+enum CommandBlitBuffer
+{
+    CommandBlitBufferColor   = 0x1,
+    CommandBlitBufferDepth   = 0x2,
+    CommandBlitBufferStencil = 0x4,
+
+    CommandBlitBufferDepthStencil = CommandBlitBufferDepth | CommandBlitBufferStencil,
 };
 
 enum class InitState
@@ -49,44 +141,89 @@ enum class InitState
     Initialized,
 };
 
-struct Rectangle
+template <typename T>
+struct RectangleImpl
 {
-    Rectangle() : x(0), y(0), width(0), height(0) {}
-    constexpr Rectangle(int x_in, int y_in, int width_in, int height_in)
+    RectangleImpl() : x(T(0)), y(T(0)), width(T(0)), height(T(0)) {}
+    constexpr RectangleImpl(T x_in, T y_in, T width_in, T height_in)
         : x(x_in), y(y_in), width(width_in), height(height_in)
     {}
+    explicit constexpr RectangleImpl(const T corners[4])
+        : x(ANGLE_UNSAFE_TODO(corners[0])),
+          y(ANGLE_UNSAFE_TODO(corners[1])),
+          width(ANGLE_UNSAFE_TODO(corners[2] - corners[0])),
+          height(ANGLE_UNSAFE_TODO(corners[3] - corners[1]))
+    {}
+    template <typename S>
+    explicit constexpr RectangleImpl(const RectangleImpl<S> rect)
+        : x(rect.x), y(rect.y), width(rect.width), height(rect.height)
+    {}
+    template <typename O, typename E>
+    RectangleImpl(const O &offset, const E &size)
+        : x(offset.x), y(offset.y), width(size.width), height(size.height)
+    {}
 
-    int x0() const { return x; }
-    int y0() const { return y; }
-    int x1() const { return x + width; }
-    int y1() const { return y + height; }
+    T x0() const { return x; }
+    T y0() const { return y; }
+    T x1() const { return x + width; }
+    T y1() const { return y + height; }
 
-    bool isReversedX() const { return width < 0; }
-    bool isReversedY() const { return height < 0; }
+    bool isReversedX() const { return width < T(0); }
+    bool isReversedY() const { return height < T(0); }
 
     // Returns a rectangle with the same area but flipped in X, Y, neither or both.
-    Rectangle flip(bool flipX, bool flipY) const;
+    RectangleImpl<T> flip(bool flipX, bool flipY) const
+    {
+        RectangleImpl flipped = *this;
+        if (flipX)
+        {
+            flipped.x     = flipped.x + flipped.width;
+            flipped.width = -flipped.width;
+        }
+        if (flipY)
+        {
+            flipped.y      = flipped.y + flipped.height;
+            flipped.height = -flipped.height;
+        }
+        return flipped;
+    }
 
     // Returns a rectangle with the same area but with height and width guaranteed to be positive.
-    Rectangle removeReversal() const;
+    RectangleImpl<T> removeReversal() const { return flip(isReversedX(), isReversedY()); }
 
-    bool encloses(const gl::Rectangle &inside) const;
+    bool encloses(const RectangleImpl<T> &inside) const
+    {
+        return x0() <= inside.x0() && y0() <= inside.y0() && x1() >= inside.x1() &&
+               y1() >= inside.y1();
+    }
 
-    bool empty() const { return width == 0 && height == 0; }
+    bool empty() const;
 
-    int x;
-    int y;
-    int width;
-    int height;
+    T x;
+    T y;
+    T width;
+    T height;
 };
 
-bool operator==(const Rectangle &a, const Rectangle &b);
-bool operator!=(const Rectangle &a, const Rectangle &b);
+template <typename T>
+bool operator==(const RectangleImpl<T> &a, const RectangleImpl<T> &b);
+template <typename T>
+bool operator!=(const RectangleImpl<T> &a, const RectangleImpl<T> &b);
+
+template <typename T>
+std::ostream &operator<<(std::ostream &os, const RectangleImpl<T> &rect)
+{
+    os << "x = " << rect.x << ", y = " << rect.y << ", width = " << rect.width
+       << ", height = " << rect.height;
+    return os;
+}
+
+using Rectangle = RectangleImpl<int>;
 
 // Calculate the intersection of two rectangles.  Returns false if the intersection is empty.
-ANGLE_NO_DISCARD bool ClipRectangle(const Rectangle &source,
-                                    const Rectangle &clip,
-                                    Rectangle *intersection);
+[[nodiscard]] bool ClipRectangle(const Rectangle &source,
+                                 const Rectangle &clip,
+                                 Rectangle *intersection);
 // Calculate the smallest rectangle that covers both rectangles.  This rectangle may cover areas
 // not covered by the two rectangles, for example in this situation:
 //
@@ -107,38 +244,13 @@ void GetEnclosingRectangle(const Rectangle &rect1, const Rectangle &rect2, Recta
 //
 void ExtendRectangle(const Rectangle &source, const Rectangle &extend, Rectangle *extended);
 
-struct Offset
-{
-    constexpr Offset() : x(0), y(0), z(0) {}
-    constexpr Offset(int x_in, int y_in, int z_in) : x(x_in), y(y_in), z(z_in) {}
-
-    int x;
-    int y;
-    int z;
-};
-
+using Extents = angle::Extents<int>;
+using Offset  = angle::Offset<int>;
 constexpr Offset kOffsetZero(0, 0, 0);
 
-bool operator==(const Offset &a, const Offset &b);
-bool operator!=(const Offset &a, const Offset &b);
-
-struct Extents
-{
-    Extents() : width(0), height(0), depth(0) {}
-    Extents(int width_, int height_, int depth_) : width(width_), height(height_), depth(depth_) {}
-
-    Extents(const Extents &other) = default;
-    Extents &operator=(const Extents &other) = default;
-
-    bool empty() const { return (width * height * depth) == 0; }
-
-    int width;
-    int height;
-    int depth;
-};
-
-bool operator==(const Extents &lhs, const Extents &rhs);
-bool operator!=(const Extents &lhs, const Extents &rhs);
+// Compute the size of a mip level based on a the size of a base level and a relative offset.
+// Handles array texture types using the same depth for all levels.
+Extents ComputeMipSize(const Extents &baseSize, int relativeLevel, gl::TextureType textureType);
 
 struct Box
 {
@@ -155,12 +267,20 @@ struct Box
           height(size.height),
           depth(size.depth)
     {}
+    bool valid() const;
     bool operator==(const Box &other) const;
     bool operator!=(const Box &other) const;
     Rectangle toRect() const;
 
     // Whether the Box has offset 0 and the same extents as argument.
     bool coversSameExtent(const Extents &size) const;
+
+    bool contains(const Box &other) const;
+    size_t volume() const;
+    void extend(const Box &other);
+
+    Offset getOffset() const { return Offset(x, y, z); }
+    Extents getExtents() const { return Extents(width, height, depth); }
 
     int x;
     int y;
@@ -175,14 +295,22 @@ struct RasterizerState final
     // This will zero-initialize the struct, including padding.
     RasterizerState();
     RasterizerState(const RasterizerState &other);
+    RasterizerState &operator=(const RasterizerState &other);
 
     bool cullFace;
     CullFaceMode cullMode;
     GLenum frontFace;
 
+    PolygonMode polygonMode;
+
+    bool polygonOffsetPoint;
+    bool polygonOffsetLine;
     bool polygonOffsetFill;
     GLfloat polygonOffsetFactor;
     GLfloat polygonOffsetUnits;
+    GLfloat polygonOffsetClamp;
+
+    bool depthClamp;
 
     // pointDrawMode/multiSample are only used in the D3D back-end right now.
     bool pointDrawMode;
@@ -191,44 +319,31 @@ struct RasterizerState final
     bool rasterizerDiscard;
 
     bool dither;
+
+    bool isPolygonOffsetEnabled() const
+    {
+        static_assert(static_cast<int>(PolygonMode::Point) == 0, "PolygonMode::Point");
+        static_assert(static_cast<int>(PolygonMode::Line) == 1, "PolygonMode::Line");
+        static_assert(static_cast<int>(PolygonMode::Fill) == 2, "PolygonMode::Fill");
+        return (1 << static_cast<int>(polygonMode)) &
+               ((polygonOffsetPoint << 0) | (polygonOffsetLine << 1) | (polygonOffsetFill << 2));
+    }
 };
 
 bool operator==(const RasterizerState &a, const RasterizerState &b);
 bool operator!=(const RasterizerState &a, const RasterizerState &b);
-
-struct BlendState final
-{
-    // This will zero-initialize the struct, including padding.
-    BlendState();
-    BlendState(const BlendState &other);
-
-    bool blend;
-    GLenum sourceBlendRGB;
-    GLenum destBlendRGB;
-    GLenum sourceBlendAlpha;
-    GLenum destBlendAlpha;
-    GLenum blendEquationRGB;
-    GLenum blendEquationAlpha;
-
-    bool colorMaskRed;
-    bool colorMaskGreen;
-    bool colorMaskBlue;
-    bool colorMaskAlpha;
-};
-
-bool operator==(const BlendState &a, const BlendState &b);
-bool operator!=(const BlendState &a, const BlendState &b);
 
 struct DepthStencilState final
 {
     // This will zero-initialize the struct, including padding.
     DepthStencilState();
     DepthStencilState(const DepthStencilState &other);
+    DepthStencilState &operator=(const DepthStencilState &other);
 
     bool isDepthMaskedOut() const;
-    bool isStencilMaskedOut() const;
-    bool isStencilNoOp() const;
-    bool isStencilBackNoOp() const;
+    bool isStencilMaskedOut(GLuint framebufferStencilSize) const;
+    bool isStencilNoOp(GLuint framebufferStencilSize) const;
+    bool isStencilBackNoOp(GLuint framebufferStencilSize) const;
 
     bool depthTest;
     GLenum depthFunc;
@@ -289,49 +404,59 @@ class SamplerState final
 
     GLenum getMinFilter() const { return mMinFilter; }
 
-    void setMinFilter(GLenum minFilter);
+    bool setMinFilter(GLenum minFilter);
 
     GLenum getMagFilter() const { return mMagFilter; }
 
-    void setMagFilter(GLenum magFilter);
+    bool setMagFilter(GLenum magFilter);
 
     GLenum getWrapS() const { return mWrapS; }
 
-    void setWrapS(GLenum wrapS);
+    bool setWrapS(GLenum wrapS);
 
     GLenum getWrapT() const { return mWrapT; }
 
-    void setWrapT(GLenum wrapT);
+    bool setWrapT(GLenum wrapT);
 
     GLenum getWrapR() const { return mWrapR; }
 
-    void setWrapR(GLenum wrapR);
+    bool setWrapR(GLenum wrapR);
+
+    bool usesBorderColor() const
+    {
+        return mWrapS == GL_CLAMP_TO_BORDER || mWrapT == GL_CLAMP_TO_BORDER ||
+               mWrapR == GL_CLAMP_TO_BORDER;
+    }
 
     float getMaxAnisotropy() const { return mMaxAnisotropy; }
 
-    void setMaxAnisotropy(float maxAnisotropy);
+    bool setMaxAnisotropy(float maxAnisotropy);
 
     GLfloat getMinLod() const { return mMinLod; }
 
-    void setMinLod(GLfloat minLod);
+    bool setMinLod(GLfloat minLod);
 
     GLfloat getMaxLod() const { return mMaxLod; }
 
-    void setMaxLod(GLfloat maxLod);
+    bool setMaxLod(GLfloat maxLod);
+
+    GLfloat getLodBias() const { return mSampleLodBias; }
+
+    bool setLodBias(GLfloat lodBias);
 
     GLenum getCompareMode() const { return mCompareMode; }
 
-    void setCompareMode(GLenum compareMode);
+    bool setCompareMode(GLenum compareMode);
 
     GLenum getCompareFunc() const { return mCompareFunc; }
 
-    void setCompareFunc(GLenum compareFunc);
+    bool setCompareFunc(GLenum compareFunc);
 
     GLenum getSRGBDecode() const { return mSRGBDecode; }
 
-    void setSRGBDecode(GLenum sRGBDecode);
+    bool setSRGBDecode(GLenum sRGBDecode);
 
-    void setBorderColor(const ColorGeneric &color);
+    bool setBorderColor(const ColorGeneric &color);
 
     const ColorGeneric &getBorderColor() const { return mBorderColor; }
 
@@ -355,6 +480,7 @@ class SamplerState final
 
     GLfloat mMinLod;
     GLfloat mMaxLod;
+    GLfloat mSampleLodBias;
 
     GLenum mCompareMode;
     GLenum mCompareFunc;
@@ -420,21 +546,93 @@ struct PixelStoreStateBase
     GLint skipPixels  = 0;
     GLint imageHeight = 0;
     GLint skipImages  = 0;
+
+    bool operator==(const PixelStoreStateBase &other) const = default;
+    bool operator!=(const PixelStoreStateBase &other) const = default;
 };
 
 struct PixelUnpackState : PixelStoreStateBase
-{};
+{
+    bool operator==(const PixelUnpackState &other) const = default;
+    bool operator!=(const PixelUnpackState &other) const = default;
+};
+std::ostream &operator<<(std::ostream &os, const PixelUnpackState &unpackState);
 
 struct PixelPackState : PixelStoreStateBase
 {
     bool reverseRowOrder = false;
+
+    bool operator==(const PixelPackState &other) const = default;
+    bool operator!=(const PixelPackState &other) const = default;
 };
+std::ostream &operator<<(std::ostream &os, const PixelPackState &packState);
+
+struct SupportedSampleSet
+{
+  public:
+    // Set a sample count as being supported. Must be a power of 2 and no greater than
+    // IMPLEMENTATION_MAX_SAMPLES
+    void insert(GLuint sampleCount);
+
+    // Reset supported sample counts.
+    void clear();
+
+    // Get the number of supported samples that is at least as many as requested.  Returns 0 if
+    // there are no sample counts available
+    GLuint getNearestSamples(GLuint requestedSamples) const;
+
+    // Get the maximum number of samples supported
+    GLuint getMaxSamples() const;
+
+    // The number of supported sample counts
+    size_t size() const;
+
+    // Generate a list of supported sample counts
+    std::vector<GLint> sampleCounts() const;
+
+    SupportedSampleSet operator&(const SupportedSampleSet &other) const;
+
+  private:
+    // Bitfield of supported sample counts, each bit is represents the next power of 2. An extra bit
+    // is added for the '0' sample count.
+    static constexpr size_t kRequiredBitCount =
+        log2(static_cast<int>(IMPLEMENTATION_MAX_SAMPLES)) + 1;
+    using SupportedSamplesBitSet = angle::BitSet<kRequiredBitCount>;
+    SupportedSamplesBitSet mSupportedSamples;
+};
+
+// Used in VertexArray. For ease of tracking, we add vertex array element buffer to the end of
+// vertex array buffer bindings.
+constexpr uint32_t kElementArrayBufferIndex = MAX_VERTEX_ATTRIB_BINDINGS;
+using VertexArrayBufferBindingMask          = angle::BitSet<kElementArrayBufferIndex + 1>;
 
 // Used in Program and VertexArray.
 using AttributesMask = angle::BitSet<MAX_VERTEX_ATTRIBS>;
+using BufferBindingMask = angle::BitSet<MAX_VERTEX_ATTRIB_BINDINGS>;
 
 // Used in Program
-using UniformBlockBindingMask = angle::BitSet<IMPLEMENTATION_MAX_COMBINED_SHADER_UNIFORM_BUFFERS>;
+static_assert(IMPLEMENTATION_MAX_SHADER_STORAGE_BUFFER_BINDINGS >
+                  IMPLEMENTATION_MAX_COMBINED_SHADER_UNIFORM_BUFFERS,
+              "maxCombinedShaderStorageBlocks must be greater than maxCombinedUniformBlocks");
+using ProgramBufferBlockMask  = angle::BitSet<IMPLEMENTATION_MAX_SHADER_STORAGE_BUFFER_BINDINGS>;
+using ProgramUniformBlockMask = ProgramBufferBlockMask;
+using ProgramStorageBlockMask = ProgramBufferBlockMask;
+template <typename T>
+using ProgramUniformBlockArray = std::array<T, IMPLEMENTATION_MAX_COMBINED_SHADER_UNIFORM_BUFFERS>;
+template <typename T>
+using UniformBufferBindingArray = std::array<T, IMPLEMENTATION_MAX_UNIFORM_BUFFER_BINDINGS>;
+
+// Fine grained dirty type for buffers updates.
+enum class BufferDirtyType
+{
+    Binding,
+    Offset,
+    Size,
+
+    InvalidEnum,
+    EnumCount = InvalidEnum,
+};
+using BufferDirtyTypeBitMask = angle::PackedEnumBitSet<BufferDirtyType>;
 
 // Used in Framebuffer / Program
 using DrawBufferMask = angle::BitSet8<IMPLEMENTATION_MAX_DRAW_BUFFERS>;
@@ -570,9 +768,13 @@ class BlendStateExt final
     using FactorStorage    = StorageType<BlendFactorType, angle::EnumSize<BlendFactorType>()>;
     using EquationStorage  = StorageType<BlendEquationType, angle::EnumSize<BlendEquationType>()>;
     using ColorMaskStorage = StorageType<uint8_t, 16>;
+    static_assert(std::is_same<FactorStorage::Type, uint64_t>::value &&
+                      std::is_same<EquationStorage::Type, uint64_t>::value,
+                  "Factor and Equation storage must be 64-bit.");
 
     BlendStateExt(const size_t drawBuffers = 1);
 
+    BlendStateExt(const BlendStateExt &other);
     BlendStateExt &operator=(const BlendStateExt &other);
 
     ///////// Blending Toggle /////////
@@ -581,6 +783,8 @@ class BlendStateExt final
     void setEnabledIndexed(const size_t index, const bool enabled);
 
     ///////// Color Write Mask /////////
+
+    constexpr static uint8_t kColorMaskRGBA = 0xf;
 
     static constexpr size_t PackColorMask(const bool red,
                                           const bool green,
@@ -625,21 +829,39 @@ class BlendStateExt final
     ///////// Blend Equation /////////
 
     EquationStorage::Type expandEquationValue(const GLenum mode) const;
+    EquationStorage::Type expandEquationValue(const gl::BlendEquationType equation) const;
     EquationStorage::Type expandEquationColorIndexed(const size_t index) const;
     EquationStorage::Type expandEquationAlphaIndexed(const size_t index) const;
     void setEquations(const GLenum modeColor, const GLenum modeAlpha);
+    void setEquations(const BlendEquationType modeColor, const BlendEquationType modeAlpha);
     void setEquationsIndexed(const size_t index, const GLenum modeColor, const GLenum modeAlpha);
+    void setEquationsIndexed(const size_t index,
+                             const BlendEquationType modeColor,
+                             const BlendEquationType modeAlpha);
     void setEquationsIndexed(const size_t index,
                              const size_t otherIndex,
                              const BlendStateExt &other);
-    GLenum getEquationColorIndexed(size_t index) const;
-    GLenum getEquationAlphaIndexed(size_t index) const;
+    BlendEquationType getEquationColorIndexed(size_t index) const
+    {
+        ASSERT(index < mDrawBufferCount);
+        return EquationStorage::GetValueIndexed(index, mEquationColor);
+    }
+    BlendEquationType getEquationAlphaIndexed(size_t index) const
+    {
+        ASSERT(index < mDrawBufferCount);
+        return EquationStorage::GetValueIndexed(index, mEquationAlpha);
+    }
     DrawBufferMask compareEquations(const EquationStorage::Type color,
                                     const EquationStorage::Type alpha) const;
+    DrawBufferMask compareEquations(const BlendStateExt &other) const
+    {
+        return compareEquations(other.mEquationColor, other.mEquationAlpha);
+    }
 
     ///////// Blend Factors /////////
 
     FactorStorage::Type expandFactorValue(const GLenum func) const;
+    FactorStorage::Type expandFactorValue(const gl::BlendFactorType func) const;
     FactorStorage::Type expandSrcColorIndexed(const size_t index) const;
     FactorStorage::Type expandDstColorIndexed(const size_t index) const;
     FactorStorage::Type expandSrcAlphaIndexed(const size_t index) const;
@@ -648,44 +870,152 @@ class BlendStateExt final
                     const GLenum dstColor,
                     const GLenum srcAlpha,
                     const GLenum dstAlpha);
+    void setFactors(const BlendFactorType srcColorFactor,
+                    const BlendFactorType dstColorFactor,
+                    const BlendFactorType srcAlphaFactor,
+                    const BlendFactorType dstAlphaFactor);
+    void setFactorsIndexed(const size_t index,
+                           const BlendFactorType srcColorFactor,
+                           const BlendFactorType dstColorFactor,
+                           const BlendFactorType srcAlphaFactor,
+                           const BlendFactorType dstAlphaFactor);
     void setFactorsIndexed(const size_t index,
                            const GLenum srcColor,
                            const GLenum dstColor,
                            const GLenum srcAlpha,
                            const GLenum dstAlpha);
     void setFactorsIndexed(const size_t index, const size_t otherIndex, const BlendStateExt &other);
-    GLenum getSrcColorIndexed(size_t index) const;
-    GLenum getDstColorIndexed(size_t index) const;
-    GLenum getSrcAlphaIndexed(size_t index) const;
-    GLenum getDstAlphaIndexed(size_t index) const;
+    BlendFactorType getSrcColorIndexed(size_t index) const
+    {
+        ASSERT(index < mDrawBufferCount);
+        return FactorStorage::GetValueIndexed(index, mSrcColor);
+    }
+    BlendFactorType getDstColorIndexed(size_t index) const
+    {
+        ASSERT(index < mDrawBufferCount);
+        return FactorStorage::GetValueIndexed(index, mDstColor);
+    }
+    BlendFactorType getSrcAlphaIndexed(size_t index) const
+    {
+        ASSERT(index < mDrawBufferCount);
+        return FactorStorage::GetValueIndexed(index, mSrcAlpha);
+    }
+    BlendFactorType getDstAlphaIndexed(size_t index) const
+    {
+        ASSERT(index < mDrawBufferCount);
+        return FactorStorage::GetValueIndexed(index, mDstAlpha);
+    }
     DrawBufferMask compareFactors(const FactorStorage::Type srcColor,
                                   const FactorStorage::Type dstColor,
                                   const FactorStorage::Type srcAlpha,
                                   const FactorStorage::Type dstAlpha) const;
+    DrawBufferMask compareFactors(const BlendStateExt &other) const
+    {
+        return compareFactors(other.mSrcColor, other.mDstColor, other.mSrcAlpha, other.mDstAlpha);
+    }
+
+    constexpr FactorStorage::Type getSrcColorBits() const { return mSrcColor; }
+    constexpr FactorStorage::Type getSrcAlphaBits() const { return mSrcAlpha; }
+    constexpr FactorStorage::Type getDstColorBits() const { return mDstColor; }
+    constexpr FactorStorage::Type getDstAlphaBits() const { return mDstAlpha; }
+
+    constexpr EquationStorage::Type getEquationColorBits() const { return mEquationColor; }
+    constexpr EquationStorage::Type getEquationAlphaBits() const { return mEquationAlpha; }
+
+    constexpr ColorMaskStorage::Type getAllColorMaskBits() const { return mAllColorMask; }
+    constexpr ColorMaskStorage::Type getColorMaskBits() const { return mColorMask; }
+
+    constexpr DrawBufferMask getAllEnabledMask() const { return mAllEnabledMask; }
+    constexpr DrawBufferMask getEnabledMask() const { return mEnabledMask; }
+
+    constexpr DrawBufferMask getUsesAdvancedBlendEquationMask() const
+    {
+        return mUsesAdvancedBlendEquationMask;
+    }
+
+    constexpr DrawBufferMask getUsesExtendedBlendFactorMask() const
+    {
+        return mUsesExtendedBlendFactorMask;
+    }
+
+    constexpr uint8_t getDrawBufferCount() const { return mDrawBufferCount; }
+
+    constexpr void setFactorBits(const FactorStorage::Type srcColor,
+                                 const FactorStorage::Type dstColor,
+                                 const FactorStorage::Type srcAlpha,
+                                 const FactorStorage::Type dstAlpha,
+                                 const DrawBufferMask usesExtendedBlendFactorMask)
+    {
+        mSrcColor                    = srcColor;
+        mDstColor                    = dstColor;
+        mSrcAlpha                    = srcAlpha;
+        mDstAlpha                    = dstAlpha;
+        mUsesExtendedBlendFactorMask = usesExtendedBlendFactorMask;
+    }
+
+    constexpr void setEquationColorBits(const EquationStorage::Type equationColor,
+                                        const DrawBufferMask usesAdvancedEquationmask)
+    {
+        mEquationColor = equationColor;
+        mUsesAdvancedBlendEquationMask = usesAdvancedEquationmask;
+    }
+    constexpr void setEquationAlphaBits(const EquationStorage::Type equationAlpha)
+    {
+        mEquationAlpha = equationAlpha;
+    }
+
+    constexpr void setColorMaskBits(const ColorMaskStorage::Type colorMask)
+    {
+        mColorMask = colorMask;
+    }
+
+    constexpr void setEnabledMask(const DrawBufferMask enabledMask) { mEnabledMask = enabledMask; }
+
+    bool operator==(const BlendStateExt &other) const;
+    bool operator!=(const BlendStateExt &other) const;
 
     ///////// Data Members /////////
+  private:
+    uint64_t mParameterMask;
 
-    const FactorStorage::Type mMaxFactorMask;
     FactorStorage::Type mSrcColor;
     FactorStorage::Type mDstColor;
     FactorStorage::Type mSrcAlpha;
     FactorStorage::Type mDstAlpha;
 
-    const EquationStorage::Type mMaxEquationMask;
     EquationStorage::Type mEquationColor;
     EquationStorage::Type mEquationAlpha;
 
-    const ColorMaskStorage::Type mMaxColorMask;
+    ColorMaskStorage::Type mAllColorMask;
     ColorMaskStorage::Type mColorMask;
 
-    const DrawBufferMask mMaxEnabledMask;
+    DrawBufferMask mAllEnabledMask;
     DrawBufferMask mEnabledMask;
 
-    const size_t mMaxDrawBuffers;
+    // Cache of whether the blend equation for each index is from KHR_blend_equation_advanced.
+    DrawBufferMask mUsesAdvancedBlendEquationMask;
+
+    // Cache of whether the blend factor for each index is from EXT_blend_func_extended.
+    DrawBufferMask mUsesExtendedBlendFactorMask;
+
+    uint8_t mDrawBufferCount;
+
+    ANGLE_MAYBE_UNUSED_PRIVATE_FIELD uint8_t kUnused[3] = {};
 };
+
+static_assert(sizeof(BlendStateExt) == sizeof(uint64_t) +
+                                           (sizeof(BlendStateExt::FactorStorage::Type) * 4 +
+                                            sizeof(BlendStateExt::EquationStorage::Type) * 2 +
+                                            sizeof(BlendStateExt::ColorMaskStorage::Type) * 2 +
+                                            sizeof(DrawBufferMask) * 4 + sizeof(uint8_t)) +
+                                           sizeof(uint8_t) * 3,
+              "The BlendStateExt class must not contain gaps.");
 
 // Used in StateCache
 using StorageBuffersMask = angle::BitSet<IMPLEMENTATION_MAX_SHADER_STORAGE_BUFFER_BINDINGS>;
+
+template <typename T>
+using SampleMaskArray = std::array<T, IMPLEMENTATION_MAX_SAMPLE_MASK_WORDS>;
 
 template <typename T>
 using TexLevelArray = std::array<T, IMPLEMENTATION_MAX_TEXTURE_LEVELS>;
@@ -735,10 +1065,10 @@ ANGLE_INLINE void SetComponentTypeMask(ComponentType type, size_t index, Compone
     *mask |= kComponentMasks[type] << index;
 }
 
-ANGLE_INLINE ComponentType GetComponentTypeMask(const ComponentTypeMask &mask, size_t index)
+ANGLE_INLINE ComponentType GetComponentTypeMask(ComponentTypeMask mask, size_t index)
 {
     ASSERT(index <= kMaxComponentTypeMaskIndex);
-    uint32_t mask_bits = static_cast<uint32_t>((mask.to_ulong() >> index) & 0x10001);
+    uint32_t mask_bits = mask.bits() >> index & 0x10001;
     switch (mask_bits)
     {
         case 0x10001:
@@ -752,10 +1082,78 @@ ANGLE_INLINE ComponentType GetComponentTypeMask(const ComponentTypeMask &mask, s
     }
 }
 
-bool ValidateComponentTypeMasks(unsigned long outputTypes,
-                                unsigned long inputTypes,
-                                unsigned long outputMask,
-                                unsigned long inputMask);
+ANGLE_INLINE ComponentTypeMask GetActiveComponentTypeMask(gl::AttributesMask activeAttribLocations)
+{
+    const uint32_t activeAttribs = static_cast<uint32_t>(activeAttribLocations.bits());
+
+    // Ever attrib index takes one bit from the lower 16-bits and another bit from the upper
+    // 16-bits at the same index.
+    return ComponentTypeMask(activeAttribs << kMaxComponentTypeMaskIndex | activeAttribs);
+}
+
+ANGLE_INLINE DrawBufferMask GetComponentTypeMaskDiff(ComponentTypeMask mask1,
+                                                     ComponentTypeMask mask2)
+{
+    const uint32_t diff = static_cast<uint32_t>((mask1 ^ mask2).bits());
+    return DrawBufferMask(static_cast<uint8_t>(diff | (diff >> gl::kMaxComponentTypeMaskIndex)));
+}
+
+bool ValidateComponentTypeMasks(uint64_t outputTypes,
+                                uint64_t inputTypes,
+                                uint64_t outputMask,
+                                uint64_t inputMask);
+
+// Helpers for performing WebGL 2.0 clear validation
+// Extracted component type has always one of these four values:
+// * 0x10001 - float or normalized
+// * 0x00001 - int
+// * 0x10000 - unsigned int
+// * 0x00000 - unused or disabled
+
+// The following functions rely on these.
+static_assert(kComponentMasks[ComponentType::Float] == 0x10001);
+static_assert(kComponentMasks[ComponentType::Int] == 0x00001);
+static_assert(kComponentMasks[ComponentType::UnsignedInt] == 0x10000);
+
+// Used for clearBufferuiv
+ANGLE_INLINE bool IsComponentTypeFloatOrInt(ComponentTypeMask mask, size_t index)
+{
+    ASSERT(index <= kMaxComponentTypeMaskIndex);
+    // 0x10001 or 0x00001
+    return ((mask.bits() >> index) & 0x00001) != 0;
+}
+
+// Used for clearBufferiv
+ANGLE_INLINE bool IsComponentTypeFloatOrUnsignedInt(ComponentTypeMask mask, size_t index)
+{
+    ASSERT(index <= kMaxComponentTypeMaskIndex);
+    // 0x10001 or 0x10000
+    return ((mask.bits() >> index) & 0x10000) != 0;
+}
+
+// Used for clearBufferfv
+ANGLE_INLINE bool IsComponentTypeIntOrUnsignedInt(ComponentTypeMask mask, size_t index)
+{
+    ASSERT(index <= kMaxComponentTypeMaskIndex);
+    // 0x00001 or 0x10000; this expression is more efficient than two explicit comparisons
+    return ((((mask.bits() >> kMaxComponentTypeMaskIndex) ^ mask.bits()) >> index) & 1) != 0;
+}
+
+// Used for clear
+ANGLE_INLINE DrawBufferMask GetIntOrUnsignedIntDrawBufferMask(ComponentTypeMask mask)
+{
+    static_assert(DrawBufferMask::size() <= 8);
+    return DrawBufferMask(
+        static_cast<uint8_t>((mask.bits() >> kMaxComponentTypeMaskIndex) ^ mask.bits()));
+}
+
+// GL_ANGLE_blob_cache state
+struct BlobCacheCallbacks
+{
+    GLSETBLOBPROCANGLE setFunction = nullptr;
+    GLGETBLOBPROCANGLE getFunction = nullptr;
+    const void *userParam          = nullptr;
+};
 
 enum class RenderToTextureImageIndex
 {
@@ -777,27 +1175,10 @@ enum class RenderToTextureImageIndex
 template <typename T>
 using RenderToTextureImageMap = angle::PackedEnumMap<RenderToTextureImageIndex, T>;
 
-struct ContextID
-{
-    uint32_t value;
-};
-
-inline bool operator==(ContextID lhs, ContextID rhs)
-{
-    return lhs.value == rhs.value;
-}
-
-inline bool operator!=(ContextID lhs, ContextID rhs)
-{
-    return lhs.value != rhs.value;
-}
-
-inline bool operator<(ContextID lhs, ContextID rhs)
-{
-    return lhs.value < rhs.value;
-}
-
 constexpr size_t kCubeFaceCount = 6;
+
+template <typename T>
+using CubeFaceArray = std::array<T, kCubeFaceCount>;
 
 template <typename T>
 using TextureTypeMap = angle::PackedEnumMap<TextureType, T>;
@@ -825,6 +1206,9 @@ using DrawBuffersVector = angle::FixedVector<T, IMPLEMENTATION_MAX_DRAW_BUFFERS>
 template <typename T>
 using AttribArray = std::array<T, MAX_VERTEX_ATTRIBS>;
 
+template <typename T>
+using AttribVector = angle::FixedVector<T, MAX_VERTEX_ATTRIBS>;
+
 using ActiveTextureMask = angle::BitSet<IMPLEMENTATION_MAX_ACTIVE_TEXTURES>;
 
 template <typename T>
@@ -832,23 +1216,17 @@ using ActiveTextureArray = std::array<T, IMPLEMENTATION_MAX_ACTIVE_TEXTURES>;
 
 using ActiveTextureTypeArray = ActiveTextureArray<TextureType>;
 
-template <typename T>
-using UniformBuffersArray = std::array<T, IMPLEMENTATION_MAX_UNIFORM_BUFFER_BINDINGS>;
-template <typename T>
-using StorageBuffersArray = std::array<T, IMPLEMENTATION_MAX_SHADER_STORAGE_BUFFER_BINDINGS>;
-template <typename T>
-using AtomicCounterBuffersArray = std::array<T, IMPLEMENTATION_MAX_ATOMIC_COUNTER_BUFFERS>;
-using AtomicCounterBufferMask   = angle::BitSet<IMPLEMENTATION_MAX_ATOMIC_COUNTER_BUFFERS>;
-template <typename T>
-using ImagesArray = std::array<T, IMPLEMENTATION_MAX_IMAGE_UNITS>;
-
 using ImageUnitMask = angle::BitSet<IMPLEMENTATION_MAX_IMAGE_UNITS>;
-
-using SupportedSampleSet = std::set<GLuint>;
 
 template <typename T>
 using TransformFeedbackBuffersArray =
     std::array<T, gl::IMPLEMENTATION_MAX_TRANSFORM_FEEDBACK_BUFFERS>;
+
+using ClipDistanceEnableBits = angle::BitSet32<IMPLEMENTATION_MAX_CLIP_DISTANCES>;
+
+template <typename T>
+using QueryTypeMap = angle::PackedEnumMap<QueryType, T>;
+using QueryTypeBitSet = angle::PackedEnumBitSet<QueryType, uint8_t>;
 
 constexpr size_t kBarrierVectorDefaultSize = 16;
 
@@ -856,6 +1234,9 @@ template <typename T>
 using BarrierVector = angle::FastVector<T, kBarrierVectorDefaultSize>;
 
 using BufferBarrierVector = BarrierVector<Buffer *>;
+
+using SamplerBindingVector = std::vector<BindingPointer<Sampler>>;
+using BufferVector         = std::vector<OffsetBindingPointer<Buffer>>;
 
 struct TextureAndLayout
 {
@@ -876,7 +1257,7 @@ class LevelIndexWrapper
   public:
     LevelIndexWrapper() = default;
     explicit constexpr LevelIndexWrapper(T levelIndex) : mLevelIndex(levelIndex) {}
-    constexpr LevelIndexWrapper(const LevelIndexWrapper &other) = default;
+    constexpr LevelIndexWrapper(const LevelIndexWrapper &other)            = default;
     constexpr LevelIndexWrapper &operator=(const LevelIndexWrapper &other) = default;
 
     constexpr T get() const { return mLevelIndex; }
@@ -926,6 +1307,8 @@ class LevelIndexWrapper
 
 // A GL texture level index.
 using LevelIndex = LevelIndexWrapper<GLint>;
+// A GL texture layer index.
+using LayerIndex = LevelIndexWrapper<uint32_t>;
 
 enum class MultisamplingMode
 {
@@ -993,6 +1376,143 @@ inline DestT *SafeGetImplAs(SrcT *src)
 
 namespace angle
 {
+enum class NativeWindowSystem
+{
+    X11,
+    Wayland,
+    Gbm,
+    NullCompute,
+    Other,
+};
+
+struct FeatureOverrides
+{
+    std::vector<std::string> enabled;
+    std::vector<std::string> disabled;
+    bool allDisabled = false;
+};
+
+#if defined ANGLE_USE_CRYPTO_HASHER
+// Key is a 160-bit SHA-1 hash. Using fixed keys for simplicity and efficiency.
+static constexpr size_t kBlobCacheKeyLength = angle::base::kSHA1Length;
+// The hasher used is a SHA-1 hasher.
+using BlobCacheHasher = angle::base::SecureHashAlgorithm;
+#else
+// Key is a 128-bit XXH3 hash. Using fixed keys for simplicity and efficiency.
+static constexpr size_t kBlobCacheKeyLength = angle::StreamingHasher::kHashSize;
+// The hasher used is an XXH3 streaming hasher.
+using BlobCacheHasher = angle::StreamingHasher;
+#endif  // ANGLE_USE_CRYPTO_HASHER
+
+using BlobCacheKey = std::array<uint8_t, kBlobCacheKeyLength>;
+class BlobCacheValue  // To be replaced with std::span when C++20 is required
+{
+  public:
+    BlobCacheValue() : mPtr(nullptr), mSize(0) {}
+    BlobCacheValue(const uint8_t *ptr, size_t size) : mPtr(ptr), mSize(size) {}
+
+    // A very basic struct to hold the pointer and size together.  The objects of this class
+    // don't own the memory.
+    const uint8_t *data() { return mPtr; }
+    size_t size() { return mSize; }
+
+    const uint8_t &operator[](size_t pos) const
+    {
+        ASSERT(pos < mSize);
+        return ANGLE_UNSAFE_TODO(mPtr[pos]);
+    }
+
+  private:
+    const uint8_t *mPtr;
+    size_t mSize;
+};
+
+bool CompressBlob(const size_t cacheSize, const uint8_t *cacheData, MemoryBuffer *compressedData);
+bool DecompressBlob(const uint8_t *compressedData,
+                    const size_t compressedSize,
+                    size_t maxUncompressedDataSize,
+                    MemoryBuffer *uncompressedData);
+uint32_t GenerateCRC32(const uint8_t *data, size_t size);
+uint32_t InitCRC32();
+uint32_t UpdateCRC32(uint32_t prevCrc32, const uint8_t *data, size_t size);
+}  // namespace angle
+
+namespace std
+{
+template <>
+struct hash<angle::BlobCacheKey>
+{
+    // Simple routine to hash four ints.
+    size_t operator()(const angle::BlobCacheKey &key) const
+    {
+        return angle::ComputeGenericHash(key);
+    }
+};
+}  // namespace std
+
+namespace angle
+{
+// Under certain circumstances, such as for increased parallelism, the backend may defer an
+// operation to be done at the end of a call after the locks have been unlocked.  The entry point
+// function passes an |UnlockedTailCall| through the frontend to the backend.  If it is set, the
+// entry point would execute it at the end of the call.
+//
+// Since the function is called without any locks, care must be taken to minimize the amount of work
+// in such calls and ensure thread safety (for example by using fine grained locks inside the call
+// itself).
+//
+// Some entry points pass a void pointer argument to UnlockedTailCall::run method intended to
+// contain the return value filled by the backend, the rest of the entry points pass in a
+// nullptr.  Regardless, Display::terminate runs pending tail calls passing in a nullptr, so
+// the tail calls that return a value in the argument still have to guard against a nullptr
+// parameter.
+class UnlockedTailCall final : angle::NonCopyable
+{
+  public:
+    using CallType = std::function<void(void *)>;
+
+    UnlockedTailCall();
+    ~UnlockedTailCall();
+
+    void add(CallType &&call);
+    ANGLE_INLINE void run(void *resultOut)
+    {
+        if (!mCalls.empty())
+        {
+            runImpl(resultOut);
+        }
+    }
+
+    bool any() const { return !mCalls.empty(); }
+
+  private:
+    void runImpl(void *resultOut);
+
+    // Typically, there is only one tail call.  It is possible to end up with 2 tail calls currently
+    // with unMakeCurrent destroying both the read and draw surfaces, each adding a tail call in the
+    // Vulkan backend.
+    //
+    // Some apps will create multiple windows surfaces and not call corresponding destroy api, which
+    // cause many tail calls been added, so remove the max call count limitations.
+    std::vector<CallType> mCalls;
+};
+
+enum class JobThreadSafety
+{
+    Safe,
+    Unsafe,
+};
+
+enum class JobResultExpectancy
+{
+    // Whether the compile or link job's results are immediately needed.  This is the case for GLES1
+    // programs for example, or shader compilation in glCreateShaderProgramv.
+    Immediate,
+    // Whether the compile or link job's results are needed after the end of the current entry point
+    // call.  In this case, the job may be done in an unlocked tail call.
+    Future,
+};
+
 // Zero-based for better array indexing
 enum FramebufferBinding
 {
@@ -1040,6 +1560,7 @@ template <typename ObjT, typename ContextT>
 class DestroyThenDelete
 {
   public:
+    DestroyThenDelete() = default;
     DestroyThenDelete(const ContextT *context) : mContext(context) {}
 
     void operator()(ObjT *obj)
@@ -1049,63 +1570,125 @@ class DestroyThenDelete
     }
 
   private:
-    const ContextT *mContext;
-};
-
-// Helper class for wrapping an onDestroy function.
-template <typename ObjT, typename DeleterT>
-class UniqueObjectPointerBase : angle::NonCopyable
-{
-  public:
-    template <typename ContextT>
-    UniqueObjectPointerBase(const ContextT *context) : mObject(nullptr), mDeleter(context)
-    {}
-
-    template <typename ContextT>
-    UniqueObjectPointerBase(ObjT *obj, const ContextT *context) : mObject(obj), mDeleter(context)
-    {}
-
-    ~UniqueObjectPointerBase()
-    {
-        if (mObject)
-        {
-            mDeleter(mObject);
-        }
-    }
-
-    ObjT *operator->() const { return mObject; }
-
-    ObjT *release()
-    {
-        auto obj = mObject;
-        mObject  = nullptr;
-        return obj;
-    }
-
-    ObjT *get() const { return mObject; }
-
-    void reset(ObjT *obj)
-    {
-        if (mObject)
-        {
-            mDeleter(mObject);
-        }
-        mObject = obj;
-    }
-
-  private:
-    ObjT *mObject;
-    DeleterT mDeleter;
+    const ContextT *mContext = nullptr;
 };
 
 template <typename ObjT, typename ContextT>
-using UniqueObjectPointer = UniqueObjectPointerBase<ObjT, DestroyThenDelete<ObjT, ContextT>>;
+using UniqueObjectPointer = std::unique_ptr<ObjT, DestroyThenDelete<ObjT, ContextT>>;
+
+using ShadingRateSet = PackedEnumBitSet<gl::ShadingRate, uint16_t>;
+using ShadingRateMap = PackedEnumMap<gl::ShadingRate, uint16_t>;
 
 }  // namespace angle
 
 namespace gl
 {
 class State;
+
+// Focal Point information for foveated rendering
+struct FocalPoint
+{
+    float focalX;
+    float focalY;
+    float gainX;
+    float gainY;
+    float foveaArea;
+
+    constexpr FocalPoint() : focalX(0), focalY(0), gainX(0), gainY(0), foveaArea(0) {}
+
+    FocalPoint(float fX, float fY, float gX, float gY, float fArea)
+        : focalX(fX), focalY(fY), gainX(gX), gainY(gY), foveaArea(fArea)
+    {}
+    FocalPoint(const FocalPoint &other)            = default;
+    FocalPoint &operator=(const FocalPoint &other) = default;
+
+    bool operator==(const FocalPoint &other) const
+    {
+        return focalX == other.focalX && focalY == other.focalY && gainX == other.gainX &&
+               gainY == other.gainY && foveaArea == other.foveaArea;
+    }
+    bool operator!=(const FocalPoint &other) const { return !(*this == other); }
+
+    bool valid() const { return gainX > 0 && gainY > 0; }
+};
+
+constexpr FocalPoint kDefaultFocalPoint = FocalPoint();
+
+class FoveationState
+{
+  public:
+    FoveationState()
+    {
+        mConfigured          = false;
+        mFoveatedFeatureBits = 0;
+        mMinPixelDensity     = 0.0f;
+        mFocalPoints.fill(kDefaultFocalPoint);
+    }
+    FoveationState &operator=(const FoveationState &other) = default;
+
+    void configure() { mConfigured = true; }
+    bool isConfigured() const { return mConfigured; }
+    bool isFoveated() const
+    {
+        // Consider foveated if at least 1 focal point is valid
+        return std::any_of(mFocalPoints.begin(), mFocalPoints.end(),
+                           [](const FocalPoint &focalPoint) { return focalPoint.valid(); });
+    }
+    bool operator==(const FoveationState &other) const
+    {
+        return mConfigured == other.mConfigured &&
+               mFoveatedFeatureBits == other.mFoveatedFeatureBits &&
+               mMinPixelDensity == other.mMinPixelDensity && mFocalPoints == other.mFocalPoints;
+    }
+    bool operator!=(const FoveationState &other) const { return !(*this == other); }
+
+    void setFoveatedFeatureBits(const GLuint features) { mFoveatedFeatureBits = features; }
+    GLuint getFoveatedFeatureBits() const { return mFoveatedFeatureBits; }
+    void setMinPixelDensity(const GLfloat density) { mMinPixelDensity = density; }
+    GLfloat getMinPixelDensity() const { return mMinPixelDensity; }
+    GLuint getMaxNumFocalPoints() const { return gl::IMPLEMENTATION_MAX_FOCAL_POINTS; }
+    void setFocalPoint(uint32_t layer, uint32_t focalPointIndex, const FocalPoint &focalPoint)
+    {
+        mFocalPoints[getIndex(layer, focalPointIndex)] = focalPoint;
+    }
+    const FocalPoint &getFocalPoint(uint32_t layer, uint32_t focalPointIndex) const
+    {
+        return mFocalPoints[getIndex(layer, focalPointIndex)];
+    }
+    GLuint getSupportedFoveationFeatures() const { return GL_FOVEATION_ENABLE_BIT_QCOM; }
+
+  private:
+    size_t getIndex(uint32_t layer, uint32_t focalPointIndex) const
+    {
+        ASSERT(layer < IMPLEMENTATION_MAX_NUM_LAYERS &&
+               focalPointIndex < IMPLEMENTATION_MAX_FOCAL_POINTS);
+        return (layer * IMPLEMENTATION_MAX_FOCAL_POINTS) + focalPointIndex;
+    }
+    bool mConfigured;
+    GLuint mFoveatedFeatureBits;
+    GLfloat mMinPixelDensity;
+
+    static constexpr size_t kMaxFocalPoints =
+        IMPLEMENTATION_MAX_NUM_LAYERS * IMPLEMENTATION_MAX_FOCAL_POINTS;
+    std::array<FocalPoint, kMaxFocalPoints> mFocalPoints;
+};
+
+enum class BufferStorage : bool
+{
+    // The buffer storage is mutable
+    Mutable,
+    // The buffer storage is immutable
+    Immutable,
+};
+
+enum class ZeroFillRequired : bool
+{
+    // The buffer should remain unchanged after initialization if there is no specified data.
+    No,
+    // The buffer should be zero-filled after initialization if there is no specified data.
+    Yes,
+};
+
 }  // namespace gl
 
 #endif  // LIBANGLE_ANGLETYPES_H_

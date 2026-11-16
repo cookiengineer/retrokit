@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,8 +30,8 @@
 
 namespace WebCore {
 
-UnlinkCommand::UnlinkCommand(Document& document)
-    : CompositeEditCommand(document)
+UnlinkCommand::UnlinkCommand(Ref<Document>&& document)
+    : CompositeEditCommand(WTF::move(document))
 {
 }
 

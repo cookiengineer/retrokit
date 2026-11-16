@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2016 Canon Inc.
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted, provided that the following conditions
@@ -30,24 +30,34 @@
 #pragma once
 
 #include "ActiveDOMObject.h"
-#include "ExceptionOr.h"
 #include "FetchBody.h"
 #include "FetchBodySource.h"
 #include "FetchHeaders.h"
 #include "FetchLoader.h"
 #include "FetchLoaderClient.h"
 #include "ResourceError.h"
+#include "SharedBuffer.h"
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
-class FetchBodyOwner : public RefCounted<FetchBodyOwner>, public ActiveDOMObject, public CanMakeWeakPtr<FetchBodyOwner> {
+template<typename> class ExceptionOr;
+
+DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(FetchBodyOwner);
+
+class FetchBodyOwner : public RefCounted<FetchBodyOwner>, public ActiveDOMObject {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(FetchBodyOwner, FetchBodyOwner);
 public:
-    FetchBodyOwner(ScriptExecutionContext&, std::optional<FetchBody>&&, Ref<FetchHeaders>&&);
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     ~FetchBodyOwner();
 
     bool bodyUsed() const { return isDisturbed(); }
     void arrayBuffer(Ref<DeferredPromise>&&);
     void blob(Ref<DeferredPromise>&&);
+    void bytes(Ref<DeferredPromise>&&);
     void formData(Ref<DeferredPromise>&&);
     void json(Ref<DeferredPromise>&&);
     void text(Ref<DeferredPromise>&&);
@@ -57,36 +67,38 @@ public:
 
     void loadBlob(const Blob&, FetchBodyConsumer*);
 
-    bool isActive() const { return !!m_blobLoader; }
-
     ExceptionOr<RefPtr<ReadableStream>> readableStream(JSC::JSGlobalObject&);
     bool hasReadableStreamBody() const { return m_body && m_body->hasReadableStream(); }
+    bool isReadableStreamBody() const { return m_body && m_body->isReadableStream(); }
 
     virtual void consumeBodyAsStream();
     virtual void feedStream() { }
     virtual void cancel() { }
+    virtual void loadBody() { }
 
     bool hasLoadingError() const;
     ResourceError loadingError() const;
     std::optional<Exception> loadingException() const;
 
-    const String& contentType() const { return m_contentType; }
+    String contentType() const { return m_headers->fastGet(HTTPHeaderName::ContentType); }
+
+    FetchBody& body() LIFETIME_BOUND { return *m_body; }
 
 protected:
-    const FetchBody& body() const { return *m_body; }
-    FetchBody& body() { return *m_body; }
+    FetchBodyOwner(ScriptExecutionContext*, std::optional<FetchBody>&&, Ref<FetchHeaders>&&);
+
+    const FetchBody& body() const LIFETIME_BOUND { return *m_body; }
     bool isBodyNull() const { return !m_body; }
     bool isBodyNullOrOpaque() const { return !m_body || m_isBodyOpaque; }
-    void cloneBody(FetchBodyOwner&);
+    void cloneBody(JSDOMGlobalObject&, FetchBodyOwner&);
 
     ExceptionOr<void> extractBody(FetchBody::Init&&);
-    void updateContentType();
     void consumeOnceLoadingFinished(FetchBodyConsumer::Type, Ref<DeferredPromise>&&);
 
-    void setBody(FetchBody&& body) { m_body = WTFMove(body); }
+    void setBody(FetchBody&& body) { m_body = WTF::move(body); }
     ExceptionOr<void> createReadableStream(JSC::JSGlobalObject&);
 
-    // ActiveDOMObject API
+    // ActiveDOMObject.
     void stop() override;
 
     void setDisturbed() { m_isDisturbed = true; }
@@ -99,36 +111,43 @@ protected:
 
 private:
     // Blob loading routines
-    void blobChunk(const uint8_t*, size_t);
+    void blobChunk(const SharedBuffer&);
     void blobLoadingSucceeded();
     void blobLoadingFailed();
     void finishBlobLoading();
 
     // ActiveDOMObject API
-    bool virtualHasPendingActivity() const final;
+    bool NODELETE virtualHasPendingActivity() const final;
 
-    struct BlobLoader final : FetchLoaderClient {
-        BlobLoader(FetchBodyOwner&);
+    class BlobLoader final : public RefCounted<BlobLoader>, public FetchLoaderClient {
+        WTF_MAKE_TZONE_ALLOCATED(BlobLoader);
+    public:
+        static Ref<BlobLoader> create(FetchBodyOwner&);
+        ~BlobLoader();
 
         // FetchLoaderClient API
         void didReceiveResponse(const ResourceResponse&) final;
-        void didReceiveData(const uint8_t* data, size_t size) final { owner.blobChunk(data, size); }
+        void didReceiveData(const SharedBuffer&) final;
         void didFail(const ResourceError&) final;
-        void didSucceed() final { owner.blobLoadingSucceeded(); }
+        void didSucceed(const NetworkLoadMetrics&) final;
+        void ref() const final { RefCounted::ref(); }
+        void deref() const final { RefCounted::deref(); }
 
-        FetchBodyOwner& owner;
-        std::unique_ptr<FetchLoader> loader;
+        RefPtr<FetchLoader> loader;
+
+    private:
+        explicit BlobLoader(FetchBodyOwner&);
+        WeakPtr<FetchBodyOwner> m_owner;
     };
 
 protected:
     std::optional<FetchBody> m_body;
-    String m_contentType;
     bool m_isDisturbed { false };
     RefPtr<FetchBodySource> m_readableStreamSource;
-    Ref<FetchHeaders> m_headers;
+    const Ref<FetchHeaders> m_headers;
 
 private:
-    std::optional<BlobLoader> m_blobLoader;
+    RefPtr<BlobLoader> m_blobLoader;
     bool m_isBodyOpaque { false };
 
     Variant<std::nullptr_t, Exception, ResourceError> m_loadingError;

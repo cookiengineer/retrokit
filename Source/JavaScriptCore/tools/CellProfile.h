@@ -46,7 +46,7 @@ struct CellProfile {
         , m_timestamp(MonotonicTime::now())
     {
         if (isJSCellKind(m_kind) && m_liveness != Dead)
-            m_className = jsCell()->structure()->classInfo()->className;
+            m_className = jsCell()->structure()->classInfoForCells()->className;
     }
 
     CellProfile(CellProfile&& other)
@@ -55,7 +55,7 @@ struct CellProfile {
         , m_liveness(other.m_liveness)
         , m_timestamp(other.m_timestamp)
         , m_className(other.m_className)
-        , m_stackTrace(WTFMove(other.m_stackTrace))
+        , m_stackTrace(WTF::move(other.m_stackTrace))
     { }
 
     HeapCell* cell() const { return m_cell; }
@@ -79,7 +79,7 @@ struct CellProfile {
 
     const char* className() const { return m_className; }
 
-    StackTrace* stackTrace() const { return m_stackTrace.get(); }
+    StackTrace* stackTrace() const LIFETIME_BOUND { return m_stackTrace.get(); }
     void setStackTrace(StackTrace* trace) { m_stackTrace = std::unique_ptr<StackTrace>(trace); }
 
 private:

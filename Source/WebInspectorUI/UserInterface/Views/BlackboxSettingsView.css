@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-.settings-view.blackbox > :matches(p, table) {
+.settings-view.blackbox > :is(p, table) {
     width: 100%;
     max-width: calc(min(50em, 100% - 40px));
     margin: 1em auto 2em;
@@ -48,6 +48,25 @@
     vertical-align: middle;
 }
 
+.settings-view.blackbox > p > label {
+    display: flex;
+}
+
+.settings-view.blackbox > p > label > input {
+    flex-shrink: 0;
+    margin-inline: 0.5px 4px;
+}
+
+.settings-view.blackbox > p > label > input[type="checkbox"] {
+    width: 15px;
+    height: 15px;
+    margin-top: 1px;
+}
+
+.settings-view.blackbox > p > label > span {
+    margin-top: 1.5px;
+}
+
 .settings-view.blackbox > table {
     border-collapse: collapse;
 }
@@ -64,7 +83,7 @@
     border: 1px solid var(--border-color);
 }
 
-.settings-view.blackbox > table :matches(th, td).url {
+.settings-view.blackbox > table :is(th, td).url {
     text-align: start;
 }
 
@@ -78,7 +97,7 @@
     background-color: transparent;
 }
 
-.settings-view.blackbox > table :matches(th, td):matches(.case-sensitive, .remove-blackbox) {
+.settings-view.blackbox > table :is(th, td):is(.case-sensitive, .remove-blackbox) {
     width: 1px;
     white-space: nowrap;
     text-align: center;

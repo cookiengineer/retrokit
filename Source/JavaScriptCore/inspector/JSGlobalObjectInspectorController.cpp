@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,7 +26,6 @@
 #include "config.h"
 #include "JSGlobalObjectInspectorController.h"
 
-#include "CatchScope.h"
 #include "Completion.h"
 #include "ConsoleMessage.h"
 #include "ErrorHandlingScope.h"
@@ -42,35 +41,41 @@
 #include "JSGlobalObject.h"
 #include "JSGlobalObjectAuditAgent.h"
 #include "JSGlobalObjectConsoleClient.h"
+#include "JSGlobalObjectDebugger.h"
 #include "JSGlobalObjectDebuggerAgent.h"
 #include "JSGlobalObjectRuntimeAgent.h"
 #include "ScriptCallStack.h"
 #include "ScriptCallStackFactory.h"
+#include "TopExceptionScope.h"
 #include <wtf/StackTrace.h>
 #include <wtf/Stopwatch.h>
+#include <wtf/TZoneMallocInlines.h>
 
 #if ENABLE(REMOTE_INSPECTOR)
 #include "JSGlobalObjectDebuggable.h"
 #include "RemoteInspector.h"
 #endif
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace Inspector {
 
 using namespace JSC;
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(JSGlobalObjectInspectorController);
+
 JSGlobalObjectInspectorController::JSGlobalObjectInspectorController(JSGlobalObject& globalObject)
     : m_globalObject(globalObject)
-    , m_injectedScriptManager(makeUnique<InjectedScriptManager>(*this, InjectedScriptHost::create()))
+    , m_injectedScriptManager(makeUniqueRef<InjectedScriptManager>(*this, InjectedScriptHost::create()))
     , m_executionStopwatch(Stopwatch::create())
-    , m_debugger(globalObject)
     , m_frontendRouter(FrontendRouter::create())
     , m_backendDispatcher(BackendDispatcher::create(m_frontendRouter.copyRef()))
 {
     auto context = jsAgentContext();
 
-    auto consoleAgent = makeUnique<InspectorConsoleAgent>(context);
-    m_consoleAgent = consoleAgent.get();
-    m_agents.append(WTFMove(consoleAgent));
+    auto consoleAgent = makeUniqueRef<InspectorConsoleAgent>(context);
+    m_consoleAgent = consoleAgent.ptr();
+    m_agents.append(WTF::move(consoleAgent));
 
     m_consoleClient = makeUnique<JSGlobalObjectConsoleClient>(m_consoleAgent);
 
@@ -92,6 +97,8 @@ void JSGlobalObjectInspectorController::globalObjectDestroyed()
     m_injectedScriptManager->disconnect();
 
     m_agents.discardValues();
+
+    m_debugger = nullptr;
 }
 
 void JSGlobalObjectInspectorController::connectFrontend(FrontendChannel& frontendChannel, bool isAutomaticInspection, bool immediatelyPause)
@@ -112,7 +119,7 @@ void JSGlobalObjectInspectorController::connectFrontend(FrontendChannel& fronten
     m_strongGlobalObject.set(m_globalObject.vm(), &m_globalObject);
 
     // FIXME: change this to notify agents which frontend has connected (by id).
-    m_agents.didCreateFrontendAndBackend(nullptr, nullptr);
+    m_agents.didCreateFrontendAndBackend();
 
 #if ENABLE(INSPECTOR_ALTERNATE_DISPATCHERS)
     if (m_augmentingClient)
@@ -161,11 +168,11 @@ void JSGlobalObjectInspectorController::appendAPIBacktrace(ScriptCallStack& call
     void** stack = samples + framesToSkip;
     int size = frames - framesToSkip;
     for (int i = 0; i < size; ++i) {
-        auto demangled = StackTrace::demangle(stack[i]);
+        auto demangled = StackTraceSymbolResolver::demangle(stack[i]);
         if (demangled)
-            callStack.append(ScriptCallFrame(demangled->demangledName() ? demangled->demangledName() : demangled->mangledName(), "[native code]"_s, noSourceID, 0, 0));
+            callStack.append(ScriptCallFrame(String::fromLatin1(demangled->demangledName() ? demangled->demangledName() : demangled->mangledName()), "[native code]"_s, noSourceID, { }));
         else
-            callStack.append(ScriptCallFrame("?"_s, "[native code]"_s, noSourceID, 0, 0));
+            callStack.append(ScriptCallFrame("?"_s, "[native code]"_s, noSourceID, { }));
     }
 }
 
@@ -175,7 +182,7 @@ void JSGlobalObjectInspectorController::reportAPIException(JSGlobalObject* globa
     if (vm.isTerminationException(exception))
         return;
 
-    auto scope = DECLARE_CATCH_SCOPE(vm);
+    auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
     ErrorHandlingScope errorScope(vm);
 
     Ref<ScriptCallStack> callStack = createScriptCallStackFromException(globalObject, exception);
@@ -195,12 +202,12 @@ void JSGlobalObjectInspectorController::reportAPIException(JSGlobalObject* globa
             ConsoleClient::printConsoleMessage(MessageSource::JS, MessageType::Log, MessageLevel::Error, errorMessage, String(), 0, 0);
     }
 
-    m_consoleAgent->addMessageToConsole(makeUnique<ConsoleMessage>(MessageSource::JS, MessageType::Log, MessageLevel::Error, errorMessage, WTFMove(callStack)));
+    m_consoleAgent->addMessageToConsole(makeUnique<ConsoleMessage>(MessageSource::JS, MessageType::Log, MessageLevel::Error, errorMessage, WTF::move(callStack)));
 }
 
-WeakPtr<ConsoleClient> JSGlobalObjectInspectorController::consoleClient() const
+CheckedPtr<ConsoleClient> JSGlobalObjectInspectorController::consoleClient() const
 {
-    return makeWeakPtr(m_consoleClient.get());
+    return m_consoleClient.get();
 }
 
 bool JSGlobalObjectInspectorController::developerExtrasEnabled() const
@@ -209,7 +216,7 @@ bool JSGlobalObjectInspectorController::developerExtrasEnabled() const
     if (!RemoteInspector::singleton().enabled())
         return false;
 
-    if (!m_globalObject.inspectorDebuggable().remoteDebuggingAllowed())
+    if (!m_globalObject.inspectorDebuggable().allowsInspectionByPolicy())
         return false;
 #endif
 
@@ -231,13 +238,13 @@ void JSGlobalObjectInspectorController::frontendInitialized()
     if (m_pauseAfterInitialization) {
         m_pauseAfterInitialization = false;
 
-        ensureDebuggerAgent().enable();
-        ensureDebuggerAgent().pause();
+        std::ignore = ensureDebuggerAgent().enable();
+        std::ignore = ensureDebuggerAgent().pause();
     }
 
 #if ENABLE(REMOTE_INSPECTOR)
     if (m_isAutomaticInspection)
-        m_globalObject.inspectorDebuggable().unpauseForInitializedInspector();
+        m_globalObject.inspectorDebuggable().unpauseForResolvedAutomaticInspection();
 #endif
 }
 
@@ -246,9 +253,10 @@ Stopwatch& JSGlobalObjectInspectorController::executionStopwatch() const
     return m_executionStopwatch;
 }
 
-JSGlobalObjectDebugger& JSGlobalObjectInspectorController::debugger()
+JSC::Debugger* JSGlobalObjectInspectorController::debugger()
 {
-    return m_debugger;
+    ASSERT_IMPLIES(m_didCreateLazyAgents, m_debugger);
+    return m_debugger.get();
 }
 
 VM& JSGlobalObjectInspectorController::vm()
@@ -257,12 +265,12 @@ VM& JSGlobalObjectInspectorController::vm()
 }
 
 #if ENABLE(INSPECTOR_ALTERNATE_DISPATCHERS)
-void JSGlobalObjectInspectorController::registerAlternateAgent(std::unique_ptr<InspectorAgentBase> agent)
+void JSGlobalObjectInspectorController::registerAlternateAgent(UniqueRef<InspectorAgentBase>&& agent)
 {
     // FIXME: change this to notify agents which frontend has connected (by id).
-    agent->didCreateFrontendAndBackend(nullptr, nullptr);
+    agent->didCreateFrontendAndBackend();
 
-    m_agents.append(WTFMove(agent));
+    m_agents.append(WTF::move(agent));
 }
 #endif
 
@@ -270,9 +278,9 @@ InspectorAgent& JSGlobalObjectInspectorController::ensureInspectorAgent()
 {
     if (!m_inspectorAgent) {
         auto context = jsAgentContext();
-        auto inspectorAgent = makeUnique<InspectorAgent>(context);
-        m_inspectorAgent = inspectorAgent.get();
-        m_agents.append(WTFMove(inspectorAgent));
+        auto inspectorAgent = makeUniqueRef<InspectorAgent>(context);
+        m_inspectorAgent = inspectorAgent.ptr();
+        m_agents.append(WTF::move(inspectorAgent));
     }
     return *m_inspectorAgent;
 }
@@ -281,10 +289,10 @@ InspectorDebuggerAgent& JSGlobalObjectInspectorController::ensureDebuggerAgent()
 {
     if (!m_debuggerAgent) {
         auto context = jsAgentContext();
-        auto debuggerAgent = makeUnique<JSGlobalObjectDebuggerAgent>(context, m_consoleAgent);
-        m_debuggerAgent = debuggerAgent.get();
+        auto debuggerAgent = makeUniqueRef<JSGlobalObjectDebuggerAgent>(context, m_consoleAgent);
+        m_debuggerAgent = debuggerAgent.ptr();
         m_consoleClient->setDebuggerAgent(m_debuggerAgent);
-        m_agents.append(WTFMove(debuggerAgent));
+        m_agents.append(WTF::move(debuggerAgent));
     }
     return *m_debuggerAgent;
 }
@@ -293,9 +301,9 @@ JSAgentContext JSGlobalObjectInspectorController::jsAgentContext()
 {
     AgentContext baseContext = {
         *this,
-        *m_injectedScriptManager,
+        m_injectedScriptManager.get(),
         m_frontendRouter.get(),
-        m_backendDispatcher.get()
+        m_backendDispatcher
     };
 
     JSAgentContext context = {
@@ -313,24 +321,27 @@ void JSGlobalObjectInspectorController::createLazyAgents()
 
     m_didCreateLazyAgents = true;
 
+    m_debugger = makeUnique<JSGlobalObjectDebugger>(m_globalObject);
+
     auto context = jsAgentContext();
 
     ensureInspectorAgent();
 
-    m_agents.append(makeUnique<JSGlobalObjectRuntimeAgent>(context));
+    m_agents.append(makeUniqueRef<JSGlobalObjectRuntimeAgent>(context));
 
     ensureDebuggerAgent();
 
-    auto scriptProfilerAgentPtr = makeUnique<InspectorScriptProfilerAgent>(context);
-    m_consoleClient->setPersistentScriptProfilerAgent(scriptProfilerAgentPtr.get());
-    m_agents.append(WTFMove(scriptProfilerAgentPtr));
+    auto scriptProfilerAgent = makeUniqueRef<InspectorScriptProfilerAgent>(context);
+    m_consoleClient->setPersistentScriptProfilerAgent(scriptProfilerAgent.ptr());
+    m_agents.append(WTF::move(scriptProfilerAgent));
 
-    auto heapAgent = makeUnique<InspectorHeapAgent>(context);
-    if (m_consoleAgent)
-        m_consoleAgent->setHeapAgent(heapAgent.get());
-    m_agents.append(WTFMove(heapAgent));
+    auto heapAgent = makeUniqueRef<InspectorHeapAgent>(context);
+    m_consoleClient->setPersistentHeapAgent(heapAgent.ptr());
+    m_agents.append(WTF::move(heapAgent));
 
-    m_agents.append(makeUnique<JSGlobalObjectAuditAgent>(context));
+    m_agents.append(makeUniqueRef<JSGlobalObjectAuditAgent>(context));
 }
 
 } // namespace Inspector
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

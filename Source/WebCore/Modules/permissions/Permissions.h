@@ -25,36 +25,52 @@
 
 #pragma once
 
-#include "IDLTypes.h"
 #include <JavaScriptCore/Strong.h>
-#include <wtf/IsoMalloc.h>
+#include <WebCore/IDLTypes.h>
+#include <wtf/ObjectIdentifier.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 
 namespace JSC {
 class JSObject;
 } // namespace JSC
 
+namespace WTF {
+class String;
+}
+
 namespace WebCore {
 
-class Navigator;
-class PermissionController;
+class Document;
+class NavigatorBase;
 class PermissionStatus;
+class ScriptExecutionContext;
+enum class PermissionName : uint8_t;
+enum class PermissionQuerySource : uint8_t;
+enum class PermissionState : uint8_t;
 
 template<typename IDLType> class DOMPromiseDeferred;
 
-class Permissions : public RefCounted<Permissions> {
-    WTF_MAKE_ISO_ALLOCATED(Permissions);
+class Permissions : public RefCountedAndCanMakeWeakPtr<Permissions> {
+    WTF_MAKE_TZONE_ALLOCATED(Permissions);
 public:
-    static Ref<Permissions> create(Navigator&);
+    static Ref<Permissions> create(NavigatorBase&);
+    ~Permissions();
 
-    Navigator* navigator();
-    void query(JSC::Strong<JSC::JSObject>, DOMPromiseDeferred<IDLInterface<PermissionStatus>>&&);
+    NavigatorBase* NODELETE navigator();
+    void query(JSC::Strong<JSC::JSObject>, Ref<DeferredPromise>&&);
+    WEBCORE_EXPORT static std::optional<PermissionQuerySource> sourceFromContext(const ScriptExecutionContext&);
+    WEBCORE_EXPORT static std::optional<PermissionName> toPermissionName(const String&);
 
 private:
-    explicit Permissions(Navigator&);
+    explicit Permissions(NavigatorBase&);
 
-    WeakPtr<Navigator> m_navigator;
-    RefPtr<PermissionController> m_controller;
+    WeakPtr<NavigatorBase> m_navigator;
+
+    enum class PromiseIdentifierType { };
+    using PromiseIdentifier = AtomicObjectIdentifier<PromiseIdentifierType>;
+    HashMap<PromiseIdentifier, Ref<DeferredPromise>> m_queryPromises;
 };
 
 } // namespace WebCore

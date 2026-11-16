@@ -31,6 +31,8 @@
 #include "DFGGraph.h"
 #include "JSCJSValueInlines.h"
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC { namespace DFG {
 
 #if ASSERT_ENABLED
@@ -44,12 +46,11 @@ void StructureAbstractValue::assertIsRegistered(Graph& graph) const
 }
 #endif // ASSERT_ENABLED
 
-void StructureAbstractValue::clobber()
+void StructureAbstractValue::clobber(Graph& graph)
 {
     // The premise of this approach to clobbering is that anytime we introduce
-    // a watchable structure into an abstract value, we watchpoint it. You can assert
-    // that this holds by calling assertIsWatched().
-        
+    // a watchable structure into an abstract value, we watchpoint it.
+
     if (isTop())
         return;
 
@@ -58,23 +59,25 @@ void StructureAbstractValue::clobber()
     if (m_set.isThin()) {
         if (!m_set.singleEntry())
             return;
-        if (!m_set.singleEntry()->dfgShouldWatch())
+        if (!graph.tryWatch(m_set.singleEntry().get()))
             makeTopWhenThin();
         return;
     }
-    
-    RegisteredStructureSet::OutOfLineList* list = m_set.list();
-    for (unsigned i = list->m_length; i--;) {
-        if (!list->list()[i]->dfgShouldWatch()) {
+
+    for (auto& item : m_set.list()->lengthSpan() | std::views::reverse) {
+        if (!item->dfgMayWatch()) {
             makeTop();
             return;
         }
     }
+
+    for (auto& item : m_set.list()->lengthSpan())
+        graph.watch(item.get());
 }
 
 void StructureAbstractValue::observeTransition(RegisteredStructure from, RegisteredStructure to)
 {
-    ASSERT(!from->dfgShouldWatch());
+    ASSERT(!from->dfgMayWatch());
 
     if (isTop())
         return;
@@ -96,7 +99,7 @@ void StructureAbstractValue::observeTransitions(const TransitionVector& vector)
     
     RegisteredStructureSet newStructures;
     for (unsigned i = vector.size(); i--;) {
-        ASSERT(!vector[i].previous->dfgShouldWatch());
+        ASSERT(!vector[i].previous->dfgMayWatch());
 
         if (!m_set.contains(vector[i].previous))
             continue;
@@ -264,7 +267,7 @@ void StructureAbstractValue::filterClassInfoSlow(const ClassInfo* classInfo)
     ASSERT(!isTop());
     m_set.genericFilter(
         [&] (RegisteredStructure structure) {
-            return structure->classInfo()->isSubClassOf(classInfo);
+            return structure->classInfoForCells()->isSubClassOf(classInfo);
         });
 }
 
@@ -344,7 +347,7 @@ bool StructureAbstractValue::isSubClassOf(const ClassInfo* classInfo) const
 
     // Note that this function returns true if the structure set is empty.
     for (const RegisteredStructure structure : m_set) {
-        if (!structure->classInfo()->isSubClassOf(classInfo))
+        if (!structure->classInfoForCells()->isSubClassOf(classInfo))
             return false;
     }
     return true;
@@ -357,7 +360,7 @@ bool StructureAbstractValue::isNotSubClassOf(const ClassInfo* classInfo) const
 
     // Note that this function returns true if the structure set is empty.
     for (const RegisteredStructure structure : m_set) {
-        if (structure->classInfo()->isSubClassOf(classInfo))
+        if (structure->classInfoForCells()->isSubClassOf(classInfo))
             return false;
     }
     return true;
@@ -398,5 +401,6 @@ void StructureAbstractValue::validateReferences(const TrackedReferences& tracked
 
 } } // namespace JSC::DFG
 
-#endif // ENABLE(DFG_JIT)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
+#endif // ENABLE(DFG_JIT)

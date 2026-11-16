@@ -175,7 +175,7 @@ CSSFormatter = class CSSFormatter
                 };
                 if (!shouldRemoveSpaceBefore())
                     break;
-                this._builder.removeLastWhitespace();
+                this._builder.tryRemoveLastWhitespace();
             }
         };
 
@@ -194,7 +194,7 @@ CSSFormatter = class CSSFormatter
                 };
                 if (!shouldRemoveSpaceAfter())
                     break;
-                this._builder.removeLastWhitespace();
+                this._builder.tryRemoveLastWhitespace();
             }
 
             if (!this._builder.lastTokenWasWhitespace && addSpaceAfter.has(current)) {
@@ -209,6 +209,11 @@ CSSFormatter = class CSSFormatter
                         if (!testCurrentLine(inAtRuleRegExp)) {
                             if (!inProperty())
                                 return false;
+                        }
+                    }
+                    if (current === `*`) {
+                        if (inSelector() && this._sourceText[index + 1] === `:`) {
+                            return false;
                         }
                     }
                     return true;
@@ -314,7 +319,7 @@ CSSFormatter = class CSSFormatter
                 if (current === `\n`) {
                     if (!this._builder.lastTokenWasNewline) {
                         while (this._builder.lastTokenWasWhitespace)
-                            this._builder.removeLastWhitespace();
+                            this._builder.tryRemoveLastWhitespace();
                         if (!removeSpaceAfter.has(this._builder.lastToken))
                             this._builder.appendNewline();
                         else

@@ -31,147 +31,17 @@
 
 #pragma once
 
-#include "GridPosition.h"
-#include <wtf/HashMap.h>
-#include <wtf/text/WTFString.h>
+#include <WebCore/GridSpan.h>
+#include <WebCore/StyleGridTrackSizingDirection.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-// A span in a single direction (either rows or columns). Note that |startLine|
-// and |endLine| are grid lines' indexes.
-// Despite line numbers in the spec start in "1", the indexes here start in "0".
-class GridSpan {
-public:
-
-    static GridSpan untranslatedDefiniteGridSpan(int startLine, int endLine)
-    {
-        return GridSpan(startLine, endLine, UntranslatedDefinite);
-    }
-
-    static GridSpan translatedDefiniteGridSpan(unsigned startLine, unsigned endLine)
-    {
-        return GridSpan(startLine, endLine, TranslatedDefinite);
-    }
-
-    static GridSpan indefiniteGridSpan()
-    {
-        return GridSpan(0, 1, Indefinite);
-    }
-
-    bool operator==(const GridSpan& o) const
-    {
-        return m_type == o.m_type && m_startLine == o.m_startLine && m_endLine == o.m_endLine;
-    }
-
-    unsigned integerSpan() const
-    {
-        ASSERT(isTranslatedDefinite());
-        return m_endLine - m_startLine;
-    }
-
-    int untranslatedStartLine() const
-    {
-        ASSERT(m_type == UntranslatedDefinite);
-        return m_startLine;
-    }
-
-    int untranslatedEndLine() const
-    {
-        ASSERT(m_type == UntranslatedDefinite);
-        return m_endLine;
-    }
-
-    unsigned startLine() const
-    {
-        ASSERT(isTranslatedDefinite());
-        ASSERT(m_endLine >= 0);
-        return m_startLine;
-    }
-
-    unsigned endLine() const
-    {
-        ASSERT(isTranslatedDefinite());
-        ASSERT(m_endLine > 0);
-        return m_endLine;
-    }
-
-    struct GridSpanIterator {
-        GridSpanIterator(unsigned value)
-            : value(value)
-        {
-        }
-
-        operator unsigned&() { return value; }
-        unsigned operator*() const { return value; }
-
-        unsigned value;
-    };
-
-    GridSpanIterator begin() const
-    {
-        ASSERT(isTranslatedDefinite());
-        return m_startLine;
-    }
-
-    GridSpanIterator end() const
-    {
-        ASSERT(isTranslatedDefinite());
-        return m_endLine;
-    }
-
-    bool isTranslatedDefinite() const
-    {
-        return m_type == TranslatedDefinite;
-    }
-
-    bool isIndefinite() const
-    {
-        return m_type == Indefinite;
-    }
-
-    void translate(unsigned offset)
-    {
-        ASSERT(m_type == UntranslatedDefinite);
-
-        m_type = TranslatedDefinite;
-        m_startLine += offset;
-        m_endLine += offset;
-
-        ASSERT(m_startLine >= 0);
-        ASSERT(m_endLine > 0);
-    }
-
-private:
-
-    enum GridSpanType {UntranslatedDefinite, TranslatedDefinite, Indefinite};
-
-    GridSpan(int startLine, int endLine, GridSpanType type)
-        : m_type(type)
-    {
-#if ASSERT_ENABLED
-        ASSERT(startLine < endLine);
-        if (type == TranslatedDefinite) {
-            ASSERT(startLine >= 0);
-            ASSERT(endLine > 0);
-        }
-#endif
-
-        m_startLine = std::max(GridPosition::min(), std::min(startLine, GridPosition::max() - 1));
-        m_endLine = std::max(GridPosition::min() + 1, std::min(endLine, GridPosition::max()));
-    }
-
-    int m_startLine;
-    int m_endLine;
-    GridSpanType m_type;
-
-
-};
-
 // This represents a grid area that spans in both rows' and columns' direction.
 class GridArea {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(GridArea);
 public:
-    // HashMap requires a default constuctor.
+    // HashMap requires a default constructor.
     GridArea()
         : columns(GridSpan::indefiniteGridSpan())
         , rows(GridSpan::indefiniteGridSpan())
@@ -184,20 +54,15 @@ public:
     {
     }
 
-    bool operator==(const GridArea& o) const
-    {
-        return columns == o.columns && rows == o.rows;
-    }
-
-    bool operator!=(const GridArea& o) const
-    {
-        return !(*this == o);
-    }
+    bool operator==(const GridArea&) const = default;
 
     GridSpan columns;
     GridSpan rows;
-};
 
-typedef HashMap<String, GridArea> NamedGridAreaMap;
+    const GridSpan& span(Style::GridTrackSizingDirection direction) const LIFETIME_BOUND
+    {
+        return direction == Style::GridTrackSizingDirection::Columns ? columns : rows;
+    }
+};
 
 } // namespace WebCore

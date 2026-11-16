@@ -36,17 +36,20 @@
 #include "Document.h"
 #include "Element.h"
 #include "InspectorHistory.h"
-#include "Node.h"
+#include "NodeDocument.h"
 #include "Text.h"
 #include "markup.h"
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(DOMEditor);
 
 class DOMEditor::RemoveChildAction final : public InspectorHistory::Action {
     WTF_MAKE_NONCOPYABLE(RemoveChildAction);
 public:
-    RemoveChildAction(Node& parentNode, Node& node)
+    RemoveChildAction(ContainerNode& parentNode, Node& node)
         : InspectorHistory::Action()
         , m_parentNode(parentNode)
         , m_node(node)
@@ -61,7 +64,7 @@ public:
 
     ExceptionOr<void> undo() final
     {
-        return m_parentNode->insertBefore(m_node, m_anchorNode.get());
+        return m_parentNode->insertBefore(m_node, m_anchorNode.copyRef());
     }
 
     ExceptionOr<void> redo() final
@@ -70,17 +73,17 @@ public:
     }
 
 private:
-    Ref<Node> m_parentNode;
-    Ref<Node> m_node;
+    const Ref<ContainerNode> m_parentNode;
+    const Ref<Node> m_node;
     RefPtr<Node> m_anchorNode;
 };
 
 class DOMEditor::InsertBeforeAction final : public InspectorHistory::Action {
 public:
-    InsertBeforeAction(Node& parentNode, Ref<Node>&& node, Node* anchorNode)
+    InsertBeforeAction(ContainerNode& parentNode, Ref<Node>&& node, Node* anchorNode)
         : InspectorHistory::Action()
         , m_parentNode(parentNode)
-        , m_node(WTFMove(node))
+        , m_node(WTF::move(node))
         , m_anchorNode(anchorNode)
     {
     }
@@ -94,7 +97,7 @@ private:
             if (result.hasException())
                 return result.releaseException();
         }
-        return m_parentNode->insertBefore(m_node, m_anchorNode.get());
+        return m_parentNode->insertBefore(m_node, m_anchorNode.copyRef());
     }
 
     ExceptionOr<void> undo() final
@@ -114,19 +117,19 @@ private:
             if (result.hasException())
                 return result.releaseException();
         }
-        return m_parentNode->insertBefore(m_node, m_anchorNode.get());
+        return m_parentNode->insertBefore(m_node, m_anchorNode.copyRef());
     }
 
-    Ref<Node> m_parentNode;
-    Ref<Node> m_node;
-    RefPtr<Node> m_anchorNode;
+    const Ref<ContainerNode> m_parentNode;
+    const Ref<Node> m_node;
+    const RefPtr<Node> m_anchorNode;
     std::unique_ptr<RemoveChildAction> m_removeChildAction;
 };
 
 class DOMEditor::RemoveAttributeAction final : public InspectorHistory::Action {
     WTF_MAKE_NONCOPYABLE(RemoveAttributeAction);
 public:
-    RemoveAttributeAction(Element& element, const String& name)
+    RemoveAttributeAction(Element& element, const AtomString& name)
         : InspectorHistory::Action()
         , m_element(element)
         , m_name(name)
@@ -151,9 +154,9 @@ private:
         return { };
     }
 
-    Ref<Element> m_element;
-    String m_name;
-    String m_value;
+    const Ref<Element> m_element;
+    AtomString m_name;
+    AtomString m_value;
 };
 
 class DOMEditor::SetAttributeAction final : public InspectorHistory::Action {
@@ -188,7 +191,7 @@ private:
         return m_element->setAttribute(m_name, m_value);
     }
 
-    Ref<Element> m_element;
+    const Ref<Element> m_element;
     AtomString m_name;
     AtomString m_value;
     AtomString m_oldValue;
@@ -204,7 +207,7 @@ public:
     {
     }
 
-    Node* newNode() const
+    Node* NODELETE newNode() const
     {
         return m_newNode.get();
     }
@@ -230,8 +233,8 @@ private:
         return m_history.redo();
     }
 
-    Ref<Node> m_node;
-    RefPtr<Node> m_nextSibling;
+    const Ref<Node> m_node;
+    const RefPtr<Node> m_nextSibling;
     String m_html;
     String m_oldHTML;
     RefPtr<Node> m_newNode { nullptr };
@@ -272,7 +275,7 @@ private:
         return { };
     }
 
-    Ref<Element> m_element;
+    const Ref<Element> m_element;
     NodeVector m_addedNodes;
     String m_position;
     String m_html;
@@ -307,7 +310,7 @@ private:
         return { };
     }
 
-    Ref<Text> m_textNode;
+    const Ref<Text> m_textNode;
     String m_text;
     String m_oldText;
 };
@@ -315,10 +318,10 @@ private:
 class DOMEditor::ReplaceChildNodeAction final: public InspectorHistory::Action {
     WTF_MAKE_NONCOPYABLE(ReplaceChildNodeAction);
 public:
-    ReplaceChildNodeAction(Node& parentNode, Ref<Node>&& newNode, Node& oldNode)
+    ReplaceChildNodeAction(ContainerNode& parentNode, Ref<Node>&& newNode, Node& oldNode)
         : InspectorHistory::Action()
         , m_parentNode(parentNode)
-        , m_newNode(WTFMove(newNode))
+        , m_newNode(WTF::move(newNode))
         , m_oldNode(oldNode)
     {
     }
@@ -339,9 +342,9 @@ private:
         return m_parentNode->replaceChild(m_newNode, m_oldNode);
     }
 
-    Ref<Node> m_parentNode;
-    Ref<Node> m_newNode;
-    Ref<Node> m_oldNode;
+    const Ref<ContainerNode> m_parentNode;
+    const Ref<Node> m_newNode;
+    const Ref<Node> m_oldNode;
 };
 
 class DOMEditor::SetNodeValueAction final : public InspectorHistory::Action {
@@ -363,15 +366,17 @@ private:
 
     ExceptionOr<void> undo() final
     {
-        return m_node->setNodeValue(m_oldValue);
+        m_node->setNodeValue(m_oldValue);
+        return { };
     }
 
     ExceptionOr<void> redo() final
     {
-        return m_node->setNodeValue(m_value);
+        m_node->setNodeValue(m_value);
+        return { };
     }
 
-    Ref<Node> m_node;
+    const Ref<Node> m_node;
     String m_value;
     String m_oldValue;
 };
@@ -383,22 +388,22 @@ DOMEditor::DOMEditor(InspectorHistory& history)
 
 DOMEditor::~DOMEditor() = default;
 
-ExceptionOr<void> DOMEditor::insertBefore(Node& parentNode, Ref<Node>&& node, Node* anchorNode)
+ExceptionOr<void> DOMEditor::insertBefore(ContainerNode& parentNode, Ref<Node>&& node, Node* anchorNode)
 {
-    return m_history.perform(makeUnique<InsertBeforeAction>(parentNode, WTFMove(node), anchorNode));
+    return m_history.perform(makeUnique<InsertBeforeAction>(parentNode, WTF::move(node), anchorNode));
 }
 
-ExceptionOr<void> DOMEditor::removeChild(Node& parentNode, Node& node)
+ExceptionOr<void> DOMEditor::removeChild(ContainerNode& parentNode, Node& node)
 {
     return m_history.perform(makeUnique<RemoveChildAction>(parentNode, node));
 }
 
-ExceptionOr<void> DOMEditor::setAttribute(Element& element, const String& name, const String& value)
+ExceptionOr<void> DOMEditor::setAttribute(Element& element, const AtomString& name, const AtomString& value)
 {
     return m_history.perform(makeUnique<SetAttributeAction>(element, name, value));
 }
 
-ExceptionOr<void> DOMEditor::removeAttribute(Element& element, const String& name)
+ExceptionOr<void> DOMEditor::removeAttribute(Element& element, const AtomString& name)
 {
     return m_history.perform(makeUnique<RemoveAttributeAction>(element, name));
 }
@@ -407,7 +412,7 @@ ExceptionOr<void> DOMEditor::setOuterHTML(Node& node, const String& html, Node*&
 {
     auto action = makeUnique<SetOuterHTMLAction>(node, html);
     auto& rawAction = *action;
-    auto result = m_history.perform(WTFMove(action));
+    auto result = m_history.perform(WTF::move(action));
     if (!result.hasException())
         newNode = rawAction.newNode();
     return result;
@@ -423,9 +428,9 @@ ExceptionOr<void> DOMEditor::replaceWholeText(Text& textNode, const String& text
     return m_history.perform(makeUnique<ReplaceWholeTextAction>(textNode, text));
 }
 
-ExceptionOr<void> DOMEditor::replaceChild(Node& parentNode, Ref<Node>&& newNode, Node& oldNode)
+ExceptionOr<void> DOMEditor::replaceChild(ContainerNode& parentNode, Ref<Node>&& newNode, Node& oldNode)
 {
-    return m_history.perform(makeUnique<ReplaceChildNodeAction>(parentNode, WTFMove(newNode), oldNode));
+    return m_history.perform(makeUnique<ReplaceChildNodeAction>(parentNode, WTF::move(newNode), oldNode));
 }
 
 ExceptionOr<void> DOMEditor::setNodeValue(Node& node, const String& value)
@@ -441,22 +446,22 @@ static bool populateErrorString(ExceptionOr<void>&& result, ErrorString& errorSt
     return false;
 }
 
-bool DOMEditor::insertBefore(Node& parentNode, Ref<Node>&& node, Node* anchorNode, ErrorString& errorString)
+bool DOMEditor::insertBefore(ContainerNode& parentNode, Ref<Node>&& node, Node* anchorNode, ErrorString& errorString)
 {
-    return populateErrorString(insertBefore(parentNode, WTFMove(node), anchorNode), errorString);
+    return populateErrorString(insertBefore(parentNode, WTF::move(node), anchorNode), errorString);
 }
 
-bool DOMEditor::removeChild(Node& parentNode, Node& node, ErrorString& errorString)
+bool DOMEditor::removeChild(ContainerNode& parentNode, Node& node, ErrorString& errorString)
 {
     return populateErrorString(removeChild(parentNode, node), errorString);
 }
 
-bool DOMEditor::setAttribute(Element& element, const String& name, const String& value, ErrorString& errorString)
+bool DOMEditor::setAttribute(Element& element, const AtomString& name, const AtomString& value, ErrorString& errorString)
 {
     return populateErrorString(setAttribute(element, name, value), errorString);
 }
 
-bool DOMEditor::removeAttribute(Element& element, const String& name, ErrorString& errorString)
+bool DOMEditor::removeAttribute(Element& element, const AtomString& name, ErrorString& errorString)
 {
     return populateErrorString(removeAttribute(element, name), errorString);
 }

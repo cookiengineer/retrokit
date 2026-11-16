@@ -31,6 +31,7 @@
 #include <JavaScriptCore/InitializeThreading.h>
 #include <JavaScriptCore/OpaqueJSString.h>
 #include <WebCore/WebCoreJITOperations.h>
+#include <wtf/StdLibExtras.h>
 #include <wtf/unicode/UTF8Conversion.h>
 
 WKTypeID WKStringGetTypeID()
@@ -40,7 +41,12 @@ WKTypeID WKStringGetTypeID()
 
 WKStringRef WKStringCreateWithUTF8CString(const char* string)
 {
-    return WebKit::toAPI(&API::String::create(WTF::String::fromUTF8(string)).leakRef());
+    return WebKit::toAPILeakingRef(API::String::create(WTF::String::fromUTF8(string)));
+}
+
+WKStringRef WKStringCreateWithUTF8CStringWithLength(const char* string, size_t stringLength)
+{
+    return WebKit::toAPILeakingRef(API::String::create(WTF::String::fromUTF8(unsafeMakeSpan(string, stringLength))));
 }
 
 bool WKStringIsEmpty(WKStringRef stringRef)
@@ -55,12 +61,12 @@ size_t WKStringGetLength(WKStringRef stringRef)
 
 size_t WKStringGetCharacters(WKStringRef stringRef, WKChar* buffer, size_t bufferLength)
 {
-    static_assert(sizeof(WKChar) == sizeof(UChar), "Size of WKChar must match size of UChar");
+    static_assert(sizeof(WKChar) == sizeof(char16_t), "Size of WKChar must match size of char16_t");
 
     unsigned unsignedBufferLength = std::min<size_t>(bufferLength, std::numeric_limits<unsigned>::max());
-    auto substring = WebKit::toImpl(stringRef)->stringView().substring(0, unsignedBufferLength);
+    auto substring = WebKit::toImpl(stringRef)->stringView().left(unsignedBufferLength);
 
-    substring.getCharactersWithUpconvert(reinterpret_cast<UChar*>(buffer));
+    substring.getCharacters(unsafeMakeSpan(reinterpret_cast<char16_t*>(buffer), bufferLength));
     return substring.length();
 }
 
@@ -77,23 +83,24 @@ size_t WKStringGetUTF8CStringImpl(WKStringRef stringRef, char* buffer, size_t bu
     if (!bufferSize)
         return 0;
 
-    auto stringView = WebKit::toImpl(stringRef)->stringView();
+    auto string = WebKit::toImpl(stringRef)->stringView();
 
-    char* p = buffer;
-
-    if (stringView.is8Bit()) {
-        const LChar* characters = stringView.characters8();
-        if (!WTF::Unicode::convertLatin1ToUTF8(&characters, characters + stringView.length(), &p, p + bufferSize - 1))
-            return 0;
-    } else {
-        const UChar* characters = stringView.characters16();
-        auto result = WTF::Unicode::convertUTF16ToUTF8(&characters, characters + stringView.length(), &p, p + bufferSize - 1, strict);
-        if (result != WTF::Unicode::ConversionOK && result != WTF::Unicode::TargetExhausted)
-            return 0;
+    auto target = unsafeMakeSpan(byteCast<char8_t>(buffer), bufferSize);
+    WTF::Unicode::ConversionResult<char8_t> result;
+    if (string.is8Bit())
+        result = WTF::Unicode::convert(string.span8(), target.first(bufferSize - 1));
+    else {
+        if constexpr (strict == NonStrict)
+            result = WTF::Unicode::convertReplacingInvalidSequences(string.span16(), target.first(bufferSize - 1));
+        else {
+            result = WTF::Unicode::convert(string.span16(), target.first(bufferSize - 1));
+            if (result.code == WTF::Unicode::ConversionResultCode::SourceInvalid)
+                return 0;
+        }
     }
 
-    *p++ = '\0';
-    return p - buffer;
+    target[result.buffer.size()] = '\0';
+    return result.buffer.size() + 1;
 }
 
 size_t WKStringGetUTF8CString(WKStringRef stringRef, char* buffer, size_t bufferSize)
@@ -129,12 +136,12 @@ WKStringRef WKStringCreateWithJSString(JSStringRef jsStringRef)
 {
     auto apiString = jsStringRef ? API::String::create(jsStringRef->string()) : API::String::createNull();
 
-    return WebKit::toAPI(&apiString.leakRef());
+    return WebKit::toAPILeakingRef(WTF::move(apiString));
 }
 
 JSStringRef WKStringCopyJSString(WKStringRef stringRef)
 {
     JSC::initialize();
     WebCore::populateJITOperations();
-    return OpaqueJSString::tryCreate(WebKit::toImpl(stringRef)->string()).leakRef();
+    return OpaqueJSString::tryCreate(protect(WebKit::toImpl(stringRef))->string()).leakRef();
 }

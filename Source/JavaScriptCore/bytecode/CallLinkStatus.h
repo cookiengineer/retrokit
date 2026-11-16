@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,6 +32,7 @@
 #include "ExitFlag.h"
 #include "ICStatusMap.h"
 #include "JSCJSValue.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC {
 
@@ -42,7 +43,7 @@ class Structure;
 class CallLinkInfo;
 
 class CallLinkStatus final {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(CallLinkStatus);
 public:
     CallLinkStatus()
     {
@@ -58,7 +59,7 @@ public:
     explicit CallLinkStatus(JSValue);
     
     CallLinkStatus(CallVariant variant)
-        : m_variants(1, variant)
+        : m_variants(FillWith { }, 1, variant)
     {
     }
     
@@ -102,22 +103,22 @@ public:
     bool isBasedOnStub() const { return m_isBasedOnStub; }
     bool canOptimize() const { return !m_variants.isEmpty(); }
 
-    bool isClosureCall() const; // Returns true if any callee is a closure call.
-    
-    unsigned maxArgumentCountIncludingThis() const { return m_maxArgumentCountIncludingThis; }
+    bool NODELETE isClosureCall() const; // Returns true if any callee is a closure call.
+
+    void makeClosureCall();
+
+    unsigned maxArgumentCountIncludingThisForVarargs() const { return m_maxArgumentCountIncludingThisForVarargs; }
     
     bool finalize(VM&);
     
     void merge(const CallLinkStatus&);
     
-    void filter(VM&, JSValue);
+    void filter(JSValue);
     
     void dump(PrintStream&) const;
     
 private:
-    void makeClosureCall();
-    
-    static CallLinkStatus computeFromLLInt(const ConcurrentJSLocker&, CodeBlock*, BytecodeIndex);
+
 #if ENABLE(JIT)
     static CallLinkStatus computeFromCallLinkInfo(
         const ConcurrentJSLocker&, CallLinkInfo&);
@@ -129,7 +130,7 @@ private:
     bool m_couldTakeSlowPath { false };
     bool m_isProved { false };
     bool m_isBasedOnStub { false };
-    unsigned m_maxArgumentCountIncludingThis { 0 };
+    uint8_t m_maxArgumentCountIncludingThisForVarargs { 0 }; // More than UINT8_MAX will be recorded as UINT8_MAX.
 };
 
 } // namespace JSC

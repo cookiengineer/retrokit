@@ -5,16 +5,18 @@
 //
 
 #include "GPUTestExpectationsParser.h"
+#include <array>
+#include "common/unsafe_buffers.h"
 
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <fstream>
+#include <string>
 
 #include "common/angleutils.h"
 #include "common/debug.h"
 #include "common/string_utils.h"
-
-#include "GPUTestConfig.h"
 
 namespace angle
 {
@@ -53,6 +55,8 @@ enum Token
     kConfigMacHighSierra,
     kConfigMacMojave,
     kConfigMac,
+    kConfigIOS,
+    kConfigIOSSimulator,
     kConfigLinux,
     kConfigChromeOS,
     kConfigAndroid,
@@ -61,27 +65,56 @@ enum Token
     kConfigAMD,
     kConfigIntel,
     kConfigVMWare,
+    kConfigApple,
+    kConfigQualcomm,
+    kConfigARM,
+    kConfigSamsung,
     // build type
     kConfigRelease,
     kConfigDebug,
+    kConfigDebugLayers,
     // ANGLE renderer
-    kConfigD3D9,
     kConfigD3D11,
     kConfigGLDesktop,
     kConfigGLES,
     kConfigVulkan,
     kConfigSwiftShader,
     kConfigMetal,
+    kConfigWgpu,
+    kConfigNative,
     // Android devices
     kConfigNexus5X,
     kConfigPixel2,
+    kConfigPixel4,
+    kConfigPixel6,
+    kConfigPixel7,
+    kConfigPixel10,
+    kConfigFlipN2,
+    kConfigMaliG710,
+    kConfigGalaxyA23,
+    kConfigGalaxyA34,
+    kConfigGalaxyA54,
+    kConfigGalaxyS22,
+    kConfigGalaxyS23,
+    kConfigGalaxyS24Exynos,
+    kConfigGalaxyS24Qualcomm,
+    kConfigFindX6,
+    kConfigPineapple,
     // GPU devices
     kConfigNVIDIAQuadroP400,
+    kConfigNVIDIAGTX1660,
     // PreRotation
     kConfigPreRotation,
     kConfigPreRotation90,
     kConfigPreRotation180,
     kConfigPreRotation270,
+    // Sanitizers
+    kConfigNoSan,
+    kConfigASan,
+    kConfigTSan,
+    kConfigUBSan,
+    // Translator
+    kConfigIR,
     // expectation
     kExpectationPass,
     kExpectationFail,
@@ -107,6 +140,7 @@ enum ErrorType
     kErrorIllegalEntry,
     kErrorInvalidEntry,
     kErrorEntryWithExpectationConflicts,
+    kErrorEntryWithDisallowedExpectation,
     kErrorEntriesOverlap,
 
     kNumberOfErrors,
@@ -135,7 +169,7 @@ struct TokenInfo
     GPUTestExpectationsParser::GPUTestExpectation expectation;
 };
 
-constexpr TokenInfo kTokenData[kNumberOfTokens] = {
+constexpr std::array<TokenInfo, kNumberOfTokens> kTokenData = {{
     {"xp", GPUTestConfig::kConditionWinXP},
     {"vista", GPUTestConfig::kConditionWinVista},
     {"win7", GPUTestConfig::kConditionWin7},
@@ -153,29 +187,59 @@ constexpr TokenInfo kTokenData[kNumberOfTokens] = {
     {"highsierra", GPUTestConfig::kConditionMacHighSierra},
     {"mojave", GPUTestConfig::kConditionMacMojave},
     {"mac", GPUTestConfig::kConditionMac},
+    {"ios", GPUTestConfig::kConditionIOS},
+    {"iossimulator", GPUTestConfig::kConditionIOSSimulator},
     {"linux", GPUTestConfig::kConditionLinux},
-    {"chromeos", GPUTestConfig::kConditionNone},  // https://anglebug.com/3363 CrOS not supported
+    {"chromeos",
+     GPUTestConfig::kConditionNone},  // https://anglebug.com/42262032 CrOS not supported
     {"android", GPUTestConfig::kConditionAndroid},
     {"nvidia", GPUTestConfig::kConditionNVIDIA},
     {"amd", GPUTestConfig::kConditionAMD},
     {"intel", GPUTestConfig::kConditionIntel},
     {"vmware", GPUTestConfig::kConditionVMWare},
+    {"apple", GPUTestConfig::kConditionApple},
+    {"qualcomm", GPUTestConfig::kConditionQualcomm},
+    {"arm", GPUTestConfig::kConditionARM},
+    {"samsung", GPUTestConfig::kConditionSamsung},
     {"release", GPUTestConfig::kConditionRelease},
     {"debug", GPUTestConfig::kConditionDebug},
-    {"d3d9", GPUTestConfig::kConditionD3D9},
+    {"debuglayers", GPUTestConfig::kConditionDebugLayers},
     {"d3d11", GPUTestConfig::kConditionD3D11},
     {"opengl", GPUTestConfig::kConditionGLDesktop},
     {"gles", GPUTestConfig::kConditionGLES},
     {"vulkan", GPUTestConfig::kConditionVulkan},
+    {"native", GPUTestConfig::kConditionNative},
     {"swiftshader", GPUTestConfig::kConditionSwiftShader},
     {"metal", GPUTestConfig::kConditionMetal},
+    {"wgpu", GPUTestConfig::kConditionWgpu},
     {"nexus5x", GPUTestConfig::kConditionNexus5X},
     {"pixel2orxl", GPUTestConfig::kConditionPixel2OrXL},
+    {"pixel4orxl", GPUTestConfig::kConditionPixel4OrXL},
+    {"pixel6", GPUTestConfig::kConditionPixel6},
+    {"pixel7", GPUTestConfig::kConditionPixel7},
+    {"pixel10", GPUTestConfig::kConditionPixel10},
+    {"flipn2", GPUTestConfig::kConditionFlipN2},
+    {"malig710", GPUTestConfig::kConditionMaliG710},
+    {"galaxya23", GPUTestConfig::kConditionGalaxyA23},
+    {"galaxya34", GPUTestConfig::kConditionGalaxyA34},
+    {"galaxya54", GPUTestConfig::kConditionGalaxyA54},
+    {"galaxys22", GPUTestConfig::kConditionGalaxyS22},
+    {"galaxys23", GPUTestConfig::kConditionGalaxyS23},
+    {"galaxys24exynos", GPUTestConfig::kConditionGalaxyS24Exynos},
+    {"galaxys24qualcomm", GPUTestConfig::kConditionGalaxyS24Qualcomm},
+    {"findx6", GPUTestConfig::kConditionFindX6},
+    {"pineapple", GPUTestConfig::kConditionPineapple},
     {"quadrop400", GPUTestConfig::kConditionNVIDIAQuadroP400},
+    {"gtx1660", GPUTestConfig::kConditionNVIDIAGTX1660},
     {"prerotation", GPUTestConfig::kConditionPreRotation},
     {"prerotation90", GPUTestConfig::kConditionPreRotation90},
     {"prerotation180", GPUTestConfig::kConditionPreRotation180},
     {"prerotation270", GPUTestConfig::kConditionPreRotation270},
+    {"nosan", GPUTestConfig::kConditionNoSan},
+    {"asan", GPUTestConfig::kConditionASan},
+    {"tsan", GPUTestConfig::kConditionTSan},
+    {"ubsan", GPUTestConfig::kConditionUBSan},
+    {"ir", GPUTestConfig::kConditionIR},
     {"pass", GPUTestConfig::kConditionNone, GPUTestExpectationsParser::kGpuTestPass},
     {"fail", GPUTestConfig::kConditionNone, GPUTestExpectationsParser::kGpuTestFail},
     {"flaky", GPUTestConfig::kConditionNone, GPUTestExpectationsParser::kGpuTestFlaky},
@@ -186,13 +250,14 @@ constexpr TokenInfo kTokenData[kNumberOfTokens] = {
     {},                                    // kNumberOfExactMatchTokens
     {},                                    // kTokenComment
     {},                                    // kTokenWord
-};
+}};
 
-const char *kErrorMessage[kNumberOfErrors] = {
+constexpr std::array<const char *, kNumberOfErrors> kErrorMessage = {
     "file IO failed",
     "entry with wrong format",
     "entry invalid, likely unimplemented modifiers",
     "entry with expectation modifier conflicts",
+    "entry with unsupported expectation",
     "two entries' configs overlap",
 };
 
@@ -211,7 +276,7 @@ inline Char ToLowerASCII(Char c)
 template <typename Iter>
 inline bool DoLowerCaseEqualsASCII(Iter a_begin, Iter a_end, const char *b)
 {
-    for (Iter it = a_begin; it != a_end; ++it, ++b)
+    for (Iter it = a_begin; it != a_end; ++it, ANGLE_UNSAFE_TODO(++b))
     {
         if (!*b || ToLowerASCII(*it) != *b)
             return false;
@@ -232,51 +297,44 @@ inline Token ParseToken(const std::string &word)
     for (int32_t i = 0; i < kNumberOfExactMatchTokens; ++i)
     {
         if (LowerCaseEqualsASCII(word, kTokenData[i].name))
+        {
             return static_cast<Token>(i);
+        }
     }
     return kTokenWord;
 }
 
-// reference name can have *.
-inline bool NamesMatching(const char *ref, const char *testName)
+bool ConditionArrayIsSubset(const GPUTestConfig::ConditionArray &subset,
+                            const GPUTestConfig::ConditionArray &superset)
 {
-    // Find the first * in ref.
-    const char *firstWildcard = strchr(ref, '*');
-
-    // If there are no wildcards, match the strings precisely.
-    if (firstWildcard == nullptr)
+    for (size_t subsetCondition : subset)
     {
-        return strcmp(ref, testName) == 0;
-    }
-
-    // Otherwise, match up to the wildcard first.
-    size_t preWildcardLen = firstWildcard - ref;
-    if (strncmp(ref, testName, preWildcardLen) != 0)
-    {
-        return false;
-    }
-
-    const char *postWildcardRef = ref + preWildcardLen + 1;
-
-    // As a small optimization, if the wildcard is the last character in ref, accept the match
-    // already.
-    if (postWildcardRef[0] == '\0')
-    {
-        return true;
-    }
-
-    // Try to match the wildcard with a number of characters.
-    for (size_t matchSize = 0; testName[matchSize] != '\0'; ++matchSize)
-    {
-        if (NamesMatching(postWildcardRef, testName + matchSize))
+        bool foundCondition = false;
+        for (size_t supersetCondition : superset)
         {
-            return true;
+            if (subsetCondition == supersetCondition)
+            {
+                foundCondition = true;
+                break;
+            }
+        }
+
+        if (!foundCondition)
+        {
+            return false;
         }
     }
 
-    return false;
+    return true;
 }
 
+// If one array is completely contained within the other, then we say the conditions overlap.
+bool ConditionsOverlap(const GPUTestConfig::ConditionArray &conditionsI,
+                       const GPUTestConfig::ConditionArray &conditionsJ)
+{
+    return ConditionArrayIsSubset(conditionsI, conditionsJ) ||
+           ConditionArrayIsSubset(conditionsJ, conditionsI);
+}
 }  // anonymous namespace
 
 const char *GetConditionName(uint32_t condition)
@@ -301,76 +359,160 @@ const char *GetConditionName(uint32_t condition)
 }
 
 GPUTestExpectationsParser::GPUTestExpectationsParser()
+    : mExpectationsAllowMask(
+          GPUTestExpectationsParser::kGpuTestPass | GPUTestExpectationsParser::kGpuTestFail |
+          GPUTestExpectationsParser::kGpuTestFlaky | GPUTestExpectationsParser::kGpuTestTimeout |
+          GPUTestExpectationsParser::kGpuTestSkip)
 {
     // Some initial checks.
-    ASSERT((static_cast<unsigned int>(kNumberOfTokens)) ==
-           (sizeof(kTokenData) / sizeof(kTokenData[0])));
-    ASSERT((static_cast<unsigned int>(kNumberOfErrors)) ==
-           (sizeof(kErrorMessage) / sizeof(kErrorMessage[0])));
+    static_assert(kNumberOfTokens == kTokenData.size(), "kTokenData size mismatch");
+    static_assert(kNumberOfErrors == kErrorMessage.size(), "kErrorMessage size mismatch");
 }
 
 GPUTestExpectationsParser::~GPUTestExpectationsParser() = default;
 
-bool GPUTestExpectationsParser::loadTestExpectations(const GPUTestConfig &config,
-                                                     const std::string &data)
+template <typename InputStream>
+bool GPUTestExpectationsParser::loadTestExpectationsImpl(const GPUTestConfig *config,
+                                                         InputStream &dataStream)
 {
     mEntries.clear();
+    mExactEntriesIndex.clear();
+    mWildcardEntriesIndex.clear();
     mErrorMessages.clear();
 
-    std::vector<std::string> lines = SplitString(data, "\n", TRIM_WHITESPACE, SPLIT_WANT_ALL);
-    bool rt                        = true;
-    for (size_t i = 0; i < lines.size(); ++i)
+    bool rt = true;
+
+    size_t lineNumber = 1;
+    std::string line;
+    while (std::getline(dataStream, line))
     {
-        if (!parseLine(config, lines[i], i + 1))
+        if (!parseLine(config, line, lineNumber++))
+        {
             rt = false;
+        }
     }
+
     if (detectConflictsBetweenEntries())
     {
         mEntries.clear();
         rt = false;
     }
+    else
+    {
+        for (size_t i = 0; i < mEntries.size(); ++i)
+        {
+            if (mEntries[i].testName.find('*') != std::string::npos)
+            {
+                mWildcardEntriesIndex.push_back(i);
+            }
+            else
+            {
+                mExactEntriesIndex[mEntries[i].testName].push_back(i);
+            }
+        }
+    }
 
     return rt;
+}
+
+bool GPUTestExpectationsParser::loadTestExpectations(const GPUTestConfig &config,
+                                                     const std::string &data)
+{
+    std::istringstream iss(data);
+    return loadTestExpectationsImpl(&config, iss);
+}
+
+bool GPUTestExpectationsParser::loadAllTestExpectations(const std::string &data)
+{
+    std::istringstream iss(data);
+    return loadTestExpectationsImpl(nullptr, iss);
+}
+
+bool GPUTestExpectationsParser::loadTestExpectationsFromFileImpl(const GPUTestConfig *config,
+                                                                 const std::string &path)
+{
+    mEntries.clear();
+    mExactEntriesIndex.clear();
+    mWildcardEntriesIndex.clear();
+    mErrorMessages.clear();
+
+    std::ifstream fileStream(path);
+    if (!fileStream)
+    {
+        mErrorMessages.push_back(kErrorMessage[kErrorFileIO]);
+        return false;
+    }
+
+    return loadTestExpectationsImpl(config, fileStream);
 }
 
 bool GPUTestExpectationsParser::loadTestExpectationsFromFile(const GPUTestConfig &config,
                                                              const std::string &path)
 {
-    mEntries.clear();
-    mErrorMessages.clear();
+    return loadTestExpectationsFromFileImpl(&config, path);
+}
 
-    std::string data;
-    if (!ReadFileToString(path, &data))
+bool GPUTestExpectationsParser::loadAllTestExpectationsFromFile(const std::string &path)
+{
+    return loadTestExpectationsFromFileImpl(nullptr, path);
+}
+
+int32_t GPUTestExpectationsParser::getTestExpectationImpl(const GPUTestConfig *config,
+                                                          const std::string &testName)
+{
+    // If no config is present, set all bits to match all entries
+    constexpr GPUTestConfig::ConditionArray kDefaultConditions =
+        GPUTestConfig::ConditionArray::Mask(GPUTestConfig::ConditionArray::size());
+    const GPUTestConfig::ConditionArray &configConditions =
+        config ? config->getConditions() : kDefaultConditions;
+
+    // 1. Check exact match index first. If found and conditions match, exact match wins.
+    auto exactIt = mExactEntriesIndex.find(testName);
+    if (exactIt != mExactEntriesIndex.end())
     {
-        mErrorMessages.push_back(kErrorMessage[kErrorFileIO]);
-        return false;
+        for (size_t entryIndex : exactIt->second)
+        {
+            GPUTestExpectationEntry &entry = mEntries[entryIndex];
+            if ((configConditions & entry.conditions) == entry.conditions)
+            {
+                entry.used = true;
+                return entry.testExpectation;
+            }
+        }
     }
-    return loadTestExpectations(config, data);
+
+    // 2. If no matching exact expectation found, check wildcard entries.
+    for (size_t wildcardIndex : mWildcardEntriesIndex)
+    {
+        GPUTestExpectationEntry &entry = mEntries[wildcardIndex];
+
+        // Entry condition bits must be a subset of the config condition bits.
+        if ((configConditions & entry.conditions) != entry.conditions)
+        {
+            continue;
+        }
+
+        if (!NamesMatchWithWildcard(entry.testName.c_str(), testName.c_str()))
+        {
+            continue;
+        }
+
+        entry.used = true;
+        return entry.testExpectation;
+    }
+
+    return kGpuTestPass;
 }
 
 int32_t GPUTestExpectationsParser::getTestExpectation(const std::string &testName)
 {
-    size_t maxExpectationLen            = 0;
-    GPUTestExpectationEntry *foundEntry = nullptr;
-    for (size_t i = 0; i < mEntries.size(); ++i)
-    {
-        if (NamesMatching(mEntries[i].testName.c_str(), testName.c_str()))
-        {
-            size_t expectationLen = mEntries[i].testName.length();
-            // The longest/most specific matching expectation overrides any others.
-            if (expectationLen > maxExpectationLen)
-            {
-                maxExpectationLen = expectationLen;
-                foundEntry        = &mEntries[i];
-            }
-        }
-    }
-    if (foundEntry != nullptr)
-    {
-        foundEntry->used = true;
-        return foundEntry->testExpectation;
-    }
-    return kGpuTestPass;
+    return getTestExpectationImpl(nullptr, testName);
+}
+
+int32_t GPUTestExpectationsParser::getTestExpectationWithConfig(const GPUTestConfig &config,
+                                                                const std::string &testName)
+{
+    return getTestExpectationImpl(&config, testName);
 }
 
 const std::vector<std::string> &GPUTestExpectationsParser::getErrorMessages() const
@@ -383,16 +525,17 @@ std::vector<std::string> GPUTestExpectationsParser::getUnusedExpectationsMessage
     std::vector<std::string> messages;
     std::vector<GPUTestExpectationsParser::GPUTestExpectationEntry> unusedExpectations =
         getUnusedExpectations();
-    for (size_t i = 0; i < unusedExpectations.size(); ++i)
+    for (const GPUTestExpectationsParser::GPUTestExpectationEntry &unusedExpectation :
+         unusedExpectations)
     {
         std::string message =
-            "Line " + ToString(unusedExpectations[i].lineNumber) + ": expectation was unused.";
+            "Line " + ToString(unusedExpectation.lineNumber) + ": expectation was unused.";
         messages.push_back(message);
     }
     return messages;
 }
 
-bool GPUTestExpectationsParser::parseLine(const GPUTestConfig &config,
+bool GPUTestExpectationsParser::parseLine(const GPUTestConfig *config,
                                           const std::string &lineData,
                                           size_t lineNumber)
 {
@@ -428,6 +571,8 @@ bool GPUTestExpectationsParser::parseLine(const GPUTestConfig &config,
             case kConfigMacHighSierra:
             case kConfigMacMojave:
             case kConfigMac:
+            case kConfigIOS:
+            case kConfigIOSSimulator:
             case kConfigLinux:
             case kConfigChromeOS:
             case kConfigAndroid:
@@ -435,22 +580,49 @@ bool GPUTestExpectationsParser::parseLine(const GPUTestConfig &config,
             case kConfigAMD:
             case kConfigIntel:
             case kConfigVMWare:
+            case kConfigApple:
+            case kConfigQualcomm:
+            case kConfigARM:
+            case kConfigSamsung:
             case kConfigRelease:
             case kConfigDebug:
-            case kConfigD3D9:
+            case kConfigDebugLayers:
             case kConfigD3D11:
             case kConfigGLDesktop:
             case kConfigGLES:
             case kConfigVulkan:
             case kConfigSwiftShader:
             case kConfigMetal:
+            case kConfigWgpu:
+            case kConfigNative:
             case kConfigNexus5X:
             case kConfigPixel2:
+            case kConfigPixel4:
+            case kConfigPixel6:
+            case kConfigPixel7:
+            case kConfigPixel10:
+            case kConfigFlipN2:
+            case kConfigMaliG710:
+            case kConfigGalaxyA23:
+            case kConfigGalaxyA34:
+            case kConfigGalaxyA54:
+            case kConfigGalaxyS22:
+            case kConfigGalaxyS23:
+            case kConfigGalaxyS24Exynos:
+            case kConfigGalaxyS24Qualcomm:
+            case kConfigFindX6:
+            case kConfigPineapple:
             case kConfigNVIDIAQuadroP400:
+            case kConfigNVIDIAGTX1660:
             case kConfigPreRotation:
             case kConfigPreRotation90:
             case kConfigPreRotation180:
             case kConfigPreRotation270:
+            case kConfigNoSan:
+            case kConfigASan:
+            case kConfigTSan:
+            case kConfigUBSan:
+            case kConfigIR:
                 // MODIFIERS, check each condition and add accordingly.
                 if (stage != kLineParserConfigs && stage != kLineParserBugID)
                 {
@@ -459,9 +631,17 @@ bool GPUTestExpectationsParser::parseLine(const GPUTestConfig &config,
                 }
                 {
                     bool err = false;
-                    if (!checkTokenCondition(config, err, token, lineNumber))
+                    if (config)
                     {
-                        skipLine = true;  // Move to the next line without adding this one.
+                        if (!checkTokenCondition(*config, err, token, lineNumber))
+                        {
+                            skipLine = true;  // Move to the next line without adding this one.
+                        }
+                    }
+                    else
+                    {
+                        // Store the conditions for later comparison if we don't have a config.
+                        entry.conditions[kTokenData[token].condition] = true;
                     }
                     if (err)
                     {
@@ -530,6 +710,12 @@ bool GPUTestExpectationsParser::parseLine(const GPUTestConfig &config,
                                      lineNumber);
                     return false;
                 }
+                if ((mExpectationsAllowMask & kTokenData[token].expectation) == 0)
+                {
+                    pushErrorMessage(kErrorMessage[kErrorEntryWithDisallowedExpectation],
+                                     lineNumber);
+                    return false;
+                }
                 entry.testExpectation = kTokenData[token].expectation;
                 if (stage == kLineParserEqual)
                     stage++;
@@ -558,7 +744,7 @@ bool GPUTestExpectationsParser::checkTokenCondition(const GPUTestConfig &config,
                                                     int32_t token,
                                                     size_t lineNumber)
 {
-    if (token >= kNumberOfTokens)
+    if (token < 0 || static_cast<size_t>(token) >= kTokenData.size())
     {
         pushErrorMessage(kErrorMessage[kErrorIllegalEntry], lineNumber);
         err = true;
@@ -584,10 +770,13 @@ bool GPUTestExpectationsParser::detectConflictsBetweenEntries()
     {
         for (size_t j = i + 1; j < mEntries.size(); ++j)
         {
-            if (mEntries[i].testName == mEntries[j].testName)
+            const GPUTestExpectationEntry &entryI = mEntries[i];
+            const GPUTestExpectationEntry &entryJ = mEntries[j];
+            if (entryI.testName == entryJ.testName &&
+                ConditionsOverlap(entryI.conditions, entryJ.conditions))
             {
-                pushErrorMessage(kErrorMessage[kErrorEntriesOverlap], mEntries[i].lineNumber,
-                                 mEntries[j].lineNumber);
+                pushErrorMessage(kErrorMessage[kErrorEntriesOverlap], entryI.lineNumber,
+                                 entryJ.lineNumber);
                 rt = true;
             }
         }
@@ -599,11 +788,11 @@ std::vector<GPUTestExpectationsParser::GPUTestExpectationEntry>
 GPUTestExpectationsParser::getUnusedExpectations() const
 {
     std::vector<GPUTestExpectationsParser::GPUTestExpectationEntry> unusedExpectations;
-    for (size_t i = 0; i < mEntries.size(); ++i)
+    for (const GPUTestExpectationsParser::GPUTestExpectationEntry &entry : mEntries)
     {
-        if (!mEntries[i].used)
+        if (!entry.used)
         {
-            unusedExpectations.push_back(mEntries[i]);
+            unusedExpectations.push_back(entry);
         }
     }
     return unusedExpectations;

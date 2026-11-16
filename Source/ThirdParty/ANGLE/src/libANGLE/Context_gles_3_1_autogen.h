@@ -25,10 +25,11 @@
     void drawArraysIndirect(PrimitiveMode modePacked, const void *indirect);                       \
     void drawElementsIndirect(PrimitiveMode modePacked, DrawElementsType typePacked,               \
                               const void *indirect);                                               \
-    void framebufferParameteri(GLenum target, GLenum pname, GLint param);                          \
+    void framebufferParameteri(GLenum target, FramebufferParameter pnamePacked, GLint param);      \
     void genProgramPipelines(GLsizei n, ProgramPipelineID *pipelinesPacked);                       \
     void getBooleani_v(GLenum target, GLuint index, GLboolean *data);                              \
-    void getFramebufferParameteriv(GLenum target, GLenum pname, GLint *params);                    \
+    void getFramebufferParameteriv(GLenum target, FramebufferParameter pnamePacked,                \
+                                   GLint *params);                                                 \
     void getMultisamplefv(GLenum pname, GLuint index, GLfloat *val);                               \
     void getProgramInterfaceiv(ShaderProgramID programPacked, GLenum programInterface,             \
                                GLenum pname, GLint *params);                                       \
@@ -42,12 +43,12 @@
     void getProgramResourceName(ShaderProgramID programPacked, GLenum programInterface,            \
                                 GLuint index, GLsizei bufSize, GLsizei *length, GLchar *name);     \
     void getProgramResourceiv(ShaderProgramID programPacked, GLenum programInterface,              \
-                              GLuint index, GLsizei propCount, const GLenum *props,                \
-                              GLsizei bufSize, GLsizei *length, GLint *params);                    \
-    void getTexLevelParameterfv(TextureTarget targetPacked, GLint level, GLenum pname,             \
-                                GLfloat *params);                                                  \
-    void getTexLevelParameteriv(TextureTarget targetPacked, GLint level, GLenum pname,             \
-                                GLint *params);                                                    \
+                              GLuint index, GLsizei propCount, const GLenum *props, GLsizei count, \
+                              GLsizei *length, GLint *params);                                     \
+    void getTexLevelParameterfv(TextureTarget targetPacked, GLint level,                           \
+                                TextureImageParameter pnamePacked, GLfloat *params);               \
+    void getTexLevelParameteriv(TextureTarget targetPacked, GLint level,                           \
+                                TextureImageParameter pnamePacked, GLint *params);                 \
     GLboolean isProgramPipeline(ProgramPipelineID pipelinePacked) const;                           \
     void memoryBarrier(GLbitfield barriers);                                                       \
     void memoryBarrierByRegion(GLbitfield barriers);                                               \
@@ -117,17 +118,10 @@
                                    GLsizei count, GLboolean transpose, const GLfloat *value);      \
     void programUniformMatrix4x3fv(ShaderProgramID programPacked, UniformLocation locationPacked,  \
                                    GLsizei count, GLboolean transpose, const GLfloat *value);      \
-    void sampleMaski(GLuint maskNumber, GLbitfield mask);                                          \
     void texStorage2DMultisample(TextureType targetPacked, GLsizei samples, GLenum internalformat, \
                                  GLsizei width, GLsizei height, GLboolean fixedsamplelocations);   \
     void useProgramStages(ProgramPipelineID pipelinePacked, GLbitfield stages,                     \
                           ShaderProgramID programPacked);                                          \
-    void validateProgramPipeline(ProgramPipelineID pipelinePacked);                                \
-    void vertexAttribBinding(GLuint attribindex, GLuint bindingindex);                             \
-    void vertexAttribFormat(GLuint attribindex, GLint size, VertexAttribType typePacked,           \
-                            GLboolean normalized, GLuint relativeoffset);                          \
-    void vertexAttribIFormat(GLuint attribindex, GLint size, VertexAttribType typePacked,          \
-                             GLuint relativeoffset);                                               \
-    void vertexBindingDivisor(GLuint bindingindex, GLuint divisor);
+    void validateProgramPipeline(ProgramPipelineID pipelinePacked);
 
 #endif  // ANGLE_CONTEXT_API_3_1_AUTOGEN_H_

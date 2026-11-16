@@ -27,9 +27,9 @@
 #include "HardwareAccelerationManager.h"
 
 #include "AcceleratedBackingStore.h"
+#include <wtf/text/CStringView.h>
 
 namespace WebKit {
-using namespace WebCore;
 
 HardwareAccelerationManager& HardwareAccelerationManager::singleton()
 {
@@ -38,33 +38,12 @@ HardwareAccelerationManager& HardwareAccelerationManager::singleton()
 }
 
 HardwareAccelerationManager::HardwareAccelerationManager()
-    : m_canUseHardwareAcceleration(true)
-    , m_forceHardwareAcceleration(false)
 {
-#if !ENABLE(WEBGL)
-    m_canUseHardwareAcceleration = false;
-    return;
-#endif
-
-#if USE(GTK4)
-    RELEASE_ASSERT(AcceleratedBackingStore::checkRequirements());
-    m_forceHardwareAcceleration = true;
-#endif
-
-    const char* disableCompositing = getenv("WEBKIT_DISABLE_COMPOSITING_MODE");
-    if (disableCompositing && strcmp(disableCompositing, "0")) {
+    if (!AcceleratedBackingStore::canUseHardwareAcceleration()) {
         m_canUseHardwareAcceleration = false;
-        return;
-    }
-
-    if (!AcceleratedBackingStore::checkRequirements()) {
-        m_canUseHardwareAcceleration = false;
-        return;
-    }
-
-    const char* forceCompositing = getenv("WEBKIT_FORCE_COMPOSITING_MODE");
-    if (forceCompositing && strcmp(forceCompositing, "0"))
-        m_forceHardwareAcceleration = true;
+        m_acceleratedCompositingModeEnabled = false;
+    } else if (const auto disableCompositingMode = CStringView::unsafeFromUTF8(getenv("WEBKIT_DISABLE_COMPOSITING_MODE")))
+        m_acceleratedCompositingModeEnabled = disableCompositingMode == "0"_s;
 }
 
 } // namespace WebKit

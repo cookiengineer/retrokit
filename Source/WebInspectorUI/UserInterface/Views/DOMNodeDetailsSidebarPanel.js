@@ -83,7 +83,7 @@ WI.DOMNodeDetailsSidebarPanel = class DOMNodeDetailsSidebarPanel extends WI.DOMD
             this.contentView.element.appendChild(propertiesSection.element);
         }
 
-        let eventListenersFilterElement = WI.ImageUtilities.useSVGSymbol("Images/FilterFieldGlyph.svg", "filter", WI.UIString("Grouping Method"));
+        let eventListenersFilterElement = WI.ImageUtilities.useSVGSymbol("Images/Filter.svg", "filter", WI.UIString("Grouping Method"));
         WI.addMouseDownContextMenuHandlers(eventListenersFilterElement, this._populateEventListenersFilterContextMenu.bind(this));
 
         this._eventListenersSectionGroup = new WI.DetailsSectionGroup;
@@ -109,6 +109,7 @@ WI.DOMNodeDetailsSidebarPanel = class DOMNodeDetailsSidebarPanel extends WI.DOMD
             this._accessibilityNodeActiveDescendantRow = new WI.DetailsSectionSimpleRow(WI.UIString("Shared Focus"));
             this._accessibilityNodeBusyRow = new WI.DetailsSectionSimpleRow(WI.UIString("Busy"));
             this._accessibilityNodeCheckedRow = new WI.DetailsSectionSimpleRow(WI.UIString("Checked"));
+            this._accessibilityNodeSwitchStateRow = new WI.DetailsSectionSimpleRow(WI.UIString("State"));
             this._accessibilityNodeChildrenRow = new WI.DetailsSectionSimpleRow(WI.UIString("Children"));
             this._accessibilityNodeControlsRow = new WI.DetailsSectionSimpleRow(WI.UIString("Controls"));
             this._accessibilityNodeCurrentRow = new WI.DetailsSectionSimpleRow(WI.UIString("Current"));
@@ -331,139 +332,34 @@ WI.DOMNodeDetailsSidebarPanel = class DOMNodeDetailsSidebarPanel extends WI.DOMD
         }
     }
 
-    _refreshEventListeners()
+    async _refreshEventListeners()
     {
         var domNode = this.domNode;
         if (!domNode)
             return;
 
-        const windowTargetIdentifier = Symbol("window");
+        let {listeners} = await domNode.getEventListeners();
 
-        function createEventListenerSection(title, eventListeners, options = {}) {
-            let groups = eventListeners.map((eventListener) => new WI.EventListenerSectionGroup(eventListener, options));
+        // Bail if the DOM node changed while we were waiting for the async response.
+        if (this.domNode !== domNode)
+            return;
 
-            let optionsElement = null;
-            if ((WI.DOMManager.supportsDisablingEventListeners() || WI.DOMManager.supportsEventListenerBreakpoints()) && groups.some((group) => group.supportsStateModification)) {
-                optionsElement = WI.ImageUtilities.useSVGSymbol("Images/Gear.svg", "event-listener-options", WI.UIString("Options"));
-                WI.addMouseDownContextMenuHandlers(optionsElement, (contextMenu) => {
-                    if (WI.DOMManager.supportsDisablingEventListeners()) {
-                        let shouldDisable = groups.some((eventListener) => !eventListener.isEventListenerDisabled);
-                        contextMenu.appendItem(shouldDisable ? WI.UIString("Disable Event Listeners") : WI.UIString("Enable Event Listeners"), () => {
-                            for (let group of groups)
-                                group.isEventListenerDisabled = shouldDisable;
-                        });
-                    }
-
-                    if (WI.DOMManager.supportsEventListenerBreakpoints()) {
-                        let shouldBreakpoint = groups.some((eventListener) => !eventListener.hasEventListenerBreakpoint);
-                        contextMenu.appendItem(shouldBreakpoint ? WI.UIString("Add Breakpoints") : WI.UIString("Delete Breakpoints"), () => {
-                            for (let group of groups)
-                                group.hasEventListenerBreakpoint = shouldBreakpoint;
-                        });
-                    }
-                });
-            }
-
-            const defaultCollapsedSettingValue = true;
-            let identifier = `${options.identifier ?? title}-event-listener-section`;
-            let section = new WI.DetailsSection(identifier, title, groups, optionsElement, defaultCollapsedSettingValue);
-            section.element.classList.add("event-listener-section");
-            return section;
+        if (!listeners.length) {
+            let emptyRow = new WI.DetailsSectionRow(WI.UIString("No Event Listeners"));
+            emptyRow.showEmptyMessage();
+            this._eventListenersSectionGroup.rows = [emptyRow];
+            return;
         }
 
-        function generateGroupsByEvent(eventListeners) {
-            let eventListenerTypes = new Map;
-            for (let eventListener of eventListeners) {
-                console.assert(eventListener.nodeId || eventListener.onWindow);
-                if (eventListener.nodeId)
-                    eventListener.node = WI.domManager.nodeForId(eventListener.nodeId);
+        switch (this._eventListenerGroupingMethodSetting.value) {
+        case WI.DOMNodeDetailsSidebarPanel.EventListenerGroupingMethod.Event:
+            this._eventListenersSectionGroup.rows = WI.EventListenerSectionGroup.groupIntoSectionsByEvent(listeners);
+            break;
 
-                let eventListenersForType = eventListenerTypes.get(eventListener.type);
-                if (!eventListenersForType)
-                    eventListenerTypes.set(eventListener.type, eventListenersForType = []);
-                eventListenersForType.push(eventListener);
-            }
-
-            let rows = [];
-
-            let types = Array.from(eventListenerTypes.keys());
-            types.sort();
-            for (let type of types)
-                rows.push(createEventListenerSection(type, eventListenerTypes.get(type), {hideType: true}));
-
-            return rows;
+        case WI.DOMNodeDetailsSidebarPanel.EventListenerGroupingMethod.Target:
+            this._eventListenersSectionGroup.rows = WI.EventListenerSectionGroup.groupIntoSectionsByTarget(listeners, domNode);
+            break;
         }
-
-        function generateGroupsByTarget(eventListeners) {
-            let eventListenerTargets = new Map;
-            for (let eventListener of eventListeners) {
-                console.assert(eventListener.nodeId || eventListener.onWindow);
-                if (eventListener.nodeId)
-                    eventListener.node = WI.domManager.nodeForId(eventListener.nodeId);
-
-                let target = eventListener.onWindow ? windowTargetIdentifier : eventListener.node;
-                let eventListenersForTarget = eventListenerTargets.get(target);
-                if (!eventListenersForTarget)
-                    eventListenerTargets.set(target, eventListenersForTarget = []);
-                eventListenersForTarget.push(eventListener);
-            }
-
-            let rows = [];
-
-            function generateSectionForTarget(target) {
-                let eventListenersForTarget = eventListenerTargets.get(target);
-                if (!eventListenersForTarget)
-                    return;
-
-                eventListenersForTarget.sort((a, b) => a.type.toLowerCase().extendedLocaleCompare(b.type.toLowerCase()));
-
-                let title = target === windowTargetIdentifier ? WI.unlocalizedString("window") : target.displayName;
-                let identifier = target === windowTargetIdentifier ? WI.unlocalizedString("window") : target.unescapedSelector;
-
-                let section = createEventListenerSection(title, eventListenersForTarget, {hideTarget: true, identifier});
-                if (target instanceof WI.DOMNode)
-                    WI.bindInteractionsForNodeToElement(target, section.titleElement, {ignoreClick: true});
-                rows.push(section);
-            }
-
-            let currentNode = domNode;
-            do {
-                generateSectionForTarget(currentNode);
-            } while (currentNode = currentNode.parentNode);
-
-            generateSectionForTarget(windowTargetIdentifier);
-
-            return rows;
-        }
-
-        function eventListenersCallback(error, eventListeners)
-        {
-            if (error)
-                return;
-
-            // Bail if the DOM node changed while we were waiting for the async response.
-            if (this.domNode !== domNode)
-                return;
-
-            if (!eventListeners.length) {
-                var emptyRow = new WI.DetailsSectionRow(WI.UIString("No Event Listeners"));
-                emptyRow.showEmptyMessage();
-                this._eventListenersSectionGroup.rows = [emptyRow];
-                return;
-            }
-
-            switch (this._eventListenerGroupingMethodSetting.value) {
-            case WI.DOMNodeDetailsSidebarPanel.EventListenerGroupingMethod.Event:
-                this._eventListenersSectionGroup.rows = generateGroupsByEvent.call(this, eventListeners);
-                break;
-
-            case WI.DOMNodeDetailsSidebarPanel.EventListenerGroupingMethod.Target:
-                this._eventListenersSectionGroup.rows = generateGroupsByTarget.call(this, eventListeners);
-                break;
-            }
-        }
-
-        domNode.getEventListeners(eventListenersCallback.bind(this));
     }
 
     _refreshDataBindings()
@@ -651,6 +547,19 @@ WI.DOMNodeDetailsSidebarPanel = class DOMNodeDetailsSidebarPanel extends WI.DOMD
                         checked = WI.UIString("No");
                 }
 
+                let switchState = "";
+                // COMPATIBILITY (macOS 15.0, iOS 18.0): DOM.AccessibilityProperties.switchState did not exist yet.
+                if (InspectorBackend.Enum.DOM.AccessibilityPropertiesSwitchState) {
+                    switch (accessibilityProperties.switchState) {
+                    case InspectorBackend.Enum.DOM.AccessibilityPropertiesSwitchState.On:
+                        switchState = WI.UIString("On", "On @ Switch State", "Label indicating that an input of type switch is on.");
+                        break;
+                    case InspectorBackend.Enum.DOM.AccessibilityPropertiesSwitchState.Off:
+                        switchState = WI.UIString("Off", "Off @ Switch State", "Label indicating that an input of type switch is off.");
+                        break;
+                    }
+                }
+
                 // Accessibility tree children are not a 1:1 mapping with DOM tree children.
                 var childNodeLinkList = linkListForNodeIds(accessibilityProperties.childNodeIds);
                 var controlledNodeLinkList = linkListForNodeIds(accessibilityProperties.controlledNodeIds);
@@ -833,6 +742,7 @@ WI.DOMNodeDetailsSidebarPanel = class DOMNodeDetailsSidebarPanel extends WI.DOMD
                 this._accessibilityNodeInvalidRow.value = invalid;
                 this._accessibilityNodeLabelRow.value = label;
                 this._accessibilityNodeLiveRegionStatusRow.value = liveRegionStatusNode || liveRegionStatus;
+                this._accessibilityNodeSwitchStateRow.value = switchState;
 
                 // Row label changes based on whether the value is a delegate node link.
                 this._accessibilityNodeMouseEventRow.label = mouseEventNodeLink ? WI.UIString("Click Listener") : WI.UIString("Clickable");
@@ -882,7 +792,8 @@ WI.DOMNodeDetailsSidebarPanel = class DOMNodeDetailsSidebarPanel extends WI.DOMD
                     this._accessibilityNodeExpandedRow,
                     this._accessibilityNodePressedRow,
                     this._accessibilityNodeReadonlyRow,
-                    this._accessibilityNodeSelectedRow
+                    this._accessibilityNodeSelectedRow,
+                    this._accessibilityNodeSwitchStateRow,
                 ];
 
                 this._accessibilityEmptyRow.hideEmptyMessage();

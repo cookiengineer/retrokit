@@ -27,10 +27,12 @@
 
 #if ENABLE(ENCRYPTED_MEDIA)
 
-#include "CDMInstance.h"
-#include "CDMRequirement.h"
-#include "CDMSessionType.h"
+#include <WebCore/CDMInstance.h>
+#include <WebCore/CDMRequirement.h>
+#include <WebCore/CDMSessionType.h>
+#include <wtf/CheckedPtr.h>
 #include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 
 #if !RELEASE_LOG_DISABLED
@@ -44,28 +46,42 @@ namespace WebCore {
 struct CDMKeySystemConfiguration;
 struct CDMMediaCapability;
 struct CDMRestrictions;
+class SharedBuffer;
 
-class CDMPrivate : public CanMakeWeakPtr<CDMPrivate> {
+enum class CDMPrivateLocalStorageAccess : bool {
+    NotAllowed,
+    Allowed,
+};
+
+class CDMPrivateClient {
+public:
+    virtual ~CDMPrivateClient() = default;
+
+#if !RELEASE_LOG_DISABLED
+    virtual const Logger& logger() const = 0;
+#endif
+};
+
+class CDMPrivate : public CanMakeWeakPtr<CDMPrivate>, public CanMakeCheckedPtr<CDMPrivate> {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(CDMPrivate, WEBCORE_EXPORT);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(CDMPrivate);
 public:
     WEBCORE_EXPORT virtual ~CDMPrivate();
 
 #if !RELEASE_LOG_DISABLED
-    virtual void setLogger(WTF::Logger&, const void*) { };
+    virtual void setLogIdentifier(uint64_t) { };
 #endif
 
-    enum class LocalStorageAccess : bool {
-        NotAllowed,
-        Allowed,
-    };
+    using LocalStorageAccess = CDMPrivateLocalStorageAccess;
 
-    using SupportedConfigurationCallback = WTF::Function<void(std::optional<CDMKeySystemConfiguration>)>;
+    using SupportedConfigurationCallback = Function<void(std::optional<CDMKeySystemConfiguration>)>;
     WEBCORE_EXPORT virtual void getSupportedConfiguration(CDMKeySystemConfiguration&& candidateConfiguration, LocalStorageAccess, SupportedConfigurationCallback&&);
 
-    virtual Vector<AtomString> supportedInitDataTypes() const = 0;
+    virtual Vector<String> supportedInitDataTypes() const = 0;
     virtual bool supportsConfiguration(const CDMKeySystemConfiguration&) const = 0;
     virtual bool supportsConfigurationWithRestrictions(const CDMKeySystemConfiguration&, const CDMRestrictions&) const = 0;
     virtual bool supportsSessionTypeWithConfiguration(const CDMSessionType&, const CDMKeySystemConfiguration&) const = 0;
-    virtual Vector<AtomString> supportedRobustnesses() const = 0;
+    virtual Vector<String> supportedRobustnesses() const = 0;
     virtual CDMRequirement distinctiveIdentifiersRequirement(const CDMKeySystemConfiguration&, const CDMRestrictions&) const = 0;
     virtual CDMRequirement persistentStateRequirement(const CDMKeySystemConfiguration&, const CDMRestrictions&) const = 0;
     virtual bool distinctiveIdentifiersAreUniquePerOriginAndClearable(const CDMKeySystemConfiguration&) const = 0;
@@ -73,14 +89,13 @@ public:
     virtual void loadAndInitialize() = 0;
     virtual bool supportsServerCertificates() const = 0;
     virtual bool supportsSessions() const = 0;
-    virtual bool supportsInitData(const AtomString&, const SharedBuffer&) const = 0;
-    WEBCORE_EXPORT virtual RefPtr<SharedBuffer> sanitizeInitData(const AtomString& initDataType, const SharedBuffer& initData) const;
+    virtual bool supportsInitData(const String&, const SharedBuffer&) const = 0;
     virtual RefPtr<SharedBuffer> sanitizeResponse(const SharedBuffer&) const = 0;
     virtual std::optional<String> sanitizeSessionId(const String&) const = 0;
 
 protected:
     WEBCORE_EXPORT CDMPrivate();
-    static bool isPersistentType(CDMSessionType);
+    static bool NODELETE isPersistentType(CDMSessionType);
 
     enum class ConfigurationStatus {
         Supported,
@@ -103,7 +118,7 @@ protected:
     std::optional<CDMKeySystemConfiguration> getSupportedConfiguration(const CDMKeySystemConfiguration& candidateConfiguration, CDMRestrictions&, LocalStorageAccess);
     std::optional<Vector<CDMMediaCapability>> getSupportedCapabilitiesForAudioVideoType(AudioVideoType, const Vector<CDMMediaCapability>& requestedCapabilities, const CDMKeySystemConfiguration& partialConfiguration, CDMRestrictions&);
 
-    using ConsentStatusCallback = WTF::Function<void(ConsentStatus, CDMKeySystemConfiguration&&, CDMRestrictions&&)>;
+    using ConsentStatusCallback = Function<void(ConsentStatus, CDMKeySystemConfiguration&&, CDMRestrictions&&)>;
     void getConsentStatus(CDMKeySystemConfiguration&& accumulatedConfiguration, CDMRestrictions&&, LocalStorageAccess, ConsentStatusCallback&&);
 };
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011, 2016 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2011, 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,16 +29,19 @@
 // the WebInspector framework on the OS X side, webinspectord, and
 // iOS WebKit on the device side.
 
-#define WIRSimulatorTCPPortNumber               27753
 #define WIRXPCMachPortName                      "com.apple.webinspector"
 #define WIRXPCDebuggerServiceName               "com.apple.webinspector.debugger"
 #define WIRServiceAvailableNotification         "com.apple.webinspectord.available"
 #define WIRServiceAvailabilityCheckNotification "com.apple.webinspectord.availability_check"
 #define WIRServiceEnabledNotification           "com.apple.webinspectord.enabled"
 #define WIRServiceDisabledNotification          "com.apple.webinspectord.disabled"
-#define WIRAutomaticInspectionEnabledState      "com.apple.webinspectord.automatic_inspection_enabled"
 #define WIRRemoteAutomationEnabledNotification  "com.apple.webinspectord.remote_automation_enabled"
 #define WIRRemoteAutomationDisabledNotification "com.apple.webinspectord.remote_automation_disabled"
+
+// COMPATIBILITY(macOS 13): The key string is intentionally mismatched to support old relays.
+#define WIRGlobalNotifyStateName                    "com.apple.webinspectord.automatic_inspection_enabled"
+#define WIRGlobalNotifyStateAutomaticInspection     1ULL << 0
+#define WIRGlobalNotifyStateSimulateCustomerInstall 1ULL << 63
 
 #define WIRApplicationIdentifierKey             @"WIRApplicationIdentifierKey"
 #define WIRApplicationBundleIdentifierKey       @"WIRApplicationBundleIdentifierKey"
@@ -53,9 +56,11 @@
 #define WIRHasLocalDebuggerKey                  @"WIRHasLocalDebuggerKey"
 #define WIRTitleKey                             @"WIRTitleKey"
 #define WIRURLKey                               @"WIRURLKey"
+#define WIROverrideNameKey                      @"WIROverrideNameKey"
 #define WIRUserInfoKey                          @"WIRUserInfoKey"
 #define WIRApplicationDictionaryKey             @"WIRApplicationDictionaryKey"
 #define WIRMessageDataKey                       @"WIRMessageDataKey"
+#define WIRMessageDataTypeKey                   @"WIRMessageDataTypeKey"
 #define WIRApplicationGetListingMessage         @"WIRApplicationGetListingMessage"
 #define WIRApplicationWakeUpDebuggablesMessage  @"WIRApplicationWakeUpDebuggablesMessage"
 #define WIRIndicateMessage                      @"WIRIndicateMessage"
@@ -77,11 +82,21 @@
 #define WIRTypeAutomation                       @"WIRTypeAutomation"
 #define WIRTypeITML                             @"WIRTypeITML"
 #define WIRTypeJavaScript                       @"WIRTypeJavaScript"
-#define WIRTypePage                             @"WIRTypePage"
 #define WIRTypeServiceWorker                    @"WIRTypeServiceWorker"
 #define WIRTypeWeb                              @"WIRTypeWeb" // COMPATIBILITY (iOS 13): "Web" was split into "Page" (WebCore::Page) and "WebPage" (WebKit::WebPageProxy).
 #define WIRTypeWebPage                          @"WIRTypeWebPage"
+#define WIRTypeWasmDebugger                     @"WIRTypeWasmDebugger"
 #define WIRAutomaticallyPause                   @"WIRAutomaticallyPause"
+#define WIRMessageDataTypeChunkSupportedKey     @"WIRMessageDataTypeChunkSupportedKey"
+#define WIRPingMessage                          @"WIRPingMessage"
+#define WIRPingSuccessMessage                   @"WIRPingSuccessMessage"
+
+#define WIRTargetAllowsAutomaticInspectionInSameProcessKey  @"WIRTargetAllowsAutomaticInspectionInSameProcess"
+
+// Allowed values for WIRMessageDataTypeKey.
+#define WIRMessageDataTypeFull                  @"WIRMessageDataTypeFull"
+#define WIRMessageDataTypeChunk                 @"WIRMessageDataTypeChunk"
+#define WIRMessageDataTypeFinalChunk            @"WIRMessageDataTypeFinalChunk"
 
 // Allowed values for WIRAutomationAvailabilityKey.
 #define WIRAutomationAvailabilityNotAvailable     @"WIRAutomationAvailabilityNotAvailable"
@@ -103,7 +118,10 @@
 
 // The value for WIRSessionCapabilitiesKey is a dictionary that holds these capability key-value pairs.
 
+#define WIRAcceptInsecureCertificatesKey               @"org.webkit.webdriver.accept-insecure-certificates"
+#define WIRAlwaysAllowAutoplay                         @"org.webkit.webdriver.always-allow-autoplay"
 #define WIRAllowInsecureMediaCaptureCapabilityKey      @"org.webkit.webdriver.webrtc.allow-insecure-media-capture"
+#define WIRSiteIsolationEnabled                        @"org.webkit.webdriver.site-isolation-enabled"
 #define WIRSuppressICECandidateFilteringCapabilityKey  @"org.webkit.webdriver.webrtc.suppress-ice-candidate-filtering"
 
 // These definitions are shared with a Simulator webinspectord and

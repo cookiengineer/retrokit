@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc.
+ * Copyright (C) 2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,33 +24,30 @@
 
 #pragma once
 
-#if ENABLE(WEB_RTC)
+#if USE(LIBWEBRTC)
 
 #include "LibWebRTCMacros.h"
+#include "LibWebRTCRefWrappers.h"
 #include "RTCDTMFSenderBackend.h"
+#include <wtf/CheckedRef.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
-
-ALLOW_UNUSED_PARAMETERS_BEGIN
-
-#include <webrtc/api/dtmf_sender_interface.h>
-#include <webrtc/api/scoped_refptr.h>
-
-ALLOW_UNUSED_PARAMETERS_END
 
 namespace WebCore {
 
-// Use eager initialization for the WeakPtrFactory since we call makeWeakPtr() from another thread.
-class LibWebRTCDTMFSenderBackend final : public RTCDTMFSenderBackend, private webrtc::DtmfSenderObserverInterface, public CanMakeWeakPtr<LibWebRTCDTMFSenderBackend, WeakPtrFactoryInitialization::Eager> {
-    WTF_MAKE_FAST_ALLOCATED;
+// Use eager initialization for the WeakPtrFactory since we construct WeakPtrs on another thread.
+class LibWebRTCDTMFSenderBackend final : public RTCDTMFSenderBackend, private webrtc::DtmfSenderObserverInterface, public CanMakeCheckedPtr<LibWebRTCDTMFSenderBackend>, public CanMakeWeakPtr<LibWebRTCDTMFSenderBackend, WeakPtrFactoryInitialization::Eager> {
+    WTF_MAKE_TZONE_ALLOCATED(LibWebRTCDTMFSenderBackend);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(LibWebRTCDTMFSenderBackend);
 public:
-    explicit LibWebRTCDTMFSenderBackend(rtc::scoped_refptr<webrtc::DtmfSenderInterface>&&);
+    explicit LibWebRTCDTMFSenderBackend(Ref<webrtc::DtmfSenderInterface>&&);
     ~LibWebRTCDTMFSenderBackend();
 
 private:
     // RTCDTMFSenderBackend
     bool canInsertDTMF() final;
-    void playTone(const String& tone, size_t duration, size_t interToneGap) final;
-    void onTonePlayed(Function<void(const String&)>&&) final;
+    void playTone(const char tone, size_t duration, size_t interToneGap) final;
+    void onTonePlayed(Function<void()>&&) final;
     String tones() const final;
     size_t duration() const final;
     size_t interToneGap() const final;
@@ -58,10 +55,10 @@ private:
     // DtmfSenderObserverInterface
     void OnToneChange(const std::string& tone, const std::string&) final;
 
-    rtc::scoped_refptr<webrtc::DtmfSenderInterface> m_sender;
-    Function<void(const String&)> m_onTonePlayed;
+    const Ref<webrtc::DtmfSenderInterface> m_sender;
+    Function<void()> m_onTonePlayed;
 };
 
 } // namespace WebCore
 
-#endif // ENABLE(WEB_RTC)
+#endif // USE(LIBWEBRTC)

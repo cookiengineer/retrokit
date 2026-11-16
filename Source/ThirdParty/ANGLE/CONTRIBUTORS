@@ -40,6 +40,7 @@ Google Inc.
  Daniel Nicoara
  Kai Ninomiya
  Cody Northrop
+ Justin Novosad
  Alastair Patrick
  Alok Priyadarshi
  Kenneth Russell
@@ -54,11 +55,19 @@ Google Inc.
  Adrienne Walker
  Corentin Wallez
  Shahbaz Youssefi
+ Hailin Zhang
 
 Adobe Systems Inc.
  Alexandru Chiculita
  Steve Minns
  Max Vujovic
+
+Apple Inc.
+ Dan Glastonbury
+ Dean Jackson
+ Kimmo Kinnunen
+ Kyle Piddington
+ Roberto Rodriguez
 
 Autodesk, Inc.
  Ranger Harke
@@ -95,7 +104,7 @@ Mozilla Corp.
  Dzmitry Malyshau
  Ehsan Akhgari
  Edwin Flores
- Jeff Gilbert
+ Kelsey Gilbert
  Mike Hommey
  Benoit Jacob
  Makoto Kato
@@ -117,6 +126,7 @@ Andrei Volykhin
 Jérôme Duval
 Till Rathmann
 Nick Shaforostov
+Jérôme Lécuyer
 
 Microsoft Corporation
  Cooper Partin
@@ -154,6 +164,7 @@ Advanced Micro Devices, Inc.
 
 LG Electronics, Inc.
  Jani Hautakangas
+ Ivan Murashov
 
 IBM Inc.
  Junliang Yan
@@ -162,20 +173,31 @@ AdaptVis GmbH
  Sascha Kolodzey
 
 Samsung Electronics, Inc.
+ Arnold George
  Brandon Schade
  Colin Peter
  Hyunchang Kim
  Hyunseok Ko
+ Hyunwoo Yu
+ Igor Nazarov
  Jaedon Lee
+ Jaewoo Kim
  Jeff Vigil
+ Jisun Lee
+ Jonah Taylor
  Kevin Jung
  Kyeongmin Kim
+ Mahmoud Kharsa
+ Mathew Prabakar
  Minkyu Jeong
  Mohan Maiya
+ Nirmal Singh
  Peter Mowry
  Sangwon Park
  Saurabh Badenkal
+ Vipin Anand
  Younggwan Kim
+ Sungyong Choi
 
 Arm Ltd.
  Fei Yang
@@ -185,6 +207,12 @@ Arm Ltd.
  Ancheng Qiao
  Amy Liu
  Jian Li
+ Cheryl Wei
+ Guoxing Wu
+ Min Zhang
+ Yuxiang Qian
+ Shufen Ma
+ Xin Yuan
 
 Broadcom Inc.
  Gary Sweet
@@ -197,3 +225,30 @@ The Khronos Group, Inc.
 
 Igalia, S.L.
  Jose Dapena Paz
+
+Numfum GmbH
+ Carl Woffenden
+
+Collabora, Ltd.
+ Lubosz Sarnecki
+
+LunarG, Inc.
+ Mark Lobodzinski
+
+Valve Corporation
+ Steven Noonan
+
+Yandex LLC
+ Andrew Naumov
+
+Rive
+ Chris Dalton
+
+Institute of Software, Chinese Academy of Sciences
+ Wang Chen
+
+Qualcomm Technologies, Inc.
+ Sai Teja Pottumuttu
+
+Joel Winarske
+Dianda Lin

@@ -26,11 +26,15 @@
 #include "config.h"
 #include "WebSpeechRecognitionConnection.h"
 
+#include "FrameInfoData.h"
+#include "MessageSenderInlines.h"
 #include "SpeechRecognitionServerMessages.h"
 #include "WebFrame.h"
 #include "WebProcess.h"
 #include "WebProcessProxyMessages.h"
 #include "WebSpeechRecognitionConnectionMessages.h"
+#include <WebCore/Frame.h>
+#include <WebCore/RealtimeMediaSource.h>
 #include <WebCore/SpeechRecognitionConnectionClient.h>
 #include <WebCore/SpeechRecognitionRequestInfo.h>
 #include <WebCore/SpeechRecognitionUpdate.h>
@@ -61,7 +65,7 @@ WebSpeechRecognitionConnection::~WebSpeechRecognitionConnection()
 
 void WebSpeechRecognitionConnection::registerClient(WebCore::SpeechRecognitionConnectionClient& client)
 {
-    m_clientMap.add(client.identifier(), makeWeakPtr(client));
+    m_clientMap.add(client.identifier(), client);
 }
 
 void WebSpeechRecognitionConnection::unregisterClient(WebCore::SpeechRecognitionConnectionClient& client)
@@ -71,7 +75,18 @@ void WebSpeechRecognitionConnection::unregisterClient(WebCore::SpeechRecognition
 
 void WebSpeechRecognitionConnection::start(WebCore::SpeechRecognitionConnectionClientIdentifier clientIdentifier, const String& lang, bool continuous, bool interimResults, uint64_t maxAlternatives, WebCore::ClientOrigin&& clientOrigin, WebCore::FrameIdentifier frameIdentifier)
 {
-    send(Messages::SpeechRecognitionServer::Start(clientIdentifier, lang, continuous, interimResults, maxAlternatives, WTFMove(clientOrigin), frameIdentifier));
+    RefPtr frame = WebProcess::singleton().webFrame(frameIdentifier);
+    if (!frame) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+    RefPtr coreFrame = frame->coreFrame();
+    if (!coreFrame) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+
+    send(Messages::SpeechRecognitionServer::Start(clientIdentifier, lang, continuous, interimResults, maxAlternatives, WTF::move(clientOrigin), coreFrame->mainFrame().frameID(), frame->info()));
 }
 
 void WebSpeechRecognitionConnection::stop(WebCore::SpeechRecognitionConnectionClientIdentifier clientIdentifier)
@@ -84,6 +99,14 @@ void WebSpeechRecognitionConnection::abort(WebCore::SpeechRecognitionConnectionC
     send(Messages::SpeechRecognitionServer::Abort(clientIdentifier));
 }
 
+#if ENABLE(MEDIA_STREAM)
+void WebSpeechRecognitionConnection::dispatchCaptureSourceCreated(WebCore::SpeechRecognitionConnectionClientIdentifier clientIdentifier, WebCore::RealtimeMediaSource& source)
+{
+    if (RefPtr client = m_clientMap.get(clientIdentifier))
+        client->captureSourceCreated(source);
+}
+#endif
+
 void WebSpeechRecognitionConnection::invalidate(WebCore::SpeechRecognitionConnectionClientIdentifier clientIdentifier)
 {
     send(Messages::SpeechRecognitionServer::Invalidate(clientIdentifier));
@@ -95,7 +118,7 @@ void WebSpeechRecognitionConnection::didReceiveUpdate(WebCore::SpeechRecognition
     if (!m_clientMap.contains(clientIdentifier))
         return;
 
-    auto client = m_clientMap.get(clientIdentifier);
+    RefPtr client = m_clientMap.get(clientIdentifier);
     if (!client) {
         m_clientMap.remove(clientIdentifier);
         // Inform server that client does not exist any more.

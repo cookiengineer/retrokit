@@ -26,20 +26,63 @@
 #include "config.h"
 #include "DebuggerParseData.h"
 
+#include "JSCJSValueInlines.h"
 #include "Parser.h"
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
-std::optional<JSTextPosition> DebuggerPausePositions::breakpointLocationForLineColumn(int line, int column)
+void DebuggerPausePositions::forEachBreakpointLocation(int startLine, int startColumn, int endLine, int endColumn, Function<void(const JSTextPosition&)>&& callback)
+{
+    auto isAfterEnd = [&] (int line, int column) {
+        return (line == endLine && column >= endColumn) || line > endLine;
+    };
+
+    Vector<JSTextPosition> uniquePositions;
+    for (auto it = firstPositionAfter(startLine, startColumn); it != m_positions.end(); ++it) {
+        auto line = it->position.line;
+        auto column = it->position.column();
+
+        if (isAfterEnd(line, column))
+            break;
+
+        if (auto resolvedPosition = breakpointLocationForLineColumn(line, column, it)) {
+            if (!isAfterEnd(resolvedPosition->line, resolvedPosition->column()))
+                uniquePositions.appendIfNotContains(*resolvedPosition);
+        }
+    }
+    std::ranges::sort(uniquePositions, [](const auto& a, const auto& b) {
+        if (a.line == b.line)
+            return a.column() < b.column();
+        return a.line < b.line;
+    });
+    for (const auto& position : uniquePositions)
+        callback(position);
+}
+
+DebuggerPausePositions::Positions::iterator DebuggerPausePositions::firstPositionAfter(int line, int column)
 {
     DebuggerPausePosition position = { DebuggerPausePositionType::Invalid, JSTextPosition(line, column, 0) };
-    auto it = std::lower_bound(m_positions.begin(), m_positions.end(), position, [] (const DebuggerPausePosition& a, const DebuggerPausePosition& b) {
+    return std::lower_bound(m_positions.begin(), m_positions.end(), position, [] (const DebuggerPausePosition& a, const DebuggerPausePosition& b) {
         if (a.position.line == b.position.line)
             return a.position.column() < b.position.column();
         return a.position.line < b.position.line;
     });
+}
+
+std::optional<JSTextPosition> DebuggerPausePositions::breakpointLocationForLineColumn(int line, int column)
+{
+    return breakpointLocationForLineColumn(line, column, firstPositionAfter(line, column));
+}
+
+std::optional<JSTextPosition> DebuggerPausePositions::breakpointLocationForLineColumn(int line, int column, DebuggerPausePositions::Positions::iterator it)
+{
     if (it == m_positions.end())
         return std::nullopt;
+
+    ASSERT(line <= it->position.line);
+    ASSERT(line != it->position.line || column <= it->position.column());
 
     if (line == it->position.line && column == it->position.column()) {
         // Found an exact position match. Roll forward if this was a function Entry.
@@ -103,7 +146,7 @@ std::optional<JSTextPosition> DebuggerPausePositions::breakpointLocationForLineC
 
 void DebuggerPausePositions::sort()
 {
-    std::sort(m_positions.begin(), m_positions.end(), [] (const DebuggerPausePosition& a, const DebuggerPausePosition& b) {
+    std::ranges::sort(m_positions, [](const auto& a, const auto& b) {
         if (a.position.offset == b.position.offset)
             return a.type < b.type;
         return a.position.offset < b.position.offset;
@@ -115,15 +158,15 @@ template <DebuggerParseInfoTag T> struct DebuggerParseInfo { };
 
 template <> struct DebuggerParseInfo<Program> {
     typedef JSC::ProgramNode RootNode;
+    static constexpr LexicallyScopedFeatures lexicallyScopedFeatures = NoLexicallyScopedFeatures;
     static constexpr SourceParseMode parseMode = SourceParseMode::ProgramMode;
-    static constexpr JSParserStrictMode strictMode = JSParserStrictMode::NotStrict;
     static constexpr JSParserScriptMode scriptMode = JSParserScriptMode::Classic;
 };
 
 template <> struct DebuggerParseInfo<Module> {
     typedef JSC::ModuleProgramNode RootNode;
+    static constexpr LexicallyScopedFeatures lexicallyScopedFeatures = StrictModeLexicallyScopedFeature;
     static constexpr SourceParseMode parseMode = SourceParseMode::ModuleEvaluateMode;
-    static constexpr JSParserStrictMode strictMode = JSParserStrictMode::Strict;
     static constexpr JSParserScriptMode scriptMode = JSParserScriptMode::Module;
 };
 
@@ -131,15 +174,14 @@ template <DebuggerParseInfoTag T>
 bool gatherDebuggerParseData(VM& vm, const SourceCode& source, DebuggerParseData& debuggerParseData)
 {
     typedef typename DebuggerParseInfo<T>::RootNode RootNode;
+    LexicallyScopedFeatures lexicallyScopedFeatures = DebuggerParseInfo<T>::lexicallyScopedFeatures;
     SourceParseMode parseMode = DebuggerParseInfo<T>::parseMode;
-    JSParserStrictMode strictMode = DebuggerParseInfo<T>::strictMode;
     JSParserScriptMode scriptMode = DebuggerParseInfo<T>::scriptMode;
 
     ParserError error;
-    std::unique_ptr<RootNode> rootNode = parse<RootNode>(vm, source, Identifier(),
-        JSParserBuiltinMode::NotBuiltin, strictMode, scriptMode, parseMode, SuperBinding::NotNeeded,
-        error, nullptr, ConstructorKind::None, DerivedContextType::None, EvalContextType::None,
-        &debuggerParseData);
+    std::unique_ptr<RootNode> rootNode = parseRootNode<RootNode>(vm, source, ImplementationVisibility::Public,
+        JSParserBuiltinMode::NotBuiltin, lexicallyScopedFeatures, scriptMode, parseMode,
+        error, ConstructorKind::None, nullptr, &debuggerParseData);
     if (!rootNode)
         return false;
 
@@ -164,5 +206,7 @@ bool gatherDebuggerParseDataForSource(VM& vm, SourceProvider* provider, Debugger
         return false;
     }
 }
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 } // namespace JSC

@@ -27,6 +27,7 @@
 
 #include "MutatorScheduler.h"
 #include <wtf/Seconds.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakRandom.h>
 
 namespace JSC {
@@ -40,6 +41,7 @@ class Heap;
 // began.
 
 class StochasticSpaceTimeMutatorScheduler final : public MutatorScheduler {
+    WTF_MAKE_TZONE_ALLOCATED(StochasticSpaceTimeMutatorScheduler);
 public:
     StochasticSpaceTimeMutatorScheduler(Heap&);
     ~StochasticSpaceTimeMutatorScheduler() final;
@@ -65,14 +67,14 @@ private:
     class Snapshot;
     friend class Snapshot;
     
-    double bytesAllocatedThisCycleImpl();
+    double NODELETE bytesAllocatedThisCycleImpl();
     
-    double bytesSinceBeginningOfCycle(const Snapshot&);
-    double maxHeadroom();
-    double headroomFullness(const Snapshot&);
-    double mutatorUtilization(const Snapshot&);
+    double NODELETE bytesSinceBeginningOfCycle(const Snapshot&);
+    double NODELETE maxHeadroom();
+    double NODELETE headroomFullness(const Snapshot&);
+    double NODELETE mutatorUtilization(const Snapshot&);
     
-    Heap& m_heap;
+    JSC::Heap& m_heap;
     State m_state { Normal };
     
     WeakRandom m_random;

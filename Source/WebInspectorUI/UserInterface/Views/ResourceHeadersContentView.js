@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,7 +25,7 @@
 
 WI.ResourceHeadersContentView = class ResourceHeadersContentView extends WI.ContentView
 {
-    constructor(resource, delegate)
+    constructor(resource, entry, delegate)
     {
         super(null);
 
@@ -37,6 +37,7 @@ WI.ResourceHeadersContentView = class ResourceHeadersContentView extends WI.Cont
         this._resource.addEventListener(WI.Resource.Event.RequestHeadersDidChange, this._resourceRequestHeadersDidChange, this);
         this._resource.addEventListener(WI.Resource.Event.ResponseReceived, this._resourceResponseReceived, this);
 
+        this._entry = entry;
         this._delegate = delegate;
 
         this._searchQuery = null;
@@ -242,12 +243,15 @@ WI.ResourceHeadersContentView = class ResourceHeadersContentView extends WI.Cont
         }
     }
 
+    _createSortedArrayForHeaders(headers)
+    {
+        return Object.entries(headers).sort((a, b) => a[0].toLowerCase().extendedLocaleCompare(b[0].toLowerCase()));
+    }
+
     _refreshSummarySection()
     {
         let detailsElement = this._summarySection.detailsElement;
         detailsElement.removeChildren();
-
-        this._summarySection.toggleError(this._resource.hadLoadingError());
 
         for (let redirect of this._resource.redirects)
             this._summarySection.appendKeyValuePair(WI.UIString("URL"), redirect.url.insertWordBreakCharacters(), "url");
@@ -264,7 +268,7 @@ WI.ResourceHeadersContentView = class ResourceHeadersContentView extends WI.Cont
         this._summarySection.appendKeyValuePair(WI.UIString("Source"), source);
 
         if (this._resource.remoteAddress)
-            this._summarySection.appendKeyValuePair(WI.UIString("Address"), this._resource.remoteAddress);
+            this._summarySection.appendKeyValuePair(WI.UIString("Address"), this._resource.displayRemoteAddress);
 
         let initiatorLocation = this._resource.initiatorSourceCodeLocation;
         if (initiatorLocation) {
@@ -279,8 +283,7 @@ WI.ResourceHeadersContentView = class ResourceHeadersContentView extends WI.Cont
             let link = WI.createSourceCodeLocationLink(initiatorLocation, options);
             fragment.appendChild(link);
 
-            let callFrames = this._resource.initiatorCallFrames;
-            if (callFrames) {
+            if (this._resource.initiatorStackTrace) {
                 this._popoverCallStackIconElement = document.createElement("img");
                 this._popoverCallStackIconElement.className = "call-stack";
                 fragment.appendChild(this._popoverCallStackIconElement);
@@ -294,8 +297,8 @@ WI.ResourceHeadersContentView = class ResourceHeadersContentView extends WI.Cont
                     const selectable = false;
                     let callFramesTreeOutline = new WI.TreeOutline(selectable);
                     callFramesTreeOutline.disclosureButtons = false;
-                    let callFrameTreeController = new WI.CallFrameTreeController(callFramesTreeOutline);
-                    callFrameTreeController.callFrames = callFrames;
+                    let callFrameTreeController = new WI.StackTraceTreeController(callFramesTreeOutline);
+                    callFrameTreeController.stackTrace = this._resource.initiatorStackTrace;
 
                     let popoverContent = document.createElement("div");
                     popoverContent.appendChild(callFrameTreeController.treeOutline.element);
@@ -321,23 +324,34 @@ WI.ResourceHeadersContentView = class ResourceHeadersContentView extends WI.Cont
             let redirect = this._resource.redirects[i];
 
             let redirectRequestSection = new WI.ResourceDetailsSection(WI.UIString("Request"), "redirect");
+            redirectRequestSection.toggleError(redirect.responseStatusCode >= 400);
 
             // FIXME: <https://webkit.org/b/190214> Web Inspector: expose full load metrics for redirect requests
             redirectRequestSection.appendKeyValuePair(`${redirect.requestMethod} ${redirect.urlComponents.path}`, null, "h1-status");
 
-            for (let key in redirect.requestHeaders)
-                redirectRequestSection.appendKeyValuePair(key, redirect.requestHeaders[key], "header");
+            for (let [key, value] of this._createSortedArrayForHeaders(redirect.requestHeaders))
+                redirectRequestSection.appendKeyValuePair(key, value, "header");
 
             referenceElement = this.element.insertBefore(redirectRequestSection.element, referenceElement.nextElementSibling);
             this._redirectDetailsSections.push(redirectRequestSection);
 
             let redirectResponseSection = new WI.ResourceDetailsSection(WI.UIString("Redirect Response"), "redirect");
+            redirectResponseSection.toggleError(redirect.responseStatusCode >= 400);
 
-            // FIXME: <https://webkit.org/b/190214> Web Inspector: expose full load metrics for redirect requests
+            let navLink = WI.createGoToArrowButton();
+            navLink.classList.add("redirect-nav-link");
+            navLink.title = WI.UIString("View Redirect");
+            navLink.addEventListener("click", (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                this._delegate?.showRedirect?.(redirect, this._resource, this._entry);
+            });
+            redirectResponseSection._titleElement.appendChild(navLink);
+
             redirectResponseSection.appendKeyValuePair(`${redirect.responseStatusCode} ${redirect.responseStatusText}`, null, "h1-status");
 
-            for (let key in redirect.responseHeaders)
-                redirectResponseSection.appendKeyValuePair(key, redirect.responseHeaders[key], "header");
+            for (let [key, value] of this._createSortedArrayForHeaders(redirect.responseHeaders))
+                redirectResponseSection.appendKeyValuePair(key, value, "header");
 
             referenceElement = this.element.insertBefore(redirectResponseSection.element, referenceElement.nextElementSibling);
             this._redirectDetailsSections.push(redirectResponseSection);
@@ -348,6 +362,8 @@ WI.ResourceHeadersContentView = class ResourceHeadersContentView extends WI.Cont
     {
         let detailsElement = this._requestHeadersSection.detailsElement;
         detailsElement.removeChildren();
+
+        this._requestHeadersSection.toggleError(this._resource.hadLoadingError());
 
         // A revalidation request still sends a request even though we served from cache, so show the request.
         if (this._resource.statusCode !== 304) {
@@ -377,9 +393,8 @@ WI.ResourceHeadersContentView = class ResourceHeadersContentView extends WI.Cont
             this._requestHeadersSection.appendKeyValuePair(":path", WI.h2Path(urlComponents), "h2-pseudo-header");
         }
 
-        let requestHeaders = this._resource.requestHeaders;
-        for (let key in requestHeaders)
-            this._requestHeadersSection.appendKeyValuePair(key, requestHeaders[key], "header");
+        for (let [key, value] of this._createSortedArrayForHeaders(this._resource.requestHeaders))
+            this._requestHeadersSection.appendKeyValuePair(key, value, "header");
 
         if (!detailsElement.firstChild)
             this._requestHeadersSection.markIncompleteSectionWithMessage(WI.UIString("No request headers"));
@@ -396,6 +411,7 @@ WI.ResourceHeadersContentView = class ResourceHeadersContentView extends WI.Cont
         }
 
         this._responseHeadersSection.toggleIncomplete(false);
+        this._responseHeadersSection.toggleError(this._resource.hadLoadingError());
 
         let protocol = this._resource.protocol || "";
         if (protocol.startsWith("http/1")) {
@@ -409,8 +425,7 @@ WI.ResourceHeadersContentView = class ResourceHeadersContentView extends WI.Cont
             this._responseHeadersSection.appendKeyValuePair(":status", this._resource.statusCode, "h2-pseudo-header");
         }
 
-        let responseHeaders = this._resource.responseHeaders;
-        for (let key in responseHeaders) {
+        for (let [key, value] of this._createSortedArrayForHeaders(this._resource.responseHeaders)) {
             // Split multiple Set-Cookie response headers out into their multiple headers instead of as a combined value.
             if (key.toLowerCase() === "set-cookie") {
                 let responseCookies = this._resource.responseCookies;
@@ -420,7 +435,7 @@ WI.ResourceHeadersContentView = class ResourceHeadersContentView extends WI.Cont
                 continue;
             }
 
-            this._responseHeadersSection.appendKeyValuePair(key, responseHeaders[key], "header");
+            this._responseHeadersSection.appendKeyValuePair(key, value, "header");
         }
 
         if (!detailsElement.firstChild)
@@ -562,3 +577,5 @@ WI.ResourceHeadersContentView = class ResourceHeadersContentView extends WI.Cont
         this.needsLayout();
     }
 };
+
+WI.ResourceHeadersContentView.ReferencePage = WI.ReferencePage.NetworkTab.HeadersPane;

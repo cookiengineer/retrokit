@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "CollectionScope.h"
+#include <JavaScriptCore/CollectionScope.h>
 #include <wtf/PrintStream.h>
 #include <wtf/RefPtr.h>
 #include <wtf/SharedTask.h>
@@ -45,7 +45,7 @@ struct GCRequest {
     {
     }
     
-    bool subsumedBy(const GCRequest& other) const;
+    bool NODELETE subsumedBy(const GCRequest& other) const;
     
     void dump(PrintStream&) const;
     

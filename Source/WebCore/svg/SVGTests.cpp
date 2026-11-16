@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2004, 2005, 2008 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2006, 2007 Rob Buis <buis@kde.org>
- * Copyright (C) 2015-2021 Apple Inc. All right reserved.
+ * Copyright (C) 2015-2024 Apple Inc. All right reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -22,13 +22,14 @@
 #include "config.h"
 #include "SVGTests.h"
 
-#include "DOMImplementation.h"
 #include "HTMLNames.h"
+#include "NodeName.h"
 #include "SVGElement.h"
 #include "SVGNames.h"
+#include "SVGPropertyOwnerRegistry.h"
 #include "SVGStringList.h"
 #include <wtf/Language.h>
-#include <wtf/SortedArrayMap.h>
+#include <wtf/TZoneMallocInlines.h>
 
 #if ENABLE(MATHML)
 #include "MathMLNames.h"
@@ -36,75 +37,29 @@
 
 namespace WebCore {
 
-constexpr ComparableLettersLiteral supportedSVGFeatureArray[] = {
-    "http://www.w3.org/tr/svg11/feature#animation",
-    "http://www.w3.org/tr/svg11/feature#basegraphicsattribute",
-    "http://www.w3.org/tr/svg11/feature#basicclip",
-    "http://www.w3.org/tr/svg11/feature#basicfilter",
-    "http://www.w3.org/tr/svg11/feature#basicfont",
-    "http://www.w3.org/tr/svg11/feature#basicpaintattribute",
-    "http://www.w3.org/tr/svg11/feature#basicstructure",
-    "http://www.w3.org/tr/svg11/feature#basictext",
-    "http://www.w3.org/tr/svg11/feature#clip",
-    "http://www.w3.org/tr/svg11/feature#conditionalprocessing",
-    "http://www.w3.org/tr/svg11/feature#containerattribute",
-    "http://www.w3.org/tr/svg11/feature#coreattribute",
-    "http://www.w3.org/tr/svg11/feature#cursor",
-    "http://www.w3.org/tr/svg11/feature#documenteventsattribute",
-    "http://www.w3.org/tr/svg11/feature#extensibility",
-    "http://www.w3.org/tr/svg11/feature#externalresourcesrequired",
-    "http://www.w3.org/tr/svg11/feature#filter",
-    "http://www.w3.org/tr/svg11/feature#font",
-    "http://www.w3.org/tr/svg11/feature#gradient",
-    "http://www.w3.org/tr/svg11/feature#graphicaleventsattribute",
-    "http://www.w3.org/tr/svg11/feature#graphicsattribute",
-    "http://www.w3.org/tr/svg11/feature#hyperlinking",
-    "http://www.w3.org/tr/svg11/feature#image",
-    "http://www.w3.org/tr/svg11/feature#marker",
-    "http://www.w3.org/tr/svg11/feature#mask",
-    "http://www.w3.org/tr/svg11/feature#opacityattribute",
-    "http://www.w3.org/tr/svg11/feature#paintattribute",
-    "http://www.w3.org/tr/svg11/feature#pattern",
-    "http://www.w3.org/tr/svg11/feature#script",
-    "http://www.w3.org/tr/svg11/feature#shape",
-    "http://www.w3.org/tr/svg11/feature#structure",
-    "http://www.w3.org/tr/svg11/feature#style",
-    "http://www.w3.org/tr/svg11/feature#svg",
-    "http://www.w3.org/tr/svg11/feature#svg-animation",
-    "http://www.w3.org/tr/svg11/feature#svg-static",
-    "http://www.w3.org/tr/svg11/feature#svgdom",
-    "http://www.w3.org/tr/svg11/feature#svgdom-animation",
-    "http://www.w3.org/tr/svg11/feature#svgdom-static",
-    "http://www.w3.org/tr/svg11/feature#text",
-    "http://www.w3.org/tr/svg11/feature#view",
-    "http://www.w3.org/tr/svg11/feature#viewportattribute",
-    "http://www.w3.org/tr/svg11/feature#xlinkattribute",
-    "org.w3c.dom",
-    "org.w3c.dom.svg",
-    "org.w3c.dom.svg.static",
-    "org.w3c.svg",
-    "org.w3c.svg.static",
-};
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGConditionalProcessingAttributes);
 
-constexpr SortedArraySet supportedSVGFeatureSet { supportedSVGFeatureArray };
+SVGConditionalProcessingAttributes::SVGConditionalProcessingAttributes(SVGElement& contextElement)
+    : m_requiredExtensions(SVGStringList::create(&contextElement))
+    , m_systemLanguage(SVGStringList::create(&contextElement))
+{
+    static bool didRegistration = false;
+    if (!didRegistration) [[unlikely]] {
+        didRegistration = true;
+        SVGTests::PropertyRegistry::registerConditionalProcessingAttributeProperty<SVGNames::requiredExtensionsAttr, &SVGConditionalProcessingAttributes::m_requiredExtensions>();
+        SVGTests::PropertyRegistry::registerConditionalProcessingAttributeProperty<SVGNames::systemLanguageAttr, &SVGConditionalProcessingAttributes::m_systemLanguage>();
+    }
+}
 
 SVGTests::SVGTests(SVGElement* contextElement)
     : m_contextElement(*contextElement)
-    , m_requiredFeatures(SVGStringList::create(contextElement))
-    , m_requiredExtensions(SVGStringList::create(contextElement))
-    , m_systemLanguage(SVGStringList::create(contextElement))
 {
-    static std::once_flag onceFlag;
-    std::call_once(onceFlag, [] {
-        PropertyRegistry::registerProperty<SVGNames::requiredFeaturesAttr, &SVGTests::m_requiredFeatures>();
-        PropertyRegistry::registerProperty<SVGNames::requiredExtensionsAttr, &SVGTests::m_requiredExtensions>();
-        PropertyRegistry::registerProperty<SVGNames::systemLanguageAttr, &SVGTests::m_systemLanguage>();
-    });
 }
 
 bool SVGTests::hasExtension(const String& extension)
 {
-    // We recognize XHTML and MathML, as implemented in Gecko and suggested in the SVG Tiny recommendation (http://www.w3.org/TR/SVG11/struct.html#RequiredExtensionsAttribute).
+    // We recognize XHTML and MathML, as implemented in Gecko and suggested in the SVG Tiny
+    // recommendation (http://www.w3.org/TR/SVG11/struct.html#RequiredExtensionsAttribute).
 #if ENABLE(MATHML)
     if (extension == MathMLNames::mathmlNamespaceURI)
         return true;
@@ -112,17 +67,51 @@ bool SVGTests::hasExtension(const String& extension)
     return extension == HTMLNames::xhtmlNamespaceURI;
 }
 
+// FIXME: RFC 4647 Basic Filtering with parent language tags can cause cross-script
+// matches (e.g., "zh" matching "zh-Hant" when user prefers "zh-Hans"). Consider
+// Extended Filtering (RFC 4647 3.3.2) for script-aware matching.
+static bool matchesLanguageTag(StringView range, StringView tag)
+{
+    if (range.isEmpty())
+        return false;
+    if (range.length() == tag.length())
+        return equalIgnoringASCIICase(range, tag);
+    return range.length() < tag.length()
+        && tag[range.length()] == '-'
+        && equalIgnoringASCIICase(range, tag.left(range.length()));
+}
+
+// SVG2 5.6.5 implementation note: try the full user language tag, then iteratively
+// strip subtags to synthesize parent language tags (e.g. "zh-Hans-CN" → "zh-Hans" → "zh").
+static bool userLanguageMatchesAnyListedTag(StringView userLanguage, const Vector<String>& listedTags)
+{
+    for (StringView range = userLanguage; !range.isEmpty(); ) {
+        for (auto& listedTag : listedTags) {
+            if (matchesLanguageTag(range, listedTag))
+                return true;
+        }
+        auto hyphenIndex = range.reverseFind('-');
+        if (hyphenIndex == notFound)
+            return false;
+        range = range.left(hyphenIndex);
+    }
+    return false;
+}
+
 bool SVGTests::isValid() const
 {
-    for (auto& feature : m_requiredFeatures->items()) {
-        if (feature.isEmpty() || !supportedSVGFeatureSet.contains(feature))
+    auto attributes = conditionalProcessingAttributesIfExists();
+    if (!attributes)
+        return true;
+
+    auto& systemLanguageList = attributes->systemLanguage().items();
+    if (!systemLanguageList.isEmpty()) {
+        // Match against the same value navigator.language / navigator.languages exposes.
+        if (!userLanguageMatchesAnyListedTag(defaultLanguage(), systemLanguageList))
             return false;
     }
-    for (auto& language : m_systemLanguage->items()) {
-        if (language != defaultLanguage().substring(0, 2))
-            return false;
-    }
-    for (auto& extension : m_requiredExtensions->items()) {
+
+    for (auto& extension : attributes->requiredExtensions().items()) {
         if (!hasExtension(extension))
             return false;
     }
@@ -131,12 +120,16 @@ bool SVGTests::isValid() const
 
 void SVGTests::parseAttribute(const QualifiedName& attributeName, const AtomString& value)
 {
-    if (attributeName == SVGNames::requiredFeaturesAttr)
-        m_requiredFeatures->reset(value);
-    if (attributeName == SVGNames::requiredExtensionsAttr)
-        m_requiredExtensions->reset(value);
-    if (attributeName == SVGNames::systemLanguageAttr)
-        m_systemLanguage->reset(value);
+    switch (attributeName.nodeName()) {
+    case AttributeNames::requiredExtensionsAttr:
+        protect(requiredExtensions())->setFromSpaceSeparatedTokens(value);
+        break;
+    case AttributeNames::systemLanguageAttr:
+        protect(systemLanguage())->setFromCommaSeparatedTokens(value);
+        break;
+    default:
+        break;
+    }
 }
 
 void SVGTests::svgAttributeChanged(const QualifiedName& attrName)
@@ -144,37 +137,27 @@ void SVGTests::svgAttributeChanged(const QualifiedName& attrName)
     if (!PropertyRegistry::isKnownAttribute(attrName))
         return;
 
-    if (!m_contextElement.isConnected())
+    Ref contextElement = m_contextElement.get();
+    if (!contextElement->isConnected())
         return;
-    m_contextElement.invalidateStyleAndRenderersForSubtree();
+    contextElement->invalidateStyleAndRenderersForSubtree();
 }
 
 void SVGTests::addSupportedAttributes(MemoryCompactLookupOnlyRobinHoodHashSet<QualifiedName>& supportedAttributes)
 {
-    supportedAttributes.add(SVGNames::requiredFeaturesAttr);
     supportedAttributes.add(SVGNames::requiredExtensionsAttr);
     supportedAttributes.add(SVGNames::systemLanguageAttr);
 }
 
-bool SVGTests::hasFeatureForLegacyBindings(const String& feature, const String& version)
+SVGConditionalProcessingAttributes& SVGTests::conditionalProcessingAttributes()
 {
-    // FIXME: This function is here only to be exposed in the Objective-C and GObject bindings for both Node and DOMImplementation.
-    // It's likely that we can just remove this and instead have the bindings return true unconditionally.
-    // This is what the DOMImplementation function now does in JavaScript as is now suggested in the DOM specification.
-    // The behavior implemented below is quirky, but preserves what WebKit has done for at least the last few years.
-
-    bool hasSVG10FeaturePrefix = startsWithLettersIgnoringASCIICase(feature, "org.w3c.dom.svg") || startsWithLettersIgnoringASCIICase(feature, "org.w3c.svg");
-    bool hasSVG11FeaturePrefix = startsWithLettersIgnoringASCIICase(feature, "http://www.w3.org/tr/svg");
-
-    // We don't even try to handle feature names that don't look like the SVG ones, so just return true for all of those.
-    if (!(hasSVG10FeaturePrefix || hasSVG11FeaturePrefix))
-        return true;
-
-    // If the version number matches the style of the feature name, then use the set to see if the feature is supported.
-    if (version.isEmpty() || (hasSVG10FeaturePrefix && version == "1.0") || (hasSVG11FeaturePrefix && version == "1.1"))
-        return supportedSVGFeatureSet.contains(feature);
-
-    return false;
+    Ref contextElement = m_contextElement;
+    return contextElement->conditionalProcessingAttributes();
 }
 
+SVGConditionalProcessingAttributes* SVGTests::conditionalProcessingAttributesIfExists() const
+{
+    return m_contextElement->conditionalProcessingAttributesIfExists();
 }
+
+} // namespace WebCore

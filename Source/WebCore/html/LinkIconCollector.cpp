@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,17 +27,18 @@
 #include "LinkIconCollector.h"
 
 #include "Document.h"
-#include "ElementChildIterator.h"
+#include "ElementChildIteratorInlines.h"
 #include "HTMLHeadElement.h"
 #include "HTMLLinkElement.h"
 #include "LinkIconType.h"
+#include <ranges>
 #include <wtf/text/StringToIntegerConversion.h>
 
 namespace WebCore {
 
-const unsigned defaultTouchIconWidth = 60;
+constexpr unsigned defaultTouchIconWidth = 60;
 
-static unsigned iconSize(const LinkIcon& icon)
+static unsigned NODELETE iconSize(const LinkIcon& icon)
 {
     if (icon.size)
         return *icon.size;
@@ -48,12 +49,12 @@ static unsigned iconSize(const LinkIcon& icon)
     return 0;
 }
 
-static int compareIcons(const LinkIcon& a, const LinkIcon& b)
+static int NODELETE compareIcons(const LinkIcon& a, const LinkIcon& b)
 {
     // Apple Touch icons always come first.
     if (a.type == LinkIconType::Favicon && b.type != LinkIconType::Favicon)
         return 1;
-    if (a.type == LinkIconType::Favicon && b.type != LinkIconType::Favicon)
+    if (b.type == LinkIconType::Favicon && a.type != LinkIconType::Favicon)
         return -1;
 
     unsigned aSize = iconSize(a);
@@ -75,42 +76,43 @@ static int compareIcons(const LinkIcon& a, const LinkIcon& b)
 
 auto LinkIconCollector::iconsOfTypes(OptionSet<LinkIconType> iconTypes) -> Vector<LinkIcon>
 {
-    auto head = makeRefPtr(m_document.head());
+    RefPtr head = m_document->head();
     if (!head)
         return { };
 
     Vector<LinkIcon> icons;
 
-    for (auto& linkElement : childrenOfType<HTMLLinkElement>(*head)) {
-        if (!linkElement.iconType())
+    for (Ref linkElement : childrenOfType<HTMLLinkElement>(*head)) {
+        if (!linkElement->iconType())
             continue;
 
-        auto iconType = *linkElement.iconType();
+        auto iconType = *linkElement->iconType();
         if (!iconTypes.contains(iconType))
             continue;
 
-        auto url = linkElement.href();
-        if (!url.protocolIsInHTTPFamily())
+        auto url = linkElement->href();
+        if (!url.protocolIsInHTTPFamily() && !url.protocolIsData())
             continue;
 
         // This icon size parsing is a little wonky - it only parses the first
         // part of the size, "60x70" becomes "60". This is for compatibility reasons
         // and is probably good enough for now.
         std::optional<unsigned> iconSize;
-        if (linkElement.sizes().length())
-            iconSize = parseIntegerAllowingTrailingJunk<unsigned>(linkElement.sizes().item(0));
+        if (linkElement->sizes().length())
+            iconSize = parseIntegerAllowingTrailingJunk<unsigned>(linkElement->sizes().item(0));
 
         Vector<std::pair<String, String>> attributes;
-        if (linkElement.hasAttributes()) {
-            attributes.reserveCapacity(linkElement.attributeCount());
-            for (const Attribute& attribute : linkElement.attributesIterator())
-                attributes.uncheckedAppend({ attribute.localName(), attribute.value() });
+        if (protect(linkElement)->hasAttributes()) {
+            auto linkAttributes = protect(linkElement)->attributes();
+            attributes = WTF::map(linkAttributes, [](auto& attribute) -> std::pair<String, String> {
+                return { attribute.localName(), attribute.value() };
+            });
         }
 
-        icons.append({ url, iconType, linkElement.type(), iconSize, WTFMove(attributes) });
+        icons.append({ url, iconType, linkElement->type(), iconSize, WTF::move(attributes) });
     }
 
-    std::sort(icons.begin(), icons.end(), [](auto& a, auto& b) {
+    std::ranges::sort(icons, [](auto& a, auto& b) {
         return compareIcons(a, b) < 0;
     });
 

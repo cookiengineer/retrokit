@@ -28,25 +28,29 @@
 
 #if ENABLE(MATHML)
 
+#include "ContainerNodeInlines.h"
+#include "ElementInlines.h"
 #include "Event.h"
 #include "EventNames.h"
 #include "HTMLElement.h"
 #include "HTMLNames.h"
 #include "MathMLNames.h"
+#include "MouseEvent.h"
 #include "RenderMathMLRow.h"
 #include "RenderTreeUpdater.h"
 #include "SVGElement.h"
-#include <wtf/IsoMallocInlines.h>
+#include "Settings.h"
+#include "StyleComputedStyle.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(MathMLSelectElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MathMLSelectElement);
 
 using namespace MathMLNames;
 
 MathMLSelectElement::MathMLSelectElement(const QualifiedName& tagName, Document& document)
     : MathMLRowElement(tagName, document)
-    , m_selectedChild(nullptr)
 {
 }
 
@@ -55,9 +59,9 @@ Ref<MathMLSelectElement> MathMLSelectElement::create(const QualifiedName& tagNam
     return adoptRef(*new MathMLSelectElement(tagName, document));
 }
 
-RenderPtr<RenderElement> MathMLSelectElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> MathMLSelectElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
-    return createRenderer<RenderMathMLRow>(*this, WTFMove(style));
+    return createRenderer<RenderMathMLRow>(RenderObject::Type::MathMLRow, *this, WTF::move(style));
 }
 
 //  We recognize the following values for the encoding attribute of the <semantics> element:
@@ -70,22 +74,22 @@ RenderPtr<RenderElement> MathMLSelectElement::createElementRenderer(RenderStyle&
 // We exclude "application/mathml+xml" which is ambiguous about whether it is Presentation or Content MathML. Authors must use a more explicit encoding value.
 bool MathMLSelectElement::isMathMLEncoding(const AtomString& value)
 {
-    return value == "application/mathml-presentation+xml" || value == "MathML-Presentation";
+    return value == "application/mathml-presentation+xml"_s || value == "MathML-Presentation"_s;
 }
 
 bool MathMLSelectElement::isSVGEncoding(const AtomString& value)
 {
-    return value == "image/svg+xml" || value == "SVG1.1";
+    return value == imageSVGContentTypeAtom() || value == "SVG1.1"_s;
 }
 
 bool MathMLSelectElement::isHTMLEncoding(const AtomString& value)
 {
-    return value == "application/xhtml+xml" || value == "text/html";
+    return value == applicationXHTMLContentTypeAtom() || value == textHTMLContentTypeAtom();
 }
 
 bool MathMLSelectElement::childShouldCreateRenderer(const Node& child) const
 {
-    return MathMLElement::childShouldCreateRenderer(child) && m_selectedChild == &child;
+    return MathMLElement::childShouldCreateRenderer(child) && (document().settings().coreMathMLEnabled() || m_selectedChild == &child);
 }
 
 void MathMLSelectElement::finishParsingChildren()
@@ -117,7 +121,7 @@ int MathMLSelectElement::getSelectedActionChildAndIndex(Element*& selectedChild)
     if (!selectedChild)
         return 1;
 
-    int selection = getIntegralAttribute(MathMLNames::selectionAttr);
+    int selection = integralAttribute(MathMLNames::selectionAttr);
     int i;
     for (i = 1; i < selection; i++) {
         auto* nextChild = selectedChild->nextElementSibling();
@@ -129,39 +133,41 @@ int MathMLSelectElement::getSelectedActionChildAndIndex(Element*& selectedChild)
     return i;
 }
 
-Element* MathMLSelectElement::getSelectedActionChild()
+RefPtr<Element> MathMLSelectElement::getSelectedActionChild()
 {
     ASSERT(hasTagName(mactionTag));
 
-    auto* child = firstElementChild();
+    RefPtr child = firstElementChild();
     if (!child)
-        return child;
+        return nullptr;
 
     // The value of the actiontype attribute is case-sensitive.
     auto& actiontype = attributeWithoutSynchronization(MathMLNames::actiontypeAttr);
-    if (actiontype == "statusline")
+    if (actiontype == "statusline"_s) {
         // FIXME: implement user interaction for the "statusline" action type (http://wkbug/124922).
         { }
-    else if (actiontype == "tooltip")
+    } else if (actiontype == "tooltip"_s) {
         // FIXME: implement user interaction for the "tooltip" action type (http://wkbug/124921).
         { }
-    else {
+    } else {
         // For the "toggle" action type or any unknown action type, we rely on the value of the selection attribute to determine the visible child.
-        getSelectedActionChildAndIndex(child);
+        Element* selectedChild;
+        getSelectedActionChildAndIndex(selectedChild);
+        child = selectedChild;
     }
 
     return child;
 }
 
-Element* MathMLSelectElement::getSelectedSemanticsChild()
+RefPtr<Element> MathMLSelectElement::getSelectedSemanticsChild()
 {
     ASSERT(hasTagName(semanticsTag));
 
-    auto* child = firstElementChild();
+    RefPtr child = firstElementChild();
     if (!child)
         return nullptr;
 
-    if (!is<MathMLElement>(*child) || !downcast<MathMLElement>(*child).isPresentationMathML()) {
+    if (RefPtr childElement = dynamicDowncast<MathMLElement>(*child); !childElement || !childElement->isPresentationMathML()) {
         // The first child is not a presentation MathML element. Hence we move to the second child and start searching an annotation child that could be displayed.
         child = child->nextElementSibling();
     } else if (!downcast<MathMLElement>(*child).isSemanticAnnotation()) {
@@ -199,13 +205,16 @@ Element* MathMLSelectElement::getSelectedSemanticsChild()
 
 void MathMLSelectElement::updateSelectedChild()
 {
-    auto* newSelectedChild = hasTagName(mactionTag) ? getSelectedActionChild() : getSelectedSemanticsChild();
+    if (document().settings().coreMathMLEnabled())
+        return;
+
+    RefPtr newSelectedChild = hasTagName(mactionTag) ? getSelectedActionChild() : getSelectedSemanticsChild();
 
     if (m_selectedChild == newSelectedChild)
         return;
 
     if (m_selectedChild && m_selectedChild->renderer())
-        RenderTreeUpdater::tearDownRenderers(*m_selectedChild);
+        RenderTreeUpdater::tearDownRenderers(protect(*m_selectedChild));
 
     m_selectedChild = newSelectedChild;
     invalidateStyleForSubtree();
@@ -213,8 +222,8 @@ void MathMLSelectElement::updateSelectedChild()
 
 void MathMLSelectElement::defaultEventHandler(Event& event)
 {
-    if (event.type() == eventNames().clickEvent) {
-        if (attributeWithoutSynchronization(MathMLNames::actiontypeAttr) == "toggle") {
+    if (!document().settings().coreMathMLEnabled() && isAnyClick(event)) {
+        if (attributeWithoutSynchronization(MathMLNames::actiontypeAttr) == "toggle"_s) {
             toggle();
             event.setDefaultHandled();
             return;
@@ -224,9 +233,9 @@ void MathMLSelectElement::defaultEventHandler(Event& event)
     MathMLRowElement::defaultEventHandler(event);
 }
 
-bool MathMLSelectElement::willRespondToMouseClickEvents()
+bool MathMLSelectElement::willRespondToMouseClickEventsWithEditability(Editability editability) const
 {
-    return attributeWithoutSynchronization(MathMLNames::actiontypeAttr) == "toggle" || MathMLRowElement::willRespondToMouseClickEvents();
+    return (!document().settings().coreMathMLEnabled() && attributeWithoutSynchronization(MathMLNames::actiontypeAttr) == "toggle"_s) || MathMLRowElement::willRespondToMouseClickEventsWithEditability(editability);
 }
 
 void MathMLSelectElement::toggle()

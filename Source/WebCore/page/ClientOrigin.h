@@ -25,79 +25,40 @@
 
 #pragma once
 
-#include "RegistrableDomain.h"
-#include "SecurityOriginData.h"
+#include <WebCore/RegistrableDomain.h>
+#include <WebCore/SecurityOriginData.h>
 #include <wtf/HashTraits.h>
+#include <wtf/Hasher.h>
 #include <wtf/URL.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
 struct ClientOrigin {
     static ClientOrigin emptyKey() { return { }; }
 
-    unsigned hash() const;
-    bool operator==(const ClientOrigin&) const;
+    friend bool operator==(const ClientOrigin&, const ClientOrigin&) = default;
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<ClientOrigin> decode(Decoder&);
-
-    ClientOrigin isolatedCopy() const;
+    ClientOrigin isolatedCopy() const & { return { topOrigin.isolatedCopy(), clientOrigin.isolatedCopy() }; }
+    ClientOrigin isolatedCopy() && { return { WTF::move(topOrigin).isolatedCopy(), WTF::move(clientOrigin).isolatedCopy() }; }
     bool isRelated(const SecurityOriginData& other) const { return topOrigin == other || clientOrigin == other; }
 
-    RegistrableDomain clientRegistrableDomain() const { return RegistrableDomain::uncheckedCreateFromHost(clientOrigin.host); }
+    RegistrableDomain clientRegistrableDomain() const { return RegistrableDomain::uncheckedCreateFromHost(clientOrigin.host()); }
 
     SecurityOriginData topOrigin;
     SecurityOriginData clientOrigin;
+
+    String loggingString() const { return makeString(topOrigin.toString(), '-', clientOrigin.toString()); }
 };
 
-inline unsigned ClientOrigin::hash() const
+inline void add(Hasher& hasher, const ClientOrigin& origin)
 {
-    unsigned hashes[2];
-    hashes[0] = SecurityOriginDataHash::hash(topOrigin);
-    hashes[1] = SecurityOriginDataHash::hash(clientOrigin);
-
-    return StringHasher::hashMemory(hashes, sizeof(hashes));
-}
-
-inline bool ClientOrigin::operator==(const ClientOrigin& other) const
-{
-    return topOrigin == other.topOrigin && clientOrigin == other.clientOrigin;
-}
-
-inline ClientOrigin ClientOrigin::isolatedCopy() const
-{
-    return { topOrigin.isolatedCopy(), clientOrigin.isolatedCopy() };
-}
-
-template<class Encoder> inline void ClientOrigin::encode(Encoder& encoder) const
-{
-    encoder << topOrigin;
-    encoder << clientOrigin;
-}
-
-template<class Decoder> inline std::optional<ClientOrigin> ClientOrigin::decode(Decoder& decoder)
-{
-    std::optional<SecurityOriginData> topOrigin;
-    std::optional<SecurityOriginData> clientOrigin;
-    decoder >> topOrigin;
-    if (!topOrigin || topOrigin->isEmpty())
-        return std::nullopt;
-    decoder >> clientOrigin;
-    if (!clientOrigin || clientOrigin->isEmpty())
-        return std::nullopt;
-
-    return ClientOrigin { WTFMove(*topOrigin), WTFMove(*clientOrigin) };
+    add(hasher, origin.topOrigin, origin.clientOrigin);
 }
 
 } // namespace WebCore
 
 namespace WTF {
-
-struct ClientOriginKeyHash {
-    static unsigned hash(const WebCore::ClientOrigin& key) { return key.hash(); }
-    static bool equal(const WebCore::ClientOrigin& a, const WebCore::ClientOrigin& b) { return a == b; }
-    static const bool safeToCompareToEmptyOrDeleted = false;
-};
 
 template<> struct HashTraits<WebCore::ClientOrigin> : GenericHashTraits<WebCore::ClientOrigin> {
     static WebCore::ClientOrigin emptyValue() { return WebCore::ClientOrigin::emptyKey(); }
@@ -105,7 +66,5 @@ template<> struct HashTraits<WebCore::ClientOrigin> : GenericHashTraits<WebCore:
     static void constructDeletedValue(WebCore::ClientOrigin& slot) { new (NotNull, &slot.topOrigin) WebCore::SecurityOriginData(WTF::HashTableDeletedValue); }
     static bool isDeletedValue(const WebCore::ClientOrigin& slot) { return slot.topOrigin.isHashTableDeletedValue(); }
 };
-
-template<> struct DefaultHash<WebCore::ClientOrigin> : ClientOriginKeyHash { };
 
 } // namespace WTF

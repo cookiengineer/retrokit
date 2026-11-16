@@ -22,10 +22,11 @@
 #include "APINavigationAction.h"
 #include "WebKitNavigationAction.h"
 #include <wtf/glib/GRefPtr.h>
+#include <wtf/text/CString.h>
 
 struct _WebKitNavigationAction {
     _WebKitNavigationAction(Ref<API::NavigationAction>&& action)
-        : action(WTFMove(action))
+        : action(WTF::move(action))
     {
     }
 
@@ -36,6 +37,7 @@ struct _WebKitNavigationAction {
 
     RefPtr<API::NavigationAction> action;
     GRefPtr<WebKitURIRequest> request;
+    std::optional<CString> frameName;
 };
 
 WebKitNavigationAction* webkitNavigationActionCreate(Ref<API::NavigationAction>&&);

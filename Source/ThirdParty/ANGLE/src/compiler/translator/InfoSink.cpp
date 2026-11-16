@@ -6,7 +6,9 @@
 
 #include "compiler/translator/InfoSink.h"
 
+#include "common/angleutils.h"
 #include "compiler/translator/ImmutableString.h"
+#include "compiler/translator/Symbol.h"
 #include "compiler/translator/Types.h"
 
 namespace sh
@@ -73,20 +75,71 @@ TInfoSinkBase &TInfoSinkBase::operator<<(const TType &type)
 
     if (type.isArray())
     {
-        for (auto arraySizeIter = type.getArraySizes().rbegin();
-             arraySizeIter != type.getArraySizes().rend(); ++arraySizeIter)
+        for (unsigned int arraySize : angle::Reversed(type.getArraySizes()))
         {
-            *this << "array[" << (*arraySizeIter) << "] of ";
+            *this << "array[" << arraySize << "] of ";
         }
     }
     if (type.isMatrix())
     {
-        *this << type.getCols() << "X" << type.getRows() << " matrix of ";
+        *this << static_cast<uint32_t>(type.getCols()) << "X"
+              << static_cast<uint32_t>(type.getRows()) << " matrix of ";
     }
     else if (type.isVector())
-        *this << type.getNominalSize() << "-component vector of ";
+        *this << static_cast<uint32_t>(type.getNominalSize()) << "-component vector of ";
 
     sink.append(type.getBasicString());
+
+    if (type.getStruct() != nullptr)
+    {
+        *this << ' ' << static_cast<const TSymbol &>(*type.getStruct());
+        if (type.isStructSpecifier())
+        {
+            *this << " (specifier)";
+        }
+    }
+
+    return *this;
+}
+
+TInfoSinkBase &TInfoSinkBase::operator<<(const TSymbol &symbol)
+{
+    switch (symbol.symbolType())
+    {
+        case SymbolType::BuiltIn:
+            *this << symbol.name();
+            break;
+        case SymbolType::Empty:
+            *this << "''";
+            break;
+        case SymbolType::AngleInternal:
+            *this << '#' << symbol.name();
+            break;
+        case SymbolType::UserDefined:
+            *this << '\'' << symbol.name() << '\'';
+            break;
+    }
+    *this << " (symbol id " << symbol.uniqueId().get() << ")";
+    return *this;
+}
+
+TInfoSinkBase &TInfoSinkBase::operator<<(const TField &field)
+{
+    ASSERT(field.symbolType() != SymbolType::Empty);
+    switch (field.symbolType())
+    {
+        case SymbolType::BuiltIn:
+            *this << field.name();
+            break;
+        case SymbolType::AngleInternal:
+            *this << '#' << field.name();
+            break;
+        case SymbolType::UserDefined:
+            *this << '\'' << field.name() << '\'';
+            break;
+        default:
+            UNREACHABLE();
+    }
     return *this;
 }
 
@@ -96,7 +149,7 @@ void TInfoSinkBase::location(int file, int line)
     if (line)
         stream << file << ":" << line;
     else
-        stream << file << ":? ";
+        stream << file << ":?";
     stream << ": ";
 
     sink.append(stream.str());

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,68 +27,52 @@
 
 #include "Connection.h"
 #include "MessageReceiveQueue.h"
+#include "WorkQueueMessageReceiver.h"
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/WeakRef.h>
 
 namespace IPC {
 
 class FunctionDispatcherQueue final : public MessageReceiveQueue {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FunctionDispatcherQueue);
 public:
     FunctionDispatcherQueue(FunctionDispatcher& dispatcher, MessageReceiver& receiver)
         : m_dispatcher(dispatcher)
-        , m_receiver(receiver)
+        , m_receiver(receiver, EnableWeakPtrThreadingAssertions::No) // FIXME: Re-enable threading assertions when possible.
     {
     }
     ~FunctionDispatcherQueue() final = default;
 
-    void enqueueMessage(Connection& connection, std::unique_ptr<Decoder>&& message) final
+    void enqueueMessage(Connection& connection, UniqueRef<Decoder>&& message) final
     {
-        m_dispatcher.dispatch([connection = makeRef(connection), message = WTFMove(message), &receiver = m_receiver]() mutable {
-            connection->dispatchMessageReceiverMessage(receiver, WTFMove(message));
+        m_dispatcher.dispatch([connection = protect(connection), message = WTF::move(message), receiver = protect(m_receiver.get())]() mutable {
+            connection->dispatchMessageReceiverMessage(receiver.get(), WTF::move(message));
         });
     }
 private:
     FunctionDispatcher& m_dispatcher;
-    MessageReceiver& m_receiver;
-};
-
-class ThreadMessageReceiverQueue final : public MessageReceiveQueue {
-    WTF_MAKE_FAST_ALLOCATED;
-public:
-    ThreadMessageReceiverQueue(Connection::ThreadMessageReceiver& receiver)
-        : m_receiver(makeRef(receiver))
-    {
-    }
-    ~ThreadMessageReceiverQueue() final = default;
-
-    void enqueueMessage(Connection& connection, std::unique_ptr<Decoder>&& message) final
-    {
-        m_receiver->dispatchToThread([connection = makeRef(connection), message = WTFMove(message), receiver = m_receiver]() mutable {
-            connection->dispatchMessageReceiverMessage(receiver.get(), WTFMove(message));
-        });
-    }
-private:
-    Ref<Connection::ThreadMessageReceiver> m_receiver;
+    WeakRef<MessageReceiver> m_receiver;
 };
 
 class WorkQueueMessageReceiverQueue final : public MessageReceiveQueue {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(WorkQueueMessageReceiverQueue);
 public:
-    WorkQueueMessageReceiverQueue(WorkQueue& queue, Connection::WorkQueueMessageReceiver& receiver)
-        : m_queue(makeRef(queue))
-        , m_receiver(makeRef(receiver))
+    WorkQueueMessageReceiverQueue(WorkQueue& queue, WorkQueueMessageReceiverBase& receiver)
+        : m_queue(queue)
+        , m_receiver(receiver)
     {
     }
     ~WorkQueueMessageReceiverQueue() final = default;
 
-    void enqueueMessage(Connection& connection, std::unique_ptr<Decoder>&& message) final
+    void enqueueMessage(Connection& connection, UniqueRef<Decoder>&& message) final
     {
-        m_queue->dispatch([connection = makeRef(connection), message = WTFMove(message), receiver = m_receiver]() mutable {
-            connection->dispatchMessageReceiverMessage(receiver.get(), WTFMove(message));
+        m_queue->dispatch([connection = protect(connection), message = WTF::move(message), receiver = m_receiver]() mutable {
+            connection->dispatchMessageReceiverMessage(receiver.get(), WTF::move(message));
         });
     }
 private:
-    Ref<WorkQueue> m_queue;
-    Ref<Connection::WorkQueueMessageReceiver> m_receiver;
+    const Ref<WorkQueue> m_queue;
+    const Ref<WorkQueueMessageReceiverBase> m_receiver;
 };
 
 } // namespace IPC

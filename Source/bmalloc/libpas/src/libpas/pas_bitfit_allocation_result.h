@@ -26,7 +26,6 @@
 #ifndef PAS_BITFIT_ALLOCATION_RESULT_H
 #define PAS_BITFIT_ALLOCATION_RESULT_H
 
-#include "pas_range.h"
 #include "pas_utils.h"
 
 PAS_BEGIN_EXTERN_C;

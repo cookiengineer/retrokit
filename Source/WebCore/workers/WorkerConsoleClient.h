@@ -28,21 +28,25 @@
 #include "WorkerOrWorkletGlobalScope.h"
 #include <JavaScriptCore/ConsoleClient.h>
 #include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC {
 class CallFrame;
 }
 
+using JSC::MessageType;
+
 namespace WebCore {
 
 class WorkerConsoleClient final : public JSC::ConsoleClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(WorkerConsoleClient);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WorkerConsoleClient);
 public:
     explicit WorkerConsoleClient(WorkerOrWorkletGlobalScope&);
     virtual ~WorkerConsoleClient();
 
 private:
-    void messageWithTypeAndLevel(MessageType, MessageLevel, JSC::JSGlobalObject*, Ref<Inspector::ScriptArguments>&&) override;
+    void messageWithTypeAndLevel(JSC::MessageType, MessageLevel, JSC::JSGlobalObject*, Ref<Inspector::ScriptArguments>&&) override;
     void count(JSC::JSGlobalObject*, const String& label) override;
     void countReset(JSC::JSGlobalObject*, const String& label) override;
     void profile(JSC::JSGlobalObject*, const String& title) override;
@@ -56,7 +60,9 @@ private:
     void recordEnd(JSC::JSGlobalObject*, Ref<Inspector::ScriptArguments>&&) override;
     void screenshot(JSC::JSGlobalObject*, Ref<Inspector::ScriptArguments>&&) override;
 
-    WorkerOrWorkletGlobalScope& m_globalScope;
+    WorkerOrWorkletGlobalScope& globalScope() { return m_globalScope; }
+
+    WeakRef<WorkerOrWorkletGlobalScope> m_globalScope;
 };
 
 } // namespace WebCore

@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2004, 2005, 2006, 2008 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2006, 2008 Rob Buis <buis@kde.org>
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2023 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -22,31 +22,32 @@
 #pragma once
 
 #include "SVGProperty.h"
+#include <wtf/EnumTraits.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
-enum SVGPathSegType {
-    PathSegUnknown = 0,
-    PathSegClosePath = 1,
-    PathSegMoveToAbs = 2,
-    PathSegMoveToRel = 3,
-    PathSegLineToAbs = 4,
-    PathSegLineToRel = 5,
-    PathSegCurveToCubicAbs = 6,
-    PathSegCurveToCubicRel = 7,
-    PathSegCurveToQuadraticAbs = 8,
-    PathSegCurveToQuadraticRel = 9,
-    PathSegArcAbs = 10,
-    PathSegArcRel = 11,
-    PathSegLineToHorizontalAbs = 12,
-    PathSegLineToHorizontalRel = 13,
-    PathSegLineToVerticalAbs = 14,
-    PathSegLineToVerticalRel = 15,
-    PathSegCurveToCubicSmoothAbs = 16,
-    PathSegCurveToCubicSmoothRel = 17,
-    PathSegCurveToQuadraticSmoothAbs = 18,
-    PathSegCurveToQuadraticSmoothRel = 19
+enum class SVGPathSegType : uint8_t {
+    Unknown = 0,
+    ClosePath = 1,
+    MoveToAbs = 2,
+    MoveToRel = 3,
+    LineToAbs = 4,
+    LineToRel = 5,
+    CurveToCubicAbs = 6,
+    CurveToCubicRel = 7,
+    CurveToQuadraticAbs = 8,
+    CurveToQuadraticRel = 9,
+    ArcAbs = 10,
+    ArcRel = 11,
+    LineToHorizontalAbs = 12,
+    LineToHorizontalRel = 13,
+    LineToVerticalAbs = 14,
+    LineToVerticalRel = 15,
+    CurveToCubicSmoothAbs = 16,
+    CurveToCubicSmoothRel = 17,
+    CurveToQuadraticSmoothAbs = 18,
+    CurveToQuadraticSmoothRel = 19
 };
 
 class SVGPathSeg : public SVGProperty {
@@ -55,29 +56,30 @@ public:
 
     // Forward declare these enums in the w3c naming scheme, for IDL generation
     enum {
-        PATHSEG_UNKNOWN = PathSegUnknown,
-        PATHSEG_CLOSEPATH = PathSegClosePath,
-        PATHSEG_MOVETO_ABS = PathSegMoveToAbs,
-        PATHSEG_MOVETO_REL = PathSegMoveToRel,
-        PATHSEG_LINETO_ABS = PathSegLineToAbs,
-        PATHSEG_LINETO_REL = PathSegLineToRel,
-        PATHSEG_CURVETO_CUBIC_ABS = PathSegCurveToCubicAbs,
-        PATHSEG_CURVETO_CUBIC_REL = PathSegCurveToCubicRel,
-        PATHSEG_CURVETO_QUADRATIC_ABS = PathSegCurveToQuadraticAbs,
-        PATHSEG_CURVETO_QUADRATIC_REL = PathSegCurveToQuadraticRel,
-        PATHSEG_ARC_ABS = PathSegArcAbs,
-        PATHSEG_ARC_REL = PathSegArcRel,
-        PATHSEG_LINETO_HORIZONTAL_ABS = PathSegLineToHorizontalAbs,
-        PATHSEG_LINETO_HORIZONTAL_REL = PathSegLineToHorizontalRel,
-        PATHSEG_LINETO_VERTICAL_ABS = PathSegLineToVerticalAbs,
-        PATHSEG_LINETO_VERTICAL_REL = PathSegLineToVerticalRel,
-        PATHSEG_CURVETO_CUBIC_SMOOTH_ABS = PathSegCurveToCubicSmoothAbs,
-        PATHSEG_CURVETO_CUBIC_SMOOTH_REL = PathSegCurveToCubicSmoothRel,
-        PATHSEG_CURVETO_QUADRATIC_SMOOTH_ABS = PathSegCurveToQuadraticSmoothAbs,
-        PATHSEG_CURVETO_QUADRATIC_SMOOTH_REL = PathSegCurveToQuadraticSmoothRel
+        PATHSEG_UNKNOWN = std::to_underlying(SVGPathSegType::Unknown),
+        PATHSEG_CLOSEPATH = std::to_underlying(SVGPathSegType::ClosePath),
+        PATHSEG_MOVETO_ABS = std::to_underlying(SVGPathSegType::MoveToAbs),
+        PATHSEG_MOVETO_REL = std::to_underlying(SVGPathSegType::MoveToRel),
+        PATHSEG_LINETO_ABS = std::to_underlying(SVGPathSegType::LineToAbs),
+        PATHSEG_LINETO_REL = std::to_underlying(SVGPathSegType::LineToRel),
+        PATHSEG_CURVETO_CUBIC_ABS = std::to_underlying(SVGPathSegType::CurveToCubicAbs),
+        PATHSEG_CURVETO_CUBIC_REL = std::to_underlying(SVGPathSegType::CurveToCubicRel),
+        PATHSEG_CURVETO_QUADRATIC_ABS = std::to_underlying(SVGPathSegType::CurveToQuadraticAbs),
+        PATHSEG_CURVETO_QUADRATIC_REL = std::to_underlying(SVGPathSegType::CurveToQuadraticRel),
+        PATHSEG_ARC_ABS = std::to_underlying(SVGPathSegType::ArcAbs),
+        PATHSEG_ARC_REL = std::to_underlying(SVGPathSegType::ArcRel),
+        PATHSEG_LINETO_HORIZONTAL_ABS = std::to_underlying(SVGPathSegType::LineToHorizontalAbs),
+        PATHSEG_LINETO_HORIZONTAL_REL = std::to_underlying(SVGPathSegType::LineToHorizontalRel),
+        PATHSEG_LINETO_VERTICAL_ABS = std::to_underlying(SVGPathSegType::LineToVerticalAbs),
+        PATHSEG_LINETO_VERTICAL_REL = std::to_underlying(SVGPathSegType::LineToVerticalRel),
+        PATHSEG_CURVETO_CUBIC_SMOOTH_ABS = std::to_underlying(SVGPathSegType::CurveToCubicSmoothAbs),
+        PATHSEG_CURVETO_CUBIC_SMOOTH_REL = std::to_underlying(SVGPathSegType::CurveToCubicSmoothRel),
+        PATHSEG_CURVETO_QUADRATIC_SMOOTH_ABS = std::to_underlying(SVGPathSegType::CurveToQuadraticSmoothAbs),
+        PATHSEG_CURVETO_QUADRATIC_SMOOTH_REL = std::to_underlying(SVGPathSegType::CurveToQuadraticSmoothRel)
     };
 
-    virtual unsigned short pathSegType() const = 0;
+    virtual SVGPathSegType pathSegType() const = 0;
+    unsigned short pathSegTypeForBindings() const { return static_cast<unsigned short>(pathSegType()); }
     virtual String pathSegTypeAsLetter() const = 0;
     virtual Ref<SVGPathSeg> clone() const = 0;
 
@@ -86,3 +88,8 @@ protected:
 };
 
 } // namespace WebCore
+
+#define SPECIALIZE_TYPE_TRAITS_SVGPATHSEG(ToValueTypeName, PathSegTypeName) \
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::ToValueTypeName) \
+static bool isType(const WebCore::SVGPathSeg& object) { return object.pathSegType() == WebCore::SVGPathSegType::PathSegTypeName; } \
+SPECIALIZE_TYPE_TRAITS_END()

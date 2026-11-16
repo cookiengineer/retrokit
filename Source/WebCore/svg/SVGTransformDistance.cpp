@@ -20,23 +20,12 @@
 #include "config.h"
 #include "SVGTransformDistance.h"
 
-#include "FloatConversion.h"
 #include "FloatPoint.h"
 #include "FloatSize.h"
 #include "SVGTransformValue.h"
 
-#include <math.h>
-
 namespace WebCore {
     
-SVGTransformDistance::SVGTransformDistance()
-    : m_type(SVGTransformValue::SVG_TRANSFORM_UNKNOWN)
-    , m_angle(0)
-    , m_cx(0)
-    , m_cy(0)
-{
-}
-
 SVGTransformDistance::SVGTransformDistance(SVGTransformValue::SVGTransformType type, float angle, float cx, float cy, const AffineTransform& transform)
     : m_type(type)
     , m_angle(angle)
@@ -48,9 +37,6 @@ SVGTransformDistance::SVGTransformDistance(SVGTransformValue::SVGTransformType t
 
 SVGTransformDistance::SVGTransformDistance(const SVGTransformValue& fromSVGTransform, const SVGTransformValue& toSVGTransform)
     : m_type(fromSVGTransform.type())
-    , m_angle(0)
-    , m_cx(0)
-    , m_cy(0)
 {
     ASSERT(m_type == toSVGTransform.type());
     
@@ -58,7 +44,7 @@ SVGTransformDistance::SVGTransformDistance(const SVGTransformValue& fromSVGTrans
     case SVGTransformValue::SVG_TRANSFORM_MATRIX:
         ASSERT_NOT_REACHED();
 #if !ASSERT_ENABLED
-        FALLTHROUGH;
+        [[fallthrough]];
 #endif
     case SVGTransformValue::SVG_TRANSFORM_UNKNOWN:
         break;
@@ -93,7 +79,7 @@ SVGTransformDistance SVGTransformDistance::scaledDistance(float scaleFactor) con
     case SVGTransformValue::SVG_TRANSFORM_MATRIX:
         ASSERT_NOT_REACHED();
 #if !ASSERT_ENABLED
-        FALLTHROUGH;
+        [[fallthrough]];
 #endif
     case SVGTransformValue::SVG_TRANSFORM_UNKNOWN:
         return SVGTransformDistance();
@@ -126,7 +112,7 @@ SVGTransformValue SVGTransformDistance::addSVGTransforms(const SVGTransformValue
     case SVGTransformValue::SVG_TRANSFORM_MATRIX:
         ASSERT_NOT_REACHED();
 #if !ASSERT_ENABLED
-        FALLTHROUGH;
+        [[fallthrough]];
 #endif
     case SVGTransformValue::SVG_TRANSFORM_UNKNOWN:
         return { };
@@ -168,7 +154,7 @@ SVGTransformValue SVGTransformDistance::addToSVGTransform(const SVGTransformValu
     case SVGTransformValue::SVG_TRANSFORM_MATRIX:
         ASSERT_NOT_REACHED();
 #if !ASSERT_ENABLED
-        FALLTHROUGH;
+        [[fallthrough]];
 #endif
     case SVGTransformValue::SVG_TRANSFORM_UNKNOWN:
         return { };
@@ -199,35 +185,6 @@ SVGTransformValue SVGTransformDistance::addToSVGTransform(const SVGTransformValu
     
     ASSERT_NOT_REACHED();
     return { };
-}
-
-bool SVGTransformDistance::isZero() const
-{
-    return m_transform.isIdentity() && !m_angle;
-}
-
-float SVGTransformDistance::distance() const
-{
-    switch (m_type) {
-    case SVGTransformValue::SVG_TRANSFORM_MATRIX:
-        ASSERT_NOT_REACHED();
-#if !ASSERT_ENABLED
-        FALLTHROUGH;
-#endif
-    case SVGTransformValue::SVG_TRANSFORM_UNKNOWN:
-        return 0;
-    case SVGTransformValue::SVG_TRANSFORM_ROTATE:
-        return std::hypot(m_angle, m_cx, m_cy);
-    case SVGTransformValue::SVG_TRANSFORM_SCALE:
-        return static_cast<float>(std::hypot(m_transform.a(), m_transform.d()));
-    case SVGTransformValue::SVG_TRANSFORM_TRANSLATE:
-        return static_cast<float>(std::hypot(m_transform.e(), m_transform.f()));
-    case SVGTransformValue::SVG_TRANSFORM_SKEWX:
-    case SVGTransformValue::SVG_TRANSFORM_SKEWY:
-        return m_angle;
-    }
-    ASSERT_NOT_REACHED();
-    return 0;
 }
 
 }

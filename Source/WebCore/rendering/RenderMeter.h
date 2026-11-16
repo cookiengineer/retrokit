@@ -24,25 +24,26 @@
 
 namespace WebCore {
 
+class HTMLElement;
 class HTMLMeterElement;
 
 class RenderMeter final : public RenderBlockFlow {
-    WTF_MAKE_ISO_ALLOCATED(RenderMeter);
+    WTF_MAKE_TZONE_ALLOCATED(RenderMeter);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderMeter);
 public:
-    RenderMeter(HTMLElement&, RenderStyle&&);
+    RenderMeter(HTMLElement&, Style::ComputedStyle&&);
     virtual ~RenderMeter();
 
-    HTMLMeterElement* meterElement() const;
+    HTMLMeterElement* NODELETE meterElement() const;
     void updateFromElement() override;
 
 private:
     void updateLogicalWidth() override;
     LogicalExtentComputedValues computeLogicalHeight(LayoutUnit logicalHeight, LayoutUnit logicalTop) const override;
 
-    const char* renderName() const override { return "RenderMeter"; }
-    bool isMeter() const override { return true; }
+    ASCIILiteral renderName() const override { return "RenderMeter"_s; }
 };
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderMeter, isMeter())
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderMeter, isRenderMeter())

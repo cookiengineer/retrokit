@@ -27,50 +27,22 @@
 #include "StyleMedia.h"
 
 #include "Document.h"
-#include "Frame.h"
-#include "FrameView.h"
-#include "MediaList.h"
-#include "MediaQueryEvaluator.h"
-#include "MediaQueryParser.h"
-#include "NodeRenderStyle.h"
-#include "RenderElement.h"
-#include "StyleResolver.h"
-#include "StyleScope.h"
+#include <JavaScriptCore/ConsoleMessage.h>
 
 namespace WebCore {
 
-StyleMedia::StyleMedia(DOMWindow& window)
-    : DOMWindowProperty(&window)
+StyleMedia::StyleMedia(LocalDOMWindow& window)
+    : LocalDOMWindowProperty(&window)
 {
+    if (window.document()) {
+        protect(window.document())->addConsoleMessage(makeUnique<Inspector::ConsoleMessage>(MessageSource::JS, MessageType::Log, MessageLevel::Warning,
+            "window.styleMedia is a deprecated draft version of window.matchMedia API, and it will be removed in the future."_s));
+    }
 }
 
 String StyleMedia::type() const
 {
-    auto* frame = this->frame();
-    FrameView* view = frame ? frame->view() : nullptr;
-    if (view)
-        return view->mediaType();
-
-    return String();
-}
-
-bool StyleMedia::matchMedium(const String& query) const
-{
-    auto* frame = this->frame();
-    if (!frame)
-        return false;
-
-    Document* document = frame->document();
-    ASSERT(document);
-    Element* documentElement = document->documentElement();
-    if (!documentElement)
-        return false;
-
-    auto rootStyle = document->styleScope().resolver().styleForElement(*documentElement, document->renderStyle(), nullptr, RuleMatchingBehavior::MatchOnlyUserAgentRules).renderStyle;
-
-    auto media = MediaQuerySet::create(query, MediaQueryParserContext(*document));
-
-    return MediaQueryEvaluator { type(), *document, rootStyle.get() }.evaluate(media.get());
+    return "screen"_s;
 }
 
 } // namespace WebCore

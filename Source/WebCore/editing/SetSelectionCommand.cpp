@@ -28,7 +28,8 @@
 
 #include "CompositeEditCommand.h"
 #include "Document.h"
-#include "Frame.h"
+#include "LocalFrame.h"
+#include "NodeDocument.h"
 
 namespace WebCore {
 

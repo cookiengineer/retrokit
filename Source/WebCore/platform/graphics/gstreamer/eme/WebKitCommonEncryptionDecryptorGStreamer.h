@@ -24,7 +24,9 @@
 
 #if ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
 
-#include <CDMProxy.h>
+#include "CDMProxy.h"
+#include "GStreamerEMEUtilities.h"
+
 #include <gst/base/gstbasetransform.h>
 #include <gst/gst.h>
 #include <wtf/RefPtr.h>
@@ -46,7 +48,7 @@ typedef struct _WebKitMediaCommonEncryptionDecryptPrivate WebKitMediaCommonEncry
 
 GType webkit_media_common_encryption_decrypt_get_type(void);
 
-bool webKitMediaCommonEncryptionDecryptIsFlushing(WebKitMediaCommonEncryptionDecrypt*);
+bool webKitMediaCommonEncryptionDecryptIsAborting(WebKitMediaCommonEncryptionDecrypt*);
 
 struct _WebKitMediaCommonEncryptionDecrypt {
     GstBaseTransform parent;
@@ -57,9 +59,9 @@ struct _WebKitMediaCommonEncryptionDecrypt {
 struct _WebKitMediaCommonEncryptionDecryptClass {
     GstBaseTransformClass parentClass;
 
-    const char* (*protectionSystemId)(WebKitMediaCommonEncryptionDecrypt*);
+    ASCIILiteral (*protectionSystemId)(WebKitMediaCommonEncryptionDecrypt*);
     bool (*cdmProxyAttached)(WebKitMediaCommonEncryptionDecrypt*, const RefPtr<WebCore::CDMProxy>&);
-    bool (*decrypt)(WebKitMediaCommonEncryptionDecrypt*, GstBuffer* ivBuffer, GstBuffer* keyIDBuffer, GstBuffer* buffer, unsigned subsamplesCount, GstBuffer* subsamplesBuffer);
+    DecryptionResult (*decrypt)(WebKitMediaCommonEncryptionDecrypt*, GstBuffer* ivBuffer, GstBuffer* keyIDBuffer, GstBuffer* buffer, unsigned subsamplesCount, GstBuffer* subsamplesBuffer);
 };
 
 G_END_DECLS

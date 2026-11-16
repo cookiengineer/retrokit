@@ -30,7 +30,18 @@
 
 #include "GPUProcessCreationParameters.h"
 
+#if USE(WPE_RENDERER)
+#include <WebCore/PlatformDisplayLibWPE.h>
+#endif
+
 namespace WebKit {
+
+void GPUProcess::platformInitializeGPUProcess(GPUProcessCreationParameters&)
+{
+#if USE(WPE_RENDERER)
+    WebCore::PlatformDisplay::setSharedDisplay(WebCore::PlatformDisplayLibWPE::create(0));
+#endif
+}
 
 void GPUProcess::initializeProcess(const AuxiliaryProcessInitializationParameters&)
 {

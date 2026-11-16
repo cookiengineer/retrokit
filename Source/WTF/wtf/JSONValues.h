@@ -32,11 +32,16 @@
 
 #pragma once
 
+#include <variant>
 #include <wtf/HashMap.h>
+#include <wtf/NoVirtualDestructorBase.h>
+#include <wtf/Variant.h>
 #include <wtf/text/StringHash.h>
 #include <wtf/text/WTFString.h>
 
 namespace WTF {
+
+class PrintStream;
 
 // Make sure compiled symbols contain the WTF namespace prefix, but
 // use a different inner namespace name so that JSON::Value is not ambigious.
@@ -50,27 +55,12 @@ class Object;
 class ObjectBase;
 
 // FIXME: unify this JSON parser with JSONParse in JavaScriptCore.
-class WTF_EXPORT_PRIVATE Value : public RefCounted<Value> {
+class WTF_EXPORT_PRIVATE Value : public RefCounted<Value>, public NoVirtualDestructorBase {
 public:
     static constexpr int maxDepth = 1000;
 
-    virtual ~Value()
-    {
-        switch (m_type) {
-        case Type::Null:
-        case Type::Boolean:
-        case Type::Double:
-        case Type::Integer:
-            break;
-        case Type::String:
-            if (m_value.string)
-                m_value.string->deref();
-            break;
-        case Type::Object:
-        case Type::Array:
-            break;
-        }
-    }
+    void operator delete(Value*, std::destroying_delete_t);
+    bool operator!() const;
 
     static Ref<Value> null();
     static Ref<Value> create(bool);
@@ -80,7 +70,7 @@ public:
     template<class T>
     static Ref<Value> create(T) = delete;
 
-    enum class Type {
+    enum class Type : uint8_t {
         Null = 0,
         Boolean,
         Double,
@@ -90,78 +80,94 @@ public:
         Array,
     };
 
-    Type type() const { return m_type; }
-    bool isNull() const { return m_type == Type::Null; }
+    enum class ArrayTypeTag { Array };
+    enum class ObjectTypeTag { Object };
+
+    Type type() const
+    {
+        static_assert(std::is_same_v<std::monostate, WTF::variant_alternative_t<static_cast<uint8_t>(Type::Null), decltype(m_value)>>);
+        static_assert(std::is_same_v<bool, WTF::variant_alternative_t<static_cast<uint8_t>(Type::Boolean), decltype(m_value)>>);
+        static_assert(std::is_same_v<double, WTF::variant_alternative_t<static_cast<uint8_t>(Type::Double), decltype(m_value)>>);
+        static_assert(std::is_same_v<int, WTF::variant_alternative_t<static_cast<uint8_t>(Type::Integer), decltype(m_value)>>);
+        static_assert(std::is_same_v<String, WTF::variant_alternative_t<static_cast<uint8_t>(Type::String), decltype(m_value)>>);
+        static_assert(std::is_same_v<ObjectTypeTag, WTF::variant_alternative_t<static_cast<uint8_t>(Type::Object), decltype(m_value)>>);
+        static_assert(std::is_same_v<ArrayTypeTag, WTF::variant_alternative_t<static_cast<uint8_t>(Type::Array), decltype(m_value)>>);
+        return static_cast<Type>(m_value.index());
+    }
+    bool isNull() const { return std::holds_alternative<std::monostate>(m_value); }
 
     std::optional<bool> asBoolean() const;
     std::optional<int> asInteger() const;
     std::optional<double> asDouble() const;
-    String asString() const;
+    const String& asString() const;
     RefPtr<Value> asValue();
-    virtual RefPtr<Object> asObject();
-    virtual RefPtr<Array> asArray();
+    RefPtr<Object> asObject();
+    RefPtr<const Object> asObject() const;
+    RefPtr<Array> asArray();
 
-    static RefPtr<Value> parseJSON(const String&);
-    static void escapeString(StringBuilder&, StringView);
+    enum class ParsingMode : uint8_t { Strict, AllowTrailingCommas };
+
+    static RefPtr<Value> parseJSON(StringView);
+    static RefPtr<Value> parseJSON(StringView, ParsingMode);
+    static std::optional<Ref<Value>> optionalParseJSON(StringView);
 
     String toJSONString() const;
-    virtual void writeJSON(StringBuilder& output) const;
 
-    virtual size_t memoryCost() const;
+    void dump(PrintStream&) const;
 
     // FIXME: <http://webkit.org/b/179847> remove these functions when legacy InspectorObject symbols are no longer needed.
     bool asDouble(double&) const;
     bool asInteger(int&) const;
     bool asString(String&) const;
 
+    size_t memoryCost() const;
+    void writeJSON(StringBuilder& output) const;
+
 protected:
-    Value()
-        : m_type { Type::Null }
+    Value() = default;
+
+    explicit Value(ArrayTypeTag type)
+        : m_value(type)
     {
     }
 
-    explicit Value(Type type)
-        : m_type(type)
+    explicit Value(ObjectTypeTag type)
+        : m_value(type)
     {
     }
 
     explicit Value(bool value)
-        : m_type { Type::Boolean }
+        : m_value(value)
     {
-        m_value.boolean = value;
     }
 
     explicit Value(int value)
-        : m_type { Type::Integer }
+        : m_value(value)
     {
-        m_value.number = static_cast<double>(value);
     }
 
     explicit Value(double value)
-        : m_type(Type::Double)
+        : m_value(value)
     {
-        m_value.number = value;
     }
 
     explicit Value(const String& value)
-        : m_type { Type::String }
+        : m_value(value)
     {
-        m_value.string = value.impl();
-        if (m_value.string)
-            m_value.string->ref();
     }
 
+    template<typename Visitor> constexpr decltype(auto) visitDerived(Visitor&&);
+    template<typename Visitor> constexpr decltype(auto) visitDerived(Visitor&&) const;
+    size_t memoryCostImpl() const;
+    void writeJSONImpl(StringBuilder& output) const;
+
 private:
-    Type m_type { Type::Null };
-    union {
-        bool boolean;
-        double number;
-        StringImpl* string;
-    } m_value;
+    WTF::Variant<std::monostate, bool, double, int, String, ObjectTypeTag, ArrayTypeTag> m_value;
 };
 
-class WTF_EXPORT_PRIVATE ObjectBase : public Value {
+class ObjectBase : public Value {
 private:
+    friend class Value;
     using DataStorage = HashMap<String, Ref<Value>>;
     using OrderStorage = Vector<String>;
 
@@ -169,12 +175,8 @@ public:
     using iterator = DataStorage::iterator;
     using const_iterator = DataStorage::const_iterator;
 
-    RefPtr<Object> asObject() final;
-
-    size_t memoryCost() const final;
-
 protected:
-    ~ObjectBase() override;
+    ~ObjectBase();
 
     // FIXME: use templates to reduce the amount of duplicated set*() methods.
     void setBoolean(const String& name, bool);
@@ -185,39 +187,42 @@ protected:
     void setObject(const String& name, Ref<ObjectBase>&&);
     void setArray(const String& name, Ref<ArrayBase>&&);
 
-    iterator find(const String& name);
-    const_iterator find(const String& name) const;
+    iterator find(const String& name) LIFETIME_BOUND;
+    const_iterator find(const String& name) const LIFETIME_BOUND;
 
-    std::optional<bool> getBoolean(const String& name) const;
-    std::optional<double> getDouble(const String& name) const;
-    std::optional<int> getInteger(const String& name) const;
-    String getString(const String& name) const;
-    RefPtr<Object> getObject(const String& name) const;
-    RefPtr<Array> getArray(const String& name) const;
-    RefPtr<Value> getValue(const String& name) const;
+    WTF_EXPORT_PRIVATE std::optional<bool> getBoolean(const String& name) const;
+    WTF_EXPORT_PRIVATE std::optional<double> getDouble(const String& name) const;
+    WTF_EXPORT_PRIVATE std::optional<int> getInteger(const String& name) const;
+    WTF_EXPORT_PRIVATE String getString(const String& name) const;
+    WTF_EXPORT_PRIVATE RefPtr<Object> getObject(const String& name) const;
+    WTF_EXPORT_PRIVATE RefPtr<Array> getArray(const String& name) const;
+    WTF_EXPORT_PRIVATE RefPtr<Value> getValue(const String& name) const;
 
-    void remove(const String& name);
+    WTF_EXPORT_PRIVATE void remove(const String& name);
 
-    void writeJSON(StringBuilder& output) const final;
+    iterator begin() LIFETIME_BOUND { return m_map.begin(); }
+    iterator end() LIFETIME_BOUND { return m_map.end(); }
+    const_iterator begin() const LIFETIME_BOUND { return m_map.begin(); }
+    const_iterator end() const LIFETIME_BOUND { return m_map.end(); }
 
-    iterator begin() { return m_map.begin(); }
-    iterator end() { return m_map.end(); }
-    const_iterator begin() const { return m_map.begin(); }
-    const_iterator end() const { return m_map.end(); }
+    const OrderStorage& keys() const { return m_order; }
 
     unsigned size() const { return m_map.size(); }
 
     // FIXME: <http://webkit.org/b/179847> remove these functions when legacy InspectorObject symbols are no longer needed.
     bool getBoolean(const String& name, bool& output) const;
-    bool getString(const String& name, String& output) const;
+    WTF_EXPORT_PRIVATE bool getString(const String& name, String& output) const;
     bool getObject(const String& name, RefPtr<Object>& output) const;
     bool getArray(const String& name, RefPtr<Array>& output) const;
-    bool getValue(const String& name, RefPtr<Value>& output) const;
+    WTF_EXPORT_PRIVATE bool getValue(const String& name, RefPtr<Value>& output) const;
 
 protected:
-    ObjectBase();
+    WTF_EXPORT_PRIVATE ObjectBase();
 
 private:
+    size_t memoryCostImpl() const;
+    void writeJSONImpl(StringBuilder& output) const;
+
     DataStorage m_map;
     OrderStorage m_order;
 };
@@ -249,12 +254,15 @@ public:
     using ObjectBase::begin;
     using ObjectBase::end;
 
+    using ObjectBase::keys;
+
     using ObjectBase::size;
 };
 
 
 class WTF_EXPORT_PRIVATE ArrayBase : public Value {
 private:
+    friend class Value;
     using DataStorage = Vector<Ref<Value>>;
 
 public:
@@ -263,14 +271,10 @@ public:
 
     size_t length() const { return m_map.size(); }
 
-    Ref<Value> get(size_t index) const;
-
-    size_t memoryCost() const final;
-
-    RefPtr<Array> asArray() final;
+    Ref<Value> NODELETE get(size_t index) const;
 
 protected:
-    ~ArrayBase() override;
+    ~ArrayBase();
 
     void pushBoolean(bool);
     void pushInteger(int);
@@ -280,16 +284,18 @@ protected:
     void pushObject(Ref<ObjectBase>&&);
     void pushArray(Ref<ArrayBase>&&);
 
-    iterator begin() { return m_map.begin(); }
-    iterator end() { return m_map.end(); }
-    const_iterator begin() const { return m_map.begin(); }
-    const_iterator end() const { return m_map.end(); }
-    void writeJSON(StringBuilder& output) const final;
+    iterator begin() LIFETIME_BOUND { return m_map.begin(); }
+    iterator end() LIFETIME_BOUND { return m_map.end(); }
+    const_iterator begin() const LIFETIME_BOUND { return m_map.begin(); }
+    const_iterator end() const LIFETIME_BOUND { return m_map.end(); }
 
 protected:
     ArrayBase();
 
 private:
+    size_t memoryCostImpl() const;
+    void writeJSONImpl(StringBuilder& output) const;
+
     DataStorage m_map;
 };
 
@@ -312,12 +318,12 @@ public:
     using ArrayBase::end;
 };
 
-inline ObjectBase::iterator ObjectBase::find(const String& name)
+inline ObjectBase::iterator ObjectBase::find(const String& name) LIFETIME_BOUND
 {
     return m_map.find(name);
 }
 
-inline ObjectBase::const_iterator ObjectBase::find(const String& name) const
+inline ObjectBase::const_iterator ObjectBase::find(const String& name) const LIFETIME_BOUND
 {
     return m_map.find(name);
 }
@@ -344,19 +350,19 @@ inline void ObjectBase::setString(const String& name, const String& value)
 
 inline void ObjectBase::setValue(const String& name, Ref<Value>&& value)
 {
-    if (m_map.set(name, WTFMove(value)).isNewEntry)
+    if (m_map.set(name, WTF::move(value)).isNewEntry)
         m_order.append(name);
 }
 
 inline void ObjectBase::setObject(const String& name, Ref<ObjectBase>&& value)
 {
-    if (m_map.set(name, WTFMove(value)).isNewEntry)
+    if (m_map.set(name, WTF::move(value)).isNewEntry)
         m_order.append(name);
 }
 
 inline void ObjectBase::setArray(const String& name, Ref<ArrayBase>&& value)
 {
-    if (m_map.set(name, WTFMove(value)).isNewEntry)
+    if (m_map.set(name, WTF::move(value)).isNewEntry)
         m_order.append(name);
 }
 
@@ -382,17 +388,17 @@ inline void ArrayBase::pushString(const String& value)
 
 inline void ArrayBase::pushValue(Ref<Value>&& value)
 {
-    m_map.append(WTFMove(value));
+    m_map.append(WTF::move(value));
 }
 
 inline void ArrayBase::pushObject(Ref<ObjectBase>&& value)
 {
-    m_map.append(WTFMove(value));
+    m_map.append(WTF::move(value));
 }
 
 inline void ArrayBase::pushArray(Ref<ArrayBase>&& value)
 {
-    m_map.append(WTFMove(value));
+    m_map.append(WTF::move(value));
 }
 
 template<typename T>
@@ -402,52 +408,58 @@ private:
 
     Array& castedArray()
     {
-        COMPILE_ASSERT(sizeof(Array) == sizeof(ArrayOf<T>), cannot_cast);
+        static_assert(sizeof(Array) == sizeof(ArrayOf<T>), "cannot cast");
         return *static_cast<Array*>(static_cast<ArrayBase*>(this));
     }
 
 public:
-
-    template <typename V = T>
-    std::enable_if_t<std::is_same_v<bool, V> || std::is_same_v<Value, V>> addItem(bool value)
+    template<typename V = T>
+        requires (std::same_as<bool, V> || std::same_as<Value, V>)
+    void addItem(bool value)
     {
         castedArray().pushBoolean(value);
     }
 
-    template <typename V = T>
-    std::enable_if_t<std::is_same_v<int, V> || std::is_same_v<Value, V>> addItem(int value)
+    template<typename V = T>
+        requires (std::same_as<int, V> || std::same_as<Value, V>)
+    void addItem(int value)
     {
         castedArray().pushInteger(value);
     }
 
-    template <typename V = T>
-    std::enable_if_t<std::is_same_v<double, V> || std::is_same_v<Value, V>> addItem(double value)
+    template<typename V = T>
+        requires (std::same_as<double, V> || std::same_as<Value, V>)
+    void addItem(double value)
     {
         castedArray().pushDouble(value);
     }
 
-    template <typename V = T>
-    std::enable_if_t<std::is_same_v<String, V> || std::is_same_v<Value, V>> addItem(const String& value)
+    template<typename V = T>
+        requires (std::same_as<String, V> || std::same_as<Value, V>)
+    void addItem(const String& value)
     {
         castedArray().pushString(value);
     }
 
-    template <typename V = T>
-    std::enable_if_t<std::is_base_of_v<Value, V> && !std::is_base_of_v<ObjectBase, V> && !std::is_base_of_v<ArrayBase, V>> addItem(Ref<Value>&& value)
+    template<typename V = T>
+        requires (std::is_base_of_v<Value, V> && !std::is_base_of_v<ObjectBase, V> && !std::is_base_of_v<ArrayBase, V>)
+    void addItem(Ref<Value>&& value)
     {
-        castedArray().pushValue(WTFMove(value));
+        castedArray().pushValue(WTF::move(value));
     }
 
-    template <typename V = T>
-    std::enable_if_t<std::is_base_of_v<ObjectBase, V>> addItem(Ref<ObjectBase>&& value)
+    template<typename V = T>
+        requires (std::is_base_of_v<ObjectBase, V>)
+    void addItem(Ref<ObjectBase>&& value)
     {
-        castedArray().pushObject(WTFMove(value));
+        castedArray().pushObject(WTF::move(value));
     }
 
-    template <typename V = T>
-    std::enable_if_t<std::is_base_of_v<ArrayBase, V>> addItem(Ref<ArrayBase>&& value)
+    template<typename V = T>
+        requires (std::is_base_of_v<ArrayBase, V>)
+    void addItem(Ref<ArrayBase>&& value)
     {
-        castedArray().pushArray(WTFMove(value));
+        castedArray().pushArray(WTF::move(value));
     }
 
     static Ref<ArrayOf<T>> create()
@@ -460,7 +472,50 @@ public:
     using ArrayBase::end;
 };
 
+
+inline bool Value::operator!() const
+{
+    return isNull();
+}
+
+inline RefPtr<Value> Value::asValue()
+{
+    return this;
+}
+
+inline RefPtr<Object> Value::asObject()
+{
+    return WTF::visit(WTF::makeVisitor([&](ObjectTypeTag) -> RefPtr<Object> {
+        static_assert(sizeof(Object) == sizeof(ObjectBase));
+        return static_cast<Object*>(this);
+    }, [&](auto&) -> RefPtr<Object> {
+        return nullptr;
+    }), m_value);
+}
+
+inline RefPtr<const Object> Value::asObject() const
+{
+    return WTF::visit(WTF::makeVisitor([&](ObjectTypeTag) -> RefPtr<const Object> {
+        static_assert(sizeof(Object) == sizeof(ObjectBase));
+        return static_cast<const Object*>(this);
+    }, [&](auto&) -> RefPtr<const Object> {
+        return nullptr;
+    }), m_value);
+}
+
+inline RefPtr<Array> Value::asArray()
+{
+    return WTF::visit(WTF::makeVisitor([&](ArrayTypeTag) -> RefPtr<Array> {
+        static_assert(sizeof(Array) == sizeof(ArrayBase));
+        return static_cast<Array*>(this);
+    }, [&](auto&) -> RefPtr<Array> {
+        return nullptr;
+    }), m_value);
+}
+
 } // namespace JSONImpl
+
+inline size_t containerSize(const JSONImpl::Array& array) { return array.length(); }
 
 } // namespace WTF
 

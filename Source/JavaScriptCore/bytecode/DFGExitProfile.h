@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,16 +25,22 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if ENABLE(DFG_JIT)
 
-#include "ConcurrentJSLock.h"
-#include "ExitKind.h"
-#include "ExitingInlineKind.h"
-#include "ExitingJITType.h"
+#include <JavaScriptCore/ConcurrentJSLock.h>
+#include <JavaScriptCore/ExitKind.h>
+#include <JavaScriptCore/ExitingInlineKind.h>
+#include <JavaScriptCore/ExitingJITType.h>
 #include <wtf/HashSet.h>
 #include <wtf/Vector.h>
 
-namespace JSC { namespace DFG {
+namespace JSC {
+
+class UnlinkedCodeBlock;
+
+namespace DFG {
 
 class FrequentExitSite {
 public:
@@ -82,13 +88,7 @@ public:
         return m_kind == ExitKindUnset;
     }
     
-    bool operator==(const FrequentExitSite& other) const
-    {
-        return m_bytecodeIndex == other.m_bytecodeIndex
-            && m_kind == other.m_kind
-            && m_jitType == other.m_jitType
-            && m_inlineKind == other.m_inlineKind;
-    }
+    friend bool operator==(const FrequentExitSite&, const FrequentExitSite&) = default;
     
     bool subsumes(const FrequentExitSite& other) const
     {
@@ -133,7 +133,9 @@ public:
     {
         return m_kind == ExitKindUnset && m_bytecodeIndex.isHashTableDeletedValue();
     }
-    
+
+    static constexpr bool safeToCompareToHashTableEmptyOrDeletedValue = true;
+
     void dump(PrintStream& out) const;
 
 private:
@@ -143,19 +145,10 @@ private:
     ExitingInlineKind m_inlineKind;
 };
 
-struct FrequentExitSiteHash {
-    static unsigned hash(const FrequentExitSite& key) { return key.hash(); }
-    static bool equal(const FrequentExitSite& a, const FrequentExitSite& b) { return a == b; }
-    static constexpr bool safeToCompareToEmptyOrDeleted = true;
-};
-
 } } // namespace JSC::DFG
 
 
 namespace WTF {
-
-template<typename T> struct DefaultHash;
-template<> struct DefaultHash<JSC::DFG::FrequentExitSite> : JSC::DFG::FrequentExitSiteHash { };
 
 template<typename T> struct HashTraits;
 template<> struct HashTraits<JSC::DFG::FrequentExitSite> : SimpleClassHashTraits<JSC::DFG::FrequentExitSite> { };
@@ -187,7 +180,7 @@ public:
     // in the compiler. It should be strictly cheaper than building a
     // QueryableExitProfile, if you really expect this to be called infrequently
     // and you believe that there are few exit sites.
-    bool hasExitSite(const ConcurrentJSLocker&, const FrequentExitSite&) const;
+    bool NODELETE hasExitSite(const ConcurrentJSLocker&, const FrequentExitSite&) const;
     bool hasExitSite(const ConcurrentJSLocker& locker, ExitKind kind) const
     {
         return hasExitSite(locker, FrequentExitSite(kind));
@@ -239,7 +232,7 @@ private:
         return m_frequentExitSites.find(site) != m_frequentExitSites.end();
     }
     
-    HashSet<FrequentExitSite> m_frequentExitSites;
+    UncheckedKeyHashSet<FrequentExitSite> m_frequentExitSites;
 };
 
 } } // namespace JSC::DFG

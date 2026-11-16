@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 Google Inc.  All rights reserved.
+ * Copyright (C) 2011 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -36,6 +36,7 @@
 #include "WorkerThreadableWebSocketChannel.h"
 #include <memory>
 #include <wtf/Forward.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
@@ -44,20 +45,16 @@ namespace WebCore {
 class ScriptExecutionContext;
 class WebSocketChannelClient;
 
-class ThreadableWebSocketChannelClientWrapper : public ThreadSafeRefCounted<ThreadableWebSocketChannelClientWrapper> {
+class ThreadableWebSocketChannelClientWrapper : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<ThreadableWebSocketChannelClientWrapper> {
 public:
     static Ref<ThreadableWebSocketChannelClientWrapper> create(ScriptExecutionContext&, WebSocketChannelClient&);
 
-    void clearSyncMethodDone();
-    void setSyncMethodDone();
-    bool syncMethodDone() const;
-
-    WorkerThreadableWebSocketChannel::Peer* peer() const;
-    void didCreateWebSocketChannel(WorkerThreadableWebSocketChannel::Peer*);
+    WorkerThreadableWebSocketChannel::Peer* NODELETE peer() const;
+    void didCreateWebSocketChannel(Ref<WorkerThreadableWebSocketChannel::Peer>&&);
     void clearPeer();
 
-    bool failedWebSocketChannelCreation() const;
-    void setFailedWebSocketChannelCreation();
+    bool NODELETE failedWebSocketChannelCreation() const;
+    void NODELETE setFailedWebSocketChannelCreation();
 
     // Subprotocol and extensions will be available when didConnect() callback is invoked.
     String subprotocol() const;
@@ -65,24 +62,18 @@ public:
     String extensions() const;
     void setExtensions(const String&);
 
-    ThreadableWebSocketChannel::SendResult sendRequestResult() const;
-    void setSendRequestResult(ThreadableWebSocketChannel::SendResult);
-
-    unsigned bufferedAmount() const;
-    void setBufferedAmount(unsigned);
-
     void clearClient();
 
     void didConnect();
-    void didReceiveMessage(const String& message);
+    void didReceiveMessage(String&& message);
     void didReceiveBinaryData(Vector<uint8_t>&&);
     void didUpdateBufferedAmount(unsigned bufferedAmount);
     void didStartClosingHandshake();
     void didClose(unsigned unhandledBufferedAmount, WebSocketChannelClient::ClosingHandshakeCompletionStatus, unsigned short code, const String& reason);
-    void didReceiveMessageError();
+    void didReceiveMessageError(String&& reason);
     void didUpgradeURL();
 
-    void suspend();
+    void NODELETE suspend();
     void resume();
 
 private:
@@ -90,16 +81,13 @@ private:
 
     void processPendingTasks();
 
-    ScriptExecutionContext& m_context;
-    WebSocketChannelClient* m_client;
-    WorkerThreadableWebSocketChannel::Peer* m_peer;
+    WeakPtr<ScriptExecutionContext> m_context;
+    ThreadSafeWeakPtr<WebSocketChannelClient> m_client;
+    RefPtr<WorkerThreadableWebSocketChannel::Peer> m_peer;
     bool m_failedWebSocketChannelCreation;
-    bool m_syncMethodDone;
     // ThreadSafeRefCounted must not have String member variables.
-    Vector<UChar> m_subprotocol;
-    Vector<UChar> m_extensions;
-    ThreadableWebSocketChannel::SendResult m_sendRequestResult;
-    unsigned m_bufferedAmount;
+    Vector<char16_t> m_subprotocol;
+    Vector<char16_t> m_extensions;
     bool m_suspended;
     Vector<std::unique_ptr<ScriptExecutionContext::Task>> m_pendingTasks;
 };

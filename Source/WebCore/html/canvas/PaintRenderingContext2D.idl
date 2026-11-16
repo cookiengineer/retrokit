@@ -25,11 +25,10 @@
 
 [
     CustomIsReachable,
-    EnabledAtRuntime=CSSPaintingAPI,
-    Conditional=CSS_PAINTING_API,
-    JSGenerateToJSObject,
+    EnabledBySetting=CSSPaintingAPIEnabled,
     JSCustomMarkFunction,
-    Exposed=PaintWorklet
+    Exposed=PaintWorklet,
+    TaggedWrapper,
 ] interface PaintRenderingContext2D {
 };
 

@@ -25,40 +25,57 @@
 
 #pragma once
 
-#include "CallMode.h"
-#include "CodeLocation.h"
-#include "CodeSpecializationKind.h"
-#include "PolymorphicCallStubRoutine.h"
-#include "WriteBarrier.h"
-#include <wtf/Function.h>
-#include <wtf/SentinelLinkedList.h>
+#include <JavaScriptCore/CallFrame.h>
+#include <JavaScriptCore/CallFrameShuffleData.h>
+#include <JavaScriptCore/CallLinkInfoBase.h>
+#include <JavaScriptCore/CallMode.h>
+#include <JavaScriptCore/CodeLocation.h>
+#include <JavaScriptCore/CodeOrigin.h>
+#include <JavaScriptCore/CodeSpecializationKind.h>
+#include <JavaScriptCore/PolymorphicCallStubRoutine.h>
+#include <JavaScriptCore/WriteBarrier.h>
+#include <wtf/ScopedLambda.h>
 
 namespace JSC {
-
-#if ENABLE(JIT)
+namespace DFG {
+struct UnlinkedCallLinkInfo;
+}
 
 class CCallHelpers;
+class ExecutableBase;
 class FunctionCodeBlock;
 class JSFunction;
+class OptimizingCallLinkInfo;
+class PolymorphicCallStubRoutine;
 enum OpcodeID : unsigned;
-struct CallFrameShuffleData;
 
-class CallLinkInfo : public PackedRawSentinelNode<CallLinkInfo> {
+struct CallFrameShuffleData;
+struct UnlinkedCallLinkInfo;
+struct BaselineUnlinkedCallLinkInfo;
+
+using CompileTimeCallLinkInfo = Variant<OptimizingCallLinkInfo*, BaselineUnlinkedCallLinkInfo*, DFG::UnlinkedCallLinkInfo*>;
+
+class CallLinkInfo : public CallLinkInfoBase {
 public:
-    enum CallType {
-        None,
-        Call,
-        CallVarargs,
-        Construct,
-        ConstructVarargs,
-        TailCall,
-        TailCallVarargs,
-        DirectCall,
-        DirectConstruct,
-        DirectTailCall
+    friend class LLIntOffsetsExtractor;
+
+    static constexpr uint8_t maxProfiledArgumentCountIncludingThisForVarargs = UINT8_MAX;
+
+    enum class Type : uint8_t {
+        DataOnly,
+        Optimizing,
     };
+
+    enum class Mode : uint8_t {
+        Init,
+        Monomorphic,
+        Polymorphic,
+        Virtual,
+    };
+
+    static constexpr uintptr_t polymorphicCalleeMask = 1;
     
-    static CallType callTypeFor(OpcodeID opcodeID);
+    static CallType NODELETE callTypeFor(OpcodeID opcodeID);
 
     static bool isVarargsCallType(CallType callType)
     {
@@ -73,8 +90,6 @@ public:
         }
     }
 
-    CallLinkInfo(CodeOrigin);
-        
     ~CallLinkInfo();
     
     static CodeSpecializationKind specializationKindFor(CallType callType)
@@ -85,60 +100,10 @@ public:
     {
         return specializationKindFor(static_cast<CallType>(m_callType));
     }
-    
-    static CallMode callModeFor(CallType callType)
-    {
-        switch (callType) {
-        case Call:
-        case CallVarargs:
-        case DirectCall:
-            return CallMode::Regular;
-        case TailCall:
-        case TailCallVarargs:
-        case DirectTailCall:
-            return CallMode::Tail;
-        case Construct:
-        case ConstructVarargs:
-        case DirectConstruct:
-            return CallMode::Construct;
-        case None:
-            RELEASE_ASSERT_NOT_REACHED();
-        }
 
-        RELEASE_ASSERT_NOT_REACHED();
-    }
-    
-    static bool isDirect(CallType callType)
-    {
-        switch (callType) {
-        case DirectCall:
-        case DirectTailCall:
-        case DirectConstruct:
-            return true;
-        case Call:
-        case CallVarargs:
-        case TailCall:
-        case TailCallVarargs:
-        case Construct:
-        case ConstructVarargs:
-            return false;
-        case None:
-            RELEASE_ASSERT_NOT_REACHED();
-            return false;
-        }
-
-        RELEASE_ASSERT_NOT_REACHED();
-        return false;
-    }
-    
     CallMode callMode() const
     {
         return callModeFor(static_cast<CallType>(m_callType));
-    }
-
-    bool isDirect() const
-    {
-        return isDirect(static_cast<CallType>(m_callType));
     }
 
     bool isTailCall() const
@@ -156,71 +121,29 @@ public:
         return isVarargsCallType(static_cast<CallType>(m_callType));
     }
 
-    bool isLinked() const { return m_stub || m_calleeOrCodeBlock; }
-    void unlink(VM&);
+    bool isLinked() const { return mode() != Mode::Init && mode() != Mode::Virtual; }
+    void unlinkOrUpgradeImpl(VM&, CodeBlock* oldCodeBlock, CodeBlock* newCodeBlock);
 
-    void setUpCall(CallType callType, GPRReg calleeGPR)
-    {
-        m_callType = callType;
-        m_calleeGPR = calleeGPR;
-    }
-
-    GPRReg calleeGPR() const { return m_calleeGPR; }
-    
-    enum class UseDataIC : uint8_t {
-        Yes,
-        No
-    };
-
-private:
-    MacroAssembler::JumpList emitFastPathImpl(CCallHelpers&, GPRReg calleeGPR, GPRReg callLinkInfoGPR, UseDataIC, WTF::Function<void()> prepareForTailCall) WARN_UNUSED_RETURN;
+#if ENABLE(JIT)
+protected:
+    static void emitFastPathImpl(CallLinkInfo*, CCallHelpers&, bool isTailCall, ScopedLambda<void()>&& prepareForTailCall);
 public:
-    MacroAssembler::JumpList emitFastPath(CCallHelpers&, GPRReg calleeGPR, GPRReg callLinkInfoGPR, UseDataIC) WARN_UNUSED_RETURN;
-    MacroAssembler::JumpList emitTailCallFastPath(CCallHelpers&, GPRReg calleeGPR, GPRReg callLinkInfoGPR, UseDataIC, WTF::Function<void()> prepareForTailCall) WARN_UNUSED_RETURN;
-    void emitDirectFastPath(CCallHelpers&);
-    void emitDirectTailCallFastPath(CCallHelpers&, WTF::Function<void()> prepareForTailCall);
-    void emitSlowPath(VM&, CCallHelpers&);
-    void revertCallToStub();
+    static void emitDataICFastPath(CCallHelpers&);
+    static void emitTailCallDataICFastPath(CCallHelpers&, ScopedLambda<void()>&& prepareForTailCall);
 
-    bool isDataIC() const { return static_cast<UseDataIC>(m_useDataIC) == UseDataIC::Yes; }
-    void setUsesDataICs(UseDataIC useDataIC) { m_useDataIC = static_cast<unsigned>(useDataIC); }
+    static void emitFastPath(CCallHelpers&, CompileTimeCallLinkInfo);
+    static void emitTailCallFastPath(CCallHelpers&, CompileTimeCallLinkInfo, ScopedLambda<void()>&& prepareForTailCall);
+#endif
 
-    void setCodeLocations(
-        CodeLocationLabel<JSInternalPtrTag> slowPathStart,
-        CodeLocationLabel<JSInternalPtrTag> doneLocation)
-    {
-        if (!isDataIC())
-            u.codeIC.m_slowPathStart = slowPathStart;
-        m_doneLocation = doneLocation;
-    }
+    void NODELETE revertCallToStub();
 
-    void initializeDirectCall();
-
-    bool allowStubs() const { return m_allowStubs; }
-
-    void disallowStubs()
-    {
-        m_allowStubs = false;
-    }
-
-    CodeLocationLabel<JSInternalPtrTag> fastPathStart();
-    CodeLocationLabel<JSInternalPtrTag> slowPathStart();
-    CodeLocationLabel<JSInternalPtrTag> doneLocation();
-
-    void setMonomorphicCallee(VM&, JSCell*, JSObject* callee, MacroAssemblerCodePtr<JSEntryPtrTag>);
-    void setSlowPathCallDestination(MacroAssemblerCodePtr<JSEntryPtrTag>);
-    void clearCallee();
-    JSObject* callee();
-
-    void setCodeBlock(VM&, JSCell*, FunctionCodeBlock*);
-    void clearCodeBlock();
-    FunctionCodeBlock* codeBlock();
-    void setDirectCallTarget(CodeLocationLabel<JSEntryPtrTag>);
+    void setMonomorphicCallee(VM&, JSCell*, JSObject* callee, CodeBlock*, CodePtr<JSEntryPtrTag>);
+    void NODELETE clearCallee();
+    JSObject* NODELETE callee();
 
     void setLastSeenCallee(VM&, const JSCell* owner, JSObject* callee);
-    void clearLastSeenCallee();
-    JSObject* lastSeenCallee() const;
-    bool haveLastSeenCallee() const;
+    JSObject* NODELETE lastSeenCallee() const;
+    bool NODELETE haveLastSeenCallee() const;
     
     void setExecutableDuringCompilation(ExecutableBase*);
     ExecutableBase* executable();
@@ -228,24 +151,13 @@ public:
     void setStub(Ref<PolymorphicCallStubRoutine>&&);
     void clearStub();
 
+    void setVirtualCall(VM&);
+
+    void revertCall(VM&);
+
     PolymorphicCallStubRoutine* stub() const
     {
         return m_stub.get();
-    }
-
-    void setSlowStub(Ref<JITStubRoutine>&& newSlowStub)
-    {
-        m_slowStub = WTFMove(newSlowStub);
-    }
-
-    void clearSlowStub()
-    {
-        m_slowStub = nullptr;
-    }
-
-    JITStubRoutine* slowStub()
-    {
-        return m_slowStub.get();
     }
 
     bool seenOnce()
@@ -283,19 +195,9 @@ public:
         return m_clearedByVirtual;
     }
 
-    bool clearedByJettison()
-    {
-        return m_clearedByJettison;
-    }
-
     void setClearedByVirtual()
     {
         m_clearedByVirtual = true;
-    }
-
-    void setClearedByJettison()
-    {
-        m_clearedByJettison = true;
     }
     
     void setCallType(CallType callType)
@@ -308,41 +210,45 @@ public:
         return static_cast<CallType>(m_callType);
     }
 
-    uint32_t* addressOfMaxArgumentCountIncludingThis()
+    static constexpr ptrdiff_t offsetOfMaxArgumentCountIncludingThisForVarargs()
     {
-        return &m_maxArgumentCountIncludingThis;
+        return OBJECT_OFFSETOF(CallLinkInfo, m_maxArgumentCountIncludingThisForVarargs);
     }
 
-    uint32_t maxArgumentCountIncludingThis()
+    uint32_t maxArgumentCountIncludingThisForVarargs()
     {
-        return m_maxArgumentCountIncludingThis;
+        return m_maxArgumentCountIncludingThisForVarargs;
     }
     
-    void setMaxArgumentCountIncludingThis(unsigned);
+    void updateMaxArgumentCountIncludingThisForVarargs(unsigned argumentCountIncludingThisForVarargs)
+    {
+        if (m_maxArgumentCountIncludingThisForVarargs < argumentCountIncludingThisForVarargs)
+            m_maxArgumentCountIncludingThisForVarargs = std::min<unsigned>(argumentCountIncludingThisForVarargs, maxProfiledArgumentCountIncludingThisForVarargs);
+    }
 
-    static ptrdiff_t offsetOfSlowPathCount()
+    static constexpr ptrdiff_t offsetOfSlowPathCount()
     {
         return OBJECT_OFFSETOF(CallLinkInfo, m_slowPathCount);
     }
 
-    static ptrdiff_t offsetOfCallee()
+    static constexpr ptrdiff_t offsetOfCallee()
     {
-        return OBJECT_OFFSETOF(CallLinkInfo, m_calleeOrCodeBlock);
+        return OBJECT_OFFSETOF(CallLinkInfo, m_callee);
     }
 
-    static ptrdiff_t offsetOfMonomorphicCallDestination()
+    static constexpr ptrdiff_t offsetOfCodeBlock()
     {
-        return OBJECT_OFFSETOF(CallLinkInfo, u) + OBJECT_OFFSETOF(UnionType, dataIC.m_monomorphicCallDestination);
+        return OBJECT_OFFSETOF(CallLinkInfo, m_codeBlock);
     }
 
-    static ptrdiff_t offsetOfSlowPathCallDestination()
+    static constexpr ptrdiff_t offsetOfMonomorphicCallDestination()
     {
-        return OBJECT_OFFSETOF(CallLinkInfo, m_slowPathCallDestination);
+        return OBJECT_OFFSETOF(CallLinkInfo, m_monomorphicCallDestination);
     }
 
-    GPRReg calleeGPR()
+    static constexpr ptrdiff_t offsetOfStub()
     {
-        return m_calleeGPR;
+        return OBJECT_OFFSETOF(CallLinkInfo, m_stub);
     }
 
     uint32_t slowPathCount()
@@ -350,10 +256,7 @@ public:
         return m_slowPathCount;
     }
 
-    CodeOrigin codeOrigin()
-    {
-        return m_codeOrigin;
-    }
+    CodeOrigin codeOrigin() const { return m_codeOrigin; }
 
     template<typename Functor>
     void forEachDependentCell(const Functor& functor) const
@@ -361,69 +264,215 @@ public:
         if (isLinked()) {
             if (stub())
                 stub()->forEachDependentCell(functor);
-            else {
-                functor(m_calleeOrCodeBlock.get());
-                if (isDirect())
-                    functor(m_lastSeenCalleeOrExecutable.get());
-            }
+            else
+                functor(m_callee.get());
         }
-        if (!isDirect() && haveLastSeenCallee())
+        if (haveLastSeenCallee())
             functor(lastSeenCallee());
     }
 
     void visitWeak(VM&);
 
-    void setFrameShuffleData(const CallFrameShuffleData&);
+    Type type() const { return static_cast<Type>(m_type); }
 
-    const CallFrameShuffleData* frameShuffleData()
+    Mode mode() const { return static_cast<Mode>(m_mode); }
+
+    JSCell* owner() const { return m_owner; }
+
+    JSCell* ownerForSlowPath(CallFrame* calleeFrame);
+
+    JSGlobalObject* globalObjectForSlowPath(JSCell* owner);
+
+    std::tuple<CodeBlock*, BytecodeIndex> retrieveCaller(JSCell* owner);
+
+protected:
+    CallLinkInfo(Type type, JSCell* owner, CodeOrigin codeOrigin)
+        : CallLinkInfoBase(CallSiteType::CallLinkInfo)
+        , m_type(static_cast<unsigned>(type))
+        , m_owner(owner)
+        , m_codeOrigin(codeOrigin)
     {
-        return m_frameShuffleData.get();
+        ASSERT(type == this->type());
     }
 
-private:
-    CodeLocationLabel<JSInternalPtrTag> m_fastPathStart;
-    CodeLocationLabel<JSInternalPtrTag> m_doneLocation;
-    MacroAssemblerCodePtr<JSEntryPtrTag> m_slowPathCallDestination;
-    union UnionType {
-        UnionType() 
-            : dataIC { nullptr, InvalidGPRReg }
-        { }
-        struct DataIC {
-            MacroAssemblerCodePtr<JSEntryPtrTag> m_monomorphicCallDestination;
-            GPRReg m_callLinkInfoGPR;
-        } dataIC;
+    void reset(VM&);
 
-        struct {
-            CodeLocationNearCall<JSInternalPtrTag> m_callLocation;
-            CodeLocationDataLabelPtr<JSInternalPtrTag> m_calleeLocation;
-            CodeLocationLabel<JSInternalPtrTag> m_slowPathStart;
-        } codeIC;
-    } u;
-
-    WriteBarrier<JSCell> m_calleeOrCodeBlock;
-    WriteBarrier<JSCell> m_lastSeenCalleeOrExecutable;
-    RefPtr<PolymorphicCallStubRoutine> m_stub;
-    RefPtr<JITStubRoutine> m_slowStub;
-    std::unique_ptr<CallFrameShuffleData> m_frameShuffleData;
-    CodeOrigin m_codeOrigin;
-    bool m_hasSeenShouldRepatch : 1;
-    bool m_hasSeenClosure : 1;
-    bool m_clearedByGC : 1;
-    bool m_clearedByVirtual : 1;
-    bool m_allowStubs : 1;
-    bool m_clearedByJettison : 1;
-    unsigned m_callType : 4; // CallType
-    unsigned m_useDataIC : 1; // UseDataIC
-    GPRReg m_calleeGPR { InvalidGPRReg };
+    bool m_hasSeenShouldRepatch : 1 { false };
+    bool m_hasSeenClosure : 1 { false };
+    bool m_clearedByGC : 1 { false };
+    bool m_clearedByVirtual : 1 { false };
+    unsigned m_callType : 4 { CallType::None }; // CallType
+    unsigned m_type : 1; // Type
+    unsigned m_mode : 3 { static_cast<unsigned>(Mode::Init) }; // Mode
+    uint8_t m_maxArgumentCountIncludingThisForVarargs { 0 }; // For varargs: the profiled maximum number of arguments. For direct: the number of stack slots allocated for arguments.
     uint32_t m_slowPathCount { 0 };
-    uint32_t m_maxArgumentCountIncludingThis { 0 }; // For varargs: the profiled maximum number of arguments. For direct: the number of stack slots allocated for arguments.
+
+    CodeBlock* m_codeBlock { nullptr }; // This is weakly held. And cleared whenever m_monomorphicCallDestination is changed.
+    CodePtr<JSEntryPtrTag> m_monomorphicCallDestination { nullptr };
+    WriteBarrier<JSObject> m_callee;
+    WriteBarrier<JSObject> m_lastSeenCallee;
+    RefPtr<PolymorphicCallStubRoutine> m_stub;
+    JSCell* m_owner { nullptr };
+    CodeOrigin m_codeOrigin { };
 };
 
-inline CodeOrigin getCallLinkInfoCodeOrigin(CallLinkInfo& callLinkInfo)
-{
-    return callLinkInfo.codeOrigin();
-}
+class DataOnlyCallLinkInfo final : public CallLinkInfo {
+public:
+    DataOnlyCallLinkInfo()
+        : CallLinkInfo(Type::DataOnly, nullptr, CodeOrigin { })
+    {
+    }
 
-#endif // ENABLE(JIT)
+    void initialize(VM&, CodeBlock*, CallType, CodeOrigin);
+};
+
+struct UnlinkedCallLinkInfo { };
+
+struct BaselineUnlinkedCallLinkInfo : public JSC::UnlinkedCallLinkInfo {
+    BytecodeIndex bytecodeIndex; // Currently, only used by baseline, so this can trivially produce a CodeOrigin.
+    CodeLocationLabel<JSInternalPtrTag> doneLocation;
+
+#if ENABLE(JIT)
+    void setUpCall(CallLinkInfo::CallType) { }
+#endif
+};
+
+#if ENABLE(JIT)
+
+class DirectCallLinkInfo final : public CallLinkInfoBase {
+    WTF_MAKE_NONCOPYABLE(DirectCallLinkInfo);
+public:
+    DirectCallLinkInfo(CodeOrigin codeOrigin, UseDataIC useDataIC, JSCell* owner, ExecutableBase* executable)
+        : CallLinkInfoBase(CallSiteType::DirectCall)
+        , m_useDataIC(useDataIC)
+        , m_codeOrigin(codeOrigin)
+        , m_owner(owner)
+        , m_executable(executable)
+    { }
+
+    ~DirectCallLinkInfo()
+    {
+        m_target = { };
+        m_codeBlock = nullptr;
+    }
+
+    void setCallType(CallType callType)
+    {
+        m_callType = callType;
+    }
+
+    CallType callType()
+    {
+        return static_cast<CallType>(m_callType);
+    }
+
+    CallMode callMode() const
+    {
+        return callModeFor(static_cast<CallType>(m_callType));
+    }
+
+    bool isTailCall() const
+    {
+        return callMode() == CallMode::Tail;
+    }
+
+    CodeSpecializationKind specializationKind() const
+    {
+        auto callType = static_cast<CallType>(m_callType);
+        return specializationFromIsConstruct(callType == DirectConstruct);
+    }
+
+    void setSlowPathStart(CodeLocationLabel<JSInternalPtrTag> slowPathStart)
+    {
+        m_slowPathStart = slowPathStart;
+    }
+
+    static constexpr ptrdiff_t offsetOfTarget() { return OBJECT_OFFSETOF(DirectCallLinkInfo, m_target); };
+    static constexpr ptrdiff_t offsetOfCodeBlock() { return OBJECT_OFFSETOF(DirectCallLinkInfo, m_codeBlock); };
+
+    JSCell* owner() const { return m_owner; }
+
+    void unlinkOrUpgradeImpl(VM&, CodeBlock* oldCodeBlock, CodeBlock* newCodeBlock);
+
+    void visitWeak(VM&);
+
+    CodeOrigin codeOrigin() const { return m_codeOrigin; }
+    bool isDataIC() const { return m_useDataIC == UseDataIC::Yes; }
+
+    MacroAssembler::JumpList emitDirectFastPath(CCallHelpers&);
+    MacroAssembler::JumpList emitDirectTailCallFastPath(CCallHelpers&, ScopedLambda<void()>&& prepareForTailCall);
+    void setCallTarget(CodeBlock*, CodeLocationLabel<JSEntryPtrTag>);
+    void NODELETE setMaxArgumentCountIncludingThis(unsigned);
+    unsigned maxArgumentCountIncludingThis() const { return m_maxArgumentCountIncludingThis; }
+
+    void reset();
+
+    void validateSpeculativeRepatchOnMainThread(VM&);
+
+private:
+    CodeLocationLabel<JSInternalPtrTag> slowPathStart() const { return m_slowPathStart; }
+    CodeLocationLabel<JSInternalPtrTag> fastPathStart() const { return m_fastPathStart; }
+
+    void initialize();
+    void repatchSpeculatively();
+
+    CodeBlock* NODELETE retrieveCodeBlock(FunctionExecutable*);
+    CodePtr<JSEntryPtrTag> retrieveCodePtr(const ConcurrentJSLocker&, CodeBlock*);
+
+    CallType m_callType : 4;
+    UseDataIC m_useDataIC : 1;
+    unsigned m_maxArgumentCountIncludingThis { 0 };
+    CodePtr<JSEntryPtrTag> m_target;
+    CodeBlock* m_codeBlock { nullptr }; // This is weakly held. And cleared whenever m_target is changed.
+    CodeOrigin m_codeOrigin { };
+    CodeLocationLabel<JSInternalPtrTag> m_slowPathStart;
+    CodeLocationLabel<JSInternalPtrTag> m_fastPathStart;
+    CodeLocationDataLabelPtr<JSInternalPtrTag> m_codeBlockLocation;
+    CodeLocationNearCall<JSInternalPtrTag> m_callLocation NO_UNIQUE_ADDRESS;
+    JSCell* m_owner;
+    ExecutableBase* m_executable { nullptr }; // This is weakly held. DFG / FTL CommonData already ensures this.
+};
+
+class OptimizingCallLinkInfo final : public CallLinkInfo {
+public:
+    friend class CallLinkInfo;
+
+    OptimizingCallLinkInfo()
+        : CallLinkInfo(Type::Optimizing, nullptr, CodeOrigin { })
+    {
+    }
+
+    OptimizingCallLinkInfo(CodeOrigin codeOrigin, JSCell* owner)
+        : CallLinkInfo(Type::Optimizing, owner, codeOrigin)
+    {
+    }
+
+    void setUpCall(CallType callType)
+    {
+        m_callType = callType;
+    }
+
+    void NODELETE initializeFromDFGUnlinkedCallLinkInfo(VM&, const DFG::UnlinkedCallLinkInfo&, CodeBlock*);
+
+private:
+    void emitFastPath(CCallHelpers&);
+    void emitTailCallFastPath(CCallHelpers&, ScopedLambda<void()>&& prepareForTailCall);
+
+    CodeLocationNearCall<JSInternalPtrTag> m_callLocation NO_UNIQUE_ADDRESS;
+};
+
+#endif
+
+inline JSCell* CallLinkInfo::ownerForSlowPath(CallFrame* calleeFrame)
+{
+    if (m_owner)
+        return m_owner;
+
+    // Right now, IC (Getter, Setter, Proxy IC etc.) / WasmToJS sets nullptr intentionally since we would like to share IC / WasmToJS thunk eventually.
+    // However, in that case, each IC's data side will have CallLinkInfo.
+    // At that time, they should have appropriate owner. So this is a hack only for now.
+    // This should always works since IC only performs regular-calls and it never does tail-calls.
+    return calleeFrame->callerFrame()->codeOwnerCell();
+}
 
 } // namespace JSC

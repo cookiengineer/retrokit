@@ -24,11 +24,15 @@ samples utility functions
 */
 
 #include "vulkan_command_buffer_utils.h"
+#include "common/unsafe_buffers.h"
 
 #include <assert.h>
 #include <string.h>
+#include <array>
 #include <cstdlib>
 #include <iterator>
+
+#include "SPIRV/GlslangToSpv.h"
 
 #if defined(VK_USE_PLATFORM_WAYLAND_KHR)
 #    include <linux/input.h>
@@ -112,7 +116,7 @@ VkResult init_global_layer_properties(struct sample_info &info)
     for (uint32_t i = 0; i < instance_layer_count; i++)
     {
         layer_properties layer_props;
-        layer_props.properties = vk_props[i];
+        layer_props.properties = ANGLE_UNSAFE_TODO(vk_props[i]);
         res                    = init_global_extension_properties(layer_props);
         if (res)
             return res;
@@ -147,7 +151,7 @@ VkResult init_device_extension_properties(struct sample_info &info, layer_proper
         layer_props.device_extensions.resize(device_extension_count);
         device_extensions = layer_props.device_extensions.data();
         res               = vkEnumerateDeviceExtensionProperties(info.gpus[0], layer_name,
-                                                   &device_extension_count, device_extensions);
+                                                                 &device_extension_count, device_extensions);
     } while (res == VK_INCOMPLETE);
 
     return res;
@@ -167,7 +171,7 @@ VkBool32 demo_check_layers(const std::vector<layer_properties> &layer_props,
         VkBool32 found = 0;
         for (uint32_t j = 0; j < layer_count; j++)
         {
-            if (!strcmp(layer_names[i], layer_props[j].properties.layerName))
+            if (!ANGLE_UNSAFE_TODO(strcmp(layer_names[i], layer_props[j].properties.layerName)))
             {
                 found = 1;
             }
@@ -405,7 +409,7 @@ void init_window(struct sample_info &info)
     ASSERT(info.height > 0);
 
     info.connection = GetModuleHandle(NULL);
-    sprintf(info.name, "Sample");
+    ANGLE_UNSAFE_TODO(sprintf(info.name, "Sample"));
 
     // Initialize the window class structure:
     win_class.cbSize        = sizeof(WNDCLASSEX);
@@ -517,7 +521,7 @@ void init_window(struct sample_info &info)
 
     info.window = xcb_generate_id(info.connection);
 
-    value_mask = XCB_CW_BACK_PIXEL | XCB_CW_EVENT_MASK;
+    value_mask    = XCB_CW_BACK_PIXEL | XCB_CW_EVENT_MASK;
     value_list[0] = info.screen->black_pixel;
     value_list[1] = XCB_EVENT_MASK_KEY_RELEASE | XCB_EVENT_MASK_EXPOSURE;
 
@@ -527,10 +531,10 @@ void init_window(struct sample_info &info)
 
     /* Magic code that will send notification when window is destroyed */
     xcb_intern_atom_cookie_t cookie = xcb_intern_atom(info.connection, 1, 12, "WM_PROTOCOLS");
-    xcb_intern_atom_reply_t *reply = xcb_intern_atom_reply(info.connection, cookie, 0);
+    xcb_intern_atom_reply_t *reply  = xcb_intern_atom_reply(info.connection, cookie, 0);
 
     xcb_intern_atom_cookie_t cookie2 = xcb_intern_atom(info.connection, 0, 16, "WM_DELETE_WINDOW");
-    info.atom_wm_delete_window = xcb_intern_atom_reply(info.connection, cookie2, 0);
+    info.atom_wm_delete_window       = xcb_intern_atom_reply(info.connection, cookie2, 0);
 
     xcb_change_property(info.connection, XCB_PROP_MODE_REPLACE, info.window, (*reply).atom, 4, 32,
                         1, &(*info.atom_wm_delete_window).atom);
@@ -590,24 +594,24 @@ void init_swapchain_extension(struct sample_info &info)
 #elif defined(__ANDROID__)
     GET_INSTANCE_PROC_ADDR(info.inst, CreateAndroidSurfaceKHR);
     VkAndroidSurfaceCreateInfoKHR createInfo;
-    createInfo.sType = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR;
-    createInfo.pNext = nullptr;
-    createInfo.flags = 0;
+    createInfo.sType  = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR;
+    createInfo.pNext  = nullptr;
+    createInfo.flags  = 0;
     createInfo.window = info.mOSWindow->getNativeWindow();
     res = info.fpCreateAndroidSurfaceKHR(info.inst, &createInfo, nullptr, &info.surface);
 #elif defined(VK_USE_PLATFORM_WAYLAND_KHR)
     VkWaylandSurfaceCreateInfoKHR createInfo = {};
-    createInfo.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
-    createInfo.pNext = NULL;
-    createInfo.display = info.display;
-    createInfo.surface = info.window;
+    createInfo.sType                         = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
+    createInfo.pNext                         = NULL;
+    createInfo.display                       = info.display;
+    createInfo.surface                       = info.window;
     res = vkCreateWaylandSurfaceKHR(info.inst, &createInfo, NULL, &info.surface);
 #else
     VkXcbSurfaceCreateInfoKHR createInfo = {};
-    createInfo.sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;
-    createInfo.pNext = NULL;
-    createInfo.connection = info.connection;
-    createInfo.window = info.window;
+    createInfo.sType                     = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;
+    createInfo.pNext                     = NULL;
+    createInfo.connection                = info.connection;
+    createInfo.window                    = info.window;
     res = vkCreateXcbSurfaceKHR(info.inst, &createInfo, NULL, &info.surface);
 #endif  // __ANDROID__  && _WIN32
     ASSERT(res == VK_SUCCESS);
@@ -616,7 +620,8 @@ void init_swapchain_extension(struct sample_info &info)
     VkBool32 *pSupportsPresent = (VkBool32 *)malloc(info.queue_family_count * sizeof(VkBool32));
     for (uint32_t i = 0; i < info.queue_family_count; i++)
     {
-        vkGetPhysicalDeviceSurfaceSupportKHR(info.gpus[0], i, info.surface, &pSupportsPresent[i]);
+        vkGetPhysicalDeviceSurfaceSupportKHR(info.gpus[0], i, info.surface,
+                                             &ANGLE_UNSAFE_TODO(pSupportsPresent[i]));
     }
 
     // Search for a graphics and a present queue in the array of queue
@@ -630,7 +635,7 @@ void init_swapchain_extension(struct sample_info &info)
             if (info.graphics_queue_family_index == UINT32_MAX)
                 info.graphics_queue_family_index = i;
 
-            if (pSupportsPresent[i] == VK_TRUE)
+            if (ANGLE_UNSAFE_TODO(pSupportsPresent[i]) == VK_TRUE)
             {
                 info.graphics_queue_family_index = i;
                 info.present_queue_family_index  = i;
@@ -644,7 +649,7 @@ void init_swapchain_extension(struct sample_info &info)
         // If didn't find a queue that supports both graphics and present, then
         // find a separate present queue.
         for (size_t i = 0; i < info.queue_family_count; ++i)
-            if (pSupportsPresent[i] == VK_TRUE)
+            if (ANGLE_UNSAFE_TODO(pSupportsPresent[i]) == VK_TRUE)
             {
                 info.present_queue_family_index = i;
                 break;
@@ -855,7 +860,7 @@ void init_swap_chain(struct sample_info &info, VkImageUsageFlags usageFlags)
 
     for (uint32_t presentModeIndex = 0; presentModeIndex < presentModeCount; ++presentModeIndex)
     {
-        if (presentModes[presentModeIndex] == VK_PRESENT_MODE_IMMEDIATE_KHR)
+        if (ANGLE_UNSAFE_TODO(presentModes[presentModeIndex]) == VK_PRESENT_MODE_IMMEDIATE_KHR)
         {
             swapchainPresentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
             break;
@@ -880,18 +885,18 @@ void init_swap_chain(struct sample_info &info, VkImageUsageFlags usageFlags)
     }
 
     // Find a supported composite alpha mode - one of these is guaranteed to be set
-    VkCompositeAlphaFlagBitsKHR compositeAlpha         = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    VkCompositeAlphaFlagBitsKHR compositeAlphaFlags[4] = {
+    VkCompositeAlphaFlagBitsKHR compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    constexpr std::array<VkCompositeAlphaFlagBitsKHR, 4> compositeAlphaFlags = {
         VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
         VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR,
         VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR,
         VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR,
     };
-    for (uint32_t i = 0; i < sizeof(compositeAlphaFlags); i++)
+    for (VkCompositeAlphaFlagBitsKHR flag : compositeAlphaFlags)
     {
-        if (surfCapabilities.supportedCompositeAlpha & compositeAlphaFlags[i])
+        if (surfCapabilities.supportedCompositeAlpha & flag)
         {
-            compositeAlpha = compositeAlphaFlags[i];
+            compositeAlpha = flag;
             break;
         }
     }
@@ -920,7 +925,7 @@ void init_swap_chain(struct sample_info &info, VkImageUsageFlags usageFlags)
     swapchain_ci.queueFamilyIndexCount = 0;
     swapchain_ci.pQueueFamilyIndices   = NULL;
     uint32_t queueFamilyIndices[2]     = {(uint32_t)info.graphics_queue_family_index,
-                                      (uint32_t)info.present_queue_family_index};
+                                          (uint32_t)info.present_queue_family_index};
     if (info.graphics_queue_family_index != info.present_queue_family_index)
     {
         // If the graphics and present queues are from different queue families,
@@ -964,7 +969,7 @@ void init_swap_chain(struct sample_info &info, VkImageUsageFlags usageFlags)
         color_image_view.viewType                        = VK_IMAGE_VIEW_TYPE_2D;
         color_image_view.flags                           = 0;
 
-        sc_buffer.image = swapchainImages[i];
+        sc_buffer.image = ANGLE_UNSAFE_TODO(swapchainImages[i]);
 
         color_image_view.image = sc_buffer.image;
 
@@ -992,8 +997,8 @@ bool memory_type_from_properties(struct sample_info &info,
         if ((typeBits & 1) == 1)
         {
             // Type is available, does it match user properties?
-            if ((info.memory_properties.memoryTypes[i].propertyFlags & requirements_mask) ==
-                requirements_mask)
+            if ((ANGLE_UNSAFE_TODO(info.memory_properties.memoryTypes[i]).propertyFlags &
+                 requirements_mask) == requirements_mask)
             {
                 *typeIndex = i;
                 return true;
@@ -1156,7 +1161,7 @@ void init_uniform_buffer(struct sample_info &info)
     res = vkMapMemory(info.device, info.uniform_data.mem, 0, mem_reqs.size, 0, (void **)&pData);
     ASSERT(res == VK_SUCCESS);
 
-    memcpy(pData, info.MVP.data(), sizeof(float) * 16);  // info.MVP.data() size
+    ANGLE_UNSAFE_TODO(memcpy(pData, info.MVP.data(), sizeof(float) * 16));  // info.MVP.data() size
 
     vkUnmapMemory(info.device, info.uniform_data.mem);
 
@@ -1311,7 +1316,8 @@ void init_framebuffers(struct sample_info &info, bool include_depth)
     for (i = 0; i < info.swapchainImageCount; i++)
     {
         attachments[0] = info.buffers[i].view;
-        res            = vkCreateFramebuffer(info.device, &fb_info, NULL, &info.framebuffers[i]);
+        res            = vkCreateFramebuffer(info.device, &fb_info, NULL,
+                                             &ANGLE_UNSAFE_TODO(info.framebuffers[i]));
         ASSERT(res == VK_SUCCESS);
     }
 }
@@ -1361,7 +1367,7 @@ void init_vertex_buffer(struct sample_info &info,
     res = vkMapMemory(info.device, info.vertex_buffer.mem, 0, mem_reqs.size, 0, (void **)&pData);
     ASSERT(res == VK_SUCCESS);
 
-    memcpy(pData, vertexData, dataSize);
+    ANGLE_UNSAFE_TODO(memcpy(pData, vertexData, dataSize));
 
     vkUnmapMemory(info.device, info.vertex_buffer.mem);
 
@@ -1460,8 +1466,8 @@ bool GLSLtoSPV(const VkShaderStageFlagBits shader_type,
 
     if (!shader.parse(&Resources, 100, false, messages))
     {
-        puts(shader.getInfoLog());
-        puts(shader.getInfoDebugLog());
+        ANGLE_UNSAFE_TODO(puts(shader.getInfoLog()));
+        ANGLE_UNSAFE_TODO(puts(shader.getInfoDebugLog()));
         return false;  // something didn't work
     }
 
@@ -1473,8 +1479,8 @@ bool GLSLtoSPV(const VkShaderStageFlagBits shader_type,
 
     if (!program.link(messages))
     {
-        puts(shader.getInfoLog());
-        puts(shader.getInfoDebugLog());
+        ANGLE_UNSAFE_TODO(puts(shader.getInfoLog()));
+        ANGLE_UNSAFE_TODO(puts(shader.getInfoDebugLog()));
         fflush(stdout);
         return false;
     }
@@ -1514,7 +1520,7 @@ void init_shaders(struct sample_info &info, const char *vertShaderText, const ch
         moduleCreateInfo.codeSize = vtx_spv.size() * sizeof(unsigned int);
         moduleCreateInfo.pCode    = vtx_spv.data();
         res                       = vkCreateShaderModule(info.device, &moduleCreateInfo, NULL,
-                                   &info.shaderStages[0].module);
+                                                         &info.shaderStages[0].module);
         ASSERT(res == VK_SUCCESS);
     }
 
@@ -1537,7 +1543,7 @@ void init_shaders(struct sample_info &info, const char *vertShaderText, const ch
         moduleCreateInfo.codeSize = frag_spv.size() * sizeof(unsigned int);
         moduleCreateInfo.pCode    = frag_spv.data();
         res                       = vkCreateShaderModule(info.device, &moduleCreateInfo, NULL,
-                                   &info.shaderStages[1].module);
+                                                         &info.shaderStages[1].module);
         ASSERT(res == VK_SUCCESS);
     }
 
@@ -1644,19 +1650,19 @@ void init_pipeline(struct sample_info &info, VkBool32 include_depth, VkBool32 in
     VkViewport viewports;
     viewports.minDepth = 0.0f;
     viewports.maxDepth = 1.0f;
-    viewports.x = 0;
-    viewports.y = 0;
-    viewports.width = info.width;
-    viewports.height = info.height;
+    viewports.x        = 0;
+    viewports.y        = 0;
+    viewports.width    = info.width;
+    viewports.height   = info.height;
     VkRect2D scissor;
-    scissor.extent.width = info.width;
+    scissor.extent.width  = info.width;
     scissor.extent.height = info.height;
-    scissor.offset.x = 0;
-    scissor.offset.y = 0;
-    vp.viewportCount = NUM_VIEWPORTS;
-    vp.scissorCount = NUM_SCISSORS;
-    vp.pScissors = &scissor;
-    vp.pViewports = &viewports;
+    scissor.offset.x      = 0;
+    scissor.offset.y      = 0;
+    vp.viewportCount      = NUM_VIEWPORTS;
+    vp.scissorCount       = NUM_SCISSORS;
+    vp.pScissors          = &scissor;
+    vp.pViewports         = &viewports;
 #endif
     VkPipelineDepthStencilStateCreateInfo ds;
     ds.sType                 = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
@@ -1728,12 +1734,12 @@ void init_viewports(struct sample_info &info)
 // Disable dynamic viewport on Android. Some drive has an issue with the dynamic viewport
 // feature.
 #else
-    info.viewport.height = (float)info.height;
-    info.viewport.width = (float)info.width;
+    info.viewport.height   = (float)info.height;
+    info.viewport.width    = (float)info.width;
     info.viewport.minDepth = (float)0.0f;
     info.viewport.maxDepth = (float)1.0f;
-    info.viewport.x = 0;
-    info.viewport.y = 0;
+    info.viewport.x        = 0;
+    info.viewport.y        = 0;
     vkCmdSetViewport(info.cmd, 0, NUM_VIEWPORTS, &info.viewport);
 #endif
 }
@@ -1744,12 +1750,12 @@ void init_viewports_array(struct sample_info &info, int index)
 // Disable dynamic viewport on Android. Some drive has an issue with the dynamic viewport
 // feature.
 #else
-    info.viewport.height = (float)info.height;
-    info.viewport.width = (float)info.width;
+    info.viewport.height   = (float)info.height;
+    info.viewport.width    = (float)info.width;
     info.viewport.minDepth = (float)0.0f;
     info.viewport.maxDepth = (float)1.0f;
-    info.viewport.x = 0;
-    info.viewport.y = 0;
+    info.viewport.x        = 0;
+    info.viewport.y        = 0;
     vkCmdSetViewport(info.cmds[index], 0, NUM_VIEWPORTS, &info.viewport);
 #endif
 }
@@ -1760,12 +1766,12 @@ void init_viewports2_array(struct sample_info &info, int index)
 // Disable dynamic viewport on Android. Some drive has an issue with the dynamic viewport
 // feature.
 #else
-    info.viewport.height = (float)info.height;
-    info.viewport.width = (float)info.width;
+    info.viewport.height   = (float)info.height;
+    info.viewport.width    = (float)info.width;
     info.viewport.minDepth = (float)0.0f;
     info.viewport.maxDepth = (float)1.0f;
-    info.viewport.x = 0;
-    info.viewport.y = 0;
+    info.viewport.x        = 0;
+    info.viewport.y        = 0;
     vkCmdSetViewport(info.cmd2s[index], 0, NUM_VIEWPORTS, &info.viewport);
 #endif
 }
@@ -1776,10 +1782,10 @@ void init_scissors(struct sample_info &info)
 // Disable dynamic viewport on Android. Some drive has an issue with the dynamic scissors
 // feature.
 #else
-    info.scissor.extent.width = info.width;
+    info.scissor.extent.width  = info.width;
     info.scissor.extent.height = info.height;
-    info.scissor.offset.x = 0;
-    info.scissor.offset.y = 0;
+    info.scissor.offset.x      = 0;
+    info.scissor.offset.y      = 0;
     vkCmdSetScissor(info.cmd, 0, NUM_SCISSORS, &info.scissor);
 #endif
 }
@@ -1790,10 +1796,10 @@ void init_scissors_array(struct sample_info &info, int index)
 // Disable dynamic viewport on Android. Some drive has an issue with the dynamic scissors
 // feature.
 #else
-    info.scissor.extent.width = info.width;
+    info.scissor.extent.width  = info.width;
     info.scissor.extent.height = info.height;
-    info.scissor.offset.x = 0;
-    info.scissor.offset.y = 0;
+    info.scissor.offset.x      = 0;
+    info.scissor.offset.y      = 0;
     vkCmdSetScissor(info.cmds[index], 0, NUM_SCISSORS, &info.scissor);
 #endif
 }
@@ -1804,10 +1810,10 @@ void init_scissors2_array(struct sample_info &info, int index)
 // Disable dynamic viewport on Android. Some drive has an issue with the dynamic scissors
 // feature.
 #else
-    info.scissor.extent.width = info.width;
+    info.scissor.extent.width  = info.width;
     info.scissor.extent.height = info.height;
-    info.scissor.offset.x = 0;
-    info.scissor.offset.y = 0;
+    info.scissor.offset.x      = 0;
+    info.scissor.offset.y      = 0;
     vkCmdSetScissor(info.cmd2s[index], 0, NUM_SCISSORS, &info.scissor);
 #endif
 }
@@ -1907,7 +1913,7 @@ void destroy_framebuffers(struct sample_info &info)
 {
     for (uint32_t i = 0; i < info.swapchainImageCount; i++)
     {
-        vkDestroyFramebuffer(info.device, info.framebuffers[i], NULL);
+        vkDestroyFramebuffer(info.device, ANGLE_UNSAFE_TODO(info.framebuffers[i]), NULL);
     }
     free(info.framebuffers);
 }

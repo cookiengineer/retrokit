@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,22 +25,30 @@
 
 #pragma once
 
+#include <JavaScriptCore/AllocationFailureMode.h>
+#include <JavaScriptCore/IsoSubspace.h>
+#include <JavaScriptCore/VM.h>
+#include <wtf/Compiler.h>
+
 namespace JSC {
 
-ALWAYS_INLINE void* IsoSubspace::allocateNonVirtual(VM& vm, size_t size, GCDeferralContext* deferralContext, AllocationFailureMode failureMode)
+class GCDeferralContext;
+
+namespace GCClient {
+
+ALWAYS_INLINE void* IsoSubspace::allocate(VM& vm, size_t cellSize, GCDeferralContext* deferralContext, AllocationFailureMode failureMode)
 {
-    RELEASE_ASSERT(WTF::roundUpToMultipleOf<MarkedBlock::atomSize>(size) == cellSize());
-    Allocator allocator = allocatorForNonVirtual(size, AllocatorForMode::MustAlreadyHaveAllocator);
-    void* result = allocator.allocate(vm.heap, deferralContext, failureMode);
-    return result;
+    return m_localAllocator.allocate(vm.heap, cellSize, deferralContext, failureMode);
 }
+
+} // namespace GCClient
 
 inline void IsoSubspace::clearIsoCellSetBit(PreciseAllocation* preciseAllocation)
 {
-    unsigned lowerTierIndex = preciseAllocation->lowerTierIndex();
+    unsigned lowerTierPreciseIndex = preciseAllocation->lowerTierPreciseIndex();
     m_cellSets.forEach(
         [&](IsoCellSet* set) {
-            set->clearLowerTierCell(lowerTierIndex);
+            set->clearLowerTierPreciseCell(lowerTierPreciseIndex);
         });
 }
 
@@ -55,9 +63,9 @@ inline void IsoSubspace::sweep()
 }
 
 template<typename Func>
-void IsoSubspace::forEachLowerTierFreeListedPreciseAllocation(const Func& func)
+void IsoSubspace::forEachLowerTierPreciseFreeListedPreciseAllocation(const Func& func)
 {
-    m_lowerTierFreeList.forEach(func);
+    m_lowerTierPreciseFreeList.forEach(func);
 }
 
 } // namespace JSC

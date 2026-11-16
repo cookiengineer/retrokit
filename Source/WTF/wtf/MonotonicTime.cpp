@@ -26,15 +26,11 @@
 #include "config.h"
 #include <wtf/MonotonicTime.h>
 
+#include <wtf/ContinuousTime.h>
 #include <wtf/PrintStream.h>
 #include <wtf/WallTime.h>
 
 namespace WTF {
-
-WallTime MonotonicTime::approximateWallTime() const
-{
-    return *this - now() + WallTime::now();
-}
 
 void MonotonicTime::dump(PrintStream& out) const
 {

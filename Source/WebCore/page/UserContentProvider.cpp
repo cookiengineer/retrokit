@@ -26,10 +26,13 @@
 #include "config.h"
 #include "UserContentProvider.h"
 
+#include "Chrome.h"
+#include "ChromeClient.h"
 #include "Document.h"
 #include "DocumentLoader.h"
-#include "Frame.h"
+#include "FrameDestructionObserverInlines.h"
 #include "FrameLoader.h"
+#include "LocalFrame.h"
 #include "Page.h"
 
 #if ENABLE(CONTENT_EXTENSIONS)
@@ -40,13 +43,11 @@
 
 namespace WebCore {
 
-UserContentProvider::UserContentProvider()
-{
-}
+UserContentProvider::UserContentProvider() = default;
 
 UserContentProvider::~UserContentProvider()
 {
-    ASSERT(m_pages.computesEmpty());
+    ASSERT(m_pages.isEmptyIgnoringNullReferences());
 }
 
 void UserContentProvider::addPage(Page& page)
@@ -67,7 +68,7 @@ void UserContentProvider::registerForUserMessageHandlerInvalidation(UserContentP
 {
     ASSERT(!m_userMessageHandlerInvalidationClients.contains(invalidationClient));
 
-    m_userMessageHandlerInvalidationClients.add(&invalidationClient);
+    m_userMessageHandlerInvalidationClients.add(invalidationClient);
 }
 
 void UserContentProvider::unregisterForUserMessageHandlerInvalidation(UserContentProviderInvalidationClient& invalidationClient)
@@ -79,36 +80,81 @@ void UserContentProvider::unregisterForUserMessageHandlerInvalidation(UserConten
 
 void UserContentProvider::invalidateAllRegisteredUserMessageHandlerInvalidationClients()
 {
-    for (auto& client : m_userMessageHandlerInvalidationClients)
+    m_userMessageHandlerInvalidationClients.forEach([&](auto& client) {
         client.didInvalidate(*this);
+    });
 }
 
 void UserContentProvider::invalidateInjectedStyleSheetCacheInAllFramesInAllPages()
 {
-    for (auto& page : m_pages)
-        page.invalidateInjectedStyleSheetCacheInAllFrames();
+    for (Ref page : m_pages)
+        page->invalidateInjectedStyleSheetCacheInAllFrames();
 }
 
 #if ENABLE(CONTENT_EXTENSIONS)
-static bool contentRuleListsEnabled(const DocumentLoader& documentLoader)
+static DocumentLoader* NODELETE mainDocumentLoader(DocumentLoader& loader)
 {
-    if (auto frame = documentLoader.frame()) {
+    if (auto frame = loader.frame()) {
         if (frame->isMainFrame())
-            return documentLoader.userContentExtensionsEnabled();
-        if (auto mainDocumentLoader = frame->mainFrame().loader().documentLoader())
-            return mainDocumentLoader->userContentExtensionsEnabled();
+            return &loader;
+
+        auto* localFrame = dynamicDowncast<LocalFrame>(frame->mainFrame());
+        if (localFrame)
+            return localFrame->loader().documentLoader();
+    }
+    return nullptr;
+}
+
+static ContentExtensions::ContentExtensionsBackend::RuleListFilter ruleListFilter(DocumentLoader& documentLoader)
+{
+    RefPtr mainLoader = mainDocumentLoader(documentLoader);
+    if (!mainLoader) {
+        return [](const String&) {
+            return ContentExtensions::ContentExtensionsBackend::ShouldSkipRuleList::No;
+        };
     }
 
-    return true;
-}
-    
-ContentRuleListResults UserContentProvider::processContentRuleListsForLoad(Page& page, const URL& url, OptionSet<ContentExtensions::ResourceType> resourceType, DocumentLoader& initiatingDocumentLoader, const URL& redirectFrom)
-{
-    if (!contentRuleListsEnabled(initiatingDocumentLoader))
-        return { };
+    RefPtr policySourceLoader = mainLoader;
+    if (!mainLoader->request().url().hasSpecialScheme() && documentLoader.request().url().protocolIsInHTTPFamily())
+        policySourceLoader = documentLoader;
 
-    return userContentExtensionBackend().processContentRuleListsForLoad(page, url, resourceType, initiatingDocumentLoader, redirectFrom);
+    auto& exceptions = policySourceLoader->contentExtensionEnablement().second;
+    switch (policySourceLoader->contentExtensionEnablement().first) {
+    case ContentExtensionDefaultEnablement::Disabled:
+        return [&](auto& identifier) {
+            return exceptions.contains(identifier)
+                ? ContentExtensions::ContentExtensionsBackend::ShouldSkipRuleList::No
+                : ContentExtensions::ContentExtensionsBackend::ShouldSkipRuleList::Yes;
+        };
+    case ContentExtensionDefaultEnablement::Enabled:
+        return [&](auto& identifier) {
+            return exceptions.contains(identifier)
+                ? ContentExtensions::ContentExtensionsBackend::ShouldSkipRuleList::Yes
+                : ContentExtensions::ContentExtensionsBackend::ShouldSkipRuleList::No;
+        };
+    }
+    ASSERT_NOT_REACHED();
+    return { };
 }
-#endif
+
+static void applyLinkDecorationFilteringIfNeeded(ContentRuleListResults& results, Page& page, const URL& url, const DocumentLoader& initiatingDocumentLoader)
+{
+    if (auto* frame = initiatingDocumentLoader.frame(); !frame || !frame->isMainFrame())
+        return;
+
+    if (auto adjustedURL = page.chrome().client().applyLinkDecorationFiltering(url, LinkDecorationFilteringTrigger::Navigation); adjustedURL != url)
+        results.summary.redirectActions.append({ { ContentExtensions::RedirectAction::URLAction { adjustedURL.string() } }, adjustedURL });
+}
+
+ContentRuleListResults UserContentProvider::processContentRuleListsForLoad(Page& page, const URL& url, OptionSet<ContentExtensions::ResourceType> resourceType, DocumentLoader& initiatingDocumentLoader, const URL& redirectFrom) const
+{
+    auto results = userContentExtensionBackend().processContentRuleListsForLoad(page, url, resourceType, initiatingDocumentLoader, redirectFrom, ruleListFilter(initiatingDocumentLoader));
+
+    if (resourceType.containsAny({ ContentExtensions::ResourceType::TopDocument, ContentExtensions::ResourceType::ChildDocument }))
+        applyLinkDecorationFilteringIfNeeded(results, page, url, initiatingDocumentLoader);
+
+    return results;
+}
+#endif // ENABLE(CONTENT_EXTENSIONS)
 
 } // namespace WebCore

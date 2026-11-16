@@ -25,71 +25,124 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if ENABLE(WEBGL)
 
-#include "WebGLRenderingContextBase.h"
+#include <atomic>
 #include <wtf/RefCounted.h>
 
 namespace WebCore {
 
-class WebGLExtension : public RefCounted<WebGLExtension> {
-    WTF_MAKE_ISO_ALLOCATED(WebGLExtension);
+class WebCoreOpaqueRoot;
+
+// Manual variant discriminator for any WebGL extension. Used for downcasting the WebGLExtensionBase pointers
+// to the concrete type.
+enum class WebGLExtensionName {
+    ANGLEInstancedArrays,
+    EXTBlendMinMax,
+    EXTClipControl,
+    EXTColorBufferFloat,
+    EXTColorBufferHalfFloat,
+    EXTConservativeDepth,
+    EXTDepthClamp,
+    EXTDisjointTimerQuery,
+    EXTDisjointTimerQueryWebGL2,
+    EXTFloatBlend,
+    EXTFragDepth,
+    EXTPolygonOffsetClamp,
+    EXTRenderSnorm,
+    EXTShaderTextureLOD,
+    EXTTextureCompressionBPTC,
+    EXTTextureCompressionRGTC,
+    EXTTextureFilterAnisotropic,
+    EXTTextureMirrorClampToEdge,
+    EXTTextureNorm16,
+    EXTsRGB,
+    KHRParallelShaderCompile,
+    NVShaderNoperspectiveInterpolation,
+    OESDrawBuffersIndexed,
+    OESElementIndexUint,
+    OESFBORenderMipmap,
+    OESSampleVariables,
+    OESShaderMultisampleInterpolation,
+    OESStandardDerivatives,
+    OESTextureFloat,
+    OESTextureFloatLinear,
+    OESTextureHalfFloat,
+    OESTextureHalfFloatLinear,
+    OESVertexArrayObject,
+    WebGLBlendFuncExtended,
+    WebGLClipCullDistance,
+    WebGLColorBufferFloat,
+    WebGLCompressedTextureASTC,
+    WebGLCompressedTextureETC,
+    WebGLCompressedTextureETC1,
+    WebGLCompressedTexturePVRTC,
+    WebGLCompressedTextureS3TC,
+    WebGLCompressedTextureS3TCsRGB,
+    WebGLDebugRendererInfo,
+    WebGLDebugShaders,
+    WebGLDepthTexture,
+    WebGLDrawBuffers,
+    WebGLDrawInstancedBaseVertexBaseInstance,
+    WebGLLoseContext,
+    WebGLMultiDraw,
+    WebGLMultiDrawInstancedBaseVertexBaseInstance,
+    WebGLPolygonMode,
+    WebGLProvokingVertex,
+    WebGLRenderSharedExponent,
+    WebGLStencilTexturing
+};
+
+class WebGLExtensionBase : public RefCounted<WebGLExtensionBase> {
 public:
-    // Extension names are needed to properly wrap instances in JavaScript objects.
-    enum ExtensionName {
-        WebGLLoseContextName,
-        EXTBlendMinMaxName,
-        EXTFragDepthName,
-        EXTShaderTextureLODName,
-        EXTTextureCompressionRGTCName,
-        EXTTextureFilterAnisotropicName,
-        EXTsRGBName,
-        KHRParallelShaderCompileName,
-        OESTextureFloatName,
-        OESTextureFloatLinearName,
-        OESTextureHalfFloatName,
-        OESTextureHalfFloatLinearName,
-        OESStandardDerivativesName,
-        OESVertexArrayObjectName,
-        WebGLDebugRendererInfoName,
-        WebGLDebugShadersName,
-        WebGLCompressedTextureS3TCName,
-        WebGLCompressedTextureS3TCsRGBName,
-        WebGLDepthTextureName,
-        WebGLDrawBuffersName,
-        OESElementIndexUintName,
-        OESFBORenderMipmapName,
-        WebGLCompressedTextureATCName,
-        WebGLCompressedTextureETCName,
-        WebGLCompressedTextureETC1Name,
-        WebGLCompressedTexturePVRTCName,
-        WebGLCompressedTextureASTCName,
-        ANGLEInstancedArraysName,
-        EXTColorBufferHalfFloatName,
-        EXTFloatBlendName,
-        WebGLColorBufferFloatName,
-        EXTColorBufferFloatName,
-        WebGLMultiDrawName,
-    };
+    WebGLExtensionName name() const { return m_name; }
 
-    WebGLRenderingContextBase* context() { return m_context; }
-
-    virtual ~WebGLExtension();
-    virtual ExtensionName getName() const = 0;
-
-    // Lose the parent WebGL context. The context loss mode changes
-    // the behavior specifically of WEBGL_lose_context, which does not
-    // lose its connection to its parent context when it forces a
-    // context loss. However, all extensions must be lost when
-    // destroying their WebGLRenderingContextBase.
-    virtual void loseParentContext(WebGLRenderingContextBase::LostContextMode);
-    bool isLost() { return !m_context; }
+    virtual ~WebGLExtensionBase() = default;
 
 protected:
-    WebGLExtension(WebGLRenderingContextBase&);
-    WebGLRenderingContextBase* m_context;
+    WebGLExtensionBase(WebGLExtensionName name)
+        : m_name(name)
+    {
+    }
+protected:
+    const WebGLExtensionName m_name;
+};
+
+// Mixin class for WebGL extension implementations. All functions should start with preamble:
+//
+// if (isContextLost())
+//     return;
+//
+// followed by `Ref context = this->context();` or `context()->drawSomething(...);`.
+template<typename T>
+class WebGLExtension : public WebGLExtensionBase {
+public:
+    void loseParentContext() { m_context = nullptr; }
+    Ref<T> context() { ASSERT(!isContextLost()); return *m_context.load(std::memory_order::relaxed); }
+
+    // Only to be used by friend WebCoreOpaqueRoot root(const WebGLExtension<T>*) that cannot be a friend
+    // due to C++ warning on some compilers.
+    T* opaqueRoot() const LIFETIME_BOUND { return m_context.load(); }
+
+protected:
+    WebGLExtension(T& context, WebGLExtensionName name)
+        : WebGLExtensionBase(name)
+        , m_context(&context)
+    {
+    }
+    bool isContextLost() const { return !m_context.load(std::memory_order::relaxed); }
+
+private:
+    std::atomic<T*> m_context;
 };
 
 } // namespace WebCore
+
+#define SPECIALIZE_TYPE_TRAITS_WEBGL_EXTENSION(ExtensionClass) \
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::ExtensionClass) \
+    static bool isType(const WebCore::WebGLExtensionBase& extension) { return extension.name() == WebCore::WebGLExtensionName::ExtensionClass; } \
+SPECIALIZE_TYPE_TRAITS_END()
 
 #endif

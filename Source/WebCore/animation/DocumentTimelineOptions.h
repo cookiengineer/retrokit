@@ -25,12 +25,12 @@
 
 #pragma once
 
-#include "DOMHighResTimeStamp.h"
+#include <WebCore/DOMHighResTimeStamp.h>
 
 namespace WebCore {
 
 struct DocumentTimelineOptions {
-    DOMHighResTimeStamp originTime;
+    DOMHighResTimeStamp originTime { 0 };
 };
 
 } // namespace WebCore

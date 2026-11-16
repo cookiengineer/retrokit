@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012, 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2023 Apple Inc. All rights reserved.
  * Copyright (C) 2015-2016 Yusuke Suzuki <utatane.tea@gmail.com>.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,14 +29,15 @@
 
 #include "JSCJSValueInlines.h"
 #include "SymbolObject.h"
+#include <wtf/text/MakeString.h>
 
 namespace JSC {
 
-const ClassInfo Symbol::s_info = { "symbol", nullptr, nullptr, nullptr, CREATE_METHOD_TABLE(Symbol) };
+const ClassInfo Symbol::s_info = { "symbol"_s, nullptr, nullptr, nullptr, CREATE_METHOD_TABLE(Symbol) };
 
 Symbol::Symbol(VM& vm)
     : Base(vm, vm.symbolStructure.get())
-    , m_privateName()
+    , m_privateName(SymbolImpl::createNullSymbol())
 {
 }
 
@@ -52,19 +53,19 @@ Symbol::Symbol(VM& vm, SymbolImpl& uid)
 {
 }
 
+Symbol::Symbol(VM& vm, const String& string, JSString* description)
+    : Base(vm, vm.symbolStructure.get())
+    , m_privateName(PrivateName::Description, string)
+    , m_description(description, WriteBarrierEarlyInit)
+{
+}
+
 void Symbol::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
-    ASSERT(inherits(vm, info()));
+    ASSERT(inherits(info()));
 
     vm.symbolImplToSymbolMap.set(&m_privateName.uid(), this);
-}
-
-inline SymbolObject* SymbolObject::create(VM& vm, JSGlobalObject* globalObject, Symbol* symbol)
-{
-    SymbolObject* object = new (NotNull, allocateCell<SymbolObject>(vm.heap)) SymbolObject(vm, globalObject->symbolObjectStructure());
-    object->finishCreation(vm, symbol);
-    return object;
 }
 
 JSValue Symbol::toPrimitive(JSGlobalObject*, PreferredPrimitiveType) const
@@ -74,7 +75,7 @@ JSValue Symbol::toPrimitive(JSGlobalObject*, PreferredPrimitiveType) const
 
 JSObject* Symbol::toObject(JSGlobalObject* globalObject) const
 {
-    return SymbolObject::create(globalObject->vm(), globalObject, const_cast<Symbol*>(this));
+    return SymbolObject::create(globalObject->vm(), globalObject->symbolObjectStructure(), const_cast<Symbol*>(this));
 }
 
 double Symbol::toNumber(JSGlobalObject* globalObject) const
@@ -85,32 +86,79 @@ double Symbol::toNumber(JSGlobalObject* globalObject) const
     return 0.0;
 }
 
+JSString* Symbol::toString(JSGlobalObject* globalObject)
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+    if (auto* string = m_string.get())
+        return string;
+
+    auto description = tryGetDescriptiveString();
+    if (!description) [[unlikely]] {
+        throwOutOfMemoryError(globalObject, scope);
+        return nullptr;
+    }
+    auto* string = jsNontrivialString(vm, description.value());
+    m_string.set(vm, this, string);
+    ASSERT(!string->isRope());
+    return string;
+}
+
 void Symbol::destroy(JSCell* cell)
 {
     static_cast<Symbol*>(cell)->Symbol::~Symbol();
 }
 
-String Symbol::descriptiveString() const
+template<typename Visitor>
+void Symbol::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    return makeString("Symbol(", String(m_privateName.uid()), ')');
+    auto* thisCell = uncheckedDowncast<Symbol>(cell);
+    ASSERT_GC_OBJECT_INHERITS(thisCell, info());
+    Base::visitChildren(thisCell, visitor);
+    visitor.append(thisCell->m_description);
+    visitor.append(thisCell->m_string);
+}
+DEFINE_VISIT_CHILDREN(Symbol);
+
+Expected<String, ErrorTypeWithExtension> Symbol::tryGetDescriptiveString() const
+{
+    String description = tryMakeString("Symbol("_s, StringView(m_privateName.uid()), ')');
+    if (!description)
+        return makeUnexpected(ErrorTypeWithExtension::OutOfMemoryError);
+    return description;
 }
 
-String Symbol::description() const
+JSString* Symbol::description(VM& vm)
 {
+    if (auto* string = m_description.get())
+        return string;
+
     auto& uid = m_privateName.uid();
-    return uid.isNullSymbol() ? String() : uid;
+    if (uid.isNullSymbol())
+        return nullptr;
+
+    auto* string = jsString(vm, String(uid));
+    m_description.set(vm, this, string);
+    return string;
 }
 
 Symbol* Symbol::create(VM& vm)
 {
-    Symbol* symbol = new (NotNull, allocateCell<Symbol>(vm.heap)) Symbol(vm);
+    Symbol* symbol = new (NotNull, allocateCell<Symbol>(vm)) Symbol(vm);
     symbol->finishCreation(vm);
     return symbol;
 }
 
 Symbol* Symbol::createWithDescription(VM& vm, const String& description)
 {
-    Symbol* symbol = new (NotNull, allocateCell<Symbol>(vm.heap)) Symbol(vm, description);
+    Symbol* symbol = new (NotNull, allocateCell<Symbol>(vm)) Symbol(vm, description);
+    symbol->finishCreation(vm);
+    return symbol;
+}
+
+Symbol* Symbol::createWithDescription(VM& vm, const String& description, JSString* string)
+{
+    Symbol* symbol = new (NotNull, allocateCell<Symbol>(vm)) Symbol(vm, description, string);
     symbol->finishCreation(vm);
     return symbol;
 }
@@ -120,7 +168,7 @@ Symbol* Symbol::create(VM& vm, SymbolImpl& uid)
     if (Symbol* symbol = vm.symbolImplToSymbolMap.get(&uid))
         return symbol;
 
-    Symbol* symbol = new (NotNull, allocateCell<Symbol>(vm.heap)) Symbol(vm, uid);
+    Symbol* symbol = new (NotNull, allocateCell<Symbol>(vm)) Symbol(vm, uid);
     symbol->finishCreation(vm);
     return symbol;
 }

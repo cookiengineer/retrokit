@@ -37,36 +37,51 @@ class WebsitePolicies;
 
 namespace WebKit {
 
-class SafeBrowsingWarning;
+class BrowsingWarning;
 
 enum class ProcessSwapRequestedByClient : bool { No, Yes };
 enum class ShouldExpectSafeBrowsingResult : bool { No, Yes };
 enum class ShouldExpectAppBoundDomainResult : bool { No, Yes };
+enum class ShouldWaitForInitialLinkDecorationFilteringData : bool { No, Yes };
+enum class ShouldWaitForSiteHasStorageCheck : bool { No, Yes };
+enum class ShouldWaitForEnhancedSecurityLinkCheck : bool { No, Yes };
+enum class WasNavigationIntercepted : bool { No, Yes };
 
-class WebFramePolicyListenerProxy : public API::ObjectImpl<API::Object::Type::FramePolicyListener> {
+class WebFramePolicyListenerProxy : public API::ObjectImpl<API::Object::Type::FramePolicyListener>, public CanMakeWeakPtr<WebFramePolicyListenerProxy> {
 public:
 
-    using Reply = CompletionHandler<void(WebCore::PolicyAction, API::WebsitePolicies*, ProcessSwapRequestedByClient, RefPtr<SafeBrowsingWarning>&&, std::optional<NavigatingToAppBoundDomain>)>;
-    static Ref<WebFramePolicyListenerProxy> create(Reply&& reply, ShouldExpectSafeBrowsingResult expectSafeBrowsingResult, ShouldExpectAppBoundDomainResult expectAppBoundDomainResult)
+    using Reply = CompletionHandler<void(WebCore::PolicyAction, API::WebsitePolicies*, ProcessSwapRequestedByClient, std::optional<NavigatingToAppBoundDomain>, WasNavigationIntercepted)>;
+    static Ref<WebFramePolicyListenerProxy> create(Reply&& reply, ShouldExpectSafeBrowsingResult expectSafeBrowsingResult, ShouldExpectAppBoundDomainResult expectAppBoundDomainResult, ShouldWaitForInitialLinkDecorationFilteringData shouldWaitForInitialLinkDecorationFilteringData, ShouldWaitForSiteHasStorageCheck shouldWaitForSiteHasStorageCheck, ShouldWaitForEnhancedSecurityLinkCheck shouldWaitForEnhancedSecurityLinkCheck)
     {
-        return adoptRef(*new WebFramePolicyListenerProxy(WTFMove(reply), expectSafeBrowsingResult, expectAppBoundDomainResult));
+        return adoptRef(*new WebFramePolicyListenerProxy(WTF::move(reply), expectSafeBrowsingResult, expectAppBoundDomainResult, shouldWaitForInitialLinkDecorationFilteringData, shouldWaitForSiteHasStorageCheck, shouldWaitForEnhancedSecurityLinkCheck));
     }
     ~WebFramePolicyListenerProxy();
 
     void use(API::WebsitePolicies* = nullptr, ProcessSwapRequestedByClient = ProcessSwapRequestedByClient::No);
     void download();
-    void ignore();
+    void ignore(WasNavigationIntercepted = WasNavigationIntercepted::No);
     
-    void didReceiveSafeBrowsingResults(RefPtr<SafeBrowsingWarning>&&);
+    void didReceiveSafeBrowsingResults();
     void didReceiveAppBoundDomainResult(std::optional<NavigatingToAppBoundDomain>);
+    void didReceiveManagedDomainResult(std::optional<NavigatingToAppBoundDomain>);
+    void didReceiveInitialLinkDecorationFilteringData();
+    void didReceiveSiteHasStorageResults();
+    void didReceiveEnhancedSecurityLinkResults();
 
 private:
-    WebFramePolicyListenerProxy(Reply&&, ShouldExpectSafeBrowsingResult, ShouldExpectAppBoundDomainResult);
+    WebFramePolicyListenerProxy(Reply&&, ShouldExpectSafeBrowsingResult, ShouldExpectAppBoundDomainResult, ShouldWaitForInitialLinkDecorationFilteringData, ShouldWaitForSiteHasStorageCheck, ShouldWaitForEnhancedSecurityLinkCheck);
 
     std::optional<std::pair<RefPtr<API::WebsitePolicies>, ProcessSwapRequestedByClient>> m_policyResult;
-    std::optional<RefPtr<SafeBrowsingWarning>> m_safeBrowsingWarning;
     std::optional<std::optional<NavigatingToAppBoundDomain>> m_isNavigatingToAppBoundDomain;
+    bool m_doneWaitingForSafeBrowsing { false };
+    bool m_doneWaitingForSiteHasStorage { false };
+    bool m_doneWaitingForEnhancedSecurityLink { false };
+    bool m_doneWaitingForLinkDecorationFilteringData { false };
     Reply m_reply;
 };
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebFramePolicyListenerProxy)
+static bool isType(const API::Object& object) { return object.type() == API::Object::Type::FramePolicyListener; }
+SPECIALIZE_TYPE_TRAITS_END()

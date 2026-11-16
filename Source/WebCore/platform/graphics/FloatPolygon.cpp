@@ -32,40 +32,32 @@
 
 #include <wtf/HexNumber.h>
 #include <wtf/MathExtras.h>
-#include <wtf/text/StringConcatenateNumbers.h>
 
 namespace WebCore {
 
 namespace FloatPolygonInternal {
-static inline float determinant(const FloatSize& a, const FloatSize& b)
+static inline float NODELETE determinant(const FloatSize& a, const FloatSize& b)
 {
     return a.width() * b.height() - a.height() * b.width();
 }
 }
 
-static inline bool areCollinearPoints(const FloatPoint& p0, const FloatPoint& p1, const FloatPoint& p2)
+static inline bool NODELETE areCollinearPoints(const FloatPoint& p0, const FloatPoint& p1, const FloatPoint& p2)
 {
     return !FloatPolygonInternal::determinant(p1 - p0, p2 - p0);
 }
 
-static inline bool areCoincidentPoints(const FloatPoint& p0, const FloatPoint& p1)
+static inline bool NODELETE areCoincidentPoints(const FloatPoint& p0, const FloatPoint& p1)
 {
     return p0.x() == p1.x() && p0.y() == p1.y();
 }
 
-static inline bool isPointOnLineSegment(const FloatPoint& vertex1, const FloatPoint& vertex2, const FloatPoint& point)
-{
-    return point.x() >= std::min(vertex1.x(), vertex2.x())
-        && point.x() <= std::max(vertex1.x(), vertex2.x())
-        && areCollinearPoints(vertex1, vertex2, point);
-}
-
-static inline unsigned nextVertexIndex(unsigned vertexIndex, unsigned nVertices, bool clockwise)
+static inline unsigned NODELETE nextVertexIndex(unsigned vertexIndex, unsigned nVertices, bool clockwise)
 {
     return ((clockwise) ? vertexIndex + 1 : vertexIndex - 1 + nVertices) % nVertices;
 }
 
-static unsigned findNextEdgeVertexIndex(const FloatPolygon& polygon, unsigned vertexIndex1, bool clockwise)
+static unsigned NODELETE findNextEdgeVertexIndex(const FloatPolygon& polygon, unsigned vertexIndex1, bool clockwise)
 {
     unsigned nVertices = polygon.numberOfVertices();
     unsigned vertexIndex2 = nextVertexIndex(vertexIndex1, nVertices, clockwise);
@@ -83,14 +75,12 @@ static unsigned findNextEdgeVertexIndex(const FloatPolygon& polygon, unsigned ve
     return vertexIndex2;
 }
 
-FloatPolygon::FloatPolygon(Vector<FloatPoint>&& vertices, WindRule fillRule)
-    : m_vertices(WTFMove(vertices))
-    , m_fillRule(fillRule)
+FloatPolygon::FloatPolygon(Vector<FloatPoint>&& vertices)
+    : m_vertices(WTF::move(vertices))
+    , m_empty(m_vertices.size() < 3)
+    , m_edges(m_vertices.size())
 {
     unsigned nVertices = numberOfVertices();
-    m_edges.resize(nVertices);
-    m_empty = nVertices < 3;
-
     if (nVertices)
         m_boundingBox.setLocation(vertexAt(0));
 
@@ -129,7 +119,7 @@ FloatPolygon::FloatPolygon(Vector<FloatPoint>&& vertices, WindRule fillRule)
         }
     }
 
-    m_edges.resize(edgeIndex);
+    m_edges.shrink(edgeIndex);
     m_empty = m_edges.size() < 3;
 
     if (m_empty)
@@ -142,86 +132,9 @@ FloatPolygon::FloatPolygon(Vector<FloatPoint>&& vertices, WindRule fillRule)
 Vector<std::reference_wrapper<const FloatPolygonEdge>> FloatPolygon::overlappingEdges(float minY, float maxY) const
 {
     auto overlappingEdgeIntervals = m_edgeTree.allOverlaps({ minY, maxY });
-    Vector<std::reference_wrapper<const FloatPolygonEdge>> result;
-    result.reserveInitialCapacity(overlappingEdgeIntervals.size());
-    for (auto& interval : overlappingEdgeIntervals)
-        result.uncheckedAppend(*interval.data());
-    return result;
-}
-
-static inline float leftSide(const FloatPoint& vertex1, const FloatPoint& vertex2, const FloatPoint& point)
-{
-    return ((point.x() - vertex1.x()) * (vertex2.y() - vertex1.y())) - ((vertex2.x() - vertex1.x()) * (point.y() - vertex1.y()));
-}
-
-bool FloatPolygon::containsEvenOdd(const FloatPoint& point) const
-{
-    unsigned crossingCount = 0;
-    for (unsigned i = 0; i < numberOfEdges(); ++i) {
-        const FloatPoint& vertex1 = edgeAt(i).vertex1();
-        const FloatPoint& vertex2 = edgeAt(i).vertex2();
-        if (isPointOnLineSegment(vertex1, vertex2, point))
-            return true;
-        if ((vertex1.y() <= point.y() && vertex2.y() > point.y()) || (vertex1.y() > point.y() && vertex2.y() <= point.y())) {
-            float vt = (point.y()  - vertex1.y()) / (vertex2.y() - vertex1.y());
-            if (point.x() < vertex1.x() + vt * (vertex2.x() - vertex1.x()))
-                ++crossingCount;
-        }
-    }
-    return crossingCount & 1;
-}
-
-bool FloatPolygon::containsNonZero(const FloatPoint& point) const
-{
-    int windingNumber = 0;
-    for (unsigned i = 0; i < numberOfEdges(); ++i) {
-        const FloatPoint& vertex1 = edgeAt(i).vertex1();
-        const FloatPoint& vertex2 = edgeAt(i).vertex2();
-        if (isPointOnLineSegment(vertex1, vertex2, point))
-            return true;
-        if (vertex2.y() < point.y()) {
-            if ((vertex1.y() > point.y()) && (leftSide(vertex1, vertex2, point) > 0))
-                ++windingNumber;
-        } else if (vertex2.y() > point.y()) {
-            if ((vertex1.y() <= point.y()) && (leftSide(vertex1, vertex2, point) < 0))
-                --windingNumber;
-        }
-    }
-    return windingNumber;
-}
-
-bool FloatPolygon::contains(const FloatPoint& point) const
-{
-    if (!m_boundingBox.contains(point))
-        return false;
-    return fillRule() == WindRule::NonZero ? containsNonZero(point) : containsEvenOdd(point);
-}
-
-bool VertexPair::overlapsRect(const FloatRect& rect) const
-{
-    bool boundsOverlap = (minX() < rect.maxX()) && (maxX() > rect.x()) && (minY() < rect.maxY()) && (maxY() > rect.y());
-    if (!boundsOverlap)
-        return false;
-
-    float leftSideValues[4] = {
-        leftSide(vertex1(), vertex2(), rect.minXMinYCorner()),
-        leftSide(vertex1(), vertex2(), rect.maxXMinYCorner()),
-        leftSide(vertex1(), vertex2(), rect.minXMaxYCorner()),
-        leftSide(vertex1(), vertex2(), rect.maxXMaxYCorner())
-    };
-
-    int currentLeftSideSign = 0;
-    for (unsigned i = 0; i < 4; ++i) {
-        if (!leftSideValues[i])
-            continue;
-        int leftSideSign = leftSideValues[i] > 0 ? 1 : -1;
-        if (!currentLeftSideSign)
-            currentLeftSideSign = leftSideSign;
-        else if (currentLeftSideSign != leftSideSign)
-            return true;
-    }
-
-    return false;
+    return overlappingEdgeIntervals.map([](auto& interval) -> std::reference_wrapper<const FloatPolygonEdge> {
+        return *interval.data();
+    });
 }
 
 bool VertexPair::intersection(const VertexPair& other, FloatPoint& point) const

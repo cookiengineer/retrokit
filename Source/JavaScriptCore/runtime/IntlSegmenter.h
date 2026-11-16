@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -37,7 +37,7 @@ class IntlSegmenter final : public JSNonFinalObject {
 public:
     using Base = JSNonFinalObject;
 
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
 
     static void destroy(JSCell* cell)
     {
@@ -45,7 +45,7 @@ public:
     }
 
     template<typename CellType, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         return vm.intlSegmenterSpace<mode>();
     }
@@ -62,11 +62,9 @@ public:
     JSValue segment(JSGlobalObject*, JSValue) const;
     JSObject* resolvedOptions(JSGlobalObject*) const;
 
-    static JSObject* createSegmentDataObject(JSGlobalObject*, JSString*, int32_t startIndex, int32_t endIndex, UBreakIterator&, Granularity);
-
 private:
     IntlSegmenter(VM&, Structure*);
-    void finishCreation(VM&);
+    DECLARE_DEFAULT_FINISH_CREATION;
 
     static ASCIILiteral granularityString(Granularity);
 

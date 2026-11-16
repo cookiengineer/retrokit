@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 1999-2000 Harri Porten (porten@kde.org)
- * Copyright (C) 2008-2020 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008-2020 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Library General Public
@@ -92,15 +92,15 @@ JSString* jsTypeStringForValueWithConcurrency(VM& vm, JSGlobalObject* globalObje
         JSObject* object = asObject(v);
         // Return "undefined" for objects that should be treated
         // as null when doing comparisons.
-        if (object->structure(vm)->masqueradesAsUndefined(globalObject))
+        if (object->structure()->masqueradesAsUndefined(globalObject))
             return vm.smallStrings.undefinedString();
-        if (LIKELY(concurrency == Concurrency::MainThread)) {
-            if (object->isCallable(vm))
+        if (concurrency == Concurrency::MainThread) [[likely]] {
+            if (object->isCallable())
                 return vm.smallStrings.functionString();
             return vm.smallStrings.objectString();
         }
 
-        switch (object->isCallableWithConcurrency<Concurrency::ConcurrentThread>(vm)) {
+        switch (object->isCallableWithConcurrency<Concurrency::ConcurrentThread>()) {
         case TriState::True:
             return vm.smallStrings.functionString();
         case TriState::False:
@@ -109,6 +109,9 @@ JSString* jsTypeStringForValueWithConcurrency(VM& vm, JSGlobalObject* globalObje
             return nullptr;
         }
     }
+    // This case can happen for internal objects like GetterSetter, that
+    // can be exposed to this function by transformations like LICM blind hoisting.
+    // The actual result shouldn't matter, as long as it matches buildTypeOf.
     return vm.smallStrings.objectString();
 }
 
@@ -119,7 +122,7 @@ size_t normalizePrototypeChain(JSGlobalObject* globalObject, JSCell* base, bool&
     sawPolyProto = false;
     JSCell* current = base;
     while (1) {
-        Structure* structure = current->structure(vm);
+        Structure* structure = current->structure();
         if (structure->isProxy())
             return InvalidPrototypeChain;
 
@@ -130,7 +133,7 @@ size_t normalizePrototypeChain(JSGlobalObject* globalObject, JSCell* base, bool&
             return count;
 
         current = prototype.asCell();
-        structure = current->structure(vm);
+        structure = current->structure();
         if (structure->isDictionary()) {
             if (structure->hasBeenFlattenedBefore())
                 return InvalidPrototypeChain;

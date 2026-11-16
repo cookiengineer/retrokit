@@ -22,18 +22,28 @@
 
 #include "APIArray.h"
 #include "WebContextMenuItem.h"
+#include "WebKitContextMenuGAction.h"
+#include "WebKitContextMenuItem.h"
 #include "WebKitContextMenuItemPrivate.h"
 #include "WebKitContextMenuPrivate.h"
+#include <WebCore/IntPoint.h>
 #include <wtf/glib/GRefPtr.h>
 #include <wtf/glib/WTFGType.h>
 
+#if PLATFORM(GTK)
+#include "GRefPtrGtk.h"
+#include "GUniquePtrGtk.h"
+#endif
+
+#if ENABLE(CONTEXT_MENUS)
 using namespace WebKit;
 using namespace WebCore;
+#endif // ENABLE(CONTEXT_MENUS)
 
 /**
- * SECTION: WebKitContextMenu
- * @Short_description: Represents the context menu in a #WebKitWebView
- * @Title: WebKitContextMenu
+ * WebKitContextMenu:
+ *
+ * Represents the context menu in a #WebKitWebView.
  *
  * #WebKitContextMenu represents a context menu containing
  * #WebKitContextMenuItem<!-- -->s in a #WebKitWebView.
@@ -46,16 +56,23 @@ using namespace WebCore;
  * webkit_context_menu_prepend(), webkit_context_menu_append() or
  * webkit_context_menu_insert(), maybe after having removed the
  * existing ones with webkit_context_menu_remove_all().
- *
  */
 
 struct _WebKitContextMenuPrivate {
     GList* items;
     WebKitContextMenuItem* parentItem;
     GRefPtr<GVariant> userData;
+#if PLATFORM(GTK)
+#if USE(GTK4)
+    GRefPtr<GdkEvent> event;
+#else
+    GUniquePtr<GdkEvent> event;
+#endif
+#endif
+    std::optional<WebCore::IntPoint> position;
 };
 
-WEBKIT_DEFINE_TYPE(WebKitContextMenu, webkit_context_menu, G_TYPE_OBJECT)
+WEBKIT_DEFINE_FINAL_TYPE(WebKitContextMenu, webkit_context_menu, G_TYPE_OBJECT, GObject)
 
 static void webkitContextMenuDispose(GObject* object)
 {
@@ -69,6 +86,7 @@ static void webkit_context_menu_class_init(WebKitContextMenuClass* listClass)
     gObjectClass->dispose = webkitContextMenuDispose;
 }
 
+#if ENABLE(CONTEXT_MENUS)
 void webkitContextMenuPopulate(WebKitContextMenu* menu, Vector<WebContextMenuItemData>& contextMenuItems)
 {
     for (GList* item = menu->priv->items; item; item = g_list_next(item)) {
@@ -85,6 +103,21 @@ void webkitContextMenuPopulate(WebKitContextMenu* menu, Vector<WebContextMenuIte
     }
 }
 
+void webkitContextMenuSetPage(WebKitContextMenu* menu, WebPageProxy* page)
+{
+    for (auto* item = menu->priv->items; item; item = g_list_next(item)) {
+        auto* menuItem = WEBKIT_CONTEXT_MENU_ITEM(item->data);
+        if (auto* subMenu = webkit_context_menu_item_get_submenu(menuItem)) {
+            webkitContextMenuSetPage(subMenu, page);
+            continue;
+        }
+
+        auto* action = webkit_context_menu_item_get_gaction(menuItem);
+        if (WEBKIT_IS_CONTEXT_MENU_GACTION(action))
+            webkitContextMenuGActionSetPage(WEBKIT_CONTEXT_MENU_GACTION(action), page);
+    }
+}
+
 WebKitContextMenu* webkitContextMenuCreate(const Vector<WebContextMenuItemData>& items)
 {
     WebKitContextMenu* menu = webkit_context_menu_new();
@@ -94,6 +127,17 @@ WebKitContextMenu* webkitContextMenuCreate(const Vector<WebContextMenuItemData>&
 
     return menu;
 }
+
+#if PLATFORM(GTK)
+#if USE(GTK4)
+void webkitContextMenuSetEvent(WebKitContextMenu* menu, GRefPtr<GdkEvent>&& event)
+#else
+void webkitContextMenuSetEvent(WebKitContextMenu* menu, GUniquePtr<GdkEvent>&& event)
+#endif
+{
+    menu->priv->event = WTF::move(event);
+}
+#endif
 
 void webkitContextMenuSetParentItem(WebKitContextMenu* menu, WebKitContextMenuItem* item)
 {
@@ -105,8 +149,16 @@ WebKitContextMenuItem* webkitContextMenuGetParentItem(WebKitContextMenu* menu)
     return menu->priv->parentItem;
 }
 
+void webkitContextMenuSetPosition(WebKitContextMenu* menu, const WebCore::IntPoint& position)
+{
+    menu->priv->position = position;
+}
+#endif // ENABLE(CONTEXT_MENUS)
+
 /**
  * webkit_context_menu_new:
+ *
+ * Creates a new #WebKitContextMenu object.
  *
  * Creates a new #WebKitContextMenu object to be used as a submenu of an existing
  * #WebKitContextMenu. The context menu of a #WebKitWebView is created by the view
@@ -126,6 +178,8 @@ WebKitContextMenu* webkit_context_menu_new()
 /**
  * webkit_context_menu_new_with_items:
  * @items: (element-type WebKitContextMenuItem): a #GList of #WebKitContextMenuItem
+ *
+ * Creates a new #WebKitContextMenu object with the given items.
  *
  * Creates a new #WebKitContextMenu object to be used as a submenu of an existing
  * #WebKitContextMenu with the given initial items.
@@ -173,6 +227,7 @@ void webkit_context_menu_append(WebKitContextMenu* menu, WebKitContextMenuItem* 
  * @position: the position to insert the item
  *
  * Inserts @item into the @menu at the given position.
+ *
  * If @position is negative, or is larger than the number of items
  * in the #WebKitContextMenu, the item is added on to the end of
  * the @menu. The first position is 0.
@@ -193,6 +248,7 @@ void webkit_context_menu_insert(WebKitContextMenu* menu, WebKitContextMenuItem* 
  * @position: the new position to move the item
  *
  * Moves @item to the given position in the @menu.
+ *
  * If @position is negative, or is larger than the number of items
  * in the #WebKitContextMenu, the item is added on to the end of
  * the @menu.
@@ -298,6 +354,7 @@ WebKitContextMenuItem* webkit_context_menu_get_item_at_position(WebKitContextMen
  * @item: the #WebKitContextMenuItem to remove
  *
  * Removes @item from the @menu.
+ *
  * See also webkit_context_menu_remove_all() to remove all items.
  */
 void webkit_context_menu_remove(WebKitContextMenu* menu, WebKitContextMenuItem* item)
@@ -332,6 +389,7 @@ void webkit_context_menu_remove_all(WebKitContextMenu* menu)
  * @user_data: a #GVariant
  *
  * Sets user data to @menu.
+ *
  * This function can be used from a Web Process extension to set user data
  * that can be retrieved from the UI Process using webkit_context_menu_get_user_data().
  * If the @user_data #GVariant is floating, it is consumed.
@@ -351,6 +409,7 @@ void webkit_context_menu_set_user_data(WebKitContextMenu* menu, GVariant* userDa
  * @menu: a #WebKitContextMenu
  *
  * Gets the user data of @menu.
+ *
  * This function can be used from the UI Process to get user data previously set
  * from the Web Process with webkit_context_menu_set_user_data().
  *
@@ -363,4 +422,68 @@ GVariant* webkit_context_menu_get_user_data(WebKitContextMenu* menu)
     g_return_val_if_fail(WEBKIT_IS_CONTEXT_MENU(menu), nullptr);
 
     return menu->priv->userData.get();
+}
+
+#if PLATFORM(GTK)
+/**
+ * webkit_context_menu_get_event:
+ * @menu: a #WebKitContextMenu
+ *
+ * Gets the #GdkEvent that triggered the context menu. This function only returns a valid
+ * #GdkEvent when called for a #WebKitContextMenu passed to #WebKitWebView::context-menu
+ * signal; in all other cases, %NULL is returned.
+ *
+ * The returned #GdkEvent is expected to be one of the following types:
+ * <itemizedlist>
+ * <listitem><para>
+ * a #GdkEventButton of type %GDK_BUTTON_PRESS when the context menu was triggered with mouse.
+ * </para></listitem>
+ * <listitem><para>
+ * a #GdkEventKey of type %GDK_KEY_PRESS if the keyboard was used to show the menu.
+ * </para></listitem>
+ * <listitem><para>
+ * a generic #GdkEvent of type %GDK_NOTHING when the #GtkWidget::popup-menu signal was used to show the context menu.
+ * </para></listitem>
+ * </itemizedlist>
+ *
+ * Returns: (transfer none): the menu event or %NULL.
+ *
+ * Since: 2.40
+ */
+GdkEvent* webkit_context_menu_get_event(WebKitContextMenu* menu)
+{
+    g_return_val_if_fail(WEBKIT_IS_CONTEXT_MENU(menu), nullptr);
+
+    return menu->priv->event.get();
+}
+#endif
+
+/**
+ * webkit_context_menu_get_position:
+ * @menu: a #WebKitContextMenu
+ * @x: (out) (optional): return location for the x coordinate
+ * @y: (out) (optional): return location for the y coordinate
+ *
+ * Gets the position in view coordinates where the context menu was triggered.
+ *
+ * This function only returns valid coordinates when called for a #WebKitContextMenu
+ * passed to #WebKitWebView::context-menu signal.
+ *
+ * Returns: %TRUE if valid position coordinates are available, %FALSE otherwise
+ *
+ * Since: 2.52
+ */
+gboolean webkit_context_menu_get_position(WebKitContextMenu* menu, gint* x, gint* y)
+{
+    g_return_val_if_fail(WEBKIT_IS_CONTEXT_MENU(menu), FALSE);
+
+    if (!menu->priv->position)
+        return FALSE;
+
+    if (x)
+        *x = menu->priv->position->x();
+    if (y)
+        *y = menu->priv->position->y();
+
+    return TRUE;
 }

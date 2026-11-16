@@ -22,7 +22,7 @@
 
 #pragma once
 
-#include "CachedResourceClient.h"
+#include <WebCore/CachedResourceClient.h>
 
 namespace WebCore {
 
@@ -34,3 +34,5 @@ public:
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_CACHED_RESOURCE_CLIENT(CachedSVGDocumentClient, SVGDocumentType);

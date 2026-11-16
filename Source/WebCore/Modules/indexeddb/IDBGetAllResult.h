@@ -25,22 +25,19 @@
 
 #pragma once
 
-#include "IDBKeyData.h"
-#include "IDBKeyPath.h"
-#include "IDBValue.h"
-#include "IndexedDB.h"
-
-#include <wtf/IsoMalloc.h>
-#include <wtf/Variant.h>
+#include <WebCore/IDBKeyData.h>
+#include <WebCore/IDBKeyPath.h>
+#include <WebCore/IDBValue.h>
+#include <WebCore/IndexedDB.h>
+#include <wtf/ArgumentCoder.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class IDBGetAllResult {
-    WTF_MAKE_ISO_ALLOCATED_EXPORT(IDBGetAllResult, WEBCORE_EXPORT);
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(IDBGetAllResult, WEBCORE_EXPORT);
 public:
-    IDBGetAllResult()
-    {
-    }
+    IDBGetAllResult() = default;
 
     IDBGetAllResult(IndexedDB::GetAllType type, const std::optional<IDBKeyPath>& keyPath)
         : m_type(type)
@@ -53,49 +50,33 @@ public:
     IDBGetAllResult isolatedCopy() const;
 
     IndexedDB::GetAllType type() const { return m_type; }
-    const std::optional<IDBKeyPath>& keyPath() const { return m_keyPath; }
-    const Vector<IDBKeyData>& keys() const;
-    const Vector<IDBValue>& values() const;
+    const std::optional<IDBKeyPath>& keyPath() const LIFETIME_BOUND { return m_keyPath; }
+    WEBCORE_EXPORT const Vector<IDBKeyData>& NODELETE keys() const;
+    WEBCORE_EXPORT const Vector<IDBKeyData>& NODELETE primaryKeys() const;
+    WEBCORE_EXPORT const Vector<IDBValue>& NODELETE values() const;
 
     void addKey(IDBKeyData&&);
+    void addPrimaryKey(IDBKeyData&&);
     void addValue(IDBValue&&);
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static WARN_UNUSED_RETURN bool decode(Decoder&, IDBGetAllResult&);
-
-    WEBCORE_EXPORT Vector<String> allBlobFilePaths() const;
-
 private:
+    friend struct IPC::ArgumentCoder<IDBGetAllResult>;
+    IDBGetAllResult(IndexedDB::GetAllType type, Vector<IDBKeyData>&& keys, Vector<IDBKeyData>&& primaryKeys, Vector<IDBValue>&& values, std::optional<IDBKeyPath>&& keyPath)
+        : m_type(type)
+        , m_keys(WTF::move(keys))
+        , m_primaryKeys(WTF::move(primaryKeys))
+        , m_values(WTF::move(values))
+        , m_keyPath(WTF::move(keyPath))
+    {
+    }
+
     static void isolatedCopy(const IDBGetAllResult& source, IDBGetAllResult& destination);
 
     IndexedDB::GetAllType m_type { IndexedDB::GetAllType::Keys };
     Vector<IDBKeyData> m_keys;
+    Vector<IDBKeyData> m_primaryKeys;
     Vector<IDBValue> m_values;
     std::optional<IDBKeyPath> m_keyPath;
 };
-
-template<class Encoder>
-void IDBGetAllResult::encode(Encoder& encoder) const
-{
-    encoder << m_type << m_keys << m_values << m_keyPath;
-}
-
-template<class Decoder>
-bool IDBGetAllResult::decode(Decoder& decoder, IDBGetAllResult& result)
-{
-    if (!decoder.decode(result.m_type))
-        return false;
-
-    if (!decoder.decode(result.m_keys))
-        return false;
-
-    if (!decoder.decode(result.m_values))
-        return false;
-    
-    if (!decoder.decode(result.m_keyPath))
-        return false;
-
-    return true;
-}
 
 } // namespace WebCore

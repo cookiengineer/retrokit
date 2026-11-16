@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2013 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,54 +28,38 @@
 #include "GeometryUtilities.h"
 
 #include "FloatQuad.h"
+#include <numbers>
+#include <numeric>
 #include <wtf/MathExtras.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
 
-float euclidianDistance(const FloatPoint& p1, const FloatPoint& p2)
+float euclidianDistance(const FloatSize& delta)
 {
-    FloatSize delta = p1 - p2;
     return std::hypot(delta.width(), delta.height());
 }
 
-float findSlope(const FloatPoint& p1, const FloatPoint& p2, float& c)
+float euclidianDistance(const FloatPoint& p1, const FloatPoint& p2)
 {
-    if (p2.x() == p1.x())
-        return std::numeric_limits<float>::infinity();
-
-    // y = mx + c
-    float slope = (p2.y() - p1.y()) / (p2.x() - p1.x());
-    c = p1.y() - slope * p1.x();
-    return slope;
+    return euclidianDistance(p1 - p2);
 }
 
-bool findIntersection(const FloatPoint& p1, const FloatPoint& p2, const FloatPoint& d1, const FloatPoint& d2, FloatPoint& intersection) 
+std::optional<FloatPoint> findIntersection(const FloatPoint& p1, const FloatPoint& p2, const FloatPoint& d1, const FloatPoint& d2)
 {
-    float pOffset = 0;
-    float pSlope = findSlope(p1, p2, pOffset);
+    float pxLength = p2.x() - p1.x();
+    float pyLength = p2.y() - p1.y();
 
-    float dOffset = 0;
-    float dSlope = findSlope(d1, d2, dOffset);
+    float dxLength = d2.x() - d1.x();
+    float dyLength = d2.y() - d1.y();
 
-    if (dSlope == pSlope)
-        return false;
-    
-    if (pSlope == std::numeric_limits<float>::infinity()) {
-        intersection.setX(p1.x());
-        intersection.setY(dSlope * intersection.x() + dOffset);
-        return true;
-    }
-    if (dSlope == std::numeric_limits<float>::infinity()) {
-        intersection.setX(d1.x());
-        intersection.setY(pSlope * intersection.x() + pOffset);
-        return true;
-    }
-    
-    // Find x at intersection, where ys overlap; x = (c' - c) / (m - m')
-    intersection.setX((dOffset - pOffset) / (pSlope - dSlope));
-    intersection.setY(pSlope * intersection.x() + pOffset);
-    return true;
+    float denom = pxLength * dyLength - pyLength * dxLength;
+    if (!denom)
+        return std::nullopt;
+
+    float param = ((d1.x() - p1.x()) * dyLength - (d1.y() - p1.y()) * dxLength) / denom;
+
+    return FloatPoint(p1.x() + param * pxLength, p1.y() + param * pyLength);
 }
 
 IntRect unionRect(const Vector<IntRect>& rects)
@@ -82,6 +67,14 @@ IntRect unionRect(const Vector<IntRect>& rects)
     IntRect result;
     for (auto& rect : rects)
         result.unite(rect);
+    return result;
+}
+
+IntRect unionRectIgnoringZeroRects(const Vector<IntRect>& rects)
+{
+    IntRect result;
+    for (auto& rect : rects)
+        result.uniteIfNonZero(rect);
     return result;
 }
 
@@ -169,6 +162,18 @@ FloatRect smallestRectWithAspectRatioAroundRect(float aspectRatio, const FloatRe
     return destRect;
 }
 
+FloatRect fullRectFromSubrectAndSize(const FloatSize& naturalSize, const FloatRect& subrect, const FloatRect& destRect)
+{
+    float scaleX = destRect.width() / subrect.width();
+    float scaleY = destRect.height() / subrect.height();
+    return {
+        destRect.x() - subrect.x() * scaleX,
+        destRect.y() - subrect.y() * scaleY,
+        naturalSize.width() * scaleX,
+        naturalSize.height() * scaleY
+    };
+}
+
 FloatSize sizeWithAreaAndAspectRatio(float area, float aspectRatio)
 {
     auto scaledWidth = std::sqrt(area * aspectRatio);
@@ -202,17 +207,32 @@ bool ellipseContainsPoint(const FloatPoint& center, const FloatSize& radii, cons
     return std::abs(transformedPoint.x()) + std::abs(transformedPoint.y()) <= transformedRadius || transformedPoint.lengthSquared() <= transformedRadius * transformedRadius;
 }
 
-FloatPoint midPoint(const FloatPoint& first, const FloatPoint& second)
+float eccentricAngle(FloatPoint point, FloatPoint center, float radiusX, float radiusY)
 {
-    return { (first.x() + second.x()) / 2, (first.y() + second.y()) / 2 };
+    return atan2((point.y() - center.y()) / radiusY, (point.x() - center.x()) / radiusX);
 }
 
-static float dotProduct(const FloatSize& u, const FloatSize& v)
+FloatPoint midPoint(const FloatPoint& first, const FloatPoint& second)
+{
+    return { std::midpoint(first.x(), second.x()), std::midpoint(first.y(), second.y()) };
+}
+
+FloatPoint linearInterpolation(const FloatPoint& from, const FloatPoint& to, float t)
+{
+    return { from.x() + (to.x() - from.x()) * t, from.y() + (to.y() - from.y()) * t };
+}
+
+float dotProduct(const FloatSize& u, const FloatSize& v)
 {
     return u.width() * v.width() + u.height() * v.height();
 }
 
-static float angleBetweenVectors(const FloatSize& u, const FloatSize& v)
+float signedDistanceToLine(const FloatPoint& point, const FloatPoint& lineStart, const FloatPoint& lineEnd)
+{
+    return dotProduct(point - lineStart, (lineEnd - lineStart).perpendicular());
+}
+
+static float NODELETE angleBetweenVectors(const FloatSize& u, const FloatSize& v)
 {
     auto magnitudes = u.diagonalLength() * v.diagonalLength();
     return magnitudes ? acos(clampTo<float>(dotProduct(u, v) / magnitudes, -1, 1)) : 0;
@@ -220,7 +240,7 @@ static float angleBetweenVectors(const FloatSize& u, const FloatSize& v)
 
 RotatedRect rotatedBoundingRectWithMinimumAngleOfRotation(const FloatQuad& quad, std::optional<float> minRotationInRadians)
 {
-    constexpr auto twoPiFloat = 2 * piFloat;
+    constexpr auto twoPiFloat = 2 * std::numbers::pi_v<float>;
 
     auto minRotationAmount = minRotationInRadians.value_or(std::numeric_limits<float>::epsilon());
 
@@ -254,6 +274,144 @@ RotatedRect rotatedBoundingRectWithMinimumAngleOfRotation(const FloatQuad& quad,
     auto leftMidToCenterDistance = (midPointToMidPointDistance + rightMargin - leftMargin) / 2;
     auto center = leftMidPoint + (widthVector * leftMidToCenterDistance / midPointToMidPointDistance);
     return { center, { width, height }, angle };
+}
+
+float toPositiveAngle(float angle)
+{
+    angle = fmod(angle, 360);
+    while (angle < 0)
+        angle += 360.0;
+    return angle;
+}
+
+// Compute acute angle from vertical axis
+float toRelatedAcuteAngle(float angle)
+{
+    angle = toPositiveAngle(angle);
+    if (angle < 90)
+        return angle;
+    // FIXME: webkit.org/b/298890 toRelatedAcuteAngle in GeometryUtilities.cpp doesn't handle an angle greater than 270 degrees
+    return std::abs(180 - angle);
+}
+
+RectEdges<double> distanceOfPointToSidesOfRect(const FloatRect& box, const FloatPoint& position)
+{
+    // Compute distance to each side of the containing box
+    double top = std::abs(position.y());
+    double bottom = std::abs(position.y() - box.height());
+    double left = std::abs(position.x());
+    double right = std::abs(position.x() - box.width());
+    return RectEdges<double>(top, right, bottom, left);
+}
+
+float distanceToClosestSide(FloatPoint p, FloatSize size)
+{
+    float widthDelta = std::abs(size.width() - p.x());
+    float heightDelta = std::abs(size.height() - p.y());
+
+    return min4(std::abs(p.x()), widthDelta, std::abs(p.y()), heightDelta);
+}
+
+float distanceToFarthestSide(FloatPoint p, FloatSize size)
+{
+    float widthDelta = std::abs(size.width() - p.x());
+    float heightDelta = std::abs(size.height() - p.y());
+
+    return max4(std::abs(p.x()), widthDelta, std::abs(p.y()), heightDelta);
+}
+
+float distanceToClosestCorner(FloatPoint p, FloatSize size)
+{
+    FloatPoint topLeft;
+    float topLeftDistance = FloatSize(p - topLeft).diagonalLength();
+
+    FloatPoint topRight(size.width(), 0);
+    float topRightDistance = FloatSize(p - topRight).diagonalLength();
+
+    FloatPoint bottomLeft(0, size.height());
+    float bottomLeftDistance = FloatSize(p - bottomLeft).diagonalLength();
+
+    FloatPoint bottomRight(size.width(), size.height());
+    float bottomRightDistance = FloatSize(p - bottomRight).diagonalLength();
+
+    return min4(topLeftDistance, topRightDistance, bottomLeftDistance, bottomRightDistance);
+}
+
+float distanceToFarthestCorner(FloatPoint p, FloatSize size)
+{
+    FloatPoint topLeft;
+    float topLeftDistance = FloatSize(p - topLeft).diagonalLength();
+
+    FloatPoint topRight(size.width(), 0);
+    float topRightDistance = FloatSize(p - topRight).diagonalLength();
+
+    FloatPoint bottomLeft(0, size.height());
+    float bottomLeftDistance = FloatSize(p - bottomLeft).diagonalLength();
+
+    FloatPoint bottomRight(size.width(), size.height());
+    float bottomRightDistance = FloatSize(p - bottomRight).diagonalLength();
+
+    return max4(topLeftDistance, topRightDistance, bottomLeftDistance, bottomRightDistance);
+}
+
+std::array<FloatPoint, 4> verticesForBox(const FloatRect& box, const FloatPoint position)
+{
+    return { FloatPoint(-position.x(), -position.y()),
+        FloatPoint(box.width() - position.x(), -position.y()),
+        FloatPoint(box.width() - position.x(), box.height() - position.y()),
+        FloatPoint(-position.x(), box.height() - position.y()) };
+}
+
+double lengthOfRayIntersectionWithBoundingBox(const FloatRect& boundingRect, const std::pair<const FloatPoint&, float> ray)
+{
+    auto length = lengthOfPointToSideOfIntersection(boundingRect, ray);
+    auto angleOfTriangle = angleOfPointToSideOfIntersection(boundingRect, ray);
+    // Given a length and angle of a right triangle, calculate the hypotenuse, which corresponds to
+    // the length from the given point to the intersecting point on the box
+    return length / cos(deg2rad(angleOfTriangle));
+}
+
+// Get the side of box the ray intersects with
+static BoxSide NODELETE intersectionSide(const FloatRect& boundingRect, const std::pair<const FloatPoint&, float> ray)
+{
+    auto position = ray.first;
+    auto angleInRadians = deg2rad(ray.second);
+    auto distances = distanceOfPointToSidesOfRect(boundingRect, position);
+    // Get possible intersection sides
+    auto s1 = cos(angleInRadians) >= 0 ? distances.top() : distances.bottom();
+    auto s2 = sin(angleInRadians) >= 0 ? distances.right() : distances.left();
+    auto vertical = cos(angleInRadians) >= 0 ? BoxSide::Top : BoxSide::Bottom;
+    auto horizontal = sin(angleInRadians) >= 0 ? BoxSide::Right : BoxSide::Left;
+    auto acuteAngle = deg2rad(toRelatedAcuteAngle(ray.second));
+    return sin(acuteAngle) * s1  > cos(acuteAngle) * s2 ? horizontal : vertical;
+}
+
+double lengthOfPointToSideOfIntersection(const FloatRect& boundingRect, const std::pair<const FloatPoint&, float> ray)
+{
+    auto position = ray.first;
+    if (position.x() < 0 || position.x() > boundingRect.width() || position.y() < 0 || position.y() > boundingRect.height())
+        return 0;
+    auto distances = distanceOfPointToSidesOfRect(boundingRect, position);
+    return distances.at(intersectionSide(boundingRect, ray));
+}
+
+float angleOfPointToSideOfIntersection(const FloatRect& boundingRect, const std::pair<const FloatPoint&, float> ray)
+{
+    auto angle = ray.second;
+    auto side = intersectionSide(boundingRect, ray);
+    angle = toRelatedAcuteAngle(angle);
+    return side == BoxSide::Top || side == BoxSide::Bottom ? angle : 90 - angle;
+}
+
+float normalizeAngleInRadians(float radians)
+{
+    float circles = radians / radiansPerTurnFloat;
+    return radiansPerTurnFloat * (circles - floor(circles));
+}
+
+FloatRect scaledRectAtOrigin(const FloatRect& rect, float scale, const FloatPoint& origin)
+{
+    return { origin + (rect.location() - origin) * scale, rect.size() * scale };
 }
 
 }

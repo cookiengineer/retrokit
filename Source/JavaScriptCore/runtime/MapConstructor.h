@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -36,30 +36,28 @@ class MapConstructor final : public InternalFunction {
 public:
     typedef InternalFunction Base;
 
-    static MapConstructor* create(VM& vm, Structure* structure, MapPrototype* mapPrototype, GetterSetter* speciesSymbol)
+    static MapConstructor* create(VM& vm, Structure* structure, MapPrototype* mapPrototype)
     {
-        MapConstructor* constructor = new (NotNull, allocateCell<MapConstructor>(vm.heap)) MapConstructor(vm, structure);
-        constructor->finishCreation(vm, mapPrototype, speciesSymbol);
+        MapConstructor* constructor = new (NotNull, allocateCell<MapConstructor>(vm)) MapConstructor(vm, structure);
+        constructor->finishCreation(vm, mapPrototype);
         return constructor;
     }
 
     DECLARE_INFO;
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(InternalFunctionType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
 private:
     MapConstructor(VM&, Structure*);
 
-    void finishCreation(VM&, MapPrototype*, GetterSetter* speciesSymbol);
+    void finishCreation(VM&, MapPrototype*);
 };
 STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(MapConstructor, InternalFunction);
 
-JSC_DECLARE_HOST_FUNCTION(mapPrivateFuncMapBucketHead);
-JSC_DECLARE_HOST_FUNCTION(mapPrivateFuncMapBucketNext);
-JSC_DECLARE_HOST_FUNCTION(mapPrivateFuncMapBucketKey);
-JSC_DECLARE_HOST_FUNCTION(mapPrivateFuncMapBucketValue);
+JSC_DECLARE_HOST_FUNCTION(mapPrivateFuncMapIterationNext);
+JSC_DECLARE_HOST_FUNCTION(mapPrivateFuncMapIterationEntry);
+JSC_DECLARE_HOST_FUNCTION(mapPrivateFuncMapIterationEntryKey);
+JSC_DECLARE_HOST_FUNCTION(mapPrivateFuncMapIterationEntryValue);
+JSC_DECLARE_HOST_FUNCTION(mapPrivateFuncMapStorage);
 
 } // namespace JSC

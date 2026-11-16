@@ -31,14 +31,16 @@
 
 #if ENABLE(ENCRYPTED_MEDIA)
 
-#include <wtf/IsoMallocInlines.h>
+#include "MediaKeyMessageEventInit.h"
+#include <JavaScriptCore/ArrayBuffer.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(MediaKeyMessageEvent);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MediaKeyMessageEvent);
 
 MediaKeyMessageEvent::MediaKeyMessageEvent(const AtomString& type, const MediaKeyMessageEvent::Init& initializer, IsTrusted isTrusted)
-    : Event(type, initializer, isTrusted)
+    : Event(EventInterfaceType::MediaKeyMessageEvent, type, initializer, isTrusted)
     , m_messageType(initializer.messageType)
     , m_message(initializer.message)
 {
@@ -46,9 +48,9 @@ MediaKeyMessageEvent::MediaKeyMessageEvent(const AtomString& type, const MediaKe
 
 MediaKeyMessageEvent::~MediaKeyMessageEvent() = default;
 
-EventInterface MediaKeyMessageEvent::eventInterface() const
+RefPtr<JSC::ArrayBuffer> MediaKeyMessageEvent::message() const
 {
-    return MediaKeyMessageEventInterfaceType;
+    return m_message;
 }
 
 } // namespace WebCore

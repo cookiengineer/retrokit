@@ -23,75 +23,61 @@
 #include "config.h"
 #include "SVGTextPositioningElement.h"
 
+#include "ContainerNodeInlines.h"
+#include "LegacyRenderSVGResource.h"
+#include "NodeName.h"
+#include "RenderElementInlines.h"
 #include "RenderSVGInline.h"
-#include "RenderSVGResource.h"
 #include "RenderSVGText.h"
 #include "SVGAltGlyphElement.h"
+#include "SVGElementTypeHelpers.h"
 #include "SVGNames.h"
 #include "SVGTRefElement.h"
 #include "SVGTSpanElement.h"
 #include "SVGTextElement.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(SVGTextPositioningElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGTextPositioningElement);
 
-SVGTextPositioningElement::SVGTextPositioningElement(const QualifiedName& tagName, Document& document)
-    : SVGTextContentElement(tagName, document)
+SVGTextPositioningElement::SVGTextPositioningElement(const QualifiedName& tagName, Document& document, UniqueRef<SVGPropertyRegistry>&& propertyRegistry)
+    : SVGTextContentElement(tagName, document, WTF::move(propertyRegistry))
 {
-    static std::once_flag onceFlag;
-    std::call_once(onceFlag, [] {
+    static bool didRegistration = false;
+    if (!didRegistration) [[unlikely]] {
+        didRegistration = true;
         PropertyRegistry::registerProperty<SVGNames::xAttr, &SVGTextPositioningElement::m_x>();
         PropertyRegistry::registerProperty<SVGNames::yAttr, &SVGTextPositioningElement::m_y>();
         PropertyRegistry::registerProperty<SVGNames::dxAttr, &SVGTextPositioningElement::m_dx>();
         PropertyRegistry::registerProperty<SVGNames::dyAttr, &SVGTextPositioningElement::m_dy>();
         PropertyRegistry::registerProperty<SVGNames::rotateAttr, &SVGTextPositioningElement::m_rotate>();
-    });
+    }
 }
 
-void SVGTextPositioningElement::parseAttribute(const QualifiedName& name, const AtomString& value)
+void SVGTextPositioningElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
-    if (name == SVGNames::xAttr) {
-        m_x->baseVal()->parse(value);
-        return;
+    switch (name.nodeName()) {
+    case AttributeNames::xAttr:
+        protect(m_x)->baseVal()->parse(newValue);
+        break;
+    case AttributeNames::yAttr:
+        protect(m_y)->baseVal()->parse(newValue);
+        break;
+    case AttributeNames::dxAttr:
+        protect(m_dx)->baseVal()->parse(newValue);
+        break;
+    case AttributeNames::dyAttr:
+        protect(m_dy)->baseVal()->parse(newValue);
+        break;
+    case AttributeNames::rotateAttr:
+        protect(m_rotate)->baseVal()->parse(newValue);
+        break;
+    default:
+        break;
     }
 
-    if (name == SVGNames::yAttr) {
-        m_y->baseVal()->parse(value);
-        return;
-    }
-
-    if (name == SVGNames::dxAttr) {
-        m_dx->baseVal()->parse(value);
-        return;
-    }
-
-    if (name == SVGNames::dyAttr) {
-        m_dy->baseVal()->parse(value);
-        return;
-    }
-
-    if (name == SVGNames::rotateAttr) {
-        m_rotate->baseVal()->parse(value);
-        return;
-    }
-
-    SVGTextContentElement::parseAttribute(name, value);
-}
-
-void SVGTextPositioningElement::collectPresentationalHintsForAttribute(const QualifiedName& name, const AtomString& value, MutableStyleProperties& style)
-{
-    if (name == SVGNames::xAttr || name == SVGNames::yAttr)
-        return;
-    SVGTextContentElement::collectPresentationalHintsForAttribute(name, value, style);
-}
-
-bool SVGTextPositioningElement::hasPresentationalHintsForAttribute(const QualifiedName& name) const
-{
-    if (name == SVGNames::xAttr || name == SVGNames::yAttr)
-        return false;
-    return SVGTextContentElement::hasPresentationalHintsForAttribute(name);
+    SVGTextContentElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
 }
 
 void SVGTextPositioningElement::svgAttributeChanged(const QualifiedName& attrName)
@@ -102,34 +88,26 @@ void SVGTextPositioningElement::svgAttributeChanged(const QualifiedName& attrNam
         if (attrName != SVGNames::rotateAttr)
             updateRelativeLengthsInformation();
 
-        if (auto renderer = this->renderer()) {
+        if (auto* renderer = this->renderer()) {
             if (auto* textAncestor = RenderSVGText::locateRenderSVGTextAncestor(*renderer))
                 textAncestor->setNeedsPositioningValuesUpdate();
-            RenderSVGResource::markForLayoutAndParentResourceInvalidation(*renderer);
         }
-
+        updateSVGRendererForElementChange();
+        invalidateResourceImageBuffersIfNeeded();
         return;
     }
 
     SVGTextContentElement::svgAttributeChanged(attrName);
 }
 
-SVGTextPositioningElement* SVGTextPositioningElement::elementFromRenderer(RenderBoxModelObject& renderer)
+RefPtr<SVGTextPositioningElement> SVGTextPositioningElement::elementFromRenderer(RenderBoxModelObject& renderer)
 {
     if (!is<RenderSVGText>(renderer) && !is<RenderSVGInline>(renderer))
         return nullptr;
 
     ASSERT(renderer.element());
-    SVGElement& element = downcast<SVGElement>(*renderer.element());
-
-    if (!is<SVGTextElement>(element)
-        && !is<SVGTSpanElement>(element)
-        && !is<SVGAltGlyphElement>(element)
-        && !is<SVGTRefElement>(element))
-        return nullptr;
-
-    // FIXME: This should use downcast<>().
-    return &static_cast<SVGTextPositioningElement&>(element);
+    RefPtr element = downcast<SVGElement>(renderer.element());
+    return dynamicDowncast<SVGTextPositioningElement>(WTF::move(element));
 }
 
 }

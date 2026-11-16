@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,29 +33,22 @@
 #include "FTLState.h"
 #include "ProfilerDatabase.h"
 #include "ThunkGenerators.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC { namespace FTL {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(JITFinalizer);
 
 JITFinalizer::JITFinalizer(DFG::Plan& plan)
     : Finalizer(plan)
 {
 }
 
-JITFinalizer::~JITFinalizer()
-{
-}
+JITFinalizer::~JITFinalizer() = default;
 
 size_t JITFinalizer::codeSize()
 {
-    size_t result = 0;
-
-    if (b3CodeLinkBuffer)
-        result += b3CodeLinkBuffer->size();
-    
-    if (entrypointLinkBuffer)
-        result += entrypointLinkBuffer->size();
-    
-    return result;
+    return m_codeSize;
 }
 
 bool JITFinalizer::finalize()
@@ -63,18 +56,26 @@ bool JITFinalizer::finalize()
     VM& vm = *m_plan.vm();
     WTF::crossModifyingCodeFence();
 
-    b3CodeLinkBuffer->runMainThreadFinalizationTasks();
+    m_plan.runMainThreadFinalizationTasks();
 
     CodeBlock* codeBlock = m_plan.codeBlock();
+    m_jitCode->setSize(m_codeSize);
+    codeBlock->setJITCode(*m_jitCode);
 
-    codeBlock->setJITCode(*jitCode);
+    if (Options::dumpFTLCodeSize()) [[unlikely]] {
+        auto* baselineCodeBlock = codeBlock->baselineAlternative();
+        size_t baselineCodeSize = 0;
+        if (auto jitCode = baselineCodeBlock->jitCode())
+            baselineCodeSize = jitCode->size();
+        dataLogLn("FTL: name:(", codeBlock->inferredNameWithHash(), "),codeSize:(", m_jitCode->size(), "),nodes:(", m_jitCode->numberOfCompiledDFGNodes(), "),baselineCodeSize:(", baselineCodeSize, "),bytecodeCost:(", baselineCodeBlock->bytecodeCost(), ")");
+    }
 
-    if (UNLIKELY(m_plan.compilation()))
+    if (m_plan.compilation()) [[unlikely]]
         vm.m_perBytecodeProfiler->addCompilation(codeBlock, *m_plan.compilation());
 
     // The codeBlock is now responsible for keeping many things alive (e.g. frozen values)
     // that were previously kept alive by the plan.
-    vm.heap.writeBarrier(codeBlock);
+    vm.writeBarrier(codeBlock);
 
     return true;
 }
@@ -82,4 +83,3 @@ bool JITFinalizer::finalize()
 } } // namespace JSC::FTL
 
 #endif // ENABLE(FTL_JIT)
-

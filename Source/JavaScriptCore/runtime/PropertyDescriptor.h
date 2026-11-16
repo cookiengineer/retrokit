@@ -25,9 +25,9 @@
 
 #pragma once
 
-#include "DefinePropertyAttributes.h"
-#include "JSCJSValue.h"
-#include "PropertySlot.h"
+#include <JavaScriptCore/DefinePropertyAttributes.h>
+#include <JavaScriptCore/JSCJSValue.h>
+#include <JavaScriptCore/PropertySlot.h>
 
 namespace JSC {
 
@@ -46,32 +46,32 @@ public:
         , m_seenAttributes(EnumerablePresent | ConfigurablePresent | WritablePresent)
     {
         ASSERT(m_value);
-        ASSERT(!m_value.isGetterSetter());
-        ASSERT(!m_value.isCustomGetterSetter());
+        ASSERT(!m_value.isGetterSetterSlow());
+        ASSERT(!m_value.isCustomGetterSetterSlow());
     }
-    JS_EXPORT_PRIVATE bool writable() const;
-    JS_EXPORT_PRIVATE bool enumerable() const;
-    JS_EXPORT_PRIVATE bool configurable() const;
-    JS_EXPORT_PRIVATE bool isDataDescriptor() const;
-    bool isGenericDescriptor() const;
-    JS_EXPORT_PRIVATE bool isAccessorDescriptor() const;
+    JS_EXPORT_PRIVATE bool NODELETE writable() const;
+    JS_EXPORT_PRIVATE bool NODELETE enumerable() const;
+    JS_EXPORT_PRIVATE bool NODELETE configurable() const;
+    JS_EXPORT_PRIVATE bool NODELETE isDataDescriptor() const;
+    bool NODELETE isGenericDescriptor() const;
+    JS_EXPORT_PRIVATE bool NODELETE isAccessorDescriptor() const;
     unsigned attributes() const { return m_attributes; }
     JSValue value() const { return m_value; }
-    GetterSetter* slowGetterSetter(JSGlobalObject*) const; // Be aware that this will lazily allocate a GetterSetter object. It's much better to use getter() and setter() individually if possible.
+    GetterSetter* slowGetterSetter(JSGlobalObject*) const; // Be aware that this will lazily allocate a GetterSetter object. It's much better to use NODELETE getter() and setter() individually if possible.
     JS_EXPORT_PRIVATE JSValue getter() const;
     JS_EXPORT_PRIVATE JSValue setter() const;
-    JSObject* getterObject() const;
-    JSObject* setterObject() const;
-    JS_EXPORT_PRIVATE void setUndefined();
-    JS_EXPORT_PRIVATE void setDescriptor(JSValue, unsigned attributes);
-    JS_EXPORT_PRIVATE void setAccessorDescriptor(unsigned attributes);
+    JSObject* NODELETE getterObject() const;
+    JSObject* NODELETE setterObject() const;
+    JS_EXPORT_PRIVATE void NODELETE setUndefined();
+    JS_EXPORT_PRIVATE void NODELETE setDescriptor(JSValue, unsigned attributes);
+    JS_EXPORT_PRIVATE void NODELETE setAccessorDescriptor(unsigned attributes);
     JS_EXPORT_PRIVATE void setAccessorDescriptor(GetterSetter* accessor, unsigned attributes);
-    JS_EXPORT_PRIVATE void setWritable(bool);
-    JS_EXPORT_PRIVATE void setEnumerable(bool);
-    JS_EXPORT_PRIVATE void setConfigurable(bool);
+    JS_EXPORT_PRIVATE void NODELETE setWritable(bool);
+    JS_EXPORT_PRIVATE void NODELETE setEnumerable(bool);
+    JS_EXPORT_PRIVATE void NODELETE setConfigurable(bool);
     void setValue(JSValue value) { m_value = value; }
-    JS_EXPORT_PRIVATE void setSetter(JSValue);
-    JS_EXPORT_PRIVATE void setGetter(JSValue);
+    JS_EXPORT_PRIVATE void NODELETE setSetter(JSValue);
+    JS_EXPORT_PRIVATE void NODELETE setGetter(JSValue);
     bool isEmpty() const { return !(m_value || m_getter || m_setter || m_seenAttributes); }
     bool writablePresent() const { return m_seenAttributes & WritablePresent; }
     bool enumerablePresent() const { return m_seenAttributes & EnumerablePresent; }
@@ -79,8 +79,10 @@ public:
     bool setterPresent() const { return !!m_setter; }
     bool getterPresent() const { return !!m_getter; }
     bool equalTo(JSGlobalObject*, const PropertyDescriptor& other) const;
-    bool attributesEqual(const PropertyDescriptor& other) const;
-    unsigned attributesOverridingCurrent(const PropertyDescriptor& current) const;
+    bool NODELETE attributesEqual(const PropertyDescriptor& other) const;
+    unsigned NODELETE attributesOverridingCurrent(const PropertyDescriptor& current) const;
+
+    JS_EXPORT_PRIVATE bool setPropertySlot(JSGlobalObject*, PropertyName, const PropertySlot&);
 
 private:
     static constexpr unsigned defaultAttributes = PropertyAttribute::DontDelete | PropertyAttribute::DontEnum | PropertyAttribute::ReadOnly;

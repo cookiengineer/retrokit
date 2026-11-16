@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007, 2009, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2025 Apple Inc. All rights reserved.
  * Copyright (C) 2006 Samuel Weinig <sam.weinig@gmail.com>
  *
  * This library is free software; you can redistribute it and/or
@@ -31,43 +31,46 @@
     readonly attribute DOMString localName;
     readonly attribute DOMString tagName;
 
-    [CEReactions, Reflect] attribute DOMString id;
-    [CEReactions, Reflect=class] attribute DOMString className;
+    [CEReactions=Needed, Reflect] attribute DOMString id;
+    [CEReactions=Needed, Reflect="class"] attribute DOMString className;
     [SameObject, PutForwards=value] readonly attribute DOMTokenList classList;
-    [CEReactions, Reflect, Unscopable] attribute DOMString slot;
+    [CEReactions=Needed, Reflect, Unscopable] attribute DOMString slot;
     [SameObject, PutForwards=value] readonly attribute DOMTokenList part;
 
-    [DOMJIT=ReadDOM] boolean hasAttributes();
-    [SameObject] readonly attribute NamedNodeMap attributes;
-    sequence<DOMString> getAttributeNames();
-    [DOMJIT=ReadDOM] DOMString? getAttribute(DOMString qualifiedName);
-    DOMString? getAttributeNS(DOMString? namespaceURI, DOMString localName);
-    [CEReactions] undefined setAttribute(DOMString qualifiedName, DOMString value);
-    [CEReactions] undefined setAttributeNS(DOMString? namespaceURI, DOMString qualifiedName, DOMString value);
-    [CEReactions, ImplementedAs=removeAttributeForBindings] undefined removeAttribute(DOMString qualifiedName);
-    [CEReactions, ImplementedAs=removeAttributeNSForBindings] undefined removeAttributeNS(DOMString? namespaceURI, DOMString localName);
-    [CEReactions] boolean toggleAttribute(DOMString qualifiedName, optional boolean force);
-    boolean hasAttribute(DOMString qualifiedName);
-    boolean hasAttributeNS(DOMString? namespaceURI, DOMString localName);
+    [EnabledBySetting=ScopedCustomElementRegistryEnabled] readonly attribute CustomElementRegistry? customElementRegistry;
 
-    [DOMJIT=ReadDOM] Attr? getAttributeNode(DOMString qualifiedName);
-    Attr? getAttributeNodeNS(DOMString? namespaceURI, DOMString localName);
-    [CEReactions] Attr? setAttributeNode(Attr attr);
-    [CEReactions] Attr? setAttributeNodeNS(Attr attr);
-    [CEReactions] Attr removeAttributeNode(Attr attr);
+    [DOMJIT=ReadDOM] boolean hasAttributes();
+    [SameObject, ImplementedAs=attributesMap] readonly attribute NamedNodeMap attributes;
+    sequence<DOMString> getAttributeNames();
+    [DOMJIT=ReadDOM, ImplementedAs=getAttributeForBindings] DOMString? getAttribute([AtomString] DOMString qualifiedName);
+    [ImplementedAs=getAttributeNSForBindings] DOMString? getAttributeNS([AtomString] DOMString? namespaceURI, [AtomString] DOMString localName);
+    [CEReactions=Needed] undefined setAttribute([AtomString] DOMString qualifiedName, (TrustedType or [AtomString] DOMString) value);
+    [CEReactions=Needed] undefined setAttributeNS([AtomString] DOMString? namespaceURI, [AtomString] DOMString qualifiedName, (TrustedType or [AtomString] DOMString) value);
+    [CEReactions=Needed, ImplementedAs=removeAttributeForBindings] undefined removeAttribute([AtomString] DOMString qualifiedName);
+    [CEReactions=Needed, ImplementedAs=removeAttributeNSForBindings] undefined removeAttributeNS([AtomString] DOMString? namespaceURI, [AtomString] DOMString localName);
+    [CEReactions=Needed] boolean toggleAttribute([AtomString] DOMString qualifiedName, optional boolean force);
+    boolean hasAttribute([AtomString] DOMString qualifiedName);
+    boolean hasAttributeNS([AtomString] DOMString? namespaceURI, [AtomString] DOMString localName);
+
+    [DOMJIT=ReadDOM] Attr? getAttributeNode([AtomString] DOMString qualifiedName);
+    Attr? getAttributeNodeNS([AtomString] DOMString? namespaceURI, [AtomString] DOMString localName);
+    [CEReactions=Needed] Attr? setAttributeNode(Attr attr);
+    [CEReactions=Needed] Attr? setAttributeNodeNS(Attr attr);
+    [CEReactions=Needed] Attr removeAttributeNode(Attr attr);
 
     ShadowRoot attachShadow(ShadowRootInit init);
-    [ImplementedAs=shadowRootForBindings, CallWith=GlobalObject] readonly attribute ShadowRoot? shadowRoot;
+    [ImplementedAs=shadowRootForBindings, CallWith=CurrentGlobalObject] readonly attribute ShadowRoot? shadowRoot;
+    [EnabledForWorld=closedShadowRootIsExposedForExtensions] readonly attribute ShadowRoot? openOrClosedShadowRoot;
 
     Element? closest(DOMString selectors);
     boolean matches(DOMString selectors);
     [ImplementedAs=matches] boolean webkitMatchesSelector(DOMString selectors); // Historical alias of .matches.
 
-    [DOMJIT=ReadDOM] HTMLCollection getElementsByTagName(DOMString qualifiedName);
-    HTMLCollection getElementsByTagNameNS(DOMString? namespaceURI, DOMString localName);
-    HTMLCollection getElementsByClassName(DOMString name);
+    [DOMJIT=ReadDOM] HTMLCollection getElementsByTagName([AtomString] DOMString qualifiedName);
+    HTMLCollection getElementsByTagNameNS([AtomString] DOMString? namespaceURI, [AtomString] DOMString localName);
+    HTMLCollection getElementsByClassName([AtomString] DOMString name);
 
-    [CEReactions] Element? insertAdjacentElement(DOMString where, Element element); // Historical.
+    [CEReactions=Needed] Element? insertAdjacentElement(DOMString where, Element element); // Historical.
     undefined insertAdjacentText(DOMString where, DOMString data); // Historical.
 
     
@@ -86,7 +89,7 @@
     [NotEnumerable] attribute EventHandler onbeforeload;
 
     // Non-standard: https://developer.apple.com/reference/webkitjs/element/1634205-onwebkitneedkey.
-    [NotEnumerable, Conditional=LEGACY_ENCRYPTED_MEDIA, EnabledBySetting=LegacyEncryptedMediaAPI] attribute EventHandler onwebkitneedkey;
+    [NotEnumerable, Conditional=LEGACY_ENCRYPTED_MEDIA, EnabledBySetting=LegacyEncryptedMediaAPIEnabled] attribute EventHandler onwebkitneedkey;
 
     // Non-standard: https://developer.apple.com/reference/webkitjs/element/1633943-onwebkitpresentationmodechanged.
     [NotEnumerable, Conditional=VIDEO_PRESENTATION_MODE] attribute EventHandler onwebkitpresentationmodechanged;
@@ -96,6 +99,12 @@
 
     // Non-standard: https://developer.apple.com/reference/webkitjs/element/1629580-onwebkitplaybacktargetavailabili.
     [NotEnumerable, Conditional=WIRELESS_PLAYBACK_TARGET] attribute EventHandler onwebkitplaybacktargetavailabilitychanged;
+
+    // WebKit extension for DOM wrapper worlds.
+    [EnabledForWorld=allowElementUserInfo, CallWith=CurrentGlobalObject] undefined setUserInfo(any userInfo);
+
+    [EnabledBySetting=IsARIANotifyEnabled] undefined ariaNotify(DOMString announcement);
+    [EnabledBySetting=IsARIANotifyEnabled] undefined ariaNotify(DOMString announcement, AriaNotifyOptions options);
 };
 
 Element includes AccessibilityRole;
@@ -106,3 +115,5 @@ Element includes NonDocumentTypeChildNode;
 Element includes ParentNode;
 Element includes Slotable;
 Element includes InnerHTML;
+
+typedef (TrustedHTML or TrustedScript or TrustedScriptURL) TrustedType;

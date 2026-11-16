@@ -26,22 +26,69 @@
 #include "config.h"
 #include "CSSValuePair.h"
 
-#include <wtf/text/StringBuilder.h>
+#include "DeprecatedCSSOMPrimitiveValue.h"
+#include <wtf/Hasher.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
-String CSSValuePair::customCSSText() const
+CSSValuePair::CSSValuePair(ValueSeparator separator, Ref<CSSValue> first, Ref<CSSValue> second, IdenticalValueSerialization serialization)
+    : CSSValue(ClassType::ValuePair)
+    , m_coalesceIdenticalValues(serialization != IdenticalValueSerialization::DoNotCoalesce)
+    , m_first(WTF::move(first))
+    , m_second(WTF::move(second))
 {
-    String first = this->first()->cssText();
-    String second = this->second()->cssText();
-    if (m_encoding == IdenticalValueEncoding::Coalesce && first == second)
+    m_valueSeparator = separator;
+}
+
+Ref<CSSValuePair> CSSValuePair::create(Ref<CSSValue> first, Ref<CSSValue> second)
+{
+    return adoptRef(*new CSSValuePair(SpaceSeparator, WTF::move(first), WTF::move(second), IdenticalValueSerialization::Coalesce));
+}
+
+Ref<CSSValuePair> CSSValuePair::createSlashSeparated(Ref<CSSValue> first, Ref<CSSValue> second)
+{
+    return adoptRef(*new CSSValuePair(SlashSeparator, WTF::move(first), WTF::move(second), IdenticalValueSerialization::DoNotCoalesce));
+}
+
+Ref<CSSValuePair> CSSValuePair::createNoncoalescing(Ref<CSSValue> first, Ref<CSSValue> second)
+{
+    return adoptRef(*new CSSValuePair(SpaceSeparator, WTF::move(first), WTF::move(second), IdenticalValueSerialization::DoNotCoalesce));
+}
+
+bool CSSValuePair::canBeCoalesced() const
+{
+    return m_coalesceIdenticalValues && m_first->equals(m_second);
+}
+
+String CSSValuePair::customCSSText(const CSS::SerializationContext& context) const
+{
+    auto first = m_first->cssText(context);
+    auto second = m_second->cssText(context);
+    if (m_coalesceIdenticalValues && first == second)
         return first;
     return makeString(first, separatorCSSText(), second);
 }
 
-bool CSSValuePair::equals(const CSSValuePair &other) const
+bool CSSValuePair::equals(const CSSValuePair& other) const
 {
-    return m_valueSeparator == other.m_valueSeparator && m_first.get().equals(other.m_first) && m_second.get().equals(other.m_second);
+    return m_valueSeparator == other.m_valueSeparator
+        && m_coalesceIdenticalValues == other.m_coalesceIdenticalValues
+        && m_first->equals(other.m_first)
+        && m_second->equals(other.m_second);
+}
+
+bool CSSValuePair::addDerivedHash(Hasher& hasher) const
+{
+    add(hasher, m_valueSeparator, m_coalesceIdenticalValues);
+    return m_first->addHash(hasher) && m_second->addHash(hasher);
+}
+
+Ref<DeprecatedCSSOMValue> CSSValuePair::customCreateDeprecatedCSSOMWrapper(CSSStyleDeclaration& owner) const
+{
+    return DeprecatedCSSOMPrimitiveValue::create([copy = protect(*this)](const CSS::SerializationContext& context) {
+        return copy->cssText(context);
+    }, owner);
 }
 
 } // namespace WebCore

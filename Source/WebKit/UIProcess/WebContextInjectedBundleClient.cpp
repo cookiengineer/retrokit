@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,10 +28,14 @@
 
 #include "APIMessageListener.h"
 #include "WKAPICast.h"
+#include "WebFrameProxy.h"
 #include "WebProcessPool.h"
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebKit {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebContextInjectedBundleClient);
 
 WebContextInjectedBundleClient::WebContextInjectedBundleClient(const WKContextInjectedBundleClientBase* client)
 {
@@ -57,7 +61,7 @@ void WebContextInjectedBundleClient::didReceiveSynchronousMessageFromInjectedBun
         return completionHandler(adoptRef(toImpl(returnDataRef)));
     }
 
-    m_client.didReceiveSynchronousMessageFromInjectedBundleWithListener(toAPI(&processPool), toAPI(messageName.impl()), toAPI(messageBody), toAPI(API::MessageListener::create(WTFMove(completionHandler)).ptr()), m_client.base.clientInfo);
+    m_client.didReceiveSynchronousMessageFromInjectedBundleWithListener(toAPI(&processPool), toAPI(messageName.impl()), toAPI(messageBody), toAPI(API::MessageListener::create(WTF::move(completionHandler)).ptr()), m_client.base.clientInfo);
 }
 
 RefPtr<API::Object> WebContextInjectedBundleClient::getInjectedBundleInitializationUserData(WebProcessPool& processPool)

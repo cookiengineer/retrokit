@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2006, 2013 Apple Inc.  All rights reserved.
- * Copyright (C) 2009 Google Inc.  All rights reserved.
+ * Copyright (C) 2006, 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2009 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,10 +24,13 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ContentType_h
-#define ContentType_h
+#pragma once
 
 #include <wtf/text/WTFString.h>
+
+namespace WTF {
+class URL;
+}
 
 namespace WebCore {
 
@@ -35,7 +38,10 @@ class ContentType {
 public:
     WEBCORE_EXPORT explicit ContentType(String&& type);
     WEBCORE_EXPORT explicit ContentType(const String& type);
+    WEBCORE_EXPORT ContentType(const String& type, bool); // Use by the IPC serializer.
     ContentType() = default;
+
+    WEBCORE_EXPORT static ContentType fromURL(const WTF::URL&);
 
     WEBCORE_EXPORT static const String& codecsParameter();
     static const String& profilesParameter();
@@ -44,30 +50,20 @@ public:
     WEBCORE_EXPORT String containerType() const;
     Vector<String> codecs() const;
     Vector<String> profiles() const;
-    const String& raw() const { return m_type; }
+    const String& raw() const LIFETIME_BOUND { return m_type; }
     bool isEmpty() const { return m_type.isEmpty(); }
 
+    bool typeWasInferredFromExtension() const { return m_typeWasInferredFromExtension; }
+
     WEBCORE_EXPORT String toJSONString() const;
+    bool operator==(const ContentType& other) const { return raw() == other.raw(); }
 
-    template<class Encoder>
-    void encode(Encoder& encoder) const
-    {
-        encoder << m_type;
-    }
-
-    template <class Decoder>
-    static std::optional<ContentType> decode(Decoder& decoder)
-    {
-        std::optional<String> type;
-        decoder >> type;
-        if (!type)
-            return std::nullopt;
-
-        return { ContentType(WTFMove(*type)) };
-    }
+    ContentType isolatedCopy() const & { return { m_type.isolatedCopy(), m_typeWasInferredFromExtension }; }
+    ContentType isolatedCopy() && { return { WTF::move(m_type).isolatedCopy(), m_typeWasInferredFromExtension }; }
 
 private:
     String m_type;
+    bool m_typeWasInferredFromExtension { false };
 };
 
 } // namespace WebCore
@@ -84,5 +80,3 @@ struct LogArgument<WebCore::ContentType> {
 };
 
 } // namespace WTF
-
-#endif // ContentType_h

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007, 2008, 2012, 2013, 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,9 +26,10 @@
 #include "config.h"
 #include "CSSKeyframesRule.h"
 
-#include "CSSDeferredParser.h"
 #include "CSSKeyframeRule.h"
+#include "CSSMarkup.h"
 #include "CSSParser.h"
+#include "CSSPropertyParserConsumer+Animations.h"
 #include "CSSRuleList.h"
 #include "CSSStyleSheet.h"
 #include "Document.h"
@@ -42,21 +43,11 @@ StyleRuleKeyframes::StyleRuleKeyframes(const AtomString& name)
 {
 }
 
-StyleRuleKeyframes::StyleRuleKeyframes(const AtomString& name, std::unique_ptr<DeferredStyleGroupRuleList>&& deferredRules)
-    : StyleRuleBase(StyleRuleType::Keyframes)
-    , m_name(name)
-    , m_deferredRules(WTFMove(deferredRules))
-{
-    
-}
-
 StyleRuleKeyframes::StyleRuleKeyframes(const StyleRuleKeyframes& o)
     : StyleRuleBase(o)
+    , m_keyframes(o.keyframes())
     , m_name(o.m_name)
 {
-    m_keyframes.reserveInitialCapacity(o.keyframes().size());
-    for (auto& keyframe : o.keyframes())
-        m_keyframes.uncheckedAppend(keyframe.copyRef());
 }
 
 Ref<StyleRuleKeyframes> StyleRuleKeyframes::create(const AtomString& name)
@@ -64,25 +55,10 @@ Ref<StyleRuleKeyframes> StyleRuleKeyframes::create(const AtomString& name)
     return adoptRef(*new StyleRuleKeyframes(name));
 }
 
-Ref<StyleRuleKeyframes> StyleRuleKeyframes::create(const AtomString& name, std::unique_ptr<DeferredStyleGroupRuleList>&& deferredRules)
-{
-    return adoptRef(*new StyleRuleKeyframes(name, WTFMove(deferredRules)));
-}
-
 StyleRuleKeyframes::~StyleRuleKeyframes() = default;
-
-void StyleRuleKeyframes::parseDeferredRulesIfNeeded() const
-{
-    if (!m_deferredRules)
-        return;
-
-    m_deferredRules->parseDeferredKeyframes(const_cast<StyleRuleKeyframes&>(*this));
-    m_deferredRules = nullptr;
-}
 
 const Vector<Ref<StyleRuleKeyframe>>& StyleRuleKeyframes::keyframes() const
 {
-    parseDeferredRulesIfNeeded();
     return m_keyframes;
 }
 
@@ -95,24 +71,26 @@ void StyleRuleKeyframes::parserAppendKeyframe(RefPtr<StyleRuleKeyframe>&& keyfra
 
 void StyleRuleKeyframes::wrapperAppendKeyframe(Ref<StyleRuleKeyframe>&& keyframe)
 {
-    parseDeferredRulesIfNeeded();
-    m_keyframes.append(WTFMove(keyframe));
+    m_keyframes.append(WTF::move(keyframe));
 }
 
 void StyleRuleKeyframes::wrapperRemoveKeyframe(unsigned index)
 {
-    parseDeferredRulesIfNeeded();
-    m_keyframes.remove(index);
+    m_keyframes.removeAt(index);
 }
 
 std::optional<size_t> StyleRuleKeyframes::findKeyframeIndex(const String& key) const
 {
-    parseDeferredRulesIfNeeded();
-    auto keys = CSSParser::parseKeyframeKeyList(key);
+    auto keys = CSSPropertyParserHelpers::parseKeyframeKeyList(key, strictCSSParserContext());
     if (keys.isEmpty())
         return std::nullopt;
+
+    auto convertedKeys = keys.map([](auto& pair) -> StyleRuleKeyframe::Key {
+        return { pair.first, pair.second };
+    });
+
     for (auto i = m_keyframes.size(); i--; ) {
-        if (m_keyframes[i]->keys() == keys)
+        if (m_keyframes[i]->keys() == convertedKeys)
             return i;
     }
     return std::nullopt;
@@ -140,67 +118,61 @@ CSSKeyframesRule::~CSSKeyframesRule()
     }
 }
 
-void CSSKeyframesRule::setName(const String& name)
+void CSSKeyframesRule::setName(const AtomString& name)
 {
     CSSStyleSheet::RuleMutationScope mutationScope(this);
 
-    m_keyframesRule->setName(name);
+    protect(m_keyframesRule)->setName(name);
 }
 
 void CSSKeyframesRule::appendRule(const String& ruleText)
 {
     ASSERT(m_childRuleCSSOMWrappers.size() == m_keyframesRule->keyframes().size());
 
-    CSSParser parser(parserContext());
-    RefPtr<StyleRuleKeyframe> keyframe = parser.parseKeyframeRule(ruleText);
+    auto keyframe = CSSParser::parseKeyframeRule(ruleText, parserContext());
     if (!keyframe)
         return;
 
     CSSStyleSheet::RuleMutationScope mutationScope(this);
 
-    m_keyframesRule->wrapperAppendKeyframe(keyframe.releaseNonNull());
+    protect(m_keyframesRule)->wrapperAppendKeyframe(keyframe.releaseNonNull());
 
     m_childRuleCSSOMWrappers.grow(length());
-}
-
-void CSSKeyframesRule::insertRule(const String& ruleText)
-{
-    if (CSSStyleSheet* parent = parentStyleSheet()) {
-        if (Document* ownerDocument = parent->ownerDocument())
-            ownerDocument->addConsoleMessage(MessageSource::JS, MessageLevel::Warning, "CSSKeyframesRule 'insertRule' function is deprecated.  Use 'appendRule' instead."_s);
-    }
-    appendRule(ruleText);
 }
 
 void CSSKeyframesRule::deleteRule(const String& s)
 {
     ASSERT(m_childRuleCSSOMWrappers.size() == m_keyframesRule->keyframes().size());
 
-    auto i = m_keyframesRule->findKeyframeIndex(s);
+    auto i = protect(m_keyframesRule)->findKeyframeIndex(s);
     if (!i)
         return;
 
     CSSStyleSheet::RuleMutationScope mutationScope(this);
 
-    m_keyframesRule->wrapperRemoveKeyframe(*i);
+    protect(m_keyframesRule)->wrapperRemoveKeyframe(*i);
 
     if (m_childRuleCSSOMWrappers[*i])
         m_childRuleCSSOMWrappers[*i]->setParentRule(nullptr);
-    m_childRuleCSSOMWrappers.remove(*i);
+    m_childRuleCSSOMWrappers.removeAt(*i);
 }
 
 CSSKeyframeRule* CSSKeyframesRule::findRule(const String& s)
 {
-    auto i = m_keyframesRule->findKeyframeIndex(s);
+    auto i = protect(m_keyframesRule)->findKeyframeIndex(s);
     return i ? item(*i) : nullptr;
 }
 
 String CSSKeyframesRule::cssText() const
 {
     StringBuilder result;
-    result.append("@-webkit-keyframes ", name(), " { \n");
+
+    result.append("@keyframes "_s);
+    serializeIdentifier(result, name());
+    result.append(" { \n"_s);
+
     for (unsigned i = 0, size = length(); i < size; ++i)
-        result.append("  ", m_keyframesRule->keyframes()[i]->cssText(), '\n');
+        result.append("  "_s, protect(m_keyframesRule)->keyframes()[i]->cssText(), '\n');
     result.append('}');
     return result.toString();
 }
@@ -224,14 +196,13 @@ CSSKeyframeRule* CSSKeyframesRule::item(unsigned index) const
 CSSRuleList& CSSKeyframesRule::cssRules()
 {
     if (!m_ruleListCSSOMWrapper)
-        m_ruleListCSSOMWrapper = makeUnique<LiveCSSRuleList<CSSKeyframesRule>>(*this);
+        lazyInitialize(m_ruleListCSSOMWrapper, makeUniqueWithoutRefCountedCheck<LiveCSSRuleList<CSSKeyframesRule>>(*this));
     return *m_ruleListCSSOMWrapper;
 }
 
 void CSSKeyframesRule::reattach(StyleRuleBase& rule)
 {
-    ASSERT_WITH_SECURITY_IMPLICATION(rule.isKeyframesRule());
-    m_keyframesRule = static_cast<StyleRuleKeyframes&>(rule);
+    m_keyframesRule = downcast<StyleRuleKeyframes>(rule);
 }
 
 } // namespace WebCore

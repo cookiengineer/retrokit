@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,45 +27,63 @@
 #include "DrawingArea.h"
 
 #include "DrawingAreaMessages.h"
+#include "Logging.h"
 #include "WebPage.h"
 #include "WebPageCreationParameters.h"
 #include "WebProcess.h"
 #include <WebCore/DisplayRefreshMonitor.h>
+#include <WebCore/LocalFrameView.h>
+#include <WebCore/Page.h>
+#include <WebCore/RenderView.h>
+#include <WebCore/ScrollView.h>
+#include <WebCore/TiledBacking.h>
 #include <WebCore/TransformationMatrix.h>
+#include <wtf/TZoneMallocInlines.h>
 
 // Subclasses
 #if PLATFORM(COCOA)
-#include "RemoteLayerTreeDrawingArea.h"
+#include "RemoteLayerTreeDrawingAreaMac.h"
 #include "TiledCoreAnimationDrawingArea.h"
 #elif USE(COORDINATED_GRAPHICS) || USE(TEXTURE_MAPPER)
+#if PLATFORM(GTK) || PLATFORM(WPE)
+#include "DrawingAreaCoordinatedGraphicsGLib.h"
+#else
 #include "DrawingAreaCoordinatedGraphics.h"
+#endif
+#endif
+#if USE(GRAPHICS_LAYER_WC)
+#include "DrawingAreaWC.h"
 #endif
 
 namespace WebKit {
 using namespace WebCore;
 
-std::unique_ptr<DrawingArea> DrawingArea::create(WebPage& webPage, const WebPageCreationParameters& parameters)
-{
-    switch (parameters.drawingAreaType) {
-#if PLATFORM(COCOA)
-#if !PLATFORM(IOS_FAMILY)
-    case DrawingAreaTypeTiledCoreAnimation:
-        return makeUnique<TiledCoreAnimationDrawingArea>(webPage, parameters);
-#endif
-    case DrawingAreaTypeRemoteLayerTree:
-        return makeUnique<RemoteLayerTreeDrawingArea>(webPage, parameters);
-#elif USE(COORDINATED_GRAPHICS) || USE(TEXTURE_MAPPER)
-    case DrawingAreaTypeCoordinatedGraphics:
-        return makeUnique<DrawingAreaCoordinatedGraphics>(webPage, parameters);
-#endif
-    }
+WTF_MAKE_TZONE_ALLOCATED_IMPL(DrawingArea);
 
-    return nullptr;
+RefPtr<DrawingArea> DrawingArea::create(WebPage& webPage, const WebPageCreationParameters& parameters)
+{
+#if ENABLE(TILED_CA_DRAWING_AREA)
+    SandboxExtension::consumePermanently(parameters.renderServerMachExtensionHandle);
+    switch (parameters.drawingAreaType) {
+    case DrawingAreaType::TiledCoreAnimation:
+        return TiledCoreAnimationDrawingArea::create(webPage, parameters);
+    case DrawingAreaType::RemoteLayerTree:
+        return RemoteLayerTreeDrawingAreaMac::create(webPage, parameters);
+    }
+    RELEASE_ASSERT_NOT_REACHED();
+#elif PLATFORM(MAC)
+    return RemoteLayerTreeDrawingAreaMac::create(webPage, parameters);
+#elif PLATFORM(IOS_FAMILY)
+    return RemoteLayerTreeDrawingArea::create(webPage, parameters);
+#elif USE(GRAPHICS_LAYER_WC)
+    return DrawingAreaWC::create(webPage, parameters);
+#elif USE(COORDINATED_GRAPHICS) || USE(TEXTURE_MAPPER)
+    return DrawingAreaCoordinatedGraphics::create(webPage, parameters);
+#endif
 }
 
-DrawingArea::DrawingArea(DrawingAreaType type, DrawingAreaIdentifier identifier, WebPage& webPage)
-    : m_type(type)
-    , m_identifier(identifier)
+DrawingArea::DrawingArea(DrawingAreaIdentifier identifier, WebPage& webPage)
+    : m_identifier(identifier)
     , m_webPage(webPage)
 {
     WebProcess::singleton().addMessageReceiver(Messages::DrawingArea::messageReceiverName(), m_identifier, *this);
@@ -76,10 +94,20 @@ DrawingArea::~DrawingArea()
     removeMessageReceiverIfNeeded();
 }
 
+DelegatedScrollingMode DrawingArea::delegatedScrollingMode() const
+{
+    return DelegatedScrollingMode::NotDelegated;
+}
+
 void DrawingArea::dispatchAfterEnsuringUpdatedScrollPosition(WTF::Function<void ()>&& function)
 {
     // Scroll position updates are synchronous by default so we can just call the function right away here.
     function();
+}
+
+void DrawingArea::tryMarkLayersVolatile(CompletionHandler<void(bool)>&& completionFunction)
+{
+    completionFunction(true);
 }
 
 void DrawingArea::removeMessageReceiverIfNeeded()
@@ -95,23 +123,183 @@ RefPtr<WebCore::DisplayRefreshMonitor> DrawingArea::createDisplayRefreshMonitor(
     return nullptr;
 }
 
+void DrawingArea::willStartRenderingUpdateDisplay()
+{
+    Ref { m_webPage.get() }->willStartRenderingUpdateDisplay();
+}
+
+void DrawingArea::didCompleteRenderingUpdateDisplay()
+{
+    Ref { m_webPage.get() }->didCompleteRenderingUpdateDisplay();
+}
+
+void DrawingArea::didCompleteRenderingFrame()
+{
+    Ref { m_webPage.get() }->didCompleteRenderingFrame();
+}
+
+#if ENABLE(TILED_CA_DRAWING_AREA)
 bool DrawingArea::supportsGPUProcessRendering(DrawingAreaType type)
 {
     switch (type) {
-#if PLATFORM(COCOA)
-#if !PLATFORM(IOS_FAMILY)
-    case DrawingAreaTypeTiledCoreAnimation:
+    case DrawingAreaType::TiledCoreAnimation:
         return false;
-#endif
-    case DrawingAreaTypeRemoteLayerTree:
+    case DrawingAreaType::RemoteLayerTree:
         return true;
-#elif USE(COORDINATED_GRAPHICS) || USE(TEXTURE_MAPPER)
-    case DrawingAreaTypeCoordinatedGraphics:
-        return false;
-#endif
-    default:
-        return false;
     }
+    RELEASE_ASSERT_NOT_REACHED();
+}
+
+#else // ENABLE(TILED_CA_DRAWING_AREA)
+
+bool DrawingArea::supportsGPUProcessRendering()
+{
+#if PLATFORM(COCOA)
+    return true;
+#elif USE(GRAPHICS_LAYER_WC)
+    return true;
+#elif USE(COORDINATED_GRAPHICS) || USE(TEXTURE_MAPPER)
+    return false;
+#endif
+}
+
+#endif // ENABLE(TILED_CA_DRAWING_AREA)
+
+WebCore::TiledBacking* DrawingArea::mainFrameTiledBacking() const
+{
+    RefPtr frameView = protect(m_webPage)->localMainFrameView();
+    return frameView ? frameView->tiledBacking() : nullptr;
+}
+
+void DrawingArea::prepopulateRectForZoom(double scale, WebCore::FloatPoint origin)
+{
+    Ref webPage = m_webPage.get();
+    double currentPageScale = webPage->totalScaleFactor();
+    RefPtr frameView = webPage->localMainFrameView();
+    if (!frameView)
+        return;
+
+    FloatRect tileCoverageRect = frameView->visibleContentRectIncludingScrollbars();
+    tileCoverageRect.moveBy(-origin);
+    tileCoverageRect.scale(currentPageScale / scale);
+
+    if (CheckedPtr tiledBacking = mainFrameTiledBacking())
+        tiledBacking->prepopulateRect(tileCoverageRect);
+}
+
+void DrawingArea::scaleViewToFitDocumentIfNeeded()
+{
+    const int maximumDocumentWidthForScaling = 1440;
+    const float minimumViewScale = 0.1;
+
+    if (!m_shouldScaleViewToFitDocument)
+        return;
+
+    LOG(Resize, "DrawingArea %p scaleViewToFitDocumentIfNeeded", this);
+    Ref webPage = m_webPage.get();
+    webPage->layoutIfNeeded();
+
+    RefPtr frameView = webPage->localMainFrameView();
+    if (!frameView)
+        return;
+
+    CheckedPtr renderView = frameView->renderView();
+    if (!renderView)
+        return;
+
+    int viewWidth = webPage->size().width();
+    int documentWidth = renderView->unscaledDocumentRect().width();
+
+    bool documentWidthChanged = m_lastDocumentSizeForScaleToFit.width() != documentWidth;
+    bool viewWidthChanged = m_lastViewSizeForScaleToFit.width() != viewWidth;
+
+    LOG(Resize, "  documentWidthChanged=%d, viewWidthChanged=%d", documentWidthChanged, viewWidthChanged);
+
+    if (!documentWidthChanged && !viewWidthChanged)
+        return;
+
+    // The view is now bigger than the document, so we'll re-evaluate whether we have to scale.
+    if (m_isScalingViewToFitDocument && viewWidth >= m_lastDocumentSizeForScaleToFit.width())
+        m_isScalingViewToFitDocument = false;
+
+    // Our current understanding of the document width is still up to date, and we're in scaling mode.
+    // Update the viewScale without doing an extra layout to re-determine the document width.
+    if (m_isScalingViewToFitDocument) {
+        if (!documentWidthChanged) {
+            m_lastViewSizeForScaleToFit = webPage->size();
+            float viewScale = (float)viewWidth / (float)m_lastDocumentSizeForScaleToFit.width();
+            if (viewScale < minimumViewScale) {
+                viewScale = minimumViewScale;
+                documentWidth = std::ceil(viewWidth / viewScale);
+            }
+            // FIXME: Account for left content insets.
+            IntSize fixedLayoutSize(documentWidth, std::ceil((webPage->size().height() - webPage->corePage()->obscuredContentInsets().top()) / viewScale));
+            webPage->setFixedLayoutSize(fixedLayoutSize);
+            webPage->scaleView(viewScale);
+
+            LOG(Resize, "  using fixed layout at %dx%d. document width %d unchanged, scaled to %.4f to fit view width %d", fixedLayoutSize.width(), fixedLayoutSize.height(), documentWidth, viewScale, viewWidth);
+            return;
+        }
+    
+        IntSize fixedLayoutSize = webPage->fixedLayoutSize();
+        if (documentWidth > fixedLayoutSize.width()) {
+            LOG(Resize, "  page laid out wider than fixed layout width. Not attempting to re-scale");
+            return;
+        }
+    }
+
+    LOG(Resize, "  doing unconstrained layout");
+
+    // Lay out at the view size.
+    webPage->setUseFixedLayout(false);
+    webPage->layoutIfNeeded();
+
+    frameView = webPage->localMainFrameView();
+    if (!frameView)
+        return;
+
+    renderView = frameView->renderView();
+    if (!renderView)
+        return;
+
+    auto documentSize = renderView->unscaledDocumentRect().size();
+    m_lastViewSizeForScaleToFit = webPage->size();
+    m_lastDocumentSizeForScaleToFit = documentSize;
+
+    documentWidth = documentSize.width();
+
+    float viewScale = 1;
+
+    LOG(Resize, "  unscaled document size %dx%d. need to scale down: %d", documentSize.width(), documentSize.height(), documentWidth && documentWidth < maximumDocumentWidthForScaling && viewWidth < documentWidth);
+
+    // Avoid scaling down documents that don't fit in a certain width, to allow
+    // sites that want horizontal scrollbars to continue to have them.
+    if (documentWidth && documentWidth < maximumDocumentWidthForScaling && viewWidth < documentWidth) {
+        // If the document doesn't fit in the view, scale it down but lay out at the view size.
+        m_isScalingViewToFitDocument = true;
+        webPage->setUseFixedLayout(true);
+        viewScale = (float)viewWidth / (float)documentWidth;
+        if (viewScale < minimumViewScale) {
+            viewScale = minimumViewScale;
+            documentWidth = std::ceil(viewWidth / viewScale);
+        }
+        // FIXME: Account for left content insets.
+        IntSize fixedLayoutSize(documentWidth, std::ceil((webPage->size().height() - webPage->corePage()->obscuredContentInsets().top()) / viewScale));
+        webPage->setFixedLayoutSize(fixedLayoutSize);
+
+        LOG(Resize, "  using fixed layout at %dx%d. document width %d, scaled to %.4f to fit view width %d", fixedLayoutSize.width(), fixedLayoutSize.height(), documentWidth, viewScale, viewWidth);
+    }
+
+    webPage->scaleView(viewScale);
+}
+
+void DrawingArea::setShouldScaleViewToFitDocument(bool shouldScaleView)
+{
+    if (m_shouldScaleViewToFitDocument == shouldScaleView)
+        return;
+
+    m_shouldScaleViewToFitDocument = shouldScaleView;
+    triggerRenderingUpdate();
 }
 
 } // namespace WebKit

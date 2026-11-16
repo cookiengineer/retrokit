@@ -27,6 +27,8 @@
 
 #include "MutatorScheduler.h"
 #include <wtf/Seconds.h>
+#include <wtf/TZoneMalloc.h>
+
 
 namespace JSC {
 
@@ -39,6 +41,7 @@ class Heap;
 // began.
 
 class SpaceTimeMutatorScheduler final : public MutatorScheduler {
+    WTF_MAKE_TZONE_ALLOCATED(SpaceTimeMutatorScheduler);
 public:
     SpaceTimeMutatorScheduler(Heap&);
     ~SpaceTimeMutatorScheduler() final;
@@ -62,18 +65,18 @@ private:
     class Snapshot;
     friend class Snapshot;
     
-    double bytesAllocatedThisCycleImpl();
+    double NODELETE bytesAllocatedThisCycleImpl();
     
-    double bytesSinceBeginningOfCycle(const Snapshot&);
-    double maxHeadroom();
-    double headroomFullness(const Snapshot&);
-    double mutatorUtilization(const Snapshot&);
-    double collectorUtilization(const Snapshot&);
+    double NODELETE bytesSinceBeginningOfCycle(const Snapshot&);
+    double NODELETE maxHeadroom();
+    double NODELETE headroomFullness(const Snapshot&);
+    double NODELETE mutatorUtilization(const Snapshot&);
+    double NODELETE collectorUtilization(const Snapshot&);
     Seconds elapsedInPeriod(const Snapshot&);
     double phase(const Snapshot&);
     bool shouldBeResumed(const Snapshot&);
     
-    Heap& m_heap;
+    JSC::Heap& m_heap;
     Seconds m_period;
     State m_state { Normal };
     

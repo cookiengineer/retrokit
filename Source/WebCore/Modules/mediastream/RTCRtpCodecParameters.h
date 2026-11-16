@@ -27,16 +27,12 @@
 
 #if ENABLE(WEB_RTC)
 
-#include <wtf/text/WTFString.h>
+#include "RTCRtpCodec.h"
 
 namespace WebCore {
 
-struct RTCRtpCodecParameters {
+struct RTCRtpCodecParameters : RTCRtpCodec {
     unsigned short payloadType { 0 };
-    String mimeType;
-    unsigned long clockRate { 0 };
-    unsigned short channels = 1;
-    String sdpFmtpLine;
 };
 
 } // namespace WebCore

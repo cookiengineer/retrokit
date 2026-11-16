@@ -13,6 +13,12 @@
 
 namespace vma
 {
+#define VALIDATE_BLOCK_CREATE_FLAG_BITS(x)                                                 \
+    static_assert(static_cast<uint32_t>(x) ==                                              \
+                      static_cast<uint32_t>(VMA_VIRTUAL_BLOCK_CREATE_##x##_ALGORITHM_BIT), \
+                  "VMA enum mismatch")
+VALIDATE_BLOCK_CREATE_FLAG_BITS(LINEAR);
+
 VkResult InitAllocator(VkPhysicalDevice physicalDevice,
                        VkDevice device,
                        VkInstance instance,
@@ -39,21 +45,18 @@ VkResult InitAllocator(VkPhysicalDevice physicalDevice,
     funcs.vkDestroyImage                      = vkDestroyImage;
     funcs.vkCmdCopyBuffer                     = vkCmdCopyBuffer;
     {
-#if !defined(ANGLE_SHARED_LIBVULKAN)
-        // When the vulkan-loader is statically linked, we need to use the extension
-        // functions defined in ANGLE's rx namespace. When it's dynamically linked
-        // with volk, this will default to the function definitions with no namespace
-        using rx::vkBindBufferMemory2KHR;
-        using rx::vkBindImageMemory2KHR;
-        using rx::vkGetBufferMemoryRequirements2KHR;
-        using rx::vkGetImageMemoryRequirements2KHR;
-        using rx::vkGetPhysicalDeviceMemoryProperties2KHR;
-#endif  // !defined(ANGLE_SHARED_LIBVULKAN)
-        funcs.vkGetBufferMemoryRequirements2KHR       = vkGetBufferMemoryRequirements2KHR;
-        funcs.vkGetImageMemoryRequirements2KHR        = vkGetImageMemoryRequirements2KHR;
-        funcs.vkBindBufferMemory2KHR                  = vkBindBufferMemory2KHR;
-        funcs.vkBindImageMemory2KHR                   = vkBindImageMemory2KHR;
-        funcs.vkGetPhysicalDeviceMemoryProperties2KHR = vkGetPhysicalDeviceMemoryProperties2KHR;
+        funcs.vkGetBufferMemoryRequirements2KHR       = vkGetBufferMemoryRequirements2;
+        funcs.vkGetImageMemoryRequirements2KHR        = vkGetImageMemoryRequirements2;
+        funcs.vkBindBufferMemory2KHR                  = vkBindBufferMemory2;
+        funcs.vkBindImageMemory2KHR                   = vkBindImageMemory2;
+        funcs.vkGetPhysicalDeviceMemoryProperties2KHR = vkGetPhysicalDeviceMemoryProperties2;
+
+        // vkGetPhysicalDeviceProperties2KHR was introduced in VMA 3.4 and is guarded by
+        // VMA_GET_PHYSICAL_DEVICE_PROPERTIES2. VMA_VERSION cannot be used in a preprocessor #if
+        // check because VK_MAKE_API_VERSION contains (uint32_t) casts.
+#if VMA_GET_PHYSICAL_DEVICE_PROPERTIES2
+        funcs.vkGetPhysicalDeviceProperties2KHR = vkGetPhysicalDeviceProperties2;
+#endif
     }
 
     VmaAllocatorCreateInfo allocatorInfo      = {};
@@ -77,11 +80,29 @@ void FreeMemory(VmaAllocator allocator, VmaAllocation allocation)
     vmaFreeMemory(allocator, allocation);
 }
 
+VkResult CreatePool(VmaAllocator allocator,
+                    uint32_t memoryTypeIndex,
+                    size_t maxBlockCount,
+                    VkDeviceSize blockSize,
+                    VmaPool *pPoolOut)
+{
+    VmaPoolCreateInfo poolCreateInfo = {};
+    poolCreateInfo.memoryTypeIndex   = memoryTypeIndex;
+    poolCreateInfo.blockSize         = blockSize;
+    poolCreateInfo.maxBlockCount     = maxBlockCount;
+    return vmaCreatePool(allocator, &poolCreateInfo, pPoolOut);
+}
+
+void DestroyPool(VmaAllocator allocator, VmaPool pool)
+{
+    vmaDestroyPool(allocator, pool);
+}
+
 VkResult CreateBuffer(VmaAllocator allocator,
                       const VkBufferCreateInfo *pBufferCreateInfo,
                       VkMemoryPropertyFlags requiredFlags,
                       VkMemoryPropertyFlags preferredFlags,
-                      bool persistentlyMappedBuffers,
+                      bool persistentlyMapped,
                       uint32_t *pMemoryTypeIndexOut,
                       VkBuffer *pBuffer,
                       VmaAllocation *pAllocation)
@@ -90,12 +111,83 @@ VkResult CreateBuffer(VmaAllocator allocator,
     VmaAllocationCreateInfo allocationCreateInfo = {};
     allocationCreateInfo.requiredFlags           = requiredFlags;
     allocationCreateInfo.preferredFlags          = preferredFlags;
-    allocationCreateInfo.flags = (persistentlyMappedBuffers) ? VMA_ALLOCATION_CREATE_MAPPED_BIT : 0;
+    allocationCreateInfo.flags       = (persistentlyMapped) ? VMA_ALLOCATION_CREATE_MAPPED_BIT : 0;
     VmaAllocationInfo allocationInfo = {};
 
     result = vmaCreateBuffer(allocator, pBufferCreateInfo, &allocationCreateInfo, pBuffer,
                              pAllocation, &allocationInfo);
     *pMemoryTypeIndexOut = allocationInfo.memoryType;
+
+    return result;
+}
+
+VkResult AllocateAndBindMemoryForImage(VmaAllocator allocator,
+                                       VkImage *pImage,
+                                       VkMemoryPropertyFlags requiredFlags,
+                                       VkMemoryPropertyFlags preferredFlags,
+                                       uint32_t memoryTypeBits,
+                                       bool allocateDedicatedMemory,
+                                       VmaAllocation *pAllocationOut,
+                                       uint32_t *pMemoryTypeIndexOut,
+                                       VkDeviceSize *sizeOut)
+{
+    VkResult result;
+    VmaAllocationCreateInfo allocationCreateInfo = {};
+    allocationCreateInfo.requiredFlags           = requiredFlags;
+    allocationCreateInfo.preferredFlags          = preferredFlags;
+    allocationCreateInfo.memoryTypeBits          = memoryTypeBits;
+    allocationCreateInfo.flags =
+        allocateDedicatedMemory ? VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT : 0;
+
+    VmaAllocationInfo allocationInfo = {};
+    result = vmaAllocateMemoryForImage(allocator, *pImage, &allocationCreateInfo, pAllocationOut,
+                                       &allocationInfo);
+    if (result == VK_SUCCESS)
+    {
+        // If binding was unsuccessful, we should free the allocation.
+        result = vmaBindImageMemory(allocator, *pAllocationOut, *pImage);
+        if (result != VK_SUCCESS)
+        {
+            vmaFreeMemory(allocator, *pAllocationOut);
+            *pAllocationOut = VK_NULL_HANDLE;
+            return result;
+        }
+
+        *pMemoryTypeIndexOut = allocationInfo.memoryType;
+        *sizeOut             = allocationInfo.size;
+    }
+
+    return result;
+}
+
+VkResult AllocateAndBindMemoryForImageFromPool(VmaAllocator allocator,
+                                               VkImage *pImage,
+                                               VmaPool pool,
+                                               VmaAllocation *pAllocationOut,
+                                               uint32_t *pMemoryTypeIndexOut,
+                                               VkDeviceSize *sizeOut)
+{
+    VkResult result;
+    VmaAllocationCreateInfo allocationCreateInfo = {};
+    allocationCreateInfo.pool                    = pool;
+
+    VmaAllocationInfo allocationInfo = {};
+    result = vmaAllocateMemoryForImage(allocator, *pImage, &allocationCreateInfo, pAllocationOut,
+                                       &allocationInfo);
+    if (result == VK_SUCCESS)
+    {
+        // If binding was unsuccessful, we should free the allocation.
+        result = vmaBindImageMemory(allocator, *pAllocationOut, *pImage);
+        if (result != VK_SUCCESS)
+        {
+            vmaFreeMemory(allocator, *pAllocationOut);
+            *pAllocationOut = VK_NULL_HANDLE;
+            return result;
+        }
+
+        *pMemoryTypeIndexOut = allocationInfo.memoryType;
+        *sizeOut             = allocationInfo.size;
+    }
 
     return result;
 }
@@ -114,6 +206,25 @@ VkResult FindMemoryTypeIndexForBufferInfo(VmaAllocator allocator,
 
     return vmaFindMemoryTypeIndexForBufferInfo(allocator, pBufferCreateInfo, &allocationCreateInfo,
                                                pMemoryTypeIndexOut);
+}
+
+VkResult FindMemoryTypeIndexForImageInfo(VmaAllocator allocator,
+                                         const VkImageCreateInfo *pImageCreateInfo,
+                                         VkMemoryPropertyFlags requiredFlags,
+                                         VkMemoryPropertyFlags preferredFlags,
+                                         uint32_t memoryTypeBits,
+                                         bool allocateDedicatedMemory,
+                                         uint32_t *pMemoryTypeIndexOut)
+{
+    VmaAllocationCreateInfo allocationCreateInfo = {};
+    allocationCreateInfo.requiredFlags           = requiredFlags;
+    allocationCreateInfo.preferredFlags          = preferredFlags;
+    allocationCreateInfo.memoryTypeBits          = memoryTypeBits;
+    allocationCreateInfo.flags =
+        allocateDedicatedMemory ? VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT : 0;
+
+    return vmaFindMemoryTypeIndexForImageInfo(allocator, pImageCreateInfo, &allocationCreateInfo,
+                                              pMemoryTypeIndexOut);
 }
 
 void GetMemoryTypeProperties(VmaAllocator allocator,
@@ -157,5 +268,87 @@ void BuildStatsString(VmaAllocator allocator, char **statsString, VkBool32 detai
 void FreeStatsString(VmaAllocator allocator, char *statsString)
 {
     vmaFreeStatsString(allocator, statsString);
+}
+
+// VmaVirtualBlock implementation
+VkResult CreateVirtualBlock(VkDeviceSize size,
+                            VirtualBlockCreateFlags flags,
+                            VmaVirtualBlock *pVirtualBlock)
+{
+    VmaVirtualBlockCreateInfo virtualBlockCreateInfo = {};
+    virtualBlockCreateInfo.size                      = size;
+    virtualBlockCreateInfo.flags                     = (VmaVirtualBlockCreateFlagBits)flags;
+    return vmaCreateVirtualBlock(&virtualBlockCreateInfo, pVirtualBlock);
+}
+
+void DestroyVirtualBlock(VmaVirtualBlock virtualBlock)
+{
+    vmaDestroyVirtualBlock(virtualBlock);
+}
+
+VkResult VirtualAllocate(VmaVirtualBlock virtualBlock,
+                         VkDeviceSize size,
+                         VkDeviceSize alignment,
+                         VmaVirtualAllocation *pAllocation,
+                         VkDeviceSize *pOffset)
+{
+    VmaVirtualAllocationCreateInfo createInfo = {};
+    createInfo.size                           = size;
+    createInfo.alignment                      = alignment;
+    createInfo.flags                          = 0;
+    return vmaVirtualAllocate(virtualBlock, &createInfo, pAllocation, pOffset);
+}
+
+void VirtualFree(VmaVirtualBlock virtualBlock, VmaVirtualAllocation allocation, VkDeviceSize offset)
+{
+    vmaVirtualFree(virtualBlock, allocation);
+}
+
+VkBool32 IsVirtualBlockEmpty(VmaVirtualBlock virtualBlock)
+{
+    return vmaIsVirtualBlockEmpty(virtualBlock);
+}
+
+void GetVirtualAllocationInfo(VmaVirtualBlock virtualBlock,
+                              VmaVirtualAllocation allocation,
+                              VkDeviceSize offset,
+                              VkDeviceSize *sizeOut,
+                              void **pUserDataOut)
+{
+    VmaVirtualAllocationInfo virtualAllocInfo = {};
+    vmaGetVirtualAllocationInfo(virtualBlock, allocation, &virtualAllocInfo);
+    *sizeOut      = virtualAllocInfo.size;
+    *pUserDataOut = virtualAllocInfo.pUserData;
+}
+
+void ClearVirtualBlock(VmaVirtualBlock virtualBlock)
+{
+    vmaClearVirtualBlock(virtualBlock);
+}
+
+void SetVirtualAllocationUserData(VmaVirtualBlock virtualBlock,
+                                  VmaVirtualAllocation allocation,
+                                  VkDeviceSize offset,
+                                  void *pUserData)
+{
+    vmaSetVirtualAllocationUserData(virtualBlock, allocation, pUserData);
+}
+
+void CalculateVirtualBlockStats(VmaVirtualBlock virtualBlock, StatInfo *pStatInfo)
+{
+    vmaCalculateVirtualBlockStatistics(virtualBlock,
+                                       reinterpret_cast<VmaDetailedStatistics *>(pStatInfo));
+}
+
+void BuildVirtualBlockStatsString(VmaVirtualBlock virtualBlock,
+                                  char **ppStatsString,
+                                  VkBool32 detailedMap)
+{
+    vmaBuildVirtualBlockStatsString(virtualBlock, ppStatsString, detailedMap);
+}
+
+void FreeVirtualBlockStatsString(VmaVirtualBlock virtualBlock, char *pStatsString)
+{
+    vmaFreeVirtualBlockStatsString(virtualBlock, pStatsString);
 }
 }  // namespace vma

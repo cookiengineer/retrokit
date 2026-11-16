@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012, 2013 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2012, 2013 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,35 +28,75 @@
 #include "DocumentSharedObjectPool.h"
 
 #include "Element.h"
+#include "ElementData.h"
+#include "SecurityOrigin.h"
+#include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-inline unsigned attributeHash(const Vector<Attribute>& attributes)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(DocumentSharedObjectPool);
+
+static HashMap<SecurityOriginData, size_t>& NODELETE peakSizeInPast()
 {
-    return StringHasher::hashMemory(attributes.data(), attributes.size() * sizeof(Attribute));
+    static MainThreadNeverDestroyed<HashMap<SecurityOriginData, size_t>> map;
+    return map;
 }
 
-inline bool hasSameAttributes(const Vector<Attribute>& attributes, ShareableElementData& elementData)
+DocumentSharedObjectPool::DocumentSharedObjectPool(const SecurityOrigin& origin)
+    : m_domain(origin.data())
 {
-    if (attributes.size() != elementData.length())
-        return false;
-    return !memcmp(attributes.data(), elementData.m_attributeArray, attributes.size() * sizeof(Attribute));
+    m_shareableElementDataCache.reserveInitialCapacity(peakSizeInPast().get(m_domain));
 }
 
-Ref<ShareableElementData> DocumentSharedObjectPool::cachedShareableElementDataWithAttributes(const Vector<Attribute>& attributes)
+DocumentSharedObjectPool::~DocumentSharedObjectPool()
 {
-    ASSERT(!attributes.isEmpty());
-
-    auto& cachedData = m_shareableElementDataCache.add(attributeHash(attributes), nullptr).iterator->value;
-
-    // FIXME: This prevents sharing when there's a hash collision.
-    if (cachedData && !hasSameAttributes(attributes, *cachedData))
-        return ShareableElementData::createWithAttributes(attributes);
-
-    if (!cachedData)
-        cachedData = ShareableElementData::createWithAttributes(attributes);
-
-    return *cachedData;
+    size_t currentSizeRoundedUp = roundUpToPowerOfTwo(m_shareableElementDataCache.size());
+    auto result = peakSizeInPast().add(m_domain, currentSizeRoundedUp);
+    if (!result.isNewEntry && currentSizeRoundedUp > result.iterator->value)
+        result.iterator->value = currentSizeRoundedUp;
 }
 
+struct DocumentSharedObjectPool::ShareableElementDataHash {
+    static unsigned NODELETE hash(const Ref<ShareableElementData>& data)
+    {
+        return computeHash(data->attributes());
+    }
+    static bool equal(const Ref<ShareableElementData>& a, const Ref<ShareableElementData>& b)
+    {
+        // We need to disable type checking because std::has_unique_object_representations_v<Attribute>
+        // return false. Attribute contains pointers but memcmp() is safe because those pointers were
+        // atomized.
+        return equalSpans<WTF::IgnoreTypeChecks::Yes>(a->attributes(), b->attributes());
+    }
+    static constexpr bool safeToCompareToEmptyOrDeleted = false;
+};
+
+struct AttributeSpanTranslator {
+    static unsigned NODELETE hash(std::span<const Attribute> attributes)
+    {
+        return computeHash(attributes);
+    }
+
+    static bool equal(const Ref<ShareableElementData>& a, std::span<const Attribute> b)
+    {
+        // We need to disable type checking because std::has_unique_object_representations_v<Attribute>
+        // return false. Attribute contains pointers but memcmp() is safe because those pointers were
+        // atomized.
+        return equalSpans<WTF::IgnoreTypeChecks::Yes>(a->attributes(), b);
+    }
+
+    static void translate(Ref<ShareableElementData>& location, std::span<const Attribute> attributes, unsigned /*hash*/)
+    {
+        location = ShareableElementData::createWithAttributes(attributes);
+    }
+};
+
+Ref<ShareableElementData> DocumentSharedObjectPool::cachedShareableElementDataWithAttributes(std::span<const Attribute> attributes)
+{
+    ASSERT(!attributes.empty());
+
+    return m_shareableElementDataCache.add<AttributeSpanTranslator>(attributes).iterator->get();
 }
+
+} // namespace WebCore

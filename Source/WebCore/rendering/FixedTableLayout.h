@@ -21,11 +21,14 @@
 #pragma once
 
 #include "LayoutUnit.h"
-#include "Length.h"
 #include "TableLayout.h"
 #include <wtf/Vector.h>
 
 namespace WebCore {
+
+namespace Style {
+struct PreferredSize;
+}
 
 class RenderTable;
 
@@ -33,14 +36,14 @@ class FixedTableLayout final : public TableLayout {
 public:
     explicit FixedTableLayout(RenderTable*);
 
-    void computeIntrinsicLogicalWidths(LayoutUnit& minWidth, LayoutUnit& maxWidth, TableIntrinsics) override;
-    void applyPreferredLogicalWidthQuirks(LayoutUnit& minWidth, LayoutUnit& maxWidth) const override;
+    std::pair<LayoutUnit, LayoutUnit> computeIntrinsicLogicalWidths(TableIntrinsics) override;
+    void applyContentLogicalWidthQuirks(LayoutUnit& minWidth, LayoutUnit& maxWidth) const override;
     void layout() override;
 
 private:
     float calcWidthArray();
 
-    Vector<Length> m_width;
+    Vector<Style::PreferredSize> m_width;
 };
 
 } // namespace WebCore

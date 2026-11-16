@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,48 +30,107 @@
 #include "GPUProcessConnection.h"
 #include "RemoteAudioDestinationProxy.h"
 #include "RemoteCDMFactory.h"
-#include "WebCoreArgumentCoders.h"
+#include "RemoteVideoFrameObjectHeapProxy.h"
 #include "WebProcess.h"
 #include <WebCore/AudioDestination.h>
 #include <WebCore/AudioIOCallback.h>
 #include <WebCore/CDMFactory.h>
+#include <WebCore/MediaPlayer.h>
 #include <WebCore/NowPlayingManager.h>
-
+#include <WebCore/SharedAudioDestination.h>
+#include <wtf/NeverDestroyed.h>
+#include <wtf/threads/BinarySemaphore.h>
 #if PLATFORM(COCOA)
 #include <WebCore/MediaSessionManagerCocoa.h>
 #endif
 
+#if ENABLE(MEDIA_SOURCE)
+#include <WebCore/DeprecatedGlobalSettings.h>
+#endif
+#if ENABLE(VIDEO) && ENABLE(GPU_PROCESS)
+#include "AudioVideoRendererRemote.h"
+#endif
+
 namespace WebKit {
+using namespace WebCore;
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebMediaStrategy);
 
 WebMediaStrategy::~WebMediaStrategy() = default;
 
 #if ENABLE(WEB_AUDIO)
-Ref<WebCore::AudioDestination> WebMediaStrategy::createAudioDestination(WebCore::AudioIOCallback& callback, const String& inputDeviceId,
-    unsigned numberOfInputChannels, unsigned numberOfOutputChannels, float sampleRate)
+Ref<WebCore::AudioDestination> WebMediaStrategy::createAudioDestination(const WebCore::AudioDestinationCreationOptions& options)
 {
+    ASSERT(isMainRunLoop());
 #if ENABLE(GPU_PROCESS)
     if (m_useGPUProcess)
-        return RemoteAudioDestinationProxy::create(callback, inputDeviceId, numberOfInputChannels, numberOfOutputChannels, sampleRate);
+        return WebCore::SharedAudioDestination::create(options, [] (auto& options) {
+            return RemoteAudioDestinationProxy::create(options);
+        });
 #endif
-    return WebCore::AudioDestination::create(callback, inputDeviceId, numberOfInputChannels, numberOfOutputChannels, sampleRate);
+    return WebCore::AudioDestination::create(options);
+}
+#endif
+
+#if ENABLE(VIDEO) && ENABLE(GPU_PROCESS)
+RefPtr<AudioVideoRenderer> WebMediaStrategy::createAudioVideoRenderer(LoggerHelper* loggerHelper, WebCore::HTMLMediaElementIdentifier mediaElementIdentifier, WebCore::MediaPlayerIdentifier playerIdentifier) const
+{
+    return AudioVideoRendererRemote::create(loggerHelper, mediaElementIdentifier, playerIdentifier, protect(WebProcess::singleton().ensureGPUProcessConnection()));
+}
+
+static WorkQueue& webMediaStrategyQueueSingleton()
+{
+    static const NeverDestroyed<Ref<WorkQueue>> workQueue = WorkQueue::create("WebMediaStrategy"_s);
+    return workQueue.get();
+}
+
+void WebMediaStrategy::ensureCodecsSupportChecksInitialized()
+{
+    callOnMainRunLoopAndWait([] {
+        protect(WebProcess::singleton().ensureGPUProcessConnection())->waitForDidInitialize();
+    });
+}
+
+bool WebMediaStrategy::canDecodeExtendedType(PlatformMediaDecodingType platformType, const ContentType& contentType)
+{
+    Ref connection = [&] {
+        RefPtr connection = WebProcess::singleton().existingGPUProcessConnection();
+        if (connection)
+            return connection.releaseNonNull();
+        callOnMainRunLoopAndWait([&] {
+            connection = &WebProcess::singleton().ensureGPUProcessConnection();
+        });
+        return connection.releaseNonNull();
+    }();
+    std::atomic<bool> isSupported = false;
+    BinarySemaphore semaphore;
+    webMediaStrategyQueueSingleton().dispatch([&, connection = WTF::move(connection)] {
+        connection->connection().sendWithAsyncReplyOnDispatcher(Messages::GPUConnectionToWebProcess::CanDecodeExtendedType(platformType, contentType), webMediaStrategyQueueSingleton(), [&semaphore, &isSupported](bool supported) {
+            isSupported = supported;
+            semaphore.signal();
+        });
+    });
+    semaphore.wait();
+    return isSupported;
 }
 #endif
 
 std::unique_ptr<WebCore::NowPlayingManager> WebMediaStrategy::createNowPlayingManager() const
 {
+    ASSERT(isMainRunLoop());
 #if ENABLE(GPU_PROCESS)
     if (m_useGPUProcess) {
         class NowPlayingInfoForGPUManager : public WebCore::NowPlayingManager {
             void clearNowPlayingInfoPrivate() final
             {
-                if (auto* connection = WebProcess::singleton().existingGPUProcessConnection())
+                if (RefPtr connection = WebProcess::singleton().existingGPUProcessConnection())
                     connection->connection().send(Messages::GPUConnectionToWebProcess::ClearNowPlayingInfo { }, 0);
             }
 
-            void setNowPlayingInfoPrivate(const WebCore::NowPlayingInfo& nowPlayingInfo) final
+            void setNowPlayingInfoPrivate(const WebCore::NowPlayingInfo& nowPlayingInfo, bool) final
             {
-                auto& connection = WebProcess::singleton().ensureGPUProcessConnection().connection();
-                connection.send(Messages::GPUConnectionToWebProcess::SetNowPlayingInfo { nowPlayingInfo }, 0);
+                Ref connection = WebProcess::singleton().ensureGPUProcessConnection().connection();
+                connection->send(Messages::GPUConnectionToWebProcess::SetNowPlayingInfo { nowPlayingInfo }, 0);
             }
         };
         return makeUnique<NowPlayingInfoForGPUManager>();
@@ -79,5 +138,38 @@ std::unique_ptr<WebCore::NowPlayingManager> WebMediaStrategy::createNowPlayingMa
 #endif
     return WebCore::MediaStrategy::createNowPlayingManager();
 }
+
+bool WebMediaStrategy::hasThreadSafeMediaSourceSupport() const
+{
+#if USE(AVFOUNDATION)
+    return true;
+#else
+    return false;
+#endif
+}
+
+#if ENABLE(MEDIA_SOURCE)
+void WebMediaStrategy::enableMockMediaSource()
+{
+    ASSERT(isMainRunLoop());
+#if USE(AVFOUNDATION)
+    WebCore::DeprecatedGlobalSettings::setAVFoundationEnabled(false);
+#endif
+#if USE(GSTREAMER)
+    WebCore::DeprecatedGlobalSettings::setGStreamerEnabled(false);
+#endif
+    m_mockMediaSourceEnabled = true;
+
+    WebCore::MediaStrategy::addMockMediaSourceEngine();
+}
+#endif
+
+#if PLATFORM(COCOA) && ENABLE(VIDEO)
+void WebMediaStrategy::nativeImageFromVideoFrame(const WebCore::VideoFrame& frame, CompletionHandler<void(std::optional<RefPtr<WebCore::NativeImage>>&&)>&& completionHandler)
+{
+    // FIXME: Move out of sync IPC.
+    completionHandler(protect(protect(WebProcess::singleton().ensureGPUProcessConnection())->videoFrameObjectHeapProxy())->getNativeImage(frame));
+}
+#endif
 
 } // namespace WebKit

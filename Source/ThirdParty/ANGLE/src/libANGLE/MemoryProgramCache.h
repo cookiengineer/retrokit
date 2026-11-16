@@ -28,49 +28,37 @@ class MemoryProgramCache final : angle::NonCopyable
     explicit MemoryProgramCache(egl::BlobCache &blobCache);
     ~MemoryProgramCache();
 
-    static void ComputeHash(const Context *context,
-                            const Program *program,
-                            egl::BlobCache::Key *hashOut);
-
-    // Check if the cache contains a binary matching the specified program.
-    bool get(const Context *context,
-             const egl::BlobCache::Key &programHash,
-             egl::BlobCache::Value *programOut,
-             size_t *programSizeOut);
-
     // For querying the contents of the cache.
     bool getAt(size_t index,
                const egl::BlobCache::Key **hashOut,
                egl::BlobCache::Value *programOut);
 
-    // Evict a program from the binary cache.
-    void remove(const egl::BlobCache::Key &programHash);
-
     // Helper method that serializes a program.
     angle::Result putProgram(const egl::BlobCache::Key &programHash,
                              const Context *context,
-                             const Program *program);
+                             Program *program);
 
     // Same as putProgram but computes the hash.
-    angle::Result updateProgram(const Context *context, const Program *program);
+    angle::Result updateProgram(const Context *context, Program *program);
 
     // Store a binary directly.  TODO(syoussefi): deprecated.  Will be removed once Chrome supports
-    // EGL_ANDROID_blob_cache. http://anglebug.com/2516
-    ANGLE_NO_DISCARD bool putBinary(const egl::BlobCache::Key &programHash,
-                                    const uint8_t *binary,
-                                    size_t length);
+    // EGL_ANDROID_blob_cache. http://anglebug.com/42261225
+    [[nodiscard]] bool putBinary(const egl::BlobCache::Key &programHash,
+                                 const uint8_t *binary,
+                                 size_t length);
 
     // Check the cache, and deserialize and load the program if found. Evict existing hash if load
     // fails.
     angle::Result getProgram(const Context *context,
                              Program *program,
-                             egl::BlobCache::Key *hashOut);
+                             egl::BlobCache::Key *hashOut,
+                             egl::CacheGetResult *resultOut);
 
     // Empty the cache.
     void clear();
 
-    // Resize the cache. Discards current contents.
-    void resize(size_t maxCacheSizeBytes);
+    // Resize the cache. Discards current contents. Returns previous cache size.
+    size_t resize(size_t maxCacheSizeBytes);
 
     // Returns the number of entries in the cache.
     size_t entryCount() const;
@@ -85,8 +73,11 @@ class MemoryProgramCache final : angle::NonCopyable
     size_t maxSize() const;
 
   private:
+    static void ComputeHash(const Context *context,
+                            const Program *program,
+                            egl::BlobCache::Key *hashOut);
+
     egl::BlobCache &mBlobCache;
-    unsigned int mIssuedWarnings;
 };
 
 }  // namespace gl

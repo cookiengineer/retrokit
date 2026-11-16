@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2020 Apple Inc. All rights reserved.
+* Copyright (C) 2020-2025 Apple Inc. All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
 * modification, are permitted provided that the following conditions
@@ -27,58 +27,70 @@
 #include "config.h"
 #include "TextTrackPrivateRemote.h"
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
-#include "DataReference.h"
 #include "GPUProcessConnection.h"
 #include "MediaPlayerPrivateRemote.h"
 #include "RemoteMediaPlayerProxyMessages.h"
+#include <WebCore/ISOVTTCue.h>
+#include <wtf/CrossThreadCopier.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(TextTrackPrivateRemote);
+
 using namespace WebCore;
 
-TextTrackPrivateRemote::TextTrackPrivateRemote(GPUProcessConnection& gpuProcessConnection, MediaPlayerIdentifier playerIdentifier, TrackPrivateRemoteIdentifier idendifier, TextTrackPrivateRemoteConfiguration&& configuration)
+TextTrackPrivateRemote::TextTrackPrivateRemote(GPUProcessConnection& gpuProcessConnection, MediaPlayerIdentifier playerIdentifier, TextTrackPrivateRemoteConfiguration&& configuration)
     : WebCore::InbandTextTrackPrivate(configuration.cueFormat)
-    , m_gpuProcessConnection(makeWeakPtr(gpuProcessConnection))
+    , m_gpuProcessConnection(gpuProcessConnection)
+    , m_id(configuration.trackId)
     , m_playerIdentifier(playerIdentifier)
-    , m_identifier(idendifier)
 {
-    updateConfiguration(WTFMove(configuration));
+    updateConfiguration(WTF::move(configuration));
 }
 
 void TextTrackPrivateRemote::setMode(TextTrackMode mode)
 {
-    if (!m_gpuProcessConnection)
+    auto gpuProcessConnection = m_gpuProcessConnection.get();
+    if (!gpuProcessConnection)
         return;
 
     if (mode == InbandTextTrackPrivate::mode())
         return;
 
-    m_gpuProcessConnection->connection().send(Messages::RemoteMediaPlayerProxy::TextTrackSetMode(m_identifier, mode), m_playerIdentifier);
+    gpuProcessConnection->connection().send(Messages::RemoteMediaPlayerProxy::TextTrackSetMode(m_id, mode), m_playerIdentifier);
     InbandTextTrackPrivate::setMode(mode);
 }
 
 void TextTrackPrivateRemote::updateConfiguration(TextTrackPrivateRemoteConfiguration&& configuration)
 {
     if (configuration.trackId != m_id) {
-        auto changed = !m_id.isEmpty();
         m_id = configuration.trackId;
-        if (changed && client())
-            client()->idChanged(m_id);
+        notifyClients([id = m_id](auto& client) {
+            client.idChanged(id);
+        });
     }
 
     if (configuration.label != m_label) {
         auto changed = !m_label.isEmpty();
         m_label = configuration.label;
-        if (changed && client())
-            client()->labelChanged(m_label);
+        if (changed) {
+            notifyClients([label = crossThreadCopy(m_label)](auto& client) {
+                client.labelChanged(label);
+            });
+        }
     }
 
     if (configuration.language != m_language) {
         auto changed = !m_language.isEmpty();
         m_language = configuration.language;
-        if (changed && client())
-            client()->languageChanged(m_language);
+        if (changed) {
+            notifyClients([language = crossThreadCopy(m_language)](auto& client) {
+                client.languageChanged(language);
+            });
+        }
     }
 
     m_trackIndex = configuration.trackIndex;
@@ -92,80 +104,98 @@ void TextTrackPrivateRemote::updateConfiguration(TextTrackPrivateRemoteConfigura
     m_isMainProgramContent = configuration.isMainProgramContent;
     m_isEasyToRead = configuration.isEasyToRead;
     m_isDefault = configuration.isDefault;
+    m_isMachineGenerated = configuration.isMachineGenerated;
 }
 
 void TextTrackPrivateRemote::addGenericCue(Ref<InbandGenericCue> cue)
 {
-    ASSERT(client());
-    if (auto* client = this->client())
-        client->addGenericCue(cue);
+    ASSERT(hasClients());
+    notifyClients([cue](auto& client) {
+        downcast<InbandTextTrackPrivateClient>(client).addGenericCue(cue);
+    });
 }
 
 void TextTrackPrivateRemote::updateGenericCue(Ref<InbandGenericCue> cue)
 {
-    ASSERT(client());
-    if (auto* client = this->client())
-        client->updateGenericCue(cue);
+    ASSERT(hasClients());
+    notifyClients([cue](auto& client) {
+        downcast<InbandTextTrackPrivateClient>(client).updateGenericCue(cue);
+    });
 }
 
 void TextTrackPrivateRemote::removeGenericCue(Ref<InbandGenericCue> cue)
 {
-    ASSERT(client());
-    if (auto* client = this->client())
-        client->removeGenericCue(cue);
+    ASSERT(hasClients());
+    notifyClients([cue](auto& client) {
+        downcast<InbandTextTrackPrivateClient>(client).removeGenericCue(cue);
+    });
 }
 
 void TextTrackPrivateRemote::parseWebVTTFileHeader(String&& header)
 {
-    ASSERT(client());
-    if (auto* client = this->client())
-        client->parseWebVTTFileHeader(WTFMove(header));
+    assertIsMainRunLoop();
+    ASSERT(hasOneClient());
+    notifyMainThreadClient([&](auto& client) {
+        downcast<InbandTextTrackPrivateClient>(client).parseWebVTTFileHeader(WTF::move(header));
+    });
 }
 
-void TextTrackPrivateRemote::parseWebVTTCueData(const IPC::DataReference& data)
+void TextTrackPrivateRemote::parseWebVTTCueData(std::span<const uint8_t> data)
 {
-    ASSERT(client());
-    if (auto* client = this->client())
-        client->parseWebVTTCueData(data.data(), data.size());
+    assertIsMainRunLoop();
+    ASSERT(hasOneClient());
+    notifyMainThreadClient([&](auto& client) {
+        downcast<InbandTextTrackPrivateClient>(client).parseWebVTTCueData(data);
+    });
 }
 
 void TextTrackPrivateRemote::parseWebVTTCueDataStruct(ISOWebVTTCue&& cueData)
 {
-    ASSERT(client());
-    if (auto* client = this->client())
-        client->parseWebVTTCueData(WTFMove(cueData));
+    assertIsMainRunLoop();
+    ASSERT(hasOneClient());
+    notifyMainThreadClient([&](auto& client) {
+        downcast<InbandTextTrackPrivateClient>(client).parseWebVTTCueData(WTF::move(cueData));
+    });
 }
 
-void TextTrackPrivateRemote::addDataCue(MediaTime&& start, MediaTime&& end, IPC::DataReference&& data)
+void TextTrackPrivateRemote::addDataCue(MediaTime&& start, MediaTime&& end, std::span<const uint8_t> data)
 {
-    ASSERT(client());
-    if (auto* client = this->client())
-        client->addDataCue(WTFMove(start), WTFMove(end), data.data(), data.size());
+    assertIsMainRunLoop();
+    ASSERT(hasOneClient());
+    notifyMainThreadClient([&](auto& client) {
+        downcast<InbandTextTrackPrivateClient>(client).addDataCue(WTF::move(start), WTF::move(end), data);
+    });
 }
 
 #if ENABLE(DATACUE_VALUE)
 void TextTrackPrivateRemote::addDataCueWithType(MediaTime&& start, MediaTime&& end, SerializedPlatformDataCueValue&& dataValue, String&& type)
 {
-    ASSERT(client());
-    if (auto* client = this->client())
-        client->addDataCue(WTFMove(start), WTFMove(end), WebCore::SerializedPlatformDataCue::create(WTFMove(dataValue)), type);
+    assertIsMainRunLoop();
+    ASSERT(hasOneClient());
+    notifyMainThreadClient([&](auto& client) {
+        downcast<InbandTextTrackPrivateClient>(client).addDataCue(WTF::move(start), WTF::move(end), WebCore::SerializedPlatformDataCue::create(WTF::move(dataValue)), type);
+    });
 }
 
 void TextTrackPrivateRemote::updateDataCue(MediaTime&& start, MediaTime&& end, SerializedPlatformDataCueValue&& dataValue)
 {
-    ASSERT(client());
-    if (auto* client = this->client())
-        client->updateDataCue(WTFMove(start), WTFMove(end), WebCore::SerializedPlatformDataCue::create(WTFMove(dataValue)));
+    assertIsMainRunLoop();
+    ASSERT(hasOneClient());
+    notifyMainThreadClient([&](auto& client) {
+        downcast<InbandTextTrackPrivateClient>(client).updateDataCue(WTF::move(start), WTF::move(end), WebCore::SerializedPlatformDataCue::create(WTF::move(dataValue)));
+    });
 }
 
 void TextTrackPrivateRemote::removeDataCue(MediaTime&& start, MediaTime&& end, SerializedPlatformDataCueValue&& dataValue)
 {
-    ASSERT(client());
-    if (auto* client = this->client())
-        client->removeDataCue(WTFMove(start), WTFMove(end), WebCore::SerializedPlatformDataCue::create(WTFMove(dataValue)));
+    assertIsMainRunLoop();
+    ASSERT(hasOneClient());
+    notifyMainThreadClient([&](auto& client) {
+        downcast<InbandTextTrackPrivateClient>(client).removeDataCue(WTF::move(start), WTF::move(end), WebCore::SerializedPlatformDataCue::create(WTF::move(dataValue)));
+    });
 }
 #endif
 
 } // namespace WebKit
 
-#endif // ENABLE(GPU_PROCESS)
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

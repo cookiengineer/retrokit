@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2018-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,10 +26,10 @@
 
 #pragma once
 
-#include "CSSParserMode.h"
-#include "CSSPropertyNames.h"
-#include "StyleRuleType.h"
-#include "TextEncoding.h"
+#include <WebCore/CSSParserMode.h>
+#include <WebCore/CSSPropertyNames.h>
+#include <WebCore/LoadedFromOpaqueSource.h>
+#include <WebCore/StyleRuleType.h>
 #include <wtf/HashFunctions.h>
 #include <wtf/Hasher.h>
 #include <wtf/URL.h>
@@ -36,79 +37,85 @@
 namespace WebCore {
 
 class Document;
-
-struct ResolvedURL;
+class Settings;
 
 struct CSSParserContext {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(CSSParserContext);
 
     URL baseURL;
-    String charset;
+    ASCIILiteral charset;
     CSSParserMode mode { HTMLStandardMode };
     std::optional<StyleRuleType> enclosingRuleType;
-    bool isHTMLDocument { false };
+    bool isHTMLDocument : 1 { false };
 
     // This is only needed to support getMatchedCSSRules.
-    bool hasDocumentSecurityOrigin { false };
+    bool hasDocumentSecurityOrigin : 1 { false };
 
-    bool isContentOpaque { false };
-    bool useSystemAppearance { false };
+    LoadedFromOpaqueSource loadedFromOpaqueSource : 1 { LoadedFromOpaqueSource::No };
+    bool useSystemAppearance : 1 { false };
+    bool shouldIgnoreImportRules : 1 { false };
 
-    // Settings.
-    bool aspectRatioEnabled { false };
-    bool colorContrastEnabled { false };
-    bool colorFilterEnabled { false };
-    bool colorMixEnabled { false };
-    bool constantPropertiesEnabled { false };
-    bool containmentEnabled { false };
-    bool counterStyleAtRulesEnabled { false };
-    bool counterStyleAtRuleImageSymbolsEnabled { false };
-    bool cssColor4 { false };
-    bool deferredCSSParserEnabled { false };
-    bool individualTransformPropertiesEnabled { false };
-#if ENABLE(OVERFLOW_SCROLLING_TOUCH)
-    bool legacyOverflowScrollingTouchEnabled { false };
+    // Settings, excluding those affecting properties.
+    bool counterStyleAtRuleImageSymbolsEnabled : 1 { false };
+    bool springTimingFunctionEnabled : 1 { false };
+#if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
+    bool cssTransformStyleSeparatedEnabled : 1 { false };
 #endif
-    bool overscrollBehaviorEnabled { false };
-    bool relativeColorSyntaxEnabled { false };
-    bool scrollBehaviorEnabled { false };
-    bool springTimingFunctionEnabled { false };
-#if ENABLE(TEXT_AUTOSIZING)
-    bool textAutosizingEnabled { false };
+    bool gridLanesEnabled : 1 { false };
+    bool cssAppearanceBaseEnabled : 1 { false };
+    bool cssPaintingAPIEnabled : 1 { false };
+    bool cssTextDecorationLineErrorValues : 1 { false };
+    bool cssWordBreakAutoPhraseEnabled : 1 { false };
+    bool popoverAttributeEnabled : 1 { false };
+    bool cssTextWrapPrettyEnabled : 1 { true };
+#if ENABLE(SERVICE_CONTROLS)
+    bool imageControlsEnabled : 1 { false };
 #endif
-#if ENABLE(CSS_TRANSFORM_STYLE_OPTIMIZED_3D)
-    bool transformStyleOptimized3DEnabled { false };
-#endif
-    bool useLegacyBackgroundSizeShorthandBehavior { false };
-    bool focusVisibleEnabled { false };
-    bool hasPseudoClassEnabled { false };
-    bool cascadeLayersEnabled { false };
+    bool colorLayersEnabled : 1 { false };
+    bool cssPickerPseudoElementEnabled : 1 { false };
+    bool targetTextPseudoElementEnabled : 1 { false };
+    bool htmlEnhancedSelectEnabled : 1 { false };
+    bool cssRandomFunctionEnabled : 1 { false };
+    bool cssRandomItemFunctionEnabled : 1 { false };
+    bool cssRubyDisplayTypesEnabled : 1 { false };
+    bool cssTreeCountingFunctionsEnabled : 1 { false };
+    bool cssURLModifiersEnabled : 1 { false };
+    bool cssURLIntegrityModifierEnabled : 1 { false };
+    bool cssAxisRelativePositionKeywordsEnabled : 1 { false };
+    bool cssDynamicRangeLimitMixEnabled : 1 { false };
+    bool cssConstrainedDynamicRangeLimitEnabled : 1 { false };
+    bool cssTextTransformMathAutoEnabled : 1 { false };
+    bool cssFontSynthesisStyleObliqueOnlyEnabled : 1 { false };
+    bool cssInternalAutoBaseParsingEnabled : 1 { false };
+    bool webkitMediaTextTrackDisplayQuirkEnabled : 1 { false };
+    bool cssMathDepthEnabled : 1 { false };
+    bool openPseudoClassEnabled : 1 { false };
+    bool cssAttrSubstitutionFunctionEnabled : 1 { false };
+    bool cssScrollStateContainerQueriesEnabled : 1 { false };
+    bool cssCalcMixEnabled : 1 { false };
+    bool cssIdentFunctionEnabled : 1 { false };
+    bool cssIfFunctionEnabled : 1 { false };
 
-    // RuntimeEnabledFeatures.
-#if ENABLE(ATTACHMENT_ELEMENT)
-    bool attachmentEnabled { false };
-#endif
+    // Enabled only for the legacy <font face> attribute: allows a numeric token within a family
+    // name (e.g. "Bodoni 72"). Regular CSS font-family parsing stays strict.
+    bool legacyFontFaceAttributeMode : 1 { false };
 
-    bool overflowClipEnabled { false };
+    // Settings, those affecting properties.
+    CSSPropertySettings propertySettings;
 
     CSSParserContext(CSSParserMode, const URL& baseURL = URL());
-    WEBCORE_EXPORT CSSParserContext(const Document&, const URL& baseURL = URL(), const String& charset = emptyString());
-    bool isPropertyRuntimeDisabled(CSSPropertyID) const;
-    ResolvedURL completeURL(const String&) const;
-};
+    WEBCORE_EXPORT CSSParserContext(const Document&);
+    CSSParserContext(const Document&, const URL& baseURL, ASCIILiteral charset = ""_s);
+    CSSParserContext(const Settings&);
 
-bool operator==(const CSSParserContext&, const CSSParserContext&);
-inline bool operator!=(const CSSParserContext& a, const CSSParserContext& b) { return !(a == b); }
+    void NODELETE setUASheetMode();
+
+    bool operator==(const CSSParserContext&) const = default;
+};
 
 void add(Hasher&, const CSSParserContext&);
 
 WEBCORE_EXPORT const CSSParserContext& strictCSSParserContext();
-
-struct CSSParserContextHash {
-    static unsigned hash(const CSSParserContext& context) { return computeHash(context); }
-    static bool equal(const CSSParserContext& a, const CSSParserContext& b) { return a == b; }
-    static const bool safeToCompareToEmptyOrDeleted = false;
-};
 
 } // namespace WebCore
 
@@ -119,7 +126,5 @@ template<> struct HashTraits<WebCore::CSSParserContext> : GenericHashTraits<WebC
     static bool isDeletedValue(const WebCore::CSSParserContext& value) { return value.baseURL.isHashTableDeletedValue(); }
     static WebCore::CSSParserContext emptyValue() { return WebCore::CSSParserContext(WebCore::HTMLStandardMode); }
 };
-
-template<> struct DefaultHash<WebCore::CSSParserContext> : WebCore::CSSParserContextHash { };
 
 } // namespace WTF

@@ -36,7 +36,7 @@ namespace WTF {
 static UText* uTextUTF16ContextAwareClone(UText*, const UText*, UBool, UErrorCode*);
 static int64_t uTextUTF16ContextAwareNativeLength(UText*);
 static UBool uTextUTF16ContextAwareAccess(UText*, int64_t, UBool);
-static int32_t uTextUTF16ContextAwareExtract(UText*, int64_t, int64_t, UChar*, int32_t, UErrorCode*);
+static int32_t uTextUTF16ContextAwareExtract(UText*, int64_t, int64_t, char16_t*, int32_t, UErrorCode*);
 static void uTextUTF16ContextAwareClose(UText*);
 
 static const struct UTextFuncs textUTF16ContextAwareFuncs = {
@@ -58,7 +58,7 @@ static const struct UTextFuncs textUTF16ContextAwareFuncs = {
     nullptr
 };
 
-static inline UTextProviderContext textUTF16ContextAwareGetCurrentContext(const UText* text)
+static inline UTextProviderContext NODELETE textUTF16ContextAwareGetCurrentContext(const UText* text)
 {
     if (!text->chunkContents)
         return UTextProviderContext::NoContext;
@@ -69,7 +69,7 @@ static void textUTF16ContextAwareMoveInPrimaryContext(UText* text, int64_t nativ
 {
     ASSERT(text->chunkContents == text->p);
     ASSERT_UNUSED(forward, forward ? nativeIndex >= text->b : nativeIndex > text->b);
-    ASSERT_UNUSED(forward, forward ? nativeIndex < nativeLength : nativeIndex <= nativeLength);
+    ASSERT(nativeIndex <= nativeLength);
     text->chunkNativeStart = text->b;
     text->chunkNativeLimit = nativeLength;
     int64_t length = text->chunkNativeLimit - text->chunkNativeStart;
@@ -86,16 +86,15 @@ static void textUTF16ContextAwareMoveInPrimaryContext(UText* text, int64_t nativ
 static void textUTF16ContextAwareSwitchToPrimaryContext(UText* text, int64_t nativeIndex, int64_t nativeLength, UBool forward)
 {
     ASSERT(!text->chunkContents || text->chunkContents == text->q);
-    text->chunkContents = static_cast<const UChar*>(text->p);
+    text->chunkContents = static_cast<const char16_t*>(text->p);
     textUTF16ContextAwareMoveInPrimaryContext(text, nativeIndex, nativeLength, forward);
 }
 
 static void textUTF16ContextAwareMoveInPriorContext(UText* text, int64_t nativeIndex, int64_t nativeLength, UBool forward)
 {
     ASSERT(text->chunkContents == text->q);
-    ASSERT(forward ? nativeIndex < text->b : nativeIndex <= text->b);
-    ASSERT_UNUSED(nativeLength, forward ? nativeIndex < nativeLength : nativeIndex <= nativeLength);
-    ASSERT_UNUSED(forward, forward ? nativeIndex < nativeLength : nativeIndex <= nativeLength);
+    ASSERT_UNUSED(forward, forward ? nativeIndex < text->b : nativeIndex <= text->b);
+    ASSERT_UNUSED(nativeLength, nativeIndex <= nativeLength);
     text->chunkNativeStart = 0;
     text->chunkNativeLimit = text->b;
     text->chunkLength = text->b;
@@ -109,7 +108,7 @@ static void textUTF16ContextAwareMoveInPriorContext(UText* text, int64_t nativeI
 static void textUTF16ContextAwareSwitchToPriorContext(UText* text, int64_t nativeIndex, int64_t nativeLength, UBool forward)
 {
     ASSERT(!text->chunkContents || text->chunkContents == text->p);
-    text->chunkContents = static_cast<const UChar*>(text->q);
+    text->chunkContents = static_cast<const char16_t*>(text->q);
     textUTF16ContextAwareMoveInPriorContext(text, nativeIndex, nativeLength, forward);
 }
 
@@ -118,7 +117,7 @@ static UText* uTextUTF16ContextAwareClone(UText* destination, const UText* sourc
     return uTextCloneImpl(destination, source, deep, status);
 }
 
-static inline int64_t uTextUTF16ContextAwareNativeLength(UText* text)
+static inline int64_t NODELETE uTextUTF16ContextAwareNativeLength(UText* text)
 {
     return text->a + text->b;
 }
@@ -149,7 +148,7 @@ static UBool uTextUTF16ContextAwareAccess(UText* text, int64_t nativeIndex, UBoo
     return true;
 }
 
-static int32_t uTextUTF16ContextAwareExtract(UText*, int64_t, int64_t, UChar*, int32_t, UErrorCode* errorCode)
+static int32_t NODELETE uTextUTF16ContextAwareExtract(UText*, int64_t, int64_t, char16_t*, int32_t, UErrorCode* errorCode)
 {
     // In the present context, this text provider is used only with ICU functions
     // that do not perform an extract operation.
@@ -158,16 +157,16 @@ static int32_t uTextUTF16ContextAwareExtract(UText*, int64_t, int64_t, UChar*, i
     return 0;
 }
 
-static void uTextUTF16ContextAwareClose(UText* text)
+static void NODELETE uTextUTF16ContextAwareClose(UText* text)
 {
     text->context = nullptr;
 }
 
-UText* openUTF16ContextAwareUTextProvider(UText* text, const UChar* string, unsigned length, const UChar* priorContext, int priorContextLength, UErrorCode* status)
+UText* openUTF16ContextAwareUTextProvider(UText* text, std::span<const char16_t> string, std::span<const char16_t> priorContext, UErrorCode* status)
 {
     if (U_FAILURE(*status))
         return nullptr;
-    if (!string || length > static_cast<unsigned>(std::numeric_limits<int32_t>::max())) {
+    if (!string.data() || string.size() > static_cast<unsigned>(std::numeric_limits<int32_t>::max())) {
         *status = U_ILLEGAL_ARGUMENT_ERROR;
         return nullptr;
     }
@@ -177,7 +176,7 @@ UText* openUTF16ContextAwareUTextProvider(UText* text, const UChar* string, unsi
         return nullptr;
     }
 
-    initializeContextAwareUTextProvider(text, &textUTF16ContextAwareFuncs, string, length, priorContext, priorContextLength);
+    initializeContextAwareUTextProvider(text, &textUTF16ContextAwareFuncs, string, priorContext);
     return text;
 }
 

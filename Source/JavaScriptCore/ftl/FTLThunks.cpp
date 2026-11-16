@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,8 +35,11 @@
 #include "FTLSaveRestore.h"
 #include "GPRInfo.h"
 #include "LinkBuffer.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC { namespace FTL {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Thunks);
 
 using namespace DFG;
 
@@ -46,7 +49,7 @@ enum class FrameAndStackAdjustmentRequirement {
 };
 
 static MacroAssemblerCodeRef<JITThunkPtrTag> genericGenerationThunkGenerator(
-    VM& vm, FunctionPtr<CFunctionPtrTag> generationFunction, PtrTag resultTag, const char* name, unsigned extraPopsToRestore, FrameAndStackAdjustmentRequirement frameAndStackAdjustmentRequirement)
+    VM& vm, CodePtr<CFunctionPtrTag> generationFunction, PtrTag resultTag, const char* name, unsigned extraPopsToRestore, FrameAndStackAdjustmentRequirement frameAndStackAdjustmentRequirement)
 {
     AssemblyHelpers jit(nullptr);
 
@@ -80,12 +83,12 @@ static MacroAssemblerCodeRef<JITThunkPtrTag> genericGenerationThunkGenerator(
     
     saveAllRegisters(jit, buffer);
 
-    jit.loadPtr(framePointerRegister, GPRInfo::argumentGPR0);
+    jit.loadPtr(CCallHelpers::Address(framePointerRegister), GPRInfo::argumentGPR0);
     jit.peek(
         GPRInfo::argumentGPR1,
         (stackMisalignment - pushToSaveByteOffset) / sizeof(void*));
     jit.prepareCallOperation(vm);
-    MacroAssembler::Call functionCall = jit.call(OperationPtrTag);
+    jit.callOperation<OperationPtrTag>(generationFunction.retagged<OperationPtrTag>());
 
     // At this point we want to make a tail call to what was returned to us in the
     // returnValueGPR. But at the same time as we do this, we must restore all registers.
@@ -107,8 +110,6 @@ static MacroAssemblerCodeRef<JITThunkPtrTag> genericGenerationThunkGenerator(
     // ensures that the return address is out of the way of register restoration.
     jit.restoreReturnAddressBeforeReturn(GPRInfo::regT0);
 
-    restoreAllRegisters(jit, buffer);
-
 #if CPU(ARM64E)
     jit.untagPtr(resultTag, AssemblyHelpers::linkRegister);
     jit.validateUntaggedPtr(AssemblyHelpers::linkRegister);
@@ -116,11 +117,13 @@ static MacroAssemblerCodeRef<JITThunkPtrTag> genericGenerationThunkGenerator(
 #else
     UNUSED_PARAM(resultTag);
 #endif
+
+    restoreAllRegisters(jit, buffer);
+
     jit.ret();
     
     LinkBuffer patchBuffer(jit, GLOBAL_THUNK_ID, LinkBuffer::Profile::FTLThunk);
-    patchBuffer.link(functionCall, generationFunction.retagged<OperationPtrTag>());
-    return FINALIZE_CODE(patchBuffer, JITThunkPtrTag, "%s", name);
+    return FINALIZE_THUNK(patchBuffer, JITThunkPtrTag, nullptr, "%s", name);
 }
 
 MacroAssemblerCodeRef<JITThunkPtrTag> osrExitGenerationThunkGenerator(VM& vm)
@@ -139,18 +142,14 @@ MacroAssemblerCodeRef<JITThunkPtrTag> lazySlowPathGenerationThunkGenerator(VM& v
 
 static void registerClobberCheck(AssemblyHelpers& jit, RegisterSet dontClobber)
 {
-    if (!Options::clobberAllRegsInFTLICSlowPath())
-        return;
-    
-    RegisterSet clobber = RegisterSet::allRegisters();
-    clobber.exclude(RegisterSet::reservedHardwareRegisters());
-    clobber.exclude(RegisterSet::stackRegisters());
-    clobber.exclude(RegisterSet::calleeSaveRegisters());
+    ASSERT(Options::clobberAllRegsInFTLICSlowPath());
+    RegisterSet clobber = RegisterSet::registersToSaveForJSCall(RegisterSet::allScalarRegisters());
     clobber.exclude(dontClobber);
+    auto wholeClobberedRegisters = clobber.normalizeWidths();
     
     GPRReg someGPR = InvalidGPRReg;
     for (Reg reg = Reg::first(); reg <= Reg::last(); reg = reg.next()) {
-        if (!clobber.get(reg) || !reg.isGPR())
+        if (!wholeClobberedRegisters.contains(reg, IgnoreVectors) || !reg.isGPR())
             continue;
         
         jit.move(AssemblyHelpers::TrustedImm32(0x1337beef), reg.gpr());
@@ -158,7 +157,7 @@ static void registerClobberCheck(AssemblyHelpers& jit, RegisterSet dontClobber)
     }
     
     for (Reg reg = Reg::first(); reg <= Reg::last(); reg = reg.next()) {
-        if (!clobber.get(reg) || !reg.isFPR())
+        if (!wholeClobberedRegisters.contains(reg, IgnoreVectors) || !reg.isFPR())
             continue;
         
         jit.move64ToDouble(someGPR, reg.fpr());
@@ -183,17 +182,17 @@ MacroAssemblerCodeRef<JITThunkPtrTag> slowPathCallThunkGenerator(VM& vm, const S
     AssemblyHelpers::StoreRegSpooler storeSpooler(jit, MacroAssembler::stackPointerRegister);
 
     for (MacroAssembler::RegisterID reg = MacroAssembler::firstRegister(); reg <= MacroAssembler::lastRegister(); reg = static_cast<MacroAssembler::RegisterID>(reg + 1)) {
-        if (!key.usedRegisters().get(reg))
+        if (!key.usedRegisters().contains(reg, IgnoreVectors))
             continue;
-        storeSpooler.storeGPR({ reg, static_cast<ptrdiff_t>(currentOffset) });
+        storeSpooler.storeGPR({ reg, static_cast<ptrdiff_t>(currentOffset), conservativeWidthWithoutVectors(reg) });
         currentOffset += sizeof(void*);
     }
     storeSpooler.finalizeGPR();
 
     for (MacroAssembler::FPRegisterID reg = MacroAssembler::firstFPRegister(); reg <= MacroAssembler::lastFPRegister(); reg = static_cast<MacroAssembler::FPRegisterID>(reg + 1)) {
-        if (!key.usedRegisters().get(reg))
+        if (!key.usedRegisters().contains(reg, IgnoreVectors))
             continue;
-        storeSpooler.storeFPR({ reg, static_cast<ptrdiff_t>(currentOffset) });
+        storeSpooler.storeFPR({ reg, static_cast<ptrdiff_t>(currentOffset), conservativeWidthWithoutVectors(reg) });
         currentOffset += sizeof(double);
     }
     storeSpooler.finalizeFPR();
@@ -202,14 +201,16 @@ MacroAssemblerCodeRef<JITThunkPtrTag> slowPathCallThunkGenerator(VM& vm, const S
     jit.storePtr(GPRInfo::nonArgGPR1, AssemblyHelpers::Address(MacroAssembler::stackPointerRegister, key.offset()));
     jit.prepareCallOperation(vm);
     
-    RegisterSet dontClobber = key.argumentRegisters();
-    if (!key.callTarget())
-        dontClobber.set(GPRInfo::nonArgGPR0);
-    registerClobberCheck(jit, WTFMove(dontClobber));
+    if (Options::clobberAllRegsInFTLICSlowPath()) [[unlikely]] {
+        auto dontClobber = key.argumentRegistersIfClobberingCheckIsEnabled();
+        if (!key.callTarget())
+            dontClobber.add(GPRInfo::nonArgGPR0, IgnoreVectors);
+        registerClobberCheck(jit, WTF::move(dontClobber));
+    }
 
     AssemblyHelpers::Call call;
     if (key.callTarget())
-        call = jit.call(OperationPtrTag);
+        jit.callOperation<OperationPtrTag>(key.callTarget());
     else
         jit.call(CCallHelpers::Address(GPRInfo::nonArgGPR0, key.indirectOffset()), OperationPtrTag);
 
@@ -219,9 +220,9 @@ MacroAssemblerCodeRef<JITThunkPtrTag> slowPathCallThunkGenerator(VM& vm, const S
     AssemblyHelpers::LoadRegSpooler loadSpooler(jit, MacroAssembler::stackPointerRegister);
 
     for (MacroAssembler::FPRegisterID reg = MacroAssembler::lastFPRegister(); ; reg = static_cast<MacroAssembler::FPRegisterID>(reg - 1)) {
-        if (key.usedRegisters().get(reg)) {
+        if (key.usedRegisters().contains(reg, IgnoreVectors)) {
             currentOffset -= sizeof(double);
-            loadSpooler.loadFPR({ reg, static_cast<ptrdiff_t>(currentOffset) });
+            loadSpooler.loadFPR({ reg, static_cast<ptrdiff_t>(currentOffset), conservativeWidthWithoutVectors(reg) });
         }
         if (reg == MacroAssembler::firstFPRegister())
             break;
@@ -229,9 +230,9 @@ MacroAssemblerCodeRef<JITThunkPtrTag> slowPathCallThunkGenerator(VM& vm, const S
     loadSpooler.finalizeFPR();
 
     for (MacroAssembler::RegisterID reg = MacroAssembler::lastRegister(); ; reg = static_cast<MacroAssembler::RegisterID>(reg - 1)) {
-        if (key.usedRegisters().get(reg)) {
+        if (key.usedRegisters().contains(reg, IgnoreVectors)) {
             currentOffset -= sizeof(void*);
-            loadSpooler.loadGPR({ reg, static_cast<ptrdiff_t>(currentOffset) });
+            loadSpooler.loadGPR({ reg, static_cast<ptrdiff_t>(currentOffset), conservativeWidthWithoutVectors(reg) });
         }
         if (reg == MacroAssembler::firstRegister())
             break;
@@ -241,9 +242,7 @@ MacroAssemblerCodeRef<JITThunkPtrTag> slowPathCallThunkGenerator(VM& vm, const S
     jit.ret();
 
     LinkBuffer patchBuffer(jit, GLOBAL_THUNK_ID, LinkBuffer::Profile::FTLThunk);
-    if (key.callTarget())
-        patchBuffer.link(call, key.callTarget());
-    return FINALIZE_CODE(patchBuffer, JITThunkPtrTag, "FTL slow path call thunk for %s", toCString(key).data());
+    return FINALIZE_THUNK(patchBuffer, JITThunkPtrTag, nullptr, "FTL slow path call thunk for %s", toCString(key).data());
 }
 
 } } // namespace JSC::FTL

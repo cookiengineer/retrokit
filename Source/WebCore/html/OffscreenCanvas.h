@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,188 +27,170 @@
 
 #if ENABLE(OFFSCREEN_CANVAS)
 
-#include "AffineTransform.h"
-#include "CanvasBase.h"
-#include "ContextDestructionObserver.h"
-#include "EventTarget.h"
-#include "ExceptionOr.h"
-#include "IDLTypes.h"
-#include "ImageBuffer.h"
-#include "ImageBufferPipe.h"
-#include "IntSize.h"
-#include "ScriptWrappable.h"
+#include <WebCore/ActiveDOMObject.h>
+#include <WebCore/AffineTransform.h>
+#include <WebCore/CanvasBase.h>
+#include <WebCore/ContextDestructionObserver.h>
+#include <WebCore/EventTarget.h>
+#include <WebCore/EventTargetInterfaces.h>
+#include <WebCore/IDLTypes.h>
+#include <WebCore/ImageBuffer.h>
+#include <WebCore/IntSize.h>
+#include <WebCore/ScriptWrappable.h>
+#include <wtf/FixedVector.h>
 #include <wtf/Forward.h>
 #include <wtf/RefCounted.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
-#if ENABLE(WEBGL)
-#include "WebGLContextAttributes.h"
-#endif
 
+#if ENABLE(WEBGL)
+#include <WebCore/WebGLContextAttributes.h>
+#endif
 
 namespace WebCore {
 
 class CanvasRenderingContext;
-class CSSValuePool;
 class DeferredPromise;
+class GPU;
+class GPUCanvasContext;
 class HTMLCanvasElement;
 class ImageBitmap;
+class ImageBitmapRenderingContext;
 class ImageData;
 class OffscreenCanvasRenderingContext2D;
 class WebGL2RenderingContext;
 class WebGLRenderingContext;
 class WebGLRenderingContextBase;
 
+template<typename> class ExceptionOr;
+
 using OffscreenRenderingContext = Variant<
 #if ENABLE(WEBGL)
-    RefPtr<WebGLRenderingContext>,
+    Ref<WebGLRenderingContext>,
+    Ref<WebGL2RenderingContext>,
 #endif
-#if ENABLE(WEBGL2)
-    RefPtr<WebGL2RenderingContext>,
-#endif
-    RefPtr<OffscreenCanvasRenderingContext2D>
+    Ref<GPUCanvasContext>,
+    Ref<ImageBitmapRenderingContext>,
+    Ref<OffscreenCanvasRenderingContext2D>
 >;
 
+class PlaceholderRenderingContext;
+class PlaceholderRenderingContextSource;
+
 class DetachedOffscreenCanvas {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(DetachedOffscreenCanvas, WEBCORE_EXPORT);
     WTF_MAKE_NONCOPYABLE(DetachedOffscreenCanvas);
-    WTF_MAKE_FAST_ALLOCATED;
     friend class OffscreenCanvas;
 
 public:
-    DetachedOffscreenCanvas(RefPtr<ImageBuffer>&&, const IntSize&, bool originClean);
-
-    RefPtr<ImageBuffer> takeImageBuffer();
-    const IntSize& size() const { return m_size; }
+    DetachedOffscreenCanvas(const IntSize&, bool originClean, RefPtr<PlaceholderRenderingContextSource>&&);
+    WEBCORE_EXPORT ~DetachedOffscreenCanvas();
+    const IntSize& size() const LIFETIME_BOUND { return m_size; }
     bool originClean() const { return m_originClean; }
-    size_t memoryCost() const
-    {
-        auto* buffer = m_buffer.get();
-        if (buffer)
-            return buffer->memoryCost();
-        return 0;
-    }
-    WeakPtr<HTMLCanvasElement> takePlaceholderCanvas();
+    const RefPtr<PlaceholderRenderingContextSource>& placeholderSource() const LIFETIME_BOUND { return m_placeholderSource; }
+    RefPtr<PlaceholderRenderingContextSource> NODELETE takePlaceholderSource();
 
 private:
-    RefPtr<ImageBuffer> m_buffer;
+    RefPtr<PlaceholderRenderingContextSource> m_placeholderSource;
     IntSize m_size;
     bool m_originClean;
-    WeakPtr<HTMLCanvasElement> m_placeholderCanvas;
 };
 
-class OffscreenCanvas final : public RefCounted<OffscreenCanvas>, public CanvasBase, public EventTargetWithInlineData, private ContextDestructionObserver {
-    WTF_MAKE_ISO_ALLOCATED(OffscreenCanvas);
+class OffscreenCanvas final : public ActiveDOMObject, public CanvasBase, public RefCounted<OffscreenCanvas>, public EventTarget {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(OffscreenCanvas, WEBCORE_EXPORT);
 public:
-
     struct ImageEncodeOptions {
-        String type = "image/png";
+        String type = "image/png"_s;
         double quality = 1.0;
     };
 
     enum class RenderingContextType {
         _2d,
         Webgl,
-        Webgl2
+        Webgl2,
+        Bitmaprenderer,
+        Webgpu
     };
 
     static bool enabledForContext(ScriptExecutionContext&);
 
     static Ref<OffscreenCanvas> create(ScriptExecutionContext&, unsigned width, unsigned height);
     static Ref<OffscreenCanvas> create(ScriptExecutionContext&, std::unique_ptr<DetachedOffscreenCanvas>&&);
-    static Ref<OffscreenCanvas> create(ScriptExecutionContext&, HTMLCanvasElement&);
-    virtual ~OffscreenCanvas();
+    static Ref<OffscreenCanvas> create(ScriptExecutionContext&, PlaceholderRenderingContext&);
+    WEBCORE_EXPORT virtual ~OffscreenCanvas();
 
-    unsigned width() const final;
-    unsigned height() const final;
+    // ContextDestructionObserver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+    USING_CAN_MAKE_WEAKPTR(EventTarget);
+
     void setWidth(unsigned);
     void setHeight(unsigned);
+    void setSizeForControllingContext(IntSize) final;
 
     CanvasRenderingContext* renderingContext() const final { return m_context.get(); }
 
-    ExceptionOr<std::optional<OffscreenRenderingContext>> getContext(JSC::JSGlobalObject&, RenderingContextType, Vector<JSC::Strong<JSC::Unknown>>&& arguments);
+    std::unique_ptr<CSSParserContext> createCSSParserContext() const final;
+
+    ExceptionOr<std::optional<OffscreenRenderingContext>> getContext(JSC::JSGlobalObject&, RenderingContextType, FixedVector<JSC::Strong<JSC::Unknown>>&& arguments);
     ExceptionOr<RefPtr<ImageBitmap>> transferToImageBitmap();
     void convertToBlob(ImageEncodeOptions&&, Ref<DeferredPromise>&&);
 
-    void didDraw(const std::optional<FloatRect>&) final;
+    void didDraw(const std::optional<FloatRect>&, ShouldApplyPostProcessingToDirtyRect) final;
 
     Image* copiedImage() const final;
     void clearCopiedImage() const final;
 
-    bool hasCreatedImageBuffer() const final { return m_hasCreatedImageBuffer; }
-
     SecurityOrigin* securityOrigin() const final;
 
-    bool canDetach() const;
+    bool NODELETE canDetach() const;
     std::unique_ptr<DetachedOffscreenCanvas> detach();
 
     void commitToPlaceholderCanvas();
 
-    CSSValuePool& cssValuePool();
-
-    using RefCounted::ref;
-    using RefCounted::deref;
+    void queueTaskKeepingObjectAlive(TaskSource, Function<void(CanvasBase&)>&&) final;
+    void dispatchEvent(Event&) final;
+    bool isDetached() const { return m_detached; };
 
 private:
+    OffscreenCanvas(ScriptExecutionContext&, IntSize, RefPtr<PlaceholderRenderingContextSource>&&);
 
-    OffscreenCanvas(ScriptExecutionContext&, unsigned width, unsigned height);
+    // ActiveDOMObject.
+    bool virtualHasPendingActivity() const final;
+
+    // EventTarget.
+    void eventListenersDidChange() final;
 
     bool isOffscreenCanvas() const final { return true; }
 
-    ScriptExecutionContext* scriptExecutionContext() const final { return ContextDestructionObserver::scriptExecutionContext(); }
-    ScriptExecutionContext* canvasBaseScriptExecutionContext() const final { return ContextDestructionObserver::scriptExecutionContext(); }
+    ScriptExecutionContext* scriptExecutionContext() const final;
+    ScriptExecutionContext* canvasBaseScriptExecutionContext() const final;
 
-    EventTargetInterface eventTargetInterface() const final { return OffscreenCanvasEventTargetInterfaceType; }
-    void refEventTarget() final { ref(); }
-    void derefEventTarget() final { deref(); }
+    enum EventTargetInterfaceType eventTargetInterface() const final { return EventTargetInterfaceType::OffscreenCanvas; }
+    void refEventTarget() final { RefCounted::ref(); }
+    void derefEventTarget() final { RefCounted::deref(); }
 
-    void refCanvasBase() final { ref(); }
-    void derefCanvasBase() final { deref(); }
+    void didUpdateSizeProperties(bool sizeChanged);
 
-    void setSize(const IntSize&) final;
-
-#if ENABLE(WEBGL)
-    void createContextWebGL(RenderingContextType, WebGLContextAttributes&& = { });
-#endif
-
-    void createImageBuffer() const final;
-    RefPtr<ImageBuffer> takeImageBuffer() const;
-
-    void reset();
-
-    void setPlaceholderCanvas(HTMLCanvasElement&);
-    void pushBufferToPlaceholder();
     void scheduleCommitToPlaceholderCanvas();
 
     std::unique_ptr<CanvasRenderingContext> m_context;
-
-    // m_hasCreatedImageBuffer means we tried to malloc the buffer. We didn't necessarily get it.
-    mutable bool m_hasCreatedImageBuffer { false };
-
-    bool m_detached { false };
-
+    RefPtr<PlaceholderRenderingContextSource> m_placeholderSource;
     mutable RefPtr<Image> m_copiedImage;
-
+    bool m_detached { false };
     bool m_hasScheduledCommit { false };
-
-    class PlaceholderData : public ThreadSafeRefCounted<PlaceholderData> {
-    public:
-        static Ref<PlaceholderData> create()
-        {
-            return adoptRef(*new PlaceholderData);
-        }
-
-        WeakPtr<HTMLCanvasElement> canvas;
-        RefPtr<ImageBufferPipe::Source> bufferPipeSource;
-        RefPtr<ImageBuffer> pendingCommitBuffer;
-        mutable Lock bufferLock;
-    };
-
-    RefPtr<PlaceholderData> m_placeholderData;
+#if ENABLE(WEBGL)
+    bool m_hasRelevantWebGLEventListener { false };
+#endif
 };
 
 }
 
-SPECIALIZE_TYPE_TRAITS_CANVAS(WebCore::OffscreenCanvas, isOffscreenCanvas())
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::OffscreenCanvas)
+    static bool isType(const WebCore::CanvasBase& base) { return base.isOffscreenCanvas(); }
+    static bool isType(const WebCore::EventTarget& target) { return target.eventTargetInterface() == WebCore::EventTargetInterfaceType::OffscreenCanvas; }
+SPECIALIZE_TYPE_TRAITS_END()
 
 #endif

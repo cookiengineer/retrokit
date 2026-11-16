@@ -25,15 +25,11 @@
 
 #pragma once
 
-#if OS(LINUX)
+#if OS(LINUX) && !OS(ANDROID)
 
 #include <wtf/NeverDestroyed.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/text/CString.h>
-
-namespace IPC {
-class Attachment;
-}
 
 namespace WebKit {
 
@@ -43,12 +39,14 @@ class MemoryPressureMonitor {
 public:
     static MemoryPressureMonitor& singleton();
     void start();
+    static bool disabled();
 
     ~MemoryPressureMonitor();
 
 private:
     MemoryPressureMonitor() = default;
     bool m_started { false };
+    static bool s_disabled;
 };
 
 class CGroupMemoryController {
@@ -69,14 +67,15 @@ public:
 private:
     CString m_cgroupMemoryControllerPath;
 
-    FILE* m_cgroupMemoryMemswLimitInBytesFile;
-    FILE* m_cgroupMemoryLimitInBytesFile;
-    FILE* m_cgroupMemoryUsageInBytesFile;
+    FILE* m_cgroupMemoryMemswLimitInBytesFile { nullptr };
+    FILE* m_cgroupMemoryMemswUsageInBytesFile { nullptr };
+    FILE* m_cgroupMemoryLimitInBytesFile { nullptr };
+    FILE* m_cgroupMemoryUsageInBytesFile { nullptr };
 
-    FILE* m_cgroupV2MemoryMemswMaxFile;
-    FILE* m_cgroupV2MemoryMaxFile;
-    FILE* m_cgroupV2MemoryHighFile;
-    FILE* m_cgroupV2MemoryCurrentFile;
+    FILE* m_cgroupV2MemoryMemswMaxFile { nullptr };
+    FILE* m_cgroupV2MemoryMaxFile { nullptr };
+    FILE* m_cgroupV2MemoryHighFile { nullptr };
+    FILE* m_cgroupV2MemoryCurrentFile { nullptr };
 
     void disposeMemoryController();
     size_t getCgroupFileValue(FILE*);

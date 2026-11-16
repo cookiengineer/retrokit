@@ -1,6 +1,6 @@
 /*
  *  Copyright (C) 1999-2000 Harri Porten (porten@kde.org)
- *  Copyright (C) 2008 Apple Inc. All rights reserved.
+ *  Copyright (C) 2008-2023 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -20,37 +20,36 @@
 
 #pragma once
 
-#include "JSWrapperObject.h"
+#include <JavaScriptCore/JSWrapperObject.h>
 
 namespace JSC {
 
 class NumberObject : public JSWrapperObject {
 protected:
     NumberObject(VM&, Structure*);
+#if ASSERT_ENABLED
     void finishCreation(VM&);
+#endif
 
 public:
     using Base = JSWrapperObject;
 
     template<typename, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
-        return &vm.numberObjectSpace;
+        return &vm.numberObjectSpace();
     }
 
     static NumberObject* create(VM& vm, Structure* structure)
     {
-        NumberObject* number = new (NotNull, allocateCell<NumberObject>(vm.heap)) NumberObject(vm, structure);
+        NumberObject* number = new (NotNull, allocateCell<NumberObject>(vm)) NumberObject(vm, structure);
         number->finishCreation(vm);
         return number;
     }
 
     DECLARE_EXPORT_INFO;
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(NumberObjectType, StructureFlags), info());
-    }
+    static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 };
 static_assert(sizeof(NumberObject) == sizeof(JSWrapperObject));
 

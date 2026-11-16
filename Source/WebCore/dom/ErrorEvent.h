@@ -33,23 +33,32 @@
 
 #include "Event.h"
 #include "JSValueInWrappedObject.h"
-#include "SerializedScriptValue.h"
 #include <JavaScriptCore/Strong.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
 class ErrorEvent final : public Event {
-    WTF_MAKE_ISO_ALLOCATED(ErrorEvent);
+    WTF_MAKE_TZONE_ALLOCATED(ErrorEvent);
 public:
-    static Ref<ErrorEvent> create(const String& message, const String& fileName, unsigned lineNumber, unsigned columnNumber, JSC::Strong<JSC::Unknown> error)
+    static Ref<ErrorEvent> create(JSC::JSGlobalObject& globalObject, const String& message, const String& fileName, unsigned lineNumber, unsigned columnNumber, JSC::Strong<JSC::Unknown> error)
     {
-        return adoptRef(*new ErrorEvent(message, fileName, lineNumber, columnNumber, error));
+        return adoptRef(*new ErrorEvent(globalObject, message, fileName, lineNumber, columnNumber, error));
     }
 
-    static Ref<ErrorEvent> create(const AtomString& type, const String& message, const String& fileName, unsigned lineNumber, unsigned columnNumber, JSC::Strong<JSC::Unknown> error)
+    static Ref<ErrorEvent> create(const String& message, const String& fileName, unsigned lineNumber, unsigned columnNumber)
     {
-        return adoptRef(*new ErrorEvent(type, message, fileName, lineNumber, columnNumber, error));
+        return adoptRef(*new ErrorEvent(message, fileName, lineNumber, columnNumber));
+    }
+
+    static Ref<ErrorEvent> create(const AtomString& type, const String& message, const String& fileName, unsigned lineNumber, unsigned columnNumber)
+    {
+        return adoptRef(*new ErrorEvent(type, message, fileName, lineNumber, columnNumber));
+    }
+
+    static Ref<ErrorEvent> create(JSC::JSGlobalObject& globalObject, const AtomString& type, const String& message, const String& fileName, unsigned lineNumber, unsigned columnNumber, JSC::Strong<JSC::Unknown> error)
+    {
+        return adoptRef(*new ErrorEvent(globalObject, type, message, fileName, lineNumber, columnNumber, error));
     }
 
     struct Init : EventInit {
@@ -57,43 +66,37 @@ public:
         String filename;
         unsigned lineno { 0 };
         unsigned colno { 0 };
-        JSC::JSValue error;
+        JSC::JSValue error { JSC::jsUndefined() };
     };
 
-    static Ref<ErrorEvent> create(const AtomString& type, const Init& initializer, IsTrusted isTrusted = IsTrusted::No)
+    static Ref<ErrorEvent> create(JSC::JSGlobalObject& globalObject, const AtomString& type, const Init& initializer, IsTrusted isTrusted = IsTrusted::No)
     {
-        return adoptRef(*new ErrorEvent(type, initializer, isTrusted));
+        return adoptRef(*new ErrorEvent(globalObject, type, initializer, isTrusted));
     }
 
     virtual ~ErrorEvent();
 
-    const String& message() const { return m_message; }
-    const String& filename() const { return m_fileName; }
+    const String& message() const LIFETIME_BOUND { return m_message; }
+    const String& filename() const LIFETIME_BOUND { return m_fileName; }
     unsigned lineno() const { return m_lineNumber; }
     unsigned colno() const { return m_columnNumber; }
-    JSC::JSValue error(JSC::JSGlobalObject&);
 
-    const JSValueInWrappedObject& originalError() const { return m_error; }
-    SerializedScriptValue* serializedError() const { return m_serializedError.get(); }
-
-    EventInterface eventInterface() const override;
-
-    RefPtr<SerializedScriptValue> trySerializeError(JSC::JSGlobalObject&);
+    const JSValueInWrappedObject& originalError() const LIFETIME_BOUND { return m_error; }
+    JSValueInWrappedObject& cachedError() LIFETIME_BOUND { return m_cachedError; }
 
 private:
-    ErrorEvent(const AtomString& type, const String& message, const String& fileName, unsigned lineNumber, unsigned columnNumber, JSC::Strong<JSC::Unknown> error);
-    ErrorEvent(const String& message, const String& fileName, unsigned lineNumber, unsigned columnNumber, JSC::Strong<JSC::Unknown> error);
-    ErrorEvent(const AtomString&, const Init&, IsTrusted);
-
-    bool isErrorEvent() const override;
+    ErrorEvent(JSC::JSGlobalObject&, const AtomString& type, const String& message, const String& fileName, unsigned lineNumber, unsigned columnNumber, JSC::Strong<JSC::Unknown> error);
+    ErrorEvent(JSC::JSGlobalObject&, const String& message, const String& fileName, unsigned lineNumber, unsigned columnNumber, JSC::Strong<JSC::Unknown> error);
+    ErrorEvent(const String& message, const String& fileName, unsigned lineNumber, unsigned columnNumber);
+    ErrorEvent(const AtomString& type, const String& message, const String& fileName, unsigned lineNumber, unsigned columnNumber);
+    ErrorEvent(JSC::JSGlobalObject&, const AtomString&, const Init&, IsTrusted);
 
     String m_message;
     String m_fileName;
     unsigned m_lineNumber;
     unsigned m_columnNumber;
     JSValueInWrappedObject m_error;
-    RefPtr<SerializedScriptValue> m_serializedError;
-    bool m_triedToSerialize { false };
+    JSValueInWrappedObject m_cachedError;
 };
 
 } // namespace WebCore

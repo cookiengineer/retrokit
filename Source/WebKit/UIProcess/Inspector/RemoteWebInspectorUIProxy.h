@@ -27,11 +27,14 @@
 
 #include "APIObject.h"
 #include "MessageReceiver.h"
+#include <WebCore/Color.h>
 #include <WebCore/FloatRect.h>
 #include <WebCore/InspectorFrontendClient.h>
 #include <wtf/Forward.h>
 #include <wtf/HashMap.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
 #if PLATFORM(MAC)
@@ -40,6 +43,8 @@ OBJC_CLASS NSWindow;
 OBJC_CLASS WKInspectorViewController;
 OBJC_CLASS WKRemoteWebInspectorUIProxyObjCAdapter;
 OBJC_CLASS WKWebView;
+#elif PLATFORM(GTK)
+#include <wtf/glib/GWeakPtr.h>
 #endif
 
 namespace WebCore {
@@ -60,7 +65,9 @@ class WebView;
 class WebInspectorUIExtensionControllerProxy;
 #endif
 
-class RemoteWebInspectorUIProxyClient {
+class RemoteWebInspectorUIProxyClient : public CanMakeWeakPtr<RemoteWebInspectorUIProxyClient>, public CanMakeCheckedPtr<RemoteWebInspectorUIProxyClient> {
+    WTF_MAKE_TZONE_ALLOCATED(RemoteWebInspectorUIProxyClient);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RemoteWebInspectorUIProxyClient);
 public:
     virtual ~RemoteWebInspectorUIProxyClient() { }
     virtual void sendMessageToBackend(const String& message) = 0;
@@ -69,6 +76,7 @@ public:
 };
 
 class RemoteWebInspectorUIProxy : public RefCounted<RemoteWebInspectorUIProxy>, public IPC::MessageReceiver {
+    WTF_MAKE_TZONE_ALLOCATED(RemoteWebInspectorUIProxy);
 public:
     static Ref<RemoteWebInspectorUIProxy> create()
     {
@@ -76,6 +84,9 @@ public:
     }
 
     ~RemoteWebInspectorUIProxy();
+
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
 
     void setClient(RemoteWebInspectorUIProxyClient* client) { m_client = client; }
 
@@ -85,9 +96,11 @@ public:
 
     void invalidate();
 
-    void load(Ref<API::DebuggableInfo>&&, const String& backendCommandsURL);
+    void initialize(Ref<API::DebuggableInfo>&&, const String& backendCommandsURL);
     void closeFromBackend();
     void show();
+    void showConsole();
+    void showResources();
 
     void sendMessageToFrontend(const String& message);
 
@@ -99,7 +112,7 @@ public:
     NSWindow *window() const { return m_window.get(); }
     WKWebView *webView() const;
 
-    const WebCore::FloatRect& sheetRect() const { return m_sheetRect; }
+    const WebCore::FloatRect& sheetRect() const LIFETIME_BOUND { return m_sheetRect; }
 
     void didBecomeActive();
 #endif
@@ -108,7 +121,7 @@ public:
     void updateWindowTitle(const CString&);
 #endif
 
-#if PLATFORM(WIN_CAIRO)
+#if PLATFORM(WIN)
     LRESULT sizeChange();
     LRESULT onClose();
 
@@ -129,13 +142,17 @@ private:
     void reopen();
     void resetState();
     void bringToFront();
-    void save(const String& filename, const String& content, bool base64Encoded, bool forceSaveAs);
-    void append(const String& filename, const String& content);
-    void setSheetRect(const WebCore::FloatRect&);
+    void save(Vector<WebCore::InspectorFrontendClient::SaveData>&&, bool forceSaveAs);
+    void load(const String& path, CompletionHandler<void(const String&)>&&);
+    void pickColorFromScreen(CompletionHandler<void(const std::optional<WebCore::Color>&)>&&);
+    void NODELETE setSheetRect(const WebCore::FloatRect&);
     void setForcedAppearance(WebCore::InspectorFrontendClient::Appearance);
     void startWindowDrag();
     void openURLExternally(const String& url);
+    void revealFileExternally(const String& path);
     void showCertificate(const WebCore::CertificateInfo&);
+    void setInspectorPageDeveloperExtrasEnabled(bool);
+    void setPageAndTextZoomFactors(double pageZoomFactor, double textZoomFactor);
     void sendMessageToBackend(const String& message);
 
     void createFrontendPageAndWindow();
@@ -146,16 +163,18 @@ private:
     void platformCloseFrontendPageAndWindow();
     void platformResetState();
     void platformBringToFront();
-    void platformSave(const String& filename, const String& content, bool base64Encoded, bool forceSaveAs);
-    void platformAppend(const String& filename, const String& content);
-    void platformSetSheetRect(const WebCore::FloatRect&);
+    void platformSave(Vector<WebCore::InspectorFrontendClient::SaveData>&&, bool forceSaveAs);
+    void platformLoad(const String& path, CompletionHandler<void(const String&)>&&);
+    void platformPickColorFromScreen(CompletionHandler<void(const std::optional<WebCore::Color>&)>&&);
+    void NODELETE platformSetSheetRect(const WebCore::FloatRect&);
     void platformSetForcedAppearance(WebCore::InspectorFrontendClient::Appearance);
     void platformStartWindowDrag();
     void platformOpenURLExternally(const String& url);
+    void platformRevealFileExternally(const String& path);
     void platformShowCertificate(const WebCore::CertificateInfo&);
 
-    RemoteWebInspectorUIProxyClient* m_client { nullptr };
-    WebPageProxy* m_inspectorPage { nullptr };
+    WeakPtr<RemoteWebInspectorUIProxyClient> m_client;
+    WeakPtr<WebPageProxy> m_inspectorPage;
 
 #if ENABLE(INSPECTOR_EXTENSIONS)
     RefPtr<WebInspectorUIExtensionControllerProxy> m_extensionController;
@@ -172,10 +191,10 @@ private:
     WebCore::FloatRect m_sheetRect;
 #endif
 #if PLATFORM(GTK)
-    GtkWidget* m_webView { nullptr };
-    GtkWidget* m_window { nullptr };
+    GWeakPtr<GtkWidget> m_webView;
+    GWeakPtr<GtkWidget> m_window;
 #endif
-#if PLATFORM(WIN_CAIRO)
+#if PLATFORM(WIN)
     HWND m_frontendHandle;
     RefPtr<WebView> m_webView;
 #endif

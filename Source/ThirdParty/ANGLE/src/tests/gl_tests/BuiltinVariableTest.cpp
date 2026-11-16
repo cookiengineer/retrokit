@@ -12,7 +12,7 @@
 
 using namespace angle;
 
-class BuiltinVariableVertexIdTest : public ANGLETest
+class BuiltinVariableVertexIdTest : public ANGLETest<>
 {
   protected:
     BuiltinVariableVertexIdTest()
@@ -195,9 +195,10 @@ TEST_P(BuiltinVariableVertexIdTest, Triangles)
     runTest(GL_TRIANGLES, indices, 6);
 }
 
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(BuiltinVariableVertexIdTest);
 ANGLE_INSTANTIATE_TEST_ES3(BuiltinVariableVertexIdTest);
 
-class BuiltinVariableFragDepthClampingFloatRBOTest : public ANGLETest
+class BuiltinVariableFragDepthClampingFloatRBOTest : public ANGLETest<>
 {
   protected:
     void testSetUp() override
@@ -237,7 +238,7 @@ class BuiltinVariableFragDepthClampingFloatRBOTest : public ANGLETest
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, mDepthTexture,
                                0);
 
-        ASSERT_GLENUM_EQ(GL_FRAMEBUFFER_COMPLETE, glCheckFramebufferStatus(GL_FRAMEBUFFER));
+        ASSERT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
         ASSERT_GL_NO_ERROR();
     }
 
@@ -283,13 +284,8 @@ TEST_P(BuiltinVariableFragDepthClampingFloatRBOTest, Above0)
 // Test that gl_FragDepth is clamped below 1
 TEST_P(BuiltinVariableFragDepthClampingFloatRBOTest, Below1)
 {
-    // TODO(crbug.com/1132295): Failing on Apple DTK.
-    ANGLE_SKIP_TEST_IF(IsOSX() && IsARM64() && IsDesktopOpenGL());
-
     CheckDepthWritten(1.0f, 42.0f);
 }
 
-ANGLE_INSTANTIATE_TEST(BuiltinVariableFragDepthClampingFloatRBOTest,
-                       ES3_D3D11(),
-                       ES3_OPENGL(),
-                       ES3_OPENGLES());
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(BuiltinVariableFragDepthClampingFloatRBOTest);
+ANGLE_INSTANTIATE_TEST_ES3(BuiltinVariableFragDepthClampingFloatRBOTest);

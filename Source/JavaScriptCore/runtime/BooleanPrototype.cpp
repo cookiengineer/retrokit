@@ -35,7 +35,7 @@ static JSC_DECLARE_HOST_FUNCTION(booleanProtoFuncValueOf);
 
 namespace JSC {
 
-const ClassInfo BooleanPrototype::s_info = { "Boolean", &BooleanObject::s_info, &booleanPrototypeTable, nullptr, CREATE_METHOD_TABLE(BooleanPrototype) };
+const ClassInfo BooleanPrototype::s_info = { "Boolean"_s, &BooleanObject::s_info, &booleanPrototypeTable, nullptr, CREATE_METHOD_TABLE(BooleanPrototype) };
 
 /* Source for BooleanPrototype.lut.h
 @begin booleanPrototypeTable
@@ -56,7 +56,8 @@ void BooleanPrototype::finishCreation(VM& vm, JSGlobalObject*)
     Base::finishCreation(vm);
     setInternalValue(vm, jsBoolean(false));
 
-    ASSERT(inherits(vm, info()));
+    ASSERT(inherits(info()));
+    structure()->setMayBePrototype(true);
 }
 
 // ------------------------------ Functions ---------------------------
@@ -72,11 +73,11 @@ JSC_DEFINE_HOST_FUNCTION(booleanProtoFuncToString, (JSGlobalObject* globalObject
     if (thisValue == jsBoolean(true))
         return JSValue::encode(vm.smallStrings.trueString());
 
-    auto* thisObject = jsDynamicCast<BooleanObject*>(vm, thisValue);
-    if (UNLIKELY(!thisObject))
+    auto* thisObject = dynamicDowncast<BooleanObject>(thisValue);
+    if (!thisObject) [[unlikely]]
         return throwVMTypeError(globalObject, scope);
 
-    Integrity::auditStructureID(vm, thisObject->structureID());
+    Integrity::auditStructureID(thisObject->structureID());
     if (thisObject->internalValue() == jsBoolean(false))
         return JSValue::encode(vm.smallStrings.falseString());
 
@@ -92,11 +93,11 @@ JSC_DEFINE_HOST_FUNCTION(booleanProtoFuncValueOf, (JSGlobalObject* globalObject,
     if (thisValue.isBoolean())
         return JSValue::encode(thisValue);
 
-    auto* thisObject = jsDynamicCast<BooleanObject*>(vm, thisValue);
-    if (UNLIKELY(!thisObject))
+    auto* thisObject = dynamicDowncast<BooleanObject>(thisValue);
+    if (!thisObject) [[unlikely]]
         return throwVMTypeError(globalObject, scope);
 
-    Integrity::auditStructureID(vm, thisObject->structureID());
+    Integrity::auditStructureID(thisObject->structureID());
     return JSValue::encode(thisObject->internalValue());
 }
 

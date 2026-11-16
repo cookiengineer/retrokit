@@ -27,22 +27,48 @@
 #include "IDBGetAllRecordsData.h"
 
 #include "IDBKeyRangeData.h"
-#include <wtf/text/StringConcatenateNumbers.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
 IDBGetAllRecordsData IDBGetAllRecordsData::isolatedCopy() const
 {
-    return { keyRangeData.isolatedCopy(), getAllType, count, objectStoreIdentifier, indexIdentifier };
+    return { keyRangeData.isolatedCopy(), getAllType, count, cursorDirection, objectStoreIdentifier, indexIdentifier };
 }
 
 #if !LOG_DISABLED
 
 String IDBGetAllRecordsData::loggingString() const
 {
+    auto directionString = [&] {
+        switch (cursorDirection) {
+        case IndexedDB::CursorDirection::Next:
+            return "next"_s;
+        case IndexedDB::CursorDirection::Nextunique:
+            return "nextunique"_s;
+        case IndexedDB::CursorDirection::Prev:
+            return "prev"_s;
+        case IndexedDB::CursorDirection::Prevunique:
+            return "prevunique"_s;
+        }
+        RELEASE_ASSERT_NOT_REACHED();
+    }();
+
+    auto getAllTypeString = [&] {
+        switch (getAllType) {
+        case IndexedDB::GetAllType::Keys:
+            return "Keys"_s;
+        case IndexedDB::GetAllType::Values:
+            return "Values"_s;
+        case IndexedDB::GetAllType::Records:
+            return "Records"_s;
+        }
+        RELEASE_ASSERT_NOT_REACHED();
+    }();
+
     if (indexIdentifier)
-        return makeString("<GetAllRecords: Idx ", indexIdentifier, ", OS ", objectStoreIdentifier, ", ", getAllType == IndexedDB::GetAllType::Keys ? "Keys" : "Values", ", range ", keyRangeData.loggingString(), '>');
-    return makeString("<GetAllRecords: OS ", objectStoreIdentifier, ", ", getAllType == IndexedDB::GetAllType::Keys ? "Keys" : "Values", ", range ", keyRangeData.loggingString(), '>');
+        return makeString("<GetAllRecords: Idx "_s, *indexIdentifier, ", OS "_s, objectStoreIdentifier, ", "_s, "getAllType "_s, getAllTypeString, ", cursorDirection "_s, directionString, ", range "_s, keyRangeData.loggingString(), '>');
+    return makeString("<GetAllRecords: OS "_s, objectStoreIdentifier, ", "_s, "getAllType "_s, getAllTypeString, ", cursorDirection "_s, directionString, ", range "_s, keyRangeData.loggingString(), '>');
 }
 
 #endif

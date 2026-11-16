@@ -25,14 +25,20 @@
 
 #pragma once
 
+#if USE(THEME_ADWAITA)
 #include "ScrollbarThemeComposite.h"
 
 namespace WebCore {
+class ScrollerImpAdwaita;
 
 class ScrollbarThemeAdwaita : public ScrollbarThemeComposite {
 public:
     ScrollbarThemeAdwaita() = default;
     virtual ~ScrollbarThemeAdwaita() = default;
+
+#if USE(COORDINATED_GRAPHICS_ASYNC_SCROLLBAR)
+    ScrollerImpAdwaita* scrollerImpForScrollbar(Scrollbar&);
+#endif
 
 protected:
     bool usesOverlayScrollbars() const override;
@@ -44,7 +50,7 @@ protected:
     void paintScrollCorner(ScrollableArea&, GraphicsContext&, const IntRect&) override;
     ScrollbarButtonPressAction handleMousePressEvent(Scrollbar&, const PlatformMouseEvent&, ScrollbarPart) override;
 
-    int scrollbarThickness(ScrollbarControlSize, ScrollbarExpansionState) override;
+    int scrollbarThickness(ScrollbarWidth, OverlayScrollbarSizeRelevancy = OverlayScrollbarSizeRelevancy::IncludeOverlayScrollbarSize) override;
     int minimumThumbLength(Scrollbar&) override;
 
     bool hasButtons(Scrollbar&) override;
@@ -53,6 +59,14 @@ protected:
     IntRect backButtonRect(Scrollbar&, ScrollbarPart, bool painting = false) override;
     IntRect forwardButtonRect(Scrollbar&, ScrollbarPart, bool painting = false) override;
     IntRect trackRect(Scrollbar&, bool painting = false) override;
+
+    bool isScrollbarThemeAdwaita() const override { return true; };
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::ScrollbarThemeAdwaita)
+static bool isType(const WebCore::ScrollbarTheme& scrollTheme) { return scrollTheme.isScrollbarThemeAdwaita(); }
+SPECIALIZE_TYPE_TRAITS_END()
+
+#endif // USE(THEME_ADWAITA)

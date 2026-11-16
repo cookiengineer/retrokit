@@ -27,34 +27,41 @@
 #include "CachedResourceHandle.h"
 #include "CachedStyleSheetClient.h"
 #include "XSLStyleSheet.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class CachedXSLStyleSheet;
 
-class XSLImportRule : private CachedStyleSheetClient {
-    WTF_MAKE_FAST_ALLOCATED;
+class XSLImportRule : public RefCounted<XSLImportRule>, private CachedStyleSheetClient {
+    WTF_MAKE_TZONE_ALLOCATED(XSLImportRule);
 public:
-    XSLImportRule(XSLStyleSheet* parentSheet, const String& href);
+    static Ref<XSLImportRule> create(XSLStyleSheet& parentSheet, const String& href);
     virtual ~XSLImportRule();
     
-    const String& href() const { return m_strHref; }
+    const String& href() const LIFETIME_BOUND { return m_strHref; }
     XSLStyleSheet* styleSheet() const { return m_styleSheet.get(); }
 
-    XSLStyleSheet* parentStyleSheet() const { return m_parentStyleSheet; }
+    XSLStyleSheet* parentStyleSheet() const { return m_parentStyleSheet.get(); }
     void setParentStyleSheet(XSLStyleSheet* styleSheet) { m_parentStyleSheet = styleSheet; }
 
     bool isLoading();
     void loadSheet();
+
+    // CachedResourceClient.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
     
 private:
+    XSLImportRule(XSLStyleSheet& parentSheet, const String& href);
+
     void setXSLStyleSheet(const String& href, const URL& baseURL, const String& sheet) override;
     
-    XSLStyleSheet* m_parentStyleSheet;
+    WeakPtr<XSLStyleSheet> m_parentStyleSheet;
     String m_strHref;
     RefPtr<XSLStyleSheet> m_styleSheet;
     CachedResourceHandle<CachedXSLStyleSheet> m_cachedSheet;
-    bool m_loading;
+    bool m_loading { false };
 };
 
 } // namespace WebCore

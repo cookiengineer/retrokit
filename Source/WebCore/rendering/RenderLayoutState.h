@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007, 2013 Apple Inc.  All rights reserved.
+ * Copyright (C) 2007-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,9 +25,11 @@
 
 #pragma once
 
-#include "FrameViewLayoutContext.h"
-#include "LayoutRect.h"
+#include <WebCore/LayoutRect.h>
+#include <WebCore/LocalFrameViewLayoutContext.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
@@ -39,28 +41,31 @@ class RenderMultiColumnFlow;
 class RenderObject;
 
 class RenderLayoutState {
-    WTF_MAKE_NONCOPYABLE(RenderLayoutState); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(RenderLayoutState);
+    WTF_MAKE_NONCOPYABLE(RenderLayoutState);
 
 public:
-    RenderLayoutState()
-        : m_clipped(false)
-        , m_isPaginated(false)
-        , m_pageLogicalHeightChanged(false)
-#if ASSERT_ENABLED
-        , m_layoutDeltaXSaturated(false)
-        , m_layoutDeltaYSaturated(false)
-#endif
-    {
-    }
-    RenderLayoutState(const FrameViewLayoutContext::LayoutStateStack&, RenderBox&, const LayoutSize& offset, LayoutUnit pageHeight, bool pageHeightChanged);
-    enum class IsPaginated { No, Yes };
-    explicit RenderLayoutState(RenderElement&, IsPaginated = IsPaginated::No);
+    struct LineClamp {
+        size_t maximumLines { 0 };
+        bool shouldDiscardOverflow { false };
+    };
+
+    struct LegacyLineClamp {
+        size_t maximumLineCount { 0 };
+        size_t currentLineCount { 0 };
+        std::optional<LayoutUnit> clampedContentLogicalHeight;
+        SingleThreadWeakPtr<const RenderBlockFlow> clampedRenderer;
+    };
+
+    RenderLayoutState() = default;
+    RenderLayoutState(const LocalFrameViewLayoutContext::LayoutStateStack&, RenderBox&, const LayoutSize& offset, LayoutUnit pageHeight, bool pageHeightChanged, std::optional<LineClamp>, std::optional<LegacyLineClamp>);
+    explicit RenderLayoutState(RenderElement&);
 
     bool isPaginated() const { return m_isPaginated; }
 
     // The page logical offset is the object's offset from the top of the page in the page progression
     // direction (so an x-offset in vertical text and a y-offset for horizontal text).
-    LayoutUnit pageLogicalOffset(RenderBox*, LayoutUnit childLogicalOffset) const;
+    LayoutUnit NODELETE pageLogicalOffset(RenderBox*, LayoutUnit childLogicalOffset) const;
     
     LayoutUnit pageLogicalHeight() const { return m_pageLogicalHeight; }
     bool pageLogicalHeightChanged() const { return m_pageLogicalHeightChanged; }
@@ -82,32 +87,43 @@ public:
     LayoutRect clipRect() const { return m_clipRect; }
     bool isClipped() const { return m_clipped; }
 
-    void addLayoutDelta(LayoutSize);
-    LayoutSize layoutDelta() const { return m_layoutDelta; }
+    void NODELETE addLayoutDelta(LayoutSize);
+    LayoutSize layoutDelta() const { return m_layoutDeltaForRepaint; }
 #if ASSERT_ENABLED
     bool layoutDeltaMatches(LayoutSize) const;
 #endif
 
+    void setLineClamp(std::optional<LineClamp> lineClamp) { m_lineClamp = lineClamp; }
+    std::optional<LineClamp> lineClamp() { return m_lineClamp; }
+
+    void setLegacyLineClamp(std::optional<LegacyLineClamp> legacyLineClamp) { m_legacyLineClamp = legacyLineClamp; }
+    std::optional<LegacyLineClamp> legacyLineClamp() const { return m_legacyLineClamp; }
+
+    void setMarginTrimBlockStart(bool marginTrimBlockStart) { m_marginTrimBlockStart = marginTrimBlockStart; }
+    bool marginTrimBlockStart() const { return m_marginTrimBlockStart; }
+
 private:
     void computeOffsets(const RenderLayoutState& ancestor, RenderBox&, LayoutSize offset);
     void computeClipRect(const RenderLayoutState& ancestor, RenderBox&);
-    // FIXME: webkit.org/b/179440 these functions should be part of the pagination code/FrameViewLayoutContext.
-    void computePaginationInformation(const FrameViewLayoutContext::LayoutStateStack&, RenderBox&, LayoutUnit pageLogicalHeight, bool pageLogicalHeightChanged);
+    // FIXME: webkit.org/b/179440 these functions should be part of the pagination code/LocalFrameViewLayoutContext.
+    void computePaginationInformation(const LocalFrameViewLayoutContext::LayoutStateStack&, RenderBox&, LayoutUnit pageLogicalHeight, bool pageLogicalHeightChanged);
     void propagateLineGridInfo(const RenderLayoutState& ancestor, RenderBox&);
-    void establishLineGrid(const FrameViewLayoutContext::LayoutStateStack&, RenderBlockFlow&);
+    void NODELETE establishLineGrid(const LocalFrameViewLayoutContext::LayoutStateStack&, RenderBlockFlow&);
     void computeLineGridPaginationOrigin(const RenderMultiColumnFlow&);
 
     // Do not add anything apart from bitfields. See https://bugs.webkit.org/show_bug.cgi?id=100173
-    bool m_clipped : 1;
-    bool m_isPaginated : 1;
+    bool m_clipped : 1 { false };
+    bool m_isPaginated : 1 { false };
     // If our page height has changed, this will force all blocks to relayout.
-    bool m_pageLogicalHeightChanged : 1;
+    bool m_pageLogicalHeightChanged : 1 { false };
 #if ASSERT_ENABLED
-    bool m_layoutDeltaXSaturated : 1;
-    bool m_layoutDeltaYSaturated : 1;
+    bool m_layoutDeltaForRepaintXSaturated : 1 { false };
+    bool m_layoutDeltaForRepaintYSaturated : 1 { false };
 #endif
+    bool m_marginTrimBlockStart : 1 { false };
+
     // The current line grid that we're snapping to and the offset of the start of the grid.
-    WeakPtr<RenderBlockFlow> m_lineGrid;
+    SingleThreadWeakPtr<RenderBlockFlow> m_lineGrid;
 
     // FIXME: Distinguish between the layout clip rect and the paint clip rect which may be larger,
     // e.g., because of composited scrolling.
@@ -117,10 +133,14 @@ private:
     LayoutSize m_paintOffset;
     // x/y offset from layout root. Does not include in-flow positioning or scroll offsets.
     LayoutSize m_layoutOffset;
-    // Transient offset from the final position of the object
-    // used to ensure that repaints happen in the correct place.
-    // This is a total delta accumulated from the root. 
-    LayoutSize m_layoutDelta;
+
+    // As boxes move during layout, we must invalidate both their _old_ position (where they were painted as of the last layout) and their _new_ one.
+    // Repaint needs those positions relative to the repaint container (e.g. the RenderView), and a repaint rect is built by walking up
+    // the containing-block chain to that container, accumulating each ancestor's position.
+    // During layout, though, some of those ancestors may have already moved, so their current positions can no longer be used to recover the _old_ rect.
+    // (We don't retain previous paint positions; the closest we have is each renderer's m_borderBoxRectInContainer, and that is overwritten during layout.)
+    // This delta helps to recover the last layout's (paint) position by keeping track of position changes during _this_ layout.
+    LayoutSize m_layoutDeltaForRepaint;
 
     // The current page height for the pagination model that encloses us.
     LayoutUnit m_pageLogicalHeight;
@@ -128,6 +148,8 @@ private:
     LayoutSize m_pageOffset;
     LayoutSize m_lineGridOffset;
     LayoutSize m_lineGridPaginationOrigin;
+    std::optional<LineClamp> m_lineClamp;
+    std::optional<LegacyLineClamp> m_legacyLineClamp;
 #if ASSERT_ENABLED
     RenderElement* m_renderer { nullptr };
 #endif
@@ -141,7 +163,7 @@ public:
     ~LayoutStateMaintainer();
 
 private:
-    FrameViewLayoutContext& m_context;
+    LocalFrameViewLayoutContext& m_context;
     bool m_paintOffsetCacheIsDisabled { false };
     bool m_didPushLayoutState { false };
 };
@@ -152,28 +174,42 @@ public:
     ~SubtreeLayoutStateMaintainer();
 
 private:
-    FrameViewLayoutContext* m_context { nullptr };
+    LocalFrameViewLayoutContext* m_context { nullptr };
     bool m_didDisablePaintOffsetCache { false };
 };
 
 class LayoutStateDisabler {
     WTF_MAKE_NONCOPYABLE(LayoutStateDisabler);
 public:
-    LayoutStateDisabler(FrameViewLayoutContext&);
+    LayoutStateDisabler(LocalFrameViewLayoutContext&);
     ~LayoutStateDisabler();
 
 private:
-    FrameViewLayoutContext& m_context;
+    LocalFrameViewLayoutContext& m_context;
 };
 
-class PaginatedLayoutStateMaintainer {
+class FlexPercentResolveDisabler {
 public:
-    PaginatedLayoutStateMaintainer(RenderBlockFlow&);
-    ~PaginatedLayoutStateMaintainer();
+    FlexPercentResolveDisabler(LocalFrameViewLayoutContext&, const RenderBox& flexItem);
+    ~FlexPercentResolveDisabler();
 
 private:
-    FrameViewLayoutContext& m_context;
-    bool m_pushed { false };
+    const CheckedRef<LocalFrameViewLayoutContext> m_layoutContext;
+    const CheckedRef<const RenderBox> m_flexItem;
+};
+
+class ContentVisibilityOverrideScope {
+public:
+    enum class OverrideType {
+        Hidden = 1 << 0,
+        Auto  = 1 << 1,
+        RevealedWhenFound = 1 << 2
+    };
+    ContentVisibilityOverrideScope(LocalFrameViewLayoutContext&, OptionSet<OverrideType>);
+    ~ContentVisibilityOverrideScope();
+
+private:
+    const CheckedRef<LocalFrameViewLayoutContext> m_layoutContext;
 };
 
 } // namespace WebCore

@@ -27,4 +27,7 @@ dictionary EventInit {
     boolean bubbles = false;
     boolean cancelable = false;
     boolean composed = false;
+
+    // Non-standard.
+    [EnabledForWorld=allowAutofill, ImplementedAs=trustedForBindingsOnly] boolean trusted = false;
 };

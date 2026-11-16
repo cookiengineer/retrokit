@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "ISOOriginalFormatBox.h"
+#include <WebCore/ISOOriginalFormatBox.h>
 
 namespace WebCore {
 
@@ -34,15 +34,18 @@ class ISOSchemeInformationBox;
 
 class WEBCORE_EXPORT ISOProtectionSchemeInfoBox final : public ISOBox {
 public:
-    static FourCC boxTypeName() { return "sinf"; }
+    ISOProtectionSchemeInfoBox();
+    ~ISOProtectionSchemeInfoBox();
 
-    const ISOOriginalFormatBox& originalFormatBox() const { return m_originalFormatBox; }
-    const ISOSchemeTypeBox* schemeTypeBox() const { return m_schemeTypeBox.get(); }
-    const ISOSchemeInformationBox* schemeInformationBox() const { return m_schemeInformationBox.get(); }
+    static FourCC boxTypeName() { return std::span { "sinf" }; }
 
-private:
+    const ISOOriginalFormatBox& originalFormatBox() const LIFETIME_BOUND { return m_originalFormatBox; }
+    const ISOSchemeTypeBox* schemeTypeBox() const LIFETIME_BOUND { return m_schemeTypeBox.get(); }
+    const ISOSchemeInformationBox* schemeInformationBox() const LIFETIME_BOUND { return m_schemeInformationBox.get(); }
+
     bool parse(JSC::DataView&, unsigned& offset) override;
 
+private:
     ISOOriginalFormatBox m_originalFormatBox;
     std::unique_ptr<ISOSchemeTypeBox> m_schemeTypeBox;
     std::unique_ptr<ISOSchemeInformationBox> m_schemeInformationBox;

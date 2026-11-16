@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,10 +31,13 @@
 #include "InstrumentingAgents.h"
 #include "ScriptExecutionContext.h"
 #include "Timer.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 using namespace Inspector;
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebDebuggerAgent);
 
 WebDebuggerAgent::WebDebuggerAgent(WebAgentContext& context)
     : InspectorDebuggerAgent(context)
@@ -46,19 +49,19 @@ WebDebuggerAgent::~WebDebuggerAgent() = default;
 
 bool WebDebuggerAgent::enabled() const
 {
-    return m_instrumentingAgents.enabledWebDebuggerAgent() == this && InspectorDebuggerAgent::enabled();
+    return Ref { m_instrumentingAgents.get() }->enabledWebDebuggerAgent() == this && InspectorDebuggerAgent::enabled();
 }
 
 void WebDebuggerAgent::internalEnable()
 {
-    m_instrumentingAgents.setEnabledWebDebuggerAgent(this);
+    Ref { m_instrumentingAgents.get() }->setEnabledWebDebuggerAgent(this);
 
     InspectorDebuggerAgent::internalEnable();
 }
 
 void WebDebuggerAgent::internalDisable(bool isBeingDestroyed)
 {
-    m_instrumentingAgents.setEnabledWebDebuggerAgent(nullptr);
+    Ref { m_instrumentingAgents.get() }->setEnabledWebDebuggerAgent(nullptr);
 
     InspectorDebuggerAgent::internalDisable(isBeingDestroyed);
 }
@@ -69,22 +72,22 @@ void WebDebuggerAgent::didAddEventListener(EventTarget& target, const AtomString
         return;
 
     auto& eventListeners = target.eventListeners(eventType);
-    auto position = eventListeners.findMatching([&](auto& registeredListener) {
+    auto position = eventListeners.findIf([&](auto& registeredListener) {
         return &registeredListener->callback() == &listener && registeredListener->useCapture() == capture;
     });
     if (position == notFound)
         return;
 
     auto& registeredListener = eventListeners.at(position);
-    if (m_registeredEventListeners.contains(registeredListener.get()))
+    if (m_registeredEventListeners.contains(registeredListener.ptr()))
         return;
 
-    auto* globalObject = target.scriptExecutionContext()->globalObject();
+    auto* globalObject = protect(target.scriptExecutionContext())->globalObject();
     if (!globalObject)
         return;
 
     int identifier = m_nextEventListenerIdentifier++;
-    m_registeredEventListeners.set(registeredListener.get(), identifier);
+    m_registeredEventListeners.set(registeredListener.ptr(), identifier);
 
     didScheduleAsyncCall(globalObject, InspectorDebuggerAgent::AsyncCallType::EventListener, identifier, registeredListener->isOnce());
 }
@@ -92,14 +95,14 @@ void WebDebuggerAgent::didAddEventListener(EventTarget& target, const AtomString
 void WebDebuggerAgent::willRemoveEventListener(EventTarget& target, const AtomString& eventType, EventListener& listener, bool capture)
 {
     auto& eventListeners = target.eventListeners(eventType);
-    size_t listenerIndex = eventListeners.findMatching([&](auto& registeredListener) {
+    size_t listenerIndex = eventListeners.findIf([&](auto& registeredListener) {
         return &registeredListener->callback() == &listener && registeredListener->useCapture() == capture;
     });
 
     if (listenerIndex == notFound)
         return;
 
-    int identifier = m_registeredEventListeners.take(eventListeners[listenerIndex].get());
+    int identifier = m_registeredEventListeners.take(eventListeners[listenerIndex].ptr());
     didCancelAsyncCall(InspectorDebuggerAgent::AsyncCallType::EventListener, identifier);
 }
 
@@ -109,7 +112,21 @@ void WebDebuggerAgent::willHandleEvent(const RegisteredEventListener& listener)
     if (it == m_registeredEventListeners.end())
         return;
 
+    // Save the identifier for the listener we're about to dispatch an event to in case it's removed.
+    m_dispatchedEventListeners.set(&listener, it->value);
+
     willDispatchAsyncCall(InspectorDebuggerAgent::AsyncCallType::EventListener, it->value);
+}
+
+void WebDebuggerAgent::didHandleEvent(const RegisteredEventListener& listener)
+{
+    auto it = m_dispatchedEventListeners.find(&listener);
+    if (it == m_dispatchedEventListeners.end())
+        return;
+
+    didDispatchAsyncCall(InspectorDebuggerAgent::AsyncCallType::EventListener, it->value);
+
+    m_dispatchedEventListeners.remove(it);
 }
 
 int WebDebuggerAgent::willPostMessage()
@@ -164,14 +181,40 @@ void WebDebuggerAgent::didDispatchPostMessage(int postMessageIdentifier)
     if (it == m_postMessageTasks.end())
         return;
 
-    didDispatchAsyncCall();
+    didDispatchAsyncCall(InspectorDebuggerAgent::AsyncCallType::PostMessage, postMessageIdentifier);
 
     m_postMessageTasks.remove(it);
 }
 
+void WebDebuggerAgent::didRequestAnimationFrame(int callbackId, JSC::JSGlobalObject& state)
+{
+    if (!breakpointsActive())
+        return;
+
+    didScheduleAsyncCall(&state, InspectorDebuggerAgent::AsyncCallType::RequestAnimationFrame, callbackId, true);
+}
+
+void WebDebuggerAgent::willFireAnimationFrame(int callbackId)
+{
+    willDispatchAsyncCall(InspectorDebuggerAgent::AsyncCallType::RequestAnimationFrame, callbackId);
+}
+
+void WebDebuggerAgent::didCancelAnimationFrame(int callbackId)
+{
+    didCancelAsyncCall(InspectorDebuggerAgent::AsyncCallType::RequestAnimationFrame, callbackId);
+}
+
+void WebDebuggerAgent::didFireAnimationFrame(int callbackId)
+{
+    didDispatchAsyncCall(InspectorDebuggerAgent::AsyncCallType::RequestAnimationFrame, callbackId);
+}
+
 void WebDebuggerAgent::didClearAsyncStackTraceData()
 {
+    InspectorDebuggerAgent::didClearAsyncStackTraceData();
+
     m_registeredEventListeners.clear();
+    m_dispatchedEventListeners.clear();
     m_postMessageTasks.clear();
     m_nextEventListenerIdentifier = 1;
     m_nextPostMessageIdentifier = 1;

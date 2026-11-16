@@ -25,8 +25,23 @@
 
 #pragma once
 
+#include <optional>
+#include <wtf/HashTraits.h>
+
 namespace WebCore {
+
+class CSSValue;
 
 enum class CompositeOperation : uint8_t { Replace, Add, Accumulate };
 
+std::optional<CompositeOperation> NODELETE toCompositeOperation(const CSSValue&);
+
+// MARK: - Logging
+
+TextStream& operator<<(TextStream&, CompositeOperation);
+
 } // namespace WebCore
+
+namespace WTF {
+template<> struct DefaultHash<WebCore::CompositeOperation> : IntHash<WebCore::CompositeOperation> { };
+} // namespace WTF

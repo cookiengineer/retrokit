@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2021 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,6 +27,7 @@
 
 #include <wtf/HashMap.h>
 #include <wtf/RefCounted.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/StringHash.h>
 #include <wtf/text/WTFString.h>
 
@@ -34,13 +35,13 @@ namespace WebCore {
 
 // This class uses copy-on-write semantics.
 class StorageMap {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(StorageMap, WEBCORE_EXPORT);
 public:
     // Quota size measured in bytes.
     WEBCORE_EXPORT explicit StorageMap(unsigned quotaSize);
 
-    WEBCORE_EXPORT unsigned length() const;
-    WEBCORE_EXPORT String key(unsigned index);
+    WEBCORE_EXPORT unsigned NODELETE length() const;
+    WEBCORE_EXPORT String NODELETE key(unsigned index);
     WEBCORE_EXPORT String getItem(const String&) const;
     WEBCORE_EXPORT void setItem(const String& key, const String& value, String& oldValue, bool& quotaException);
     WEBCORE_EXPORT void setItemIgnoringQuota(const String& key, const String& value);
@@ -50,7 +51,7 @@ public:
     WEBCORE_EXPORT bool contains(const String& key) const;
 
     WEBCORE_EXPORT void importItems(HashMap<String, String>&&);
-    const HashMap<String, String>& items() const { return m_impl->map; }
+    const HashMap<String, String>& items() const LIFETIME_BOUND { return m_impl->map; }
 
     unsigned quota() const { return m_quotaSize; }
 
@@ -59,8 +60,8 @@ public:
     static constexpr unsigned noQuota = std::numeric_limits<unsigned>::max();
 
 private:
-    void invalidateIterator();
-    void setIteratorToIndex(unsigned);
+    void NODELETE invalidateIterator();
+    void NODELETE setIteratorToIndex(unsigned);
 
     struct Impl : public RefCounted<Impl> {
         static Ref<Impl> create()

@@ -44,6 +44,7 @@ class RenderbufferMtl : public RenderbufferImpl
                                             FramebufferAttachmentRenderTarget **rtOut) override;
 
     angle::Result initializeContents(const gl::Context *context,
+                                     GLenum binding,
                                      const gl::ImageIndex &imageIndex) override;
 
   private:
@@ -51,7 +52,8 @@ class RenderbufferMtl : public RenderbufferImpl
                                  GLsizei samples,
                                  GLenum internalformat,
                                  GLsizei width,
-                                 GLsizei height);
+                                 GLsizei height,
+                                 gl::MultisamplingMode mode);
 
     void releaseTexture();
 

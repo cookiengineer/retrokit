@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2005-2023 Apple Inc. All rights reserved.
  * Copyright (C) 2018 Igalia S.L.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,12 +28,14 @@
  */
 
 #include "config.h"
-#include "URLHelpers.h"
+#include <wtf/URLHelpers.h>
 
-#include "URLParser.h"
 #include <mutex>
+#include <ranges>
 #include <unicode/uidna.h>
 #include <unicode/uscript.h>
+#include <wtf/StdLibExtras.h>
+#include <wtf/URLParser.h>
 #include <wtf/text/WTFString.h>
 
 namespace WTF {
@@ -48,9 +50,10 @@ constexpr unsigned urlBytesBufferLength = 2048;
 //    WebKit was compiled.
 // This is only really important for platforms that load an external IDN allowed script list.
 // Not important for the compiled-in one.
-constexpr auto scriptCodeLimit = static_cast<UScriptCode>(256);
+constexpr auto scriptCodeLimit = static_cast<UScriptCode>(255);
 
-static uint32_t allowedIDNScriptBits[(scriptCodeLimit + 31) / 32];
+
+static std::array<uint32_t, (scriptCodeLimit + 31) / 32> allowedIDNScriptBits;
 
 #if !PLATFORM(COCOA)
 
@@ -63,9 +66,9 @@ void loadIDNAllowedScriptList()
 
 #endif // !PLATFORM(COCOA)
 
-template<UScriptCode> bool isLookalikeCharacterOfScriptType(UChar32);
+template<UScriptCode> bool isLookalikeCharacterOfScriptType(char32_t);
 
-template<> bool isLookalikeCharacterOfScriptType<USCRIPT_ARMENIAN>(UChar32 codePoint)
+template<> bool NODELETE isLookalikeCharacterOfScriptType<USCRIPT_ARMENIAN>(char32_t codePoint)
 {
     switch (codePoint) {
     case 0x0548: /* ARMENIAN CAPITAL LETTER VO */
@@ -82,7 +85,7 @@ template<> bool isLookalikeCharacterOfScriptType<USCRIPT_ARMENIAN>(UChar32 codeP
     }
 }
 
-template<> bool isLookalikeCharacterOfScriptType<USCRIPT_TAMIL>(UChar32 codePoint)
+template<> bool NODELETE isLookalikeCharacterOfScriptType<USCRIPT_TAMIL>(char32_t codePoint)
 {
     switch (codePoint) {
     case 0x0BE6: /* TAMIL DIGIT ZERO */
@@ -92,8 +95,42 @@ template<> bool isLookalikeCharacterOfScriptType<USCRIPT_TAMIL>(UChar32 codePoin
     }
 }
 
+template<> bool NODELETE isLookalikeCharacterOfScriptType<USCRIPT_CANADIAN_ABORIGINAL>(char32_t codePoint)
+{
+    switch (codePoint) {
+    case 0x146D: /* CANADIAN SYLLABICS KI */
+    case 0x146F: /* CANADIAN SYLLABICS KO */
+    case 0x1472: /* CANADIAN SYLLABICS KA */
+    case 0x14AA: /* CANADIAN SYLLABICS MA */
+    case 0x157C: /* CANADIAN SYLLABICS NUNAVUT H */
+    case 0x1587: /* CANADIAN SYLLABICS TLHI */
+    case 0x15AF: /* CANADIAN SYLLABICS AIVILIK B */
+    case 0x15B4: /* CANADIAN SYLLABICS BLACKFOOT WE */
+    case 0x15C5: /* CANADIAN SYLLABICS CARRIER GHO */
+    case 0x15DE: /* CANADIAN SYLLABICS CARRIER THE */
+    case 0x15E9: /* CANADIAN SYLLABICS CARRIER PO */
+    case 0x15F1: /* CANADIAN SYLLABICS CARRIER GE */
+    case 0x15F4: /* CANADIAN SYLLABICS CARRIER GA */
+    case 0x166D: /* CANADIAN SYLLABICS CHI SIGN */
+    case 0x166E: /* CANADIAN SYLLABICS FULL STOP */
+        return true;
+    default:
+        return false;
+    }
+}
+
+template<> bool NODELETE isLookalikeCharacterOfScriptType<USCRIPT_THAI>(char32_t codePoint)
+{
+    switch (codePoint) {
+    case 0x0E01: // THAI CHARACTER KO KAI
+        return true;
+    default:
+        return false;
+    }
+}
+
 template <UScriptCode ScriptType>
-bool isOfScriptType(UChar32 codePoint)
+bool isOfScriptType(char32_t codePoint)
 {
     UErrorCode error = U_ZERO_ERROR;
     UScriptCode script = uscript_getScript(codePoint, &error);
@@ -104,7 +141,7 @@ bool isOfScriptType(UChar32 codePoint)
     return script == ScriptType;
 }
 
-template<typename CharacterType> inline bool isASCIIDigitOrValidHostCharacter(CharacterType charCode)
+template<typename CharacterType> inline bool NODELETE isASCIIDigitOrValidHostCharacter(CharacterType charCode)
 {
     if (!isASCIIDigitOrPunctuation(charCode))
         return false;
@@ -127,19 +164,38 @@ template<typename CharacterType> inline bool isASCIIDigitOrValidHostCharacter(Ch
 }
 
 template <UScriptCode ScriptType>
-bool isLookalikeSequence(const std::optional<UChar32>& previousCodePoint, UChar32 codePoint)
+bool isLookalikeSequence(const std::optional<char32_t>& previousCodePoint, char32_t codePoint)
 {
-    if (!previousCodePoint || *previousCodePoint == '/')
+    if (!previousCodePoint
+        || codePoint == '/' || *previousCodePoint == '/'
+        || codePoint == ':' // Only digits should be after a colon when used as a URL separator before a port, so no check for previousCodePoint here.
+        || codePoint == '?' || *previousCodePoint == '?'
+        || codePoint == '#' || *previousCodePoint == '#')
         return false;
 
-    auto isLookalikePair = [] (UChar first, UChar second) {
+    auto isLookalikePair = [] (char16_t first, char16_t second) {
         return isLookalikeCharacterOfScriptType<ScriptType>(first) && !(isOfScriptType<ScriptType>(second) || isASCIIDigitOrValidHostCharacter(second));
     };
     return isLookalikePair(codePoint, *previousCodePoint)
         || isLookalikePair(*previousCodePoint, codePoint);
 }
 
-static bool isLookalikeCharacter(const std::optional<UChar32>& previousCodePoint, UChar32 codePoint)
+template <>
+bool isLookalikeSequence<USCRIPT_ARABIC>(const std::optional<char32_t>& previousCodePoint, char32_t codePoint)
+{
+    auto isArabicDiacritic = [](char32_t codePoint) {
+        return 0x064B <= codePoint && codePoint <= 0x065F;
+    };
+    auto isArabicCodePoint = [](const std::optional<char32_t>& codePoint) {
+        if (!codePoint)
+            return false;
+        UErrorCode err = U_ZERO_ERROR;
+        return uscript_getScript(*codePoint, &err) == USCRIPT_ARABIC && U_SUCCESS(err);
+    };
+    return isArabicDiacritic(codePoint) && !isArabicCodePoint(previousCodePoint);
+}
+
+static bool isLookalikeCharacter(const std::optional<char32_t>& previousCodePoint, char32_t codePoint)
 {
     // This function treats the following as unsafe, lookalike characters:
     // any non-printable character, any character considered as whitespace,
@@ -152,22 +208,31 @@ static bool isLookalikeCharacter(const std::optional<UChar32>& previousCodePoint
     // slashes into an ASCII solidus. But one of the two callers uses this
     // on characters that have not been processed by ICU, so they are needed here.
     
-    if (!u_isprint(codePoint) || u_isUWhiteSpace(codePoint) || u_hasBinaryProperty(codePoint, UCHAR_DEFAULT_IGNORABLE_CODE_POINT))
+    if (!u_isprint(codePoint)
+        || u_isUWhiteSpace(codePoint)
+        || u_hasBinaryProperty(codePoint, UCHAR_DEFAULT_IGNORABLE_CODE_POINT))
         return true;
-    
+
+    auto block = ublock_getCode(codePoint);
+    if (block == UBLOCK_IPA_EXTENSIONS
+        || block == UBLOCK_DESERET)
+        return true;
+
     switch (codePoint) {
     case 0x00BC: /* VULGAR FRACTION ONE QUARTER */
     case 0x00BD: /* VULGAR FRACTION ONE HALF */
     case 0x00BE: /* VULGAR FRACTION THREE QUARTERS */
-    case 0x00ED: /* LATIN SMALL LETTER I WITH ACUTE */
     /* 0x0131 LATIN SMALL LETTER DOTLESS I is intentionally not considered a lookalike character because it is visually distinguishable from i and it has legitimate use in the Turkish language. */
+    case 0x0138: /* LATIN SMALL LETTER KRA */
     case 0x01C0: /* LATIN LETTER DENTAL CLICK */
     case 0x01C3: /* LATIN LETTER RETROFLEX CLICK */
+    case 0x1E9C: /* LATIN SMALL LETTER LONG S WITH DIAGONAL STROKE */
+    case 0x1E9D: /* LATIN SMALL LETTER LONG S WITH HIGH STROKE */
+    case 0x1EFE: /* LATIN CAPITAL LETTER Y WITH LOOP */
+    case 0x1EFF: /* LATIN SMALL LETTER Y WITH LOOP */
     case 0x0237: /* LATIN SMALL LETTER DOTLESS J */
     case 0x0251: /* LATIN SMALL LETTER ALPHA */
     case 0x0261: /* LATIN SMALL LETTER SCRIPT G */
-    case 0x0274: /* LATIN LETTER SMALL CAPITAL N */
-    case 0x027E: /* LATIN SMALL LETTER R WITH FISHHOOK */
     case 0x02D0: /* MODIFIER LETTER TRIANGULAR COLON */
     case 0x0335: /* COMBINING SHORT STROKE OVERLAY */
     case 0x0337: /* COMBINING SHORT SOLIDUS OVERLAY */
@@ -287,11 +352,14 @@ static bool isLookalikeCharacter(const std::optional<UChar32>& previousCodePoint
         return false;
     default:
         return isLookalikeSequence<USCRIPT_ARMENIAN>(previousCodePoint, codePoint)
-            || isLookalikeSequence<USCRIPT_TAMIL>(previousCodePoint, codePoint);
+            || isLookalikeSequence<USCRIPT_TAMIL>(previousCodePoint, codePoint)
+            || isLookalikeSequence<USCRIPT_CANADIAN_ABORIGINAL>(previousCodePoint, codePoint)
+            || isLookalikeSequence<USCRIPT_THAI>(previousCodePoint, codePoint)
+            || isLookalikeSequence<USCRIPT_ARABIC>(previousCodePoint, codePoint);
     }
 }
 
-static void addScriptToIDNAllowedScriptList(int32_t script)
+static void NODELETE addScriptToIDNAllowedScriptList(int32_t script)
 {
     if (script >= 0 && script < scriptCodeLimit) {
         size_t index = script / 32;
@@ -300,7 +368,7 @@ static void addScriptToIDNAllowedScriptList(int32_t script)
     }
 }
 
-static void addScriptToIDNAllowedScriptList(UScriptCode script)
+static void NODELETE addScriptToIDNAllowedScriptList(UScriptCode script)
 {
     addScriptToIDNAllowedScriptList(static_cast<int32_t>(script));
 }
@@ -312,7 +380,7 @@ void addScriptToIDNAllowedScriptList(const char* scriptName)
 
 void initializeDefaultIDNAllowedScriptList()
 {
-    constexpr UScriptCode scripts[] = {
+    constexpr auto scripts = WTF::toArray<UScriptCode>({
         USCRIPT_COMMON,
         USCRIPT_INHERITED,
         USCRIPT_ARABIC,
@@ -333,19 +401,19 @@ void initializeDefaultIDNAllowedScriptList()
         USCRIPT_TAMIL,
         USCRIPT_THAI,
         USCRIPT_YI,
-    };
+    });
     for (auto script : scripts)
         addScriptToIDNAllowedScriptList(script);
 }
 
-static bool allCharactersInAllowedIDNScriptList(const UChar* buffer, int32_t length)
+static bool allCharactersInAllowedIDNScriptList(std::span<const char16_t> buffer)
 {
     loadIDNAllowedScriptList();
-    int32_t i = 0;
-    std::optional<UChar32> previousCodePoint;
-    while (i < length) {
-        UChar32 c;
-        U16_NEXT(buffer, i, length, c);
+    size_t i = 0;
+    std::optional<char32_t> previousCodePoint;
+    while (i < buffer.size()) {
+        char32_t c;
+        U16_NEXT(buffer, i, buffer.size(), c);
         UErrorCode error = U_ZERO_ERROR;
         UScriptCode script = uscript_getScript(c, &error);
         if (error != U_ZERO_ERROR) {
@@ -372,13 +440,11 @@ static bool allCharactersInAllowedIDNScriptList(const UChar* buffer, int32_t len
 }
 
 template<typename Func>
-static inline bool isSecondLevelDomainNameAllowedByTLDRules(const UChar* buffer, int32_t length, Func characterIsAllowed)
+static inline bool isSecondLevelDomainNameAllowedByTLDRules(std::span<const char16_t> buffer, Func characterIsAllowed)
 {
-    ASSERT(length > 0);
+    ASSERT(!buffer.empty());
 
-    for (int32_t i = length - 1; i >= 0; --i) {
-        UChar ch = buffer[i];
-        
+    for (auto ch : buffer | std::views::reverse) {
         if (characterIsAllowed(ch))
             continue;
         
@@ -393,25 +459,25 @@ static inline bool isSecondLevelDomainNameAllowedByTLDRules(const UChar* buffer,
 
 #define CHECK_RULES_IF_SUFFIX_MATCHES(suffix, function) \
     { \
-        static const int32_t suffixLength = sizeof(suffix) / sizeof(suffix[0]); \
-        if (length > suffixLength && !memcmp(buffer + length - suffixLength, suffix, sizeof(suffix))) \
-            return isSecondLevelDomainNameAllowedByTLDRules(buffer, length - suffixLength, function); \
+        static constexpr size_t suffixLength = suffix.size(); \
+        if (spanHasSuffix(buffer, std::span { suffix })) \
+            return isSecondLevelDomainNameAllowedByTLDRules(buffer.first(buffer.size() - suffixLength), function); \
     }
 
-static bool isRussianDomainNameCharacter(UChar ch)
+static bool NODELETE isRussianDomainNameCharacter(char16_t ch)
 {
     // Only modern Russian letters, digits and dashes are allowed.
     return (ch >= 0x0430 && ch <= 0x044f) || ch == 0x0451 || isASCIIDigit(ch) || ch == '-';
 }
 
-static bool allCharactersAllowedByTLDRules(const UChar* buffer, int32_t length)
+static bool allCharactersAllowedByTLDRules(std::span<const char16_t> buffer)
 {
     // Skip trailing dot for root domain.
-    if (buffer[length - 1] == '.')
-        length--;
+    if (buffer.back() == '.')
+        dropLast(buffer);
 
     // http://cctld.ru/files/pdf/docs/rules_ru-rf.pdf
-    static const UChar cyrillicRF[] = {
+    static constexpr std::array<char16_t, 3> cyrillicRF {
         '.',
         0x0440, // CYRILLIC SMALL LETTER ER
         0x0444, // CYRILLIC SMALL LETTER EF
@@ -419,7 +485,7 @@ static bool allCharactersAllowedByTLDRules(const UChar* buffer, int32_t length)
     CHECK_RULES_IF_SUFFIX_MATCHES(cyrillicRF, isRussianDomainNameCharacter);
 
     // http://rusnames.ru/rules.pl
-    static const UChar cyrillicRUS[] = {
+    static constexpr std::array<char16_t, 4> cyrillicRUS {
         '.',
         0x0440, // CYRILLIC SMALL LETTER ER
         0x0443, // CYRILLIC SMALL LETTER U
@@ -428,7 +494,7 @@ static bool allCharactersAllowedByTLDRules(const UChar* buffer, int32_t length)
     CHECK_RULES_IF_SUFFIX_MATCHES(cyrillicRUS, isRussianDomainNameCharacter);
 
     // http://ru.faitid.org/projects/moscow/documents/moskva/idn
-    static const UChar cyrillicMOSKVA[] = {
+    static constexpr std::array<char16_t, 7> cyrillicMOSKVA {
         '.',
         0x043C, // CYRILLIC SMALL LETTER EM
         0x043E, // CYRILLIC SMALL LETTER O
@@ -440,7 +506,7 @@ static bool allCharactersAllowedByTLDRules(const UChar* buffer, int32_t length)
     CHECK_RULES_IF_SUFFIX_MATCHES(cyrillicMOSKVA, isRussianDomainNameCharacter);
 
     // http://www.dotdeti.ru/foruser/docs/regrules.php
-    static const UChar cyrillicDETI[] = {
+    static constexpr std::array<char16_t, 5> cyrillicDETI {
         '.',
         0x0434, // CYRILLIC SMALL LETTER DE
         0x0435, // CYRILLIC SMALL LETTER IE
@@ -451,7 +517,7 @@ static bool allCharactersAllowedByTLDRules(const UChar* buffer, int32_t length)
 
     // http://corenic.org - rules not published. The word is Russian, so only allowing Russian at this time,
     // although we may need to revise the checks if this ends up being used with other languages spoken in Russia.
-    static const UChar cyrillicONLAYN[] = {
+    static constexpr std::array<char16_t, 7> cyrillicONLAYN {
         '.',
         0x043E, // CYRILLIC SMALL LETTER O
         0x043D, // CYRILLIC SMALL LETTER EN
@@ -463,7 +529,7 @@ static bool allCharactersAllowedByTLDRules(const UChar* buffer, int32_t length)
     CHECK_RULES_IF_SUFFIX_MATCHES(cyrillicONLAYN, isRussianDomainNameCharacter);
 
     // http://corenic.org - same as above.
-    static const UChar cyrillicSAYT[] = {
+    static constexpr std::array<char16_t, 5> cyrillicSAYT {
         '.',
         0x0441, // CYRILLIC SMALL LETTER ES
         0x0430, // CYRILLIC SMALL LETTER A
@@ -475,7 +541,7 @@ static bool allCharactersAllowedByTLDRules(const UChar* buffer, int32_t length)
     // http://pir.org/products/opr-domain/ - rules not published. According to the registry site,
     // the intended audience is "Russian and other Slavic-speaking markets".
     // Chrome appears to only allow Russian, so sticking with that for now.
-    static const UChar cyrillicORG[] = {
+    static constexpr std::array<char16_t, 4> cyrillicORG {
         '.',
         0x043E, // CYRILLIC SMALL LETTER O
         0x0440, // CYRILLIC SMALL LETTER ER
@@ -484,84 +550,84 @@ static bool allCharactersAllowedByTLDRules(const UChar* buffer, int32_t length)
     CHECK_RULES_IF_SUFFIX_MATCHES(cyrillicORG, isRussianDomainNameCharacter);
 
     // http://cctld.by/rules.html
-    static const UChar cyrillicBEL[] = {
+    static constexpr std::array<char16_t, 4> cyrillicBEL {
         '.',
         0x0431, // CYRILLIC SMALL LETTER BE
         0x0435, // CYRILLIC SMALL LETTER IE
         0x043B, // CYRILLIC SMALL LETTER EL
     };
-    CHECK_RULES_IF_SUFFIX_MATCHES(cyrillicBEL, [](UChar ch) {
+    CHECK_RULES_IF_SUFFIX_MATCHES(cyrillicBEL, [](char16_t ch) {
         // Russian and Byelorussian letters, digits and dashes are allowed.
         return (ch >= 0x0430 && ch <= 0x044f) || ch == 0x0451 || ch == 0x0456 || ch == 0x045E || ch == 0x2019 || isASCIIDigit(ch) || ch == '-';
     });
 
     // http://www.nic.kz/docs/poryadok_vnedreniya_kaz_ru.pdf
-    static const UChar cyrillicKAZ[] = {
+    static constexpr std::array<char16_t, 4> cyrillicKAZ {
         '.',
         0x049B, // CYRILLIC SMALL LETTER KA WITH DESCENDER
         0x0430, // CYRILLIC SMALL LETTER A
         0x0437, // CYRILLIC SMALL LETTER ZE
     };
-    CHECK_RULES_IF_SUFFIX_MATCHES(cyrillicKAZ, [](UChar ch) {
+    CHECK_RULES_IF_SUFFIX_MATCHES(cyrillicKAZ, [](char16_t ch) {
         // Kazakh letters, digits and dashes are allowed.
         return (ch >= 0x0430 && ch <= 0x044f) || ch == 0x0451 || ch == 0x04D9 || ch == 0x0493 || ch == 0x049B || ch == 0x04A3 || ch == 0x04E9 || ch == 0x04B1 || ch == 0x04AF || ch == 0x04BB || ch == 0x0456 || isASCIIDigit(ch) || ch == '-';
     });
 
     // http://uanic.net/docs/documents-ukr/Rules%20of%20UKR_v4.0.pdf
-    static const UChar cyrillicUKR[] = {
+    static constexpr std::array<char16_t, 4> cyrillicUKR {
         '.',
         0x0443, // CYRILLIC SMALL LETTER U
         0x043A, // CYRILLIC SMALL LETTER KA
         0x0440, // CYRILLIC SMALL LETTER ER
     };
-    CHECK_RULES_IF_SUFFIX_MATCHES(cyrillicUKR, [](UChar ch) {
+    CHECK_RULES_IF_SUFFIX_MATCHES(cyrillicUKR, [](char16_t ch) {
         // Russian and Ukrainian letters, digits and dashes are allowed.
         return (ch >= 0x0430 && ch <= 0x044f) || ch == 0x0451 || ch == 0x0491 || ch == 0x0404 || ch == 0x0456 || ch == 0x0457 || isASCIIDigit(ch) || ch == '-';
     });
 
     // http://www.rnids.rs/data/DOKUMENTI/idn-srb-policy-termsofuse-v1.4-eng.pdf
-    static const UChar cyrillicSRB[] = {
+    static constexpr std::array<char16_t, 4> cyrillicSRB {
         '.',
         0x0441, // CYRILLIC SMALL LETTER ES
         0x0440, // CYRILLIC SMALL LETTER ER
         0x0431, // CYRILLIC SMALL LETTER BE
     };
-    CHECK_RULES_IF_SUFFIX_MATCHES(cyrillicSRB, [](UChar ch) {
+    CHECK_RULES_IF_SUFFIX_MATCHES(cyrillicSRB, [](char16_t ch) {
         // Serbian letters, digits and dashes are allowed.
         return (ch >= 0x0430 && ch <= 0x0438) || (ch >= 0x043A && ch <= 0x0448) || ch == 0x0452 || ch == 0x0458 || ch == 0x0459 || ch == 0x045A || ch == 0x045B || ch == 0x045F || isASCIIDigit(ch) || ch == '-';
     });
 
     // http://marnet.mk/doc/pravilnik-mk-mkd.pdf
-    static const UChar cyrillicMKD[] = {
+    static constexpr std::array<char16_t, 4> cyrillicMKD {
         '.',
         0x043C, // CYRILLIC SMALL LETTER EM
         0x043A, // CYRILLIC SMALL LETTER KA
         0x0434, // CYRILLIC SMALL LETTER DE
     };
-    CHECK_RULES_IF_SUFFIX_MATCHES(cyrillicMKD, [](UChar ch) {
+    CHECK_RULES_IF_SUFFIX_MATCHES(cyrillicMKD, [](char16_t ch) {
         // Macedonian letters, digits and dashes are allowed.
         return (ch >= 0x0430 && ch <= 0x0438) || (ch >= 0x043A && ch <= 0x0448) || ch == 0x0453 || ch == 0x0455 || ch == 0x0458 || ch == 0x0459 || ch == 0x045A || ch == 0x045C || ch == 0x045F || isASCIIDigit(ch) || ch == '-';
     });
 
     // https://www.mon.mn/cs/
-    static const UChar cyrillicMON[] = {
+    static constexpr std::array<char16_t, 4> cyrillicMON {
         '.',
         0x043C, // CYRILLIC SMALL LETTER EM
         0x043E, // CYRILLIC SMALL LETTER O
         0x043D, // CYRILLIC SMALL LETTER EN
     };
-    CHECK_RULES_IF_SUFFIX_MATCHES(cyrillicMON, [](UChar ch) {
+    CHECK_RULES_IF_SUFFIX_MATCHES(cyrillicMON, [](char16_t ch) {
         // Mongolian letters, digits and dashes are allowed.
         return (ch >= 0x0430 && ch <= 0x044f) || ch == 0x0451 || ch == 0x04E9 || ch == 0x04AF || isASCIIDigit(ch) || ch == '-';
     });
 
     // https://www.icann.org/sites/default/files/packages/lgr/lgr-second-level-bulgarian-30aug16-en.html
-    static const UChar cyrillicBG[] = {
+    static constexpr std::array<char16_t, 3> cyrillicBG {
         '.',
         0x0431, // CYRILLIC SMALL LETTER BE
         0x0433 // CYRILLIC SMALL LETTER GHE
     };
-    CHECK_RULES_IF_SUFFIX_MATCHES(cyrillicBG, [](UChar ch) {
+    CHECK_RULES_IF_SUFFIX_MATCHES(cyrillicBG, [](char16_t ch) {
         return (ch >= 0x0430 && ch <= 0x044A) || ch == 0x044C || (ch >= 0x044E && ch <= 0x0450) || ch == 0x045D || isASCIIDigit(ch) || ch == '-';
     });
 
@@ -581,30 +647,41 @@ std::optional<String> mapHostName(const String& hostName, URLDecodeFunction deco
         return String();
 
     String string;
-    if (decodeFunction && string.contains('%'))
+    if (decodeFunction && hostName.contains('%'))
         string = (*decodeFunction)(hostName);
     else
         string = hostName;
 
+    if (decodeFunction && string.containsOnlyASCII()) {
+        auto lowered = string.convertToASCIILowercase();
+        if (lowered == string)
+            return String();
+        return lowered;
+    }
+
     unsigned length = string.length();
 
-    auto sourceBuffer = string.charactersWithNullTermination();
-    
-    UChar destinationBuffer[URLParser::hostnameBufferLength];
+    auto expectedSourceBuffer = string.charactersWithNullTermination();
+    if (!expectedSourceBuffer)
+        return std::nullopt;
+    auto sourceBuffer = expectedSourceBuffer->span();
+
+    std::array<char16_t, URLParser::hostnameBufferLength> destinationBuffer;
     UErrorCode uerror = U_ZERO_ERROR;
     UIDNAInfo processingDetails = UIDNA_INFO_INITIALIZER;
-    int32_t numCharactersConverted = (decodeFunction ? uidna_nameToASCII : uidna_nameToUnicode)(&URLParser::internationalDomainNameTranscoder(), sourceBuffer.data(), length, destinationBuffer, URLParser::hostnameBufferLength, &processingDetails, &uerror);
+    size_t numCharactersConverted = (decodeFunction ? uidna_nameToASCII : uidna_nameToUnicode)(&URLParser::internationalDomainNameTranscoder(), sourceBuffer.data(), length, destinationBuffer.data(), destinationBuffer.size(), &processingDetails, &uerror);
     int allowedErrors = decodeFunction ? 0 : URLParser::allowedNameToASCIIErrors;
     if (length && (U_FAILURE(uerror) || processingDetails.errors & ~allowedErrors))
         return std::nullopt;
-    
-    if (numCharactersConverted == static_cast<int32_t>(length) && !memcmp(sourceBuffer.data(), destinationBuffer, length * sizeof(UChar)))
+
+    auto span = std::span { destinationBuffer }.first(numCharactersConverted);
+    if (numCharactersConverted == length && equal(sourceBuffer.data(), span))
         return String();
 
-    if (!decodeFunction && !allCharactersInAllowedIDNScriptList(destinationBuffer, numCharactersConverted) && !allCharactersAllowedByTLDRules(destinationBuffer, numCharactersConverted))
+    if (!decodeFunction && !allCharactersInAllowedIDNScriptList(span) && !allCharactersAllowedByTLDRules(span))
         return String();
 
-    return String(destinationBuffer, numCharactersConverted);
+    return String { span };
 }
 
 using MappingRangesVector = std::optional<Vector<std::tuple<unsigned, unsigned, String>>>;
@@ -613,6 +690,10 @@ static void collectRangesThatNeedMapping(const String& string, unsigned location
 {
     // Generally, we want to optimize for the case where there is one host name that does not need mapping.
     // Therefore, we use null to indicate no mapping here and an empty array to indicate error.
+
+    // IPv6 addresses are bracketed and don't need IDN processing.
+    if (length && string[location] == '[')
+        return;
 
     String substring = string.substringSharingImpl(location, length);
     std::optional<String> host = mapHostName(substring, decodeFunction);
@@ -638,13 +719,13 @@ static void applyHostNameFunctionToMailToURLString(const String& string, URLDeco
     
     while (1) {
         // Find start of host name or of quoted string.
-        auto hostNameOrStringStart = string.find([](UChar ch) {
+        auto hostNameOrStringStart = string.find([](char16_t ch) {
             return ch == '"' || ch == '@' || ch == '?';
         }, current);
         if (hostNameOrStringStart == notFound)
             return;
 
-        UChar c = string[hostNameOrStringStart];
+        char16_t c = string[hostNameOrStringStart];
         current = hostNameOrStringStart + 1;
         
         if (c == '?')
@@ -653,7 +734,7 @@ static void applyHostNameFunctionToMailToURLString(const String& string, URLDeco
         if (c == '@') {
             // Find end of host name.
             unsigned hostNameStart = current;
-            auto hostNameEnd = string.find([](UChar ch) {
+            auto hostNameEnd = string.find([](char16_t ch) {
                 return ch == '>' || ch == ',' || ch == '?';
             }, current);
 
@@ -665,7 +746,7 @@ static void applyHostNameFunctionToMailToURLString(const String& string, URLDeco
                 current = hostNameEnd;
                 done = false;
             }
-            
+
             // Process host name range.
             collectRangesThatNeedMapping(string, hostNameStart, hostNameEnd - hostNameStart, array, decodeFunction);
 
@@ -675,7 +756,7 @@ static void applyHostNameFunctionToMailToURLString(const String& string, URLDeco
             // Skip quoted string.
             ASSERT(c == '"');
             while (1) {
-                auto escapedCharacterOrStringEnd = string.find([](UChar ch) {
+                auto escapedCharacterOrStringEnd = string.find([](char16_t ch) {
                     return ch == '"' || ch == '\\';
                 }, current);
                 if (escapedCharacterOrStringEnd == notFound)
@@ -707,37 +788,42 @@ static void applyHostNameFunctionToURLString(const String& string, URLDecodeFunc
     
     // Maybe we should implement this using a character buffer instead?
     
-    if (protocolIs(string, "mailto")) {
+    if (protocolIs(string, "mailto"_s)) {
         applyHostNameFunctionToMailToURLString(string, decodeFunction, array);
         return;
     }
 
-    // Find the host name in a hierarchical URL.
-    // It comes after a "://" sequence, with scheme characters preceding.
-    // If ends with the end of the string or a ":", "/", or a "?".
-    // If there is a "@" character, the host part is just the part after the "@".
-    static const char* separator = "://";
+    // Find the host name in a hierarchical URL. It comes after a "://" sequence, with scheme
+    // characters preceding. The authority ends at the end of the string or a "/", "?", or "#".
+    // If there is a "@", the host is the part after the last one, up to a ":" port separator.
+    static constexpr auto separator = "://"_s;
     auto separatorIndex = string.find(separator);
     if (separatorIndex == notFound)
         return;
 
-    unsigned authorityStart = separatorIndex + strlen(separator);
+    unsigned authorityStart = separatorIndex + separator.length();
 
     // Check that all characters before the :// are valid scheme characters.
-    if (StringView { string }.left(separatorIndex).contains([](UChar character) {
+    if (StringView { string }.left(separatorIndex).contains([](char16_t character) {
         return !(isASCIIAlphanumeric(character) || character == '+' || character == '-' || character == '.');
     }))
         return;
 
-    // Find terminating character.
-    auto hostNameTerminator = string.find([](UChar character) {
-        return character == ':' || character == '/' || character == '?' || character == '#';
+    auto authorityTerminator = string.find([](char16_t character) {
+        return character == '/' || character == '?' || character == '#';
     }, authorityStart);
-    unsigned hostNameEnd = hostNameTerminator == notFound ? string.length() : hostNameTerminator;
+    unsigned authorityEnd = authorityTerminator == notFound ? string.length() : authorityTerminator;
 
-    // Find "@" for the start of the host name.
-    auto userInfoTerminator = StringView { string }.left(hostNameEnd).find('@', authorityStart);
-    unsigned hostNameStart = userInfoTerminator == notFound ? authorityStart : userInfoTerminator + 1;
+    auto lastUserInfoTerminator = StringView { string }.left(authorityEnd).reverseFind('@');
+    unsigned hostNameStart = lastUserInfoTerminator == notFound ? authorityStart : lastUserInfoTerminator + 1;
+
+    // Skip IPv6 literals, whose brackets contain ":" characters that aren't a port separator.
+    unsigned hostNameEnd = authorityEnd;
+    if (hostNameStart < authorityEnd && string[hostNameStart] != '[') {
+        auto portSeparator = string.find(':', hostNameStart);
+        if (portSeparator != notFound && portSeparator < authorityEnd)
+            hostNameEnd = portSeparator;
+    }
 
     collectRangesThatNeedMapping(string, hostNameStart, hostNameEnd - hostNameStart, array, decodeFunction);
 }
@@ -746,7 +832,7 @@ String mapHostNames(const String& string, URLDecodeFunction decodeFunction)
 {
     // Generally, we want to optimize for the case where there is one host name that does not need mapping.
     
-    if (decodeFunction && string.isAllASCII())
+    if (decodeFunction && string.containsOnlyASCII() && !string.contains('%'))
         return string;
     
     // Make a list of ranges that actually need mapping.
@@ -762,7 +848,7 @@ String mapHostNames(const String& string, URLDecodeFunction decodeFunction)
     String result = string;
     while (!hostNameRanges->isEmpty()) {
         auto [location, length, mappedHostName] = hostNameRanges->takeLast();
-        result = result.replace(location, length, mappedHostName);
+        result = makeStringByReplacing(result, location, length, mappedHostName);
     }
     return result;
 }
@@ -771,12 +857,12 @@ static String escapeUnsafeCharacters(const String& sourceBuffer)
 {
     unsigned length = sourceBuffer.length();
 
-    std::optional<UChar32> previousCodePoint;
+    std::optional<char32_t> previousCodePoint;
 
     unsigned i;
     for (i = 0; i < length; ) {
-        UChar32 c = sourceBuffer.characterStartingAt(i);
-        if (isLookalikeCharacter(previousCodePoint, sourceBuffer.characterStartingAt(i)))
+        char32_t c = sourceBuffer.codePointAt(i);
+        if (isLookalikeCharacter(previousCodePoint, c))
             break;
         previousCodePoint = c;
         i += U16_LENGTH(c);
@@ -785,19 +871,19 @@ static String escapeUnsafeCharacters(const String& sourceBuffer)
     if (i == length)
         return sourceBuffer;
 
-    Vector<UChar, urlBytesBufferLength> outBuffer;
+    Vector<char16_t, urlBytesBufferLength> outBuffer;
 
     outBuffer.grow(i);
     if (sourceBuffer.is8Bit())
-        StringImpl::copyCharacters(outBuffer.data(), sourceBuffer.characters8(), i);
+        StringImpl::copyCharacters(outBuffer.mutableSpan(), sourceBuffer.span8().first(i));
     else
-        StringImpl::copyCharacters(outBuffer.data(), sourceBuffer.characters16(), i);
+        StringImpl::copyCharacters(outBuffer.mutableSpan(), sourceBuffer.span16().first(i));
 
     for (; i < length; ) {
-        UChar32 c = sourceBuffer.characterStartingAt(i);
+        char32_t c = sourceBuffer.codePointAt(i);
         unsigned characterLength = U16_LENGTH(c);
         if (isLookalikeCharacter(previousCodePoint, c)) {
-            uint8_t utf8Buffer[4];
+            std::array<uint8_t, 4> utf8Buffer;
             size_t offset = 0;
             UBool failure = false;
             U8_APPEND(utf8Buffer, offset, 4, c, failure);
@@ -816,13 +902,13 @@ static String escapeUnsafeCharacters(const String& sourceBuffer)
         i += characterLength;
     }
 
-    return String::adopt(WTFMove(outBuffer));
+    return String::adopt(WTF::move(outBuffer));
 }
 
 String userVisibleURL(const CString& url)
 {
-    auto* before = url.dataAsUInt8Ptr();
-    int length = url.length();
+    auto before = url.span();
+    size_t length = url.length();
 
     if (!length)
         return { };
@@ -835,60 +921,60 @@ String userVisibleURL(const CString& url)
         return { };
     Vector<char, urlBytesBufferLength> after(bufferLength);
 
-    char* q = after.data();
+    size_t afterIndex = 0;
     {
-        const unsigned char* p = before;
-        for (int i = 0; i < length; i++) {
+        auto p = before;
+        for (size_t i = 0; i < length; i++) {
             unsigned char c = p[i];
             // unescape escape sequences that indicate bytes greater than 0x7f
             if (c == '%' && i + 2 < length && isASCIIHexDigit(p[i + 1]) && isASCIIHexDigit(p[i + 2])) {
                 auto u = toASCIIHexValue(p[i + 1], p[i + 2]);
                 if (u > 0x7f) {
                     // unescape
-                    *q++ = u;
+                    after[afterIndex++] = u;
                 } else {
                     // do not unescape
-                    *q++ = p[i];
-                    *q++ = p[i + 1];
-                    *q++ = p[i + 2];
+                    after[afterIndex++] = p[i];
+                    after[afterIndex++] = p[i + 1];
+                    after[afterIndex++] = p[i + 2];
                 }
                 i += 2;
             } else {
-                *q++ = c;
+                after[afterIndex++] = c;
                 
                 // Check for "xn--" in an efficient, non-case-sensitive, way.
-                if (c == '-' && i >= 3 && !mayNeedHostNameDecoding && (q[-4] | 0x20) == 'x' && (q[-3] | 0x20) == 'n' && q[-2] == '-')
+                if (c == '-' && afterIndex >= 4 && !mayNeedHostNameDecoding && (after[afterIndex - 4] | 0x20) == 'x' && (after[afterIndex - 3] | 0x20) == 'n' && after[afterIndex - 2] == '-')
                     mayNeedHostNameDecoding = true;
             }
         }
-        *q = '\0';
+        after[afterIndex] = '\0';
     }
     
     // Check string to see if it can be converted to display using UTF-8  
-    String result = String::fromUTF8(after.data());
+    String result = String::fromUTF8(after.span().data());
     if (!result) {
         // Could not convert to UTF-8.
         // Convert characters greater than 0x7f to escape sequences.
         // Shift current string to the end of the buffer
         // then we will copy back bytes to the start of the buffer 
         // as we convert.
-        int afterlength = q - after.data();
-        char* p = after.data() + bufferLength.value() - afterlength - 1;
-        memmove(p, after.data(), afterlength + 1); // copies trailing '\0'
-        char* q = after.data();
-        while (*p) {
-            unsigned char c = *p;
-            if (c > 0x7f) {
-                *q++ = '%';
-                *q++ = upperNibbleToASCIIHexDigit(c);
-                *q++ = lowerNibbleToASCIIHexDigit(c);
-            } else
-                *q++ = *p;
-            p++;
+        size_t afterlength = afterIndex;
+        auto p = after.mutableSpan().subspan(bufferLength.value() - afterlength - 1);
+        memmoveSpan(p, after.span().first(afterlength + 1)); // copies trailing '\0'
+        afterIndex = 0;
+        while (p.front()) {
+            unsigned char c = consume(p);
+            if (isASCII(c))
+                after[afterIndex++] = c;
+            else {
+                after[afterIndex++] = '%';
+                after[afterIndex++] = upperNibbleToASCIIHexDigit(c);
+                after[afterIndex++] = lowerNibbleToASCIIHexDigit(c);
+            }
         }
-        *q = '\0';
+        after[afterIndex] = '\0';
         // Note: after.data() points to a null-terminated, pure ASCII string.
-        result = String::fromUTF8(after.data());
+        result = String::fromUTF8(after.span().data());
         ASSERT(!!result);
     }
 

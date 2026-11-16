@@ -49,18 +49,16 @@ WebGrammarDetail::WebGrammarDetail(int location, int length, API::Array* guesses
     size_t numGuesses = guesses->size();
     m_grammarDetail.guesses.reserveCapacity(numGuesses);
     for (size_t i = 0; i < numGuesses; ++i)
-        m_grammarDetail.guesses.uncheckedAppend(guesses->at<API::String>(i)->string());
+        m_grammarDetail.guesses.append(guesses->at<API::String>(i)->string());
 
     m_grammarDetail.userDescription = userDescription;
 }
 
 Ref<API::Array> WebGrammarDetail::guesses() const
 {
-    size_t numGuesses = m_grammarDetail.guesses.size();
-    Vector<RefPtr<API::Object> > wkGuesses(numGuesses);
-    for (unsigned i = 0; i < numGuesses; ++i)
-        wkGuesses[i] = API::String::create(m_grammarDetail.guesses[i]);
-    return API::Array::create(WTFMove(wkGuesses));
+    return API::Array::create(m_grammarDetail.guesses.map([](auto& guess) -> RefPtr<API::Object> {
+        return API::String::create(guess);
+    }));
 }
 
 WebGrammarDetail::WebGrammarDetail(const WebCore::GrammarDetail& grammarDetail)

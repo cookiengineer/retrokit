@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,15 +27,16 @@
 #include "InjectedBundleNodeHandle.h"
 
 #include "InjectedBundleRangeHandle.h"
-#include "ShareableBitmap.h"
 #include "WebFrame.h"
-#include "WebFrameLoaderClient.h"
 #include "WebImage.h"
+#include "WebLocalFrameLoaderClient.h"
 #include <JavaScriptCore/APICast.h>
-#include <WebCore/Document.h>
-#include <WebCore/Frame.h>
+#include <JavaScriptCore/JSCellInlines.h>
+#include <WebCore/DocumentPage.h>
+#include <WebCore/DocumentView.h>
+#include <WebCore/FrameDestructionObserverInlines.h>
+#include <WebCore/FrameInlines.h>
 #include <WebCore/FrameLoader.h>
-#include <WebCore/FrameView.h>
 #include <WebCore/GraphicsContext.h>
 #include <WebCore/HTMLFrameElement.h>
 #include <WebCore/HTMLIFrameElement.h>
@@ -46,25 +47,30 @@
 #include <WebCore/HTMLTextAreaElement.h>
 #include <WebCore/IntRect.h>
 #include <WebCore/JSNode.h>
-#include <WebCore/Node.h>
-#include <WebCore/Page.h>
-#include <WebCore/Position.h>
+#include <WebCore/LocalFrameInlines.h>
+#include <WebCore/LocalFrameView.h>
+#include <WebCore/NodeDocument.h>
+#include <WebCore/PositionInlines.h>
 #include <WebCore/Range.h>
-#include <WebCore/RenderObject.h>
+#include <WebCore/RenderElement.h>
+#include <WebCore/RenderText.h>
+#include <WebCore/ShareableBitmap.h>
 #include <WebCore/SimpleRange.h>
 #include <WebCore/Text.h>
 #include <WebCore/VisiblePosition.h>
 #include <wtf/HashMap.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/WeakHashMap.h>
+#include <wtf/WeakRef.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebKit {
 using namespace WebCore;
 using namespace HTMLNames;
 
-typedef HashMap<Node*, InjectedBundleNodeHandle*> DOMNodeHandleCache;
+using DOMNodeHandleCache = WeakHashMap<Node, WeakRef<InjectedBundleNodeHandle>, WeakPtrImplWithEventTargetData>;
 
-static DOMNodeHandleCache& domNodeHandleCache()
+static DOMNodeHandleCache& NODELETE domNodeHandleCache()
 {
     static NeverDestroyed<DOMNodeHandleCache> cache;
     return cache;
@@ -72,8 +78,8 @@ static DOMNodeHandleCache& domNodeHandleCache()
 
 RefPtr<InjectedBundleNodeHandle> InjectedBundleNodeHandle::getOrCreate(JSContextRef, JSObjectRef object)
 {
-    Node* node = JSNode::toWrapped(toJS(object)->vm(), toJS(object));
-    return getOrCreate(node);
+    RefPtr node = JSNode::toWrapped(toJS(object)->vm(), toJS(object));
+    return getOrCreate(node.get());
 }
 
 RefPtr<InjectedBundleNodeHandle> InjectedBundleNodeHandle::getOrCreate(Node* node)
@@ -86,12 +92,12 @@ RefPtr<InjectedBundleNodeHandle> InjectedBundleNodeHandle::getOrCreate(Node* nod
 
 Ref<InjectedBundleNodeHandle> InjectedBundleNodeHandle::getOrCreate(Node& node)
 {
-    if (auto* existingHandle = domNodeHandleCache().get(&node))
+    if (RefPtr existingHandle = domNodeHandleCache().get(node))
         return Ref<InjectedBundleNodeHandle>(*existingHandle);
 
     auto nodeHandle = InjectedBundleNodeHandle::create(node);
-    if (nodeHandle->coreNode())
-        domNodeHandleCache().add(nodeHandle->coreNode(), nodeHandle.ptr());
+    if (RefPtr node = nodeHandle->coreNode())
+        domNodeHandleCache().add(*node, nodeHandle.get());
     return nodeHandle;
 }
 
@@ -110,8 +116,8 @@ InjectedBundleNodeHandle::InjectedBundleNodeHandle(Node& node)
 
 InjectedBundleNodeHandle::~InjectedBundleNodeHandle()
 {
-    if (m_node)
-        domNodeHandleCache().remove(m_node.get());
+    if (RefPtr node = m_node)
+        domNodeHandleCache().remove(*node);
 }
 
 Node* InjectedBundleNodeHandle::coreNode()
@@ -124,7 +130,7 @@ RefPtr<InjectedBundleNodeHandle> InjectedBundleNodeHandle::document()
     if (!m_node)
         return nullptr;
 
-    return getOrCreate(m_node->document());
+    return getOrCreate(protect(m_node->document()));
 }
 
 // Additional DOM Operations
@@ -132,21 +138,22 @@ RefPtr<InjectedBundleNodeHandle> InjectedBundleNodeHandle::document()
 
 IntRect InjectedBundleNodeHandle::elementBounds()
 {
-    if (!is<Element>(m_node))
+    RefPtr element = dynamicDowncast<Element>(m_node);
+    if (!element)
         return IntRect();
 
-    return downcast<Element>(*m_node).boundsInRootViewSpace();
+    return element->boundsInRootViewSpace();
 }
     
-IntRect InjectedBundleNodeHandle::renderRect(bool* isReplaced)
+IntRect InjectedBundleNodeHandle::absoluteBoundingRect(bool* isReplaced)
 {
     if (!m_node)
         return { };
 
-    return m_node->pixelSnappedRenderRect(isReplaced);
+    return protect(coreNode())->pixelSnappedAbsoluteBoundingRect(isReplaced);
 }
 
-static RefPtr<WebImage> imageForRect(FrameView* frameView, const IntRect& paintingRect, const std::optional<float>& bitmapWidth, SnapshotOptions options)
+static RefPtr<WebImage> imageForRect(LocalFrameView* frameView, Node* nodeToDraw, const IntRect& paintingRect, const std::optional<float>& bitmapWidth, SnapshotOptions options)
 {
     if (paintingRect.isEmpty())
         return nullptr;
@@ -167,32 +174,30 @@ static RefPtr<WebImage> imageForRect(FrameView* frameView, const IntRect& painti
     if (bitmapSize.isEmpty())
         return nullptr;
 
-    auto snapshot = WebImage::create(bitmapSize, snapshotOptionsToImageOptions(options));
-    if (!snapshot)
+    auto snapshot = WebImage::create(bitmapSize, snapshotOptionsToImageOptions(options), DestinationColorSpace::SRGB());
+    if (!snapshot->context())
         return nullptr;
 
-    auto graphicsContext = snapshot->bitmap().createGraphicsContext();
-    if (!graphicsContext)
-        return nullptr;
+    auto& graphicsContext = *snapshot->context();
 
-    graphicsContext->clearRect(IntRect(IntPoint(), bitmapSize));
-    graphicsContext->applyDeviceScaleFactor(deviceScaleFactor);
-    graphicsContext->scale(bitmapScaleFactor);
-    graphicsContext->translate(-paintingRect.location());
+    graphicsContext.clearRect(IntRect(IntPoint(), bitmapSize));
+    graphicsContext.applyDeviceScaleFactor(deviceScaleFactor);
+    graphicsContext.scale(bitmapScaleFactor);
+    graphicsContext.translate(-paintingRect.location());
 
-    FrameView::SelectionInSnapshot shouldPaintSelection = FrameView::IncludeSelection;
-    if (options & SnapshotOptionsExcludeSelectionHighlighting)
-        shouldPaintSelection = FrameView::ExcludeSelection;
+    auto shouldPaintSelection = LocalFrameView::IncludeSelection;
+    if (options.contains(SnapshotOption::ExcludeSelectionHighlighting))
+        shouldPaintSelection = LocalFrameView::ExcludeSelection;
 
     auto paintBehavior = frameView->paintBehavior() | PaintBehavior::FlattenCompositingLayers | PaintBehavior::Snapshotting;
-    if (options & SnapshotOptionsForceBlackText)
+    if (options.contains(SnapshotOption::ForceBlackText))
         paintBehavior.add(PaintBehavior::ForceBlackText);
-    if (options & SnapshotOptionsForceWhiteText)
+    if (options.contains(SnapshotOption::ForceWhiteText))
         paintBehavior.add(PaintBehavior::ForceWhiteText);
 
     auto oldPaintBehavior = frameView->paintBehavior();
     frameView->setPaintBehavior(paintBehavior);
-    frameView->paintContentsForSnapshot(*graphicsContext.get(), paintingRect, shouldPaintSelection, FrameView::DocumentCoordinates);
+    frameView->paintContentsForSnapshot(graphicsContext, paintingRect, nodeToDraw, shouldPaintSelection, LocalFrameView::DocumentCoordinates);
     frameView->setPaintBehavior(oldPaintBehavior);
 
     return snapshot;
@@ -203,17 +208,17 @@ RefPtr<WebImage> InjectedBundleNodeHandle::renderedImage(SnapshotOptions options
     if (!m_node)
         return nullptr;
 
-    Frame* frame = m_node->document().frame();
+    RefPtr frame = m_node->document().frame();
     if (!frame)
         return nullptr;
 
-    FrameView* frameView = frame->view();
+    RefPtr frameView = frame->view();
     if (!frameView)
         return nullptr;
 
-    m_node->document().updateLayout();
+    protect(m_node->document())->updateLayout();
 
-    RenderObject* renderer = m_node->renderer();
+    CheckedPtr renderer = m_node->renderer();
     if (!renderer)
         return nullptr;
 
@@ -222,125 +227,155 @@ RefPtr<WebImage> InjectedBundleNodeHandle::renderedImage(SnapshotOptions options
         paintingRect = renderer->absoluteBoundingBoxRectIgnoringTransforms();
     else {
         LayoutRect topLevelRect;
-        paintingRect = snappedIntRect(renderer->paintingRootRect(topLevelRect));
+        paintingRect = snappedIntRect(renderer->subtreePaintRootRect(topLevelRect));
     }
 
-    frameView->setNodeToDraw(m_node.get());
-    auto image = imageForRect(frameView, paintingRect, bitmapWidth, options);
-    frameView->setNodeToDraw(0);
-
-    return image;
+    return imageForRect(frameView.get(), m_node.get(), paintingRect, bitmapWidth, options);
 }
 
 RefPtr<InjectedBundleRangeHandle> InjectedBundleNodeHandle::visibleRange()
 {
     if (!m_node)
         return nullptr;
-    VisiblePosition start = firstPositionInNode(m_node.get());
-    VisiblePosition end = lastPositionInNode(m_node.get());
+    Ref node = *m_node;
+    VisiblePosition start = firstPositionInNode(node);
+    VisiblePosition end = lastPositionInNode(node);
     return createHandle(makeSimpleRange(start, end));
 }
 
 void InjectedBundleNodeHandle::setHTMLInputElementValueForUser(const String& value)
 {
-    if (!is<HTMLInputElement>(m_node))
+    RefPtr input = dynamicDowncast<HTMLInputElement>(m_node);
+    if (!input)
         return;
 
-    downcast<HTMLInputElement>(*m_node).setValueForUser(value);
+    input->setValueForUser(value);
 }
 
 void InjectedBundleNodeHandle::setHTMLInputElementSpellcheckEnabled(bool enabled)
 {
-    if (!is<HTMLInputElement>(m_node))
+    RefPtr input = dynamicDowncast<HTMLInputElement>(m_node);
+    if (!input)
         return;
 
-    downcast<HTMLInputElement>(*m_node).setSpellcheckDisabledExceptTextReplacement(!enabled);
+    input->setSpellcheckDisabledExceptTextReplacement(!enabled);
 }
 
 bool InjectedBundleNodeHandle::isHTMLInputElementAutoFilled() const
 {
-    if (!is<HTMLInputElement>(m_node))
+    RefPtr input = dynamicDowncast<HTMLInputElement>(m_node);
+    if (!input)
         return false;
     
-    return downcast<HTMLInputElement>(*m_node).isAutoFilled();
+    return input->autofilled();
 }
 
 bool InjectedBundleNodeHandle::isHTMLInputElementAutoFilledAndViewable() const
 {
-    if (!is<HTMLInputElement>(m_node))
+    RefPtr input = dynamicDowncast<HTMLInputElement>(m_node);
+    if (!input)
         return false;
 
-    return downcast<HTMLInputElement>(*m_node).isAutoFilledAndViewable();
+    return input->autofilledAndViewable();
+}
+
+bool InjectedBundleNodeHandle::isHTMLInputElementAutoFilledAndObscured() const
+{
+    RefPtr input = dynamicDowncast<HTMLInputElement>(m_node);
+    if (!input)
+        return false;
+
+    return input->autofilledAndObscured();
 }
 
 void InjectedBundleNodeHandle::setHTMLInputElementAutoFilled(bool filled)
 {
-    if (!is<HTMLInputElement>(m_node))
+    RefPtr input = dynamicDowncast<HTMLInputElement>(m_node);
+    if (!input)
         return;
 
-    downcast<HTMLInputElement>(*m_node).setAutoFilled(filled);
+    input->setAutofilled(filled);
 }
 
 void InjectedBundleNodeHandle::setHTMLInputElementAutoFilledAndViewable(bool autoFilledAndViewable)
 {
-    if (!is<HTMLInputElement>(m_node))
+    RefPtr input = dynamicDowncast<HTMLInputElement>(m_node);
+    if (!input)
         return;
 
-    downcast<HTMLInputElement>(*m_node).setAutoFilledAndViewable(autoFilledAndViewable);
+    input->setAutofilledAndViewable(autoFilledAndViewable);
+}
+
+void InjectedBundleNodeHandle::setHTMLInputElementAutoFilledAndObscured(bool autoFilledAndObscured)
+{
+    RefPtr input = dynamicDowncast<HTMLInputElement>(m_node);
+    if (!input)
+        return;
+
+    input->setAutofilledAndObscured(autoFilledAndObscured);
 }
 
 bool InjectedBundleNodeHandle::isHTMLInputElementAutoFillButtonEnabled() const
 {
-    if (!is<HTMLInputElement>(m_node))
+    RefPtr input = dynamicDowncast<HTMLInputElement>(m_node);
+    if (!input)
         return false;
     
-    return downcast<HTMLInputElement>(*m_node).autoFillButtonType() != AutoFillButtonType::None;
+    return input->autofillButtonType() != AutoFillButtonType::None;
 }
 
 void InjectedBundleNodeHandle::setHTMLInputElementAutoFillButtonEnabled(AutoFillButtonType autoFillButtonType)
 {
-    if (!is<HTMLInputElement>(m_node))
+    RefPtr input = dynamicDowncast<HTMLInputElement>(m_node);
+    if (!input)
         return;
 
-    downcast<HTMLInputElement>(*m_node).setShowAutoFillButton(autoFillButtonType);
+    input->setAutofillButtonType(autoFillButtonType);
 }
 
 AutoFillButtonType InjectedBundleNodeHandle::htmlInputElementAutoFillButtonType() const
 {
-    if (!is<HTMLInputElement>(m_node))
+    RefPtr input = dynamicDowncast<HTMLInputElement>(m_node);
+    if (!input)
         return AutoFillButtonType::None;
-    return downcast<HTMLInputElement>(*m_node).autoFillButtonType();
+
+    return input->autofillButtonType();
 }
 
 AutoFillButtonType InjectedBundleNodeHandle::htmlInputElementLastAutoFillButtonType() const
 {
-    if (!is<HTMLInputElement>(m_node))
+    RefPtr input = dynamicDowncast<HTMLInputElement>(m_node);
+    if (!input)
         return AutoFillButtonType::None;
-    return downcast<HTMLInputElement>(*m_node).lastAutoFillButtonType();
+
+    return input->lastAutofillButtonType();
 }
 
 bool InjectedBundleNodeHandle::isAutoFillAvailable() const
 {
-    if (!is<HTMLInputElement>(m_node))
+    RefPtr input = dynamicDowncast<HTMLInputElement>(m_node);
+    if (!input)
         return false;
 
-    return downcast<HTMLInputElement>(*m_node).isAutoFillAvailable();
+    return input->autofillAvailable();
 }
 
 void InjectedBundleNodeHandle::setAutoFillAvailable(bool autoFillAvailable)
 {
-    if (!is<HTMLInputElement>(m_node))
+    RefPtr input = dynamicDowncast<HTMLInputElement>(m_node);
+    if (!input)
         return;
 
-    downcast<HTMLInputElement>(*m_node).setAutoFillAvailable(autoFillAvailable);
+    input->setAutofillAvailable(autoFillAvailable);
 }
 
 IntRect InjectedBundleNodeHandle::htmlInputElementAutoFillButtonBounds()
 {
-    if (!is<HTMLInputElement>(m_node))
+    RefPtr input = dynamicDowncast<HTMLInputElement>(m_node);
+    if (!input)
         return IntRect();
 
-    auto autoFillButton = downcast<HTMLInputElement>(*m_node).autoFillButtonElement();
+    RefPtr autoFillButton = input->autoFillButtonElement();
     if (!autoFillButton)
         return IntRect();
 
@@ -349,26 +384,29 @@ IntRect InjectedBundleNodeHandle::htmlInputElementAutoFillButtonBounds()
 
 bool InjectedBundleNodeHandle::htmlInputElementLastChangeWasUserEdit()
 {
-    if (!is<HTMLInputElement>(m_node))
+    RefPtr input = dynamicDowncast<HTMLInputElement>(m_node);
+    if (!input)
         return false;
 
-    return downcast<HTMLInputElement>(*m_node).lastChangeWasUserEdit();
+    return input->lastChangeWasUserEdit();
 }
 
 bool InjectedBundleNodeHandle::htmlTextAreaElementLastChangeWasUserEdit()
 {
-    if (!is<HTMLTextAreaElement>(m_node))
+    RefPtr textarea = dynamicDowncast<HTMLTextAreaElement>(m_node);
+    if (!textarea)
         return false;
 
-    return downcast<HTMLTextAreaElement>(*m_node).lastChangeWasUserEdit();
+    return textarea->lastChangeWasUserEdit();
 }
 
 bool InjectedBundleNodeHandle::isTextField() const
 {
-    if (!is<HTMLInputElement>(m_node))
+    RefPtr input = dynamicDowncast<HTMLInputElement>(m_node);
+    if (!input)
         return false;
 
-    return downcast<HTMLInputElement>(*m_node).isTextField();
+    return input->isTextField();
 }
 
 bool InjectedBundleNodeHandle::isSelectElement() const
@@ -378,39 +416,27 @@ bool InjectedBundleNodeHandle::isSelectElement() const
 
 bool InjectedBundleNodeHandle::isSelectableTextNode() const
 {
-    if (!is<Text>(m_node))
-        return false;
-
-    auto renderer = m_node->renderer();
-    return renderer && renderer->style().userSelect() != UserSelect::None;
+    if (auto* renderText = dynamicDowncast<RenderText>(m_node->renderer()))
+        return renderText->style().usedUserSelect() != UserSelect::None;
+    return false;
 }
 
 RefPtr<InjectedBundleNodeHandle> InjectedBundleNodeHandle::htmlTableCellElementCellAbove()
 {
-    if (!is<HTMLTableCellElement>(m_node))
+    RefPtr tableCell = dynamicDowncast<HTMLTableCellElement>(m_node);
+    if (!tableCell)
         return nullptr;
 
-    return getOrCreate(downcast<HTMLTableCellElement>(*m_node).cellAbove());
+    return getOrCreate(protect(tableCell->cellAbove()).get());
 }
 
 RefPtr<WebFrame> InjectedBundleNodeHandle::documentFrame()
 {
-    if (!m_node || !m_node->isDocumentNode())
+    RefPtr document = dynamicDowncast<Document>(m_node);
+    if (!document)
         return nullptr;
 
-    Frame* frame = downcast<Document>(*m_node).frame();
-    if (!frame)
-        return nullptr;
-
-    return WebFrame::fromCoreFrame(*frame);
-}
-
-RefPtr<WebFrame> InjectedBundleNodeHandle::htmlFrameElementContentFrame()
-{
-    if (!is<HTMLFrameElement>(m_node))
-        return nullptr;
-
-    Frame* frame = downcast<HTMLFrameElement>(*m_node).contentFrame();
+    RefPtr frame = document->frame();
     if (!frame)
         return nullptr;
 
@@ -419,10 +445,11 @@ RefPtr<WebFrame> InjectedBundleNodeHandle::htmlFrameElementContentFrame()
 
 RefPtr<WebFrame> InjectedBundleNodeHandle::htmlIFrameElementContentFrame()
 {
-    if (!is<HTMLIFrameElement>(m_node))
+    auto* iframeElement = dynamicDowncast<HTMLIFrameElement>(m_node.get());
+    if (!iframeElement)
         return nullptr;
 
-    Frame* frame = downcast<HTMLIFrameElement>(*m_node).contentFrame();
+    auto* frame = iframeElement->contentFrame();
     if (!frame)
         return nullptr;
 
@@ -432,15 +459,10 @@ RefPtr<WebFrame> InjectedBundleNodeHandle::htmlIFrameElementContentFrame()
 void InjectedBundleNodeHandle::stop()
 {
     // Invalidate handles to nodes inside documents that are about to be destroyed in order to prevent leaks.
-    if (m_node) {
-        domNodeHandleCache().remove(m_node.get());
+    if (RefPtr node = m_node) {
+        domNodeHandleCache().remove(*node);
         m_node = nullptr;
     }
-}
-
-const char* InjectedBundleNodeHandle::activeDOMObjectName() const
-{
-    return "InjectedBundleNodeHandle";
 }
 
 } // namespace WebKit

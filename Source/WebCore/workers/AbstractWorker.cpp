@@ -32,31 +32,60 @@
 #include "AbstractWorker.h"
 
 #include "ContentSecurityPolicy.h"
+#include "Document.h"
+#include "ExceptionOr.h"
+#include "OriginAccessPatterns.h"
 #include "ScriptExecutionContext.h"
 #include "SecurityOrigin.h"
-#include <wtf/IsoMallocInlines.h>
+#include "WorkerOptions.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(AbstractWorker);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(AbstractWorker);
 
-ExceptionOr<URL> AbstractWorker::resolveURL(const String& url, bool shouldBypassMainWorldContentSecurityPolicy)
+FetchOptions AbstractWorker::workerFetchOptions(const WorkerOptions& options, FetchOptions::Destination destination)
 {
-    auto& context = *scriptExecutionContext();
+    FetchOptions fetchOptions;
+    fetchOptions.mode = FetchOptions::Mode::SameOrigin;
+    if (options.type == WorkerType::Module)
+        fetchOptions.credentials = options.credentials;
+    else
+        fetchOptions.credentials = FetchOptions::Credentials::SameOrigin;
+    fetchOptions.cache = FetchOptions::Cache::Default;
+    fetchOptions.redirect = FetchOptions::Redirect::Follow;
+    fetchOptions.destination = destination;
+    return fetchOptions;
+}
+
+ExceptionOr<URL> AbstractWorker::resolveURL(const String& url)
+{
+    Ref context = *scriptExecutionContext();
 
     // FIXME: This should use the dynamic global scope (bug #27887).
-    URL scriptURL = context.completeURL(url);
+    URL scriptURL = context->encodingParseURL(url);
     if (!scriptURL.isValid())
-        return Exception { SyntaxError };
-
-    if (!context.securityOrigin()->canRequest(scriptURL) && !scriptURL.protocolIsData())
-        return Exception { SecurityError };
-
-    ASSERT(context.contentSecurityPolicy());
-    if (!shouldBypassMainWorldContentSecurityPolicy && !context.contentSecurityPolicy()->allowChildContextFromSource(scriptURL))
-        return Exception { SecurityError };
+        return Exception { ExceptionCode::SyntaxError };
 
     return scriptURL;
+}
+
+bool AbstractWorker::validateURL(ScriptExecutionContext& context, const URL& scriptURL)
+{
+    // Per the specification, any same-origin URL (including blob: URLs) can be used. data: URLs can also be used, but they create a worker with an opaque origin.
+    if (!protect(context.securityOrigin())->canRequest(scriptURL, OriginAccessPatternsForWebProcess::singleton()) && !scriptURL.protocolIsData())
+        return false;
+
+    ASSERT(context.contentSecurityPolicy());
+
+    std::optional<TextPosition> sourcePosition;
+    if (RefPtr document = dynamicDowncast<Document>(context))
+        sourcePosition = document->currentParserSourcePosition();
+
+    if (!protect(context.contentSecurityPolicy())->allowWorkerFromSource(scriptURL, WTF::move(sourcePosition)))
+        return false;
+
+    return true;
 }
 
 } // namespace WebCore

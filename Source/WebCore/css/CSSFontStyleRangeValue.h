@@ -25,39 +25,27 @@
 
 #pragma once
 
-#include "CSSPrimitiveValue.h"
+#include "CSSFontStyleRange.h"
 #include "CSSValue.h"
-#include "CSSValueList.h"
 
 namespace WebCore {
 
 class CSSFontStyleRangeValue final : public CSSValue {
 public:
-    static Ref<CSSFontStyleRangeValue> create(Ref<CSSPrimitiveValue>&& fontStyleValue)
-    {
-        return adoptRef(*new CSSFontStyleRangeValue(WTFMove(fontStyleValue), nullptr));
-    }
-    static Ref<CSSFontStyleRangeValue> create(Ref<CSSPrimitiveValue>&& fontStyleValue, RefPtr<CSSValueList>&& obliqueValues)
-    {
-        return adoptRef(*new CSSFontStyleRangeValue(WTFMove(fontStyleValue), WTFMove(obliqueValues)));
-    }
+    static Ref<CSSFontStyleRangeValue> create(CSS::FontStyleRange&&);
 
-    String customCSSText() const;
+    const CSS::FontStyleRange& fontStyleRange() const LIFETIME_BOUND { return m_fontStyleRange; };
 
+    String customCSSText(const CSS::SerializationContext&) const;
     bool equals(const CSSFontStyleRangeValue&) const;
-
-    Ref<CSSPrimitiveValue> fontStyleValue;
-    RefPtr<CSSValueList> obliqueValues;
+    IterationStatus customVisitChildren(NOESCAPE const Function<IterationStatus(CSSValue&)>&) const;
 
 private:
-    CSSFontStyleRangeValue(Ref<CSSPrimitiveValue>&& fontStyleValue, RefPtr<CSSValueList>&& obliqueValues)
-        : CSSValue(FontStyleRangeClass)
-        , fontStyleValue(WTFMove(fontStyleValue))
-        , obliqueValues(WTFMove(obliqueValues))
-    {
-    }
+    CSSFontStyleRangeValue(CSS::FontStyleRange&&);
+
+    CSS::FontStyleRange m_fontStyleRange;
 };
 
-}
+} // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_CSS_VALUE(CSSFontStyleRangeValue, isFontStyleRangeValue())

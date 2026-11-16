@@ -45,7 +45,7 @@ template<typename ColorType> inline double relativeLuminance(const ColorType& co
     // this in ColorConversion.h as a sibling function to convertColor which can get a channel
     // of a color in another space in this kind of optimal way.
 
-    return convertColor<XYZA<float, WhitePoint::D65>>(color).y;
+    return convertColor<XYZA<float, WhitePoint::D65>>(color).resolved().y;
 }
 
 inline double contrastRatio(double relativeLuminanceA, double relativeLuminanceB)
@@ -66,6 +66,7 @@ template<typename ColorTypeA, typename ColorTypeB> inline double contrastRatio(c
     return contrastRatio(relativeLuminance(colorA), relativeLuminance(colorB));
 }
 
+double relativeLuminance(const Color&);
 double contrastRatio(const Color&, const Color&);
 
 }

@@ -26,32 +26,31 @@
 #include "config.h"
 #include "CSSBorderImageSliceValue.h"
 
-#include "Rect.h"
-#include <wtf/text/WTFString.h>
+#include "CSSPrimitiveNumericTypes+Serialization.h"
 
 namespace WebCore {
 
-CSSBorderImageSliceValue::CSSBorderImageSliceValue(RefPtr<CSSPrimitiveValue>&& slices, bool fill)
-    : CSSValue(BorderImageSliceClass)
-    , m_slices(WTFMove(slices))
-    , m_fill(fill)
+CSSBorderImageSliceValue::CSSBorderImageSliceValue(CSS::BorderImageSlice&& slices)
+    : CSSValue(ClassType::BorderImageSlice)
+    , m_slices(WTF::move(slices))
 {
 }
 
-String CSSBorderImageSliceValue::customCSSText() const
-{
-    // Dump the slices first.
-    String text = m_slices->cssText();
+CSSBorderImageSliceValue::~CSSBorderImageSliceValue() = default;
 
-    // Now the fill keywords if it is present.
-    if (m_fill)
-        return text + " fill";
-    return text;
+Ref<CSSBorderImageSliceValue> CSSBorderImageSliceValue::create(CSS::BorderImageSlice&& slices)
+{
+    return adoptRef(*new CSSBorderImageSliceValue(WTF::move(slices)));
+}
+
+String CSSBorderImageSliceValue::customCSSText(const CSS::SerializationContext& context) const
+{
+    return CSS::serializationForCSS(context, m_slices);
 }
 
 bool CSSBorderImageSliceValue::equals(const CSSBorderImageSliceValue& other) const
 {
-    return m_fill == other.m_fill && compareCSSValuePtr(m_slices, other.m_slices);
+    return m_slices == other.m_slices;
 }
 
 } // namespace WebCore

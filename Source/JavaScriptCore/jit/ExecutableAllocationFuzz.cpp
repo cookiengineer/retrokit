@@ -29,12 +29,13 @@
 #include "TestRunnerUtils.h"
 #include <wtf/Atomics.h>
 #include <wtf/DataLog.h>
+#include <wtf/NeverDestroyed.h>
 #include <wtf/WeakRandom.h>
 
 namespace JSC {
 
 static Atomic<unsigned> s_numberOfExecutableAllocationFuzzChecks;
-unsigned numberOfExecutableAllocationFuzzChecks()
+unsigned NODELETE numberOfExecutableAllocationFuzzChecks()
 {
     return s_numberOfExecutableAllocationFuzzChecks.load();
 }

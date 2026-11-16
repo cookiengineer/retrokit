@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2021 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,26 +25,22 @@
 
 #include "config.h"
 
-#if ENABLE(CHANNEL_MESSAGING)
-
 #include "DOMWrapperWorld.h"
 #include "JSMessageChannel.h"
+#include "JSNodeCustom.h"
+#include "MessagePort.h"
+#include "WebCoreOpaqueRootInlines.h"
 #include <JavaScriptCore/SlotVisitorInlines.h>
 
 namespace WebCore {
 
 template<typename Visitor>
-void JSMessageChannel::visitAdditionalChildren(Visitor& visitor)
+void JSMessageChannel::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    if (MessagePort* port = wrapped().port1())
-        visitor.addOpaqueRoot(port);
-
-    if (MessagePort* port = wrapped().port2())
-        visitor.addOpaqueRoot(port);
+    addWebCoreOpaqueRoot(visitor, wrapped().port1());
+    addWebCoreOpaqueRoot(visitor, wrapped().port2());
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSMessageChannel);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSMessageChannel);
 
 } // namespace WebCore
-
-#endif // ENABLE(CHANNEL_MESSAGING)

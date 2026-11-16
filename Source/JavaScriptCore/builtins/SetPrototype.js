@@ -34,13 +34,16 @@ function forEach(callback /*, thisArg */)
         @throwTypeError("Set.prototype.forEach callback must be a function");
 
     var thisArg = @argument(1);
-    var bucket = @setBucketHead(this);
+    var storage = @setStorage(this);
+    var entry = 0;
 
     do {
-        bucket = @setBucketNext(bucket);
-        if (bucket === @sentinelSetBucket)
+        storage = @setIterationNext(storage, entry);
+        if (storage == @orderedHashTableSentinel)
             break;
-        var key = @setBucketKey(bucket);
+        entry = @setIterationEntry(storage) + 1;
+        var key = @setIterationEntryKey(storage);
+
         callback.@call(thisArg, key, key, this);
     } while (true);
 }

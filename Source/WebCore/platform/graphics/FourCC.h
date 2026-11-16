@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,29 +25,42 @@
 
 #pragma once
 
+#include <wtf/ASCIICType.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
 struct FourCC {
-    FourCC() = default;
-    FourCC(uint32_t value) : value(value) { }
-
-    template<std::size_t N>
-    constexpr FourCC(const char (&data)[N])
-    {
-        static_assert((N - 1) == 4, "FourCC literals must be exactly 4 characters long");
-        value = data[0] << 24 | data[1] << 16 | data[2] << 8 | data[3];
-    }
-
-    String toString() const;
-    WEBCORE_EXPORT static std::optional<FourCC> fromString(const String&);
-
-    bool operator==(const FourCC& other) const { return value == other.value; }
-    bool operator!=(const FourCC& other) const { return value != other.value; }
+    constexpr FourCC() = default;
+    constexpr FourCC(uint32_t value) : value { value } { }
+    constexpr FourCC(std::span<const char, 5> nullTerminatedString);
+    constexpr std::array<char, 5> string() const;
+    static std::optional<FourCC> NODELETE fromString(StringView);
+    friend constexpr bool operator==(FourCC, FourCC) = default;
 
     uint32_t value { 0 };
 };
+
+constexpr FourCC::FourCC(std::span<const char, 5> data)
+    : value(data[0] << 24 | data[1] << 16 | data[2] << 8 | data[3])
+{
+    ASSERT_UNDER_CONSTEXPR_CONTEXT(isASCII(data[0]));
+    ASSERT_UNDER_CONSTEXPR_CONTEXT(isASCII(data[1]));
+    ASSERT_UNDER_CONSTEXPR_CONTEXT(isASCII(data[2]));
+    ASSERT_UNDER_CONSTEXPR_CONTEXT(isASCII(data[3]));
+    ASSERT_UNDER_CONSTEXPR_CONTEXT(data[4] == '\0');
+}
+
+constexpr std::array<char, 5> FourCC::string() const
+{
+    return {
+        static_cast<char>(value >> 24),
+        static_cast<char>(value >> 16),
+        static_cast<char>(value >> 8),
+        static_cast<char>(value),
+        '\0'
+    };
+}
 
 } // namespace WebCore
 
@@ -56,7 +69,7 @@ namespace WTF {
 template<typename> struct LogArgument;
 
 template<> struct LogArgument<WebCore::FourCC> {
-    static String toString(const WebCore::FourCC& code) { return code.toString(); }
+    static String toString(const WebCore::FourCC& code) { return String::fromLatin1(code.string().data()); }
 };
 
 } // namespace WTF

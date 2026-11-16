@@ -6,7 +6,10 @@
 
 // ProgramInterfaceTest: Tests of program interfaces.
 
+#include <array>
+
 #include "common/string_utils.h"
+#include "common/unsafe_buffers.h"
 #include "test_utils/ANGLETest.h"
 #include "test_utils/gl_raii.h"
 
@@ -15,7 +18,28 @@ using namespace angle;
 namespace
 {
 
-class ProgramInterfaceTestES31 : public ANGLETest
+// Variations:
+//
+// - bool: whether the program must be created and recreated, so that it's reloaded from cache.
+using ProgramInterfaceTestParams = std::tuple<angle::PlatformParameters, bool>;
+
+std::string ProgramInterfaceTestPrint(
+    const ::testing::TestParamInfo<ProgramInterfaceTestParams> &paramsInfo)
+{
+    const ProgramInterfaceTestParams &params = paramsInfo.param;
+    std::ostringstream out;
+
+    out << std::get<0>(params);
+
+    if (std::get<1>(params))
+    {
+        out << "__cached";
+    }
+
+    return out.str();
+}
+
+class ProgramInterfaceTestES31 : public ANGLETest<ProgramInterfaceTestParams>
 {
   protected:
     ProgramInterfaceTestES31()
@@ -27,7 +51,44 @@ class ProgramInterfaceTestES31 : public ANGLETest
         setConfigBlueBits(8);
         setConfigAlphaBits(8);
     }
+
+    void createGraphicsProgram(GLProgram &program,
+                               const char *vs,
+                               const char *fs,
+                               bool cacheAndReload);
+    void createComputeProgram(GLProgram &program, const char *cs, bool cacheAndReload);
 };
+
+void ProgramInterfaceTestES31::createGraphicsProgram(GLProgram &program,
+                                                     const char *vs,
+                                                     const char *fs,
+                                                     bool cacheAndReload)
+{
+    program.makeRaster(vs, fs);
+    ASSERT_TRUE(program.valid());
+
+    if (cacheAndReload)
+    {
+        program.reset();
+        program.makeRaster(vs, fs);
+        ASSERT_TRUE(program.valid());
+    }
+}
+
+void ProgramInterfaceTestES31::createComputeProgram(GLProgram &program,
+                                                    const char *cs,
+                                                    bool cacheAndReload)
+{
+    program.makeCompute(cs);
+    ASSERT_TRUE(program.valid());
+
+    if (cacheAndReload)
+    {
+        program.reset();
+        program.makeCompute(cs);
+        ASSERT_TRUE(program.valid());
+    }
+}
 
 // Tests glGetProgramResourceIndex.
 TEST_P(ProgramInterfaceTestES31, GetResourceIndex)
@@ -42,7 +103,8 @@ TEST_P(ProgramInterfaceTestES31, GetResourceIndex)
         "    oColor = color;\n"
         "}";
 
-    ANGLE_GL_PROGRAM(program, essl31_shaders::vs::Simple(), kFS);
+    GLProgram program;
+    createGraphicsProgram(program, essl31_shaders::vs::Simple(), kFS, std::get<1>(GetParam()));
 
     GLuint index =
         glGetProgramResourceIndex(program, GL_PROGRAM_INPUT, essl31_shaders::PositionAttrib());
@@ -78,7 +140,8 @@ TEST_P(ProgramInterfaceTestES31, GetResourceName)
         "    oColor[0] = color;\n"
         "}";
 
-    ANGLE_GL_PROGRAM(program, essl31_shaders::vs::Simple(), kFS);
+    GLProgram program;
+    createGraphicsProgram(program, essl31_shaders::vs::Simple(), kFS, std::get<1>(GetParam()));
 
     GLuint index =
         glGetProgramResourceIndex(program, GL_PROGRAM_INPUT, essl31_shaders::PositionAttrib());
@@ -119,11 +182,124 @@ TEST_P(ProgramInterfaceTestES31, GetResourceName)
     EXPECT_EQ("oColor[", std::string(name));
 }
 
+// Tests queries for array of arrays in tessellation shader.
+TEST_P(ProgramInterfaceTestES31, ArrayofArraysQueries)
+{
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_EXT_tessellation_shader"));
+
+    const GLchar *TCS = R"(#version 310 es
+#extension GL_EXT_tessellation_shader : require
+layout(vertices = 3) out;
+in float vt[];
+out float tt[][2];
+void main()
+{
+    gl_TessLevelOuter[0] = 3.0;
+    gl_TessLevelOuter[1] = 3.0;
+    gl_TessLevelOuter[2] = 3.0;
+    gl_TessLevelInner[0] = 7.0;
+    gl_out[gl_InvocationID].gl_Position = gl_in[gl_InvocationID].gl_Position;
+    tt[gl_InvocationID][1] = vt[gl_InvocationID];
+})";
+
+    const GLchar *TES = R"(#version 310 es
+#extension GL_EXT_tessellation_shader : require
+layout(triangles, fractional_even_spacing, ccw) in;
+in float tt[][2];
+out float tg[2];
+void main()
+{
+    gl_Position.xyzw = gl_in[0].gl_Position.xyzw * gl_TessCoord.x +
+                       gl_in[1].gl_Position.xyzw * gl_TessCoord.y +
+                       gl_in[2].gl_Position.xyzw * gl_TessCoord.z;
+    tg[1] = tt[0][1];
+})";
+
+    // Create shader and init program.
+    GLuint programTCS, programTES;
+    programTCS = glCreateShaderProgramv(GL_TESS_CONTROL_SHADER, 1, &TCS);
+    ASSERT_NE(programTCS, 0u);
+    GLint linked = GL_FALSE;
+    glGetProgramiv(programTCS, GL_LINK_STATUS, &linked);
+    ASSERT_GL_TRUE(linked);
+    programTES = glCreateShaderProgramv(GL_TESS_EVALUATION_SHADER, 1, &TES);
+    ASSERT_NE(programTES, 0u);
+    glGetProgramiv(programTES, GL_LINK_STATUS, &linked);
+    ASSERT_GL_TRUE(linked);
+
+    // Program interfaces to query for resources.
+    constexpr uint32_t kInterfaceCount = 2;
+    struct InterfaceProperties
+    {
+        uint32_t programIndex;
+        GLenum iface;
+        const GLchar *resourceName;
+    };
+    std::array<InterfaceProperties, kInterfaceCount> kInterfaceProps = {
+        {{programTCS, GL_PROGRAM_OUTPUT, "tt[0][0]"}, {programTES, GL_PROGRAM_INPUT, "tt[0][0]"}}};
+
+    // Table of queries to perform on resource.
+    constexpr GLsizei kPropCount                = 3;
+    constexpr GLenum kResourceProps[kPropCount] = {GL_NAME_LENGTH, GL_TYPE, GL_ARRAY_SIZE};
+    constexpr GLsizei kBufferSize               = 150;
+
+    // Buffer for results of resource queries.
+    GLint resourceResults[3] = {0};
+
+    // Test: Check each interface by querying for resources.
+    for (uint32_t i = 0; i < kPropCount; ++i)
+    {
+        GLint numActiveResources = 0;
+        GLchar name[64];
+        GLuint program          = kInterfaceProps[i].programIndex;
+        GLenum programInterface = kInterfaceProps[i].iface;
+        bool resourceFound      = false;
+
+        // Get the number of active resources for the given interface. Should be bigger than zero.
+        glGetProgramInterfaceiv(program, programInterface, GL_ACTIVE_RESOURCES,
+                                &numActiveResources);
+        EXPECT_GL_NO_ERROR();
+        ASSERT_NE(0, numActiveResources);
+
+        for (GLuint resourceIndex = 0; resourceIndex < (GLuint)numActiveResources; ++resourceIndex)
+        {
+            GLsizei nameLength       = 0;
+            GLint queryResourceIndex = 0;
+
+            glGetProgramResourceName(program, programInterface, resourceIndex, sizeof(name),
+                                     &nameLength, name);
+            EXPECT_GL_NO_ERROR();
+            ASSERT_NE(0, nameLength);
+
+            // Cross-reference the name back to the resource index.
+            queryResourceIndex = (GLint)glGetProgramResourceIndex(program, programInterface, name);
+            EXPECT_GL_NO_ERROR();
+            ASSERT_EQ((GLuint)queryResourceIndex, resourceIndex);
+
+            if (ANGLE_UNSAFE_TODO(strcmp(name, kInterfaceProps[i].resourceName)) == 0)
+            {
+                GLsizei length = 0;
+                glGetProgramResourceiv(program, programInterface, resourceIndex, kPropCount,
+                                       kResourceProps, kBufferSize, &length, resourceResults);
+                EXPECT_GL_NO_ERROR();
+                ASSERT_NE(0, length);
+
+                // Validate queried resource properties.
+                ASSERT_EQ(strlen(kInterfaceProps[i].resourceName) + 1, (GLuint)resourceResults[0]);
+                ASSERT_EQ(GL_FLOAT, resourceResults[1]);
+                ASSERT_EQ(2, resourceResults[2]);
+
+                resourceFound = true;
+            }
+        }
+
+        ASSERT_TRUE(resourceFound);
+    }
+}
+
 // Tests glGetProgramResourceLocation.
 TEST_P(ProgramInterfaceTestES31, GetResourceLocation)
 {
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
     constexpr char kVS[] =
         "#version 310 es\n"
         "precision highp float;\n"
@@ -138,13 +314,14 @@ TEST_P(ProgramInterfaceTestES31, GetResourceLocation)
         "#version 310 es\n"
         "precision highp float;\n"
         "uniform vec4 color;\n"
-        "layout(location = 2) out vec4 oColor[4];\n"
+        "layout(location = 1) out vec4 oColor[3];\n"
         "void main()\n"
         "{\n"
         "    oColor[0] = color;\n"
         "}";
 
-    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    GLProgram program;
+    createGraphicsProgram(program, kVS, kFS, std::get<1>(GetParam()));
 
     GLenum invalidInterfaces[] = {GL_UNIFORM_BLOCK, GL_TRANSFORM_FEEDBACK_VARYING,
                                   GL_BUFFER_VARIABLE, GL_SHADER_STORAGE_BLOCK,
@@ -171,20 +348,18 @@ TEST_P(ProgramInterfaceTestES31, GetResourceLocation)
 
     location = glGetProgramResourceLocation(program, GL_PROGRAM_OUTPUT, "oColor");
     EXPECT_GL_NO_ERROR();
-    EXPECT_EQ(2, location);
+    EXPECT_EQ(1, location);
     location = glGetProgramResourceLocation(program, GL_PROGRAM_OUTPUT, "oColor[0]");
     EXPECT_GL_NO_ERROR();
-    EXPECT_EQ(2, location);
-    location = glGetProgramResourceLocation(program, GL_PROGRAM_OUTPUT, "oColor[3]");
+    EXPECT_EQ(1, location);
+    location = glGetProgramResourceLocation(program, GL_PROGRAM_OUTPUT, "oColor[2]");
     EXPECT_GL_NO_ERROR();
-    EXPECT_EQ(5, location);
+    EXPECT_EQ(3, location);
 }
 
 // Tests glGetProgramResource.
 TEST_P(ProgramInterfaceTestES31, GetResource)
 {
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
     constexpr char kVS[] =
         "#version 310 es\n"
         "precision highp float;\n"
@@ -198,25 +373,26 @@ TEST_P(ProgramInterfaceTestES31, GetResource)
         "#version 310 es\n"
         "precision highp float;\n"
         "uniform vec4 color;\n"
-        "layout(location = 2) out vec4 oColor[4];\n"
+        "layout(location = 1) out vec4 oColor[3];\n"
         "void main()\n"
         "{\n"
         "    oColor[0] = color;\n"
         "}";
 
-    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    GLProgram program;
+    createGraphicsProgram(program, kVS, kFS, std::get<1>(GetParam()));
 
     GLuint index = glGetProgramResourceIndex(program, GL_PROGRAM_INPUT, "position");
     EXPECT_GL_NO_ERROR();
     EXPECT_NE(GL_INVALID_INDEX, index);
 
     GLenum props[]    = {GL_TYPE,
-                      GL_ARRAY_SIZE,
-                      GL_LOCATION,
-                      GL_NAME_LENGTH,
-                      GL_REFERENCED_BY_VERTEX_SHADER,
-                      GL_REFERENCED_BY_FRAGMENT_SHADER,
-                      GL_REFERENCED_BY_COMPUTE_SHADER};
+                         GL_ARRAY_SIZE,
+                         GL_LOCATION,
+                         GL_NAME_LENGTH,
+                         GL_REFERENCED_BY_VERTEX_SHADER,
+                         GL_REFERENCED_BY_FRAGMENT_SHADER,
+                         GL_REFERENCED_BY_COMPUTE_SHADER};
     GLsizei propCount = static_cast<GLsizei>(ArraySize(props));
     GLint params[ArraySize(props)];
     GLsizei length;
@@ -242,8 +418,8 @@ TEST_P(ProgramInterfaceTestES31, GetResource)
     EXPECT_GL_NO_ERROR();
     EXPECT_EQ(propCount - 1, length);
     EXPECT_EQ(GL_FLOAT_VEC4, params[0]);  // type
-    EXPECT_EQ(4, params[1]);              // array_size
-    EXPECT_EQ(2, params[2]);              // location
+    EXPECT_EQ(3, params[1]);              // array_size
+    EXPECT_EQ(1, params[2]);              // location
     EXPECT_EQ(10, params[3]);             // name_length
     EXPECT_EQ(0, params[4]);              // referenced_by_vertex_shader
     EXPECT_EQ(1, params[5]);              // referenced_by_fragment_shader
@@ -258,7 +434,7 @@ TEST_P(ProgramInterfaceTestES31, GetResource)
 TEST_P(ProgramInterfaceTestES31, GetProgramInterface)
 {
     // TODO(jiajia.qin@intel.com): Don't skip this test once SSBO are supported on render pipeline.
-    // http://anglebug.com/1951
+    // http://anglebug.com/40644618
     ANGLE_SKIP_TEST_IF(IsD3D11());
 
     constexpr char kFS[] =
@@ -283,7 +459,8 @@ TEST_P(ProgramInterfaceTestES31, GetProgramInterface)
         "    blockInstance2[0].target = vec3(1, 1, 1);\n"
         "}";
 
-    ANGLE_GL_PROGRAM(program, essl31_shaders::vs::Simple(), kFS);
+    GLProgram program;
+    createGraphicsProgram(program, essl31_shaders::vs::Simple(), kFS, std::get<1>(GetParam()));
 
     GLint num;
     glGetProgramInterfaceiv(program, GL_PROGRAM_INPUT, GL_ACTIVE_RESOURCES, &num);
@@ -373,7 +550,8 @@ TEST_P(ProgramInterfaceTestES31, GetUniformProperties)
         "    oColor = color;\n"
         "}";
 
-    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    GLProgram program;
+    createGraphicsProgram(program, kVS, kFS, std::get<1>(GetParam()));
 
     GLuint index = glGetProgramResourceIndex(program, GL_UNIFORM, "color");
     EXPECT_GL_NO_ERROR();
@@ -391,18 +569,18 @@ TEST_P(ProgramInterfaceTestES31, GetUniformProperties)
     EXPECT_EQ(12, location);
 
     GLenum props[]    = {GL_TYPE,
-                      GL_ARRAY_SIZE,
-                      GL_LOCATION,
-                      GL_NAME_LENGTH,
-                      GL_REFERENCED_BY_VERTEX_SHADER,
-                      GL_REFERENCED_BY_FRAGMENT_SHADER,
-                      GL_REFERENCED_BY_COMPUTE_SHADER,
-                      GL_ARRAY_STRIDE,
-                      GL_BLOCK_INDEX,
-                      GL_IS_ROW_MAJOR,
-                      GL_MATRIX_STRIDE,
-                      GL_OFFSET,
-                      GL_ATOMIC_COUNTER_BUFFER_INDEX};
+                         GL_ARRAY_SIZE,
+                         GL_LOCATION,
+                         GL_NAME_LENGTH,
+                         GL_REFERENCED_BY_VERTEX_SHADER,
+                         GL_REFERENCED_BY_FRAGMENT_SHADER,
+                         GL_REFERENCED_BY_COMPUTE_SHADER,
+                         GL_ARRAY_STRIDE,
+                         GL_BLOCK_INDEX,
+                         GL_IS_ROW_MAJOR,
+                         GL_MATRIX_STRIDE,
+                         GL_OFFSET,
+                         GL_ATOMIC_COUNTER_BUFFER_INDEX};
     GLsizei propCount = static_cast<GLsizei>(ArraySize(props));
     GLint params[ArraySize(props)];
     glGetProgramResourceiv(program, GL_UNIFORM, index, propCount, props, propCount, &length,
@@ -480,7 +658,8 @@ TEST_P(ProgramInterfaceTestES31, GetUniformBlockProperties)
         "  color = vec4(v, 0, 1);\n"
         "}";
 
-    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    GLProgram program;
+    createGraphicsProgram(program, kVS, kFS, std::get<1>(GetParam()));
 
     GLuint index = glGetProgramResourceIndex(program, GL_UNIFORM_BLOCK, "blockName");
     EXPECT_GL_NO_ERROR();
@@ -494,22 +673,22 @@ TEST_P(ProgramInterfaceTestES31, GetUniformBlockProperties)
     EXPECT_EQ("blockName", std::string(name));
 
     GLenum props[]         = {GL_BUFFER_BINDING,
-                      GL_BUFFER_DATA_SIZE,
-                      GL_NAME_LENGTH,
-                      GL_NUM_ACTIVE_VARIABLES,
-                      GL_ACTIVE_VARIABLES,
-                      GL_REFERENCED_BY_VERTEX_SHADER,
-                      GL_REFERENCED_BY_FRAGMENT_SHADER,
-                      GL_REFERENCED_BY_COMPUTE_SHADER};
+                              GL_BUFFER_DATA_SIZE,
+                              GL_NAME_LENGTH,
+                              GL_NUM_ACTIVE_VARIABLES,
+                              GL_ACTIVE_VARIABLES,
+                              GL_REFERENCED_BY_VERTEX_SHADER,
+                              GL_REFERENCED_BY_FRAGMENT_SHADER,
+                              GL_REFERENCED_BY_COMPUTE_SHADER};
     GLsizei propCount      = static_cast<GLsizei>(ArraySize(props));
     constexpr int kBufSize = 256;
-    GLint params[kBufSize];
+    std::array<GLint, kBufSize> params;
     GLint magic = 0xBEEF;
 
     // Tests bufSize is respected even some prop returns more than one value.
     params[propCount] = magic;
     glGetProgramResourceiv(program, GL_UNIFORM_BLOCK, index, propCount, props, propCount, &length,
-                           params);
+                           params.data());
     EXPECT_GL_NO_ERROR();
     EXPECT_EQ(propCount, length);
     EXPECT_EQ(2, params[0]);   // buffer_binding
@@ -523,7 +702,7 @@ TEST_P(ProgramInterfaceTestES31, GetUniformBlockProperties)
     EXPECT_EQ(magic, params[8]);
 
     glGetProgramResourceiv(program, GL_UNIFORM_BLOCK, index, propCount, props, kBufSize, &length,
-                           params);
+                           params.data());
     EXPECT_GL_NO_ERROR();
     EXPECT_EQ(propCount + 1, length);
     EXPECT_EQ(0, params[8]);  // referenced_by_compute_shader
@@ -532,7 +711,7 @@ TEST_P(ProgramInterfaceTestES31, GetUniformBlockProperties)
     GLenum actvieVariablesProperty = GL_ACTIVE_VARIABLES;
     params[1]                      = magic;
     glGetProgramResourceiv(program, GL_UNIFORM_BLOCK, index, 1, &actvieVariablesProperty, 1,
-                           &length, params);
+                           &length, params.data());
     EXPECT_GL_NO_ERROR();
     EXPECT_EQ(1, length);
     EXPECT_LE(0, params[0]);  // index of 'f1' or 'f2'
@@ -572,7 +751,9 @@ TEST_P(ProgramInterfaceTestES31, QueryAtomicCounteBuffer)
         "    my_color = vec4(0.0);\n"
         "}\n";
 
-    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    GLProgram program;
+    createGraphicsProgram(program, kVS, kFS, std::get<1>(GetParam()));
+
     GLint num;
     glGetProgramInterfaceiv(program, GL_ATOMIC_COUNTER_BUFFER, GL_ACTIVE_RESOURCES, &num);
     EXPECT_GL_NO_ERROR();
@@ -583,7 +764,7 @@ TEST_P(ProgramInterfaceTestES31, QueryAtomicCounteBuffer)
     EXPECT_EQ(2, num);
 
     GLenum props[]    = {GL_BUFFER_BINDING, GL_NUM_ACTIVE_VARIABLES, GL_REFERENCED_BY_VERTEX_SHADER,
-                      GL_REFERENCED_BY_FRAGMENT_SHADER, GL_REFERENCED_BY_COMPUTE_SHADER};
+                         GL_REFERENCED_BY_FRAGMENT_SHADER, GL_REFERENCED_BY_COMPUTE_SHADER};
     GLsizei propCount = static_cast<GLsizei>(ArraySize(props));
     GLint params[ArraySize(props)];
     GLsizei length = 0;
@@ -602,7 +783,7 @@ TEST_P(ProgramInterfaceTestES31, QueryAtomicCounteBuffer)
 TEST_P(ProgramInterfaceTestES31, GetBufferVariableProperties)
 {
     // TODO(jiajia.qin@intel.com): Don't skip this test once non-simple SSBO sentences are supported
-    // on d3d backend. http://anglebug.com/1951
+    // on d3d backend. http://anglebug.com/40644618
     ANGLE_SKIP_TEST_IF(IsD3D11());
 
     // Check SSBO support
@@ -646,7 +827,8 @@ TEST_P(ProgramInterfaceTestES31, GetBufferVariableProperties)
         "    oColor = vec4(instanceName1[0].f1, 0, 0, 1);\n"
         "}";
 
-    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    GLProgram program;
+    createGraphicsProgram(program, kVS, kFS, std::get<1>(GetParam()));
 
     GLuint index = glGetProgramResourceIndex(program, GL_BUFFER_VARIABLE, "blockName1.f1");
     EXPECT_GL_NO_ERROR();
@@ -660,18 +842,18 @@ TEST_P(ProgramInterfaceTestES31, GetBufferVariableProperties)
     EXPECT_EQ("blockName1.f1", std::string(name));
 
     GLenum props[]         = {GL_ARRAY_SIZE,
-                      GL_ARRAY_STRIDE,
-                      GL_BLOCK_INDEX,
-                      GL_IS_ROW_MAJOR,
-                      GL_MATRIX_STRIDE,
-                      GL_NAME_LENGTH,
-                      GL_OFFSET,
-                      GL_REFERENCED_BY_VERTEX_SHADER,
-                      GL_REFERENCED_BY_FRAGMENT_SHADER,
-                      GL_REFERENCED_BY_COMPUTE_SHADER,
-                      GL_TOP_LEVEL_ARRAY_SIZE,
-                      GL_TOP_LEVEL_ARRAY_STRIDE,
-                      GL_TYPE};
+                              GL_ARRAY_STRIDE,
+                              GL_BLOCK_INDEX,
+                              GL_IS_ROW_MAJOR,
+                              GL_MATRIX_STRIDE,
+                              GL_NAME_LENGTH,
+                              GL_OFFSET,
+                              GL_REFERENCED_BY_VERTEX_SHADER,
+                              GL_REFERENCED_BY_FRAGMENT_SHADER,
+                              GL_REFERENCED_BY_COMPUTE_SHADER,
+                              GL_TOP_LEVEL_ARRAY_SIZE,
+                              GL_TOP_LEVEL_ARRAY_STRIDE,
+                              GL_TYPE};
     GLsizei propCount      = static_cast<GLsizei>(ArraySize(props));
     constexpr int kBufSize = 256;
     GLint params[kBufSize];
@@ -761,7 +943,8 @@ void main()
 }
 )";
 
-    ANGLE_GL_COMPUTE_PROGRAM(program, kComputeShaderSource);
+    GLProgram program;
+    createComputeProgram(program, kComputeShaderSource, std::get<1>(GetParam()));
 
     GLuint index = glGetProgramResourceIndex(program, GL_BUFFER_VARIABLE, "blockIn.a");
     EXPECT_GL_NO_ERROR();
@@ -775,18 +958,18 @@ void main()
     EXPECT_EQ("blockIn.a[0]", std::string(name));
 
     GLenum props[]         = {GL_ARRAY_SIZE,
-                      GL_ARRAY_STRIDE,
-                      GL_BLOCK_INDEX,
-                      GL_IS_ROW_MAJOR,
-                      GL_MATRIX_STRIDE,
-                      GL_NAME_LENGTH,
-                      GL_OFFSET,
-                      GL_REFERENCED_BY_VERTEX_SHADER,
-                      GL_REFERENCED_BY_FRAGMENT_SHADER,
-                      GL_REFERENCED_BY_COMPUTE_SHADER,
-                      GL_TOP_LEVEL_ARRAY_SIZE,
-                      GL_TOP_LEVEL_ARRAY_STRIDE,
-                      GL_TYPE};
+                              GL_ARRAY_STRIDE,
+                              GL_BLOCK_INDEX,
+                              GL_IS_ROW_MAJOR,
+                              GL_MATRIX_STRIDE,
+                              GL_NAME_LENGTH,
+                              GL_OFFSET,
+                              GL_REFERENCED_BY_VERTEX_SHADER,
+                              GL_REFERENCED_BY_FRAGMENT_SHADER,
+                              GL_REFERENCED_BY_COMPUTE_SHADER,
+                              GL_TOP_LEVEL_ARRAY_SIZE,
+                              GL_TOP_LEVEL_ARRAY_STRIDE,
+                              GL_TYPE};
     GLsizei propCount      = static_cast<GLsizei>(ArraySize(props));
     constexpr int kBufSize = 256;
     GLint params[kBufSize];
@@ -835,7 +1018,7 @@ void main()
     EXPECT_EQ(0, params[7]);  // referenced_by_vertex_shader
     EXPECT_EQ(0, params[8]);  // referenced_by_fragment_shader
     // TODO(jiajia.qin@intel.com): referenced_by_compute_shader is not
-    // correctly handled. http://anglebug.com/1920.
+    // correctly handled. http://anglebug.com/42260711.
     // EXPECT_EQ(1, params[9]);   // referenced_by_compute_shader
 
     EXPECT_EQ(1, params[10]);              // top_level_array_size
@@ -874,7 +1057,8 @@ void main()
 }
 )";
 
-    ANGLE_GL_COMPUTE_PROGRAM(program, kComputeShaderSource);
+    GLProgram program;
+    createComputeProgram(program, kComputeShaderSource, std::get<1>(GetParam()));
 
     GLuint index = glGetProgramResourceIndex(program, GL_BUFFER_VARIABLE, "blockOut.s[0][0].m");
     EXPECT_GL_NO_ERROR();
@@ -888,18 +1072,18 @@ void main()
     EXPECT_EQ("blockOut.s[0][0].m", std::string(name));
 
     GLenum props[]         = {GL_ARRAY_SIZE,
-                      GL_ARRAY_STRIDE,
-                      GL_BLOCK_INDEX,
-                      GL_IS_ROW_MAJOR,
-                      GL_MATRIX_STRIDE,
-                      GL_NAME_LENGTH,
-                      GL_OFFSET,
-                      GL_REFERENCED_BY_VERTEX_SHADER,
-                      GL_REFERENCED_BY_FRAGMENT_SHADER,
-                      GL_REFERENCED_BY_COMPUTE_SHADER,
-                      GL_TOP_LEVEL_ARRAY_SIZE,
-                      GL_TOP_LEVEL_ARRAY_STRIDE,
-                      GL_TYPE};
+                              GL_ARRAY_STRIDE,
+                              GL_BLOCK_INDEX,
+                              GL_IS_ROW_MAJOR,
+                              GL_MATRIX_STRIDE,
+                              GL_NAME_LENGTH,
+                              GL_OFFSET,
+                              GL_REFERENCED_BY_VERTEX_SHADER,
+                              GL_REFERENCED_BY_FRAGMENT_SHADER,
+                              GL_REFERENCED_BY_COMPUTE_SHADER,
+                              GL_TOP_LEVEL_ARRAY_SIZE,
+                              GL_TOP_LEVEL_ARRAY_STRIDE,
+                              GL_TYPE};
     GLsizei propCount      = static_cast<GLsizei>(ArraySize(props));
     constexpr int kBufSize = 256;
     GLint params[kBufSize];
@@ -918,7 +1102,7 @@ void main()
     EXPECT_EQ(0, params[7]);  // referenced_by_vertex_shader
     EXPECT_EQ(0, params[8]);  // referenced_by_fragment_shader
     // TODO(jiajia.qin@intel.com): referenced_by_compute_shader is not
-    // correctly handled. http://anglebug.com/1920.
+    // correctly handled. http://anglebug.com/42260711.
     // EXPECT_EQ(1, params[9]);   // referenced_by_compute_shader
     EXPECT_EQ(3, params[10]);              // top_level_array_size
     EXPECT_EQ(48, params[11]);             // top_level_array_stride
@@ -957,7 +1141,7 @@ void main()
 TEST_P(ProgramInterfaceTestES31, GetShaderStorageBlockProperties)
 {
     // TODO(jiajia.qin@intel.com): Don't skip this test once non-simple SSBO sentences are supported
-    // on d3d backend. http://anglebug.com/1951
+    // on d3d backend. http://anglebug.com/40644618
     ANGLE_SKIP_TEST_IF(IsD3D11());
 
     // Check SSBO support
@@ -1002,7 +1186,8 @@ TEST_P(ProgramInterfaceTestES31, GetShaderStorageBlockProperties)
         "    oColor = color;\n"
         "}";
 
-    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    GLProgram program;
+    createGraphicsProgram(program, kVS, kFS, std::get<1>(GetParam()));
 
     GLuint index = glGetProgramResourceIndex(program, GL_SHADER_STORAGE_BLOCK, "blockName0");
     EXPECT_GL_NO_ERROR();
@@ -1016,13 +1201,13 @@ TEST_P(ProgramInterfaceTestES31, GetShaderStorageBlockProperties)
     EXPECT_EQ("blockName0", std::string(name));
 
     GLenum props[]         = {GL_ACTIVE_VARIABLES,
-                      GL_BUFFER_BINDING,
-                      GL_NUM_ACTIVE_VARIABLES,
-                      GL_BUFFER_DATA_SIZE,
-                      GL_NAME_LENGTH,
-                      GL_REFERENCED_BY_VERTEX_SHADER,
-                      GL_REFERENCED_BY_FRAGMENT_SHADER,
-                      GL_REFERENCED_BY_COMPUTE_SHADER};
+                              GL_BUFFER_BINDING,
+                              GL_NUM_ACTIVE_VARIABLES,
+                              GL_BUFFER_DATA_SIZE,
+                              GL_NAME_LENGTH,
+                              GL_REFERENCED_BY_VERTEX_SHADER,
+                              GL_REFERENCED_BY_FRAGMENT_SHADER,
+                              GL_REFERENCED_BY_COMPUTE_SHADER};
     GLsizei propCount      = static_cast<GLsizei>(ArraySize(props));
     constexpr int kBufSize = 256;
     GLint params[kBufSize];
@@ -1067,12 +1252,13 @@ layout(binding = 0) uniform atomic_uint ac2;
 
 void main()
 {
-    atomicCounter(acbase);
-    atomicCounter(ac[0]);
-    atomicCounter(ac2);
+    atomicCounterIncrement(acbase);
+    atomicCounterIncrement(ac[0]);
+    atomicCounterIncrement(ac2);
 })";
 
-    ANGLE_GL_COMPUTE_PROGRAM(program, kCSSource);
+    GLProgram program;
+    createComputeProgram(program, kCSSource, std::get<1>(GetParam()));
 
     GLuint index = glGetProgramResourceIndex(program, GL_UNIFORM, "ac");
     EXPECT_GL_NO_ERROR();
@@ -1217,6 +1403,66 @@ void main() {
     glDeleteProgram(program);
 }
 
-ANGLE_INSTANTIATE_TEST_ES31(ProgramInterfaceTestES31);
+// Regression test for crash report in http://anglebug.com/42264603.
+TEST_P(ProgramInterfaceTestES31, ReloadFromCacheShouldNotCrash)
+{
+    ANGLE_SKIP_TEST_IF(!EnsureGLExtensionEnabled("GL_ANGLE_multi_draw"));
+
+    // TODO(jiajia.qin@intel.com): Don't skip this test once non-simple SSBO sentences are supported
+    // on d3d backend. http://anglebug.com/40644618
+    ANGLE_SKIP_TEST_IF(IsD3D11());
+
+    constexpr char kVS[] = R"(#version 310 es
+#extension GL_ANGLE_multi_draw : require
+precision highp int;
+precision highp float;
+layout(std140) buffer;
+struct TransformInfo
+{
+    mat4 mvp;
+};
+layout(binding = 0) buffer pe_transforms
+{
+    TransformInfo transforms[];
+};
+out vec2 texCoord;
+uniform int pe_base_draw_id;
+layout(location = 0) in vec3 pe_vertex;
+layout(location = 1) in vec3 pe_normal;
+layout(location = 2) in vec2 pe_tex_coord;
+void main()
+{
+    vec4 v = vec4(pe_vertex, 1.0);
+    texCoord = pe_tex_coord;
+    gl_Position = transforms[(gl_DrawID + pe_base_draw_id)].mvp * v;
+})";
+
+    constexpr char kFS[] = R"(#version 310 es
+#extension GL_ANGLE_multi_draw : require
+precision highp int;
+precision highp float;
+layout(std140) buffer;
+in vec2 texCoord;
+layout(binding = 0) uniform sampler2D pe_tex_main;
+out vec4 pe_frag_color;
+void main()
+{
+    vec4 u = texture(pe_tex_main, texCoord);
+    if(u.a < 0.05)
+        discard;
+    pe_frag_color = u;
+}
+)";
+
+    GLProgram program;
+    createGraphicsProgram(program, kVS, kFS, std::get<1>(GetParam()));
+    EXPECT_GL_NO_ERROR();
+}
+
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ProgramInterfaceTestES31);
+ANGLE_INSTANTIATE_TEST_COMBINE_1(ProgramInterfaceTestES31,
+                                 ProgramInterfaceTestPrint,
+                                 testing::Bool(),
+                                 ANGLE_ALL_TEST_PLATFORMS_ES31);
 
 }  // anonymous namespace

@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2010-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,19 +34,13 @@ namespace WebCore {
 class Decimal;
 class QualifiedName;
 
-// Space characters as defined by the HTML specification.
-template<typename CharacterType> bool isHTMLSpace(CharacterType);
-template<typename CharacterType> bool isNotHTMLSpace(CharacterType);
 template<typename CharacterType> bool isComma(CharacterType);
 template<typename CharacterType> bool isHTMLSpaceOrComma(CharacterType);
-bool isHTMLLineBreak(UChar);
-bool isHTMLSpaceButNotLineBreak(UChar);
+bool isHTMLLineBreak(char16_t);
+bool isHTMLSpaceButNotLineBreak(char16_t);
 
 // 2147483647 is 2^31 - 1.
 static const unsigned maxHTMLNonNegativeInteger = 2147483647;
-
-// Strip leading and trailing whitespace as defined by the HTML specification. 
-WEBCORE_EXPORT String stripLeadingAndTrailingHTMLSpaces(const String&);
 
 // An implementation of the HTML specification's algorithm to convert a number to a string for number and range types.
 String serializeForNumberType(const Decimal&);
@@ -54,10 +49,10 @@ String serializeForNumberType(double);
 // Convert the specified string to a decimal/double. If the conversion fails, the return value is fallback value or NaN if not specified.
 // Leading or trailing illegal characters cause failure, as does passing an empty string.
 // The double* parameter may be 0 to check if the string can be parsed without getting the result.
-Decimal parseToDecimalForNumberType(const String&);
-Decimal parseToDecimalForNumberType(const String&, const Decimal& fallbackValue);
-double parseToDoubleForNumberType(const String&);
-double parseToDoubleForNumberType(const String&, double fallbackValue);
+Decimal parseToDecimalForNumberType(StringView);
+Decimal parseToDecimalForNumberType(StringView, const Decimal& fallbackValue);
+double parseToDoubleForNumberType(StringView);
+double parseToDoubleForNumberType(StringView, double fallbackValue);
 
 // http://www.whatwg.org/specs/web-apps/current-work/#rules-for-parsing-integers
 enum class HTMLIntegerParsingError { NegativeOverflow, PositiveOverflow, Other };
@@ -73,11 +68,14 @@ std::optional<int> parseValidHTMLNonNegativeInteger(StringView);
 // https://html.spec.whatwg.org/#valid-floating-point-number
 std::optional<double> parseValidHTMLFloatingPointNumber(StringView);
 
+// https://html.spec.whatwg.org/#rules-for-parsing-floating-point-number-values
+double parseHTMLFloatingPointNumberValue(StringView, double fallbackValue = std::numeric_limits<double>::quiet_NaN());
+
 // https://html.spec.whatwg.org/multipage/infrastructure.html#rules-for-parsing-floating-point-number-values
 Vector<double> parseHTMLListOfOfFloatingPointNumberValues(StringView);
 
 // https://html.spec.whatwg.org/multipage/semantics.html#attr-meta-http-equiv-refresh
-bool parseMetaHTTPEquivRefresh(const StringView&, double& delay, String& url);
+bool parseMetaHTTPEquivRefresh(StringView, double& delay, String& url);
 
 // https://html.spec.whatwg.org/multipage/infrastructure.html#cors-settings-attribute
 String parseCORSSettingsAttribute(const AtomString&);
@@ -95,31 +93,26 @@ struct HTMLDimension {
 std::optional<HTMLDimension> parseHTMLDimension(StringView);
 std::optional<HTMLDimension> parseHTMLMultiLength(StringView);
 
+// https://html.spec.whatwg.org/multipage/common-microsyntaxes.html#lists-of-dimensions
+struct HTMLDimensionsListValue {
+    enum class Unit : uint8_t { Percentage, Relative, Absolute };
+    double number;
+    Unit unit;
+};
+WEBCORE_EXPORT FixedVector<HTMLDimensionsListValue> parseHTMLDimensionsList(StringView);
+
 // Inline implementations of some of the functions declared above.
 
-template<typename CharacterType> inline bool isHTMLSpace(CharacterType character)
-{
-    // Histogram from Apple's page load test combined with some ad hoc browsing some other test suites.
-    //
-    //     82%: 216330 non-space characters, all > U+0020
-    //     11%:  30017 plain space characters, U+0020
-    //      5%:  12099 newline characters, U+000A
-    //      2%:   5346 tab characters, U+0009
-    //
-    // No other characters seen. No U+000C or U+000D, and no other control characters.
-    // Accordingly, we check for non-spaces first, then space, then newline, then tab, then the other characters.
-
-    return character <= ' ' && (character == ' ' || character == '\n' || character == '\t' || character == '\r' || character == '\f');
-}
-
-template<typename CharacterType> inline bool isNotHTMLSpace(CharacterType character)
-{
-    return !isHTMLSpace(character);
-}
-
-inline bool isHTMLLineBreak(UChar character)
+inline bool isHTMLLineBreak(char16_t character)
 {
     return character <= '\r' && (character == '\n' || character == '\r');
+}
+
+ALWAYS_INLINE bool containsHTMLLineBreak(StringView view)
+{
+    if (view.is8Bit())
+        return charactersContain<Latin1Character, '\r', '\n'>(view.span8());
+    return charactersContain<char16_t, '\r', '\n'>(view.span16());
 }
 
 template<typename CharacterType> inline bool isComma(CharacterType character)
@@ -129,12 +122,12 @@ template<typename CharacterType> inline bool isComma(CharacterType character)
 
 template<typename CharacterType> inline bool isHTMLSpaceOrComma(CharacterType character)
 {
-    return isComma(character) || isHTMLSpace(character);
+    return isComma(character) || isASCIIWhitespace(character);
 }
 
-inline bool isHTMLSpaceButNotLineBreak(UChar character)
+inline bool isHTMLSpaceButNotLineBreak(char16_t character)
 {
-    return isHTMLSpace(character) && !isHTMLLineBreak(character);
+    return isASCIIWhitespace(character) && !isHTMLLineBreak(character);
 }
 
 // https://html.spec.whatwg.org/multipage/infrastructure.html#limited-to-only-non-negative-numbers-greater-than-zero

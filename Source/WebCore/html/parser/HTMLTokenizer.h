@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2008, 2015 Apple Inc. All Rights Reserved.
- * Copyright (C) 2010 Google, Inc. All Rights Reserved.
+ * Copyright (C) 2008, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2010 Google, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -42,9 +42,6 @@ public:
     class TokenPtr;
     TokenPtr nextToken(SegmentedString&);
 
-    // Used by HTMLSourceTracker.
-    void setTokenAttributeBaseOffset(unsigned);
-
     // Returns a copy of any characters buffered internally by the tokenizer.
     // The tokenizer buffers characters when searching for the </script> token that terminates a script element.
     String bufferedCharacters() const;
@@ -62,7 +59,7 @@ public:
     //
     // This approximation is also the algorithm called for when parsing an HTML fragment.
     // https://html.spec.whatwg.org/multipage/syntax.html#parsing-html-fragments
-    void updateStateFor(const AtomString& tagName);
+    void NODELETE updateStateFor(const AtomString& tagName);
 
     void setForceNullCharacterReplacement(bool);
 
@@ -76,8 +73,6 @@ public:
     void setRAWTEXTState();
     void setRCDATAState();
     void setScriptDataState();
-
-    bool neverSkipNullCharacters() const;
 
 private:
     enum State {
@@ -158,10 +153,12 @@ private:
     bool processToken(SegmentedString&);
     bool processEntity(SegmentedString&);
 
-    void parseError();
+    void NODELETE parseError();
 
-    void bufferASCIICharacter(UChar);
-    void bufferCharacter(UChar);
+    void bufferASCIICharacter(char16_t);
+    void bufferCharacter(char16_t);
+    template<typename CharacterType> void bufferCharacters(std::span<const CharacterType>);
+    void bufferCharacters(ASCIILiteral literal) { bufferCharacters(literal.span8()); }
 
     bool emitAndResumeInDataState(SegmentedString&);
     bool emitAndReconsumeInDataState();
@@ -169,20 +166,20 @@ private:
 
     // Return true if we wil emit a character token before dealing with the buffered end tag.
     void flushBufferedEndTag();
-    bool commitToPartialEndTag(SegmentedString&, UChar, State);
+    bool commitToPartialEndTag(SegmentedString&, char16_t, State);
     bool commitToCompleteEndTag(SegmentedString&);
 
-    void appendToTemporaryBuffer(UChar);
-    bool temporaryBufferIs(const char*);
+    void appendToTemporaryBuffer(char16_t);
+    bool NODELETE temporaryBufferIs(ASCIILiteral);
 
     // Sometimes we speculatively consume input characters and we don't know whether they represent
     // end tags or RCDATA, etc. These functions help manage these state.
-    bool inEndTagBufferingState() const;
-    void appendToPossibleEndTag(UChar);
+    bool NODELETE inEndTagBufferingState() const;
+    void appendToPossibleEndTag(char16_t);
     void saveEndTagNameIfNeeded();
-    bool isAppropriateEndTag() const;
+    bool NODELETE isAppropriateEndTag() const;
 
-    bool haveBufferedCharacterToken() const;
+    bool NODELETE haveBufferedCharacterToken() const;
 
     static bool isNullCharacterSkippingState(State);
 
@@ -193,20 +190,20 @@ private:
     mutable HTMLToken m_token;
 
     // https://html.spec.whatwg.org/#additional-allowed-character
-    UChar m_additionalAllowedCharacter { 0 };
+    char16_t m_additionalAllowedCharacter { 0 };
 
     // https://html.spec.whatwg.org/#preprocessing-the-input-stream
-    InputStreamPreprocessor<HTMLTokenizer> m_preprocessor;
+    InputStreamPreprocessor m_preprocessor;
 
-    Vector<UChar, 32> m_appropriateEndTagName;
+    Vector<char16_t, 32> m_appropriateEndTagName;
 
     // https://html.spec.whatwg.org/#temporary-buffer
-    Vector<LChar, 32> m_temporaryBuffer;
+    Vector<Latin1Character, 32> m_temporaryBuffer;
 
     // We occasionally want to emit both a character token and an end tag
     // token (e.g., when lexing script). We buffer the name of the end tag
     // token here so we remember it next time we re-enter the tokenizer.
-    Vector<LChar, 32> m_bufferedEndTagName;
+    Vector<Latin1Character, 32> m_bufferedEndTagName;
 
     const HTMLParserOptions m_options;
 };
@@ -223,8 +220,8 @@ public:
 
     operator bool() const;
 
-    HTMLToken& operator*() const;
-    HTMLToken* operator->() const;
+    HTMLToken& operator*() const LIFETIME_BOUND;
+    HTMLToken* operator->() const LIFETIME_BOUND;
 
 private:
     friend class HTMLTokenizer;
@@ -284,11 +281,6 @@ inline HTMLTokenizer::TokenPtr HTMLTokenizer::nextToken(SegmentedString& source)
     return TokenPtr(processToken(source) ? &m_token : nullptr);
 }
 
-inline void HTMLTokenizer::setTokenAttributeBaseOffset(unsigned offset)
-{
-    m_token.setAttributeBaseOffset(offset);
-}
-
 inline size_t HTMLTokenizer::numberOfBufferedCharacters() const
 {
     // Notice that we add 2 to the length of the m_temporaryBuffer to
@@ -345,11 +337,6 @@ inline void HTMLTokenizer::setScriptDataState()
 inline bool HTMLTokenizer::isNullCharacterSkippingState(State state)
 {
     return state == DataState || state == RCDATAState || state == RAWTEXTState;
-}
-
-inline bool HTMLTokenizer::neverSkipNullCharacters() const
-{
-    return m_forceNullCharacterReplacement;
 }
 
 } // namespace WebCore

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2009-2024 Apple Inc. All rights reserved.
  * Copyright (C) 2020 Alexey Shvayka <shvaikalesh@gmail.com>.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,13 +30,28 @@
 #include "ArrayConstructor.h"
 #include "BigIntObject.h"
 #include "BooleanObject.h"
+#include "GetterSetter.h"
 #include "JSArrayInlines.h"
 #include "JSCInlines.h"
+#include "JSRawJSONObject.h"
 #include "LiteralParser.h"
-#include "ObjectConstructor.h"
+#include "NumberObject.h"
+#include "ObjectConstructorInlines.h"
 #include "PropertyNameArray.h"
 #include "VMInlines.h"
+#include <charconv>
+#include <wtf/dragonbox/dragonbox_to_chars.h>
+#include <wtf/text/EscapedFormsForJSON.h>
+#include <wtf/text/MakeString.h>
+#include <wtf/text/ParsingUtilities.h>
 #include <wtf/text/StringBuilder.h>
+#include <wtf/text/StringBuilderJSON.h>
+#include <wtf/text/StringCommon.h>
+
+// Turn this on to log information about fastStringify usage, with a focus on why it failed.
+#define FAST_STRINGIFY_LOG_USAGE 0
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
@@ -44,6 +59,8 @@ STATIC_ASSERT_IS_TRIVIALLY_DESTRUCTIBLE(JSONObject);
 
 static JSC_DECLARE_HOST_FUNCTION(jsonProtoFuncParse);
 static JSC_DECLARE_HOST_FUNCTION(jsonProtoFuncStringify);
+static JSC_DECLARE_HOST_FUNCTION(jsonProtoFuncIsRawJSON);
+static JSC_DECLARE_HOST_FUNCTION(jsonProtoFuncRawJSON);
 
 }
 
@@ -56,23 +73,27 @@ JSONObject::JSONObject(VM& vm, Structure* structure)
 {
 }
 
-void JSONObject::finishCreation(VM& vm)
+void JSONObject::finishCreation(VM& vm, JSGlobalObject* globalObject)
 {
     Base::finishCreation(vm);
-    ASSERT(inherits(vm, info()));
+    ASSERT(inherits(info()));
     JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+    if (Options::useJSONSourceTextAccess()) {
+        JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->isRawJSON, jsonProtoFuncIsRawJSON, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Public);
+        JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->rawJSON, jsonProtoFuncRawJSON, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Public);
+    }
 }
 
 // PropertyNameForFunctionCall objects must be on the stack, since the JSValue that they create is not marked.
 class PropertyNameForFunctionCall {
 public:
-    PropertyNameForFunctionCall(const Identifier&);
+    PropertyNameForFunctionCall(PropertyName);
     PropertyNameForFunctionCall(unsigned);
 
-    JSValue value(JSGlobalObject*) const;
+    JSValue value(VM&) const;
 
 private:
-    const Identifier* m_identifier;
+    PropertyName m_propertyName;
     unsigned m_number;
     mutable JSValue m_value;
 };
@@ -81,31 +102,36 @@ class Stringifier {
     WTF_MAKE_NONCOPYABLE(Stringifier);
     WTF_FORBID_HEAP_ALLOCATION;
 public:
-    Stringifier(JSGlobalObject*, JSValue replacer, JSValue space);
-    JSValue stringify(JSValue);
+    static String stringify(JSGlobalObject&, JSValue, JSValue replacer, JSValue space);
 
 private:
     class Holder {
     public:
         enum RootHolderTag { RootHolder };
-        Holder(JSGlobalObject*, JSObject*);
+        Holder(JSGlobalObject*, JSObject*, Structure*);
         Holder(RootHolderTag, JSObject*);
 
-        JSObject* object() const { return m_object; }
-        bool isArray() const { return m_isArray; }
+        JSObject* NODELETE object() const { return m_object; }
+        bool NODELETE isArray() const { return m_isArray; }
+        bool NODELETE hasFastObjectProperties() const { return m_hasFastObjectProperties; }
 
         bool appendNextProperty(Stringifier&, StringBuilder&);
 
     private:
-        JSObject* m_object;
-        const bool m_isJSArray;
-        const bool m_isArray;
+        JSObject* m_object { nullptr };
+        Structure* m_structure { nullptr };
+        const bool m_isJSArray { false };
+        const bool m_isArray { false };
+        bool m_hasFastObjectProperties { false };
         unsigned m_index { 0 };
         unsigned m_size { 0 };
-        RefPtr<PropertyNameArrayData> m_propertyNames;
+        RefPtr<PropertyNameArray> m_propertyNames;
+        Vector<std::tuple<PropertyName, unsigned>, 8> m_propertiesAndOffsets;
     };
 
     friend class Holder;
+
+    Stringifier(JSGlobalObject*, JSValue replacer, JSValue space);
 
     JSValue toJSON(JSValue, const PropertyNameForFunctionCall&);
 
@@ -116,64 +142,60 @@ private:
     void indent();
     void unindent();
     void startNewLine(StringBuilder&) const;
-    bool isCallableReplacer() const { return m_replacerCallData.type != CallData::Type::None; }
+    bool NODELETE isCallableReplacer() const { return m_replacerCallData.type != CallData::Type::None; }
 
     JSGlobalObject* const m_globalObject;
     JSValue m_replacer;
     bool m_usingArrayReplacer { false };
-    PropertyNameArray m_arrayReplacerPropertyNames;
+    PropertyNameArrayBuilder m_arrayReplacerPropertyNames;
     CallData m_replacerCallData;
     String m_gap;
 
-    MarkedArgumentBuffer m_objectStack;
+    MarkedArgumentBufferWithSize<16> m_objectStack;
     Vector<Holder, 16, UnsafeVectorOverflow> m_holderStack;
     String m_repeatedGap;
-    String m_indent;
+    StringView m_indent;
 };
 
 // ------------------------------ helper functions --------------------------------
 
-static inline JSValue unwrapBoxedPrimitive(JSGlobalObject* globalObject, JSValue value)
+static inline JSValue unwrapBoxedPrimitive(JSGlobalObject* globalObject, JSObject* object)
 {
-    VM& vm = globalObject->vm();
-    if (!value.isObject())
-        return value;
-    JSObject* object = asObject(value);
-    if (object->inherits<NumberObject>(vm))
+    if (object->inherits<NumberObject>())
         return jsNumber(object->toNumber(globalObject));
-    if (object->inherits<StringObject>(vm))
+    if (object->inherits<StringObject>())
         return object->toString(globalObject);
-    if (object->inherits<BooleanObject>(vm) || object->inherits<BigIntObject>(vm))
-        return jsCast<JSWrapperObject*>(object)->internalValue();
+    if (object->inherits<BooleanObject>() || object->inherits<BigIntObject>())
+        return uncheckedDowncast<JSWrapperObject>(object)->internalValue();
 
     // Do not unwrap SymbolObject to Symbol. It is not performed in the spec.
     // http://www.ecma-international.org/ecma-262/6.0/#sec-serializejsonproperty
-    return value;
+
+    return object;
 }
+
+static inline JSValue unwrapBoxedPrimitive(JSGlobalObject* globalObject, JSValue value)
+{
+    return value.isObject() ? unwrapBoxedPrimitive(globalObject, asObject(value)) : value;
+}
+
+static constexpr unsigned maxGapLength = 10;
 
 static inline String gap(JSGlobalObject* globalObject, JSValue space)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    const unsigned maxGapLength = 10;
     space = unwrapBoxedPrimitive(globalObject, space);
     RETURN_IF_EXCEPTION(scope, { });
 
     // If the space value is a number, create a gap string with that number of spaces.
     if (space.isNumber()) {
-        double spaceCount = space.asNumber();
-        int count;
-        if (spaceCount > maxGapLength)
-            count = maxGapLength;
-        else if (!(spaceCount > 0))
-            count = 0;
-        else
-            count = static_cast<int>(spaceCount);
+        unsigned count = clampTo<unsigned>(space.asNumber(), 0, maxGapLength);
         char spaces[maxGapLength];
-        for (int i = 0; i < count; ++i)
+        for (unsigned i = 0; i < count; ++i)
             spaces[i] = ' ';
-        return String(spaces, count);
+        return String(std::span { spaces }.first(count));
     }
 
     // If the space value is a string, use it as the gap string, otherwise use no gap string.
@@ -186,23 +208,21 @@ static inline String gap(JSGlobalObject* globalObject, JSValue space)
 
 // ------------------------------ PropertyNameForFunctionCall --------------------------------
 
-inline PropertyNameForFunctionCall::PropertyNameForFunctionCall(const Identifier& identifier)
-    : m_identifier(&identifier)
+inline PropertyNameForFunctionCall::PropertyNameForFunctionCall(PropertyName propertyName)
+    : m_propertyName(propertyName)
 {
 }
 
 inline PropertyNameForFunctionCall::PropertyNameForFunctionCall(unsigned number)
-    : m_identifier(nullptr)
-    , m_number(number)
+    : m_number(number)
 {
 }
 
-JSValue PropertyNameForFunctionCall::value(JSGlobalObject* globalObject) const
+JSValue PropertyNameForFunctionCall::value(VM& vm) const
 {
     if (!m_value) {
-        VM& vm = globalObject->vm();
-        if (m_identifier)
-            m_value = jsString(vm, m_identifier->string());
+        if (!m_propertyName.isNull())
+            m_value = jsString(vm, String { m_propertyName.uid() });
         else {
             if (m_number <= 9)
                 return vm.smallStrings.singleCharacterString(m_number + '0');
@@ -225,7 +245,7 @@ Stringifier::Stringifier(JSGlobalObject* globalObject, JSValue replacer, JSValue
     if (m_replacer.isObject()) {
         JSObject* replacerObject = asObject(m_replacer);
 
-        m_replacerCallData = getCallData(vm, replacerObject);
+        m_replacerCallData = JSC::getCallData(replacerObject);
         if (m_replacerCallData.type == CallData::Type::None) {
             bool isArrayReplacer = JSC::isArray(globalObject, replacerObject);
             RETURN_IF_EXCEPTION(scope, );
@@ -233,8 +253,8 @@ Stringifier::Stringifier(JSGlobalObject* globalObject, JSValue replacer, JSValue
                 m_usingArrayReplacer = true;
                 forEachInArrayLike(globalObject, replacerObject, [&] (JSValue name) -> bool {
                     if (name.isObject()) {
-                        auto* nameObject = jsCast<JSObject*>(name);
-                        if (!nameObject->inherits<NumberObject>(vm) && !nameObject->inherits<StringObject>(vm))
+                        auto* nameObject = uncheckedDowncast<JSObject>(name);
+                        if (!nameObject->inherits<NumberObject>() && !nameObject->inherits<StringObject>())
                             return true;
                     } else if (!name.isNumber() && !name.isString())
                         return true;
@@ -243,7 +263,7 @@ Stringifier::Stringifier(JSGlobalObject* globalObject, JSValue replacer, JSValue
                     RETURN_IF_EXCEPTION(scope, false);
                     auto propertyName = propertyNameString->toIdentifier(globalObject);
                     RETURN_IF_EXCEPTION(scope, false);
-                    m_arrayReplacerPropertyNames.add(WTFMove(propertyName));
+                    m_arrayReplacerPropertyNames.add(WTF::move(propertyName));
                     return true;
                 });
                 RETURN_IF_EXCEPTION(scope, );
@@ -255,32 +275,35 @@ Stringifier::Stringifier(JSGlobalObject* globalObject, JSValue replacer, JSValue
     m_gap = gap(globalObject, space);
 }
 
-JSValue Stringifier::stringify(JSValue value)
+String Stringifier::stringify(JSGlobalObject& globalObject, JSValue value, JSValue replacer, JSValue space)
 {
-    VM& vm = m_globalObject->vm();
+    VM& vm = globalObject.vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    PropertyNameForFunctionCall emptyPropertyName(vm.propertyNames->emptyIdentifier);
+    Stringifier stringifier(&globalObject, replacer, space);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    PropertyNameForFunctionCall emptyPropertyName(vm.propertyNames->emptyIdentifier.impl());
 
     // If the replacer is not callable, root object wrapper is non-user-observable.
     // We can skip creating this wrapper object.
     JSObject* object = nullptr;
-    if (isCallableReplacer()) {
-        object = constructEmptyObject(m_globalObject);
+    if (stringifier.isCallableReplacer()) {
+        object = constructEmptyObject(&globalObject);
         object->putDirect(vm, vm.propertyNames->emptyIdentifier, value);
     }
 
-    StringBuilder result(StringBuilder::OverflowHandler::RecordOverflow);
+    StringBuilder result(OverflowPolicy::RecordOverflow);
     Holder root(Holder::RootHolder, object);
-    auto stringifyResult = appendStringifiedValue(result, value, root, emptyPropertyName);
-    RETURN_IF_EXCEPTION(scope, jsUndefined());
-    if (UNLIKELY(result.hasOverflowed())) {
-        throwOutOfMemoryError(m_globalObject, scope);
-        return jsUndefined();
+    auto stringifyResult = stringifier.appendStringifiedValue(result, value, root, emptyPropertyName);
+    RETURN_IF_EXCEPTION(scope, { });
+    if (result.hasOverflowed()) [[unlikely]] {
+        throwOutOfMemoryError(&globalObject, scope);
+        return { };
     }
-    if (UNLIKELY(stringifyResult != StringifySucceeded))
-        return jsUndefined();
-    RELEASE_AND_RETURN(scope, jsString(vm, result.toString()));
+    if (stringifyResult != StringifySucceeded) [[unlikely]]
+        RELEASE_AND_RETURN(scope, { });
+    RELEASE_AND_RETURN(scope, result.toString());
 }
 
 ALWAYS_INLINE JSValue Stringifier::toJSON(JSValue baseValue, const PropertyNameForFunctionCall& propertyName)
@@ -289,15 +312,27 @@ ALWAYS_INLINE JSValue Stringifier::toJSON(JSValue baseValue, const PropertyNameF
     auto scope = DECLARE_THROW_SCOPE(vm);
     scope.assertNoException();
 
-    JSValue toJSONFunction = baseValue.get(m_globalObject, vm.propertyNames->toJSON);
-    RETURN_IF_EXCEPTION(scope, { });
+    JSValue toJSONFunction;
+    if (baseValue.isObject())
+        toJSONFunction = asObject(baseValue)->structure()->cachedSpecialProperty(CachedSpecialPropertyKey::ToJSON);
 
-    auto callData = getCallData(vm, toJSONFunction);
+    if (!toJSONFunction) {
+        PropertySlot slot(baseValue, PropertySlot::InternalMethodType::Get);
+        bool hasProperty = baseValue.getPropertySlot(m_globalObject, vm.propertyNames->toJSON, slot);
+        RETURN_IF_EXCEPTION(scope, { });
+        toJSONFunction = hasProperty ? slot.getValue(m_globalObject, vm.propertyNames->toJSON) : jsUndefined();
+        RETURN_IF_EXCEPTION(scope, { });
+
+        if (baseValue.isObject())
+            asObject(baseValue)->structure()->cacheSpecialProperty(m_globalObject, vm, toJSONFunction, CachedSpecialPropertyKey::ToJSON, slot);
+    }
+
+    auto callData = JSC::getCallData(toJSONFunction);
     if (callData.type == CallData::Type::None)
         return baseValue;
 
     MarkedArgumentBuffer args;
-    args.append(propertyName.value(m_globalObject));
+    args.append(propertyName.value(vm));
     ASSERT(!args.hasOverflowed());
     RELEASE_AND_RETURN(scope, call(m_globalObject, asObject(toJSONFunction), callData, baseValue, args));
 }
@@ -312,7 +347,7 @@ Stringifier::StringifyResult Stringifier::appendStringifiedValue(StringBuilder& 
     // Recursion is avoided by !holderStackWasEmpty check and do/while loop at the end of this method.
     // We're having this recursion check here as a fail safe in case the code
     // below get modified such that recursion is no longer avoided.
-    if (UNLIKELY(!vm.isSafeToRecurseSoft())) {
+    if (!vm.isSafeToRecurseSoft()) [[unlikely]] {
         throwStackOverflowError(m_globalObject, scope);
         return StringifyFailed;
     }
@@ -326,7 +361,7 @@ Stringifier::StringifyResult Stringifier::appendStringifiedValue(StringBuilder& 
     // Call the replacer function.
     if (isCallableReplacer()) {
         MarkedArgumentBuffer args;
-        args.append(propertyName.value(m_globalObject));
+        args.append(propertyName.value(vm));
         args.append(value);
         ASSERT(!args.hasOverflowed());
         ASSERT(holder.object());
@@ -337,25 +372,34 @@ Stringifier::StringifyResult Stringifier::appendStringifiedValue(StringBuilder& 
     if ((value.isUndefined() || value.isSymbol()) && !holder.isArray())
         return StringifyFailedDueToUndefinedOrSymbolValue;
 
+    if (value.isObject()) {
+        JSObject* object = asObject(value);
+        if (object->inherits<JSRawJSONObject>()) {
+            String string = uncheckedDowncast<JSRawJSONObject>(object)->rawJSON(vm)->value(m_globalObject);
+            RETURN_IF_EXCEPTION(scope, StringifyFailed);
+            builder.append(WTF::move(string));
+            return StringifySucceeded;
+
+        }
+        value = unwrapBoxedPrimitive(m_globalObject, object);
+        RETURN_IF_EXCEPTION(scope, StringifyFailed);
+    }
+
     if (value.isNull()) {
-        builder.append("null");
+        builder.append("null"_s);
         return StringifySucceeded;
     }
 
-    value = unwrapBoxedPrimitive(m_globalObject, value);
-
-    RETURN_IF_EXCEPTION(scope, StringifyFailed);
-
     if (value.isBoolean()) {
         if (value.isTrue())
-            builder.append("true");
+            builder.append("true"_s);
         else
-            builder.append("false");
+            builder.append("false"_s);
         return StringifySucceeded;
     }
 
     if (value.isString()) {
-        const String& string = asString(value)->value(m_globalObject);
+        auto string = asString(value)->value(m_globalObject);
         RETURN_IF_EXCEPTION(scope, StringifyFailed);
         builder.appendQuotedJSONString(string);
         return StringifySucceeded;
@@ -367,7 +411,7 @@ Stringifier::StringifyResult Stringifier::appendStringifiedValue(StringBuilder& 
         else {
             double number = value.asNumber();
             if (!std::isfinite(number))
-                builder.append("null");
+                builder.append("null"_s);
             else
                 builder.append(number);
         }
@@ -383,15 +427,15 @@ Stringifier::StringifyResult Stringifier::appendStringifiedValue(StringBuilder& 
         return StringifyFailed;
 
     JSObject* object = asObject(value);
-    if (object->isCallable(vm)) {
+    if (object->isCallable()) {
         if (holder.isArray()) {
-            builder.append("null");
+            builder.append("null"_s);
             return StringifySucceeded;
         }
         return StringifyFailedDueToUndefinedOrSymbolValue;
     }
 
-    if (UNLIKELY(builder.hasOverflowed()))
+    if (builder.hasOverflowed()) [[unlikely]]
         return StringifyFailed;
 
     // Handle cycle detection, and put the holder on the stack.
@@ -402,14 +446,16 @@ Stringifier::StringifyResult Stringifier::appendStringifiedValue(StringBuilder& 
         }
     }
 
-    if (UNLIKELY(m_holderStack.size() >= maximumSideStackRecursion)) {
+    if (m_holderStack.size() >= maximumSideStackRecursion) [[unlikely]] {
         throwStackOverflowError(m_globalObject, scope);
         return StringifyFailed;
     }
 
     bool holderStackWasEmpty = m_holderStack.isEmpty();
-    m_holderStack.append(Holder(m_globalObject, object));
+    Structure* structure = object->structure();
+    m_holderStack.append(Holder(m_globalObject, object, structure));
     m_objectStack.appendWithCrashOnOverflow(object);
+    m_objectStack.appendWithCrashOnOverflow(structure);
     RETURN_IF_EXCEPTION(scope, StringifyFailed);
     if (!holderStackWasEmpty)
         return StringifySucceeded;
@@ -418,15 +464,16 @@ Stringifier::StringifyResult Stringifier::appendStringifiedValue(StringBuilder& 
         while (m_holderStack.last().appendNextProperty(*this, builder))
             RETURN_IF_EXCEPTION(scope, StringifyFailed);
         RETURN_IF_EXCEPTION(scope, StringifyFailed);
-        if (UNLIKELY(builder.hasOverflowed()))
+        if (builder.hasOverflowed()) [[unlikely]]
             return StringifyFailed;
         m_holderStack.removeLast();
+        m_objectStack.removeLast();
         m_objectStack.removeLast();
     } while (!m_holderStack.isEmpty());
     return StringifySucceeded;
 }
 
-inline bool Stringifier::willIndent() const
+inline bool NODELETE Stringifier::willIndent() const
 {
     return !m_gap.isEmpty();
 }
@@ -438,25 +485,24 @@ inline void Stringifier::indent()
     if (newSize > m_repeatedGap.length())
         m_repeatedGap = makeString(m_repeatedGap, m_gap);
     ASSERT(newSize <= m_repeatedGap.length());
-    m_indent = m_repeatedGap.substringSharingImpl(0, newSize);
+    m_indent = StringView { m_repeatedGap }.left(newSize);
 }
 
-inline void Stringifier::unindent()
+inline void NODELETE Stringifier::unindent()
 {
     ASSERT(m_indent.length() >= m_gap.length());
-    m_indent = m_repeatedGap.substringSharingImpl(0, m_indent.length() - m_gap.length());
+    m_indent = StringView { m_repeatedGap }.left(m_indent.length() - m_gap.length());
 }
 
 inline void Stringifier::startNewLine(StringBuilder& builder) const
 {
-    if (m_gap.isEmpty())
-        return;
-    builder.append('\n');
-    builder.append(m_indent);
+    if (willIndent())
+        builder.append('\n', m_indent);
 }
 
-inline Stringifier::Holder::Holder(JSGlobalObject* globalObject, JSObject* object)
+inline Stringifier::Holder::Holder(JSGlobalObject* globalObject, JSObject* object, Structure* structure)
     : m_object(object)
+    , m_structure(structure)
     , m_isJSArray(isJSArray(object))
     , m_isArray(JSC::isArray(globalObject, object))
 {
@@ -464,8 +510,6 @@ inline Stringifier::Holder::Holder(JSGlobalObject* globalObject, JSObject* objec
 
 inline Stringifier::Holder::Holder(RootHolderTag, JSObject* object)
     : m_object(object)
-    , m_isJSArray(false)
-    , m_isArray(false)
 {
 }
 
@@ -480,9 +524,9 @@ bool Stringifier::Holder::appendNextProperty(Stringifier& stringifier, StringBui
     // First time through, initialize.
     if (!m_index) {
         if (m_isArray) {
-            uint64_t length = static_cast<uint64_t>(toLength(globalObject, m_object));
+            uint64_t length = toLength(globalObject, m_object);
             RETURN_IF_EXCEPTION(scope, false);
-            if (UNLIKELY(length > std::numeric_limits<uint32_t>::max())) {
+            if (length > std::numeric_limits<uint32_t>::max()) [[unlikely]] {
                 throwOutOfMemoryError(globalObject, scope);
                 return false;
             }
@@ -490,20 +534,35 @@ bool Stringifier::Holder::appendNextProperty(Stringifier& stringifier, StringBui
             RETURN_IF_EXCEPTION(scope, false);
             builder.append('[');
         } else {
-            if (stringifier.m_usingArrayReplacer)
+            if (stringifier.m_usingArrayReplacer) {
                 m_propertyNames = stringifier.m_arrayReplacerPropertyNames.data();
-            else {
-                PropertyNameArray objectPropertyNames(vm, PropertyNameMode::Strings, PrivateSymbolMode::Exclude);
-                m_object->methodTable(vm)->getOwnPropertyNames(m_object, globalObject, objectPropertyNames, DontEnumPropertiesMode::Exclude);
+                m_size = m_propertyNames->propertyNameVector().size();
+            } else if (m_object->structure() == m_structure && canPerformFastPropertyNameEnumerationForJSONStringifyWithSideEffect(m_structure)) {
+                m_hasFastObjectProperties = m_structure->canPerformFastPropertyEnumeration();
+                m_structure->forEachProperty(vm, [&](const auto& entry) -> bool {
+                    if (entry.attributes() & PropertyAttribute::DontEnum)
+                        return true;
+
+                    PropertyName propertyName(entry.key());
+                    if (propertyName.isSymbol())
+                        return true;
+                    m_propertiesAndOffsets.constructAndAppend(propertyName, entry.offset());
+                    return true;
+                });
+                m_size = m_propertiesAndOffsets.size();
+            } else {
+                PropertyNameArrayBuilder objectPropertyNames(vm, PropertyNameMode::Strings, PrivateSymbolMode::Exclude);
+                m_object->methodTable()->getOwnPropertyNames(m_object, globalObject, objectPropertyNames, DontEnumPropertiesMode::Exclude);
                 RETURN_IF_EXCEPTION(scope, false);
                 m_propertyNames = objectPropertyNames.releaseData();
+                m_size = m_propertyNames->propertyNameVector().size();
             }
-            m_size = m_propertyNames->propertyNameVector().size();
+
             builder.append('{');
         }
         stringifier.indent();
     }
-    if (UNLIKELY(builder.hasOverflowed()))
+    if (builder.hasOverflowed()) [[unlikely]]
         return false;
 
     // Last time through, finish up and return false.
@@ -538,10 +597,40 @@ bool Stringifier::Holder::appendNextProperty(Stringifier& stringifier, StringBui
         stringifyResult = stringifier.appendStringifiedValue(builder, value, *this, index);
         ASSERT(stringifyResult != StringifyFailedDueToUndefinedOrSymbolValue);
     } else {
-        // Get the value.
-        Identifier& propertyName = m_propertyNames->propertyNameVector()[index];
-        JSValue value = m_object->get(globalObject, propertyName);
-        RETURN_IF_EXCEPTION(scope, false);
+        PropertyName propertyName;
+        JSValue value;
+        if (m_hasFastObjectProperties) {
+            propertyName = std::get<0>(m_propertiesAndOffsets[index]);
+            if (m_object->structureID() == m_structure->id()) {
+                unsigned offset = std::get<1>(m_propertiesAndOffsets[index]);
+                value = m_object->getDirect(offset);
+            } else {
+                value = m_object->get(globalObject, propertyName);
+                RETURN_IF_EXCEPTION(scope, false);
+            }
+        } else {
+            if (m_propertyNames) {
+                propertyName = m_propertyNames->propertyNameVector()[index];
+                value = m_object->get(globalObject, propertyName);
+                RETURN_IF_EXCEPTION(scope, false);
+            } else {
+                propertyName = std::get<0>(m_propertiesAndOffsets[index]);
+                if (m_object->structureID() == m_structure->id()) {
+                    unsigned offset = std::get<1>(m_propertiesAndOffsets[index]);
+                    value = m_object->getDirect(offset);
+                    if (value.isGetterSetter()) {
+                        value = uncheckedDowncast<GetterSetter>(value)->callGetter(globalObject, m_object);
+                        RETURN_IF_EXCEPTION(scope, false);
+                    } else if (value.isCustomGetterSetter()) {
+                        value = m_object->get(globalObject, propertyName);
+                        RETURN_IF_EXCEPTION(scope, false);
+                    }
+                } else {
+                    value = m_object->get(globalObject, propertyName);
+                    RETURN_IF_EXCEPTION(scope, false);
+                }
+            }
+        }
 
         rollBackPoint = builder.length();
 
@@ -550,8 +639,8 @@ bool Stringifier::Holder::appendNextProperty(Stringifier& stringifier, StringBui
             builder.append(',');
         stringifier.startNewLine(builder);
 
-        // Append the property name.
-        builder.appendQuotedJSONString(propertyName.string());
+        // Append the property name, colon, and space.
+        builder.appendQuotedJSONString(*propertyName.uid());
         builder.append(':');
         if (stringifier.willIndent())
             builder.append(' ');
@@ -567,12 +656,12 @@ bool Stringifier::Holder::appendNextProperty(Stringifier& stringifier, StringBui
 
     switch (stringifyResult) {
         case StringifyFailed:
-            builder.append("null");
+            builder.append("null"_s);
             break;
         case StringifySucceeded:
             break;
         case StringifyFailedDueToUndefinedOrSymbolValue:
-            // This only occurs when get an undefined value or a symbol value for
+            // This only occurs when we get an undefined value or a symbol value for
             // an object property. In this case we don't want the separator and
             // property name that we already appended, so roll back.
             builder.shrink(rollBackPoint);
@@ -582,9 +671,1085 @@ bool Stringifier::Holder::appendNextProperty(Stringifier& stringifier, StringBui
     return true;
 }
 
+// ------------------------------ FastStringifier --------------------------------
+
+// FastStringifier does a no-side-effects stringify of the most common types of
+// objects and arrays. It bails out if the serialization is any longer than a
+// fixed buffer and handles only the simplest cases, including only 8-bit character
+// strings. Instead of explicit checks to prevent excessive recursion and cycles,
+// it counts on hitting the buffer size limit to catch those things. If it fails,
+// since there is no side effect, the full general purpose Stringifier can be used
+// and the only cost of the fast stringifying attempt is the time wasted.
+
+enum class BufferMode : uint8_t {
+    StaticBuffer,
+    DynamicBuffer,
+};
+
+enum class HasGap : bool { No, Yes };
+
+enum class FailureReason : uint8_t {
+    BufferFull,
+    Found16BitEarly,
+    Found16BitLate,
+    StackOverflow,
+    Unknown,
+};
+
+template<typename CharType, BufferMode bufferMode>
+class FastStringifier {
+public:
+    // Returns null string if the fast case fails.
+    static String stringify(JSGlobalObject&, JSValue, JSValue replacer, JSValue space, std::optional<FailureReason>&);
+
+    static constexpr unsigned staticBufferSize = bufferMode == BufferMode::StaticBuffer ? 8192 : 8;
+    static constexpr unsigned dynamicBufferInlineCapacity = bufferMode == BufferMode::StaticBuffer ? 0 : 1024;
+
+private:
+    explicit FastStringifier(JSGlobalObject&);
+    template<HasGap hasGap> void append(JSValue);
+    void appendInt32(int32_t);
+    template<HasGap hasGap> void appendInt32Array(JSArray&);
+    String result();
+
+    static constexpr unsigned maxInt32StringLength = ("-2147483648"_s).length();
+
+    // FIXME These should probably just take an ASCIILiteral.
+    void append(char, char, char, char);
+    void append(char, char, char, char, char);
+    bool setGap(JSValue space);
+    unsigned newLineAndIndentSize() const;
+    void appendNewLineAndIndentUnchecked();
+    template<typename T> void recordFailure(FailureReason, T&& reason);
+    template<typename T> void NODELETE recordFailure(T&& reason)
+    {
+        recordFailure(FailureReason::Unknown, std::forward<T>(reason));
+    }
+    void recordBufferFull();
+    String firstGetterSetterPropertyName(JSObject&) const;
+    void recordFastPropertyEnumerationFailure(JSObject&);
+    bool haveFailure() const;
+    bool hasRemainingCapacity(unsigned size = 1);
+    bool hasRemainingCapacitySlow(unsigned size);
+    bool mayHaveToJSON(JSObject&) const;
+
+    static void logOutcome(ASCIILiteral);
+    static void logOutcome(String&&);
+
+    static unsigned usableBufferSize(unsigned availableBufferSize);
+
+    CharType* buffer();
+    const CharType* buffer() const;
+    std::span<CharType> bufferSpan();
+
+    JSGlobalObject& m_globalObject;
+    VM& m_vm;
+    unsigned m_length { 0 }; // length of content already filled into m_buffer.
+    unsigned m_capacity { 0 };
+    unsigned m_depth { 0 };
+    unsigned m_gapLength { 0 };
+    std::array<Latin1Character, maxGapLength> m_gap;
+    bool m_checkedObjectPrototype { false };
+    bool m_checkedArrayPrototype { false };
+    std::optional<FailureReason> m_failureReason;
+    Vector<CharType, dynamicBufferInlineCapacity, CrashOnOverflow, 16, WTF::StringImplMalloc> m_dynamicBuffer;
+    uint8_t* m_stackLimit { nullptr };
+
+    CharType m_buffer[staticBufferSize];
+};
+
+#if !FAST_STRINGIFY_LOG_USAGE
+
+template<typename CharType, BufferMode bufferMode>
+inline void FastStringifier<CharType, bufferMode>::logOutcome(ASCIILiteral)
+{
+}
+
+#else
+
+static void logOutcomeImpl(String&& outcome)
+{
+    static NeverDestroyed<HashCountedSet<String>> set;
+    static std::atomic<unsigned> count;
+    set->add(outcome);
+    if (!(++count % 100)) {
+        Vector<KeyValuePair<String, unsigned>> vector;
+        for (auto& pair : set.get())
+            vector.append(pair);
+        std::ranges::sort(vector, [](auto& a, auto &b) {
+            return a.value != b.value ? a.value > b.value : codePointCompareLessThan(a.key, b.key);
+        });
+        dataLogLn("fastStringify outcomes");
+        for (auto& pair : vector) {
+            dataLogF("%5u", pair.value);
+            dataLogLn(": ", pair.key);
+        }
+    }
+}
+
+template<typename CharType, BufferMode bufferMode>
+void FastStringifier<CharType, bufferMode>::logOutcome(ASCIILiteral outcome)
+{
+    logOutcomeImpl(String { outcome });
+}
+
+template<typename CharType, BufferMode bufferMode>
+void FastStringifier<CharType, bufferMode>::logOutcome(String&& outcome)
+{
+    logOutcomeImpl(WTF::move(outcome));
+}
+
+#endif
+
+template<typename CharType, BufferMode bufferMode>
+ALWAYS_INLINE CharType* FastStringifier<CharType, bufferMode>::buffer()
+{
+    if constexpr (bufferMode == BufferMode::StaticBuffer)
+        return m_buffer;
+    else
+        return m_dynamicBuffer.mutableSpan().data();
+}
+
+template<typename CharType, BufferMode bufferMode>
+ALWAYS_INLINE const CharType* FastStringifier<CharType, bufferMode>::buffer() const
+{
+    if constexpr (bufferMode == BufferMode::StaticBuffer)
+        return m_buffer;
+    else
+        return m_dynamicBuffer.span().data();
+}
+
+template<typename CharType, BufferMode bufferMode>
+ALWAYS_INLINE std::span<CharType> FastStringifier<CharType, bufferMode>::bufferSpan()
+{
+    if constexpr (bufferMode == BufferMode::StaticBuffer)
+        return std::span<CharType> { m_buffer };
+    else
+        return m_dynamicBuffer.mutableSpan();
+}
+
+template<typename CharType, BufferMode bufferMode>
+inline unsigned FastStringifier<CharType, bufferMode>::usableBufferSize(unsigned availableBufferSize)
+{
+    // FastStringifier relies on m_capacity (i.e. the remaining usable capacity) in m_buffer
+    // to limit recursion. Hence, we need to compute an appropriate m_capacity value.
+    //
+    // To do this, we empirically measured the worst case stack usage incurred by 1 recursion
+    // of any of the append methods. Assuming each call to append() only consumes 1 Latin1Character in
+    // m_buffer, the amount of buffer size that FastStringifier is allowed to run with can be
+    // estimated as:
+    //
+    //      stackCapacityForRecursion = remainingStackCapacity - maxLeafFunctionStackUsage
+    //      maxAllowedBufferSize = stackCapacityForRecursion / maxRecursionFrameSize
+    //      usableBufferSize = min(maxAllowedBufferSize, sizeof(m_buffer))
+    //
+    // 1. A leaf function is any function that append() calls which does not recurse.
+    //    At peak recursion, there needs to be enough room left on the stack to execute any
+    //    of these leaf functions i.e. maxLeafFunctionStackUsage.
+    //
+    //    We estimate maxLeafFunctionStackUsage to be StackBounds::DefaultReservedZone.
+    //    stack.recursionLimit() already adds DefaultReservedZone to the bottom of the stack.
+    //    Hence, using stack.recursionLimit() to compute stackCapacityForRecursion will leave
+    //    us with the needed stack space for leaf functions to execute.
+    //
+    // 2. We can compute m_capacity as:
+    //
+    //      m_capacity = m_length + usableBufferSize
+    //
+    //    where m_length is the position of the next usable character for emission in m_buffer.
+    //
+    // 3. This calculation of m_capacity is a best effort estimate. If we're not
+    //    conservative enough and get it wrong, the worst that can happen is that we'll
+    //    crash when recursion causes us to step on the stack guard page at the bottom of
+    //    the stack. The goal of trying to estimate a good m_capacity value is to avoid
+    //    this stack overflow crash.
+    //
+    //    Note that for a Release build, maxRecursionFrameSize is measured to be less than
+    //    384 bytes. This is well below stack guard page sizes which are between 4 and 16K
+    //    depending on the OS. Hence, recursing too deeply with FastStringifier::append()
+    //    is guaranteed to crash in the stack guard page.
+    //
+    // 4. If we're too conservative, we might fail out of FastStringifier too eagerly.
+    //    In this case, we'll just fall back to the slow path Stringifier. The only down
+    //    side here is potential loss of some performance opportunity when we encounter
+    //    a workload that recurses deeply. We expect such workloads to be rare.
+
+    auto& stack = Thread::currentSingleton().stack();
+    uint8_t* stackPointer = std::bit_cast<uint8_t*>(currentStackPointer());
+    uint8_t* stackLimit = std::bit_cast<uint8_t*>(stack.recursionLimit());
+    size_t stackCapacityForRecursion = stackPointer - stackLimit;
+
+#if ASAN_ENABLED
+    // Measured to be ~4608 for a Debug ASAN build on arm64E, rounding up to 5K for margin.
+    constexpr size_t maxRecursionFrameSize = 5 * KB;
+#elif !defined(NDEBUG)
+    // Measured to be ~912 for a Debug build on arm64E, rounding up to 1280 for margin.
+    constexpr size_t maxRecursionFrameSize = 1280;
+#else
+    // Measured to be ~224 for a Release build on arm64E, rounding up to 384 for margin.
+    constexpr size_t maxRecursionFrameSize = 384;
+#endif
+    ASSERT(static_cast<unsigned>(stackCapacityForRecursion) == stackCapacityForRecursion);
+    unsigned allowedBufferSize = stackCapacityForRecursion / maxRecursionFrameSize;
+    unsigned usableBufferSize = std::min(allowedBufferSize, availableBufferSize);
+    return usableBufferSize;
+}
+
+template<typename CharType, BufferMode bufferMode>
+inline FastStringifier<CharType, bufferMode>::FastStringifier(JSGlobalObject& globalObject)
+    : m_globalObject(globalObject)
+    , m_vm(globalObject.vm())
+{
+    if constexpr (bufferMode == BufferMode::StaticBuffer)
+        m_capacity = m_length + usableBufferSize(staticBufferSize);
+    else {
+        m_dynamicBuffer.grow(dynamicBufferInlineCapacity);
+        m_capacity = dynamicBufferInlineCapacity;
+        m_stackLimit = std::bit_cast<uint8_t*>(m_vm.softStackLimit());
+    }
+}
+
+template<typename CharType, BufferMode bufferMode>
+inline bool FastStringifier<CharType, bufferMode>::haveFailure() const
+{
+    return !!m_failureReason;
+}
+
+template<typename CharType, BufferMode bufferMode>
+inline String FastStringifier<CharType, bufferMode>::result()
+{
+    if (haveFailure())
+        return { };
+#if FAST_STRINGIFY_LOG_USAGE
+    static std::atomic<unsigned> maxSizeSeen;
+    if (m_length > maxSizeSeen) {
+        maxSizeSeen = m_length;
+        dataLogLn("max fastStringify buffer size used: ", m_length);
+    }
+    logOutcome("success"_s);
+#endif
+    if constexpr (bufferMode == BufferMode::DynamicBuffer) {
+        m_dynamicBuffer.shrink(m_length);
+        return StringImpl::adopt(WTF::move(m_dynamicBuffer));
+    }
+    return std::span { static_cast<const FastStringifier*>(this)->buffer(), m_length };
+}
+
+template<typename CharType, BufferMode bufferMode>
+template<typename T> inline void FastStringifier<CharType, bufferMode>::recordFailure(FailureReason failureReason, T&& reason)
+{
+    if (!haveFailure())
+        logOutcome(std::forward<T>(reason));
+    m_failureReason = failureReason;
+}
+
+template<typename CharType, BufferMode bufferMode>
+inline void FastStringifier<CharType, bufferMode>::recordBufferFull()
+{
+    recordFailure(FailureReason::BufferFull, "buffer full"_s);
+}
+
+template<typename CharType, BufferMode bufferMode>
+ALWAYS_INLINE bool FastStringifier<CharType, bufferMode>::hasRemainingCapacity(unsigned size)
+{
+    ASSERT(!haveFailure());
+    ASSERT(size > 0);
+    unsigned remainingCapacity = m_capacity - m_length;
+    if (size <= remainingCapacity)
+        return true;
+    return hasRemainingCapacitySlow(size);
+}
+
+template<typename CharType, BufferMode bufferMode>
+bool FastStringifier<CharType, bufferMode>::hasRemainingCapacitySlow(unsigned size)
+{
+    ASSERT(!haveFailure());
+    if constexpr (bufferMode == BufferMode::StaticBuffer) {
+        unsigned unusedBufferSize = staticBufferSize - m_length;
+        unsigned usableSize = usableBufferSize(unusedBufferSize);
+        if (usableSize < size)
+            return false;
+
+        m_capacity = m_length + usableSize;
+        ASSERT(m_capacity - m_length >= size);
+        return true;
+    } else {
+        size_t newSize = std::max<size_t>(m_dynamicBuffer.size() * 2, m_dynamicBuffer.size() + size);
+        if (!StringImpl::isValidLength<CharType>(newSize)) [[unlikely]]
+            return false;
+
+        if (!m_dynamicBuffer.tryGrow(newSize)) [[unlikely]]
+            return false;
+
+        m_capacity = m_dynamicBuffer.size();
+        ASSERT(m_capacity - m_length >= size);
+        return true;
+    }
+}
+
+#if !FAST_STRINGIFY_LOG_USAGE
+
+template<typename CharType, BufferMode bufferMode>
+inline void FastStringifier<CharType, bufferMode>::recordFastPropertyEnumerationFailure(JSObject&)
+{
+    recordFailure("!canPerformFastPropertyEnumerationForJSONStringify"_s);
+}
+
+#else
+
+template<typename CharType, BufferMode bufferMode>
+String FastStringifier<CharType, bufferMode>::firstGetterSetterPropertyName(JSObject& object) const
+{
+    auto scope = DECLARE_THROW_SCOPE(m_vm);
+    PropertyNameArray names(m_vm, PropertyNameMode::Strings, PrivateSymbolMode::Include);
+    JSObject::getOwnPropertyNames(&object, &m_globalObject, names, DontEnumPropertiesMode::Include);
+    CLEAR_AND_RETURN_IF_EXCEPTION(scope, "getOwnPropertyNames exception occurred"_s);
+    for (auto& name : names) {
+        PropertySlot slot(&object, PropertySlot::InternalMethodType::Get);
+        JSObject::getOwnPropertySlot(&object, &m_globalObject, name, slot);
+        CLEAR_AND_RETURN_IF_EXCEPTION(scope, "getOwnPropertySlot exception occurred"_s);
+        if (slot.isAccessor())
+            RELEASE_AND_RETURN(scope, name.string());
+    }
+    RELEASE_AND_RETURN(scope, "not found"_s);
+}
+
+template<typename CharType, BufferMode bufferMode>
+void FastStringifier<CharType, bufferMode>::recordFastPropertyEnumerationFailure(JSObject& object)
+{
+    auto& structure = *object.structure();
+    if (structure.typeInfo().overridesGetOwnPropertySlot())
+        recordFailure("overridesGetOwnPropertySlot"_s);
+    else if (structure.typeInfo().overridesAnyFormOfGetOwnPropertyNames())
+        recordFailure("overridesAnyFormOfGetOwnPropertyNames"_s);
+    else if (hasIndexedProperties(structure.indexingType()))
+        recordFailure("hasIndexedProperties"_s);
+    else if (structure.hasAnyKindOfGetterSetterProperties())
+        recordFailure("getter/setter: "_s + firstGetterSetterPropertyName(object));
+    else if (structure.hasReadOnlyOrGetterSetterPropertiesExcludingProto())
+        recordFailure("hasReadOnlyOrGetterSetterPropertiesExcludingProto"_s);
+    else if (structure.isUncacheableDictionary())
+        recordFailure("isUncacheableDictionary"_s);
+    else if (structure.hasUnderscoreProtoPropertyExcludingOriginalProto())
+        recordFailure("hasUnderscoreProtoPropertyExcludingOriginalProto"_s);
+    else
+        recordFailure("!canPerformFastPropertyEnumerationForJSONStringify mystery"_s);
+}
+
+#endif
+
+template<typename CharType, BufferMode bufferMode>
+inline bool FastStringifier<CharType, bufferMode>::mayHaveToJSON(JSObject& object) const
+{
+    if (auto function = object.structure()->cachedSpecialProperty(CachedSpecialPropertyKey::ToJSON))
+        return !function.isUndefined();
+    if (object.noSideEffectMayHaveNonIndexProperty(m_vm, m_vm.propertyNames->toJSON)) [[unlikely]] {
+        // Getting the property value so we can cache it could cause side effects; instead return true without caching anything.
+        return true;
+    }
+    // Cache this so we can answer false next time without redoing the noSideEffectMayHaveNonIndexProperty work.
+    PropertySlot slot { &object, PropertySlot::InternalMethodType::Get };
+    object.structure()->cacheSpecialProperty(&m_globalObject, m_vm, jsUndefined(), CachedSpecialPropertyKey::ToJSON, slot);
+    return false;
+}
+
+template<typename CharType, BufferMode bufferMode>
+inline void FastStringifier<CharType, bufferMode>::append(char a, char b, char c, char d)
+{
+    if (!hasRemainingCapacity(4)) [[unlikely]] {
+        recordBufferFull();
+        return;
+    }
+    buffer()[m_length] = a;
+    buffer()[m_length + 1] = b;
+    buffer()[m_length + 2] = c;
+    buffer()[m_length + 3] = d;
+    m_length += 4;
+}
+
+template<typename CharType, BufferMode bufferMode>
+inline void FastStringifier<CharType, bufferMode>::append(char a, char b, char c, char d, char e)
+{
+    if (!hasRemainingCapacity(5)) [[unlikely]] {
+        recordBufferFull();
+        return;
+    }
+    buffer()[m_length] = a;
+    buffer()[m_length + 1] = b;
+    buffer()[m_length + 2] = c;
+    buffer()[m_length + 3] = d;
+    buffer()[m_length + 4] = e;
+    m_length += 5;
+}
+
+// Resolves the space argument into a gap string, mirroring the gap() helper above.
+// Returns false for the cases left to the general Stringifier: boxed primitives
+// (observable unwrap), 16-bit gap strings, and other cells.
+template<typename CharType, BufferMode bufferMode>
+inline bool FastStringifier<CharType, bufferMode>::setGap(JSValue space)
+{
+    ASSERT(!space.isUndefined());
+    if (space.isNumber()) {
+        m_gapLength = clampTo<unsigned>(space.asNumber(), 0, maxGapLength);
+        m_gap.fill(' ');
+        return true;
+    }
+    if (space.isString()) {
+        auto string = asString(space)->tryGetValue();
+        if (string.data.isNull() || !string.data.is8Bit()) [[unlikely]]
+            return false;
+        auto span = string.data.span8();
+        unsigned count = std::min<unsigned>(span.size(), maxGapLength);
+        memcpySpan(std::span { m_gap }.first(count), span.first(count));
+        m_gapLength = count;
+        return true;
+    }
+    if (space.isCell())
+        return false;
+    // Other primitives (booleans, null) mean no gap.
+    m_gapLength = 0;
+    return true;
+}
+
+template<typename CharType, BufferMode bufferMode>
+ALWAYS_INLINE unsigned FastStringifier<CharType, bufferMode>::newLineAndIndentSize() const
+{
+    ASSERT(m_gapLength);
+    return 1 + m_depth * m_gapLength;
+}
+
+template<typename CharType, BufferMode bufferMode>
+ALWAYS_INLINE void FastStringifier<CharType, bufferMode>::appendNewLineAndIndentUnchecked()
+{
+    ASSERT(m_gapLength);
+    auto* cursor = buffer() + m_length;
+    *cursor++ = '\n';
+    for (unsigned i = 0; i < m_depth; ++i) {
+        for (unsigned j = 0; j < m_gapLength; ++j)
+            *cursor++ = m_gap[j];
+    }
+    m_length += 1 + m_depth * m_gapLength;
+}
+
+template<typename CharType, BufferMode bufferMode>
+ALWAYS_INLINE void FastStringifier<CharType, bufferMode>::appendInt32(int32_t number)
+{
+    if constexpr (sizeof(CharType) == 1) {
+        char* cursor = std::bit_cast<char*>(buffer()) + m_length;
+        auto result = std::to_chars(cursor, cursor + maxInt32StringLength, number);
+        ASSERT(result.ec != std::errc::value_too_large);
+        m_length += result.ptr - cursor;
+    } else {
+        std::array<char, maxInt32StringLength> temporary;
+        auto result = std::to_chars(temporary.data(), temporary.data() + maxInt32StringLength, number);
+        ASSERT(result.ec != std::errc::value_too_large);
+        unsigned lengthToCopy = result.ptr - temporary.data();
+        WTF::copyElements(spanReinterpretCast<uint16_t>(bufferSpan().subspan(m_length)), spanReinterpretCast<const uint8_t>(std::span { temporary }).first(lengthToCopy));
+        m_length += lengthToCopy;
+    }
+}
+
+template<typename CharType>
+static ALWAYS_INLINE bool stringCopySameType(std::span<const CharType> span, CharType* cursor)
+{
+#if (CPU(ARM64) || CPU(X86_64)) && COMPILER(CLANG)
+    constexpr size_t stride = SIMD::stride<CharType>;
+    if (span.size() >= stride) {
+        using UnsignedType = SameSizeUnsignedInteger<CharType>;
+        using BulkType = decltype(SIMD::load(static_cast<const UnsignedType*>(nullptr)));
+        constexpr auto quoteMask = SIMD::splat<UnsignedType>('"');
+        constexpr auto escapeMask = SIMD::splat<UnsignedType>('\\');
+        constexpr auto controlMask = SIMD::splat<UnsignedType>(' ');
+        const auto* ptr = span.data();
+        const auto* end = ptr + span.size();
+        auto* cursorEnd = cursor + span.size();
+        BulkType accumulated { };
+        for (; ptr + stride <= end; ptr += stride, cursor += stride) {
+            auto input = SIMD::load(std::bit_cast<const UnsignedType*>(ptr));
+            SIMD::store(input, std::bit_cast<UnsignedType*>(cursor));
+            auto quotes = SIMD::equal(input, quoteMask);
+            auto escapes = SIMD::equal(input, escapeMask);
+            auto controls = SIMD::lessThan(input, controlMask);
+            accumulated = SIMD::bitOr(accumulated, quotes, escapes, controls);
+            if constexpr (sizeof(CharType) != 1) {
+                constexpr auto surrogateMask = SIMD::splat<UnsignedType>(0xf800);
+                constexpr auto surrogateCheckMask = SIMD::splat<UnsignedType>(0xd800);
+                accumulated = SIMD::bitOr(accumulated, SIMD::equal(SIMD::bitAnd(input, surrogateMask), surrogateCheckMask));
+            }
+        }
+        if (ptr < end) {
+            auto input = SIMD::load(std::bit_cast<const UnsignedType*>(end - stride));
+            SIMD::store(input, std::bit_cast<UnsignedType*>(cursorEnd - stride));
+            auto quotes = SIMD::equal(input, quoteMask);
+            auto escapes = SIMD::equal(input, escapeMask);
+            auto controls = SIMD::lessThan(input, controlMask);
+            accumulated = SIMD::bitOr(accumulated, quotes, escapes, controls);
+            if constexpr (sizeof(CharType) != 1) {
+                constexpr auto surrogateMask = SIMD::splat<UnsignedType>(0xf800);
+                constexpr auto surrogateCheckMask = SIMD::splat<UnsignedType>(0xd800);
+                accumulated = SIMD::bitOr(accumulated, SIMD::equal(SIMD::bitAnd(input, surrogateMask), surrogateCheckMask));
+            }
+        }
+        return SIMD::isNonZero(accumulated);
+    }
+#endif
+    for (auto character : span) {
+        if constexpr (sizeof(CharType) != 1) {
+            if (U16_IS_SURROGATE(character)) [[unlikely]]
+                return true;
+        }
+        if (character <= 0xff && WTF::escapedFormsForJSON[character]) [[unlikely]]
+            return true;
+        *cursor++ = character;
+    }
+    return false;
+}
+
+static ALWAYS_INLINE bool stringCopyUpconvert(std::span<const Latin1Character> span, char16_t* cursor)
+{
+#if (CPU(ARM64) || CPU(X86_64)) && COMPILER(CLANG)
+    constexpr size_t stride = SIMD::stride<Latin1Character>;
+    if (span.size() >= stride) {
+        using UnsignedType = uint8_t;
+        using BulkType = decltype(SIMD::load(static_cast<const UnsignedType*>(nullptr)));
+        constexpr auto quoteMask = SIMD::splat<UnsignedType>('"');
+        constexpr auto escapeMask = SIMD::splat<UnsignedType>('\\');
+        constexpr auto controlMask = SIMD::splat<UnsignedType>(' ');
+        constexpr auto zeros = SIMD::splat<UnsignedType>(0);
+        const auto* ptr = span.data();
+        const auto* end = ptr + span.size();
+        auto* cursorEnd = cursor + span.size();
+        BulkType accumulated { };
+        for (; ptr + stride <= end; ptr += stride, cursor += stride) {
+            auto input = SIMD::load(std::bit_cast<const UnsignedType*>(ptr));
+            simde_vst2q_u8(std::bit_cast<UnsignedType*>(cursor), (simde_uint8x16x2_t { input, zeros }));
+            auto quotes = SIMD::equal(input, quoteMask);
+            auto escapes = SIMD::equal(input, escapeMask);
+            auto controls = SIMD::lessThan(input, controlMask);
+            accumulated = SIMD::bitOr(accumulated, quotes, escapes, controls);
+        }
+        if (ptr < end) {
+            auto input = SIMD::load(std::bit_cast<const UnsignedType*>(end - stride));
+            simde_vst2q_u8(std::bit_cast<UnsignedType*>(cursorEnd - stride), (simde_uint8x16x2_t { input, zeros }));
+            auto quotes = SIMD::equal(input, quoteMask);
+            auto escapes = SIMD::equal(input, escapeMask);
+            auto controls = SIMD::lessThan(input, controlMask);
+            accumulated = SIMD::bitOr(accumulated, quotes, escapes, controls);
+        }
+        return SIMD::isNonZero(accumulated);
+    }
+#endif
+    for (auto character : span) {
+        if (WTF::escapedFormsForJSON[character]) [[unlikely]]
+            return true;
+        *cursor++ = character;
+    }
+    return false;
+}
+
+template<typename CharType, BufferMode bufferMode>
+template<HasGap hasGap>
+void FastStringifier<CharType, bufferMode>::append(JSValue value)
+{
+    if constexpr (bufferMode == BufferMode::DynamicBuffer) {
+        if (std::bit_cast<uint8_t*>(currentStackPointer()) < m_stackLimit) [[unlikely]] {
+            recordFailure(FailureReason::StackOverflow, "stack overflow"_s);
+            return;
+        }
+    }
+
+    if (value.isNull()) {
+        append('n', 'u', 'l', 'l');
+        return;
+    }
+
+    if (value.isTrue()) {
+        append('t', 'r', 'u', 'e');
+        return;
+    }
+
+    if (value.isFalse()) {
+        append('f', 'a', 'l', 's', 'e');
+        return;
+    }
+
+    if (value.isInt32()) {
+        if (!hasRemainingCapacity(maxInt32StringLength)) [[unlikely]] {
+            recordBufferFull();
+            return;
+        }
+        appendInt32(value.asInt32());
+        return;
+    }
+
+    if (value.isDouble()) {
+        auto number = value.asDouble();
+        if (!std::isfinite(number)) {
+            append('n', 'u', 'l', 'l');
+            return;
+        }
+        if (!hasRemainingCapacity(WTF::dragonbox::max_string_length<WTF::dragonbox::ieee754_binary64>())) [[unlikely]] {
+            recordBufferFull();
+            return;
+        }
+        if constexpr (sizeof(CharType) == 1) {
+            auto cursor = WTF::dragonbox::detail::to_chars_n<WTF::dragonbox::Mode::ToShortest>(number, byteCast<char>(bufferSpan().subspan(m_length)));
+            m_length = cursor.data() - reinterpret_cast<char*>(buffer());
+        } else {
+            std::array<char, WTF::dragonbox::max_string_length<WTF::dragonbox::ieee754_binary64>()> temporary;
+            auto cursor = WTF::dragonbox::detail::to_chars_n<WTF::dragonbox::Mode::ToShortest>(number, std::span { temporary });
+            size_t length = cursor.data() - temporary.data();
+            WTF::copyElements(spanReinterpretCast<uint16_t>(bufferSpan().subspan(m_length)), byteCast<uint8_t>(std::span { temporary }).first(length));
+            m_length += length;
+        }
+        return;
+    }
+
+    if (!value.isCell()) [[unlikely]] {
+        recordFailure("value type"_s);
+        return;
+    }
+    auto& cell = *value.asCell();
+
+    switch (cell.type()) {
+    case StringType: {
+        auto string = asString(&cell)->tryGetValue();
+        if (string.data.isNull()) [[unlikely]] {
+            recordFailure("String::tryGetValue"_s);
+            return;
+        }
+        auto stringLength = string.data.length();
+        if (!hasRemainingCapacity(1 + stringLength + 1)) [[unlikely]] {
+            recordBufferFull();
+            return;
+        }
+        buffer()[m_length] = '"';
+
+        if constexpr (std::same_as<CharType, Latin1Character>) {
+            if (string.data.is8Bit()) [[likely]] {
+                if (!stringCopySameType(string.data.span8(), buffer() + m_length + 1)) [[likely]] {
+                    buffer()[m_length + 1 + stringLength] = '"';
+                    m_length += 1 + stringLength + 1;
+                    return;
+                }
+            }
+        } else {
+            static_assert(std::same_as<CharType, char16_t>);
+            if (string.data.is8Bit()) {
+                if (!stringCopyUpconvert(string.data.span8(), buffer() + m_length + 1)) [[likely]] {
+                    buffer()[m_length + 1 + stringLength] = '"';
+                    m_length += 1 + stringLength + 1;
+                    return;
+                }
+            } else {
+                if (!stringCopySameType(string.data.span16(), buffer() + m_length + 1)) [[likely]] {
+                    buffer()[m_length + 1 + stringLength] = '"';
+                    m_length += 1 + stringLength + 1;
+                    return;
+                }
+            }
+        }
+
+        auto escapedLength = 1 + CheckedUint32 { stringLength } * 6 + 1;
+        if (escapedLength.hasOverflowed()) [[unlikely]] {
+            recordBufferFull();
+            return;
+        }
+        if (!hasRemainingCapacity(escapedLength.value())) [[unlikely]] {
+            recordBufferFull();
+            return;
+        }
+
+        ASSERT(buffer()[m_length] == '"');
+        auto output = bufferSpan().subspan(m_length + 1);
+        if constexpr (std::same_as<CharType, char16_t>) {
+            if (string.data.is8Bit())
+                WTF::appendEscapedJSONStringContent(output, string.data.span8());
+            else
+                WTF::appendEscapedJSONStringContent(output, string.data.span16());
+        } else {
+            if (string.data.is8Bit())
+                WTF::appendEscapedJSONStringContent(output, string.data.span8());
+            else {
+                // It's possible the UTF-16 string is actually Latin-1. We try to avoid that but bailing out here is _way_ more expensive if it does sometimes happen.
+                bool success = WTF::appendEscapedJSONStringContent(output, string.data.span16());
+                if (!success) [[unlikely]] {
+                    if constexpr (bufferMode == BufferMode::DynamicBuffer)
+                        recordFailure(FailureReason::Unknown, "16-bit string, "_s);
+                    else
+                        recordFailure(m_length < (m_capacity / 2) ? FailureReason::Found16BitEarly : FailureReason::Found16BitLate, "16-bit string, "_s);
+                    return;
+                }
+            }
+        }
+
+        consume(output) = '"';
+        m_length = output.data() - buffer();
+        return;
+    }
+
+    case ObjectType:
+    case FinalObjectType: {
+        auto& object = *asObject(&cell);
+        if (object.isCallable()) [[unlikely]] {
+            recordFailure("callable object"_s);
+            return;
+        }
+        auto& structure = *object.structure();
+        if (structure.hasPolyProto()) [[unlikely]] {
+            recordFailure("hasPolyProto"_s);
+            return;
+        }
+        if (structure.storedPrototype() != m_globalObject.objectPrototype()) [[unlikely]] {
+            recordFailure("non-standard object prototype"_s);
+            return;
+        }
+        if (!m_checkedObjectPrototype) {
+            if (mayHaveToJSON(*m_globalObject.objectPrototype())) [[unlikely]] {
+                recordFailure("object prototype may have toJSON"_s);
+                return;
+            }
+            m_checkedObjectPrototype = true;
+        }
+        if (!hasRemainingCapacity()) [[unlikely]] {
+            recordBufferFull();
+            return;
+        }
+        buffer()[m_length++] = '{';
+        if (!structure.canPerformFastPropertyEnumeration()) [[unlikely]] {
+            recordFastPropertyEnumerationFailure(object);
+            return;
+        }
+        // A non-reified static table can hold a toJSON that is not in the property table yet.
+        if (structure.hasNonReifiedStaticProperties()) [[unlikely]] {
+            recordFailure("object has non-reified static properties"_s);
+            return;
+        }
+        if constexpr (hasGap == HasGap::Yes)
+            ++m_depth;
+        const unsigned newLineAndIndent = hasGap == HasGap::Yes ? newLineAndIndentSize() : 0;
+        structure.forEachProperty(m_vm, [&](const auto& entry) -> bool {
+            // https://tc39.es/ecma262/#sec-serializejsonproperty
+            // Step 2.a's GetV finds an own toJSON regardless of enumerability.
+            if (entry.key() == m_vm.propertyNames->toJSON) [[unlikely]] {
+                recordFailure("object has toJSON"_s);
+                return false;
+            }
+            if (entry.attributes() & PropertyAttribute::DontEnum)
+                return true;
+            auto& name = *entry.key();
+            if (name.isSymbol()) [[unlikely]] {
+                recordFailure("symbol"_s);
+                return false;
+            }
+
+            // Right now, we do not support 16-bit name here since name in 16-bit is significantly more rare than 16-bit string.
+            // FIXME: We should just extract the `StringType` case into a helper and use that.
+            if (!name.is8Bit()) [[unlikely]] {
+                recordFailure("16-bit property name"_s);
+                return false;
+            }
+            auto span = name.span8();
+
+            // The structure cannot transition mid-iteration on FastStringifier's case.
+            // canPerformFastPropertyEnumeration ruled out getters/setters and
+            // the prototype is the original Object.prototype with no toJSON, so
+            // there is no JS observable to mutate the structure.
+            ASSERT(object.structure() == &structure);
+
+            JSValue value = object.getDirect(entry.offset());
+            if (value.isUndefined())
+                return true;
+
+            bool needComma = buffer()[m_length - 1] != '{';
+            if (!hasRemainingCapacity(needComma + newLineAndIndent + 1 + span.size() + 2 + (hasGap == HasGap::Yes))) [[unlikely]] {
+                recordBufferFull();
+                return false;
+            }
+            if (needComma)
+                buffer()[m_length++] = ',';
+            if constexpr (hasGap == HasGap::Yes)
+                appendNewLineAndIndentUnchecked();
+            buffer()[m_length] = '"';
+
+            if constexpr (std::same_as<CharType, char16_t>) {
+                if (stringCopyUpconvert(span, buffer() + m_length + 1)) [[unlikely]] {
+                    recordFailure("property name character needs escaping"_s);
+                    return false;
+                }
+            } else {
+                if (stringCopySameType(span, buffer() + m_length + 1)) [[unlikely]] {
+                    recordFailure("property name character needs escaping"_s);
+                    return false;
+                }
+            }
+
+            buffer()[m_length + 1 + span.size()] = '"';
+            buffer()[m_length + 1 + span.size() + 1] = ':';
+            m_length += 1 + span.size() + 2;
+            if constexpr (hasGap == HasGap::Yes)
+                buffer()[m_length++] = ' ';
+
+            if constexpr (std::same_as<CharType, Latin1Character>) {
+                // Inlining String case here since it is too common.
+                if (value.isCell() && value.asCell()->type() == StringType) [[likely]] {
+                    auto valueString = asString(value.asCell())->tryGetValue();
+                    if (!valueString.data.isNull() && valueString.data.is8Bit()) [[likely]] {
+                        unsigned valueLength = valueString.data.length();
+                        if (!hasRemainingCapacity(1 + valueLength + 1)) [[unlikely]] {
+                            recordBufferFull();
+                            return false;
+                        }
+                        buffer()[m_length] = '"';
+                        if (!stringCopySameType(valueString.data.span8(), buffer() + m_length + 1)) [[likely]] {
+                            buffer()[m_length + 1 + valueLength] = '"';
+                            m_length += 1 + valueLength + 1;
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            // Also Int32 case is too common.
+            if (value.isInt32()) {
+                if (!hasRemainingCapacity(maxInt32StringLength)) [[unlikely]] {
+                    recordBufferFull();
+                    return false;
+                }
+                appendInt32(value.asInt32());
+                return true;
+            }
+
+            append<hasGap>(value);
+            return !haveFailure();
+        });
+        if (haveFailure()) [[unlikely]]
+            return;
+        if constexpr (hasGap == HasGap::Yes)
+            --m_depth;
+        bool needNewLine = hasGap == HasGap::Yes && buffer()[m_length - 1] != '{';
+        if (!hasRemainingCapacity(needNewLine ? 1 + newLineAndIndentSize() : 1)) [[unlikely]] {
+            recordBufferFull();
+            return;
+        }
+        if (needNewLine)
+            appendNewLineAndIndentUnchecked();
+        buffer()[m_length++] = '}';
+        return;
+    }
+
+    case ArrayType: {
+        auto& array = *asArray(&cell);
+        if (!m_checkedArrayPrototype) {
+            if (mayHaveToJSON(*m_globalObject.arrayPrototype())) [[unlikely]] {
+                recordFailure("array prototype may have toJSON"_s);
+                return;
+            }
+            m_checkedArrayPrototype = true;
+        }
+        auto& structure = *array.structure();
+        if (!m_globalObject.isOriginalArrayStructure(&structure)) [[unlikely]] {
+            if (structure.hasPolyProto()) [[unlikely]] {
+                recordFailure("hasPolyProto"_s);
+                return;
+            }
+            if (structure.storedPrototype() != m_globalObject.arrayPrototype()) [[unlikely]] {
+                recordFailure("non-standard array prototype"_s);
+                return;
+            }
+            structure.forEachProperty(m_vm, [&](const PropertyTableEntry& entry) -> bool {
+                if (entry.key() == m_vm.propertyNames->toJSON) [[unlikely]] {
+                    recordFailure("array has toJSON"_s);
+                    return false;
+                }
+                return true;
+            });
+            if (haveFailure())
+                return;
+        }
+        if (!hasRemainingCapacity()) [[unlikely]] {
+            recordBufferFull();
+            return;
+        }
+        buffer()[m_length++] = '[';
+        if constexpr (hasGap == HasGap::Yes)
+            ++m_depth;
+
+        auto closeArray = [&] {
+            if constexpr (hasGap == HasGap::Yes)
+                --m_depth;
+            bool needNewLine = hasGap == HasGap::Yes && buffer()[m_length - 1] != '[';
+            if (!hasRemainingCapacity(needNewLine ? 1 + newLineAndIndentSize() : 1)) [[unlikely]] {
+                recordBufferFull();
+                return;
+            }
+            if (needNewLine)
+                appendNewLineAndIndentUnchecked();
+            buffer()[m_length++] = ']';
+        };
+
+        IndexingType indexingType = array.indexingType();
+        if (hasInt32(indexingType)) {
+            appendInt32Array<hasGap>(array);
+            if (haveFailure()) [[unlikely]]
+                return;
+            closeArray();
+            return;
+        }
+
+        if (hasContiguous(indexingType)) {
+            auto* butterfly = array.butterfly();
+            unsigned length = butterfly->publicLength();
+            if (length > butterfly->vectorLength()) [[unlikely]] {
+                recordFailure("!lengthBeyondVector"_s);
+                return;
+            }
+            auto data = butterfly->contiguous();
+            const unsigned newLineAndIndent = hasGap == HasGap::Yes ? newLineAndIndentSize() : 0;
+            for (unsigned i = 0; i < length; ++i) {
+                if (i || hasGap == HasGap::Yes) {
+                    if (!hasRemainingCapacity(!!i + newLineAndIndent)) [[unlikely]] {
+                        recordBufferFull();
+                        return;
+                    }
+                    if (i)
+                        buffer()[m_length++] = ',';
+                    if constexpr (hasGap == HasGap::Yes)
+                        appendNewLineAndIndentUnchecked();
+                }
+                JSValue element = data.at(&array, i).get();
+                if (!element) [[unlikely]] {
+                    recordFailure("!canGetIndexQuickly"_s);
+                    return;
+                }
+                append<hasGap>(element);
+                if (haveFailure()) [[unlikely]]
+                    return;
+            }
+            closeArray();
+            return;
+        }
+        const unsigned newLineAndIndent = hasGap == HasGap::Yes ? newLineAndIndentSize() : 0;
+        for (unsigned i = 0, length = array.length(); i < length; ++i) {
+            if (i || hasGap == HasGap::Yes) {
+                if (!hasRemainingCapacity(!!i + newLineAndIndent)) [[unlikely]] {
+                    recordBufferFull();
+                    return;
+                }
+                if (i)
+                    buffer()[m_length++] = ',';
+                if constexpr (hasGap == HasGap::Yes)
+                    appendNewLineAndIndentUnchecked();
+            }
+            if (!array.canGetIndexQuickly(i)) [[unlikely]] {
+                recordFailure("!canGetIndexQuickly"_s);
+                return;
+            }
+            append<hasGap>(array.getIndexQuickly(i));
+            if (haveFailure()) [[unlikely]]
+                return;
+        }
+        closeArray();
+        return;
+    }
+
+    case JSFunctionType:
+        recordFailure("function"_s);
+        return;
+
+    default:
+        recordFailure("object type"_s);
+    }
+}
+
+template<typename CharType, BufferMode bufferMode>
+template<HasGap hasGap>
+NEVER_INLINE void FastStringifier<CharType, bufferMode>::appendInt32Array(JSArray& array)
+{
+    auto* butterfly = array.butterfly();
+    unsigned length = butterfly->publicLength();
+    if (length > butterfly->vectorLength()) [[unlikely]] {
+        recordFailure("!lengthBeyondVector"_s);
+        return;
+    }
+    auto data = butterfly->contiguousInt32();
+    const unsigned newLineAndIndent = hasGap == HasGap::Yes ? newLineAndIndentSize() : 0;
+    for (unsigned i = 0; i < length; ++i) {
+        JSValue element = data.at(&array, i).get();
+        if (!element) [[unlikely]] {
+            recordFailure("!canGetIndexQuickly"_s);
+            return;
+        }
+        if (!hasRemainingCapacity(1 + newLineAndIndent + maxInt32StringLength)) [[unlikely]] {
+            recordBufferFull();
+            return;
+        }
+        if (i)
+            buffer()[m_length++] = ',';
+        if constexpr (hasGap == HasGap::Yes)
+            appendNewLineAndIndentUnchecked();
+        appendInt32(element.asInt32());
+    }
+}
+
+template<typename CharType, BufferMode bufferMode>
+inline String FastStringifier<CharType, bufferMode>::stringify(JSGlobalObject& globalObject, JSValue value, JSValue replacer, JSValue space, std::optional<FailureReason>& failureReason)
+{
+    if (replacer.isObject()) {
+        logOutcome("replacer"_s);
+        return { };
+    }
+    FastStringifier stringifier(globalObject);
+    if (!space.isUndefined()) {
+        if (!stringifier.setGap(space)) [[unlikely]] {
+            logOutcome("space"_s);
+            return { };
+        }
+    }
+    if (stringifier.m_gapLength)
+        stringifier.append<HasGap::Yes>(value);
+    else
+        stringifier.append<HasGap::No>(value);
+    failureReason = stringifier.m_failureReason;
+    return stringifier.result();
+}
+
+static NEVER_INLINE String stringify(JSGlobalObject& globalObject, JSValue value, JSValue replacer, JSValue space)
+{
+    VM& vm = globalObject.vm();
+    uint8_t* stackLimit = std::bit_cast<uint8_t*>(vm.softStackLimit());
+    if (std::bit_cast<uint8_t*>(currentStackPointer()) >= stackLimit) [[likely]] {
+        std::optional<FailureReason> failureReason;
+        failureReason = std::nullopt;
+        if (String result = FastStringifier<Latin1Character, BufferMode::StaticBuffer>::stringify(globalObject, value, replacer, space, failureReason); !result.isNull())
+            return result;
+        if (failureReason == FailureReason::Found16BitEarly) {
+            failureReason = std::nullopt;
+            if (String result = FastStringifier<char16_t, BufferMode::StaticBuffer>::stringify(globalObject, value, replacer, space, failureReason); !result.isNull())
+                return result;
+
+            if (failureReason == FailureReason::BufferFull) {
+                failureReason = std::nullopt;
+                if (String result = FastStringifier<char16_t, BufferMode::DynamicBuffer>::stringify(globalObject, value, replacer, space, failureReason); !result.isNull())
+                    return result;
+            }
+        } else if (failureReason == FailureReason::BufferFull) {
+            failureReason = std::nullopt;
+            if (String result = FastStringifier<Latin1Character, BufferMode::DynamicBuffer>::stringify(globalObject, value, replacer, space, failureReason); !result.isNull())
+                return result;
+        }
+    }
+    String result = Stringifier::stringify(globalObject, value, replacer, space);
+#if FAST_STRINGIFY_LOG_USAGE
+    if (!result.isNull())
+        dataLogLn("Not fastStringify: ", result);
+#endif
+    return result;
+}
+
 // ------------------------------ JSONObject --------------------------------
 
-const ClassInfo JSONObject::s_info = { "JSON", &JSNonFinalObject::s_info, &jsonTable, nullptr, CREATE_METHOD_TABLE(JSONObject) };
+const ClassInfo JSONObject::s_info = { "JSON"_s, &JSNonFinalObject::s_info, &jsonTable, nullptr, CREATE_METHOD_TABLE(JSONObject) };
 
 /* Source for JSONObject.lut.h
 @begin jsonTable
@@ -599,28 +1764,47 @@ class Walker {
     WTF_MAKE_NONCOPYABLE(Walker);
     WTF_FORBID_HEAP_ALLOCATION;
 public:
-    Walker(JSGlobalObject* globalObject, JSObject* function, CallData callData)
+    Walker(JSGlobalObject* globalObject, JSString* source, JSObject* function, CallData callData, const JSONRanges* sourceRanges)
         : m_globalObject(globalObject)
+        , m_source(source)
         , m_function(function)
         , m_callData(callData)
+        , m_sourceRanges(sourceRanges)
     {
     }
     JSValue walk(JSValue unfiltered);
 private:
-    JSValue callReviver(JSObject* thisObj, JSValue property, JSValue unfiltered)
+    JSValue callReviver(JSObject* thisObj, JSValue property, JSValue unfiltered, const JSONRanges::Entry* range)
     {
+        VM& vm = m_globalObject->vm();
+        auto scope = DECLARE_THROW_SCOPE(vm);
+
+        JSObject* context = nullptr;
+        if (m_sourceRanges) {
+            context = constructEmptyObject(m_globalObject);
+            if (range && !unfiltered.isObject()) {
+                JSString* substring = jsSubstring(m_globalObject, m_source, range->range.begin(), range->range.distance());
+                RETURN_IF_EXCEPTION(scope, { });
+                context->putDirect(vm, vm.propertyNames->source, substring);
+            }
+        }
+
         MarkedArgumentBuffer args;
         args.append(property);
         args.append(unfiltered);
+        if (context)
+            args.append(context);
         ASSERT(!args.hasOverflowed());
-        return call(m_globalObject, m_function, m_callData, thisObj, args);
+        RELEASE_AND_RETURN(scope, call(m_globalObject, m_function, m_callData, thisObj, args));
     }
 
     friend class Holder;
 
     JSGlobalObject* m_globalObject;
+    JSString* m_source;
     JSObject* m_function;
     CallData m_callData;
+    const JSONRanges* m_sourceRanges;
 };
 
 enum WalkerState { StateUnknown, ArrayStartState, ArrayStartVisitMember, ArrayEndVisitMember, 
@@ -630,14 +1814,17 @@ NEVER_INLINE JSValue Walker::walk(JSValue unfiltered)
     VM& vm = m_globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    Vector<PropertyNameArray, 16, UnsafeVectorOverflow> propertyStack;
+    Vector<PropertyNameArrayBuilder, 16, UnsafeVectorOverflow> propertyStack;
     Vector<uint32_t, 16, UnsafeVectorOverflow> indexStack;
     MarkedArgumentBuffer markedStack;
+    Vector<const JSONRanges::Entry*, 16> entryStack;
     Vector<unsigned, 16, UnsafeVectorOverflow> arrayLengthStack;
     
     Vector<WalkerState, 16, UnsafeVectorOverflow> stateStack;
     WalkerState state = StateUnknown;
     JSValue inValue = unfiltered;
+    const JSONRanges::Entry* inValueRange = m_sourceRanges ? &m_sourceRanges->root() : nullptr;
+    const JSONRanges::Entry* outValueRange = m_sourceRanges ? &m_sourceRanges->root() : nullptr;
     JSValue outValue = jsNull();
     
     while (1) {
@@ -648,14 +1835,21 @@ NEVER_INLINE JSValue Walker::walk(JSValue unfiltered)
                 ASSERT(isArray(m_globalObject, inValue));
                 EXCEPTION_ASSERT(!scope.exception());
 
-                if (UNLIKELY(markedStack.size() >= maximumSideStackRecursion))
+                if (markedStack.size() >= maximumSideStackRecursion) [[unlikely]]
                     return throwStackOverflowError(m_globalObject, scope);
 
                 JSObject* array = asObject(inValue);
                 markedStack.appendWithCrashOnOverflow(array);
-                uint64_t length = static_cast<uint64_t>(toLength(m_globalObject, array));
+                if (m_sourceRanges) {
+                    if (inValueRange) {
+                        if (!std::holds_alternative<JSONRanges::Array>(inValueRange->properties))
+                            inValueRange = nullptr;
+                    }
+                    entryStack.append(inValueRange);
+                }
+                uint64_t length = toLength(m_globalObject, array);
                 RETURN_IF_EXCEPTION(scope, { });
-                if (UNLIKELY(length > std::numeric_limits<uint32_t>::max())) {
+                if (length > std::numeric_limits<uint32_t>::max()) [[unlikely]] {
                     throwOutOfMemoryError(m_globalObject, scope);
                     return { };
                 }
@@ -664,18 +1858,21 @@ NEVER_INLINE JSValue Walker::walk(JSValue unfiltered)
                 indexStack.append(0);
             }
             arrayStartVisitMember:
-            FALLTHROUGH;
+            [[fallthrough]];
             case ArrayStartVisitMember: {
                 JSObject* array = asObject(markedStack.last());
                 uint32_t index = indexStack.last();
                 unsigned arrayLength = arrayLengthStack.last();
                 if (index == arrayLength) {
                     outValue = array;
+                    if (m_sourceRanges)
+                        outValueRange = entryStack.takeLast();
                     markedStack.removeLast();
                     arrayLengthStack.removeLast();
                     indexStack.removeLast();
                     break;
                 }
+
                 if (isJSArray(array) && array->canGetIndexQuickly(index))
                     inValue = array->getIndexQuickly(index);
                 else {
@@ -683,19 +1880,37 @@ NEVER_INLINE JSValue Walker::walk(JSValue unfiltered)
                     RETURN_IF_EXCEPTION(scope, { });
                 }
 
+                if (m_sourceRanges) {
+                    if (auto* last = entryStack.last()) {
+                        auto& arrayRangeVector = std::get<JSONRanges::Array>(last->properties);
+                        if (index >= arrayRangeVector.size())
+                            inValueRange = nullptr;
+                        else {
+                            inValueRange = &arrayRangeVector[index];
+                            bool isSameValue = sameValue(m_globalObject, inValueRange->value, inValue);
+                            RETURN_IF_EXCEPTION(scope, { });
+                            if (!isSameValue)
+                                inValueRange = nullptr;
+                        }
+                    } else
+                        inValueRange = nullptr;
+                }
+
                 if (inValue.isObject()) {
                     stateStack.append(ArrayEndVisitMember);
                     goto stateUnknown;
-                } else
+                } else {
                     outValue = inValue;
-                FALLTHROUGH;
+                    outValueRange = inValueRange;
+                }
+                [[fallthrough]];
             }
             case ArrayEndVisitMember: {
                 JSObject* array = asObject(markedStack.last());
-                JSValue filteredValue = callReviver(array, jsString(vm, String::number(indexStack.last())), outValue);
+                JSValue filteredValue = callReviver(array, jsString(vm, String::number(indexStack.last())), outValue, outValueRange);
                 RETURN_IF_EXCEPTION(scope, { });
                 if (filteredValue.isUndefined())
-                    array->methodTable(vm)->deletePropertyByIndex(array, m_globalObject, indexStack.last());
+                    array->methodTable()->deletePropertyByIndex(array, m_globalObject, indexStack.last());
                 else
                     array->putDirectIndex(m_globalObject, indexStack.last(), filteredValue, 0, PutDirectIndexShouldNotThrow);
                 RETURN_IF_EXCEPTION(scope, { });
@@ -706,24 +1921,33 @@ NEVER_INLINE JSValue Walker::walk(JSValue unfiltered)
             case ObjectStartState: {
                 ASSERT(inValue.isObject());
                 ASSERT(!isJSArray(inValue));
-                if (UNLIKELY(markedStack.size() >= maximumSideStackRecursion))
+                if (markedStack.size() >= maximumSideStackRecursion) [[unlikely]]
                     return throwStackOverflowError(m_globalObject, scope);
 
                 JSObject* object = asObject(inValue);
                 markedStack.appendWithCrashOnOverflow(object);
+                if (m_sourceRanges) {
+                    if (inValueRange) {
+                        if (!std::holds_alternative<JSONRanges::Object>(inValueRange->properties))
+                            inValueRange = nullptr;
+                    }
+                    entryStack.append(inValueRange);
+                }
                 indexStack.append(0);
-                propertyStack.append(PropertyNameArray(vm, PropertyNameMode::Strings, PrivateSymbolMode::Exclude));
-                object->methodTable(vm)->getOwnPropertyNames(object, m_globalObject, propertyStack.last(), DontEnumPropertiesMode::Exclude);
+                propertyStack.append(PropertyNameArrayBuilder(vm, PropertyNameMode::Strings, PrivateSymbolMode::Exclude));
+                object->methodTable()->getOwnPropertyNames(object, m_globalObject, propertyStack.last(), DontEnumPropertiesMode::Exclude);
                 RETURN_IF_EXCEPTION(scope, { });
             }
             objectStartVisitMember:
-            FALLTHROUGH;
+            [[fallthrough]];
             case ObjectStartVisitMember: {
-                JSObject* object = jsCast<JSObject*>(markedStack.last());
+                JSObject* object = uncheckedDowncast<JSObject>(markedStack.last());
                 uint32_t index = indexStack.last();
-                PropertyNameArray& properties = propertyStack.last();
+                PropertyNameArrayBuilder& properties = propertyStack.last();
                 if (index == properties.size()) {
                     outValue = object;
+                    if (m_sourceRanges)
+                        outValueRange = entryStack.takeLast();
                     markedStack.removeLast();
                     indexStack.removeLast();
                     propertyStack.removeLast();
@@ -733,26 +1957,44 @@ NEVER_INLINE JSValue Walker::walk(JSValue unfiltered)
                 // The holder may be modified by the reviver function so any lookup may throw
                 RETURN_IF_EXCEPTION(scope, { });
 
+                if (m_sourceRanges) {
+                    if (auto* last = entryStack.last()) {
+                        auto iterator = std::get<JSONRanges::Object>(last->properties).find(properties[index].impl());
+                        if (iterator != std::get<JSONRanges::Object>(last->properties).end()) {
+                            inValueRange = &iterator->value;
+                            bool isSameValue = sameValue(m_globalObject, inValueRange->value, inValue);
+                            RETURN_IF_EXCEPTION(scope, { });
+                            if (!isSameValue)
+                                inValueRange = nullptr;
+                        } else
+                            inValueRange = nullptr;
+                    } else
+                        inValueRange = nullptr;
+                }
+
                 if (inValue.isObject()) {
                     stateStack.append(ObjectEndVisitMember);
                     goto stateUnknown;
-                } else
+                } else {
                     outValue = inValue;
-                FALLTHROUGH;
+                    outValueRange = inValueRange;
+                }
+                [[fallthrough]];
             }
             case ObjectEndVisitMember: {
-                JSObject* object = jsCast<JSObject*>(markedStack.last());
+                JSObject* object = uncheckedDowncast<JSObject>(markedStack.last());
                 Identifier prop = propertyStack.last()[indexStack.last()];
-                JSValue filteredValue = callReviver(object, jsString(vm, prop.string()), outValue);
+                JSValue filteredValue = callReviver(object, jsString(vm, prop.string()), outValue, outValueRange);
                 RETURN_IF_EXCEPTION(scope, { });
                 if (filteredValue.isUndefined())
                     JSCell::deleteProperty(object, m_globalObject, prop);
                 else {
                     unsigned attributes;
                     PropertyOffset offset = object->getDirectOffset(vm, prop, attributes);
-                    if (LIKELY(offset != invalidOffset && attributes == static_cast<unsigned>(PropertyAttribute::None)))
-                        object->putDirect(vm, offset, filteredValue);
-                    else {
+                    if (offset != invalidOffset && attributes == static_cast<unsigned>(PropertyAttribute::None)) [[likely]] {
+                        object->putDirectOffset(vm, offset, filteredValue);
+                        object->structure()->didReplaceProperty(offset);
+                    } else {
                         bool shouldThrow = false;
                         object->createDataProperty(m_globalObject, prop, filteredValue, shouldThrow);
                     }
@@ -762,9 +2004,17 @@ NEVER_INLINE JSValue Walker::walk(JSValue unfiltered)
                 goto objectStartVisitMember;
             }
             stateUnknown:
-            case StateUnknown:
+            case StateUnknown: {
+                if (inValueRange) {
+                    bool isSameValue = sameValue(m_globalObject, inValueRange->value, inValue);
+                    RETURN_IF_EXCEPTION(scope, { });
+                    if (!isSameValue)
+                        inValueRange = nullptr;
+                }
+
                 if (!inValue.isObject()) {
                     outValue = inValue;
+                    outValueRange = inValueRange;
                     break;
                 }
                 bool valueIsArray = isArray(m_globalObject, inValue);
@@ -772,6 +2022,7 @@ NEVER_INLINE JSValue Walker::walk(JSValue unfiltered)
                 if (valueIsArray)
                     goto arrayStartState;
                 goto objectStartState;
+            }
         }
         if (stateStack.isEmpty())
             break;
@@ -781,7 +2032,39 @@ NEVER_INLINE JSValue Walker::walk(JSValue unfiltered)
     }
     JSObject* finalHolder = constructEmptyObject(m_globalObject);
     finalHolder->putDirect(vm, vm.propertyNames->emptyIdentifier, outValue);
-    RELEASE_AND_RETURN(scope, callReviver(finalHolder, jsEmptyString(vm), outValue));
+    RELEASE_AND_RETURN(scope, callReviver(finalHolder, jsEmptyString(vm), outValue, outValueRange));
+}
+
+static NEVER_INLINE JSValue jsonParseSlow(JSGlobalObject* globalObject, JSString* string, StringView view, CallData callData, JSObject* function)
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    JSONRanges ranges;
+    JSValue unfiltered;
+    if (view.is8Bit()) {
+        LiteralParser<Latin1Character, JSONReviverMode::Enabled> jsonParser(globalObject, view.span8(), StrictJSON);
+        unfiltered = jsonParser.tryLiteralParse(Options::useJSONSourceTextAccess() ? &ranges : nullptr);
+        EXCEPTION_ASSERT(!scope.exception() || !unfiltered);
+        if (!unfiltered) {
+            RETURN_IF_EXCEPTION(scope, { });
+            throwSyntaxError(globalObject, scope, jsonParser.getErrorMessage());
+            return { };
+        }
+    } else {
+        LiteralParser<char16_t, JSONReviverMode::Enabled> jsonParser(globalObject, view.span16(), StrictJSON);
+        unfiltered = jsonParser.tryLiteralParse(Options::useJSONSourceTextAccess() ? &ranges : nullptr);
+        EXCEPTION_ASSERT(!scope.exception() || !unfiltered);
+        if (!unfiltered) {
+            RETURN_IF_EXCEPTION(scope, { });
+            throwSyntaxError(globalObject, scope, jsonParser.getErrorMessage());
+            return { };
+        }
+    }
+
+    scope.release();
+    Walker walker(globalObject, string, function, callData, Options::useJSONSourceTextAccess() ? &ranges : nullptr);
+    return walker.walk(unfiltered);
 }
 
 // ECMA-262 v5 15.12.2
@@ -791,81 +2074,161 @@ JSC_DEFINE_HOST_FUNCTION(jsonProtoFuncParse, (JSGlobalObject* globalObject, Call
     auto scope = DECLARE_THROW_SCOPE(vm);
     auto* string = callFrame->argument(0).toString(globalObject);
     RETURN_IF_EXCEPTION(scope, { });
-    auto viewWithString = string->viewWithUnderlyingString(globalObject);
+    auto view = string->view(globalObject);
     RETURN_IF_EXCEPTION(scope, { });
-    StringView view = viewWithString.view;
 
-    JSValue unfiltered;
-    if (view.is8Bit()) {
-        LiteralParser<LChar> jsonParser(globalObject, view.characters8(), view.length(), StrictJSON);
-        unfiltered = jsonParser.tryLiteralParse();
-        EXCEPTION_ASSERT(!scope.exception() || !unfiltered);
-        if (!unfiltered) {
-            RETURN_IF_EXCEPTION(scope, { });
-            return throwVMError(globalObject, scope, createSyntaxError(globalObject, jsonParser.getErrorMessage()));
-        }
-    } else {
-        LiteralParser<UChar> jsonParser(globalObject, view.characters16(), view.length(), StrictJSON);
-        unfiltered = jsonParser.tryLiteralParse();
-        EXCEPTION_ASSERT(!scope.exception() || !unfiltered);
-        if (!unfiltered) {
-            RETURN_IF_EXCEPTION(scope, { });
-            return throwVMError(globalObject, scope, createSyntaxError(globalObject, jsonParser.getErrorMessage()));
-        }
+    if (callFrame->argumentCount() >= 2) {
+        JSValue function = callFrame->uncheckedArgument(1);
+        CallData callData = JSC::getCallData(function);
+        if (callData.type != CallData::Type::None)
+            RELEASE_AND_RETURN(scope, JSValue::encode(jsonParseSlow(globalObject, string, view, WTF::move(callData), asObject(function))));
     }
-    
-    if (callFrame->argumentCount() < 2)
+
+    if (view->is8Bit()) {
+        LiteralParser<Latin1Character, JSONReviverMode::Disabled> jsonParser(globalObject, view->span8(), StrictJSON);
+        JSValue unfiltered = jsonParser.tryLiteralParse();
+        EXCEPTION_ASSERT(!scope.exception() || !unfiltered);
+        if (!unfiltered) {
+            RETURN_IF_EXCEPTION(scope, { });
+            return throwVMError(globalObject, scope, createSyntaxError(globalObject, jsonParser.getErrorMessage()));
+        }
         return JSValue::encode(unfiltered);
-    
-    JSValue function = callFrame->uncheckedArgument(1);
-    auto callData = getCallData(vm, function);
-    if (callData.type == CallData::Type::None)
-        return JSValue::encode(unfiltered);
-    scope.release();
-    Walker walker(globalObject, asObject(function), callData);
-    return JSValue::encode(walker.walk(unfiltered));
+    }
+
+    LiteralParser<char16_t, JSONReviverMode::Disabled> jsonParser(globalObject, view->span16(), StrictJSON);
+    JSValue unfiltered = jsonParser.tryLiteralParse();
+    EXCEPTION_ASSERT(!scope.exception() || !unfiltered);
+    if (!unfiltered) {
+        RETURN_IF_EXCEPTION(scope, { });
+        return throwVMError(globalObject, scope, createSyntaxError(globalObject, jsonParser.getErrorMessage()));
+    }
+    return JSValue::encode(unfiltered);
 }
 
 // ECMA-262 v5 15.12.3
 JSC_DEFINE_HOST_FUNCTION(jsonProtoFuncStringify, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
-    VM& vm = globalObject->vm();
-    auto scope = DECLARE_THROW_SCOPE(vm);
-
-    Stringifier stringifier(globalObject, callFrame->argument(1), callFrame->argument(2));
-    RETURN_IF_EXCEPTION(scope, { });
-    RELEASE_AND_RETURN(scope, JSValue::encode(stringifier.stringify(callFrame->argument(0))));
+    String result = stringify(*globalObject, callFrame->argument(0), callFrame->argument(1), callFrame->argument(2));
+    return result.isNull() ? encodedJSUndefined() : JSValue::encode(jsString(globalObject->vm(), WTF::move(result)));
 }
 
-JSValue JSONParse(JSGlobalObject* globalObject, const String& json)
+JSValue JSONParse(JSGlobalObject* globalObject, StringView json)
 {
     if (json.isNull())
         return JSValue();
 
     if (json.is8Bit()) {
-        LiteralParser<LChar> jsonParser(globalObject, json.characters8(), json.length(), StrictJSON);
+        LiteralParser<Latin1Character, JSONReviverMode::Disabled> jsonParser(globalObject, json.span8(), StrictJSON);
         return jsonParser.tryLiteralParse();
     }
 
-    LiteralParser<UChar> jsonParser(globalObject, json.characters16(), json.length(), StrictJSON);
+    LiteralParser<char16_t, JSONReviverMode::Disabled> jsonParser(globalObject, json.span16(), StrictJSON);
     return jsonParser.tryLiteralParse();
+}
+
+JSValue JSONParseWithException(JSGlobalObject* globalObject, StringView json)
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    if (json.isNull())
+        return JSValue();
+
+    if (json.is8Bit()) {
+        LiteralParser<Latin1Character, JSONReviverMode::Disabled> jsonParser(globalObject, json.span8(), StrictJSON);
+        JSValue result = jsonParser.tryLiteralParse();
+        RETURN_IF_EXCEPTION(scope, { });
+        if (!result)
+            throwSyntaxError(globalObject, scope, jsonParser.getErrorMessage());
+        return result;
+    }
+
+    LiteralParser<char16_t, JSONReviverMode::Disabled> jsonParser(globalObject, json.span16(), StrictJSON);
+    JSValue result = jsonParser.tryLiteralParse();
+    RETURN_IF_EXCEPTION(scope, { });
+    if (!result)
+        throwSyntaxError(globalObject, scope, jsonParser.getErrorMessage());
+    return result;
 }
 
 String JSONStringify(JSGlobalObject* globalObject, JSValue value, JSValue space)
 {
-    VM& vm = globalObject->vm();
-    auto throwScope = DECLARE_THROW_SCOPE(vm);
-    Stringifier stringifier(globalObject, jsNull(), space);
-    RETURN_IF_EXCEPTION(throwScope, { });
-    JSValue result = stringifier.stringify(value);
-    if (UNLIKELY(throwScope.exception()) || result.isUndefinedOrNull())
-        return String();
-    return result.getString(globalObject);
+    return stringify(*globalObject, value, jsNull(), space);
 }
 
 String JSONStringify(JSGlobalObject* globalObject, JSValue value, unsigned indent)
 {
-    return JSONStringify(globalObject, value, jsNumber(indent));
+    return stringify(*globalObject, value, jsNull(), jsNumber(indent));
+}
+
+JSC_DEFINE_HOST_FUNCTION(jsonProtoFuncIsRawJSON, (JSGlobalObject*, CallFrame* callFrame))
+{
+    // https://tc39.es/proposal-json-parse-with-source/#sec-json.israwjson
+    return JSValue::encode(jsBoolean(callFrame->argument(0).inherits<JSRawJSONObject>()));
+}
+
+JSC_DEFINE_HOST_FUNCTION(jsonProtoFuncRawJSON, (JSGlobalObject* globalObject, CallFrame* callFrame))
+{
+    // https://tc39.es/proposal-json-parse-with-source/#sec-json.rawjson
+
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    JSString* jsString = callFrame->argument(0).toString(globalObject);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    auto isJSONWhitespace = [](char16_t character) {
+        return character == 0x0009 || character == 0x000A || character == 0x000D || character == 0x0020;
+    };
+
+    auto view = jsString->view(globalObject);
+    RETURN_IF_EXCEPTION(scope, { });
+    if (view->isEmpty()) [[unlikely]] {
+        throwSyntaxError(globalObject, scope, "JSON.rawJSON cannot accept empty string"_s);
+        return { };
+    }
+
+    char16_t firstCharacter = view->codeUnitAt(0);
+    if (isJSONWhitespace(firstCharacter)) [[unlikely]] {
+        throwSyntaxError(globalObject, scope, makeString("JSON.rawJSON cannot accept string starting with '"_s, firstCharacter, "'"_s));
+        return { };
+    }
+
+    char16_t lastCharacter = view->codeUnitAt(view->length() - 1);
+    if (isJSONWhitespace(lastCharacter)) [[unlikely]] {
+        throwSyntaxError(globalObject, scope, makeString("JSON.rawJSON cannot accept string ending with '"_s, lastCharacter, "'"_s));
+        return { };
+    }
+
+    {
+        JSValue result;
+        if (view->is8Bit()) {
+            LiteralParser<Latin1Character, JSONReviverMode::Disabled> jsonParser(globalObject, view->span8(), StrictJSON);
+            result = jsonParser.tryLiteralParsePrimitiveValue();
+            RETURN_IF_EXCEPTION(scope, { });
+            if (!result) [[unlikely]] {
+                throwSyntaxError(globalObject, scope, jsonParser.getErrorMessage());
+                return { };
+            }
+        } else {
+            LiteralParser<char16_t, JSONReviverMode::Disabled> jsonParser(globalObject, view->span16(), StrictJSON);
+            result = jsonParser.tryLiteralParsePrimitiveValue();
+            RETURN_IF_EXCEPTION(scope, { });
+            if (!result) [[unlikely]] {
+                throwSyntaxError(globalObject, scope, jsonParser.getErrorMessage());
+                return { };
+            }
+        }
+    }
+    auto* object = JSRawJSONObject::tryCreate(vm, globalObject->rawJSONObjectStructure(), jsString);
+    if (!object) [[unlikely]] {
+        throwOutOfMemoryError(globalObject, scope);
+        return { };
+    }
+
+    return JSValue::encode(object);
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

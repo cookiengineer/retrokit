@@ -36,7 +36,11 @@ template<typename GeneratorType>
 void InlineCacheWrapper<GeneratorType>::finalize(LinkBuffer& fastPath, LinkBuffer& slowPath)
 {
     m_generator.reportSlowPathCall(m_slowPath->label(), m_slowPath->call());
-    m_generator.finalize(fastPath, slowPath);
+    if (m_generator.m_unlinkedPropertyCache) {
+        m_generator.m_unlinkedPropertyCache->doneLocation = fastPath.locationOf<JSInternalPtrTag>(m_generator.m_done);
+        static_cast<DFG::UnlinkedPropertyInlineCache*>(m_generator.m_unlinkedPropertyCache)->slowPathStartLocation = fastPath.locationOf<JITStubRoutinePtrTag>(m_generator.m_slowPathBegin);
+    } else
+        m_generator.finalize(fastPath, slowPath);
 }
 
 } } // namespace JSC::DFG

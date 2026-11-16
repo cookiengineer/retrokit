@@ -33,6 +33,7 @@
 #include <wtf/Forward.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/RunLoop.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/glib/GRefPtr.h>
 
 typedef struct _GtkWidget GtkWidget;
@@ -48,10 +49,9 @@ using PlatformDropContext = GdkDragContext;
 
 namespace WebKit {
 
-class ShareableBitmap;
-
 class DropTarget {
-    WTF_MAKE_NONCOPYABLE(DropTarget); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(DropTarget);
+    WTF_MAKE_NONCOPYABLE(DropTarget);
 public:
     explicit DropTarget(GtkWidget*);
     ~DropTarget();
@@ -67,6 +67,7 @@ private:
 
 #if USE(GTK4)
     void loadData(const char* mimeType, CompletionHandler<void(GRefPtr<GBytes>&&)>&&);
+    void loadData(CompletionHandler<void(Vector<String>&&)>&&);
     void didLoadData();
 #else
     void dataReceived(WebCore::IntPoint&&, GtkSelectionData*, unsigned, unsigned);
@@ -85,8 +86,9 @@ private:
     std::optional<WebCore::DragOperation> m_operation;
 #if USE(GTK4)
     GRefPtr<GCancellable> m_cancellable;
+    StringBuilder m_uriListBuilder;
 #else
-    RunLoop::Timer<DropTarget> m_leaveTimer;
+    RunLoop::Timer m_leaveTimer;
 #endif
 };
 

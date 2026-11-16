@@ -28,44 +28,39 @@
 
 #pragma once
 
-#include <wtf/URL.h>
-#include "SecurityOrigin.h"
-#include <wtf/RefPtr.h>
+#include <WebCore/SecurityOrigin.h>
+#include <wtf/Hasher.h>
+#include <wtf/Ref.h>
 
 namespace WebCore {
 
 struct SecurityOriginHash {
-    static unsigned hash(SecurityOrigin* origin)
+    static unsigned hash(const SecurityOrigin* origin)
     {
-        unsigned hashCodes[3] = {
-            origin->protocol().impl() ? origin->protocol().impl()->hash() : 0,
-            origin->host().impl() ? origin->host().impl()->hash() : 0,
-            origin->port().value_or(0)
-        };
-        return StringHasher::hashMemory<sizeof(hashCodes)>(hashCodes);
+        return computeHash(*origin);
     }
-    static unsigned hash(const RefPtr<SecurityOrigin>& origin)
+    static unsigned hash(const Ref<SecurityOrigin>& origin)
     {
-        return hash(origin.get());
+        return hash(origin.ptr());
     }
 
-    static bool equal(SecurityOrigin* a, SecurityOrigin* b)
+    static bool equal(const SecurityOrigin* a, const SecurityOrigin* b)
     {
         if (!a || !b)
             return a == b;
         return a->isSameSchemeHostPort(*b);
     }
-    static bool equal(SecurityOrigin* a, const RefPtr<SecurityOrigin>& b)
+    static bool equal(const SecurityOrigin* a, const Ref<SecurityOrigin>& b)
     {
-        return equal(a, b.get());
+        return equal(a, b.ptr());
     }
-    static bool equal(const RefPtr<SecurityOrigin>& a, SecurityOrigin* b)
+    static bool equal(const Ref<SecurityOrigin>& a, const SecurityOrigin* b)
     {
-        return equal(a.get(), b);
+        return equal(a.ptr(), b);
     }
-    static bool equal(const RefPtr<SecurityOrigin>& a, const RefPtr<SecurityOrigin>& b)
+    static bool equal(const Ref<SecurityOrigin>& a, const Ref<SecurityOrigin>& b)
     {
-        return equal(a.get(), b.get());
+        return equal(a.ptr(), b.ptr());
     }
 
     static const bool safeToCompareToEmptyOrDeleted = false;
@@ -76,6 +71,6 @@ struct SecurityOriginHash {
 namespace WTF {
 
 template<typename> struct DefaultHash;
-template<> struct DefaultHash<RefPtr<WebCore::SecurityOrigin>> : WebCore::SecurityOriginHash { };
+template<> struct DefaultHash<Ref<WebCore::SecurityOrigin>> : WebCore::SecurityOriginHash { };
 
 } // namespace WTF

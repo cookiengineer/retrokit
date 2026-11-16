@@ -25,22 +25,24 @@
 
 #include "config.h"
 
-#if ENABLE(SERVICE_WORKER)
 #include "WebSWOriginTable.h"
 
 #include <WebCore/SecurityOrigin.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 using namespace WebCore;
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebSWOriginTable);
 
 bool WebSWOriginTable::contains(const SecurityOriginData& origin) const
 {
     return m_serviceWorkerOriginTable.contains(computeSharedStringHash(origin.toString()));
 }
 
-void WebSWOriginTable::setSharedMemory(const SharedMemory::Handle& handle)
+void WebSWOriginTable::setSharedMemory(SharedMemory::Handle&& handle)
 {
-    auto sharedMemory = SharedMemory::map(handle, SharedMemory::Protection::ReadOnly);
+    auto sharedMemory = SharedMemory::map(WTF::move(handle), SharedMemory::Protection::ReadOnly);
     if (!sharedMemory)
         return;
 
@@ -48,5 +50,3 @@ void WebSWOriginTable::setSharedMemory(const SharedMemory::Handle& handle)
 }
 
 } // namespace WebKit
-
-#endif // ENABLE(SERVICE_WORKER)

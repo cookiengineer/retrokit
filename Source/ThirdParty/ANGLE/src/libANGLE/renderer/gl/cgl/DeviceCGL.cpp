@@ -6,14 +6,10 @@
 
 // DeviceCGL.cpp: CGL implementation of egl::Device
 
-#include "common/platform.h"
+#include "libANGLE/renderer/gl/cgl/DeviceCGL.h"
 
-#if defined(ANGLE_PLATFORM_MACOS) || defined(ANGLE_PLATFORM_MACCATALYST)
-
-#    include "libANGLE/renderer/gl/cgl/DeviceCGL.h"
-
-#    include <EGL/eglext.h>
-#    include "libANGLE/renderer/gl/cgl/DisplayCGL.h"
+#include <EGL/eglext.h>
+#include "libANGLE/renderer/gl/cgl/DisplayCGL.h"
 
 namespace rx
 {
@@ -40,15 +36,10 @@ egl::Error DeviceCGL::getAttribute(const egl::Display *display, EGLint attribute
             *outValue = displayImpl->getCGLPixelFormat();
             break;
         default:
-            return egl::EglBadAttribute();
+            return egl::Error(EGL_BAD_ATTRIBUTE);
     }
 
     return egl::NoError();
-}
-
-EGLint DeviceCGL::getType()
-{
-    return 0;
 }
 
 void DeviceCGL::generateExtensions(egl::DeviceExtensions *outExtensions) const
@@ -57,5 +48,3 @@ void DeviceCGL::generateExtensions(egl::DeviceExtensions *outExtensions) const
 }
 
 }  // namespace rx
-
-#endif  // defined(ANGLE_PLATFORM_MACOS) || defined(ANGLE_PLATFORM_MACCATALYST)

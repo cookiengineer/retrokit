@@ -26,16 +26,16 @@
 namespace WebCore {
 
 class ContainerNode;
-class DOMWindow;
 class Document;
 class Element;
+class LocalDOMWindow;
 class QualifiedName;
 
 class JSLazyEventListener final : public JSEventListener {
 public:
     static RefPtr<JSLazyEventListener> create(Element&, const QualifiedName& attributeName, const AtomString& attributeValue);
     static RefPtr<JSLazyEventListener> create(Document&, const QualifiedName& attributeName, const AtomString& attributeValue);
-    static RefPtr<JSLazyEventListener> create(DOMWindow&, const QualifiedName& attributeName, const AtomString& attributeValue);
+    static RefPtr<JSLazyEventListener> create(LocalDOMWindow&, const QualifiedName& attributeName, const AtomString& attributeValue);
 
     virtual ~JSLazyEventListener();
 
@@ -46,20 +46,21 @@ private:
     struct CreationArguments;
     static RefPtr<JSLazyEventListener> create(CreationArguments&&);
     JSLazyEventListener(CreationArguments&&, const URL& sourceURL, const TextPosition&);
+    String code() const final { return m_code; }
 
 #if ASSERT_ENABLED
     void checkValidityForEventTarget(EventTarget&) final;
 #endif
 
     JSC::JSObject* initializeJSFunction(ScriptExecutionContext&) const final;
-    bool wasCreatedFromMarkup() const final { return true; }
 
     String m_functionName;
-    const String& m_eventParameterName;
+    const String& m_functionParameters;
     String m_code;
     URL m_sourceURL;
     TextPosition m_sourcePosition;
-    WeakPtr<ContainerNode> m_originalNode;
+    WeakPtr<ContainerNode, WeakPtrImplWithEventTargetData> m_originalNode;
+    JSC::SourceTaintedOrigin m_sourceTaintedOrigin;
 };
 
 } // namespace WebCore

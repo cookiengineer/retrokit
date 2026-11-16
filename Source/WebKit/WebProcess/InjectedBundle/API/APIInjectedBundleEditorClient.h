@@ -28,12 +28,13 @@
 #include <WebCore/EditorInsertAction.h>
 #include <WebCore/TextAffinity.h>
 #include <wtf/Forward.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
+class SharedBuffer;
 class DocumentFragment;
 class Node;
-class SharedBuffer;
 class StyleProperties;
 struct SimpleRange;
 }
@@ -47,9 +48,9 @@ namespace API {
 namespace InjectedBundle {
 
 class EditorClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(EditorClient);
 public:
-    virtual ~EditorClient() { }
+    virtual ~EditorClient() = default;
 
     virtual bool shouldBeginEditing(WebKit::WebPage&, const WebCore::SimpleRange&) { return true; }
     virtual bool shouldEndEditing(WebKit::WebPage&, const WebCore::SimpleRange&) { return true; }

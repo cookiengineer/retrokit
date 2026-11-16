@@ -32,6 +32,8 @@
 #include "B3Value.h"
 #include <type_traits>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC { namespace B3 {
 
 class JS_EXPORT_PRIVATE MemoryValue : public Value {
@@ -44,20 +46,17 @@ public:
     ~MemoryValue() override;
 
     OffsetType offset() const { return m_offset; }
-    template<typename Int, typename = IsLegalOffset<Int>>
+    template<typename Int>
     void setOffset(Int offset) { m_offset = offset; }
 
     // You don't have to worry about using legal offsets unless you've entered quirks mode.
-    template<typename Int,
-        typename = typename std::enable_if<std::is_integral<Int>::value>::type,
-        typename = typename std::enable_if<std::is_signed<Int>::value>::type
-    >
-    bool isLegalOffset(Int offset) const { return isLegalOffsetImpl(offset); }
+    template<std::signed_integral Int>
+    bool NODELETE isLegalOffset(Int offset) const { return isLegalOffsetImpl(offset); }
 
     // A necessary consequence of MemoryValue having an offset is that it participates in instruction
     // selection. This tells you if this will get lowered to something that requires an offsetless
     // address.
-    bool requiresSimpleAddr() const;
+    inline bool requiresSimpleAddr() const;
 
     const HeapRange& range() const { return m_range; }
     void setRange(const HeapRange& range) { m_range = range; }
@@ -69,26 +68,32 @@ public:
     const HeapRange& fenceRange() const { return m_fenceRange; }
     void setFenceRange(const HeapRange& range) { m_fenceRange = range; }
 
+    Mutability readsMutability() const { return m_readsMutability; }
+    void setReadsMutability(Mutability value) { m_readsMutability = value; }
+
+    bool controlDependent() const { return m_controlDependent; }
+    void setControlDependent(bool value) { m_controlDependent = value; }
+
     bool isStore() const { return B3::isStore(opcode()); }
     bool isLoad() const { return B3::isLoad(opcode()); }
 
     bool hasFence() const { return !!fenceRange(); }
     bool isExotic() const { return hasFence() || isAtom(opcode()); }
 
-    Type accessType() const;
-    Bank accessBank() const;
-    size_t accessByteSize() const;
+    Type NODELETE accessType() const;
+    Bank NODELETE accessBank() const;
+    size_t NODELETE accessByteSize() const;
     
-    Width accessWidth() const;
+    inline Width accessWidth() const;
 
-    bool isCanonicalWidth() const { return B3::isCanonicalWidth(accessWidth()); }
+    inline bool isCanonicalWidth() const;
 
     B3_SPECIALIZE_VALUE_FOR_NON_VARARGS_CHILDREN
 
 protected:
     void dumpMeta(CommaPrinter&, PrintStream&) const override;
     
-    template<typename Int, typename = IsLegalOffset<Int>, typename... Arguments>
+    template<IsLegalOffset Int, typename... Arguments>
     MemoryValue(CheckedOpcodeTag, Kind kind, Type type, NumChildren numChildren, Origin origin, Int offset, HeapRange range, HeapRange fenceRange, Arguments... arguments)
         : Value(CheckedOpcode, kind, type, numChildren, origin, static_cast<Value*>(arguments)...)
         , m_offset(offset)
@@ -101,8 +106,8 @@ private:
     friend class Procedure;
     friend class Value;
 
-    bool isLegalOffsetImpl(int32_t offset) const;
-    bool isLegalOffsetImpl(int64_t offset) const;
+    inline bool NODELETE isLegalOffsetImpl(int32_t offset) const;
+    bool NODELETE isLegalOffsetImpl(int64_t offset) const;
 
     enum MemoryValueLoad { MemoryValueLoadTag };
     enum MemoryValueLoadImplied { MemoryValueLoadImpliedTag };
@@ -114,7 +119,7 @@ private:
         : MemoryValue(MemoryValueLoadTag, kind, type, origin, pointer)
     {
     }
-    template<typename Int, typename = IsLegalOffset<Int>>
+    template<IsLegalOffset Int>
     MemoryValue(Kind kind, Type type, Origin origin, Value* pointer, Int offset, HeapRange range = HeapRange::top(), HeapRange fenceRange = HeapRange())
         : MemoryValue(MemoryValueLoadTag, kind, type, origin, pointer, offset, range, fenceRange)
     {
@@ -125,7 +130,7 @@ private:
         : MemoryValue(MemoryValueLoadImpliedTag, kind, origin, pointer)
     {
     }
-    template<typename Int, typename = IsLegalOffset<Int>>
+    template<IsLegalOffset Int>
     MemoryValue(Kind kind, Origin origin, Value* pointer, Int offset, HeapRange range = HeapRange::top(), HeapRange fenceRange = HeapRange())
         : MemoryValue(MemoryValueLoadImpliedTag, kind, origin, pointer, offset, range, fenceRange)
     {
@@ -136,7 +141,7 @@ private:
         : MemoryValue(MemoryValueStoreTag, kind, origin, value, pointer)
     {
     }
-    template<typename Int, typename = IsLegalOffset<Int>>
+    template<IsLegalOffset Int>
     MemoryValue(Kind kind, Origin origin, Value* value, Value* pointer, Int offset, HeapRange range = HeapRange::top(), HeapRange fenceRange = HeapRange())
         : MemoryValue(MemoryValueStoreTag, kind, origin, value, pointer, offset, range, fenceRange)
     {
@@ -150,8 +155,12 @@ private:
     OffsetType m_offset { 0 };
     HeapRange m_range { HeapRange::top() };
     HeapRange m_fenceRange { HeapRange() };
+    Mutability m_readsMutability : 1 { Mutability::Mutable };
+    bool m_controlDependent : 1 { true };
 };
 
 } } // namespace JSC::B3
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(B3_JIT)

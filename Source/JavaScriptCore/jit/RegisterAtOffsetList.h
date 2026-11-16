@@ -25,17 +25,19 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if ENABLE(ASSEMBLER)
 
-#include "RegisterAtOffset.h"
-#include "RegisterSet.h"
+#include <JavaScriptCore/RegisterAtOffset.h>
+#include <JavaScriptCore/RegisterSet.h>
 #include <wtf/FixedVector.h>
 
 namespace JSC {
 
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(RegisterAtOffsetList);
 class RegisterAtOffsetList {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(RegisterAtOffsetList);
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(RegisterAtOffsetList, RegisterAtOffsetList);
 public:
     enum OffsetBaseType { FramePointerBased, ZeroBased };
 
@@ -44,31 +46,39 @@ public:
 
     void dump(PrintStream&) const;
 
-    size_t size() const
-    {
-        return m_registers.size();
-    }
+    size_t registerCount() const { return m_registers.size(); }
+    size_t sizeOfAreaInBytes() const { return m_sizeOfAreaInBytes; }
 
     const RegisterAtOffset& at(size_t index) const
     {
         return m_registers.at(index);
     }
 
-    RegisterAtOffset& at(size_t index)
+    void adjustOffsets(ptrdiff_t addend)
     {
-        return m_registers.at(index);
+        // This preserves m_sizeOfAreaInBytes
+        for (RegisterAtOffset &item : m_registers)
+            item = RegisterAtOffset { item.reg(), item.offset() + addend, item.width() };
     }
-    
+
     RegisterAtOffset* find(Reg) const;
     unsigned indexOf(Reg) const; // Returns UINT_MAX if not found.
 
     FixedVector<RegisterAtOffset>::const_iterator begin() const { return m_registers.begin(); }
     FixedVector<RegisterAtOffset>::const_iterator end() const { return m_registers.end(); }
 
+
     static const RegisterAtOffsetList& llintBaselineCalleeSaveRegisters(); // Registers and Offsets saved and used by the LLInt.
+    static const RegisterAtOffsetList& dfgCalleeSaveRegisters(); // Registers and Offsets saved and used by DFG.
+#if ENABLE(WEBASSEMBLY)
+    static const RegisterAtOffsetList& wasmPinnedRegisters();
+    static const RegisterAtOffsetList& ipintCalleeSaveRegisters(); // Registers and Offsets saved and used by IPInt.
+    static const RegisterAtOffsetList& bbqCalleeSaveRegisters(); // Registers and Offsets saved and used by BBQ.
+#endif
 
 private:
     FixedVector<RegisterAtOffset> m_registers;
+    size_t m_sizeOfAreaInBytes { 0 };
 };
 
 } // namespace JSC

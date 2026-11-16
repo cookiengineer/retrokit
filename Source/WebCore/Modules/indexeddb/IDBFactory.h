@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015, 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,13 +25,13 @@
 
 #pragma once
 
-#include "ExceptionOr.h"
-#include "JSDOMPromiseDeferred.h"
+#include "JSDOMPromiseDeferredForward.h"
 #include <wtf/Function.h>
 #include <wtf/Forward.h>
-#include <wtf/IsoMalloc.h>
 #include <wtf/Ref.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeRefCounted.h>
+#include <wtf/text/WTFString.h>
 
 namespace JSC {
 class CallFrame;
@@ -44,20 +44,21 @@ namespace WebCore {
 class IDBOpenDBRequest;
 class ScriptExecutionContext;
 class SecurityOrigin;
+template<typename> class ExceptionOr;
 
 namespace IDBClient {
 class IDBConnectionProxy;
 }
 
 class IDBFactory : public ThreadSafeRefCounted<IDBFactory> {
-    WTF_MAKE_ISO_ALLOCATED(IDBFactory);
+    WTF_MAKE_TZONE_ALLOCATED(IDBFactory);
 public:
     static Ref<IDBFactory> create(IDBClient::IDBConnectionProxy&);
     ~IDBFactory();
 
     struct DatabaseInfo {
         String name;
-        uint64_t version;
+        std::optional<uint64_t> version;
     };
 
     ExceptionOr<Ref<IDBOpenDBRequest>> open(ScriptExecutionContext&, const String& name, std::optional<uint64_t> version);
@@ -75,6 +76,7 @@ private:
     explicit IDBFactory(IDBClient::IDBConnectionProxy&);
 
     ExceptionOr<Ref<IDBOpenDBRequest>> openInternal(ScriptExecutionContext&, const String& name, uint64_t version);
+    Ref<IDBClient::IDBConnectionProxy> ensureConnectionProxy(ScriptExecutionContext&);
 
     Ref<IDBClient::IDBConnectionProxy> m_connectionProxy;
 };

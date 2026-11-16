@@ -39,7 +39,7 @@ class AuthenticationDecisionListener : public API::ObjectImpl<API::Object::Type:
 public:
     static Ref<AuthenticationDecisionListener> create(CompletionHandler<void(AuthenticationChallengeDisposition, const WebCore::Credential&)>&& completionHandler)
     {
-        return adoptRef(*new AuthenticationDecisionListener(WTFMove(completionHandler)));
+        return adoptRef(*new AuthenticationDecisionListener(WTF::move(completionHandler)));
     }
     ~AuthenticationDecisionListener();
     
@@ -52,3 +52,7 @@ private:
 };
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::AuthenticationDecisionListener)
+static bool isType(const API::Object& object) { return object.type() == API::Object::Type::AuthenticationDecisionListener; }
+SPECIALIZE_TYPE_TRAITS_END()

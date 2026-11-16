@@ -23,14 +23,16 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// https://w3c.github.io/payment-request/#paymentmethodchangeevent-interface
+
 [
     Conditional=PAYMENT_REQUEST,
-    EnabledBySetting=PaymentRequest,
+    EnabledBySetting=PaymentRequestEnabled,
     Exposed=Window,
     JSCustomMarkFunction,
     SecureContext,
 ] interface PaymentMethodChangeEvent : PaymentRequestUpdateEvent {
-    constructor(DOMString type, optional PaymentMethodChangeEventInit eventInitDict);
+    [CallWith=CurrentGlobalObject] constructor([AtomString] DOMString type, optional PaymentMethodChangeEventInit eventInitDict = {});
 
     readonly attribute DOMString methodName;
     [CustomGetter] readonly attribute object? methodDetails;
@@ -40,5 +42,5 @@
     Conditional=PAYMENT_REQUEST,
 ] dictionary PaymentMethodChangeEventInit : PaymentRequestUpdateEventInit {
     DOMString methodName = "";
-    object? methodDetails;
+    object? methodDetails = null;
 };

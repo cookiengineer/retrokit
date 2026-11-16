@@ -28,11 +28,14 @@
 
 #if ENABLE(MATHML)
 
-#include <wtf/IsoMallocInlines.h>
+#include "NodeInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(MathMLUnknownElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MathMLUnknownElement);
+
+MathMLUnknownElement::~MathMLUnknownElement() = default;
 
 } // namespace WebCore
 

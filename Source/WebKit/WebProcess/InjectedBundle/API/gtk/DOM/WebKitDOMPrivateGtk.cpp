@@ -29,6 +29,7 @@
 #include <WebCore/Event.h>
 #include <WebCore/EventTarget.h>
 #include <WebCore/File.h>
+#include <WebCore/HTMLCollectionInlines.h>
 #include <WebCore/HTMLElement.h>
 #include <WebCore/HTMLNames.h>
 #include <WebCore/KeyboardEvent.h>
@@ -71,30 +72,29 @@ using namespace WebCore::HTMLNames;
 WebKitDOMNode* wrapNodeGtk(Node* node)
 {
     ASSERT(node);
-    ASSERT(node->nodeType());
 
     switch (node->nodeType()) {
-    case Node::ELEMENT_NODE:
+    case NodeType::Element:
         if (is<HTMLElement>(*node))
             return WEBKIT_DOM_NODE(wrap(downcast<HTMLElement>(node)));
         return nullptr;
-    case Node::ATTRIBUTE_NODE:
+    case NodeType::Attribute:
         return WEBKIT_DOM_NODE(wrapAttr(static_cast<Attr*>(node)));
-    case Node::TEXT_NODE:
+    case NodeType::Text:
         return WEBKIT_DOM_NODE(wrapText(downcast<Text>(node)));
-    case Node::CDATA_SECTION_NODE:
+    case NodeType::CDATASection:
         return WEBKIT_DOM_NODE(wrapCDATASection(static_cast<CDATASection*>(node)));
-    case Node::PROCESSING_INSTRUCTION_NODE:
+    case NodeType::ProcessingInstruction:
         return WEBKIT_DOM_NODE(wrapProcessingInstruction(static_cast<ProcessingInstruction*>(node)));
-    case Node::COMMENT_NODE:
+    case NodeType::Comment:
         return WEBKIT_DOM_NODE(wrapComment(static_cast<Comment*>(node)));
-    case Node::DOCUMENT_NODE:
+    case NodeType::Document:
         if (is<HTMLDocument>(*node))
             return WEBKIT_DOM_NODE(wrapHTMLDocument(downcast<HTMLDocument>(node)));
         return nullptr;
-    case Node::DOCUMENT_TYPE_NODE:
+    case NodeType::DocumentType:
         return WEBKIT_DOM_NODE(wrapDocumentType(static_cast<DocumentType*>(node)));
-    case Node::DOCUMENT_FRAGMENT_NODE:
+    case NodeType::DocumentFragment:
         return WEBKIT_DOM_NODE(wrapDocumentFragment(static_cast<DocumentFragment*>(node)));
     }
 
@@ -142,8 +142,8 @@ WebKitDOMEventTarget* wrap(EventTarget* eventTarget)
 
     if (is<Node>(*eventTarget))
         return WEBKIT_DOM_EVENT_TARGET(kit(&downcast<Node>(*eventTarget)));
-    if (is<DOMWindow>(*eventTarget))
-        return WEBKIT_DOM_EVENT_TARGET(kit(&downcast<DOMWindow>(*eventTarget)));
+    if (is<LocalDOMWindow>(*eventTarget))
+        return WEBKIT_DOM_EVENT_TARGET(kit(&downcast<LocalDOMWindow>(*eventTarget)));
     return nullptr;
 }
 

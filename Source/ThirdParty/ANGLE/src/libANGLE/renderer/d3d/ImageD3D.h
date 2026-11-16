@@ -15,16 +15,13 @@
 
 #include "common/PackedEnums.h"
 #include "libANGLE/Error.h"
+#include "libANGLE/angletypes.h"
 
 namespace gl
 {
 class Context;
 class Framebuffer;
 class ImageIndex;
-struct Box;
-struct Extents;
-struct Offset;
-struct Rectangle;
 struct PixelUnpackState;
 }  // namespace gl
 
@@ -65,6 +62,8 @@ class ImageD3D : angle::NonCopyable
     virtual angle::Result loadCompressedData(const gl::Context *context,
                                              const gl::Box &area,
                                              const void *input) = 0;
+
+    virtual angle::Result initializeContents(const gl::Context *context) = 0;
 
     virtual angle::Result setManagedSurface2D(const gl::Context *context,
                                               TextureStorage *storage,

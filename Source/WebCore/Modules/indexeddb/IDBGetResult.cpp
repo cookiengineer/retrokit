@@ -26,11 +26,12 @@
 #include "config.h"
 #include "IDBGetResult.h"
 
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/CrossThreadCopier.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(IDBGetResult);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(IDBGetResult);
 
 IDBGetResult::IDBGetResult(const IDBGetResult& that, IsolatedCopyTag)
 {
@@ -47,14 +48,14 @@ void IDBGetResult::isolatedCopy(const IDBGetResult& source, IDBGetResult& destin
     destination.m_value = source.m_value.isolatedCopy();
     destination.m_keyData = source.m_keyData.isolatedCopy();
     destination.m_primaryKeyData = source.m_primaryKeyData.isolatedCopy();
-    destination.m_keyPath = WebCore::isolatedCopy(source.m_keyPath);
+    destination.m_keyPath = crossThreadCopy(source.m_keyPath);
     destination.m_isDefined = source.m_isDefined;
-    destination.m_prefetchedRecords = source.m_prefetchedRecords.isolatedCopy();
+    destination.m_prefetchedRecords = crossThreadCopy(source.m_prefetchedRecords);
 }
 
 void IDBGetResult::setValue(IDBValue&& value)
 {
-    m_value = WTFMove(value);
+    m_value = WTF::move(value);
 }
 
 } // namespace WebCore

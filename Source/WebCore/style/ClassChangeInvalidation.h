@@ -37,35 +37,37 @@ namespace Style {
 
 class ClassChangeInvalidation {
 public:
-    ClassChangeInvalidation(Element&, const SpaceSplitString& oldClasses, const SpaceSplitString& newClasses);
+    ClassChangeInvalidation(Ref<Element>&&, const SpaceSplitString& oldClasses, const SpaceSplitString& newClasses);
     ~ClassChangeInvalidation();
 
 private:
     void computeInvalidation(const SpaceSplitString& oldClasses, const SpaceSplitString& newClasses);
-    void invalidateStyleWithRuleSets();
+    void invalidateBeforeChange();
+    void invalidateAfterChange();
 
     const bool m_isEnabled;
-    Element& m_element;
+    const Ref<Element> m_element;
 
-    Invalidator::MatchElementRuleSets m_matchElementRuleSets;
+    Invalidator::MatchElementRuleSets m_beforeChangeRuleSets;
+    Invalidator::MatchElementRuleSets m_afterChangeRuleSets;
 };
 
-inline ClassChangeInvalidation::ClassChangeInvalidation(Element& element, const SpaceSplitString& oldClasses, const SpaceSplitString& newClasses)
-    : m_isEnabled(element.needsStyleInvalidation())
-    , m_element(element)
+inline ClassChangeInvalidation::ClassChangeInvalidation(Ref<Element>&& element, const SpaceSplitString& oldClasses, const SpaceSplitString& newClasses)
+    : m_isEnabled(element->needsStyleInvalidation())
+    , m_element(WTF::move(element))
 
 {
     if (!m_isEnabled)
         return;
     computeInvalidation(oldClasses, newClasses);
-    invalidateStyleWithRuleSets();
+    invalidateBeforeChange();
 }
 
 inline ClassChangeInvalidation::~ClassChangeInvalidation()
 {
     if (!m_isEnabled)
         return;
-    invalidateStyleWithRuleSets();
+    invalidateAfterChange();
 }
 
 }

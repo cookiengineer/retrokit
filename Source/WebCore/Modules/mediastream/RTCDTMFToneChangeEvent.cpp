@@ -29,31 +29,31 @@
 #if ENABLE(WEB_RTC)
 
 #include "EventNames.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(RTCDTMFToneChangeEvent);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RTCDTMFToneChangeEvent);
 
 Ref<RTCDTMFToneChangeEvent> RTCDTMFToneChangeEvent::create(const String& tone)
 {
     return adoptRef(*new RTCDTMFToneChangeEvent(tone));
 }
 
-Ref<RTCDTMFToneChangeEvent> RTCDTMFToneChangeEvent::create(const AtomString& type, const Init& initializer, IsTrusted isTrusted)
+Ref<RTCDTMFToneChangeEvent> RTCDTMFToneChangeEvent::create(const AtomString& type, Init&& initializer, IsTrusted isTrusted)
 {
-    return adoptRef(*new RTCDTMFToneChangeEvent(type, initializer, isTrusted));
+    return adoptRef(*new RTCDTMFToneChangeEvent(type, WTF::move(initializer), isTrusted));
 }
 
 RTCDTMFToneChangeEvent::RTCDTMFToneChangeEvent(const String& tone)
-    : Event(eventNames().tonechangeEvent, CanBubble::No, IsCancelable::No)
+    : Event(EventInterfaceType::RTCDTMFToneChangeEvent, eventNames().tonechangeEvent, CanBubble::No, IsCancelable::No)
     , m_tone(tone)
 {
 }
 
-RTCDTMFToneChangeEvent::RTCDTMFToneChangeEvent(const AtomString& type, const Init& initializer, IsTrusted isTrusted)
-    : Event(type, initializer, isTrusted)
-    , m_tone(initializer.tone)
+RTCDTMFToneChangeEvent::RTCDTMFToneChangeEvent(const AtomString& type, Init&& initializer, IsTrusted isTrusted)
+    : Event(EventInterfaceType::RTCDTMFToneChangeEvent, type, WTF::move(initializer), isTrusted)
+    , m_tone(WTF::move(initializer.tone))
 {
 }
 
@@ -62,11 +62,6 @@ RTCDTMFToneChangeEvent::~RTCDTMFToneChangeEvent() = default;
 const String& RTCDTMFToneChangeEvent::tone() const
 {
     return m_tone;
-}
-
-EventInterface RTCDTMFToneChangeEvent::eventInterface() const
-{
-    return RTCDTMFToneChangeEventInterfaceType;
 }
 
 } // namespace WebCore

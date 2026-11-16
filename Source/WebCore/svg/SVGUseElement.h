@@ -1,7 +1,8 @@
 /*
  * Copyright (C) 2004, 2005, 2006, 2007, 2008 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2006, 2007 Rob Buis <buis@kde.org>
- * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2015 Google Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -25,60 +26,68 @@
 #include "CachedSVGDocumentClient.h"
 #include "SVGGraphicsElement.h"
 #include "SVGURIReference.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class CachedSVGDocument;
-class SVGGElement;
 
 class SVGUseElement final : public SVGGraphicsElement, public SVGURIReference, private CachedSVGDocumentClient {
-    WTF_MAKE_ISO_ALLOCATED(SVGUseElement);
+    WTF_MAKE_TZONE_ALLOCATED(SVGUseElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGUseElement);
 public:
     static Ref<SVGUseElement> create(const QualifiedName&, Document&);
     virtual ~SVGUseElement();
 
-    void invalidateShadowTree();
-    bool shadowTreeNeedsUpdate() const { return m_shadowTreeNeedsUpdate; }
-    void updateShadowTree();
+    // CachedResourceClient.
+    void ref() const final { SVGGraphicsElement::ref(); }
+    void deref() const final { SVGGraphicsElement::deref(); }
 
+    void invalidateShadowTree();
+    void updateUserAgentShadowTree() final;
+
+    RefPtr<SVGElement> clipChild() const;
     RenderElement* rendererClipChild() const;
 
-    const SVGLengthValue& x() const { return m_x->currentValue(); }
-    const SVGLengthValue& y() const { return m_y->currentValue(); }
-    const SVGLengthValue& width() const { return m_width->currentValue(); }
-    const SVGLengthValue& height() const { return m_height->currentValue(); }
+    SVGGraphicsElement* visibleTargetGraphicsElement() const;
+
+    const SVGLengthValue& x() const LIFETIME_BOUND { return m_x->currentValue(); }
+    const SVGLengthValue& y() const LIFETIME_BOUND { return m_y->currentValue(); }
+    const SVGLengthValue& width() const LIFETIME_BOUND { return m_width->currentValue(); }
+    const SVGLengthValue& height() const LIFETIME_BOUND { return m_height->currentValue(); }
 
     SVGAnimatedLength& xAnimated() { return m_x; }
     SVGAnimatedLength& yAnimated() { return m_y; }
     SVGAnimatedLength& widthAnimated() { return m_width; }
     SVGAnimatedLength& heightAnimated() { return m_height; }
 
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGUseElement, SVGGraphicsElement, SVGURIReference>;
+
 private:
     SVGUseElement(const QualifiedName&, Document&);
 
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) override;
-    void didFinishInsertingNode() final;
-    void removedFromAncestor(RemovalType, ContainerNode&) override;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) override;
+    void postConnectionSteps() final;
+    void removingSteps(RemovalType, ContainerNode&) override;
     void buildPendingResource() override;
 
-    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGUseElement, SVGGraphicsElement, SVGURIReference>;
-    const SVGPropertyRegistry& propertyRegistry() const final { return m_propertyRegistry; }
-
-    void parseAttribute(const QualifiedName&, const AtomString&) override;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
     void svgAttributeChanged(const QualifiedName&) override;
 
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) override;
     Path toClipPath() override;
     bool selfHasRelativeLengths() const override;
-    void notifyFinished(CachedResource&, const NetworkLoadMetrics&) final;
+    void notifyFinished(CachedResource&, const NetworkLoadMetrics&, LoadWillContinueInAnotherProcess) final;
 
-    Document* externalDocument() const;
+    Document* NODELETE externalDocument() const;
     void updateExternalDocument();
 
-    SVGElement* findTarget(String* targetID = nullptr) const;
+    FloatRect getBBox(StyleUpdateStrategy = StyleUpdateStrategy::Allow) final;
+
+    RefPtr<SVGElement> findTarget(AtomString* targetID = nullptr) const;
 
     void cloneTarget(ContainerNode&, SVGElement& target) const;
-    RefPtr<SVGElement> targetClone() const;
+    RefPtr<SVGElement> NODELETE targetClone() const;
 
     void expandUseElementsInShadowTree() const;
     void expandSymbolElementsInShadowTree() const;
@@ -93,21 +102,18 @@ private:
     bool haveFiredLoadEvent() const override { return m_haveFiredLoadEvent; }
     void setErrorOccurred(bool errorOccurred) override { m_errorOccurred = errorOccurred; }
     bool errorOccurred() const override { return m_errorOccurred; }
-    Timer* loadEventTimer() override { return &m_loadEventTimer; }
 
     bool isValid() const override { return SVGTests::isValid(); }
 
-    PropertyRegistry m_propertyRegistry { *this };
-    Ref<SVGAnimatedLength> m_x { SVGAnimatedLength::create(this, SVGLengthMode::Width) };
-    Ref<SVGAnimatedLength> m_y { SVGAnimatedLength::create(this, SVGLengthMode::Height) };
-    Ref<SVGAnimatedLength> m_width { SVGAnimatedLength::create(this, SVGLengthMode::Width) };
-    Ref<SVGAnimatedLength> m_height { SVGAnimatedLength::create(this, SVGLengthMode::Height) };
+    const Ref<SVGAnimatedLength> m_x { SVGAnimatedLength::create(this, SVGLengthMode::Width) };
+    const Ref<SVGAnimatedLength> m_y { SVGAnimatedLength::create(this, SVGLengthMode::Height) };
+    const Ref<SVGAnimatedLength> m_width { SVGAnimatedLength::create(this, SVGLengthMode::Width) };
+    const Ref<SVGAnimatedLength> m_height { SVGAnimatedLength::create(this, SVGLengthMode::Height) };
 
     bool m_haveFiredLoadEvent { false };
     bool m_errorOccurred { false };
     bool m_shadowTreeNeedsUpdate { true };
     CachedResourceHandle<CachedSVGDocument> m_externalDocument;
-    Timer m_loadEventTimer;
 };
 
 }

@@ -29,28 +29,38 @@
 
 #include "Connection.h"
 #include "MessageReceiver.h"
-#include <WebCore/MediaEngineConfigurationFactory.h>
+#include <WebCore/PlatformMediaEngineConfigurationFactory.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/UniqueRef.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebKit {
 
+class GPUConnectionToWebProcess;
+struct SharedPreferencesForWebProcess;
+
 class RemoteMediaEngineConfigurationFactoryProxy final : private IPC::MessageReceiver {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(RemoteMediaEngineConfigurationFactoryProxy);
 public:
-    RemoteMediaEngineConfigurationFactoryProxy();
+    explicit RemoteMediaEngineConfigurationFactoryProxy(GPUConnectionToWebProcess&);
     virtual ~RemoteMediaEngineConfigurationFactoryProxy();
 
     void didReceiveMessageFromWebProcess(IPC::Connection& connection, IPC::Decoder& decoder) { didReceiveMessage(connection, decoder); }
 
+    void ref() const final;
+    void deref() const final;
+
+    std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess() const;
 private:
     friend class GPUProcessConnection;
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
 
     // Messages
-    void createDecodingConfiguration(WebCore::MediaDecodingConfiguration&&, CompletionHandler<void(WebCore::MediaCapabilitiesDecodingInfo&&)>&&);
-    void createEncodingConfiguration(WebCore::MediaEncodingConfiguration&&, CompletionHandler<void(WebCore::MediaCapabilitiesEncodingInfo&&)>&&);
+    void createDecodingConfiguration(WebCore::PlatformMediaDecodingConfiguration&&, CompletionHandler<void(WebCore::PlatformMediaCapabilitiesDecodingInfo&&)>&&);
+    void createEncodingConfiguration(WebCore::PlatformMediaEncodingConfiguration&&, CompletionHandler<void(WebCore::PlatformMediaCapabilitiesEncodingInfo&&)>&&);
+
+    ThreadSafeWeakRef<GPUConnectionToWebProcess> m_connection;
 };
 
 }

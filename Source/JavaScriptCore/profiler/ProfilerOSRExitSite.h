@@ -25,25 +25,28 @@
 
 #pragma once
 
-#include "JSCJSValue.h"
-#include "MacroAssemblerCodeRef.h"
+#include <JavaScriptCore/JSCJSValue.h>
+#include <JavaScriptCore/MacroAssemblerCodeRef.h>
 #include <wtf/Vector.h>
 
 namespace JSC { namespace Profiler {
 
+class Database;
+class Dumper;
+
 class OSRExitSite {
 public:
-    explicit OSRExitSite(const Vector<MacroAssemblerCodePtr<JSInternalPtrTag>>& codeAddresses)
+    explicit OSRExitSite(const Vector<CodePtr<JSInternalPtrTag>>& codeAddresses)
         : m_codeAddresses(codeAddresses)
     {
     }
     
-    const Vector<MacroAssemblerCodePtr<JSInternalPtrTag>>& codeAddress() const { return m_codeAddresses; }
+    const Vector<CodePtr<JSInternalPtrTag>>& codeAddress() const LIFETIME_BOUND { return m_codeAddresses; }
     
-    JSValue toJS(JSGlobalObject*) const;
+    Ref<JSON::Value> toJSON(Dumper&) const;
 
 private:
-    Vector<MacroAssemblerCodePtr<JSInternalPtrTag>> m_codeAddresses;
+    Vector<CodePtr<JSInternalPtrTag>> m_codeAddresses;
 };
 
 } } // namespace JSC::Profiler

@@ -52,10 +52,16 @@ struct pas_cartesian_tree {
     pas_compact_cartesian_tree_node_ptr minimum;
 };
 
-#define PAS_CARTESIAN_TREE_INITIALIZER ((pas_cartesian_tree){ \
+#define PAS_CARTESIAN_TREE_INITIALIZER { \
         .root = PAS_COMPACT_PTR_INITIALIZER, \
         .minimum = PAS_COMPACT_PTR_INITIALIZER \
-    })
+    }
+
+static inline void pas_cartesian_tree_construct(pas_cartesian_tree* tree)
+{
+    pas_compact_cartesian_tree_node_ptr_store(&tree->root, NULL);
+    pas_compact_cartesian_tree_node_ptr_store(&tree->minimum, NULL);
+}
 
 typedef void* (*pas_cartesian_tree_get_key_callback)(pas_cartesian_tree_node* node);
 typedef int (*pas_cartesian_tree_compare_callback)(void* a_key, void* b_key);
@@ -77,7 +83,7 @@ static PAS_ALWAYS_INLINE pas_compact_cartesian_tree_node_ptr* pas_cartesian_tree
     case pas_tree_direction_right:
         return &node->right;
     }
-    PAS_ASSERT(!"Should not be reached");
+    PAS_ASSERT_NOT_REACHED();
     return NULL;
 }
 
@@ -248,11 +254,6 @@ static inline void pas_cartesian_tree_node_reset(pas_cartesian_tree_node* node)
     pas_compact_cartesian_tree_node_ptr_store(&node->left, NULL);
     pas_compact_cartesian_tree_node_ptr_store(&node->right, NULL);
     pas_compact_cartesian_tree_node_ptr_store(&node->parent, NULL);
-}
-
-static inline void pas_cartesian_tree_construct(pas_cartesian_tree* tree)
-{
-    *tree = PAS_CARTESIAN_TREE_INITIALIZER;
 }
 
 static PAS_ALWAYS_INLINE pas_cartesian_tree_node*
@@ -654,7 +655,7 @@ pas_cartesian_tree_insert(pas_cartesian_tree* tree,
         current = pas_compact_cartesian_tree_node_ptr_load(child_ptr);
     }
 
-    PAS_ASSERT(!"Should not be reached");
+    PAS_ASSERT_NOT_REACHED();
 
 update_minimum_if_necessary_and_return:
     if (should_update_minimum)

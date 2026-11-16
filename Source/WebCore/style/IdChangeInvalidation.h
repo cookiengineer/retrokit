@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,6 +26,7 @@
 #pragma once
 
 #include "Element.h"
+#include "StyleInvalidator.h"
 
 namespace WebCore {
 
@@ -33,28 +34,33 @@ namespace Style {
 
 class IdChangeInvalidation {
 public:
-    IdChangeInvalidation(Element&, const AtomString& oldId, const AtomString& newId);
+    IdChangeInvalidation(Ref<Element>&&, const AtomString& oldId, const AtomString& newId);
     ~IdChangeInvalidation();
 
 private:
     void invalidateStyle(const AtomString&);
+    void invalidateStyleWithRuleSets();
 
     const bool m_isEnabled;
-    Element& m_element;
+    const Ref<Element> m_element;
 
     AtomString m_newId;
+
+    Invalidator::MatchElementRuleSets m_matchElementRuleSets;
 };
 
-inline IdChangeInvalidation::IdChangeInvalidation(Element& element, const AtomString& oldId, const AtomString& newId)
-    : m_isEnabled(element.needsStyleInvalidation())
-    , m_element(element)
+inline IdChangeInvalidation::IdChangeInvalidation(Ref<Element>&& element, const AtomString& oldId, const AtomString& newId)
+    : m_isEnabled(element->needsStyleInvalidation())
+    , m_element(WTF::move(element))
 {
     if (!m_isEnabled)
         return;
     if (oldId == newId)
         return;
     m_newId = newId;
+
     invalidateStyle(oldId);
+    invalidateStyleWithRuleSets();
 }
 
 inline IdChangeInvalidation::~IdChangeInvalidation()
@@ -62,6 +68,7 @@ inline IdChangeInvalidation::~IdChangeInvalidation()
     if (!m_isEnabled)
         return;
     invalidateStyle(m_newId);
+    invalidateStyleWithRuleSets();
 }
 
 }

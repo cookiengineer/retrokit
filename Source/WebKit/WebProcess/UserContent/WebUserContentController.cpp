@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,18 +27,32 @@
 #include "WebUserContentController.h"
 
 #include "ContentWorldShared.h"
-#include "DataReference.h"
 #include "FrameInfoData.h"
 #include "InjectUserScriptImmediately.h"
 #include "InjectedBundleScriptWorld.h"
+#include "JavaScriptEvaluationResult.h"
+#include "Logging.h"
+#include "ScriptMessageHandlerIdentifier.h"
+#include "SharedMemoryJSBuffer.h"
+#include "UserContentControllerParameters.h"
 #include "WebCompiledContentRuleList.h"
 #include "WebFrame.h"
 #include "WebPage.h"
 #include "WebProcess.h"
+#include "WebProcessProxyMessages.h"
 #include "WebUserContentControllerMessages.h"
-#include "WebUserContentControllerProxyMessages.h"
+#include <JavaScriptCore/APICast.h>
+#include <JavaScriptCore/JSCJSValueInlines.h>
+#include <JavaScriptCore/JSContextRef.h>
+#include <JavaScriptCore/JSLock.h>
+#include <JavaScriptCore/JSRetainPtr.h>
 #include <WebCore/DOMWrapperWorld.h>
-#include <WebCore/Frame.h>
+#include <WebCore/Document.h>
+#include <WebCore/FrameDestructionObserverInlines.h>
+#include <WebCore/FrameLoader.h>
+#include <WebCore/JSDOMGlobalObject.h>
+#include <WebCore/LocalFrame.h>
+#include <WebCore/Page.h>
 #include <WebCore/SecurityOriginData.h>
 #include <WebCore/SerializedScriptValue.h>
 #include <WebCore/UserStyleSheet.h>
@@ -52,32 +66,54 @@
 namespace WebKit {
 using namespace WebCore;
 
-static HashMap<UserContentControllerIdentifier, WebUserContentController*>& userContentControllers()
+static HashMap<UserContentControllerIdentifier, WeakPtr<WebUserContentController>>& NODELETE userContentControllers()
 {
-    static NeverDestroyed<HashMap<UserContentControllerIdentifier, WebUserContentController*>> userContentControllers;
+    static NeverDestroyed<HashMap<UserContentControllerIdentifier, WeakPtr<WebUserContentController>>> userContentControllers;
 
     return userContentControllers;
 }
 
-typedef HashMap<ContentWorldIdentifier, std::pair<RefPtr<InjectedBundleScriptWorld>, unsigned>> WorldMap;
-
+using WorldMap = HashMap<ContentWorldIdentifier, Ref<InjectedBundleScriptWorld>>;
 static WorldMap& worldMap()
 {
-    static NeverDestroyed<WorldMap> map(std::initializer_list<WorldMap::KeyValuePairType> { { pageContentWorldIdentifier(), std::make_pair(&InjectedBundleScriptWorld::normalWorld(), 1) } });
+    static NeverDestroyed<WorldMap> map(std::initializer_list<WorldMap::KeyValuePairType> { { pageContentWorldIdentifier(), InjectedBundleScriptWorld::normalWorldSingleton() } });
 
     return map;
 }
 
-Ref<WebUserContentController> WebUserContentController::getOrCreate(UserContentControllerIdentifier identifier)
+static WebCore::UserScript userScriptFromData(WebCoreUserScriptData&& data)
 {
-    auto& userContentControllerPtr = userContentControllers().add(identifier, nullptr).iterator->value;
-    if (userContentControllerPtr)
-        return *userContentControllerPtr;
+    auto maybeSource = WTF::move(data.source).release();
+    RELEASE_ASSERT(maybeSource);
+    return { WTF::move(*maybeSource), WTF::move(data.url), WTF::move(data.allowlist), WTF::move(data.blocklist), data.injectionTime, data.injectedFrames, data.matchParentFrame };
+}
 
-    RefPtr<WebUserContentController> userContentController = adoptRef(new WebUserContentController(identifier));
+static WebCore::UserStyleSheet userStyleSheetFromData(WebCoreUserStyleSheetData&& data)
+{
+    auto maybeSource = WTF::move(data.source).release();
+    RELEASE_ASSERT(maybeSource);
+    return { WTF::move(*maybeSource), WTF::move(data.url), WTF::move(data.allowlist), WTF::move(data.blocklist), data.injectedFrames, data.matchParentFrame, data.level, data.pageID };
+}
+
+Ref<WebUserContentController> WebUserContentController::getOrCreate(UserContentControllerParameters&& parameters)
+{
+    auto identifier = parameters.identifier;
+    auto& userContentControllerPtr = userContentControllers().add(identifier, nullptr).iterator->value;
+        if (userContentControllerPtr)
+            return *userContentControllerPtr;
+
+    Ref userContentController = adoptRef(*new WebUserContentController(identifier));
     userContentControllerPtr = userContentController.get();
 
-    return userContentController.releaseNonNull();
+    userContentController->addUserScripts(WTF::move(parameters.userScripts), InjectUserScriptImmediately::No);
+    userContentController->addUserStyleSheets(WTF::move(parameters.userStyleSheets));
+    userContentController->addUserScriptMessageHandlers(WTF::move(parameters.messageHandlers));
+    for (auto&& buffer : WTF::move(parameters.buffers))
+        userContentController->addJSBuffer(WTF::move(buffer));
+#if ENABLE(CONTENT_EXTENSIONS)
+    userContentController->addContentRuleLists(WTF::move(parameters.contentRuleLists));
+#endif
+    return userContentController;
 }
 
 WebUserContentController::WebUserContentController(UserContentControllerIdentifier identifier)
@@ -97,133 +133,157 @@ WebUserContentController::~WebUserContentController()
 
 InjectedBundleScriptWorld* WebUserContentController::worldForIdentifier(ContentWorldIdentifier identifier)
 {
-    auto iterator = worldMap().find(identifier);
-    return iterator == worldMap().end() ? nullptr : iterator->value.first.get();
+    return worldMap().get(identifier);
 }
 
-InjectedBundleScriptWorld* WebUserContentController::addContentWorld(const std::pair<ContentWorldIdentifier, String>& world)
+void WebUserContentController::addContentWorldIfNecessary(const ContentWorldData& world)
 {
-    ASSERT(world.first);
-    if (world.first == pageContentWorldIdentifier())
-        return nullptr;
-    
-    auto addResult = worldMap().ensure(world.first, [&] {
+    if (world.identifier == pageContentWorldIdentifier())
+        return;
+
+    auto addResult = worldMap().ensure(world.identifier, [&] {
 #if PLATFORM(GTK) || PLATFORM(WPE)
         // The GLib API doesn't allow to create script worlds from the UI process. We need to
         // use the existing world created by the web extension if any. The world name is used
         // as the identifier.
-        if (auto* existingWorld = InjectedBundleScriptWorld::find(world.second))
-            return std::make_pair(Ref<InjectedBundleScriptWorld>(*existingWorld), 1);
+        if (auto* existingWorld = InjectedBundleScriptWorld::find(world.name))
+            return Ref<InjectedBundleScriptWorld> { *existingWorld };
 #endif
-        return std::make_pair(InjectedBundleScriptWorld::create(world.second, InjectedBundleScriptWorld::Type::User), 1);
+#if PLATFORM(COCOA)
+        auto type = world.options.contains(ContentWorldOption::Inspectable) ? InjectedBundleScriptWorld::Type::User : InjectedBundleScriptWorld::Type::Internal;
+#else
+        auto type = InjectedBundleScriptWorld::Type::User;
+#endif
+        return InjectedBundleScriptWorld::create(world.identifier, world.name, type);
     });
-    
-    if (addResult.isNewEntry)
-        return addResult.iterator->value.first.get();
-    return nullptr;
-}
 
-void WebUserContentController::addContentWorlds(const Vector<std::pair<ContentWorldIdentifier, String>>& worlds)
-{
-    for (auto& world : worlds)
-        addContentWorld(world);
-}
+    if (!addResult.isNewEntry)
+        return;
 
-void WebUserContentController::removeContentWorlds(const Vector<ContentWorldIdentifier>& worldIdentifiers)
-{
-    for (auto& worldIdentifier : worldIdentifiers) {
-        ASSERT(worldIdentifier);
-        ASSERT(worldIdentifier != pageContentWorldIdentifier());
+    Ref scriptWorld = addResult.iterator->value;
 
-        auto it = worldMap().find(worldIdentifier);
-        if (it == worldMap().end()) {
-            WTFLogAlways("Trying to remove a ContentWorld (id=%" PRIu64 ") that does not exist.", worldIdentifier.toUInt64());
-            return;
+    if (world.options.contains(ContentWorldOption::AllowAccessToClosedShadowRoots))
+        scriptWorld->makeAllShadowRootsOpen();
+    if (world.options.contains(ContentWorldOption::AllowAutofill))
+        scriptWorld->setAllowAutofill();
+    if (world.options.contains(ContentWorldOption::AllowElementUserInfo))
+        scriptWorld->setAllowElementUserInfo();
+    if (world.options.contains(ContentWorldOption::DisableLegacyBuiltinOverrides))
+        scriptWorld->disableOverrideBuiltinsBehavior();
+    if (world.options.contains(ContentWorldOption::AllowJSHandleCreation))
+        scriptWorld->setAllowJSHandleCreation();
+    if (world.options.contains(ContentWorldOption::AllowNodeSnapshotCreation))
+        scriptWorld->setAllowNodeSnapshotCreation();
+
+    Page::forEachPage([&] (auto& page) {
+        Ref mainFrame = page.mainFrame();
+        for (RefPtr frame = mainFrame.ptr(); frame; frame = frame->tree().traverseNext()) {
+            RefPtr localFrame = dynamicDowncast<LocalFrame>(frame);
+            if (!localFrame)
+                continue;
+            if (!localFrame->hasUserContentProvider(*this))
+                continue;
+            localFrame->loader().client().dispatchGlobalObjectAvailable(scriptWorld->coreWorld());
         }
+    });
+}
 
-        it->value.second--;
-        
-        if (!it->value.second)
-            worldMap().remove(it);
+void WebUserContentController::removeContentWorld(ContentWorldIdentifier worldIdentifier)
+{
+    ASSERT(worldIdentifier != pageContentWorldIdentifier());
+
+    for (auto weakController : userContentControllers().values()) {
+        if (RefPtr controller = weakController.get())
+            controller->m_buffers.remove(worldIdentifier);
     }
+
+    auto it = worldMap().find(worldIdentifier);
+    if (it == worldMap().end()) {
+        RELEASE_LOG(UserContentController, "Trying to remove a ContentWorld (id=%" PRIu64 ") that does not exist.", worldIdentifier.object().toUInt64());
+        return;
+    }
+
+    worldMap().remove(it);
 }
 
 void WebUserContentController::addUserScripts(Vector<WebUserScriptData>&& userScripts, InjectUserScriptImmediately immediately)
 {
-    for (const auto& userScriptData : userScripts) {
-        auto it = worldMap().find(userScriptData.worldIdentifier);
-        if (it == worldMap().end()) {
-            WTFLogAlways("Trying to add a UserScript to a ContentWorld (id=%" PRIu64 ") that does not exist.", userScriptData.worldIdentifier.toUInt64());
+    for (auto& userScriptData : userScripts) {
+        addContentWorldIfNecessary(userScriptData.worldData);
+        RefPtr world = worldMap().get(userScriptData.worldData.identifier);
+        if (!world) {
+            RELEASE_LOG(UserContentController, "Trying to add a UserScript to a ContentWorld (id=%" PRIu64 ") that does not exist.", userScriptData.worldData.identifier.object().toUInt64());
             continue;
         }
 
-        UserScript script = userScriptData.userScript;
-        addUserScriptInternal(*it->value.first, userScriptData.identifier, WTFMove(script), immediately);
+        UserScript script = userScriptFromData(WTF::move(userScriptData.userScript));
+        addUserScriptInternal(*world, userScriptData.identifier, WTF::move(script), immediately);
     }
 }
 
-void WebUserContentController::removeUserScript(ContentWorldIdentifier worldIdentifier, uint64_t userScriptIdentifier)
+void WebUserContentController::removeUserScript(ContentWorldIdentifier worldIdentifier, UserScriptIdentifier userScriptIdentifier)
 {
-    auto it = worldMap().find(worldIdentifier);
-    if (it == worldMap().end()) {
-        WTFLogAlways("Trying to remove a UserScript from a ContentWorld (id=%" PRIu64 ") that does not exist.", worldIdentifier.toUInt64());
+    RefPtr world = worldMap().get(worldIdentifier);
+    if (!world) {
+        RELEASE_LOG(UserContentController, "Trying to remove a UserScript from a ContentWorld (id=%" PRIu64 ") that does not exist.", worldIdentifier.object().toUInt64());
         return;
     }
 
-    removeUserScriptInternal(*it->value.first, userScriptIdentifier);
+    removeUserScriptInternal(*world, userScriptIdentifier);
 }
 
 void WebUserContentController::removeAllUserScripts(const Vector<ContentWorldIdentifier>& worldIdentifiers)
 {
     for (auto& worldIdentifier : worldIdentifiers) {
-        auto it = worldMap().find(worldIdentifier);
-        if (it == worldMap().end()) {
-            WTFLogAlways("Trying to remove all UserScripts from a ContentWorld (id=%" PRIu64 ") that does not exist.", worldIdentifier.toUInt64());
-            return;
+        RefPtr world = worldMap().get(worldIdentifier);
+        if (!world) {
+            RELEASE_LOG(UserContentController, "Trying to remove all UserScripts from a ContentWorld (id=%" PRIu64 ") that does not exist.", worldIdentifier.object().toUInt64());
+            continue;
         }
 
-        removeUserScripts(*it->value.first);
+        removeUserScripts(*world);
     }
 }
 
-void WebUserContentController::addUserStyleSheets(const Vector<WebUserStyleSheetData>& userStyleSheets)
+void WebUserContentController::addUserStyleSheets(Vector<WebUserStyleSheetData>&& userStyleSheets)
 {
-    for (const auto& userStyleSheetData : userStyleSheets) {
-        auto it = worldMap().find(userStyleSheetData.worldIdentifier);
-        if (it == worldMap().end()) {
-            WTFLogAlways("Trying to add a UserStyleSheet to a ContentWorld (id=%" PRIu64 ") that does not exist.", userStyleSheetData.worldIdentifier.toUInt64());
+    for (auto& userStyleSheetData : userStyleSheets) {
+        addContentWorldIfNecessary(userStyleSheetData.worldData);
+        RefPtr world = worldMap().get(userStyleSheetData.worldData.identifier);
+        if (!world) {
+            RELEASE_LOG(UserContentController, "Trying to add a UserStyleSheet to a ContentWorld (id=%" PRIu64 ") that does not exist.", userStyleSheetData.worldData.identifier.object().toUInt64());
             continue;
         }
         
-        UserStyleSheet sheet = userStyleSheetData.userStyleSheet;
-        addUserStyleSheetInternal(*it->value.first, userStyleSheetData.identifier, WTFMove(sheet));
+        UserStyleSheet sheet = userStyleSheetFromData(WTF::move(userStyleSheetData.userStyleSheet));
+        addUserStyleSheetInternal(*world, userStyleSheetData.identifier, WTF::move(sheet));
     }
 
     invalidateInjectedStyleSheetCacheInAllFramesInAllPages();
 }
 
-void WebUserContentController::removeUserStyleSheet(ContentWorldIdentifier worldIdentifier, uint64_t userStyleSheetIdentifier)
+void WebUserContentController::removeUserStyleSheet(ContentWorldIdentifier worldIdentifier, UserStyleSheetIdentifier userStyleSheetIdentifier)
 {
-    auto it = worldMap().find(worldIdentifier);
-    if (it == worldMap().end()) {
-        WTFLogAlways("Trying to remove a UserStyleSheet from a ContentWorld (id=%" PRIu64 ") that does not exist.", worldIdentifier.toUInt64());
+    RefPtr world = worldMap().get(worldIdentifier);
+    if (!world) {
+        RELEASE_LOG(UserContentController, "Trying to remove a UserStyleSheet from a ContentWorld (id=%" PRIu64 ") that does not exist.", worldIdentifier.object().toUInt64());
         return;
     }
 
-    removeUserStyleSheetInternal(*it->value.first, userStyleSheetIdentifier);
+    removeUserStyleSheetInternal(*world, userStyleSheetIdentifier);
 }
 
 void WebUserContentController::removeAllUserStyleSheets(const Vector<ContentWorldIdentifier>& worldIdentifiers)
 {
     bool sheetsChanged = false;
     for (auto& worldIdentifier : worldIdentifiers) {
-        auto it = worldMap().find(worldIdentifier);
-        if (it == worldMap().end()) {
-            WTFLogAlways("Trying to remove all UserStyleSheets from a ContentWorld (id=%" PRIu64 ") that does not exist.", worldIdentifier.toUInt64());
-            return;
+        RefPtr world = worldMap().get(worldIdentifier);
+        if (!world) {
+            RELEASE_LOG(UserContentController, "Trying to remove all UserStyleSheets from a ContentWorld (id=%" PRIu64 ") that does not exist.", worldIdentifier.object().toUInt64());
+            continue;
         }
 
-        if (m_userStyleSheets.remove(it->value.first.get()))
+        if (m_userStyleSheets.remove(*world))
             sheetsChanged = true;
     }
 
@@ -234,85 +294,127 @@ void WebUserContentController::removeAllUserStyleSheets(const Vector<ContentWorl
 #if ENABLE(USER_MESSAGE_HANDLERS)
 class WebUserMessageHandlerDescriptorProxy : public WebCore::UserMessageHandlerDescriptor {
 public:
-    static Ref<WebUserMessageHandlerDescriptorProxy> create(WebUserContentController* controller, const String& name, InjectedBundleScriptWorld& world, uint64_t identifier)
+    static Ref<WebUserMessageHandlerDescriptorProxy> create(WebUserContentController& controller, const AtomString& name, InjectedBundleScriptWorld& world, ScriptMessageHandlerIdentifier identifier)
     {
         return adoptRef(*new WebUserMessageHandlerDescriptorProxy(controller, name, world, identifier));
     }
 
-    virtual ~WebUserMessageHandlerDescriptorProxy()
-    {
-    }
+    virtual ~WebUserMessageHandlerDescriptorProxy() = default;
 
-    uint64_t identifier() { return m_identifier; }
+    ScriptMessageHandlerIdentifier NODELETE identifier() { return m_identifier; }
 
 private:
-    WebUserMessageHandlerDescriptorProxy(WebUserContentController* controller, const String& name, InjectedBundleScriptWorld& world, uint64_t identifier)
+    WebUserMessageHandlerDescriptorProxy(WebUserContentController& controller, const AtomString& name, InjectedBundleScriptWorld& world, ScriptMessageHandlerIdentifier identifier)
         : WebCore::UserMessageHandlerDescriptor(name, world.coreWorld())
         , m_controller(controller)
         , m_identifier(identifier)
     {
     }
 
-    // WebCore::UserMessageHandlerDescriptor
-    void didPostMessage(WebCore::UserMessageHandler& handler, WebCore::SerializedScriptValue* value, WTF::Function<void(SerializedScriptValue*, const String&)>&& completionHandler) override
+    static FrameInfoData frameInfoWithDocumentID(WebFrame& webFrame, JSC::JSGlobalObject& globalObject)
     {
-        WebCore::Frame* frame = handler.frame();
+        auto frameInfo = webFrame.info();
+        if (!frameInfo.documentID) {
+            if (auto* domGlobalObject = dynamicDowncast<JSDOMGlobalObject>(&globalObject)) {
+                if (auto* document = dynamicDowncast<Document>(domGlobalObject->scriptExecutionContext()))
+                    frameInfo.documentID = document->identifier();
+            }
+        }
+        return frameInfo;
+    }
+
+    // WebCore::UserMessageHandlerDescriptor
+    void didPostMessage(WebCore::UserMessageHandler& handler, JSC::JSGlobalObject& globalObject, JSC::JSValue jsMessage, WTF::Function<void(JSC::JSValue, const String&)>&& completionHandler) const override
+    {
+        RefPtr frame = handler.frame();
         if (!frame)
             return;
-    
-        WebFrame* webFrame = WebFrame::fromCoreFrame(*frame);
+
+        RefPtr webFrame = WebFrame::fromCoreFrame(*frame);
         if (!webFrame)
             return;
 
-        WebPage* webPage = webFrame->page();
+        RefPtr webPage = webFrame->page();
         if (!webPage)
             return;
 
-        auto messageReplyHandler = [completionHandler = WTFMove(completionHandler)](const IPC::DataReference& resultValue, const String& errorMessage) {
-            if (!errorMessage.isNull()) {
-                completionHandler(nullptr, errorMessage);
-                return;
-            }
+        JSRetainPtr context { JSContextGetGlobalContext(toRef(&globalObject)) };
+        auto message = JavaScriptEvaluationResult::extract(context.get(), toRef(&globalObject, jsMessage));
+        if (!message)
+            return;
 
-            auto value = SerializedScriptValue::createFromWireBytes(resultValue.vector());
-            completionHandler(value.ptr(), { });
-        };
+        auto frameInfo = frameInfoWithDocumentID(*webFrame, globalObject);
 
-        WebProcess::singleton().parentProcessConnection()->sendWithAsyncReply(Messages::WebUserContentControllerProxy::DidPostMessage(webPage->webPageProxyIdentifier(), webFrame->info(), m_identifier, IPC::DataReference(value->data())), WTFMove(messageReplyHandler), m_controller->identifier());
+        protect(WebProcess::singleton().parentProcessConnection())->sendWithAsyncReply(Messages::WebProcessProxy::DidPostMessage(webPage->webPageProxyIdentifier(), m_controller->identifier(), WTF::move(frameInfo), m_identifier, *message), [completionHandler = WTF::move(completionHandler), context](Expected<WebKit::JavaScriptEvaluationResult, String>&& result) {
+            JSC::JSLockHolder lock(toJS(context.get()));
+            if (!result)
+                return completionHandler(JSC::jsUndefined(), result.error());
+            completionHandler(toJS(toJS(context.get()), result->toJS(context.get()).get()), { });
+        });
     }
 
-    RefPtr<WebUserContentController> m_controller;
-    uint64_t m_identifier;
+    JSC::JSValue didPostLegacySynchronousMessage(WebCore::UserMessageHandler& handler, JSC::JSGlobalObject& globalObject, JSC::JSValue jsMessage) const override
+    {
+        RefPtr frame = handler.frame();
+        if (!frame)
+            return JSC::jsUndefined();
+
+        RefPtr webFrame = WebFrame::fromCoreFrame(*frame);
+        if (!webFrame)
+            return JSC::jsUndefined();
+
+        RefPtr webPage = webFrame->page();
+        if (!webPage)
+            return JSC::jsUndefined();
+
+        JSRetainPtr context { JSContextGetGlobalContext(toRef(&globalObject)) };
+        auto message = JavaScriptEvaluationResult::extract(context.get(), toRef(&globalObject, jsMessage));
+        if (!message)
+            return JSC::jsUndefined();
+
+        auto frameInfo = frameInfoWithDocumentID(*webFrame, globalObject);
+
+        auto sendResult = protect(WebProcess::singleton().parentProcessConnection())->sendSync(Messages::WebProcessProxy::DidPostLegacySynchronousMessage(webPage->webPageProxyIdentifier(), m_controller->identifier(), WTF::move(frameInfo), m_identifier, *message), 0);
+        auto [result] = sendResult.takeReplyOr(makeUnexpected(String()));
+        if (!result)
+            return JSC::jsUndefined();
+        JSC::JSLockHolder lock(toJS(context.get()));
+        return toJS(toJS(context.get()), result->toJS(context.get()).get());
+    }
+
+    const Ref<WebUserContentController> m_controller;
+    const ScriptMessageHandlerIdentifier m_identifier;
 };
 #endif
 
-void WebUserContentController::addUserScriptMessageHandlers(const Vector<WebScriptMessageHandlerData>& scriptMessageHandlers)
+void WebUserContentController::addUserScriptMessageHandlers(Vector<WebScriptMessageHandlerData>&& scriptMessageHandlers)
 {
 #if ENABLE(USER_MESSAGE_HANDLERS)
     for (auto& handler : scriptMessageHandlers) {
-        auto it = worldMap().find(handler.worldIdentifier);
-        if (it == worldMap().end()) {
-            WTFLogAlways("Trying to add a UserScriptMessageHandler to a ContentWorld (id=%" PRIu64 ") that does not exist.", handler.worldIdentifier.toUInt64());
+        addContentWorldIfNecessary(handler.worldData);
+        RefPtr world = worldMap().get(handler.worldData.identifier);
+        if (!world) {
+            RELEASE_LOG(UserContentController, "Trying to add a UserScriptMessageHandler to a ContentWorld (id=%" PRIu64 ") that does not exist.", handler.worldData.identifier.object().toUInt64());
             continue;
         }
 
-        addUserScriptMessageHandlerInternal(*it->value.first, handler.identifier, handler.name);
+        addUserScriptMessageHandlerInternal(*world, handler.identifier, AtomString(handler.name));
     }
 #else
     UNUSED_PARAM(scriptMessageHandlers);
 #endif
 }
 
-void WebUserContentController::removeUserScriptMessageHandler(ContentWorldIdentifier worldIdentifier, uint64_t userScriptMessageHandlerIdentifier)
+void WebUserContentController::removeUserScriptMessageHandler(ContentWorldIdentifier worldIdentifier, ScriptMessageHandlerIdentifier userScriptMessageHandlerIdentifier)
 {
 #if ENABLE(USER_MESSAGE_HANDLERS)
-    auto it = worldMap().find(worldIdentifier);
-    if (it == worldMap().end()) {
-        WTFLogAlways("Trying to remove a UserScriptMessageHandler from a ContentWorld (id=%" PRIu64 ") that does not exist.", worldIdentifier.toUInt64());
+    RefPtr world = worldMap().get(worldIdentifier);
+    if (!world) {
+        RELEASE_LOG(UserContentController, "Trying to remove a UserScriptMessageHandler from a ContentWorld (id=%" PRIu64 ") that does not exist.", worldIdentifier.object().toUInt64());
         return;
     }
 
-    removeUserScriptMessageHandlerInternal(*it->value.first, userScriptMessageHandlerIdentifier);
+    removeUserScriptMessageHandlerInternal(*world, userScriptMessageHandlerIdentifier);
 #else
     UNUSED_PARAM(worldIdentifier);
     UNUSED_PARAM(userScriptMessageHandlerIdentifier);
@@ -335,13 +437,13 @@ void WebUserContentController::removeAllUserScriptMessageHandlersForWorlds(const
 #if ENABLE(USER_MESSAGE_HANDLERS)
     bool userMessageHandlersChanged = false;
     for (auto& worldIdentifier : worldIdentifiers) {
-        auto it = worldMap().find(worldIdentifier);
-        if (it == worldMap().end()) {
-            WTFLogAlways("Trying to remove all UserScriptMessageHandler from a ContentWorld (id=%" PRIu64 ") that does not exist.", worldIdentifier.toUInt64());
-            return;
+        RefPtr world = worldMap().get(worldIdentifier);
+        if (!world) {
+            RELEASE_LOG(UserContentController, "Trying to remove all UserScriptMessageHandler from a ContentWorld (id=%" PRIu64 ") that does not exist.", worldIdentifier.object().toUInt64());
+            continue;
         }
 
-        if (m_userMessageHandlers.remove(it->value.first.get()))
+        if (m_userMessageHandlers.remove(*world))
             userMessageHandlersChanged = true;
     }
 
@@ -353,21 +455,23 @@ void WebUserContentController::removeAllUserScriptMessageHandlersForWorlds(const
 }
 
 #if ENABLE(USER_MESSAGE_HANDLERS)
-void WebUserContentController::addUserScriptMessageHandlerInternal(InjectedBundleScriptWorld& world, uint64_t userScriptMessageHandlerIdentifier, const String& name)
+void WebUserContentController::addUserScriptMessageHandlerInternal(InjectedBundleScriptWorld& world, ScriptMessageHandlerIdentifier userScriptMessageHandlerIdentifier, const AtomString& name)
 {
-    auto& messageHandlersInWorld = m_userMessageHandlers.ensure(&world, [] { return Vector<std::pair<uint64_t, RefPtr<WebUserMessageHandlerDescriptorProxy>>> { }; }).iterator->value;
-    if (messageHandlersInWorld.findMatching([&](auto& pair) { return pair.first ==  userScriptMessageHandlerIdentifier; }) != notFound)
+    auto& messageHandlersInWorld = m_userMessageHandlers.ensure(world, [] {
+        return Vector<std::pair<ScriptMessageHandlerIdentifier, Ref<WebUserMessageHandlerDescriptorProxy>>> { };
+    }).iterator->value;
+    if (messageHandlersInWorld.findIf([&](auto& pair) { return pair.first ==  userScriptMessageHandlerIdentifier; }) != notFound)
         return;
-    messageHandlersInWorld.append(std::make_pair(userScriptMessageHandlerIdentifier, WebUserMessageHandlerDescriptorProxy::create(this, name, world, userScriptMessageHandlerIdentifier)));
+    messageHandlersInWorld.append(std::make_pair(userScriptMessageHandlerIdentifier, WebUserMessageHandlerDescriptorProxy::create(*this, name, world, userScriptMessageHandlerIdentifier)));
 }
 
-void WebUserContentController::removeUserScriptMessageHandlerInternal(InjectedBundleScriptWorld& world, uint64_t userScriptMessageHandlerIdentifier)
+void WebUserContentController::removeUserScriptMessageHandlerInternal(InjectedBundleScriptWorld& world, ScriptMessageHandlerIdentifier userScriptMessageHandlerIdentifier)
 {
-    auto it = m_userMessageHandlers.find(&world);
+    auto it = m_userMessageHandlers.find(world);
     if (it == m_userMessageHandlers.end())
         return;
 
-    auto protectedThis = makeRef(*this);
+    Ref protectedThis { *this };
 
     auto& userMessageHandlers = it->value;
     bool userMessageHandlersChanged = userMessageHandlers.removeFirstMatching([userScriptMessageHandlerIdentifier](auto& pair) {
@@ -385,12 +489,13 @@ void WebUserContentController::removeUserScriptMessageHandlerInternal(InjectedBu
 #endif
 
 #if ENABLE(CONTENT_EXTENSIONS)
-void WebUserContentController::addContentRuleLists(Vector<std::pair<String, WebCompiledContentRuleListData>>&& contentRuleLists)
+void WebUserContentController::addContentRuleLists(Vector<std::pair<WebCompiledContentRuleListData, URL>>&& contentRuleLists)
 {
-    for (auto&& contentRuleList : contentRuleLists) {
-        auto compiledContentRuleList = WebCompiledContentRuleList::create(WTFMove(contentRuleList.second));
-
-        m_contentExtensionBackend.addContentExtension(contentRuleList.first, WTFMove(compiledContentRuleList));
+    for (auto&& pair : contentRuleLists) {
+        auto&& contentRuleList = WTF::move(pair.first);
+        String identifier = contentRuleList.identifier;
+        if (RefPtr compiledContentRuleList = WebCompiledContentRuleList::create(WTF::move(contentRuleList)))
+            m_contentExtensionBackend.addContentExtension(identifier, compiledContentRuleList.releaseNonNull(), WTF::move(pair.second));
     }
 }
 
@@ -405,39 +510,45 @@ void WebUserContentController::removeAllContentRuleLists()
 }
 #endif
 
-void WebUserContentController::addUserScriptInternal(InjectedBundleScriptWorld& world, const std::optional<uint64_t>& userScriptIdentifier, UserScript&& userScript, InjectUserScriptImmediately immediately)
+void WebUserContentController::addUserScriptInternal(InjectedBundleScriptWorld& world, const std::optional<UserScriptIdentifier>& userScriptIdentifier, UserScript&& userScript, InjectUserScriptImmediately immediately)
 {
     if (immediately == InjectUserScriptImmediately::Yes) {
         Page::forEachPage([&] (auto& page) {
-            if (&page.userContentProvider() != this)
-                return;
-
-            auto& mainFrame = page.mainFrame();
             if (userScript.injectedFrames() == UserContentInjectedFrames::InjectInTopFrameOnly) {
-                mainFrame.injectUserScriptImmediately(world.coreWorld(), userScript);
+                if (RefPtr localMainFrame = page.localMainFrame(); localMainFrame && localMainFrame->hasUserContentProvider(*this))
+                    localMainFrame->injectUserScriptImmediately(world.coreWorld(), userScript);
                 return;
             }
-
-            for (auto* frame = &mainFrame; frame; frame = frame->tree().traverseNext(&mainFrame))
-                frame->injectUserScriptImmediately(world.coreWorld(), userScript);
+            Ref mainFrame { page.mainFrame() };
+            for (RefPtr frame = mainFrame.ptr(); frame; frame = frame->tree().traverseNext(mainFrame.ptr())) {
+                RefPtr localFrame = dynamicDowncast<LocalFrame>(frame);
+                if (!localFrame)
+                    continue;
+                if (!localFrame->hasUserContentProvider(*this))
+                    continue;
+                Ref coreWorld = world.coreWorld();
+                localFrame->injectUserScriptImmediately(coreWorld, userScript);
+            }
         });
     }
 
-    auto& scriptsInWorld = m_userScripts.ensure(&world, [] { return Vector<std::pair<std::optional<uint64_t>, WebCore::UserScript>>(); }).iterator->value;
-    if (userScriptIdentifier && scriptsInWorld.findMatching([&](auto& pair) { return pair.first == userScriptIdentifier; }) != notFound)
+    auto& scriptsInWorld = m_userScripts.ensure(world, [] {
+        return Vector<std::pair<std::optional<UserScriptIdentifier>, WebCore::UserScript>> { };
+    }).iterator->value;
+    if (userScriptIdentifier && scriptsInWorld.findIf([&](auto& pair) { return pair.first == userScriptIdentifier; }) != notFound)
         return;
 
-    scriptsInWorld.append(std::make_pair(userScriptIdentifier, WTFMove(userScript)));
+    scriptsInWorld.append(std::make_pair(userScriptIdentifier, WTF::move(userScript)));
 }
 
 void WebUserContentController::addUserScript(InjectedBundleScriptWorld& world, UserScript&& userScript)
 {
-    addUserScriptInternal(world, std::nullopt, WTFMove(userScript), InjectUserScriptImmediately::No);
+    addUserScriptInternal(world, std::nullopt, WTF::move(userScript), InjectUserScriptImmediately::No);
 }
 
 void WebUserContentController::removeUserScriptWithURL(InjectedBundleScriptWorld& world, const URL& url)
 {
-    auto it = m_userScripts.find(&world);
+    auto it = m_userScripts.find(world);
     if (it == m_userScripts.end())
         return;
 
@@ -450,9 +561,9 @@ void WebUserContentController::removeUserScriptWithURL(InjectedBundleScriptWorld
         m_userScripts.remove(it);
 }
 
-void WebUserContentController::removeUserScriptInternal(InjectedBundleScriptWorld& world, uint64_t userScriptIdentifier)
+void WebUserContentController::removeUserScriptInternal(InjectedBundleScriptWorld& world, UserScriptIdentifier userScriptIdentifier)
 {
-    auto it = m_userScripts.find(&world);
+    auto it = m_userScripts.find(world);
     if (it == m_userScripts.end())
         return;
 
@@ -467,34 +578,36 @@ void WebUserContentController::removeUserScriptInternal(InjectedBundleScriptWorl
 
 void WebUserContentController::removeUserScripts(InjectedBundleScriptWorld& world)
 {
-    m_userScripts.remove(&world);
+    m_userScripts.remove(world);
 }
 
-void WebUserContentController::addUserStyleSheetInternal(InjectedBundleScriptWorld& world, const std::optional<uint64_t>& userStyleSheetIdentifier, UserStyleSheet&& userStyleSheet)
+void WebUserContentController::addUserStyleSheetInternal(InjectedBundleScriptWorld& world, const std::optional<UserStyleSheetIdentifier>& userStyleSheetIdentifier, UserStyleSheet&& userStyleSheet)
 {
-    auto& styleSheetsInWorld = m_userStyleSheets.ensure(&world, [] { return Vector<std::pair<std::optional<uint64_t>, WebCore::UserStyleSheet>>(); }).iterator->value;
-    if (userStyleSheetIdentifier && styleSheetsInWorld.findMatching([&](auto& pair) { return pair.first == userStyleSheetIdentifier; }) != notFound)
+    auto& styleSheetsInWorld = m_userStyleSheets.ensure(world, [] {
+        return Vector<std::pair<std::optional<UserStyleSheetIdentifier>, WebCore::UserStyleSheet>> { };
+    }).iterator->value;
+    if (userStyleSheetIdentifier && styleSheetsInWorld.findIf([&](auto& pair) { return pair.first == userStyleSheetIdentifier; }) != notFound)
         return;
 
     if (auto pageID = userStyleSheet.pageID()) {
-        if (auto* webPage = WebProcess::singleton().webPage(*pageID)) {
-            if (auto* page = webPage->corePage())
+        if (RefPtr webPage = WebProcess::singleton().webPage(*pageID)) {
+            if (RefPtr page = webPage->corePage())
                 page->injectUserStyleSheet(userStyleSheet);
         }
     }
 
-    styleSheetsInWorld.append(std::make_pair(userStyleSheetIdentifier, WTFMove(userStyleSheet)));
+    styleSheetsInWorld.append(std::make_pair(userStyleSheetIdentifier, WTF::move(userStyleSheet)));
 }
 
 void WebUserContentController::addUserStyleSheet(InjectedBundleScriptWorld& world, UserStyleSheet&& userStyleSheet)
 {
-    addUserStyleSheetInternal(world, std::nullopt, WTFMove(userStyleSheet));
+    addUserStyleSheetInternal(world, std::nullopt, WTF::move(userStyleSheet));
     invalidateInjectedStyleSheetCacheInAllFramesInAllPages();
 }
 
 void WebUserContentController::removeUserStyleSheetWithURL(InjectedBundleScriptWorld& world, const URL& url)
 {
-    auto it = m_userStyleSheets.find(&world);
+    auto it = m_userStyleSheets.find(world);
     if (it == m_userStyleSheets.end())
         return;
 
@@ -512,9 +625,9 @@ void WebUserContentController::removeUserStyleSheetWithURL(InjectedBundleScriptW
     invalidateInjectedStyleSheetCacheInAllFramesInAllPages();
 }
 
-void WebUserContentController::removeUserStyleSheetInternal(InjectedBundleScriptWorld& world, uint64_t userStyleSheetIdentifier)
+void WebUserContentController::removeUserStyleSheetInternal(InjectedBundleScriptWorld& world, UserStyleSheetIdentifier userStyleSheetIdentifier)
 {
-    auto it = m_userStyleSheets.find(&world);
+    auto it = m_userStyleSheets.find(world);
     if (it == m_userStyleSheets.end())
         return;
 
@@ -526,8 +639,8 @@ void WebUserContentController::removeUserStyleSheetInternal(InjectedBundleScript
 
         auto& userStyleSheet = pair.second;
         if (auto pageID = userStyleSheet.pageID()) {
-            if (auto* webPage = WebProcess::singleton().webPage(*pageID)) {
-                if (auto* page = webPage->corePage())
+            if (RefPtr webPage = WebProcess::singleton().webPage(*pageID)) {
+                if (RefPtr page = webPage->corePage())
                     page->removeInjectedUserStyleSheet(userStyleSheet);
             }
         }
@@ -545,7 +658,7 @@ void WebUserContentController::removeUserStyleSheetInternal(InjectedBundleScript
 
 void WebUserContentController::removeUserStyleSheets(InjectedBundleScriptWorld& world)
 {
-    if (!m_userStyleSheets.remove(&world))
+    if (!m_userStyleSheets.remove(world))
         return;
 
     invalidateInjectedStyleSheetCacheInAllFramesInAllPages();
@@ -561,16 +674,17 @@ void WebUserContentController::removeAllUserContent()
     }
 }
 
-void WebUserContentController::forEachUserScript(Function<void(WebCore::DOMWrapperWorld&, const WebCore::UserScript&)>&& functor) const
+void WebUserContentController::forEachUserScript(NOESCAPE const Function<void(WebCore::DOMWrapperWorld&, const WebCore::UserScript&)>& functor) const
 {
     for (const auto& worldAndUserScriptVector : m_userScripts) {
-        auto& world = worldAndUserScriptVector.key->coreWorld();
+        Ref key = worldAndUserScriptVector.key;
+        Ref world = key->coreWorld();
         for (const auto& identifierUserScriptPair : worldAndUserScriptVector.value)
             functor(world, identifierUserScriptPair.second);
     }
 }
 
-void WebUserContentController::forEachUserStyleSheet(Function<void(const WebCore::UserStyleSheet&)>&& functor) const
+void WebUserContentController::forEachUserStyleSheet(NOESCAPE const Function<void(const WebCore::UserStyleSheet&)>& functor) const
 {
     for (auto& styleSheetVector : m_userStyleSheets.values()) {
         for (const auto& identifierUserStyleSheetPair : styleSheetVector)
@@ -579,13 +693,54 @@ void WebUserContentController::forEachUserStyleSheet(Function<void(const WebCore
 }
 
 #if ENABLE(USER_MESSAGE_HANDLERS)
-void WebUserContentController::forEachUserMessageHandler(Function<void(const WebCore::UserMessageHandlerDescriptor&)>&& functor) const
+void WebUserContentController::forEachUserMessageHandler(NOESCAPE const Function<void(const WebCore::UserMessageHandlerDescriptor&)>& functor) const
 {
     for (auto& userMessageHandlerVector : m_userMessageHandlers.values()) {
         for (auto& pair : userMessageHandlerVector)
-            functor(*pair.second.get());
+            functor(pair.second.get());
     }
 }
 #endif
+
+void WebUserContentController::addJSBuffer(WebJSBufferData&& data)
+{
+    if (!data.data) {
+        ASSERT_NOT_REACHED();
+        return;
+    }
+    addContentWorldIfNecessary(data.worldData);
+    m_buffers.ensure(data.worldData.identifier, [] {
+        return HashMap<String, Ref<WebCore::WebKitBuffer>>();
+    }).iterator->value.set(data.name, SharedMemoryJSBuffer::create(data.data.releaseNonNull()));
+}
+
+void WebUserContentController::removeJSBuffer(ContentWorldIdentifier identifier, const String& name)
+{
+    auto it = m_buffers.find(identifier);
+    if (it == m_buffers.end())
+        return;
+    it->value.remove(name);
+    if (it->value.isEmpty())
+        m_buffers.remove(it);
+}
+
+bool WebUserContentController::hasBuffersForWorld(const WebCore::DOMWrapperWorld& coreWorld) const
+{
+    RefPtr world = InjectedBundleScriptWorld::get(coreWorld);
+    if (!world)
+        return false;
+    return m_buffers.contains(world->identifier());
+}
+
+WebCore::WebKitBuffer* WebUserContentController::buffer(const WebCore::DOMWrapperWorld& coreWorld, const String& name) const
+{
+    RefPtr world = InjectedBundleScriptWorld::get(coreWorld);
+    if (!world)
+        return nullptr;
+    auto it = m_buffers.find(world->identifier());
+    if (it == m_buffers.end())
+        return nullptr;
+    return it->value.get(name);
+}
 
 } // namespace WebKit

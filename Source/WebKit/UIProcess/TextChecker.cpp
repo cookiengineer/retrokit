@@ -28,20 +28,20 @@
 #include "config.h"
 #include "TextChecker.h"
 
-#if !PLATFORM(COCOA) && !PLATFORM(GTK)
+#if !PLATFORM(COCOA) && !PLATFORM(GTK) && !PLATFORM(WPE)
 #include "TextCheckerState.h"
 #include <WebCore/NotImplemented.h>
 
 namespace WebKit {
 using namespace WebCore;
 
-static TextCheckerState& checkerState()
+static OptionSet<TextCheckerState>& checkerState()
 {
-    static TextCheckerState textCheckerState;
+    static OptionSet<TextCheckerState> textCheckerState;
     return textCheckerState;
 }
 
-const TextCheckerState& TextChecker::state()
+OptionSet<TextCheckerState> TextChecker::state()
 {
     return checkerState();
 }
@@ -145,6 +145,11 @@ void TextChecker::requestCheckingOfString(Ref<TextCheckerCompletion>&&, int32_t)
     notImplemented();
 }
 
+void TextChecker::requestExtendedCheckingOfString(Ref<TextCheckerCompletion>&&, int32_t)
+{
+    notImplemented();
+}
+
 #if USE(UNIFIED_TEXT_CHECKING)
 Vector<TextCheckingResult> TextChecker::checkTextOfParagraph(SpellDocumentTag, StringView, int32_t, OptionSet<TextCheckingType>, bool)
 {
@@ -155,4 +160,4 @@ Vector<TextCheckingResult> TextChecker::checkTextOfParagraph(SpellDocumentTag, S
 
 } // namespace WebKit 
 
-#endif // !PLATFORM(COCOA) && !PLATFORM(GTK)
+#endif // !PLATFORM(COCOA) && !PLATFORM(GTK) && && !PLATFORM(WPE)

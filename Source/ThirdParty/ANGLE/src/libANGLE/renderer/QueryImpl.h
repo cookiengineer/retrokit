@@ -37,18 +37,11 @@ class QueryImpl : angle::NonCopyable
     virtual angle::Result getResult(const gl::Context *context, GLuint64 *params)        = 0;
     virtual angle::Result isResultAvailable(const gl::Context *context, bool *available) = 0;
 
+    virtual angle::Result onLabelUpdate(const gl::Context *context);
+
     gl::QueryType getType() const { return mType; }
 
-    // Convenient functions
-    bool isOcclusionQuery() const { return isAnySamplesQuery() || isAnySamplesConservativeQuery(); }
-    bool isAnySamplesQuery() const { return getType() == gl::QueryType::AnySamples; }
-
-    bool isAnySamplesConservativeQuery() const
-    {
-        return getType() == gl::QueryType::AnySamplesConservative;
-    }
-
-  private:
+  protected:
     gl::QueryType mType;
 };
 }  // namespace rx

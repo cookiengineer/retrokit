@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Apple Inc.  All rights reserved.
+ * Copyright (C) 2012 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -43,17 +43,19 @@ class RenderFragmentedFlow;
 // FIXME: For now we derive from RenderFragmentContainer, but this may change at some point.
 
 class RenderFragmentContainerSet : public RenderFragmentContainer {
-    WTF_MAKE_ISO_ALLOCATED(RenderFragmentContainerSet);
+    WTF_MAKE_TZONE_ALLOCATED(RenderFragmentContainerSet);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderFragmentContainerSet);
 public:
     void expandToEncompassFragmentedFlowContentsIfNeeded();
 
 protected:
-    RenderFragmentContainerSet(Document&, RenderStyle&&, RenderFragmentedFlow&);
+    RenderFragmentContainerSet(Type, Document&, Style::ComputedStyle&&, RenderFragmentedFlow&);
+    virtual ~RenderFragmentContainerSet();
 
 private:
-    void installFragmentedFlow() final;
+    void NODELETE installFragmentedFlow() final;
 
-    const char* renderName() const override = 0;
+    ASCIILiteral renderName() const override = 0;
     
     bool isRenderFragmentContainerSet() const final { return true; }
 };

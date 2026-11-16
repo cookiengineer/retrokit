@@ -23,116 +23,134 @@
 #include "TransformOperations.h"
 
 #include "AnimationUtilities.h"
-#include "IdentityTransformOperation.h"
 #include "Matrix3DTransformOperation.h"
 #include <algorithm>
+#include <ranges>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
-TransformOperations::TransformOperations(bool makeIdentity)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(TransformOperations);
+
+TransformOperations::TransformOperations(Ref<TransformOperation>&& operation)
+    : m_operations({ WTF::move(operation) })
 {
-    if (makeIdentity)
-        m_operations.append(IdentityTransformOperation::create());
+}
+
+TransformOperations::TransformOperations(Vector<Ref<TransformOperation>>&& operations)
+    : m_operations(WTF::move(operations))
+{
 }
 
 bool TransformOperations::operator==(const TransformOperations& o) const
 {
-    if (m_operations.size() != o.m_operations.size())
-        return false;
-        
-    unsigned s = m_operations.size();
-    for (unsigned i = 0; i < s; i++) {
-        if (*m_operations[i] != *o.m_operations[i])
-            return false;
-    }
-    
-    return true;
+    static_assert(std::ranges::sized_range<decltype(m_operations)>);
+
+    return std::ranges::equal(m_operations, o.m_operations, [](auto& a, auto& b) { return arePointingToEqualData(a, b); });
 }
 
-bool TransformOperations::operationsMatch(const TransformOperations& other) const
+TransformOperations TransformOperations::clone() const
 {
-    size_t numOperations = operations().size();
-    // If the sizes of the function lists don't match, the lists don't match
-    if (numOperations != other.operations().size())
-        return false;
-    
-    // If the types of each function are not the same, the lists don't match
-    for (size_t i = 0; i < numOperations; ++i) {
-        if (!operations()[i]->isSameType(*other.operations()[i]))
-            return false;
-    }
-    return true;
+    return TransformOperations { m_operations.map([](const auto& op) { return op->clone(); }) };
 }
 
-bool TransformOperations::affectedByTransformOrigin() const
+void TransformOperations::apply(TransformationMatrix& matrix, unsigned start) const
 {
-    for (const auto& operation : m_operations) {
-        if (operation->isAffectedByTransformOrigin())
-            return true;
-    }
-    return false;
+    for (unsigned i = start; i < m_operations.size(); ++i)
+        protect(m_operations[i])->apply(matrix);
 }
 
-TransformOperations TransformOperations::blendByMatchingOperations(const TransformOperations& from, const BlendingContext& context) const
+bool TransformOperations::isInvertible() const
 {
-    TransformOperations result;
+    TransformationMatrix transform;
+    apply(transform);
+    return transform.isInvertible();
+}
 
-    unsigned fromSize = from.operations().size();
-    unsigned toSize = operations().size();
-    unsigned size = std::max(fromSize, toSize);
-    for (unsigned i = 0; i < size; i++) {
-        RefPtr<TransformOperation> fromOperation = (i < fromSize) ? from.operations()[i].get() : nullptr;
-        RefPtr<TransformOperation> toOperation = (i < toSize) ? operations()[i].get() : nullptr;
-        RefPtr<TransformOperation> blendedOperation = toOperation ? toOperation->blend(fromOperation.get(), context) : (fromOperation ? RefPtr<TransformOperation>(fromOperation->blend(nullptr, context, true)) : nullptr);
-        if (blendedOperation)
-            result.operations().append(blendedOperation);
-        else {
-            auto identityOperation = IdentityTransformOperation::create();
-            if (context.progress > 0.5)
-                result.operations().append(toOperation ? toOperation : WTFMove(identityOperation));
-            else
-                result.operations().append(fromOperation ? fromOperation : WTFMove(identityOperation));
+bool TransformOperations::containsNonInvertibleMatrix() const
+{
+    return (hasTransformOfType<TransformOperation::Type::Matrix>() || hasTransformOfType<TransformOperation::Type::Matrix3D>()) && !isInvertible();
+}
+
+TransformOperations blend(const TransformOperations& from, const TransformOperations& to, const BlendingContext& context)
+{
+    if (context.compositeOperation == CompositeOperation::Add) {
+        ASSERT(context.progress == 1.0);
+
+        Vector<Ref<TransformOperation>> operations;
+        operations.reserveInitialCapacity(from.size() + to.size());
+        for (auto& fromOperation : from)
+            operations.append(fromOperation);
+        for (auto& toOperation : to)
+            operations.append(toOperation);
+        return TransformOperations { WTF::move(operations) };
+    }
+
+    bool shouldFallBackToDiscreteInterpolation = from.containsNonInvertibleMatrix() || to.containsNonInvertibleMatrix();
+
+    auto createBlendedMatrixOperationFromOperationsSuffix = [&](unsigned start) -> Ref<TransformOperation> {
+        TransformationMatrix fromTransform;
+        from.apply(fromTransform, start);
+
+        TransformationMatrix toTransform;
+        to.apply(toTransform, start);
+
+        auto progress = context.progress;
+        auto compositeOperation = context.compositeOperation;
+        if (shouldFallBackToDiscreteInterpolation) {
+            progress = progress < 0.5 ? 0 : 1;
+            compositeOperation = CompositeOperation::Replace;
         }
+
+        toTransform.blend(fromTransform, progress, compositeOperation);
+        return Matrix3DTransformOperation::create(toTransform);
+    };
+
+    if (shouldFallBackToDiscreteInterpolation)
+        return TransformOperations { createBlendedMatrixOperationFromOperationsSuffix(0) };
+
+    unsigned fromOperationCount = from.size();
+    unsigned toOperationCount = to.size();
+    unsigned maxOperationCount = std::max(fromOperationCount, toOperationCount);
+
+    Vector<Ref<TransformOperation>> operations;
+    operations.reserveInitialCapacity(maxOperationCount);
+
+    for (unsigned i = 0; i < maxOperationCount; i++) {
+        RefPtr<TransformOperation> fromOperation = (i < fromOperationCount) ? from[i].ptr() : nullptr;
+        RefPtr<TransformOperation> toOperation = (i < toOperationCount) ? to[i].ptr() : nullptr;
+
+        // If either of the transform list is empty, then we should not attempt to do a matrix blend.
+        if (fromOperationCount && toOperationCount) {
+            if (fromOperation && toOperation && !fromOperation->sharedPrimitiveType(toOperation.get())) {
+                operations.append(createBlendedMatrixOperationFromOperationsSuffix(i));
+                operations.shrinkToFit();
+
+                return TransformOperations { WTF::move(operations) };
+            }
+        }
+
+        RefPtr<TransformOperation> blendedOperation;
+        if (fromOperation && toOperation)
+            blendedOperation = toOperation->blend(fromOperation.get(), context);
+        else if (!fromOperation)
+            blendedOperation = toOperation->blend(nullptr, 1 - context.progress, true);
+        else if (!toOperation)
+            blendedOperation = fromOperation->blend(nullptr, context, true);
+
+        // We should have exited early above if the fromOperation and toOperation didn't share a transform
+        // function primitive, so blending the two operations should always yield a result.
+        ASSERT(blendedOperation);
+        operations.append(blendedOperation.releaseNonNull());
     }
 
-    return result;
-}
-
-TransformOperations TransformOperations::blendByUsingMatrixInterpolation(const TransformOperations& from, const BlendingContext& context, const LayoutSize& size) const
-{
-    TransformOperations result;
-
-    // Convert the TransformOperations into matrices
-    TransformationMatrix fromTransform;
-    TransformationMatrix toTransform;
-    from.apply(size, fromTransform);
-    apply(size, toTransform);
-
-    toTransform.blend(fromTransform, context.progress);
-
-    // Append the result
-    result.operations().append(Matrix3DTransformOperation::create(toTransform));
-
-    return result;
-}
-
-TransformOperations TransformOperations::blend(const TransformOperations& from, const BlendingContext& context, const LayoutSize& size) const
-{
-    if (from == *this)
-        return *this;
-
-    if (from.size() && from.operationsMatch(*this))
-        return blendByMatchingOperations(from, context);
-
-    return blendByUsingMatrixInterpolation(from, context, size);
+    return TransformOperations { WTF::move(operations) };
 }
 
 TextStream& operator<<(TextStream& ts, const TransformOperations& ops)
 {
-    for (const auto& operation : ops.operations())
-        ts << *operation;
-    return ts;
+    return ts << ops.m_operations;
 }
 
 } // namespace WebCore

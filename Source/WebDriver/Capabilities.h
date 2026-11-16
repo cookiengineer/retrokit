@@ -55,7 +55,7 @@ enum class UnhandledPromptBehavior {
 
 struct Proxy {
     String type;
-    std::optional<String> autoconfigURL;
+    std::optional<URL> autoconfigURL;
     std::optional<URL> ftpURL;
     std::optional<URL> httpURL;
     std::optional<URL> httpsURL;
@@ -75,6 +75,9 @@ struct Capabilities {
     std::optional<PageLoadStrategy> pageLoadStrategy;
     std::optional<UnhandledPromptBehavior> unhandledPromptBehavior;
     std::optional<Proxy> proxy;
+    std::optional<String> targetAddr;
+    std::optional<int> targetPort;
+    std::optional<uint64_t> processID;
 #if PLATFORM(GTK) || PLATFORM(WPE)
     std::optional<String> browserBinary;
     std::optional<Vector<String>> browserArguments;
@@ -83,10 +86,8 @@ struct Capabilities {
 #if PLATFORM(GTK)
     std::optional<bool> useOverlayScrollbars;
 #endif
-#if USE(INSPECTOR_SOCKET_SERVER)
-    std::optional<String> targetAddr;
-    std::optional<int> targetPort;
-#endif
+    // https://w3c.github.io/webdriver-bidi/#websocket-url
+    std::optional<bool> webSocketURL;
 };
 
 } // namespace WebDriver

@@ -21,37 +21,41 @@
 #include "AudioBus.h"
 #include "AudioDestination.h"
 #include "GRefPtrGStreamer.h"
-#include <wtf/Condition.h>
 #include <wtf/Forward.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 
 namespace WebCore {
 
-class AudioDestinationGStreamer : public AudioDestination {
+class AudioDestinationGStreamer : public AudioDestination, public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<AudioDestinationGStreamer, WTF::DestructionThread::Main> {
 public:
-    AudioDestinationGStreamer(AudioIOCallback&, unsigned long numberOfOutputChannels, float sampleRate);
+    AudioDestinationGStreamer(const CreationOptions&);
     virtual ~AudioDestinationGStreamer();
+
+    void ref() const final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::ref(); }
+    void deref() const final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::deref(); }
 
     WEBCORE_EXPORT void start(Function<void(Function<void()>&&)>&& dispatchToRenderThread, CompletionHandler<void(bool)>&&) final;
     WEBCORE_EXPORT void stop(CompletionHandler<void(bool)>&&) final;
 
     bool isPlaying() override { return m_isPlaying; }
-    float sampleRate() const override { return m_sampleRate; }
     unsigned framesPerBuffer() const final;
 
-    gboolean handleMessage(GstMessage*);
+    bool handleMessage(GstMessage*, bool handleLatencyMessage);
     void notifyIsPlaying(bool);
+
+    const RefPtr<AudioBus>& renderBus() const { return m_renderBus; }
 
 protected:
     virtual void startRendering(CompletionHandler<void(bool)>&&);
     virtual void stopRendering(CompletionHandler<void(bool)>&&);
 
 private:
+    void initializePipeline();
     void notifyStartupResult(bool);
     void notifyStopResult(bool);
 
     RefPtr<AudioBus> m_renderBus;
 
-    float m_sampleRate;
     bool m_isPlaying { false };
     bool m_audioSinkAvailable { false };
     GRefPtr<GstElement> m_pipeline;

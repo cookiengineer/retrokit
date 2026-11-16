@@ -27,24 +27,31 @@
 
 #if ENABLE(CONTENT_FILTERING)
 
+#include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 #include <wtf/Forward.h>
 
 namespace WebCore {
 
 class ContentFilterUnblockHandler;
 class ResourceError;
+class SharedBuffer;
 class SubstituteData;
 
-class ContentFilterClient {
+class ContentFilterClient : public AbstractRefCountedAndCanMakeWeakPtr<ContentFilterClient> {
 public:
     virtual ~ContentFilterClient() = default;
-    virtual void ref() const = 0;
-    virtual void deref() const = 0;
 
-    virtual void dataReceivedThroughContentFilter(const uint8_t*, int) = 0;
-    virtual ResourceError contentFilterDidBlock(ContentFilterUnblockHandler, String&& unblockRequestDeniedScript) = 0;
+    virtual void dataReceivedThroughContentFilter(const SharedBuffer&) = 0;
+    virtual ResourceError contentFilterDidBlock(ContentFilterUnblockHandler&&, String&& unblockRequestDeniedScript) = 0;
     virtual void cancelMainResourceLoadForContentFilter(const ResourceError&) = 0;
-    virtual void handleProvisionalLoadFailureFromContentFilter(const URL& blockedPageURL, SubstituteData&) = 0;
+    virtual void handleProvisionalLoadFailureFromContentFilter(const URL& blockedPageURL, SubstituteData&&) = 0;
+
+#if HAVE(WEBCONTENTRESTRICTIONS)
+#if HAVE(WEBCONTENTRESTRICTIONS_PATH_SPI)
+    virtual String webContentRestrictionsConfigurationPath() const = 0;
+#endif
+    virtual URL mainDocumentURL() const = 0;
+#endif
 };
 
 } // namespace WebCore

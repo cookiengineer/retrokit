@@ -1,7 +1,7 @@
 /*
  * This file is part of the XSL implementation.
  *
- * Copyright (C) 2004, 2005, 2006, 2007, 2008 Apple, Inc. All rights reserved.
+ * Copyright (C) 2004-2025 Apple, Inc. All rights reserved.
  * Copyright (C) 2005, 2006 Alexey Proskuryakov <ap@webkit.org>
  *
  * This library is free software; you can redistribute it and/or
@@ -27,11 +27,15 @@
 
 #include "DOMImplementation.h"
 #include "CachedResourceLoader.h"
+#include "CommonAtomStrings.h"
 #include "ContentSecurityPolicy.h"
 #include "DocumentFragment.h"
-#include "Frame.h"
+#include "DocumentView.h"
 #include "FrameLoader.h"
-#include "FrameView.h"
+#include "LocalFrame.h"
+#include "LocalFrameInlines.h"
+#include "LocalFrameView.h"
+#include "NodeDocument.h"
 #include "SecurityOrigin.h"
 #include "SecurityOriginPolicy.h"
 #include "Text.h"
@@ -39,22 +43,23 @@
 #include "XMLDocument.h"
 #include "markup.h"
 #include <wtf/Assertions.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
 static inline void transformTextStringToXHTMLDocumentString(String& text)
 {
     // Modify the output so that it is a well-formed XHTML document with a <pre> tag enclosing the text.
-    text.replaceWithLiteral('&', "&amp;");
-    text.replaceWithLiteral('<', "&lt;");
-    text = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+    text = makeStringByReplacingAll(text, '&', "&amp;"_s);
+    text = makeStringByReplacingAll(text, '<', "&lt;"_s);
+    text = makeString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
         "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Strict//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd\">\n"
         "<html xmlns=\"http://www.w3.org/1999/xhtml\">\n"
         "<head><title/></head>\n"
         "<body>\n"
-        "<pre>" + text + "</pre>\n"
+        "<pre>"_s, text, "</pre>\n"
         "</body>\n"
-        "</html>\n";
+        "</html>\n"_s);
 }
 
 XSLTProcessor::~XSLTProcessor()
@@ -64,14 +69,14 @@ XSLTProcessor::~XSLTProcessor()
 }
 
 Ref<Document> XSLTProcessor::createDocumentFromSource(const String& sourceString,
-    const String& sourceEncoding, const String& sourceMIMEType, Node* sourceNode, Frame* frame)
+    const String& sourceEncoding, const String& sourceMIMEType, Node* sourceNode, LocalFrame* frame)
 {
     Ref<Document> ownerDocument(sourceNode->document());
     bool sourceIsDocument = (sourceNode == &ownerDocument.get());
     String documentSource = sourceString;
 
     RefPtr<Document> result;
-    if (sourceMIMEType == "text/plain") {
+    if (sourceMIMEType == textPlainContentTypeAtom()) {
         result = XMLDocument::createXHTML(frame, ownerDocument->settings(), sourceIsDocument ? ownerDocument->url() : URL());
         transformTextStringToXHTMLDocumentString(documentSource);
     } else
@@ -80,62 +85,61 @@ Ref<Document> XSLTProcessor::createDocumentFromSource(const String& sourceString
     // Before parsing, we need to save & detach the old document and get the new document
     // in place. We have to do this only if we're rendering the result document.
     if (frame) {
-        if (FrameView* view = frame->view())
+        if (RefPtr view = frame->view())
             view->clear();
 
-        if (Document* oldDocument = frame->document()) {
-            result->setTransformSourceDocument(oldDocument);
+        if (RefPtr oldDocument = frame->document()) {
+            result->setTransformSourceDocument(oldDocument.get());
             result->takeDOMWindowFrom(*oldDocument);
             result->setSecurityOriginPolicy(oldDocument->securityOriginPolicy());
             result->setCookieURL(oldDocument->cookieURL());
             result->setFirstPartyForCookies(oldDocument->firstPartyForCookies());
             result->setSiteForCookies(oldDocument->siteForCookies());
-            result->setStrictMixedContentMode(oldDocument->isStrictMixedContentMode());
-            result->contentSecurityPolicy()->copyStateFrom(oldDocument->contentSecurityPolicy());
-            result->contentSecurityPolicy()->copyUpgradeInsecureRequestStateFrom(*oldDocument->contentSecurityPolicy());
+            CheckedRef resultCSP = *result->contentSecurityPolicy();
+            CheckedRef oldDocumentCSP = *oldDocument->contentSecurityPolicy();
+            resultCSP->copyStateFrom(oldDocumentCSP.ptr());
+            resultCSP->copyUpgradeInsecureRequestStateFrom(oldDocumentCSP);
         }
 
         frame->setDocument(result.copyRef());
     }
 
     auto decoder = TextResourceDecoder::create(sourceMIMEType);
-    decoder->setEncoding(sourceEncoding.isEmpty() ? UTF8Encoding() : TextEncoding(sourceEncoding), TextResourceDecoder::EncodingFromXMLHeader);
-    result->setDecoder(WTFMove(decoder));
+    decoder->setEncoding(sourceEncoding.isEmpty() ? PAL::UTF8Encoding() : PAL::TextEncoding(sourceEncoding), TextResourceDecoder::EncodingFromXMLHeader);
+    result->setDecoder(WTF::move(decoder));
 
-    result->setContent(documentSource);
+    result->setMarkupUnsafe(documentSource, { ParserContentPolicy::AllowDeclarativeShadowRoots });
 
     return result.releaseNonNull();
 }
 
-RefPtr<Document> XSLTProcessor::transformToDocument(Node* sourceNode)
+RefPtr<Document> XSLTProcessor::transformToDocument(Document& callerDocument, Node& sourceNode)
 {
-    if (!sourceNode)
-        return nullptr;
+    callerDocument.logXSLTDeprecationWarningIfNeeded();
 
     String resultMIMEType;
     String resultString;
     String resultEncoding;
-    if (!transformToString(*sourceNode, resultMIMEType, resultString, resultEncoding))
+    if (!transformToString(sourceNode, resultMIMEType, resultString, resultEncoding))
         return nullptr;
-    return createDocumentFromSource(resultString, resultEncoding, resultMIMEType, sourceNode, 0);
+    return createDocumentFromSource(resultString, resultEncoding, resultMIMEType, &sourceNode, nullptr);
 }
 
-RefPtr<DocumentFragment> XSLTProcessor::transformToFragment(Node* sourceNode, Document* outputDoc)
+RefPtr<DocumentFragment> XSLTProcessor::transformToFragment(Document& callerDocument, Node& sourceNode, Document& outputDocument)
 {
-    if (!sourceNode || !outputDoc)
-        return nullptr;
+    callerDocument.logXSLTDeprecationWarningIfNeeded();
 
     String resultMIMEType;
     String resultString;
     String resultEncoding;
 
     // If the output document is HTML, default to HTML method.
-    if (outputDoc->isHTMLDocument())
-        resultMIMEType = "text/html";
+    if (outputDocument.isHTMLDocument())
+        resultMIMEType = textHTMLContentTypeAtom();
 
-    if (!transformToString(*sourceNode, resultMIMEType, resultString, resultEncoding))
+    if (!transformToString(sourceNode, resultMIMEType, resultString, resultEncoding))
         return nullptr;
-    return createFragmentForTransformToFragment(*outputDoc, resultString, resultMIMEType);
+    return createFragmentForTransformToFragment(outputDocument, WTF::move(resultString), WTF::move(resultMIMEType));
 }
 
 void XSLTProcessor::setParameter(const String& /*namespaceURI*/, const String& localName, const String& value)

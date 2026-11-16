@@ -38,7 +38,7 @@ void JSLock(JSContextRef ctx)
         return;
     }
     JSGlobalObject* globalObject = toJS(ctx);
-    globalObject->vm().apiLock().lock();
+    protect(globalObject->vm().apiLock())->lock();
 }
 
 void JSUnlock(JSContextRef ctx)
@@ -48,5 +48,5 @@ void JSUnlock(JSContextRef ctx)
         return;
     }
     JSGlobalObject* globalObject = toJS(ctx);
-    globalObject->vm().apiLock().unlock();
+    protect(globalObject->vm().apiLock())->unlock();
 }

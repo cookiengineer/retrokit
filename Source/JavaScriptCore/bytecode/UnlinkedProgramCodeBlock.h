@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2019 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2012-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "UnlinkedGlobalCodeBlock.h"
+#include <JavaScriptCore/UnlinkedGlobalCodeBlock.h>
 
 namespace JSC {
 
@@ -37,14 +37,14 @@ public:
     static constexpr unsigned StructureFlags = Base::StructureFlags | StructureIsImmortal;
 
     template<typename CellType, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         return vm.unlinkedProgramCodeBlockSpace<mode>();
     }
 
     static UnlinkedProgramCodeBlock* create(VM& vm, const ExecutableInfo& info, OptionSet<CodeGenerationMode> codeGenerationMode)
     {
-        UnlinkedProgramCodeBlock* instance = new (NotNull, allocateCell<UnlinkedProgramCodeBlock>(vm.heap)) UnlinkedProgramCodeBlock(vm, vm.unlinkedProgramCodeBlockStructure.get(), info, codeGenerationMode);
+        UnlinkedProgramCodeBlock* instance = new (NotNull, allocateCell<UnlinkedProgramCodeBlock>(vm)) UnlinkedProgramCodeBlock(vm, vm.unlinkedProgramCodeBlockStructure.get(), info, codeGenerationMode);
         instance->finishCreation(vm);
         return instance;
     }
@@ -52,10 +52,10 @@ public:
     static void destroy(JSCell*);
 
     void setVariableDeclarations(const VariableEnvironment& environment) { m_varDeclarations = environment; }
-    const VariableEnvironment& variableDeclarations() const { return m_varDeclarations; }
+    const VariableEnvironment& variableDeclarations() const LIFETIME_BOUND { return m_varDeclarations; }
 
     void setLexicalDeclarations(const VariableEnvironment& environment) { m_lexicalDeclarations = environment; }
-    const VariableEnvironment& lexicalDeclarations() const { return m_lexicalDeclarations; }
+    const VariableEnvironment& lexicalDeclarations() const LIFETIME_BOUND { return m_lexicalDeclarations; }
 
 private:
     friend CachedProgramCodeBlock;
@@ -71,10 +71,7 @@ private:
     VariableEnvironment m_lexicalDeclarations;
 
 public:
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue proto)
-    {
-        return Structure::create(vm, globalObject, proto, TypeInfo(UnlinkedProgramCodeBlockType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
     DECLARE_INFO;
 };

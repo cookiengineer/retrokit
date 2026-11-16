@@ -19,6 +19,7 @@
 #pragma once
 
 #include <wtf/Vector.h>
+#include <wtf/glib/GRefPtr.h>
 #include <wtf/text/WTFString.h>
 
 typedef struct _GtkWidget GtkWidget;
@@ -36,7 +37,7 @@ public:
     KeyBindingTranslator();
     ~KeyBindingTranslator();
 
-    GtkWidget* widget() const { return m_nativeWidget; }
+    GtkWidget* widget() const { return m_nativeWidget.get(); }
     void invalidate() { m_nativeWidget = nullptr; }
 
 #if USE(GTK4)
@@ -46,10 +47,10 @@ public:
 #endif
     Vector<String> commandsForKeyval(unsigned keyval, unsigned modifiers);
 
-    void addPendingEditorCommand(const char* command) { m_pendingEditorCommands.append(command); }
+    void addPendingEditorCommand(const char* command) { m_pendingEditorCommands.append(String::fromLatin1(command)); }
 
 private:
-    GtkWidget* m_nativeWidget;
+    GRefPtr<GtkWidget> m_nativeWidget;
     Vector<String> m_pendingEditorCommands;
 };
 

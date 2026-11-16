@@ -37,19 +37,19 @@ public:
 
     virtual ~CSSNamespaceRule();
 
-    AtomString namespaceURI() const;
-    AtomString prefix() const;
+    AtomString NODELETE namespaceURI() const;
+    AtomString NODELETE prefix() const;
 
 private:
     CSSNamespaceRule(StyleRuleNamespace&, CSSStyleSheet*);
 
-    CSSRule::Type type() const final { return NAMESPACE_RULE; }
+    StyleRuleType styleRuleType() const final { return StyleRuleType::Namespace; }
     String cssText() const final;
-    void reattach(StyleRuleBase&) final;
+    void NODELETE reattach(StyleRuleBase&) final;
 
-    Ref<StyleRuleNamespace> m_namespaceRule;
+    const Ref<StyleRuleNamespace> m_namespaceRule;
 };
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_CSS_RULE(CSSNamespaceRule, CSSRule::NAMESPACE_RULE)
+SPECIALIZE_TYPE_TRAITS_CSS_RULE(CSSNamespaceRule, StyleRuleType::Namespace)

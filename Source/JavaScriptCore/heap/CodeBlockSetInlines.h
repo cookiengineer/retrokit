@@ -30,6 +30,7 @@
 
 #include "CodeBlock.h"
 #include "CodeBlockSet.h"
+#include "HeapCellInlines.h"
 
 namespace JSC {
 
@@ -57,18 +58,6 @@ void CodeBlockSet::iterate(const AbstractLocker&, const Functor& functor)
 {
     for (CodeBlock* codeBlock : m_codeBlocks)
         functor(codeBlock);
-}
-
-template<typename Functor>
-void CodeBlockSet::iterateViaSubspaces(VM& vm, const Functor& functor)
-{
-    vm.forEachCodeBlockSpace(
-        [&] (auto& spaceAndSet) {
-            spaceAndSet.space.forEachLiveCell(
-                [&] (HeapCell* cell, HeapCell::Kind) {
-                    functor(jsCast<CodeBlock*>(static_cast<JSCell*>(cell)));
-                });
-        });
 }
 
 template<typename Functor>

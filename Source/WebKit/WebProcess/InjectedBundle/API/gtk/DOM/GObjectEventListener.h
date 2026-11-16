@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include <WebCore/AbortSignal.h>
 #include <WebCore/AddEventListenerOptions.h>
 #include <WebCore/EventListener.h>
 #include <WebCore/EventTarget.h>
@@ -32,17 +33,17 @@ namespace WebKit {
 
 class GObjectEventListener : public WebCore::EventListener {
 public:
-
     static bool addEventListener(GObject* target, WebCore::EventTarget* coreTarget, const char* domEventName, GClosure* handler, bool useCapture)
     {
         Ref<GObjectEventListener> listener(adoptRef(*new GObjectEventListener(target, coreTarget, domEventName, handler, useCapture)));
-        return coreTarget->addEventListener(domEventName, WTFMove(listener), useCapture);
+        auto type = listener->m_eventType;
+        return coreTarget->addEventListener(type, WTF::move(listener), { { useCapture }, std::nullopt, false, nullptr, false });
     }
 
     static bool removeEventListener(GObject* target, WebCore::EventTarget* coreTarget, const char* domEventName, GClosure* handler, bool useCapture)
     {
         GObjectEventListener key(target, coreTarget, domEventName, handler, useCapture);
-        return coreTarget->removeEventListener(domEventName, key, useCapture);
+        return coreTarget->removeEventListener(key.m_eventType, key, { .capture = useCapture });
     }
 
     static void gobjectDestroyedCallback(GObjectEventListener* listener, GObject*)
@@ -70,7 +71,7 @@ private:
     // We do not need to keep a reference to the m_coreTarget, because
     // we only use it when the GObject and thus the m_coreTarget object is alive.
     WebCore::EventTarget* m_coreTarget;
-    CString m_domEventName;
+    AtomString m_eventType;
     GRefPtr<GClosure> m_handler;
     bool m_capture;
 };

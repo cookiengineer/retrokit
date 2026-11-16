@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Google, Inc. All Rights Reserved.
+ * Copyright (C) 2010 Google, Inc. All rights reserved.
  * Copyright (C) 2010-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,18 +28,20 @@
 
 #include "PendingScript.h"
 #include <wtf/Deque.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/TextPosition.h>
 
 namespace WebCore {
 
 class Document;
-class Frame;
 class HTMLScriptRunnerHost;
+class LocalFrame;
 class ScriptSourceCode;
+class WeakPtrImplWithEventTargetData;
 
 class HTMLScriptRunner {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(HTMLScriptRunner);
 public:
     HTMLScriptRunner(Document&, HTMLScriptRunnerHost&);
     ~HTMLScriptRunner();
@@ -54,11 +56,11 @@ public:
     void executeScriptsWaitingForStylesheets();
     bool executeScriptsWaitingForParsing();
 
-    bool hasParserBlockingScript() const;
+    bool NODELETE hasParserBlockingScript() const;
     bool isExecutingScript() const { return !!m_scriptNestingLevel; }
 
 private:
-    Frame* frame() const;
+    LocalFrame* frame() const;
 
     void executePendingScriptAndDispatchEvent(PendingScript&);
     void executeParsingBlockingScripts();
@@ -72,7 +74,7 @@ private:
     void stopWatchingForLoad(PendingScript&);
     bool isPendingScriptReady(const PendingScript&);
 
-    WeakPtr<Document> m_document;
+    WeakPtr<Document, WeakPtrImplWithEventTargetData> m_document;
     HTMLScriptRunnerHost& m_host;
     RefPtr<PendingScript> m_parserBlockingScript;
     Deque<Ref<PendingScript>> m_scriptsToExecuteAfterParsing; // http://www.whatwg.org/specs/web-apps/current-work/#list-of-scripts-that-will-execute-when-the-document-has-finished-parsing

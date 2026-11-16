@@ -33,7 +33,7 @@ namespace NodeTraversal {
 
 Node* previousIncludingPseudo(const Node& current, const Node* stayWithin)
 {
-    Node* previous;
+    Node* previous = nullptr;
     if (&current == stayWithin)
         return nullptr;
     if ((previous = current.pseudoAwarePreviousSibling())) {
@@ -41,19 +41,21 @@ Node* previousIncludingPseudo(const Node& current, const Node* stayWithin)
             previous = previous->pseudoAwareLastChild();
         return previous;
     }
-    return is<PseudoElement>(current) ? downcast<PseudoElement>(current).hostElement() : current.parentNode();
+    auto* pseudoElement = dynamicDowncast<PseudoElement>(current);
+    return pseudoElement ? pseudoElement->hostElement() : current.parentNode();
 }
 
 Node* nextIncludingPseudo(const Node& current, const Node* stayWithin)
 {
-    Node* next;
+    Node* next = nullptr;
     if ((next = current.pseudoAwareFirstChild()))
         return next;
     if (&current == stayWithin)
         return nullptr;
     if ((next = current.pseudoAwareNextSibling()))
         return next;
-    const Node* ancestor = is<PseudoElement>(current) ? downcast<PseudoElement>(current).hostElement() : current.parentNode();
+    auto* pseudoElement = dynamicDowncast<PseudoElement>(current);
+    const Node* ancestor = pseudoElement ? pseudoElement->hostElement() : current.parentNode();
     for (; ancestor; ancestor = ancestor->parentNode()) {
         if (ancestor == stayWithin)
             return nullptr;
@@ -65,12 +67,13 @@ Node* nextIncludingPseudo(const Node& current, const Node* stayWithin)
 
 Node* nextIncludingPseudoSkippingChildren(const Node& current, const Node* stayWithin)
 {
-    Node* next;
+    Node* next = nullptr;
     if (&current == stayWithin)
         return nullptr;
     if ((next = current.pseudoAwareNextSibling()))
         return next;
-    const Node* ancestor = is<PseudoElement>(current) ? downcast<PseudoElement>(current).hostElement() : current.parentNode();
+    auto* pseudoElement = dynamicDowncast<PseudoElement>(current);
+    const Node* ancestor = pseudoElement ? pseudoElement->hostElement() : current.parentNode();
     for (; ancestor; ancestor = ancestor->parentNode()) {
         if (ancestor == stayWithin)
             return nullptr;
@@ -148,7 +151,7 @@ Node* nextPostOrder(const Node& current, const Node* stayWithin)
     return next;
 }
 
-static Node* previousAncestorSiblingPostOrder(const Node& current, const Node* stayWithin)
+static Node* NODELETE previousAncestorSiblingPostOrder(const Node& current, const Node* stayWithin)
 {
     ASSERT(!current.previousSibling());
     for (auto* ancestor = current.parentNode(); ancestor; ancestor = ancestor->parentNode()) {

@@ -18,7 +18,14 @@
 #ifndef _GENDER
 #define _GENDER
 
+/**
+ * \file
+ * \brief C++ API: GenderInfo computes the gender of a list.
+ */
+
 #include "unicode/utypes.h"
+
+#if U_SHOW_CPLUSPLUS_API
 
 #if !UCONFIG_NO_FORMATTING
 
@@ -30,7 +37,7 @@ class GenderInfoTest;
 
 U_NAMESPACE_BEGIN
 
-// Forward Declaration
+/** \internal Forward Declaration  */
 void U_CALLCONV GenderInfo_initCache(UErrorCode &status);
 
 /**
@@ -84,12 +91,12 @@ private:
      * Copy constructor. One object per locale invariant. Clients
      * must never copy GenderInfo objects.
      */
-    GenderInfo(const GenderInfo& other);
+    GenderInfo(const GenderInfo& other) = delete;
 
     /**
       * Assignment operator. Not applicable to immutable objects.
       */
-    GenderInfo& operator=(const GenderInfo&);
+    GenderInfo& operator=(const GenderInfo&) = delete;
 
     GenderInfo();
 
@@ -108,6 +115,8 @@ private:
 U_NAMESPACE_END
 
 #endif /* #if !UCONFIG_NO_FORMATTING */
+
+#endif /* U_SHOW_CPLUSPLUS_API */
 
 #endif // _GENDER
 //eof

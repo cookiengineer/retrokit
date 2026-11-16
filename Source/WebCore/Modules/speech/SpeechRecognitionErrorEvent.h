@@ -31,7 +31,7 @@
 namespace WebCore {
 
 class SpeechRecognitionErrorEvent final : public Event {
-    WTF_MAKE_ISO_ALLOCATED(SpeechRecognitionErrorEvent);
+    WTF_MAKE_TZONE_ALLOCATED(SpeechRecognitionErrorEvent);
 public:
     struct Init : EventInit {
         SpeechRecognitionErrorCode error;
@@ -42,13 +42,11 @@ public:
     static Ref<SpeechRecognitionErrorEvent> create(const AtomString&, SpeechRecognitionErrorCode, const String&);
 
     SpeechRecognitionErrorCode error() const { return m_error; }
-    const String& message() const { return m_message; }
+    const String& message() const LIFETIME_BOUND { return m_message; }
 
 private:
     SpeechRecognitionErrorEvent(const AtomString&, Init&&, IsTrusted);
     SpeechRecognitionErrorEvent(const AtomString&, SpeechRecognitionErrorCode, const String&);
-
-    EventInterface eventInterface() const final;
 
     SpeechRecognitionErrorCode m_error;
     String m_message;

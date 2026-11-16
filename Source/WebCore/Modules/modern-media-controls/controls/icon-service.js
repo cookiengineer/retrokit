@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,6 +26,8 @@
 const Icons = {
     Airplay         : { name: "Airplay", type: "svg", label: UIString("AirPlay") },
     AirplayPlacard  : { name: "airplay-placard", type: "png", label: UIString("AirPlay") },
+    Close           : { name: "X", type: "svg", label: UIString("Close") },
+    Ellipsis        : { name: "Ellipsis", type: "svg", label: UIString("More\u2026") },
     EnterFullscreen : { name: "EnterFullscreen", type: "svg", label: UIString("Enter Full Screen") },
     EnterPiP        : { name: "PipIn", type: "svg", label: UIString("Enter Picture in Picture") },
     ExitFullscreen  : { name: "ExitFullscreen", type: "svg", label: UIString("Exit Full Screen") },
@@ -38,8 +40,10 @@ const Icons = {
     Play            : { name: "Play", type: "svg", label: UIString("Play") },
     PlayCircle      : { name: "PlayCircle", type: "pdf", label: UIString("Play") },
     Rewind          : { name: "Rewind", type: "svg", label: UIString("Rewind") },
-    SkipBack        : { name: "SkipBack15", type: "svg", label: UIString("Skip Back %s Seconds", SkipSeconds) },
-    SkipForward     : { name: "SkipForward15", type: "svg", label: UIString("Skip Forward %s Seconds", SkipSeconds) },
+    SkipBack10      : { name: "SkipBack10", type: "svg", label: UIString("Skip Back 10 Seconds") },
+    SkipBack15      : { name: "SkipBack15", type: "svg", label: UIString("Skip Back 15 Seconds") },
+    SkipForward10   : { name: "SkipForward10", type: "svg", label: UIString("Skip Forward 10 Seconds") },
+    SkipForward15   : { name: "SkipForward15", type: "svg", label: UIString("Skip Forward 15 Seconds") },
     SpinnerSprite   : { name: "SpinnerSprite", type: "png", label: UIString("Loading\u2026") },
     Tracks          : { name: "MediaSelector", type: "svg", label: UIString("Media Selection") },
     Volume0         : { name: "Volume0", type: "svg", label: UIString("Mute") },
@@ -70,7 +74,6 @@ const iconService = new class IconService {
     }
 
     // Public
-
     imageForIconAndLayoutTraits(icon, layoutTraits)
     {
         const [fileName, resourceDirectory] = this._fileNameAndResourceDirectoryForIconAndLayoutTraits(icon, layoutTraits);
@@ -80,21 +83,12 @@ const iconService = new class IconService {
         if (image)
             return image;
 
-        image = this.images[path] = new Image;
-
-        // Prevent this image from being shown if it's ever attached to the DOM.
-        image.style.display = "none";
-
-        // Must attach the `<img>` to the UA shadow root before setting `src` so that `isInUserAgentShadowTree` is correct.
-        this.shadowRoot?.appendChild(image);
-
-        if (this.mediaControlsHost)
-            image.src = `data:${MimeTypes[icon.type]};base64,${this.mediaControlsHost.base64StringForIconNameAndType(fileName, icon.type)}`;
-        else
+        if (utils?.createImageForIconNameAndType)
+            image = this.images[path] = utils.createImageForIconNameAndType(fileName, icon.type);
+        else {
+            image = this.images[path] = new Image;
             image.src = `${this.directoryPath}/${path}`;
-
-        // Remove the `<img>` from the shadow root once the `src` has been set as `isInUserAgentShadowTree` has already been checked by this point.
-        image.remove();
+        }
 
         return image;
     }

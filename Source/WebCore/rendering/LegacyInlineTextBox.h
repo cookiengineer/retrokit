@@ -22,52 +22,35 @@
 
 #pragma once
 
-#include "LegacyInlineBox.h"
-#include "MarkedText.h"
-#include "RenderText.h"
-#include "TextRun.h"
+#include <WebCore/GlyphDisplayListCacheRemoval.h>
+#include <WebCore/LegacyInlineBox.h>
+#include <WebCore/TextBoxSelectableRange.h>
+#include <WebCore/TextRun.h>
 
 namespace WebCore {
 
-class RenderCombineText;
-class RenderedDocumentMarker;
-class TextPainter;
-struct CompositionUnderline;
-struct MarkedText;
-struct StyledMarkedText;
-struct TextBoxSelectableRange;
-struct TextPaintStyle;
+class RenderSVGInlineText;
 
-const unsigned short cNoTruncation = USHRT_MAX;
-const unsigned short cFullTruncation = USHRT_MAX - 1;
+namespace InlineIterator {
+class BoxLegacyPath;
+}
 
 class LegacyInlineTextBox : public LegacyInlineBox {
-    WTF_MAKE_ISO_ALLOCATED(LegacyInlineTextBox);
+    WTF_MAKE_TZONE_ALLOCATED(LegacyInlineTextBox);
 public:
-    explicit LegacyInlineTextBox(RenderText& renderer)
-        : LegacyInlineBox(renderer)
-    {
-        setBehavesLikeText(true);
-    }
-
+    explicit LegacyInlineTextBox(RenderSVGInlineText&);
     virtual ~LegacyInlineTextBox();
 
-    RenderText& renderer() const { return downcast<RenderText>(LegacyInlineBox::renderer()); }
-    const RenderStyle& lineStyle() const { return isFirstLine() ? renderer().firstLineStyle() : renderer().style(); }
+    RenderSVGInlineText& NODELETE renderer() const;
+    const Style::ComputedStyle& lineStyle() const LIFETIME_BOUND;
 
-    LegacyInlineTextBox* prevTextBox() const { return m_prevTextBox; }
-    LegacyInlineTextBox* nextTextBox() const { return m_nextTextBox; }
+    LegacyInlineTextBox* prevTextBox() const LIFETIME_BOUND { return m_prevTextBox; }
+    LegacyInlineTextBox* nextTextBox() const LIFETIME_BOUND { return m_nextTextBox; }
     void setNextTextBox(LegacyInlineTextBox* n) { m_nextTextBox = n; }
     void setPreviousTextBox(LegacyInlineTextBox* p) { m_prevTextBox = p; }
 
-    bool hasTextContent() const;
+    bool hasTextContent() const { return m_len; }
 
-    // These functions do not account for combined text. For combined text this box will always have len() == 1
-    // regardless of whether the resulting composition is the empty string. Use hasTextContent() if you want to
-    // know whether this box has text content.
-    //
-    // FIXME: These accessors should ASSERT(!isDirty()). See https://bugs.webkit.org/show_bug.cgi?id=97264
-    // Note len() == 1 for combined text regardless of whether the composition is empty. Use hasTextContent() to
     unsigned start() const { return m_start; }
     unsigned end() const { return m_start + m_len; }
     unsigned len() const { return m_len; }
@@ -77,132 +60,78 @@ public:
 
     void offsetRun(int d) { ASSERT(!isDirty()); ASSERT(d > 0 || m_start >= static_cast<unsigned>(-d)); m_start += d; }
 
-    unsigned short truncation() const { return m_truncation; }
-
-    TextBoxSelectableRange selectableRange() const;
+    TextBoxSelectableRange NODELETE selectableRange() const;
 
     void markDirty(bool dirty = true) final;
 
-    using LegacyInlineBox::hasHyphen;
-    using LegacyInlineBox::setHasHyphen;
-    using LegacyInlineBox::canHaveLeftExpansion;
-    using LegacyInlineBox::setCanHaveLeftExpansion;
-    using LegacyInlineBox::canHaveRightExpansion;
-    using LegacyInlineBox::setCanHaveRightExpansion;
-    using LegacyInlineBox::forceRightExpansion;
-    using LegacyInlineBox::setForceRightExpansion;
-    using LegacyInlineBox::forceLeftExpansion;
-    using LegacyInlineBox::setForceLeftExpansion;
+    using LegacyInlineBox::setIsInGlyphDisplayListCache;
 
-    static inline bool compareByStart(const LegacyInlineTextBox* first, const LegacyInlineTextBox* second) { return first->start() < second->start(); }
-
-    LayoutUnit baselinePosition(FontBaseline) const final;
-    LayoutUnit lineHeight() const final;
-
-    std::optional<bool> emphasisMarkExistsAndIsAbove(const RenderStyle&) const;
-
-    LayoutRect logicalOverflowRect() const;
     void setLogicalOverflowRect(const LayoutRect&);
-    LayoutUnit logicalTopVisualOverflow() const { return logicalOverflowRect().y(); }
-    LayoutUnit logicalBottomVisualOverflow() const { return logicalOverflowRect().maxY(); }
-    LayoutUnit logicalLeftVisualOverflow() const { return logicalOverflowRect().x(); }
-    LayoutUnit logicalRightVisualOverflow() const { return logicalOverflowRect().maxX(); }
 
     virtual void dirtyOwnLineBoxes() { dirtyLineBoxes(); }
 
+    void removeFromGlyphDisplayListCache();
+
 #if ENABLE(TREE_DEBUGGING)
     void outputLineBox(WTF::TextStream&, bool mark, int depth) const final;
-    const char* boxName() const final;
+    ASCIILiteral boxName() const final;
 #endif
 
 private:
-    LayoutUnit selectionTop() const;
-    LayoutUnit selectionBottom() const;
+    LayoutUnit NODELETE selectionTop() const;
+    LayoutUnit NODELETE selectionBottom() const;
     LayoutUnit selectionHeight() const;
 
 public:
     virtual LayoutRect localSelectionRect(unsigned startPos, unsigned endPos) const;
-    bool isSelectable(unsigned startPosition, unsigned endPosition) const;
     std::pair<unsigned, unsigned> selectionStartEnd() const;
-
-protected:
-    void paint(PaintInfo&, const LayoutPoint&, LayoutUnit lineTop, LayoutUnit lineBottom) override;
-    bool nodeAtPoint(const HitTestRequest&, HitTestResult&, const HitTestLocation& locationInContainer, const LayoutPoint& accumulatedOffset, LayoutUnit lineTop, LayoutUnit lineBottom, HitTestAction) override;
 
 private:
     void deleteLine() final;
-    void extractLine() final;
-    void attachLine() final;
     
 public:
-    RenderObject::HighlightState selectionState() final;
-
-private:
-    void clearTruncation() final { m_truncation = cNoTruncation; }
-    float placeEllipsisBox(bool flowIsLTR, float visibleLeftEdge, float visibleRightEdge, float ellipsisWidth, float &truncatedWidth, bool& foundBox) final;
+    RenderObject::HighlightState selectionState() const final;
 
 public:
-    bool isLineBreak() const final;
+    bool NODELETE isLineBreak() const final;
 
 private:
     bool isInlineTextBox() const final { return true; }
 
 public:
-    int caretMinOffset() const final;
-    int caretMaxOffset() const final;
+    int caretMinOffset() const final { return m_start; }
+    int NODELETE caretMaxOffset() const final;
 
 private:
-    float textPos() const; // returns the x position relative to the left start of the text line.
+    float NODELETE textPos() const; // returns the x position relative to the left start of the text line.
 
 public:
-    virtual int offsetForPosition(float x, bool includePartialGlyphs = true) const;
-    virtual float positionForOffset(unsigned offset) const;
-
     bool hasMarkers() const;
-    FloatRect calculateUnionOfAllDocumentMarkerBounds() const;
-    FloatRect calculateDocumentMarkerBounds(const MarkedText&) const;
 
 private:
-    FloatPoint textOriginFromBoxRect(const FloatRect&) const;
+    friend class InlineIterator::BoxLegacyPath;
 
-    void paintMarkedTexts(PaintInfo&, MarkedText::PaintPhase, const FloatRect& boxRect, const Vector<StyledMarkedText>&, const FloatRect& decorationClipOutRect = { });
-
-    void paintPlatformDocumentMarker(GraphicsContext&, const FloatPoint& boxOrigin, const MarkedText&);
-    void paintPlatformDocumentMarkers(GraphicsContext&, const FloatPoint& boxOrigin);
-
-    void paintCompositionBackground(PaintInfo&, const FloatPoint& boxOrigin);
-    void paintCompositionUnderlines(PaintInfo&, const FloatPoint& boxOrigin) const;
-    void paintCompositionUnderline(PaintInfo&, const FloatPoint& boxOrigin, const CompositionUnderline&) const;
-
-    enum class MarkedTextBackgroundStyle : bool { Default, Rounded };
-    void paintMarkedTextBackground(PaintInfo&, const FloatPoint& boxOrigin, const Color&, unsigned clampedStartOffset, unsigned clampedEndOffset, MarkedTextBackgroundStyle = MarkedTextBackgroundStyle::Default);
-    void paintMarkedTextForeground(PaintInfo&, const FloatRect& boxRect, const StyledMarkedText&);
-    void paintMarkedTextDecoration(PaintInfo&, const FloatRect& boxRect, const FloatRect& clipOutRect, const StyledMarkedText&);
-
-    const RenderCombineText* combinedText() const;
     const FontCascade& lineFont() const;
 
-    ShadowData* debugTextShadow();
-
-    String text(bool ignoreCombinedText = false, bool ignoreHyphen = false) const; // The effective text for the run.
-    TextRun createTextRun(bool ignoreCombinedText = false, bool ignoreHyphen = false) const;
-
-    ExpansionBehavior expansionBehavior() const;
-
-    void behavesLikeText() const = delete;
+    String text() const; // The effective text for the run.
+    TextRun createTextRun() const;
 
     LegacyInlineTextBox* m_prevTextBox { nullptr }; // The previous box that also uses our RenderObject
     LegacyInlineTextBox* m_nextTextBox { nullptr }; // The next box that also uses our RenderObject
 
     unsigned m_start { 0 };
-    unsigned short m_len { 0 };
-
-    // Where to truncate when text overflow is applied. We use special constants to
-    // denote no truncation (the whole run paints) and full truncation (nothing paints at all).
-    unsigned short m_truncation { cNoTruncation };
+    unsigned m_len { 0 };
 };
 
-LayoutRect snappedSelectionRect(const LayoutRect&, float logicalRight, float selectionTop, float selectionHeight, bool isHorizontal);
+inline void LegacyInlineTextBox::removeFromGlyphDisplayListCache()
+{
+    if (isInGlyphDisplayListCache()) {
+        removeBoxFromGlyphDisplayListCache(*this);
+        setIsInGlyphDisplayListCache(false);
+    }
+}
+
+LayoutRect NODELETE snappedSelectionRect(const LayoutRect&, float logicalRight, WritingMode);
 
 } // namespace WebCore
 

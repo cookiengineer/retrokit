@@ -33,15 +33,7 @@ WebCredential::WebCredential(const WebCore::Credential& credential)
 {
 }
 
-#if !PLATFORM(MAC)
-WebCredential::WebCredential(WebCertificateInfo* certificateInfo)
-{
-}
-#endif
-
-WebCredential::~WebCredential()
-{
-}
+WebCredential::~WebCredential() = default;
 
 const WebCore::Credential& WebCredential::credential()
 {

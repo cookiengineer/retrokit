@@ -27,6 +27,7 @@
 #include "Clipboard.h"
 #include <mutex>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebKit {
@@ -55,12 +56,14 @@ static Clipboard& primary()
     return object;
 }
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Clipboard);
+
 Clipboard& Clipboard::get(const String& name)
 {
-    if (name == "CLIPBOARD")
+    if (name == "CLIPBOARD"_s)
         return clipboard();
 
-    if (name == "PRIMARY")
+    if (name == "PRIMARY"_s)
         return primary();
 
     RELEASE_ASSERT_NOT_REACHED();

@@ -66,7 +66,9 @@ WebKitDOMFileList* wrapFileList(WebCore::FileList* coreObject)
 
 } // namespace WebKit
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK port
 G_DEFINE_TYPE(WebKitDOMFileList, webkit_dom_file_list, WEBKIT_DOM_TYPE_OBJECT)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 enum {
     DOM_FILE_LIST_PROP_0,

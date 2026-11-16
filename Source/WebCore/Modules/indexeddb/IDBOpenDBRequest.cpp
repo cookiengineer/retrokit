@@ -26,32 +26,38 @@
 #include "config.h"
 #include "IDBOpenDBRequest.h"
 
+#include "ContextDestructionObserverInlines.h"
 #include "DOMException.h"
 #include "EventNames.h"
 #include "IDBConnectionProxy.h"
 #include "IDBConnectionToServer.h"
 #include "IDBDatabase.h"
 #include "IDBError.h"
+#include "IDBOpenRequestData.h"
 #include "IDBRequestCompletionEvent.h"
 #include "IDBResultData.h"
 #include "IDBTransaction.h"
 #include "IDBVersionChangeEvent.h"
 #include "Logging.h"
 #include "ScriptExecutionContext.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(IDBOpenDBRequest);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(IDBOpenDBRequest);
 
 Ref<IDBOpenDBRequest> IDBOpenDBRequest::createDeleteRequest(ScriptExecutionContext& context, IDBClient::IDBConnectionProxy& connectionProxy, const IDBDatabaseIdentifier& databaseIdentifier)
 {
-    return adoptRef(*new IDBOpenDBRequest(context, connectionProxy, databaseIdentifier, 0, IndexedDB::RequestType::Delete));
+    auto result = adoptRef(*new IDBOpenDBRequest(context, connectionProxy, databaseIdentifier, 0, IndexedDB::RequestType::Delete));
+    result->suspendIfNeeded();
+    return result;
 }
 
 Ref<IDBOpenDBRequest> IDBOpenDBRequest::createOpenRequest(ScriptExecutionContext& context, IDBClient::IDBConnectionProxy& connectionProxy, const IDBDatabaseIdentifier& databaseIdentifier, uint64_t version)
 {
-    return adoptRef(*new IDBOpenDBRequest(context, connectionProxy, databaseIdentifier, version, IndexedDB::RequestType::Open));
+    auto result = adoptRef(*new IDBOpenDBRequest(context, connectionProxy, databaseIdentifier, version, IndexedDB::RequestType::Open));
+    result->suspendIfNeeded();
+    return result;
 }
     
 IDBOpenDBRequest::IDBOpenDBRequest(ScriptExecutionContext& context, IDBClient::IDBConnectionProxy& connectionProxy, const IDBDatabaseIdentifier& databaseIdentifier, uint64_t version, IndexedDB::RequestType requestType)
@@ -64,6 +70,13 @@ IDBOpenDBRequest::IDBOpenDBRequest(ScriptExecutionContext& context, IDBClient::I
 IDBOpenDBRequest::~IDBOpenDBRequest()
 {
     ASSERT(canCurrentThreadAccessThreadLocalData(originThread()));
+}
+
+EventTargetInterfaceType IDBOpenDBRequest::eventTargetInterface() const
+{
+    ASSERT(canCurrentThreadAccessThreadLocalData(originThread()));
+
+    return EventTargetInterfaceType::IDBOpenDBRequest;
 }
 
 void IDBOpenDBRequest::onError(const IDBResultData& data)
@@ -89,12 +102,12 @@ void IDBOpenDBRequest::fireSuccessAfterVersionChangeCommit()
 
     ASSERT(canCurrentThreadAccessThreadLocalData(originThread()));
     ASSERT(hasPendingActivity());
-    m_transaction->addRequest(*this);
+    protect(transaction())->addRequest(*this);
 
-    auto event = IDBRequestCompletionEvent::create(eventNames().successEvent, Event::CanBubble::No, Event::IsCancelable::No, *this);
-    m_openDatabaseSuccessEvent = &event.get();
+    Ref event = IDBRequestCompletionEvent::create(eventNames().successEvent, Event::CanBubble::No, Event::IsCancelable::No, *this);
+    m_openDatabaseSuccessEvent = event.get();
 
-    enqueueEvent(WTFMove(event));
+    enqueueEvent(WTF::move(event));
 }
 
 void IDBOpenDBRequest::fireErrorAfterVersionChangeCompletion()
@@ -104,11 +117,11 @@ void IDBOpenDBRequest::fireErrorAfterVersionChangeCompletion()
     ASSERT(canCurrentThreadAccessThreadLocalData(originThread()));
     ASSERT(hasPendingActivity());
 
-    IDBError idbError(AbortError);
-    m_domError = DOMException::create(AbortError);
+    IDBError idbError(ExceptionCode::AbortError);
+    m_domError = DOMException::create(ExceptionCode::AbortError);
     setResultToUndefined();
 
-    m_transaction->addRequest(*this);
+    protect(transaction())->addRequest(*this);
     enqueueEvent(IDBRequestCompletionEvent::create(eventNames().errorEvent, Event::CanBubble::Yes, Event::IsCancelable::Yes, *this));
 }
 
@@ -121,12 +134,17 @@ void IDBOpenDBRequest::dispatchEvent(Event& event)
 {
     ASSERT(canCurrentThreadAccessThreadLocalData(originThread()));
 
-    auto protectedThis = makeRef(*this);
+    Ref protectedThis { *this };
 
     IDBRequest::dispatchEvent(event);
 
-    if (m_transaction && m_transaction->isVersionChange() && (event.type() == eventNames().errorEvent || event.type() == eventNames().successEvent))
-        m_transaction->database().connectionProxy().didFinishHandlingVersionChangeTransaction(m_transaction->database().databaseConnectionIdentifier(), *m_transaction);
+    if (RefPtr transaction = m_transaction; transaction && transaction->isVersionChange() && (event.type() == eventNames().errorEvent || event.type() == eventNames().successEvent)) {
+        if (!transaction->isFinishedOrFinishing()) {
+            RELEASE_LOG_FAULT(IndexedDB, "IDBOpenDBRequest::dispatchEvent: version change transaction %" PUBLIC_LOG_STRING " is not finishing or finished", transaction->info().identifier().loggingString().utf8().data());
+            return;
+        }
+        transaction->database().connectionProxy().didFinishHandlingVersionChangeTransaction(transaction->database().databaseConnectionIdentifier(), *transaction);
+    }
 }
 
 void IDBOpenDBRequest::onSuccess(const IDBResultData& resultData)
@@ -135,7 +153,7 @@ void IDBOpenDBRequest::onSuccess(const IDBResultData& resultData)
 
     ASSERT(canCurrentThreadAccessThreadLocalData(originThread()));
 
-    setResult(IDBDatabase::create(*scriptExecutionContext(), connectionProxy(), resultData));
+    setResult(IDBDatabase::create(*protect(scriptExecutionContext()), connectionProxy(), resultData));
     setReadyState(ReadyState::Done);
 
     enqueueEvent(IDBRequestCompletionEvent::create(eventNames().successEvent, Event::CanBubble::No, Event::IsCancelable::No, *this));
@@ -145,8 +163,8 @@ void IDBOpenDBRequest::onUpgradeNeeded(const IDBResultData& resultData)
 {
     ASSERT(canCurrentThreadAccessThreadLocalData(originThread()));
 
-    Ref<IDBDatabase> database = IDBDatabase::create(*scriptExecutionContext(), connectionProxy(), resultData);
-    Ref<IDBTransaction> transaction = database->startVersionChangeTransaction(resultData.transactionInfo(), *this);
+    Ref database = IDBDatabase::create(*protect(scriptExecutionContext()), connectionProxy(), resultData);
+    Ref transaction = database->startVersionChangeTransaction(resultData.transactionInfo(), *this);
 
     ASSERT(transaction->info().mode() == IDBTransactionMode::Versionchange);
     ASSERT(transaction->originalDatabaseInfo());
@@ -156,10 +174,10 @@ void IDBOpenDBRequest::onUpgradeNeeded(const IDBResultData& resultData)
 
     LOG(IndexedDB, "IDBOpenDBRequest::onUpgradeNeeded() - current version is %" PRIu64 ", new is %" PRIu64, oldVersion, newVersion);
 
-    setResult(WTFMove(database));
+    setResult(WTF::move(database));
     setReadyState(ReadyState::Done);
-    m_transaction = WTFMove(transaction);
-    m_transaction->addRequest(*this);
+    m_transaction = transaction.copyRef();
+    transaction->addRequest(*this);
 
     enqueueEvent(IDBVersionChangeEvent::create(oldVersion, newVersion, eventNames().upgradeneededEvent));
 }
@@ -192,7 +210,7 @@ void IDBOpenDBRequest::requestCompleted(const IDBResultData& data)
     if (isContextStopped()) {
         switch (data.type()) {
         case IDBResultType::OpenDatabaseSuccess:
-            connectionProxy().abortOpenAndUpgradeNeeded(data.databaseConnectionIdentifier(), IDBResourceIdentifier::emptyValue());
+            connectionProxy().abortOpenAndUpgradeNeeded(data.databaseConnectionIdentifier(), std::nullopt);
             break;
         case IDBResultType::OpenDatabaseUpgradeNeeded:
             connectionProxy().abortOpenAndUpgradeNeeded(data.databaseConnectionIdentifier(), data.transactionInfo().identifier());
@@ -240,9 +258,9 @@ void IDBOpenDBRequest::setIsContextSuspended(bool isContextSuspended)
     // If this request is blocked, it means this request is being processed on the server.
     // The client needs to actively stop the request so it doesn't blocks the processing of subsequent requests.
     if (m_isBlocked) {
-        IDBRequestData requestData(connectionProxy(), *this);
+        IDBOpenRequestData requestData(connectionProxy(), *this);
         connectionProxy().openDBRequestCancelled(requestData);
-        auto result = IDBResultData::error(requestData.requestIdentifier(), IDBError { UnknownError, "Blocked open request on cached page is aborted to unblock other requests"_s });
+        auto result = IDBResultData::error(requestData.requestIdentifier(), IDBError { ExceptionCode::UnknownError, "Blocked open request on cached page is aborted to unblock other requests"_s });
         requestCompleted(result);
     }
 }

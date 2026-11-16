@@ -26,22 +26,17 @@
 .color-picker {
     position: relative;
     width: var(--color-picker-width);
-    height: 236px;
     padding: 5px;
 
     --color-picker-hue-offset-start: 41px;
     --color-picker-opacity-offset-start: 18px;
 }
 
-.color-picker.hide-inputs {
-    height: 210px;
-}
-
 .color-picker .wrapper {
     white-space: nowrap;
 }
 
-.color-picker :matches(.color-square, .slider) {
+.color-picker :is(.color-square, .slider) {
     display: inline-block;
 }
 
@@ -76,23 +71,155 @@
     }
 }
 
-.color-picker > .color-inputs {
+.color-picker > .color-inputs-wrapper {
     display: flex;
-    justify-content: space-between;
-    margin-top: 8px;
+    align-items: center;
+    gap: var(--color-inputs-spacing);
+    margin-top: var(--color-inputs-spacing);
+
+    --color-inputs-spacing: 8px;
 }
 
-.color-picker > .color-inputs > div {
+.color-picker > .color-inputs-wrapper > .color-inputs {
+    display: flex;
+    justify-content: space-between;
+    flex: 1;
+}
+
+.color-picker > .color-inputs-wrapper > .color-inputs > label {
     display: flex;
     align-items: center;
     width: 100%;
 }
 
-.color-picker > .color-inputs > div + div {
-    margin-inline-start: 4px;
+.color-picker > .color-inputs-wrapper > .color-inputs > label + label {
+    margin-inline-start: 0.5em;
 }
 
-.color-picker > .color-inputs input {
+.color-picker > .color-inputs-wrapper > .color-inputs > label > input {
     width: 100%;
-    margin: 0 0.25em;
+    margin: 0;
+    margin-inline-start: 0.25em;
+    padding: 0 2px;
+    font-variant-numeric: tabular-nums;
+}
+
+.color-picker > .color-inputs-wrapper > .color-inputs > label > input::-webkit-inner-spin-button {
+    appearance: none
+}
+
+.color-picker > .color-inputs-wrapper > :is(.pick-color-from-screen, .format-options) {
+    width: 16px;
+    height: 16px;
+    color: var(--glyph-color);
+    opacity: var(--glyph-opacity);
+}
+
+.color-picker > .color-inputs-wrapper > :is(.pick-color-from-screen, .format-options):active,
+.color-picker > .color-inputs-wrapper > .pick-color-from-screen.active {
+    color: var(--glyph-color-pressed);
+}
+
+.color-picker > .variable-color-swatches {
+    padding: 8px 0 0;
+}
+
+.color-picker > .contrast-info + .variable-color-swatches {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-color);
+}
+
+.color-picker > .variable-color-swatches > ul{
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 2px;
+    padding: 0;
+    margin: 2px 0 0;
+    max-height: 45px;
+    overflow-y: auto;
+}
+
+.color-picker > .variable-color-swatches > ul > li {
+    height: 1em;
+}
+
+.color-picker > .variable-color-swatches > ul > li > .inline-swatch {
+    --inline-swatch-margin-right-override: 0;
+    --inline-swatch-vertical-align-override: 0;
+}
+
+.color-picker > .variable-color-swatches > h2 {
+    margin: 0;
+    font-size: 1.15em;
+}
+
+.color-picker > .contrast-info {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 0 0;
+    margin-top: 8px;
+    border-top: 1px solid var(--border-color);
+    font-size: 11px;
+}
+
+.color-picker > .contrast-info > .contrast-label {
+    color: var(--text-color-secondary);
+}
+
+.color-picker > .contrast-info > .contrast-ratio {
+    font-variant-numeric: tabular-nums;
+}
+
+.color-picker > .contrast-info > .compliance-badge {
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+.color-picker > .contrast-info > .compliance-badge.contrast-aaa {
+    background-color: hsl(120, 50%, 35%);
+    color: white;
+}
+
+@media (prefers-color-scheme: dark) {
+    .color-picker > .contrast-info > .compliance-badge.contrast-aaa {
+        background-color: hsl(120, 50%, 45%);
+    }
+}
+
+.color-picker > .contrast-info > .compliance-badge.contrast-aa {
+    background-color: hsl(90, 50%, 40%);
+    color: white;
+}
+
+@media (prefers-color-scheme: dark) {
+    .color-picker > .contrast-info > .compliance-badge.contrast-aa {
+        background-color: hsl(90, 50%, 50%);
+    }
+}
+
+.color-picker > .contrast-info > .compliance-badge.contrast-fail {
+    background-color: hsl(0, 60%, 50%);
+    color: white;
+}
+
+@media (prefers-color-scheme: dark) {
+    .color-picker > .contrast-info > .compliance-badge.contrast-fail {
+        background-color: hsl(0, 60%, 60%);
+    }
+}
+
+.color-picker > .contrast-info > .contrast-separator {
+    color: var(--text-color-tertiary);
+    margin: 0 2px;
+}
+
+.color-picker > .contrast-info > .inline-swatch {
+    --inline-swatch-margin-right-override: 0;
 }

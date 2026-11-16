@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,52 +28,97 @@
 
 #include "NetworkConnectionToWebProcessMessages.h"
 #include "NetworkProcessConnection.h"
+#include "WebCookieJar.h"
 #include "WebProcess.h"
+#include <WebCore/Cookie.h>
+#include <wtf/text/StringBuilder.h>
 
 namespace WebKit {
 
 using namespace WebCore;
 
+WebCookieCache::~WebCookieCache() = default;
+
 bool WebCookieCache::isSupported()
 {
 #if HAVE(COOKIE_CHANGE_LISTENER_API)
-    // FIXME: This can eventually be removed, this is merely to ensure a smooth transition to the new API.
-    return inMemoryStorageSession().supportsCookieChangeListenerAPI();
+    return true;
 #else
     return false;
 #endif
 }
 
-String WebCookieCache::cookiesForDOM(const URL& firstParty, const SameSiteInfo& sameSiteInfo, const URL& url, FrameIdentifier frameID, PageIdentifier pageID, IncludeSecureCookies includeSecureCookies)
+static String cookiesToString(const Vector<WebCore::Cookie>& cookies)
 {
-    String host = url.host().toString();
-    if (!m_hostsWithInMemoryStorage.contains(host)) {
-        Vector<Cookie> cookies;
-        bool subscribeToCookieChangeNotifications = true;
-        if (!WebProcess::singleton().ensureNetworkProcessConnection().connection().sendSync(Messages::NetworkConnectionToWebProcess::DomCookiesForHost(url.host().toString(), subscribeToCookieChangeNotifications), Messages::NetworkConnectionToWebProcess::DomCookiesForHost::Reply(cookies), 0))
-            return { };
-        pruneCacheIfNecessary();
-        m_hostsWithInMemoryStorage.add(host);
-        for (auto& cookie : cookies)
-            inMemoryStorageSession().setCookie(cookie);
+    StringBuilder cookiesBuilder;
+    for (auto& cookie : cookies) {
+        if (cookie.name.isEmpty())
+            continue;
+        ASSERT(!cookie.httpOnly);
+        if (cookie.httpOnly)
+            continue;
+        if (!cookiesBuilder.isEmpty())
+            cookiesBuilder.append("; "_s);
+        cookiesBuilder.append(cookie.name);
+        cookiesBuilder.append('=');
+        cookiesBuilder.append(cookie.value);
     }
-    return inMemoryStorageSession().cookiesForDOM(firstParty, sameSiteInfo, url, frameID, pageID, includeSecureCookies, ShouldAskITP::No, ShouldRelaxThirdPartyCookieBlocking::No).first;
+    return cookiesBuilder.toString();
+}
+
+String WebCookieCache::cookiesForDOM(const URL& firstParty, const SameSiteInfo& sameSiteInfo, const URL& url, FrameIdentifier frameID, PageIdentifier pageID, WebPageProxyIdentifier webPageProxyID, IncludeSecureCookies includeSecureCookies)
+{
+    bool hasCacheForHost = m_hostsWithInMemoryStorage.contains<StringViewHashTranslator>(url.host());
+    if (!hasCacheForHost || cacheMayBeOutOfSync()) {
+        auto host = url.host().toString();
+#if HAVE(COOKIE_CHANGE_LISTENER_API)
+        if (!hasCacheForHost)
+            protect(WebProcess::singleton().cookieJar())->addChangeListenerWithAccess(url, firstParty, frameID, pageID, webPageProxyID, *this);
+#endif
+        auto sendResult = WebProcess::singleton().ensureNetworkProcessConnection().connection().sendSync(Messages::NetworkConnectionToWebProcess::DomCookiesForHost(url), 0);
+        if (!sendResult.succeeded())
+            return { };
+
+        auto& [cookies] = sendResult.reply();
+
+        if (hasCacheForHost)
+            return cookiesToString(cookies);
+
+        pruneCacheIfNecessary();
+        m_hostsWithInMemoryStorage.add(WTF::move(host));
+
+        CheckedRef inMemoryStorageSession = this->inMemoryStorageSession();
+        for (auto& cookie : cookies)
+            inMemoryStorageSession->setCookie(cookie);
+    }
+    return protect(inMemoryStorageSession())->cookiesForDOM(firstParty, sameSiteInfo, url, frameID, pageID, includeSecureCookies, ApplyTrackingPrevention::No, ShouldRelaxThirdPartyCookieBlocking::No, IsKnownCrossSiteTracker::No).first;
 }
 
 void WebCookieCache::setCookiesFromDOM(const URL& firstParty, const SameSiteInfo& sameSiteInfo, const URL& url, FrameIdentifier frameID, PageIdentifier pageID, const String& cookieString, ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking)
 {
-    String host = url.host().toString();
-    if (m_hostsWithInMemoryStorage.contains(host))
-        inMemoryStorageSession().setCookiesFromDOM(firstParty, sameSiteInfo, url, frameID, pageID, ShouldAskITP::No, cookieString, shouldRelaxThirdPartyCookieBlocking);
+    if (m_hostsWithInMemoryStorage.contains<StringViewHashTranslator>(url.host()))
+        protect(inMemoryStorageSession())->setCookiesFromDOM(firstParty, sameSiteInfo, url, frameID, pageID, ApplyTrackingPrevention::No, RequiresScriptTrackingPrivacy::No, cookieString, shouldRelaxThirdPartyCookieBlocking, IsKnownCrossSiteTracker::No);
 }
 
-void WebCookieCache::cookiesAdded(const String& host, const Vector<Cookie>& cookies)
+PendingCookieUpdateCounter::Token WebCookieCache::willSetCookieFromDOM()
+{
+    return m_pendingCookieUpdateCounter.count();
+}
+
+void WebCookieCache::didSetCookieFromDOM(PendingCookieUpdateCounter::Token, const URL& firstParty, const SameSiteInfo& sameSiteInfo, const URL& url, FrameIdentifier frameID, PageIdentifier pageID, const WebCore::Cookie& cookie, ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking)
+{
+    if (m_hostsWithInMemoryStorage.contains<StringViewHashTranslator>(url.host()))
+        protect(inMemoryStorageSession())->setCookieFromDOM(firstParty, sameSiteInfo, url, frameID, pageID, ApplyTrackingPrevention::No, RequiresScriptTrackingPrivacy::No, cookie, shouldRelaxThirdPartyCookieBlocking, IsKnownCrossSiteTracker::No);
+}
+
+void WebCookieCache::cookiesAdded(const String& host, const Vector<WebCore::Cookie>& cookies)
 {
     if (!m_hostsWithInMemoryStorage.contains(host))
         return;
 
+    CheckedRef inMemoryStorageSession = this->inMemoryStorageSession();
     for (auto& cookie : cookies)
-        inMemoryStorageSession().setCookie(cookie);
+        inMemoryStorageSession->setCookie(cookie);
 }
 
 void WebCookieCache::cookiesDeleted(const String& host, const Vector<WebCore::Cookie>& cookies)
@@ -81,8 +126,9 @@ void WebCookieCache::cookiesDeleted(const String& host, const Vector<WebCore::Co
     if (!m_hostsWithInMemoryStorage.contains(host))
         return;
 
+    CheckedRef inMemoryStorageSession = this->inMemoryStorageSession();
     for (auto& cookie : cookies)
-        inMemoryStorageSession().deleteCookie(cookie);
+        inMemoryStorageSession->deleteCookie(cookie, [] { });
 }
 
 void WebCookieCache::allCookiesDeleted()
@@ -93,8 +139,8 @@ void WebCookieCache::allCookiesDeleted()
 void WebCookieCache::clear()
 {
 #if HAVE(COOKIE_CHANGE_LISTENER_API)
-    if (!m_hostsWithInMemoryStorage.isEmpty())
-        WebProcess::singleton().ensureNetworkProcessConnection().connection().send(Messages::NetworkConnectionToWebProcess::UnsubscribeFromCookieChangeNotifications(m_hostsWithInMemoryStorage), 0);
+    for (auto& host : m_hostsWithInMemoryStorage)
+        protect(WebProcess::singleton().cookieJar())->removeChangeListener(host, *this);
 #endif
     m_hostsWithInMemoryStorage.clear();
     m_inMemoryStorageSession = nullptr;
@@ -106,9 +152,9 @@ void WebCookieCache::clearForHost(const String& host)
     if (removedHost.isNull())
         return;
 
-    inMemoryStorageSession().deleteCookiesForHostnames(Vector<String> { removedHost });
+    protect(inMemoryStorageSession())->deleteCookiesForHostnames(singleElementSpan(removedHost), [] { });
 #if HAVE(COOKIE_CHANGE_LISTENER_API)
-    WebProcess::singleton().ensureNetworkProcessConnection().connection().send(Messages::NetworkConnectionToWebProcess::UnsubscribeFromCookieChangeNotifications(HashSet<String> { removedHost }), 0);
+    protect(WebProcess::singleton().cookieJar())->removeChangeListener(removedHost, *this);
 #endif
 }
 
@@ -121,12 +167,24 @@ void WebCookieCache::pruneCacheIfNecessary()
         clearForHost(*m_hostsWithInMemoryStorage.random());
 }
 
-#if !PLATFORM(COCOA)
+#if !PLATFORM(COCOA) && !USE(SOUP)
 NetworkStorageSession& WebCookieCache::inMemoryStorageSession()
 {
     ASSERT_NOT_IMPLEMENTED_YET();
     return *m_inMemoryStorageSession;
 }
+
+void WebCookieCache::setOptInCookiePartitioningEnabled(bool)
+{
+#if ENABLE(OPT_IN_PARTITIONED_COOKIES)
+    ASSERT_NOT_IMPLEMENTED_YET();
 #endif
+}
+#endif
+
+bool WebCookieCache::cacheMayBeOutOfSync() const
+{
+    return m_pendingCookieUpdateCounter.value() > 0;
+}
 
 } // namespace WebKit

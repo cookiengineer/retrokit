@@ -25,12 +25,12 @@
 
 #pragma once
 
-#include "BlockDirectoryInlines.h"
-#include "HeapCellType.h"
-#include "JSCast.h"
-#include "MarkedBlock.h"
-#include "MarkedSpace.h"
-#include "Subspace.h"
+#include <JavaScriptCore/BlockDirectoryInlines.h>
+#include <JavaScriptCore/HeapCellType.h>
+#include <JavaScriptCore/JSCast.h>
+#include <JavaScriptCore/MarkedBlock.h>
+#include <JavaScriptCore/MarkedSpace.h>
+#include <JavaScriptCore/Subspace.h>
 
 namespace JSC {
 
@@ -62,8 +62,8 @@ void Subspace::forEachNotEmptyMarkedBlock(const Func& func)
 template<typename Func>
 void Subspace::forEachPreciseAllocation(const Func& func)
 {
-    for (PreciseAllocation* allocation = m_preciseAllocations.begin(); allocation != m_preciseAllocations.end(); allocation = allocation->next())
-        func(allocation);
+    for (PreciseAllocation& allocation : m_preciseAllocations)
+        func(&allocation);
 }
 
 template<typename Func>
@@ -106,14 +106,10 @@ Ref<SharedTask<void(Visitor&)>> Subspace::forEachMarkedCellInParallel(const Func
                         return IterationStatus::Continue;
                     });
             }
-            
-            {
-                Locker locker { m_lock };
-                if (!m_needToVisitPreciseAllocations)
-                    return;
-                m_needToVisitPreciseAllocations = false;
-            }
-            
+
+            if (m_doneVisitingPreciseAllocations.test_and_set(std::memory_order_relaxed))
+                return;
+
             CellAttributes attributes = m_subspace.attributes();
             m_subspace.forEachPreciseAllocation(
                 [&] (PreciseAllocation* allocation) {
@@ -126,8 +122,7 @@ Ref<SharedTask<void(Visitor&)>> Subspace::forEachMarkedCellInParallel(const Func
         Subspace& m_subspace;
         Ref<SharedTask<MarkedBlock::Handle*()>> m_blockSource;
         Func m_func;
-        Lock m_lock;
-        bool m_needToVisitPreciseAllocations { true };
+        std::atomic_flag m_doneVisitingPreciseAllocations { };
     };
     
     return adoptRef(*new Task(*this, func));
@@ -152,7 +147,7 @@ void Subspace::forEachLiveCell(const Func& func)
         });
 }
 
-inline const CellAttributes& Subspace::attributes() const
+inline CellAttributes Subspace::attributes() const
 {
     return m_heapCellType->attributes();
 }

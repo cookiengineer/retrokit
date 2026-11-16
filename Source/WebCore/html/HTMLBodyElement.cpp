@@ -3,7 +3,7 @@
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2000 Simon Hausmann (hausmann@kde.org)
  *           (C) 2001 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2004-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2023 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -25,22 +25,24 @@
 #include "HTMLBodyElement.h"
 
 #include "CSSImageValue.h"
-#include "CSSParser.h"
 #include "CSSValueKeywords.h"
-#include "DOMWindow.h"
 #include "DOMWrapperWorld.h"
+#include "ElementInlines.h"
 #include "EventNames.h"
 #include "HTMLFrameElement.h"
 #include "HTMLIFrameElement.h"
 #include "HTMLNames.h"
-#include "HTMLParserIdioms.h"
-#include "StyleProperties.h"
-#include <wtf/IsoMallocInlines.h>
+#include "JSHTMLBodyElement.h"
+#include "LocalDOMWindow.h"
+#include "MutableStyleProperties.h"
+#include "NodeName.h"
+#include "ResourceLoaderOptions.h"
 #include <wtf/NeverDestroyed.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLBodyElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLBodyElement);
 
 using namespace HTMLNames;
 
@@ -64,137 +66,133 @@ HTMLBodyElement::~HTMLBodyElement() = default;
 
 bool HTMLBodyElement::hasPresentationalHintsForAttribute(const QualifiedName& name) const
 {
-    if (name == backgroundAttr || name == marginwidthAttr || name == leftmarginAttr || name == marginheightAttr || name == topmarginAttr || name == bgcolorAttr || name == textAttr || name == bgpropertiesAttr)
+    switch (name.nodeName()) {
+    case AttributeNames::backgroundAttr:
+    case AttributeNames::marginwidthAttr:
+    case AttributeNames::leftmarginAttr:
+    case AttributeNames::rightmarginAttr:
+    case AttributeNames::marginheightAttr:
+    case AttributeNames::topmarginAttr:
+    case AttributeNames::bottommarginAttr:
+    case AttributeNames::bgcolorAttr:
+    case AttributeNames::textAttr:
         return true;
+    default:
+        break;
+    }
     return HTMLElement::hasPresentationalHintsForAttribute(name);
 }
 
 void HTMLBodyElement::collectPresentationalHintsForAttribute(const QualifiedName& name, const AtomString& value, MutableStyleProperties& style)
 {
-    if (name == backgroundAttr) {
-        String url = stripLeadingAndTrailingHTMLSpaces(value);
-        if (!url.isEmpty()) {
-            auto imageValue = CSSImageValue::create(document().completeURL(url), LoadedFromOpaqueSource::No);
-            imageValue.get().setInitiator(localName());
-            style.setProperty(CSSProperty(CSSPropertyBackgroundImage, WTFMove(imageValue)));
-        }
-    } else if (name == marginwidthAttr || name == leftmarginAttr) {
-        addHTMLLengthToStyle(style, CSSPropertyMarginRight, value);
-        addHTMLLengthToStyle(style, CSSPropertyMarginLeft, value);
-    } else if (name == marginheightAttr || name == topmarginAttr) {
-        addHTMLLengthToStyle(style, CSSPropertyMarginBottom, value);
-        addHTMLLengthToStyle(style, CSSPropertyMarginTop, value);
-    } else if (name == bgcolorAttr) {
+    switch (name.nodeName()) {
+    case AttributeNames::backgroundAttr: {
+        auto url = value.string().trim(isASCIIWhitespace);
+        if (!url.isEmpty())
+            style.setProperty(CSSProperty(CSSPropertyBackgroundImage, CSSImageValue::create(protect(document())->encodingParseURL(url), localName())));
+        break;
+    }
+    case AttributeNames::marginwidthAttr:
+    case AttributeNames::leftmarginAttr:
+        addHTMLPixelLengthToStyle(style, CSSPropertyMarginRight, value);
+        addHTMLPixelLengthToStyle(style, CSSPropertyMarginLeft, value);
+        break;
+    case AttributeNames::rightmarginAttr:
+        addHTMLPixelLengthToStyle(style, CSSPropertyMarginRight, value);
+        break;
+    case AttributeNames::marginheightAttr:
+    case AttributeNames::topmarginAttr:
+        addHTMLPixelLengthToStyle(style, CSSPropertyMarginBottom, value);
+        addHTMLPixelLengthToStyle(style, CSSPropertyMarginTop, value);
+        break;
+    case AttributeNames::bottommarginAttr:
+        addHTMLPixelLengthToStyle(style, CSSPropertyMarginBottom, value);
+        break;
+    case AttributeNames::bgcolorAttr:
         addHTMLColorToStyle(style, CSSPropertyBackgroundColor, value);
-    } else if (name == textAttr) {
+        break;
+    case AttributeNames::textAttr:
         addHTMLColorToStyle(style, CSSPropertyColor, value);
-    } else if (name == bgpropertiesAttr) {
-        if (equalLettersIgnoringASCIICase(value, "fixed"))
-            addPropertyToPresentationalHintStyle(style, CSSPropertyBackgroundAttachment, CSSValueFixed);
-    } else
+        break;
+    default:
         HTMLElement::collectPresentationalHintsForAttribute(name, value, style);
-}
-
-HTMLElement::EventHandlerNameMap HTMLBodyElement::createWindowEventHandlerNameMap()
-{
-    static const QualifiedName* const table[] = {
-        &onafterprintAttr.get(),
-        &onbeforeprintAttr.get(),
-        &onbeforeunloadAttr.get(),
-        &onblurAttr.get(),
-        &onerrorAttr.get(),
-        &onfocusAttr.get(),
-        &onfocusinAttr.get(),
-        &onfocusoutAttr.get(),
-        &onhashchangeAttr.get(),
-        &onlanguagechangeAttr.get(),
-        &onloadAttr.get(),
-        &onmessageAttr.get(),
-        &onofflineAttr.get(),
-        &ononlineAttr.get(),
-        &onorientationchangeAttr.get(),
-        &onpagehideAttr.get(),
-        &onpageshowAttr.get(),
-        &onpopstateAttr.get(),
-        &onresizeAttr.get(),
-        &onscrollAttr.get(),
-        &onstorageAttr.get(),
-        &onunloadAttr.get(),
-        &onwebkitmouseforcechangedAttr.get(),
-        &onwebkitmouseforcedownAttr.get(),
-        &onwebkitmouseforceupAttr.get(),
-        &onwebkitmouseforcewillbeginAttr.get(),
-        &onwebkitwillrevealbottomAttr.get(),
-        &onwebkitwillrevealleftAttr.get(),
-        &onwebkitwillrevealrightAttr.get(),
-        &onwebkitwillrevealtopAttr.get(),
-    };
-
-    EventHandlerNameMap map;
-    populateEventHandlerNameMap(map, table);
-    return map;
+        break;
+    }
 }
 
 const AtomString& HTMLBodyElement::eventNameForWindowEventHandlerAttribute(const QualifiedName& attributeName)
 {
-    static NeverDestroyed<EventHandlerNameMap> map = createWindowEventHandlerNameMap();
-    return eventNameForEventHandlerAttribute(attributeName, map.get());
+    static NeverDestroyed map = [] {
+        EventHandlerNameMap map;
+        JSHTMLBodyElement::forEachWindowEventHandlerContentAttribute([&] (const AtomString& attributeName, const AtomString& eventName) {
+            map.add(attributeName.impl(), eventName);
+        });
+        return map;
+    }();
+    return eventNameForEventHandlerAttribute(attributeName, map);
 }
 
-void HTMLBodyElement::parseAttribute(const QualifiedName& name, const AtomString& value)
+void HTMLBodyElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
-    if (name == vlinkAttr || name == alinkAttr || name == linkAttr) {
-        if (value.isNull()) {
-            if (name == linkAttr)
-                document().resetLinkColor();
-            else if (name == vlinkAttr)
-                document().resetVisitedLinkColor();
-            else
-                document().resetActiveLinkColor();
-        } else {
-            Color color = CSSParser::parseColor(value, !document().inQuirksMode());
-            if (color.isValid()) {
-                if (name == linkAttr)
-                    document().setLinkColor(color);
-                else if (name == vlinkAttr)
-                    document().setVisitedLinkColor(color);
-                else
-                    document().setActiveLinkColor(color);
-            }
-        }
-
+    Ref document = this->document();
+    switch (name.nodeName()) {
+    case AttributeNames::vlinkAttr:
+        if (auto parsedColor = parseLegacyColorValue(newValue))
+            document->setVisitedLinkColor(*parsedColor);
+        else
+            document->resetVisitedLinkColor();
         invalidateStyleForSubtree();
         return;
+    case AttributeNames::alinkAttr:
+        if (auto parsedColor = parseLegacyColorValue(newValue))
+            document->setActiveLinkColor(*parsedColor);
+        else
+            document->resetActiveLinkColor();
+        invalidateStyleForSubtree();
+        return;
+    case AttributeNames::linkAttr:
+        if (auto parsedColor = parseLegacyColorValue(newValue))
+            document->setLinkColor(*parsedColor);
+        else
+            document->resetLinkColor();
+        invalidateStyleForSubtree();
+        return;
+    case AttributeNames::onselectionchangeAttr:
+        // FIXME: Emit "selectionchange" event at <input> / <textarea> elements and remove this special-case.
+        // https://bugs.webkit.org/show_bug.cgi?id=234348
+        document->setAttributeEventListener(eventNames().selectionchangeEvent, name, newValue, mainThreadNormalWorldSingleton());
+        return;
+    default:
+        break;
     }
 
-    if (name == onselectionchangeAttr) {
-        document().setAttributeEventListener(eventNames().selectionchangeEvent, name, value, mainThreadNormalWorld());
+    if (auto& eventName = eventNameForWindowEventHandlerAttribute(name); !eventName.isNull()) {
+        document->setWindowAttributeEventListener(eventName, name, newValue, mainThreadNormalWorldSingleton());
         return;
     }
 
-    auto& eventName = eventNameForWindowEventHandlerAttribute(name);
-    if (!eventName.isNull()) {
-        document().setWindowAttributeEventListener(eventName, name, value, mainThreadNormalWorld());
-        return;
-    }
-
-    HTMLElement::parseAttribute(name, value);
+    HTMLElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
 }
 
-Node::InsertedIntoAncestorResult HTMLBodyElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+Node::NeedsPostConnectionSteps HTMLBodyElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    HTMLElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    HTMLElement::insertionSteps(insertionType, parentOfInsertedTree);
     if (!insertionType.connectedToDocument)
-        return InsertedIntoAncestorResult::Done;
+        return NeedsPostConnectionSteps::No;
     if (!is<HTMLFrameElementBase>(document().ownerElement()))
-        return InsertedIntoAncestorResult::Done;
-    return InsertedIntoAncestorResult::NeedsPostInsertionCallback;
+        return NeedsPostConnectionSteps::No;
+    return NeedsPostConnectionSteps::Yes;
 }
 
-void HTMLBodyElement::didFinishInsertingNode()
+void HTMLBodyElement::postConnectionSteps()
 {
-    ASSERT(is<HTMLFrameElementBase>(document().ownerElement()));
-    auto ownerElement = makeRef(*document().ownerElement());
+    // A DOM mutation could have happened in between the call to insertionSteps() and the
+    // call to postConnectionSteps().
+    Ref document = this->document();
+    if (!is<HTMLFrameElementBase>(document->ownerElement()))
+        return;
+
+    Ref ownerElement = *document->ownerElement();
 
     // FIXME: It's surprising this is web compatible since it means marginwidth and marginheight attributes
     // appear or get overwritten on body elements of a document embedded through <iframe> or <frame>.
@@ -219,11 +217,11 @@ bool HTMLBodyElement::supportsFocus() const
     return hasEditableStyle() || HTMLElement::supportsFocus();
 }
 
-void HTMLBodyElement::addSubresourceAttributeURLs(ListHashSet<URL>& urls) const
+void HTMLBodyElement::addSubresourceAttributeURLs(OrderedHashSet<URL>& urls) const
 {
     HTMLElement::addSubresourceAttributeURLs(urls);
 
-    addSubresourceURL(urls, document().completeURL(attributeWithoutSynchronization(backgroundAttr)));
+    addSubresourceURL(urls, protect(document())->encodingParseURL(attributeWithoutSynchronization(backgroundAttr)));
 }
 
 } // namespace WebCore

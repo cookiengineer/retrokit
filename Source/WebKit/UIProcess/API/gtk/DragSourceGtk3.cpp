@@ -28,9 +28,9 @@
 
 #if ENABLE(DRAG_SUPPORT) && !USE(GTK4)
 
+#include "GRefPtrGtk.h"
+#include "GtkUtilities.h"
 #include "WebKitWebViewBasePrivate.h"
-#include <WebCore/GRefPtrGtk.h>
-#include <WebCore/GtkUtilities.h>
 #include <WebCore/PasteboardCustomData.h>
 #include <gtk/gtk.h>
 
@@ -62,13 +62,13 @@ DragSource::DragSource(GtkWidget* webView)
             break;
         }
         case DragTargetType::NetscapeURL: {
-            CString urlString = drag.m_selectionData->url().string().utf8();
-            GUniquePtr<gchar> url(g_strdup_printf("%s\n%s", urlString.data(), drag.m_selectionData->hasText() ? drag.m_selectionData->text().utf8().data() : urlString.data()));
-            gtk_selection_data_set(data, gdk_atom_intern_static_string("_NETSCAPE_URL"), 8, reinterpret_cast<const guchar*>(url.get()), strlen(url.get()));
+            auto urlString = drag.m_selectionData->url().string();
+            auto url = makeString(urlString, '\n', drag.m_selectionData->hasText() ? drag.m_selectionData->text() : urlString).utf8();
+            gtk_selection_data_set(data, gdk_atom_intern_static_string("_NETSCAPE_URL"), 8, reinterpret_cast<const guchar*>(url.data()), url.length());
             break;
         }
         case DragTargetType::Image: {
-            GRefPtr<GdkPixbuf> pixbuf = adoptGRef(drag.m_selectionData->image()->getGdkPixbuf());
+            auto pixbuf = selectionDataImageAsGdkPixbuf(*drag.m_selectionData);
             gtk_selection_data_set_pixbuf(data, pixbuf.get());
             break;
         }
@@ -76,8 +76,8 @@ DragSource::DragSource(GtkWidget* webView)
             gtk_selection_data_set_text(data, "", -1);
             break;
         case DragTargetType::Custom: {
-            auto* buffer = drag.m_selectionData->customData();
-            gtk_selection_data_set(data, gdk_atom_intern_static_string(PasteboardCustomData::gtkType()), 8, reinterpret_cast<const guchar*>(buffer->data()), buffer->size());
+            auto buffer = drag.m_selectionData->customData()->span();
+            gtk_selection_data_set(data, gdk_atom_intern_static_string(PasteboardCustomData::gtkType()), 8, reinterpret_cast<const guchar*>(buffer.data()), buffer.size());
             break;
         }
         }
@@ -112,14 +112,14 @@ DragSource::~DragSource()
     g_signal_handlers_disconnect_by_data(m_webView, this);
 }
 
-void DragSource::begin(SelectionData&& selectionData, OptionSet<DragOperation> operationMask, RefPtr<ShareableBitmap>&& image)
+void DragSource::begin(SelectionData&& selectionData, OptionSet<DragOperation> operationMask, RefPtr<ShareableBitmap>&& image, IntPoint&& imageHotspot)
 {
     if (m_drag) {
         gtk_drag_cancel(m_drag.get());
         m_drag = nullptr;
     }
 
-    m_selectionData = WTFMove(selectionData);
+    m_selectionData = WTF::move(selectionData);
 
     GRefPtr<GtkTargetList> list = adoptGRef(gtk_target_list_new(nullptr, 0));
     if (m_selectionData->hasText())
@@ -139,9 +139,9 @@ void DragSource::begin(SelectionData&& selectionData, OptionSet<DragOperation> o
 
     m_drag = gtk_drag_begin_with_coordinates(m_webView, list.get(), dragOperationToGdkDragActions(operationMask), GDK_BUTTON_PRIMARY, nullptr, -1, -1);
     if (image) {
-        RefPtr<cairo_surface_t> imageSurface(image->createCairoSurface());
-        // Use the center of the drag image as hotspot.
-        cairo_surface_set_device_offset(imageSurface.get(), -cairo_image_surface_get_width(imageSurface.get()) / 2, -cairo_image_surface_get_height(imageSurface.get()) / 2);
+        auto skiaImage = image->createPlatformImage();
+        RefPtr<cairo_surface_t> imageSurface(skiaImageToCairoSurface(*skiaImage));
+        cairo_surface_set_device_offset(imageSurface.get(), -imageHotspot.x(), -imageHotspot.y());
         gtk_drag_set_icon_surface(m_drag.get(), imageSurface.get());
     } else
         gtk_drag_set_icon_default(m_drag.get());

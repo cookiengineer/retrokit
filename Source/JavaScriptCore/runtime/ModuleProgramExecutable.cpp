@@ -24,48 +24,62 @@
  */
 
 #include "config.h"
+#include "ModuleProgramExecutable.h"
 
 #include "CodeCache.h"
 #include "Debugger.h"
 
 namespace JSC {
 
-const ClassInfo ModuleProgramExecutable::s_info = { "ModuleProgramExecutable", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(ModuleProgramExecutable) };
+const ClassInfo ModuleProgramExecutable::s_info = { "ModuleProgramExecutable"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(ModuleProgramExecutable) };
 
 ModuleProgramExecutable::ModuleProgramExecutable(JSGlobalObject* globalObject, const SourceCode& source)
-    : Base(globalObject->vm().moduleProgramExecutableStructure.get(), globalObject->vm(), source, false, DerivedContextType::None, false, false, EvalContextType::None, NoIntrinsic)
+    : Base(globalObject->vm().moduleProgramExecutableStructure.get(), globalObject->vm(), source, StrictModeLexicallyScopedFeature, DerivedContextType::None, false, false, EvalContextType::None, NoIntrinsic)
 {
     ASSERT(source.provider()->sourceType() == SourceProviderSourceType::Module);
     VM& vm = globalObject->vm();
     if (vm.typeProfiler() || vm.controlFlowProfiler())
-        vm.functionHasExecutedCache()->insertUnexecutedRange(sourceID(), typeProfilingStartOffset(vm), typeProfilingEndOffset(vm));
+        vm.functionHasExecutedCache()->insertUnexecutedRange(sourceID(), typeProfilingStartOffset(), typeProfilingEndOffset());
 }
 
-ModuleProgramExecutable* ModuleProgramExecutable::create(JSGlobalObject* globalObject, const SourceCode& source)
+
+UnlinkedModuleProgramCodeBlock* ModuleProgramExecutable::getUnlinkedCodeBlock(JSGlobalObject* globalObject)
+{
+    VM& vm = globalObject->vm();
+    auto throwScope = DECLARE_THROW_SCOPE(vm);
+
+    UnlinkedModuleProgramCodeBlock* unlinkedModuleProgramCode = unlinkedCodeBlock();
+    if (unlinkedModuleProgramCode)
+        RELEASE_AND_RETURN(throwScope, unlinkedModuleProgramCode);
+
+    ParserError error;
+    OptionSet<CodeGenerationMode> codeGenerationMode = globalObject->defaultCodeGenerationMode();
+    unlinkedModuleProgramCode = vm.codeCache()->getUnlinkedModuleProgramCodeBlock(vm, this, source(), codeGenerationMode, error);
+
+    if (globalObject->hasDebugger())
+        globalObject->debugger()->sourceParsed(globalObject, source().provider(), error.line(), error.message());
+
+    if (error.isValid()) {
+        throwVMError(globalObject, throwScope, error.toErrorObject(globalObject, source()));
+        return nullptr;
+    }
+
+    m_unlinkedCodeBlock.set(vm, this, unlinkedModuleProgramCode);
+    VirtualRegister symbolTableReg = VirtualRegister(unlinkedModuleProgramCode->moduleEnvironmentSymbolTableConstantRegisterOffset());
+    SymbolTable* symbolTable = uncheckedDowncast<SymbolTable>(unlinkedModuleProgramCode->getConstant(symbolTableReg));
+    m_moduleEnvironmentSymbolTable.set(vm, this, symbolTable->cloneScopePart(vm, SymbolTable::PropagateCloneInvalidationToOriginal::Yes));
+    RELEASE_AND_RETURN(throwScope, unlinkedModuleProgramCode);
+}
+
+ModuleProgramExecutable* ModuleProgramExecutable::tryCreate(JSGlobalObject* globalObject, const SourceCode& source)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    ModuleProgramExecutable* executable = new (NotNull, allocateCell<ModuleProgramExecutable>(vm.heap)) ModuleProgramExecutable(globalObject, source);
-    executable->finishCreation(globalObject->vm());
-
-    ParserError error;
-    OptionSet<CodeGenerationMode> codeGenerationMode = globalObject->defaultCodeGenerationMode();
-    UnlinkedModuleProgramCodeBlock* unlinkedModuleProgramCode = vm.codeCache()->getUnlinkedModuleProgramCodeBlock(
-        vm, executable, executable->source(), codeGenerationMode, error);
-
-    if (globalObject->hasDebugger())
-        globalObject->debugger()->sourceParsed(globalObject, executable->source().provider(), error.line(), error.message());
-
-    if (error.isValid()) {
-        throwVMError(globalObject, scope, error.toErrorObject(globalObject, executable->source()));
-        return nullptr;
-    }
-
-    executable->m_unlinkedModuleProgramCodeBlock.set(globalObject->vm(), executable, unlinkedModuleProgramCode);
-
-    executable->m_moduleEnvironmentSymbolTable.set(globalObject->vm(), executable, jsCast<SymbolTable*>(unlinkedModuleProgramCode->constantRegister(VirtualRegister(unlinkedModuleProgramCode->moduleEnvironmentSymbolTableConstantRegisterOffset())).get())->cloneScopePart(globalObject->vm()));
-
+    ModuleProgramExecutable* executable = new (NotNull, allocateCell<ModuleProgramExecutable>(vm)) ModuleProgramExecutable(globalObject, source);
+    executable->finishCreation(vm);
+    executable->getUnlinkedCodeBlock(globalObject); // This generates and binds unlinked code block.
+    RETURN_IF_EXCEPTION(scope, nullptr);
     return executable;
 }
 
@@ -82,12 +96,10 @@ auto ModuleProgramExecutable::ensureTemplateObjectMap(VM&) -> TemplateObjectMap&
 template<typename Visitor>
 void ModuleProgramExecutable::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    ModuleProgramExecutable* thisObject = jsCast<ModuleProgramExecutable*>(cell);
+    ModuleProgramExecutable* thisObject = uncheckedDowncast<ModuleProgramExecutable>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
-    visitor.append(thisObject->m_unlinkedModuleProgramCodeBlock);
     visitor.append(thisObject->m_moduleEnvironmentSymbolTable);
-    visitor.append(thisObject->m_moduleProgramCodeBlock);
     if (TemplateObjectMap* map = thisObject->m_templateObjectMap.get()) {
         Locker locker { thisObject->cellLock() };
         for (auto& entry : *map)

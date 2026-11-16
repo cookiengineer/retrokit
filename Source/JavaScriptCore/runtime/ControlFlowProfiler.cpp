@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2023 Apple Inc. All rights reserved.
  * Copyright (C) 2014 Saam Barati. <saambarati1@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,8 +28,11 @@
 #include "ControlFlowProfiler.h"
 
 #include "VM.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ControlFlowProfiler);
 
 ControlFlowProfiler::ControlFlowProfiler()
     : m_dummyBasicBlock(BasicBlockLocation(-1, -1))
@@ -44,7 +47,7 @@ ControlFlowProfiler::~ControlFlowProfiler()
     }
 }
 
-BasicBlockLocation* ControlFlowProfiler::getBasicBlockLocation(intptr_t sourceID, int startOffset, int endOffset)
+BasicBlockLocation* ControlFlowProfiler::getBasicBlockLocation(SourceID sourceID, int startOffset, int endOffset)
 {
     auto addResult = m_sourceIDBuckets.add(sourceID, BlockLocationCache());
     BlockLocationCache& blockLocationCache = addResult.iterator->value;
@@ -66,7 +69,7 @@ void ControlFlowProfiler::dumpData() const
     }
 }
 
-Vector<BasicBlockRange> ControlFlowProfiler::getBasicBlocksForSourceID(intptr_t sourceID, VM& vm) const 
+Vector<BasicBlockRange> ControlFlowProfiler::getBasicBlocksForSourceID(SourceID sourceID, VM& vm) const
 {
     Vector<BasicBlockRange> result(0);
     auto bucketFindResult = m_sourceIDBuckets.find(sourceID);
@@ -101,7 +104,7 @@ Vector<BasicBlockRange> ControlFlowProfiler::getBasicBlocksForSourceID(intptr_t 
     return result;
 }
 
-static BasicBlockRange findBasicBlockAtTextOffset(int offset, const Vector<BasicBlockRange>& blocks)
+static BasicBlockRange NODELETE findBasicBlockAtTextOffset(int offset, const Vector<BasicBlockRange>& blocks)
 {
     int bestDistance = INT_MAX;
     BasicBlockRange bestRange;
@@ -120,14 +123,14 @@ static BasicBlockRange findBasicBlockAtTextOffset(int offset, const Vector<Basic
     return bestRange;
 }
 
-bool ControlFlowProfiler::hasBasicBlockAtTextOffsetBeenExecuted(int offset, intptr_t sourceID, VM& vm)
+bool ControlFlowProfiler::hasBasicBlockAtTextOffsetBeenExecuted(int offset, SourceID sourceID, VM& vm)
 {
     const Vector<BasicBlockRange>& blocks = getBasicBlocksForSourceID(sourceID, vm);
     BasicBlockRange range = findBasicBlockAtTextOffset(offset, blocks);
     return range.m_hasExecuted;
 }
 
-size_t ControlFlowProfiler::basicBlockExecutionCountAtTextOffset(int offset, intptr_t sourceID, VM& vm)
+size_t ControlFlowProfiler::basicBlockExecutionCountAtTextOffset(int offset, SourceID sourceID, VM& vm)
 {
     const Vector<BasicBlockRange>& blocks = getBasicBlocksForSourceID(sourceID, vm);
     BasicBlockRange range = findBasicBlockAtTextOffset(offset, blocks);

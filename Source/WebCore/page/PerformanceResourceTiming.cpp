@@ -36,24 +36,31 @@
 #include "Document.h"
 #include "DocumentLoadTiming.h"
 #include "DocumentLoader.h"
+#include "Performance.h"
 #include "PerformanceServerTiming.h"
 #include "ResourceResponse.h"
 #include "ResourceTiming.h"
+#include <wtf/ReducedResolutionSeconds.h>
 #include <wtf/URL.h>
 
 namespace WebCore {
 
 static double networkLoadTimeToDOMHighResTimeStamp(MonotonicTime timeOrigin, MonotonicTime timeStamp)
 {
-    if (!timeStamp)
-        return 0.0;
     ASSERT(timeOrigin);
-    return Performance::reduceTimeResolution(timeStamp - timeOrigin).milliseconds();
+    if (timeStamp <= timeOrigin)
+        return 0.0;
+    auto result = Performance::reduceTimeResolution(timeStamp - timeOrigin);
+    if (!result)
+        result = ReducedResolutionSeconds::fromSeconds(Performance::timeResolution());
+    return result.milliseconds();
 }
 
-static double fetchStart(MonotonicTime timeOrigin, const ResourceTiming& resourceTiming)
+static double fetchStart(MonotonicTime timeOrigin, const ResourceTiming& resourceTiming, bool exposeRedirectTiming)
 {
-    if (auto fetchStart = resourceTiming.networkLoadMetrics().fetchStart)
+    // The real fetch start reveals how long the redirects took, so only use it when redirect timing
+    // is exposed; otherwise fall back to the start time, which collapses that gap.
+    if (auto fetchStart = resourceTiming.networkLoadMetrics().fetchStart; fetchStart && exposeRedirectTiming)
         return networkLoadTimeToDOMHighResTimeStamp(timeOrigin, fetchStart);
 
     // fetchStart is a required property.
@@ -66,7 +73,7 @@ static double entryStartTime(MonotonicTime timeOrigin, const ResourceTiming& res
 {
     if (resourceTiming.networkLoadMetrics().failsTAOCheck
         || !resourceTiming.networkLoadMetrics().redirectCount)
-        return fetchStart(timeOrigin, resourceTiming);
+        return fetchStart(timeOrigin, resourceTiming, !resourceTiming.networkLoadMetrics().failsTAOCheck);
 
     if (resourceTiming.networkLoadMetrics().redirectStart)
         return networkLoadTimeToDOMHighResTimeStamp(timeOrigin, resourceTiming.networkLoadMetrics().redirectStart);
@@ -84,13 +91,13 @@ static double entryEndTime(MonotonicTime timeOrigin, const ResourceTiming& resou
 
 Ref<PerformanceResourceTiming> PerformanceResourceTiming::create(MonotonicTime timeOrigin, ResourceTiming&& resourceTiming)
 {
-    return adoptRef(*new PerformanceResourceTiming(timeOrigin, WTFMove(resourceTiming)));
+    return adoptRef(*new PerformanceResourceTiming(timeOrigin, WTF::move(resourceTiming)));
 }
 
 PerformanceResourceTiming::PerformanceResourceTiming(MonotonicTime timeOrigin, ResourceTiming&& resourceTiming)
     : PerformanceEntry(resourceTiming.url().string(), entryStartTime(timeOrigin, resourceTiming), entryEndTime(timeOrigin, resourceTiming))
     , m_timeOrigin(timeOrigin)
-    , m_resourceTiming(WTFMove(resourceTiming))
+    , m_resourceTiming(WTF::move(resourceTiming))
     , m_serverTiming(m_resourceTiming.populateServerTiming())
 {
 }
@@ -99,18 +106,31 @@ PerformanceResourceTiming::~PerformanceResourceTiming() = default;
 
 const String& PerformanceResourceTiming::nextHopProtocol() const
 {
+    if (m_resourceTiming.networkLoadMetrics().failsTAOCheck)
+        return emptyString();
+
     return m_resourceTiming.networkLoadMetrics().protocol;
 }
 
 double PerformanceResourceTiming::workerStart() const
 {
-    // FIXME: <https://webkit.org/b/179377> Implement PerformanceResourceTiming.workerStart in ServiceWorkers
-    return 0.0;
+    if (m_resourceTiming.networkLoadMetrics().failsTAOCheck)
+        return 0.0;
+
+    return networkLoadTimeToDOMHighResTimeStamp(m_timeOrigin, m_resourceTiming.networkLoadMetrics().workerStart);
+}
+
+bool PerformanceResourceTiming::shouldExposeRedirectTiming() const
+{
+    return !m_resourceTiming.networkLoadMetrics().failsTAOCheck;
 }
 
 double PerformanceResourceTiming::redirectStart() const
 {
-    if (m_resourceTiming.networkLoadMetrics().failsTAOCheck)
+    if (!shouldExposeRedirectTiming())
+        return 0.0;
+
+    if (m_resourceTiming.isLoadedFromServiceWorker())
         return 0.0;
 
     if (!m_resourceTiming.networkLoadMetrics().redirectCount)
@@ -121,12 +141,16 @@ double PerformanceResourceTiming::redirectStart() const
 
 double PerformanceResourceTiming::redirectEnd() const
 {
-    if (m_resourceTiming.networkLoadMetrics().failsTAOCheck)
+    if (!shouldExposeRedirectTiming())
+        return 0.0;
+
+    if (m_resourceTiming.isLoadedFromServiceWorker())
         return 0.0;
 
     if (!m_resourceTiming.networkLoadMetrics().redirectCount)
         return 0.0;
 
+    // redirectEnd is when the last redirect finished, i.e. when the final request's fetch started.
     // These two times are so close to each other that we don't record two timestamps.
     // See https://www.w3.org/TR/resource-timing-2/#attribute-descriptions
     return fetchStart();
@@ -134,13 +158,16 @@ double PerformanceResourceTiming::redirectEnd() const
 
 double PerformanceResourceTiming::fetchStart() const
 {
-    return WebCore::fetchStart(m_timeOrigin, m_resourceTiming);
+    return WebCore::fetchStart(m_timeOrigin, m_resourceTiming, shouldExposeRedirectTiming());
 }
 
 double PerformanceResourceTiming::domainLookupStart() const
 {
     if (m_resourceTiming.networkLoadMetrics().failsTAOCheck)
         return 0.0;
+
+    if (m_resourceTiming.isLoadedFromServiceWorker())
+        return fetchStart();
 
     if (!m_resourceTiming.networkLoadMetrics().domainLookupStart)
         return fetchStart();
@@ -153,6 +180,9 @@ double PerformanceResourceTiming::domainLookupEnd() const
     if (m_resourceTiming.networkLoadMetrics().failsTAOCheck)
         return 0.0;
 
+    if (m_resourceTiming.isLoadedFromServiceWorker())
+        return fetchStart();
+
     if (!m_resourceTiming.networkLoadMetrics().domainLookupEnd)
         return domainLookupStart();
 
@@ -164,6 +194,9 @@ double PerformanceResourceTiming::connectStart() const
     if (m_resourceTiming.networkLoadMetrics().failsTAOCheck)
         return 0.0;
 
+    if (m_resourceTiming.isLoadedFromServiceWorker())
+        return fetchStart();
+
     if (!m_resourceTiming.networkLoadMetrics().connectStart)
         return domainLookupEnd();
 
@@ -174,6 +207,9 @@ double PerformanceResourceTiming::connectEnd() const
 {
     if (m_resourceTiming.networkLoadMetrics().failsTAOCheck)
         return 0.0;
+
+    if (m_resourceTiming.isLoadedFromServiceWorker())
+        return fetchStart();
 
     if (!m_resourceTiming.networkLoadMetrics().connectEnd)
         return connectStart();
@@ -207,22 +243,50 @@ double PerformanceResourceTiming::requestStart() const
     return networkLoadTimeToDOMHighResTimeStamp(m_timeOrigin, m_resourceTiming.networkLoadMetrics().requestStart);
 }
 
+double PerformanceResourceTiming::finalResponseHeadersStart() const
+{
+    if (m_resourceTiming.networkLoadMetrics().failsTAOCheck)
+        return 0.0;
+
+    // Return 0 if no final response headers timing was captured.
+    if (!m_resourceTiming.networkLoadMetrics().responseStart)
+        return 0.0;
+
+    return networkLoadTimeToDOMHighResTimeStamp(m_timeOrigin, m_resourceTiming.networkLoadMetrics().responseStart);
+}
+
+double PerformanceResourceTiming::firstInterimResponseStart() const
+{
+    if (m_resourceTiming.networkLoadMetrics().failsTAOCheck)
+        return 0.0;
+
+    // Return 0 if no interim (1xx) response was received.
+    if (!m_resourceTiming.networkLoadMetrics().firstInterimResponseStart)
+        return 0.0;
+
+    return networkLoadTimeToDOMHighResTimeStamp(m_timeOrigin, m_resourceTiming.networkLoadMetrics().firstInterimResponseStart);
+}
+
 double PerformanceResourceTiming::responseStart() const
 {
     if (m_resourceTiming.networkLoadMetrics().failsTAOCheck)
         return 0.0;
 
-    // responseStart is 0 when a network request is not made.
-    if (!m_resourceTiming.networkLoadMetrics().responseStart)
-        return requestStart();
+    // Per https://github.com/w3c/resource-timing/pull/408:
+    // responseStart returns firstInterimResponseStart if present, else finalResponseHeadersStart.
+    if (m_resourceTiming.networkLoadMetrics().firstInterimResponseStart)
+        return networkLoadTimeToDOMHighResTimeStamp(m_timeOrigin, m_resourceTiming.networkLoadMetrics().firstInterimResponseStart);
 
-    return networkLoadTimeToDOMHighResTimeStamp(m_timeOrigin, m_resourceTiming.networkLoadMetrics().responseStart);
+    return finalResponseHeadersStart();
 }
 
 double PerformanceResourceTiming::responseEnd() const
 {
-    // responseEnd is a required property.
-    ASSERT(m_resourceTiming.networkLoadMetrics().isComplete() || m_resourceTiming.resourceLoadTiming().endTime());
+    // responseEnd is a required property, but PerformanceNavigationTiming
+    // can be queried before the document load is complete
+    ASSERT(m_resourceTiming.networkLoadMetrics().isComplete()
+        || m_resourceTiming.resourceLoadTiming().endTime()
+        || performanceEntryType() == Type::Navigation);
 
     if (m_resourceTiming.networkLoadMetrics().isComplete()) {
         if (m_resourceTiming.networkLoadMetrics().responseEnd)
@@ -245,7 +309,9 @@ double PerformanceResourceTiming::responseEnd() const
 
 uint64_t PerformanceResourceTiming::transferSize() const
 {
-    if (m_resourceTiming.networkLoadMetrics().failsTAOCheck)
+    // This is intentionally stricter than a TAO check.
+    // See https://github.com/w3c/server-timing/issues/89
+    if (!m_resourceTiming.isSameOriginRequest() || m_resourceTiming.networkLoadMetrics().failsTAOCheck)
         return 0;
 
     auto encodedBodySize = m_resourceTiming.networkLoadMetrics().responseBodyBytesReceived;
@@ -253,12 +319,15 @@ uint64_t PerformanceResourceTiming::transferSize() const
         return 0;
 
     // https://w3c.github.io/resource-timing/#dom-performanceresourcetiming-transfersize
+    // Motivated by https://github.com/w3c/resource-timing/issues/238
     return encodedBodySize + 300;
 }
 
 uint64_t PerformanceResourceTiming::encodedBodySize() const
 {
-    if (m_resourceTiming.networkLoadMetrics().failsTAOCheck)
+    // This is intentionally stricter than a TAO check.
+    // See https://github.com/w3c/server-timing/issues/89
+    if (!m_resourceTiming.isSameOriginRequest() || m_resourceTiming.networkLoadMetrics().failsTAOCheck)
         return 0;
 
     auto encodedBodySize = m_resourceTiming.networkLoadMetrics().responseBodyBytesReceived;
@@ -270,7 +339,9 @@ uint64_t PerformanceResourceTiming::encodedBodySize() const
 
 uint64_t PerformanceResourceTiming::decodedBodySize() const
 {
-    if (m_resourceTiming.networkLoadMetrics().failsTAOCheck)
+    // This is intentionally stricter than a TAO check.
+    // See https://github.com/w3c/server-timing/issues/89
+    if (!m_resourceTiming.isSameOriginRequest() || m_resourceTiming.networkLoadMetrics().failsTAOCheck)
         return 0;
 
     auto decodedBodySize = m_resourceTiming.networkLoadMetrics().responseBodyDecodedSize;
@@ -278,6 +349,26 @@ uint64_t PerformanceResourceTiming::decodedBodySize() const
         return 0;
 
     return decodedBodySize;
+}
+
+double PerformanceResourceTiming::workerRouterEvaluationStart() const
+{
+    return networkLoadTimeToDOMHighResTimeStamp(m_timeOrigin, m_resourceTiming.networkLoadMetrics().workerRouterEvaluationStart);
+}
+
+double PerformanceResourceTiming::workerCacheLookupStart() const
+{
+    return networkLoadTimeToDOMHighResTimeStamp(m_timeOrigin, m_resourceTiming.networkLoadMetrics().workerCacheLookupStart);
+}
+
+const String& PerformanceResourceTiming::workerMatchedRouterSource() const
+{
+    return m_resourceTiming.networkLoadMetrics().workerMatchedRouterSource;
+}
+
+const String& PerformanceResourceTiming::workerFinalRouterSource() const
+{
+    return m_resourceTiming.networkLoadMetrics().workerFinalRouterSource;
 }
 
 } // namespace WebCore

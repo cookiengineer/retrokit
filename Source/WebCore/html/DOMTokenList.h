@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2010 Google Inc. All rights reserved.
- * Copyright (C) 2015, 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,55 +25,58 @@
 
 #pragma once
 
-#include "Element.h"
+#include <WebCore/Element.h>
+#include <wtf/FixedVector.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
-class DOMTokenList {
-    WTF_MAKE_FAST_ALLOCATED;
+class DOMTokenList final {
+    WTF_MAKE_TZONE_ALLOCATED(DOMTokenList);
 public:
-    using IsSupportedTokenFunction = WTF::Function<bool(Document&, StringView)>;
+    using IsSupportedTokenFunction = Function<bool(Document&, StringView)>;
     DOMTokenList(Element&, const QualifiedName& attributeName, IsSupportedTokenFunction&& isSupportedToken = { });
 
-    void associatedAttributeValueChanged(const AtomString&);
+    inline void associatedAttributeValueChanged();
 
-    void ref() { m_element.ref(); }
-    void deref() { m_element.deref(); }
+    void ref() { m_element->ref(); }
+    void deref() { m_element->deref(); }
 
     unsigned length() const;
+    bool isSupportedPropertyIndex(unsigned index) const { return index < length(); }
     const AtomString& item(unsigned index) const;
 
     WEBCORE_EXPORT bool contains(const AtomString&) const;
-    ExceptionOr<void> add(const Vector<String>&);
+    ExceptionOr<void> add(const FixedVector<AtomString>&);
     ExceptionOr<void> add(const AtomString&);
-    ExceptionOr<void> remove(const Vector<String>&);
+    ExceptionOr<void> remove(const FixedVector<AtomString>&);
     ExceptionOr<void> remove(const AtomString&);
     WEBCORE_EXPORT ExceptionOr<bool> toggle(const AtomString&, std::optional<bool> force);
     ExceptionOr<bool> replace(const AtomString& token, const AtomString& newToken);
     ExceptionOr<bool> supports(StringView token);
 
-    Element& element() const { return m_element; }
+    Element& element() const { return m_element.get(); }
 
-    WEBCORE_EXPORT void setValue(const String&);
+    WEBCORE_EXPORT void setValue(const AtomString&);
     WEBCORE_EXPORT const AtomString& value() const;
 
 private:
-    void updateTokensFromAttributeValue(const String&);
+    void updateTokensFromAttributeValue(const AtomString&);
     void updateAssociatedAttributeFromTokens();
 
-    WEBCORE_EXPORT Vector<AtomString>& tokens();
-    const Vector<AtomString>& tokens() const { return const_cast<DOMTokenList&>(*this).tokens(); }
+    WEBCORE_EXPORT Vector<AtomString, 1>& tokens() LIFETIME_BOUND;
+    const Vector<AtomString, 1>& tokens() const LIFETIME_BOUND { return const_cast<DOMTokenList&>(*this).tokens(); }
 
-    static ExceptionOr<void> validateToken(const String&);
-    static ExceptionOr<void> validateTokens(const String* tokens, size_t length);
-    ExceptionOr<void> addInternal(const String* tokens, size_t length);
-    ExceptionOr<void> removeInternal(const String* tokens, size_t length);
+    static ExceptionOr<void> validateToken(StringView);
+    static ExceptionOr<void> validateTokens(std::span<const AtomString> tokens);
+    ExceptionOr<void> addInternal(std::span<const AtomString> tokens);
+    ExceptionOr<void> removeInternal(std::span<const AtomString> tokens);
 
-    Element& m_element;
+    const CheckedRef<Element> m_element;
     const WebCore::QualifiedName& m_attributeName;
     bool m_inUpdateAssociatedAttributeFromTokens { false };
     bool m_tokensNeedUpdating { true };
-    Vector<AtomString> m_tokens;
+    Vector<AtomString, 1> m_tokens;
     IsSupportedTokenFunction m_isSupportedToken;
 };
 
@@ -86,6 +89,14 @@ inline const AtomString& DOMTokenList::item(unsigned index) const
 {
     auto& tokens = this->tokens();
     return index < tokens.size() ? tokens[index] : nullAtom();
+}
+
+inline void DOMTokenList::associatedAttributeValueChanged()
+{
+    // Do not reset the DOMTokenList value if the attribute value was changed by us.
+    if (m_inUpdateAssociatedAttributeFromTokens)
+        return;
+    m_tokensNeedUpdating = true;
 }
 
 } // namespace WebCore

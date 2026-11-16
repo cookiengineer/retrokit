@@ -25,8 +25,8 @@
 
 #pragma once
 
-#include "ColorComponents.h"
-#include "ColorTypes.h"
+#include <WebCore/ColorComponents.h>
+#include <WebCore/ColorTypes.h>
 #include <algorithm>
 #include <cmath>
 #include <functional>
@@ -46,23 +46,49 @@ uint8_t convertPrescaledSRGBAFloatToSRGBAByte(float);
 template<typename T> T convertByteAlphaTo(uint8_t);
 template<typename T> T convertFloatAlphaTo(float);
 
-template<typename ColorType, typename Functor> ColorType colorByModifingEachNonAlphaComponent(const ColorType&, Functor&&);
+template<typename ColorType, typename Functor> auto colorByModifingEachNonAlphaComponent(const ColorType&, NOESCAPE Functor&&);
 
-template<typename ColorType> constexpr ColorType colorWithOverriddenAlpha(const ColorType&, uint8_t overrideAlpha);
-template<typename ColorType> ColorType colorWithOverriddenAlpha(const ColorType&, float overrideAlpha);
+template<typename ColorType> constexpr auto colorWithOverriddenAlpha(const ColorType&, uint8_t overrideAlpha);
+template<typename ColorType> auto colorWithOverriddenAlpha(const ColorType&, float overrideAlpha);
 
-template<typename ColorType> constexpr ColorType invertedColorWithOverriddenAlpha(const ColorType&, uint8_t overrideAlpha);
-template<typename ColorType> ColorType invertedColorWithOverriddenAlpha(const ColorType&, float overrideAlpha);
+template<typename ColorType> constexpr auto invertedColorWithOverriddenAlpha(const ColorType&, uint8_t overrideAlpha);
+template<typename ColorType> auto invertedColorWithOverriddenAlpha(const ColorType&, float overrideAlpha);
 
-template<typename ColorType, typename std::enable_if_t<std::is_same_v<typename ColorType::Model, RGBModel<typename ColorType::ComponentType>>>* = nullptr> constexpr bool isBlack(const ColorType&);
-template<WhitePoint W> constexpr bool isBlack(const XYZA<float, W>&);
-constexpr bool isBlack(const LCHA<float>&);
-constexpr bool isBlack(const Lab<float>&);
+template<typename ColorType> requires (UsesLabModel<ColorType> || UsesLCHModel<ColorType> || UsesOKLabModel<ColorType> || UsesOKLCHModel<ColorType> || UsesHSLModel<ColorType>)
+constexpr bool isBlack(const ColorType&);
 
-template<typename ColorType, typename std::enable_if_t<std::is_same_v<typename ColorType::Model, RGBModel<typename ColorType::ComponentType>>>* = nullptr> constexpr bool isWhite(const ColorType&);
-template<WhitePoint W> constexpr bool isWhite(const XYZA<float, W>&);
-constexpr bool isWhite(const LCHA<float>&);
-constexpr bool isWhite(const Lab<float>&);
+template<typename ColorType> requires UsesRGBModel<ColorType>
+constexpr bool isBlack(const ColorType&);
+
+template<typename ColorType>
+requires UsesHWBModel<ColorType>
+constexpr bool isBlack(const ColorType&);
+
+template<WhitePoint W>
+constexpr bool isBlack(const XYZA<float, W>&);
+
+template<typename ColorType>
+requires (UsesLabModel<ColorType> || UsesLCHModel<ColorType> || UsesHSLModel<ColorType>)
+constexpr bool isWhite(const ColorType&);
+
+template<typename ColorType>
+requires (UsesOKLabModel<ColorType> || UsesOKLCHModel<ColorType>)
+constexpr bool isWhite(const ColorType&);
+
+template<typename ColorType>
+requires (UsesRGBModel<ColorType> && std::is_same_v<typename ColorType::ComponentType, float>)
+constexpr bool isWhite(const ColorType&);
+
+template<typename ColorType>
+requires (UsesRGBModel<ColorType> && std::is_same_v<typename ColorType::ComponentType, uint8_t>)
+constexpr bool isWhite(const ColorType&);
+
+template<typename ColorType>
+requires UsesHWBModel<ColorType>
+constexpr bool isWhite(const ColorType&);
+
+template<WhitePoint W>
+constexpr bool isWhite(const XYZA<float, W>&);
 
 constexpr uint16_t fastMultiplyBy255(uint16_t);
 constexpr uint16_t fastDivideBy255(uint16_t);
@@ -93,35 +119,35 @@ template<> inline float convertFloatAlphaTo<float>(float value)
     return clampedAlpha(value);
 }
 
-template<typename ColorType, typename Functor> ColorType colorByModifingEachNonAlphaComponent(const ColorType& color, Functor&& functor)
+template<typename ColorType, typename Functor> auto colorByModifingEachNonAlphaComponent(const ColorType& color, NOESCAPE Functor&& functor)
 {
-    auto components = asColorComponents(color);
+    auto components = asColorComponents(color.resolved());
     auto copy = components;
     copy[0] = std::invoke(functor, components[0]);
     copy[1] = std::invoke(functor, components[1]);
     copy[2] = std::invoke(std::forward<Functor>(functor), components[2]);
-    return { copy[0], copy[1], copy[2], copy[3] };
+    return makeFromComponents<ColorType>(copy);
 }
 
-template<typename ColorType> constexpr ColorType colorWithOverriddenAlpha(const ColorType& color, uint8_t overrideAlpha)
+template<typename ColorType> constexpr auto colorWithOverriddenAlpha(const ColorType& color, uint8_t overrideAlpha)
 {
-    auto copy = color;
+    auto copy = color.unresolved();
     copy.alpha = convertByteAlphaTo<typename ColorType::ComponentType>(overrideAlpha);
     return copy;
 }
 
-template<typename ColorType> ColorType colorWithOverriddenAlpha(const ColorType& color, float overrideAlpha)
+template<typename ColorType> auto colorWithOverriddenAlpha(const ColorType& color, float overrideAlpha)
 {
-    auto copy = color;
+    auto copy = color.unresolved();
     copy.alpha = convertFloatAlphaTo<typename ColorType::ComponentType>(overrideAlpha);
     return copy;
 }
 
-template<typename ColorType> constexpr ColorType invertedColorWithOverriddenAlpha(const ColorType& color, uint8_t overrideAlpha)
+template<typename ColorType> constexpr auto invertedColorWithOverriddenAlpha(const ColorType& color, uint8_t overrideAlpha)
 {
     static_assert(ColorType::Model::isInvertible);
 
-    auto components = asColorComponents(color);
+    auto components = asColorComponents(color.resolved());
     auto copy = components;
 
     for (unsigned i = 0; i < 3; ++i)
@@ -131,11 +157,11 @@ template<typename ColorType> constexpr ColorType invertedColorWithOverriddenAlph
     return makeFromComponents<ColorType>(copy);
 }
 
-template<typename ColorType> ColorType invertedColorWithOverriddenAlpha(const ColorType& color, float overrideAlpha)
+template<typename ColorType> auto invertedColorWithOverriddenAlpha(const ColorType& color, float overrideAlpha)
 {
     static_assert(ColorType::Model::isInvertible);
 
-    auto components = asColorComponents(color);
+    auto components = asColorComponents(color.resolved());
     auto copy = components;
 
     for (unsigned i = 0; i < 3; ++i)
@@ -145,50 +171,82 @@ template<typename ColorType> ColorType invertedColorWithOverriddenAlpha(const Co
     return makeFromComponents<ColorType>(copy);
 }
 
-template<WhitePoint W> constexpr bool isBlack(const XYZA<float, W>& color)
+template<WhitePoint W>
+constexpr bool isBlack(const XYZA<float, W>& color)
 {
-    return color.y == 0 && color.alpha == AlphaTraits<float>::opaque;
+    auto resolvedColor = color.resolved();
+    return resolvedColor.y == 0 && resolvedColor.alpha == AlphaTraits<float>::opaque;
 }
 
-constexpr bool isBlack(const LCHA<float>& color)
-{
-    return color.lightness == 0 && color.alpha == AlphaTraits<float>::opaque;
-}
-
-constexpr bool isBlack(const Lab<float>& color)
-{
-    return color.lightness == 0 && color.alpha == AlphaTraits<float>::opaque;
-}
-
-template<typename ColorType, typename std::enable_if_t<std::is_same_v<typename ColorType::Model, RGBModel<typename ColorType::ComponentType>>>*>
+template<typename ColorType>
+requires (UsesLabModel<ColorType> || UsesLCHModel<ColorType> || UsesOKLabModel<ColorType> || UsesOKLCHModel<ColorType> || UsesHSLModel<ColorType>)
 constexpr bool isBlack(const ColorType& color)
 {
-    auto [c1, c2, c3, alpha] = color;
-    constexpr auto componentInfo = ColorType::Model::componentInfo;
-    return c1 == componentInfo[0].min && c2 == componentInfo[1].min && c3 == componentInfo[2].min && alpha == AlphaTraits<typename ColorType::ComponentType>::opaque;
+    auto resolvedColor = color.resolved();
+    return resolvedColor.lightness == 0 && resolvedColor.alpha == AlphaTraits<float>::opaque;
 }
 
-template<WhitePoint W> constexpr bool isWhite(const XYZA<float, W>& color)
+template<typename ColorType>
+requires UsesRGBModel<ColorType>
+constexpr bool isBlack(const ColorType& color)
 {
-    return color.y == 1 && color.alpha == AlphaTraits<float>::opaque;
+    auto [c1, c2, c3, alpha] = color.resolved();
+    return c1 == 0 && c2 == 0 && c3 == 0 && alpha == AlphaTraits<typename ColorType::ComponentType>::opaque;
 }
 
-constexpr bool isWhite(const LCHA<float>& color)
+template<typename ColorType>
+requires UsesHWBModel<ColorType>
+constexpr bool isBlack(const ColorType& color)
 {
-    return color.lightness == 100 && color.alpha == AlphaTraits<float>::opaque;
+    auto resolvedColor = color.resolved();
+    return resolvedColor.blackness == 100 && resolvedColor.alpha == AlphaTraits<float>::opaque;
 }
 
-constexpr bool isWhite(const Lab<float>& color)
+template<WhitePoint W>
+constexpr bool isWhite(const XYZA<float, W>& color)
 {
-    return color.lightness == 100 && color.alpha == AlphaTraits<float>::opaque;
+    auto resolvedColor = color.resolved();
+    return resolvedColor.y == 1 && resolvedColor.alpha == AlphaTraits<float>::opaque;
 }
 
-template<typename ColorType, typename std::enable_if_t<std::is_same_v<typename ColorType::Model, RGBModel<typename ColorType::ComponentType>>>*>
+template<typename ColorType>
+requires (UsesLabModel<ColorType> || UsesLCHModel<ColorType> || UsesHSLModel<ColorType>)
 constexpr bool isWhite(const ColorType& color)
 {
-    auto [c1, c2, c3, alpha] = color;
-    constexpr auto componentInfo = ColorType::Model::componentInfo;
-    return c1 == componentInfo[0].max && c2 == componentInfo[1].max && c3 == componentInfo[2].max && alpha == AlphaTraits<typename ColorType::ComponentType>::opaque;
+    auto resolvedColor = color.resolved();
+    return resolvedColor.lightness == 100 && resolvedColor.alpha == AlphaTraits<float>::opaque;
+}
+
+template<typename ColorType>
+requires (UsesOKLabModel<ColorType> || UsesOKLCHModel<ColorType>)
+constexpr bool isWhite(const ColorType& color)
+{
+    auto resolvedColor = color.resolved();
+    return resolvedColor.lightness == 1 && resolvedColor.alpha == AlphaTraits<float>::opaque;
+}
+
+template<typename ColorType>
+requires (UsesRGBModel<ColorType> && std::is_same_v<typename ColorType::ComponentType, float>)
+constexpr bool isWhite(const ColorType& color)
+{
+    auto [c1, c2, c3, alpha] = color.resolved();
+    return c1 == 1 && c2 == 1 && c3 == 1 && alpha == AlphaTraits<float>::opaque;
+}
+
+template<typename ColorType>
+requires (UsesRGBModel<ColorType> && std::is_same_v<typename ColorType::ComponentType, uint8_t>)
+constexpr bool isWhite(const ColorType& color)
+{
+    auto [c1, c2, c3, alpha] = color.resolved();
+    return c1 == 255 && c2 == 255 && c3 == 255 && alpha == AlphaTraits<uint8_t>::opaque;
+}
+
+template<typename ColorType>
+requires UsesHWBModel<ColorType>
+constexpr bool isWhite(const ColorType& color)
+{
+    auto resolvedColor = color.resolved();
+    return resolvedColor.whiteness == 100 && resolvedColor.alpha == AlphaTraits<float>::opaque;
 }
 
 constexpr uint16_t fastMultiplyBy255(uint16_t value)

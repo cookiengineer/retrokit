@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 Igalia S.L.
- * Copyright (C) 2016-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2022 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -20,8 +20,10 @@
 #include "config.h"
 #include "UserMediaPermissionRequestProxy.h"
 
+#include "APIUIClient.h"
 #include "MediaPermissionUtilities.h"
 #include "UserMediaPermissionRequestManagerProxy.h"
+#include "WebPageProxy.h"
 #include <WebCore/CaptureDeviceManager.h>
 #include <WebCore/RealtimeMediaSourceCenter.h>
 #include <WebCore/SecurityOrigin.h>
@@ -31,24 +33,42 @@
 namespace WebKit {
 using namespace WebCore;
 
-UserMediaPermissionRequestProxy::UserMediaPermissionRequestProxy(UserMediaPermissionRequestManagerProxy& manager, UserMediaRequestIdentifier userMediaID, FrameIdentifier mainFrameID, FrameIdentifier frameID, Ref<WebCore::SecurityOrigin>&& userMediaDocumentOrigin, Ref<WebCore::SecurityOrigin>&& topLevelDocumentOrigin, Vector<WebCore::CaptureDevice>&& audioDevices, Vector<WebCore::CaptureDevice>&& videoDevices, WebCore::MediaStreamRequest&& request, CompletionHandler<void(bool)>&& decisionCompletionHandler)
-    : m_manager(&manager)
+#if !PLATFORM(COCOA)
+Ref<UserMediaPermissionRequestProxy> UserMediaPermissionRequestProxy::create(UserMediaPermissionRequestManagerProxy& manager, std::optional<WebCore::UserMediaRequestIdentifier> userMediaID, WebCore::FrameIdentifier mainFrameID, FrameInfoData&& frameInfo, Ref<WebCore::SecurityOrigin>&& userMediaDocumentOrigin, Ref<WebCore::SecurityOrigin>&& topLevelDocumentOrigin, Vector<WebCore::CaptureDevice>&& audioDevices, Vector<WebCore::CaptureDevice>&& videoDevices, WebCore::MediaStreamRequest&& request, CompletionHandler<void(bool)>&& decisionCompletionHandler)
+{
+    return adoptRef(*new UserMediaPermissionRequestProxy(manager, userMediaID, mainFrameID, WTF::move(frameInfo), WTF::move(userMediaDocumentOrigin), WTF::move(topLevelDocumentOrigin), WTF::move(audioDevices), WTF::move(videoDevices), WTF::move(request), WTF::move(decisionCompletionHandler)));
+}
+#endif
+
+UserMediaPermissionRequestProxy::UserMediaPermissionRequestProxy(UserMediaPermissionRequestManagerProxy& manager, std::optional<UserMediaRequestIdentifier> userMediaID, FrameIdentifier mainFrameID, FrameInfoData&& frameInfo, Ref<WebCore::SecurityOrigin>&& userMediaDocumentOrigin, Ref<WebCore::SecurityOrigin>&& topLevelDocumentOrigin, Vector<WebCore::CaptureDevice>&& audioDevices, Vector<WebCore::CaptureDevice>&& videoDevices, WebCore::MediaStreamRequest&& request, CompletionHandler<void(bool)>&& decisionCompletionHandler)
+    : m_manager(manager)
     , m_userMediaID(userMediaID)
     , m_mainFrameID(mainFrameID)
-    , m_frameID(frameID)
-    , m_userMediaDocumentSecurityOrigin(WTFMove(userMediaDocumentOrigin))
-    , m_topLevelDocumentSecurityOrigin(WTFMove(topLevelDocumentOrigin))
-    , m_eligibleVideoDevices(WTFMove(videoDevices))
-    , m_eligibleAudioDevices(WTFMove(audioDevices))
-    , m_request(WTFMove(request))
-    , m_decisionCompletionHandler(WTFMove(decisionCompletionHandler))
+    , m_frameInfo(WTF::move(frameInfo))
+    , m_userMediaDocumentSecurityOrigin(WTF::move(userMediaDocumentOrigin))
+    , m_topLevelDocumentSecurityOrigin(WTF::move(topLevelDocumentOrigin))
+    , m_eligibleVideoDevices(WTF::move(videoDevices))
+    , m_eligibleAudioDevices(WTF::move(audioDevices))
+    , m_request(WTF::move(request))
+    , m_decisionCompletionHandler(WTF::move(decisionCompletionHandler))
 {
+}
+
+UserMediaPermissionRequestProxy::~UserMediaPermissionRequestProxy()
+{
+    if (m_decisionCompletionHandler)
+        m_decisionCompletionHandler(false);
+}
+
+UserMediaPermissionRequestManagerProxy* UserMediaPermissionRequestProxy::manager() const
+{
+    return m_manager.get();
 }
 
 #if ENABLE(MEDIA_STREAM)
 static inline void setDeviceAsFirst(Vector<CaptureDevice>& devices, const String& deviceID)
 {
-    size_t index = devices.findMatching([&deviceID](const auto& device) {
+    size_t index = devices.findIf([&deviceID](const auto& device) {
         return device.persistentId() == deviceID;
     });
     ASSERT(index != notFound);
@@ -57,8 +77,8 @@ static inline void setDeviceAsFirst(Vector<CaptureDevice>& devices, const String
         auto device = devices[index];
         ASSERT(device.enabled());
 
-        devices.remove(index);
-        devices.insert(0, WTFMove(device));
+        devices.removeAt(index);
+        devices.insert(0, WTF::move(device));
     }
 }
 #endif
@@ -80,20 +100,22 @@ void UserMediaPermissionRequestProxy::allow(const String& audioDeviceUID, const 
 
 void UserMediaPermissionRequestProxy::allow()
 {
-    ASSERT(m_manager);
-    if (!m_manager)
+    RefPtr manager = m_manager.get();
+    ASSERT(manager);
+    if (!manager)
         return;
 
-    m_manager->grantRequest(*this);
+    manager->grantRequest(*this);
     invalidate();
 }
 
 void UserMediaPermissionRequestProxy::deny(UserMediaAccessDenialReason reason)
 {
-    if (!m_manager)
+    RefPtr manager = m_manager.get();
+    if (!manager)
         return;
 
-    m_manager->denyRequest(*this, reason);
+    manager->denyRequest(*this, reason);
     invalidate();
 }
 
@@ -102,6 +124,11 @@ void UserMediaPermissionRequestProxy::invalidate()
     m_manager = nullptr;
     if (m_decisionCompletionHandler)
         m_decisionCompletionHandler(false);
+}
+
+bool UserMediaPermissionRequestProxy::isPending() const
+{
+    return !!m_manager;
 }
 
 Vector<String> UserMediaPermissionRequestProxy::videoDeviceUIDs() const
@@ -120,7 +147,7 @@ Vector<String> UserMediaPermissionRequestProxy::audioDeviceUIDs() const
 
 String convertEnumerationToString(UserMediaPermissionRequestProxy::UserMediaAccessDenialReason enumerationValue)
 {
-    static const NeverDestroyed<String> values[] = {
+    static const std::array<NeverDestroyed<String>, 7> values = {
         MAKE_STATIC_STRING_IMPL("NoConstraints"),
         MAKE_STATIC_STRING_IMPL("UserMediaDisabled"),
         MAKE_STATIC_STRING_IMPL("NoCaptureDevices"),
@@ -136,21 +163,34 @@ String convertEnumerationToString(UserMediaPermissionRequestProxy::UserMediaAcce
     static_assert(static_cast<size_t>(UserMediaPermissionRequestProxy::UserMediaAccessDenialReason::HardwareError) == 4, "UserMediaPermissionRequestProxy::UserMediaAccessDenialReason::HardwareError is not 4 as expected");
     static_assert(static_cast<size_t>(UserMediaPermissionRequestProxy::UserMediaAccessDenialReason::PermissionDenied) == 5, "UserMediaPermissionRequestProxy::UserMediaAccessDenialReason::PermissionDenied is not 5 as expected");
     static_assert(static_cast<size_t>(UserMediaPermissionRequestProxy::UserMediaAccessDenialReason::OtherFailure) == 6, "UserMediaPermissionRequestProxy::UserMediaAccessDenialReason::OtherFailure is not 6 as expected");
-    ASSERT(static_cast<size_t>(enumerationValue) < WTF_ARRAY_LENGTH(values));
     return values[static_cast<size_t>(enumerationValue)];
 }
 
-void UserMediaPermissionRequestProxy::prompt()
+void UserMediaPermissionRequestProxy::promptForGetDisplayMedia(UserMediaDisplayCapturePromptType promptType)
 {
 #if ENABLE(MEDIA_STREAM) && PLATFORM(COCOA)
-    ASSERT(m_manager);
-    if (!m_manager) {
+    RefPtr manager = m_manager.get();
+    ASSERT(manager && canRequestDisplayCapturePermission() && promptType == UserMediaDisplayCapturePromptType::UserChoose);
+    if (!manager || !manager->page() || !canRequestDisplayCapturePermission() || promptType != UserMediaDisplayCapturePromptType::UserChoose) {
         deny(UserMediaAccessDenialReason::PermissionDenied);
         return;
     }
 
-    if (requiresDisplayCapture()) {
-        // FIXME: Implement getDisplayMedia prompt, for now deny.
+    alertForPermission(*protect(manager->page()), MediaPermissionReason::ScreenCapture, topLevelDocumentSecurityOrigin().data(), [this, protectedThis = Ref { *this }](bool granted) {
+        if (!granted)
+            deny(UserMediaAccessDenialReason::PermissionDenied);
+        else
+            allow();
+    });
+#endif
+}
+
+void UserMediaPermissionRequestProxy::promptForGetUserMedia()
+{
+#if ENABLE(MEDIA_STREAM) && PLATFORM(COCOA)
+    RefPtr manager = m_manager.get();
+    ASSERT(manager);
+    if (!manager || !manager->page()) {
         deny(UserMediaAccessDenialReason::PermissionDenied);
         return;
     }
@@ -158,14 +198,34 @@ void UserMediaPermissionRequestProxy::prompt()
     MediaPermissionReason reason = MediaPermissionReason::Camera;
     if (requiresAudioCapture())
         reason = requiresVideoCapture() ? MediaPermissionReason::CameraAndMicrophone : MediaPermissionReason::Microphone;
-    alertForPermission(m_manager->page(), reason, topLevelDocumentSecurityOrigin().data(), [this, protectedThis = makeRef(*this)](bool granted) {
+
+    alertForPermission(*protect(manager->page()), reason, topLevelDocumentSecurityOrigin().data(), [this, protectedThis = Ref { *this }](bool granted) {
         if (!granted)
             deny(UserMediaAccessDenialReason::PermissionDenied);
         else
             allow();
     });
+#endif
+}
+
+void UserMediaPermissionRequestProxy::doDefaultAction()
+{
+#if ENABLE(MEDIA_STREAM) && PLATFORM(COCOA)
+    if (requiresDisplayCapture())
+        promptForGetDisplayMedia(UserMediaDisplayCapturePromptType::UserChoose);
+    else
+        promptForGetUserMedia();
 #else
     deny();
+#endif
+}
+
+bool UserMediaPermissionRequestProxy::canRequestDisplayCapturePermission()
+{
+#if ENABLE(MEDIA_STREAM) && (PLATFORM(IOS) || PLATFORM(VISION))
+    return true;
+#else
+    return false;
 #endif
 }
 

@@ -30,8 +30,11 @@
 #include <glib-object.h>
 #include <pal/SessionID.h>
 #include <wtf/Function.h>
+#include <wtf/HashMap.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/glib/GRefPtr.h>
+#include <wtf/text/StringHash.h>
 #include <wtf/text/WTFString.h>
 
 typedef struct _SoupCache SoupCache;
@@ -42,10 +45,12 @@ typedef struct _SoupSession SoupSession;
 namespace WebCore {
 
 class CertificateInfo;
+class HostTLSCertificateSet;
 class ResourceError;
 
 class SoupNetworkSession {
-    WTF_MAKE_NONCOPYABLE(SoupNetworkSession); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(SoupNetworkSession);
+    WTF_MAKE_NONCOPYABLE(SoupNetworkSession);
 public:
     explicit SoupNetworkSession(PAL::SessionID);
     ~SoupNetworkSession();
@@ -59,14 +64,14 @@ public:
 
     static void clearOldSoupCache(const String& cacheDirectory);
 
-    void setProxySettings(SoupNetworkProxySettings&&);
+    void setProxySettings(const SoupNetworkProxySettings&);
 
     static void setInitialAcceptLanguages(const CString&);
     void setAcceptLanguages(const CString&);
 
     WEBCORE_EXPORT void setIgnoreTLSErrors(bool);
     std::optional<ResourceError> checkTLSErrors(const URL&, GTlsCertificate*, GTlsCertificateFlags);
-    static void allowSpecificHTTPSCertificateForHost(const CertificateInfo&, const String& host);
+    void allowSpecificHTTPSCertificateForHost(const CertificateInfo&, const String& host);
 
     void getHostNamesWithHSTSCache(HashSet<String>&);
     void deleteHSTSCacheForHostNames(const Vector<String>&);
@@ -79,6 +84,7 @@ private:
     PAL::SessionID m_sessionID;
     bool m_ignoreTLSErrors { false };
     SoupNetworkProxySettings m_proxySettings;
+    HashMap<String, HostTLSCertificateSet, ASCIICaseInsensitiveHash> m_allowedCertificates;
 };
 
 } // namespace WebCore

@@ -37,27 +37,28 @@ class ErrorCallback;
 class FileSystemEntryCallback;
 
 class FileSystemEntry : public ScriptWrappable, public ActiveDOMObject, public RefCounted<FileSystemEntry> {
-    WTF_MAKE_ISO_ALLOCATED(FileSystemEntry);
+    WTF_MAKE_TZONE_ALLOCATED(FileSystemEntry);
 public:
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     virtual ~FileSystemEntry();
 
     virtual bool isFile() const { return false; }
     virtual bool isDirectory() const { return false; }
 
-    const String& name() const { return m_name; }
-    const String& virtualPath() const { return m_virtualPath; }
-    DOMFileSystem& filesystem() const;
+    const String& name() const LIFETIME_BOUND { return m_name; }
+    const String& virtualPath() const LIFETIME_BOUND { return m_virtualPath; }
+    DOMFileSystem& NODELETE filesystem() const;
 
     void getParent(ScriptExecutionContext&, RefPtr<FileSystemEntryCallback>&&, RefPtr<ErrorCallback>&&);
 
 protected:
     FileSystemEntry(ScriptExecutionContext&, DOMFileSystem&, const String& virtualPath);
-    Document* document() const;
+    Document* NODELETE document() const;
 
 private:
-    const char* activeDOMObjectName() const final;
-
-    Ref<DOMFileSystem> m_filesystem;
+    const Ref<DOMFileSystem> m_filesystem;
     String m_name;
     String m_virtualPath;
 };

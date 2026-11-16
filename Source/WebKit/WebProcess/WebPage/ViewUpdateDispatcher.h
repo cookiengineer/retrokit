@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,26 +27,34 @@
 
 #if ENABLE(UI_SIDE_COMPOSITING)
 
-#include "Connection.h"
-
+#include "MessageReceiver.h"
 #include "VisibleContentRectUpdateInfo.h"
 #include <WebCore/PageIdentifier.h>
+#include <wtf/CheckedRef.h>
 #include <wtf/HashMap.h>
 #include <wtf/Lock.h>
 #include <wtf/Ref.h>
 
+namespace WTF {
+class WorkQueue;
+}
+
 namespace WebKit {
 
-class ViewUpdateDispatcher : public IPC::Connection::WorkQueueMessageReceiver {
+class WebProcess;
+
+class ViewUpdateDispatcher final: private IPC::MessageReceiver {
 public:
-    static Ref<ViewUpdateDispatcher> create();
+    ViewUpdateDispatcher(WebProcess&);
     ~ViewUpdateDispatcher();
 
-    void initializeConnection(IPC::Connection*);
+    void ref() const final;
+    void deref() const final;
+
+    void initializeConnection(IPC::Connection&);
 
 private:
-    ViewUpdateDispatcher();
-    // IPC::Connection::WorkQueueMessageReceiver.
+    // IPC::MessageReceiver overrides.
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
 
     void visibleContentRectUpdate(WebCore::PageIdentifier, const VisibleContentRectUpdateInfo&);
@@ -54,7 +62,7 @@ private:
     void dispatchVisibleContentRectUpdate();
 
     struct UpdateData {
-        WTF_MAKE_STRUCT_FAST_ALLOCATED;
+        WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(UpdateData);
         UpdateData(const VisibleContentRectUpdateInfo& info, MonotonicTime timestamp)
             : visibleContentRectUpdateInfo(info)
             , oldestTimestamp(timestamp) { }
@@ -63,7 +71,8 @@ private:
         MonotonicTime oldestTimestamp;
     };
 
-    Ref<WorkQueue> m_queue;
+    const CheckedRef<WebProcess> m_process;
+    const Ref<WTF::WorkQueue> m_queue;
     Lock m_latestUpdateLock;
     HashMap<WebCore::PageIdentifier, UniqueRef<UpdateData>> m_latestUpdate WTF_GUARDED_BY_LOCK(m_latestUpdateLock);
 };

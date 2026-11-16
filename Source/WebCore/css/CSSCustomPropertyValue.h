@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2015-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,12 +26,10 @@
 
 #pragma once
 
-#include "CSSValue.h"
-#include "CSSVariableData.h"
-#include "CSSVariableReferenceValue.h"
-#include "Length.h"
-#include "StyleImage.h"
-#include <wtf/Variant.h>
+#include <WebCore/CSSSubstitutionValue.h>
+#include <WebCore/CSSValue.h>
+#include <WebCore/CSSVariableData.h>
+#include <WebCore/CSSWideKeyword.h>
 
 namespace WebCore {
 
@@ -38,79 +37,48 @@ class CSSParserToken;
 
 class CSSCustomPropertyValue final : public CSSValue {
 public:
-    using VariantValue = Variant<Monostate, Ref<CSSVariableReferenceValue>, CSSValueID, Ref<CSSVariableData>, Length, Ref<StyleImage>>;
+    using VariantValue = Variant<
+        Ref<CSSSubstitutionValue>,
+        Ref<CSSVariableData>,
+        CSSWideKeyword
+    >;
 
     static Ref<CSSCustomPropertyValue> createEmpty(const AtomString& name);
+    static Ref<CSSCustomPropertyValue> createUnresolved(const AtomString& name, Ref<CSSSubstitutionValue>&&);
+    static Ref<CSSCustomPropertyValue> createSyntaxAll(const AtomString& name, Ref<CSSVariableData>&&);
+    static Ref<CSSCustomPropertyValue> createWithCSSWideKeyword(const AtomString& name, CSSWideKeyword);
 
-    static Ref<CSSCustomPropertyValue> createUnresolved(const AtomString& name, Ref<CSSVariableReferenceValue>&& value)
-    {
-        return adoptRef(*new CSSCustomPropertyValue(name, { WTFMove(value) }));
-    }
+    const AtomString& name() const LIFETIME_BOUND { return m_name; }
+    const VariantValue& value() const LIFETIME_BOUND { return m_value; }
 
-    static Ref<CSSCustomPropertyValue> createUnresolved(const AtomString& name, CSSValueID value)
-    {
-        return adoptRef(*new CSSCustomPropertyValue(name, { value }));
-    }
+    Ref<const CSSVariableData> asVariableData() const;
 
-    static Ref<CSSCustomPropertyValue> createWithID(const AtomString& name, CSSValueID id)
-    {
-        ASSERT(id == CSSValueInherit || id == CSSValueInitial || id == CSSValueUnset || id == CSSValueRevert || id == CSSValueInvalid);
-        return adoptRef(*new CSSCustomPropertyValue(name, { id }));
-    }
+    bool isCurrentColor() const;
 
-    static Ref<CSSCustomPropertyValue> createSyntaxAll(const AtomString& name, Ref<CSSVariableData>&& value)
-    {
-        return adoptRef(*new CSSCustomPropertyValue(name, { WTFMove(value) }));
-    }
-    
-    static Ref<CSSCustomPropertyValue> createSyntaxLength(const AtomString& name, Length value)
-    {
-        ASSERT(!value.isUndefined());
-        ASSERT(!value.isCalculated());
-        return adoptRef(*new CSSCustomPropertyValue(name, { WTFMove(value) }));
-    }
+    bool NODELETE isVariableReference() const;
+    bool NODELETE isVariableData() const;
+    bool NODELETE isCSSWideKeyword() const;
 
-    static Ref<CSSCustomPropertyValue> createSyntaxImage(const AtomString& name, Ref<StyleImage>&& value)
-    {
-        return adoptRef(*new CSSCustomPropertyValue(name, { WTFMove(value) }));
-    }
+    std::optional<CSSWideKeyword> tryCSSWideKeyword() const;
 
-    static Ref<CSSCustomPropertyValue> create(const CSSCustomPropertyValue& other)
-    {
-        return adoptRef(*new CSSCustomPropertyValue(other));
-    }
+    // The value's tokens (empty for a CSS-wide keyword).
+    const Vector<CSSParserToken>& tokens() const;
 
-    String customCSSText() const;
-
-    const AtomString& name() const { return m_name; }
-    bool isResolved() const { return !WTF::holds_alternative<Ref<CSSVariableReferenceValue>>(m_value); }
-    bool isUnset() const { return WTF::holds_alternative<CSSValueID>(m_value) && WTF::get<CSSValueID>(m_value) == CSSValueUnset; }
-    bool isInvalid() const { return WTF::holds_alternative<CSSValueID>(m_value) && WTF::get<CSSValueID>(m_value) == CSSValueInvalid; }
-
-    const VariantValue& value() const { return m_value; }
-
-    Vector<CSSParserToken> tokens() const;
+    String customCSSText(const CSS::SerializationContext&) const;
     bool equals(const CSSCustomPropertyValue&) const;
+    IterationStatus customVisitChildren(NOESCAPE const Function<IterationStatus(CSSValue&)>&) const;
 
 private:
     CSSCustomPropertyValue(const AtomString& name, VariantValue&& value)
-        : CSSValue(CustomPropertyClass)
+        : CSSValue(ClassType::CustomProperty)
         , m_name(name)
-        , m_value(WTFMove(value))
-    {
-    }
-
-    CSSCustomPropertyValue(const CSSCustomPropertyValue& other)
-        : CSSValue(CustomPropertyClass)
-        , m_name(other.m_name)
-        , m_value(other.m_value)
-        , m_stringValue(other.m_stringValue)
+        , m_value(WTF::move(value))
     {
     }
 
     const AtomString m_name;
     const VariantValue m_value;
-    mutable String m_stringValue;
+    mutable String m_cachedCSSText;
 };
 
 } // namespace WebCore

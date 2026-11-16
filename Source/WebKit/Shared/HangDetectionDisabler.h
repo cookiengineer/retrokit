@@ -44,9 +44,7 @@ inline HangDetectionDisabler::HangDetectionDisabler()
 {
 }
 
-inline HangDetectionDisabler::~HangDetectionDisabler()
-{
-}
+inline HangDetectionDisabler::~HangDetectionDisabler() = default;
 #endif
 
 }

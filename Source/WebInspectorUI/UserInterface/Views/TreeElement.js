@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007, 2013, 2015 Apple Inc.  All rights reserved.
+ * Copyright (C) 2007, 2013, 2015 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -78,7 +78,17 @@ WI.TreeElement = class TreeElement extends WI.Object
 
     set selectable(x)
     {
+        if (x === this._selectable)
+            return;
+
         this._selectable = x;
+
+        this._listItemNode?.classList.toggle("non-selectable", !this._selectable);
+    }
+
+    get expandable()
+    {
+        return this.hasChildren;
     }
 
     get listItemElement()
@@ -94,18 +104,6 @@ WI.TreeElement = class TreeElement extends WI.Object
     set title(x)
     {
         this._title = x;
-        this._setListItemNodeContent();
-        this.didChange();
-    }
-
-    get titleHTML()
-    {
-        return this._titleHTML;
-    }
-
-    set titleHTML(x)
-    {
-        this._titleHTML = x;
         this._setListItemNodeContent();
         this.didChange();
     }
@@ -231,11 +229,7 @@ WI.TreeElement = class TreeElement extends WI.Object
         if (!this._listItemNode)
             return;
 
-        if (!this._titleHTML && !this._title)
-            this._listItemNode.removeChildren();
-        else if (typeof this._titleHTML === "string")
-            this._listItemNode.innerHTML = this._titleHTML;
-        else if (typeof this._title === "string")
+        if (typeof this._title === "string")
             this._listItemNode.textContent = this._title;
         else {
             this._listItemNode.removeChildren();
@@ -264,6 +258,8 @@ WI.TreeElement = class TreeElement extends WI.Object
                 this._listItemNode.classList.add("expanded");
             if (this.selected)
                 this._listItemNode.classList.add("selected");
+            if (!this.selectable)
+                this._listItemNode.classList.add("non-selectable");
 
             this._listItemNode.addEventListener("click", WI.TreeElement.treeElementToggled);
             this._listItemNode.addEventListener("dblclick", WI.TreeElement.treeElementDoubleClicked);
@@ -308,8 +304,7 @@ WI.TreeElement = class TreeElement extends WI.Object
         if (!treeElement)
             return;
 
-        let toggleOnClick = treeElement.toggleOnClick && !treeElement.selectable;
-        if (toggleOnClick || treeElement.isEventWithinDisclosureTriangle(event)) {
+        if (treeElement.toggleOnClick || treeElement.isEventWithinDisclosureTriangle(event)) {
             if (treeElement.expanded) {
                 if (event.altKey)
                     treeElement.collapseRecursively();
@@ -480,13 +475,15 @@ WI.TreeElement = class TreeElement extends WI.Object
         return false;
     }
 
-    reveal()
+    reveal({skipExpandingAncestors} = {})
     {
-        var currentAncestor = this.parent;
-        while (currentAncestor && !currentAncestor.root) {
-            if (!currentAncestor.expanded)
-                currentAncestor.expand();
-            currentAncestor = currentAncestor.parent;
+        if (!skipExpandingAncestors) {
+            let currentAncestor = this.parent;
+            while (currentAncestor && !currentAncestor.root) {
+                if (!currentAncestor.expanded)
+                    currentAncestor.expand();
+                currentAncestor = currentAncestor.parent;
+            }
         }
 
         // This must be called before onreveal, as some subclasses will scrollIntoViewIfNeeded and
@@ -501,16 +498,16 @@ WI.TreeElement = class TreeElement extends WI.Object
             this.treeOutline.dispatchEventToListeners(WI.TreeOutline.Event.ElementRevealed, {element: this});
     }
 
-    revealed(ignoreHidden)
+    get revealed()
     {
-        if (!ignoreHidden && this.hidden)
+        if (this._hidden)
             return false;
 
         var currentAncestor = this.parent;
         while (currentAncestor && !currentAncestor.root) {
             if (!currentAncestor.expanded)
                 return false;
-            if (!ignoreHidden && currentAncestor.hidden)
+            if (currentAncestor._hidden)
                 return false;
             currentAncestor = currentAncestor.parent;
         }
@@ -593,7 +590,7 @@ WI.TreeElement = class TreeElement extends WI.Object
     traverseNextTreeElement(skipUnrevealed, stayWithin, dontPopulate, info)
     {
         function shouldSkip(element) {
-            return skipUnrevealed && !element.revealed(true);
+            return skipUnrevealed && !element.revealed;
         }
 
         var depthChange = 0;
@@ -626,7 +623,7 @@ WI.TreeElement = class TreeElement extends WI.Object
     traversePreviousTreeElement(skipUnrevealed, dontPopulate)
     {
         function shouldSkip(element) {
-            return skipUnrevealed && !element.revealed(true);
+            return skipUnrevealed && !element.revealed;
         }
 
         var element = this;
@@ -656,9 +653,9 @@ WI.TreeElement = class TreeElement extends WI.Object
         let computedStyle = window.getComputedStyle(this._listItemNode);
         let start = 0;
         if (computedStyle.direction === WI.LayoutDirection.RTL)
-            start += this._listItemNode.totalOffsetRight - computedStyle.getPropertyCSSValue("padding-right").getFloatValue(CSSPrimitiveValue.CSS_PX) - this.arrowToggleWidth;
+            start += this._listItemNode.totalOffsetRight - this._listItemNode.getComputedCSSPropertyNumberValue("padding-right") - this.arrowToggleWidth;
         else
-            start += this._listItemNode.totalOffsetLeft + computedStyle.getPropertyCSSValue("padding-left").getFloatValue(CSSPrimitiveValue.CSS_PX);
+            start += this._listItemNode.totalOffsetLeft + this._listItemNode.getComputedCSSPropertyNumberValue("padding-left");
 
         return event.pageX >= start && event.pageX <= start + this.arrowToggleWidth && this.hasChildren;
     }

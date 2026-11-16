@@ -23,16 +23,15 @@
 
 #if ENABLE(MEDIA_STREAM)
 
-messages -> SpeechRecognitionRealtimeMediaSourceManager NotRefCounted {
-    CreateSource(WebCore::RealtimeMediaSourceIdentifier identifier, WebCore::CaptureDevice device)
+[
+    DispatchedFrom=UI,
+    DispatchedTo=WebContent
+]
+messages -> SpeechRecognitionRealtimeMediaSourceManager {
+    CreateSource(WebCore::RealtimeMediaSourceIdentifier identifier, WebCore::CaptureDevice device, WebCore::PageIdentifier pageIdentifier, WebCore::SpeechRecognitionConnectionClientIdentifier clientIdentifier)
     DeleteSource(WebCore::RealtimeMediaSourceIdentifier identifier)
     Start(WebCore::RealtimeMediaSourceIdentifier identifier);
     Stop(WebCore::RealtimeMediaSourceIdentifier identifier);
-
-#if ENABLE(SANDBOX_EXTENSIONS)
-    GrantSandboxExtensions(WebKit::SandboxExtension::Handle sandboxExtensionHandleForTCCD, WebKit::SandboxExtension::Handle sandboxExtensionHandleForMicrophone)
-    RevokeSandboxExtensions()
-#endif
 }
 
 #endif

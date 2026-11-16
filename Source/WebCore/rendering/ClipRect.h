@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "LayoutRect.h"
+#include <WebCore/LayoutRect.h>
 
 namespace WTF {
 class TextStream;
@@ -44,16 +44,14 @@ public:
     {
     }
     
-    const LayoutRect& rect() const { return m_rect; }
+    const LayoutRect& rect() const LIFETIME_BOUND { return m_rect; }
 
     void reset() { m_rect = LayoutRect::infiniteRect(); }
 
     bool affectedByRadius() const { return m_affectedByRadius; }
     void setAffectedByRadius(bool affectedByRadius) { m_affectedByRadius = affectedByRadius; }
     
-    bool operator==(const ClipRect& other) const { return rect() == other.rect() && affectedByRadius() == other.affectedByRadius(); }
-    bool operator!=(const ClipRect& other) const { return rect() != other.rect() || affectedByRadius() != other.affectedByRadius(); }
-    bool operator!=(const LayoutRect& otherRect) const { return rect() != otherRect; }
+    friend bool operator==(const ClipRect&, const ClipRect&) = default;
     
     void intersect(const LayoutRect& other);
     void intersect(const ClipRect& other);

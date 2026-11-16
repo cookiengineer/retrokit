@@ -31,12 +31,12 @@ namespace JSC {
 
 STATIC_ASSERT_IS_TRIVIALLY_DESTRUCTIBLE(GetterSetter);
 
-const ClassInfo GetterSetter::s_info = { "GetterSetter", nullptr, nullptr, nullptr, CREATE_METHOD_TABLE(GetterSetter) };
+const ClassInfo GetterSetter::s_info = { "GetterSetter"_s, nullptr, nullptr, nullptr, CREATE_METHOD_TABLE(GetterSetter) };
 
 template<typename Visitor>
 void GetterSetter::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    GetterSetter* thisObject = jsCast<GetterSetter*>(cell);
+    GetterSetter* thisObject = uncheckedDowncast<GetterSetter>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
 
@@ -56,7 +56,7 @@ JSValue GetterSetter::callGetter(JSGlobalObject* globalObject, JSValue thisValue
 
     JSObject* getter = this->getter();
 
-    auto callData = JSC::getCallData(vm, getter);
+    auto callData = JSC::getCallDataInline(getter);
     RELEASE_AND_RETURN(scope, call(globalObject, getter, callData, thisValue, ArgList()));
 }
 
@@ -74,7 +74,7 @@ bool GetterSetter::callSetter(JSGlobalObject* globalObject, JSValue thisValue, J
     args.append(value);
     ASSERT(!args.hasOverflowed());
 
-    auto callData = JSC::getCallData(vm, setter);
+    auto callData = JSC::getCallDataInline(setter);
     scope.release();
     call(globalObject, setter, callData, thisValue, args);
     return true;

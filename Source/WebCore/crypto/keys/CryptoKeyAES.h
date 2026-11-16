@@ -25,17 +25,15 @@
 
 #pragma once
 
-#include "CryptoAlgorithmIdentifier.h"
-#include "CryptoKey.h"
-#include "ExceptionOr.h"
+#include <WebCore/CryptoAlgorithmIdentifier.h>
+#include <WebCore/CryptoKey.h>
 #include <wtf/Function.h>
 #include <wtf/Vector.h>
-
-#if ENABLE(WEB_CRYPTO)
 
 namespace WebCore {
 
 class CryptoAlgorithmParameters;
+template<typename> class ExceptionOr;
 
 struct JsonWebKey;
 
@@ -51,7 +49,7 @@ public:
     }
     virtual ~CryptoKeyAES();
 
-    static bool isValidAESAlgorithm(CryptoAlgorithmIdentifier);
+    static bool NODELETE isValidAESAlgorithm(CryptoAlgorithmIdentifier);
 
     static RefPtr<CryptoKeyAES> generate(CryptoAlgorithmIdentifier, size_t lengthBits, bool extractable, CryptoKeyUsageBitmap);
     WEBCORE_EXPORT static RefPtr<CryptoKeyAES> importRaw(CryptoAlgorithmIdentifier, Vector<uint8_t>&& keyData, bool extractable, CryptoKeyUsageBitmap);
@@ -60,16 +58,17 @@ public:
 
     CryptoKeyClass keyClass() const final { return CryptoKeyClass::AES; }
 
-    const Vector<uint8_t>& key() const { return m_key; }
+    const Vector<uint8_t>& key() const LIFETIME_BOUND { return m_key; }
     JsonWebKey exportJwk() const;
 
-    static ExceptionOr<size_t> getKeyLength(const CryptoAlgorithmParameters&);
+    static ExceptionOr<std::optional<size_t>> getKeyLength(const CryptoAlgorithmParameters&);
 
 private:
     CryptoKeyAES(CryptoAlgorithmIdentifier, const Vector<uint8_t>& key, bool extractable, CryptoKeyUsageBitmap);
     CryptoKeyAES(CryptoAlgorithmIdentifier, Vector<uint8_t>&& key, bool extractable, CryptoKeyUsageBitmap);
 
     KeyAlgorithm algorithm() const final;
+    CryptoKey::Data data() const final;
 
     Vector<uint8_t> m_key;
 };
@@ -77,5 +76,3 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_CRYPTO_KEY(CryptoKeyAES, CryptoKeyClass::AES)
-
-#endif // ENABLE(WEB_CRYPTO)

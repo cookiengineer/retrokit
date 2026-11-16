@@ -20,8 +20,16 @@
 
 #pragma once
 
+#include <wtf/ExportMacros.h>
+#include <wtf/Platform.h>
+
 namespace WTF {
 
+// This counts logical cores.
 WTF_EXPORT_PRIVATE int numberOfProcessorCores();
+
+#if OS(DARWIN)
+WTF_EXPORT_PRIVATE int numberOfPhysicalProcessorCores();
+#endif
 
 }

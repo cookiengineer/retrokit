@@ -25,15 +25,29 @@
 
 #pragma once
 
-#include "Identifier.h"
-#include "JSGlobalObjectFunctions.h"
-#include "PrivateName.h"
+#include <JavaScriptCore/CacheableIdentifier.h>
+#include <JavaScriptCore/Identifier.h>
+#include <JavaScriptCore/JSGlobalObjectFunctions.h>
+#include <JavaScriptCore/PrivateName.h>
 #include <wtf/dtoa.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
 class PropertyName {
 public:
+    PropertyName()
+        : m_impl(nullptr)
+    {
+    }
+
+    // FIXME: Make PropertyName const-correct.
+    PropertyName(const UniquedStringImpl* propertyName)
+        : m_impl(const_cast<UniquedStringImpl*>(propertyName))
+    {
+    }
+
     PropertyName(UniquedStringImpl* propertyName)
         : m_impl(propertyName)
     {
@@ -43,6 +57,9 @@ public:
         : PropertyName(propertyName.impl())
     {
     }
+
+    // Defined in PropertyNameInlines.h.
+    PropertyName(const CacheableIdentifier&);
 
     PropertyName(const PrivateName& propertyName)
         : m_impl(&propertyName.uid())
@@ -91,11 +108,6 @@ inline bool operator==(PropertyName a, const Identifier& b)
     return a.uid() == b.impl();
 }
 
-inline bool operator==(const Identifier& a, PropertyName b)
-{
-    return a.impl() == b.uid();
-}
-
 inline bool operator==(PropertyName a, PropertyName b)
 {
     return a.uid() == b.uid();
@@ -104,21 +116,6 @@ inline bool operator==(PropertyName a, PropertyName b)
 inline bool operator==(PropertyName a, const char* b)
 {
     return equal(a.uid(), b);
-}
-
-inline bool operator!=(PropertyName a, const Identifier& b)
-{
-    return a.uid() != b.impl();
-}
-
-inline bool operator!=(const Identifier& a, PropertyName b)
-{
-    return a.impl() != b.uid();
-}
-
-inline bool operator!=(PropertyName a, PropertyName b)
-{
-    return a.uid() != b.uid();
 }
 
 ALWAYS_INLINE std::optional<uint32_t> parseIndex(PropertyName propertyName)
@@ -131,22 +128,52 @@ ALWAYS_INLINE std::optional<uint32_t> parseIndex(PropertyName propertyName)
     return parseIndex(*uid);
 }
 
-// https://www.ecma-international.org/ecma-262/9.0/index.html#sec-canonicalnumericindexstring
-ALWAYS_INLINE bool isCanonicalNumericIndexString(const PropertyName& propertyName)
+template<typename CharacterType>
+ALWAYS_INLINE std::optional<bool> fastIsCanonicalNumericIndexString(std::span<const CharacterType> characters)
 {
-    StringImpl* property = propertyName.uid();
-    if (!property)
+    auto* rawCharacters = characters.data();
+    auto length = characters.size();
+    ASSERT(length >= 1);
+    auto first = rawCharacters[0];
+    if (length == 1)
+        return isASCIIDigit(first);
+    auto second = rawCharacters[1];
+    if (first == '-') {
+        // -Infinity case should go to the slow path. -NaN cannot exist since it becomes NaN.
+        if (!isASCIIDigit(second) && (length != strlen("-Infinity") || second != 'I'))
+            return false;
+        if (length == 2) // Including -0, and it should be accepted.
+            return true;
+    } else if (!isASCIIDigit(first)) {
+        // Infinity and NaN should go to the slow path.
+        if (!(length == strlen("Infinity") && first == 'I') && !(length == strlen("NaN") && first == 'N'))
+            return false;
+    }
+    return std::nullopt;
+}
+
+// https://www.ecma-international.org/ecma-262/9.0/index.html#sec-canonicalnumericindexstring
+ALWAYS_INLINE bool isCanonicalNumericIndexString(UniquedStringImpl* propertyName)
+{
+    if (!propertyName)
         return false;
-    if (property->isSymbol())
+    if (propertyName->isSymbol())
         return false;
-    if (equal(property, "-0"))
-        return true;
-    double index = jsToNumber(property);
+    if (!propertyName->length())
+        return false;
+
+    auto fastResult = propertyName->is8Bit()
+        ? fastIsCanonicalNumericIndexString(propertyName->span8())
+        : fastIsCanonicalNumericIndexString(propertyName->span16());
+    if (fastResult)
+        return *fastResult;
+
+    double index = jsToNumber(propertyName);
     NumberToStringBuffer buffer;
-    const char* indexString = WTF::numberToString(index, buffer);
-    if (!equal(property, indexString))
-        return false;
-    return true;
+    auto span = WTF::numberToStringAndSize(index, buffer);
+    return equal(propertyName, byteCast<Latin1Character>(span));
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,8 +26,13 @@
 #pragma once
 
 #include "ScriptWrappable.h"
+#include "WebCoreOpaqueRoot.h"
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
+
+namespace JSC {
+class JSValue;
+}
 
 namespace WebCore {
 
@@ -35,18 +40,20 @@ class AbortSignal;
 class ScriptExecutionContext;
 
 class AbortController final : public ScriptWrappable, public RefCounted<AbortController> {
-    WTF_MAKE_ISO_ALLOCATED(AbortController);
+    WTF_MAKE_TZONE_ALLOCATED(AbortController);
 public:
     static Ref<AbortController> create(ScriptExecutionContext&);
     ~AbortController();
 
-    AbortSignal& signal();
-    void abort();
+    AbortSignal& signal() { return m_signal; }
+    void abort(JSC::JSValue reason);
+
+    WebCoreOpaqueRoot NODELETE opaqueRoot();
 
 private:
     explicit AbortController(ScriptExecutionContext&);
 
-    Ref<AbortSignal> m_signal;
+    const Ref<AbortSignal> m_signal;
 };
 
 }

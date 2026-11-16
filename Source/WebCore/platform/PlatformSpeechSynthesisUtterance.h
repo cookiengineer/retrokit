@@ -25,24 +25,35 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
 #if ENABLE(SPEECH_SYNTHESIS)
 
-#include "PlatformSpeechSynthesisVoice.h"
+#include <WebCore/PlatformSpeechSynthesisVoice.h>
+#include <wtf/AbstractRefCounted.h>
 #include <wtf/MonotonicTime.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
     
-class PlatformSpeechSynthesisUtteranceClient {
+class PlatformSpeechSynthesisUtteranceClient : public CanMakeWeakPtr<PlatformSpeechSynthesisUtteranceClient>, public AbstractRefCounted {
+public:
+    virtual ~PlatformSpeechSynthesisUtteranceClient() = default;
+    virtual void eventOccurred(const AtomString& type, uint32_t charIndex, uint32_t charLength, const String& name) = 0;
+
+    virtual bool isSpeechSynthesisUtterance() const { return false; }
+
+protected:
+    PlatformSpeechSynthesisUtteranceClient() = default;
 };
     
 class PlatformSpeechSynthesisUtterance : public RefCounted<PlatformSpeechSynthesisUtterance> {
 public:
-    WEBCORE_EXPORT static Ref<PlatformSpeechSynthesisUtterance> create(PlatformSpeechSynthesisUtteranceClient&);
+    WEBCORE_EXPORT static Ref<PlatformSpeechSynthesisUtterance> create(PlatformSpeechSynthesisUtteranceClient*);
 
-    const String& text() const { return m_text; }
+    const String& text() const LIFETIME_BOUND { return m_text; }
     void setText(const String& text) { m_text = text; }
     
-    const String& lang() const { return m_lang; }
+    const String& lang() const LIFETIME_BOUND { return m_lang; }
     void setLang(const String& lang) { m_lang = lang; }
     
     PlatformSpeechSynthesisVoice* voice() const { return m_voice.get(); }
@@ -63,13 +74,17 @@ public:
     MonotonicTime startTime() const { return m_startTime; }
     void setStartTime(MonotonicTime startTime) { m_startTime = startTime; }
     
-    PlatformSpeechSynthesisUtteranceClient* client() const { return m_client; }
-    void setClient(PlatformSpeechSynthesisUtteranceClient* client) { m_client = client; }
-    
-private:
-    explicit PlatformSpeechSynthesisUtterance(PlatformSpeechSynthesisUtteranceClient&);
+    PlatformSpeechSynthesisUtteranceClient* client() const { return m_client.get(); }
 
-    PlatformSpeechSynthesisUtteranceClient* m_client;
+#ifdef __OBJC__
+    id wrapper() const { return m_wrapper.get(); }
+    void setWrapper(id utterance) { m_wrapper = utterance; }
+#endif
+
+private:
+    explicit PlatformSpeechSynthesisUtterance(PlatformSpeechSynthesisUtteranceClient*);
+
+    WeakPtr<PlatformSpeechSynthesisUtteranceClient> m_client;
     String m_text;
     String m_lang;
     RefPtr<PlatformSpeechSynthesisVoice> m_voice;
@@ -77,6 +92,10 @@ private:
     float m_rate { 1 };
     float m_pitch { 1 };
     MonotonicTime m_startTime;
+
+#if PLATFORM(COCOA)
+    RetainPtr<id> m_wrapper;
+#endif
 };
     
 } // namespace WebCore

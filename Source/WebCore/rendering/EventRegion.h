@@ -25,65 +25,138 @@
 
 #pragma once
 
-#include "AffineTransform.h"
-#include "Region.h"
-#include "RenderStyleConstants.h"
-#include "TouchAction.h"
+#include <WebCore/AffineTransform.h>
+#include <WebCore/EventTrackingRegions.h>
+#include <WebCore/FloatRoundedRect.h>
+#include <WebCore/IntRect.h>
+#include <WebCore/IntRectHash.h>
+#include <WebCore/InteractionRegion.h>
+#include <WebCore/NodeIdentifier.h>
+#include <WebCore/Region.h>
+#include <WebCore/RegionContext.h>
+#include <WebCore/RenderStyleConstants.h>
+#include <WebCore/TouchAction.h>
+#include <wtf/ArgumentCoder.h>
 #include <wtf/OptionSet.h>
+#include <wtf/Ref.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
 
 class EventRegion;
-class RenderStyle;
+class Path;
+class RenderObject;
+enum class TrackingType : uint8_t;
 
-class EventRegionContext {
+namespace Style {
+class ComputedStyle;
+}
+
+class EventRegionContext final : public RegionContext {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(EventRegionContext, WEBCORE_EXPORT);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(EventRegionContext);
 public:
-    explicit EventRegionContext(EventRegion&);
+    WEBCORE_EXPORT explicit EventRegionContext(EventRegion&);
+    WEBCORE_EXPORT virtual ~EventRegionContext();
 
-    void pushTransform(const AffineTransform&);
-    void popTransform();
+    bool isEventRegionContext() const final { return true; }
 
-    void pushClip(const IntRect&);
-    void popClip();
-
-    void unite(const Region&, const RenderStyle&, bool overrideUserModifyIsEditable = false);
+    enum class ContributeToInteractionRegions : bool { No, Yes };
+    WEBCORE_EXPORT void unite(const FloatRoundedRect&, const RenderObject&, const Style::ComputedStyle&, bool overrideUserModifyIsEditable = false, ContributeToInteractionRegions = ContributeToInteractionRegions::Yes);
     bool contains(const IntRect&) const;
+
+#if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
+    void uniteInteractionRegions(const RenderObject&, const FloatRect&, const FloatSize&, const std::optional<AffineTransform>&);
+    bool shouldConsolidateInteractionRegion(const RenderObject&, const IntRect&, const NodeIdentifier&);
+    void convertGuardContainersToInteractionIfNeeded(float minimumCornerRadius);
+    void removeSuperfluousInteractionRegions();
+    void shrinkWrapInteractionRegions();
+    void copyInteractionRegionsToEventRegion(float minimumCornerRadius);
+    void reserveCapacityForInteractionRegions(size_t);
+#endif
 
 private:
     EventRegion& m_eventRegion;
-    Vector<AffineTransform> m_transformStack;
-    Vector<IntRect> m_clipStack;
+
+#if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
+    Vector<InteractionRegion> m_interactionRegions;
+    HashMap<IntRect, InteractionRegion::ContentHint> m_interactionRectsAndContentHints;
+    HashSet<IntRect> m_occlusionRects;
+    enum class Inflated : bool { No, Yes };
+    HashMap<IntRect, Inflated> m_guardRects;
+    HashSet<NodeIdentifier> m_containerRemovalCandidates;
+    HashSet<NodeIdentifier> m_containersToRemove;
+    HashMap<NodeIdentifier, Vector<InteractionRegion>> m_discoveredRegionsByElement;
+#endif
 };
+
+#if ENABLE(TOUCH_EVENT_REGIONS)
+struct TouchEventListenerRegion {
+    bool operator==(const TouchEventListenerRegion&) const = default;
+
+    bool isEmpty() const { return start.isEmpty() && end.isEmpty() && move.isEmpty() && cancel.isEmpty(); }
+
+    Region start;
+    Region end;
+    Region move;
+    Region cancel;
+};
+
+WEBCORE_EXPORT TextStream& operator<<(TextStream&, const TouchEventListenerRegion&);
+#endif
 
 class EventRegion {
 public:
     WEBCORE_EXPORT EventRegion();
+    WEBCORE_EXPORT EventRegion(Region&&
+#if ENABLE(TOUCH_ACTION_REGIONS)
+    , Vector<WebCore::Region> touchActionRegions
+#endif
+#if ENABLE(WHEEL_EVENT_REGIONS)
+    , WebCore::Region wheelEventListenerRegion
+    , WebCore::Region nonPassiveWheelEventListenerRegion
+#endif
+#if ENABLE(TOUCH_EVENT_REGIONS)
+    , EventTrackingRegions touchEventListenerRegion
+#endif
+#if ENABLE(EDITABLE_REGION)
+    , std::optional<WebCore::Region>
+#endif
+#if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
+    , Vector<WebCore::InteractionRegion>
+#endif
+    );
 
     EventRegionContext makeContext() { return EventRegionContext(*this); }
 
     bool isEmpty() const { return m_region.isEmpty(); }
 
-    WEBCORE_EXPORT bool operator==(const EventRegion&) const;
+    friend bool operator==(const EventRegion&, const EventRegion&) = default;
 
-    void unite(const Region&, const RenderStyle&, bool overrideUserModifyIsEditable = false);
-    void translate(const IntSize&);
+    void unite(const Region&, const RenderObject&, const Style::ComputedStyle&, bool overrideUserModifyIsEditable = false);
+    void NODELETE translate(const IntSize&);
 
     bool contains(const IntPoint& point) const { return m_region.contains(point); }
     bool contains(const IntRect& rect) const { return m_region.contains(rect); }
     bool intersects(const IntRect& rect) const { return m_region.intersects(rect); }
 
-    const Region& region() const { return m_region; }
+    const Region& region() const LIFETIME_BOUND { return m_region; }
 
 #if ENABLE(TOUCH_ACTION_REGIONS)
     bool hasTouchActions() const { return !m_touchActionRegions.isEmpty(); }
     WEBCORE_EXPORT OptionSet<TouchAction> touchActionsForPoint(const IntPoint&) const;
-    const Region* regionForTouchAction(TouchAction) const;
+    const Region* regionForTouchAction(TouchAction) const LIFETIME_BOUND;
+#endif
+
+#if ENABLE(TOUCH_EVENT_REGIONS)
+    WEBCORE_EXPORT TrackingType eventTrackingTypeForPoint(EventTrackingRegionsEventType, const IntPoint&) const;
+    const EventTrackingRegions& touchEventListenerRegion() const LIFETIME_BOUND { return m_touchEventListenerRegion; }
 #endif
 
 #if ENABLE(WHEEL_EVENT_REGIONS)
-    WEBCORE_EXPORT OptionSet<EventListenerRegionType> eventListenerRegionTypesForPoint(const IntPoint&) const;
-    const Region& eventListenerRegionForType(EventListenerRegionType) const;
+    WEBCORE_EXPORT OptionSet<EventListenerRegionType> NODELETE eventListenerRegionTypesForPoint(const IntPoint&) const;
+    const Region& NODELETE eventListenerRegionForType(EventListenerRegionType) const LIFETIME_BOUND;
 #endif
 
 #if ENABLE(EDITABLE_REGION)
@@ -93,16 +166,19 @@ public:
     Vector<IntRect, 1> rectsForEditableElements() const { return m_editableRegion ? m_editableRegion->rects() : Vector<IntRect, 1> { }; }
 #endif
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<EventRegion> decode(Decoder&);
-    // FIXME: Remove legacy decode.
-    template<class Decoder> static WARN_UNUSED_RETURN bool decode(Decoder&, EventRegion&);
-
     void dump(TextStream&) const;
 
+#if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
+    const Vector<InteractionRegion>& interactionRegions() const LIFETIME_BOUND { return m_interactionRegions; }
+    void appendInteractionRegions(const Vector<InteractionRegion>&);
+    void clearInteractionRegions();
+#endif
+
 private:
+    friend struct IPC::ArgumentCoder<EventRegion>;
 #if ENABLE(TOUCH_ACTION_REGIONS)
     void uniteTouchActions(const Region&, OptionSet<TouchAction>);
+    void subtractAutoFromTouchActions(const Region&);
 #endif
     void uniteEventListeners(const Region&, OptionSet<EventListenerRegionType>);
 
@@ -114,86 +190,18 @@ private:
     Region m_wheelEventListenerRegion;
     Region m_nonPassiveWheelEventListenerRegion;
 #endif
+#if ENABLE(TOUCH_EVENT_REGIONS)
+    EventTrackingRegions m_touchEventListenerRegion;
+#endif
 #if ENABLE(EDITABLE_REGION)
     std::optional<Region> m_editableRegion;
+#endif
+#if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
+    Vector<InteractionRegion> m_interactionRegions;
 #endif
 };
 
 WEBCORE_EXPORT TextStream& operator<<(TextStream&, const EventRegion&);
-
-template<class Encoder>
-void EventRegion::encode(Encoder& encoder) const
-{
-    encoder << m_region;
-#if ENABLE(WHEEL_EVENT_REGIONS)
-    encoder << m_wheelEventListenerRegion;
-    encoder << m_nonPassiveWheelEventListenerRegion;
-#endif
-#if ENABLE(TOUCH_ACTION_REGIONS)
-    encoder << m_touchActionRegions;
-#endif
-#if ENABLE(EDITABLE_REGION)
-    encoder << m_editableRegion;
-#endif
-}
-
-template<class Decoder>
-std::optional<EventRegion> EventRegion::decode(Decoder& decoder)
-{
-    std::optional<Region> region;
-    decoder >> region;
-    if (!region)
-        return std::nullopt;
-
-    EventRegion eventRegion;
-    eventRegion.m_region = WTFMove(*region);
-
-#if ENABLE(WHEEL_EVENT_REGIONS)
-    std::optional<Region> wheelEventListenerRegion;
-    decoder >> wheelEventListenerRegion;
-    if (!wheelEventListenerRegion)
-        return std::nullopt;
-
-    eventRegion.m_wheelEventListenerRegion = WTFMove(*wheelEventListenerRegion);
-
-    std::optional<Region> nonPassiveWheelEventListenerRegion;
-    decoder >> nonPassiveWheelEventListenerRegion;
-    if (!nonPassiveWheelEventListenerRegion)
-        return std::nullopt;
-
-    eventRegion.m_nonPassiveWheelEventListenerRegion = WTFMove(*nonPassiveWheelEventListenerRegion);
-#endif
-
-#if ENABLE(TOUCH_ACTION_REGIONS)
-    std::optional<Vector<Region>> touchActionRegions;
-    decoder >> touchActionRegions;
-    if (!touchActionRegions)
-        return std::nullopt;
-
-    eventRegion.m_touchActionRegions = WTFMove(*touchActionRegions);
-#endif
-
-#if ENABLE(EDITABLE_REGION)
-    std::optional<std::optional<Region>> editableRegion;
-    decoder >> editableRegion;
-    if (!editableRegion)
-        return std::nullopt;
-    eventRegion.m_editableRegion = WTFMove(*editableRegion);
-#endif
-
-    return eventRegion;
-}
-
-template<class Decoder>
-bool EventRegion::decode(Decoder& decoder, EventRegion& eventRegion)
-{
-    std::optional<EventRegion> decodedEventRegion;
-    decoder >> decodedEventRegion;
-    if (!decodedEventRegion)
-        return false;
-    eventRegion = WTFMove(*decodedEventRegion);
-    return true;
-}
 
 #if ENABLE(EDITABLE_REGION)
 
@@ -206,3 +214,7 @@ inline void EventRegion::ensureEditableRegion()
 #endif
 
 }
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::EventRegionContext)
+    static bool isType(const WebCore::RegionContext& regionContext) { return regionContext.isEventRegionContext(); }
+SPECIALIZE_TYPE_TRAITS_END()

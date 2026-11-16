@@ -8,8 +8,11 @@
 //   - in memory, in buffer object, or combination of both
 //   - sequential or interleaved
 //   - various combinations of data types
+//
 
+#include <array>
 #include <vector>
+#include "common/unsafe_buffers.h"
 
 #include "test_utils/ANGLETest.h"
 #include "test_utils/gl_raii.h"
@@ -47,16 +50,26 @@ constexpr size_t kNumVertices = ArraySize(kTriangleData) / 5;
 class VertexData
 {
   public:
-    VertexData(int dimension, const double *data, unsigned offset, unsigned stride)
-        : mDimension(dimension), mData(data), mOffset(offset), mStride(stride)
+    VertexData(int dimension,
+               const double *data,
+               unsigned offset,
+               unsigned stride,
+               unsigned numVertices)
+        : mNumVertices(numVertices),
+          mDimension(dimension),
+          mData(data),
+          mOffset(offset),
+          mStride(stride)
     {}
     int getDimension() const { return mDimension; }
+    unsigned getNumVertices() const { return mNumVertices; }
     double getValue(unsigned vertexNumber, int component) const
     {
-        return mData[mOffset + mStride * vertexNumber + component];
+        return ANGLE_UNSAFE_TODO(mData[mOffset + mStride * vertexNumber + component]);
     }
 
   private:
+    unsigned mNumVertices;
     int mDimension;
     const double *mData;
     // offset and stride in doubles
@@ -70,8 +83,8 @@ class Container
   public:
     static constexpr size_t kSize = 1024;
 
-    void open(void) { memset(mMemory, 0xff, kSize); }
-    void *getDestination(size_t offset) { return mMemory + offset; }
+    void open(void) { ANGLE_UNSAFE_TODO(memset(mMemory, 0xff, kSize)); }
+    void *getDestination(size_t offset) { return ANGLE_UNSAFE_TODO(mMemory + offset); }
     virtual void close(void) {}
     virtual ~Container() {}
     virtual const char *getAddress() = 0;
@@ -113,7 +126,7 @@ struct Attrib
 
     void fillContainer(void) const
     {
-        for (unsigned i = 0; i < kNumVertices; ++i)
+        for (unsigned i = 0; i < mData.getNumVertices(); ++i)
         {
             for (int j = 0; j < mData.getDimension(); ++j)
             {
@@ -141,13 +154,26 @@ struct Attrib
     void enable(unsigned index) const
     {
         glBindBuffer(GL_ARRAY_BUFFER, mContainer->getBuffer());
-        glVertexAttribPointer(index, mData.getDimension(), mGLType, mNormalized, mStride,
-                              mContainer->getAddress() + mOffset);
+        if (mPureInteger)
+        {
+            glVertexAttribIPointer(index, mData.getDimension(), mGLType, mStride,
+                                   getContainerOffset());
+        }
+        else
+        {
+            glVertexAttribPointer(index, mData.getDimension(), mGLType, mNormalized, mStride,
+                                  getContainerOffset());
+        }
         EXPECT_GL_NO_ERROR();
         glEnableVertexAttribArray(index);
     }
 
-    bool inClientMemory(void) const { return mContainer->getAddress() != nullptr; }
+    bool inClientMemory() const { return mContainer->getAddress() != nullptr; }
+    const char *getContainerOffset() const
+    {
+        return inClientMemory() ? ANGLE_UNSAFE_TODO(mContainer->getAddress() + mOffset)
+                                : reinterpret_cast<const char *>(mOffset);
+    }
 
     std::shared_ptr<Container> mContainer;
     unsigned mOffset;
@@ -156,6 +182,7 @@ struct Attrib
     void (*mStore)(double value, void *dest);
     GLenum mGLType;
     GLboolean mNormalized;
+    GLboolean mPureInteger = GL_FALSE;
     size_t mCTypeSize;
     double mMinIn;
     double mMaxIn;
@@ -168,11 +195,11 @@ template <class T>
 void Store(double value, void *dest)
 {
     T v = static_cast<T>(value);
-    memcpy(dest, &v, sizeof(v));
+    ANGLE_UNSAFE_TODO(memcpy(dest, &v, sizeof(v)));
 }
 
 // Function object that makes Attrib structs according to a vertex format.
-template <class CType, GLenum GLType, bool Normalized>
+template <class CType, GLenum GLType, bool Normalized, bool PureInteger = false>
 class Format
 {
     static_assert(!(Normalized && GLType == GL_FLOAT), "Normalized float does not make sense.");
@@ -202,8 +229,19 @@ class Format
         }
 
         return {
-            container,  offset,        stride, data,  Store<CType>, GLType,
-            Normalized, sizeof(CType), minIn,  maxIn, minOut,       rangeOut / (maxIn - minIn),
+            container,
+            offset,
+            stride,
+            data,
+            Store<CType>,
+            GLType,
+            Normalized,
+            PureInteger,
+            sizeof(CType),
+            minIn,
+            maxIn,
+            minOut,
+            rangeOut / (maxIn - minIn),
         };
     }
 
@@ -226,11 +264,13 @@ void PrepareTestCase(const TestCase &tc)
         a.enable(i++);
 }
 
-class AttributeLayoutTest : public ANGLETest
+class AttributeLayoutTest : public ANGLETest<>
 {
   protected:
     AttributeLayoutTest()
-        : mProgram(0), mCoord(2, kTriangleData, 0, 5), mColor(3, kTriangleData, 2, 5)
+        : mProgram(0),
+          mCoord(2, kTriangleData, 0, 5, kNumVertices),
+          mColor(3, kTriangleData, 2, 5, kNumVertices)
     {
         setWindowWidth(128);
         setWindowHeight(128);
@@ -302,12 +342,12 @@ class AttributeLayoutTest : public ANGLETest
             std::string testCase;
             if (drawFirstTriangle)
             {
-                Draw(0, kNumVertices, mIndices);
+                Draw(0, kNumVertices, mIndices.data());
                 testCase = "draw";
             }
             else
             {
-                Draw(3, kNumVertices - 3, mIndices + 3);
+                Draw(3, kNumVertices - 3, &mIndices[3]);
                 testCase = "skip";
             }
 
@@ -328,7 +368,8 @@ class AttributeLayoutTest : public ANGLETest
         }
     }
 
-    static const GLushort mIndices[kNumVertices];
+    static constexpr std::array<GLushort, kNumVertices> mIndices = {0, 1, 2, 3, 4,  5,
+                                                                    6, 7, 8, 9, 10, 11};
 
     GLuint mProgram;
     GLuint mIndexBuffer;
@@ -338,7 +379,6 @@ class AttributeLayoutTest : public ANGLETest
     VertexData mCoord;
     VertexData mColor;
 };
-const GLushort AttributeLayoutTest::mIndices[kNumVertices] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11};
 
 void AttributeLayoutTest::GetTestCases(void)
 {
@@ -418,8 +458,8 @@ void AttributeLayoutTest::GetTestCases(void)
     if (es3)
     {
         mTestCases.push_back({SInt(M0, 0, 40, mCoord), UInt(M0, 16, 40, mColor)});
-        // Fails on Nexus devices (anglebug.com/2641)
-        if (!IsNexus5X() && !IsNexus6P())
+        // Fails on Nexus devices (anglebug.com/42261348)
+        if (!IsNexus5X())
             mTestCases.push_back({NormSInt(M0, 0, 40, mCoord), NormUInt(M0, 16, 40, mColor)});
     }
 }
@@ -446,7 +486,7 @@ class AttributeLayoutBufferIndexed : public AttributeLayoutTest
     void Draw(int firstVertex, unsigned vertexCount, const GLushort *indices) override
     {
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mIndexBuffer);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(*mIndices) * vertexCount, indices,
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(mIndices[0]) * vertexCount, indices,
                      GL_STATIC_DRAW);
         glDrawElements(GL_TRIANGLES, vertexCount, GL_UNSIGNED_SHORT, nullptr);
     }
@@ -462,19 +502,397 @@ TEST_P(AttributeLayoutNonIndexed, Test)
 TEST_P(AttributeLayoutMemoryIndexed, Test)
 {
     Run(true);
-    ANGLE_SKIP_TEST_IF(IsWindows() && IsAMD() && (IsOpenGL() || IsD3D11_FL93()));
+    ANGLE_SKIP_TEST_IF(IsWindows() && IsAMD() && IsOpenGL());
     Run(false);
 }
 
 TEST_P(AttributeLayoutBufferIndexed, Test)
 {
     Run(true);
-    ANGLE_SKIP_TEST_IF(IsWindows() && IsAMD() && (IsOpenGL() || IsD3D11_FL93()));
+    ANGLE_SKIP_TEST_IF(IsWindows() && IsAMD() && IsOpenGL());
     Run(false);
 }
 
-ANGLE_INSTANTIATE_TEST_ES2_AND_ES3(AttributeLayoutNonIndexed);
-ANGLE_INSTANTIATE_TEST_ES2_AND_ES3(AttributeLayoutMemoryIndexed);
-ANGLE_INSTANTIATE_TEST_ES2_AND_ES3(AttributeLayoutBufferIndexed);
+ANGLE_INSTANTIATE_TEST_ES2_AND_ES3_AND(AttributeLayoutNonIndexed,
+                                       ES3_VULKAN()
+                                           .disable(Feature::SupportsExtendedDynamicState)
+                                           .disable(Feature::SupportsExtendedDynamicState2));
+ANGLE_INSTANTIATE_TEST_ES2_AND_ES3_AND(AttributeLayoutMemoryIndexed,
+                                       ES3_VULKAN()
+                                           .disable(Feature::SupportsExtendedDynamicState)
+                                           .disable(Feature::SupportsExtendedDynamicState2));
+ANGLE_INSTANTIATE_TEST_ES2_AND_ES3_AND(AttributeLayoutBufferIndexed,
+                                       ES3_VULKAN()
+                                           .disable(Feature::SupportsExtendedDynamicState)
+                                           .disable(Feature::SupportsExtendedDynamicState2));
+
+#define STRINGIFY2(X) #X
+#define STRINGIFY(X) STRINGIFY2(X)
+
+// clang-format off
+#define VS_SHADER(ColorDataType) \
+"#version 300 es\n"\
+"in highp vec2 coord;\n"\
+"in highp " STRINGIFY(ColorDataType) " color;\n"\
+"flat out highp " STRINGIFY(ColorDataType) " vcolor;\n"\
+"void main(void)\n"\
+"{\n"\
+"    gl_Position = vec4(coord, 0, 1);\n"\
+"    vcolor = color;\n"\
+"}\n"
+
+#define PS_SHADER(ColorDataType) \
+"#version 300 es\n"\
+"flat in highp " STRINGIFY(ColorDataType) " vcolor;\n"\
+"out highp " STRINGIFY(ColorDataType) " outColor;\n"\
+"void main(void)\n"\
+"{\n"\
+"    outColor = vcolor;\n"\
+"}\n"
+
+// clang-format on
+
+// clang-format off
+constexpr double kVertexData[] = {
+   //x   y       rgba
+    -1, -1,      128, 128, 93, 255,
+    +1, -1,      128, 128, 93, 255,
+    -1, +1,      128, 128, 93, 255,
+    +1, +1,      128, 128, 93, 255,
+};
+// clang-format on
+
+template <class ResType>
+ResType GetRefValue(const void *data, GLenum glType)
+{
+    switch (glType)
+    {
+        case GL_BYTE:
+        {
+            const int8_t *p = reinterpret_cast<const int8_t *>(data);
+            return ANGLE_UNSAFE_TODO(ResType(p[0], p[1], p[2], p[3]));
+        }
+        case GL_SHORT:
+        case GL_HALF_FLOAT:
+        {
+            const int16_t *p = reinterpret_cast<const int16_t *>(data);
+            return ANGLE_UNSAFE_TODO(ResType(p[0], p[1], p[2], p[3]));
+        }
+        case GL_INT:
+        case GL_FIXED:
+        {
+            const int32_t *p = reinterpret_cast<const int32_t *>(data);
+            return ANGLE_UNSAFE_TODO(ResType(p[0], p[1], p[2], p[3]));
+        }
+        case GL_UNSIGNED_BYTE:
+        {
+            const uint8_t *p = reinterpret_cast<const uint8_t *>(data);
+            return ANGLE_UNSAFE_TODO(ResType(p[0], p[1], p[2], p[3]));
+        }
+        case GL_UNSIGNED_SHORT:
+        {
+            const uint16_t *p = reinterpret_cast<const uint16_t *>(data);
+            return ANGLE_UNSAFE_TODO(ResType(p[0], p[1], p[2], p[3]));
+        }
+        case GL_FLOAT:
+        case GL_UNSIGNED_INT:
+        {
+            const uint32_t *p = reinterpret_cast<const uint32_t *>(data);
+            return ANGLE_UNSAFE_TODO(ResType(p[0], p[1], p[2], p[3]));
+        }
+        default:
+        {
+            ASSERT(0);
+            const uint32_t *p = reinterpret_cast<const uint32_t *>(data);
+            return ANGLE_UNSAFE_TODO(ResType(p[0], p[1], p[2], p[3]));
+        }
+    }
+}
+
+constexpr size_t kIndexCount = 6;
+constexpr int kRboSize       = 8;
+
+GLColor ConvertFloatToUnorm8(const GLColor32F &color32f)
+{
+    float r = std::clamp(color32f.R, 0.0f, 1.0f);
+    float g = std::clamp(color32f.G, 0.0f, 1.0f);
+    float b = std::clamp(color32f.B, 0.0f, 1.0f);
+    float a = std::clamp(color32f.A, 0.0f, 1.0f);
+    return GLColor(std::round(r * 255), std::round(g * 255), std::round(b * 255),
+                   std::round(a * 255));
+}
+
+void BindAttribLocation(GLuint program)
+{
+    glBindAttribLocation(program, 0, "coord");
+    glBindAttribLocation(program, 1, "color");
+}
+
+class AttributeDataTypeMismatchTest : public ANGLETest<>
+{
+  public:
+    enum VsInputDataType
+    {
+        FLOAT    = 0,
+        INT      = 1,
+        UNSIGNED = 2,
+        COUNT    = 3,
+    };
+
+  protected:
+    AttributeDataTypeMismatchTest()
+        : mCoord(2, kVertexData, 0, 6, 4), mColor(4, kVertexData, 2, 6, 4)
+    {
+        setWindowWidth(128);
+        setWindowHeight(128);
+        setConfigRedBits(8);
+        setConfigGreenBits(8);
+        setConfigBlueBits(8);
+        setConfigAlphaBits(8);
+    }
+
+    GLuint createFbo(GLuint rbo)
+    {
+
+        GLuint fbo = 0;
+        glGenFramebuffers(1, &fbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return fbo;
+    }
+
+    GLuint createRbo(VsInputDataType inputDataType)
+    {
+        GLuint rbo = 0;
+        glGenRenderbuffers(1, &rbo);
+        GLenum format = GL_RGBA8;
+        if (inputDataType == VsInputDataType::INT)
+        {
+            format = GL_RGBA32I;
+        }
+        else if (inputDataType == VsInputDataType::UNSIGNED)
+        {
+            format = GL_RGBA32UI;
+        }
+        glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+        glRenderbufferStorage(GL_RENDERBUFFER, format, kRboSize, kRboSize);
+        glBindRenderbuffer(GL_RENDERBUFFER, 0);
+        return rbo;
+    }
+
+    void testSetUp() override
+    {
+        glClearColor(.2f, .2f, .2f, .0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        glDisable(GL_DEPTH_TEST);
+
+        constexpr std::array<const char *, VsInputDataType::COUNT> kVS = {
+            VS_SHADER(vec4),
+            VS_SHADER(ivec4),
+            VS_SHADER(uvec4),
+        };
+
+        constexpr std::array<const char *, VsInputDataType::COUNT> kFS = {
+            PS_SHADER(vec4),
+            PS_SHADER(ivec4),
+            PS_SHADER(uvec4),
+        };
+
+        for (int i = VsInputDataType::FLOAT; i < VsInputDataType::COUNT; ++i)
+        {
+            mProgram[i] = CompileProgram(kVS[i], kFS[i], BindAttribLocation);
+            ASSERT_NE(0u, mProgram[i]);
+            mRbo[i] = createRbo(static_cast<VsInputDataType>(i));
+            ASSERT_NE(0u, mRbo[i]);
+            mFbo[i] = createFbo(mRbo[i]);
+            ASSERT_NE(0u, mFbo[i]);
+        }
+
+        glGenBuffers(1, &mIndexBuffer);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mIndexBuffer);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(mIndices), mIndices, GL_STATIC_DRAW);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    }
+
+    void GetTestCases(VsInputDataType dataType)
+    {
+        const bool es3 = getClientMajorVersion() >= 3;
+
+        std::shared_ptr<Container> B0 = std::make_shared<Buffer>();
+        if (dataType != VsInputDataType::FLOAT)
+        {
+            // float and fixed.
+            Format<GLfloat, GL_FLOAT, false> Float(es3);
+            Format<GLint, GL_FIXED, false> Fixed(es3);
+            Format<GLshort, GL_HALF_FLOAT, false> halfFloat(es3);
+            // for UScale, SScale.
+            Format<GLbyte, GL_BYTE, false> SByte(es3);
+            Format<GLubyte, GL_UNSIGNED_BYTE, false> UByte(es3);
+            Format<GLshort, GL_SHORT, false> SShort(es3);
+            Format<GLushort, GL_UNSIGNED_SHORT, false> UShort(es3);
+            // UScale32, Scale32 may emulated. testing unsigned<-->int
+            Format<GLint, GL_INT, false, true> SInt(es3);
+            Format<GLuint, GL_UNSIGNED_INT, false, true> UInt(es3);
+            mTestCases.push_back({Float(B0, 0, 12, mCoord), SByte(B0, 8, 12, mColor)});
+            mTestCases.push_back({Float(B0, 0, 12, mCoord), UByte(B0, 8, 12, mColor)});
+            mTestCases.push_back({Float(B0, 0, 16, mCoord), SShort(B0, 8, 16, mColor)});
+            mTestCases.push_back({Float(B0, 0, 16, mCoord), UShort(B0, 8, 16, mColor)});
+            mTestCases.push_back({Float(B0, 0, 16, mCoord), halfFloat(B0, 8, 16, mColor)});
+            mTestCases.push_back({Float(B0, 0, 24, mCoord), SInt(B0, 8, 24, mColor)});
+            mTestCases.push_back({Float(B0, 0, 24, mCoord), UInt(B0, 8, 24, mColor)});
+            mTestCases.push_back({Float(B0, 0, 24, mCoord), Float(B0, 8, 24, mColor)});
+            // for GL_FIXED, angle may use GLfloat emulated.
+            // mTestCases.push_back({Float(B0, 0, 24, mCoord), Fixed(B0, 8, 24, mColor)});
+        }
+        else
+        {
+            Format<GLfloat, GL_FLOAT, false> Float(es3);
+            Format<GLbyte, GL_BYTE, false, true> SByte(es3);
+            Format<GLubyte, GL_UNSIGNED_BYTE, false, true> UByte(es3);
+            Format<GLshort, GL_SHORT, false, true> SShort(es3);
+            Format<GLushort, GL_UNSIGNED_SHORT, false, true> UShort(es3);
+            Format<GLint, GL_INT, false, true> SInt(es3);
+            Format<GLuint, GL_UNSIGNED_INT, false, true> UInt(es3);
+            mTestCases.push_back({Float(B0, 0, 12, mCoord), SByte(B0, 8, 12, mColor)});
+            mTestCases.push_back({Float(B0, 0, 12, mCoord), UByte(B0, 8, 12, mColor)});
+            mTestCases.push_back({Float(B0, 0, 16, mCoord), SShort(B0, 8, 16, mColor)});
+            mTestCases.push_back({Float(B0, 0, 16, mCoord), UShort(B0, 8, 16, mColor)});
+            // UScale32, Scale32 may emulated.
+            // mTestCases.push_back({Float(B0, 0, 24, mCoord), SInt(B0, 8, 24, mColor)});
+            // mTestCases.push_back({Float(B0, 0, 24, mCoord), UInt(B0, 8, 24, mColor)});
+        }
+    }
+
+    void testTearDown() override
+    {
+        mTestCases.clear();
+        for (int i = 0; i < VsInputDataType::COUNT; ++i)
+        {
+            glDeleteProgram(mProgram[i]);
+            glDeleteFramebuffers(1, &mFbo[i]);
+            glDeleteRenderbuffers(1, &mRbo[i]);
+        }
+        glDeleteBuffers(1, &mIndexBuffer);
+    }
+
+    GLenum GetMappedGLType(GLenum glType, VsInputDataType vsInputDataType)
+    {
+        switch (glType)
+        {
+            case GL_BYTE:
+                return vsInputDataType != VsInputDataType::UNSIGNED ? GL_BYTE : GL_UNSIGNED_BYTE;
+            case GL_SHORT:
+            case GL_HALF_FLOAT:
+                return vsInputDataType != VsInputDataType::UNSIGNED ? GL_SHORT : GL_UNSIGNED_SHORT;
+            case GL_INT:
+            case GL_FIXED:
+                return vsInputDataType != VsInputDataType::UNSIGNED ? GL_INT : GL_UNSIGNED_INT;
+            case GL_UNSIGNED_BYTE:
+                return vsInputDataType != VsInputDataType::INT ? GL_UNSIGNED_BYTE : GL_BYTE;
+            case GL_UNSIGNED_SHORT:
+                return vsInputDataType != VsInputDataType::INT ? GL_UNSIGNED_SHORT : GL_SHORT;
+            case GL_FLOAT:
+            case GL_UNSIGNED_INT:
+                return vsInputDataType != VsInputDataType::INT ? GL_UNSIGNED_INT : GL_INT;
+            default:
+                ASSERT(0);
+                return vsInputDataType != VsInputDataType::INT ? GL_UNSIGNED_INT : GL_INT;
+        }
+    }
+
+    void Run(VsInputDataType dataType)
+    {
+        GetTestCases(dataType);
+        ASSERT(dataType < VsInputDataType::COUNT);
+        glBindFramebuffer(GL_FRAMEBUFFER, mFbo[dataType]);
+        glViewport(0, 0, kRboSize, kRboSize);
+        glUseProgram(mProgram[dataType]);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mIndexBuffer);
+        for (const TestCase &testCase : mTestCases)
+        {
+            if (testCase.size() == 0)
+            {
+                continue;
+            }
+            ASSERT(testCase.size() == 2);
+            PrepareTestCase(testCase);
+            EXPECT_GL_NO_ERROR();
+            GLint iClearValue[]   = {0, 0, 0, 1};
+            GLfloat fClearValue[] = {1.0f, 0.0f, 0.0f, 1.0f};
+            switch (dataType)
+            {
+                case VsInputDataType::FLOAT:
+                    glClearBufferfv(GL_COLOR, 0, fClearValue);
+                    break;
+                case VsInputDataType::INT:
+                    glClearBufferiv(GL_COLOR, 0, iClearValue);
+                    break;
+                case VsInputDataType::UNSIGNED:
+                    glClearBufferuiv(GL_COLOR, 0, reinterpret_cast<const GLuint *>(iClearValue));
+                    break;
+                default:
+                    ASSERT(0);
+            }
+            EXPECT_GL_NO_ERROR();
+            glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0);
+            EXPECT_GL_NO_ERROR();
+
+            std::shared_ptr<Container> container = testCase[1].mContainer;
+            size_t offset                        = testCase[1].mOffset;
+            GLenum glType                        = GetMappedGLType(testCase[1].mGLType, dataType);
+            switch (dataType)
+            {
+                case VsInputDataType::FLOAT:
+                    EXPECT_PIXEL_COLOR_EQ(0, 0,
+                                          ConvertFloatToUnorm8(GetRefValue<GLColor32F>(
+                                              container->getDestination(offset), glType)));
+                    break;
+                case VsInputDataType::INT:
+                    EXPECT_PIXEL_RECT32I_EQ(
+                        0, 0, 1, 1,
+                        GetRefValue<GLColor32I>(container->getDestination(offset), glType));
+                    break;
+                case VsInputDataType::UNSIGNED:
+                    EXPECT_PIXEL_RECT32UI_EQ(
+                        0, 0, 1, 1,
+                        GetRefValue<GLColor32UI>(container->getDestination(offset), glType));
+                    break;
+                default:
+                    ASSERT(0);
+            }
+        }
+        mTestCases.clear();
+    }
+
+    static const GLushort mIndices[kIndexCount];
+
+    std::array<GLuint, VsInputDataType::COUNT> mProgram;
+    std::array<GLuint, VsInputDataType::COUNT> mFbo;
+    std::array<GLuint, VsInputDataType::COUNT> mRbo;
+    GLuint mIndexBuffer;
+
+    std::vector<TestCase> mTestCases;
+
+    VertexData mCoord;
+    VertexData mColor;
+};
+
+const GLushort AttributeDataTypeMismatchTest::mIndices[kIndexCount] = {0, 1, 2, 2, 1, 3};
+
+// Test Attribute input data type mismatch with vertex shader input.
+// Change the attribute input data type to vertex shader input data type.
+TEST_P(AttributeDataTypeMismatchTest, Test)
+{
+    // At some device. UScale and Scale are emulated.
+    // Restrict tests running at nvidia device only.
+    ANGLE_SKIP_TEST_IF(!IsVulkan() || !IsNVIDIA());
+    Run(VsInputDataType::FLOAT);
+    Run(VsInputDataType::INT);
+    Run(VsInputDataType::UNSIGNED);
+}
+
+ANGLE_INSTANTIATE_TEST_ES3(AttributeDataTypeMismatchTest);
 
 }  // anonymous namespace

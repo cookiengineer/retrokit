@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,17 +26,24 @@
 #include "config.h"
 #include "testb3.h"
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 #if ENABLE(B3_JIT)
 
 Lock crashLock;
 
-bool shouldRun(const char* filter, const char* testName)
+bool shouldRun(const TestConfig* config, const char* testName)
 {
+    if (config->mode == TestConfig::Mode::ListTests) {
+        dataLogLn(testName);
+        return false;
+    }
+
+    const auto* filter = config->filter;
     // FIXME: These tests fail <https://bugs.webkit.org/show_bug.cgi?id=199330>.
     if (!filter && isARM64()) {
         for (auto& failingTest : {
             "testNegFloatWithUselessDoubleConversion",
-            "testPinRegisters",
         }) {
             if (WTF::findIgnoringASCIICaseWithoutLength(testName, failingTest) != WTF::notFound) {
                 dataLogLn("*** Warning: Skipping known-bad test: ", testName);
@@ -44,6 +51,7 @@ bool shouldRun(const char* filter, const char* testName)
             }
         }
     }
+
     return !filter || WTF::findIgnoringASCIICaseWithoutLength(testName, filter) != WTF::notFound;
 }
 
@@ -52,16 +60,13 @@ void testRotR(T valueInt, int32_t shift)
 {
     Procedure proc;
     BasicBlock* root = proc.addBlock();
-    
-    Value* value = root->appendNew<ArgumentRegValue>(proc, Origin(), GPRInfo::argumentGPR0);
-    if (sizeof(T) == 4)
-        value = root->appendNew<Value>(proc, Trunc, Origin(), value);
-    
-    Value* ammount = root->appendNew<Value>(proc, Trunc, Origin(),
-        root->appendNew<ArgumentRegValue>(proc, Origin(), GPRInfo::argumentGPR1));
+    auto arguments = cCallArgumentValues<T, int32_t>(proc, root);
+
+    Value* value = arguments[0];
+    Value* amount = arguments[1];
     root->appendNewControlValue(proc, Return, Origin(),
-        root->appendNew<Value>(proc, RotR, Origin(), value, ammount));
-    
+        root->appendNew<Value>(proc, RotR, Origin(), value, amount));
+
     CHECK_EQ(compileAndRun<T>(proc, valueInt, shift), rotateRight(valueInt, shift));
 }
 
@@ -70,13 +75,10 @@ void testRotL(T valueInt, int32_t shift)
 {
     Procedure proc;
     BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<T, int32_t>(proc, root);
     
-    Value* value = root->appendNew<ArgumentRegValue>(proc, Origin(), GPRInfo::argumentGPR0);
-    if (sizeof(T) == 4)
-        value = root->appendNew<Value>(proc, Trunc, Origin(), value);
-    
-    Value* ammount = root->appendNew<Value>(proc, Trunc, Origin(),
-        root->appendNew<ArgumentRegValue>(proc, Origin(), GPRInfo::argumentGPR1));
+    Value* value = arguments[0];
+    Value* ammount = arguments[1];
     root->appendNewControlValue(proc, Return, Origin(),
         root->appendNew<Value>(proc, RotL, Origin(), value, ammount));
     
@@ -89,11 +91,9 @@ void testRotRWithImmShift(T valueInt, int32_t shift)
 {
     Procedure proc;
     BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<T>(proc, root);
     
-    Value* value = root->appendNew<ArgumentRegValue>(proc, Origin(), GPRInfo::argumentGPR0);
-    if (sizeof(T) == 4)
-        value = root->appendNew<Value>(proc, Trunc, Origin(), value);
-    
+    Value* value = arguments[0];
     Value* ammount = root->appendIntConstant(proc, Origin(), Int32, shift);
     root->appendNewControlValue(proc, Return, Origin(),
         root->appendNew<Value>(proc, RotR, Origin(), value, ammount));
@@ -106,27 +106,310 @@ void testRotLWithImmShift(T valueInt, int32_t shift)
 {
     Procedure proc;
     BasicBlock* root = proc.addBlock();
-    
-    Value* value = root->appendNew<ArgumentRegValue>(proc, Origin(), GPRInfo::argumentGPR0);
-    if (sizeof(T) == 4)
-        value = root->appendNew<Value>(proc, Trunc, Origin(), value);
-    
+    auto arguments = cCallArgumentValues<T>(proc, root);
+
+    Value* value = arguments[0];
     Value* ammount = root->appendIntConstant(proc, Origin(), Int32, shift);
     root->appendNewControlValue(proc, Return, Origin(),
         root->appendNew<Value>(proc, RotL, Origin(), value, ammount));
-    
+
     CHECK_EQ(compileAndRun<T>(proc, valueInt, shift), rotateLeft(valueInt, shift));
+}
+
+// Tests for scalar rotate-from-shift-xor-or synthesis added in
+// B3ReduceStrength::handleRotateFromShiftXorOr (direct-sibling match) and
+// B3OptimizeAssociativeExpressionTrees::optimizeRootedTree (chained XOR/OR).
+// The value computed is invariant under the fold, so these tests cover both
+// the folded and unfolded paths by construction.
+template<typename T>
+void testRotRFromShiftOr(T valueInt, int32_t shift)
+{
+    constexpr uint32_t width = sizeof(T) * 8;
+    uint32_t normalizedShift = static_cast<uint32_t>(shift) % width;
+    if (normalizedShift == 0)
+        return;
+
+    Procedure proc;
+    BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<T>(proc, root);
+
+    Value* value = arguments[0];
+    Value* shlAmount = root->appendIntConstant(proc, Origin(), Int32, width - normalizedShift);
+    Value* zshrAmount = root->appendIntConstant(proc, Origin(), Int32, normalizedShift);
+    Value* shl = root->appendNew<Value>(proc, Shl, Origin(), value, shlAmount);
+    Value* zshr = root->appendNew<Value>(proc, ZShr, Origin(), value, zshrAmount);
+    root->appendNewControlValue(proc, Return, Origin(),
+        root->appendNew<Value>(proc, BitOr, Origin(), shl, zshr));
+
+    CHECK_EQ(compileAndRun<T>(proc, valueInt), rotateRight(valueInt, static_cast<int32_t>(normalizedShift)));
+}
+
+template<typename T>
+void testRotRFromShiftXor(T valueInt, int32_t shift)
+{
+    constexpr uint32_t width = sizeof(T) * 8;
+    uint32_t normalizedShift = static_cast<uint32_t>(shift) % width;
+    if (normalizedShift == 0)
+        return;
+
+    Procedure proc;
+    BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<T>(proc, root);
+
+    Value* value = arguments[0];
+    Value* shlAmount = root->appendIntConstant(proc, Origin(), Int32, width - normalizedShift);
+    Value* zshrAmount = root->appendIntConstant(proc, Origin(), Int32, normalizedShift);
+    Value* shl = root->appendNew<Value>(proc, Shl, Origin(), value, shlAmount);
+    Value* zshr = root->appendNew<Value>(proc, ZShr, Origin(), value, zshrAmount);
+    root->appendNewControlValue(proc, Return, Origin(),
+        root->appendNew<Value>(proc, BitXor, Origin(), shl, zshr));
+
+    CHECK_EQ(compileAndRun<T>(proc, valueInt), rotateRight(valueInt, static_cast<int32_t>(normalizedShift)));
+}
+
+// Reversed operand order: ZShr first, Shl second. The fold must handle both orderings.
+template<typename T>
+void testRotRFromShiftXorReversed(T valueInt, int32_t shift)
+{
+    constexpr uint32_t width = sizeof(T) * 8;
+    uint32_t normalizedShift = static_cast<uint32_t>(shift) % width;
+    if (normalizedShift == 0)
+        return;
+
+    Procedure proc;
+    BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<T>(proc, root);
+
+    Value* value = arguments[0];
+    Value* shlAmount = root->appendIntConstant(proc, Origin(), Int32, width - normalizedShift);
+    Value* zshrAmount = root->appendIntConstant(proc, Origin(), Int32, normalizedShift);
+    Value* zshr = root->appendNew<Value>(proc, ZShr, Origin(), value, zshrAmount);
+    Value* shl = root->appendNew<Value>(proc, Shl, Origin(), value, shlAmount);
+    root->appendNewControlValue(proc, Return, Origin(),
+        root->appendNew<Value>(proc, BitXor, Origin(), zshr, shl));
+
+    CHECK_EQ(compileAndRun<T>(proc, valueInt), rotateRight(valueInt, static_cast<int32_t>(normalizedShift)));
+}
+
+// SHA-256 Sigma1 pattern for 32-bit inputs:
+//   (x >>> 6) ^ (x >>> 11) ^ (x >>> 25) ^ (x << 26) ^ (x << 21) ^ (x << 7)
+// Pairs: (>>>6, <<26), (>>>11, <<21), (>>>25, <<7). Each pair is a rotate-right.
+// Exercises the multi-leaf path in OptimizeAssociativeExpressionTrees::optimizeRootedTree.
+void testRotRFromShiftXorChainSHA256Sigma1_32(int32_t valueInt)
+{
+    Procedure proc;
+    BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<int32_t>(proc, root);
+
+    Value* x = arguments[0];
+    auto buildShift = [&](B3::Opcode op, int32_t amt) -> Value* {
+        Value* amount = root->appendIntConstant(proc, Origin(), Int32, amt);
+        return root->appendNew<Value>(proc, op, Origin(), x, amount);
+    };
+    Value* zshr6 = buildShift(ZShr, 6);
+    Value* zshr11 = buildShift(ZShr, 11);
+    Value* zshr25 = buildShift(ZShr, 25);
+    Value* shl26 = buildShift(Shl, 26);
+    Value* shl21 = buildShift(Shl, 21);
+    Value* shl7 = buildShift(Shl, 7);
+    Value* xor0 = root->appendNew<Value>(proc, BitXor, Origin(), zshr6, zshr11);
+    Value* xor1 = root->appendNew<Value>(proc, BitXor, Origin(), xor0, zshr25);
+    Value* xor2 = root->appendNew<Value>(proc, BitXor, Origin(), xor1, shl26);
+    Value* xor3 = root->appendNew<Value>(proc, BitXor, Origin(), xor2, shl21);
+    Value* xor4 = root->appendNew<Value>(proc, BitXor, Origin(), xor3, shl7);
+    root->appendNewControlValue(proc, Return, Origin(), xor4);
+
+    int32_t expected = rotateRight(valueInt, 6) ^ rotateRight(valueInt, 11) ^ rotateRight(valueInt, 25);
+    CHECK_EQ(compileAndRun<int32_t>(proc, valueInt), expected);
+}
+
+// Analogous pattern at 64 bits: (x >>> 14) ^ (x >>> 18) ^ (x >>> 41) ^ (x << 50) ^ (x << 46) ^ (x << 23)
+// Pairs: (>>>14, <<50), (>>>18, <<46), (>>>41, <<23). Each pair is a 64-bit rotate-right.
+void testRotRFromShiftXorChainSHA512Sigma1_64(int64_t valueInt)
+{
+    Procedure proc;
+    BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<int64_t>(proc, root);
+
+    Value* x = arguments[0];
+    auto buildShift = [&](B3::Opcode op, int32_t amt) -> Value* {
+        Value* amount = root->appendIntConstant(proc, Origin(), Int32, amt);
+        return root->appendNew<Value>(proc, op, Origin(), x, amount);
+    };
+    Value* zshr14 = buildShift(ZShr, 14);
+    Value* zshr18 = buildShift(ZShr, 18);
+    Value* zshr41 = buildShift(ZShr, 41);
+    Value* shl50 = buildShift(Shl, 50);
+    Value* shl46 = buildShift(Shl, 46);
+    Value* shl23 = buildShift(Shl, 23);
+    Value* xor0 = root->appendNew<Value>(proc, BitXor, Origin(), zshr14, zshr18);
+    Value* xor1 = root->appendNew<Value>(proc, BitXor, Origin(), xor0, zshr41);
+    Value* xor2 = root->appendNew<Value>(proc, BitXor, Origin(), xor1, shl50);
+    Value* xor3 = root->appendNew<Value>(proc, BitXor, Origin(), xor2, shl46);
+    Value* xor4 = root->appendNew<Value>(proc, BitXor, Origin(), xor3, shl23);
+    root->appendNewControlValue(proc, Return, Origin(), xor4);
+
+    int64_t expected = rotateRight(valueInt, 14) ^ rotateRight(valueInt, 18) ^ rotateRight(valueInt, 41);
+    CHECK_EQ(compileAndRun<int64_t>(proc, valueInt), expected);
+}
+
+// SHA-256 lowercase sigma0 pattern: (x >>> 7) ^ (x >>> 18) ^ (x >>> 3) ^ (x << 25) ^ (x << 14)
+// Pairs: (>>>7, <<25), (>>>18, <<14). The lone (>>>3) stays as a raw shift.
+// Verifies that the fold only consumes matching halves and leaves unrelated shifts alone.
+void testRotRFromShiftXorChainSHA256sigma0_32(int32_t valueInt)
+{
+    Procedure proc;
+    BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<int32_t>(proc, root);
+
+    Value* x = arguments[0];
+    auto buildShift = [&](B3::Opcode op, int32_t amt) -> Value* {
+        Value* amount = root->appendIntConstant(proc, Origin(), Int32, amt);
+        return root->appendNew<Value>(proc, op, Origin(), x, amount);
+    };
+    Value* zshr7 = buildShift(ZShr, 7);
+    Value* zshr18 = buildShift(ZShr, 18);
+    Value* zshr3 = buildShift(ZShr, 3);
+    Value* shl25 = buildShift(Shl, 25);
+    Value* shl14 = buildShift(Shl, 14);
+    Value* xor0 = root->appendNew<Value>(proc, BitXor, Origin(), zshr7, zshr18);
+    Value* xor1 = root->appendNew<Value>(proc, BitXor, Origin(), xor0, zshr3);
+    Value* xor2 = root->appendNew<Value>(proc, BitXor, Origin(), xor1, shl25);
+    Value* xor3 = root->appendNew<Value>(proc, BitXor, Origin(), xor2, shl14);
+    root->appendNewControlValue(proc, Return, Origin(), xor3);
+
+    int32_t expected = rotateRight(valueInt, 7) ^ rotateRight(valueInt, 18) ^ (static_cast<uint32_t>(valueInt) >> 3);
+    CHECK_EQ(compileAndRun<int32_t>(proc, valueInt), expected);
+}
+
+// BitOr analogue of the SHA-256 Sigma1 pattern for Int32:
+//   (x >>> 6) | (x >>> 11) | (x >>> 25) | (x << 26) | (x << 21) | (x << 7)
+// Each rotate pair has non-overlapping bits, so OR is equivalent to XOR here.
+// Exercises the BitOr path of the multi-leaf handling in
+// OptimizeAssociativeExpressionTrees::optimizeRootedTree.
+void testRotRFromShiftOrChainSHA256Sigma1_32(int32_t valueInt)
+{
+    Procedure proc;
+    BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<int32_t>(proc, root);
+
+    Value* x = arguments[0];
+    auto buildShift = [&](B3::Opcode op, int32_t amt) -> Value* {
+        Value* amount = root->appendIntConstant(proc, Origin(), Int32, amt);
+        return root->appendNew<Value>(proc, op, Origin(), x, amount);
+    };
+    Value* zshr6 = buildShift(ZShr, 6);
+    Value* zshr11 = buildShift(ZShr, 11);
+    Value* zshr25 = buildShift(ZShr, 25);
+    Value* shl26 = buildShift(Shl, 26);
+    Value* shl21 = buildShift(Shl, 21);
+    Value* shl7 = buildShift(Shl, 7);
+    Value* or0 = root->appendNew<Value>(proc, BitOr, Origin(), zshr6, zshr11);
+    Value* or1 = root->appendNew<Value>(proc, BitOr, Origin(), or0, zshr25);
+    Value* or2 = root->appendNew<Value>(proc, BitOr, Origin(), or1, shl26);
+    Value* or3 = root->appendNew<Value>(proc, BitOr, Origin(), or2, shl21);
+    Value* or4 = root->appendNew<Value>(proc, BitOr, Origin(), or3, shl7);
+    root->appendNewControlValue(proc, Return, Origin(), or4);
+
+    int32_t expected = rotateRight(valueInt, 6) | rotateRight(valueInt, 11) | rotateRight(valueInt, 25);
+    CHECK_EQ(compileAndRun<int32_t>(proc, valueInt), expected);
+}
+
+// Use-count safety: when a shift Value inside the XOR/OR tree is ALSO used by an
+// external consumer, the fold must not mutate that shift. It can only replace
+// the pointer inside its local leaf vector. Here Shl(x, 26) is used both inside
+// the SHA-256 Sigma1 chain and as an operand of the outer Add, so its useCount
+// is >= 2 and the original Shl must survive.
+void testRotRFromShiftXorChainSharedShiftOperand(int32_t valueInt)
+{
+    Procedure proc;
+    BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<int32_t>(proc, root);
+
+    Value* x = arguments[0];
+    auto buildShift = [&](B3::Opcode op, int32_t amt) -> Value* {
+        Value* amount = root->appendIntConstant(proc, Origin(), Int32, amt);
+        return root->appendNew<Value>(proc, op, Origin(), x, amount);
+    };
+    Value* zshr6 = buildShift(ZShr, 6);
+    Value* zshr11 = buildShift(ZShr, 11);
+    Value* zshr25 = buildShift(ZShr, 25);
+    Value* shl26 = buildShift(Shl, 26);
+    Value* shl21 = buildShift(Shl, 21);
+    Value* shl7 = buildShift(Shl, 7);
+    Value* xor0 = root->appendNew<Value>(proc, BitXor, Origin(), zshr6, zshr11);
+    Value* xor1 = root->appendNew<Value>(proc, BitXor, Origin(), xor0, zshr25);
+    Value* xor2 = root->appendNew<Value>(proc, BitXor, Origin(), xor1, shl26);
+    Value* xor3 = root->appendNew<Value>(proc, BitXor, Origin(), xor2, shl21);
+    Value* xor4 = root->appendNew<Value>(proc, BitXor, Origin(), xor3, shl7);
+    // shl26 is used twice: once inside the XOR chain, once as an Add operand.
+    root->appendNewControlValue(proc, Return, Origin(),
+        root->appendNew<Value>(proc, Add, Origin(), xor4, shl26));
+
+    int32_t sigma1 = rotateRight(valueInt, 6) ^ rotateRight(valueInt, 11) ^ rotateRight(valueInt, 25);
+    int32_t expected = static_cast<int32_t>(sigma1 + (static_cast<uint32_t>(valueInt) << 26));
+    CHECK_EQ(compileAndRun<int32_t>(proc, valueInt), expected);
+}
+
+// Negative test: two shifts on DIFFERENT base values must NOT be folded into a rotate.
+// This exists to guard against accidental matches when the fold is extended; the
+// computed value depends on the distinction between x and y.
+void testShiftOrDifferentBasesNoRotate(int32_t xValue, int32_t yValue, int32_t shift)
+{
+    constexpr uint32_t width = 32;
+    uint32_t normalizedShift = static_cast<uint32_t>(shift) % width;
+    if (normalizedShift == 0)
+        return;
+
+    Procedure proc;
+    BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<int32_t, int32_t>(proc, root);
+
+    Value* x = arguments[0];
+    Value* y = arguments[1];
+    Value* shlAmount = root->appendIntConstant(proc, Origin(), Int32, width - normalizedShift);
+    Value* zshrAmount = root->appendIntConstant(proc, Origin(), Int32, normalizedShift);
+    Value* shl = root->appendNew<Value>(proc, Shl, Origin(), x, shlAmount);
+    Value* zshr = root->appendNew<Value>(proc, ZShr, Origin(), y, zshrAmount);
+    root->appendNewControlValue(proc, Return, Origin(),
+        root->appendNew<Value>(proc, BitOr, Origin(), shl, zshr));
+
+    int32_t expected = static_cast<int32_t>(
+        (static_cast<uint32_t>(xValue) << (width - normalizedShift))
+        | (static_cast<uint32_t>(yValue) >> normalizedShift));
+    CHECK_EQ(compileAndRun<int32_t>(proc, xValue, yValue), expected);
+}
+
+// Shifts whose amounts do not sum to the type width must NOT be folded into a rotate.
+void testShiftOrMismatchedAmountsNoRotate(int32_t valueInt)
+{
+    Procedure proc;
+    BasicBlock* root = proc.addBlock();
+    auto arguments = cCallArgumentValues<int32_t>(proc, root);
+
+    Value* value = arguments[0];
+    // N + M = 5 + 10 = 15, not 32 - so this is NOT a rotate.
+    Value* shlAmount = root->appendIntConstant(proc, Origin(), Int32, 5);
+    Value* zshrAmount = root->appendIntConstant(proc, Origin(), Int32, 10);
+    Value* shl = root->appendNew<Value>(proc, Shl, Origin(), value, shlAmount);
+    Value* zshr = root->appendNew<Value>(proc, ZShr, Origin(), value, zshrAmount);
+    root->appendNewControlValue(proc, Return, Origin(),
+        root->appendNew<Value>(proc, BitOr, Origin(), shl, zshr));
+
+    int32_t expected = static_cast<int32_t>(
+        (static_cast<uint32_t>(valueInt) << 5) | (static_cast<uint32_t>(valueInt) >> 10));
+    CHECK_EQ(compileAndRun<int32_t>(proc, valueInt), expected);
 }
 
 template<typename T>
 void testComputeDivisionMagic(T value, T magicMultiplier, unsigned shift)
 {
-    DivisionMagic<T> magic = computeDivisionMagic(value);
-    CHECK(magic.magicMultiplier == magicMultiplier);
-    CHECK(magic.shift == shift);
+    DivisionMagic<T> magic = computeSignedDivisionMagic(value);
+    CHECK_EQ(magic.magicMultiplier, magicMultiplier);
+    CHECK_EQ(magic.shift, shift);
 }
 
-void run(const char* filter)
+void run(const TestConfig* config)
 {
     Deque<RefPtr<SharedTask<void()>>> tasks;
 
@@ -149,22 +432,25 @@ void run(const char* filter)
     RUN_UNARY(testAddTreeArg32, int32Operands());
     RUN_UNARY(testMulTreeArg32, int32Operands());
 
-    addArgTests(filter, tasks);
+    addArgTests(config, tasks);
 
     RUN_UNARY(testNegDouble, floatingPointOperands<double>());
     RUN_UNARY(testNegFloat, floatingPointOperands<float>());
     RUN_UNARY(testNegFloatWithUselessDoubleConversion, floatingPointOperands<float>());
+    RUN(testImpureNaN());
 
-    addBitTests(filter, tasks);
+    addBitTests(config, tasks);
 
     RUN(testShlArgs(1, 0));
     RUN(testShlArgs(1, 1));
+    RUN(testShlArgs(1, 32));
     RUN(testShlArgs(1, 62));
     RUN(testShlArgs(0xffffffffffffffff, 0));
     RUN(testShlArgs(0xffffffffffffffff, 1));
     RUN(testShlArgs(0xffffffffffffffff, 63));
     RUN(testShlImms(1, 0));
     RUN(testShlImms(1, 1));
+    RUN(testShlImms(1, 32));
     RUN(testShlImms(1, 62));
     RUN(testShlImms(1, 65));
     RUN(testShlImms(0xffffffffffffffff, 0));
@@ -172,6 +458,7 @@ void run(const char* filter)
     RUN(testShlImms(0xffffffffffffffff, 63));
     RUN(testShlArgImm(1, 0));
     RUN(testShlArgImm(1, 1));
+    RUN(testShlArgImm(1, 32));
     RUN(testShlArgImm(1, 62));
     RUN(testShlArgImm(1, 65));
     RUN(testShlArgImm(0xffffffffffffffff, 0));
@@ -214,7 +501,7 @@ void run(const char* filter)
     RUN(testShlZShrArgImm32(0xffffffff, 1));
     RUN(testShlZShrArgImm32(0xffffffff, 63));
 
-    addShrTests(filter, tasks);
+    addShrTests(config, tasks);
 
     RUN_UNARY(testClzArg64, int64Operands());
     RUN_UNARY(testClzMem64, int64Operands());
@@ -268,6 +555,13 @@ void run(const char* filter)
     RUN_UNARY(testFloorArgWithUselessDoubleConversion, floatingPointOperands<float>());
     RUN_UNARY(testFloorArgWithEffectfulDoubleConversion, floatingPointOperands<float>());
 
+    RUN_UNARY(testFTruncArg, floatingPointOperands<double>());
+    RUN_UNARY(testFTruncImm, floatingPointOperands<double>());
+    RUN_UNARY(testFTruncMem, floatingPointOperands<double>());
+    RUN_UNARY(testFTruncArg, floatingPointOperands<float>());
+    RUN_UNARY(testFTruncImm, floatingPointOperands<float>());
+    RUN_UNARY(testFTruncMem, floatingPointOperands<float>());
+
     RUN_UNARY(testSqrtArg, floatingPointOperands<double>());
     RUN_UNARY(testSqrtImm, floatingPointOperands<double>());
     RUN_UNARY(testSqrtMem, floatingPointOperands<double>());
@@ -276,6 +570,8 @@ void run(const char* filter)
     RUN_UNARY(testSqrtMem, floatingPointOperands<float>());
     RUN_UNARY(testSqrtArgWithUselessDoubleConversion, floatingPointOperands<float>());
     RUN_UNARY(testSqrtArgWithEffectfulDoubleConversion, floatingPointOperands<float>());
+
+    RUN(testPurifyNaN());
 
     RUN_BINARY(testCompareTwoFloatToDouble, floatingPointOperands<float>(), floatingPointOperands<float>());
     RUN_BINARY(testCompareOneFloatToDouble, floatingPointOperands<float>(), floatingPointOperands<double>());
@@ -312,7 +608,10 @@ void run(const char* filter)
     RUN_UNARY(testConvertDoubleToFloatToDouble, floatingPointOperands<double>());
     RUN_UNARY(testConvertDoubleToFloatToDoubleToFloat, floatingPointOperands<double>());
     RUN_UNARY(testConvertDoubleToFloatEqual, floatingPointOperands<double>());
+    RUN_UNARY(testStoreDouble, floatingPointOperands<double>());
+    RUN_UNARY(testStoreDoubleConstant, floatingPointOperands<double>());
     RUN_UNARY(testStoreFloat, floatingPointOperands<double>());
+    RUN_UNARY(testStoreFloatConstant, floatingPointOperands<double>());
     RUN_UNARY(testStoreDoubleConstantAsFloat, floatingPointOperands<double>());
     RUN_UNARY(testLoadFloatConvertDoubleConvertFloatStoreFloat, floatingPointOperands<float>());
     RUN_UNARY(testFroundArg, floatingPointOperands<double>());
@@ -322,6 +621,8 @@ void run(const char* filter)
     RUN(testIToF64Arg());
     RUN(testIToD32Arg());
     RUN(testIToF32Arg());
+    RUN(testIToDU32Arg());
+    RUN(testIToFU32Arg());
     RUN(testIToD64Mem());
     RUN(testIToF64Mem());
     RUN(testIToD32Mem());
@@ -332,11 +633,16 @@ void run(const char* filter)
     RUN_UNARY(testIToF32Imm, int32Operands());
     RUN(testIToDReducedToIToF64Arg());
     RUN(testIToDReducedToIToF32Arg());
+    RUN_UNARY(testInt52RoundTripUnary, int32Operands());
+    RUN(testInt52RoundTripBinary());
+    RUN(testTruncSShrAddUnalignedConstant());
 
+#if !CPU(ARM)
     RUN_UNARY(testCheckAddRemoveCheckWithSExt8, int8Operands());
     RUN_UNARY(testCheckAddRemoveCheckWithSExt16, int16Operands());
     RUN_UNARY(testCheckAddRemoveCheckWithSExt32, int32Operands());
     RUN_UNARY(testCheckAddRemoveCheckWithZExt32, int32Operands());
+#endif
 
     RUN(testStoreZeroReg());
     RUN(testStore32(44));
@@ -458,8 +764,8 @@ void run(const char* filter)
 
     RUN(testSimplePatchpoint());
     RUN(testSimplePatchpointWithoutOuputClobbersGPArgs());
-    RUN(testSimplePatchpointWithOuputClobbersGPArgs());
     RUN(testSimplePatchpointWithoutOuputClobbersFPArgs());
+    RUN(testSimplePatchpointWithOuputClobbersGPArgs());
     RUN(testSimplePatchpointWithOuputClobbersFPArgs());
     RUN(testPatchpointWithEarlyClobber());
     RUN(testPatchpointCallArg());
@@ -472,8 +778,11 @@ void run(const char* filter)
     RUN(testPatchpointAnyImm(ValueRep::WarmAny));
     RUN(testPatchpointAnyImm(ValueRep::ColdAny));
     RUN(testPatchpointAnyImm(ValueRep::LateColdAny));
-    RUN(testPatchpointManyWarmAnyImms());
-    RUN(testPatchpointManyColdAnyImms());
+    if constexpr (!is32Bit()) {
+        // Can't handle ConstDoubleValue arguments to patchpoints on 32 bits.
+        RUN(testPatchpointManyWarmAnyImms());
+        RUN(testPatchpointManyColdAnyImms());
+    }
     RUN(testPatchpointWithRegisterResult());
     RUN(testPatchpointWithStackArgumentResult());
     RUN(testPatchpointWithAnyResult());
@@ -485,11 +794,13 @@ void run(const char* filter)
     RUN(testCheckTrickyMegaCombo());
     RUN(testCheckTwoMegaCombos());
     RUN(testCheckTwoNonRedundantMegaCombos());
+#if !CPU(ARM)
     RUN(testCheckAddImm());
     RUN(testCheckAddImmCommute());
     RUN(testCheckAddImmSomeRegister());
     RUN(testCheckAdd());
     RUN(testCheckAdd64());
+    RUN(testCheckAdd64Range());
     RUN(testCheckAddFold(100, 200));
     RUN(testCheckAddFoldFail(2147483647, 100));
     RUN(testCheckAddArgumentAliasing64());
@@ -513,6 +824,7 @@ void run(const char* filter)
     RUN(testCheckMulFoldFail(2147483647, 100));
     RUN(testCheckMulArgumentAliasing64());
     RUN(testCheckMulArgumentAliasing32());
+#endif
 
     RUN_BINARY([](int32_t a, int32_t b) { testCompare(Equal, a, b); }, int64Operands(), int64Operands());
     RUN_BINARY([](int32_t a, int32_t b) { testCompare(NotEqual, a, b); }, int64Operands(), int64Operands());
@@ -533,20 +845,29 @@ void run(const char* filter)
     RUN(testEqualDouble(42, PNaN, false));
     RUN(testEqualDouble(PNaN, PNaN, false));
 
-    addLoadTests(filter, tasks);
-    addTupleTests(filter, tasks);
-
-    addCopyTests(filter, tasks);
+    addLoadTests(config, tasks);
+    addTupleTests(config, tasks);
 
     RUN(testSpillGP());
     RUN(testSpillFP());
 
+    RUN(testWasmAddressDoesNotCSE());
+    RUN(testStoreAfterClobberDifferentWidth());
+    RUN(testStoreAfterClobberExitsSideways());
+    RUN(testStoreAfterClobberDifferentWidthSuccessor());
+    RUN(testStoreAfterClobberExitsSidewaysSuccessor());
+    RUN(testNarrowLoad());
+    RUN(testNarrowLoadClobber());
+    RUN(testNarrowLoadClobberNarrow());
+    RUN(testNarrowLoadNotClobber());
+    RUN(testNarrowLoadUpper());
+
     RUN(testInt32ToDoublePartialRegisterStall());
     RUN(testInt32ToDoublePartialRegisterWithoutStall());
 
-    addCallTests(filter, tasks);
+    addCallTests(config, tasks);
 
-    RUN(testLinearScanWithCalleeOnStack());
+    RUN(testForcedSpillCalleeOnStack());
 
     RUN(testChillDiv(4, 2, 2));
     RUN(testChillDiv(1, 0, 0));
@@ -614,7 +935,7 @@ void run(const char* filter)
     RUN(testTruncFold(-1));
     RUN(testTruncFold(1000000000000ll));
     RUN(testTruncFold(-1000000000000ll));
-    
+
     RUN(testZExt32(0));
     RUN(testZExt32(1));
     RUN(testZExt32(-1));
@@ -648,7 +969,7 @@ void run(const char* filter)
     RUN(testTruncSExt32(1000000000ll));
     RUN(testTruncSExt32(-1000000000ll));
 
-    addSExtTests(filter, tasks);
+    addSExtTests(config, tasks);
 
     RUN(testBasicSelect());
     RUN(testSelectTest());
@@ -665,9 +986,14 @@ void run(const char* filter)
     RUN(testSelectFold(42));
     RUN(testSelectFold(43));
     RUN(testSelectInvert());
+    RUN(testSelectInt32WithZeroElse());
+    RUN(testSelectInt64WithZeroElse());
+    RUN(testSelectInt32ImmWithZeroElse());
+    RUN(testSelectTestWithZeroElse());
     RUN(testCheckSelect());
     RUN(testCheckSelectCheckSelect());
     RUN(testCheckSelectAndCSE());
+    RUN(testCheckSelectAndDeadCheckCSE());
     RUN_BINARY(testPowDoubleByIntegerLoop, floatingPointOperands<double>(), int64Operands());
 
     RUN(testTruncOrHigh());
@@ -707,7 +1033,7 @@ void run(const char* filter)
     RUN(testStore16Load16Z(12345678));
     RUN(testStore16Load16Z(-123));
 
-    addSShrShTests(filter, tasks);
+    addSShrShTests(config, tasks);
 
     RUN(testCheckMul64SShr());
 
@@ -721,10 +1047,24 @@ void run(const char* filter)
     RUN_BINARY(testRotLWithImmShift, int32Operands(), int32Operands());
     RUN_BINARY(testRotLWithImmShift, int64Operands(), int32Operands());
 
+    RUN_BINARY(testRotRFromShiftOr<int32_t>, int32Operands(), int32Operands());
+    RUN_BINARY(testRotRFromShiftOr<int64_t>, int64Operands(), int32Operands());
+    RUN_BINARY(testRotRFromShiftXor<int32_t>, int32Operands(), int32Operands());
+    RUN_BINARY(testRotRFromShiftXor<int64_t>, int64Operands(), int32Operands());
+    RUN_BINARY(testRotRFromShiftXorReversed<int32_t>, int32Operands(), int32Operands());
+    RUN_BINARY(testRotRFromShiftXorReversed<int64_t>, int64Operands(), int32Operands());
+    RUN_UNARY(testRotRFromShiftXorChainSHA256Sigma1_32, int32Operands());
+    RUN_UNARY(testRotRFromShiftXorChainSHA512Sigma1_64, int64Operands());
+    RUN_UNARY(testRotRFromShiftXorChainSHA256sigma0_32, int32Operands());
+    RUN_UNARY(testRotRFromShiftOrChainSHA256Sigma1_32, int32Operands());
+    RUN_UNARY(testRotRFromShiftXorChainSharedShiftOperand, int32Operands());
+    RUN_TERNARY(testShiftOrDifferentBasesNoRotate, int32Operands(), int32Operands(), int32Operands());
+    RUN_UNARY(testShiftOrMismatchedAmountsNoRotate, int32Operands());
+
     RUN(testComputeDivisionMagic<int32_t>(2, -2147483647, 0));
     RUN(testTrivialInfiniteLoop());
     RUN(testFoldPathEqual());
-    
+
     RUN(testRShiftSelf32());
     RUN(testURShiftSelf32());
     RUN(testLShiftSelf32());
@@ -739,7 +1079,7 @@ void run(const char* filter)
     RUN(testInterpreter());
     RUN(testReduceStrengthCheckBottomUseInAnotherBlock());
     RUN(testResetReachabilityDanglingReference());
-    
+
     RUN(testEntrySwitchSimple());
     RUN(testEntrySwitchNoEntrySwitch());
     RUN(testEntrySwitchWithCommonPaths());
@@ -760,10 +1100,37 @@ void run(const char* filter)
     RUN(testTrappingLoadDCE());
     RUN(testTrappingStoreElimination());
     RUN(testMoveConstants());
+    RUN(testMoveConstantsWithLargeOffsets());
+    if (Options::useWasmSIMD())
+        RUN(testMoveConstantsSIMD());
     RUN(testPCOriginMapDoesntInsertNops());
     RUN(testPinRegisters());
     RUN(testReduceStrengthReassociation(true));
     RUN(testReduceStrengthReassociation(false));
+    RUN_BINARY(testReduceStrengthTruncInt64Constant, int64Operands(), int32Operands());
+    RUN_BINARY(testReduceStrengthTruncDoubleConstant, floatingPointOperands<double>(), floatingPointOperands<float>());
+    RUN(testReduceStrengthMulDoubleByTwo());
+    RUN(testReduceStrengthMulFloatByTwo());
+    RUN(testReduceStrengthMulDoubleByNegOne());
+    RUN(testReduceStrengthMulFloatByNegOne());
+    RUN(testReduceStrengthMulDoubleByNegTwo());
+    RUN(testReduceStrengthMulFloatByNegTwo());
+    RUN(testReduceStrengthDivDoubleByNegOne());
+    RUN(testReduceStrengthDivFloatByNegOne());
+    RUN(testReduceStrengthDivDoubleByTwo());
+    RUN(testReduceStrengthDivFloatByTwo());
+    RUN(testReduceStrengthDivDoubleByFour());
+    RUN(testReduceStrengthDivFloatByFour());
+    RUN(testReduceStrengthDivDoubleByNegTwo());
+    RUN(testReduceStrengthDivFloatByNegTwo());
+    RUN(testReduceStrengthBelowEqualZeroInt32());
+    RUN(testReduceStrengthBelowEqualZeroInt64());
+    RUN(testReduceStrengthBelowOneInt32());
+    RUN(testReduceStrengthBelowOneInt64());
+    RUN(testReduceStrengthAboveEqualOneInt32());
+    RUN(testReduceStrengthAboveEqualOneInt64());
+    RUN(testReduceStrengthAboveZeroInt32());
+    RUN(testReduceStrengthAboveZeroInt64());
     RUN(testAddShl32());
     RUN(testAddShl64());
     RUN(testAddShl65());
@@ -798,9 +1165,12 @@ void run(const char* filter)
     RUN(testLICMReadsWritesOverlappingHeaps());
     RUN(testLICMDefaultCall());
 
-    addAtomicTests(filter, tasks);
+    addAtomicTests(config, tasks);
     RUN(testDepend32());
-    RUN(testDepend64());
+    if constexpr (!is32Bit()) {
+        // Test only applicable on 64-bits.
+        RUN(testDepend64());
+    }
 
     RUN(testWasmBoundsCheck(0));
     RUN(testWasmBoundsCheck(100));
@@ -808,25 +1178,244 @@ void run(const char* filter)
     RUN(testWasmBoundsCheck(std::numeric_limits<unsigned>::max() - 5));
 
     RUN(testWasmAddress());
+    RUN(testWasmAddressWithOffset());
     
     RUN(testFastTLSLoad());
     RUN(testFastTLSStore());
 
-    RUN(testDoubleLiteralComparison(bitwise_cast<double>(0x8000000000000001ull), bitwise_cast<double>(0x0000000000000000ull)));
-    RUN(testDoubleLiteralComparison(bitwise_cast<double>(0x0000000000000000ull), bitwise_cast<double>(0x8000000000000001ull)));
+    RUN(testDoubleLiteralComparison(std::bit_cast<double>(0x8000000000000001ull), std::bit_cast<double>(0x0000000000000000ull)));
+    RUN(testDoubleLiteralComparison(std::bit_cast<double>(0x0000000000000000ull), std::bit_cast<double>(0x8000000000000001ull)));
     RUN(testDoubleLiteralComparison(125.3144446948241, 125.3144446948242));
     RUN(testDoubleLiteralComparison(125.3144446948242, 125.3144446948241));
 
     RUN(testFloatEqualOrUnorderedFolding());
     RUN(testFloatEqualOrUnorderedFoldingNaN());
     RUN(testFloatEqualOrUnorderedDontFold());
-    
+
     RUN(testShuffleDoesntTrashCalleeSaves());
     RUN(testDemotePatchpointTerminal());
 
     RUN(testLoopWithMultipleHeaderEdges());
 
     RUN(testInfiniteLoopDoesntCauseBadHoisting());
+    RUN(testBackwardsDominatorsWithMultipleBackEdges());
+
+    RUN(testFloatMaxMin());
+    RUN(testDoubleMaxMin());
+
+    RUN(testConstDoubleMove());
+    RUN(testConstFloatMove());
+
+    RUN(testConstDoubleZero());
+    RUN(testConstDoubleNegativeZero());
+    RUN(testConstFloatZero());
+    RUN(testConstFloatNegativeZero());
+    RUN(testConstDoubleAddZero());
+    RUN(testConstFloatAddZero());
+    RUN(testConstDoubleCompareZero());
+    RUN(testConstFloatCompareZero());
+    RUN(testConstDoubleSelectZero());
+    RUN(testConstFloatSelectZero());
+    RUN(testConstDoubleMultipleZeroUses());
+    RUN(testConstFloatMultipleZeroUses());
+
+    RUN(testLoadImmutable());
+
+    // ARM64 conditional compare (ccmp) tests
+    RUN(testCCmpAnd32(1, 1, 2, 2));  // both true
+    RUN(testCCmpAnd32(1, 2, 2, 2));  // first false
+    RUN(testCCmpAnd32(1, 1, 2, 3));  // second false
+    RUN(testCCmpAnd32(1, 2, 2, 3));  // both false
+
+    RUN(testCCmpAnd64(1, 1, 2, 2));  // both true
+    RUN(testCCmpAnd64(1, 2, 2, 2));  // first false
+    RUN(testCCmpAnd64(1, 1, 2, 3));  // second false
+    RUN(testCCmpAnd64(1, 2, 2, 3));  // both false
+
+    RUN(testCCmpOr32(1, 1, 2, 2));   // both true
+    RUN(testCCmpOr32(1, 1, 2, 3));   // first true
+    RUN(testCCmpOr32(1, 2, 2, 2));   // second true
+    RUN(testCCmpOr32(1, 2, 2, 3));   // both false
+
+    RUN(testCCmpOr64(1, 1, 2, 2));   // both true
+    RUN(testCCmpOr64(1, 1, 2, 3));   // first true
+    RUN(testCCmpOr64(1, 2, 2, 2));   // second true
+    RUN(testCCmpOr64(1, 2, 2, 3));   // both false
+
+    // 3-comparison chain tests
+    RUN(testCCmpAndAnd32(1, 1, 2, 2, 3, 3));  // all true
+    RUN(testCCmpAndAnd32(1, 1, 2, 2, 3, 4));  // first two true, last false
+    RUN(testCCmpAndAnd32(1, 1, 2, 3, 3, 3));  // first true, second false
+    RUN(testCCmpAndAnd32(1, 2, 2, 2, 3, 3));  // first false
+    RUN(testCCmpAndAnd32(1, 2, 2, 3, 3, 4));  // all false
+
+    RUN(testCCmpOrOr32(1, 1, 2, 2, 3, 3));   // all true
+    RUN(testCCmpOrOr32(1, 1, 2, 3, 3, 4));   // first true
+    RUN(testCCmpOrOr32(1, 2, 2, 2, 3, 4));   // second true
+    RUN(testCCmpOrOr32(1, 2, 2, 3, 3, 3));   // third true
+    RUN(testCCmpOrOr32(1, 2, 2, 3, 3, 4));   // all false
+
+    RUN(testCCmpAndOr32(1, 1, 2, 2, 3, 4));  // (true && true) || false = true
+    RUN(testCCmpAndOr32(1, 1, 2, 3, 3, 3));  // (true && false) || true = true
+    RUN(testCCmpAndOr32(1, 2, 2, 2, 3, 3));  // (false && true) || true = true
+    RUN(testCCmpAndOr32(1, 2, 2, 3, 3, 4));  // (false && false) || false = false
+    RUN(testCCmpAndOr32(1, 1, 2, 2, 3, 3));  // (true && true) || true = true
+
+    // Tests for ccmn (negative immediates) and large immediates
+    RUN(testCCmnAnd32WithNegativeImm(15, -5));  // both true
+    RUN(testCCmnAnd32WithNegativeImm(5, -5));   // first false
+    RUN(testCCmnAnd32WithNegativeImm(15, 0));   // second false
+    RUN(testCCmnAnd32WithNegativeImm(5, 0));    // both false
+
+    RUN(testCCmnAnd64WithNegativeImm(15, -31)); // both true
+    RUN(testCCmnAnd64WithNegativeImm(5, -31));  // first false
+    RUN(testCCmnAnd64WithNegativeImm(15, 0));   // second false
+    RUN(testCCmnAnd64WithNegativeImm(5, 0));    // both false
+
+    RUN(testCCmpWithLargePositiveImm(15, 100)); // both true
+    RUN(testCCmpWithLargePositiveImm(5, 100));  // first false
+    RUN(testCCmpWithLargePositiveImm(15, 0));   // second false
+    RUN(testCCmpWithLargePositiveImm(5, 0));    // both false
+
+    RUN(testCCmpWithLargeNegativeImm(15, -100)); // both true
+    RUN(testCCmpWithLargeNegativeImm(5, -100));  // first false
+    RUN(testCCmpWithLargeNegativeImm(15, 0));    // second false
+    RUN(testCCmpWithLargeNegativeImm(5, 0));     // both false
+
+    // Tests for ccmp optimizations
+    RUN(testCCmpSmartOperandOrdering32(5, 1000));    // both true
+    RUN(testCCmpSmartOperandOrdering32(5, 999));     // first true, second false
+    RUN(testCCmpSmartOperandOrdering32(4, 1000));    // first false, second true
+    RUN(testCCmpSmartOperandOrdering32(4, 999));     // both false
+
+    RUN(testCCmpSmartOperandOrdering64(10, 5000));   // both true
+    RUN(testCCmpSmartOperandOrdering64(10, 4999));   // first true, second false
+    RUN(testCCmpSmartOperandOrdering64(9, 5000));    // first false, second true
+    RUN(testCCmpSmartOperandOrdering64(9, 4999));    // both false
+
+    RUN(testCCmpOperandCommutation32(15, 101));      // both true
+    RUN(testCCmpOperandCommutation32(15, 100));      // first true, second false
+    RUN(testCCmpOperandCommutation32(14, 101));      // first false, second true
+    RUN(testCCmpOperandCommutation32(14, 100));      // both false
+
+    RUN(testCCmpOperandCommutation64(49, 20));       // both true
+    RUN(testCCmpOperandCommutation64(49, 21));       // first true, second false
+    RUN(testCCmpOperandCommutation64(50, 20));       // first false, second true
+    RUN(testCCmpOperandCommutation64(50, 21));       // both false
+
+    RUN(testCCmpCombinedOptimizations(10, 2000));    // both true
+    RUN(testCCmpCombinedOptimizations(10, 1999));    // first true, second false
+    RUN(testCCmpCombinedOptimizations(9, 2000));     // first false, second true
+    RUN(testCCmpCombinedOptimizations(9, 1999));     // both false
+
+    RUN(testCCmpZeroRegisterOptimization32(0, 6));   // both true
+    RUN(testCCmpZeroRegisterOptimization32(0, 5));   // first true, second false
+    RUN(testCCmpZeroRegisterOptimization32(1, 6));   // first false, second true
+    RUN(testCCmpZeroRegisterOptimization32(1, 5));   // both false
+
+    RUN(testCCmpZeroRegisterOptimization64(0, 99));  // both true
+    RUN(testCCmpZeroRegisterOptimization64(0, 100)); // first true, second false
+    RUN(testCCmpZeroRegisterOptimization64(1, 99));  // first false, second true
+    RUN(testCCmpZeroRegisterOptimization64(1, 100)); // both false
+
+    // Mixed AND/OR tests - now supported with tree canonicalization
+    RUN(testCCmpMixedAndOr32(5, 5, 5));              // AND true, OR false -> true
+    RUN(testCCmpMixedAndOr32(101, 5, 5));            // AND false, OR true -> true
+    RUN(testCCmpMixedAndOr32(5, 6, 5));              // AND false, OR false -> false
+    RUN(testCCmpMixedAndOr32(50, 50, 50));           // AND true, OR false -> true
+
+    RUN(testCCmpMixedOrAnd32(-1, 10, 10));           // OR true, AND false -> true
+    RUN(testCCmpMixedOrAnd32(0, 60, 60));            // OR false, AND true -> true
+    RUN(testCCmpMixedOrAnd32(0, 10, 20));            // OR false, AND false -> false
+    RUN(testCCmpMixedOrAnd32(-5, 40, 40));           // OR true, AND false -> true
+
+    // Negation tests - V8's (chain) == 0 optimization
+    RUN(testCCmpNegatedAnd32(15, 20));               // !(true && true) = false
+    RUN(testCCmpNegatedAnd32(15, 10));               // !(true && false) = true
+    RUN(testCCmpNegatedAnd32(5, 20));                // !(false && true) = true
+    RUN(testCCmpNegatedAnd32(5, 10));                // !(false && false) = true
+
+    RUN(testCCmpNegatedOr32(3, 50));                 // !(true || false) = false
+    RUN(testCCmpNegatedOr32(3, 100));                // !(true || true) = false
+    RUN(testCCmpNegatedOr32(10, 100));               // !(false || true) = false
+    RUN(testCCmpNegatedOr32(10, 50));                // !(false || false) = true
+
+    // Mixed-width compare chain tests (per-ccmp width handling)
+    RUN(testCCmpMixedWidth32And64(5, 1000, 10));    // all match
+    RUN(testCCmpMixedWidth32And64(5, 1000, 9));     // last doesn't match
+    RUN(testCCmpMixedWidth32And64(5, 999, 10));     // middle doesn't match
+    RUN(testCCmpMixedWidth32And64(4, 1000, 10));    // first doesn't match
+    RUN(testCCmpMixedWidth64And32(5000, 10));       // both match
+    RUN(testCCmpMixedWidth64And32(5000, 9));        // second doesn't match
+    RUN(testCCmpMixedWidth64And32(4999, 10));       // first doesn't match
+
+    // ARM64 fccmp tests (floating-point conditional compare)
+    RUN(testFCCmpAndDouble(1.0, 1.0, 2.0, 2.0));    // both true
+    RUN(testFCCmpAndDouble(1.0, 2.0, 2.0, 2.0));    // first false
+    RUN(testFCCmpAndDouble(1.0, 1.0, 2.0, 3.0));    // second false
+    RUN(testFCCmpAndDouble(1.0, 2.0, 2.0, 3.0));    // both false
+
+    RUN(testFCCmpOrDouble(1.0, 1.0, 2.0, 2.0));     // both true
+    RUN(testFCCmpOrDouble(1.0, 1.0, 2.0, 3.0));     // first true
+    RUN(testFCCmpOrDouble(1.0, 2.0, 2.0, 2.0));     // second true
+    RUN(testFCCmpOrDouble(1.0, 2.0, 2.0, 3.0));     // both false
+
+    RUN(testFCCmpAndFloat(1.0f, 1.0f, 2.0f, 2.0f)); // both true
+    RUN(testFCCmpAndFloat(1.0f, 2.0f, 2.0f, 2.0f)); // first false
+    RUN(testFCCmpAndFloat(1.0f, 1.0f, 2.0f, 3.0f)); // second false
+    RUN(testFCCmpAndFloat(1.0f, 2.0f, 2.0f, 3.0f)); // both false
+
+    RUN(testFCCmpOrFloat(1.0f, 1.0f, 2.0f, 2.0f));  // both true
+    RUN(testFCCmpOrFloat(1.0f, 1.0f, 2.0f, 3.0f));  // first true
+    RUN(testFCCmpOrFloat(1.0f, 2.0f, 2.0f, 2.0f));  // second true
+    RUN(testFCCmpOrFloat(1.0f, 2.0f, 2.0f, 3.0f));  // both false
+
+    RUN(testFCCmpAndAndDouble(1.0, 1.0, 2.0, 2.0, 3.0, 3.0));  // all true
+    RUN(testFCCmpAndAndDouble(1.0, 1.0, 2.0, 2.0, 3.0, 4.0));  // first two true, last false
+    RUN(testFCCmpAndAndDouble(1.0, 1.0, 2.0, 3.0, 3.0, 3.0));  // first true, second false
+    RUN(testFCCmpAndAndDouble(1.0, 2.0, 2.0, 2.0, 3.0, 3.0));  // first false
+    RUN(testFCCmpAndAndDouble(1.0, 2.0, 2.0, 3.0, 3.0, 4.0));  // all false
+
+    RUN(testFCCmpMixedIntDouble(5, 5, 1.0, 2.0));   // int true, double true
+    RUN(testFCCmpMixedIntDouble(5, 6, 1.0, 2.0));   // int false, double true
+    RUN(testFCCmpMixedIntDouble(5, 5, 2.0, 1.0));   // int true, double false
+    RUN(testFCCmpMixedIntDouble(5, 6, 2.0, 1.0));   // int false, double false
+
+    RUN(testFCCmpMixedDoubleInt(1.0, 2.0, 5, 5));   // double true, int true
+    RUN(testFCCmpMixedDoubleInt(2.0, 1.0, 5, 5));   // double false, int true
+    RUN(testFCCmpMixedDoubleInt(1.0, 2.0, 5, 6));   // double true, int false
+    RUN(testFCCmpMixedDoubleInt(2.0, 1.0, 5, 6));   // double false, int false
+
+    RUN(testFCCmpLessThanAndDouble(1.0, 2.0, 3.0, 4.0));  // both true
+    RUN(testFCCmpLessThanAndDouble(2.0, 1.0, 3.0, 4.0));  // first false
+    RUN(testFCCmpLessThanAndDouble(1.0, 2.0, 4.0, 3.0));  // second false
+    RUN(testFCCmpLessThanAndDouble(2.0, 1.0, 4.0, 3.0));  // both false
+
+    RUN(testFCCmpGreaterEqualOrDouble(2.0, 1.0, 4.0, 3.0));  // both true
+    RUN(testFCCmpGreaterEqualOrDouble(2.0, 1.0, 3.0, 4.0));  // first true
+    RUN(testFCCmpGreaterEqualOrDouble(1.0, 2.0, 4.0, 3.0));  // second true
+    RUN(testFCCmpGreaterEqualOrDouble(1.0, 2.0, 3.0, 4.0));  // both false
+
+    // NaN tests
+    RUN(testFCCmpNaN(1.0, 1.0, std::numeric_limits<double>::quiet_NaN(), 1.0));  // second has NaN
+    RUN(testFCCmpNaN(std::numeric_limits<double>::quiet_NaN(), 1.0, 1.0, 1.0));  // first has NaN
+    RUN(testFCCmpNaN(std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::quiet_NaN(), 1.0, 1.0));  // NaN == NaN is false
+
+    // Negated fccmp
+    RUN(testFCCmpNegatedAndDouble(1.0, 2.0, 3.0, 4.0));  // !(true && true) = false
+    RUN(testFCCmpNegatedAndDouble(2.0, 1.0, 3.0, 4.0));  // !(false && true) = true
+    RUN(testFCCmpNegatedAndDouble(1.0, 2.0, 4.0, 3.0));  // !(true && false) = true
+    RUN(testFCCmpNegatedAndDouble(2.0, 1.0, 4.0, 3.0));  // !(false && false) = true
+
+    RUN(testCCmpChainRollback(5, 8, 5, 5, 5, 10)); // in-bounds, expected 1
+    RUN(testCCmpChainRollback(5, 8, 1, 2, 3, 4)); // inner expr non-zero, expected 0
+    RUN(testCCmpChainRollback(5, 8, 5, 5, 5, 5)); // inner expr non-zero (both eq), expected 0
+    RUN(testCCmpChainRollback(-1, 8, 5, 5, 5, 10)); // signed i<len, expected 1
+    RUN(testCCmpChainRollback(200, 8, 5, 5, 5, 10)); // i>=len; pre-fix wrongly returns 1
+    RUN(testCCmpChainRollback(5, 8, 5, 5, 5, -10)); // c>d, expected 1
+
+    RUN_UNARY(testSShrCompare32, int32OperandsMore());
+    RUN_UNARY(testSShrCompare64, int64OperandsMore());
 
     if (isX86()) {
         RUN(testBranchBitAndImmFusion(Identity, Int64, 1, Air::BranchTest32, Air::Arg::Tmp));
@@ -850,20 +1439,93 @@ void run(const char* filter)
     if (isARM64()) {
         RUN(testTernarySubInstructionSelection(Identity, Int64, Air::Sub64));
         RUN(testTernarySubInstructionSelection(Trunc, Int32, Air::Sub32));
+        RUN(testVectorTransposeEven());
+        RUN(testVectorTransposeOdd());
+        RUN(testVectorSwizzleBinaryToUnzipOdd());
+        RUN(testVectorSwizzleBinaryToEXT());
+        RUN(testVectorSwizzleBinaryCanonical());
+        RUN(testVectorSwizzleComposition());
+        RUN(testVectorSwizzleCompositionMultiUse());
+        RUN(testVectorSwizzleBinaryOnlyOneSideSide0());
+        RUN(testVectorSwizzleBinaryOnlyOneSideSide1());
+        RUN(testVectorSwizzleBinaryOnlyOneSideSide0WithOOB());
+        RUN(testVectorSwizzleBinaryOnlyOneSideSide1WithOOB());
+        RUN(testVectorSwizzleBinaryOnlyOneSideAllOOB());
+        RUN(testVectorSwizzleBinaryOnlyOneSideMixed());
+        RUN(testVectorSwizzleBinaryOnlyOneSideSide1Scattered());
     }
 
     RUN(testReportUsedRegistersLateUseFollowedByEarlyDefDoesNotMarkUseAsDead());
 
-    if (tasks.isEmpty())
-        usage();
+    if (isARM64() || isX86()) {
+        RUN(testVectorXorOrAllOnesToVectorAndXor());
+        RUN(testVectorXorAndAllOnesToVectorOrXor());
+        RUN(testVectorOrSelf());
+        RUN(testVectorAndSelf());
+        RUN(testVectorXorSelf());
+        RUN(testVectorExtractLane0Float());
+        RUN(testVectorExtractLane0Double());
+        RUN(testVectorMulHigh());
+        RUN(testVectorMulLow());
+        RUN(testVectorMulAddLowSimple());
+        RUN(testVectorMulAddLowDoubled());
+        RUN(testVectorMulAddLowTwoMuls());
+        RUN(testVectorMulAddLowBlaMka());
+        RUN(testVectorMulAddHighSimple());
+        RUN(testVectorMulAddHighDoubled());
+        RUN(testVectorMulAddHighTwoMuls());
+        RUN(testVectorMulAddMixedLowHigh());
+        RUN(testVectorRelaxedMinMax());
+        RUN(testVectorRelaxedQ15Mulr());
+        RUN(testVectorRelaxedDotI8x16I7x16());
+        RUN(testVectorRelaxedDotI8x16I7x16Add());
+        RUN(testVectorDotProductSplatOne());
+        RUN(testVectorShrZipToExtend());
+        RUN(testVectorShrZipToExtendI32());
+        RUN(testVectorShrZipToExtendI64());
+        RUN_UNARY(testVectorXorOrAllOnesConstantToVectorAndXor, v128Operands());
+        RUN_UNARY(testVectorXorAndAllOnesConstantToVectorOrXor, v128Operands());
+        RUN_BINARY(testVectorOrConstants, v128Operands(), v128Operands());
+        RUN_BINARY(testVectorAndConstants, v128Operands(), v128Operands());
+        RUN_BINARY(testVectorXorConstants, v128Operands(), v128Operands());
+        RUN_BINARY(testVectorAndConstantConstant, v128Operands(), v128Operands());
+        RUN(testVectorFmulByElementFloat());
+        RUN(testVectorFmulByElementDouble());
+        RUN(testVectorXorRotateRight64());
+        RUN(testVectorXor3());
+        RUN(testVectorShlImmediate());
+        RUN(testVectorShrImmediate());
+        RUN(testVectorUnzipEven());
+        RUN(testVectorUnzipOdd());
+        RUN(testVectorZipLower());
+        RUN(testVectorZipHigher());
+        RUN(testVectorReverse());
+        RUN(testVectorShlByOne());
+        RUN(testVectorSwizzleToUnzipEven());
+        RUN(testVectorSwizzleUnaryCanonical());
+        RUN(testVectorExtractPair());
+        RUN(testVectorSwizzleUnaryToEXT());
+        RUN(testVectorCanonicalSameInputFolding());
+        RUN(testVectorSwizzleToDupElement());
+        RUN(testVectorSwizzleUnaryComposition());
+        RUN(testVectorSwizzleCompositionRightImmOuter());
+        RUN(testMulHigh32());
+        RUN(testMulHigh64());
+        RUN(testUMulHigh32());
+        RUN(testUMulHigh64());
+        RUN(testMemoryCopy());
+        RUN(testMemoryFill());
+        RUN(testMemoryCopyConstant());
+        RUN(testMemoryFillConstant());
+    }
 
     Lock lock;
 
     Vector<Ref<Thread>> threads;
-    for (unsigned i = filter ? 1 : WTF::numberOfProcessorCores(); i--;) {
+    for (unsigned i = config->workerThreadCount; i--;) {
         threads.append(
             Thread::create(
-                "testb3 thread",
+                "testb3 thread"_s,
                 [&] () {
                     for (;;) {
                         RefPtr<SharedTask<void()>> task;
@@ -874,6 +1536,7 @@ void run(const char* filter)
                             task = tasks.takeFirst();
                         }
 
+                        B3_TEST_ARENA_LIFETIME
                         task->run();
                     }
                 }));
@@ -885,46 +1548,54 @@ void run(const char* filter)
     crashLock.unlock();
 }
 
-#else // ENABLE(B3_JIT)
+bool g_dumpB3AfterGeneration = false;
 
-static void run(const char*)
-{
-    dataLog("B3 JIT is not enabled.\n");
-}
-
-#endif // ENABLE(B3_JIT)
-
-#if ENABLE(JIT_OPERATION_VALIDATION)
-extern const uintptr_t startOfJITOperationsInTestB3 __asm("section$start$__DATA_CONST$__jsc_ops");
-extern const uintptr_t endOfJITOperationsInTestB3 __asm("section$end$__DATA_CONST$__jsc_ops");
+#if ENABLE(JIT_OPERATION_VALIDATION) || ENABLE(JIT_OPERATION_DISASSEMBLY)
+extern const JSC::JITOperationAnnotation startOfJITOperationsInTestB3 __asm__("section$start$__DATA_CONST$__jsc_ops");
+extern const JSC::JITOperationAnnotation endOfJITOperationsInTestB3 __asm__("section$end$__DATA_CONST$__jsc_ops");
 #endif
 
 int main(int argc, char** argv)
 {
-    const char* filter = nullptr;
-    switch (argc) {
-    case 1:
-        break;
-    case 2:
-        filter = argv[1];
-        break;
-    default:
-        usage();
-        break;
+    TestConfig config;
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "-filter")) {
+            if (i + 1 < argc) {
+                config.filter = argv[i + 1];
+                i += 1;
+            } else
+                usage();
+        } else if (!strcmp(argv[i], "-list"))
+            config.mode = TestConfig::Mode::ListTests;
+        else if (!strcmp(argv[i], "-printir"))
+            g_dumpB3AfterGeneration = true;
+        else {
+            // for backwards compatibility
+            config.filter = argv[i];
+            break;
+        }
     }
+
+    config.workerThreadCount = config.filter ? 1 : WTF::numberOfProcessorCores();
 
     JSC::Config::configureForTesting();
 
     WTF::initializeMainThread();
-    JSC::initialize();
+    JSC::initialize([] {
+        JSC::Options::useJITCage() = false;
+    });
 
 #if ENABLE(JIT_OPERATION_VALIDATION)
     JSC::JITOperationList::populatePointersInEmbedder(&startOfJITOperationsInTestB3, &endOfJITOperationsInTestB3);
 #endif
-    
+#if ENABLE(JIT_OPERATION_DISASSEMBLY)
+    if (JSC::Options::needDisassemblySupport()) [[unlikely]]
+        JSC::JITOperationList::populateDisassemblyLabelsInEmbedder(&startOfJITOperationsInTestB3, &endOfJITOperationsInTestB3);
+#endif
+
     for (unsigned i = 0; i <= 2; ++i) {
         JSC::Options::defaultB3OptLevel() = i;
-        run(filter);
+        run(&config);
     }
 
     return 0;
@@ -936,3 +1607,15 @@ extern "C" __declspec(dllexport) int WINAPI dllLauncherEntryPoint(int argc, cons
     return main(argc, const_cast<char**>(argv));
 }
 #endif
+
+#else // ENABLE(B3_JIT)
+
+int main(int, char**)
+{
+    WTF::initializeMainThread();
+    dataLog("B3 JIT is not enabled.\n");
+}
+
+#endif // ENABLE(B3_JIT)
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

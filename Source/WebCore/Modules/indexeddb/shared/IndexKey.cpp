@@ -26,60 +26,83 @@
 #include "config.h"
 #include "IndexKey.h"
 
+#include <wtf/CrossThreadCopier.h>
+
 namespace WebCore {
 
-IndexKey::IndexKey()
+IndexKey::IndexKey() = default;
+
+IndexKey::IndexKey(Data&& keys)
+    : m_keys(WTF::move(keys))
 {
 }
 
-IndexKey::IndexKey(Vector<IDBKeyData>&& keys)
+IndexKey IndexKey::isolatedCopy() const &
 {
-    m_keys.swap(keys);
+    return { crossThreadCopy(m_keys) };
 }
 
-IndexKey IndexKey::isolatedCopy() const
+IndexKey IndexKey::isolatedCopy() &&
 {
-    Vector<IDBKeyData> keys;
-    keys.reserveInitialCapacity(m_keys.size());
-    for (auto& key : m_keys)
-        keys.uncheckedAppend(key.isolatedCopy());
-
-    return { WTFMove(keys) };
+    return { crossThreadCopy(WTF::move(m_keys)) };
 }
 
 IDBKeyData IndexKey::asOneKey() const
 {
-    if (m_keys.isEmpty())
-        return { };
-
-    if (m_keys.size() == 1)
-        return m_keys[0];
-
-    IDBKeyData result;
-    result.setArrayValue(m_keys);
-    return result;
+    return WTF::switchOn(m_keys, [](std::nullptr_t) {
+        return IDBKeyData { };
+    }, [](const IDBKeyData& keyData) {
+        return keyData;
+    }, [](const Vector<IDBKeyData>& keyDataVector) {
+        IDBKeyData result;
+        result.setArrayValue(keyDataVector);
+        return result;
+    });
 }
 
 Vector<IDBKeyData> IndexKey::multiEntry() const
 {
     Vector<IDBKeyData> multiEntry;
-    for (auto& key : m_keys) {
-        if (!key.isValid())
-            continue;
 
-        bool skip = false;
-        for (auto& otherKey : multiEntry) {
-            if (key == otherKey) {
-                skip = true;
-                break;
+    WTF::switchOn(m_keys, [](std::nullptr_t) {
+    }, [&](const IDBKeyData& keyData) {
+        if (keyData.isValid())
+            multiEntry.append(keyData);
+    }, [&](const Vector<IDBKeyData>& keyDataVector) {
+        for (auto& key : keyDataVector) {
+            if (!key.isValid())
+                continue;
+
+            bool skip = false;
+            for (auto& otherKey : multiEntry) {
+                if (key == otherKey) {
+                    skip = true;
+                    break;
+                }
             }
-        }
 
-        if (!skip)
-            multiEntry.append(key);
-    }
+            if (!skip)
+                multiEntry.append(key);
+        }
+    });
 
     return multiEntry;
+}
+
+void IndexKey::updatePlaceholderKeys(const IDBKeyData& newKeyData)
+{
+    ASSERT(newKeyData.isValid());
+
+    WTF::switchOn(m_keys, [](std::nullptr_t) {
+    }, [&](IDBKeyData& keyData) {
+        if (!keyData.isValid() && keyData.isPlaceholder())
+            keyData = newKeyData;
+    }, [&](Vector<IDBKeyData>& keyDataVector) {
+        for (auto& keyData : keyDataVector) {
+            if (!keyData.isValid() && keyData.isPlaceholder())
+                keyData = newKeyData;
+        }
+    });
 }
 
 } // namespace WebCore

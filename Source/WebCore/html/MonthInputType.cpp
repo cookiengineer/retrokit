@@ -29,12 +29,12 @@
  */
 
 #include "config.h"
-#if ENABLE(INPUT_TYPE_MONTH)
 #include "MonthInputType.h"
 
 #include "DateComponents.h"
 #include "DateTimeFieldsState.h"
 #include "Decimal.h"
+#include "ElementInlines.h"
 #include "HTMLInputElement.h"
 #include "HTMLNames.h"
 #include "InputTypeNames.h"
@@ -43,15 +43,19 @@
 #include <wtf/DateMath.h>
 #include <wtf/MathExtras.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MonthInputType);
 
 using namespace HTMLNames;
 
 static const int monthDefaultStep = 1;
 static const int monthDefaultStepBase = 0;
 static const int monthStepScaleFactor = 1;
-static const StepRange::StepDescription monthStepDescription { monthDefaultStep, monthDefaultStepBase, monthStepScaleFactor, StepRange::ParsedStepValueShouldBeInteger };
+static const StepRange::StepDescription monthStepDescription { monthDefaultStep, monthDefaultStepBase, monthStepScaleFactor, StepRange::StepValueShouldBe::ParsedInteger };
 
 const AtomString& MonthInputType::formControlType() const
 {
@@ -63,15 +67,15 @@ DateComponentsType MonthInputType::dateType() const
     return DateComponentsType::Month;
 }
 
-double MonthInputType::valueAsDate() const
+WallTime MonthInputType::valueAsDate() const
 {
     ASSERT(element());
-    auto date = parseToDateComponents(element()->value());
+    auto date = parseToDateComponents(protect(element())->value().get());
     if (!date)
-        return DateComponents::invalidMilliseconds();
+        return WallTime::nan();
     double msec = date->millisecondsSinceEpoch();
     ASSERT(std::isfinite(msec));
-    return msec;
+    return WallTime::fromRawSeconds(Seconds::fromMilliseconds(msec).value());
 }
 
 String MonthInputType::serializeWithMilliseconds(double value) const
@@ -100,14 +104,18 @@ Decimal MonthInputType::defaultValueForStepUp() const
 StepRange MonthInputType::createStepRange(AnyStepHandling anyStepHandling) const
 {
     ASSERT(element());
-    const Decimal stepBase = parseToNumber(element()->attributeWithoutSynchronization(minAttr), Decimal::fromDouble(monthDefaultStepBase));
-    const Decimal minimum = parseToNumber(element()->attributeWithoutSynchronization(minAttr), Decimal::fromDouble(DateComponents::minimumMonth()));
-    const Decimal maximum = parseToNumber(element()->attributeWithoutSynchronization(maxAttr), Decimal::fromDouble(DateComponents::maximumMonth()));
-    const Decimal step = StepRange::parseStep(anyStepHandling, monthStepDescription, element()->attributeWithoutSynchronization(stepAttr));
-    return StepRange(stepBase, RangeLimitations::Valid, minimum, maximum, step, monthStepDescription);
+    Ref element = *this->element();
+    const Decimal stepBase = findStepBase(Decimal::fromDouble(monthDefaultStepBase));
+
+    RangeLimitations rangeLimitations = RangeLimitations::Invalid;
+    const Decimal minimum = extractStepRangeBound(minAttr, Decimal::fromDouble(DateComponents::minimumMonth()), rangeLimitations);
+    const Decimal maximum = extractStepRangeBound(maxAttr, Decimal::fromDouble(DateComponents::maximumMonth()), rangeLimitations);
+
+    const Decimal step = StepRange::parseStep(anyStepHandling, monthStepDescription, element->attributeWithoutSynchronization(stepAttr));
+    return StepRange(stepBase, rangeLimitations, minimum, maximum, step, monthStepDescription);
 }
 
-Decimal MonthInputType::parseToNumber(const String& src, const Decimal& defaultValue) const
+Decimal MonthInputType::parseToNumber(StringView src, const Decimal& defaultValue) const
 {
     auto date = parseToDateComponents(src);
     if (!date)
@@ -117,7 +125,7 @@ Decimal MonthInputType::parseToNumber(const String& src, const Decimal& defaultV
     return Decimal::fromDouble(months);
 }
 
-std::optional<DateComponents> MonthInputType::parseToDateComponents(const StringView& source) const
+std::optional<DateComponents> MonthInputType::parseToDateComponents(StringView source) const
 {
     return DateComponents::fromParsingMonth(source);
 }
@@ -128,6 +136,10 @@ std::optional<DateComponents> MonthInputType::setMillisecondToDateComponents(dou
 }
 
 void MonthInputType::handleDOMActivateEvent(Event&)
+{
+}
+
+void MonthInputType::showPicker()
 {
 }
 
@@ -146,10 +158,8 @@ String MonthInputType::formatDateTimeFieldsState(const DateTimeFieldsState& stat
 
 void MonthInputType::setupLayoutParameters(DateTimeEditElement::LayoutParameters& layoutParameters, const DateComponents&) const
 {
-    layoutParameters.dateTimeFormat = layoutParameters.locale.shortMonthFormat();
+    layoutParameters.dateTimeFormat = layoutParameters.locale->shortMonthFormat();
     layoutParameters.fallbackDateTimeFormat = "yyyy-MM"_s;
 }
 
 } // namespace WebCore
-
-#endif

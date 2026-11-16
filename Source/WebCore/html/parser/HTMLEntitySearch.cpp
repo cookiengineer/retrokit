@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2010 Google, Inc. All Rights Reserved.
+ * Copyright (C) 2023 Apple, Inc. All rights reserved.
+ * Copyright (C) 2010-2014 Google, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,102 +27,98 @@
 #include "config.h"
 #include "HTMLEntitySearch.h"
 
-#include "HTMLEntityTable.h"
+#include <numeric>
+
 
 namespace WebCore {
 
-static const HTMLEntityTableEntry* halfway(const HTMLEntityTableEntry* left, const HTMLEntityTableEntry* right)
-{
-    return &left[(right - left) / 2];
-}
-
 HTMLEntitySearch::HTMLEntitySearch()
-    : m_currentLength(0)
-    , m_mostRecentMatch(0)
-    , m_first(HTMLEntityTable::firstEntry())
-    , m_last(HTMLEntityTable::lastEntry())
+    : m_entries(HTMLEntityTable::entries())
 {
 }
 
-HTMLEntitySearch::CompareResult HTMLEntitySearch::compare(const HTMLEntityTableEntry* entry, UChar nextCharacter) const
+HTMLEntitySearch::CompareResult HTMLEntitySearch::compare(const HTMLEntityTableEntry* entry, char16_t nextCharacter) const
 {
-    if (entry->length < m_currentLength + 1)
-        return Before;
-    UChar entryNextCharacter = entry->entity[m_currentLength];
+    auto name = entry->nameCharacters();
+    char16_t entryNextCharacter;
+    if (m_currentLength >= name.size()) {
+        if (!entry->nameIncludesTrailingSemicolon || m_currentLength > name.size())
+            return Before;
+        entryNextCharacter = ';';
+    } else
+        entryNextCharacter = name[m_currentLength];
     if (entryNextCharacter == nextCharacter)
         return Prefix;
     return entryNextCharacter < nextCharacter ? Before : After;
 }
 
-const HTMLEntityTableEntry* HTMLEntitySearch::findFirst(UChar nextCharacter) const
+const HTMLEntityTableEntry* HTMLEntitySearch::findFirst(char16_t nextCharacter) const
 {
-    const HTMLEntityTableEntry* left = m_first;
-    const HTMLEntityTableEntry* right = m_last;
-    if (left == right)
-        return left;
-    CompareResult result = compare(left, nextCharacter);
+    auto span = m_entries;
+    if (span.size() == 1)
+        return &span.front();
+    CompareResult result = compare(&span.front(), nextCharacter);
     if (result == Prefix)
-        return left;
+        return &span.front();
     if (result == After)
-        return right;
-    while (left + 1 < right) {
-        const HTMLEntityTableEntry* probe = halfway(left, right);
+        return &span.back();
+    while (span.size() > 2) {
+        auto* probe = std::midpoint(&span.front(), &span.back());
         result = compare(probe, nextCharacter);
         if (result == Before)
-            left = probe;
+            span = span.subspan(probe - span.data());
         else {
             ASSERT(result == After || result == Prefix);
-            right = probe;
+            span = span.first(probe - span.data() + 1);
         }
     }
-    ASSERT(left + 1 == right);
-    return right;
+    ASSERT(span.size() == 2);
+    return &span.back();
 }
 
-const HTMLEntityTableEntry* HTMLEntitySearch::findLast(UChar nextCharacter) const
+const HTMLEntityTableEntry* HTMLEntitySearch::findLast(char16_t nextCharacter) const
 {
-    const HTMLEntityTableEntry* left = m_first;
-    const HTMLEntityTableEntry* right = m_last;
-    if (left == right)
-        return right;
-    CompareResult result = compare(right, nextCharacter);
+    auto span = m_entries;
+    if (span.size() == 1)
+        return &span.back();
+    CompareResult result = compare(&span.back(), nextCharacter);
     if (result == Prefix)
-        return right;
+        return &span.back();
     if (result == Before)
-        return left;
-    while (left + 1 < right) {
-        const HTMLEntityTableEntry* probe = halfway(left, right);
+        return &span.front();
+    while (span.size() > 2) {
+        auto* probe = std::midpoint(&span.front(), &span.back());
         result = compare(probe, nextCharacter);
         if (result == After)
-            right = probe;
+            span = span.first(probe - span.data() + 1);
         else {
             ASSERT(result == Before || result == Prefix);
-            left = probe;
+            span = span.subspan(probe - span.data());
         }
     }
-    ASSERT(left + 1 == right);
-    return left;
+    ASSERT(span.size() == 2);
+    return &span.front();
 }
 
-void HTMLEntitySearch::advance(UChar nextCharacter)
+void HTMLEntitySearch::advance(char16_t nextCharacter)
 {
     ASSERT(isEntityPrefix());
     if (!m_currentLength) {
-        m_first = HTMLEntityTable::firstEntryStartingWith(nextCharacter);
-        m_last = HTMLEntityTable::lastEntryStartingWith(nextCharacter);
-        if (!m_first || !m_last)
-            return fail();
+        m_entries = HTMLEntityTable::entriesStartingWith(nextCharacter);
+        if (m_entries.empty())
+            return;
     } else {
-        m_first = findFirst(nextCharacter);
-        m_last = findLast(nextCharacter);
-        if (m_first == m_last && compare(m_first, nextCharacter) != Prefix)
+        auto* first = findFirst(nextCharacter);
+        m_entries = m_entries.subspan(first - m_entries.data());
+        auto* last = findLast(nextCharacter);
+        m_entries = m_entries.first(last - m_entries.data() + 1);
+        if (first == last && compare(first, nextCharacter) != Prefix)
             return fail();
     }
     ++m_currentLength;
-    if (m_first->length != m_currentLength) {
+    if (m_entries[0].nameLength() != m_currentLength)
         return;
-    }
-    m_mostRecentMatch = m_first;
+    m_mostRecentMatch = &m_entries.front();
 }
 
 }

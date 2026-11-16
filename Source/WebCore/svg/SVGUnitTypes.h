@@ -19,14 +19,14 @@
 
 #pragma once
 
-#include "SVGPropertyTraits.h"
+#include <WebCore/SVGPropertyTraits.h>
 #include <wtf/RefCounted.h>
 
 namespace WebCore {
 
 class SVGUnitTypes final : public RefCounted<SVGUnitTypes> {
 public:
-    enum SVGUnitType {
+    enum SVGUnitType : uint8_t {
         SVG_UNIT_TYPE_UNKNOWN               = 0,
         SVG_UNIT_TYPE_USERSPACEONUSE        = 1,
         SVG_UNIT_TYPE_OBJECTBOUNDINGBOX     = 2
@@ -55,11 +55,11 @@ struct SVGPropertyTraits<SVGUnitTypes::SVGUnitType> {
         return emptyString();
     }
 
-    static SVGUnitTypes::SVGUnitType fromString(const String& value)
+    static SVGUnitTypes::SVGUnitType fromString(SVGElement&, const String& value)
     {
-        if (value == "userSpaceOnUse")
+        if (value == "userSpaceOnUse"_s)
             return SVGUnitTypes::SVG_UNIT_TYPE_USERSPACEONUSE;
-        if (value == "objectBoundingBox")
+        if (value == "objectBoundingBox"_s)
             return SVGUnitTypes::SVG_UNIT_TYPE_OBJECTBOUNDINGBOX;
         return SVGUnitTypes::SVG_UNIT_TYPE_UNKNOWN;
     }

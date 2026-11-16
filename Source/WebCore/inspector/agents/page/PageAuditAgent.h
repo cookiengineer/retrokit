@@ -27,6 +27,7 @@
 
 #include "InspectorWebAgentBase.h"
 #include <JavaScriptCore/InspectorAuditAgent.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -34,10 +35,12 @@ class Page;
 
 class PageAuditAgent final : public Inspector::InspectorAuditAgent {
     WTF_MAKE_NONCOPYABLE(PageAuditAgent);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(PageAuditAgent);
 public:
     PageAuditAgent(PageAgentContext&);
     ~PageAuditAgent();
+
+    Page& inspectedPage() const { return m_inspectedPage; }
 
 private:
     Inspector::InjectedScript injectedScriptForEval(std::optional<Inspector::Protocol::Runtime::ExecutionContextId>&&);
@@ -48,7 +51,7 @@ private:
     void muteConsole();
     void unmuteConsole();
 
-    Page& m_inspectedPage;
+    WeakRef<Page> m_inspectedPage;
 };
 
 } // namespace WebCore

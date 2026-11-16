@@ -30,29 +30,33 @@
 
 #include "HeapInlines.h"
 #include "JSCellInlines.h"
+#include "JSTypedArrays.h"
 
 namespace JSC {
 
 IntrinsicGetterAccessCase::IntrinsicGetterAccessCase(VM& vm, JSCell* owner, CacheableIdentifier identifier, PropertyOffset offset, Structure* structure, const ObjectPropertyConditionSet& conditionSet, JSFunction* intrinsicFunction, RefPtr<PolyProtoAccessChain>&& prototypeAccessChain)
-    : Base(vm, owner, IntrinsicGetter, identifier, offset, structure, conditionSet, WTFMove(prototypeAccessChain))
+    : Base(vm, owner, IntrinsicGetter, identifier, offset, structure, conditionSet, WTF::move(prototypeAccessChain))
 {
     m_intrinsicFunction.set(vm, owner, intrinsicFunction);
 }
 
 Ref<AccessCase> IntrinsicGetterAccessCase::create(VM& vm, JSCell* owner, CacheableIdentifier identifier, PropertyOffset offset, Structure* structure, const ObjectPropertyConditionSet& conditionSet, JSFunction* intrinsicFunction, RefPtr<PolyProtoAccessChain>&& prototypeAccessChain)
 {
-    return adoptRef(*new IntrinsicGetterAccessCase(vm, owner, identifier, offset, structure, conditionSet, intrinsicFunction, WTFMove(prototypeAccessChain)));
+    return adoptRef(*new IntrinsicGetterAccessCase(vm, owner, identifier, offset, structure, conditionSet, intrinsicFunction, WTF::move(prototypeAccessChain)));
 }
 
-IntrinsicGetterAccessCase::~IntrinsicGetterAccessCase()
+bool IntrinsicGetterAccessCase::doesCalls() const
 {
-}
-
-Ref<AccessCase> IntrinsicGetterAccessCase::clone() const
-{
-    auto result = adoptRef(*new IntrinsicGetterAccessCase(*this));
-    result->resetState();
-    return result;
+    switch (intrinsic()) {
+    case TypedArrayByteOffsetIntrinsic:
+    case TypedArrayByteLengthIntrinsic:
+    case TypedArrayLengthIntrinsic:
+    case DataViewByteLengthIntrinsic:
+        return isResizableOrGrowableSharedTypedArrayIncludingDataView(structure()->classInfoForCells());
+    default:
+        return false;
+    }
+    return false;
 }
 
 } // namespace JSC

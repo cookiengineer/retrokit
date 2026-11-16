@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003, 2006 Apple Inc.  All rights reserved.
+ * Copyright (C) 2003-2025 Apple Inc. All rights reserved.
  * Copyright (C) 2006 Samuel Weinig <sam.weinig@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,8 +26,8 @@
 
 #pragma once
 
-#include "PageIdentifier.h"
-#include "ResourceRequestBase.h"
+#include <WebCore/PageIdentifier.h>
+#include <WebCore/ResourceRequestBase.h>
 #include "URLSoup.h"
 #include <wtf/glib/GRefPtr.h>
 
@@ -35,20 +35,27 @@ namespace WebCore {
 
 class BlobRegistryImpl;
 
+struct ResourceRequestPlatformData {
+    ResourceRequestBase::RequestData requestData;
+    bool acceptEncoding;
+    uint16_t redirectCount;
+};
+using ResourceRequestData = Variant<ResourceRequestBase::RequestData, ResourceRequestPlatformData>;
+
 class ResourceRequest : public ResourceRequestBase {
 public:
-    explicit ResourceRequest(const String& url)
-        : ResourceRequestBase(URL({ }, url), ResourceRequestCachePolicy::UseProtocolCachePolicy)
+    explicit ResourceRequest(String&& url)
+        : ResourceRequestBase(URL({ }, WTF::move(url)), ResourceRequestCachePolicy::UseProtocolCachePolicy)
     {
     }
 
-    ResourceRequest(const URL& url)
-        : ResourceRequestBase(url, ResourceRequestCachePolicy::UseProtocolCachePolicy)
+    ResourceRequest(URL&& url)
+        : ResourceRequestBase(WTF::move(url), ResourceRequestCachePolicy::UseProtocolCachePolicy)
     {
     }
 
-    ResourceRequest(const URL& url, const String& referrer, ResourceRequestCachePolicy policy = ResourceRequestCachePolicy::UseProtocolCachePolicy)
-        : ResourceRequestBase(url, policy)
+    ResourceRequest(URL&& url, const String& referrer, ResourceRequestCachePolicy policy = ResourceRequestCachePolicy::UseProtocolCachePolicy)
+        : ResourceRequestBase(WTF::move(url), policy)
     {
         setHTTPReferrer(referrer);
     }
@@ -58,9 +65,22 @@ public:
     {
     }
 
-    GRefPtr<SoupMessage> createSoupMessage(BlobRegistryImpl&) const;
+    ResourceRequest(ResourceRequestBase&& base)
+        : ResourceRequestBase(WTF::move(base))
+    {
+    }
 
-    void updateFromDelegatePreservingOldProperties(const ResourceRequest& delegateProvidedRequest) { *this = delegateProvidedRequest; }
+    explicit ResourceRequest(ResourceRequestPlatformData&& platformData)
+        : ResourceRequestBase(WTF::move(platformData.requestData))
+        , m_acceptEncoding(platformData.acceptEncoding)
+        , m_redirectCount(platformData.redirectCount)
+    {
+    }
+
+    GRefPtr<SoupMessage> createSoupMessage(BlobRegistryImpl&) const;
+    GRefPtr<GInputStream> createBodyStream() const;
+
+    void updateFromDelegatePreservingOldProperties(const ResourceRequest& delegateProvidedRequest);
 
     bool acceptEncoding() const { return m_acceptEncoding; }
     void setAcceptEncoding(bool acceptEncoding) { m_acceptEncoding = acceptEncoding; }
@@ -72,17 +92,16 @@ public:
     void updateSoupMessageHeaders(SoupMessageHeaders*) const;
     void updateFromSoupMessageHeaders(SoupMessageHeaders*);
 
-    template<class Encoder> void encodeWithPlatformData(Encoder&) const;
-    template<class Decoder> WARN_UNUSED_RETURN bool decodeWithPlatformData(Decoder&);
+    // We only need to encode platform data if acceptEncoding or redirectCount are not the default.
+    bool encodingRequiresPlatformData() const { return !m_acceptEncoding || m_redirectCount; }
+
+    WEBCORE_EXPORT static ResourceRequest fromResourceRequestData(ResourceRequestData&&);
+    WEBCORE_EXPORT ResourceRequestData getRequestDataToSerialize() const;
 
 private:
     friend class ResourceRequestBase;
 
-#if USE(SOUP2)
-    GUniquePtr<SoupURI> createSoupURI() const;
-#else
     GRefPtr<GUri> createSoupURI() const;
-#endif
 
     void doUpdatePlatformRequest() { }
     void doUpdateResourceRequest() { }
@@ -95,50 +114,13 @@ private:
     uint16_t m_redirectCount { 0 };
 };
 
-template<class Encoder>
-void ResourceRequest::encodeWithPlatformData(Encoder& encoder) const
-{
-    encodeBase(encoder);
-
-    // FIXME: Do not encode HTTP message body.
-    // 1. It can be large and thus costly to send across.
-    // 2. It is misleading to provide a body with some requests, while others use body streams, which cannot be serialized at all.
-    encoder << static_cast<bool>(m_httpBody);
-    if (m_httpBody)
-        encoder << m_httpBody->flattenToString();
-
-    encoder << static_cast<bool>(m_acceptEncoding);
-    encoder << m_redirectCount;
-}
-
-template<class Decoder>
-bool ResourceRequest::decodeWithPlatformData(Decoder& decoder)
-{
-    if (!decodeBase(decoder))
-        return false;
-
-    bool hasHTTPBody;
-    if (!decoder.decode(hasHTTPBody))
-        return false;
-    if (hasHTTPBody) {
-        String httpBody;
-        if (!decoder.decode(httpBody))
-            return false;
-        setHTTPBody(FormData::create(httpBody.utf8()));
-    }
-
-    bool acceptEncoding;
-    if (!decoder.decode(acceptEncoding))
-        return false;
-    m_acceptEncoding = acceptEncoding;
-
-    uint16_t redirectCount;
-    if (!decoder.decode(redirectCount))
-        return false;
-    m_redirectCount = redirectCount;
-
-    return true;
-}
-
 } // namespace WebCore
 
+namespace WTF {
+
+template<> struct MarkableTraits<WebCore::ResourceRequest> {
+    static bool isEmptyValue(const WebCore::ResourceRequest& request) { return request.isNull(); };
+    static WebCore::ResourceRequest emptyValue() { return WebCore::ResourceRequest { }; };
+};
+
+} // namespace WTF

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008, 2010 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008, 2010 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,18 +26,92 @@
 #include "config.h"
 #include "CSSFunctionValue.h"
 
+#include "CSSValueKeywords.h"
+#include <wtf/Hasher.h>
 #include <wtf/text/StringBuilder.h>
+#include <wtf/text/WTFString.h>
 
 namespace WebCore {
     
-String CSSFunctionValue::customCSSText() const
+CSSFunctionValue::CSSFunctionValue(CSSValueID name, CSSValueListBuilder arguments)
+    : CSSValueContainingVector(ClassType::Function, CommaSeparator, WTF::move(arguments))
+    , m_name(name)
+{
+}
+
+CSSFunctionValue::CSSFunctionValue(CSSValueID name)
+    : CSSValueContainingVector(ClassType::Function, CommaSeparator)
+    , m_name(name)
+{
+}
+
+CSSFunctionValue::CSSFunctionValue(CSSValueID name, Ref<CSSValue>&& argument)
+    : CSSValueContainingVector(ClassType::Function, CommaSeparator, WTF::move(argument))
+    , m_name(name)
+{
+}
+
+CSSFunctionValue::CSSFunctionValue(CSSValueID name, Ref<CSSValue>&& argument1, Ref<CSSValue>&& argument2)
+    : CSSValueContainingVector(ClassType::Function, CommaSeparator, WTF::move(argument1), WTF::move(argument2))
+    , m_name(name)
+{
+}
+
+CSSFunctionValue::CSSFunctionValue(CSSValueID name, Ref<CSSValue>&& argument1, Ref<CSSValue>&& argument2, Ref<CSSValue>&& argument3)
+    : CSSValueContainingVector(ClassType::Function, CommaSeparator, WTF::move(argument1), WTF::move(argument2), WTF::move(argument3))
+    , m_name(name)
+{
+}
+
+CSSFunctionValue::CSSFunctionValue(CSSValueID name, Ref<CSSValue>&& argument1, Ref<CSSValue>&& argument2, Ref<CSSValue>&& argument3, Ref<CSSValue>&& argument4)
+    : CSSValueContainingVector(ClassType::Function, CommaSeparator, WTF::move(argument1), WTF::move(argument2), WTF::move(argument3), WTF::move(argument4))
+    , m_name(name)
+{
+}
+
+Ref<CSSFunctionValue> CSSFunctionValue::create(CSSValueID name, CSSValueListBuilder arguments)
+{
+    return adoptRef(*new CSSFunctionValue(name, WTF::move(arguments)));
+}
+
+Ref<CSSFunctionValue> CSSFunctionValue::create(CSSValueID name)
+{
+    return adoptRef(*new CSSFunctionValue(name));
+}
+
+Ref<CSSFunctionValue> CSSFunctionValue::create(CSSValueID name, Ref<CSSValue>&& argument)
+{
+    return adoptRef(*new CSSFunctionValue(name, WTF::move(argument)));
+}
+
+Ref<CSSFunctionValue> CSSFunctionValue::create(CSSValueID name, Ref<CSSValue>&& argument1, Ref<CSSValue>&& argument2)
+{
+    return adoptRef(*new CSSFunctionValue(name, WTF::move(argument1), WTF::move(argument2)));
+}
+
+Ref<CSSFunctionValue> CSSFunctionValue::create(CSSValueID name, Ref<CSSValue>&& argument1, Ref<CSSValue>&& argument2, Ref<CSSValue>&& argument3)
+{
+    return adoptRef(*new CSSFunctionValue(name, WTF::move(argument1), WTF::move(argument2), WTF::move(argument3)));
+}
+
+Ref<CSSFunctionValue> CSSFunctionValue::create(CSSValueID name, Ref<CSSValue>&& argument1, Ref<CSSValue>&& argument2, Ref<CSSValue>&& argument3, Ref<CSSValue>&& argument4)
+{
+    return adoptRef(*new CSSFunctionValue(name, WTF::move(argument1), WTF::move(argument2), WTF::move(argument3), WTF::move(argument4)));
+}
+
+String CSSFunctionValue::customCSSText(const CSS::SerializationContext& context) const
 {
     StringBuilder result;
-    result.append(getValueName(m_name));
-    result.append('(');
-    result.append(CSSValueList::customCSSText());
+    result.append(nameLiteral(m_name), '(');
+    serializeItems(result, context);
     result.append(')');
     return result.toString();
+}
+
+bool CSSFunctionValue::addDerivedHash(Hasher& hasher) const
+{
+    add(hasher, m_name);
+    return CSSValueContainingVector::addDerivedHash(hasher);
 }
 
 }

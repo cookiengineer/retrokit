@@ -24,52 +24,42 @@
 
 #if ENABLE(MEDIA_STREAM) && USE(GSTREAMER)
 
+#include "GStreamerVideoCapturer.h"
 #include "MockRealtimeVideoSource.h"
 
 namespace WebCore {
 
-class MockRealtimeVideoSourceGStreamer final : public MockRealtimeVideoSource {
+class MockRealtimeVideoSourceGStreamer final : public MockRealtimeVideoSource, GStreamerCapturerObserver {
 public:
-    MockRealtimeVideoSourceGStreamer(String&& deviceID, String&& name, String&& hashSalt);
-    ~MockRealtimeVideoSourceGStreamer() = default;
+    static Ref<MockRealtimeVideoSourceGStreamer> create(String&& deviceID, AtomString&& name, MediaDeviceHashSalts&& salts, std::optional<PageIdentifier> pageID)
+    {
+        return adoptRef(*new MockRealtimeVideoSourceGStreamer(WTF::move(deviceID), WTF::move(name), WTF::move(salts), pageID));
+    }
+
+    ~MockRealtimeVideoSourceGStreamer();
+
+    using MockRealtimeVideoSource::ref;
+    using MockRealtimeVideoSource::deref;
+    void virtualRef() const final { MockRealtimeVideoSource::ref(); }
+    void virtualDeref() const final { MockRealtimeVideoSource::deref(); }
+
+    // GStreamerCapturerObserver
+    void captureEnded() final;
+
+    std::pair<GstClockTime, GstClockTime> queryCaptureLatency() const final;
 
 private:
+    MockRealtimeVideoSourceGStreamer(String&& deviceID, AtomString&& name, MediaDeviceHashSalts&&, std::optional<PageIdentifier>);
+
     friend class MockRealtimeVideoSource;
 
+    void startProducingData() final;
+    void stopProducingData() final;
     void updateSampleBuffer() final;
     bool canResizeVideoFrames() const final { return true; }
-};
+    void setSizeFrameRateAndZoom(const VideoPresetConstraints&) final;
 
-class MockDisplayCaptureSourceGStreamer final : public RealtimeMediaSource, RealtimeMediaSource::VideoSampleObserver {
-public:
-    static CaptureSourceOrError create(const CaptureDevice&, const MediaConstraints*);
-
-    void requestToEnd(Observer&) final;
-
-protected:
-    // RealtimeMediaSource::VideoSampleObserver
-    void videoSampleAvailable(MediaSample&) final;
-
-private:
-    MockDisplayCaptureSourceGStreamer(Ref<MockRealtimeVideoSourceGStreamer>&&, CaptureDevice::DeviceType);
-    ~MockDisplayCaptureSourceGStreamer();
-
-    void startProducingData() final { m_source->start(); }
-    void stopProducingData() final;
-    void settingsDidChange(OptionSet<RealtimeMediaSourceSettings::Flag>) final { m_currentSettings = { }; }
-    bool isCaptureSource() const final { return true; }
-    const RealtimeMediaSourceCapabilities& capabilities() final;
-    const RealtimeMediaSourceSettings& settings() final;
-    CaptureDevice::DeviceType deviceType() const { return m_type; }
-
-#if !RELEASE_LOG_DISABLED
-    const char* logClassName() const final { return "MockDisplayCaptureSourceGStreamer"; }
-#endif
-
-    Ref<MockRealtimeVideoSourceGStreamer> m_source;
-    CaptureDevice::DeviceType m_type;
-    std::optional<RealtimeMediaSourceCapabilities> m_capabilities;
-    std::optional<RealtimeMediaSourceSettings> m_currentSettings;
+    RefPtr<GStreamerVideoCapturer> m_capturer;
 };
 
 } // namespace WebCore

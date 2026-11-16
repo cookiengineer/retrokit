@@ -33,5 +33,5 @@
 
 SVGElement includes GlobalEventHandlers;
 SVGElement includes DocumentAndElementEventHandlers;
-SVGElement includes HTMLOrForeignElement;
+SVGElement includes HTMLOrSVGOrMathMLElement;
 SVGElement includes ElementCSSInlineStyle;

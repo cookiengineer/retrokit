@@ -28,33 +28,35 @@
 #include "config.h"
 #include "PseudoElement.h"
 
-#include "ContentData.h"
-#include "DocumentTimeline.h"
+#include "DocumentPage.h"
 #include "InspectorInstrumentation.h"
 #include "KeyframeEffectStack.h"
+#include "PseudoElementUtilitiesInlines.h"
 #include "RenderElement.h"
 #include "RenderImage.h"
 #include "RenderQuote.h"
+#include "StyleableInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "StyleResolver.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(PseudoElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PseudoElement);
 
 const QualifiedName& pseudoElementTagName()
 {
-    static NeverDestroyed<QualifiedName> name(nullAtom(), "<pseudo>", nullAtom());
+    static NeverDestroyed<QualifiedName> name(nullAtom(), "<pseudo>"_s, nullAtom());
     return name;
 }
 
-PseudoElement::PseudoElement(Element& host, PseudoId pseudoId)
-    : Element(pseudoElementTagName(), host.document(), CreatePseudoElement)
-    , m_hostElement(&host)
-    , m_pseudoId(pseudoId)
+PseudoElement::PseudoElement(Element& host, PseudoElementType pseudoElementType)
+    : Element(pseudoElementTagName(), host.document(), { TypeFlag::IsPseudoElementOrSpecialInternalNode })
+    , m_hostElement(host)
+    , m_pseudoElementType(pseudoElementType)
 {
-    ASSERT(pseudoId == PseudoId::Before || pseudoId == PseudoId::After);
-    setHasCustomStyleResolveCallbacks();
+    setEventTargetFlag(EventTargetFlag::IsConnected);
+    ASSERT(pseudoElementType == PseudoElementType::Before || pseudoElementType == PseudoElementType::After);
 }
 
 PseudoElement::~PseudoElement()
@@ -62,31 +64,31 @@ PseudoElement::~PseudoElement()
     ASSERT(!m_hostElement);
 }
 
-Ref<PseudoElement> PseudoElement::create(Element& host, PseudoId pseudoId)
+Ref<PseudoElement> PseudoElement::create(Element& host, PseudoElementType pseudoElementType)
 {
-    auto pseudoElement = adoptRef(*new PseudoElement(host, pseudoId));
+    Ref pseudoElement = adoptRef(*new PseudoElement(host, pseudoElementType));
 
-    InspectorInstrumentation::pseudoElementCreated(host.document().page(), pseudoElement.get());
+    InspectorInstrumentation::pseudoElementCreated(protect(host.document().page()).get(), pseudoElement.get());
 
     return pseudoElement;
 }
 
 void PseudoElement::clearHostElement()
 {
-    InspectorInstrumentation::pseudoElementDestroyed(document().page(), *this);
+    InspectorInstrumentation::pseudoElementDestroyed(protect(document().page()).get(), *this);
 
     Styleable::fromElement(*this).elementWasRemoved();
-    
+
     m_hostElement = nullptr;
 }
 
-bool PseudoElement::rendererIsNeeded(const RenderStyle& style)
+bool PseudoElement::rendererIsNeeded(const Style::ComputedStyle& style)
 {
-    if (pseudoElementRendererIsNeeded(&style))
+    if (Style::pseudoElementRendererIsNeeded(style))
         return true;
 
-    if (m_hostElement) {
-        if (auto* stack = m_hostElement->keyframeEffectStack(pseudoId()))
+    if (RefPtr element = m_hostElement.get()) {
+        if (auto* stack = element->keyframeEffectStack(Style::PseudoElementIdentifier { pseudoElementType() }))
             return stack->requiresPseudoElement();
     }
     return false;

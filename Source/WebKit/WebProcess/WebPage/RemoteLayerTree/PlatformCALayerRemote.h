@@ -25,24 +25,50 @@
 
 #pragma once
 
+#include "LayerProperties.h"
+#include "RemoteLayerTreeContext.h"
 #include "RemoteLayerTreeTransaction.h"
+#include <WebCore/HTMLMediaElementIdentifier.h>
 #include <WebCore/PlatformCALayer.h>
+#include <WebCore/PlatformCALayerDelegatedContents.h>
 #include <WebCore/PlatformLayer.h>
+#include <wtf/MachSendRightAnnotated.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 class LayerPool;
+#if ENABLE(THREADED_ANIMATIONS)
+class AcceleratedEffect;
+struct AcceleratedEffectValues;
+#endif
+#if ENABLE(MODEL_PROCESS)
+class ModelContext;
+#endif
+enum class GraphicsLayerCustomAppearance : bool;
 }
 
 namespace WebKit {
 
-class RemoteLayerTreeContext;
+using LayerHostingContextID = uint32_t;
 
-class PlatformCALayerRemote : public WebCore::PlatformCALayer {
+struct PlatformCALayerRemoteDelegatedContents {
+    ImageBufferBackendHandle surface;
+    RefPtr<WebCore::PlatformCALayerDelegatedContentsFence> finishedFence;
+    std::optional<WebCore::RenderingResourceIdentifier> surfaceIdentifier;
+};
+
+class PlatformCALayerRemote : public WebCore::PlatformCALayer, public CanMakeWeakPtr<PlatformCALayerRemote> {
 public:
     static Ref<PlatformCALayerRemote> create(WebCore::PlatformCALayer::LayerType, WebCore::PlatformCALayerClient*, RemoteLayerTreeContext&);
     static Ref<PlatformCALayerRemote> create(PlatformLayer *, WebCore::PlatformCALayerClient*, RemoteLayerTreeContext&);
+#if ENABLE(MODEL_PROCESS)
+    static Ref<PlatformCALayerRemote> create(Ref<WebCore::ModelContext>, WebCore::PlatformCALayerClient* owner, RemoteLayerTreeContext&);
+#endif
 #if ENABLE(MODEL_ELEMENT)
     static Ref<PlatformCALayerRemote> create(Ref<WebCore::Model>, WebCore::PlatformCALayerClient*, RemoteLayerTreeContext&);
+#endif
+#if HAVE(AVKIT)
+    static Ref<PlatformCALayerRemote> create(WebCore::HTMLVideoElement&, WebCore::PlatformCALayerClient*, RemoteLayerTreeContext&);
 #endif
     static Ref<PlatformCALayerRemote> create(const PlatformCALayerRemote&, WebCore::PlatformCALayerClient*, RemoteLayerTreeContext&);
 
@@ -51,9 +77,11 @@ public:
     PlatformLayer* platformLayer() const override { return nullptr; }
 
     void recursiveBuildTransaction(RemoteLayerTreeContext&, RemoteLayerTreeTransaction&);
+    void recursiveMarkWillBeDisplayedWithRenderingSuppresion();
 
     void setNeedsDisplayInRect(const WebCore::FloatRect& dirtyRect) override;
     void setNeedsDisplay() override;
+    bool needsDisplay() const override;
 
     void copyContentsFromLayer(PlatformCALayer*) override;
 
@@ -74,7 +102,12 @@ public:
     void animationStarted(const String& key, MonotonicTime beginTime) override;
     void animationEnded(const String& key) override;
 
-    void setMask(WebCore::PlatformCALayer*) override;
+#if ENABLE(THREADED_ANIMATIONS)
+    void clearAcceleratedEffectsAndBaseValues() override;
+    void setAcceleratedEffectsAndBaseValues(const WebCore::AcceleratedEffects&, const WebCore::AcceleratedEffectValues&) override;
+#endif
+
+    void setMaskLayer(RefPtr<WebCore::PlatformCALayer>&&) override;
 
     bool isOpaque() const override;
     void setOpaque(bool) override;
@@ -94,6 +127,10 @@ public:
     WebCore::TransformationMatrix sublayerTransform() const override;
     void setSublayerTransform(const WebCore::TransformationMatrix&) override;
 
+    void setIsBackdropRoot(bool) final;
+    bool backdropRootIsOpaque() const final;
+    void setBackdropRootIsOpaque(bool) final;
+
     bool isHidden() const override;
     void setHidden(bool) override;
 
@@ -105,6 +142,10 @@ public:
 
     void setBackingStoreAttached(bool) override;
     bool backingStoreAttached() const override;
+
+#if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
+    void setVisibleRect(const WebCore::FloatRect&) override;
+#endif
 
     bool geometryFlipped() const override;
     void setGeometryFlipped(bool) override;
@@ -118,16 +159,14 @@ public:
     bool acceleratesDrawing() const override;
     void setAcceleratesDrawing(bool) override;
 
-    bool wantsDeepColorBackingStore() const override;
-    void setWantsDeepColorBackingStore(bool) override;
-
-    bool supportsSubpixelAntialiasedText() const override;
-    void setSupportsSubpixelAntialiasedText(bool) override;
+    WebCore::ContentsFormat contentsFormat() const override;
+    void setContentsFormat(WebCore::ContentsFormat) override;
 
     bool hasContents() const override;
     CFTypeRef contents() const override;
     void setContents(CFTypeRef) override;
-
+    void setDelegatedContents(const WebCore::PlatformCALayerDelegatedContents&) override;
+    void setRemoteDelegatedContents(const PlatformCALayerRemoteDelegatedContents&);
     void setContentsRect(const WebCore::FloatRect&) override;
 
     void setMinificationFilter(WebCore::PlatformCALayer::FilterType) override;
@@ -143,12 +182,10 @@ public:
     void setOpacity(float) override;
 
     void setFilters(const WebCore::FilterOperations&) override;
-    static bool filtersCanBeComposited(const WebCore::FilterOperations&);
+    static bool NODELETE filtersCanBeComposited(const WebCore::FilterOperations&);
     void copyFiltersFrom(const WebCore::PlatformCALayer&) override;
 
-#if ENABLE(CSS_COMPOSITING)
     void setBlendMode(WebCore::BlendMode) override;
-#endif
 
     void setName(const String&) override;
 
@@ -162,7 +199,13 @@ public:
     float cornerRadius() const override;
     void setCornerRadius(float) override;
 
-    void setEdgeAntialiasingMask(unsigned) override;
+    WebCore::Path shadowPath() const override;
+    void setShadowPath(const WebCore::Path&) override;
+
+    void setAntialiasesEdges(bool) override;
+
+    WebCore::MediaPlayerVideoGravity videoGravity() const override;
+    void setVideoGravity(WebCore::MediaPlayerVideoGravity) override;
 
     // FIXME: Having both shapeRoundedRect and shapePath is redundant. We could use shapePath for everything.
     WebCore::FloatRoundedRect shapeRoundedRect() const override;
@@ -174,10 +217,21 @@ public:
     WebCore::WindRule shapeWindRule() const override;
     void setShapeWindRule(WebCore::WindRule) override;
 
-    WebCore::GraphicsLayer::CustomAppearance customAppearance() const override;
-    void updateCustomAppearance(WebCore::GraphicsLayer::CustomAppearance) override;
+    WebCore::GraphicsLayerCustomAppearance customAppearance() const override;
+    void updateCustomAppearance(WebCore::GraphicsLayerCustomAppearance) override;
 
     void setEventRegion(const WebCore::EventRegion&) override;
+
+#if ENABLE(SCROLLING_THREAD)
+    std::optional<WebCore::ScrollingNodeID> scrollingNodeID() const override;
+    void setScrollingNodeID(std::optional<WebCore::ScrollingNodeID>) override;
+#endif
+
+#if HAVE(SUPPORT_HDR_DISPLAY)
+    bool setNeedsDisplayIfEDRHeadroomExceeds(float) override;
+    void setTonemappingEnabled(bool) override;
+    bool tonemappingEnabled() const override;
+#endif
 
 #if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
     bool isSeparated() const override;
@@ -192,6 +246,11 @@ public:
 #endif
 #endif
 
+#if HAVE(CORE_MATERIAL)
+    WebCore::AppleVisualEffectData appleVisualEffectData() const override;
+    void setAppleVisualEffectData(WebCore::AppleVisualEffectData) override;
+#endif
+
     WebCore::TiledBacking* tiledBacking() override { return nullptr; }
 
     Ref<WebCore::PlatformCALayer> clone(WebCore::PlatformCALayerClient* owner) const override;
@@ -204,18 +263,30 @@ public:
 
     unsigned backingStoreBytesPerPixel() const override;
 
-    void setClonedLayer(const PlatformCALayer*);
+    void NODELETE setClonedLayer(const PlatformCALayer*);
 
-    RemoteLayerTreeTransaction::LayerProperties& properties() { return m_properties; }
-    const RemoteLayerTreeTransaction::LayerProperties& properties() const { return m_properties; }
+    LayerProperties& properties() LIFETIME_BOUND { return m_properties; }
+    const LayerProperties& properties() const LIFETIME_BOUND { return m_properties; }
 
     void didCommit();
 
     void moveToContext(RemoteLayerTreeContext&);
-    void clearContext() { m_context = nullptr; }
-    RemoteLayerTreeContext* context() const { return m_context; }
-    
+    RemoteLayerTreeContext* context() const { return m_context.get(); }
+
+    void markFrontBufferVolatileForTesting() override;
     virtual void populateCreationProperties(RemoteLayerTreeTransaction::LayerCreationProperties&, const RemoteLayerTreeContext&, WebCore::PlatformCALayer::LayerType);
+
+#if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
+    bool allowsDynamicContentScaling() const;
+#endif
+
+    void purgeFrontBufferForTesting() override;
+    void purgeBackBufferForTesting() override;
+
+#if ENABLE(MACH_PORT_LAYER_HOSTING)
+    void setSendRightAnnotated(WTF::MachSendRightAnnotated sendRightAnnotated) { m_sendRightAnnotated = sendRightAnnotated; }
+    std::optional<WTF::MachSendRightAnnotated> sendRightAnnotated() const { return m_sendRightAnnotated; }
+#endif
 
 protected:
     PlatformCALayerRemote(WebCore::PlatformCALayer::LayerType, WebCore::PlatformCALayerClient* owner, RemoteLayerTreeContext&);
@@ -224,27 +295,48 @@ protected:
     void updateClonedLayerProperties(PlatformCALayerRemote& clone, bool copyContents = true) const;
 
 private:
-    bool isPlatformCALayerRemote() const override { return true; }
+    Type type() const override { return Type::Remote; }
     void ensureBackingStore();
     void updateBackingStore();
     void removeSublayer(PlatformCALayerRemote*);
 
-    bool requiresCustomAppearanceUpdateOnBoundsChange() const;
+    WebCore::DestinationColorSpace displayColorSpace() const;
 
-    WebCore::LayerPool& layerPool() override;
+#if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
+    WebCore::IncludeDynamicContentScalingDisplayList shouldIncludeDisplayListInBackingStore() const;
+#endif
 
-    RemoteLayerTreeTransaction::LayerProperties m_properties;
+    bool NODELETE requiresCustomAppearanceUpdateOnBoundsChange() const;
+
+    WebCore::LayerPool* layerPool() override;
+
+    LayerProperties m_properties;
     WebCore::PlatformCALayerList m_children;
-    PlatformCALayerRemote* m_superlayer { nullptr };
-    PlatformCALayerRemote* m_maskLayer { nullptr };
-    HashMap<String, RefPtr<WebCore::PlatformCAAnimation>> m_animations;
+    WeakPtr<PlatformCALayerRemote> m_superlayer;
+    HashMap<String, Ref<WebCore::PlatformCAAnimation>> m_animations;
 
     bool m_acceleratesDrawing { false };
-    bool m_wantsDeepColorBackingStore { false };
+    WeakPtr<RemoteLayerTreeContext> m_context;
 
-    RemoteLayerTreeContext* m_context;
+#if ENABLE(MACH_PORT_LAYER_HOSTING)
+    std::optional<WTF::MachSendRightAnnotated> m_sendRightAnnotated;
+#endif
 };
 
 } // namespace WebKit
 
-SPECIALIZE_TYPE_TRAITS_PLATFORM_CALAYER(WebKit::PlatformCALayerRemote, isPlatformCALayerRemote())
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::PlatformCALayerRemote)
+static bool isType(const WebCore::PlatformCALayer& layer)
+{
+    switch (layer.type()) {
+    case WebCore::PlatformCALayer::Type::Cocoa:
+        break;
+    case WebCore::PlatformCALayer::Type::Remote:
+    case WebCore::PlatformCALayer::Type::RemoteCustom:
+    case WebCore::PlatformCALayer::Type::RemoteHost:
+    case WebCore::PlatformCALayer::Type::RemoteModel:
+        return true;
+    };
+    return false;
+}
+SPECIALIZE_TYPE_TRAITS_END()

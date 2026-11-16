@@ -24,71 +24,69 @@
 
 #pragma once
 
-#include "AudioHardwareListener.h"
-#include "BridgeJSC.h"
-#include "PlatformLayer.h"
-#include "ScrollTypes.h"
-#include "Widget.h"
-#include <wtf/text/WTFString.h>
-
-#if PLATFORM(COCOA)
-typedef struct objc_object* id;
-#endif
-
-namespace JSC {
-    class CallFrame;
-    class JSGlobalObject;
-    class JSObject;
-}
+#include <WebCore/PlatformLayer.h>
+#include <WebCore/ScrollTypes.h>
+#include <WebCore/Widget.h>
+#include <wtf/Platform.h>
 
 namespace WebCore {
 
+class Element;
+class GraphicsLayer;
+class ScrollableArea;
 class Scrollbar;
+class VoidCallback;
 
-// PluginViewBase is a widget that all plug-in views inherit from, both in Webkit and WebKit2.
-// It's intended as a stopgap measure until we can merge all plug-in views into a single plug-in view.
+enum class PluginLayerHostingStrategy : uint8_t {
+    None,
+    PlatformLayer,
+    GraphicsLayer
+};
+
+// FIXME: Move these virtual functions all into the Widget class and get rid of this class.
 class PluginViewBase : public Widget {
 public:
-    virtual PlatformLayer* platformLayer() const { return 0; }
-#if PLATFORM(IOS_FAMILY)
-    virtual bool willProvidePluginLayer() const { return false; }
-    virtual void attachPluginLayer() { }
-    virtual void detachPluginLayer() { }
-#endif
+    virtual PluginLayerHostingStrategy layerHostingStrategy() const { return PluginLayerHostingStrategy::None; }
+    virtual PlatformLayer* platformLayer() const { return nullptr; }
+    virtual GraphicsLayer* graphicsLayer() const { return nullptr; }
 
-    virtual JSC::JSObject* scriptObject(JSC::JSGlobalObject*) { return 0; }
-    virtual void storageBlockingStateChanged() { }
-    virtual void privateBrowsingStateChanged(bool) { }
-    virtual bool getFormValue(String&) { return false; }
+    virtual void layerHostingStrategyDidChange() { }
+
     virtual bool scroll(ScrollDirection, ScrollGranularity) { return false; }
+    virtual ScrollPosition scrollPositionForTesting() const { return { }; }
 
-    // A plug-in can ask WebKit to handle scrollbars for it.
-    virtual Scrollbar* horizontalScrollbar() { return 0; }
-    virtual Scrollbar* verticalScrollbar() { return 0; }
+    virtual Scrollbar* horizontalScrollbar() { return nullptr; }
+    virtual Scrollbar* verticalScrollbar() { return nullptr; }
 
-    // FIXME: This is a hack that works around the fact that the WebKit2 PluginView isn't a ScrollableArea.
     virtual bool wantsWheelEvents() { return false; }
-    virtual bool supportsKeyboardFocus() const { return false; }
-
     virtual bool shouldAllowNavigationFromDrags() const { return false; }
-
-    bool isPluginViewBase() const override { return true; }
-    virtual bool shouldNotAddLayer() const { return false; }
-
-    virtual AudioHardwareActivityType audioHardwareActivity() const { return AudioHardwareActivityType::Unknown; }
-
-    virtual void setJavaScriptPaused(bool) { }
-
-    virtual RefPtr<JSC::Bindings::Instance> bindingInstance() { return nullptr; }
-    
     virtual void willDetachRenderer() { }
+
+    virtual ScrollableArea* scrollableArea() const { return nullptr; }
+    virtual bool usesAsyncScrolling() const { return false; }
+    virtual std::optional<ScrollingNodeID> scrollingNodeID() const { return std::nullopt; }
+    virtual void willAttachScrollingNode() { }
+    virtual void didAttachScrollingNode() { }
 
 #if PLATFORM(COCOA)
     virtual id accessibilityAssociatedPluginParentForElement(Element*) const { return nullptr; }
 #endif
-    
+    virtual void setPDFDisplayModeForTesting(const String&) { }
+    virtual bool sendEditingCommandToPDFForTesting(const String&, const String&) { return false; }
+    virtual Vector<FloatRect> pdfAnnotationRectsForTesting() const { return { }; }
+    virtual void unlockPDFDocumentForTesting(const String&) { }
+    virtual void setPDFTextAnnotationValueForTesting(unsigned /* pageIndex */, unsigned /* annotationIndex */, const String& /* value */) { };
+
+    virtual void releaseMemory() { }
+
 protected:
     explicit PluginViewBase(PlatformWidget widget = 0) : Widget(widget) { }
+
+private:
+    bool isPluginViewBase() const final { return true; }
+
+    friend class Internals;
+    virtual void registerPDFTestCallback(RefPtr<VoidCallback>&&) { };
 };
 
 } // namespace WebCore

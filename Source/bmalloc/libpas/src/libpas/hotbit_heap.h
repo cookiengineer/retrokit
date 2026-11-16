@@ -26,18 +26,22 @@
 #ifndef HOTBIT_HEAP_H
 #define HOTBIT_HEAP_H
 
-#include "pas_reallocate_free_mode.h"
 
 #if PAS_ENABLE_HOTBIT
 
+#include "pas_allocation_mode.h"
+#include "pas_reallocate_free_mode.h"
+
 PAS_BEGIN_EXTERN_C;
 
-PAS_API void* hotbit_try_allocate(size_t size);
+PAS_API void* hotbit_try_allocate(size_t size, pas_allocation_mode allocation_mode);
 PAS_API void* hotbit_try_allocate_with_alignment(size_t size,
-                                                  size_t alignment);
+                                                  size_t alignment,
+                                                  pas_allocation_mode allocation_mode);
 
 PAS_API void* hotbit_try_reallocate(void* old_ptr, size_t new_size,
-                                     pas_reallocate_free_mode free_mode);
+                                     pas_reallocate_free_mode free_mode,
+                                    pas_allocation_mode allocation_mode);
 
 PAS_API void* hotbit_reallocate(void* old_ptr, size_t new_size,
                                  pas_reallocate_free_mode free_mode);
@@ -49,4 +53,3 @@ PAS_END_EXTERN_C;
 #endif /* PAS_ENABLE_HOTBIT */
 
 #endif /* HOTBIT_HEAP_H */
-

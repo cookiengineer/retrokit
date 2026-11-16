@@ -25,36 +25,40 @@
 
 #pragma once
 
+#include "WebPage.h"
 #include <WebCore/GeolocationClient.h>
+#include <wtf/Ref.h>
+#include <wtf/RefCounted.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakRef.h>
 
 namespace WebKit {
 
-class WebPage;
-
-class WebGeolocationClient : public WebCore::GeolocationClient {
-    WTF_MAKE_FAST_ALLOCATED;
+class WebGeolocationClient final : public WebCore::GeolocationClient, public RefCounted<WebGeolocationClient> {
+    WTF_MAKE_TZONE_ALLOCATED(WebGeolocationClient);
 public:
-    WebGeolocationClient(WebPage& page)
-        : m_page(page)
-    {
-    }
-
+    static Ref<WebGeolocationClient> create(WebPage& webPage) { return adoptRef(*new WebGeolocationClient(webPage)); }
     virtual ~WebGeolocationClient();
 
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
 private:
-    void geolocationDestroyed() override;
+    explicit WebGeolocationClient(WebPage&);
 
-    void startUpdating(const String& authorizationToken) override;
-    void stopUpdating() override;
-    void revokeAuthorizationToken(const String&) override;
-    void setEnableHighAccuracy(bool) override;
+    void geolocationDestroyed() final;
 
-    std::optional<WebCore::GeolocationPositionData> lastPosition() override;
+    void startUpdating(const String& authorizationToken, bool needsHighAccuracy) final;
+    void stopUpdating() final;
+    void revokeAuthorizationToken(const String&) final;
+    void setEnableHighAccuracy(bool) final;
 
-    void requestPermission(WebCore::Geolocation&) override;
-    void cancelPermissionRequest(WebCore::Geolocation&) override;
+    std::optional<WebCore::GeolocationPositionData> lastPosition() final;
 
-    WebPage& m_page;
+    void requestPermission(WebCore::Geolocation&) final;
+    void cancelPermissionRequest(WebCore::Geolocation&) final;
+
+    WeakPtr<WebPage> m_page;
 };
 
 } // namespace WebKit

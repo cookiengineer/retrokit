@@ -23,10 +23,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
+ // https://html.spec.whatwg.org/multipage/media.html#the-audio-element
+
 [
     Conditional=VIDEO,
     Exposed=Window,
-    LegacyFactoryFunctionCallWith=Document,
+    LegacyFactoryFunctionCallWith=CurrentDocument,
     LegacyFactoryFunction=Audio(optional [AtomString] DOMString src)
 ] interface HTMLAudioElement : HTMLMediaElement {
 };

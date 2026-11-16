@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 Google Inc.  All rights reserved.
+ * Copyright (C) 2011 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -32,13 +32,13 @@
 
 #include "ActiveDOMObject.h"
 #include "EventTarget.h"
-#include "ExceptionOr.h"
-#include "Timer.h"
-#include <wtf/URL.h>
+#include "EventTargetInterfaces.h"
 #include "WebSocketChannelClient.h"
-#include <wtf/Deque.h>
+#include <wtf/CheckedRef.h>
 #include <wtf/HashSet.h>
 #include <wtf/Lock.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/URL.h>
 
 namespace JSC {
 class ArrayBuffer;
@@ -48,20 +48,28 @@ class ArrayBufferView;
 namespace WebCore {
 
 class Blob;
+class SecurityOrigin;
 class ThreadableWebSocketChannel;
+template<typename> class ExceptionOr;
 
-class WebSocket final : public RefCounted<WebSocket>, public EventTargetWithInlineData, public ActiveDOMObject, private WebSocketChannelClient {
-    WTF_MAKE_ISO_ALLOCATED(WebSocket);
+class WebSocket final : public RefCounted<WebSocket>, public EventTarget, public ActiveDOMObject, public CanMakeThreadSafeCheckedPtr<WebSocket>, private WebSocketChannelClient {
+    WTF_MAKE_TZONE_ALLOCATED(WebSocket);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WebSocket);
 public:
-    static const char* subprotocolSeparator();
+    static ASCIILiteral subprotocolSeparator();
 
     static ExceptionOr<Ref<WebSocket>> create(ScriptExecutionContext&, const String& url);
     static ExceptionOr<Ref<WebSocket>> create(ScriptExecutionContext&, const String& url, const String& protocol);
     static ExceptionOr<Ref<WebSocket>> create(ScriptExecutionContext&, const String& url, const Vector<String>& protocols);
     virtual ~WebSocket();
 
-    static HashSet<WebSocket*>& allActiveWebSockets() WTF_REQUIRES_LOCK(s_allActiveWebSocketsLock);
-    static Lock& allActiveWebSocketsLock() WTF_RETURNS_LOCK(s_allActiveWebSocketsLock);
+    // ContextDestructionObserver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+    USING_CAN_MAKE_WEAKPTR(EventTarget);
+
+    static HashSet<CheckedPtr<WebSocket>>& NODELETE allActiveWebSockets() WTF_REQUIRES_LOCK(s_allActiveWebSocketsLock);
+    static Lock& NODELETE allActiveWebSocketsLock() WTF_RETURNS_LOCK(s_allActiveWebSocketsLock);
 
     enum State {
         CONNECTING = 0,
@@ -81,72 +89,67 @@ public:
 
     ExceptionOr<void> close(std::optional<unsigned short> code, const String& reason);
 
-    RefPtr<ThreadableWebSocketChannel> channel() const;
+    RefPtr<ThreadableWebSocketChannel> NODELETE channel() const;
 
-    const URL& url() const;
-    State readyState() const;
-    unsigned bufferedAmount() const;
+    const URL& NODELETE url() const;
+    State NODELETE readyState() const;
+    unsigned NODELETE bufferedAmount() const;
 
-    String protocol() const;
-    String extensions() const;
+    String NODELETE protocol() const;
+    String NODELETE extensions() const;
 
-    String binaryType() const;
-    ExceptionOr<void> setBinaryType(const String&);
+    enum class BinaryType : bool { Blob, Arraybuffer };
+    BinaryType binaryType() const { return m_binaryType; }
+    void NODELETE setBinaryType(BinaryType);
 
-    ScriptExecutionContext* scriptExecutionContext() const final;
-
-    using RefCounted::ref;
-    using RefCounted::deref;
+    ScriptExecutionContext* NODELETE scriptExecutionContext() const final;
 
 private:
     explicit WebSocket(ScriptExecutionContext&);
 
-    void resumeTimerFired();
-    void dispatchOrQueueErrorEvent();
-    void dispatchOrQueueEvent(Ref<Event>&&);
+    void dispatchErrorEventIfNeeded();
 
     void contextDestroyed() final;
+
+    // ActiveDOMObject.
     void suspend(ReasonForSuspension) final;
     void resume() final;
     void stop() final;
-    const char* activeDOMObjectName() const final;
 
-    EventTargetInterface eventTargetInterface() const final;
+    enum EventTargetInterfaceType eventTargetInterface() const final;
 
     void refEventTarget() final { ref(); }
     void derefEventTarget() final { deref(); }
 
     void didConnect() final;
-    void didReceiveMessage(const String& message) final;
+    void didReceiveMessage(String&& message) final;
     void didReceiveBinaryData(Vector<uint8_t>&&) final;
-    void didReceiveMessageError() final;
-    void didUpdateBufferedAmount(unsigned bufferedAmount) final;
+    void didReceiveMessageError(String&& reason) final;
+    void NODELETE didUpdateBufferedAmount(unsigned bufferedAmount) final;
     void didStartClosingHandshake() final;
     void didClose(unsigned unhandledBufferedAmount, ClosingHandshakeCompletionStatus, unsigned short code, const String& reason) final;
     void didUpgradeURL() final;
 
-    size_t getFramingOverhead(size_t payloadSize);
+    size_t NODELETE getFramingOverhead(size_t payloadSize);
 
     void failAsynchronously();
-
-    enum class BinaryType { Blob, ArrayBuffer };
 
     static Lock s_allActiveWebSocketsLock;
     RefPtr<ThreadableWebSocketChannel> m_channel;
 
     State m_state { CONNECTING };
     URL m_url;
+    const RefPtr<SecurityOrigin> m_origin;
     unsigned m_bufferedAmount { 0 };
     unsigned m_bufferedAmountAfterClose { 0 };
     BinaryType m_binaryType { BinaryType::Blob };
     String m_subprotocol;
     String m_extensions;
 
-    Timer m_resumeTimer;
-    bool m_shouldDelayEventFiring { false };
-    Deque<Ref<Event>> m_pendingEvents;
     bool m_dispatchedErrorEvent { false };
     RefPtr<PendingActivity<WebSocket>> m_pendingActivity;
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_EVENTTARGET(WebSocket)

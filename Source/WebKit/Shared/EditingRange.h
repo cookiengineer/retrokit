@@ -25,12 +25,13 @@
 
 #pragma once
 
-#include "ArgumentCoders.h"
-#include <wtf/EnumTraits.h>
+#include <WebCore/CharacterRange.h>
+#include <optional>
+#include <wtf/NotFound.h>
 #include <wtf/RefPtr.h>
 
 namespace WebCore {
-class Frame;
+class LocalFrame;
 struct SimpleRange;
 }
 
@@ -55,11 +56,24 @@ struct EditingRange {
     {
     }
 
+    EditingRange(const WebCore::CharacterRange& range)
+        : location(range.location)
+        , length(range.length)
+    {
+    }
+
     // (notFound, 0) is notably valid.
     bool isValid() const { return location + length >= location; }
 
-    static std::optional<WebCore::SimpleRange> toRange(WebCore::Frame&, const EditingRange&, EditingRangeIsRelativeTo = EditingRangeIsRelativeTo::EditableRoot);
-    static EditingRange fromRange(WebCore::Frame&, const std::optional<WebCore::SimpleRange>&, EditingRangeIsRelativeTo = EditingRangeIsRelativeTo::EditableRoot);
+    WebCore::CharacterRange toCharacterRange() const { return WebCore::CharacterRange { location, length }; }
+
+    static std::optional<WebCore::SimpleRange> toRange(WebCore::LocalFrame&, const EditingRange&, EditingRangeIsRelativeTo = EditingRangeIsRelativeTo::EditableRoot);
+    static EditingRange fromRange(WebCore::LocalFrame&, const std::optional<WebCore::SimpleRange>&, EditingRangeIsRelativeTo = EditingRangeIsRelativeTo::EditableRoot);
+
+    // Returns `firstLineRange` clamped to lie within `requestedRange`. Uses saturating arithmetic
+    // so the result always satisfies isValid() (i.e. location + length never overflows), regardless
+    // of the inputs. This is sent back to the UIProcess as the "actual range".
+    static EditingRange clampedFirstLineRange(EditingRange firstLineRange, const EditingRange& requestedRange);
 
 #if defined(__OBJC__)
     EditingRange(NSRange range)
@@ -85,17 +99,4 @@ struct EditingRange {
     uint64_t length;
 };
 
-}
-
-namespace IPC {
-template<> struct ArgumentCoder<WebKit::EditingRange> {
-    static void encode(Encoder&, const WebKit::EditingRange&);
-    static std::optional<WebKit::EditingRange> decode(Decoder&);
-};
-}
-
-namespace WTF {
-template<> struct EnumTraits<WebKit::EditingRangeIsRelativeTo> {
-    using values = EnumValues<WebKit::EditingRangeIsRelativeTo, WebKit::EditingRangeIsRelativeTo::EditableRoot, WebKit::EditingRangeIsRelativeTo::Paragraph>;
-};
 }

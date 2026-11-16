@@ -28,42 +28,22 @@
 
 #if ENABLE(MEDIA_STREAM)
 
-#include "WebCoreArgumentCoders.h"
 
 namespace WebKit {
 
-MediaDeviceSandboxExtensions::MediaDeviceSandboxExtensions(Vector<String> ids, Vector<SandboxExtension::Handle>&& handles)
+MediaDeviceSandboxExtensions::MediaDeviceSandboxExtensions(Vector<String> ids, Vector<SandboxExtension::Handle>&& handles, SandboxExtension::Handle&& machBootstrapHandle)
     : m_ids(ids)
-    , m_handles(WTFMove(handles))
+    , m_handles(WTF::move(handles))
+    , m_machBootstrapHandle(WTF::move(machBootstrapHandle))
 {
     RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(m_ids.size() == m_handles.size());
 }
 
-void MediaDeviceSandboxExtensions::encode(IPC::Encoder& encoder) const
-{
-    encoder << m_ids;
-    encoder << m_handles;
-}
-
-bool MediaDeviceSandboxExtensions::decode(IPC::Decoder& decoder, MediaDeviceSandboxExtensions& result)
-{
-    if (!decoder.decode(result.m_ids))
-        return false;
-
-    std::optional<Vector<SandboxExtension::Handle>> handles;
-    decoder >> handles;
-    if (!handles)
-        return false;
-    result.m_handles = WTFMove(*handles);
-
-    return true;
-}
-
-std::pair<String, RefPtr<SandboxExtension>> MediaDeviceSandboxExtensions::operator[](size_t i)
+std::pair<String, Ref<SandboxExtension>> MediaDeviceSandboxExtensions::operator[](size_t i)
 {
     RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(m_ids.size() == m_handles.size());
     RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(i < m_ids.size());
-    return { m_ids[i], SandboxExtension::create(WTFMove(m_handles[i])) };
+    return { m_ids[i], SandboxExtension::create(WTF::move(m_handles[i])).releaseNonNull() };
 }
 
 size_t MediaDeviceSandboxExtensions::size() const

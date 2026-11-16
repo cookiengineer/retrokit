@@ -6,7 +6,7 @@
 
 #include "compiler/translator/BuiltInFunctionEmulator.h"
 #include "angle_gl.h"
-#include "compiler/translator/StaticType.h"
+#include "common/unsafe_buffers.h"
 #include "compiler/translator/Symbol.h"
 #include "compiler/translator/tree_util/IntermTraverse.h"
 
@@ -33,9 +33,9 @@ class BuiltInFunctionEmulator::BuiltInFunctionEmulationMarker : public TIntermTr
 
     bool visitAggregate(Visit visit, TIntermAggregate *node) override
     {
-        // Here we handle all the built-in functions mapped to ops, not just the ones that are
-        // currently identified as problematic.
-        if (node->isConstructor() || node->isFunctionCall())
+        // Here we handle all the math built-in functions, not just the ones that are currently
+        // identified as problematic.
+        if (!BuiltInGroup::IsMath(node->getOp()))
         {
             return true;
         }
@@ -115,10 +115,12 @@ bool BuiltInFunctionEmulator::setFunctionCalled(int uniqueId)
         return false;
     }
 
-    for (size_t i = 0; i < mFunctions.size(); ++i)
+    for (int functionId : mFunctions)
     {
-        if (mFunctions[i] == uniqueId)
+        if (functionId == uniqueId)
+        {
             return true;
+        }
     }
     // If the function depends on another, mark the dependency as called.
     auto dependency = mFunctionDependencies.find(uniqueId);
@@ -141,12 +143,6 @@ void BuiltInFunctionEmulator::markBuiltInFunctionsForEmulation(TIntermNode *root
     root->traverse(&marker);
 }
 
-void BuiltInFunctionEmulator::cleanup()
-{
-    mFunctions.clear();
-    mFunctionDependencies.clear();
-}
-
 void BuiltInFunctionEmulator::addFunctionMap(BuiltinQueryFunc queryFunc)
 {
     mQueryFunctions.push_back(queryFunc);
@@ -155,7 +151,7 @@ void BuiltInFunctionEmulator::addFunctionMap(BuiltinQueryFunc queryFunc)
 // static
 void BuiltInFunctionEmulator::WriteEmulatedFunctionName(TInfoSinkBase &out, const char *name)
 {
-    ASSERT(name[strlen(name) - 1] != '(');
+    ANGLE_UNSAFE_TODO(ASSERT(name[strlen(name) - 1] != '('));
     out << name << "_emu";
 }
 

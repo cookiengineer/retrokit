@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003, 2008, 2009 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,34 +25,40 @@
 
 #pragma once
 
+#include <JavaScriptCore/YarrFlags.h>
+#include <wtf/OptionSet.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/WTFString.h>
 
 namespace JSC { namespace Yarr {
 
-enum MultilineMode { MultilineDisabled, MultilineEnabled };
-enum TextCaseSensitivity { TextCaseSensitive, TextCaseInsensitive };
-enum UnicodeMode { UnicodeUnawareMode, UnicodeAwareMode };
+enum class MatchMode : uint8_t {
+    Partial, // Default: match anywhere in the string.
+    EntireInput // Anchored: pattern must match the entire input (equivalent to ^(?:pattern)$).
+};
 
 class JS_EXPORT_PRIVATE RegularExpression {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(RegularExpression);
 public:
-    explicit RegularExpression(const String&, TextCaseSensitivity = TextCaseSensitive, MultilineMode = MultilineDisabled, UnicodeMode = UnicodeUnawareMode);
+    explicit RegularExpression(StringView, OptionSet<Flags> = { }, MatchMode = MatchMode::Partial);
     ~RegularExpression();
 
     RegularExpression(const RegularExpression&);
     RegularExpression& operator=(const RegularExpression&);
+    RegularExpression(RegularExpression&&);
+    RegularExpression& operator=(RegularExpression&&);
 
-    int match(const String&, int startFrom = 0, int* matchLength = nullptr) const;
-    int searchRev(const String&) const;
+    int match(StringView, unsigned startFrom = 0, int* matchLength = nullptr) const;
+    int searchRev(StringView) const;
 
-    int matchedLength() const;
-    bool isValid() const;
+    int NODELETE matchedLength() const;
+    bool NODELETE isValid() const;
 
 private:
     class Private;
     RefPtr<Private> d;
 };
 
-void JS_EXPORT_PRIVATE replace(String&, const RegularExpression&, const String&);
+void JS_EXPORT_PRIVATE replace(String&, const RegularExpression&, StringView);
 
 } } // namespace JSC::Yarr

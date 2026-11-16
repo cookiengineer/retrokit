@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011, 2012 Apple Inc.  All rights reserved.
+ * Copyright (C) 2011, 2012 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,18 +24,18 @@
  */
 
 #include "config.h"
+#include "AudioTrackList.h"
 
 #if ENABLE(VIDEO)
 
-#include "AudioTrackList.h"
-
 #include "AudioTrack.h"
-#include "HTMLMediaElement.h"
+#include "ContextDestructionObserverInlines.h"
+#include "EventTargetInterfaces.h"
 
 namespace WebCore {
 
-AudioTrackList::AudioTrackList(WeakPtr<HTMLMediaElement> element, ScriptExecutionContext* context)
-    : TrackListBase(element, context)
+AudioTrackList::AudioTrackList(ScriptExecutionContext* context)
+    : TrackListBase(context)
 {
 }
 
@@ -47,44 +47,71 @@ void AudioTrackList::append(Ref<AudioTrack>&& track)
     size_t index = track->inbandTrackIndex();
     size_t insertionIndex;
     for (insertionIndex = 0; insertionIndex < m_inbandTracks.size(); ++insertionIndex) {
-        auto& otherTrack = downcast<AudioTrack>(*m_inbandTracks[insertionIndex]);
-        if (otherTrack.inbandTrackIndex() > index)
+        Ref otherTrack = downcast<AudioTrack>(m_inbandTracks[insertionIndex]);
+        if (otherTrack->inbandTrackIndex() > index)
             break;
     }
-    m_inbandTracks.insert(insertionIndex, track.ptr());
+    m_inbandTracks.insert(insertionIndex, track.copyRef());
 
+    if (!track->trackList())
+        track->setTrackList(*this);
 
-    ASSERT(!track->mediaElement() || track->mediaElement() == mediaElement());
-    track->setMediaElement(mediaElement());
-
-    scheduleAddTrackEvent(WTFMove(track));
+    scheduleAddTrackEvent(WTF::move(track));
 }
 
-AudioTrack* AudioTrackList::item(unsigned index) const
+void AudioTrackList::remove(TrackBase& track, bool scheduleEvent)
+{
+    auto& audioTrack = downcast<AudioTrack>(track);
+    if (audioTrack.trackList() == this)
+        audioTrack.clearTrackList();
+
+    TrackListBase::remove(track, scheduleEvent);
+}
+
+AudioTrack& AudioTrackList::item(unsigned index) const
+{
+    return downcast<AudioTrack>(m_inbandTracks[index].get());
+}
+
+AudioTrack* AudioTrackList::itemForBindings(unsigned index) const
 {
     if (index < m_inbandTracks.size())
-        return downcast<AudioTrack>(m_inbandTracks[index].get());
+        return &item(index);
     return nullptr;
 }
 
-AudioTrack* AudioTrackList::getTrackById(const AtomString& id) const
+AudioTrack* AudioTrackList::firstEnabled() const
 {
-    for (auto& inbandTrack : m_inbandTracks) {
-        auto& track = downcast<AudioTrack>(*inbandTrack);
-        if (track.id() == id)
-            return &track;
+    for (auto& item : m_inbandTracks) {
+        if (item->enabled())
+            return downcast<AudioTrack>(item.ptr());
     }
     return nullptr;
 }
 
-EventTargetInterface AudioTrackList::eventTargetInterface() const
+RefPtr<AudioTrack> AudioTrackList::getTrackById(const AtomString& id) const
 {
-    return AudioTrackListEventTargetInterfaceType;
+    for (auto& inbandTrack : m_inbandTracks) {
+        Ref track = downcast<AudioTrack>(inbandTrack);
+        if (track->id() == id)
+            return track;
+    }
+    return nullptr;
 }
 
-const char* AudioTrackList::activeDOMObjectName() const
+RefPtr<AudioTrack> AudioTrackList::getTrackById(TrackID id) const
 {
-    return "AudioTrackList";
+    for (auto& inbandTrack : m_inbandTracks) {
+        Ref track = downcast<AudioTrack>(inbandTrack);
+        if (track->trackId() == id)
+            return track;
+    }
+    return nullptr;
+}
+
+enum EventTargetInterfaceType AudioTrackList::eventTargetInterface() const
+{
+    return EventTargetInterfaceType::AudioTrackList;
 }
 
 } // namespace WebCore

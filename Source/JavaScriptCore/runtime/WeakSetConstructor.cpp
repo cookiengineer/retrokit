@@ -34,7 +34,7 @@
 
 namespace JSC {
 
-const ClassInfo WeakSetConstructor::s_info = { "Function", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(WeakSetConstructor) };
+const ClassInfo WeakSetConstructor::s_info = { "Function"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(WeakSetConstructor) };
 
 void WeakSetConstructor::finishCreation(VM& vm, WeakSetPrototype* prototype)
 {
@@ -54,7 +54,7 @@ JSC_DEFINE_HOST_FUNCTION(callWeakSet, (JSGlobalObject* globalObject, CallFrame*)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
-    return JSValue::encode(throwConstructorCannotBeCalledAsFunctionTypeError(globalObject, scope, "WeakSet"));
+    return JSValue::encode(throwConstructorCannotBeCalledAsFunctionTypeError(globalObject, scope, "WeakSet"_s));
 }
 
 JSC_DEFINE_HOST_FUNCTION(constructWeakSet, (JSGlobalObject* globalObject, CallFrame* callFrame))
@@ -74,7 +74,7 @@ JSC_DEFINE_HOST_FUNCTION(constructWeakSet, (JSGlobalObject* globalObject, CallFr
     JSValue adderFunction = weakSet->JSObject::get(globalObject, vm.propertyNames->add);
     RETURN_IF_EXCEPTION(scope, encodedJSValue());
 
-    auto adderFunctionCallData = getCallData(vm, adderFunction);
+    auto adderFunctionCallData = JSC::getCallDataInline(adderFunction);
     if (adderFunctionCallData.type == CallData::Type::None)
         return throwVMTypeError(globalObject, scope, "'add' property of a WeakSet should be callable."_s);
 
@@ -83,10 +83,11 @@ JSC_DEFINE_HOST_FUNCTION(constructWeakSet, (JSGlobalObject* globalObject, CallFr
     scope.release();
     forEachInIterable(globalObject, iterable, [&](VM&, JSGlobalObject* globalObject, JSValue nextValue) {
         if (canPerformFastAdd) {
-            if (nextValue.isObject())
-                weakSet->add(vm, asObject(nextValue));
-            else
-                throwTypeError(asObject(adderFunction)->globalObject(vm), scope, WeakSetNonObjectValueError);
+            if (!canBeHeldWeakly(nextValue)) [[unlikely]] {
+                throwTypeError(asObject(adderFunction)->realm(), scope, WeakSetInvalidValueError);
+                return;
+            }
+            weakSet->add(vm, nextValue.asCell());
             return;
         }
 

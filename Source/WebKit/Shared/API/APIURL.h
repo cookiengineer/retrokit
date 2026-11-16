@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,7 +26,6 @@
 #pragma once
 
 #include "APIObject.h"
-#include "ArgumentCoders.h"
 #include <wtf/Forward.h>
 #include <wtf/URL.h>
 #include <wtf/text/WTFString.h>
@@ -47,13 +46,13 @@ public:
         auto absoluteURL = makeUnique<WTF::URL>(*baseURL->m_parsedURL.get(), relativeURL);
         const WTF::String& absoluteURLString = absoluteURL->string();
 
-        return adoptRef(*new API::URL(WTFMove(absoluteURL), absoluteURLString));
+        return adoptRef(*new API::URL(WTF::move(absoluteURL), absoluteURLString));
     }
 
     bool isNull() const { return m_string.isNull(); }
     bool isEmpty() const { return m_string.isEmpty(); }
 
-    const WTF::String& string() const { return m_string; }
+    const WTF::String& string() const LIFETIME_BOUND { return m_string; }
 
     static bool equals(const API::URL& a, const API::URL& b)
     {
@@ -84,21 +83,6 @@ public:
         return m_parsedURL->lastPathComponent().toString();
     }
 
-    void encode(IPC::Encoder& encoder) const
-    {
-        encoder << m_string;
-    }
-
-    static WARN_UNUSED_RETURN bool decode(IPC::Decoder& decoder, RefPtr<Object>& result)
-    {
-        WTF::String string;
-        if (!decoder.decode(string))
-            return false;
-        
-        result = create(string);
-        return true;
-    }
-
 private:
     URL(const WTF::String& string)
         : m_string(string)
@@ -107,11 +91,11 @@ private:
 
     URL(std::unique_ptr<WTF::URL> parsedURL, const WTF::String& string)
         : m_string(string)
-        , m_parsedURL(WTFMove(parsedURL))
+        , m_parsedURL(WTF::move(parsedURL))
     {
     }
 
-    const WTF::URL& url() const
+    const WTF::URL& url() const LIFETIME_BOUND
     {
         parseURLIfNecessary();
         return *m_parsedURL;
@@ -121,7 +105,7 @@ private:
     {
         if (m_parsedURL)
             return;
-        m_parsedURL = makeUnique<WTF::URL>(WTF::URL(), m_string);
+        m_parsedURL = makeUnique<WTF::URL>(m_string);
     }
 
     WTF::String m_string;
@@ -129,3 +113,5 @@ private:
 };
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_API_OBJECT(URL);

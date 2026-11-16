@@ -24,17 +24,18 @@
 #pragma once
 
 #include "LiveNodeList.h"
+#include <wtf/text/AtomString.h>
 
 namespace WebCore {
 
 class NameNodeList final : public CachedLiveNodeList<NameNodeList> {
-    WTF_MAKE_ISO_ALLOCATED(NameNodeList);
+    WTF_MAKE_TZONE_ALLOCATED(NameNodeList);
 public:
     static Ref<NameNodeList> create(ContainerNode& rootNode, const AtomString& name);
     virtual ~NameNodeList();
 
     bool elementMatches(Element&) const final;
-    bool isRootedAtDocument() const final { return false; }
+    bool isRootedAtTreeScope() const final { return false; }
 
 private:
     NameNodeList(ContainerNode& rootNode, const AtomString& name);
@@ -42,9 +43,6 @@ private:
     AtomString m_name;
 };
 
-inline bool NameNodeList::elementMatches(Element& element) const
-{
-    return element.getNameAttribute() == m_name;
-}
-
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_LIVENODELIST(NameNodeList)

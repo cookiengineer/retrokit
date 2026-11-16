@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013, 2015 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2013-2023 Apple Inc. All rights reserved.
  * Copyright (C) 2011 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,6 +26,11 @@
 
 #pragma once
 
+#include <JavaScriptCore/InjectedScriptManager.h>
+#include <JavaScriptCore/InspectorEnvironment.h>
+#include <JavaScriptCore/InspectorFrontendRouter.h>
+#include <wtf/CheckedRef.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/WTFString.h>
 
 namespace JSC {
@@ -35,14 +40,11 @@ class JSGlobalObject;
 namespace Inspector {
 
 class BackendDispatcher;
-class FrontendRouter;
-class InjectedScriptManager;
-class InspectorEnvironment;
 
 struct AgentContext {
-    InspectorEnvironment& environment;
-    InjectedScriptManager& injectedScriptManager;
-    FrontendRouter& frontendRouter;
+    CheckedRef<InspectorEnvironment> environment;
+    CheckedRef<InjectedScriptManager> injectedScriptManager;
+    CheckedRef<FrontendRouter> frontendRouter;
     BackendDispatcher& backendDispatcher;
 };
 
@@ -53,7 +55,7 @@ struct JSAgentContext : public AgentContext {
     {
     }
 
-    JSC::JSGlobalObject& inspectedGlobalObject;
+    SUPPRESS_FORWARD_DECL_MEMBER JSC::JSGlobalObject& inspectedGlobalObject;
 };
 
 enum class DisconnectReason {
@@ -62,13 +64,13 @@ enum class DisconnectReason {
 };
 
 class InspectorAgentBase {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(InspectorAgentBase);
 public:
     virtual ~InspectorAgentBase() { }
 
     String domainName() const { return m_name; }
 
-    virtual void didCreateFrontendAndBackend(FrontendRouter*, BackendDispatcher*) = 0;
+    virtual void didCreateFrontendAndBackend() = 0;
     virtual void willDestroyFrontendAndBackend(DisconnectReason) = 0;
     virtual void discardValues() { }
     virtual void discardAgent() { }

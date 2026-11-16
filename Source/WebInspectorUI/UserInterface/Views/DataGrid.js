@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008, 2013-2016 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008, 2013-2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,7 +25,7 @@
 
 WI.DataGrid = class DataGrid extends WI.View
 {
-    constructor(columnsData, {editCallback, copyCallback, deleteCallback, preferredColumnOrder} = {})
+    constructor(columnsData, {beforeEditCallback, afterEditCallback, copyCallback, deleteCallback, preferredColumnOrder} = {})
     {
         super();
 
@@ -110,9 +110,10 @@ WI.DataGrid = class DataGrid extends WI.View
 
         // FIXME: Add a createCallback which is different from editCallback and has different
         // behavior when creating a new node.
-        if (editCallback) {
+        if (afterEditCallback) {
             this._dataTableElement.addEventListener("dblclick", this._ondblclick.bind(this), false);
-            this._editCallback = editCallback;
+            this._beforeEditCallback = beforeEditCallback;
+            this._afterEditCallback = afterEditCallback;
         }
 
         if (copyCallback)
@@ -436,7 +437,7 @@ WI.DataGrid = class DataGrid extends WI.View
 
     startEditingNode(node)
     {
-        console.assert(this._editCallback);
+        console.assert(this._afterEditCallback);
         if (this._editing || this._editingNode)
             return;
 
@@ -576,6 +577,8 @@ WI.DataGrid = class DataGrid extends WI.View
         this._editingNode = node;
         this._editingNode.select();
 
+        this._beforeEditCallback?.(node, this.orderedColumns[columnIndex]);
+
         var element = this._editingNode.element.children[columnIndex];
         WI.startEditing(element, this._startEditingConfig(element));
 
@@ -584,26 +587,27 @@ WI.DataGrid = class DataGrid extends WI.View
 
     _startEditing(target)
     {
-        let element = target.closest("td");
-        if (!element)
+        let cell = target.closest("td");
+        if (!cell)
             return;
 
         let node = this.dataGridNodeFromNode(target);
-        if (!node.editable)
+        if (!node?.editable)
             return;
 
         this._editingNode = node;
-        if (!this._editingNode) {
-            if (!this.placeholderNode)
-                return;
-            this._editingNode = this.placeholderNode;
-        }
 
         // Force editing the 1st column when editing the placeholder node
         if (this._editingNode.isPlaceholderNode)
             return this._startEditingNodeAtColumnIndex(this._editingNode, 0);
 
+        let columnIndex = this._editingNode.element.children.indexOf(cell);
+
+        this._beforeEditCallback?.(node, this.orderedColumns[columnIndex]);
+
         this._editing = true;
+
+        let element = this._editingNode.element.children[columnIndex];
         WI.startEditing(element, this._startEditingConfig(element));
 
         window.getSelection().setBaseAndExtent(element, 0, element, 1);
@@ -661,7 +665,7 @@ WI.DataGrid = class DataGrid extends WI.View
 
         this._editingCancelled(element);
 
-        this._editCallback(currentEditingNode, columnIdentifier, textBeforeEditing, newText, moveDirection);
+        this._afterEditCallback(currentEditingNode, columnIdentifier, textBeforeEditing, newText, moveDirection);
 
         var textDidChange = textBeforeEditing.trim() !== newText.trim();
         moveToNextCell.call(this, textDidChange);
@@ -754,9 +758,11 @@ WI.DataGrid = class DataGrid extends WI.View
         insertionIndex = Number.constrain(insertionIndex, 0, this.orderedColumns.length);
 
         // Copy configuration properties instead of keeping a reference to the passed-in object.
-        var column = Object.shallowCopy(columnData);
-        column["ordinal"] = insertionIndex;
-        column["columnIdentifier"] = columnIdentifier;
+        let column = {
+            ...columnData,
+            ordinal: insertionIndex,
+            columnIdentifier: columnIdentifier,
+        };
 
         this.orderedColumns.splice(insertionIndex, 0, columnIdentifier);
 
@@ -843,6 +849,9 @@ WI.DataGrid = class DataGrid extends WI.View
         this._fillerRowElement.insertBefore(fillerCellElement, referenceElement);
 
         this.setColumnVisible(columnIdentifier, !column.hidden);
+
+        for (let child of this.children)
+            child.refresh();
     }
 
     removeColumn(columnIdentifier)
@@ -963,7 +972,7 @@ WI.DataGrid = class DataGrid extends WI.View
         console.assert(column, "Missing column info for identifier: " + columnIdentifier);
         console.assert(typeof visible === "boolean", "New visible state should be explicit boolean", typeof visible);
 
-        if (!column || visible === !column.hidden)
+        if (!column || ("hidden" in column && visible === !column.hidden))
             return;
 
         column.element.style.width = visible ? column.width : 0;
@@ -971,9 +980,10 @@ WI.DataGrid = class DataGrid extends WI.View
 
         if (this._columnVisibilitySetting) {
             if (this._columnVisibilitySetting.value[columnIdentifier] !== visible) {
-                let copy = Object.shallowCopy(this._columnVisibilitySetting.value);
-                copy[columnIdentifier] = visible;
-                this._columnVisibilitySetting.value = copy;
+                this._columnVisibilitySetting.value = {
+                    ...this._columnVisibilitySetting.value,
+                    [columnIdentifier]: visible,
+                };
             }
         }
 
@@ -1134,6 +1144,8 @@ WI.DataGrid = class DataGrid extends WI.View
         let updateOffsetThreshold = rowHeight * 5;
         let overflowPadding = updateOffsetThreshold * 3;
 
+        let heightChanged = isNaN(this._cachedScrollableOffsetHeight);
+
         if (isNaN(this._cachedScrollTop))
             this._cachedScrollTop = this._scrollContainerElement.scrollTop;
 
@@ -1150,7 +1162,7 @@ WI.DataGrid = class DataGrid extends WI.View
             let belowTopThreshold = !currentTopMargin || this._cachedScrollTop > currentTopMargin + updateOffsetThreshold;
             let aboveBottomThreshold = !currentBottomMargin || this._cachedScrollTop + this._cachedScrollableOffsetHeight < currentTableBottom - updateOffsetThreshold;
 
-            if (belowTopThreshold && aboveBottomThreshold && !isNaN(this._previousRevealedRowCount))
+            if (belowTopThreshold && aboveBottomThreshold && !heightChanged && !isNaN(this._previousRevealedRowCount))
                 return;
         }
 
@@ -1176,7 +1188,7 @@ WI.DataGrid = class DataGrid extends WI.View
             this._topDataTableMarginElement.style.height = marginTop + "px";
         }
 
-        if (this._bottomDataTableMarginElement !== marginBottom) {
+        if (this._bottomDataTableMarginHeight !== marginBottom) {
             this._bottomDataTableMarginHeight = marginBottom;
             this._bottomDataTableMarginElement.style.height = marginBottom + "px";
         }
@@ -1186,14 +1198,16 @@ WI.DataGrid = class DataGrid extends WI.View
 
         this.dataTableBodyElement.removeChildren();
 
+        let dataTableBodyElementFragment = document.createDocumentFragment();
         for (let i = topHiddenRowCount; i < topHiddenRowCount + visibleRowCount; ++i) {
             let rowDataGridNode = revealedRows[i];
             if (!rowDataGridNode)
                 continue;
-            this.dataTableBodyElement.appendChild(rowDataGridNode.element);
+            dataTableBodyElementFragment.appendChild(rowDataGridNode.element);
         }
 
-        this.dataTableBodyElement.appendChild(this._fillerRowElement);
+        dataTableBodyElementFragment.appendChild(this._fillerRowElement);
+        this.dataTableBodyElement.appendChild(dataTableBodyElementFragment);
     }
 
     addPlaceholderNode()
@@ -1457,7 +1471,7 @@ WI.DataGrid = class DataGrid extends WI.View
                     this._deleteCallback(this.selectedNode);
                 }
             } else if (isEnterKey(event)) {
-                if (this._editCallback) {
+                if (this._afterEditCallback) {
                     handled = true;
                     this._startEditing(this.selectedNode.element.children[0]);
                 }
@@ -1689,7 +1703,9 @@ WI.DataGrid = class DataGrid extends WI.View
         if (this._columnChooserEnabled) {
             let didAddSeparator = false;
 
-            for (let [identifier, columnInfo] of this.columns) {
+            for (let identifier of this.orderedColumns) {
+                let columnInfo = this.columns.get(identifier);
+
                 if (columnInfo.locked)
                     continue;
 
@@ -1725,7 +1741,7 @@ WI.DataGrid = class DataGrid extends WI.View
                 contextMenu.appendItem(WI.UIString("Copy Row"), this._copyRow.bind(this, gridNode));
                 contextMenu.appendItem(WI.UIString("Copy Table"), this._copyTable.bind(this));
 
-                if (this.dataGrid._editCallback) {
+                if (this.dataGrid._afterEditCallback) {
                     if (gridNode === this.placeholderNode)
                         contextMenu.appendItem(WI.UIString("Add New"), this._startEditing.bind(this, event.target));
                     else if (gridNode.editable) {
@@ -1899,7 +1915,7 @@ WI.DataGrid = class DataGrid extends WI.View
 
         dragPoint = Number.constrain(dragPoint, leftMinimum, rightMaximum);
 
-        resizer.element.style.setProperty(isRTL ? "right" : "left", `${dragPoint - this.CenterResizerOverBorderAdjustment}px`);
+        resizer.element.style.setProperty(isRTL ? "right" : "left", `${dragPoint - WI.DataGrid.CenterResizerOverBorderAdjustment}px`);
 
         let percentLeftColumn = (((dragPoint - leadingEdgeOfPreviousColumn) / this._dataTableElement.offsetWidth) * 100) + "%";
         this._headerTableColumnGroupElement.children[leftColumnIndex].style.width = percentLeftColumn;

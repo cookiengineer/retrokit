@@ -28,11 +28,19 @@
 
 namespace WebCore {
 
-const uint64_t maxInflightKeepaliveBytes { 65536 }; // 64 kibibytes as per Fetch specification.
+constexpr uint64_t maxInflightKeepaliveBytes { 65536 }; // 64 kibibytes as per Fetch specification.
+
+Ref<KeepaliveRequestTracker> KeepaliveRequestTracker::create()
+{
+    return adoptRef(*new KeepaliveRequestTracker);
+}
 
 KeepaliveRequestTracker::~KeepaliveRequestTracker()
 {
-    auto inflightRequests = WTFMove(m_inflightKeepaliveRequests);
+    auto inflightRequests = WTF::map(m_inflightKeepaliveRequests, [](auto& request) {
+        return RefPtr { request.get() };
+    });
+    m_inflightKeepaliveRequests.clear();
     for (auto& resource : inflightRequests)
         resource->removeClient(*this);
 }
@@ -40,7 +48,7 @@ KeepaliveRequestTracker::~KeepaliveRequestTracker()
 bool KeepaliveRequestTracker::tryRegisterRequest(CachedResource& resource)
 {
     ASSERT(resource.options().keepAlive);
-    auto* body = resource.resourceRequest().httpBody();
+    RefPtr body = resource.resourceRequest().httpBody();
     if (!body)
         return true;
 
@@ -55,7 +63,7 @@ bool KeepaliveRequestTracker::tryRegisterRequest(CachedResource& resource)
 void KeepaliveRequestTracker::registerRequest(CachedResource& resource)
 {
     ASSERT(resource.options().keepAlive);
-    auto* body = resource.resourceRequest().httpBody();
+    RefPtr body = resource.resourceRequest().httpBody();
     if (!body)
         return;
     ASSERT(!m_inflightKeepaliveRequests.contains(&resource));
@@ -66,17 +74,7 @@ void KeepaliveRequestTracker::registerRequest(CachedResource& resource)
     resource.addClient(*this);
 }
 
-void KeepaliveRequestTracker::responseReceived(CachedResource& resource, const ResourceResponse&, CompletionHandler<void()>&& completionHandler)
-{
-    // Per Fetch specification, allocated quota should be returned before the promise is resolved,
-    // which is when the response is received.
-    unregisterRequest(resource);
-
-    if (completionHandler)
-        completionHandler();
-}
-
-void KeepaliveRequestTracker::notifyFinished(CachedResource& resource, const NetworkLoadMetrics&)
+void KeepaliveRequestTracker::notifyFinished(CachedResource& resource, const NetworkLoadMetrics&, LoadWillContinueInAnotherProcess)
 {
     unregisterRequest(resource);
 }
@@ -84,11 +82,13 @@ void KeepaliveRequestTracker::notifyFinished(CachedResource& resource, const Net
 void KeepaliveRequestTracker::unregisterRequest(CachedResource& resource)
 {
     ASSERT(resource.options().keepAlive);
-    resource.removeClient(*this);
-    bool wasRemoved = m_inflightKeepaliveRequests.removeFirst(&resource);
-    ASSERT_UNUSED(wasRemoved, wasRemoved);
-    m_inflightKeepaliveBytes -= resource.resourceRequest().httpBody()->lengthInBytes();
+
+    m_inflightKeepaliveBytes -= protect(resource.resourceRequest().httpBody())->lengthInBytes();
     ASSERT(m_inflightKeepaliveBytes <= maxInflightKeepaliveBytes);
+
+    resource.removeClient(*this);
+    bool wasRemoved = m_inflightKeepaliveRequests.removeFirst(&resource); // May destroy |resource|.
+    ASSERT_UNUSED(wasRemoved, wasRemoved);
 }
 
 }

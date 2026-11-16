@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 Apple Inc. All rights reserved.
+ * Copyright (c) 2019-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,9 +33,10 @@
 PAS_BEGIN_EXTERN_C;
 
 enum pas_local_allocator_config_kind {
+    pas_local_allocator_config_kind_null,
+    pas_local_allocator_config_kind_unselected,
 #define PAS_DEFINE_SEGREGATED_PAGE_CONFIG_KIND(name, value) \
-    pas_local_allocator_config_kind_normal_ ## name, \
-    pas_local_allocator_config_kind_primordial_partial_ ## name,
+    pas_local_allocator_config_kind_normal_ ## name,
 #include "pas_segregated_page_config_kind.def"
 #undef PAS_DEFINE_SEGREGATED_PAGE_CONFIG_KIND
 #define PAS_DEFINE_BITFIT_PAGE_CONFIG_KIND(name, value) \
@@ -45,20 +46,6 @@ enum pas_local_allocator_config_kind {
 };
 
 typedef enum pas_local_allocator_config_kind pas_local_allocator_config_kind;
-
-static PAS_ALWAYS_INLINE bool
-pas_local_allocator_config_kind_is_primordial_partial(pas_local_allocator_config_kind kind)
-{
-    switch (kind) {
-#define PAS_DEFINE_SEGREGATED_PAGE_CONFIG_KIND(name, value) \
-    case pas_local_allocator_config_kind_primordial_partial_ ## name: \
-        return true;
-#include "pas_segregated_page_config_kind.def"
-#undef PAS_DEFINE_SEGREGATED_PAGE_CONFIG_KIND
-    default:
-        return false;
-    }
-}
 
 static PAS_ALWAYS_INLINE bool
 pas_local_allocator_config_kind_is_bitfit(pas_local_allocator_config_kind kind)
@@ -84,21 +71,7 @@ pas_local_allocator_config_kind_create_normal(pas_segregated_page_config_kind ki
 #include "pas_segregated_page_config_kind.def"
 #undef PAS_DEFINE_SEGREGATED_PAGE_CONFIG_KIND
     }
-    PAS_ASSERT(!"Should not be reached");
-    return (pas_local_allocator_config_kind)0;
-}
-
-static PAS_ALWAYS_INLINE pas_local_allocator_config_kind
-pas_local_allocator_config_kind_create_primordial_partial(pas_segregated_page_config_kind kind)
-{
-    switch (kind) {
-#define PAS_DEFINE_SEGREGATED_PAGE_CONFIG_KIND(name, value) \
-    case pas_segregated_page_config_kind_ ## name: \
-        return pas_local_allocator_config_kind_primordial_partial_ ## name;
-#include "pas_segregated_page_config_kind.def"
-#undef PAS_DEFINE_SEGREGATED_PAGE_CONFIG_KIND
-    }
-    PAS_ASSERT(!"Should not be reached");
+    PAS_ASSERT_NOT_REACHED();
     return (pas_local_allocator_config_kind)0;
 }
 
@@ -112,7 +85,7 @@ pas_local_allocator_config_kind_create_bitfit(pas_bitfit_page_config_kind kind)
 #include "pas_bitfit_page_config_kind.def"
 #undef PAS_DEFINE_BITFIT_PAGE_CONFIG_KIND
     }
-    PAS_ASSERT(!"Should not be reached");
+    PAS_ASSERT_NOT_REACHED();
     return (pas_local_allocator_config_kind)0;
 }
 
@@ -122,12 +95,11 @@ pas_local_allocator_config_kind_get_segregated_page_config_kind(pas_local_alloca
     switch (kind) {
 #define PAS_DEFINE_SEGREGATED_PAGE_CONFIG_KIND(name, value) \
     case pas_local_allocator_config_kind_normal_ ## name: \
-    case pas_local_allocator_config_kind_primordial_partial_ ## name: \
         return pas_segregated_page_config_kind_ ## name;
 #include "pas_segregated_page_config_kind.def"
 #undef PAS_DEFINE_SEGREGATED_PAGE_CONFIG_KIND
     default:
-        PAS_ASSERT(!"Should not be reached");
+        PAS_ASSERT_NOT_REACHED();
         return (pas_segregated_page_config_kind)0;
     }
 }
@@ -142,7 +114,7 @@ pas_local_allocator_config_kind_get_bitfit_page_config_kind(pas_local_allocator_
 #include "pas_bitfit_page_config_kind.def"
 #undef PAS_DEFINE_BITFIT_PAGE_CONFIG_KIND
     default:
-        PAS_ASSERT(!"Should not be reached");
+        PAS_ASSERT_NOT_REACHED();
         return (pas_bitfit_page_config_kind)0;
     }
 }
@@ -151,11 +123,13 @@ static inline const char*
 pas_local_allocator_config_kind_get_string(pas_local_allocator_config_kind kind)
 {
     switch (kind) {
+    case pas_local_allocator_config_kind_null:
+        return "null";
+    case pas_local_allocator_config_kind_unselected:
+        return "unselected";
 #define PAS_DEFINE_SEGREGATED_PAGE_CONFIG_KIND(name, value) \
     case pas_local_allocator_config_kind_normal_ ## name: \
-        return "normal_" #name; \
-    case pas_local_allocator_config_kind_primordial_partial_ ## name: \
-        return "primordial_partial_" #name;
+        return "normal_" #name;
 #include "pas_segregated_page_config_kind.def"
 #undef PAS_DEFINE_SEGREGATED_PAGE_CONFIG_KIND
 #define PAS_DEFINE_BITFIT_PAGE_CONFIG_KIND(name, value) \
@@ -164,7 +138,7 @@ pas_local_allocator_config_kind_get_string(pas_local_allocator_config_kind kind)
 #include "pas_bitfit_page_config_kind.def"
 #undef PAS_DEFINE_BITFIT_PAGE_CONFIG_KIND
     }
-    PAS_ASSERT(!"Should not be reached");
+    PAS_ASSERT_NOT_REACHED();
     return NULL;
 }
 

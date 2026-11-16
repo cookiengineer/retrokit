@@ -7,6 +7,12 @@
 //   Various tests related for shader storage buffers.
 //
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
+#include <array>
+
 #include "test_utils/ANGLETest.h"
 #include "test_utils/gl_raii.h"
 
@@ -54,7 +60,7 @@ struct VectorCase
     const unsigned int kBytesPerComponent = sizeof(GLuint);
 };
 
-class ShaderStorageBufferTest31 : public ANGLETest
+class ShaderStorageBufferTest31 : public ANGLETest<>
 {
   protected:
     ShaderStorageBufferTest31()
@@ -260,6 +266,67 @@ TEST_P(ShaderStorageBufferTest31, ExceedMaxCombinedShaderStorageBlocks)
     EXPECT_EQ(0u, program);
 }
 
+// Linking should not fail if block size in shader equals to GL_MAX_SHADER_STORAGE_BLOCK_SIZE.
+// Linking should fail if block size in shader exceeds GL_MAX_SHADER_STORAGE_BLOCK_SIZE.
+TEST_P(ShaderStorageBufferTest31, ExceedMaxShaderStorageBlockSize)
+{
+    GLint maxShaderStorageBlockSize = 0;
+    glGetIntegerv(GL_MAX_SHADER_STORAGE_BLOCK_SIZE, &maxShaderStorageBlockSize);
+    EXPECT_GL_NO_ERROR();
+
+    // Linking should not fail if block size in shader equals to GL_MAX_SHADER_STORAGE_BLOCK_SIZE.
+    std::ostringstream blockArraySize;
+    blockArraySize << (maxShaderStorageBlockSize / 4);
+    const std::string &computeShaderSource =
+        "#version 310 es\n"
+        "layout (local_size_x = 1) in;\n"
+        "layout(std430) buffer FullSizeBlock\n"
+        "{\n"
+        "uint data[" +
+        blockArraySize.str() +
+        "];\n"
+        "};\n"
+        "void main()\n"
+        "{\n"
+        "for (int i=0; i<" +
+        blockArraySize.str() +
+        "; i++)\n"
+        "{\n"
+        "data[i] = uint(0);\n"
+        "};\n"
+        "}\n";
+
+    GLuint ComputeProgram = CompileComputeProgram(computeShaderSource.c_str(), true);
+    EXPECT_NE(0u, ComputeProgram);
+    glDeleteProgram(ComputeProgram);
+
+    // Linking should fail if block size in shader exceeds GL_MAX_SHADER_STORAGE_BLOCK_SIZE.
+    std::ostringstream exceedBlockArraySize;
+    exceedBlockArraySize << (maxShaderStorageBlockSize / 4 + 1);
+    const std::string &exceedComputeShaderSource =
+        "#version 310 es\n"
+        "layout (local_size_x = 1) in;\n"
+        "layout(std430) buffer FullSizeBlock\n"
+        "{\n"
+        "uint data[" +
+        exceedBlockArraySize.str() +
+        "];\n"
+        "};\n"
+        "void main()\n"
+        "{\n"
+        "for (int i=0; i<" +
+        exceedBlockArraySize.str() +
+        "; i++)\n"
+        "{\n"
+        "data[i] = uint(0);\n"
+        "};\n"
+        "}\n";
+
+    GLuint exceedComputeProgram = CompileComputeProgram(exceedComputeShaderSource.c_str(), true);
+    EXPECT_EQ(0u, exceedComputeProgram);
+    glDeleteProgram(exceedComputeProgram);
+}
+
 // Test shader storage buffer read write.
 TEST_P(ShaderStorageBufferTest31, ShaderStorageBufferReadWrite)
 {
@@ -277,7 +344,7 @@ TEST_P(ShaderStorageBufferTest31, ShaderStorageBufferReadWrite)
 
     ANGLE_GL_COMPUTE_PROGRAM(program, kCS);
 
-    glUseProgram(program.get());
+    glUseProgram(program);
 
     constexpr unsigned int kElementCount = 2;
     // The array stride are rounded up to the base alignment of a vec4 for std140 layout.
@@ -296,7 +363,7 @@ TEST_P(ShaderStorageBufferTest31, ShaderStorageBufferReadWrite)
     glFinish();
 
     // Read back shader storage buffer
-    constexpr unsigned int kExpectedValues[2] = {3u, 4u};
+    static constexpr std::array<unsigned int, 2> kExpectedValues = {3u, 4u};
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer);
     void *ptr = glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, kElementCount * kArrayStride,
                                  GL_MAP_READ_BIT);
@@ -312,12 +379,133 @@ TEST_P(ShaderStorageBufferTest31, ShaderStorageBufferReadWrite)
     EXPECT_GL_NO_ERROR();
 }
 
+// Test shader storage buffer write followed by glTexSUbData and followed by shader storage write
+// again.
+TEST_P(ShaderStorageBufferTest31, ShaderStorageBufferReadWriteAndBufferSubData)
+{
+    constexpr char kCS[] =
+        "#version 310 es\n"
+        "layout(local_size_x=1, local_size_y=1, local_size_z=1) in;\n"
+        "layout(std140, binding = 1) buffer blockName {\n"
+        "    uint data[2];\n"
+        "} instanceName;\n"
+        "void main()\n"
+        "{\n"
+        "    instanceName.data[0] = 3u;\n"
+        "    instanceName.data[1] = 4u;\n"
+        "}\n";
+
+    ANGLE_GL_COMPUTE_PROGRAM(program, kCS);
+
+    glUseProgram(program);
+
+    int bufferAlignOffset;
+    glGetIntegerv(GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT, &bufferAlignOffset);
+
+    constexpr unsigned int kElementCount = 2;
+    // The array stride are rounded up to the base alignment of a vec4 for std140 layout.
+    constexpr unsigned int kArrayStride       = 16;
+    constexpr unsigned int kMiddlePaddingSize = 1024;
+    unsigned int kShaderUsedSize              = kElementCount * kArrayStride;
+    unsigned int kOffset1    = (kShaderUsedSize + bufferAlignOffset - 1) & ~(bufferAlignOffset - 1);
+    unsigned int kOffset2    = kOffset1 + kMiddlePaddingSize;
+    unsigned int kBufferSize = kOffset2 + kShaderUsedSize;
+
+    for (int loop = 0; loop < 2; loop++)
+    {
+        // Create shader storage buffer
+        GLBuffer shaderStorageBuffer;
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, kBufferSize, nullptr, GL_DYNAMIC_DRAW);
+
+        // Bind shader storage buffer and dispath compute
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, shaderStorageBuffer);
+        glDispatchCompute(1, 1, 1);
+        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+        glBindBufferRange(GL_SHADER_STORAGE_BUFFER, 1, shaderStorageBuffer, kOffset2,
+                          kShaderUsedSize);
+        glDispatchCompute(1, 1, 1);
+        EXPECT_GL_NO_ERROR();
+
+        if (loop == 1)
+        {
+            // Make write operation finished but read operation pending. We don't care actual
+            // rendering result but just to have a unflushed rendering using the buffer so that it
+            // will appears as pending.
+            glFinish();
+            constexpr char kVS[] = R"(attribute vec4 in_attrib;
+                                    varying vec4 v_attrib;
+                                    void main()
+                                    {
+                                        v_attrib = in_attrib;
+                                        gl_Position = vec4(0.0, 0.0, 0.5, 1.0);
+                                        gl_PointSize = 100.0;
+                                    })";
+            constexpr char kFS[] = R"(precision mediump float;
+                                    varying vec4 v_attrib;
+                                    void main()
+                                    {
+                                        gl_FragColor = v_attrib;
+                                    })";
+            GLuint readProgram   = CompileProgram(kVS, kFS);
+            ASSERT_NE(readProgram, 0U);
+            GLint attribLocation = glGetAttribLocation(readProgram, "in_attrib");
+            ASSERT_NE(attribLocation, -1);
+            glUseProgram(readProgram);
+            ASSERT_GL_NO_ERROR();
+            glMemoryBarrier(GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT | GL_ELEMENT_ARRAY_BARRIER_BIT);
+            glBindBuffer(GL_ARRAY_BUFFER, shaderStorageBuffer);
+            glVertexAttribPointer(attribLocation, 4, GL_UNSIGNED_BYTE, GL_TRUE, 4, nullptr);
+            glEnableVertexAttribArray(attribLocation);
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, shaderStorageBuffer);
+            glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+            glDrawElements(GL_POINTS, 1, GL_UNSIGNED_INT, nullptr);
+            ASSERT_GL_NO_ERROR();
+        }
+
+        // Use subData to update middle portion of data to trigger acquireAndUpdate code path in
+        // ANGLE
+        glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer);
+        constexpr unsigned int kMiddlePaddingValue = 0x55555555u;
+        std::vector<unsigned int> kMiddlePaddingValues(kMiddlePaddingSize / sizeof(unsigned int),
+                                                       kMiddlePaddingValue);
+        glBufferSubData(GL_SHADER_STORAGE_BUFFER, kOffset1, kMiddlePaddingSize,
+                        kMiddlePaddingValues.data());
+
+        // Read back shader storage buffer
+        static constexpr std::array<unsigned int, 2> kExpectedValues = {3u, 4u};
+        const GLbyte *ptr0                        = reinterpret_cast<const GLbyte *>(
+            glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, kBufferSize, GL_MAP_READ_BIT));
+        for (unsigned int idx = 0; idx < kElementCount; idx++)
+        {
+            EXPECT_EQ(kExpectedValues[idx],
+                      *(reinterpret_cast<const GLuint *>(ptr0 + idx * kArrayStride)));
+        }
+
+        const GLbyte *ptr1 = reinterpret_cast<const GLbyte *>(ptr0 + kOffset1);
+        for (unsigned int idx = 0; idx < kMiddlePaddingSize / sizeof(unsigned int); idx++)
+        {
+            EXPECT_EQ(kMiddlePaddingValue, reinterpret_cast<const GLuint *>(ptr1)[idx]);
+        }
+
+        const GLbyte *ptr2 = ptr1 + kMiddlePaddingSize;
+        for (unsigned int idx = 0; idx < kElementCount; idx++)
+        {
+            EXPECT_EQ(kExpectedValues[idx],
+                      *(reinterpret_cast<const GLuint *>(ptr2 + idx * kArrayStride)));
+        }
+
+        glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+        EXPECT_GL_NO_ERROR();
+    }
+}
+
 // Tests modifying an existing shader storage buffer
 TEST_P(ShaderStorageBufferTest31, ShaderStorageBufferReadWriteSame)
 {
-    // Missing PBO support in Vulkan.  http://anglebug.com/3210
-    ANGLE_SKIP_TEST_IF(IsVulkan());
-
     constexpr char kComputeShaderSource[] =
         R"(#version 310 es
 layout(local_size_x=1, local_size_y=1, local_size_z=1) in;
@@ -413,8 +601,6 @@ void main()
 // Tests reading and writing to a shader storage buffer bound at an offset.
 TEST_P(ShaderStorageBufferTest31, ShaderStorageBufferReadWriteOffset)
 {
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
     constexpr char kCS[] = R"(#version 310 es
 layout(local_size_x=1, local_size_y=1, local_size_z=1) in;
 
@@ -467,7 +653,7 @@ void main()
     glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
 
     // Read back shader storage buffer
-    constexpr unsigned int kExpectedValues[2] = {3u, 4u};
+    static constexpr std::array<unsigned int, 2> kExpectedValues = {3u, 4u};
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer);
     void *ptr = glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, kBufferSize, GL_MAP_READ_BIT);
     for (unsigned int idx = 0; idx < kElementCount; idx++)
@@ -519,7 +705,7 @@ TEST_P(ShaderStorageBufferTest31, ShaderStorageBufferVector)
 // Test that the shader works well with an active SSBO but not statically used.
 TEST_P(ShaderStorageBufferTest31, ActiveSSBOButNotStaticallyUsed)
 {
-    // http://anglebug.com/3725
+    // http://anglebug.com/42262382
     ANGLE_SKIP_TEST_IF(IsAndroid() && IsPixel2() && IsVulkan());
 
     constexpr char kComputeShaderSource[] =
@@ -638,7 +824,7 @@ TEST_P(ShaderStorageBufferTest31, VectorSwizzleInColumnMajorMatrixTest)
 // Test that access/write to swizzle vector data in row_major matrix in shader storage block.
 TEST_P(ShaderStorageBufferTest31, VectorSwizzleInRowMajorMatrixTest)
 {
-    ANGLE_SKIP_TEST_IF(IsAndroid());
+    ANGLE_SKIP_TEST_IF(IsAndroid() && IsQualcomm());
 
     constexpr char kComputeShaderSource[] =
         R"(#version 310 es
@@ -672,9 +858,9 @@ TEST_P(ShaderStorageBufferTest31, VectorSwizzleInRowMajorMatrixTest)
 TEST_P(ShaderStorageBufferTest31, ScalarDataInMatrixInSSBOWithRowMajorQualifier)
 {
     // TODO(jiajia.qin@intel.com): Figure out why it fails on Intel Linux platform.
-    // http://anglebug.com/1951
-    ANGLE_SKIP_TEST_IF(IsIntel() && IsLinux());
-    ANGLE_SKIP_TEST_IF(IsAndroid());
+    // http://anglebug.com/40644618
+    ANGLE_SKIP_TEST_IF(IsIntel() && IsLinux() && IsOpenGL());
+    ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGL());
 
     constexpr char kComputeShaderSource[] =
         R"(#version 310 es
@@ -689,9 +875,9 @@ void main()
 {
     instanceOut.data[0][0] = instanceIn.data[0][0];
     instanceOut.data[0][1] = instanceIn.data[0][1];
-    instanceOut.data[0][2] = instanceIn.data[0][2];
-    instanceOut.data[1][0] = instanceIn.data[1][0];
-    instanceOut.data[1][1] = instanceIn.data[1][1];
+    instanceOut.data[0].z = instanceIn.data[0].z;
+    instanceOut.data[1].x = instanceIn.data[1].x;
+    instanceOut.data[1].y = instanceIn.data[1].y;
     instanceOut.data[1][2] = instanceIn.data[1][2];
 }
 )";
@@ -710,7 +896,7 @@ void main()
 
 TEST_P(ShaderStorageBufferTest31, VectorDataInMatrixInSSBOWithRowMajorQualifier)
 {
-    ANGLE_SKIP_TEST_IF(IsAndroid());
+    ANGLE_SKIP_TEST_IF(IsAndroid() && IsQualcomm());
 
     constexpr char kComputeShaderSource[] =
         R"(#version 310 es
@@ -775,9 +961,9 @@ void main()
 TEST_P(ShaderStorageBufferTest31, ScalarDataInMatrixInStructureInSSBOWithRowMajorQualifier)
 {
     // TODO(jiajia.qin@intel.com): Figure out why it fails on Intel Linux platform.
-    // http://anglebug.com/1951
-    ANGLE_SKIP_TEST_IF(IsIntel() && IsLinux());
-    ANGLE_SKIP_TEST_IF(IsAndroid());
+    // http://anglebug.com/40644618
+    ANGLE_SKIP_TEST_IF(IsIntel() && IsLinux() && IsOpenGL());
+    ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGL());
 
     constexpr char kComputeShaderSource[] =
         R"(#version 310 es
@@ -796,9 +982,9 @@ void main()
 {
     instanceOut.s.data[0][0] = instanceIn.s.data[0][0];
     instanceOut.s.data[0][1] = instanceIn.s.data[0][1];
-    instanceOut.s.data[0][2] = instanceIn.s.data[0][2];
-    instanceOut.s.data[1][0] = instanceIn.s.data[1][0];
-    instanceOut.s.data[1][1] = instanceIn.s.data[1][1];
+    instanceOut.s.data[0].z = instanceIn.s.data[0].z;
+    instanceOut.s.data[1].x = instanceIn.s.data[1].x;
+    instanceOut.s.data[1].y = instanceIn.s.data[1].y;
     instanceOut.s.data[1][2] = instanceIn.s.data[1][2];
 }
 )";
@@ -1157,11 +1343,12 @@ void main()
     constexpr unsigned int kBytesPerComponent = sizeof(unsigned int);
     constexpr unsigned int kArrayStride       = 8;
     constexpr unsigned int kComponentCount    = kArrayStride / kBytesPerComponent;
-    constexpr unsigned int kExpectedValues[kElementCount][kComponentCount] = {{1u, 2u}, {3u, 4u}};
+    constexpr std::array<std::array<unsigned int, kComponentCount>, kElementCount> kExpectedValues =
+        {{{1u, 2u}, {3u, 4u}}};
     // Create shader storage buffer
     GLBuffer shaderStorageBuffer[2];
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer[0]);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, kElementCount * kArrayStride, kExpectedValues,
+    glBufferData(GL_SHADER_STORAGE_BUFFER, kElementCount * kArrayStride, kExpectedValues.data(),
                  GL_STATIC_DRAW);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer[1]);
     glBufferData(GL_SHADER_STORAGE_BUFFER, kElementCount * kArrayStride, nullptr, GL_STATIC_DRAW);
@@ -1410,7 +1597,7 @@ void main()
 
     ANGLE_GL_COMPUTE_PROGRAM(program, kCS);
 
-    glUseProgram(program.get());
+    glUseProgram(program);
 
     constexpr unsigned int kElementCount = 2;
     // The array stride are rounded up to the base alignment of a vec4 for std140 layout.
@@ -1429,7 +1616,7 @@ void main()
     glFinish();
 
     // Read back shader storage buffer
-    constexpr unsigned int kExpectedValues[2] = {5u, 7u};
+    static constexpr std::array<unsigned int, 2> kExpectedValues = {5u, 7u};
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer);
     void *ptr = glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, kElementCount * kArrayStride,
                                  GL_MAP_READ_BIT);
@@ -1482,8 +1669,8 @@ void main()
     EXPECT_GL_NO_ERROR();
 
     unsigned int outVarIndex1 =
-        glGetProgramResourceIndex(program1.get(), GL_BUFFER_VARIABLE, "Output.result1");
-    glGetProgramResourceiv(program1.get(), GL_BUFFER_VARIABLE, outVarIndex1, 1, props, 1, 0,
+        glGetProgramResourceIndex(program1, GL_BUFFER_VARIABLE, "Output.result1");
+    glGetProgramResourceiv(program1, GL_BUFFER_VARIABLE, outVarIndex1, 1, props, 1, 0,
                            &arrayStride1);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer1);
     glBufferData(GL_SHADER_STORAGE_BUFFER, numInvocations * arrayStride1, nullptr, GL_STREAM_READ);
@@ -1491,18 +1678,18 @@ void main()
     EXPECT_GL_NO_ERROR();
 
     unsigned int outVarIndex2 =
-        glGetProgramResourceIndex(program2.get(), GL_BUFFER_VARIABLE, "Output.result2");
-    glGetProgramResourceiv(program2.get(), GL_BUFFER_VARIABLE, outVarIndex2, 1, props, 1, 0,
+        glGetProgramResourceIndex(program2, GL_BUFFER_VARIABLE, "Output.result2");
+    glGetProgramResourceiv(program2, GL_BUFFER_VARIABLE, outVarIndex2, 1, props, 1, 0,
                            &arrayStride2);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer2);
     glBufferData(GL_SHADER_STORAGE_BUFFER, numInvocations * arrayStride2, nullptr, GL_STREAM_READ);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, shaderStorageBuffer2);
     EXPECT_GL_NO_ERROR();
 
-    glUseProgram(program1.get());
+    glUseProgram(program1);
     glDispatchCompute(1, 1, 1);
     EXPECT_GL_NO_ERROR();
-    glUseProgram(program2.get());
+    glUseProgram(program2);
     glDispatchCompute(1, 1, 1);
     EXPECT_GL_NO_ERROR();
 
@@ -1603,8 +1790,8 @@ void main()
 TEST_P(ShaderStorageBufferTest31, LoadAndStoreBooleanValue)
 {
     // TODO(jiajia.qin@intel.com): Figure out why it fails on Intel Linux platform.
-    // http://anglebug.com/1951
-    ANGLE_SKIP_TEST_IF(IsIntel() && IsLinux());
+    // http://anglebug.com/40644618
+    ANGLE_SKIP_TEST_IF(IsIntel() && IsLinux() && IsOpenGL());
 
     constexpr char kComputeShaderSource[] = R"(#version 310 es
 layout (local_size_x=1) in;
@@ -1676,8 +1863,8 @@ void main()
 TEST_P(ShaderStorageBufferTest31, LoadAndStoreBooleanVec3)
 {
     // TODO(jiajia.qin@intel.com): Figure out why it fails on Intel Linux platform.
-    // http://anglebug.com/1951
-    ANGLE_SKIP_TEST_IF(IsIntel() && IsLinux());
+    // http://anglebug.com/40644618
+    ANGLE_SKIP_TEST_IF(IsIntel() && IsLinux() && IsOpenGL());
 
     ANGLE_SKIP_TEST_IF(IsAMD() && IsWindows() && IsOpenGL());
 
@@ -1740,8 +1927,8 @@ void main()
 TEST_P(ShaderStorageBufferTest31, LoadAndStoreBooleanVarAndVec2)
 {
     // TODO(jiajia.qin@intel.com): Figure out why it fails on Intel Linux platform.
-    // http://anglebug.com/1951
-    ANGLE_SKIP_TEST_IF(IsIntel() && IsLinux());
+    // http://anglebug.com/40644618
+    ANGLE_SKIP_TEST_IF(IsIntel() && IsLinux() && IsOpenGL());
 
     ANGLE_SKIP_TEST_IF(IsAMD() && IsWindows() && IsOpenGL());
 
@@ -1890,7 +2077,8 @@ void main()
 
     // Read back shader storage buffer
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer[1]);
-    constexpr GLuint kExpectedADatas[kAElementCount] = {1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u};
+    static constexpr std::array<GLuint, kAElementCount> kExpectedADatas = {1u, 2u, 3u, 4u,
+                                                                           5u, 6u, 7u, 8u};
     const GLuint *ptr                                = reinterpret_cast<const GLuint *>(
         glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, kTotalSize, GL_MAP_READ_BIT));
     for (unsigned i = 0u; i < kDimension0; i++)
@@ -1947,7 +2135,8 @@ void main()
     constexpr unsigned int kLoadBlockElementCount                   = 5;
     constexpr unsigned int kStoreBlockElementCount                  = 6;
     constexpr unsigned int kInputValues[kLoadBlockElementCount]     = {1u, 2u, 3u, 4u, 5u};
-    constexpr unsigned int kExpectedValues[kStoreBlockElementCount] = {3u, 1u, 2u, 3u, 4u, 5u};
+    static constexpr std::array<unsigned int, kStoreBlockElementCount> kExpectedValues = {
+        3u, 1u, 2u, 3u, 4u, 5u};
     GLBuffer shaderStorageBuffer[2];
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer[0]);
     glBufferData(GL_SHADER_STORAGE_BUFFER, kLoadBlockElementCount * kBytesPerComponent,
@@ -1978,7 +2167,7 @@ void main()
 // size to be smaller than the first
 TEST_P(ShaderStorageBufferTest31, UnsizedArrayLengthRespecifySize)
 {
-    // http://anglebug.com/4566
+    // http://anglebug.com/42263171
     ANGLE_SKIP_TEST_IF(IsD3D11() || (IsAndroid() && IsOpenGLES()));
 
     constexpr char kComputeShaderSource[] =
@@ -2013,7 +2202,8 @@ void main()
     constexpr unsigned int kLoadBlockElementCount                   = 5;
     constexpr unsigned int kStoreBlockElementCount                  = 6;
     constexpr unsigned int kInputValues[kLoadBlockElementCount]     = {1u, 2u, 3u, 4u, 5u};
-    constexpr unsigned int kExpectedValues[kStoreBlockElementCount] = {3u, 1u, 2u, 3u, 4u, 5u};
+    static constexpr std::array<unsigned int, kStoreBlockElementCount> kExpectedValues = {
+        3u, 1u, 2u, 3u, 4u, 5u};
     GLBuffer shaderStorageBuffer[2];
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer[0]);
     glBufferData(GL_SHADER_STORAGE_BUFFER, kLoadBlockElementCount * kBytesPerComponent,
@@ -2044,8 +2234,8 @@ void main()
     constexpr unsigned int kSmallerLoadBlockElementCount                          = 3;
     constexpr unsigned int kSmallerStoreBlockElementCount                         = 4;
     constexpr unsigned int kSmallerInputValues[kSmallerLoadBlockElementCount]     = {1u, 2u, 3u};
-    constexpr unsigned int kSmallerExpectedValues[kSmallerStoreBlockElementCount] = {1u, 1u, 2u,
-                                                                                     3u};
+    static constexpr std::array<unsigned int, kSmallerStoreBlockElementCount>
+        kSmallerExpectedValues = {1u, 1u, 2u, 3u};
 
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer[0]);
     glBufferData(GL_SHADER_STORAGE_BUFFER, kSmallerLoadBlockElementCount * kBytesPerComponent,
@@ -2121,6 +2311,64 @@ void main()
     EXPECT_GL_NO_ERROR();
 }
 
+// Test that BufferData change propagate to context state.
+TEST_P(ShaderStorageBufferTest31, DependentBufferChange)
+{
+    // Test fail on Nexus devices. http://anglebug.com/42264770
+    ANGLE_SKIP_TEST_IF(IsNexus5X() && IsOpenGLES());
+
+    constexpr char kComputeShaderSource[] =
+        R"(#version 310 es
+layout (local_size_x=1) in;
+layout(binding=0, std140) buffer Storage0
+{
+    uint b;
+} sb_load;
+layout(binding=1, std140) buffer Storage1
+{
+    uint b;
+} sb_store;
+void main()
+{
+    sb_store.b += sb_load.b;
+}
+)";
+
+    ANGLE_GL_COMPUTE_PROGRAM(program, kComputeShaderSource);
+    glUseProgram(program);
+
+    constexpr unsigned int kBufferSize                        = 4096;
+    constexpr unsigned int kBufferElementCount                = kBufferSize / sizeof(unsigned int);
+    std::array<unsigned int, kBufferElementCount> kBufferData = {};
+    GLBuffer shaderStorageBuffer[2];
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer[0]);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, kBufferSize, kBufferData.data(), GL_STATIC_DRAW);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer[1]);
+    kBufferData[0] = 5;  // initial value
+    glBufferData(GL_SHADER_STORAGE_BUFFER, kBufferSize, kBufferData.data(), GL_STATIC_DRAW);
+
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, shaderStorageBuffer[0]);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, shaderStorageBuffer[1]);
+
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, shaderStorageBuffer[0]);
+    kBufferData[0] = 7;
+    glBufferData(GL_SHADER_STORAGE_BUFFER, kBufferSize, kBufferData.data(), GL_STATIC_DRAW);
+    glDispatchCompute(1, 1, 1);
+    kBufferData[0] = 11;
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, kBufferSize, kBufferData.data(), GL_STATIC_DRAW);
+    glDispatchCompute(1, 1, 1);
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer[1]);
+    glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+    const GLuint *ptr = reinterpret_cast<const GLuint *>(
+        glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, kBufferSize, GL_MAP_READ_BIT));
+    constexpr unsigned int kExpectedValue = 5 + 7 + 11;
+    EXPECT_EQ(kExpectedValue, *ptr);
+
+    EXPECT_GL_NO_ERROR();
+}
+
 // Test that readonly binary operator for buffer variable is correctly handled.
 TEST_P(ShaderStorageBufferTest31, ReadonlyBinaryOperator)
 {
@@ -2178,7 +2426,7 @@ TEST_P(ShaderStorageBufferTest31, ReadonlyBinaryOperator)
     glFinish();
 
     // Read back shader storage buffer
-    constexpr unsigned int kExpectedValues[kComponentCount] = {9u, 12u};
+    static constexpr std::array<unsigned int, kComponentCount> kExpectedValues = {9u, 12u};
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer[3]);
     const GLuint *ptr = reinterpret_cast<const GLuint *>(glMapBufferRange(
         GL_SHADER_STORAGE_BUFFER, 0, kComponentCount * kBytesPerComponent, GL_MAP_READ_BIT));
@@ -2359,7 +2607,7 @@ void main()
 // Verify the size of the buffer with unsized struct array is calculated correctly
 TEST_P(ShaderStorageBufferTest31, BigStructUnsizedStructArraySize)
 {
-    // TODO(http://anglebug.com/3596)
+    // TODO(http://anglebug.com/42262259)
     ANGLE_SKIP_TEST_IF(IsAMD() && IsWindows() && IsOpenGL());
 
     constexpr char kComputeShaderSource[] =
@@ -2412,7 +2660,7 @@ void main()
 // Verify the size of the buffer with unsized float array is calculated correctly
 TEST_P(ShaderStorageBufferTest31, BigStructUnsizedFloatArraySize)
 {
-    // TODO(http://anglebug.com/3596)
+    // TODO(http://anglebug.com/42262259)
     ANGLE_SKIP_TEST_IF(IsAMD() && IsWindows() && IsOpenGL());
 
     constexpr char kComputeShaderSource[] =
@@ -2456,6 +2704,848 @@ void main()
     EXPECT_GE(queryData, 20);
 }
 
-ANGLE_INSTANTIATE_TEST_ES31(ShaderStorageBufferTest31);
+// Tests that shader write before pixel pack/unpack works
+TEST_P(ShaderStorageBufferTest31, ShaderStorageBufferWriteThenPixelPackUnpack)
+{
+    // Create two textures and framebuffers and make sure they are initialized.
+    GLTexture color1;
+    glBindTexture(GL_TEXTURE_2D, color1);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, 1, 1);
+
+    GLFramebuffer framebuffer1;
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer1);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color1, 0);
+
+    glClearColor(255, 0, 255, 255);
+    glClear(GL_COLOR_BUFFER_BIT);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::magenta);
+
+    GLTexture color2;
+    glBindTexture(GL_TEXTURE_2D, color2);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, 1, 1);
+
+    GLFramebuffer framebuffer2;
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer2);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color2, 0);
+
+    glClearColor(0, 0, 255, 255);
+    glClear(GL_COLOR_BUFFER_BIT);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::blue);
+
+    constexpr char kComputeShaderSource[] =
+        R"(#version 310 es
+layout(local_size_x=1, local_size_y=1, local_size_z=1) in;
+layout(std430, binding = 0) buffer block {
+    uint data[2];
+} outBlock;
+void main()
+{
+    // Output red to index 0, and green to index 1.
+    outBlock.data[0] = 0xFF0000FFu;
+    outBlock.data[1] = 0xFF00FF00u;
+}
+)";
+
+    ANGLE_GL_COMPUTE_PROGRAM(program, kComputeShaderSource);
+
+    glUseProgram(program);
+
+    constexpr GLsizei kBufferSize                   = sizeof(GLuint) * 2;
+    constexpr std::array<GLuint, 2> kBufferInitData = {0x01234567u, 0x89ABCDEFu};
+
+    // Create a shader storage buffer
+    GLBuffer buffer;
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, buffer);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, kBufferSize, kBufferInitData.data(), GL_STATIC_DRAW);
+
+    // Bind shader storage buffer and write to it.
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, buffer);
+
+    glDispatchCompute(1, 1, 1);
+    EXPECT_GL_NO_ERROR();
+
+    // Issue a memory barrier for pixel pack/unpack operations.
+    glMemoryBarrier(GL_PIXEL_BUFFER_BARRIER_BIT);
+    EXPECT_GL_NO_ERROR();
+
+    // Use a pixel pack operation to overwrite the output of the compute shader at index 0.  Uses
+    // the second framebuffer which is blue.
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, buffer);
+    glReadPixels(0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+    EXPECT_GL_NO_ERROR();
+
+    // Use a pixel unpack operation to re-initialize the other framebuffer with the results from the
+    // compute shader.
+    glBindTexture(GL_TEXTURE_2D, color1);
+    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, buffer);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE,
+                    reinterpret_cast<void *>(sizeof(GLuint)));
+    EXPECT_GL_NO_ERROR();
+
+    // Verify that the first framebuffer is now green
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer1);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+
+    // Verify the contents of the buffer.  It should have blue as the first index and green as the
+    // second.
+    glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+    GLColor *bufferContents = static_cast<GLColor *>(
+        glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, kBufferSize, GL_MAP_READ_BIT));
+    EXPECT_GL_NO_ERROR();
+
+    EXPECT_EQ(GLColor::blue, bufferContents[0]);
+    EXPECT_EQ(GLColor::green, bufferContents[1]);
+    glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+    EXPECT_GL_NO_ERROR();
+}
+
+// Tests that shader write after pixel pack/unpack works
+TEST_P(ShaderStorageBufferTest31, PixelPackUnpackThenShaderStorageBufferWrite)
+{
+    swapBuffers();
+    // Create two textures and framebuffers and make sure they are initialized.
+    GLTexture color1;
+    glBindTexture(GL_TEXTURE_2D, color1);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, 1, 1);
+
+    GLFramebuffer framebuffer1;
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer1);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color1, 0);
+
+    glClearColor(255, 0, 255, 255);
+    glClear(GL_COLOR_BUFFER_BIT);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::magenta);
+
+    GLTexture color2;
+    glBindTexture(GL_TEXTURE_2D, color2);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, 1, 1);
+
+    GLFramebuffer framebuffer2;
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer2);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color2, 0);
+
+    glClearColor(0, 0, 255, 255);
+    glClear(GL_COLOR_BUFFER_BIT);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::blue);
+
+    constexpr GLsizei kBufferSize                   = sizeof(GLuint) * 2;
+    constexpr std::array<GLuint, 2> kBufferInitData = {0x01234567u, 0xFF00FF00u};
+
+    // Create a shader storage buffer
+    GLBuffer buffer;
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, buffer);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, kBufferSize, kBufferInitData.data(), GL_STATIC_DRAW);
+
+    // Use a pixel pack operation to overwrite the buffer at index 0.  Uses the second framebuffer
+    // which is blue.
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, buffer);
+    glReadPixels(0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+    EXPECT_GL_NO_ERROR();
+
+    // Use a pixel unpack operation to re-initialize the other framebuffer with the contents of the
+    // buffer, which is green.
+    glBindTexture(GL_TEXTURE_2D, color1);
+    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, buffer);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE,
+                    reinterpret_cast<void *>(sizeof(GLuint)));
+    EXPECT_GL_NO_ERROR();
+
+    // Issue a memory barrier for pixel pack/unpack operations.
+    glMemoryBarrier(GL_PIXEL_BUFFER_BARRIER_BIT);
+
+    // Issue a dispatch call that overwrites the buffer, also verifying that the results of the pack
+    // operation is correct.
+    constexpr char kComputeShaderSource[] =
+        R"(#version 310 es
+layout(local_size_x=1, local_size_y=1, local_size_z=1) in;
+layout(std430, binding = 0) buffer block {
+    uint data[2];
+} outBlock;
+void main()
+{
+    if (outBlock.data[0] == 0xFFFF0000u)
+    {
+        outBlock.data[0] = 0x11223344u;
+    }
+    else
+    {
+        outBlock.data[0] = 0xABCDABCDu;
+    }
+    outBlock.data[1] = 0x55667788u;
+}
+)";
+
+    ANGLE_GL_COMPUTE_PROGRAM(program, kComputeShaderSource);
+
+    glUseProgram(program);
+
+    // Bind shader storage buffer and write to it.
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, buffer);
+
+    glDispatchCompute(1, 1, 1);
+    EXPECT_GL_NO_ERROR();
+
+    // Verify that the first framebuffer is now green
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer1);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+
+    // Verify that the second framebuffer is still blue
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer2);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::blue);
+
+    // Verify the contents of the buffer.
+    glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+    uint32_t *bufferContents = static_cast<uint32_t *>(
+        glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, kBufferSize, GL_MAP_READ_BIT));
+    EXPECT_GL_NO_ERROR();
+
+    EXPECT_EQ(bufferContents[0], 0x11223344u);
+    EXPECT_EQ(bufferContents[1], 0x55667788u);
+    glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+    EXPECT_GL_NO_ERROR();
+}
+
+// Tests that reading from an SSBO inside a function in the fragment shader works.
+TEST_P(ShaderStorageBufferTest31, FragReadSSBOInFunction)
+{
+    GLint maxFragmentShaderStorageBlocks;
+    glGetIntegerv(GL_MAX_FRAGMENT_SHADER_STORAGE_BLOCKS, &maxFragmentShaderStorageBlocks);
+
+    ANGLE_SKIP_TEST_IF(maxFragmentShaderStorageBlocks < 1);
+
+    constexpr std::array<float, 4> kBufferInitValue = {1.0f, 0.0f, 1.0f, 1.0f};
+    GLBuffer buffer;
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, buffer);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(kBufferInitValue), kBufferInitValue.data(),
+                 GL_STATIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, buffer);
+
+    // Create a program that reads from the SSBO in the fragment shader.
+    constexpr char kFS[] = R"(#version 310 es
+precision mediump float;
+
+out vec4 colorOut;
+
+layout(binding = 0, std430) buffer block {
+  vec4 color;
+} instance;
+
+vec4 func() {
+  vec4 temp = instance.color;
+  return temp;
+}
+
+void main() {
+  colorOut = func();
+})";
+
+    GLuint vs = CompileShader(GL_VERTEX_SHADER, essl31_shaders::vs::Simple());
+    GLuint fs = CompileShader(GL_FRAGMENT_SHADER, kFS);
+
+    const GLuint program = glCreateProgram();
+    glAttachShader(program, vs);
+    glAttachShader(program, fs);
+    glLinkProgram(program);
+    CheckLinkStatusAndReturnProgram(program, true);
+
+    glUseProgram(program);
+    GLint positionLoc = glGetAttribLocation(program, essl31_shaders::PositionAttrib());
+    ASSERT_NE(-1, positionLoc);
+
+    const std::array<Vector3, 6> &quadVertices = GetQuadVertices();
+    const size_t posBufferSize                 = quadVertices.size() * sizeof(Vector3);
+
+    GLBuffer posBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, posBuffer);
+    glBufferData(GL_ARRAY_BUFFER, posBufferSize, quadVertices.data(), GL_STATIC_DRAW);
+    glVertexAttribPointer(positionLoc, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+    glEnableVertexAttribArray(positionLoc);
+
+    glUseProgram(program);
+
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    EXPECT_GL_NO_ERROR();
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::magenta);
+}
+
+// Tests reading from an SSBO in a function. In this case, we also modify SSBO to check the result.
+TEST_P(ShaderStorageBufferTest31, ReadSSBOInFunction)
+{
+    constexpr char kCS[] = R"(#version 310 es
+layout(local_size_x=1, local_size_y=1, local_size_z=1) in;
+
+layout(std430, binding = 0) buffer block {
+    uint data;
+} instance;
+
+uint func()
+{
+    return instance.data;
+}
+void main() {
+    instance.data = func() + 1u;
+})";
+
+    ANGLE_GL_COMPUTE_PROGRAM(program, kCS);
+
+    glUseProgram(program);
+
+    constexpr unsigned int kBytesPerComponent = sizeof(GLuint);
+    constexpr unsigned int kInitialData       = 123u;
+
+    // Create shader storage buffer
+    GLBuffer shaderStorageBuffer;
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, kBytesPerComponent, &kInitialData, GL_STATIC_DRAW);
+
+    // Bind shader storage buffer
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, shaderStorageBuffer);
+
+    glDispatchCompute(1, 1, 1);
+
+    glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT | GL_SHADER_STORAGE_BARRIER_BIT);
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer);
+    const void *bufferData =
+        glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, kBytesPerComponent, GL_MAP_READ_BIT);
+
+    constexpr unsigned int kExpectedData = 124u;
+    EXPECT_EQ(kExpectedData, *static_cast<const GLuint *>(bufferData));
+    glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+
+    EXPECT_GL_NO_ERROR();
+}
+
+// Tests whole-array assignment to an SSBO.
+TEST_P(ShaderStorageBufferTest31, AggregateArrayAssignmentSSBO)
+{
+    constexpr char kCS[] = R"(#version 310 es
+
+layout(std430, binding = 0) buffer block {
+  int a[4];
+} instance;
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+void main() {
+  instance.a = int[4](0, 1, 2, 3);
+})";
+
+    ANGLE_GL_COMPUTE_PROGRAM(program, kCS);
+
+    glUseProgram(program);
+
+    constexpr unsigned int kBytesPerComponent = sizeof(GLuint);
+    constexpr unsigned int kElementCount      = 4;
+
+    // Create shader storage buffer
+    GLBuffer shaderStorageBuffer;
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, kElementCount * kBytesPerComponent, nullptr,
+                 GL_STATIC_DRAW);
+
+    // Bind shader storage buffer
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, shaderStorageBuffer);
+
+    glDispatchCompute(1, 1, 1);
+
+    glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT | GL_SHADER_STORAGE_BARRIER_BIT);
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer);
+    const void *bufferData = glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0,
+                                              kElementCount * kBytesPerComponent, GL_MAP_READ_BIT);
+
+    for (unsigned int idx = 0; idx < kElementCount; idx++)
+    {
+        EXPECT_EQ(static_cast<const GLuint *>(bufferData)[idx], idx);
+    }
+    glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+
+    EXPECT_GL_NO_ERROR();
+}
+
+// Tests whole-struct assignment to an SSBO.
+TEST_P(ShaderStorageBufferTest31, AggregateStructAssignmentSSBO)
+{
+    constexpr char kCS[] = R"(#version 310 es
+
+struct StructValues {
+    float f;
+    int i;
+};
+
+
+layout(std430, binding = 0) buffer block {
+    StructValues s;
+} instance;
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+void main() {
+    instance.s = StructValues(123.0f, 321);
+})";
+
+    ANGLE_GL_COMPUTE_PROGRAM(program, kCS);
+
+    glUseProgram(program);
+
+    constexpr size_t kSize = sizeof(GLfloat) + sizeof(GLint);
+
+    // Create shader storage buffer
+    GLBuffer shaderStorageBuffer;
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, kSize, nullptr, GL_STATIC_DRAW);
+
+    // Bind shader storage buffer
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, shaderStorageBuffer);
+
+    glDispatchCompute(1, 1, 1);
+
+    glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT | GL_SHADER_STORAGE_BARRIER_BIT);
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer);
+    const void *bufferData = glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, kSize, GL_MAP_READ_BIT);
+
+    EXPECT_EQ(static_cast<const GLfloat *>(bufferData)[0], 123.0f);
+    EXPECT_EQ(static_cast<const GLint *>(bufferData)[1], 321);
+
+    glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+
+    EXPECT_GL_NO_ERROR();
+}
+
+// Test that certain floating-point values are unchanged after constant folding.
+TEST_P(ShaderStorageBufferTest31, ConstantFoldingPrecision)
+{
+    constexpr char kCS[] = R"(#version 310 es
+
+layout(std430, binding = 0) buffer block {
+    float f;
+} instance;
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+void main() {
+    instance.f = intBitsToFloat(0x0da5cc2f);
+})";
+
+    ANGLE_GL_COMPUTE_PROGRAM(program, kCS);
+
+    glUseProgram(program);
+
+    constexpr size_t kSize = sizeof(GLfloat);
+
+    // Create shader storage buffer
+    GLBuffer shaderStorageBuffer;
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, kSize, nullptr, GL_STATIC_DRAW);
+
+    // Bind shader storage buffer
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, shaderStorageBuffer);
+
+    glDispatchCompute(1, 1, 1);
+
+    glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT | GL_SHADER_STORAGE_BARRIER_BIT);
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer);
+    const void *bufferData = glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, kSize, GL_MAP_READ_BIT);
+
+    int32_t result = static_cast<const int32_t *>(bufferData)[0];
+
+    // Compare against the int32_t representation of the float passed to
+    // intBitsToFloat() in the shader.
+    EXPECT_EQ(result, 0x0da5cc2f);
+
+    glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+
+    EXPECT_GL_NO_ERROR();
+}
+
+// Tests two SSBOs in the fragment shader.
+TEST_P(ShaderStorageBufferTest31, TwoSSBOsInFragmentShader)
+{
+    constexpr char kFS[] = R"(#version 310 es
+precision mediump float;
+
+layout(binding = 0, std430) buffer block0 {
+    float value;
+} result0;
+
+layout(binding = 1, std430) buffer block1 {
+    float value;
+} result1;
+
+void main() {
+    result0.value = 0.5f;
+    result1.value = 42.0f;
+}
+)";
+
+    constexpr size_t kSize[2] = {sizeof(GLfloat), sizeof(GLfloat)};
+    ANGLE_GL_PROGRAM(program, essl31_shaders::vs::Simple(), kFS);
+
+    // Create shader storage buffers
+    GLBuffer shaderStorageBuffer[2];
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer[0]);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, kSize[0], nullptr, GL_STATIC_DRAW);
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer[1]);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, kSize[1], nullptr, GL_STATIC_DRAW);
+
+    // Bind shader storage buffers
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, shaderStorageBuffer[0]);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, shaderStorageBuffer[1]);
+
+    drawQuad(program, essl31_shaders::PositionAttrib(), 0.95f);
+    ASSERT_GL_NO_ERROR();
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer[0]);
+    const void *buffer0Data =
+        glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, kSize[0], GL_MAP_READ_BIT);
+    EXPECT_EQ(static_cast<const GLfloat *>(buffer0Data)[0], 0.5f);
+
+    glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer[1]);
+    const void *buffer1Data =
+        glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, kSize[1], GL_MAP_READ_BIT);
+    EXPECT_EQ(static_cast<const GLfloat *>(buffer1Data)[0], 42.0f);
+
+    glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+
+    EXPECT_GL_NO_ERROR();
+}
+
+// Tests two SSBOs in a compute shader.
+TEST_P(ShaderStorageBufferTest31, TwoSSBOsInComputeShader)
+{
+    constexpr char kCS[] = R"(#version 310 es
+
+layout(local_size_x=1, local_size_y=1, local_size_z=1) in;
+
+layout(binding = 0, std430) buffer block0 {
+    float value;
+} result0;
+
+layout(binding = 1, std430) buffer block1 {
+    float value;
+} result1;
+
+void main() {
+    result0.value = 0.5f;
+    result1.value = 42.0f;
+}
+)";
+
+    constexpr size_t kSize[2] = {sizeof(GLfloat), sizeof(GLfloat)};
+    ANGLE_GL_COMPUTE_PROGRAM(program, kCS);
+    glUseProgram(program);
+
+    // Create shader storage buffers
+    GLBuffer shaderStorageBuffer[2];
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer[0]);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, kSize[0], nullptr, GL_STATIC_DRAW);
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer[1]);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, kSize[1], nullptr, GL_STATIC_DRAW);
+
+    // Bind shader storage buffers
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, shaderStorageBuffer[0]);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, shaderStorageBuffer[1]);
+
+    glDispatchCompute(1, 1, 1);
+    ASSERT_GL_NO_ERROR();
+
+    glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer[0]);
+    const void *buffer0Data =
+        glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, kSize[0], GL_MAP_READ_BIT);
+    EXPECT_EQ(static_cast<const GLfloat *>(buffer0Data)[0], 0.5f);
+
+    glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer[1]);
+    const void *buffer1Data =
+        glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, kSize[1], GL_MAP_READ_BIT);
+    EXPECT_EQ(static_cast<const GLfloat *>(buffer1Data)[0], 42.0f);
+
+    glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+
+    EXPECT_GL_NO_ERROR();
+}
+
+// Test that buffer self-copy works when buffer is used as SSBO
+TEST_P(ShaderStorageBufferTest31, CopyBufferSubDataSelfDependency)
+{
+    constexpr char kCS[] = R"(#version 310 es
+
+layout(local_size_x=1, local_size_y=1, local_size_z=1) in;
+
+layout(binding = 0, std430) buffer SSBO
+{
+    uvec4 data[128];
+};
+
+void main()
+{
+    data[12] += uvec4(1);
+    data[12+64] += uvec4(10);
+}
+)";
+
+    ANGLE_GL_COMPUTE_PROGRAM(program, kCS);
+    glUseProgram(program);
+
+    constexpr uint32_t kUVec4Size   = 4 * sizeof(uint32_t);
+    constexpr uint32_t kSSBOSize    = 128 * kUVec4Size;
+    constexpr uint32_t kData1Offset = 12 * kUVec4Size;
+    constexpr uint32_t kData2Offset = 76 * kUVec4Size;
+
+    // Init data is 4 times the size of SSBO as the buffer is created larger than the SSBO
+    // throughout the test.
+    constexpr uint32_t kInitValue = 12345;
+    const std::vector<uint32_t> kInitData(kSSBOSize, kInitValue);
+
+    // Set up a throw-away buffer just to make buffer suballocations not use offset 0.
+    GLBuffer throwaway;
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, throwaway);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, 1024, nullptr, GL_DYNAMIC_DRAW);
+
+    // Set up the buffer
+    GLBuffer buffer;
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, buffer);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, kSSBOSize * 2, kInitData.data(), GL_DYNAMIC_DRAW);
+
+    // Bind at offset 0.  After the dispatch call: [12] is +1, [76] is +10
+    glBindBufferRange(GL_SHADER_STORAGE_BUFFER, 0, buffer, 0, kSSBOSize);
+    glDispatchCompute(1, 1, 1);
+
+    // Duplicate the buffer in the second half.  Barrier needed for glCopyBufferSubData.  After the
+    // copy: [128+12] is +1, [128+76] is +10
+    glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+    glCopyBufferSubData(GL_SHADER_STORAGE_BUFFER, GL_SHADER_STORAGE_BUFFER, 0, kSSBOSize,
+                        kSSBOSize);
+
+    // Barrier needed before writing to the buffer in the shader.
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+    // Bind at offset 128.  After the dispatch call: [128+12] is +2, [128+76] is +20
+    glBindBufferRange(GL_SHADER_STORAGE_BUFFER, 0, buffer, kSSBOSize, kSSBOSize);
+    glDispatchCompute(1, 1, 1);
+
+    // Do a small self-copy.  Barrier needed for glCopyBufferSubData.
+    // After the copy: [64+12] = [128+12] (i.e. +2)
+    constexpr uint32_t kCopySrcOffset = (128 + 4) * kUVec4Size;
+    constexpr uint32_t kCopyDstOffset = (64 + 4) * kUVec4Size;
+    glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+    glCopyBufferSubData(GL_SHADER_STORAGE_BUFFER, GL_SHADER_STORAGE_BUFFER, kCopySrcOffset,
+                        kCopyDstOffset, kData1Offset);
+
+    // Barrier needed before writing to the buffer in the shader.
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+    // Bind at offset 64.  After the dispatch call: [64+12] is +3, [64+76] (i.e. [128+12]) is +12
+    glBindBufferRange(GL_SHADER_STORAGE_BUFFER, 0, buffer, kCopySrcOffset - kCopyDstOffset,
+                      kSSBOSize);
+    glDispatchCompute(1, 1, 1);
+
+    // Validate results.  Barrier needed for glMapBufferRange
+    glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+    std::vector<uint32_t> result(kSSBOSize / 2);
+    const void *bufferData =
+        glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, kSSBOSize * 2, GL_MAP_READ_BIT);
+    memcpy(result.data(), bufferData, kSSBOSize * 2);
+    glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+
+    for (size_t index = 0; index < kSSBOSize * 2 / kUVec4Size; ++index)
+    {
+        size_t offset      = index * 4;
+        uint32_t increment = 0;
+        if (index == kData1Offset / kUVec4Size)
+        {
+            increment = 1;
+        }
+        else if (index == kData2Offset / kUVec4Size)
+        {
+            increment = 3;
+        }
+        else if (index == (kSSBOSize + kData1Offset) / kUVec4Size)
+        {
+            increment = 12;
+        }
+        else if (index == (kSSBOSize + kData2Offset) / kUVec4Size)
+        {
+            increment = 20;
+        }
+
+        for (size_t component = 0; component < 4; ++component)
+        {
+            EXPECT_EQ(result[offset + component], kInitValue + increment)
+                << component << " " << index << " " << increment;
+        }
+    }
+
+    // Do a big copy again, but this time the buffer is unused by the GPU.
+    // After this call: [12] is +12, [76] is +20
+    glCopyBufferSubData(GL_SHADER_STORAGE_BUFFER, GL_SHADER_STORAGE_BUFFER, kSSBOSize, 0,
+                        kSSBOSize);
+
+    // Barrier needed before writing to the buffer in the shader.
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+    // Bind at offset 0.  After the dispatch call: [12] is +13, [76] is +30
+    glBindBufferRange(GL_SHADER_STORAGE_BUFFER, 0, buffer, 0, kSSBOSize);
+    glDispatchCompute(1, 1, 1);
+
+    // Validate results.  Barrier needed for glMapBufferRange
+    glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+    bufferData = glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, kSSBOSize * 2, GL_MAP_READ_BIT);
+    memcpy(result.data(), bufferData, kSSBOSize * 2);
+    glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+
+    for (size_t index = 0; index < kSSBOSize * 2 / kUVec4Size; ++index)
+    {
+        size_t offset      = index * 4;
+        uint32_t increment = 0;
+        if (index == kData1Offset / kUVec4Size)
+        {
+            increment = 13;
+        }
+        else if (index == kData2Offset / kUVec4Size)
+        {
+            increment = 30;
+        }
+        else if (index == (kSSBOSize + kData1Offset) / kUVec4Size)
+        {
+            increment = 12;
+        }
+        else if (index == (kSSBOSize + kData2Offset) / kUVec4Size)
+        {
+            increment = 20;
+        }
+
+        for (size_t component = 0; component < 4; ++component)
+        {
+            EXPECT_EQ(result[offset + component], kInitValue + increment)
+                << component << " " << index << " " << increment;
+        }
+    }
+}
+
+// Test glMemoryBarrier works properly between compute shader write and graphics shader write
+TEST_P(ShaderStorageBufferTest31, ComputeShaderWriteThenGraphicsShaderWrite)
+{
+    constexpr char kComputeShaderSource[] = R"(#version 310 es
+layout(local_size_x=1, local_size_y=1, local_size_z=1) in;
+uniform uint myUniformInt;
+layout(binding=0, std140) buffer Storage1
+{
+    uint data[];
+} sb_store;
+
+void main()
+{
+    uint t = 0u;
+    for(uint i=0u; i<1024u; i++)
+    {
+        t += sb_store.data[i];
+    }
+    sb_store.data[gl_LocalInvocationIndex] = myUniformInt;
+    sb_store.data[gl_LocalInvocationIndex+1u] = t;
+}
+)";
+    ANGLE_GL_COMPUTE_PROGRAM(computeProgram, kComputeShaderSource);
+
+    constexpr char kFS[] = R"(#version 310 es
+precision mediump float;
+
+uniform uint myUniformInt;
+layout(binding=0, std140) buffer Storage1
+{
+    uint data[];
+} sb_store;
+
+void main() {
+    sb_store.data[0] = myUniformInt;
+})";
+    ANGLE_GL_PROGRAM(graphicsProgram, essl31_shaders::vs::Simple(), kFS);
+
+    // Create buffers
+    constexpr GLsizei kBufferSize = sizeof(GLuint) * 1024;
+    std::array<GLuint, 1024> kBufferInitData;
+    kBufferInitData.fill(0x0u);
+    std::array<GLBuffer, 10> shaderStorageBuffer;
+    for (int i = 0; i < 10; i++)
+    {
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer[i]);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, kBufferSize, kBufferInitData.data(), GL_STATIC_DRAW);
+    }
+    GLBuffer unusedBuffer;
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, unusedBuffer);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, kBufferSize, nullptr, GL_STATIC_DRAW);
+
+    // Use compute program write to buffers
+    glUseProgram(computeProgram);
+    GLint uniformLoc = glGetUniformLocation(computeProgram, "myUniformInt");
+    EXPECT_NE(-1, uniformLoc);
+    for (int i = 0; i < 10; i++)
+    {
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, shaderStorageBuffer[i]);
+        GLuint uniformValue = static_cast<GLuint>(i);
+        glUniform1ui(uniformLoc, uniformValue);
+        glDispatchCompute(1, 1, 1);
+        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+    }
+
+    // Issue a last dispatch call write to an irrelevant buffer whose content we don't care about,
+    // so there is intentionally no memoryBarrier call. But it should not affect other SSBOs.
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, unusedBuffer);
+    glUniform1ui(uniformLoc, 0x123456u);
+    glDispatchCompute(1, 1, 1);
+
+    // Use graphics program to write to buffer. These buffers also written by compute shader and
+    // followed by glMemoryBarrier.
+    glUseProgram(graphicsProgram);
+    uniformLoc = glGetUniformLocation(graphicsProgram, "myUniformInt");
+    EXPECT_NE(-1, uniformLoc);
+    constexpr GLuint kGraphicsUniformValue = 100;
+    for (int i = 9; i >= 0; i--)
+    {
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, shaderStorageBuffer[i]);
+        GLuint uniformValue = kGraphicsUniformValue + static_cast<GLuint>(i);
+        glUniform1ui(uniformLoc, uniformValue);
+        drawQuad(graphicsProgram, essl31_shaders::PositionAttrib(), 0.5f);
+    }
+
+    // Read back shader storage buffer
+    glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+    for (int i = 0; i < 10; i++)
+    {
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaderStorageBuffer[i]);
+        const GLuint *ptr = reinterpret_cast<const GLuint *>(
+            glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, kBufferSize, GL_MAP_READ_BIT));
+        ASSERT(ptr != nullptr);
+        EXPECT_EQ(kGraphicsUniformValue + i, *(ptr));
+        EXPECT_EQ(0u, *(ptr + 1));
+        EXPECT_EQ(0u, *(ptr + 2));
+        EXPECT_EQ(0u, *(ptr + 3));
+        glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+    }
+    EXPECT_GL_NO_ERROR();
+}
+
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ShaderStorageBufferTest31);
+ANGLE_INSTANTIATE_TEST_ES31_AND(ShaderStorageBufferTest31,
+                                ES31_VULKAN().enable(Feature::PreferCPUForBufferSubData));
 
 }  // namespace

@@ -27,14 +27,14 @@
 
 #pragma once
 
-#include <limits.h>
-#include "YarrErrorCode.h"
+#include <climits>
+#include <limits>
 
 namespace JSC { namespace Yarr {
 
 #define YarrStackSpaceForBackTrackInfoPatternCharacter 2 // Only for !fixed quantifiers.
-#define YarrStackSpaceForBackTrackInfoCharacterClass 2 // Only for !fixed quantifiers.
-#define YarrStackSpaceForBackTrackInfoBackReference 2
+#define YarrStackSpaceForBackTrackInfoCharacterClass 2 // Greedy/NonGreedy, or FixedCount with unicode/unicodeSets flag.
+#define YarrStackSpaceForBackTrackInfoBackReference 3
 #define YarrStackSpaceForBackTrackInfoAlternative 1 // One per alternative.
 #define YarrStackSpaceForBackTrackInfoParentheticalAssertion 1
 #define YarrStackSpaceForBackTrackInfoParenthesesOnce 2
@@ -43,11 +43,12 @@ namespace JSC { namespace Yarr {
 #define YarrStackSpaceForDotStarEnclosure 1
 
 static constexpr unsigned quantifyInfinite = UINT_MAX;
+static constexpr uint64_t quantifyInfinite64 = std::numeric_limits<uint64_t>::max();
 static constexpr unsigned offsetNoMatch = std::numeric_limits<unsigned>::max();
 
 // The below limit restricts the number of "recursive" match calls in order to
 // avoid spending exponential time on complex regular expressions.
-static constexpr unsigned matchLimit = 1000000;
+static constexpr unsigned matchLimit = 100000000;
 
 enum class MatchFrom { VMThread, CompilerThread };
 
@@ -71,7 +72,23 @@ enum class BuiltInCharacterClassID : unsigned {
     SpaceClassID,
     WordClassID,
     DotClassID,
-    BaseUnicodePropertyID
+    BaseUnicodePropertyID,
+};
+
+enum class SpecificPattern : uint8_t {
+    None,
+    Atom,
+    LeadingSpacesStar,
+    LeadingSpacesPlus,
+    TrailingSpacesStar,
+    TrailingSpacesPlus,
+    Newlines,
+};
+
+enum class ExecutionMode : uint8_t {
+    MatchOnly,
+    IncludeSubpatterns,
+    InlineTest
 };
 
 struct BytecodePattern;

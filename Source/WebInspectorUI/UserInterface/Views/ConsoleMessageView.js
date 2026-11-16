@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2011 Google Inc.  All rights reserved.
- * Copyright (C) 2007, 2008, 2013-2015 Apple Inc.  All rights reserved.
+ * Copyright (C) 2011 Google Inc. All rights reserved.
+ * Copyright (C) 2007, 2008, 2013-2015 Apple Inc. All rights reserved.
  * Copyright (C) 2009 Joseph Pecoraro
  *
  * Redistribution and use in source and binary forms, with or without
@@ -39,10 +39,13 @@ WI.ConsoleMessageView = class ConsoleMessageView extends WI.Object
         this._message = message;
         this._expandable = false;
         this._repeatCount = message._repeatCount || 0;
+        this._timestamp = message._timestamp || null;
 
         // These are the parameters unused by the messages's optional format string.
         // Any extra parameters will be displayed as children of this message.
         this._extraParameters = message.parameters;
+
+        this._timestampElement = null;
     }
 
     // Public
@@ -99,6 +102,7 @@ WI.ConsoleMessageView = class ConsoleMessageView extends WI.Object
         this._appendStackTrace();
 
         this._renderRepeatCount();
+        this.renderTimestamp();            
 
         if (this._message.type === WI.ConsoleMessage.MessageType.Dir)
             this.expand();
@@ -157,6 +161,38 @@ WI.ConsoleMessageView = class ConsoleMessageView extends WI.Object
         }
 
         this._repeatCountElement.textContent = Number.abbreviate(count);
+    }
+
+    get timestamp()
+    {
+        return this._timestamp;
+    }
+
+    set timestamp(timestamp)
+    {
+        this._timestamp = timestamp;
+        if (this._element) {
+            this.renderTimestamp();
+        }
+    }
+
+    renderTimestamp()
+    {
+        if (!this._timestamp) {
+            this._timestampElement?.remove();
+            this._timestampElement = null;
+            return;
+        }
+
+        if (!this._timestampElement) {
+            this._timestampElement = document.createElement("span");
+            this._timestampElement.classList.add("timestamp");
+            this._element.insertBefore(this._timestampElement, this._element.firstChild);
+        }
+    
+        let date = new Date(this._timestamp * 1000);
+        let timeFormat = new Intl.DateTimeFormat("default", { hour: "2-digit", minute: "2-digit", second: "2-digit", fractionalSecondDigits: 3, hour12: false });
+        this._timestampElement.textContent = timeFormat.format(date);
     }
 
     get expandable()
@@ -237,7 +273,7 @@ WI.ConsoleMessageView = class ConsoleMessageView extends WI.Object
 
         if (hasStackTrace) {
             this._message.stackTrace.callFrames.forEach(function(frame) {
-                clipboardString += "\n\t" + (frame.functionName || WI.UIString("(anonymous function)"));
+                clipboardString += "\n\t" + frame.displayName;
                 if (frame.sourceCodeLocation)
                     clipboardString += " (" + frame.sourceCodeLocation.originalLocationString() + ")";
             });
@@ -423,7 +459,7 @@ WI.ConsoleMessageView = class ConsoleMessageView extends WI.Object
         }
 
         var callFrame;
-        let firstNonNativeNonAnonymousNotBlackboxedCallFrame = this._message.stackTrace.firstNonNativeNonAnonymousNotBlackboxedCallFrame;
+        let firstNonNativeNonAnonymousNotBlackboxedCallFrame = this._message.stackTrace?.firstNonNativeNonAnonymousNotBlackboxedCallFrame;
         if (firstNonNativeNonAnonymousNotBlackboxedCallFrame) {
             // JavaScript errors and console.* methods.
             callFrame = firstNonNativeNonAnonymousNotBlackboxedCallFrame;
@@ -507,7 +543,7 @@ WI.ConsoleMessageView = class ConsoleMessageView extends WI.Object
         this._stackTraceElement = this._element.appendChild(document.createElement("div"));
         this._stackTraceElement.classList.add("console-message-body", "console-message-stack-trace-container");
 
-        var callFramesElement = new WI.StackTraceView(this._message.stackTrace).element;
+        let callFramesElement = new WI.StackTraceView(this._message.stackTrace);
         this._stackTraceElement.appendChild(callFramesElement);
     }
 
@@ -586,7 +622,9 @@ WI.ConsoleMessageView = class ConsoleMessageView extends WI.Object
                     let previewContainer = builderElement.appendChild(document.createElement("span"));
                     previewContainer.classList.add("inline-lossless");
 
-                    let preview = WI.FormattedValue.createObjectPreviewOrFormattedValueForRemoteObject(parameter, WI.ObjectPreviewView.Mode.Brief);
+                    let preview = WI.FormattedValue.createObjectPreviewOrFormattedValueForRemoteObject(parameter, {
+                        objectPreviewViewMode: WI.ObjectPreviewView.Mode.Brief,
+                    });
                     let isPreviewView = preview instanceof WI.ObjectPreviewView;
 
                     if (isPreviewView)
@@ -612,7 +650,9 @@ WI.ConsoleMessageView = class ConsoleMessageView extends WI.Object
                 let previewContainer = builderElement.appendChild(document.createElement("span"));
                 previewContainer.classList.add("console-message-preview");
 
-                let preview = WI.FormattedValue.createObjectPreviewOrFormattedValueForRemoteObject(parameter, WI.ObjectPreviewView.Mode.Brief);
+                let preview = WI.FormattedValue.createObjectPreviewOrFormattedValueForRemoteObject(parameter, {
+                    objectPreviewViewMode: WI.ObjectPreviewView.Mode.Brief,
+                });
                 let isPreviewView = preview instanceof WI.ObjectPreviewView;
 
                 if (isPreviewView)
@@ -684,6 +724,7 @@ WI.ConsoleMessageView = class ConsoleMessageView extends WI.Object
             "iterator": this._formatParameterAsObject,
             "class": this._formatParameterAsObject,
             "proxy": this._formatParameterAsObject,
+            "weakref": this._formatParameterAsObject,
             "array": this._formatParameterAsArray,
             "node": this._formatParameterAsNode,
             "string": this._formatParameterAsString,
@@ -707,7 +748,7 @@ WI.ConsoleMessageView = class ConsoleMessageView extends WI.Object
             let stackTrace = WI.StackTrace.fromString(this._message.target, object.description);
             if (stackTrace.callFrames.length) {
                 let stackView = new WI.StackTraceView(stackTrace);
-                fragment.appendChild(stackView.element);
+                fragment.appendChild(stackView);
                 return;
             }
         }
@@ -772,14 +813,12 @@ WI.ConsoleMessageView = class ConsoleMessageView extends WI.Object
 
         function floatFormatter(obj, token)
         {
-            let value = typeof obj.value === "number" ? obj.value : obj.description;
-            return String.standardFormatters.f(value, token);
+            return parseFloat(typeof obj.value === "number" ? obj.value : obj.description).maxDecimals(token.precision);
         }
 
         function integerFormatter(obj)
         {
-            let value = typeof obj.value === "number" ? obj.value : obj.description;
-            return String.standardFormatters.d(value);
+            return parseInt(typeof obj.value === "number" ? obj.value : obj.description);
         }
 
         var currentStyle = null;
@@ -790,7 +829,7 @@ WI.ConsoleMessageView = class ConsoleMessageView extends WI.Object
             buffer.setAttribute("style", obj.description);
             for (var i = 0; i < buffer.style.length; i++) {
                 var property = buffer.style[i];
-                if (isAllowedProperty(property))
+                if (isAllowedProperty(property) && isAllowedValue(buffer.style[property]))
                     currentStyle[property] = buffer.style[property];
             }
         }
@@ -802,6 +841,12 @@ WI.ConsoleMessageView = class ConsoleMessageView extends WI.Object
                     return true;
             }
             return false;
+        }
+
+        function isAllowedValue(value) {
+            if (value.startsWith("url") || value.startsWith("src"))
+                return false;
+            return true;
         }
 
         // Firebug uses %o for formatting objects.
@@ -845,7 +890,7 @@ WI.ConsoleMessageView = class ConsoleMessageView extends WI.Object
 
     _shouldShowStackTrace()
     {
-        if (!this._message.stackTrace.callFrames.length)
+        if (!this._message.stackTrace?.callFrames.length)
             return false;
 
         return this._message.source === WI.ConsoleMessage.MessageSource.Network
@@ -1030,14 +1075,16 @@ WI.ConsoleMessageView = class ConsoleMessageView extends WI.Object
 
         let contextMenu = WI.ContextMenu.createFromEvent(event);
 
-        contextMenu.appendItem(WI.UIString("Save Image"), () => {
-            const forceSaveAs = true;
-            WI.FileUtilities.save({
-                content: parseDataURL(this._message.messageText).data,
-                base64Encoded: true,
-                suggestedName: image.getAttribute("filename"),
-            }, forceSaveAs);
-        });
+        if (WI.FileUtilities.canSave(WI.FileUtilities.SaveMode.SingleFile)) {
+            contextMenu.appendItem(WI.UIString("Save Image"), () => {
+                const forceSaveAs = true;
+                WI.FileUtilities.save(WI.FileUtilities.SaveMode.SingleFile, {
+                    content: parseDataURL(this._message.messageText).data,
+                    base64Encoded: true,
+                    suggestedName: image.getAttribute("filename"),
+                }, forceSaveAs);
+            });
+        }
 
         contextMenu.appendSeparator();
     }

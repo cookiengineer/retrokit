@@ -44,6 +44,25 @@ class RenderbufferState final : angle::NonCopyable
     GLsizei getSamples() const;
     MultisamplingMode getMultisamplingMode() const;
     InitState getInitState() const;
+    void setProtectedContent(bool hasProtectedContent);
+
+    const egl::ImageSourceAttributes &getEGLImageSourceAttributes() const
+    {
+        return mEGLImageSourceAttributes;
+    }
+
+    OwnerImageIndex toOwnerIndex(const ImageIndex &index) const
+    {
+        return mEGLImageSourceAttributes.toOwnerIndex(index);
+    }
+    OwnerLevel toOwnerLevel(LevelIndex level) const
+    {
+        return mEGLImageSourceAttributes.toOwnerLevel(level);
+    }
+    OwnerLayer toOwnerLayer(LayerIndex layer) const
+    {
+        return mEGLImageSourceAttributes.toOwnerLayer(layer);
+    }
 
   private:
     friend class Renderbuffer;
@@ -60,9 +79,16 @@ class RenderbufferState final : angle::NonCopyable
     Format mFormat;
     GLsizei mSamples;
     MultisamplingMode mMultisamplingMode;
+    bool mHasProtectedContent;
 
     // For robust resource init.
     InitState mInitState;
+
+    // |mEGLImageSourceAttributes.type| is only valid if this texture is an "EGLImage target" and
+    // the associated EGL Image was originally sourced from an OpenGL texture.  Such EGL Images can
+    // be a slice of the underlying resource.  The level and layer offset are used to track the
+    // location of the slice.
+    egl::ImageSourceAttributes mEGLImageSourceAttributes;
 };
 
 class Renderbuffer final : public RefCountObject<RenderbufferID>,
@@ -75,7 +101,7 @@ class Renderbuffer final : public RefCountObject<RenderbufferID>,
 
     void onDestroy(const Context *context) override;
 
-    void setLabel(const Context *context, const std::string &label) override;
+    angle::Result setLabel(const Context *context, const std::string &label) override;
     const std::string &getLabel() const override;
 
     angle::Result setStorage(const Context *context,
@@ -83,7 +109,7 @@ class Renderbuffer final : public RefCountObject<RenderbufferID>,
                              GLsizei width,
                              GLsizei height);
     angle::Result setStorageMultisample(const Context *context,
-                                        GLsizei samples,
+                                        GLsizei samplesIn,
                                         GLenum internalformat,
                                         GLsizei width,
                                         GLsizei height,
@@ -92,17 +118,12 @@ class Renderbuffer final : public RefCountObject<RenderbufferID>,
 
     angle::Result copyRenderbufferSubData(Context *context,
                                           const gl::Renderbuffer *srcBuffer,
-                                          GLint srcLevel,
                                           GLint srcX,
                                           GLint srcY,
-                                          GLint srcZ,
-                                          GLint dstLevel,
                                           GLint dstX,
                                           GLint dstY,
-                                          GLint dstZ,
                                           GLsizei srcWidth,
-                                          GLsizei srcHeight,
-                                          GLsizei srcDepth);
+                                          GLsizei srcHeight);
 
     angle::Result copyTextureSubData(Context *context,
                                      const gl::Texture *srcTexture,
@@ -110,13 +131,10 @@ class Renderbuffer final : public RefCountObject<RenderbufferID>,
                                      GLint srcX,
                                      GLint srcY,
                                      GLint srcZ,
-                                     GLint dstLevel,
                                      GLint dstX,
                                      GLint dstY,
-                                     GLint dstZ,
                                      GLsizei srcWidth,
-                                     GLsizei srcHeight,
-                                     GLsizei srcDepth);
+                                     GLsizei srcHeight);
 
     rx::RenderbufferImpl *getImplementation() const;
 
@@ -142,13 +160,14 @@ class Renderbuffer final : public RefCountObject<RenderbufferID>,
     bool isRenderable(const Context *context,
                       GLenum binding,
                       const ImageIndex &imageIndex) const override;
+    bool isEGLImageSource() const;
 
-    void onAttach(const Context *context, rx::Serial framebufferSerial) override;
-    void onDetach(const Context *context, rx::Serial framebufferSerial) override;
+    void onAttach(const Context *context, rx::UniqueSerial framebufferSerial) override;
+    void onDetach(const Context *context, rx::UniqueSerial framebufferSerial) override;
     GLuint getId() const override;
 
-    InitState initState(const ImageIndex &imageIndex) const override;
-    void setInitState(const ImageIndex &imageIndex, InitState initState) override;
+    InitState initState(GLenum binding, const ImageIndex &imageIndex) const override;
+    void setInitState(GLenum binding, const ImageIndex &imageIndex, InitState initState) override;
 
     GLenum getImplementationColorReadFormat(const Context *context) const;
     GLenum getImplementationColorReadType(const Context *context) const;
@@ -164,6 +183,9 @@ class Renderbuffer final : public RefCountObject<RenderbufferID>,
   private:
     // ObserverInterface implementation.
     void onSubjectStateChange(angle::SubjectIndex index, angle::SubjectMessage message) override;
+
+    angle::Result orphanImages(const gl::Context *context,
+                               egl::RefCountObjectReleaser<egl::Image> *outReleaseImage);
 
     rx::FramebufferAttachmentObjectImpl *getAttachmentImpl() const override;
 

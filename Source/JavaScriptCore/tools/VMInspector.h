@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,49 +25,32 @@
 
 #pragma once
 
-#include "CallFrame.h"
-#include "VM.h"
-#include <wtf/DoublyLinkedList.h>
 #include <wtf/Expected.h>
-#include <wtf/Lock.h>
+#include <wtf/Noncopyable.h>
 
 namespace JSC {
 
+class CodeBlock;
+class CallFrame;
+class Heap;
+class JSCell;
+class JSValue;
+class VM;
+
 class VMInspector {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_FORBID_HEAP_ALLOCATION;
     WTF_MAKE_NONCOPYABLE(VMInspector);
-    VMInspector() = default;
 public:
     enum class Error {
         None,
         TimedOut
     };
 
-    static VMInspector& instance();
+    // Returns null if the callFrame doesn't actually correspond to any active VM.
+    JS_EXPORT_PRIVATE static VM* vmForCallFrame(CallFrame*);
 
-    void add(VM*);
-    void remove(VM*);
-
-    Lock& getLock() WTF_RETURNS_LOCK(m_lock) { return m_lock; }
-
-    enum class FunctorStatus {
-        Continue,
-        Done
-    };
-
-    template <typename Functor> void iterate(const Functor& functor) WTF_REQUIRES_LOCK(m_lock)
-    {
-        for (VM* vm = m_vmList.head(); vm; vm = vm->next()) {
-            FunctorStatus status = functor(*vm);
-            if (status == FunctorStatus::Done)
-                return;
-        }
-    }
-
-    JS_EXPORT_PRIVATE static void forEachVM(Function<FunctorStatus(VM&)>&&);
-
-    Expected<bool, Error> isValidExecutableMemory(void*) WTF_REQUIRES_LOCK(m_lock);
-    Expected<CodeBlock*, Error> codeBlockForMachinePC(void*) WTF_REQUIRES_LOCK(m_lock);
+    JS_EXPORT_PRIVATE static Expected<bool, Error> isValidExecutableMemory(void*);
+    JS_EXPORT_PRIVATE static Expected<CodeBlock*, Error> codeBlockForMachinePC(void*);
 
     JS_EXPORT_PRIVATE static bool currentThreadOwnsJSLock(VM*);
     JS_EXPORT_PRIVATE static void gc(VM*);
@@ -84,20 +67,9 @@ public:
     JS_EXPORT_PRIVATE static void dumpCellMemoryToStream(JSCell*, PrintStream&);
     JS_EXPORT_PRIVATE static void dumpSubspaceHashes(VM*);
 
-    enum VerifierAction { ReleaseAssert, Custom };
-
-    using VerifyFunctor = bool(bool condition, const char* description, ...);
-    static bool unusedVerifier(bool, const char*, ...) { return false; }
-
-    template<VerifierAction, VerifyFunctor = unusedVerifier>
-    static bool verifyCellSize(VM&, JSCell*, size_t allocatorCellSize);
-
-    template<VerifierAction, VerifyFunctor = unusedVerifier>
+#if USE(JSVALUE64)
     static bool verifyCell(VM&, JSCell*);
-
-private:
-    Lock m_lock;
-    DoublyLinkedList<VM> m_vmList WTF_GUARDED_BY_LOCK(m_lock);
+#endif
 };
 
 } // namespace JSC

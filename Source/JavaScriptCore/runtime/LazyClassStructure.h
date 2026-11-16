@@ -25,12 +25,14 @@
 
 #pragma once
 
-#include "LazyProperty.h"
-#include "Structure.h"
+#include <JavaScriptCore/LazyProperty.h>
+#include <JavaScriptCore/Structure.h>
+#include <JavaScriptCore/WriteBarrier.h>
 
 namespace JSC {
 
 class JSGlobalObject;
+class Structure;
 class VM;
 
 class LazyClassStructure {
@@ -41,7 +43,7 @@ public:
         Initializer(VM&, JSGlobalObject*, LazyClassStructure&, const StructureInitializer&);
         
         // This should be called first or not at all.
-        void setPrototype(JSObject* prototype);
+        void NODELETE setPrototype(JSObject* prototype);
         
         // If this is called after setPrototype() then it just sets the structure. If this is
         // called first then it sets the prototype by extracting it from the structure.
@@ -75,11 +77,7 @@ public:
         return m_structure.get(global);
     }
     
-    JSObject* prototype(const JSGlobalObject* global) const
-    {
-        ASSERT(!isCompilationThread());
-        return get(global)->storedPrototypeObject();
-    }
+    JSObject* prototype(const JSGlobalObject* global) const;
 
     // Almost as an afterthought, we also support getting the original constructor. This turns
     // out to be important for ES6 support.
@@ -106,10 +104,7 @@ public:
         return m_structure.getInitializedOnMainThread(global);
     }
 
-    JSObject* prototypeInitializedOnMainThread(const JSGlobalObject* global) const
-    {
-        return getInitializedOnMainThread(global)->storedPrototypeObject();
-    }
+    JSObject* prototypeInitializedOnMainThread(const JSGlobalObject* global) const;
 
     JSObject* constructorInitializedOnMainThread(const JSGlobalObject* global) const
     {

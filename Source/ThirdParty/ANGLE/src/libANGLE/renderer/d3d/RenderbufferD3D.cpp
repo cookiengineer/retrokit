@@ -51,7 +51,7 @@ angle::Result RenderbufferD3D::setStorageMultisample(const gl::Context *context,
     // TODO: Correctly differentiate between normal multisampling and render to texture.  In the
     // latter case, the renderbuffer must be automatically resolved when rendering is broken and
     // operations performed on it (such as blit, copy etc) should use the resolved image.
-    // http://anglebug.com/3107.
+    // http://anglebug.com/42261786.
 
     // If the renderbuffer parameters are queried, the calling function
     // will expect one of the valid renderbuffer formats for use in
@@ -69,7 +69,7 @@ angle::Result RenderbufferD3D::setStorageMultisample(const gl::Context *context,
     // been validated and generated GL_INVALID_VALUE.
     const gl::TextureCaps &formatCaps = mRenderer->getNativeTextureCaps().get(creationFormat);
     ANGLE_CHECK_GL_ALLOC(GetImplAs<ContextD3D>(context),
-                         static_cast<uint32_t>(samples) <= formatCaps.getMaxSamples());
+                         static_cast<uint32_t>(samples) <= formatCaps.sampleCounts.getMaxSamples());
 
     RenderTargetD3D *newRT = nullptr;
     ANGLE_TRY(
@@ -115,6 +115,7 @@ angle::Result RenderbufferD3D::getAttachmentRenderTarget(const gl::Context *cont
 }
 
 angle::Result RenderbufferD3D::initializeContents(const gl::Context *context,
+                                                  GLenum binding,
                                                   const gl::ImageIndex &imageIndex)
 {
     RenderTargetD3D *renderTarget = nullptr;

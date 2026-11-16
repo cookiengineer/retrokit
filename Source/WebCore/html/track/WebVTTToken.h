@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2011, 2013 Google Inc.  All rights reserved.
- * Copyright (C) 2014 Apple Inc.  All rights reserved.
+ * Copyright (C) 2011, 2013 Google Inc. All rights reserved.
+ * Copyright (C) 2014-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -33,6 +33,9 @@
 
 #if ENABLE(VIDEO)
 
+#include <wtf/text/AtomString.h>
+#include <wtf/text/WTFString.h>
+
 namespace WebCore {
 
 class WebVTTTokenTypes {
@@ -48,7 +51,7 @@ public:
 
 class WebVTTToken {
 public:
-    typedef WebVTTTokenTypes Type;
+    using Type = WebVTTTokenTypes;
 
     WebVTTToken()
         : m_type(Type::Uninitialized) { }
@@ -77,10 +80,10 @@ public:
     }
 
     Type::Type type() const { return m_type; }
-    const String& name() const { return m_data; }
-    const String& characters() const { return m_data; }
-    const AtomString& classes() const { return m_classes; }
-    const AtomString& annotation() const { return m_annotation; }
+    const String& name() const LIFETIME_BOUND { return m_data; }
+    const String& characters() const LIFETIME_BOUND { return m_data; }
+    const AtomString& classes() const LIFETIME_BOUND { return m_classes; }
+    const AtomString& annotation() const LIFETIME_BOUND { return m_annotation; }
 
 private:
     WebVTTToken(Type::Type type, const String& data)

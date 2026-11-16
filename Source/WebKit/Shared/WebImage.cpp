@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,45 +26,161 @@
 #include "config.h"
 #include "WebImage.h"
 
+#include "ImageBufferShareableBitmapBackend.h"
+#include <WebCore/ChromeClient.h>
+#include <WebCore/ImageBuffer.h>
+#include <WebCore/NativeImage.h>
+
 namespace WebKit {
 using namespace WebCore;
 
-RefPtr<WebImage> WebImage::create(const IntSize& size, ImageOptions options)
+Ref<WebImage> WebImage::createEmpty()
 {
-    return WebImage::create(size, options, { });
+    return adoptRef(*new WebImage(nullptr));
 }
 
-RefPtr<WebImage> WebImage::create(const WebCore::IntSize& size, ImageOptions options, const ShareableBitmap::Configuration& bitmapConfiguration)
+Ref<WebImage> WebImage::create(const FloatSize& size, ImageOptions options, const DestinationColorSpace& colorSpace, ChromeClient* client)
 {
-    if (options & ImageOptionsShareable) {
-        auto bitmap = ShareableBitmap::createShareable(size, bitmapConfiguration);
-        if (!bitmap)
-            return nullptr;
-        return WebImage::create(bitmap.releaseNonNull());
+    auto pixelFormat = PixelFormat::BGRA8;
+#if ENABLE(PIXEL_FORMAT_RGBA16F)
+    if (options.contains(ImageOption::AllowHDR) && colorSpace.usesExtendedRange())
+        pixelFormat = PixelFormat::RGBA16F;
+#endif
+
+    if (client) {
+        auto purpose = options.contains(ImageOption::Shareable) ? RenderingPurpose::ShareableSnapshot : RenderingPurpose::Snapshot;
+        purpose = options.contains(ImageOption::Local) ? RenderingPurpose::ShareableLocalSnapshot : purpose;
+        auto accelerated = options.contains(ImageOption::Accelerated) ? RenderingMode::Accelerated : RenderingMode::Unaccelerated;
+
+        if (auto buffer = client->createImageBuffer(size, accelerated, purpose, 1, colorSpace, { pixelFormat }))
+            return WebImage::create(buffer.releaseNonNull());
     }
-    auto bitmap = ShareableBitmap::create(size, bitmapConfiguration);
-    if (!bitmap)
+
+    if (options.contains(ImageOption::Shareable)) {
+        auto buffer = ImageBuffer::create<ImageBufferShareableBitmapBackend>(size, 1, colorSpace, { pixelFormat }, RenderingPurpose::ShareableSnapshot, { });
+        if (!buffer)
+            return createEmpty();
+        return WebImage::create(buffer.releaseNonNull());
+    }
+
+    auto buffer = ImageBuffer::create(size, RenderingMode::Unaccelerated, RenderingPurpose::Snapshot, 1, colorSpace, pixelFormat);
+    if (!buffer)
+        return createEmpty();
+    return WebImage::create(buffer.releaseNonNull());
+}
+
+Ref<WebImage> WebImage::create(std::optional<ParametersAndHandle>&& parametersAndHandle)
+{
+    if (!parametersAndHandle)
+        return createEmpty();
+    auto [parameters, handle] = WTF::move(*parametersAndHandle);
+
+    // FIXME: These should be abstracted as a encodable image buffer handle.
+    auto backendParameters = ImageBuffer::backendParameters(parameters);
+    auto backend = ImageBufferShareableBitmapBackend::create(backendParameters, WTF::move(handle));
+    if (!backend)
+        return createEmpty();
+    
+    auto info = ImageBuffer::populateBackendInfo<ImageBufferShareableBitmapBackend>(backendParameters);
+
+    auto buffer = ImageBuffer::create(WTF::move(parameters), info, { }, WTF::move(backend));
+    if (!buffer)
+        return createEmpty();
+
+    return WebImage::create(buffer.releaseNonNull());
+}
+
+Ref<WebImage> WebImage::create(Ref<ImageBuffer>&& buffer)
+{
+    return adoptRef(*new WebImage(WTF::move(buffer)));
+}
+
+WebImage::WebImage(RefPtr<ImageBuffer>&& buffer)
+    : m_buffer(WTF::move(buffer))
+{
+}
+
+WebImage::~WebImage() = default;
+
+IntSize WebImage::size() const
+{
+    RefPtr buffer = m_buffer;
+    return buffer ? buffer->backendSize() : IntSize();
+}
+
+const ImageBufferParameters* WebImage::parameters() const
+{
+    if (!m_buffer)
         return nullptr;
-    return WebImage::create(bitmap.releaseNonNull());
+    return &m_buffer->parameters();
 }
 
-Ref<WebImage> WebImage::create(Ref<ShareableBitmap>&& bitmap)
+auto WebImage::parametersAndHandle() const -> std::optional<ParametersAndHandle>
 {
-    return adoptRef(*new WebImage(WTFMove(bitmap)));
+    auto handle = createHandle();
+    if (!handle)
+        return std::nullopt;
+    RELEASE_ASSERT(m_buffer);
+    return { { m_buffer->parameters(), WTF::move(*handle) } };
 }
 
-WebImage::WebImage(Ref<ShareableBitmap>&& bitmap)
-    : m_bitmap(WTFMove(bitmap))
+GraphicsContext* WebImage::context() const
 {
+    RefPtr buffer = m_buffer;
+    return buffer ? &buffer->context() : nullptr;
 }
 
-WebImage::~WebImage()
+RefPtr<NativeImage> WebImage::copyNativeImage(BackingStoreCopy copyBehavior) const
 {
+    RefPtr buffer = m_buffer;
+    if (!buffer)
+        return nullptr;
+    if (copyBehavior == CopyBackingStore)
+        return buffer->copyNativeImage();
+    return buffer->createNativeImageReference();
 }
 
-const IntSize& WebImage::size() const
+RefPtr<ShareableBitmap> WebImage::bitmap() const
 {
-    return m_bitmap->size();
+    RefPtr buffer = m_buffer;
+    if (!buffer)
+        return nullptr;
+    buffer->flushDrawingContext();
+
+    auto* sharing = dynamicDowncast<ImageBufferBackendHandleSharing>(buffer->toBackendSharing());
+    return sharing ? sharing->bitmap() : nullptr;
+}
+
+#if USE(CAIRO)
+RefPtr<cairo_surface_t> WebImage::createCairoSurface()
+{
+    if (!m_buffer)
+        return nullptr;
+    return m_buffer->createCairoSurface();
+}
+#endif
+
+std::optional<ShareableBitmap::Handle> WebImage::createHandle(SharedMemory::Protection protection) const
+{
+    auto backendHandle = createImageBufferBackendHandle(protection);
+    if (!backendHandle || !std::holds_alternative<ShareableBitmap::Handle>(*backendHandle))
+        return { };
+
+    return std::get<ShareableBitmap::Handle>(WTF::move(*backendHandle));
+}
+
+std::optional<ImageBufferBackendHandle> WebImage::createImageBufferBackendHandle(SharedMemory::Protection protection) const
+{
+    RefPtr buffer = m_buffer;
+    if (!buffer)
+        return { };
+    buffer->flushDrawingContext();
+
+    auto* sharing = dynamicDowncast<ImageBufferBackendHandleSharing>(buffer->toBackendSharing());
+    if (!sharing)
+        return { };
+
+    return sharing->createBackendHandle(protection);
 }
 
 } // namespace WebKit

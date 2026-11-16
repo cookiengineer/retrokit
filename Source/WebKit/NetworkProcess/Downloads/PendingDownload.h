@@ -25,65 +25,116 @@
 
 #pragma once
 
-#include "DataReference.h"
 #include "DownloadID.h"
 #include "MessageSender.h"
 #include "NetworkLoadClient.h"
 #include "SandboxExtension.h"
+#include "UseDownloadPlaceholder.h"
+#include <WebCore/ProcessIdentifier.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/TZoneMalloc.h>
+
+#if HAVE(WEBCONTENTRESTRICTIONS)
+#include <WebCore/ParentalControlsContentFilter.h>
+#include <WebCore/ParentalControlsURLFilter.h>
+#endif
 
 namespace IPC {
 class Connection;
 }
 
 namespace WebCore {
-class BlobRegistryImpl;
 class ResourceResponse;
+
+enum class FromDownloadAttribute : bool;
 }
 
 namespace WebKit {
 
 class Download;
 class NetworkLoad;
-class NetworkLoadParameters;
 class NetworkSession;
 
-class PendingDownload : public NetworkLoadClient, public IPC::MessageSender {
-    WTF_MAKE_FAST_ALLOCATED;
-public:
-    PendingDownload(IPC::Connection*, NetworkLoadParameters&&, DownloadID, NetworkSession&, WebCore::BlobRegistryImpl*, const String& suggestedName);
-    PendingDownload(IPC::Connection*, std::unique_ptr<NetworkLoad>&&, ResponseCompletionHandler&&, DownloadID, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&);
+struct NetworkLoadParameters;
 
-    void continueWillSendRequest(WebCore::ResourceRequest&&);
-    void cancel(CompletionHandler<void(const IPC::DataReference&)>&&);
+class PendingDownload : public RefCounted<PendingDownload>, public NetworkLoadClient, public IPC::MessageSender {
+    WTF_MAKE_TZONE_ALLOCATED(PendingDownload);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(PendingDownload);
+public:
+    static Ref<PendingDownload> create(IPC::Connection* connection, NetworkLoadParameters&& networkLoadParameters, DownloadID downloadID, NetworkSession& networkSession, const String& suggestedName, WebCore::FromDownloadAttribute fromDownloadAttribute, std::optional<WebCore::ProcessIdentifier> webProcessId)
+    {
+        return adoptRef(*new PendingDownload(connection, WTF::move(networkLoadParameters), downloadID, networkSession, suggestedName, fromDownloadAttribute, webProcessId));
+    }
+
+    static Ref<PendingDownload> create(IPC::Connection* connection, Ref<NetworkLoad>&& networkLoad, ResponseCompletionHandler&& responseCompletionHandler, DownloadID downloadID, const WebCore::ResourceRequest& resourceRequest, const WebCore::ResourceResponse& resourceResponse)
+    {
+        return adoptRef(*new PendingDownload(connection, WTF::move(networkLoad), WTF::move(responseCompletionHandler), downloadID, resourceRequest, resourceResponse));
+    }
+
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
+    virtual ~PendingDownload();
+
+    void cancel(CompletionHandler<void(std::span<const uint8_t>)>&&);
 
 #if PLATFORM(COCOA)
+#if HAVE(MODERN_DOWNLOADPROGRESS)
+    void publishProgress(const URL&, std::span<const uint8_t>, UseDownloadPlaceholder, std::span<const uint8_t>);
+#else
     void publishProgress(const URL&, SandboxExtension::Handle&&);
-    void didBecomeDownload(const std::unique_ptr<Download>&);
+#endif
+    void didBecomeDownload(Download&);
 #endif
 
 private:    
+    PendingDownload(IPC::Connection*, NetworkLoadParameters&&, DownloadID, NetworkSession&, const String& suggestedName, WebCore::FromDownloadAttribute, std::optional<WebCore::ProcessIdentifier>);
+    PendingDownload(IPC::Connection*, Ref<NetworkLoad>&&, ResponseCompletionHandler&&, DownloadID, const WebCore::ResourceRequest&, const WebCore::ResourceResponse&);
+
     // NetworkLoadClient.
-    void didSendData(unsigned long long bytesSent, unsigned long long totalBytesToBeSent) override { }
+    void didSendData(uint64_t bytesSent, uint64_t totalBytesToBeSent) override { }
     bool isSynchronous() const override { return false; }
     bool isAllowedToAskUserForCredentials() const final { return m_isAllowedToAskUserForCredentials; }
-    void willSendRedirectedRequest(WebCore::ResourceRequest&&, WebCore::ResourceRequest&& redirectRequest, WebCore::ResourceResponse&& redirectResponse) override;
-    void didReceiveResponse(WebCore::ResourceResponse&&, ResponseCompletionHandler&&) override;
-    void didReceiveBuffer(Ref<WebCore::SharedBuffer>&&, int reportedEncodedDataLength) override { };
+    void willSendRedirectedRequest(WebCore::ResourceRequest&&, WebCore::ResourceRequest&& redirectRequest, WebCore::ResourceResponse&& redirectResponse, CompletionHandler<void(WebCore::ResourceRequest&&)>&&) override;
+    void didReceiveResponse(WebCore::ResourceResponse&&, PrivateRelayed, ResponseCompletionHandler&&) override;
+    void didReceiveBuffer(const WebCore::FragmentedSharedBuffer&) override { };
     void didFinishLoading(const WebCore::NetworkLoadMetrics&) override { };
     void didFailLoading(const WebCore::ResourceError&) override;
+    bool NODELETE isDownloadTriggeredWithDownloadAttribute() const;
 
     // MessageSender.
     IPC::Connection* messageSenderConnection() const override;
     uint64_t messageSenderDestinationID() const override;
 
+#if HAVE(WEBCONTENTRESTRICTIONS)
+    void blockDueToContentFilter(const WebCore::ResourceResponse&, CompletionHandler<void()>&& postBlockHandler);
+#endif
+
 private:
-    std::unique_ptr<NetworkLoad> m_networkLoad;
+    URL mainDocumentURL() const;
+
+    const Ref<NetworkLoad> m_networkLoad;
+    DownloadID m_downloadID;
     RefPtr<IPC::Connection> m_parentProcessConnection;
     bool m_isAllowedToAskUserForCredentials;
+    bool m_isDownloadCancelled = false;
+    WebCore::FromDownloadAttribute m_fromDownloadAttribute;
+    std::optional<WebCore::ProcessIdentifier> m_webProcessID;
 
 #if PLATFORM(COCOA)
     URL m_progressURL;
+#if HAVE(MODERN_DOWNLOADPROGRESS)
+    Vector<uint8_t> m_bookmarkData;
+    Vector<uint8_t> m_activityAccessToken;
+    UseDownloadPlaceholder m_useDownloadPlaceholder { UseDownloadPlaceholder::No };
+#else
     SandboxExtension::Handle m_progressSandboxExtension;
+#endif
+#endif
+
+#if HAVE(WEBCONTENTRESTRICTIONS)
+    RefPtr<WebCore::ParentalControlsURLFilter> m_urlFilter;
+    bool m_wasBlockedDueToContentFilter : 1 { false };
 #endif
 };
 

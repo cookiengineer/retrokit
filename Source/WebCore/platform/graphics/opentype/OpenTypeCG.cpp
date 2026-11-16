@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2015 Frederic Wang (fred.wang@free.fr). All rights reserved.
+ * Copyright (C) 2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,17 +28,18 @@
 #include "OpenTypeCG.h"
 
 #include "OpenTypeTypes.h"
+#include <wtf/StdLibExtras.h>
+
+#if USE(CF)
+#include <wtf/cf/VectorCF.h>
+#endif
 
 namespace WebCore {
 namespace OpenType {
 
-#if PLATFORM(WIN)
-static const unsigned long kCTFontTableOS2 = 'OS/2';
-#endif
-
-static inline short readShortFromTable(const UInt8* os2Data, CFIndex offset)
+static inline short NODELETE readShortFromTable(std::span<const UInt8> os2Data, CFIndex offset)
 {
-    return *(reinterpret_cast<const OpenType::Int16*>(os2Data + offset));
+    return reinterpretCastSpanStartTo<const OpenType::Int16>(os2Data.subspan(offset));
 }
 
 bool tryGetTypoMetrics(CTFontRef font, short& ascent, short& descent, short& lineGap)
@@ -51,10 +53,10 @@ bool tryGetTypoMetrics(CTFontRef font, short& ascent, short& descent, short& lin
         const CFIndex sTypoDescenderOffset = sTypoAscenderOffset + 2;
         const CFIndex sTypoLineGapOffset = sTypoDescenderOffset + 2;
         if (CFDataGetLength(os2Table.get()) >= sTypoLineGapOffset + 2) {
-            const UInt8* os2Data = CFDataGetBytePtr(os2Table.get());
+            auto os2Data = span(os2Table.get());
             // We test the use typo bit on the least significant byte of fsSelection.
             const UInt8 useTypoMetricsMask = 1 << 7;
-            if (*(os2Data + fsSelectionOffset + 1) & useTypoMetricsMask) {
+            if (os2Data[fsSelectionOffset + 1] & useTypoMetricsMask) {
                 ascent = readShortFromTable(os2Data, sTypoAscenderOffset);
                 descent = readShortFromTable(os2Data, sTypoDescenderOffset);
                 lineGap = readShortFromTable(os2Data, sTypoLineGapOffset);

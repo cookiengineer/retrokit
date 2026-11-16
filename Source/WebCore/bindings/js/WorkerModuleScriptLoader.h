@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,7 +26,9 @@
 #pragma once
 
 #include "ModuleScriptLoader.h"
+#include "ResourceLoaderIdentifier.h"
 #include "ScriptBuffer.h"
+#include "ScriptExecutionContextIdentifier.h"
 #include "WorkerScriptFetcher.h"
 #include "WorkerScriptLoaderClient.h"
 #include <wtf/Ref.h>
@@ -45,11 +47,14 @@ class WorkerScriptLoader;
 
 class WorkerModuleScriptLoader final : public ModuleScriptLoader, private WorkerScriptLoaderClient {
 public:
-    static Ref<WorkerModuleScriptLoader> create(ModuleScriptLoaderClient&, DeferredPromise&, WorkerScriptFetcher&, RefPtr<ModuleFetchParameters>&&);
+    static Ref<WorkerModuleScriptLoader> create(ModuleScriptLoaderClient&, DeferredPromise&, WorkerScriptFetcher&, RefPtr<JSC::ScriptFetchParameters>&&);
 
     virtual ~WorkerModuleScriptLoader();
 
-    bool load(ScriptExecutionContext&, URL&& sourceURL);
+    void ref() const final { ModuleScriptLoader::ref(); }
+    void deref() const final { ModuleScriptLoader::deref(); }
+
+    void load(ScriptExecutionContext&, URL&& sourceURL);
 
     WorkerScriptLoader& scriptLoader() { return m_scriptLoader.get(); }
 
@@ -58,19 +63,21 @@ public:
     bool failed() const { return m_failed; }
     bool retrievedFromServiceWorkerCache() const { return m_retrievedFromServiceWorkerCache; }
 
-    const ScriptBuffer& script() { return m_script; }
-    const URL& responseURL() const { return m_responseURL; }
-    const String& responseMIMEType() const { return m_responseMIMEType; }
+    const ScriptBuffer& script() LIFETIME_BOUND { return m_script; }
+    const URL& responseURL() const LIFETIME_BOUND { return m_responseURL; }
+    const String& responseMIMEType() const LIFETIME_BOUND { return m_responseMIMEType; }
 
 private:
-    WorkerModuleScriptLoader(ModuleScriptLoaderClient&, DeferredPromise&, WorkerScriptFetcher&, RefPtr<ModuleFetchParameters>&&);
+    WorkerModuleScriptLoader(ModuleScriptLoaderClient&, DeferredPromise&, WorkerScriptFetcher&, RefPtr<JSC::ScriptFetchParameters>&&);
 
-    void didReceiveResponse(unsigned long, const ResourceResponse&) final { }
-    void notifyFinished() final;
+    bool isWorkerModuleScriptLoader() const final { return true; }
+
+    void didReceiveResponse(ScriptExecutionContextIdentifier, std::optional<ResourceLoaderIdentifier>, const ResourceResponse&) final { }
+    void notifyFinished(std::optional<ScriptExecutionContextIdentifier>) final;
 
     void notifyClientFinished();
 
-    Ref<WorkerScriptLoader> m_scriptLoader;
+    const Ref<WorkerScriptLoader> m_scriptLoader;
     URL m_sourceURL;
     ScriptBuffer m_script;
     URL m_responseURL;
@@ -80,3 +87,7 @@ private:
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::WorkerModuleScriptLoader)
+    static bool isType(const WebCore::ModuleScriptLoader& loader) { return loader.isWorkerModuleScriptLoader(); }
+SPECIALIZE_TYPE_TRAITS_END()

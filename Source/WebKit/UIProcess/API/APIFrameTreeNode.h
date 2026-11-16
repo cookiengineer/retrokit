@@ -38,24 +38,23 @@ class FrameHandle;
 
 class FrameTreeNode final : public ObjectImpl<Object::Type::FrameTreeNode> {
 public:
-    static Ref<FrameTreeNode> create(WebKit::FrameTreeNodeData&& data, WebKit::WebPageProxy& page) { return adoptRef(*new FrameTreeNode(WTFMove(data), page)); }
+    static Ref<FrameTreeNode> create(WebKit::FrameTreeNodeData&& data, WebKit::WebPageProxy& page) { return adoptRef(*new FrameTreeNode(WTF::move(data), page)); }
     virtual ~FrameTreeNode();
 
     WebKit::WebPageProxy& page() { return m_page.get(); }
-    bool isMainFrame() const { return m_data.info.isMainFrame; }
-    const WebCore::ResourceRequest& request() const { return m_data.info.request; }
-    const WebCore::SecurityOriginData& securityOrigin() const { return m_data.info.securityOrigin; }
-    const Vector<WebKit::FrameTreeNodeData>& childFrames() const { return m_data.children; }
-    Ref<FrameHandle> handle() const;
-    RefPtr<FrameHandle> parentFrameHandle() const;
+    const WebKit::FrameInfoData& info() const LIFETIME_BOUND { return m_data.info; }
+    const Vector<WebKit::FrameTreeNodeData>& childFrames() const LIFETIME_BOUND { return m_data.children; }
+    const WTF::URL& topDocumentURLForTesting() const LIFETIME_BOUND { return m_data.topDocumentURLForTesting; }
 
 private:
     FrameTreeNode(WebKit::FrameTreeNodeData&& data, WebKit::WebPageProxy& page)
-        : m_data(WTFMove(data))
+        : m_data(WTF::move(data))
         , m_page(page) { }
 
-    WebKit::FrameTreeNodeData m_data;
+    const WebKit::FrameTreeNodeData m_data;
     Ref<WebKit::WebPageProxy> m_page;
 };
 
 } // namespace API
+
+SPECIALIZE_TYPE_TRAITS_API_OBJECT(FrameTreeNode);

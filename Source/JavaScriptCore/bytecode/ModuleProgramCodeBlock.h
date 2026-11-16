@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2022 Apple Inc. All rights reserved.
  * Copyright (C) 2008 Cameron Zwarich <cwzwarich@uwaterloo.ca>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,6 +30,7 @@
 #pragma once
 
 #include "GlobalCodeBlock.h"
+#include "ModuleProgramExecutable.h"
 #include "UnlinkedModuleProgramCodeBlock.h"
 
 namespace JSC {
@@ -40,14 +41,14 @@ public:
     DECLARE_INFO;
 
     template<typename, SubspaceAccess>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
-        return &vm.codeBlockSpace.space;
+        return &vm.codeBlockSpace();
     }
 
     static ModuleProgramCodeBlock* create(VM& vm, CopyParsedBlockTag, ModuleProgramCodeBlock& other)
     {
-        ModuleProgramCodeBlock* instance = new (NotNull, allocateCell<ModuleProgramCodeBlock>(vm.heap))
+        ModuleProgramCodeBlock* instance = new (NotNull, allocateCell<ModuleProgramCodeBlock>(vm))
             ModuleProgramCodeBlock(vm, vm.moduleProgramCodeBlockStructure.get(), CopyParsedBlock, other);
         instance->finishCreation(vm, CopyParsedBlock, other);
         return instance;
@@ -55,17 +56,14 @@ public:
 
     static ModuleProgramCodeBlock* create(VM& vm, ModuleProgramExecutable* ownerExecutable, UnlinkedModuleProgramCodeBlock* unlinkedCodeBlock, JSScope* scope)
     {
-        ModuleProgramCodeBlock* instance = new (NotNull, allocateCell<ModuleProgramCodeBlock>(vm.heap))
+        ModuleProgramCodeBlock* instance = new (NotNull, allocateCell<ModuleProgramCodeBlock>(vm))
             ModuleProgramCodeBlock(vm, vm.moduleProgramCodeBlockStructure.get(), ownerExecutable, unlinkedCodeBlock, scope);
         if (!instance->finishCreation(vm, ownerExecutable, unlinkedCodeBlock, scope))
             return nullptr;
         return instance;
     }
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(CodeBlockType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
 private:
     ModuleProgramCodeBlock(VM& vm, Structure* structure, CopyParsedBlockTag, ModuleProgramCodeBlock& other)

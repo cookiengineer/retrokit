@@ -29,10 +29,13 @@
 
 #if ENABLE(CONTEXT_MENUS)
 
-#include "WebCoreArgumentCoders.h"
+#include "WebEventConversion.h"
+#include <WebCore/ContextMenuContext.h>
 #include <WebCore/GraphicsContext.h>
+#include <WebCore/MouseEvent.h>
 
 namespace WebKit {
+
 using namespace WebCore;
 
 ContextMenuContextData::ContextMenuContextData()
@@ -43,7 +46,7 @@ ContextMenuContextData::ContextMenuContextData()
 {
 }
 
-ContextMenuContextData::ContextMenuContextData(const WebCore::IntPoint& menuLocation, const Vector<WebKit::WebContextMenuItemData>& menuItems, const ContextMenuContext& context)
+ContextMenuContextData::ContextMenuContextData(const IntPoint& menuLocation, const Vector<WebKit::WebContextMenuItemData>& menuItems, const ContextMenuContext& context)
 #if ENABLE(SERVICE_CONTROLS)
     : m_type(context.controlledImage() ? Type::ServicesMenu : context.type())
 #else
@@ -51,89 +54,172 @@ ContextMenuContextData::ContextMenuContextData(const WebCore::IntPoint& menuLoca
 #endif
     , m_menuLocation(menuLocation)
     , m_menuItems(menuItems)
-    , m_webHitTestResultData(context.hitTestResult(), true)
+    , m_webHitTestResultData({ context.hitTestResult(), true })
     , m_selectedText(context.selectedText())
+    , m_hasEntireImage(context.hasEntireImage())
+    , m_allowsFollowingLink(context.allowsFollowingLink())
+    , m_allowsFollowingImageURL(context.allowsFollowingImageURL())
 #if ENABLE(SERVICE_CONTROLS)
     , m_selectionIsEditable(false)
 #endif
 {
 #if ENABLE(SERVICE_CONTROLS)
-    Image* image = context.controlledImage();
-    if (!image)
-        return;
+    if (RefPtr image = context.controlledImage())
+        setImage(*image);
+#endif
+#if ENABLE(CONTEXT_MENU_QR_CODE_DETECTION)
+    if (RefPtr image = context.potentialQRCodeNodeSnapshotImage())
+        setPotentialQRCodeNodeSnapshotImage(*image);
 
+    if (RefPtr image = context.potentialQRCodeViewportSnapshotImage())
+        setPotentialQRCodeViewportSnapshotImage(*image);
+#endif
+
+#if ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
+    if (auto identifier = context.mediaElementIdentifier())
+        setMediaElementIdentifier(*identifier);
+#endif
+
+    if (RefPtr event = dynamicDowncast<WebCore::MouseEvent>(context.event())) {
+        m_inputSource = event->inputSource()
+            .transform([](auto& inputSource) {
+                return kit(inputSource);
+            });
+    }
+}
+
+#if ENABLE(SERVICE_CONTROLS)
+ContextMenuContextData::ContextMenuContextData(const WebCore::IntPoint& menuLocation, WebCore::Image& image, bool isEditable, const WebCore::IntRect& imageRect, const String& attachmentID, std::optional<ElementContext>&& elementContext, const String& sourceImageMIMEType)
+    : m_type(Type::ServicesMenu)
+    , m_menuLocation(menuLocation)
+    , m_selectionIsEditable(isEditable)
+    , m_controlledImageBounds(imageRect)
+    , m_controlledImageAttachmentID(attachmentID)
+    , m_controlledImageElementContext(WTF::move(elementContext))
+    , m_controlledImageMIMEType(sourceImageMIMEType)
+{
+    setImage(image);
+}
+
+void ContextMenuContextData::setImage(WebCore::Image& image)
+{
     // FIXME: figure out the rounding strategy for ShareableBitmap.
-    m_controlledImage = ShareableBitmap::createShareable(IntSize(image->size()), { });
-    auto graphicsContext = m_controlledImage->createGraphicsContext();
-    if (!graphicsContext)
-        return;
-    graphicsContext->drawImage(*image, IntPoint());
-#endif
+
+    RefPtr controlledImage = ShareableBitmap::create({ IntSize(image.size()) });
+    m_controlledImage = controlledImage;
+    if (auto graphicsContext = controlledImage->createGraphicsContext())
+        graphicsContext->drawImage(image, IntPoint());
 }
 
-void ContextMenuContextData::encode(IPC::Encoder& encoder) const
+std::optional<ShareableBitmap::Handle> ContextMenuContextData::createControlledImageReadOnlyHandle() const
 {
-    encoder << m_type;
-    encoder << m_menuLocation;
-    encoder << m_menuItems;
-    encoder << m_webHitTestResultData;
-    encoder << m_selectedText;
-
-#if ENABLE(SERVICE_CONTROLS)
-    ShareableBitmap::Handle handle;
-    if (m_controlledImage)
-        m_controlledImage->createHandle(handle, SharedMemory::Protection::ReadOnly);
-    encoder << handle;
-    encoder << m_controlledSelectionData;
-    encoder << m_selectedTelephoneNumbers;
-    encoder << m_selectionIsEditable;
+    if (RefPtr controlledImage = m_controlledImage)
+        return controlledImage->createHandle(SharedMemory::Protection::ReadOnly);
+    return std::nullopt;
+}
 #endif
+
+#if ENABLE(CONTEXT_MENU_QR_CODE_DETECTION)
+
+void ContextMenuContextData::setPotentialQRCodeNodeSnapshotImage(WebCore::Image& image)
+{
+    RefPtr potentialQRCodeNodeSnapshotImage = ShareableBitmap::create({ IntSize(image.size()) });
+    m_potentialQRCodeNodeSnapshotImage = potentialQRCodeNodeSnapshotImage;
+    if (auto graphicsContext = potentialQRCodeNodeSnapshotImage->createGraphicsContext())
+        graphicsContext->drawImage(image, IntPoint());
 }
 
-bool ContextMenuContextData::decode(IPC::Decoder& decoder, ContextMenuContextData& result)
+void ContextMenuContextData::setPotentialQRCodeViewportSnapshotImage(WebCore::Image& image)
 {
-    if (!decoder.decode(result.m_type))
-        return false;
+    RefPtr potentialQRCodeViewportSnapshotImage = ShareableBitmap::create({ IntSize(image.size()) });
+    m_potentialQRCodeViewportSnapshotImage = potentialQRCodeViewportSnapshotImage;
+    if (auto graphicsContext = potentialQRCodeViewportSnapshotImage->createGraphicsContext())
+        graphicsContext->drawImage(image, IntPoint());
+}
 
-    if (!decoder.decode(result.m_menuLocation))
-        return false;
+std::optional<ShareableBitmap::Handle> ContextMenuContextData::createPotentialQRCodeNodeSnapshotImageReadOnlyHandle() const
+{
+    if (RefPtr image = m_potentialQRCodeNodeSnapshotImage)
+        return image->createHandle(SharedMemory::Protection::ReadOnly);
+    return std::nullopt;
+}
 
-    if (!decoder.decode(result.m_menuItems))
-        return false;
+std::optional<ShareableBitmap::Handle> ContextMenuContextData::createPotentialQRCodeViewportSnapshotImageReadOnlyHandle() const
+{
+    if (RefPtr image = m_potentialQRCodeViewportSnapshotImage)
+        return image->createHandle(SharedMemory::Protection::ReadOnly);
+    return std::nullopt;
+}
 
-    if (!decoder.decode(result.m_webHitTestResultData))
-        return false;
+#endif // ENABLE(CONTEXT_MENU_QR_CODE_DETECTION)
 
-    if (!decoder.decode(result.m_selectedText))
-        return false;
-
+ContextMenuContextData::ContextMenuContextData(WebCore::ContextMenuContext::Type type
+    , WebCore::IntPoint&& menuLocation
+    , Vector<WebContextMenuItemData>&& menuItems
+    , std::optional<WebKit::WebHitTestResultData>&& webHitTestResultData
+    , String&& selectedText
 #if ENABLE(SERVICE_CONTROLS)
-    ShareableBitmap::Handle handle;
-    if (!decoder.decode(handle))
-        return false;
-
-    if (!handle.isNull())
-        result.m_controlledImage = ShareableBitmap::create(handle, SharedMemory::Protection::ReadOnly);
-
-    if (!decoder.decode(result.m_controlledSelectionData))
-        return false;
-    if (!decoder.decode(result.m_selectedTelephoneNumbers))
-        return false;
-    if (!decoder.decode(result.m_selectionIsEditable))
-        return false;
+    , std::optional<WebCore::ShareableBitmapHandle>&& controlledImageHandle
+    , WebCore::AttributedString&& controlledSelection
+    , Vector<String>&& selectedTelephoneNumbers
+    , bool selectionIsEditable
+    , WebCore::IntRect&& controlledImageBounds
+    , String&& controlledImageAttachmentID
+    , std::optional<WebCore::ElementContext>&& controlledImageElementContext
+    , String&& controlledImageMIMEType
+#endif // ENABLE(SERVICE_CONTROLS)
+#if ENABLE(CONTEXT_MENU_QR_CODE_DETECTION)
+    , std::optional<WebCore::ShareableBitmapHandle>&& potentialQRCodeNodeSnapshotImageHandle
+    , std::optional<WebCore::ShareableBitmapHandle>&& potentialQRCodeViewportSnapshotImageHandle
+#endif // ENABLE(CONTEXT_MENU_QR_CODE_DETECTION)
+    , bool hasEntireImage
+    , bool allowsFollowingLink
+    , bool allowsFollowingImageURL
+#if ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
+    , std::optional<WebCore::HTMLMediaElementIdentifier> mediaElementIdentifier
 #endif
+    , std::optional<WebEventInputSource> inputSource
+)
+    : m_type(type)
+    , m_menuLocation(WTF::move(menuLocation))
+    , m_menuItems(WTF::move(menuItems))
+    , m_webHitTestResultData(WTF::move(webHitTestResultData))
+    , m_selectedText(WTF::move(selectedText))
+    , m_hasEntireImage(hasEntireImage)
+    , m_allowsFollowingLink(allowsFollowingLink)
+    , m_allowsFollowingImageURL(allowsFollowingImageURL)
+#if ENABLE(SERVICE_CONTROLS)
+    , m_controlledSelection(WTF::move(controlledSelection))
+    , m_selectedTelephoneNumbers(WTF::move(selectedTelephoneNumbers))
+    , m_selectionIsEditable(selectionIsEditable)
+    , m_controlledImageBounds(WTF::move(controlledImageBounds))
+    , m_controlledImageAttachmentID(WTF::move(controlledImageAttachmentID))
+    , m_controlledImageElementContext(WTF::move(controlledImageElementContext))
+    , m_controlledImageMIMEType(WTF::move(controlledImageMIMEType))
+#endif
+#if ENABLE(MEDIA_CONTROLS_CONTEXT_MENUS)
+    , m_mediaElementIdentifier(WTF::move(mediaElementIdentifier))
+#endif
+    , m_inputSource(inputSource)
+{
+#if ENABLE(SERVICE_CONTROLS)
+    if (controlledImageHandle)
+        m_controlledImage = ShareableBitmap::create(WTF::move(*controlledImageHandle), SharedMemory::Protection::ReadOnly);
+#endif // ENABLE(SERVICE_CONTROLS)
 
-    return true;
+#if ENABLE(CONTEXT_MENU_QR_CODE_DETECTION)
+    if (potentialQRCodeNodeSnapshotImageHandle)
+        m_potentialQRCodeNodeSnapshotImage = ShareableBitmap::create(WTF::move(*potentialQRCodeNodeSnapshotImageHandle), SharedMemory::Protection::ReadOnly);
+    if (potentialQRCodeViewportSnapshotImageHandle)
+        m_potentialQRCodeViewportSnapshotImage = ShareableBitmap::create(WTF::move(*potentialQRCodeViewportSnapshotImageHandle), SharedMemory::Protection::ReadOnly);
+#endif
 }
 
 #if ENABLE(SERVICE_CONTROLS)
 bool ContextMenuContextData::controlledDataIsEditable() const
 {
-    if (!m_controlledSelectionData.isEmpty())
+    if (!m_controlledSelection.isNull() || m_controlledImage || !m_controlledImageAttachmentID.isNull())
         return m_selectionIsEditable;
-
-    if (m_controlledImage)
-        return m_webHitTestResultData.isContentEditable;
 
     return false;
 }

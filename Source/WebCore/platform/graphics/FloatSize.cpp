@@ -1,6 +1,7 @@
 /*
- * Copyright (C) 2003, 2006 Apple Inc.  All rights reserved.
- * Copyright (C) 2005 Nokia.  All rights reserved.
+ * Copyright (C) 2003-2023 Apple Inc. All rights reserved.§
+ * Copyright (C) 2014 Google Inc. All rights reserved.
+ * Copyright (C) 2005 Nokia. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -36,23 +37,12 @@
 
 namespace WebCore {
 
-FloatSize::FloatSize(const IntSize& size)
-    : m_width(size.width())
-    , m_height(size.height())
-{
-}
-
 FloatSize FloatSize::constrainedBetween(const FloatSize& min, const FloatSize& max) const
 {
     return {
         std::max(min.width(), std::min(max.width(), m_width)),
         std::max(min.height(), std::min(max.height(), m_height))
     };
-}
-
-bool FloatSize::isZero() const
-{
-    return fabs(m_width) < std::numeric_limits<float>::epsilon() && fabs(m_height) < std::numeric_limits<float>::epsilon();
 }
 
 bool FloatSize::isExpressibleAsIntSize() const
@@ -67,7 +57,7 @@ FloatSize FloatSize::narrowPrecision(double width, double height)
 
 TextStream& operator<<(TextStream& ts, const FloatSize& size)
 {
-    return ts << "width=" << TextStream::FormatNumberRespectingIntegers(size.width())
+    return ts << "width="_s << TextStream::FormatNumberRespectingIntegers(size.width())
         << " height=" << TextStream::FormatNumberRespectingIntegers(size.height());
 }
 

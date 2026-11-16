@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,14 +30,18 @@
 #include "SymbolTable.h"
 
 #include "CodeBlock.h"
+#include "DebuggerLocation.h"
 #include "JSCJSValueInlines.h"
+#include "ResourceExhaustion.h"
+#include "ScriptExecutable.h"
+#include "SymbolTableInlines.h"
 #include "TypeProfiler.h"
 
 #include <wtf/CommaPrinter.h>
 
 namespace JSC {
 
-const ClassInfo SymbolTable::s_info = { "SymbolTable", nullptr, nullptr, nullptr, CREATE_METHOD_TABLE(SymbolTable) };
+const ClassInfo SymbolTable::s_info = { "SymbolTable"_s, nullptr, nullptr, nullptr, CREATE_METHOD_TABLE(SymbolTable) };
 
 DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(SymbolTableEntryFatEntry);
 
@@ -46,7 +50,7 @@ SymbolTableEntry& SymbolTableEntry::copySlow(const SymbolTableEntry& other)
     ASSERT(other.isFat());
     FatEntry* newFatEntry = new FatEntry(*other.fatEntry());
     freeFatEntry();
-    m_bits = bitwise_cast<intptr_t>(newFatEntry);
+    m_bits = std::bit_cast<intptr_t>(newFatEntry);
     return *this;
 }
 
@@ -75,37 +79,30 @@ void SymbolTableEntry::prepareToWatch()
 SymbolTableEntry::FatEntry* SymbolTableEntry::inflateSlow()
 {
     FatEntry* entry = new FatEntry(m_bits);
-    m_bits = bitwise_cast<intptr_t>(entry);
+    m_bits = std::bit_cast<intptr_t>(entry);
     return entry;
 }
 
 SymbolTable::SymbolTable(VM& vm)
     : JSCell(vm, vm.symbolTableStructure.get())
-    , m_usesNonStrictEval(false)
+    , m_usesSloppyEval(false)
     , m_nestedLexicalScope(false)
     , m_scopeType(VarScope)
 {
 }
 
-SymbolTable::~SymbolTable() { }
-
-void SymbolTable::finishCreation(VM& vm)
-{
-    Base::finishCreation(vm);
-}
+SymbolTable::~SymbolTable() = default;
 
 template<typename Visitor>
 void SymbolTable::visitChildrenImpl(JSCell* thisCell, Visitor& visitor)
 {
-    SymbolTable* thisSymbolTable = jsCast<SymbolTable*>(thisCell);
+    SymbolTable* thisSymbolTable = uncheckedDowncast<SymbolTable>(thisCell);
     ASSERT_GC_OBJECT_INHERITS(thisSymbolTable, info());
     Base::visitChildren(thisSymbolTable, visitor);
 
     visitor.append(thisSymbolTable->m_arguments);
-    
-    if (thisSymbolTable->m_rareData)
-        visitor.append(thisSymbolTable->m_rareData->m_codeBlock);
-    
+    visitor.append(thisSymbolTable->m_clonedFrom);
+
     // Save some memory. This is O(n) to rebuild and we do so on the fly.
     ConcurrentJSLocker locker(thisSymbolTable->m_lock);
     thisSymbolTable->m_localToEntry = nullptr;
@@ -115,7 +112,7 @@ DEFINE_VISIT_CHILDREN(SymbolTable);
 
 const SymbolTable::LocalToEntryVec& SymbolTable::localToEntry(const ConcurrentJSLocker&)
 {
-    if (UNLIKELY(!m_localToEntry)) {
+    if (!m_localToEntry) [[unlikely]] {
         unsigned size = 0;
         for (auto& entry : m_map) {
             VarOffset offset = entry.value.varOffset();
@@ -123,7 +120,7 @@ const SymbolTable::LocalToEntryVec& SymbolTable::localToEntry(const ConcurrentJS
                 size = std::max(size, offset.scopeOffset().offset() + 1);
         }
     
-        m_localToEntry = makeUnique<LocalToEntryVec>(size, nullptr);
+        m_localToEntry = makeUnique<LocalToEntryVec>(FillWith { }, size, nullptr);
         for (auto& entry : m_map) {
             VarOffset offset = entry.value.varOffset();
             if (offset.isScope())
@@ -142,29 +139,54 @@ SymbolTableEntry* SymbolTable::entryFor(const ConcurrentJSLocker& locker, ScopeO
     return toEntryVector[offset.offset()];
 }
 
-SymbolTable* SymbolTable::cloneScopePart(VM& vm)
+SymbolTable* SymbolTable::cloneScopePart(VM& vm, PropagateCloneInvalidationToOriginal propagateCloneInvalidationToOriginal)
 {
     SymbolTable* result = SymbolTable::create(vm);
     
-    result->m_usesNonStrictEval = m_usesNonStrictEval;
+    result->m_usesSloppyEval = m_usesSloppyEval;
     result->m_nestedLexicalScope = m_nestedLexicalScope;
     result->m_scopeType = m_scopeType;
+
+    UncheckedKeyHashMap<VarOffset, uint32_t> varOffsetToArgIndexMap;
+
+    if (this->arguments()) {
+        // Copy the arguments, but not the WatchpointSets. We create new WatchpointSets as appropriate when we create the SymbolTableEntry
+        // copies below and propogate the new watchpointSets to the new ScopedArgumentsTable.
+        auto length = this->arguments()->length();
+        ScopedArgumentsTable* arguments = ScopedArgumentsTable::tryCreate(vm, length);
+        RELEASE_ASSERT_RESOURCE_AVAILABLE(arguments, MemoryExhaustion, "Crash intentionally because memory is exhausted.");
+
+        for (uint32_t index = 0; index < length; ++index) {
+            ScopeOffset offset = this->arguments()->get(index);
+
+            arguments->trySet(vm, index, offset);
+            if (this->arguments()->getWatchpointSet(index))
+                varOffsetToArgIndexMap.set(VarOffset(offset), index);
+        }
+
+        result->m_arguments.set(vm, result, arguments);
+    }
+
+    bool hasScopedArgumentWatchpoints = !varOffsetToArgIndexMap.isEmpty();
 
     for (auto iter = m_map.begin(), end = m_map.end(); iter != end; ++iter) {
         if (!iter->value.varOffset().isScope())
             continue;
-        result->m_map.add(
-            iter->key,
-            SymbolTableEntry(iter->value.varOffset(), iter->value.getAttributes()));
+        SymbolTableEntry entry(iter->value.varOffset(), iter->value.getAttributes());
+
+        if (hasScopedArgumentWatchpoints) {
+            auto findIter = varOffsetToArgIndexMap.find(iter->value.varOffset());
+            if (findIter != varOffsetToArgIndexMap.end())
+                result->prepareToWatchScopedArgument(entry, findIter->value);
+        }
+
+        result->m_map.add(iter->key, WTF::move(entry));
     }
-    
+
     result->m_maxScopeOffset = m_maxScopeOffset;
-    
-    if (ScopedArgumentsTable* arguments = this->arguments())
-        result->m_arguments.set(vm, result, arguments);
-    
+
     if (m_rareData) {
-        result->m_rareData = makeUnique<SymbolTableRareData>();
+        result->ensureRareData();
 
         {
             auto iter = m_rareData->m_uniqueIDMap.begin();
@@ -192,7 +214,14 @@ SymbolTable* SymbolTable::cloneScopePart(VM& vm)
                 result->m_rareData->m_privateNames.add(name.key, name.value);
         }
     }
-    
+
+    result->m_clonedFrom.set(vm, result, this);
+    result->m_propagateCloneInvalidationToOriginal = propagateCloneInvalidationToOriginal;
+    if (result->m_propagateCloneInvalidationToOriginal == PropagateCloneInvalidationToOriginal::Yes) {
+        // If the original SymbolTable's singleton is already invalidated, the new clone starts out invalidated too.
+        if (m_singleton.hasBeenInvalidated())
+            result->m_singleton.invalidate(vm, StringFireDetail("Singleton was previously invalidated"));
+    }
     return result;
 }
 
@@ -201,29 +230,39 @@ void SymbolTable::prepareForTypeProfiling(const ConcurrentJSLocker&)
     if (m_rareData)
         return;
 
-    m_rareData = makeUnique<SymbolTableRareData>();
+    auto& rareData = ensureRareData();
 
     for (auto iter = m_map.begin(), end = m_map.end(); iter != end; ++iter) {
-        m_rareData->m_uniqueIDMap.set(iter->key, TypeProfilerNeedsUniqueIDGeneration);
-        m_rareData->m_offsetToVariableMap.set(iter->value.varOffset(), iter->key);
+        rareData.m_uniqueIDMap.set(iter->key, TypeProfilerNeedsUniqueIDGeneration);
+        rareData.m_offsetToVariableMap.set(iter->value.varOffset(), iter->key);
     }
 }
 
-CodeBlock* SymbolTable::rareDataCodeBlock()
+String SymbolTable::inferredName()
 {
     if (!m_rareData)
-        return nullptr;
-
-    return m_rareData->m_codeBlock.get();
+        return String();
+    return m_rareData->m_inferredName;
 }
 
-void SymbolTable::setRareDataCodeBlock(CodeBlock* codeBlock)
+DebuggerLocation SymbolTable::debuggerLocation()
 {
     if (!m_rareData)
-        m_rareData = makeUnique<SymbolTableRareData>();
+        return DebuggerLocation();
+    return DebuggerLocation(m_rareData->m_debuggerSourceID, m_rareData->m_debuggerLineColumn.line, m_rareData->m_debuggerLineColumn.column);
+}
 
-    ASSERT(!m_rareData->m_codeBlock);
-    m_rareData->m_codeBlock.set(codeBlock->vm(), this, codeBlock);
+void SymbolTable::collectDebuggerInfo(CodeBlock* codeBlock)
+{
+    auto& rareData = ensureRareData();
+    if (!rareData.m_inferredName.isNull())
+        return;
+    rareData.m_inferredName = String::fromUTF8(codeBlock->inferredName().span());
+    ScriptExecutable* executable = codeBlock->ownerExecutable();
+    if (!executable->isHostFunction()) {
+        rareData.m_debuggerSourceID = executable->sourceID();
+        rareData.m_debuggerLineColumn = { static_cast<unsigned>(executable->firstLine()), executable->startColumn() };
+    }
 }
 
 GlobalVariableID SymbolTable::uniqueIDForVariable(const ConcurrentJSLocker&, UniquedStringImpl* key, VM& vm)
@@ -285,16 +324,40 @@ RefPtr<TypeSet> SymbolTable::globalTypeSetForVariable(const ConcurrentJSLocker& 
     return iter->value;
 }
 
+#if ASSERT_ENABLED
+bool SymbolTable::hasScopedWatchpointSet(WatchpointSet* watchpointSet)
+{
+    for (auto iter = m_map.begin(), end = m_map.end(); iter != end; ++iter) {
+        if (!iter->value.varOffset().isScope())
+            continue;
+
+        auto* entryWatchpointSet = iter->value.watchpointSet();
+        if (entryWatchpointSet && entryWatchpointSet == watchpointSet)
+            return true;
+    }
+
+    return false;
+}
+#endif
+
+SymbolTable::SymbolTableRareData& SymbolTable::ensureRareDataSlow()
+{
+    auto rareData = makeUnique<SymbolTableRareData>();
+    WTF::storeStoreFence();
+    m_rareData = WTF::move(rareData);
+    return *m_rareData;
+}
+
 void SymbolTable::dump(PrintStream& out) const
 {
     ConcurrentJSLocker locker(m_lock);
     Base::dump(out);
 
     CommaPrinter comma;
-    out.print(" <");
+    out.print(" <"_s);
     for (auto& iter : m_map)
-        out.print(comma, *iter.key, ": ", iter.value.varOffset());
-    out.println(">");
+        out.print(comma, *iter.key, ": "_s, iter.value.varOffset());
+    out.println(">"_s);
 }
 
 } // namespace JSC

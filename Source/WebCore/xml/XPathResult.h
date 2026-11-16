@@ -26,10 +26,12 @@
 
 #pragma once
 
-#include "ExceptionOr.h"
-#include "XPathValue.h"
+#include <WebCore/XPathValue.h>
+#include <wtf/Lock.h>
 
 namespace WebCore {
+
+template<typename> class ExceptionOr;
 
 class XPathResult : public RefCounted<XPathResult> {
 public:
@@ -51,26 +53,30 @@ public:
 
     ExceptionOr<void> convertTo(unsigned short type);
 
-    WEBCORE_EXPORT unsigned short resultType() const;
+    WEBCORE_EXPORT unsigned short NODELETE resultType() const;
 
     WEBCORE_EXPORT ExceptionOr<double> numberValue() const;
     WEBCORE_EXPORT ExceptionOr<String> stringValue() const;
     WEBCORE_EXPORT ExceptionOr<bool> booleanValue() const;
     WEBCORE_EXPORT ExceptionOr<Node*> singleNodeValue() const;
 
-    WEBCORE_EXPORT bool invalidIteratorState() const;
+    WEBCORE_EXPORT bool NODELETE invalidIteratorState() const;
     WEBCORE_EXPORT ExceptionOr<unsigned> snapshotLength() const;
     WEBCORE_EXPORT ExceptionOr<Node*> iterateNext();
     WEBCORE_EXPORT ExceptionOr<Node*> snapshotItem(unsigned index);
 
-    const XPath::Value& value() const { return m_value; }
+    const XPath::Value& value() const LIFETIME_BOUND { return m_value; }
+
+    template<typename Visitor>
+    void visitAdditionalChildrenInGCThread(Visitor&);
 
 private:
     XPathResult(Document&, const XPath::Value&);
 
     XPath::Value m_value;
     unsigned m_nodeSetPosition { 0 };
-    XPath::NodeSet m_nodeSet; // FIXME: why duplicate the node set stored in m_value?
+    Lock m_nodeSetLock;
+    XPath::NodeSet m_nodeSet WTF_GUARDED_BY_LOCK(m_nodeSetLock);
     unsigned short m_resultType;
     RefPtr<Document> m_document;
     uint64_t m_domTreeVersion { 0 };

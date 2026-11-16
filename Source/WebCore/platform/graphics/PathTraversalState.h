@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2006, 2007 Eric Seidel <eric@webkit.org>
- * Copyright (C) 2015 Apple Inc.  All rights reserved.
+ * Copyright (C) 2015 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,8 +24,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef PathTraversalState_h
-#define PathTraversalState_h
+#pragma once
 
 #include "FloatPoint.h"
 #include "Path.h"
@@ -43,7 +42,7 @@ public:
     PathTraversalState(Action, float desiredLength = 0);
 
 public:
-    bool processPathElement(PathElement::Type, const FloatPoint*);
+    bool processPathElement(PathElement::Type, std::span<const FloatPoint>);
     bool processPathElement(const PathElement& element) { return processPathElement(element.type, element.points); }
 
     Action action() const { return m_action; }
@@ -58,14 +57,14 @@ public:
     float normalAngle() const { return m_normalAngle; }
 
 private:
-    void closeSubpath();
-    void moveTo(const FloatPoint&);
-    void lineTo(const FloatPoint&);
+    void NODELETE closeSubpath();
+    void NODELETE moveTo(const FloatPoint&);
+    void NODELETE lineTo(const FloatPoint&);
     void quadraticBezierTo(const FloatPoint&, const FloatPoint&);
     void cubicBezierTo(const FloatPoint&, const FloatPoint&, const FloatPoint&);
 
     bool finalizeAppendPathElement();
-    bool appendPathElement(PathElement::Type, const FloatPoint*);
+    bool appendPathElement(PathElement::Type, std::span<const FloatPoint>);
 
 private:
     Action m_action;
@@ -82,6 +81,5 @@ private:
     float m_normalAngle { 0 }; // degrees
     bool m_isZeroVector { false };
 };
-}
 
-#endif
+} // namespace WebCore

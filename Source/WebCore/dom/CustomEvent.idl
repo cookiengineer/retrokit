@@ -24,17 +24,19 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
+// https://dom.spec.whatwg.org/#customevent
 [
-    Exposed=(Window,Worker),
+    Exposed=*,
     JSCustomMarkFunction,
 ] interface CustomEvent : Event {
-    constructor(DOMString type, optional CustomEventInit eventInitDict);
+    [CallWith=CurrentGlobalObject] constructor([AtomString] DOMString type, optional CustomEventInit eventInitDict = {});
 
     [CustomGetter] readonly attribute any detail;
 
-    undefined initCustomEvent(DOMString type, optional boolean bubbles = false, optional boolean cancelable = false, optional any detail = null);
+    [CallWith=CurrentGlobalObject] undefined initCustomEvent([AtomString] DOMString type, optional boolean bubbles = false, optional boolean cancelable = false, optional any detail = null);
 };
 
+// https://dom.spec.whatwg.org/#dictdef-customeventinit
 dictionary CustomEventInit : EventInit {
     any detail = null;
 };

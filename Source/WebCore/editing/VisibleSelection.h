@@ -25,26 +25,35 @@
 
 #pragma once
 
-#include "TextGranularity.h"
-#include "VisiblePosition.h"
-#include <wtf/EnumTraits.h>
+#include <WebCore/SelectionType.h>
+#include <WebCore/TextGranularity.h>
+#include <WebCore/VisiblePosition.h>
 
 namespace WebCore {
+
+// On Mac, Shift-arrow keys move the anchor in a strongly directional selection
+// and moves either end to always extend in a weakly directional or non-directional selection.
+// FIXME: Add Weak.
+enum class Directionality : uint8_t { None, Strong };
 
 enum class SelectionDirection : uint8_t { Forward, Backward, Right, Left };
 
 class VisibleSelection {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(VisibleSelection);
 public:
     WEBCORE_EXPORT VisibleSelection();
+    static const VisibleSelection& NODELETE emptySelection();
 
     static constexpr auto defaultAffinity = VisiblePosition::defaultAffinity;
 
-    VisibleSelection(const Position& anchor, const Position& focus, Affinity = defaultAffinity, bool isDirectional = false);
+    VisibleSelection(const Position& anchor, const Position& focus, Affinity = defaultAffinity, Directionality = Directionality::None);
 
-    VisibleSelection(const Position&, Affinity, bool isDirectional = false);
-    WEBCORE_EXPORT VisibleSelection(const SimpleRange&, Affinity = defaultAffinity, bool isDirectional = false);
-    WEBCORE_EXPORT VisibleSelection(const VisiblePosition&, bool isDirectional = false);
-    WEBCORE_EXPORT VisibleSelection(const VisiblePosition& anchor, const VisiblePosition& focus, bool isDirectional = false);
+    // FIXME: A caret selection never has direction so we should remove the Directionality argument from this function.
+    VisibleSelection(const Position&, Affinity, Directionality = Directionality::None);
+    WEBCORE_EXPORT VisibleSelection(const SimpleRange&, Affinity = defaultAffinity, Directionality = Directionality::None);
+    // FIXME: A caret selection never has direction so we should remove the Directionality argument from this function.
+    WEBCORE_EXPORT VisibleSelection(const VisiblePosition&, Directionality = Directionality::None);
+    WEBCORE_EXPORT VisibleSelection(const VisiblePosition& anchor, const VisiblePosition& focus, Directionality = Directionality::None);
 
     WEBCORE_EXPORT static VisibleSelection selectionFromContentsOfNode(Node*);
 
@@ -61,17 +70,17 @@ public:
     // These functions return the values that were passed in, without the canonicalization done by VisiblePosition.
     // FIXME: When we expand granularity, we canonicalize as a side effect, so expanded values have been made canonical.
     // FIXME: Replace start/range/base/end/firstRange with these, renaming these to the shorter names.
-    Position uncanonicalizedStart() const;
-    Position uncanonicalizedEnd() const;
-    Position anchor() const;
-    Position focus() const;
+    const Position& NODELETE uncanonicalizedStart() const LIFETIME_BOUND;
+    const Position& NODELETE uncanonicalizedEnd() const LIFETIME_BOUND;
+    const Position& anchor() const LIFETIME_BOUND { return m_anchor; }
+    const Position& focus() const LIFETIME_BOUND { return m_focus; }
     WEBCORE_EXPORT std::optional<SimpleRange> range() const;
 
     // FIXME: Rename these to include the word "canonical" or remove.
-    Position base() const { return m_base; }
-    Position extent() const { return m_extent; }
-    Position start() const { return m_start; }
-    Position end() const { return m_end; }
+    const Position& base() const LIFETIME_BOUND { return m_base; }
+    const Position& extent() const LIFETIME_BOUND { return m_extent; }
+    const Position& start() const LIFETIME_BOUND { return m_start; }
+    const Position& end() const LIFETIME_BOUND { return m_end; }
 
     VisiblePosition visibleStart() const { return VisiblePosition(m_start, isRange() ? Affinity::Downstream : affinity()); }
     VisiblePosition visibleEnd() const { return VisiblePosition(m_end, isRange() ? Affinity::Upstream : affinity()); }
@@ -80,18 +89,23 @@ public:
 
     operator VisiblePositionRange() const { return { visibleStart(), visibleEnd() }; }
 
-    bool isNone() const { return m_type == Type::None; }
-    bool isCaret() const { return m_type == Type::Caret; }
-    bool isRange() const { return m_type == Type::Range; }
+    SelectionType type() const { return m_type; }
+
+    bool isNone() const { return type() == SelectionType::None; }
+    bool isCaret() const { return type() == SelectionType::Caret; }
+    bool isRange() const { return type() == SelectionType::Range; }
+
     bool isCaretOrRange() const { return !isNone(); }
     bool isNonOrphanedRange() const { return isRange() && !start().isOrphan() && !end().isOrphan(); }
     bool isNoneOrOrphaned() const { return isNone() || start().isOrphan() || end().isOrphan(); }
-    bool isOrphan() const;
-    RefPtr<Document> document() const;
+    bool NODELETE isOrphan() const;
+
+    RefPtr<Document> NODELETE document() const;
 
     bool isBaseFirst() const { return m_anchorIsFirst; }
-    bool isDirectional() const { return m_isDirectional; }
-    void setIsDirectional(bool isDirectional) { m_isDirectional = isDirectional; }
+
+    Directionality directionality() const { return m_directionality; }
+    void setDirectionality(Directionality directionality) { m_directionality = directionality; }
 
     WEBCORE_EXPORT bool isAll(EditingBoundaryCrossingRule) const;
 
@@ -114,10 +128,13 @@ public:
 
     // Returns a shadow tree node for legacy shadow trees, a child of the
     // ShadowRoot node for new shadow trees, or 0 for non-shadow trees.
-    Node* nonBoundaryShadowTreeRootNode() const;
+    Node* NODELETE nonBoundaryShadowTreeRootNode() const;
 
     WEBCORE_EXPORT bool isInPasswordField() const;
-    
+    WEBCORE_EXPORT bool isInAutoFilledAndViewableField() const;
+
+    WEBCORE_EXPORT bool canEnableWritingSuggestions() const;
+
     WEBCORE_EXPORT static Position adjustPositionForEnd(const Position& currentPosition, Node* startContainerNode);
     WEBCORE_EXPORT static Position adjustPositionForStart(const Position& currentPosition, Node* startContainerNode);
 
@@ -156,20 +173,14 @@ private:
     Affinity m_affinity { defaultAffinity };
 
     // These are cached, can be recalculated by validate()
-    enum class Type : uint8_t { None, Caret, Range };
-    Type m_type { Type::None };
-    bool m_anchorIsFirst : 1; // True if the anchor is before the focus.
-    bool m_isDirectional : 1; // On Mac, Shift-arrow keys move the anchor in a directional selection and moves either end to always extend in a non-directional selection.
+    SelectionType m_type { SelectionType::None };
+    bool m_anchorIsFirst { true }; // True if the anchor is before the focus. FIXME: Rename to m_anchorIsBeforeFocus since that's what the comment says.
+    Directionality m_directionality { Directionality::None };
 };
 
 inline bool operator==(const VisibleSelection& a, const VisibleSelection& b)
 {
-    return a.start() == b.start() && a.end() == b.end() && a.affinity() == b.affinity() && a.isBaseFirst() == b.isBaseFirst() && a.isDirectional() == b.isDirectional();
-}
-
-inline bool operator!=(const VisibleSelection& a, const VisibleSelection& b)
-{
-    return !(a == b);
+    return a.start() == b.start() && a.end() == b.end() && a.affinity() == b.affinity() && a.isBaseFirst() == b.isBaseFirst() && a.directionality() == b.directionality();
 }
 
 WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const VisibleSelection&);
@@ -181,17 +192,3 @@ WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const VisibleSelect
 void showTree(const WebCore::VisibleSelection&);
 void showTree(const WebCore::VisibleSelection*);
 #endif
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::SelectionDirection> {
-    using values = EnumValues<
-        WebCore::SelectionDirection,
-        WebCore::SelectionDirection::Forward,
-        WebCore::SelectionDirection::Backward,
-        WebCore::SelectionDirection::Right,
-        WebCore::SelectionDirection::Left
-    >;
-};
-
-} // namespace WTF

@@ -20,7 +20,7 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #ifndef PAS_LARGE_MAP_H
@@ -31,6 +31,7 @@
 #include "pas_first_level_tiny_large_map_entry.h"
 #include "pas_hashtable.h"
 #include "pas_large_map_entry.h"
+#include "pas_large_map_variant.h"
 #include "pas_small_large_map_entry.h"
 #include "pas_tiny_large_map_entry.h"
 #include "pas_utility_heap.h"
@@ -39,33 +40,37 @@
 PAS_BEGIN_EXTERN_C;
 
 struct pas_large_heap;
+struct pas_large_map;
 typedef struct pas_large_heap pas_large_heap;
+typedef struct pas_large_map pas_large_map;
 
 PAS_CREATE_HASHTABLE(pas_large_map_hashtable,
                      pas_large_map_entry,
                      pas_large_map_key);
 
-PAS_API extern pas_large_map_hashtable pas_large_map_hashtable_instance;
-PAS_API extern pas_large_map_hashtable_in_flux_stash pas_large_map_hashtable_instance_in_flux_stash;
-
 PAS_CREATE_HASHTABLE(pas_small_large_map_hashtable,
                      pas_small_large_map_entry,
                      pas_large_map_key);
-
-PAS_API extern pas_small_large_map_hashtable pas_small_large_map_hashtable_instance;
-PAS_API extern pas_small_large_map_hashtable_in_flux_stash pas_small_large_map_hashtable_instance_in_flux_stash;
 
 PAS_CREATE_HASHTABLE(pas_tiny_large_map_hashtable,
                      pas_first_level_tiny_large_map_entry,
                      pas_first_level_tiny_large_map_key);
 
-PAS_API extern pas_tiny_large_map_hashtable pas_tiny_large_map_hashtable_instance;
-PAS_API extern pas_tiny_large_map_hashtable_in_flux_stash pas_tiny_large_map_hashtable_instance_in_flux_stash;
-PAS_API extern pas_tiny_large_map_second_level_hashtable_in_flux_stash pas_tiny_large_map_second_level_hashtable_in_flux_stash_instance;
+struct pas_large_map {
+    pas_large_map_hashtable large_map_hashtable;
+    pas_large_map_hashtable_in_flux_stash large_map_hashtable_in_flux_stash;
+    pas_small_large_map_hashtable small_large_map_hashtable;
+    pas_small_large_map_hashtable_in_flux_stash small_large_map_hashtable_in_flux_stash;
+    pas_tiny_large_map_hashtable tiny_large_map_hashtable;
+    pas_tiny_large_map_hashtable_in_flux_stash tiny_large_map_hashtable_in_flux_stash;
+    pas_tiny_large_map_second_level_hashtable_in_flux_stash tiny_large_map_second_level_hashtable_in_flux_stash;
+};
+
+PAS_API extern pas_large_map pas_large_maps[PAS_NUM_LARGE_MAP_VARIANTS];
 
 PAS_API pas_large_map_entry pas_large_map_find(uintptr_t begin);
 
-PAS_API void pas_large_map_add(pas_large_map_entry entry);
+PAS_API void pas_large_map_add(pas_large_map* map, pas_large_map_entry entry);
 PAS_API pas_large_map_entry pas_large_map_take(uintptr_t begin);
 
 typedef bool (*pas_large_map_for_each_entry_callback)(pas_large_map_entry entry,
@@ -77,4 +82,3 @@ PAS_API bool pas_large_map_for_each_entry(pas_large_map_for_each_entry_callback 
 PAS_END_EXTERN_C;
 
 #endif /* PAS_LARGE_MAP_H */
-

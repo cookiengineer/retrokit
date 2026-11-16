@@ -26,22 +26,22 @@
 #include "config.h"
 #include "MediaQueryListEvent.h"
 
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(MediaQueryListEvent);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MediaQueryListEvent);
 
 MediaQueryListEvent::MediaQueryListEvent(const AtomString& type, const String& media, bool matches)
-    : Event(type, CanBubble::No, IsCancelable::No)
+    : Event(EventInterfaceType::MediaQueryListEvent, type, CanBubble::No, IsCancelable::No)
     , m_media(media)
     , m_matches(matches)
 {
 }
 
-MediaQueryListEvent::MediaQueryListEvent(const AtomString& type, const Init& init, IsTrusted isTrusted)
-    : Event(type, init, isTrusted)
-    , m_media(init.media)
+MediaQueryListEvent::MediaQueryListEvent(const AtomString& type, Init&& init, IsTrusted isTrusted)
+    : Event(EventInterfaceType::MediaQueryListEvent, type, WTF::move(init), isTrusted)
+    , m_media(WTF::move(init.media))
     , m_matches(init.matches)
 {
 }
@@ -51,9 +51,9 @@ Ref<MediaQueryListEvent> MediaQueryListEvent::create(const AtomString& type, con
     return adoptRef(*new MediaQueryListEvent(type, media, matches));
 }
 
-Ref<MediaQueryListEvent> MediaQueryListEvent::create(const AtomString& type, const Init& init, IsTrusted isTrusted)
+Ref<MediaQueryListEvent> MediaQueryListEvent::create(const AtomString& type, Init&& init, IsTrusted isTrusted)
 {
-    return adoptRef(*new MediaQueryListEvent(type, init, isTrusted));
+    return adoptRef(*new MediaQueryListEvent(type, WTF::move(init), isTrusted));
 }
 
 } // namespace WebCore

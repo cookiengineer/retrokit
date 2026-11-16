@@ -25,25 +25,29 @@
 
 #pragma once
 
-#include "ActiveDOMCallback.h"
-#include "JSDOMGlobalObject.h"
-#include <JavaScriptCore/HeapInlines.h>
-#include <JavaScriptCore/JSCell.h>
-#include <JavaScriptCore/SlotVisitorInlines.h>
-#include <JavaScriptCore/StrongInlines.h>
+#include <JavaScriptCore/JSCast.h>
+#include <JavaScriptCore/WeakInlines.h>
+#include <WebCore/ActiveDOMCallback.h>
+#include <wtf/RefCounted.h>
 
 namespace WebCore {
+
+class JSDOMGlobalObject;
 
 class WEBCORE_EXPORT DOMGuardedObject : public RefCounted<DOMGuardedObject>, public ActiveDOMCallback {
 public:
     ~DOMGuardedObject();
 
+    // ActiveDOMCallback.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     bool isSuspended() const { return !m_guarded || !canInvokeCallback(); } // The wrapper world has gone away or active DOM objects have been suspended.
 
-    template<typename Visitor> void visitAggregate(Visitor& visitor) { visitor.append(m_guarded); }
+    template<typename Visitor> void visitAggregateInGCThread(Visitor& visitor) { visitor.append(m_guarded); }
 
     JSC::JSValue guardedObject() const { return m_guarded.get(); }
-    JSDOMGlobalObject* globalObject() const { return m_globalObject.get(); }
+    JSDOMGlobalObject* NODELETE globalObject() const;
 
     void clear();
 
@@ -63,7 +67,7 @@ private:
 template <typename T> class DOMGuarded : public DOMGuardedObject {
 protected:
     DOMGuarded(JSDOMGlobalObject& globalObject, T& guarded) : DOMGuardedObject(globalObject, guarded) { }
-    T* guarded() const { return JSC::jsDynamicCast<T*>(globalObject()->vm(), guardedObject()); }
+    T* guarded() const { return dynamicDowncast<T>(guardedObject()); }
 };
 
 } // namespace WebCore

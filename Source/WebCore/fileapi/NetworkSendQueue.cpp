@@ -27,15 +27,21 @@
 #include "NetworkSendQueue.h"
 
 #include "BlobLoader.h"
+#include "ContextDestructionObserverInlines.h"
 #include "ScriptExecutionContext.h"
 
 namespace WebCore {
 
+Ref<NetworkSendQueue> NetworkSendQueue::create(ScriptExecutionContext& context, WriteString&& writeString, WriteRawData&& writeRawData, ProcessError&& processError)
+{
+    return adoptRef(*new NetworkSendQueue(context, WTF::move(writeString), WTF::move(writeRawData), WTF::move(processError)));
+}
+
 NetworkSendQueue::NetworkSendQueue(ScriptExecutionContext& context, WriteString&& writeString, WriteRawData&& writeRawData, ProcessError&& processError)
     : ContextDestructionObserver(&context)
-    , m_writeString(WTFMove(writeString))
-    , m_writeRawData(WTFMove(writeRawData))
-    , m_processError(WTFMove(processError))
+    , m_writeString(WTF::move(writeString))
+    , m_writeRawData(WTF::move(writeRawData))
+    , m_processError(WTF::move(processError))
 {
 }
 
@@ -47,43 +53,52 @@ void NetworkSendQueue::enqueue(CString&& utf8)
         m_writeString(utf8);
         return;
     }
-    m_queue.append(WTFMove(utf8));
+    m_queue.append(WTF::move(utf8));
 }
 
 void NetworkSendQueue::enqueue(const JSC::ArrayBuffer& binaryData, unsigned byteOffset, unsigned byteLength)
 {
     if (m_queue.isEmpty()) {
-        auto* data = static_cast<const uint8_t*>(binaryData.data());
-        m_writeRawData(Span { data + byteOffset, byteLength });
+        m_writeRawData(binaryData.span().subspan(byteOffset, byteLength));
         return;
     }
-    m_queue.append(SharedBuffer::create(static_cast<const uint8_t*>(binaryData.data()) + byteOffset, byteLength));
+    m_queue.append(Ref<FragmentedSharedBuffer> { SharedBuffer::create(binaryData.span().subspan(byteOffset, byteLength)) });
 }
 
 void NetworkSendQueue::enqueue(WebCore::Blob& blob)
 {
-    auto* context = scriptExecutionContext();
+    RefPtr context = scriptExecutionContext();
     if (!context)
         return;
 
     auto byteLength = blob.size();
     if (!byteLength) {
-        enqueue(JSC::ArrayBuffer::create(0U, 1), 0, 0);
+        // The cast looks weird, but is required for the overloading resolution to succeed.
+        // Without it, there is an ambiguity where ArrayBuffer::create(const void* source, size_t byteLength) could be called instead.
+        enqueue(JSC::ArrayBuffer::create(static_cast<size_t>(0U), 1), 0, 0);
         return;
     }
-    auto blobLoader = makeUniqueRef<BlobLoader>([this](BlobLoader&) {
-        processMessages();
+    Ref blobLoader = BlobLoader::create([weakThis = WeakPtr { *this }](BlobLoader&) {
+        if (RefPtr protectedThis = weakThis.get())
+            protectedThis->processMessages();
     });
-    auto* blobLoaderPtr = &blobLoader.get();
-    m_queue.append(WTFMove(blobLoader));
-    blobLoaderPtr->start(blob, context, FileReaderLoader::ReadAsArrayBuffer);
+    m_queue.append(blobLoader.copyRef());
+    blobLoader->start(blob, context.get(), FileReaderLoader::ReadAsArrayBuffer);
 }
 
 void NetworkSendQueue::clear()
 {
-    // Do not call m_queue.clear() here since destroying a BlobLoader will cause its completion
-    // handler to get called, which will call processMessages() to iterate over m_queue.
-    std::exchange(m_queue, { });
+    m_queue.clear();
+}
+
+void NetworkSendQueue::whenEmpty(Function<void()>&& callback)
+{
+    if (m_queue.isEmpty()) {
+        callback();
+        return;
+    }
+
+    m_emptyCallback = WTF::move(callback);
 }
 
 void NetworkSendQueue::processMessages()
@@ -92,17 +107,17 @@ void NetworkSendQueue::processMessages()
         bool shouldStopProcessing = false;
         switchOn(m_queue.first(), [this](const CString& utf8) {
             m_writeString(utf8);
-        }, [this](Ref<SharedBuffer>& data) {
+        }, [this](Ref<FragmentedSharedBuffer>& data) {
             data->forEachSegment(m_writeRawData);
-        }, [this, &shouldStopProcessing](UniqueRef<BlobLoader>& loader) {
+        }, [this, &shouldStopProcessing](Ref<BlobLoader>& loader) {
             auto errorCode = loader->errorCode();
-            if (loader->isLoading() || (errorCode && errorCode.value() == AbortError)) {
+            if (loader->isLoading() || (errorCode && errorCode.value() == ExceptionCode::AbortError)) {
                 shouldStopProcessing = true;
                 return;
             }
 
             if (const auto& result = loader->arrayBufferResult()) {
-                m_writeRawData(Span { static_cast<const uint8_t*>(result->data()), result->byteLength() });
+                m_writeRawData(result->span());
                 return;
             }
             ASSERT(errorCode);
@@ -113,6 +128,8 @@ void NetworkSendQueue::processMessages()
         m_queue.removeFirst();
     }
 
+    if (auto callback = std::exchange(m_emptyCallback, { }))
+        callback();
 }
 
 } // namespace WebCore

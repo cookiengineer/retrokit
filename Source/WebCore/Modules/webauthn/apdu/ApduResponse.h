@@ -52,7 +52,7 @@ public:
     };
 
     // Create a APDU response from the serialized message.
-    static std::optional<ApduResponse> createFromMessage(const Vector<uint8_t>& data);
+    WEBCORE_EXPORT static std::optional<ApduResponse> createFromMessage(Vector<uint8_t>&& data);
 
     ApduResponse(Vector<uint8_t>&& data, Status);
     ApduResponse(ApduResponse&& that) = default;
@@ -60,8 +60,8 @@ public:
 
     Vector<uint8_t> getEncodedResponse() const;
 
-    const Vector<uint8_t>& data() const { return m_data; }
-    Vector<uint8_t>& data() { return m_data; }
+    const Vector<uint8_t>& data() const LIFETIME_BOUND { return m_data; }
+    Vector<uint8_t>& data() LIFETIME_BOUND { return m_data; }
     Status status() const { return m_responseStatus; }
 
 private:

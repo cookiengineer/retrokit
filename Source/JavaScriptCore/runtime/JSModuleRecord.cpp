@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,33 +28,38 @@
 
 #include "BuiltinNames.h"
 #include "Interpreter.h"
+#include "JSAsyncFunction.h"
+#include "JSAsyncGeneratorFunction.h"
 #include "JSCInlines.h"
+#include "JSGeneratorFunction.h"
+#include "JSMicrotask.h"
 #include "JSModuleEnvironment.h"
 #include "JSModuleLoader.h"
 #include "JSModuleNamespaceObject.h"
+#include "JSPromise.h"
+#include "ModuleProgramExecutable.h"
+#include "SourceProfiler.h"
 #include "UnlinkedModuleProgramCodeBlock.h"
+#include "VariableEnvironmentInlines.h"
+#include <wtf/text/MakeString.h>
 
 namespace JSC {
 
-const ClassInfo JSModuleRecord::s_info = { "ModuleRecord", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSModuleRecord) };
+const ClassInfo JSModuleRecord::s_info = { "ModuleRecord"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSModuleRecord) };
 
-
-Structure* JSModuleRecord::createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
+JSModuleRecord* JSModuleRecord::create(JSGlobalObject* globalObject, VM& vm, Structure* structure, const Identifier& moduleKey, const SourceCode& sourceCode, const VariableEnvironment& declaredVariables, const VariableEnvironment& lexicalVariables, CodeFeatures features)
 {
-    return Structure::create(vm, globalObject, prototype, TypeInfo(ObjectType, StructureFlags), info());
-}
-
-JSModuleRecord* JSModuleRecord::create(JSGlobalObject* globalObject, VM& vm, Structure* structure, const Identifier& moduleKey, const SourceCode& sourceCode, const VariableEnvironment& declaredVariables, const VariableEnvironment& lexicalVariables)
-{
-    JSModuleRecord* instance = new (NotNull, allocateCell<JSModuleRecord>(vm.heap)) JSModuleRecord(vm, structure, moduleKey, sourceCode, declaredVariables, lexicalVariables);
+    JSModuleRecord* instance = new (NotNull, allocateCell<JSModuleRecord>(vm)) JSModuleRecord(vm, structure, moduleKey, sourceCode, declaredVariables, lexicalVariables, features);
     instance->finishCreation(globalObject, vm);
     return instance;
 }
-JSModuleRecord::JSModuleRecord(VM& vm, Structure* structure, const Identifier& moduleKey, const SourceCode& sourceCode, const VariableEnvironment& declaredVariables, const VariableEnvironment& lexicalVariables)
+
+JSModuleRecord::JSModuleRecord(VM& vm, Structure* structure, const Identifier& moduleKey, const SourceCode& sourceCode, const VariableEnvironment& declaredVariables, const VariableEnvironment& lexicalVariables, CodeFeatures features)
     : Base(vm, structure, moduleKey)
     , m_sourceCode(sourceCode)
     , m_declaredVariables(declaredVariables)
     , m_lexicalVariables(lexicalVariables)
+    , m_features(features)
 {
 }
 
@@ -67,13 +72,13 @@ void JSModuleRecord::destroy(JSCell* cell)
 void JSModuleRecord::finishCreation(JSGlobalObject* globalObject, VM& vm)
 {
     Base::finishCreation(globalObject, vm);
-    ASSERT(inherits(vm, info()));
+    ASSERT(inherits(info()));
 }
 
 template<typename Visitor>
 void JSModuleRecord::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    JSModuleRecord* thisObject = jsCast<JSModuleRecord*>(cell);
+    JSModuleRecord* thisObject = uncheckedDowncast<JSModuleRecord>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
     visitor.append(thisObject->m_moduleProgramExecutable);
@@ -81,175 +86,92 @@ void JSModuleRecord::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 
 DEFINE_VISIT_CHILDREN(JSModuleRecord);
 
-Synchronousness JSModuleRecord::link(JSGlobalObject* globalObject, JSValue scriptFetcher)
+bool JSModuleRecord::isTopLevelExecutionFinished() const
 {
-    VM& vm = globalObject->vm();
-    auto scope = DECLARE_THROW_SCOPE(vm);
-
-    ModuleProgramExecutable* executable = ModuleProgramExecutable::create(globalObject, sourceCode());
-    EXCEPTION_ASSERT(!!scope.exception() == !executable);
-    if (!executable) {
-        throwSyntaxError(globalObject, scope);
-        return Synchronousness::Sync;
-    }
-    instantiateDeclarations(globalObject, executable, scriptFetcher);
-    RETURN_IF_EXCEPTION(scope, Synchronousness::Sync);
-    m_moduleProgramExecutable.set(vm, this, executable);
-
-    return executable->unlinkedModuleProgramCodeBlock()->isAsync() ? Synchronousness::Async : Synchronousness::Sync;
-}
-
-void JSModuleRecord::instantiateDeclarations(JSGlobalObject* globalObject, ModuleProgramExecutable* moduleProgramExecutable, JSValue scriptFetcher)
-{
-    VM& vm = globalObject->vm();
-    auto scope = DECLARE_THROW_SCOPE(vm);
-
-    // http://www.ecma-international.org/ecma-262/6.0/#sec-moduledeclarationinstantiation
-
-    SymbolTable* symbolTable = moduleProgramExecutable->moduleEnvironmentSymbolTable();
-    JSModuleEnvironment* moduleEnvironment = JSModuleEnvironment::create(vm, globalObject, globalObject->globalLexicalEnvironment(), symbolTable, jsTDZValue(), this);
-
-    // http://www.ecma-international.org/ecma-262/6.0/#sec-moduledeclarationinstantiation
-    // section 15.2.1.16.4 step 9.
-    // Ensure all the indirect exports are correctly resolved to unique bindings.
-    // Even if we avoided duplicate exports in the parser, still ambiguous exports occur due to the star export (`export * from "mod"`).
-    // When we see this type of ambiguity for the indirect exports here, throw a syntax error.
-    for (const auto& pair : exportEntries()) {
-        const ExportEntry& exportEntry = pair.value;
-        switch (exportEntry.type) {
-        case ExportEntry::Type::Local:
-        case ExportEntry::Type::Namespace:
-            break;
-        case ExportEntry::Type::Indirect: {
-            Resolution resolution = resolveExport(globalObject, exportEntry.exportName);
-            RETURN_IF_EXCEPTION(scope, void());
-            switch (resolution.type) {
-            case Resolution::Type::NotFound:
-                throwSyntaxError(globalObject, scope, makeString("Indirectly exported binding name '", String(exportEntry.exportName.impl()), "' is not found."));
-                return;
-
-            case Resolution::Type::Ambiguous:
-                throwSyntaxError(globalObject, scope, makeString("Indirectly exported binding name '", String(exportEntry.exportName.impl()), "' cannot be resolved due to ambiguous multiple bindings."));
-                return;
-
-            case Resolution::Type::Error:
-                throwSyntaxError(globalObject, scope, makeString("Indirectly exported binding name 'default' cannot be resolved by star export entries."));
-                return;
-
-            case Resolution::Type::Resolved:
-                break;
-            }
-            break;
-        }
-        }
-    }
-
-    // https://tc39.es/ecma262/#sec-source-text-module-record-initialize-environment step 8
-    // Instantiate namespace objects and initialize the bindings with them if required.
-    // And ensure that all the imports correctly resolved to unique bindings.
-    for (const auto& pair : importEntries()) {
-        const ImportEntry& importEntry = pair.value;
-        AbstractModuleRecord* importedModule = hostResolveImportedModule(globalObject, importEntry.moduleRequest);
-        RETURN_IF_EXCEPTION(scope, void());
-        switch (importEntry.type) {
-        case AbstractModuleRecord::ImportEntryType::Namespace: {
-            JSModuleNamespaceObject* namespaceObject = importedModule->getModuleNamespace(globalObject);
-            RETURN_IF_EXCEPTION(scope, void());
-            bool putResult = false;
-            symbolTablePutTouchWatchpointSet(moduleEnvironment, globalObject, importEntry.localName, namespaceObject, /* shouldThrowReadOnlyError */ false, /* ignoreReadOnlyErrors */ true, putResult);
-            RETURN_IF_EXCEPTION(scope, void());
-            break;
-        }
-
-        case AbstractModuleRecord::ImportEntryType::Single: {
-            Resolution resolution = importedModule->resolveExport(globalObject, importEntry.importName);
-            RETURN_IF_EXCEPTION(scope, void());
-            switch (resolution.type) {
-            case Resolution::Type::NotFound:
-                throwSyntaxError(globalObject, scope, makeString("Importing binding name '", String(importEntry.importName.impl()), "' is not found."));
-                return;
-
-            case Resolution::Type::Ambiguous:
-                throwSyntaxError(globalObject, scope, makeString("Importing binding name '", String(importEntry.importName.impl()), "' cannot be resolved due to ambiguous multiple bindings."));
-                return;
-
-            case Resolution::Type::Error:
-                throwSyntaxError(globalObject, scope, makeString("Importing binding name 'default' cannot be resolved by star export entries."));
-                return;
-
-            case Resolution::Type::Resolved: {
-                if (vm.propertyNames->starNamespacePrivateName == resolution.localName) {
-                    resolution.moduleRecord->getModuleNamespace(globalObject); // Force module namespace object materialization.
-                    RETURN_IF_EXCEPTION(scope, void());
-                }
-                break;
-            }
-            }
-            break;
-        }
-        }
-    }
-
-    // http://www.ecma-international.org/ecma-262/6.0/#sec-moduledeclarationinstantiation
-    // section 15.2.1.16.4 step 14.
-    // Module environment contains the heap allocated "var", "function", "let", "const", and "class".
-    // When creating the environment, we initialized all the slots with empty, it's ok for lexical values.
-    // But for "var" and "function", we should initialize it with undefined. They are contained in the declared variables.
-    for (const auto& variable : declaredVariables()) {
-        SymbolTableEntry entry = symbolTable->get(variable.key.get());
-        VarOffset offset = entry.varOffset();
-        if (!offset.isStack()) {
-            bool putResult = false;
-            symbolTablePutTouchWatchpointSet(moduleEnvironment, globalObject, Identifier::fromUid(vm, variable.key.get()), jsUndefined(), /* shouldThrowReadOnlyError */ false, /* ignoreReadOnlyErrors */ true, putResult);
-            RETURN_IF_EXCEPTION(scope, void());
-        }
-    }
-
-    // http://www.ecma-international.org/ecma-262/6.0/#sec-moduledeclarationinstantiation
-    // section 15.2.1.16.4 step 16-a-iv.
-    // Initialize heap allocated function declarations.
-    // They can be called before the body of the module is executed under circular dependencies.
-    UnlinkedModuleProgramCodeBlock* unlinkedCodeBlock = moduleProgramExecutable->unlinkedModuleProgramCodeBlock();
-    for (size_t i = 0, numberOfFunctions = unlinkedCodeBlock->numberOfFunctionDecls(); i < numberOfFunctions; ++i) {
-        UnlinkedFunctionExecutable* unlinkedFunctionExecutable = unlinkedCodeBlock->functionDecl(i);
-        SymbolTableEntry entry = symbolTable->get(unlinkedFunctionExecutable->name().impl());
-        VarOffset offset = entry.varOffset();
-        if (!offset.isStack()) {
-            ASSERT(!unlinkedFunctionExecutable->name().isEmpty());
-            if (vm.typeProfiler() || vm.controlFlowProfiler()) {
-                vm.functionHasExecutedCache()->insertUnexecutedRange(moduleProgramExecutable->sourceID(),
-                    unlinkedFunctionExecutable->typeProfilingStartOffset(),
-                    unlinkedFunctionExecutable->typeProfilingEndOffset());
-            }
-            JSFunction* function = JSFunction::create(vm, unlinkedFunctionExecutable->link(vm, moduleProgramExecutable, moduleProgramExecutable->source()), moduleEnvironment);
-            bool putResult = false;
-            symbolTablePutTouchWatchpointSet(moduleEnvironment, globalObject, unlinkedFunctionExecutable->name(), function, /* shouldThrowReadOnlyError */ false, /* ignoreReadOnlyErrors */ true, putResult);
-            RETURN_IF_EXCEPTION(scope, void());
-        }
-    }
-
-    {
-        JSObject* metaProperties = globalObject->moduleLoader()->createImportMetaProperties(globalObject, identifierToJSValue(vm, moduleKey()), this, scriptFetcher);
-        RETURN_IF_EXCEPTION(scope, void());
-        bool putResult = false;
-        symbolTablePutTouchWatchpointSet(moduleEnvironment, globalObject, vm.propertyNames->builtinNames().metaPrivateName(), metaProperties, /* shouldThrowReadOnlyError */ false, /* ignoreReadOnlyErrors */ true, putResult);
-        RETURN_IF_EXCEPTION(scope, void());
-    }
-
-    scope.release();
-    setModuleEnvironment(globalObject, moduleEnvironment);
+    JSValue state = internalField(Field::State).get();
+    return !state.isNumber() || state.asInt32AsAnyInt() == std::to_underlying(State::Executing);
 }
 
 JSValue JSModuleRecord::evaluate(JSGlobalObject* globalObject, JSValue sentValue, JSValue resumeMode)
 {
-    if (!m_moduleProgramExecutable)
+    if (!m_moduleProgramExecutable) {
+        ASSERT_NOT_REACHED_WITH_MESSAGE("Can't evaluate a JSModuleRecord that has no executable");
         return jsUndefined();
+    }
+
     VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    if (JSValue error = evaluationError()) {
+        scope.throwException(globalObject, error);
+        return { };
+    }
+
     ModuleProgramExecutable* executable = m_moduleProgramExecutable.get();
-    JSValue resultOrAwaitedValue = vm.interpreter->executeModuleProgram(this, executable, globalObject, moduleEnvironment(), sentValue, resumeMode);
-    if (JSValue state = internalField(Field::State).get(); !state.isNumber() || state.asNumber() == static_cast<unsigned>(State::Executing))
+    JSValue resultOrAwaitedValue = vm.interpreter.executeModuleProgram(this, executable, globalObject, moduleEnvironment(), sentValue, resumeMode);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    if (isTopLevelExecutionFinished())
         m_moduleProgramExecutable.clear();
-    return resultOrAwaitedValue;
+
+    RELEASE_AND_RETURN(scope, resultOrAwaitedValue);
+}
+
+void JSModuleRecord::execute(JSGlobalObject* globalObject, JSPromise* capability)
+{
+    // ExecuteModule([capability])
+    // https://tc39.es/ecma262/#sec-source-text-module-record-execute-module
+
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    // 1. Let moduleContext be a new ECMAScript code execution context.
+    // 2. Set the Function of moduleContext to null.
+    // 3. Set the Realm of moduleContext to module.[[Realm]].
+    // 4. Set the ScriptOrModule of moduleContext to module.
+    // 5. Assert: module has been linked and declarations in its module environment have been instantiated.
+    ASSERT(static_cast<int>(status()) >= static_cast<int>(Status::Linked));
+    // 6. Set the VariableEnvironment of moduleContext to module.[[Environment]].
+    // 7. Set the LexicalEnvironment of moduleContext to module.[[Environment]].
+    // 8. Suspend the running execution context.
+    // 9. If module.[[HasTLA]] is false, then
+    if (!hasTLA()) {
+        // 9.a. Assert: capability is not present.
+        ASSERT(capability == nullptr);
+        // 9.b. Push moduleContext onto the execution context stack; moduleContext is now the running execution context.
+        // 9.c. Let result be Completion(Evaluation of module.[[ECMAScriptCode]]).
+        globalObject->moduleLoader()->evaluate(globalObject, identifierToJSValue(vm, moduleKey()), this, nullptr, jsUndefined(), jsNumber(static_cast<int32_t>(ResumeMode::NormalMode)));
+        // 9.d. Suspend moduleContext and remove it from the execution context stack.
+        // 9.e. Resume the context that is now on the top of the execution context stack as the running execution context.
+        // 9.f. If result is an abrupt completion, then
+        // 9.f.i. Return ? result.
+        RETURN_IF_EXCEPTION(scope, void());
+    // 10. Else,
+    } else {
+        // 10.a. Assert: capability is a PromiseCapability Record.
+        ASSERT(capability != nullptr);
+        // 10.b. Perform AsyncBlockStart(capability, module.[[ECMAScriptCode]], moduleContext).
+        asyncCapability(vm, capability);
+        JSValue result = globalObject->moduleLoader()->evaluate(globalObject, identifierToJSValue(vm, moduleKey()), this, nullptr, jsUndefined(), jsNumber(static_cast<int32_t>(ResumeMode::NormalMode)));
+        asyncModuleResolveEvaluation(globalObject, vm, scope, this, result);
+    }
+    // 11. Return unused.
+}
+
+ModuleProgramExecutable* JSModuleRecord::getOrMakeExecutable(JSGlobalObject* globalObject)
+{
+    ModuleProgramExecutable* executable = m_moduleProgramExecutable.get();
+    if (executable)
+        return executable;
+
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    executable = ModuleProgramExecutable::tryCreate(globalObject, sourceCode());
+    RETURN_IF_EXCEPTION(scope, nullptr);
+    m_moduleProgramExecutable.set(vm, this, executable);
+
+    RELEASE_AND_RETURN(scope, executable);
 }
 
 } // namespace JSC

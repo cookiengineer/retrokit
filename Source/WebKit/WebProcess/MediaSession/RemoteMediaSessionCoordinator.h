@@ -30,6 +30,8 @@
 #include "MessageReceiver.h"
 #include <WebCore/MediaSessionCoordinatorPrivate.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakRef.h>
 
 namespace IPC {
 class Connection;
@@ -41,11 +43,14 @@ namespace WebKit {
 
 class WebPage;
 
-class RemoteMediaSessionCoordinator final : public WebCore::MediaSessionCoordinatorPrivate , public IPC::MessageReceiver {
-    WTF_MAKE_FAST_ALLOCATED;
+class RemoteMediaSessionCoordinator final : public WebCore::MediaSessionCoordinatorPrivate, public IPC::MessageReceiver {
+    WTF_MAKE_TZONE_ALLOCATED(RemoteMediaSessionCoordinator);
 public:
     static Ref<RemoteMediaSessionCoordinator> create(WebPage&, const String&);
     ~RemoteMediaSessionCoordinator();
+
+    void ref() const final { WebCore::MediaSessionCoordinatorPrivate::ref(); }
+    void deref() const final { WebCore::MediaSessionCoordinatorPrivate::deref(); }
 
 private:
     explicit RemoteMediaSessionCoordinator(WebPage&, const String&);
@@ -74,10 +79,10 @@ private:
     void playbackStateChanged(WebCore::MediaSessionPlaybackState) final;
     void trackIdentifierChanged(const String&) final;
 
-    const char* logClassName() const { return "RemoteMediaSessionCoordinator"; }
-    WTFLogChannel& logChannel() const;
+    ASCIILiteral logClassName() const { return "RemoteMediaSessionCoordinator"_s; }
+    WTFLogChannel& NODELETE logChannel() const;
 
-    WebPage& m_page;
+    WeakRef<WebPage> m_page;
     String m_identifier;
 };
 

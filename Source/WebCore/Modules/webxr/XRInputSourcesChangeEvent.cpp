@@ -30,22 +30,22 @@
 
 #include "WebXRInputSource.h"
 #include "WebXRSession.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(XRInputSourcesChangeEvent);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(XRInputSourcesChangeEvent);
 
-Ref<XRInputSourcesChangeEvent> XRInputSourcesChangeEvent::create(const AtomString& type, const Init& initializer, IsTrusted isTrusted)
+Ref<XRInputSourcesChangeEvent> XRInputSourcesChangeEvent::create(const AtomString& type, Init&& initializer, IsTrusted isTrusted)
 {
-    return adoptRef(*new XRInputSourcesChangeEvent(type, initializer, isTrusted));
+    return adoptRef(*new XRInputSourcesChangeEvent(type, WTF::move(initializer), isTrusted));
 }
 
-XRInputSourcesChangeEvent::XRInputSourcesChangeEvent(const AtomString& type, const Init& initializer, IsTrusted isTrusted)
-    : Event(type, initializer, isTrusted)
-    , m_session(*initializer.session)
-    , m_added(initializer.added)
-    , m_removed(initializer.removed)
+XRInputSourcesChangeEvent::XRInputSourcesChangeEvent(const AtomString& type, Init&& initializer, IsTrusted isTrusted)
+    : Event(EventInterfaceType::XRInputSourcesChangeEvent, type, WTF::move(initializer), isTrusted)
+    , m_session(WTF::move(initializer.session))
+    , m_added(WTF::move(initializer.added))
+    , m_removed(WTF::move(initializer.removed))
 {
 }
 
@@ -56,12 +56,12 @@ const WebXRSession& XRInputSourcesChangeEvent::session() const
     return m_session;
 }
 
-const Vector<RefPtr<WebXRInputSource>>& XRInputSourcesChangeEvent::added() const
+const Vector<Ref<WebXRInputSource>>& XRInputSourcesChangeEvent::added() const
 {
     return m_added;
 }
 
-const Vector<RefPtr<WebXRInputSource>>& XRInputSourcesChangeEvent::removed() const
+const Vector<Ref<WebXRInputSource>>& XRInputSourcesChangeEvent::removed() const
 {
     return m_removed;
 }

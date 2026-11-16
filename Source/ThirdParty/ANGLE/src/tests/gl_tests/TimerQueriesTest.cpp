@@ -8,13 +8,14 @@
 //
 
 #include "test_utils/ANGLETest.h"
+#include "test_utils/gl_raii.h"
 #include "util/EGLWindow.h"
 #include "util/random_utils.h"
 #include "util/test_utils.h"
 
 using namespace angle;
 
-class TimerQueriesTest : public ANGLETest
+class TimerQueriesTest : public ANGLETest<>
 {
   protected:
     TimerQueriesTest() : mProgram(0), mProgramCostly(0)
@@ -86,13 +87,7 @@ TEST_P(TimerQueriesTest, ProcAddresses)
 // Tests the time elapsed query
 TEST_P(TimerQueriesTest, TimeElapsed)
 {
-    // TODO(crbug.com/1132295): Failing on Apple DTK.
-    ANGLE_SKIP_TEST_IF(IsOSX() && IsARM64() && IsDesktopOpenGL());
-
     ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_EXT_disjoint_timer_query"));
-
-    // http://anglebug.com/5154
-    ANGLE_SKIP_TEST_IF(IsOSX() && IsOpenGL());
 
     GLint queryTimeElapsedBits = 0;
     glGetQueryivEXT(GL_TIME_ELAPSED_EXT, GL_QUERY_COUNTER_BITS_EXT, &queryTimeElapsedBits);
@@ -175,9 +170,6 @@ TEST_P(TimerQueriesTest, TimeElapsed)
 // Tests time elapsed for a non draw call (texture upload)
 TEST_P(TimerQueriesTest, TimeElapsedTextureTest)
 {
-    // OSX drivers don't seem to properly time non-draw calls so we skip the test on Mac
-    ANGLE_SKIP_TEST_IF(IsOSX());
-
     ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_EXT_disjoint_timer_query"));
 
     GLint queryTimeElapsedBits = 0;
@@ -278,11 +270,8 @@ TEST_P(TimerQueriesTest, TimeElapsedValidationTest)
 TEST_P(TimerQueriesTest, TimeElapsedMulticontextTest)
 {
     // TODO(jmadill): Figure out why this test is flaky on AMD/OpenGL.
-    // http://anglebug.com/1541
+    // http://anglebug.com/42260520
     ANGLE_SKIP_TEST_IF(IsAMD() && IsOpenGL());
-
-    // TODO(crbug.com/1132295): Failing on Apple DTK.
-    ANGLE_SKIP_TEST_IF(IsOSX() && IsARM64() && IsDesktopOpenGL());
 
     ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_EXT_disjoint_timer_query"));
 
@@ -416,7 +405,7 @@ TEST_P(TimerQueriesTest, TimeElapsedMulticontextTest)
     EXPECT_LT(result1, 1000000000ul);
     EXPECT_LT(result2, 1000000000ul);
 
-    // This check can never really be non-flaky. http://anglebug.com/5178
+    // This check can never really be non-flaky. http://anglebug.com/42263737
     // EXPECT_LT(result1, result2);
 }
 
@@ -482,6 +471,51 @@ TEST_P(TimerQueriesTest, Timestamp)
     EXPECT_LT(result1, result2);
 }
 
+void getQueryResult(GLuint queryObjectName, GLuint64 *result)
+{
+    GLuint queryResult = GL_FALSE;
+    while (queryResult != GL_TRUE)
+    {
+        glGetQueryObjectuivEXT(queryObjectName, GL_QUERY_RESULT_AVAILABLE, &queryResult);
+        ASSERT_GL_NO_ERROR();
+        angle::Sleep(50);
+    }
+    glGetQueryObjectui64vEXT(queryObjectName, GL_QUERY_RESULT_EXT, result);
+}
+
+class TimerstampQueriesTest : public TimerQueriesTest
+{};
+
+// Tests getting timestamps via glGetQueryObjectui64vEXT
+TEST_P(TimerstampQueriesTest, TimestampBasic)
+{
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_EXT_disjoint_timer_query"));
+    ANGLE_SKIP_TEST_IF(!IsD3D11() || !IsWindows());
+    GLint queryTimestampBits = 0;
+    glGetQueryivEXT(GL_TIMESTAMP_EXT, GL_QUERY_COUNTER_BITS_EXT, &queryTimestampBits);
+    ASSERT_GL_NO_ERROR();
+    std::cout << "Timestamp counter bits: " << queryTimestampBits << std::endl;
+
+    GLQuery queryObject1, queryObject2;
+    glQueryCounterEXT(queryObject1, GL_TIMESTAMP_EXT);
+    ASSERT_GL_NO_ERROR();
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+    drawQuad(mProgramCostly, "position", 0.8f);
+    glQueryCounterEXT(queryObject2, GL_TIMESTAMP_EXT);
+    ASSERT_GL_NO_ERROR();
+
+    GLuint64 result1 = 0;
+    getQueryResult(queryObject1, &result1);
+
+    GLuint64 result2 = 0;
+    getQueryResult(queryObject2, &result2);
+    std::cout << "Timestamps: " << result1 << " " << result2 << std::endl;
+    if (queryTimestampBits != 0)
+    {
+        ASSERT_TRUE(result1 != 0 && result2 > result1);
+    }
+}
+
 class TimerQueriesTestES3 : public TimerQueriesTest
 {};
 
@@ -489,7 +523,7 @@ class TimerQueriesTestES3 : public TimerQueriesTest
 TEST_P(TimerQueriesTestES3, TimestampGetInteger64)
 {
     ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_EXT_disjoint_timer_query"));
-    // http://anglebug.com/4092
+    // http://anglebug.com/40096654
     ANGLE_SKIP_TEST_IF(IsAndroid());
 
     GLint queryTimestampBits = 0;
@@ -515,6 +549,59 @@ TEST_P(TimerQueriesTestES3, TimestampGetInteger64)
     EXPECT_LT(result1, result2);
 }
 
+// Test glQueryCounterEXT with target GL_TIMESTAMP_EXT after query id has been used for
+// GL_ANY_SAMPLES_PASSED
+TEST_P(TimerQueriesTest, QueryCounterEXTWithTypeMismatch)
+{
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_EXT_disjoint_timer_query"));
+
+    GLuint query = 0;
+    GLint result = 0;
+    glGenQueriesEXT(1, &query);
+    glBeginQueryEXT(GL_ANY_SAMPLES_PASSED, query);
+    glEndQueryEXT(GL_ANY_SAMPLES_PASSED);
+    glGetQueryObjectivEXT(query, GL_QUERY_RESULT_EXT, &result);
+    ASSERT_GL_NO_ERROR();
+
+    glQueryCounterEXT(query, GL_TIMESTAMP_EXT);
+    ASSERT_GL_ERROR(GL_INVALID_OPERATION);
+}
+
+// Tests glGetQueryivEXT with GL_QUERY_COUNTER_BITS_EXT works for all targets.
+TEST_P(TimerQueriesTest, QueryCounterBits)
+{
+    ANGLE_SKIP_TEST_IF(getClientMajorVersion() < 3);
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_EXT_disjoint_timer_query"));
+    GLint result;
+
+    glGetQueryivEXT(GL_ANY_SAMPLES_PASSED, GL_QUERY_COUNTER_BITS_EXT, &result);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_EQ(result, 1);
+
+    glGetQueryivEXT(GL_ANY_SAMPLES_PASSED_CONSERVATIVE, GL_QUERY_COUNTER_BITS_EXT, &result);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_EQ(result, 1);
+
+    glGetQueryivEXT(GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN, GL_QUERY_COUNTER_BITS_EXT, &result);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_EQ(result, 32);
+
+    // Value is returned from Vulkan, so we do not need to check the value since it can vary on
+    // different platforms
+    glGetQueryivEXT(GL_TIME_ELAPSED_EXT, GL_QUERY_COUNTER_BITS_EXT, &result);
+    ASSERT_GL_NO_ERROR();
+
+    glGetQueryivEXT(GL_TIMESTAMP_EXT, GL_QUERY_COUNTER_BITS_EXT, &result);
+    ASSERT_GL_NO_ERROR();
+}
+
+ANGLE_INSTANTIATE_TEST_ES2_AND(TimerstampQueriesTest,
+                               ES3_D3D11().disable(Feature::EnableTimestampQueries),
+                               ES3_D3D11().enable(Feature::EnableTimestampQueries));
+
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(TimestampQueriesTest);
+
 ANGLE_INSTANTIATE_TEST_ES2_AND_ES3(TimerQueriesTest);
 
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(TimerQueriesTestES3);
 ANGLE_INSTANTIATE_TEST_ES3(TimerQueriesTestES3);

@@ -24,11 +24,22 @@
 
 #if ENABLE(WEB_AUTHN)
 
-messages -> WebAuthenticatorCoordinatorProxy NotRefCounted {
+[
+    DispatchedFrom=WebContent,
+    DispatchedTo=UI,
+    EnabledBy=WebAuthenticationEnabled
+]
+messages -> WebAuthenticatorCoordinatorProxy {
 
-    MakeCredential(WebCore::FrameIdentifier frameID, struct WebKit::FrameInfoData frameInfo, Vector<uint8_t> hash, struct WebCore::PublicKeyCredentialCreationOptions options, bool processingUserGesture) -> (struct WebCore::AuthenticatorResponseData data, enum:int WebCore::AuthenticatorAttachment attachment, struct WebCore::ExceptionData exception) Async
-    GetAssertion(WebCore::FrameIdentifier frameID, struct WebKit::FrameInfoData frameInfo, Vector<uint8_t> hash, struct WebCore::PublicKeyCredentialRequestOptions options, bool processingUserGesture) -> (struct WebCore::AuthenticatorResponseData data, enum:int WebCore::AuthenticatorAttachment attachment, struct WebCore::ExceptionData exception) Async
-    IsUserVerifyingPlatformAuthenticatorAvailable() -> (bool result) Async
+    MakeCredential(WebCore::FrameIdentifier frameID, struct WebKit::FrameInfoData frameInfo, struct WebCore::PublicKeyCredentialCreationOptions options, enum:uint8_t WebCore::MediationRequirement mediation) -> (struct WebCore::AuthenticatorResponseData data, enum:uint8_t WebCore::AuthenticatorAttachment attachment, struct WebCore::ExceptionData exception)
+    GetAssertion(WebCore::FrameIdentifier frameID, struct WebKit::FrameInfoData frameInfo, struct WebCore::PublicKeyCredentialRequestOptions options, enum:uint8_t WebCore::MediationRequirement mediation, std::optional<WebCore::SecurityOriginData> parentOrigin) -> (struct WebCore::AuthenticatorResponseData data, enum:uint8_t WebCore::AuthenticatorAttachment attachment, struct WebCore::ExceptionData exception)
+    isConditionalMediationAvailable(WebCore::SecurityOriginData origin) -> (bool result)
+    IsUserVerifyingPlatformAuthenticatorAvailable(WebCore::SecurityOriginData origin) -> (bool result)
+    GetClientCapabilities(WebCore::SecurityOriginData origin) -> (Vector<KeyValuePair<String, bool>> result)
+    SignalUnknownCredential(WebCore::SecurityOriginData origin, struct WebCore::UnknownCredentialOptions options) -> (struct std::optional<WebCore::ExceptionData> error)
+    SignalAllAcceptedCredentials(WebCore::SecurityOriginData origin, struct WebCore::AllAcceptedCredentialsOptions options) -> (struct std::optional<WebCore::ExceptionData> error)
+    SignalCurrentUserDetails(WebCore::SecurityOriginData origin, struct WebCore::CurrentUserDetailsOptions options) -> (struct std::optional<WebCore::ExceptionData> error)
+    Cancel() -> ()
 }
 
 #endif

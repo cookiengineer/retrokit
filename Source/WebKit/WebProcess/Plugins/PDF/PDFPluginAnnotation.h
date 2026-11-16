@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,18 +23,20 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef PDFPluginAnnotation_h
-#define PDFPluginAnnotation_h
+#pragma once
 
-#if ENABLE(PDFKIT_PLUGIN)
+#if ENABLE(PDF_PLUGIN)
 
 #include <WebCore/EventListener.h>
+#include <wtf/CheckedPtr.h>
 #include <wtf/RefCounted.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 class Document;
 class Element;
+class WeakPtrImplWithEventTargetData;
 }
 
 OBJC_CLASS PDFAnnotation;
@@ -42,16 +44,18 @@ OBJC_CLASS PDFLayerController;
 
 namespace WebKit {
 
-class PDFPlugin;
+class PDFPluginBase;
 
-class PDFPluginAnnotation : public RefCounted<PDFPluginAnnotation> {
+class PDFPluginAnnotation : public RefCounted<PDFPluginAnnotation>, public CanMakeCheckedPtr<PDFPluginAnnotation> {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(PDFPluginAnnotation);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(PDFPluginAnnotation);
 public:
-    static RefPtr<PDFPluginAnnotation> create(PDFAnnotation *, PDFLayerController *, PDFPlugin*);
+    static RefPtr<PDFPluginAnnotation> create(PDFAnnotation *, PDFPluginBase*);
     virtual ~PDFPluginAnnotation();
 
     WebCore::Element* element() const { return m_element.get(); }
     PDFAnnotation *annotation() const { return m_annotation.get(); }
-    PDFPlugin* plugin() const { return m_plugin; }
+    PDFPluginBase* plugin() const { return m_plugin.get(); }
 
     virtual void updateGeometry();
     virtual void commit();
@@ -59,17 +63,14 @@ public:
     void attach(WebCore::Element*);
 
 protected:
-    PDFPluginAnnotation(PDFAnnotation *annotation, PDFLayerController *pdfLayerController, PDFPlugin* plugin)
-        : m_parent(0)
-        , m_annotation(annotation)
+    PDFPluginAnnotation(PDFAnnotation *annotation, PDFPluginBase* plugin)
+        : m_annotation(annotation)
         , m_eventListener(PDFPluginAnnotationEventListener::create(this))
-        , m_pdfLayerController(pdfLayerController)
         , m_plugin(plugin)
     {
     }
 
-    WebCore::Element* parent() const { return m_parent; }
-    PDFLayerController *pdfLayerController() const { return m_pdfLayerController; }
+    WebCore::Element* parent() const { return m_parent.get(); }
     WebCore::EventListener* eventListener() const { return m_eventListener.get(); }
 
     virtual bool handleEvent(WebCore::Event&);
@@ -84,8 +85,6 @@ private:
             return adoptRef(*new PDFPluginAnnotationEventListener(annotation));
         }
 
-        bool operator==(const EventListener& listener) const override { return this == &listener; }
-
         void setAnnotation(PDFPluginAnnotation* annotation) { m_annotation = annotation; }
 
     private:
@@ -98,22 +97,19 @@ private:
 
         void handleEvent(WebCore::ScriptExecutionContext&, WebCore::Event&) override;
 
-        PDFPluginAnnotation* m_annotation;
+        CheckedPtr<PDFPluginAnnotation> m_annotation;
     };
 
-    WebCore::Element* m_parent;
+    WeakPtr<WebCore::Element, WebCore::WeakPtrImplWithEventTargetData> m_parent;
 
     RefPtr<WebCore::Element> m_element;
-    RetainPtr<PDFAnnotation> m_annotation;
+    const RetainPtr<PDFAnnotation> m_annotation;
 
-    RefPtr<PDFPluginAnnotationEventListener> m_eventListener;
+    const RefPtr<PDFPluginAnnotationEventListener> m_eventListener;
 
-    PDFLayerController *m_pdfLayerController;
-    PDFPlugin* m_plugin;
+    const RefPtr<PDFPluginBase> m_plugin;
 };
 
 } // namespace WebKit
 
-#endif // ENABLE(PDFKIT_PLUGIN)
-
-#endif // PDFPluginAnnotation_h
+#endif // ENABLE(PDF_PLUGIN)

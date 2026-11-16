@@ -31,12 +31,15 @@
 #include "ContentFilter.h"
 #include "ContentFilterUnblockHandler.h"
 #include "MockContentFilter.h"
+#include "MockContentFilterManager.h"
 #include <wtf/NeverDestroyed.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
 MockContentFilterSettings& MockContentFilterSettings::singleton()
 {
+    MockContentFilter::ensureInstalled();
     static NeverDestroyed<MockContentFilterSettings> settings;
     return settings;
 }
@@ -44,18 +47,55 @@ MockContentFilterSettings& MockContentFilterSettings::singleton()
 void MockContentFilterSettings::reset()
 {
     singleton() = MockContentFilterSettings();
+    MockContentFilterManager::singleton().notifySettingsChanged(singleton());
 }
 
 void MockContentFilterSettings::setEnabled(bool enabled)
 {
-    MockContentFilter::ensureInstalled();
     m_enabled = enabled;
+    MockContentFilterManager::singleton().notifySettingsChanged(singleton());
+}
+
+void MockContentFilterSettings::setBlockedString(const String& blockedString)
+{
+    m_blockedString = blockedString;
+    MockContentFilterManager::singleton().notifySettingsChanged(singleton());
+}
+
+void MockContentFilterSettings::setDecisionPoint(DecisionPoint decisionPoint)
+{
+    m_decisionPoint = decisionPoint;
+    MockContentFilterManager::singleton().notifySettingsChanged(singleton());
+}
+
+void MockContentFilterSettings::setDecision(Decision decision)
+{
+    m_decision = decision;
+    MockContentFilterManager::singleton().notifySettingsChanged(singleton());
+}
+
+void MockContentFilterSettings::setUnblockRequestDecision(Decision unblockRequestDecision)
+{
+    m_unblockRequestDecision = unblockRequestDecision;
+    MockContentFilterManager::singleton().notifySettingsChanged(singleton());
+}
+
+void MockContentFilterSettings::setModifiedRequestURL(const String& modifiedRequestURL)
+{
+    m_modifiedRequestURL = modifiedRequestURL;
+    MockContentFilterManager::singleton().notifySettingsChanged(singleton());
 }
 
 const String& MockContentFilterSettings::unblockRequestURL() const
 {
-    static NeverDestroyed<String> unblockRequestURL = makeString(ContentFilter::urlScheme(), "://", unblockURLHost());
+    static NeverDestroyed<String> unblockRequestURL = makeString(ContentFilter::urlScheme(), "://"_s, unblockURLHost());
     return unblockRequestURL;
+}
+
+void MockContentFilterSettings::setWillSendRequestDecisionDelay(double willSendRequestDecisionDelay)
+{
+    m_willSendRequestDecisionDelay = Seconds(willSendRequestDecisionDelay);
+    MockContentFilterManager::singleton().notifySettingsChanged(singleton());
 }
 
 }; // namespace WebCore

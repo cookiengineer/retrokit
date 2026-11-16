@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,12 +30,15 @@
 
 #include "ButterflyInlines.h"
 #include "DFGAbstractHeap.h"
-#include "DFGBlockMapInlines.h"
 #include "DFGClobberSet.h"
 #include "DFGClobberize.h"
 #include "DFGDominators.h"
 #include "DFGGraph.h"
 #include "DFGPhase.h"
+#include <wtf/IndexMap.h>
+#include <wtf/TZoneMallocInlines.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC { namespace DFG {
 
@@ -52,7 +55,7 @@ static constexpr bool verbose = false;
 
 class ImpureDataSlot {
     WTF_MAKE_NONCOPYABLE(ImpureDataSlot);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_SEQUESTERED_ARENA_ALLOCATED(ImpureDataSlot);
 public:
     ImpureDataSlot(HeapLocation key, LazyNode value, unsigned hash)
         : key(key), value(value), hash(hash)
@@ -63,13 +66,15 @@ public:
     unsigned hash;
 };
 
+WTF_MAKE_SEQUESTERED_ARENA_ALLOCATED_IMPL(ImpureDataSlot);
+
 struct ImpureDataSlotHash : public DefaultHash<std::unique_ptr<ImpureDataSlot>> {
-    static unsigned hash(const std::unique_ptr<ImpureDataSlot>& key)
+    static unsigned NODELETE hash(const std::unique_ptr<ImpureDataSlot>& key)
     {
         return key->hash;
     }
 
-    static bool equal(const std::unique_ptr<ImpureDataSlot>& a, const std::unique_ptr<ImpureDataSlot>& b)
+    static bool NODELETE equal(const std::unique_ptr<ImpureDataSlot>& a, const std::unique_ptr<ImpureDataSlot>& b)
     {
         // The ImpureDataSlot are unique per table per HeapLocation. This lets us compare the key
         // by just comparing the pointers of the unique ImpureDataSlots.
@@ -79,12 +84,12 @@ struct ImpureDataSlotHash : public DefaultHash<std::unique_ptr<ImpureDataSlot>> 
 };
 
 struct ImpureDataTranslator {
-    static unsigned hash(const HeapLocation& key)
+    static unsigned NODELETE hash(const HeapLocation& key)
     {
         return key.hash();
     }
 
-    static bool equal(const std::unique_ptr<ImpureDataSlot>& slot, const HeapLocation& key)
+    static bool NODELETE equal(const std::unique_ptr<ImpureDataSlot>& slot, const HeapLocation& key)
     {
         if (!slot)
             return false;
@@ -100,7 +105,7 @@ struct ImpureDataTranslator {
 };
 
 class ImpureMap {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_NON_HEAP_ALLOCATABLE(ImpureMap);
     WTF_MAKE_NONCOPYABLE(ImpureMap);
 public:
     ImpureMap() = default;
@@ -161,7 +166,7 @@ public:
             break;
         }
 #if !defined(NDEBUG)
-        m_debugImpureData.removeIf([heap, clobberConservatively, this](const HashMap<HeapLocation, LazyNode>::KeyValuePairType& pair) -> bool {
+        m_debugImpureData.removeIf([heap, clobberConservatively, this](const UncheckedKeyHashMap<HeapLocation, LazyNode>::KeyValuePairType& pair) -> bool {
             switch (heap.kind()) {
             case World:
             case SideState:
@@ -193,11 +198,13 @@ public:
                 + m_abstractHeapStackMap.size()
                 + m_fallbackStackMap.size()));
 
+#if ASSERT_ENABLED
         const bool verifyClobber = false;
         if (verifyClobber) {
             for (auto& pair : m_debugImpureData)
                 ASSERT(!!get(pair.key));
         }
+#endif
 #endif
     }
 
@@ -212,7 +219,7 @@ public:
     }
 
 private:
-    typedef HashSet<std::unique_ptr<ImpureDataSlot>, ImpureDataSlotHash> Map;
+    typedef UncheckedKeyHashSet<std::unique_ptr<ImpureDataSlot>, ImpureDataSlotHash> Map;
 
     const ImpureDataSlot* addImpl(const HeapLocation& location, const LazyNode& node)
     {
@@ -226,7 +233,7 @@ private:
                 return add(m_fallbackStackMap, location, node);
             auto addResult = m_abstractHeapStackMap.add(abstractHeap.payload().value(), nullptr);
             if (addResult.isNewEntry) {
-                addResult.iterator->value.reset(new ImpureDataSlot {location, node, 0});
+                addResult.iterator->value = makeUniqueWithoutFastMallocCheck<ImpureDataSlot>(location, node, 0);
                 return nullptr;
             }
             if (addResult.iterator->value->key == location)
@@ -294,20 +301,20 @@ private:
     // a duplicate in the past and now only live in m_fallbackStackMap.
     //
     // Obviously, TOP always goes into m_fallbackStackMap since it does not have a unique value.
-    HashMap<int64_t, std::unique_ptr<ImpureDataSlot>, DefaultHash<int64_t>, WTF::SignedWithZeroKeyHashTraits<int64_t>> m_abstractHeapStackMap;
+    UncheckedKeyHashMap<int64_t, std::unique_ptr<ImpureDataSlot>, DefaultHash<int64_t>, WTF::SignedWithZeroKeyHashTraits<int64_t>> m_abstractHeapStackMap;
     Map m_fallbackStackMap;
 
     Map m_heapMap;
 
 #if !defined(NDEBUG)
-    HashMap<HeapLocation, LazyNode> m_debugImpureData;
+    UncheckedKeyHashMap<HeapLocation, LazyNode> m_debugImpureData;
 #endif
 };
 
 class LocalCSEPhase : public Phase {
 public:
     LocalCSEPhase(Graph& graph)
-        : Phase(graph, "local common subexpression elimination")
+        : Phase(graph, "local common subexpression elimination"_s)
         , m_smallBlock(graph)
         , m_largeBlock(graph)
         , m_hugeBlock(graph)
@@ -357,13 +364,13 @@ private:
         {
         }
     
-        void clear()
+        void NODELETE clear()
         {
             m_pureLength = 0;
             m_impureLength = 0;
         }
     
-        void write(AbstractHeap heap)
+        void NODELETE write(AbstractHeap heap)
         {
             if (heap.kind() == SideState)
                 return;
@@ -374,7 +381,7 @@ private:
             }
         }
     
-        Node* addPure(PureValue value, Node* node)
+        Node* NODELETE addPure(PureValue value, Node* node)
         {
             for (unsigned i = m_pureLength; i--;) {
                 if (m_pureMap[i].key == value)
@@ -386,7 +393,7 @@ private:
             return nullptr;
         }
         
-        LazyNode findReplacement(HeapLocation location)
+        LazyNode NODELETE findReplacement(HeapLocation location)
         {
             for (unsigned i = m_impureLength; i--;) {
                 if (m_impureMap[i].key == location)
@@ -395,10 +402,14 @@ private:
             return nullptr;
         }
     
-        LazyNode addImpure(HeapLocation location, LazyNode node)
+        LazyNode NODELETE addImpure(HeapLocation location, LazyNode node)
         {
             // FIXME: If we are using small maps, we must not def() derived values.
-            // For now the only derived values we def() are constant-based.
+            // This is because we rely on one node defining at most one value so
+            // that we can have constant capacity buffers for pure map and impure map.
+            // If we use the derived index inside heap location, this property doesn't hold.
+            // For example, if you look at NewArrayBuffer, it is a single node that can
+            // have an arbitrary number of defs.
             if (location.index() && !location.index().isNode())
                 return nullptr;
             if (LazyNode result = findReplacement(location))
@@ -454,7 +465,7 @@ private:
         }
 
     private:
-        HashMap<PureValue, Node*> m_pureMap;
+        UncheckedKeyHashMap<PureValue, Node*> m_pureMap;
         ImpureMap m_impureMap;
     };
 
@@ -500,7 +511,7 @@ private:
         }
 
     private:
-        HashMap<PureValue, Node*> m_pureMap;
+        UncheckedKeyHashMap<PureValue, Node*> m_pureMap;
         ImpureMap m_impureMap;
     };
 
@@ -515,6 +526,7 @@ private:
     
         bool run(BasicBlock* block)
         {
+            dataLogLnIf(DFGCSEPhaseInternal::verbose, "Starting block: ", block->index());
             m_maps.clear();
             m_changed = false;
             m_block = block;
@@ -529,7 +541,7 @@ private:
                 } else {
                     // This rule only makes sense for local CSE, since in SSA form we have already
                     // factored the bounds check out of the PutByVal. It's kind of gross, but we
-                    // still have reason to believe that PutByValAlias is a good optimization and
+                    // still have reason to believe that PutByValDirectResolved is a good optimization and
                     // that it's better to do it with a single node rather than separating out the
                     // CheckInBounds.
                     if (m_node->op() == PutByVal || m_node->op() == PutByValDirect) {
@@ -568,6 +580,7 @@ private:
                         case Array::Uint8ClampedArray:
                         case Array::Uint16Array:
                         case Array::Uint32Array:
+                        case Array::Float16Array:
                         case Array::Float32Array:
                         case Array::Float64Array:
                             if (!mode.isInBounds())
@@ -581,7 +594,7 @@ private:
                         }
 
                         if (!!heap && m_maps.findReplacement(heap))
-                            m_node->setOp(PutByValAlias);
+                            m_node->setOp(PutByValDirectResolved);
                     }
 
                     clobberize(m_graph, m_node, *this);
@@ -593,15 +606,17 @@ private:
             return m_changed;
         }
     
-        void read(AbstractHeap) { }
+        void NODELETE read(AbstractHeap) { }
     
         void write(AbstractHeap heap)
         {
+            dataLogLnIf(DFGCSEPhaseInternal::verbose, "\tWrite to heap ", heap);
             m_maps.write(heap);
         }
         
         void def(PureValue value)
         {
+            dataLogLnIf(DFGCSEPhaseInternal::verbose, "\tDef of value ", value, " at node ", m_node);
             Node* match = m_maps.addPure(value, m_node);
             if (!match)
                 return;
@@ -612,6 +627,7 @@ private:
     
         void def(const HeapLocation& location, const LazyNode& value)
         {
+            dataLogLnIf(DFGCSEPhaseInternal::verbose, "\tDef to ", location, " of value ", value, " at node ", m_node);
             LazyNode match = m_maps.addImpure(location, value);
             if (!match)
                 return;
@@ -663,14 +679,16 @@ private:
 class GlobalCSEPhase : public Phase {
 public:
     GlobalCSEPhase(Graph& graph)
-        : Phase(graph, "global common subexpression elimination")
-        , m_impureDataMap(graph)
+        : Phase(graph, "global common subexpression elimination"_s)
+        , m_impureDataMap(graph.numBlocks())
         , m_insertionSet(graph)
     {
     }
     
     bool run()
     {
+        dataLogIf(DFGCSEPhaseInternal::verbose, "Graph before Global CSE:\n", m_graph);
+
         ASSERT(m_graph.m_fixpointState == FixpointNotConverged);
         ASSERT(m_graph.m_form == SSA);
         
@@ -679,7 +697,7 @@ public:
         
         m_preOrder = m_graph.blocksInPreOrder();
         
-        // First figure out what gets clobbered by blocks. Node that this uses the preOrder list
+        // First figure out what gets clobbered by blocks. Note that this uses the preOrder list
         // for convenience only.
         for (unsigned i = m_preOrder.size(); i--;) {
             m_block = m_preOrder[i];
@@ -689,7 +707,7 @@ public:
         }
         
         // Based on my experience doing this before, what follows might have to be made iterative.
-        // Right now it doesn't have to be iterative because everything is dominator-bsed. But when
+        // Right now it doesn't have to be iterative because everything is dominator-based. But when
         // validation is enabled, we check if iterating would find new CSE opportunities.
 
         bool changed = iterate();
@@ -704,8 +722,7 @@ public:
     
     bool iterate()
     {
-        if (DFGCSEPhaseInternal::verbose)
-            dataLog("Performing iteration.\n");
+        dataLogLnIf(DFGCSEPhaseInternal::verbose, "Performing iteration.");
         
         m_changed = false;
         m_graph.clearReplacements();
@@ -715,14 +732,12 @@ public:
             m_impureData = &m_impureDataMap[m_block];
             m_writesSoFar.clear();
             
-            if (DFGCSEPhaseInternal::verbose)
-                dataLog("Processing block ", *m_block, ":\n");
+            dataLogLnIf(DFGCSEPhaseInternal::verbose, "Processing block ", *m_block, ":");
 
             for (unsigned nodeIndex = 0; nodeIndex < m_block->size(); ++nodeIndex) {
                 m_nodeIndex = nodeIndex;
                 m_node = m_block->at(nodeIndex);
-                if (DFGCSEPhaseInternal::verbose)
-                    dataLog("  Looking at node ", m_node, ":\n");
+                dataLogLnIf(DFGCSEPhaseInternal::verbose, "  Looking at node ", m_node, ":");
                 
                 m_graph.performSubstitution(m_node);
                 
@@ -741,7 +756,7 @@ public:
         return m_changed;
     }
 
-    void read(AbstractHeap) { }
+    void NODELETE read(AbstractHeap) { }
     
     void write(AbstractHeap heap)
     {
@@ -785,16 +800,14 @@ public:
         // a global search.
         LazyNode match = m_impureData->availableAtTail.get(location);
         if (!!match) {
-            if (DFGCSEPhaseInternal::verbose)
-                dataLog("      Found local match: ", match, "\n");
+            dataLogLnIf(DFGCSEPhaseInternal::verbose, "      Found local match: ", match);
             return match;
         }
         
         // If it's not available at this point in the block, and at some prior point in the block
         // we have clobbered this heap location, then there is no point in doing a global search.
         if (m_writesSoFar.overlaps(location.heap())) {
-            if (DFGCSEPhaseInternal::verbose)
-                dataLog("      Not looking globally because of local clobber: ", m_writesSoFar, "\n");
+            dataLogLnIf(DFGCSEPhaseInternal::verbose, "      Not looking globally because of local clobber: ", m_writesSoFar);
             return nullptr;
         }
         
@@ -840,9 +853,9 @@ public:
         
         for (unsigned i = m_block->predecessors.size(); i--;) {
             BasicBlock* predecessor = m_block->predecessors[i];
-            if (!seen.get(predecessor->index)) {
+            if (!seen.get(predecessor->index())) {
                 worklist.append(predecessor);
-                seen.set(predecessor->index);
+                seen.set(predecessor->index());
             }
         }
         
@@ -850,21 +863,18 @@ public:
             BasicBlock* block = worklist.takeLast();
             seenList.append(block);
             
-            if (DFGCSEPhaseInternal::verbose)
-                dataLog("      Searching in block ", *block, "\n");
+            dataLogLnIf(DFGCSEPhaseInternal::verbose, "      Searching in block ", *block);
             ImpureBlockData& data = m_impureDataMap[block];
             
             // We require strict domination because this would only see things in our own block if
             // they came *after* our position in the block. Clearly, while our block dominates
             // itself, the things in the block after us don't dominate us.
             if (m_graph.m_ssaDominators->strictlyDominates(block, m_block)) {
-                if (DFGCSEPhaseInternal::verbose)
-                    dataLog("        It strictly dominates.\n");
+                dataLogLnIf(DFGCSEPhaseInternal::verbose, "        It strictly dominates.");
                 DFG_ASSERT(m_graph, m_node, data.didVisit);
                 DFG_ASSERT(m_graph, m_node, !match);
                 match = data.availableAtTail.get(location);
-                if (DFGCSEPhaseInternal::verbose)
-                    dataLog("        Availability: ", match, "\n");
+                dataLogLnIf(DFGCSEPhaseInternal::verbose, "        Availability: ", match);
                 if (!!match) {
                     // Don't examine the predecessors of a match. At this point we just want to
                     // establish that other blocks on the path from here to there don't clobber
@@ -873,19 +883,17 @@ public:
                 }
             }
             
-            if (DFGCSEPhaseInternal::verbose)
-                dataLog("        Dealing with write set ", data.writes, "\n");
+            dataLogLnIf(DFGCSEPhaseInternal::verbose, "        Dealing with write set ", data.writes);
             if (data.writes.overlaps(location.heap())) {
-                if (DFGCSEPhaseInternal::verbose)
-                    dataLog("        Clobbered.\n");
+                dataLogLnIf(DFGCSEPhaseInternal::verbose, "        Clobbered.");
                 return nullptr;
             }
             
             for (unsigned i = block->predecessors.size(); i--;) {
                 BasicBlock* predecessor = block->predecessors[i];
-                if (!seen.get(predecessor->index)) {
+                if (!seen.get(predecessor->index())) {
                     worklist.append(predecessor);
-                    seen.set(predecessor->index);
+                    seen.set(predecessor->index());
                 }
             }
         }
@@ -908,17 +916,14 @@ public:
     
     void def(HeapLocation location, LazyNode value)
     {
-        if (DFGCSEPhaseInternal::verbose)
-            dataLog("    Got heap location def: ", location, " -> ", value, "\n");
+        dataLogLnIf(DFGCSEPhaseInternal::verbose, "    Got heap location def: ", location, " -> ", value);
         
         LazyNode match = findReplacement(location);
         
-        if (DFGCSEPhaseInternal::verbose)
-            dataLog("      Got match: ", match, "\n");
+        dataLogLnIf(DFGCSEPhaseInternal::verbose, "      Got match: ", match);
         
         if (!match) {
-            if (DFGCSEPhaseInternal::verbose)
-                dataLog("      Adding at-tail mapping: ", location, " -> ", value, "\n");
+            dataLogLnIf(DFGCSEPhaseInternal::verbose, "      Adding at-tail mapping: ", location, " -> ", value);
             auto result = m_impureData->availableAtTail.add(location, value);
             ASSERT_UNUSED(result, !result);
             return;
@@ -966,7 +971,7 @@ public:
     Vector<BasicBlock*> m_preOrder;
 
     PureMultiMap m_pureValues;
-    BlockMap<ImpureBlockData> m_impureDataMap;
+    IndexMap<BasicBlock*, ImpureBlockData> m_impureDataMap;
     
     BasicBlock* m_block;
     Node* m_node;
@@ -991,5 +996,7 @@ bool performGlobalCSE(Graph& graph)
 }
 
 } } // namespace JSC::DFG
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(DFG_JIT)

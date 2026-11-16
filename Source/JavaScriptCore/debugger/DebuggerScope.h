@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -39,7 +39,7 @@ public:
     static constexpr unsigned StructureFlags = Base::StructureFlags | OverridesGetOwnPropertySlot | OverridesGetOwnPropertyNames | OverridesPut;
 
     template<typename CellType, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         return vm.debuggerScopeSpace<mode>();
     }
@@ -50,15 +50,12 @@ public:
     static bool getOwnPropertySlot(JSObject*, JSGlobalObject*, PropertyName, PropertySlot&);
     static bool put(JSCell*, JSGlobalObject*, PropertyName, JSValue, PutPropertySlot&);
     static bool deleteProperty(JSCell*, JSGlobalObject*, PropertyName, DeletePropertySlot&);
-    static void getOwnPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArray&, DontEnumPropertiesMode);
+    static void getOwnPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArrayBuilder&, DontEnumPropertiesMode);
     static bool defineOwnProperty(JSObject*, JSGlobalObject*, PropertyName, const PropertyDescriptor&, bool shouldThrow);
 
     DECLARE_EXPORT_INFO;
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject) 
-    {
-        return Structure::create(vm, globalObject, jsNull(), TypeInfo(ObjectType, StructureFlags), info()); 
-    } 
+    static Structure* createStructure(VM&, JSGlobalObject*);
     class iterator {
     public:
         iterator(DebuggerScope* node)
@@ -70,26 +67,25 @@ public:
         iterator& operator++() { m_node = m_node->next(); return *this; }
         // postfix ++ intentionally omitted
 
-        bool operator==(const iterator& other) const { return m_node == other.m_node; }
-        bool operator!=(const iterator& other) const { return m_node != other.m_node; }
+        friend bool operator==(const iterator&, const iterator&) = default;
 
     private:
         DebuggerScope* m_node;
     };
 
-    iterator begin();
-    iterator end();
+    iterator begin() LIFETIME_BOUND;
+    iterator end() LIFETIME_BOUND;
     DebuggerScope* next();
 
-    void invalidateChain();
+    void NODELETE invalidateChain();
     bool isValid() const { return !!m_scope; }
 
     bool isCatchScope() const;
     bool isFunctionNameScope() const;
-    bool isWithScope() const;
-    bool isGlobalScope() const;
+    bool NODELETE isWithScope() const;
+    bool NODELETE isGlobalScope() const;
     bool isClosureScope() const;
-    bool isGlobalLexicalEnvironment() const;
+    bool NODELETE isGlobalLexicalEnvironment() const;
     bool isNestedLexicalScope() const;
 
     String name() const;
@@ -99,9 +95,9 @@ public:
 
 private:
     DebuggerScope(VM&, Structure*, JSScope*);
-    void finishCreation(VM&);
+    DECLARE_DEFAULT_FINISH_CREATION;
 
-    JSScope* jsScope() const { return m_scope.get(); }
+    JSScope* jsScope() const LIFETIME_BOUND { return m_scope.get(); }
 
     WriteBarrier<JSScope> m_scope;
     WriteBarrier<DebuggerScope> m_next;
@@ -109,14 +105,14 @@ private:
     friend class DebuggerCallFrame;
 };
 
-inline DebuggerScope::iterator DebuggerScope::begin()
+inline DebuggerScope::iterator DebuggerScope::begin() LIFETIME_BOUND
 {
-    return iterator(this); 
+    return iterator(this);
 }
 
-inline DebuggerScope::iterator DebuggerScope::end()
-{ 
-    return iterator(nullptr); 
+inline DebuggerScope::iterator DebuggerScope::end() LIFETIME_BOUND
+{
+    return iterator(nullptr);
 }
 
 } // namespace JSC

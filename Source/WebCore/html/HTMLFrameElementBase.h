@@ -2,7 +2,7 @@
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2000 Simon Hausmann <hausmann@kde.org>
- * Copyright (C) 2004-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2023 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -23,8 +23,8 @@
 
 #pragma once
 
-#include "FrameLoaderTypes.h"
-#include "HTMLFrameOwnerElement.h"
+#include <WebCore/FrameLoaderTypes.h>
+#include <WebCore/HTMLFrameOwnerElement.h>
 
 namespace JSC {
 class CallFrame;
@@ -33,27 +33,22 @@ class CallFrame;
 namespace WebCore {
 
 class HTMLFrameElementBase : public HTMLFrameOwnerElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLFrameElementBase);
+    WTF_MAKE_TZONE_ALLOCATED(HTMLFrameElementBase);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLFrameElementBase);
 public:
-    WEBCORE_EXPORT URL location() const;
-    WEBCORE_EXPORT void setLocation(const String&);
-    void setLocation(JSC::JSGlobalObject&, const String&);
-
     ScrollbarMode scrollingMode() const final;
-
-    WEBCORE_EXPORT int width();
-    WEBCORE_EXPORT int height();
 
 protected:
     HTMLFrameElementBase(const QualifiedName&, Document&);
 
     bool canLoad() const;
 
-    void parseAttribute(const QualifiedName&, const AtomString&) override;
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    void didFinishInsertingNode() final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void postConnectionSteps() final;
     void didAttachRenderers() override;
 
+    WEBCORE_EXPORT void setLocation(const String&);
     void openURL(LockHistory = LockHistory::Yes, LockBackForwardList = LockBackForwardList::Yes);
 
     AtomString frameURL() const { return m_frameURL; }
@@ -70,15 +65,20 @@ private:
     bool supportsFocus() const final;
     void setFocus(bool, FocusVisibility = FocusVisibility::Invisible) final;
     
-    bool isURLAttribute(const Attribute&) const final;
-    bool isHTMLContentAttribute(const Attribute&) const final;
+    bool NODELETE isURLAttribute(const Attribute&) const final;
+    bool NODELETE isHTMLContentAttribute(const Attribute&) const final;
 
     AtomString m_frameURL;
+    bool m_openingURLAfterInserting { false };
 };
 
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::HTMLFrameElementBase)
-    static bool isType(const WebCore::HTMLElement& element) { return is<WebCore::HTMLFrameElement>(element) || is<WebCore::HTMLIFrameElement>(element); }
-    static bool isType(const WebCore::Node& node) { return is<WebCore::HTMLElement>(node) && isType(downcast<WebCore::HTMLElement>(node)); }
+    static bool isType(const WebCore::HTMLElement& element) { return isAnyOf<WebCore::HTMLFrameElement, WebCore::HTMLIFrameElement>(element); }
+    static bool isType(const WebCore::Node& node)
+    {
+        auto* htmlElement = dynamicDowncast<WebCore::HTMLElement>(node);
+        return htmlElement && isType(*htmlElement);
+    }
 SPECIALIZE_TYPE_TRAITS_END()

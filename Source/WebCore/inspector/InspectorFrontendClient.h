@@ -31,26 +31,50 @@
 
 #pragma once
 
-#include "CertificateInfo.h"
-#include "DiagnosticLoggingClient.h"
-#include "InspectorDebuggableType.h"
-#include "UserInterfaceLayoutDirection.h"
+#include <WebCore/CertificateInfo.h>
+#include <WebCore/Color.h>
+#include <WebCore/FrameIdentifier.h>
+#include <WebCore/InspectorDebuggableType.h>
+#include <WebCore/InspectorFrontendAPIDispatcher.h>
+#include <WebCore/UserInterfaceLayoutDirection.h>
 #include <wtf/Forward.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
 #if ENABLE(INSPECTOR_EXTENSIONS)
 namespace Inspector {
-using ExtensionID = WTF::String;
-using ExtensionTabID = WTF::String;
+using ExtensionID = String;
+using ExtensionTabID = String;
 }
 #endif
 
 namespace WebCore {
+class InspectorFrontendClient;
+struct DiagnosticLoggingDictionary;
+}
+
+namespace WTF {
+template<typename T> struct IsDeprecatedWeakRefSmartPointerException;
+template<> struct IsDeprecatedWeakRefSmartPointerException<WebCore::InspectorFrontendClient> : std::true_type { };
+}
+
+namespace WebCore {
 
 class FloatRect;
-class InspectorFrontendAPIDispatcher;
 class Page;
+
+enum class InspectorFrontendClientAppearance : uint8_t {
+    System,
+    Light,
+    Dark,
+};
+
+struct InspectorFrontendClientSaveData {
+    String displayType;
+    String url;
+    String content;
+    bool base64Encoded;
+};
 
 class InspectorFrontendClient : public CanMakeWeakPtr<InspectorFrontendClient> {
 public:
@@ -88,11 +112,8 @@ public:
     virtual void reopen() = 0;
     virtual void resetState() = 0;
 
-    enum class Appearance {
-        System,
-        Light,
-        Dark,
-    };
+    using Appearance = WebCore::InspectorFrontendClientAppearance;
+
     WEBCORE_EXPORT virtual void setForcedAppearance(Appearance) = 0;
 
     virtual UserInterfaceLayoutDirection userInterfaceLayoutDirection() const = 0;
@@ -105,23 +126,45 @@ public:
     WEBCORE_EXPORT virtual void changeSheetRect(const FloatRect&) = 0;
 
     WEBCORE_EXPORT virtual void openURLExternally(const String& url) = 0;
-    virtual bool canSave() = 0;
-    virtual void save(const WTF::String& url, const WTF::String& content, bool base64Encoded, bool forceSaveAs) = 0;
-    virtual void append(const WTF::String& url, const WTF::String& content) = 0;
+    WEBCORE_EXPORT virtual void revealFileExternally(const String& path) = 0;
+
+    // Keep in sync with `WI.FileUtilities.SaveMode` and `InspectorFrontendHost::SaveMode`.
+    enum class SaveMode : uint8_t {
+        SingleFile,
+        FileVariants,
+    };
+
+    using SaveData = InspectorFrontendClientSaveData;
+
+    virtual bool canSave(SaveMode) = 0;
+    virtual void save(Vector<SaveData>&&, bool forceSaveAs) = 0;
+
+    virtual bool canLoad() = 0;
+    virtual void load(const String& path, CompletionHandler<void(const String&)>&&) = 0;
+
+    virtual bool canPickColorFromScreen() = 0;
+    virtual void pickColorFromScreen(CompletionHandler<void(const std::optional<WebCore::Color>&)>&&) = 0;
 
     virtual void inspectedURLChanged(const String&) = 0;
     virtual void showCertificate(const CertificateInfo&) = 0;
 
+    virtual void setInspectorPageDeveloperExtrasEnabled(bool) = 0;
+
+    virtual void setPageAndTextZoomFactors(double /* pageZoomFactor */, double /* textZoomFactor */) { }
+    virtual double pageZoomFactor() const { return 1.0; }
+
 #if ENABLE(INSPECTOR_TELEMETRY)
     virtual bool supportsDiagnosticLogging() { return false; }
     virtual bool diagnosticLoggingAvailable() { return false; }
-    virtual void logDiagnosticEvent(const String& /* eventName */, const DiagnosticLoggingClient::ValueDictionary&) { }
+    virtual void logDiagnosticEvent(const String& /* eventName */, const DiagnosticLoggingDictionary&) { }
 #endif
-    
+
 #if ENABLE(INSPECTOR_EXTENSIONS)
     virtual bool supportsWebExtensions() { return false; }
-    virtual void didShowExtensionTab(const Inspector::ExtensionID&, const Inspector::ExtensionTabID&) { }
+    virtual void didShowExtensionTab(const Inspector::ExtensionID&, const Inspector::ExtensionTabID&, const FrameIdentifier&) { }
     virtual void didHideExtensionTab(const Inspector::ExtensionID&, const Inspector::ExtensionTabID&) { }
+    virtual void didNavigateExtensionTab(const Inspector::ExtensionID&, const Inspector::ExtensionTabID&, const URL&) { }
+    virtual void inspectedPageDidNavigate(const URL&) { }
 #endif
 
     WEBCORE_EXPORT virtual void sendMessageToBackend(const String&) = 0;
@@ -132,16 +175,3 @@ public:
 };
 
 } // namespace WebCore
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::InspectorFrontendClient::Appearance> {
-    using values = EnumValues<
-        WebCore::InspectorFrontendClient::Appearance,
-        WebCore::InspectorFrontendClient::Appearance::System,
-        WebCore::InspectorFrontendClient::Appearance::Light,
-        WebCore::InspectorFrontendClient::Appearance::Dark
-    >;
-};
-
-} // namespace WTF

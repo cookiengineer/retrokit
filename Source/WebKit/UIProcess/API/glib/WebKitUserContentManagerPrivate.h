@@ -20,9 +20,12 @@
 #ifndef WebKitUserContentManagerPrivate_h
 #define WebKitUserContentManagerPrivate_h
 
+#include "APISerializedScriptValue.h"
 #include "WebKitUserContentManager.h"
 #include "WebUserContentControllerProxy.h"
+#include <WebCore/SerializedScriptValue.h>
 
 WebKit::WebUserContentControllerProxy* webkitUserContentManagerGetUserContentControllerProxy(WebKitUserContentManager*);
+WebKitScriptMessageReply* webKitScriptMessageReplyCreate(WebCore::SerializedScriptValue&, WTF::Function<void(API::SerializedScriptValue*, const String&)>&&);
 
 #endif // WebKitUserContentManagerPrivate_h

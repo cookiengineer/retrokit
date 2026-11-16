@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -36,7 +36,9 @@
 
 namespace JSC {
 
-#if ENABLE(EXTRA_CTI_THUNKS)
+namespace {
+    constexpr GPRReg bytecodeOffsetGPR = JIT::argumentGPR3;
+}
 
 void JITSlowPathCall::call()
 {
@@ -44,55 +46,39 @@ void JITSlowPathCall::call()
     uint32_t bytecodeOffset = m_jit->m_bytecodeIndex.offset();
     ASSERT(BytecodeIndex(bytecodeOffset) == m_jit->m_bytecodeIndex);
 
-    UNUSED_VARIABLE(m_pc);
-    constexpr GPRReg bytecodeOffsetReg = GPRInfo::argumentGPR1;
-    m_jit->move(JIT::TrustedImm32(bytecodeOffset), bytecodeOffsetReg);
-    m_jit->emitNakedNearCall(vm.jitStubs->ctiSlowPathFunctionStub(vm, m_slowPathFunction).retaggedCode<NoPtrTag>());
+    m_jit->move(JIT::TrustedImm32(bytecodeOffset), bytecodeOffsetGPR);
+    m_jit->nearCallThunk(CodeLocationLabel { vm.jitStubs->ctiSlowPathFunctionStub(vm, m_slowPathFunction).retaggedCode<NoPtrTag>() });
 }
 
 MacroAssemblerCodeRef<JITThunkPtrTag> JITSlowPathCall::generateThunk(VM& vm, SlowPathFunction slowPathFunction)
 {
     CCallHelpers jit;
 
-    constexpr GPRReg bytecodeOffsetReg = JIT::argumentGPR1;
+    jit.emitCTIThunkPrologue();
 
-#if CPU(X86_64)
-    jit.push(X86Registers::ebp);
-#elif CPU(ARM64)
-    jit.tagReturnAddress();
-    jit.pushPair(CCallHelpers::framePointerRegister, CCallHelpers::linkRegister);
-#endif
-
-    jit.store32(bytecodeOffsetReg, CCallHelpers::tagFor(CallFrameSlot::argumentCountIncludingThis));
-
-    jit.loadPtr(CCallHelpers::addressFor(CallFrameSlot::codeBlock), GPRInfo::argumentGPR0);
-
+    // Call slow operation
+    jit.store32(bytecodeOffsetGPR, CCallHelpers::tagFor(CallFrameSlot::argumentCountIncludingThis));
     jit.prepareCallOperation(vm);
 
-    jit.loadPtr(CCallHelpers::Address(GPRInfo::argumentGPR0, CodeBlock::offsetOfInstructionsRawPointer()), GPRInfo::argumentGPR0);
-    static_assert(JIT::argumentGPR1 == bytecodeOffsetReg);
-    jit.addPtr(GPRInfo::argumentGPR0, GPRInfo::argumentGPR1);
-    jit.move(GPRInfo::callFrameRegister, GPRInfo::argumentGPR0);
+    constexpr GPRReg callFrameArgGPR = GPRInfo::argumentGPR0;
+    constexpr GPRReg pcArgGPR = GPRInfo::argumentGPR1;
+    static_assert(noOverlap(callFrameArgGPR, pcArgGPR, bytecodeOffsetGPR));
 
-    CCallHelpers::Call call = jit.call(OperationPtrTag);
-    CCallHelpers::Jump exceptionCheck = jit.emitNonPatchableExceptionCheck(vm);
+    jit.move(GPRInfo::callFrameRegister, callFrameArgGPR);
+    jit.loadPtr(CCallHelpers::addressFor(CallFrameSlot::codeBlock), pcArgGPR);
+    jit.loadPtr(CCallHelpers::Address(pcArgGPR, CodeBlock::offsetOfInstructionsRawPointer()), pcArgGPR);
+    jit.addPtr(bytecodeOffsetGPR, pcArgGPR);
 
-#if CPU(X86_64)
-    jit.pop(X86Registers::ebp);
-#elif CPU(ARM64)
-    jit.popPair(CCallHelpers::framePointerRegister, CCallHelpers::linkRegister);
-#endif
-    jit.ret();
+    jit.callOperation<OperationPtrTag>(slowPathFunction);
 
-    auto handler = vm.getCTIStub(popThunkStackPreservesAndHandleExceptionGenerator);
+    jit.emitCTIThunkEpilogue();
+
+    // Tail call to exception check thunk
+    jit.jumpThunk(CodeLocationLabel(vm.getCTIStub(CommonJITThunkID::CheckException).retaggedCode<NoPtrTag>()));
 
     LinkBuffer patchBuffer(jit, GLOBAL_THUNK_ID, LinkBuffer::Profile::ExtraCTIThunk);
-    patchBuffer.link(call, FunctionPtr<OperationPtrTag>(slowPathFunction));
-    patchBuffer.link(exceptionCheck, CodeLocationLabel(handler.retaggedCode<NoPtrTag>()));
-    return FINALIZE_CODE(patchBuffer, JITThunkPtrTag, "SlowPathCall");
+    return FINALIZE_THUNK(patchBuffer, JITThunkPtrTag, "SlowPathCall"_s, "SlowPathCall");
 }
-
-#endif // ENABLE(EXTRA_CTI_THUNKS)
 
 } // namespace JSC
 

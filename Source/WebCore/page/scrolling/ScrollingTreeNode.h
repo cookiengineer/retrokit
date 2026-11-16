@@ -25,13 +25,16 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
 #if ENABLE(ASYNC_SCROLLING)
 
-#include "IntRect.h"
-#include "ScrollTypes.h"
-#include "ScrollingCoordinator.h"
-#include "ScrollingStateNode.h"
+#include <WebCore/IntRect.h>
+#include <WebCore/ScrollTypes.h>
+#include <WebCore/ScrollingCoordinator.h>
+#include <WebCore/ScrollingStateNode.h>
 #include <wtf/RefCounted.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/TypeCasts.h>
 
 namespace WebCore {
@@ -41,8 +44,8 @@ class ScrollingTree;
 class ScrollingTreeFrameScrollingNode;
 class ScrollingTreeScrollingNode;
 
-class ScrollingTreeNode : public ThreadSafeRefCounted<ScrollingTreeNode> {
-    WTF_MAKE_FAST_ALLOCATED;
+class ScrollingTreeNode : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<ScrollingTreeNode> {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(ScrollingTreeNode, WEBCORE_EXPORT);
     friend class ScrollingTree;
 public:
     virtual ~ScrollingTreeNode();
@@ -53,51 +56,69 @@ public:
     bool isFixedNode() const { return nodeType() == ScrollingNodeType::Fixed; }
     bool isStickyNode() const { return nodeType() == ScrollingNodeType::Sticky; }
     bool isPositionedNode() const { return nodeType() == ScrollingNodeType::Positioned; }
-    bool isScrollingNode() const { return isFrameScrollingNode() || isOverflowScrollingNode(); }
+#if PLATFORM(COCOA)
+    bool isFixedNodeCocoa() const { return isFixedNode(); }
+    bool isPositionedNodeCocoa() const { return isPositionedNode(); }
+    bool isOverflowScrollProxyNodeCocoa() const { return isOverflowScrollProxyNode(); }
+#endif
+#if USE(COORDINATED_GRAPHICS)
+    bool isFixedNodeCoordinated() const { return isFixedNode(); }
+    bool isPositionedNodeCoordinated() const { return isPositionedNode(); }
+    bool isOverflowScrollProxyNodeCoordinated() const { return isOverflowScrollProxyNode(); }
+#endif
+    bool isScrollingNode() const { return isFrameScrollingNode() || isOverflowScrollingNode() || isPluginScrollingNode(); }
     bool isFrameScrollingNode() const { return nodeType() == ScrollingNodeType::MainFrame || nodeType() == ScrollingNodeType::Subframe; }
     bool isFrameHostingNode() const { return nodeType() == ScrollingNodeType::FrameHosting; }
+    bool isPluginScrollingNode() const { return nodeType() == ScrollingNodeType::PluginScrolling; }
+    bool isPluginHostingNode() const { return nodeType() == ScrollingNodeType::PluginHosting; }
     bool isOverflowScrollingNode() const { return nodeType() == ScrollingNodeType::Overflow; }
     bool isOverflowScrollProxyNode() const { return nodeType() == ScrollingNodeType::OverflowProxy; }
 
-    virtual void commitStateBeforeChildren(const ScrollingStateNode&) = 0;
-    virtual void commitStateAfterChildren(const ScrollingStateNode&) { }
+    virtual bool commitStateBeforeChildren(const ScrollingStateNode&) = 0;
+    virtual bool commitStateAfterChildren(const ScrollingStateNode&) { return true; }
     virtual void didCompleteCommitForNode() { }
     
     virtual void willBeDestroyed() { }
 
-    ScrollingTreeNode* parent() const { return m_parent; }
-    void setParent(ScrollingTreeNode* parent) { m_parent = parent; }
-    
+    RefPtr<ScrollingTreeNode> parent() const { return m_parent; }
+    void setParent(RefPtr<ScrollingTreeNode>&& parent) { m_parent = parent; }
+
     WEBCORE_EXPORT bool isRootNode() const;
 
-    const Vector<Ref<ScrollingTreeNode>>& children() const { return m_children; }
+    const Vector<Ref<ScrollingTreeNode>>& children() const LIFETIME_BOUND { return m_children; }
 
     void appendChild(Ref<ScrollingTreeNode>&&);
     void removeChild(ScrollingTreeNode&);
     void removeAllChildren();
 
-    WEBCORE_EXPORT ScrollingTreeFrameScrollingNode* enclosingFrameNodeIncludingSelf();
-    WEBCORE_EXPORT ScrollingTreeScrollingNode* enclosingScrollingNodeIncludingSelf();
+    virtual bool isRootOfHostedSubtree() const { return false; }
 
-    WEBCORE_EXPORT void dump(WTF::TextStream&, ScrollingStateTreeAsTextBehavior) const;
+    WEBCORE_EXPORT RefPtr<ScrollingTreeFrameScrollingNode> enclosingFrameNodeIncludingSelf();
+    WEBCORE_EXPORT RefPtr<ScrollingTreeScrollingNode> enclosingScrollingNodeIncludingSelf();
+
+    WEBCORE_EXPORT void dump(WTF::TextStream&, OptionSet<ScrollingStateTreeAsTextBehavior>) const;
+
+    FrameIdentifier frameIdentifier() const { return *m_parentFrameIdentifier; }
+    void setFrameIdentifier(FrameIdentifier frameID) { m_parentFrameIdentifier = frameID; }
 
 protected:
     ScrollingTreeNode(ScrollingTree&, ScrollingNodeType, ScrollingNodeID);
-    ScrollingTree& scrollingTree() const { return m_scrollingTree; }
+    RefPtr<ScrollingTree> scrollingTree() const { return m_scrollingTree; }
 
     virtual void applyLayerPositions() = 0;
 
-    WEBCORE_EXPORT virtual void dumpProperties(WTF::TextStream&, ScrollingStateTreeAsTextBehavior) const;
+    WEBCORE_EXPORT virtual void dumpProperties(WTF::TextStream&, OptionSet<ScrollingStateTreeAsTextBehavior>) const;
 
     Vector<Ref<ScrollingTreeNode>> m_children;
 
 private:
-    ScrollingTree& m_scrollingTree;
+    ThreadSafeWeakPtr<ScrollingTree> m_scrollingTree;
 
     const ScrollingNodeType m_nodeType;
     const ScrollingNodeID m_nodeID;
+    Markable<FrameIdentifier> m_parentFrameIdentifier;
 
-    ScrollingTreeNode* m_parent { nullptr };
+    ThreadSafeWeakPtr<ScrollingTreeNode> m_parent;
 };
 
 } // namespace WebCore

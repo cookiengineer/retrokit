@@ -26,8 +26,8 @@
 
 #pragma once
 
-#include "JSDOMGuardedObject.h"
 #include <JavaScriptCore/JSPromise.h>
+#include <WebCore/JSDOMGuardedObject.h>
 
 namespace WebCore {
 
@@ -44,14 +44,23 @@ public:
         return guarded();
     }
 
-    enum class IsCallbackRegistered { No, Yes };
-    IsCallbackRegistered whenSettled(std::function<void()>&&);
-    JSC::JSValue result() const;
+    enum class IsCallbackRegistered : bool { No, Yes };
+    IsCallbackRegistered whenSettled(Function<void()>&& callback)
+    {
+        return whenSettledWithResult([callback = WTF::move(callback)](JSDOMGlobalObject*, bool, JSC::JSValue) {
+            callback();
+        });
+    }
+    WEBCORE_EXPORT IsCallbackRegistered whenSettledWithResult(Function<void(JSDOMGlobalObject*, bool, JSC::JSValue)>&&);
+    JSC::JSValue NODELETE result() const;
+
+    void NODELETE markAsHandled();
 
     enum class Status { Pending, Fulfilled, Rejected };
-    Status status() const;
+    WEBCORE_EXPORT Status status() const;
 
-    static IsCallbackRegistered whenPromiseIsSettled(JSDOMGlobalObject*, JSC::JSObject* promise, Function<void()>&&);
+    enum class ShouldCallCallbackOnRegistrationFailure : bool { No, Yes };
+    static IsCallbackRegistered whenPromiseIsSettled(JSDOMGlobalObject*, JSC::JSPromise*, Function<void(JSDOMGlobalObject*, bool, JSC::JSValue)>&&, JSC::JSObject* protectedWrapper = nullptr, ShouldCallCallbackOnRegistrationFailure = ShouldCallCallbackOnRegistrationFailure::No);
 
 private:
     DOMPromise(JSDOMGlobalObject& globalObject, JSC::JSPromise& promise)

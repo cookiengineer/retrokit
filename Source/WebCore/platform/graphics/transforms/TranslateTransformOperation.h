@@ -24,9 +24,7 @@
 
 #pragma once
 
-#include "Length.h"
-#include "LengthFunctions.h"
-#include "TransformOperation.h"
+#include <WebCore/TransformOperation.h>
 #include <wtf/Ref.h>
 
 namespace WebCore {
@@ -35,61 +33,44 @@ struct BlendingContext;
 
 class TranslateTransformOperation final : public TransformOperation {
 public:
-    static Ref<TranslateTransformOperation> create(const Length& tx, const Length& ty, OperationType type)
+    static Ref<TranslateTransformOperation> create(float tx, float ty, TransformOperation::Type type)
     {
-        return adoptRef(*new TranslateTransformOperation(tx, ty, Length(0, LengthType::Fixed), type));
+        return adoptRef(*new TranslateTransformOperation(tx, ty, 0, type));
     }
 
-    static Ref<TranslateTransformOperation> create(const Length& tx, const Length& ty, const Length& tz, OperationType type)
-    {
-        return adoptRef(*new TranslateTransformOperation(tx, ty, tz, type));
-    }
+    WEBCORE_EXPORT static Ref<TranslateTransformOperation> create(float, float, float, TransformOperation::Type);
 
     Ref<TransformOperation> clone() const override
     {
         return adoptRef(*new TranslateTransformOperation(m_x, m_y, m_z, type()));
     }
 
-    float xAsFloat(const FloatSize& borderBoxSize) const { return floatValueForLength(m_x, borderBoxSize.width()); }
-    float yAsFloat(const FloatSize& borderBoxSize) const { return floatValueForLength(m_y, borderBoxSize.height()); }
-    float zAsFloat() const { return floatValueForLength(m_z, 1); }
+    float x() const { return m_x; }
+    float y() const { return m_y; }
+    float z() const { return m_z; }
 
-    Length x() const { return m_x; }
-    Length y() const { return m_y; }
-    Length z() const { return m_z; }
+    TransformOperation::Type primitiveType() const final { return !m_z ? Type::Translate : Type::Translate3D; }
 
-    bool apply(TransformationMatrix& transform, const FloatSize& borderBoxSize) const final
+    void apply(TransformationMatrix& transform) const final
     {
-        transform.translate3d(xAsFloat(borderBoxSize), yAsFloat(borderBoxSize), zAsFloat());
-        return m_x.isPercent() || m_y.isPercent();
+        transform.translate3d(m_x, m_y, m_z);
     }
 
-    bool isIdentity() const final { return !floatValueForLength(m_x, 1) && !floatValueForLength(m_y, 1) && !floatValueForLength(m_z, 1); }
-
+    bool operator==(const TranslateTransformOperation& other) const { return operator==(static_cast<const TransformOperation&>(other)); }
     bool operator==(const TransformOperation&) const final;
 
-    Ref<TransformOperation> blend(const TransformOperation* from, const BlendingContext&, bool blendToIdentity = false) final;
-
-    bool isRepresentableIn2D() const final { return m_z.isZero(); }
+    Ref<TransformOperation> blend(const TransformOperation* from, const BlendingContext&, bool blendToIdentity = false) const final;
 
 private:
-
     void dump(WTF::TextStream&) const final;
 
-    TranslateTransformOperation(const Length& tx, const Length& ty, const Length& tz, OperationType type)
-        : TransformOperation(type)
-        , m_x(tx)
-        , m_y(ty)
-        , m_z(tz)
-    {
-        ASSERT(isTranslateTransformOperationType());
-    }
+    TranslateTransformOperation(float, float, float, TransformOperation::Type);
 
-    Length m_x;
-    Length m_y;
-    Length m_z;
+    float m_x;
+    float m_y;
+    float m_z;
 };
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_TRANSFORMOPERATION(WebCore::TranslateTransformOperation, isTranslateTransformOperationType())
+SPECIALIZE_TYPE_TRAITS_TRANSFORMOPERATION(WebCore::TranslateTransformOperation, WebCore::TransformOperation::isTranslateTransformOperationType)

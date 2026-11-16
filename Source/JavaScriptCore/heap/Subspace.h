@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,11 +25,10 @@
 
 #pragma once
 
-#include "AllocationFailureMode.h"
-#include "AllocatorForMode.h"
-#include "Allocator.h"
-#include "MarkedBlock.h"
-#include "MarkedSpace.h"
+#include <JavaScriptCore/Allocator.h>
+#include <JavaScriptCore/MarkedBlock.h>
+#include <JavaScriptCore/MarkedSpace.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/CString.h>
 
 namespace JSC {
@@ -37,29 +36,32 @@ namespace JSC {
 class AlignedMemoryAllocator;
 class HeapCellType;
 
+enum class SubspaceKind {
+    CompleteSubspace,
+    IsoSubspace,
+    PreciseSubspace,
+};
+
 // The idea of subspaces is that you can provide some custom behavior for your objects if you
 // allocate them from a custom Subspace in which you override some of the virtual methods. This
-// class is the baseclass of Subspaces. Usually you will use either Subspace or FixedSizeSubspace.
+// class is the baseclass of all subspaces e.g. CompleteSubspace, IsoSubspace.
 class Subspace {
     WTF_MAKE_NONCOPYABLE(Subspace);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(Subspace);
 public:
-    JS_EXPORT_PRIVATE Subspace(CString name, Heap&);
     JS_EXPORT_PRIVATE virtual ~Subspace();
 
-    const char* name() const { return m_name.data(); }
+    const char* name() const LIFETIME_BOUND { return m_name.data(); }
+    unsigned nameHash() const { return m_name.hash(); } // FIXME: rdar://139998916
     MarkedSpace& space() const { return m_space; }
-    
-    const CellAttributes& attributes() const;
-    HeapCellType* heapCellType() const { return m_heapCellType; }
+
+    CellAttributes attributes() const;
+    const HeapCellType* heapCellType() const { return m_heapCellType; }
     AlignedMemoryAllocator* alignedMemoryAllocator() const { return m_alignedMemoryAllocator; }
     
     void finishSweep(MarkedBlock::Handle&, FreeList*);
     void destroy(VM&, JSCell*);
 
-    virtual Allocator allocatorFor(size_t, AllocatorForMode) = 0;
-    virtual void* allocate(VM&, size_t, GCDeferralContext*, AllocationFailureMode) = 0;
-    
     void prepareForAllocation();
     
     void didCreateFirstDirectory(BlockDirectory* directory) { m_directoryForEmptyAllocation = directory; }
@@ -101,26 +103,30 @@ public:
     virtual void didRemoveBlock(unsigned blockIndex);
     virtual void didBeginSweepingToFreeList(MarkedBlock::Handle*);
 
-    bool isIsoSubspace() const { return m_isIsoSubspace; }
+    SubspaceKind kind() const { return m_kind; }
+    bool isIsoSubspace() const { return kind() == SubspaceKind::IsoSubspace; }
+    bool isPreciseOnly() const { return kind() == SubspaceKind::PreciseSubspace; }
 
 protected:
-    void initialize(HeapCellType*, AlignedMemoryAllocator*);
+    Subspace(SubspaceKind, CString name, Heap&);
+
+    void initialize(const HeapCellType&, AlignedMemoryAllocator*);
     
     MarkedSpace& m_space;
     
-    HeapCellType* m_heapCellType { nullptr };
+    const HeapCellType* m_heapCellType { nullptr };
     AlignedMemoryAllocator* m_alignedMemoryAllocator { nullptr };
     
     BlockDirectory* m_firstDirectory { nullptr };
     BlockDirectory* m_directoryForEmptyAllocation { nullptr }; // Uses the MarkedSpace linked list of blocks.
-    SentinelLinkedList<PreciseAllocation, PackedRawSentinelNode<PreciseAllocation>> m_preciseAllocations;
+    SentinelLinkedList<PreciseAllocation, BasicRawSentinelNode<PreciseAllocation>> m_preciseAllocations;
+
+    SubspaceKind m_kind;
+    uint8_t m_remainingLowerTierPreciseCount { 0 }; // Lower tier is a precise allocation but we use the term lower to avoid confusion with precise-only.
+
     Subspace* m_nextSubspaceInAlignedMemoryAllocator { nullptr };
 
     CString m_name;
-
-    bool m_isIsoSubspace { false };
-protected:
-    uint8_t m_remainingLowerTierCellCount { 0 };
 };
 
 } // namespace JSC

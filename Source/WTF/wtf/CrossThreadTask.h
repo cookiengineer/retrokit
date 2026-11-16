@@ -34,12 +34,12 @@
 namespace WTF {
 
 class CrossThreadTask {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(CrossThreadTask);
 public:
     CrossThreadTask() = default;
 
     CrossThreadTask(Function<void ()>&& taskFunction)
-        : m_taskFunction(WTFMove(taskFunction))
+        : m_taskFunction(WTF::move(taskFunction))
     {
         ASSERT(m_taskFunction);
     }
@@ -71,7 +71,7 @@ template<typename... Parameters, typename... Arguments>
 CrossThreadTask createCrossThreadTask(void (*method)(Parameters...), const Arguments&... arguments)
 {
     return CrossThreadTask([method, arguments = std::make_tuple(crossThreadCopy(arguments)...)]() mutable {
-        callFunctionForCrossThreadTask(method, WTFMove(arguments));
+        callFunctionForCrossThreadTask(method, WTF::move(arguments));
     });
 }
 
@@ -87,19 +87,21 @@ void callMemberFunctionForCrossThreadTask(C* object, MF function, ArgsTuple&& ar
     callMemberFunctionForCrossThreadTaskImpl(object, function, std::forward<ArgsTuple>(args), ArgsIndices());
 }
 
-template<typename T, typename std::enable_if<std::is_base_of<ThreadSafeRefCountedBase, T>::value, int>::type = 0, typename... Parameters, typename... Arguments>
+template<typename T, typename... Parameters, typename... Arguments>
+requires (WTF::HasRefPtrMemberFunctions<T>::value)
 CrossThreadTask createCrossThreadTask(T& callee, void (T::*method)(Parameters...), const Arguments&... arguments)
 {
-    return CrossThreadTask([callee = makeRefPtr(&callee), method, arguments = std::make_tuple(crossThreadCopy(arguments)...)]() mutable {
-        callMemberFunctionForCrossThreadTask(callee.get(), method, WTFMove(arguments));
+    return CrossThreadTask([callee = RefPtr { &callee }, method, arguments = std::make_tuple(crossThreadCopy(arguments)...)]() mutable {
+        callMemberFunctionForCrossThreadTask(callee.get(), method, WTF::move(arguments));
     });
 }
 
-template<typename T, typename std::enable_if<!std::is_base_of<ThreadSafeRefCountedBase, T>::value, int>::type = 0, typename... Parameters, typename... Arguments>
+template<typename T, typename... Parameters, typename... Arguments>
+requires (!WTF::HasRefPtrMemberFunctions<T>::value)
 CrossThreadTask createCrossThreadTask(T& callee, void (T::*method)(Parameters...), const Arguments&... arguments)
 {
     return CrossThreadTask([callee = &callee, method, arguments = std::make_tuple(crossThreadCopy(arguments)...)]() mutable {
-        callMemberFunctionForCrossThreadTask(callee, method, WTFMove(arguments));
+        callMemberFunctionForCrossThreadTask(callee, method, WTF::move(arguments));
     });
 }
 

@@ -23,34 +23,44 @@
 #if ENABLE(MEDIA_STREAM)
 
 #include <WebCore/UserMediaClient.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakRef.h>
 
 namespace WebKit {
 
 class WebPage;
 
-class WebUserMediaClient : public WebCore::UserMediaClient {
-    WTF_MAKE_FAST_ALLOCATED;
+class WebUserMediaClient final: public WebCore::UserMediaClient, public RefCounted<WebUserMediaClient> {
+    WTF_MAKE_TZONE_ALLOCATED(WebUserMediaClient);
 public:
-    WebUserMediaClient(WebPage&);
-    ~WebUserMediaClient() { }
+
+    static Ref<WebUserMediaClient> create(WebPage& page)
+    {
+        return adoptRef(*new WebUserMediaClient(page));
+    }
+
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
 
 private:
-    void pageDestroyed() override;
+    explicit WebUserMediaClient(WebPage&);
 
     void requestUserMediaAccess(WebCore::UserMediaRequest&) override;
     void cancelUserMediaAccessRequest(WebCore::UserMediaRequest&) override;
 
-    void enumerateMediaDevices(WebCore::Document&, CompletionHandler<void(const Vector<WebCore::CaptureDevice>&, const String&)>&&) final;
+    void enumerateMediaDevices(WebCore::Document&, WebCore::UserMediaClient::EnumerateDevicesCallback&&) final;
 
     DeviceChangeObserverToken addDeviceChangeObserver(WTF::Function<void()>&&) final;
     void removeDeviceChangeObserver(DeviceChangeObserverToken) final;
+    void updateCaptureState(const WebCore::Document&, bool isActive, WebCore::MediaProducerMediaCaptureKind, CompletionHandler<void(std::optional<WebCore::Exception>&&)>&&) final;
+    void setShouldListenToVoiceActivity(bool) final;
 
     void initializeFactories();
 
-    WebPage& m_page;
+    WeakPtr<WebPage> m_page;
 };
 
-} // namespace WebCore
+} // namespace WebKit
 
 #endif // ENABLE(MEDIA_STREAM)
 

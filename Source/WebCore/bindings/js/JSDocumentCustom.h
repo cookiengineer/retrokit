@@ -26,8 +26,8 @@
 
 #pragma once
 
-#include "JSDOMBinding.h"
-#include "JSDocument.h"
+#include <WebCore/JSDOMBinding.h>
+#include <WebCore/JSDocument.h>
 
 namespace JSC {
 namespace JSCastingHelpers {
@@ -36,9 +36,9 @@ template<>
 struct InheritsTraits<WebCore::JSDocument> {
     static constexpr std::optional<JSTypeRange> typeRange { JSTypeRange { static_cast<JSType>(WebCore::JSDocumentWrapperType), static_cast<JSType>(WebCore::JSDocumentWrapperType) } };
     template<typename From>
-    static inline bool inherits(VM& vm, From* from)
+    static inline bool inherits(From* from)
     {
-        return inheritsJSTypeImpl<WebCore::JSDocument>(vm, from, *typeRange);
+        return inheritsJSTypeImpl<WebCore::JSDocument>(from, *typeRange);
     }
 };
 
@@ -47,7 +47,10 @@ struct InheritsTraits<WebCore::JSDocument> {
 
 namespace WebCore {
 
+class TreeScope;
+
 JSC::JSObject* cachedDocumentWrapper(JSC::JSGlobalObject&, JSDOMGlobalObject&, Document&);
 void reportMemoryForDocumentIfFrameless(JSC::JSGlobalObject&, Document&);
+void setAdoptedStyleSheetsOnTreeScope(TreeScope&, JSC::JSGlobalObject&, JSC::JSValue);
 
 } // namespace WebCore

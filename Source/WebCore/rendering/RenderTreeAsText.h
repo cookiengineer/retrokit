@@ -35,11 +35,11 @@ class TextStream;
 namespace WebCore {
 
 class Element;
-class Frame;
+class LocalFrame;
 class RenderObject;
+class RenderView;
 
-enum class RenderAsTextFlag {
-    BehaviorNormal          = 0,
+enum class RenderAsTextFlag : uint16_t {
     ShowAllLayers           = 1 << 0, // Dump all layers, not just those that would paint.
     ShowLayerNesting        = 1 << 1, // Annotate the layer lists.
     ShowCompositedLayers    = 1 << 2, // Show which layers are composited.
@@ -54,13 +54,15 @@ enum class RenderAsTextFlag {
 };
 
 // You don't need pageWidthInPixels if you don't specify RenderAsTextInPrintingMode.
-WEBCORE_EXPORT String externalRepresentation(Frame*, OptionSet<RenderAsTextFlag> = { });
+WEBCORE_EXPORT TextStream createTextStream(const RenderView&);
+WEBCORE_EXPORT String externalRepresentation(LocalFrame*, OptionSet<RenderAsTextFlag> = { });
 WEBCORE_EXPORT String externalRepresentation(Element*, OptionSet<RenderAsTextFlag> = { });
+WEBCORE_EXPORT void externalRepresentationForLocalFrame(TextStream&, LocalFrame&, OptionSet<RenderAsTextFlag> = { });
 void write(WTF::TextStream&, const RenderObject&, OptionSet<RenderAsTextFlag> = { });
 void writeDebugInfo(WTF::TextStream&, const RenderObject&, OptionSet<RenderAsTextFlag> = { });
 
 class RenderTreeAsText {
-// FIXME: This is a cheesy hack to allow easy access to RenderStyle colors.  It won't be needed if we convert
+// FIXME: This is a cheesy hack to allow easy access to Style::ComputedStyle colors. It won't be needed if we convert
 // it to use visitedDependentColor instead. (This just involves rebaselining many results though, so for now it's
 // not being done).
 public:

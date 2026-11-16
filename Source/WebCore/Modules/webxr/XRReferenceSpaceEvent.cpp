@@ -30,33 +30,34 @@
 
 #include "WebXRReferenceSpace.h"
 #include "WebXRRigidTransform.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-Ref<XRReferenceSpaceEvent> XRReferenceSpaceEvent::create(const AtomString& type, const Init& initializer, IsTrusted isTrusted)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(XRReferenceSpaceEvent);
+
+Ref<XRReferenceSpaceEvent> XRReferenceSpaceEvent::create(const AtomString& type, Init&& initializer, IsTrusted isTrusted)
 {
-    return adoptRef(*new XRReferenceSpaceEvent(type, initializer, isTrusted));
+    return adoptRef(*new XRReferenceSpaceEvent(type, WTF::move(initializer), isTrusted));
 }
 
-XRReferenceSpaceEvent::XRReferenceSpaceEvent(const AtomString& type, const Init& initializer, IsTrusted isTrusted)
-    : Event(type, initializer, isTrusted)
-    , m_referenceSpace(initializer.referenceSpace)
-    , m_transform(initializer.transform)
+XRReferenceSpaceEvent::XRReferenceSpaceEvent(const AtomString& type, Init&& initializer, IsTrusted isTrusted)
+    : Event(EventInterfaceType::XRReferenceSpaceEvent, type, WTF::move(initializer), isTrusted)
+    , m_referenceSpace(WTF::move(initializer.referenceSpace))
+    , m_transform(WTF::move(initializer.transform))
 {
-    ASSERT(m_referenceSpace);
-    ASSERT(m_transform);
 }
 
 XRReferenceSpaceEvent::~XRReferenceSpaceEvent() = default;
 
 const WebXRReferenceSpace& XRReferenceSpaceEvent::referenceSpace() const
 {
-    return *m_referenceSpace;
+    return m_referenceSpace;
 }
 
-const WebXRRigidTransform& XRReferenceSpaceEvent::transform() const
+WebXRRigidTransform* XRReferenceSpaceEvent::transform() const
 {
-    return *m_transform;
+    return m_transform.get();
 }
 
 } // namespace WebCore

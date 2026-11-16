@@ -25,13 +25,17 @@
 #include "WebKitPermissionRequest.h"
 #include <wtf/glib/WTFGType.h>
 
+#if !ENABLE(2022_GLIB_API)
+typedef WebKitPermissionRequestIface WebKitPermissionRequestInterface;
+#endif
+
 using namespace WebKit;
 
 /**
- * SECTION: WebKitMediaKeySystemPermissionRequest
- * @Short_description: A permission request for using an EME Content Decryption Module
- * @Title: WebKitMediaKeySystemPermissionRequest
+ * WebKitMediaKeySystemPermissionRequest:
  * @See_also: #WebKitPermissionRequest, #WebKitWebView
+ *
+ * A permission request for using an EME Content Decryption Module.
  *
  * WebKitMediaKeySystemPermissionRequest represents a request for permission to decide whether
  * WebKit should use the given CDM to access protected media when requested through the
@@ -44,7 +48,7 @@ using namespace WebKit;
  * requested CDM, unless it is already present on the host system.
  */
 
-static void webkit_permission_request_interface_init(WebKitPermissionRequestIface*);
+static void webkit_permission_request_interface_init(WebKitPermissionRequestInterface*);
 
 struct _WebKitMediaKeySystemPermissionRequestPrivate {
     RefPtr<MediaKeySystemPermissionRequest> request;
@@ -52,8 +56,8 @@ struct _WebKitMediaKeySystemPermissionRequestPrivate {
     CString keySystem;
 };
 
-WEBKIT_DEFINE_TYPE_WITH_CODE(
-    WebKitMediaKeySystemPermissionRequest, webkit_media_key_system_permission_request, G_TYPE_OBJECT,
+WEBKIT_DEFINE_FINAL_TYPE_WITH_CODE(
+    WebKitMediaKeySystemPermissionRequest, webkit_media_key_system_permission_request, G_TYPE_OBJECT, GObject,
     G_IMPLEMENT_INTERFACE(WEBKIT_TYPE_PERMISSION_REQUEST, webkit_permission_request_interface_init))
 
 static void webkitMediaKeySystemPermissionRequestAllow(WebKitPermissionRequest* request)
@@ -84,7 +88,7 @@ static void webkitMediaKeySystemPermissionRequestDeny(WebKitPermissionRequest* r
     priv->madeDecision = true;
 }
 
-static void webkit_permission_request_interface_init(WebKitPermissionRequestIface* iface)
+static void webkit_permission_request_interface_init(WebKitPermissionRequestInterface* iface)
 {
     iface->allow = webkitMediaKeySystemPermissionRequestAllow;
     iface->deny = webkitMediaKeySystemPermissionRequestDeny;
@@ -106,7 +110,7 @@ static void webkit_media_key_system_permission_request_class_init(WebKitMediaKey
 WebKitMediaKeySystemPermissionRequest* webkitMediaKeySystemPermissionRequestCreate(Ref<MediaKeySystemPermissionRequest>&& request)
 {
     WebKitMediaKeySystemPermissionRequest* permissionRequest = WEBKIT_MEDIA_KEY_SYSTEM_PERMISSION_REQUEST(g_object_new(WEBKIT_TYPE_MEDIA_KEY_SYSTEM_PERMISSION_REQUEST, NULL));
-    permissionRequest->priv->request = WTFMove(request);
+    permissionRequest->priv->request = WTF::move(request);
     return permissionRequest;
 }
 

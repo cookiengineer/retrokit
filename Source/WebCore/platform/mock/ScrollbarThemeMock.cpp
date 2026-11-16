@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2011 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,16 +32,26 @@
 
 namespace WebCore {
 
-static const int cScrollbarThickness[] = { 15, 11 };
-
 IntRect ScrollbarThemeMock::trackRect(Scrollbar& scrollbar, bool)
 {
     return scrollbar.frameRect();
 }
 
-int ScrollbarThemeMock::scrollbarThickness(ScrollbarControlSize controlSize, ScrollbarExpansionState)
+int ScrollbarThemeMock::scrollbarThickness(ScrollbarWidth scrollbarWidth, OverlayScrollbarSizeRelevancy overlayRelavancy)
 {
-    return cScrollbarThickness[static_cast<uint8_t>(controlSize)];
+    if (usesOverlayScrollbars() && overlayRelavancy == OverlayScrollbarSizeRelevancy::IgnoreOverlayScrollbarSize)
+        return 0;
+
+    switch (scrollbarWidth) {
+    case ScrollbarWidth::Auto:
+        return 15;
+    case ScrollbarWidth::Thin:
+        return 11;
+    case ScrollbarWidth::None:
+        return 0;
+    }
+    ASSERT_NOT_REACHED();
+    return 15;
 }
 
 void ScrollbarThemeMock::paintTrackBackground(GraphicsContext& context, Scrollbar& scrollbar, const IntRect& trackRect)

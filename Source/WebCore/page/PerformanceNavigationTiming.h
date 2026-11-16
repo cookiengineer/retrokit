@@ -62,20 +62,22 @@ public:
     double domComplete() const;
     double loadEventStart() const;
     double loadEventEnd() const;
-    NavigationType type() const;
-    unsigned short redirectCount() const;
+    NavigationType NODELETE type() const;
+    unsigned short NODELETE redirectCount() const;
 
-    double startTime() const final;
+    double NODELETE startTime() const final;
     double duration() const final;
 
-    DocumentEventTiming& documentEventTiming() { return m_documentEventTiming; }
-    DocumentLoadTiming& documentLoadTiming() { return m_documentLoadTiming; }
+    DocumentEventTiming& documentEventTiming() LIFETIME_BOUND { return m_documentEventTiming; }
+    DocumentLoadTiming& documentLoadTiming() LIFETIME_BOUND { return m_documentLoadTiming; }
+    void documentLoadFinished(const NetworkLoadMetrics&);
 
 private:
     PerformanceNavigationTiming(MonotonicTime timeOrigin, CachedResource&, const DocumentLoadTiming&, const NetworkLoadMetrics&, const DocumentEventTiming&, const SecurityOrigin&, WebCore::NavigationType);
 
     double millisecondsSinceOrigin(MonotonicTime) const;
-    bool sameOriginCheckFails() const;
+    bool NODELETE sameOriginCheckFails() const;
+    bool NODELETE shouldExposeRedirectTiming() const final;
 
     DocumentEventTiming m_documentEventTiming;
     DocumentLoadTiming m_documentLoadTiming;
@@ -83,3 +85,5 @@ private:
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_PERFORMANCE_ENTRY(PerformanceNavigationTiming, Navigation);

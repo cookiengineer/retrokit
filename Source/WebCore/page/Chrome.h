@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2025 Apple Inc. All rights reserved.
  * Copyright (C) 2010 Nokia Corporation and/or its subsidiary(-ies).
  * Copyright (C) 2012, Samsung Electronics. All rights reserved.
  *
@@ -21,18 +21,44 @@
 
 #pragma once
 
-#include "Cursor.h"
-#include "DisabledAdaptations.h"
-#include "FocusDirection.h"
-#include "HostWindow.h"
+#include <WebCore/Cursor.h>
+#include <WebCore/DigitalCredentialsRequestData.h>
+#include <WebCore/DisabledAdaptations.h>
+#include <WebCore/FocusDirection.h>
+#include <WebCore/HostWindow.h>
+#include <WebCore/ImageBufferFormat.h>
+#include <wtf/CompletionHandler.h>
 #include <wtf/Forward.h>
+#include <wtf/FunctionDispatcher.h>
+#include <wtf/Platform.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/UniqueRef.h>
+#include <wtf/Variant.h>
+#include <wtf/Vector.h>
 
 #if PLATFORM(COCOA)
 OBJC_CLASS NSView;
 #endif
 
 namespace WebCore {
+
+namespace ShapeDetection {
+class BarcodeDetector;
+struct BarcodeDetectorOptions;
+enum class BarcodeFormat : uint8_t;
+class FaceDetector;
+struct FaceDetectorOptions;
+class TextDetector;
+}
+
+namespace WebGPU {
+class GPU;
+}
+
+enum class BroadcastFocusedElement : bool;
+enum class PlatformEventModifier : uint8_t;
+enum class TextDirection : bool;
 
 class ChromeClient;
 class ColorChooser;
@@ -44,33 +70,46 @@ class DateTimeChooserClient;
 class FileChooser;
 class FileIconLoader;
 class FloatRect;
-class Element;
 class Frame;
+class Element;
 class Geolocation;
 class HitTestResult;
 class IntPoint;
 class IntRect;
+class LocalFrame;
 class NavigationAction;
 class Page;
 class PopupMenu;
 class PopupMenuClient;
 class PopupOpeningObserver;
 class SearchPopupMenu;
+class WorkerClient;
 
 struct AppHighlight;
+struct AriaNotifyData;
 struct ContactInfo;
 struct ContactsRequestData;
-struct DateTimeChooserParameters;
+struct FocusOptions;
+struct LiveRegionAnnouncementData;
 struct ShareDataWithParsedURL;
 struct ViewportArguments;
 struct WindowFeatures;
 
+#if ENABLE(WEB_AUTHN)
+class SecurityOriginData;
+struct DigitalCredentialsResponseData;
+struct ExceptionData;
+struct MobileDocumentRequest;
+#endif
+
 class Chrome : public HostWindow {
+    WTF_MAKE_TZONE_ALLOCATED(Chrome);
 public:
-    Chrome(Page&, ChromeClient&);
+    Chrome(Page&, UniqueRef<ChromeClient>&&);
     virtual ~Chrome();
 
-    ChromeClient& client() { return m_client; }
+    ChromeClient& client() LIFETIME_BOUND { return m_client; }
+    const ChromeClient& client() const LIFETIME_BOUND { return m_client; }
 
     // HostWindow methods.
     void invalidateRootView(const IntRect&) override;
@@ -78,101 +117,105 @@ public:
     void invalidateContentsForSlowScroll(const IntRect&) override;
     void scroll(const IntSize&, const IntRect&, const IntRect&) override;
     IntPoint screenToRootView(const IntPoint&) const override;
+    IntPoint rootViewToScreen(const IntPoint&) const override;
     IntRect rootViewToScreen(const IntRect&) const override;
     IntPoint accessibilityScreenToRootView(const IntPoint&) const override;
     IntRect rootViewToAccessibilityScreen(const IntRect&) const override;
     PlatformPageClient platformPageClient() const override;
+#if PLATFORM(IOS_FAMILY)
+    void relayAccessibilityNotification(String&&, RetainPtr<NSData>&&) const override;
+    void relayAriaNotifyNotification(AriaNotifyData&&) const;
+    void relayLiveRegionNotification(LiveRegionAnnouncementData&&) const;
+#endif
     void setCursor(const Cursor&) override;
     void setCursorHiddenUntilMouseMoves(bool) override;
 
-    RefPtr<ImageBuffer> createImageBuffer(const FloatSize&, RenderingMode, RenderingPurpose, float resolutionScale, const DestinationColorSpace&, PixelFormat) const override;
+    RefPtr<ImageBuffer> createImageBuffer(const FloatSize&, RenderingMode, RenderingPurpose, float resolutionScale, const DestinationColorSpace&, ImageBufferFormat) const override;
+    RefPtr<WebCore::ImageBuffer> sinkIntoImageBuffer(std::unique_ptr<WebCore::SerializedImageBuffer>) override;
 
 #if ENABLE(WEBGL)
     RefPtr<GraphicsContextGL> createGraphicsContextGL(const GraphicsContextGLAttributes&) const override;
 #endif
+#if HAVE(WEBGPU_IMPLEMENTATION)
+    RefPtr<WebGPU::GPU> createGPUForWebGPU() const override;
+#endif
+    RefPtr<ShapeDetection::BarcodeDetector> createBarcodeDetector(const ShapeDetection::BarcodeDetectorOptions&) const;
+    void getBarcodeDetectorSupportedFormats(CompletionHandler<void(Vector<ShapeDetection::BarcodeFormat>&&)>&&) const;
+    RefPtr<ShapeDetection::FaceDetector> createFaceDetector(const ShapeDetection::FaceDetectorOptions&) const;
+    RefPtr<ShapeDetection::TextDetector> createTextDetector() const;
 
-    PlatformDisplayID displayID() const override;
+    PlatformDisplayID NODELETE displayID() const override;
     void windowScreenDidChange(PlatformDisplayID, std::optional<FramesPerSecond>) override;
 
     FloatSize screenSize() const override;
     FloatSize availableScreenSize() const override;
     FloatSize overrideScreenSize() const override;
+    FloatSize overrideAvailableScreenSize() const override;
 
     void scrollContainingScrollViewsToRevealRect(const IntRect&) const;
-    void scrollMainFrameToRevealRect(const IntRect&) const;
+    WEBCORE_EXPORT void scrollMainFrameToRevealRect(const IntRect&) const;
 
-    void contentsSizeChanged(Frame&, const IntSize&) const;
+    void contentsSizeChanged(LocalFrame&, const IntSize&) const;
+    void scrollOriginDidChange(const LocalFrame&) const;
 
-    WEBCORE_EXPORT void setWindowRect(const FloatRect&) const;
+    WEBCORE_EXPORT void setWindowRect(const FloatRect&);
     WEBCORE_EXPORT FloatRect windowRect() const;
 
     FloatRect pageRect() const;
 
-    void focus() const;
-    void unfocus() const;
+    void focus();
+    void unfocus();
 
     bool canTakeFocus(FocusDirection) const;
-    void takeFocus(FocusDirection) const;
+    void takeFocus(FocusDirection);
 
-    void focusedElementChanged(Element*) const;
-    void focusedFrameChanged(Frame*) const;
+    void focusedElementChanged(Element*, LocalFrame*, FocusOptions, BroadcastFocusedElement);
+    void focusedFrameChanged(Frame*);
 
-    WEBCORE_EXPORT Page* createWindow(Frame&, const WindowFeatures&, const NavigationAction&) const;
-    WEBCORE_EXPORT void show() const;
+    WEBCORE_EXPORT RefPtr<Page> createWindow(LocalFrame&, const String& openedMainFrameName, const WindowFeatures&, const NavigationAction&);
+    WEBCORE_EXPORT void show();
 
     bool canRunModal() const;
-    void runModal() const;
+    void runModal();
 
-    void setToolbarsVisible(bool) const;
-    bool toolbarsVisible() const;
+    bool isPopup() const;
 
-    void setStatusbarVisible(bool) const;
-    bool statusbarVisible() const;
-
-    void setScrollbarsVisible(bool) const;
-    bool scrollbarsVisible() const;
-
-    void setMenubarVisible(bool) const;
-    bool menubarVisible() const;
-
-    void setResizable(bool) const;
+    void setResizable(bool);
 
     bool canRunBeforeUnloadConfirmPanel();
-    bool runBeforeUnloadConfirmPanel(const String& message, Frame&);
+    bool runBeforeUnloadConfirmPanel(String&& message, LocalFrame&);
 
-    void closeWindowSoon();
+    void closeWindow();
 
-    void runJavaScriptAlert(Frame&, const String&);
-    bool runJavaScriptConfirm(Frame&, const String&);
-    bool runJavaScriptPrompt(Frame&, const String& message, const String& defaultValue, String& result);
-    WEBCORE_EXPORT void setStatusbarText(Frame&, const String&);
+    void runJavaScriptAlert(LocalFrame&, const String&);
+    bool runJavaScriptConfirm(LocalFrame&, const String&);
+    bool runJavaScriptPrompt(LocalFrame&, const String& message, const String& defaultValue, String& result);
 
-    void mouseDidMoveOverElement(const HitTestResult&, unsigned modifierFlags);
+    void mouseDidMoveOverElement(const HitTestResult&, OptionSet<PlatformEventModifier>);
 
-    WEBCORE_EXPORT bool print(Frame&);
+    WEBCORE_EXPORT bool print(LocalFrame&);
 
     WEBCORE_EXPORT void enableSuddenTermination();
     WEBCORE_EXPORT void disableSuddenTermination();
 
-#if ENABLE(INPUT_TYPE_COLOR)
-    std::unique_ptr<ColorChooser> createColorChooser(ColorChooserClient&, const Color& initialColor);
+    RefPtr<ColorChooser> createColorChooser(ColorChooserClient&, const Color& initialColor);
+
+    RefPtr<DataListSuggestionPicker> createDataListSuggestionPicker(DataListSuggestionsClient&);
+
+    RefPtr<DateTimeChooser> createDateTimeChooser(DateTimeChooserClient&);
+
+    std::unique_ptr<WorkerClient> createWorkerClient(SerialFunctionDispatcher&);
+
+    void runOpenPanel(LocalFrame&, FileChooser&);
+    void transcodeChosenFiles(Vector<String>&& transcodingPaths, String&& destinationUTI, String&& destinationExtension, CompletionHandler<void(Vector<String>&&)>&&);
+    void showShareSheet(ShareDataWithParsedURL&&, CompletionHandler<void(bool)>&&);
+    void showContactPicker(ContactsRequestData&&, CompletionHandler<void(std::optional<Vector<ContactInfo>>&&)>&&);
+
+#if ENABLE(WEB_AUTHN)
+    void showDigitalCredentialsChooser(const DigitalCredentialsRequestData&, WTF::CompletionHandler<void(Expected<WebCore::DigitalCredentialsResponseData, WebCore::ExceptionData>&&)>&&);
+    void dismissDigitalCredentialsChooser(CompletionHandler<void(bool)>&&);
 #endif
 
-#if ENABLE(DATALIST_ELEMENT)
-    std::unique_ptr<DataListSuggestionPicker> createDataListSuggestionPicker(DataListSuggestionsClient&);
-#endif
-
-#if ENABLE(DATE_AND_TIME_INPUT_TYPES)
-    std::unique_ptr<DateTimeChooser> createDateTimeChooser(DateTimeChooserClient&);
-#endif
-
-#if ENABLE(APP_HIGHLIGHTS)
-    void storeAppHighlight(AppHighlight&&) const;
-#endif
-
-    void runOpenPanel(Frame&, FileChooser&);
-    void showShareSheet(ShareDataWithParsedURL&, CompletionHandler<void(bool)>&&);
-    void showContactPicker(const ContactsRequestData&, CompletionHandler<void(std::optional<Vector<ContactInfo>>&&)>&&);
     void loadIconForFiles(const Vector<String>&, FileIconLoader&);
 
     void dispatchDisabledAdaptationsDidChange(const OptionSet<DisabledAdaptations>&) const;
@@ -184,8 +227,6 @@ public:
     WEBCORE_EXPORT void focusNSView(NSView*);
 #endif
 
-    bool selectItemWritingDirectionIsNatural();
-    bool selectItemAlignmentFollowsMenuWritingDirection();
     RefPtr<PopupMenu> createPopupMenu(PopupMenuClient&) const;
     RefPtr<SearchPopupMenu> createSearchPopupMenu(PopupMenuClient&) const;
 
@@ -194,19 +235,19 @@ public:
     void setDispatchViewportDataDidChangeSuppressed(bool dispatchViewportDataDidChangeSuppressed) { m_isDispatchViewportDataDidChangeSuppressed = dispatchViewportDataDidChangeSuppressed; }
 #endif
 
-    void didReceiveDocType(Frame&);
+    void didReceiveDocType(LocalFrame&);
 
     void registerPopupOpeningObserver(PopupOpeningObserver&);
     void unregisterPopupOpeningObserver(PopupOpeningObserver&);
 
+    WEBCORE_EXPORT void getToolTip(const HitTestResult&, String&, TextDirection&);
+
 private:
     void notifyPopupOpeningObservers() const;
 
-    void getToolTip(const HitTestResult&, String&, TextDirection&);
-
-    Page& m_page;
-    ChromeClient& m_client;
-    Vector<PopupOpeningObserver*> m_popupOpeningObservers;
+    WeakRef<Page> m_page;
+    const UniqueRef<ChromeClient> m_client;
+    Vector<WeakPtr<PopupOpeningObserver>> m_popupOpeningObservers;
 #if PLATFORM(IOS_FAMILY)
     bool m_isDispatchViewportDataDidChangeSuppressed { false };
 #endif

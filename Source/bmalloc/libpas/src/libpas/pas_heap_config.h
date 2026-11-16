@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2021 Apple Inc. All rights reserved.
+ * Copyright (c) 2018-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,20 +28,23 @@
 
 #include "pas_aligned_allocation_result.h"
 #include "pas_alignment.h"
+#include "pas_allocation_mode.h"
 #include "pas_allocation_result.h"
 #include "pas_bitfit_page_config.h"
 #include "pas_bitvector.h"
 #include "pas_compact_atomic_bitfit_heap_ptr.h"
-#include "pas_count_lookup_mode.h"
 #include "pas_deallocation_mode.h"
 #include "pas_deallocator.h"
 #include "pas_fast_megapage_table.h"
 #include "pas_heap_config_kind.h"
+#include "pas_heap_lock.h"
 #include "pas_heap_ref.h"
+#include "pas_large_map_variant.h"
 #include "pas_heap_ref_kind.h"
-#include "pas_intrinsic_allocation_result.h"
+#include "pas_page_flags.h"
 #include "pas_segregated_heap_lookup_kind.h"
 #include "pas_segregated_page_config.h"
+#include "pas_size_lookup_mode.h"
 #include "pas_utils.h"
 
 PAS_BEGIN_EXTERN_C;
@@ -51,69 +54,64 @@ struct pas_heap_config;
 struct pas_heap_runtime_config;
 struct pas_heap_type;
 struct pas_large_heap;
-struct pas_segregated_shared_page_directory;
+struct pas_stream;
 typedef struct pas_heap pas_heap;
 typedef struct pas_heap_config pas_heap_config;
 typedef struct pas_heap_runtime_config pas_heap_runtime_config;
 typedef struct pas_heap_type pas_heap_type;
 typedef struct pas_large_heap pas_large_heap;
-typedef struct pas_segregated_shared_page_directory pas_segregated_shared_page_directory;
+typedef struct pas_stream pas_stream;
 
 typedef void (*pas_heap_config_activate_callback)(void);
 
-typedef size_t (*pas_heap_config_get_type_size)(pas_heap_type*);
-typedef size_t (*pas_heap_config_get_type_alignment)(pas_heap_type*);
+typedef size_t (*pas_heap_config_get_type_size)(const pas_heap_type*);
+typedef size_t (*pas_heap_config_get_type_alignment)(const pas_heap_type*);
+typedef void (*pas_heap_config_dump_type)(const pas_heap_type*, pas_stream* stream);
 typedef pas_fast_megapage_kind (*pas_heap_config_fast_megapage_kind_func)(uintptr_t begin);
 typedef pas_page_base* (*pas_heap_config_page_header_func)(uintptr_t begin);
 typedef pas_aligned_allocation_result (*pas_heap_config_aligned_allocator)(
     size_t size,
     pas_alignment alignment,
     pas_large_heap* large_heap,
-    pas_heap_config* config);
+    const pas_heap_config* config);
 typedef void* (*pas_heap_config_prepare_to_enumerate)(pas_enumerator* enumerator);
-typedef bool (*pas_heap_config_for_each_shared_page_directory)(
-    pas_segregated_heap* heap,
-    bool (*callback)(pas_segregated_shared_page_directory* directory, void* arg),
-    void* arg);
-typedef bool (*pas_heap_config_for_each_shared_page_directory_remote)(
-    pas_enumerator* enumerator,
-    pas_segregated_heap* heap,
-    bool (*callback)(pas_enumerator* enumerator,
-                     pas_segregated_shared_page_directory* directory,
-                     void* arg),
-    void* arg);
 
 typedef pas_allocation_result
 (*pas_heap_config_specialized_local_allocator_try_allocate_small_segregated_slow)(
     pas_local_allocator* allocator,
-    pas_allocator_counts* counts);
+    pas_allocation_mode allocation_mode,
+    pas_allocator_counts* counts,
+    pas_allocation_result_filter result_filter);
 typedef pas_allocation_result
 (*pas_heap_config_specialized_local_allocator_try_allocate_medium_segregated_with_free_bits)(
-    pas_local_allocator* allocator);
+    pas_local_allocator* allocator, pas_allocation_mode allocation_mode);
 typedef pas_allocation_result (*pas_heap_config_specialized_local_allocator_try_allocate_inline_cases)(
-    pas_local_allocator* allocator);
+    pas_local_allocator* allocator, pas_allocation_mode allocation_mode);
 typedef pas_allocation_result (*pas_heap_config_specialized_local_allocator_try_allocate_slow)(
     pas_local_allocator* allocator,
     size_t size,
     size_t alignment,
-    pas_allocator_counts* counts);
-typedef pas_intrinsic_allocation_result (*pas_heap_config_specialized_try_allocate_common_impl_slow)(
+    pas_allocation_mode allocation_mode,
+    pas_allocator_counts* counts,
+    pas_allocation_result_filter result_filter);
+typedef pas_allocation_result (*pas_heap_config_specialized_try_allocate_common_impl_slow)(
     pas_heap_ref* heap_ref,
     pas_heap_ref_kind heap_ref_kind,
-    size_t aligned_count, /* Must be = round_up(count * type_size, alignment) / type_size */
     size_t size,
     size_t alignment,
+    pas_allocation_mode allocation_mode,
     pas_heap_runtime_config* runtime_config,
     pas_allocator_counts* allocator_counts,
-    pas_count_lookup_mode count_lookup_mode);
-typedef bool (*pas_heap_config_specialized_try_deallocate_not_small)(
+    pas_size_lookup_mode size_lookup_mode);
+typedef bool (*pas_heap_config_specialized_try_deallocate_not_small_exclusive_segregated)(
     pas_thread_local_cache* thread_local_cache,
     uintptr_t begin,
-    pas_deallocation_mode deallocation_mode);
+    pas_deallocation_mode deallocation_mode,
+    pas_fast_megapage_kind megapage_kind);
 
 struct pas_heap_config {
     /* This always self-points. It's useful for going from a config to a config_ptr. */
-    pas_heap_config* config_ptr;
+    const pas_heap_config* config_ptr;
 
     pas_heap_config_kind kind;
 
@@ -125,6 +123,9 @@ struct pas_heap_config {
     
     /* Tells you the size size for a heap type. */
     pas_heap_config_get_type_alignment get_type_alignment;
+
+    /* Tells the type to dump information about itself into a stream. */
+    pas_heap_config_dump_type dump_type;
     
     /* Alignment requirement of large objects. */
     size_t large_alignment;
@@ -164,73 +165,108 @@ struct pas_heap_config {
     bool aligned_allocator_talks_to_sharing_pool;
     pas_deallocator deallocator;
 
+    /* Properties of memory managed by this heap (executability, whether libpas may mprotect it, etc.).
+       Carried by pas_virtual_range, pas_large_virtual_range, pas_commit_span, and pas_large_sharing_node
+       for adjacent ranges to be coalesced, the page_flags must match. */
+    pas_page_flags page_flags;
+
     /* This points to things that are necessary for enumeration that are specific to the heap config. */
     void* root_data;
 
     /* The enumerator uses this to prepare itself for enumerating the active heap config. */
     pas_heap_config_prepare_to_enumerate prepare_to_enumerate;
 
-    /* Gives you a way to iterate over the shared page directories that a heap uses. Note that multiple
-       heaps may have the same shared page directories. */
-    pas_heap_config_for_each_shared_page_directory for_each_shared_page_directory;
-    pas_heap_config_for_each_shared_page_directory_remote for_each_shared_page_directory_remote;
-
     pas_heap_config_specialized_local_allocator_try_allocate_small_segregated_slow specialized_local_allocator_try_allocate_small_segregated_slow;
     pas_heap_config_specialized_local_allocator_try_allocate_medium_segregated_with_free_bits specialized_local_allocator_try_allocate_medium_segregated_with_free_bits;
     pas_heap_config_specialized_local_allocator_try_allocate_inline_cases specialized_local_allocator_try_allocate_inline_cases;
     pas_heap_config_specialized_local_allocator_try_allocate_slow specialized_local_allocator_try_allocate_slow;
     pas_heap_config_specialized_try_allocate_common_impl_slow specialized_try_allocate_common_impl_slow;
-    pas_heap_config_specialized_try_deallocate_not_small specialized_try_deallocate_not_small;
+    pas_heap_config_specialized_try_deallocate_not_small_exclusive_segregated specialized_try_deallocate_not_small_exclusive_segregated;
+
+    /* Configure whether probabilistic guard malloc may be called or not during allocation. */
+    bool pgm_enabled;
+
+    /* If true, user allocations too large to be MTE-tagged will instead be
+     * allocated through the system allocator, which provides additional
+     * memory protection guarantees. */
+    bool delegate_large_user_allocations;
+
+    pas_large_map_variant large_map_variant;
 };
+
+/*
+ * This is called on every heap_config at activation time,
+ * always after activate_callback is called (if present).
+ *
+ * Must be called with the heap lock held.
+ */
+static PAS_ALWAYS_INLINE void
+pas_heap_config_assert_global_invariants(pas_heap_config config)
+{
+    pas_heap_lock_assert_held();
+
+    /*
+     * Heaps that want special attributes on their memory cannot
+     * be delegated to the system allocator.
+     */
+    PAS_ASSERT(!pas_page_flags_client_owns_permissions(config.page_flags) || !config.delegate_large_user_allocations);
+}
 
 #define PAS_HEAP_CONFIG_SPECIALIZATIONS(lower_case_heap_config_name) \
     .specialized_local_allocator_try_allocate_small_segregated_slow = \
         lower_case_heap_config_name ## _specialized_local_allocator_try_allocate_small_segregated_slow, \
-    .specialized_local_allocator_try_allocate_inline_cases = \
-        lower_case_heap_config_name ## _specialized_local_allocator_try_allocate_inline_cases, \
     .specialized_local_allocator_try_allocate_medium_segregated_with_free_bits = \
         lower_case_heap_config_name ## _specialized_local_allocator_try_allocate_medium_segregated_with_free_bits, \
+    .specialized_local_allocator_try_allocate_inline_cases = \
+        lower_case_heap_config_name ## _specialized_local_allocator_try_allocate_inline_cases, \
     .specialized_local_allocator_try_allocate_slow = \
         lower_case_heap_config_name ## _specialized_local_allocator_try_allocate_slow, \
     .specialized_try_allocate_common_impl_slow = \
         lower_case_heap_config_name ## _specialized_try_allocate_common_impl_slow, \
-    .specialized_try_deallocate_not_small = \
-        lower_case_heap_config_name ## _specialized_try_deallocate_not_small
+    .specialized_try_deallocate_not_small_exclusive_segregated = \
+        lower_case_heap_config_name ## _specialized_try_deallocate_not_small_exclusive_segregated
 
 #define PAS_HEAP_CONFIG_SPECIALIZATION_DECLARATIONS(lower_case_heap_config_name) \
     PAS_API pas_allocation_result \
     lower_case_heap_config_name ## _specialized_local_allocator_try_allocate_small_segregated_slow( \
-        pas_local_allocator* allocator, pas_allocator_counts* count); \
-    PAS_API pas_allocation_result \
-    lower_case_heap_config_name ## _specialized_local_allocator_try_allocate_inline_cases( \
-        pas_local_allocator* allocator); \
+        pas_local_allocator* allocator, \
+        pas_allocation_mode allocation_mode, pas_allocator_counts* count, \
+        pas_allocation_result_filter result_filter); \
     PAS_API pas_allocation_result \
     lower_case_heap_config_name ## _specialized_local_allocator_try_allocate_medium_segregated_with_free_bits( \
-        pas_local_allocator* allocator); \
+        pas_local_allocator* allocator, \
+        pas_allocation_mode allocation_mode); \
+    PAS_API pas_allocation_result \
+    lower_case_heap_config_name ## _specialized_local_allocator_try_allocate_inline_cases( \
+        pas_local_allocator* allocator, \
+        pas_allocation_mode allocation_mode); \
     PAS_API pas_allocation_result \
     lower_case_heap_config_name ## _specialized_local_allocator_try_allocate_slow( \
         pas_local_allocator* allocator, \
         size_t size, \
         size_t alignment, \
-        pas_allocator_counts* counts); \
-    PAS_API pas_intrinsic_allocation_result \
+        pas_allocation_mode allocation_mode, \
+        pas_allocator_counts* counts, \
+        pas_allocation_result_filter result_filter); \
+    PAS_API pas_allocation_result \
     lower_case_heap_config_name ## _specialized_try_allocate_common_impl_slow( \
         pas_heap_ref* heap_ref, \
         pas_heap_ref_kind heap_ref_kind, \
-        size_t aligned_count, \
         size_t size, \
         size_t alignment, \
+        pas_allocation_mode allocation_mode, \
         pas_heap_runtime_config* runtime_config, \
         pas_allocator_counts* allocator_counts, \
-        pas_count_lookup_mode count_lookup_mode); \
-    PAS_API bool lower_case_heap_config_name ## _specialized_try_deallocate_not_small( \
+        pas_size_lookup_mode size_lookup_mode); \
+    PAS_API bool lower_case_heap_config_name ## _specialized_try_deallocate_not_small_exclusive_segregated( \
         pas_thread_local_cache* thread_local_cache, \
         uintptr_t begin, \
-        pas_deallocation_mode deallocation_mode)
+        pas_deallocation_mode deallocation_mode, \
+        pas_fast_megapage_kind megapage_kind)
 
-static PAS_ALWAYS_INLINE pas_segregated_page_config*
+static PAS_ALWAYS_INLINE const pas_segregated_page_config*
 pas_heap_config_segregated_page_config_ptr_for_variant(
-    pas_heap_config* config,
+    const pas_heap_config* config,
     pas_segregated_page_config_variant variant)
 {
     switch (variant) {
@@ -243,9 +279,9 @@ pas_heap_config_segregated_page_config_ptr_for_variant(
     return NULL;
 }
 
-static PAS_ALWAYS_INLINE pas_bitfit_page_config*
+static PAS_ALWAYS_INLINE const pas_bitfit_page_config*
 pas_heap_config_bitfit_page_config_ptr_for_variant(
-    pas_heap_config* config,
+    const pas_heap_config* config,
     pas_bitfit_page_config_variant variant)
 {
     switch (variant) {
@@ -292,10 +328,27 @@ pas_heap_config_bitfit_page_config_for_variant(
     return config.small_bitfit_config;
 }
 
+static PAS_ALWAYS_INLINE size_t pas_heap_config_segregated_heap_min_align_shift(pas_heap_config config)
+{
+    size_t result;
+    result = SIZE_MAX;
+    if (config.small_bitfit_config.base.is_enabled)
+        result = PAS_MIN(result, config.small_bitfit_config.base.min_align_shift);
+    if (config.small_segregated_config.base.is_enabled)
+        result = PAS_MIN(result, config.small_segregated_config.base.min_align_shift);
+    PAS_ASSERT(result != SIZE_MAX);
+    return result;
+}
+
+static PAS_ALWAYS_INLINE size_t pas_heap_config_segregated_heap_min_align(pas_heap_config config)
+{
+    return (size_t)1 << pas_heap_config_segregated_heap_min_align_shift(config);
+}
+
 /* Returns true if we were the first to active it. Must hold the heap lock to call this. This is
    permissive of recursive initialization: in that case, it will just pretend that the config is
    already initialized. */
-bool pas_heap_config_activate(pas_heap_config* config);
+bool pas_heap_config_activate(const pas_heap_config* config);
 
 /* NOTE: always pass pas_heap_config by value to inline functions, using constants if possible.
    Pass pas_heap_config by pointer to out-of-line functions, using the provided globals if

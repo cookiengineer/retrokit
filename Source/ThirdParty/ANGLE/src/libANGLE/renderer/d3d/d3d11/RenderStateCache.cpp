@@ -8,6 +8,7 @@
 // state objects.
 
 #include "libANGLE/renderer/d3d/d3d11/RenderStateCache.h"
+#include "common/unsafe_buffers.h"
 
 #include <float.h>
 
@@ -52,12 +53,12 @@ d3d11::BlendStateKey RenderStateCache::GetBlendStateKey(const gl::Context *conte
     // All fields of the BlendStateExt inside the key should be initialized for the caching to
     // work correctly. Due to mrt_perf_workaround, the actual indices of active draw buffers may be
     // different, so both arrays should be tracked.
-    key.blendStateExt                      = gl::BlendStateExt(blendStateExt.mMaxDrawBuffers);
+    key.blendStateExt                      = gl::BlendStateExt(blendStateExt.getDrawBufferCount());
     const gl::AttachmentList &colorbuffers = framebuffer11->getColorAttachmentsForRender(context);
     const gl::DrawBufferMask colorAttachmentsForRenderMask =
         framebuffer11->getLastColorAttachmentsForRenderMask();
 
-    ASSERT(blendStateExt.mMaxDrawBuffers <= colorAttachmentsForRenderMask.size());
+    ASSERT(blendStateExt.getDrawBufferCount() <= colorAttachmentsForRenderMask.size());
     ASSERT(colorbuffers.size() == colorAttachmentsForRenderMask.count());
 
     size_t keyBlendIndex = 0;
@@ -89,11 +90,39 @@ d3d11::BlendStateKey RenderStateCache::GetBlendStateKey(const gl::Context *conte
         // Some D3D11 drivers produce unexpected results when blending is enabled for integer
         // attachments. Per OpenGL ES spec, it must be ignored anyway. When blending is disabled,
         // the state remains default to reduce the number of unique keys.
-        if (blendStateExt.mEnabledMask.test(sourceIndex) && !internalFormat.isInt())
+        if (blendStateExt.getEnabledMask().test(sourceIndex) && !internalFormat.isInt())
         {
             key.blendStateExt.setEnabledIndexed(keyBlendIndex, true);
             key.blendStateExt.setEquationsIndexed(keyBlendIndex, sourceIndex, blendStateExt);
-            key.blendStateExt.setFactorsIndexed(keyBlendIndex, sourceIndex, blendStateExt);
+
+            // MIN and MAX operations do not need factors, so use default values to further
+            // reduce the number of unique keys. Additionally, ID3D11Device::CreateBlendState
+            // fails if SRC1 factors are specified together with MIN or MAX operations.
+            const gl::BlendEquationType equationColor =
+                blendStateExt.getEquationColorIndexed(sourceIndex);
+            const gl::BlendEquationType equationAlpha =
+                blendStateExt.getEquationAlphaIndexed(sourceIndex);
+            const bool setColorFactors = equationColor != gl::BlendEquationType::Min &&
+                                         equationColor != gl::BlendEquationType::Max;
+            const bool setAlphaFactors = equationAlpha != gl::BlendEquationType::Min &&
+                                         equationAlpha != gl::BlendEquationType::Max;
+            if (setColorFactors || setAlphaFactors)
+            {
+                const gl::BlendFactorType srcColor =
+                    setColorFactors ? blendStateExt.getSrcColorIndexed(sourceIndex)
+                                    : gl::BlendFactorType::One;
+                const gl::BlendFactorType dstColor =
+                    setColorFactors ? blendStateExt.getDstColorIndexed(sourceIndex)
+                                    : gl::BlendFactorType::Zero;
+                const gl::BlendFactorType srcAlpha =
+                    setAlphaFactors ? blendStateExt.getSrcAlphaIndexed(sourceIndex)
+                                    : gl::BlendFactorType::One;
+                const gl::BlendFactorType dstAlpha =
+                    setAlphaFactors ? blendStateExt.getDstAlphaIndexed(sourceIndex)
+                                    : gl::BlendFactorType::Zero;
+                key.blendStateExt.setFactorsIndexed(keyBlendIndex, srcColor, dstColor, srcAlpha,
+                                                    dstAlpha);
+            }
         }
         keyBlendIndex++;
     }
@@ -127,11 +156,11 @@ angle::Result RenderStateCache::getBlendState(const gl::Context *context,
     // feature level. Given that we do not expose GL entrypoints that set per-buffer blend states on
     // systems lower than FL10_1, this array will be always valid.
 
-    for (size_t i = 0; i < blendStateExt.mMaxDrawBuffers; i++)
+    for (size_t i = 0; i < blendStateExt.getDrawBufferCount(); i++)
     {
-        D3D11_RENDER_TARGET_BLEND_DESC &rtDesc = blendDesc.RenderTarget[i];
+        D3D11_RENDER_TARGET_BLEND_DESC &rtDesc = ANGLE_UNSAFE_TODO(blendDesc.RenderTarget[i]);
 
-        if (blendStateExt.mEnabledMask.test(i))
+        if (blendStateExt.getEnabledMask().test(i))
         {
             rtDesc.BlendEnable = true;
             rtDesc.SrcBlend =
@@ -190,25 +219,26 @@ angle::Result RenderStateCache::getRasterizerState(const gl::Context *context,
     }
 
     D3D11_RASTERIZER_DESC rasterDesc;
-    rasterDesc.FillMode              = D3D11_FILL_SOLID;
+    rasterDesc.FillMode =
+        rasterState.polygonMode == gl::PolygonMode::Fill ? D3D11_FILL_SOLID : D3D11_FILL_WIREFRAME;
     rasterDesc.CullMode              = cullMode;
     rasterDesc.FrontCounterClockwise = (rasterState.frontFace == GL_CCW) ? FALSE : TRUE;
-    rasterDesc.DepthBiasClamp = 0.0f;  // MSDN documentation of DepthBiasClamp implies a value of
-                                       // zero will preform no clamping, must be tested though.
-    rasterDesc.DepthClipEnable       = TRUE;
+    rasterDesc.DepthClipEnable       = !rasterState.depthClamp;
     rasterDesc.ScissorEnable         = scissorEnabled ? TRUE : FALSE;
     rasterDesc.MultisampleEnable     = rasterState.multiSample;
     rasterDesc.AntialiasedLineEnable = FALSE;
 
-    if (rasterState.polygonOffsetFill)
+    if (rasterState.isPolygonOffsetEnabled())
     {
-        rasterDesc.SlopeScaledDepthBias = rasterState.polygonOffsetFactor;
         rasterDesc.DepthBias            = (INT)rasterState.polygonOffsetUnits;
+        rasterDesc.DepthBiasClamp       = rasterState.polygonOffsetClamp;
+        rasterDesc.SlopeScaledDepthBias = rasterState.polygonOffsetFactor;
     }
     else
     {
-        rasterDesc.SlopeScaledDepthBias = 0.0f;
         rasterDesc.DepthBias            = 0;
+        rasterDesc.DepthBiasClamp       = 0.0f;
+        rasterDesc.SlopeScaledDepthBias = 0.0f;
     }
 
     d3d11::RasterizerState dx11RasterizerState;
@@ -287,29 +317,12 @@ angle::Result RenderStateCache::getSamplerState(const gl::Context *context,
     samplerDesc.MaxAnisotropy =
         gl_d3d11::ConvertMaxAnisotropy(samplerState.getMaxAnisotropy(), featureLevel);
     samplerDesc.ComparisonFunc = gl_d3d11::ConvertComparison(samplerState.getCompareFunc());
-    angle::ColorF borderColor;
-    if (samplerState.getBorderColor().type == angle::ColorGeneric::Type::Float)
-    {
-        borderColor = samplerState.getBorderColor().colorF;
-    }
-    samplerDesc.BorderColor[0] = borderColor.red;
-    samplerDesc.BorderColor[1] = borderColor.green;
-    samplerDesc.BorderColor[2] = borderColor.blue;
-    samplerDesc.BorderColor[3] = borderColor.alpha;
+    samplerDesc.BorderColor[0] = samplerState.getBorderColor().colorF.red;
+    samplerDesc.BorderColor[1] = samplerState.getBorderColor().colorF.green;
+    samplerDesc.BorderColor[2] = samplerState.getBorderColor().colorF.blue;
+    samplerDesc.BorderColor[3] = samplerState.getBorderColor().colorF.alpha;
     samplerDesc.MinLOD         = samplerState.getMinLod();
     samplerDesc.MaxLOD         = samplerState.getMaxLod();
-
-    if (featureLevel <= D3D_FEATURE_LEVEL_9_3)
-    {
-        // Check that maxLOD is nearly FLT_MAX (1000.0f is the default), since 9_3 doesn't support
-        // anything other than FLT_MAX. Note that Feature Level 9_* only supports GL ES 2.0, so the
-        // consumer of ANGLE can't modify the Max LOD themselves.
-        ASSERT(samplerState.getMaxLod() >= 999.9f);
-
-        // Now just set MaxLOD to FLT_MAX. Other parts of the renderer (e.g. the non-zero max LOD
-        // workaround) should take account of this.
-        samplerDesc.MaxLOD = FLT_MAX;
-    }
 
     d3d11::SamplerState dx11SamplerState;
     ANGLE_TRY(

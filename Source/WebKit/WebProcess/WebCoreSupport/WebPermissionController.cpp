@@ -26,103 +26,81 @@
 #include "config.h"
 #include "WebPermissionController.h"
 
-
+#include "MessageSenderInlines.h"
+#include "NetworkConnectionToWebProcessMessages.h"
 #include "WebPage.h"
 #include "WebPageProxyMessages.h"
+#include "WebPermissionControllerMessages.h"
+#include "WebPermissionControllerProxyMessages.h"
+#include "WebProcess.h"
+#include <WebCore/Document.h>
+#include <WebCore/Page.h>
 #include <WebCore/PermissionObserver.h>
+#include <WebCore/PermissionQuerySource.h>
+#include <WebCore/PermissionState.h>
+#include <WebCore/Permissions.h>
+#include <WebCore/RegistrableDomain.h>
+#include <WebCore/SecurityOriginData.h>
+#include <optional>
+
+#if ENABLE(WEB_PUSH_NOTIFICATIONS)
+#include "NetworkProcessConnection.h"
+#include "NotificationManagerMessageHandlerMessages.h"
+#include <WebCore/DeprecatedGlobalSettings.h>
+#include <WebCore/PushPermissionState.h>
+#endif
 
 namespace WebKit {
 
-Ref<WebPermissionController> WebPermissionController::create(WebPage& page)
+Ref<WebPermissionController> WebPermissionController::create(WebProcess& process)
 {
-    return adoptRef(*new WebPermissionController(page));
+    return adoptRef(*new WebPermissionController(process));
 }
 
-WebPermissionController::WebPermissionController(WebPage& page)
-    : m_page(makeWeakPtr(page))
+WebPermissionController::WebPermissionController(WebProcess& process)
 {
+    process.addMessageReceiver(Messages::WebPermissionController::messageReceiverName(), *this);
 }
 
-WebCore::PermissionState WebPermissionController::query(WebCore::ClientOrigin&& origin, WebCore::PermissionDescriptor&& descriptor)
+WebPermissionController::~WebPermissionController()
 {
-    if (!m_page)
-        return WebCore::PermissionState::Denied;
-
-    return queryCache(WTFMove(origin), WTFMove(descriptor));
+    WebProcess::singleton().removeMessageReceiver(Messages::WebPermissionController::messageReceiverName());
 }
 
-void WebPermissionController::request(WebCore::ClientOrigin&& origin, WebCore::PermissionDescriptor&& descriptor, CompletionHandler<void(WebCore::PermissionState)>&& completionHandler)
+void WebPermissionController::query(WebCore::ClientOrigin&& origin, WebCore::PermissionDescriptor descriptor, const WeakPtr<WebCore::Page>& page, WebCore::PermissionQuerySource source, CompletionHandler<void(std::optional<WebCore::PermissionState>)>&& completionHandler)
 {
-    if (!m_page)
-        return completionHandler(WebCore::PermissionState::Denied);
-
-    auto cachedResult = queryCache(origin, descriptor);
-    if (cachedResult != WebCore::PermissionState::Prompt)
-        return completionHandler(cachedResult);
-
-    m_requests.append(PermissionRequest { WTFMove(origin), WTFMove(descriptor), WTFMove(completionHandler) });
-    tryProcessingRequests();
-}
-
-WebCore::PermissionState WebPermissionController::queryCache(const WebCore::ClientOrigin& origin, const WebCore::PermissionDescriptor& descriptor)
-{
-    auto iterator = m_cachedPermissionEntries.find(origin);
-    if (iterator != m_cachedPermissionEntries.end()) {
-        for (auto& entry : iterator->value) {
-            if (entry.first == descriptor)
-                return entry.second;
-        }
-    }
-
-    return WebCore::PermissionState::Prompt;
-}
-
-void WebPermissionController::updateCache(const WebCore::ClientOrigin& origin, const WebCore::PermissionDescriptor& descriptor, WebCore::PermissionState state)
-{
-    auto& entries = m_cachedPermissionEntries.ensure(origin, [&]() {
-        return Vector<PermissionEntry> { };
-    }).iterator->value;
-    for (auto& entry : entries) {
-        if (entry.first == descriptor) {
-            if (entry.second == state)
-                return;
-
-            entry.second = state;
-            permissionChanged(origin, descriptor, state);
-            return;
-        }
-    }
-}
-
-void WebPermissionController::tryProcessingRequests()
-{
-    if (m_requests.isEmpty())
+#if ENABLE(WEB_PUSH_NOTIFICATIONS)
+    if (WebCore::DeprecatedGlobalSettings::builtInNotificationsEnabled() && (descriptor.name == WebCore::PermissionName::Notifications || descriptor.name == WebCore::PermissionName::Push)) {
+        Ref connection = WebProcess::singleton().ensureNetworkProcessConnection().connection();
+        auto notificationPermissionHandler = [completionHandler = WTF::move(completionHandler)](WebCore::PushPermissionState pushPermissionState) mutable {
+            auto state = [pushPermissionState]() -> WebCore::PermissionState {
+                switch (pushPermissionState) {
+                case WebCore::PushPermissionState::Granted: return WebCore::PermissionState::Granted;
+                case WebCore::PushPermissionState::Denied: return WebCore::PermissionState::Denied;
+                case WebCore::PushPermissionState::Prompt: return WebCore::PermissionState::Prompt;
+                default: RELEASE_ASSERT_NOT_REACHED();
+                }
+            }();
+            completionHandler(state);
+        };
+        connection->sendWithAsyncReply(Messages::NotificationManagerMessageHandler::GetPermissionState(origin.clientOrigin), WTF::move(notificationPermissionHandler), WebProcess::singleton().sessionID().toUInt64());
         return;
-
-    while (!m_requests.isEmpty()) {
-        auto& currentRequest = m_requests.first();
-        if (currentRequest.isWaitingForReply)
-            return;
-
-        // Cache may have updated.
-        auto cachedResult = queryCache(currentRequest.origin, currentRequest.descriptor);
-        if (cachedResult != WebCore::PermissionState::Prompt) {
-            m_requests.takeFirst().completionHandler(cachedResult);
-            continue;
-        }
-
-        currentRequest.isWaitingForReply = true;
-        m_page->sendWithAsyncReply(Messages::WebPageProxy::requestPermission(currentRequest.origin, currentRequest.descriptor), [this, weakThis = makeWeakPtr(*this)](auto state) {
-            if (!weakThis)
-                return;
-
-            auto takenRequest = m_requests.takeFirst();
-            takenRequest.completionHandler(state);
-            updateCache(takenRequest.origin, takenRequest.descriptor, state);
-
-            tryProcessingRequests();
-        });
     }
+#endif
+
+    std::optional<WebPageProxyIdentifier> proxyIdentifier;
+    if (source == WebCore::PermissionQuerySource::Window || source == WebCore::PermissionQuerySource::DedicatedWorker) {
+        ASSERT(page);
+        proxyIdentifier = WebPage::fromCorePage(*page)->webPageProxyIdentifier();
+    }
+
+    if (descriptor.name == WebCore::PermissionName::StorageAccess) {
+        Ref networkProcess = WebProcess::singleton().ensureNetworkProcessConnection().connection();
+        networkProcess->sendWithAsyncReply(Messages::NetworkConnectionToWebProcess::QueryStorageAccessPermission(WebCore::RegistrableDomain { origin.clientOrigin }, WebCore::RegistrableDomain { origin.topOrigin }, proxyIdentifier), WTF::move(completionHandler));
+        return;
+    }
+
+    WebProcess::singleton().sendWithAsyncReply(Messages::WebPermissionControllerProxy::Query(origin, descriptor, proxyIdentifier, source), WTF::move(completionHandler));
 }
 
 void WebPermissionController::addObserver(WebCore::PermissionObserver& observer)
@@ -135,11 +113,58 @@ void WebPermissionController::removeObserver(WebCore::PermissionObserver& observ
     m_observers.remove(observer);
 }
 
-void WebPermissionController::permissionChanged(const WebCore::ClientOrigin& origin, const WebCore::PermissionDescriptor& descriptor, WebCore::PermissionState state)
+template<typename ObserverFilter>
+void WebPermissionController::notifyObserversIfNeeded(WebCore::PermissionName permissionName, ObserverFilter&& filter)
 {
-    for (auto& observer : m_observers) {
-        if (observer.origin() == origin && observer.descriptor() == descriptor)
-            observer.stateChanged(state);
+    ASSERT(isMainRunLoop());
+
+    for (CheckedRef observer : m_observers) {
+        if (!filter(observer))
+            continue;
+
+        auto source = observer->source();
+        if (!observer->page() && (source == WebCore::PermissionQuerySource::Window || source == WebCore::PermissionQuerySource::DedicatedWorker))
+            continue;
+
+        query(WebCore::ClientOrigin { observer->origin() }, WebCore::PermissionDescriptor { permissionName }, observer->page(), source, [weakObserver = WeakPtr { observer.get() }](auto newState) {
+            CheckedPtr observer = weakObserver.get();
+            if (observer && newState != observer->currentState())
+                observer->stateChanged(*newState);
+        });
+    }
+}
+
+void WebPermissionController::storageAccessPermissionChanged(const WebCore::RegistrableDomain& topFrameDomain, const WebCore::RegistrableDomain& subFrameDomain)
+{
+    notifyObserversIfNeeded(WebCore::PermissionName::StorageAccess, [&](const WebCore::PermissionObserver& observer) {
+        return observer.descriptor().name == WebCore::PermissionName::StorageAccess
+            && WebCore::RegistrableDomain(observer.origin().topOrigin) == topFrameDomain
+            && WebCore::RegistrableDomain(observer.origin().clientOrigin) == subFrameDomain;
+    });
+}
+
+void WebPermissionController::permissionChanged(WebCore::PermissionName permissionName, const WebCore::SecurityOriginData& topOrigin)
+{
+    notifyObserversIfNeeded(permissionName, [&](const WebCore::PermissionObserver& observer) {
+        return permissionName != WebCore::PermissionName::StorageAccess
+            && observer.descriptor().name == permissionName
+            && observer.origin().topOrigin == topOrigin;
+    });
+}
+
+void WebPermissionController::addChangeListener(WebCore::PermissionName permissionName, const WebCore::RegistrableDomain& topFrameDomain, const WebCore::RegistrableDomain& subFrameDomain)
+{
+    if (permissionName == WebCore::PermissionName::StorageAccess) {
+        Ref networkProcess = WebProcess::singleton().ensureNetworkProcessConnection().connection();
+        networkProcess->send(Messages::NetworkConnectionToWebProcess::SubscribeToStorageAccessPermissionChanges(topFrameDomain, subFrameDomain), 0);
+    }
+}
+
+void WebPermissionController::removeChangeListener(WebCore::PermissionName permissionName, const WebCore::RegistrableDomain& topFrameDomain, const WebCore::RegistrableDomain& subFrameDomain)
+{
+    if (permissionName == WebCore::PermissionName::StorageAccess) {
+        Ref networkProcess = WebProcess::singleton().ensureNetworkProcessConnection().connection();
+        networkProcess->send(Messages::NetworkConnectionToWebProcess::UnsubscribeFromStorageAccessPermissionChanges(topFrameDomain, subFrameDomain), 0);
     }
 }
 

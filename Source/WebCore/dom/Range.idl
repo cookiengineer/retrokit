@@ -18,15 +18,18 @@
  * Boston, MA 02110-1301, USA.
  */
 
+// https://dom.spec.whatwg.org/#interface-range
 [
     GenerateIsReachable=ReachableFromDOMWindow,
     ExportMacro=WEBCORE_EXPORT,
     Exposed=Window,
+    JSCustomMarkFunction,
     JSGenerateToNativeObject,
 ] interface Range : AbstractRange {
-    [CallWith=Document] constructor();
+    [CallWith=CurrentDocument] constructor();
 
-    readonly attribute Node commonAncestorContainer;
+    // FIXME: `commonAncestorContainer` should not be nullable.
+    readonly attribute Node? commonAncestorContainer;
 
     undefined setStart(Node node, unsigned long offset);
     undefined setEnd(Node node, unsigned long offset);
@@ -44,11 +47,11 @@
     const unsigned short END_TO_START = 3;
     short compareBoundaryPoints(unsigned short how, Range sourceRange);
 
-    [CEReactions] undefined deleteContents();
-    [CEReactions, NewObject] DocumentFragment extractContents();
-    [CEReactions, NewObject] DocumentFragment cloneContents();
-    [CEReactions] undefined insertNode(Node node);
-    [CEReactions] undefined surroundContents(Node newParent);
+    [CEReactions=Needed] undefined deleteContents();
+    [CEReactions=Needed, NewObject] DocumentFragment extractContents();
+    [CEReactions=Needed, NewObject] DocumentFragment cloneContents();
+    [CEReactions=Needed] undefined insertNode(Node node);
+    [CEReactions=Needed] undefined surroundContents(Node newParent);
 
     [NewObject] Range cloneRange();
     undefined detach();

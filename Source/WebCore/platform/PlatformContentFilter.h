@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,18 +26,27 @@
 #ifndef PlatformContentFilter_h
 #define PlatformContentFilter_h
 
+#include <WebCore/SharedBuffer.h>
+#include <wtf/CheckedPtr.h>
 #include <wtf/Ref.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/ThreadSafeWeakPtr.h>
+#include <wtf/URL.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
 class ContentFilterUnblockHandler;
+class FragmentedSharedBuffer;
 class ResourceRequest;
 class ResourceResponse;
 class SharedBuffer;
 
-class PlatformContentFilter {
-    WTF_MAKE_FAST_ALLOCATED;
+enum class IsMainFrameLoad : bool { No, Yes };
+
+class PlatformContentFilter : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<PlatformContentFilter> {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(PlatformContentFilter);
     WTF_MAKE_NONCOPYABLE(PlatformContentFilter);
 
 public:
@@ -50,20 +59,41 @@ public:
 
     bool needsMoreData() const { return m_state == State::Filtering; }
     bool didBlockData() const { return m_state == State::Blocked; }
+    bool isAllowed() const { return m_state == State::Allowed; }
 
     virtual ~PlatformContentFilter() = default;
+    virtual bool isEnabled() const { return true; }
     virtual void willSendRequest(ResourceRequest&, const ResourceResponse&) = 0;
+    virtual void willSendRequest(ResourceRequest&&, const ResourceResponse&, CompletionHandler<void(String&&)>&&) = 0;
     virtual void responseReceived(const ResourceResponse&) = 0;
-    virtual void addData(const uint8_t* data, int length) = 0;
+    virtual void addData(const SharedBuffer&) = 0;
     virtual void finishedAddingData() = 0;
-    virtual Ref<SharedBuffer> replacementData() const = 0;
+    virtual Ref<FragmentedSharedBuffer> replacementData() const = 0;
 #if ENABLE(CONTENT_FILTERING)
     virtual ContentFilterUnblockHandler unblockHandler() const = 0;
 #endif
     virtual String unblockRequestDeniedScript() const { return emptyString(); }
 
+#if HAVE(AUDIT_TOKEN)
+    const std::optional<audit_token_t> hostProcessAuditToken() const { return m_hostProcessAuditToken; }
+    void setHostProcessAuditToken(const std::optional<audit_token_t>& token) { m_hostProcessAuditToken = token; }
+#endif
+
+    struct FilterParameters {
+#if HAVE(WEBCONTENTRESTRICTIONS)
+#if HAVE(WEBCONTENTRESTRICTIONS_PATH_SPI)
+        String webContentRestrictionsConfigurationPath { };
+#endif
+        IsMainFrameLoad isMainFrameLoad;
+        URL mainDocumentURL;
+#endif
+    };
+
 protected:
     PlatformContentFilter() = default;
+#if HAVE(AUDIT_TOKEN)
+    std::optional<audit_token_t> m_hostProcessAuditToken;
+#endif
     State m_state { State::Filtering };
 };
 

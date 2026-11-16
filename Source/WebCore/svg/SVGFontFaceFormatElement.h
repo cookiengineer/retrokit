@@ -24,7 +24,8 @@
 namespace WebCore {
 
 class SVGFontFaceFormatElement final : public SVGElement {
-    WTF_MAKE_ISO_ALLOCATED(SVGFontFaceFormatElement);
+    WTF_MAKE_TZONE_ALLOCATED(SVGFontFaceFormatElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGFontFaceFormatElement);
 public:
     static Ref<SVGFontFaceFormatElement> create(const QualifiedName&, Document&);
 
@@ -32,7 +33,7 @@ private:
     SVGFontFaceFormatElement(const QualifiedName&, Document&);
 
     void childrenChanged(const ChildChange&) final;
-    bool rendererIsNeeded(const RenderStyle&) final { return false; }
+    bool rendererIsNeeded(const Style::ComputedStyle&) final { return false; }
 };
 
 } // namespace WebCore

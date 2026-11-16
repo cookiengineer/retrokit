@@ -30,16 +30,18 @@
 #include "WebGestureEvent.h"
 
 OBJC_CLASS NSEvent;
+OBJC_CLASS NSView;
 
 namespace WebKit {
 
 class NativeWebGestureEvent final : public WebGestureEvent {
 public:
-    explicit NativeWebGestureEvent(NSEvent *, NSView *);
+    static std::optional<NativeWebGestureEvent> create(NSEvent *, NSView *);
 
     NSEvent *nativeEvent() const { return m_nativeEvent.get(); }
 
 private:
+    explicit NativeWebGestureEvent(WebEventType, NSEvent *, NSView *);
     RetainPtr<NSEvent> m_nativeEvent;
 };
 

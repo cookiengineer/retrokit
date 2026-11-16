@@ -27,10 +27,10 @@
 #include "InstanceOfStatus.h"
 
 #include "ICStatusUtils.h"
+#include "InlineCacheCompiler.h"
 #include "InstanceOfAccessCase.h"
 #include "JSCellInlines.h"
-#include "PolymorphicAccess.h"
-#include "StructureStubInfo.h"
+#include "PropertyInlineCache.h"
 
 namespace JSC {
 
@@ -51,7 +51,8 @@ InstanceOfStatus InstanceOfStatus::computeFor(
     
     InstanceOfStatus result;
 #if ENABLE(DFG_JIT)
-    result = computeForStubInfo(locker, codeBlock->vm(), infoMap.get(CodeOrigin(bytecodeIndex)).stubInfo);
+    result = computeForPropertyInlineCache
+(locker, codeBlock->vm(), infoMap.get(CodeOrigin(bytecodeIndex)).propertyCache);
 
     if (!result.takesSlowPath()) {
         UnlinkedCodeBlock* unlinkedCodeBlock = codeBlock->unlinkedCodeBlock();
@@ -71,25 +72,26 @@ InstanceOfStatus InstanceOfStatus::computeFor(
 }
 
 #if ENABLE(DFG_JIT)
-InstanceOfStatus InstanceOfStatus::computeForStubInfo(const ConcurrentJSLocker&, VM& vm, StructureStubInfo* stubInfo)
+InstanceOfStatus InstanceOfStatus::computeForPropertyInlineCache
+(const ConcurrentJSLocker& locker, VM& vm, PropertyInlineCache* propertyCache)
 {
     // FIXME: We wouldn't have to bail for nonCell if we taught MatchStructure how to handle non
     // cells. If we fixed that then we wouldn't be able to use summary();
     // https://bugs.webkit.org/show_bug.cgi?id=185784
-    StubInfoSummary summary = StructureStubInfo::summary(vm, stubInfo);
+    PropertyInlineCacheSummary summary = PropertyInlineCache::summary(locker, vm, propertyCache);
     if (!isInlineable(summary))
         return InstanceOfStatus(summary);
     
-    if (stubInfo->cacheType() != CacheType::Stub)
+    if (propertyCache->cacheType() != CacheType::Stub)
         return TakesSlowPath; // This is conservative. It could be that we have no information.
     
-    PolymorphicAccess* list = stubInfo->u.stub;
     InstanceOfStatus result;
-    for (unsigned listIndex = 0; listIndex < list->size(); ++listIndex) {
-        const AccessCase& access = list->at(listIndex);
+    auto list = propertyCache->listedAccessCases(locker);
+    for (unsigned listIndex = 0; listIndex < list.size(); ++listIndex) {
+        const AccessCase& access = *list.at(listIndex);
         
-        if (access.type() == AccessCase::InstanceOfGeneric)
-            return TakesSlowPath;
+        if (access.type() == AccessCase::InstanceOfMegamorphic)
+            return Megamorphic;
         
         if (!access.conditionSet().structuresEnsureValidity())
             return TakesSlowPath;

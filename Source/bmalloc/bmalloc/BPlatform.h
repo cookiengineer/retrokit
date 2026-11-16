@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,6 +33,24 @@
 #include <TargetConditionals.h>
 #endif
 
+#if defined(__has_include)
+#if __has_include(<WebKitAdditions/pas_mte_additions.h>)
+// FIXME: Properly support using WKA in modules.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnon-modular-include-in-module"
+#include <WebKitAdditions/pas_mte_additions.h>
+#pragma clang diagnostic pop
+#endif // __has_include(<WebKitAdditions/pas_mte_additions.h>)
+#endif // defined(__has_include)
+
+#ifndef BASSERT_ENABLED
+#ifdef NDEBUG
+#define BASSERT_ENABLED 0
+#else
+#define BASSERT_ENABLED 1
+#endif
+#endif
+
 #define BPLATFORM(PLATFORM) (defined BPLATFORM_##PLATFORM && BPLATFORM_##PLATFORM)
 #define BOS(OS) (defined BOS_##OS && BOS_##OS)
 
@@ -56,7 +74,11 @@
 #define BOS_WINDOWS 1
 #endif
 
-#if BOS(DARWIN) && !defined(BUILDING_WITH_CMAKE)
+#if defined(__HAIKU__)
+#define BOS_HAIKU 1
+#endif
+
+#if BOS(DARWIN)
 #if TARGET_OS_IOS
 #define BOS_IOS 1
 #define BPLATFORM_IOS 1
@@ -93,27 +115,43 @@
 #endif
 
 #if defined(__SCE__)
-#define BPLATORM_PLAYSTATION 1
+#define BPLATFORM_PLAYSTATION 1
 #endif
+
+#if defined(BUILDING_GTK__)
+#define BPLATFORM_GTK 1
+#elif defined(BUILDING_WPE__)
+#define BPLATFORM_WPE 1
+#elif defined(BUILDING_JSCONLY__)
+/* JSCOnly does not provide BPLATFORM() macro */
+#elif BOS(WINDOWS)
+#define BPLATFORM_WIN 1
+#endif
+
+/* ==== Platform adaptation macros: these describe properties of the target environment. ==== */
+
+/* BHAVE() - specific system features (headers, functions or similar) that are present or not */
+#define BHAVE(_FEATURE) (defined BHAVE_##_FEATURE && BHAVE_##_FEATURE)
 
 /* ==== Feature decision macros: these define feature choices for a particular port. ==== */
 
-#define BENABLE(WTF_FEATURE) (defined BENABLE_##WTF_FEATURE && BENABLE_##WTF_FEATURE)
+/* BENABLE() - turn on a specific feature of bmalloc */
+#define BENABLE(_FEATURE) (defined BENABLE_##_FEATURE && BENABLE_##_FEATURE)
 
 /* ==== Policy decision macros: these define policy choices for a particular port. ==== */
 
 /* BUSE() - use a particular third-party library or optional OS service */
-#define BUSE(FEATURE) (defined BUSE_##FEATURE && BUSE_##FEATURE)
+#define BUSE(_FEATURE) (defined BUSE_##_FEATURE && BUSE_##_FEATURE)
 
 /* ==== Compiler adaptation macros: these describe the capabilities of the compiler. ==== */
 
 /* BCOMPILER_SUPPORTS() - check for a compiler feature */
-#define BCOMPILER_SUPPORTS(FEATURE) (defined BCOMPILER_SUPPORTS_##FEATURE && BCOMPILER_SUPPORTS_##FEATURE)
+#define BCOMPILER_SUPPORTS(_FEATURE) (defined BCOMPILER_SUPPORTS_##_FEATURE && BCOMPILER_SUPPORTS_##_FEATURE)
 
 /* ==== Platform adaptation macros: these describe properties of the target environment. ==== */
 
 /* BCPU() - the target CPU architecture */
-#define BCPU(_FEATURE) (defined BCPU_##_FEATURE  && BCPU_##_FEATURE)
+#define BCPU(_FEATURE) (defined BCPU_##_FEATURE && BCPU_##_FEATURE)
 
 /* BCPU(X86) - i386 / x86 32-bit */
 #if defined(__i386__) \
@@ -133,6 +171,9 @@
 /* BCPU(ARM64) */
 #if defined(__arm64__) || defined(__aarch64__)
 #define BCPU_ARM64 1
+#if defined(__arm64e__)
+#define BCPU_ARM64E 1
+#endif
 #endif
 
 /* BCPU(ARM) - ARM, any version*/
@@ -164,6 +205,7 @@
 || defined(__ARM_ARCH_6J__) \
 || defined(__ARM_ARCH_6K__) \
 || defined(__ARM_ARCH_6Z__) \
+|| defined(__ARM_ARCH_6KZ__) \
 || defined(__ARM_ARCH_6ZK__) \
 || defined(__ARM_ARCH_6T2__) \
 || defined(__ARMV6__)
@@ -214,7 +256,9 @@
 || defined(__ARM_ARCH_7K__) \
 || defined(__ARM_ARCH_7M__) \
 || defined(__ARM_ARCH_7R__) \
-|| defined(__ARM_ARCH_7S__)
+|| defined(__ARM_ARCH_7S__) \
+|| defined(__ARM_ARCH_8__) \
+|| defined(__ARM_ARCH_8A__)
 #define BTHUMB_ARCH_VERSION 4
 
 /* RVCT sets __TARGET_ARCH_THUMB */
@@ -255,6 +299,12 @@
 #else
 #error "Unsupported pointer width"
 #endif
+#elif BCOMPILER(MSVC)
+#if defined(_WIN64)
+#define BCPU_ADDRESS64 1
+#else
+#define BCPU_ADDRESS32 1
+#endif
 #else
 #error "Unsupported compiler for bmalloc"
 #endif
@@ -269,18 +319,23 @@
 #else
 #error "Unknown endian"
 #endif
+#elif BCOMPILER(MSVC)
+#define BCPU_LITTLE_ENDIAN 1
 #else
 #error "Unsupported compiler for bmalloc"
 #endif
 
 #if BCPU(ADDRESS64)
-#if BOS(DARWIN)
+#if BHAVE(36BIT_ADDRESS)
+#define BOS_EFFECTIVE_ADDRESS_WIDTH 36
+/* iOS simulators lie about the size of the address space */
+#elif BOS(DARWIN) && !BPLATFORM(IOS_FAMILY_SIMULATOR)
 #define BOS_EFFECTIVE_ADDRESS_WIDTH (bmalloc::getMSBSetConstexpr(MACH_VM_MAX_ADDRESS) + 1)
 #else
 /* We strongly assume that effective address width is <= 48 in 64bit architectures (e.g. NaN boxing). */
 #define BOS_EFFECTIVE_ADDRESS_WIDTH 48
 #endif
-#else
+#else /* not BCPU(ADDRESS64) */
 #define BOS_EFFECTIVE_ADDRESS_WIDTH 32
 #endif
 
@@ -304,15 +359,49 @@
 #endif
 
 /* Enable this to put each IsoHeap and other allocation categories into their own malloc heaps, so that tools like vmmap can show how big each heap is. */
+#if !defined(BENABLE_MALLOC_HEAP_BREAKDOWN)
 #define BENABLE_MALLOC_HEAP_BREAKDOWN 0
+#endif
+
+#if BPLATFORM(COCOA)
+/* Should be aligned with the definition in WTF/wtf/PlatformUse.h */
+#if defined __has_include && __has_include(<CoreFoundation/CFPriv.h>)
+#define BUSE_APPLE_INTERNAL_SDK 1
+#else
+#define BUSE_APPLE_INTERNAL_SDK 0
+#endif
+#else // BPLATFORM(COCOA)
+#define BUSE_APPLE_INTERNAL_SDK 0
+#endif // !BPLATFORM(COCOA)
 
 /* This is used for debugging when hacking on how bmalloc calculates its physical footprint. */
 #define ENABLE_PHYSICAL_PAGE_MAP 0
 
+#if defined(USE_MIMALLOC) && USE_MIMALLOC
+#define BUSE_MIMALLOC 1
+#else
+#define BUSE_MIMALLOC 0
+#endif
+
+#if defined(USE_SYSTEM_MALLOC) && USE_SYSTEM_MALLOC
+#define BUSE_SYSTEM_MALLOC 1
+#elif BTSAN_ENABLED
+#define BUSE_SYSTEM_MALLOC 1
+#else
+#if BOS(DARWIN) && !BCPU(ADDRESS64)
+#define BUSE_SYSTEM_MALLOC 1
+#else
+#define BUSE_SYSTEM_MALLOC 0
+#endif
+#endif
+
 /* BENABLE(LIBPAS) is enabling libpas build. But this does not mean we use libpas for bmalloc replacement. */
 #if !defined(BENABLE_LIBPAS)
-#if BCPU(ARM64) && BOS(MAC)
+#if (!BUSE(MIMALLOC) && !BUSE(SYSTEM_MALLOC)) && BCPU(ADDRESS64) && (BOS(DARWIN) || BOS(WINDOWS) || (BOS(LINUX) && (BCPU(X86_64) || BCPU(ARM64))) || BPLATFORM(PLAYSTATION))
 #define BENABLE_LIBPAS 1
+#ifndef PAS_BMALLOC
+#define PAS_BMALLOC 1
+#endif
 #else
 #define BENABLE_LIBPAS 0
 #endif
@@ -320,8 +409,39 @@
 
 /* BUSE(LIBPAS) is using libpas for bmalloc replacement. */
 #if !defined(BUSE_LIBPAS)
+#if defined(BENABLE_LIBPAS) && BENABLE_LIBPAS
+#define BUSE_LIBPAS 1
+#else
 #define BUSE_LIBPAS 0
 #endif
+#endif
+
+#if BUSE(LIBPAS)
+#if BUSE(MIMALLOC) || BUSE(SYSTEM_MALLOC)
+#error "libpas, mimalloc, and system malloc are exclusive"
+#endif
+#elif BUSE(MIMALLOC)
+#if BUSE(LIBPAS) || BUSE(SYSTEM_MALLOC)
+#error "libpas, mimalloc, and system malloc are exclusive"
+#endif
+#elif BUSE(SYSTEM_MALLOC)
+#if BUSE(LIBPAS) || BUSE(MIMALLOC)
+#error "libpas, mimalloc, and system malloc are exclusive"
+#endif
+#if BOS(WINDOWS)
+#error "System malloc configuration is not supported in Windows since aligned memory cannot be freed via ::free. Use mimalloc instead"
+#endif
+#else
+#error "libpas, mimalloc, or system malloc needs to be specified"
+#endif
+
+#if BUSE_LIBPAS
+#ifndef BENABLE_MTE
+#define BENABLE_MTE (BUSE(APPLE_INTERNAL_SDK) && BCPU(ARM64E) && !BASAN_ENABLED)
+#endif // !defined(BENABLE_MTE)
+#else // !BUSE_LIBPAS
+#define BENABLE_MTE 0
+#endif // BUSE_LIBPAS
 
 #if !defined(BUSE_PRECOMPUTED_CONSTANTS_VMPAGE4K)
 #define BUSE_PRECOMPUTED_CONSTANTS_VMPAGE4K 1
@@ -331,20 +451,27 @@
 #define BUSE_PRECOMPUTED_CONSTANTS_VMPAGE16K 1
 #endif
 
-/* The unified Config record feature is not available for Windows because the
-   Windows port puts WTF in a separate DLL, and the offlineasm code accessing
-   the config record expects the config record to be directly accessible like
-   a global variable (and not have to go thru DLL shenanigans). C++ code would
-   resolve these DLL bindings automatically, but offlineasm does not.
-
-   The permanently freezing feature also currently relies on the Config records
-   being unified, and the Windows port also does not currently have an
-   implementation for the freezing mechanism anyway. For simplicity, we just
-   disable both the use of unified Config record and config freezing for the
-   Windows port.
-*/
-#if BOS(WINDOWS)
-#define BENABLE_UNIFIED_AND_FREEZABLE_CONFIG_RECORD 0
+/* We only export the mallocSize and mallocGoodSize APIs if they're supported by the SystemHeap allocator (currently only Darwin) and the current bmalloc allocator (currently only libpas). */
+#if BUSE(LIBPAS) && BOS(DARWIN)
+#define BENABLE_MALLOC_SIZE 1
+#define BENABLE_MALLOC_GOOD_SIZE 1
 #else
-#define BENABLE_UNIFIED_AND_FREEZABLE_CONFIG_RECORD 1
+#define BENABLE_MALLOC_SIZE 0
+#define BENABLE_MALLOC_GOOD_SIZE 0
+#endif
+
+#if !defined(BUSE_TZONE)
+#if BUSE(LIBPAS) && BOS(DARWIN) && (BCPU(ARM64) || BCPU(X86_64))
+#define BUSE_TZONE 1
+#else
+#define BUSE_TZONE 0
+#endif
+#endif
+
+#if ((BOS(DARWIN) || BOS(LINUX)) && \
+    !BUSE(MIMALLOC) && \
+    (BCPU(X86_64) || (BCPU(ARM64) && !defined(__ILP32__) && (!BPLATFORM(IOS_FAMILY) || BPLATFORM(IOS)))))
+#define GIGACAGE_ENABLED 1
+#else
+#define GIGACAGE_ENABLED 0
 #endif

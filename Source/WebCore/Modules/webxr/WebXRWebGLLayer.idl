@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2020 Igalia S.L. All rights reserved.
+ * Copyright (C) 2023 Apple, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,28 +24,26 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#if defined(ENABLE_WEBGL2) && ENABLE_WEBGL2
 typedef (WebGLRenderingContext or WebGL2RenderingContext) WebXRWebGLRenderingContext;
-#else
-typedef (WebGLRenderingContext) WebXRWebGLRenderingContext;
-#endif
 
+// https://immersive-web.github.io/webxr/#xrwebgllayer
 [
-    EnabledBySetting=WebXR,
     Conditional=WEBXR,
+    EnabledBySetting=WebXREnabled,
     SecureContext,
     Exposed=Window,
-    JSGenerateToJSObject,
     JSGenerateToNativeObject,
     InterfaceName=XRWebGLLayer
 ] interface WebXRWebGLLayer : WebXRLayer {
-    constructor(WebXRSession session, WebXRWebGLRenderingContext context, optional XRWebGLLayerInit layerInit);
+    constructor(WebXRSession session, WebXRWebGLRenderingContext context, optional XRWebGLLayerInit layerInit = {});
 
     // Attributes
     readonly attribute boolean antialias;
     readonly attribute boolean ignoreDepthValues;
+    // FIXME: Support 'fixedFoveation'.
+    // attribute float? fixedFoveation;
 
-    [SameObject] readonly attribute WebGLFramebuffer framebuffer;
+    [SameObject] readonly attribute WebGLFramebuffer? framebuffer;
     readonly attribute unsigned long framebufferWidth;
     readonly attribute unsigned long framebufferHeight;
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2023 Apple Inc. All rights reserved.
  * Copyright (C) 2007 Alp Toker <alp@atoker.com>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,21 +27,36 @@
 #include "config.h"
 #include "Gradient.h"
 
-#include "Color.h"
 #include "FloatRect.h"
+#include "NativeImage.h"
 #include <wtf/HashFunctions.h>
 #include <wtf/Hasher.h>
+#include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
-Ref<Gradient> Gradient::create(Data&& data)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Gradient);
+
+Ref<Gradient> Gradient::create(Data&& data, ColorInterpolationMethod colorInterpolationMethod, GradientSpreadMethod spreadMethod, GradientColorStops&& stops, bool isTransient)
 {
-    return adoptRef(*new Gradient(WTFMove(data)));
+    return adoptRef(*new Gradient(WTF::move(data), colorInterpolationMethod, spreadMethod, WTF::move(stops), isTransient));
 }
 
-Gradient::Gradient(Data&& data)
-    : m_data(WTFMove(data))
+Gradient::Gradient(Data&& data, ColorInterpolationMethod colorInterpolationMethod, GradientSpreadMethod spreadMethod, GradientColorStops&& stops, bool isTransient)
+    : m_data { WTF::move(data) }
+    , m_colorInterpolationMethod { colorInterpolationMethod }
+    , m_spreadMethod { spreadMethod }
+    , m_stops { WTF::move(stops) }
+    , m_isTransient { isTransient }
 {
+}
+
+Gradient::~Gradient()
+{
+    for (CheckedRef observer : m_observers)
+        observer->willDestroyGradient(*this);
 }
 
 void Gradient::adjustParametersForTiledDrawing(FloatSize& size, FloatRect& srcRect, const FloatSize& spacing)
@@ -89,80 +104,58 @@ bool Gradient::isZeroSize() const
     );
 }
 
-void Gradient::addColorStop(Gradient::ColorStop&& stop)
+void Gradient::addColorStop(GradientColorStop&& stop)
 {
-    m_stops.append(WTFMove(stop));
-    m_stopsSorted = false;
+    m_stops.addColorStop(WTF::move(stop));
     m_cachedHash = 0;
     stopsChanged();
 }
 
-void Gradient::setSortedColorStops(ColorStopVector&& stops)
-{
-    m_stops = WTFMove(stops);
-    m_stopsSorted = true;
-    m_cachedHash = 0;
-    stopsChanged();
-}
-
-void Gradient::sortStops() const
-{
-    if (m_stopsSorted)
-        return;
-    m_stopsSorted = true;
-    std::stable_sort(m_stops.begin(), m_stops.end(), [] (auto& a, auto& b) {
-        return a.offset < b.offset;
-    });
-}
-
-void Gradient::setSpreadMethod(GradientSpreadMethod spreadMethod)
-{
-    if (m_spreadMethod == spreadMethod)
-        return;
-    m_spreadMethod = spreadMethod;
-    m_cachedHash = 0;
-}
-
-// FIXME: Instead of these add(Hasher) functions, consider using encode functions to compute the hash.
-
-static void add(Hasher& hasher, const Color& color)
-{
-    // FIXME: We don't want to hash a hash; do better.
-    add(hasher, color.hash());
-}
-
-static void add(Hasher& hasher, const FloatPoint& point)
-{
-    add(hasher, point.x(), point.y());
-}
-
-static void add(Hasher& hasher, const Gradient::ColorStop& stop)
-{
-    add(hasher, stop.offset, stop.color);
-}
-
-static void add(Hasher& hasher, const Gradient::LinearData& data)
+static void NODELETE add(Hasher& hasher, const Gradient::LinearData& data)
 {
     add(hasher, data.point0, data.point1);
 }
 
-static void add(Hasher& hasher, const Gradient::RadialData& data)
+static void NODELETE add(Hasher& hasher, const Gradient::RadialData& data)
 {
     add(hasher, data.point0, data.point1, data.startRadius, data.endRadius, data.aspectRatio);
 }
 
-static void add(Hasher& hasher, const Gradient::ConicData& data)
+static void NODELETE add(Hasher& hasher, const Gradient::ConicData& data)
 {
     add(hasher, data.point0, data.angleRadians);
 }
 
 unsigned Gradient::hash() const
 {
-    if (!m_cachedHash) {
-        sortStops();
-        m_cachedHash = computeHash(m_data, m_spreadMethod, m_stops);
-    }
+    if (!m_cachedHash)
+        m_cachedHash = computeHash(m_data, m_colorInterpolationMethod, m_spreadMethod, m_stops.sorted());
     return m_cachedHash;
 }
 
+TextStream& operator<<(TextStream& ts, const Gradient& gradient)
+{
+    WTF::switchOn(gradient.data(),
+        [&] (const Gradient::LinearData& data) {
+            ts.dumpProperty("p0"_s, data.point0);
+            ts.dumpProperty("p1"_s, data.point1);
+        },
+        [&] (const Gradient::RadialData& data) {
+            ts.dumpProperty("p0"_s, data.point0);
+            ts.dumpProperty("p1"_s, data.point1);
+            ts.dumpProperty("start-radius"_s, data.startRadius);
+            ts.dumpProperty("end-radius"_s, data.endRadius);
+            ts.dumpProperty("aspect-ratio"_s, data.aspectRatio);
+        },
+        [&] (const Gradient::ConicData& data) {
+            ts.dumpProperty("p0"_s, data.point0);
+            ts.dumpProperty("angle-radians"_s, data.angleRadians);
+        }
+    );
+    ts.dumpProperty("color-interpolation-method"_s, gradient.colorInterpolationMethod());
+    ts.dumpProperty("spread-method"_s, gradient.spreadMethod());
+    ts.dumpProperty("stops"_s, gradient.stops());
+    return ts;
 }
+
+} // namespace WebCore

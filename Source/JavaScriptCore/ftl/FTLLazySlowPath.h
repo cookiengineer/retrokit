@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,6 +35,7 @@
 #include "RegisterSet.h"
 #include "ScratchRegisterAllocator.h"
 #include <wtf/SharedTask.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC { namespace FTL {
 
@@ -45,7 +46,7 @@ namespace JSC { namespace FTL {
 // which registers hold the inputs or outputs.
 class LazySlowPath {
     WTF_MAKE_NONCOPYABLE(LazySlowPath);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(LazySlowPath);
 public:
     struct GenerationParams {
         // Extra parameters to the GeneratorFunction are made into fields of this struct, so that if
@@ -76,7 +77,7 @@ public:
 
     CodeLocationJump<JSInternalPtrTag> patchableJump() const { return m_patchableJump; }
     CodeLocationLabel<JSInternalPtrTag> done() const { return m_done; }
-    const RegisterSet& usedRegisters() const { return m_usedRegisters; }
+    const ScalarRegisterSet& usedRegisters() const LIFETIME_BOUND { return m_usedRegisters; }
     CallSiteIndex callSiteIndex() const { return m_callSiteIndex; }
 
     void generate(CodeBlock*);
@@ -87,7 +88,7 @@ private:
     CodeLocationJump<JSInternalPtrTag> m_patchableJump;
     CodeLocationLabel<JSInternalPtrTag> m_done;
     CodeLocationLabel<ExceptionHandlerPtrTag> m_exceptionTarget;
-    RegisterSet m_usedRegisters;
+    ScalarRegisterSet m_usedRegisters;
     CallSiteIndex m_callSiteIndex;
     MacroAssemblerCodeRef<JITStubRoutinePtrTag> m_stub;
     RefPtr<Generator> m_generator;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,53 +26,32 @@
 #include "config.h"
 #include "FrameInfoData.h"
 
-#include "WebCoreArgumentCoders.h"
-
 namespace WebKit {
 
-void FrameInfoData::encode(IPC::Encoder& encoder) const
+FrameInfoData legacyEmptyFrameInfo(WebCore::ResourceRequest&& request)
 {
-    encoder << isMainFrame;
-    encoder << request;
-    encoder << securityOrigin;
-    encoder << frameID;
-    encoder << parentFrameID;
-}
+    constexpr bool isMainFrame { true };
+    constexpr bool isFocused { false };
+    constexpr bool errorOccurred { false };
 
-std::optional<FrameInfoData> FrameInfoData::decode(IPC::Decoder& decoder)
-{
-    std::optional<bool> isMainFrame;
-    decoder >> isMainFrame;
-    if (!isMainFrame)
-        return std::nullopt;
-
-    std::optional<WebCore::ResourceRequest> request;
-    decoder >> request;
-    if (!request)
-        return std::nullopt;
-
-    std::optional<WebCore::SecurityOriginData> securityOrigin;
-    decoder >> securityOrigin;
-    if (!securityOrigin)
-        return std::nullopt;
-
-    std::optional<std::optional<WebCore::FrameIdentifier>> frameID;
-    decoder >> frameID;
-    if (!frameID)
-        return std::nullopt;
-
-    std::optional<std::optional<WebCore::FrameIdentifier>> parentFrameID;
-    decoder >> parentFrameID;
-    if (!parentFrameID)
-        return std::nullopt;
-
-    return {{
-        WTFMove(*isMainFrame),
-        WTFMove(*request),
-        WTFMove(*securityOrigin),
-        WTFMove(*frameID),
-        WTFMove(*parentFrameID)
-    }};
+    auto opaqueOrigin = WebCore::SecurityOriginData::createOpaque();
+    return FrameInfoData {
+        isMainFrame,
+        FrameType::Local,
+        WTF::move(request),
+        opaqueOrigin,
+        opaqueOrigin,
+        String { },
+        WebCore::generateFrameIdentifier(),
+        std::nullopt,
+        std::nullopt,
+        std::nullopt,
+        WebCore::CertificateInfo { },
+        getCurrentProcessID(),
+        isFocused,
+        errorOccurred,
+        WebFrameMetrics { }
+    };
 }
 
 }

@@ -31,20 +31,17 @@ namespace WebCore {
 class GStreamerAudioStreamDescription final: public AudioStreamDescription {
 public:
     GStreamerAudioStreamDescription(GstAudioInfo&& info)
-        : m_info(WTFMove(info))
-        , m_caps(adoptGRef(gst_audio_info_to_caps(&m_info)))
+        : m_info(WTF::move(info))
     {
     }
 
     GStreamerAudioStreamDescription(const GstAudioInfo& info)
         : m_info(info)
-        , m_caps(adoptGRef(gst_audio_info_to_caps(&m_info)))
     {
     }
 
     GStreamerAudioStreamDescription(GstAudioInfo* info)
         : m_info(*info)
-        , m_caps(adoptGRef(gst_audio_info_to_caps(&m_info)))
     {
     }
 
@@ -55,7 +52,7 @@ public:
 
     ~GStreamerAudioStreamDescription() = default;
 
-    const PlatformDescription& platformDescription() const
+    const PlatformDescription& platformDescription() const LIFETIME_BOUND
     {
         m_platformDescription = { PlatformDescription::GStreamerAudioStreamDescription, reinterpret_cast<const AudioStreamBasicDescription*>(&m_info) };
 
@@ -97,10 +94,14 @@ public:
     uint32_t sampleWordSize() const final { return GST_AUDIO_INFO_BPS(&m_info); }
 
     bool operator==(const GStreamerAudioStreamDescription& other) { return gst_audio_info_is_equal(&m_info, &other.m_info); }
-    bool operator!=(const GStreamerAudioStreamDescription& other) { return !operator == (other); }
 
-    const GRefPtr<GstCaps>& caps() const { return m_caps; }
-    const GstAudioInfo& getInfo() const { return m_info; }
+    const GRefPtr<GstCaps>& caps()
+    {
+        if (!m_caps)
+            m_caps = adoptGRef(gst_audio_info_to_caps(&m_info));
+        return m_caps;
+    }
+    const GstAudioInfo& getInfo() const LIFETIME_BOUND { return m_info; }
 
 private:
     GstAudioInfo m_info;

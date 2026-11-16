@@ -28,11 +28,11 @@
 
 #include "HTMLNames.h"
 #include "RenderLineBreak.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLWBRElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLWBRElement);
 
 using namespace HTMLNames;
 
@@ -47,9 +47,9 @@ HTMLWBRElement::HTMLWBRElement(const QualifiedName& tagName, Document& document)
     ASSERT(hasTagName(wbrTag));
 }
 
-RenderPtr<RenderElement> HTMLWBRElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> HTMLWBRElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
-    return createRenderer<RenderLineBreak>(*this, WTFMove(style));
+    return createRenderer<RenderLineBreak>(*this, WTF::move(style));
 }
 
 } // namespace WebCore

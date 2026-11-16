@@ -29,9 +29,9 @@
 
 #include <WebCore/FrameIdentifier.h>
 #include <WebCore/IntPoint.h>
-#include <WebCore/IntSize.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/ListHashSet.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/RunLoop.h>
 #include <wtf/Seconds.h>
 #include <wtf/Vector.h>
@@ -56,8 +56,14 @@ class WebPageProxy;
 using KeyboardInteraction = Inspector::Protocol::Automation::KeyboardInteractionType;
 using VirtualKey = Inspector::Protocol::Automation::VirtualKey;
 using VirtualKeyMap = HashMap<VirtualKey, VirtualKey, WTF::IntHash<VirtualKey>, WTF::StrongEnumHashTraits<VirtualKey>>;
-using CharKey = UChar32;
-using CharKeySet = ListHashSet<CharKey>;
+#if ENABLE(WEBDRIVER_KEYBOARD_GRAPHEME_CLUSTERS)
+// A CharKey must only ever represent a single unicode codepoint or a single grapheme cluster.
+using CharKey = String;
+using CharKeySet = ListHashSet<String>;
+#else
+using CharKey = char32_t;
+using CharKeySet = ListHashSet<uint32_t>;
+#endif
 using MouseButton = Inspector::Protocol::Automation::MouseButton;
 using MouseInteraction = Inspector::Protocol::Automation::MouseInteraction;
 using MouseMoveOrigin = Inspector::Protocol::Automation::MouseMoveOrigin;
@@ -81,6 +87,7 @@ struct SimulatedInputSourceState {
     CharKeySet pressedCharKeys;
     VirtualKeyMap pressedVirtualKeys;
     std::optional<MouseButton> pressedMouseButton;
+    std::optional<MouseInteraction> mouseInteraction;
     std::optional<MouseMoveOrigin> origin;
     std::optional<String> nodeHandle;
     std::optional<WebCore::IntPoint> location;
@@ -122,7 +129,7 @@ public:
     Vector<StateEntry> states;
 };
 
-class SimulatedInputDispatcher : public RefCounted<SimulatedInputDispatcher> {
+class SimulatedInputDispatcher : public RefCountedAndCanMakeWeakPtr<SimulatedInputDispatcher> {
     WTF_MAKE_NONCOPYABLE(SimulatedInputDispatcher);
 public:
     class Client {
@@ -130,12 +137,13 @@ public:
         virtual ~Client() { }
 #if ENABLE(WEBDRIVER_MOUSE_INTERACTIONS)
         virtual void simulateMouseInteraction(WebPageProxy&, MouseInteraction, MouseButton, const WebCore::IntPoint& locationInView, const String& pointerType, AutomationCompletionHandler&&) = 0;
+        virtual void clearDoubleClicks() = 0;
 #endif
 #if ENABLE(WEBDRIVER_TOUCH_INTERACTIONS)
         virtual void simulateTouchInteraction(WebPageProxy&, TouchInteraction, const WebCore::IntPoint& locationInView, std::optional<Seconds> duration, AutomationCompletionHandler&&) = 0;
 #endif
 #if ENABLE(WEBDRIVER_KEYBOARD_INTERACTIONS)
-        virtual void simulateKeyboardInteraction(WebPageProxy&, KeyboardInteraction, WTF::Variant<VirtualKey, CharKey>&&, AutomationCompletionHandler&&) = 0;
+        virtual void simulateKeyboardInteraction(WebPageProxy&, KeyboardInteraction, Variant<VirtualKey, CharKey>&&, AutomationCompletionHandler&&) = 0;
 #endif
 #if ENABLE(WEBDRIVER_WHEEL_INTERACTIONS)
         virtual void simulateWheelInteraction(WebPageProxy&, const WebCore::IntPoint& locationInView, const WebCore::IntSize& delta, AutomationCompletionHandler&&) = 0;
@@ -153,7 +161,7 @@ public:
     void run(std::optional<WebCore::FrameIdentifier>, Vector<SimulatedInputKeyFrame>&& keyFrames, const HashMap<String, Ref<SimulatedInputSource>>& inputSources, AutomationCompletionHandler&&);
     void cancel();
 
-    bool isActive() const;
+    bool NODELETE isActive() const;
 
 private:
     SimulatedInputDispatcher(WebPageProxy&, SimulatedInputDispatcher::Client&);
@@ -170,13 +178,13 @@ private:
 
     void resolveLocation(const WebCore::IntPoint& currentLocation, std::optional<WebCore::IntPoint> location, MouseMoveOrigin, std::optional<String> nodeHandle, Function<void (std::optional<WebCore::IntPoint>, std::optional<AutomationCommandError>)>&&);
 
-    WebPageProxy& m_page;
+    WeakRef<WebPageProxy> m_page;
     SimulatedInputDispatcher::Client& m_client;
 
     std::optional<WebCore::FrameIdentifier> m_frameID;
     AutomationCompletionHandler m_runCompletionHandler;
     AutomationCompletionHandler m_keyFrameTransitionCompletionHandler;
-    RunLoop::Timer<SimulatedInputDispatcher> m_keyFrameTransitionDurationTimer;
+    RunLoop::Timer m_keyFrameTransitionDurationTimer;
 
     Vector<SimulatedInputKeyFrame> m_keyframes;
 

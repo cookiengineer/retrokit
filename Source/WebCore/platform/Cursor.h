@@ -25,11 +25,12 @@
 
 #pragma once
 
-#include "Image.h"
-#include "IntPoint.h"
+#include <WebCore/Image.h>
+#include <WebCore/IntPoint.h>
 #include <wtf/Assertions.h>
-#include <wtf/EnumTraits.h>
+#include <wtf/Platform.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
 
 #if PLATFORM(WIN)
 typedef struct HICON__* HICON;
@@ -37,8 +38,6 @@ typedef HICON HCURSOR;
 #include <wtf/RefCounted.h>
 #elif PLATFORM(COCOA)
 #include <wtf/RetainPtr.h>
-#elif PLATFORM(GTK)
-#include "GRefPtrGtk.h"
 #endif
 
 #if HAVE(NSCURSOR)
@@ -73,65 +72,76 @@ private:
 using PlatformCursor = RefPtr<SharedCursor>;
 #elif HAVE(NSCURSOR)
 using PlatformCursor = NSCursor *;
-#elif PLATFORM(GTK)
-using PlatformCursor = GRefPtr<GdkCursor>;
 #else
 using PlatformCursor = void*;
 #endif
 
+enum class PlatformCursorType : uint8_t {
+    Invalid,
+    Pointer,
+    Cross,
+    Hand,
+    IBeam,
+    Wait,
+    Help,
+    EastResize,
+    NorthResize,
+    NorthEastResize,
+    NorthWestResize,
+    SouthResize,
+    SouthEastResize,
+    SouthWestResize,
+    WestResize,
+    NorthSouthResize,
+    EastWestResize,
+    NorthEastSouthWestResize,
+    NorthWestSouthEastResize,
+    ColumnResize,
+    RowResize,
+    MiddlePanning,
+    EastPanning,
+    NorthPanning,
+    NorthEastPanning,
+    NorthWestPanning,
+    SouthPanning,
+    SouthEastPanning,
+    SouthWestPanning,
+    WestPanning,
+    Move,
+    VerticalText,
+    Cell,
+    ContextMenu,
+    Alias,
+    Progress,
+    NoDrop,
+    Copy,
+    None,
+    NotAllowed,
+    ZoomIn,
+    ZoomOut,
+    Grab,
+    Grabbing,
+    Custom
+};
+
 class Cursor {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(Cursor);
 public:
-    enum Type {
-        Pointer = 0,
-        Cross,
-        Hand,
-        IBeam,
-        Wait,
-        Help,
-        EastResize,
-        NorthResize,
-        NorthEastResize,
-        NorthWestResize,
-        SouthResize,
-        SouthEastResize,
-        SouthWestResize,
-        WestResize,
-        NorthSouthResize,
-        EastWestResize,
-        NorthEastSouthWestResize,
-        NorthWestSouthEastResize,
-        ColumnResize,
-        RowResize,
-        MiddlePanning,
-        EastPanning,
-        NorthPanning,
-        NorthEastPanning,
-        NorthWestPanning,
-        SouthPanning,
-        SouthEastPanning,
-        SouthWestPanning,
-        WestPanning,
-        Move,
-        VerticalText,
-        Cell,
-        ContextMenu,
-        Alias,
-        Progress,
-        NoDrop,
-        Copy,
-        None,
-        NotAllowed,
-        ZoomIn,
-        ZoomOut,
-        Grab,
-        Grabbing,
-        Custom
+    using Type = PlatformCursorType;
+
+    struct CustomCursorIPCData {
+        Ref<Image> image;
+        IntPoint hotSpot;
+#if ENABLE(MOUSE_CURSOR_SCALE)
+        float scaleFactor { 0 };
+#endif
     };
+    using IPCData = Variant<Type /* Non custom type */, std::optional<CustomCursorIPCData>>;
 
     Cursor() = default;
+    static std::optional<Cursor> fromIPCData(IPCData&&);
 
-    WEBCORE_EXPORT static const Cursor& fromType(Cursor::Type);
+    WEBCORE_EXPORT static const Cursor& NODELETE fromType(Cursor::Type);
 
     WEBCORE_EXPORT Cursor(Image*, const IntPoint& hotSpot);
 
@@ -142,9 +152,11 @@ public:
 
     explicit Cursor(Type);
 
+    IPCData ipcData() const;
+
     Type type() const;
-    Image* image() const { return m_image.get(); }
-    const IntPoint& hotSpot() const { return m_hotSpot; }
+    RefPtr<Image> image() const { return m_image; }
+    const IntPoint& hotSpot() const LIFETIME_BOUND { return m_hotSpot; }
 
 #if ENABLE(MOUSE_CURSOR_SCALE)
     // Image scale in image pixels per logical (UI) pixel.
@@ -158,8 +170,7 @@ public:
 private:
     void ensurePlatformCursor() const;
 
-    // The type of -1 indicates an invalid Cursor that should never actually get used.
-    Type m_type { static_cast<Type>(-1) };
+    Type m_type { Type::Invalid };
     RefPtr<Image> m_image;
     IntPoint m_hotSpot;
 
@@ -177,109 +188,93 @@ private:
 
 IntPoint determineHotSpot(Image*, const IntPoint& specifiedHotSpot);
 
-WEBCORE_EXPORT const Cursor& pointerCursor();
-const Cursor& crossCursor();
-WEBCORE_EXPORT const Cursor& handCursor();
-const Cursor& moveCursor();
-WEBCORE_EXPORT const Cursor& iBeamCursor();
-const Cursor& waitCursor();
-const Cursor& helpCursor();
-const Cursor& eastResizeCursor();
-const Cursor& northResizeCursor();
-const Cursor& northEastResizeCursor();
-const Cursor& northWestResizeCursor();
-const Cursor& southResizeCursor();
-const Cursor& southEastResizeCursor();
-const Cursor& southWestResizeCursor();
-const Cursor& westResizeCursor();
-const Cursor& northSouthResizeCursor();
-const Cursor& eastWestResizeCursor();
-const Cursor& northEastSouthWestResizeCursor();
-const Cursor& northWestSouthEastResizeCursor();
-const Cursor& columnResizeCursor();
-const Cursor& rowResizeCursor();
-const Cursor& middlePanningCursor();
-const Cursor& eastPanningCursor();
-const Cursor& northPanningCursor();
-const Cursor& northEastPanningCursor();
-const Cursor& northWestPanningCursor();
-const Cursor& southPanningCursor();
-const Cursor& southEastPanningCursor();
-const Cursor& southWestPanningCursor();
-const Cursor& westPanningCursor();
-const Cursor& verticalTextCursor();
-const Cursor& cellCursor();
-const Cursor& contextMenuCursor();
-const Cursor& noDropCursor();
-const Cursor& notAllowedCursor();
-const Cursor& progressCursor();
-const Cursor& aliasCursor();
-const Cursor& zoomInCursor();
-const Cursor& zoomOutCursor();
-const Cursor& copyCursor();
-const Cursor& noneCursor();
-const Cursor& grabCursor();
-const Cursor& grabbingCursor();
+WEBCORE_EXPORT const Cursor& NODELETE pointerCursor();
+const Cursor& NODELETE crossCursor();
+WEBCORE_EXPORT const Cursor& NODELETE handCursor();
+const Cursor& NODELETE moveCursor();
+WEBCORE_EXPORT const Cursor& NODELETE iBeamCursor();
+const Cursor& NODELETE waitCursor();
+const Cursor& NODELETE helpCursor();
+const Cursor& NODELETE eastResizeCursor();
+const Cursor& NODELETE northResizeCursor();
+const Cursor& NODELETE northEastResizeCursor();
+const Cursor& NODELETE northWestResizeCursor();
+const Cursor& NODELETE southResizeCursor();
+const Cursor& NODELETE southEastResizeCursor();
+const Cursor& NODELETE southWestResizeCursor();
+const Cursor& NODELETE westResizeCursor();
+const Cursor& NODELETE northSouthResizeCursor();
+const Cursor& NODELETE eastWestResizeCursor();
+const Cursor& NODELETE northEastSouthWestResizeCursor();
+const Cursor& NODELETE northWestSouthEastResizeCursor();
+const Cursor& NODELETE columnResizeCursor();
+const Cursor& NODELETE rowResizeCursor();
+const Cursor& NODELETE middlePanningCursor();
+const Cursor& NODELETE eastPanningCursor();
+const Cursor& NODELETE northPanningCursor();
+const Cursor& NODELETE northEastPanningCursor();
+const Cursor& NODELETE northWestPanningCursor();
+const Cursor& NODELETE southPanningCursor();
+const Cursor& NODELETE southEastPanningCursor();
+const Cursor& NODELETE southWestPanningCursor();
+const Cursor& NODELETE westPanningCursor();
+const Cursor& NODELETE verticalTextCursor();
+const Cursor& NODELETE cellCursor();
+const Cursor& NODELETE contextMenuCursor();
+const Cursor& NODELETE noDropCursor();
+const Cursor& NODELETE notAllowedCursor();
+const Cursor& NODELETE progressCursor();
+const Cursor& NODELETE aliasCursor();
+const Cursor& NODELETE zoomInCursor();
+const Cursor& NODELETE zoomOutCursor();
+const Cursor& NODELETE copyCursor();
+const Cursor& NODELETE noneCursor();
+const Cursor& NODELETE grabCursor();
+const Cursor& NODELETE grabbingCursor();
 
 inline Cursor::Type Cursor::type() const
 {
-    ASSERT(m_type >= 0);
-    ASSERT(m_type <= Custom);
+    ASSERT(m_type > Type::Invalid);
+    ASSERT(m_type <= Type::Custom);
     return m_type;
 }
 
+inline std::optional<Cursor> Cursor::fromIPCData(IPCData&& ipcData)
+{
+    return WTF::switchOn(WTF::move(ipcData), [](Type&& type) -> std::optional<Cursor> {
+        if (type == Type::Invalid || type == Type::Custom)
+            return std::nullopt;
+        auto& cursorReference = Cursor::fromType(type);
+        // Calling platformCursor here will eagerly create the platform cursor for the cursor singletons inside WebCore.
+        // This will avoid having to re-create the platform cursors over and over.
+        (void)cursorReference.platformCursor();
+        return cursorReference;
+    }, [](std::optional<CustomCursorIPCData>&& imageData) -> std::optional<Cursor> {
+        if (!imageData)
+            return Cursor { &Image::nullImage(), IntPoint() };
+        ASSERT(imageData->image->rect().contains(imageData->hotSpot));
+#if ENABLE(MOUSE_CURSOR_SCALE)
+        return Cursor(imageData->image.ptr(), imageData->hotSpot, imageData->scaleFactor);
+#else
+        return Cursor(imageData->image.ptr(), imageData->hotSpot);
+#endif
+    });
+}
+
+inline auto Cursor::ipcData() const -> IPCData
+{
+    auto type = this->type();
+    if (type != Type::Custom)
+        return type;
+    if (Ref { *m_image }->isNull())
+        return std::nullopt;
+    return CustomCursorIPCData {
+        *m_image
+        , m_hotSpot
+#if ENABLE(MOUSE_CURSOR_SCALE)
+        , m_imageScaleFactor
+#endif
+    };
+}
+
 } // namespace WebCore
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::Cursor::Type> {
-    using values = EnumValues<
-        WebCore::Cursor::Type,
-        WebCore::Cursor::Type::Pointer,
-        WebCore::Cursor::Type::Cross,
-        WebCore::Cursor::Type::Hand,
-        WebCore::Cursor::Type::IBeam,
-        WebCore::Cursor::Type::Wait,
-        WebCore::Cursor::Type::Help,
-        WebCore::Cursor::Type::EastResize,
-        WebCore::Cursor::Type::NorthResize,
-        WebCore::Cursor::Type::NorthEastResize,
-        WebCore::Cursor::Type::NorthWestResize,
-        WebCore::Cursor::Type::SouthResize,
-        WebCore::Cursor::Type::SouthEastResize,
-        WebCore::Cursor::Type::SouthWestResize,
-        WebCore::Cursor::Type::WestResize,
-        WebCore::Cursor::Type::NorthSouthResize,
-        WebCore::Cursor::Type::EastWestResize,
-        WebCore::Cursor::Type::NorthEastSouthWestResize,
-        WebCore::Cursor::Type::NorthWestSouthEastResize,
-        WebCore::Cursor::Type::ColumnResize,
-        WebCore::Cursor::Type::RowResize,
-        WebCore::Cursor::Type::MiddlePanning,
-        WebCore::Cursor::Type::EastPanning,
-        WebCore::Cursor::Type::NorthPanning,
-        WebCore::Cursor::Type::NorthEastPanning,
-        WebCore::Cursor::Type::NorthWestPanning,
-        WebCore::Cursor::Type::SouthPanning,
-        WebCore::Cursor::Type::SouthEastPanning,
-        WebCore::Cursor::Type::SouthWestPanning,
-        WebCore::Cursor::Type::WestPanning,
-        WebCore::Cursor::Type::Move,
-        WebCore::Cursor::Type::VerticalText,
-        WebCore::Cursor::Type::Cell,
-        WebCore::Cursor::Type::ContextMenu,
-        WebCore::Cursor::Type::Alias,
-        WebCore::Cursor::Type::Progress,
-        WebCore::Cursor::Type::NoDrop,
-        WebCore::Cursor::Type::Copy,
-        WebCore::Cursor::Type::None,
-        WebCore::Cursor::Type::NotAllowed,
-        WebCore::Cursor::Type::ZoomIn,
-        WebCore::Cursor::Type::ZoomOut,
-        WebCore::Cursor::Type::Grab,
-        WebCore::Cursor::Type::Grabbing,
-        WebCore::Cursor::Type::Custom
-    >;
-};
-
-} // namespace WTF

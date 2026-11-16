@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2021 Apple Inc. All rights reserved.
+ * Copyright (c) 2018-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,8 +27,39 @@
 #define PAS_CONFIG_H
 
 #include "pas_config_prefix.h"
+#include "pas_platform.h"
 
+#include "stdbool.h"
+
+#if defined(PAS_BMALLOC) && PAS_BMALLOC
+#if defined(__has_include)
+#if __has_include(<WebKitAdditions/pas_mte_additions.h>)
+// FIXME: Properly support using WKA in modules.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnon-modular-include-in-module"
+#pragma clang diagnostic pop
+#endif // __has_include(<WebKitAdditions/pas_mte_additions.h>) && !PAS_ENABLE_TESTING
+#endif // defined(__has_include)
+#endif // defined(PAS_BMALLOC) && PAS_BMALLOC
+
+#define PAS_LOG_NONE (0)
+#define PAS_LOG_HEAP_INFRASTRUCTURE (1 << 0)
+#define PAS_LOG_BOOTSTRAP_HEAPS (1 << 1)
+#define PAS_LOG_IMMORTAL_HEAPS (1 << 2)
+#define PAS_LOG_SEGREGATED_HEAPS (1 << 3)
+#define PAS_LOG_BITFIT_HEAPS (1 << 4)
+#define PAS_LOG_LARGE_HEAPS (1 << 5)
+#define PAS_LOG_JIT_HEAPS (1 << 6)
+#define PAS_LOG_OTHER (1 << 7)  /* Heap-type agnostic */
+
+#define PAS_LOG_LEVEL (PAS_LOG_NONE)
+#define PAS_SHOULD_LOG(level) (PAS_LOG_LEVEL & level)
+
+#if PAS_CPU(ADDRESS64)
 #define LIBPAS_ENABLED 1
+#else
+#define LIBPAS_ENABLED 0
+#endif
 
 #if defined(PAS_BMALLOC)
 #include "BPlatform.h"
@@ -38,16 +69,62 @@
 #endif
 #endif
 
+#if ((PAS_OS(DARWIN) && __PAS_ARM64 && !__PAS_ARM64E) || PAS_PLATFORM(PLAYSTATION)) && defined(NDEBUG)
+#define PAS_ENABLE_ASSERT 0
+#else
+#define PAS_ENABLE_ASSERT 1
+#endif
 #define PAS_ENABLE_TESTING __PAS_ENABLE_TESTING
+
+#ifndef PAS_ENABLE_STATS
+#define PAS_ENABLE_STATS 0
+#endif
 
 #define PAS_ARM64 __PAS_ARM64
 #define PAS_ARM32 __PAS_ARM32
 
 #define PAS_ARM __PAS_ARM
 
+#ifndef PAS_ENABLE_MTE
+#if PAS_USE_APPLE_INTERNAL_SDK && __PAS_ARM64E && !PAS_ASAN_ENABLED
+#define PAS_ENABLE_MTE 1
+#else
+#define PAS_ENABLE_MTE 0
+#endif
+#endif /* PAS_ENABLE_MTE */
+
+/* PAS_USE_SYMMETRIC_PAGE_ALLOCATION controls whether pas_page_malloc_commit /
+ * pas_page_malloc_decommit use a strictly symmetric primitive pair. When set, the
+ * strict "decommit" API is expected to be paired with a matching "commit" before
+ * re-access - violating that invariant will fault. When unset, both sides use the
+ * asymmetric model, thus commit side does not need explicit calls.
+ *
+ * This is used only on Windows as asymmetric manner is better: this is driven by
+ * the actual demand access while symmetric manner is pre-committing region.
+ * However Windows has commit-charge limit while Linux / Darwin etc. do not and it is
+ * accounting memory region even if it is not having backing physical pages.
+ *
+ * The "without_mprotect" variants of the page malloc API take an explicit
+ * is_symmetric argument — they serve both symmetric callers (pas_thread_local_cache,
+ * which pairs commit/decommit via ensure_committed + a pages_committed bitvector)
+ * and asymmetric callers (pas_expendable_memory, which reads decommitted memory
+ * without a matching commit and detects the decommit via a version + zero-check
+ * scheme). The _without_mprotect name refers only to skipping PAS_MPROTECT_DECOMMITTED
+ * test-mode poisoning; symmetry is orthogonal and chosen per call site.
+ */
+#ifndef PAS_USE_SYMMETRIC_PAGE_ALLOCATION
+#if PAS_OS(WINDOWS)
+#define PAS_USE_SYMMETRIC_PAGE_ALLOCATION 1
+#else
+#define PAS_USE_SYMMETRIC_PAGE_ALLOCATION 0
+#endif
+#endif /* PAS_USE_SYMMETRIC_PAGE_ALLOCATION */
+
+#define PAS_RISCV __PAS_RISCV
+
 #define PAS_ADDRESS_BITS                 48
 
-#if PAS_ARM
+#if PAS_ARM || PAS_PLATFORM(PLAYSTATION)
 #define PAS_MAX_GRANULES                 256
 #else
 #define PAS_MAX_GRANULES                 1024
@@ -85,17 +162,18 @@
 #define PAS_ENABLE_JIT                   1
 #endif /* PAS_LIBMALLOC -> so end of !defined(PAS_BMALLOC) && !defined(PAS_LIBMALLOC) */
 
-#define PAS_COMPACT_PTR_SIZE             3
+#define PAS_COMPACT_PTR_SIZE             3llu
 #define PAS_COMPACT_PTR_BITS             (PAS_COMPACT_PTR_SIZE << 3)
 #define PAS_COMPACT_PTR_MASK             ((uintptr_t)(((uint64_t)1 \
                                                        << (PAS_COMPACT_PTR_BITS & 63)) - 1))
 
-#define PAS_ALLOCATOR_INDEX_BYTES        2
+#define PAS_ALLOCATOR_INDEX_BYTES        4
 
-#ifdef PAS_BMALLOC
-#define PAS_USE_SPINLOCKS                1
+// FIXME: Workaround for rdar://119319825
+#if !defined(__swift__)
+#define PAS_ENABLE_MALLOC_STACK_LOGGER 1
 #else
-#define PAS_USE_SPINLOCKS                0
+#define PAS_ENABLE_MALLOC_STACK_LOGGER 0
 #endif
 
 #endif /* PAS_CONFIG_H */

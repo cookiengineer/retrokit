@@ -30,8 +30,8 @@
 #include "B3Procedure.h"
 #include "DFGCommon.h"
 #include "DFGGraph.h"
+#include "DFGJumpReplacement.h"
 #include "FTLAbbreviatedTypes.h"
-#include "FTLGeneratedFunction.h"
 #include "FTLJITCode.h"
 #include "FTLJITFinalizer.h"
 #include <wtf/Box.h>
@@ -69,21 +69,25 @@ public:
 
     VM& vm() { return graph.m_vm; }
 
-    void dumpDisassembly(PrintStream&, const ScopedLambda<void(DFG::Node*)>& perDFGNodeCallback = scopedLambda<void(DFG::Node*)>([] (DFG::Node*) { }));
+    void dumpDisassembly(PrintStream&, LinkBuffer&, const ScopedLambda<void(DFG::Node*)>& perDFGNodeCallback = scopedLambda<void(DFG::Node*)>([] (DFG::Node*) { }));
+
+    PropertyInlineCache* addPropertyInlineCache();
+    OptimizingCallLinkInfo* addCallLinkInfo(CodeOrigin);
 
     // None of these things is owned by State. It is the responsibility of
     // FTL phases to properly manage the lifecycle of the module and function.
     DFG::Graph& graph;
     std::unique_ptr<B3::Procedure> proc;
     bool allocationFailed { false }; // Throw out the compilation once B3 returns.
-    RefPtr<JITCode> jitCode;
-    GeneratedFunction generatedFunction;
+    RefPtr<FTL::JITCode> jitCode;
     JITFinalizer* finalizer;
+    std::unique_ptr<LinkBuffer> b3CodeLinkBuffer;
     // Top-level exception handler. Jump here if you know that you have to genericUnwind() and there
     // are no applicable catch blocks anywhere in the Graph.
     RefPtr<PatchpointExceptionHandle> defaultExceptionHandle;
     Box<CCallHelpers::Label> exceptionHandler { Box<CCallHelpers::Label>::create() };
     B3::Air::StackSlot* capturedValue { nullptr };
+    Vector<DFG::JumpReplacement> jumpReplacements;
 };
 
 } } // namespace JSC::FTL

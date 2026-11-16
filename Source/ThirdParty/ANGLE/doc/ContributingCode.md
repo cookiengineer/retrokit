@@ -43,10 +43,10 @@
    `git cl upload` should warn you if you are missing this step.
 
 [gn-build-config]: https://www.chromium.org/developers/gn-build-configuration
-[compiler.gni]: https://chromium.googlesource.com/angle/angle/+/refs/heads/master/src/compiler.gni
-[libGLESv2.gni]: https://chromium.googlesource.com/angle/angle/+/refs/heads/master/src/libGLESv2.gni
-[glslang.l]: https://chromium.googlesource.com/angle/angle/+/refs/heads/master/src/compiler/translator/glslang.l
-[run_code_generation.py]: https://chromium.googlesource.com/angle/angle/+/refs/heads/master/scripts/run_code_generation.py
+[compiler.gni]: https://chromium.googlesource.com/angle/angle/+/refs/heads/main/src/compiler.gni
+[libGLESv2.gni]: https://chromium.googlesource.com/angle/angle/+/refs/heads/main/src/libGLESv2.gni
+[glslang.l]: https://chromium.googlesource.com/angle/angle/+/refs/heads/main/src/compiler/translator/glslang.l
+[run_code_generation.py]: https://chromium.googlesource.com/angle/angle/+/refs/heads/main/scripts/run_code_generation.py
 
 ### Testing
 
@@ -56,7 +56,7 @@
    * To kick off a try job, use the 'CQ Dry Run' button, or set the Commit-Queue +1 label to trigger
      a dry run of the CQ (will not land the change).
    * If you are not part of the `angle-committers` group, you will need to either ask to be added or
-     ask a member of the group to submit the tryjob for you. Add jmadill or geofflang as a reviewer
+     ask a member of the group to submit the tryjob for you. Add syoussefi or geofflang as a reviewer
      for assistance.
    * Wait for the bots to report the result on the code review page. The bot results should be
      visible in Gerrit as yellow (in-progress), green (passed), or red (failed). This can take up to
@@ -103,7 +103,7 @@
    fill out the [Corporate Contributor License Agreement][Corporate-CLA] and send it to Google as
    described on that page.
 2. Once you've submitted the CLA, please email the following information (as entered on the CLA) to
-   `shannonwoods at chromium dot org` for record keeping purposes:
+   `geofflang at chromium dot org` for record keeping purposes:
    * Full Name:
    * Email:
    * Company (If applicable):
@@ -117,9 +117,9 @@
 
 ## Life of a Change List
 
-### Getting started with Gerrit for ANGLE
+### <a name="getting-started-with-gerrit"></a>Getting started with Gerrit for ANGLE
 
-1. Go to [https://chromium-review.googlesource.com/new-password][CR-passwd]
+1. Go to [https://chromium.googlesource.com/new-password][CR-passwd]
 2. Log in with the email you use for your git commits.
 3. Follow the directions on the new-password page to set up authentication with your Google account.
 4. Make sure to set your real name.
@@ -131,12 +131,12 @@
      CL with a particular review, and track dependencies between commits.
    * Download the hook from
      [https://chromium-review.googlesource.com/tools/hooks/commit-msg][commit-msg-hook] and copy
-     this file to `.git/hooks/commit-msg` within your local repository. On non-Windows, platforms,
+     this file to `.git/hooks/commit-msg` within your local repository. On non-Windows platforms,
      ensure that permissions are set to allow execution.
    * *BE AWARE:* Some patch management tools, such as StGit, currently bypass git hooks. They should
      not currently be used with changes intended for review.
 
-[CR-passwd]: https://chromium-review.googlesource.com/new-password
+[CR-passwd]: https://chromium.googlesource.com/new-password
 [CR-settings]: https://chromium-review.googlesource.com/#/settings
 [commit-msg-hook]: https://chromium-review.googlesource.com/tools/hooks/commit-msg
 
@@ -146,9 +146,9 @@
    * `git add src/../FileName.cpp`
    * `git commit`
    * A text editor will open. Add a description at the top of the file.
-      * If your changes are associated with an issue in the issue tracker (e.g. a fix for a reported
-        bug), please associate the CL with that issue by adding the following line to the commit
-        message: `Bug: angleproject:<issue number>`.
+   * Associate the CL with an issue in the issue tracker (e.g. a fix for a reported bug)
+     by adding the following line to the commit message: `Bug: angleproject:<issue number>`.
+     * If necessary please file a new bug at http://anglebug.com/new
    * Save.
    * Close the text editor.
    * Use `git commit --amend` to update your CL with new changes.
@@ -198,7 +198,7 @@ about the process.
    See [the Chromium docs][TBR] for more info.
  * There are exceptions to these rules. Use your best judgement.
 
-[TBR]: https://chromium.googlesource.com/chromium/src/+/master/docs/code_reviews.md#tbr-to-be-reviewed
+[TBR]: https://chromium.googlesource.com/chromium/src/+/main/docs/code_reviews.md#tbr-to-be-reviewed
 
 ### Reverting a CL
 
@@ -247,9 +247,7 @@ RELAND** button.
 
 Similar to [Chromium's committer status][Committer-status], long-term contributors to the ANGLE
 project may request to join the `angle-committers` group.  This allows you to give `+2` on code
-reviews and land patches without assistance.  After about 6 months of regular contributions, you may
-request committer status from a core ANGLE team member via email or code review.  Chromium
-committers and Googlers may ask at any time.
+reviews and land patches without assistance.  See [Becoming a Committer](BecomingCommitter.md).
 
 ### OWNERS files and becoming an Owner
 
@@ -263,9 +261,10 @@ See also:
 * [Chromium Projects: Contributing Code][Contributing-code]
 * [depot_tools tutorial][depot-tools-tutorial]
 * [angle_perftests README][Perftest-README]
+* [ANGLE Testing and Processes](TestingAndProcesses.md)
 
 [Committer-status]: https://dev.chromium.org/getting-involved/become-a-committer
 [Contributing-code]: http://www.chromium.org/developers/contributing-code/
 [depot-tools-tutorial]: http://commondatastorage.googleapis.com/chrome-infra-docs/flat/depot_tools/docs/html/depot_tools_tutorial.html
 [Perftest-README]: ../src/tests/perf_tests/README.md
-[Owners]: https://chromium.googlesource.com/chromium/src/+/master/docs/code_reviews.md#expectations-of-owners
+[Owners]: https://chromium.googlesource.com/chromium/src/+/main/docs/code_reviews.md#expectations-of-owners

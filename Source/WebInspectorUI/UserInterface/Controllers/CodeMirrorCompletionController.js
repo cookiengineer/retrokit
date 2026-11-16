@@ -71,7 +71,7 @@ WI.CodeMirrorCompletionController = class CodeMirrorCompletionController extends
         this._codeMirror.on("blur", this._handleHideActionListener);
         this._codeMirror.on("scroll", this._handleHideActionListener);
 
-        this._updatePromise = null;
+        this._updatePromiseResolver = null;
     }
 
     // Public
@@ -93,7 +93,7 @@ WI.CodeMirrorCompletionController = class CodeMirrorCompletionController extends
             return;
         }
 
-        this._completions = completions;
+        this._completions = completions.map(WI.Completions.getCompletionText);
 
         if (typeof implicitSuffix === "string")
             this._implicitSuffix = implicitSuffix;
@@ -106,11 +106,11 @@ WI.CodeMirrorCompletionController = class CodeMirrorCompletionController extends
         var bounds = new WI.Rect(firstCharCoords.left, firstCharCoords.top, lastCharCoords.right - firstCharCoords.left, firstCharCoords.bottom - firstCharCoords.top);
 
         // Try to restore the previous selected index, otherwise just select the first.
-        var index = this._currentCompletion ? completions.indexOf(this._currentCompletion) : 0;
+        let index = this._currentCompletion ? this._completions.indexOf(this._currentCompletion) : 0;
         if (index === -1)
             index = 0;
 
-        if (this._forced || completions.length > 1 || completions[index] !== this._prefix) {
+        if (this._forced || this._completions.length > 1 || this._completions[index] !== this._prefix) {
             // Update and show the suggestion list.
             this._suggestionsView.update(completions, index);
             this._suggestionsView.show(bounds);
@@ -125,7 +125,7 @@ WI.CodeMirrorCompletionController = class CodeMirrorCompletionController extends
             return;
         }
 
-        this._applyCompletionHint(completions[index]);
+        this._applyCompletionHint(this._completions[index]);
 
         this._resolveUpdatePromise(WI.CodeMirrorCompletionController.UpdatePromise.CompletionsFound);
     }
@@ -143,6 +143,32 @@ WI.CodeMirrorCompletionController = class CodeMirrorCompletionController extends
     isHandlingClickEvent()
     {
         return this._suggestionsView.isHandlingClickEvent();
+    }
+
+    commitCurrentCompletion()
+    {
+        this._removeCompletionHint(true, true);
+
+        let replacementText = this._currentReplacementText;
+        if (!replacementText)
+            return;
+
+        let from = {line: this._lineNumber, ch: this._startOffset};
+        let cursor = {line: this._lineNumber, ch: this._endOffset};
+        let to = {line: this._lineNumber, ch: this._startOffset + replacementText.length};
+
+        let lastChar = this._currentCompletion.charAt(this._currentCompletion.length - 1);
+        let isClosing = ")]}".indexOf(lastChar);
+        if (isClosing !== -1)
+            to.ch -= 1 + this._implicitSuffix.length;
+
+        this._codeMirror.replaceRange(replacementText, from, cursor, WI.CodeMirrorCompletionController.CompletionOrigin);
+
+        // Don't call _removeLastChangeFromHistory here to allow the committed completion to be undone.
+
+        this._codeMirror.setCursor(to);
+
+        this.hideCompletions();
     }
 
     hideCompletions()
@@ -179,11 +205,12 @@ WI.CodeMirrorCompletionController = class CodeMirrorCompletionController extends
     {
         this._resolveUpdatePromise(WI.CodeMirrorCompletionController.UpdatePromise.Canceled);
 
-        var update = this._updatePromise = new WI.WrappedPromise;
+        let {promise, resolve} = Promise.withResolvers();
+        this._updatePromiseResolver = resolve;
 
         this._completeAtCurrentPosition(force);
 
-        return update.promise;
+        return promise;
     }
 
     // Protected
@@ -211,16 +238,16 @@ WI.CodeMirrorCompletionController = class CodeMirrorCompletionController extends
 
     _resolveUpdatePromise(message)
     {
-        if (!this._updatePromise)
+        if (!this._updatePromiseResolver)
             return;
 
-        this._updatePromise.resolve(message);
-        this._updatePromise = null;
+        this._updatePromiseResolver(message);
+        this._updatePromiseResolver = null;
     }
 
     get _currentReplacementText()
     {
-        return this._currentCompletion + this._implicitSuffix;
+        return (this._currentCompletion ?? "") + (this._implicitSuffix ?? "");
     }
 
     _hasPendingCompletion()
@@ -279,7 +306,8 @@ WI.CodeMirrorCompletionController = class CodeMirrorCompletionController extends
             var cursor = {line: this._lineNumber, ch: this._endOffset};
             var currentText = this._codeMirror.getRange(from, cursor);
 
-            this._createCompletionHintMarker(cursor, replacementText.replace(currentText, ""));
+            if (replacementText.startsWith(currentText))
+                this._createCompletionHintMarker(cursor, replacementText.replace(currentText, ""));
         }
 
         this._ignoreChange = true;
@@ -292,34 +320,10 @@ WI.CodeMirrorCompletionController = class CodeMirrorCompletionController extends
 
     _commitCompletionHint()
     {
-        function update()
-        {
-            this._removeCompletionHint(true, true);
-
-            var replacementText = this._currentReplacementText;
-
-            var from = {line: this._lineNumber, ch: this._startOffset};
-            var cursor = {line: this._lineNumber, ch: this._endOffset};
-            var to = {line: this._lineNumber, ch: this._startOffset + replacementText.length};
-
-            var lastChar = this._currentCompletion.charAt(this._currentCompletion.length - 1);
-            var isClosing = ")]}".indexOf(lastChar);
-            if (isClosing !== -1)
-                to.ch -= 1 + this._implicitSuffix.length;
-
-            this._codeMirror.replaceRange(replacementText, from, cursor, WI.CodeMirrorCompletionController.CompletionOrigin);
-
-            // Don't call _removeLastChangeFromHistory here to allow the committed completion to be undone.
-
-            this._codeMirror.setCursor(to);
-
-            this.hideCompletions();
-        }
-
         this._ignoreChange = true;
         this._ignoreNextCursorActivity = true;
 
-        this._codeMirror.operation(update.bind(this));
+        this._codeMirror.operation(this.commitCurrentCompletion.bind(this));
 
         delete this._ignoreChange;
     }
@@ -582,12 +586,10 @@ WI.CodeMirrorCompletionController = class CodeMirrorCompletionController extends
             if (!functionName)
                 return [];
 
-            let functionCompletions = WI.CSSKeywordCompletions.forFunction(functionName).startsWith(this._prefix);
-
-            if (this._delegate && this._delegate.completionControllerCSSFunctionValuesNeeded)
-                functionCompletions = this._delegate.completionControllerCSSFunctionValuesNeeded(this, functionName, functionCompletions);
-
-            return functionCompletions;
+            if (WI.settings.experimentalUseFuzzyMatchingForCSSCodeCompletion.value)
+                return WI.CSSKeywordCompletions.forFunction(functionName).executeQuery(this._prefix);
+            else
+                return WI.CSSKeywordCompletions.forFunction(functionName).startsWith(this._prefix);
         }
 
         // Scan backwards looking for the current property.
@@ -616,7 +618,11 @@ WI.CodeMirrorCompletionController = class CodeMirrorCompletionController extends
             if (this._implicitSuffix === suffix)
                 this._implicitSuffix = "";
 
-            let completions = WI.CSSKeywordCompletions.forProperty(propertyName).startsWith(this._prefix);
+            let completions;
+            if (WI.settings.experimentalUseFuzzyMatchingForCSSCodeCompletion.value)
+                completions = WI.CSSKeywordCompletions.forProperty(propertyName).executeQuery(this._prefix);
+            else
+                completions = WI.CSSKeywordCompletions.forProperty(propertyName).startsWith(this._prefix);
 
             if (suffix.startsWith("("))
                 completions = completions.map((x) => x.replace(/\(\)$/, ""));
@@ -627,7 +633,9 @@ WI.CodeMirrorCompletionController = class CodeMirrorCompletionController extends
         this._implicitSuffix = suffix !== ":" ? ": " : "";
 
         // Complete property names.
-        return WI.CSSCompletions.cssNameCompletions.startsWith(this._prefix);
+        if (WI.settings.experimentalUseFuzzyMatchingForCSSCodeCompletion.value)
+            return WI.cssManager.propertyNameCompletions.executeQuery(this._prefix);
+        return WI.cssManager.propertyNameCompletions.startsWith(this._prefix);
     }
 
     _generateJavaScriptCompletions(mainToken, base, suffix)
@@ -640,7 +648,8 @@ WI.CodeMirrorCompletionController = class CodeMirrorCompletionController extends
 
         var matchingWords = [];
 
-        var prefix = this._prefix;
+        let prefix = this._prefix;
+        let prefixLowerCase = prefix.toLowerCase();
 
         var localState = mainToken.state.localState ? mainToken.state.localState : mainToken.state;
 
@@ -681,8 +690,10 @@ WI.CodeMirrorCompletionController = class CodeMirrorCompletionController extends
                     continue;
                 if (declaringVariable && !allowedKeywordsWhenDeclaringVariable.has(keyword))
                     continue;
-                if (!keyword.startsWith(prefix))
+
+                if (!keyword.toLowerCase().startsWith(prefixLowerCase))
                     continue;
+
                 matchingWords.push(keyword);
             }
         }
@@ -696,9 +707,13 @@ WI.CodeMirrorCompletionController = class CodeMirrorCompletionController extends
                     // Otherwise the currently typed text will always match and that isn't useful.
                     if (declaringVariable && variable.name === prefix)
                         continue;
+                    if (matchingWords.includes(variable.name))
+                        continue;
 
-                    if (variable.name.startsWith(prefix) && !matchingWords.includes(variable.name))
-                        matchingWords.push(variable.name);
+                    if (!variable.name.toLowerCase().startsWith(prefixLowerCase))
+                        continue;
+
+                    matchingWords.push(variable.name);
                 }
             }
 
@@ -828,7 +843,7 @@ WI.CodeMirrorCompletionController = class CodeMirrorCompletionController extends
             var lastIndex = Math.min(commonPrefix.length, completion.length);
             for (var j = prefixLength; j < lastIndex; ++j) {
                 if (commonPrefix[j] !== completion[j]) {
-                    commonPrefix = commonPrefix.substr(0, j);
+                    commonPrefix = commonPrefix.substring(0, j);
                     break;
                 }
             }

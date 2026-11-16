@@ -26,12 +26,11 @@
 #include "config.h"
 #include "WebDataListSuggestionsDropdownGtk.h"
 
-#if ENABLE(DATALIST_ELEMENT)
-
+#include "GUniquePtrGtk.h"
+#include "GtkUtilities.h"
+#include "GtkVersioning.h"
 #include "WebPageProxy.h"
 #include <WebCore/DataListSuggestionInformation.h>
-#include <WebCore/GtkUtilities.h>
-#include <WebCore/GtkVersioning.h>
 #include <WebCore/IntPoint.h>
 #include <wtf/glib/GRefPtr.h>
 #include <wtf/glib/GUniquePtr.h>
@@ -131,11 +130,11 @@ void WebDataListSuggestionsDropdownGtk::didSelectOption(const String& selectedOp
     if (!m_page)
         return;
 
-    m_page->didSelectOption(selectedOption);
+    m_page->didSelectOption(selectedOption, m_targetFrameID);
     close();
 }
 
-void WebDataListSuggestionsDropdownGtk::show(WebCore::DataListSuggestionInformation&& information)
+void WebDataListSuggestionsDropdownGtk::platformShow(WebCore::DataListSuggestionInformation&& information)
 {
     auto* model = GTK_LIST_STORE(gtk_tree_view_get_model(GTK_TREE_VIEW(m_treeView)));
     gtk_list_store_clear(model);
@@ -165,7 +164,7 @@ void WebDataListSuggestionsDropdownGtk::show(WebCore::DataListSuggestionInformat
     auto* monitor = gdk_display_get_monitor_at_window(display, gtk_widget_get_window(m_webView));
 #endif
     GdkRectangle area;
-    WebCore::monitorWorkArea(monitor, &area);
+    monitorWorkArea(monitor, &area);
     int width = std::min(information.elementRect.width(), area.width);
     size_t itemCount = std::min<size_t>(information.suggestions.size(), (area.height / 3) / itemHeight);
 
@@ -220,22 +219,22 @@ void WebDataListSuggestionsDropdownGtk::handleKeydownWithIdentifier(const String
     GtkTreeModel* model;
     GtkTreeIter iter;
     bool hasSelection = gtk_tree_selection_get_selected(selection, &model, &iter);
-    if (key == "Enter") {
+    if (key == "Enter"_s) {
         if (hasSelection) {
             GUniqueOutPtr<char> item;
             gtk_tree_model_get(model, &iter, 0, &item.outPtr(), -1);
-            m_page->didSelectOption(String::fromUTF8(item.get()));
+            m_page->didSelectOption(String::fromUTF8(item.get()), m_targetFrameID);
         }
         close();
         return;
     }
 
-    if (key == "Up") {
+    if (key == "Up"_s) {
         if ((hasSelection && gtk_tree_model_iter_previous(model, &iter)) || gtk_tree_model_iter_nth_child(model, &iter, nullptr, gtk_tree_model_iter_n_children(model, nullptr) - 1))
             gtk_tree_selection_select_iter(selection, &iter);
         else
             return;
-    } else if (key == "Down") {
+    } else if (key == "Down"_s) {
         if ((hasSelection && gtk_tree_model_iter_next(model, &iter)) || gtk_tree_model_get_iter_first(model, &iter))
             gtk_tree_selection_select_iter(selection, &iter);
         else
@@ -249,8 +248,7 @@ void WebDataListSuggestionsDropdownGtk::handleKeydownWithIdentifier(const String
 void WebDataListSuggestionsDropdownGtk::close()
 {
     gtk_widget_hide(m_popup);
+    WebDataListSuggestionsDropdown::close();
 }
 
 } // namespace WebKit
-
-#endif // ENABLE(DATALIST_ELEMENT)

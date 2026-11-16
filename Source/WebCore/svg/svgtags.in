@@ -4,17 +4,16 @@ fallbackInterfaceName="SVGUnknownElement"
 fallbackJSInterfaceName="SVGElement"
 
 a
-altGlyph
-altGlyphDef
-altGlyphItem
+altGlyph JSInterfaceName=SVGElement
+altGlyphDef JSInterfaceName=SVGElement
+altGlyphItem JSInterfaceName=SVGElement
 animate
-animateColor
+animateColor interfaceName=SVGUnknownElement, JSInterfaceName=SVGElement, noConstructor
 animateMotion
 animateTransform
 set
 circle
 clipPath
-cursor
 defs
 desc
 ellipse
@@ -44,24 +43,24 @@ feSpotLight
 feTile
 feTurbulence
 filter
-font
-font_face
-font_face_format
-font_face_name
-font_face_src
-font_face_uri
+font JSInterfaceName=SVGElement
+font-face JSInterfaceName=SVGElement
+font-face-format JSInterfaceName=SVGElement
+font-face-name JSInterfaceName=SVGElement
+font-face-src JSInterfaceName=SVGElement
+font-face-uri JSInterfaceName=SVGElement
 foreignObject
 g
-glyph
-glyphRef
-hkern interfaceName=SVGHKernElement
+glyph JSInterfaceName=SVGElement
+glyphRef JSInterfaceName=SVGElement
+hkern interfaceName=SVGHKernElement, JSInterfaceName=SVGElement
 image
 line
 linearGradient
 marker
 mask
 metadata
-missing_glyph
+missing-glyph JSInterfaceName=SVGElement
 mpath interfaceName=SVGMPathElement
 path
 pattern
@@ -78,8 +77,8 @@ symbol
 text
 textPath
 title
-tref interfaceName=SVGTRefElement
+tref interfaceName=SVGTRefElement, JSInterfaceName=SVGElement
 tspan interfaceName=SVGTSpanElement
 use
 view
-vkern interfaceName=SVGVKernElement
+vkern interfaceName=SVGVKernElement, JSInterfaceName=SVGElement

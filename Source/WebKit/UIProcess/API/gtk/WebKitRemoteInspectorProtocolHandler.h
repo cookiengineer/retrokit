@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2,1 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -27,12 +27,13 @@
 #include "WebKitWebView.h"
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/StringHash.h>
 
 namespace WebKit {
 
 class RemoteInspectorProtocolHandler final : public RemoteInspectorObserver {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(RemoteInspectorProtocolHandler);
 public:
     explicit RemoteInspectorProtocolHandler(WebKitWebContext* context);
     ~RemoteInspectorProtocolHandler();
@@ -44,6 +45,8 @@ private:
     static void userContentManagerDestroyed(RemoteInspectorProtocolHandler*, WebKitUserContentManager*);
 
     void handleRequest(WebKitURISchemeRequest*);
+    void updateTargetList(WebKitWebView*);
+    static void webViewLoadChanged(WebKitWebView*, WebKitLoadEvent, RemoteInspectorProtocolHandler*);
 
     // RemoteInspectorObserver.
     void targetListChanged(RemoteInspectorClient&) override;
@@ -51,7 +54,7 @@ private:
 
     HashMap<String, std::unique_ptr<RemoteInspectorClient>> m_inspectorClients;
     HashSet<WebKitUserContentManager*> m_userContentManagers;
-    HashSet<WebKitWebView*> m_webViews;
+    HashMap<WebKitWebView*, RemoteInspectorClient*> m_webViews;
 };
 
 } // namespace WebKit

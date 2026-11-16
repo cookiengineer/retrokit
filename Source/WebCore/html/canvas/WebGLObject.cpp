@@ -28,8 +28,8 @@
 
 #if ENABLE(WEBGL)
 
+#include "WebCoreOpaqueRoot.h"
 #include "WebGLCompressedTextureS3TC.h"
-#include "WebGLContextGroup.h"
 #include "WebGLDebugRendererInfo.h"
 #include "WebGLDebugShaders.h"
 #include "WebGLLoseContext.h"
@@ -37,11 +37,29 @@
 
 namespace WebCore {
 
-void WebGLObject::setObject(PlatformGLObject object)
+WebGLObject::WebGLObject(WebGLRenderingContextBase& context, PlatformGLObject object)
+    : m_context(context.createRefForContextObject())
+    , m_object(object)
 {
-    ASSERT(!m_object);
-    ASSERT(!m_deleted);
-    m_object = object;
+}
+
+WebGLObject::~WebGLObject() = default;
+
+WebGLRenderingContextBase* WebGLObject::context() const
+{
+    return m_context.get();
+}
+
+Lock& WebGLObject::objectGraphLockForContext()
+{
+    // Should not call this if the object or context has been deleted.
+    ASSERT(m_context);
+    return context()->objectGraphLock();
+}
+
+GraphicsContextGL* WebGLObject::graphicsContextGL() const
+{
+    return m_context ? m_context->graphicsContextGL() : nullptr;
 }
 
 void WebGLObject::runDestructor()
@@ -64,34 +82,40 @@ void WebGLObject::deleteObject(const AbstractLocker& locker, GraphicsContextGL* 
     if (!m_object)
         return;
 
-    if (!hasGroupOrContext())
+    if (!m_context)
         return;
 
     if (!m_attachmentCount) {
-        if (!context3d)
-            context3d = getAGraphicsContextGL();
-
-        if (context3d)
-            deleteObjectImpl(locker, context3d, m_object);
+        RefPtr<GraphicsContextGL> gl = context3d;
+        if (!gl)
+            gl = m_context->graphicsContextGL();
+        if (gl)
+            deleteObjectImpl(locker, gl.get(), m_object);
     }
 
     if (!m_attachmentCount)
         m_object = 0;
 }
 
-void WebGLObject::detach()
-{
-    m_attachmentCount = 0; // Make sure OpenGL resource is deleted.
-}
-
 void WebGLObject::onDetached(const AbstractLocker& locker, GraphicsContextGL* context3d)
 {
+    ASSERT(m_attachmentCount); // FIXME: handle attachment with WebGLAttachmentPoint RAII object and remove the ifs.
     if (m_attachmentCount)
         --m_attachmentCount;
     if (m_deleted)
         deleteObject(locker, context3d);
 }
 
+bool WebGLObject::validate(const WebGLRenderingContextBase& context) const
+{
+    return &context == m_context;
 }
+
+WebCoreOpaqueRoot root(WebGLObject* object)
+{
+    return WebCoreOpaqueRoot { object };
+}
+
+} // namespace WebCore
 
 #endif // ENABLE(WEBGL)

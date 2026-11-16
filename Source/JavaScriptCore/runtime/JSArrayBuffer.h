@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,10 +25,15 @@
 
 #pragma once
 
-#include "ArrayBuffer.h"
-#include "JSObject.h"
+#include <JavaScriptCore/ArrayBuffer.h>
+#include <JavaScriptCore/JSObject.h>
+#include <JavaScriptCore/WriteBarrier.h>
 
 namespace JSC {
+
+#if ENABLE(WEBASSEMBLY)
+class JSWebAssemblyMemory;
+#endif // ENABLE(WEBASSEMBLY)
 
 class JSArrayBuffer final : public JSNonFinalObject {
 public:
@@ -36,7 +41,7 @@ public:
     static constexpr unsigned StructureFlags = Base::StructureFlags;
 
     template<typename CellType, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         return vm.arrayBufferSpace<mode>();
     }
@@ -48,15 +53,26 @@ public:
     
     static Structure* createStructure(VM&, JSGlobalObject*, JSValue prototype);
 
-    JS_EXPORT_PRIVATE bool isShared() const;
-    ArrayBufferSharingMode sharingMode() const;
-    
+    JS_EXPORT_PRIVATE bool NODELETE isShared() const;
+    ArrayBufferSharingMode NODELETE sharingMode() const;
+    bool isResizableOrGrowableShared() const { return m_impl->isResizableOrGrowableShared(); }
+
+#if ENABLE(WEBASSEMBLY)
+    JSWebAssemblyMemory* associatedWasmMemoryWrapper() const;
+    void setAssociatedWasmMemoryWrapper(VM&, JSWebAssemblyMemory*);
+    void clearAssociatedWasmMemoryWrapper();
+#endif // ENABLE(WEBASSEMBLY)
+
     DECLARE_EXPORT_INFO;
+
+    DECLARE_VISIT_CHILDREN;
     
     // This is the default DOM unwrapping. It calls toUnsharedArrayBuffer().
     static ArrayBuffer* toWrapped(VM&, JSValue);
+    static ArrayBuffer* toWrappedAllowResizable(VM&, JSValue);
     static ArrayBuffer* toWrappedAllowShared(VM&, JSValue);
-    
+    static ArrayBuffer* toWrappedAllowSharedAndResizable(VM&, JSValue);
+
 private:
     JSArrayBuffer(VM&, Structure*, RefPtr<ArrayBuffer>&&);
     void finishCreation(VM&, JSGlobalObject*);
@@ -64,11 +80,16 @@ private:
     static size_t estimatedSize(JSCell*, VM&);
 
     ArrayBuffer* m_impl;
+    // For resizable non-shared Wasm buffers, this points back to the owning JSWebAssemblyMemory so
+    // that ArrayBuffer.prototype.resize can delegate to Wasm::Memory::grow.
+#if ENABLE(WEBASSEMBLY)
+    WriteBarrier<JSWebAssemblyMemory> m_associatedWasmMemoryWrapper;
+#endif // ENABLE(WEBASSEMBLY)
 };
 
-inline ArrayBuffer* toPossiblySharedArrayBuffer(VM& vm, JSValue value)
+inline ArrayBuffer* toPossiblySharedArrayBuffer(VM&, JSValue value)
 {
-    JSArrayBuffer* wrapper = jsDynamicCast<JSArrayBuffer*>(vm, value);
+    JSArrayBuffer* wrapper = dynamicDowncast<JSArrayBuffer>(value);
     if (!wrapper)
         return nullptr;
     return wrapper->impl();
@@ -84,10 +105,26 @@ inline ArrayBuffer* toUnsharedArrayBuffer(VM& vm, JSValue value)
 
 inline ArrayBuffer* JSArrayBuffer::toWrapped(VM& vm, JSValue value)
 {
+    auto result = toUnsharedArrayBuffer(vm, value);
+    if (!result || result->isResizableOrGrowableShared())
+        return nullptr;
+    return result;
+}
+
+inline ArrayBuffer* JSArrayBuffer::toWrappedAllowResizable(VM& vm, JSValue value)
+{
     return toUnsharedArrayBuffer(vm, value);
 }
 
 inline ArrayBuffer* JSArrayBuffer::toWrappedAllowShared(VM& vm, JSValue value)
+{
+    auto result = toPossiblySharedArrayBuffer(vm, value);
+    if (!result || result->isResizableOrGrowableShared())
+        return nullptr;
+    return result;
+}
+
+inline ArrayBuffer* JSArrayBuffer::toWrappedAllowSharedAndResizable(VM& vm, JSValue value)
 {
     return toPossiblySharedArrayBuffer(vm, value);
 }

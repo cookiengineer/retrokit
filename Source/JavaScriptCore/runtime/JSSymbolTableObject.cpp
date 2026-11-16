@@ -34,12 +34,12 @@
 
 namespace JSC {
 
-const ClassInfo JSSymbolTableObject::s_info = { "SymbolTableObject", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSSymbolTableObject) };
+const ClassInfo JSSymbolTableObject::s_info = { "SymbolTableObject"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSSymbolTableObject) };
 
 template<typename Visitor>
 void JSSymbolTableObject::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    JSSymbolTableObject* thisObject = jsCast<JSSymbolTableObject*>(cell);
+    JSSymbolTableObject* thisObject = uncheckedDowncast<JSSymbolTableObject>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
     visitor.append(thisObject->m_symbolTable);
@@ -49,23 +49,26 @@ DEFINE_VISIT_CHILDREN(JSSymbolTableObject);
 
 bool JSSymbolTableObject::deleteProperty(JSCell* cell, JSGlobalObject* globalObject, PropertyName propertyName, DeletePropertySlot& slot)
 {
-    JSSymbolTableObject* thisObject = jsCast<JSSymbolTableObject*>(cell);
+    JSSymbolTableObject* thisObject = uncheckedDowncast<JSSymbolTableObject>(cell);
     if (thisObject->symbolTable()->contains(propertyName.uid()))
         return false;
 
     return Base::deleteProperty(thisObject, globalObject, propertyName, slot);
 }
 
-void JSSymbolTableObject::getOwnSpecialPropertyNames(JSObject* object, JSGlobalObject* globalObject, PropertyNameArray& propertyNames, DontEnumPropertiesMode mode)
+void JSSymbolTableObject::getOwnSpecialPropertyNames(JSObject* object, JSGlobalObject* globalObject, PropertyNameArrayBuilder& propertyNames, DontEnumPropertiesMode mode)
 {
     VM& vm = globalObject->vm();
-    JSSymbolTableObject* thisObject = jsCast<JSSymbolTableObject*>(object);
+    JSSymbolTableObject* thisObject = uncheckedDowncast<JSSymbolTableObject>(object);
+    SymbolTable* symbolTable = thisObject->symbolTable();
     {
-        ConcurrentJSLocker locker(thisObject->symbolTable()->m_lock);
-        SymbolTable::Map::iterator end = thisObject->symbolTable()->end(locker);
-        for (SymbolTable::Map::iterator it = thisObject->symbolTable()->begin(locker); it != end; ++it) {
+        ConcurrentJSLocker locker(symbolTable->m_lock);
+        SymbolTable::Map::iterator end = symbolTable->end(locker);
+        for (SymbolTable::Map::iterator it = symbolTable->begin(locker); it != end; ++it) {
             if (mode == DontEnumPropertiesMode::Include || !it->value.isDontEnum()) {
-                if (it->key->isSymbol() && !propertyNames.includeSymbolProperties())
+                if (!propertyNames.includeSymbolProperties() && it->key->isSymbol())
+                    continue;
+                if (propertyNames.privateSymbolMode() == PrivateSymbolMode::Exclude && symbolTable->hasPrivateName(it->key))
                     continue;
                 propertyNames.add(Identifier::fromUid(vm, it->key.get()));
             }

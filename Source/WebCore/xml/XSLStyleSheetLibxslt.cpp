@@ -1,7 +1,7 @@
 /*
  * This file is part of the XSL implementation.
  *
- * Copyright (C) 2004, 2005, 2006, 2008, 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2025 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -23,11 +23,13 @@
 
 #if ENABLE(XSLT)
 
-#include "CachedResourceLoader.h"
-#include "Document.h"
-#include "Frame.h"
+#include "DocumentResourceLoader.h"
+#include "FrameConsoleClient.h"
+#include "FrameDestructionObserverInlines.h"
+#include "JSNodeCustomInlines.h"
+#include "LocalFrame.h"
+#include "NodeDocument.h"
 #include "Page.h"
-#include "PageConsoleClient.h"
 #include "TransformSource.h"
 #include "XMLDocumentParser.h"
 #include "XMLDocumentParserScope.h"
@@ -37,23 +39,18 @@
 #include <libxslt/xsltutils.h>
 #include <wtf/CheckedArithmetic.h>
 #include <wtf/HexNumber.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/unicode/CharacterNames.h>
-
-#if OS(DARWIN) && !PLATFORM(GTK)
-#include "SoftLinkLibxslt.h"
-#endif
 
 namespace WebCore {
 
-XSLStyleSheet::XSLStyleSheet(XSLImportRule* parentRule, const String& originalURL, const URL& finalURL)
-    : m_ownerNode(nullptr)
-    , m_originalURL(originalURL)
+XSLStyleSheet::XSLStyleSheet(XSLStyleSheet* parentSheet, const String& originalURL, const URL& finalURL)
+    : m_originalURL(originalURL)
     , m_finalURL(finalURL)
     , m_embedded(false)
     , m_processed(false) // Child sheets get marked as processed when the libxslt engine has finally seen them.
+    , m_parentStyleSheet(parentSheet)
 {
-    if (parentRule)
-        m_parentStyleSheet = parentRule->parentStyleSheet();
 }
 
 XSLStyleSheet::XSLStyleSheet(Node* parentNode, const String& originalURL, const URL& finalURL,  bool embedded)
@@ -75,6 +72,20 @@ XSLStyleSheet::~XSLStyleSheet()
     }
 }
 
+void XSLStyleSheet::clearOwnerNode()
+{
+    Locker locker { m_opaqueRootLockForGC };
+    m_ownerNode = nullptr;
+}
+
+WebCoreOpaqueRoot XSLStyleSheet::opaqueRootForGCThread()
+{
+    Locker locker { m_opaqueRootLockForGC };
+    if (m_ownerNode)
+        return root(m_ownerNode.get());
+    return WebCoreOpaqueRoot { this };
+}
+
 bool XSLStyleSheet::isLoading() const
 {
     for (auto& import : m_children) {
@@ -88,10 +99,10 @@ void XSLStyleSheet::checkLoaded()
 {
     if (isLoading())
         return;
-    if (XSLStyleSheet* styleSheet = parentStyleSheet())
+    if (RefPtr styleSheet = parentStyleSheet())
         styleSheet->checkLoaded();
-    if (ownerNode())
-        ownerNode()->sheetLoaded();
+    if (RefPtr ownerNode = this->ownerNode())
+        ownerNode->sheetLoaded();
 }
 
 xmlDocPtr XSLStyleSheet::document()
@@ -106,8 +117,8 @@ void XSLStyleSheet::clearDocuments()
     clearXSLStylesheetDocument();
 
     for (auto& import : m_children) {
-        if (import->styleSheet())
-            import->styleSheet()->clearDocuments();
+        if (RefPtr styleSheet = import->styleSheet())
+            styleSheet->clearDocuments();
     }
 }
 
@@ -123,7 +134,7 @@ void XSLStyleSheet::clearXSLStylesheetDocument()
 
 CachedResourceLoader* XSLStyleSheet::cachedResourceLoader()
 {
-    Document* document = ownerDocument();
+    RefPtr document = ownerDocument();
     if (!document)
         return nullptr;
     return &document->cachedResourceLoader();
@@ -135,17 +146,16 @@ bool XSLStyleSheet::parseString(const String& string)
     const unsigned char BOMHighByte = *reinterpret_cast<const unsigned char*>(&byteOrderMark);
     clearXSLStylesheetDocument();
 
-    PageConsoleClient* console = nullptr;
-    Frame* frame = ownerDocument()->frame();
-    if (frame && frame->page())
-        console = &frame->page()->console();
+    FrameConsoleClient* console = nullptr;
+    if (RefPtr frame = ownerDocument()->frame())
+        console = &frame->console();
 
     XMLDocumentParserScope scope(cachedResourceLoader(), XSLTProcessor::genericErrorFunc, XSLTProcessor::parseErrorFunc, console);
 
     auto upconvertedCharacters = StringView(string).upconvertedCharacters();
     const char* buffer = reinterpret_cast<const char*>(upconvertedCharacters.get());
     CheckedUint32 unsignedSize = string.length();
-    unsignedSize *= sizeof(UChar);
+    unsignedSize *= sizeof(char16_t);
     if (unsignedSize.hasOverflowed() || unsignedSize > static_cast<unsigned>(std::numeric_limits<int>::max()))
         return false;
 
@@ -154,16 +164,19 @@ bool XSLStyleSheet::parseString(const String& string)
     if (!ctxt)
         return false;
 
-    if (m_parentStyleSheet && m_parentStyleSheet->m_stylesheetDoc) {
+    if (m_parentStyleSheet && m_parentStyleSheet->m_stylesheetDoc && !m_parentStyleSheet->m_stylesheetDocTaken) {
         // The XSL transform may leave the newly-transformed document
         // with references to the symbol dictionaries of the style sheet
         // and any of its children. XML document disposal can corrupt memory
         // if a document uses more than one symbol dictionary, so we
         // ensure that all child stylesheets use the same dictionaries as their
         // parents.
-        xmlDictFree(ctxt->dict);
+        // Only share the parent's dict if the parent still owns the document.
+        // Once m_stylesheetDocTaken is set, libxslt owns the doc and may free
+        // it at any time (e.g. on compilation failure), making the pointer unsafe.
+        SUPPRESS_FORWARD_DECL_ARG xmlDictFree(ctxt->dict);
         ctxt->dict = m_parentStyleSheet->m_stylesheetDoc->dict;
-        xmlDictReference(ctxt->dict);
+        SUPPRESS_FORWARD_DECL_ARG xmlDictReference(ctxt->dict);
     }
 
     m_stylesheetDoc = xmlCtxtReadMemory(ctxt, buffer, size,
@@ -232,9 +245,9 @@ void XSLStyleSheet::loadChildSheets()
 
 void XSLStyleSheet::loadChildSheet(const String& href)
 {
-    auto childRule = makeUnique<XSLImportRule>(this, href);
-    m_children.append(childRule.release());
-    m_children.last()->loadSheet();
+    Ref rule = XSLImportRule::create(*this, href);
+    m_children.append(rule.copyRef());
+    rule->loadSheet();
 }
 
 xsltStylesheetPtr XSLStyleSheet::compileStyleSheet()
@@ -267,19 +280,18 @@ void XSLStyleSheet::setParentStyleSheet(XSLStyleSheet* parent)
 
 Document* XSLStyleSheet::ownerDocument()
 {
-    for (XSLStyleSheet* styleSheet = this; styleSheet; styleSheet = styleSheet->parentStyleSheet()) {
-        Node* node = styleSheet->ownerNode();
-        if (node)
+    for (RefPtr styleSheet = this; styleSheet; styleSheet = styleSheet->parentStyleSheet()) {
+        if (RefPtr node = styleSheet->ownerNode())
             return &node->document();
     }
-    return 0;
+    return nullptr;
 }
 
 xmlDocPtr XSLStyleSheet::locateStylesheetSubResource(xmlDocPtr parentDoc, const xmlChar* uri)
 {
     bool matchedParent = (parentDoc == document());
     for (auto& import : m_children) {
-        XSLStyleSheet* child = import->styleSheet();
+        RefPtr child = import->styleSheet();
         if (!child)
             continue;
         if (matchedParent) {
@@ -302,7 +314,7 @@ xmlDocPtr XSLStyleSheet::locateStylesheetSubResource(xmlDocPtr parentDoc, const 
             }
             continue;
         }
-        xmlDocPtr result = import->styleSheet()->locateStylesheetSubResource(parentDoc, uri);
+        xmlDocPtr result = child->locateStylesheetSubResource(parentDoc, uri);
         if (result)
             return result;
     }

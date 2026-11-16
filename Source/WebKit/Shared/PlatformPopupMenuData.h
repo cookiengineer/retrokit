@@ -25,39 +25,29 @@
 
 #pragma once
 
-#include "FontInfo.h"
-#include "ShareableBitmap.h"
+#include "PlatformFontInfo.h"
 #include <WebCore/PopupMenuStyle.h>
+#include <WebCore/ShareableBitmap.h>
 #include <wtf/text/WTFString.h>
-
-namespace IPC {
-class Decoder;
-class Encoder;
-}
 
 namespace WebKit {
 
 struct PlatformPopupMenuData {
-    PlatformPopupMenuData() = default;
-
-    void encode(IPC::Encoder&) const;
-    static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, PlatformPopupMenuData&);
-    static std::optional<PlatformPopupMenuData> decode(IPC::Decoder&);
-
 #if PLATFORM(COCOA)
-    FontInfo fontInfo;
+    WebCore::InstalledFont font;
     bool shouldPopOver { false };
     bool hideArrows { false };
-    WebCore::PopupMenuStyle::PopupMenuSize menuSize { WebCore::PopupMenuStyle::PopupMenuSize::PopupMenuSizeNormal };
+    WebCore::PopupMenuStyle::Size menuSize { WebCore::PopupMenuStyle::Size::Normal };
 #elif PLATFORM(WIN)
     int m_clientPaddingLeft { 0 };
     int m_clientPaddingRight { 0 };
     int m_clientInsetLeft { 0 };
     int m_clientInsetRight { 0 };
     int m_popupWidth { 0 };
-    int m_itemHeight { 0 };
-    RefPtr<ShareableBitmap> m_notSelectedBackingStore;
-    RefPtr<ShareableBitmap> m_selectedBackingStore;
+    float m_itemHeight { 0 };
+    bool m_isRTL { false };
+    RefPtr<WebCore::ShareableBitmap> m_notSelectedBackingStore;
+    RefPtr<WebCore::ShareableBitmap> m_selectedBackingStore;
 #endif
 };
 

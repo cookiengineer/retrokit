@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,22 +28,25 @@
 
 #pragma once
 
-#include "ConcurrentJSLock.h"
-#include "ConstantMode.h"
-#include "InferredValue.h"
-#include "JSObject.h"
-#include "ScopedArgumentsTable.h"
-#include "TypeLocation.h"
-#include "VarOffset.h"
-#include "VariableEnvironment.h"
-#include "Watchpoint.h"
+#include <JavaScriptCore/ConcurrentJSLock.h>
+#include <JavaScriptCore/ConstantMode.h>
+#include <JavaScriptCore/InferredValue.h>
+#include <JavaScriptCore/JSObject.h>
+#include <JavaScriptCore/LineColumn.h>
+#include <JavaScriptCore/ScopedArgumentsTable.h>
+#include <JavaScriptCore/SourceID.h>
+#include <JavaScriptCore/TypeLocation.h>
+#include <JavaScriptCore/VarOffset.h>
+#include <JavaScriptCore/VariableEnvironment.h>
+#include <JavaScriptCore/Watchpoint.h>
 #include <memory>
 #include <wtf/HashTraits.h>
-#include <wtf/text/SymbolImpl.h>
 
 namespace JSC {
 
+class CodeBlock;
 class SymbolTable;
+struct DebuggerLocation;
 
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(SymbolTableEntryFatEntry);
 
@@ -188,21 +191,11 @@ public:
         freeFatEntry();
     }
     
-    SymbolTableEntry(const SymbolTableEntry& other)
-        : m_bits(SlimFlag)
-    {
-        *this = other;
-    }
-    
-    SymbolTableEntry& operator=(const SymbolTableEntry& other)
-    {
-        if (UNLIKELY(other.isFat()))
-            return copySlow(other);
-        freeFatEntry();
-        m_bits = other.m_bits;
-        return *this;
-    }
-    
+    SymbolTableEntry(const SymbolTableEntry& other);
+
+    SymbolTableEntry& operator=(const SymbolTableEntry& other);
+
+
     SymbolTableEntry(SymbolTableEntry&& other)
         : m_bits(SlimFlag)
     {
@@ -335,7 +328,7 @@ private:
     static const intptr_t FlagBits = 6;
     
     class FatEntry {
-        WTF_MAKE_STRUCT_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(SymbolTableEntryFatEntry);
+        WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(FatEntry, SymbolTableEntryFatEntry);
     public:
         FatEntry(intptr_t bits)
             : m_bits(bits & ~SlimFlag)
@@ -357,23 +350,18 @@ private:
     const FatEntry* fatEntry() const
     {
         ASSERT(isFat());
-        return bitwise_cast<const FatEntry*>(m_bits);
+        return std::bit_cast<const FatEntry*>(m_bits);
     }
     
     FatEntry* fatEntry()
     {
         ASSERT(isFat());
-        return bitwise_cast<FatEntry*>(m_bits);
+        return std::bit_cast<FatEntry*>(m_bits);
     }
     
-    FatEntry* inflate()
-    {
-        if (LIKELY(isFat()))
-            return fatEntry();
-        return inflateSlow();
-    }
+    FatEntry* inflate();
     
-    FatEntry* inflateSlow();
+    FatEntry* NODELETE inflateSlow();
     
     ALWAYS_INLINE intptr_t bits() const
     {
@@ -391,7 +379,7 @@ private:
     
     void freeFatEntry()
     {
-        if (LIKELY(!isFat()))
+        if (!isFat()) [[likely]]
             return;
         freeFatEntrySlow();
     }
@@ -436,7 +424,7 @@ private:
 };
 
 struct SymbolTableIndexHashTraits : HashTraits<SymbolTableEntry> {
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
 };
 
 class SymbolTable final : public JSCell {
@@ -446,33 +434,30 @@ public:
     typedef JSCell Base;
     static constexpr unsigned StructureFlags = Base::StructureFlags | StructureIsImmortal;
 
-    typedef HashMap<RefPtr<UniquedStringImpl>, SymbolTableEntry, IdentifierRepHash, HashTraits<RefPtr<UniquedStringImpl>>, SymbolTableIndexHashTraits> Map;
-    typedef HashMap<RefPtr<UniquedStringImpl>, GlobalVariableID, IdentifierRepHash> UniqueIDMap;
-    typedef HashMap<RefPtr<UniquedStringImpl>, RefPtr<TypeSet>, IdentifierRepHash> UniqueTypeSetMap;
-    typedef HashMap<VarOffset, RefPtr<UniquedStringImpl>> OffsetToVariableMap;
+    typedef UncheckedKeyHashMap<RefPtr<UniquedStringImpl>, SymbolTableEntry, IdentifierRepHash, HashTraits<RefPtr<UniquedStringImpl>>, SymbolTableIndexHashTraits> Map;
+    typedef UncheckedKeyHashMap<RefPtr<UniquedStringImpl>, GlobalVariableID, IdentifierRepHash> UniqueIDMap;
+    typedef UncheckedKeyHashMap<RefPtr<UniquedStringImpl>, RefPtr<TypeSet>, IdentifierRepHash> UniqueTypeSetMap;
+    typedef UncheckedKeyHashMap<VarOffset, RefPtr<UniquedStringImpl>> OffsetToVariableMap;
     typedef Vector<SymbolTableEntry*> LocalToEntryVec;
     typedef WTF::IteratorRange<typename PrivateNameEnvironment::iterator> PrivateNameIteratorRange;
 
     template<typename CellType, SubspaceAccess>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
-        return &vm.symbolTableSpace;
+        return &vm.symbolTableSpace();
     }
 
     static SymbolTable* create(VM& vm)
     {
-        SymbolTable* symbolTable = new (NotNull, allocateCell<SymbolTable>(vm.heap)) SymbolTable(vm);
+        SymbolTable* symbolTable = new (NotNull, allocateCell<SymbolTable>(vm)) SymbolTable(vm);
         symbolTable->finishCreation(vm);
         return symbolTable;
     }
     
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
     static void destroy(JSCell*);
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(CellType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
     // You must hold the lock until after you're done with the iterator.
     Map::iterator find(const ConcurrentJSLocker&, UniquedStringImpl* key)
@@ -485,27 +470,13 @@ public:
         return m_map.find(key);
     }
     
-    SymbolTableEntry get(const ConcurrentJSLocker&, UniquedStringImpl* key)
-    {
-        return m_map.get(key);
-    }
-    
-    SymbolTableEntry get(UniquedStringImpl* key)
-    {
-        ConcurrentJSLocker locker(m_lock);
-        return get(locker, key);
-    }
-    
-    SymbolTableEntry inlineGet(const ConcurrentJSLocker&, UniquedStringImpl* key)
-    {
-        return m_map.inlineGet(key);
-    }
-    
-    SymbolTableEntry inlineGet(UniquedStringImpl* key)
-    {
-        ConcurrentJSLocker locker(m_lock);
-        return inlineGet(locker, key);
-    }
+    SymbolTableEntry get(const ConcurrentJSLocker&, UniquedStringImpl* key);
+
+    SymbolTableEntry get(UniquedStringImpl* key);
+
+    SymbolTableEntry inlineGet(const ConcurrentJSLocker&, UniquedStringImpl* key);
+
+    SymbolTableEntry inlineGet(UniquedStringImpl* key);
     
     Map::iterator begin(const ConcurrentJSLocker&)
     {
@@ -597,22 +568,34 @@ public:
         add(locker, key, std::forward<Entry>(entry));
     }
 
-    bool hasPrivateNames() const { return m_rareData && m_rareData->m_privateNames.size(); }
+    bool hasPrivateNames() const
+    {
+        if (auto* rareData = m_rareData.get())
+            return rareData->m_privateNames.size();
+        return false;
+    }
+
     ALWAYS_INLINE PrivateNameIteratorRange privateNames()
     {
         // Use of the IteratorRange must be guarded to prevent ASSERT failures in checkValidity().
         ASSERT(hasPrivateNames());
-        return makeIteratorRange(m_rareData->m_privateNames.begin(), m_rareData->m_privateNames.end());
+        auto& rareData = ensureRareData();
+        return makeIteratorRange(rareData.m_privateNames.begin(), rareData.m_privateNames.end());
     }
 
     void addPrivateName(const RefPtr<UniquedStringImpl>& key, PrivateNameEntry value)
     {
         ASSERT(key && !key->isSymbol());
-        if (!m_rareData)
-            m_rareData = WTF::makeUnique<SymbolTableRareData>();
+        auto& rareData = ensureRareData();
+        ASSERT(rareData.m_privateNames.find(key) == rareData.m_privateNames.end());
+        rareData.m_privateNames.add(key, value);
+    }
 
-        ASSERT(m_rareData->m_privateNames.find(key) == m_rareData->m_privateNames.end());
-        m_rareData->m_privateNames.add(key, value);
+    bool hasPrivateName(const RefPtr<UniquedStringImpl>& key) const
+    {
+        if (auto* rareData = m_rareData.get())
+            return rareData->m_privateNames.contains(key);
+        return false;
     }
 
     template<typename Entry>
@@ -655,21 +638,7 @@ public:
         return m_arguments->length();
     }
     
-    bool trySetArgumentsLength(VM& vm, uint32_t length)
-    {
-        if (UNLIKELY(!m_arguments)) {
-            ScopedArgumentsTable* table = ScopedArgumentsTable::tryCreate(vm, length);
-            if (UNLIKELY(!table))
-                return false;
-            m_arguments.set(vm, this, table);
-        } else {
-            ScopedArgumentsTable* table = m_arguments->trySetLength(vm, length);
-            if (UNLIKELY(!table))
-                return false;
-            m_arguments.set(vm, this, table);
-        }
-        return true;
-    }
+    bool trySetArgumentsLength(VM& vm, uint32_t length);
 
     ScopeOffset argumentOffset(uint32_t i) const
     {
@@ -677,16 +646,10 @@ public:
         return m_arguments->get(i);
     }
     
-    bool trySetArgumentOffset(VM& vm, uint32_t i, ScopeOffset offset)
-    {
-        ASSERT_WITH_SECURITY_IMPLICATION(m_arguments);
-        auto* maybeCloned = m_arguments->trySet(vm, i, offset);
-        if (!maybeCloned)
-            return false;
-        m_arguments.set(vm, this, maybeCloned);
-        return true;
-    }
+    bool trySetArgumentOffset(VM& vm, uint32_t i, ScopeOffset offset);
     
+    void prepareToWatchScopedArgument(SymbolTableEntry& entry, uint32_t i);
+
     ScopedArgumentsTable* arguments() const
     {
         if (!m_arguments)
@@ -703,8 +666,8 @@ public:
     RefPtr<TypeSet> globalTypeSetForOffset(const ConcurrentJSLocker&, VarOffset, VM&);
     RefPtr<TypeSet> globalTypeSetForVariable(const ConcurrentJSLocker&, UniquedStringImpl* key, VM&);
 
-    bool usesNonStrictEval() const { return m_usesNonStrictEval; }
-    void setUsesNonStrictEval(bool usesNonStrictEval) { m_usesNonStrictEval = usesNonStrictEval; }
+    bool usesSloppyEval() const { return m_usesSloppyEval; }
+    void setUsesSloppyEval(bool usesSloppyEval) { m_usesSloppyEval = usesSloppyEval; }
 
     bool isNestedLexicalScope() const { return m_nestedLexicalScope; }
     void markIsNestedLexicalScope() { ASSERT(scopeType() == LexicalScope); m_nestedLexicalScope = true; }
@@ -714,60 +677,75 @@ public:
         GlobalLexicalScope,
         LexicalScope,
         CatchScope,
+        CatchScopeWithSimpleParameter,
         FunctionNameScope
     };
     void setScopeType(ScopeType type) { m_scopeType = type; }
     ScopeType scopeType() const { return static_cast<ScopeType>(m_scopeType); }
 
-    SymbolTable* cloneScopePart(VM&);
+    enum class PropagateCloneInvalidationToOriginal : bool { No, Yes };
+    SymbolTable* cloneScopePart(VM&, PropagateCloneInvalidationToOriginal);
 
     void prepareForTypeProfiling(const ConcurrentJSLocker&);
 
-    CodeBlock* rareDataCodeBlock();
-    void setRareDataCodeBlock(CodeBlock*);
-    
-    InferredValue<JSScope>& singleton() { return m_singleton; }
+    String NODELETE inferredName();
+    DebuggerLocation NODELETE debuggerLocation();
+    void collectDebuggerInfo(CodeBlock*);
 
-    void notifyCreation(VM& vm, JSScope* scope, const char* reason)
-    {
-        m_singleton.notifyWrite(vm, this, scope, reason);
-    }
+    InferredValue<JSScope>& singleton() LIFETIME_BOUND { return m_singleton; }
+
+    void notifyCreation(VM&, JSScope*, const char* reason);
 
     DECLARE_VISIT_CHILDREN;
 
     DECLARE_EXPORT_INFO;
 
-    void finalizeUnconditionally(VM&);
+#if ASSERT_ENABLED
+    bool hasScopedWatchpointSet(WatchpointSet*);
+#endif
+
+    void finalizeUnconditionally(VM&, CollectionScope);
     void dump(PrintStream&) const;
+
+    struct SymbolTableRareData {
+        WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(SymbolTableRareData);
+        UniqueIDMap m_uniqueIDMap;
+        OffsetToVariableMap m_offsetToVariableMap;
+        UniqueTypeSetMap m_uniqueTypeSetMap;
+        String m_inferredName;
+        SourceID m_debuggerSourceID { 0 };
+        LineColumn m_debuggerLineColumn;
+        PrivateNameEnvironment m_privateNames;
+    };
 
 private:
     JS_EXPORT_PRIVATE SymbolTable(VM&);
     ~SymbolTable();
+    SymbolTableRareData& ensureRareData()
+    {
+        if (m_rareData) [[likely]]
+            return *m_rareData;
+        return ensureRareDataSlow();
+    }
     
-    JS_EXPORT_PRIVATE void finishCreation(VM&);
+    DECLARE_DEFAULT_FINISH_CREATION;
+    JS_EXPORT_PRIVATE SymbolTableRareData& ensureRareDataSlow();
 
     Map m_map;
     ScopeOffset m_maxScopeOffset;
 public:
     mutable ConcurrentJSLock m_lock;
 
-    struct SymbolTableRareData {
-        WTF_MAKE_STRUCT_FAST_ALLOCATED;
-        UniqueIDMap m_uniqueIDMap;
-        OffsetToVariableMap m_offsetToVariableMap;
-        UniqueTypeSetMap m_uniqueTypeSetMap;
-        WriteBarrier<CodeBlock> m_codeBlock;
-        PrivateNameEnvironment m_privateNames;
-    };
-
 private:
-    unsigned m_usesNonStrictEval : 1;
+    unsigned m_usesSloppyEval : 1;
     unsigned m_nestedLexicalScope : 1; // Non-function LexicalScope.
     unsigned m_scopeType : 3; // ScopeType
+    PropagateCloneInvalidationToOriginal m_propagateCloneInvalidationToOriginal : 1 { PropagateCloneInvalidationToOriginal::No };
 
     std::unique_ptr<SymbolTableRareData> m_rareData;
 
     WriteBarrier<ScopedArgumentsTable> m_arguments;
+    WriteBarrier<SymbolTable> m_clonedFrom;
     InferredValue<JSScope> m_singleton;
     
     std::unique_ptr<LocalToEntryVec> m_localToEntry;

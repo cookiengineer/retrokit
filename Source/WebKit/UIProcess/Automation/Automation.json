@@ -83,7 +83,12 @@
                 "ElementNotSelectable",
                 "ScreenshotError",
                 "UnexpectedAlertOpen",
-                "TargetOutOfBounds"
+                "TargetOutOfBounds",
+                "UnableToLoadExtension",
+                "UnableToUnloadExtension",
+                "NoSuchExtension",
+                "NoSuchUserContext",
+                "NoSuchScript"
             ]
         },
         {
@@ -128,7 +133,9 @@
                 "None",
                 "Left",
                 "Middle",
-                "Right"
+                "Right",
+                "Back",
+                "Forward"
             ]
         },
         {
@@ -157,6 +164,7 @@
                 "Meta",
                 "MetaRight",
                 "Command",
+                "CommandRight",
                 "Cancel",
                 "Help",
                 "Backspace",
@@ -329,11 +337,83 @@
                 { "name": "pressedCharKey", "type": "string", "optional": true, "description": "For 'keyboard' input sources, specifies a character key that has 'pressed' state. Unmentioned character keys are assumed to have a 'released' state." },
                 { "name": "pressedVirtualKeys", "type": "array", "items": { "$ref": "VirtualKey" }, "optional": true, "description": "For 'keyboard' input sources, specifies virtual keys that have a 'pressed' state. Unmentioned virtual keys are assumed to have a 'released' state." },
                 { "name": "pressedButton", "$ref": "MouseButton", "optional": true, "description": "For 'mouse' input sources, specifies which mouse button has a 'pressed' state. Unmentioned mouse buttons are assumed to have a 'released' state. For 'touch' input sources, passing MouseButton::Left denotes a touch-down state." },
+                { "name": "mouseInteraction", "$ref": "MouseInteraction", "optional": true, "description": "For 'mouse' input sources, specifies which type of interaction took place. If unmentioned and the interaction cannot be determined through other heuristics, the state is dropped."},
                 { "name": "origin", "$ref": "MouseMoveOrigin", "optional": true, "description": "For 'mouse' or 'wheel' input sources, specifies the origin type of a mouse move transition. Defaults to 'Viewport' if omitted."},
                 { "name": "nodeHandle", "$ref": "NodeHandle", "optional": true, "description": "The handle of the element to use as origin when origin type is 'Element'."},
                 { "name": "location", "$ref": "Point", "optional": true, "description": "For 'mouse', 'wheel' or 'touch' input sources, specifies a location in view coordinates to which the input source should transition. Transitioning to this state may interpolate intemediate input source states to better simulate real user movements and gestures." },
                 { "name": "delta", "$ref": "Size", "optional": true, "description": "For 'wheel' input sources, specifies a scroll delta."},
                 { "name": "duration", "type": "integer", "optional": true, "description": "The minimum number of milliseconds that must elapse while the relevant input source transitions to this state." }
+            ]
+        },
+        {
+            "id": "AuthenticatorProtocol",
+            "type": "string",
+            "description": "This enum contains the different protocol types supported by virtual authenticators.",
+            "enum": [
+                "ctap1_u2f",
+                "ctap2",
+                "ctap2_1"
+            ]
+        },
+        {
+            "id": "AuthenticatorTransport",
+            "type": "string",
+            "description": "Authenticators may implement various transports for communicating with clients. This enumeration defines hints as to how clients might communicate with a particular authenticator in order to obtain an assertion for a specific credential.",
+            "enum": [
+                "usb",
+                "nfc",
+                "ble",
+                "internal"
+            ]
+        },
+        {
+            "id": "VirtualAuthenticatorCredential",
+            "type": "object",
+            "description": "A credential object used for virtual authenticators.",
+            "properties": [
+                { "name": "credentialId", "type": "string", "description": "The Credential ID encoded using Base64url Encoding."},
+                { "name": "isResidentCredential", "type": "boolean", "description": "If set to true, a client-side discoverable credential is created. If set to false, a server-side credential is created instead."},
+                { "name": "rpId", "type": "string", "description": "The Relying Party ID the credential is scoped to."},
+                { "name": "privateKey", "type": "string", "description": "An asymmetric key package containing a single private key per [RFC5958], encoded using Base64url Encoding." },
+                { "name": "userHandle", "type": "string", "optional": true, "description": "The userHandle associated to the credential encoded using Base64url Encoding. This property may not be defined." },
+                { "name": "signCount", "type": "integer", "description": "The initial value for a signature counter associated to the public key credential source." },
+                { "name": "largeBlob", "type": "string", "optional": true, "description": "The large, per-credential blob associated to the public key credential source, encoded using Base64url Encoding. This property may not be defined." }
+            ]
+        },
+        {
+            "id": "VirtualAuthenticatorConfiguration",
+            "type": "object",
+            "description": "Parameters used when creating a virtual authenticator",
+            "properties": [
+                { "name": "protocol", "$ref": "AuthenticatorProtocol", "description": "The protocol of the authenticator" },
+                { "name": "transport", "$ref": "AuthenticatorTransport", "description": "The transport of the protocol" },
+                { "name": "hasResidentKey", "type": "boolean", "optional": true, "description": "If the authenticator has a resident key" },
+                { "name": "hasUserVerification", "type": "boolean", "optional": true, "description": "If the authenticator supports user verification" },
+                { "name": "isUserConsenting", "type": "boolean", "optional": true, "description": "If the virtual authenticator should consent to requests"},
+                { "name": "isUserVerified", "type": "boolean", "optional": true, "description": "If user verification requests should succeeed"},
+                { "name": "extensions", "type": "array", "items": {"type": "string"}, "optional": true, "description": "An array containing extension identifiers" },
+                { "name": "uvm", "type": "array", "items": {"type": "integer"}, "optional": true, "description": "Up to 3 User Verification Method entries"}
+            ]
+        },
+        {
+            "id": "WebExtensionResourceOptions",
+            "type": "string",
+            "description": "The format of the resource used to load the web extension.",
+            "enum": [
+                "Path",
+                "ArchivePath",
+                "Base64"
+            ]
+        },
+        {
+            "id": "PermissionState",
+            "type": "string",
+            "spec": "https://www.w3.org/TR/permissions/#dom-permissionstate",
+            "description": "Values represent the concept of a permission state.",
+            "enum": [
+                "granted",
+                "denied",
+                "prompt"
             ]
         }
     ],
@@ -374,11 +454,25 @@
             "description": "Try to close the specified browsing context. This can trigger an unload prompt and thereafter succeed or fail.",
             "parameters": [
                 { "name": "handle", "$ref": "BrowsingContextHandle", "description": "The handle for the browsing context that should be closed." }
-            ]
+            ],
+            "async": true
+        },
+        {
+            "name": "deleteSession",
+            "description": "Closes the automation session. Deletion of browsing contexts is handled by separate previous closeBrowsingContext commands."
         },
         {
             "name": "switchToBrowsingContext",
             "description": "Activates the specified browsing context and optional frame, which gives them focus (causing the 'focus' DOM event to fire, and 'blur' DOM event to fire for the previous browsing context and frame).",
+            "parameters": [
+                { "name": "browsingContextHandle", "$ref": "BrowsingContextHandle", "description": "The handle for the browsing context that should be made focused." },
+                { "name": "frameHandle", "$ref": "FrameHandle", "optional": true, "description": "The handle for the frame that should be focused. Defaults to the main frame if omitted." }
+            ],
+            "async": true
+        },
+        {
+            "name": "resolveBrowsingContext",
+            "description": "Validates that the specified browsing context exists. Command fails with <code>WindowNotFound</code> or <code>FrameNotFound</code> if the browsing context is invalid. Does not depend on user prompt handler behaviors.",
             "parameters": [
                 { "name": "browsingContextHandle", "$ref": "BrowsingContextHandle", "description": "The handle for the browsing context that should be made focused." },
                 { "name": "frameHandle", "$ref": "FrameHandle", "optional": true, "description": "The handle for the frame that should be focused. Defaults to the main frame if omitted." }
@@ -482,6 +576,7 @@
                 { "name": "function", "type": "string", "description": "The script to evaluate in the browsing context. It must be a function result." },
                 { "name": "arguments", "type": "array", "items": { "type": "string" }, "description": "The arguments to pass to the function when called. They will be parsed as JSON before calling the function." },
                 { "name": "expectsImplicitCallbackArgument", "type": "boolean", "optional": true, "description": "The function expects a callback function as the last argument. It is expected to call this callback with a result." },
+                { "name": "forceUserGesture", "type": "boolean", "optional": true, "description": "Force a user gesture when the script is evaluated. Defaults to false if omitted." },
                 { "name": "callbackTimeout", "type": "number", "optional": true, "description": "The timeout in milliseconds that the implicit callback is expected to be called in, otherwise a <code>JavaScriptTimeout</code> error is returned." }
             ],
             "returns": [
@@ -589,6 +684,32 @@
                 { "name": "rect", "$ref": "Rect", "description": "The layout rect for the requested element. Values are converted to the requested coordinate system." },
                 { "name": "inViewCenterPoint", "optional": true, "$ref": "Point", "description": "The in-view center point for the requested element. Values are converted to the requested coordinate system." },
                 { "name": "isObscured", "type": "boolean", "description": "If the in-view center point of the requested element is obscured by another element." }
+            ],
+            "async": true
+        },
+        {
+            "name": "getComputedRole",
+            "description": "Get the computed WAI-ARIA role of the element.",
+            "parameters": [
+                { "name": "browsingContextHandle", "$ref": "BrowsingContextHandle", "description": "The handle for the browsing context." },
+                { "name": "frameHandle", "$ref": "FrameHandle", "description": "The handle for the frame that contains the element. The main frame is used if this parameter is empty string." },
+                { "name": "nodeHandle", "$ref": "NodeHandle", "description": "The handle of the element to get the role of." }
+            ],
+            "returns": [
+                { "name": "role", "type": "string", "description": "The computed WAI-ARIA role of the element." }
+            ],
+            "async": true
+        },
+        {
+            "name": "getComputedLabel",
+            "description": "Get the Accessible Name and Description Computation computed accessible name of the element.",
+            "parameters": [
+                { "name": "browsingContextHandle", "$ref": "BrowsingContextHandle", "description": "The handle for the browsing context." },
+                { "name": "frameHandle", "$ref": "FrameHandle", "description": "The handle for the frame that contains the element. The main frame is used if this parameter is empty string." },
+                { "name": "nodeHandle", "$ref": "NodeHandle", "description": "The handle of the element to get the label of." }
+            ],
+            "returns": [
+                { "name": "label", "type": "string", "description": "The computed label for the element." }
             ],
             "async": true
         },
@@ -713,6 +834,160 @@
             "parameters": [
                 { "name": "permissions", "type": "array", "items": { "$ref": "SessionPermissionData" }, "description": "Array of session permissions to set, if they are available." }
             ]
+        },
+        {
+            "name": "addVirtualAuthenticator",
+            "description": "Adds a virtual web authentication authenticator for the specified browsing context.",
+            "parameters": [
+                { "name": "browsingContextHandle", "$ref": "BrowsingContextHandle", "description": "The handle for the browsing context." },
+                { "name": "authenticator", "$ref": "VirtualAuthenticatorConfiguration", "description": "The configuration for the virtual authenticator to be created." }
+            ],
+            "returns": [
+                { "name": "authenticatorId", "type": "string", "description": "The authenticatorId of the created authenticator" }
+            ]
+        },
+        {
+            "name": "removeVirtualAuthenticator",
+            "description": "Removes a virtual web authentication authenticator for the specified browsing context.",
+            "parameters": [
+                { "name": "browsingContextHandle", "$ref": "BrowsingContextHandle", "description": "The handle for the browsing context." },
+                { "name": "authenticatorId", "type": "string", "description": "The virtual authenticator id to remove." }
+            ]
+        },
+        {
+            "name": "addVirtualAuthenticatorCredential",
+            "description": "Add a credential to a specified virutal authenticator for the specified browsing context",
+            "parameters": [
+                { "name": "browsingContextHandle", "$ref": "BrowsingContextHandle", "description": "The handle for the browsing context." },
+                { "name": "authenticatorId", "type": "string", "description": "The virtual authenticator id to add the credential to." },
+                { "name": "credential", "$ref": "VirtualAuthenticatorCredential", "description": "The parameters of the credential to add." }
+            ]
+        },
+        {
+            "name": "getVirtualAuthenticatorCredentials",
+            "description": "Get all credentials for a given virtual authenticator for the specified browsing context",
+            "parameters": [
+                { "name": "browsingContextHandle", "$ref": "BrowsingContextHandle", "description": "The handle for the browsing context." },
+                { "name": "authenticatorId", "type": "string", "description": "The virtual authenticator id to fetch all credentials for." }
+            ],
+            "returns": [
+                { "name": "credentials", "type": "array", "items": { "$ref": "VirtualAuthenticatorCredential" }, "description": "Array of credentials for given virtual authenticator" }
+            ]
+        },
+        {
+            "name": "removeVirtualAuthenticatorCredential",
+            "description": "Remove a credential from a virtual authenticator for the specified browsing context",
+            "parameters": [
+                { "name": "browsingContextHandle", "$ref": "BrowsingContextHandle", "description": "The handle for the browsing context." },
+                { "name": "authenticatorId", "type": "string", "description": "The virtual authenticator id to fetch all credentials for." },
+                { "name": "credentialId", "type": "string", "description": "The credentialId of the credential to remove from the virtual authenticator"}
+            ]
+        },
+        {
+            "name": "removeAllVirtualAuthenticatorCredentials",
+            "description": "Remove all credentials from a given virtual authenticatior for the specified browsing context",
+            "parameters": [
+                { "name": "browsingContextHandle", "$ref": "BrowsingContextHandle", "description": "The handle for the browsing context." },
+                { "name": "authenticatorId", "type": "string", "description": "The virtual authenticator id to fetch all credentials for." }
+            ]
+        },
+        {
+            "name": "setVirtualAuthenticatorUserVerified",
+            "description": "set isUserVerified property for a given virtual authenticator for the specified browsing context",
+            "parameters": [
+                { "name": "browsingContextHandle", "$ref": "BrowsingContextHandle", "description": "The handle for the browsing context." },
+                { "name": "authenticatorId", "type": "string", "description": "The virtual authenticator id to fetch all credentials for." },
+                { "name": "isUserVerified", "type": "boolean", "description": "The isUserVerified value to set on the given virtual authenticator"}
+            ]
+        },
+        {
+            "name": "generateTestReport",
+            "description": "generate a test report for the specified browsing context",
+            "parameters": [
+                { "name": "browsingContextHandle", "$ref": "BrowsingContextHandle", "description": "The handle for the browsing context." },
+                { "name": "message", "type": "string", "description": "The body message for the generated test report." },
+                { "name": "group", "type": "string", "description": "The group value to use when sending a test report."}
+            ]
+        },
+        {
+            "name": "loadWebExtension",
+            "description": "Loads a web extension in the automation session.",
+            "platform": "macos",
+            "condition": "defined(WTF_PLATFORM_MAC) && WTF_PLATFORM_MAC",
+            "parameters": [
+                { "name": "type", "$ref": "WebExtensionResourceOptions", "optional": false, "description": "A hint for the resource format used to load the extension." },
+                { "name": "value", "type": "string", "description": "One of the following: the path to the extension, the path to the extension's archive, or the base 64 encoded data of the extension's archive." }
+            ],
+            "returns": [
+                { "name": "extension", "type": "string", "description": "The unique identifier of the extension." }
+            ],
+            "async": true
+        },
+        {
+            "name": "unloadWebExtension",
+            "description": "Unloads a web extension in the automation session.",
+            "platform": "macos",
+            "condition": "defined(WTF_PLATFORM_MAC) && WTF_PLATFORM_MAC",
+            "parameters": [
+                { "name": "identifier", "type": "string", "description": "The identifier of the extension to unload." }
+            ],
+            "async": true
+        },
+        {
+            "name": "setStorageAccessPermissionState",
+            "description": "Simulates user modification of a PermissionDescriptor's permission status for storage-access.",
+            "spec": "https://www.w3.org/TR/permissions/#webdriver-command-set-permission",
+            "parameters": [
+                { "name": "browsingContextHandle", "$ref": "BrowsingContextHandle", "description": "The handle for the targeted browsing context." },
+                { "name": "frameHandle", "$ref": "FrameHandle", "description": "The handle for the frame to set storage access permission for." },
+                { "name": "state", "$ref": "PermissionState", "description": "The new state to be applied to the permission." }
+            ],
+            "async": true
+        },
+        {
+            "name": "setStorageAccessPolicy",
+            "description": "Modifies the storage access policy for the specified browsing context.",
+            "spec": "https://privacycg.github.io/storage-access/#set-storage-access-command",
+            "parameters": [
+                { "name": "browsingContextHandle", "$ref": "BrowsingContextHandle", "description": "The handle for the browsing context." },
+                { "name": "blocked", "type": "boolean", "description": "Whether to block third-party cookie storage access." }
+            ],
+            "async": true
+        },
+        {
+            "name": "performApplicationCommand",
+            "description": "Perform a named command by delegating to the automation session client application.",
+            "parameters": [
+                { "name": "browsingContextHandle", "$ref": "BrowsingContextHandle", "description": "The handle for the targeted browsing context." },
+                { "name": "commandName", "type": "string", "description": "The name of the command to perform." },
+                { "name": "arguments", "type": "string", "description": "JSON-encoded command arguments." }
+            ],
+            "returns": [
+                { "name": "result", "type": "string", "description": "JSON-encoded command result." }
+            ],
+            "async": true
+        },
+        {
+            "name": "processBidiMessage",
+            "description": "Relay a WebDriver Bidi message from the client to be processed by the automation session.",
+            "condition": "ENABLE(WEBDRIVER_BIDI)",
+            "parameters": [
+                { "name": "message", "type": "string", "description": "A Bidi message sent by the client to WebKit, encoded as a UTF-8 JSON literal." }
+            ]
+        },
+        {
+            "name": "sendInspectorMessage",
+            "description": "Relay a Web Inspector backend message from the client into the given browsing context's Inspector controller. Available when the session is configured to permit Inspector-protocol testing over the Automation transport.",
+            "condition": "ENABLE(REMOTE_INSPECTOR)",
+            "parameters": [
+                { "name": "browsingContextHandle", "$ref": "BrowsingContextHandle", "description": "The handle for the browsing context whose Inspector controller should receive the message." },
+                { "name": "message", "type": "string", "description": "An Inspector backend message sent by the client to WebKit, encoded as a UTF-8 JSON literal." }
+            ]
+        },
+        {
+            "name": "emitActiveBidiScriptRealmCreatedEvents",
+            "description": "Emit script.realmCreated events for currently active realms in the automation session.",
+            "condition": "ENABLE(WEBDRIVER_BIDI)"
         }
     ],
     "events": [
@@ -730,6 +1005,23 @@
             "description": "Fired when the specified browsing context has navigated or closed. Existing element references from the browsing context are no longer valid.",
             "parameters": [
                 { "name": "browsingContextHandle", "$ref": "BrowsingContextHandle" }
+            ]
+        },
+        {
+            "name": "bidiMessageSent",
+            "description": "Relay a WebDriver Bidi message from the automation session to be processed by the client.",
+            "condition": "ENABLE(WEBDRIVER_BIDI)",
+            "parameters": [
+                { "name": "message", "type": "string", "description": "A Bidi message sent by WebKit to the client, encoded as a UTF-8 JSON literal." }
+            ]
+        },
+        {
+            "name": "receiveInspectorMessage",
+            "description": "Relay a Web Inspector backend message from a browsing context's Inspector controller back to the client.",
+            "condition": "ENABLE(REMOTE_INSPECTOR)",
+            "parameters": [
+                { "name": "browsingContextHandle", "$ref": "BrowsingContextHandle", "description": "The handle for the browsing context whose Inspector controller emitted the message." },
+                { "name": "message", "type": "string", "description": "An Inspector backend message sent by WebKit to the client, encoded as a UTF-8 JSON literal." }
             ]
         }
     ]

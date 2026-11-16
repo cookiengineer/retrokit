@@ -31,15 +31,15 @@
 
 namespace WebCore {
 
-FileMonitor::FileMonitor(const String& path, Ref<WorkQueue>&& handlerQueue, WTF::Function<void(FileChangeType)>&& modificationHandler)
-    : m_handlerQueue(WTFMove(handlerQueue))
-    , m_modificationHandler(WTFMove(modificationHandler))
+FileMonitor::FileMonitor(const String& path, Ref<WorkQueue>&& handlerQueue, Function<void(FileChangeType)>&& modificationHandler)
+    : m_handlerQueue(WTF::move(handlerQueue))
+    , m_modificationHandler(WTF::move(modificationHandler))
 {
     if (path.isEmpty() || !m_modificationHandler)
         return;
 
     Function<void ()> createPlatformMonitor = [&] {
-        auto file = adoptGRef(g_file_new_for_path(FileSystem::fileSystemRepresentation(path).data()));
+        GRefPtr file = adoptGRef(g_file_new_for_path(FileSystem::fileSystemRepresentation(path).data()));
         GUniqueOutPtr<GError> error;
         m_platformMonitor = adoptGRef(g_file_monitor(file.get(), G_FILE_MONITOR_NONE, nullptr, &error.outPtr()));
         if (m_platformMonitor)
@@ -49,12 +49,12 @@ FileMonitor::FileMonitor(const String& path, Ref<WorkQueue>&& handlerQueue, WTF:
     };
 
     // The monitor can be created in the work queue thread.
-    if (&m_handlerQueue->runLoop() == &RunLoop::current()) {
+    if (m_handlerQueue->isCurrent()) {
         createPlatformMonitor();
         return;
     }
 
-    m_handlerQueue->dispatchSync([createPlatformMonitor = WTFMove(createPlatformMonitor)] {
+    m_handlerQueue->dispatchSync([createPlatformMonitor = WTF::move(createPlatformMonitor)] {
         createPlatformMonitor();
     });
 }
@@ -62,7 +62,7 @@ FileMonitor::FileMonitor(const String& path, Ref<WorkQueue>&& handlerQueue, WTF:
 FileMonitor::~FileMonitor()
 {
     // The monitor can be destroyed in the work queue thread.
-    if (&m_handlerQueue->runLoop() == &RunLoop::current()) {
+    if (m_handlerQueue->isCurrent()) {
         cancel();
         return;
     }

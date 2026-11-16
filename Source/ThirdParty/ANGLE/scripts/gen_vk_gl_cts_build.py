@@ -1,3 +1,4 @@
+#!/usr/bin/python3
 #  Copyright 2019 The ANGLE Project Authors. All rights reserved.
 #  Use of this source code is governed by a BSD-style license that can be
 #  found in the LICENSE file.
@@ -18,7 +19,14 @@ def initDataDirectories(dataDirectories):
     dataDirectories.append(os.path.join("data", "gles3"))
     dataDirectories.append(os.path.join("data", "gles31"))
     dataDirectories.append(os.path.join("external", "graphicsfuzz", "data", "gles3"))
-    dataDirectories.append(os.path.join("external", "openglcts", "data", "gles3"))
+    dataDirectories.append(
+        os.path.join("external", "openglcts", "data", "gl_cts", "data", "common"))
+    dataDirectories.append(
+        os.path.join("external", "openglcts", "data", "gl_cts", "data", "gles3"))
+    dataDirectories.append(
+        os.path.join("external", "openglcts", "data", "gl_cts", "data", "gles31"))
+    dataDirectories.append(
+        os.path.join("external", "openglcts", "data", "gl_cts", "data", "gles32"))
 
 
 def initPathReplacements(pathReplacements):
@@ -27,7 +35,7 @@ def initPathReplacements(pathReplacements):
     pathReplacements[pathToReplace] = ""
     # The KHR dEQP tests expect a root prefix of "gl_cts" for some reason.
     pathToReplace = os.path.join("external", "openglcts", "")  # Include trailing slash
-    pathReplacements[pathToReplace] = os.path.join("data", "gl_cts", "")
+    pathReplacements[pathToReplace] = ""
 
 
 def createBuildGnFile(buildGnPath):

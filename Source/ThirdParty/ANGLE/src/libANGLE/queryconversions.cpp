@@ -7,6 +7,7 @@
 // queryconversions.cpp: Implementation of state query cast conversions
 
 #include "libANGLE/queryconversions.h"
+#include "common/unsafe_buffers.h"
 
 #include <vector>
 
@@ -54,6 +55,22 @@ QueryT CastFromStateValueToInt(GLenum pname, NativeT value)
     return clampCast<QueryT>(value);
 }
 
+template <typename QueryT, typename NativeT>
+QueryT CastFromStateValueToFloat(GLenum pname, NativeT value)
+{
+    switch (pname)
+    {
+        // For mask values, their floating-point values should be positive, not -1.
+        case GL_STENCIL_VALUE_MASK:
+        case GL_STENCIL_BACK_VALUE_MASK:
+        case GL_STENCIL_WRITEMASK:
+        case GL_STENCIL_BACK_WRITEMASK:
+            return static_cast<QueryT>(static_cast<GLuint>(value));
+        default:
+            return static_cast<QueryT>(value);
+    }
+}
+
 template <typename NativeT, typename QueryT>
 NativeT CastQueryValueToInt(GLenum pname, QueryT value)
 {
@@ -78,11 +95,6 @@ NativeT CastQueryValueToInt(GLenum pname, QueryT value)
 
 }  // anonymous namespace
 
-GLint CastMaskValue(GLuint value)
-{
-    return clampCast<GLint>(value);
-}
-
 template <typename QueryT, typename InternalT>
 QueryT CastFromGLintStateValue(GLenum pname, InternalT value)
 {
@@ -99,6 +111,9 @@ template GLint CastFromGLintStateValue<GLint, GLint>(GLenum pname, GLint value);
 template GLfloat CastFromGLintStateValue<GLfloat, bool>(GLenum pname, bool value);
 template GLuint CastFromGLintStateValue<GLuint, bool>(GLenum pname, bool value);
 template GLint CastFromGLintStateValue<GLint, bool>(GLenum pname, bool value);
+template GLfloat CastFromGLintStateValue<GLfloat, GLfloat>(GLenum pname, GLfloat value);
+template GLint CastFromGLintStateValue<GLint, GLfloat>(GLenum pname, GLfloat value);
+template GLuint CastFromGLintStateValue<GLuint, GLfloat>(GLenum pname, GLfloat value);
 
 template <typename QueryT, typename NativeT>
 QueryT CastFromStateValue(GLenum pname, NativeT value)
@@ -108,12 +123,12 @@ QueryT CastFromStateValue(GLenum pname, NativeT value)
     switch (queryType)
     {
         case GL_INT:
-        case GL_INT_64_ANGLEX:
+        case GL_INT64:
         case GL_UNSIGNED_INT:
-        case GL_UINT_64_ANGLEX:
+        case GL_UNSIGNED_INT64:
             return CastFromStateValueToInt<QueryT, NativeT>(pname, value);
         case GL_FLOAT:
-            return static_cast<QueryT>(value);
+            return CastFromStateValueToFloat<QueryT, NativeT>(pname, value);
         case GL_BOOL:
             return static_cast<QueryT>(value == static_cast<NativeT>(0) ? GL_FALSE : GL_TRUE);
         default:
@@ -146,9 +161,9 @@ NativeT CastQueryValueTo(GLenum pname, QueryT value)
     switch (nativeType)
     {
         case GL_INT:
-        case GL_INT_64_ANGLEX:
+        case GL_INT64:
         case GL_UNSIGNED_INT:
-        case GL_UINT_64_ANGLEX:
+        case GL_UNSIGNED_INT64:
             return CastQueryValueToInt<NativeT, QueryT>(pname, value);
         case GL_FLOAT:
             return static_cast<NativeT>(value);
@@ -185,7 +200,7 @@ void CastStateValues(const Context *context,
 
         for (unsigned int i = 0; i < numParams; ++i)
         {
-            outParams[i] = CastFromStateValue<QueryT>(pname, intParams[i]);
+            ANGLE_UNSAFE_TODO(outParams[i]) = CastFromStateValue<QueryT>(pname, intParams[i]);
         }
     }
     else if (nativeType == GL_BOOL)
@@ -195,7 +210,7 @@ void CastStateValues(const Context *context,
 
         for (unsigned int i = 0; i < numParams; ++i)
         {
-            outParams[i] =
+            ANGLE_UNSAFE_TODO(outParams[i]) =
                 (boolParams[i] == GL_FALSE ? static_cast<QueryT>(0) : static_cast<QueryT>(1));
         }
     }
@@ -206,21 +221,23 @@ void CastStateValues(const Context *context,
 
         for (unsigned int i = 0; i < numParams; ++i)
         {
-            outParams[i] = CastFromStateValue<QueryT>(pname, floatParams[i]);
+            ANGLE_UNSAFE_TODO(outParams[i]) = CastFromStateValue<QueryT>(pname, floatParams[i]);
         }
     }
-    else if (nativeType == GL_INT_64_ANGLEX)
+    else if (nativeType == GL_INT64)
     {
         std::vector<GLint64> int64Params(numParams, 0);
         context->getInteger64vImpl(pname, int64Params.data());
 
         for (unsigned int i = 0; i < numParams; ++i)
         {
-            outParams[i] = CastFromStateValue<QueryT>(pname, int64Params[i]);
+            ANGLE_UNSAFE_TODO(outParams[i]) = CastFromStateValue<QueryT>(pname, int64Params[i]);
         }
     }
     else
-        UNREACHABLE();
+    {
+        WARN() << "Application querying parameter that does not exist.";
+    }
 }
 
 // Explicit template instantiation (how we export template functions in different files)
@@ -252,7 +269,7 @@ void CastIndexedStateValues(Context *context,
 
         for (unsigned int i = 0; i < numParams; ++i)
         {
-            outParams[i] = CastFromStateValue<QueryT>(pname, intParams[i]);
+            ANGLE_UNSAFE_TODO(outParams[i]) = CastFromStateValue<QueryT>(pname, intParams[i]);
         }
     }
     else if (nativeType == GL_BOOL)
@@ -262,18 +279,18 @@ void CastIndexedStateValues(Context *context,
 
         for (unsigned int i = 0; i < numParams; ++i)
         {
-            outParams[i] =
+            ANGLE_UNSAFE_TODO(outParams[i]) =
                 (boolParams[i] == GL_FALSE ? static_cast<QueryT>(0) : static_cast<QueryT>(1));
         }
     }
-    else if (nativeType == GL_INT_64_ANGLEX)
+    else if (nativeType == GL_INT64)
     {
         std::vector<GLint64> int64Params(numParams, 0);
         context->getInteger64i_v(pname, index, int64Params.data());
 
         for (unsigned int i = 0; i < numParams; ++i)
         {
-            outParams[i] = CastFromStateValue<QueryT>(pname, int64Params[i]);
+            ANGLE_UNSAFE_TODO(outParams[i]) = CastFromStateValue<QueryT>(pname, int64Params[i]);
         }
     }
     else

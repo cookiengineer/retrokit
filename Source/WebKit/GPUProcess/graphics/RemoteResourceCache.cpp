@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,127 +28,143 @@
 
 #if ENABLE(GPU_PROCESS)
 
+#include <WebCore/Filter.h>
+#include <WebCore/Font.h>
+#include <WebCore/FontCustomPlatformData.h>
+#include <WebCore/Gradient.h>
+#include <WebCore/ImageBuffer.h>
+#include <WebCore/NativeImage.h>
+
 namespace WebKit {
 using namespace WebCore;
 
-void RemoteResourceCache::cacheImageBuffer(Ref<ImageBuffer>&& imageBuffer)
-{
-    auto renderingResourceIdentifier = imageBuffer->renderingResourceIdentifier();
-    m_imageBuffers.add(renderingResourceIdentifier, WTFMove(imageBuffer));
+RemoteResourceCache::RemoteResourceCache() = default;
 
-    ensureResourceUseCounter(renderingResourceIdentifier);
+RemoteResourceCache::~RemoteResourceCache() = default;
+
+bool RemoteResourceCache::cacheNativeImage(WebCore::RenderingResourceIdentifier identifier, Ref<NativeImage>&& image)
+{
+    return m_nativeImages.add(identifier, WTF::move(image)).isNewEntry;
 }
 
-ImageBuffer* RemoteResourceCache::cachedImageBuffer(RenderingResourceIdentifier renderingResourceIdentifier)
+bool RemoteResourceCache::releaseNativeImage(RenderingResourceIdentifier identifier)
 {
-    return m_imageBuffers.get(renderingResourceIdentifier);
+    return m_nativeImages.remove(identifier);
 }
 
-void RemoteResourceCache::cacheNativeImage(Ref<NativeImage>&& image)
+RefPtr<NativeImage> RemoteResourceCache::cachedNativeImage(RenderingResourceIdentifier identifier) const
 {
-    auto renderingResourceIdentifier = image->renderingResourceIdentifier();
-    m_nativeImages.add(renderingResourceIdentifier, WTFMove(image));
-
-    ensureResourceUseCounter(renderingResourceIdentifier);
+    return m_nativeImages.get(identifier);
 }
 
-void RemoteResourceCache::cacheFont(Ref<Font>&& font)
+bool RemoteResourceCache::cachePathImpl(RemotePathImplIdentifier identifier, Ref<PathImpl>&& path)
 {
-    auto renderingResourceIdentifier = font->renderingResourceIdentifier();
-    m_fonts.add(renderingResourceIdentifier, WTFMove(font));
-
-    ensureResourceUseCounter(renderingResourceIdentifier);
+    return m_paths.add(identifier, WTF::move(path)).isNewEntry;
 }
 
-void RemoteResourceCache::ensureResourceUseCounter(RenderingResourceIdentifier renderingResourceIdentifier)
+bool RemoteResourceCache::releasePathImpl(RemotePathImplIdentifier identifier)
 {
-    auto result = m_resourceUseCounters.add(renderingResourceIdentifier, ResourceUseCounter { });
-    if (!result.isNewEntry) {
-        auto& state = result.iterator->value.state;
-        // FIXME: We should consider making this assertion MESSAGE_CHECK the web process.
-        ASSERT(state == ResourceState::ToBeDeleted);
-        state = ResourceState::Alive;
-    }
+    return m_paths.remove(identifier);
 }
 
-void RemoteResourceCache::deleteAllFonts()
+RefPtr<PathImpl> RemoteResourceCache::cachedPathImpl(RemotePathImplIdentifier identifier) const
 {
+    return m_paths.get(identifier);
+}
+
+bool RemoteResourceCache::cacheGradient(RemoteGradientIdentifier identifier, Ref<Gradient>&& gradient)
+{
+    return m_gradients.add(identifier, WTF::move(gradient)).isNewEntry;
+}
+
+bool RemoteResourceCache::releaseGradient(RemoteGradientIdentifier identifier)
+{
+    return m_gradients.remove(identifier);
+}
+
+RefPtr<Gradient> RemoteResourceCache::cachedGradient(RemoteGradientIdentifier identifier) const
+{
+    return m_gradients.get(identifier);
+}
+
+bool RemoteResourceCache::cacheFilter(Ref<Filter>&& filter)
+{
+    auto identifier = filter->renderingResourceIdentifier();
+    return m_filters.add(identifier, WTF::move(filter)).isNewEntry;
+}
+
+bool RemoteResourceCache::releaseFilter(RenderingResourceIdentifier identifier)
+{
+    return m_filters.remove(identifier);
+}
+
+RefPtr<Filter> RemoteResourceCache::cachedFilter(RenderingResourceIdentifier identifier) const
+{
+    return m_filters.get(identifier);
+}
+
+bool RemoteResourceCache::cacheFont(Ref<Font>&& font)
+{
+    auto identifier = font->renderingResourceIdentifier();
+    return m_fonts.add(identifier, WTF::move(font)).isNewEntry;
+}
+
+bool RemoteResourceCache::releaseFont(RenderingResourceIdentifier identifier)
+{
+    return m_fonts.remove(identifier);
+}
+
+RefPtr<Font> RemoteResourceCache::cachedFont(RenderingResourceIdentifier identifier) const
+{
+    return m_fonts.get(identifier);
+}
+
+bool RemoteResourceCache::cacheFontCustomPlatformData(Ref<FontCustomPlatformData>&& customPlatformData)
+{
+    auto identifier = customPlatformData->m_renderingResourceIdentifier;
+    return m_fontCustomPlatformDatas.add(identifier, WTF::move(customPlatformData)).isNewEntry;
+}
+
+bool RemoteResourceCache::releaseFontCustomPlatformData(RenderingResourceIdentifier identifier)
+{
+    return m_fontCustomPlatformDatas.remove(identifier);
+}
+
+RefPtr<FontCustomPlatformData> RemoteResourceCache::cachedFontCustomPlatformData(RenderingResourceIdentifier identifier) const
+{
+    return m_fontCustomPlatformDatas.get(identifier);
+}
+
+bool RemoteResourceCache::cacheDisplayList(RemoteDisplayListIdentifier identifier, Ref<const DisplayList::DisplayList> displayList)
+{
+    return m_displayLists.add(identifier, displayList).isNewEntry;
+}
+
+RefPtr<const DisplayList::DisplayList> RemoteResourceCache::cachedDisplayList(RemoteDisplayListIdentifier identifier) const
+{
+    return m_displayLists.get(identifier);
+}
+
+bool RemoteResourceCache::releaseDisplayList(RemoteDisplayListIdentifier identifier)
+{
+    return m_displayLists.remove(identifier);
+}
+
+void RemoteResourceCache::releaseAllResources()
+{
+    m_imageBuffers.clear();
+    m_nativeImages.clear();
+    releaseMemory();
+}
+
+void RemoteResourceCache::releaseMemory()
+{
+    m_gradients.clear();
+    m_filters.clear();
     m_fonts.clear();
-}
-
-bool RemoteResourceCache::maybeRemoveResource(RenderingResourceIdentifier renderingResourceIdentifier, ResourceUseCountersMap::iterator& iterator)
-{
-    auto& value = iterator->value;
-    if (value.state == ResourceState::Alive || value.useOrPendingCount < 0)
-        return true;
-
-    if (value.useOrPendingCount) {
-        // This means we've hit a situation that's something like the following:
-        //
-        // The WP sends:
-        // 1. Send cache resource message
-        // 2. Use resource 2x
-        // 3. Send release resource message with useCount = 2
-        // 4. Send cache resource message again for the same resource
-        // 5. Use resource 4 times
-        // 6. Send release resource message with useCount = 4
-        //
-        // The GPUP sees:
-        // 1. The cache resource message
-        // 2. Use resource 2x
-        // 3. Use resource 3x more times (from step 5 above)
-        // 4. Release resource message with useCount = 2  <== This part right here
-        // 5. ... more stuff ...
-        //
-        // In this situation, we've got a head-start on a future frame's rendering commands,
-        // using a resource which was cached from a previous frame. (This is not a problem.)
-        // Therefore, we know that, in the future, there's going to be another cache resource
-        // message which will want us to cache this exact same resource that we already have
-        // cached.
-        //
-        // So, let's just not remove the resource, just in case there are _more_ rendering
-        // commands we can get a head start on before the cache resource message eventually
-        // gets delivered. The eventual cache resource command is smart enough to realize that
-        // the thing it's supposed to be caching is already in the cache, and will correctly
-        // do nothing.
-
-        return true;
-    }
-
-    m_resourceUseCounters.remove(iterator);
-
-    if (m_imageBuffers.remove(renderingResourceIdentifier))
-        return true;
-    if (m_nativeImages.remove(renderingResourceIdentifier))
-        return true;
-    if (m_fonts.remove(renderingResourceIdentifier))
-        return true;
-
-    // Caching the remote resource should have happened before releasing it.
-    return false;
-}
-
-void RemoteResourceCache::recordResourceUse(RenderingResourceIdentifier renderingResourceIdentifier)
-{
-    auto iterator = m_resourceUseCounters.find(renderingResourceIdentifier);
-
-    ASSERT(iterator != m_resourceUseCounters.end());
-
-    ResourceUseCounter& useCounter = iterator->value;
-    ++useCounter.useOrPendingCount;
-
-    maybeRemoveResource(renderingResourceIdentifier, iterator);
-}
-
-bool RemoteResourceCache::releaseRemoteResource(RenderingResourceIdentifier renderingResourceIdentifier, uint64_t useCount)
-{
-    auto iterator = m_resourceUseCounters.find(renderingResourceIdentifier);
-    if (iterator == m_resourceUseCounters.end())
-        return false;
-    ResourceUseCounter& useCounter = iterator->value;
-    useCounter.state = ResourceState::ToBeDeleted;
-    useCounter.useOrPendingCount -= useCount;
-    return maybeRemoveResource(renderingResourceIdentifier, iterator);
+    m_paths.clear();
+    m_fontCustomPlatformDatas.clear();
+    m_displayLists.clear();
 }
 
 } // namespace WebKit

@@ -25,8 +25,6 @@
 
 #pragma once
 
-#if ENABLE(LAYOUT_FORMATTING_CONTEXT)
-
 #include "FormattingQuirks.h"
 
 namespace WebCore {
@@ -38,11 +36,11 @@ class TableFormattingQuirks : public FormattingQuirks {
 public:
     TableFormattingQuirks(const TableFormattingContext&);
 
-    static bool shouldIgnoreChildContentVerticalMargin(const ContainerBox&);
+    static bool NODELETE shouldIgnoreChildContentVerticalMargin(const ElementBox&);
     LayoutUnit heightValueOfNearestContainingBlockWithFixedHeight(const Box&) const final;
 
 private:
-    const TableFormattingContext& formattingContext() const { return downcast<TableFormattingContext>(FormattingQuirks::formattingContext()); }
+    const TableFormattingContext& formattingContext() const LIFETIME_BOUND { return downcast<TableFormattingContext>(FormattingQuirks::formattingContext()); }
 
 };
 
@@ -51,4 +49,3 @@ private:
 
 SPECIALIZE_TYPE_TRAITS_LAYOUT_FORMATTING_QUIRKS(TableFormattingQuirks, isTableFormattingQuirks())
 
-#endif

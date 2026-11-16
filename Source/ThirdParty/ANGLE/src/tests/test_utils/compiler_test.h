@@ -17,7 +17,7 @@
 
 #include "GLSLANG/ShaderLang.h"
 #include "angle_gl.h"
-#include "compiler/translator/TranslatorESSL.h"
+#include "compiler/translator/glsl/TranslatorESSL.h"
 #include "compiler/translator/tree_util/FindSymbolNode.h"
 
 namespace sh
@@ -28,7 +28,7 @@ bool compileTestShader(GLenum type,
                        ShShaderOutput output,
                        const std::string &shaderString,
                        ShBuiltInResources *resources,
-                       ShCompileOptions compileOptions,
+                       const ShCompileOptions &compileOptions,
                        std::string *translatedCode,
                        std::string *infoLog);
 
@@ -36,24 +36,23 @@ bool compileTestShader(GLenum type,
                        ShShaderSpec spec,
                        ShShaderOutput output,
                        const std::string &shaderString,
-                       ShCompileOptions compileOptions,
+                       const ShCompileOptions &compileOptions,
                        std::string *translatedCode,
                        std::string *infoLog);
 
 class MatchOutputCodeTest : public testing::Test
 {
   protected:
-    MatchOutputCodeTest(GLenum shaderType,
-                        ShCompileOptions defaultCompileOptions,
-                        ShShaderOutput outputType);
+    MatchOutputCodeTest(GLenum shaderType, ShShaderOutput outputType);
 
+    void setDefaultCompileOptions(const ShCompileOptions &defaultCompileOptions);
     void addOutputType(const ShShaderOutput outputType);
 
     ShBuiltInResources *getResources();
 
     // Compile functions clear any results from earlier calls to them.
     void compile(const std::string &shaderString);
-    void compile(const std::string &shaderString, const ShCompileOptions compileOptions);
+    void compile(const std::string &shaderString, const ShCompileOptions &compileOptions);
 
     bool foundInESSLCode(const char *stringToFind) const
     {
@@ -62,7 +61,7 @@ class MatchOutputCodeTest : public testing::Test
 
     bool foundInGLSLCode(const char *stringToFind) const
     {
-        return foundInCode(SH_GLSL_COMPATIBILITY_OUTPUT, stringToFind);
+        return foundInCode(SH_GLSL_150_CORE_OUTPUT, stringToFind);
     }
 
     bool foundInCode(ShShaderOutput output, const char *stringToFind) const;
@@ -91,10 +90,12 @@ class MatchOutputCodeTest : public testing::Test
     // Test that the string is found in none of the outputs
     bool notFoundInCode(const char *stringToFind) const;
 
+    std::string outputCode(ShShaderOutput output) const;
+
   private:
     bool compileWithSettings(ShShaderOutput output,
                              const std::string &shaderString,
-                             ShCompileOptions compileOptions,
+                             const ShCompileOptions &compileOptions,
                              std::string *translatedCode,
                              std::string *infoLog);
 

@@ -25,29 +25,39 @@
 
 #pragma once
 
-#include "HTMLTablePartElement.h"
+#include <WebCore/HTMLTablePartElement.h>
 
 namespace WebCore {
 
 class HTMLTableColElement final : public HTMLTablePartElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLTableColElement);
+    WTF_MAKE_TZONE_ALLOCATED(HTMLTableColElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLTableColElement);
 public:
     static Ref<HTMLTableColElement> create(const QualifiedName& tagName, Document&);
 
     unsigned span() const { return m_span; }
     WEBCORE_EXPORT void setSpan(unsigned);
 
-    String width() const;
+    String NODELETE width() const;
 
 private:
     HTMLTableColElement(const QualifiedName& tagName, Document&);
 
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
     bool hasPresentationalHintsForAttribute(const QualifiedName&) const final;
     void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
-    const StyleProperties* additionalPresentationalHintStyle() const final;
+    const MutableStyleProperties* additionalPresentationalHintStyle() const final;
 
     unsigned m_span;
 };
 
-} //namespace
+} // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::HTMLTableColElement)
+    static bool isType(const WebCore::HTMLElement& element) { return element.hasTagName(WebCore::HTMLNames::colTag) || element.hasTagName(WebCore::HTMLNames::colgroupTag); }
+    static bool isType(const WebCore::Node& node)
+    {
+        auto* htmlElement = dynamicDowncast<WebCore::HTMLElement>(node);
+        return htmlElement && isType(*htmlElement);
+    }
+SPECIALIZE_TYPE_TRAITS_END()

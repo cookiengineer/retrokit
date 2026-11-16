@@ -24,40 +24,95 @@
  */
 
 #include "config.h"
-
-#if ENABLE(SERVICE_WORKER)
 #include "ServiceWorkerWindowClient.h"
 
+#include "JSDOMConvertInterface.h"
 #include "JSDOMPromiseDeferred.h"
+#include "JSServiceWorkerWindowClient.h"
+#include "SWContextManager.h"
+#include "ServiceWorkerClients.h"
+#include "ServiceWorkerGlobalScope.h"
+#include "ServiceWorkerThread.h"
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
 ServiceWorkerWindowClient::ServiceWorkerWindowClient(ServiceWorkerGlobalScope& context, ServiceWorkerClientData&& data)
-    : ServiceWorkerClient(context, WTFMove(data))
+    : ServiceWorkerClient(context, WTF::move(data))
 {
 }
 
-VisibilityState ServiceWorkerWindowClient::visibilityState() const
+void ServiceWorkerWindowClient::focus(ScriptExecutionContext& context, Ref<DeferredPromise>&& promise)
 {
-    return VisibilityState::Visible;
+    auto& serviceWorkerContext = downcast<ServiceWorkerGlobalScope>(context);
+
+    if (context.settingsValues().serviceWorkersUserGestureEnabled && !serviceWorkerContext.isProcessingUserGesture()) {
+        promise->reject(Exception { ExceptionCode::InvalidAccessError, "WindowClient focus requires a user gesture"_s });
+        return;
+    }
+
+    auto promiseIdentifier = serviceWorkerContext.clients().addPendingPromise(WTF::move(promise));
+    callOnMainThread([clientIdentifier = identifier(), promiseIdentifier, serviceWorkerIdentifier = serviceWorkerContext.thread()->identifier()]() mutable {
+        protect(SWContextManager::singleton().connection())->focus(clientIdentifier, [promiseIdentifier, serviceWorkerIdentifier](auto result) mutable {
+            SWContextManager::singleton().postTaskToServiceWorker(serviceWorkerIdentifier, [promiseIdentifier, result = crossThreadCopy(WTF::move(result))](auto& serviceWorkerContext) mutable {
+                auto promise = serviceWorkerContext.clients().takePendingPromise(promiseIdentifier);
+                if (!promise)
+                    return;
+
+                // FIXME: Check isFocused state and reject if not focused.
+                if (!result) {
+                    promise->reject(Exception { ExceptionCode::TypeError, "WindowClient focus failed"_s });
+                    return;
+                }
+
+                promise->template resolve<IDLInterface<ServiceWorkerWindowClient>>(ServiceWorkerWindowClient::create(serviceWorkerContext, WTF::move(*result)));
+            });
+        });
+    });
 }
 
-bool ServiceWorkerWindowClient::isFocused() const
+void ServiceWorkerWindowClient::navigate(ScriptExecutionContext& context, const String& urlString, Ref<DeferredPromise>&& promise)
 {
-    return true;
-}
+    auto url = context.encodingParseURL(urlString);
 
-void ServiceWorkerWindowClient::focus(Ref<DeferredPromise>&& promise)
-{
-    promise->reject(Exception { NotSupportedError, "windowClient.focus() is not yet supported"_s });
-}
+    if (!url.isValid()) {
+        promise->reject(Exception { ExceptionCode::TypeError, makeString("URL string "_s, urlString, " cannot successfully be parsed"_s) });
+        return;
+    }
 
-void ServiceWorkerWindowClient::navigate(const String& url, Ref<DeferredPromise>&& promise)
-{
-    UNUSED_PARAM(url);
-    promise->reject(Exception { NotSupportedError, "windowClient.navigate() is not yet supported"_s });
+    if (url.protocolIsAbout()) {
+        promise->reject(Exception { ExceptionCode::TypeError, makeString("ServiceWorkerClients.navigate() cannot be called with URL "_s, url.string()) });
+        return;
+    }
+
+    // We implement step 4 (checking of client's active service worker) in network process as we cannot do it synchronously.
+    auto& serviceWorkerContext = downcast<ServiceWorkerGlobalScope>(context);
+    auto promiseIdentifier = serviceWorkerContext.clients().addPendingPromise(WTF::move(promise));
+    callOnMainThread([clientIdentifier = identifier(), promiseIdentifier, serviceWorkerIdentifier = serviceWorkerContext.thread()->identifier(), url = WTF::move(url).isolatedCopy()]() mutable {
+        protect(SWContextManager::singleton().connection())->navigate(clientIdentifier, serviceWorkerIdentifier, url, [promiseIdentifier, serviceWorkerIdentifier](auto result) mutable {
+            SWContextManager::singleton().postTaskToServiceWorker(serviceWorkerIdentifier, [promiseIdentifier, result = crossThreadCopy(WTF::move(result))](auto& serviceWorkerContext) mutable {
+                auto promise = serviceWorkerContext.clients().takePendingPromise(promiseIdentifier);
+                if (!promise)
+                    return;
+
+                if (result.hasException()) {
+                    promise->reject(result.releaseException());
+                    return;
+                }
+                auto clientData = result.releaseReturnValue();
+                if (!clientData) {
+                    promise->resolveWithJSValue(JSC::jsNull());
+                    return;
+                }
+#if ASSERT_ENABLED
+                auto originData = SecurityOriginData::fromURL(clientData->url);
+                ClientOrigin clientOrigin { originData, originData };
+#endif
+                ASSERT(serviceWorkerContext.clientOrigin() == clientOrigin);
+                promise->template resolve<IDLInterface<ServiceWorkerWindowClient>>(ServiceWorkerWindowClient::create(serviceWorkerContext, WTF::move(*clientData)));
+            });
+        });
+    });
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)

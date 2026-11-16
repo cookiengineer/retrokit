@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2017 Apple Inc. All rights reserved.
+* Copyright (C) 2017-2023 Apple Inc. All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
 * modification, are permitted provided that the following conditions
@@ -26,40 +26,51 @@
 typedef (
 #if defined(ENABLE_WEBGL) && ENABLE_WEBGL
     WebGLRenderingContext or
-#endif
-#if defined(ENABLE_WEBGL2) && ENABLE_WEBGL2
     WebGL2RenderingContext or
 #endif
+    GPUCanvasContext or
+    ImageBitmapRenderingContext or
     OffscreenCanvasRenderingContext2D) OffscreenRenderingContext;
 
-dictionary ImageEncodeOptions
-{
+// https://html.spec.whatwg.org/multipage/canvas.html#imageencodeoptions
+dictionary ImageEncodeOptions {
    DOMString type = "image/png";
    unrestricted double quality = 1.0;
 };
 
-enum OffscreenRenderingContextType
-{
+// https://html.spec.whatwg.org/multipage/canvas.html#offscreenrenderingcontextid
+// FIXME: This should be named `OffscreenRenderingContextId`.
+enum OffscreenRenderingContextType {
    "2d",
    "webgl",
-   "webgl2"
+   "webgl2",
+   "bitmaprenderer",
+   "webgpu"
 };
 
+// https://html.spec.whatwg.org/multipage/canvas.html#offscreencanvas
 [
+    ActiveDOMObject,
     GenerateIsReachable=Impl,
-    EnabledAtRuntime=OffscreenCanvas,
+    EnabledBySetting=OffscreenCanvasEnabled,
     Conditional=OFFSCREEN_CANVAS,
     ConditionalForWorker=OFFSCREEN_CANVAS_IN_WORKERS,
     EnabledForContext,
+    ExportMacro=WEBCORE_EXPORT,
     Exposed=(Window,Worker)
 ] interface OffscreenCanvas : EventTarget {
-    [CallWith=ScriptExecutionContext] constructor([EnforceRange] unsigned long width, [EnforceRange] unsigned long height);
+    [CallWith=CurrentScriptExecutionContext] constructor([EnforceRange] unsigned long width, [EnforceRange] unsigned long height);
 
-    attribute [EnforceRange] unsigned long width;
-    attribute [EnforceRange] unsigned long height;
+    [CallTracer=InspectorCanvasCallTracer] attribute [EnforceRange] unsigned long width;
+    [CallTracer=InspectorCanvasCallTracer] attribute [EnforceRange] unsigned long height;
 
-    [CallWith=GlobalObject] OffscreenRenderingContext? getContext(OffscreenRenderingContextType contextType, any... arguments);
-    ImageBitmap transferToImageBitmap();
-    Promise<Blob> convertToBlob(optional ImageEncodeOptions options);
+    [CallWith=CurrentGlobalObject] OffscreenRenderingContext? getContext(OffscreenRenderingContextType contextType, any... arguments);
+    // FIXME: `transferToImageBitmap` should not return a nullable type.
+    ImageBitmap? transferToImageBitmap();
+    Promise<Blob> convertToBlob(optional ImageEncodeOptions options = {});
 
+    // FIXME: Add support for `oncontextlost`.
+    // attribute EventHandler oncontextlost;
+    // FIXME: Add support for `oncontextrestored`.
+    // attribute EventHandler oncontextrestored;
 };

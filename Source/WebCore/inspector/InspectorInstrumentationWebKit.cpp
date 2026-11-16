@@ -30,24 +30,24 @@
 
 namespace WebCore {
 
-bool InspectorInstrumentationWebKit::shouldInterceptRequestInternal(const Frame& frame, const ResourceRequest& request)
+bool InspectorInstrumentationWebKit::shouldInterceptRequestInternal(const ResourceLoader& loader)
 {
-    return InspectorInstrumentation::shouldInterceptRequest(frame, request);
+    return InspectorInstrumentation::shouldInterceptRequest(loader);
 }
 
-bool InspectorInstrumentationWebKit::shouldInterceptResponseInternal(const Frame& frame, const ResourceResponse& response)
+bool InspectorInstrumentationWebKit::shouldInterceptResponseInternal(const LocalFrame& frame, const ResourceResponse& response)
 {
     return InspectorInstrumentation::shouldInterceptResponse(frame, response);
 }
 
 void InspectorInstrumentationWebKit::interceptRequestInternal(ResourceLoader& loader, Function<void(const ResourceRequest&)>&& handler)
 {
-    InspectorInstrumentation::interceptRequest(loader, WTFMove(handler));
+    InspectorInstrumentation::interceptRequest(loader, WTF::move(handler));
 }
 
-void InspectorInstrumentationWebKit::interceptResponseInternal(const Frame& frame, const ResourceResponse& response, unsigned long identifier, CompletionHandler<void(const ResourceResponse&, RefPtr<SharedBuffer>)>&& handler)
+void InspectorInstrumentationWebKit::interceptResponseInternal(const LocalFrame& frame, const ResourceResponse& response, ResourceLoaderIdentifier identifier, CompletionHandler<void(const ResourceResponse&, RefPtr<FragmentedSharedBuffer>)>&& handler)
 {
-    InspectorInstrumentation::interceptResponse(frame, response, identifier, WTFMove(handler));
+    InspectorInstrumentation::interceptResponse(frame, response, identifier, WTF::move(handler));
 }
 
 } // namespace WebCore

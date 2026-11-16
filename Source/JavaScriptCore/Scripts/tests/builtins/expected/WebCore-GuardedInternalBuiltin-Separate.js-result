@@ -33,9 +33,12 @@
 
 #if ENABLE(TEST_GUARDED_INTERNAL_BUILTIN_SEPARATED_A) || ENABLE(TEST_GUARDED_INTERNAL_BUILTIN_SEPARATED_B)
 
+#include <cstdint>
+
 #include <JavaScriptCore/BuiltinUtils.h>
 #include <JavaScriptCore/Identifier.h>
 #include <JavaScriptCore/JSFunction.h>
+#include <JavaScriptCore/SlotVisitorInlines.h>
 #include <JavaScriptCore/UnlinkedFunctionExecutable.h>
 
 namespace JSC {
@@ -49,6 +52,8 @@ extern const char* const s_guardedInternalBuiltinIsReadableStreamLockedCode;
 extern const int s_guardedInternalBuiltinIsReadableStreamLockedCodeLength;
 extern const JSC::ConstructAbility s_guardedInternalBuiltinIsReadableStreamLockedCodeConstructAbility;
 extern const JSC::ConstructorKind s_guardedInternalBuiltinIsReadableStreamLockedCodeConstructorKind;
+extern const JSC::ImplementationVisibility s_guardedInternalBuiltinIsReadableStreamLockedCodeImplementationVisibility;
+extern const JSC::InlineAttribute s_guardedInternalBuiltinIsReadableStreamLockedCodeInlineAttribute;
 
 #define WEBCORE_FOREACH_GUARDEDINTERNALBUILTIN_BUILTIN_DATA(macro) \
     macro(isReadableStreamLocked, guardedInternalBuiltinIsReadableStreamLocked, 1) \
@@ -56,7 +61,7 @@ extern const JSC::ConstructorKind s_guardedInternalBuiltinIsReadableStreamLocked
 #define WEBCORE_BUILTIN_GUARDEDINTERNALBUILTIN_ISREADABLESTREAMLOCKED 1
 
 #define WEBCORE_FOREACH_GUARDEDINTERNALBUILTIN_BUILTIN_CODE(macro) \
-    macro(guardedInternalBuiltinIsReadableStreamLockedCode, isReadableStreamLocked, static_cast<const char*>(nullptr), s_guardedInternalBuiltinIsReadableStreamLockedCodeLength) \
+    macro(guardedInternalBuiltinIsReadableStreamLockedCode, isReadableStreamLocked, ASCIILiteral(), s_guardedInternalBuiltinIsReadableStreamLockedCodeLength) \
 
 #define WEBCORE_FOREACH_GUARDEDINTERNALBUILTIN_BUILTIN_FUNCTION_NAME(macro) \
     macro(isReadableStreamLocked) \
@@ -72,7 +77,7 @@ public:
     explicit GuardedInternalBuiltinBuiltinsWrapper(JSC::VM& vm)
         : m_vm(vm)
         WEBCORE_FOREACH_GUARDEDINTERNALBUILTIN_BUILTIN_FUNCTION_NAME(INITIALIZE_BUILTIN_NAMES)
-#define INITIALIZE_BUILTIN_SOURCE_MEMBERS(name, functionName, overriddenName, length) , m_##name##Source(JSC::makeSource(StringImpl::createFromLiteral(s_##name, length), { }))
+#define INITIALIZE_BUILTIN_SOURCE_MEMBERS(name, functionName, overriddenName, length) , m_##name##Source(JSC::makeSource(StringImpl::createWithoutCopying(unsafeMakeSpan(s_##name, static_cast<size_t>(length))), { }, JSC::SourceTaintedOrigin::Untainted))
         WEBCORE_FOREACH_GUARDEDINTERNALBUILTIN_BUILTIN_CODE(INITIALIZE_BUILTIN_SOURCE_MEMBERS)
 #undef INITIALIZE_BUILTIN_SOURCE_MEMBERS
     {
@@ -108,7 +113,7 @@ inline JSC::UnlinkedFunctionExecutable* GuardedInternalBuiltinBuiltinsWrapper::n
         JSC::Identifier executableName = functionName##PublicName();\
         if (overriddenName)\
             executableName = JSC::Identifier::fromString(m_vm, overriddenName);\
-        m_##name##Executable = JSC::Weak<JSC::UnlinkedFunctionExecutable>(JSC::createBuiltinExecutable(m_vm, m_##name##Source, executableName, s_##name##ConstructorKind, s_##name##ConstructAbility), this, &m_##name##Executable);\
+        m_##name##Executable = JSC::Weak<JSC::UnlinkedFunctionExecutable>(JSC::createBuiltinExecutable(m_vm, m_##name##Source, executableName, s_##name##ImplementationVisibility, s_##name##ConstructorKind, s_##name##ConstructAbility, s_##name##InlineAttribute), this, &m_##name##Executable);\
     }\
     return m_##name##Executable.get();\
 }
@@ -141,7 +146,7 @@ public:
 inline void GuardedInternalBuiltinBuiltinFunctions::init(JSC::JSGlobalObject& globalObject)
 {
 #define EXPORT_FUNCTION(codeName, functionName, overriddenName, length)\
-    m_##functionName##Function.set(m_vm, &globalObject, JSC::JSFunction::create(m_vm, codeName##Generator(m_vm), &globalObject));
+    m_##functionName##Function.set(m_vm, &globalObject, JSC::JSFunction::create(m_vm, &globalObject, codeName##Generator(m_vm), &globalObject));
     WEBCORE_FOREACH_GUARDEDINTERNALBUILTIN_BUILTIN_CODE(EXPORT_FUNCTION)
 #undef EXPORT_FUNCTION
 }
@@ -201,21 +206,21 @@ template void GuardedInternalBuiltinBuiltinFunctions::visit(JSC::SlotVisitor&);
 #if ENABLE(TEST_GUARDED_INTERNAL_BUILTIN_SEPARATED_A) || ENABLE(TEST_GUARDED_INTERNAL_BUILTIN_SEPARATED_B)
 
 #include "WebCoreJSClientData.h"
-#include <JavaScriptCore/HeapInlines.h>
 #include <JavaScriptCore/IdentifierInlines.h>
+#include <JavaScriptCore/ImplementationVisibility.h>
 #include <JavaScriptCore/Intrinsic.h>
-#include <JavaScriptCore/JSCJSValueInlines.h>
-#include <JavaScriptCore/JSCellInlines.h>
-#include <JavaScriptCore/StructureInlines.h>
+#include <JavaScriptCore/JSObjectInlines.h>
 #include <JavaScriptCore/VM.h>
 
 namespace WebCore {
 
-const JSC::ConstructAbility s_guardedInternalBuiltinIsReadableStreamLockedCodeConstructAbility = JSC::ConstructAbility::CannotConstruct;
-const JSC::ConstructorKind s_guardedInternalBuiltinIsReadableStreamLockedCodeConstructorKind = JSC::ConstructorKind::None;
-const int s_guardedInternalBuiltinIsReadableStreamLockedCodeLength = 71;
-static const JSC::Intrinsic s_guardedInternalBuiltinIsReadableStreamLockedCodeIntrinsic = JSC::NoIntrinsic;
-const char* const s_guardedInternalBuiltinIsReadableStreamLockedCode =
+constinit const JSC::ConstructAbility s_guardedInternalBuiltinIsReadableStreamLockedCodeConstructAbility = JSC::ConstructAbility::CannotConstruct;
+constinit const JSC::ConstructorKind s_guardedInternalBuiltinIsReadableStreamLockedCodeConstructorKind = JSC::ConstructorKind::None;
+constinit const JSC::ImplementationVisibility s_guardedInternalBuiltinIsReadableStreamLockedCodeImplementationVisibility = JSC::ImplementationVisibility::Public;
+constinit const JSC::InlineAttribute s_guardedInternalBuiltinIsReadableStreamLockedCodeInlineAttribute = JSC::InlineAttribute::None;
+constinit const int s_guardedInternalBuiltinIsReadableStreamLockedCodeLength = 71;
+static constinit const JSC::Intrinsic s_guardedInternalBuiltinIsReadableStreamLockedCodeIntrinsic = JSC::NoIntrinsic;
+constinit const char* const s_guardedInternalBuiltinIsReadableStreamLockedCode =
     "(function (stream)\n" \
     "{\n" \
     "   \"use strict\";\n" \
@@ -228,7 +233,7 @@ const char* const s_guardedInternalBuiltinIsReadableStreamLockedCode =
 #define DEFINE_BUILTIN_GENERATOR(codeName, functionName, overriddenName, argumentCount) \
 JSC::FunctionExecutable* codeName##Generator(JSC::VM& vm) \
 {\
-    JSVMClientData* clientData = static_cast<JSVMClientData*>(vm.clientData); \
+    JSVMClientData* clientData = downcast<JSVMClientData>(vm.clientData); \
     return clientData->builtinFunctions().guardedInternalBuiltinBuiltins().codeName##Executable()->link(vm, nullptr, clientData->builtinFunctions().guardedInternalBuiltinBuiltins().codeName##Source(), std::nullopt, s_##codeName##Intrinsic); \
 }
 WEBCORE_FOREACH_GUARDEDINTERNALBUILTIN_BUILTIN_CODE(DEFINE_BUILTIN_GENERATOR)

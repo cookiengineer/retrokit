@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2010 Google Inc. All rights reserved.
- * Copyright (C) 2011 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -32,13 +32,17 @@
 #include "config.h"
 #include "ResetInputType.h"
 
+#include "Document.h"
 #include "Event.h"
 #include "HTMLFormElement.h"
 #include "HTMLInputElement.h"
 #include "InputTypeNames.h"
 #include "LocalizedStrings.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ResetInputType);
 
 const AtomString& ResetInputType::formControlType() const
 {
@@ -48,9 +52,12 @@ const AtomString& ResetInputType::formControlType() const
 void ResetInputType::handleDOMActivateEvent(Event& event)
 {
     ASSERT(element());
-    if (element()->isDisabledFormControl() || !element()->form())
+    if (element()->isDisabledFormControl())
         return;
-    element()->form()->reset();
+    RefPtr form = element()->form();
+    if (!form)
+        return;
+    form->reset();
     event.setDefaultHandled();
 }
 

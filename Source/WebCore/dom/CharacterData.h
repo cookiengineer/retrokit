@@ -22,41 +22,51 @@
 
 #pragma once
 
-#include "ContainerNode.h"
+#include <WebCore/ContainerNode.h>
+#include <WebCore/ExceptionOr.h>
+#include <WebCore/PlatformExportMacros.h>
+#include <span>
+#include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
 class CharacterData : public Node {
-    WTF_MAKE_ISO_ALLOCATED(CharacterData);
+    WTF_MAKE_TZONE_ALLOCATED(CharacterData);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(CharacterData);
 public:
-    const String& data() const { return m_data; }
-    static ptrdiff_t dataMemoryOffset() { return OBJECT_OFFSETOF(CharacterData, m_data); }
+    const String& data() const LIFETIME_BOUND { return m_data; }
+    static constexpr ptrdiff_t dataMemoryOffset() { return OBJECT_OFFSETOF(CharacterData, m_data); }
 
     WEBCORE_EXPORT void setData(const String&);
     unsigned length() const { return m_data.length(); }
-    WEBCORE_EXPORT ExceptionOr<String> substringData(unsigned offset, unsigned count);
+    WEBCORE_EXPORT ExceptionOr<String> substringData(unsigned offset, unsigned count) const;
     WEBCORE_EXPORT void appendData(const String&);
     WEBCORE_EXPORT ExceptionOr<void> insertData(unsigned offset, const String&);
     WEBCORE_EXPORT ExceptionOr<void> deleteData(unsigned offset, unsigned count);
     WEBCORE_EXPORT ExceptionOr<void> replaceData(unsigned offset, unsigned count, const String&);
 
+    bool NODELETE containsOnlyASCIIWhitespace() const;
+
     // Like appendData, but optimized for the parser (e.g., no mutation events).
-    // Returns how much could be added before length limit was met.
-    unsigned parserAppendData(const String& string, unsigned offset, unsigned lengthLimit);
+    // Using the same StringBuilder across calls avoids O(n^2) behavior.
+    void parserAppendData(StringView, StringBuilder&);
 
 protected:
-    CharacterData(Document& document, const String& text, ConstructionType type = CreateCharacterData)
-        : Node(document, type)
-        , m_data(!text.isNull() ? text : emptyString())
+    CharacterData(Document& document, String&& text, NodeType type, OptionSet<TypeFlag> typeFlags = { })
+        : Node(document, type, typeFlags | TypeFlag::IsCharacterData)
+        , m_data(WTF::move(text))
     {
-        ASSERT(type == CreateCharacterData || type == CreateText || type == CreateEditingText);
+        if (m_data.isNull())
+            m_data = emptyString();
+
+        ASSERT(isCharacterDataNode());
+        ASSERT(!isContainerNode());
     }
 
-    void setDataWithoutUpdate(const String& data)
-    {
-        ASSERT(!data.isNull());
-        m_data = data;
-    }
+    ~CharacterData();
+
+    void setDataWithoutUpdate(const String&);
+
     void dispatchModifiedEvent(const String& oldValue);
 
     enum class UpdateLiveRanges : bool { No, Yes };
@@ -65,17 +75,12 @@ protected:
 private:
     String nodeValue() const final;
     ExceptionOr<void> setNodeValue(const String&) final;
-    void notifyParentAfterChange(ContainerNode::ChildChange::Source);
+    void notifyParentAfterChange(const ContainerNode::ChildChange&);
+
+    void parentOrShadowHostNode() const = delete; // Call parentNode() instead.
 
     String m_data;
 };
-
-inline unsigned Node::length() const
-{
-    if (is<CharacterData>(*this))
-        return downcast<CharacterData>(*this).length();
-    return countChildNodes();
-}
 
 } // namespace WebCore
 

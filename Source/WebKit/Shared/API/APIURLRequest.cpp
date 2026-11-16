@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,8 +26,8 @@
 #include "config.h"
 #include "APIURLRequest.h"
 
-#include "WebCoreArgumentCoders.h"
 #include "WebProcessPool.h"
+#include "WebsiteDataStore.h"
 
 namespace API {
 using namespace WebCore;
@@ -48,23 +48,11 @@ void URLRequest::setDefaultTimeoutInterval(double timeoutInterval)
 {
     ResourceRequest::setDefaultTimeoutInterval(timeoutInterval);
 
-    for (auto& processPool : WebProcessPool::allProcessPools())
+    for (Ref processPool : WebProcessPool::allProcessPools())
         processPool->setDefaultRequestTimeoutInterval(timeoutInterval);
-}
 
-void URLRequest::encode(IPC::Encoder& encoder) const
-{
-    encoder << resourceRequest();
-}
-
-bool URLRequest::decode(IPC::Decoder& decoder, RefPtr<Object>& result)
-{
-    ResourceRequest request;
-    if (!decoder.decode(request))
-        return false;
-    
-    result = create(request);
-    return true;
+    for (Ref networkProcess : NetworkProcessProxy::allNetworkProcesses())
+        networkProcess->setDefaultRequestTimeoutInterval(timeoutInterval);
 }
 
 } // namespace API

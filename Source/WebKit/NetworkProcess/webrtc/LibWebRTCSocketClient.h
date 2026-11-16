@@ -25,12 +25,19 @@
 
 #pragma once
 
+#if !PLATFORM(COCOA)
+
 #if USE(LIBWEBRTC)
 
 #include "NetworkRTCProvider.h"
-#include <webrtc/rtc_base/async_packet_socket.h>
 
-namespace rtc {
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <webrtc/rtc_base/async_packet_socket.h>
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
+
+#include <wtf/TZoneMalloc.h>
+
+namespace webrtc {
 class AsyncPacketSocket;
 struct SentPacket;
 typedef int64_t PacketTime;
@@ -38,10 +45,11 @@ typedef int64_t PacketTime;
 
 namespace WebKit {
 
-class LibWebRTCSocketClient final : public NetworkRTCProvider::Socket, public sigslot::has_slots<> {
-    WTF_MAKE_FAST_ALLOCATED;
+class LibWebRTCSocketClient final : public NetworkRTCProvider::Socket {
+    WTF_MAKE_TZONE_ALLOCATED(LibWebRTCSocketClient);
 public:
-    LibWebRTCSocketClient(WebCore::LibWebRTCSocketIdentifier, NetworkRTCProvider&, std::unique_ptr<rtc::AsyncPacketSocket>&&, Type, Ref<IPC::Connection>&&);
+    LibWebRTCSocketClient(WebCore::LibWebRTCSocketIdentifier, NetworkRTCProvider&, std::unique_ptr<webrtc::AsyncPacketSocket>&&, Type, Ref<IPC::Connection>&&);
+    ~LibWebRTCSocketClient();
 
 private:
     WebCore::LibWebRTCSocketIdentifier identifier() const final { return m_identifier; }
@@ -49,25 +57,26 @@ private:
     void close() final;
 
     void setOption(int option, int value) final;
-    void sendTo(const uint8_t*, size_t, const rtc::SocketAddress&, const rtc::PacketOptions&) final;
+    void sendTo(std::span<const uint8_t>, const webrtc::SocketAddress&, const webrtc::AsyncSocketPacketOptions&) final;
 
-    void signalReadPacket(rtc::AsyncPacketSocket*, const char*, size_t, const rtc::SocketAddress&, const rtc::PacketTime&);
-    void signalSentPacket(rtc::AsyncPacketSocket*, const rtc::SentPacket&);
-    void signalAddressReady(rtc::AsyncPacketSocket*, const rtc::SocketAddress&);
-    void signalConnect(rtc::AsyncPacketSocket*);
-    void signalClose(rtc::AsyncPacketSocket*, int);
-    void signalNewConnection(rtc::AsyncPacketSocket* socket, rtc::AsyncPacketSocket* newSocket);
+    void signalReadPacket(webrtc::AsyncPacketSocket*, const unsigned char*, size_t, const webrtc::SocketAddress&, int64_t);
+    void signalSentPacket(webrtc::AsyncPacketSocket*, const webrtc::SentPacketInfo&);
+    void signalAddressReady(webrtc::AsyncPacketSocket*, const webrtc::SocketAddress&);
+    void signalConnect(webrtc::AsyncPacketSocket*);
+    void signalClose(webrtc::AsyncPacketSocket*, int);
 
     void signalAddressReady();
 
-    WebCore::LibWebRTCSocketIdentifier m_identifier;
-    Type m_type;
-    NetworkRTCProvider& m_rtcProvider;
-    std::unique_ptr<rtc::AsyncPacketSocket> m_socket;
-    Ref<IPC::Connection> m_connection;
+    const WebCore::LibWebRTCSocketIdentifier m_identifier;
+    const Type m_type;
+    CheckedRef<NetworkRTCProvider> m_rtcProvider;
+    const std::unique_ptr<webrtc::AsyncPacketSocket> m_socket;
+    const Ref<IPC::Connection> m_connection;
     int m_sendError { 0 };
 };
 
 } // namespace WebKit
 
 #endif // USE(LIBWEBRTC)
+
+#endif // !PLATFORM(COCOA)

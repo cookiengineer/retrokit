@@ -29,6 +29,10 @@
 #include <wtf/CompletionHandler.h>
 #include <wtf/Vector.h>
 
+#if PLATFORM(COCOA)
+OBJC_CLASS NSString;
+#endif
+
 namespace WebCore {
 class SecurityOrigin;
 }
@@ -54,7 +58,8 @@ enum class MediaPermissionReason {
     Microphone,
     DeviceOrientation,
     Geolocation,
-    SpeechRecognition
+    SpeechRecognition,
+    ScreenCapture
 };
 
 #if PLATFORM(COCOA)
@@ -62,10 +67,10 @@ bool checkSandboxRequirementForType(MediaPermissionType);
 bool checkUsageDescriptionStringForType(MediaPermissionType);
 bool checkUsageDescriptionStringForSpeechRecognition();
 
+RetainPtr<NSString> applicationVisibleNameFromOrigin(const WebCore::SecurityOriginData&);
+RetainPtr<NSString> applicationVisibleName();
 void alertForPermission(WebPageProxy&, MediaPermissionReason, const WebCore::SecurityOriginData&, CompletionHandler<void(bool)>&&);
-#endif
 
-#if HAVE(AVCAPTUREDEVICE)
 void requestAVCaptureAccessForType(MediaPermissionType, CompletionHandler<void(bool authorized)>&&);
 MediaPermissionResult checkAVCaptureAccessForType(MediaPermissionType);
 #endif

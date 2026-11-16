@@ -30,7 +30,6 @@
 #include "pas_heap_lock.h"
 #include "pas_large_free_heap_config.h"
 #include "pas_large_free_inlines.h"
-#include "pas_page_malloc.h"
 #include <stdio.h>
 
 PAS_BEGIN_EXTERN_C;
@@ -190,7 +189,7 @@ pas_generic_large_free_heap_try_allocate(
         return pas_allocation_result_create_success_with_zero_mode(0, pas_zero_mode_is_all_zero);
     
     if (PAS_GENERIC_LARGE_FREE_HEAP_VERBOSE >= 2)
-        printf("Allocating size = %zu\n", size);
+        pas_log("Allocating size = %zu\n", size);
     
     pas_alignment_validate(alignment);
     pas_heap_lock_assert_held();
@@ -221,7 +220,7 @@ pas_generic_large_free_heap_try_allocate(
         bool found_candidate;
         
         if (PAS_GENERIC_LARGE_FREE_HEAP_VERBOSE >= 2) {
-            printf("Could not allocate %zu bytes with alignment %zu/%zu. Free list status:\n",
+            pas_log("Could not allocate %zu bytes with alignment %zu/%zu. Free list status:\n",
                    size, alignment.alignment, alignment.alignment_begin);
             generic_heap_config->dump(heap);
         }
@@ -229,7 +228,7 @@ pas_generic_large_free_heap_try_allocate(
         page_allocation = config->aligned_allocator(size, alignment, config->aligned_allocator_arg);
         if (!page_allocation.result) {
             if (PAS_GENERIC_LARGE_FREE_HEAP_VERBOSE >= 2)
-                printf("Returning failure.\n");
+                pas_log("Returning failure.\n");
             return pas_allocation_result_create_failure();
         }
         
@@ -246,7 +245,7 @@ pas_generic_large_free_heap_try_allocate(
            assume that this is too unlikely to matter. */
         
         if (PAS_GENERIC_LARGE_FREE_HEAP_VERBOSE >= 2) {
-            printf("Just before candidate search after allocating from the source...\n");
+            pas_log("Just before candidate search after allocating from the source...\n");
             generic_heap_config->dump(heap);
         }
         
@@ -276,7 +275,7 @@ pas_generic_large_free_heap_try_allocate(
             merged = pas_large_free_create_merged(candidate, new_free, config);
             if (verbose) {
                 pas_log("merged is %p...%p (%s)\n",
-                        (void*)merged.begin, (void*)merged.end,
+                        (void*)((uintptr_t)merged.begin), (void*)((uintptr_t)merged.end),
                         merged.zero_mode ? "zero" : "non-zero");
             }
             if (!pas_large_free_is_empty(merged)) {
@@ -368,7 +367,7 @@ pas_generic_large_free_heap_try_allocate(
                     heap, candidate_result.allocation.end - candidate.end);
                 
                 config->deallocator(
-                    (void*)candidate_result.right_free.begin, 
+                    (void*)((uintptr_t)candidate_result.right_free.begin), 
                     candidate_result.right_free.end - candidate_result.right_free.begin,
                     config->deallocator_arg);
             } else {
@@ -387,7 +386,7 @@ pas_generic_large_free_heap_try_allocate(
             }
         }
     } else {
-        static const size_t max_num_additions = 2;
+        enum { max_num_additions = 2 };
         pas_large_free additions[max_num_additions];
         size_t num_additions = 0;
         
@@ -423,7 +422,7 @@ pas_generic_large_free_heap_try_allocate(
     PAS_ASSERT(result.did_succeed);
     
     if (PAS_GENERIC_LARGE_FREE_HEAP_VERBOSE >= 2) {
-        printf("After allocating %p for size %zu:\n", (void*)result.begin, size);
+        pas_log("After allocating %p for size %zu:\n", (void*)result.begin, size);
         generic_heap_config->dump(heap);
     }
 

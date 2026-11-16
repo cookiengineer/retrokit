@@ -25,25 +25,34 @@
 
 #pragma once
 
-#if ENABLE(NETWORK_CACHE_SPECULATIVE_REVALIDATION)
-
 #include "NetworkCacheStorage.h"
 #include <WebCore/ResourceRequest.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/URL.h>
 
-namespace WebKit {
-namespace NetworkCache {
+namespace WebKit::NetworkCache {
 
 class SubresourceInfo {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(SubresourceInfo);
 public:
-    void encode(WTF::Persistence::Encoder&) const;
-    static std::optional<SubresourceInfo> decode(WTF::Persistence::Decoder&);
-
-    SubresourceInfo() = default;
+    SubresourceInfo(Key&& key, WallTime lastSeen, WallTime firstSeen)
+        : m_key(WTF::move(key))
+        , m_lastSeen(lastSeen)
+        , m_firstSeen(firstSeen)
+        , m_isTransient(true) { }
+    SubresourceInfo(Key&& key, WallTime lastSeen, WallTime firstSeen, bool isSameSite, bool isAppInitiated, URL&& firstPartyForCookies, WebCore::HTTPHeaderMap&& requestHeaders, WebCore::ResourceLoadPriority priority)
+        : m_key(WTF::move(key))
+        , m_lastSeen(lastSeen)
+        , m_firstSeen(firstSeen)
+        , m_isTransient(false)
+        , m_isSameSite(isSameSite)
+        , m_isAppInitiated(isAppInitiated)
+        , m_firstPartyForCookies(WTF::move(firstPartyForCookies))
+        , m_requestHeaders(WTF::move(requestHeaders))
+        , m_priority(priority) { }
     SubresourceInfo(const Key&, const WebCore::ResourceRequest&, const SubresourceInfo* previousInfo);
 
-    const Key& key() const { return m_key; }
+    const Key& key() const LIFETIME_BOUND { return m_key; }
     WallTime lastSeen() const { return m_lastSeen; }
     WallTime firstSeen() const { return m_firstSeen; }
 
@@ -75,7 +84,8 @@ private:
 };
 
 struct SubresourceLoad {
-    WTF_MAKE_NONCOPYABLE(SubresourceLoad); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(SubresourceLoad);
+    WTF_MAKE_NONCOPYABLE(SubresourceLoad);
 public:
     SubresourceLoad(const WebCore::ResourceRequest& request, const Key& key)
         : request(request)
@@ -87,7 +97,8 @@ public:
 };
 
 class SubresourcesEntry {
-    WTF_MAKE_NONCOPYABLE(SubresourcesEntry); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(SubresourcesEntry);
+    WTF_MAKE_NONCOPYABLE(SubresourcesEntry);
 public:
     SubresourcesEntry(Key&&, const Vector<std::unique_ptr<SubresourceLoad>>&);
     explicit SubresourcesEntry(const Storage::Record&);
@@ -95,9 +106,9 @@ public:
     Storage::Record encodeAsStorageRecord() const;
     static std::unique_ptr<SubresourcesEntry> decodeStorageRecord(const Storage::Record&);
 
-    const Key& key() const { return m_key; }
+    const Key& key() const LIFETIME_BOUND { return m_key; }
     WallTime timeStamp() const { return m_timeStamp; }
-    Vector<SubresourceInfo>& subresources() { return m_subresources; }
+    Vector<SubresourceInfo>& subresources() LIFETIME_BOUND { return m_subresources; }
 
     void updateSubresourceLoads(const Vector<std::unique_ptr<SubresourceLoad>>&);
 
@@ -107,7 +118,4 @@ private:
     Vector<SubresourceInfo> m_subresources;
 };
 
-} // namespace WebKit
-} // namespace NetworkCache
-
-#endif // ENABLE(NETWORK_CACHE_SPECULATIVE_REVALIDATION)
+} // namespace WebKit::NetworkCache

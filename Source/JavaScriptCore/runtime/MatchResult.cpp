@@ -26,6 +26,8 @@
 #include "config.h"
 #include "MatchResult.h"
 
+#include <wtf/PrintStream.h>
+
 namespace JSC {
 
 void MatchResult::dump(PrintStream& out) const

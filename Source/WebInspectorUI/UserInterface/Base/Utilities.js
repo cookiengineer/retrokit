@@ -37,18 +37,10 @@ function xor(a, b)
     return b || false;
 }
 
-Object.defineProperty(Object, "shallowCopy",
+function nullish(value)
 {
-    value(object)
-    {
-        // Make a new object and copy all the key/values. The values are not copied.
-        var copy = {};
-        var keys = Object.keys(object);
-        for (var i = 0; i < keys.length; ++i)
-            copy[keys[i]] = object[keys[i]];
-        return copy;
-    }
-});
+    return value === null || value === undefined;
+}
 
 Object.defineProperty(Object, "shallowEqual",
 {
@@ -138,18 +130,27 @@ Object.defineProperty(Map.prototype, "take",
     }
 });
 
-Object.defineProperty(Map.prototype, "getOrInitialize",
+Object.defineProperty(Map.prototype, "firstKey",
 {
-    value(key, initialValue)
+    get()
     {
-        console.assert(initialValue !== undefined, "getOrInitialize should not be used with undefined.");
+        return this.keys().next().value;
+    }
+});
 
-        let value = this.get(key);
-        if (value)
-            return value;
+Object.defineProperty(Map.prototype, "firstValue",
+{
+    get()
+    {
+        return this.values().next().value;
+    }
+});
 
-        this.set(key, initialValue);
-        return initialValue;
+Object.defineProperty(Map.prototype, "lastKey",
+{
+    get()
+    {
+        return Array.from(this.keys()).lastValue;
     }
 });
 
@@ -162,6 +163,31 @@ Object.defineProperty(Set.prototype, "find",
                 return item;
         }
         return undefined;
+    },
+});
+
+Object.defineProperty(Set.prototype, "filter",
+{
+    value(callback, thisArg)
+    {
+        let filtered = new Set;
+        for (let item of this) {
+            if (callback.call(thisArg, item, item, this))
+                filtered.add(item);
+        }
+        return filtered;
+    },
+});
+
+Object.defineProperty(Set.prototype, "some",
+{
+    value(predicate, thisArg)
+    {
+        for (let item of this) {
+            if (predicate.call(thisArg, item, item, this))
+                return true;
+        }
+        return false;
     },
 });
 
@@ -195,23 +221,6 @@ Object.defineProperty(Set.prototype, "equals",
     }
 });
 
-Object.defineProperty(Set.prototype, "difference",
-{
-    value(other)
-    {
-        if (other === this)
-            return new Set;
-
-        let result = new Set;
-        for (let item of this) {
-            if (!other.has(item))
-                result.add(item);
-        }
-
-        return result;
-    }
-});
-
 Object.defineProperty(Set.prototype, "firstValue",
 {
     get()
@@ -225,35 +234,6 @@ Object.defineProperty(Set.prototype, "lastValue",
     get()
     {
         return Array.from(this.values()).lastValue;
-    }
-});
-
-Object.defineProperty(Set.prototype, "intersects",
-{
-    value(other)
-    {
-        if (!this.size || !other.size)
-            return false;
-
-        for (let item of this) {
-            if (other.has(item))
-                return true;
-        }
-
-        return false;
-    }
-});
-
-Object.defineProperty(Set.prototype, "isSubsetOf",
-{
-    value(other)
-    {
-        for (let item of this) {
-            if (!other.has(item))
-                return false;
-        }
-
-        return true;
     }
 });
 
@@ -488,33 +468,32 @@ Object.defineProperty(Element.prototype, "recalculateStyles",
     }
 });
 
+Object.defineProperty(Element.prototype, "getComputedCSSPropertyNumberValue", {
+    value(property) {
+        let result = undefined;
+        result ??= this.computedStyleMap?.().get(property)?.value;
+        result ??= window.getComputedStyle(this).getPropertyCSSValue(property)?.getFloatValue(CSSPrimitiveValue.CSS_PX);
+        return result;
+    },
+});
+
 Object.defineProperty(DocumentFragment.prototype, "createChild",
 {
     value: Element.prototype.createChild
 });
 
-(function() {
-    const fontSymbol = Symbol("font");
-
-    Object.defineProperty(HTMLInputElement.prototype, "autosize",
+Object.defineProperty(HTMLCollection.prototype, "indexOf",
+{
+    value(element)
     {
-        value(extra = 0)
-        {
-            extra += 6; // UserAgent styles add 1px padding and 2px border.
-            if (this.type === "number")
-                extra += 13; // Number input inner spin button width.
-            extra += 2; // Add extra pixels for the cursor.
-
-            WI.ImageUtilities.scratchCanvasContext2D((context) => {
-                this[fontSymbol] ||= window.getComputedStyle(this).font;
-
-                context.font = this[fontSymbol];
-                let textMetrics = context.measureText(this.value || this.placeholder);
-                this.style.setProperty("width", (textMetrics.width + extra) + "px");
-            });
-        },
-    });
-})();
+        let length = this.length;
+        for (let i = 0; i < length; ++i) {
+            if (this[i] === element)
+                return i;
+        }
+        return -1;
+    }
+});
 
 Object.defineProperty(Event.prototype, "stop",
 {
@@ -556,6 +535,7 @@ Object.defineProperty(Array, "isTypedArray",
             || constructor === Uint8ClampedArray
             || constructor === Uint16Array
             || constructor === Uint32Array
+            || constructor === window.Float16Array
             || constructor === Float32Array
             || constructor === Float64Array;
     }
@@ -677,6 +657,14 @@ Object.defineProperty(Array, "diffArrays",
     }
 });
 
+Object.defineProperty(Array.prototype, "firstValue",
+{
+    get()
+    {
+        return this[0];
+    }
+});
+
 Object.defineProperty(Array.prototype, "lastValue",
 {
     get()
@@ -725,7 +713,8 @@ Object.defineProperty(Array.prototype, "toggleIncludes",
     value(value, force)
     {
         let exists = this.includes(value);
-        if (exists === !!force)
+
+        if (force !== undefined && exists === !!force)
             return;
 
         if (exists)
@@ -773,7 +762,9 @@ Object.defineProperty(String.prototype, "isLowerCase",
 {
     value()
     {
-        return String(this) === this.toLowerCase();
+        "use strict";
+
+        return /^[a-z]+$/.test(this);
     }
 });
 
@@ -781,7 +772,9 @@ Object.defineProperty(String.prototype, "isUpperCase",
 {
     value()
     {
-        return String(this) === this.toUpperCase();
+        "use strict";
+
+        return /^[A-Z]+$/.test(this);
     }
 });
 
@@ -789,6 +782,8 @@ Object.defineProperty(String.prototype, "isJSON",
 {
     value(predicate)
     {
+        "use strict";
+
         try {
             let json = JSON.parse(this);
             return !predicate || predicate(json);
@@ -805,7 +800,7 @@ Object.defineProperty(String.prototype, "truncateStart",
 
         if (this.length <= maxLength)
             return this;
-        return ellipsis + this.substr(this.length - maxLength + 1);
+        return ellipsis + this.substring(this.length - maxLength + 1);
     }
 });
 
@@ -819,7 +814,7 @@ Object.defineProperty(String.prototype, "truncateMiddle",
             return this;
         var leftHalf = maxLength >> 1;
         var rightHalf = maxLength - leftHalf - 1;
-        return this.substr(0, leftHalf) + ellipsis + this.substr(this.length - rightHalf, rightHalf);
+        return this.substring(0, leftHalf) + ellipsis + this.substring(this.length - rightHalf);
     }
 });
 
@@ -831,7 +826,7 @@ Object.defineProperty(String.prototype, "truncateEnd",
 
         if (this.length <= maxLength)
             return this;
-        return this.substr(0, maxLength - 1) + ellipsis;
+        return this.substring(0, maxLength - 1) + ellipsis;
     }
 });
 
@@ -857,6 +852,8 @@ Object.defineProperty(String.prototype, "collapseWhitespace",
 {
     value()
     {
+        "use strict";
+
         return this.replace(/[\s\xA0]+/g, " ");
     }
 });
@@ -865,6 +862,8 @@ Object.defineProperty(String.prototype, "removeWhitespace",
 {
     value()
     {
+        "use strict";
+
         return this.replace(/[\s\xA0]+/g, "");
     }
 });
@@ -873,6 +872,8 @@ Object.defineProperty(String.prototype, "escapeCharacters",
 {
     value(charactersToEscape)
     {
+        "use strict";
+
         if (!charactersToEscape)
             return this.valueOf();
 
@@ -904,6 +905,8 @@ Object.defineProperty(String.prototype, "escapeForRegExp",
 {
     value()
     {
+        "use strict";
+
         return this.escapeCharacters("^[]{}()\\.$*+?|");
     }
 });
@@ -912,6 +915,8 @@ Object.defineProperty(String.prototype, "capitalize",
 {
     value()
     {
+        "use strict";
+
         return this.charAt(0).toUpperCase() + this.slice(1);
     }
 });
@@ -920,6 +925,8 @@ Object.defineProperty(String.prototype, "extendedLocaleCompare",
 {
     value(other)
     {
+        "use strict";
+
         return this.localeCompare(other, undefined, {numeric: true});
     }
 });
@@ -1088,7 +1095,8 @@ Object.defineProperty(String, "standardFormatters",
             let options = {
                 minimumFractionDigits: token.precision,
                 maximumFractionDigits: token.precision,
-                useGrouping: false
+                useGrouping: false,
+                trailingZeroDisplay: "stripIfInteger",
             };
             return value.toLocaleString(undefined, options);
         },
@@ -1125,6 +1133,7 @@ Object.defineProperty(String, "format",
         var result = initialValue;
         var tokens = String.tokenizeFormatString(format);
         var usedSubstitutionIndexes = {};
+        let ignoredUnknownSpecifierCount = 0;
 
         for (var i = 0; i < tokens.length; ++i) {
             var token = tokens[i];
@@ -1139,24 +1148,24 @@ Object.defineProperty(String, "format",
                 continue;
             }
 
-            if (token.substitutionIndex >= substitutions.length) {
+            let substitutionIndex = token.substitutionIndex - ignoredUnknownSpecifierCount;
+            if (substitutionIndex >= substitutions.length) {
                 // If there are not enough substitutions for the current substitutionIndex
                 // just output the format specifier literally and move on.
-                error("not enough substitution arguments. Had " + substitutions.length + " but needed " + (token.substitutionIndex + 1) + ", so substitution was skipped.");
+                error("not enough substitution arguments. Had " + substitutions.length + " but needed " + (substitutionIndex + 1) + ", so substitution was skipped.");
                 result = append(result, "%" + (token.precision > -1 ? token.precision : "") + token.specifier);
                 continue;
             }
 
-            usedSubstitutionIndexes[token.substitutionIndex] = true;
-
             if (!(token.specifier in formatters)) {
-                // Encountered an unsupported format character, treat as a string.
-                warn("unsupported format character \u201C" + token.specifier + "\u201D. Treating as a string.");
-                result = append(result, substitutions[token.substitutionIndex]);
+                warn(`Unsupported format specifier "%${token.specifier}" will be ignored.`);
+                result = append(result, "%" + token.specifier);
+                ++ignoredUnknownSpecifierCount;
                 continue;
             }
 
-            result = append(result, formatters[token.specifier](substitutions[token.substitutionIndex], token));
+            usedSubstitutionIndexes[substitutionIndex] = true;
+            result = append(result, formatters[token.specifier](substitutions[substitutionIndex], token));
         }
 
         var unusedSubstitutions = [];
@@ -1174,6 +1183,8 @@ Object.defineProperty(String.prototype, "format",
 {
     value()
     {
+        "use strict";
+
         return String.format(this, arguments, String.standardFormatters, "", function(a, b) { return a + b; }).formattedResult;
     }
 });
@@ -1182,6 +1193,8 @@ Object.defineProperty(String.prototype, "insertWordBreakCharacters",
 {
     value()
     {
+        "use strict";
+
         // Add zero width spaces after characters that are good to break after.
         // Otherwise a string with no spaces will not break and overflow its container.
         // This is mainly used on URL strings, so the characters are tailored for URLs.
@@ -1193,57 +1206,10 @@ Object.defineProperty(String.prototype, "removeWordBreakCharacters",
 {
     value()
     {
+        "use strict";
+
         // Undoes what insertWordBreakCharacters did.
         return this.replace(/\u200b/g, "");
-    }
-});
-
-Object.defineProperty(String.prototype, "levenshteinDistance",
-{
-    value(s)
-    {
-        var m = this.length;
-        var n = s.length;
-        var d = new Array(m + 1);
-
-        for (var i = 0; i <= m; ++i) {
-            d[i] = new Array(n + 1);
-            d[i][0] = i;
-        }
-
-        for (var j = 0; j <= n; ++j)
-            d[0][j] = j;
-
-        for (var j = 1; j <= n; ++j) {
-            for (var i = 1; i <= m; ++i) {
-                if (this[i - 1] === s[j - 1])
-                    d[i][j] = d[i - 1][j - 1];
-                else {
-                    var deletion = d[i - 1][j] + 1;
-                    var insertion = d[i][j - 1] + 1;
-                    var substitution = d[i - 1][j - 1] + 1;
-                    d[i][j] = Math.min(deletion, insertion, substitution);
-                }
-            }
-        }
-
-        return d[m][n];
-    }
-});
-
-Object.defineProperty(String.prototype, "toCamelCase",
-{
-    value()
-    {
-        return this.toLowerCase().replace(/[^\w]+(\w)/g, (match, group) => group.toUpperCase());
-    }
-});
-
-Object.defineProperty(String.prototype, "hasMatchingEscapedQuotes",
-{
-    value()
-    {
-        return /^\"(?:[^\"\\]|\\.)*\"$/.test(this) || /^\'(?:[^\'\\]|\\.)*\'$/.test(this);
     }
 });
 
@@ -1293,7 +1259,7 @@ Object.defineProperty(Number, "percentageString",
 {
     value(fraction, precision = 1)
     {
-        return fraction.toLocaleString(undefined, {minimumFractionDigits: precision, style: "percent"});
+        return fraction.toLocaleString(undefined, {minimumFractionDigits: precision, style: "percent", trailingZeroDisplay: "stripIfInteger"});
     }
 });
 
@@ -1518,7 +1484,7 @@ function parseMIMEType(fullMimeType)
         if (subparts[0].toLowerCase() === "boundary")
             boundary = subparts[1];
         else if (subparts[0].toLowerCase() === "charset")
-            encoding = subparts[1].replace("^\"|\"$", ""); // Trim quotes.
+            encoding = subparts[1].replaceAll("\"", ""); // Trim quotes.
     }
 
     return {type, boundary: boundary || null, encoding: encoding || null};
@@ -1546,16 +1512,45 @@ function simpleGlobStringToRegExp(globString, regExpFlags)
         // Replace all unescaped asterisks with ".*".
         regexString = regexString.replace(unescapedAsteriskRegex, "$1.*");
 
-        // Match edge boundaries when there is an asterisk to better meet the expectations
-        // of the user. When someone types "*.js" they don't expect "foo.json" to match. They
-        // would only expect that if they type "*.js*". We use \b (instead of ^ and $) to allow
-        // matches inside paths or URLs, so "ba*.js" will match "foo/bar.js" but not "boo/bbar.js".
-        // When there isn't an asterisk the regexString is just a substring search.
-        regexString = "\\b" + regexString + "\\b";
+        if (WI.settings.experimentalUseStrictCheckForGlobMatching.value) {
+            // Match edge boundaries when there is an asterisk to better meet the expectations
+            // of the user. When someone types "*.js" they don't expect "foo.json" to match. They
+            // would only expect that if they type "*.js*". We use \b (instead of ^ and $) to allow
+            // matches inside paths or URLs, so "ba*.js" will match "foo/bar.js" but not "boo/bbar.js".
+            // When there isn't an asterisk the regexString is just a substring search.
+            regexString = "\\b" + regexString + "\\b";
+        }
     }
 
     return new RegExp(regexString, regExpFlags);
 }
+
+Object.defineProperty(Array.prototype, "min",
+{
+    value(comparator)
+    {
+        return this[this.minIndex(comparator)];
+    },
+});
+
+Object.defineProperty(Array.prototype, "minIndex",
+{
+    value(comparator)
+    {
+        function defaultComparator(a, b)
+        {
+            return a - b;
+        }
+        comparator = comparator || defaultComparator;
+
+        let minIndex = -1;
+        for (let i = 0; i < this.length; ++i) {
+            if (minIndex === -1 || comparator(this[minIndex], this[i]) > 0)
+                minIndex = i;
+        }
+        return minIndex;
+    },
+});
 
 Object.defineProperty(Array.prototype, "lowerBound",
 {
@@ -1621,40 +1616,6 @@ Object.defineProperty(Array.prototype, "binaryIndexOf",
 
         var index = this.lowerBound(value, comparator);
         return index < this.length && comparator(value, this[index]) === 0 ? index : -1;
-    }
-});
-
-Object.defineProperty(Array.prototype, "groupBy",
-{
-    value(groupFunction, minGroupSize = 1)
-    {
-        let result = [];
-        let startIndex = null;
-
-        let flush = (endIndex) => {
-            if (startIndex === null)
-                return;
-            let group = this.slice(startIndex, endIndex + 1);
-            let adjacentCount = (endIndex + 1) - startIndex;
-            if (adjacentCount >= minGroupSize)
-                result.push(group);
-            else
-                result.pushAll(group);
-        }
-
-        this.forEach((item, i) => {
-            if (groupFunction(item)) {
-                startIndex ??= i;
-                if (i === this.length - 1)
-                    flush(this.length - 1);
-            } else {
-                flush(i - 1);
-                result.push(item);
-                startIndex = null;
-            }
-        });
-
-        return result;
     }
 });
 
@@ -1784,6 +1745,23 @@ function insertionIndexForObjectInListSortedByFunction(object, list, comparator,
 function insertObjectIntoSortedArray(object, array, comparator)
 {
     array.splice(insertionIndexForObjectInListSortedByFunction(object, array, comparator), 0, object);
+}
+
+async function retryUntil(predicate, {delay, retries} = {})
+{
+    retries ??= 100;
+    delay ??= 100;
+
+    for (let i = 0; i < retries; ++i) {
+        let result = predicate();
+        if (result)
+            return result;
+
+        await Promise.delay(delay);
+    }
+
+    console.assert(false, "retryUntil exceeded the maximum number of retries.", predicate, retries);
+    return null;
 }
 
 WI.setReentrantCheck = function(object, key)

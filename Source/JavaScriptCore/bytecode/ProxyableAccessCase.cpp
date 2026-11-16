@@ -31,34 +31,23 @@
 namespace JSC {
 
 ProxyableAccessCase::ProxyableAccessCase(VM& vm, JSCell* owner, AccessType accessType, CacheableIdentifier identifier, PropertyOffset offset, Structure* structure,
-    const ObjectPropertyConditionSet& conditionSet, bool viaProxy, WatchpointSet* additionalSet, RefPtr<PolyProtoAccessChain>&& prototypeAccessChain)
-    : Base(vm, owner, accessType, identifier, offset, structure, conditionSet, WTFMove(prototypeAccessChain))
+    const ObjectPropertyConditionSet& conditionSet, bool viaGlobalProxy, WatchpointSet* additionalSet, RefPtr<PolyProtoAccessChain>&& prototypeAccessChain)
+    : Base(vm, owner, accessType, identifier, offset, structure, conditionSet, WTF::move(prototypeAccessChain))
     , m_additionalSet(additionalSet)
 {
-    m_viaProxy = viaProxy;
+    m_viaGlobalProxy = viaGlobalProxy;
 }
 
-Ref<AccessCase> ProxyableAccessCase::create(VM& vm, JSCell* owner, AccessType type, CacheableIdentifier identifier, PropertyOffset offset, Structure* structure, const ObjectPropertyConditionSet& conditionSet, bool viaProxy, WatchpointSet* additionalSet, RefPtr<PolyProtoAccessChain>&& prototypeAccessChain)
+Ref<AccessCase> ProxyableAccessCase::create(VM& vm, JSCell* owner, AccessType type, CacheableIdentifier identifier, PropertyOffset offset, Structure* structure, const ObjectPropertyConditionSet& conditionSet, bool viaGlobalProxy, WatchpointSet* additionalSet, RefPtr<PolyProtoAccessChain>&& prototypeAccessChain)
 {
-    ASSERT(type == Load || type == Miss || type == GetGetter || type == Replace);
-    return adoptRef(*new ProxyableAccessCase(vm, owner, type, identifier, offset, structure, conditionSet, viaProxy, additionalSet, WTFMove(prototypeAccessChain)));
+    ASSERT(type == Load || type == Miss || type == GetGetter);
+    return adoptRef(*new ProxyableAccessCase(vm, owner, type, identifier, offset, structure, conditionSet, viaGlobalProxy, additionalSet, WTF::move(prototypeAccessChain)));
 }
 
-ProxyableAccessCase::~ProxyableAccessCase()
+void ProxyableAccessCase::dumpImpl(PrintStream& out, CommaPrinter& comma, Indenter& indent) const
 {
-}
-
-Ref<AccessCase> ProxyableAccessCase::clone() const
-{
-    auto result = adoptRef(*new ProxyableAccessCase(*this));
-    result->resetState();
-    return result;
-}
-
-void ProxyableAccessCase::dumpImpl(PrintStream& out, CommaPrinter& comma) const
-{
-    Base::dumpImpl(out, comma);
-    out.print(comma, "viaProxy = ", viaProxy());
+    Base::dumpImpl(out, comma, indent);
+    out.print(comma, "viaGlobalProxy = ", viaGlobalProxy());
     out.print(comma, "additionalSet = ", RawPointer(additionalSet()));
 }
 

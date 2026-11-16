@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -109,7 +109,7 @@ bool ScrollbarThemeComposite::paint(Scrollbar& scrollbar, GraphicsContext& graph
     return true;
 }
 
-ScrollbarPart ScrollbarThemeComposite::hitTest(Scrollbar& scrollbar, const IntPoint& position)
+ScrollbarPart ScrollbarThemeComposite::hitTest(Scrollbar& scrollbar, const IntPoint& position, ScrollbarHitTestTolerance tolerance)
 {
     ScrollbarPart result = NoPart;
     if (!scrollbar.enabled())
@@ -117,7 +117,20 @@ ScrollbarPart ScrollbarThemeComposite::hitTest(Scrollbar& scrollbar, const IntPo
 
     IntPoint testPosition = scrollbar.convertFromContainingWindow(position);
     testPosition.move(scrollbar.x(), scrollbar.y());
-    
+
+    if (tolerance == ScrollbarHitTestTolerance::Expanded) {
+        // With expanded granularity, a point can land just off the scrollbar and miss it entirely.
+        // In this case, it therefore needs to have its cross-axis be mapped to an eligible location on the scrollbar.
+        //
+        // Note that since maxX()/maxY() are exclusive (frameRect().contains() treats them as outside),
+        // the -1 is needed to land on the last position still inside the bar.
+        const auto bar = scrollbar.frameRect();
+        if (scrollbar.orientation() == ScrollbarOrientation::Vertical)
+            testPosition.setX(std::clamp(testPosition.x(), bar.x(), bar.maxX() - 1));
+        else
+            testPosition.setY(std::clamp(testPosition.y(), bar.y(), bar.maxY() - 1));
+    }
+
     if (!scrollbar.frameRect().contains(testPosition))
         return NoPart;
 
@@ -193,9 +206,9 @@ void ScrollbarThemeComposite::splitTrack(Scrollbar& scrollbar, const IntRect& un
     // This function won't even get called unless we're big enough to have some combination of these three rects where at least
     // one of them is non-empty.
     IntRect trackRect = constrainTrackRectToTrackPieces(scrollbar, unconstrainedTrackRect);
-    int thickness = scrollbar.orientation() == HorizontalScrollbar ? scrollbar.height() : scrollbar.width();
+    int thickness = scrollbar.orientation() == ScrollbarOrientation::Horizontal ? scrollbar.height() : scrollbar.width();
     int thumbPos = thumbPosition(scrollbar);
-    if (scrollbar.orientation() == HorizontalScrollbar) {
+    if (scrollbar.orientation() == ScrollbarOrientation::Horizontal) {
         thumbRect = IntRect(trackRect.x() + thumbPos, trackRect.y() + (trackRect.height() - thickness) / 2, thumbLength(scrollbar), thickness);
         beforeThumbRect = IntRect(trackRect.x(), trackRect.y(), thumbPos + thumbRect.width() / 2, trackRect.height()); 
         afterThumbRect = IntRect(trackRect.x() + beforeThumbRect.width(), trackRect.y(), trackRect.maxX() - beforeThumbRect.maxX(), trackRect.height());
@@ -245,19 +258,19 @@ int ScrollbarThemeComposite::thumbLength(Scrollbar& scrollbar)
 
 int ScrollbarThemeComposite::minimumThumbLength(Scrollbar& scrollbar)
 {
-    return scrollbarThickness(scrollbar.controlSize());
+    return scrollbarThickness(scrollbar.widthStyle());
 }
 
 int ScrollbarThemeComposite::trackPosition(Scrollbar& scrollbar)
 {
     IntRect constrainedTrackRect = constrainTrackRectToTrackPieces(scrollbar, trackRect(scrollbar));
-    return (scrollbar.orientation() == HorizontalScrollbar) ? constrainedTrackRect.x() - scrollbar.x() : constrainedTrackRect.y() - scrollbar.y();
+    return (scrollbar.orientation() == ScrollbarOrientation::Horizontal) ? constrainedTrackRect.x() - scrollbar.x() : constrainedTrackRect.y() - scrollbar.y();
 }
 
 int ScrollbarThemeComposite::trackLength(Scrollbar& scrollbar)
 {
     IntRect constrainedTrackRect = constrainTrackRectToTrackPieces(scrollbar, trackRect(scrollbar));
-    return (scrollbar.orientation() == HorizontalScrollbar) ? constrainedTrackRect.width() : constrainedTrackRect.height();
+    return (scrollbar.orientation() == ScrollbarOrientation::Horizontal) ? constrainedTrackRect.width() : constrainedTrackRect.height();
 }
 
 IntRect ScrollbarThemeComposite::thumbRect(Scrollbar& scrollbar)

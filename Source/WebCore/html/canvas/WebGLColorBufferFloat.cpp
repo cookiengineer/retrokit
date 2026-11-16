@@ -28,35 +28,32 @@
 #if ENABLE(WEBGL)
 #include "WebGLColorBufferFloat.h"
 
-#include "ExtensionsGL.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(WebGLColorBufferFloat);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebGLColorBufferFloat);
 
 WebGLColorBufferFloat::WebGLColorBufferFloat(WebGLRenderingContextBase& context)
-    : WebGLExtension(context)
+    : WebGLExtension(context, WebGLExtensionName::WebGLColorBufferFloat)
 {
-    context.graphicsContextGL()->getExtensions().ensureEnabled("GL_CHROMIUM_color_buffer_float_rgba"_s);
+    RefPtr graphicsContextGL = context.graphicsContextGL();
+    graphicsContextGL->enableExtension(GCGLExtension::CHROMIUM_color_buffer_float_rgba);
     // Optimistically enable RGB floating-point render targets also, if possible.
-    context.graphicsContextGL()->getExtensions().ensureEnabled("GL_CHROMIUM_color_buffer_float_rgb"_s);
+    graphicsContextGL->enableExtension(GCGLExtension::CHROMIUM_color_buffer_float_rgb);
+
     // https://github.com/KhronosGroup/WebGL/pull/2830
     // Spec requires EXT_float_blend to be turned on implicitly here.
-    context.graphicsContextGL()->getExtensions().ensureEnabled("GL_EXT_float_blend"_s);
+    // Enable it both in the backend and in WebKit.
+    context.getExtension("EXT_float_blend"_s);
 }
 
 WebGLColorBufferFloat::~WebGLColorBufferFloat() = default;
 
-WebGLExtension::ExtensionName WebGLColorBufferFloat::getName() const
+bool WebGLColorBufferFloat::supported(GraphicsContextGL& context)
 {
-    return WebGLColorBufferFloatName;
-}
-
-bool WebGLColorBufferFloat::supported(const WebGLRenderingContextBase& context)
-{
-    return context.graphicsContextGL()->getExtensions().supports("GL_OES_texture_float"_s)
-        && context.graphicsContextGL()->getExtensions().supports("GL_CHROMIUM_color_buffer_float_rgba"_s);
+    return context.supportsExtension(GCGLExtension::OES_texture_float)
+        && context.supportsExtension(GCGLExtension::CHROMIUM_color_buffer_float_rgba);
 }
 
 } // namespace WebCore

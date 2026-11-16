@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 Google Inc. All Rights Reserved.
+ * Copyright (C) 2011 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,7 +28,7 @@
 #include "SecurityContext.h"
 
 #include "ContentSecurityPolicy.h"
-#include "HTMLParserIdioms.h"
+#include "IntegrityPolicy.h"
 #include "PolicyContainer.h"
 #include "SecurityOrigin.h"
 #include "SecurityOriginPolicy.h"
@@ -42,21 +42,43 @@ SecurityContext::~SecurityContext() = default;
 
 void SecurityContext::setSecurityOriginPolicy(RefPtr<SecurityOriginPolicy>&& securityOriginPolicy)
 {
-    m_securityOriginPolicy = WTFMove(securityOriginPolicy);
-    m_haveInitializedSecurityOrigin = true;
+    auto currentOrigin = securityOrigin() ? securityOrigin()->data() : SecurityOriginData { };
+    bool haveInitializedSecurityOrigin = std::exchange(m_haveInitializedSecurityOrigin, true);
+
+    m_securityOriginPolicy = WTF::move(securityOriginPolicy);
+    m_hasEmptySecurityOriginPolicy = false;
+
+    auto origin = securityOrigin() ? securityOrigin()->data() : SecurityOriginData { };
+    if (!haveInitializedSecurityOrigin || currentOrigin != origin)
+        securityOriginDidChange();
+}
+
+ContentSecurityPolicy* SecurityContext::contentSecurityPolicy()
+{
+    if (!m_contentSecurityPolicy && m_hasEmptyContentSecurityPolicy)
+        m_contentSecurityPolicy = makeEmptyContentSecurityPolicy();
+    return m_contentSecurityPolicy.get();
 }
 
 SecurityOrigin* SecurityContext::securityOrigin() const
 {
-    if (!m_securityOriginPolicy)
+    RefPtr policy = securityOriginPolicy();
+    if (!policy)
         return nullptr;
+    return &policy->origin();
+}
 
-    return &m_securityOriginPolicy->origin();
+SecurityOriginPolicy* SecurityContext::securityOriginPolicy() const
+{
+    if (!m_securityOriginPolicy && m_hasEmptySecurityOriginPolicy)
+        const_cast<SecurityContext&>(*this).m_securityOriginPolicy = SecurityOriginPolicy::create(SecurityOrigin::createOpaque());
+    return m_securityOriginPolicy.get();
 }
 
 void SecurityContext::setContentSecurityPolicy(std::unique_ptr<ContentSecurityPolicy>&& contentSecurityPolicy)
 {
-    m_contentSecurityPolicy = WTFMove(contentSecurityPolicy);
+    m_contentSecurityPolicy = WTF::move(contentSecurityPolicy);
+    m_hasEmptyContentSecurityPolicy = false;
 }
 
 bool SecurityContext::isSecureTransitionTo(const URL& url) const
@@ -70,24 +92,27 @@ bool SecurityContext::isSecureTransitionTo(const URL& url) const
     return securityOriginPolicy()->origin().isSameOriginDomain(SecurityOrigin::create(url).get());
 }
 
-void SecurityContext::enforceSandboxFlags(SandboxFlags mask, SandboxFlagsSource source)
+void SecurityContext::enforceSandboxFlags(SandboxFlags flags, SandboxFlagsSource source)
 {
     if (source != SandboxFlagsSource::CSP)
-        m_creationSandboxFlags |= mask;
-    m_sandboxFlags |= mask;
+        m_creationSandboxFlags.add(flags);
+    m_sandboxFlags.add(flags);
 
-    // The SandboxOrigin is stored redundantly in the security origin.
-    if (isSandboxed(SandboxOrigin) && securityOriginPolicy() && !securityOriginPolicy()->origin().isUnique())
-        setSecurityOriginPolicy(SecurityOriginPolicy::create(SecurityOrigin::createUnique()));
+    // The SandboxFlag::Origin is stored redundantly in the security origin.
+    if (isSandboxed(SandboxFlag::Origin) && securityOriginPolicy() && !securityOriginPolicy()->origin().isOpaque())
+        setSecurityOriginPolicy(SecurityOriginPolicy::create(SecurityOrigin::createOpaque()));
 }
 
 bool SecurityContext::isSupportedSandboxPolicy(StringView policy)
 {
-    static const char* const supportedPolicies[] = {
-        "allow-forms", "allow-same-origin", "allow-scripts", "allow-top-navigation", "allow-pointer-lock", "allow-popups", "allow-popups-to-escape-sandbox", "allow-top-navigation-by-user-activation", "allow-modals", "allow-storage-access-by-user-activation"
+    static constexpr std::array supportedPolicies {
+        "allow-top-navigation-to-custom-protocols"_s, "allow-forms"_s, "allow-same-origin"_s, "allow-scripts"_s,
+        "allow-top-navigation"_s, "allow-pointer-lock"_s, "allow-popups"_s, "allow-popups-to-escape-sandbox"_s,
+        "allow-top-navigation-by-user-activation"_s, "allow-modals"_s, "allow-storage-access-by-user-activation"_s,
+        "allow-downloads"_s
     };
 
-    for (auto* supportedPolicy : supportedPolicies) {
+    for (auto supportedPolicy : supportedPolicies) {
         if (equalIgnoringASCIICase(policy, supportedPolicy))
             return true;
     }
@@ -95,51 +120,55 @@ bool SecurityContext::isSupportedSandboxPolicy(StringView policy)
 }
 
 // Keep SecurityContext::isSupportedSandboxPolicy() in sync when updating this function.
-SandboxFlags SecurityContext::parseSandboxPolicy(const String& policy, String& invalidTokensErrorMessage)
+SandboxFlags SecurityContext::parseSandboxPolicy(StringView policy, String& invalidTokensErrorMessage)
 {
     // http://www.w3.org/TR/html5/the-iframe-element.html#attr-iframe-sandbox
     // Parse the unordered set of unique space-separated tokens.
-    SandboxFlags flags = SandboxAll;
+    SandboxFlags flags = SandboxFlags::all();
     unsigned length = policy.length();
     unsigned start = 0;
     unsigned numberOfTokenErrors = 0;
     StringBuilder tokenErrors;
     while (true) {
-        while (start < length && isHTMLSpace(policy[start]))
+        while (start < length && isASCIIWhitespace(policy[start]))
             ++start;
         if (start >= length)
             break;
         unsigned end = start + 1;
-        while (end < length && !isHTMLSpace(policy[end]))
+        while (end < length && !isASCIIWhitespace(policy[end]))
             ++end;
 
         // Turn off the corresponding sandbox flag if it's set as "allowed".
-        String sandboxToken = policy.substring(start, end - start);
-        if (equalLettersIgnoringASCIICase(sandboxToken, "allow-same-origin"))
-            flags &= ~SandboxOrigin;
-        else if (equalLettersIgnoringASCIICase(sandboxToken, "allow-forms"))
-            flags &= ~SandboxForms;
-        else if (equalLettersIgnoringASCIICase(sandboxToken, "allow-scripts")) {
-            flags &= ~SandboxScripts;
-            flags &= ~SandboxAutomaticFeatures;
-        } else if (equalLettersIgnoringASCIICase(sandboxToken, "allow-top-navigation")) {
-            flags &= ~SandboxTopNavigation;
-            flags &= ~SandboxTopNavigationByUserActivation;
-        } else if (equalLettersIgnoringASCIICase(sandboxToken, "allow-popups"))
-            flags &= ~SandboxPopups;
-        else if (equalLettersIgnoringASCIICase(sandboxToken, "allow-pointer-lock"))
-            flags &= ~SandboxPointerLock;
-        else if (equalLettersIgnoringASCIICase(sandboxToken, "allow-popups-to-escape-sandbox"))
-            flags &= ~SandboxPropagatesToAuxiliaryBrowsingContexts;
-        else if (equalLettersIgnoringASCIICase(sandboxToken, "allow-top-navigation-by-user-activation"))
-            flags &= ~SandboxTopNavigationByUserActivation;
-        else if (equalLettersIgnoringASCIICase(sandboxToken, "allow-modals"))
-            flags &= ~SandboxModals;
-        else if (equalLettersIgnoringASCIICase(sandboxToken, "allow-storage-access-by-user-activation"))
-            flags &= ~SandboxStorageAccessByUserActivation;
+        auto sandboxToken = policy.substring(start, end - start);
+        if (equalLettersIgnoringASCIICase(sandboxToken, "allow-same-origin"_s))
+            flags.remove(SandboxFlag::Origin);
+        else if (equalLettersIgnoringASCIICase(sandboxToken, "allow-downloads"_s))
+            flags.remove(SandboxFlag::Downloads);
+        else if (equalLettersIgnoringASCIICase(sandboxToken, "allow-forms"_s))
+            flags.remove(SandboxFlag::Forms);
+        else if (equalLettersIgnoringASCIICase(sandboxToken, "allow-scripts"_s)) {
+            flags.remove(SandboxFlag::Scripts);
+            flags.remove(SandboxFlag::AutomaticFeatures);
+        } else if (equalLettersIgnoringASCIICase(sandboxToken, "allow-top-navigation"_s)) {
+            flags.remove(SandboxFlag::TopNavigation);
+            flags.remove(SandboxFlag::TopNavigationByUserActivation);
+        } else if (equalLettersIgnoringASCIICase(sandboxToken, "allow-popups"_s))
+            flags.remove(SandboxFlag::Popups);
+        else if (equalLettersIgnoringASCIICase(sandboxToken, "allow-pointer-lock"_s))
+            flags.remove(SandboxFlag::PointerLock);
+        else if (equalLettersIgnoringASCIICase(sandboxToken, "allow-popups-to-escape-sandbox"_s))
+            flags.remove(SandboxFlag::PropagatesToAuxiliaryBrowsingContexts);
+        else if (equalLettersIgnoringASCIICase(sandboxToken, "allow-top-navigation-by-user-activation"_s))
+            flags.remove(SandboxFlag::TopNavigationByUserActivation);
+        else if (equalLettersIgnoringASCIICase(sandboxToken, "allow-top-navigation-to-custom-protocols"_s))
+            flags.remove(SandboxFlag::TopNavigationToCustomProtocols);
+        else if (equalLettersIgnoringASCIICase(sandboxToken, "allow-modals"_s))
+            flags.remove(SandboxFlag::Modals);
+        else if (equalLettersIgnoringASCIICase(sandboxToken, "allow-storage-access-by-user-activation"_s))
+            flags.remove(SandboxFlag::StorageAccessByUserActivation);
         else {
             if (numberOfTokenErrors)
-                tokenErrors.append(", '");
+                tokenErrors.append(", '"_s);
             else
                 tokenErrors.append('\'');
             tokenErrors.append(sandboxToken, '\'');
@@ -151,27 +180,67 @@ SandboxFlags SecurityContext::parseSandboxPolicy(const String& policy, String& i
 
     if (numberOfTokenErrors) {
         if (numberOfTokenErrors > 1)
-            tokenErrors.append(" are invalid sandbox flags.");
+            tokenErrors.append(" are invalid sandbox flags."_s);
         else
-            tokenErrors.append(" is an invalid sandbox flag.");
+            tokenErrors.append(" is an invalid sandbox flag."_s);
         invalidTokensErrorMessage = tokenErrors.toString();
     }
 
     return flags;
 }
 
-const CrossOriginOpenerPolicy& SecurityContext::crossOriginOpenerPolicy() const
+void SecurityContext::setReferrerPolicy(ReferrerPolicy referrerPolicy)
 {
-    static NeverDestroyed<CrossOriginOpenerPolicy> coop;
-    return coop;
+    // Do not override existing referrer policy with the "empty string" one as the "empty string" means we should use
+    // the policy defined elsewhere.
+    if (referrerPolicy == ReferrerPolicy::EmptyString)
+        return;
+
+    m_referrerPolicy = referrerPolicy;
 }
 
 PolicyContainer SecurityContext::policyContainer() const
 {
+    ASSERT(m_contentSecurityPolicy);
     return {
+        CheckedRef { *m_contentSecurityPolicy }->responseHeaders(),
         crossOriginEmbedderPolicy(),
-        crossOriginOpenerPolicy()
+        crossOriginOpenerPolicy(),
+        referrerPolicy(),
+        ipAddressSpace()
     };
 }
 
+void SecurityContext::inheritPolicyContainerFrom(const PolicyContainer& policyContainer)
+{
+    if (!contentSecurityPolicy())
+        setContentSecurityPolicy(makeUnique<ContentSecurityPolicy>(URL { }, nullptr, nullptr));
+
+    protect(contentSecurityPolicy())->inheritHeadersFrom(policyContainer.contentSecurityPolicyResponseHeaders);
+    setCrossOriginOpenerPolicy(policyContainer.crossOriginOpenerPolicy);
+    setCrossOriginEmbedderPolicy(policyContainer.crossOriginEmbedderPolicy);
+    setReferrerPolicy(policyContainer.referrerPolicy);
+    setIPAddressSpace(policyContainer.ipAddressSpace);
 }
+
+const IntegrityPolicy* SecurityContext::integrityPolicy() const
+{
+    return m_integrityPolicy.get();
+}
+
+void SecurityContext::setIntegrityPolicy(std::unique_ptr<IntegrityPolicy>&& policy)
+{
+    m_integrityPolicy = WTF::move(policy);
+}
+
+const IntegrityPolicy* SecurityContext::integrityPolicyReportOnly() const
+{
+    return m_integrityPolicyReportOnly.get();
+}
+
+void SecurityContext::setIntegrityPolicyReportOnly(std::unique_ptr<IntegrityPolicy>&& policy)
+{
+    m_integrityPolicyReportOnly = WTF::move(policy);
+}
+
+} // namespace WebCore

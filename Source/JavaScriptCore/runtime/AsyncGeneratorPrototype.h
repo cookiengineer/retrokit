@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2017 Oleksandr Skachkov <gskachkov@gmail.com>.
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,6 +30,8 @@
 
 namespace JSC {
 
+JSC_DECLARE_HOST_FUNCTION(asyncGeneratorPrototypeNext);
+
 // %AsyncGeneratorPrototype% intrinsic.
 // https://tc39.github.io/ecma262/#sec-properties-of-generator-prototype
 class AsyncGeneratorPrototype final : public JSNonFinalObject {
@@ -38,32 +40,29 @@ public:
     static constexpr unsigned StructureFlags = Base::StructureFlags | HasStaticPropertyTable;
 
     template<typename CellType, SubspaceAccess>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(AsyncGeneratorPrototype, Base);
-        return &vm.plainObjectSpace;
+        return &vm.plainObjectSpace();
     }
 
-    static AsyncGeneratorPrototype* create(VM& vm, JSGlobalObject*, Structure* structure)
+    static AsyncGeneratorPrototype* create(VM& vm, JSGlobalObject* globalObject, Structure* structure)
     {
-        AsyncGeneratorPrototype* prototype = new (NotNull, allocateCell<AsyncGeneratorPrototype>(vm.heap)) AsyncGeneratorPrototype(vm, structure);
-        prototype->finishCreation(vm);
+        AsyncGeneratorPrototype* prototype = new (NotNull, allocateCell<AsyncGeneratorPrototype>(vm)) AsyncGeneratorPrototype(vm, structure);
+        prototype->finishCreation(vm, globalObject);
         return prototype;
     }
 
     DECLARE_INFO;
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(ObjectType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
 private:
     AsyncGeneratorPrototype(VM& vm, Structure* structure)
         : Base(vm, structure)
     {
     }
-    void finishCreation(VM&);
+    void finishCreation(VM&, JSGlobalObject*);
 };
 
 } // namespace JSC

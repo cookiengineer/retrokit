@@ -4,6 +4,8 @@
 // found in the LICENSE file.
 //
 
+#include <array>
+
 #include "test_utils/ANGLETest.h"
 #include "test_utils/gl_raii.h"
 
@@ -34,7 +36,7 @@ enum Vendor
 };
 }  // namespace
 
-class InstancingTest : public ANGLETest
+class InstancingTest : public ANGLETest<>
 {
   protected:
     InstancingTest()
@@ -62,7 +64,7 @@ class InstancingTest : public ANGLETest
         }
         glGenBuffers(1, &mInstanceBuffer);
         glBindBuffer(GL_ARRAY_BUFFER, mInstanceBuffer);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(mInstanceData), mInstanceData, GL_STATIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(mInstanceData), mInstanceData.data(), GL_STATIC_DRAW);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
 
         const std::string inst = "attribute float a_instance;";
@@ -110,22 +112,6 @@ class InstancingTest : public ANGLETest
             ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_EXT_instanced_arrays"));
         }
 
-        // TODO: Fix these.  http://anglebug.com/3129
-        ANGLE_SKIP_TEST_IF(IsD3D9() && draw == Indexed && geometry == Point);
-        ANGLE_SKIP_TEST_IF(IsD3D9() && IsAMD());
-
-        // D3D11 FL9_3 has a special codepath that emulates instanced points rendering
-        // but it has bugs and was only implemented for vertex positions in a buffer object,
-        // not client memory as used in this test.
-        ANGLE_SKIP_TEST_IF(IsD3D11_FL93() && geometry == Point);
-
-        // Unknown problem.  FL9_3 is not officially supported anyway.
-        ANGLE_SKIP_TEST_IF(IsD3D11_FL93() && geometry == Quad && draw == NonIndexed);
-
-        // http://anglebug.com/5271
-        ANGLE_SKIP_TEST_IF(IsOSX() && IsIntelUHD630Mobile() && IsDesktopOpenGL() &&
-                           draw == NonIndexed && offset != 0);
-
         // The window is divided into kMaxDrawn slices of size kDrawSize.
         // The slice drawn into is determined by the instance datum.
         // The instance data array selects all the slices in order.
@@ -142,7 +128,7 @@ class InstancingTest : public ANGLETest
 
         glBindBuffer(GL_ARRAY_BUFFER, storage == Buffer ? mInstanceBuffer : 0);
         glVertexAttribPointer(instanceAttrib, 1, GL_FLOAT, GL_FALSE, 0,
-                              storage == Buffer ? nullptr : mInstanceData);
+                              storage == Buffer ? nullptr : mInstanceData.data());
         glEnableVertexAttribArray(instanceAttrib);
         if (vendor == Angle)
             glVertexAttribDivisorANGLE(instanceAttrib, divisor);
@@ -154,13 +140,13 @@ class InstancingTest : public ANGLETest
         switch (geometry)
         {
             case Point:
-                vertices = kPointVertices;
+                vertices = kPointVertices.data();
                 break;
             case Quad:
-                vertices = kQuadVertices;
+                vertices = kQuadVertices.data();
                 break;
             case TriFan:
-                vertices = kTriFanVertices;
+                vertices = kTriFanVertices.data();
                 break;
         }
         glVertexAttribPointer(positionAttrib, 2, GL_FLOAT, GL_FALSE, 0, vertices);
@@ -176,11 +162,11 @@ class InstancingTest : public ANGLETest
         {
             if (draw == Indexed)
                 if (vendor == Angle)
-                    glDrawElementsInstancedANGLE(GL_POINTS, ArraySize(kPointIndices),
-                                                 GL_UNSIGNED_SHORT, kPointIndices, numInstance);
+                    glDrawElementsInstancedANGLE(GL_POINTS, kPointIndices.size(), GL_UNSIGNED_SHORT,
+                                                 kPointIndices.data(), numInstance);
                 else
-                    glDrawElementsInstancedEXT(GL_POINTS, ArraySize(kPointIndices),
-                                               GL_UNSIGNED_SHORT, kPointIndices, numInstance);
+                    glDrawElementsInstancedEXT(GL_POINTS, kPointIndices.size(), GL_UNSIGNED_SHORT,
+                                               kPointIndices.data(), numInstance);
             else if (vendor == Angle)
                 glDrawArraysInstancedANGLE(GL_POINTS, offset, 4 /*vertices*/, numInstance);
             else
@@ -190,11 +176,12 @@ class InstancingTest : public ANGLETest
         {
             if (draw == Indexed)
                 if (vendor == Angle)
-                    glDrawElementsInstancedANGLE(GL_TRIANGLES, ArraySize(kQuadIndices),
-                                                 GL_UNSIGNED_SHORT, kQuadIndices, numInstance);
+                    glDrawElementsInstancedANGLE(GL_TRIANGLES, kQuadIndices.size(),
+                                                 GL_UNSIGNED_SHORT, kQuadIndices.data(),
+                                                 numInstance);
                 else
-                    glDrawElementsInstancedEXT(GL_TRIANGLES, ArraySize(kQuadIndices),
-                                               GL_UNSIGNED_SHORT, kQuadIndices, numInstance);
+                    glDrawElementsInstancedEXT(GL_TRIANGLES, kQuadIndices.size(), GL_UNSIGNED_SHORT,
+                                               kQuadIndices.data(), numInstance);
             else if (vendor == Angle)
                 glDrawArraysInstancedANGLE(GL_TRIANGLES, offset, 6 /*vertices*/, numInstance);
             else
@@ -208,24 +195,26 @@ class InstancingTest : public ANGLETest
                 {
                     GLBuffer indexBuffer;
                     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer);
-                    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(kTriFanIndices), kTriFanIndices,
-                                 GL_STATIC_DRAW);
+                    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(kTriFanIndices),
+                                 kTriFanIndices.data(), GL_STATIC_DRAW);
 
                     if (vendor == Angle)
-                        glDrawElementsInstancedANGLE(GL_TRIANGLE_FAN, ArraySize(kTriFanIndices),
+                        glDrawElementsInstancedANGLE(GL_TRIANGLE_FAN, kTriFanIndices.size(),
                                                      GL_UNSIGNED_BYTE, 0, numInstance);
                     else
-                        glDrawElementsInstancedEXT(GL_TRIANGLE_FAN, ArraySize(kTriFanIndices),
+                        glDrawElementsInstancedEXT(GL_TRIANGLE_FAN, kTriFanIndices.size(),
                                                    GL_UNSIGNED_BYTE, 0, numInstance);
                 }
                 else
                 {
                     if (vendor == Angle)
-                        glDrawElementsInstancedANGLE(GL_TRIANGLE_FAN, ArraySize(kTriFanIndices),
-                                                     GL_UNSIGNED_BYTE, kTriFanIndices, numInstance);
+                        glDrawElementsInstancedANGLE(GL_TRIANGLE_FAN, kTriFanIndices.size(),
+                                                     GL_UNSIGNED_BYTE, kTriFanIndices.data(),
+                                                     numInstance);
                     else
-                        glDrawElementsInstancedEXT(GL_TRIANGLE_FAN, ArraySize(kTriFanIndices),
-                                                   GL_UNSIGNED_BYTE, kTriFanIndices, numInstance);
+                        glDrawElementsInstancedEXT(GL_TRIANGLE_FAN, kTriFanIndices.size(),
+                                                   GL_UNSIGNED_BYTE, kTriFanIndices.data(),
+                                                   numInstance);
                 }
             }
             else if (vendor == Angle)
@@ -254,18 +243,18 @@ class InstancingTest : public ANGLETest
         }
     }
 
-    GLuint mProgram[2];
+    std::array<GLuint, 2> mProgram;
     GLuint mInstanceBuffer;
 
     static constexpr unsigned kMaxDrawn = 16;
     static constexpr float kDrawSize    = 2.0 / kMaxDrawn;
-    GLfloat mInstanceData[kMaxDrawn];
+    std::array<GLfloat, kMaxDrawn> mInstanceData;
 
     // clang-format off
 
     // Vertices 0-5 are two triangles that form a quad filling the first "slice" of the window.
     // See above about slices.  Vertices 4-9 are the same two triangles.
-    static constexpr GLfloat kQuadVertices[] = {
+    static constexpr std::array<GLfloat, 20> kQuadVertices = {
         -1, -1,
          1, -1,
         -1, -1 + kDrawSize,
@@ -280,7 +269,7 @@ class InstancingTest : public ANGLETest
 
     // Vertices 0-7 form a quad (triangle fan) filling the first "slice" of the window.
     // Vertices 8-15 are the same.
-    static constexpr GLfloat kTriFanVertices[] = {
+    static constexpr std::array<GLfloat, 32> kTriFanVertices = {
         -1, -1,
          1, -1,
         1, -1 + 0.5f * kDrawSize,
@@ -302,7 +291,7 @@ class InstancingTest : public ANGLETest
 
     // Points 0-3 are spread across the first "slice."
     // Points 2-4 are the same.
-    static constexpr GLfloat kPointVertices[] = {
+    static constexpr std::array<GLfloat, 12> kPointVertices = {
         -0.6f, -1 + kDrawSize / 2.0,
         -0.2f, -1 + kDrawSize / 2.0,
          0.2f, -1 + kDrawSize / 2.0,
@@ -313,23 +302,14 @@ class InstancingTest : public ANGLETest
     // clang-format on
 
     // Same two triangles as described above.
-    static constexpr GLushort kQuadIndices[] = {2, 9, 7, 5, 6, 4};
+    static constexpr std::array<GLushort, 6> kQuadIndices = {2, 9, 7, 5, 6, 4};
 
     // Same triangle fan as described above.
-    static constexpr GLubyte kTriFanIndices[] = {0, 9, 10, 3, 4, 5, 14, 7};
+    static constexpr std::array<GLubyte, 8> kTriFanIndices = {0, 9, 10, 3, 4, 5, 14, 7};
 
     // Same four points as described above.
-    static constexpr GLushort kPointIndices[] = {1, 5, 3, 2};
+    static constexpr std::array<GLushort, 4> kPointIndices = {1, 5, 3, 2};
 };
-
-constexpr unsigned InstancingTest::kMaxDrawn;
-constexpr float InstancingTest::kDrawSize;
-constexpr GLfloat InstancingTest::kQuadVertices[];
-constexpr GLfloat InstancingTest::kTriFanVertices[];
-constexpr GLfloat InstancingTest::kPointVertices[];
-constexpr GLushort InstancingTest::kQuadIndices[];
-constexpr GLubyte InstancingTest::kTriFanIndices[];
-constexpr GLushort InstancingTest::kPointIndices[];
 
 #define TEST_INDEXED(attrib, geometry, storage, vendor)                      \
     TEST_P(InstancingTest, IndexedAttrib##attrib##geometry##storage##vendor) \
@@ -349,7 +329,7 @@ constexpr GLushort InstancingTest::kPointIndices[];
         runTest(numInstance, divisor, 1, Quad, NonIndexed, Buffer, Angle, 0); \
     }
 
-// D3D9 and D3D11 FL9_3, have a special codepath that rearranges the input layout sent to D3D,
+// D3D9 has a special codepath that rearranges the input layout sent to D3D,
 // to ensure that slot/stream zero of the input layout doesn't contain per-instance data, so
 // we test with attribute 0 being instanced, as will as attribute 1 being instanced.
 //
@@ -524,21 +504,21 @@ void main()
     glUseProgram(program);
     ASSERT_GL_NO_ERROR();
 
-    constexpr GLfloat vertices[] = {
+    constexpr std::array<GLfloat, 8> vertices = {
         0.1, 0.1, -0.1, 0.1, -0.1, -0.1, 0.1, -0.1,
     };
 
-    constexpr GLfloat transform[] = {
+    constexpr std::array<GLfloat, 15> transform = {
         0, 0, 9, 0.2, 0.1, 2, 0.5, -0.2, 3, -0.8, -0.5, 1, -0.4, 0.4, 6,
     };
 
-    constexpr GLsizei instances = ArraySize(transform) / 3;
+    constexpr GLsizei instances = transform.size() / 3;
 
-    const GLfloat colors[instances * 3] = {
+    const std::array<GLfloat, instances * 3> colors = {
         1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 1, 1, 1, 0,
     };
 
-    constexpr GLushort lineloopAsStripIndices[] = {0, 1, 2, 3, 0};
+    constexpr std::array<GLushort, 5> lineloopAsStripIndices = {0, 1, 2, 3, 0};
 
     std::vector<GLColor> expectedPixels(getWindowWidth() * getWindowHeight());
 
@@ -553,15 +533,15 @@ void main()
 
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, vertices);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, vertices.data());
 
     for (size_t i = 0; i < instances; ++i)
     {
-        glVertexAttrib3fv(1, transform + 3 * i);
-        glVertexAttrib3fv(2, colors + 3 * i);
+        glVertexAttrib3fv(1, &transform[3 * i]);
+        glVertexAttrib3fv(2, &colors[3 * i]);
 
-        glDrawElements(GL_LINE_STRIP, ArraySize(lineloopAsStripIndices), GL_UNSIGNED_SHORT,
-                       lineloopAsStripIndices);
+        glDrawElements(GL_LINE_STRIP, lineloopAsStripIndices.size(), GL_UNSIGNED_SHORT,
+                       lineloopAsStripIndices.data());
     }
 
     glReadPixels(0, 0, getWindowWidth(), getWindowHeight(), GL_RGBA, GL_UNSIGNED_BYTE,
@@ -575,28 +555,28 @@ void main()
     GLBuffer indexBuffer;
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(lineloopAsStripIndices), lineloopAsStripIndices,
-                 GL_STATIC_DRAW);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(lineloopAsStripIndices),
+                 lineloopAsStripIndices.data(), GL_STATIC_DRAW);
 
     glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer[0]);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices.data(), GL_STATIC_DRAW);
     glEnableVertexAttribArray(0);
     glVertexAttribDivisorANGLE(0, 0);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, 0);
 
     glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer[1]);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(transform), transform, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(transform), transform.data(), GL_STATIC_DRAW);
     glEnableVertexAttribArray(1);
     glVertexAttribDivisorANGLE(1, 1);
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, 0);
 
     glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer[2]);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(colors), colors, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(colors), colors.data(), GL_STATIC_DRAW);
     glEnableVertexAttribArray(2);
     glVertexAttribDivisorANGLE(2, 1);
     glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, 0);
 
-    glDrawArraysInstancedANGLE(GL_LINE_LOOP, 0, ArraySize(vertices) / 2, instances);
+    glDrawArraysInstancedANGLE(GL_LINE_LOOP, 0, vertices.size() / 2, instances);
 
     std::vector<GLColor> actualPixels(getWindowWidth() * getWindowHeight());
     glReadPixels(0, 0, getWindowWidth(), getWindowHeight(), GL_RGBA, GL_UNSIGNED_BYTE,
@@ -604,8 +584,8 @@ void main()
     EXPECT_EQ(expectedPixels, actualPixels);
 
     glClear(GL_COLOR_BUFFER_BIT);
-    glDrawElementsInstancedANGLE(GL_LINE_LOOP, ArraySize(lineloopAsStripIndices) - 1,
-                                 GL_UNSIGNED_SHORT, 0, instances);
+    glDrawElementsInstancedANGLE(GL_LINE_LOOP, lineloopAsStripIndices.size() - 1, GL_UNSIGNED_SHORT,
+                                 0, instances);
 
     glReadPixels(0, 0, getWindowWidth(), getWindowHeight(), GL_RGBA, GL_UNSIGNED_BYTE,
                  actualPixels.data());
@@ -622,6 +602,18 @@ class InstancingTestES31 : public InstancingTest
 {
   public:
     InstancingTestES31() {}
+};
+
+class RobustInstancingTestES3 : public InstancingTestES3
+{
+  public:
+    RobustInstancingTestES3()
+    {
+        if (!IsMac() && !IsIOS())
+        {
+            setRobustAccess(true);
+        }
+    }
 };
 
 // Verify that VertexAttribDivisor can update both binding divisor and attribBinding.
@@ -644,7 +636,7 @@ TEST_P(InstancingTestES31, UpdateAttribBindingByVertexAttribDivisor)
 
     GLBuffer quadBuffer;
     glBindBuffer(GL_ARRAY_BUFFER, quadBuffer);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(kQuadVertices), kQuadVertices, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(kQuadVertices), kQuadVertices.data(), GL_STATIC_DRAW);
 
     const unsigned numInstance = 4;
     const unsigned divisor     = 1;
@@ -677,8 +669,8 @@ TEST_P(InstancingTestES31, UpdateAttribBindingByVertexAttribDivisor)
 
     // Do the first instanced draw
     glClear(GL_COLOR_BUFFER_BIT);
-    glDrawElementsInstanced(GL_TRIANGLES, ArraySize(kQuadIndices), GL_UNSIGNED_SHORT, kQuadIndices,
-                            numInstance);
+    glDrawElementsInstanced(GL_TRIANGLES, kQuadIndices.size(), GL_UNSIGNED_SHORT,
+                            kQuadIndices.data(), numInstance);
     checkDrawing(lastDrawn);
 
     // Disable instancing.
@@ -698,8 +690,8 @@ TEST_P(InstancingTestES31, UpdateAttribBindingByVertexAttribDivisor)
 
     // Do the second instanced draw
     glClear(GL_COLOR_BUFFER_BIT);
-    glDrawElementsInstanced(GL_TRIANGLES, ArraySize(kQuadIndices), GL_UNSIGNED_SHORT, kQuadIndices,
-                            numInstance);
+    glDrawElementsInstanced(GL_TRIANGLES, kQuadIndices.size(), GL_UNSIGNED_SHORT,
+                            kQuadIndices.data(), numInstance);
     checkDrawing(lastDrawn);
 
     glDeleteVertexArrays(1, &vao);
@@ -708,8 +700,6 @@ TEST_P(InstancingTestES31, UpdateAttribBindingByVertexAttribDivisor)
 // Verify that a large divisor that also changes doesn't cause issues and renders correctly.
 TEST_P(InstancingTestES3, LargeDivisor)
 {
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
     constexpr char kVS[] = R"(#version 300 es
 layout(location = 0) in vec4 a_position;
 layout(location = 1) in vec4 a_color;
@@ -809,8 +799,6 @@ void main()
 // incorrectly clamped down to the maximum signed integer.
 TEST_P(InstancingTestES3, LargestDivisor)
 {
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
     constexpr GLuint kLargeDivisor = std::numeric_limits<GLuint>::max();
     glVertexAttribDivisor(0, kLargeDivisor);
 
@@ -820,8 +808,169 @@ TEST_P(InstancingTestES3, LargestDivisor)
         << "Vertex attrib divisor read was not the same that was passed in.";
 }
 
+// Regression test for D3D11 streaming of GL_DYNAMIC_DRAW buffers not taking into account instanced
+// attributes for buffer size calculations. http://crbug.com/1425606
+TEST_P(InstancingTestES3, D3D11StreamingInstancedData)
+{
+    constexpr char kVS[] = R"(#version 300 es
+in float scale;
+void main()
+{
+    gl_Position = vec4(vec2(gl_VertexID % 2, gl_VertexID % 3) * scale, 0, 1);
+})";
+
+    constexpr char kFS[] = R"(#version 300 es
+precision mediump float;
+out vec4 color;
+void main()
+{
+    color = vec4(1, 0, 0, 1);
+})";
+
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    glUseProgram(program);
+
+    GLBuffer buffer;
+    float data = 0.5f;
+    glBindBuffer(GL_ARRAY_BUFFER, buffer);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(data), &data, GL_DYNAMIC_DRAW);
+
+    GLint loc = glGetAttribLocation(program, "scale");
+    glEnableVertexAttribArray(loc);
+    glVertexAttribPointer(loc, 1, GL_FLOAT, false, 0, 0);
+    glVertexAttribDivisor(loc, 1);
+
+    // Both of these should succeed
+    glDrawArraysInstanced(GL_TRIANGLES, 0, 3, 1);
+    EXPECT_GL_NO_ERROR();
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    EXPECT_GL_NO_ERROR();
+}
+
+// Regression test for D3D11 streaming of GL_DYNAMIC_DRAW buffers not taking into account instanced
+// attributes for buffer size calculations. http://crbug.com/1425606
+TEST_P(InstancingTestES3, D3D11StreamingInstancedData2)
+{
+    constexpr char kVS[] = R"(#version 300 es
+in float scale;
+void main()
+{
+    gl_Position = vec4(vec2(gl_VertexID % 2, gl_VertexID % 3) * scale, 0, 1);
+    gl_PointSize = 1.0;
+})";
+
+    constexpr char kFS[] = R"(#version 300 es
+precision mediump float;
+out vec4 color;
+void main()
+{
+    color = vec4(1, 0, 0, 1);
+})";
+
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    glUseProgram(program);
+
+    GLBuffer buffer;
+    glBindBuffer(GL_ARRAY_BUFFER, buffer);
+
+    GLint loc = glGetAttribLocation(program, "scale");
+    glEnableVertexAttribArray(loc);
+    glVertexAttribPointer(loc, 1, GL_FLOAT, false, 0, 0);
+    glVertexAttribDivisor(loc, 10001);
+
+    for (size_t i = 0; i < 100; i++)
+    {
+        float data = 0.5f;
+        glBufferData(GL_ARRAY_BUFFER, sizeof(data), &data, GL_DYNAMIC_DRAW);
+
+        glDrawArrays(GL_POINTS, 0, 10000);
+        EXPECT_GL_NO_ERROR();
+    }
+}
+
+// Regression test for out-of-bounds read during divisor emulation. http://crbug.com/500476886
+TEST_P(RobustInstancingTestES3, IncompleteStrideForLastVertex)
+{
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_KHR_robust_buffer_access_behavior"));
+
+    constexpr char kVS[] = R"(#version 300 es
+    layout(location=0) in vec4 a_inst;
+    layout(location=1) in float a_unused;
+    out vec4 v;
+    const vec2 coords[3] = vec2[](
+    vec2(-3.0, -3.0),
+    vec2( 3.0, -3.0),
+    vec2( 0.0,  3.0)
+    );
+    void main() {
+    v = a_inst + vec4(a_unused);
+    if (gl_InstanceID == 0) {
+      gl_Position = vec4(coords[gl_VertexID], 0.0, 1.0);
+    } else {
+      gl_Position = vec4(-2.0, -2.0, 0.0, 1.0);
+    }
+    })";
+
+    constexpr char kFS[] = R"(#version 300 es
+precision highp float;
+in vec4 v;
+out vec4 o;
+void main() { o = v; })";
+
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+    glUseProgram(program);
+
+    glClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // Unused attrib 1
+    GLBuffer unusedBuf;
+    glBindBuffer(GL_ARRAY_BUFFER, unusedBuf);
+    std::vector<GLfloat> unusedData(1, 0.0f);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(GLfloat) * unusedData.size(), unusedData.data(),
+                 GL_STATIC_DRAW);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, 0, nullptr);
+
+    // Instanced attrib 0
+    GLBuffer instBuf;
+    glBindBuffer(GL_ARRAY_BUFFER, instBuf);
+    std::vector<GLfloat> instData(64, 0.0f);  // 256 bytes
+    instData[59] = instData[60] = instData[61] = instData[62] = 1.0f;
+    glBufferData(GL_ARRAY_BUFFER, sizeof(GLfloat) * instData.size(), instData.data(),
+                 GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    // Buffer size = 256, offset = 236.
+    // bytes = 256 - 236 = 20. stride = 16, formatSize = 16.
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 16, reinterpret_cast<const void *>(236));
+
+    // Divisor > MaxVertexAttribDivisor will trigger emulation path.
+    // mMaxVertexAttribDivisor is clamped to 255 in the Vulkan backend, so 256 guarantees emulation.
+    // The previous bug resulted in GetVertexCountForRange returning an over-counted
+    // number of vertices, leading to an OOB read in StreamVertexDataWithDivisor.
+    GLuint divisor = 256;
+    glVertexAttribDivisor(0, divisor);
+
+    EXPECT_GL_NO_ERROR();
+
+    // The draw call should not crash. We need divisor + 1 instances to reach the second vertex
+    // and trigger the OOB read.
+    glDrawArraysInstanced(GL_TRIANGLES, 0, 3, divisor + 1);
+
+    // Check the center pixel, which corresponds to gl_InstanceID == 0.
+    EXPECT_PIXEL_COLOR_NEAR(getWindowWidth() / 2, getWindowHeight() / 2,
+                            GLColor(255, 255, 255, 255), 1);
+
+    EXPECT_GL_NO_ERROR();
+}
+
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(InstancingTestES3);
 ANGLE_INSTANTIATE_TEST_ES3(InstancingTestES3);
 
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(RobustInstancingTestES3);
+ANGLE_INSTANTIATE_TEST_ES3(RobustInstancingTestES3);
+
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(InstancingTestES31);
 ANGLE_INSTANTIATE_TEST_ES31(InstancingTestES31);
 
 ANGLE_INSTANTIATE_TEST_ES2(InstancingTest);

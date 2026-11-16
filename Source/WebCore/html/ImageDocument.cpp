@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,23 +25,27 @@
 #include "config.h"
 #include "ImageDocument.h"
 
-#include "AddEventListenerOptions.h"
 #include "CachedImage.h"
 #include "Chrome.h"
 #include "ChromeClient.h"
-#include "DOMWindow.h"
+#include "ContainerNodeInlines.h"
 #include "DocumentLoader.h"
+#include "DocumentPage.h"
+#include "DocumentView.h"
 #include "EventListener.h"
 #include "EventNames.h"
-#include "Frame.h"
+#include "FrameDestructionObserverInlines.h"
 #include "FrameLoader.h"
-#include "FrameLoaderClient.h"
-#include "FrameView.h"
 #include "HTMLBodyElement.h"
 #include "HTMLHeadElement.h"
 #include "HTMLHtmlElement.h"
 #include "HTMLImageElement.h"
 #include "HTMLNames.h"
+#include "LayoutSize.h"
+#include "LocalDOMWindow.h"
+#include "LocalFrame.h"
+#include "LocalFrameLoaderClient.h"
+#include "LocalFrameView.h"
 #include "LocalizedStrings.h"
 #include "MIMETypeRegistry.h"
 #include "MouseEvent.h"
@@ -49,12 +53,15 @@
 #include "RawDataDocumentParser.h"
 #include "RenderElement.h"
 #include "Settings.h"
-#include <wtf/IsoMallocInlines.h>
-#include <wtf/text/StringConcatenateNumbers.h>
+#include "UserScriptTypes.h"
+#include <pal/text/TextEncoding.h>
+#include <wtf/MathExtras.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(ImageDocument);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ImageDocument);
 
 using namespace HTMLNames;
 
@@ -64,7 +71,7 @@ public:
     static Ref<ImageEventListener> create(ImageDocument& document) { return adoptRef(*new ImageEventListener(document)); }
 
 private:
-    ImageEventListener(ImageDocument& document)
+    explicit ImageEventListener(ImageDocument& document)
         : EventListener(ImageEventListenerType)
         , m_document(document)
     {
@@ -73,7 +80,7 @@ private:
     bool operator==(const EventListener&) const override;
     void handleEvent(ScriptExecutionContext&, Event&) override;
 
-    ImageDocument& m_document;
+    WeakPtr<ImageDocument, WeakPtrImplWithEventTargetData> m_document;
 };
 #endif
 
@@ -85,52 +92,61 @@ public:
     }
 
 private:
-    ImageDocumentParser(ImageDocument& document)
+    explicit ImageDocumentParser(ImageDocument& document)
         : RawDataDocumentParser(document)
     {
     }
 
     ImageDocument& document() const;
 
-    void appendBytes(DocumentWriter&, const uint8_t*, size_t) override;
+    void appendBytes(DocumentWriter&, std::span<const uint8_t>) override;
     void finish() override;
 };
 
 class ImageDocumentElement final : public HTMLImageElement {
-    WTF_MAKE_ISO_ALLOCATED_INLINE(ImageDocumentElement);
+    WTF_MAKE_TZONE_ALLOCATED(ImageDocumentElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(ImageDocumentElement);
 public:
     static Ref<ImageDocumentElement> create(ImageDocument&);
 
 private:
-    ImageDocumentElement(ImageDocument& document)
+    explicit ImageDocumentElement(ImageDocument& document)
         : HTMLImageElement(imgTag, document)
-        , m_imageDocument(&document)
+        , m_imageDocument(document)
     {
     }
 
     virtual ~ImageDocumentElement();
     void didMoveToNewDocument(Document& oldDocument, Document& newDocument) override;
 
-    ImageDocument* m_imageDocument;
+    WeakPtr<ImageDocument, WeakPtrImplWithEventTargetData> m_imageDocument;
 };
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ImageDocumentElement);
 
 inline Ref<ImageDocumentElement> ImageDocumentElement::create(ImageDocument& document)
 {
-    return adoptRef(*new ImageDocumentElement(document));
+    Ref image = adoptRef(*new ImageDocumentElement(document));
+    image->suspendIfNeeded();
+    return image;
 }
 
 // --------
 
 HTMLImageElement* ImageDocument::imageElement() const
 {
-    return m_imageElement;
+    return m_imageElement.get();
 }
 
 LayoutSize ImageDocument::imageSize()
 {
-    ASSERT(m_imageElement);
+    RefPtr imageElement = m_imageElement;
+    ASSERT(imageElement);
     updateStyleIfNeeded();
-    return m_imageElement->cachedImage()->imageSizeForRenderer(m_imageElement->renderer(), frame() ? frame()->pageZoomFactor() : 1);
+    RefPtr cachedImage = imageElement->cachedImage();
+    if (!cachedImage)
+        return { };
+    return cachedImage->imageSizeForRenderer(protect(imageElement->renderer()).get(), frame() ? frame()->pageZoomFactor() : 1);
 }
 
 void ImageDocument::updateDuringParsing()
@@ -141,34 +157,45 @@ void ImageDocument::updateDuringParsing()
     if (!m_imageElement)
         createDocumentStructure();
 
-    if (RefPtr<SharedBuffer> buffer = loader()->mainResourceData())
-        m_imageElement->cachedImage()->updateBuffer(*buffer);
+    if (!frame())
+        return;
+
+    if (RefPtr buffer = protect(loader())->mainResourceData()) {
+        if (RefPtr cachedImage = m_imageElement->cachedImage())
+            cachedImage->updateBuffer(*buffer);
+    }
 
     imageUpdated();
 }
 
 void ImageDocument::finishedParsing()
 {
-    if (!parser()->isStopped() && m_imageElement) {
-        CachedImage& cachedImage = *m_imageElement->cachedImage();
-        RefPtr<SharedBuffer> data = loader()->mainResourceData();
+    if (parser()->isStopped()) {
+        HTMLDocument::finishedParsing();
+        return;
+    }
+
+    if (RefPtr imageElement = m_imageElement; imageElement && imageElement->cachedImage()) {
+        RefPtr cachedImage = *imageElement->cachedImage();
+        Ref loader = *this->loader();
+        RefPtr data = loader->mainResourceData();
 
         // If this is a multipart image, make a copy of the current part, since the resource data
         // will be overwritten by the next part.
-        if (data && loader()->isLoadingMultipartContent())
+        if (data && loader->isLoadingMultipartContent())
             data = data->copy();
 
-        cachedImage.finishLoading(data.get(), { });
-        cachedImage.finish();
+        cachedImage->finishLoading(data.get(), { });
+        cachedImage->finish();
 
         // Report the natural image size in the page title, regardless of zoom level.
         // At a zoom level of 1 the image is guaranteed to have an integer size.
         updateStyleIfNeeded();
-        IntSize size = flooredIntSize(cachedImage.imageSizeForRenderer(m_imageElement->renderer(), 1));
+        IntSize size = flooredIntSize(cachedImage->imageSizeForRenderer(protect(imageElement->renderer()).get(), 1));
         if (size.width()) {
             // Compute the title. We use the decoded filename of the resource, falling
             // back on the hostname if there is no path.
-            String name = decodeURLEscapeSequences(url().lastPathComponent());
+            String name = PAL::decodeURLEscapeSequences(url().lastPathComponent());
             if (name.isEmpty())
                 name = url().host().toString();
             setTitle(imageTitle(name, size));
@@ -179,26 +206,26 @@ void ImageDocument::finishedParsing()
 
     HTMLDocument::finishedParsing();
 }
-    
-inline ImageDocument& ImageDocumentParser::document() const
+
+inline ImageDocument& NODELETE ImageDocumentParser::document() const
 {
     // Only used during parsing, so document is guaranteed to be non-null.
     ASSERT(RawDataDocumentParser::document());
     return downcast<ImageDocument>(*RawDataDocumentParser::document());
 }
 
-void ImageDocumentParser::appendBytes(DocumentWriter&, const uint8_t*, size_t)
+void ImageDocumentParser::appendBytes(DocumentWriter&, std::span<const uint8_t>)
 {
-    document().updateDuringParsing();
+    protect(document())->updateDuringParsing();
 }
 
 void ImageDocumentParser::finish()
 {
-    document().finishedParsing();
+    protect(document())->finishedParsing();
 }
 
-ImageDocument::ImageDocument(Frame& frame, const URL& url)
-    : HTMLDocument(&frame, frame.settings(), url, ImageDocumentClass)
+ImageDocument::ImageDocument(LocalFrame& frame, const URL& url)
+    : HTMLDocument(&frame, frame.settings(), url, { }, { DocumentClass::Image })
     , m_imageElement(nullptr)
     , m_imageSizeIsKnown(false)
 #if !PLATFORM(IOS_FAMILY)
@@ -206,7 +233,7 @@ ImageDocument::ImageDocument(Frame& frame, const URL& url)
 #endif
     , m_shouldShrinkImage(frame.settings().shrinksStandaloneImagesToFit() && frame.isMainFrame())
 {
-    setCompatibilityMode(DocumentCompatibilityMode::QuirksMode);
+    setCompatibilityMode(DocumentCompatibilityMode::NoQuirksMode);
     lockCompatibilityMode();
 }
     
@@ -217,45 +244,47 @@ Ref<DocumentParser> ImageDocument::createParser()
 
 void ImageDocument::createDocumentStructure()
 {
-    auto rootElement = HTMLHtmlElement::create(*this);
+    Ref rootElement = HTMLHtmlElement::create(*this);
     appendChild(rootElement);
-    rootElement->insertedByParser();
+    rootElement->setInlineStyleProperty(CSSPropertyHeight, 100, CSSUnitType::CSS_PERCENTAGE);
 
-    frame()->injectUserScripts(UserScriptInjectionTime::DocumentStart);
+    if (RefPtr localFrame = frame())
+        localFrame->injectUserScripts(UserScriptInjectionTime::DocumentStart);
 
     // We need a <head> so that the call to setTitle() later on actually has an <head> to append to <title> to.
-    auto head = HTMLHeadElement::create(*this);
+    Ref head = HTMLHeadElement::create(*this);
     rootElement->appendChild(head);
 
-    auto body = HTMLBodyElement::create(*this);
-    body->setAttribute(styleAttr, "margin: 0px");
-    if (MIMETypeRegistry::isPDFMIMEType(document().loader()->responseMIMEType()))
-        body->setInlineStyleProperty(CSSPropertyBackgroundColor, "white");
+    RefPtr documentLoader = loader();
+    Ref body = HTMLBodyElement::create(*this);
+    body->setAttribute(styleAttr, "margin: 0px; height: 100%"_s);
+    if (documentLoader && MIMETypeRegistry::isPDFMIMEType(documentLoader->responseMIMEType()))
+        body->setInlineStyleProperty(CSSPropertyBackgroundColor, "white"_s);
     rootElement->appendChild(body);
     
-    auto imageElement = ImageDocumentElement::create(*this);
+    Ref imageElement = ImageDocumentElement::create(*this);
     if (m_shouldShrinkImage)
-        imageElement->setAttribute(styleAttr, "-webkit-user-select:none; display:block; margin:auto; padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);");
+        imageElement->setAttribute(styleAttr, "-webkit-user-select:none; display:block; margin:auto; padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);"_s);
     else
-        imageElement->setAttribute(styleAttr, "-webkit-user-select:none; padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);");
+        imageElement->setAttribute(styleAttr, "-webkit-user-select:none; display:block; padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);"_s);
     imageElement->setLoadManually(true);
-    imageElement->setSrc(url().string());
-    imageElement->cachedImage()->setResponse(loader()->response());
+    imageElement->setAttributeWithoutSynchronization(srcAttr, AtomString { url().string() });
+    if (RefPtr cachedImage = imageElement->cachedImage(); documentLoader && cachedImage)
+        cachedImage->setResponse(ResourceResponse { documentLoader->response() });
     body->appendChild(imageElement);
+    imageElement->setLoadManually(false);
     
     if (m_shouldShrinkImage) {
 #if PLATFORM(IOS_FAMILY)
         // Set the viewport to be in device pixels (rather than the default of 980).
-        processViewport("width=device-width,viewport-fit=cover"_s, ViewportArguments::ImageDocument);
+        processViewport("width=device-width,viewport-fit=cover"_s, ViewportArguments::Type::ImageDocument);
 #else
-        auto listener = ImageEventListener::create(*this);
-        if (RefPtr<DOMWindow> window = this->domWindow())
-            window->addEventListener("resize", listener.copyRef(), false);
-        imageElement->addEventListener("click", WTFMove(listener), false);
+        Ref listener = ImageEventListener::create(*this);
+        imageElement->addEventListener(eventNames().clickEvent, WTF::move(listener));
 #endif
     }
 
-    m_imageElement = imageElement.ptr();
+    m_imageElement = imageElement.get();
 }
 
 void ImageDocument::imageUpdated()
@@ -275,13 +304,13 @@ void ImageDocument::imageUpdated()
 #if PLATFORM(IOS_FAMILY)
         FloatSize screenSize = page()->chrome().screenSize();
         if (imageSize.width() > screenSize.width())
-            processViewport(makeString("width=", imageSize.width().toInt(), ",viewport-fit=cover"), ViewportArguments::ImageDocument);
+            processViewport(makeString("width="_s, imageSize.width().toInt(), ",viewport-fit=cover"_s), ViewportArguments::Type::ImageDocument);
 
         if (page())
             page()->chrome().client().imageOrMediaDocumentSizeChanged(IntSize(imageSize.width(), imageSize.height()));
 #else
-        // Call windowSizeChanged for its side effect of sizing the image.
-        windowSizeChanged();
+        // Call didChangeViewSize for its side effect of sizing the image.
+        didChangeViewSize();
 #endif
     }
 }
@@ -292,7 +321,7 @@ float ImageDocument::scale()
     if (!m_imageElement)
         return 1;
 
-    RefPtr<FrameView> view = this->view();
+    RefPtr view = this->view();
     if (!view)
         return 1;
 
@@ -307,31 +336,36 @@ float ImageDocument::scale()
 
 void ImageDocument::resizeImageToFit()
 {
-    if (!m_imageElement)
+    RefPtr imageElement = m_imageElement;
+    if (!imageElement)
         return;
 
     LayoutSize imageSize = this->imageSize();
 
     float scale = this->scale();
-    m_imageElement->setWidth(static_cast<int>(imageSize.width() * scale));
-    m_imageElement->setHeight(static_cast<int>(imageSize.height() * scale));
+    imageElement->setIntegralAttribute(widthAttr, imageSize.width() * scale);
+    imageElement->setIntegralAttribute(heightAttr, imageSize.height() * scale);
 
-    m_imageElement->setInlineStyleProperty(CSSPropertyCursor, CSSValueZoomIn);
+    imageElement->setInlineStyleProperty(CSSPropertyCursor, CSSValueZoomIn);
 }
 
 void ImageDocument::restoreImageSize()
 {
-    if (!m_imageElement || !m_imageSizeIsKnown)
+    if (!m_imageSizeIsKnown)
+        return;
+
+    RefPtr imageElement = m_imageElement;
+    if (!imageElement)
         return;
 
     LayoutSize imageSize = this->imageSize();
-    m_imageElement->setWidth(imageSize.width().toUnsigned());
-    m_imageElement->setHeight(imageSize.height().toUnsigned());
+    imageElement->setUnsignedIntegralAttribute(widthAttr, imageSize.width().toUnsigned());
+    imageElement->setUnsignedIntegralAttribute(heightAttr, imageSize.height().toUnsigned());
 
     if (imageFitsInWindow())
-        m_imageElement->removeInlineStyleProperty(CSSPropertyCursor);
+        imageElement->removeInlineStyleProperty(CSSPropertyCursor);
     else
-        m_imageElement->setInlineStyleProperty(CSSPropertyCursor, CSSValueZoomOut);
+        imageElement->setInlineStyleProperty(CSSPropertyCursor, CSSValueZoomOut);
 
     m_didShrinkImage = false;
 }
@@ -341,7 +375,7 @@ bool ImageDocument::imageFitsInWindow()
     if (!m_imageElement)
         return true;
 
-    RefPtr<FrameView> view = this->view();
+    RefPtr view = this->view();
     if (!view)
         return true;
 
@@ -350,10 +384,13 @@ bool ImageDocument::imageFitsInWindow()
     return imageSize.width() <= viewportSize.width() && imageSize.height() <= viewportSize.height();
 }
 
-
-void ImageDocument::windowSizeChanged()
+void ImageDocument::didChangeViewSize()
 {
-    if (!m_imageElement || !m_imageSizeIsKnown)
+    if (!m_imageSizeIsKnown)
+        return;
+
+    RefPtr imageElement = m_imageElement;
+    if (!imageElement)
         return;
 
     bool fitsInWindow = imageFitsInWindow();
@@ -362,9 +399,9 @@ void ImageDocument::windowSizeChanged()
     // and set it to a zoom out cursor if the image doesn't fit
     if (!m_shouldShrinkImage) {
         if (fitsInWindow)
-            m_imageElement->removeInlineStyleProperty(CSSPropertyCursor);
+            imageElement->removeInlineStyleProperty(CSSPropertyCursor);
         else
-            m_imageElement->setInlineStyleProperty(CSSPropertyCursor, CSSValueZoomOut);
+            imageElement->setInlineStyleProperty(CSSPropertyCursor, CSSValueZoomOut);
         return;
     }
 
@@ -392,34 +429,32 @@ void ImageDocument::imageClicked(int x, int y)
     m_shouldShrinkImage = !m_shouldShrinkImage;
 
     if (m_shouldShrinkImage) {
-        // Call windowSizeChanged for its side effect of sizing the image.
-        windowSizeChanged();
+        // Call didChangeViewSize for its side effect of sizing the image.
+        didChangeViewSize();
     } else {
         restoreImageSize();
 
         updateLayout();
 
-        if (!view())
+        RefPtr view = this->view();
+        if (!view)
             return;
 
         float scale = this->scale();
 
-        IntSize viewportSize = view()->visibleSize();
-        int scrollX = static_cast<int>(x / scale - viewportSize.width() / 2.0f);
-        int scrollY = static_cast<int>(y / scale - viewportSize.height() / 2.0f);
+        auto viewportSize = view->visibleSize();
+        int scrollX = truncateFloatToInt32(x / scale - viewportSize.width() / 2.0f);
+        int scrollY = truncateFloatToInt32(y / scale - viewportSize.height() / 2.0f);
 
-        view()->setScrollPosition(IntPoint(scrollX, scrollY));
+        view->setScrollPosition(IntPoint(scrollX, scrollY));
     }
 }
 
 void ImageEventListener::handleEvent(ScriptExecutionContext&, Event& event)
 {
-    if (event.type() == eventNames().resizeEvent)
-        m_document.windowSizeChanged();
-    else if (event.type() == eventNames().clickEvent && is<MouseEvent>(event)) {
-        MouseEvent& mouseEvent = downcast<MouseEvent>(event);
-        m_document.imageClicked(mouseEvent.offsetX(), mouseEvent.offsetY());
-    }
+    RefPtr document = m_document;
+    if (auto* mouseEvent = dynamicDowncast<MouseEvent>(event); mouseEvent && isAnyClick(event) && document)
+        document->imageClicked(mouseEvent->offsetX(), mouseEvent->offsetY());
 }
 
 bool ImageEventListener::operator==(const EventListener& other) const
@@ -433,16 +468,14 @@ bool ImageEventListener::operator==(const EventListener& other) const
 
 ImageDocumentElement::~ImageDocumentElement()
 {
-    if (m_imageDocument)
-        m_imageDocument->disconnectImageElement();
+    if (RefPtr imageDocument = m_imageDocument)
+        imageDocument->disconnectImageElement();
 }
 
 void ImageDocumentElement::didMoveToNewDocument(Document& oldDocument, Document& newDocument)
 {
-    if (m_imageDocument) {
-        m_imageDocument->disconnectImageElement();
-        m_imageDocument = nullptr;
-    }
+    if (RefPtr imageDocument = std::exchange(m_imageDocument, nullptr))
+        imageDocument->disconnectImageElement();
     HTMLImageElement::didMoveToNewDocument(oldDocument, newDocument);
 }
 

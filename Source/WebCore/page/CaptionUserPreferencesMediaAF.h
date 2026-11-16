@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,31 +25,41 @@
 
 #pragma once
 
-#if ENABLE(VIDEO)
+#include <wtf/Platform.h>
+#if ENABLE(VIDEO) && HAVE(MEDIA_ACCESSIBILITY_FRAMEWORK)
 
-#include "CSSPropertyNames.h"
-#include "CaptionPreferencesDelegate.h"
-#include "CaptionUserPreferences.h"
-#include "Color.h"
+#include <WebCore/CSSPropertyNames.h>
+#include <WebCore/CaptionPreferencesDelegate.h>
+#include <WebCore/CaptionUserPreferences.h>
+#include <WebCore/Color.h>
+#include <wtf/TZoneMalloc.h>
+
+OBJC_CLASS WebCaptionUserPreferencesMediaAFWeakObserver;
 
 namespace WebCore {
 
 class CaptionUserPreferencesMediaAF : public CaptionUserPreferences {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(CaptionUserPreferencesMediaAF);
 public:
-    CaptionUserPreferencesMediaAF(PageGroup&);
+    WEBCORE_EXPORT static Ref<CaptionUserPreferencesMediaAF> create(PageGroup&);
     virtual ~CaptionUserPreferencesMediaAF();
 
-#if HAVE(MEDIA_ACCESSIBILITY_FRAMEWORK)
     CaptionDisplayMode captionDisplayMode() const override;
     void setCaptionDisplayMode(CaptionDisplayMode) override;
 
     WEBCORE_EXPORT static CaptionDisplayMode platformCaptionDisplayMode();
     WEBCORE_EXPORT static void platformSetCaptionDisplayMode(CaptionDisplayMode);
-    WEBCORE_EXPORT static void setCachedCaptionDisplayMode(CaptionDisplayMode);
+    WEBCORE_EXPORT static void NODELETE setCachedCaptionDisplayMode(CaptionDisplayMode);
+
+    WEBCORE_EXPORT static Vector<String> platformProfileIDs();
+    WEBCORE_EXPORT static String platformActiveProfileID();
+    WEBCORE_EXPORT static bool canSetActiveProfileID();
+    WEBCORE_EXPORT static bool setActiveProfileID(const String&);
+    WEBCORE_EXPORT static String nameForProfileID(const String&);
 
     bool userPrefersCaptions() const override;
     bool userPrefersSubtitles() const override;
+    bool userPrefersTextDescriptions() const final;
 
     float captionFontSizeScaleAndImportance(bool&) const override;
     bool captionStrokeWidthForFont(float fontSize, const String& language, float& strokeWidth, bool& important) const override;
@@ -71,35 +81,45 @@ public:
     bool shouldFilterTrackMenu() const { return true; }
     
     WEBCORE_EXPORT static void setCaptionPreferencesDelegate(std::unique_ptr<CaptionPreferencesDelegate>&&);
-#else
-    bool shouldFilterTrackMenu() const { return false; }
-#endif
 
-    String captionsStyleSheetOverride() const override;
-    Vector<RefPtr<AudioTrack>> sortedTrackListForMenu(AudioTrackList*) override;
-    Vector<RefPtr<TextTrack>> sortedTrackListForMenu(TextTrackList*, HashSet<TextTrack::Kind>) override;
-    String displayNameForTrack(AudioTrack*) const override;
-    String displayNameForTrack(TextTrack*) const override;
+    bool testingMode() const final;
+
+    static RefPtr<CaptionUserPreferencesMediaAF> extractCaptionUserPreferencesMediaAF(void* observer);
+
+    WEBCORE_EXPORT String captionsStyleSheetOverride() const override;
+    Vector<Ref<AudioTrack>> sortedTrackListForMenu(AudioTrackList*) override;
+    Vector<Ref<TextTrack>> sortedTrackListForMenu(TextTrackList*, HashSet<TextTrack::Kind>) override;
+    String displayNameForTrack(const AudioTrack&) const override;
+    String displayNameForTrack(const TextTrack&) const override;
+    String captionPreviewProfileID() const override;
+    void setCaptionPreviewProfileID(const String&) override;
+    String captionPreviewTitle() const override;
+
+    WEBCORE_EXPORT String captionsWindowCSS() const;
+    WEBCORE_EXPORT String captionsBackgroundCSS() const;
+    WEBCORE_EXPORT String captionsTextColorCSS() const;
+    WEBCORE_EXPORT Color captionsTextColor(bool&) const;
+    WEBCORE_EXPORT String captionsDefaultFontCSS() const;
+    WEBCORE_EXPORT String captionsFontSizeCSS() const;
+    WEBCORE_EXPORT String windowRoundedCornerRadiusCSS() const;
+    WEBCORE_EXPORT String captionsTextEdgeCSS() const;
 
 private:
-#if HAVE(MEDIA_ACCESSIBILITY_FRAMEWORK)
+    explicit CaptionUserPreferencesMediaAF(PageGroup&);
+
     void updateTimerFired();
+    bool hasNullCaptionProfile() const;
 
-    String captionsWindowCSS() const;
-    String captionsBackgroundCSS() const;
-    String captionsTextColorCSS() const;
-    Color captionsTextColor(bool&) const;
-    String captionsDefaultFontCSS() const;
-    String windowRoundedCornerRadiusCSS() const;
-    String captionsTextEdgeCSS() const;
-    String colorPropertyCSS(CSSPropertyID, const Color&, bool) const;
+    static RetainPtr<WebCaptionUserPreferencesMediaAFWeakObserver> createWeakObserver(CaptionUserPreferencesMediaAF*);
+
+    const RetainPtr<WebCaptionUserPreferencesMediaAFWeakObserver> m_observer;
+
     Timer m_updateStyleSheetTimer;
-
-    bool m_listeningForPreferenceChanges;
+    bool m_listeningForPreferenceChanges { false };
     bool m_registeringForNotification { false };
-#endif
+    String m_previewProfileID;
 };
 
 } // namespace WebCore
 
-#endif // ENABLE(VIDEO)
+#endif // ENABLE(VIDEO) && HAVE(MEDIA_ACCESSIBILITY_FRAMEWORK)

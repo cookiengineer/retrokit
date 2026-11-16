@@ -28,9 +28,7 @@
 #include <JavaScriptCore/ConsoleTypes.h>
 #include <wtf/text/WTFString.h>
 
-namespace WebKit {
-
-namespace PCM {
+namespace WebKit::PCM {
 
 struct DebugInfo {
 
@@ -38,14 +36,14 @@ struct DebugInfo {
         JSC::MessageLevel messageLevel;
         String message;
 
-        Message isolatedCopy() const;
+        Message isolatedCopy() const &;
+        Message isolatedCopy() &&;
     };
 
     Vector<Message> messages;
 
-    DebugInfo isolatedCopy() const;
+    DebugInfo isolatedCopy() const &;
+    DebugInfo isolatedCopy() &&;
 };
-
-} // namespace PCM
 
 } // namespace WebKit

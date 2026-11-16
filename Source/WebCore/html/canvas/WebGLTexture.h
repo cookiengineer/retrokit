@@ -27,129 +27,35 @@
 
 #if ENABLE(WEBGL)
 
-#include "WebGLSharedObject.h"
+#include <WebCore/WebGLObject.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
 
-class WebGLTexture final : public WebGLSharedObject {
+class WebGLTexture : public WebGLObject {
 public:
-
-    enum TextureExtensionFlag {
-        TextureExtensionsDisabled = 0,
-        TextureExtensionFloatLinearEnabled = 1 << 0,
-        TextureExtensionHalfFloatLinearEnabled = 2 << 0
-    };
 
     virtual ~WebGLTexture();
 
+    static Ref<WebGLTexture> createLost();
     static Ref<WebGLTexture> create(WebGLRenderingContextBase&);
 
-    void setTarget(GCGLenum target, GCGLint maxLevel);
-#if !USE(ANGLE)
-    void setParameteri(GCGLenum pname, GCGLint param);
-    void setParameterf(GCGLenum pname, GCGLfloat param);
-#endif
-
+    void NODELETE didBind(GCGLenum);
     GCGLenum getTarget() const { return m_target; }
-
-#if !USE(ANGLE)
-    int getMinFilter() const { return m_minFilter; }
-
-    void setLevelInfo(GCGLenum target, GCGLint level, GCGLenum internalFormat, GCGLsizei width, GCGLsizei height, GCGLenum type);
-
-    bool canGenerateMipmaps();
-    // Generate all level information.
-    void generateMipmapLevelInfo();
-
-    GCGLenum getInternalFormat(GCGLenum target, GCGLint level) const;
-    GCGLenum getType(GCGLenum target, GCGLint level) const;
-    GCGLsizei getWidth(GCGLenum target, GCGLint level) const;
-    GCGLsizei getHeight(GCGLenum target, GCGLint level) const;
-    bool isValid(GCGLenum target, GCGLint level) const;
-    void markInvalid(GCGLenum target, GCGLint level);
-
-    // Whether width/height is NotPowerOfTwo.
-    static bool isNPOT(GCGLsizei, GCGLsizei);
-
-    bool isNPOT() const;
-    // Determine if texture sampling should always return [0, 0, 0, 1] (OpenGL ES 2.0 Sec 3.8.2).
-    bool needToUseBlackTexture(TextureExtensionFlag) const;
-
-    bool immutable() const { return m_immutable; }
-    void setImmutable() { m_immutable = true; }
-
-    bool isCompressed() const;
-    void setCompressed();
-#endif
-
-    bool hasEverBeenBound() const { return object() && m_target; }
 
     static GCGLint computeLevelCount(GCGLsizei width, GCGLsizei height);
 
-private:
-    WebGLTexture(WebGLRenderingContextBase&);
+    bool isUsable() const { return object() && !isDeleted(); }
+    bool isInitialized() const { return m_target; }
 
-    void deleteObjectImpl(const WTF::AbstractLocker&, GraphicsContextGL*, PlatformGLObject) override;
+protected:
+    WebGLTexture(WebGLRenderingContextBase&, PlatformGLObject);
+    WebGLTexture();
 
-    bool isTexture() const override { return true; }
-
-#if !USE(ANGLE)
-    class LevelInfo {
-    public:
-        LevelInfo()
-            : valid(false)
-            , internalFormat(0)
-            , width(0)
-            , height(0)
-            , type(0)
-        {
-        }
-
-        void setInfo(GCGLenum internalFmt, GCGLsizei w, GCGLsizei h, GCGLenum tp)
-        {
-            valid = true;
-            internalFormat = internalFmt;
-            width = w;
-            height = h;
-            type = tp;
-        }
-
-        bool valid;
-        GCGLenum internalFormat;
-        GCGLsizei width;
-        GCGLsizei height;
-        GCGLenum type;
-    };
-
-    void update();
-#endif // !USE(ANGLE)
-
+    void deleteObjectImpl(const AbstractLocker&, GraphicsContextGL*, PlatformGLObject) override;
     int mapTargetToIndex(GCGLenum) const;
 
-#if !USE(ANGLE)
-    const LevelInfo* getLevelInfo(GCGLenum target, GCGLint level) const;
-#endif // !USE(ANGLE)
-
-    GCGLenum m_target;
-
-#if !USE(ANGLE)
-    GCGLenum m_minFilter;
-    GCGLenum m_magFilter;
-    GCGLenum m_wrapS;
-    GCGLenum m_wrapT;
-
-    Vector<Vector<LevelInfo>> m_info;
-
-    bool m_isNPOT;
-    bool m_isComplete;
-    bool m_needToUseBlackTexture;
-    bool m_isCompressed;
-    bool m_isFloatType;
-    bool m_isHalfFloatType;
-    bool m_isForWebGL1;
-    bool m_immutable { false };
-#endif
+    GCGLenum m_target { 0 };
 };
 
 } // namespace WebCore

@@ -20,6 +20,7 @@
 #include "config.h"
 #include "JSHTMLCollection.h"
 
+#include "HTMLCollectionInlines.h"
 #include "JSDOMBinding.h"
 #include "JSHTMLAllCollection.h"
 #include "JSHTMLFormControlsCollection.h"
@@ -32,17 +33,17 @@ using namespace JSC;
 JSValue toJSNewlyCreated(JSGlobalObject*, JSDOMGlobalObject* globalObject, Ref<HTMLCollection>&& collection)
 {
     switch (collection->type()) {
-    case FormControls:
-        return createWrapper<HTMLFormControlsCollection>(globalObject, WTFMove(collection));
-    case SelectOptions:
-        return createWrapper<HTMLOptionsCollection>(globalObject, WTFMove(collection));
-    case DocAll:
-        return createWrapper<HTMLAllCollection>(globalObject, WTFMove(collection));
+    case CollectionType::FormControls:
+        return createWrapper<HTMLFormControlsCollection>(globalObject, WTF::move(collection));
+    case CollectionType::SelectOptions:
+        return createWrapper<HTMLOptionsCollection>(globalObject, WTF::move(collection));
+    case CollectionType::DocAll:
+        return createWrapper<HTMLAllCollection>(globalObject, WTF::move(collection));
     default:
         break;
     }
 
-    return createWrapper<HTMLCollection>(globalObject, WTFMove(collection));
+    return createWrapper<HTMLCollection>(globalObject, WTF::move(collection));
 }
 
 JSValue toJS(JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, HTMLCollection& collection)

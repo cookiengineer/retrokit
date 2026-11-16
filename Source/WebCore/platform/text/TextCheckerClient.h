@@ -27,7 +27,7 @@
 
 #pragma once
 
-#include "TextChecking.h"
+#include <WebCore/TextChecking.h>
 
 namespace WebCore {
 
@@ -41,7 +41,6 @@ public:
     virtual void ignoreWordInSpellDocument(const String&) = 0;
     virtual void learnWord(const String&) = 0;
     virtual void checkSpellingOfString(StringView, int* misspellingLocation, int* misspellingLength) = 0;
-    virtual String getAutoCorrectSuggestionForMisspelledWord(const String& misspelledWord) = 0;
     virtual void checkGrammarOfString(StringView, Vector<GrammarDetail>&, int* badGrammarLocation, int* badGrammarLength) = 0;
 
 #if USE(UNIFIED_TEXT_CHECKING)
@@ -53,6 +52,7 @@ public:
     // identification. Noramlly it's the text surrounding the "word" for which we are getting correction suggestions.
     virtual void getGuessesForWord(const String& word, const String& context, const VisibleSelection& currentSelection, Vector<String>& guesses) = 0;
     virtual void requestCheckingOfString(TextCheckingRequest&, const VisibleSelection& currentSelection) = 0;
+    virtual void requestExtendedCheckingOfString(TextCheckingRequest&, const VisibleSelection& currentSelection) = 0;
 };
 
 }

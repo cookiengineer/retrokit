@@ -25,10 +25,14 @@
 
 #pragma once
 
-// Enables LLINT tracing.
+#include <wtf/Platform.h>
+
+// Enables LLINT and IPInt tracing.
 // - Prints every instruction executed if Options::traceLLIntExecution() is enabled.
 // - Prints some information for some of the more subtle slow paths if
 //   Options::traceLLIntSlowPath() is enabled.
+// - Prints every Wasm opcode executed in IPInt if Options::traceWasmIPIntExecution()
+//   is enabled.
 #define LLINT_TRACING 0
 
 // Disable inline allocation in the interpreter. This is great if you're changing
@@ -38,6 +42,3 @@
 #else
 #define LLINT_ALWAYS_ALLOCATE_SLOW 0
 #endif
-
-// Disable inline caching of get_by_id and put_by_id.
-#define LLINT_ALWAYS_ACCESS_SLOW 0

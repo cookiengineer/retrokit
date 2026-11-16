@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2015 Andy VanWagoner (andy@vanwagoner.family)
  * Copyright (C) 2015 Sukolsak Sakshuwong (sukolsak@gmail.com)
- * Copyright (C) 2016-2021 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,10 +33,11 @@
 #include "JSCInlines.h"
 #include "ObjectConstructor.h"
 #include <wtf/HexNumber.h>
+#include <wtf/text/MakeString.h>
 
 namespace JSC {
 
-const ClassInfo IntlCollator::s_info = { "Object", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(IntlCollator) };
+const ClassInfo IntlCollator::s_info = { "Object"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(IntlCollator) };
 
 namespace IntlCollatorInternal {
 constexpr bool verbose = false;
@@ -44,7 +45,7 @@ constexpr bool verbose = false;
 
 IntlCollator* IntlCollator::create(VM& vm, Structure* structure)
 {
-    IntlCollator* format = new (NotNull, allocateCell<IntlCollator>(vm.heap)) IntlCollator(vm, structure);
+    IntlCollator* format = new (NotNull, allocateCell<IntlCollator>(vm)) IntlCollator(vm, structure);
     format->finishCreation(vm);
     return format;
 }
@@ -59,16 +60,10 @@ IntlCollator::IntlCollator(VM& vm, Structure* structure)
 {
 }
 
-void IntlCollator::finishCreation(VM& vm)
-{
-    Base::finishCreation(vm);
-    ASSERT(inherits(vm, info()));
-}
-
 template<typename Visitor>
 void IntlCollator::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    IntlCollator* thisObject = jsCast<IntlCollator*>(cell);
+    IntlCollator* thisObject = uncheckedDowncast<IntlCollator>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
 
     Base::visitChildren(thisObject, visitor);
@@ -94,27 +89,22 @@ Vector<String> IntlCollator::sortLocaleData(const String& locale, RelevantExtens
             int32_t length = 0;
             while ((pointer = uenum_next(enumeration.get(), &length, &status)) && U_SUCCESS(status)) {
                 // 10.2.3 "The values "standard" and "search" must not be used as elements in any [[sortLocaleData]][locale].co and [[searchLocaleData]][locale].co array."
-                String collation(pointer, length);
+                String collation(unsafeMakeSpan(pointer, static_cast<size_t>(length)));
                 if (collation == "standard"_s || collation == "search"_s)
                     continue;
                 if (auto mapped = mapICUCollationKeywordToBCP47(collation))
-                    keyLocaleData.append(WTFMove(mapped.value()));
+                    keyLocaleData.append(WTF::move(mapped.value()));
                 else
-                    keyLocaleData.append(WTFMove(collation));
+                    keyLocaleData.append(WTF::move(collation));
             }
         }
         break;
     }
     case RelevantExtensionKey::Kf:
-        keyLocaleData.reserveInitialCapacity(3);
-        keyLocaleData.uncheckedAppend("false"_s);
-        keyLocaleData.uncheckedAppend("lower"_s);
-        keyLocaleData.uncheckedAppend("upper"_s);
+        keyLocaleData = Vector<String>::from("false"_str, "lower"_str, "upper"_str);
         break;
     case RelevantExtensionKey::Kn:
-        keyLocaleData.reserveInitialCapacity(2);
-        keyLocaleData.uncheckedAppend("false"_s);
-        keyLocaleData.uncheckedAppend("true"_s);
+        keyLocaleData = Vector<String>::from("false"_str, "true"_str);
         break;
     default:
         ASSERT_NOT_REACHED();
@@ -133,15 +123,10 @@ Vector<String> IntlCollator::searchLocaleData(const String&, RelevantExtensionKe
         keyLocaleData.append({ });
         break;
     case RelevantExtensionKey::Kf:
-        keyLocaleData.reserveInitialCapacity(3);
-        keyLocaleData.uncheckedAppend("false"_s);
-        keyLocaleData.uncheckedAppend("lower"_s);
-        keyLocaleData.uncheckedAppend("upper"_s);
+        keyLocaleData = Vector<String>::from("false"_str, "lower"_str, "upper"_str);
         break;
     case RelevantExtensionKey::Kn:
-        keyLocaleData.reserveInitialCapacity(2);
-        keyLocaleData.uncheckedAppend("false"_s);
-        keyLocaleData.uncheckedAppend("true"_s);
+        keyLocaleData = Vector<String>::from("false"_str, "true"_str);
         break;
     default:
         ASSERT_NOT_REACHED();
@@ -172,14 +157,14 @@ void IntlCollator::initializeCollator(JSGlobalObject* globalObject, JSValue loca
     RETURN_IF_EXCEPTION(scope, void());
 
     {
-        String collation = intlStringOption(globalObject, options, vm.propertyNames->collation, { }, nullptr, nullptr);
+        String collation = intlStringOption(globalObject, options, vm.propertyNames->collation, { }, { }, { });
         RETURN_IF_EXCEPTION(scope, void());
         if (!collation.isNull()) {
             if (!isUnicodeLocaleIdentifierType(collation)) {
                 throwRangeError(globalObject, scope, "collation is not a well-formed collation value"_s);
                 return;
             }
-            localeOptions[static_cast<unsigned>(RelevantExtensionKey::Co)] = WTFMove(collation);
+            localeOptions[static_cast<unsigned>(RelevantExtensionKey::Co)] = WTF::move(collation);
         }
     }
 
@@ -188,7 +173,7 @@ void IntlCollator::initializeCollator(JSGlobalObject* globalObject, JSValue loca
     if (numeric != TriState::Indeterminate)
         localeOptions[static_cast<unsigned>(RelevantExtensionKey::Kn)] = String(numeric == TriState::True ? "true"_s : "false"_s);
 
-    String caseFirstOption = intlStringOption(globalObject, options, vm.propertyNames->caseFirst, { "upper", "lower", "false" }, "caseFirst must be either \"upper\", \"lower\", or \"false\"", nullptr);
+    String caseFirstOption = intlStringOption(globalObject, options, vm.propertyNames->caseFirst, { "upper"_s, "lower"_s, "false"_s }, "caseFirst must be either \"upper\", \"lower\", or \"false\""_s, { });
     RETURN_IF_EXCEPTION(scope, void());
     if (!caseFirstOption.isNull())
         localeOptions[static_cast<unsigned>(RelevantExtensionKey::Kf)] = caseFirstOption;
@@ -207,9 +192,9 @@ void IntlCollator::initializeCollator(JSGlobalObject* globalObject, JSValue loca
     m_numeric = resolved.extensions[static_cast<unsigned>(RelevantExtensionKey::Kn)] == "true"_s;
 
     const String& caseFirstString = resolved.extensions[static_cast<unsigned>(RelevantExtensionKey::Kf)];
-    if (caseFirstString == "lower")
+    if (caseFirstString == "lower"_s)
         m_caseFirst = CaseFirst::Lower;
-    else if (caseFirstString == "upper")
+    else if (caseFirstString == "upper"_s)
         m_caseFirst = CaseFirst::Upper;
     else
         m_caseFirst = CaseFirst::False;
@@ -219,7 +204,6 @@ void IntlCollator::initializeCollator(JSGlobalObject* globalObject, JSValue loca
 
     TriState ignorePunctuation = intlBooleanOption(globalObject, options, vm.propertyNames->ignorePunctuation);
     RETURN_IF_EXCEPTION(scope, void());
-    m_ignorePunctuation = (ignorePunctuation == TriState::True);
 
     // UCollator does not offer an option to configure "usage" via ucol_setAttribute. So we need to pass this option via locale.
     CString dataLocaleWithExtensions;
@@ -228,14 +212,14 @@ void IntlCollator::initializeCollator(JSGlobalObject* globalObject, JSValue loca
         if (collation.isNull())
             dataLocaleWithExtensions = resolved.dataLocale.utf8();
         else
-            dataLocaleWithExtensions = makeString(resolved.dataLocale, "-u-co-", m_collation).utf8();
+            dataLocaleWithExtensions = makeString(resolved.dataLocale, "-u-co-"_s, m_collation).utf8();
         break;
     case Usage::Search:
         // searchLocaleData filters out "co" unicode extension. However, we need to pass "co" to ICU when Usage::Search is specified.
         // So we need to pass "co" unicode extension through locale. Since the other relevant extensions are handled via ucol_setAttribute,
         // we can just use dataLocale
         // Since searchLocaleData filters out "co" unicode extension, "collation" option is just ignored.
-        dataLocaleWithExtensions = makeString(resolved.dataLocale, "-u-co-search").utf8();
+        dataLocaleWithExtensions = makeString(resolved.dataLocale, "-u-co-search"_s).utf8();
         break;
     }
     dataLogLnIf(IntlCollatorInternal::verbose, "locale:(", resolved.locale, "),dataLocaleWithExtensions:(", dataLocaleWithExtensions, ")");
@@ -282,16 +266,23 @@ void IntlCollator::initializeCollator(JSGlobalObject* globalObject, JSValue loca
 
     // FIXME: Setting UCOL_ALTERNATE_HANDLING to UCOL_SHIFTED causes punctuation and whitespace to be
     // ignored. There is currently no way to ignore only punctuation.
-    ucol_setAttribute(m_collator.get(), UCOL_ALTERNATE_HANDLING, m_ignorePunctuation ? UCOL_SHIFTED : UCOL_DEFAULT, &status);
+    if (ignorePunctuation != TriState::Indeterminate)
+        ucol_setAttribute(m_collator.get(), UCOL_ALTERNATE_HANDLING, ignorePunctuation == TriState::True ? UCOL_SHIFTED : UCOL_NON_IGNORABLE, &status);
 
     // "The method is required to return 0 when comparing Strings that are considered canonically
     // equivalent by the Unicode standard."
     ucol_setAttribute(m_collator.get(), UCOL_NORMALIZATION_MODE, UCOL_ON, &status);
     ASSERT(U_SUCCESS(status));
+
+    {
+        auto result = ucol_getAttribute(m_collator.get(), UCOL_ALTERNATE_HANDLING, &status);
+        ASSERT(U_SUCCESS(status));
+        m_ignorePunctuation = (result == UCOL_SHIFTED);
+    }
 }
 
 // https://tc39.es/ecma402/#sec-collator-comparestrings
-JSValue IntlCollator::compareStrings(JSGlobalObject* globalObject, StringView x, StringView y) const
+UCollationResult IntlCollator::compareStrings(JSGlobalObject* globalObject, StringView x, StringView y) const
 {
     ASSERT(m_collator);
 
@@ -299,26 +290,34 @@ JSValue IntlCollator::compareStrings(JSGlobalObject* globalObject, StringView x,
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     UErrorCode status = U_ZERO_ERROR;
-    UCollationResult result = ([&]() -> UCollationResult {
-        if (x.isAllSpecialCharacters<canUseASCIIUCADUCETComparison>() && y.isAllSpecialCharacters<canUseASCIIUCADUCETComparison>()) {
-            if (canDoASCIIUCADUCETComparison()) {
-                if (x.is8Bit() && y.is8Bit())
-                    return compareASCIIWithUCADUCET(x.characters8(), x.length(), y.characters8(), y.length());
-                if (x.is8Bit())
-                    return compareASCIIWithUCADUCET(x.characters8(), x.length(), y.characters16(), y.length());
-                if (y.is8Bit())
-                    return compareASCIIWithUCADUCET(x.characters16(), x.length(), y.characters8(), y.length());
-                return compareASCIIWithUCADUCET(x.characters16(), x.length(), y.characters16(), y.length());
-            }
-
+    std::optional<UCollationResult> result = ([&]() -> std::optional<UCollationResult> {
+        if (canDoASCIIUCADUCETComparison()) {
             if (x.is8Bit() && y.is8Bit())
-                return ucol_strcollUTF8(m_collator.get(), bitwise_cast<const char*>(x.characters8()), x.length(), bitwise_cast<const char*>(y.characters8()), y.length(), &status);
+                return compareASCIIWithUCADUCET(x.span8(), y.span8());
+            if (x.is8Bit())
+                return compareASCIIWithUCADUCET(x.span8(), y.span16());
+            if (y.is8Bit())
+                return compareASCIIWithUCADUCET(x.span16(), y.span8());
+            return compareASCIIWithUCADUCET(x.span16(), y.span16());
         }
-        return ucol_strcoll(m_collator.get(), x.upconvertedCharacters(), x.length(), y.upconvertedCharacters(), y.length());
+
+        if (x.is8Bit() && y.is8Bit() && x.containsOnlyASCII() && y.containsOnlyASCII()) {
+            auto xCharacters = byteCast<char>(x.span8());
+            auto yCharacters = byteCast<char>(y.span8());
+            return ucol_strcollUTF8(m_collator.get(), xCharacters.data(), xCharacters.size(), yCharacters.data(), yCharacters.size(), &status);
+        }
+
+        return std::nullopt;
     }());
-    if (U_FAILURE(status))
-        return throwException(globalObject, scope, createError(globalObject, "Failed to compare strings."_s));
-    return jsNumber(result);
+
+    if (!result)
+        result = ucol_strcoll(m_collator.get(), x.upconvertedCharacters(), x.length(), y.upconvertedCharacters(), y.length());
+
+    if (U_FAILURE(status)) {
+        throwException(globalObject, scope, createError(globalObject, "Failed to compare strings."_s));
+        return { };
+    }
+    return result.value();
 }
 
 ASCIILiteral IntlCollator::usageString(Usage usage)
@@ -330,7 +329,7 @@ ASCIILiteral IntlCollator::usageString(Usage usage)
         return "search"_s;
     }
     ASSERT_NOT_REACHED();
-    return ASCIILiteral::null();
+    return { };
 }
 
 ASCIILiteral IntlCollator::sensitivityString(Sensitivity sensitivity)
@@ -346,7 +345,7 @@ ASCIILiteral IntlCollator::sensitivityString(Sensitivity sensitivity)
         return "variant"_s;
     }
     ASSERT_NOT_REACHED();
-    return ASCIILiteral::null();
+    return { };
 }
 
 ASCIILiteral IntlCollator::caseFirstString(CaseFirst caseFirst)
@@ -360,7 +359,7 @@ ASCIILiteral IntlCollator::caseFirstString(CaseFirst caseFirst)
         return "upper"_s;
     }
     ASSERT_NOT_REACHED();
-    return ASCIILiteral::null();
+    return { };
 }
 
 // https://tc39.es/ecma402/#sec-intl.collator.prototype.resolvedoptions
@@ -386,7 +385,7 @@ void IntlCollator::setBoundCompare(VM& vm, JSBoundFunction* format)
 static bool canDoASCIIUCADUCETComparisonWithUCollator(UCollator& collator)
 {
     // Attributes are default ones unless we set. So, non-configured attributes are default ones.
-    static constexpr std::pair<UColAttribute, UColAttributeValue> attributes[] = {
+    static constexpr auto attributes = WTF::toArray<std::pair<UColAttribute, UColAttributeValue>>({
         { UCOL_FRENCH_COLLATION, UCOL_OFF },
         { UCOL_ALTERNATE_HANDLING, UCOL_NON_IGNORABLE },
         { UCOL_STRENGTH, UCOL_TERTIARY },
@@ -394,7 +393,7 @@ static bool canDoASCIIUCADUCETComparisonWithUCollator(UCollator& collator)
         { UCOL_CASE_FIRST, UCOL_OFF },
         { UCOL_NUMERIC_COLLATION, UCOL_OFF },
         // We do not check UCOL_NORMALIZATION_MODE status since FCD normalization does nothing for ASCII strings.
-    };
+    });
 
     for (auto& pair : attributes) {
         UErrorCode status = U_ZERO_ERROR;
@@ -445,15 +444,15 @@ void IntlCollator::checkICULocaleInvariants(const LocaleSet& locales)
             bool allAreGood = true;
             for (unsigned x = 0; x < 128; ++x) {
                 for (unsigned y = 0; y < 128; ++y) {
-                    if (canUseASCIIUCADUCETComparison(x) && canUseASCIIUCADUCETComparison(y)) {
+                    if (canUseASCIIUCADUCETComparison(static_cast<Latin1Character>(x)) && canUseASCIIUCADUCETComparison(static_cast<Latin1Character>(y))) {
                         UErrorCode status = U_ZERO_ERROR;
-                        UChar xstring[] = { static_cast<UChar>(x), 0 };
-                        UChar ystring[] = { static_cast<UChar>(y), 0 };
+                        char16_t xstring[] = { static_cast<char16_t>(x), 0 };
+                        char16_t ystring[] = { static_cast<char16_t>(y), 0 };
                         auto resultICU = ucol_strcoll(&collator, xstring, 1, ystring, 1);
                         ASSERT(U_SUCCESS(status));
-                        auto resultJSC = compareASCIIWithUCADUCET(xstring, 1, ystring, 1);
-                        if (resultICU != resultJSC) {
-                            dataLogLn("BAD ", locale, " ", makeString(hex(x)), "(", StringView(xstring, 1), ") <=> ", makeString(hex(y)), "(", StringView(ystring, 1), ") ICU:(", static_cast<int32_t>(resultICU), "),JSC:(", static_cast<int32_t>(resultJSC), ")");
+                        auto resultJSC = compareASCIIWithUCADUCET(span(*xstring), span(*ystring));
+                        if (resultJSC && resultICU != resultJSC.value()) {
+                            dataLogLn("BAD ", locale, " ", makeString(hex(x)), "(", StringView { span(*xstring) }, ") <=> ", makeString(hex(y)), "(", StringView { span(*ystring) }, ") ICU:(", static_cast<int32_t>(resultICU), "),JSC:(", static_cast<int32_t>(resultJSC.value()), ")");
                             allAreGood = false;
                         }
                     }
@@ -490,7 +489,7 @@ void IntlCollator::checkICULocaleInvariants(const LocaleSet& locales)
         // Contractions and Expansions are defined as a rule. If there is no tailoring rule, then they should be UCA DUCET's default.
 
         auto ensureNotIncludingASCII = [&](USet& set) {
-            Vector<UChar, 32> buffer;
+            Vector<char16_t, 32> buffer;
             for (int32_t index = 0, count = uset_getItemCount(&set); index < count; ++index) {
                 // start and end are inclusive.
                 UChar32 start = 0;
@@ -503,8 +502,8 @@ void IntlCollator::checkICULocaleInvariants(const LocaleSet& locales)
                         CRASH();
                     }
                 } else {
-                    if (StringView(buffer.data(), buffer.size()).isAllASCII()) {
-                        dataLogLn("BAD ", locale, " ", String(buffer.data(), buffer.size()), " including ASCII tailored characters");
+                    if (charactersAreAllASCII(buffer.span())) {
+                        dataLogLn("BAD ", locale, " ", StringView(buffer.span()), " including ASCII tailored characters");
                         CRASH();
                     }
                 }

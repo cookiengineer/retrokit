@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc.
+ * Copyright (C) 2015 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -43,9 +43,6 @@
 
 #if !OS(WINDOWS)
 #include <pthread.h>
-
-#define WEBCORE_TESTSUPPORT_EXPORT WEBCORE_EXPORT
-
 #endif // OS(WINDOWS)
 
 #include <fcntl.h>
@@ -86,33 +83,12 @@
 #include <CoreFoundation/CoreFoundation.h>
 #endif
 
-#if PLATFORM(WIN_CAIRO)
+#if PLATFORM(WIN)
 #include <windows.h>
-#else
-
-#if OS(WINDOWS)
-#if USE(CG)
-
-// FIXME <rdar://problem/8208868> Remove support for obsolete ColorSync API, CoreServices header in CoreGraphics
-// We can remove this once the new ColorSync APIs are available in an internal Safari SDK.
-#include <ColorSync/ColorSync.h>
-#ifdef __COLORSYNCDEPRECATED__
-#define COREGRAPHICS_INCLUDES_CORESERVICES_HEADER
-#define OBSOLETE_COLORSYNC_API
-#endif
-#endif
-#if USE(CFURLCONNECTION)
-#include <CFNetwork/CFNetwork.h>
-// On Windows, dispatch.h needs to be included before certain CFNetwork headers.
-#include <dispatch/dispatch.h>
-#endif
-#include <windows.h>
-#else
+#elif OS(DARWIN)
 #if !PLATFORM(IOS_FAMILY)
 #include <CoreServices/CoreServices.h>
-#endif // !PLATFORM(IOS_FAMILY)
-#endif // OS(WINDOWS)
-
+#endif
 #endif
 
 #ifdef __OBJC__
@@ -121,11 +97,6 @@
 #else
 #import <Cocoa/Cocoa.h>
 #endif // PLATFORM(IOS_FAMILY)
-#endif
-
-#ifdef __cplusplus
-#define new ("if you use new/delete make sure to include config.h at the top of the file"()) 
-#define delete ("if you use new/delete make sure to include config.h at the top of the file"()) 
 #endif
 
 /* When C++ exceptions are disabled, the C++ library defines |try| and |catch|

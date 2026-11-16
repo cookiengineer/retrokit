@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,23 +25,29 @@
 
 WI.CallFrameTreeElement = class CallFrameTreeElement extends WI.GeneralTreeElement
 {
-    constructor(callFrame, isAsyncBoundaryCallFrame)
+    constructor(callFrame, {isAsyncBoundaryCallFrame, isTruncatedBoundaryCallFrame} = {})
     {
         console.assert(callFrame instanceof WI.CallFrame);
 
         let className = WI.CallFrameView.iconClassNameForCallFrame(callFrame);
-        let title = callFrame.functionName || WI.UIString("(anonymous function)");
+        let title = callFrame.displayName;
         const subtitle = null;
         super(["call-frame", className], title, subtitle, callFrame);
 
         this._callFrame = callFrame;
         this._isActiveCallFrame = false;
 
-        this._isAsyncBoundaryCallFrame = isAsyncBoundaryCallFrame;
+        this._isAsyncBoundaryCallFrame = isAsyncBoundaryCallFrame || false;
          if (this._isAsyncBoundaryCallFrame) {
             this.addClassName("async-boundary");
             this.selectable = false;
          }
+
+        this._isTruncatedBoundaryCallFrame = !!isTruncatedBoundaryCallFrame;
+        if (this._isTruncatedBoundaryCallFrame) {
+            this.addClassName("truncated-boundary");
+            this.selectable = false;
+        }
 
         if (this._callFrame.nativeCode || !this._callFrame.sourceCodeLocation) {
             this.subtitle = "";
@@ -57,8 +63,7 @@ WI.CallFrameTreeElement = class CallFrameTreeElement extends WI.GeneralTreeEleme
             this.tooltipHandledSeparately = true;
         }
 
-        this._isBlackboxed = WI.debuggerManager.blackboxDataForSourceCode(this._callFrame.sourceCodeLocation.sourceCode);
-        if (this._isBlackboxed) {
+        if (this._callFrame.blackboxed) {
             this.addClassName("blackboxed");
             this.tooltipHandledSeparately = true;
         }
@@ -98,7 +103,7 @@ WI.CallFrameTreeElement = class CallFrameTreeElement extends WI.GeneralTreeEleme
             let tooltipPrefix = this.mainTitle + tailCallSuffix + "\n";
 
             let tooltipSuffix = "";
-            if (this._isBlackboxed)
+            if (this._callFrame.blackboxed)
                 tooltipSuffix += "\n\n" + WI.UIString("Script ignored due to blackbox");
 
             this._callFrame.sourceCodeLocation.populateLiveDisplayLocationTooltip(this.element, tooltipPrefix, tooltipSuffix);
@@ -110,7 +115,7 @@ WI.CallFrameTreeElement = class CallFrameTreeElement extends WI.GeneralTreeEleme
     populateContextMenu(contextMenu, event)
     {
         if (this._callFrame.sourceCodeLocation)
-            WI.appendContextMenuItemsForSourceCode(contextMenu, this._callFrame.sourceCodeLocation);
+            WI.appendContextMenuItemsForNetworkResource(contextMenu, this._callFrame.sourceCodeLocation);
 
         super.populateContextMenu(contextMenu, event);
     }

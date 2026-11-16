@@ -26,13 +26,12 @@
 
 #pragma once
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
-#include "DataReference.h"
 #include "TextTrackPrivateRemoteConfiguration.h"
-#include "TrackPrivateRemoteIdentifier.h"
 #include <WebCore/InbandTextTrackPrivate.h>
 #include <WebCore/MediaPlayerIdentifier.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 class InbandGenericCue;
@@ -45,15 +44,16 @@ class GPUProcessConnection;
 class MediaPlayerPrivateRemote;
 
 class TextTrackPrivateRemote final : public WebCore::InbandTextTrackPrivate {
+    WTF_MAKE_TZONE_ALLOCATED(TextTrackPrivateRemote);
     WTF_MAKE_NONCOPYABLE(TextTrackPrivateRemote)
 public:
 
-    static Ref<TextTrackPrivateRemote> create(GPUProcessConnection& gpuProcessConnection, WebCore::MediaPlayerIdentifier playerIdentifier, TrackPrivateRemoteIdentifier idendifier, TextTrackPrivateRemoteConfiguration&& configuration)
+    static Ref<TextTrackPrivateRemote> create(GPUProcessConnection& gpuProcessConnection, WebCore::MediaPlayerIdentifier playerIdentifier, TextTrackPrivateRemoteConfiguration&& configuration)
     {
-        return adoptRef(*new TextTrackPrivateRemote(gpuProcessConnection, playerIdentifier, idendifier, WTFMove(configuration)));
+        return adoptRef(*new TextTrackPrivateRemote(gpuProcessConnection, playerIdentifier, WTF::move(configuration)));
     }
 
-    void addDataCue(MediaTime&& start, MediaTime&& end, IPC::DataReference&&);
+    void addDataCue(MediaTime&& start, MediaTime&& end, std::span<const uint8_t>);
 
 #if ENABLE(DATACUE_VALUE)
     using SerializedPlatformDataCueValue = WebCore::SerializedPlatformDataCueValue;
@@ -69,16 +69,16 @@ public:
 
     using ISOWebVTTCue = WebCore::ISOWebVTTCue;
     void parseWebVTTFileHeader(String&&);
-    void parseWebVTTCueData(const IPC::DataReference&);
+    void parseWebVTTCueData(std::span<const uint8_t>);
     void parseWebVTTCueDataStruct(ISOWebVTTCue&&);
 
     void updateConfiguration(TextTrackPrivateRemoteConfiguration&&);
 
-    AtomString id() const final { return m_id; }
-    AtomString label() const final { return m_label; }
-    AtomString language() const final { return m_language; }
+    WebCore::TrackID id() const final { return m_id; }
+    String label() const final { return m_label; }
+    String language() const final { return m_language; }
     int trackIndex() const final { return m_trackIndex; }
-    AtomString inBandMetadataTrackDispatchType() const final { return m_inBandMetadataTrackDispatchType; }
+    String inBandMetadataTrackDispatchType() const final { return m_inBandMetadataTrackDispatchType; }
 
     using TextTrackKind = WebCore::InbandTextTrackPrivate::Kind;
     TextTrackKind kind() const final { return m_kind; }
@@ -92,20 +92,20 @@ public:
     bool isMainProgramContent() const final { return m_isMainProgramContent; }
     bool isEasyToRead() const final { return m_isEasyToRead; }
     bool isDefault() const final { return m_isDefault; }
+    bool isMachineGenerated() const final { return m_isMachineGenerated; }
     MediaTime startTimeVariance() const final { return m_startTimeVariance; }
 
 private:
-    TextTrackPrivateRemote(GPUProcessConnection&, WebCore::MediaPlayerIdentifier, TrackPrivateRemoteIdentifier, TextTrackPrivateRemoteConfiguration&&);
+    TextTrackPrivateRemote(GPUProcessConnection&, WebCore::MediaPlayerIdentifier, TextTrackPrivateRemoteConfiguration&&);
 
-    WeakPtr<GPUProcessConnection> m_gpuProcessConnection;
-    AtomString m_id;
-    AtomString m_label;
-    AtomString m_language;
+    ThreadSafeWeakPtr<GPUProcessConnection> m_gpuProcessConnection;
+    String m_label;
+    String m_language;
     int m_trackIndex { -1 };
-    AtomString m_inBandMetadataTrackDispatchType;
+    String m_inBandMetadataTrackDispatchType;
     MediaTime m_startTimeVariance { MediaTime::zeroTime() };
+    WebCore::TrackID m_id;
     WebCore::MediaPlayerIdentifier m_playerIdentifier;
-    TrackPrivateRemoteIdentifier m_identifier;
 
     TextTrackKind m_kind { TextTrackKind::None };
     bool m_isClosedCaptions { false };
@@ -114,8 +114,9 @@ private:
     bool m_isMainProgramContent { true };
     bool m_isEasyToRead { false };
     bool m_isDefault { false };
+    bool m_isMachineGenerated { false };
 };
 
 } // namespace WebKit
 
-#endif
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020 Apple Inc. All rights reserved.
+ * Copyright (c) 2020-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,8 +30,10 @@
 #include "pas_free_granules.h"
 
 #include "pas_commit_span.h"
+#include "pas_heap_config.h"
 #include "pas_log.h"
 #include "pas_page_base_config.h"
+#include "pas_zero_memory.h"
 
 void pas_free_granules_compute_and_mark_decommitted(pas_free_granules* free_granules,
                                                     pas_page_granule_use_count* use_counts,
@@ -40,10 +42,15 @@ void pas_free_granules_compute_and_mark_decommitted(pas_free_granules* free_gran
     static const bool verbose = false;
     
     size_t granule_index;
+    uintptr_t granule_begin;
     
     PAS_ASSERT(num_granules >= 2); /* If there is only one granule then we don't have use counts. */
     PAS_ASSERT(num_granules <= PAS_MAX_GRANULES);
     
+    granule_begin = (uintptr_t)free_granules;
+    PAS_PROFILE(ZERO_FREE_GRANULES, granule_begin);
+    free_granules = (pas_free_granules*)granule_begin;
+
     pas_zero_memory(free_granules, sizeof(pas_free_granules));
 
     for (granule_index = num_granules; granule_index--;) {
@@ -93,7 +100,7 @@ void pas_free_granules_decommit_after_locking_range(pas_free_granules* free_gran
                                                     pas_page_base* page,
                                                     pas_deferred_decommit_log* log,
                                                     pas_lock* commit_lock,
-                                                    pas_page_base_config* page_config,
+                                                    const pas_page_base_config* page_config,
                                                     pas_lock_hold_mode heap_lock_hold_mode)
 {
     size_t granule_index;
@@ -105,7 +112,7 @@ void pas_free_granules_decommit_after_locking_range(pas_free_granules* free_gran
     PAS_ASSERT(num_granules >= 2); /* If there is only one granule then we don't have use counts. */
     PAS_ASSERT(num_granules <= PAS_MAX_GRANULES);
 
-    pas_commit_span_construct(&commit_span);
+    pas_commit_span_construct(&commit_span, page_config->heap_config_ptr->page_flags);
 
     for (granule_index = 0; granule_index < num_granules; ++granule_index) {
         if (pas_free_granules_is_free(free_granules, granule_index)) {

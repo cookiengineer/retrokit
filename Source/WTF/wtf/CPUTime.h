@@ -31,13 +31,13 @@
 namespace WTF {
 
 struct CPUTime {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(CPUTime);
 
     MonotonicTime cpuTime;
     Seconds userTime;
     Seconds systemTime;
 
-    WTF_EXPORT_PRIVATE double percentageCPUUsageSince(const CPUTime&) const;
+    WTF_EXPORT_PRIVATE double NODELETE percentageCPUUsageSince(const CPUTime&) const;
 
     WTF_EXPORT_PRIVATE static std::optional<CPUTime> get();
 

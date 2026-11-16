@@ -28,18 +28,19 @@
 
 #include "CSSAnimation.h"
 #include "CSSTransition.h"
+#include "KeyframeEffect.h"
 #include "KeyframeEffectStack.h"
-#include "RenderStyle.h"
+#include "ScriptExecutionContext.h"
+#include "StyleComputedStyle.h"
 
 namespace WebCore {
+DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(ElementAnimationRareData);
 
-ElementAnimationRareData::ElementAnimationRareData(PseudoId pseudoId)
-    : m_pseudoId(pseudoId)
-{
-}
+ElementAnimationRareData::ElementAnimationRareData() = default;
 
 ElementAnimationRareData::~ElementAnimationRareData()
 {
+    ASSERT(!m_keyframeEffectStack || !m_keyframeEffectStack->hasEffects());
 }
 
 KeyframeEffectStack& ElementAnimationRareData::ensureKeyframeEffectStack()
@@ -51,7 +52,25 @@ KeyframeEffectStack& ElementAnimationRareData::ensureKeyframeEffectStack()
 
 void ElementAnimationRareData::setAnimationsCreatedByMarkup(CSSAnimationCollection&& animations)
 {
-    m_animationsCreatedByMarkup = WTFMove(animations);
+    if (m_keyframeEffectStack) {
+        for (auto& animation : m_animationsCreatedByMarkup) {
+            if (RefPtr keyframeEffect = animation->keyframeEffect())
+                m_keyframeEffectStack->removeEffect(*keyframeEffect);
+        }
+    }
+
+    m_animationsCreatedByMarkup = WTF::move(animations);
+}
+
+void ElementAnimationRareData::setLastStyleChangeEventStyle(std::unique_ptr<const Style::ComputedStyle>&& style)
+{
+    if (m_keyframeEffectStack && m_lastStyleChangeEventStyle != style) {
+        auto previousStyleChangeEventStyle = std::exchange(m_lastStyleChangeEventStyle, WTF::move(style));
+        m_keyframeEffectStack->lastStyleChangeEventStyleDidChange(previousStyleChangeEventStyle.get(), m_lastStyleChangeEventStyle.get());
+        return;
+    }
+
+    m_lastStyleChangeEventStyle = WTF::move(style);
 }
 
 } // namespace WebCore

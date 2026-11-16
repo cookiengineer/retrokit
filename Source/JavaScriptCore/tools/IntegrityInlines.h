@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,8 +25,14 @@
 
 #pragma once
 
-#include "Integrity.h"
-#include "VM.h"
+#include <JavaScriptCore/Integrity.h>
+#include <JavaScriptCore/JSCConfig.h>
+#include <JavaScriptCore/JSCJSValue.h>
+#include <JavaScriptCore/StructureID.h>
+#include <JavaScriptCore/VM.h>
+#include <JavaScriptCore/VMManager.h>
+#include <wtf/Atomics.h>
+#include <wtf/FastMalloc.h>
 
 namespace JSC {
 namespace Integrity {
@@ -49,7 +55,7 @@ ALWAYS_INLINE bool Random::shouldAudit(VM& vm)
     uint64_t newTriggerBits = m_triggerBits;
     bool shouldAudit = newTriggerBits & 1;
     newTriggerBits = newTriggerBits >> 1;
-    if (LIKELY(!shouldAudit)) {
+    if (!shouldAudit) [[likely]] {
         m_triggerBits = newTriggerBits;
         return false;
     }
@@ -61,27 +67,63 @@ ALWAYS_INLINE bool Random::shouldAudit(VM& vm)
     return true;
 }
 
+template<AuditLevel auditLevel>
+ALWAYS_INLINE void auditCell(VM& vm, JSValue value)
+{
+    if constexpr (auditLevel == AuditLevel::None)
+        return;
+
+    if (value.isCell())
+        auditCell<auditLevel>(vm, value.asCell());
+}
+
 ALWAYS_INLINE void auditCellMinimally(VM& vm, JSCell* cell)
 {
-    if (UNLIKELY(Gigacage::contains(cell)))
+    if (Gigacage::contains(cell)) [[unlikely]]
         auditCellMinimallySlow(vm, cell);
 }
 
 ALWAYS_INLINE void auditCellRandomly(VM& vm, JSCell* cell)
 {
-    if (UNLIKELY(vm.integrityRandom().shouldAudit(vm)))
+    if (vm.integrityRandom().shouldAudit(vm)) [[unlikely]]
         auditCellFully(vm, cell);
 }
 
-ALWAYS_INLINE void auditStructureID(StructureIDTable& table, StructureID id)
+ALWAYS_INLINE void auditCellFully(VM& vm, JSCell* cell)
 {
-    table.validate(id);
+#if USE(JSVALUE64)
+    doAudit(vm, cell);
+#else
+    auditCellMinimally(vm, cell);
+#endif
 }
 
-ALWAYS_INLINE void auditStructureID(VM& vm, StructureID id)
+ALWAYS_INLINE void auditStructureID(StructureID structureID)
 {
-    auditStructureID(vm.heap.structureIDTable(), id);
+    UNUSED_PARAM(structureID);
+#if CPU(ADDRESS64)
+    ASSERT(std::bit_cast<uintptr_t>(structureID.decode()) - startOfStructureHeap() <= g_jscConfig.sizeOfStructureHeap);
+#endif
+#if ENABLE(EXTRA_INTEGRITY_CHECKS) || ASSERT_ENABLED
+    Structure* structure = structureID.tryDecode();
+    IA_ASSERT(structure, "structureID.bits 0x%x", structureID.bits());
+    // structure should be pointing to readable memory. Force a read.
+    WTF::opaque(*std::bit_cast<uintptr_t*>(structure));
+#endif
 }
+
+#if USE(JSVALUE64)
+
+JS_EXPORT_PRIVATE VM* doAuditSlow(VM*);
+
+ALWAYS_INLINE VM* doAudit(VM* vm)
+{
+    if (!VMManager::isValidVM(vm)) [[unlikely]]
+        return doAuditSlow(vm);
+    return vm;
+}
+
+#endif // USE(JSVALUE64)
 
 } // namespace Integrity
 } // namespace JSC

@@ -1,8 +1,8 @@
 {
     "domain": "Console",
     "description": "Console domain defines methods and events for interaction with the JavaScript console. Console collects messages created by means of the <a href='http://getfirebug.com/wiki/index.php/Console_API'>JavaScript Console API</a>. One needs to enable this domain using <code>enable</code> command in order to start receiving the console messages. Browser collects messages issued while console domain is not enabled as well and reports them using <code>messageAdded</code> notification upon enabling.",
-    "debuggableTypes": ["itml", "javascript", "page", "service-worker", "web-page"],
-    "targetTypes": ["itml", "javascript", "page", "service-worker", "worker"],
+    "debuggableTypes": ["itml", "javascript", "service-worker", "web-page", "wasm-debugger"],
+    "targetTypes": ["itml", "javascript", "frame", "page", "service-worker", "worker", "wasm-debugger"],
     "types": [
         {
             "id": "ChannelSource",
@@ -13,9 +13,9 @@
                 "network",
                 "console-api",
                 "storage",
-                "appcache",
                 "rendering",
                 "css",
+                "accessibility",
                 "security",
                 "content-blocker",
                 "media",
@@ -33,6 +33,12 @@
             "type": "string",
             "enum": ["off", "basic", "verbose"],
             "description": "Level of logging."
+        },
+        {
+            "id": "ClearReason",
+            "type": "string",
+            "enum": ["console-api", "frontend", "main-frame-navigation"],
+            "description": "The reason the console is being cleared."
         },
         {
             "id": "Channel",
@@ -57,8 +63,9 @@
                 { "name": "column", "type": "integer", "optional": true, "description": "Column number on the line in the resource that generated this message." },
                 { "name": "repeatCount", "type": "integer", "optional": true, "description": "Repeat count for repeated messages." },
                 { "name": "parameters", "type": "array", "items": { "$ref": "Runtime.RemoteObject" }, "optional": true, "description": "Message parameters in case of the formatted message." },
-                { "name": "stackTrace", "type": "array", "items": { "$ref": "CallFrame" }, "optional": true, "description": "JavaScript stack trace for assertions and error messages." },
-                { "name": "networkRequestId", "$ref": "Network.RequestId", "optional": true, "description": "Identifier of the network request associated with this message." }
+                { "name": "stackTrace", "$ref": "StackTrace", "optional": true, "description": "JavaScript stack trace for assertions and error messages." },
+                { "name": "networkRequestId", "$ref": "Network.RequestId", "optional": true, "description": "Identifier of the network request associated with this message." },
+                { "name": "timestamp", "type": "number", "optional": true, "description": "Time when this message was added. Currently only used when an expensive operation happens to make sure that the frontend can account for it." }
             ]
         },
         {
@@ -99,8 +106,16 @@
             "description": "Clears console messages collected in the browser."
         },
         {
+           "name": "setConsoleClearAPIEnabled",
+           "description": "Control whether calling <code>console.clear()</code> has an effect in Web Inspector. Defaults to true.",
+           "parameters": [
+               { "name": "enable", "type": "boolean" }
+           ]
+        },
+        {
             "name": "getLoggingChannels",
             "description": "List of the different message sources that are non-default logging channels.",
+            "targetTypes": ["frame", "page"],
             "returns": [
                 { "name": "channels", "type": "array", "items": { "$ref": "Channel"}, "description": "Logging channels." }
             ]
@@ -108,6 +123,7 @@
          {
             "name": "setLoggingChannelLevel",
             "description": "Modify the level of a channel.",
+            "targetTypes": ["frame", "page"],
             "parameters": [
                 { "name": "source", "$ref": "ChannelSource", "description": "Logging channel to modify." },
                 { "name": "level", "$ref": "ChannelLevel", "description": "New level." }
@@ -126,12 +142,16 @@
             "name": "messageRepeatCountUpdated",
             "description": "Issued when subsequent message(s) are equal to the previous one(s).",
             "parameters": [
-                { "name": "count", "type": "integer", "description": "New repeat count value." }
+                { "name": "count", "type": "integer", "description": "New repeat count value." },
+                { "name": "timestamp", "type": "number", "optional": true, "description": "Timestamp of the latest message." }
             ]
         },
         {
             "name": "messagesCleared",
-            "description": "Issued when console is cleared. This happens either upon <code>clearMessages</code> command or after page navigation."
+            "description": "Issued when console is cleared. This happens either upon <code>clearMessages</code> command or after page navigation.",
+            "parameters": [
+                { "name": "reason", "$ref": "ClearReason", "description": "The reason the console is being cleared." }
+            ]
         },
         {
             "name": "heapSnapshot",

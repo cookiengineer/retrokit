@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2010 Apple Inc. All rights reserved.
- * Portions Copyright (c) 2010 Motorola Mobility, Inc.  All rights reserved.
+ * Portions Copyright (c) 2010 Motorola Mobility, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,27 +26,45 @@
 
 #include "config.h"
 #include "WebInspectorUI.h"
-#include "RemoteWebInspectorUI.h"
 
 #include <glib.h>
 #include <wtf/FileSystem.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebKit {
+using namespace WebCore;
 
-bool WebInspectorUI::canSave()
+bool WebInspectorUI::canSave(InspectorFrontendClient::SaveMode saveMode)
 {
-    return true;
+    switch (saveMode) {
+    case InspectorFrontendClient::SaveMode::SingleFile:
+        return true;
+
+    case InspectorFrontendClient::SaveMode::FileVariants:
+        return false;
+    }
+
+    ASSERT_NOT_REACHED();
+    return false;
+}
+
+bool WebInspectorUI::canLoad()
+{
+    return false;
+}
+
+bool WebInspectorUI::canPickColorFromScreen()
+{
+    return false;
 }
 
 String WebInspectorUI::localizedStringsURL() const
 {
-    return String("resource:///org/webkit/inspector/Localizations/en.lproj/localizedStrings.js");
+    return "resource:///org/webkit/inspector/Localizations/en.lproj/localizedStrings.js"_s;
 }
 
-String RemoteWebInspectorUI::localizedStringsURL() const
+void WebInspectorUI::didEstablishConnection()
 {
-    return String("resource:///org/webkit/inspector/Localizations/en.lproj/localizedStrings.js");
 }
 
 } // namespace WebKit

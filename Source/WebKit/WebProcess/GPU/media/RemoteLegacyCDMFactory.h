@@ -32,6 +32,7 @@
 #include "WebProcessSupplement.h"
 #include <WebCore/LegacyCDM.h>
 #include <wtf/HashMap.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 
 namespace IPC {
@@ -59,35 +60,35 @@ class WebProcess;
 class RemoteLegacyCDMFactory final
     : public WebProcessSupplement
     , public CanMakeWeakPtr<RemoteLegacyCDMFactory> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(RemoteLegacyCDMFactory);
 public:
     explicit RemoteLegacyCDMFactory(WebProcess&);
     virtual ~RemoteLegacyCDMFactory();
 
     void registerFactory();
 
-    static const char* supplementName();
-    WebProcess& process() const { return m_process; }
+    static ASCIILiteral supplementName();
 
     GPUProcessConnection& gpuProcessConnection();
 
-    void didReceiveSessionMessage(IPC::Connection&, IPC::Decoder&);
-
-    void addSession(RemoteLegacyCDMSessionIdentifier, std::unique_ptr<RemoteLegacyCDMSession>&&);
+    void addSession(RemoteLegacyCDMSessionIdentifier, RemoteLegacyCDMSession&);
     void removeSession(RemoteLegacyCDMSessionIdentifier);
 
-    RemoteLegacyCDM* findCDM(WebCore::CDMPrivateInterface*) const;
+    RemoteLegacyCDM* NODELETE findCDM(WebCore::CDMPrivateInterface*) const;
+
+    void NODELETE ref() const;
+    void deref() const;
 
 private:
     bool supportsKeySystem(const String&);
     bool supportsKeySystemAndMimeType(const String&, const String&);
-    std::unique_ptr<WebCore::CDMPrivateInterface> createCDM(WebCore::LegacyCDM*);
+    std::unique_ptr<WebCore::CDMPrivateInterface> createCDM(WebCore::LegacyCDM&);
 
-    HashMap<RemoteLegacyCDMSessionIdentifier, std::unique_ptr<RemoteLegacyCDMSession>> m_sessions;
+    WeakRef<WebProcess> m_webProcess;
+    HashMap<RemoteLegacyCDMSessionIdentifier, WeakPtr<RemoteLegacyCDMSession>> m_sessions;
     HashMap<RemoteLegacyCDMIdentifier, WeakPtr<RemoteLegacyCDM>> m_cdms;
     HashMap<String, bool> m_supportsKeySystemCache;
     HashMap<std::pair<String, String>, bool> m_supportsKeySystemAndMimeTypeCache;
-    WebProcess& m_process;
 };
 
 }

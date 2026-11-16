@@ -23,9 +23,13 @@
 
 #if ENABLE(GPU_PROCESS) && ENABLE(ENCRYPTED_MEDIA)
 
-messages -> RemoteCDMInstanceSession NotRefCounted {
-    UpdateKeyStatuses(WebCore::CDMInstanceSession::KeyStatusVector keyStatuses)
-    SendMessage(enum:uint8_t WebCore::CDMMessageType type, IPC::SharedBufferCopy message)
+[
+    DispatchedFrom=GPU,
+    DispatchedTo=WebContent
+]
+messages -> RemoteCDMInstanceSession {
+    UpdateKeyStatuses(Vector<std::pair<Ref<WebCore::SharedBuffer>, WebCore::CDMKeyStatus>> keyStatuses)
+    SendMessage(enum:uint8_t WebCore::CDMMessageType type, RefPtr<WebCore::SharedBuffer> message)
     SessionIdChanged(String sessionId)
 }
 

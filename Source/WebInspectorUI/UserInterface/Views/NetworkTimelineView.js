@@ -117,14 +117,6 @@ WI.NetworkTimelineView = class NetworkTimelineView extends WI.TimelineView
         columns.graph.headerView = this._timelineRuler;
         columns.graph.sortable = false;
 
-        // COMPATIBILITY(iOS 10.3): Network load metrics were not previously available.
-        if (!InspectorBackend.hasEvent("Network.loadingFinished", "metrics")) {
-            delete columns.protocol;
-            delete columns.priority;
-            delete columns.remoteAddress;
-            delete columns.connectionIdentifier;
-        }
-
         this._dataGrid = new WI.TimelineDataGrid(columns);
         this._dataGrid.sortDelegate = this;
         this._dataGrid.sortColumnIdentifier = "requestSent";
@@ -166,6 +158,8 @@ WI.NetworkTimelineView = class NetworkTimelineView extends WI.TimelineView
         this.representedObject.removeEventListener(WI.Timeline.Event.RecordAdded, this._networkTimelineRecordAdded, this);
 
         this._dataGrid.closed();
+
+        super.closed();
     }
 
     reset()
@@ -274,3 +268,5 @@ WI.NetworkTimelineView = class NetworkTimelineView extends WI.TimelineView
         this._pendingRecords.push(resourceTimelineRecord);
     }
 };
+
+WI.NetworkTimelineView.ReferencePage = WI.ReferencePage.TimelinesTab.NetworkRequestsTimeline;

@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2018 Yusuke Suzuki <utatane.tea@gmail.com>.
- * Copyright (C) 2018-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,11 +31,14 @@
 #include "CodeBlock.h"
 #include "ComplexGetStatus.h"
 #include "ICStatusUtils.h"
-#include "PolymorphicAccess.h"
-#include "StructureStubInfo.h"
+#include "InlineCacheCompiler.h"
+#include "PropertyInlineCache.h"
 #include <wtf/ListDump.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(InByStatus);
 
 bool InByStatus::appendVariant(const InByVariant& variant)
 {
@@ -48,14 +51,14 @@ void InByStatus::shrinkToFit()
 }
 
 #if ENABLE(JIT)
-InByStatus InByStatus::computeFor(CodeBlock* profiledBlock, ICStatusMap& map, BytecodeIndex bytecodeIndex, ExitFlag didExit)
+InByStatus InByStatus::computeFor(CodeBlock* profiledBlock, ICStatusMap& map, BytecodeIndex bytecodeIndex, ExitFlag didExit, CallLinkStatus::ExitSiteData callExitSiteData, CodeOrigin codeOrigin)
 {
     ConcurrentJSLocker locker(profiledBlock->m_lock);
 
     InByStatus result;
 
 #if ENABLE(DFG_JIT)
-    result = computeForStubInfoWithoutExitSiteFeedback(locker, profiledBlock->vm(), map.get(CodeOrigin(bytecodeIndex)).stubInfo);
+    result = computeForPropertyInlineCacheWithoutExitSiteFeedback(locker, profiledBlock, map.get(CodeOrigin(bytecodeIndex)).propertyCache, callExitSiteData, codeOrigin);
 
     if (!result.takesSlowPath() && didExit)
         return InByStatus(TakesSlowPath);
@@ -63,14 +66,10 @@ InByStatus InByStatus::computeFor(CodeBlock* profiledBlock, ICStatusMap& map, By
     UNUSED_PARAM(map);
     UNUSED_PARAM(bytecodeIndex);
     UNUSED_PARAM(didExit);
+    UNUSED_PARAM(callExitSiteData);
 #endif
 
     return result;
-}
-
-InByStatus InByStatus::computeFor(CodeBlock* profiledBlock, ICStatusMap& map, BytecodeIndex bytecodeIndex)
-{
-    return computeFor(profiledBlock, map, bytecodeIndex, hasBadCacheExitSite(profiledBlock, bytecodeIndex));
 }
 
 InByStatus InByStatus::computeFor(
@@ -78,6 +77,7 @@ InByStatus InByStatus::computeFor(
     ICStatusContextStack& contextStack, CodeOrigin codeOrigin)
 {
     BytecodeIndex bytecodeIndex = codeOrigin.bytecodeIndex();
+    CallLinkStatus::ExitSiteData callExitSiteData = CallLinkStatus::computeExitSiteData(profiledBlock, bytecodeIndex);
     ExitFlag didExit = hasBadCacheExitSite(profiledBlock, bytecodeIndex);
     
     for (ICStatusContext* context : contextStack) {
@@ -85,8 +85,7 @@ InByStatus InByStatus::computeFor(
         
         auto bless = [&] (const InByStatus& result) -> InByStatus {
             if (!context->isInlined(codeOrigin)) {
-                InByStatus baselineResult = computeFor(
-                    profiledBlock, baselineMap, bytecodeIndex, didExit);
+                InByStatus baselineResult = computeFor(profiledBlock, baselineMap, bytecodeIndex, didExit, callExitSiteData, codeOrigin);
                 baselineResult.merge(result);
                 return baselineResult;
             }
@@ -96,11 +95,11 @@ InByStatus InByStatus::computeFor(
         };
         
 #if ENABLE(DFG_JIT)
-        if (status.stubInfo) {
+        if (status.propertyCache) {
             InByStatus result;
             {
                 ConcurrentJSLocker locker(context->optimizedCodeBlock->m_lock);
-                result = computeForStubInfoWithoutExitSiteFeedback(locker, profiledBlock->vm(), status.stubInfo);
+                result = computeForPropertyInlineCacheWithoutExitSiteFeedback(locker, profiledBlock, status.propertyCache, callExitSiteData, codeOrigin);
             }
             if (result.isSet())
                 return bless(result);
@@ -111,41 +110,32 @@ InByStatus InByStatus::computeFor(
             return bless(*status.inStatus);
     }
     
-    return computeFor(profiledBlock, baselineMap, bytecodeIndex, didExit);
+    return computeFor(profiledBlock, baselineMap, bytecodeIndex, didExit, callExitSiteData, codeOrigin);
 }
 #endif // ENABLE(JIT)
 
 #if ENABLE(DFG_JIT)
-InByStatus InByStatus::computeForStubInfo(const ConcurrentJSLocker& locker, CodeBlock* profiledBlock, StructureStubInfo* stubInfo, CodeOrigin codeOrigin)
+InByStatus InByStatus::computeForPropertyInlineCacheWithoutExitSiteFeedback(const ConcurrentJSLocker& locker, CodeBlock* profiledBlock, PropertyInlineCache* propertyCache, CallLinkStatus::ExitSiteData callExitSiteData, CodeOrigin)
 {
-    InByStatus result = InByStatus::computeForStubInfoWithoutExitSiteFeedback(locker, profiledBlock->vm(), stubInfo);
-
-    if (!result.takesSlowPath() && hasBadCacheExitSite(profiledBlock, codeOrigin.bytecodeIndex()))
-        return InByStatus(TakesSlowPath);
-    return result;
-}
-
-InByStatus InByStatus::computeForStubInfoWithoutExitSiteFeedback(const ConcurrentJSLocker&, VM& vm, StructureStubInfo* stubInfo)
-{
-    StubInfoSummary summary = StructureStubInfo::summary(vm, stubInfo);
+    PropertyInlineCacheSummary summary = PropertyInlineCache::summary(locker, profiledBlock->vm(), propertyCache);
     if (!isInlineable(summary))
         return InByStatus(summary);
     
     // Finally figure out if we can derive an access strategy.
     InByStatus result;
     result.m_state = Simple;
-    switch (stubInfo->cacheType()) {
+    switch (propertyCache->cacheType()) {
     case CacheType::Unset:
         return InByStatus(NoInformation);
 
     case CacheType::InByIdSelf: {
-        Structure* structure = stubInfo->m_inlineAccessBaseStructure.get();
+        Structure* structure = propertyCache->inlineAccessBaseStructure();
         if (structure->takesSlowPathInDFGForImpureProperty())
             return InByStatus(TakesSlowPath);
-        CacheableIdentifier identifier = stubInfo->identifier();
+        CacheableIdentifier identifier = propertyCache->identifier();
         UniquedStringImpl* uid = identifier.uid();
         RELEASE_ASSERT(uid);
-        InByVariant variant(WTFMove(identifier));
+        InByVariant variant(WTF::move(identifier));
         unsigned attributes;
         variant.m_offset = structure->getConcurrently(uid, attributes);
         if (!isValidOffset(variant.m_offset))
@@ -160,14 +150,44 @@ InByStatus InByStatus::computeForStubInfoWithoutExitSiteFeedback(const Concurren
     }
 
     case CacheType::Stub: {
-        PolymorphicAccess* list = stubInfo->u.stub;
-        for (unsigned listIndex = 0; listIndex < list->size(); ++listIndex) {
-            const AccessCase& access = list->at(listIndex);
-            if (access.viaProxy())
+        auto list = propertyCache->listedAccessCases(locker);
+        if (list.size() == 1) {
+            const AccessCase& access = *list.at(0);
+            switch (access.type()) {
+            case AccessCase::InMegamorphic:
+            case AccessCase::IndexedMegamorphicIn: {
+                if (!propertyCache->tookSlowPath)
+                    return InByStatus(Megamorphic);
+                break;
+            }
+            case AccessCase::ProxyObjectIn:
+            case AccessCase::IndexedProxyObjectIn: {
+                auto status = InByStatus(InByStatus::ProxyObject);
+                auto callLinkStatus = makeUnique<CallLinkStatus>();
+                if (CallLinkInfo* callLinkInfo = propertyCache->callLinkInfoAt(locker, 0, access))
+                    *callLinkStatus = CallLinkStatus::computeFor(locker, profiledBlock, *callLinkInfo, callExitSiteData);
+                status.appendVariant(InByVariant(access.identifier(), { }, invalidOffset, { }, WTF::move(callLinkStatus)));
+                return status;
+            }
+            default:
+                break;
+            }
+        }
+
+        for (unsigned listIndex = 0; listIndex < list.size(); ++listIndex) {
+            const AccessCase& access = *list.at(listIndex);
+            if (access.viaGlobalProxy())
                 return InByStatus(TakesSlowPath);
 
             if (access.usesPolyProto())
                 return InByStatus(TakesSlowPath);
+
+            if (!access.requiresIdentifierNameMatch()) {
+                // FIXME: We could use this for indexed loads in the future. This is pretty solid profiling
+                // information, and probably better than ArrayProfile when it's available.
+                // https://bugs.webkit.org/show_bug.cgi?id=204215
+                return InByStatus(TakesSlowPath);
+            }
 
             Structure* structure = access.structure();
             if (!structure) {
@@ -230,9 +250,21 @@ void InByStatus::merge(const InByStatus& other)
     case NoInformation:
         *this = other;
         return;
-        
+
+    case Megamorphic:
+        if (m_state != other.m_state) {
+            if (other.m_state == Simple) {
+                *this = other;
+                return;
+            }
+            *this = InByStatus(TakesSlowPath);
+            return;
+        }
+        return;
+
     case Simple:
-        if (other.m_state != Simple) {
+    case ProxyObject:
+        if (m_state != other.m_state) {
             *this = InByStatus(TakesSlowPath);
             return;
         }
@@ -244,7 +276,7 @@ void InByStatus::merge(const InByStatus& other)
         }
         shrinkToFit();
         return;
-        
+
     case TakesSlowPath:
         return;
     }
@@ -303,6 +335,12 @@ void InByStatus::dump(PrintStream& out) const
         break;
     case Simple:
         out.print("Simple");
+        break;
+    case ProxyObject:
+        out.print("ProxyObject");
+        break;
+    case Megamorphic:
+        out.print("Megamorphic");
         break;
     case TakesSlowPath:
         out.print("TakesSlowPath");

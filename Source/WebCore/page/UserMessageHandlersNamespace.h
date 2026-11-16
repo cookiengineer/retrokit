@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,9 +27,9 @@
 
 #if ENABLE(USER_MESSAGE_HANDLERS)
 
-#include "FrameDestructionObserver.h"
-#include "UserContentProvider.h"
-#include "UserMessageHandler.h"
+#include <WebCore/FrameDestructionObserver.h>
+#include <WebCore/UserContentProvider.h>
+#include <WebCore/UserMessageHandler.h>
 #include <wtf/HashMap.h>
 #include <wtf/RefCounted.h>
 #include <wtf/RefPtr.h>
@@ -38,30 +38,36 @@
 
 namespace WebCore {
 
-class Frame;
-class UserMessageHandler;
 class DOMWrapperWorld;
+class LocalFrame;
+class UserMessageHandler;
 
 class UserMessageHandlersNamespace : public RefCounted<UserMessageHandlersNamespace>, public FrameDestructionObserver, public UserContentProviderInvalidationClient {
 public:
-    static Ref<UserMessageHandlersNamespace> create(Frame& frame, UserContentProvider& userContentProvider)
+    static Ref<UserMessageHandlersNamespace> create(LocalFrame& frame, UserContentProvider& userContentProvider)
     {
         return adoptRef(*new UserMessageHandlersNamespace(frame, userContentProvider));
     }
 
     virtual ~UserMessageHandlersNamespace();
 
-    Vector<AtomString> supportedPropertyNames() const;
-    UserMessageHandler* namedItem(DOMWrapperWorld&, const AtomString&);
+    Vector<AtomString> NODELETE supportedPropertyNames() const;
+    RefPtr<UserMessageHandler> namedItem(DOMWrapperWorld&, const AtomString&);
+    bool NODELETE isSupportedPropertyName(const AtomString&);
+
+    // UserContentProviderInvalidationClient, FrameDestructionObserver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
 
 private:
-    explicit UserMessageHandlersNamespace(Frame&, UserContentProvider&);
+    explicit UserMessageHandlersNamespace(LocalFrame&, UserContentProvider&);
 
     // UserContentProviderInvalidationClient
     void didInvalidate(UserContentProvider&) override;
 
-    Ref<UserContentProvider> m_userContentProvider;
-    HashMap<std::pair<AtomString, RefPtr<DOMWrapperWorld>>, RefPtr<UserMessageHandler>> m_messageHandlers;
+    const Ref<UserContentProvider> m_userContentProvider;
+
+    HashMap<std::pair<AtomString, Ref<const DOMWrapperWorld>>, Ref<UserMessageHandler>> m_messageHandlers;
 };
 
 } // namespace WebCore

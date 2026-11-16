@@ -25,27 +25,27 @@
 
 #pragma once
 
-#if ENABLE(WEBASSEMBLY)
+#if ENABLE(WEBASSEMBLY) && ENABLE(JIT)
 
 #include "JITCompilation.h"
 #include "WasmBinding.h"
-#include "WasmEmbedder.h"
+#include "WasmJS.h"
 #include <wtf/Bag.h>
 #include <wtf/Expected.h>
 
 namespace JSC {
 
-class CallLinkInfo;
+class OptimizingCallLinkInfo;
 class VM;
 
 namespace Wasm {
 
-class Instance;
+class WasmToJSCallee;
 
-Expected<MacroAssemblerCodeRef<WasmEntryPtrTag>, BindingFailure> wasmToJS(VM&, Bag<CallLinkInfo>& callLinkInfos, SignatureIndex, unsigned importIndex);
+Expected<MacroAssemblerCodeRef<WasmEntryPtrTag>, BindingFailure> wasmToJS(const Wasm::ModuleInformation&, unsigned importIndex);
 
 void emitThrowWasmToJSException(CCallHelpers&, GPRReg wasmInstance, Wasm::ExceptionType);
 
 } } // namespace JSC::Wasm
 
-#endif // ENABLE(WEBASSEMBLY)
+#endif // ENABLE(WEBASSEMBLY) && ENABLE(JIT)

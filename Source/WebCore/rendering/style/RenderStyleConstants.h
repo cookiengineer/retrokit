@@ -2,9 +2,10 @@
  * Copyright (C) 2000 Lars Knoll (knoll@kde.org)
  *           (C) 2000 Antti Koivisto (koivisto@kde.org)
  *           (C) 2000 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2003-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2026 Apple Inc. All rights reserved.
  * Copyright (C) 2006 Graham Dennis (graham.dennis@gmail.com)
  * Copyright (C) 2009 Torch Mobile Inc. All rights reserved. (http://www.torchmobile.com/)
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -25,7 +26,12 @@
 
 #pragma once
 
+#include <WebCore/BoxSides.h>
 #include <initializer_list>
+#include <limits>
+#include <optional>
+#include <type_traits>
+#include <wtf/EnumSet.h>
 #include <wtf/EnumTraits.h>
 
 namespace WTF {
@@ -39,162 +45,108 @@ enum class DumpStyleValues {
     NonInitial,
 };
 
-static const size_t PrintColorAdjustBits = 1;
-enum class PrintColorAdjust : uint8_t {
+enum class PrintColorAdjust : bool {
     Economy,
     Exact
 };
 
-// The difference between two styles.  The following values are used:
-// - StyleDifference::Equal - The two styles are identical
-// - StyleDifference::RecompositeLayer - The layer needs its position and transform updated, but no repaint
-// - StyleDifference::Repaint - The object just needs to be repainted.
-// - StyleDifference::RepaintIfTextOrBorderOrOutline - The object needs to be repainted if it contains text or a border or outline.
-// - StyleDifference::RepaintLayer - The layer and its descendant layers needs to be repainted.
-// - StyleDifference::LayoutPositionedMovementOnly - Only the position of this positioned object has been updated
-// - StyleDifference::SimplifiedLayout - Only overflow needs to be recomputed
-// - StyleDifference::SimplifiedLayoutAndPositionedMovement - Both positioned movement and simplified layout updates are required.
-// - StyleDifference::Layout - A full layout is required.
-enum class StyleDifference {
-    Equal,
-    RecompositeLayer,
-    Repaint,
-    RepaintIfTextOrBorderOrOutline,
-    RepaintLayer,
-    LayoutPositionedMovementOnly,
-    SimplifiedLayout,
-    SimplifiedLayoutAndPositionedMovement,
-    Layout,
-    NewStyle
-};
-
-// When some style properties change, different amounts of work have to be done depending on
-// context (e.g. whether the property is changing on an element which has a compositing layer).
-// A simple StyleDifference does not provide enough information so we return a bit mask of
-// StyleDifferenceContextSensitiveProperties from RenderStyle::diff() too.
-enum class StyleDifferenceContextSensitiveProperty {
-    None        = 0,
-    Transform   = 1 << 0,
-    Opacity     = 1 << 1,
-    Filter      = 1 << 2,
-    ClipRect    = 1 << 3,
-    ClipPath    = 1 << 4,
-    WillChange  = 1 << 5,
-};
-
-// Static pseudo styles. Dynamic ones are produced on the fly.
-enum class PseudoId : uint16_t {
-    // The order must be None, public IDs, and then internal IDs.
-    None,
-
+enum class PseudoElementType : uint8_t {
     // Public:
     FirstLine,
     FirstLetter,
+    GrammarError,
     Highlight,
     Marker,
     Before,
     After,
     Selection,
     Backdrop,
-    Scrollbar,
+    WebKitScrollbar,
+    SpellingError,
+    TargetText,
+    Checkmark,
+    PickerIcon,
+    ViewTransition,
+    ViewTransitionGroup,
+    ViewTransitionImagePair,
+    ViewTransitionOld,
+    ViewTransitionNew,
+
+    // Special: This is only used for getComputedStyle(), and primarily in the event there's no
+    // concrete backing element and we have to look up the matching style rules. It is also limited
+    // to non-prefixed parts.
+    UserAgentPartFallback,
 
     // Internal:
-    ScrollbarThumb,
-    ScrollbarButton,
-    ScrollbarTrack,
-    ScrollbarTrackPiece,
-    ScrollbarCorner,
-    Resizer,
+    WebKitScrollbarThumb,
+    WebKitScrollbarButton,
+    WebKitScrollbarTrack,
+    WebKitScrollbarTrackPiece,
+    WebKitScrollbarCorner,
+    WebKitResizer,
+    InternalWritingSuggestions,
 
-    AfterLastInternalPseudoId,
-
-    FirstPublicPseudoId = FirstLine,
-    FirstInternalPseudoId = ScrollbarThumb,
-    PublicPseudoIdMask = ((1 << FirstInternalPseudoId) - 1) & ~((1 << FirstPublicPseudoId) - 1)
+    HighestEnumValue = InternalWritingSuggestions
 };
 
-class PseudoIdSet {
-public:
-    PseudoIdSet()
-        : m_data(0)
-    {
-    }
-
-    PseudoIdSet(std::initializer_list<PseudoId> initializerList)
-        : m_data(0)
-    {
-        for (PseudoId pseudoId : initializerList)
-            add(pseudoId);
-    }
-
-    static PseudoIdSet fromMask(unsigned rawPseudoIdSet)
-    {
-        return PseudoIdSet(rawPseudoIdSet);
-    }
-
-    bool has(PseudoId pseudoId) const
-    {
-        ASSERT((sizeof(m_data) * 8) > static_cast<unsigned>(pseudoId));
-        return m_data & (1U << static_cast<unsigned>(pseudoId));
-    }
-
-    void add(PseudoId pseudoId)
-    {
-        ASSERT((sizeof(m_data) * 8) > static_cast<unsigned>(pseudoId));
-        m_data |= (1U << static_cast<unsigned>(pseudoId));
-    }
-
-    void remove(PseudoId pseudoId)
-    {
-        ASSERT((sizeof(m_data) * 8) > static_cast<unsigned>(pseudoId));
-        m_data &= ~(1U << static_cast<unsigned>(pseudoId));
-    }
-
-    void merge(PseudoIdSet source)
-    {
-        m_data |= source.m_data;
-    }
-
-    PseudoIdSet operator &(const PseudoIdSet& pseudoIdSet) const
-    {
-        return PseudoIdSet(m_data & pseudoIdSet.m_data);
-    }
-
-    PseudoIdSet operator |(const PseudoIdSet& pseudoIdSet) const
-    {
-        return PseudoIdSet(m_data | pseudoIdSet.m_data);
-    }
-
-    explicit operator bool() const
-    {
-        return m_data;
-    }
-
-    unsigned data() const { return m_data; }
-
-    static ptrdiff_t dataMemoryOffset() { return OBJECT_OFFSETOF(PseudoIdSet, m_data); }
-
-private:
-    explicit PseudoIdSet(unsigned rawPseudoIdSet)
-        : m_data(rawPseudoIdSet)
-    {
-    }
-
-    unsigned m_data;
+constexpr auto allPublicPseudoElementTypes = EnumSet {
+    PseudoElementType::FirstLine,
+    PseudoElementType::FirstLetter,
+    PseudoElementType::GrammarError,
+    PseudoElementType::Highlight,
+    PseudoElementType::Marker,
+    PseudoElementType::Before,
+    PseudoElementType::After,
+    PseudoElementType::Selection,
+    PseudoElementType::Backdrop,
+    PseudoElementType::WebKitScrollbar,
+    PseudoElementType::SpellingError,
+    PseudoElementType::TargetText,
+    PseudoElementType::Checkmark,
+    PseudoElementType::PickerIcon,
+    PseudoElementType::ViewTransition,
+    PseudoElementType::ViewTransitionGroup,
+    PseudoElementType::ViewTransitionImagePair,
+    PseudoElementType::ViewTransitionOld,
+    PseudoElementType::ViewTransitionNew
 };
 
-enum class ColumnFill : uint8_t {
+constexpr auto allInternalPseudoElementTypes = EnumSet {
+    PseudoElementType::WebKitScrollbarThumb,
+    PseudoElementType::WebKitScrollbarButton,
+    PseudoElementType::WebKitScrollbarTrack,
+    PseudoElementType::WebKitScrollbarTrackPiece,
+    PseudoElementType::WebKitScrollbarCorner,
+    PseudoElementType::WebKitResizer,
+    PseudoElementType::InternalWritingSuggestions,
+};
+
+constexpr auto allPseudoElementTypes = allPublicPseudoElementTypes | allInternalPseudoElementTypes;
+
+inline std::optional<PseudoElementType> parentPseudoElement(PseudoElementType pseudoElementType)
+{
+    switch (pseudoElementType) {
+    case PseudoElementType::FirstLetter: return PseudoElementType::FirstLine;
+    case PseudoElementType::ViewTransitionGroup: return PseudoElementType::ViewTransition;
+    case PseudoElementType::ViewTransitionImagePair: return PseudoElementType::ViewTransitionGroup;
+    case PseudoElementType::ViewTransitionNew: return PseudoElementType::ViewTransitionImagePair;
+    case PseudoElementType::ViewTransitionOld: return PseudoElementType::ViewTransitionImagePair;
+    default: return std::nullopt;
+    }
+}
+
+enum class ColumnFill : bool {
     Balance,
     Auto
 };
 
-enum class ColumnSpan : uint8_t {
-    None = 0,
+enum class ColumnSpan : bool {
+    None,
     All
 };
 
-enum class BorderCollapse : uint8_t {
-    Separate = 0,
+enum class BorderCollapse : bool {
+    Separate,
     Collapse
 };
 
@@ -213,6 +165,20 @@ enum class BorderStyle : uint8_t {
     Double
 };
 
+constexpr bool isVisibleBorderStyle(BorderStyle value)
+{
+    return value > BorderStyle::Hidden;
+}
+
+constexpr BorderStyle collapsedBorderStyle(BorderStyle style)
+{
+    if (style == BorderStyle::Outset)
+        return BorderStyle::Groove;
+    if (style == BorderStyle::Inset)
+        return BorderStyle::Ridge;
+    return style;
+}
+
 enum class BorderPrecedence : uint8_t {
     Off,
     Table,
@@ -223,9 +189,17 @@ enum class BorderPrecedence : uint8_t {
     Cell
 };
 
-enum class OutlineIsAuto : uint8_t {
-    Off = 0,
-    On
+enum class OutlineStyle : uint8_t {
+    Auto,
+    None,
+    Inset,
+    Groove,
+    Outset,
+    Ridge,
+    Dotted,
+    Dashed,
+    Solid,
+    Double
 };
 
 enum class PositionType : uint8_t {
@@ -246,27 +220,21 @@ enum class Float : uint8_t {
 };
 
 enum class UsedFloat : uint8_t {
-    None,
-    Left,
-    Right,
-};
-
-enum class MarginCollapse : uint8_t {
-    Collapse,
-    Separate,
-    Discard
+    None  = 1 << 0,
+    Left  = 1 << 1,
+    Right = 1 << 2
 };
 
 // Box decoration attributes. Not inherited.
 
-enum class BoxDecorationBreak : uint8_t {
+enum class BoxDecorationBreak : bool {
     Slice,
     Clone
 };
 
 // Box attributes. Not inherited.
 
-enum class BoxSizing : uint8_t {
+enum class BoxSizing : bool {
     ContentBox,
     BorderBox
 };
@@ -283,18 +251,12 @@ enum class Overflow : uint8_t {
     PagedY
 };
 
-enum class VerticalAlign : uint8_t {
-    Baseline,
-    Middle,
-    Sub,
-    Super,
-    TextTop,
-    TextBottom,
-    Top,
-    Bottom,
-    BaselineMiddle,
-    Length
-};
+constexpr bool isNonVisibleOverflow(Overflow overflow)
+{
+    return overflow == Overflow::Hidden
+        || overflow == Overflow::Scroll
+        || overflow == Overflow::Clip;
+}
 
 enum class Clear : uint8_t {
     None,
@@ -312,14 +274,19 @@ enum class UsedClear : uint8_t {
     Both
 };
 
-enum class TableLayoutType : uint8_t {
+enum class TableLayoutType : bool {
     Auto,
     Fixed
 };
 
-enum class TextCombine : uint8_t {
+enum class SpatialType : bool {
     None,
-    Horizontal
+    Portal
+};
+
+enum class TextCombine : bool {
+    None,
+    All
 };
 
 enum class FillAttachment : uint8_t {
@@ -329,22 +296,32 @@ enum class FillAttachment : uint8_t {
 };
 
 enum class FillBox : uint8_t {
-    Border,
-    Padding,
-    Content,
-    Text
+    BorderBox,
+    PaddingBox,
+    ContentBox,
+    BorderArea,
+    Text,
+    NoClip
 };
+
+constexpr unsigned FillBoxBitWidth = 3;
+
+constexpr inline FillBox clipMax(FillBox clipA, FillBox clipB)
+{
+    if (clipA == FillBox::BorderBox || clipB == FillBox::BorderBox)
+        return FillBox::BorderBox;
+    if (clipA == FillBox::PaddingBox || clipB == FillBox::PaddingBox)
+        return FillBox::PaddingBox;
+    if (clipA == FillBox::ContentBox || clipB == FillBox::ContentBox)
+        return FillBox::ContentBox;
+    return FillBox::NoClip;
+}
 
 enum class FillRepeat : uint8_t {
     Repeat,
     NoRepeat,
     Round,
     Space
-};
-
-enum class FillLayerType : uint8_t {
-    Background,
-    Mask
 };
 
 // CSS3 Background Values
@@ -361,13 +338,6 @@ enum class Edge : uint8_t {
     Right,
     Bottom,
     Left
-};
-
-// CSS3 Mask Source Types
-
-enum class MaskSourceType : uint8_t {
-    Alpha,
-    Luminance
 };
 
 // CSS3 Marquee Properties
@@ -406,31 +376,22 @@ enum class BoxAlignment : uint8_t {
     Baseline
 };
 
-enum class BoxOrient : uint8_t {
+enum class BoxOrient : bool {
     Horizontal,
     Vertical
 };
 
-enum class BoxLines : uint8_t {
+enum class BoxLines : bool {
     Single,
     Multiple
 };
 
-enum class BoxDirection : uint8_t {
+enum class BoxDirection : bool {
     Normal,
     Reverse
 };
 
 // CSS3 Flexbox Properties
-
-enum class AlignContent : uint8_t {
-    FlexStart,
-    FlexEnd,
-    Center,
-    SpaceBetween,
-    SpaceAround,
-    Stretch
-};
 
 enum class FlexDirection : uint8_t {
     Row,
@@ -444,6 +405,9 @@ enum class FlexWrap : uint8_t {
     Wrap,
     Reverse
 };
+
+inline AxisDirection toAxisDirection(FlexDirection direction) { return static_cast<AxisDirection>(direction == FlexDirection::RowReverse || direction == FlexDirection::ColumnReverse); }
+inline AxisDirection toAxisDirection(FlexWrap wrap) { return static_cast<AxisDirection>(wrap == FlexWrap::Reverse); }
 
 enum class ItemPosition : uint8_t {
     Legacy,
@@ -460,7 +424,8 @@ enum class ItemPosition : uint8_t {
     FlexStart,
     FlexEnd,
     Left,
-    Right
+    Right,
+    AnchorCenter,
 };
 
 enum class OverflowAlignment : uint8_t {
@@ -469,7 +434,7 @@ enum class OverflowAlignment : uint8_t {
     Safe
 };
 
-enum class ItemPositionType : uint8_t {
+enum class ItemPositionType : bool {
     NonLegacy,
     Legacy
 };
@@ -501,6 +466,11 @@ enum class TextSecurity : uint8_t {
     Disc,
     Circle,
     Square
+};
+
+enum class InputSecurity : bool {
+    Auto,
+    None
 };
 
 // CSS3 User Modify Properties
@@ -547,7 +517,8 @@ enum class WordBreak : uint8_t {
     Normal,
     BreakAll,
     KeepAll,
-    BreakWord
+    BreakWord,
+    AutoPhrase
 };
 
 enum class OverflowWrap : uint8_t {
@@ -556,7 +527,7 @@ enum class OverflowWrap : uint8_t {
     Anywhere
 };
 
-enum class NBSPMode : uint8_t {
+enum class NBSPMode : bool {
     Normal,
     Space
 };
@@ -570,123 +541,11 @@ enum class LineBreak : uint8_t {
     Anywhere
 };
 
-enum class Resize : uint8_t {
-    None,
-    Both,
-    Horizontal,
-    Vertical
-};
-
-// The order of this enum must match the order of the list style types in CSSValueKeywords.in.
-enum class ListStyleType : uint8_t {
-    Disc,
-    Circle,
-    Square,
-    Decimal,
-    DecimalLeadingZero,
-    ArabicIndic,
-    Binary,
-    Bengali,
-    Cambodian,
-    Khmer,
-    Devanagari,
-    Gujarati,
-    Gurmukhi,
-    Kannada,
-    LowerHexadecimal,
-    Lao,
-    Malayalam,
-    Mongolian,
-    Myanmar,
-    Octal,
-    Oriya,
-    Persian,
-    Urdu,
-    Telugu,
-    Tibetan,
-    Thai,
-    UpperHexadecimal,
-    LowerRoman,
-    UpperRoman,
-    LowerGreek,
-    LowerAlpha,
-    LowerLatin,
-    UpperAlpha,
-    UpperLatin,
-    Afar,
-    EthiopicHalehameAaEt,
-    EthiopicHalehameAaEr,
-    Amharic,
-    EthiopicHalehameAmEt,
-    AmharicAbegede,
-    EthiopicAbegedeAmEt,
-    CJKEarthlyBranch,
-    CJKHeavenlyStem,
-    Ethiopic,
-    EthiopicHalehameGez,
-    EthiopicAbegede,
-    EthiopicAbegedeGez,
-    HangulConsonant,
-    Hangul,
-    LowerNorwegian,
-    Oromo,
-    EthiopicHalehameOmEt,
-    Sidama,
-    EthiopicHalehameSidEt,
-    Somali,
-    EthiopicHalehameSoEt,
-    Tigre,
-    EthiopicHalehameTig,
-    TigrinyaEr,
-    EthiopicHalehameTiEr,
-    TigrinyaErAbegede,
-    EthiopicAbegedeTiEr,
-    TigrinyaEt,
-    EthiopicHalehameTiEt,
-    TigrinyaEtAbegede,
-    EthiopicAbegedeTiEt,
-    UpperGreek,
-    UpperNorwegian,
-    Asterisks,
-    Footnotes,
-    Hebrew,
-    Armenian,
-    LowerArmenian,
-    UpperArmenian,
-    Georgian,
-    CJKIdeographic,
-    Hiragana,
-    Katakana,
-    HiraganaIroha,
-    KatakanaIroha,
-    CJKDecimal,
-    Tamil,
-    DisclosureOpen,
-    DisclosureClosed,
-    JapaneseInformal,
-    JapaneseFormal,
-    KoreanHangulFormal,
-    KoreanHanjaInformal,
-    KoreanHanjaFormal,
-    SimplifiedChineseInformal,
-    SimplifiedChineseFormal,
-    TraditionalChineseInformal,
-    TraditionalChineseFormal,
-    EthiopicNumeric,
-    String,
-    None
-};
-
 enum class QuoteType : uint8_t {
     OpenQuote,
     CloseQuote,
     NoOpenQuote,
     NoCloseQuote
-};
-
-enum class BorderFit : uint8_t {
-    Border,
-    Lines
 };
 
 enum class AnimationFillMode : uint8_t {
@@ -696,9 +555,9 @@ enum class AnimationFillMode : uint8_t {
     Both
 };
 
-enum class AnimationPlayState : uint8_t {
-    Playing = 0x0,
-    Paused = 0x1
+enum class AnimationPlayState : bool {
+    Running,
+    Paused
 };
 
 enum class WhiteSpace : uint8_t {
@@ -707,7 +566,13 @@ enum class WhiteSpace : uint8_t {
     PreWrap,
     PreLine,
     NoWrap,
-    KHTMLNoWrap,
+    BreakSpaces
+};
+
+enum class WhiteSpaceCollapse : uint8_t {
+    Collapse,
+    Preserve,
+    PreserveBreaks,
     BreakSpaces
 };
 
@@ -718,42 +583,6 @@ enum class ReflectionDirection : uint8_t {
     Right
 };
 
-// The order of this enum must match the order of the text align values in CSSValueKeywords.in.
-enum class TextAlignMode : uint8_t {
-    Left,
-    Right,
-    Center,
-    Justify,
-    WebKitLeft,
-    WebKitRight,
-    WebKitCenter,
-    Start,
-    End,
-};
-
-enum class TextTransform : uint8_t {
-    Capitalize,
-    Uppercase,
-    Lowercase,
-    None
-};
-
-#if ENABLE(LETTERPRESS)
-static const size_t TextDecorationBits = 5;
-#else
-static const size_t TextDecorationBits = 4;
-#endif
-enum class TextDecoration : uint8_t {
-    None          = 0,
-    Underline     = 1 << 0,
-    Overline      = 1 << 1,
-    LineThrough   = 1 << 2,
-    Blink         = 1 << 3,
-#if ENABLE(LETTERPRESS)
-    Letterpress   = 1 << 4,
-#endif
-};
-
 enum class TextDecorationStyle : uint8_t {
     Solid,
     Double,
@@ -762,40 +591,51 @@ enum class TextDecorationStyle : uint8_t {
     Wavy
 };
 
-#if ENABLE(CSS3_TEXT)
-enum class TextAlignLast : uint8_t {
-    Auto,
-    Start,
-    End,
-    Left,
-    Right,
-    Center,
-    Justify
-};
-
 enum class TextJustify : uint8_t {
     Auto,
     None,
     InterWord,
-    Distribute
-};
-#endif // CSS3_TEXT
-
-enum class TextDecorationSkip : uint8_t {
-    None      = 0,
-    Ink       = 1 << 0,
-    Objects   = 1 << 1,
-    Auto      = 1 << 2
+    InterCharacter
 };
 
-enum class TextUnderlinePosition : uint8_t {
-    // FIXME: Implement support for 'under left' and 'under right' values.
+enum class TextDecorationSkipInk : uint8_t {
+    None,
     Auto,
-    Under,
-    FromFont
+    All
 };
 
-enum class TextZoom : uint8_t {
+enum class TextGroupAlign : uint8_t {
+    None,
+    Start,
+    End,
+    Left,
+    Right,
+    Center
+};
+
+enum class TextBoxTrim : uint8_t {
+    None,
+    TrimStart,
+    TrimEnd,
+    TrimBoth
+};
+
+enum class TextEdgeOver : uint8_t {
+    Text,
+    Ideographic,
+    IdeographicInk,
+    Cap,
+    Ex
+};
+
+enum class TextEdgeUnder : uint8_t {
+    Text,
+    Ideographic,
+    IdeographicInk,
+    Alphabetic,
+};
+
+enum class TextZoom : bool {
     Normal,
     Reset
 };
@@ -812,7 +652,7 @@ enum class BreakBetween : uint8_t {
     RectoPage,
     VersoPage
 };
-bool alwaysPageBreak(BreakBetween);
+bool NODELETE alwaysPageBreak(BreakBetween);
     
 enum class BreakInside : uint8_t {
     Auto,
@@ -821,27 +661,17 @@ enum class BreakInside : uint8_t {
     AvoidPage
 };
 
-enum class HangingPunctuation : uint8_t {
-    None      = 0,
-    First     = 1 << 0,
-    Last      = 1 << 1,
-    AllowEnd  = 1 << 2,
-    ForceEnd  = 1 << 3
-};
-
-enum class EmptyCell : uint8_t {
+enum class EmptyCell : bool {
     Show,
     Hide
 };
 
 enum class CaptionSide : uint8_t {
     Top,
-    Bottom,
-    Left,
-    Right
+    Bottom
 };
 
-enum class ListStylePosition : uint8_t {
+enum class ListStylePosition : bool {
     Outside,
     Inside
 };
@@ -897,38 +727,11 @@ enum class CursorType : uint8_t {
 };
 
 #if ENABLE(CURSOR_VISIBILITY)
-enum class CursorVisibility : uint8_t {
+enum class CursorVisibility : bool {
     Auto,
     AutoHide,
 };
 #endif
-
-// The order of this enum must match the order of the display values in CSSValueKeywords.in.
-enum class DisplayType : uint8_t {
-    Inline,
-    Block,
-    ListItem,
-    InlineBlock,
-    Table,
-    InlineTable,
-    TableRowGroup,
-    TableHeaderGroup,
-    TableFooterGroup,
-    TableRow,
-    TableColumnGroup,
-    TableColumn,
-    TableCell,
-    TableCaption,
-    Box,
-    InlineBox,
-    Flex,
-    InlineFlex,
-    Contents,
-    Grid,
-    InlineGrid,
-    FlowRoot,
-    None
-};
 
 enum class InsideLink : uint8_t {
     NotInside,
@@ -953,8 +756,8 @@ enum class PointerEvents : uint8_t {
 enum class TransformStyle3D : uint8_t {
     Flat,
     Preserve3D,
-#if ENABLE(CSS_TRANSFORM_STYLE_OPTIMIZED_3D)
-    Optimized3D
+#if HAVE(CORE_ANIMATION_SEPARATED_LAYERS)
+    Separated
 #endif
 };
 
@@ -971,9 +774,9 @@ enum class TransformBox : uint8_t {
     ViewBox
 };
 
-enum class LineClamp : uint8_t {
-    LineCount,
-    Percentage
+enum class OverflowContinue : bool {
+    Auto,
+    Discard
 };
 
 enum class Hyphens : uint8_t {
@@ -982,46 +785,39 @@ enum class Hyphens : uint8_t {
     Auto
 };
 
-enum class SpeakAs : uint8_t {
-    Normal             = 0,
-    SpellOut           = 1 << 0,
-    Digits             = 1 << 1,
-    LiteralPunctuation = 1 << 2,
-    NoPunctuation      = 1 << 3
-};
-
-enum class TextEmphasisFill : uint8_t {
+enum class TextEmphasisFill : bool {
     Filled,
     Open
 };
 
 enum class TextEmphasisMark : uint8_t {
-    None,
-    Auto,
     Dot,
     Circle,
     DoubleCircle,
     Triangle,
-    Sesame,
-    Custom
+    Sesame
 };
 
-enum class TextEmphasisPosition : uint8_t {
-    Over  = 1 << 0,
-    Under = 1 << 1,
-    Left  = 1 << 2,
-    Right = 1 << 3
-};
-
-enum class TextOrientation : uint8_t {
-    Mixed,
-    Upright,
-    Sideways
-};
-
-enum class TextOverflow : uint8_t {
-    Clip = 0,
+enum class TextOverflow : bool {
+    Clip,
     Ellipsis
+};
+
+enum class TextWrapMode : bool {
+    Wrap,
+    NoWrap
+};
+
+enum class TextWrapStyle : uint8_t {
+    Auto,
+    Balance,
+    Pretty,
+    Stable
+};
+
+enum class WrapInside : bool {
+    Auto,
+    Avoid
 };
 
 enum class ImageRendering : uint8_t {
@@ -1032,18 +828,8 @@ enum class ImageRendering : uint8_t {
     Pixelated
 };
 
-enum class ImageResolutionSource : uint8_t {
-    Specified = 0,
-    FromImage
-};
-
-enum class ImageResolutionSnap : uint8_t {
-    None = 0,
-    Pixels
-};
-
-enum class Order : uint8_t {
-    Logical = 0,
+enum class Order : bool {
+    Logical,
     Visual
 };
 
@@ -1053,7 +839,7 @@ enum class ColumnAxis : uint8_t {
     Auto
 };
 
-enum class ColumnProgression : uint8_t {
+enum class ColumnProgression : bool {
     Normal,
     Reverse
 };
@@ -1064,43 +850,36 @@ enum class LineSnap : uint8_t {
     Contain
 };
 
-enum class LineAlign : uint8_t {
+enum class LineAlign : bool {
     None,
     Edges
 };
 
 enum class RubyPosition : uint8_t {
-    Before,
-    After,
-    InterCharacter
+    Over,
+    Under,
+    InterCharacter,
+    LegacyInterCharacter
 };
 
-#if ENABLE(DARK_MODE_CSS)
+enum class RubyAlign : uint8_t {
+    Start,
+    Center,
+    SpaceBetween,
+    SpaceAround
+};
+
+enum class RubyOverhang : bool {
+    Auto,
+    Spaces
+};
+
 enum class ColorScheme : uint8_t {
     Light = 1 << 0,
     Dark = 1 << 1
 };
 
-static const size_t ColorSchemeBits = 2;
-#endif
-
-static const size_t GridAutoFlowBits = 4;
-enum InternalGridAutoFlowAlgorithm {
-    InternalAutoFlowAlgorithmSparse = 1 << 0,
-    InternalAutoFlowAlgorithmDense  = 1 << 1,
-};
-
-enum InternalGridAutoFlowDirection {
-    InternalAutoFlowDirectionRow    = 1 << 2,
-    InternalAutoFlowDirectionColumn = 1 << 3
-};
-
-enum GridAutoFlow {
-    AutoFlowRow = InternalAutoFlowAlgorithmSparse | InternalAutoFlowDirectionRow,
-    AutoFlowColumn = InternalAutoFlowAlgorithmSparse | InternalAutoFlowDirectionColumn,
-    AutoFlowRowDense = InternalAutoFlowAlgorithmDense | InternalAutoFlowDirectionRow,
-    AutoFlowColumnDense = InternalAutoFlowAlgorithmDense | InternalAutoFlowDirectionColumn
-};
+constexpr size_t ColorSchemeBits = 2;
 
 enum class AutoRepeatType : uint8_t {
     None,
@@ -1109,24 +888,15 @@ enum class AutoRepeatType : uint8_t {
 };
 
 #if USE(FREETYPE)
-// Maximum allowed font size in Freetype2 is 65535 because x_ppem and y_ppem fields in FreeType structs are of type 'unsigned short'.
-static const float maximumAllowedFontSize = std::numeric_limits<unsigned short>::max();
+// The maximum allowed font size is 32767 because `hb_position_t` is `int32_t`,
+// where the first 16 bits are used to represent the integer part which effectively makes it `signed short`
+constexpr float maximumAllowedFontSize = std::numeric_limits<short>::max();
 #else
 // Reasonable maximum to prevent insane font sizes from causing crashes on some platforms (such as Windows).
-static const float maximumAllowedFontSize = 1000000.0f;
+constexpr float maximumAllowedFontSize = 1000000.0f;
 #endif
 
-enum class TextIndentLine : uint8_t {
-    FirstLine,
-    EachLine
-};
-
-enum class TextIndentType : uint8_t {
-    Normal,
-    Hanging
-};
-
-enum class Isolation : uint8_t {
+enum class Isolation : bool {
     Auto,
     Isolate
 };
@@ -1143,8 +913,7 @@ enum class CSSBoxType : uint8_t {
     ViewBox
 };
 
-enum class ScrollSnapStrictness : uint8_t {
-    None,
+enum class ScrollSnapStrictness : bool {
     Proximity,
     Mandatory
 };
@@ -1164,61 +933,9 @@ enum class ScrollSnapAxisAlignType : uint8_t {
     End
 };
 
-enum class ScrollSnapStop : uint8_t {
+enum class ScrollSnapStop : bool {
     Normal,
     Always,
-};
-
-#if ENABLE(CSS_TRAILING_WORD)
-enum class TrailingWord : uint8_t {
-    Auto,
-    PartiallyBalanced
-};
-#endif
-
-#if ENABLE(APPLE_PAY)
-enum class ApplePayButtonStyle : uint8_t {
-    White,
-    WhiteOutline,
-    Black,
-};
-
-enum class ApplePayButtonType : uint8_t {
-    Plain,
-    Buy,
-    SetUp,
-    Donate,
-    CheckOut,
-    Book,
-    Subscribe,
-#if ENABLE(APPLE_PAY_NEW_BUTTON_TYPES)
-    Reload,
-    AddMoney,
-    TopUp,
-    Order,
-    Rent,
-    Support,
-    Contribute,
-    Tip,
-#endif
-};
-#endif
-
-// These are all minimized combinations of paint-order.
-enum class PaintOrder : uint8_t {
-    Normal,
-    Fill,
-    FillMarkers,
-    Stroke,
-    StrokeMarkers,
-    Markers,
-    MarkersStroke
-};
-
-enum class PaintType : uint8_t {
-    Fill,
-    Stroke,
-    Markers
 };
 
 enum class FontLoadingBehavior : uint8_t {
@@ -1229,35 +946,213 @@ enum class FontLoadingBehavior : uint8_t {
     Optional
 };
 
-enum class EventListenerRegionType : uint8_t {
-    Wheel           = 1 << 0,
-    NonPassiveWheel = 1 << 1,
+enum class EventListenerRegionType : uint64_t {
+    Wheel                      = 1LLU << 0,
+    NonPassiveWheel            = 1LLU << 1,
+    MouseClick                 = 1LLU << 2,
+    TouchStart                 = 1LLU << 3,
+    NonPassiveTouchStart       = 1LLU << 4,
+    TouchEnd                   = 1LLU << 5,
+    NonPassiveTouchEnd         = 1LLU << 6,
+    TouchCancel                = 1LLU << 7,
+    TouchMove                  = 1LLU << 8,
+    NonPassiveTouchMove        = 1LLU << 9,
+    TouchForceChange           = 1LLU << 10,
+    NonPassiveTouchForceChange = 1LLU << 11,
+    PointerDown                = 1LLU << 12,
+    NonPassivePointerDown      = 1LLU << 13,
+    PointerEnter               = 1LLU << 14,
+    NonPassivePointerEnter     = 1LLU << 15,
+    PointerLeave               = 1LLU << 16,
+    NonPassivePointerLeave     = 1LLU << 17,
+    PointerMove                = 1LLU << 18,
+    NonPassivePointerMove      = 1LLU << 19,
+    PointerOut                 = 1LLU << 20,
+    NonPassivePointerOut       = 1LLU << 21,
+    PointerOver                = 1LLU << 22,
+    NonPassivePointerOver      = 1LLU << 23,
+    PointerUp                  = 1LLU << 24,
+    NonPassivePointerUp        = 1LLU << 25,
+    MouseDown                  = 1LLU << 26,
+    NonPassiveMouseDown        = 1LLU << 27,
+    MouseUp                    = 1LLU << 28,
+    NonPassiveMouseUp          = 1LLU << 29,
+    MouseMove                  = 1LLU << 30,
+    NonPassiveMouseMove        = 1LLU << 31,
+    GestureChange              = 1LLU << 32,
+    NonPassiveGestureChange    = 1LLU << 33,
+    GestureEnd                 = 1LLU << 34,
+    NonPassiveGestureEnd       = 1LLU << 35,
+    GestureStart               = 1LLU << 36,
+    NonPassiveGestureStart     = 1LLU << 37,
 };
 
-enum class MathStyle : uint8_t {
+enum class MathShift : bool {
     Normal,
     Compact,
 };
 
-enum class Containment : uint8_t {
-    Layout   = 1 << 0,
-    Paint    = 1 << 1,
-    Size     = 1 << 2,
+enum class MathStyle : bool {
+    Normal,
+    Compact,
 };
 
-extern const float defaultMiterLimit;
+enum class ContainIntrinsicSizeType : uint8_t {
+    None,
+    Length,
+    AutoAndLength,
+    AutoAndNone,
+};
 
+enum class ContentVisibility : uint8_t {
+    Visible,
+    Auto,
+    Hidden,
+};
+
+enum class BlockStepAlign : uint8_t {
+    Auto,
+    Center,
+    Start,
+    End
+};
+
+enum class BlockStepInsert : uint8_t {
+    MarginBox,
+    PaddingBox,
+    ContentBox
+};
+
+enum class BlockStepRound : uint8_t {
+    Up,
+    Down,
+    Nearest
+};
+
+enum class FieldSizing : bool {
+    Fixed,
+    Content
+};
+
+enum class BaselineSource : uint8_t {
+    Auto,
+    First,
+    Last
+};
+
+enum class NinePieceImageRule : uint8_t {
+    Stretch,
+    Round,
+    Space,
+    Repeat,
+};
+
+enum class AnimationDirection : uint8_t {
+    Normal,
+    Alternate,
+    Reverse,
+    AlternateReverse
+};
+
+enum class TransitionBehavior : bool {
+    Normal,
+    AllowDiscrete,
+};
+
+enum class Scroller : uint8_t {
+    Nearest,
+    Root,
+    Self
+};
+
+enum class TextAnchor : uint8_t {
+    Start,
+    Middle,
+    End
+};
+
+enum class ColorInterpolation : uint8_t {
+    Auto,
+    SRGB,
+    LinearRGB
+};
+
+enum class ShapeRendering : uint8_t {
+    Auto,
+    OptimizeSpeed,
+    CrispEdges,
+    GeometricPrecision
+};
+
+enum class GlyphOrientation : uint8_t {
+    Degrees0,
+    Degrees90,
+    Degrees180,
+    Degrees270,
+    Auto
+};
+
+enum class AlignmentBaseline : uint8_t {
+    Baseline,
+    BeforeEdge,
+    TextBeforeEdge,
+    Middle,
+    Central,
+    AfterEdge,
+    TextAfterEdge,
+    Ideographic,
+    Alphabetic,
+    Hanging,
+    Mathematical
+};
+
+enum class DominantBaseline : uint8_t {
+    Auto,
+    UseScript,
+    NoChange,
+    ResetSize,
+    Ideographic,
+    Alphabetic,
+    Hanging,
+    Mathematical,
+    Central,
+    Middle,
+    TextAfterEdge,
+    TextBeforeEdge
+};
+
+enum class VectorEffect : uint8_t {
+    None,
+    NonScalingStroke
+};
+
+enum class BufferedRendering : uint8_t {
+    Auto,
+    Dynamic,
+    Static
+};
+
+enum class MaskType : uint8_t {
+    Luminance,
+    Alpha
+};
+
+CSSBoxType NODELETE transformBoxToCSSBoxType(TransformBox);
+
+constexpr float defaultMiterLimit = 4;
+
+enum class UsesSVGZoomRulesForLength : bool { No, Yes };
+
+WTF::TextStream& operator<<(WTF::TextStream&, AnimationDirection);
 WTF::TextStream& operator<<(WTF::TextStream&, AnimationFillMode);
 WTF::TextStream& operator<<(WTF::TextStream&, AnimationPlayState);
-#if ENABLE(APPLE_PAY)
-WTF::TextStream& operator<<(WTF::TextStream&, ApplePayButtonStyle);
-WTF::TextStream& operator<<(WTF::TextStream&, ApplePayButtonType);
-#endif
 WTF::TextStream& operator<<(WTF::TextStream&, AspectRatioType);
 WTF::TextStream& operator<<(WTF::TextStream&, AutoRepeatType);
 WTF::TextStream& operator<<(WTF::TextStream&, BackfaceVisibility);
+WTF::TextStream& operator<<(WTF::TextStream&, BlockStepAlign);
+WTF::TextStream& operator<<(WTF::TextStream&, BlockStepInsert);
+WTF::TextStream& operator<<(WTF::TextStream&, BlockStepRound);
 WTF::TextStream& operator<<(WTF::TextStream&, BorderCollapse);
-WTF::TextStream& operator<<(WTF::TextStream&, BorderFit);
 WTF::TextStream& operator<<(WTF::TextStream&, BorderStyle);
 WTF::TextStream& operator<<(WTF::TextStream&, BoxAlignment);
 WTF::TextStream& operator<<(WTF::TextStream&, BoxDecorationBreak);
@@ -1281,11 +1176,11 @@ WTF::TextStream& operator<<(WTF::TextStream&, ColumnProgression);
 WTF::TextStream& operator<<(WTF::TextStream&, ColumnSpan);
 WTF::TextStream& operator<<(WTF::TextStream&, ContentDistribution);
 WTF::TextStream& operator<<(WTF::TextStream&, ContentPosition);
+WTF::TextStream& operator<<(WTF::TextStream&, ContentVisibility);
 WTF::TextStream& operator<<(WTF::TextStream&, CursorType);
 #if ENABLE(CURSOR_VISIBILITY)
 WTF::TextStream& operator<<(WTF::TextStream&, CursorVisibility);
 #endif
-WTF::TextStream& operator<<(WTF::TextStream&, DisplayType);
 WTF::TextStream& operator<<(WTF::TextStream&, Edge);
 WTF::TextStream& operator<<(WTF::TextStream&, EmptyCell);
 WTF::TextStream& operator<<(WTF::TextStream&, EventListenerRegionType);
@@ -1297,8 +1192,6 @@ WTF::TextStream& operator<<(WTF::TextStream&, FlexDirection);
 WTF::TextStream& operator<<(WTF::TextStream&, FlexWrap);
 WTF::TextStream& operator<<(WTF::TextStream&, Float);
 WTF::TextStream& operator<<(WTF::TextStream&, UsedFloat);
-WTF::TextStream& operator<<(WTF::TextStream&, GridAutoFlow);
-WTF::TextStream& operator<<(WTF::TextStream&, HangingPunctuation);
 WTF::TextStream& operator<<(WTF::TextStream&, Hyphens);
 WTF::TextStream& operator<<(WTF::TextStream&, ImageRendering);
 WTF::TextStream& operator<<(WTF::TextStream&, InsideLink);
@@ -1309,66 +1202,73 @@ WTF::TextStream& operator<<(WTF::TextStream&, LineAlign);
 WTF::TextStream& operator<<(WTF::TextStream&, LineBreak);
 WTF::TextStream& operator<<(WTF::TextStream&, LineSnap);
 WTF::TextStream& operator<<(WTF::TextStream&, ListStylePosition);
-WTF::TextStream& operator<<(WTF::TextStream&, ListStyleType);
-WTF::TextStream& operator<<(WTF::TextStream&, MarginCollapse);
 WTF::TextStream& operator<<(WTF::TextStream&, MarqueeBehavior);
 WTF::TextStream& operator<<(WTF::TextStream&, MarqueeDirection);
-WTF::TextStream& operator<<(WTF::TextStream&, MaskSourceType);
 WTF::TextStream& operator<<(WTF::TextStream&, NBSPMode);
+WTF::TextStream& operator<<(WTF::TextStream&, NinePieceImageRule);
 WTF::TextStream& operator<<(WTF::TextStream&, ObjectFit);
 WTF::TextStream& operator<<(WTF::TextStream&, Order);
+WTF::TextStream& operator<<(WTF::TextStream&, OutlineStyle);
 WTF::TextStream& operator<<(WTF::TextStream&, WebCore::Overflow);
 WTF::TextStream& operator<<(WTF::TextStream&, OverflowAlignment);
 WTF::TextStream& operator<<(WTF::TextStream&, OverflowWrap);
-WTF::TextStream& operator<<(WTF::TextStream&, PaintOrder);
 WTF::TextStream& operator<<(WTF::TextStream&, PointerEvents);
 WTF::TextStream& operator<<(WTF::TextStream&, PositionType);
 WTF::TextStream& operator<<(WTF::TextStream&, PrintColorAdjust);
-WTF::TextStream& operator<<(WTF::TextStream&, PseudoId);
+WTF::TextStream& operator<<(WTF::TextStream&, PseudoElementType);
 WTF::TextStream& operator<<(WTF::TextStream&, QuoteType);
 WTF::TextStream& operator<<(WTF::TextStream&, ReflectionDirection);
-WTF::TextStream& operator<<(WTF::TextStream&, Resize);
 WTF::TextStream& operator<<(WTF::TextStream&, RubyPosition);
+WTF::TextStream& operator<<(WTF::TextStream&, RubyAlign);
+WTF::TextStream& operator<<(WTF::TextStream&, RubyOverhang);
 WTF::TextStream& operator<<(WTF::TextStream&, ScrollSnapAxis);
 WTF::TextStream& operator<<(WTF::TextStream&, ScrollSnapAxisAlignType);
 WTF::TextStream& operator<<(WTF::TextStream&, ScrollSnapStop);
 WTF::TextStream& operator<<(WTF::TextStream&, ScrollSnapStrictness);
-WTF::TextStream& operator<<(WTF::TextStream&, SpeakAs);
-WTF::TextStream& operator<<(WTF::TextStream&, StyleDifference);
+WTF::TextStream& operator<<(WTF::TextStream&, Scroller);
+WTF::TextStream& operator<<(WTF::TextStream&, SpatialType);
 WTF::TextStream& operator<<(WTF::TextStream&, TableLayoutType);
-WTF::TextStream& operator<<(WTF::TextStream&, TextAlignMode);
 WTF::TextStream& operator<<(WTF::TextStream&, TextCombine);
-WTF::TextStream& operator<<(WTF::TextStream&, TextDecoration);
-WTF::TextStream& operator<<(WTF::TextStream&, TextDecorationSkip);
+WTF::TextStream& operator<<(WTF::TextStream&, TextDecorationSkipInk);
 WTF::TextStream& operator<<(WTF::TextStream&, TextDecorationStyle);
 WTF::TextStream& operator<<(WTF::TextStream&, TextEmphasisFill);
 WTF::TextStream& operator<<(WTF::TextStream&, TextEmphasisMark);
-WTF::TextStream& operator<<(WTF::TextStream&, TextEmphasisPosition);
-WTF::TextStream& operator<<(WTF::TextStream&, TextOrientation);
+WTF::TextStream& operator<<(WTF::TextStream&, TextGroupAlign);
+WTF::TextStream& operator<<(WTF::TextStream&, TextJustify);
 WTF::TextStream& operator<<(WTF::TextStream&, TextOverflow);
 WTF::TextStream& operator<<(WTF::TextStream&, TextSecurity);
-WTF::TextStream& operator<<(WTF::TextStream&, TextTransform);
-WTF::TextStream& operator<<(WTF::TextStream&, TextUnderlinePosition);
+WTF::TextStream& operator<<(WTF::TextStream&, TextWrapMode);
+WTF::TextStream& operator<<(WTF::TextStream&, TextWrapStyle);
+WTF::TextStream& operator<<(WTF::TextStream&, WrapInside);
+WTF::TextStream& operator<<(WTF::TextStream&, TextBoxTrim);
+WTF::TextStream& operator<<(WTF::TextStream&, TextEdgeOver);
+WTF::TextStream& operator<<(WTF::TextStream&, TextEdgeUnder);
 WTF::TextStream& operator<<(WTF::TextStream&, TextZoom);
 WTF::TextStream& operator<<(WTF::TextStream&, TransformBox);
 WTF::TextStream& operator<<(WTF::TextStream&, TransformStyle3D);
+WTF::TextStream& operator<<(WTF::TextStream&, TransitionBehavior);
 WTF::TextStream& operator<<(WTF::TextStream&, UserDrag);
 WTF::TextStream& operator<<(WTF::TextStream&, UserModify);
 WTF::TextStream& operator<<(WTF::TextStream&, UserSelect);
-WTF::TextStream& operator<<(WTF::TextStream&, VerticalAlign);
 WTF::TextStream& operator<<(WTF::TextStream&, Visibility);
 WTF::TextStream& operator<<(WTF::TextStream&, WhiteSpace);
+WTF::TextStream& operator<<(WTF::TextStream&, WhiteSpaceCollapse);
 WTF::TextStream& operator<<(WTF::TextStream&, WordBreak);
+WTF::TextStream& operator<<(WTF::TextStream&, MathShift);
 WTF::TextStream& operator<<(WTF::TextStream&, MathStyle);
+WTF::TextStream& operator<<(WTF::TextStream&, ContainIntrinsicSizeType);
+WTF::TextStream& operator<<(WTF::TextStream&, FieldSizing);
+WTF::TextStream& operator<<(WTF::TextStream&, BaselineSource);
+WTF::TextStream& operator<<(WTF::TextStream&, OverflowContinue);
+
+WTF::TextStream& operator<<(WTF::TextStream&, AlignmentBaseline);
+WTF::TextStream& operator<<(WTF::TextStream&, BufferedRendering);
+WTF::TextStream& operator<<(WTF::TextStream&, ColorInterpolation);
+WTF::TextStream& operator<<(WTF::TextStream&, DominantBaseline);
+WTF::TextStream& operator<<(WTF::TextStream&, GlyphOrientation);
+WTF::TextStream& operator<<(WTF::TextStream&, MaskType);
+WTF::TextStream& operator<<(WTF::TextStream&, ShapeRendering);
+WTF::TextStream& operator<<(WTF::TextStream&, TextAnchor);
+WTF::TextStream& operator<<(WTF::TextStream&, VectorEffect);
 
 } // namespace WebCore
-
-namespace WTF {
-template<> struct EnumTraits<WebCore::ScrollSnapStop> {
-    using values = EnumValues<
-        WebCore::ScrollSnapStop,
-        WebCore::ScrollSnapStop::Normal,
-        WebCore::ScrollSnapStop::Always
-    >;
-};
-}

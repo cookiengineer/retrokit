@@ -25,32 +25,35 @@
 
 #pragma once
 
-#include "DOMWindow.h"
-#include "JSDOMBinding.h"
-#include "JSDOMBindingSecurity.h"
-#include "JSDOMOperation.h"
+#include <WebCore/EventTargetInlines.h>
+#include <WebCore/JSDOMBinding.h>
+#include <WebCore/JSDOMBindingSecurity.h>
+#include <WebCore/JSDOMOperation.h>
+#include <WebCore/LocalDOMWindow.h>
 
 namespace WebCore {
 
 // Wrapper type for JSEventTarget's castedThis because JSDOMWindow and JSWorkerGlobalScope do not inherit JSEventTarget.
 class JSEventTargetWrapper {
-    WTF_MAKE_FAST_ALLOCATED;
 public:
+    JSEventTargetWrapper() = default;
+
     JSEventTargetWrapper(EventTarget& wrapped, JSC::JSObject& wrapper)
-        : m_wrapped(wrapped)
-        , m_wrapper(wrapper)
+        : m_wrapped(&wrapped)
+        , m_wrapper(&wrapper)
     { }
 
-    EventTarget& wrapped() { return m_wrapped; }
+    bool isNull() const { return !m_wrapped; }
+    EventTarget& wrapped() { ASSERT(m_wrapped); return *m_wrapped; }
 
-    operator JSC::JSObject&() { return m_wrapper; }
+    operator JSC::JSObject&() { ASSERT(m_wrapper); return *m_wrapper; }
 
 private:
-    EventTarget& m_wrapped;
-    JSC::JSObject& m_wrapper;
+    EventTarget* m_wrapped { nullptr };
+    JSC::JSObject* m_wrapper { nullptr };
 };
 
-std::unique_ptr<JSEventTargetWrapper> jsEventTargetCast(JSC::VM&, JSC::JSValue thisValue);
+JSEventTargetWrapper jsEventTargetCast(JSC::VM&, JSC::JSValue thisValue);
 
 template<> class IDLOperation<JSEventTarget> {
 public:
@@ -65,17 +68,16 @@ public:
 
         auto thisValue = callFrame.thisValue().toThis(&lexicalGlobalObject, JSC::ECMAMode::strict());
         auto thisObject = jsEventTargetCast(vm, thisValue.isUndefinedOrNull() ? JSC::JSValue(&lexicalGlobalObject) : thisValue);
-        if (UNLIKELY(!thisObject))
+        if (thisObject.isNull()) [[unlikely]]
             return throwThisTypeError(lexicalGlobalObject, throwScope, "EventTarget", operationName);
 
-        auto& wrapped = thisObject->wrapped();
-        if (is<DOMWindow>(wrapped)) {
-            auto& window = downcast<DOMWindow>(wrapped);
-            if (!window.frame() || !BindingSecurity::shouldAllowAccessToDOMWindow(&lexicalGlobalObject, window, ThrowSecurityError))
+        Ref wrapped = thisObject.wrapped();
+        if (RefPtr window = dynamicDowncast<DOMWindow>(wrapped)) {
+            if (!window->frame() || !BindingSecurity::shouldAllowAccessToDOMWindow(&lexicalGlobalObject, *window, ThrowSecurityError))
                 return JSC::JSValue::encode(JSC::jsUndefined());
         }
 
-        RELEASE_AND_RETURN(throwScope, (operation(&lexicalGlobalObject, &callFrame, thisObject.get())));
+        RELEASE_AND_RETURN(throwScope, (operation(&lexicalGlobalObject, &callFrame, &thisObject)));
     }
 
 };

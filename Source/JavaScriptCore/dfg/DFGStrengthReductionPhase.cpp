@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -20,7 +20,7 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "config.h"
@@ -33,10 +33,18 @@
 #include "DFGClobberize.h"
 #include "DFGGraph.h"
 #include "DFGInsertionSet.h"
+#include "DFGJITCode.h"
 #include "DFGPhase.h"
+#include "JSBoundFunctionInlines.h"
+#include "JSObjectInlines.h"
+#include "JSWebAssemblyInstance.h"
 #include "MathCommon.h"
+#include "NumberPrototype.h"
+#include "RegExpCache.h"
 #include "RegExpObject.h"
-#include "StringPrototype.h"
+#include "StringPrototypeInlines.h"
+#include "WasmCallingConvention.h"
+#include "WebAssemblyFunction.h"
 #include <cstdlib>
 #include <wtf/text/StringBuilder.h>
 
@@ -47,7 +55,7 @@ class StrengthReductionPhase : public Phase {
     
 public:
     StrengthReductionPhase(Graph& graph)
-        : Phase(graph, "strength reduction")
+        : Phase(graph, "strength reduction"_s)
         , m_insertionSet(graph)
     {
     }
@@ -73,9 +81,70 @@ public:
     }
 
 private:
+    static bool NODELETE foldPurifyNaN(Edge& edge)
+    {
+        if (edge->op() == PurifyNaN) {
+            edge = edge->child1();
+            return true;
+        }
+        return false;
+    }
+
+    static bool NODELETE foldPurifyNaNOnBinary(Node* node)
+    {
+        bool result = false;
+        if (node->isBinaryUseKind(DoubleRepUse)) {
+            result |= foldPurifyNaN(node->child1());
+            result |= foldPurifyNaN(node->child2());
+        }
+        return result;
+    }
+
+    static bool NODELETE foldPurifyNaNOnUnary(Node* node)
+    {
+        if (node->child1().useKind() == DoubleRepUse)
+            return foldPurifyNaN(node->child1());
+        return false;
+    }
+
     void handleNode()
     {
         switch (m_node->op()) {
+        case Branch:
+        case PurifyNaN:
+        case DoubleAsInt32:
+        case ValueToInt32:
+        case GlobalIsNaN:
+        case NumberIsNaN:
+        case GlobalIsFinite:
+        case NumberIsFinite:
+        case NumberIsSafeInteger:
+        case ParseInt:
+        case ToIntegerOrInfinity:
+        case ToLength:
+        case ArithFRound:
+        case ArithF16Round:
+        case ArithRound:
+        case ArithFloor:
+        case ArithCeil:
+        case ArithTrunc:
+        case ArithSqrt:
+        case ArithAbs:
+        case ArithNegate:
+        case ArithUnary: {
+            if (foldPurifyNaNOnUnary(m_node))
+                m_changed = true;
+            break;
+        }
+
+        case NumberToStringWithRadix: {
+            if (m_node->child1().useKind() == DoubleRepUse) {
+                if (foldPurifyNaN(m_node->child1()))
+                    m_changed = true;
+            }
+            break;
+        }
+
         case ArithBitOr:
             handleCommutativity();
 
@@ -92,7 +161,7 @@ private:
             
         case ArithBitLShift:
         case ArithBitRShift:
-        case BitURShift:
+        case ArithBitURShift:
             if (m_node->child1().useKind() != UntypedUse && m_node->child2()->isInt32Constant() && !(m_node->child2()->asInt32() & 0x1f)) {
                 convertToIdentityOverChild1();
                 break;
@@ -100,10 +169,15 @@ private:
             break;
             
         case UInt32ToNumber:
-            if (m_node->child1()->op() == BitURShift
+            if (m_node->child1()->op() == ArithBitURShift
                 && m_node->child1()->child2()->isInt32Constant()
                 && (m_node->child1()->child2()->asInt32() & 0x1f)
                 && m_node->arithMode() != Arith::DoOverflow) {
+                m_node->convertToIdentity();
+                m_changed = true;
+                break;
+            }
+            if (bytecodeCanTruncateInteger(m_node->arithNodeFlags())) {
                 m_node->convertToIdentity();
                 m_changed = true;
                 break;
@@ -112,6 +186,8 @@ private:
             
         case ArithAdd:
             handleCommutativity();
+            if (foldPurifyNaNOnBinary(m_node))
+                m_changed = true;
             
             if (m_node->child2()->isInt32Constant() && !m_node->child2()->asInt32()) {
                 convertToIdentityOverChild1();
@@ -131,12 +207,16 @@ private:
 
         case ArithMul: {
             handleCommutativity();
+            if (foldPurifyNaNOnBinary(m_node))
+                m_changed = true;
+
             Edge& child2 = m_node->child2();
             if (child2->isNumberConstant() && child2->asNumber() == 2) {
                 switch (m_node->binaryUseKind()) {
                 case DoubleRepUse:
                     // It is always valuable to get rid of a double multiplication by 2.
                     // We won't have half-register dependencies issues on x86 and we won't have to load the constants.
+                    m_insertionSet.insertNode(m_nodeIndex, SpecNone, Check, m_node->origin, m_node->children.justChecks());
                     m_node->setOp(ArithAdd);
                     child2.setNode(m_node->child1().node());
                     m_changed = true;
@@ -148,6 +228,7 @@ private:
                     // For integers, we can only convert compatible modes.
                     // ArithAdd does handle do negative zero check for example.
                     if (m_node->arithMode() == Arith::CheckOverflow || m_node->arithMode() == Arith::Unchecked) {
+                        m_insertionSet.insertNode(m_nodeIndex, SpecNone, Check, m_node->origin, m_node->children.justChecks());
                         m_node->setOp(ArithAdd);
                         child2.setNode(m_node->child1().node());
                         m_changed = true;
@@ -159,7 +240,10 @@ private:
             }
             break;
         }
-        case ArithSub:
+        case ArithSub: {
+            if (foldPurifyNaNOnBinary(m_node))
+                m_changed = true;
+
             if (m_node->child2()->isInt32Constant()
                 && m_node->isBinaryUseKind(Int32Use)) {
                 int32_t value = m_node->child2()->asInt32();
@@ -173,14 +257,22 @@ private:
                 }
             }
             break;
+        }
 
         case ArithPow:
+            if (m_node->child1().useKind() == DoubleRepUse) {
+                if (foldPurifyNaN(m_node->child1()))
+                    m_changed = true;
+            }
+
             if (m_node->child2()->isNumberConstant()) {
                 double yOperandValue = m_node->child2()->asNumber();
                 if (yOperandValue == 1) {
+                    m_insertionSet.insertNode(m_nodeIndex, SpecNone, Check, m_node->origin, m_node->children.justChecks());
                     convertToIdentityOverChild1();
                     m_changed = true;
                 } else if (yOperandValue == 2) {
+                    m_insertionSet.insertNode(m_nodeIndex, SpecNone, Check, m_node->origin, m_node->children.justChecks());
                     m_node->setOp(ArithMul);
                     m_node->child2() = m_node->child1();
                     m_changed = true;
@@ -188,22 +280,46 @@ private:
             }
             break;
 
-        case ArithMod:
-            // On Integers
-            // In: ArithMod(ArithMod(x, const1), const2)
-            // Out: Identity(ArithMod(x, const1))
-            //     if const1 <= const2.
-            if (m_node->binaryUseKind() == Int32Use
-                && m_node->child2()->isInt32Constant()
-                && m_node->child1()->op() == ArithMod
-                && m_node->child1()->binaryUseKind() == Int32Use
-                && m_node->child1()->child2()->isInt32Constant()
-                && std::abs(m_node->child1()->child2()->asInt32()) <= std::abs(m_node->child2()->asInt32())) {
-                    convertToIdentityOverChild1();
+        case ArithMod: {
+            if (foldPurifyNaNOnBinary(m_node))
+                m_changed = true;
+
+            if (m_node->isBinaryInt32UseKind()) {
+                if (m_node->child2()->isInt32Constant()) {
+                    int32_t const2 = m_node->child2()->asInt32();
+                    if (m_node->arithMode() == Arith::CheckOverflow) {
+                        if (const2 != 0 && const2 != -1) {
+                            m_node->setArithMode(Arith::Unchecked);
+                            m_changed = true;
+                        }
+                    }
+
+                    // On Integers
+                    // In: ArithMod(ArithMod(x, const1), const2)
+                    // Out: Identity(ArithMod(x, const1))
+                    //     if const1 <= const2.
+                    if (m_node->child1()->op() == ArithMod
+                        && m_node->child1()->binaryUseKind() == Int32Use
+                        && m_node->child1()->child2()->isInt32Constant()) {
+                        int32_t const1 = m_node->child1()->child2()->asInt32();
+
+                        if (const1 == INT_MIN || const2 == INT_MIN)
+                            break; // std::abs(INT_MIN) is undefined.
+
+                        if (std::abs(const1) <= std::abs(const2)) {
+                            convertToIdentityOverChild1();
+                            break;
+                        }
+                    }
+                }
             }
             break;
+        }
 
-        case ArithDiv:
+        case ArithDiv: {
+            if (foldPurifyNaNOnBinary(m_node))
+                m_changed = true;
+
             // Transform
             //    ArithDiv(x, constant)
             // Into
@@ -221,10 +337,40 @@ private:
                 }
             }
             break;
+        }
+
+        case GetUndetachedTypeArrayLength: {
+            if (m_node->child1()->op() != NewTypedArray)
+                break;
+
+            auto* typedArray = m_node->child1().node();
+            if (typedArray->child1().useKind() != UntypedUse)
+                break;
+            if (typedArray->child1()->op() != NewTypedArrayBuffer)
+                break;
+            TypedArrayType typedArrayType = typedArray->typedArrayType();
+            if (elementSize(typedArrayType) != 1)
+                break;
+
+            auto* arrayBuffer = typedArray->child1().node();
+            if (arrayBuffer->child1().useKind() != Int32Use)
+                break;
+
+            m_changed = true;
+            m_insertionSet.insertCheck(m_nodeIndex, m_node->origin, Edge(arrayBuffer->child1().node(), Int32Use));
+            m_insertionSet.insertNode(m_nodeIndex, SpecNone, Check, m_node->origin, m_node->children.justChecks());
+            m_node->convertToIdentityOn(arrayBuffer->child1().node());
+            break;
+        }
 
         case ValueRep:
         case Int52Rep: {
             // This short-circuits circuitous conversions, like ValueRep(Int52Rep(value)).
+
+            if (m_node->op() == ValueRep) {
+                if (foldPurifyNaNOnUnary(m_node))
+                    m_changed = true;
+            }
             
             // The only speculation that we would do beyond validating that we have a type that
             // can be represented a certain way is an Int32 check that would appear on Int52Rep
@@ -381,28 +527,73 @@ private:
         }
 
         case MakeRope:
+        case MakeAtomString:
         case StrCat: {
-            String leftString = m_node->child1()->tryGetString(m_graph);
-            if (!leftString)
+            // Constant folding.
+            String string0 = m_node->child1()->tryGetString(m_graph);
+            if (!string0) {
+                if (m_node->child2() && m_node->child3()) {
+                    String string1 = m_node->child2()->tryGetString(m_graph);
+                    if (!string1)
+                        break;
+                    String string2 = m_node->child3()->tryGetString(m_graph);
+                    if (!string2)
+                        break;
+
+                    StringBuilder builder;
+                    builder.append(string1);
+                    builder.append(string2);
+                    if (!builder.hasOverflowed()) {
+                        LazyJSValue value = LazyJSValue::newString(m_graph, builder.toString());
+                        auto* constant = m_insertionSet.insertNode(m_nodeIndex, SpecNone, LazyJSConstant, m_node->origin, OpInfo(m_graph.m_lazyJSValues.add(value)));
+                        m_node->child2().setNode(constant);
+                        m_node->child3() = Edge();
+                        m_changed = true;
+                    }
+                }
                 break;
-            String rightString = m_node->child2()->tryGetString(m_graph);
-            if (!rightString)
-                break;
-            String extraString;
-            if (m_node->child3()) {
-                extraString = m_node->child3()->tryGetString(m_graph);
-                if (!extraString)
-                    break;
             }
 
-            StringBuilder builder;
-            builder.append(leftString);
-            builder.append(rightString);
-            if (!!extraString)
-                builder.append(extraString);
+            if (!m_node->child2()) {
+                ASSERT(!m_node->child3());
+                convertToLazyJSValue(m_node, LazyJSValue::newString(m_graph, string0));
+                m_changed = true;
+                break;
+            }
 
-            convertToLazyJSValue(m_node, LazyJSValue::newString(m_graph, builder.toString()));
-            m_changed = true;
+            String string1 = m_node->child2()->tryGetString(m_graph);
+            if (!string1)
+                break;
+
+            StringBuilder builder;
+            builder.append(string0);
+            builder.append(string1);
+            if (!m_node->child3()) {
+                if (!builder.hasOverflowed()) {
+                    convertToLazyJSValue(m_node, LazyJSValue::newString(m_graph, builder.toString()));
+                    m_changed = true;
+                }
+                break;
+            }
+
+            String string2 = m_node->child3()->tryGetString(m_graph);
+            if (!string2) {
+                if (!builder.hasOverflowed()) {
+                    LazyJSValue value = LazyJSValue::newString(m_graph, builder.toString());
+                    auto* constant = m_insertionSet.insertNode(m_nodeIndex, SpecNone, LazyJSConstant, m_node->origin, OpInfo(m_graph.m_lazyJSValues.add(value)));
+                    m_node->child1().setNode(constant);
+                    m_node->child2() = m_node->child3();
+                    m_node->child3() = Edge();
+                    m_changed = true;
+                }
+                break;
+            }
+
+            builder.append(string2);
+            if (!builder.hasOverflowed()) {
+                convertToLazyJSValue(m_node, LazyJSValue::newString(m_graph, builder.toString()));
+                m_changed = true;
+            }
             break;
         }
 
@@ -430,6 +621,35 @@ private:
                 }
                 break;
             }
+            case StringOrOtherUse: {
+                if (child1->hasConstant()) {
+                    if (JSValue value = child1->constant()->value()) {
+                        if (value.isUndefinedOrNull()) {
+                            m_graph.convertToConstant(m_node, value.isUndefined() ? vm().smallStrings.undefinedString() : vm().smallStrings.nullString());
+                            m_changed = true;
+                            break;
+                        }
+                        if (value.isString()) {
+                            m_graph.convertToConstant(m_node, value);
+                            m_changed = true;
+                            break;
+                        }
+                    }
+                }
+                break;
+            }
+
+            case StringObjectUse:
+            case StringOrStringObjectUse: {
+                if (child1->op() == NewStringObject && child1->child1().useKind() == KnownStringUse) {
+                    m_node->convertToIdentityOn(child1->child1().node());
+                    m_changed = true;
+                }
+                break;
+            }
+
+            case KnownPrimitiveUse:
+                break;
 
             default:
                 break;
@@ -451,55 +671,123 @@ private:
         }
 
         case GetArrayLength: {
-            if (m_node->arrayMode().type() == Array::Generic
-                || m_node->arrayMode().type() == Array::String) {
+            if (m_node->arrayMode().type() == Array::Generic || m_node->arrayMode().type() == Array::String) {
                 String string = m_node->child1()->tryGetString(m_graph);
                 if (!!string) {
                     m_graph.convertToConstant(m_node, jsNumber(string.length()));
                     m_changed = true;
                     break;
                 }
+
+                if (JSString* jsString = m_node->child1()->dynamicCastConstant<JSString*>()) {
+                    m_graph.convertToConstant(m_node, jsNumber(jsString->length()));
+                    m_changed = true;
+                    break;
+                }
+            }
+            if (m_node->arrayMode().type() == Array::String) {
+                bool changed = false;
+                while (m_node->child1()->op() == ResolveRope) {
+                    m_node->child1() = m_node->child1()->child1();
+                    changed = true;
+                }
+                m_changed = changed;
+                break;
             }
             break;
         }
 
         case GetGlobalObject: {
-            if (JSObject* object = m_node->child1()->dynamicCastConstant<JSObject*>(vm())) {
-                m_graph.convertToConstant(m_node, object->globalObject(vm()));
-                m_changed = true;
+            if (JSObject* object = m_node->child1()->dynamicCastConstant<JSObject*>()) {
+                if (JSGlobalObject* globalObject = object->realmMayBeNull()) {
+                    m_graph.convertToConstant(m_node, globalObject);
+                    m_changed = true;
+                }
                 break;
             }
             break;
         }
 
+        case NewRegExpUntyped: {
+            if (m_node->child1().useKind() != StringUse || m_node->child2().useKind() != StringUse)
+                break;
+
+            String pattern = m_node->child1()->tryGetString(m_graph);
+            if (!pattern)
+                break;
+
+            String flagsString = m_node->child2()->tryGetString(m_graph);
+            if (!flagsString)
+                break;
+
+            auto flags = Yarr::parseFlags(flagsString);
+            if (!flags)
+                break;
+
+            // NewRegExp node does not have an explicit structure, so don't reduce cross-realm RegExp.
+            if (m_node->structure().get() != m_graph.globalObjectFor(m_node->origin.semantic)->regExpStructure())
+                break;
+
+            auto* regExp = vm().regExpCache()->lookup(vm(), pattern, flags.value());
+            if (!regExp)
+                break;
+
+            if (!regExp->isValid())
+                break;
+
+            m_node->convertToNewRegExp(m_graph.freezeStrong(regExp), m_insertionSet.insertConstantForUse(m_nodeIndex, m_node->origin, jsNumber(0), UntypedUse));
+            m_changed = true;
+            break;
+        }
+
+        case RegExpSearch:
         case RegExpExec:
         case RegExpTest:
         case RegExpMatchFast:
         case RegExpExecNonGlobalOrSticky: {
-            JSGlobalObject* globalObject = m_node->child1()->dynamicCastConstant<JSGlobalObject*>(vm());
+            JSGlobalObject* globalObject = m_node->child1()->dynamicCastConstant<JSGlobalObject*>();
             if (!globalObject) {
-                if (verbose)
-                    dataLog("Giving up because no global object.\n");
+                dataLogLnIf(verbose, "Giving up because no global object.");
                 break;
             }
 
             if (globalObject->isHavingABadTime()) {
-                if (verbose)
-                    dataLog("Giving up because bad time.\n");
+                dataLogLnIf(verbose, "Giving up because bad time.");
+                break;
+            }
+
+            if (m_graph.m_plan.isUnlinked() && globalObject != m_graph.globalObjectFor(m_node->origin.semantic)) {
+                dataLogLnIf(verbose, "Giving up because unlinked DFG requires globalObject is the same to the node's origin.");
                 break;
             }
 
             Node* regExpObjectNode = nullptr;
             RegExp* regExp = nullptr;
-            if (m_node->op() == RegExpExec || m_node->op() == RegExpTest || m_node->op() == RegExpMatchFast) {
+            JSGlobalObject* regExpRealm = nullptr;
+            bool regExpObjectNodeIsConstant = false;
+            if (m_node->op() == RegExpExec || m_node->op() == RegExpTest || m_node->op() == RegExpMatchFast || m_node->op() == RegExpSearch) {
                 regExpObjectNode = m_node->child2().node();
-                if (RegExpObject* regExpObject = regExpObjectNode->dynamicCastConstant<RegExpObject*>(vm()))
+                if (RegExpObject* regExpObject = regExpObjectNode->dynamicCastConstant<RegExpObject*>()) {
+                    JSGlobalObject* globalObject = regExpObject->realm();
+                    if (globalObject->isRegExpRecompiled()) {
+                        dataLogLnIf(verbose, "Giving up because RegExp recompile happens.");
+                        break;
+                    }
+                    m_graph.watchpoints().addLazily(globalObject->regExpRecompiledWatchpointSet());
                     regExp = regExpObject->regExp();
-                else if (regExpObjectNode->op() == NewRegexp)
+                    regExpRealm = globalObject;
+                    regExpObjectNodeIsConstant = true;
+                } else if (regExpObjectNode->op() == NewRegExp) {
+                    JSGlobalObject* globalObject = m_graph.globalObjectFor(regExpObjectNode->origin.semantic);
+                    if (globalObject->isRegExpRecompiled()) {
+                        dataLogLnIf(verbose, "Giving up because RegExp recompile happens.");
+                        break;
+                    }
+                    m_graph.watchpoints().addLazily(globalObject->regExpRecompiledWatchpointSet());
                     regExp = regExpObjectNode->castOperand<RegExp*>();
-                else {
-                    if (verbose)
-                        dataLog("Giving up because the regexp is unknown.\n");
+                    regExpRealm = globalObject;
+                } else {
+                    dataLogLnIf(verbose, "Giving up because the regexp is unknown.");
                     break;
                 }
             } else
@@ -534,6 +822,16 @@ private:
 
             ASSERT(m_node->op() != RegExpMatchFast);
 
+            bool needLastIndexTypeCheck = false;
+            bool stickyRuntimeLastIndex = false;
+            auto insertLastIndexTypeCheckIfNecessary = [&](NodeOrigin origin) {
+                if (needLastIndexTypeCheck) {
+                    ASSERT(m_node->op() != RegExpExecNonGlobalOrSticky);
+                    Node* lastIndex = m_insertionSet.insertNode(m_nodeIndex, SpecNone, GetRegExpObjectLastIndex, origin, Edge(regExpObjectNode, RegExpObjectUse));
+                    m_insertionSet.insertNode(m_nodeIndex, SpecNone, Check, origin, Edge(lastIndex, Int32Use));
+                }
+            };
+
             unsigned lastIndex = UINT_MAX;
             if (m_node->op() != RegExpExecNonGlobalOrSticky) {
                 // This will only work if we can prove what the value of lastIndex is. To do this
@@ -545,7 +843,13 @@ private:
                 for (unsigned otherNodeIndex = m_nodeIndex; otherNodeIndex--;) {
                     Node* otherNode = m_block->at(otherNodeIndex);
                     if (otherNode == regExpObjectNode) {
-                        lastIndex = 0;
+                        if (regExpObjectNodeIsConstant)
+                            break;
+                        // NewRegExp's child1 is the initial lastIndex. Bytecode emits it as 0, but
+                        // ObjectAllocationSinking materializes it with the tracked lastIndex value.
+                        ASSERT(regExpObjectNode->op() == NewRegExp);
+                        if (regExpObjectNode->child1()->isInt32Constant() && regExpObjectNode->child1()->asInt32() >= 0)
+                            lastIndex = regExpObjectNode->child1()->asUInt32();
                         break;
                     }
                     if (otherNode->op() == SetRegExpObjectLastIndex
@@ -559,12 +863,40 @@ private:
                         break;
                 }
                 if (lastIndex == UINT_MAX) {
-                    if (verbose)
-                        dataLog("Giving up because the last index is not known.\n");
-                    break;
+                    // We cannot statically prove lastIndex. But still there is a chance.
+                    // If RegExp is not global and not sticky, then only thing we care is ToIntegerOrInfinity(regExp.lastIndex).
+                    // Thus, we can emit Int32Use check to protect further when conversion happens.
+                    if (regExp->global()) {
+                        dataLogLnIf(verbose, "Giving up because the last index is not known.");
+                        break;
+                    }
+
+                    if (regExp->sticky()) {
+                        // Sticky (non-global) RegExpExec does not need to prove its value here.
+                        if (m_node->op() != RegExpExec) {
+                            dataLogLnIf(verbose, "Giving up because the last index is not known.");
+                            break;
+                        }
+                        stickyRuntimeLastIndex = true;
+                    }
+
+                    if (m_graph.hasExitSite(m_node->origin.semantic, BadType)) {
+                        dataLogLnIf(verbose, "Giving up because the last index type check may fail.");
+                        break;
+                    }
+
+                    if (RegExpObject* object = regExpObjectNode->dynamicCastConstant<RegExpObject*>()) {
+                        if (!object->getLastIndex().isInt32()) {
+                            dataLogLnIf(verbose, "Giving up because the constant RegExpObject's lastIndex is not Int32 already.");
+                            break;
+                        }
+                    }
+
+                    needLastIndexTypeCheck = true;
                 }
             }
-            if (!regExp->globalOrSticky())
+
+            if (!regExp->globalOrSticky() || m_node->op() == RegExpSearch)
                 lastIndex = 0;
 
             auto foldToConstant = [&] {
@@ -579,8 +911,7 @@ private:
                 // strings in the first place.
                 String string = stringNode->tryGetString(m_graph);
                 if (!string) {
-                    if (verbose)
-                        dataLog("Giving up because the string is unknown.\n");
+                    dataLogLnIf(verbose, "Giving up because the string is unknown.");
                     return false;
                 }
 
@@ -590,8 +921,7 @@ private:
                 // subpatterns.
                 unsigned ginormousNumberOfSubPatterns = 1000;
                 if (regExp->numSubpatterns() > ginormousNumberOfSubPatterns) {
-                    if (verbose)
-                        dataLog("Giving up because of pattern limit.\n");
+                    dataLogLnIf(verbose, "Giving up because of pattern limit.");
                     return false;
                 }
 
@@ -599,27 +929,24 @@ private:
                     if (regExp->hasNamedCaptures()) {
                         // FIXME: https://bugs.webkit.org/show_bug.cgi?id=176464
                         // Implement strength reduction optimization for named capture groups.
-                        if (verbose)
-                            dataLog("Giving up because of named capture groups.\n");
+                        dataLogLnIf(verbose, "Giving up because of named capture groups.");
                         return false;
                     }
 
                     if (regExp->hasIndices()) {
                         // FIXME: https://bugs.webkit.org/show_bug.cgi?id=220930
                         // Implement strength reduction optimization for RegExp with match indices.
-                        if (verbose)
-                            dataLog("Giving up because of match indices.\n");
+                        dataLogLnIf(verbose, "Giving up because of match indices.");
                         return false;
                     }
                 }
 
-                m_graph.watchpoints().addLazily(globalObject->havingABadTimeWatchpoint());
+                m_graph.watchpoints().addLazily(globalObject->havingABadTimeWatchpointSet());
 
                 Structure* structure = globalObject->regExpMatchesArrayStructure();
                 if (structure->indexingType() != ArrayWithContiguous) {
                     // This is further protection against a race with haveABadTime.
-                    if (verbose)
-                        dataLog("Giving up because the structure has the wrong indexing type.\n");
+                    dataLogLnIf(verbose, "Giving up because the structure has the wrong indexing type.");
                     return false;
                 }
                 m_graph.registerStructure(structure);
@@ -627,22 +954,20 @@ private:
                 FrozenValue* globalObjectFrozenValue = m_graph.freeze(globalObject);
 
                 MatchResult result;
-                Vector<int> ovector;
+                Vector<int> ovector(regExp->offsetVectorSize());
                 // We have to call the kind of match function that the main thread would have called.
                 // Otherwise, we might not have the desired Yarr code compiled, and the match will fail.
                 if (m_node->op() == RegExpExec || m_node->op() == RegExpExecNonGlobalOrSticky) {
                     int position;
-                    if (!regExp->matchConcurrently(vm(), string, lastIndex, position, ovector)) {
-                        if (verbose)
-                            dataLog("Giving up because match failed.\n");
+                    if (!regExp->matchConcurrently(vm(), string, lastIndex, position, ovector.mutableSpan())) {
+                        dataLogLnIf(verbose, "Giving up because match failed.");
                         return false;
                     }
                     result.start = position;
                     result.end = ovector[1];
                 } else {
                     if (!regExp->matchConcurrently(vm(), string, lastIndex, result)) {
-                        if (verbose)
-                            dataLog("Giving up because match failed.\n");
+                        dataLogLnIf(verbose, "Giving up because match failed.");
                         return false;
                     }
                 }
@@ -651,10 +976,11 @@ private:
 
                 m_changed = true;
 
+                bool wasSearch = m_node->op() == RegExpSearch;
                 NodeOrigin origin = m_node->origin;
 
-                m_insertionSet.insertNode(
-                    m_nodeIndex, SpecNone, Check, origin, m_node->children.justChecks());
+                m_insertionSet.insertNode(m_nodeIndex, SpecNone, Check, origin, m_node->children.justChecks());
+                insertLastIndexTypeCheckIfNecessary(origin);
 
                 if (m_node->op() == RegExpExec || m_node->op() == RegExpExecNonGlobalOrSticky) {
                     if (result) {
@@ -666,8 +992,9 @@ private:
                         resultArray.append(string.substring(result.start, result.end - result.start));
                         for (unsigned i = 1; i <= regExp->numSubpatterns(); ++i) {
                             int start = ovector[2 * i];
-                            if (start >= 0)
-                                resultArray.append(string.substring(start, ovector[2 * i + 1] - start));
+                            int end = ovector[2 * i + 1];
+                            if (start >= 0 && end >= start)
+                                resultArray.append(string.substring(start, end - start));
                             else
                                 resultArray.append(String());
                         }
@@ -718,8 +1045,10 @@ private:
                             PromotedLocationDescriptor(NamedPropertyPLoc, groupsIndex));
 
                         auto materializeString = [&] (const String& string) -> Node* {
-                            if (string.isNull())
-                                return nullptr;
+                            if (string.isNull()) {
+                                return m_insertionSet.insertConstant(
+                                    m_nodeIndex, origin, jsUndefined());
+                            }
                             if (string.isEmpty()) {
                                 return m_insertionSet.insertConstant(
                                     m_nodeIndex, origin, vm().smallStrings.emptyString());
@@ -731,11 +1060,10 @@ private:
                         };
 
                         for (unsigned i = 0; i < resultArray.size(); ++i) {
-                            if (Node* node = materializeString(resultArray[i])) {
-                                m_graph.m_varArgChildren.append(Edge(node, UntypedUse));
-                                data->m_properties.append(
-                                    PromotedLocationDescriptor(IndexedPropertyPLoc, i));
-                            }
+                            Node* node = materializeString(resultArray[i]);
+                            m_graph.m_varArgChildren.append(Edge(node, UntypedUse));
+                            data->m_properties.append(
+                                PromotedLocationDescriptor(IndexedPropertyPLoc, i));
                         }
 
                         Node* resultNode = m_insertionSet.insertNode(
@@ -746,14 +1074,40 @@ private:
                         m_node->convertToIdentityOn(resultNode);
                     } else
                         m_graph.convertToConstant(m_node, jsNull());
-                } else
+                } else if (m_node->op() == RegExpTest)
                     m_graph.convertToConstant(m_node, jsBoolean(!!result));
+                else {
+                    ASSERT(m_node->op() == RegExpSearch);
+                    int32_t searchResult = result ? result.start : -1;
+                    m_graph.convertToConstant(m_node, jsNumber(searchResult));
+                }
 
                 // Whether it's Exec or Test, we need to tell the globalObject and RegExpObject what's up.
                 // Because SetRegExpObjectLastIndex may exit and it clobbers exit state, we do that
                 // first.
 
-                if (regExp->globalOrSticky()) {
+                if (wasSearch) {
+                    ASSERT(regExpObjectNode);
+                    ASSERT(regExpRealm);
+                    WatchpointSet& lastIndexWritableWatchpointSet = regExpRealm->regExpLastIndexWritableWatchpointSet();
+                    if (lastIndexWritableWatchpointSet.isStillValid())
+                        m_graph.watchpoints().addLazily(lastIndexWritableWatchpointSet);
+                    else {
+                        // The watchpoint has already fired, so guard at runtime instead: storing
+                        // lastIndex back to itself is a no-op when it is writable, and exits when
+                        // it is not, so that @@search throws the TypeError the spec requires.
+                        Node* lastIndexNode = m_insertionSet.insertNode(
+                            m_nodeIndex, SpecNone, GetRegExpObjectLastIndex, origin,
+                            Edge(regExpObjectNode, RegExpObjectUse));
+                        m_insertionSet.insertNode(
+                            m_nodeIndex, SpecNone, SetRegExpObjectLastIndex, origin,
+                            OpInfo(false),
+                            Edge(regExpObjectNode, RegExpObjectUse),
+                            Edge(lastIndexNode, UntypedUse));
+
+                        origin = origin.withInvalidExit();
+                    }
+                } else if (regExp->globalOrSticky()) {
                     ASSERT(regExpObjectNode);
                     m_insertionSet.insertNode(
                         m_nodeIndex, SpecNone, SetRegExpObjectLastIndex, origin,
@@ -791,6 +1145,45 @@ private:
                 return true;
             };
 
+#if ENABLE(YARR_JIT_REGEXP_TEST_INLINE)
+            auto convertTestToTestInline = [&] {
+                if (m_node->op() != RegExpTest)
+                    return false;
+
+                if (regExp->globalOrSticky())
+                    return false;
+
+                if (regExp->eitherUnicode())
+                    return false;
+
+                auto jitCodeBlock = regExp->getRegExpJITCodeBlock();
+                if (!jitCodeBlock)
+                    return false;
+
+                auto inlineCodeStats8Bit = jitCodeBlock->get8BitInlineStats();
+
+                if (!inlineCodeStats8Bit.canInline())
+                    return false;
+
+                unsigned codeSize = inlineCodeStats8Bit.codeSize();
+
+                if (codeSize > Options::maximumRegExpTestInlineCodesize())
+                    return false;
+
+                unsigned alignedFrameSize = WTF::roundUpToMultipleOf<stackAlignmentBytes()>(inlineCodeStats8Bit.stackSize());
+
+                if (alignedFrameSize)
+                    m_graph.m_parameterSlots = std::max(m_graph.m_parameterSlots, argumentCountForStackSize(alignedFrameSize));
+
+                NodeOrigin origin = m_node->origin;
+                m_insertionSet.insertNode(m_nodeIndex, SpecNone, Check, origin, m_node->children.justChecks());
+                insertLastIndexTypeCheckIfNecessary(origin);
+                m_node->convertToRegExpTestInline(m_graph.freeze(globalObject), m_graph.freeze(regExp));
+                m_changed = true;
+                return true;
+            };
+#endif
+
             auto convertToStatic = [&] {
                 if (m_node->op() != RegExpExec)
                     return false;
@@ -798,45 +1191,92 @@ private:
                     return false;
                 if (m_node->child3().useKind() != StringUse)
                     return false;
+
                 NodeOrigin origin = m_node->origin;
-                m_insertionSet.insertNode(
-                    m_nodeIndex, SpecNone, Check, origin, m_node->children.justChecks());
+                m_insertionSet.insertNode(m_nodeIndex, SpecNone, Check, origin, m_node->children.justChecks());
+                insertLastIndexTypeCheckIfNecessary(origin);
                 m_node->convertToRegExpExecNonGlobalOrStickyWithoutChecks(m_graph.freeze(regExp));
                 m_changed = true;
                 return true;
             };
 
-            if (foldToConstant())
+            auto convertToSticky = [&] {
+                if (m_node->op() != RegExpExec)
+                    return false;
+                if (!regExp->sticky() || regExp->global())
+                    return false;
+                if (m_node->child3().useKind() != StringUse)
+                    return false;
+
+                NodeOrigin origin = m_node->origin;
+                m_insertionSet.insertNode(m_nodeIndex, SpecNone, Check, origin, m_node->children.justChecks());
+                insertLastIndexTypeCheckIfNecessary(origin);
+                m_node->convertToRegExpExecStickyWithoutChecks(m_graph.freeze(regExp));
+                m_changed = true;
+                return true;
+            };
+
+            if (!stickyRuntimeLastIndex) {
+                if (foldToConstant())
+                    break;
+            }
+
+#if ENABLE(YARR_JIT_REGEXP_TEST_INLINE)
+            if (convertTestToTestInline())
                 break;
+#endif
 
             if (convertToStatic())
+                break;
+
+            if (convertToSticky())
                 break;
 
             break;
         }
 
         case StringReplace:
+        case StringReplaceAll:
         case StringReplaceRegExp: {
             Node* stringNode = m_node->child1().node();
             String string = stringNode->tryGetString(m_graph);
             if (!string)
                 break;
-            
-            Node* regExpObjectNode = m_node->child2().node();
-            RegExp* regExp;
-            if (RegExpObject* regExpObject = regExpObjectNode->dynamicCastConstant<RegExpObject*>(vm()))
-                regExp = regExpObject->regExp();
-            else if (regExpObjectNode->op() == NewRegexp)
-                regExp = regExpObjectNode->castOperand<RegExp*>();
-            else {
-                if (verbose)
-                    dataLog("Giving up because the regexp is unknown.\n");
-                break;
-            }
 
             String replace = m_node->child3()->tryGetString(m_graph);
             if (!replace)
                 break;
+
+            Node* regExpObjectNode = m_node->child2().node();
+            RegExp* regExp;
+            if (RegExpObject* regExpObject = regExpObjectNode->dynamicCastConstant<RegExpObject*>()) {
+                JSGlobalObject* globalObject = regExpObject->realm();
+                if (m_graph.m_plan.isUnlinked() && globalObject != m_graph.globalObjectFor(m_node->origin.semantic)) {
+                    dataLogLnIf(verbose, "Giving up because unlinked DFG requires globalObject is the same to the node's origin.");
+                    break;
+                }
+                if (globalObject->isRegExpRecompiled()) {
+                    dataLogLnIf(verbose, "Giving up because RegExp recompile happens.");
+                    break;
+                }
+                m_graph.watchpoints().addLazily(globalObject->regExpRecompiledWatchpointSet());
+                regExp = regExpObject->regExp();
+            } else if (regExpObjectNode->op() == NewRegExp) {
+                JSGlobalObject* globalObject = m_graph.globalObjectFor(regExpObjectNode->origin.semantic);
+                if (m_graph.m_plan.isUnlinked() && globalObject != m_graph.globalObjectFor(m_node->origin.semantic)) {
+                    dataLogLnIf(verbose, "Giving up because unlinked DFG requires globalObject is the same to the node's origin.");
+                    break;
+                }
+                if (globalObject->isRegExpRecompiled()) {
+                    dataLogLnIf(verbose, "Giving up because RegExp recompile happens.");
+                    break;
+                }
+                m_graph.watchpoints().addLazily(globalObject->regExpRecompiledWatchpointSet());
+                regExp = regExpObjectNode->castOperand<RegExp*>();
+            } else {
+                dataLogLnIf(verbose, "Giving up because the regexp is unknown.");
+                break;
+            }
 
             StringBuilder builder;
 
@@ -845,7 +1285,7 @@ private:
             bool ok = true;
             do {
                 MatchResult result;
-                Vector<int> ovector;
+                Vector<int> ovector(regExp->offsetVectorSize());
                 // Model which version of match() is called by the main thread.
                 if (replace.isEmpty() && regExp->global()) {
                     if (!regExp->matchConcurrently(vm(), string, startPosition, result)) {
@@ -854,11 +1294,11 @@ private:
                     }
                 } else {
                     int position;
-                    if (!regExp->matchConcurrently(vm(), string, startPosition, position, ovector)) {
+                    if (!regExp->matchConcurrently(vm(), string, startPosition, position, ovector.mutableSpan())) {
                         ok = false;
                         break;
                     }
-                    
+
                     result.start = position;
                     result.end = ovector[1];
                 }
@@ -871,7 +1311,7 @@ private:
                     builder.appendSubstring(string, lastIndex, result.start - lastIndex);
                     if (replLen) {
                         StringBuilder replacement;
-                        substituteBackreferences(replacement, replace, string, ovector.data(), regExp);
+                        substituteBackreferences(replacement, replace, string, ovector.span().data(), regExp);
                         builder.append(replacement);
                     }
                 }
@@ -894,7 +1334,6 @@ private:
 
             NodeOrigin origin = m_node->origin;
 
-            // Preserve any checks we have.
             m_insertionSet.insertNode(
                 m_nodeIndex, SpecNone, Check, origin, m_node->children.justChecks());
 
@@ -919,7 +1358,451 @@ private:
             m_node->origin = origin;
             break;
         }
-            
+
+        case StringReplaceString: {
+            Node* stringNode = m_node->child1().node();
+            String string = stringNode->tryGetString(m_graph);
+            if (!string)
+                break;
+
+            String searchString = m_node->child2()->tryGetString(m_graph);
+            if (!searchString)
+                break;
+
+            String replace = m_node->child3()->tryGetString(m_graph);
+            if (!replace)
+                break;
+
+            size_t matchStart = string.find(searchString);
+            if (matchStart == notFound) {
+                m_changed = true;
+                m_insertionSet.insertNode(m_nodeIndex, SpecNone, Check, m_node->origin, m_node->children.justChecks());
+                m_node->convertToIdentityOn(stringNode);
+                break;
+            }
+
+            size_t searchStringLength = searchString.length();
+            size_t matchEnd = matchStart + searchStringLength;
+            String result = tryMakeReplacedString<StringReplaceSubstitutions::Yes>(string, replace, matchStart, matchEnd);
+            if (!result) [[unlikely]]
+                break;
+
+            m_changed = true;
+            m_insertionSet.insertNode(m_nodeIndex, SpecNone, Check, m_node->origin, m_node->children.justChecks());
+            m_node->convertToLazyJSConstant(m_graph, LazyJSValue::newString(m_graph, WTF::move(result)));
+            break;
+        }
+
+        case StringSubstring:
+        case StringSlice: {
+            Node* stringNode = m_node->child1().node();
+
+            if (!m_node->child2()->isInt32Constant())
+                break;
+
+            int32_t startValue = m_node->child2()->asInt32();
+            std::optional<int32_t> endValue;
+            if (m_node->child3()) {
+                if (!m_node->child3()->isInt32Constant())
+                    break;
+                endValue = m_node->child3()->asInt32();
+                if (endValue.value() == startValue) {
+                    // Regardless of whatever the string is, it generates empty string (Even if both are negative index).
+                    m_changed = true;
+                    m_insertionSet.insertNode(m_nodeIndex, SpecNone, Check, m_node->origin, m_node->children.justChecks());
+                    m_node->convertToLazyJSConstant(m_graph, LazyJSValue::newString(m_graph, emptyString()));
+                    break;
+                }
+            }
+
+            String string = stringNode->tryGetString(m_graph);
+            if (!string)
+                break;
+
+            int32_t length = string.length();
+            int32_t start = 0;
+            int32_t end = 0;
+            if (m_node->op() == StringSubstring)
+                std::tie(start, end) = extractSubstringOffsets(length, startValue, endValue);
+            else
+                std::tie(start, end) = extractSliceOffsets(length, startValue, endValue);
+
+            m_changed = true;
+            m_insertionSet.insertNode(m_nodeIndex, SpecNone, Check, m_node->origin, m_node->children.justChecks());
+            if (!start && end == length) {
+                m_node->convertToIdentityOn(stringNode);
+                break;
+            }
+            m_node->convertToLazyJSConstant(m_graph, LazyJSValue::newString(m_graph, string.substring(start, end - start)));
+            break;
+        }
+
+        case StringSubstr: {
+            Node* stringNode = m_node->child1().node();
+
+            if (!m_node->child2()->isInt32Constant())
+                break;
+
+            int32_t startValue = m_node->child2()->asInt32();
+            std::optional<int32_t> lengthValue;
+            if (m_node->child3()) {
+                if (!m_node->child3()->isInt32Constant())
+                    break;
+                lengthValue = m_node->child3()->asInt32();
+                if (lengthValue.value() <= 0) {
+                    // Regardless of whatever the string is, it generates empty string.
+                    m_changed = true;
+                    m_insertionSet.insertNode(m_nodeIndex, SpecNone, Check, m_node->origin, m_node->children.justChecks());
+                    m_node->convertToLazyJSConstant(m_graph, LazyJSValue::newString(m_graph, emptyString()));
+                    break;
+                }
+            }
+
+            String string = stringNode->tryGetString(m_graph);
+            if (!string)
+                break;
+
+            int32_t length = string.length();
+            auto [start, span] = extractSubstrOffsets(length, startValue, lengthValue);
+
+            m_changed = true;
+            m_insertionSet.insertNode(m_nodeIndex, SpecNone, Check, m_node->origin, m_node->children.justChecks());
+            if (!start && span == length) {
+                m_node->convertToIdentityOn(stringNode);
+                break;
+            }
+            m_node->convertToLazyJSConstant(m_graph, LazyJSValue::newString(m_graph, string.substring(start, span)));
+            break;
+        }
+
+        case ArrayJoin: {
+            Edge& separatorEdge = m_graph.varArgChild(m_node, 1);
+            Node* separator = separatorEdge.node();
+            if (separatorEdge.useKind() == UntypedUse && separator->op() == JSConstant && separator->asJSValue().isUndefined()) {
+                Node* commaNode = m_insertionSet.insertConstant(m_nodeIndex, m_node->origin, vm().smallStrings.singleCharacterString(','));
+                separatorEdge = Edge(commaNode, StringUse);
+                m_changed = true;
+            }
+            break;
+        }
+
+        case StringIndexOf: {
+            Node* stringNode = m_node->child1().node();
+            String string = stringNode->tryGetString(m_graph);
+            if (!string)
+                break;
+
+            String searchString = m_node->child2()->tryGetString(m_graph);
+            if (!searchString)
+                break;
+
+            unsigned startPosition = 0;
+            if (m_node->child3()) {
+                if (!m_node->child3()->isInt32Constant())
+                    break;
+                int32_t pos = m_node->child3()->asInt32();
+                if (pos < 0)
+                    startPosition = 0;
+                else
+                    startPosition = std::min<unsigned>(pos, string.length());
+            }
+
+            size_t result = string.find(searchString, startPosition);
+            int32_t indexResult = (result == notFound) ? -1 : static_cast<int32_t>(result);
+
+            m_changed = true;
+            m_insertionSet.insertNode(m_nodeIndex, SpecNone, Check, m_node->origin, m_node->children.justChecks());
+            m_graph.convertToConstant(m_node, jsNumber(indexResult));
+            break;
+        }
+
+        case StringLastIndexOf: {
+            Node* stringNode = m_node->child1().node();
+            String string = stringNode->tryGetString(m_graph);
+            if (!string)
+                break;
+
+            String searchString = m_node->child2()->tryGetString(m_graph);
+            if (!searchString)
+                break;
+
+            if (string.length() < searchString.length()) {
+                m_changed = true;
+                m_insertionSet.insertNode(m_nodeIndex, SpecNone, Check, m_node->origin, m_node->children.justChecks());
+                m_graph.convertToConstant(m_node, jsNumber(-1));
+                break;
+            }
+            unsigned maxStart = string.length() - searchString.length();
+            unsigned startPosition = maxStart;
+            if (m_node->child3()) {
+                if (!m_node->child3()->isInt32Constant())
+                    break;
+                int32_t pos = m_node->child3()->asInt32();
+                if (pos < 0)
+                    startPosition = 0;
+                else
+                    startPosition = std::min<unsigned>(pos, maxStart);
+            }
+
+            size_t result = string.reverseFind(searchString, startPosition);
+            int32_t indexResult = (result == notFound) ? -1 : static_cast<int32_t>(result);
+
+            m_changed = true;
+            m_insertionSet.insertNode(m_nodeIndex, SpecNone, Check, m_node->origin, m_node->children.justChecks());
+            m_graph.convertToConstant(m_node, jsNumber(indexResult));
+            break;
+        }
+
+        case StringStartsWith:
+        case StringEndsWith: {
+            bool isStartsWith = m_node->op() == StringStartsWith;
+
+            Node* stringNode = m_node->child1().node();
+            String string = stringNode->tryGetString(m_graph);
+            if (!string)
+                break;
+
+            String searchString = m_node->child2()->tryGetString(m_graph);
+            if (!searchString)
+                break;
+
+            unsigned position = isStartsWith ? 0 : string.length();
+            if (m_node->child3()) {
+                if (!m_node->child3()->isInt32Constant())
+                    break;
+                int32_t pos = m_node->child3()->asInt32();
+                if (pos < 0)
+                    position = 0;
+                else
+                    position = std::min<unsigned>(pos, string.length());
+            }
+
+            bool result;
+            if (isStartsWith) {
+                if (!position)
+                    result = string.startsWith(searchString);
+                else
+                    result = string.hasInfixStartingAt(searchString, position);
+            } else {
+                if (position == string.length())
+                    result = string.endsWith(searchString);
+                else
+                    result = string.hasInfixEndingAt(searchString, position);
+            }
+
+            m_changed = true;
+            m_insertionSet.insertNode(m_nodeIndex, SpecNone, Check, m_node->origin, m_node->children.justChecks());
+            m_graph.convertToConstant(m_node, jsBoolean(result));
+            break;
+        }
+
+        case GetByVal:
+        case GetByValMegamorphic: {
+            Edge& baseEdge = m_graph.child(m_node, 0);
+            Edge& keyEdge = m_graph.child(m_node, 1);
+            if (baseEdge.useKind() == ObjectUse && m_node->arrayMode().type() == Array::Generic) {
+                if (keyEdge->op() == MakeRope) {
+                    keyEdge->setOp(MakeAtomString);
+                    m_changed = true;
+                }
+            }
+            break;
+        }
+
+        case PutByVal:
+        case PutByValDirect:
+        case PutByValDirectResolved:
+        case PutByValMegamorphic: {
+            Edge& baseEdge = m_graph.child(m_node, 0);
+            Edge& keyEdge = m_graph.child(m_node, 1);
+            switch (m_node->arrayMode().modeForPut().type()) {
+            case Array::Generic: {
+                if (baseEdge.useKind() == CellUse || baseEdge.useKind() == KnownCellUse) {
+                    if (keyEdge->op() == MakeRope) {
+                        keyEdge->setOp(MakeAtomString);
+                        m_changed = true;
+                    }
+                }
+                break;
+            }
+            case Array::Float16Array:
+            case Array::Float32Array:
+            case Array::Float64Array: {
+                if (m_node->op() == PutByVal || m_node->op() == PutByValDirect || m_node->op() == PutByValDirectResolved) {
+                    Edge& valueEdge = m_graph.child(m_node, 2);
+                    if (valueEdge.useKind() == DoubleRepUse) {
+                        if (foldPurifyNaN(valueEdge))
+                            m_changed = true;
+                    }
+                }
+                break;
+            }
+
+            case Array::Int8Array:
+            case Array::Uint8Array:
+            case Array::Int16Array:
+            case Array::Uint16Array:
+            case Array::Uint32Array: {
+                if (m_node->op() == PutByVal || m_node->op() == PutByValDirect || m_node->op() == PutByValDirectResolved) {
+                    Edge& valueEdge = m_graph.child(m_node, 2);
+                    if (valueEdge.useKind() == Int32Use) {
+                        unsigned arrayElementWidth = 0;
+                        switch (m_node->arrayMode().modeForPut().type()) {
+                        case Array::Int8Array:
+                        case Array::Uint8Array:
+                            arrayElementWidth = 1U << 8;
+                            break;
+                        case Array::Int16Array:
+                        case Array::Uint16Array:
+                            arrayElementWidth = 1U << 16;
+                            break;
+                        default:
+                            break;
+                        }
+
+                        while (true) {
+                            if (arrayElementWidth
+                                && valueEdge->op() == ArithMod
+                                && valueEdge->binaryUseKind() == Int32Use
+                                && valueEdge->child2()->isInt32Constant()) {
+                                int32_t modConst = valueEdge->child2()->asInt32();
+                                if (modConst != INT_MIN) {
+                                    // Canonicalize modConst via std::abs as ArithMod(x, -256) and ArithMod(x, 256) are the same.
+                                    int64_t absModConst = std::abs(static_cast<int64_t>(modConst));
+                                    if (absModConst >= arrayElementWidth && absModConst % arrayElementWidth == 0) {
+                                        valueEdge = Edge(valueEdge->child1().node(), Int32Use);
+                                        m_changed = true;
+                                        continue;
+                                    }
+                                }
+                            }
+                            if (valueEdge->op() == UInt32ToNumber && valueEdge->child1().useKind() == Int32Use) {
+                                valueEdge = valueEdge->child1();
+                                m_changed = true;
+                                continue;
+                            }
+                            break;
+                        }
+                    }
+                }
+                break;
+            }
+
+            default:
+                break;
+            }
+            break;
+        }
+
+        case InByVal:
+        case InByValMegamorphic: {
+            Edge& baseEdge = m_graph.child(m_node, 0);
+            Edge& keyEdge = m_graph.child(m_node, 1);
+            if (baseEdge.useKind() == CellUse) {
+                if (keyEdge->op() == MakeRope) {
+                    keyEdge->setOp(MakeAtomString);
+                    m_changed = true;
+                }
+            }
+            break;
+        }
+
+        case HasOwnProperty: {
+            Edge& keyEdge = m_graph.child(m_node, 1);
+            if (keyEdge->op() == MakeRope) {
+                keyEdge->setOp(MakeAtomString);
+                m_changed = true;
+            }
+
+            Node* object = m_graph.child(m_node, 0).node();
+            Node* key = keyEdge.node();
+            if (key->op() == EnumeratorNextUpdatePropertyName && key->child3()->op() == GetPropertyEnumerator && key->child3()->child1().node() == object) {
+                Node* indexNode = key->child1().node();
+                if (indexNode->op() == ExtractFromTuple && indexNode->child1()->op() == EnumeratorNextUpdateIndexAndMode) {
+                    m_node->convertToEnumeratorHasOwnProperty(
+                        m_graph, Edge(object, CellUse), Edge(key, UntypedUse),
+                        key->child1(), key->child2(), key->child3(),
+                        indexNode->child1()->arrayMode(), key->enumeratorMetadata().toRaw());
+                    m_changed = true;
+                }
+            }
+            break;
+        }
+
+        case CompareStrictEq:
+        case SameValue:
+        case CompareEq:
+        case CompareLess:
+        case CompareLessEq:
+        case CompareGreater:
+        case CompareGreaterEq: {
+            if (m_node->child1().useKind() == UntypedUse && m_node->child2().useKind() == UntypedUse) {
+                if (m_node->op() == CompareEq || m_node->op() == CompareStrictEq || m_node->op() == SameValue) {
+                    if (Node::shouldSpeculateBoolean(m_node->child1().node(), m_node->child2().node())) {
+                        m_node->child1().setUseKind(BooleanUse);
+                        m_node->child2().setUseKind(BooleanUse);
+                        if (m_node->op() == SameValue)
+                            m_node->setOpAndDefaultFlags(CompareStrictEq);
+                        m_node->clearFlags(NodeMustGenerate);
+                        m_changed = true;
+                        break;
+                    }
+                }
+
+                if (Node::shouldSpeculateInt32(m_node->child1().node(), m_node->child2().node())) {
+                    m_node->child1().setUseKind(Int32Use);
+                    m_node->child2().setUseKind(Int32Use);
+                    if (m_node->op() == SameValue)
+                        m_node->setOpAndDefaultFlags(CompareStrictEq);
+                    m_node->clearFlags(NodeMustGenerate);
+                    m_changed = true;
+                    break;
+                }
+            }
+
+            if (foldPurifyNaNOnBinary(m_node))
+                m_changed = true;
+            break;
+        }
+
+        case CheckInBounds: {
+            auto isInt32OrKnownInt32Use = [](UseKind useKind) {
+                return useKind == Int32Use || useKind == KnownInt32Use;
+            };
+
+            if (!isInt32OrKnownInt32Use(m_node->child1().useKind()) || !isInt32OrKnownInt32Use(m_node->child2().useKind()))
+                break;
+
+            if (m_node->child2()->isInt32Constant()) {
+                int32_t length = m_node->child2()->asInt32();
+                if (length < 0)
+                    break;
+
+                switch (m_node->child1()->op()) {
+                case ArithBitRShift: {
+                    if (!m_node->child1()->isBinaryUseKind(Int32Use))
+                        break;
+                    if (m_node->child1()->child2()->isInt32Constant()) {
+                        int32_t shiftAmount = m_node->child1()->child2()->asInt32();
+                        if (shiftAmount < 0 || shiftAmount > 31)
+                            break;
+                        auto result = static_cast<int64_t>(length) << shiftAmount;
+                        if (result > INT32_MAX)
+                            break;
+                        m_node->child1() = Edge(m_node->child1()->child1().node(), Int32Use);
+                        m_node->child2() = Edge(m_insertionSet.insertConstant(m_nodeIndex, m_node->origin, jsNumber(static_cast<int32_t>(result))), KnownInt32Use);
+                        m_changed = true;
+                        break;
+                    }
+                    break;
+                }
+                default:
+                    break;
+                }
+            }
+            break;
+        }
+
         case Call:
         case Construct:
         case TailCallInlinedCaller:
@@ -927,7 +1810,8 @@ private:
             ExecutableBase* executable = nullptr;
             Edge callee = m_graph.varArgChild(m_node, 0);
             CallVariant callVariant;
-            if (JSFunction* function = callee->dynamicCastConstant<JSFunction*>(vm())) {
+            JSFunction* function = callee->dynamicCastConstant<JSFunction*>();
+            if (function) {
                 executable = function->executable();
                 callVariant = CallVariant(function);
             } else if (callee->isFunctionAllocation()) {
@@ -938,13 +1822,229 @@ private:
             if (!executable)
                 break;
 
+            if (m_graph.m_plan.isUnlinked())
+                break;
+
+            if (m_graph.m_plan.isFTL()) {
+                if (Options::useHandlerICInFTL())
+                    break;
+            }
+
+#if ENABLE(WEBASSEMBLY)
             // FIXME: Support wasm IC.
             // DirectCall to wasm function has suboptimal implementation. We avoid using DirectCall if we know that function is a wasm function.
             // https://bugs.webkit.org/show_bug.cgi?id=220339
-            if (executable->intrinsic() == WasmFunctionIntrinsic)
+            if (executable->intrinsic() == WasmFunctionIntrinsic && !Options::forceICFailure()) {
+                if (m_node->op() != Call && m_node->op() != TailCallInlinedCaller) // FIXME: We should support tail-call.
+                    break;
+                if (!function)
+                    break;
+                auto* wasmFunction = dynamicDowncast<WebAssemblyFunction>(function);
+                if (!wasmFunction)
+                    break;
+                Ref signature = wasmFunction->signature();
+                if (signature->argumentsOrResultsIncludeV128() || signature->argumentsOrResultsIncludeExnref())
+                    break;
+
+                unsigned numPassedArgs = m_node->numChildren() - /* |callee| and |this| */ 2;
+                if (signature->argumentCount() > numPassedArgs)
+                    break;
+
+                if (!signature->returnsVoid() && signature->returnCount() != 1)
+                    break;
+
+                bool success = true;
+                for (unsigned index = 0; index < signature->argumentCount(); ++index) {
+                    auto type = signature->argumentType(index);
+                    Edge argument = m_graph.varArgChild(m_node, 2 + index);
+                    switch (type.kind) {
+                    case Wasm::TypeKind::I32: {
+                        if (!argument->shouldSpeculateInt32())
+                            success = false;
+                        break;
+                    }
+                    case Wasm::TypeKind::I64: {
+                        if (!argument->shouldSpeculateHeapBigInt())
+                            success = false;
+                        break;
+                    }
+                    case Wasm::TypeKind::Ref:
+                    case Wasm::TypeKind::RefNull:
+                    case Wasm::TypeKind::Funcref:
+                    case Wasm::TypeKind::Externref: {
+                        if (!Wasm::isExternref(type) || !type.isNullable())
+                            success = false;
+                        break;
+                    }
+                    case Wasm::TypeKind::F32:
+                    case Wasm::TypeKind::F64: {
+                        if (!argument->shouldSpeculateNumber())
+                            success = false;
+                        break;
+                    }
+                    case Wasm::TypeKind::V128:
+                    default: {
+                        success = false;
+                        break;
+                    }
+                    }
+                }
+
+                if (!signature->returnsVoid()) {
+                    ASSERT(signature->returnCount() == 1);
+                    auto type = signature->returnType(0);
+                    switch (type.kind) {
+                    case Wasm::TypeKind::I32:
+                    case Wasm::TypeKind::I64:
+                    case Wasm::TypeKind::Ref:
+                    case Wasm::TypeKind::RefNull:
+                    case Wasm::TypeKind::Funcref:
+                    case Wasm::TypeKind::Externref:
+                    case Wasm::TypeKind::F32:
+                    case Wasm::TypeKind::F64: {
+                        break;
+                    }
+                    case Wasm::TypeKind::V128:
+                    default: {
+                        success = false;
+                        break;
+                    }
+                    }
+                }
+
+                auto indexForChecks = [&]() -> std::optional<unsigned> {
+                    unsigned index = m_nodeIndex;
+                    while (!m_block->at(index)->origin.exitOK) {
+                        if (index)
+                            return std::nullopt;
+                        index--;
+                    }
+                    return index;
+                };
+
+                auto checkIndexValue = indexForChecks();
+                if (!checkIndexValue)
+                    break;
+
+                if (!success || !is64Bit() || !m_graph.m_plan.isFTL())
+                    break;
+
+                unsigned numAllocatedArgs = static_cast<unsigned>(signature->argumentCount()) + /* |this| for wasm */ 1;
+                m_graph.m_parameterSlots = std::max(m_graph.m_parameterSlots, Graph::parameterSlotsForArgCount(numAllocatedArgs));
+
+                unsigned checkIndex = checkIndexValue.value();
+                for (unsigned index = 0; index < signature->argumentCount(); ++index) {
+                    auto type = signature->argumentType(index);
+                    Edge argument = m_graph.varArgChild(m_node, 2 + index);
+                    Node* argumentNode = argument.node();
+                    switch (type.kind) {
+                    case Wasm::TypeKind::I32: {
+                        m_insertionSet.insertCheck(checkIndex, m_node->origin, Edge(argumentNode, Int32Use));
+                        m_graph.varArgChild(m_node, 2 + index) = Edge(argumentNode, KnownInt32Use);
+                        break;
+                    }
+                    case Wasm::TypeKind::I64: {
+                        m_insertionSet.insertCheck(checkIndex, m_node->origin, Edge(argumentNode, HeapBigIntUse));
+                        m_graph.varArgChild(m_node, 2 + index) = Edge(argumentNode, KnownCellUse);
+                        break;
+                    }
+                    case Wasm::TypeKind::Ref:
+                    case Wasm::TypeKind::RefNull:
+                    case Wasm::TypeKind::Funcref:
+                    case Wasm::TypeKind::Externref: {
+                        break;
+                    }
+                    case Wasm::TypeKind::F32:
+                    case Wasm::TypeKind::F64: {
+                        UseKind useKind;
+                        if (argument->shouldSpeculateDoubleReal())
+                            useKind = RealNumberUse;
+                        else if (argument->shouldSpeculateNumber())
+                            useKind = NumberUse;
+                        else
+                            useKind = NotCellNorBigIntUse;
+                        Node* result = m_insertionSet.insertNode(checkIndex, SpecBytecodeDouble, DoubleRep, m_node->origin, Edge(argumentNode, useKind));
+                        m_graph.varArgChild(m_node, 2 + index) = Edge(result, DoubleRepUse);
+                        break;
+                    }
+                    case Wasm::TypeKind::V128:
+                    default:
+                        RELEASE_ASSERT_NOT_REACHED();
+                    }
+                }
+
+                if (!signature->returnsVoid()) {
+                    auto type = signature->returnType(0);
+                    switch (type.kind) {
+                    case Wasm::TypeKind::I32: {
+                        m_node->setResult(NodeResultInt32);
+                        break;
+                    }
+                    case Wasm::TypeKind::I64: {
+                        break;
+                    }
+                    case Wasm::TypeKind::Ref:
+                    case Wasm::TypeKind::RefNull:
+                    case Wasm::TypeKind::Funcref:
+                    case Wasm::TypeKind::Externref: {
+                        break;
+                    }
+                    case Wasm::TypeKind::F32:
+                    case Wasm::TypeKind::F64: {
+                        break;
+                    }
+                    case Wasm::TypeKind::V128:
+                    default: {
+                        break;
+                    }
+                    }
+                }
+
+                m_node->convertToCallWasm(m_graph.freeze(wasmFunction));
                 break;
-            
-            if (FunctionExecutable* functionExecutable = jsDynamicCast<FunctionExecutable*>(vm(), executable)) {
+            }
+#endif
+
+            // We gave up inlining a wrapped function, but still, we can inline bound function's wrapper by extracting it.
+            // This also wipes bound-function thunk call which is suboptimal compared to directly calling a wrapped function here.
+            if (executable->intrinsic() == BoundFunctionCallIntrinsic && function && (m_node->op() == Call || m_node->op() == TailCall || m_node->op() == TailCallInlinedCaller)) {
+                JSBoundFunction* boundFunction = uncheckedDowncast<JSBoundFunction>(function);
+                if (JSFunction* targetFunction = dynamicDowncast<JSFunction>(boundFunction->targetFunction())) {
+                    auto* targetExecutable = targetFunction->executable();
+                    if ((boundFunction->boundArgsLength() + m_node->numChildren()) <= Options::maximumDirectCallStackSize()) {
+                        if (FunctionExecutable* functionExecutable = dynamicDowncast<FunctionExecutable>(targetExecutable)) {
+                            // We need to update m_parameterSlots before we get to the backend, but we don't
+                            // want to do too much of this.
+                            unsigned numAllocatedArgs = static_cast<unsigned>(functionExecutable->parameterCount()) + 1;
+                            if (numAllocatedArgs <= Options::maximumDirectCallStackSize())
+                                m_graph.m_parameterSlots = std::max(m_graph.m_parameterSlots, Graph::parameterSlotsForArgCount(numAllocatedArgs));
+                        }
+
+                        unsigned firstChild = m_graph.m_varArgChildren.size();
+                        m_graph.m_varArgChildren.append(m_insertionSet.insertConstant(m_nodeIndex, m_node->origin, targetFunction)); // |callee|.
+                        m_graph.m_varArgChildren.append(m_insertionSet.insertConstant(m_nodeIndex, m_node->origin, boundFunction->boundThis())); // |this|
+
+                        boundFunction->forEachBoundArg([&](JSValue argument) {
+                            m_graph.m_varArgChildren.append(m_insertionSet.insertConstant(m_nodeIndex, m_node->origin, argument));
+                            return IterationStatus::Continue;
+                        });
+
+                        // First one is |callee|, second one is |this|.
+                        for (unsigned index = 2; index < m_node->numChildren(); ++index)
+                            m_graph.m_varArgChildren.append(m_graph.child(m_node, index));
+
+                        m_node->children = AdjacencyList(AdjacencyList::Variable, firstChild, m_graph.m_varArgChildren.size() - firstChild);
+                        m_graph.m_parameterSlots = std::max(m_graph.m_parameterSlots, Graph::parameterSlotsForArgCount(m_node->numChildren() - 1));
+
+                        m_graph.m_plan.recordedStatuses().addCallLinkStatus(m_node->origin.semantic, CallLinkStatus(CallVariant(targetExecutable)));
+                        m_node->convertToDirectCall(m_graph.freeze(targetExecutable));
+                        m_changed = true;
+                        break;
+                    }
+                }
+            }
+
+            if (FunctionExecutable* functionExecutable = dynamicDowncast<FunctionExecutable>(executable)) {
                 if (m_node->op() == Construct && functionExecutable->constructAbility() == ConstructAbility::CannotConstruct)
                     break;
 
@@ -1044,4 +2144,3 @@ bool performStrengthReduction(Graph& graph)
 } } // namespace JSC::DFG
 
 #endif // ENABLE(DFG_JIT)
-

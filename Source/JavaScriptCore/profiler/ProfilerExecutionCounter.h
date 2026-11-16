@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,17 +25,18 @@
 
 #pragma once
 
-#include <wtf/FastMalloc.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC { namespace Profiler {
 
 class ExecutionCounter {
-    WTF_MAKE_FAST_ALLOCATED; WTF_MAKE_NONCOPYABLE(ExecutionCounter);
+    WTF_MAKE_TZONE_ALLOCATED(ExecutionCounter);
+    WTF_MAKE_NONCOPYABLE(ExecutionCounter);
 public:
     ExecutionCounter() : m_counter(0) { }
     
-    uint64_t* address() { return &m_counter; }
+    uint64_t* address() LIFETIME_BOUND { return &m_counter; }
     
     uint64_t count() const { return m_counter; }
 

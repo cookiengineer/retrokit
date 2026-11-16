@@ -27,6 +27,7 @@
 
 #include "Decoder.h"
 #include "Encoder.h"
+#include "Logging.h"
 #include "SandboxExtension.h"
 #include <WebCore/FormData.h>
 
@@ -36,53 +37,16 @@ class FormDataReference {
 public:
     FormDataReference() = default;
     explicit FormDataReference(RefPtr<WebCore::FormData>&& data)
-        : m_data(WTFMove(data))
+        : m_data(WTF::move(data))
     {
     }
 
-    RefPtr<WebCore::FormData> takeData() { return WTFMove(m_data); }
+    FormDataReference(RefPtr<WebCore::FormData>&&, Vector<WebKit::SandboxExtensionHandle>&&);
 
-    void encode(Encoder& encoder) const
-    {
-        encoder << !!m_data;
-        if (!m_data)
-            return;
+    RefPtr<WebCore::FormData> data() const { return m_data.get(); }
+    RefPtr<WebCore::FormData> takeData() { return WTF::move(m_data); }
 
-        encoder << *m_data;
-
-        Vector<WebKit::SandboxExtension::Handle> sandboxExtensionHandles;
-        for (auto& element : m_data->elements()) {
-            if (auto* fileData = WTF::get_if<WebCore::FormDataElement::EncodedFileData>(element.data)) {
-                const String& path = fileData->filename;
-                if (auto handle = WebKit::SandboxExtension::createHandle(path, WebKit::SandboxExtension::Type::ReadOnly))
-                    sandboxExtensionHandles.append(WTFMove(*handle));
-            }
-        }
-        encoder << sandboxExtensionHandles;
-    }
-
-    static std::optional<FormDataReference> decode(Decoder& decoder)
-    {
-        std::optional<bool> hasFormData;
-        decoder >> hasFormData;
-        if (!hasFormData)
-            return std::nullopt;
-        if (!hasFormData.value())
-            return FormDataReference { };
-
-        auto formData = WebCore::FormData::decode(decoder);
-        if (!formData)
-            return std::nullopt;
-
-        std::optional<Vector<WebKit::SandboxExtension::Handle>> sandboxExtensionHandles;
-        decoder >> sandboxExtensionHandles;
-        if (!sandboxExtensionHandles)
-            return std::nullopt;
-
-        WebKit::SandboxExtension::consumePermanently(*sandboxExtensionHandles);
-
-        return FormDataReference { formData.releaseNonNull() };
-    }
+    Vector<WebKit::SandboxExtensionHandle> sandboxExtensionHandles() const;
 
 private:
     RefPtr<WebCore::FormData> m_data;

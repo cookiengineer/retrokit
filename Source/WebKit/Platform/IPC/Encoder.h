@@ -27,24 +27,37 @@
 
 #include "Attachment.h"
 #include "MessageNames.h"
-#include "StringReference.h"
+#include <WebCore/PlatformExportMacros.h>
 #include <WebCore/SharedBuffer.h>
 #include <wtf/Forward.h>
 #include <wtf/OptionSet.h>
+#include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
+
+#if OS(DARWIN)
+#include <wtf/MmapSpan.h>
+#else
+#include <wtf/MallocSpan.h>
+#endif
 
 namespace IPC {
 
 enum class MessageFlags : uint8_t;
 enum class ShouldDispatchWhenWaitingForSyncReply : uint8_t;
 
-template<typename, typename> struct ArgumentCoder;
+template<typename> struct ArgumentCoder;
 
 class Encoder final {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(Encoder);
 public:
     Encoder(MessageName, uint64_t destinationID);
     ~Encoder();
+
+    Encoder(const Encoder&) = delete;
+    Encoder(Encoder&&) = delete;
+    Encoder& operator=(const Encoder&) = delete;
+    Encoder& operator=(Encoder&&) = delete;
 
     ReceiverName messageReceiverName() const { return receiverName(m_messageName); }
     MessageName messageName() const { return m_messageName; }
@@ -52,70 +65,87 @@ public:
 
     bool isSyncMessage() const { return messageIsSync(messageName()); }
 
-    void setShouldDispatchMessageWhenWaitingForSyncReply(ShouldDispatchWhenWaitingForSyncReply);
-    ShouldDispatchWhenWaitingForSyncReply shouldDispatchMessageWhenWaitingForSyncReply() const;
+    void NODELETE setShouldDispatchMessageWhenWaitingForSyncReply(ShouldDispatchWhenWaitingForSyncReply);
 
-    void setFullySynchronousModeForTesting();
-    void setShouldMaintainOrderingWithAsyncMessages();
+    bool NODELETE isFullySynchronousModeForTesting() const;
+    void NODELETE setFullySynchronousModeForTesting();
+    void NODELETE setShouldMaintainOrderingWithAsyncMessages();
+    bool isAllowedWhenWaitingForSyncReply() const { return messageAllowedWhenWaitingForSyncReply(messageName()) || isFullySynchronousModeForTesting(); }
+    bool isAllowedWhenWaitingForUnboundedSyncReply() const { return messageAllowedWhenWaitingForUnboundedSyncReply(messageName()); }
 
     void wrapForTesting(UniqueRef<Encoder>&&);
 
-    void encodeFixedLengthData(const uint8_t* data, size_t, size_t alignment);
+    template<typename T, size_t Extent> void encodeSpan(std::span<T, Extent>);
+    template<typename T> void encodeObject(const T&);
 
     template<typename T>
     Encoder& operator<<(T&& t)
     {
-        ArgumentCoder<std::remove_const_t<std::remove_reference_t<T>>, void>::encode(*this, std::forward<T>(t));
+        SUPPRESS_FORWARD_DECL_ARG ArgumentCoder<std::remove_cvref_t<T>>::encode(*this, std::forward<T>(t));
         return *this;
     }
 
-    uint8_t* buffer() const { return m_buffer; }
-    size_t bufferSize() const { return m_bufferSize; }
+    Encoder& operator<<(Attachment&& attachment)
+    {
+        addAttachment(WTF::move(attachment));
+        return *this;
+    }
+
+    std::span<uint8_t> mutableSpan() LIFETIME_BOUND { return capacityBuffer().first(m_bufferSize); }
+    std::span<const uint8_t> span() const LIFETIME_BOUND { return capacityBuffer().first(m_bufferSize); }
 
     void addAttachment(Attachment&&);
     Vector<Attachment> releaseAttachments();
     void reserve(size_t);
 
-    static const bool isIPCEncoder = true;
-
-    template<typename T>
-    static RefPtr<WebCore::SharedBuffer> encodeSingleObject(const T& object)
-    {
-        Encoder encoder(ConstructWithoutHeader);
-        encoder << object;
-
-        if (encoder.hasAttachments()) {
-            ASSERT_NOT_REACHED();
-            return nullptr;
-        }
-
-        return WebCore::SharedBuffer::create(encoder.buffer(), encoder.bufferSize());
-    }
+    static constexpr bool isIPCEncoder = true;
 
 private:
-    enum ConstructWithoutHeaderTag { ConstructWithoutHeader };
-    Encoder(ConstructWithoutHeaderTag);
+    std::span<uint8_t> grow(size_t alignment, size_t);
 
-    uint8_t* grow(size_t alignment, size_t);
+    std::span<uint8_t> NODELETE capacityBuffer();
+    std::span<const uint8_t> NODELETE capacityBuffer() const;
 
-    bool hasAttachments() const;
+    bool NODELETE hasAttachments() const;
 
     void encodeHeader();
-    const OptionSet<MessageFlags>& messageFlags() const;
-    OptionSet<MessageFlags>& messageFlags();
+    const OptionSet<MessageFlags>& NODELETE messageFlags() const;
+    OptionSet<MessageFlags>& NODELETE messageFlags();
+
+    void freeBufferIfNecessary();
 
     MessageName m_messageName;
     uint64_t m_destinationID;
 
-    uint8_t m_inlineBuffer[512];
+#if OS(DARWIN)
+    using OutOfLineBufferSpan = MmapSpan<uint8_t>;
+#else
+    using OutOfLineBufferSpan = MallocSpan<uint8_t>;
+#endif
+    OutOfLineBufferSpan m_outOfLineBuffer;
+    std::array<uint8_t, 512> m_inlineBuffer;
 
-    uint8_t* m_buffer;
-    uint8_t* m_bufferPointer;
-    
-    size_t m_bufferSize;
-    size_t m_bufferCapacity;
+    size_t m_bufferSize { 0 };
 
     Vector<Attachment> m_attachments;
 };
+
+template<typename T, size_t Extent>
+inline void Encoder::encodeSpan(std::span<T, Extent> span)
+{
+    auto bytes = asBytes(span);
+    constexpr size_t alignment = alignof(T);
+    ASSERT(!(reinterpret_cast<uintptr_t>(bytes.data()) % alignment));
+
+    auto buffer = grow(alignment, bytes.size());
+    memcpySpan(buffer, bytes);
+}
+
+template<typename T>
+inline void Encoder::encodeObject(const T& object)
+{
+    static_assert(std::is_trivially_copyable_v<T>);
+    encodeSpan(singleElementSpan(object));
+}
 
 } // namespace IPC

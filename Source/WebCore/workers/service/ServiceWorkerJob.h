@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,32 +25,36 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
-#include "ResourceResponse.h"
-#include "ServiceWorkerJobClient.h"
-#include "ServiceWorkerJobData.h"
-#include "ServiceWorkerTypes.h"
-#include "WorkerScriptLoader.h"
-#include "WorkerScriptLoaderClient.h"
+#include <WebCore/ResourceLoaderIdentifier.h>
+#include <WebCore/ResourceResponse.h>
+#include <WebCore/ScriptExecutionContextIdentifier.h>
+#include <WebCore/ServiceWorkerJobClient.h>
+#include <WebCore/ServiceWorkerJobData.h>
+#include <WebCore/ServiceWorkerTypes.h>
+#include <WebCore/WorkerScriptLoader.h>
+#include <WebCore/WorkerScriptLoaderClient.h>
+#include <wtf/CompletionHandler.h>
+#include <wtf/CurrentThread.h>
 #include <wtf/RefPtr.h>
 #include <wtf/RunLoop.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeRefCounted.h>
-#include <wtf/Threading.h>
 
 namespace WebCore {
 
 class DeferredPromise;
 class Exception;
 class ScriptExecutionContext;
-enum class ServiceWorkerJobType;
 struct ServiceWorkerRegistrationData;
 
-class ServiceWorkerJob : public WorkerScriptLoaderClient {
-    WTF_MAKE_FAST_ALLOCATED;
+class ServiceWorkerJob final : public RefCounted<ServiceWorkerJob>, public WorkerScriptLoaderClient {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(ServiceWorkerJob, WEBCORE_EXPORT);
 public:
-    ServiceWorkerJob(ServiceWorkerJobClient&, RefPtr<DeferredPromise>&&, ServiceWorkerJobData&&);
+    static Ref<ServiceWorkerJob> create(ServiceWorkerJobClient&, Ref<DeferredPromise>&&, ServiceWorkerJobData&&);
     WEBCORE_EXPORT ~ServiceWorkerJob();
+
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
 
     void failedWithException(const Exception&);
     void resolvedWithRegistration(ServiceWorkerRegistrationData&&, ShouldNotifyWhenResolved);
@@ -60,38 +64,38 @@ public:
     using Identifier = ServiceWorkerJobIdentifier;
     Identifier identifier() const { return m_jobData.identifier().jobIdentifier; }
 
-    const ServiceWorkerJobData& data() const { return m_jobData; }
-    bool hasPromise() const { return !!m_promise; }
-    RefPtr<DeferredPromise> takePromise();
+    const ServiceWorkerJobData& data() const LIFETIME_BOUND { return m_jobData; }
+    Ref<DeferredPromise> NODELETE takePromise();
 
     void fetchScriptWithContext(ScriptExecutionContext&, FetchOptions::Cache);
 
-    const DocumentOrWorkerIdentifier& contextIdentifier() { return m_contextIdentifier; }
+    const ServiceWorkerOrClientIdentifier& contextIdentifier() LIFETIME_BOUND { return m_contextIdentifier; }
 
     bool cancelPendingLoad();
 
     WEBCORE_EXPORT static ResourceError validateServiceWorkerResponse(const ServiceWorkerJobData&, const ResourceResponse&);
 
-private:
-    // WorkerScriptLoaderClient
-    void didReceiveResponse(unsigned long identifier, const ResourceResponse&) final;
-    void notifyFinished() final;
+    bool NODELETE isRegistering() const;
 
-    ServiceWorkerJobClient& m_client;
+private:
+    ServiceWorkerJob(ServiceWorkerJobClient&, Ref<DeferredPromise>&&, ServiceWorkerJobData&&);
+
+    // WorkerScriptLoaderClient
+    void didReceiveResponse(ScriptExecutionContextIdentifier, std::optional<ResourceLoaderIdentifier>, const ResourceResponse&) final;
+    void notifyFinished(std::optional<ScriptExecutionContextIdentifier>) final;
+
+    WeakPtr<ServiceWorkerJobClient> m_client;
     ServiceWorkerJobData m_jobData;
-    RefPtr<DeferredPromise> m_promise;
+    Ref<DeferredPromise> m_promise;
 
     bool m_completed { false };
 
-    DocumentOrWorkerIdentifier m_contextIdentifier;
+    ServiceWorkerOrClientIdentifier m_contextIdentifier;
     RefPtr<WorkerScriptLoader> m_scriptLoader;
 
 #if ASSERT_ENABLED
-    Ref<Thread> m_creationThread { Thread::current() };
+    const uint32_t m_creationThreadID { currentThreadID() };
 #endif
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)
-

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2009, Google Inc. All rights reserved.
+ * Copyright (c) 2008-2015 Google Inc. All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -31,7 +31,12 @@
 #include "config.h"
 #include "BMPImageReader.h"
 
+#include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
+
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(BMPImageReader);
 
 BMPImageReader::BMPImageReader(ScalableImageDecoder* parent, size_t decodedAndHeaderOffset, size_t imgDataOffset, bool usesAndMask)
     : m_parent(parent)
@@ -44,13 +49,12 @@ BMPImageReader::BMPImageReader(ScalableImageDecoder* parent, size_t decodedAndHe
     , m_isTopDown(false)
     , m_needToProcessBitmasks(false)
     , m_needToProcessColorTable(false)
-    , m_tableSizeInBytes(0)
     , m_seenNonZeroAlphaPixel(false)
     , m_seenZeroAlphaPixel(false)
     , m_andMaskState(usesAndMask ? NotYetDecoded : None)
 {
     // Clue-in decodeBMP() that we need to detect the correct info header size.
-    memset(&m_infoHeader, 0, sizeof(m_infoHeader));
+    zeroBytes(m_infoHeader);
 }
 
 bool BMPImageReader::decodeBMP(bool onlySize)
@@ -59,8 +63,9 @@ bool BMPImageReader::decodeBMP(bool onlySize)
     if (!m_infoHeader.biSize && !readInfoHeaderSize())
         return false;
 
+    const size_t headerEnd = m_headerOffset + m_infoHeader.biSize;
     // Read and process info header.
-    if ((m_decodedOffset < (m_headerOffset + m_infoHeader.biSize)) && !processInfoHeader())
+    if ((m_decodedOffset < headerEnd) && !processInfoHeader())
         return false;
 
     // processInfoHeader() set the size, so if that's all we needed, we're done.
@@ -134,7 +139,8 @@ bool BMPImageReader::readInfoHeaderSize()
     // Don't allow the header to overflow (which would be harmless here, but
     // problematic or at least confusing in other places), or to overrun the
     // image data.
-    if (((m_headerOffset + m_infoHeader.biSize) < m_headerOffset) || (m_imgDataOffset && (m_imgDataOffset < (m_headerOffset + m_infoHeader.biSize))))
+    const size_t headerEnd = m_headerOffset + m_infoHeader.biSize;
+    if ((headerEnd < m_headerOffset) || (m_imgDataOffset && (m_imgDataOffset < headerEnd)))
         return m_parent->setFailed();
 
     // See if this is a header size we understand:
@@ -259,6 +265,11 @@ bool BMPImageReader::readInfoHeader()
 
     // Detect top-down BMPs.
     if (m_infoHeader.biHeight < 0) {
+        // We can't negate INT32_MIN below to get a positive int32_t.
+        // isInfoHeaderValid() will reject heights of 1 << 16 or larger anyway,
+        // so just reject this bitmap now.
+        if (m_infoHeader.biHeight == INT32_MIN)
+            return m_parent->setFailed();
         m_isTopDown = true;
         m_infoHeader.biHeight = -m_infoHeader.biHeight;
     }
@@ -392,12 +403,14 @@ bool BMPImageReader::processBitmasks()
         // we read the info header.
 
         // Fail if we don't have enough file space for the bitmasks.
-        static const size_t SIZEOF_BITMASKS = 12;
-        if (((m_headerOffset + m_infoHeader.biSize + SIZEOF_BITMASKS) < (m_headerOffset + m_infoHeader.biSize)) || (m_imgDataOffset && (m_imgDataOffset < (m_headerOffset + m_infoHeader.biSize + SIZEOF_BITMASKS))))
+        const size_t headerEnd = m_headerOffset + m_infoHeader.biSize;
+        static constexpr size_t bitmasksSize = 12;
+        const size_t bitmasksEnd = headerEnd + bitmasksSize;
+        if ((bitmasksEnd < headerEnd) || (m_imgDataOffset && (m_imgDataOffset < bitmasksEnd)))
             return m_parent->setFailed();
 
         // Read bitmasks.
-        if ((m_data->size() - m_decodedOffset) < SIZEOF_BITMASKS)
+        if ((m_data->size() - m_decodedOffset) < bitmasksSize)
             return false;
         m_bitMasks[0] = readUint32(0);
         m_bitMasks[1] = readUint32(4);
@@ -405,7 +418,7 @@ bool BMPImageReader::processBitmasks()
         // No alpha in anything other than Windows V4+.
         m_bitMasks[3] = 0;
 
-        m_decodedOffset += SIZEOF_BITMASKS;
+        m_decodedOffset += bitmasksSize;
     }
 
     // We've now decoded all the non-image data we care about.  Skip anything
@@ -462,24 +475,28 @@ bool BMPImageReader::processBitmasks()
 
 bool BMPImageReader::processColorTable()
 {
-    m_tableSizeInBytes = m_infoHeader.biClrUsed * (m_isOS21x ? 3 : 4);
-
     // Fail if we don't have enough file space for the color table.
-    if (((m_headerOffset + m_infoHeader.biSize + m_tableSizeInBytes) < (m_headerOffset + m_infoHeader.biSize)) || (m_imgDataOffset && (m_imgDataOffset < (m_headerOffset + m_infoHeader.biSize + m_tableSizeInBytes))))
+    const size_t headerEnd = m_headerOffset + m_infoHeader.biSize;
+    const size_t tableSizeInBytes = m_infoHeader.biClrUsed * (m_isOS21x ? 3 : 4);
+    const size_t tableEnd = headerEnd + tableSizeInBytes;
+    if ((tableEnd < headerEnd) || (m_imgDataOffset && (m_imgDataOffset < tableEnd)))
         return m_parent->setFailed();
 
     // Read color table.
-    if ((m_decodedOffset > m_data->size()) || ((m_data->size() - m_decodedOffset) < m_tableSizeInBytes))
+    if ((m_decodedOffset > m_data->size()) || ((m_data->size() - m_decodedOffset) < tableSizeInBytes))
         return false;
-    m_colorTable.resize(m_infoHeader.biClrUsed);
-    for (size_t i = 0; i < m_infoHeader.biClrUsed; ++i) {
-        m_colorTable[i].rgbBlue = m_data->data()[m_decodedOffset++];
-        m_colorTable[i].rgbGreen = m_data->data()[m_decodedOffset++];
-        m_colorTable[i].rgbRed = m_data->data()[m_decodedOffset++];
+    m_colorTable = Vector<RGBTriple>(m_infoHeader.biClrUsed, [&](size_t) {
+        auto span = m_data->span();
+        RGBTriple triple {
+            .rgbBlue = span[m_decodedOffset++],
+            .rgbGreen = span[m_decodedOffset++],
+            .rgbRed = span[m_decodedOffset++]
+        };
         // Skip padding byte (not present on OS/2 1.x).
         if (!m_isOS21x)
             ++m_decodedOffset;
-    }
+        return triple;
+    });
 
     // We've now decoded all the non-image data we care about.  Skip anything
     // else before the actual raster data.
@@ -525,8 +542,9 @@ bool BMPImageReader::processRLEData()
 
         // For every entry except EOF, we'd better not have reached the end of
         // the image.
-        const uint8_t count = m_data->data()[m_decodedOffset];
-        const uint8_t code = m_data->data()[m_decodedOffset + 1];
+        auto span = m_data->span();
+        const uint8_t count = span[m_decodedOffset];
+        const uint8_t code = span[m_decodedOffset + 1];
         if ((count || (code != 1)) && pastEndOfImage(0))
             return m_parent->setFailed();
 
@@ -556,8 +574,8 @@ bool BMPImageReader::processRLEData()
 
                 // Fail if this takes us past the end of the desired row or
                 // past the end of the image.
-                const uint8_t dx = m_data->data()[m_decodedOffset + 2];
-                const uint8_t dy = m_data->data()[m_decodedOffset + 3];
+                const uint8_t dx = span[m_decodedOffset + 2];
+                const uint8_t dy = span[m_decodedOffset + 3];
                 if (dx || dy)
                     m_buffer->setHasAlpha(true);
                 if (((m_coord.x() + dx) > m_parent->size().width()) || pastEndOfImage(dy))
@@ -599,13 +617,13 @@ bool BMPImageReader::processRLEData()
                     return false;
 
                 // One BGR triple that we copy |count| times.
-                fillRGBA(endX, m_data->data()[m_decodedOffset + 3], m_data->data()[m_decodedOffset + 2], code, 0xff);
+                fillRGBA(endX, span[m_decodedOffset + 3], span[m_decodedOffset + 2], code, 0xff);
                 m_decodedOffset += 4;
             } else {
                 // RLE8 has one color index that gets repeated; RLE4 has two
                 // color indexes in the upper and lower 4 bits of the byte,
                 // which are alternated.
-                size_t colorIndexes[2] = {code, code};
+                std::array<size_t, 2> colorIndexes { code, code };
                 if (m_infoHeader.biCompression == RLE4) {
                     colorIndexes[0] = (colorIndexes[0] >> 4) & 0xf;
                     colorIndexes[1] &= 0xf;
@@ -631,8 +649,11 @@ BMPImageReader::ProcessingResult BMPImageReader::processNonRLEData(bool inRLE, i
     if (!inRLE)
         numPixels = m_parent->size().width();
 
+    // An RLE absolute-mode run can start partway into a row.
+    const int startX = m_coord.x();
+
     // Fail if we're being asked to decode more pixels than remain in the row.
-    const int endX = m_coord.x() + numPixels;
+    const int endX = startX + numPixels;
     if (endX > m_parent->size().width())
         return Failure;
 
@@ -659,7 +680,7 @@ BMPImageReader::ProcessingResult BMPImageReader::processNonRLEData(bool inRLE, i
             // the most significant bits in the byte).
             const uint8_t mask = (1 << m_infoHeader.biBitCount) - 1;
             for (size_t byte = 0; byte < unpaddedNumBytes; ++byte) {
-                uint8_t pixelData = m_data->data()[m_decodedOffset + byte];
+                uint8_t pixelData = m_data->span()[m_decodedOffset + byte];
                 for (size_t pixel = 0; (pixel < pixelsPerByte) && (m_coord.x() < endX); ++pixel) {
                     const size_t colorIndex = (pixelData >> (8 - m_infoHeader.biBitCount)) & mask;
                     if (m_andMaskState == Decoding) {
@@ -683,8 +704,45 @@ BMPImageReader::ProcessingResult BMPImageReader::processNonRLEData(bool inRLE, i
             }
         } else {
             // RGB data.  Decode pixels one at a time, left to right.
+            //
+            // Returns the pixel data for the current X coordinate in a
+            // uint32_t. m_decodedOffset points at the start of the row for
+            // non-RLE data, but at the start of the run for an RLE
+            // absolute-mode run, which can begin mid-row; so index relative
+            // to startX rather than by absolute column, which keeps the reads
+            // within the paddedNumBytes checked above.
+            // NOTE: Only as many bytes of the return value as are needed to
+            // hold the pixel data will actually be set.
+            auto readCurrentPixel = [this, bytesPerPixel, startX]() -> uint32_t {
+                const int offset = (m_coord.x() - startX) * bytesPerPixel;
+                switch (bytesPerPixel) {
+                case 2:
+                    return readUint16(offset);
+
+                case 3: {
+                    // It doesn't matter that we never set the most significant
+                    // byte of the return value here in little-endian mode, the
+                    // caller won't read it.
+                    uint32_t pixel;
+                    memcpySpan(asMutableByteSpan(pixel), m_data->span().subspan(m_decodedOffset + offset, 3));
+#if CPU(BIG_ENDIAN)
+                    pixel = ((pixel & 0xff00) << 8) | ((pixel & 0xff0000) >> 8) | ((pixel & 0xff000000) >> 24);
+#endif
+
+                    return pixel;
+                }
+
+                case 4:
+                    return readUint32(offset);
+
+                default:
+                    ASSERT_NOT_REACHED();
+                    return 0;
+                }
+            };
+
             while (m_coord.x() < endX) {
-                const uint32_t pixel = readCurrentPixel(bytesPerPixel);
+                const uint32_t pixel = readCurrentPixel();
 
                 // Some BMPs specify an alpha channel but don't actually use it
                 // (it contains all 0s).  To avoid displaying these images as

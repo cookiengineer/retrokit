@@ -25,14 +25,19 @@
 
 #pragma once
 
-#include "HashMapImplInlines.h"
+#include "HashMapHelper.h"
+#include "JSCJSValueBigInt.h"
+#include "JSCJSValueInlines.h"
+#include "Symbol.h"
 #include "WeakMapImpl.h"
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
-ALWAYS_INLINE uint32_t jsWeakMapHash(JSObject* key)
+ALWAYS_INLINE uint32_t jsWeakMapHash(JSCell* key)
 {
-    return wangsInt64Hash(JSValue::encode(key));
+    return rapidHashMix64(JSValue::encode(key));
 }
 
 ALWAYS_INLINE uint32_t nextCapacityAfterBatchRemoval(uint32_t capacity, uint32_t keyCount)
@@ -42,27 +47,66 @@ ALWAYS_INLINE uint32_t nextCapacityAfterBatchRemoval(uint32_t capacity, uint32_t
     return capacity;
 }
 
-template <typename WeakMapBucket>
-ALWAYS_INLINE void WeakMapImpl<WeakMapBucket>::add(VM& vm, JSObject* key, JSValue value)
+static ALWAYS_INLINE bool canBeHeldWeakly(JSValue value)
 {
-    DisallowGC disallowGC;
+    // https://tc39.es/proposal-symbols-as-weakmap-keys/#sec-canbeheldweakly-abstract-operation
+    if (value.isObject())
+        return true;
+    if (!value.isSymbol())
+        return false;
+    return !asSymbol(value)->uid().isRegistered();
+}
+
+template <typename WeakMapBucket>
+ALWAYS_INLINE void WeakMapImpl<WeakMapBucket>::add(VM& vm, JSCell* key, JSValue value)
+{
+    AssertNoGC assertNoGC;
     add(vm, key, value, jsWeakMapHash(key));
 }
 
 template <typename WeakMapBucket>
-ALWAYS_INLINE void WeakMapImpl<WeakMapBucket>::add(VM& vm, JSObject* key, JSValue value, uint32_t hash)
+ALWAYS_INLINE void WeakMapImpl<WeakMapBucket>::add(VM& vm, JSCell* key, JSValue value, uint32_t hash)
 {
-    DisallowGC disallowGC;
+    AssertNoGC assertNoGC;
     ASSERT_WITH_MESSAGE(jsWeakMapHash(key) == hash, "We expect hash value is what we expect.");
+
+    if (m_buffer == emptyBuffer()) [[unlikely]]
+        makeAndSetNewBuffer(initialCapacity);
 
     addInternal(vm, key, value, hash);
     if (shouldRehashAfterAdd())
         rehash();
 }
 
+template <typename WeakMapBucket>
+ALWAYS_INLINE void WeakMapImpl<WeakMapBucket>::addBucket(VM& vm, JSCell* key, JSValue value, uint32_t hash, size_t index)
+{
+    if (m_buffer == emptyBuffer()) [[unlikely]] {
+        // index was computed against the shared empty buffer, so it is meaningless for a real
+        // buffer. Fall back to add(), which allocates and re-probes from scratch.
+        add(vm, key, value, hash);
+        return;
+    }
+
+    UNUSED_PARAM(hash);
+    ASSERT(jsWeakMapHash(key) == hash);
+    ASSERT(!findBucket(key, hash));
+
+    WeakMapBucket* newEntry = buffer() + index;
+    ASSERT(newEntry);
+    ASSERT(newEntry->isEmpty());
+
+    newEntry->setKey(vm, this, key);
+    newEntry->setValue(vm, this, value);
+    ++m_keyCount;
+
+    if (shouldRehashAfterAdd())
+        rehash();
+}
+
 // Note that this function can be executed in parallel as long as the mutator stops.
 template<typename WeakMapBucket>
-void WeakMapImpl<WeakMapBucket>::finalizeUnconditionally(VM& vm)
+void WeakMapImpl<WeakMapBucket>::finalizeUnconditionally(VM& vm, CollectionScope)
 {
     auto* buffer = this->buffer();
     for (uint32_t index = 0; index < m_capacity; ++index) {
@@ -90,12 +134,8 @@ void WeakMapImpl<WeakMapBucket>::rehash(RehashMode mode)
     // function must not touch any GC related features. This is why we do not allocate WeakMapBuffer
     // in auxiliary buffer.
 
-    // This rehash modifies m_buffer which is not GC-managed buffer. But m_buffer can be touched in
-    // visitOutputConstraints. Thus, we should guard it with cellLock.
-    Locker locker { cellLock() };
-
     uint32_t oldCapacity = m_capacity;
-    MallocPtr<WeakMapBufferType, JSValueMalloc> oldBuffer = WTFMove(m_buffer);
+    WeakMapBufferType* oldBuffer = m_buffer;
 
     uint32_t capacity = m_capacity;
     if (mode == RehashMode::RemoveBatching) {
@@ -103,7 +143,7 @@ void WeakMapImpl<WeakMapBucket>::rehash(RehashMode mode)
         capacity = nextCapacityAfterBatchRemoval(capacity, m_keyCount);
     } else
         capacity = nextCapacity(capacity, m_keyCount);
-    makeAndSetNewBuffer(locker, capacity);
+    makeAndSetNewBuffer(capacity);
 
     auto* buffer = this->buffer();
     const uint32_t mask = m_capacity - 1;
@@ -124,12 +164,18 @@ void WeakMapImpl<WeakMapBucket>::rehash(RehashMode mode)
     m_deleteCount = 0;
 
     checkConsistency();
+
+    // rehash() only runs once a real buffer has been allocated, so the shared empty buffer is never freed here.
+    ASSERT(oldBuffer != emptyBuffer());
+    WeakMapBufferType::destroy(oldBuffer);
 }
 
 template<typename WeakMapBucket>
 ALWAYS_INLINE uint32_t WeakMapImpl<WeakMapBucket>::shouldRehashAfterAdd() const
 {
-    return JSC::shouldRehashAfterAdd(m_capacity, m_keyCount, m_deleteCount);
+    return JSC::shouldRehash(m_capacity, m_keyCount, m_deleteCount);
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

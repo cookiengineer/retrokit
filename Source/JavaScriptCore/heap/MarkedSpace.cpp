@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2003-2018 Apple Inc. All rights reserved.
+ *  Copyright (C) 2003-2024 Apple Inc. All rights reserved.
  *  Copyright (C) 2007 Eric Seidel <eric@webkit.org>
  *
  *  This library is free software; you can redistribute it and/or
@@ -26,8 +26,11 @@
 #include "IncrementalSweeper.h"
 #include "MarkedBlockInlines.h"
 #include "MarkedSpaceInlines.h"
+#include "WeakSetInlines.h"
 #include <wtf/ListDump.h>
 #include <wtf/SimpleStats.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
@@ -39,9 +42,9 @@ static Vector<size_t> sizeClasses()
 {
     Vector<size_t> result;
 
-    if (UNLIKELY(Options::dumpSizeClasses())) {
+    if (Options::dumpSizeClasses()) [[unlikely]] {
         dataLog("Block size: ", MarkedBlock::blockSize, "\n");
-        dataLog("Footer size: ", sizeof(MarkedBlock::Footer), "\n");
+        dataLog("Header size: ", sizeof(MarkedBlock::Header), "\n");
     }
     
     auto add = [&] (size_t sizeClass) {
@@ -125,7 +128,7 @@ static Vector<size_t> sizeClasses()
 
     {
         // Sort and deduplicate.
-        std::sort(result.begin(), result.end());
+        std::ranges::sort(result);
         auto it = std::unique(result.begin(), result.end());
         result.shrinkCapacity(it - result.begin());
     }
@@ -177,7 +180,7 @@ void MarkedSpace::initializeSizeClassForStepSize()
         });
 }
 
-MarkedSpace::MarkedSpace(Heap* heap)
+MarkedSpace::MarkedSpace(JSC::Heap* heap)
 {
     ASSERT_UNUSED(heap, heap == &this->heap());
     initializeSizeClassForStepSize();
@@ -198,7 +201,7 @@ void MarkedSpace::freeMemory()
         allocation->destroy();
     forEachSubspace([&](Subspace& subspace) {
         if (subspace.isIsoSubspace())
-            static_cast<IsoSubspace&>(subspace).destroyLowerTierFreeList();
+            static_cast<IsoSubspace&>(subspace).destroyLowerTierPreciseFreeList();
         return IterationStatus::Continue;
     });
 }
@@ -225,6 +228,24 @@ void MarkedSpace::sweepBlocks()
         });
 }
 
+void MarkedSpace::registerPreciseAllocation(PreciseAllocation* allocation, bool isNewAllocation)
+{
+    // FIXME: This is a bit of a mess we should really consolidate setting all the bits to here.
+    allocation->setIndexInSpace(m_preciseAllocations.size());
+    allocation->m_hasValidCell = true;
+    ASSERT(allocation->isNewlyAllocated());
+    ASSERT(!allocation->isMarked());
+    m_preciseAllocations.append(allocation);
+    if (auto& set = preciseAllocationSet())
+        set->add(allocation->cell());
+    if (isNewAllocation) {
+        // Existing code's ordering is calling `didAllocate` and increasing capacity.
+        size_t size = allocation->cellSize();
+        heap().didAllocate(size);
+        m_capacity += size;
+    }
+}
+
 void MarkedSpace::sweepPreciseAllocations()
 {
     RELEASE_ASSERT(m_preciseAllocationsNurseryOffset == m_preciseAllocations.size());
@@ -234,10 +255,10 @@ void MarkedSpace::sweepPreciseAllocations()
         PreciseAllocation* allocation = m_preciseAllocations[srcIndex++];
         allocation->sweep();
         if (allocation->isEmpty()) {
-            if (auto* set = preciseAllocationSet())
+            if (auto& set = preciseAllocationSet())
                 set->remove(allocation->cell());
-            if (allocation->isLowerTier())
-                static_cast<IsoSubspace*>(allocation->subspace())->sweepLowerTierCell(allocation);
+            if (allocation->isLowerTierPrecise())
+                static_cast<IsoSubspace*>(allocation->subspace())->sweepLowerTierPreciseCell(allocation);
             else {
                 m_capacity -= allocation->cellSize();
                 allocation->destroy();
@@ -268,26 +289,10 @@ void MarkedSpace::prepareForAllocation()
 
 void MarkedSpace::enablePreciseAllocationTracking()
 {
-    m_preciseAllocationSet = makeUnique<HashSet<HeapCell*>>();
+    m_preciseAllocationSet = UncheckedKeyHashSet<HeapCell*> { };
     for (auto* allocation : m_preciseAllocations)
         m_preciseAllocationSet->add(allocation->cell());
 }
-
-template<typename Visitor>
-void MarkedSpace::visitWeakSets(Visitor& visitor)
-{
-    auto visit = [&] (WeakSet* weakSet) {
-        weakSet->visit(visitor);
-    };
-    
-    m_newActiveWeakSets.forEach(visit);
-    
-    if (heap().collectionScope() == CollectionScope::Full)
-        m_activeWeakSets.forEach(visit);
-}
-
-template void MarkedSpace::visitWeakSets(AbstractSlotVisitor&);
-template void MarkedSpace::visitWeakSets(SlotVisitor&);
 
 void MarkedSpace::reapWeakSets()
 {
@@ -323,6 +328,10 @@ void MarkedSpace::stopAllocatingForGood()
 
 void MarkedSpace::prepareForConservativeScan()
 {
+    if (m_conservativeScanIsPrepared)
+        return;
+    m_conservativeScanIsPrepared = true;
+
     m_preciseAllocationsForThisCollectionBegin = m_preciseAllocations.begin() + m_preciseAllocationsOffsetForThisCollection;
     m_preciseAllocationsForThisCollectionSize = m_preciseAllocations.size() - m_preciseAllocationsOffsetForThisCollection;
     m_preciseAllocationsForThisCollectionEnd = m_preciseAllocations.end();
@@ -351,6 +360,7 @@ void MarkedSpace::prepareForMarking()
 
 void MarkedSpace::resumeAllocating()
 {
+    m_conservativeScanIsPrepared = false;
     forEachDirectory(
         [&] (BlockDirectory& directory) -> IterationStatus {
             directory.resumeAllocating();
@@ -374,21 +384,26 @@ bool MarkedSpace::isPagedOut()
     return pagedOutPagesStats.mean() > pagedOutPagesStats.count() * bailoutPercentage;
 }
 
+// FIXME: rdar://139998916
+MarkedBlock::Handle* MarkedSpace::findMarkedBlockHandleDebug(MarkedBlock* block)
+{
+    MarkedBlock::Handle* result = nullptr;
+    forEachDirectory(
+        [&](BlockDirectory& directory) -> IterationStatus {
+            if (MarkedBlock::Handle* handle = directory.findMarkedBlockHandleDebug(block)) {
+                result = handle;
+                return IterationStatus::Done;
+            }
+            return IterationStatus::Continue;
+        });
+    return result;
+}
+
 void MarkedSpace::freeBlock(MarkedBlock::Handle* block)
 {
     m_capacity -= MarkedBlock::blockSize;
     m_blocks.remove(&block->block());
     delete block;
-}
-
-void MarkedSpace::freeOrShrinkBlock(MarkedBlock::Handle* block)
-{
-    if (!block->isEmpty()) {
-        block->shrink();
-        return;
-    }
-
-    freeBlock(block);
 }
 
 void MarkedSpace::shrink()
@@ -402,24 +417,32 @@ void MarkedSpace::shrink()
 
 void MarkedSpace::beginMarking()
 {
-    if (heap().collectionScope() == CollectionScope::Full) {
+    switch (heap().collectionScope().value()) {
+    case CollectionScope::Eden: {
+        m_edenVersion = nextVersion(m_edenVersion);
+        break;
+    }
+    case CollectionScope::Full: {
         forEachDirectory(
             [&] (BlockDirectory& directory) -> IterationStatus {
                 directory.beginMarkingForFullCollection();
                 return IterationStatus::Continue;
             });
 
-        if (UNLIKELY(nextVersion(m_markingVersion) == initialVersion)) {
+        if (nextVersion(m_markingVersion) == initialVersion) [[unlikely]] {
             forEachBlock(
                 [&] (MarkedBlock::Handle* handle) {
                     handle->block().resetMarks();
                 });
         }
-        
+
         m_markingVersion = nextVersion(m_markingVersion);
-        
+
         for (PreciseAllocation* allocation : m_preciseAllocations)
             allocation->flip();
+
+        break;
+    }
     }
 
     if (ASSERT_ENABLED) {
@@ -436,7 +459,7 @@ void MarkedSpace::beginMarking()
 
 void MarkedSpace::endMarking()
 {
-    if (UNLIKELY(nextVersion(m_newlyAllocatedVersion) == initialVersion)) {
+    if (nextVersion(m_newlyAllocatedVersion) == initialVersion) [[unlikely]] {
         forEachBlock(
             [&] (MarkedBlock::Handle* handle) {
                 handle->block().resetAllocated();
@@ -567,6 +590,7 @@ void MarkedSpace::dumpBits(PrintStream& out)
 {
     forEachDirectory(
         [&] (BlockDirectory& directory) -> IterationStatus {
+            directory.assertIsMutatorOrMutatorIsStopped();
             out.print("Bits for ", directory, ":\n");
             directory.dumpBits(out);
             return IterationStatus::Continue;
@@ -583,3 +607,5 @@ void MarkedSpace::addBlockDirectory(const AbstractLocker&, BlockDirectory* direc
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

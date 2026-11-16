@@ -25,39 +25,68 @@
 #include "WebKitError.h"
 
 #if PLATFORM(GTK)
-#include <WebCore/GtkVersioning.h>
+#include "GtkVersioning.h"
 #elif PLATFORM(WPE)
+#include "WPEUtilities.h"
+#if USE(LIBWPE)
 #include <wpe/wpe.h>
+#endif
+#if ENABLE(WPE_PLATFORM)
+#include <wpe/wpe-platform.h>
+#endif
+#endif
+
+#if ENABLE(WK_WEB_EXTENSIONS)
+#include "WebExtension.h"
+#include "WebExtensionMatchPattern.h"
 #endif
 
 #if PLATFORM(GTK)
-unsigned toPlatformModifiers(OptionSet<WebKit::WebEvent::Modifier> wkModifiers)
+unsigned toPlatformModifiers(OptionSet<WebKit::WebEventModifier> wkModifiers)
 {
     unsigned modifiers = 0;
-    if (wkModifiers.contains(WebKit::WebEvent::Modifier::ShiftKey))
+    if (wkModifiers.contains(WebKit::WebEventModifier::ShiftKey))
         modifiers |= GDK_SHIFT_MASK;
-    if (wkModifiers.contains(WebKit::WebEvent::Modifier::ControlKey))
+    if (wkModifiers.contains(WebKit::WebEventModifier::ControlKey))
         modifiers |= GDK_CONTROL_MASK;
-    if (wkModifiers.contains(WebKit::WebEvent::Modifier::AltKey))
+    if (wkModifiers.contains(WebKit::WebEventModifier::AltKey))
         modifiers |= GDK_MOD1_MASK;
-    if (wkModifiers.contains(WebKit::WebEvent::Modifier::MetaKey))
+    if (wkModifiers.contains(WebKit::WebEventModifier::MetaKey))
         modifiers |= GDK_META_MASK;
-    if (wkModifiers.contains(WebKit::WebEvent::Modifier::CapsLockKey))
+    if (wkModifiers.contains(WebKit::WebEventModifier::CapsLockKey))
         modifiers |= GDK_LOCK_MASK;
     return modifiers;
 }
 #elif PLATFORM(WPE)
-unsigned toPlatformModifiers(OptionSet<WebKit::WebEvent::Modifier> wkModifiers)
+unsigned toPlatformModifiers(OptionSet<WebKit::WebEventModifier> wkModifiers)
 {
     unsigned modifiers = 0;
-    if (wkModifiers.contains(WebKit::WebEvent::Modifier::ShiftKey))
+#if ENABLE(WPE_PLATFORM)
+    if (WKWPE::isUsingWPEPlatformAPI()) {
+        if (wkModifiers.contains(WebKit::WebEventModifier::ShiftKey))
+            modifiers |= WPE_MODIFIER_KEYBOARD_SHIFT;
+        if (wkModifiers.contains(WebKit::WebEventModifier::ControlKey))
+            modifiers |= WPE_MODIFIER_KEYBOARD_CONTROL;
+        if (wkModifiers.contains(WebKit::WebEventModifier::AltKey))
+            modifiers |= WPE_MODIFIER_KEYBOARD_ALT;
+        if (wkModifiers.contains(WebKit::WebEventModifier::MetaKey))
+            modifiers |= WPE_MODIFIER_KEYBOARD_META;
+        if (wkModifiers.contains(WebKit::WebEventModifier::CapsLockKey))
+            modifiers |= WPE_MODIFIER_KEYBOARD_CAPS_LOCK;
+        return modifiers;
+    }
+#endif
+
+#if USE(LIBWPE)
+    if (wkModifiers.contains(WebKit::WebEventModifier::ShiftKey))
         modifiers |= wpe_input_keyboard_modifier_shift;
-    if (wkModifiers.contains(WebKit::WebEvent::Modifier::ControlKey))
+    if (wkModifiers.contains(WebKit::WebEventModifier::ControlKey))
         modifiers |= wpe_input_keyboard_modifier_control;
-    if (wkModifiers.contains(WebKit::WebEvent::Modifier::AltKey))
+    if (wkModifiers.contains(WebKit::WebEventModifier::AltKey))
         modifiers |= wpe_input_keyboard_modifier_alt;
-    if (wkModifiers.contains(WebKit::WebEvent::Modifier::MetaKey))
+    if (wkModifiers.contains(WebKit::WebEventModifier::MetaKey))
         modifiers |= wpe_input_keyboard_modifier_meta;
+#endif
     return modifiers;
 }
 #endif
@@ -83,17 +112,21 @@ WebKitNavigationType toWebKitNavigationType(WebCore::NavigationType type)
     }
 }
 
-unsigned toWebKitMouseButton(WebKit::WebMouseEvent::Button button)
+unsigned toWebKitMouseButton(WebKit::WebMouseEventButton button)
 {
     switch (button) {
-    case WebKit::WebMouseEvent::Button::NoButton:
+    case WebKit::WebMouseEventButton::None:
         return 0;
-    case WebKit::WebMouseEvent::Button::LeftButton:
+    case WebKit::WebMouseEventButton::Left:
         return 1;
-    case WebKit::WebMouseEvent::Button::MiddleButton:
+    case WebKit::WebMouseEventButton::Middle:
         return 2;
-    case WebKit::WebMouseEvent::Button::RightButton:
+    case WebKit::WebMouseEventButton::Right:
         return 3;
+    case WebKit::WebMouseEventButton::Back:
+        return 4;
+    case WebKit::WebMouseEventButton::Forward:
+        return 5;
     }
     ASSERT_NOT_REACHED();
     return 0;
@@ -114,6 +147,7 @@ unsigned toWebKitError(unsigned webCoreError)
         return WEBKIT_POLICY_ERROR_FRAME_LOAD_INTERRUPTED_BY_POLICY_CHANGE;
     case API::Error::Policy::CannotUseRestrictedPort:
         return WEBKIT_POLICY_ERROR_CANNOT_USE_RESTRICTED_PORT;
+#if !ENABLE(2022_GLIB_API)
     case API::Error::Plugin::CannotFindPlugIn:
         return WEBKIT_PLUGIN_ERROR_CANNOT_FIND_PLUGIN;
     case API::Error::Plugin::CannotLoadPlugIn:
@@ -122,8 +156,13 @@ unsigned toWebKitError(unsigned webCoreError)
         return WEBKIT_PLUGIN_ERROR_JAVA_UNAVAILABLE;
     case API::Error::Plugin::PlugInCancelledConnection:
         return WEBKIT_PLUGIN_ERROR_CONNECTION_CANCELLED;
+#endif
     case API::Error::Plugin::PlugInWillHandleLoad:
+#if ENABLE(2022_GLIB_API)
+        return WEBKIT_MEDIA_ERROR_WILL_HANDLE_LOAD;
+#else
         return WEBKIT_PLUGIN_ERROR_WILL_HANDLE_LOAD;
+#endif
     case API::Error::Download::Transport:
         return WEBKIT_DOWNLOAD_ERROR_NETWORK;
     case API::Error::Download::CancelledByUser:
@@ -144,6 +183,54 @@ unsigned toWebKitError(unsigned webCoreError)
     }
 }
 
+#if ENABLE(WK_WEB_EXTENSIONS)
+#if ENABLE(2022_GLIB_API)
+unsigned toWebKitWebExtensionError(unsigned apiError)
+{
+    auto error = static_cast<WebKit::WebExtension::APIError>(apiError);
+
+    switch (error) {
+    case WebKit::WebExtension::APIError::ResourceNotFound:
+        return WEBKIT_WEB_EXTENSION_ERROR_RESOURCE_NOT_FOUND;
+    case WebKit::WebExtension::APIError::InvalidResourceCodeSignature:
+        return WEBKIT_WEB_EXTENSION_ERROR_INVALID_RESOURCE_CODE_SIGNATURE;
+    case WebKit::WebExtension::APIError::InvalidManifest:
+        return WEBKIT_WEB_EXTENSION_ERROR_INVALID_MANIFEST;
+    case WebKit::WebExtension::APIError::UnsupportedManifestVersion:
+        return WEBKIT_WEB_EXTENSION_ERROR_UNSUPPORTED_MANIFEST_VERSION;
+    case WebKit::WebExtension::APIError::InvalidManifestEntry:
+        return WEBKIT_WEB_EXTENSION_ERROR_INVALID_MANIFEST_ENTRY;
+    case WebKit::WebExtension::APIError::InvalidDeclarativeNetRequestEntry:
+        return WEBKIT_WEB_EXTENSION_ERROR_INVALID_DECLARATIVE_NET_REQUEST_ENTRY;
+    case WebKit::WebExtension::APIError::InvalidBackgroundPersistence:
+        return WEBKIT_WEB_EXTENSION_ERROR_INVALID_BACKGROUND_PERSISTENCE;
+    case WebKit::WebExtension::APIError::InvalidArchive:
+        return WEBKIT_WEB_EXTENSION_ERROR_INVALID_ARCHIVE;
+    case WebKit::WebExtension::APIError::Unknown:
+        return WEBKIT_WEB_EXTENSION_ERROR_UNKNOWN;
+    }
+
+    return WEBKIT_WEB_EXTENSION_ERROR_UNKNOWN;
+}
+#endif // ENABLE(2022_GLIB_API)
+unsigned toWebKitWebExtensionMatchPatternError(unsigned apiError)
+{
+    auto error = static_cast<WebKit::WebExtensionMatchPattern::Error>(apiError);
+
+    switch (error) {
+    case WebKit::WebExtensionMatchPattern::Error::InvalidScheme:
+        return WEBKIT_WEB_EXTENSION_MATCH_PATTERN_ERROR_INVALID_SCHEME;
+    case WebKit::WebExtensionMatchPattern::Error::InvalidHost:
+        return WEBKIT_WEB_EXTENSION_MATCH_PATTERN_ERROR_INVALID_HOST;
+    case WebKit::WebExtensionMatchPattern::Error::InvalidPath:
+        return WEBKIT_WEB_EXTENSION_MATCH_PATTERN_ERROR_INVALID_PATH;
+    case WebKit::WebExtensionMatchPattern::Error::Unknown:
+    default:
+        return WEBKIT_WEB_EXTENSION_MATCH_PATTERN_ERROR_UNKNOWN;
+    }
+}
+#endif // ENABLE(WK_WEB_EXTENSIONS)
+
 unsigned toWebCoreError(unsigned webKitError)
 {
     switch (webKitError) {
@@ -159,6 +246,7 @@ unsigned toWebCoreError(unsigned webKitError)
         return API::Error::Policy::FrameLoadInterruptedByPolicyChange;
     case WEBKIT_POLICY_ERROR_CANNOT_USE_RESTRICTED_PORT:
         return API::Error::Policy::CannotUseRestrictedPort;
+#if !ENABLE(2022_GLIB_API)
     case WEBKIT_PLUGIN_ERROR_CANNOT_FIND_PLUGIN:
         return API::Error::Plugin::CannotFindPlugIn;
     case WEBKIT_PLUGIN_ERROR_CANNOT_LOAD_PLUGIN:
@@ -167,7 +255,12 @@ unsigned toWebCoreError(unsigned webKitError)
         return API::Error::Plugin::JavaUnavailable;
     case WEBKIT_PLUGIN_ERROR_CONNECTION_CANCELLED:
         return API::Error::Plugin::PlugInCancelledConnection;
+#endif
+#if ENABLE(2022_GLIB_API)
+    case WEBKIT_MEDIA_ERROR_WILL_HANDLE_LOAD:
+#else
     case WEBKIT_PLUGIN_ERROR_WILL_HANDLE_LOAD:
+#endif
         return API::Error::Plugin::PlugInWillHandleLoad;
     case WEBKIT_DOWNLOAD_ERROR_NETWORK:
         return API::Error::Download::Transport;

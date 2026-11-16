@@ -28,13 +28,15 @@
 
 #include "JSCInlines.h"
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
     
-const ClassInfo StructureChain::s_info = { "StructureChain", nullptr, nullptr, nullptr, CREATE_METHOD_TABLE(StructureChain) };
+const ClassInfo StructureChain::s_info = { "StructureChain"_s, nullptr, nullptr, nullptr, CREATE_METHOD_TABLE(StructureChain) };
 
 StructureChain::StructureChain(VM& vm, Structure* structure, StructureID* vector)
     : Base(vm, structure)
-    , m_vector(vm, this, vector)
+    , m_vector(vector, WriteBarrierEarlyInit)
 {
 }
 
@@ -44,13 +46,14 @@ StructureChain* StructureChain::create(VM& vm, JSObject* head)
     // By making the size <= UINT16_MAX, we can store length in a high bits of auxiliary pointer.
     // https://bugs.webkit.org/show_bug.cgi?id=200290
     size_t size = 0;
-    for (JSObject* current = head; current; current = current->structure(vm)->storedPrototypeObject(current))
+    for (JSObject* current = head; current; current = current->structure()->storedPrototypeObject(current))
         ++size;
     ++size; // Sentinel nullptr.
     size_t bytes = Checked<size_t>(size) * sizeof(StructureID);
-    StructureID* vector = static_cast<StructureID*>(vm.jsValueGigacageAuxiliarySpace.allocateNonVirtual(vm, bytes, nullptr, AllocationFailureMode::Assert));
+    void* vector = vm.auxiliarySpace().allocate(vm, bytes, nullptr, AllocationFailureMode::Assert);
+    static_assert(!StructureID().bits(), "Make sure the value we're going to memcpy below matches the default StructureID");
     memset(vector, 0, bytes);
-    StructureChain* chain = new (NotNull, allocateCell<StructureChain>(vm.heap)) StructureChain(vm, vm.structureChainStructure.get(), vector);
+    StructureChain* chain = new (NotNull, allocateCell<StructureChain>(vm)) StructureChain(vm, vm.structureChainStructure.get(), static_cast<StructureID*>(vector));
     chain->finishCreation(vm, head);
     return chain;
 }
@@ -59,24 +62,23 @@ void StructureChain::finishCreation(VM& vm, JSObject* head)
 {
     Base::finishCreation(vm);
     size_t i = 0;
-    for (JSObject* current = head; current; current = current->structure(vm)->storedPrototypeObject(current)) {
-        Structure* structure = current->structure(vm);
+    for (JSObject* current = head; current; current = current->structure()->storedPrototypeObject(current)) {
+        Structure* structure = current->structure();
         m_vector.get()[i++] = structure->id();
-        vm.heap.writeBarrier(this);
+        vm.writeBarrier(this);
     }
 }
 
 template<typename Visitor>
 void StructureChain::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    StructureChain* thisObject = jsCast<StructureChain*>(cell);
+    StructureChain* thisObject = uncheckedDowncast<StructureChain>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
     visitor.markAuxiliary(thisObject->m_vector.get());
-    VM& vm = visitor.vm();
     for (auto* current = thisObject->m_vector.get(); *current; ++current) {
         StructureID structureID = *current;
-        Structure* structure = vm.getStructure(structureID);
+        Structure* structure = structureID.decode();
         visitor.appendUnbarriered(structure);
     }
 }
@@ -84,3 +86,5 @@ void StructureChain::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 DEFINE_VISIT_CHILDREN(StructureChain);
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

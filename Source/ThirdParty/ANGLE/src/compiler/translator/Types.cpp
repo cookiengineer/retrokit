@@ -9,6 +9,7 @@
 #endif
 
 #include "compiler/translator/Types.h"
+#include "common/unsafe_buffers.h"
 #include "compiler/translator/ImmutableString.h"
 #include "compiler/translator/InfoSink.h"
 #include "compiler/translator/IntermNode.h"
@@ -140,8 +141,18 @@ const char *getBasicString(TBasicType t)
             return "uimageBuffer";
         case EbtAtomicCounter:
             return "atomic_uint";
-        case EbtSamplerVideoWEBGL:
-            return "samplerVideoWEBGL";
+        case EbtPixelLocalANGLE:
+            return "pixelLocalANGLE";
+        case EbtIPixelLocalANGLE:
+            return "ipixelLocalANGLE";
+        case EbtUPixelLocalANGLE:
+            return "upixelLocalANGLE";
+        case EbtSubpassInput:
+            return "subpassInput";
+        case EbtISubpassInput:
+            return "isubpassInput";
+        case EbtUSubpassInput:
+            return "usubpassInput";
         default:
             UNREACHABLE();
             return "unknown type";
@@ -151,12 +162,10 @@ const char *getBasicString(TBasicType t)
 // TType implementation.
 TType::TType() : TType(EbtVoid, 0, 0) {}
 
-TType::TType(TBasicType t, unsigned char ps, unsigned char ss)
-    : TType(t, EbpUndefined, EvqGlobal, ps, ss)
-{}
+TType::TType(TBasicType t, uint8_t ps, uint8_t ss) : TType(t, EbpUndefined, EvqGlobal, ps, ss) {}
 
-TType::TType(TBasicType t, TPrecision p, TQualifier q, unsigned char ps, unsigned char ss)
-    : TType(t, p, q, ps, ss, TSpan<const unsigned int>(), nullptr)
+TType::TType(TBasicType t, TPrecision p, TQualifier q, uint8_t ps, uint8_t ss)
+    : TType(t, p, q, ps, ss, angle::Span<const unsigned int>(), nullptr)
 {}
 
 TType::TType(const TPublicType &p)
@@ -165,6 +174,7 @@ TType::TType(const TPublicType &p)
       qualifier(p.qualifier),
       invariant(p.invariant),
       precise(p.precise),
+      interpolant(false),
       memoryQualifier(p.memoryQualifier),
       layoutQualifier(p.layoutQualifier),
       primarySize(p.getPrimarySize()),
@@ -173,6 +183,7 @@ TType::TType(const TPublicType &p)
       mInterfaceBlock(nullptr),
       mStructure(nullptr),
       mIsStructSpecifier(false),
+      mInterfaceBlockFieldIndex(0),
       mMangledName(nullptr)
 {
     ASSERT(primarySize <= 4);
@@ -211,20 +222,22 @@ TType::TType(const TType &t)
 
 TType &TType::operator=(const TType &t)
 {
-    type               = t.type;
-    precision          = t.precision;
-    qualifier          = t.qualifier;
-    invariant          = t.invariant;
-    precise            = t.precise;
-    memoryQualifier    = t.memoryQualifier;
-    layoutQualifier    = t.layoutQualifier;
-    primarySize        = t.primarySize;
-    secondarySize      = t.secondarySize;
-    mArraySizesStorage = nullptr;
-    mInterfaceBlock    = t.mInterfaceBlock;
-    mStructure         = t.mStructure;
-    mIsStructSpecifier = t.mIsStructSpecifier;
-    mMangledName       = t.mMangledName;
+    type                      = t.type;
+    precision                 = t.precision;
+    qualifier                 = t.qualifier;
+    invariant                 = t.invariant;
+    precise                   = t.precise;
+    interpolant               = t.interpolant;
+    memoryQualifier           = t.memoryQualifier;
+    layoutQualifier           = t.layoutQualifier;
+    primarySize               = t.primarySize;
+    secondarySize             = t.secondarySize;
+    mArraySizesStorage        = nullptr;
+    mInterfaceBlock           = t.mInterfaceBlock;
+    mStructure                = t.mStructure;
+    mIsStructSpecifier        = t.mIsStructSpecifier;
+    mInterfaceBlockFieldIndex = t.mInterfaceBlockFieldIndex;
+    mMangledName              = t.mMangledName;
 
     if (t.mArraySizesStorage)
     {
@@ -377,11 +390,6 @@ int TType::getDeepestStructNesting() const
     return mStructure ? mStructure->deepestNesting() : 0;
 }
 
-bool TType::isNamelessStruct() const
-{
-    return mStructure && mStructure->symbolType() == SymbolType::Empty;
-}
-
 bool TType::isStructureContainingArrays() const
 {
     return mStructure ? mStructure->containsArrays() : false;
@@ -400,6 +408,16 @@ bool TType::isStructureContainingType(TBasicType t) const
 bool TType::isStructureContainingSamplers() const
 {
     return mStructure ? mStructure->containsSamplers() : false;
+}
+
+bool TType::isStructureContainingOnlySamplers() const
+{
+    return mStructure ? mStructure->containsOnlySamplers() : false;
+}
+
+bool TType::isInterfaceBlockContainingType(TBasicType t) const
+{
+    return isInterfaceBlock() ? mInterfaceBlock->containsType(t) : false;
 }
 
 bool TType::canReplaceWithConstantUnion() const
@@ -436,10 +454,12 @@ const char *TType::buildMangledName() const
     if (basicMangledName[0] != '{')
     {
         mangledName += basicMangledName[0];
-        mangledName += basicMangledName[1];
+        mangledName += ANGLE_UNSAFE_TODO(basicMangledName[1]);
     }
     else
     {
+        constexpr char kStructMangledNameSeparator = ':';
+
         ASSERT(type == EbtStruct || type == EbtInterfaceBlock);
         switch (type)
         {
@@ -449,12 +469,14 @@ const char *TType::buildMangledName() const
                 {
                     mangledName += mStructure->name().data();
                 }
+                mangledName += kStructMangledNameSeparator;
                 mangledName += mStructure->mangledFieldList();
                 mangledName += '}';
                 break;
             case EbtInterfaceBlock:
                 mangledName += "{i";
                 mangledName += mInterfaceBlock->name().data();
+                mangledName += kStructMangledNameSeparator;
                 mangledName += mInterfaceBlock->mangledFieldList();
                 mangledName += '}';
                 break;
@@ -490,8 +512,10 @@ size_t TType::getObjectSize() const
 
     for (size_t arraySize : mArraySizes)
     {
-        if (arraySize > INT_MAX / totalSize)
-            totalSize = INT_MAX;
+        if (arraySize > std::numeric_limits<size_t>::max() / totalSize)
+        {
+            totalSize = std::numeric_limits<size_t>::max();
+        }
         else
             totalSize *= arraySize;
     }
@@ -577,7 +601,7 @@ bool TType::isElementTypeOf(const TType &arrayType) const
     return true;
 }
 
-void TType::sizeUnsizedArrays(const TSpan<const unsigned int> &newArraySizes)
+void TType::sizeUnsizedArrays(const angle::Span<const unsigned int> &newArraySizes)
 {
     ASSERT(!isArray() || mArraySizesStorage != nullptr);
     for (size_t i = 0u; i < getNumArraySizes(); ++i)
@@ -613,7 +637,7 @@ void TType::setBasicType(TBasicType t)
     }
 }
 
-void TType::setPrimarySize(unsigned char ps)
+void TType::setPrimarySize(uint8_t ps)
 {
     if (primarySize != ps)
     {
@@ -623,7 +647,7 @@ void TType::setPrimarySize(unsigned char ps)
     }
 }
 
-void TType::setSecondarySize(unsigned char ss)
+void TType::setSecondarySize(uint8_t ss)
 {
     if (secondarySize != ss)
     {
@@ -644,7 +668,7 @@ void TType::makeArray(unsigned int s)
     onArrayDimensionsChange(*mArraySizesStorage);
 }
 
-void TType::makeArrays(const TSpan<const unsigned int> &sizes)
+void TType::makeArrays(const angle::Span<const unsigned int> &sizes)
 {
     if (mArraySizesStorage == nullptr)
     {
@@ -683,7 +707,22 @@ void TType::toArrayBaseType()
     {
         mArraySizesStorage->clear();
     }
-    onArrayDimensionsChange(TSpan<const unsigned int>());
+    onArrayDimensionsChange(angle::Span<const unsigned int>());
+}
+
+void TType::toMatrixColumnType()
+{
+    ASSERT(isMatrix());
+    primarySize   = secondarySize;
+    secondarySize = 1;
+    invalidateMangledName();
+}
+
+void TType::toComponentType()
+{
+    primarySize   = 1;
+    secondarySize = 1;
+    invalidateMangledName();
 }
 
 void TType::setInterfaceBlock(const TInterfaceBlock *interfaceBlockIn)
@@ -693,6 +732,12 @@ void TType::setInterfaceBlock(const TInterfaceBlock *interfaceBlockIn)
         mInterfaceBlock = interfaceBlockIn;
         invalidateMangledName();
     }
+}
+
+void TType::setInterfaceBlockField(const TInterfaceBlock *interfaceBlockIn, size_t fieldIndex)
+{
+    setInterfaceBlock(interfaceBlockIn);
+    mInterfaceBlockFieldIndex = fieldIndex;
 }
 
 const char *TType::getMangledName() const
@@ -708,47 +753,6 @@ const char *TType::getMangledName() const
 void TType::realize()
 {
     getMangledName();
-}
-
-void TType::createSamplerSymbols(const ImmutableString &namePrefix,
-                                 const TString &apiNamePrefix,
-                                 TVector<const TVariable *> *outputSymbols,
-                                 TMap<const TVariable *, TString> *outputSymbolsToAPINames,
-                                 TSymbolTable *symbolTable) const
-{
-    if (isStructureContainingSamplers())
-    {
-        if (isArray())
-        {
-            TType elementType(*this);
-            elementType.toArrayElementType();
-            for (unsigned int arrayIndex = 0u; arrayIndex < getOutermostArraySize(); ++arrayIndex)
-            {
-                std::stringstream elementName = sh::InitializeStream<std::stringstream>();
-                elementName << namePrefix << "_" << arrayIndex;
-                TStringStream elementApiName;
-                elementApiName << apiNamePrefix << "[" << arrayIndex << "]";
-                elementType.createSamplerSymbols(ImmutableString(elementName.str()),
-                                                 elementApiName.str(), outputSymbols,
-                                                 outputSymbolsToAPINames, symbolTable);
-            }
-        }
-        else
-        {
-            mStructure->createSamplerSymbols(namePrefix.data(), apiNamePrefix, outputSymbols,
-                                             outputSymbolsToAPINames, symbolTable);
-        }
-        return;
-    }
-
-    ASSERT(IsSampler(type));
-    TVariable *variable =
-        new TVariable(symbolTable, namePrefix, new TType(*this), SymbolType::AngleInternal);
-    outputSymbols->push_back(variable);
-    if (outputSymbolsToAPINames)
-    {
-        (*outputSymbolsToAPINames)[variable] = apiNamePrefix;
-    }
 }
 
 TFieldListCollection::TFieldListCollection(const TFieldList *fields)
@@ -799,6 +803,20 @@ bool TFieldListCollection::containsSamplers() const
     return false;
 }
 
+bool TFieldListCollection::containsOnlySamplers() const
+{
+    for (const auto *field : *mFields)
+    {
+        const TType *fieldType = field->type();
+        if (!IsSampler(fieldType->getBasicType()) &&
+            !fieldType->isStructureContainingOnlySamplers())
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 TString TFieldListCollection::buildMangledFieldList() const
 {
     TString mangledName;
@@ -815,8 +833,10 @@ size_t TFieldListCollection::calculateObjectSize() const
     for (const TField *field : *mFields)
     {
         size_t fieldSize = field->type()->getObjectSize();
-        if (fieldSize > INT_MAX - size)
-            size = INT_MAX;
+        if (fieldSize > std::numeric_limits<size_t>::max() - size)
+        {
+            size = std::numeric_limits<size_t>::max();
+        }
         else
             size += fieldSize;
     }
@@ -865,8 +885,10 @@ const TString &TFieldListCollection::mangledFieldList() const
 int TFieldListCollection::calculateDeepestNesting() const
 {
     int maxNesting = 0;
-    for (size_t i = 0; i < mFields->size(); ++i)
-        maxNesting = std::max(maxNesting, (*mFields)[i]->type()->getDeepestStructNesting());
+    for (const TField *field : *mFields)
+    {
+        maxNesting = std::max(maxNesting, field->type()->getDeepestStructNesting());
+    }
     return 1 + maxNesting;
 }
 
@@ -935,6 +957,56 @@ void TPublicType::clearArrayness()
 bool TPublicType::isAggregate() const
 {
     return isArray() || typeSpecifierNonArray.isMatrix() || typeSpecifierNonArray.isVector();
+}
+
+bool TPublicType::isUnsizedArray() const
+{
+    if (!arraySizes)
+    {
+        return false;
+    }
+    for (unsigned int arraySize : *arraySizes)
+    {
+        if (arraySize == 0u)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void TPublicType::sizeUnsizedArrays()
+{
+    auto *sizes = new TVector<unsigned int>(arraySizes->size(), 1);
+    for (size_t i = 0; i < arraySizes->size(); ++i)
+    {
+        auto value = (*arraySizes)[i];
+        if (value != 0)
+        {
+            (*sizes)[i] = value;
+        }
+    }
+    arraySizes = sizes;
+}
+
+void TPublicType::makeArrays(TVector<unsigned int> *sizes)
+{
+    if (arraySizes == nullptr)
+    {
+        arraySizes = sizes;
+        return;
+    }
+    auto *newSizes = new TVector<unsigned int>(arraySizes->size() + sizes->size());
+    size_t i       = 0;
+    for (; i < arraySizes->size(); ++i)
+    {
+        (*newSizes)[i] = (*arraySizes)[i];
+    }
+    for (size_t j = 0; j < sizes->size(); ++j, ++i)
+    {
+        (*newSizes)[i] = (*sizes)[j];
+    }
+    arraySizes = newSizes;
 }
 
 }  // namespace sh

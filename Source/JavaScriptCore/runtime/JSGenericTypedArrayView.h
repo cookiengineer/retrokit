@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -20,28 +20,21 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #pragma once
 
-#include "JSArrayBufferView.h"
-#include "ThrowScope.h"
-#include "ToNativeFromValue.h"
+#include <JavaScriptCore/JSArrayBufferView.h>
+#include <JavaScriptCore/ThrowScope.h>
 
 namespace JSC {
 
-JS_EXPORT_PRIVATE const ClassInfo* getInt8ArrayClassInfo();
-JS_EXPORT_PRIVATE const ClassInfo* getInt16ArrayClassInfo();
-JS_EXPORT_PRIVATE const ClassInfo* getInt32ArrayClassInfo();
-JS_EXPORT_PRIVATE const ClassInfo* getUint8ArrayClassInfo();
-JS_EXPORT_PRIVATE const ClassInfo* getUint8ClampedArrayClassInfo();
-JS_EXPORT_PRIVATE const ClassInfo* getUint16ArrayClassInfo();
-JS_EXPORT_PRIVATE const ClassInfo* getUint32ArrayClassInfo();
-JS_EXPORT_PRIVATE const ClassInfo* getFloat32ArrayClassInfo();
-JS_EXPORT_PRIVATE const ClassInfo* getFloat64ArrayClassInfo();
-JS_EXPORT_PRIVATE const ClassInfo* getBigInt64ArrayClassInfo();
-JS_EXPORT_PRIVATE const ClassInfo* getBigUint64ArrayClassInfo();
+#define JSC_DECLARE_CLASS_INFO_FUNCTION(type) \
+    JS_EXPORT_PRIVATE const ClassInfo* get##type##ArrayClassInfo(); \
+    JS_EXPORT_PRIVATE const ClassInfo* getResizableOrGrowableShared##type##ArrayClassInfo();
+FOR_EACH_TYPED_ARRAY_TYPE_EXCLUDING_DATA_VIEW(JSC_DECLARE_CLASS_INFO_FUNCTION)
+#undef JSC_DECLARE_CLASS_INFO_FUNCTION
 
 // A typed array view is our representation of a typed array object as seen
 // from JavaScript. For example:
@@ -55,10 +48,10 @@ JS_EXPORT_PRIVATE const ClassInfo* getBigUint64ArrayClassInfo();
 //     Structure* S     // from JSCell
 //     Butterfly* B     // from JSObject
 //     ElementType* V
-//     uint32_t L
+//     size_t L
 //     TypedArrayMode M
 //
-// These fields take up a total of four pointer-width words. FIXME: Make
+// These fields take up a total of five pointer-width words. FIXME: Make
 // it take less words!
 //
 // B is usually unused but may stored some additional "overflow" data for
@@ -80,19 +73,13 @@ JS_EXPORT_PRIVATE const ClassInfo* getBigUint64ArrayClassInfo();
 //     static int8_t toNativeFromInt32(int32_t);
 //     static int8_t toNativeFromUint32(uint32_t);
 //     static int8_t toNativeFromDouble(double);
+//     static int8_t toNativeFromUndefined();
 //     static JSValue toJSValue(int8_t);
 //     template<T> static T::Type convertTo(uint8_t);
 // };
 
-enum class CopyType {
-    LeftToRight,
-    Unobservable,
-};
-
-extern const ASCIILiteral typedArrayBufferHasBeenDetachedErrorMessage;
-
 template<typename PassedAdaptor>
-class JSGenericTypedArrayView final : public JSArrayBufferView {
+class JSGenericTypedArrayView : public JSArrayBufferView {
 public:
     using Base = JSArrayBufferView;
     using Adaptor = PassedAdaptor;
@@ -103,200 +90,81 @@ public:
 
     static constexpr unsigned elementSize = sizeof(typename Adaptor::Type);
 
-    static JSGenericTypedArrayView* create(JSGlobalObject*, Structure*, unsigned length);
-    static JSGenericTypedArrayView* createWithFastVector(JSGlobalObject*, Structure*, unsigned length, void* vector);
-    static JSGenericTypedArrayView* createUninitialized(JSGlobalObject*, Structure*, unsigned length);
-    static JSGenericTypedArrayView* create(JSGlobalObject*, Structure*, RefPtr<ArrayBuffer>&&, unsigned byteOffset, unsigned length);
+    static JSGenericTypedArrayView* create(JSGlobalObject*, Structure*, size_t length);
+    static JSGenericTypedArrayView* createWithFastVector(JSGlobalObject*, Structure*, size_t length, void* vector);
+    static JSGenericTypedArrayView* createUninitialized(JSGlobalObject*, Structure*, size_t length);
+    static JSGenericTypedArrayView* create(JSGlobalObject*, Structure*, RefPtr<ArrayBuffer>&&, size_t byteOffset, std::optional<size_t> length);
     static JSGenericTypedArrayView* create(VM&, Structure*, RefPtr<typename Adaptor::ViewType>&& impl);
     static JSGenericTypedArrayView* create(Structure*, JSGlobalObject*, RefPtr<typename Adaptor::ViewType>&& impl);
-    
-    unsigned byteLength() const { return m_length * sizeof(typename Adaptor::Type); }
-    size_t byteSize() const { return sizeOf(m_length, sizeof(typename Adaptor::Type)); }
-    
-    const typename Adaptor::Type* typedVector() const
-    {
-        return bitwise_cast<const typename Adaptor::Type*>(vector());
-    }
-    typename Adaptor::Type* typedVector()
-    {
-        return bitwise_cast<typename Adaptor::Type*>(vector());
-    }
+    static JSGenericTypedArrayView* tryCreate(JSGlobalObject*, Structure*, RefPtr<typename Adaptor::ViewType>&& impl);
 
-    bool inBounds(unsigned i) const
-    {
-        return i < m_length;
-    }
+    inline size_t byteLength() const;
+    inline size_t byteLengthRaw() const;
+
+    inline const typename Adaptor::Type* typedVector() const;
+    inline typename Adaptor::Type* typedVector();
+
+    std::span<const typename Adaptor::Type> typedSpan() const { return unsafeMakeSpan(typedVector(), length()); }
+    std::span<typename Adaptor::Type> typedSpan() { return unsafeMakeSpan(typedVector(), length()); }
+
+    inline bool inBounds(uint64_t) const;
 
     // These methods are meant to match indexed access methods that JSObject
     // supports - hence the slight redundancy.
-    bool canGetIndexQuickly(unsigned i) const
-    {
-        return inBounds(i) && Adaptor::canConvertToJSQuickly;
-    }
-    bool canSetIndexQuickly(unsigned i, JSValue value) const
-    {
-        return i < m_length && value.isNumber() && Adaptor::canConvertToJSQuickly;
-    }
-    
-    typename Adaptor::Type getIndexQuicklyAsNativeValue(unsigned i) const
-    {
-        ASSERT(i < m_length);
-        return typedVector()[i];
-    }
-    
-    JSValue getIndexQuickly(unsigned i) const
-    {
-        return Adaptor::toJSValue(nullptr, getIndexQuicklyAsNativeValue(i));
-    }
-    
-    void setIndexQuicklyToNativeValue(unsigned i, typename Adaptor::Type value)
-    {
-        ASSERT(i < m_length);
-        typedVector()[i] = value;
-    }
-    
-    void setIndexQuickly(unsigned i, JSValue value)
-    {
-        ASSERT(!value.isObject());
-        setIndexQuicklyToNativeValue(i, toNativeFromValue<Adaptor>(value));
-    }
-    
-    bool setIndex(JSGlobalObject* globalObject, unsigned i, JSValue jsValue)
-    {
-        VM& vm = getVM(globalObject);
-        auto scope = DECLARE_THROW_SCOPE(vm);
+    inline bool canGetIndexQuickly(size_t) const;
+    inline bool canSetIndexQuickly(size_t, JSValue) const;
+    inline typename Adaptor::Type getIndexQuicklyAsNativeValue(size_t) const;
+    inline JSValue getIndexQuickly(size_t) const;
+    inline void setIndexQuicklyToNativeValue(size_t, typename Adaptor::Type);
+    inline void setIndexQuickly(size_t, JSValue);
+    inline bool setIndex(JSGlobalObject*, size_t, JSValue);
 
-        typename Adaptor::Type value = toNativeFromValue<Adaptor>(globalObject, jsValue);
-        RETURN_IF_EXCEPTION(scope, false);
+    static inline ElementType toAdaptorNativeFromValue(JSGlobalObject*, JSValue);
+    static inline std::optional<ElementType> toAdaptorNativeFromValueWithoutCoercion(JSValue);
 
-        if (isDetached() || i >= m_length)
-            return false;
+    enum class SortResult { Success, OutOfMemory, Failed };
+    inline SortResult sort();
 
-        setIndexQuicklyToNativeValue(i, value);
-        return true;
-    }
+    inline bool canAccessRangeQuickly(size_t offset, size_t length);
 
-    static ElementType toAdaptorNativeFromValue(JSGlobalObject* globalObject, JSValue jsValue) { return toNativeFromValue<Adaptor>(globalObject, jsValue); }
-
-    static std::optional<ElementType> toAdaptorNativeFromValueWithoutCoercion(JSValue jsValue) { return toNativeFromValueWithoutCoercion<Adaptor>(jsValue); }
-
-    void sort()
-    {
-        RELEASE_ASSERT(!isDetached());
-        switch (Adaptor::typeValue) {
-        case TypeFloat32:
-            sortFloat<int32_t>();
-            break;
-        case TypeFloat64:
-            sortFloat<int64_t>();
-            break;
-        default: {
-            ElementType* array = typedVector();
-            std::sort(array, array + m_length);
-            break;
-        }
-        }
-    }
-
-    bool canAccessRangeQuickly(unsigned offset, unsigned length)
-    {
-        return offset <= m_length
-            && offset + length <= m_length
-            // check overflow
-            && offset + length >= offset;
-    }
-    
     // Like canSetQuickly, except: if it returns false, it will throw the
     // appropriate exception.
-    bool validateRange(JSGlobalObject*, unsigned offset, unsigned length);
+    bool validateRange(JSGlobalObject*, size_t offset, size_t length);
 
     // Returns true if successful, and false on error; if it returns false
     // then it will have thrown an exception.
-    bool set(JSGlobalObject*, unsigned offset, JSObject*, unsigned objectOffset, unsigned length, CopyType type = CopyType::Unobservable);
-    
+    bool setFromTypedArray(JSGlobalObject*, size_t offset, JSArrayBufferView*, size_t objectOffset, size_t length, CopyType);
+    bool setFromArrayLike(JSGlobalObject*, size_t offset, JSObject*, size_t objectOffset, size_t length);
+    bool setFromArrayLike(JSGlobalObject*, size_t offset, JSValue source);
+
     RefPtr<typename Adaptor::ViewType> possiblySharedTypedImpl();
     RefPtr<typename Adaptor::ViewType> unsharedTypedImpl();
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(typeForTypedArrayType(Adaptor::typeValue), StructureFlags), info(), NonArray);
-    }
-    
-    static const ClassInfo s_info; // This is never accessed directly, since that would break linkage on some compilers.
-    
-    static const ClassInfo* info()
-    {
-        switch (Adaptor::typeValue) {
-        case TypeInt8:
-            return getInt8ArrayClassInfo();
-        case TypeInt16:
-            return getInt16ArrayClassInfo();
-        case TypeInt32:
-            return getInt32ArrayClassInfo();
-        case TypeUint8:
-            return getUint8ArrayClassInfo();
-        case TypeUint8Clamped:
-            return getUint8ClampedArrayClassInfo();
-        case TypeUint16:
-            return getUint16ArrayClassInfo();
-        case TypeUint32:
-            return getUint32ArrayClassInfo();
-        case TypeFloat32:
-            return getFloat32ArrayClassInfo();
-        case TypeFloat64:
-            return getFloat64ArrayClassInfo();
-        case TypeBigInt64:
-            return getBigInt64ArrayClassInfo();
-        case TypeBigUint64:
-            return getBigUint64ArrayClassInfo();
-        default:
-            RELEASE_ASSERT_NOT_REACHED();
-            return nullptr;
-        }
-    }
+    static inline Structure* createStructure(VM&, JSGlobalObject*, JSValue prototype);
 
-    template<typename CellType, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
-    {
-        switch (Adaptor::typeValue) {
-        case TypeInt8:
-            return vm.int8ArraySpace<mode>();
-        case TypeInt16:
-            return vm.int16ArraySpace<mode>();
-        case TypeInt32:
-            return vm.int32ArraySpace<mode>();
-        case TypeUint8:
-            return vm.uint8ArraySpace<mode>();
-        case TypeUint8Clamped:
-            return vm.uint8ClampedArraySpace<mode>();
-        case TypeUint16:
-            return vm.uint16ArraySpace<mode>();
-        case TypeUint32:
-            return vm.uint32ArraySpace<mode>();
-        case TypeFloat32:
-            return vm.float32ArraySpace<mode>();
-        case TypeFloat64:
-            return vm.float64ArraySpace<mode>();
-        case TypeBigInt64:
-            return vm.bigInt64ArraySpace<mode>();
-        case TypeBigUint64:
-            return vm.bigUint64ArraySpace<mode>();
-        default:
-            RELEASE_ASSERT_NOT_REACHED();
-            return nullptr;
-        }
-    }
-    
+    static const ClassInfo s_info; // This is never accessed directly, since that would break linkage on some compilers.
+    static inline const ClassInfo* info();
+
+    template<typename CellType, SubspaceAccess mode> static inline GCClient::IsoSubspace* subspaceFor(VM&);
+
     ArrayBuffer* existingBuffer();
 
     static constexpr TypedArrayType TypedArrayStorageType = Adaptor::typeValue;
 
     // This is the default DOM unwrapping. It calls toUnsharedNativeTypedView().
-    static RefPtr<typename Adaptor::ViewType> toWrapped(VM&, JSValue);
+    static inline RefPtr<typename Adaptor::ViewType> toWrapped(VM&, JSValue);
+    static inline RefPtr<typename Adaptor::ViewType> toWrappedAllowResizable(VM&, JSValue);
+
     // [AllowShared] annotation allows accepting TypedArray originated from SharedArrayBuffer.
-    static RefPtr<typename Adaptor::ViewType> toWrappedAllowShared(VM&, JSValue);
-    
-private:
+    static inline RefPtr<typename Adaptor::ViewType> toWrappedAllowShared(VM&, JSValue);
+    static inline RefPtr<typename Adaptor::ViewType> toWrappedAllowSharedAndResizable(VM&, JSValue);
+
+    inline void copyFromInt32ShapeArray(size_t offset, JSArray*, size_t objectOffset, size_t length);
+    inline void copyFromDoubleShapeArray(size_t offset, JSArray*, size_t objectOffset, size_t length);
+
+    DECLARE_VISIT_CHILDREN;
+
+protected:
     friend struct TypedArrayClassInfos;
 
     JSGenericTypedArrayView(VM&, ConstructionContext&);
@@ -309,17 +177,16 @@ private:
     static bool getOwnPropertySlotByIndex(JSObject*, JSGlobalObject*, unsigned propertyName, PropertySlot&);
     static bool putByIndex(JSCell*, JSGlobalObject*, unsigned propertyName, JSValue, bool shouldThrow);
     static bool deletePropertyByIndex(JSCell*, JSGlobalObject*, unsigned propertyName);
-    
-    static void getOwnPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArray&, DontEnumPropertiesMode);
+
+    static void getOwnPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArrayBuilder&, DontEnumPropertiesMode);
 
     static size_t estimatedSize(JSCell*, VM&);
-    DECLARE_VISIT_CHILDREN;
 
     // Returns true if successful, and false on error; it will throw on error.
     template<typename OtherAdaptor>
     bool setWithSpecificType(
-        JSGlobalObject*, unsigned offset, JSGenericTypedArrayView<OtherAdaptor>*,
-        unsigned objectOffset, unsigned length, CopyType);
+        JSGlobalObject*, size_t offset, JSGenericTypedArrayView<OtherAdaptor>*,
+        size_t objectOffset, size_t length, CopyType);
 
     // The ECMA 6 spec states that floating point Typed Arrays should have the following ordering:
     //
@@ -346,65 +213,26 @@ private:
     // For NaN, we normalize the NaN to a peticular representation; the sign bit is 0, all exponential bits
     // are 1 and only the MSB of the mantissa is 1. So, NaN is recognized as the largest integral numbers.
 
-    void purifyArray()
-    {
-        ElementType* array = typedVector();
-        for (unsigned i = 0; i < m_length; i++)
-            array[i] = purifyNaN(array[i]);
-    }
-
-    template<typename IntegralType>
-    void sortFloat()
-    {
-        ASSERT(sizeof(IntegralType) == sizeof(ElementType));
-
-        // Since there might be another view that sets the bits of
-        // our floats to NaNs with negative sign bits we need to
-        // purify the array.
-        // We use a separate function here to avoid the strict aliasing rule.
-        // We could use a union but ASAN seems to frown upon that.
-        purifyArray();
-
-        IntegralType* array = reinterpret_cast_ptr<IntegralType*>(typedVector());
-        std::sort(array, array + m_length, [] (IntegralType a, IntegralType b) {
-            if (a >= 0 || b >= 0)
-                return a < b;
-            return a > b;
-        });
-
-    }
-
+    template<typename IntegralType> inline void sortFloat(ElementType* begin, ElementType* end);
 };
 
-template<typename Adaptor>
-inline RefPtr<typename Adaptor::ViewType> toPossiblySharedNativeTypedView(VM& vm, JSValue value)
-{
-    typename Adaptor::JSViewType* wrapper = jsDynamicCast<typename Adaptor::JSViewType*>(vm, value);
-    if (!wrapper)
-        return nullptr;
-    return wrapper->possiblySharedTypedImpl();
-}
+template<typename PassedAdaptor>
+class JSGenericResizableOrGrowableSharedTypedArrayView final : public JSGenericTypedArrayView<PassedAdaptor> {
+public:
+    using Base = JSGenericTypedArrayView<PassedAdaptor>;
+    using Base::StructureFlags;
 
-template<typename Adaptor>
-inline RefPtr<typename Adaptor::ViewType> toUnsharedNativeTypedView(VM& vm, JSValue value)
-{
-    RefPtr<typename Adaptor::ViewType> result = toPossiblySharedNativeTypedView<Adaptor>(vm, value);
-    if (!result || result->isShared())
-        return nullptr;
-    return result;
-}
+    static constexpr bool isResizableOrGrowableSharedTypedArray = true;
 
-template<typename Adaptor>
-RefPtr<typename Adaptor::ViewType> JSGenericTypedArrayView<Adaptor>::toWrapped(VM& vm, JSValue value)
-{
-    return JSC::toUnsharedNativeTypedView<Adaptor>(vm, value);
-}
+    static const ClassInfo s_info; // This is never accessed directly, since that would break linkage on some compilers.
 
-template<typename Adaptor>
-RefPtr<typename Adaptor::ViewType> JSGenericTypedArrayView<Adaptor>::toWrappedAllowShared(VM& vm, JSValue value)
-{
-    return JSC::toPossiblySharedNativeTypedView<Adaptor>(vm, value);
-}
+    static inline const ClassInfo* info();
+    static inline Structure* createStructure(VM&, JSGlobalObject*, JSValue prototype);
 
+    static bool preventExtensions(JSObject*, JSGlobalObject*);
+};
+
+template<typename Adaptor> inline RefPtr<typename Adaptor::ViewType> toPossiblySharedNativeTypedView(VM&, JSValue);
+template<typename Adaptor> inline RefPtr<typename Adaptor::ViewType> toUnsharedNativeTypedView(VM&, JSValue);
 
 } // namespace JSC

@@ -25,10 +25,11 @@
 
 #pragma once
 
-#include <wtf/Forward.h>
-#include <wtf/Function.h>
+#include <wtf/CompletionHandler.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
+struct FrameInfoData;
 class WebFrameProxy;
 class WebPageProxy;
 }
@@ -37,11 +38,11 @@ namespace API {
 class Object;
 
 class FormClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FormClient);
 public:
     virtual ~FormClient() { }
 
-    virtual void willSubmitForm(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, WebKit::WebFrameProxy&, const Vector<std::pair<WTF::String, WTF::String>>&, API::Object*, WTF::Function<void(void)>&& completionHandler)
+    virtual void willSubmitForm(WebKit::WebPageProxy&, WebKit::WebFrameProxy&, WebKit::WebFrameProxy&, WebKit::FrameInfoData&&, WebKit::FrameInfoData&&, const Vector<std::pair<WTF::String, WTF::String>>&, API::Object*, const WTF::URL&, const WTF::String&, CompletionHandler<void()>&& completionHandler)
     {
         completionHandler();
     }

@@ -25,9 +25,9 @@
 
 #pragma once
 
-#include "MacroAssemblerCodeRef.h"
-#include "OpcodeSize.h"
-#include "VM.h"
+#include <JavaScriptCore/MacroAssemblerCodeRef.h>
+#include <JavaScriptCore/OpcodeSize.h>
+#include <JavaScriptCore/VM.h>
 #include <wtf/Scope.h>
 
 namespace JSC {
@@ -36,17 +36,31 @@ struct ProtoCallFrame;
 typedef int64_t EncodedJSValue;
 
 extern "C" {
-    EncodedJSValue vmEntryToJavaScript(void*, VM*, ProtoCallFrame*);
-    EncodedJSValue vmEntryToNative(void*, VM*, ProtoCallFrame*);
-    EncodedJSValue vmEntryCustomGetter(CPURegister, CPURegister, CPURegister, CPURegister);
-    EncodedJSValue vmEntryCustomSetter(CPURegister, CPURegister, CPURegister, CPURegister, CPURegister);
-    EncodedJSValue vmEntryHostFunction(JSGlobalObject*, CallFrame*, void*);
+    EncodedJSValue SYSV_ABI NOT_TAIL_CALLED vmEntryToJavaScript(void*, VM*, ProtoCallFrame*);
+    EncodedJSValue SYSV_ABI NOT_TAIL_CALLED vmEntryToNative(void*, VM*, ProtoCallFrame*);
+    EncodedJSValue SYSV_ABI NOT_TAIL_CALLED vmEntryCustomGetter(JSGlobalObject*, EncodedJSValue, PropertyName, void*);
+    void SYSV_ABI NOT_TAIL_CALLED vmEntryCustomSetter(JSGlobalObject*, EncodedJSValue, EncodedJSValue, PropertyName, void*);
+    EncodedJSValue SYSV_ABI NOT_TAIL_CALLED vmEntryHostFunction(JSGlobalObject*, CallFrame*, void*);
+
+#if (CPU(ARM64) || CPU(X86_64)) && CPU(ADDRESS64) && !ENABLE(C_LOOP)
+    EncodedJSValue SYSV_ABI NOT_TAIL_CALLED vmEntryToJavaScriptWith0Arguments(void*, VM*, CodeBlock*, JSObject*, JSValue, JSCell*);
+    EncodedJSValue SYSV_ABI NOT_TAIL_CALLED vmEntryToJavaScriptWith1Arguments(void*, VM*, CodeBlock*, JSObject*, JSValue, JSCell*, JSValue);
+    EncodedJSValue SYSV_ABI NOT_TAIL_CALLED vmEntryToJavaScriptWith2Arguments(void*, VM*, CodeBlock*, JSObject*, JSValue, JSCell*, JSValue, JSValue);
+    EncodedJSValue SYSV_ABI NOT_TAIL_CALLED vmEntryToJavaScriptWith3Arguments(void*, VM*, CodeBlock*, JSObject*, JSValue, JSCell*, JSValue, JSValue, JSValue);
+    EncodedJSValue SYSV_ABI NOT_TAIL_CALLED vmEntryToJavaScriptWith4Arguments(void*, VM*, CodeBlock*, JSObject*, JSValue, JSCell*, JSValue, JSValue, JSValue, JSValue);
+    EncodedJSValue SYSV_ABI NOT_TAIL_CALLED vmEntryToJavaScriptWith5Arguments(void*, VM*, CodeBlock*, JSObject*, JSValue, JSCell*, JSValue, JSValue, JSValue, JSValue, JSValue);
+    EncodedJSValue SYSV_ABI NOT_TAIL_CALLED vmEntryToJavaScriptWith6Arguments(void*, VM*, CodeBlock*, JSObject*, JSValue, JSCell*, JSValue, JSValue, JSValue, JSValue, JSValue, JSValue);
+#endif
 }
 
-#if CPU(ARM64E)
+#if CPU(ARM64E) && !ENABLE(C_LOOP)
 extern "C" {
     void jitCagePtrGateAfter(void);
     void vmEntryToJavaScriptGateAfter(void);
+
+    // WebCore calls these from SelectorCompiler, so they are not hidden like normal LLInt symbols.
+    JS_EXPORT_PRIVATE unsigned SYSV_ABI vmEntryToCSSJIT(uintptr_t, uintptr_t, uintptr_t, const void* codePtr);
+    JS_EXPORT_PRIVATE void SYSV_ABI vmEntryToCSSJITAfter(void);
 
     void llint_function_for_call_arity_checkUntagGateAfter(void);
     void llint_function_for_call_arity_checkTagGateAfter(void);
@@ -73,9 +87,13 @@ MacroAssemblerCodeRef<JSEntryPtrTag> functionForConstructArityCheckThunk();
 MacroAssemblerCodeRef<JSEntryPtrTag> evalEntryThunk();
 MacroAssemblerCodeRef<JSEntryPtrTag> programEntryThunk();
 MacroAssemblerCodeRef<JSEntryPtrTag> moduleProgramEntryThunk();
+MacroAssemblerCodeRef<JSEntryPtrTag> defaultCallThunk();
 MacroAssemblerCodeRef<JSEntryPtrTag> getHostCallReturnValueThunk();
 MacroAssemblerCodeRef<JSEntryPtrTag> genericReturnPointThunk(OpcodeSize);
 MacroAssemblerCodeRef<JSEntryPtrTag> fuzzerReturnEarlyFromLoopHintThunk();
+#if ENABLE(JIT)
+MacroAssemblerCodeRef<JITThunkPtrTag> arityFixupThunk();
+#endif
 
 MacroAssemblerCodeRef<ExceptionHandlerPtrTag> callToThrowThunk();
 MacroAssemblerCodeRef<ExceptionHandlerPtrTag> handleUncaughtExceptionThunk();
@@ -88,7 +106,8 @@ MacroAssemblerCodeRef<NativeToJITGatePtrTag> jitCagePtrThunk();
 #if CPU(ARM64E)
 MacroAssemblerCodeRef<NativeToJITGatePtrTag> createJSGateThunk(void*, PtrTag, const char*);
 MacroAssemblerCodeRef<NativeToJITGatePtrTag> createWasmGateThunk(void*, PtrTag, const char*);
-MacroAssemblerCodeRef<NativeToJITGatePtrTag> createTailCallGate(PtrTag);
+MacroAssemblerCodeRef<NativeToJITGatePtrTag> createTailCallGate(PtrTag, bool);
+MacroAssemblerCodeRef<NativeToJITGatePtrTag> createWasmTailCallGate(PtrTag);
 MacroAssemblerCodeRef<NativeToJITGatePtrTag> loopOSREntryGateThunk();
 MacroAssemblerCodeRef<NativeToJITGatePtrTag> entryOSREntryGateThunk();
 MacroAssemblerCodeRef<NativeToJITGatePtrTag> wasmOSREntryGateThunk();
@@ -102,11 +121,26 @@ MacroAssemblerCodeRef<JSEntryPtrTag> normalOSRExitTrampolineThunk();
 #if ENABLE(DFG_JIT)
 MacroAssemblerCodeRef<JSEntryPtrTag> checkpointOSRExitTrampolineThunk();
 MacroAssemblerCodeRef<JSEntryPtrTag> checkpointOSRExitFromInlinedCallTrampolineThunk();
+MacroAssemblerCodeRef<JSEntryPtrTag> arraySortComparatorReturnTrampolineThunk();
 MacroAssemblerCodeRef<JSEntryPtrTag> returnLocationThunk(OpcodeID, OpcodeSize);
 #endif
 
 #if ENABLE(WEBASSEMBLY)
-MacroAssemblerCodeRef<JITThunkPtrTag> wasmFunctionEntryThunk();
+MacroAssemblerCodeRef<JITThunkPtrTag> inPlaceInterpreterEntryThunk();
+MacroAssemblerCodeRef<JITThunkPtrTag> inPlaceInterpreterCatchEntryThunk();
+MacroAssemblerCodeRef<JITThunkPtrTag> inPlaceInterpreterCatchAllEntryThunk();
+MacroAssemblerCodeRef<JITThunkPtrTag> inPlaceInterpreterTableCatchEntryThunk();
+MacroAssemblerCodeRef<JITThunkPtrTag> inPlaceInterpreterTableCatchRefEntryThunk();
+MacroAssemblerCodeRef<JITThunkPtrTag> inPlaceInterpreterTableCatchAllEntryThunk();
+MacroAssemblerCodeRef<JITThunkPtrTag> inPlaceInterpreterTableCatchAllrefEntryThunk();
+#if CPU(ARM64E)
+MacroAssemblerCodeRef<NativeToJITGatePtrTag> relocateJITReturnPCThunk(void*);
+MacroAssemblerCodeRef<NativeToJITGatePtrTag> exitImplantedSliceGateThunk(void*);
+MacroAssemblerCodeRef<NativeToJITGatePtrTag> getSentinelFrameReturnPCGateThunk(void*);
+#endif
+#if ENABLE(JIT_CAGE)
+MacroAssemblerCodeRef<NativeToJITGatePtrTag> wasmRestoreFrameGateThunk();
+#endif // ENABLE(JIT_CAGE)
 #endif // ENABLE(WEBASSEMBLY)
 
 } } // namespace JSC::LLInt

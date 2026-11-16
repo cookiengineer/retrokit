@@ -20,7 +20,7 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "pas_config.h"
@@ -29,28 +29,31 @@
 
 #include "pas_large_map.h"
 
-#include "pas_large_heap.h"
 #include "pas_large_utility_free_heap.h"
+#include "pas_mte.h"
 
-pas_large_map_hashtable pas_large_map_hashtable_instance = PAS_HASHTABLE_INITIALIZER;
-pas_large_map_hashtable_in_flux_stash pas_large_map_hashtable_instance_in_flux_stash;
-pas_small_large_map_hashtable pas_small_large_map_hashtable_instance = PAS_HASHTABLE_INITIALIZER;
-pas_small_large_map_hashtable_in_flux_stash pas_small_large_map_hashtable_instance_in_flux_stash;
-pas_tiny_large_map_hashtable pas_tiny_large_map_hashtable_instance = PAS_HASHTABLE_INITIALIZER;
-pas_tiny_large_map_hashtable_in_flux_stash pas_tiny_large_map_hashtable_instance_in_flux_stash;
-pas_tiny_large_map_second_level_hashtable_in_flux_stash pas_tiny_large_map_second_level_hashtable_in_flux_stash_instance;
+pas_large_map pas_large_maps[PAS_NUM_LARGE_MAP_VARIANTS] = {
+    [pas_default_large_map_variant] = {
+        .large_map_hashtable = PAS_HASHTABLE_INITIALIZER,
+        .small_large_map_hashtable = PAS_HASHTABLE_INITIALIZER,
+        .tiny_large_map_hashtable = PAS_HASHTABLE_INITIALIZER,
+    },
+    [pas_sequestered_large_map_variant] = {
+        .large_map_hashtable = PAS_HASHTABLE_INITIALIZER,
+        .small_large_map_hashtable = PAS_HASHTABLE_INITIALIZER,
+        .tiny_large_map_hashtable = PAS_HASHTABLE_INITIALIZER,
+    },
+};
 
-pas_large_map_entry pas_large_map_find(uintptr_t begin)
+static pas_large_map_entry pas_large_map_find_in(pas_large_map* map, uintptr_t begin)
 {
     uintptr_t tiny_base;
     pas_first_level_tiny_large_map_entry* first_level_tiny_entry;
     pas_small_large_map_entry* small_entry;
 
-    pas_heap_lock_assert_held();
-
     tiny_base = pas_tiny_large_map_entry_base(begin);
     first_level_tiny_entry = pas_tiny_large_map_hashtable_find(
-        &pas_tiny_large_map_hashtable_instance, tiny_base);
+        &map->tiny_large_map_hashtable, tiny_base);
     if (first_level_tiny_entry) {
         pas_tiny_large_map_entry* tiny_entry;
         PAS_ASSERT(first_level_tiny_entry->base == tiny_base);
@@ -63,21 +66,43 @@ pas_large_map_entry pas_large_map_find(uintptr_t begin)
     }
 
     small_entry = pas_small_large_map_hashtable_find(
-        &pas_small_large_map_hashtable_instance, begin);
+        &map->small_large_map_hashtable, begin);
     if (small_entry)
         return pas_small_large_map_entry_get_entry(*small_entry);
 
-    return pas_large_map_hashtable_get(&pas_large_map_hashtable_instance, begin);
+    return pas_large_map_hashtable_get(&map->large_map_hashtable, begin);
 }
 
-void pas_large_map_add(pas_large_map_entry entry)
+pas_large_map_entry pas_large_map_find(uintptr_t begin)
 {
-    static const bool verbose = false;
-    
+    unsigned variant_index;
+
+    PAS_PROFILE(LARGE_MAP_FIND, begin);
+    PAS_MTE_HANDLE(LARGE_MAP_FIND, begin);
+
     pas_heap_lock_assert_held();
 
+    for (variant_index = 0; variant_index < PAS_NUM_LARGE_MAP_VARIANTS; variant_index++) {
+        pas_large_map_entry result;
+        result = pas_large_map_find_in(&pas_large_maps[variant_index], begin);
+        if (!pas_large_map_entry_is_empty(result))
+            return result;
+    }
+
+    return pas_large_map_entry_create_empty();
+}
+
+void pas_large_map_add(pas_large_map* map, pas_large_map_entry entry)
+{
+    static const bool verbose = PAS_SHOULD_LOG(PAS_LOG_LARGE_HEAPS);
+
+    pas_heap_lock_assert_held();
+
+    PAS_PROFILE(LARGE_MAP_ADD, entry.begin, entry.end);
+    PAS_MTE_HANDLE(LARGE_MAP_ADD, entry.begin, entry.end);
+
     if (verbose)
-        pas_log("adding %p...%p, heap = %p.\n", (void*)entry.begin, (void*)entry.end, entry.heap);
+        pas_log("large map adding %p...%p, heap = %p.\n", (void*)entry.begin, (void*)entry.end, entry.heap);
 
     if (pas_tiny_large_map_entry_can_create(entry)) {
         pas_tiny_large_map_hashtable_add_result add_result;
@@ -85,24 +110,24 @@ void pas_large_map_add(pas_large_map_entry entry)
         pas_tiny_large_map_entry tiny_entry;
 
         if (verbose)
-            pas_log("can be tiny.\n");
+            pas_log("large map can be tiny.\n");
 
         tiny_base = pas_tiny_large_map_entry_base(entry.begin);
 
         tiny_entry = pas_tiny_large_map_entry_create(entry);
 
         if (verbose)
-            pas_log("adding base = %p.\n", tiny_base);
+            pas_log("large map adding base = %p.\n", (void*)tiny_base);
 
         add_result = pas_tiny_large_map_hashtable_add(
-            &pas_tiny_large_map_hashtable_instance, tiny_base,
-            &pas_tiny_large_map_hashtable_instance_in_flux_stash,
+            &map->tiny_large_map_hashtable, tiny_base,
+            &map->tiny_large_map_hashtable_in_flux_stash,
             &pas_large_utility_free_heap_allocation_config);
 
         if (add_result.is_new_entry) {
             if (verbose)
-                pas_log("allocating table.\n");
-            pas_tiny_large_map_hashtable_instance_in_flux_stash.in_flux_entry = add_result.entry;
+                pas_log("large map allocating table.\n");
+            map->tiny_large_map_hashtable_in_flux_stash.in_flux_entry = add_result.entry;
             pas_compiler_fence();
             add_result.entry->base = tiny_base;
             add_result.entry->hashtable =
@@ -110,12 +135,12 @@ void pas_large_map_add(pas_large_map_entry entry)
                                           "pas_tiny_large_map_second_level_hashtable");
             pas_tiny_large_map_second_level_hashtable_construct(add_result.entry->hashtable);
             pas_compiler_fence();
-            pas_tiny_large_map_hashtable_instance_in_flux_stash.in_flux_entry = NULL;
+            map->tiny_large_map_hashtable_in_flux_stash.in_flux_entry = NULL;
         }
 
         pas_tiny_large_map_second_level_hashtable_add_new(
             add_result.entry->hashtable, tiny_entry,
-            &pas_tiny_large_map_second_level_hashtable_in_flux_stash_instance,
+            &map->tiny_large_map_second_level_hashtable_in_flux_stash,
             &pas_large_utility_free_heap_allocation_config);
         return;
     }
@@ -124,62 +149,57 @@ void pas_large_map_add(pas_large_map_entry entry)
         pas_small_large_map_entry small_entry;
 
         if (verbose)
-            pas_log("can be small.\n");
+            pas_log("large map can be small.\n");
 
         small_entry = pas_small_large_map_entry_create(entry);
-        
+
         pas_small_large_map_hashtable_add_new(
-            &pas_small_large_map_hashtable_instance, small_entry,
-            &pas_small_large_map_hashtable_instance_in_flux_stash,
+            &map->small_large_map_hashtable, small_entry,
+            &map->small_large_map_hashtable_in_flux_stash,
             &pas_large_utility_free_heap_allocation_config);
         return;
     }
 
     if (verbose)
-        pas_log("gotta be large.\n");
+        pas_log("large map gotta be large.\n");
 
     pas_large_map_hashtable_add_new(
-        &pas_large_map_hashtable_instance, entry,
-        &pas_large_map_hashtable_instance_in_flux_stash,
+        &map->large_map_hashtable, entry,
+        &map->large_map_hashtable_in_flux_stash,
         &pas_large_utility_free_heap_allocation_config);
 }
 
-pas_large_map_entry pas_large_map_take(uintptr_t begin)
+static pas_large_map_entry pas_large_map_take_from(pas_large_map* map, uintptr_t begin)
 {
-    static const bool verbose = false;
-    
+    static const bool verbose = PAS_SHOULD_LOG(PAS_LOG_LARGE_HEAPS);
+
     uintptr_t tiny_base;
     pas_first_level_tiny_large_map_entry* first_level_tiny_entry;
     pas_small_large_map_entry small_entry;
 
-    pas_heap_lock_assert_held();
-
-    if (verbose)
-        pas_log("taking begin = %p.\n", (void*)begin);
-
     tiny_base = pas_tiny_large_map_entry_base(begin);
     if (verbose)
-        pas_log("tiny_base = %p.\n", tiny_base);
+        pas_log("large map tiny_base = %p.\n", (void*)tiny_base);
     first_level_tiny_entry = pas_tiny_large_map_hashtable_find(
-        &pas_tiny_large_map_hashtable_instance, tiny_base);
+        &map->tiny_large_map_hashtable, tiny_base);
     if (first_level_tiny_entry) {
         pas_tiny_large_map_second_level_hashtable* second_hashtable;
         pas_tiny_large_map_entry tiny_entry;
         if (verbose)
-            pas_log("found first level tiny.\n");
+            pas_log("large map found first level tiny.\n");
         PAS_ASSERT(first_level_tiny_entry->base == tiny_base);
         second_hashtable = first_level_tiny_entry->hashtable;
         if (pas_tiny_large_map_second_level_hashtable_take_and_return_if_taken(
                 second_hashtable, begin - tiny_base, &tiny_entry,
-                &pas_tiny_large_map_second_level_hashtable_in_flux_stash_instance,
+                &map->tiny_large_map_second_level_hashtable_in_flux_stash,
                 &pas_large_utility_free_heap_allocation_config)) {
             if (verbose)
-                pas_log("found second level tiny.\n");
+                pas_log("large map found second level tiny.\n");
             PAS_ASSERT(pas_tiny_large_map_entry_begin(tiny_entry, tiny_base) == begin);
             if (!pas_tiny_large_map_second_level_hashtable_size(second_hashtable)) {
                 pas_tiny_large_map_hashtable_delete(
-                    &pas_tiny_large_map_hashtable_instance, tiny_base,
-                    &pas_tiny_large_map_hashtable_instance_in_flux_stash,
+                    &map->tiny_large_map_hashtable, tiny_base,
+                    &map->tiny_large_map_hashtable_in_flux_stash,
                     &pas_large_utility_free_heap_allocation_config);
                 pas_tiny_large_map_second_level_hashtable_destruct(
                     second_hashtable, &pas_large_utility_free_heap_allocation_config);
@@ -190,26 +210,50 @@ pas_large_map_entry pas_large_map_take(uintptr_t begin)
     }
 
     if (pas_small_large_map_hashtable_take_and_return_if_taken(
-            &pas_small_large_map_hashtable_instance, begin, &small_entry,
-            &pas_small_large_map_hashtable_instance_in_flux_stash,
+            &map->small_large_map_hashtable, begin, &small_entry,
+            &map->small_large_map_hashtable_in_flux_stash,
             &pas_large_utility_free_heap_allocation_config))
         return pas_small_large_map_entry_get_entry(small_entry);
 
     return pas_large_map_hashtable_take(
-        &pas_large_map_hashtable_instance, begin,
-        &pas_large_map_hashtable_instance_in_flux_stash,
+        &map->large_map_hashtable, begin,
+        &map->large_map_hashtable_in_flux_stash,
         &pas_large_utility_free_heap_allocation_config);
 }
 
-bool pas_large_map_for_each_entry(pas_large_map_for_each_entry_callback callback,
-                                  void* arg)
+pas_large_map_entry pas_large_map_take(uintptr_t begin)
+{
+    static const bool verbose = PAS_SHOULD_LOG(PAS_LOG_LARGE_HEAPS);
+    unsigned variant_index;
+
+    PAS_PROFILE(LARGE_MAP_TAKE, begin);
+    PAS_MTE_HANDLE(LARGE_MAP_TAKE, begin);
+
+    pas_heap_lock_assert_held();
+
+    if (verbose)
+        pas_log("large map taking begin = %p.\n", (void*)begin);
+
+    for (variant_index = 0; variant_index < PAS_NUM_LARGE_MAP_VARIANTS; variant_index++) {
+        pas_large_map_entry result;
+        result = pas_large_map_take_from(&pas_large_maps[variant_index], begin);
+        if (!pas_large_map_entry_is_empty(result))
+            return result;
+    }
+
+    return pas_large_map_entry_create_empty();
+}
+
+static bool pas_large_map_for_each_entry_in(pas_large_map* map,
+                                             pas_large_map_for_each_entry_callback callback,
+                                             void* arg)
 {
     size_t index;
 
-    for (index = pas_large_map_hashtable_entry_index_end(&pas_large_map_hashtable_instance);
+    for (index = pas_large_map_hashtable_entry_index_end(&map->large_map_hashtable);
          index--;) {
         pas_large_map_entry entry;
-        entry = *pas_large_map_hashtable_entry_at_index(&pas_large_map_hashtable_instance,
+        entry = *pas_large_map_hashtable_entry_at_index(&map->large_map_hashtable,
                                                         index);
         if (pas_large_map_entry_is_empty_or_deleted(entry))
             continue;
@@ -218,11 +262,11 @@ bool pas_large_map_for_each_entry(pas_large_map_for_each_entry_callback callback
     }
 
     for (index = pas_small_large_map_hashtable_entry_index_end(
-             &pas_small_large_map_hashtable_instance);
+             &map->small_large_map_hashtable);
          index--;) {
         pas_small_large_map_entry entry;
         entry = *pas_small_large_map_hashtable_entry_at_index(
-            &pas_small_large_map_hashtable_instance,
+            &map->small_large_map_hashtable,
             index);
         if (pas_small_large_map_entry_is_empty_or_deleted(entry))
             continue;
@@ -231,11 +275,11 @@ bool pas_large_map_for_each_entry(pas_large_map_for_each_entry_callback callback
     }
 
     for (index = pas_tiny_large_map_hashtable_entry_index_end(
-             &pas_tiny_large_map_hashtable_instance);
+             &map->tiny_large_map_hashtable);
          index--;) {
         pas_first_level_tiny_large_map_entry entry;
         size_t second_index;
-        entry = *pas_tiny_large_map_hashtable_entry_at_index(&pas_tiny_large_map_hashtable_instance,
+        entry = *pas_tiny_large_map_hashtable_entry_at_index(&map->tiny_large_map_hashtable,
                                                              index);
         if (pas_first_level_tiny_large_map_entry_is_empty_or_deleted(entry))
             continue;
@@ -250,6 +294,19 @@ bool pas_large_map_for_each_entry(pas_large_map_for_each_entry_callback callback
             if (!callback(pas_tiny_large_map_entry_get_entry(second_entry, entry.base), arg))
                 return false;
         }
+    }
+
+    return true;
+}
+
+bool pas_large_map_for_each_entry(pas_large_map_for_each_entry_callback callback,
+                                  void* arg)
+{
+    unsigned variant_index;
+
+    for (variant_index = 0; variant_index < PAS_NUM_LARGE_MAP_VARIANTS; variant_index++) {
+        if (!pas_large_map_for_each_entry_in(&pas_large_maps[variant_index], callback, arg))
+            return false;
     }
 
     return true;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc.  All rights reserved.
+ * Copyright (C) 2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,7 +35,7 @@ namespace {
 
 class State {
     WTF_MAKE_NONCOPYABLE(State);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(State);
 public:
 
     struct CallData {
@@ -43,7 +43,7 @@ public:
         unsigned callCount { 0 };
         Seconds maxDuration;
         
-        Seconds meanDuration() const { return totalDuration / callCount; }
+        Seconds NODELETE meanDuration() const { return totalDuration / callCount; }
     };
 
     State() = default;
@@ -75,7 +75,7 @@ void TimingScope::scopeDidEnd()
 {
     const auto& data = state().addToTotal(m_name, MonotonicTime::now() - m_startTime);
     if (!(data.callCount % m_logIterationInterval))
-        WTFLogAlways("%s: %u calls, mean duration: %.6fms, total duration: %.6fms, max duration %.6fms", m_name, data.callCount, data.meanDuration().milliseconds(), data.totalDuration.milliseconds(), data.maxDuration.milliseconds());
+        WTFLogAlways("%s: %u calls, mean duration: %.6fms, total duration: %.6fms, max duration %.6fms", m_name.characters(), data.callCount, data.meanDuration().milliseconds(), data.totalDuration.milliseconds(), data.maxDuration.milliseconds());
 }
 
-} // namespace WebCore
+} // namespace WTF

@@ -23,18 +23,44 @@
 
 #pragma once
 
+#include <WebCore/CollectionType.h>
+
+namespace WebCore {
+
+class TagCollection;
+class TagCollectionNS;
+class HTMLTagCollection;
+
+template<>
+struct CollectionClassTraits<TagCollection> {
+    static constexpr CollectionType collectionType = CollectionType::ByTag;
+};
+
+template<>
+struct CollectionClassTraits<TagCollectionNS> {
+    static constexpr CollectionType collectionType = CollectionType::ByTag;
+};
+
+template<>
+struct CollectionClassTraits<HTMLTagCollection> {
+    static constexpr CollectionType collectionType = CollectionType::ByHTMLTag;
+};
+
+} // namespace WebCore
+
 #include "CachedHTMLCollection.h"
+#include "CommonAtomStrings.h"
 #include <wtf/text/AtomString.h>
 
 namespace WebCore {
 
 // HTMLCollection that limits to a particular tag.
-class TagCollection final : public CachedHTMLCollection<TagCollection, CollectionTypeTraits<ByTag>::traversalType> {
-    WTF_MAKE_ISO_ALLOCATED(TagCollection);
+class TagCollection final : public CachedHTMLCollection<TagCollection> {
+    WTF_MAKE_TZONE_ALLOCATED(TagCollection);
 public:
     static Ref<TagCollection> create(ContainerNode& rootNode, CollectionType type, const AtomString& qualifiedName)
     {
-        ASSERT_UNUSED(type, type == ByTag);
+        ASSERT_UNUSED(type, type == CollectionType::ByTag);
         return adoptRef(*new TagCollection(rootNode, qualifiedName));
     }
 
@@ -47,8 +73,8 @@ private:
     AtomString m_qualifiedName;
 };
 
-class TagCollectionNS final : public CachedHTMLCollection<TagCollectionNS, CollectionTypeTraits<ByTag>::traversalType> {
-    WTF_MAKE_ISO_ALLOCATED(TagCollectionNS);
+class TagCollectionNS final : public CachedHTMLCollection<TagCollectionNS> {
+    WTF_MAKE_TZONE_ALLOCATED(TagCollectionNS);
 public:
     static Ref<TagCollectionNS> create(ContainerNode& rootNode, const AtomString& namespaceURI, const AtomString& localName)
     {
@@ -65,12 +91,12 @@ private:
     AtomString m_localName;
 };
 
-class HTMLTagCollection final : public CachedHTMLCollection<HTMLTagCollection, CollectionTypeTraits<ByHTMLTag>::traversalType> {
-    WTF_MAKE_ISO_ALLOCATED(HTMLTagCollection);
+class HTMLTagCollection final : public CachedHTMLCollection<HTMLTagCollection> {
+    WTF_MAKE_TZONE_ALLOCATED(HTMLTagCollection);
 public:
     static Ref<HTMLTagCollection> create(ContainerNode& rootNode, CollectionType type, const AtomString& qualifiedName)
     {
-        ASSERT_UNUSED(type, type == ByHTMLTag);
+        ASSERT_UNUSED(type, type == CollectionType::ByHTMLTag);
         return adoptRef(*new HTMLTagCollection(rootNode, qualifiedName));
     }
 
@@ -104,3 +130,6 @@ inline bool HTMLTagCollection::elementMatches(Element& element) const
 }
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_HTMLCOLLECTION(TagCollection)
+SPECIALIZE_TYPE_TRAITS_HTMLCOLLECTION(HTMLTagCollection)

@@ -29,18 +29,20 @@
 #include <wtf/HashTraits.h>
 #include <wtf/Hasher.h>
 #include <wtf/Vector.h>
+#include <wtf/text/Latin1Character.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
 class CachedResource;
-class SharedBuffer;
+class FragmentedSharedBuffer;
 
 struct ResourceCryptographicDigest {
-    enum class Algorithm {
+    static constexpr unsigned algorithmCount = 3;
+    enum class Algorithm : uint8_t {
         SHA256 = 1 << 0,
         SHA384 = 1 << 1,
-        SHA512 = 1 << 2,
+        SHA512 = 1 << (algorithmCount - 1),
     };
 
     // Number of bytes to hold SHA-512 digest
@@ -49,16 +51,14 @@ struct ResourceCryptographicDigest {
     Algorithm algorithm;
     Vector<uint8_t> value;
 
-    bool operator==(const ResourceCryptographicDigest& other) const
-    {
-        return algorithm == other.algorithm && value == other.value;
-    }
-
-    bool operator!=(const ResourceCryptographicDigest& other) const
-    {
-        return !(*this == other);
-    }
+    friend bool operator==(const ResourceCryptographicDigest&, const ResourceCryptographicDigest&) = default;
+    static constexpr bool safeToCompareToHashTableEmptyOrDeletedValue = true;
 };
+
+inline void add(Hasher& hasher, const ResourceCryptographicDigest& digest)
+{
+    add(hasher, digest.algorithm, digest.value);
+}
 
 struct EncodedResourceCryptographicDigest {
     using Algorithm = ResourceCryptographicDigest::Algorithm;
@@ -67,32 +67,20 @@ struct EncodedResourceCryptographicDigest {
     String digest;
 };
 
-std::optional<ResourceCryptographicDigest> parseCryptographicDigest(StringParsingBuffer<UChar>&);
-std::optional<ResourceCryptographicDigest> parseCryptographicDigest(StringParsingBuffer<LChar>&);
+std::optional<ResourceCryptographicDigest> parseCryptographicDigest(StringParsingBuffer<char16_t>&);
+std::optional<ResourceCryptographicDigest> parseCryptographicDigest(StringParsingBuffer<Latin1Character>&);
 
-std::optional<EncodedResourceCryptographicDigest> parseEncodedCryptographicDigest(StringParsingBuffer<UChar>&);
-std::optional<EncodedResourceCryptographicDigest> parseEncodedCryptographicDigest(StringParsingBuffer<LChar>&);
+std::optional<EncodedResourceCryptographicDigest> parseEncodedCryptographicDigest(StringParsingBuffer<char16_t>&);
+std::optional<EncodedResourceCryptographicDigest> parseEncodedCryptographicDigest(StringParsingBuffer<Latin1Character>&);
 
 std::optional<ResourceCryptographicDigest> decodeEncodedResourceCryptographicDigest(const EncodedResourceCryptographicDigest&);
 
-ResourceCryptographicDigest cryptographicDigestForSharedBuffer(ResourceCryptographicDigest::Algorithm, const SharedBuffer*);
-ResourceCryptographicDigest cryptographicDigestForBytes(ResourceCryptographicDigest::Algorithm, const void* bytes, size_t length);
+ResourceCryptographicDigest cryptographicDigestForSharedBuffer(ResourceCryptographicDigest::Algorithm, const FragmentedSharedBuffer*);
+ResourceCryptographicDigest cryptographicDigestForBytes(ResourceCryptographicDigest::Algorithm, std::span<const uint8_t> bytes);
 
 }
 
 namespace WTF {
-
-template<> struct DefaultHash<WebCore::ResourceCryptographicDigest> {
-    static unsigned hash(const WebCore::ResourceCryptographicDigest& digest)
-    {
-        return pairIntHash(intHash(static_cast<unsigned>(digest.algorithm)), StringHasher::computeHash(digest.value.data(), digest.value.size()));
-    }
-    static bool equal(const WebCore::ResourceCryptographicDigest& a, const WebCore::ResourceCryptographicDigest& b)
-    {
-        return a == b;
-    }
-    static const bool safeToCompareToEmptyOrDeleted = true;
-};
 
 template<> struct HashTraits<WebCore::ResourceCryptographicDigest> : GenericHashTraits<WebCore::ResourceCryptographicDigest> {
     using Algorithm = WebCore::ResourceCryptographicDigest::Algorithm;
@@ -106,6 +94,8 @@ template<> struct HashTraits<WebCore::ResourceCryptographicDigest> : GenericHash
     {
         return { emptyAlgorithmValue, { } };
     }
+
+    static bool isEmptyValue(const WebCore::ResourceCryptographicDigest& value) { return value.algorithm == emptyAlgorithmValue; }
 
     static void constructDeletedValue(WebCore::ResourceCryptographicDigest& slot)
     {

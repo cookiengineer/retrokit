@@ -25,6 +25,10 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
+#if PLATFORM(COCOA)
+
 #include <Block.h>
 #include <utility>
 #include <wtf/Assertions.h>
@@ -32,25 +36,45 @@
 
 #if __has_include(<ptrauth.h>)
 #include <ptrauth.h>
+
+#ifdef __ptrauth_block_copy_helper
 #define WTF_COPY_FUNCTION_POINTER_QUALIFIER __ptrauth_block_copy_helper
+#else
+#define WTF_COPY_FUNCTION_POINTER_QUALIFIER
+#endif
+
+#ifdef __ptrauth_block_destroy_helper
 #define WTF_DISPOSE_FUNCTION_POINTER_QUALIFIER __ptrauth_block_destroy_helper
+#else
+#define WTF_DISPOSE_FUNCTION_POINTER_QUALIFIER
+#endif
+
+#ifdef __ptrauth_block_invocation_pointer
 #define WTF_INVOKE_FUNCTION_POINTER_QUALIFIER __ptrauth_block_invocation_pointer
+#else
+#define WTF_INVOKE_FUNCTION_POINTER_QUALIFIER
+#endif
+
 #ifdef __ptrauth_objc_isa_pointer
 #define WTF_ISA_POINTER_QUALIFIER __ptrauth_objc_isa_pointer
 #else
 #define WTF_ISA_POINTER_QUALIFIER
 #endif
+
 #else
+
 #define WTF_COPY_FUNCTION_POINTER_QUALIFIER
 #define WTF_DISPOSE_FUNCTION_POINTER_QUALIFIER
 #define WTF_INVOKE_FUNCTION_POINTER_QUALIFIER
 #define WTF_ISA_POINTER_QUALIFIER
+
 #endif
 
 // Because ARC enablement is a compile-time choice, and we compile this header
 // both ways, we need a separate copy of our code when ARC is enabled.
 #if __has_feature(objc_arc)
 #define BlockPtr BlockPtrArc
+#define makeBlockPtr makeBlockPtrArc
 #endif
 
 namespace WTF {
@@ -130,7 +154,7 @@ public:
 
     BlockPtr(BlockType block)
 #if __has_feature(objc_arc)
-        : m_block(WTFMove(block))
+        : m_block(block)
 #else
         : m_block(Block_copy(block))
 #endif
@@ -174,13 +198,8 @@ public:
 
     BlockPtr& operator=(BlockPtr&& other)
     {
-        ASSERT(this != &other);
-
-#if !__has_feature(objc_arc)
-        Block_release(m_block);
-#endif
-        m_block = std::exchange(other.m_block, nullptr);
-
+        BlockPtr moved(std::move(other));
+        std::swap(m_block, moved.m_block);
         return *this;
     }
 
@@ -228,3 +247,5 @@ inline auto makeBlockPtr(F&& function)
 
 using WTF::BlockPtr;
 using WTF::makeBlockPtr;
+
+#endif // PLATFORM(COCOA)

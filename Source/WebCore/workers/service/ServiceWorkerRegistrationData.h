@@ -25,13 +25,11 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
-#include "ServiceWorkerData.h"
-#include "ServiceWorkerIdentifier.h"
-#include "ServiceWorkerRegistrationKey.h"
-#include "ServiceWorkerTypes.h"
-#include "ServiceWorkerUpdateViaCache.h"
+#include <WebCore/ServiceWorkerData.h>
+#include <WebCore/ServiceWorkerIdentifier.h>
+#include <WebCore/ServiceWorkerRegistrationKey.h>
+#include <WebCore/ServiceWorkerTypes.h>
+#include <WebCore/ServiceWorkerUpdateViaCache.h>
 #include <wtf/WallTime.h>
 
 namespace WebCore {
@@ -39,6 +37,8 @@ namespace WebCore {
 enum class ServiceWorkerUpdateViaCache : uint8_t;
 
 struct ServiceWorkerRegistrationData {
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(ServiceWorkerRegistrationData);
+
     ServiceWorkerRegistrationKey key;
     ServiceWorkerRegistrationIdentifier identifier;
     URL scopeURL;
@@ -49,65 +49,8 @@ struct ServiceWorkerRegistrationData {
     std::optional<ServiceWorkerData> waitingWorker;
     std::optional<ServiceWorkerData> activeWorker;
 
-    ServiceWorkerRegistrationData isolatedCopy() const;
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<ServiceWorkerRegistrationData> decode(Decoder&);
+    ServiceWorkerRegistrationData isolatedCopy() const &;
+    ServiceWorkerRegistrationData isolatedCopy() &&;
 };
 
-
-template<class Encoder>
-void ServiceWorkerRegistrationData::encode(Encoder& encoder) const
-{
-    encoder << key << identifier << scopeURL << updateViaCache << lastUpdateTime.secondsSinceEpoch().value() << installingWorker << waitingWorker << activeWorker;
-}
-
-template<class Decoder>
-std::optional<ServiceWorkerRegistrationData> ServiceWorkerRegistrationData::decode(Decoder& decoder)
-{
-    std::optional<ServiceWorkerRegistrationKey> key;
-    decoder >> key;
-    if (!key)
-        return std::nullopt;
-    
-    std::optional<ServiceWorkerRegistrationIdentifier> identifier;
-    decoder >> identifier;
-    if (!identifier)
-        return std::nullopt;
-
-    std::optional<URL> scopeURL;
-    decoder >> scopeURL;
-    if (!scopeURL)
-        return std::nullopt;
-
-    std::optional<ServiceWorkerUpdateViaCache> updateViaCache;
-    decoder >> updateViaCache;
-    if (!updateViaCache)
-        return std::nullopt;
-
-    std::optional<double> rawWallTime;
-    decoder >> rawWallTime;
-    if (!rawWallTime)
-        return std::nullopt;
-
-    std::optional<std::optional<ServiceWorkerData>> installingWorker;
-    decoder >> installingWorker;
-    if (!installingWorker)
-        return std::nullopt;
-
-    std::optional<std::optional<ServiceWorkerData>> waitingWorker;
-    decoder >> waitingWorker;
-    if (!waitingWorker)
-        return std::nullopt;
-
-    std::optional<std::optional<ServiceWorkerData>> activeWorker;
-    decoder >> activeWorker;
-    if (!activeWorker)
-        return std::nullopt;
-
-    return { { WTFMove(*key), WTFMove(*identifier), WTFMove(*scopeURL), WTFMove(*updateViaCache), WallTime::fromRawSeconds(*rawWallTime), WTFMove(*installingWorker), WTFMove(*waitingWorker), WTFMove(*activeWorker) } };
-}
-
 } // namespace WTF
-
-#endif // ENABLE(SERVICE_WORKER)

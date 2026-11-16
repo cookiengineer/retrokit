@@ -40,24 +40,29 @@ constexpr size_t kTextureStorageObserverMessageIndex = 0;
 class TextureStorage : public angle::Subject
 {
   public:
-    TextureStorage() {}
+    TextureStorage(const std::string &label) : mKHRDebugLabel(label) {}
     ~TextureStorage() override {}
 
     virtual angle::Result onDestroy(const gl::Context *context);
 
     virtual int getTopLevel() const                   = 0;
     virtual bool isRenderTarget() const               = 0;
+    virtual bool isUnorderedAccess() const            = 0;
     virtual bool isManaged() const                    = 0;
     virtual bool supportsNativeMipmapFunction() const = 0;
     virtual int getLevelCount() const                 = 0;
+    virtual int getLevelWidth(int mipLevel) const     = 0;
+    virtual int getLevelHeight(int mipLevel) const    = 0;
+    virtual int getLevelDepth(int mipLevel) const     = 0;
+    virtual GLenum getFormat() const                  = 0;
+
+    virtual bool isMultiplanar(const gl::Context *context) = 0;
 
     virtual angle::Result findRenderTarget(const gl::Context *context,
                                            const gl::ImageIndex &index,
-                                           GLsizei samples,
                                            RenderTargetD3D **outRT) const = 0;
     virtual angle::Result getRenderTarget(const gl::Context *context,
                                           const gl::ImageIndex &index,
-                                          GLsizei samples,
                                           RenderTargetD3D **outRT)        = 0;
     virtual angle::Result generateMipmap(const gl::Context *context,
                                          const gl::ImageIndex &sourceIndex,
@@ -73,20 +78,19 @@ class TextureStorage : public angle::Subject
                                   const gl::PixelUnpackState &unpack,
                                   const uint8_t *pixelData)          = 0;
 
-    // This is a no-op for most implementations of TextureStorage. Some (e.g. TextureStorage11_2D)
-    // might override it.
-    virtual angle::Result useLevelZeroWorkaroundTexture(const gl::Context *context,
-                                                        bool useLevelZeroTexture);
-
     virtual void invalidateTextures() {}
 
-    // RenderToTexture methods
-    virtual angle::Result releaseMultisampledTexStorageForLevel(size_t level);
-    virtual angle::Result resolveTexture(const gl::Context *context);
-    virtual GLsizei getRenderToTextureSamples() const;
+    virtual void markLevelDirty(int mipLevel) {}
+    virtual void markDirty() {}
+
+    // Called by outer object when label has changed via KHR_debug extension
+    void setLabel(const std::string &newLabel);
 
   protected:
+    virtual void onLabelUpdate() {}
+
     const angle::Subject *mSubject;
+    std::string mKHRDebugLabel;
 };
 
 inline angle::Result TextureStorage::onDestroy(const gl::Context *context)
@@ -94,25 +98,10 @@ inline angle::Result TextureStorage::onDestroy(const gl::Context *context)
     return angle::Result::Continue;
 }
 
-inline angle::Result TextureStorage::useLevelZeroWorkaroundTexture(const gl::Context *context,
-                                                                   bool useLevelZeroTexture)
+inline void TextureStorage::setLabel(const std::string &newLabel)
 {
-    return angle::Result::Continue;
-}
-
-inline angle::Result TextureStorage::releaseMultisampledTexStorageForLevel(size_t level)
-{
-    return angle::Result::Continue;
-}
-
-inline angle::Result TextureStorage::resolveTexture(const gl::Context *context)
-{
-    return angle::Result::Continue;
-}
-
-inline GLsizei TextureStorage::getRenderToTextureSamples() const
-{
-    return 0;
+    mKHRDebugLabel = newLabel;
+    onLabelUpdate();
 }
 
 using TexStoragePointer = angle::UniqueObjectPointer<TextureStorage, gl::Context>;

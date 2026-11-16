@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2011, 2012 Apple Inc.
+ * Copyright (C) 2006, 2011, 2012 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -21,14 +21,16 @@
 #include "config.h"
 #include "HTMLOptionsCollection.h"
 
-#include <wtf/IsoMallocInlines.h>
+#include "CachedHTMLCollectionInlines.h"
+#include "HTMLOptionsCollectionInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLOptionsCollection);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLOptionsCollection);
 
 HTMLOptionsCollection::HTMLOptionsCollection(HTMLSelectElement& select)
-    : CachedHTMLCollection(select, SelectOptions)
+    : CachedHTMLCollection(select, CollectionType::SelectOptions)
 {
 }
 
@@ -39,27 +41,47 @@ Ref<HTMLOptionsCollection> HTMLOptionsCollection::create(HTMLSelectElement& sele
 
 ExceptionOr<void> HTMLOptionsCollection::add(const OptionOrOptGroupElement& element, const std::optional<HTMLElementOrInt>& before)
 {
-    return selectElement().add(element, before);
+    return protect(selectElement())->add(element, before);
 }
 
 void HTMLOptionsCollection::remove(int index)
 {
-    selectElement().remove(index);
+    protect(selectElement())->remove(index);
 }
 
 int HTMLOptionsCollection::selectedIndex() const
 {
-    return selectElement().selectedIndex();
+    return protect(selectElement())->selectedIndex();
 }
 
 void HTMLOptionsCollection::setSelectedIndex(int index)
 {
-    selectElement().setSelectedIndex(index);
+    protect(selectElement())->setSelectedIndex(index);
+}
+
+unsigned HTMLOptionsCollection::length() const
+{
+    return Base::length();
 }
 
 ExceptionOr<void> HTMLOptionsCollection::setLength(unsigned length)
 {
-    return selectElement().setLength(length);
+    return protect(selectElement())->setLength(length);
+}
+
+HTMLOptionElement* HTMLOptionsCollection::item(unsigned offset) const
+{
+    return downcast<HTMLOptionElement>(Base::item(offset));
+}
+
+HTMLOptionElement* HTMLOptionsCollection::namedItem(const AtomString& name) const
+{
+    return downcast<HTMLOptionElement>(Base::namedItem(name));
+}
+
+ExceptionOr<void> HTMLOptionsCollection::setItem(unsigned index, HTMLOptionElement* optionElement)
+{
+    return protect(selectElement())->setItem(index, optionElement);
 }
 
 } //namespace

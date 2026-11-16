@@ -25,23 +25,26 @@
 
 #pragma once
 
+#include "UserContentControllerParameters.h"
+#include "WebContentMode.h"
 #include "WebsiteAutoplayPolicy.h"
 #include "WebsiteAutoplayQuirk.h"
+#include "WebsiteInlineMediaPlaybackPolicy.h"
 #include "WebsiteLegacyOverflowScrollingTouchPolicy.h"
 #include "WebsiteMediaSourcePolicy.h"
 #include "WebsiteMetaViewportPolicy.h"
 #include "WebsitePopUpPolicy.h"
+#include "WebsitePushAndNotificationsEnabledPolicy.h"
 #include "WebsiteSimulatedMouseEventsDispatchPolicy.h"
+#include <WebCore/AdvancedPrivacyProtections.h>
 #include <WebCore/CustomHeaderFields.h>
 #include <WebCore/DeviceOrientationOrMotionPermissionState.h>
 #include <WebCore/DocumentLoader.h>
 #include <WebCore/FrameLoaderTypes.h>
+#include <WebCore/ResourceRequest.h>
+#include <wtf/HashSet.h>
 #include <wtf/OptionSet.h>
-
-namespace IPC {
-class Decoder;
-class Encoder;
-}
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 class DocumentLoader;
@@ -50,30 +53,49 @@ class DocumentLoader;
 namespace WebKit {
 
 struct WebsitePoliciesData {
+    WTF_MAKE_TZONE_ALLOCATED(WebsitePoliciesData);
+public:
     static void applyToDocumentLoader(WebsitePoliciesData&&, WebCore::DocumentLoader&);
 
-    bool contentBlockersEnabled { true };
-    OptionSet<WebsiteAutoplayQuirk> allowedAutoplayQuirks;
-    WebsiteAutoplayPolicy autoplayPolicy { WebsiteAutoplayPolicy::Default };
-#if ENABLE(DEVICE_ORIENTATION)
-    WebCore::DeviceOrientationOrMotionPermissionState deviceOrientationAndMotionAccessState;
-#endif
+    HashMap<String, Vector<String>> activeContentRuleListActionPatterns;
     Vector<WebCore::CustomHeaderFields> customHeaderFields;
-    WebsitePopUpPolicy popUpPolicy { WebsitePopUpPolicy::Default };
+    Vector<WebCore::TargetedElementSelectors> visibilityAdjustmentSelectors;
     String customUserAgent;
     String customUserAgentAsSiteSpecificQuirks;
     String customNavigatorPlatform;
+    String applicationNameForDesktopUserAgent;
+    OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections;
+    OptionSet<WebsiteAutoplayQuirk> allowedAutoplayQuirks;
+    WebCore::ContentExtensionEnablement contentExtensionEnablement { WebCore::ContentExtensionDefaultEnablement::Enabled, { } };
+#if ENABLE(TOUCH_EVENTS)
+    std::optional<bool> overrideTouchEventDOMAttributesEnabled;
+#endif
+    std::optional<bool> globalPrivacyControlEnabled;
+    WebsiteAutoplayPolicy autoplayPolicy { WebsiteAutoplayPolicy::Default };
+    WebsitePopUpPolicy popUpPolicy { WebsitePopUpPolicy::Default };
     WebsiteMetaViewportPolicy metaViewportPolicy { WebsiteMetaViewportPolicy::Default };
     WebsiteMediaSourcePolicy mediaSourcePolicy { WebsiteMediaSourcePolicy::Default };
     WebsiteSimulatedMouseEventsDispatchPolicy simulatedMouseEventsDispatchPolicy { WebsiteSimulatedMouseEventsDispatchPolicy::Default };
     WebsiteLegacyOverflowScrollingTouchPolicy legacyOverflowScrollingTouchPolicy { WebsiteLegacyOverflowScrollingTouchPolicy::Default };
-    bool allowContentChangeObserverQuirk { false };
     WebCore::AllowsContentJavaScript allowsContentJavaScript { WebCore::AllowsContentJavaScript::Yes };
     WebCore::MouseEventPolicy mouseEventPolicy { WebCore::MouseEventPolicy::Default };
+    WebCore::ModalContainerObservationPolicy modalContainerObservationPolicy { WebCore::ModalContainerObservationPolicy::Disabled };
+    WebCore::ColorSchemePreference colorSchemePreference { WebCore::ColorSchemePreference::NoPreference };
+    WebContentMode preferredContentMode { WebContentMode::Recommended };
+#if ENABLE(DEVICE_ORIENTATION)
+    std::optional<WebCore::DeviceOrientationOrMotionPermissionState> deviceOrientationAndMotionAccessState;
+#endif
+    WebCore::HTTPSByDefaultMode httpsByDefaultMode { WebCore::HTTPSByDefaultMode::Disabled };
     bool idempotentModeAutosizingOnlyHonorsPercentages { false };
-
-    void encode(IPC::Encoder&) const;
-    static std::optional<WebsitePoliciesData> decode(IPC::Decoder&);
+    bool allowPrivacyProxy { true };
+    bool allowSiteSpecificQuirksToOverrideContentMode { false };
+    bool allowSharedProcess { true };
+    bool allowsJSHandleCreationInPageWorld { false };
+    WebsitePushAndNotificationsEnabledPolicy pushAndNotificationsEnabledPolicy { WebsitePushAndNotificationsEnabledPolicy::UseGlobalPolicy };
+    WebsiteInlineMediaPlaybackPolicy inlineMediaPlaybackPolicy { WebsiteInlineMediaPlaybackPolicy::Default };
+    WebCore::ResourceRequest alternateRequest;
+    std::optional<UserContentControllerParameters> userContentControllerParameters;
+    String overrideReferrerForAllRequests;
 };
 
 } // namespace WebKit

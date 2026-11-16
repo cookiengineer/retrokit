@@ -27,26 +27,32 @@
 
 #include "CSSStyleSheet.h"
 #include "ContentType.h"
+#include "DeprecatedGlobalSettings.h"
+#include "DocumentPage.h"
 #include "DocumentType.h"
 #include "Element.h"
-#include "FTPDirectoryDocument.h"
-#include "Frame.h"
 #include "FrameLoader.h"
-#include "FrameLoaderClient.h"
+#include "HTMLBodyElement.h"
 #include "HTMLDocument.h"
 #include "HTMLHeadElement.h"
+#include "HTMLHtmlElement.h"
 #include "HTMLTitleElement.h"
 #include "Image.h"
 #include "ImageDocument.h"
+#include "LocalFrame.h"
+#include "LocalFrameLoaderClient.h"
 #include "MIMETypeRegistry.h"
 #include "MediaDocument.h"
-#include "MediaList.h"
 #include "MediaPlayer.h"
-#include "Page.h"
+#include "MediaQueryParser.h"
+#include "NameValidation.h"
+#include "PDFJSDocument.h"
+#include "ParserContentPolicy.h"
 #include "PluginData.h"
 #include "PluginDocument.h"
 #include "SVGDocument.h"
 #include "SVGNames.h"
+#include "ScriptWrappableInlines.h"
 #include "SecurityOrigin.h"
 #include "SecurityOriginPolicy.h"
 #include "Settings.h"
@@ -54,46 +60,55 @@
 #include "Text.h"
 #include "TextDocument.h"
 #include "XMLDocument.h"
-#include <wtf/IsoMallocInlines.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
+
+#if ENABLE(MODEL_ELEMENT)
+#include "ModelDocument.h"
+#endif
 
 namespace WebCore {
 
 using namespace HTMLNames;
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(DOMImplementation);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(DOMImplementation);
 
 DOMImplementation::DOMImplementation(Document& document)
     : m_document(document)
 {
 }
 
-ExceptionOr<Ref<DocumentType>> DOMImplementation::createDocumentType(const String& qualifiedName, const String& publicId, const String& systemId)
+ExceptionOr<Ref<DocumentType>> DOMImplementation::createDocumentType(const AtomString& qualifiedName, const String& publicId, const String& systemId)
 {
-    auto parseResult = Document::parseQualifiedName(qualifiedName);
-    if (parseResult.hasException())
-        return parseResult.releaseException();
-    return DocumentType::create(m_document, qualifiedName, publicId, systemId);
+    if (!NameValidation::isValidDoctypeName(qualifiedName))
+        return Exception { ExceptionCode::InvalidCharacterError, makeString("Invalid doctype name: '"_s, qualifiedName, '\'') };
+    return DocumentType::create(protect(document()), qualifiedName, publicId, systemId);
 }
 
 static inline Ref<XMLDocument> createXMLDocument(const String& namespaceURI, const Settings& settings)
 {
+    RefPtr<XMLDocument> document;
     if (namespaceURI == SVGNames::svgNamespaceURI)
-        return SVGDocument::create(nullptr, settings, URL());
-    if (namespaceURI == HTMLNames::xhtmlNamespaceURI)
-        return XMLDocument::createXHTML(nullptr, settings, URL());
-    return XMLDocument::create(nullptr, settings, URL());
+        document = SVGDocument::create(nullptr, settings, URL());
+    else if (namespaceURI == HTMLNames::xhtmlNamespaceURI)
+        document = XMLDocument::createXHTML(nullptr, settings, URL());
+    else
+        document = XMLDocument::create(nullptr, settings, URL());
+    document->setParserContentPolicy({ ParserContentPolicy::AllowScriptingContent });
+    return document.releaseNonNull();
 }
 
-ExceptionOr<Ref<XMLDocument>> DOMImplementation::createDocument(const String& namespaceURI, const String& qualifiedName, DocumentType* documentType)
+ExceptionOr<Ref<XMLDocument>> DOMImplementation::createDocument(const AtomString& namespaceURI, const AtomString& qualifiedName, DocumentType* documentType)
 {
-    auto document = createXMLDocument(namespaceURI, m_document.settings());
-    document->setContextDocument(m_document.contextDocument());
-    document->setSecurityOriginPolicy(m_document.securityOriginPolicy());
+    Ref thisDocument = m_document.get();
+    Ref document = createXMLDocument(namespaceURI, thisDocument->settings());
+    document->setParserContentPolicy({ ParserContentPolicy::AllowScriptingContent });
+    document->setContextDocument(thisDocument->contextDocument());
+    document->setSecurityOriginPolicy(thisDocument->securityOriginPolicy());
 
     RefPtr<Element> documentElement;
     if (!qualifiedName.isEmpty()) {
-        ASSERT(!document->domWindow()); // If domWindow is not null, createElementNS could find CustomElementRegistry and arbitrary scripts.
+        ASSERT(!document->window()); // If domWindow is not null, createElementNS could find CustomElementRegistry and arbitrary scripts.
         auto result = document->createElementNS(namespaceURI, qualifiedName);
         if (result.hasException())
             return result.releaseException();
@@ -113,41 +128,57 @@ Ref<CSSStyleSheet> DOMImplementation::createCSSStyleSheet(const String&, const S
     // FIXME: Title should be set.
     // FIXME: Media could have wrong syntax, in which case we should generate an exception.
     auto sheet = CSSStyleSheet::create(StyleSheetContents::create());
-    sheet->setMediaQueries(MediaQuerySet::create(media));
+    sheet->setMediaQueries(MQ::MediaQueryParser::parse(media, strictCSSParserContext()));
     return sheet;
 }
 
-Ref<HTMLDocument> DOMImplementation::createHTMLDocument(const String& title)
+Ref<HTMLDocument> DOMImplementation::createHTMLDocument(String&& title)
 {
-    auto document = HTMLDocument::create(nullptr, m_document.settings(), URL());
-    document->open();
-    document->write(nullptr, { "<!doctype html><html><head></head><body></body></html>"_s });
+    Ref thisDocument = m_document.get();
+    Ref document = HTMLDocument::create(nullptr, thisDocument->settings(), URL(), { });
+    document->setParserContentPolicy({ ParserContentPolicy::AllowScriptingContent });
+
+    Ref htmlElement = HTMLHtmlElement::create(document);
+    Ref headElement = HTMLHeadElement::create(document);
+    htmlElement->appendChild(headElement);
+
     if (!title.isNull()) {
-        auto titleElement = HTMLTitleElement::create(titleTag, document);
-        titleElement->appendChild(document->createTextNode(title));
-        ASSERT(document->head());
-        document->head()->appendChild(titleElement);
+        Ref titleElement = HTMLTitleElement::create(titleTag, document);
+        titleElement->appendChild(document->createTextNode(WTF::move(title)));
+        headElement->appendChild(titleElement);
     }
-    document->setContextDocument(m_document.contextDocument());
-    document->setSecurityOriginPolicy(m_document.securityOriginPolicy());
+
+    htmlElement->appendChild(HTMLBodyElement::create(document));
+
+    document->appendChild(DocumentType::create(document, "html"_s, emptyString(), emptyString()));
+    document->appendChild(htmlElement);
+
+    document->setContextDocument(thisDocument->contextDocument());
+    document->setSecurityOriginPolicy(thisDocument->securityOriginPolicy());
     return document;
 }
 
-Ref<Document> DOMImplementation::createDocument(const String& contentType, Frame* frame, const Settings& settings, const URL& url)
+Ref<Document> DOMImplementation::createDocument(const String& contentType, LocalFrame* frame, const Settings& settings, const URL& url, std::optional<ScriptExecutionContextIdentifier> documentIdentifier)
 {
     // FIXME: Inelegant to have this here just because this is the home of DOM APIs for creating documents.
     // This is internal, not a DOM API. Maybe we should put it in a new class called DocumentFactory,
     // because of the analogy with HTMLElementFactory.
 
     // Plug-ins cannot take over for HTML, XHTML, plain text, or non-PDF images.
-    if (equalLettersIgnoringASCIICase(contentType, "text/html"))
-        return HTMLDocument::create(frame, settings, url);
-    if (equalLettersIgnoringASCIICase(contentType, "application/xhtml+xml"))
+    if (equalLettersIgnoringASCIICase(contentType, "text/html"_s))
+        return HTMLDocument::create(frame, settings, url, documentIdentifier);
+    if (equalLettersIgnoringASCIICase(contentType, "application/xhtml+xml"_s))
         return XMLDocument::createXHTML(frame, settings, url);
-    if (equalLettersIgnoringASCIICase(contentType, "text/plain"))
-        return TextDocument::create(frame, settings, url);
+    if (equalLettersIgnoringASCIICase(contentType, "text/plain"_s))
+        return TextDocument::create(frame, settings, url, documentIdentifier);
+
+#if ENABLE(PDFJS)
+    if (frame && settings.pdfJSViewerEnabled() && MIMETypeRegistry::isPDFMIMEType(contentType))
+        return PDFJSDocument::create(*frame, url);
+#endif
+
     bool isImage = MIMETypeRegistry::isSupportedImageMIMEType(contentType);
-    if (frame && isImage && !MIMETypeRegistry::isPDFOrPostScriptMIMEType(contentType))
+    if (frame && isImage && !MIMETypeRegistry::isPDFMIMEType(contentType))
         return ImageDocument::create(*frame, url);
 
     // The "image documents for subframe PDFs" mode will override a PDF plug-in.
@@ -155,26 +186,18 @@ Ref<Document> DOMImplementation::createDocument(const String& contentType, Frame
         return ImageDocument::create(*frame, url);
 
 #if ENABLE(VIDEO)
-    MediaEngineSupportParameters parameters;
-    parameters.type = ContentType { contentType };
-    parameters.url = url;
-    if (MediaPlayer::supportsType(parameters) != MediaPlayer::SupportsType::IsNotSupported)
+    if (MIMETypeRegistry::isSupportedMediaMIMEType(contentType))
         return MediaDocument::create(frame, settings, url);
 #endif
 
-#if ENABLE(FTPDIR)
-    if (equalLettersIgnoringASCIICase(contentType, "application/x-ftp-directory"))
-        return FTPDirectoryDocument::create(frame, settings, url);
+#if ENABLE(MODEL_ELEMENT)
+    if (MIMETypeRegistry::isUSDMIMEType(contentType) && DeprecatedGlobalSettings::modelDocumentEnabled())
+        return ModelDocument::create(frame, settings, url);
 #endif
-
-    if (frame && frame->loader().client().shouldAlwaysUsePluginDocument(contentType))
-        return PluginDocument::create(*frame, url);
 
     // The following is the relatively costly lookup that requires initializing the plug-in database.
     if (frame && frame->page()) {
-        auto allowedPluginTypes = frame->arePluginsEnabled()
-            ? PluginData::AllPlugins : PluginData::OnlyApplicationPlugins;
-        if (frame->page()->pluginData().supportsWebVisibleMimeType(contentType, allowedPluginTypes))
+        if (protect(protect(frame->page())->pluginData())->supportsWebVisibleMimeType(contentType, PluginData::OnlyApplicationPlugins))
             return PluginDocument::create(*frame, url);
     }
 
@@ -183,15 +206,16 @@ Ref<Document> DOMImplementation::createDocument(const String& contentType, Frame
     if (frame && isImage)
         return ImageDocument::create(*frame, url);
     if (MIMETypeRegistry::isTextMIMEType(contentType))
-        return TextDocument::create(frame, settings, url);
-    if (equalLettersIgnoringASCIICase(contentType, "image/svg+xml"))
+        return TextDocument::create(frame, settings, url, documentIdentifier);
+    if (equalLettersIgnoringASCIICase(contentType, "image/svg+xml"_s))
         return SVGDocument::create(frame, settings, url);
     if (MIMETypeRegistry::isXMLMIMEType(contentType)) {
         auto document = XMLDocument::create(frame, settings, url);
         document->overrideMIMEType(contentType);
         return document;
     }
-    return HTMLDocument::create(frame, settings, url);
+
+    return HTMLDocument::create(frame, settings, url, documentIdentifier);
 }
 
 }

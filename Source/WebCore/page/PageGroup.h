@@ -25,7 +25,10 @@
 
 #pragma once
 
+#include <wtf/CheckedRef.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/UniqueRef.h>
 #include <wtf/WeakHashSet.h>
 #include <wtf/text/WTFString.h>
 
@@ -36,21 +39,23 @@ class Page;
 class CaptionUserPreferences;
 #endif
 
-class PageGroup {
-    WTF_MAKE_NONCOPYABLE(PageGroup); WTF_MAKE_FAST_ALLOCATED;
+class PageGroup final : public CanMakeWeakPtr<PageGroup>, public CanMakeCheckedPtr<PageGroup> {
+    WTF_MAKE_TZONE_ALLOCATED(PageGroup);
+    WTF_MAKE_NONCOPYABLE(PageGroup);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(PageGroup);
 public:
-    WEBCORE_EXPORT explicit PageGroup(const String& name);
-    explicit PageGroup(Page&);
-    ~PageGroup();
+    WEBCORE_EXPORT static UniqueRef<PageGroup> create(const String&);
+    WEBCORE_EXPORT static UniqueRef<PageGroup> create(Page&);
+    WEBCORE_EXPORT ~PageGroup();
 
     WEBCORE_EXPORT static PageGroup* pageGroup(const String& groupName);
 
-    const WeakHashSet<Page>& pages() const { return m_pages; }
+    const WeakHashSet<Page>& pages() const LIFETIME_BOUND { return m_pages; }
 
     void addPage(Page&);
     void removePage(Page&);
 
-    const String& name() { return m_name; }
+    const String& name() LIFETIME_BOUND { return m_name; }
     unsigned identifier() { return m_identifier; }
 
 #if ENABLE(VIDEO)
@@ -60,13 +65,16 @@ public:
 #endif
 
 private:
+    WEBCORE_EXPORT explicit PageGroup(const String&);
+    WEBCORE_EXPORT explicit PageGroup(Page&);
+
     String m_name;
     WeakHashSet<Page> m_pages;
 
     unsigned m_identifier;
 
 #if ENABLE(VIDEO)
-    std::unique_ptr<CaptionUserPreferences> m_captionPreferences;
+    const RefPtr<CaptionUserPreferences> m_captionPreferences;
 #endif
 };
 

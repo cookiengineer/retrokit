@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,35 +24,33 @@
 
 #pragma once
 
-#if ENABLE(MEDIA_STREAM)
+#if ENABLE(MEDIA_RECORDER)
 #include "Event.h"
 
 namespace WebCore {
 
 class DOMException;
+class Exception;
 
 class MediaRecorderErrorEvent final : public Event {
-    WTF_MAKE_ISO_ALLOCATED(MediaRecorderErrorEvent);
+    WTF_MAKE_TZONE_ALLOCATED(MediaRecorderErrorEvent);
 public:
     struct Init : EventInit {
-        RefPtr<DOMException> error;
+        Ref<DOMException> error;
     };
-    
+
     static Ref<MediaRecorderErrorEvent> create(const AtomString&, Init&&, IsTrusted = IsTrusted::No);
     static Ref<MediaRecorderErrorEvent> create(const AtomString&, Exception&&);
-    
-    DOMException& error() const { return m_domError.get(); }
+
+    DOMException& error() const { return m_error; }
 
 private:
-    MediaRecorderErrorEvent(const AtomString&, Init&&, Ref<DOMException>&&, IsTrusted);
+    MediaRecorderErrorEvent(const AtomString&, Init&&, IsTrusted);
     MediaRecorderErrorEvent(const AtomString&, Exception&&);
-    
-    // Event
-    EventInterface eventInterface() const override;
 
-    Ref<DOMException> m_domError;
+    const Ref<DOMException> m_error;
 };
     
 } // namespace WebCore
 
-#endif // ENABLE(MEDIA_STREAM)
+#endif // ENABLE(MEDIA_RECORDER)

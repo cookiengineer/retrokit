@@ -34,9 +34,9 @@
 
 #include "Attr.h"
 #include "Document.h"
-#include "Element.h"
-#include "Frame.h"
+#include "ElementInlines.h"
 #include "HTMLFrameOwnerElement.h"
+#include "LocalFrame.h"
 #include "NodeList.h"
 #include "NodeTraversal.h"
 #include "XPathNSResolver.h"
@@ -80,19 +80,21 @@ void InspectorNodeFinder::performSearch(Node* parentNode)
 void InspectorNodeFinder::searchUsingDOMTreeTraversal(Node& parentNode)
 {
     // Manual plain text search.
-    for (auto* node = &parentNode; node; node = NodeTraversal::next(*node, &parentNode)) {
+    for (RefPtr node = &parentNode; node; node = NodeTraversal::next(*node, &parentNode)) {
         switch (node->nodeType()) {
-        case Node::TEXT_NODE:
-        case Node::COMMENT_NODE:
-        case Node::CDATA_SECTION_NODE:
+        case NodeType::Text:
+        case NodeType::Comment:
+        case NodeType::CDATASection:
             if (checkContains(node->nodeValue(), m_query))
                 m_results.add(node);
             break;
-        case Node::ELEMENT_NODE:
+        case NodeType::Element:
             if (matchesElement(downcast<Element>(*node)))
                 m_results.add(node);
-            if (is<HTMLFrameOwnerElement>(downcast<Element>(*node)))
-                performSearch(downcast<HTMLFrameOwnerElement>(*node).contentDocument());
+            if (RefPtr frameOwner = dynamicDowncast<HTMLFrameOwnerElement>(*node))
+                performSearch(protect(frameOwner->contentDocument()).get());
+            if (RefPtr shadowRoot = downcast<Element>(*node).shadowRoot())
+                performSearch(shadowRoot.get());
             break;
         default:
             break;
@@ -149,7 +151,7 @@ bool InspectorNodeFinder::matchesElement(const Element& element)
     if (!element.hasAttributes())
         return false;
 
-    for (const Attribute& attribute : element.attributesIterator()) {
+    for (auto& attribute : element.attributes()) {
         if (matchesAttribute(attribute))
             return true;
     }
@@ -159,7 +161,7 @@ bool InspectorNodeFinder::matchesElement(const Element& element)
 
 void InspectorNodeFinder::searchUsingXPath(Node& parentNode)
 {
-    auto evaluateResult = parentNode.document().evaluate(m_query, parentNode, nullptr, XPathResult::ORDERED_NODE_SNAPSHOT_TYPE, nullptr);
+    auto evaluateResult = protect(parentNode.document())->evaluate(m_query, parentNode, nullptr, XPathResult::ORDERED_NODE_SNAPSHOT_TYPE, nullptr);
     if (evaluateResult.hasException())
         return;
     auto result = evaluateResult.releaseReturnValue();
@@ -173,10 +175,10 @@ void InspectorNodeFinder::searchUsingXPath(Node& parentNode)
         auto snapshotItemResult = result->snapshotItem(i);
         if (snapshotItemResult.hasException())
             return;
-        Node* node = snapshotItemResult.releaseReturnValue();
+        RefPtr node = snapshotItemResult.releaseReturnValue();
 
-        if (is<Attr>(*node))
-            node = downcast<Attr>(*node).ownerElement();
+        if (RefPtr attr = dynamicDowncast<Attr>(*node))
+            node = attr->ownerElement();
 
         // XPath can get out of the context node that we pass as the starting point to evaluate, so we need to filter for just the nodes we care about.
         if (parentNode.contains(node))
@@ -186,10 +188,11 @@ void InspectorNodeFinder::searchUsingXPath(Node& parentNode)
 
 void InspectorNodeFinder::searchUsingCSSSelectors(Node& parentNode)
 {
-    if (!is<ContainerNode>(parentNode))
+    RefPtr container = dynamicDowncast<ContainerNode>(parentNode);
+    if (!container)
         return;
 
-    auto queryResult = downcast<ContainerNode>(parentNode).querySelectorAll(m_query);
+    auto queryResult = container->querySelectorAll(m_query);
     if (queryResult.hasException())
         return;
 

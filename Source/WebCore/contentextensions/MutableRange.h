@@ -33,7 +33,6 @@ namespace ContentExtensions {
 
 template <typename CharacterType, typename DataType>
 class MutableRange {
-    typedef MutableRange<CharacterType, DataType> TypedMutableRange;
 public:
     MutableRange(uint32_t nextRangeIndex, CharacterType first, CharacterType last)
         : nextRangeIndex(nextRangeIndex)
@@ -53,30 +52,12 @@ public:
     }
 
     MutableRange(DataType&& data, uint32_t nextRangeIndex, CharacterType first, CharacterType last)
-        : data(WTFMove(data))
+        : data(WTF::move(data))
         , nextRangeIndex(nextRangeIndex)
         , first(first)
         , last(last)
     {
         ASSERT(first <= last);
-    }
-
-    MutableRange(MutableRange&& other)
-        : data(WTFMove(other.data))
-        , nextRangeIndex(other.nextRangeIndex)
-        , first(other.first)
-        , last(other.last)
-    {
-        ASSERT(first <= last);
-    }
-
-    TypedMutableRange& operator=(TypedMutableRange&& other)
-    {
-        data = WTFMove(other.data);
-        nextRangeIndex = WTFMove(other.nextRangeIndex);
-        first = WTFMove(other.first);
-        last = WTFMove(other.last);
-        return *this;
     }
 
     DataType data;

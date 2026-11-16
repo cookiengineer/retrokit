@@ -28,22 +28,35 @@
 
 #pragma once
 
-#include "DirectEvalExecutable.h"
+#include <JavaScriptCore/BytecodeIndex.h>
+#include <JavaScriptCore/SlotVisitorMacros.h>
 #include <wtf/HashMap.h>
 #include <wtf/RefPtr.h>
 #include <wtf/text/StringHash.h>
 
 namespace JSC {
 
+    class BytecodeIndex;
+    class DirectEvalExecutable;
+    class JSCell;
+    class JSGlobalObject;
     class SlotVisitor;
+
+    template<typename T, typename Traits> class WriteBarrier;
 
     class DirectEvalCodeCache {
     public:
+        DirectEvalCodeCache();
+        ~DirectEvalCodeCache();
+
+        class CacheLookupKey;
+
         class CacheKey {
+            friend class CacheLookupKey;
         public:
-            CacheKey(const String& source, CallSiteIndex callSiteIndex)
-                : m_source(source.impl())
-                , m_callSiteIndex(callSiteIndex)
+            CacheKey(StringImpl* source, BytecodeIndex bytecodeIndex)
+                : m_source(source)
+                , m_bytecodeIndex(bytecodeIndex)
             {
             }
 
@@ -54,45 +67,71 @@ namespace JSC {
 
             CacheKey() = default;
 
-            unsigned hash() const { return m_source->hash() ^ m_callSiteIndex.bits(); }
+            unsigned hash() const { return m_source->hash() + m_bytecodeIndex.asBits(); }
 
             bool isEmptyValue() const { return !m_source; }
 
             bool operator==(const CacheKey& other) const
             {
-                return m_callSiteIndex == other.m_callSiteIndex && WTF::equal(m_source.get(), other.m_source.get());
+                return m_bytecodeIndex == other.m_bytecodeIndex && WTF::equal(m_source.get(), other.m_source.get());
             }
 
             bool isHashTableDeletedValue() const { return m_source.isHashTableDeletedValue(); }
-
-            struct Hash {
-                static unsigned hash(const CacheKey& key)
-                {
-                    return key.hash();
-                }
-                static bool equal(const CacheKey& lhs, const CacheKey& rhs)
-                {
-                    return lhs == rhs;
-                }
-                static constexpr bool safeToCompareToEmptyOrDeleted = false;
-            };
 
             typedef SimpleClassHashTraits<CacheKey> HashTraits;
 
         private:
             RefPtr<StringImpl> m_source;
-            CallSiteIndex m_callSiteIndex;
+            BytecodeIndex m_bytecodeIndex;
         };
 
-        DirectEvalExecutable* tryGet(const String& evalSource, CallSiteIndex callSiteIndex)
-        {
-            return m_cacheMap.inlineGet(CacheKey(evalSource, callSiteIndex)).get();
-        }
-        
-        void set(JSGlobalObject* globalObject, JSCell* owner, const String& evalSource, CallSiteIndex callSiteIndex, DirectEvalExecutable* evalExecutable)
+        class CacheLookupKey {
+            void* operator new(size_t) = delete;
+
+        public:
+            CacheLookupKey(StringImpl* source, BytecodeIndex bytecodeIndex)
+                : m_source(source)
+                , m_bytecodeIndex(bytecodeIndex)
+            {
+            }
+
+            CacheLookupKey() = default;
+
+            unsigned hash() const { return m_source->hash() + m_bytecodeIndex.asBits(); }
+
+            bool operator==(const CacheKey& other) const
+            {
+                return m_bytecodeIndex == other.m_bytecodeIndex && WTF::equal(m_source, other.m_source.get());
+            }
+
+            operator CacheKey() const
+            {
+                return CacheKey(m_source, m_bytecodeIndex);
+            }
+
+        private:
+            SUPPRESS_UNCOUNTED_MEMBER StringImpl* m_source;
+            BytecodeIndex m_bytecodeIndex;
+        };
+
+        struct CacheLookupKeyHashTranslator {
+            static unsigned hash(const CacheLookupKey& key)
+            {
+                return key.hash();
+            }
+
+            static bool equal(const CacheKey& a, const CacheLookupKey& b)
+            {
+                return b == a;
+            }
+        };
+
+        inline DirectEvalExecutable* get(const CacheLookupKey&); // Defined in DirectEvalCodeCacheInlines.h
+
+        void set(JSGlobalObject* globalObject, JSCell* owner, const CacheLookupKey& cacheKey, DirectEvalExecutable* evalExecutable)
         {
             if (m_cacheMap.size() < maxCacheEntries)
-                setSlow(globalObject, owner, evalSource, callSiteIndex, evalExecutable);
+                setSlow(globalObject, owner, cacheKey, evalExecutable);
         }
 
         bool isEmpty() const { return m_cacheMap.isEmpty(); }
@@ -104,9 +143,9 @@ namespace JSC {
     private:
         static constexpr int maxCacheEntries = 64;
 
-        void setSlow(JSGlobalObject*, JSCell* owner, const String& evalSource, CallSiteIndex, DirectEvalExecutable*);
+        void setSlow(JSGlobalObject*, JSCell* owner, const CacheLookupKey& cacheKey, DirectEvalExecutable*);
 
-        typedef HashMap<CacheKey, WriteBarrier<DirectEvalExecutable>, CacheKey::Hash, CacheKey::HashTraits> EvalCacheMap;
+        typedef UncheckedKeyHashMap<CacheKey, WriteBarrier<DirectEvalExecutable, RawPtrTraits<DirectEvalExecutable>>, DefaultHash<CacheKey>, CacheKey::HashTraits> EvalCacheMap;
         EvalCacheMap m_cacheMap;
         Lock m_lock;
     };

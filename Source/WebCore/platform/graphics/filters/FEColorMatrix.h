@@ -2,6 +2,7 @@
  * Copyright (C) 2004, 2005, 2006, 2007 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005 Rob Buis <buis@kde.org>
  * Copyright (C) 2005 Eric Seidel <eric@webkit.org>
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -21,14 +22,14 @@
 
 #pragma once
 
-#include "FilterEffect.h"
-
-#include "Filter.h"
+#include <WebCore/FilterEffect.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
 
-enum ColorMatrixType {
+template<size_t, size_t> class ColorMatrix;
+
+enum class ColorMatrixType : uint8_t {
     FECOLORMATRIX_TYPE_UNKNOWN          = 0,
     FECOLORMATRIX_TYPE_MATRIX           = 1,
     FECOLORMATRIX_TYPE_SATURATE         = 2,
@@ -36,64 +37,45 @@ enum ColorMatrixType {
     FECOLORMATRIX_TYPE_LUMINANCETOALPHA = 4
 };
 
-class FEColorMatrix : public FilterEffect {
+class FEColorMatrix final : public FilterEffect {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(FEColorMatrix);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(FEColorMatrix);
 public:
-    static Ref<FEColorMatrix> create(Filter&, ColorMatrixType, Vector<float>&&);
+    WEBCORE_EXPORT static Ref<FEColorMatrix> create(ColorMatrixType, Vector<float>&&, DestinationColorSpace = DestinationColorSpace::SRGB());
+    static Ref<FEColorMatrix> create(ColorMatrixType, const ColorMatrix<5, 4>&, DestinationColorSpace = DestinationColorSpace::SRGB());
+
+    bool operator==(const FEColorMatrix&) const;
 
     ColorMatrixType type() const { return m_type; }
-    bool setType(ColorMatrixType);
+    bool NODELETE setType(ColorMatrixType);
 
-    const Vector<float>& values() const { return m_values; }
+    const Vector<float>& values() const LIFETIME_BOUND { return m_values; }
     bool setValues(const Vector<float>&);
 
-    static inline void calculateSaturateComponents(float* components, float value);
-    static inline void calculateHueRotateComponents(float* components, float value);
+    WEBCORE_EXPORT static bool areValuesValidForType(ColorMatrixType, const Vector<float>& values);
+    static void NODELETE calculateSaturateComponents(std::span<float, 9> components, float value);
+    static void NODELETE calculateHueRotateComponents(std::span<float, 9> components, float value);
+    static Vector<float> normalizedFloats(const Vector<float>& values);
 
 private:
-    FEColorMatrix(Filter&, ColorMatrixType, Vector<float>&&);
+    FEColorMatrix(ColorMatrixType, Vector<float>&&, DestinationColorSpace);
 
-    const char* filterName() const final { return "FEColorMatrix"; }
+    bool operator==(const FilterEffect& other) const override { return areEqual<FEColorMatrix>(*this, other); }
 
-    void platformApplySoftware() override;
+    bool resultIsAlphaImage(std::span<const Ref<FilterImage>> inputs) const override;
 
-    WTF::TextStream& externalRepresentation(WTF::TextStream&, RepresentationType) const override;
+    OptionSet<FilterRenderingMode> supportedFilterRenderingModes(OptionSet<FilterRenderingMode> preferredFilterRenderingModes) const override;
+
+    std::unique_ptr<FilterEffectApplier> createAcceleratedApplier() const override;
+    std::unique_ptr<FilterEffectApplier> createSoftwareApplier() const override;
+    std::optional<GraphicsStyle> createGraphicsStyle(GraphicsContext&, const Filter&) const override;
+
+    WTF::TextStream& externalRepresentation(WTF::TextStream&, FilterRepresentation) const override;
 
     ColorMatrixType m_type;
     Vector<float> m_values;
 };
 
-inline void FEColorMatrix::calculateSaturateComponents(float* components, float value)
-{
-    components[0] = (0.213 + 0.787 * value);
-    components[1] = (0.715 - 0.715 * value);
-    components[2] = (0.072 - 0.072 * value);
-    components[3] = (0.213 - 0.213 * value);
-    components[4] = (0.715 + 0.285 * value);
-    components[5] = (0.072 - 0.072 * value);
-    components[6] = (0.213 - 0.213 * value);
-    components[7] = (0.715 - 0.715 * value);
-    components[8] = (0.072 + 0.928 * value);
-}
-
-inline void FEColorMatrix::calculateHueRotateComponents(float* components, float value)
-{
-    float cosHue = cos(value * piFloat / 180);
-    float sinHue = sin(value * piFloat / 180);
-    components[0] = 0.213 + cosHue * 0.787 - sinHue * 0.213;
-    components[1] = 0.715 - cosHue * 0.715 - sinHue * 0.715;
-    components[2] = 0.072 - cosHue * 0.072 + sinHue * 0.928;
-    components[3] = 0.213 - cosHue * 0.213 + sinHue * 0.143;
-    components[4] = 0.715 + cosHue * 0.285 + sinHue * 0.140;
-    components[5] = 0.072 - cosHue * 0.072 - sinHue * 0.283;
-    components[6] = 0.213 - cosHue * 0.213 - sinHue * 0.787;
-    components[7] = 0.715 - cosHue * 0.715 + sinHue * 0.715;
-    components[8] = 0.072 + cosHue * 0.928 + sinHue * 0.072;
-}
-
-
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::FEColorMatrix)
-    static bool isType(const WebCore::FilterEffect& effect) { return effect.filterEffectClassType() == WebCore::FilterEffect::Type::ColorMatrix; }
-SPECIALIZE_TYPE_TRAITS_END()
-
+SPECIALIZE_TYPE_TRAITS_FILTER_FUNCTION(FEColorMatrix)

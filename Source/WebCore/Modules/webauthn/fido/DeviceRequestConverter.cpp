@@ -1,5 +1,5 @@
 // Copyright 2017 The Chromium Authors. All rights reserved.
-// Copyright (C) 2018 Apple Inc. All rights reserved.
+// Copyright (C) 2018-2021 Apple Inc. All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are
@@ -33,8 +33,14 @@
 #if ENABLE(WEB_AUTHN)
 
 #include "CBORWriter.h"
+#include "Pin.h"
 #include "PublicKeyCredentialCreationOptions.h"
+#include "PublicKeyCredentialDescriptor.h"
 #include "PublicKeyCredentialRequestOptions.h"
+#include "PublicKeyCredentialRpEntity.h"
+#include "PublicKeyCredentialUserEntity.h"
+#include "ResidentKeyRequirement.h"
+#include "WebAuthenticationConstants.h"
 #include <wtf/Vector.h>
 
 namespace fido {
@@ -43,7 +49,7 @@ using namespace cbor;
 
 using UVAvailability = AuthenticatorSupportedOptions::UserVerificationAvailability;
 
-static CBORValue convertRpEntityToCBOR(const PublicKeyCredentialCreationOptions::RpEntity& rpEntity)
+static CBORValue convertRpEntityToCBOR(const PublicKeyCredentialRpEntity& rpEntity)
 {
     CBORValue::MapValue rpMap;
     rpMap.emplace(CBORValue(kEntityNameMapKey), CBORValue(rpEntity.name));
@@ -52,64 +58,134 @@ static CBORValue convertRpEntityToCBOR(const PublicKeyCredentialCreationOptions:
     if (!rpEntity.id.isEmpty())
         rpMap.emplace(CBORValue(kEntityIdMapKey), CBORValue(rpEntity.id));
 
-    return CBORValue(WTFMove(rpMap));
+    return CBORValue(WTF::move(rpMap));
 }
 
-static CBORValue convertUserEntityToCBOR(const PublicKeyCredentialCreationOptions::UserEntity& userEntity)
+static CBORValue convertUserEntityToCBOR(const PublicKeyCredentialUserEntity& userEntity)
 {
     CBORValue::MapValue userMap;
     userMap.emplace(CBORValue(kEntityNameMapKey), CBORValue(userEntity.name));
     if (!userEntity.icon.isEmpty())
         userMap.emplace(CBORValue(kIconUrlMapKey), CBORValue(userEntity.icon));
-    userMap.emplace(CBORValue(kEntityIdMapKey), CBORValue(userEntity.idVector));
+    userMap.emplace(CBORValue(kEntityIdMapKey), CBORValue(userEntity.id));
     userMap.emplace(CBORValue(kDisplayNameMapKey), CBORValue(userEntity.displayName));
-    return CBORValue(WTFMove(userMap));
+    return CBORValue(WTF::move(userMap));
 }
 
-static CBORValue convertParametersToCBOR(const Vector<PublicKeyCredentialCreationOptions::Parameters>& parameters)
+static CBORValue convertParametersToCBOR(const Vector<PublicKeyCredentialParameters>& parameters)
 {
-    CBORValue::ArrayValue credentialParamArray;
-    credentialParamArray.reserveInitialCapacity(parameters.size());
-    for (const auto& credential : parameters) {
+    auto credentialParamArray = parameters.map([](auto& credential) {
         CBORValue::MapValue cborCredentialMap;
         cborCredentialMap.emplace(CBORValue(kCredentialTypeMapKey), CBORValue(publicKeyCredentialTypeToString(credential.type)));
         cborCredentialMap.emplace(CBORValue(kCredentialAlgorithmMapKey), CBORValue(credential.alg));
-        credentialParamArray.append(WTFMove(cborCredentialMap));
-    }
-    return CBORValue(WTFMove(credentialParamArray));
+        return CBORValue { WTF::move(cborCredentialMap) };
+    });
+    return CBORValue(WTF::move(credentialParamArray));
 }
 
 static CBORValue convertDescriptorToCBOR(const PublicKeyCredentialDescriptor& descriptor)
 {
     CBORValue::MapValue cborDescriptorMap;
     cborDescriptorMap[CBORValue(kCredentialTypeKey)] = CBORValue(publicKeyCredentialTypeToString(descriptor.type));
-    cborDescriptorMap[CBORValue(kCredentialIdKey)] = CBORValue(descriptor.idVector);
-    return CBORValue(WTFMove(cborDescriptorMap));
+    cborDescriptorMap[CBORValue(kCredentialIdKey)] = CBORValue(descriptor.id);
+    return CBORValue(WTF::move(cborDescriptorMap));
 }
 
-Vector<uint8_t> encodeMakeCredenitalRequestAsCBOR(const Vector<uint8_t>& hash, const PublicKeyCredentialCreationOptions& options, UVAvailability uvCapability, std::optional<PinParameters> pin)
+static Vector<PublicKeyCredentialParameters> trimmedParameters(const Vector<PublicKeyCredentialParameters>& parameters, const std::optional<Vector<WebCore::PublicKeyCredentialParameters>>& authenticatorSupportedParameters)
+{
+    HashSet<int64_t> authenticatorSupportedAlgorithms;
+    if (authenticatorSupportedParameters) {
+        for (auto& parameters : *authenticatorSupportedParameters) {
+            if (parameters.type == PublicKeyCredentialType::PublicKey)
+                authenticatorSupportedAlgorithms.add(parameters.alg);
+        }
+    }
+
+    for (auto& parameter : parameters) {
+        if (parameter.type != PublicKeyCredentialType::PublicKey)
+            continue;
+        if (authenticatorSupportedAlgorithms.contains(parameter.alg))
+            return { parameter };
+        // Support for ES256 required by U2F backwards compatibility.
+        // https://fidoalliance.org/specs/fido-v2.0-id-20180227/fido-client-to-authenticator-protocol-v2.0-id-20180227.html#u2f-authenticatorMakeCredential-interoperability
+        if (parameter.alg == COSE::ES256)
+            return { parameter };
+    }
+
+    // We know the algorithms the authenticator supports and none of those were requested.
+    if (authenticatorSupportedAlgorithms.size())
+        return { parameters.first() };
+
+    return parameters;
+}
+
+Vector<uint8_t> encodeMakeCredentialRequestAsCBOR(const Vector<uint8_t>& hash, const PublicKeyCredentialCreationOptions& options, UVAvailability uvCapability, UserVerificationRequirement effectiveUVRequirement, AuthenticatorSupportedOptions::ResidentKeyAvailability residentKeyAvailability, const Vector<String>& authenticatorSupportedExtensions, std::optional<PinParameters> pin, const std::optional<Vector<WebCore::PublicKeyCredentialParameters>>& authenticatorSupportedParameters, std::optional<Vector<PublicKeyCredentialDescriptor>>&& overrideExcludeCredentials, std::optional<HmacSecretParameters>&& hmacSecretParams)
 {
     CBORValue::MapValue cborMap;
-    cborMap[CBORValue(1)] = CBORValue(hash);
-    cborMap[CBORValue(2)] = convertRpEntityToCBOR(options.rp);
-    cborMap[CBORValue(3)] = convertUserEntityToCBOR(options.user);
-    cborMap[CBORValue(4)] = convertParametersToCBOR(options.pubKeyCredParams);
-    if (!options.excludeCredentials.isEmpty()) {
+    cborMap[CBORValue(kCtapMakeCredentialClientDataHashKey)] = CBORValue(hash);
+    cborMap[CBORValue(kCtapMakeCredentialRpKey)] = convertRpEntityToCBOR(options.rp);
+    cborMap[CBORValue(kCtapMakeCredentialUserKey)] = convertUserEntityToCBOR(options.user);
+    cborMap[CBORValue(kCtapMakeCredentialPubKeyCredParamsKey)] = convertParametersToCBOR(trimmedParameters(options.pubKeyCredParams, authenticatorSupportedParameters));
+    if (overrideExcludeCredentials) {
+        if (!overrideExcludeCredentials->isEmpty()) {
+            CBORValue::ArrayValue excludeListArray;
+            for (const auto& descriptor : *overrideExcludeCredentials)
+                excludeListArray.append(convertDescriptorToCBOR(descriptor));
+            cborMap[CBORValue(kCtapMakeCredentialExcludeListKey)] = CBORValue(WTF::move(excludeListArray));
+        }
+    } else if (!options.excludeCredentials.isEmpty()) {
         CBORValue::ArrayValue excludeListArray;
         for (const auto& descriptor : options.excludeCredentials)
             excludeListArray.append(convertDescriptorToCBOR(descriptor));
-        cborMap[CBORValue(5)] = CBORValue(WTFMove(excludeListArray));
+        cborMap[CBORValue(kCtapMakeCredentialExcludeListKey)] = CBORValue(WTF::move(excludeListArray));
+    }
+
+    if ((authenticatorSupportedExtensions.size() && options.extensions) || hmacSecretParams) {
+        CBORValue::MapValue extensionsMap;
+
+        if (options.extensions) {
+            auto largeBlobInputs = options.extensions->largeBlob;
+            if (largeBlobInputs && authenticatorSupportedExtensions.contains("largeBlob"_s)) {
+                CBORValue::MapValue largeBlobMap;
+
+                if (!largeBlobInputs->support.isNull())
+                    largeBlobMap[CBORValue("support"_s)] = CBORValue(largeBlobInputs->support);
+
+                extensionsMap[CBORValue("largeBlob"_s)] = CBORValue(WTF::move(largeBlobMap));
+            }
+
+            // Convert prf extension to hmac-secret: true for makeCredential
+            if (options.extensions->prf && authenticatorSupportedExtensions.contains(kExtensionHmacSecret))
+                extensionsMap[CBORValue(kExtensionHmacSecret)] = CBORValue(true);
+        }
+
+        // Add hmac-secret-mc extension with encrypted parameters
+        if (hmacSecretParams && authenticatorSupportedExtensions.contains(kExtensionHmacSecretMc)) {
+            CBORValue::MapValue hmacSecretMcMap;
+            hmacSecretMcMap[CBORValue(kHmacSecretKeyAgreementKey)] = CBORValue(WTF::move(hmacSecretParams->keyAgreement));
+            hmacSecretMcMap[CBORValue(kHmacSecretSaltEncKey)] = CBORValue(WTF::move(hmacSecretParams->saltEnc));
+            hmacSecretMcMap[CBORValue(kHmacSecretSaltAuthKey)] = CBORValue(WTF::move(hmacSecretParams->saltAuth));
+            hmacSecretMcMap[CBORValue(kHmacSecretPinUvAuthProtocolKey)] = CBORValue(hmacSecretParams->protocol);
+            extensionsMap[CBORValue(kExtensionHmacSecretMc)] = CBORValue(WTF::move(hmacSecretMcMap));
+        }
+
+        if (!extensionsMap.empty())
+            cborMap[CBORValue(kCtapMakeCredentialExtensionsKey)] = CBORValue(WTF::move(extensionsMap));
     }
 
     CBORValue::MapValue optionMap;
     if (options.authenticatorSelection) {
         // Resident keys are not supported by default.
-        if (options.authenticatorSelection->requireResidentKey)
+        if (options.authenticatorSelection->residentKey) {
+            if (*options.authenticatorSelection->residentKey == ResidentKeyRequirement::Required
+                || (*options.authenticatorSelection->residentKey == ResidentKeyRequirement::Preferred && residentKeyAvailability == AuthenticatorSupportedOptions::ResidentKeyAvailability::kSupported))
+                optionMap[CBORValue(kResidentKeyMapKey)] = CBORValue(true);
+        } else if (options.authenticatorSelection->requireResidentKey)
             optionMap[CBORValue(kResidentKeyMapKey)] = CBORValue(true);
 
         // User verification is not required by default.
         bool requireUserVerification = false;
-        switch (options.authenticatorSelection->userVerification) {
+        switch (effectiveUVRequirement) {
         case UserVerificationRequirement::Required:
         case UserVerificationRequirement::Preferred:
             requireUserVerification = uvCapability == UVAvailability::kSupportedAndConfigured;
@@ -121,15 +197,15 @@ Vector<uint8_t> encodeMakeCredenitalRequestAsCBOR(const Vector<uint8_t>& hash, c
             optionMap[CBORValue(kUserVerificationMapKey)] = CBORValue(requireUserVerification);
     }
     if (!optionMap.empty())
-        cborMap[CBORValue(7)] = CBORValue(WTFMove(optionMap));
+        cborMap[CBORValue(kCtapMakeCredentialRequestOptionsKey)] = CBORValue(WTF::move(optionMap));
 
     if (pin) {
         ASSERT(pin->protocol >= 0);
-        cborMap[CBORValue(8)] = CBORValue(WTFMove(pin->auth));
-        cborMap[CBORValue(9)] = CBORValue(pin->protocol);
+        cborMap[CBORValue(kCtapMakeCredentialPinUvAuthParamKey)] = CBORValue(WTF::move(pin->auth));
+        cborMap[CBORValue(kCtapMakeCredentialPinUvAuthProtocolKey)] = CBORValue(pin->protocol);
     }
 
-    auto serializedParam = CBORWriter::write(CBORValue(WTFMove(cborMap)));
+    auto serializedParam = CBORWriter::write(CBORValue(WTF::move(cborMap)));
     ASSERT(serializedParam);
 
     Vector<uint8_t> cborRequest({ static_cast<uint8_t>(CtapRequestCommand::kAuthenticatorMakeCredential) });
@@ -137,23 +213,88 @@ Vector<uint8_t> encodeMakeCredenitalRequestAsCBOR(const Vector<uint8_t>& hash, c
     return cborRequest;
 }
 
-Vector<uint8_t> encodeGetAssertionRequestAsCBOR(const Vector<uint8_t>& hash, const PublicKeyCredentialRequestOptions& options, UVAvailability uvCapability, std::optional<PinParameters> pin)
+Vector<uint8_t> encodeSilentGetAssertion(const String& rpId, const Vector<uint8_t>& hash, const Vector<PublicKeyCredentialDescriptor>& credentials, std::optional<PinParameters> pin)
 {
     CBORValue::MapValue cborMap;
-    cborMap[CBORValue(1)] = CBORValue(options.rpId);
-    cborMap[CBORValue(2)] = CBORValue(hash);
+    cborMap[CBORValue(kCtapGetAssertionRpIdKey)] = CBORValue(rpId);
+    cborMap[CBORValue(kCtapGetAssertionClientDataHashKey)] = CBORValue(hash);
 
-    if (!options.allowCredentials.isEmpty()) {
+    CBORValue::ArrayValue allowListArray;
+    for (const auto& descriptor : credentials)
+        allowListArray.append(convertDescriptorToCBOR(descriptor));
+    cborMap[CBORValue(kCtapGetAssertionAllowListKey)] = CBORValue(WTF::move(allowListArray));
+
+    if (pin) {
+        ASSERT(pin->protocol >= 0);
+        cborMap[CBORValue(kCtapGetAssertionPinUvAuthParamKey)] = CBORValue(WTF::move(pin->auth));
+        cborMap[CBORValue(kCtapGetAssertionPinUvAuthProtocolKey)] = CBORValue(pin->protocol);
+    }
+
+    CBORValue::MapValue optionMap;
+    optionMap[CBORValue(kUserPresenceMapKey)] = CBORValue(false);
+    cborMap[CBORValue(kCtapGetAssertionRequestOptionsKey)] = CBORValue(WTF::move(optionMap));
+
+    auto serializedParam = CBORWriter::write(CBORValue(WTF::move(cborMap)));
+    ASSERT(serializedParam);
+
+    Vector<uint8_t> cborRequest({ static_cast<uint8_t>(CtapRequestCommand::kAuthenticatorGetAssertion) });
+    cborRequest.appendVector(*serializedParam);
+    return cborRequest;
+}
+
+Vector<uint8_t> encodeGetAssertionRequestAsCBOR(const Vector<uint8_t>& hash, const PublicKeyCredentialRequestOptions& options, UVAvailability uvCapability, UserVerificationRequirement effectiveUVRequirement, const Vector<String>& authenticatorSupportedExtensions, std::optional<PinParameters> pin, std::optional<Vector<PublicKeyCredentialDescriptor>>&& overrideAllowCredentials, std::optional<HmacSecretParameters>&& hmacSecretParams)
+{
+    CBORValue::MapValue cborMap;
+    cborMap[CBORValue(kCtapGetAssertionRpIdKey)] = CBORValue(options.rpId);
+    cborMap[CBORValue(kCtapGetAssertionClientDataHashKey)] = CBORValue(hash);
+    if (overrideAllowCredentials) {
+        CBORValue::ArrayValue allowListArray;
+        for (const auto& descriptor : *overrideAllowCredentials)
+            allowListArray.append(convertDescriptorToCBOR(descriptor));
+        cborMap[CBORValue(kCtapGetAssertionAllowListKey)] = CBORValue(WTF::move(allowListArray));
+    } else if (!options.allowCredentials.isEmpty()) {
         CBORValue::ArrayValue allowListArray;
         for (const auto& descriptor : options.allowCredentials)
             allowListArray.append(convertDescriptorToCBOR(descriptor));
-        cborMap[CBORValue(3)] = CBORValue(WTFMove(allowListArray));
+        cborMap[CBORValue(kCtapGetAssertionAllowListKey)] = CBORValue(WTF::move(allowListArray));
+    }
+
+    if ((authenticatorSupportedExtensions.size() && options.extensions) || hmacSecretParams) {
+        CBORValue::MapValue extensionsMap;
+
+        if (options.extensions) {
+            auto largeBlobInputs = options.extensions->largeBlob;
+            if (largeBlobInputs && authenticatorSupportedExtensions.contains("largeBlob"_s)) {
+                CBORValue::MapValue largeBlobMap;
+
+                if (largeBlobInputs->read)
+                    largeBlobMap[CBORValue("read"_s)] = CBORValue(largeBlobInputs->read.value());
+
+                if (largeBlobInputs->write)
+                    largeBlobMap[CBORValue("write"_s)] = CBORValue(BufferSource { WTF::move(*largeBlobInputs->write) });
+
+                extensionsMap[CBORValue("largeBlob"_s)] = CBORValue(WTF::move(largeBlobMap));
+            }
+        }
+
+        // Add hmac-secret extension with encrypted salt parameters
+        if (hmacSecretParams && authenticatorSupportedExtensions.contains(kExtensionHmacSecret)) {
+            CBORValue::MapValue hmacSecretMap;
+            hmacSecretMap[CBORValue(kHmacSecretKeyAgreementKey)] = CBORValue(WTF::move(hmacSecretParams->keyAgreement));
+            hmacSecretMap[CBORValue(kHmacSecretSaltEncKey)] = CBORValue(WTF::move(hmacSecretParams->saltEnc));
+            hmacSecretMap[CBORValue(kHmacSecretSaltAuthKey)] = CBORValue(WTF::move(hmacSecretParams->saltAuth));
+            hmacSecretMap[CBORValue(kHmacSecretPinUvAuthProtocolKey)] = CBORValue(hmacSecretParams->protocol);
+            extensionsMap[CBORValue(kExtensionHmacSecret)] = CBORValue(WTF::move(hmacSecretMap));
+        }
+
+        if (!extensionsMap.empty())
+            cborMap[CBORValue(kCtapGetAssertionExtensionsKey)] = CBORValue(WTF::move(extensionsMap));
     }
 
     CBORValue::MapValue optionMap;
     // User verification is not required by default.
     bool requireUserVerification = false;
-    switch (options.userVerification) {
+    switch (effectiveUVRequirement) {
     case UserVerificationRequirement::Required:
     case UserVerificationRequirement::Preferred:
         requireUserVerification = uvCapability == UVAvailability::kSupportedAndConfigured;
@@ -166,18 +307,45 @@ Vector<uint8_t> encodeGetAssertionRequestAsCBOR(const Vector<uint8_t>& hash, con
     optionMap[CBORValue(kUserPresenceMapKey)] = CBORValue(true);
 
     if (!optionMap.empty())
-        cborMap[CBORValue(5)] = CBORValue(WTFMove(optionMap));
+        cborMap[CBORValue(kCtapGetAssertionRequestOptionsKey)] = CBORValue(WTF::move(optionMap));
 
     if (pin) {
         ASSERT(pin->protocol >= 0);
-        cborMap[CBORValue(6)] = CBORValue(WTFMove(pin->auth));
-        cborMap[CBORValue(7)] = CBORValue(pin->protocol);
+        cborMap[CBORValue(kCtapGetAssertionPinUvAuthParamKey)] = CBORValue(WTF::move(pin->auth));
+        cborMap[CBORValue(kCtapGetAssertionPinUvAuthProtocolKey)] = CBORValue(pin->protocol);
     }
 
-    auto serializedParam = CBORWriter::write(CBORValue(WTFMove(cborMap)));
+    auto serializedParam = CBORWriter::write(CBORValue(WTF::move(cborMap)));
     ASSERT(serializedParam);
 
     Vector<uint8_t> cborRequest({ static_cast<uint8_t>(CtapRequestCommand::kAuthenticatorGetAssertion) });
+    cborRequest.appendVector(*serializedParam);
+    return cborRequest;
+}
+
+Vector<uint8_t> encodeBogusRequestForAuthenticatorSelection()
+{
+    CBORValue::MapValue cborMap;
+    cborMap[CBORValue(kCtapMakeCredentialClientDataHashKey)] = CBORValue(Vector<uint8_t>(FillWith { }, 0, 32));
+    CBORValue::MapValue rpMap;
+    rpMap.emplace(CBORValue(kEntityNameMapKey), CBORValue("notarealwebsite.com"));
+    rpMap.emplace(CBORValue(kEntityIdMapKey), CBORValue("notarealwebsite.com"));
+    cborMap[CBORValue(kCtapMakeCredentialRpKey)] = CBORValue(rpMap);
+
+    CBORValue::MapValue userMap;
+    userMap.emplace(CBORValue(kEntityNameMapKey), CBORValue("bogus"_s));
+    userMap.emplace(CBORValue(kEntityIdMapKey), CBORValue(Vector<uint8_t> { 0 }));
+    userMap.emplace(CBORValue(kDisplayNameMapKey), CBORValue("bogus"_s));
+
+    cborMap[CBORValue(kCtapMakeCredentialUserKey)] = CBORValue(userMap);
+    cborMap[CBORValue(kCtapMakeCredentialPubKeyCredParamsKey)] = convertParametersToCBOR({ { PublicKeyCredentialType::PublicKey, COSE::ES256 } });
+    cborMap[CBORValue(kCtapMakeCredentialPinUvAuthParamKey)] = CBORValue(Vector<uint8_t> { });
+    cborMap[CBORValue(kCtapMakeCredentialPinUvAuthProtocolKey)] = CBORValue(pin::kProtocolVersion);
+
+    auto serializedParam = CBORWriter::write(CBORValue(WTF::move(cborMap)));
+    ASSERT(serializedParam);
+
+    Vector<uint8_t> cborRequest({ static_cast<uint8_t>(CtapRequestCommand::kAuthenticatorMakeCredential) });
     cborRequest.appendVector(*serializedParam);
     return cborRequest;
 }

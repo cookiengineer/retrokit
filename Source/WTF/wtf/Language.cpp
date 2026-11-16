@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2010, 2013, 2016, 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Igalia S.L.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,56 +27,53 @@
 #include "config.h"
 #include <wtf/Language.h>
 
+#include <wtf/CrossThreadCopier.h>
 #include <wtf/HashMap.h>
 #include <wtf/Lock.h>
 #include <wtf/Logging.h>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/text/MakeString.h>
+#include <wtf/text/StringToIntegerConversion.h>
 #include <wtf/text/TextStream.h>
 #include <wtf/text/WTFString.h>
 
-#if USE(CF) && !PLATFORM(WIN)
-#include <CoreFoundation/CoreFoundation.h>
-#endif
-
 namespace WTF {
 
-static Lock cachedPlatformPreferredLanguagesLock;
-static Vector<String>& cachedFullPlatformPreferredLanguages() WTF_REQUIRES_LOCK(cachedPlatformPreferredLanguagesLock)
+static Lock languagesLock;
+static Vector<String>& NODELETE cachedFullPlatformPreferredLanguages() WTF_REQUIRES_LOCK(languagesLock)
 {
     static NeverDestroyed<Vector<String>> languages;
     return languages;
 }
-static Vector<String>& cachedMinimizedPlatformPreferredLanguages() WTF_REQUIRES_LOCK(cachedPlatformPreferredLanguagesLock)
+static Vector<String>& NODELETE cachedMinimizedPlatformPreferredLanguages() WTF_REQUIRES_LOCK(languagesLock)
 {
     static NeverDestroyed<Vector<String>> languages;
     return languages;
 }
-
-static Lock preferredLanguagesOverrideLock;
-static Vector<String>& preferredLanguagesOverride() WTF_REQUIRES_LOCK(preferredLanguagesOverrideLock)
+static Vector<String>& NODELETE preferredLanguagesOverride() WTF_REQUIRES_LOCK(languagesLock)
 {
     static NeverDestroyed<Vector<String>> override;
     return override;
 }
+static std::optional<bool> cachedUserPrefersSimplifiedChinese WTF_GUARDED_BY_LOCK(languagesLock);
 
-typedef HashMap<void*, LanguageChangeObserverFunction> ObserverMap;
-static ObserverMap& observerMap()
+static Lock observerMapLock;
+using ObserverMap = HashMap<void*, LanguageChangeObserverFunction>;
+static ObserverMap& NODELETE observerMap() WTF_REQUIRES_LOCK(observerMapLock)
 {
-    static LazyNeverDestroyed<ObserverMap> map;
-    static std::once_flag onceKey;
-    std::call_once(onceKey, [&] {
-        map.construct();
-    });
+    static NeverDestroyed<ObserverMap> map;
     return map.get();
 }
 
 void addLanguageChangeObserver(void* context, LanguageChangeObserverFunction customObserver)
 {
+    Locker locker { observerMapLock };
     observerMap().set(context, customObserver);
 }
 
 void removeLanguageChangeObserver(void* context)
 {
+    Locker locker { observerMapLock };
     ASSERT(observerMap().contains(context));
     observerMap().remove(context);
 }
@@ -83,15 +81,15 @@ void removeLanguageChangeObserver(void* context)
 void languageDidChange()
 {
     {
-        Locker locker { cachedPlatformPreferredLanguagesLock };
+        Locker locker { languagesLock };
         cachedFullPlatformPreferredLanguages().clear();
         cachedMinimizedPlatformPreferredLanguages().clear();
+        cachedUserPrefersSimplifiedChinese = std::nullopt;
     }
 
-    for (auto& observer : copyToVector(observerMap())) {
-        if (observerMap().contains(observer.key))
-            observer.value(observer.key);
-    }
+    Locker locker { observerMapLock };
+    for (auto& observer : copyToVector(observerMap()))
+        observer.value(observer.key);
 }
 
 String defaultLanguage(ShouldMinimizeLanguages shouldMinimizeLanguages)
@@ -106,114 +104,150 @@ String defaultLanguage(ShouldMinimizeLanguages shouldMinimizeLanguages)
     return emptyString();
 }
 
-Vector<String> userPreferredLanguagesOverride()
+// This returns a reference to a Vector<String> protected by languagesLock.
+// Callers should not let it escape past the lock.
+static Vector<String>& computeUserPreferredLanguages(ShouldMinimizeLanguages shouldMinimizeLanguages) WTF_REQUIRES_LOCK(languagesLock)
 {
-    Locker locker { preferredLanguagesOverrideLock };
-    return preferredLanguagesOverride();
-}
-
-void overrideUserPreferredLanguages(const Vector<String>& override)
-{
-    LOG_WITH_STREAM(Language, stream << "Languages are being overridden to: " << override);
-    {
-        Locker locker { preferredLanguagesOverrideLock };
-        preferredLanguagesOverride() = override;
-    }
-    languageDidChange();
-}
-
-static Vector<String> isolatedCopy(const Vector<String>& strings)
-{
-    Vector<String> copy;
-    copy.reserveInitialCapacity(strings.size());
-    for (auto& language : strings)
-        copy.uncheckedAppend(language.isolatedCopy());
-    return copy;
-}
-
-Vector<String> userPreferredLanguages(ShouldMinimizeLanguages shouldMinimizeLanguages)
-{
-    {
-        Locker locker { preferredLanguagesOverrideLock };
-        Vector<String>& override = preferredLanguagesOverride();
-        if (!override.isEmpty()) {
-            LOG_WITH_STREAM(Language, stream << "Languages are overridden: " << override);
-            return isolatedCopy(override);
-        }
+    Vector<String>& override = preferredLanguagesOverride();
+    if (!override.isEmpty()) {
+        LOG_WITH_STREAM(Language, stream << "Languages are overridden: " << override);
+        return override;
     }
 
-    Locker locker { cachedPlatformPreferredLanguagesLock };
     auto& languages = shouldMinimizeLanguages == ShouldMinimizeLanguages::Yes ? cachedMinimizedPlatformPreferredLanguages() : cachedFullPlatformPreferredLanguages();
     if (languages.isEmpty()) {
         LOG(Language, "userPreferredLanguages() cache miss");
         languages = platformUserPreferredLanguages(shouldMinimizeLanguages);
     } else
         LOG(Language, "userPreferredLanguages() cache hit");
-    return isolatedCopy(languages);
+    return languages;
+}
+
+Vector<String> userPreferredLanguages(ShouldMinimizeLanguages shouldMinimizeLanguages)
+{
+    Locker locker { languagesLock };
+    return crossThreadCopy(computeUserPreferredLanguages(shouldMinimizeLanguages));
+}
+
+static bool computeUserPrefersSimplifiedChinese() WTF_REQUIRES_LOCK(languagesLock)
+{
+    for (const auto& language : computeUserPreferredLanguages(ShouldMinimizeLanguages::Yes)) {
+        if (equalLettersIgnoringASCIICase(language, "zh-tw"_s))
+            return false;
+        if (equalLettersIgnoringASCIICase(language, "zh-cn"_s))
+            return true;
+    }
+    return true;
+}
+
+bool userPrefersSimplifiedChinese()
+{
+    Locker locker { languagesLock };
+    if (!cachedUserPrefersSimplifiedChinese)
+        cachedUserPrefersSimplifiedChinese = computeUserPrefersSimplifiedChinese();
+    return *cachedUserPrefersSimplifiedChinese;
 }
 
 #if !PLATFORM(COCOA)
 
+void overrideUserPreferredLanguages(const Vector<String>& override)
+{
+    LOG_WITH_STREAM(Language, stream << "Languages are being overridden to: " << override);
+    {
+        Locker locker { languagesLock };
+        preferredLanguagesOverride() = override;
+        cachedUserPrefersSimplifiedChinese = std::nullopt;
+    }
+    languageDidChange();
+}
+
 static String canonicalLanguageIdentifier(const String& languageCode)
 {
-    String lowercaseLanguageCode = languageCode.convertToASCIILowercase();
-    
-    if (lowercaseLanguageCode.length() >= 3 && lowercaseLanguageCode[2] == '_')
-        lowercaseLanguageCode.replace(2, 1, "-");
+    return makeStringByReplacingAll(languageCode.convertToASCIILowercase(), '_', '-');
+}
 
-    return lowercaseLanguageCode;
+LocaleComponents parseLocale(const String& localeIdentifier)
+{
+    // Parse the components of the identifier per BCP47. https://www.ietf.org/rfc/bcp/bcp47.txt
+
+    LocaleComponents result;
+
+    auto components = canonicalLanguageIdentifier(localeIdentifier).split('-');
+    if (components.isEmpty())
+        return result;
+
+    // First component is always the language code.
+    result.languageCode = components[0].convertToASCIILowercase();
+
+    // If only a language code is present, return it.
+    if (components.size() <= 1)
+        return result;
+
+    // If the second component is four characters, interpret it as a script code.
+    if (components[1].length() == 4)
+        result.scriptCode = makeString(components[1].left(1).convertToASCIIUppercase(), components[1].substring(1));
+
+    // Determine region code component based on presence of script code.
+    auto regionCodeCandidate = components.size() >= 3 && !result.scriptCode.isEmpty() ? components[2] : components[1];
+
+    // 2 character codes (e.g., "US") are ISO 3166-1 alpha-2; 3 character codes (e.g., "001") are ISO 3166-1 numeric.
+    if (regionCodeCandidate.length() == 2)
+        result.regionCode = regionCodeCandidate.convertToASCIIUppercase();
+    else if (regionCodeCandidate.length() == 3 && parseInteger<uint16_t>(regionCodeCandidate, 10))
+        result.regionCode = regionCodeCandidate;
+
+    return result;
 }
 
 size_t indexOfBestMatchingLanguageInList(const String& language, const Vector<String>& languageList, bool& exactMatch)
 {
-    String lowercaseLanguage = language.convertToASCIILowercase();
-    String languageWithoutLocaleMatch;
-    String languageMatchButNotLocale;
-    size_t languageWithoutLocaleMatchIndex = 0;
-    size_t languageMatchButNotLocaleMatchIndex = 0;
-    bool canMatchLanguageOnly = (lowercaseLanguage.length() == 2 || (lowercaseLanguage.length() >= 3 && lowercaseLanguage[2] == '-'));
+    exactMatch = false;
+
+    if (language.isEmpty() || languageList.isEmpty())
+        return notFound;
+
+    auto canonicalizedLanguage = canonicalLanguageIdentifier(language);
+    auto components = parseLocale(canonicalizedLanguage);
+
+    auto languageOnlyMatchIndex = notFound;
+    auto partialMatchIndex = notFound;
 
     for (size_t i = 0; i < languageList.size(); ++i) {
-        String canonicalizedLanguageFromList = canonicalLanguageIdentifier(languageList[i]);
-
-        if (lowercaseLanguage == canonicalizedLanguageFromList) {
+        auto canonicalizedLanguageFromList = canonicalLanguageIdentifier(languageList[i]);
+        if (canonicalizedLanguage == canonicalizedLanguageFromList) {
             exactMatch = true;
             return i;
         }
 
-        if (canMatchLanguageOnly && canonicalizedLanguageFromList.length() >= 2) {
-            if (lowercaseLanguage[0] == canonicalizedLanguageFromList[0] && lowercaseLanguage[1] == canonicalizedLanguageFromList[1]) {
-                if (!languageWithoutLocaleMatch.length() && canonicalizedLanguageFromList.length() == 2) {
-                    languageWithoutLocaleMatch = languageList[i];
-                    languageWithoutLocaleMatchIndex = i;
-                }
-                if (!languageMatchButNotLocale.length() && canonicalizedLanguageFromList.length() >= 3) {
-                    languageMatchButNotLocale = languageList[i];
-                    languageMatchButNotLocaleMatchIndex = i;
-                }
-            }
+        auto componentsFromList = parseLocale(canonicalizedLanguageFromList);
+        if (components.languageCode == componentsFromList.languageCode) {
+            // If it's a language-only match, store the first occurrence.
+            if (languageOnlyMatchIndex == notFound && componentsFromList.scriptCode.isEmpty() && componentsFromList.regionCode.isEmpty())
+                languageOnlyMatchIndex = i;
+
+            // If it's a partial match (language and script), store the first occurrence.
+            if (partialMatchIndex == notFound && components.scriptCode == componentsFromList.scriptCode && !componentsFromList.regionCode.isEmpty())
+                partialMatchIndex = i;
         }
     }
 
-    exactMatch = false;
+    // If we have both a language-only match and a language-but-not-locale match, return the
+    // language-only match as it is considered a "better" match. For example, if the list
+    // provided has both "en-GB" and "en" and the user prefers "en-US", we will return "en".
+    if (languageOnlyMatchIndex != notFound)
+        return languageOnlyMatchIndex;
 
-    // If we have both a language-only match and a languge-but-not-locale match, return the
-    // languge-only match as is considered a "better" match. For example, if the list
-    // provided has both "en-GB" and "en" and the user prefers "en-US" we will return "en".
-    if (languageWithoutLocaleMatch.length())
-        return languageWithoutLocaleMatchIndex;
+    if (partialMatchIndex != notFound)
+        return partialMatchIndex;
 
-    if (languageMatchButNotLocale.length())
-        return languageMatchButNotLocaleMatchIndex;
-
-    return languageList.size();
+    return notFound;
 }
 
 #endif // !PLATFORM(COCOA)
 
 String displayNameForLanguageLocale(const String& localeName)
 {
-#if USE(CF) && !PLATFORM(WIN)
+#if USE(CF)
     if (!localeName.isEmpty())
         return adoptCF(CFLocaleCopyDisplayNameForPropertyValue(adoptCF(CFLocaleCopyCurrent()).get(), kCFLocaleIdentifier, localeName.createCFString().get())).get();
 #endif

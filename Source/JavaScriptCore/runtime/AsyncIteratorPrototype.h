@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2017 Oleksandr Skachkov <gskachkov@gmail.com>.
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,9 +26,11 @@
 
 #pragma once
 
-#include "JSObject.h"
+#include <JavaScriptCore/JSObject.h>
 
 namespace JSC {
+
+JSC_DECLARE_HOST_FUNCTION(asyncIteratorProtoFuncAsyncIterator);
 
 class AsyncIteratorPrototype final : public JSNonFinalObject {
 public:
@@ -36,25 +38,22 @@ public:
     static constexpr unsigned StructureFlags = Base::StructureFlags;
 
     template<typename CellType, SubspaceAccess>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(AsyncIteratorPrototype, Base);
-        return &vm.plainObjectSpace;
+        return &vm.plainObjectSpace();
     }
 
     static AsyncIteratorPrototype* create(VM& vm, JSGlobalObject* globalObject, Structure* structure)
     {
-        AsyncIteratorPrototype* prototype = new (NotNull, allocateCell<AsyncIteratorPrototype>(vm.heap)) AsyncIteratorPrototype(vm, structure);
+        AsyncIteratorPrototype* prototype = new (NotNull, allocateCell<AsyncIteratorPrototype>(vm)) AsyncIteratorPrototype(vm, structure);
         prototype->finishCreation(vm, globalObject);
         return prototype;
     }
 
     DECLARE_INFO;
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(ObjectType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
 private:
     AsyncIteratorPrototype(VM& vm, Structure* structure)

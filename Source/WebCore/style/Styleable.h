@@ -25,141 +25,248 @@
 
 #pragma once
 
-#include "Element.h"
-#include "KeyframeEffectStack.h"
-#include "PseudoElement.h"
-#include "RenderElement.h"
-#include "RenderStyleConstants.h"
-#include "WebAnimationTypes.h"
+#include <WebCore/Element.h>
+#include <WebCore/PseudoElement.h>
+#include <WebCore/PseudoElementIdentifier.h>
+#include <WebCore/RenderStyleConstants.h>
+#include <WebCore/WebAnimationTypes.h>
+#include <wtf/HashSet.h>
+#include <wtf/HashTraits.h>
+#include <wtf/text/AtomStringHash.h>
 
 namespace WebCore {
 
+class Element;
 class KeyframeEffectStack;
-class RenderStyle;
+class RenderElement;
 class WebAnimation;
+
+namespace Style {
+class ComputedStyle;
+template<typename> struct CoordinatedValueList;
+struct Animation;
+using Animations = CoordinatedValueList<Animation>;
+enum class IsInDisplayNoneTree : bool;
+}
 
 struct Styleable {
     Element& element;
-    PseudoId pseudoId;
+    std::optional<Style::PseudoElementIdentifier> pseudoElementIdentifier;
 
-    Styleable(Element& element, PseudoId pseudoId)
+    Styleable(Element& element, const std::optional<Style::PseudoElementIdentifier>& pseudoElementIdentifier)
         : element(element)
-        , pseudoId(pseudoId)
+        , pseudoElementIdentifier(pseudoElementIdentifier)
     {
-        ASSERT(!is<PseudoElement>(element));
     }
 
-    static const Styleable fromElement(Element& element)
-    {
-        if (is<PseudoElement>(element))
-            return Styleable(*downcast<PseudoElement>(element).hostElement(), element.pseudoId());
-        return Styleable(element, element.pseudoId());
-    }
+    inline static const Styleable fromElement(Element&);
 
-    static const std::optional<const Styleable> fromRenderer(const RenderElement& renderer)
-    {
-        if (auto* element = renderer.element())
-            return fromElement(*element);
-        return std::nullopt;
-    }
+    static const std::optional<const Styleable> fromRenderer(const RenderElement&);
 
     bool operator==(const Styleable& other) const
     {
-        return (&element == &other.element && pseudoId == other.pseudoId);
+        return (&element == &other.element && pseudoElementIdentifier == other.pseudoElementIdentifier);
     }
 
-    bool operator!=(const Styleable& other) const
-    {
-        return !(*this == other);
-    }
+    RenderElement* renderer() const;
+
+    std::unique_ptr<Style::ComputedStyle> computeAnimatedStyle() const;
+
+    // If possible, compute the visual extent of any transform animation using the given rect,
+    // returning the result in the rect. Return false if there is some transform animation but
+    // we were unable to cheaply compute its effect on the extent.
+    bool computeAnimationExtent(LayoutRect&) const;
+
+    bool mayHaveNonZeroOpacity() const;
+
+    bool isRunningAcceleratedAnimationOfProperty(CSSPropertyID) const;
+    bool isRunningAcceleratedTransformRelatedAnimation() const;
+    bool hasRunningAcceleratedAnimations() const;
+
+    bool NODELETE capturedInViewTransition() const;
+    void setCapturedInViewTransition(AtomString);
 
     KeyframeEffectStack* keyframeEffectStack() const
     {
-        return element.keyframeEffectStack(pseudoId);
+        return element.keyframeEffectStack(pseudoElementIdentifier);
     }
 
     KeyframeEffectStack& ensureKeyframeEffectStack() const
     {
-        return element.ensureKeyframeEffectStack(pseudoId);
+        return element.ensureKeyframeEffectStack(pseudoElementIdentifier);
     }
 
     bool hasKeyframeEffects() const
     {
-        return element.hasKeyframeEffects(pseudoId);
+        return element.hasKeyframeEffects(pseudoElementIdentifier);
     }
 
-    OptionSet<AnimationImpact> applyKeyframeEffects(RenderStyle& targetStyle, const RenderStyle& previousLastStyleChangeEventStyle, const RenderStyle* parentElementStyle) const
-    {
-        return element.ensureKeyframeEffectStack(pseudoId).applyKeyframeEffects(targetStyle, previousLastStyleChangeEventStyle, parentElementStyle);
-    }
+    OptionSet<AnimationImpact> applyKeyframeEffects(Style::ComputedStyle& targetStyle, HashSet<AnimatableCSSProperty>& affectedProperties, const Style::ComputedStyle* previousLastStyleChangeEventStyle, const Style::ResolutionContext&) const;
 
     const AnimationCollection* animations() const
     {
-        return element.animations(pseudoId);
+        return element.animations(pseudoElementIdentifier);
     }
 
-    bool hasCompletedTransitionForProperty(CSSPropertyID property) const
+    bool hasCompletedTransitionForProperty(const AnimatableCSSProperty& property) const
     {
-        return element.hasCompletedTransitionForProperty(pseudoId, property);
+        return element.hasCompletedTransitionForProperty(pseudoElementIdentifier, property);
     }
 
-    bool hasRunningTransitionForProperty(CSSPropertyID property) const
+    bool hasRunningTransitionForProperty(const AnimatableCSSProperty& property) const
     {
-        return element.hasRunningTransitionForProperty(pseudoId, property);
+        return element.hasRunningTransitionForProperty(pseudoElementIdentifier, property);
     }
 
     bool hasRunningTransitions() const
     {
-        return element.hasRunningTransitions(pseudoId);
+        return element.hasRunningTransitions(pseudoElementIdentifier);
+    }
+
+    const AnimatableCSSPropertyToTransitionMap* runningTransitionsByProperty() const
+    {
+        return element.runningTransitionsByProperty(pseudoElementIdentifier);
     }
 
     AnimationCollection& ensureAnimations() const
     {
-        return element.ensureAnimations(pseudoId);
+        return element.ensureAnimations(pseudoElementIdentifier);
     }
 
-    PropertyToTransitionMap& ensureCompletedTransitionsByProperty() const
+    AnimatableCSSPropertyToTransitionMap& ensureCompletedTransitionsByProperty() const
     {
-        return element.ensureCompletedTransitionsByProperty(pseudoId);
+        return element.ensureCompletedTransitionsByProperty(pseudoElementIdentifier);
     }
 
-    PropertyToTransitionMap& ensureRunningTransitionsByProperty() const
+    AnimatableCSSPropertyToTransitionMap& ensureRunningTransitionsByProperty() const
     {
-        return element.ensureRunningTransitionsByProperty(pseudoId);
+        return element.ensureRunningTransitionsByProperty(pseudoElementIdentifier);
     }
 
     CSSAnimationCollection& animationsCreatedByMarkup() const
     {
-        return element.animationsCreatedByMarkup(pseudoId);
+        return element.animationsCreatedByMarkup(pseudoElementIdentifier);
     }
 
     void setAnimationsCreatedByMarkup(CSSAnimationCollection&& collection) const
     {
-        element.setAnimationsCreatedByMarkup(pseudoId, WTFMove(collection));
+        element.setAnimationsCreatedByMarkup(pseudoElementIdentifier, WTF::move(collection));
     }
 
-    const RenderStyle* lastStyleChangeEventStyle() const
+    const Style::ComputedStyle* lastStyleChangeEventStyle() const
     {
-        return element.lastStyleChangeEventStyle(pseudoId);
+        return element.lastStyleChangeEventStyle(pseudoElementIdentifier);
     }
 
-    void setLastStyleChangeEventStyle(std::unique_ptr<const RenderStyle>&& style) const
+    void setLastStyleChangeEventStyle(std::unique_ptr<const Style::ComputedStyle>&& style) const
     {
-        element.setLastStyleChangeEventStyle(pseudoId, WTFMove(style));
+        element.setLastStyleChangeEventStyle(pseudoElementIdentifier, WTF::move(style));
     }
+
+    bool hasPropertiesOverridenAfterAnimation() const
+    {
+        return element.hasPropertiesOverridenAfterAnimation(pseudoElementIdentifier);
+    }
+
+    void setHasPropertiesOverridenAfterAnimation(bool value) const
+    {
+        element.setHasPropertiesOverridenAfterAnimation(pseudoElementIdentifier, value);
+    }
+
+    void keyframesRuleDidChange() const
+    {
+        element.keyframesRuleDidChange(pseudoElementIdentifier);
+    }
+
+    void queryContainerDidChange() const;
+    bool viewportSizeDidChange() const;
+
+    bool animationListContainsNewlyValidAnimation(const Style::Animations&) const;
 
     void elementWasRemoved() const;
 
     void willChangeRenderer() const;
-    void cancelDeclarativeAnimations() const;
+    void cancelStyleOriginatedAnimations() const;
+    void cancelStyleOriginatedAnimations(const WeakStyleOriginatedAnimations&) const;
 
     void animationWasAdded(WebAnimation&) const;
     void animationWasRemoved(WebAnimation&) const;
 
-    void removeDeclarativeAnimationFromListsForOwningElement(WebAnimation&) const;
+    void removeStyleOriginatedAnimationFromListsForOwningElement(WebAnimation&) const;
 
-    void updateCSSAnimations(const RenderStyle* currentStyle, const RenderStyle& afterChangeStyle, const RenderStyle* parentElementStyle) const;
-    void updateCSSTransitions(const RenderStyle& currentStyle, const RenderStyle& newStyle) const;
+    void updateCSSAnimations(const Style::ComputedStyle* currentStyle, const Style::ComputedStyle& afterChangeStyle, const Style::ResolutionContext&, WeakStyleOriginatedAnimations&, Style::IsInDisplayNoneTree) const;
+    void updateCSSTransitions(const Style::ComputedStyle& currentStyle, const Style::ComputedStyle& newStyle, WeakStyleOriginatedAnimations&) const;
+    void updateCSSScrollTimelines(const Style::ComputedStyle* currentStyle, const Style::ComputedStyle& afterChangeStyle) const;
+    void updateCSSViewTimelines(const Style::ComputedStyle* currentStyle, const Style::ComputedStyle& afterChangeStyle) const;
 };
 
+class WeakStyleable {
+public:
+    WeakStyleable() = default;
+
+    WeakStyleable(WTF::HashTableDeletedValueType) : m_element(WTF::HashTableDeletedValue) { }
+    bool isHashTableDeletedValue() const { return m_element.isHashTableDeletedValue(); }
+
+    WeakStyleable(WTF::HashTableEmptyValueType) : m_element(WTF::HashTableEmptyValue) { }
+    bool isHashTableEmptyValue() const { return m_element.isHashTableEmptyValue(); }
+
+    // WeakPtr is not safe to compare.
+    static constexpr bool isSafeToCompareToHashTableEmptyOrDeletedValue = false;
+
+    explicit operator bool() const { return !!m_element; }
+
+    bool operator==(const WeakStyleable& other) const = default;
+
+    WeakStyleable& operator=(const Styleable& styleable)
+    {
+        m_element = styleable.element;
+        m_pseudoElementIdentifier = styleable.pseudoElementIdentifier;
+        return *this;
+    }
+
+    WeakStyleable(const Styleable& styleable)
+    {
+        m_element = styleable.element;
+        m_pseudoElementIdentifier = styleable.pseudoElementIdentifier;
+    }
+
+    std::optional<Styleable> styleable() const
+    {
+        if (!m_element)
+            return std::nullopt;
+        return Styleable(*m_element, m_pseudoElementIdentifier);
+    }
+
+    WeakPtr<Element, WeakPtrImplWithEventTargetData> element() const { return m_element; }
+    std::optional<Style::PseudoElementIdentifier> pseudoElementIdentifier() const { return m_pseudoElementIdentifier; }
+
+private:
+    WeakPtr<Element, WeakPtrImplWithEventTargetData> m_element;
+    std::optional<Style::PseudoElementIdentifier> m_pseudoElementIdentifier;
+};
+
+// This lets HasherBasedHash define a DefaultHash<WeakStyleable> for us.
+inline void add(Hasher& hasher, const WeakStyleable& weakStyleable)
+{
+    add(hasher, weakStyleable.element());
+    add(hasher, weakStyleable.pseudoElementIdentifier());
+}
+
+WTF::TextStream& operator<<(WTF::TextStream&, const Styleable&);
+WTF::TextStream& operator<<(WTF::TextStream&, const WeakStyleable&);
+
 } // namespace WebCore
+
+namespace WTF {
+
+template<> struct HashTraits<WebCore::WeakStyleable> : SimpleClassHashTraits<WebCore::WeakStyleable> {
+    static const bool emptyValueIsZero = false;
+    static constexpr bool hasIsEmptyValueFunction = true;
+    static WebCore::WeakStyleable emptyValue() { return { WTF::HashTableEmptyValue }; }
+    static bool isEmptyValue(const WebCore::WeakStyleable& value) { return value.isHashTableEmptyValue(); }
+
+    static constexpr bool hasIsWeakNullValueFunction = true;
+    static bool isWeakNullValue(const WebCore::WeakStyleable& value) { return !value; }
+};
+
+} // namespace WTF

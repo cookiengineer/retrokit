@@ -21,26 +21,26 @@
 [
     Exposed=Window
 ] interface HTMLAnchorElement : HTMLElement {
-    [CEReactions=NotNeeded, EnabledBySetting=PrivateClickMeasurement, Reflect] attribute unsigned long attributionsourceid;
-    [CEReactions=NotNeeded, EnabledBySetting=PrivateClickMeasurement, Reflect] attribute DOMString attributiondestination;
-    [CEReactions=NotNeeded, EnabledBySetting=PrivateClickMeasurementFraudPrevention, Reflect] attribute DOMString attributionsourcenonce;
+    [CEReactions=NotNeeded, EnabledBySetting=PrivateClickMeasurementEnabled, Reflect] attribute unsigned long attributionSourceId;
+    [CEReactions=NotNeeded, EnabledBySetting=PrivateClickMeasurementEnabled, Reflect] attribute DOMString attributionDestination;
+    [CEReactions=NotNeeded, EnabledBySetting=PrivateClickMeasurementFraudPreventionEnabled, Reflect] attribute DOMString attributionSourceNonce;
     [CEReactions=NotNeeded, Reflect] attribute DOMString charset;
     [CEReactions=NotNeeded, Reflect] attribute DOMString coords;
-    [CEReactions=NotNeeded, Conditional=DOWNLOAD_ATTRIBUTE, EnabledBySetting=DownloadAttribute, Reflect] attribute DOMString download;
+    [CEReactions=NotNeeded, EnabledBySetting=DownloadAttributeEnabled, Reflect] attribute DOMString download;
     [CEReactions=NotNeeded, Reflect] attribute DOMString hreflang;
     [CEReactions=NotNeeded, Reflect] attribute DOMString name;
     [CEReactions=NotNeeded, Reflect] attribute USVString ping;
     [CEReactions=NotNeeded, Reflect] attribute DOMString rel;
     [CEReactions=NotNeeded, Reflect] attribute DOMString rev;
     [CEReactions=NotNeeded, Reflect] attribute DOMString shape;
-    [CEReactions=NotNeeded, Reflect] attribute DOMString target;
     [CEReactions=NotNeeded, Reflect] attribute DOMString type;
 
-    [CEReactions] attribute DOMString text;
+    [CEReactions=Needed] attribute DOMString text;
 
     [PutForwards=value] readonly attribute DOMTokenList relList;
 
-    [EnabledBySetting=ReferrerPolicyAttribute, ImplementedAs=referrerPolicyForBindings, CEReactions=NotNeeded] attribute DOMString referrerPolicy;
+    [CEReactions=NotNeeded, ImplementedAs=referrerPolicyForBindings, ReflectSetter] attribute [AtomString] DOMString referrerPolicy;
 };
 
+HTMLAnchorElement includes HyperlinkElementUtils;
 HTMLAnchorElement includes HTMLHyperlinkElementUtils;

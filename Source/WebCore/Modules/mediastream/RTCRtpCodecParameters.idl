@@ -23,14 +23,12 @@
 * THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// https://w3c.github.io/webrtc-pc/#dom-rtcrtpcodecparameters
 [
     Conditional=WEB_RTC,
-    EnabledBySetting=PeerConnection,
+    EnabledBySetting=PeerConnectionEnabled,
     JSGenerateToJSObject,
-] dictionary RTCRtpCodecParameters {
-    unsigned short payloadType;
-    DOMString mimeType;
-    unsigned long clockRate;
-    unsigned short channels = 1;
-    DOMString sdpFmtpLine;
+    JSGenerateToNativeObject,
+] dictionary RTCRtpCodecParameters : RTCRtpCodec {
+    required unsigned short payloadType;
 };

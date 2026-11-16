@@ -32,6 +32,8 @@
 #include "Exception.h"
 #include "HTTPParsers.h"
 #include "ScriptExecutionContext.h"
+#include <JavaScriptCore/ConsoleTypes.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
@@ -41,35 +43,35 @@ Exception convertToException(Error error)
 {
     switch (error) {
     case Error::NotImplemented:
-        return Exception { NotSupportedError, "Not implemented"_s };
+        return Exception { ExceptionCode::NotSupportedError, "Not implemented"_s };
     case Error::ReadDisk:
-        return Exception { TypeError, "Failed reading data from the file system"_s };
+        return Exception { ExceptionCode::TypeError, "Failed reading data from the file system"_s };
     case Error::WriteDisk:
-        return Exception { TypeError, "Failed writing data to the file system"_s };
+        return Exception { ExceptionCode::TypeError, "Failed writing data to the file system"_s };
     case Error::QuotaExceeded:
-        return Exception { QuotaExceededError, "Quota exceeded"_s };
+        return Exception { ExceptionCode::QuotaExceededError, "Quota exceeded"_s };
     case Error::Internal:
-        return Exception { TypeError, "Internal error"_s };
+        return Exception { ExceptionCode::TypeError, "Internal error"_s };
     case Error::Stopped:
-        return Exception { TypeError, "Context is stopped"_s };
+        return Exception { ExceptionCode::TypeError, "Context is stopped"_s };
     case Error::CORP:
-        return Exception { TypeError, "Cross-Origin-Resource-Policy failure"_s };
+        return Exception { ExceptionCode::TypeError, "Cross-Origin-Resource-Policy failure"_s };
     }
     ASSERT_NOT_REACHED();
-    return Exception { TypeError, "Connection stopped"_s };
+    return Exception { ExceptionCode::TypeError, "Connection stopped"_s };
 }
 
 Exception convertToExceptionAndLog(ScriptExecutionContext* context, Error error)
 {
     auto exception = convertToException(error);
     if (context)
-        context->addConsoleMessage(MessageSource::JS, MessageLevel::Error, makeString("Cache API operation failed: ", exception.message()));
+        context->addConsoleMessage(MessageSource::JS, MessageLevel::Error, makeString("Cache API operation failed: "_s, exception.message()));
     return exception;
 }
 
 static inline bool matchURLs(const ResourceRequest& request, const URL& cachedURL, const CacheQueryOptions& options)
 {
-    ASSERT(options.ignoreMethod || request.httpMethod() == "GET");
+    ASSERT(options.ignoreMethod || request.httpMethod() == "GET"_s);
 
     URL requestURL = request.url();
     URL cachedRequestURL = cachedURL;
@@ -97,13 +99,12 @@ bool queryCacheMatch(const ResourceRequest& request, const ResourceRequest& cach
     varyValue.split(',', [&](StringView view) {
         if (isVarying)
             return;
-        auto nameView = stripLeadingAndTrailingHTTPSpaces(view);
-        if (nameView == "*") {
+        auto nameView = view.trim(isASCIIWhitespaceWithoutFF<char16_t>);
+        if (nameView == "*"_s) {
             isVarying = true;
             return;
         }
-        auto name = nameView.toStringWithoutCopying();
-        isVarying = cachedRequest.httpHeaderField(name) != request.httpHeaderField(name);
+        isVarying = cachedRequest.httpHeaderField(nameView) != request.httpHeaderField(nameView);
     });
 
     return !isVarying;
@@ -129,22 +130,22 @@ bool queryCacheMatch(const ResourceRequest& request, const URL& url, bool hasVar
 
 ResponseBody isolatedResponseBody(const ResponseBody& body)
 {
-    return WTF::switchOn(body, [](const Ref<FormData>& formData) {
+    return WTF::switchOn(body, [](const Ref<FormData>& formData) -> ResponseBody {
         return formData->isolatedCopy();
-    }, [](const Ref<SharedBuffer>& buffer) {
-        return buffer->copy();
-    }, [](const std::nullptr_t&) {
+    }, [](const Ref<SharedBuffer>& buffer) -> ResponseBody {
+        return buffer.copyRef(); // SharedBuffer are immutable and can be returned as-is.
+    }, [](const std::nullptr_t&) -> ResponseBody {
         return DOMCacheEngine::ResponseBody { };
     });
 }
 
 ResponseBody copyResponseBody(const ResponseBody& body)
 {
-    return WTF::switchOn(body, [](const Ref<FormData>& formData) {
+    return WTF::switchOn(body, [](const Ref<FormData>& formData) -> ResponseBody {
         return formData.copyRef();
-    }, [](const Ref<SharedBuffer>& buffer) {
+    }, [](const Ref<SharedBuffer>& buffer) -> ResponseBody {
         return buffer.copyRef();
-    }, [](const std::nullptr_t&) {
+    }, [](const std::nullptr_t&) -> ResponseBody {
         return DOMCacheEngine::ResponseBody { };
     });
 }
@@ -154,14 +155,52 @@ Record Record::copy() const
     return Record { identifier, updateResponseCounter, requestHeadersGuard, request, options, referrer, responseHeadersGuard, response, copyResponseBody(responseBody), responseBodySize };
 }
 
-static inline CacheInfo isolateCacheInfo(const CacheInfo& info)
+CrossThreadRecord toCrossThreadRecord(Record&& record)
 {
-    return CacheInfo { info.identifier, info.name.isolatedCopy() };
+    return CrossThreadRecord {
+        record.identifier,
+        record.updateResponseCounter,
+        record.requestHeadersGuard,
+        WTF::move(record.request).isolatedCopy(),
+        WTF::move(record.options).isolatedCopy(),
+        WTF::move(record.referrer).isolatedCopy(),
+        record.responseHeadersGuard,
+        record.response.crossThreadData(),
+        isolatedResponseBody(record.responseBody),
+        record.responseBodySize
+    };
 }
 
-CacheInfos CacheInfos::isolatedCopy()
+Record fromCrossThreadRecord(CrossThreadRecord&& record)
 {
-    return { WTF::map(infos, isolateCacheInfo), updateCounter };
+    return Record {
+        record.identifier,
+        record.updateResponseCounter,
+        record.requestHeadersGuard,
+        WTF::move(record.request),
+        WTF::move(record.options),
+        WTF::move(record.referrer),
+        record.responseHeadersGuard,
+        ResourceResponse::fromCrossThreadData(WTF::move(record.response)),
+        WTF::move(record.responseBody),
+        record.responseBodySize
+    };
+}
+
+CrossThreadRecord CrossThreadRecord::isolatedCopy() &&
+{
+    return CrossThreadRecord {
+        identifier,
+        updateResponseCounter,
+        requestHeadersGuard,
+        WTF::move(request).isolatedCopy(),
+        WTF::move(options).isolatedCopy(),
+        WTF::move(referrer).isolatedCopy(),
+        responseHeadersGuard,
+        WTF::move(response).isolatedCopy(),
+        isolatedResponseBody(responseBody),
+        responseBodySize
+    };
 }
 
 } // namespace DOMCacheEngine

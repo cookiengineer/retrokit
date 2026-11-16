@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  * Copyright (C) 2016 Yusuke Suzuki <utatane.tea@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,20 +26,21 @@
 
 #pragma once
 
-#include "Identifier.h"
+#include <JavaScriptCore/Identifier.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC {
 
 class ModuleScopeData : public RefCounted<ModuleScopeData> {
-WTF_MAKE_NONCOPYABLE(ModuleScopeData);
-WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_NONCOPYABLE(ModuleScopeData);
+    WTF_MAKE_TZONE_ALLOCATED(ModuleScopeData);
 public:
-    typedef HashMap<RefPtr<UniquedStringImpl>, Vector<RefPtr<UniquedStringImpl>>, IdentifierRepHash, HashTraits<RefPtr<UniquedStringImpl>>> IdentifierAliasMap;
+    typedef UncheckedKeyHashMap<RefPtr<UniquedStringImpl>, Vector<RefPtr<UniquedStringImpl>>, IdentifierRepHash, HashTraits<RefPtr<UniquedStringImpl>>> IdentifierAliasMap;
 
     static Ref<ModuleScopeData> create() { return adoptRef(*new ModuleScopeData); }
 
-    const IdentifierAliasMap& exportedBindings() const { return m_exportedBindings; }
+    const IdentifierAliasMap& exportedBindings() const LIFETIME_BOUND { return m_exportedBindings; }
 
     bool exportName(const Identifier& exportedName)
     {

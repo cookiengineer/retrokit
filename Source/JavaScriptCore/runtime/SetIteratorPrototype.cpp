@@ -20,26 +20,45 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "config.h"
 #include "SetIteratorPrototype.h"
 
-#include "JSCBuiltins.h"
+#include "IteratorOperations.h"
 #include "JSCInlines.h"
+#include "JSSetIteratorInlines.h"
 
 namespace JSC {
 
-const ClassInfo SetIteratorPrototype::s_info = { "Set Iterator", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(SetIteratorPrototype) };
+static JSC_DECLARE_HOST_FUNCTION(setIteratorProtoFuncNext);
+
+const ClassInfo SetIteratorPrototype::s_info = { "Set Iterator"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(SetIteratorPrototype) };
 
 void SetIteratorPrototype::finishCreation(VM& vm, JSGlobalObject* globalObject)
 {
     Base::finishCreation(vm);
-    ASSERT(inherits(vm, info()));
+    ASSERT(inherits(info()));
 
-    JSC_BUILTIN_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->next, setIteratorPrototypeNextCodeGenerator, static_cast<unsigned>(PropertyAttribute::DontEnum));
+    JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->next, setIteratorProtoFuncNext, static_cast<unsigned>(PropertyAttribute::DontEnum), 0, ImplementationVisibility::Public, JSSetIteratorNextIntrinsic);
     JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+}
+
+JSC_DEFINE_HOST_FUNCTION(setIteratorProtoFuncNext, (JSGlobalObject* globalObject, CallFrame* callFrame))
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    auto* iterator = dynamicDowncast<JSSetIterator>(callFrame->thisValue());
+    if (!iterator) [[unlikely]]
+        return throwVMTypeError(globalObject, scope, "%SetIteratorPrototype%.next requires that |this| be a Set Iterator instance"_s);
+
+    JSValue value;
+    bool hasNext = iterator->next(globalObject, value);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    return JSValue::encode(createIteratorResultObject(globalObject, hasNext ? value : jsUndefined(), !hasNext));
 }
 
 }

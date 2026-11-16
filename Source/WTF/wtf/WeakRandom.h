@@ -30,8 +30,9 @@
 
 #pragma once
 
-#include <limits.h>
+#include <limits>
 #include <wtf/CryptographicallyRandomNumber.h>
+#include <wtf/FastMalloc.h>
 #include <wtf/StdLibExtras.h>
 
 namespace WTF {
@@ -39,9 +40,9 @@ namespace WTF {
 // The code used to generate random numbers are inlined manually in JIT code.
 // So it needs to stay in sync with the JIT one.
 class WeakRandom final {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(WeakRandom);
 public:
-    WeakRandom(unsigned seed = cryptographicallyRandomNumber())
+    WeakRandom(unsigned seed = cryptographicallyRandomNumber<unsigned>())
     {
         setSeed(seed);
     }
@@ -85,6 +86,11 @@ public:
         }
     }
 
+    uint64_t getUint64()
+    {
+        return advance();
+    }
+
     bool returnTrueWithProbability(double probability)
     {
         ASSERT(0.0 <= probability && probability <= 1.0);
@@ -98,8 +104,8 @@ public:
         return false;
     }
 
-    static unsigned lowOffset() { return OBJECT_OFFSETOF(WeakRandom, m_low); }
-    static unsigned highOffset() { return OBJECT_OFFSETOF(WeakRandom, m_high); }
+    static constexpr unsigned lowOffset() { return OBJECT_OFFSETOF(WeakRandom, m_low); }
+    static constexpr unsigned highOffset() { return OBJECT_OFFSETOF(WeakRandom, m_high); }
 
     static constexpr uint64_t nextState(uint64_t x, uint64_t y)
     {

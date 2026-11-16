@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007, 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2025 Apple Inc. All rights reserved.
  * Copyright (C) 2009 Torch Mobile, Inc.
  * Copyright (C) 2021 Metrological Group B.V.
  * Copyright (C) 2021 Igalia S.L.
@@ -28,30 +28,39 @@
 #include "config.h"
 #include "WorkerFontLoadRequest.h"
 
+#include "CachedFont.h"
 #include "Font.h"
+#include "FontCreationContext.h"
 #include "FontCustomPlatformData.h"
 #include "FontSelectionAlgorithm.h"
 #include "ResourceLoaderOptions.h"
 #include "ServiceWorker.h"
-#include "SharedBuffer.h"
-#include "WOFFFileFormat.h"
 #include "WorkerGlobalScope.h"
 #include "WorkerThreadableLoader.h"
+#include <WebCore/HTTPStatusCodes.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WorkerFontLoadRequest);
+
+Ref<WorkerFontLoadRequest> WorkerFontLoadRequest::create(URL&& url, LoadedFromOpaqueSource loadedFromOpaqueSource)
+{
+    return adoptRef(*new WorkerFontLoadRequest(WTF::move(url), loadedFromOpaqueSource));
+}
+
 WorkerFontLoadRequest::WorkerFontLoadRequest(URL&& url, LoadedFromOpaqueSource loadedFromOpaqueSource)
-    : m_url(WTFMove(url))
+    : m_url(WTF::move(url))
     , m_loadedFromOpaqueSource(loadedFromOpaqueSource)
 {
 }
 
 void WorkerFontLoadRequest::load(WorkerGlobalScope& workerGlobalScope)
 {
-    m_context = makeWeakPtr(static_cast<ScriptExecutionContext*>(&workerGlobalScope));
+    m_context = workerGlobalScope;
 
-    ResourceRequest request { m_url };
-    ASSERT(request.httpMethod() == "GET");
+    ResourceRequest request { URL { m_url } };
+    ASSERT(request.httpMethod() == "GET"_s);
 
     FetchOptions fetchOptions;
     fetchOptions.mode = FetchOptions::Mode::SameOrigin;
@@ -60,39 +69,54 @@ void WorkerFontLoadRequest::load(WorkerGlobalScope& workerGlobalScope)
     fetchOptions.redirect = FetchOptions::Redirect::Follow;
     fetchOptions.destination = FetchOptions::Destination::Worker;
 
-    ThreadableLoaderOptions options { WTFMove(fetchOptions) };
+    ThreadableLoaderOptions options { WTF::move(fetchOptions) };
     options.sendLoadCallbacks = SendCallbackPolicy::SendCallbacks;
-    options.contentSecurityPolicyEnforcement = m_context->shouldBypassMainWorldContentSecurityPolicy() ? ContentSecurityPolicyEnforcement::DoNotEnforce : ContentSecurityPolicyEnforcement::EnforceChildSrcDirective;
+    options.contentSecurityPolicyEnforcement = Ref { *m_context }->shouldBypassMainWorldContentSecurityPolicy() ? ContentSecurityPolicyEnforcement::DoNotEnforce : ContentSecurityPolicyEnforcement::EnforceWorkerSrcDirective;
     options.loadedFromOpaqueSource = m_loadedFromOpaqueSource;
+    options.sameOriginDataURLFlag = SameOriginDataURLFlag::Set;
 
     options.serviceWorkersMode = ServiceWorkersMode::All;
-#if ENABLE(SERVICE_WORKER)
     if (auto* activeServiceWorker = workerGlobalScope.activeServiceWorker())
         options.serviceWorkerRegistrationIdentifier = activeServiceWorker->registrationIdentifier();
-#endif
 
-    WorkerThreadableLoader::loadResourceSynchronously(workerGlobalScope, WTFMove(request), *this, options);
+    WorkerThreadableLoader::loadResourceSynchronously(workerGlobalScope, WTF::move(request), *this, options);
 }
 
-bool WorkerFontLoadRequest::ensureCustomFontData(const AtomString&)
+RefPtr<FontCustomPlatformData> WorkerFontLoadRequest::loadCustomFont(SharedBuffer& bytes, const String& itemInCollection)
+{
+    RefPtr context = m_context.get();
+    ASSERT(context);
+
+    // FIXME: We should refactor this so that the unused wrapping parameter is not required.
+    bool wrapper = false;
+    return CachedFont::createCustomFontData(bytes, itemInCollection, wrapper, context->settingsValues().downloadableBinaryFontTrustedTypes);
+}
+
+bool WorkerFontLoadRequest::ensureCustomFontData()
 {
     if (!m_fontCustomPlatformData && !m_errorOccurred && !m_isLoading) {
-        convertWOFFToSfntIfNecessary(m_data);
-        if (m_data) {
-            m_fontCustomPlatformData = createFontCustomPlatformData(*m_data, m_url.fragmentIdentifier().toString());
-            if (!m_fontCustomPlatformData)
+        RefPtr<SharedBuffer> contiguousData;
+        if (m_data)
+            contiguousData = m_data.takeBufferAsContiguous();
+        if (contiguousData) {
+            RefPtr fontCustomPlatformData = loadCustomFont(*contiguousData, m_url.fragmentIdentifier().toString());
+            m_data.append(*contiguousData);
+            if (!fontCustomPlatformData) {
                 m_errorOccurred = true;
+                return false;
+            }
+            lazyInitialize(m_fontCustomPlatformData, fontCustomPlatformData.releaseNonNull());
         }
     }
 
     return m_fontCustomPlatformData.get();
 }
 
-RefPtr<Font> WorkerFontLoadRequest::createFont(const FontDescription& fontDescription, const AtomString&, bool syntheticBold, bool syntheticItalic, const FontFeatureSettings& fontFaceFeatures, FontSelectionSpecifiedCapabilities fontFaceCapabilities)
+RefPtr<Font> WorkerFontLoadRequest::createFont(const FontDescription& fontDescription, const FontCreationContext& fontCreationContext)
 {
     ASSERT(m_fontCustomPlatformData);
     ASSERT(m_context);
-    return Font::create(m_fontCustomPlatformData->fontPlatformData(fontDescription, syntheticBold, syntheticItalic, fontFaceFeatures, fontFaceCapabilities), Font::Origin::Remote, &m_context->fontCache());
+    return Font::create(m_fontCustomPlatformData->fontPlatformData(fontDescription, fontCreationContext), Font::Origin::Remote);
 }
 
 void WorkerFontLoadRequest::setClient(FontLoadRequestClient* client)
@@ -101,42 +125,41 @@ void WorkerFontLoadRequest::setClient(FontLoadRequestClient* client)
 
     if (m_notifyOnClientSet) {
         m_notifyOnClientSet = false;
-        m_fontLoadRequestClient->fontLoaded(*this);
+        client->fontLoaded(*this);
     }
 }
 
-void WorkerFontLoadRequest::didReceiveResponse(unsigned long, const ResourceResponse& response)
+void WorkerFontLoadRequest::didReceiveResponse(ScriptExecutionContextIdentifier, std::optional<ResourceLoaderIdentifier>, const ResourceResponse& response)
 {
-    if (response.httpStatusCode() / 100 != 2 && response.httpStatusCode())
+    if (!response.isSuccessful() && response.httpStatusCode())
         m_errorOccurred = true;
 }
 
-void WorkerFontLoadRequest::didReceiveData(const uint8_t* data, int dataLength)
+void WorkerFontLoadRequest::didReceiveData(const SharedBuffer& buffer)
 {
     if (m_errorOccurred)
         return;
 
-    if (!m_data)
-        m_data = SharedBuffer::create();
-
-    m_data->append(data, dataLength);
+    m_data.append(buffer);
 }
 
-void WorkerFontLoadRequest::didFinishLoading(unsigned long)
+void WorkerFontLoadRequest::didFinishLoading(ScriptExecutionContextIdentifier, std::optional<ResourceLoaderIdentifier>, const NetworkLoadMetrics&)
 {
     m_isLoading = false;
 
     if (!m_errorOccurred) {
-        if (m_fontLoadRequestClient)
-            m_fontLoadRequestClient->fontLoaded(*this);
+        if (RefPtr client = m_fontLoadRequestClient.get())
+            client->fontLoaded(*this);
         else
             m_notifyOnClientSet = true;
     }
 }
 
-void WorkerFontLoadRequest::didFail(const ResourceError&)
+void WorkerFontLoadRequest::didFail(std::optional<ScriptExecutionContextIdentifier>, const ResourceError&)
 {
     m_errorOccurred = true;
+    if (RefPtr client = m_fontLoadRequestClient.get())
+        client->fontLoaded(*this);
 }
 
 } // namespace WebCore

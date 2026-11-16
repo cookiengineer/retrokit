@@ -40,29 +40,29 @@ class FileSystemEntry;
 class ScriptExecutionContext;
 
 class DOMFileSystem final : public ScriptWrappable, public RefCounted<DOMFileSystem> {
-    WTF_MAKE_ISO_ALLOCATED(DOMFileSystem);
+    WTF_MAKE_TZONE_ALLOCATED(DOMFileSystem);
 public:
     static Ref<FileSystemEntry> createEntryForFile(ScriptExecutionContext& context, Ref<File>&& file)
     {
-        auto fileSystem = adoptRef(*new DOMFileSystem(WTFMove(file)));
+        auto fileSystem = adoptRef(*new DOMFileSystem(WTF::move(file)));
         return fileSystem->fileAsEntry(context);
     }
 
     ~DOMFileSystem();
 
-    const String& name() const { return m_name; }
+    const String& name() const LIFETIME_BOUND { return m_name; }
     Ref<FileSystemDirectoryEntry> root(ScriptExecutionContext&);
 
-    using DirectoryListingCallback = WTF::Function<void(ExceptionOr<Vector<Ref<FileSystemEntry>>>&&)>;
+    using DirectoryListingCallback = Function<void(ExceptionOr<Vector<Ref<FileSystemEntry>>>&&)>;
     void listDirectory(ScriptExecutionContext&, FileSystemDirectoryEntry&, DirectoryListingCallback&&);
 
-    using GetParentCallback = WTF::Function<void(ExceptionOr<Ref<FileSystemDirectoryEntry>>&&)>;
+    using GetParentCallback = Function<void(ExceptionOr<Ref<FileSystemDirectoryEntry>>&&)>;
     void getParent(ScriptExecutionContext&, FileSystemEntry&, GetParentCallback&&);
 
-    using GetEntryCallback = WTF::Function<void(ExceptionOr<Ref<FileSystemEntry>>&&)>;
+    using GetEntryCallback = Function<void(ExceptionOr<Ref<FileSystemEntry>>&&)>;
     void getEntry(ScriptExecutionContext&, FileSystemDirectoryEntry&, const String& virtualPath, const FileSystemDirectoryEntry::Flags&, GetEntryCallback&&);
 
-    using GetFileCallback = WTF::Function<void(ExceptionOr<Ref<File>>&&)>;
+    using GetFileCallback = Function<void(ExceptionOr<Ref<File>>&&)>;
     void getFile(ScriptExecutionContext&, FileSystemFileEntry&, GetFileCallback&&);
 
 private:
@@ -72,9 +72,9 @@ private:
     Ref<FileSystemEntry> fileAsEntry(ScriptExecutionContext&);
 
     String m_name;
-    Ref<File> m_file;
+    const Ref<File> m_file;
     String m_rootPath;
-    Ref<WorkQueue> m_workQueue;
+    const Ref<WorkQueue> m_workQueue;
 };
 
 } // namespace WebCore

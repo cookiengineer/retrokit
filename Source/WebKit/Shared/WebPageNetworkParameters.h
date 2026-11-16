@@ -39,17 +39,14 @@ public:
     WebPageNetworkParameters(const String& attributedBundleIdentifier)
         : m_attributedBundleIdentifier(attributedBundleIdentifier) { }
 
-    void encode(IPC::Encoder&) const;
-    static std::optional<WebPageNetworkParameters> decode(IPC::Decoder&);
-
     WebPageNetworkParameters() = default;
     WebPageNetworkParameters(WTF::HashTableDeletedValueType)
         : m_attributedBundleIdentifier(WTF::HashTableDeletedValue) { }
     bool isHashTableDeletedValue() const { return m_attributedBundleIdentifier.isHashTableDeletedValue(); }
     unsigned hash() const { return m_attributedBundleIdentifier.hash(); }
-    bool operator==(const WebPageNetworkParameters& other) const { return m_attributedBundleIdentifier == other.m_attributedBundleIdentifier; }
+    friend bool operator==(const WebPageNetworkParameters&, const WebPageNetworkParameters&) = default;
 
-    const String& attributedBundleIdentifier() const { return m_attributedBundleIdentifier; }
+    const String& attributedBundleIdentifier() const LIFETIME_BOUND { return m_attributedBundleIdentifier; }
 private:
     String m_attributedBundleIdentifier;
 };
@@ -57,12 +54,6 @@ private:
 } // namespace WebKit
 
 namespace WTF {
-
-template<> struct DefaultHash<WebKit::WebPageNetworkParameters> {
-    static unsigned hash(const WebKit::WebPageNetworkParameters& key) { return key.hash(); }
-    static bool equal(const WebKit::WebPageNetworkParameters& a, const WebKit::WebPageNetworkParameters& b) { return a == b; }
-    static constexpr bool safeToCompareToEmptyOrDeleted = false;
-};
 
 template<> struct HashTraits<WebKit::WebPageNetworkParameters> : public SimpleClassHashTraits<WebKit::WebPageNetworkParameters> { };
 

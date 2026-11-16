@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,5 +31,6 @@
 namespace WTF {
 
 DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(Vector);
+DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(VectorBuffer);
 
 } // namespace WTF

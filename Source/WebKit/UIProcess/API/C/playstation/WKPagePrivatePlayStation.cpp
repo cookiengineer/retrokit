@@ -31,22 +31,39 @@
 #include "NativeWebKeyboardEvent.h"
 #include "NativeWebMouseEvent.h"
 #include "NativeWebWheelEvent.h"
+#include "WKAPICast.h"
 #include "WebEventFactory.h"
 #include "WebPageProxy.h"
-#include <cairo.h>
+#include <WebCore/Region.h>
 #include <wpe/wpe.h>
 
-static void drawPageBackground(cairo_t* ctx, const std::optional<WebCore::Color>& backgroundColor, const WebCore::IntRect& rect)
+#if USE(CAIRO)
+#include <cairo.h>
+#endif
+
+#if USE(SKIA)
+#include <skia/core/SkCanvas.h>
+#endif
+
+#if USE(GRAPHICS_LAYER_WC)
+#include "DrawingAreaProxyWC.h"
+#endif
+
+static void drawPageBackground(WebKit::PlatformPaintContextPtr ctx, const std::optional<WebCore::Color>& backgroundColor, const WebCore::IntRect& rect)
 {
     if (!backgroundColor || backgroundColor.value().isVisible())
         return;
 
-    auto [r, g, b, a] = backgroundColor.value().toSRGBALossy<uint8_t>();
+#if USE(CAIRO)
+    auto [r, g, b, a] = backgroundColor.value().toColorTypeLossy<WebCore::SRGBA<uint8_t>>().resolved();
 
     cairo_set_source_rgba(ctx, r, g, b, a);
     cairo_rectangle(ctx, rect.x(), rect.y(), rect.width(), rect.height());
     cairo_set_operator(ctx, CAIRO_OPERATOR_OVER);
     cairo_fill(ctx);
+#elif USE(SKIA)
+    ctx->clear(SkColor(backgroundColor.value()));
+#endif
 }
 
 void WKPageHandleKeyboardEvent(WKPageRef pageRef, WKKeyboardEvent event)
@@ -73,7 +90,7 @@ void WKPageHandleKeyboardEvent(WKPageRef pageRef, WKKeyboardEvent event)
     NativeWebKeyboardEvent::HandledByInputMethod handledByInputMethod = NativeWebKeyboardEvent::HandledByInputMethod::No;
     std::optional<Vector<WebCore::CompositionUnderline>> preeditUnderlines;
     std::optional<WebKit::EditingRange> preeditSelectionRange;
-    WebKit::toImpl(pageRef)->handleKeyboardEvent(NativeWebKeyboardEvent(&wpeEvent, "", handledByInputMethod, WTFMove(preeditUnderlines), WTFMove(preeditSelectionRange)));
+    WebKit::toImpl(pageRef)->handleKeyboardEvent(NativeWebKeyboardEvent(&wpeEvent, ""_s, false, handledByInputMethod, WTF::move(preeditUnderlines), WTF::move(preeditSelectionRange)));
 }
 
 void WKPageHandleMouseEvent(WKPageRef pageRef, WKMouseEvent event)
@@ -142,7 +159,7 @@ void WKPageHandleWheelEvent(WKPageRef pageRef, WKWheelEvent event)
         1, static_cast<int32_t>(event.delta.width), 0
     };
 
-    WebKit::toImpl(pageRef)->handleWheelEvent(NativeWebWheelEvent(&xEvent, deviceScaleFactor, WebWheelEvent::Phase::PhaseNone, WebWheelEvent::Phase::PhaseNone));
+    WebKit::toImpl(pageRef)->handleNativeWheelEvent(NativeWebWheelEvent(&xEvent, deviceScaleFactor, WebWheelEvent::Phase::None, WebWheelEvent::Phase::None));
 
     struct wpe_input_axis_event yEvent = {
         wpe_input_axis_event_type_motion,
@@ -150,7 +167,7 @@ void WKPageHandleWheelEvent(WKPageRef pageRef, WKWheelEvent event)
         0, static_cast<int32_t>(event.delta.height), 0
     };
 
-    WebKit::toImpl(pageRef)->handleWheelEvent(NativeWebWheelEvent(&yEvent, deviceScaleFactor, WebWheelEvent::Phase::PhaseNone, WebWheelEvent::Phase::PhaseNone));
+    WebKit::toImpl(pageRef)->handleNativeWheelEvent(NativeWebWheelEvent(&yEvent, deviceScaleFactor, WebWheelEvent::Phase::None, WebWheelEvent::Phase::None));
 }
 
 void WKPagePaint(WKPageRef pageRef, unsigned char* surfaceData, WKSize wkSurfaceSize, WKRect wkPaintRect)
@@ -160,26 +177,38 @@ void WKPagePaint(WKPageRef pageRef, unsigned char* surfaceData, WKSize wkSurface
     if (!surfaceData || surfaceSize.isEmpty())
         return;
 
+#if USE(CAIRO)
     const cairo_format_t format = CAIRO_FORMAT_ARGB32;
     cairo_surface_t* surface = cairo_image_surface_create_for_data(surfaceData, format, surfaceSize.width(), surfaceSize.height(), cairo_format_stride_for_width(format, surfaceSize.width()));
     if (cairo_surface_status(surface) != CAIRO_STATUS_SUCCESS)
         return;
 
     cairo_t* ctx = cairo_create(surface);
-
+#elif USE(SKIA)
+    auto info = SkImageInfo::MakeN32Premul(surfaceSize.width(), surfaceSize.height(), SkColorSpace::MakeSRGB());
+    auto surface = SkSurfaces::WrapPixels(info, surfaceData, info.minRowBytes(), nullptr);
+    auto ctx = surface->getCanvas();
+#endif
     auto page = WebKit::toImpl(pageRef);
     auto& backgroundColor = page->backgroundColor();
     page->endPrinting();
-    if (auto* drawingArea = static_cast<WebKit::DrawingAreaProxyCoordinatedGraphics*>(page->drawingArea())) {
+
+    if (auto* drawingArea = page->drawingArea()) {
         // FIXME: We should port WebKit1's rect coalescing logic here.
         WebCore::Region unpaintedRegion;
-        drawingArea->paint(ctx, paintRect, unpaintedRegion);
+#if USE(GRAPHICS_LAYER_WC)
+        downcast<WebKit::DrawingAreaProxyWC>(drawingArea)->paint(ctx, paintRect, unpaintedRegion);
+#else
+        downcast<WebKit::DrawingAreaProxyCoordinatedGraphics>(drawingArea)->paint(ctx, paintRect, unpaintedRegion);
+#endif
 
         for (const auto& rect : unpaintedRegion.rects())
             drawPageBackground(ctx, backgroundColor, rect);
     } else
         drawPageBackground(ctx, backgroundColor, paintRect);
 
+#if USE(CAIRO)
     cairo_destroy(ctx);
     cairo_surface_destroy(surface);
+#endif
 }

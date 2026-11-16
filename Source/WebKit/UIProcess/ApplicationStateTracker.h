@@ -27,51 +27,100 @@
 
 #if PLATFORM(IOS_FAMILY)
 
+#import "EndowmentStateTracker.h"
 #import <wtf/Forward.h>
+#import <wtf/RefCountedAndCanMakeWeakPtr.h>
+#import <wtf/TZoneMalloc.h>
 #import <wtf/WeakObjCPtr.h>
 #import <wtf/WeakPtr.h>
 
 OBJC_CLASS BKSApplicationStateMonitor;
 OBJC_CLASS UIView;
+OBJC_CLASS UIViewController;
 OBJC_CLASS UIWindow;
+OBJC_CLASS UIScene;
+OBJC_CLASS WKUIWindowSceneObserver;
 
 namespace WebKit {
 
-class ApplicationStateTracker : public CanMakeWeakPtr<ApplicationStateTracker> {
-    WTF_MAKE_FAST_ALLOCATED;
+enum class ApplicationType : uint8_t {
+    Application,
+    ViewService,
+    Extension,
+};
+
+class ApplicationStateTracker
+    : public RefCountedAndCanMakeWeakPtr<ApplicationStateTracker>
+#if ENABLE(ENDOWMENT_BASED_APPLICATION_STATE_TRACKING)
+    , EndowmentStateTrackerClient
+#endif
+{
+    WTF_MAKE_TZONE_ALLOCATED(ApplicationStateTracker);
 public:
-    ApplicationStateTracker(UIView *, SEL didEnterBackgroundSelector, SEL didFinishSnapshottingAfterEnteringBackgroundSelector, SEL willEnterForegroundSelector, SEL willBeginSnapshotSequenceSelector, SEL didCompleteSnapshotSequenceSelector);
+    static RefPtr<ApplicationStateTracker> create(UIView *view, SEL didEnterBackgroundSelector, SEL willEnterForegroundSelector, SEL willBeginSnapshotSequenceSelector, SEL didCompleteSnapshotSequenceSelector)
+    {
+        return adoptRef(new ApplicationStateTracker(view, didEnterBackgroundSelector, willEnterForegroundSelector, willBeginSnapshotSequenceSelector, didCompleteSnapshotSequenceSelector));
+    }
+
     ~ApplicationStateTracker();
+
+#if ENABLE(ENDOWMENT_BASED_APPLICATION_STATE_TRACKING)
+    // EndowmentStateTrackerClient
+    USING_CAN_MAKE_WEAKPTR(CanMakeWeakPtr<ApplicationStateTracker>);
+    void ref() const final { RefCountedAndCanMakeWeakPtr::ref(); }
+    void deref() const final { RefCountedAndCanMakeWeakPtr::deref(); }
+    void isVisibleChanged(bool) final;
+#endif
 
     bool isInBackground() const { return m_isInBackground; }
 
+    void setWindow(UIWindow *);
+    void setScene(UIScene *);
+
 private:
+    ApplicationStateTracker(UIView *, SEL didEnterBackgroundSelector, SEL willEnterForegroundSelector, SEL willBeginSnapshotSequenceSelector, SEL didCompleteSnapshotSequenceSelector);
+
+    void setViewController(UIViewController *);
+
+    void setIsInBackground(bool);
+
+    bool isWindowAndSceneInBackground() const;
+
     void applicationDidEnterBackground();
     void applicationDidFinishSnapshottingAfterEnteringBackground();
     void applicationWillEnterForeground();
     void willBeginSnapshotSequence();
     void didCompleteSnapshotSequence();
+    void removeAllObservers();
+
+    enum class SceneState : uint8_t {
+        Unknown,
+        Foreground,
+        Background,
+    };
+    bool shouldBeInBackground(SceneState = SceneState::Unknown) const;
+    void updateIsInBackground(SceneState = SceneState::Unknown);
 
     WeakObjCPtr<UIView> m_view;
+    WeakObjCPtr<UIWindow> m_window;
+    WeakObjCPtr<UIScene> m_scene;
+    WeakObjCPtr<UIViewController> m_viewController;
+
+    RetainPtr<WKUIWindowSceneObserver> m_observer;
+
+    ApplicationType m_applicationType { ApplicationType::Application };
+
     SEL m_didEnterBackgroundSelector;
-    SEL m_didFinishSnapshottingAfterEnteringBackgroundSelector;
     SEL m_willEnterForegroundSelector;
     SEL m_willBeginSnapshotSequenceSelector;
     SEL m_didCompleteSnapshotSequenceSelector;
 
     bool m_isInBackground;
 
-    id m_didEnterBackgroundObserver;
-    id m_didFinishSnapshottingAfterEnteringBackgroundObserver;
-    id m_willEnterForegroundObserver;
-    id m_willBeginSnapshotSequenceObserver;
-    id m_didCompleteSnapshotSequenceObserver;
-};
-
-enum class ApplicationType {
-    Application,
-    ViewService,
-    Extension,
+    WeakObjCPtr<NSObject> m_didEnterBackgroundObserver;
+    WeakObjCPtr<NSObject> m_willEnterForegroundObserver;
+    WeakObjCPtr<NSObject> m_willBeginSnapshotSequenceObserver;
+    WeakObjCPtr<NSObject> m_didCompleteSnapshotSequenceObserver;
 };
 
 ApplicationType applicationType(UIWindow *);

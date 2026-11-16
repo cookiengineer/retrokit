@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,26 +26,36 @@
 #pragma once
 
 #include "CryptoAlgorithmParameters.h"
+#include "CryptoAlgorithmRsaHashedImportParamsInit.h"
 #include <JavaScriptCore/JSObject.h>
 #include <JavaScriptCore/Strong.h>
-#include <wtf/Variant.h>
-
-#if ENABLE(WEB_CRYPTO)
 
 namespace WebCore {
 
 class CryptoAlgorithmRsaHashedImportParams final : public CryptoAlgorithmParameters {
+    WTF_MAKE_TZONE_ALLOCATED(CryptoAlgorithmRsaHashedImportParams);
 public:
     // FIXME: Consider merging hash and hashIdentifier.
     Variant<JSC::Strong<JSC::JSObject>, String> hash;
     CryptoAlgorithmIdentifier hashIdentifier;
 
+    CryptoAlgorithmRsaHashedImportParams(CryptoAlgorithmIdentifier identifier)
+        : CryptoAlgorithmParameters { WTF::move(identifier) }
+    {
+    }
+
+    CryptoAlgorithmRsaHashedImportParams(CryptoAlgorithmIdentifier identifier, CryptoAlgorithmRsaHashedImportParamsInit init, CryptoAlgorithmIdentifier hashIdentifier)
+        : CryptoAlgorithmParameters { WTF::move(identifier), WTF::move(init) }
+        , hash { WTF::move(init.hash) }
+        , hashIdentifier { WTF::move(hashIdentifier) }
+    {
+    }
+
     Class parametersClass() const final { return Class::RsaHashedImportParams; }
 
     CryptoAlgorithmRsaHashedImportParams isolatedCopy() const
     {
-        CryptoAlgorithmRsaHashedImportParams result;
-        result.identifier = identifier;
+        CryptoAlgorithmRsaHashedImportParams result { identifier };
         result.hashIdentifier = hashIdentifier;
 
         return result;
@@ -55,5 +65,3 @@ public:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_CRYPTO_ALGORITHM_PARAMETERS(RsaHashedImportParams)
-
-#endif // ENABLE(WEB_CRYPTO)

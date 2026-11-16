@@ -25,8 +25,8 @@
 
 #pragma once
 
-#include "CallFrame.h"
-#include "VirtualRegister.h"
+#include <JavaScriptCore/CallFrame.h>
+#include <JavaScriptCore/VirtualRegister.h>
 
 #include <wtf/FixedVector.h>
 #include <wtf/PrintStream.h>
@@ -38,18 +38,17 @@ template<typename T> struct OperandValueTraits;
 
 constexpr unsigned maxNumCheckpointTmps = 4;
 
-// A OperandKind::Tmp is one that exists for exiting to a checkpoint but does not exist between bytecodes.
+// An OperandKind::Tmp is one that exists for exiting to a checkpoint but does not exist between bytecodes.
 enum class OperandKind : uint32_t { Argument, Local, Tmp }; // Keep bit-width in sync with Operand::operandKindBits' definition.
 static constexpr OperandKind lastOperandKind = OperandKind::Tmp;
 
 class Operand {
 public:
-    static constexpr unsigned kindBits = WTF::getMSBSetConstexpr(static_cast<std::underlying_type_t<OperandKind>>(lastOperandKind)) + 1;
+    static constexpr unsigned kindBits = WTF::getMSBSet(static_cast<std::underlying_type_t<OperandKind>>(lastOperandKind)) + 1;
     static constexpr unsigned maxBits = 32 + kindBits;
     static_assert(maxBits == 34);
 
     Operand() = default;
-    Operand(const Operand&) = default;
 
     Operand(VirtualRegister operand)
         : Operand(operand.isLocal() ? OperandKind::Local : OperandKind::Argument, operand.offset())
@@ -77,7 +76,7 @@ public:
     }
     uint64_t asBits() const
     {
-        uint64_t bits = bitwise_cast<uint64_t>(*this);
+        uint64_t bits = std::bit_cast<uint64_t>(*this);
         ASSERT(bits < (1ULL << maxBits));
         return bits;
     }
@@ -126,7 +125,7 @@ inline bool Operand::isValid() const
 
 inline Operand Operand::fromBits(uint64_t value)
 {
-    Operand result = bitwise_cast<Operand>(value);
+    Operand result = std::bit_cast<Operand>(value);
     ASSERT(result.isValid());
     return result;
 }
@@ -156,20 +155,18 @@ public:
     }
 
     explicit Operands(size_t numArguments, size_t numLocals, size_t numTmps, const T& initialValue)
-        : m_values(numArguments + numLocals + numTmps)
+        : m_values(FillWith { }, numArguments + numLocals + numTmps, initialValue)
         , m_numArguments(numArguments)
         , m_numLocals(numLocals)
     {
-        m_values.fill(initialValue);
     }
-    
+
     template<typename U, typename V>
     explicit Operands(OperandsLikeTag, const Operands<U, V>& other, const T& initialValue = T())
-        : m_values(other.size())
+        : m_values(FillWith { }, other.size(), initialValue)
         , m_numArguments(other.numberOfArguments())
         , m_numLocals(other.numberOfLocals())
     {
-        m_values.fill(initialValue);
     }
 
     template<typename U>
@@ -398,7 +395,7 @@ public:
         
         return m_values == other.m_values;
     }
-    
+
     void dumpInContext(PrintStream& out, DumpContext* context) const;
     void dump(PrintStream& out) const;
     

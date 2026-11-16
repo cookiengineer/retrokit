@@ -26,33 +26,40 @@
 #include "config.h"
 #include "IDBKeyRange.h"
 
+#include "ExceptionOr.h"
 #include "IDBBindingUtilities.h"
 #include "IDBKey.h"
 #include "IDBKeyData.h"
+#include "JSIDBKeyRange.h"
 #include "ScriptExecutionContext.h"
-#include <JavaScriptCore/JSCJSValue.h>
+#include "ScriptWrappableInlines.h"
+#include <JavaScriptCore/DateInstance.h>
+#include <JavaScriptCore/JSArray.h>
+#include <JavaScriptCore/JSArrayBuffer.h>
+#include <JavaScriptCore/JSArrayBufferView.h>
+#include <JavaScriptCore/JSCJSValueInlines.h>
 #include <JavaScriptCore/JSGlobalObject.h>
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 using namespace JSC;
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(IDBKeyRange);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(IDBKeyRange);
 
 Ref<IDBKeyRange> IDBKeyRange::create(RefPtr<IDBKey>&& lower, RefPtr<IDBKey>&& upper, bool isLowerOpen, bool isUpperOpen)
 {
-    return adoptRef(*new IDBKeyRange(WTFMove(lower), WTFMove(upper), isLowerOpen, isUpperOpen));
+    return adoptRef(*new IDBKeyRange(WTF::move(lower), WTF::move(upper), isLowerOpen, isUpperOpen));
 }
 
 Ref<IDBKeyRange> IDBKeyRange::create(RefPtr<IDBKey>&& key)
 {
     auto upper = key;
-    return create(WTFMove(key), WTFMove(upper), false, false);
+    return create(WTF::move(key), WTF::move(upper), false, false);
 }
 
 IDBKeyRange::IDBKeyRange(RefPtr<IDBKey>&& lower, RefPtr<IDBKey>&& upper, bool isLowerOpen, bool isUpperOpen)
-    : m_lower(WTFMove(lower))
-    , m_upper(WTFMove(upper))
+    : m_lower(WTF::move(lower))
+    , m_upper(WTF::move(upper))
     , m_isLowerOpen(isLowerOpen)
     , m_isUpperOpen(isUpperOpen)
 {
@@ -60,12 +67,24 @@ IDBKeyRange::IDBKeyRange(RefPtr<IDBKey>&& lower, RefPtr<IDBKey>&& upper, bool is
 
 IDBKeyRange::~IDBKeyRange() = default;
 
+// https://w3c.github.io/IndexedDB/#convert-a-value-to-a-key-range.
+ExceptionOr<Ref<IDBKeyRange>> IDBKeyRange::fromValue(JSC::JSGlobalObject& execState, JSC::JSValue value)
+{
+    if (RefPtr keyRange = JSIDBKeyRange::toWrapped(execState.vm(), value))
+        return { *keyRange };
+
+    if (value.isUndefinedOrNull())
+        return IDBKeyRange::unbounded();
+
+    return IDBKeyRange::only(execState, value);
+}
+
 ExceptionOr<Ref<IDBKeyRange>> IDBKeyRange::only(RefPtr<IDBKey>&& key)
 {
     if (!key || !key->isValid())
-        return Exception { DataError };
+        return Exception { ExceptionCode::DataError };
 
-    return create(WTFMove(key));
+    return create(WTF::move(key));
 }
 
 ExceptionOr<Ref<IDBKeyRange>> IDBKeyRange::only(JSGlobalObject& state, JSValue keyValue)
@@ -74,7 +93,7 @@ ExceptionOr<Ref<IDBKeyRange>> IDBKeyRange::only(JSGlobalObject& state, JSValue k
     auto scope = DECLARE_THROW_SCOPE(vm);
     auto key = scriptValueToIDBKey(state, keyValue);
     EXCEPTION_ASSERT_UNUSED(scope, !scope.exception() || !key->isValid());
-    return only(WTFMove(key));
+    return only(WTF::move(key));
 }
 
 ExceptionOr<Ref<IDBKeyRange>> IDBKeyRange::lowerBound(JSGlobalObject& state, JSValue boundValue, bool open)
@@ -85,9 +104,9 @@ ExceptionOr<Ref<IDBKeyRange>> IDBKeyRange::lowerBound(JSGlobalObject& state, JSV
     auto bound = scriptValueToIDBKey(state, boundValue);
     EXCEPTION_ASSERT_UNUSED(scope, !scope.exception() || !bound->isValid());
     if (!bound->isValid())
-        return Exception { DataError };
+        return Exception { ExceptionCode::DataError };
 
-    return create(WTFMove(bound), nullptr, open, true);
+    return create(WTF::move(bound), nullptr, open, true);
 }
 
 ExceptionOr<Ref<IDBKeyRange>> IDBKeyRange::upperBound(JSGlobalObject& state, JSValue boundValue, bool open)
@@ -98,9 +117,9 @@ ExceptionOr<Ref<IDBKeyRange>> IDBKeyRange::upperBound(JSGlobalObject& state, JSV
     auto bound = scriptValueToIDBKey(state, boundValue);
     EXCEPTION_ASSERT_UNUSED(scope, !scope.exception() || !bound->isValid());
     if (!bound->isValid())
-        return Exception { DataError };
+        return Exception { ExceptionCode::DataError };
 
-    return create(nullptr, WTFMove(bound), true, open);
+    return create(nullptr, WTF::move(bound), true, open);
 }
 
 ExceptionOr<Ref<IDBKeyRange>> IDBKeyRange::bound(JSGlobalObject& state, JSValue lowerValue, JSValue upperValue, bool lowerOpen, bool upperOpen)
@@ -111,22 +130,23 @@ ExceptionOr<Ref<IDBKeyRange>> IDBKeyRange::bound(JSGlobalObject& state, JSValue 
     auto lower = scriptValueToIDBKey(state, lowerValue);
     EXCEPTION_ASSERT_UNUSED(scope, !scope.exception() || !lower->isValid());
     if (!lower->isValid())
-        return Exception { DataError };
+        return Exception { ExceptionCode::DataError };
     auto upper = scriptValueToIDBKey(state, upperValue);
     EXCEPTION_ASSERT_UNUSED(scope, !scope.exception() || !upper->isValid());
     if (!upper->isValid())
-        return Exception { DataError };
+        return Exception { ExceptionCode::DataError };
     if (upper->isLessThan(lower.get()))
-        return Exception { DataError };
+        return Exception { ExceptionCode::DataError };
     if (upper->isEqual(lower.get()) && (lowerOpen || upperOpen))
-        return Exception { DataError };
+        return Exception { ExceptionCode::DataError };
 
-    return create(WTFMove(lower), WTFMove(upper), lowerOpen, upperOpen);
+    return create(WTF::move(lower), WTF::move(upper), lowerOpen, upperOpen);
 }
 
-bool IDBKeyRange::isOnlyKey() const
+// https://w3c.github.io/IndexedDB/#unbounded-key-range.
+Ref<IDBKeyRange> IDBKeyRange::unbounded()
 {
-    return m_lower && m_upper && !m_isLowerOpen && !m_isUpperOpen && m_lower->isEqual(*m_upper);
+    return IDBKeyRange::create(nullptr, nullptr, false, false);
 }
 
 ExceptionOr<bool> IDBKeyRange::includes(JSC::JSGlobalObject& state, JSC::JSValue keyValue)
@@ -137,27 +157,49 @@ ExceptionOr<bool> IDBKeyRange::includes(JSC::JSGlobalObject& state, JSC::JSValue
     auto key = scriptValueToIDBKey(state, keyValue);
     EXCEPTION_ASSERT_UNUSED(scope, !scope.exception() || !key->isValid());
     if (!key->isValid())
-        return Exception { DataError, "Failed to execute 'includes' on 'IDBKeyRange': The passed-in value is not a valid IndexedDB key." };
+        return Exception { ExceptionCode::DataError, "Failed to execute 'includes' on 'IDBKeyRange': The passed-in value is not a valid IndexedDB key."_s };
 
     if (m_lower) {
-        int compare = m_lower->compare(key.get());
+        auto compare = m_lower->compare(key.get());
 
-        if (compare > 0)
+        if (is_gt(compare))
             return false;
-        if (m_isLowerOpen && !compare)
+        if (m_isLowerOpen && is_eq(compare))
             return false;
     }
 
     if (m_upper) {
-        int compare = m_upper->compare(key.get());
+        auto compare = m_upper->compare(key.get());
 
-        if (compare < 0)
+        if (is_lt(compare))
             return false;
-        if (m_isUpperOpen && !compare)
+        if (m_isUpperOpen && is_eq(compare))
             return false;
     }
 
     return true;
+}
+
+// https://w3c.github.io/IndexedDB/#is-a-potentially-valid-key-range
+bool IDBKeyRange::isPotentiallyValidKeyRange(JSC::JSGlobalObject& execState, JSC::JSValue value)
+{
+    if (JSIDBKeyRange::toWrapped(execState.vm(), value))
+        return true;
+    if (value.isNumber())
+        return true;
+    if (value.isString())
+        return true;
+    if (!value.isObject())
+        return false;
+    if (value.inherits<JSC::DateInstance>())
+        return true;
+    if (is<JSC::JSArray>(value))
+        return true;
+    if (is<JSC::JSArrayBuffer>(value))
+        return true;
+    if (is<JSC::JSArrayBufferView>(value))
+        return true;
+    return false;
 }
 
 } // namespace WebCore

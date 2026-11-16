@@ -25,92 +25,33 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if ENABLE(B3_JIT)
 
-#include "CPU.h"
-#include "GPRInfo.h"
-#include "JSExportMacros.h"
-#include "Options.h"
+#include <JavaScriptCore/CPU.h>
+#include <JavaScriptCore/GPRInfo.h>
+#include <JavaScriptCore/JSExportMacros.h>
+#include <JavaScriptCore/Options.h>
+#include <wtf/StdLibExtras.h>
+#include <wtf/text/ASCIILiteral.h>
 
 namespace JSC { namespace B3 {
 
-extern const char* const tierName;
+class Procedure;
+
+inline constexpr ASCIILiteral tierName { "b3  "_s };
 
 enum B3CompilationMode {
     B3Mode,
     AirMode
 };
 
-JS_EXPORT_PRIVATE bool shouldDumpIR(B3CompilationMode);
-bool shouldDumpIRAtEachPhase(B3CompilationMode);
-bool shouldValidateIR();
-bool shouldValidateIRAtEachPhase();
-bool shouldSaveIRBeforePhase();
-
-template<typename BitsType, typename InputType>
-inline bool isIdentical(InputType left, InputType right)
-{
-    BitsType leftBits = bitwise_cast<BitsType>(left);
-    BitsType rightBits = bitwise_cast<BitsType>(right);
-    return leftBits == rightBits;
-}
-
-inline bool isIdentical(int32_t left, int32_t right)
-{
-    return isIdentical<int32_t>(left, right);
-}
-
-inline bool isIdentical(int64_t left, int64_t right)
-{
-    return isIdentical<int64_t>(left, right);
-}
-
-inline bool isIdentical(double left, double right)
-{
-    return isIdentical<int64_t>(left, right);
-}
-
-inline bool isIdentical(float left, float right)
-{
-    return isIdentical<int32_t>(left, right);
-}
-
-template<typename ResultType, typename InputType, typename BitsType>
-inline bool isRepresentableAsImpl(InputType originalValue)
-{
-    // Convert the original value to the desired result type.
-    ResultType result = static_cast<ResultType>(originalValue);
-
-    // Convert the converted value back to the original type. The original value is representable
-    // using the new type if such round-tripping doesn't lose bits.
-    InputType newValue = static_cast<InputType>(result);
-
-    return isIdentical<BitsType>(originalValue, newValue);
-}
-
-template<typename ResultType>
-inline bool isRepresentableAs(int32_t value)
-{
-    return isRepresentableAsImpl<ResultType, int32_t, int32_t>(value);
-}
-
-template<typename ResultType>
-inline bool isRepresentableAs(int64_t value)
-{
-    return isRepresentableAsImpl<ResultType, int64_t, int64_t>(value);
-}
-
-template<typename ResultType>
-inline bool isRepresentableAs(size_t value)
-{
-    return isRepresentableAsImpl<ResultType, size_t, size_t>(value);
-}
-
-template<typename ResultType>
-inline bool isRepresentableAs(double value)
-{
-    return isRepresentableAsImpl<ResultType, double, int64_t>(value);
-}
+JS_EXPORT_PRIVATE bool NODELETE shouldDumpIR(Procedure&, B3CompilationMode);
+bool NODELETE shouldDumpIRAtEachPhase(B3CompilationMode);
+bool NODELETE shouldValidateIR();
+bool NODELETE shouldValidateIRAtEachPhase();
+bool NODELETE shouldSaveIRBeforePhase();
 
 template<typename IntType>
 static IntType chillDiv(IntType numerator, IntType denominator)
@@ -135,9 +76,8 @@ static IntType chillMod(IntType numerator, IntType denominator)
 template<typename IntType>
 static IntType chillUDiv(IntType numerator, IntType denominator)
 {
-    typedef typename std::make_unsigned<IntType>::type UnsignedIntType;
-    UnsignedIntType unsignedNumerator = static_cast<UnsignedIntType>(numerator);
-    UnsignedIntType unsignedDenominator = static_cast<UnsignedIntType>(denominator);
+    auto unsignedNumerator = unsignedCast(numerator);
+    auto unsignedDenominator = unsignedCast(denominator);
     if (!unsignedDenominator)
         return 0;
     return unsignedNumerator / unsignedDenominator;
@@ -146,9 +86,8 @@ static IntType chillUDiv(IntType numerator, IntType denominator)
 template<typename IntType>
 static IntType chillUMod(IntType numerator, IntType denominator)
 {
-    typedef typename std::make_unsigned<IntType>::type UnsignedIntType;
-    UnsignedIntType unsignedNumerator = static_cast<UnsignedIntType>(numerator);
-    UnsignedIntType unsignedDenominator = static_cast<UnsignedIntType>(denominator);
+    auto unsignedNumerator = unsignedCast(numerator);
+    auto unsignedDenominator = unsignedCast(denominator);
     if (!unsignedDenominator)
         return 0;
     return unsignedNumerator % unsignedDenominator;
@@ -157,8 +96,7 @@ static IntType chillUMod(IntType numerator, IntType denominator)
 template<typename IntType>
 static IntType rotateRight(IntType value, int32_t shift)
 {
-    typedef typename std::make_unsigned<IntType>::type UnsignedIntType;
-    UnsignedIntType uValue = static_cast<UnsignedIntType>(value);
+    auto uValue = unsignedCast(value);
     int32_t bits = sizeof(IntType) * 8;
     int32_t mask = bits - 1;
     shift &= mask;
@@ -168,8 +106,7 @@ static IntType rotateRight(IntType value, int32_t shift)
 template<typename IntType>
 static IntType rotateLeft(IntType value, int32_t shift)
 {
-    typedef typename std::make_unsigned<IntType>::type UnsignedIntType;
-    UnsignedIntType uValue = static_cast<UnsignedIntType>(value);
+    auto uValue = unsignedCast(value);
     int32_t bits = sizeof(IntType) * 8;
     int32_t mask = bits - 1;
     shift &= mask;
@@ -183,7 +120,7 @@ inline unsigned defaultOptLevel()
     return Options::defaultB3OptLevel();
 }
 
-std::optional<GPRReg> pinnedExtendedOffsetAddrRegister();
+GPRReg NODELETE extendedOffsetAddrRegister();
 
 } } // namespace JSC::B3
 

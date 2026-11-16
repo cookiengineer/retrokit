@@ -27,22 +27,22 @@
 #include "WebAutomationDOMWindowObserver.h"
 
 #include <WebCore/Element.h>
-#include <WebCore/Frame.h>
+#include <WebCore/LocalFrame.h>
 
 namespace WebKit {
 
-WebAutomationDOMWindowObserver::WebAutomationDOMWindowObserver(WebCore::DOMWindow& window, WTF::Function<void(WebAutomationDOMWindowObserver&)>&& callback)
-    : m_window(makeWeakPtr(window))
-    , m_callback(WTFMove(callback))
+WebAutomationDOMWindowObserver::WebAutomationDOMWindowObserver(WebCore::LocalDOMWindow& window, WTF::Function<void(WebAutomationDOMWindowObserver&)>&& callback)
+    : m_window(window)
+    , m_callback(WTF::move(callback))
 {
-    ASSERT(m_window->frame());
-    m_window->registerObserver(*this);
+    ASSERT(window.frame());
+    window.registerObserver(*this);
 }
 
 WebAutomationDOMWindowObserver::~WebAutomationDOMWindowObserver()
 {
-    if (m_window)
-        m_window->unregisterObserver(*this);
+    if (RefPtr window = m_window.get())
+        window->unregisterObserver(*this);
 }
 
 void WebAutomationDOMWindowObserver::willDestroyGlobalObjectInCachedFrame()
@@ -50,13 +50,14 @@ void WebAutomationDOMWindowObserver::willDestroyGlobalObjectInCachedFrame()
     Ref<WebAutomationDOMWindowObserver> protectedThis(*this);
 
     if (!m_wasDetached) {
-        ASSERT(m_window && m_window->frame());
+        // No need to check the frame, as a cached frame's document is detached from the original LocalFrame.
+        ASSERT(m_window);
         m_callback(*this);
     }
 
     ASSERT(m_window);
-    if (m_window)
-        m_window->unregisterObserver(*this);
+    if (RefPtr window = m_window.get())
+        window->unregisterObserver(*this);
     m_window = nullptr;
 }
 
@@ -70,8 +71,8 @@ void WebAutomationDOMWindowObserver::willDestroyGlobalObjectInFrame()
     }
 
     ASSERT(m_window);
-    if (m_window)
-        m_window->unregisterObserver(*this);
+    if (RefPtr window = m_window.get())
+        window->unregisterObserver(*this);
     m_window = nullptr;
 }
 
@@ -86,8 +87,8 @@ void WebAutomationDOMWindowObserver::willDetachGlobalObjectFromFrame()
     m_callback(*this);
 
     ASSERT(m_window);
-    if (m_window)
-        m_window->unregisterObserver(*this);
+    if (RefPtr window = m_window.get())
+        window->unregisterObserver(*this);
     m_window = nullptr;
 }
 

@@ -23,23 +23,24 @@
 
 #pragma once
 
-#include "ScriptWrappable.h"
-#include <wtf/Forward.h>
-#include <wtf/IsoMalloc.h>
-#include <wtf/RefCounted.h>
+#include <JavaScriptCore/EmbedderArrayLike.h>
+#include <WebCore/ScriptWrappable.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class Node;
+class ScriptExecutionContext;
 
-class NodeList : public ScriptWrappable, public RefCounted<NodeList> {
-    WTF_MAKE_ISO_ALLOCATED_EXPORT(NodeList, WEBCORE_EXPORT);
+class NodeList : public ScriptWrappable, public JSC::EmbedderArrayLike {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(NodeList, WEBCORE_EXPORT);
 public:
-    virtual ~NodeList() = default;
+    virtual ~NodeList();
 
     // DOM methods & attributes for NodeList
     virtual unsigned length() const = 0;
     virtual Node* item(unsigned index) const = 0;
+    bool isSupportedPropertyIndex(unsigned index) const { return index < length(); }
 
     class Iterator {
     public:
@@ -48,15 +49,17 @@ public:
 
     private:
         size_t m_index { 0 };
-        Ref<NodeList> m_list;
+        const Ref<NodeList> m_list;
     };
-    Iterator createIterator() { return Iterator(*this); }
+    Iterator createIterator(ScriptExecutionContext*) { return Iterator(*this); }
 
     // Other methods (not part of DOM)
     virtual bool isLiveNodeList() const { return false; }
     virtual bool isChildNodeList() const { return false; }
     virtual bool isEmptyNodeList() const { return false; }
     virtual size_t memoryCost() const { return 0; }
+
+    int64_t fastIndexOf(JSC::JSGlobalObject*, JSC::JSValue searchElement, uint64_t startIndex, uint64_t length) override;
 };
 
 } // namespace WebCore

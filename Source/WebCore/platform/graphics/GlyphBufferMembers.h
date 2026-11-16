@@ -29,9 +29,9 @@
 
 #pragma once
 
-#include "FloatPoint.h"
-#include "FloatSize.h"
-#include "Glyph.h"
+#include <WebCore/FloatPoint.h>
+#include <WebCore/FloatSize.h>
+#include <WebCore/Glyph.h>
 #include <wtf/Vector.h>
 
 #if USE(CG)
@@ -55,7 +55,7 @@ using GlyphBufferOrigin = FloatPoint;
 using GlyphBufferStringOffset = unsigned;
 #endif
 
-inline GlyphBufferAdvance makeGlyphBufferAdvance(const FloatSize&);
+inline GlyphBufferAdvance makeGlyphBufferAdvance(const FloatSize);
 inline GlyphBufferAdvance makeGlyphBufferAdvance(float = 0, float = 0);
 inline FloatSize size(const GlyphBufferAdvance&);
 inline void setWidth(GlyphBufferAdvance&, float);
@@ -72,7 +72,7 @@ inline float y(const GlyphBufferOrigin&);
 
 #if USE(CG)
 
-inline GlyphBufferAdvance makeGlyphBufferAdvance(const FloatSize& size)
+inline GlyphBufferAdvance makeGlyphBufferAdvance(const FloatSize size)
 {
     return CGSizeMake(size.width(), size.height());
 }
@@ -144,7 +144,7 @@ inline float y(const GlyphBufferOrigin& origin)
 
 #else
 
-inline GlyphBufferAdvance makeGlyphBufferAdvance(const FloatSize& size)
+inline GlyphBufferAdvance makeGlyphBufferAdvance(const FloatSize size)
 {
     return size;
 }

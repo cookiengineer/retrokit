@@ -26,8 +26,11 @@
 #pragma once
 
 #include "GeolocationIdentifier.h"
+#include <wtf/CheckedPtr.h>
 #include <wtf/HashMap.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakRef.h>
 
 namespace WebCore {
 class Geolocation;
@@ -38,9 +41,10 @@ namespace WebKit {
 class WebPage;
 
 class GeolocationPermissionRequestManager {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(GeolocationPermissionRequestManager);
 public:
     explicit GeolocationPermissionRequestManager(WebPage&);
+    ~GeolocationPermissionRequestManager();
 
     void startRequestForGeolocation(WebCore::Geolocation&);
     void cancelRequestForGeolocation(WebCore::Geolocation&);
@@ -48,13 +52,16 @@ public:
 
     void didReceiveGeolocationPermissionDecision(GeolocationIdentifier, const String& authorizationToken);
 
+    void NODELETE ref() const;
+    void deref() const;
+
 private:
-    typedef HashMap<GeolocationIdentifier, WebCore::Geolocation*> IDToGeolocationMap;
-    typedef HashMap<WebCore::Geolocation*, GeolocationIdentifier> GeolocationToIDMap;
+    using IDToGeolocationMap = HashMap<GeolocationIdentifier, WeakRef<WebCore::Geolocation>>;
+    using GeolocationToIDMap = HashMap<WeakRef<WebCore::Geolocation>, GeolocationIdentifier>;
     IDToGeolocationMap m_idToGeolocationMap;
     GeolocationToIDMap m_geolocationToIDMap;
 
-    WebPage& m_page;
+    WeakRef<WebPage> m_page;
 };
 
 } // namespace WebKit

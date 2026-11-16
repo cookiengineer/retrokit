@@ -31,6 +31,7 @@
 #include "MessageReceiver.h"
 #include "RemoteRemoteCommandListenerIdentifier.h"
 #include <WebCore/RemoteCommandListener.h>
+#include <wtf/Identified.h>
 
 namespace IPC {
 class Connection;
@@ -43,13 +44,16 @@ class WebProcess;
 
 class RemoteRemoteCommandListener final
     : public WebCore::RemoteCommandListener
+    , private Identified<RemoteRemoteCommandListenerIdentifier>
     , private GPUProcessConnection::Client
-    , private IPC::MessageReceiver {
-    WTF_MAKE_FAST_ALLOCATED;
+    , private IPC::MessageReceiver
+    , public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<RemoteRemoteCommandListener> {
 public:
-    static std::unique_ptr<RemoteRemoteCommandListener> create(WebCore::RemoteCommandListenerClient&, WebProcess&);
-    RemoteRemoteCommandListener(WebCore::RemoteCommandListenerClient&, WebProcess&);
+    static Ref<RemoteRemoteCommandListener> create(WebCore::RemoteCommandListenerClient&);
+    explicit RemoteRemoteCommandListener(WebCore::RemoteCommandListenerClient&);
     ~RemoteRemoteCommandListener();
+
+    WTF_ABSTRACT_THREAD_SAFE_REF_COUNTED_AND_CAN_MAKE_WEAK_PTR_IMPL;
 
 private:
     // IPC::MessageReceiver
@@ -66,11 +70,9 @@ private:
 
     GPUProcessConnection& ensureGPUProcessConnection();
 
-    WebProcess& m_process;
-    RemoteRemoteCommandListenerIdentifier m_identifier;
     WebCore::RemoteCommandListener::RemoteCommandsSet m_currentCommands;
     bool m_currentSupportSeeking { false };
-    WeakPtr<GPUProcessConnection> m_gpuProcessConnection;
+    ThreadSafeWeakPtr<GPUProcessConnection> m_gpuProcessConnection;
 };
 
 }

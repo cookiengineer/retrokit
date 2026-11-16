@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2003, 2006, 2007 Apple Inc.  All rights reserved.
- * Copyright (C) 2005 Nokia.  All rights reserved.
+ * Copyright (C) 2003, 2006, 2007 Apple Inc. All rights reserved.
+ * Copyright (C) 2005 Nokia. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -96,7 +96,7 @@ void FloatRect::intersect(const FloatRect& other)
         b = 0;
     }
 
-    setLocationAndSizeFromEdges(l, t, r, b);
+    shiftEdgesTo(l, t, r, b);
 }
 
 bool FloatRect::edgeInclusiveIntersect(const FloatRect& other)
@@ -138,7 +138,7 @@ void FloatRect::uniteEvenIfEmpty(const FloatRect& other)
     float maxX = std::max(this->maxX(), other.maxX());
     float maxY = std::max(this->maxY(), other.maxY());
 
-    setLocationAndSizeFromEdges(minX, minY, maxX, maxY);
+    shiftEdgesTo(minX, minY, maxX, maxY);
 }
 
 void FloatRect::uniteIfNonZero(const FloatRect& other)
@@ -154,14 +154,26 @@ void FloatRect::uniteIfNonZero(const FloatRect& other)
     uniteEvenIfEmpty(other);
 }
 
-void FloatRect::extend(const FloatPoint& p)
+void FloatRect::extend(FloatPoint p)
 {
     float minX = std::min(x(), p.x());
     float minY = std::min(y(), p.y());
     float maxX = std::max(this->maxX(), p.x());
     float maxY = std::max(this->maxY(), p.y());
 
-    setLocationAndSizeFromEdges(minX, minY, maxX, maxY);
+    shiftEdgesTo(minX, minY, maxX, maxY);
+}
+
+void FloatRect::extend(FloatPoint minPoint, FloatPoint maxPoint)
+{
+    ASSERT(minPoint.x() <= maxPoint.x() && minPoint.y() <= maxPoint.y());
+
+    float minX = std::min(x(), minPoint.x());
+    float minY = std::min(y(), minPoint.y());
+    float maxX = std::max(this->maxX(), maxPoint.x());
+    float maxY = std::max(this->maxY(), maxPoint.y());
+
+    shiftEdgesTo(minX, minY, maxX, maxY);
 }
 
 void FloatRect::scale(float sx, float sy)
@@ -170,65 +182,6 @@ void FloatRect::scale(float sx, float sy)
     m_location.setY(y() * sy);
     m_size.setWidth(width() * sx);
     m_size.setHeight(height() * sy);
-}
-
-void FloatRect::fitToPoints(const FloatPoint& p0, const FloatPoint& p1)
-{
-    float left = std::min(p0.x(), p1.x());
-    float top = std::min(p0.y(), p1.y());
-    float right = std::max(p0.x(), p1.x());
-    float bottom = std::max(p0.y(), p1.y());
-
-    setLocationAndSizeFromEdges(left, top, right, bottom);
-}
-
-namespace {
-// Helpers for 3- and 4-way max and min.
-
-template <typename T>
-T min3(const T& v1, const T& v2, const T& v3)
-{
-    return std::min(std::min(v1, v2), v3);
-}
-
-template <typename T>
-T max3(const T& v1, const T& v2, const T& v3)
-{
-    return std::max(std::max(v1, v2), v3);
-}
-
-template <typename T>
-T min4(const T& v1, const T& v2, const T& v3, const T& v4)
-{
-    return std::min(std::min(v1, v2), std::min(v3, v4));
-}
-
-template <typename T>
-T max4(const T& v1, const T& v2, const T& v3, const T& v4)
-{
-    return std::max(std::max(v1, v2), std::max(v3, v4));
-}
-
-} // anonymous namespace
-
-void FloatRect::fitToPoints(const FloatPoint& p0, const FloatPoint& p1, const FloatPoint& p2)
-{
-    float left = min3(p0.x(), p1.x(), p2.x());
-    float top = min3(p0.y(), p1.y(), p2.y());
-    float right = max3(p0.x(), p1.x(), p2.x());
-    float bottom = max3(p0.y(), p1.y(), p2.y());
-
-    setLocationAndSizeFromEdges(left, top, right, bottom);
-}
-
-void FloatRect::fitToPoints(const FloatPoint& p0, const FloatPoint& p1, const FloatPoint& p2, const FloatPoint& p3)
-{
-    float left = min4(p0.x(), p1.x(), p2.x(), p3.x());
-    float top = min4(p0.y(), p1.y(), p2.y(), p3.y());
-    float right = max4(p0.x(), p1.x(), p2.x(), p3.x());
-    float bottom = max4(p0.y(), p1.y(), p2.y(), p3.y());
-
-    setLocationAndSizeFromEdges(left, top, right, bottom);
 }
 
 FloatRect normalizeRect(const FloatRect& rect)
@@ -253,6 +206,18 @@ IntRect enclosingIntRect(const FloatRect& rect)
     return IntRect(IntPoint(location), IntSize(maxPoint - location));
 }
 
+IntRect enclosingIntRectPreservingEmptyRects(const FloatRect& rect)
+{
+    // Empty rects with fractional x, y values turn into non-empty rects when converting to enclosing.
+    // We want to ensure that empty rects stay empty after the conversion, since some callers
+    // prefer this behavior.
+    FloatPoint location = flooredIntPoint(rect.minXMinYCorner());
+    if (rect.isEmpty())
+        return IntRect(IntPoint(location), { });
+    FloatPoint maxPoint = ceiledIntPoint(rect.maxXMaxYCorner());
+    return IntRect(IntPoint(location), IntSize(maxPoint - location));
+}
+
 IntRect roundedIntRect(const FloatRect& rect)
 {
     return IntRect(roundedIntPoint(rect.location()), roundedIntSize(rect.size()));
@@ -262,11 +227,26 @@ TextStream& operator<<(TextStream& ts, const FloatRect &r)
 {
     if (ts.hasFormattingFlag(TextStream::Formatting::SVGStyleRect)) {
         // FIXME: callers should use the NumberRespectingIntegers flag.
-        return ts << "at (" << TextStream::FormatNumberRespectingIntegers(r.x()) << "," << TextStream::FormatNumberRespectingIntegers(r.y())
+        return ts << "at ("_s << TextStream::FormatNumberRespectingIntegers(r.x()) << ',' << TextStream::FormatNumberRespectingIntegers(r.y())
             << ") size " << TextStream::FormatNumberRespectingIntegers(r.width()) << "x" << TextStream::FormatNumberRespectingIntegers(r.height());
     }
 
-    return ts << r.location() << " " << r.size();
+    return ts << r.location() << ' ' << r.size();
+}
+
+Ref<JSON::Object> FloatRect::toJSONObject() const
+{
+    auto object = JSON::Object::create();
+
+    object->setObject("location"_s, m_location.toJSONObject());
+    object->setObject("size"_s, m_size.toJSONObject());
+
+    return object;
+}
+
+String FloatRect::toJSONString() const
+{
+    return toJSONObject()->toJSONString();
 }
 
 }

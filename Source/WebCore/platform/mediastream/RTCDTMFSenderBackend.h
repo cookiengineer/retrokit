@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc.
+ * Copyright (C) 2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,7 +26,6 @@
 
 #if ENABLE(WEB_RTC)
 
-#include "ExceptionOr.h"
 #include <wtf/Function.h>
 #include <wtf/text/WTFString.h>
 
@@ -35,8 +34,8 @@ namespace WebCore {
 class RTCDTMFSenderBackend {
 public:
     virtual bool canInsertDTMF() = 0;
-    virtual void playTone(const String& tone, size_t duration, size_t interToneGap) = 0;
-    virtual void onTonePlayed(Function<void(const String&)>&&) = 0;
+    virtual void playTone(const char tone, size_t duration, size_t interToneGap) = 0;
+    virtual void onTonePlayed(Function<void()>&&) = 0;
 
     virtual String tones() const = 0;
     virtual size_t duration() const = 0;

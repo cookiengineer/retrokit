@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,55 +26,206 @@
 
 #pragma once
 
-#if ENABLE(CSS_TYPED_OM)
-
-#include "CSSPropertyNames.h"
-#include "CSSValue.h"
-#include "ScriptWrappable.h"
+#include <WebCore/CSSPropertyNames.h>
+#include <WebCore/CSSValue.h>
+#include <WebCore/ScriptWrappable.h>
+#include <wtf/OptionSet.h>
 #include <wtf/RefCounted.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
 template<typename T> class ExceptionOr;
+struct CSSParserContext;
+class Document;
 
 enum class CSSStyleValueType : uint8_t {
     CSSStyleValue,
     CSSStyleImageValue,
     CSSTransformValue,
-    CSSNumericValue,
-    CSSMathValue,
+    CSSMathClamp,
+    CSSMathInvert,
+    CSSMathMin,
+    CSSMathMax,
+    CSSMathNegate,
+    CSSMathProduct,
+    CSSMathSum,
+    CSSColorCSSOMColor,
+    CSSColorHSL,
+    CSSColorHWB,
+    CSSColorLab,
+    CSSColorLCH,
+    CSSColorOKLCH,
+    CSSColorOKLab,
+    CSSColorRGB,
     CSSUnitValue,
     CSSUnparsedValue,
-    CSSKeywordValue
+    CSSOMKeywordValue
+};
+
+inline bool isCSSNumericValue(CSSStyleValueType type)
+{
+    switch (type) {
+    case CSSStyleValueType::CSSMathClamp:
+    case CSSStyleValueType::CSSMathInvert:
+    case CSSStyleValueType::CSSMathMin:
+    case CSSStyleValueType::CSSMathMax:
+    case CSSStyleValueType::CSSMathNegate:
+    case CSSStyleValueType::CSSMathProduct:
+    case CSSStyleValueType::CSSMathSum:
+    case CSSStyleValueType::CSSUnitValue:
+        return true;
+    case CSSStyleValueType::CSSStyleValue:
+    case CSSStyleValueType::CSSStyleImageValue:
+    case CSSStyleValueType::CSSTransformValue:
+    case CSSStyleValueType::CSSUnparsedValue:
+    case CSSStyleValueType::CSSOMKeywordValue:
+    case CSSStyleValueType::CSSColorCSSOMColor:
+    case CSSStyleValueType::CSSColorHSL:
+    case CSSStyleValueType::CSSColorHWB:
+    case CSSStyleValueType::CSSColorLab:
+    case CSSStyleValueType::CSSColorLCH:
+    case CSSStyleValueType::CSSColorOKLab:
+    case CSSStyleValueType::CSSColorOKLCH:
+    case CSSStyleValueType::CSSColorRGB:
+        break;
+    }
+    return false;
+}
+
+inline bool isCSSMathValue(CSSStyleValueType type)
+{
+    switch (type) {
+    case CSSStyleValueType::CSSMathClamp:
+    case CSSStyleValueType::CSSMathInvert:
+    case CSSStyleValueType::CSSMathMin:
+    case CSSStyleValueType::CSSMathMax:
+    case CSSStyleValueType::CSSMathNegate:
+    case CSSStyleValueType::CSSMathProduct:
+    case CSSStyleValueType::CSSMathSum:
+        return true;
+    case CSSStyleValueType::CSSUnitValue:
+    case CSSStyleValueType::CSSStyleValue:
+    case CSSStyleValueType::CSSStyleImageValue:
+    case CSSStyleValueType::CSSTransformValue:
+    case CSSStyleValueType::CSSUnparsedValue:
+    case CSSStyleValueType::CSSOMKeywordValue:
+    case CSSStyleValueType::CSSColorCSSOMColor:
+    case CSSStyleValueType::CSSColorHSL:
+    case CSSStyleValueType::CSSColorHWB:
+    case CSSStyleValueType::CSSColorLab:
+    case CSSStyleValueType::CSSColorLCH:
+    case CSSStyleValueType::CSSColorOKLab:
+    case CSSStyleValueType::CSSColorOKLCH:
+    case CSSStyleValueType::CSSColorRGB:
+        break;
+    }
+    return false;
+}
+
+inline bool isCSSColorValue(CSSStyleValueType type)
+{
+    switch (type) {
+    case CSSStyleValueType::CSSColorCSSOMColor:
+    case CSSStyleValueType::CSSColorHSL:
+    case CSSStyleValueType::CSSColorHWB:
+    case CSSStyleValueType::CSSColorLab:
+    case CSSStyleValueType::CSSColorLCH:
+    case CSSStyleValueType::CSSColorOKLab:
+    case CSSStyleValueType::CSSColorOKLCH:
+    case CSSStyleValueType::CSSColorRGB:
+        return true;
+    case CSSStyleValueType::CSSMathClamp:
+    case CSSStyleValueType::CSSMathInvert:
+    case CSSStyleValueType::CSSMathMin:
+    case CSSStyleValueType::CSSMathMax:
+    case CSSStyleValueType::CSSMathNegate:
+    case CSSStyleValueType::CSSMathProduct:
+    case CSSStyleValueType::CSSMathSum:
+    case CSSStyleValueType::CSSUnitValue:
+    case CSSStyleValueType::CSSStyleValue:
+    case CSSStyleValueType::CSSStyleImageValue:
+    case CSSStyleValueType::CSSTransformValue:
+    case CSSStyleValueType::CSSUnparsedValue:
+    case CSSStyleValueType::CSSOMKeywordValue:
+        break;
+    }
+    return false;
+}
+
+enum class SerializationArguments : uint8_t {
+    Nested = 0x1,
+    WithoutParentheses = 0x2,
+};
+
+struct AssociatedProperty {
+    Variant<AtomString, CSSPropertyID> property;
+
+    AssociatedProperty(AtomString&& customPropertyName) : property { WTF::move(customPropertyName) } { }
+    AssociatedProperty(const AtomString& customPropertyName) : property { customPropertyName } { }
+    AssociatedProperty(CSSPropertyID propertyID) : property { propertyID } { ASSERT(propertyID != CSSPropertyCustom); }
+
+    const AtomString& nameString() const LIFETIME_BOUND
+    {
+        return WTF::switchOn(property,
+            [](const AtomString& customPropertyName) -> const AtomString& { return customPropertyName; },
+            [](CSSPropertyID propertyID) -> const AtomString& { return WebCore::nameString(propertyID); }
+        );
+    }
+
+    std::optional<CSSPropertyID> propertyID() const
+    {
+        if (auto* propertyID = std::get_if<CSSPropertyID>(&property))
+            return std::optional { *propertyID };
+        return std::nullopt;
+    }
+
+    bool operator==(const AssociatedProperty&) const = default;
+
+    bool operator==(const AtomString& otherCustomPropertyName) const
+    {
+        if (auto* customPropertyName = std::get_if<AtomString>(&property))
+            return *customPropertyName == otherCustomPropertyName;
+        return false;
+    }
+
+    bool operator==(CSSPropertyID otherPropertyID) const
+    {
+        if (auto* propertyID = std::get_if<CSSPropertyID>(&property))
+            return *propertyID == otherPropertyID;
+        return false;
+    }
 };
 
 class CSSStyleValue : public RefCounted<CSSStyleValue>, public ScriptWrappable {
-    WTF_MAKE_ISO_ALLOCATED(CSSStyleValue);
+    WTF_MAKE_TZONE_ALLOCATED(CSSStyleValue);
 public:
+    String toString() const;
+    virtual void serialize(StringBuilder&, OptionSet<SerializationArguments> = { }) const;
 
-    virtual String toString() const;
-    virtual ~CSSStyleValue() = default;
-    
-    virtual CSSStyleValueType getType() const { return CSSStyleValueType::CSSStyleValue; }
-        
-    static ExceptionOr<Vector<Ref<CSSStyleValue>>> parseStyleValue(const String&, const String&, bool);
-    static ExceptionOr<Ref<CSSStyleValue>> parse(const String&, const String&);
-    static ExceptionOr<Vector<Ref<CSSStyleValue>>> parseAll(const String&, const String&);
-    
-    static RefPtr<CSSStyleValue> reifyValue(CSSPropertyID, RefPtr<CSSValue>&&);
-    
-    static Ref<CSSStyleValue> create(RefPtr<CSSValue>&&, String&& = String());
-    static Ref<CSSStyleValue> create();
+IGNORE_GCC_WARNINGS_BEGIN("mismatched-new-delete")
+    // https://webkit.org/b/241516
+    virtual ~CSSStyleValue();
+IGNORE_GCC_WARNINGS_END
+
+    virtual CSSStyleValueType styleValueType() const { return CSSStyleValueType::CSSStyleValue; }
+
+    static ExceptionOr<Ref<CSSStyleValue>> parse(Document&, const AtomString&, const String&);
+    static ExceptionOr<Vector<Ref<CSSStyleValue>>> parseAll(Document&, const AtomString&, const String&);
+
+    static Ref<CSSStyleValue> create(RefPtr<CSSValue>&&, AssociatedProperty&&);
+
+    virtual RefPtr<CSSValue> toCSSValue() const { return m_propertyValue; }
+    virtual RefPtr<CSSValue> toCSSValueWithProperty(CSSPropertyID) const;
+
+    const std::optional<AssociatedProperty>& associatedProperty() const { return m_associatedProperty; }
 
 protected:
-    CSSStyleValue(RefPtr<CSSValue>&&, String&& = String());
+    CSSStyleValue(RefPtr<CSSValue>&&, std::optional<AssociatedProperty>&& = std::nullopt);
     CSSStyleValue() = default;
-    
-    String m_customPropertyName;
+
+    std::optional<AssociatedProperty> m_associatedProperty;
     RefPtr<CSSValue> m_propertyValue;
 };
 
 } // namespace WebCore
-
-#endif

@@ -23,13 +23,12 @@
 #include "config.h"
 #include "HTMLParamElement.h"
 
-#include "Document.h"
 #include "HTMLNames.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLParamElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLParamElement);
 
 using namespace HTMLNames;
 
@@ -44,38 +43,6 @@ Ref<HTMLParamElement> HTMLParamElement::create(const QualifiedName& tagName, Doc
     return adoptRef(*new HTMLParamElement(tagName, document));
 }
 
-String HTMLParamElement::name() const
-{
-    if (hasName())
-        return getNameAttribute();
-    return document().isHTMLDocument() ? emptyAtom() : getIdAttribute();
-}
-
-String HTMLParamElement::value() const
-{
-    return attributeWithoutSynchronization(valueAttr);
-}
-
-bool HTMLParamElement::isURLParameter(const String& name)
-{
-    return equalLettersIgnoringASCIICase(name, "data") || equalLettersIgnoringASCIICase(name, "movie") || equalLettersIgnoringASCIICase(name, "src");
-}
-
-bool HTMLParamElement::isURLAttribute(const Attribute& attribute) const
-{
-    if (attribute.name() == valueAttr && isURLParameter(name()))
-        return true;
-    return HTMLElement::isURLAttribute(attribute);
-}
-
-void HTMLParamElement::addSubresourceAttributeURLs(ListHashSet<URL>& urls) const
-{
-    HTMLElement::addSubresourceAttributeURLs(urls);
-
-    if (!isURLParameter(name()))
-        return;
-
-    addSubresourceURL(urls, document().completeURL(value()));
-}
+HTMLParamElement::~HTMLParamElement() = default;
 
 }

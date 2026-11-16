@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2009 Dirk Schulze <krit@webkit.org>
+ * Copyright (C) 2021-2022 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -20,60 +21,53 @@
 #include "config.h"
 #include "SourceAlpha.h"
 
-#include "Color.h"
-#include "Filter.h"
-#include "GraphicsContext.h"
-#include <wtf/NeverDestroyed.h>
-#include <wtf/StdLibExtras.h>
+#include "ImageBuffer.h"
+#include "SourceAlphaSoftwareApplier.h"
 #include <wtf/text/TextStream.h>
-#include <wtf/text/WTFString.h>
+
+#if USE(CORE_IMAGE)
+#include "SourceAlphaCoreImageApplier.h"
+#endif
 
 namespace WebCore {
 
-Ref<SourceAlpha> SourceAlpha::create(FilterEffect& sourceEffect)
+Ref<SourceAlpha> SourceAlpha::create(const DestinationColorSpace& colorSpace)
 {
-    return adoptRef(*new SourceAlpha(sourceEffect));
+    return adoptRef(*new SourceAlpha(colorSpace));
 }
 
-const AtomString& SourceAlpha::effectName()
+SourceAlpha::SourceAlpha(DestinationColorSpace colorSpace)
+    : FilterEffect(FilterEffect::Type::SourceAlpha, colorSpace)
 {
-    static MainThreadNeverDestroyed<const AtomString> s_effectName("SourceAlpha", AtomString::ConstructFromLiteral);
-    return s_effectName;
 }
 
-void SourceAlpha::determineAbsolutePaintRect()
+OptionSet<FilterRenderingMode> SourceAlpha::supportedFilterRenderingModes(OptionSet<FilterRenderingMode> preferredFilterRenderingModes) const
 {
-    inputEffect(0)->determineAbsolutePaintRect();
-    setAbsolutePaintRect(inputEffect(0)->absolutePaintRect());
+    OptionSet<FilterRenderingMode> modes = FilterRenderingMode::Software;
+#if USE(CORE_IMAGE)
+    modes.add(FilterRenderingMode::Accelerated);
+#endif
+    return modes & preferredFilterRenderingModes;
 }
 
-void SourceAlpha::platformApplySoftware()
+std::unique_ptr<FilterEffectApplier> SourceAlpha::createSoftwareApplier() const
 {
-    ImageBuffer* resultImage = createImageBufferResult();
-    if (!resultImage)
-        return;
-    GraphicsContext& filterContext = resultImage->context();
-
-    ImageBuffer* imageBuffer = inputEffect(0)->imageBufferResult();
-    if (!imageBuffer)
-        return;
-
-    FloatRect imageRect(FloatPoint(), absolutePaintRect().size());
-    filterContext.fillRect(imageRect, Color::black);
-    filterContext.drawImageBuffer(*imageBuffer, IntPoint(), CompositeOperator::DestinationIn);
+    return FilterEffectApplier::create<SourceAlphaSoftwareApplier>(*this);
 }
 
-TextStream& SourceAlpha::externalRepresentation(TextStream& ts, RepresentationType) const
+std::unique_ptr<FilterEffectApplier> SourceAlpha::createAcceleratedApplier() const
 {
-    ts << indent << "[SourceAlpha]\n";
+#if USE(CORE_IMAGE)
+    return FilterEffectApplier::create<SourceAlphaCoreImageApplier>(*this);
+#else
+    return nullptr;
+#endif
+}
+
+TextStream& SourceAlpha::externalRepresentation(TextStream& ts, FilterRepresentation) const
+{
+    ts << indent << "[SourceAlpha]\n"_s;
     return ts;
-}
-
-SourceAlpha::SourceAlpha(FilterEffect& sourceEffect)
-    : FilterEffect(sourceEffect.filter(), Type::SourceAlpha)
-{
-    setOperatingColorSpace(sourceEffect.operatingColorSpace());
-    inputEffects().append(&sourceEffect);
 }
 
 } // namespace WebCore

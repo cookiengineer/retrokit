@@ -24,8 +24,7 @@
 */
 
 [
-    EnabledAtRuntime=TransformStreamAPI,
-    Exposed=(Window,Worker),
+    Exposed=*,
     JSBuiltin,
 ] interface TextEncoderStream {
     constructor();

@@ -23,25 +23,29 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+[
+    DispatchedFrom=UI,
+    DispatchedTo=WebContent
+]
 messages -> WebUserContentController {
-    AddContentWorlds(Vector<std::pair<WebKit::ContentWorldIdentifier, String>> worlds);
-    RemoveContentWorlds(Vector<WebKit::ContentWorldIdentifier> worldIdentifiers);
-
-    AddUserScripts(Vector<struct WebKit::WebUserScriptData> userScripts, enum:bool WebKit::InjectUserScriptImmediately immediately);
-    RemoveUserScript(WebKit::ContentWorldIdentifier worldIdentifier, uint64_t identifier);
+    AddUserScripts(Vector<WebKit::WebUserScriptData> userScripts, enum:bool WebKit::InjectUserScriptImmediately immediately);
+    RemoveUserScript(WebKit::ContentWorldIdentifier worldIdentifier, WebKit::UserScriptIdentifier identifier);
     RemoveAllUserScripts(Vector<WebKit::ContentWorldIdentifier> worldIdentifiers);
 
-    AddUserStyleSheets(Vector<struct WebKit::WebUserStyleSheetData> userStyleSheets);
-    RemoveUserStyleSheet(WebKit::ContentWorldIdentifier worldIdentifier, uint64_t identifier);
+    AddUserStyleSheets(Vector<WebKit::WebUserStyleSheetData> userStyleSheets);
+    RemoveUserStyleSheet(WebKit::ContentWorldIdentifier worldIdentifier, WebKit::UserStyleSheetIdentifier identifier);
     RemoveAllUserStyleSheets(Vector<WebKit::ContentWorldIdentifier> worldIdentifiers);
 
-    AddUserScriptMessageHandlers(Vector<struct WebKit::WebScriptMessageHandlerData> scriptMessageHandlers);
-    RemoveUserScriptMessageHandler(WebKit::ContentWorldIdentifier worldIdentifier, uint64_t identifier);
+    AddUserScriptMessageHandlers(Vector<WebKit::WebScriptMessageHandlerData> scriptMessageHandlers);
+    RemoveUserScriptMessageHandler(WebKit::ContentWorldIdentifier worldIdentifier, WebKit::ScriptMessageHandlerIdentifier identifier);
     RemoveAllUserScriptMessageHandlersForWorlds(Vector<WebKit::ContentWorldIdentifier> worldIdentifiers);
     RemoveAllUserScriptMessageHandlers();
 
+    AddJSBuffer(struct WebKit::WebJSBufferData data)
+    RemoveJSBuffer(WebKit::ContentWorldIdentifier worldIdentifier, String name);
+
 #if ENABLE(CONTENT_EXTENSIONS)
-    AddContentRuleLists(Vector<std::pair<String, WebKit::WebCompiledContentRuleListData>> contentFilters);
+    AddContentRuleLists(Vector<std::pair<WebKit::WebCompiledContentRuleListData, URL>> contentFilters);
     RemoveContentRuleList(String name);
     RemoveAllContentRuleLists();
 #endif

@@ -28,34 +28,42 @@
 
 #include "Chrome.h"
 #include "ChromeClient.h"
+#include "ContainerNodeInlines.h"
 #include "Document.h"
 #include "Editor.h"
-#include "Frame.h"
+#include "FloatQuad.h"
 #include "FrameSelection.h"
 #include "GraphicsContext.h"
 #include "HTMLElement.h"
+#include "ImageOverlay.h"
 #include "IntRect.h"
 #include "LayoutRect.h"
+#include "LocalFrameInlines.h"
+#include "LocalFrame.h"
+#include "NodeDocument.h"
 #include "Page.h"
 #include "PageOverlayController.h"
 #include "PlatformMouseEvent.h"
 #include "RenderElement.h"
-#include "RenderStyle.h"
 #include "SimpleRange.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "VisiblePosition.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ImageOverlayController);
 
 class FloatQuad;
 
 ImageOverlayController::ImageOverlayController(Page& page)
-    : m_page(makeWeakPtr(page))
+    : m_page(page)
 {
 }
 
-void ImageOverlayController::selectionQuadsDidChange(Frame& frame, const Vector<FloatQuad>& quads)
+void ImageOverlayController::selectionQuadsDidChange(LocalFrame& frame, const Vector<FloatQuad>& quads)
 {
-    if (!m_page || !m_page->chrome().client().needsImageOverlayControllerForSelectionPainting())
+    if (!m_page->chrome().client().needsImageOverlayControllerForSelectionPainting())
         return;
 
     if (frame.editor().ignoreSelectionChanges() || frame.editor().isGettingDictionaryPopupInfo())
@@ -71,13 +79,10 @@ void ImageOverlayController::selectionQuadsDidChange(Frame& frame, const Vector<
         if (!selectedRange)
             return nullptr;
 
-        if (!HTMLElement::isInsideImageOverlay(*selectedRange))
+        if (!ImageOverlay::isInsideOverlay(*selectedRange))
             return nullptr;
 
-        if (auto host = makeRefPtr(selectedRange->startContainer().shadowHost()); is<HTMLElement>(host))
-            return makeRefPtr(downcast<HTMLElement>(*host));
-
-        return nullptr;
+        return dynamicDowncast<HTMLElement>(selectedRange->startContainer().shadowHost());
     })();
 
     if (!overlayHost) {
@@ -85,7 +90,7 @@ void ImageOverlayController::selectionQuadsDidChange(Frame& frame, const Vector<
         return;
     }
 
-    auto overlayHostRenderer = overlayHost->renderer();
+    CheckedPtr overlayHostRenderer = overlayHost->renderer();
     if (!overlayHostRenderer) {
         uninstallPageOverlayIfNeeded();
         return;
@@ -96,12 +101,12 @@ void ImageOverlayController::selectionQuadsDidChange(Frame& frame, const Vector<
         return;
     }
 
-    m_hostElementForSelection = makeWeakPtr(*overlayHost);
+    m_hostElementForSelection = *overlayHost;
     m_selectionQuads = quads;
     m_selectionBackgroundColor = overlayHostRenderer->selectionBackgroundColor();
     m_selectionClipRect = overlayHostRenderer->absoluteBoundingBoxRect();
 
-    installPageOverlayIfNeeded().setNeedsDisplay();
+    protect(installPageOverlayIfNeeded())->setNeedsDisplay();
 }
 
 bool ImageOverlayController::shouldUsePageOverlayToPaintSelection(const RenderElement& renderer)
@@ -130,7 +135,7 @@ PageOverlay& ImageOverlayController::installPageOverlayIfNeeded()
         return *m_overlay;
 
     m_overlay = PageOverlay::create(*this, PageOverlay::OverlayType::Document);
-    m_page->pageOverlayController().installPageOverlay(*m_overlay, PageOverlay::FadeMode::DoNotFade);
+    m_page->pageOverlayController().installPageOverlay(*protect(m_overlay), PageOverlay::FadeMode::DoNotFade);
     return *m_overlay;
 }
 
@@ -146,10 +151,20 @@ void ImageOverlayController::uninstallPageOverlay()
 #endif
 
     auto overlayToUninstall = std::exchange(m_overlay, nullptr);
-    if (!m_page || !overlayToUninstall)
+    if (!overlayToUninstall)
         return;
 
     m_page->pageOverlayController().uninstallPageOverlay(*overlayToUninstall, PageOverlay::FadeMode::DoNotFade);
+}
+
+void ImageOverlayController::ref() const
+{
+    m_page->ref();
+}
+
+void ImageOverlayController::deref() const
+{
+    m_page->deref();
 }
 
 void ImageOverlayController::uninstallPageOverlayIfNeeded()
@@ -206,9 +221,22 @@ bool ImageOverlayController::platformHandleMouseEvent(const PlatformMouseEvent&)
     return false;
 }
 
-void ImageOverlayController::elementUnderMouseDidChange(Frame&, Element*)
+void ImageOverlayController::elementUnderMouseDidChange(LocalFrame&, Element*)
 {
 }
+
+#if ENABLE(DATA_DETECTION)
+
+void ImageOverlayController::textRecognitionResultsChanged(HTMLElement&)
+{
+}
+
+bool ImageOverlayController::hasActiveDataDetectorHighlightForTesting() const
+{
+    return false;
+}
+
+#endif // ENABLE(DATA_DETECTION)
 
 #endif // !PLATFORM(MAC)
 

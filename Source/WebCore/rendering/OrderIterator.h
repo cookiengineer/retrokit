@@ -47,11 +47,11 @@ public:
     RenderBox* currentChild() const { return m_currentChild; }
     RenderBox* first();
     RenderBox* next();
-
-    bool shouldSkipChild(const RenderObject&) const;
+    OrderIterator reverse();
+    bool NODELETE shouldSkipChild(const RenderObject&) const;
 
 private:
-    void reset();
+    void NODELETE reset();
 
     RenderBox& m_containerBox;
     RenderBox* m_currentChild;
@@ -60,6 +60,7 @@ private:
     OrderValues m_orderValues;
     OrderValues::const_iterator m_orderValuesIterator;
     bool m_isReset { false };
+    bool m_reversedOrder { false };
 };
 
 class OrderIteratorPopulator {

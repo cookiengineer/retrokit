@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,19 +30,21 @@
 
 #include "GPUConnectionToWebProcess.h"
 #include "GPUProcess.h"
+#include "Logging.h"
 #include "RemoteAudioSessionMessages.h"
 #include "RemoteAudioSessionProxyManager.h"
 #include "RemoteAudioSessionProxyMessages.h"
 #include <WebCore/AudioSession.h>
+#include <WebCore/AVAudioSessionCaptureDeviceManager.h>
+#include <wtf/TZoneMalloc.h>
+
+#define MESSAGE_CHECK(assertion) MESSAGE_CHECK_BASE(assertion, protect(connection()).ptr())
 
 namespace WebKit {
 
 using namespace WebCore;
 
-UniqueRef<RemoteAudioSessionProxy> RemoteAudioSessionProxy::create(GPUConnectionToWebProcess& gpuConnection)
-{
-    return makeUniqueRef<RemoteAudioSessionProxy>(gpuConnection);
-}
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteAudioSessionProxy);
 
 RemoteAudioSessionProxy::RemoteAudioSessionProxy(GPUConnectionToWebProcess& gpuConnection)
     : m_gpuConnection(gpuConnection)
@@ -51,80 +53,168 @@ RemoteAudioSessionProxy::RemoteAudioSessionProxy(GPUConnectionToWebProcess& gpuC
 
 RemoteAudioSessionProxy::~RemoteAudioSessionProxy() = default;
 
+RefPtr<GPUConnectionToWebProcess> RemoteAudioSessionProxy::gpuConnectionToWebProcess() const
+{
+    return m_gpuConnection.get();
+}
+
+IPC::Connection& RemoteAudioSessionProxy::connection() const
+{
+    return m_gpuConnection.get()->connection();
+}
+
 WebCore::ProcessIdentifier RemoteAudioSessionProxy::processIdentifier()
 {
-    return m_gpuConnection.webProcessIdentifier();
+    return m_gpuConnection.get()->webProcessIdentifier();
 }
 
 RemoteAudioSessionConfiguration RemoteAudioSessionProxy::configuration()
 {
-    auto& session = audioSessionManager().session();
+    Ref session = protect(audioSessionManager())->session();
     return {
-        session.routingContextUID(),
-        session.sampleRate(),
-        session.bufferSize(),
-        session.numberOfOutputChannels(),
-        session.maximumNumberOfOutputChannels(),
-        session.preferredBufferSize(),
-        session.isMuted(),
-        m_active
+        session->routingContextUID(),
+        session->sampleRate(),
+        session->bufferSize(),
+        session->numberOfOutputChannels(),
+        session->maximumNumberOfOutputChannels(),
+        session->preferredBufferSize(),
+        session->outputLatency(),
+        session->isMuted(),
+        m_sceneIdentifier,
+        m_soundStageSize,
+        session->categoryOverride(),
     };
 }
 
-void RemoteAudioSessionProxy::setCategory(AudioSession::CategoryType category, RouteSharingPolicy policy)
+void RemoteAudioSessionProxy::setCategory(AudioSession::CategoryType category, AudioSession::Mode mode, RouteSharingPolicy policy)
 {
-    if (m_category == category && m_routeSharingPolicy == policy && !m_isPlayingToBluetoothOverrideChanged)
+    if (m_category == category && m_mode == mode && m_routeSharingPolicy == policy && !m_isPlayingToBluetoothOverrideChanged)
         return;
 
     m_category = category;
+    m_mode = mode;
     m_routeSharingPolicy = policy;
     m_isPlayingToBluetoothOverrideChanged = false;
-    audioSessionManager().updateCategory();
+    protect(audioSessionManager())->updateCategory();
 }
 
 void RemoteAudioSessionProxy::setPreferredBufferSize(uint64_t size)
 {
     m_preferredBufferSize = size;
-    audioSessionManager().setPreferredBufferSizeForProcess(*this, size);
+    protect(audioSessionManager())->updatePreferredBufferSizeForProcess();
 }
 
 void RemoteAudioSessionProxy::tryToSetActive(bool active, SetActiveCompletion&& completion)
 {
-    m_active = audioSessionManager().tryToSetActiveForProcess(*this, active);
-    completion(m_active);
+    Ref manager = audioSessionManager();
+    auto success = manager->tryToSetActiveForProcess(*this, active);
+    bool hasActiveChanged = success && m_active != active;
+    if (success) {
+        m_active = active;
+        if (m_active)
+            m_isInterrupted = false;
+
+#if ENABLE(MEDIA_STREAM) && PLATFORM(IOS_FAMILY)
+        if (m_active)
+            AVAudioSessionCaptureDeviceManager::singleton().setPreferredSpeakerID(m_speakerID);
+#endif
+    }
+
+    completion(success);
+
+    if (hasActiveChanged)
+        configurationChanged();
+
+    manager->updatePresentingProcesses();
+    manager->updateSpatialExperience();
 }
 
 void RemoteAudioSessionProxy::setIsPlayingToBluetoothOverride(std::optional<bool>&& value)
 {
     m_isPlayingToBluetoothOverrideChanged = true;
-    audioSessionManager().session().setIsPlayingToBluetoothOverride(WTFMove(value));
+    protect(protect(audioSessionManager())->session())->setIsPlayingToBluetoothOverride(WTF::move(value));
 }
 
 void RemoteAudioSessionProxy::configurationChanged()
 {
-    connection().send(Messages::RemoteAudioSession::ConfigurationChanged(configuration()), { });
+    protect(connection())->send(Messages::RemoteAudioSession::ConfigurationChanged(configuration()), { });
 }
 
 void RemoteAudioSessionProxy::beginInterruption()
 {
-    connection().send(Messages::RemoteAudioSession::BeginInterruption(), { });
+    m_isInterrupted = true;
+    protect(connection())->send(Messages::RemoteAudioSession::BeginInterruptionRemote(), { });
 }
 
 void RemoteAudioSessionProxy::endInterruption(AudioSession::MayResume mayResume)
 {
-    connection().send(Messages::RemoteAudioSession::EndInterruption(mayResume), { });
+    m_isInterrupted = false;
+    protect(connection())->send(Messages::RemoteAudioSession::EndInterruptionRemote(mayResume), { });
+}
+
+void RemoteAudioSessionProxy::beginInterruptionRemote()
+{
+    protect(audioSessionManager())->beginInterruptionRemote();
+}
+
+void RemoteAudioSessionProxy::endInterruptionRemote(AudioSession::MayResume mayResume)
+{
+    protect(audioSessionManager())->endInterruptionRemote(mayResume);
+}
+
+void RemoteAudioSessionProxy::setSceneIdentifier(const String& sceneIdentifier)
+{
+    m_sceneIdentifier = sceneIdentifier;
+    protect(audioSessionManager())->updateSpatialExperience();
+}
+
+void RemoteAudioSessionProxy::setSoundStageSize(AudioSession::SoundStageSize size)
+{
+    m_soundStageSize = size;
+    protect(audioSessionManager())->updateSpatialExperience();
 }
 
 RemoteAudioSessionProxyManager& RemoteAudioSessionProxy::audioSessionManager()
 {
-    return m_gpuConnection.gpuProcess().audioSessionManager();
+    return m_gpuConnection.get()->gpuProcess().audioSessionManager();
 }
 
-IPC::Connection& RemoteAudioSessionProxy::connection()
+void RemoteAudioSessionProxy::triggerBeginInterruptionForTesting()
 {
-    return m_gpuConnection.connection();
+    AudioSession::singleton().beginInterruptionForTesting();
 }
 
+void RemoteAudioSessionProxy::triggerEndInterruptionForTesting()
+{
+    AudioSession::singleton().endInterruptionForTesting();
 }
+
+std::optional<SharedPreferencesForWebProcess> RemoteAudioSessionProxy::sharedPreferencesForWebProcess() const
+{
+    if (RefPtr gpuConnectionToWebProcess = m_gpuConnection.get())
+        return gpuConnectionToWebProcess->sharedPreferencesForWebProcess();
+
+    return std::nullopt;
+}
+
+#if PLATFORM(IOS_FAMILY)
+void RemoteAudioSessionProxy::setPreferredSpeakerID(const String& speakerID)
+{
+    if (m_speakerID == speakerID)
+        return;
+    
+    m_speakerID = speakerID;
+    if (!m_active)
+        return;
+
+#if ENABLE(MEDIA_STREAM)
+    AVAudioSessionCaptureDeviceManager::singleton().setPreferredSpeakerID(m_speakerID);
+#endif
+}
+#endif
+
+} // namespace WebKit
+
+#undef MESSAGE_CHECK
 
 #endif

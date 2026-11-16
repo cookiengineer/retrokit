@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2015 Yusuke Suzuki <utatane.tea@gmail.com>.
+ * Copyright (C) 2021-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,7 +26,7 @@
 
 #pragma once
 
-#include "JSObject.h"
+#include <JavaScriptCore/JSObject.h>
 
 namespace JSC {
 
@@ -36,23 +37,20 @@ public:
     using Base = JSNonFinalObject;
 
     template<typename CellType, SubspaceAccess>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(GeneratorFunctionPrototype, Base);
-        return &vm.plainObjectSpace;
+        return &vm.plainObjectSpace();
     }
 
     static GeneratorFunctionPrototype* create(VM& vm, Structure* structure)
     {
-        GeneratorFunctionPrototype* prototype = new (NotNull, allocateCell<GeneratorFunctionPrototype>(vm.heap)) GeneratorFunctionPrototype(vm, structure);
+        GeneratorFunctionPrototype* prototype = new (NotNull, allocateCell<GeneratorFunctionPrototype>(vm)) GeneratorFunctionPrototype(vm, structure);
         prototype->finishCreation(vm);
         return prototype;
     }
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue proto)
-    {
-        return Structure::create(vm, globalObject, proto, TypeInfo(ObjectType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
     DECLARE_INFO;
 

@@ -7,9 +7,11 @@
 //  Can run just these tests by adding "--gtest_filter=VulkanCommandBufferPerfTest*"
 //   option to angle_white_box_perftests.
 //  When running on Android with run_angle_white_box_perftests, use "-v" option.
+//
 
 #include "ANGLEPerfTest.h"
 #include "common/platform.h"
+#include "common/unsafe_buffers.h"
 #include "test_utils/third_party/vulkan_command_buffer_utils.h"
 
 #if defined(ANDROID)
@@ -96,19 +98,11 @@ VulkanCommandBufferPerfTest::VulkanCommandBufferPerfTest()
     mCBImplementation = GetParam().CBImplementation;
     mFrames           = GetParam().frames;
     mBuffers          = GetParam().buffers;
-
-// This test appears to be flaky on multiple platforms.
-#if !defined(ANGLE_PLATFORM_ANDROID)
-    // mSkipTest = true;
-#endif  // !defined(ANGLE_PLATFORM_ANDROID)
 }
 
 void VulkanCommandBufferPerfTest::SetUp()
 {
-    if (mSkipTest)
-    {
-        return;
-    }
+    ANGLEPerfTest::SetUp();
 
     init_global_layer_properties(mInfo);
     init_instance_extension_names(mInfo);
@@ -181,11 +175,6 @@ void VulkanCommandBufferPerfTest::step()
 
 void VulkanCommandBufferPerfTest::TearDown()
 {
-    if (mSkipTest)
-    {
-        return;
-    }
-
     vkDestroySemaphore(mInfo.device, mImageAcquiredSemaphore, NULL);
     vkDestroyFence(mInfo.device, mDrawFence, NULL);
     destroy_pipeline(mInfo);
@@ -250,7 +239,7 @@ void PrimaryCommandBufferBenchmarkHundredIndividual(sample_info &info,
     rpBegin.sType                    = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     rpBegin.pNext                    = NULL;
     rpBegin.renderPass               = info.render_pass;
-    rpBegin.framebuffer              = info.framebuffers[info.current_buffer];
+    rpBegin.framebuffer              = ANGLE_UNSAFE_TODO(info.framebuffers[info.current_buffer]);
     rpBegin.renderArea.offset.x      = 0;
     rpBegin.renderArea.offset.y      = 0;
     rpBegin.renderArea.extent.width  = info.width;
@@ -316,7 +305,7 @@ void PrimaryCommandBufferBenchmarkOneWithOneHundred(sample_info &info,
     rpBegin.sType                    = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     rpBegin.pNext                    = NULL;
     rpBegin.renderPass               = info.render_pass;
-    rpBegin.framebuffer              = info.framebuffers[info.current_buffer];
+    rpBegin.framebuffer              = ANGLE_UNSAFE_TODO(info.framebuffers[info.current_buffer]);
     rpBegin.renderArea.offset.x      = 0;
     rpBegin.renderArea.offset.y      = 0;
     rpBegin.renderArea.extent.width  = info.width;
@@ -385,7 +374,7 @@ void SecondaryCommandBufferBenchmark(sample_info &info,
     inheritInfo.pNext                          = NULL;
     inheritInfo.renderPass                     = info.render_pass;
     inheritInfo.subpass                        = 0;
-    inheritInfo.framebuffer                    = info.framebuffers[info.current_buffer];
+    inheritInfo.framebuffer = ANGLE_UNSAFE_TODO(info.framebuffers[info.current_buffer]);
     inheritInfo.occlusionQueryEnable           = false;
     inheritInfo.queryFlags                     = 0;
     inheritInfo.pipelineStatistics             = 0;
@@ -418,7 +407,7 @@ void SecondaryCommandBufferBenchmark(sample_info &info,
     rpBegin.sType                    = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     rpBegin.pNext                    = NULL;
     rpBegin.renderPass               = info.render_pass;
-    rpBegin.framebuffer              = info.framebuffers[info.current_buffer];
+    rpBegin.framebuffer              = ANGLE_UNSAFE_TODO(info.framebuffers[info.current_buffer]);
     rpBegin.renderArea.offset.x      = 0;
     rpBegin.renderArea.offset.y      = 0;
     rpBegin.renderArea.extent.width  = info.width;

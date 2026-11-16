@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2011 Google Inc. All rights reserved.
+ * Copyright (C) 2022-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,30 +25,31 @@
  */
 
 #include "config.h"
+#include "AudioParamTimeline.h"
 
 #if ENABLE(WEB_AUDIO)
 
-#include "AudioParamTimeline.h"
-
 #include "AudioUtilities.h"
+#include "ExceptionOr.h"
 #include "FloatConversion.h"
 #include "VectorMath.h"
 #include <algorithm>
 #include <wtf/MathExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-static void fillWithValue(float* values, float value, unsigned endFrame, unsigned& writeIndex)
+static void NODELETE fillWithValue(std::span<float> values, float value, unsigned endFrame, unsigned& writeIndex)
 {
     if (writeIndex < endFrame) {
-        std::fill_n(values + writeIndex, endFrame - writeIndex, value);
+        std::ranges::fill(values.subspan(writeIndex).first(endFrame - writeIndex), value);
         writeIndex = endFrame;
     }
 }
 
 // Test that for a SetTarget event, the current value is close enough to the target value that
 // we can consider the event to have converged to the target.
-static bool hasSetTargetConverged(float value, float target, Seconds currentTime, Seconds startTime, double timeConstant)
+static bool NODELETE hasSetTargetConverged(float value, float target, Seconds currentTime, Seconds startTime, double timeConstant)
 {
     // For a SetTarget event, we want the event to terminate eventually so that we can stop using
     // the timeline to compute the values.
@@ -70,6 +72,8 @@ static bool hasSetTargetConverged(float value, float target, Seconds currentTime
 
     return false;
 }
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(AudioParamTimeline);
 
 ExceptionOr<void> AudioParamTimeline::setValueAtTime(float value, Seconds time)
 {
@@ -113,7 +117,7 @@ ExceptionOr<void> AudioParamTimeline::setValueCurveAtTime(Vector<float>&& curve,
     Locker locker { m_eventsLock };
 
     float curveEndValue = curve.last();
-    auto result = insertEvent(ParamEvent::createSetValueCurveEvent(WTFMove(curve), time, duration));
+    auto result = insertEvent(ParamEvent::createSetValueCurveEvent(WTF::move(curve), time, duration));
     if (result.hasException())
         return result.releaseException();
 
@@ -122,14 +126,14 @@ ExceptionOr<void> AudioParamTimeline::setValueCurveAtTime(Vector<float>&& curve,
     return insertEvent(ParamEvent::createSetValueEvent(curveEndValue, time + duration));
 }
 
-static bool isValidNumber(float x)
+static bool NODELETE isValidNumber(float x)
 {
-    return !std::isnan(x) && !std::isinf(x);
+    return std::isfinite(x);
 }
 
-static bool isValidNumber(Seconds s)
+static bool NODELETE isValidNumber(Seconds s)
 {
-    return !std::isnan(s.value()) && !std::isinf(s.value());
+    return std::isfinite(s.value());
 }
 
 ExceptionOr<void> AudioParamTimeline::insertEvent(ParamEvent&& event)
@@ -162,16 +166,16 @@ ExceptionOr<void> AudioParamTimeline::insertEvent(ParamEvent&& event)
                         || (paramEventEndTime > event.time() && paramEventEndTime < endTime)
                         || (event.time() >= paramEvent.time() && event.time() < paramEventEndTime)
                         || (endTime >= paramEvent.time() && endTime < paramEventEndTime)) {
-                        return Exception { NotSupportedError, "Events are overlapping"_s };
+                        return Exception { ExceptionCode::NotSupportedError, "Events are overlapping"_s };
                     }
                 } else if (paramEvent.time() > event.time() && paramEvent.time() < endTime)
-                    return Exception { NotSupportedError, "Events are overlapping"_s };
+                    return Exception { ExceptionCode::NotSupportedError, "Events are overlapping"_s };
             }
         } else if (paramEvent.type() == ParamEvent::SetValueCurve) {
             // Otherwise, make sure this event doesn't overlap any existing SetValueCurve event.
             auto parentEventEndTime = paramEvent.time() + paramEvent.duration();
             if (event.time() >= paramEvent.time() && event.time() < parentEventEndTime)
-                return Exception { NotSupportedError, "Events are overlapping" };
+                return Exception { ExceptionCode::NotSupportedError, "Events are overlapping"_s };
         }
 
         if (paramEvent.time() > insertTime)
@@ -180,7 +184,7 @@ ExceptionOr<void> AudioParamTimeline::insertEvent(ParamEvent&& event)
         ++i;
     }
 
-    m_events.insert(i, WTFMove(event));
+    m_events.insert(i, WTF::move(event));
     return { };
 }
 
@@ -207,7 +211,7 @@ void AudioParamTimeline::cancelScheduledValues(Seconds cancelTime)
     // Remove all events starting at cancelTime.
     for (unsigned i = 0; i < m_events.size(); ++i) {
         if (isAfter(m_events[i], cancelTime)) {
-            m_events.remove(i, m_events.size() - i);
+            m_events.removeAt(i, m_events.size() - i);
             break;
         }
     }
@@ -218,7 +222,7 @@ ExceptionOr<void> AudioParamTimeline::cancelAndHoldAtTime(Seconds cancelTime)
     Locker locker { m_eventsLock };
 
     // Find the first event at or just past cancelTime.
-    size_t i = m_events.findMatching([&](auto& event) {
+    size_t i = m_events.findIf([&](auto& event) {
         return event.time() > cancelTime;
     });
     i = (i == notFound) ? m_events.size() : i;
@@ -251,7 +255,7 @@ ExceptionOr<void> AudioParamTimeline::cancelAndHoldAtTime(Seconds cancelTime)
         // for a CancelValues event so that we can properly cancel the event
         // and hold the value.
         auto savedEvent = ParamEvent::SavedEvent { eventType, cancelledEvent.value(), cancelledEvent.time() };
-        newEvent = ParamEvent::createCancelValuesEvent(cancelTime, WTFMove(savedEvent));
+        newEvent = ParamEvent::createCancelValuesEvent(cancelTime, WTF::move(savedEvent));
         break;
     }
     case ParamEvent::SetTarget: {
@@ -282,7 +286,7 @@ ExceptionOr<void> AudioParamTimeline::cancelAndHoldAtTime(Seconds cancelTime)
                 // compute the new end value now instead of doing when running
                 // the timeline.
                 auto newDuration = cancelTime - cancelledEvent.time();
-                float endValue = valueCurveAtTime(cancelTime, cancelledEvent.time(), cancelledEvent.duration(), cancelledEvent.curve().data(), cancelledEvent.curve().size());
+                float endValue = valueCurveAtTime(cancelTime, cancelledEvent.time(), cancelledEvent.duration(), cancelledEvent.curve().span(), cancelledEvent.curve().size());
 
                 // Replace the existing SetValueCurve with this new one that is identical except for the duration.
                 newEvent = ParamEvent { eventType, cancelledEvent.value(), cancelledEvent.time(), cancelledEvent.timeConstant(), newDuration, Vector<float> { cancelledEvent.curve() }, cancelledEvent.curvePointsPerSecond(), endValue, std::nullopt };
@@ -306,13 +310,13 @@ ExceptionOr<void> AudioParamTimeline::cancelAndHoldAtTime(Seconds cancelTime)
 
     // Insert the new event, if any.
     if (newEvent) {
-        auto result = insertEvent(WTFMove(*newEvent));
+        auto result = insertEvent(WTF::move(*newEvent));
         if (result.hasException())
             return result.releaseException();
         if (newSetValueEvent) {
-            insertEvent(WTFMove(*newSetValueEvent));
-            if (result.hasException())
-                return result.releaseException();
+            auto setValueResult = insertEvent(WTF::move(*newSetValueEvent));
+            if (setValueResult.hasException())
+                return setValueResult.releaseException();
         }
     }
 
@@ -321,7 +325,17 @@ ExceptionOr<void> AudioParamTimeline::cancelAndHoldAtTime(Seconds cancelTime)
 
 void AudioParamTimeline::removeCancelledEvents(size_t firstEventToRemove)
 {
-    m_events.remove(firstEventToRemove, m_events.size() - firstEventToRemove);
+    m_events.removeAt(firstEventToRemove, m_events.size() - firstEventToRemove);
+}
+
+void AudioParamTimeline::removeOldEvents(size_t eventCount)
+{
+    ASSERT(eventCount <= m_events.size());
+    if (m_events.isEmpty())
+        return;
+
+    // Always leave at least one event in the list.
+    m_events.removeAt(0, std::min(eventCount, m_events.size() - 1));
 }
 
 std::optional<float> AudioParamTimeline::valueForContextTime(BaseAudioContext& context, float defaultValue, float minValue, float maxValue)
@@ -340,38 +354,38 @@ std::optional<float> AudioParamTimeline::valueForContextTime(BaseAudioContext& c
     size_t startFrame = context.currentSampleFrame();
     size_t endFrame = startFrame + 1;
     double controlRate = sampleRate / AudioUtilities::renderQuantumSize; // one parameter change per render quantum
-    value = valuesForFrameRange(startFrame, endFrame, defaultValue, minValue, maxValue, &value, 1, sampleRate, controlRate);
+    value = valuesForFrameRange(startFrame, endFrame, defaultValue, minValue, maxValue, singleElementSpan(value), sampleRate, controlRate);
     return value;
 }
 
-float AudioParamTimeline::valuesForFrameRange(size_t startFrame, size_t endFrame, float defaultValue, float minValue, float maxValue, float* values, unsigned numberOfValues, double sampleRate, double controlRate)
+float AudioParamTimeline::valuesForFrameRange(size_t startFrame, size_t endFrame, float defaultValue, float minValue, float maxValue, std::span<float> values, double sampleRate, double controlRate)
 {
     // We can't contend the lock in the realtime audio thread.
     if (!m_eventsLock.tryLock()) {
-        std::fill_n(values, numberOfValues, defaultValue);
+        std::ranges::fill(values, defaultValue);
         return defaultValue;
     }
     Locker locker { AdoptLock, m_eventsLock };
 
-    float value = valuesForFrameRangeImpl(startFrame, endFrame, defaultValue, values, numberOfValues, sampleRate, controlRate);
+    float value = valuesForFrameRangeImpl(startFrame, endFrame, defaultValue, values, sampleRate, controlRate);
 
     // Clamp values based on range allowed by AudioParam's min and max values.
-    VectorMath::clamp(values, minValue, maxValue, values, numberOfValues);
+    VectorMath::clamp(values, minValue, maxValue, values);
 
     return value;
 }
 
-float AudioParamTimeline::valuesForFrameRangeImpl(size_t startFrame, size_t endFrame, float defaultValue, float* values, unsigned numberOfValues, double sampleRate, double controlRate)
+float AudioParamTimeline::valuesForFrameRangeImpl(size_t startFrame, size_t endFrame, float defaultValue, std::span<float> values, double sampleRate, double controlRate)
 {
-    ASSERT(values);
-    if (!values)
+    ASSERT(values.data());
+    if (!values.data())
         return defaultValue;
 
     double samplingPeriod = 1. / sampleRate;
 
     // Return default value if there are no events matching the desired time range.
     if (!m_events.size() || endFrame * samplingPeriod <= m_events[0].time().value()) {
-        std::fill_n(values, numberOfValues, defaultValue);
+        std::ranges::fill(values, defaultValue);
         return defaultValue;
     }
 
@@ -389,27 +403,30 @@ float AudioParamTimeline::valuesForFrameRangeImpl(size_t startFrame, size_t endF
             fillToEndFrame = firstEventFrame;
         ASSERT(fillToEndFrame >= startFrame);
 
-        unsigned fillToFrame = static_cast<unsigned>(fillToEndFrame - startFrame);
-        fillToFrame = std::min(fillToFrame, numberOfValues);
+        size_t fillToFrame = fillToEndFrame - startFrame;
+        fillToFrame = std::min(fillToFrame, values.size());
         fillWithValue(values, defaultValue, fillToFrame, writeIndex);
 
         currentFrame += fillToFrame;
     }
 
     float value = defaultValue;
+    size_t numberOfSkippedEvents = 0;
 
     // Go through each event and render the value buffer where the times overlap,
     // stopping when we've rendered all the requested values.
     // FIXME: could try to optimize by avoiding having to iterate starting from the very first event
     // and keeping track of a "current" event index.
     int n = m_events.size();
-    for (int i = 0; i < n && writeIndex < numberOfValues; ++i) {
+    for (int i = 0; i < n && writeIndex < values.size(); ++i) {
         auto* event = &m_events[i];
         auto* nextEvent = i < n - 1 ? &m_events[i + 1] : nullptr;
 
         // Wait until we get a more recent event.
-        if (!isEventCurrent(*event, nextEvent, currentFrame, sampleRate))
+        if (!isEventCurrent(*event, nextEvent, currentFrame, sampleRate)) {
+            ++numberOfSkippedEvents;
             continue;
+        }
 
         auto nextEventType = nextEvent ? static_cast<ParamEvent::Type>(nextEvent->type()) : ParamEvent::LastType /* unknown */;
 
@@ -429,11 +446,11 @@ float AudioParamTimeline::valuesForFrameRangeImpl(size_t startFrame, size_t endF
             fillToEndFrame = static_cast<size_t>(ceil(time2.value() * sampleRate));
 
         ASSERT(fillToEndFrame >= startFrame);
-        unsigned fillToFrame = static_cast<unsigned>(fillToEndFrame - startFrame);
-        fillToFrame = std::min(fillToFrame, numberOfValues);
+        size_t fillToFrame = fillToEndFrame - startFrame;
+        fillToFrame = std::min(fillToFrame, values.size());
 
         const AutomationState currentState = {
-            numberOfValues,
+            values.size(),
             startFrame,
             endFrame,
             sampleRate,
@@ -482,14 +499,18 @@ float AudioParamTimeline::valuesForFrameRangeImpl(size_t startFrame, size_t endF
         }
     }
 
+    // Drop outdated events that we skipped so we don't have to go through them again in the future.
+    if (numberOfSkippedEvents > 0)
+        removeOldEvents(numberOfSkippedEvents);
+
     // If there's any time left after processing the last event then just propagate the last value
     // to the end of the values buffer.
-    fillWithValue(values, value, numberOfValues, writeIndex);
+    fillWithValue(values, value, values.size(), writeIndex);
 
     return value;
 }
 
-void AudioParamTimeline::processLinearRamp(const AutomationState& currentState, float* values, size_t& currentFrame, float& value, unsigned& writeIndex)
+void AudioParamTimeline::processLinearRamp(const AutomationState& currentState, std::span<float> values, size_t& currentFrame, float& value, unsigned& writeIndex)
 {
     auto deltaTime = currentState.time2 - currentState.time1;
     float valueDelta = currentState.value2 - currentState.value1;
@@ -510,10 +531,11 @@ void AudioParamTimeline::processLinearRamp(const AutomationState& currentState, 
         values[writeIndex + 1] = 1;
         values[writeIndex + 2] = 2;
         values[writeIndex + 3] = 3;
-        VectorMath::multiplyByScalar(values + writeIndex, currentState.samplingPeriod, values + writeIndex, 4);
-        VectorMath::addScalar(values + writeIndex, currentFrame * currentState.samplingPeriod - currentState.time1.value(), values + writeIndex, 4);
-        VectorMath::multiplyByScalar(values + writeIndex, k * valueDelta, values + writeIndex, 4);
-        VectorMath::addScalar(values + writeIndex, currentState.value1, values + writeIndex, 4);
+        auto valuesAtWriteIndex = values.subspan(writeIndex).first(4);
+        VectorMath::multiplyByScalar(valuesAtWriteIndex, currentState.samplingPeriod, valuesAtWriteIndex);
+        VectorMath::addScalar(valuesAtWriteIndex, currentFrame * currentState.samplingPeriod - currentState.time1.value(), valuesAtWriteIndex);
+        VectorMath::multiplyByScalar(valuesAtWriteIndex, k * valueDelta, valuesAtWriteIndex);
+        VectorMath::addScalar(valuesAtWriteIndex, currentState.value1, valuesAtWriteIndex);
 
         float inc = 4 * currentState.samplingPeriod * k * valueDelta;
 
@@ -525,7 +547,7 @@ void AudioParamTimeline::processLinearRamp(const AutomationState& currentState, 
         // Process 4 loop steps.
         writeIndex += 4;
         for (; writeIndex < fillToFrameTrunc; writeIndex += 4)
-            VectorMath::addScalar(values + writeIndex - 4, inc, values + writeIndex, 4);
+            VectorMath::addScalar(values.subspan(writeIndex - 4).first(4), inc, values.subspan(writeIndex));
     }
     // Update |value| with the last value computed so that the .value attribute of the AudioParam gets
     // the correct linear ramp value, in case the following loop doesn't execute.
@@ -541,7 +563,7 @@ void AudioParamTimeline::processLinearRamp(const AutomationState& currentState, 
     }
 }
 
-void AudioParamTimeline::processExponentialRamp(const AutomationState& currentState, float* values, size_t& currentFrame, float& value, unsigned& writeIndex)
+void AudioParamTimeline::processExponentialRamp(const AutomationState& currentState, std::span<float> values, size_t& currentFrame, float& value, unsigned& writeIndex)
 {
     if (!currentState.value1 || currentState.value1 * currentState.value2 < 0) {
         // Per the specification:
@@ -571,7 +593,7 @@ void AudioParamTimeline::processExponentialRamp(const AutomationState& currentSt
         value /= multiplier;
 }
 
-void AudioParamTimeline::processCancelValues(const AutomationState& currentState, float* values, size_t& currentFrame, float& value, unsigned& writeIndex)
+void AudioParamTimeline::processCancelValues(const AutomationState& currentState, std::span<float> values, size_t& currentFrame, float& value, unsigned& writeIndex)
 {
     // If the previous event was a SetTarget or ExponentialRamp
     // event, the current value is one sample behind. Update
@@ -597,7 +619,7 @@ void AudioParamTimeline::processCancelValues(const AutomationState& currentState
     currentFrame = currentState.fillToEndFrame;
 }
 
-void AudioParamTimeline::processSetTarget(const AutomationState& currentState, float* values, size_t& currentFrame, float& value, unsigned& writeIndex)
+void AudioParamTimeline::processSetTarget(const AutomationState& currentState, std::span<float> values, size_t& currentFrame, float& value, unsigned& writeIndex)
 {
     // Exponential approach to target value with given time constant.
     float target = currentState.event->value();
@@ -648,13 +670,13 @@ void AudioParamTimeline::processSetTarget(const AutomationState& currentState, f
 
         // Process 4 loop steps.
         unsigned fillToFrameTrunc = writeIndex + ((currentState.fillToFrame - writeIndex) / 4) * 4;
-        const float cVector[4] = { 0, c0, c1, c2 };
+        const std::array<float, 4> cArray { 0, c0, c1, c2 };
 
         for (; writeIndex < fillToFrameTrunc; writeIndex += 4) {
             delta = target - value;
 
-            VectorMath::multiplyByScalar(&cVector[0], delta, &values[writeIndex], 4);
-            VectorMath::addScalar(&values[writeIndex], value, &values[writeIndex], 4);
+            VectorMath::multiplyByScalar(std::span { cArray }, delta, values.subspan(writeIndex));
+            VectorMath::addScalar(values.subspan(writeIndex).first(4), value, values.subspan(writeIndex));
 
             value += delta * c3;
         }
@@ -674,19 +696,19 @@ void AudioParamTimeline::processSetTarget(const AutomationState& currentState, f
     currentFrame = currentState.fillToEndFrame;
 }
 
-void AudioParamTimeline::processSetValueCurve(const AutomationState& currentState, float* values, size_t& currentFrame, float& value, unsigned& writeIndex)
+void AudioParamTimeline::processSetValueCurve(const AutomationState& currentState, std::span<float> values, size_t& currentFrame, float& value, unsigned& writeIndex)
 {
-    auto* curveData = currentState.event->curve().data();
+    auto curveData = currentState.event->curve().span();
     unsigned numberOfCurvePoints = currentState.event->curve().size();
     float curveEndValue = currentState.event->curveEndValue();
     size_t fillToEndFrame = currentState.fillToEndFrame;
-    unsigned fillToFrame = currentState.fillToFrame;
+    size_t fillToFrame = currentState.fillToFrame;
 
     // Curve events have duration, so don't just use next event time.
     auto duration = currentState.event->duration();
     double curvePointsPerFrame = currentState.event->curvePointsPerSecond() * currentState.samplingPeriod;
 
-    if (!curveData || !numberOfCurvePoints || duration <= 0_s || currentState.sampleRate <= 0) {
+    if (!curveData.data() || !numberOfCurvePoints || duration <= 0_s || currentState.sampleRate <= 0) {
         // Error condition - simply propagate previous value.
         currentFrame = fillToEndFrame;
         fillWithValue(values, value, fillToFrame, writeIndex);
@@ -703,7 +725,7 @@ void AudioParamTimeline::processSetValueCurve(const AutomationState& currentStat
     else
         fillToEndFrame = currentState.endFrame;
 
-    fillToFrame = (fillToEndFrame < currentState.startFrame) ? 0 : static_cast<unsigned>(fillToEndFrame - currentState.startFrame);
+    fillToFrame = (fillToEndFrame < currentState.startFrame) ? 0 : fillToEndFrame - currentState.startFrame;
     fillToFrame = std::min(fillToFrame, currentState.numberOfValues);
 
     // Index into the curve data using a floating-point value.
@@ -789,9 +811,9 @@ void AudioParamTimeline::processSetTargetFollowedByRamp(int eventIndex, ParamEve
     //    2 * f - 2 <= 2 * Fs * t0 <= 2 * f
     //    -2 <= 2 * Fs * t0 - 2 * f <= 0
     //    -1 <= 2 * Fs * t0 - 2 * f + 1 <= 1
-    //     abs(2 * Fs * t0 - 2 * f + 1) <= 1
+    //     std::abs(2 * Fs * t0 - 2 * f + 1) <= 1
 
-    if (fabs(2 * sampleRate * event->time().value() - 2 * currentFrame + 1) <= 1) {
+    if (std::abs(2 * sampleRate * event->time().value() - 2 * currentFrame + 1) <= 1) {
         // SetTarget is starting somewhere between currentFrame - 1 and currentFrame. Compute the value
         // the SetTarget would have at the currentFrame.
         value = event->value() + (value - event->value()) * exp(-(currentFrame / sampleRate - event->time().value()) / event->timeConstant());
@@ -814,12 +836,19 @@ float AudioParamTimeline::linearRampAtTime(Seconds t, float value1, Seconds time
     return value1 + (value2 - value1) * (t - time1).value() / (time2 - time1).value();
 }
 
+// See : https://webaudio.github.io/web-audio-api/#dom-audioparam-exponentialramptovalueattime
 float AudioParamTimeline::exponentialRampAtTime(Seconds t, float value1, Seconds time1, float value2, Seconds time2)
 {
-    return value1 * pow(value2 / value1, (t - time1).value() / (time2 - time1).value());
+    ASSERT(std::isfinite(value1));
+    ASSERT(std::isfinite(value2));
+    ASSERT(time2 > time1);
+
+    return (!value1 || (value2 && std::signbit(value1) != std::signbit(value2)))
+        ? value1
+        : value1 * std::pow(value2 / value1, (t - time1).value() / (time2 - time1).value());
 }
 
-float AudioParamTimeline::valueCurveAtTime(Seconds t, Seconds time1, Seconds duration, const float* curveData, size_t curveLength)
+float AudioParamTimeline::valueCurveAtTime(Seconds t, Seconds time1, Seconds duration, std::span<const float> curveData, size_t curveLength)
 {
     double curveIndex = (curveLength - 1) / duration.value() * (t - time1).value();
     size_t k = std::min(static_cast<size_t>(curveIndex), curveLength - 1);
@@ -902,6 +931,8 @@ void AudioParamTimeline::handleCancelValues(ParamEvent& event, ParamEvent* nextE
     }
 }
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(AudioParamTimeline::ParamEvent);
+
 auto AudioParamTimeline::ParamEvent::createSetValueEvent(float value, Seconds time) -> ParamEvent
 {
     return ParamEvent { ParamEvent::SetValue, value, time, 0, Seconds { }, Vector<float> { }, 0, 0, std::nullopt };
@@ -929,7 +960,7 @@ auto AudioParamTimeline::ParamEvent::createSetValueCurveEvent(Vector<float>&& cu
 {
     double curvePointsPerSecond = (curve.size() - 1) / duration.value();
     float curveEndValue = curve.last();
-    return { ParamEvent::SetValueCurve, 0, time, 0, duration, WTFMove(curve), curvePointsPerSecond, curveEndValue, std::nullopt };
+    return { ParamEvent::SetValueCurve, 0, time, 0, duration, WTF::move(curve), curvePointsPerSecond, curveEndValue, std::nullopt };
 }
 
 auto AudioParamTimeline::ParamEvent::createCancelValuesEvent(Seconds cancelTime, std::optional<SavedEvent>&& savedEvent) -> ParamEvent
@@ -945,7 +976,7 @@ auto AudioParamTimeline::ParamEvent::createCancelValuesEvent(Seconds cancelTime,
             || savedEventType == ParamEvent::SetValueCurve);
     }
 #endif
-    return { ParamEvent::CancelValues, 0, cancelTime, 0, Seconds { }, Vector<float> { }, 0, 0, WTFMove(savedEvent) };
+    return { ParamEvent::CancelValues, 0, cancelTime, 0, Seconds { }, Vector<float> { }, 0, 0, WTF::move(savedEvent) };
 }
 
 bool AudioParamTimeline::isEventCurrent(const ParamEvent& event, const ParamEvent* nextEvent, size_t currentFrame, double sampleRate) const
@@ -988,11 +1019,44 @@ bool AudioParamTimeline::hasValues(size_t startFrame, double sampleRate) const
 {
     if (!m_eventsLock.tryLock())
         return true;
+
     Locker locker { AdoptLock, m_eventsLock };
 
-    // Return false if there are no events in the time range.
-    auto endFrame = startFrame + AudioUtilities::renderQuantumSize;
-    return !m_events.isEmpty() && endFrame / sampleRate > m_events[0].time().value();
+    if (m_events.isEmpty())
+        return false;
+
+    if (m_events[0].time().value() > (startFrame + AudioUtilities::renderQuantumSize) / sampleRate) {
+        // The first event starts after the end of this rendering quantum so no automation is needed.
+        auto eventType = m_events[0].type();
+        if (eventType == ParamEvent::SetTarget || eventType == ParamEvent::SetValue || eventType == ParamEvent::SetValueCurve)
+            return false;
+    }
+
+    // Don't try and optimize when there is more than one event in the timeline as it gets complicated.
+    if (m_events.size() > 1)
+        return true;
+
+    switch (m_events[0].type()) {
+    case ParamEvent::SetTarget:
+        // Need automation if the event starts somewhere before the end of the current render quantum.
+        return m_events[0].time().value() <= (startFrame + AudioUtilities::renderQuantumSize) / sampleRate;
+    case ParamEvent::SetValue:
+    case ParamEvent::LinearRampToValue:
+    case ParamEvent::ExponentialRampToValue:
+    case ParamEvent::CancelValues:
+        // If these events are in the past, we don't need any automation; the value is a constant.
+        return m_events[0].time().value() >= startFrame / sampleRate;
+    case ParamEvent::SetValueCurve: {
+        auto curveEndTime = m_events[0].time() + m_events[0].duration();
+        double startTime = startFrame / sampleRate;
+        return m_events[0].time().value() <= startTime && startTime < curveEndTime.value();
+    }
+    case ParamEvent::LastType:
+        ASSERT_NOT_REACHED();
+        break;
+    }
+
+    return true;
 }
 
 } // namespace WebCore

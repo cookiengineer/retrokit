@@ -26,7 +26,8 @@
 #pragma once
 
 #include "EventTarget.h"
-#include <wtf/IsoMalloc.h>
+#include "EventTargetInterfaces.h"
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
 
@@ -34,22 +35,22 @@ namespace WebCore {
 
 class ClipboardItem;
 class DeferredPromise;
-class Frame;
+class LocalFrame;
 class Navigator;
 class Pasteboard;
 class PasteboardCustomData;
 
-class Clipboard final : public RefCounted<Clipboard>, public EventTargetWithInlineData {
-    WTF_MAKE_ISO_ALLOCATED(Clipboard);
+class Clipboard final : public RefCounted<Clipboard>, public EventTarget {
+    WTF_MAKE_TZONE_ALLOCATED(Clipboard);
 public:
     static Ref<Clipboard> create(Navigator&);
     ~Clipboard();
 
-    EventTargetInterface eventTargetInterface() const final;
-    ScriptExecutionContext* scriptExecutionContext() const final;
+    enum EventTargetInterfaceType eventTargetInterface() const final;
+    ScriptExecutionContext* NODELETE scriptExecutionContext() const final;
 
-    Frame* frame() const;
-    Navigator* navigator();
+    LocalFrame* NODELETE frame() const;
+    Navigator* NODELETE navigator();
 
     using RefCounted::ref;
     using RefCounted::deref;
@@ -58,7 +59,7 @@ public:
     void writeText(const String& data, Ref<DeferredPromise>&&);
 
     void read(Ref<DeferredPromise>&&);
-    void write(const Vector<RefPtr<ClipboardItem>>& data, Ref<DeferredPromise>&&);
+    void write(const Vector<Ref<ClipboardItem>>& data, Ref<DeferredPromise>&&);
 
     void getType(ClipboardItem&, const String& type, Ref<DeferredPromise>&&);
 
@@ -74,21 +75,21 @@ private:
     void refEventTarget() final { ref(); }
     void derefEventTarget() final { deref(); }
 
-    Pasteboard& activePasteboard();
+    Pasteboard& NODELETE activePasteboard();
 
-    enum class SessionIsValid { No, Yes };
+    enum class SessionIsValid : bool { No, Yes };
     SessionIsValid updateSessionValidity();
 
     class ItemWriter : public RefCounted<ItemWriter> {
     public:
         static Ref<ItemWriter> create(Clipboard& clipboard, Ref<DeferredPromise>&& promise)
         {
-            return adoptRef(*new ItemWriter(clipboard, WTFMove(promise)));
+            return adoptRef(*new ItemWriter(clipboard, WTF::move(promise)));
         }
 
         ~ItemWriter();
 
-        void write(const Vector<RefPtr<ClipboardItem>>&);
+        void write(const Vector<Ref<ClipboardItem>>&);
         void invalidate();
 
     private:
@@ -98,14 +99,12 @@ private:
         void didSetAllData();
         void reject();
 
-        WeakPtr<Clipboard> m_clipboard;
+        WeakPtr<Clipboard, WeakPtrImplWithEventTargetData> m_clipboard;
         Vector<std::optional<PasteboardCustomData>> m_dataToWrite;
         RefPtr<DeferredPromise> m_promise;
         unsigned m_pendingItemCount;
         std::unique_ptr<Pasteboard> m_pasteboard;
-#if PLATFORM(COCOA)
         int64_t m_changeCountAtStart { 0 };
-#endif
     };
 
     void didResolveOrReject(ItemWriter&);
@@ -117,3 +116,5 @@ private:
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_EVENTTARGET(Clipboard)

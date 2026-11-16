@@ -31,89 +31,69 @@
 
 #pragma once
 
-#include "CachedResource.h"
-#include "InspectorWebAgentBase.h"
-#include "LayoutRect.h"
 #include <JavaScriptCore/InspectorBackendDispatchers.h>
 #include <JavaScriptCore/InspectorFrontendDispatchers.h>
-#include <wtf/HashMap.h>
+#include <JavaScriptCore/InspectorProtocolObjects.h>
+#include <WebCore/CachedResource.h>
+#include <WebCore/InspectorBackendClient.h>
+#include <WebCore/InspectorWebAgentBase.h>
+#include <WebCore/LayoutRect.h>
+#include <wtf/CheckedPtr.h>
+#include <wtf/Platform.h>
 #include <wtf/Seconds.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakRef.h>
 #include <wtf/text/WTFString.h>
+
+namespace Inspector {
+enum class ResourceType : uint8_t;
+}
 
 namespace WebCore {
 
 class DOMWrapperWorld;
 class DocumentLoader;
 class Frame;
-class InspectorClient;
 class InspectorOverlay;
+class LocalFrame;
 class Page;
+class RemoteFrame;
 class RenderObject;
-class SharedBuffer;
+class Settings;
+class FragmentedSharedBuffer;
 
-class InspectorPageAgent final : public InspectorAgentBase, public Inspector::PageBackendDispatcherHandler {
+class InspectorPageAgent final : public InspectorAgentBase, public Inspector::PageBackendDispatcherHandler, public CanMakeCheckedPtr<InspectorPageAgent> {
     WTF_MAKE_NONCOPYABLE(InspectorPageAgent);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(InspectorPageAgent);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(InspectorPageAgent);
 public:
-    InspectorPageAgent(PageAgentContext&, InspectorClient*, InspectorOverlay*);
+    InspectorPageAgent(PageAgentContext&, InspectorBackendClient*, InspectorOverlay&);
     ~InspectorPageAgent();
 
-    enum ResourceType {
-        DocumentResource,
-        StyleSheetResource,
-        ImageResource,
-        FontResource,
-        ScriptResource,
-        XHRResource,
-        FetchResource,
-        PingResource,
-        BeaconResource,
-        WebSocketResource,
-#if ENABLE(APPLICATION_MANIFEST)
-        ApplicationManifestResource,
-#endif
-        OtherResource,
-    };
-
-    static bool sharedBufferContent(RefPtr<SharedBuffer>&&, const String& textEncodingName, bool withBase64Encode, String* result);
-    static Vector<CachedResource*> cachedResourcesForFrame(Frame*);
-    static void resourceContent(Inspector::Protocol::ErrorString&, Frame*, const URL&, String* result, bool* base64Encoded);
-    static String sourceMapURLForResource(CachedResource*);
-    static CachedResource* cachedResource(Frame*, const URL&);
-    static Inspector::Protocol::Page::ResourceType resourceTypeJSON(ResourceType);
-    static ResourceType inspectorResourceType(CachedResource::Type);
-    static ResourceType inspectorResourceType(const CachedResource&);
-    static Inspector::Protocol::Page::ResourceType cachedResourceTypeJSON(const CachedResource&);
-    static Frame* findFrameWithSecurityOrigin(Page&, const String& originRawString);
-    static DocumentLoader* assertDocumentLoader(Inspector::Protocol::ErrorString&, Frame*);
-
     // InspectorAgentBase
-    void didCreateFrontendAndBackend(Inspector::FrontendRouter*, Inspector::BackendDispatcher*);
+    void didCreateFrontendAndBackend();
     void willDestroyFrontendAndBackend(Inspector::DisconnectReason);
 
     // PageBackendDispatcherHandler
     Inspector::Protocol::ErrorStringOr<void> enable();
     Inspector::Protocol::ErrorStringOr<void> disable();
     Inspector::Protocol::ErrorStringOr<void> reload(std::optional<bool>&& ignoreCache, std::optional<bool>&& revalidateAllResources);
-    Inspector::Protocol::ErrorStringOr<void> navigate(const String& url);
     Inspector::Protocol::ErrorStringOr<void> overrideUserAgent(const String&);
     Inspector::Protocol::ErrorStringOr<void> overrideSetting(Inspector::Protocol::Page::Setting, std::optional<bool>&& value);
+    Inspector::Protocol::ErrorStringOr<void> overrideUserPreference(Inspector::Protocol::Page::UserPreferenceName, std::optional<Inspector::Protocol::Page::UserPreferenceValue>&&);
     Inspector::Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Inspector::Protocol::Page::Cookie>>> getCookies();
-    Inspector::Protocol::ErrorStringOr<void> setCookie(Ref<JSON::Object>&&);
+    Inspector::Protocol::ErrorStringOr<void> setCookie(Ref<JSON::Object>&&, std::optional<bool>&& shouldPartition);
     Inspector::Protocol::ErrorStringOr<void> deleteCookie(const String& cookieName, const String& url);
-    Inspector::Protocol::ErrorStringOr<Ref<Inspector::Protocol::Page::FrameResourceTree>> getResourceTree();
-    Inspector::Protocol::ErrorStringOr<std::tuple<String, bool /* base64Encoded */>> getResourceContent(const Inspector::Protocol::Network::FrameId&, const String& url);
+    void getResourceTree(Ref<GetResourceTreeCallback>&&);
+    void getResourceContent(const Inspector::Protocol::Network::FrameId&, const String& url, Ref<GetResourceContentCallback>&&);
     Inspector::Protocol::ErrorStringOr<void> setBootstrapScript(const String& source);
-    Inspector::Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Inspector::Protocol::GenericTypes::SearchMatch>>> searchInResource(const Inspector::Protocol::Network::FrameId&, const String& url, const String& query, std::optional<bool>&& caseSensitive, std::optional<bool>&& isRegex, const Inspector::Protocol::Network::RequestId&);
-    Inspector::Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Inspector::Protocol::Page::SearchResult>>> searchInResources(const String&, std::optional<bool>&& caseSensitive, std::optional<bool>&& isRegex);
+    void searchInResource(const Inspector::Protocol::Network::FrameId&, const String& url, const String& query, std::optional<bool>&& caseSensitive, std::optional<bool>&& isRegex, const Inspector::Protocol::Network::RequestId&, Ref<SearchInResourceCallback>&&);
+    void searchInResources(const String&, std::optional<bool>&& caseSensitive, std::optional<bool>&& isRegex, Ref<SearchInResourcesCallback>&&);
 #if !PLATFORM(IOS_FAMILY)
     Inspector::Protocol::ErrorStringOr<void> setShowRulers(bool);
 #endif
     Inspector::Protocol::ErrorStringOr<void> setShowPaintRects(bool);
     Inspector::Protocol::ErrorStringOr<void> setEmulatedMedia(const String&);
-#if ENABLE(DARK_MODE_CSS) || HAVE(OS_DARK_MODE_SUPPORT)
-    Inspector::Protocol::ErrorStringOr<void> setForcedAppearance(std::optional<Inspector::Protocol::Page::Appearance>&&);
-#endif
     Inspector::Protocol::ErrorStringOr<String> snapshotNode(Inspector::Protocol::DOM::NodeId);
     Inspector::Protocol::ErrorStringOr<String> snapshotRect(int x, int y, int width, int height, Inspector::Protocol::Page::CoordinateSystem);
 #if ENABLE(WEB_ARCHIVE) && USE(CF)
@@ -126,19 +106,17 @@ public:
     // InspectorInstrumentation
     void domContentEventFired();
     void loadEventFired();
-    void frameNavigated(Frame&);
-    void frameDetached(Frame&);
+    void frameNavigated(LocalFrame&);
+    void frameDetached(LocalFrame&);
     void loaderDetachedFromFrame(DocumentLoader&);
-    void frameStartedLoading(Frame&);
-    void frameStoppedLoading(Frame&);
-    void frameScheduledNavigation(Frame&, Seconds delay);
-    void frameClearedScheduledNavigation(Frame&);
-#if ENABLE(DARK_MODE_CSS) || HAVE(OS_DARK_MODE_SUPPORT)
-    void defaultAppearanceDidChange(bool useDarkAppearance);
+    void accessibilitySettingsDidChange();
+    void defaultUserPreferencesDidChange();
+#if ENABLE(DARK_MODE_CSS)
+    void defaultAppearanceDidChange();
 #endif
     void applyUserAgentOverride(String&);
-    void applyEmulatedMedia(String&);
-    void didClearWindowObjectInWorld(Frame&, DOMWrapperWorld&);
+    void applyEmulatedMedia(AtomString&);
+    void didClearWindowObjectInWorld(LocalFrame&, DOMWrapperWorld&);
     void didPaint(RenderObject&, const LayoutRect&);
     void didLayout();
     void didScroll();
@@ -147,33 +125,39 @@ public:
     Frame* frameForId(const Inspector::Protocol::Network::FrameId&);
     WEBCORE_EXPORT String frameId(Frame*);
     String loaderId(DocumentLoader*);
-    Frame* assertFrame(Inspector::Protocol::ErrorString&, const Inspector::Protocol::Network::FrameId&);
+    LocalFrame* assertFrame(Inspector::Protocol::ErrorString&, const Inspector::Protocol::Network::FrameId&);
 
 private:
     double timestamp();
 
-    static bool mainResourceContent(Frame*, bool withBase64Encode, String* result);
-    static bool dataContent(const uint8_t* data, unsigned size, const String& textEncodingName, bool withBase64Encode, String* result);
+    InspectorOverlay& NODELETE overlay() const;
 
-    Ref<Inspector::Protocol::Page::Frame> buildObjectForFrame(Frame*);
+    void overridePrefersReducedMotion(std::optional<Inspector::Protocol::Page::UserPreferenceValue>&&);
+    void overridePrefersContrast(std::optional<Inspector::Protocol::Page::UserPreferenceValue>&&);
+    void overridePrefersColorScheme(std::optional<Inspector::Protocol::Page::UserPreferenceValue>&&);
+
+    void overrideSettingByModifyingValue(std::optional<bool>& savedValue, std::optional<bool> value, bool (Settings::*getter)() const, void (Settings::*setter)(bool));
+
+    Ref<Inspector::Protocol::Page::Frame> buildObjectForFrame(LocalFrame*);
     Ref<Inspector::Protocol::Page::FrameResourceTree> buildObjectForFrameTree(Frame*);
 
-    std::unique_ptr<Inspector::PageFrontendDispatcher> m_frontendDispatcher;
-    RefPtr<Inspector::PageBackendDispatcher> m_backendDispatcher;
+    const UniqueRef<Inspector::PageFrontendDispatcher> m_frontendDispatcher;
+    const Ref<Inspector::PageBackendDispatcher> m_backendDispatcher;
 
-    Page& m_inspectedPage;
-    InspectorClient* m_client { nullptr };
-    InspectorOverlay* m_overlay { nullptr };
+    WeakRef<Page> m_inspectedPage;
+    InspectorBackendClient* m_client { nullptr };
+    WeakRef<InspectorOverlay> m_overlay;
 
-    // FIXME: Make a WeakHashMap and use it for m_frameToIdentifier and m_loaderToIdentifier.
-    HashMap<Frame*, String> m_frameToIdentifier;
-    HashMap<String, WeakPtr<Frame>> m_identifierToFrame;
-    HashMap<DocumentLoader*, String> m_loaderToIdentifier;
     String m_userAgentOverride;
-    String m_emulatedMedia;
+    AtomString m_emulatedMedia;
     String m_bootstrapScript;
     bool m_isFirstLayoutAfterOnLoad { false };
     bool m_showPaintRects { false };
+
+    std::optional<bool> m_fullScreenEnabledBeforeOverride;
+    std::optional<bool> m_notificationsEnabledBeforeOverride;
+    std::optional<bool> m_pointerLockEnabledBeforeOverride;
+    std::optional<bool> m_pushAPIEnabledBeforeOverride;
 };
 
 } // namespace WebCore

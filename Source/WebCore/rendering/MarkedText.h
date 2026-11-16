@@ -25,6 +25,9 @@
 
 #pragma once
 
+#include <wtf/CheckedPtr.h>
+#include <wtf/Hasher.h>
+#include <wtf/Platform.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
@@ -34,17 +37,26 @@ class RenderBoxModelObject;
 class RenderText;
 class RenderedDocumentMarker;
 struct TextBoxSelectableRange;
+enum class DocumentMarkerType : uint32_t;
 
-struct MarkedText {
+struct MarkedText : public CanMakeCheckedPtr<MarkedText, WTF::DefaultedOperatorEqual::Yes, WTF::CheckedPtrDeleteCheckException::Yes> {
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(MarkedText);
+    WTF_STRUCT_OVERRIDE_DELETE_FOR_CHECKED_PTR(MarkedText);
+
     // Sorted by paint order
-    enum Type {
+    enum class Type : uint8_t {
         Unmarked,
         GrammarError,
         Correction,
+#if ENABLE(WRITING_TOOLS)
+        WritingToolsTextSuggestion,
+#endif
         SpellingError,
         TextMatch,
         DictationAlternatives,
         Highlight,
+        FragmentHighlight,
+        TextExtractionHighlight,
 #if ENABLE(APP_HIGHLIGHTS)
         AppHighlight,
 #endif
@@ -54,6 +66,9 @@ struct MarkedText {
 #endif
         Selection,
         DraggedContent,
+        TransparentContent,
+        DictationStreamingOpacity,
+        ActiveTextMatch,
     };
 
     enum class PaintPhase {
@@ -67,25 +82,42 @@ struct MarkedText {
         Frontmost
     };
 
-    unsigned startOffset;
-    unsigned endOffset;
-    Type type;
-    const RenderedDocumentMarker* marker { nullptr };
-    String highlightName { };
+    MarkedText(unsigned startOffset, unsigned endOffset, Type type, const RenderedDocumentMarker* marker = nullptr, const AtomString& highlightName = { }, int priority = 0) : startOffset(startOffset), endOffset(endOffset), type(type), marker(marker), highlightName(highlightName), priority(priority) { };
+    MarkedText(WTF::HashTableDeletedValueType) : startOffset(std::numeric_limits<unsigned>::max()) { };
+    MarkedText() = default;
 
     bool isEmpty() const { return endOffset <= startOffset; }
-    bool operator!=(const MarkedText& other) const { return !(*this == other); }
-    bool operator==(const MarkedText& other) const
-    {
-        return startOffset == other.startOffset && endOffset == other.endOffset && type == other.type && marker == other.marker && highlightName == other.highlightName;
-    }
+    bool isHashTableDeletedValue() const { return startOffset == std::numeric_limits<unsigned>::max(); }
+    static constexpr bool safeToCompareToHashTableEmptyOrDeletedValue = true;
+    bool operator==(const MarkedText& other) const = default;
 
     WEBCORE_EXPORT static Vector<MarkedText> subdivide(const Vector<MarkedText>&, OverlapStrategy = OverlapStrategy::None);
 
-    static Vector<MarkedText> collectForDocumentMarkers(RenderText&, const TextBoxSelectableRange&, PaintPhase);
-    static Vector<MarkedText> collectForHighlights(RenderText&, RenderBoxModelObject& parentRenderer, const TextBoxSelectableRange&, PaintPhase);
-    static Vector<MarkedText> collectForDraggedContent(RenderText&, const TextBoxSelectableRange&);
+    static Vector<MarkedText> collectForDocumentMarkers(const RenderText&, const TextBoxSelectableRange&, PaintPhase);
+    static Vector<MarkedText> collectForHighlights(const RenderText&, const TextBoxSelectableRange&, PaintPhase);
+    static Vector<MarkedText> collectForDraggedAndTransparentContent(const DocumentMarkerType, const RenderText& renderer, const TextBoxSelectableRange&);
+    static Vector<MarkedText> collectForDictationStreamingOpacity(const RenderText&, const TextBoxSelectableRange&);
+
+    unsigned startOffset { 0 };
+    unsigned endOffset { 0 };
+    Type type { Type::Unmarked };
+    const RenderedDocumentMarker* marker { nullptr };
+    AtomString highlightName;
+    int priority { 0 };
 };
 
 }
+namespace WTF {
+
+inline void add(Hasher& hasher, const WebCore::MarkedText& text)
+{
+    add(hasher, text.startOffset, text.endOffset, text.type);
+}
+
+template<> struct HashTraits<WebCore::MarkedText> : public GenericHashTraits<WebCore::MarkedText> {
+    static void constructDeletedValue(WebCore::MarkedText& slot) { slot = WebCore::MarkedText(HashTableDeletedValue); }
+    static bool isDeletedValue(const WebCore::MarkedText& slot) { return slot.isHashTableDeletedValue(); }
+};
+
+} // namespace WTF
 

@@ -24,9 +24,10 @@
 #include "DOMObjectCache.h"
 #include <WebCore/DOMException.h>
 #include <WebCore/Document.h>
-#include "GObjectEventListener.h"
+#include <WebCore/ElementInlines.h>
 #include <WebCore/HTMLNames.h>
 #include <WebCore/JSExecState.h>
+#include "GObjectEventListener.h"
 #include "WebKitDOMDOMWindowPrivate.h"
 #include "WebKitDOMDocumentPrivate.h"
 #include "WebKitDOMEventPrivate.h"
@@ -95,7 +96,9 @@ static void webkit_dom_html_frame_element_dom_event_target_init(WebKitDOMEventTa
     iface->remove_event_listener = webkit_dom_html_frame_element_remove_event_listener;
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK port
 G_DEFINE_TYPE_WITH_CODE(WebKitDOMHTMLFrameElement, webkit_dom_html_frame_element, WEBKIT_DOM_TYPE_HTML_ELEMENT, G_IMPLEMENT_INTERFACE(WEBKIT_DOM_TYPE_EVENT_TARGET, webkit_dom_html_frame_element_dom_event_target_init))
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 enum {
     DOM_HTML_FRAME_ELEMENT_PROP_0,
@@ -184,10 +187,8 @@ static void webkit_dom_html_frame_element_get_property(GObject* object, guint pr
         g_value_set_object(value, webkit_dom_html_frame_element_get_content_window(self));
         break;
     case DOM_HTML_FRAME_ELEMENT_PROP_WIDTH:
-        g_value_set_long(value, webkit_dom_html_frame_element_get_width(self));
         break;
     case DOM_HTML_FRAME_ELEMENT_PROP_HEIGHT:
-        g_value_set_long(value, webkit_dom_html_frame_element_get_height(self));
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, propertyId, pspec);
@@ -343,8 +344,7 @@ void webkit_dom_html_frame_element_set_frame_border(WebKitDOMHTMLFrameElement* s
     g_return_if_fail(WEBKIT_DOM_IS_HTML_FRAME_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLFrameElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::frameborderAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::frameborderAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_html_frame_element_get_long_desc(WebKitDOMHTMLFrameElement* self)
@@ -362,8 +362,7 @@ void webkit_dom_html_frame_element_set_long_desc(WebKitDOMHTMLFrameElement* self
     g_return_if_fail(WEBKIT_DOM_IS_HTML_FRAME_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLFrameElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::longdescAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::longdescAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_html_frame_element_get_margin_height(WebKitDOMHTMLFrameElement* self)
@@ -381,8 +380,7 @@ void webkit_dom_html_frame_element_set_margin_height(WebKitDOMHTMLFrameElement* 
     g_return_if_fail(WEBKIT_DOM_IS_HTML_FRAME_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLFrameElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::marginheightAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::marginheightAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_html_frame_element_get_margin_width(WebKitDOMHTMLFrameElement* self)
@@ -400,8 +398,7 @@ void webkit_dom_html_frame_element_set_margin_width(WebKitDOMHTMLFrameElement* s
     g_return_if_fail(WEBKIT_DOM_IS_HTML_FRAME_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLFrameElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::marginwidthAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::marginwidthAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_html_frame_element_get_name(WebKitDOMHTMLFrameElement* self)
@@ -419,8 +416,7 @@ void webkit_dom_html_frame_element_set_name(WebKitDOMHTMLFrameElement* self, con
     g_return_if_fail(WEBKIT_DOM_IS_HTML_FRAME_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLFrameElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::nameAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::nameAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gboolean webkit_dom_html_frame_element_get_no_resize(WebKitDOMHTMLFrameElement* self)
@@ -455,8 +451,7 @@ void webkit_dom_html_frame_element_set_scrolling(WebKitDOMHTMLFrameElement* self
     g_return_if_fail(WEBKIT_DOM_IS_HTML_FRAME_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLFrameElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::scrollingAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::scrollingAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_html_frame_element_get_src(WebKitDOMHTMLFrameElement* self)
@@ -474,8 +469,7 @@ void webkit_dom_html_frame_element_set_src(WebKitDOMHTMLFrameElement* self, cons
     g_return_if_fail(WEBKIT_DOM_IS_HTML_FRAME_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLFrameElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::srcAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::srcAttr, WTF::AtomString::fromUTF8(value));
 }
 
 WebKitDOMDocument* webkit_dom_html_frame_element_get_content_document(WebKitDOMHTMLFrameElement* self)
@@ -497,20 +491,14 @@ WebKitDOMDOMWindow* webkit_dom_html_frame_element_get_content_window(WebKitDOMHT
 
 glong webkit_dom_html_frame_element_get_width(WebKitDOMHTMLFrameElement* self)
 {
-    WebCore::JSMainThreadNullState state;
     g_return_val_if_fail(WEBKIT_DOM_IS_HTML_FRAME_ELEMENT(self), 0);
-    WebCore::HTMLFrameElement* item = WebKit::core(self);
-    glong result = item->width();
-    return result;
+    return 0;
 }
 
 glong webkit_dom_html_frame_element_get_height(WebKitDOMHTMLFrameElement* self)
 {
-    WebCore::JSMainThreadNullState state;
     g_return_val_if_fail(WEBKIT_DOM_IS_HTML_FRAME_ELEMENT(self), 0);
-    WebCore::HTMLFrameElement* item = WebKit::core(self);
-    glong result = item->height();
-    return result;
+    return 0;
 }
 
 G_GNUC_END_IGNORE_DEPRECATIONS;

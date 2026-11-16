@@ -24,27 +24,29 @@
  */
 
 #include "config.h"
+#include "JSNodeCustom.h"
 #include "JSUndoItem.h"
+#include "WebCoreOpaqueRootInlines.h"
 #include <JavaScriptCore/JSCJSValueInlines.h>
 
 namespace WebCore {
 
 template<typename Visitor>
-void JSUndoItem::visitAdditionalChildren(Visitor& visitor)
+void JSUndoItem::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    wrapped().undoHandler().visitJSFunction(visitor);
-    wrapped().redoHandler().visitJSFunction(visitor);
+    wrapped().undoHandler().visitJSFunctionInGCThread(visitor);
+    wrapped().redoHandler().visitJSFunctionInGCThread(visitor);
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSUndoItem);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSUndoItem);
 
-bool JSUndoItemOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, JSC::AbstractSlotVisitor& visitor, const char** reason)
+bool JSUndoItemOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, JSC::AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
-    if (UNLIKELY(reason))
-        *reason = "Document is an opaque root.";
+    if (reason) [[unlikely]]
+        *reason = "Document is an opaque root."_s;
 
-    auto* documentForUndoItem = JSC::jsCast<JSUndoItem*>(handle.slot()->asCell())->wrapped().document();
-    return documentForUndoItem && visitor.containsOpaqueRoot(documentForUndoItem);
+    SUPPRESS_UNCHECKED_LOCAL auto* documentForUndoItem = downcast<JSUndoItem>(handle.slot()->asCell())->wrapped().document();
+    return containsWebCoreOpaqueRoot(visitor, documentForUndoItem);
 }
 
 } // namespace WebCore

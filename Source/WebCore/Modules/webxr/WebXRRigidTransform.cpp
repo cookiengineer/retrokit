@@ -29,9 +29,12 @@
 #if ENABLE(WEBXR)
 
 #include "DOMPointReadOnly.h"
+#include "ExceptionOr.h"
+#include "JSValueInWrappedObjectInlines.h"
+#include "ScriptWrappableInlines.h"
 #include "TransformationMatrix.h"
 #include <JavaScriptCore/TypedArrayInlines.h>
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
@@ -47,7 +50,7 @@ static bool normalizeQuaternion(DOMPointInit& q)
     return true;
 }
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(WebXRRigidTransform);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebXRRigidTransform);
 
 Ref<WebXRRigidTransform> WebXRRigidTransform::create()
 {
@@ -69,7 +72,7 @@ ExceptionOr<Ref<WebXRRigidTransform>> WebXRRigidTransform::create(const DOMPoint
     //   3. If position’s w value is not 1.0, throw a TypeError.
     //   4. Else initialize transform’s position’s x value to position’s x dictionary member, y value to position’s y dictionary member, z value to position’s z dictionary member and w to 1.0.
     if (position.w != 1.0)
-        return Exception { TypeError };
+        return Exception { ExceptionCode::TypeError };
     DOMPointInit positionInit { position.x, position.y, position.z, 1 };
 
     //   5. If orientation is not a DOMPointInit initialize transform’s orientation to { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }.
@@ -77,7 +80,7 @@ ExceptionOr<Ref<WebXRRigidTransform>> WebXRRigidTransform::create(const DOMPoint
     //   7. Normalize x, y, z, and w components of transform’s orientation.
     DOMPointInit orientationInit { orientation.x, orientation.y, orientation.z, orientation.w };
     if (!normalizeQuaternion(orientationInit))
-        return Exception { InvalidStateError };
+        return Exception { ExceptionCode::InvalidStateError };
 
     //   8. Return transform.
     return adoptRef(*new WebXRRigidTransform(positionInit, orientationInit));
@@ -89,7 +92,7 @@ WebXRRigidTransform::WebXRRigidTransform(const DOMPointInit& position, const DOM
 {
     TransformationMatrix translation;
     translation.translate3d(position.x, position.y, position.z);
-    auto rotation = TransformationMatrix::fromQuaternion(orientation.x, orientation.y, orientation.z, orientation.w);
+    auto rotation = TransformationMatrix::fromQuaternion({ orientation.x, orientation.y, orientation.z, orientation.w });
     m_rawTransform = translation * rotation;
 }
 
@@ -105,11 +108,12 @@ WebXRRigidTransform::WebXRRigidTransform(const TransformationMatrix& transform)
     }
 
     TransformationMatrix::Decomposed4Type decomp = { };
-    transform.decompose4(decomp);
+    if (!transform.decompose4(decomp))
+        return;
 
     m_position = DOMPointReadOnly::create(decomp.translateX, decomp.translateY, decomp.translateZ, 1.0f);
 
-    DOMPointInit orientationInit { -decomp.quaternionX, -decomp.quaternionY, -decomp.quaternionZ, decomp.quaternionW };
+    DOMPointInit orientationInit { decomp.quaternion.x, decomp.quaternion.y, decomp.quaternion.z, decomp.quaternion.w };
     normalizeQuaternion(orientationInit);
     m_orientation = DOMPointReadOnly::create(orientationInit);
 }
@@ -147,13 +151,13 @@ const WebXRRigidTransform& WebXRRigidTransform::inverse()
     // Inverse should always return the same object.
     if (m_inverse)
         return *m_inverse;
-    
+
     auto inverseTransform = m_rawTransform.inverse();
     ASSERT(!!inverseTransform);
 
     m_inverse = WebXRRigidTransform::create(*inverseTransform);
     // The inverse of a inverse object should return the original object.
-    m_inverse->m_parentInverse = makeWeakPtr(this);
+    m_inverse->m_parentInverse = *this;
 
     return *m_inverse;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007 Apple Inc.  All rights reserved.
+ * Copyright (C) 2007 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,10 +25,10 @@
 #ifndef AuthenticationChallengeBase_h
 #define AuthenticationChallengeBase_h
 
-#include "Credential.h"
-#include "ProtectionSpace.h"
-#include "ResourceResponse.h"
-#include "ResourceError.h"
+#include <WebCore/Credential.h>
+#include <WebCore/ProtectionSpace.h>
+#include <WebCore/ResourceError.h>
+#include <WebCore/ResourceResponse.h>
 
 namespace WebCore {
 
@@ -39,16 +39,16 @@ public:
     WEBCORE_EXPORT AuthenticationChallengeBase();
     WEBCORE_EXPORT AuthenticationChallengeBase(const ProtectionSpace& protectionSpace, const Credential& proposedCredential, unsigned previousFailureCount, const ResourceResponse& response, const ResourceError& error);
 
-    WEBCORE_EXPORT unsigned previousFailureCount() const;
-    WEBCORE_EXPORT const Credential& proposedCredential() const;
-    WEBCORE_EXPORT const ProtectionSpace& protectionSpace() const;
-    WEBCORE_EXPORT const ResourceResponse& failureResponse() const;
-    WEBCORE_EXPORT const ResourceError& error() const;
+    WEBCORE_EXPORT unsigned NODELETE previousFailureCount() const;
+    WEBCORE_EXPORT const Credential& NODELETE proposedCredential() const;
+    WEBCORE_EXPORT const ProtectionSpace& NODELETE protectionSpace() const;
+    WEBCORE_EXPORT const ResourceResponse& NODELETE failureResponse() const;
+    WEBCORE_EXPORT const ResourceError& NODELETE error() const;
     
-    WEBCORE_EXPORT bool isNull() const;
-    WEBCORE_EXPORT void nullify();
+    WEBCORE_EXPORT bool NODELETE isNull() const;
+    WEBCORE_EXPORT void NODELETE nullify();
     
-    WEBCORE_EXPORT static bool compare(const AuthenticationChallenge& a, const AuthenticationChallenge& b);
+    WEBCORE_EXPORT static bool equalForWebKitLegacyChallengeComparison(const AuthenticationChallenge&, const AuthenticationChallenge&);
 
 protected:
     // The AuthenticationChallenge subclass may "shadow" this method to compare platform specific fields
@@ -61,9 +61,6 @@ protected:
     ResourceResponse m_failureResponse;
     ResourceError m_error;
 };
-
-inline bool operator==(const AuthenticationChallenge& a, const AuthenticationChallenge& b) { return AuthenticationChallengeBase::compare(a, b); }
-inline bool operator!=(const AuthenticationChallenge& a, const AuthenticationChallenge& b) { return !(a == b); }
 
 }
 

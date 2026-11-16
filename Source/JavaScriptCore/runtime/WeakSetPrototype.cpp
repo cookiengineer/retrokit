@@ -26,16 +26,14 @@
 #include "config.h"
 #include "WeakSetPrototype.h"
 
-#include "HashMapImplInlines.h"
+#include "HashMapHelper.h"
 #include "JSCInlines.h"
 #include "JSWeakSet.h"
 #include "WeakMapImplInlines.h"
 
 namespace JSC {
 
-const ASCIILiteral WeakSetNonObjectValueError { "Attempted to add a non-object value to a WeakSet"_s };
-
-const ClassInfo WeakSetPrototype::s_info = { "WeakSet", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(WeakSetPrototype) };
+const ClassInfo WeakSetPrototype::s_info = { "WeakSet"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(WeakSetPrototype) };
 
 static JSC_DECLARE_HOST_FUNCTION(protoFuncWeakSetDelete);
 static JSC_DECLARE_HOST_FUNCTION(protoFuncWeakSetHas);
@@ -43,11 +41,11 @@ static JSC_DECLARE_HOST_FUNCTION(protoFuncWeakSetHas);
 void WeakSetPrototype::finishCreation(VM& vm, JSGlobalObject* globalObject)
 {
     Base::finishCreation(vm);
-    ASSERT(inherits(vm, info()));
+    ASSERT(inherits(info()));
 
-    JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->deleteKeyword, protoFuncWeakSetDelete, static_cast<unsigned>(PropertyAttribute::DontEnum), 1);
-    JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->has, protoFuncWeakSetHas, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, JSWeakSetHasIntrinsic);
-    JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->add, protoFuncWeakSetAdd, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, JSWeakSetAddIntrinsic);
+    JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->deleteKeyword, protoFuncWeakSetDelete, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Public);
+    JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->has, protoFuncWeakSetHas, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Public, JSWeakSetHasIntrinsic);
+    JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->add, protoFuncWeakSetAdd, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Public, JSWeakSetAddIntrinsic);
 
     JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
 }
@@ -57,13 +55,12 @@ ALWAYS_INLINE static JSWeakSet* getWeakSet(JSGlobalObject* globalObject, JSValue
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    if (UNLIKELY(!value.isObject())) {
+    if (!value.isObject()) [[unlikely]] {
         throwTypeError(globalObject, scope, "Called WeakSet function on non-object"_s);
         return nullptr;
     }
 
-    auto* set = jsDynamicCast<JSWeakSet*>(vm, asObject(value));
-    if (LIKELY(set))
+    if (auto* set = dynamicDowncast<JSWeakSet>(asObject(value))) [[likely]]
         return set;
 
     throwTypeError(globalObject, scope, "Called WeakSet function on a non-WeakSet object"_s);
@@ -76,7 +73,9 @@ JSC_DEFINE_HOST_FUNCTION(protoFuncWeakSetDelete, (JSGlobalObject* globalObject, 
     if (!set)
         return JSValue::encode(jsUndefined());
     JSValue key = callFrame->argument(0);
-    return JSValue::encode(jsBoolean(key.isObject() && set->remove(asObject(key))));
+    if (!key.isCell()) [[unlikely]]
+        return JSValue::encode(jsBoolean(false));
+    return JSValue::encode(jsBoolean(set->remove(key.asCell())));
 }
 
 JSC_DEFINE_HOST_FUNCTION(protoFuncWeakSetHas, (JSGlobalObject* globalObject, CallFrame* callFrame))
@@ -85,7 +84,9 @@ JSC_DEFINE_HOST_FUNCTION(protoFuncWeakSetHas, (JSGlobalObject* globalObject, Cal
     if (!set)
         return JSValue::encode(jsUndefined());
     JSValue key = callFrame->argument(0);
-    return JSValue::encode(jsBoolean(key.isObject() && set->has(asObject(key))));
+    if (!key.isCell()) [[unlikely]]
+        return JSValue::encode(jsBoolean(false));
+    return JSValue::encode(jsBoolean(set->has(key.asCell())));
 }
 
 JSC_DEFINE_HOST_FUNCTION(protoFuncWeakSetAdd, (JSGlobalObject* globalObject, CallFrame* callFrame))
@@ -98,9 +99,9 @@ JSC_DEFINE_HOST_FUNCTION(protoFuncWeakSetAdd, (JSGlobalObject* globalObject, Cal
     if (!set)
         return JSValue::encode(jsUndefined());
     JSValue key = callFrame->argument(0);
-    if (!key.isObject())
-        return JSValue::encode(throwTypeError(globalObject, scope, WeakSetNonObjectValueError));
-    set->add(vm, asObject(key));
+    if (!canBeHeldWeakly(key)) [[unlikely]]
+        return throwVMTypeError(globalObject, scope, WeakSetInvalidValueError);
+    set->add(vm, key.asCell());
     return JSValue::encode(callFrame->thisValue());
 }
 

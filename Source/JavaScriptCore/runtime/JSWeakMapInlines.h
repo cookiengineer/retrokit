@@ -25,14 +25,21 @@
 
 #pragma once
 
+#include "JSCJSValueBigInt.h"
+#include "JSCJSValueInlines.h"
 #include "JSWeakMap.h"
 #include "WeakMapImplInlines.h"
 
 namespace JSC {
 
-ALWAYS_INLINE void JSWeakMap::set(VM& vm, JSObject* key, JSValue value)
+ALWAYS_INLINE void JSWeakMap::set(VM& vm, JSCell* key, JSValue value)
 {
     add(vm, key, value);
+}
+
+inline Structure* JSWeakMap::createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
+{
+    return Structure::create(vm, globalObject, prototype, TypeInfo(JSWeakMapType, StructureFlags), info());
 }
 
 } // namespace JSC

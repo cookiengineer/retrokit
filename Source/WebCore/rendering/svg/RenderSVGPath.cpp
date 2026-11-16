@@ -8,6 +8,7 @@
  * Copyright (C) 2009 Jeff Schiller <codedread@gmail.com>
  * Copyright (C) 2011 Renata Hodovan <reni@webkit.org>
  * Copyright (C) 2011 University of Szeged
+ * Copyright (C) 2020, 2021, 2022, 2023, 2024 Igalia S.L.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -27,40 +28,62 @@
 
 #include "config.h"
 #include "RenderSVGPath.h"
+#include "RenderObjectNode.h"
 
 #include "Gradient.h"
+#include "ReferencedSVGResources.h"
+#include "RenderLayer.h"
+#include "RenderSVGResourceMarkerInlines.h"
+#include "RenderSVGShapeInlines.h"
+#include "SVGElementTypeHelpers.h"
+#include "SVGMarkerElement.h"
 #include "SVGPathElement.h"
 #include "SVGSubpathData.h"
-#include <wtf/IsoMallocInlines.h>
+#include "SVGVisitedRendererTracking.h"
+#include "StyleComputedStyle+GettersInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(RenderSVGPath);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderSVGPath);
 
-RenderSVGPath::RenderSVGPath(SVGGraphicsElement& element, RenderStyle&& style)
-    : RenderSVGShape(element, WTFMove(style))
+RenderSVGPath::RenderSVGPath(SVGGraphicsElement& element, Style::ComputedStyle&& style)
+    : RenderSVGShape(Type::SVGPath, element, WTF::move(style))
 {
+    ASSERT(isRenderSVGPath());
 }
 
 RenderSVGPath::~RenderSVGPath() = default;
 
 void RenderSVGPath::updateShapeFromElement()
 {
-    RenderSVGShape::updateShapeFromElement();
+    clearPath();
+    m_shapeType = ShapeType::Empty;
+    m_fillBoundingBox = ensurePath().boundingRect();
+    m_strokeBoundingBox = std::nullopt;
+    m_approximateStrokeBoundingBox = std::nullopt;
+    updateMarkerPositions();
     updateZeroLengthSubpaths();
 
-    m_strokeBoundingBox = calculateUpdatedStrokeBoundingBox();
+    ASSERT(hasPath());
+    if (path().isEmpty())
+        return;
+    if (path().definitelySingleLine())
+        m_shapeType = ShapeType::Line;
+    else
+        m_shapeType = ShapeType::Path;
 }
 
-FloatRect RenderSVGPath::calculateUpdatedStrokeBoundingBox() const
+FloatRect RenderSVGPath::adjustStrokeBoundingBoxForZeroLengthLinecaps(RepaintRectCalculation, FloatRect strokeBoundingBox) const
 {
-    FloatRect strokeBoundingBox = m_strokeBoundingBox;
-
-    if (style().svgStyle().hasStroke()) {
+    if (!style().stroke().isNone()) {
         // FIXME: zero-length subpaths do not respect vector-effect = non-scaling-stroke.
         float strokeWidth = this->strokeWidth();
-        for (size_t i = 0; i < m_zeroLengthLinecapLocations.size(); ++i)
-            strokeBoundingBox.unite(zeroLengthSubpathRect(m_zeroLengthLinecapLocations[i], strokeWidth));
+        for (auto& zeroLengthLinecapLocation : m_zeroLengthLinecapLocations) {
+            auto subpathRect = zeroLengthSubpathRect(zeroLengthLinecapLocation, strokeWidth);
+            if (!subpathRect.isNaN())
+                strokeBoundingBox.unite(subpathRect);
+        }
     }
 
     return strokeBoundingBox;
@@ -68,9 +91,9 @@ FloatRect RenderSVGPath::calculateUpdatedStrokeBoundingBox() const
 
 static void useStrokeStyleToFill(GraphicsContext& context)
 {
-    if (auto gradient = context.strokeGradient())
-        context.setFillGradient(*gradient, context.state().strokeGradientSpaceTransform);
-    else if (Pattern* pattern = context.strokePattern())
+    if (RefPtr gradient = context.strokeGradient())
+        context.setFillGradient(*gradient, context.strokeGradientSpaceTransform());
+    else if (RefPtr pattern = context.strokePattern())
         context.setFillPattern(*pattern);
     else
         context.setFillColor(context.strokeColor());
@@ -78,28 +101,15 @@ static void useStrokeStyleToFill(GraphicsContext& context)
 
 void RenderSVGPath::strokeShape(GraphicsContext& context) const
 {
-    if (!style().hasVisibleStroke())
+    if (style().stroke().isNone() || !style().strokeWidth().isPossiblyPositive())
+        return;
+
+    // This happens only if the layout was never been called for this element.
+    if (!hasPath())
         return;
 
     RenderSVGShape::strokeShape(context);
-
-    if (m_zeroLengthLinecapLocations.isEmpty())
-        return;
-
-    Path* usePath;
-    AffineTransform nonScalingTransform;
-
-    if (hasNonScalingStroke())
-        nonScalingTransform = nonScalingStrokeTransform();
-
-    GraphicsContextStateSaver stateSaver(context, true);
-    useStrokeStyleToFill(context);
-    for (size_t i = 0; i < m_zeroLengthLinecapLocations.size(); ++i) {
-        usePath = zeroLengthLinecapPath(m_zeroLengthLinecapLocations[i]);
-        if (hasNonScalingStroke())
-            usePath = nonScalingStrokePath(usePath, nonScalingTransform);
-        context.fillPath(*usePath);
-    }
+    strokeZeroLengthSubpaths(context);
 }
 
 bool RenderSVGPath::shapeDependentStrokeContains(const FloatPoint& point, PointCoordinateSpace pointCoordinateSpace)
@@ -108,13 +118,13 @@ bool RenderSVGPath::shapeDependentStrokeContains(const FloatPoint& point, PointC
         return true;
 
     for (size_t i = 0; i < m_zeroLengthLinecapLocations.size(); ++i) {
-        ASSERT(style().svgStyle().hasStroke());
+        ASSERT(!style().stroke().isNone());
         float strokeWidth = this->strokeWidth();
-        if (style().capStyle() == SquareCap) {
+        if (style().capStyle() == LineCap::Square) {
             if (zeroLengthSubpathRect(m_zeroLengthLinecapLocations[i], strokeWidth).contains(point))
                 return true;
         } else {
-            ASSERT(style().capStyle() == RoundCap);
+            ASSERT(style().capStyle() == LineCap::Round);
             FloatPoint radiusVector(point.x() - m_zeroLengthLinecapLocations[i].x(), point.y() -  m_zeroLengthLinecapLocations[i].y());
             if (radiusVector.lengthSquared() < strokeWidth * strokeWidth * .25f)
                 return true;
@@ -127,20 +137,7 @@ bool RenderSVGPath::shouldStrokeZeroLengthSubpath() const
 {
     // Spec(11.4): Any zero length subpath shall not be stroked if the "stroke-linecap" property has a value of butt
     // but shall be stroked if the "stroke-linecap" property has a value of round or square
-    return style().svgStyle().hasStroke() && style().capStyle() != ButtCap;
-}
-
-Path* RenderSVGPath::zeroLengthLinecapPath(const FloatPoint& linecapPosition) const
-{
-    static NeverDestroyed<Path> tempPath;
-
-    tempPath.get().clear();
-    if (style().capStyle() == SquareCap)
-        tempPath.get().addRect(zeroLengthSubpathRect(linecapPosition, this->strokeWidth()));
-    else
-        tempPath.get().addEllipse(zeroLengthSubpathRect(linecapPosition, this->strokeWidth()));
-
-    return &tempPath.get();
+    return !style().stroke().isNone() && style().capStyle() != LineCap::Butt;
 }
 
 FloatRect RenderSVGPath::zeroLengthSubpathRect(const FloatPoint& linecapPosition, float strokeWidth) const
@@ -156,17 +153,154 @@ void RenderSVGPath::updateZeroLengthSubpaths()
         return;
 
     SVGSubpathData subpathData(m_zeroLengthLinecapLocations);
-    path().apply([&subpathData](const PathElement& pathElement) {
+    path().applyElements([&subpathData](const PathElement& pathElement) {
         SVGSubpathData::updateFromPathElement(subpathData, pathElement);
     });
     subpathData.pathIsDone();
+}
+
+void RenderSVGPath::strokeZeroLengthSubpaths(GraphicsContext& context) const
+{
+    if (m_zeroLengthLinecapLocations.isEmpty())
+        return;
+
+    AffineTransform nonScalingTransform;
+    if (hasNonScalingStroke())
+        nonScalingTransform = nonScalingStrokeTransform();
+
+    GraphicsContextStateSaver stateSaver(context, true);
+    useStrokeStyleToFill(context);
+
+    float strokeWidth = this->strokeWidth();
+    bool isSquareCap = style().capStyle() == LineCap::Square;
+    for (auto& linecapLocation : m_zeroLengthLinecapLocations) {
+        // The linecap location is path geometry, not stroke geometry. So when
+        // vector-effect: non-scaling-stroke is in effect, the transform must be
+        // applied to the position where the cap is drawn -- not to the generated
+        // cap shape, which would otherwise be distorted by the transform.
+        auto position = hasNonScalingStroke() ? nonScalingTransform.mapPoint(linecapLocation) : linecapLocation;
+        auto subpathRect = zeroLengthSubpathRect(position, strokeWidth);
+        if (isSquareCap)
+            context.fillRect(subpathRect);
+        else
+            context.fillEllipse(subpathRect);
+    }
+}
+
+static inline RenderSVGResourceMarker* NODELETE markerForType(SVGMarkerType type, RenderSVGResourceMarker* markerStart, RenderSVGResourceMarker* markerMid, RenderSVGResourceMarker* markerEnd)
+{
+    switch (type) {
+    case SVGMarkerType::Start:
+        return markerStart;
+    case SVGMarkerType::Middle:
+        return markerMid;
+    case SVGMarkerType::End:
+        return markerEnd;
+    }
+
+    ASSERT_NOT_REACHED();
+    return 0;
+}
+
+bool RenderSVGPath::shouldGenerateMarkerPositions() const
+{
+    if (style().hasMarkers() && protect(graphicsElement())->supportsMarkers())
+        return svgMarkerStartResourceFromStyle() || svgMarkerMidResourceFromStyle() || svgMarkerEndResourceFromStyle();
+    return false;
+}
+
+void RenderSVGPath::drawMarkers(PaintInfo& paintInfo)
+{
+    if (m_markerPositions.isEmpty())
+        return;
+
+    static NeverDestroyed<SVGVisitedRendererTracking::VisitedSet> s_visitedSet;
+
+    SVGVisitedRendererTracking recursionTracking(s_visitedSet);
+    if (recursionTracking.isVisiting(*this))
+        return;
+
+    SVGVisitedRendererTracking::Scope recursionScope(recursionTracking, *this);
+
+    CheckedPtr markerStart = svgMarkerStartResourceFromStyle();
+    CheckedPtr markerMid = svgMarkerMidResourceFromStyle();
+    CheckedPtr markerEnd = svgMarkerEndResourceFromStyle();
+    if (!markerStart && !markerMid && !markerEnd)
+        return;
+
+    float strokeWidth = this->strokeWidthForMarkerUnits();
+    for (auto& markerPosition : m_markerPositions) {
+        if (auto* marker = markerForType(markerPosition.type, markerStart.get(), markerMid.get(), markerEnd.get()); marker && marker->hasLayer()) {
+            auto& context = paintInfo.context();
+            GraphicsContextStateSaver stateSaver(context);
+
+            context.setLineDash(DashArray(), 0);
+            auto contentTransform = marker->markerTransformation(markerPosition.origin, markerPosition.angle, strokeWidth);
+            protect(marker->layer())->paintResourceLayerForSVG(context, contentTransform);
+        }
+    }
+}
+
+FloatRect RenderSVGPath::computeMarkerBoundingBox(const SVGBoundingBoxComputation::DecorationOptions& options) const
+{
+    if (m_markerPositions.isEmpty())
+        return { };
+
+    static NeverDestroyed<SVGVisitedRendererTracking::VisitedSet> s_visitedSet;
+
+    SVGVisitedRendererTracking recursionTracking(s_visitedSet);
+    if (recursionTracking.isVisiting(*this))
+        return { };
+
+    SVGVisitedRendererTracking::Scope recursionScope(recursionTracking, *this);
+
+    CheckedPtr markerStart = svgMarkerStartResourceFromStyle();
+    CheckedPtr markerMid = svgMarkerMidResourceFromStyle();
+    CheckedPtr markerEnd = svgMarkerEndResourceFromStyle();
+    if (!markerStart && !markerMid && !markerEnd)
+        return { };
+
+    FloatRect boundaries;
+    for (auto& markerPosition : m_markerPositions) {
+        if (auto* marker = markerForType(markerPosition.type, markerStart.get(), markerMid.get(), markerEnd.get()))
+            boundaries.unite(marker->computeMarkerBoundingBox(options, marker->markerTransformation(markerPosition.origin, markerPosition.angle, strokeWidth())));
+    }
+
+    return boundaries;
+}
+
+void RenderSVGPath::updateMarkerPositions()
+{
+    m_markerPositions.clear();
+
+    if (!shouldGenerateMarkerPositions())
+        return;
+
+    ASSERT(hasPath());
+    auto* markerStart = svgMarkerStartResourceFromStyle();
+
+    SVGMarkerData markerData(m_markerPositions, markerStart && markerStart->hasReverseStart());
+    path().applyElements([&markerData](const PathElement& pathElement) {
+        SVGMarkerData::updateFromPathElement(markerData, pathElement);
+    });
+    markerData.pathIsDone();
 }
 
 bool RenderSVGPath::isRenderingDisabled() const
 {
     // For a polygon, polyline or path, rendering is disabled if there is no path data.
     // No path data is possible in the case of a missing or empty 'd' or 'points' attribute.
-    return path().isEmpty();
+    return !hasPath() || path().isEmpty();
+}
+
+void RenderSVGPath::styleDidChange(Style::Difference diff, const Style::ComputedStyle* oldStyle)
+{
+    if (RefPtr pathElement = dynamicDowncast<SVGPathElement>(graphicsElement())) {
+        if (!oldStyle || style().d() != oldStyle->d())
+            pathElement->pathDidChange();
+    }
+
+    RenderSVGShape::styleDidChange(diff, oldStyle);
 }
 
 }

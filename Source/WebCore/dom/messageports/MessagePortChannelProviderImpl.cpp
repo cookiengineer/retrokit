@@ -32,18 +32,12 @@
 
 namespace WebCore {
 
-static inline MessagePortChannelRegistry::CheckProcessLocalPortForActivityCallback checkActivityCallback()
+Ref<MessagePortChannelProviderImpl> MessagePortChannelProviderImpl::create()
 {
-    return [](auto& messagePortIdentifier, auto, auto&& callback) {
-        ASSERT(isMainThread());
-        callback(MessagePort::isExistingMessagePortLocallyReachable(messagePortIdentifier) ? MessagePortChannelProvider::HasActivity::Yes : MessagePortChannelProvider::HasActivity::No);
-    };
+    return adoptRef(*new MessagePortChannelProviderImpl);
 }
 
-MessagePortChannelProviderImpl::MessagePortChannelProviderImpl()
-    : m_registry(checkActivityCallback())
-{
-}
+MessagePortChannelProviderImpl::MessagePortChannelProviderImpl() = default;
 
 MessagePortChannelProviderImpl::~MessagePortChannelProviderImpl()
 {
@@ -52,62 +46,58 @@ MessagePortChannelProviderImpl::~MessagePortChannelProviderImpl()
 
 void MessagePortChannelProviderImpl::createNewMessagePortChannel(const MessagePortIdentifier& local, const MessagePortIdentifier& remote)
 {
-    ensureOnMainThread([registry = &m_registry, local, remote] {
-        registry->didCreateMessagePortChannel(local, remote);
+    ensureOnMainThread([weakRegistry = WeakPtr { m_registry }, local, remote] {
+        if (CheckedPtr registry = weakRegistry.get())
+            registry->didCreateMessagePortChannel(local, remote);
     });
 }
 
 void MessagePortChannelProviderImpl::entangleLocalPortInThisProcessToRemote(const MessagePortIdentifier& local, const MessagePortIdentifier& remote)
 {
-    ensureOnMainThread([registry = &m_registry, local, remote] {
-        registry->didEntangleLocalToRemote(local, remote, Process::identifier());
+    ensureOnMainThread([weakRegistry = WeakPtr { m_registry }, local, remote] {
+        if (CheckedPtr registry = weakRegistry.get())
+            registry->didEntangleLocalToRemote(local, remote, Process::identifier());
     });
 }
 
 void MessagePortChannelProviderImpl::messagePortDisentangled(const MessagePortIdentifier& local)
 {
-    ensureOnMainThread([registry = &m_registry, local] {
-        registry->didDisentangleMessagePort(local);
+    ensureOnMainThread([weakRegistry = WeakPtr { m_registry }, local] {
+        if (CheckedPtr registry = weakRegistry.get())
+            registry->didDisentangleMessagePort(local);
     });
 }
 
 void MessagePortChannelProviderImpl::messagePortClosed(const MessagePortIdentifier& local)
 {
-    ensureOnMainThread([registry = &m_registry, local] {
-        registry->didCloseMessagePort(local);
+    ensureOnMainThread([weakRegistry = WeakPtr { m_registry }, local] {
+        if (CheckedPtr registry = weakRegistry.get())
+            registry->didCloseMessagePort(local);
     });
 }
 
 void MessagePortChannelProviderImpl::postMessageToRemote(MessageWithMessagePorts&& message, const MessagePortIdentifier& remoteTarget)
 {
-    ensureOnMainThread([registry = &m_registry, message = WTFMove(message), remoteTarget]() mutable {
-        if (registry->didPostMessageToRemote(WTFMove(message), remoteTarget))
+    ensureOnMainThread([weakRegistry = WeakPtr { m_registry }, message = WTF::move(message), remoteTarget]() mutable {
+        CheckedPtr registry = weakRegistry.get();
+        if (!registry)
+            return;
+        if (registry->didPostMessageToRemote(WTF::move(message), remoteTarget))
             MessagePort::notifyMessageAvailable(remoteTarget);
     });
 }
 
-void MessagePortChannelProviderImpl::takeAllMessagesForPort(const MessagePortIdentifier& port, CompletionHandler<void(Vector<MessageWithMessagePorts>&&, Function<void()>&&)>&& outerCallback)
+void MessagePortChannelProviderImpl::takeAllMessagesForPort(const MessagePortIdentifier& port, CompletionHandler<void(Vector<MessageWithMessagePorts>&&, CompletionHandler<void()>&&)>&& outerCallback)
 {
     // It is the responsibility of outerCallback to get itself to the appropriate thread (e.g. WebWorker thread)
-    auto callback = [outerCallback = WTFMove(outerCallback)](Vector<MessageWithMessagePorts>&& messages, Function<void()>&& messageDeliveryCallback) mutable {
+    auto callback = [outerCallback = WTF::move(outerCallback)](Vector<MessageWithMessagePorts>&& messages, CompletionHandler<void()>&& messageDeliveryCallback) mutable {
         ASSERT(isMainThread());
-        outerCallback(WTFMove(messages), WTFMove(messageDeliveryCallback));
+        outerCallback(WTF::move(messages), WTF::move(messageDeliveryCallback));
     };
 
-    ensureOnMainThread([registry = &m_registry, port, callback = WTFMove(callback)]() mutable {
-        registry->takeAllMessagesForPort(port, WTFMove(callback));
-    });
-}
-
-void MessagePortChannelProviderImpl::checkRemotePortForActivity(const MessagePortIdentifier& remoteTarget, CompletionHandler<void(HasActivity)>&& outerCallback)
-{
-    auto callback = Function<void(HasActivity)> { [outerCallback = WTFMove(outerCallback)](HasActivity hasActivity) mutable {
-        ASSERT(isMainThread());
-        outerCallback(hasActivity);
-    } };
-
-    ensureOnMainThread([registry = &m_registry, remoteTarget, callback = WTFMove(callback)]() mutable {
-        registry->checkRemotePortForActivity(remoteTarget, WTFMove(callback));
+    ensureOnMainThread([weakRegistry = WeakPtr { m_registry }, port, callback = WTF::move(callback)]() mutable {
+        if (CheckedPtr registry = weakRegistry.get())
+            registry->takeAllMessagesForPort(port, WTF::move(callback));
     });
 }
 

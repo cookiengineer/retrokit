@@ -32,20 +32,33 @@
 #include "config.h"
 #include "ScriptArguments.h"
 
-#include "CatchScope.h"
+#include "JSCJSValueInlines.h"
+#include "JSGlobalObject.h"
 #include "ProxyObject.h"
 #include "StrongInlines.h"
+#include "TopExceptionScope.h"
 
 namespace Inspector {
 
+static inline String argumentAsString(JSC::JSGlobalObject* globalObject, JSC::JSValue argument)
+{
+    if (is<JSC::ProxyObject>(argument))
+        return "[object Proxy]"_s;
+
+    auto scope = DECLARE_TOP_EXCEPTION_SCOPE(globalObject->vm());
+    auto result = argument.toWTFString(globalObject);
+    scope.clearException();
+    return result;
+}
+
 Ref<ScriptArguments> ScriptArguments::create(JSC::JSGlobalObject* globalObject, Vector<JSC::Strong<JSC::Unknown>>&& arguments)
 {
-    return adoptRef(*new ScriptArguments(globalObject, WTFMove(arguments)));
+    return adoptRef(*new ScriptArguments(globalObject, WTF::move(arguments)));
 }
 
 ScriptArguments::ScriptArguments(JSC::JSGlobalObject* globalObject, Vector<JSC::Strong<JSC::Unknown>>&& arguments)
     : m_globalObject(globalObject->vm(), globalObject)
-    , m_arguments(WTFMove(arguments))
+    , m_arguments(WTF::move(arguments))
 {
 }
 
@@ -62,27 +75,40 @@ JSC::JSGlobalObject* ScriptArguments::globalObject() const
     return m_globalObject.get();
 }
 
-bool ScriptArguments::getFirstArgumentAsString(String& result) const
+std::optional<String> ScriptArguments::getArgumentAtIndexAsString(size_t argumentIndex) const
 {
-    if (!argumentCount())
-        return false;
+    if (argumentIndex >= argumentCount())
+        return std::nullopt;
 
     auto* globalObject = this->globalObject();
     if (!globalObject) {
         ASSERT_NOT_REACHED();
+        return std::nullopt;
+    }
+
+    return argumentAsString(globalObject, argumentAt(argumentIndex));
+}
+
+bool ScriptArguments::getFirstArgumentAsString(String& result) const
+{
+    auto argument = getArgumentAtIndexAsString(0);
+    if (!argument)
         return false;
-    }
 
-    auto value = argumentAt(0);
-    if (JSC::jsDynamicCast<JSC::ProxyObject*>(globalObject->vm(), value)) {
-        result = "[object Proxy]"_s;
-        return true;
-    }
-
-    auto scope = DECLARE_CATCH_SCOPE(globalObject->vm());
-    result = value.toWTFString(globalObject);
-    scope.clearException();
+    result = *argument;
     return true;
+}
+
+Vector<String> ScriptArguments::getArgumentsAsStrings() const
+{
+    auto* globalObject = this->globalObject();
+    ASSERT(globalObject);
+    if (!globalObject)
+        return { };
+
+    return WTF::map(m_arguments, [globalObject](auto& argument) {
+        return argumentAsString(globalObject, argument.get());
+    });
 }
 
 bool ScriptArguments::isEqual(const ScriptArguments& other) const
@@ -106,7 +132,7 @@ bool ScriptArguments::isEqual(const ScriptArguments& other) const
             if (a != b)
                 return false;
         } else {
-            auto scope = DECLARE_CATCH_SCOPE(globalObject->vm());
+            auto scope = DECLARE_TOP_EXCEPTION_SCOPE(globalObject->vm());
             bool result = JSC::JSValue::strictEqual(globalObject, a, b);
             scope.clearException();
             if (!result)

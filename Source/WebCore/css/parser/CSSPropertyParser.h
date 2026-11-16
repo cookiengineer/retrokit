@@ -1,8 +1,9 @@
 /*
  * Copyright (C) 2003 Lars Knoll (knoll@kde.org)
- * Copyright (C) 2004, 2005, 2006, 2008, 2009, 2010, 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2004 - 2021 Apple Inc. All rights reserved.
  * Copyright (C) 2008 Eric Seidel <eric@webkit.org>
  * Copyright (C) 2009 - 2010  Torch Mobile (Beijing) Co. Ltd. All rights reserved.
+ * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -22,115 +23,64 @@
 
 #pragma once
 
-#include "CSSParserTokenRange.h"
-#include "CSSPropertyParserHelpers.h"
-#include "CSSPropertyParserWorkerSafe.h"
-#include "StyleRule.h"
-#include <wtf/text/StringView.h>
+#include <WebCore/CSSNamespacePrefixMap.h>
+#include <wtf/Forward.h>
 
 namespace WebCore {
 
 class CSSProperty;
+class CSSParserTokenRange;
 class CSSValue;
-class CSSValueList;
-class StylePropertyShorthand;
-class StyleSheetContents;
+struct CSSParserContext;
+struct CSSCustomPropertySyntax;
+struct ComputedStyleDependencies;
+
+enum CSSPropertyID : uint16_t;
+enum CSSValueID : uint16_t;
+enum class CSSWideKeyword : uint8_t;
+enum class IsImportant : bool;
+enum class StyleRuleType : uint8_t;
+
+namespace CSS {
+struct PropertyParserState;
+}
 
 namespace Style {
 class BuilderState;
+class CustomProperty;
+enum class IsAttrTainted : bool;
 }
-    
-// Inputs: PropertyID, isImportant bool, CSSParserTokenRange.
-// Outputs: Vector of CSSProperties
 
 class CSSPropertyParser {
-    WTF_MAKE_NONCOPYABLE(CSSPropertyParser);
 public:
-    static bool parseValue(CSSPropertyID, bool important,
-        const CSSParserTokenRange&, const CSSParserContext&,
-        Vector<CSSProperty, 256>&, StyleRuleType);
+    // Parses any CSS property or descriptor. If successful, the result will be appended to the `result` Vector and the function will return true, otherwise, the function will return false and the `result` Vector will be unmodified.
+    static bool parseValue(CSSPropertyID, IsImportant, CSSParserTokenRange, const CSSParserContext&, Vector<CSSProperty, 256>& result, StyleRuleType, const CSSNamespacePrefixMap& = { });
 
-    // Parses a non-shorthand CSS property
-    static RefPtr<CSSValue> parseSingleValue(CSSPropertyID, const CSSParserTokenRange&, const CSSParserContext&);
-    static bool canParseTypedCustomPropertyValue(const String& syntax, const CSSParserTokenRange&, const CSSParserContext&);
-    static RefPtr<CSSCustomPropertyValue> parseTypedCustomPropertyValue(const String& name, const String& syntax, const CSSParserTokenRange&, const Style::BuilderState&, const CSSParserContext&);
-    static void collectParsedCustomPropertyValueDependencies(const String& syntax, bool isRoot, HashSet<CSSPropertyID>& dependencies, const CSSParserTokenRange&, const CSSParserContext&);
+    // Parses a longhand style property.
+    static RefPtr<CSSValue> parseStylePropertyLonghand(CSSPropertyID, const String&, const CSSParserContext&);
+    static RefPtr<CSSValue> parseStylePropertyLonghand(CSSPropertyID, CSSParserTokenRange, const CSSParserContext&);
 
-    static RefPtr<CSSValue> parseCounterStyleDescriptor(CSSPropertyID, CSSParserTokenRange&, const CSSParserContext&);
+    // Parses a @counter-style descriptor.
+    static RefPtr<CSSValue> parseCounterStyleDescriptor(CSSPropertyID, const String&, const CSSParserContext&);
 
-private:
-    CSSPropertyParser(const CSSParserTokenRange&, const CSSParserContext&, Vector<CSSProperty, 256>*, bool consumeWhitespace = true);
+    static RefPtr<const Style::CustomProperty> parseTypedCustomPropertyInitialValue(const AtomString&, const CSSCustomPropertySyntax&, CSSParserTokenRange, Style::BuilderState&, const CSSParserContext&);
+    static std::optional<Variant<Ref<const Style::CustomProperty>, CSSWideKeyword>> parseTypedCustomPropertyValue(const AtomString& name, const CSSCustomPropertySyntax&, CSSParserTokenRange, Style::BuilderState&, const CSSParserContext&, Style::IsAttrTainted);
 
-    // FIXME: Rename once the CSSParserValue-based parseValue is removed
-    bool parseValueStart(CSSPropertyID, bool important);
-    bool consumeCSSWideKeyword(CSSPropertyID, bool important);
-    RefPtr<CSSValue> parseSingleValue(CSSPropertyID, CSSPropertyID = CSSPropertyInvalid);
-    bool canParseTypedCustomPropertyValue(const String& syntax);
-    RefPtr<CSSCustomPropertyValue> parseTypedCustomPropertyValue(const String& name, const String& syntax, const Style::BuilderState&);
-    void collectParsedCustomPropertyValueDependencies(const String& syntax, bool isRoot, HashSet<CSSPropertyID>& dependencies);
-
-    bool inQuirksMode() const { return m_context.mode == HTMLQuirksMode; }
-
-    bool parseViewportDescriptor(CSSPropertyID propId, bool important);
-    bool parseFontFaceDescriptor(CSSPropertyID);
-    bool parseCounterStyleDescriptor(CSSPropertyID, const CSSParserContext&);
-
-    void addProperty(CSSPropertyID, CSSPropertyID, Ref<CSSValue>&&, bool important, bool implicit = false);
-    void addExpandedPropertyForValue(CSSPropertyID propId, Ref<CSSValue>&&, bool);
-
-    bool consumeBorder(RefPtr<CSSValue>& width, RefPtr<CSSValue>& style, RefPtr<CSSValue>& color);
-
-    bool parseShorthand(CSSPropertyID, bool important);
-    bool consumeShorthandGreedily(const StylePropertyShorthand&, bool important);
-    bool consume2ValueShorthand(const StylePropertyShorthand&, bool important);
-    bool consume4ValueShorthand(const StylePropertyShorthand&, bool important);
-
-    // Legacy parsing allows <string>s for animation-name
-    bool consumeAnimationShorthand(const StylePropertyShorthand&, bool important);
-    bool consumeBackgroundShorthand(const StylePropertyShorthand&, bool important);
-    bool consumeOverflowShorthand(bool important);
-
-    bool consumeColumns(bool important);
-
-    bool consumeGridItemPositionShorthand(CSSPropertyID, bool important);
-    bool consumeGridTemplateRowsAndAreasAndColumns(CSSPropertyID, bool important);
-    bool consumeGridTemplateShorthand(CSSPropertyID, bool important);
-    bool consumeGridShorthand(bool important);
-    bool consumeGridAreaShorthand(bool important);
-
-    bool consumePlaceContentShorthand(bool important);
-    bool consumePlaceItemsShorthand(bool important);
-    bool consumePlaceSelfShorthand(bool important);
-
-    bool consumeFont(bool important);
-    bool consumeFontVariantShorthand(bool important);
-    bool consumeSystemFont(bool important);
-
-    bool consumeBorderSpacing(bool important);
-
-    // CSS3 Parsing Routines (for properties specific to CSS3)
-    bool consumeBorderImage(CSSPropertyID, bool important);
-
-    bool consumeFlex(bool important);
-
-    bool consumeLegacyBreakProperty(CSSPropertyID, bool important);
-
-    bool consumeTransformOrigin(bool important);
-    bool consumePerspectiveOrigin(bool important);
-
-    bool consumeOverscrollBehaviorShorthand(bool important);
-
-private:
-    // Inputs:
-    CSSParserTokenRange m_range;
-    const CSSParserContext& m_context;
-
-    // Outputs:
-    Vector<CSSProperty, 256>* m_parsedProperties;
+    static ComputedStyleDependencies collectParsedCustomPropertyValueDependencies(const CSSCustomPropertySyntax&, CSSParserTokenRange, const CSSParserContext&);
+    static bool isValidCustomPropertyValueForSyntax(const CSSCustomPropertySyntax&, CSSParserTokenRange, const CSSParserContext&);
+    static RefPtr<CSSValue> parseWithSyntax(const CSSCustomPropertySyntax&, CSSParserTokenRange, const CSSParserContext&);
 };
 
+// MARK: - CSSPropertyID parsing
+
 CSSPropertyID cssPropertyID(StringView);
+
+// MARK: - CSSValueID parsing
+
 WEBCORE_EXPORT CSSValueID cssValueKeywordID(StringView);
-bool isCustomPropertyName(const String&);
+
+// MARK: - Custom property name validation
+
+bool NODELETE isCustomPropertyName(StringView);
 
 } // namespace WebCore

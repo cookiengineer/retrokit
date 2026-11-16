@@ -26,22 +26,28 @@
 #pragma once
 
 #include "Supplementable.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class Navigator;
 
 class NavigatorWebDriver final : public Supplement<Navigator> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(NavigatorWebDriver);
 public:
     NavigatorWebDriver();
     virtual ~NavigatorWebDriver();
 
     static NavigatorWebDriver* from(Navigator*);
-    static bool webdriver(const Navigator&);
+    static bool NODELETE webdriver(const Navigator&);
 private:
-    static const char* supplementName();
-    static bool isControlledByAutomation(const Navigator&);
+    static ASCIILiteral supplementName() { return "NavigatorWebDriver"_s; }
+    bool isNavigatorWebDriver() const final { return true; }
+    static bool NODELETE isControlledByAutomation(const Navigator&);
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::NavigatorWebDriver)
+    static bool isType(const WebCore::SupplementBase& supplement) { return supplement.isNavigatorWebDriver(); }
+SPECIALIZE_TYPE_TRAITS_END()

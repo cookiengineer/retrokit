@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,6 +33,7 @@
 #include "DOMJITHelpers.h"
 #include "JSDOMWrapper.h"
 #include "Node.h"
+#include <JavaScriptCore/DOMJITCallDOMGetterSnippet.h>
 #include <JavaScriptCore/FrameTracers.h>
 #include <JavaScriptCore/Snippet.h>
 #include <JavaScriptCore/SnippetParams.h>
@@ -48,7 +49,7 @@ Ref<JSC::Snippet> checkSubClassSnippetForJSNode()
 enum class IsContainerGuardRequirement { Required, NotRequired };
 
 template<typename WrappedNode, typename ToWrapperOperation>
-static Ref<JSC::DOMJIT::CallDOMGetterSnippet> createCallDOMGetterForOffsetAccess(ptrdiff_t offset, ToWrapperOperation operation, IsContainerGuardRequirement isContainerGuardRequirement)
+static Ref<JSC::DOMJIT::CallDOMGetterSnippet> createCallDOMGetterForOffsetAccess(ptrdiff_t offset, ToWrapperOperation operation, IsContainerGuardRequirement isContainerGuardRequirement, std::optional<uintptr_t> mask = std::nullopt)
 {
     Ref<JSC::DOMJIT::CallDOMGetterSnippet> snippet = JSC::DOMJIT::CallDOMGetterSnippet::create();
     snippet->numGPScratchRegisters = 1;
@@ -62,11 +63,14 @@ static Ref<JSC::DOMJIT::CallDOMGetterSnippet> createCallDOMGetterForOffsetAccess
         CCallHelpers::JumpList nullCases;
         // Load a wrapped object. "node" should be already type checked by CheckDOM.
         jit.loadPtr(CCallHelpers::Address(node, JSNode::offsetOfWrapped()), scratch);
+        static_assert(!JSNode::hasCustomPtrTraits(), "Optimized JSNode wrapper access should not be using RawPtrTraits");
 
         if (isContainerGuardRequirement == IsContainerGuardRequirement::Required)
-            nullCases.append(jit.branchTest32(CCallHelpers::Zero, CCallHelpers::Address(scratch, Node::nodeFlagsMemoryOffset()), CCallHelpers::TrustedImm32(Node::flagIsContainer())));
+            nullCases.append(jit.branchTest16(CCallHelpers::Zero, CCallHelpers::Address(scratch, Node::typeFlagsMemoryOffset()), CCallHelpers::TrustedImm32(Node::flagIsContainer())));
 
         jit.loadPtr(CCallHelpers::Address(scratch, offset), scratch);
+        if (mask)
+            jit.andPtr(CCallHelpers::TrustedImmPtr(*mask), scratch);
         nullCases.append(jit.branchTestPtr(CCallHelpers::Zero, scratch));
 
         DOMJIT::toWrapper<WrappedNode>(jit, params, scratch, globalObject, result, operation, globalObjectValue);
@@ -82,14 +86,16 @@ static Ref<JSC::DOMJIT::CallDOMGetterSnippet> createCallDOMGetterForOffsetAccess
 
 Ref<JSC::DOMJIT::CallDOMGetterSnippet> compileNodeFirstChildAttribute()
 {
-    auto snippet = createCallDOMGetterForOffsetAccess<Node>(CAST_OFFSET(Node*, ContainerNode*) + ContainerNode::firstChildMemoryOffset(), DOMJIT::operationToJSNode, IsContainerGuardRequirement::Required);
+    SUPPRESS_MEMORY_UNSAFE_CAST auto containerNodeOffset = CAST_OFFSET(Node*, ContainerNode*);
+    auto snippet = createCallDOMGetterForOffsetAccess<Node>(containerNodeOffset + ContainerNode::firstChildMemoryOffset(), DOMJIT::operationToJSNode, IsContainerGuardRequirement::Required);
     snippet->effect = JSC::DOMJIT::Effect::forDef(DOMJIT::AbstractHeapRepository::Node_firstChild);
     return snippet;
 }
 
 Ref<JSC::DOMJIT::CallDOMGetterSnippet> compileNodeLastChildAttribute()
 {
-    auto snippet = createCallDOMGetterForOffsetAccess<Node>(CAST_OFFSET(Node*, ContainerNode*) + ContainerNode::lastChildMemoryOffset(), DOMJIT::operationToJSNode, IsContainerGuardRequirement::Required);
+    SUPPRESS_MEMORY_UNSAFE_CAST auto containerNodeOffset = CAST_OFFSET(Node*, ContainerNode*);
+    auto snippet = createCallDOMGetterForOffsetAccess<Node>(containerNodeOffset + ContainerNode::lastChildMemoryOffset(), DOMJIT::operationToJSNode, IsContainerGuardRequirement::Required);
     snippet->effect = JSC::DOMJIT::Effect::forDef(DOMJIT::AbstractHeapRepository::Node_lastChild);
     return snippet;
 }
@@ -144,9 +150,11 @@ Ref<JSC::DOMJIT::CallDOMGetterSnippet> compileNodeOwnerDocumentAttribute()
         GPRReg document = params.gpScratch(1);
 
         jit.loadPtr(CCallHelpers::Address(node, JSNode::offsetOfWrapped()), wrapped);
+        static_assert(!JSNode::hasCustomPtrTraits(), "Optimized JSNode wrapper access should not be using RawPtrTraits");
+        
         DOMJIT::loadDocument(jit, wrapped, document);
-        RELEASE_ASSERT(!CAST_OFFSET(EventTarget*, Node*));
-        RELEASE_ASSERT(!CAST_OFFSET(Node*, Document*));
+        RELEASE_ASSERT_NOT_CAST_OFFSET(EventTarget*, Node*);
+        RELEASE_ASSERT_NOT_CAST_OFFSET(Node*, Document*);
 
         CCallHelpers::JumpList nullCases;
         // If the |this| is the document itself, ownerDocument will return null.

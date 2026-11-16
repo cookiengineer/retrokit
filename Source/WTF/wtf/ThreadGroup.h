@@ -34,35 +34,30 @@ namespace WTF {
 
 enum class ThreadGroupAddResult { NewlyAdded, AlreadyAdded, NotAdded };
 
-class ThreadGroup final : public std::enable_shared_from_this<ThreadGroup> {
-    WTF_MAKE_FAST_ALLOCATED;
+class ThreadGroup final : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<ThreadGroup> {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(ThreadGroup);
     WTF_MAKE_NONCOPYABLE(ThreadGroup);
 public:
     friend class Thread;
 
-    static std::shared_ptr<ThreadGroup> create()
+    static Ref<ThreadGroup> create()
     {
-        return std::allocate_shared<ThreadGroup>(FastAllocator<ThreadGroup>());
+        return adoptRef(*new ThreadGroup());
     }
 
     WTF_EXPORT_PRIVATE ThreadGroupAddResult add(Thread&);
     WTF_EXPORT_PRIVATE ThreadGroupAddResult add(const AbstractLocker&, Thread&);
     WTF_EXPORT_PRIVATE ThreadGroupAddResult addCurrentThread();
 
-    const ListHashSet<Ref<Thread>>& threads(const AbstractLocker&) const { return m_threads; }
+    const ListHashSet<Ref<Thread>>& threads(const AbstractLocker&) const LIFETIME_BOUND { return m_threads; }
 
-    WordLock& getLock() { return m_lock; }
+    WordLock& getLock() LIFETIME_BOUND { return m_lock; }
 
     WTF_EXPORT_PRIVATE ~ThreadGroup();
 
     ThreadGroup() = default;
 
 private:
-    std::weak_ptr<ThreadGroup> weakFromThis()
-    {
-        return shared_from_this();
-    }
-
     // We use WordLock since it can be used when deallocating TLS.
     WordLock m_lock;
     ListHashSet<Ref<Thread>> m_threads;

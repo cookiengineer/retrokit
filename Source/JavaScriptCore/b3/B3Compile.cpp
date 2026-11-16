@@ -30,15 +30,15 @@
 
 #include "B3Generate.h"
 #include "B3Procedure.h"
-#include "B3TimingScope.h"
 #include "CCallHelpers.h"
+#include "CompilerTimingScope.h"
 #include "LinkBuffer.h"
 
 namespace JSC { namespace B3 {
 
 Compilation compile(Procedure& proc)
 {
-    TimingScope timingScope("Compilation");
+    CompilerTimingScope timingScope("Total B3+Air"_s, "compile"_s);
     
     prepareForGeneration(proc);
     
@@ -46,7 +46,7 @@ Compilation compile(Procedure& proc)
     generate(proc, jit);
     LinkBuffer linkBuffer(jit, nullptr);
 
-    return Compilation(FINALIZE_CODE(linkBuffer, JITCompilationPtrTag, "Compilation"), proc.releaseByproducts());
+    return Compilation(FINALIZE_CODE(linkBuffer, JITCompilationPtrTag, nullptr, "Compilation"), proc.releaseByproducts());
 }
 
 } } // namespace JSC::B3

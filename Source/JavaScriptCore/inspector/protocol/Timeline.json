@@ -1,8 +1,8 @@
 {
     "domain": "Timeline",
     "description": "Timeline provides its clients with instrumentation records that are generated during the page runtime. Timeline instrumentation can be started and stopped using corresponding commands. While timeline is started, it is generating timeline event records.",
-    "debuggableTypes": ["page", "web-page"],
-    "targetTypes": ["page"],
+    "debuggableTypes": ["web-page"],
+    "targetTypes": ["page", "worker"],
     "types": [
         {
             "id": "EventType",
@@ -13,6 +13,7 @@
                 "ScheduleStyleRecalculation",
                 "RecalculateStyles",
                 "InvalidateLayout",
+                "ScheduleLayout",
                 "Layout",
                 "Paint",
                 "Composite",
@@ -30,7 +31,10 @@
                 "RequestAnimationFrame",
                 "CancelAnimationFrame",
                 "FireAnimationFrame",
-                "ObserverCallback"
+                "ObserverCallback",
+                "FirstContentfulPaint",
+                "LargestContentfulPaint",
+                "Screenshot"
             ]
         },
         {
@@ -43,7 +47,8 @@
                 "CPU",
                 "Memory",
                 "Heap",
-                "Animation"
+                "Animation",
+                "Screenshot"
             ]
         },
         {
@@ -80,6 +85,7 @@
         {
             "name": "setAutoCaptureEnabled",
             "description": "Toggle auto capture state. If <code>true</code> the backend will disable breakpoints and start capturing on navigation. The backend will fire the <code>autoCaptureStarted</code> event when an auto capture starts. The frontend should stop the auto capture when appropriate and re-enable breakpoints.",
+            "targetTypes": ["page"],
             "parameters": [
                 { "name": "enabled", "type": "boolean", "description": "New auto capture state." }
             ]
@@ -116,7 +122,8 @@
         },
         {
             "name": "autoCaptureStarted",
-            "description": "Fired when auto capture started."
+            "description": "Fired when auto capture started.",
+            "targetTypes": ["page"]
         }
     ]
 }

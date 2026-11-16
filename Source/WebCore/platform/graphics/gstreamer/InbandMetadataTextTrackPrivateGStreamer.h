@@ -33,7 +33,7 @@ namespace WebCore {
 
 class InbandMetadataTextTrackPrivateGStreamer : public InbandTextTrackPrivate {
 public:
-    static Ref<InbandMetadataTextTrackPrivateGStreamer> create(Kind kind, CueFormat cueFormat, const AtomString& id = emptyAtom())
+    static Ref<InbandMetadataTextTrackPrivateGStreamer> create(Kind kind, CueFormat cueFormat, const String& id = emptyString())
     {
         return adoptRef(*new InbandMetadataTextTrackPrivateGStreamer(kind, cueFormat, id));
     }
@@ -41,34 +41,41 @@ public:
     ~InbandMetadataTextTrackPrivateGStreamer() = default;
 
     Kind kind() const override { return m_kind; }
-    AtomString id() const override { return m_id; }
-    AtomString inBandMetadataTrackDispatchType() const override { return m_inBandMetadataTrackDispatchType; }
-    void setInBandMetadataTrackDispatchType(const AtomString& value) { m_inBandMetadataTrackDispatchType = value; }
+    std::optional<String> trackUID() const override { return m_stringId; }
+    String inBandMetadataTrackDispatchType() const override { return m_inBandMetadataTrackDispatchType; }
+    void setInBandMetadataTrackDispatchType(const String& value) { m_inBandMetadataTrackDispatchType = value; }
 
-    void addDataCue(const MediaTime& start, const MediaTime& end, const void* data, unsigned length)
+    void addDataCue(const MediaTime& start, const MediaTime& end, std::span<const uint8_t> data)
     {
+        ASSERT(isMainThread());
         ASSERT(cueFormat() == CueFormat::Data);
-        client()->addDataCue(start, end, data, length);
+
+        notifyMainThreadClient([&](auto& client) {
+            downcast<InbandTextTrackPrivateClient>(client).addDataCue(start, end, data);
+        });
     }
 
     void addGenericCue(InbandGenericCue& data)
     {
+        ASSERT(isMainThread());
         ASSERT(cueFormat() == CueFormat::Generic);
-        client()->addGenericCue(data);
+        notifyMainThreadClient([&](auto& client) {
+            downcast<InbandTextTrackPrivateClient>(client).addGenericCue(data);
+        });
     }
 
 private:
-    InbandMetadataTextTrackPrivateGStreamer(Kind kind, CueFormat cueFormat, const AtomString& id)
+    InbandMetadataTextTrackPrivateGStreamer(Kind kind, CueFormat cueFormat, const String& id)
         : InbandTextTrackPrivate(cueFormat)
         , m_kind(kind)
-        , m_id(id)
+        , m_stringId(id)
     {
 
     }
 
     Kind m_kind;
-    AtomString m_id;
-    AtomString m_inBandMetadataTrackDispatchType;
+    String m_stringId;
+    String m_inBandMetadataTrackDispatchType;
 };
 
 } // namespace WebCore

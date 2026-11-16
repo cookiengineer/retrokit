@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Apple Inc.  All rights reserved.
+ * Copyright (C) 2012 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,21 +26,28 @@
 #ifndef PasteboardStrategy_h
 #define PasteboardStrategy_h
 
+#include <wtf/CheckedRef.h>
 #include <wtf/Forward.h>
+#include <wtf/Platform.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 class Color;
+class LegacyWebArchive;
+class SharedBuffer;
 class PasteboardContext;
 class PasteboardCustomData;
 class SelectionData;
-class SharedBuffer;
+class FragmentedSharedBuffer;
 struct PasteboardImage;
 struct PasteboardItemInfo;
 struct PasteboardURL;
 struct PasteboardWebContent;
 
-class PasteboardStrategy {
+class PasteboardStrategy : public CanMakeCheckedPtr<PasteboardStrategy> {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(PasteboardStrategy);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(PasteboardStrategy);
 public:
 #if PLATFORM(IOS_FAMILY)
     virtual void writeToPasteboard(const PasteboardURL&, const String& pasteboardName, const PasteboardContext*) = 0;
@@ -66,12 +73,13 @@ public:
     virtual int64_t setURL(const PasteboardURL&, const String& pasteboardName, const PasteboardContext*) = 0;
     virtual int64_t setColor(const Color&, const String& pasteboardName, const PasteboardContext*) = 0;
     virtual int64_t setStringForType(const String&, const String& pasteboardType, const String& pasteboardName, const PasteboardContext*) = 0;
+    virtual int64_t writeWebArchive(LegacyWebArchive&, const String& pasteboardName) = 0;
 
     virtual bool containsURLStringSuitableForLoading(const String& pasteboardName, const PasteboardContext*) = 0;
     virtual String urlStringSuitableForLoading(const String& pasteboardName, String& title, const PasteboardContext*) = 0;
 #endif
     virtual String readStringFromPasteboard(size_t index, const String& pasteboardType, const String& pasteboardName, const PasteboardContext*) = 0;
-    virtual RefPtr<SharedBuffer> readBufferFromPasteboard(size_t index, const String& pasteboardType, const String& pasteboardName, const PasteboardContext*) = 0;
+    virtual RefPtr<SharedBuffer> readBufferFromPasteboard(std::optional<size_t> index, const String& pasteboardType, const String& pasteboardName, const PasteboardContext*) = 0;
     virtual URL readURLFromPasteboard(size_t index, const String& pasteboardName, String& title, const PasteboardContext*) = 0;
     virtual std::optional<PasteboardItemInfo> informationForItemAtIndex(size_t index, const String& pasteboardName, int64_t changeCount, const PasteboardContext*) = 0;
     virtual std::optional<Vector<PasteboardItemInfo>> allPasteboardItemInfo(const String& pasteboardName, int64_t changeCount, const PasteboardContext*) = 0;
@@ -81,16 +89,15 @@ public:
     virtual int64_t writeCustomData(const Vector<PasteboardCustomData>&, const String& pasteboardName, const PasteboardContext*) = 0;
     virtual bool containsStringSafeForDOMToReadForType(const String&, const String& pasteboardName, const PasteboardContext*) = 0;
 
-#if PLATFORM(GTK)
+#if PLATFORM(GTK) || PLATFORM(WPE)
     virtual Vector<String> types(const String& pasteboardName) = 0;
-    virtual String readTextFromClipboard(const String& pasteboardName) = 0;
+    virtual String readTextFromClipboard(const String& pasteboardName, const String& pasteboardType) = 0;
     virtual Vector<String> readFilePathsFromClipboard(const String& pasteboardName) = 0;
     virtual RefPtr<SharedBuffer> readBufferFromClipboard(const String& pasteboardName, const String& pasteboardType) = 0;
     virtual void writeToClipboard(const String& pasteboardName, SelectionData&&) = 0;
     virtual void clearClipboard(const String& pasteboardName) = 0;
-#endif // PLATFORM(GTK)
-
-#if USE(LIBWPE)
+    virtual int64_t changeCount(const String& pasteboardName) = 0;
+#elif USE(LIBWPE)
     virtual void getTypes(Vector<String>& types) = 0;
     virtual void writeToPasteboard(const PasteboardWebContent&) = 0;
     virtual void writeToPasteboard(const String& pasteboardType, const String&) = 0;

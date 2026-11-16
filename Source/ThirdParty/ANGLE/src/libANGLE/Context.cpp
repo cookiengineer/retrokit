@@ -7,27 +7,39 @@
 // Context.cpp: Implements the gl::Context class, managing all GL state and performing
 // rendering operations. It is the GLES2 specific implementation of EGLContext.
 
-#include "libANGLE/Context.h"
+#include "common/entry_points_enum_autogen.h"
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
 #include "libANGLE/Context.inl.h"
 
+#include <stdarg.h>
+#include <stdio.h>
 #include <string.h>
+
 #include <iterator>
 #include <sstream>
 #include <vector>
 
 #include "common/PackedEnums.h"
-#include "common/angle_version.h"
+#include "common/angle_version_info.h"
+#include "common/hash_utils.h"
 #include "common/matrix_utils.h"
 #include "common/platform.h"
+#include "common/string_utils.h"
+#include "common/system_utils.h"
+#include "common/tls.h"
 #include "common/utilities.h"
+#include "image_util/loadimage.h"
 #include "libANGLE/Buffer.h"
 #include "libANGLE/Compiler.h"
 #include "libANGLE/Display.h"
+#include "libANGLE/ErrorStrings.h"
 #include "libANGLE/Fence.h"
-#include "libANGLE/FrameCapture.h"
-#include "libANGLE/Framebuffer.h"
 #include "libANGLE/FramebufferAttachment.h"
 #include "libANGLE/MemoryObject.h"
+#include "libANGLE/PixelLocalStorage.h"
 #include "libANGLE/Program.h"
 #include "libANGLE/ProgramPipeline.h"
 #include "libANGLE/Query.h"
@@ -39,22 +51,129 @@
 #include "libANGLE/Texture.h"
 #include "libANGLE/TransformFeedback.h"
 #include "libANGLE/VertexArray.h"
+#include "libANGLE/capture/FrameCapture.h"
+#include "libANGLE/capture/serialize.h"
+#include "libANGLE/context_private_call.inl.h"
+#include "libANGLE/context_private_call_autogen.h"
 #include "libANGLE/formatutils.h"
 #include "libANGLE/queryconversions.h"
 #include "libANGLE/queryutils.h"
 #include "libANGLE/renderer/DisplayImpl.h"
 #include "libANGLE/renderer/Format.h"
+#include "libANGLE/trace.h"
 #include "libANGLE/validationES.h"
 
 #if defined(ANGLE_PLATFORM_APPLE)
-#include "common/tls.h"
-#include <dispatch/dispatch.h>
+#    include <dispatch/dispatch.h>
+#    include "common/tls.h"
 #endif
 
 namespace gl
 {
 namespace
 {
+constexpr state::DirtyObjects kDrawDirtyObjectsBase{
+    state::DIRTY_OBJECT_ACTIVE_TEXTURES,
+    state::DIRTY_OBJECT_DRAW_FRAMEBUFFER,
+    state::DIRTY_OBJECT_VERTEX_ARRAY,
+    state::DIRTY_OBJECT_TEXTURES,
+    state::DIRTY_OBJECT_PROGRAM_PIPELINE_OBJECT,
+    state::DIRTY_OBJECT_SAMPLERS,
+    state::DIRTY_OBJECT_IMAGES,
+};
+
+// TexImage uses the unpack state
+constexpr state::DirtyBits kTexImageDirtyBits{
+    state::DIRTY_BIT_UNPACK_STATE,
+    state::DIRTY_BIT_UNPACK_BUFFER_BINDING,
+};
+constexpr state::ExtendedDirtyBits kTexImageExtendedDirtyBits{};
+constexpr state::DirtyObjects kTexImageDirtyObjects{};
+
+// Readpixels uses the pack state and read FBO
+constexpr state::DirtyBits kReadPixelsDirtyBits{
+    state::DIRTY_BIT_PACK_STATE,
+    state::DIRTY_BIT_PACK_BUFFER_BINDING,
+    state::DIRTY_BIT_READ_FRAMEBUFFER_BINDING,
+};
+constexpr state::ExtendedDirtyBits kReadPixelsExtendedDirtyBits{};
+constexpr state::DirtyObjects kReadPixelsDirtyObjectsBase{state::DIRTY_OBJECT_READ_FRAMEBUFFER};
+
+// We sync the draw Framebuffer manually in prepareForClear to allow the clear calls to do
+// more custom handling for robust resource init.
+constexpr state::DirtyBits kClearDirtyBits{
+    state::DIRTY_BIT_RASTERIZER_DISCARD_ENABLED,
+    state::DIRTY_BIT_SCISSOR_TEST_ENABLED,
+    state::DIRTY_BIT_SCISSOR,
+    state::DIRTY_BIT_VIEWPORT,
+    state::DIRTY_BIT_CLEAR_COLOR,
+    state::DIRTY_BIT_CLEAR_DEPTH,
+    state::DIRTY_BIT_CLEAR_STENCIL,
+    state::DIRTY_BIT_COLOR_MASK,
+    state::DIRTY_BIT_DEPTH_MASK,
+    state::DIRTY_BIT_STENCIL_WRITEMASK_FRONT,
+    state::DIRTY_BIT_STENCIL_WRITEMASK_BACK,
+    state::DIRTY_BIT_DRAW_FRAMEBUFFER_BINDING,
+};
+constexpr state::ExtendedDirtyBits kClearExtendedDirtyBits{};
+constexpr state::DirtyObjects kClearDirtyObjects{state::DIRTY_OBJECT_DRAW_FRAMEBUFFER};
+
+constexpr state::DirtyBits kBlitDirtyBits{
+    state::DIRTY_BIT_SCISSOR_TEST_ENABLED,
+    state::DIRTY_BIT_SCISSOR,
+    state::DIRTY_BIT_FRAMEBUFFER_SRGB_WRITE_CONTROL_MODE,
+    state::DIRTY_BIT_READ_FRAMEBUFFER_BINDING,
+    state::DIRTY_BIT_DRAW_FRAMEBUFFER_BINDING,
+};
+constexpr state::ExtendedDirtyBits kBlitExtendedDirtyBits{};
+constexpr state::DirtyObjects kBlitDirtyObjectsBase{
+    state::DIRTY_OBJECT_READ_FRAMEBUFFER,
+    state::DIRTY_OBJECT_DRAW_FRAMEBUFFER,
+};
+
+constexpr state::DirtyBits kComputeDirtyBits{
+    state::DIRTY_BIT_SHADER_STORAGE_BUFFER_BINDING,
+    state::DIRTY_BIT_UNIFORM_BUFFER_BINDINGS,
+    state::DIRTY_BIT_ATOMIC_COUNTER_BUFFER_BINDING,
+    state::DIRTY_BIT_PROGRAM_BINDING,
+    state::DIRTY_BIT_PROGRAM_EXECUTABLE,
+    state::DIRTY_BIT_TEXTURE_BINDINGS,
+    state::DIRTY_BIT_SAMPLER_BINDINGS,
+    state::DIRTY_BIT_IMAGE_BINDINGS,
+    state::DIRTY_BIT_DISPATCH_INDIRECT_BUFFER_BINDING,
+};
+constexpr state::ExtendedDirtyBits kComputeExtendedDirtyBits{};
+constexpr state::DirtyObjects kComputeDirtyObjectsBase{
+    state::DIRTY_OBJECT_ACTIVE_TEXTURES,
+    state::DIRTY_OBJECT_TEXTURES,
+    state::DIRTY_OBJECT_PROGRAM_PIPELINE_OBJECT,
+    state::DIRTY_OBJECT_IMAGES,
+    state::DIRTY_OBJECT_SAMPLERS,
+};
+
+constexpr state::DirtyBits kCopyImageDirtyBitsBase{state::DIRTY_BIT_READ_FRAMEBUFFER_BINDING};
+constexpr state::ExtendedDirtyBits kCopyImageExtendedDirtyBits{};
+constexpr state::DirtyObjects kCopyImageDirtyObjectsBase{state::DIRTY_OBJECT_READ_FRAMEBUFFER};
+
+constexpr state::DirtyBits kReadInvalidateDirtyBits{state::DIRTY_BIT_READ_FRAMEBUFFER_BINDING};
+constexpr state::ExtendedDirtyBits kReadInvalidateExtendedDirtyBits{};
+
+constexpr state::DirtyBits kDrawInvalidateDirtyBits{state::DIRTY_BIT_DRAW_FRAMEBUFFER_BINDING};
+constexpr state::ExtendedDirtyBits kDrawInvalidateExtendedDirtyBits{};
+
+constexpr state::DirtyBits kTilingDirtyBits{state::DIRTY_BIT_DRAW_FRAMEBUFFER_BINDING};
+constexpr state::ExtendedDirtyBits kTilingExtendedDirtyBits{};
+constexpr state::DirtyObjects kTilingDirtyObjectsBase{state::DIRTY_OBJECT_DRAW_FRAMEBUFFER};
+
+constexpr bool kEnableAEPRequirementLogging = false;
+
+// A helper to return strings as const GLubyte *, adding safety that the reinterpret_cast is applied
+// only to const char *.
+const GLubyte *AsGLubytePtr(const char *str)
+{
+    return reinterpret_cast<const GLubyte *>(str);
+}
+
 egl::ShareGroup *AllocateOrGetShareGroup(egl::Display *display, const gl::Context *shareContext)
 {
     if (shareContext)
@@ -69,27 +188,65 @@ egl::ShareGroup *AllocateOrGetShareGroup(egl::Display *display, const gl::Contex
     }
 }
 
-template <typename T>
-angle::Result GetQueryObjectParameter(const Context *context, Query *query, GLenum pname, T *params)
+egl::ContextMutex *AllocateOrUseContextMutex(egl::ContextMutex *sharedContextMutex)
 {
-    ASSERT(query != nullptr || pname == GL_QUERY_RESULT_AVAILABLE_EXT);
-
-    switch (pname)
+    if (sharedContextMutex != nullptr)
     {
-        case GL_QUERY_RESULT_EXT:
+        ASSERT(egl::kIsContextMutexEnabled);
+        ASSERT(sharedContextMutex->isReferenced());
+        return sharedContextMutex;
+    }
+    return new egl::ContextMutex();
+}
+
+template <typename T>
+angle::Result GetQueryObjectParameter(const Context *context,
+                                      Query *query,
+                                      QueryObjectParameter pnamePacked,
+                                      T *params)
+{
+    if (ANGLE_UNLIKELY(query == nullptr))
+    {
+        // Some applications call into glGetQueryObjectuiv(...) prior to calling glBeginQuery(...)
+        // This wouldn't be an issue since the validation layer will handle such a usecases but when
+        // the app enables EGL_KHR_create_context_no_error extension, we skip the validation layer.
+        switch (pnamePacked)
+        {
+            case QueryObjectParameter::QueryResult:
+                *params = 0;
+                break;
+            case QueryObjectParameter::QueryResultAvailable:
+                *params = GL_FALSE;
+                if (context->isContextLost())
+                {
+                    context->contextLostErrorOnBlockingCall(angle::EntryPoint::GLGetQueryObjectuiv);
+                    *params = GL_TRUE;
+                }
+                break;
+            default:
+                UNREACHABLE();
+                return angle::Result::Stop;
+        }
+        return angle::Result::Continue;
+    }
+
+    switch (pnamePacked)
+    {
+        case QueryObjectParameter::QueryResult:
             return query->getResult(context, params);
-        case GL_QUERY_RESULT_AVAILABLE_EXT:
+        case QueryObjectParameter::QueryResultAvailable:
         {
             bool available = false;
             if (context->isContextLost())
             {
+                context->contextLostErrorOnBlockingCall(angle::EntryPoint::GLGetQueryObjectuiv);
                 available = true;
             }
             else
             {
                 ANGLE_TRY(query->isResultAvailable(context, &available));
             }
-            *params = CastFromStateValue<T>(pname, static_cast<GLuint>(available));
+            *params = static_cast<T>(available);
             return angle::Result::Continue;
         }
         default:
@@ -114,36 +271,52 @@ bool GetBackwardCompatibleContext(const egl::AttributeMap &attribs)
     return attribs.get(EGL_CONTEXT_OPENGL_BACKWARDS_COMPATIBLE_ANGLE, EGL_TRUE) == EGL_TRUE;
 }
 
+bool GetWebGLContext(const egl::AttributeMap &attribs)
+{
+    return (attribs.get(EGL_CONTEXT_WEBGL_COMPATIBILITY_ANGLE, EGL_FALSE) == EGL_TRUE);
+}
+
+bool GetHardenedContext(const egl::AttributeMap &attribs)
+{
+    return (attribs.get(EGL_CONTEXT_HARDENED_ANGLE, EGL_FALSE) == EGL_TRUE);
+}
+
 Version GetClientVersion(egl::Display *display, const egl::AttributeMap &attribs)
 {
-    Version requestedVersion =
-        Version(GetClientMajorVersion(attribs), GetClientMinorVersion(attribs));
-    if (GetBackwardCompatibleContext(attribs))
-    {
-        if (requestedVersion.major == 1)
-        {
-            // If the user requests an ES1 context, we cannot return an ES 2+ context.
-            return Version(1, 1);
-        }
-        else
-        {
-            // Always up the version to at least the max conformant version this display supports.
-            // Only return a higher client version if requested.
-            return std::max(display->getImplementation()->getMaxConformantESVersion(),
-                            requestedVersion);
-        }
-    }
-    else
+    const Version requestedVersion(static_cast<uint8_t>(GetClientMajorVersion(attribs)),
+                                   static_cast<uint8_t>(GetClientMinorVersion(attribs)));
+
+    // We should return the requested version if the context is configured to disable backward
+    // compatibility, or if it is a WebGL context (WebGL1 -> ES2.0, WebGL2 -> ES3.0)
+    const bool isBackwardCompatible = GetBackwardCompatibleContext(attribs);
+    const bool isWebGL              = GetWebGLContext(attribs);
+    if (!isBackwardCompatible || isWebGL)
     {
         return requestedVersion;
     }
+
+    // If the user requests an ES1 context, we cannot return an ES2+ context.
+    if (requestedVersion < ES_2_0)
+    {
+        return ES_1_1;
+    }
+
+    // Always up the version to at least the max conformant version this display supports.
+    // Only return a higher client version if requested.
+    const Version conformantVersion =
+        std::max(display->getImplementation()->getMaxConformantESVersion(), requestedVersion);
+
+    return conformantVersion;
 }
 
 GLenum GetResetStrategy(const egl::AttributeMap &attribs)
 {
-    EGLAttrib attrib =
+    EGLAttrib resetStrategyExt =
         attribs.get(EGL_CONTEXT_OPENGL_RESET_NOTIFICATION_STRATEGY_EXT, EGL_NO_RESET_NOTIFICATION);
-    switch (attrib)
+    EGLAttrib resetStrategyCore =
+        attribs.get(EGL_CONTEXT_OPENGL_RESET_NOTIFICATION_STRATEGY, resetStrategyExt);
+
+    switch (resetStrategyCore)
     {
         case EGL_NO_RESET_NOTIFICATION:
             return GL_NO_RESET_NOTIFICATION_EXT;
@@ -157,25 +330,26 @@ GLenum GetResetStrategy(const egl::AttributeMap &attribs)
 
 bool GetRobustAccess(const egl::AttributeMap &attribs)
 {
-    return (attribs.get(EGL_CONTEXT_OPENGL_ROBUST_ACCESS_EXT, EGL_FALSE) == EGL_TRUE) ||
-           ((attribs.get(EGL_CONTEXT_FLAGS_KHR, 0) & EGL_CONTEXT_OPENGL_ROBUST_ACCESS_BIT_KHR) !=
-            0);
+    EGLAttrib robustAccessExt  = attribs.get(EGL_CONTEXT_OPENGL_ROBUST_ACCESS_EXT, EGL_FALSE);
+    EGLAttrib robustAccessCore = attribs.get(EGL_CONTEXT_OPENGL_ROBUST_ACCESS, robustAccessExt);
+
+    bool attribRobustAccess = (robustAccessCore == EGL_TRUE);
+    bool contextFlagsRobustAccess =
+        ((attribs.get(EGL_CONTEXT_FLAGS_KHR, 0) & EGL_CONTEXT_OPENGL_ROBUST_ACCESS_BIT_KHR) != 0);
+
+    return (attribRobustAccess || contextFlagsRobustAccess);
 }
 
-bool GetDebug(const egl::AttributeMap &attribs)
+bool GetDebug(const angle::FrontendFeatures &frontendFeatures, const egl::AttributeMap &attribs)
 {
-    return (attribs.get(EGL_CONTEXT_OPENGL_DEBUG, EGL_FALSE) == EGL_TRUE) ||
-           ((attribs.get(EGL_CONTEXT_FLAGS_KHR, 0) & EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR) != 0);
+    return frontendFeatures.forceDebugContexts.enabled ||
+           attribs.get(EGL_CONTEXT_OPENGL_DEBUG, EGL_FALSE) == EGL_TRUE ||
+           (attribs.get(EGL_CONTEXT_FLAGS_KHR, 0) & EGL_CONTEXT_OPENGL_DEBUG_BIT_KHR) != 0;
 }
 
 bool GetNoError(const egl::AttributeMap &attribs)
 {
     return (attribs.get(EGL_CONTEXT_OPENGL_NO_ERROR_KHR, EGL_FALSE) == EGL_TRUE);
-}
-
-bool GetWebGLContext(const egl::AttributeMap &attribs)
-{
-    return (attribs.get(EGL_CONTEXT_WEBGL_COMPATIBILITY_ANGLE, EGL_FALSE) == EGL_TRUE);
 }
 
 bool GetExtensionsEnabled(const egl::AttributeMap &attribs, bool webGLContext)
@@ -195,15 +369,29 @@ bool GetClientArraysEnabled(const egl::AttributeMap &attribs)
     return (attribs.get(EGL_CONTEXT_CLIENT_ARRAYS_ENABLED_ANGLE, EGL_TRUE) == EGL_TRUE);
 }
 
-bool GetRobustResourceInit(const egl::AttributeMap &attribs)
+bool GetRobustResourceInit(egl::Display *display, const egl::AttributeMap &attribs)
 {
-    return (attribs.get(EGL_ROBUST_RESOURCE_INITIALIZATION_ANGLE, EGL_FALSE) == EGL_TRUE);
+    const angle::FrontendFeatures &frontendFeatures = display->getFrontendFeatures();
+    return (frontendFeatures.forceRobustResourceInit.enabled ||
+            attribs.get(EGL_ROBUST_RESOURCE_INITIALIZATION_ANGLE, EGL_FALSE) == EGL_TRUE);
 }
 
 EGLenum GetContextPriority(const egl::AttributeMap &attribs)
 {
     return static_cast<EGLenum>(
         attribs.getAsInt(EGL_CONTEXT_PRIORITY_LEVEL_IMG, EGL_CONTEXT_PRIORITY_MEDIUM_IMG));
+}
+
+bool GetProtectedContent(const egl::AttributeMap &attribs)
+{
+    return static_cast<bool>(attribs.getAsInt(EGL_PROTECTED_CONTENT_EXT, EGL_FALSE));
+}
+
+bool GetPassthroughShaders(egl::Display *display, const egl::AttributeMap &attribs)
+{
+    const angle::FrontendFeatures &frontendFeatures = display->getFrontendFeatures();
+    return frontendFeatures.forcePassthroughShaders.enabled ||
+           static_cast<bool>(attribs.getAsInt(EGL_CONTEXT_PASSTHROUGH_SHADERS_ANGLE, EGL_FALSE));
 }
 
 std::string GetObjectLabelFromPointer(GLsizei length, const GLchar *label)
@@ -236,17 +424,17 @@ void GetObjectLabelBase(const std::string &objectLabel,
     }
 }
 
-// The rest default to false.
-constexpr angle::PackedEnumMap<PrimitiveMode, bool, angle::EnumSize<PrimitiveMode>() + 1>
-    kValidBasicDrawModes = {{
-        {PrimitiveMode::Points, true},
-        {PrimitiveMode::Lines, true},
-        {PrimitiveMode::LineLoop, true},
-        {PrimitiveMode::LineStrip, true},
-        {PrimitiveMode::Triangles, true},
-        {PrimitiveMode::TriangleStrip, true},
-        {PrimitiveMode::TriangleFan, true},
-    }};
+GLsizei GetMarkerLength(GLsizei length, const char *marker, GLsizei maxLength)
+{
+    if (length == 0)
+    {
+        length = static_cast<GLsizei>(
+            std::min<size_t>(strlen(marker), std::numeric_limits<GLsizei>::max()));
+    }
+    // https://crbug.com/524435922: Cap debug marker length to prevent driver or validation layer
+    // issues with large labels.
+    return std::min(length, maxLength);
+}
 
 enum SubjectIndexes : angle::SubjectIndex
 {
@@ -257,11 +445,19 @@ enum SubjectIndexes : angle::SubjectIndex
     kUniformBuffer0SubjectIndex = kImageMaxSubjectIndex,
     kUniformBufferMaxSubjectIndex =
         kUniformBuffer0SubjectIndex + IMPLEMENTATION_MAX_UNIFORM_BUFFER_BINDINGS,
-    kSampler0SubjectIndex    = kUniformBufferMaxSubjectIndex,
+    kAtomicCounterBuffer0SubjectIndex = kUniformBufferMaxSubjectIndex,
+    kAtomicCounterBufferMaxSubjectIndex =
+        kAtomicCounterBuffer0SubjectIndex + IMPLEMENTATION_MAX_ATOMIC_COUNTER_BUFFER_BINDINGS,
+    kShaderStorageBuffer0SubjectIndex = kAtomicCounterBufferMaxSubjectIndex,
+    kShaderStorageBufferMaxSubjectIndex =
+        kShaderStorageBuffer0SubjectIndex + IMPLEMENTATION_MAX_SHADER_STORAGE_BUFFER_BINDINGS,
+    kSampler0SubjectIndex    = kShaderStorageBufferMaxSubjectIndex,
     kSamplerMaxSubjectIndex  = kSampler0SubjectIndex + IMPLEMENTATION_MAX_ACTIVE_TEXTURES,
     kVertexArraySubjectIndex = kSamplerMaxSubjectIndex,
     kReadFramebufferSubjectIndex,
-    kDrawFramebufferSubjectIndex
+    kDrawFramebufferSubjectIndex,
+    kProgramSubjectIndex,
+    kProgramPipelineSubjectIndex,
 };
 
 bool IsClearBufferEnabled(const FramebufferState &fbState, GLenum buffer, GLint drawbuffer)
@@ -269,67 +465,229 @@ bool IsClearBufferEnabled(const FramebufferState &fbState, GLenum buffer, GLint 
     return buffer != GL_COLOR || fbState.getEnabledDrawBuffers()[drawbuffer];
 }
 
-bool IsEmptyScissor(const State &glState)
-{
-    if (!glState.isScissorTestEnabled())
-    {
-        return false;
-    }
-
-    const Extents &dimensions = glState.getDrawFramebuffer()->getExtents();
-    Rectangle framebufferArea(0, 0, dimensions.width, dimensions.height);
-    return !ClipRectangle(framebufferArea, glState.getScissor(), nullptr);
-}
-
 bool IsColorMaskedOut(const BlendStateExt &blendStateExt, const GLint drawbuffer)
 {
-    ASSERT(static_cast<size_t>(drawbuffer) < blendStateExt.mMaxDrawBuffers);
+    ASSERT(static_cast<size_t>(drawbuffer) < blendStateExt.getDrawBufferCount());
     return blendStateExt.getColorMaskIndexed(static_cast<size_t>(drawbuffer)) == 0;
 }
+
+bool GetIsExternal(const egl::AttributeMap &attribs)
+{
+    return (attribs.get(EGL_EXTERNAL_CONTEXT_ANGLE, EGL_FALSE) == EGL_TRUE);
+}
+
+void GetPerfMonitorString(const std::string &name,
+                          GLsizei bufSize,
+                          GLsizei *length,
+                          GLchar *stringOut)
+{
+    GLsizei numCharsWritten = std::min(bufSize, static_cast<GLsizei>(name.size()));
+
+    if (length)
+    {
+        if (bufSize == 0)
+        {
+            *length = static_cast<GLsizei>(name.size());
+        }
+        else
+        {
+            // Excludes null terminator.
+            ASSERT(numCharsWritten > 0);
+            *length = numCharsWritten - 1;
+        }
+    }
+
+    if (stringOut)
+    {
+        memcpy(stringOut, name.c_str(), numCharsWritten);
+    }
+}
+
+bool CanSupportAEP(const gl::Version &version, const gl::Extensions &extensions)
+{
+    // From the GL_ANDROID_extension_pack_es31a extension spec:
+    // OpenGL ES 3.1 and GLSL ES 3.10 are required.
+    // The following extensions are required:
+    // * KHR_debug
+    // * KHR_texture_compression_astc_ldr
+    // * KHR_blend_equation_advanced
+    // * OES_sample_shading
+    // * OES_sample_variables
+    // * OES_shader_image_atomic
+    // * OES_shader_multisample_interpolation
+    // * OES_texture_stencil8
+    // * OES_texture_storage_multisample_2d_array
+    // * EXT_copy_image
+    // * EXT_draw_buffers_indexed
+    // * EXT_geometry_shader
+    // * EXT_gpu_shader5
+    // * EXT_primitive_bounding_box
+    // * EXT_shader_io_blocks
+    // * EXT_tessellation_shader
+    // * EXT_texture_border_clamp
+    // * EXT_texture_buffer
+    // * EXT_texture_cube_map_array
+    // * EXT_texture_sRGB_decode
+    std::pair<const char *, bool> requirements[] = {
+        {"version >= ES_3_1", version >= ES_3_1},
+        {"extensions.debugKHR", extensions.debugKHR},
+        {"extensions.textureCompressionAstcLdrKHR", extensions.textureCompressionAstcLdrKHR},
+        {"extensions.blendEquationAdvancedKHR", extensions.blendEquationAdvancedKHR},
+        {"extensions.sampleShadingOES", extensions.sampleShadingOES},
+        {"extensions.sampleVariablesOES", extensions.sampleVariablesOES},
+        {"extensions.shaderImageAtomicOES", extensions.shaderImageAtomicOES},
+        {"extensions.shaderMultisampleInterpolationOES",
+         extensions.shaderMultisampleInterpolationOES},
+        {"extensions.textureStencil8OES", extensions.textureStencil8OES},
+        {"extensions.textureStorageMultisample2dArrayOES",
+         extensions.textureStorageMultisample2dArrayOES},
+        {"extensions.copyImageEXT", extensions.copyImageEXT},
+        {"extensions.drawBuffersIndexedEXT", extensions.drawBuffersIndexedEXT},
+        {"extensions.geometryShaderEXT", extensions.geometryShaderEXT},
+        {"extensions.gpuShader5EXT", extensions.gpuShader5EXT},
+        {"extensions.primitiveBoundingBoxEXT", extensions.primitiveBoundingBoxEXT},
+        {"extensions.shaderIoBlocksEXT", extensions.shaderIoBlocksEXT},
+        {"extensions.tessellationShaderEXT", extensions.tessellationShaderEXT},
+        {"extensions.textureBorderClampEXT", extensions.textureBorderClampEXT},
+        {"extensions.textureBufferEXT", extensions.textureBufferEXT},
+        {"extensions.textureCubeMapArrayEXT", extensions.textureCubeMapArrayEXT},
+        {"extensions.textureSRGBDecodeEXT", extensions.textureSRGBDecodeEXT},
+    };
+
+    bool result = true;
+    for (const auto &req : requirements)
+    {
+        result = result && req.second;
+    }
+
+    if (kEnableAEPRequirementLogging && !result)
+    {
+        INFO() << "CanSupportAEP() check failed for missing the following requirements:\n";
+        for (const auto &req : requirements)
+        {
+            if (!req.second)
+            {
+                INFO() << "- " << req.first << "\n";
+            }
+        }
+    }
+
+    return result;
+}
+
+// Temporarily turns off draw buffers being used for pixel local storage, and only if the PLS
+// implementation is framebuffer fetch.
+//
+// NOTE: This is a little nonstandard because the glDrawBuffers entrypoint is supposed to disable
+// PLS, but since we only call it when the implementation is
+// ShPixelLocalStorageType::FramebufferFetch, it's not a problem.
+class ScopedPLSFramebufferFetchDrawBuffersDisable
+{
+  public:
+    ScopedPLSFramebufferFetchDrawBuffersDisable(Context *context) : mContext(context)
+    {
+        GLsizei nonPLSDrawBufferCount;
+        if (mContext->getImplementation()->getNativePixelLocalStorageOptions().type ==
+                ShPixelLocalStorageType::FramebufferFetch &&
+            mContext->getPrivateState().hasActivelyOverriddenPLSDrawBuffers(&nonPLSDrawBufferCount))
+        {
+            // Turn off the PLS draw buffers.
+            mHasPLSDrawBuffersWithFramebufferFetch = true;
+            Framebuffer *drawFramebuffer           = mContext->getState().getDrawFramebuffer();
+            // PLS isn't supported on the default framebuffer.
+            ASSERT(!drawFramebuffer->isDefault());
+            const DrawBuffersVector<GLenum> &drawBuffers = drawFramebuffer->getDrawBufferStates();
+            ASSERT(drawBuffers.size() <= std::size(mOriginalDrawBufferState));
+            std::copy(drawBuffers.begin(), drawBuffers.end(), mOriginalDrawBufferState.data());
+            mOriginalDrawBufferCount = static_cast<GLsizei>(drawBuffers.size());
+            // Turn off all non-PLS draw buffers.
+            mContext->drawBuffers(std::min(mOriginalDrawBufferCount, nonPLSDrawBufferCount),
+                                  mOriginalDrawBufferState.data());
+        }
+    }
+
+    ~ScopedPLSFramebufferFetchDrawBuffersDisable()
+    {
+        if (mHasPLSDrawBuffersWithFramebufferFetch)
+        {
+            // Restore the PLS draw buffers.
+            mContext->drawBuffers(mOriginalDrawBufferCount, mOriginalDrawBufferState.data());
+        }
+    }
+
+  private:
+    Context *const mContext;
+    bool mHasPLSDrawBuffersWithFramebufferFetch = false;
+    std::array<GLenum, IMPLEMENTATION_MAX_DRAW_BUFFERS> mOriginalDrawBufferState;
+    GLsizei mOriginalDrawBufferCount;
+};
 }  // anonymous namespace
 
 #if defined(ANGLE_PLATFORM_APPLE)
-
-// NOTE: Due to a bug in Apple's dyld loader, `thread_local` will cause
-// excessive memory use. Temporarily avoid it by using pthread's thread
-// local storage instead.
-
-static TLSIndex GetCurrentValidContextTLSIndex()
+// TODO(http://anglebug.com/42264979): Due to a bug in Apple's dyld loader, `thread_local` will
+// cause excessive memory use. Temporarily avoid it by using pthread's thread local storage instead.
+static angle::TLSIndex GetCurrentValidContextTLSIndex()
 {
-    static TLSIndex CurrentValidContextIndex = TLS_INVALID_INDEX;
+    static angle::TLSIndex CurrentValidContextIndex = TLS_INVALID_INDEX;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        ASSERT(CurrentValidContextIndex == TLS_INVALID_INDEX);
-        CurrentValidContextIndex = CreateTLSIndex();
+      ASSERT(CurrentValidContextIndex == TLS_INVALID_INDEX);
+      CurrentValidContextIndex = angle::CreateTLSIndex(nullptr);
     });
     return CurrentValidContextIndex;
 }
-
 Context *GetCurrentValidContextTLS()
 {
-    TLSIndex CurrentValidContextIndex = GetCurrentValidContextTLSIndex();
+    angle::TLSIndex CurrentValidContextIndex = GetCurrentValidContextTLSIndex();
     ASSERT(CurrentValidContextIndex != TLS_INVALID_INDEX);
-    return static_cast<Context *>(GetTLSValue(CurrentValidContextIndex));
+    return static_cast<Context *>(angle::GetTLSValue(CurrentValidContextIndex));
 }
-
 void SetCurrentValidContextTLS(Context *context)
 {
-    TLSIndex CurrentValidContextIndex = GetCurrentValidContextTLSIndex();
+    angle::TLSIndex CurrentValidContextIndex = GetCurrentValidContextTLSIndex();
     ASSERT(CurrentValidContextIndex != TLS_INVALID_INDEX);
-    SetTLSValue(CurrentValidContextIndex, context);
+    angle::SetTLSValue(CurrentValidContextIndex, context);
 }
-
+#elif defined(ANGLE_USE_STATIC_THREAD_LOCAL_VARIABLES)
+static thread_local Context *gCurrentValidContext = nullptr;
+Context *GetCurrentValidContextTLS()
+{
+    return gCurrentValidContext;
+}
+void SetCurrentValidContextTLS(Context *context)
+{
+    gCurrentValidContext = context;
+}
 #else
 thread_local Context *gCurrentValidContext = nullptr;
 #endif
+
+// Handle setting the current context in TLS on different platforms
+extern void SetCurrentValidContext(Context *context)
+{
+#if defined(ANGLE_USE_ANDROID_TLS_SLOT)
+    if (angle::gUseAndroidOpenGLTlsSlot)
+    {
+        ANGLE_ANDROID_GET_GL_TLS()[angle::kAndroidOpenGLTlsSlot] = static_cast<void *>(context);
+        return;
+    }
+#endif
+
+#if defined(ANGLE_PLATFORM_APPLE) || defined(ANGLE_USE_STATIC_THREAD_LOCAL_VARIABLES)
+    SetCurrentValidContextTLS(context);
+#else
+    gCurrentValidContext = context;
+#endif
+}
 
 Context::Context(egl::Display *display,
                  const egl::Config *config,
                  const Context *shareContext,
                  TextureManager *shareTextures,
                  SemaphoreManager *shareSemaphores,
+                 egl::ContextMutex *sharedContextMutex,
                  MemoryProgramCache *memoryProgramCache,
-                 const EGLenum clientType,
+                 MemoryShaderCache *memoryShaderCache,
                  const egl::AttributeMap &attribs,
                  const egl::DisplayExtensions &displayExtensions,
                  const egl::ClientExtensions &clientExtensions)
@@ -337,52 +695,69 @@ Context::Context(egl::Display *display,
              AllocateOrGetShareGroup(display, shareContext),
              shareTextures,
              shareSemaphores,
-             &mOverlay,
-             clientType,
+             AllocateOrUseContextMutex(sharedContextMutex),
              GetClientVersion(display, attribs),
-             GetDebug(attribs),
+             GetDebug(display->getFrontendFeatures(), attribs),
              GetBindGeneratesResource(attribs),
              GetClientArraysEnabled(attribs),
-             GetRobustResourceInit(attribs),
+             GetRobustResourceInit(display, attribs),
              memoryProgramCache != nullptr,
-             GetContextPriority(attribs)),
-      mShared(shareContext != nullptr),
-      mSkipValidation(GetNoError(attribs)),
+             GetContextPriority(attribs),
+             GetRobustAccess(attribs),
+             GetProtectedContent(attribs),
+             GetIsExternal(attribs),
+             GetPassthroughShaders(display, attribs)),
+      mShared(shareContext != nullptr || shareTextures != nullptr || shareSemaphores != nullptr),
+      mSharedContext(shareContext != nullptr),
       mDisplayTextureShareGroup(shareTextures != nullptr),
       mDisplaySemaphoreShareGroup(shareSemaphores != nullptr),
-      mErrors(this),
+      mErrors(&mState.getDebug(), display->getFrontendFeatures(), attribs),
       mImplementation(display->getImplementation()
                           ->createContext(mState, &mErrors, config, shareContext, attribs)),
       mLabel(nullptr),
       mCompiler(),
       mConfig(config),
+      mFenceNVHandleAllocator(IMPLEMENTATION_MAX_OBJECT_HANDLES),
+      mQueryHandleAllocator(IMPLEMENTATION_MAX_OBJECT_HANDLES),
+      mTransformFeedbackHandleAllocator(IMPLEMENTATION_MAX_OBJECT_HANDLES),
       mHasBeenCurrent(false),
-      mContextLost(false),
-      mResetStatus(GraphicsResetStatus::NoError),
-      mContextLostForced(false),
-      mResetStrategy(GetResetStrategy(attribs)),
-      mRobustAccess(GetRobustAccess(attribs)),
       mSurfacelessSupported(displayExtensions.surfacelessContext),
-      mExplicitContextAvailable(clientExtensions.explicitContext),
       mCurrentDrawSurface(static_cast<egl::Surface *>(EGL_NO_SURFACE)),
       mCurrentReadSurface(static_cast<egl::Surface *>(EGL_NO_SURFACE)),
       mDisplay(display),
       mWebGLContext(GetWebGLContext(attribs)),
+      mHardenedContext(mWebGLContext || GetHardenedContext(attribs)),
       mBufferAccessValidationEnabled(false),
+      mRequiresRobustBehavior(false),
       mExtensionsEnabled(GetExtensionsEnabled(attribs, mWebGLContext)),
       mMemoryProgramCache(memoryProgramCache),
+      mMemoryShaderCache(memoryShaderCache),
       mVertexArrayObserverBinding(this, kVertexArraySubjectIndex),
       mDrawFramebufferObserverBinding(this, kDrawFramebufferSubjectIndex),
       mReadFramebufferObserverBinding(this, kReadFramebufferSubjectIndex),
-      mThreadPool(nullptr),
+      mProgramObserverBinding(this, kProgramSubjectIndex),
+      mProgramPipelineObserverBinding(this, kProgramPipelineSubjectIndex),
       mFrameCapture(new angle::FrameCapture),
       mRefCount(0),
-      mOverlay(mImplementation.get())
+      mIsDestroyed(false),
+      mDestroyedManagers(false)
 {
     for (angle::SubjectIndex uboIndex = kUniformBuffer0SubjectIndex;
          uboIndex < kUniformBufferMaxSubjectIndex; ++uboIndex)
     {
         mUniformBufferObserverBindings.emplace_back(this, uboIndex);
+    }
+
+    for (angle::SubjectIndex acbIndex = kAtomicCounterBuffer0SubjectIndex;
+         acbIndex < kAtomicCounterBufferMaxSubjectIndex; ++acbIndex)
+    {
+        mAtomicCounterBufferObserverBindings.emplace_back(this, acbIndex);
+    }
+
+    for (angle::SubjectIndex ssboIndex = kShaderStorageBuffer0SubjectIndex;
+         ssboIndex < kShaderStorageBufferMaxSubjectIndex; ++ssboIndex)
+    {
+        mShaderStorageBufferObserverBindings.emplace_back(this, ssboIndex);
     }
 
     for (angle::SubjectIndex samplerIndex = kSampler0SubjectIndex;
@@ -401,21 +776,35 @@ Context::Context(egl::Display *display,
     ASSERT(mDisplay);
 }
 
-void Context::initialize()
+egl::Error Context::initialize()
+{
+    if (!mImplementation)
+    {
+        return egl::Error(EGL_NOT_INITIALIZED, "native context creation failed");
+    }
+
+    // If the final context version created (with backwards compatibility possibly added in),
+    // generate an error if it's higher than the maximum supported version for the display. This
+    // validation is always done even with EGL validation disabled because it's not possible to
+    // detect ahead of time if an ES 3.1 context is supported (no ES_31_BIT) or if
+    // KHR_no_config_context is used.
+    if (getClientVersion() > getDisplay()->getMaxSupportedESVersion())
+    {
+        return egl::Error(EGL_BAD_ATTRIBUTE, "Requested version is not supported");
+    }
+
+    return egl::NoError();
+}
+
+void Context::initializeDefaultResources()
 {
     mImplementation->setMemoryProgramCache(mMemoryProgramCache);
 
     initCaps();
 
-    if (mDisplay->getFrontendFeatures().syncFramebufferBindingsOnTexImage.enabled)
-    {
-        mTexImageDirtyBits.set(State::DIRTY_BIT_READ_FRAMEBUFFER_BINDING);
-        mTexImageDirtyBits.set(State::DIRTY_BIT_DRAW_FRAMEBUFFER_BINDING);
-    }
-
     mState.initialize(this);
 
-    mFenceNVHandleAllocator.setBaseHandle(0);
+    mDefaultFramebuffer = std::make_unique<Framebuffer>(this, mImplementation.get());
 
     // [OpenGL ES 2.0.24] section 3.7 page 83:
     // In the initial state, TEXTURE_2D and TEXTURE_CUBE_MAP have two-dimensional
@@ -440,24 +829,28 @@ void Context::initialize()
             new Texture(mImplementation.get(), {0}, TextureType::_2DArray);
         mZeroTextures[TextureType::_2DArray].set(this, zeroTexture2DArray);
     }
-    if (getClientVersion() >= Version(3, 1) || mSupportedExtensions.textureMultisample)
+    if (getClientVersion() >= Version(3, 1) || mSupportedExtensions.textureMultisampleANGLE)
     {
         Texture *zeroTexture2DMultisample =
             new Texture(mImplementation.get(), {0}, TextureType::_2DMultisample);
         mZeroTextures[TextureType::_2DMultisample].set(this, zeroTexture2DMultisample);
     }
-    if (getClientVersion() >= Version(3, 1))
+    if (getClientVersion() >= Version(3, 2) ||
+        mSupportedExtensions.textureStorageMultisample2dArrayOES)
     {
         Texture *zeroTexture2DMultisampleArray =
             new Texture(mImplementation.get(), {0}, TextureType::_2DMultisampleArray);
         mZeroTextures[TextureType::_2DMultisampleArray].set(this, zeroTexture2DMultisampleArray);
+    }
 
-        for (int i = 0; i < mState.mCaps.maxAtomicCounterBufferBindings; i++)
+    if (getClientVersion() >= Version(3, 1))
+    {
+        for (int i = 0; i < mState.getCaps().maxAtomicCounterBufferBindings; i++)
         {
             bindBufferRange(BufferBinding::AtomicCounter, i, {0}, 0, 0);
         }
 
-        for (int i = 0; i < mState.mCaps.maxShaderStorageBufferBindings; i++)
+        for (int i = 0; i < mState.getCaps().maxShaderStorageBufferBindings; i++)
         {
             bindBufferRange(BufferBinding::ShaderStorage, i, {0}, 0, 0);
         }
@@ -476,34 +869,27 @@ void Context::initialize()
         mZeroTextures[TextureType::Buffer].set(this, zeroTextureBuffer);
     }
 
-    if (mSupportedExtensions.textureRectangle)
+    if (mSupportedExtensions.textureRectangleANGLE)
     {
         Texture *zeroTextureRectangle =
             new Texture(mImplementation.get(), {0}, TextureType::Rectangle);
         mZeroTextures[TextureType::Rectangle].set(this, zeroTextureRectangle);
     }
 
-    if (mSupportedExtensions.eglImageExternalOES ||
-        mSupportedExtensions.eglStreamConsumerExternalNV)
+    if (mSupportedExtensions.EGLImageExternalOES ||
+        mSupportedExtensions.EGLStreamConsumerExternalNV)
     {
         Texture *zeroTextureExternal =
             new Texture(mImplementation.get(), {0}, TextureType::External);
         mZeroTextures[TextureType::External].set(this, zeroTextureExternal);
     }
 
-    // This may change native TEXTURE_2D, TEXTURE_EXTERNAL_OES and TEXTURE_RECTANGLE,
-    // binding states. Ensure state manager is aware of this when binding
-    // this texture type.
-    if (mSupportedExtensions.webglVideoTexture)
-    {
-        Texture *zeroTextureVideoImage =
-            new Texture(mImplementation.get(), {0}, TextureType::VideoImage);
-        mZeroTextures[TextureType::VideoImage].set(this, zeroTextureVideoImage);
-    }
-
     mState.initializeZeroTextures(this, mZeroTextures);
 
-    ANGLE_CONTEXT_TRY(mImplementation->initialize());
+    ANGLE_CONTEXT_TRY(mImplementation->initialize(mDisplay->getImageLoadContext()));
+
+    // Add context into the share group
+    mState.getShareGroup()->addSharedContext(this);
 
     bindVertexArray({0});
 
@@ -523,9 +909,9 @@ void Context::initialize()
 
     bindRenderbuffer(GL_RENDERBUFFER, {0});
 
-    for (int i = 0; i < mState.mCaps.maxUniformBufferBindings; i++)
+    for (int i = 0; i < mState.getCaps().maxUniformBufferBindings; i++)
     {
-        bindBufferRange(BufferBinding::Uniform, i, {0}, 0, -1);
+        bindBufferRange(BufferBinding::Uniform, i, {0}, 0, 0);
     }
 
     // Initialize GLES1 renderer if appropriate.
@@ -534,88 +920,52 @@ void Context::initialize()
         mGLES1Renderer.reset(new GLES1Renderer());
     }
 
-    // Initialize dirty bit masks
-    mAllDirtyBits.set();
-
-    mDrawDirtyObjects.set(State::DIRTY_OBJECT_ACTIVE_TEXTURES);
-    mDrawDirtyObjects.set(State::DIRTY_OBJECT_DRAW_FRAMEBUFFER);
-    mDrawDirtyObjects.set(State::DIRTY_OBJECT_VERTEX_ARRAY);
-    mDrawDirtyObjects.set(State::DIRTY_OBJECT_TEXTURES);
-    mDrawDirtyObjects.set(State::DIRTY_OBJECT_PROGRAM);
-    mDrawDirtyObjects.set(State::DIRTY_OBJECT_SAMPLERS);
-    mDrawDirtyObjects.set(State::DIRTY_OBJECT_IMAGES);
-
-    mTexImageDirtyBits.set(State::DIRTY_BIT_UNPACK_STATE);
-    mTexImageDirtyBits.set(State::DIRTY_BIT_UNPACK_BUFFER_BINDING);
-    mTexImageDirtyBits.set(State::DIRTY_BIT_EXTENDED);
-    // No dirty objects.
-
-    // Readpixels uses the pack state and read FBO
-    mReadPixelsDirtyBits.set(State::DIRTY_BIT_PACK_STATE);
-    mReadPixelsDirtyBits.set(State::DIRTY_BIT_PACK_BUFFER_BINDING);
-    mReadPixelsDirtyBits.set(State::DIRTY_BIT_READ_FRAMEBUFFER_BINDING);
-    mReadPixelsDirtyObjects.set(State::DIRTY_OBJECT_READ_FRAMEBUFFER);
-
-    mClearDirtyBits.set(State::DIRTY_BIT_RASTERIZER_DISCARD_ENABLED);
-    mClearDirtyBits.set(State::DIRTY_BIT_SCISSOR_TEST_ENABLED);
-    mClearDirtyBits.set(State::DIRTY_BIT_SCISSOR);
-    mClearDirtyBits.set(State::DIRTY_BIT_VIEWPORT);
-    mClearDirtyBits.set(State::DIRTY_BIT_CLEAR_COLOR);
-    mClearDirtyBits.set(State::DIRTY_BIT_CLEAR_DEPTH);
-    mClearDirtyBits.set(State::DIRTY_BIT_CLEAR_STENCIL);
-    mClearDirtyBits.set(State::DIRTY_BIT_COLOR_MASK);
-    mClearDirtyBits.set(State::DIRTY_BIT_DEPTH_MASK);
-    mClearDirtyBits.set(State::DIRTY_BIT_STENCIL_WRITEMASK_FRONT);
-    mClearDirtyBits.set(State::DIRTY_BIT_STENCIL_WRITEMASK_BACK);
-    mClearDirtyBits.set(State::DIRTY_BIT_DRAW_FRAMEBUFFER_BINDING);
-    mClearDirtyObjects.set(State::DIRTY_OBJECT_DRAW_FRAMEBUFFER);
-
-    // We sync the draw Framebuffer manually in prepareForClear to allow the clear calls to do
-    // more custom handling for robust resource init.
-
-    mBlitDirtyBits.set(State::DIRTY_BIT_SCISSOR_TEST_ENABLED);
-    mBlitDirtyBits.set(State::DIRTY_BIT_SCISSOR);
-    mBlitDirtyBits.set(State::DIRTY_BIT_FRAMEBUFFER_SRGB);
-    mBlitDirtyBits.set(State::DIRTY_BIT_READ_FRAMEBUFFER_BINDING);
-    mBlitDirtyBits.set(State::DIRTY_BIT_DRAW_FRAMEBUFFER_BINDING);
-    mBlitDirtyObjects.set(State::DIRTY_OBJECT_READ_FRAMEBUFFER);
-    mBlitDirtyObjects.set(State::DIRTY_OBJECT_DRAW_FRAMEBUFFER);
-
-    mComputeDirtyBits.set(State::DIRTY_BIT_SHADER_STORAGE_BUFFER_BINDING);
-    mComputeDirtyBits.set(State::DIRTY_BIT_UNIFORM_BUFFER_BINDINGS);
-    mComputeDirtyBits.set(State::DIRTY_BIT_ATOMIC_COUNTER_BUFFER_BINDING);
-    mComputeDirtyBits.set(State::DIRTY_BIT_PROGRAM_BINDING);
-    mComputeDirtyBits.set(State::DIRTY_BIT_PROGRAM_EXECUTABLE);
-    mComputeDirtyBits.set(State::DIRTY_BIT_TEXTURE_BINDINGS);
-    mComputeDirtyBits.set(State::DIRTY_BIT_SAMPLER_BINDINGS);
-    mComputeDirtyBits.set(State::DIRTY_BIT_IMAGE_BINDINGS);
-    mComputeDirtyBits.set(State::DIRTY_BIT_DISPATCH_INDIRECT_BUFFER_BINDING);
-    mComputeDirtyObjects.set(State::DIRTY_OBJECT_ACTIVE_TEXTURES);
-    mComputeDirtyObjects.set(State::DIRTY_OBJECT_TEXTURES);
-    mComputeDirtyObjects.set(State::DIRTY_OBJECT_PROGRAM);
-    mComputeDirtyObjects.set(State::DIRTY_OBJECT_IMAGES);
-    mComputeDirtyObjects.set(State::DIRTY_OBJECT_SAMPLERS);
-
-    mCopyImageDirtyBits.set(State::DIRTY_BIT_READ_FRAMEBUFFER_BINDING);
-    mCopyImageDirtyObjects.set(State::DIRTY_OBJECT_READ_FRAMEBUFFER);
-
-    // Initialize overlay after implementation is initialized.
-    ANGLE_CONTEXT_TRY(mOverlay.init(this));
+    // Initialize dirty bit masks (in addition to what updateCaps() might have set up).
+    mDrawDirtyObjects |= kDrawDirtyObjectsBase;
+    mTexImageDirtyObjects |= kTexImageDirtyObjects;
+    mReadPixelsDirtyObjects |= kReadPixelsDirtyObjectsBase;
+    mClearDirtyObjects |= kClearDirtyObjects;
+    mBlitDirtyObjects |= kBlitDirtyObjectsBase;
+    mComputeDirtyObjects |= kComputeDirtyObjectsBase;
+    mCopyImageDirtyBits |= kCopyImageDirtyBitsBase;
+    mCopyImageDirtyObjects |= kCopyImageDirtyObjectsBase;
+    mTilingDirtyObjects |= kTilingDirtyObjectsBase;
 }
 
 egl::Error Context::onDestroy(const egl::Display *display)
 {
+    if (!mHasBeenCurrent)
+    {
+        // Shared objects and ShareGroup must be released regardless.
+        releaseSharedObjects();
+        mState.mShareGroup->release(display);
+        // The context is never current, so default resources are not allocated.
+        return egl::NoError();
+    }
+
+    mState.ensureNoPendingLink(this);
+
+    // eglDestoryContext() must have been called for this Context and there must not be any Threads
+    // that still have it current.
+    ASSERT(mIsDestroyed == true && mRefCount == 0);
+
+    ANGLE_TRY(unMakeCurrent(display));
+
     // Dump frame capture if enabled.
-    mFrameCapture->onDestroyContext(this);
+    getShareGroup()->getFrameCaptureShared()->onDestroyContext(this);
+
+    // Remove context from the capture share group
+    getShareGroup()->removeSharedContext(this);
 
     if (mGLES1Renderer)
     {
         mGLES1Renderer->onDestroy(this, &mState);
     }
 
-    ANGLE_TRY(unMakeCurrent(display));
+    mDefaultFramebuffer->onDestroy(this);
+    mDefaultFramebuffer.reset();
 
-    for (auto fence : mFenceNVMap)
+    for (auto fence : UnsafeResourceMapIter(mFenceNVMap))
     {
         if (fence.second)
         {
@@ -625,7 +975,7 @@ egl::Error Context::onDestroy(const egl::Display *display)
     }
     mFenceNVMap.clear();
 
-    for (auto query : mQueryMap)
+    for (auto query : UnsafeResourceMapIter(mQueryMap))
     {
         if (query.second != nullptr)
         {
@@ -634,16 +984,15 @@ egl::Error Context::onDestroy(const egl::Display *display)
     }
     mQueryMap.clear();
 
-    for (auto vertexArray : mVertexArrayMap)
+    for (auto vertexArray : UnsafeResourceMapIter(getPrivateState().getVertexArrayMap()))
     {
         if (vertexArray.second)
         {
             vertexArray.second->onDestroy(this);
         }
     }
-    mVertexArrayMap.clear();
 
-    for (auto transformFeedback : mTransformFeedbackMap)
+    for (auto transformFeedback : UnsafeResourceMapIter(mTransformFeedbackMap))
     {
         if (transformFeedback.second != nullptr)
         {
@@ -664,30 +1013,52 @@ egl::Error Context::onDestroy(const egl::Display *display)
 
     mState.reset(this);
 
-    mState.mBufferManager->release(this);
-    // mProgramPipelineManager must be before mShaderProgramManager to give each
-    // PPO the chance to release any references they have to the Programs that
-    // are bound to them before the Programs are released()'ed.
-    mState.mProgramPipelineManager->release(this);
-    mState.mShaderProgramManager->release(this);
-    mState.mTextureManager->release(this);
-    mState.mRenderbufferManager->release(this);
-    mState.mSamplerManager->release(this);
-    mState.mSyncManager->release(this);
-    mState.mFramebufferManager->release(this);
-    mState.mMemoryObjectManager->release(this);
-    mState.mSemaphoreManager->release(this);
-
-    mThreadPool.reset();
+    releaseSharedObjects();
 
     mImplementation->onDestroy(this);
 
     // Backend requires implementation to be destroyed first to close down all the objects
     mState.mShareGroup->release(display);
 
-    mOverlay.destroy(this);
-
     return egl::NoError();
+}
+
+void Context::releaseSharedObjects()
+{
+    mDestroyedManagers = true;
+
+    mState.mBufferManager->release(this);
+    mState.mBufferManager = nullptr;
+
+    // mProgramPipelineManager must be before mShaderProgramManager to give each
+    // PPO the chance to release any references they have to the Programs that
+    // are bound to them before the Programs are released()'ed.
+    mState.mProgramPipelineManager->release(this);
+    mState.mProgramPipelineManager = nullptr;
+
+    mState.mShaderProgramManager->release(this);
+    mState.mShaderProgramManager = nullptr;
+
+    mState.mTextureManager->release(this);
+    mState.mTextureManager = nullptr;
+
+    mState.mRenderbufferManager->release(this);
+    mState.mRenderbufferManager = nullptr;
+
+    mState.mSamplerManager->release(this);
+    mState.mSamplerManager = nullptr;
+
+    mState.mSyncManager->release(this);
+    mState.mSyncManager = nullptr;
+
+    mState.mFramebufferManager->release(this);
+    mState.mFramebufferManager = nullptr;
+
+    mState.mMemoryObjectManager->release(this);
+    mState.mMemoryObjectManager = nullptr;
+
+    mState.mSemaphoreManager->release(this);
+    mState.mSemaphoreManager = nullptr;
 }
 
 Context::~Context() {}
@@ -708,28 +1079,34 @@ egl::Error Context::makeCurrent(egl::Display *display,
 {
     mDisplay = display;
 
+    EGLint width  = 0;
+    EGLint height = 0;
+
+    angle::FrameCaptureShared *frameCaptureShared = getShareGroup()->getFrameCaptureShared();
+    if ((frameCaptureShared->enabled() || !mHasBeenCurrent) && drawSurface != nullptr)
+    {
+        ANGLE_TRY(drawSurface->getUserSize(display, &width, &height));
+    }
+
     if (!mHasBeenCurrent)
     {
-        initialize();
+        initializeDefaultResources();
         initRendererString();
+        initVendorString();
         initVersionStrings();
         initExtensionStrings();
 
-        int width  = 0;
-        int height = 0;
-        if (drawSurface != nullptr)
-        {
-            width  = drawSurface->getWidth();
-            height = drawSurface->getHeight();
-        }
-
-        mState.setViewportParams(0, 0, width, height);
-        mState.setScissorParams(0, 0, width, height);
+        ContextPrivateViewport(getMutablePrivateState(), getMutablePrivateStateCache(), 0, 0, width,
+                               height);
+        ContextPrivateScissor(getMutablePrivateState(), getMutablePrivateStateCache(), 0, 0, width,
+                              height);
 
         mHasBeenCurrent = true;
     }
 
-    mFrameCapture->onMakeCurrent(this, drawSurface);
+    ANGLE_TRY(unsetDefaultFramebuffer());
+
+    frameCaptureShared->onMakeCurrent(this, drawSurface, width, height);
 
     // TODO(jmadill): Rework this when we support ContextImpl
     mState.setAllDirtyBits();
@@ -770,99 +1147,119 @@ egl::Error Context::unMakeCurrent(const egl::Display *display)
     return egl::NoError();
 }
 
-BufferID Context::createBuffer()
+void Context::contextLostErrorOnBlockingCall(angle::EntryPoint entryPoint) const
 {
-    return mState.mBufferManager->createBuffer();
+    mErrors.validationError(entryPoint, GL_CONTEXT_LOST, err::kContextLost);
+}
+
+void Context::handleExhaustionError(angle::EntryPoint entryPoint)
+{
+    mErrors.validationError(entryPoint, GL_OUT_OF_MEMORY, err::kHandleExhaustion);
+}
+
+bool Context::createBuffer(BufferID *outBuffer)
+{
+    return mState.mBufferManager->createBuffer(outBuffer);
 }
 
 GLuint Context::createProgram()
 {
-    return mState.mShaderProgramManager->createProgram(mImplementation.get()).value;
+    ShaderProgramID id;
+    if (!mState.mShaderProgramManager->createProgram(mImplementation.get(), &id))
+    {
+        handleExhaustionError(angle::EntryPoint::GLCreateProgram);
+        return 0;
+    }
+    return id.value;
 }
 
 GLuint Context::createShader(ShaderType type)
 {
-    return mState.mShaderProgramManager
-        ->createShader(mImplementation.get(), mState.mLimitations, type)
-        .value;
+    ShaderProgramID id;
+    if (!mState.mShaderProgramManager->createShader(mImplementation.get(), mState.getLimitations(),
+                                                    type, &id))
+    {
+        handleExhaustionError(angle::EntryPoint::GLCreateShader);
+        return 0;
+    }
+    return id.value;
 }
 
-TextureID Context::createTexture()
+bool Context::createTexture(TextureID *outTexture)
 {
-    return mState.mTextureManager->createTexture();
+    return mState.mTextureManager->createTexture(outTexture);
 }
 
-RenderbufferID Context::createRenderbuffer()
+bool Context::createRenderbuffer(RenderbufferID *outRenderbuffer)
 {
-    return mState.mRenderbufferManager->createRenderbuffer();
+    return mState.mRenderbufferManager->createRenderbuffer(outRenderbuffer);
 }
 
 // Returns an unused framebuffer name
-FramebufferID Context::createFramebuffer()
+bool Context::createFramebuffer(FramebufferID *outFramebuffer)
 {
-    return mState.mFramebufferManager->createFramebuffer();
+    return mState.mFramebufferManager->createFramebuffer(outFramebuffer);
 }
 
 void Context::genFencesNV(GLsizei n, FenceNVID *fences)
 {
     for (int i = 0; i < n; i++)
     {
-        GLuint handle = mFenceNVHandleAllocator.allocate();
-        mFenceNVMap.assign({handle}, new FenceNV(mImplementation.get()));
-        fences[i] = {handle};
+        if (!mFenceNVHandleAllocator.allocate(&fences[i].value))
+        {
+            handleExhaustionError(angle::EntryPoint::GLGenFencesNV);
+            return;
+        }
+        mFenceNVMap.assign(fences[i], new FenceNV(mImplementation.get()));
     }
 }
 
-ProgramPipelineID Context::createProgramPipeline()
+bool Context::createProgramPipeline(ProgramPipelineID *outProgramPipeline)
 {
-    return mState.mProgramPipelineManager->createProgramPipeline();
+    return mState.mProgramPipelineManager->createProgramPipeline(outProgramPipeline);
 }
 
 GLuint Context::createShaderProgramv(ShaderType type, GLsizei count, const GLchar *const *strings)
 {
-    const ShaderProgramID shaderID = FromGL<ShaderProgramID>(createShader(type));
+    const ShaderProgramID shaderID = PackParam<ShaderProgramID>(createShader(type));
     if (shaderID.value)
     {
-        Shader *shaderObject = getShader(shaderID);
+        Shader *shaderObject = getShaderNoResolveCompile(shaderID);
         ASSERT(shaderObject);
-        shaderObject->setSource(count, strings, nullptr);
-        shaderObject->compile(this);
-        const ShaderProgramID programID = FromGL<ShaderProgramID>(createProgram());
+        shaderObject->setSource(this, count, strings, nullptr);
+        shaderObject->compile(this, angle::JobResultExpectancy::Immediate);
+        const ShaderProgramID programID = PackParam<ShaderProgramID>(createProgram());
         if (programID.value)
         {
             gl::Program *programObject = getProgramNoResolveLink(programID);
             ASSERT(programObject);
 
-            if (shaderObject->isCompiled())
+            // Note: this call serializes the compilation with the following link.  For backends
+            // that prefer parallel compile and link, it's more efficient to remove this check, and
+            // let link fail instead.
+            if (shaderObject->isCompiled(this))
             {
                 // As per Khronos issue 2261:
                 // https://gitlab.khronos.org/Tracker/vk-gl-cts/issues/2261
                 // We must wait to mark the program separable until it's successfully compiled.
-                programObject->setSeparable(true);
+                programObject->setSeparable(this, true);
 
                 programObject->attachShader(this, shaderObject);
 
-                if (programObject->link(this) != angle::Result::Continue)
-                {
-                    deleteShader(shaderID);
-                    deleteProgram(programID);
-                    return 0u;
-                }
-                if (onProgramLink(programObject) != angle::Result::Continue)
+                // Note: the result expectancy of this link could be turned to Future if
+                // |detachShader| below is made not to resolve the link.
+                if (programObject->link(this, angle::JobResultExpectancy::Immediate) !=
+                    angle::Result::Continue)
                 {
                     deleteShader(shaderID);
                     deleteProgram(programID);
                     return 0u;
                 }
 
-                // Need to manually resolveLink(), since onProgramLink() doesn't think the program
-                // is in use.   For the normal glDetachShader() API call path, this is done during
-                // ValidateDetachShader() via gl::GetValidProgram().
-                programObject->resolveLink(this);
                 programObject->detachShader(this, shaderObject);
             }
 
-            InfoLog &programInfoLog = programObject->getExecutable().getInfoLog();
+            InfoLog &programInfoLog = programObject->getInfoLog();
             programInfoLog << shaderObject->getInfoLogString();
         }
 
@@ -874,14 +1271,14 @@ GLuint Context::createShaderProgramv(ShaderType type, GLsizei count, const GLcha
     return 0u;
 }
 
-MemoryObjectID Context::createMemoryObject()
+bool Context::createMemoryObject(MemoryObjectID *outMemoryObject)
 {
-    return mState.mMemoryObjectManager->createMemoryObject(mImplementation.get());
+    return mState.mMemoryObjectManager->createMemoryObject(mImplementation.get(), outMemoryObject);
 }
 
-SemaphoreID Context::createSemaphore()
+bool Context::createSemaphore(SemaphoreID *outSemaphore)
 {
-    return mState.mSemaphoreManager->createSemaphore(mImplementation.get());
+    return mState.mSemaphoreManager->createSemaphore(mImplementation.get(), outSemaphore);
 }
 
 void Context::deleteBuffer(BufferID bufferName)
@@ -895,6 +1292,104 @@ void Context::deleteBuffer(BufferID bufferName)
     mState.mBufferManager->deleteObject(this, bufferName);
 }
 
+bool Context::canProtectCoherentMemoryDirectly()
+{
+    BufferID bufferId;
+    if (!createBuffer(&bufferId))
+    {
+        ERR() << "Failed to allocate buffer ID.";
+        return false;
+    }
+
+    // Allocate 2 pages so we will always have a full aligned page to protect
+    size_t pageSize = angle::GetPageSize();
+    GLsizei size    = static_cast<GLsizei>(pageSize * 2);
+
+    Buffer *buffer = mState.mBufferManager->checkBufferAllocation(mImplementation.get(), bufferId);
+    if (!buffer)
+    {
+        ERR() << "Failed to get buffer object.";
+        deleteBuffer(bufferId);
+        return false;
+    }
+
+    if (buffer->bufferStorage(this, BufferBinding::Array, size, nullptr,
+                              GL_DYNAMIC_STORAGE_BIT_EXT | GL_MAP_WRITE_BIT |
+                                  GL_MAP_PERSISTENT_BIT_EXT | GL_MAP_COHERENT_BIT_EXT) !=
+        angle::Result::Continue)
+    {
+        ERR() << "Failed to allocate buffer storage.";
+        deleteBuffer(bufferId);
+        return false;
+    }
+
+    if (buffer->mapRange(this, 0, size,
+                         GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT_EXT | GL_MAP_COHERENT_BIT_EXT) !=
+        angle::Result::Continue)
+    {
+        ERR() << "Failed to mapRange of buffer.";
+        deleteBuffer(bufferId);
+        return false;
+    }
+
+    void *map = buffer->getMapPointer();
+    if (map == nullptr)
+    {
+        ERR() << "Failed to getMapPointer of buffer.";
+        GLboolean unmapResult;
+        (void)buffer->unmap(this, &unmapResult);
+        deleteBuffer(bufferId);
+        return false;
+    }
+
+    // Test mprotect
+    auto start = reinterpret_cast<uintptr_t>(map);
+
+    // Only protect a whole page inside the allocated memory
+    uintptr_t protectionStart = rx::roundUpPow2(start, pageSize);
+    uintptr_t protectionEnd   = protectionStart + pageSize;
+
+    ASSERT(protectionStart < protectionEnd);
+
+    angle::PageFaultCallback callback = [](uintptr_t address) {
+        return angle::PageFaultHandlerRangeType::InRange;
+    };
+
+    std::unique_ptr<angle::PageFaultHandler> handler(angle::CreatePageFaultHandler(callback));
+
+    if (!handler->enable())
+    {
+        GLboolean unmapResult;
+        if (buffer->unmap(this, &unmapResult) != angle::Result::Continue)
+        {
+            ERR() << "Could not unmap buffer.";
+        }
+        deleteBuffer(bufferId);
+        return false;
+    }
+
+    size_t protectionSize = protectionEnd - protectionStart;
+    ASSERT(protectionSize == pageSize);
+
+    bool canProtect = angle::ProtectMemory(protectionStart, protectionSize);
+    if (canProtect)
+    {
+        angle::UnprotectMemory(protectionStart, protectionSize);
+    }
+
+    // Clean up
+    handler->disable();
+
+    GLboolean unmapResult;
+    if (buffer->unmap(this, &unmapResult) != angle::Result::Continue)
+    {
+        ERR() << "Could not unmap buffer.";
+    }
+    deleteBuffer(bufferId);
+
+    return canProtect;
+}
+
 void Context::deleteShader(ShaderProgramID shader)
 {
     mState.mShaderProgramManager->deleteShader(this, shader);
@@ -905,14 +1400,25 @@ void Context::deleteProgram(ShaderProgramID program)
     mState.mShaderProgramManager->deleteProgram(this, program);
 }
 
-void Context::deleteTexture(TextureID texture)
+void Context::deleteTexture(TextureID textureID)
 {
-    if (mState.mTextureManager->getTexture(texture))
+    if (mState.isTextureBoundToActivePLS(textureID))
     {
-        detachTexture(texture);
+        // If a texture object is deleted while its image is bound to a pixel local storage plane on
+        // the currently bound draw framebuffer, and pixel local storage is active, then it is as if
+        // EndPixelLocalStorageANGLE() had been called with
+        // <n>=PIXEL_LOCAL_STORAGE_ACTIVE_PLANES_ANGLE and <storeops> of STORE_OP_STORE_ANGLE.
+        endPixelLocalStorageImplicit();
     }
 
-    mState.mTextureManager->deleteObject(this, texture);
+    Texture *texture = mState.mTextureManager->getTexture(textureID);
+    if (texture != nullptr)
+    {
+        texture->onStateChange(angle::SubjectMessage::TextureIDDeleted);
+        detachTexture(textureID);
+    }
+
+    mState.mTextureManager->deleteObject(this, textureID);
 }
 
 void Context::deleteRenderbuffer(RenderbufferID renderbuffer)
@@ -925,13 +1431,13 @@ void Context::deleteRenderbuffer(RenderbufferID renderbuffer)
     mState.mRenderbufferManager->deleteObject(this, renderbuffer);
 }
 
-void Context::deleteSync(GLsync sync)
+void Context::deleteSync(SyncID syncPacked)
 {
     // The spec specifies the underlying Fence object is not deleted until all current
     // wait commands finish. However, since the name becomes invalid, we cannot query the fence,
     // and since our API is currently designed for being called from a single thread, we can delete
     // the fence immediately.
-    mState.mSyncManager->deleteObject(this, static_cast<GLuint>(reinterpret_cast<uintptr_t>(sync)));
+    mState.mSyncManager->deleteObject(this, syncPacked);
 }
 
 void Context::deleteProgramPipeline(ProgramPipelineID pipelineID)
@@ -959,18 +1465,35 @@ void Context::deleteSemaphore(SemaphoreID semaphore)
 void Context::loseContext(GraphicsResetStatus current, GraphicsResetStatus other)
 {
     // TODO(geofflang): mark the rest of the share group lost. Requires access to the entire share
-    // group from a context. http://anglebug.com/3379
+    // group from a context. http://anglebug.com/42262046
     markContextLost(current);
 }
 
-void Context::deleteFramebuffer(FramebufferID framebuffer)
+void Context::deleteFramebuffer(FramebufferID framebufferID)
 {
-    if (mState.mFramebufferManager->getFramebuffer(framebuffer))
+    // We are responsible for deleting the GL objects from the Framebuffer's pixel local storage.
+    std::unique_ptr<PixelLocalStorage> plsToDelete;
+
+    Framebuffer *framebuffer = mState.mFramebufferManager->getFramebuffer(framebufferID);
+    if (framebuffer != nullptr)
     {
-        detachFramebuffer(framebuffer);
+        if (mState.getPixelLocalStorageActivePlanes() != 0 &&
+            framebuffer == mState.getDrawFramebuffer())
+        {
+            endPixelLocalStorageImplicit();
+        }
+        plsToDelete = framebuffer->detachPixelLocalStorage();
+        detachFramebuffer(framebufferID);
     }
 
-    mState.mFramebufferManager->deleteObject(this, framebuffer);
+    mState.mFramebufferManager->deleteObject(this, framebufferID);
+
+    // Delete the pixel local storage GL objects after the framebuffer, in order to avoid any
+    // potential trickyness with orphaning.
+    if (plsToDelete != nullptr)
+    {
+        plsToDelete->deleteContextObjects(this);
+    }
 }
 
 void Context::deleteFencesNV(GLsizei n, const FenceNVID *fences)
@@ -1007,14 +1530,9 @@ EGLenum Context::getContextPriority() const
     return egl::ToEGLenum(mImplementation->getContextPriority());
 }
 
-Sync *Context::getSync(GLsync handle) const
+Sync *Context::getSync(SyncID syncPacked) const
 {
-    return mState.mSyncManager->getSync(static_cast<GLuint>(reinterpret_cast<uintptr_t>(handle)));
-}
-
-VertexArray *Context::getVertexArray(VertexArrayID handle) const
-{
-    return mVertexArrayMap.query(handle);
+    return mState.mSyncManager->getSync(syncPacked);
 }
 
 Sampler *Context::getSampler(SamplerID handle) const
@@ -1037,14 +1555,19 @@ gl::LabeledObject *Context::getLabeledObject(GLenum identifier, GLuint name) con
     switch (identifier)
     {
         case GL_BUFFER:
+        case GL_BUFFER_OBJECT_EXT:
             return getBuffer({name});
         case GL_SHADER:
-            return getShader({name});
+        case GL_SHADER_OBJECT_EXT:
+            return getShaderNoResolveCompile({name});
         case GL_PROGRAM:
+        case GL_PROGRAM_OBJECT_EXT:
             return getProgramNoResolveLink({name});
         case GL_VERTEX_ARRAY:
-            return getVertexArray({name});
+        case GL_VERTEX_ARRAY_OBJECT_EXT:
+            return getPrivateState().getVertexArray({name});
         case GL_QUERY:
+        case GL_QUERY_OBJECT_EXT:
             return getQuery({name});
         case GL_TRANSFORM_FEEDBACK:
             return getTransformFeedback({name});
@@ -1057,6 +1580,7 @@ gl::LabeledObject *Context::getLabeledObject(GLenum identifier, GLuint name) con
         case GL_FRAMEBUFFER:
             return getFramebuffer({name});
         case GL_PROGRAM_PIPELINE:
+        case GL_PROGRAM_PIPELINE_OBJECT_EXT:
             return getProgramPipeline({name});
         default:
             UNREACHABLE();
@@ -1066,7 +1590,7 @@ gl::LabeledObject *Context::getLabeledObject(GLenum identifier, GLuint name) con
 
 gl::LabeledObject *Context::getLabeledObjectFromPtr(const void *ptr) const
 {
-    return getSync(reinterpret_cast<GLsync>(const_cast<void *>(ptr)));
+    return getSync({unsafe_pointer_to_int_cast<uint32_t>(ptr)});
 }
 
 void Context::objectLabel(GLenum identifier, GLuint name, GLsizei length, const GLchar *label)
@@ -1075,11 +1599,26 @@ void Context::objectLabel(GLenum identifier, GLuint name, GLsizei length, const 
     ASSERT(object != nullptr);
 
     std::string labelName = GetObjectLabelFromPointer(length, label);
-    object->setLabel(this, labelName);
+    ANGLE_CONTEXT_TRY(object->setLabel(this, labelName));
 
     // TODO(jmadill): Determine if the object is dirty based on 'name'. Conservatively assume the
     // specified object is active until we do this.
     mState.setObjectDirty(identifier);
+}
+
+void Context::labelObject(GLenum type, GLuint object, GLsizei length, const GLchar *label)
+{
+    gl::LabeledObject *obj = getLabeledObject(type, object);
+    ASSERT(obj != nullptr);
+
+    std::string labelName = "";
+    if (label != nullptr)
+    {
+        size_t labelLength = length == 0 ? strlen(label) : length;
+        labelName          = std::string(label, labelLength);
+    }
+    ANGLE_CONTEXT_TRY(obj->setLabel(this, labelName));
+    mState.setObjectDirty(type);
 }
 
 void Context::objectPtrLabel(const void *ptr, GLsizei length, const GLchar *label)
@@ -1088,7 +1627,7 @@ void Context::objectPtrLabel(const void *ptr, GLsizei length, const GLchar *labe
     ASSERT(object != nullptr);
 
     std::string labelName = GetObjectLabelFromPointer(length, label);
-    object->setLabel(this, labelName);
+    ANGLE_CONTEXT_TRY(object->setLabel(this, labelName));
 }
 
 void Context::getObjectLabel(GLenum identifier,
@@ -1120,8 +1659,14 @@ GLboolean Context::isSampler(SamplerID samplerName) const
 
 void Context::bindTexture(TextureType target, TextureID handle)
 {
-    Texture *texture = nullptr;
+    // Some apps enable KHR_create_context_no_error but pass in an invalid texture type.
+    // Workaround this by silently returning in such situations.
+    if (target == TextureType::InvalidEnum)
+    {
+        return;
+    }
 
+    Texture *texture = nullptr;
     if (handle.value == 0)
     {
         texture = mZeroTextures[target].get();
@@ -1133,6 +1678,12 @@ void Context::bindTexture(TextureType target, TextureID handle)
     }
 
     ASSERT(texture);
+    // Early return if rebinding the same texture
+    if (texture == mState.getTargetTexture(target))
+    {
+        return;
+    }
+
     mState.setSamplerTexture(this, target, texture);
     mStateCache.onActiveTextureChange(this);
 }
@@ -1140,15 +1691,20 @@ void Context::bindTexture(TextureType target, TextureID handle)
 void Context::bindReadFramebuffer(FramebufferID framebufferHandle)
 {
     Framebuffer *framebuffer = mState.mFramebufferManager->checkFramebufferAllocation(
-        mImplementation.get(), mState.mCaps, framebufferHandle, getShareGroup());
+        mImplementation.get(), this, framebufferHandle);
     mState.setReadFramebufferBinding(framebuffer);
     mReadFramebufferObserverBinding.bind(framebuffer);
 }
 
 void Context::bindDrawFramebuffer(FramebufferID framebufferHandle)
 {
+    endTilingImplicit();
+    if (mState.getPixelLocalStorageActivePlanes() != 0)
+    {
+        endPixelLocalStorageImplicit();
+    }
     Framebuffer *framebuffer = mState.mFramebufferManager->checkFramebufferAllocation(
-        mImplementation.get(), mState.mCaps, framebufferHandle, getShareGroup());
+        mImplementation.get(), this, framebufferHandle);
     mState.setDrawFramebufferBinding(framebuffer);
     mDrawFramebufferObserverBinding.bind(framebuffer);
     mStateCache.onDrawFramebufferChange(this);
@@ -1159,7 +1715,7 @@ void Context::bindVertexArray(VertexArrayID vertexArrayHandle)
     VertexArray *vertexArray = checkVertexArrayAllocation(vertexArrayHandle);
     mState.setVertexArrayBinding(this, vertexArray);
     mVertexArrayObserverBinding.bind(vertexArray);
-    mStateCache.onVertexArrayBindingChange(this);
+    mPrivateStateCache.onVertexArrayBindingChange();
 }
 
 void Context::bindVertexBuffer(GLuint bindingIndex,
@@ -1170,14 +1726,21 @@ void Context::bindVertexBuffer(GLuint bindingIndex,
     Buffer *buffer =
         mState.mBufferManager->checkBufferAllocation(mImplementation.get(), bufferHandle);
     mState.bindVertexBuffer(this, bindingIndex, buffer, offset, stride);
-    mStateCache.onVertexArrayStateChange(this);
+    mPrivateStateCache.onVertexArrayStateChange();
 }
 
 void Context::bindSampler(GLuint textureUnit, SamplerID samplerHandle)
 {
-    ASSERT(textureUnit < static_cast<GLuint>(mState.mCaps.maxCombinedTextureImageUnits));
+    ASSERT(textureUnit < static_cast<GLuint>(mState.getCaps().maxCombinedTextureImageUnits));
     Sampler *sampler =
         mState.mSamplerManager->checkSamplerAllocation(mImplementation.get(), samplerHandle);
+
+    // Early return if rebinding the same sampler
+    if (sampler == mState.getSampler(textureUnit))
+    {
+        return;
+    }
+
     mState.setSamplerBinding(this, textureUnit, sampler);
     mSamplerObserverBindings[textureUnit].bind(sampler);
     mStateCache.onActiveTextureChange(this);
@@ -1192,14 +1755,21 @@ void Context::bindImageTexture(GLuint unit,
                                GLenum format)
 {
     Texture *tex = mState.mTextureManager->getTexture(texture);
+    // For robust init, make sure the texture is initialized before storage writes.
+    if (tex != nullptr)
+    {
+        ANGLE_CONTEXT_TRY(tex->ensureInitialized(this, EnsureInitializedLevels::AllEnabledLevels));
+    }
     mState.setImageUnit(this, unit, tex, level, layered, layer, access, format);
     mImageObserverBindings[unit].bind(tex);
 }
 
 void Context::useProgram(ShaderProgramID program)
 {
-    ANGLE_CONTEXT_TRY(mState.setProgram(this, getProgramResolveLink(program)));
+    Program *programObject = getProgramResolveLink(program);
+    ANGLE_CONTEXT_TRY(mState.setProgram(this, programObject));
     mStateCache.onProgramExecutableChange(this);
+    mProgramObserverBinding.bind(programObject);
 }
 
 void Context::useProgramStages(ProgramPipelineID pipeline,
@@ -1212,8 +1782,7 @@ void Context::useProgramStages(ProgramPipelineID pipeline,
                                                                        pipeline);
 
     ASSERT(programPipeline);
-    ANGLE_CONTEXT_TRY(mState.useProgramStages(this, programPipeline, stages, shaderProgram));
-    mStateCache.onProgramExecutableChange(this);
+    ANGLE_CONTEXT_TRY(programPipeline->useProgramStages(this, stages, shaderProgram));
 }
 
 void Context::bindTransformFeedback(GLenum target, TransformFeedbackID transformFeedbackHandle)
@@ -1222,6 +1791,7 @@ void Context::bindTransformFeedback(GLenum target, TransformFeedbackID transform
     TransformFeedback *transformFeedback =
         checkTransformFeedbackAllocation(transformFeedbackHandle);
     mState.setTransformFeedbackBinding(this, transformFeedback);
+    onActiveTransformFeedbackChange();
 }
 
 void Context::bindProgramPipeline(ProgramPipelineID pipelineHandle)
@@ -1230,6 +1800,7 @@ void Context::bindProgramPipeline(ProgramPipelineID pipelineHandle)
         mImplementation.get(), pipelineHandle);
     ANGLE_CONTEXT_TRY(mState.setProgramPipelineBinding(this, pipeline));
     mStateCache.onProgramExecutableChange(this);
+    mProgramPipelineObserverBinding.bind(pipeline);
 }
 
 void Context::beginQuery(QueryType target, QueryID query)
@@ -1268,41 +1839,53 @@ void Context::queryCounter(QueryID id, QueryType target)
     ANGLE_CONTEXT_TRY(queryObject->queryCounter(this));
 }
 
-void Context::getQueryiv(QueryType target, GLenum pname, GLint *params)
+void Context::getQueryiv(QueryType targetPacked, QueryParameter pnamePacked, GLint *params)
 {
-    switch (pname)
+    switch (pnamePacked)
     {
-        case GL_CURRENT_QUERY_EXT:
-            params[0] = mState.getActiveQueryId(target).value;
+        case QueryParameter::CurrentQuery:
+            *params = mState.getActiveQueryId(targetPacked).value;
             break;
-        case GL_QUERY_COUNTER_BITS_EXT:
-            switch (target)
+        case QueryParameter::QueryCounterBits:
+            switch (targetPacked)
             {
+                case QueryType::AnySamples:
+                case QueryType::AnySamplesConservative:
+                    *params = 1;
+                    break;
+                case QueryType::PrimitivesGenerated:
+                case QueryType::TransformFeedbackPrimitivesWritten:
+                    *params = 32;
+                    break;
                 case QueryType::TimeElapsed:
-                    params[0] = getExtensions().queryCounterBitsTimeElapsed;
+                    *params = getCaps().queryCounterBitsTimeElapsed;
                     break;
                 case QueryType::Timestamp:
-                    params[0] = getExtensions().queryCounterBitsTimestamp;
+                    *params = getCaps().queryCounterBitsTimestamp;
                     break;
                 default:
                     UNREACHABLE();
-                    params[0] = 0;
                     break;
             }
             break;
         default:
             UNREACHABLE();
-            return;
+            break;
     }
 }
 
-void Context::getQueryivRobust(QueryType target,
-                               GLenum pname,
-                               GLsizei bufSize,
+void Context::getQueryivRobust(QueryType targetPacked,
+                               QueryParameter pnamePacked,
+                               GLsizei paramCount,
                                GLsizei *length,
                                GLint *params)
 {
-    getQueryiv(target, pname, params);
+    getQueryiv(targetPacked, pnamePacked, params);
+
+    if (length != nullptr)
+    {
+        *length = 1;
+    }
 }
 
 void Context::getUnsignedBytev(GLenum pname, GLubyte *data)
@@ -1315,60 +1898,84 @@ void Context::getUnsignedBytei_v(GLenum target, GLuint index, GLubyte *data)
     UNIMPLEMENTED();
 }
 
-void Context::getQueryObjectiv(QueryID id, GLenum pname, GLint *params)
+void Context::getQueryObjectiv(QueryID idPacked, QueryObjectParameter pnamePacked, GLint *params)
 {
-    ANGLE_CONTEXT_TRY(GetQueryObjectParameter(this, getQuery(id), pname, params));
+    ANGLE_CONTEXT_TRY(GetQueryObjectParameter(this, getQuery(idPacked), pnamePacked, params));
 }
 
-void Context::getQueryObjectivRobust(QueryID id,
-                                     GLenum pname,
-                                     GLsizei bufSize,
+void Context::getQueryObjectivRobust(QueryID idPacked,
+                                     QueryObjectParameter pnamePacked,
+                                     GLsizei paramCount,
                                      GLsizei *length,
                                      GLint *params)
 {
-    getQueryObjectiv(id, pname, params);
+    ANGLE_CONTEXT_TRY(GetQueryObjectParameter(this, getQuery(idPacked), pnamePacked, params));
+
+    if (length != nullptr)
+    {
+        *length = 1;
+    }
 }
 
-void Context::getQueryObjectuiv(QueryID id, GLenum pname, GLuint *params)
+void Context::getQueryObjectuiv(QueryID idPacked, QueryObjectParameter pnamePacked, GLuint *params)
 {
-    ANGLE_CONTEXT_TRY(GetQueryObjectParameter(this, getQuery(id), pname, params));
+    ANGLE_CONTEXT_TRY(GetQueryObjectParameter(this, getQuery(idPacked), pnamePacked, params));
 }
 
-void Context::getQueryObjectuivRobust(QueryID id,
-                                      GLenum pname,
-                                      GLsizei bufSize,
+void Context::getQueryObjectuivRobust(QueryID idPacked,
+                                      QueryObjectParameter pnamePacked,
+                                      GLsizei paramCount,
                                       GLsizei *length,
                                       GLuint *params)
 {
-    getQueryObjectuiv(id, pname, params);
+    ANGLE_CONTEXT_TRY(GetQueryObjectParameter(this, getQuery(idPacked), pnamePacked, params));
+
+    if (length != nullptr)
+    {
+        *length = 1;
+    }
 }
 
-void Context::getQueryObjecti64v(QueryID id, GLenum pname, GLint64 *params)
+void Context::getQueryObjecti64v(QueryID idPacked,
+                                 QueryObjectParameter pnamePacked,
+                                 GLint64 *params)
 {
-    ANGLE_CONTEXT_TRY(GetQueryObjectParameter(this, getQuery(id), pname, params));
+    ANGLE_CONTEXT_TRY(GetQueryObjectParameter(this, getQuery(idPacked), pnamePacked, params));
 }
 
-void Context::getQueryObjecti64vRobust(QueryID id,
-                                       GLenum pname,
-                                       GLsizei bufSize,
+void Context::getQueryObjecti64vRobust(QueryID idPacked,
+                                       QueryObjectParameter pnamePacked,
+                                       GLsizei paramCount,
                                        GLsizei *length,
                                        GLint64 *params)
 {
-    getQueryObjecti64v(id, pname, params);
+    ANGLE_CONTEXT_TRY(GetQueryObjectParameter(this, getQuery(idPacked), pnamePacked, params));
+
+    if (length != nullptr)
+    {
+        *length = 1;
+    }
 }
 
-void Context::getQueryObjectui64v(QueryID id, GLenum pname, GLuint64 *params)
+void Context::getQueryObjectui64v(QueryID idPacked,
+                                  QueryObjectParameter pnamePacked,
+                                  GLuint64 *params)
 {
-    ANGLE_CONTEXT_TRY(GetQueryObjectParameter(this, getQuery(id), pname, params));
+    ANGLE_CONTEXT_TRY(GetQueryObjectParameter(this, getQuery(idPacked), pnamePacked, params));
 }
 
-void Context::getQueryObjectui64vRobust(QueryID id,
-                                        GLenum pname,
-                                        GLsizei bufSize,
+void Context::getQueryObjectui64vRobust(QueryID idPacked,
+                                        QueryObjectParameter pnamePacked,
+                                        GLsizei paramCount,
                                         GLsizei *length,
                                         GLuint64 *params)
 {
-    getQueryObjectui64v(id, pname, params);
+    ANGLE_CONTEXT_TRY(GetQueryObjectParameter(this, getQuery(idPacked), pnamePacked, params));
+
+    if (length != nullptr)
+    {
+        *length = 1;
+    }
 }
 
 Framebuffer *Context::getFramebuffer(FramebufferID handle) const
@@ -1424,7 +2031,7 @@ Compiler *Context::getCompiler() const
 {
     if (mCompiler.get() == nullptr)
     {
-        mCompiler.set(this, new Compiler(mImplementation.get(), mState, mDisplay));
+        mCompiler.set(this, new Compiler(mImplementation.get(), mState));
     }
     return mCompiler.get();
 }
@@ -1437,7 +2044,12 @@ void Context::getBooleanvImpl(GLenum pname, GLboolean *params) const
             *params = GL_TRUE;
             break;
         case GL_CONTEXT_ROBUST_ACCESS_EXT:
-            *params = ConvertToGLBoolean(mRobustAccess);
+            *params = ConvertToGLBoolean(mState.hasRobustAccess());
+            break;
+        case GL_FRAGMENT_SHADING_RATE_NON_TRIVIAL_COMBINERS_SUPPORTED_EXT:
+            *params =
+                mState.getCaps()
+                    .fragmentShadingRateProperties.fragmentShadingRateNonTrivialCombinersSupport;
             break;
 
         default:
@@ -1453,33 +2065,50 @@ void Context::getFloatvImpl(GLenum pname, GLfloat *params) const
     switch (pname)
     {
         case GL_ALIASED_LINE_WIDTH_RANGE:
-            params[0] = mState.mCaps.minAliasedLineWidth;
-            params[1] = mState.mCaps.maxAliasedLineWidth;
+            params[0] = mState.getCaps().minAliasedLineWidth;
+            params[1] = mState.getCaps().maxAliasedLineWidth;
             break;
         case GL_ALIASED_POINT_SIZE_RANGE:
-            params[0] = mState.mCaps.minAliasedPointSize;
-            params[1] = mState.mCaps.maxAliasedPointSize;
+            params[0] = mState.getCaps().minAliasedPointSize;
+            params[1] = mState.getCaps().maxAliasedPointSize;
             break;
         case GL_SMOOTH_POINT_SIZE_RANGE:
-            params[0] = mState.mCaps.minSmoothPointSize;
-            params[1] = mState.mCaps.maxSmoothPointSize;
+            params[0] = mState.getCaps().minSmoothPointSize;
+            params[1] = mState.getCaps().maxSmoothPointSize;
             break;
         case GL_SMOOTH_LINE_WIDTH_RANGE:
-            params[0] = mState.mCaps.minSmoothLineWidth;
-            params[1] = mState.mCaps.maxSmoothLineWidth;
+            params[0] = mState.getCaps().minSmoothLineWidth;
+            params[1] = mState.getCaps().maxSmoothLineWidth;
+            break;
+        case GL_MULTISAMPLE_LINE_WIDTH_RANGE:
+            params[0] = mState.getCaps().minMultisampleLineWidth;
+            params[1] = mState.getCaps().maxMultisampleLineWidth;
+            break;
+        case GL_MULTISAMPLE_LINE_WIDTH_GRANULARITY:
+            *params = mState.getCaps().lineWidthGranularity;
             break;
         case GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT:
-            ASSERT(mState.mExtensions.textureFilterAnisotropic);
-            *params = mState.mExtensions.maxTextureAnisotropy;
+            ASSERT(mState.getExtensions().textureFilterAnisotropicEXT);
+            *params = mState.getCaps().maxTextureAnisotropy;
             break;
         case GL_MAX_TEXTURE_LOD_BIAS:
-            *params = mState.mCaps.maxLODBias;
+            *params = mState.getCaps().maxLODBias;
             break;
         case GL_MIN_FRAGMENT_INTERPOLATION_OFFSET:
-            *params = mState.mCaps.minInterpolationOffset;
+            *params = mState.getCaps().minInterpolationOffset;
             break;
         case GL_MAX_FRAGMENT_INTERPOLATION_OFFSET:
-            *params = mState.mCaps.maxInterpolationOffset;
+            *params = mState.getCaps().maxInterpolationOffset;
+            break;
+        case GL_PRIMITIVE_BOUNDING_BOX:
+            params[0] = mState.getBoundingBoxMinX();
+            params[1] = mState.getBoundingBoxMinY();
+            params[2] = mState.getBoundingBoxMinZ();
+            params[3] = mState.getBoundingBoxMinW();
+            params[4] = mState.getBoundingBoxMaxX();
+            params[5] = mState.getBoundingBoxMaxY();
+            params[6] = mState.getBoundingBoxMaxZ();
+            params[7] = mState.getBoundingBoxMaxW();
             break;
         default:
             mState.getFloatv(pname, params);
@@ -1495,156 +2124,168 @@ void Context::getIntegervImpl(GLenum pname, GLint *params) const
     switch (pname)
     {
         case GL_MAX_VERTEX_ATTRIBS:
-            *params = mState.mCaps.maxVertexAttributes;
+            *params = mState.getCaps().maxVertexAttributes;
             break;
         case GL_MAX_VERTEX_UNIFORM_VECTORS:
-            *params = mState.mCaps.maxVertexUniformVectors;
+            *params = mState.getCaps().maxVertexUniformVectors;
             break;
         case GL_MAX_VERTEX_UNIFORM_COMPONENTS:
-            *params = mState.mCaps.maxShaderUniformComponents[ShaderType::Vertex];
+            *params = mState.getCaps().maxShaderUniformComponents[ShaderType::Vertex];
             break;
         case GL_MAX_VARYING_VECTORS:
-            *params = mState.mCaps.maxVaryingVectors;
+            *params = mState.getCaps().maxVaryingVectors;
             break;
         case GL_MAX_VARYING_COMPONENTS:
-            *params = mState.mCaps.maxVaryingVectors * 4;
+            *params = mState.getCaps().maxVaryingVectors * 4;
             break;
         case GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS:
-            *params = mState.mCaps.maxCombinedTextureImageUnits;
+            *params = mState.getCaps().maxCombinedTextureImageUnits;
             break;
         case GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS:
-            *params = mState.mCaps.maxShaderTextureImageUnits[ShaderType::Vertex];
+            *params = mState.getCaps().maxShaderTextureImageUnits[ShaderType::Vertex];
             break;
         case GL_MAX_TEXTURE_IMAGE_UNITS:
-            *params = mState.mCaps.maxShaderTextureImageUnits[ShaderType::Fragment];
+            *params = mState.getCaps().maxShaderTextureImageUnits[ShaderType::Fragment];
             break;
         case GL_MAX_FRAGMENT_UNIFORM_VECTORS:
-            *params = mState.mCaps.maxFragmentUniformVectors;
+            *params = mState.getCaps().maxFragmentUniformVectors;
             break;
         case GL_MAX_FRAGMENT_UNIFORM_COMPONENTS:
-            *params = mState.mCaps.maxShaderUniformComponents[ShaderType::Fragment];
+            *params = mState.getCaps().maxShaderUniformComponents[ShaderType::Fragment];
             break;
         case GL_MAX_RENDERBUFFER_SIZE:
-            *params = mState.mCaps.maxRenderbufferSize;
+            *params = mState.getCaps().maxRenderbufferSize;
             break;
         case GL_MAX_COLOR_ATTACHMENTS_EXT:
-            *params = mState.mCaps.maxColorAttachments;
+            *params = mState.getCaps().maxColorAttachments;
             break;
         case GL_MAX_DRAW_BUFFERS_EXT:
-            *params = mState.mCaps.maxDrawBuffers;
+            *params = mState.getCaps().maxDrawBuffers;
             break;
         case GL_SUBPIXEL_BITS:
-            *params = mState.mCaps.subPixelBits;
+            *params = mState.getCaps().subPixelBits;
             break;
         case GL_MAX_TEXTURE_SIZE:
-            *params = mState.mCaps.max2DTextureSize;
+            *params = mState.getCaps().max2DTextureSize;
             break;
         case GL_MAX_RECTANGLE_TEXTURE_SIZE_ANGLE:
-            *params = mState.mCaps.maxRectangleTextureSize;
+            *params = mState.getCaps().maxRectangleTextureSize;
             break;
         case GL_MAX_CUBE_MAP_TEXTURE_SIZE:
-            *params = mState.mCaps.maxCubeMapTextureSize;
+            *params = mState.getCaps().maxCubeMapTextureSize;
             break;
         case GL_MAX_3D_TEXTURE_SIZE:
-            *params = mState.mCaps.max3DTextureSize;
+            *params = mState.getCaps().max3DTextureSize;
             break;
         case GL_MAX_ARRAY_TEXTURE_LAYERS:
-            *params = mState.mCaps.maxArrayTextureLayers;
+            *params = mState.getCaps().maxArrayTextureLayers;
             break;
         case GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT:
-            *params = mState.mCaps.uniformBufferOffsetAlignment;
+            *params = mState.getCaps().uniformBufferOffsetAlignment;
             break;
         case GL_MAX_UNIFORM_BUFFER_BINDINGS:
-            *params = mState.mCaps.maxUniformBufferBindings;
+            *params = mState.getCaps().maxUniformBufferBindings;
             break;
         case GL_MAX_VERTEX_UNIFORM_BLOCKS:
-            *params = mState.mCaps.maxShaderUniformBlocks[ShaderType::Vertex];
+            *params = mState.getCaps().maxShaderUniformBlocks[ShaderType::Vertex];
             break;
         case GL_MAX_FRAGMENT_UNIFORM_BLOCKS:
-            *params = mState.mCaps.maxShaderUniformBlocks[ShaderType::Fragment];
+            *params = mState.getCaps().maxShaderUniformBlocks[ShaderType::Fragment];
             break;
         case GL_MAX_COMBINED_UNIFORM_BLOCKS:
-            *params = mState.mCaps.maxCombinedUniformBlocks;
+            *params = mState.getCaps().maxCombinedUniformBlocks;
             break;
         case GL_MAX_VERTEX_OUTPUT_COMPONENTS:
-            *params = mState.mCaps.maxVertexOutputComponents;
+            *params = mState.getCaps().maxVertexOutputComponents;
             break;
         case GL_MAX_FRAGMENT_INPUT_COMPONENTS:
-            *params = mState.mCaps.maxFragmentInputComponents;
+            *params = mState.getCaps().maxFragmentInputComponents;
             break;
         case GL_MIN_PROGRAM_TEXEL_OFFSET:
-            *params = mState.mCaps.minProgramTexelOffset;
+            *params = mState.getCaps().minProgramTexelOffset;
             break;
         case GL_MAX_PROGRAM_TEXEL_OFFSET:
-            *params = mState.mCaps.maxProgramTexelOffset;
+            *params = mState.getCaps().maxProgramTexelOffset;
             break;
         case GL_MAJOR_VERSION:
-            *params = getClientVersion().major;
+            *params = getClientVersion().getMajor();
             break;
         case GL_MINOR_VERSION:
-            *params = getClientVersion().minor;
+            *params = getClientVersion().getMinor();
             break;
         case GL_MAX_ELEMENTS_INDICES:
-            *params = mState.mCaps.maxElementsIndices;
+            *params = mState.getCaps().maxElementsIndices;
             break;
         case GL_MAX_ELEMENTS_VERTICES:
-            *params = mState.mCaps.maxElementsVertices;
+            *params = mState.getCaps().maxElementsVertices;
             break;
         case GL_MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS:
-            *params = mState.mCaps.maxTransformFeedbackInterleavedComponents;
+            *params = mState.getCaps().maxTransformFeedbackInterleavedComponents;
             break;
         case GL_MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS:
-            *params = mState.mCaps.maxTransformFeedbackSeparateAttributes;
+            *params = mState.getCaps().maxTransformFeedbackSeparateAttributes;
             break;
         case GL_MAX_TRANSFORM_FEEDBACK_SEPARATE_COMPONENTS:
-            *params = mState.mCaps.maxTransformFeedbackSeparateComponents;
+            *params = mState.getCaps().maxTransformFeedbackSeparateComponents;
             break;
         case GL_NUM_COMPRESSED_TEXTURE_FORMATS:
-            *params = static_cast<GLint>(mState.mCaps.compressedTextureFormats.size());
+            *params = static_cast<GLint>(mState.getCaps().compressedTextureFormats.size());
             break;
         case GL_MAX_SAMPLES_ANGLE:
-            *params = mState.mCaps.maxSamples;
+            *params = mState.getCaps().maxSamples;
             break;
         case GL_MAX_VIEWPORT_DIMS:
         {
-            params[0] = mState.mCaps.maxViewportWidth;
-            params[1] = mState.mCaps.maxViewportHeight;
+            params[0] = mState.getCaps().maxViewportWidth;
+            params[1] = mState.getCaps().maxViewportHeight;
         }
         break;
         case GL_COMPRESSED_TEXTURE_FORMATS:
-            std::copy(mState.mCaps.compressedTextureFormats.begin(),
-                      mState.mCaps.compressedTextureFormats.end(), params);
+            std::copy(mState.getCaps().compressedTextureFormats.begin(),
+                      mState.getCaps().compressedTextureFormats.end(), params);
             break;
         case GL_RESET_NOTIFICATION_STRATEGY_EXT:
-            *params = mResetStrategy;
+            *params = mErrors.getResetStrategy();
             break;
         case GL_NUM_SHADER_BINARY_FORMATS:
-            *params = static_cast<GLint>(mState.mCaps.shaderBinaryFormats.size());
+            *params = static_cast<GLint>(mState.getCaps().shaderBinaryFormats.size());
             break;
         case GL_SHADER_BINARY_FORMATS:
-            std::copy(mState.mCaps.shaderBinaryFormats.begin(),
-                      mState.mCaps.shaderBinaryFormats.end(), params);
+            std::copy(mState.getCaps().shaderBinaryFormats.begin(),
+                      mState.getCaps().shaderBinaryFormats.end(), params);
             break;
         case GL_NUM_PROGRAM_BINARY_FORMATS:
-            *params = static_cast<GLint>(mState.mCaps.programBinaryFormats.size());
+            *params = static_cast<GLint>(mState.getCaps().programBinaryFormats.size());
             break;
         case GL_PROGRAM_BINARY_FORMATS:
-            std::copy(mState.mCaps.programBinaryFormats.begin(),
-                      mState.mCaps.programBinaryFormats.end(), params);
+            std::copy(mState.getCaps().programBinaryFormats.begin(),
+                      mState.getCaps().programBinaryFormats.end(), params);
             break;
         case GL_NUM_EXTENSIONS:
             *params = static_cast<GLint>(mExtensionStrings.size());
             break;
 
-        // Desktop client flags
+        // GLES3.2 client flags
         case GL_CONTEXT_FLAGS:
-            ASSERT(getClientType() == EGL_OPENGL_API);
-            *params = 0;
-            break;
-        case GL_CONTEXT_PROFILE_MASK:
-            ASSERT(getClientType() == EGL_OPENGL_API);
-            *params = GL_CONTEXT_COMPATIBILITY_PROFILE_BIT;
-            break;
+        {
+            GLint contextFlags = 0;
+            if (mState.hasProtectedContent())
+            {
+                contextFlags |= GL_CONTEXT_FLAG_PROTECTED_CONTENT_BIT_EXT;
+            }
+
+            if (mState.isDebugContext())
+            {
+                contextFlags |= GL_CONTEXT_FLAG_DEBUG_BIT_KHR;
+            }
+
+            if (mState.hasRobustAccess())
+            {
+                contextFlags |= GL_CONTEXT_FLAG_ROBUST_ACCESS_BIT;
+            }
+            *params = contextFlags;
+        }
+        break;
 
         // GL_ANGLE_request_extension
         case GL_NUM_REQUESTABLE_EXTENSIONS_ANGLE:
@@ -1653,21 +2294,21 @@ void Context::getIntegervImpl(GLenum pname, GLint *params) const
 
         // GL_KHR_debug
         case GL_MAX_DEBUG_MESSAGE_LENGTH:
-            *params = mState.mExtensions.maxDebugMessageLength;
+            *params = mState.getCaps().maxDebugMessageLength;
             break;
         case GL_MAX_DEBUG_LOGGED_MESSAGES:
-            *params = mState.mExtensions.maxDebugLoggedMessages;
+            *params = mState.getCaps().maxDebugLoggedMessages;
             break;
         case GL_MAX_DEBUG_GROUP_STACK_DEPTH:
-            *params = mState.mExtensions.maxDebugGroupStackDepth;
+            *params = mState.getCaps().maxDebugGroupStackDepth;
             break;
         case GL_MAX_LABEL_LENGTH:
-            *params = mState.mExtensions.maxLabelLength;
+            *params = mState.getCaps().maxLabelLength;
             break;
 
-        // GL_OVR_multiview2
+        // GL_OVR_multiview
         case GL_MAX_VIEWS_OVR:
-            *params = mState.mExtensions.maxViews;
+            *params = mState.getCaps().maxViews;
             break;
 
         // GL_EXT_disjoint_timer_query
@@ -1675,205 +2316,286 @@ void Context::getIntegervImpl(GLenum pname, GLint *params) const
             *params = mImplementation->getGPUDisjoint();
             break;
         case GL_MAX_FRAMEBUFFER_WIDTH:
-            *params = mState.mCaps.maxFramebufferWidth;
+            *params = mState.getCaps().maxFramebufferWidth;
             break;
         case GL_MAX_FRAMEBUFFER_HEIGHT:
-            *params = mState.mCaps.maxFramebufferHeight;
+            *params = mState.getCaps().maxFramebufferHeight;
             break;
         case GL_MAX_FRAMEBUFFER_SAMPLES:
-            *params = mState.mCaps.maxFramebufferSamples;
+            *params = mState.getCaps().maxFramebufferSamples;
             break;
         case GL_MAX_SAMPLE_MASK_WORDS:
-            *params = mState.mCaps.maxSampleMaskWords;
+            *params = mState.getCaps().maxSampleMaskWords;
             break;
         case GL_MAX_COLOR_TEXTURE_SAMPLES:
-            *params = mState.mCaps.maxColorTextureSamples;
+            *params = mState.getCaps().maxColorTextureSamples;
             break;
         case GL_MAX_DEPTH_TEXTURE_SAMPLES:
-            *params = mState.mCaps.maxDepthTextureSamples;
+            *params = mState.getCaps().maxDepthTextureSamples;
             break;
         case GL_MAX_INTEGER_SAMPLES:
-            *params = mState.mCaps.maxIntegerSamples;
+            *params = mState.getCaps().maxIntegerSamples;
             break;
         case GL_MAX_VERTEX_ATTRIB_RELATIVE_OFFSET:
-            *params = mState.mCaps.maxVertexAttribRelativeOffset;
+            *params = mState.getCaps().maxVertexAttribRelativeOffset;
             break;
         case GL_MAX_VERTEX_ATTRIB_BINDINGS:
-            *params = mState.mCaps.maxVertexAttribBindings;
+            *params = mState.getCaps().maxVertexAttribBindings;
             break;
         case GL_MAX_VERTEX_ATTRIB_STRIDE:
-            *params = mState.mCaps.maxVertexAttribStride;
+            *params = mState.getCaps().maxVertexAttribStride;
             break;
         case GL_MAX_VERTEX_ATOMIC_COUNTER_BUFFERS:
-            *params = mState.mCaps.maxShaderAtomicCounterBuffers[ShaderType::Vertex];
+            *params = mState.getCaps().maxShaderAtomicCounterBuffers[ShaderType::Vertex];
             break;
         case GL_MAX_VERTEX_ATOMIC_COUNTERS:
-            *params = mState.mCaps.maxShaderAtomicCounters[ShaderType::Vertex];
+            *params = mState.getCaps().maxShaderAtomicCounters[ShaderType::Vertex];
             break;
         case GL_MAX_VERTEX_IMAGE_UNIFORMS:
-            *params = mState.mCaps.maxShaderImageUniforms[ShaderType::Vertex];
+            *params = mState.getCaps().maxShaderImageUniforms[ShaderType::Vertex];
             break;
         case GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS:
-            *params = mState.mCaps.maxShaderStorageBlocks[ShaderType::Vertex];
+            *params = mState.getCaps().maxShaderStorageBlocks[ShaderType::Vertex];
             break;
         case GL_MAX_FRAGMENT_ATOMIC_COUNTER_BUFFERS:
-            *params = mState.mCaps.maxShaderAtomicCounterBuffers[ShaderType::Fragment];
+            *params = mState.getCaps().maxShaderAtomicCounterBuffers[ShaderType::Fragment];
             break;
         case GL_MAX_FRAGMENT_ATOMIC_COUNTERS:
-            *params = mState.mCaps.maxShaderAtomicCounters[ShaderType::Fragment];
+            *params = mState.getCaps().maxShaderAtomicCounters[ShaderType::Fragment];
             break;
         case GL_MAX_FRAGMENT_IMAGE_UNIFORMS:
-            *params = mState.mCaps.maxShaderImageUniforms[ShaderType::Fragment];
+            *params = mState.getCaps().maxShaderImageUniforms[ShaderType::Fragment];
             break;
         case GL_MAX_FRAGMENT_SHADER_STORAGE_BLOCKS:
-            *params = mState.mCaps.maxShaderStorageBlocks[ShaderType::Fragment];
+            *params = mState.getCaps().maxShaderStorageBlocks[ShaderType::Fragment];
             break;
         case GL_MIN_PROGRAM_TEXTURE_GATHER_OFFSET:
-            *params = mState.mCaps.minProgramTextureGatherOffset;
+            *params = mState.getCaps().minProgramTextureGatherOffset;
             break;
         case GL_MAX_PROGRAM_TEXTURE_GATHER_OFFSET:
-            *params = mState.mCaps.maxProgramTextureGatherOffset;
+            *params = mState.getCaps().maxProgramTextureGatherOffset;
             break;
         case GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS:
-            *params = mState.mCaps.maxComputeWorkGroupInvocations;
+            *params = mState.getCaps().maxComputeWorkGroupInvocations;
             break;
         case GL_MAX_COMPUTE_UNIFORM_BLOCKS:
-            *params = mState.mCaps.maxShaderUniformBlocks[ShaderType::Compute];
+            *params = mState.getCaps().maxShaderUniformBlocks[ShaderType::Compute];
             break;
         case GL_MAX_COMPUTE_TEXTURE_IMAGE_UNITS:
-            *params = mState.mCaps.maxShaderTextureImageUnits[ShaderType::Compute];
+            *params = mState.getCaps().maxShaderTextureImageUnits[ShaderType::Compute];
             break;
         case GL_MAX_COMPUTE_SHARED_MEMORY_SIZE:
-            *params = mState.mCaps.maxComputeSharedMemorySize;
+            *params = mState.getCaps().maxComputeSharedMemorySize;
             break;
         case GL_MAX_COMPUTE_UNIFORM_COMPONENTS:
-            *params = mState.mCaps.maxShaderUniformComponents[ShaderType::Compute];
+            *params = mState.getCaps().maxShaderUniformComponents[ShaderType::Compute];
             break;
         case GL_MAX_COMPUTE_ATOMIC_COUNTER_BUFFERS:
-            *params = mState.mCaps.maxShaderAtomicCounterBuffers[ShaderType::Compute];
+            *params = mState.getCaps().maxShaderAtomicCounterBuffers[ShaderType::Compute];
             break;
         case GL_MAX_COMPUTE_ATOMIC_COUNTERS:
-            *params = mState.mCaps.maxShaderAtomicCounters[ShaderType::Compute];
+            *params = mState.getCaps().maxShaderAtomicCounters[ShaderType::Compute];
             break;
         case GL_MAX_COMPUTE_IMAGE_UNIFORMS:
-            *params = mState.mCaps.maxShaderImageUniforms[ShaderType::Compute];
+            *params = mState.getCaps().maxShaderImageUniforms[ShaderType::Compute];
             break;
         case GL_MAX_COMBINED_COMPUTE_UNIFORM_COMPONENTS:
             *params = static_cast<GLint>(
-                mState.mCaps.maxCombinedShaderUniformComponents[ShaderType::Compute]);
+                mState.getCaps().maxCombinedShaderUniformComponents[ShaderType::Compute]);
             break;
         case GL_MAX_COMPUTE_SHADER_STORAGE_BLOCKS:
-            *params = mState.mCaps.maxShaderStorageBlocks[ShaderType::Compute];
+            *params = mState.getCaps().maxShaderStorageBlocks[ShaderType::Compute];
             break;
         case GL_MAX_COMBINED_SHADER_OUTPUT_RESOURCES:
-            *params = mState.mCaps.maxCombinedShaderOutputResources;
+            *params = mState.getCaps().maxCombinedShaderOutputResources;
             break;
         case GL_MAX_UNIFORM_LOCATIONS:
-            *params = mState.mCaps.maxUniformLocations;
+            *params = mState.getCaps().maxUniformLocations;
             break;
         case GL_MAX_ATOMIC_COUNTER_BUFFER_BINDINGS:
-            *params = mState.mCaps.maxAtomicCounterBufferBindings;
+            *params = mState.getCaps().maxAtomicCounterBufferBindings;
             break;
         case GL_MAX_ATOMIC_COUNTER_BUFFER_SIZE:
-            *params = mState.mCaps.maxAtomicCounterBufferSize;
+            *params = mState.getCaps().maxAtomicCounterBufferSize;
             break;
         case GL_MAX_COMBINED_ATOMIC_COUNTER_BUFFERS:
-            *params = mState.mCaps.maxCombinedAtomicCounterBuffers;
+            *params = mState.getCaps().maxCombinedAtomicCounterBuffers;
             break;
         case GL_MAX_COMBINED_ATOMIC_COUNTERS:
-            *params = mState.mCaps.maxCombinedAtomicCounters;
+            *params = mState.getCaps().maxCombinedAtomicCounters;
             break;
         case GL_MAX_IMAGE_UNITS:
-            *params = mState.mCaps.maxImageUnits;
+            *params = mState.getCaps().maxImageUnits;
             break;
         case GL_MAX_COMBINED_IMAGE_UNIFORMS:
-            *params = mState.mCaps.maxCombinedImageUniforms;
+            *params = mState.getCaps().maxCombinedImageUniforms;
             break;
         case GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS:
-            *params = mState.mCaps.maxShaderStorageBufferBindings;
+            *params = mState.getCaps().maxShaderStorageBufferBindings;
             break;
         case GL_MAX_COMBINED_SHADER_STORAGE_BLOCKS:
-            *params = mState.mCaps.maxCombinedShaderStorageBlocks;
+            *params = mState.getCaps().maxCombinedShaderStorageBlocks;
             break;
         case GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT:
-            *params = mState.mCaps.shaderStorageBufferOffsetAlignment;
+            *params = mState.getCaps().shaderStorageBufferOffsetAlignment;
             break;
 
         // GL_EXT_geometry_shader
         case GL_MAX_FRAMEBUFFER_LAYERS_EXT:
-            *params = mState.mCaps.maxFramebufferLayers;
+            *params = mState.getCaps().maxFramebufferLayers;
             break;
         case GL_LAYER_PROVOKING_VERTEX_EXT:
-            *params = mState.mCaps.layerProvokingVertex;
+            *params = mState.getCaps().layerProvokingVertex;
             break;
         case GL_MAX_GEOMETRY_UNIFORM_COMPONENTS_EXT:
-            *params = mState.mCaps.maxShaderUniformComponents[ShaderType::Geometry];
+            *params = mState.getCaps().maxShaderUniformComponents[ShaderType::Geometry];
             break;
         case GL_MAX_GEOMETRY_UNIFORM_BLOCKS_EXT:
-            *params = mState.mCaps.maxShaderUniformBlocks[ShaderType::Geometry];
+            *params = mState.getCaps().maxShaderUniformBlocks[ShaderType::Geometry];
             break;
         case GL_MAX_COMBINED_GEOMETRY_UNIFORM_COMPONENTS_EXT:
             *params = static_cast<GLint>(
-                mState.mCaps.maxCombinedShaderUniformComponents[ShaderType::Geometry]);
+                mState.getCaps().maxCombinedShaderUniformComponents[ShaderType::Geometry]);
             break;
         case GL_MAX_GEOMETRY_INPUT_COMPONENTS_EXT:
-            *params = mState.mCaps.maxGeometryInputComponents;
+            *params = mState.getCaps().maxGeometryInputComponents;
             break;
         case GL_MAX_GEOMETRY_OUTPUT_COMPONENTS_EXT:
-            *params = mState.mCaps.maxGeometryOutputComponents;
+            *params = mState.getCaps().maxGeometryOutputComponents;
             break;
         case GL_MAX_GEOMETRY_OUTPUT_VERTICES_EXT:
-            *params = mState.mCaps.maxGeometryOutputVertices;
+            *params = mState.getCaps().maxGeometryOutputVertices;
             break;
         case GL_MAX_GEOMETRY_TOTAL_OUTPUT_COMPONENTS_EXT:
-            *params = mState.mCaps.maxGeometryTotalOutputComponents;
+            *params = mState.getCaps().maxGeometryTotalOutputComponents;
             break;
         case GL_MAX_GEOMETRY_SHADER_INVOCATIONS_EXT:
-            *params = mState.mCaps.maxGeometryShaderInvocations;
+            *params = mState.getCaps().maxGeometryShaderInvocations;
             break;
         case GL_MAX_GEOMETRY_TEXTURE_IMAGE_UNITS_EXT:
-            *params = mState.mCaps.maxShaderTextureImageUnits[ShaderType::Geometry];
+            *params = mState.getCaps().maxShaderTextureImageUnits[ShaderType::Geometry];
             break;
         case GL_MAX_GEOMETRY_ATOMIC_COUNTER_BUFFERS_EXT:
-            *params = mState.mCaps.maxShaderAtomicCounterBuffers[ShaderType::Geometry];
+            *params = mState.getCaps().maxShaderAtomicCounterBuffers[ShaderType::Geometry];
             break;
         case GL_MAX_GEOMETRY_ATOMIC_COUNTERS_EXT:
-            *params = mState.mCaps.maxShaderAtomicCounters[ShaderType::Geometry];
+            *params = mState.getCaps().maxShaderAtomicCounters[ShaderType::Geometry];
             break;
         case GL_MAX_GEOMETRY_IMAGE_UNIFORMS_EXT:
-            *params = mState.mCaps.maxShaderImageUniforms[ShaderType::Geometry];
+            *params = mState.getCaps().maxShaderImageUniforms[ShaderType::Geometry];
             break;
         case GL_MAX_GEOMETRY_SHADER_STORAGE_BLOCKS_EXT:
-            *params = mState.mCaps.maxShaderStorageBlocks[ShaderType::Geometry];
+            *params = mState.getCaps().maxShaderStorageBlocks[ShaderType::Geometry];
+            break;
+        // GL_EXT_tessellation_shader
+        case GL_MAX_PATCH_VERTICES_EXT:
+            *params = mState.getCaps().maxPatchVertices;
+            break;
+        case GL_MAX_TESS_GEN_LEVEL_EXT:
+            *params = mState.getCaps().maxTessGenLevel;
+            break;
+        case GL_MAX_TESS_CONTROL_UNIFORM_COMPONENTS_EXT:
+            *params = mState.getCaps().maxShaderUniformComponents[ShaderType::TessControl];
+            break;
+        case GL_MAX_TESS_EVALUATION_UNIFORM_COMPONENTS_EXT:
+            *params = mState.getCaps().maxShaderUniformComponents[ShaderType::TessEvaluation];
+            break;
+        case GL_MAX_TESS_CONTROL_TEXTURE_IMAGE_UNITS_EXT:
+            *params = mState.getCaps().maxShaderTextureImageUnits[ShaderType::TessControl];
+            break;
+        case GL_MAX_TESS_EVALUATION_TEXTURE_IMAGE_UNITS_EXT:
+            *params = mState.getCaps().maxShaderTextureImageUnits[ShaderType::TessEvaluation];
+            break;
+        case GL_MAX_TESS_CONTROL_OUTPUT_COMPONENTS_EXT:
+            *params = mState.getCaps().maxTessControlOutputComponents;
+            break;
+        case GL_MAX_TESS_PATCH_COMPONENTS_EXT:
+            *params = mState.getCaps().maxTessPatchComponents;
+            break;
+        case GL_MAX_TESS_CONTROL_TOTAL_OUTPUT_COMPONENTS_EXT:
+            *params = mState.getCaps().maxTessControlTotalOutputComponents;
+            break;
+        case GL_MAX_TESS_EVALUATION_OUTPUT_COMPONENTS_EXT:
+            *params = mState.getCaps().maxTessEvaluationOutputComponents;
+            break;
+        case GL_MAX_TESS_CONTROL_UNIFORM_BLOCKS_EXT:
+            *params = mState.getCaps().maxShaderUniformBlocks[ShaderType::TessControl];
+            break;
+        case GL_MAX_TESS_EVALUATION_UNIFORM_BLOCKS_EXT:
+            *params = mState.getCaps().maxShaderUniformBlocks[ShaderType::TessEvaluation];
+            break;
+        case GL_MAX_TESS_CONTROL_INPUT_COMPONENTS_EXT:
+            *params = mState.getCaps().maxTessControlInputComponents;
+            break;
+        case GL_MAX_TESS_EVALUATION_INPUT_COMPONENTS_EXT:
+            *params = mState.getCaps().maxTessEvaluationInputComponents;
+            break;
+        case GL_MAX_COMBINED_TESS_CONTROL_UNIFORM_COMPONENTS_EXT:
+            *params = static_cast<GLint>(
+                mState.getCaps().maxCombinedShaderUniformComponents[ShaderType::TessControl]);
+            break;
+        case GL_MAX_COMBINED_TESS_EVALUATION_UNIFORM_COMPONENTS_EXT:
+            *params = static_cast<GLint>(
+                mState.getCaps().maxCombinedShaderUniformComponents[ShaderType::TessEvaluation]);
+            break;
+        case GL_MAX_TESS_CONTROL_ATOMIC_COUNTER_BUFFERS_EXT:
+            *params = mState.getCaps().maxShaderAtomicCounterBuffers[ShaderType::TessControl];
+            break;
+        case GL_MAX_TESS_EVALUATION_ATOMIC_COUNTER_BUFFERS_EXT:
+            *params = mState.getCaps().maxShaderAtomicCounterBuffers[ShaderType::TessEvaluation];
+            break;
+        case GL_MAX_TESS_CONTROL_ATOMIC_COUNTERS_EXT:
+            *params = mState.getCaps().maxShaderAtomicCounters[ShaderType::TessControl];
+            break;
+        case GL_MAX_TESS_EVALUATION_ATOMIC_COUNTERS_EXT:
+            *params = mState.getCaps().maxShaderAtomicCounters[ShaderType::TessEvaluation];
+            break;
+        case GL_MAX_TESS_CONTROL_IMAGE_UNIFORMS_EXT:
+            *params = mState.getCaps().maxShaderImageUniforms[ShaderType::TessControl];
+            break;
+        case GL_MAX_TESS_EVALUATION_IMAGE_UNIFORMS_EXT:
+            *params = mState.getCaps().maxShaderImageUniforms[ShaderType::TessEvaluation];
+            break;
+        case GL_MAX_TESS_CONTROL_SHADER_STORAGE_BLOCKS_EXT:
+            *params = mState.getCaps().maxShaderStorageBlocks[ShaderType::TessControl];
+            break;
+        case GL_MAX_TESS_EVALUATION_SHADER_STORAGE_BLOCKS_EXT:
+            *params = mState.getCaps().maxShaderStorageBlocks[ShaderType::TessEvaluation];
             break;
         // GLES1 emulation: Caps queries
         case GL_MAX_TEXTURE_UNITS:
-            *params = mState.mCaps.maxMultitextureUnits;
+            *params = mState.getCaps().maxMultitextureUnits;
             break;
         case GL_MAX_MODELVIEW_STACK_DEPTH:
-            *params = mState.mCaps.maxModelviewMatrixStackDepth;
+            *params = mState.getCaps().maxModelviewMatrixStackDepth;
             break;
         case GL_MAX_PROJECTION_STACK_DEPTH:
-            *params = mState.mCaps.maxProjectionMatrixStackDepth;
+            *params = mState.getCaps().maxProjectionMatrixStackDepth;
             break;
         case GL_MAX_TEXTURE_STACK_DEPTH:
-            *params = mState.mCaps.maxTextureMatrixStackDepth;
+            *params = mState.getCaps().maxTextureMatrixStackDepth;
             break;
         case GL_MAX_LIGHTS:
-            *params = mState.mCaps.maxLights;
+            *params = mState.getCaps().maxLights;
             break;
 
         // case GL_MAX_CLIP_DISTANCES_EXT:  Conflict enum value
         case GL_MAX_CLIP_PLANES:
-            if (getClientVersion().major >= 2)
+            if (getClientVersion() >= ES_2_0)
             {
-                // GL_APPLE_clip_distance/GL_EXT_clip_cull_distance
-                *params = mState.mCaps.maxClipDistances;
+                // GL_APPLE_clip_distance / GL_EXT_clip_cull_distance / GL_ANGLE_clip_cull_distance
+                *params = mState.getCaps().maxClipDistances;
             }
             else
             {
-                *params = mState.mCaps.maxClipPlanes;
+                *params = mState.getCaps().maxClipPlanes;
             }
+            break;
+        case GL_MAX_CULL_DISTANCES_EXT:
+            *params = mState.getCaps().maxCullDistances;
+            break;
+        case GL_MAX_COMBINED_CLIP_AND_CULL_DISTANCES_EXT:
+            *params = mState.getCaps().maxCombinedClipAndCullDistances;
             break;
         // GLES1 emulation: Vertex attribute queries
         case GL_VERTEX_ARRAY_BUFFER_BINDING:
@@ -1910,20 +2632,36 @@ void Context::getIntegervImpl(GLenum pname, GLint *params) const
 
         // GL_EXT_blend_func_extended
         case GL_MAX_DUAL_SOURCE_DRAW_BUFFERS_EXT:
-            *params = mState.mExtensions.maxDualSourceDrawBuffers;
+            *params = mState.getCaps().maxDualSourceDrawBuffers;
             break;
 
         // OES_shader_multisample_interpolation
         case GL_FRAGMENT_INTERPOLATION_OFFSET_BITS_OES:
-            *params = mState.mCaps.subPixelInterpolationOffsetBits;
+            *params = mState.getCaps().subPixelInterpolationOffsetBits;
             break;
 
         // GL_OES_texture_buffer
         case GL_MAX_TEXTURE_BUFFER_SIZE:
-            *params = mState.mCaps.maxTextureBufferSize;
+            *params = mState.getCaps().maxTextureBufferSize;
             break;
         case GL_TEXTURE_BUFFER_OFFSET_ALIGNMENT:
-            *params = mState.mCaps.textureBufferOffsetAlignment;
+            *params = mState.getCaps().textureBufferOffsetAlignment;
+            break;
+
+        // ANGLE_shader_pixel_local_storage
+        case GL_MAX_PIXEL_LOCAL_STORAGE_PLANES_ANGLE:
+            *params = mState.getCaps().maxPixelLocalStoragePlanes;
+            break;
+        case GL_MAX_COMBINED_DRAW_BUFFERS_AND_PIXEL_LOCAL_STORAGE_PLANES_ANGLE:
+            *params = mState.getCaps().maxCombinedDrawBuffersAndPixelLocalStoragePlanes;
+            break;
+
+        case GL_QUERY_COUNTER_BITS_EXT:
+            *params = mState.getCaps().queryCounterBitsTimestamp;
+            break;
+
+        case GL_SHADING_RATE_EXT:
+            *params = ToGLenum(mState.getShadingRateEXT());
             break;
 
         default:
@@ -1945,19 +2683,19 @@ void Context::getInteger64vImpl(GLenum pname, GLint64 *params) const
     switch (pname)
     {
         case GL_MAX_ELEMENT_INDEX:
-            *params = mState.mCaps.maxElementIndex;
+            *params = mState.getCaps().maxElementIndex;
             break;
         case GL_MAX_UNIFORM_BLOCK_SIZE:
-            *params = mState.mCaps.maxUniformBlockSize;
+            *params = mState.getCaps().maxUniformBlockSize;
             break;
         case GL_MAX_COMBINED_VERTEX_UNIFORM_COMPONENTS:
-            *params = mState.mCaps.maxCombinedShaderUniformComponents[ShaderType::Vertex];
+            *params = mState.getCaps().maxCombinedShaderUniformComponents[ShaderType::Vertex];
             break;
         case GL_MAX_COMBINED_FRAGMENT_UNIFORM_COMPONENTS:
-            *params = mState.mCaps.maxCombinedShaderUniformComponents[ShaderType::Fragment];
+            *params = mState.getCaps().maxCombinedShaderUniformComponents[ShaderType::Fragment];
             break;
         case GL_MAX_SERVER_WAIT_TIMEOUT:
-            *params = mState.mCaps.maxServerWaitTimeout;
+            *params = mState.getCaps().maxServerWaitTimeout;
             break;
 
         // GL_EXT_disjoint_timer_query
@@ -1966,7 +2704,7 @@ void Context::getInteger64vImpl(GLenum pname, GLint64 *params) const
             break;
 
         case GL_MAX_SHADER_STORAGE_BLOCK_SIZE:
-            *params = mState.mCaps.maxShaderStorageBlockSize;
+            *params = mState.getCaps().maxShaderStorageBlockSize;
             break;
         default:
             UNREACHABLE();
@@ -1979,23 +2717,24 @@ void Context::getPointerv(GLenum pname, void **params)
     mState.getPointerv(this, pname, params);
 }
 
-void Context::getPointervRobustANGLERobust(GLenum pname,
-                                           GLsizei bufSize,
-                                           GLsizei *length,
-                                           void **params)
+void Context::getIntegeri_v(GLenum target, GLuint index, GLint *data)
 {
-    UNIMPLEMENTED();
+    getIntegeri_vRobust(target, index, 0, nullptr, data);
 }
 
-void Context::getIntegeri_v(GLenum target, GLuint index, GLint *data)
+void Context::getIntegeri_vRobust(GLenum target,
+                                  GLuint index,
+                                  GLsizei paramCount,
+                                  GLsizei *length,
+                                  GLint *data)
 {
     // Queries about context capabilities and maximums are answered by Context.
     // Queries about current GL state values are answered by State.
 
     GLenum nativeType;
     unsigned int numParams;
-    bool queryStatus = getIndexedQueryParameterInfo(target, &nativeType, &numParams);
-    ASSERT(queryStatus);
+    const bool paramFound = getIndexedQueryParameterInfo(target, &nativeType, &numParams);
+    ASSERT(paramFound);
 
     if (nativeType == GL_INT)
     {
@@ -2003,11 +2742,11 @@ void Context::getIntegeri_v(GLenum target, GLuint index, GLint *data)
         {
             case GL_MAX_COMPUTE_WORK_GROUP_COUNT:
                 ASSERT(index < 3u);
-                *data = mState.mCaps.maxComputeWorkGroupCount[index];
+                *data = mState.getCaps().maxComputeWorkGroupCount[index];
                 break;
             case GL_MAX_COMPUTE_WORK_GROUP_SIZE:
                 ASSERT(index < 3u);
-                *data = mState.mCaps.maxComputeWorkGroupSize[index];
+                *data = mState.getCaps().maxComputeWorkGroupSize[index];
                 break;
             default:
                 mState.getIntegeri_v(target, index, data);
@@ -2017,28 +2756,33 @@ void Context::getIntegeri_v(GLenum target, GLuint index, GLint *data)
     {
         CastIndexedStateValues(this, nativeType, target, index, numParams, data);
     }
-}
 
-void Context::getIntegeri_vRobust(GLenum target,
-                                  GLuint index,
-                                  GLsizei bufSize,
-                                  GLsizei *length,
-                                  GLint *data)
-{
-    getIntegeri_v(target, index, data);
+    if (length != nullptr)
+    {
+        *length = numParams;
+    }
 }
 
 void Context::getInteger64i_v(GLenum target, GLuint index, GLint64 *data)
+{
+    getInteger64i_vRobust(target, index, 0, nullptr, data);
+}
+
+void Context::getInteger64i_vRobust(GLenum target,
+                                    GLuint index,
+                                    GLsizei paramCount,
+                                    GLsizei *length,
+                                    GLint64 *data)
 {
     // Queries about context capabilities and maximums are answered by Context.
     // Queries about current GL state values are answered by State.
 
     GLenum nativeType;
     unsigned int numParams;
-    bool queryStatus = getIndexedQueryParameterInfo(target, &nativeType, &numParams);
-    ASSERT(queryStatus);
+    const bool paramFound = getIndexedQueryParameterInfo(target, &nativeType, &numParams);
+    ASSERT(paramFound);
 
-    if (nativeType == GL_INT_64_ANGLEX)
+    if (nativeType == GL_INT64)
     {
         mState.getInteger64i_v(target, index, data);
     }
@@ -2046,15 +2790,11 @@ void Context::getInteger64i_v(GLenum target, GLuint index, GLint64 *data)
     {
         CastIndexedStateValues(this, nativeType, target, index, numParams, data);
     }
-}
 
-void Context::getInteger64i_vRobust(GLenum target,
-                                    GLuint index,
-                                    GLsizei bufSize,
-                                    GLsizei *length,
-                                    GLint64 *data)
-{
-    getInteger64i_v(target, index, data);
+    if (length != nullptr)
+    {
+        *length = numParams;
+    }
 }
 
 void Context::getBooleani_v(GLenum target, GLuint index, GLboolean *data)
@@ -2064,8 +2804,8 @@ void Context::getBooleani_v(GLenum target, GLuint index, GLboolean *data)
 
     GLenum nativeType;
     unsigned int numParams;
-    bool queryStatus = getIndexedQueryParameterInfo(target, &nativeType, &numParams);
-    ASSERT(queryStatus);
+    const bool paramFound = getIndexedQueryParameterInfo(target, &nativeType, &numParams);
+    ASSERT(paramFound);
 
     if (nativeType == GL_BOOL)
     {
@@ -2077,28 +2817,24 @@ void Context::getBooleani_v(GLenum target, GLuint index, GLboolean *data)
     }
 }
 
-void Context::getBooleani_vRobust(GLenum target,
-                                  GLuint index,
-                                  GLsizei bufSize,
-                                  GLsizei *length,
-                                  GLboolean *data)
-{
-    getBooleani_v(target, index, data);
-}
-
-void Context::getBufferParameteriv(BufferBinding target, GLenum pname, GLint *params)
+void Context::getBufferParameteriv(BufferBinding target, BufferParam pnamePacked, GLint *params)
 {
     Buffer *buffer = mState.getTargetBuffer(target);
-    QueryBufferParameteriv(buffer, pname, params);
+    QueryBufferParameteriv(buffer, pnamePacked, params);
 }
 
 void Context::getBufferParameterivRobust(BufferBinding target,
-                                         GLenum pname,
-                                         GLsizei bufSize,
+                                         BufferParam pnamePacked,
+                                         GLsizei paramCount,
                                          GLsizei *length,
                                          GLint *params)
 {
-    getBufferParameteriv(target, pname, params);
+    getBufferParameteriv(target, pnamePacked, params);
+
+    if (length != nullptr)
+    {
+        *length = 1;
+    }
 }
 
 void Context::getFramebufferAttachmentParameteriv(GLenum target,
@@ -2113,11 +2849,16 @@ void Context::getFramebufferAttachmentParameteriv(GLenum target,
 void Context::getFramebufferAttachmentParameterivRobust(GLenum target,
                                                         GLenum attachment,
                                                         GLenum pname,
-                                                        GLsizei bufSize,
+                                                        GLsizei paramCount,
                                                         GLsizei *length,
                                                         GLint *params)
 {
     getFramebufferAttachmentParameteriv(target, attachment, pname, params);
+
+    if (length != nullptr)
+    {
+        *length = 1;
+    }
 }
 
 void Context::getRenderbufferParameteriv(GLenum target, GLenum pname, GLint *params)
@@ -2128,17 +2869,25 @@ void Context::getRenderbufferParameteriv(GLenum target, GLenum pname, GLint *par
 
 void Context::getRenderbufferParameterivRobust(GLenum target,
                                                GLenum pname,
-                                               GLsizei bufSize,
+                                               GLsizei paramCount,
                                                GLsizei *length,
                                                GLint *params)
 {
     getRenderbufferParameteriv(target, pname, params);
+
+    if (length != nullptr)
+    {
+        *length = 1;
+    }
 }
 
 void Context::texBuffer(TextureType target, GLenum internalformat, BufferID buffer)
 {
+    ASSERT(target == TextureType::Buffer);
+
+    Texture *texture  = getTextureByType(target);
     Buffer *bufferObj = mState.mBufferManager->getBuffer(buffer);
-    texBufferRange(target, internalformat, buffer, 0, clampCast<GLintptr>(bufferObj->getSize()));
+    ANGLE_CONTEXT_TRY(texture->setBuffer(this, bufferObj, internalformat));
 }
 
 void Context::texBufferRange(TextureType target,
@@ -2151,170 +2900,166 @@ void Context::texBufferRange(TextureType target,
 
     Texture *texture  = getTextureByType(target);
     Buffer *bufferObj = mState.mBufferManager->getBuffer(buffer);
-    ANGLE_CONTEXT_TRY(texture->setBuffer(this, bufferObj, internalformat, offset, size));
+    ANGLE_CONTEXT_TRY(texture->setBufferRange(this, bufferObj, internalformat, offset, size));
 }
 
-void Context::getTexParameterfv(TextureType target, GLenum pname, GLfloat *params)
+void Context::getTexParameterfv(TextureType targetPacked, GLenum pname, GLfloat *params)
 {
-    const Texture *const texture = getTextureByType(target);
+    const Texture *const texture = getTextureByType(targetPacked);
     QueryTexParameterfv(this, texture, pname, params);
 }
 
-void Context::getTexParameterfvRobust(TextureType target,
+void Context::getTexParameterfvRobust(TextureType targetPacked,
                                       GLenum pname,
-                                      GLsizei bufSize,
+                                      GLsizei paramCount,
                                       GLsizei *length,
                                       GLfloat *params)
 {
-    getTexParameterfv(target, pname, params);
+    getTexParameterfv(targetPacked, pname, params);
+
+    if (length != nullptr)
+    {
+        *length = (pname == GL_TEXTURE_BORDER_COLOR) ? 4 : 1;
+    }
 }
 
-void Context::getTexParameteriv(TextureType target, GLenum pname, GLint *params)
+void Context::getTexParameteriv(TextureType targetPacked, GLenum pname, GLint *params)
 {
-    const Texture *const texture = getTextureByType(target);
+    const Texture *const texture = getTextureByType(targetPacked);
     QueryTexParameteriv(this, texture, pname, params);
 }
 
-void Context::getTexParameterIiv(TextureType target, GLenum pname, GLint *params)
+void Context::getTexParameterIiv(TextureType targetPacked, GLenum pname, GLint *params)
 {
-    const Texture *const texture = getTextureByType(target);
+    const Texture *const texture = getTextureByType(targetPacked);
     QueryTexParameterIiv(this, texture, pname, params);
 }
 
-void Context::getTexParameterIuiv(TextureType target, GLenum pname, GLuint *params)
+void Context::getTexParameterIuiv(TextureType targetPacked, GLenum pname, GLuint *params)
 {
-    const Texture *const texture = getTextureByType(target);
+    const Texture *const texture = getTextureByType(targetPacked);
     QueryTexParameterIuiv(this, texture, pname, params);
 }
 
-void Context::getTexParameterivRobust(TextureType target,
+void Context::getTexParameterivRobust(TextureType targetPacked,
                                       GLenum pname,
-                                      GLsizei bufSize,
+                                      GLsizei paramCount,
                                       GLsizei *length,
                                       GLint *params)
 {
-    getTexParameteriv(target, pname, params);
+    getTexParameteriv(targetPacked, pname, params);
+
+    if (length != nullptr)
+    {
+        *length = (pname == GL_TEXTURE_BORDER_COLOR) ? 4 : 1;
+    }
 }
 
-void Context::getTexParameterIivRobust(TextureType target,
-                                       GLenum pname,
-                                       GLsizei bufSize,
-                                       GLsizei *length,
-                                       GLint *params)
+void Context::getTexLevelParameteriv(TextureTarget targetPacked,
+                                     GLint level,
+                                     TextureImageParameter pnamePacked,
+                                     GLint *params)
 {
-    UNIMPLEMENTED();
+    Texture *texture = getTextureByTarget(targetPacked);
+    QueryTexLevelParameteriv(texture, targetPacked, level, pnamePacked, params);
 }
 
-void Context::getTexParameterIuivRobust(TextureType target,
-                                        GLenum pname,
-                                        GLsizei bufSize,
-                                        GLsizei *length,
-                                        GLuint *params)
-{
-    UNIMPLEMENTED();
-}
-
-void Context::getTexLevelParameteriv(TextureTarget target, GLint level, GLenum pname, GLint *params)
-{
-    Texture *texture = getTextureByTarget(target);
-    QueryTexLevelParameteriv(texture, target, level, pname, params);
-}
-
-void Context::getTexLevelParameterivRobust(TextureTarget target,
+void Context::getTexLevelParameterivRobust(TextureTarget targetPacked,
                                            GLint level,
-                                           GLenum pname,
-                                           GLsizei bufSize,
+                                           TextureImageParameter pnamePacked,
+                                           GLsizei paramCount,
                                            GLsizei *length,
                                            GLint *params)
 {
-    UNIMPLEMENTED();
+    getTexLevelParameteriv(targetPacked, level, pnamePacked, params);
+
+    if (length != nullptr)
+    {
+        *length = 1;
+    }
 }
 
-void Context::getTexLevelParameterfv(TextureTarget target,
+void Context::getTexLevelParameterfv(TextureTarget targetPacked,
                                      GLint level,
-                                     GLenum pname,
+                                     TextureImageParameter pnamePacked,
                                      GLfloat *params)
 {
-    Texture *texture = getTextureByTarget(target);
-    QueryTexLevelParameterfv(texture, target, level, pname, params);
+    Texture *texture = getTextureByTarget(targetPacked);
+    QueryTexLevelParameterfv(texture, targetPacked, level, pnamePacked, params);
 }
 
-void Context::getTexLevelParameterfvRobust(TextureTarget target,
+void Context::getTexLevelParameterfvRobust(TextureTarget targetPacked,
                                            GLint level,
-                                           GLenum pname,
-                                           GLsizei bufSize,
+                                           TextureImageParameter pnamePacked,
+                                           GLsizei paramCount,
                                            GLsizei *length,
                                            GLfloat *params)
 {
-    UNIMPLEMENTED();
+    getTexLevelParameterfv(targetPacked, level, pnamePacked, params);
+
+    if (length != nullptr)
+    {
+        *length = 1;
+    }
 }
 
-void Context::texParameterf(TextureType target, GLenum pname, GLfloat param)
+void Context::texParameterf(TextureType targetPacked, GLenum pname, GLfloat param)
 {
-    Texture *const texture = getTextureByType(target);
+    Texture *const texture = getTextureByType(targetPacked);
     SetTexParameterf(this, texture, pname, param);
 }
 
-void Context::texParameterfv(TextureType target, GLenum pname, const GLfloat *params)
+void Context::texParameterfv(TextureType targetPacked, GLenum pname, const GLfloat *params)
 {
-    Texture *const texture = getTextureByType(target);
+    Texture *const texture = getTextureByType(targetPacked);
     SetTexParameterfv(this, texture, pname, params);
 }
 
-void Context::texParameterfvRobust(TextureType target,
+void Context::texParameterfvRobust(TextureType targetPacked,
                                    GLenum pname,
-                                   GLsizei bufSize,
+                                   GLsizei paramCount,
                                    const GLfloat *params)
 {
-    texParameterfv(target, pname, params);
+    texParameterfv(targetPacked, pname, params);
 }
 
-void Context::texParameteri(TextureType target, GLenum pname, GLint param)
+void Context::texParameteri(TextureType targetPacked, GLenum pname, GLint param)
 {
-    Texture *const texture = getTextureByType(target);
+    // Some apps enable KHR_create_context_no_error but pass in an invalid texture type.
+    // Workaround this by silently returning in such situations.
+    if (targetPacked == TextureType::InvalidEnum)
+    {
+        return;
+    }
+
+    Texture *const texture = getTextureByType(targetPacked);
     SetTexParameteri(this, texture, pname, param);
 }
 
-void Context::texParameteriv(TextureType target, GLenum pname, const GLint *params)
+void Context::texParameteriv(TextureType targetPacked, GLenum pname, const GLint *params)
 {
-    Texture *const texture = getTextureByType(target);
+    Texture *const texture = getTextureByType(targetPacked);
     SetTexParameteriv(this, texture, pname, params);
 }
 
-void Context::texParameterIiv(TextureType target, GLenum pname, const GLint *params)
+void Context::texParameterIiv(TextureType targetPacked, GLenum pname, const GLint *params)
 {
-    Texture *const texture = getTextureByType(target);
+    Texture *const texture = getTextureByType(targetPacked);
     SetTexParameterIiv(this, texture, pname, params);
 }
 
-void Context::texParameterIuiv(TextureType target, GLenum pname, const GLuint *params)
+void Context::texParameterIuiv(TextureType targetPacked, GLenum pname, const GLuint *params)
 {
-    Texture *const texture = getTextureByType(target);
+    Texture *const texture = getTextureByType(targetPacked);
     SetTexParameterIuiv(this, texture, pname, params);
 }
 
-void Context::texParameterivRobust(TextureType target,
+void Context::texParameterivRobust(TextureType targetPacked,
                                    GLenum pname,
-                                   GLsizei bufSize,
+                                   GLsizei paramCount,
                                    const GLint *params)
 {
-    texParameteriv(target, pname, params);
-}
-
-void Context::texParameterIivRobust(TextureType target,
-                                    GLenum pname,
-                                    GLsizei bufSize,
-                                    const GLint *params)
-{
-    UNIMPLEMENTED();
-}
-
-void Context::texParameterIuivRobust(TextureType target,
-                                     GLenum pname,
-                                     GLsizei bufSize,
-                                     const GLuint *params)
-{
-    UNIMPLEMENTED();
+    texParameteriv(targetPacked, pname, params);
 }
 
 void Context::drawArraysInstanced(PrimitiveMode mode,
@@ -2325,6 +3070,7 @@ void Context::drawArraysInstanced(PrimitiveMode mode,
     // No-op if count draws no primitives for given mode
     if (noopDrawInstanced(mode, count, instanceCount))
     {
+        ANGLE_CONTEXT_TRY(mImplementation->handleNoopDrawEvent());
         return;
     }
 
@@ -2344,6 +3090,7 @@ void Context::drawElementsInstanced(PrimitiveMode mode,
     // No-op if count draws no primitives for given mode
     if (noopDrawInstanced(mode, count, instances))
     {
+        ANGLE_CONTEXT_TRY(mImplementation->handleNoopDrawEvent());
         return;
     }
 
@@ -2362,6 +3109,7 @@ void Context::drawElementsBaseVertex(PrimitiveMode mode,
     // No-op if count draws no primitives for given mode
     if (noopDraw(mode, count))
     {
+        ANGLE_CONTEXT_TRY(mImplementation->handleNoopDrawEvent());
         return;
     }
 
@@ -2381,6 +3129,7 @@ void Context::drawElementsInstancedBaseVertex(PrimitiveMode mode,
     // No-op if count draws no primitives for given mode
     if (noopDrawInstanced(mode, count, instancecount))
     {
+        ANGLE_CONTEXT_TRY(mImplementation->handleNoopDrawEvent());
         return;
     }
 
@@ -2400,6 +3149,7 @@ void Context::drawRangeElements(PrimitiveMode mode,
     // No-op if count draws no primitives for given mode
     if (noopDraw(mode, count))
     {
+        ANGLE_CONTEXT_TRY(mImplementation->handleNoopDrawEvent());
         return;
     }
 
@@ -2420,6 +3170,7 @@ void Context::drawRangeElementsBaseVertex(PrimitiveMode mode,
     // No-op if count draws no primitives for given mode
     if (noopDraw(mode, count))
     {
+        ANGLE_CONTEXT_TRY(mImplementation->handleNoopDrawEvent());
         return;
     }
 
@@ -2431,6 +3182,12 @@ void Context::drawRangeElementsBaseVertex(PrimitiveMode mode,
 
 void Context::drawArraysIndirect(PrimitiveMode mode, const void *indirect)
 {
+    if (noopDrawProgram())
+    {
+        ANGLE_CONTEXT_TRY(mImplementation->handleNoopDrawEvent());
+        return;
+    }
+
     ANGLE_CONTEXT_TRY(prepareForDraw(mode));
     ANGLE_CONTEXT_TRY(mImplementation->drawArraysIndirect(this, mode, indirect));
     MarkShaderStorageUsage(this);
@@ -2438,6 +3195,12 @@ void Context::drawArraysIndirect(PrimitiveMode mode, const void *indirect)
 
 void Context::drawElementsIndirect(PrimitiveMode mode, DrawElementsType type, const void *indirect)
 {
+    if (noopDrawProgram())
+    {
+        ANGLE_CONTEXT_TRY(mImplementation->handleNoopDrawEvent());
+        return;
+    }
+
     ANGLE_CONTEXT_TRY(prepareForDraw(mode));
     ANGLE_CONTEXT_TRY(mImplementation->drawElementsIndirect(this, mode, type, indirect));
     MarkShaderStorageUsage(this);
@@ -2455,30 +3218,49 @@ void Context::finish()
 
 void Context::insertEventMarker(GLsizei length, const char *marker)
 {
-    ASSERT(mImplementation);
-    ANGLE_CONTEXT_TRY(mImplementation->insertEventMarker(length, marker));
+    if (length < 0 || marker == nullptr)
+    {
+        return;  // no-op, not an error
+    }
+
+    // If <length> is 0 then <marker> is assumed to be null-terminated.
+    ANGLE_CONTEXT_TRY(mImplementation->insertEventMarker(
+        GetMarkerLength(length, marker, static_cast<GLsizei>(getCaps().maxDebugMessageLength)),
+        marker));
 }
 
 void Context::pushGroupMarker(GLsizei length, const char *marker)
 {
-    ASSERT(mImplementation);
+    ASSERT(mState.getGroupMarkerCount() < getCaps().maxDebugGroupStackDepth);
+    if (length < 0)
+    {
+        return;  // no-op, not an error
+    }
 
     if (marker == nullptr)
     {
-        // From the EXT_debug_marker spec,
-        // "If <marker> is null then an empty string is pushed on the stack."
-        ANGLE_CONTEXT_TRY(mImplementation->pushGroupMarker(length, ""));
+        // If <marker> is null then an empty string is pushed on the stack.
+        ANGLE_CONTEXT_TRY(mImplementation->pushGroupMarker(0, ""));
     }
     else
     {
-        ANGLE_CONTEXT_TRY(mImplementation->pushGroupMarker(length, marker));
+        // If <length> is 0 then <marker> is assumed to be null-terminated.
+        ANGLE_CONTEXT_TRY(mImplementation->pushGroupMarker(
+            GetMarkerLength(length, marker, static_cast<GLsizei>(getCaps().maxDebugMessageLength)),
+            marker));
     }
+    mState.incrementGroupMarkers();
 }
 
 void Context::popGroupMarker()
 {
-    ASSERT(mImplementation);
+    // According to the spec, if there is no group marker to pop, the pop command should be ignored.
+    if (mState.getGroupMarkerCount() == 0)
+    {
+        return;
+    }
     ANGLE_CONTEXT_TRY(mImplementation->popGroupMarker());
+    mState.decrementGroupMarkers();
 }
 
 void Context::bindUniformLocation(ShaderProgramID program,
@@ -2488,12 +3270,7 @@ void Context::bindUniformLocation(ShaderProgramID program,
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
 
-    programObject->bindUniformLocation(location, name);
-}
-
-void Context::coverageModulation(GLenum components)
-{
-    mState.setCoverageModulation(components);
+    programObject->bindUniformLocation(this, location, name);
 }
 
 GLuint Context::getProgramResourceIndex(ShaderProgramID program,
@@ -2512,7 +3289,7 @@ void Context::getProgramResourceName(ShaderProgramID program,
                                      GLchar *name)
 {
     const Program *programObject = getProgramResolveLink(program);
-    QueryProgramResourceName(programObject, programInterface, index, bufSize, length, name);
+    QueryProgramResourceName(this, programObject, programInterface, index, bufSize, length, name);
 }
 
 GLint Context::getProgramResourceLocation(ShaderProgramID program,
@@ -2528,12 +3305,12 @@ void Context::getProgramResourceiv(ShaderProgramID program,
                                    GLuint index,
                                    GLsizei propCount,
                                    const GLenum *props,
-                                   GLsizei bufSize,
+                                   GLsizei count,
                                    GLsizei *length,
                                    GLint *params)
 {
     const Program *programObject = getProgramResolveLink(program);
-    QueryProgramResourceiv(programObject, programInterface, index, propCount, props, bufSize,
+    QueryProgramResourceiv(programObject, programInterface, {index}, propCount, props, count,
                            length, params);
 }
 
@@ -2546,16 +3323,6 @@ void Context::getProgramInterfaceiv(ShaderProgramID program,
     QueryProgramInterfaceiv(programObject, programInterface, pname, params);
 }
 
-void Context::getProgramInterfaceivRobust(ShaderProgramID program,
-                                          GLenum programInterface,
-                                          GLenum pname,
-                                          GLsizei bufSize,
-                                          GLsizei *length,
-                                          GLint *params)
-{
-    UNIMPLEMENTED();
-}
-
 void Context::handleError(GLenum errorCode,
                           const char *message,
                           const char *file,
@@ -2563,11 +3330,6 @@ void Context::handleError(GLenum errorCode,
                           unsigned int line)
 {
     mErrors.handleError(errorCode, message, file, function, line);
-}
-
-void Context::validationError(GLenum errorCode, const char *message) const
-{
-    const_cast<Context *>(this)->mErrors.validationError(errorCode, message);
 }
 
 // Get one of the recorded errors and clear its flag, if any.
@@ -2584,88 +3346,14 @@ GLenum Context::getError()
     }
 }
 
-// NOTE: this function should not assume that this context is current!
-void Context::markContextLost(GraphicsResetStatus status)
-{
-    ASSERT(status != GraphicsResetStatus::NoError);
-    if (mResetStrategy == GL_LOSE_CONTEXT_ON_RESET_EXT)
-    {
-        mResetStatus       = status;
-        mContextLostForced = true;
-    }
-    setContextLost();
-}
-
-void Context::setContextLost()
-{
-    mContextLost = true;
-
-    // Stop skipping validation, since many implementation entrypoint assume they can't
-    // be called when lost, or with null object arguments, etc.
-    mSkipValidation = false;
-
-    // Make sure we update TLS.
-#if defined(ANGLE_PLATFORM_APPLE)
-    SetCurrentValidContextTLS(nullptr);
-#else
-    gCurrentValidContext = nullptr;
-#endif
-}
-
 GLenum Context::getGraphicsResetStatus()
 {
-    // Even if the application doesn't want to know about resets, we want to know
-    // as it will allow us to skip all the calls.
-    if (mResetStrategy == GL_NO_RESET_NOTIFICATION_EXT)
-    {
-        if (!isContextLost() && mImplementation->getResetStatus() != GraphicsResetStatus::NoError)
-        {
-            setContextLost();
-        }
-
-        // EXT_robustness, section 2.6: If the reset notification behavior is
-        // NO_RESET_NOTIFICATION_EXT, then the implementation will never deliver notification of
-        // reset events, and GetGraphicsResetStatusEXT will always return NO_ERROR.
-        return GL_NO_ERROR;
-    }
-
-    // The GL_EXT_robustness spec says that if a reset is encountered, a reset
-    // status should be returned at least once, and GL_NO_ERROR should be returned
-    // once the device has finished resetting.
-    if (!isContextLost())
-    {
-        ASSERT(mResetStatus == GraphicsResetStatus::NoError);
-        mResetStatus = mImplementation->getResetStatus();
-
-        if (mResetStatus != GraphicsResetStatus::NoError)
-        {
-            setContextLost();
-        }
-    }
-    else if (!mContextLostForced && mResetStatus != GraphicsResetStatus::NoError)
-    {
-        // If markContextLost was used to mark the context lost then
-        // assume that is not recoverable, and continue to report the
-        // lost reset status for the lifetime of this context.
-        mResetStatus = mImplementation->getResetStatus();
-    }
-
-    return ToGLenum(mResetStatus);
+    return mErrors.getGraphicsResetStatus(mImplementation.get());
 }
 
-bool Context::isResetNotificationEnabled()
+bool Context::isResetNotificationEnabled() const
 {
-    return (mResetStrategy == GL_LOSE_CONTEXT_ON_RESET_EXT);
-}
-
-const egl::Config *Context::getConfig() const
-{
-    return mConfig;
-}
-
-EGLenum Context::getClientType() const
-{
-    return mState.getClientType();
+    return mErrors.getResetStrategy() == GL_LOSE_CONTEXT_ON_RESET_EXT;
 }
 
 EGLenum Context::getRenderBuffer() const
@@ -2682,18 +3370,20 @@ EGLenum Context::getRenderBuffer() const
     return backAttachment->getSurface()->getRenderBuffer();
 }
 
+// This function should only be called by the thread where the context is current (i.e., it's not
+// thread safe).
 VertexArray *Context::checkVertexArrayAllocation(VertexArrayID vertexArrayHandle)
 {
     // Only called after a prior call to Gen.
-    VertexArray *vertexArray = getVertexArray(vertexArrayHandle);
+    VertexArray *vertexArray = getPrivateState().getVertexArray(vertexArrayHandle);
     if (!vertexArray)
     {
-        vertexArray =
-            new VertexArray(mImplementation.get(), vertexArrayHandle,
-                            mState.mCaps.maxVertexAttributes, mState.mCaps.maxVertexAttribBindings);
-        vertexArray->setBufferAccessValidationEnabled(mBufferAccessValidationEnabled);
+        vertexArray = new VertexArray(mImplementation.get(), vertexArrayHandle,
+                                      mState.getCaps().maxVertexAttributes,
+                                      mState.getCaps().maxVertexAttribBindings);
+        vertexArray->setRobustBufferAccessEnabled(mRequiresRobustBehavior);
 
-        mVertexArrayMap.assign(vertexArrayHandle, vertexArray);
+        getMutablePrivateState()->setVertexArray(vertexArrayHandle, vertexArray);
     }
 
     return vertexArray;
@@ -2707,7 +3397,7 @@ TransformFeedback *Context::checkTransformFeedbackAllocation(
     if (!transformFeedback)
     {
         transformFeedback =
-            new TransformFeedback(mImplementation.get(), transformFeedbackHandle, mState.mCaps);
+            new TransformFeedback(mImplementation.get(), transformFeedbackHandle, mState.getCaps());
         transformFeedback->addRef();
         mTransformFeedbackMap.assign(transformFeedbackHandle, transformFeedback);
     }
@@ -2715,16 +3405,16 @@ TransformFeedback *Context::checkTransformFeedbackAllocation(
     return transformFeedback;
 }
 
-bool Context::isVertexArrayGenerated(VertexArrayID vertexArray) const
-{
-    ASSERT(mVertexArrayMap.contains({0}));
-    return mVertexArrayMap.contains(vertexArray);
-}
-
 bool Context::isTransformFeedbackGenerated(TransformFeedbackID transformFeedback) const
 {
     ASSERT(mTransformFeedbackMap.contains({0}));
     return mTransformFeedbackMap.contains(transformFeedback);
+}
+
+bool Context::isZeroTextureBound(TextureType textureType) const
+{
+    Texture *texture = mState.getTargetTexture(textureType);
+    return mZeroTextures[textureType].get() == texture;
 }
 
 void Context::detachTexture(TextureID texture)
@@ -2813,6 +3503,7 @@ void Context::detachTransformFeedback(TransformFeedbackID transformFeedback)
     if (mState.removeTransformFeedbackBinding(this, transformFeedback))
     {
         bindTransformFeedback(GL_TRANSFORM_FEEDBACK, {0});
+        onActiveTransformFeedbackChange();
     }
 }
 
@@ -2826,164 +3517,213 @@ void Context::detachProgramPipeline(ProgramPipelineID pipeline)
     mState.detachProgramPipeline(this, pipeline);
 }
 
-void Context::vertexAttribDivisor(GLuint index, GLuint divisor)
-{
-    mState.setVertexAttribDivisor(this, index, divisor);
-    mStateCache.onVertexArrayStateChange(this);
-}
-
-void Context::samplerParameteri(SamplerID sampler, GLenum pname, GLint param)
+void Context::samplerParameteri(SamplerID samplerPacked, SamplerParameter pnamePacked, GLint param)
 {
     Sampler *const samplerObject =
-        mState.mSamplerManager->checkSamplerAllocation(mImplementation.get(), sampler);
-    SetSamplerParameteri(this, samplerObject, pname, param);
+        mState.mSamplerManager->checkSamplerAllocation(mImplementation.get(), samplerPacked);
+    SetSamplerParameteriv(this, samplerObject, pnamePacked, &param);
 }
 
-void Context::samplerParameteriv(SamplerID sampler, GLenum pname, const GLint *param)
+void Context::samplerParameteriv(SamplerID samplerPacked,
+                                 SamplerParameter pnamePacked,
+                                 const GLint *param)
 {
     Sampler *const samplerObject =
-        mState.mSamplerManager->checkSamplerAllocation(mImplementation.get(), sampler);
-    SetSamplerParameteriv(this, samplerObject, pname, param);
+        mState.mSamplerManager->checkSamplerAllocation(mImplementation.get(), samplerPacked);
+    SetSamplerParameteriv(this, samplerObject, pnamePacked, param);
 }
 
-void Context::samplerParameterIiv(SamplerID sampler, GLenum pname, const GLint *param)
+void Context::samplerParameterIiv(SamplerID samplerPacked,
+                                  SamplerParameter pnamePacked,
+                                  const GLint *param)
 {
     Sampler *const samplerObject =
-        mState.mSamplerManager->checkSamplerAllocation(mImplementation.get(), sampler);
-    SetSamplerParameterIiv(this, samplerObject, pname, param);
+        mState.mSamplerManager->checkSamplerAllocation(mImplementation.get(), samplerPacked);
+    SetSamplerParameterIiv(this, samplerObject, pnamePacked, param);
 }
 
-void Context::samplerParameterIuiv(SamplerID sampler, GLenum pname, const GLuint *param)
+void Context::samplerParameterIuiv(SamplerID samplerPacked,
+                                   SamplerParameter pnamePacked,
+                                   const GLuint *param)
 {
     Sampler *const samplerObject =
-        mState.mSamplerManager->checkSamplerAllocation(mImplementation.get(), sampler);
-    SetSamplerParameterIuiv(this, samplerObject, pname, param);
+        mState.mSamplerManager->checkSamplerAllocation(mImplementation.get(), samplerPacked);
+    SetSamplerParameterIuiv(this, samplerObject, pnamePacked, param);
 }
 
-void Context::samplerParameterivRobust(SamplerID sampler,
-                                       GLenum pname,
-                                       GLsizei bufSize,
+void Context::samplerParameterivRobust(SamplerID samplerPacked,
+                                       SamplerParameter pnamePacked,
+                                       GLsizei paramCount,
                                        const GLint *param)
 {
-    samplerParameteriv(sampler, pname, param);
+    samplerParameteriv(samplerPacked, pnamePacked, param);
 }
 
-void Context::samplerParameterIivRobust(SamplerID sampler,
-                                        GLenum pname,
-                                        GLsizei bufSize,
-                                        const GLint *param)
-{
-    UNIMPLEMENTED();
-}
-
-void Context::samplerParameterIuivRobust(SamplerID sampler,
-                                         GLenum pname,
-                                         GLsizei bufSize,
-                                         const GLuint *param)
-{
-    UNIMPLEMENTED();
-}
-
-void Context::samplerParameterf(SamplerID sampler, GLenum pname, GLfloat param)
+void Context::samplerParameterf(SamplerID samplerPacked,
+                                SamplerParameter pnamePacked,
+                                GLfloat param)
 {
     Sampler *const samplerObject =
-        mState.mSamplerManager->checkSamplerAllocation(mImplementation.get(), sampler);
-    SetSamplerParameterf(this, samplerObject, pname, param);
+        mState.mSamplerManager->checkSamplerAllocation(mImplementation.get(), samplerPacked);
+    SetSamplerParameterfv(this, samplerObject, pnamePacked, &param);
 }
 
-void Context::samplerParameterfv(SamplerID sampler, GLenum pname, const GLfloat *param)
+void Context::samplerParameterfv(SamplerID samplerPacked,
+                                 SamplerParameter pnamePacked,
+                                 const GLfloat *param)
 {
     Sampler *const samplerObject =
-        mState.mSamplerManager->checkSamplerAllocation(mImplementation.get(), sampler);
-    SetSamplerParameterfv(this, samplerObject, pname, param);
+        mState.mSamplerManager->checkSamplerAllocation(mImplementation.get(), samplerPacked);
+    SetSamplerParameterfv(this, samplerObject, pnamePacked, param);
 }
 
-void Context::samplerParameterfvRobust(SamplerID sampler,
-                                       GLenum pname,
-                                       GLsizei bufSize,
+void Context::samplerParameterfvRobust(SamplerID samplerPacked,
+                                       SamplerParameter pnamePacked,
+                                       GLsizei paramCount,
                                        const GLfloat *param)
 {
-    samplerParameterfv(sampler, pname, param);
+    samplerParameterfv(samplerPacked, pnamePacked, param);
 }
 
-void Context::getSamplerParameteriv(SamplerID sampler, GLenum pname, GLint *params)
+void Context::getSamplerParameteriv(SamplerID samplerPacked,
+                                    SamplerParameter pnamePacked,
+                                    GLint *params)
 {
     const Sampler *const samplerObject =
-        mState.mSamplerManager->checkSamplerAllocation(mImplementation.get(), sampler);
-    QuerySamplerParameteriv(samplerObject, pname, params);
+        mState.mSamplerManager->checkSamplerAllocation(mImplementation.get(), samplerPacked);
+    QuerySamplerParameteriv(samplerObject, pnamePacked, params);
 }
 
-void Context::getSamplerParameterIiv(SamplerID sampler, GLenum pname, GLint *params)
+void Context::getSamplerParameterIiv(SamplerID samplerPacked,
+                                     SamplerParameter pnamePacked,
+                                     GLint *params)
 {
     const Sampler *const samplerObject =
-        mState.mSamplerManager->checkSamplerAllocation(mImplementation.get(), sampler);
-    QuerySamplerParameterIiv(samplerObject, pname, params);
+        mState.mSamplerManager->checkSamplerAllocation(mImplementation.get(), samplerPacked);
+    QuerySamplerParameterIiv(samplerObject, pnamePacked, params);
 }
 
-void Context::getSamplerParameterIuiv(SamplerID sampler, GLenum pname, GLuint *params)
+void Context::getSamplerParameterIuiv(SamplerID samplerPacked,
+                                      SamplerParameter pnamePacked,
+                                      GLuint *params)
 {
     const Sampler *const samplerObject =
-        mState.mSamplerManager->checkSamplerAllocation(mImplementation.get(), sampler);
-    QuerySamplerParameterIuiv(samplerObject, pname, params);
+        mState.mSamplerManager->checkSamplerAllocation(mImplementation.get(), samplerPacked);
+    QuerySamplerParameterIuiv(samplerObject, pnamePacked, params);
 }
 
-void Context::getSamplerParameterivRobust(SamplerID sampler,
-                                          GLenum pname,
-                                          GLsizei bufSize,
+void Context::getSamplerParameterivRobust(SamplerID samplerPacked,
+                                          SamplerParameter pnamePacked,
+                                          GLsizei paramCount,
                                           GLsizei *length,
                                           GLint *params)
 {
-    getSamplerParameteriv(sampler, pname, params);
+    getSamplerParameteriv(samplerPacked, pnamePacked, params);
+
+    if (length != nullptr)
+    {
+        *length = (pnamePacked == SamplerParameter::BorderColor) ? 4 : 1;
+    }
 }
 
-void Context::getSamplerParameterIivRobust(SamplerID sampler,
-                                           GLenum pname,
-                                           GLsizei bufSize,
-                                           GLsizei *length,
-                                           GLint *params)
-{
-    UNIMPLEMENTED();
-}
-
-void Context::getSamplerParameterIuivRobust(SamplerID sampler,
-                                            GLenum pname,
-                                            GLsizei bufSize,
-                                            GLsizei *length,
-                                            GLuint *params)
-{
-    UNIMPLEMENTED();
-}
-
-void Context::getSamplerParameterfv(SamplerID sampler, GLenum pname, GLfloat *params)
+void Context::getSamplerParameterfv(SamplerID samplerPacked,
+                                    SamplerParameter pnamePacked,
+                                    GLfloat *params)
 {
     const Sampler *const samplerObject =
-        mState.mSamplerManager->checkSamplerAllocation(mImplementation.get(), sampler);
-    QuerySamplerParameterfv(samplerObject, pname, params);
+        mState.mSamplerManager->checkSamplerAllocation(mImplementation.get(), samplerPacked);
+    QuerySamplerParameterfv(samplerObject, pnamePacked, params);
 }
 
-void Context::getSamplerParameterfvRobust(SamplerID sampler,
-                                          GLenum pname,
-                                          GLsizei bufSize,
+void Context::getSamplerParameterfvRobust(SamplerID samplerPacked,
+                                          SamplerParameter pnamePacked,
+                                          GLsizei paramCount,
                                           GLsizei *length,
                                           GLfloat *params)
 {
-    getSamplerParameterfv(sampler, pname, params);
+    getSamplerParameterfv(samplerPacked, pnamePacked, params);
+
+    if (length != nullptr)
+    {
+        *length = (pnamePacked == SamplerParameter::BorderColor) ? 4 : 1;
+    }
 }
 
 void Context::programParameteri(ShaderProgramID program, GLenum pname, GLint value)
 {
     gl::Program *programObject = getProgramResolveLink(program);
-    SetProgramParameteri(programObject, pname, value);
+    SetProgramParameteri(this, programObject, pname, value);
+}
+
+const char *Context::makeStaticString(const std::string &str)
+{
+    auto it = mStaticStrings.find(str);
+    if (it != mStaticStrings.end())
+    {
+        return it->c_str();
+    }
+
+    return mStaticStrings.insert(str).first->c_str();
 }
 
 void Context::initRendererString()
 {
-    std::ostringstream rendererString;
-    rendererString << "ANGLE (";
-    rendererString << mImplementation->getRendererDescription();
-    rendererString << ")";
+    std::ostringstream frontendRendererString;
 
-    mRendererString = MakeStaticString(rendererString.str());
+    constexpr char kRendererString[]        = "ANGLE_GL_RENDERER";
+    constexpr char kAndroidRendererString[] = "debug.angle.gl_renderer";
+
+    std::string overrideRenderer =
+        angle::GetEnvironmentVarOrAndroidProperty(kRendererString, kAndroidRendererString);
+    if (!overrideRenderer.empty())
+    {
+        frontendRendererString << overrideRenderer;
+    }
+    else
+    {
+        std::string vendorString(mDisplay->getBackendVendorString());
+        std::string rendererString(mDisplay->getBackendRendererDescription());
+        std::string versionString(mDisplay->getBackendVersionString(!isWebGL()));
+        // Commas are used as a separator in ANGLE's renderer string, so remove commas from each
+        // element.
+        vendorString.erase(std::remove(vendorString.begin(), vendorString.end(), ','),
+                           vendorString.end());
+        rendererString.erase(std::remove(rendererString.begin(), rendererString.end(), ','),
+                             rendererString.end());
+        versionString.erase(std::remove(versionString.begin(), versionString.end(), ','),
+                            versionString.end());
+        frontendRendererString << "ANGLE (";
+        frontendRendererString << vendorString;
+        frontendRendererString << ", ";
+        frontendRendererString << rendererString;
+        frontendRendererString << ", ";
+        frontendRendererString << versionString;
+        frontendRendererString << ")";
+    }
+
+    mRendererString = makeStaticString(frontendRendererString.str());
+}
+
+void Context::initVendorString()
+{
+    std::ostringstream vendorString;
+
+    constexpr char kVendorString[]        = "ANGLE_GL_VENDOR";
+    constexpr char kAndroidVendorString[] = "debug.angle.gl_vendor";
+
+    std::string overrideVendor =
+        angle::GetEnvironmentVarOrAndroidProperty(kVendorString, kAndroidVendorString);
+
+    if (!overrideVendor.empty())
+    {
+        vendorString << overrideVendor;
+    }
+    else
+    {
+        vendorString << mDisplay->getVendorString();
+    }
+
+    mVendorString = makeStaticString(vendorString.str());
 }
 
 void Context::initVersionStrings()
@@ -2991,43 +3731,47 @@ void Context::initVersionStrings()
     const Version &clientVersion = getClientVersion();
 
     std::ostringstream versionString;
-    if (getClientType() == EGL_OPENGL_ES_API)
-    {
-        versionString << "OpenGL ES ";
-    }
-    versionString << clientVersion.major << "." << clientVersion.minor << ".0 (ANGLE "
-                  << ANGLE_VERSION_STRING << ")";
-    mVersionString = MakeStaticString(versionString.str());
 
-    std::ostringstream shadingLanguageVersionString;
-    if (getClientType() == EGL_OPENGL_ES_API)
+    constexpr char kVersionString[]        = "ANGLE_GL_VERSION";
+    constexpr char kAndroidVersionString[] = "debug.angle.gl_version";
+
+    std::string overrideVersion =
+        angle::GetEnvironmentVarOrAndroidProperty(kVersionString, kAndroidVersionString);
+
+    if (!overrideVersion.empty())
     {
-        shadingLanguageVersionString << "OpenGL ES GLSL ES ";
+        versionString << overrideVersion;
     }
     else
     {
-        ASSERT(getClientType() == EGL_OPENGL_API);
-        shadingLanguageVersionString << "OpenGL GLSL ";
+        versionString << "OpenGL ES ";
+        versionString << clientVersion.getMajor() << "." << clientVersion.getMinor() << " (ANGLE "
+                      << angle::GetANGLEVersionString() << ")";
     }
-    shadingLanguageVersionString << (clientVersion.major == 2 ? 1 : clientVersion.major) << "."
-                                 << clientVersion.minor << "0 (ANGLE " << ANGLE_VERSION_STRING
-                                 << ")";
-    mShadingLanguageString = MakeStaticString(shadingLanguageVersionString.str());
+
+    mVersionString = makeStaticString(versionString.str());
+
+    std::ostringstream shadingLanguageVersionString;
+    shadingLanguageVersionString << "OpenGL ES GLSL ES ";
+    shadingLanguageVersionString << (clientVersion.getMajor() == 2 ? 1 : clientVersion.getMajor())
+                                 << "." << clientVersion.getMinor() << "0 (ANGLE "
+                                 << angle::GetANGLEVersionString() << ")";
+    mShadingLanguageString = makeStaticString(shadingLanguageVersionString.str());
 }
 
 void Context::initExtensionStrings()
 {
-    auto mergeExtensionStrings = [](const std::vector<const char *> &strings) {
+    auto mergeExtensionStrings = [this](const std::vector<const char *> &strings) {
         std::ostringstream combinedStringStream;
         std::copy(strings.begin(), strings.end(),
                   std::ostream_iterator<const char *>(combinedStringStream, " "));
-        return MakeStaticString(combinedStringStream.str());
+        return makeStaticString(combinedStringStream.str());
     };
 
     mExtensionStrings.clear();
-    for (const auto &extensionString : mState.mExtensions.getStrings())
+    for (const auto &extensionString : mState.getExtensions().getStrings())
     {
-        mExtensionStrings.push_back(MakeStaticString(extensionString));
+        mExtensionStrings.push_back(makeStaticString(extensionString));
     }
     mExtensionString = mergeExtensionStrings(mExtensionStrings);
 
@@ -3035,10 +3779,10 @@ void Context::initExtensionStrings()
     for (const auto &extensionInfo : GetExtensionInfoMap())
     {
         if (extensionInfo.second.Requestable &&
-            !(mState.mExtensions.*(extensionInfo.second.ExtensionsMember)) &&
+            !(mState.getExtensions().*(extensionInfo.second.ExtensionsMember)) &&
             mSupportedExtensions.*(extensionInfo.second.ExtensionsMember))
         {
-            mRequestableExtensionStrings.push_back(MakeStaticString(extensionInfo.first));
+            mRequestableExtensionStrings.push_back(makeStaticString(extensionInfo.first));
         }
     }
     mRequestableExtensionString = mergeExtensionStrings(mRequestableExtensionStrings);
@@ -3059,22 +3803,33 @@ const GLubyte *Context::getString(GLenum name) const
     switch (name)
     {
         case GL_VENDOR:
-            return reinterpret_cast<const GLubyte *>("Google Inc.");
+            return AsGLubytePtr(mVendorString);
 
         case GL_RENDERER:
-            return reinterpret_cast<const GLubyte *>(mRendererString);
+            return AsGLubytePtr(mRendererString);
 
         case GL_VERSION:
-            return reinterpret_cast<const GLubyte *>(mVersionString);
+            return AsGLubytePtr(mVersionString);
 
         case GL_SHADING_LANGUAGE_VERSION:
-            return reinterpret_cast<const GLubyte *>(mShadingLanguageString);
+            return AsGLubytePtr(mShadingLanguageString);
 
         case GL_EXTENSIONS:
-            return reinterpret_cast<const GLubyte *>(mExtensionString);
+            return AsGLubytePtr(mExtensionString);
 
         case GL_REQUESTABLE_EXTENSIONS_ANGLE:
-            return reinterpret_cast<const GLubyte *>(mRequestableExtensionString);
+            return AsGLubytePtr(mRequestableExtensionString);
+
+        case GL_SERIALIZED_CONTEXT_STRING_ANGLE:
+            if (angle::SerializeContextToString(this, &mCachedSerializedStateString) ==
+                angle::Result::Continue)
+            {
+                return AsGLubytePtr(mCachedSerializedStateString.c_str());
+            }
+            else
+            {
+                return nullptr;
+            }
 
         default:
             UNREACHABLE();
@@ -3087,10 +3842,10 @@ const GLubyte *Context::getStringi(GLenum name, GLuint index) const
     switch (name)
     {
         case GL_EXTENSIONS:
-            return reinterpret_cast<const GLubyte *>(mExtensionStrings[index]);
+            return AsGLubytePtr(mExtensionStrings[index]);
 
         case GL_REQUESTABLE_EXTENSIONS_ANGLE:
-            return reinterpret_cast<const GLubyte *>(mRequestableExtensionStrings[index]);
+            return AsGLubytePtr(mRequestableExtensionStrings[index]);
 
         default:
             UNREACHABLE();
@@ -3112,44 +3867,57 @@ bool Context::isExtensionRequestable(const char *name) const
            mSupportedExtensions.*(extension->second.ExtensionsMember);
 }
 
-bool Context::isExtensionDisablable(const char *name) const
-{
-    const ExtensionInfoMap &extensionInfos = GetExtensionInfoMap();
-    auto extension                         = extensionInfos.find(name);
-
-    return extension != extensionInfos.end() && extension->second.Disablable &&
-           mSupportedExtensions.*(extension->second.ExtensionsMember);
-}
-
 void Context::requestExtension(const char *name)
 {
-    setExtensionEnabled(name, true);
-}
-void Context::disableExtension(const char *name)
-{
-    setExtensionEnabled(name, false);
-}
-
-void Context::setExtensionEnabled(const char *name, bool enabled)
-{
-    // OVR_multiview is implicitly enabled when OVR_multiview2 is enabled
-    if (strcmp(name, "GL_OVR_multiview2") == 0)
-    {
-        setExtensionEnabled("GL_OVR_multiview", enabled);
-    }
     const ExtensionInfoMap &extensionInfos = GetExtensionInfoMap();
     ASSERT(extensionInfos.find(name) != extensionInfos.end());
     const auto &extension = extensionInfos.at(name);
     ASSERT(extension.Requestable);
     ASSERT(isExtensionRequestable(name));
 
-    if (mState.mExtensions.*(extension.ExtensionsMember) == enabled)
+    if (mState.getExtensions().*(extension.ExtensionsMember))
     {
         // No change
         return;
     }
 
-    mState.mExtensions.*(extension.ExtensionsMember) = enabled;
+    mState.getMutableExtensions()->*(extension.ExtensionsMember) = true;
+
+    // Handle extension dependencies
+    {
+        if (strcmp(name, "GL_OVR_multiview2") == 0)
+        {
+            // OVR_multiview is implicitly enabled when OVR_multiview2 is enabled
+            requestExtension("GL_OVR_multiview");
+        }
+        else if (strcmp(name, "GL_OES_texture_storage_multisample_2d_array") == 0)
+        {
+            // This extension implies that the context supports multisample 2D textures
+            // so ANGLE_texture_multisample must be enabled implicitly here.
+            requestExtension("GL_ANGLE_texture_multisample");
+        }
+        else if (strcmp(name, "GL_ANGLE_shader_pixel_local_storage") == 0 ||
+                 strcmp(name, "GL_ANGLE_shader_pixel_local_storage_coherent") == 0)
+        {
+            // ANGLE_shader_pixel_local_storage/ANGLE_shader_pixel_local_storage_coherent have
+            // various dependency extensions, including each other.
+            const auto enableIfRequestable = [this](const char *extensionName) {
+                for (const char *requestableExtension : mRequestableExtensionStrings)
+                {
+                    if (strcmp(extensionName, requestableExtension) == 0)
+                    {
+                        requestExtension(extensionName);
+                        return;
+                    }
+                }
+            };
+            enableIfRequestable("GL_OES_draw_buffers_indexed");
+            enableIfRequestable("GL_EXT_draw_buffers_indexed");
+            enableIfRequestable("GL_EXT_shader_framebuffer_fetch_non_coherent");
+            enableIfRequestable("GL_ANGLE_shader_pixel_local_storage_coherent");
+            enableIfRequestable("GL_ANGLE_shader_pixel_local_storage");
+        }
+    }
 
     reinitializeAfterExtensionsChanged();
 }
@@ -3187,14 +3955,19 @@ void Context::beginTransformFeedback(PrimitiveMode primitiveMode)
     ASSERT(transformFeedback != nullptr);
     ASSERT(!transformFeedback->isPaused());
 
-    // TODO: http://anglebug.com/3570: Handle PPOs
-    ANGLE_CONTEXT_TRY(transformFeedback->begin(this, primitiveMode, mState.getProgram()));
-    mStateCache.onActiveTransformFeedbackChange(this);
+    // TODO: http://anglebug.com/42265705: Handle PPOs
+    // Since programs should override PPOs, no PPO is passed to the transform feedback if a program
+    // is active.
+    Program *program                 = mState.getProgram();
+    ProgramPipeline *programPipeline = program == nullptr ? mState.getProgramPipeline() : nullptr;
+    ANGLE_CONTEXT_TRY(transformFeedback->begin(this, primitiveMode, program, programPipeline));
+    onActiveTransformFeedbackChange();
 }
 
 bool Context::hasActiveTransformFeedback(ShaderProgramID program) const
 {
-    for (auto pair : mTransformFeedbackMap)
+    // Note: transform feedback objects are private to context and so the map doesn't need locking
+    for (auto pair : UnsafeResourceMapIter(mTransformFeedbackMap))
     {
         if (pair.second != nullptr && pair.second->hasBoundProgram(program))
         {
@@ -3208,68 +3981,125 @@ Extensions Context::generateSupportedExtensions() const
 {
     Extensions supportedExtensions = mImplementation->getNativeExtensions();
 
-    // Explicitly enable GL_KHR_parallel_shader_compile
-    supportedExtensions.parallelShaderCompile = true;
-
     if (getClientVersion() < ES_2_0)
     {
         // Default extensions for GLES1
-        supportedExtensions.pointSizeArrayOES     = true;
-        supportedExtensions.textureCubeMapOES     = true;
-        supportedExtensions.pointSpriteOES        = true;
-        supportedExtensions.drawTextureOES        = true;
-        supportedExtensions.parallelShaderCompile = false;
-        supportedExtensions.texture3DOES          = false;
+        supportedExtensions.blendSubtractOES         = true;
+        supportedExtensions.pointSizeArrayOES        = true;
+        supportedExtensions.textureCubeMapOES        = true;
+        supportedExtensions.textureMirroredRepeatOES = true;
+        supportedExtensions.pointSpriteOES           = true;
+        supportedExtensions.drawTextureOES           = true;
+        supportedExtensions.framebufferObjectOES     = true;
+        supportedExtensions.stencil8OES              = true;
+        supportedExtensions.parallelShaderCompileKHR = false;
+        supportedExtensions.texture3DOES             = false;
+        supportedExtensions.clipDistanceAPPLE        = false;
+        supportedExtensions.disjointTimerQueryEXT    = false;
+        supportedExtensions.robustnessKHR            = false;
+
+        supportedExtensions.blendEquationAdvancedKHR         = false;
+        supportedExtensions.blendEquationAdvancedCoherentKHR = false;
     }
 
     if (getClientVersion() < ES_3_0)
     {
         // Disable ES3+ extensions
-        supportedExtensions.colorBufferFloat         = false;
-        supportedExtensions.eglImageExternalEssl3OES = false;
-        supportedExtensions.textureNorm16            = false;
-        supportedExtensions.multiview                = false;
-        supportedExtensions.multiview2               = false;
-        supportedExtensions.maxViews                 = 1u;
-        supportedExtensions.copyTexture3d            = false;
-        supportedExtensions.textureMultisample       = false;
-        supportedExtensions.drawBuffersIndexedEXT    = false;
-        supportedExtensions.drawBuffersIndexedOES    = false;
-        supportedExtensions.eglImageArray            = false;
-        supportedExtensions.textureSRGBOverride      = false;
+        supportedExtensions.colorBufferFloatEXT                     = false;
+        supportedExtensions.EGLImageExternalEssl3OES                = false;
+        supportedExtensions.multiviewOVR                            = false;
+        supportedExtensions.multiview2OVR                           = false;
+        supportedExtensions.multiviewMultisampleANGLE               = false;
+        supportedExtensions.multiviewMultisampledRenderToTextureOVR = false;
+        supportedExtensions.copyTexture3dANGLE                      = false;
+        supportedExtensions.textureMultisampleANGLE                 = false;
+        supportedExtensions.textureQueryLodEXT                      = false;
+        supportedExtensions.textureShadowLodEXT                     = false;
+        supportedExtensions.textureStorageCompressionEXT            = false;
+        supportedExtensions.textureStencil8OES                      = false;
+        supportedExtensions.conservativeDepthEXT                    = false;
+        supportedExtensions.drawBuffersIndexedEXT                   = false;
+        supportedExtensions.drawBuffersIndexedOES                   = false;
+        supportedExtensions.EGLImageArrayEXT                        = false;
+        supportedExtensions.stencilTexturingANGLE                   = false;
+        supportedExtensions.textureFormatSRGBOverrideEXT            = false;
+        supportedExtensions.renderSharedExponentQCOM                = false;
+        supportedExtensions.renderSnormEXT                          = false;
+        supportedExtensions.textureNorm16EXT                        = false;
+
+        // Requires immutable textures
+        supportedExtensions.yuvInternalFormatANGLE = false;
+
+        // Require ESSL 3.0
+        supportedExtensions.shaderMultisampleInterpolationOES  = false;
+        supportedExtensions.shaderNoperspectiveInterpolationNV = false;
+        supportedExtensions.sampleVariablesOES                 = false;
+
+        // Require RED and RG formats
+        supportedExtensions.textureSRGBR8EXT  = false;
+        supportedExtensions.textureSRGBRG8EXT = false;
 
         // Requires glCompressedTexImage3D
-        supportedExtensions.textureCompressionASTCOES = false;
+        supportedExtensions.textureCompressionAstcOES = false;
 
         // Don't expose GL_EXT_texture_sRGB_decode without sRGB texture support
-        if (!supportedExtensions.sRGB)
+        if (!supportedExtensions.sRGBEXT)
         {
-            supportedExtensions.textureSRGBDecode = false;
+            supportedExtensions.textureSRGBDecodeEXT = false;
         }
 
         // Don't expose GL_OES_texture_float_linear without full legacy float texture support
         // The renderer may report OES_texture_float_linear without OES_texture_float
         // This is valid in a GLES 3.0 context, but not in a GLES 2.0 context
-        if (!(supportedExtensions.textureFloatOES && supportedExtensions.textureHalfFloat))
+        if (!(supportedExtensions.textureFloatOES && supportedExtensions.textureHalfFloatOES))
         {
-            supportedExtensions.textureFloatLinearOES  = false;
-            supportedExtensions.textureHalfFloatLinear = false;
+            supportedExtensions.textureFloatLinearOES     = false;
+            supportedExtensions.textureHalfFloatLinearOES = false;
         }
 
         // Because of the difference in the SNORM to FLOAT conversion formula
         // between GLES 2.0 and 3.0, vertex type 10_10_10_2 is disabled
         // when the context version is lower than 3.0
-        supportedExtensions.vertexAttribType1010102OES = false;
+        supportedExtensions.vertexType1010102OES = false;
+
+        // GL_EXT_EGL_image_storage requires ESSL3
+        supportedExtensions.EGLImageStorageEXT = false;
+
+        // GL_EXT_YUV_target requires ESSL3
+        supportedExtensions.YUVTargetEXT = false;
+
+        // GL_EXT_clip_cull_distance / GL_ANGLE_clip_cull_distance require ESSL3
+        supportedExtensions.clipCullDistanceEXT   = false;
+        supportedExtensions.clipCullDistanceANGLE = false;
+
+        // ANGLE_shader_pixel_local_storage requires ES3
+        supportedExtensions.shaderPixelLocalStorageANGLE         = false;
+        supportedExtensions.shaderPixelLocalStorageCoherentANGLE = false;
+
+        // Multisample arrays could be supported on ES 3.0
+        // although the extension spec requires ES 3.1.
+        supportedExtensions.textureStorageMultisample2dArrayOES = false;
     }
 
     if (getClientVersion() < ES_3_1)
     {
         // Disable ES3.1+ extensions
-        supportedExtensions.geometryShader = false;
-
-        // TODO(http://anglebug.com/2775): Multisample arrays could be supported on ES 3.0 as well
-        // once 2D multisample texture extension is exposed there.
-        supportedExtensions.textureStorageMultisample2DArrayOES = false;
+        supportedExtensions.geometryShaderEXT       = false;
+        supportedExtensions.geometryShaderOES       = false;
+        supportedExtensions.gpuShader5EXT           = false;
+        supportedExtensions.gpuShader5OES           = false;
+        supportedExtensions.multiDrawIndirectEXT    = false;
+        supportedExtensions.primitiveBoundingBoxEXT = false;
+        supportedExtensions.primitiveBoundingBoxOES = false;
+        supportedExtensions.shaderImageAtomicOES    = false;
+        supportedExtensions.shaderIoBlocksEXT       = false;
+        supportedExtensions.shaderIoBlocksOES       = false;
+        supportedExtensions.tessellationShaderEXT   = false;
+        supportedExtensions.tessellationShaderOES   = false;
+        supportedExtensions.textureBufferEXT        = false;
+        supportedExtensions.textureBufferOES        = false;
+        supportedExtensions.textureCubeMapArrayEXT  = false;
+        supportedExtensions.textureCubeMapArrayOES  = false;
     }
 
     if (getClientVersion() > ES_2_0)
@@ -3277,81 +4107,123 @@ Extensions Context::generateSupportedExtensions() const
         // FIXME(geofflang): Don't support EXT_sRGB in non-ES2 contexts
         // supportedExtensions.sRGB = false;
 
-        // If colorBufferFloat is disabled but colorBufferHalfFloat is enabled, then we will expose
-        // some floating-point formats as color buffer targets but reject blits between fixed-point
-        // and floating-point formats (this behavior is only enabled in colorBufferFloat, and must
-        // be rejected if only colorBufferHalfFloat is enabled).
+        // If colorBufferFloatEXT is disabled but colorBufferHalfFloatEXT is enabled, then we will
+        // expose some floating-point formats as color buffer targets but reject blits between
+        // fixed-point and floating-point formats (this behavior is only enabled in
+        // colorBufferFloatEXT, and must be rejected if only colorBufferHalfFloatEXT is enabled).
         // dEQP does not check for this, and will assume that floating-point and fixed-point formats
         // can be blit onto each other if the format is available.
-        // We require colorBufferFloat to be present in order to enable colorBufferHalfFloat, so
-        // that blitting is always allowed if the requested formats are exposed and have the correct
-        // feature capabilities.
-        // WebGL 2 wants to support colorBufferHalfFloat without colorBufferFloat.
-        if (!supportedExtensions.colorBufferFloat && !mWebGLContext)
+        // We require colorBufferFloatEXT to be present in order to enable colorBufferHalfFloatEXT,
+        // so that blitting is always allowed if the requested formats are exposed and have the
+        // correct feature capabilities. WebGL 2 wants to support colorBufferHalfFloatEXT without
+        // colorBufferFloatEXT.
+        if (!supportedExtensions.colorBufferFloatEXT && !mWebGLContext)
         {
-            supportedExtensions.colorBufferHalfFloat = false;
+            supportedExtensions.colorBufferHalfFloatEXT = false;
         }
 
         // Disable support for CHROMIUM_color_buffer_float_rgb[a] in ES 3.0+, these extensions are
         // non-conformant in ES 3.0 and superseded by EXT_color_buffer_float.
-        supportedExtensions.colorBufferFloatRGB  = false;
-        supportedExtensions.colorBufferFloatRGBA = false;
+        supportedExtensions.colorBufferFloatRgbCHROMIUM  = false;
+        supportedExtensions.colorBufferFloatRgbaCHROMIUM = false;
+
+        // In WebGL2, WebGL1 extensions whose functionality is present in core are not exposed.
+        // This information can be found by comparing
+        // WebGLRenderingContext::RegisterContextExtensions() and
+        // WebGL2RenderingContext::RegisterContextExtensions() in Blink code.
+        if (mWebGLContext)
+        {
+            supportedExtensions.instancedArraysANGLE         = false;
+            supportedExtensions.blendMinmaxEXT               = false;
+            supportedExtensions.fragDepthEXT                 = false;
+            supportedExtensions.shaderTextureLodEXT          = false;
+            supportedExtensions.sRGBEXT                      = false;
+            supportedExtensions.elementIndexUintOES          = false;
+            supportedExtensions.fboRenderMipmapOES           = false;
+            supportedExtensions.standardDerivativesOES       = false;
+            supportedExtensions.textureFloatOES              = false;
+            supportedExtensions.textureHalfFloatLinearOES    = false;
+            supportedExtensions.vertexArrayObjectOES         = false;
+            supportedExtensions.colorBufferFloatRgbCHROMIUM  = false;
+            supportedExtensions.colorBufferFloatRgbaCHROMIUM = false;
+            supportedExtensions.depthTextureANGLE            = false;
+            supportedExtensions.drawBuffersEXT               = false;
+        }
+    }
+
+    if (getClientVersion() >= ES_3_0)
+    {
+        // Enable this extension for GLES3+.
+        supportedExtensions.renderabilityValidationANGLE = true;
     }
 
     if (getFrontendFeatures().disableAnisotropicFiltering.enabled)
     {
-        supportedExtensions.textureFilterAnisotropic = false;
+        supportedExtensions.textureFilterAnisotropicEXT = false;
+    }
+
+    if (!getFrontendFeatures().emulatePixelLocalStorage.enabled)
+    {
+        supportedExtensions.shaderPixelLocalStorageANGLE         = false;
+        supportedExtensions.shaderPixelLocalStorageCoherentANGLE = false;
     }
 
     // Some extensions are always available because they are implemented in the GL layer.
-    supportedExtensions.bindUniformLocation   = true;
-    supportedExtensions.vertexArrayObjectOES  = true;
-    supportedExtensions.bindGeneratesResource = true;
-    supportedExtensions.clientArrays          = true;
-    supportedExtensions.requestExtension      = true;
-    supportedExtensions.multiDraw             = true;
+    supportedExtensions.bindUniformLocationCHROMIUM      = true;
+    supportedExtensions.vertexArrayObjectOES             = true;
+    supportedExtensions.bindGeneratesResourceCHROMIUM    = true;
+    supportedExtensions.clientArraysANGLE                = true;
+    supportedExtensions.requestExtensionANGLE            = true;
+    supportedExtensions.multiDrawANGLE                   = true;
+    supportedExtensions.programBinaryReadinessQueryANGLE = true;
+
+    const Limitations &limitations                  = getLimitations();
+    const angle::FrontendFeatures &frontendFeatures = mDisplay->getFrontendFeatures();
+
+    if (limitations.multidrawEmulated &&
+        !frontendFeatures.alwaysEnableEmulatedMultidrawExtensions.enabled && !mWebGLContext)
+    {
+        supportedExtensions.multiDrawANGLE       = false;
+        supportedExtensions.multiDrawIndirectEXT = false;
+    }
+
+    if (limitations.baseInstanceBaseVertexEmulated &&
+        !frontendFeatures.alwaysEnableEmulatedMultidrawExtensions.enabled && !mWebGLContext)
+    {
+        supportedExtensions.baseVertexBaseInstanceANGLE = false;
+    }
 
     // Enable the no error extension if the context was created with the flag.
-    supportedExtensions.noError = mSkipValidation;
+    supportedExtensions.noErrorKHR = skipValidation();
 
     // Enable surfaceless to advertise we'll have the correct behavior when there is no default FBO
     supportedExtensions.surfacelessContextOES = mSurfacelessSupported;
 
     // Explicitly enable GL_KHR_debug
-    supportedExtensions.debug                   = true;
-    supportedExtensions.maxDebugMessageLength   = 1024;
-    supportedExtensions.maxDebugLoggedMessages  = 1024;
-    supportedExtensions.maxDebugGroupStackDepth = 1024;
-    supportedExtensions.maxLabelLength          = 1024;
+    supportedExtensions.debugKHR = true;
+
+    // Explicitly enable GL_EXT_debug_label
+    supportedExtensions.debugLabelEXT = true;
 
     // Explicitly enable GL_ANGLE_robust_client_memory if the context supports validation.
-    supportedExtensions.robustClientMemory = !mSkipValidation;
+    supportedExtensions.robustClientMemoryANGLE = !skipValidation();
 
     // Determine robust resource init availability from EGL.
-    supportedExtensions.robustResourceInitialization = mState.isRobustResourceInitEnabled();
+    supportedExtensions.robustResourceInitializationANGLE = mState.isRobustResourceInitEnabled();
 
-    // mState.mExtensions.robustBufferAccessBehavior is true only if robust access is true and the
-    // backend supports it.
-    supportedExtensions.robustBufferAccessBehavior =
-        mRobustAccess && supportedExtensions.robustBufferAccessBehavior;
+    // mState.getExtensions().robustBufferAccessBehaviorKHR is true only if robust access is true
+    // and the backend supports it.
+    supportedExtensions.robustBufferAccessBehaviorKHR =
+        mState.hasRobustAccess() && supportedExtensions.robustBufferAccessBehaviorKHR;
 
     // Enable the cache control query unconditionally.
-    supportedExtensions.programCacheControl = true;
-
-    // Enable EGL_ANGLE_explicit_context subextensions
-    if (mExplicitContextAvailable)
-    {
-        // GL_ANGLE_explicit_context_gles1
-        supportedExtensions.explicitContextGles1 = true;
-        // GL_ANGLE_explicit_context
-        supportedExtensions.explicitContext = true;
-    }
+    supportedExtensions.programCacheControlANGLE = true;
 
     // If EGL_KHR_fence_sync is not enabled, don't expose GL_OES_EGL_sync.
     ASSERT(mDisplay);
     if (!mDisplay->getExtensions().fenceSync)
     {
-        supportedExtensions.eglSyncOES = false;
+        supportedExtensions.EGLSyncOES = false;
     }
 
     if (mDisplay->getExtensions().robustnessVideoMemoryPurgeNV)
@@ -3359,92 +4231,162 @@ Extensions Context::generateSupportedExtensions() const
         supportedExtensions.robustnessVideoMemoryPurgeNV = true;
     }
 
-    supportedExtensions.memorySize = true;
+    supportedExtensions.memorySizeANGLE = true;
 
     // GL_CHROMIUM_lose_context is implemented in the frontend
     supportedExtensions.loseContextCHROMIUM = true;
 
     // The ASTC texture extensions have dependency requirements.
-    if (supportedExtensions.textureCompressionASTCHDRKHR ||
-        supportedExtensions.textureCompressionSliced3dASTCKHR)
+    if (supportedExtensions.textureCompressionAstcHdrKHR ||
+        supportedExtensions.textureCompressionAstcSliced3dKHR)
     {
         // GL_KHR_texture_compression_astc_hdr cannot be exposed without also exposing
         // GL_KHR_texture_compression_astc_ldr
-        ASSERT(supportedExtensions.textureCompressionASTCLDRKHR);
+        ASSERT(supportedExtensions.textureCompressionAstcLdrKHR);
     }
 
-    if (supportedExtensions.textureCompressionASTCOES)
+    if (supportedExtensions.textureCompressionAstcOES)
     {
         // GL_OES_texture_compression_astc cannot be exposed without also exposing
         // GL_KHR_texture_compression_astc_ldr and GL_KHR_texture_compression_astc_hdr
-        ASSERT(supportedExtensions.textureCompressionASTCLDRKHR);
-        ASSERT(supportedExtensions.textureCompressionASTCHDRKHR);
+        ASSERT(supportedExtensions.textureCompressionAstcLdrKHR);
+        ASSERT(supportedExtensions.textureCompressionAstcHdrKHR);
     }
 
-    // GL_ANGLE_get_tex_level_parameter is implemented in the frontend
+    if (supportedExtensions.textureCompressionAstcDecodeModeEXT ||
+        supportedExtensions.textureCompressionAstcDecodeModeRgb9e5EXT)
+    {
+        // GL_KHR_texture_compression_astc_hdr,
+        // GL_KHR_texture_compression_astc_ldr,
+        // or GL_OES_texture_compression_astc is required.
+        ASSERT(supportedExtensions.textureCompressionAstcOES ||
+               supportedExtensions.textureCompressionAstcLdrKHR ||
+               supportedExtensions.textureCompressionAstcHdrKHR);
+    }
+
+    // GL_KHR_protected_textures
+    // If EGL_KHR_protected_content is not supported then GL_EXT_protected_texture
+    // can not be supported.
+    if (!mDisplay->getExtensions().protectedContentEXT)
+    {
+        supportedExtensions.protectedTexturesEXT = false;
+    }
+
+    // GL_ANGLE_get_tex_level_parameter is implemented in the front-end
     supportedExtensions.getTexLevelParameterANGLE = true;
+
+    // Always enabled. Will return a default string if capture is not enabled.
+    supportedExtensions.getSerializedContextStringANGLE = true;
+
+    // Performance counter queries are always supported. Different groups exist on each back-end.
+    supportedExtensions.performanceMonitorAMD = true;
+
+    // GL_ANDROID_extension_pack_es31a
+    supportedExtensions.extensionPackEs31aANDROID =
+        CanSupportAEP(getClientVersion(), supportedExtensions);
+
+    // Blob cache extension is provided by the ANGLE frontend
+    supportedExtensions.blobCacheANGLE = true;
+
+    // Disable extensions that are implemented through shader compiler transformations or require
+    // shader translator reflection data
+    if (mState.usesPassthroughShaders())
+    {
+        supportedExtensions.multiDrawANGLE                       = false;
+        supportedExtensions.shaderPixelLocalStorageANGLE         = false;
+        supportedExtensions.shaderPixelLocalStorageCoherentANGLE = false;
+        supportedExtensions.blendFuncExtendedEXT                 = false;
+        if (frontendFeatures.clipCullDistanceBrokenWithPassthroughShaders.enabled)
+        {
+            supportedExtensions.clipCullDistanceEXT = false;
+        }
+        if (frontendFeatures.noperspectiveInterpolationBrokenWithPassthroughShaders.enabled)
+        {
+            supportedExtensions.shaderNoperspectiveInterpolationNV = false;
+        }
+    }
+
+// Disable the explicit context extension if the entry points are not compiled.
+#if !defined(ANGLE_ENABLE_EXPLICIT_CONTEXT)
+    supportedExtensions.explicitContextANGLE = false;
+#endif
 
     return supportedExtensions;
 }
 
 void Context::initCaps()
 {
-    mState.mCaps = mImplementation->getNativeCaps();
+    Caps *caps = mState.getMutableCaps();
+    *caps      = mImplementation->getNativeCaps();
 
+    // Update limitations before evaluating extension support
+    {
+        gl::Limitations implementationLimitations = mImplementation->getNativeLimitations();
+
+        if (mDisplay->getFrontendFeatures().limitMaxBufferBytesTo1MB.enabled)
+        {
+            implementationLimitations.maxBufferBytes = 1 << 20;
+        }
+        if (mDisplay->getFrontendFeatures().limitMaxTextureBytesTo1MB.enabled)
+        {
+            implementationLimitations.maxTextureBytes = 1 << 20;
+        }
+        *mState.getMutableLimitations() = implementationLimitations;
+    }
+
+    // TODO (http://anglebug.com/42264543): mSupportedExtensions should not be modified here
     mSupportedExtensions = generateSupportedExtensions();
 
     if (!mDisplay->getFrontendFeatures().allowCompressedFormats.enabled)
     {
         INFO() << "Limiting compressed format support.\n";
 
-        mSupportedExtensions.compressedEACR11SignedTextureOES                = false;
-        mSupportedExtensions.compressedEACR11UnsignedTextureOES              = false;
-        mSupportedExtensions.compressedEACRG11SignedTextureOES               = false;
-        mSupportedExtensions.compressedEACRG11UnsignedTextureOES             = false;
-        mSupportedExtensions.compressedETC1RGB8SubTexture                    = false;
-        mSupportedExtensions.compressedETC1RGB8TextureOES                    = false;
-        mSupportedExtensions.compressedETC2PunchthroughARGB8TextureOES       = false;
-        mSupportedExtensions.compressedETC2PunchthroughAsRGB8AlphaTextureOES = false;
-        mSupportedExtensions.compressedETC2RGB8TextureOES                    = false;
-        mSupportedExtensions.compressedETC2RGBA8TextureOES                   = false;
-        mSupportedExtensions.compressedETC2sRGB8Alpha8TextureOES             = false;
-        mSupportedExtensions.compressedETC2sRGB8TextureOES                   = false;
-        mSupportedExtensions.compressedTextureETC                            = false;
-        mSupportedExtensions.compressedTexturePVRTC                          = false;
-        mSupportedExtensions.compressedTexturePVRTCsRGB                      = false;
-        mSupportedExtensions.copyCompressedTexture                           = false;
-        mSupportedExtensions.textureCompressionASTCHDRKHR                    = false;
-        mSupportedExtensions.textureCompressionASTCLDRKHR                    = false;
-        mSupportedExtensions.textureCompressionASTCOES                       = false;
-        mSupportedExtensions.textureCompressionBPTC                          = false;
-        mSupportedExtensions.textureCompressionDXT1                          = false;
-        mSupportedExtensions.textureCompressionDXT3                          = false;
-        mSupportedExtensions.textureCompressionDXT5                          = false;
-        mSupportedExtensions.textureCompressionRGTC                          = false;
-        mSupportedExtensions.textureCompressionS3TCsRGB                      = false;
-        mSupportedExtensions.textureCompressionSliced3dASTCKHR               = false;
-        mSupportedExtensions.textureFilteringCHROMIUM                        = false;
+        mSupportedExtensions.compressedETC1RGB8SubTextureEXT   = false;
+        mSupportedExtensions.compressedETC1RGB8TextureOES      = false;
+        mSupportedExtensions.compressedTextureEtcANGLE         = false;
+        mSupportedExtensions.textureCompressionPvrtcIMG        = false;
+        mSupportedExtensions.pvrtcSRGBEXT                      = false;
+        mSupportedExtensions.copyCompressedTextureCHROMIUM     = false;
+        mSupportedExtensions.textureCompressionAstcHdrKHR      = false;
+        mSupportedExtensions.textureCompressionAstcLdrKHR      = false;
+        mSupportedExtensions.textureCompressionAstcOES         = false;
+        mSupportedExtensions.textureCompressionBptcEXT         = false;
+        mSupportedExtensions.textureCompressionDxt1EXT         = false;
+        mSupportedExtensions.textureCompressionDxt3ANGLE       = false;
+        mSupportedExtensions.textureCompressionDxt5ANGLE       = false;
+        mSupportedExtensions.textureCompressionRgtcEXT         = false;
+        mSupportedExtensions.textureCompressionS3tcSrgbEXT     = false;
+        mSupportedExtensions.textureCompressionAstcSliced3dKHR = false;
 
-        mState.mCaps.compressedTextureFormats.clear();
+        caps->compressedTextureFormats.clear();
     }
 
-    mState.mExtensions = mSupportedExtensions;
-
-    mState.mLimitations = mImplementation->getNativeLimitations();
+    Extensions *extensions = mState.getMutableExtensions();
+    *extensions            = mSupportedExtensions;
 
     // GLES1 emulation: Initialize caps (Table 6.20 / 6.22 in the ES 1.1 spec)
-    if (getClientType() == EGL_OPENGL_API || getClientVersion() < Version(2, 0))
+    if (getClientVersion() < Version(2, 0))
     {
-        mState.mCaps.maxMultitextureUnits          = 4;
-        mState.mCaps.maxClipPlanes                 = 6;
-        mState.mCaps.maxLights                     = 8;
-        mState.mCaps.maxModelviewMatrixStackDepth  = Caps::GlobalMatrixStackDepth;
-        mState.mCaps.maxProjectionMatrixStackDepth = Caps::GlobalMatrixStackDepth;
-        mState.mCaps.maxTextureMatrixStackDepth    = Caps::GlobalMatrixStackDepth;
-        mState.mCaps.minSmoothPointSize            = 1.0f;
-        mState.mCaps.maxSmoothPointSize            = 1.0f;
-        mState.mCaps.minSmoothLineWidth            = 1.0f;
-        mState.mCaps.maxSmoothLineWidth            = 1.0f;
+        caps->maxMultitextureUnits          = 4;
+        caps->maxClipPlanes                 = 6;
+        caps->maxLights                     = 8;
+        caps->maxModelviewMatrixStackDepth  = Caps::GlobalMatrixStackDepth;
+        caps->maxProjectionMatrixStackDepth = Caps::GlobalMatrixStackDepth;
+        caps->maxTextureMatrixStackDepth    = Caps::GlobalMatrixStackDepth;
+        caps->minSmoothPointSize            = 1.0f;
+        caps->maxSmoothPointSize            = 1.0f;
+        caps->minSmoothLineWidth            = 1.0f;
+        caps->maxSmoothLineWidth            = 1.0f;
+    }
+
+    caps->maxDebugMessageLength   = 1024;
+    caps->maxDebugLoggedMessages  = 1024;
+    caps->maxDebugGroupStackDepth = 1024;
+    caps->maxLabelLength          = 1024;
+
+    if (getClientVersion() < Version(3, 0))
+    {
+        caps->maxViews = 1u;
     }
 
 #if 0
@@ -3466,125 +4408,363 @@ void Context::initCaps()
         }                                      \
     } while (0)
 
-    // Apply/Verify implementation limits
-    ANGLE_LIMIT_CAP(mState.mCaps.maxVertexAttributes, MAX_VERTEX_ATTRIBS);
-    ANGLE_LIMIT_CAP(mState.mCaps.maxVertexAttribStride,
+    // Apply/Verify implementation limits.
+    //
+    // GLES requires that draw buffers are mapped to color attachments with an identical index (in
+    // glDrawBuffers), and so draw buffers and color attachments are frequently interchanged in the
+    // codebase.  The same limit is thus used for both.
+    const GLint maxDrawBuffersAndColorAttachments = std::min<GLint>(
+        std::min(caps->maxDrawBuffers, caps->maxColorAttachments), IMPLEMENTATION_MAX_DRAW_BUFFERS);
+    ANGLE_LIMIT_CAP(caps->maxDrawBuffers, maxDrawBuffersAndColorAttachments);
+    ANGLE_LIMIT_CAP(caps->maxFramebufferWidth, IMPLEMENTATION_MAX_FRAMEBUFFER_SIZE);
+    ANGLE_LIMIT_CAP(caps->maxFramebufferHeight, IMPLEMENTATION_MAX_FRAMEBUFFER_SIZE);
+    ANGLE_LIMIT_CAP(caps->maxRenderbufferSize, IMPLEMENTATION_MAX_RENDERBUFFER_SIZE);
+    ANGLE_LIMIT_CAP(caps->maxColorAttachments, maxDrawBuffersAndColorAttachments);
+    ANGLE_LIMIT_CAP(caps->maxVertexAttributes, MAX_VERTEX_ATTRIBS);
+    if (mDisplay->getFrontendFeatures().forceMinimumMaxVertexAttributes.enabled &&
+        getClientVersion() <= Version(2, 0))
+    {
+        // Only limit GL_MAX_VERTEX_ATTRIBS on ES2 or lower, the ES3+ cap is already at the minimum
+        // (16)
+        static_assert(MAX_VERTEX_ATTRIBS == 16);
+        ANGLE_LIMIT_CAP(caps->maxVertexAttributes, 8);
+    }
+    ANGLE_LIMIT_CAP(caps->maxVertexAttribStride,
                     static_cast<GLint>(limits::kMaxVertexAttribStride));
 
-    ASSERT(mState.mCaps.minAliasedPointSize >= 1.0f);
+    ASSERT(caps->minAliasedPointSize >= 1.0f);
 
     if (getClientVersion() < ES_3_1)
     {
-        mState.mCaps.maxVertexAttribBindings = mState.mCaps.maxVertexAttributes;
+        caps->maxVertexAttribBindings = caps->maxVertexAttributes;
     }
     else
     {
-        ANGLE_LIMIT_CAP(mState.mCaps.maxVertexAttribBindings, MAX_VERTEX_ATTRIB_BINDINGS);
+        ANGLE_LIMIT_CAP(caps->maxVertexAttribBindings, MAX_VERTEX_ATTRIB_BINDINGS);
     }
 
-    ANGLE_LIMIT_CAP(mState.mCaps.max2DTextureSize, IMPLEMENTATION_MAX_2D_TEXTURE_SIZE);
-    ANGLE_LIMIT_CAP(mState.mCaps.maxCubeMapTextureSize, IMPLEMENTATION_MAX_CUBE_MAP_TEXTURE_SIZE);
-    ANGLE_LIMIT_CAP(mState.mCaps.max3DTextureSize, IMPLEMENTATION_MAX_3D_TEXTURE_SIZE);
-    ANGLE_LIMIT_CAP(mState.mCaps.maxArrayTextureLayers, IMPLEMENTATION_MAX_2D_ARRAY_TEXTURE_LAYERS);
-    ANGLE_LIMIT_CAP(mState.mCaps.maxRectangleTextureSize, IMPLEMENTATION_MAX_2D_TEXTURE_SIZE);
+    const Limitations &limitations = getLimitations();
 
-    ANGLE_LIMIT_CAP(mState.mCaps.maxShaderUniformBlocks[ShaderType::Vertex],
+    if (mWebGLContext && limitations.webGLTextureSizeLimit > 0)
+    {
+        ANGLE_LIMIT_CAP(caps->max2DTextureSize, limitations.webGLTextureSizeLimit);
+        ANGLE_LIMIT_CAP(caps->max3DTextureSize, limitations.webGLTextureSizeLimit);
+        ANGLE_LIMIT_CAP(caps->maxCubeMapTextureSize, limitations.webGLTextureSizeLimit);
+        ANGLE_LIMIT_CAP(caps->maxArrayTextureLayers, limitations.webGLTextureSizeLimit);
+        ANGLE_LIMIT_CAP(caps->maxRectangleTextureSize, limitations.webGLTextureSizeLimit);
+    }
+
+    ANGLE_LIMIT_CAP(caps->max2DTextureSize, IMPLEMENTATION_MAX_2D_TEXTURE_SIZE);
+    ANGLE_LIMIT_CAP(caps->maxCubeMapTextureSize, IMPLEMENTATION_MAX_CUBE_MAP_TEXTURE_SIZE);
+    ANGLE_LIMIT_CAP(caps->max3DTextureSize, IMPLEMENTATION_MAX_3D_TEXTURE_SIZE);
+    ANGLE_LIMIT_CAP(caps->maxArrayTextureLayers, IMPLEMENTATION_MAX_2D_ARRAY_TEXTURE_LAYERS);
+    ANGLE_LIMIT_CAP(caps->maxRectangleTextureSize, IMPLEMENTATION_MAX_2D_TEXTURE_SIZE);
+
+    ANGLE_LIMIT_CAP(caps->maxShaderUniformBlocks[ShaderType::Vertex],
                     IMPLEMENTATION_MAX_VERTEX_SHADER_UNIFORM_BUFFERS);
-    ANGLE_LIMIT_CAP(mState.mCaps.maxShaderUniformBlocks[ShaderType::Geometry],
+    ANGLE_LIMIT_CAP(caps->maxShaderUniformBlocks[ShaderType::Geometry],
                     IMPLEMENTATION_MAX_GEOMETRY_SHADER_UNIFORM_BUFFERS);
-    ANGLE_LIMIT_CAP(mState.mCaps.maxShaderUniformBlocks[ShaderType::Fragment],
+    ANGLE_LIMIT_CAP(caps->maxShaderUniformBlocks[ShaderType::Fragment],
                     IMPLEMENTATION_MAX_FRAGMENT_SHADER_UNIFORM_BUFFERS);
-    ANGLE_LIMIT_CAP(mState.mCaps.maxShaderUniformBlocks[ShaderType::Compute],
+    ANGLE_LIMIT_CAP(caps->maxShaderUniformBlocks[ShaderType::Compute],
                     IMPLEMENTATION_MAX_COMPUTE_SHADER_UNIFORM_BUFFERS);
-    ANGLE_LIMIT_CAP(mState.mCaps.maxCombinedUniformBlocks,
+    ANGLE_LIMIT_CAP(caps->maxCombinedUniformBlocks,
                     IMPLEMENTATION_MAX_COMBINED_SHADER_UNIFORM_BUFFERS);
-    ANGLE_LIMIT_CAP(mState.mCaps.maxUniformBufferBindings,
-                    IMPLEMENTATION_MAX_UNIFORM_BUFFER_BINDINGS);
+    ANGLE_LIMIT_CAP(caps->maxUniformBufferBindings, IMPLEMENTATION_MAX_UNIFORM_BUFFER_BINDINGS);
 
-    ANGLE_LIMIT_CAP(mState.mCaps.maxVertexOutputComponents, IMPLEMENTATION_MAX_VARYING_VECTORS * 4);
-    ANGLE_LIMIT_CAP(mState.mCaps.maxFragmentInputComponents,
-                    IMPLEMENTATION_MAX_VARYING_VECTORS * 4);
+    ANGLE_LIMIT_CAP(caps->maxVertexOutputComponents, IMPLEMENTATION_MAX_VARYING_VECTORS * 4);
+    ANGLE_LIMIT_CAP(caps->maxFragmentInputComponents, IMPLEMENTATION_MAX_VARYING_VECTORS * 4);
 
-    ANGLE_LIMIT_CAP(mState.mCaps.maxTransformFeedbackInterleavedComponents,
+    ANGLE_LIMIT_CAP(caps->maxTransformFeedbackInterleavedComponents,
                     IMPLEMENTATION_MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS);
-    ANGLE_LIMIT_CAP(mState.mCaps.maxTransformFeedbackSeparateAttributes,
+    ANGLE_LIMIT_CAP(caps->maxTransformFeedbackSeparateAttributes,
                     IMPLEMENTATION_MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS);
-    ANGLE_LIMIT_CAP(mState.mCaps.maxTransformFeedbackSeparateComponents,
+    ANGLE_LIMIT_CAP(caps->maxTransformFeedbackSeparateComponents,
                     IMPLEMENTATION_MAX_TRANSFORM_FEEDBACK_SEPARATE_COMPONENTS);
 
-    // Limit textures as well, so we can use fast bitsets with texture bindings.
-    ANGLE_LIMIT_CAP(mState.mCaps.maxCombinedTextureImageUnits, IMPLEMENTATION_MAX_ACTIVE_TEXTURES);
+    if (getClientVersion() < ES_3_2 && !extensions->tessellationShaderAny())
+    {
+        ANGLE_LIMIT_CAP(caps->maxCombinedTextureImageUnits,
+                        IMPLEMENTATION_MAX_ES31_ACTIVE_TEXTURES);
+    }
+    else
+    {
+        ANGLE_LIMIT_CAP(caps->maxCombinedTextureImageUnits, IMPLEMENTATION_MAX_ACTIVE_TEXTURES);
+    }
+
     for (ShaderType shaderType : AllShaderTypes())
     {
-        ANGLE_LIMIT_CAP(mState.mCaps.maxShaderTextureImageUnits[shaderType],
+        ANGLE_LIMIT_CAP(caps->maxShaderTextureImageUnits[shaderType],
                         IMPLEMENTATION_MAX_SHADER_TEXTURES);
     }
 
-    ANGLE_LIMIT_CAP(mState.mCaps.maxImageUnits, IMPLEMENTATION_MAX_IMAGE_UNITS);
-    ANGLE_LIMIT_CAP(mState.mCaps.maxCombinedImageUniforms, IMPLEMENTATION_MAX_IMAGE_UNITS);
+    ANGLE_LIMIT_CAP(caps->maxImageUnits, IMPLEMENTATION_MAX_IMAGE_UNITS);
+    ANGLE_LIMIT_CAP(caps->maxCombinedImageUniforms, IMPLEMENTATION_MAX_IMAGE_UNITS);
     for (ShaderType shaderType : AllShaderTypes())
     {
-        ANGLE_LIMIT_CAP(mState.mCaps.maxShaderImageUniforms[shaderType],
-                        IMPLEMENTATION_MAX_IMAGE_UNITS);
+        ANGLE_LIMIT_CAP(caps->maxShaderImageUniforms[shaderType], IMPLEMENTATION_MAX_IMAGE_UNITS);
     }
 
     for (ShaderType shaderType : AllShaderTypes())
     {
-        ANGLE_LIMIT_CAP(mState.mCaps.maxShaderAtomicCounterBuffers[shaderType],
-                        IMPLEMENTATION_MAX_ATOMIC_COUNTER_BUFFERS);
+        ANGLE_LIMIT_CAP(caps->maxShaderAtomicCounterBuffers[shaderType],
+                        IMPLEMENTATION_MAX_ATOMIC_COUNTER_BUFFER_BINDINGS);
     }
-    ANGLE_LIMIT_CAP(mState.mCaps.maxCombinedAtomicCounterBuffers,
-                    IMPLEMENTATION_MAX_ATOMIC_COUNTER_BUFFERS);
+    ANGLE_LIMIT_CAP(caps->maxAtomicCounterBufferBindings,
+                    IMPLEMENTATION_MAX_ATOMIC_COUNTER_BUFFER_BINDINGS);
+    ANGLE_LIMIT_CAP(caps->maxCombinedAtomicCounterBuffers,
+                    IMPLEMENTATION_MAX_ATOMIC_COUNTER_BUFFER_BINDINGS);
 
     for (ShaderType shaderType : AllShaderTypes())
     {
-        ANGLE_LIMIT_CAP(mState.mCaps.maxShaderStorageBlocks[shaderType],
+        ANGLE_LIMIT_CAP(caps->maxShaderStorageBlocks[shaderType],
                         IMPLEMENTATION_MAX_SHADER_STORAGE_BUFFER_BINDINGS);
     }
-    ANGLE_LIMIT_CAP(mState.mCaps.maxShaderStorageBufferBindings,
+    ANGLE_LIMIT_CAP(caps->maxShaderStorageBufferBindings,
                     IMPLEMENTATION_MAX_SHADER_STORAGE_BUFFER_BINDINGS);
-    ANGLE_LIMIT_CAP(mState.mCaps.maxCombinedShaderStorageBlocks,
+    ANGLE_LIMIT_CAP(caps->maxCombinedShaderStorageBlocks,
                     IMPLEMENTATION_MAX_SHADER_STORAGE_BUFFER_BINDINGS);
 
-    ANGLE_LIMIT_CAP(mState.mCaps.maxSampleMaskWords, MAX_SAMPLE_MASK_WORDS);
+    ANGLE_LIMIT_CAP(caps->maxClipDistances, IMPLEMENTATION_MAX_CLIP_DISTANCES);
 
-#undef ANGLE_LIMIT_CAP
-#undef ANGLE_LOG_CAP_LIMIT
+    ANGLE_LIMIT_CAP(caps->maxFramebufferLayers, IMPLEMENTATION_MAX_FRAMEBUFFER_LAYERS);
+
+    ANGLE_LIMIT_CAP(caps->maxSampleMaskWords, IMPLEMENTATION_MAX_SAMPLE_MASK_WORDS);
+    ANGLE_LIMIT_CAP(caps->maxSamples, IMPLEMENTATION_MAX_SAMPLES);
+    ANGLE_LIMIT_CAP(caps->maxFramebufferSamples, IMPLEMENTATION_MAX_SAMPLES);
+    ANGLE_LIMIT_CAP(caps->maxColorTextureSamples, IMPLEMENTATION_MAX_SAMPLES);
+    ANGLE_LIMIT_CAP(caps->maxDepthTextureSamples, IMPLEMENTATION_MAX_SAMPLES);
+    ANGLE_LIMIT_CAP(caps->maxIntegerSamples, IMPLEMENTATION_MAX_SAMPLES);
+
+    ANGLE_LIMIT_CAP(caps->maxViews, IMPLEMENTATION_ANGLE_MULTIVIEW_MAX_VIEWS);
+
+    ANGLE_LIMIT_CAP(caps->maxDualSourceDrawBuffers, IMPLEMENTATION_MAX_DUAL_SOURCE_DRAW_BUFFERS);
+
+    // Disallow using UINT_MAX as an index. This would allow for a draw count of UINT_MAX + 1,
+    // overflowing a 32-bit integer.
+    constexpr GLint64 kMaxElementIndex = std::numeric_limits<GLuint>::max() - 1;
+    ANGLE_LIMIT_CAP(caps->maxElementIndex, kMaxElementIndex);
 
     // WebGL compatibility
-    mState.mExtensions.webglCompatibility = mWebGLContext;
+    extensions->webglCompatibilityANGLE = mWebGLContext;
     for (const auto &extensionInfo : GetExtensionInfoMap())
     {
         // If the user has requested that extensions start disabled and they are requestable,
         // disable them.
         if (!mExtensionsEnabled && extensionInfo.second.Requestable)
         {
-            mState.mExtensions.*(extensionInfo.second.ExtensionsMember) = false;
+            extensions->*(extensionInfo.second.ExtensionsMember) = false;
         }
     }
 
-    // If we're capturing application calls for replay, don't expose any binary formats to prevent
-    // traces from trying to use cached results
-    if (getFrameCapture()->enabled())
+    // Hide emulated ETC1 extension from WebGL contexts.
+    if (mWebGLContext && limitations.emulatedEtc1)
     {
-        INFO() << "Limiting binary format support count to zero while FrameCapture enabled"
+        mSupportedExtensions.compressedETC1RGB8SubTextureEXT = false;
+        mSupportedExtensions.compressedETC1RGB8TextureOES    = false;
+    }
+
+    if (limitations.emulatedAstc)
+    {
+        // Hide emulated ASTC extension from WebGL contexts.
+        if (mWebGLContext)
+        {
+            mSupportedExtensions.textureCompressionAstcLdrKHR = false;
+            extensions->textureCompressionAstcLdrKHR          = false;
+        }
+#if !defined(ANGLE_HAS_ASTCENC)
+        // ASTC shouldn't be exposed if decoder is not built.
+        ASSERT(!mSupportedExtensions.textureCompressionAstcLdrKHR);
+        ASSERT(!extensions->textureCompressionAstcLdrKHR);
+#endif
+    }
+
+    // If we're capturing application calls for replay, apply some feature limits to increase
+    // portability of the trace.
+    if (getShareGroup()->getFrameCaptureShared()->enabled() ||
+        getFrontendFeatures().enableCaptureLimits.enabled)
+    {
+        INFO() << "Limit some features because "
+               << (getShareGroup()->getFrameCaptureShared()->enabled()
+                       ? "FrameCapture is enabled"
+                       : "FrameCapture limits were forced")
                << std::endl;
-        mDisplay->overrideFrontendFeatures({"disable_program_binary"}, true);
+
+        if (!getFrontendFeatures().enableProgramBinaryForCapture.enabled)
+        {
+            // Some apps insist on being able to use glProgramBinary. For those, we'll allow the
+            // extension to remain on. Otherwise, force the extension off.
+            INFO() << "Disabling GL_OES_get_program_binary for trace portability";
+            mDisplay->overrideFrontendFeatures({"disable_program_binary"}, true);
+        }
+
+        // Set to the most common limit per gpuinfo.org. Required for several platforms we test.
+        constexpr GLint maxImageUnits = 8;
+        INFO() << "Limiting image unit count to " << maxImageUnits;
+        ANGLE_LIMIT_CAP(caps->maxImageUnits, maxImageUnits);
+        for (ShaderType shaderType : AllShaderTypes())
+        {
+            ANGLE_LIMIT_CAP(caps->maxShaderImageUniforms[shaderType], maxImageUnits);
+        }
+
+        // Set a large uniform buffer offset alignment that works on multiple platforms.
+        // The offset used by the trace needs to be divisible by the device's actual value.
+        // Values seen during development: ARM (16), Intel (32), Qualcomm (128), Nvidia (256)
+        constexpr GLint uniformBufferOffsetAlignment = 256;
+        ASSERT(uniformBufferOffsetAlignment % caps->uniformBufferOffsetAlignment == 0);
+        INFO() << "Setting uniform buffer offset alignment to " << uniformBufferOffsetAlignment;
+        caps->uniformBufferOffsetAlignment = uniformBufferOffsetAlignment;
+
+        // Also limit texture buffer offset alignment, if enabled
+        if (extensions->textureBufferAny())
+        {
+            constexpr GLint textureBufferOffsetAlignment =
+                gl::limits::kMinTextureBufferOffsetAlignment;
+            ASSERT(textureBufferOffsetAlignment % caps->textureBufferOffsetAlignment == 0);
+            INFO() << "Setting texture buffer offset alignment to " << textureBufferOffsetAlignment;
+            caps->textureBufferOffsetAlignment = textureBufferOffsetAlignment;
+        }
 
         INFO() << "Disabling GL_EXT_map_buffer_range and GL_OES_mapbuffer during capture, which "
-                  "are not supported on some native drivers"
-               << std::endl;
-        mState.mExtensions.mapBufferRange = false;
-        mState.mExtensions.mapBufferOES   = false;
+                  "are not supported on some native drivers";
+        extensions->mapBufferRangeEXT = false;
+        extensions->mapbufferOES      = false;
+
+        INFO() << "Disabling GL_CHROMIUM_bind_uniform_location during capture, which is not "
+                  "supported on native drivers";
+        extensions->bindUniformLocationCHROMIUM = false;
+
+        INFO() << "Disabling GL_NV_shader_noperspective_interpolation during capture, which is not "
+                  "supported on some native drivers";
+        extensions->shaderNoperspectiveInterpolationNV = false;
+
+        INFO() << "Disabling GL_NV_framebuffer_blit during capture, which is not "
+                  "supported on some native drivers";
+        extensions->framebufferBlitNV = false;
+
+        INFO() << "Disabling GL_EXT_texture_mirror_clamp_to_edge during capture, which is not "
+                  "supported on some native drivers";
+        extensions->textureMirrorClampToEdgeEXT = false;
+
+        // Modern content is starting to require 6
+        constexpr GLint maxDrawBuffers = 6;
+        INFO() << "Limiting draw buffer count to " << maxDrawBuffers;
+        ANGLE_LIMIT_CAP(caps->maxDrawBuffers, maxDrawBuffers);
+
+        // Unity based applications are sending down GL streams with undefined behavior.
+        // Disabling EGL_KHR_create_context_no_error (which enables a new EGL attrib) prevents that,
+        // but we don't have the infrastructure for disabling EGL extensions yet.
+        // Instead, disable GL_KHR_no_error (which disables exposing the GL extension), which
+        // prevents writing invalid calls to the capture.
+        INFO() << "Enabling validation to prevent invalid calls from being captured. This "
+                  "effectively disables GL_KHR_no_error and enables GL_ANGLE_robust_client_memory.";
+        mErrors.forceValidation();
+        extensions->noErrorKHR              = skipValidation();
+        extensions->robustClientMemoryANGLE = !skipValidation();
+
+        INFO() << "Disabling GL_OES_depth32 during capture, which is not widely supported on "
+                  "mobile";
+        extensions->depth32OES = false;
+
+        // https://issuetracker.google.com/445241477
+        INFO() << "Disabling GL_EXT_texture_norm16 during capture, which is not widely supported";
+        extensions->textureNorm16EXT = false;
+
+        // The corresponding Vulkan extension is presently limited to ARM and Qualcomm
+        INFO()
+            << "Disabling GL_EXT_texture_compression_astc_decode_mode and "
+               "GL_EXT_texture_compression_astc_decode_mode_rgb9e5 during capture, which are not "
+               "yet widely supported";
+        extensions->textureCompressionAstcDecodeModeEXT       = false;
+        extensions->textureCompressionAstcDecodeModeRgb9e5EXT = false;
+
+        // Pixel 4 (Qualcomm) only supports 6 atomic counter buffer bindings.
+        constexpr GLint maxAtomicCounterBufferBindings = 6;
+        INFO() << "Limiting max atomic counter buffer bindings to "
+               << maxAtomicCounterBufferBindings;
+        ANGLE_LIMIT_CAP(caps->maxAtomicCounterBufferBindings, maxAtomicCounterBufferBindings);
+        for (gl::ShaderType shaderType : gl::AllShaderTypes())
+        {
+            ANGLE_LIMIT_CAP(caps->maxShaderAtomicCounterBuffers[shaderType],
+                            maxAtomicCounterBufferBindings);
+        }
+
+        // SwiftShader only supports 12 shader storage buffer bindings.
+        constexpr GLint maxShaderStorageBufferBindings = 12;
+        INFO() << "Limiting max shader storage buffer bindings to "
+               << maxShaderStorageBufferBindings;
+        ANGLE_LIMIT_CAP(caps->maxShaderStorageBufferBindings, maxShaderStorageBufferBindings);
+        for (gl::ShaderType shaderType : gl::AllShaderTypes())
+        {
+            ANGLE_LIMIT_CAP(caps->maxShaderStorageBlocks[shaderType],
+                            maxShaderStorageBufferBindings);
+        }
+
+        // Pixel 7 MAX_TEXTURE_SIZE is 16K
+        constexpr GLint max2DTextureSize = 16383;
+        INFO() << "Limiting GL_MAX_TEXTURE_SIZE to " << max2DTextureSize;
+        ANGLE_LIMIT_CAP(caps->max2DTextureSize, max2DTextureSize);
+
+        // Pixel 4 only supports GL_MAX_SAMPLES of 4
+        constexpr GLint maxSamples = 4;
+        INFO() << "Limiting GL_MAX_SAMPLES to " << maxSamples;
+        ANGLE_LIMIT_CAP(caps->maxSamples, maxSamples);
+
+        // Test if we require shadow memory for coherent buffer tracking
+        getShareGroup()->getFrameCaptureShared()->determineMemoryProtectionSupport(this);
     }
 
     // Disable support for OES_get_program_binary
     if (mDisplay->getFrontendFeatures().disableProgramBinary.enabled)
     {
-        mState.mExtensions.getProgramBinaryOES = false;
-        mState.mCaps.shaderBinaryFormats.clear();
-        mState.mCaps.programBinaryFormats.clear();
+        extensions->getProgramBinaryOES = false;
+        caps->shaderBinaryFormats.clear();
+        caps->programBinaryFormats.clear();
+        mMemoryProgramCache = nullptr;
     }
+
+    // Initialize ANGLE_shader_pixel_local_storage caps based on frontend GL queries.
+    //
+    // The backend may have already initialized these caps with its own custom values, in which case
+    // maxPixelLocalStoragePlanes will already be nonzero and we can skip this step.
+    if (mSupportedExtensions.shaderPixelLocalStorageANGLE && caps->maxPixelLocalStoragePlanes == 0)
+    {
+        int maxDrawableAttachments = std::min(caps->maxDrawBuffers, caps->maxColorAttachments);
+        switch (mImplementation->getNativePixelLocalStorageOptions().type)
+        {
+            case ShPixelLocalStorageType::ImageLoadStore:
+                caps->maxPixelLocalStoragePlanes =
+                    caps->maxShaderImageUniforms[ShaderType::Fragment];
+                ANGLE_LIMIT_CAP(caps->maxPixelLocalStoragePlanes,
+                                IMPLEMENTATION_MAX_PIXEL_LOCAL_STORAGE_PLANES);
+                caps->maxCombinedDrawBuffersAndPixelLocalStoragePlanes =
+                    std::min<GLint>(caps->maxPixelLocalStoragePlanes +
+                                        std::min(caps->maxDrawBuffers, caps->maxColorAttachments),
+                                    caps->maxCombinedShaderOutputResources);
+                break;
+
+            case ShPixelLocalStorageType::FramebufferFetch:
+                // When pixel local storage is implemented as framebuffer attachments, we need
+                // draw_buffers_indexed in order to control the blend & color mask state
+                // on the PLS planes independently.
+                ASSERT(mSupportedExtensions.drawBuffersIndexedAny());
+                caps->maxPixelLocalStoragePlanes = maxDrawableAttachments;
+                ANGLE_LIMIT_CAP(caps->maxPixelLocalStoragePlanes,
+                                IMPLEMENTATION_MAX_PIXEL_LOCAL_STORAGE_PLANES);
+                caps->maxCombinedDrawBuffersAndPixelLocalStoragePlanes = maxDrawableAttachments;
+                break;
+
+            case ShPixelLocalStorageType::NotSupported:
+                UNREACHABLE();
+                break;
+        }
+    }
+    // Validate that pixel local storage caps were initialized within implementation limits. We
+    // can't just clamp this value here since it would potentially impact other caps.
+    ASSERT(caps->maxPixelLocalStoragePlanes <= IMPLEMENTATION_MAX_PIXEL_LOCAL_STORAGE_PLANES);
+
+#undef ANGLE_LIMIT_CAP
+#undef ANGLE_LOG_CAP_LIMIT
 
     // Generate texture caps
     updateCaps();
@@ -3592,8 +4772,11 @@ void Context::initCaps()
 
 void Context::updateCaps()
 {
-    mState.mCaps.compressedTextureFormats.clear();
-    mState.mTextureCaps.clear();
+    Caps *caps                  = mState.getMutableCaps();
+    TextureCapsMap *textureCaps = mState.getMutableTextureCaps();
+
+    caps->compressedTextureFormats.clear();
+    textureCaps->clear();
 
     for (GLenum sizedInternalFormat : GetAllSizedInternalFormats())
     {
@@ -3603,24 +4786,28 @@ void Context::updateCaps()
         // Update the format caps based on the client version and extensions.
         // Caps are AND'd with the renderer caps because some core formats are still unsupported in
         // ES3.
-        formatCaps.texturable = formatCaps.texturable &&
-                                formatInfo.textureSupport(getClientVersion(), mState.mExtensions);
-        formatCaps.filterable = formatCaps.filterable &&
-                                formatInfo.filterSupport(getClientVersion(), mState.mExtensions);
+        formatCaps.texturable =
+            formatCaps.texturable &&
+            formatInfo.textureSupport(getClientVersion(), mState.getExtensions());
+        formatCaps.filterable =
+            formatCaps.filterable &&
+            formatInfo.filterSupport(getClientVersion(), mState.getExtensions());
         formatCaps.textureAttachment =
             formatCaps.textureAttachment &&
-            formatInfo.textureAttachmentSupport(getClientVersion(), mState.mExtensions);
+            formatInfo.textureAttachmentSupport(getClientVersion(), mState.getExtensions());
         formatCaps.renderbuffer =
             formatCaps.renderbuffer &&
-            formatInfo.renderbufferSupport(getClientVersion(), mState.mExtensions);
-        formatCaps.blendable =
-            formatCaps.blendable && formatInfo.blendSupport(getClientVersion(), mState.mExtensions);
+            formatInfo.renderbufferSupport(getClientVersion(), mState.getExtensions());
+        formatCaps.blendable = formatCaps.blendable &&
+                               formatInfo.blendSupport(getClientVersion(), mState.getExtensions());
+
+        const bool isIntColorFormat = formatInfo.isInt() && formatInfo.stencilBits == 0;
 
         // OpenGL ES does not support multisampling with non-rendererable formats
         // OpenGL ES 3.0 or prior does not support multisampling with integer formats
         if (!formatCaps.renderbuffer ||
-            (getClientVersion() < ES_3_1 && !mSupportedExtensions.textureMultisample &&
-             formatInfo.isInt()))
+            (getClientVersion() < ES_3_1 && !mState.getExtensions().textureMultisampleANGLE &&
+             isIntColorFormat))
         {
             formatCaps.sampleCounts.clear();
         }
@@ -3628,30 +4815,30 @@ void Context::updateCaps()
         {
             // We may have limited the max samples for some required renderbuffer formats due to
             // non-conformant formats. In this case MAX_SAMPLES needs to be lowered accordingly.
-            GLuint formatMaxSamples = formatCaps.getMaxSamples();
+            GLuint formatMaxSamples = formatCaps.sampleCounts.getMaxSamples();
 
             // GLES 3.0.5 section 4.4.2.2: "Implementations must support creation of renderbuffers
             // in these required formats with up to the value of MAX_SAMPLES multisamples, with the
             // exception of signed and unsigned integer formats."
-            if (!formatInfo.isInt() && formatInfo.isRequiredRenderbufferFormat(getClientVersion()))
+            if (!isIntColorFormat && formatInfo.isRequiredRenderbufferFormat(getClientVersion()))
             {
                 ASSERT(getClientVersion() < ES_3_0 || formatMaxSamples >= 4);
-                mState.mCaps.maxSamples =
-                    std::min(static_cast<GLuint>(mState.mCaps.maxSamples), formatMaxSamples);
+                caps->maxSamples =
+                    std::min(static_cast<GLuint>(caps->maxSamples), formatMaxSamples);
             }
 
             // Handle GLES 3.1 MAX_*_SAMPLES values similarly to MAX_SAMPLES.
-            if (getClientVersion() >= ES_3_1 || mSupportedExtensions.textureMultisample)
+            if (getClientVersion() >= ES_3_1 || mState.getExtensions().textureMultisampleANGLE)
             {
                 // GLES 3.1 section 9.2.5: "Implementations must support creation of renderbuffers
                 // in these required formats with up to the value of MAX_SAMPLES multisamples, with
                 // the exception that the signed and unsigned integer formats are required only to
                 // support creation of renderbuffers with up to the value of MAX_INTEGER_SAMPLES
                 // multisamples, which must be at least one."
-                if (formatInfo.isInt())
+                if (isIntColorFormat)
                 {
-                    mState.mCaps.maxIntegerSamples = std::min(
-                        static_cast<GLuint>(mState.mCaps.maxIntegerSamples), formatMaxSamples);
+                    caps->maxIntegerSamples =
+                        std::min(static_cast<GLuint>(caps->maxIntegerSamples), formatMaxSamples);
                 }
 
                 // GLES 3.1 section 19.3.1.
@@ -3659,26 +4846,24 @@ void Context::updateCaps()
                 {
                     if (formatInfo.depthBits > 0)
                     {
-                        mState.mCaps.maxDepthTextureSamples =
-                            std::min(static_cast<GLuint>(mState.mCaps.maxDepthTextureSamples),
-                                     formatMaxSamples);
+                        caps->maxDepthTextureSamples = std::min(
+                            static_cast<GLuint>(caps->maxDepthTextureSamples), formatMaxSamples);
                     }
                     else if (formatInfo.redBits > 0)
                     {
-                        mState.mCaps.maxColorTextureSamples =
-                            std::min(static_cast<GLuint>(mState.mCaps.maxColorTextureSamples),
-                                     formatMaxSamples);
+                        caps->maxColorTextureSamples = std::min(
+                            static_cast<GLuint>(caps->maxColorTextureSamples), formatMaxSamples);
                     }
                 }
             }
         }
 
-        if (formatCaps.texturable && formatInfo.compressed)
+        if (formatCaps.texturable && (formatInfo.compressed || formatInfo.paletted))
         {
-            mState.mCaps.compressedTextureFormats.push_back(sizedInternalFormat);
+            caps->compressedTextureFormats.push_back(sizedInternalFormat);
         }
 
-        mState.mTextureCaps.insert(sizedInternalFormat, formatCaps);
+        textureCaps->insert(sizedInternalFormat, formatCaps);
     }
 
     // If program binary is disabled, blank out the memory cache pointer.
@@ -3692,7 +4877,7 @@ void Context::updateCaps()
     mValidBufferBindings.set(BufferBinding::ElementArray);
     mValidBufferBindings.set(BufferBinding::Array);
 
-    if (mState.mExtensions.pixelBufferObjectNV || getClientVersion() >= ES_3_0)
+    if (mState.getExtensions().pixelBufferObjectNV || getClientVersion() >= ES_3_0)
     {
         mValidBufferBindings.set(BufferBinding::PixelPack);
         mValidBufferBindings.set(BufferBinding::PixelUnpack);
@@ -3714,47 +4899,45 @@ void Context::updateCaps()
         mValidBufferBindings.set(BufferBinding::DispatchIndirect);
     }
 
-    if (getClientVersion() >= ES_3_2 || mState.mExtensions.textureBufferAny())
+    if (getClientVersion() >= ES_3_2 || mState.getExtensions().textureBufferAny())
     {
         mValidBufferBindings.set(BufferBinding::Texture);
     }
 
-    mThreadPool = angle::WorkerThreadPool::Create(mState.mExtensions.parallelShaderCompile);
-
     // Reinitialize some dirty bits that depend on extensions.
     if (mState.isRobustResourceInitEnabled())
     {
-        mDrawDirtyObjects.set(State::DIRTY_OBJECT_DRAW_ATTACHMENTS);
-        mDrawDirtyObjects.set(State::DIRTY_OBJECT_TEXTURES_INIT);
-        mDrawDirtyObjects.set(State::DIRTY_OBJECT_IMAGES_INIT);
-        mBlitDirtyObjects.set(State::DIRTY_OBJECT_DRAW_ATTACHMENTS);
-        mBlitDirtyObjects.set(State::DIRTY_OBJECT_READ_ATTACHMENTS);
-        mComputeDirtyObjects.set(State::DIRTY_OBJECT_TEXTURES_INIT);
-        mComputeDirtyObjects.set(State::DIRTY_OBJECT_IMAGES_INIT);
-        mReadPixelsDirtyObjects.set(State::DIRTY_OBJECT_READ_ATTACHMENTS);
-        mCopyImageDirtyBits.set(State::DIRTY_BIT_READ_FRAMEBUFFER_BINDING);
-        mCopyImageDirtyObjects.set(State::DIRTY_OBJECT_READ_ATTACHMENTS);
+        mDrawDirtyObjects.set(state::DIRTY_OBJECT_DRAW_ATTACHMENTS);
+        mDrawDirtyObjects.set(state::DIRTY_OBJECT_TEXTURES_INIT);
+        mDrawDirtyObjects.set(state::DIRTY_OBJECT_IMAGES_INIT);
+        mClearDirtyObjects.set(state::DIRTY_OBJECT_DRAW_ATTACHMENTS);
+        mBlitDirtyObjects.set(state::DIRTY_OBJECT_DRAW_ATTACHMENTS);
+        mBlitDirtyObjects.set(state::DIRTY_OBJECT_READ_ATTACHMENTS);
+        mComputeDirtyObjects.set(state::DIRTY_OBJECT_TEXTURES_INIT);
+        mComputeDirtyObjects.set(state::DIRTY_OBJECT_IMAGES_INIT);
+        mReadPixelsDirtyObjects.set(state::DIRTY_OBJECT_READ_ATTACHMENTS);
+        mCopyImageDirtyBits.set(state::DIRTY_BIT_READ_FRAMEBUFFER_BINDING);
+        mCopyImageDirtyObjects.set(state::DIRTY_OBJECT_READ_ATTACHMENTS);
+        mTilingDirtyObjects.set(state::DIRTY_OBJECT_DRAW_ATTACHMENTS);
     }
 
-    // We need to validate buffer bounds if we are in a WebGL or robust access context and the
-    // back-end does not support robust buffer access behaviour.
+    // If we are in a WebGL or robust access context and the back-end does not support robust buffer
+    // access behaviour, we need to validate the buffer bounds manually.
+    mRequiresRobustBehavior = mState.isWebGL() || mState.hasRobustAccess();
     mBufferAccessValidationEnabled =
-        (!mSupportedExtensions.robustBufferAccessBehavior && (mState.isWebGL() || mRobustAccess));
+        !mSupportedExtensions.robustBufferAccessBehaviorKHR && mRequiresRobustBehavior;
 
     // Cache this in the VertexArrays. They need to check it in state change notifications.
-    for (auto vaoIter : mVertexArrayMap)
+    // Note: vertex array objects are private to context and so the map doesn't need locking
+    for (auto vaoIter : UnsafeResourceMapIter(getPrivateState().getVertexArrayMap()))
     {
         VertexArray *vao = vaoIter.second;
-        vao->setBufferAccessValidationEnabled(mBufferAccessValidationEnabled);
+        vao->setRobustBufferAccessEnabled(mRequiresRobustBehavior);
     }
 
     // Reinitialize state cache after extension changes.
     mStateCache.initialize(this);
-}
-
-bool Context::noopDrawInstanced(PrimitiveMode mode, GLsizei count, GLsizei instanceCount) const
-{
-    return (instanceCount == 0) || noopDraw(mode, count);
+    mPrivateStateCache.initialize(this);
 }
 
 angle::Result Context::prepareForClear(GLbitfield mask)
@@ -3775,15 +4958,11 @@ angle::Result Context::prepareForClearBuffer(GLenum buffer, GLint drawbuffer)
 ANGLE_INLINE angle::Result Context::prepareForCopyImage()
 {
     ANGLE_TRY(syncDirtyObjects(mCopyImageDirtyObjects, Command::CopyImage));
-    return syncDirtyBits(mCopyImageDirtyBits);
+    return syncDirtyBits(mCopyImageDirtyBits, kCopyImageExtendedDirtyBits, Command::CopyImage);
 }
 
 ANGLE_INLINE angle::Result Context::prepareForDispatch()
 {
-    // We always assume PPOs are used for draws, until they aren't. If we are executing a dispatch
-    // with a PPO, we need to convert it from a "draw"-type to "dispatch"-type.
-    convertPpoToComputeOrDraw(true);
-
     // Converting a PPO from graphics to compute requires re-linking it.
     // The compute shader must have successfully linked before being included in the PPO, so no link
     // errors that would have been caught during validation should be possible when re-linking the
@@ -3792,23 +4971,44 @@ ANGLE_INLINE angle::Result Context::prepareForDispatch()
     ProgramPipeline *pipeline = mState.getProgramPipeline();
     if (!program && pipeline)
     {
-        bool goodResult = pipeline->link(this) == angle::Result::Continue;
         // Linking the PPO can't fail due to a validation error within the compute program,
         // since it successfully linked already in order to become part of the PPO in the first
         // place.
-        ANGLE_CHECK(this, goodResult, "Program pipeline link failed", GL_INVALID_OPERATION);
+        pipeline->resolveLink(this);
+        ANGLE_CHECK(this, pipeline->isLinked(), err::kProgramPipelineLinkFailed,
+                    GL_INVALID_OPERATION);
     }
 
     ANGLE_TRY(syncDirtyObjects(mComputeDirtyObjects, Command::Dispatch));
-    return syncDirtyBits(mComputeDirtyBits);
+    return syncDirtyBits(kComputeDirtyBits, kComputeExtendedDirtyBits, Command::Dispatch);
 }
 
-angle::Result Context::syncState(const State::DirtyBits &bitMask,
-                                 const State::DirtyObjects &objectMask,
+angle::Result Context::prepareForInvalidate(GLenum target)
+{
+    // Only sync the FBO that's being invalidated.  Per the GLES3 spec, GL_FRAMEBUFFER is equivalent
+    // to GL_DRAW_FRAMEBUFFER for the purposes of invalidation.
+    GLenum effectiveTarget = target;
+    if (effectiveTarget == GL_FRAMEBUFFER)
+    {
+        effectiveTarget = GL_DRAW_FRAMEBUFFER;
+    }
+    ANGLE_TRY(mState.syncDirtyObject(this, effectiveTarget, Command::Invalidate));
+    const state::DirtyBits dirtyBits                 = effectiveTarget == GL_READ_FRAMEBUFFER
+                                                           ? kReadInvalidateDirtyBits
+                                                           : kDrawInvalidateDirtyBits;
+    const state::ExtendedDirtyBits extendedDirtyBits = effectiveTarget == GL_READ_FRAMEBUFFER
+                                                           ? kReadInvalidateExtendedDirtyBits
+                                                           : kDrawInvalidateExtendedDirtyBits;
+    return syncDirtyBits(dirtyBits, extendedDirtyBits, Command::Invalidate);
+}
+
+angle::Result Context::syncState(const state::DirtyBits bitMask,
+                                 const state::ExtendedDirtyBits extendedBitMask,
+                                 const state::DirtyObjects &objectMask,
                                  Command command)
 {
     ANGLE_TRY(syncDirtyObjects(objectMask, command));
-    ANGLE_TRY(syncDirtyBits(bitMask));
+    ANGLE_TRY(syncDirtyBits(bitMask, extendedBitMask, command));
     return angle::Result::Continue;
 }
 
@@ -3831,22 +5031,28 @@ void Context::blitFramebuffer(GLint srcX0,
     }
 
     Framebuffer *drawFramebuffer = mState.getDrawFramebuffer();
+    Framebuffer *readFramebuffer = mState.getReadFramebuffer();
     ASSERT(drawFramebuffer);
+    ASSERT(readFramebuffer);
 
     // Note that blitting is called against draw framebuffer.
     // See the code in gl::Context::blitFramebuffer.
-    if ((mask & GL_COLOR_BUFFER_BIT) && !drawFramebuffer->hasEnabledDrawBuffer())
+    if ((mask & GL_COLOR_BUFFER_BIT) && (!drawFramebuffer->hasEnabledDrawBuffer() ||
+                                         readFramebuffer->getReadColorAttachment() == nullptr))
     {
         mask &= ~GL_COLOR_BUFFER_BIT;
     }
 
     if ((mask & GL_STENCIL_BUFFER_BIT) &&
-        drawFramebuffer->getState().getStencilAttachment() == nullptr)
+        (drawFramebuffer->getState().getStencilAttachment() == nullptr ||
+         readFramebuffer->getState().getStencilAttachment() == nullptr))
     {
         mask &= ~GL_STENCIL_BUFFER_BIT;
     }
 
-    if ((mask & GL_DEPTH_BUFFER_BIT) && drawFramebuffer->getState().getDepthAttachment() == nullptr)
+    if ((mask & GL_DEPTH_BUFFER_BIT) &&
+        (drawFramebuffer->getState().getDepthAttachment() == nullptr ||
+         readFramebuffer->getState().getDepthAttachment() == nullptr))
     {
         mask &= ~GL_DEPTH_BUFFER_BIT;
     }
@@ -3867,8 +5073,7 @@ void Context::blitFramebuffer(GLint srcX0,
         return;
     }
 
-    ANGLE_CONTEXT_TRY(syncStateForBlit());
-
+    ANGLE_CONTEXT_TRY(syncStateForBlit(mask));
     ANGLE_CONTEXT_TRY(drawFramebuffer->blit(this, srcArea, dstArea, mask, filter));
 }
 
@@ -3879,11 +5084,9 @@ void Context::clear(GLbitfield mask)
         return;
     }
 
-    // Noop empty scissors.
-    if (IsEmptyScissor(mState))
-    {
-        return;
-    }
+    // If we have active PLS using framebuffer fetch, disable those draw buffers so we don't clear
+    // the pixel local store.
+    ScopedPLSFramebufferFetchDrawBuffersDisable scopedPLSFramebufferFetchDrawBuffersDisable(this);
 
     // Remove clear bits that are ineffective. An effective clear changes at least one fragment. If
     // color/depth/stencil masks make the clear ineffective we skip it altogether.
@@ -3896,14 +5099,14 @@ void Context::clear(GLbitfield mask)
 
     // If depth write is disabled, don't attempt to clear depth.
     if (mState.getDrawFramebuffer()->getDepthAttachment() == nullptr ||
-        !mState.getDepthStencilState().depthMask)
+        mState.getDepthStencilState().isDepthMaskedOut())
     {
         mask &= ~GL_DEPTH_BUFFER_BIT;
     }
 
     // If all stencil bits are masked, don't attempt to clear stencil.
-    if (mState.getDrawFramebuffer()->getStencilAttachment() == nullptr ||
-        mState.getDepthStencilState().stencilWritemask == 0)
+    if (mState.getDepthStencilState().isStencilMaskedOut(
+            mState.getDrawFramebuffer()->getStencilBitCount()))
     {
         mask &= ~GL_STENCIL_BUFFER_BIT;
     }
@@ -3919,7 +5122,9 @@ void Context::clear(GLbitfield mask)
     ANGLE_CONTEXT_TRY(mState.getDrawFramebuffer()->clear(this, mask));
 }
 
-bool Context::isClearBufferMaskedOut(GLenum buffer, GLint drawbuffer) const
+bool Context::isClearBufferMaskedOut(GLenum buffer,
+                                     GLint drawbuffer,
+                                     GLuint framebufferStencilSize) const
 {
     switch (buffer)
     {
@@ -3928,10 +5133,10 @@ bool Context::isClearBufferMaskedOut(GLenum buffer, GLint drawbuffer) const
         case GL_DEPTH:
             return mState.getDepthStencilState().isDepthMaskedOut();
         case GL_STENCIL:
-            return mState.getDepthStencilState().isStencilMaskedOut();
+            return mState.getDepthStencilState().isStencilMaskedOut(framebufferStencilSize);
         case GL_DEPTH_STENCIL:
             return mState.getDepthStencilState().isDepthMaskedOut() &&
-                   mState.getDepthStencilState().isStencilMaskedOut();
+                   mState.getDepthStencilState().isStencilMaskedOut(framebufferStencilSize);
         default:
             UNREACHABLE();
             return true;
@@ -3942,9 +5147,16 @@ bool Context::noopClearBuffer(GLenum buffer, GLint drawbuffer) const
 {
     Framebuffer *framebufferObject = mState.getDrawFramebuffer();
 
+    if (buffer == GL_COLOR && getPrivateState().isActivelyOverriddenPLSDrawBuffer(drawbuffer))
+    {
+        // If pixel local storage is active and currently overriding the drawbuffer, do nothing.
+        // From the client's perspective, there is effectively no buffer bound.
+        return true;
+    }
+
     return !IsClearBufferEnabled(framebufferObject->getState(), buffer, drawbuffer) ||
-           mState.isRasterizerDiscardEnabled() || isClearBufferMaskedOut(buffer, drawbuffer) ||
-           IsEmptyScissor(mState);
+           mState.isRasterizerDiscardEnabled() ||
+           isClearBufferMaskedOut(buffer, drawbuffer, framebufferObject->getStencilBitCount());
 }
 
 void Context::clearBufferfv(GLenum buffer, GLint drawbuffer, const GLfloat *values)
@@ -3956,9 +5168,12 @@ void Context::clearBufferfv(GLenum buffer, GLint drawbuffer, const GLfloat *valu
 
     Framebuffer *framebufferObject          = mState.getDrawFramebuffer();
     const FramebufferAttachment *attachment = nullptr;
+    GLfloat clampedDepth;
     if (buffer == GL_DEPTH)
     {
-        attachment = framebufferObject->getDepthAttachment();
+        clampedDepth = clamp01(values[0]);
+        values       = &clampedDepth;
+        attachment   = framebufferObject->getDepthAttachment();
     }
     else if (buffer == GL_COLOR &&
              static_cast<size_t>(drawbuffer) < framebufferObject->getNumColorAttachments())
@@ -4045,7 +5260,36 @@ void Context::clearBufferfi(GLenum buffer, GLint drawbuffer, GLfloat depth, GLin
     }
 
     ANGLE_CONTEXT_TRY(prepareForClearBuffer(buffer, drawbuffer));
-    ANGLE_CONTEXT_TRY(framebufferObject->clearBufferfi(this, buffer, drawbuffer, depth, stencil));
+    ANGLE_CONTEXT_TRY(
+        framebufferObject->clearBufferfi(this, buffer, drawbuffer, clamp01(depth), stencil));
+}
+
+ANGLE_INLINE angle::Result Context::readPixelsImpl(GLint x,
+                                                   GLint y,
+                                                   GLsizei width,
+                                                   GLsizei height,
+                                                   GLenum format,
+                                                   GLenum type,
+                                                   void *pixels)
+{
+    // Zero dimensions are no-ops and negative dimensions must be blocked by validation.
+    // Exit early in both cases to avoid backend failures when validation is disabled.
+    if (ANGLE_UNLIKELY(width <= 0 || height <= 0))
+    {
+        return angle::Result::Continue;
+    }
+
+    ANGLE_TRY(syncStateForReadPixels());
+
+    Framebuffer *readFBO = mState.getReadFramebuffer();
+    ASSERT(readFBO);
+
+    Rectangle area(x, y, width, height);
+    PixelPackState packState = mState.getPackState();
+    Buffer *packBuffer       = mState.getTargetBuffer(gl::BufferBinding::PixelPack);
+    ANGLE_TRY(readFBO->readPixels(this, area, format, type, packState, packBuffer, pixels));
+
+    return angle::Result::Continue;
 }
 
 void Context::readPixels(GLint x,
@@ -4056,20 +5300,7 @@ void Context::readPixels(GLint x,
                          GLenum type,
                          void *pixels)
 {
-    if (width == 0 || height == 0)
-    {
-        return;
-    }
-
-    ANGLE_CONTEXT_TRY(syncStateForReadPixels());
-
-    Framebuffer *readFBO = mState.getReadFramebuffer();
-    ASSERT(readFBO);
-
-    Rectangle area(x, y, width, height);
-    PixelPackState packState = mState.getPackState();
-    Buffer *packBuffer       = mState.getTargetBuffer(gl::BufferBinding::PixelPack);
-    ANGLE_CONTEXT_TRY(readFBO->readPixels(this, area, format, type, packState, packBuffer, pixels));
+    ANGLE_CONTEXT_TRY(readPixelsImpl(x, y, width, height, format, type, pixels));
 }
 
 void Context::readPixelsRobust(GLint x,
@@ -4084,22 +5315,63 @@ void Context::readPixelsRobust(GLint x,
                                GLsizei *rows,
                                void *pixels)
 {
-    readPixels(x, y, width, height, format, type, pixels);
-}
+    ANGLE_CONTEXT_TRY(readPixelsImpl(x, y, width, height, format, type, pixels));
 
-void Context::readnPixelsRobust(GLint x,
-                                GLint y,
-                                GLsizei width,
-                                GLsizei height,
-                                GLenum format,
-                                GLenum type,
-                                GLsizei bufSize,
-                                GLsizei *length,
-                                GLsizei *columns,
-                                GLsizei *rows,
-                                void *data)
-{
-    readPixels(x, y, width, height, format, type, data);
+    if (length != nullptr)
+    {
+        if (mState.getTargetBuffer(BufferBinding::PixelPack) == nullptr)
+        {
+            const InternalFormat &formatInfo = GetInternalFormatInfo(format, type);
+
+            GLuint endByte   = 0;
+            const bool valid = formatInfo.computePackUnpackEndByte(
+                type, Extents(width, height, 1), mState.getPackState(), false, &endByte);
+            ASSERT(valid);
+            ASSERT(endByte <= static_cast<GLuint>(std::numeric_limits<GLsizei>::max()));
+
+            *length = static_cast<GLsizei>(endByte);
+        }
+        else
+        {
+            *length = 0;
+        }
+    }
+
+    GLsizei columnsValue = 0;
+    GLsizei rowsValue    = 0;
+    // If the call above exited early due to width or height being zero,
+    // the read buffer dimensions might remain unresolved at this point.
+    // There is no need to compute output dimensions in that case.
+    if (ANGLE_LIKELY(width > 0 && height > 0))
+    {
+        const Extents readBufferSize =
+            mState.getReadFramebuffer()->getState().getReadPixelsAttachment(format)->getSize();
+        ASSERT(readBufferSize.width >= 0 && readBufferSize.height >= 0);
+        ASSERT(angle::base::CheckAdd<GLint>(x, width).IsValid());
+        ASSERT(angle::base::CheckAdd<GLint>(y, height).IsValid());
+
+        // These expressions cannot overflow with the assertions above.
+        // Minuend is the clipped end; subtrahend is the clipped start.
+        columnsValue = std::min<GLsizei>(x + width, readBufferSize.width) - std::max(0, x);
+        rowsValue    = std::min<GLsizei>(y + height, readBufferSize.height) - std::max(0, y);
+
+        // If any computed dimension is not positive, the intersection is empty.
+        if (columnsValue <= 0 || rowsValue <= 0)
+        {
+            columnsValue = 0;
+            rowsValue    = 0;
+        }
+    }
+
+    if (columns != nullptr)
+    {
+        *columns = columnsValue;
+    }
+
+    if (rows != nullptr)
+    {
+        *rows = rowsValue;
+    }
 }
 
 void Context::copyTexImage2D(TextureTarget target,
@@ -4111,6 +5383,11 @@ void Context::copyTexImage2D(TextureTarget target,
                              GLsizei height,
                              GLint border)
 {
+    if (ANGLE_UNLIKELY(width == 0 || height == 0))
+    {
+        return;
+    }
+
     ANGLE_CONTEXT_TRY(prepareForCopyImage());
 
     Rectangle sourceArea(x, y, width, height);
@@ -4130,7 +5407,7 @@ void Context::copyTexSubImage2D(TextureTarget target,
                                 GLsizei width,
                                 GLsizei height)
 {
-    if (width == 0 || height == 0)
+    if (ANGLE_UNLIKELY(width == 0 || height == 0))
     {
         return;
     }
@@ -4157,7 +5434,7 @@ void Context::copyTexSubImage3D(TextureTarget target,
                                 GLsizei width,
                                 GLsizei height)
 {
-    if (width == 0 || height == 0)
+    if (ANGLE_UNLIKELY(width == 0 || height == 0))
     {
         return;
     }
@@ -4196,61 +5473,68 @@ void Context::copyImageSubData(GLuint srcName,
         return;
     }
 
+    ASSERT(srcTarget != GL_RENDERER || (srcLevel == 0 && srcZ == 0 && srcDepth == 1));
+    ASSERT(dstTarget != GL_RENDERER || (dstLevel == 0 && dstZ == 0 && srcDepth == 1));
+
     if (srcTarget == GL_RENDERBUFFER)
     {
         // Source target is a Renderbuffer
-        Renderbuffer *readBuffer = getRenderbuffer(FromGL<RenderbufferID>(srcName));
+        Renderbuffer *readBuffer = getRenderbuffer(PackParam<RenderbufferID>(srcName));
         if (dstTarget == GL_RENDERBUFFER)
         {
             // Destination target is a Renderbuffer
-            Renderbuffer *writeBuffer = getRenderbuffer(FromGL<RenderbufferID>(dstName));
+            Renderbuffer *writeBuffer = getRenderbuffer(PackParam<RenderbufferID>(dstName));
 
             // Copy Renderbuffer to Renderbuffer
             ANGLE_CONTEXT_TRY(writeBuffer->copyRenderbufferSubData(
-                this, readBuffer, srcLevel, srcX, srcY, srcZ, dstLevel, dstX, dstY, dstZ, srcWidth,
-                srcHeight, srcDepth));
+                this, readBuffer, srcX, srcY, dstX, dstY, srcWidth, srcHeight));
         }
         else
         {
             // Destination target is a Texture
             ASSERT(dstTarget == GL_TEXTURE_2D || dstTarget == GL_TEXTURE_2D_ARRAY ||
-                   dstTarget == GL_TEXTURE_3D || dstTarget == GL_TEXTURE_CUBE_MAP);
+                   dstTarget == GL_TEXTURE_3D || dstTarget == GL_TEXTURE_CUBE_MAP ||
+                   dstTarget == GL_TEXTURE_CUBE_MAP_ARRAY);
 
-            Texture *writeTexture = getTexture(FromGL<TextureID>(dstName));
+            Texture *writeTexture = getTexture(PackParam<TextureID>(dstName));
             ANGLE_CONTEXT_TRY(syncTextureForCopy(writeTexture));
 
             // Copy Renderbuffer to Texture
             ANGLE_CONTEXT_TRY(writeTexture->copyRenderbufferSubData(
-                this, readBuffer, srcLevel, srcX, srcY, srcZ, dstLevel, dstX, dstY, dstZ, srcWidth,
-                srcHeight, srcDepth));
+                this, readBuffer, srcX, srcY, dstLevel, dstX, dstY, dstZ, srcWidth, srcHeight));
         }
     }
     else
     {
         // Source target is a Texture
         ASSERT(srcTarget == GL_TEXTURE_2D || srcTarget == GL_TEXTURE_2D_ARRAY ||
-               srcTarget == GL_TEXTURE_3D || srcTarget == GL_TEXTURE_CUBE_MAP);
+               srcTarget == GL_TEXTURE_3D || srcTarget == GL_TEXTURE_CUBE_MAP ||
+               srcTarget == GL_TEXTURE_CUBE_MAP_ARRAY || srcTarget == GL_TEXTURE_EXTERNAL_OES ||
+               srcTarget == GL_TEXTURE_2D_MULTISAMPLE ||
+               srcTarget == GL_TEXTURE_2D_MULTISAMPLE_ARRAY_OES);
 
-        Texture *readTexture = getTexture(FromGL<TextureID>(srcName));
+        Texture *readTexture = getTexture(PackParam<TextureID>(srcName));
         ANGLE_CONTEXT_TRY(syncTextureForCopy(readTexture));
 
         if (dstTarget == GL_RENDERBUFFER)
         {
             // Destination target is a Renderbuffer
-            Renderbuffer *writeBuffer = getRenderbuffer(FromGL<RenderbufferID>(dstName));
+            Renderbuffer *writeBuffer = getRenderbuffer(PackParam<RenderbufferID>(dstName));
 
             // Copy Texture to Renderbuffer
-            ANGLE_CONTEXT_TRY(writeBuffer->copyTextureSubData(this, readTexture, srcLevel, srcX,
-                                                              srcY, srcZ, dstLevel, dstX, dstY,
-                                                              dstZ, srcWidth, srcHeight, srcDepth));
+            ANGLE_CONTEXT_TRY(writeBuffer->copyTextureSubData(
+                this, readTexture, srcLevel, srcX, srcY, srcZ, dstX, dstY, srcWidth, srcHeight));
         }
         else
         {
             // Destination target is a Texture
             ASSERT(dstTarget == GL_TEXTURE_2D || dstTarget == GL_TEXTURE_2D_ARRAY ||
-                   dstTarget == GL_TEXTURE_3D || dstTarget == GL_TEXTURE_CUBE_MAP);
+                   dstTarget == GL_TEXTURE_3D || dstTarget == GL_TEXTURE_CUBE_MAP ||
+                   dstTarget == GL_TEXTURE_CUBE_MAP_ARRAY || dstTarget == GL_TEXTURE_EXTERNAL_OES ||
+                   dstTarget == GL_TEXTURE_2D_MULTISAMPLE ||
+                   dstTarget == GL_TEXTURE_2D_MULTISAMPLE_ARRAY_OES);
 
-            Texture *writeTexture = getTexture(FromGL<TextureID>(dstName));
+            Texture *writeTexture = getTexture(PackParam<TextureID>(dstName));
             ANGLE_CONTEXT_TRY(syncTextureForCopy(writeTexture));
 
             // Copy Texture to Texture
@@ -4391,6 +5675,35 @@ void Context::framebufferTextureMultiview(GLenum target,
     mState.setObjectDirty(target);
 }
 
+void Context::framebufferTextureMultisampleMultiview(GLenum target,
+                                                     GLenum attachment,
+                                                     TextureID texturePacked,
+                                                     GLint level,
+                                                     GLsizei samples,
+                                                     GLint baseViewIndex,
+                                                     GLsizei numViews)
+{
+    Framebuffer *framebuffer = mState.getTargetFramebuffer(target);
+    ASSERT(framebuffer);
+
+    if (texturePacked.value != 0)
+    {
+        Texture *textureObj = getTexture(texturePacked);
+
+        ImageIndex index;
+        ASSERT(textureObj->getType() == TextureType::_2DArray);
+        index = ImageIndex::Make2DArrayRange(level, baseViewIndex, numViews);
+        framebuffer->setAttachmentMultisampleMultiview(
+            this, GL_TEXTURE, attachment, index, textureObj, samples, numViews, baseViewIndex);
+        textureObj->onBindToMSRTTFramebuffer();
+    }
+    else
+    {
+        framebuffer->resetAttachment(this, attachment);
+    }
+    mState.setObjectDirty(target);
+}
+
 void Context::framebufferTexture(GLenum target, GLenum attachment, TextureID texture, GLint level)
 {
     Framebuffer *framebuffer = mState.getTargetFramebuffer(target);
@@ -4430,15 +5743,9 @@ void Context::readBuffer(GLenum mode)
 
 void Context::discardFramebuffer(GLenum target, GLsizei numAttachments, const GLenum *attachments)
 {
-    // Only sync the FBO
-    ANGLE_CONTEXT_TRY(mState.syncDirtyObject(this, target));
-
-    Framebuffer *framebuffer = mState.getTargetFramebuffer(target);
-    ASSERT(framebuffer);
-
     // The specification isn't clear what should be done when the framebuffer isn't complete.
-    // We leave it up to the framebuffer implementation to decide what to do.
-    ANGLE_CONTEXT_TRY(framebuffer->discard(this, numAttachments, attachments));
+    // We threat it the same way as GLES3 glInvalidateFramebuffer.
+    invalidateFramebuffer(target, numAttachments, attachments);
 }
 
 void Context::invalidateFramebuffer(GLenum target,
@@ -4454,8 +5761,7 @@ void Context::invalidateFramebuffer(GLenum target,
         return;
     }
 
-    // Only sync the FBO
-    ANGLE_CONTEXT_TRY(mState.syncDirtyObject(this, target));
+    ANGLE_CONTEXT_TRY(prepareForInvalidate(target));
     ANGLE_CONTEXT_TRY(framebuffer->invalidate(this, numAttachments, attachments));
 }
 
@@ -4476,8 +5782,7 @@ void Context::invalidateSubFramebuffer(GLenum target,
     }
 
     Rectangle area(x, y, width, height);
-    // Only sync the FBO
-    ANGLE_CONTEXT_TRY(mState.syncDirtyObject(this, target));
+    ANGLE_CONTEXT_TRY(prepareForInvalidate(target));
     ANGLE_CONTEXT_TRY(framebuffer->invalidateSub(this, numAttachments, attachments, area));
 }
 
@@ -4655,22 +5960,11 @@ void Context::compressedTexImage2D(TextureTarget target,
 
     Extents size(width, height, 1);
     Texture *texture = getTextureByTarget(target);
-    ANGLE_CONTEXT_TRY(texture->setCompressedImage(this, mState.getUnpackState(), target, level,
+    // From OpenGL ES 3 spec: All pixel storage modes are ignored when decoding a compressed texture
+    // image. So we use an empty PixelUnpackState.
+    ANGLE_CONTEXT_TRY(texture->setCompressedImage(this, PixelUnpackState(), target, level,
                                                   internalformat, size, imageSize,
                                                   static_cast<const uint8_t *>(data)));
-}
-
-void Context::compressedTexImage2DRobust(TextureTarget target,
-                                         GLint level,
-                                         GLenum internalformat,
-                                         GLsizei width,
-                                         GLsizei height,
-                                         GLint border,
-                                         GLsizei imageSize,
-                                         GLsizei dataSize,
-                                         const GLvoid *data)
-{
-    compressedTexImage2D(target, level, internalformat, width, height, border, imageSize, data);
 }
 
 void Context::compressedTexImage3D(TextureTarget target,
@@ -4687,24 +5981,11 @@ void Context::compressedTexImage3D(TextureTarget target,
 
     Extents size(width, height, depth);
     Texture *texture = getTextureByTarget(target);
-    ANGLE_CONTEXT_TRY(texture->setCompressedImage(this, mState.getUnpackState(), target, level,
+    // From OpenGL ES 3 spec: All pixel storage modes are ignored when decoding a compressed texture
+    // image. So we use an empty PixelUnpackState.
+    ANGLE_CONTEXT_TRY(texture->setCompressedImage(this, PixelUnpackState(), target, level,
                                                   internalformat, size, imageSize,
                                                   static_cast<const uint8_t *>(data)));
-}
-
-void Context::compressedTexImage3DRobust(TextureTarget target,
-                                         GLint level,
-                                         GLenum internalformat,
-                                         GLsizei width,
-                                         GLsizei height,
-                                         GLsizei depth,
-                                         GLint border,
-                                         GLsizei imageSize,
-                                         GLsizei dataSize,
-                                         const GLvoid *data)
-{
-    compressedTexImage3D(target, level, internalformat, width, height, depth, border, imageSize,
-                         data);
 }
 
 void Context::compressedTexSubImage2D(TextureTarget target,
@@ -4721,24 +6002,11 @@ void Context::compressedTexSubImage2D(TextureTarget target,
 
     Box area(xoffset, yoffset, 0, width, height, 1);
     Texture *texture = getTextureByTarget(target);
-    ANGLE_CONTEXT_TRY(texture->setCompressedSubImage(this, mState.getUnpackState(), target, level,
-                                                     area, format, imageSize,
+    // From OpenGL ES 3 spec: All pixel storage modes are ignored when decoding a compressed texture
+    // image. So we use an empty PixelUnpackState.
+    ANGLE_CONTEXT_TRY(texture->setCompressedSubImage(this, PixelUnpackState(), target, level, area,
+                                                     format, imageSize,
                                                      static_cast<const uint8_t *>(data)));
-}
-
-void Context::compressedTexSubImage2DRobust(TextureTarget target,
-                                            GLint level,
-                                            GLint xoffset,
-                                            GLint yoffset,
-                                            GLsizei width,
-                                            GLsizei height,
-                                            GLenum format,
-                                            GLsizei imageSize,
-                                            GLsizei dataSize,
-                                            const GLvoid *data)
-{
-    compressedTexSubImage2D(target, level, xoffset, yoffset, width, height, format, imageSize,
-                            data);
 }
 
 void Context::compressedTexSubImage3D(TextureTarget target,
@@ -4763,26 +6031,11 @@ void Context::compressedTexSubImage3D(TextureTarget target,
 
     Box area(xoffset, yoffset, zoffset, width, height, depth);
     Texture *texture = getTextureByTarget(target);
-    ANGLE_CONTEXT_TRY(texture->setCompressedSubImage(this, mState.getUnpackState(), target, level,
-                                                     area, format, imageSize,
+    // From OpenGL ES 3 spec: All pixel storage modes are ignored when decoding a compressed texture
+    // image. So we use an empty PixelUnpackState.
+    ANGLE_CONTEXT_TRY(texture->setCompressedSubImage(this, PixelUnpackState(), target, level, area,
+                                                     format, imageSize,
                                                      static_cast<const uint8_t *>(data)));
-}
-
-void Context::compressedTexSubImage3DRobust(TextureTarget target,
-                                            GLint level,
-                                            GLint xoffset,
-                                            GLint yoffset,
-                                            GLint zoffset,
-                                            GLsizei width,
-                                            GLsizei height,
-                                            GLsizei depth,
-                                            GLenum format,
-                                            GLsizei imageSize,
-                                            GLsizei dataSize,
-                                            const GLvoid *data)
-{
-    compressedTexSubImage3D(target, level, xoffset, yoffset, zoffset, width, height, depth, format,
-                            imageSize, data);
 }
 
 void Context::generateMipmap(TextureType target)
@@ -4911,21 +6164,26 @@ void Context::compressedCopyTexture(TextureID sourceId, TextureID destId)
     ANGLE_CONTEXT_TRY(destTexture->copyCompressedTexture(this, sourceTexture));
 }
 
-void Context::getBufferPointerv(BufferBinding target, GLenum pname, void **params)
+void Context::getBufferPointerv(BufferBinding targetPacked, GLenum pname, void **params)
 {
-    Buffer *buffer = mState.getTargetBuffer(target);
-    ASSERT(buffer);
-
-    QueryBufferPointerv(buffer, pname, params);
+    const Buffer *buffer = mState.getTargetBuffer(targetPacked);
+    ASSERT(buffer != nullptr);
+    ASSERT(pname == GL_BUFFER_MAP_POINTER);
+    *params = buffer->getMapPointer();
 }
 
-void Context::getBufferPointervRobust(BufferBinding target,
+void Context::getBufferPointervRobust(BufferBinding targetPacked,
                                       GLenum pname,
-                                      GLsizei bufSize,
+                                      GLsizei paramCount,
                                       GLsizei *length,
                                       void **params)
 {
-    getBufferPointerv(target, pname, params);
+    getBufferPointerv(targetPacked, pname, params);
+
+    if (length != nullptr)
+    {
+        *length = 1;
+    }
 }
 
 void *Context::mapBuffer(BufferBinding target, GLenum access)
@@ -4980,22 +6238,40 @@ void Context::flushMappedBufferRange(BufferBinding /*target*/,
 
 angle::Result Context::syncStateForReadPixels()
 {
-    return syncState(mReadPixelsDirtyBits, mReadPixelsDirtyObjects, Command::ReadPixels);
+    return syncState(kReadPixelsDirtyBits, kReadPixelsExtendedDirtyBits, mReadPixelsDirtyObjects,
+                     Command::ReadPixels);
 }
 
 angle::Result Context::syncStateForTexImage()
 {
-    return syncState(mTexImageDirtyBits, mTexImageDirtyObjects, Command::TexImage);
+    return syncState(kTexImageDirtyBits, kTexImageExtendedDirtyBits, mTexImageDirtyObjects,
+                     Command::TexImage);
 }
 
-angle::Result Context::syncStateForBlit()
+angle::Result Context::syncStateForBlit(GLbitfield mask)
 {
-    return syncState(mBlitDirtyBits, mBlitDirtyObjects, Command::Blit);
+    uint32_t commandMask = 0;
+    if ((mask & GL_COLOR_BUFFER_BIT) != 0)
+    {
+        commandMask |= CommandBlitBufferColor;
+    }
+    if ((mask & GL_DEPTH_BUFFER_BIT) != 0)
+    {
+        commandMask |= CommandBlitBufferDepth;
+    }
+    if ((mask & GL_STENCIL_BUFFER_BIT) != 0)
+    {
+        commandMask |= CommandBlitBufferStencil;
+    }
+
+    Command command = static_cast<Command>(static_cast<uint32_t>(Command::Blit) + commandMask);
+
+    return syncState(kBlitDirtyBits, kBlitExtendedDirtyBits, mBlitDirtyObjects, command);
 }
 
 angle::Result Context::syncStateForClear()
 {
-    return syncState(mClearDirtyBits, mClearDirtyObjects, Command::Clear);
+    return syncState(kClearDirtyBits, kClearExtendedDirtyBits, mClearDirtyObjects, Command::Clear);
 }
 
 angle::Result Context::syncTextureForCopy(Texture *texture)
@@ -5021,425 +6297,9 @@ void Context::activeShaderProgram(ProgramPipelineID pipeline, ShaderProgramID pr
     programPipeline->activeShaderProgram(shaderProgram);
 }
 
-void Context::activeTexture(GLenum texture)
-{
-    mState.setActiveSampler(texture - GL_TEXTURE0);
-}
-
 void Context::blendBarrier()
 {
-    UNIMPLEMENTED();
-}
-
-void Context::blendColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha)
-{
-    mState.setBlendColor(red, green, blue, alpha);
-}
-
-void Context::blendEquation(GLenum mode)
-{
-    mState.setBlendEquation(mode, mode);
-}
-
-void Context::blendEquationi(GLuint buf, GLenum mode)
-{
-    mState.setBlendEquationIndexed(mode, mode, buf);
-}
-
-void Context::blendEquationSeparate(GLenum modeRGB, GLenum modeAlpha)
-{
-    mState.setBlendEquation(modeRGB, modeAlpha);
-}
-
-void Context::blendEquationSeparatei(GLuint buf, GLenum modeRGB, GLenum modeAlpha)
-{
-    mState.setBlendEquationIndexed(modeRGB, modeAlpha, buf);
-}
-
-void Context::blendFunc(GLenum sfactor, GLenum dfactor)
-{
-    mState.setBlendFactors(sfactor, dfactor, sfactor, dfactor);
-}
-
-void Context::blendFunci(GLuint buf, GLenum src, GLenum dst)
-{
-    mState.setBlendFactorsIndexed(src, dst, src, dst, buf);
-
-    if (mState.noSimultaneousConstantColorAndAlphaBlendFunc())
-    {
-        mStateCache.onBlendFuncIndexedChange(this);
-    }
-}
-
-void Context::blendFuncSeparate(GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha)
-{
-    mState.setBlendFactors(srcRGB, dstRGB, srcAlpha, dstAlpha);
-}
-
-void Context::blendFuncSeparatei(GLuint buf,
-                                 GLenum srcRGB,
-                                 GLenum dstRGB,
-                                 GLenum srcAlpha,
-                                 GLenum dstAlpha)
-{
-    mState.setBlendFactorsIndexed(srcRGB, dstRGB, srcAlpha, dstAlpha, buf);
-
-    if (mState.noSimultaneousConstantColorAndAlphaBlendFunc())
-    {
-        mStateCache.onBlendFuncIndexedChange(this);
-    }
-}
-
-void Context::clearColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha)
-{
-    mState.setColorClearValue(red, green, blue, alpha);
-}
-
-void Context::clearDepthf(GLfloat depth)
-{
-    mState.setDepthClearValue(clamp01(depth));
-}
-
-void Context::clearStencil(GLint s)
-{
-    mState.setStencilClearValue(s);
-}
-
-void Context::colorMask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha)
-{
-    mState.setColorMask(ConvertToBool(red), ConvertToBool(green), ConvertToBool(blue),
-                        ConvertToBool(alpha));
-    mStateCache.onColorMaskChange(this);
-}
-
-void Context::colorMaski(GLuint index, GLboolean r, GLboolean g, GLboolean b, GLboolean a)
-{
-    mState.setColorMaskIndexed(ConvertToBool(r), ConvertToBool(g), ConvertToBool(b),
-                               ConvertToBool(a), index);
-    mStateCache.onColorMaskChange(this);
-}
-
-void Context::cullFace(CullFaceMode mode)
-{
-    mState.setCullMode(mode);
-}
-
-void Context::depthFunc(GLenum func)
-{
-    mState.setDepthFunc(func);
-}
-
-void Context::depthMask(GLboolean flag)
-{
-    mState.setDepthMask(ConvertToBool(flag));
-}
-
-void Context::depthRangef(GLfloat zNear, GLfloat zFar)
-{
-    mState.setDepthRange(clamp01(zNear), clamp01(zFar));
-}
-
-void Context::disable(GLenum cap)
-{
-    mState.setEnableFeature(cap, false);
-    mStateCache.onContextCapChange(this);
-}
-
-void Context::disablei(GLenum target, GLuint index)
-{
-    mState.setEnableFeatureIndexed(target, false, index);
-    mStateCache.onContextCapChange(this);
-}
-
-void Context::disableVertexAttribArray(GLuint index)
-{
-    mState.setEnableVertexAttribArray(index, false);
-    mStateCache.onVertexArrayStateChange(this);
-}
-
-void Context::enable(GLenum cap)
-{
-    mState.setEnableFeature(cap, true);
-    mStateCache.onContextCapChange(this);
-}
-
-void Context::enablei(GLenum target, GLuint index)
-{
-    mState.setEnableFeatureIndexed(target, true, index);
-    mStateCache.onContextCapChange(this);
-}
-
-void Context::enableVertexAttribArray(GLuint index)
-{
-    mState.setEnableVertexAttribArray(index, true);
-    mStateCache.onVertexArrayStateChange(this);
-}
-
-void Context::frontFace(GLenum mode)
-{
-    mState.setFrontFace(mode);
-}
-
-void Context::hint(GLenum target, GLenum mode)
-{
-    switch (target)
-    {
-        case GL_GENERATE_MIPMAP_HINT:
-            mState.setGenerateMipmapHint(mode);
-            break;
-
-        case GL_FRAGMENT_SHADER_DERIVATIVE_HINT_OES:
-            mState.setFragmentShaderDerivativeHint(mode);
-            break;
-
-        case GL_PERSPECTIVE_CORRECTION_HINT:
-        case GL_POINT_SMOOTH_HINT:
-        case GL_LINE_SMOOTH_HINT:
-        case GL_FOG_HINT:
-            mState.gles1().setHint(target, mode);
-            break;
-        case GL_TEXTURE_FILTERING_HINT_CHROMIUM:
-            mState.setTextureFilteringHint(mode);
-            break;
-        default:
-            UNREACHABLE();
-            return;
-    }
-}
-
-void Context::lineWidth(GLfloat width)
-{
-    mState.setLineWidth(width);
-}
-
-void Context::pixelStorei(GLenum pname, GLint param)
-{
-    switch (pname)
-    {
-        case GL_UNPACK_ALIGNMENT:
-            mState.setUnpackAlignment(param);
-            break;
-
-        case GL_PACK_ALIGNMENT:
-            mState.setPackAlignment(param);
-            break;
-
-        case GL_PACK_REVERSE_ROW_ORDER_ANGLE:
-            mState.setPackReverseRowOrder(param != 0);
-            break;
-
-        case GL_UNPACK_ROW_LENGTH:
-            ASSERT((getClientMajorVersion() >= 3) || getExtensions().unpackSubimage);
-            mState.setUnpackRowLength(param);
-            break;
-
-        case GL_UNPACK_IMAGE_HEIGHT:
-            ASSERT(getClientMajorVersion() >= 3);
-            mState.setUnpackImageHeight(param);
-            break;
-
-        case GL_UNPACK_SKIP_IMAGES:
-            ASSERT(getClientMajorVersion() >= 3);
-            mState.setUnpackSkipImages(param);
-            break;
-
-        case GL_UNPACK_SKIP_ROWS:
-            ASSERT((getClientMajorVersion() >= 3) || getExtensions().unpackSubimage);
-            mState.setUnpackSkipRows(param);
-            break;
-
-        case GL_UNPACK_SKIP_PIXELS:
-            ASSERT((getClientMajorVersion() >= 3) || getExtensions().unpackSubimage);
-            mState.setUnpackSkipPixels(param);
-            break;
-
-        case GL_PACK_ROW_LENGTH:
-            ASSERT((getClientMajorVersion() >= 3) || getExtensions().packSubimage);
-            mState.setPackRowLength(param);
-            break;
-
-        case GL_PACK_SKIP_ROWS:
-            ASSERT((getClientMajorVersion() >= 3) || getExtensions().packSubimage);
-            mState.setPackSkipRows(param);
-            break;
-
-        case GL_PACK_SKIP_PIXELS:
-            ASSERT((getClientMajorVersion() >= 3) || getExtensions().packSubimage);
-            mState.setPackSkipPixels(param);
-            break;
-
-        default:
-            UNREACHABLE();
-            return;
-    }
-}
-
-void Context::polygonOffset(GLfloat factor, GLfloat units)
-{
-    mState.setPolygonOffsetParams(factor, units);
-}
-
-void Context::sampleCoverage(GLfloat value, GLboolean invert)
-{
-    mState.setSampleCoverageParams(clamp01(value), ConvertToBool(invert));
-}
-
-void Context::sampleMaski(GLuint maskNumber, GLbitfield mask)
-{
-    mState.setSampleMaskParams(maskNumber, mask);
-}
-
-void Context::scissor(GLint x, GLint y, GLsizei width, GLsizei height)
-{
-    mState.setScissorParams(x, y, width, height);
-}
-
-void Context::stencilFuncSeparate(GLenum face, GLenum func, GLint ref, GLuint mask)
-{
-    GLint clampedRef = gl::clamp(ref, 0, std::numeric_limits<uint8_t>::max());
-    if (face == GL_FRONT || face == GL_FRONT_AND_BACK)
-    {
-        mState.setStencilParams(func, clampedRef, mask);
-    }
-
-    if (face == GL_BACK || face == GL_FRONT_AND_BACK)
-    {
-        mState.setStencilBackParams(func, clampedRef, mask);
-    }
-
-    mStateCache.onStencilStateChange(this);
-}
-
-void Context::stencilMaskSeparate(GLenum face, GLuint mask)
-{
-    if (face == GL_FRONT || face == GL_FRONT_AND_BACK)
-    {
-        mState.setStencilWritemask(mask);
-    }
-
-    if (face == GL_BACK || face == GL_FRONT_AND_BACK)
-    {
-        mState.setStencilBackWritemask(mask);
-    }
-
-    mStateCache.onStencilStateChange(this);
-}
-
-void Context::stencilOpSeparate(GLenum face, GLenum fail, GLenum zfail, GLenum zpass)
-{
-    if (face == GL_FRONT || face == GL_FRONT_AND_BACK)
-    {
-        mState.setStencilOperations(fail, zfail, zpass);
-    }
-
-    if (face == GL_BACK || face == GL_FRONT_AND_BACK)
-    {
-        mState.setStencilBackOperations(fail, zfail, zpass);
-    }
-}
-
-void Context::vertexAttrib1f(GLuint index, GLfloat x)
-{
-    GLfloat vals[4] = {x, 0, 0, 1};
-    mState.setVertexAttribf(index, vals);
-    mStateCache.onDefaultVertexAttributeChange(this);
-}
-
-void Context::vertexAttrib1fv(GLuint index, const GLfloat *values)
-{
-    GLfloat vals[4] = {values[0], 0, 0, 1};
-    mState.setVertexAttribf(index, vals);
-    mStateCache.onDefaultVertexAttributeChange(this);
-}
-
-void Context::vertexAttrib2f(GLuint index, GLfloat x, GLfloat y)
-{
-    GLfloat vals[4] = {x, y, 0, 1};
-    mState.setVertexAttribf(index, vals);
-    mStateCache.onDefaultVertexAttributeChange(this);
-}
-
-void Context::vertexAttrib2fv(GLuint index, const GLfloat *values)
-{
-    GLfloat vals[4] = {values[0], values[1], 0, 1};
-    mState.setVertexAttribf(index, vals);
-    mStateCache.onDefaultVertexAttributeChange(this);
-}
-
-void Context::vertexAttrib3f(GLuint index, GLfloat x, GLfloat y, GLfloat z)
-{
-    GLfloat vals[4] = {x, y, z, 1};
-    mState.setVertexAttribf(index, vals);
-    mStateCache.onDefaultVertexAttributeChange(this);
-}
-
-void Context::vertexAttrib3fv(GLuint index, const GLfloat *values)
-{
-    GLfloat vals[4] = {values[0], values[1], values[2], 1};
-    mState.setVertexAttribf(index, vals);
-    mStateCache.onDefaultVertexAttributeChange(this);
-}
-
-void Context::vertexAttrib4f(GLuint index, GLfloat x, GLfloat y, GLfloat z, GLfloat w)
-{
-    GLfloat vals[4] = {x, y, z, w};
-    mState.setVertexAttribf(index, vals);
-    mStateCache.onDefaultVertexAttributeChange(this);
-}
-
-void Context::vertexAttrib4fv(GLuint index, const GLfloat *values)
-{
-    mState.setVertexAttribf(index, values);
-    mStateCache.onDefaultVertexAttributeChange(this);
-}
-
-void Context::vertexAttribPointer(GLuint index,
-                                  GLint size,
-                                  VertexAttribType type,
-                                  GLboolean normalized,
-                                  GLsizei stride,
-                                  const void *ptr)
-{
-    mState.setVertexAttribPointer(this, index, mState.getTargetBuffer(BufferBinding::Array), size,
-                                  type, ConvertToBool(normalized), stride, ptr);
-    mStateCache.onVertexArrayStateChange(this);
-}
-
-void Context::vertexAttribFormat(GLuint attribIndex,
-                                 GLint size,
-                                 VertexAttribType type,
-                                 GLboolean normalized,
-                                 GLuint relativeOffset)
-{
-    mState.setVertexAttribFormat(attribIndex, size, type, ConvertToBool(normalized), false,
-                                 relativeOffset);
-    mStateCache.onVertexArrayFormatChange(this);
-}
-
-void Context::vertexAttribIFormat(GLuint attribIndex,
-                                  GLint size,
-                                  VertexAttribType type,
-                                  GLuint relativeOffset)
-{
-    mState.setVertexAttribFormat(attribIndex, size, type, false, true, relativeOffset);
-    mStateCache.onVertexArrayFormatChange(this);
-}
-
-void Context::vertexAttribBinding(GLuint attribIndex, GLuint bindingIndex)
-{
-    mState.setVertexAttribBinding(this, attribIndex, bindingIndex);
-    mStateCache.onVertexArrayStateChange(this);
-}
-
-void Context::vertexBindingDivisor(GLuint bindingIndex, GLuint divisor)
-{
-    mState.setVertexBindingDivisor(bindingIndex, divisor);
-    mStateCache.onVertexArrayFormatChange(this);
-}
-
-void Context::viewport(GLint x, GLint y, GLsizei width, GLsizei height)
-{
-    mState.setViewportParams(x, y, width, height);
+    mImplementation->blendBarrier();
 }
 
 void Context::vertexAttribIPointer(GLuint index,
@@ -5448,35 +6308,13 @@ void Context::vertexAttribIPointer(GLuint index,
                                    GLsizei stride,
                                    const void *pointer)
 {
+    bool vertexAttribDirty = false;
     mState.setVertexAttribIPointer(this, index, mState.getTargetBuffer(BufferBinding::Array), size,
-                                   type, stride, pointer);
-    mStateCache.onVertexArrayStateChange(this);
-}
-
-void Context::vertexAttribI4i(GLuint index, GLint x, GLint y, GLint z, GLint w)
-{
-    GLint vals[4] = {x, y, z, w};
-    mState.setVertexAttribi(index, vals);
-    mStateCache.onDefaultVertexAttributeChange(this);
-}
-
-void Context::vertexAttribI4ui(GLuint index, GLuint x, GLuint y, GLuint z, GLuint w)
-{
-    GLuint vals[4] = {x, y, z, w};
-    mState.setVertexAttribu(index, vals);
-    mStateCache.onDefaultVertexAttributeChange(this);
-}
-
-void Context::vertexAttribI4iv(GLuint index, const GLint *v)
-{
-    mState.setVertexAttribi(index, v);
-    mStateCache.onDefaultVertexAttributeChange(this);
-}
-
-void Context::vertexAttribI4uiv(GLuint index, const GLuint *v)
-{
-    mState.setVertexAttribu(index, v);
-    mStateCache.onDefaultVertexAttributeChange(this);
+                                   type, stride, pointer, &vertexAttribDirty);
+    if (vertexAttribDirty)
+    {
+        mPrivateStateCache.onVertexArrayStateChange();
+    }
 }
 
 void Context::getVertexAttribivImpl(GLuint index, GLenum pname, GLint *params) const
@@ -5484,8 +6322,9 @@ void Context::getVertexAttribivImpl(GLuint index, GLenum pname, GLint *params) c
     const VertexAttribCurrentValueData &currentValues =
         getState().getVertexAttribCurrentValue(index);
     const VertexArray *vao = getState().getVertexArray();
+    size_t bindingIndex    = vao->getBindingIndexFromAttribIndex(index);
     QueryVertexAttribiv(vao->getVertexAttribute(index), vao->getBindingFromAttribIndex(index),
-                        currentValues, pname, params);
+                        vao->getVertexArrayBuffer(bindingIndex), currentValues, pname, params);
 }
 
 void Context::getVertexAttribiv(GLuint index, GLenum pname, GLint *params)
@@ -5495,11 +6334,16 @@ void Context::getVertexAttribiv(GLuint index, GLenum pname, GLint *params)
 
 void Context::getVertexAttribivRobust(GLuint index,
                                       GLenum pname,
-                                      GLsizei bufSize,
+                                      GLsizei paramCount,
                                       GLsizei *length,
                                       GLint *params)
 {
     getVertexAttribiv(index, pname, params);
+
+    if (length != nullptr)
+    {
+        *length = (pname == GL_CURRENT_VERTEX_ATTRIB) ? 4 : 1;
+    }
 }
 
 void Context::getVertexAttribfv(GLuint index, GLenum pname, GLfloat *params)
@@ -5507,17 +6351,23 @@ void Context::getVertexAttribfv(GLuint index, GLenum pname, GLfloat *params)
     const VertexAttribCurrentValueData &currentValues =
         getState().getVertexAttribCurrentValue(index);
     const VertexArray *vao = getState().getVertexArray();
+    size_t bindingIndex    = vao->getBindingIndexFromAttribIndex(index);
     QueryVertexAttribfv(vao->getVertexAttribute(index), vao->getBindingFromAttribIndex(index),
-                        currentValues, pname, params);
+                        vao->getVertexArrayBuffer(bindingIndex), currentValues, pname, params);
 }
 
 void Context::getVertexAttribfvRobust(GLuint index,
                                       GLenum pname,
-                                      GLsizei bufSize,
+                                      GLsizei paramCount,
                                       GLsizei *length,
                                       GLfloat *params)
 {
     getVertexAttribfv(index, pname, params);
+
+    if (length != nullptr)
+    {
+        *length = (pname == GL_CURRENT_VERTEX_ATTRIB) ? 4 : 1;
+    }
 }
 
 void Context::getVertexAttribIiv(GLuint index, GLenum pname, GLint *params)
@@ -5525,17 +6375,23 @@ void Context::getVertexAttribIiv(GLuint index, GLenum pname, GLint *params)
     const VertexAttribCurrentValueData &currentValues =
         getState().getVertexAttribCurrentValue(index);
     const VertexArray *vao = getState().getVertexArray();
+    size_t bindingIndex    = vao->getBindingIndexFromAttribIndex(index);
     QueryVertexAttribIiv(vao->getVertexAttribute(index), vao->getBindingFromAttribIndex(index),
-                         currentValues, pname, params);
+                         vao->getVertexArrayBuffer(bindingIndex), currentValues, pname, params);
 }
 
 void Context::getVertexAttribIivRobust(GLuint index,
                                        GLenum pname,
-                                       GLsizei bufSize,
+                                       GLsizei paramCount,
                                        GLsizei *length,
                                        GLint *params)
 {
     getVertexAttribIiv(index, pname, params);
+
+    if (length != nullptr)
+    {
+        *length = (pname == GL_CURRENT_VERTEX_ATTRIB) ? 4 : 1;
+    }
 }
 
 void Context::getVertexAttribIuiv(GLuint index, GLenum pname, GLuint *params)
@@ -5543,32 +6399,44 @@ void Context::getVertexAttribIuiv(GLuint index, GLenum pname, GLuint *params)
     const VertexAttribCurrentValueData &currentValues =
         getState().getVertexAttribCurrentValue(index);
     const VertexArray *vao = getState().getVertexArray();
+    size_t bindingIndex    = vao->getBindingIndexFromAttribIndex(index);
     QueryVertexAttribIuiv(vao->getVertexAttribute(index), vao->getBindingFromAttribIndex(index),
-                          currentValues, pname, params);
+                          vao->getVertexArrayBuffer(bindingIndex), currentValues, pname, params);
 }
 
 void Context::getVertexAttribIuivRobust(GLuint index,
                                         GLenum pname,
-                                        GLsizei bufSize,
+                                        GLsizei paramCount,
                                         GLsizei *length,
                                         GLuint *params)
 {
     getVertexAttribIuiv(index, pname, params);
+
+    if (length != nullptr)
+    {
+        *length = (pname == GL_CURRENT_VERTEX_ATTRIB) ? 4 : 1;
+    }
 }
 
 void Context::getVertexAttribPointerv(GLuint index, GLenum pname, void **pointer)
 {
+    ASSERT(pname == GL_VERTEX_ATTRIB_ARRAY_POINTER);
     const VertexAttribute &attrib = getState().getVertexArray()->getVertexAttribute(index);
-    QueryVertexAttribPointerv(attrib, pname, pointer);
+    *pointer                      = const_cast<void *>(attrib.pointer);
 }
 
 void Context::getVertexAttribPointervRobust(GLuint index,
                                             GLenum pname,
-                                            GLsizei bufSize,
+                                            GLsizei paramCount,
                                             GLsizei *length,
                                             void **pointer)
 {
     getVertexAttribPointerv(index, pname, pointer);
+
+    if (length != nullptr)
+    {
+        *length = 1;
+    }
 }
 
 void Context::debugMessageControl(GLenum source,
@@ -5590,7 +6458,15 @@ void Context::debugMessageInsert(GLenum source,
                                  GLsizei length,
                                  const GLchar *buf)
 {
-    std::string msg(buf, (length > 0) ? static_cast<size_t>(length) : strlen(buf));
+    if (!mState.getDebug().isOutputEnabled())
+    {
+        // If the DEBUG_OUTPUT state is disabled calls to DebugMessageInsert are discarded and do
+        // not generate an error.
+        return;
+    }
+
+    ASSERT(buf != nullptr);
+    const std::string msg(buf, (length < 0) ? strlen(buf) : static_cast<size_t>(length));
     mState.getDebug().insertMessage(source, type, id, severity, std::move(msg), gl::LOG_INFO);
 }
 
@@ -5614,27 +6490,21 @@ GLuint Context::getDebugMessageLog(GLuint count,
 
 void Context::pushDebugGroup(GLenum source, GLuint id, GLsizei length, const GLchar *message)
 {
-    std::string msg(message, (length > 0) ? static_cast<size_t>(length) : strlen(message));
+    ASSERT(message != nullptr);
+    std::string msg(message, (length < 0) ? strlen(message) : static_cast<size_t>(length));
     ANGLE_CONTEXT_TRY(mImplementation->pushDebugGroup(this, source, id, msg));
     mState.getDebug().pushGroup(source, id, std::move(msg));
+}
+
+angle::Result Context::handleNoopDrawEvent()
+{
+    return (mImplementation->handleNoopDrawEvent());
 }
 
 void Context::popDebugGroup()
 {
     mState.getDebug().popGroup();
     ANGLE_CONTEXT_TRY(mImplementation->popDebugGroup(this));
-}
-
-void Context::primitiveBoundingBox(GLfloat minX,
-                                   GLfloat minY,
-                                   GLfloat minZ,
-                                   GLfloat minW,
-                                   GLfloat maxX,
-                                   GLfloat maxY,
-                                   GLfloat maxZ,
-                                   GLfloat maxW)
-{
-    UNIMPLEMENTED();
 }
 
 void Context::bufferStorage(BufferBinding target,
@@ -5647,22 +6517,69 @@ void Context::bufferStorage(BufferBinding target,
     ANGLE_CONTEXT_TRY(buffer->bufferStorage(this, target, size, data, flags));
 }
 
-void Context::bufferStorageExternal(BufferBinding targetPacked,
+void Context::bufferStorageExternal(BufferBinding target,
                                     GLintptr offset,
                                     GLsizeiptr size,
                                     GLeglClientBufferEXT clientBuffer,
                                     GLbitfield flags)
 {
-    UNIMPLEMENTED();
+    Buffer *buffer = mState.getTargetBuffer(target);
+    ASSERT(buffer);
+
+    ANGLE_CONTEXT_TRY(buffer->bufferStorageExternal(this, target, size, clientBuffer, flags));
 }
 
-void Context::namedBufferStorageExternal(GLuint buffer,
-                                         GLintptr offset,
-                                         GLsizeiptr size,
-                                         GLeglClientBufferEXT clientBuffer,
-                                         GLbitfield flags)
+void Context::getFragmentShadingRates(GLsizei samples,
+                                      GLsizei maxCount,
+                                      GLsizei *count,
+                                      GLenum *shadingRates)
 {
-    UNIMPLEMENTED();
+    // If <count> is NULL then it is ignored.
+    if (count == nullptr)
+    {
+        return;
+    }
+
+    uint32_t shadingRatesCounts = 0;
+    angle::ShadingRateMap SupportedFragmentShadingRateSampleCounts =
+        mImplementation->getSupportedFragmentShadingRateEXTSampleCounts();
+    uint32_t supportedShadingRateCounts = SupportedFragmentShadingRateSampleCounts.size();
+
+    for (uint32_t i = 1; i < supportedShadingRateCounts; i++)
+    {
+        gl::ShadingRate shadingRate = static_cast<gl::ShadingRate>(i);
+        ASSERT(shadingRate > gl::ShadingRate::Undefined &&
+               shadingRate < gl::ShadingRate::InvalidEnum);
+        // Assert samples is a power of two.
+        ASSERT(samples >= 1 && (samples & (samples - 1)) == 0);
+        if ((SupportedFragmentShadingRateSampleCounts[shadingRate] & samples) == samples)
+        {
+            if (shadingRates == nullptr)
+            {
+                shadingRatesCounts++;
+            }
+            else
+            {
+                shadingRates[shadingRatesCounts++] = ToGLenum(shadingRate);
+                if (maxCount <= static_cast<GLsizei>(shadingRatesCounts))
+                {
+                    break;
+                }
+            }
+        }
+    }
+    *count = shadingRatesCounts;
+}
+
+void Context::framebufferShadingRate(GLenum target,
+                                     GLenum attachment,
+                                     GLuint texture,
+                                     GLint baseLayer,
+                                     GLsizei numLayers,
+                                     GLsizei texelWidth,
+                                     GLsizei texelHeight)
+{
+    return;
 }
 
 void Context::bufferData(BufferBinding target, GLsizeiptr size, const void *data, BufferUsage usage)
@@ -5720,7 +6637,7 @@ void Context::bindAttribLocation(ShaderProgramID program, GLuint index, const GL
     // Ideally we could share the program query with the validation layer if possible.
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    programObject->bindAttributeLocation(index, name);
+    programObject->bindAttributeLocation(this, index, name);
 }
 
 void Context::bindBufferBase(BufferBinding target, GLuint index, BufferID buffer)
@@ -5741,9 +6658,24 @@ void Context::bindBufferRange(BufferBinding target,
         mUniformBufferObserverBindings[index].bind(object);
         mStateCache.onUniformBufferStateChange(this);
     }
+    else if (target == BufferBinding::AtomicCounter)
+    {
+        mAtomicCounterBufferObserverBindings[index].bind(object);
+        mStateCache.onAtomicCounterBufferStateChange(this);
+    }
+    else if (target == BufferBinding::ShaderStorage)
+    {
+        mShaderStorageBufferObserverBindings[index].bind(object);
+        mStateCache.onShaderStorageBufferStateChange(this);
+    }
     else
     {
-        mStateCache.onBufferBindingChange(this);
+        mPrivateStateCache.onBufferBindingChange();
+    }
+
+    if (object && isWebGL())
+    {
+        object->onBind(this, target);
     }
 }
 
@@ -5795,51 +6727,29 @@ void Context::texStorage3DMultisample(TextureType target,
                                                      ConvertToBool(fixedsamplelocations)));
 }
 
-void Context::texImage2DExternal(TextureTarget target,
-                                 GLint level,
-                                 GLint internalformat,
-                                 GLsizei width,
-                                 GLsizei height,
-                                 GLint border,
-                                 GLenum format,
-                                 GLenum type)
-{
-    Extents size(width, height, 1);
-    Texture *texture = getTextureByTarget(target);
-    ANGLE_CONTEXT_TRY(
-        texture->setImageExternal(this, target, level, internalformat, size, format, type));
-}
-
-void Context::invalidateTexture(TextureType target)
-{
-    mImplementation->invalidateTexture(target);
-    mState.invalidateTextureBindings(target);
-}
-
 void Context::getMultisamplefv(GLenum pname, GLuint index, GLfloat *val)
 {
     // According to spec 3.1 Table 20.49: Framebuffer Dependent Values,
     // the sample position should be queried by DRAW_FRAMEBUFFER.
-    ANGLE_CONTEXT_TRY(mState.syncDirtyObject(this, GL_DRAW_FRAMEBUFFER));
-    const Framebuffer *framebuffer = mState.getDrawFramebuffer();
+    ANGLE_CONTEXT_TRY(mState.syncDirtyObject(this, GL_DRAW_FRAMEBUFFER, Command::GetMultisample));
 
-    switch (pname)
-    {
-        case GL_SAMPLE_POSITION:
-            ANGLE_CONTEXT_TRY(framebuffer->getSamplePosition(this, index, val));
-            break;
-        default:
-            UNREACHABLE();
-    }
+    ASSERT(pname == GL_SAMPLE_POSITION);
+    ANGLE_CONTEXT_TRY(mState.getDrawFramebuffer()->getSamplePosition(this, index, val));
 }
 
 void Context::getMultisamplefvRobust(GLenum pname,
                                      GLuint index,
-                                     GLsizei bufSize,
+                                     GLsizei paramCount,
                                      GLsizei *length,
                                      GLfloat *val)
 {
-    UNIMPLEMENTED();
+    getMultisamplefv(pname, index, val);
+
+    if (length != nullptr)
+    {
+        ASSERT(pname == GL_SAMPLE_POSITION);
+        *length = 2;
+    }
 }
 
 void Context::renderbufferStorage(GLenum target,
@@ -5905,6 +6815,7 @@ void Context::framebufferTexture2DMultisample(GLenum target,
         ImageIndex index    = ImageIndex::MakeFromTarget(textarget, level, 1);
         framebuffer->setAttachmentMultisample(this, GL_TEXTURE, attachment, index, textureObj,
                                               samples);
+        textureObj->onBindToMSRTTFramebuffer();
     }
     else
     {
@@ -5914,35 +6825,32 @@ void Context::framebufferTexture2DMultisample(GLenum target,
     mState.setObjectDirty(target);
 }
 
-void Context::getSynciv(GLsync sync, GLenum pname, GLsizei bufSize, GLsizei *length, GLint *values)
+void Context::getSynciv(SyncID syncPacked,
+                        GLenum pname,
+                        GLsizei count,
+                        GLsizei *length,
+                        GLint *values)
 {
     const Sync *syncObject = nullptr;
     if (!isContextLost())
     {
-        syncObject = getSync(sync);
+        syncObject = getSync(syncPacked);
     }
-    ANGLE_CONTEXT_TRY(QuerySynciv(this, syncObject, pname, bufSize, length, values));
+    ANGLE_CONTEXT_TRY(QuerySynciv(this, syncObject, pname, count, length, values));
 }
 
-void Context::getFramebufferParameteriv(GLenum target, GLenum pname, GLint *params)
+void Context::getFramebufferParameteriv(GLenum target,
+                                        FramebufferParameter pnamePacked,
+                                        GLint *params)
 {
     Framebuffer *framebuffer = mState.getTargetFramebuffer(target);
-    QueryFramebufferParameteriv(framebuffer, pname, params);
+    QueryFramebufferParameteriv(framebuffer, pnamePacked, params);
 }
 
-void Context::getFramebufferParameterivRobust(GLenum target,
-                                              GLenum pname,
-                                              GLsizei bufSize,
-                                              GLsizei *length,
-                                              GLint *params)
-{
-    UNIMPLEMENTED();
-}
-
-void Context::framebufferParameteri(GLenum target, GLenum pname, GLint param)
+void Context::framebufferParameteri(GLenum target, FramebufferParameter pnamePacked, GLint param)
 {
     Framebuffer *framebuffer = mState.getTargetFramebuffer(target);
-    SetFramebufferParameteri(this, framebuffer, pname, param);
+    SetFramebufferParameteri(this, framebuffer, pnamePacked, param);
 }
 
 bool Context::getScratchBuffer(size_t requstedSizeBytes,
@@ -5969,7 +6877,7 @@ angle::ScratchBuffer *Context::getScratchBuffer() const
 }
 
 bool Context::getZeroFilledBuffer(size_t requstedSizeBytes,
-                                  angle::MemoryBuffer **zeroBufferOut) const
+                                  const angle::MemoryBuffer **zeroBufferOut) const
 {
     if (!mZeroFilledBuffer.valid())
     {
@@ -5977,7 +6885,15 @@ bool Context::getZeroFilledBuffer(size_t requstedSizeBytes,
     }
 
     ASSERT(mZeroFilledBuffer.valid());
-    return mZeroFilledBuffer.value().getInitialized(requstedSizeBytes, zeroBufferOut, 0);
+
+    angle::MemoryBuffer *memoryBuffer = nullptr;
+    if (!mZeroFilledBuffer.value().getInitialized(requstedSizeBytes, &memoryBuffer, 0))
+    {
+        return false;
+    }
+
+    *zeroBufferOut = memoryBuffer;
+    return true;
 }
 
 void Context::dispatchCompute(GLuint numGroupsX, GLuint numGroupsY, GLuint numGroupsZ)
@@ -5996,36 +6912,9 @@ void Context::dispatchCompute(GLuint numGroupsX, GLuint numGroupsY, GLuint numGr
     // before convertPpoToComputeOrDraw() reverts the PPO back to graphics.
     MarkShaderStorageUsage(this);
 
-    // We always assume PPOs are used for draws, until they aren't. If we just executed a dispatch
-    // with a PPO, we need to convert it back to a "draw"-type.
-    // We don't re-link the PPO again, since it's possible for that link to generate validation
-    // errors due to bad VS/FS, and we want to catch those errors during validation of the draw
-    // command: 11.1.3.11 Validation It is not always possible to determine at link time if a
-    // program object can execute successfully, given that LinkProgram can not know the state of the
-    // remainder of the pipeline. Therefore validation is done when the first rendering command
-    // which triggers shader invocations is issued, to determine if the set of active program
-    // objects can be executed.
-    convertPpoToComputeOrDraw(false);
-
     if (ANGLE_UNLIKELY(IsError(result)))
     {
         return;
-    }
-}
-
-void Context::convertPpoToComputeOrDraw(bool isCompute)
-{
-    Program *program          = mState.getProgram();
-    ProgramPipeline *pipeline = mState.getProgramPipeline();
-    if (!program && pipeline)
-    {
-        pipeline->getExecutable().setIsCompute(isCompute);
-        pipeline->resetIsLinked();
-
-        // The PPO's isCompute() has changed, so its ProgramExecutable will produce different
-        // results for things like getShaderStorageBlocks() or getImageBindings().
-        mState.mDirtyBits.set(State::DirtyBitType::DIRTY_BIT_PROGRAM_EXECUTABLE);
-        mStateCache.onProgramExecutableChange(this);
     }
 }
 
@@ -6075,6 +6964,12 @@ void Context::multiDrawArrays(PrimitiveMode mode,
                               const GLsizei *counts,
                               GLsizei drawcount)
 {
+    if (noopMultiDraw(drawcount))
+    {
+        ANGLE_CONTEXT_TRY(mImplementation->handleNoopDrawEvent());
+        return;
+    }
+
     ANGLE_CONTEXT_TRY(prepareForDraw(mode));
     ANGLE_CONTEXT_TRY(mImplementation->multiDrawArrays(this, mode, firsts, counts, drawcount));
 }
@@ -6085,9 +6980,32 @@ void Context::multiDrawArraysInstanced(PrimitiveMode mode,
                                        const GLsizei *instanceCounts,
                                        GLsizei drawcount)
 {
+    if (noopMultiDraw(drawcount))
+    {
+        ANGLE_CONTEXT_TRY(mImplementation->handleNoopDrawEvent());
+        return;
+    }
+
     ANGLE_CONTEXT_TRY(prepareForDraw(mode));
     ANGLE_CONTEXT_TRY(mImplementation->multiDrawArraysInstanced(this, mode, firsts, counts,
                                                                 instanceCounts, drawcount));
+}
+
+void Context::multiDrawArraysIndirect(PrimitiveMode mode,
+                                      const void *indirect,
+                                      GLsizei drawcount,
+                                      GLsizei stride)
+{
+    if (noopMultiDraw(drawcount))
+    {
+        ANGLE_CONTEXT_TRY(mImplementation->handleNoopDrawEvent());
+        return;
+    }
+
+    ANGLE_CONTEXT_TRY(prepareForDraw(mode));
+    ANGLE_CONTEXT_TRY(
+        mImplementation->multiDrawArraysIndirect(this, mode, indirect, drawcount, stride));
+    MarkShaderStorageUsage(this);
 }
 
 void Context::multiDrawElements(PrimitiveMode mode,
@@ -6096,6 +7014,12 @@ void Context::multiDrawElements(PrimitiveMode mode,
                                 const GLvoid *const *indices,
                                 GLsizei drawcount)
 {
+    if (noopMultiDraw(drawcount))
+    {
+        ANGLE_CONTEXT_TRY(mImplementation->handleNoopDrawEvent());
+        return;
+    }
+
     ANGLE_CONTEXT_TRY(prepareForDraw(mode));
     ANGLE_CONTEXT_TRY(
         mImplementation->multiDrawElements(this, mode, counts, type, indices, drawcount));
@@ -6108,9 +7032,33 @@ void Context::multiDrawElementsInstanced(PrimitiveMode mode,
                                          const GLsizei *instanceCounts,
                                          GLsizei drawcount)
 {
+    if (noopMultiDraw(drawcount))
+    {
+        ANGLE_CONTEXT_TRY(mImplementation->handleNoopDrawEvent());
+        return;
+    }
+
     ANGLE_CONTEXT_TRY(prepareForDraw(mode));
     ANGLE_CONTEXT_TRY(mImplementation->multiDrawElementsInstanced(this, mode, counts, type, indices,
                                                                   instanceCounts, drawcount));
+}
+
+void Context::multiDrawElementsIndirect(PrimitiveMode mode,
+                                        DrawElementsType type,
+                                        const void *indirect,
+                                        GLsizei drawcount,
+                                        GLsizei stride)
+{
+    if (noopMultiDraw(drawcount))
+    {
+        ANGLE_CONTEXT_TRY(mImplementation->handleNoopDrawEvent());
+        return;
+    }
+
+    ANGLE_CONTEXT_TRY(prepareForDraw(mode));
+    ANGLE_CONTEXT_TRY(
+        mImplementation->multiDrawElementsIndirect(this, mode, type, indirect, drawcount, stride));
+    MarkShaderStorageUsage(this);
 }
 
 void Context::drawArraysInstancedBaseInstance(PrimitiveMode mode,
@@ -6119,21 +7067,22 @@ void Context::drawArraysInstancedBaseInstance(PrimitiveMode mode,
                                               GLsizei instanceCount,
                                               GLuint baseInstance)
 {
-    if (noopDraw(mode, count))
+    if (noopDrawInstanced(mode, count, instanceCount))
     {
+        ANGLE_CONTEXT_TRY(mImplementation->handleNoopDrawEvent());
         return;
     }
 
     ANGLE_CONTEXT_TRY(prepareForDraw(mode));
-    Program *programObject = mState.getLinkedProgram(this);
+    ProgramExecutable *executable = mState.getLinkedProgramExecutable(this);
 
-    const bool hasBaseInstance = programObject && programObject->hasBaseInstanceUniform();
+    const bool hasBaseInstance = executable->hasBaseInstanceUniform();
     if (hasBaseInstance)
     {
-        programObject->setBaseInstanceUniform(baseInstance);
+        executable->setBaseInstanceUniform(baseInstance);
     }
 
-    rx::ResetBaseVertexBaseInstance resetUniforms(programObject, false, hasBaseInstance);
+    rx::ResetBaseVertexBaseInstance resetUniforms(executable, false, hasBaseInstance);
 
     // The input gl_InstanceID does not follow the baseinstance. gl_InstanceID always falls on
     // the half-open range [0, instancecount). No need to set other stuff. Except for Vulkan.
@@ -6143,38 +7092,51 @@ void Context::drawArraysInstancedBaseInstance(PrimitiveMode mode,
     MarkTransformFeedbackBufferUsage(this, count, 1);
 }
 
+void Context::drawElementsInstancedBaseInstance(PrimitiveMode mode,
+                                                GLsizei count,
+                                                DrawElementsType type,
+                                                const void *indices,
+                                                GLsizei instanceCount,
+                                                GLuint baseInstance)
+{
+    drawElementsInstancedBaseVertexBaseInstance(mode, count, type, indices, instanceCount, 0,
+                                                baseInstance);
+}
+
 void Context::drawElementsInstancedBaseVertexBaseInstance(PrimitiveMode mode,
                                                           GLsizei count,
                                                           DrawElementsType type,
                                                           const GLvoid *indices,
-                                                          GLsizei instanceCounts,
+                                                          GLsizei instanceCount,
                                                           GLint baseVertex,
                                                           GLuint baseInstance)
 {
-    if (noopDraw(mode, count))
+    if (noopDrawInstanced(mode, count, instanceCount))
     {
+        ANGLE_CONTEXT_TRY(mImplementation->handleNoopDrawEvent());
         return;
     }
 
     ANGLE_CONTEXT_TRY(prepareForDraw(mode));
-    Program *programObject = mState.getLinkedProgram(this);
+    ProgramExecutable *executable = mState.getLinkedProgramExecutable(this);
 
-    const bool hasBaseVertex = programObject && programObject->hasBaseVertexUniform();
+    const bool hasBaseVertex   = executable->hasBaseVertexUniform();
+    const bool hasBaseInstance = executable->hasBaseInstanceUniform();
+
     if (hasBaseVertex)
     {
-        programObject->setBaseVertexUniform(baseVertex);
+        executable->setBaseVertexUniform(baseVertex);
     }
 
-    const bool hasBaseInstance = programObject && programObject->hasBaseInstanceUniform();
     if (hasBaseInstance)
     {
-        programObject->setBaseInstanceUniform(baseInstance);
+        executable->setBaseInstanceUniform(baseInstance);
     }
 
-    rx::ResetBaseVertexBaseInstance resetUniforms(programObject, hasBaseVertex, hasBaseInstance);
+    rx::ResetBaseVertexBaseInstance resetUniforms(executable, hasBaseVertex, hasBaseInstance);
 
     ANGLE_CONTEXT_TRY(mImplementation->drawElementsInstancedBaseVertexBaseInstance(
-        this, mode, count, type, indices, instanceCounts, baseVertex, baseInstance));
+        this, mode, count, type, indices, instanceCount, baseVertex, baseInstance));
 }
 
 void Context::multiDrawArraysInstancedBaseInstance(PrimitiveMode mode,
@@ -6184,9 +7146,25 @@ void Context::multiDrawArraysInstancedBaseInstance(PrimitiveMode mode,
                                                    const GLuint *baseInstances,
                                                    GLsizei drawcount)
 {
+    if (noopMultiDraw(drawcount))
+    {
+        ANGLE_CONTEXT_TRY(mImplementation->handleNoopDrawEvent());
+        return;
+    }
+
     ANGLE_CONTEXT_TRY(prepareForDraw(mode));
     ANGLE_CONTEXT_TRY(mImplementation->multiDrawArraysInstancedBaseInstance(
         this, mode, firsts, counts, instanceCounts, baseInstances, drawcount));
+}
+
+void Context::multiDrawElementsBaseVertex(PrimitiveMode mode,
+                                          const GLsizei *count,
+                                          DrawElementsType type,
+                                          const void *const *indices,
+                                          GLsizei drawcount,
+                                          const GLint *basevertex)
+{
+    UNIMPLEMENTED();
 }
 
 void Context::multiDrawElementsInstancedBaseVertexBaseInstance(PrimitiveMode mode,
@@ -6198,31 +7176,29 @@ void Context::multiDrawElementsInstancedBaseVertexBaseInstance(PrimitiveMode mod
                                                                const GLuint *baseInstances,
                                                                GLsizei drawcount)
 {
+    if (noopMultiDraw(drawcount))
+    {
+        ANGLE_CONTEXT_TRY(mImplementation->handleNoopDrawEvent());
+        return;
+    }
+
     ANGLE_CONTEXT_TRY(prepareForDraw(mode));
     ANGLE_CONTEXT_TRY(mImplementation->multiDrawElementsInstancedBaseVertexBaseInstance(
         this, mode, counts, type, indices, instanceCounts, baseVertices, baseInstances, drawcount));
-}
-
-void Context::provokingVertex(ProvokingVertexConvention provokeMode)
-{
-    mState.setProvokingVertex(provokeMode);
 }
 
 GLenum Context::checkFramebufferStatus(GLenum target)
 {
     Framebuffer *framebuffer = mState.getTargetFramebuffer(target);
     ASSERT(framebuffer);
-    return framebuffer->checkStatus(this);
+    return framebuffer->checkStatus(this).status;
 }
 
 void Context::compileShader(ShaderProgramID shader)
 {
-    Shader *shaderObject = GetValidShader(this, shader);
-    if (!shaderObject)
-    {
-        return;
-    }
-    shaderObject->compile(this);
+    Shader *shaderObject = getShaderNoResolveCompile(shader);
+    ASSERT(shaderObject != nullptr);
+    shaderObject->compile(this, angle::JobResultExpectancy::Future);
 }
 
 void Context::deleteBuffers(GLsizei n, const BufferID *buffers)
@@ -6268,7 +7244,7 @@ void Context::detachShader(ShaderProgramID program, ShaderProgramID shader)
     Program *programObject = getProgramNoResolveLink(program);
     ASSERT(programObject);
 
-    Shader *shaderObject = getShader(shader);
+    Shader *shaderObject = getShaderNoResolveCompile(shader);
     ASSERT(shaderObject);
 
     programObject->detachShader(this, shaderObject);
@@ -6278,7 +7254,11 @@ void Context::genBuffers(GLsizei n, BufferID *buffers)
 {
     for (int i = 0; i < n; i++)
     {
-        buffers[i] = createBuffer();
+        if (!createBuffer(&buffers[i]))
+        {
+            handleExhaustionError(angle::EntryPoint::GLGenBuffers);
+            return;
+        }
     }
 }
 
@@ -6286,7 +7266,11 @@ void Context::genFramebuffers(GLsizei n, FramebufferID *framebuffers)
 {
     for (int i = 0; i < n; i++)
     {
-        framebuffers[i] = createFramebuffer();
+        if (!createFramebuffer(&framebuffers[i]))
+        {
+            handleExhaustionError(angle::EntryPoint::GLGenFramebuffers);
+            return;
+        }
     }
 }
 
@@ -6294,7 +7278,11 @@ void Context::genRenderbuffers(GLsizei n, RenderbufferID *renderbuffers)
 {
     for (int i = 0; i < n; i++)
     {
-        renderbuffers[i] = createRenderbuffer();
+        if (!createRenderbuffer(&renderbuffers[i]))
+        {
+            handleExhaustionError(angle::EntryPoint::GLGenRenderbuffers);
+            return;
+        }
     }
 }
 
@@ -6302,7 +7290,11 @@ void Context::genTextures(GLsizei n, TextureID *textures)
 {
     for (int i = 0; i < n; i++)
     {
-        textures[i] = createTexture();
+        if (!createTexture(&textures[i]))
+        {
+            handleExhaustionError(angle::EntryPoint::GLGenTextures);
+            return;
+        }
     }
 }
 
@@ -6316,7 +7308,7 @@ void Context::getActiveAttrib(ShaderProgramID program,
 {
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    programObject->getActiveAttribute(index, bufsize, length, size, type, name);
+    programObject->getExecutable().getActiveAttribute(index, bufsize, length, size, type, name);
 }
 
 void Context::getActiveUniform(ShaderProgramID program,
@@ -6329,7 +7321,7 @@ void Context::getActiveUniform(ShaderProgramID program,
 {
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    programObject->getActiveUniform(index, bufsize, length, size, type, name);
+    programObject->getExecutable().getActiveUniform(index, bufsize, length, size, type, name);
 }
 
 void Context::getAttachedShaders(ShaderProgramID program,
@@ -6344,101 +7336,139 @@ void Context::getAttachedShaders(ShaderProgramID program,
 
 GLint Context::getAttribLocation(ShaderProgramID program, const GLchar *name)
 {
+    if (ANGLE_UNLIKELY(nameStartsWithReservedPrefix(name)))
+    {
+        return -1;
+    }
+
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    return programObject->getAttributeLocation(name);
+    return programObject->getExecutable().getAttributeLocation(name);
 }
 
-void Context::getBooleanv(GLenum pname, GLboolean *params)
+void Context::getBooleanv(GLenum pname, GLboolean *data)
+{
+    getBooleanvRobust(pname, 0, nullptr, data);
+}
+
+void Context::getBooleanvRobust(GLenum pname, GLsizei paramCount, GLsizei *length, GLboolean *data)
 {
     GLenum nativeType;
-    unsigned int numParams = 0;
-    getQueryParameterInfo(pname, &nativeType, &numParams);
+    unsigned int numParams;
+    const bool paramFound = getQueryParameterInfo(pname, &nativeType, &numParams);
+    if (ANGLE_UNLIKELY(!paramFound))
+    {
+        return;  // Avoid crashing with invalid apps running with no validation.
+    }
 
     if (nativeType == GL_BOOL)
     {
-        getBooleanvImpl(pname, params);
+        getBooleanvImpl(pname, data);
     }
     else
     {
-        CastStateValues(this, nativeType, pname, numParams, params);
+        CastStateValues(this, nativeType, pname, numParams, data);
+    }
+
+    if (length != nullptr)
+    {
+        *length = numParams;
     }
 }
 
-void Context::getBooleanvRobust(GLenum pname, GLsizei bufSize, GLsizei *length, GLboolean *params)
+void Context::getFloatv(GLenum pname, GLfloat *data)
 {
-    getBooleanv(pname, params);
+    getFloatvRobust(pname, 0, nullptr, data);
 }
 
-void Context::getFloatv(GLenum pname, GLfloat *params)
+void Context::getFloatvRobust(GLenum pname, GLsizei paramCount, GLsizei *length, GLfloat *data)
 {
     GLenum nativeType;
-    unsigned int numParams = 0;
-    getQueryParameterInfo(pname, &nativeType, &numParams);
+    unsigned int numParams;
+    const bool paramFound = getQueryParameterInfo(pname, &nativeType, &numParams);
+    if (ANGLE_UNLIKELY(!paramFound))
+    {
+        return;  // Avoid crashing with invalid apps running with no validation.
+    }
 
     if (nativeType == GL_FLOAT)
     {
-        getFloatvImpl(pname, params);
+        getFloatvImpl(pname, data);
     }
     else
     {
-        CastStateValues(this, nativeType, pname, numParams, params);
+        CastStateValues(this, nativeType, pname, numParams, data);
+    }
+
+    if (length != nullptr)
+    {
+        *length = numParams;
     }
 }
 
-void Context::getFloatvRobust(GLenum pname, GLsizei bufSize, GLsizei *length, GLfloat *params)
+void Context::getIntegerv(GLenum pname, GLint *data)
 {
-    getFloatv(pname, params);
+    getIntegervRobust(pname, 0, nullptr, data);
 }
 
-void Context::getIntegerv(GLenum pname, GLint *params)
+void Context::getIntegervRobust(GLenum pname, GLsizei paramCount, GLsizei *length, GLint *data)
 {
     GLenum nativeType;
-    unsigned int numParams = 0;
-    getQueryParameterInfo(pname, &nativeType, &numParams);
+    unsigned int numParams;
+    const bool paramFound = getQueryParameterInfo(pname, &nativeType, &numParams);
+    if (ANGLE_UNLIKELY(!paramFound))
+    {
+        return;  // Avoid crashing with invalid apps running with no validation.
+    }
 
     if (nativeType == GL_INT)
     {
-        getIntegervImpl(pname, params);
+        getIntegervImpl(pname, data);
     }
     else
     {
-        CastStateValues(this, nativeType, pname, numParams, params);
+        CastStateValues(this, nativeType, pname, numParams, data);
+    }
+
+    if (length != nullptr)
+    {
+        *length = numParams;
     }
 }
 
-void Context::getIntegervRobust(GLenum pname, GLsizei bufSize, GLsizei *length, GLint *data)
-{
-    getIntegerv(pname, data);
-}
-
-void Context::getProgramiv(ShaderProgramID program, GLenum pname, GLint *params)
+void Context::getProgramiv(ShaderProgramID programPacked, GLenum pname, GLint *params)
 {
     // Don't resolve link if checking the link completion status.
-    Program *programObject = getProgramNoResolveLink(program);
+    Program *programObject = getProgramNoResolveLink(programPacked);
     if (!isContextLost() && pname != GL_COMPLETION_STATUS_KHR)
     {
-        programObject = getProgramResolveLink(program);
+        programObject = getProgramResolveLink(programPacked);
     }
-    ASSERT(programObject);
+    ASSERT(programObject != nullptr);
     QueryProgramiv(this, programObject, pname, params);
 }
 
-void Context::getProgramivRobust(ShaderProgramID program,
+void Context::getProgramivRobust(ShaderProgramID programPacked,
                                  GLenum pname,
-                                 GLsizei bufSize,
+                                 GLsizei paramCount,
                                  GLsizei *length,
                                  GLint *params)
 {
-    getProgramiv(program, pname, params);
+    getProgramiv(programPacked, pname, params);
+
+    if (length != nullptr)
+    {
+        *length = (pname == GL_COMPUTE_WORK_GROUP_SIZE) ? 3 : 1;
+    }
 }
 
 void Context::getProgramPipelineiv(ProgramPipelineID pipeline, GLenum pname, GLint *params)
 {
     ProgramPipeline *programPipeline = nullptr;
-    if (!mContextLost)
+    if (!isContextLost())
     {
-        programPipeline = getProgramPipeline(pipeline);
+        programPipeline = mState.mProgramPipelineManager->checkProgramPipelineAllocation(
+            mImplementation.get(), pipeline);
     }
     QueryProgramPipelineiv(this, programPipeline, pname, params);
 }
@@ -6460,7 +7490,7 @@ void Context::getProgramInfoLog(ShaderProgramID program,
 {
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    programObject->getExecutable().getInfoLog(bufsize, length, infolog);
+    programObject->getInfoLog(bufsize, length, infolog);
 }
 
 void Context::getProgramPipelineInfoLog(ProgramPipelineID pipeline,
@@ -6471,33 +7501,44 @@ void Context::getProgramPipelineInfoLog(ProgramPipelineID pipeline,
     ProgramPipeline *programPipeline = getProgramPipeline(pipeline);
     if (programPipeline)
     {
-        programPipeline->getExecutable().getInfoLog(bufSize, length, infoLog);
+        programPipeline->getInfoLog(bufSize, length, infoLog);
     }
     else
     {
-        *length  = 0;
-        *infoLog = '\0';
+        if (length)
+        {
+            *length = 0;
+        }
+        if (infoLog)
+        {
+            *infoLog = '\0';
+        }
     }
 }
 
-void Context::getShaderiv(ShaderProgramID shader, GLenum pname, GLint *params)
+void Context::getShaderiv(ShaderProgramID shaderPacked, ShaderParameter pnamePacked, GLint *params)
 {
     Shader *shaderObject = nullptr;
     if (!isContextLost())
     {
-        shaderObject = getShader(shader);
-        ASSERT(shaderObject);
+        shaderObject = getShaderNoResolveCompile(shaderPacked);
+        ASSERT(shaderObject != nullptr);
     }
-    QueryShaderiv(this, shaderObject, pname, params);
+    QueryShaderiv(this, shaderObject, pnamePacked, params);
 }
 
-void Context::getShaderivRobust(ShaderProgramID shader,
-                                GLenum pname,
-                                GLsizei bufSize,
+void Context::getShaderivRobust(ShaderProgramID shaderPacked,
+                                ShaderParameter pnamePacked,
+                                GLsizei paramCount,
                                 GLsizei *length,
                                 GLint *params)
 {
-    getShaderiv(shader, pname, params);
+    getShaderiv(shaderPacked, pnamePacked, params);
+
+    if (length != nullptr)
+    {
+        *length = 1;
+    }
 }
 
 void Context::getShaderInfoLog(ShaderProgramID shader,
@@ -6505,9 +7546,9 @@ void Context::getShaderInfoLog(ShaderProgramID shader,
                                GLsizei *length,
                                GLchar *infolog)
 {
-    Shader *shaderObject = getShader(shader);
+    Shader *shaderObject = getShaderNoResolveCompile(shader);
     ASSERT(shaderObject);
-    shaderObject->getInfoLog(bufsize, length, infolog);
+    shaderObject->getInfoLog(this, bufsize, length, infolog);
 }
 
 void Context::getShaderPrecisionFormat(GLenum shadertype,
@@ -6515,7 +7556,7 @@ void Context::getShaderPrecisionFormat(GLenum shadertype,
                                        GLint *range,
                                        GLint *precision)
 {
-    // TODO(jmadill): Compute shaders.
+    ASSERT(range != nullptr && precision != nullptr);
 
     switch (shadertype)
     {
@@ -6523,23 +7564,23 @@ void Context::getShaderPrecisionFormat(GLenum shadertype,
             switch (precisiontype)
             {
                 case GL_LOW_FLOAT:
-                    mState.mCaps.vertexLowpFloat.get(range, precision);
+                    mState.getCaps().vertexLowpFloat.get(range, precision);
                     break;
                 case GL_MEDIUM_FLOAT:
-                    mState.mCaps.vertexMediumpFloat.get(range, precision);
+                    mState.getCaps().vertexMediumpFloat.get(range, precision);
                     break;
                 case GL_HIGH_FLOAT:
-                    mState.mCaps.vertexHighpFloat.get(range, precision);
+                    mState.getCaps().vertexHighpFloat.get(range, precision);
                     break;
 
                 case GL_LOW_INT:
-                    mState.mCaps.vertexLowpInt.get(range, precision);
+                    mState.getCaps().vertexLowpInt.get(range, precision);
                     break;
                 case GL_MEDIUM_INT:
-                    mState.mCaps.vertexMediumpInt.get(range, precision);
+                    mState.getCaps().vertexMediumpInt.get(range, precision);
                     break;
                 case GL_HIGH_INT:
-                    mState.mCaps.vertexHighpInt.get(range, precision);
+                    mState.getCaps().vertexHighpInt.get(range, precision);
                     break;
 
                 default:
@@ -6552,23 +7593,23 @@ void Context::getShaderPrecisionFormat(GLenum shadertype,
             switch (precisiontype)
             {
                 case GL_LOW_FLOAT:
-                    mState.mCaps.fragmentLowpFloat.get(range, precision);
+                    mState.getCaps().fragmentLowpFloat.get(range, precision);
                     break;
                 case GL_MEDIUM_FLOAT:
-                    mState.mCaps.fragmentMediumpFloat.get(range, precision);
+                    mState.getCaps().fragmentMediumpFloat.get(range, precision);
                     break;
                 case GL_HIGH_FLOAT:
-                    mState.mCaps.fragmentHighpFloat.get(range, precision);
+                    mState.getCaps().fragmentHighpFloat.get(range, precision);
                     break;
 
                 case GL_LOW_INT:
-                    mState.mCaps.fragmentLowpInt.get(range, precision);
+                    mState.getCaps().fragmentLowpInt.get(range, precision);
                     break;
                 case GL_MEDIUM_INT:
-                    mState.mCaps.fragmentMediumpInt.get(range, precision);
+                    mState.getCaps().fragmentMediumpInt.get(range, precision);
                     break;
                 case GL_HIGH_INT:
-                    mState.mCaps.fragmentHighpInt.get(range, precision);
+                    mState.getCaps().fragmentHighpInt.get(range, precision);
                     break;
 
                 default:
@@ -6588,48 +7629,71 @@ void Context::getShaderSource(ShaderProgramID shader,
                               GLsizei *length,
                               GLchar *source)
 {
-    Shader *shaderObject = getShader(shader);
+    Shader *shaderObject = getShaderNoResolveCompile(shader);
     ASSERT(shaderObject);
     shaderObject->getSource(bufsize, length, source);
 }
 
-void Context::getUniformfv(ShaderProgramID program, UniformLocation location, GLfloat *params)
+void Context::getUniformfv(ShaderProgramID programPacked,
+                           UniformLocation locationPacked,
+                           GLfloat *params)
 {
-    Program *programObject = getProgramResolveLink(program);
-    ASSERT(programObject);
-    programObject->getUniformfv(this, location, params);
+    getUniformfvRobust(programPacked, locationPacked, 0, nullptr, params);
 }
 
-void Context::getUniformfvRobust(ShaderProgramID program,
-                                 UniformLocation location,
+void Context::getUniformfvRobust(ShaderProgramID programPacked,
+                                 UniformLocation locationPacked,
                                  GLsizei bufSize,
                                  GLsizei *length,
                                  GLfloat *params)
 {
-    getUniformfv(program, location, params);
+    const Program *programObject = getProgramResolveLink(programPacked);
+    ASSERT(programObject != nullptr);
+    const ProgramExecutable &executable = programObject->getExecutable();
+
+    executable.getUniformfv(this, locationPacked, params);
+
+    if (length != nullptr)
+    {
+        *length = VariableComponentCount(executable.getUniformByLocation(locationPacked).getType());
+    }
 }
 
-void Context::getUniformiv(ShaderProgramID program, UniformLocation location, GLint *params)
+void Context::getUniformiv(ShaderProgramID programPacked,
+                           UniformLocation locationPacked,
+                           GLint *params)
 {
-    Program *programObject = getProgramResolveLink(program);
-    ASSERT(programObject);
-    programObject->getUniformiv(this, location, params);
+    getUniformivRobust(programPacked, locationPacked, 0, nullptr, params);
 }
 
-void Context::getUniformivRobust(ShaderProgramID program,
-                                 UniformLocation location,
+void Context::getUniformivRobust(ShaderProgramID programPacked,
+                                 UniformLocation locationPacked,
                                  GLsizei bufSize,
                                  GLsizei *length,
                                  GLint *params)
 {
-    getUniformiv(program, location, params);
+    const Program *programObject = getProgramResolveLink(programPacked);
+    ASSERT(programObject != nullptr);
+    const ProgramExecutable &executable = programObject->getExecutable();
+
+    executable.getUniformiv(this, locationPacked, params);
+
+    if (length != nullptr)
+    {
+        *length = VariableComponentCount(executable.getUniformByLocation(locationPacked).getType());
+    }
 }
 
 GLint Context::getUniformLocation(ShaderProgramID program, const GLchar *name)
 {
+    if (ANGLE_UNLIKELY(nameStartsWithReservedPrefix(name)))
+    {
+        return -1;
+    }
+
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    return programObject->getUniformLocation(name).value;
+    return programObject->getExecutable().getUniformLocation(name).value;
 }
 
 GLboolean Context::isBuffer(BufferID buffer) const
@@ -6640,16 +7704,6 @@ GLboolean Context::isBuffer(BufferID buffer) const
     }
 
     return ConvertToGLBoolean(getBuffer(buffer));
-}
-
-GLboolean Context::isEnabled(GLenum cap) const
-{
-    return mState.getEnableFeature(cap);
-}
-
-GLboolean Context::isEnabledi(GLenum target, GLuint index) const
-{
-    return mState.getEnableFeatureIndexed(target, index);
 }
 
 GLboolean Context::isFramebuffer(FramebufferID framebuffer) const
@@ -6689,7 +7743,7 @@ GLboolean Context::isShader(ShaderProgramID shader) const
         return GL_FALSE;
     }
 
-    return ConvertToGLBoolean(getShader(shader));
+    return ConvertToGLBoolean(getShaderNoResolveCompile(shader));
 }
 
 GLboolean Context::isTexture(TextureID texture) const
@@ -6706,8 +7760,7 @@ void Context::linkProgram(ShaderProgramID program)
 {
     Program *programObject = getProgramNoResolveLink(program);
     ASSERT(programObject);
-    ANGLE_CONTEXT_TRY(programObject->link(this));
-    ANGLE_CONTEXT_TRY(onProgramLink(programObject));
+    ANGLE_CONTEXT_TRY(programObject->link(this, angle::JobResultExpectancy::Future));
 }
 
 void Context::releaseShaderCompiler()
@@ -6721,8 +7774,10 @@ void Context::shaderBinary(GLsizei n,
                            const void *binary,
                            GLsizei length)
 {
-    // No binary shader formats are supported.
-    UNIMPLEMENTED();
+    Shader *shaderObject = getShaderNoResolveCompile(*shaders);
+    ASSERT(shaderObject != nullptr);
+    ANGLE_CONTEXT_TRY(
+        shaderObject->loadShaderBinary(this, binary, length, angle::JobResultExpectancy::Future));
 }
 
 void Context::bindFragDataLocationIndexed(ShaderProgramID program,
@@ -6731,8 +7786,8 @@ void Context::bindFragDataLocationIndexed(ShaderProgramID program,
                                           const char *name)
 {
     Program *programObject = getProgramNoResolveLink(program);
-    programObject->bindFragmentOutputLocation(colorNumber, name);
-    programObject->bindFragmentOutputIndex(index, name);
+    programObject->bindFragmentOutputLocation(this, colorNumber, name);
+    programObject->bindFragmentOutputIndex(this, index, name);
 }
 
 void Context::bindFragDataLocation(ShaderProgramID program, GLuint colorNumber, const char *name)
@@ -6743,7 +7798,7 @@ void Context::bindFragDataLocation(ShaderProgramID program, GLuint colorNumber, 
 int Context::getFragDataIndex(ShaderProgramID program, const char *name)
 {
     Program *programObject = getProgramResolveLink(program);
-    return programObject->getFragDataIndex(name);
+    return programObject->getExecutable().getFragDataIndex(name);
 }
 
 int Context::getProgramResourceLocationIndex(ShaderProgramID program,
@@ -6752,7 +7807,7 @@ int Context::getProgramResourceLocationIndex(ShaderProgramID program,
 {
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programInterface == GL_PROGRAM_OUTPUT);
-    return programObject->getFragDataIndex(name);
+    return programObject->getExecutable().getFragDataIndex(name);
 }
 
 void Context::shaderSource(ShaderProgramID shader,
@@ -6760,64 +7815,20 @@ void Context::shaderSource(ShaderProgramID shader,
                            const GLchar *const *string,
                            const GLint *length)
 {
-    Shader *shaderObject = getShader(shader);
+    Shader *shaderObject = getShaderNoResolveCompile(shader);
     ASSERT(shaderObject);
-    shaderObject->setSource(count, string, length);
+    shaderObject->setSource(this, count, string, length);
 }
 
-void Context::stencilFunc(GLenum func, GLint ref, GLuint mask)
+Program *Context::getActiveLinkedProgramPPO() const
 {
-    stencilFuncSeparate(GL_FRONT_AND_BACK, func, ref, mask);
-}
-
-void Context::stencilMask(GLuint mask)
-{
-    stencilMaskSeparate(GL_FRONT_AND_BACK, mask);
-}
-
-void Context::stencilOp(GLenum fail, GLenum zfail, GLenum zpass)
-{
-    stencilOpSeparate(GL_FRONT_AND_BACK, fail, zfail, zpass);
-}
-
-void Context::patchParameteri(GLenum pname, GLint value)
-{
-    UNIMPLEMENTED();
-}
-
-Program *Context::getActiveLinkedProgram() const
-{
-    Program *program = mState.getLinkedProgram(this);
-    if (!program)
+    ProgramPipeline *programPipelineObject = mState.getProgramPipeline();
+    if (programPipelineObject)
     {
-        ProgramPipeline *programPipelineObject = mState.getProgramPipeline();
-        if (programPipelineObject)
-        {
-            program = programPipelineObject->getLinkedActiveShaderProgram(this);
-        }
+        return programPipelineObject->getLinkedActiveShaderProgram(this);
     }
 
-    return program;
-}
-
-void Context::uniform1f(UniformLocation location, GLfloat x)
-{
-    Program *program = getActiveLinkedProgram();
-    program->setUniform1fv(location, 1, &x);
-}
-
-void Context::uniform1fv(UniformLocation location, GLsizei count, const GLfloat *v)
-{
-    Program *program = getActiveLinkedProgram();
-    program->setUniform1fv(location, count, v);
-}
-
-void Context::setUniform1iImpl(Program *program,
-                               UniformLocation location,
-                               GLsizei count,
-                               const GLint *v)
-{
-    program->setUniform1iv(this, location, count, v);
+    return nullptr;
 }
 
 void Context::onSamplerUniformChange(size_t textureUnitIndex)
@@ -6826,103 +7837,13 @@ void Context::onSamplerUniformChange(size_t textureUnitIndex)
     mStateCache.onActiveTextureChange(this);
 }
 
-void Context::uniform1i(UniformLocation location, GLint x)
-{
-    Program *program = getActiveLinkedProgram();
-    setUniform1iImpl(program, location, 1, &x);
-}
-
-void Context::uniform1iv(UniformLocation location, GLsizei count, const GLint *v)
-{
-    Program *program = getActiveLinkedProgram();
-    setUniform1iImpl(program, location, count, v);
-}
-
-void Context::uniform2f(UniformLocation location, GLfloat x, GLfloat y)
-{
-    GLfloat xy[2]    = {x, y};
-    Program *program = getActiveLinkedProgram();
-    program->setUniform2fv(location, 1, xy);
-}
-
-void Context::uniform2fv(UniformLocation location, GLsizei count, const GLfloat *v)
-{
-    Program *program = getActiveLinkedProgram();
-    program->setUniform2fv(location, count, v);
-}
-
-void Context::uniform2i(UniformLocation location, GLint x, GLint y)
-{
-    GLint xy[2]      = {x, y};
-    Program *program = getActiveLinkedProgram();
-    program->setUniform2iv(location, 1, xy);
-}
-
-void Context::uniform2iv(UniformLocation location, GLsizei count, const GLint *v)
-{
-    Program *program = getActiveLinkedProgram();
-    program->setUniform2iv(location, count, v);
-}
-
-void Context::uniform3f(UniformLocation location, GLfloat x, GLfloat y, GLfloat z)
-{
-    GLfloat xyz[3]   = {x, y, z};
-    Program *program = getActiveLinkedProgram();
-    program->setUniform3fv(location, 1, xyz);
-}
-
-void Context::uniform3fv(UniformLocation location, GLsizei count, const GLfloat *v)
-{
-    Program *program = getActiveLinkedProgram();
-    program->setUniform3fv(location, count, v);
-}
-
-void Context::uniform3i(UniformLocation location, GLint x, GLint y, GLint z)
-{
-    GLint xyz[3]     = {x, y, z};
-    Program *program = getActiveLinkedProgram();
-    program->setUniform3iv(location, 1, xyz);
-}
-
-void Context::uniform3iv(UniformLocation location, GLsizei count, const GLint *v)
-{
-    Program *program = getActiveLinkedProgram();
-    program->setUniform3iv(location, count, v);
-}
-
-void Context::uniform4f(UniformLocation location, GLfloat x, GLfloat y, GLfloat z, GLfloat w)
-{
-    GLfloat xyzw[4]  = {x, y, z, w};
-    Program *program = getActiveLinkedProgram();
-    program->setUniform4fv(location, 1, xyzw);
-}
-
-void Context::uniform4fv(UniformLocation location, GLsizei count, const GLfloat *v)
-{
-    Program *program = getActiveLinkedProgram();
-    program->setUniform4fv(location, count, v);
-}
-
-void Context::uniform4i(UniformLocation location, GLint x, GLint y, GLint z, GLint w)
-{
-    GLint xyzw[4]    = {x, y, z, w};
-    Program *program = getActiveLinkedProgram();
-    program->setUniform4iv(location, 1, xyzw);
-}
-
-void Context::uniform4iv(UniformLocation location, GLsizei count, const GLint *v)
-{
-    Program *program = getActiveLinkedProgram();
-    program->setUniform4iv(location, count, v);
-}
-
 void Context::uniformMatrix2fv(UniformLocation location,
                                GLsizei count,
                                GLboolean transpose,
                                const GLfloat *value)
 {
     Program *program = getActiveLinkedProgram();
-    program->setUniformMatrix2fv(location, count, transpose, value);
+    program->getExecutable().setUniformMatrix2fv(location, count, transpose, value);
 }
 
 void Context::uniformMatrix3fv(UniformLocation location,
@@ -6931,7 +7852,7 @@ void Context::uniformMatrix3fv(UniformLocation location,
                                const GLfloat *value)
 {
     Program *program = getActiveLinkedProgram();
-    program->setUniformMatrix3fv(location, count, transpose, value);
+    program->getExecutable().setUniformMatrix3fv(location, count, transpose, value);
 }
 
 void Context::uniformMatrix4fv(UniformLocation location,
@@ -6940,18 +7861,28 @@ void Context::uniformMatrix4fv(UniformLocation location,
                                const GLfloat *value)
 {
     Program *program = getActiveLinkedProgram();
-    program->setUniformMatrix4fv(location, count, transpose, value);
+    program->getExecutable().setUniformMatrix4fv(location, count, transpose, value);
 }
 
 void Context::validateProgram(ShaderProgramID program)
 {
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    programObject->validate(mState.mCaps);
+    programObject->validate(mState.getCaps());
 }
 
 void Context::validateProgramPipeline(ProgramPipelineID pipeline)
 {
+    // GLES spec 3.2, Section 7.4 "Program Pipeline Objects"
+    // If pipeline is a name that has been generated (without subsequent deletion) by
+    // GenProgramPipelines, but refers to a program pipeline object that has not been
+    // previously bound, the GL first creates a new state vector in the same manner as
+    // when BindProgramPipeline creates a new program pipeline object.
+    //
+    // void BindProgramPipeline( uint pipeline );
+    // pipeline is the program pipeline object name. The resulting program pipeline
+    // object is a new state vector, comprising all the state and with the same initial values
+    // listed in table 21.20.
     ProgramPipeline *programPipeline =
         mState.mProgramPipelineManager->checkProgramPipelineAllocation(mImplementation.get(),
                                                                        pipeline);
@@ -6969,7 +7900,7 @@ void Context::getProgramBinary(ShaderProgramID program,
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject != nullptr);
 
-    ANGLE_CONTEXT_TRY(programObject->saveBinary(this, binaryFormat, binary, bufSize, length));
+    ANGLE_CONTEXT_TRY(programObject->getBinary(this, binaryFormat, binary, bufSize, length));
 }
 
 void Context::programBinary(ShaderProgramID program,
@@ -6980,67 +7911,19 @@ void Context::programBinary(ShaderProgramID program,
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject != nullptr);
 
-    ANGLE_CONTEXT_TRY(programObject->loadBinary(this, binaryFormat, binary, length));
-    ANGLE_CONTEXT_TRY(onProgramLink(programObject));
-}
-
-void Context::uniform1ui(UniformLocation location, GLuint v0)
-{
-    Program *program = getActiveLinkedProgram();
-    program->setUniform1uiv(location, 1, &v0);
-}
-
-void Context::uniform2ui(UniformLocation location, GLuint v0, GLuint v1)
-{
-    Program *program  = getActiveLinkedProgram();
-    const GLuint xy[] = {v0, v1};
-    program->setUniform2uiv(location, 1, xy);
-}
-
-void Context::uniform3ui(UniformLocation location, GLuint v0, GLuint v1, GLuint v2)
-{
-    Program *program   = getActiveLinkedProgram();
-    const GLuint xyz[] = {v0, v1, v2};
-    program->setUniform3uiv(location, 1, xyz);
-}
-
-void Context::uniform4ui(UniformLocation location, GLuint v0, GLuint v1, GLuint v2, GLuint v3)
-{
-    Program *program    = getActiveLinkedProgram();
-    const GLuint xyzw[] = {v0, v1, v2, v3};
-    program->setUniform4uiv(location, 1, xyzw);
-}
-
-void Context::uniform1uiv(UniformLocation location, GLsizei count, const GLuint *value)
-{
-    Program *program = getActiveLinkedProgram();
-    program->setUniform1uiv(location, count, value);
-}
-void Context::uniform2uiv(UniformLocation location, GLsizei count, const GLuint *value)
-{
-    Program *program = getActiveLinkedProgram();
-    program->setUniform2uiv(location, count, value);
-}
-
-void Context::uniform3uiv(UniformLocation location, GLsizei count, const GLuint *value)
-{
-    Program *program = getActiveLinkedProgram();
-    program->setUniform3uiv(location, count, value);
-}
-
-void Context::uniform4uiv(UniformLocation location, GLsizei count, const GLuint *value)
-{
-    Program *program = getActiveLinkedProgram();
-    program->setUniform4uiv(location, count, value);
+    ANGLE_CONTEXT_TRY(programObject->setBinary(this, binaryFormat, binary, length));
 }
 
 void Context::genQueries(GLsizei n, QueryID *ids)
 {
     for (GLsizei i = 0; i < n; i++)
     {
-        QueryID handle = QueryID{mQueryHandleAllocator.allocate()};
-        mQueryMap.assign(handle, nullptr);
-        ids[i] = handle;
+        if (!mQueryHandleAllocator.allocate(&ids[i].value))
+        {
+            handleExhaustionError(angle::EntryPoint::GLGenQueries);
+            return;
+        }
+        mQueryMap.assign(ids[i], nullptr);
     }
 }
 
@@ -7072,60 +7955,6 @@ GLboolean Context::isQuery(QueryID id) const
     return ConvertToGLBoolean(getQuery(id) != nullptr);
 }
 
-void Context::uniformMatrix2x3fv(UniformLocation location,
-                                 GLsizei count,
-                                 GLboolean transpose,
-                                 const GLfloat *value)
-{
-    Program *program = getActiveLinkedProgram();
-    program->setUniformMatrix2x3fv(location, count, transpose, value);
-}
-
-void Context::uniformMatrix3x2fv(UniformLocation location,
-                                 GLsizei count,
-                                 GLboolean transpose,
-                                 const GLfloat *value)
-{
-    Program *program = getActiveLinkedProgram();
-    program->setUniformMatrix3x2fv(location, count, transpose, value);
-}
-
-void Context::uniformMatrix2x4fv(UniformLocation location,
-                                 GLsizei count,
-                                 GLboolean transpose,
-                                 const GLfloat *value)
-{
-    Program *program = getActiveLinkedProgram();
-    program->setUniformMatrix2x4fv(location, count, transpose, value);
-}
-
-void Context::uniformMatrix4x2fv(UniformLocation location,
-                                 GLsizei count,
-                                 GLboolean transpose,
-                                 const GLfloat *value)
-{
-    Program *program = getActiveLinkedProgram();
-    program->setUniformMatrix4x2fv(location, count, transpose, value);
-}
-
-void Context::uniformMatrix3x4fv(UniformLocation location,
-                                 GLsizei count,
-                                 GLboolean transpose,
-                                 const GLfloat *value)
-{
-    Program *program = getActiveLinkedProgram();
-    program->setUniformMatrix3x4fv(location, count, transpose, value);
-}
-
-void Context::uniformMatrix4x3fv(UniformLocation location,
-                                 GLsizei count,
-                                 GLboolean transpose,
-                                 const GLfloat *value)
-{
-    Program *program = getActiveLinkedProgram();
-    program->setUniformMatrix4x3fv(location, count, transpose, value);
-}
-
 void Context::deleteVertexArrays(GLsizei n, const VertexArrayID *arrays)
 {
     for (int arrayIndex = 0; arrayIndex < n; arrayIndex++)
@@ -7135,46 +7964,21 @@ void Context::deleteVertexArrays(GLsizei n, const VertexArrayID *arrays)
         if (arrays[arrayIndex].value != 0)
         {
             VertexArray *vertexArrayObject = nullptr;
-            if (mVertexArrayMap.erase(vertexArray, &vertexArrayObject))
+            getMutablePrivateState()->eraseVertexArray(vertexArray, &vertexArrayObject);
+            if (vertexArrayObject != nullptr)
             {
-                if (vertexArrayObject != nullptr)
-                {
-                    detachVertexArray(vertexArray);
-                    vertexArrayObject->onDestroy(this);
-                }
-
-                mVertexArrayHandleAllocator.release(vertexArray.value);
+                detachVertexArray(vertexArray);
+                vertexArrayObject->onDestroy(this);
             }
         }
     }
-}
-
-void Context::genVertexArrays(GLsizei n, VertexArrayID *arrays)
-{
-    for (int arrayIndex = 0; arrayIndex < n; arrayIndex++)
-    {
-        VertexArrayID vertexArray = {mVertexArrayHandleAllocator.allocate()};
-        mVertexArrayMap.assign(vertexArray, nullptr);
-        arrays[arrayIndex] = vertexArray;
-    }
-}
-
-GLboolean Context::isVertexArray(VertexArrayID array) const
-{
-    if (array.value == 0)
-    {
-        return GL_FALSE;
-    }
-
-    VertexArray *vao = getVertexArray(array);
-    return ConvertToGLBoolean(vao != nullptr);
 }
 
 void Context::endTransformFeedback()
 {
     TransformFeedback *transformFeedback = mState.getCurrentTransformFeedback();
     ANGLE_CONTEXT_TRY(transformFeedback->end(this));
-    mStateCache.onActiveTransformFeedbackChange(this);
+    onActiveTransformFeedbackChange();
 }
 
 void Context::transformFeedbackVaryings(ShaderProgramID program,
@@ -7184,7 +7988,7 @@ void Context::transformFeedbackVaryings(ShaderProgramID program,
 {
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    programObject->setTransformFeedbackVaryings(count, varyings, bufferMode);
+    programObject->setTransformFeedbackVaryings(this, count, varyings, bufferMode);
 }
 
 void Context::getTransformFeedbackVarying(ShaderProgramID program,
@@ -7197,7 +8001,8 @@ void Context::getTransformFeedbackVarying(ShaderProgramID program,
 {
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    programObject->getTransformFeedbackVarying(index, bufSize, length, size, type, name);
+    programObject->getExecutable().getTransformFeedbackVarying(index, bufSize, length, size, type,
+                                                               name);
 }
 
 void Context::deleteTransformFeedbacks(GLsizei n, const TransformFeedbackID *ids)
@@ -7228,9 +8033,25 @@ void Context::genTransformFeedbacks(GLsizei n, TransformFeedbackID *ids)
 {
     for (int i = 0; i < n; i++)
     {
-        TransformFeedbackID transformFeedback = {mTransformFeedbackHandleAllocator.allocate()};
-        mTransformFeedbackMap.assign(transformFeedback, nullptr);
-        ids[i] = transformFeedback;
+        if (!mTransformFeedbackHandleAllocator.allocate(&ids[i].value))
+        {
+            handleExhaustionError(angle::EntryPoint::GLGenTransformFeedbacks);
+            return;
+        }
+        mTransformFeedbackMap.assign(ids[i], nullptr);
+    }
+}
+
+void Context::genVertexArrays(GLsizei n, VertexArrayID *ids)
+{
+    PrivateState *privState = getMutablePrivateState();
+    for (int i = 0; i < n; i++)
+    {
+        if (!privState->allocateVertexID(&ids[i]))
+        {
+            handleExhaustionError(angle::EntryPoint::GLGenVertexArrays);
+            return;
+        }
     }
 }
 
@@ -7251,35 +8072,45 @@ void Context::pauseTransformFeedback()
 {
     TransformFeedback *transformFeedback = mState.getCurrentTransformFeedback();
     ANGLE_CONTEXT_TRY(transformFeedback->pause(this));
-    mStateCache.onActiveTransformFeedbackChange(this);
+    onActiveTransformFeedbackChange();
 }
 
 void Context::resumeTransformFeedback()
 {
     TransformFeedback *transformFeedback = mState.getCurrentTransformFeedback();
     ANGLE_CONTEXT_TRY(transformFeedback->resume(this));
-    mStateCache.onActiveTransformFeedbackChange(this);
+    onActiveTransformFeedbackChange();
 }
 
-void Context::getUniformuiv(ShaderProgramID program, UniformLocation location, GLuint *params)
+void Context::getUniformuiv(ShaderProgramID programPacked,
+                            UniformLocation locationPacked,
+                            GLuint *params)
 {
-    const Program *programObject = getProgramResolveLink(program);
-    programObject->getUniformuiv(this, location, params);
+    getUniformuivRobust(programPacked, locationPacked, 0, nullptr, params);
 }
 
-void Context::getUniformuivRobust(ShaderProgramID program,
-                                  UniformLocation location,
+void Context::getUniformuivRobust(ShaderProgramID programPacked,
+                                  UniformLocation locationPacked,
                                   GLsizei bufSize,
                                   GLsizei *length,
                                   GLuint *params)
 {
-    getUniformuiv(program, location, params);
+    const Program *programObject = getProgramResolveLink(programPacked);
+    ASSERT(programObject != nullptr);
+    const ProgramExecutable &executable = programObject->getExecutable();
+
+    executable.getUniformuiv(this, locationPacked, params);
+
+    if (length != nullptr)
+    {
+        *length = VariableComponentCount(executable.getUniformByLocation(locationPacked).getType());
+    }
 }
 
 GLint Context::getFragDataLocation(ShaderProgramID program, const GLchar *name)
 {
     const Program *programObject = getProgramResolveLink(program);
-    return programObject->getFragDataLocation(name);
+    return programObject->getExecutable().getFragDataLocation(name);
 }
 
 void Context::getUniformIndices(ShaderProgramID program,
@@ -7299,7 +8130,8 @@ void Context::getUniformIndices(ShaderProgramID program,
     {
         for (int uniformId = 0; uniformId < uniformCount; uniformId++)
         {
-            uniformIndices[uniformId] = programObject->getUniformIndex(uniformNames[uniformId]);
+            uniformIndices[uniformId] =
+                programObject->getExecutable().getUniformIndex(uniformNames[uniformId]);
         }
     }
 }
@@ -7321,57 +8153,56 @@ void Context::getActiveUniformsiv(ShaderProgramID program,
 GLuint Context::getUniformBlockIndex(ShaderProgramID program, const GLchar *uniformBlockName)
 {
     const Program *programObject = getProgramResolveLink(program);
-    return programObject->getUniformBlockIndex(uniformBlockName);
+    return programObject->getExecutable().getUniformBlockIndex(uniformBlockName);
 }
 
-void Context::getActiveUniformBlockiv(ShaderProgramID program,
-                                      GLuint uniformBlockIndex,
-                                      GLenum pname,
+void Context::getActiveUniformBlockiv(ShaderProgramID programPacked,
+                                      UniformBlockIndex uniformBlockIndexPacked,
+                                      UniformBlockParameter pnamePacked,
                                       GLint *params)
 {
-    const Program *programObject = getProgramResolveLink(program);
-    QueryActiveUniformBlockiv(programObject, uniformBlockIndex, pname, params);
+    const Program *programObject = getProgramResolveLink(programPacked);
+    QueryActiveUniformBlockiv(programObject, uniformBlockIndexPacked, pnamePacked, nullptr, params);
 }
 
-void Context::getActiveUniformBlockivRobust(ShaderProgramID program,
-                                            GLuint uniformBlockIndex,
-                                            GLenum pname,
-                                            GLsizei bufSize,
+void Context::getActiveUniformBlockivRobust(ShaderProgramID programPacked,
+                                            UniformBlockIndex uniformBlockIndexPacked,
+                                            UniformBlockParameter pnamePacked,
+                                            GLsizei paramCount,
                                             GLsizei *length,
                                             GLint *params)
 {
-    getActiveUniformBlockiv(program, uniformBlockIndex, pname, params);
+    const Program *programObject = getProgramResolveLink(programPacked);
+    QueryActiveUniformBlockiv(programObject, uniformBlockIndexPacked, pnamePacked, length, params);
 }
 
 void Context::getActiveUniformBlockName(ShaderProgramID program,
-                                        GLuint uniformBlockIndex,
+                                        UniformBlockIndex uniformBlockIndex,
                                         GLsizei bufSize,
                                         GLsizei *length,
                                         GLchar *uniformBlockName)
 {
     const Program *programObject = getProgramResolveLink(program);
-    programObject->getActiveUniformBlockName(uniformBlockIndex, bufSize, length, uniformBlockName);
+    programObject->getExecutable().getActiveUniformBlockName(this, uniformBlockIndex, bufSize,
+                                                             length, uniformBlockName);
 }
 
 void Context::uniformBlockBinding(ShaderProgramID program,
-                                  GLuint uniformBlockIndex,
+                                  UniformBlockIndex uniformBlockIndex,
                                   GLuint uniformBlockBinding)
 {
     Program *programObject = getProgramResolveLink(program);
     programObject->bindUniformBlock(uniformBlockIndex, uniformBlockBinding);
-
-    // Note: If the Program is shared between Contexts we would be better using Observer/Subject.
-    if (programObject->isInUse())
-    {
-        mState.setObjectDirty(GL_PROGRAM);
-        mStateCache.onUniformBufferStateChange(this);
-    }
 }
 
 GLsync Context::fenceSync(GLenum condition, GLbitfield flags)
 {
-    GLuint handle     = mState.mSyncManager->createSync(mImplementation.get());
-    GLsync syncHandle = reinterpret_cast<GLsync>(static_cast<uintptr_t>(handle));
+    SyncID syncHandle;
+    if (!mState.mSyncManager->createSync(mImplementation.get(), &syncHandle))
+    {
+        handleExhaustionError(angle::EntryPoint::GLFenceSync);
+        return nullptr;
+    }
 
     Sync *syncObject = getSync(syncHandle);
     if (syncObject->set(this, condition, flags) == angle::Result::Stop)
@@ -7380,17 +8211,17 @@ GLsync Context::fenceSync(GLenum condition, GLbitfield flags)
         return nullptr;
     }
 
-    return syncHandle;
+    return unsafe_int_to_pointer_cast<GLsync>(syncHandle.value);
 }
 
-GLboolean Context::isSync(GLsync sync) const
+GLboolean Context::isSync(SyncID syncPacked) const
 {
-    return (getSync(sync) != nullptr);
+    return (getSync(syncPacked) != nullptr);
 }
 
-GLenum Context::clientWaitSync(GLsync sync, GLbitfield flags, GLuint64 timeout)
+GLenum Context::clientWaitSync(SyncID syncPacked, GLbitfield flags, GLuint64 timeout)
 {
-    Sync *syncObject = getSync(sync);
+    Sync *syncObject = getSync(syncPacked);
 
     GLenum result = GL_WAIT_FAILED;
     if (syncObject->clientWait(this, flags, timeout, &result) == angle::Result::Stop)
@@ -7400,53 +8231,71 @@ GLenum Context::clientWaitSync(GLsync sync, GLbitfield flags, GLuint64 timeout)
     return result;
 }
 
-void Context::waitSync(GLsync sync, GLbitfield flags, GLuint64 timeout)
+void Context::waitSync(SyncID syncPacked, GLbitfield flags, GLuint64 timeout)
 {
-    Sync *syncObject = getSync(sync);
+    Sync *syncObject = getSync(syncPacked);
     ANGLE_CONTEXT_TRY(syncObject->serverWait(this, flags, timeout));
 }
 
-void Context::getInteger64v(GLenum pname, GLint64 *params)
+void Context::getInteger64v(GLenum pname, GLint64 *data)
 {
-    GLenum nativeType      = GL_NONE;
-    unsigned int numParams = 0;
-    getQueryParameterInfo(pname, &nativeType, &numParams);
+    getInteger64vRobust(pname, 0, nullptr, data);
+}
 
-    if (nativeType == GL_INT_64_ANGLEX)
+void Context::getInteger64vRobust(GLenum pname, GLsizei paramCount, GLsizei *length, GLint64 *data)
+{
+    GLenum nativeType;
+    unsigned int numParams;
+    const bool paramFound = getQueryParameterInfo(pname, &nativeType, &numParams);
+    if (ANGLE_UNLIKELY(!paramFound))
     {
-        getInteger64vImpl(pname, params);
+        return;  // Avoid crashing with invalid apps running with no validation.
+    }
+
+    if (nativeType == GL_INT64)
+    {
+        getInteger64vImpl(pname, data);
     }
     else
     {
-        CastStateValues(this, nativeType, pname, numParams, params);
+        CastStateValues(this, nativeType, pname, numParams, data);
+    }
+
+    if (length != nullptr)
+    {
+        *length = numParams;
     }
 }
 
-void Context::getInteger64vRobust(GLenum pname, GLsizei bufSize, GLsizei *length, GLint64 *data)
-{
-    getInteger64v(pname, data);
-}
-
-void Context::getBufferParameteri64v(BufferBinding target, GLenum pname, GLint64 *params)
+void Context::getBufferParameteri64v(BufferBinding target, BufferParam pnamePacked, GLint64 *params)
 {
     Buffer *buffer = mState.getTargetBuffer(target);
-    QueryBufferParameteri64v(buffer, pname, params);
+    QueryBufferParameteri64v(buffer, pnamePacked, params);
 }
 
 void Context::getBufferParameteri64vRobust(BufferBinding target,
-                                           GLenum pname,
-                                           GLsizei bufSize,
+                                           BufferParam pnamePacked,
+                                           GLsizei paramCount,
                                            GLsizei *length,
                                            GLint64 *params)
 {
-    getBufferParameteri64v(target, pname, params);
+    getBufferParameteri64v(target, pnamePacked, params);
+
+    if (length != nullptr)
+    {
+        *length = 1;
+    }
 }
 
 void Context::genSamplers(GLsizei count, SamplerID *samplers)
 {
     for (int i = 0; i < count; i++)
     {
-        samplers[i] = mState.mSamplerManager->createSampler();
+        if (!mState.mSamplerManager->createSampler(&samplers[i]))
+        {
+            handleExhaustionError(angle::EntryPoint::GLGenSamplers);
+            return;
+        }
     }
 }
 
@@ -7465,29 +8314,43 @@ void Context::deleteSamplers(GLsizei count, const SamplerID *samplers)
     }
 }
 
-void Context::minSampleShading(GLfloat value)
-{
-    mState.setMinSampleShading(value);
-}
-
 void Context::getInternalformativ(GLenum target,
                                   GLenum internalformat,
                                   GLenum pname,
-                                  GLsizei bufSize,
+                                  GLsizei count,
                                   GLint *params)
 {
-    const TextureCaps &formatCaps = mState.mTextureCaps.get(internalformat);
-    QueryInternalFormativ(formatCaps, pname, bufSize, params);
+    Texture *texture    = nullptr;
+    TextureType textype = FromGLenum<TextureType>(target);
+    if (textype != TextureType::InvalidEnum)
+    {
+        texture = getTextureByType(textype);
+    }
+    const TextureCaps &formatCaps = mState.getTextureCap(internalformat);
+    QueryInternalFormativ(this, texture, internalformat, formatCaps, pname, count, params);
 }
 
 void Context::getInternalformativRobust(GLenum target,
                                         GLenum internalformat,
                                         GLenum pname,
-                                        GLsizei bufSize,
+                                        GLsizei paramCount,
                                         GLsizei *length,
                                         GLint *params)
 {
-    getInternalformativ(target, internalformat, pname, bufSize, params);
+    getInternalformativ(target, internalformat, pname, paramCount, params);
+
+    if (length != nullptr)
+    {
+        if (pname == GL_SAMPLES)
+        {
+            *length = clampCast<GLsizei>(mState.getTextureCap(internalformat).sampleCounts.size());
+        }
+        else
+        {
+            ASSERT(pname != GL_SURFACE_COMPRESSION_EXT);
+            *length = 1;
+        }
+    }
 }
 
 void Context::programUniform1i(ShaderProgramID program, UniformLocation location, GLint v0)
@@ -7612,7 +8475,7 @@ void Context::programUniform2iv(ShaderProgramID program,
 {
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    programObject->setUniform2iv(location, count, value);
+    programObject->getExecutable().setUniform2iv(location, count, value);
 }
 
 void Context::programUniform3iv(ShaderProgramID program,
@@ -7622,7 +8485,7 @@ void Context::programUniform3iv(ShaderProgramID program,
 {
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    programObject->setUniform3iv(location, count, value);
+    programObject->getExecutable().setUniform3iv(location, count, value);
 }
 
 void Context::programUniform4iv(ShaderProgramID program,
@@ -7632,7 +8495,7 @@ void Context::programUniform4iv(ShaderProgramID program,
 {
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    programObject->setUniform4iv(location, count, value);
+    programObject->getExecutable().setUniform4iv(location, count, value);
 }
 
 void Context::programUniform1uiv(ShaderProgramID program,
@@ -7642,7 +8505,7 @@ void Context::programUniform1uiv(ShaderProgramID program,
 {
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    programObject->setUniform1uiv(location, count, value);
+    programObject->getExecutable().setUniform1uiv(location, count, value);
 }
 
 void Context::programUniform2uiv(ShaderProgramID program,
@@ -7652,7 +8515,7 @@ void Context::programUniform2uiv(ShaderProgramID program,
 {
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    programObject->setUniform2uiv(location, count, value);
+    programObject->getExecutable().setUniform2uiv(location, count, value);
 }
 
 void Context::programUniform3uiv(ShaderProgramID program,
@@ -7662,7 +8525,7 @@ void Context::programUniform3uiv(ShaderProgramID program,
 {
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    programObject->setUniform3uiv(location, count, value);
+    programObject->getExecutable().setUniform3uiv(location, count, value);
 }
 
 void Context::programUniform4uiv(ShaderProgramID program,
@@ -7672,7 +8535,7 @@ void Context::programUniform4uiv(ShaderProgramID program,
 {
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    programObject->setUniform4uiv(location, count, value);
+    programObject->getExecutable().setUniform4uiv(location, count, value);
 }
 
 void Context::programUniform1fv(ShaderProgramID program,
@@ -7682,7 +8545,7 @@ void Context::programUniform1fv(ShaderProgramID program,
 {
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    programObject->setUniform1fv(location, count, value);
+    programObject->getExecutable().setUniform1fv(location, count, value);
 }
 
 void Context::programUniform2fv(ShaderProgramID program,
@@ -7692,7 +8555,7 @@ void Context::programUniform2fv(ShaderProgramID program,
 {
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    programObject->setUniform2fv(location, count, value);
+    programObject->getExecutable().setUniform2fv(location, count, value);
 }
 
 void Context::programUniform3fv(ShaderProgramID program,
@@ -7702,7 +8565,7 @@ void Context::programUniform3fv(ShaderProgramID program,
 {
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    programObject->setUniform3fv(location, count, value);
+    programObject->getExecutable().setUniform3fv(location, count, value);
 }
 
 void Context::programUniform4fv(ShaderProgramID program,
@@ -7712,7 +8575,7 @@ void Context::programUniform4fv(ShaderProgramID program,
 {
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    programObject->setUniform4fv(location, count, value);
+    programObject->getExecutable().setUniform4fv(location, count, value);
 }
 
 void Context::programUniformMatrix2fv(ShaderProgramID program,
@@ -7723,7 +8586,7 @@ void Context::programUniformMatrix2fv(ShaderProgramID program,
 {
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    programObject->setUniformMatrix2fv(location, count, transpose, value);
+    programObject->getExecutable().setUniformMatrix2fv(location, count, transpose, value);
 }
 
 void Context::programUniformMatrix3fv(ShaderProgramID program,
@@ -7734,7 +8597,7 @@ void Context::programUniformMatrix3fv(ShaderProgramID program,
 {
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    programObject->setUniformMatrix3fv(location, count, transpose, value);
+    programObject->getExecutable().setUniformMatrix3fv(location, count, transpose, value);
 }
 
 void Context::programUniformMatrix4fv(ShaderProgramID program,
@@ -7745,7 +8608,7 @@ void Context::programUniformMatrix4fv(ShaderProgramID program,
 {
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    programObject->setUniformMatrix4fv(location, count, transpose, value);
+    programObject->getExecutable().setUniformMatrix4fv(location, count, transpose, value);
 }
 
 void Context::programUniformMatrix2x3fv(ShaderProgramID program,
@@ -7756,7 +8619,7 @@ void Context::programUniformMatrix2x3fv(ShaderProgramID program,
 {
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    programObject->setUniformMatrix2x3fv(location, count, transpose, value);
+    programObject->getExecutable().setUniformMatrix2x3fv(location, count, transpose, value);
 }
 
 void Context::programUniformMatrix3x2fv(ShaderProgramID program,
@@ -7767,7 +8630,7 @@ void Context::programUniformMatrix3x2fv(ShaderProgramID program,
 {
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    programObject->setUniformMatrix3x2fv(location, count, transpose, value);
+    programObject->getExecutable().setUniformMatrix3x2fv(location, count, transpose, value);
 }
 
 void Context::programUniformMatrix2x4fv(ShaderProgramID program,
@@ -7778,7 +8641,7 @@ void Context::programUniformMatrix2x4fv(ShaderProgramID program,
 {
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    programObject->setUniformMatrix2x4fv(location, count, transpose, value);
+    programObject->getExecutable().setUniformMatrix2x4fv(location, count, transpose, value);
 }
 
 void Context::programUniformMatrix4x2fv(ShaderProgramID program,
@@ -7789,7 +8652,7 @@ void Context::programUniformMatrix4x2fv(ShaderProgramID program,
 {
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    programObject->setUniformMatrix4x2fv(location, count, transpose, value);
+    programObject->getExecutable().setUniformMatrix4x2fv(location, count, transpose, value);
 }
 
 void Context::programUniformMatrix3x4fv(ShaderProgramID program,
@@ -7800,7 +8663,7 @@ void Context::programUniformMatrix3x4fv(ShaderProgramID program,
 {
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    programObject->setUniformMatrix3x4fv(location, count, transpose, value);
+    programObject->getExecutable().setUniformMatrix3x4fv(location, count, transpose, value);
 }
 
 void Context::programUniformMatrix4x3fv(ShaderProgramID program,
@@ -7811,7 +8674,7 @@ void Context::programUniformMatrix4x3fv(ShaderProgramID program,
 {
     Program *programObject = getProgramResolveLink(program);
     ASSERT(programObject);
-    programObject->setUniformMatrix4x3fv(location, count, transpose, value);
+    programObject->getExecutable().setUniformMatrix4x3fv(location, count, transpose, value);
 }
 
 bool Context::isCurrentTransformFeedback(const TransformFeedback *tf) const
@@ -7823,7 +8686,11 @@ void Context::genProgramPipelines(GLsizei count, ProgramPipelineID *pipelines)
 {
     for (int i = 0; i < count; i++)
     {
-        pipelines[i] = createProgramPipeline();
+        if (!createProgramPipeline(&pipelines[i]))
+        {
+            handleExhaustionError(angle::EntryPoint::GLGenProgramPipelines);
+            return;
+        }
     }
 }
 
@@ -7900,58 +8767,33 @@ void Context::getTranslatedShaderSource(ShaderProgramID shader,
                                         GLsizei *length,
                                         GLchar *source)
 {
-    Shader *shaderObject = getShader(shader);
+    Shader *shaderObject = getShaderNoResolveCompile(shader);
     ASSERT(shaderObject);
-    shaderObject->getTranslatedSourceWithDebugInfo(bufsize, length, source);
+    shaderObject->getTranslatedSourceWithDebugInfo(this, bufsize, length, source);
 }
 
-void Context::getnUniformfv(ShaderProgramID program,
-                            UniformLocation location,
+void Context::getnUniformfv(ShaderProgramID programPacked,
+                            UniformLocation locationPacked,
                             GLsizei bufSize,
                             GLfloat *params)
 {
-    Program *programObject = getProgramResolveLink(program);
-    ASSERT(programObject);
-
-    programObject->getUniformfv(this, location, params);
+    getUniformfvRobust(programPacked, locationPacked, bufSize, nullptr, params);
 }
 
-void Context::getnUniformfvRobust(ShaderProgramID program,
-                                  UniformLocation location,
-                                  GLsizei bufSize,
-                                  GLsizei *length,
-                                  GLfloat *params)
-{
-    UNIMPLEMENTED();
-}
-
-void Context::getnUniformiv(ShaderProgramID program,
-                            UniformLocation location,
+void Context::getnUniformiv(ShaderProgramID programPacked,
+                            UniformLocation locationPacked,
                             GLsizei bufSize,
                             GLint *params)
 {
-    Program *programObject = getProgramResolveLink(program);
-    ASSERT(programObject);
-
-    programObject->getUniformiv(this, location, params);
+    getUniformivRobust(programPacked, locationPacked, bufSize, nullptr, params);
 }
 
-void Context::getnUniformivRobust(ShaderProgramID program,
-                                  UniformLocation location,
-                                  GLsizei bufSize,
-                                  GLsizei *length,
-                                  GLint *params)
+void Context::getnUniformuiv(ShaderProgramID programPacked,
+                             UniformLocation locationPacked,
+                             GLsizei bufSize,
+                             GLuint *params)
 {
-    UNIMPLEMENTED();
-}
-
-void Context::getnUniformuivRobust(ShaderProgramID program,
-                                   UniformLocation location,
-                                   GLsizei bufSize,
-                                   GLsizei *length,
-                                   GLuint *params)
-{
-    UNIMPLEMENTED();
+    getUniformuivRobust(programPacked, locationPacked, bufSize, nullptr, params);
 }
 
 GLboolean Context::isFenceNV(FenceNVID fence) const
@@ -8028,7 +8870,11 @@ void Context::createMemoryObjects(GLsizei n, MemoryObjectID *memoryObjects)
 {
     for (int i = 0; i < n; i++)
     {
-        memoryObjects[i] = createMemoryObject();
+        if (!createMemoryObject(&memoryObjects[i]))
+        {
+            handleExhaustionError(angle::EntryPoint::GLCreateMemoryObjectsEXT);
+            return;
+        }
     }
 }
 
@@ -8054,8 +8900,9 @@ void Context::texStorageMem2D(TextureType target,
                               MemoryObjectID memory,
                               GLuint64 offset)
 {
-    texStorageMemFlags2D(target, levels, internalFormat, width, height, memory, offset, 0,
-                         std::numeric_limits<uint32_t>::max());
+    texStorageMemFlags2D(target, levels, internalFormat, width, height, memory, offset,
+                         std::numeric_limits<uint32_t>::max(), std::numeric_limits<uint32_t>::max(),
+                         nullptr);
 }
 
 void Context::texStorageMem2DMultisample(TextureType target,
@@ -8118,14 +8965,16 @@ void Context::texStorageMemFlags2D(TextureType target,
                                    MemoryObjectID memory,
                                    GLuint64 offset,
                                    GLbitfield createFlags,
-                                   GLbitfield usageFlags)
+                                   GLbitfield usageFlags,
+                                   const void *imageCreateInfoPNext)
 {
     MemoryObject *memoryObject = getMemoryObject(memory);
     ASSERT(memoryObject);
     Extents size(width, height, 1);
     Texture *texture = getTextureByType(target);
-    ANGLE_CONTEXT_TRY(texture->setStorageExternalMemory(
-        this, target, levels, internalFormat, size, memoryObject, offset, createFlags, usageFlags));
+    ANGLE_CONTEXT_TRY(texture->setStorageExternalMemory(this, target, levels, internalFormat, size,
+                                                        memoryObject, offset, createFlags,
+                                                        usageFlags, imageCreateInfoPNext));
 }
 
 void Context::texStorageMemFlags2DMultisample(TextureType target,
@@ -8137,7 +8986,8 @@ void Context::texStorageMemFlags2DMultisample(TextureType target,
                                               MemoryObjectID memory,
                                               GLuint64 offset,
                                               GLbitfield createFlags,
-                                              GLbitfield usageFlags)
+                                              GLbitfield usageFlags,
+                                              const void *imageCreateInfoPNext)
 {
     UNIMPLEMENTED();
 }
@@ -8151,7 +9001,8 @@ void Context::texStorageMemFlags3D(TextureType target,
                                    MemoryObjectID memory,
                                    GLuint64 offset,
                                    GLbitfield createFlags,
-                                   GLbitfield usageFlags)
+                                   GLbitfield usageFlags,
+                                   const void *imageCreateInfoPNext)
 {
     UNIMPLEMENTED();
 }
@@ -8166,7 +9017,8 @@ void Context::texStorageMemFlags3DMultisample(TextureType target,
                                               MemoryObjectID memory,
                                               GLuint64 offset,
                                               GLbitfield createFlags,
-                                              GLbitfield usageFlags)
+                                              GLbitfield usageFlags,
+                                              const void *imageCreateInfoPNext)
 {
     UNIMPLEMENTED();
 }
@@ -8185,7 +9037,11 @@ void Context::genSemaphores(GLsizei n, SemaphoreID *semaphores)
 {
     for (int i = 0; i < n; i++)
     {
-        semaphores[i] = createSemaphore();
+        if (!createSemaphore(&semaphores[i]))
+        {
+            handleExhaustionError(angle::EntryPoint::GLGenSemaphoresEXT);
+            return;
+        }
     }
 }
 
@@ -8215,6 +9071,38 @@ void Context::semaphoreParameterui64v(SemaphoreID semaphore, GLenum pname, const
 void Context::getSemaphoreParameterui64v(SemaphoreID semaphore, GLenum pname, GLuint64 *params)
 {
     UNIMPLEMENTED();
+}
+
+void Context::trimMemory(MemoryTrimLevel trimLevel)
+{
+    mImplementation->trimMemory(this, trimLevel);
+}
+
+void Context::acquireTextures(GLuint numTextures,
+                              const TextureID *textureIds,
+                              const GLenum *layouts)
+{
+    TextureBarrierVector textureBarriers(numTextures);
+    for (size_t i = 0; i < numTextures; i++)
+    {
+        textureBarriers[i].texture = getTexture(textureIds[i]);
+        textureBarriers[i].layout  = layouts[i];
+    }
+    ANGLE_CONTEXT_TRY(mImplementation->acquireTextures(this, textureBarriers));
+}
+
+void Context::releaseTextures(GLuint numTextures, const TextureID *textureIds, GLenum *layouts)
+{
+    TextureBarrierVector textureBarriers(numTextures);
+    for (size_t i = 0; i < numTextures; i++)
+    {
+        textureBarriers[i].texture = getTexture(textureIds[i]);
+    }
+    ANGLE_CONTEXT_TRY(mImplementation->releaseTextures(this, &textureBarriers));
+    for (size_t i = 0; i < numTextures; i++)
+    {
+        layouts[i] = textureBarriers[i].layout;
+    }
 }
 
 void Context::waitSemaphore(SemaphoreID semaphoreHandle,
@@ -8285,23 +9173,216 @@ void Context::importSemaphoreZirconHandle(SemaphoreID semaphore,
     ANGLE_CONTEXT_TRY(semaphoreObject->importZirconHandle(this, handleType, handle));
 }
 
-void Context::eGLImageTargetTexture2D(TextureType target, GLeglImageOES image)
+void Context::framebufferMemorylessPixelLocalStorage(GLint plane,
+                                                     GLenum internalformat,
+                                                     GLbitfield usage)
+{
+    Framebuffer *framebuffer = mState.getDrawFramebuffer();
+    ASSERT(framebuffer);
+
+    PixelLocalStorage &pls = framebuffer->getPixelLocalStorage(this);
+
+    if (internalformat == GL_NONE)
+    {
+        pls.deinitialize(this, plane);
+    }
+    else
+    {
+        pls.setMemoryless(this, plane, internalformat, usage);
+    }
+}
+
+void Context::framebufferTexturePixelLocalStorage(GLint plane,
+                                                  TextureID backingtexture,
+                                                  GLint level,
+                                                  GLint layer,
+                                                  GLbitfield usage)
+{
+    Framebuffer *framebuffer = mState.getDrawFramebuffer();
+    ASSERT(framebuffer);
+
+    PixelLocalStorage &pls = framebuffer->getPixelLocalStorage(this);
+
+    if (backingtexture.value == 0)
+    {
+        pls.deinitialize(this, plane);
+    }
+    else
+    {
+        Texture *tex = getTexture(backingtexture);
+        ASSERT(tex);  // Validation guarantees this.
+        pls.setTextureBacked(this, plane, tex, level, layer, usage);
+    }
+}
+
+void Context::framebufferPixelLocalClearValuefv(GLint plane, const GLfloat value[])
+{
+    Framebuffer *framebuffer = mState.getDrawFramebuffer();
+    ASSERT(framebuffer);
+    PixelLocalStorage &pls = framebuffer->getPixelLocalStorage(this);
+    pls.setClearValuef(plane, value);
+}
+
+void Context::framebufferPixelLocalClearValueiv(GLint plane, const GLint value[])
+{
+    Framebuffer *framebuffer = mState.getDrawFramebuffer();
+    ASSERT(framebuffer);
+    PixelLocalStorage &pls = framebuffer->getPixelLocalStorage(this);
+    pls.setClearValuei(plane, value);
+}
+
+void Context::framebufferPixelLocalClearValueuiv(GLint plane, const GLuint value[])
+{
+    Framebuffer *framebuffer = mState.getDrawFramebuffer();
+    ASSERT(framebuffer);
+    PixelLocalStorage &pls = framebuffer->getPixelLocalStorage(this);
+    pls.setClearValueui(plane, value);
+}
+
+void Context::beginPixelLocalStorage(GLsizei n, const GLenum loadops[])
+{
+    Framebuffer *framebuffer = mState.getDrawFramebuffer();
+    ASSERT(framebuffer);
+    PixelLocalStorage &pls = framebuffer->getPixelLocalStorage(this);
+
+    pls.begin(this, n, loadops);
+    getMutablePrivateState()->setPixelLocalStorageActivePlanes(n);
+}
+
+void Context::endPixelLocalStorage(GLsizei n, const GLenum storeops[])
+{
+    Framebuffer *framebuffer = mState.getDrawFramebuffer();
+    ASSERT(framebuffer);
+    PixelLocalStorage &pls = framebuffer->getPixelLocalStorage(this);
+
+    ASSERT(n == mState.getPixelLocalStorageActivePlanes());
+    getMutablePrivateState()->setPixelLocalStorageActivePlanes(0);
+    pls.end(this, n, storeops);
+}
+
+void Context::endPixelLocalStorageImplicit()
+{
+    // Ends the currently active pixel local storage session with GL_STORE_OP_STORE on all planes.
+    GLsizei n = mState.getPixelLocalStorageActivePlanes();
+    if (n == 0)
+    {
+        // This command may be called when PLS is not active.
+        return;
+    }
+    angle::FixedVector<GLenum, IMPLEMENTATION_MAX_PIXEL_LOCAL_STORAGE_PLANES> storeops(
+        n, GL_STORE_OP_STORE_ANGLE);
+    endPixelLocalStorage(n, storeops.data());
+}
+
+bool Context::areBlobCacheFuncsSet() const
+{
+    return mState.getBlobCacheCallbacks().getFunction && mState.getBlobCacheCallbacks().setFunction;
+}
+
+void Context::pixelLocalStorageBarrier()
+{
+    Framebuffer *framebuffer = mState.getDrawFramebuffer();
+    ASSERT(framebuffer);
+    PixelLocalStorage &pls = framebuffer->getPixelLocalStorage(this);
+
+    pls.barrier(this);
+}
+
+void Context::framebufferPixelLocalStorageInterrupt()
+{
+    Framebuffer *framebuffer = mState.getDrawFramebuffer();
+    ASSERT(framebuffer);
+    if (framebuffer->id().value != 0)
+    {
+        PixelLocalStorage &pls = framebuffer->getPixelLocalStorage(this);
+        pls.interrupt(this);
+    }
+}
+
+void Context::framebufferPixelLocalStorageRestore()
+{
+    Framebuffer *framebuffer = mState.getDrawFramebuffer();
+    ASSERT(framebuffer);
+    if (framebuffer->id().value != 0)
+    {
+        PixelLocalStorage &pls = framebuffer->getPixelLocalStorage(this);
+        pls.restore(this);
+    }
+}
+
+void Context::getFramebufferPixelLocalStorageParameterfv(GLint plane,
+                                                         PlaneParameter pnamePacked,
+                                                         GLfloat *params)
+{
+    QueryFramebufferPixelLocalStorageParameterfv(this, plane, pnamePacked, nullptr, params);
+}
+
+void Context::getFramebufferPixelLocalStorageParameteriv(GLint plane,
+                                                         PlaneParameter pnamePacked,
+                                                         GLint *params)
+{
+    QueryFramebufferPixelLocalStorageParameteriv(this, plane, pnamePacked, nullptr, params);
+}
+
+void Context::getFramebufferPixelLocalStorageParameteruiv(GLint plane,
+                                                          PlaneParameter pnamePacked,
+                                                          GLuint *params)
+{
+    QueryFramebufferPixelLocalStorageParameteruiv(this, plane, pnamePacked, nullptr, params);
+}
+
+void Context::getFramebufferPixelLocalStorageParameterfvRobust(GLint plane,
+                                                               PlaneParameter pnamePacked,
+                                                               GLsizei paramCount,
+                                                               GLsizei *length,
+                                                               GLfloat *params)
+{
+    QueryFramebufferPixelLocalStorageParameterfv(this, plane, pnamePacked, length, params);
+}
+
+void Context::getFramebufferPixelLocalStorageParameterivRobust(GLint plane,
+                                                               PlaneParameter pnamePacked,
+                                                               GLsizei paramCount,
+                                                               GLsizei *length,
+                                                               GLint *params)
+{
+    QueryFramebufferPixelLocalStorageParameteriv(this, plane, pnamePacked, length, params);
+}
+
+void Context::getFramebufferPixelLocalStorageParameteruivRobust(GLint plane,
+                                                                PlaneParameter pnamePacked,
+                                                                GLsizei paramCount,
+                                                                GLsizei *length,
+                                                                GLuint *params)
+{
+    QueryFramebufferPixelLocalStorageParameteruiv(this, plane, pnamePacked, length, params);
+}
+
+void Context::eGLImageTargetTexStorage(GLenum target, egl::ImageID image, const GLint *attrib_list)
+{
+    Texture *texture        = getTextureByType(FromGLenum<TextureType>(target));
+    egl::Image *imageObject = mDisplay->getImage(image);
+    ANGLE_CONTEXT_TRY(texture->setStorageEGLImageTarget(this, FromGLenum<TextureType>(target),
+                                                        imageObject, attrib_list));
+}
+
+void Context::eGLImageTargetTexture2D(TextureType target, egl::ImageID image)
 {
     Texture *texture        = getTextureByType(target);
-    egl::Image *imageObject = static_cast<egl::Image *>(image);
+    egl::Image *imageObject = mDisplay->getImage(image);
     ANGLE_CONTEXT_TRY(texture->setEGLImageTarget(this, target, imageObject));
 }
 
-void Context::eGLImageTargetRenderbufferStorage(GLenum target, GLeglImageOES image)
+void Context::eGLImageTargetRenderbufferStorage(GLenum target, egl::ImageID image)
 {
     Renderbuffer *renderbuffer = mState.getCurrentRenderbuffer();
-    egl::Image *imageObject    = static_cast<egl::Image *>(image);
+    egl::Image *imageObject    = mDisplay->getImage(image);
     ANGLE_CONTEXT_TRY(renderbuffer->setStorageEGLImageTarget(this, imageObject));
 }
 
-void Context::texStorage1D(GLenum target, GLsizei levels, GLenum internalformat, GLsizei width)
+void Context::framebufferFetchBarrier()
 {
-    UNIMPLEMENTED();
+    mImplementation->framebufferFetchBarrier();
 }
 
 bool Context::getQueryParameterInfo(GLenum pname, GLenum *type, unsigned int *numParams) const
@@ -8313,99 +9394,7 @@ bool Context::getIndexedQueryParameterInfo(GLenum target,
                                            GLenum *type,
                                            unsigned int *numParams) const
 {
-    if (getClientVersion() < Version(3, 0))
-    {
-        return false;
-    }
-
-    switch (target)
-    {
-        case GL_TRANSFORM_FEEDBACK_BUFFER_BINDING:
-        case GL_UNIFORM_BUFFER_BINDING:
-        {
-            *type      = GL_INT;
-            *numParams = 1;
-            return true;
-        }
-        case GL_TRANSFORM_FEEDBACK_BUFFER_START:
-        case GL_TRANSFORM_FEEDBACK_BUFFER_SIZE:
-        case GL_UNIFORM_BUFFER_START:
-        case GL_UNIFORM_BUFFER_SIZE:
-        {
-            *type      = GL_INT_64_ANGLEX;
-            *numParams = 1;
-            return true;
-        }
-    }
-
-    if (mSupportedExtensions.drawBuffersIndexedAny())
-    {
-        switch (target)
-        {
-            case GL_BLEND_SRC_RGB:
-            case GL_BLEND_SRC_ALPHA:
-            case GL_BLEND_DST_RGB:
-            case GL_BLEND_DST_ALPHA:
-            case GL_BLEND_EQUATION_RGB:
-            case GL_BLEND_EQUATION_ALPHA:
-            {
-                *type      = GL_INT;
-                *numParams = 1;
-                return true;
-            }
-            case GL_COLOR_WRITEMASK:
-            {
-                *type      = GL_BOOL;
-                *numParams = 4;
-                return true;
-            }
-        }
-    }
-
-    if (getClientVersion() < Version(3, 1))
-    {
-        return false;
-    }
-
-    switch (target)
-    {
-        case GL_IMAGE_BINDING_LAYERED:
-        {
-            *type      = GL_BOOL;
-            *numParams = 1;
-            return true;
-        }
-        case GL_MAX_COMPUTE_WORK_GROUP_COUNT:
-        case GL_MAX_COMPUTE_WORK_GROUP_SIZE:
-        case GL_ATOMIC_COUNTER_BUFFER_BINDING:
-        case GL_SHADER_STORAGE_BUFFER_BINDING:
-        case GL_VERTEX_BINDING_BUFFER:
-        case GL_VERTEX_BINDING_DIVISOR:
-        case GL_VERTEX_BINDING_OFFSET:
-        case GL_VERTEX_BINDING_STRIDE:
-        case GL_SAMPLE_MASK_VALUE:
-        case GL_IMAGE_BINDING_NAME:
-        case GL_IMAGE_BINDING_LEVEL:
-        case GL_IMAGE_BINDING_LAYER:
-        case GL_IMAGE_BINDING_ACCESS:
-        case GL_IMAGE_BINDING_FORMAT:
-        {
-            *type      = GL_INT;
-            *numParams = 1;
-            return true;
-        }
-        case GL_ATOMIC_COUNTER_BUFFER_START:
-        case GL_ATOMIC_COUNTER_BUFFER_SIZE:
-        case GL_SHADER_STORAGE_BUFFER_START:
-        case GL_SHADER_STORAGE_BUFFER_SIZE:
-        {
-            *type      = GL_INT_64_ANGLEX;
-            *numParams = 1;
-            return true;
-        }
-    }
-
-    return false;
+    return GetIndexedQueryParameterInfo(mState, target, type, numParams);
 }
 
 Program *Context::getProgramNoResolveLink(ShaderProgramID handle) const
@@ -8413,7 +9402,17 @@ Program *Context::getProgramNoResolveLink(ShaderProgramID handle) const
     return mState.mShaderProgramManager->getProgram(handle);
 }
 
-Shader *Context::getShader(ShaderProgramID handle) const
+Shader *Context::getShaderResolveCompile(ShaderProgramID handle) const
+{
+    Shader *shader = getShaderNoResolveCompile(handle);
+    if (shader)
+    {
+        shader->resolveCompile(this);
+    }
+    return shader;
+}
+
+Shader *Context::getShaderNoResolveCompile(ShaderProgramID handle) const
 {
     return mState.mShaderProgramManager->getShader(handle);
 }
@@ -8450,34 +9449,102 @@ bool Context::usingDisplaySemaphoreShareGroup() const
 
 GLenum Context::getConvertedRenderbufferFormat(GLenum internalformat) const
 {
-    if (mState.mExtensions.webglCompatibility && mState.mClientVersion.major == 2 &&
-        internalformat == GL_DEPTH_STENCIL)
+    if (isWebGL1() && internalformat == GL_DEPTH_STENCIL)
     {
         return GL_DEPTH24_STENCIL8;
-    }
-    if (getClientType() == EGL_OPENGL_API && internalformat == GL_DEPTH_COMPONENT)
-    {
-        return GL_DEPTH_COMPONENT24;
     }
     return internalformat;
 }
 
 void Context::maxShaderCompilerThreads(GLuint count)
 {
-    GLuint oldCount = mState.getMaxShaderCompilerThreads();
+    // A count of zero specifies a request for no parallel compiling or linking.  This is handled in
+    // getShaderCompileThreadPool.  Otherwise the count itself has no effect as the pool is shared
+    // between contexts.
     mState.setMaxShaderCompilerThreads(count);
-    // A count of zero specifies a request for no parallel compiling or linking.
-    if ((oldCount == 0 || count == 0) && (oldCount != 0 || count != 0))
-    {
-        mThreadPool = angle::WorkerThreadPool::Create(count > 0);
-    }
-    mThreadPool->setMaxThreads(count);
     mImplementation->setMaxShaderCompilerThreads(count);
 }
 
 bool Context::isGLES1() const
 {
-    return mState.getClientVersion() < Version(2, 0);
+    return mState.isGLES1();
+}
+
+std::shared_ptr<angle::WorkerThreadPool> Context::getShaderCompileThreadPool() const
+{
+    if (mState.getExtensions().parallelShaderCompileKHR && mState.getMaxShaderCompilerThreads() > 0)
+    {
+        return mDisplay->getMultiThreadPool();
+    }
+    return mDisplay->getSingleThreadPool();
+}
+
+std::shared_ptr<angle::WorkerThreadPool> Context::getLinkSubTaskThreadPool() const
+{
+    return getFrontendFeatures().alwaysRunLinkSubJobsThreaded.enabled
+               ? getWorkerThreadPool()
+               : getShaderCompileThreadPool();
+}
+
+std::shared_ptr<angle::WaitableEvent> Context::postCompileLinkTask(
+    const std::shared_ptr<angle::Closure> &task,
+    angle::JobThreadSafety safety,
+    angle::JobResultExpectancy resultExpectancy) const
+{
+    // If the compile/link job is not thread safe, use the single-thread pool.  Otherwise, the pool
+    // that is configured by the application (through GL_KHR_parallel_shader_compile) is used.
+    const bool isThreadSafe = safety == angle::JobThreadSafety::Safe;
+    std::shared_ptr<angle::WorkerThreadPool> workerPool =
+        isThreadSafe ? getShaderCompileThreadPool() : getSingleThreadPool();
+
+    // If the job is thread-safe, but it's still not going to be threaded, then it's performed as an
+    // unlocked tail call to allow other threads to proceed.  This is only possible if the results
+    // of the call are not immediately needed in the same entry point call.
+    if (isThreadSafe && !workerPool->isAsync() &&
+        resultExpectancy == angle::JobResultExpectancy::Future &&
+        !getShareGroup()->getFrameCaptureShared()->enabled())
+    {
+        std::shared_ptr<angle::AsyncWaitableEvent> event =
+            std::make_shared<angle::AsyncWaitableEvent>();
+        auto unlockedTask = [task, event](void *resultOut) {
+            ANGLE_TRACE_EVENT0("gpu.angle", "Compile/Link (unlocked)");
+            (*task)();
+            event->markAsReady();
+        };
+        egl::Display::GetCurrentThreadUnlockedTailCall()->add(unlockedTask);
+        return event;
+    }
+
+    // Otherwise, just schedule the task on the pool
+    return workerPool->postWorkerTask(task);
+}
+
+std::shared_ptr<angle::WorkerThreadPool> Context::getSingleThreadPool() const
+{
+    return mDisplay->getSingleThreadPool();
+}
+
+std::shared_ptr<angle::WorkerThreadPool> Context::getWorkerThreadPool() const
+{
+    return mDisplay->getMultiThreadPool();
+}
+
+void Context::onUniformBlockBindingUpdated(GLuint uniformBlockIndex)
+{
+    mState.mDirtyBits.set(state::DIRTY_BIT_UNIFORM_BUFFER_BINDINGS);
+    mState.mDirtyUniformBlocks.set(uniformBlockIndex);
+    mState.mUniformBufferBlocksDirtyTypeMask.set(BufferDirtyType::Binding);
+    mStateCache.onUniformBufferStateChange(this);
+}
+
+void Context::endTilingImplicit()
+{
+    if (getMutablePrivateState()->isTiledRendering())
+    {
+        ANGLE_PERF_WARNING(getState().getDebug(), GL_DEBUG_SEVERITY_LOW,
+                           "Implicitly ending tiled rendering due to framebuffer state change");
+        getMutablePrivateState()->setTiledRendering(false);
+    }
 }
 
 void Context::onSubjectStateChange(angle::SubjectIndex index, angle::SubjectMessage message)
@@ -8489,12 +9556,12 @@ void Context::onSubjectStateChange(angle::SubjectIndex index, angle::SubjectMess
             {
                 case angle::SubjectMessage::ContentsChanged:
                     mState.setObjectDirty(GL_VERTEX_ARRAY);
-                    mStateCache.onVertexArrayBufferContentsChange(this);
+                    mPrivateStateCache.onVertexArrayBufferContentsChange();
                     break;
                 case angle::SubjectMessage::SubjectMapped:
                 case angle::SubjectMessage::SubjectUnmapped:
                 case angle::SubjectMessage::BindingChanged:
-                    mStateCache.onVertexArrayBufferStateChange(this);
+                    mPrivateStateCache.onVertexArrayBufferStateChange();
                     break;
                 default:
                     break;
@@ -8532,6 +9599,61 @@ void Context::onSubjectStateChange(angle::SubjectIndex index, angle::SubjectMess
             }
             break;
 
+        case kProgramSubjectIndex:
+            switch (message)
+            {
+                case angle::SubjectMessage::ProgramUnlinked:
+                    mStateCache.onProgramExecutableChange(this);
+                    break;
+                case angle::SubjectMessage::ProgramRelinked:
+                {
+                    Program *program = mState.getProgram();
+                    ASSERT(program->isLinked());
+                    mState.onCurrentExecutableRelink();
+                    ANGLE_CONTEXT_TRY(mState.installProgramExecutable(this));
+                    mStateCache.onProgramExecutableChange(this);
+                    break;
+                }
+                default:
+                    if (angle::IsProgramUniformBlockBindingUpdatedMessage(message))
+                    {
+                        onUniformBlockBindingUpdated(
+                            angle::ProgramUniformBlockBindingUpdatedMessageToIndex(message));
+                        break;
+                    }
+                    // Ignore all the other notifications
+                    break;
+            }
+            break;
+
+        case kProgramPipelineSubjectIndex:
+            switch (message)
+            {
+                case angle::SubjectMessage::ProgramUnlinked:
+                    mStateCache.onProgramExecutableChange(this);
+                    break;
+                case angle::SubjectMessage::ProgramRelinked:
+                    mState.onCurrentExecutableRelink();
+                    ANGLE_CONTEXT_TRY(mState.installProgramPipelineExecutable(this));
+                    mStateCache.onProgramExecutableChange(this);
+                    break;
+                default:
+                    if (angle::IsProgramUniformBlockBindingUpdatedMessage(message))
+                    {
+                        // Note: if there's a program bound, its executable is used (and not the
+                        // PPO's)
+                        if (mState.getProgram() == nullptr)
+                        {
+                            onUniformBlockBindingUpdated(
+                                angle::ProgramUniformBlockBindingUpdatedMessageToIndex(message));
+                        }
+                        break;
+                    }
+                    UNREACHABLE();
+                    break;
+            }
+            break;
+
         default:
             if (index < kTextureMaxSubjectIndex)
             {
@@ -8547,13 +9669,23 @@ void Context::onSubjectStateChange(angle::SubjectIndex index, angle::SubjectMess
                 mState.onImageStateChange(this, index - kImage0SubjectIndex);
                 if (message == angle::SubjectMessage::ContentsChanged)
                 {
-                    mState.mDirtyBits.set(State::DirtyBitType::DIRTY_BIT_IMAGE_BINDINGS);
+                    mState.mDirtyBits.set(state::DirtyBitType::DIRTY_BIT_IMAGE_BINDINGS);
                 }
             }
             else if (index < kUniformBufferMaxSubjectIndex)
             {
-                mState.onUniformBufferStateChange(index - kUniformBuffer0SubjectIndex);
+                mState.onUniformBufferStateChange(index - kUniformBuffer0SubjectIndex, message);
                 mStateCache.onUniformBufferStateChange(this);
+            }
+            else if (index < kAtomicCounterBufferMaxSubjectIndex)
+            {
+                mState.onAtomicCounterBufferStateChange(index - kAtomicCounterBuffer0SubjectIndex);
+                mStateCache.onAtomicCounterBufferStateChange(this);
+            }
+            else if (index < kShaderStorageBufferMaxSubjectIndex)
+            {
+                mState.onShaderStorageBufferStateChange(index - kShaderStorageBuffer0SubjectIndex);
+                mStateCache.onShaderStorageBufferStateChange(this);
             }
             else
             {
@@ -8565,64 +9697,42 @@ void Context::onSubjectStateChange(angle::SubjectIndex index, angle::SubjectMess
     }
 }
 
-angle::Result Context::onProgramLink(Program *programObject)
-{
-    // Don't parallel link a program which is active in any GL contexts. With this assumption, we
-    // don't need to worry that:
-    //   1. Draw calls after link use the new executable code or the old one depending on the link
-    //      result.
-    //   2. When a backend program, e.g., ProgramD3D is linking, other backend classes like
-    //      StateManager11, Renderer11, etc., may have a chance to make unexpected calls to
-    //      ProgramD3D.
-    if (programObject->isInUse())
-    {
-        programObject->resolveLink(this);
-        if (programObject->isLinked())
-        {
-            ANGLE_TRY(mState.onProgramExecutableChange(this, programObject));
-        }
-        mStateCache.onProgramExecutableChange(this);
-    }
-
-    return angle::Result::Continue;
-}
-
 egl::Error Context::setDefaultFramebuffer(egl::Surface *drawSurface, egl::Surface *readSurface)
 {
     ASSERT(mCurrentDrawSurface == nullptr);
     ASSERT(mCurrentReadSurface == nullptr);
 
-    Framebuffer *newDefaultFramebuffer = nullptr;
-
     mCurrentDrawSurface = drawSurface;
     mCurrentReadSurface = readSurface;
 
+    egl::Error result = egl::NoError();
     if (drawSurface != nullptr)
     {
-        ANGLE_TRY(drawSurface->makeCurrent(this));
-        newDefaultFramebuffer = drawSurface->createDefaultFramebuffer(this, readSurface);
+        result = drawSurface->makeCurrent(this);
     }
-    else
+    if (drawSurface != readSurface)
     {
-        newDefaultFramebuffer = new Framebuffer(this, mImplementation.get(), readSurface);
+        ASSERT(readSurface != nullptr);
+        egl::Error readResult = readSurface->makeCurrent(this);
+        if (!result.isError())
+        {
+            result = readResult;
+        }
     }
-    ASSERT(newDefaultFramebuffer);
+    ANGLE_TRY(result);
 
-    if (readSurface && (drawSurface != readSurface))
-    {
-        ANGLE_TRY(readSurface->makeCurrent(this));
-    }
+    mDefaultFramebuffer->setSurfaces(this, drawSurface, readSurface);
 
     // Update default framebuffer, the binding of the previous default
     // framebuffer (or lack of) will have a nullptr.
-    mState.mFramebufferManager->setDefaultFramebuffer(newDefaultFramebuffer);
+    mState.mFramebufferManager->setDefaultFramebuffer(mDefaultFramebuffer.get());
     if (mState.getDrawFramebuffer() == nullptr)
     {
-        bindDrawFramebuffer(newDefaultFramebuffer->id());
+        bindDrawFramebuffer(mDefaultFramebuffer->id());
     }
     if (mState.getReadFramebuffer() == nullptr)
     {
-        bindReadFramebuffer(newDefaultFramebuffer->id());
+        bindReadFramebuffer(mDefaultFramebuffer->id());
     }
 
     return egl::NoError();
@@ -8630,29 +9740,27 @@ egl::Error Context::setDefaultFramebuffer(egl::Surface *drawSurface, egl::Surfac
 
 egl::Error Context::unsetDefaultFramebuffer()
 {
-    gl::Framebuffer *defaultFramebuffer =
+    Framebuffer *defaultFramebuffer =
         mState.mFramebufferManager->getFramebuffer(Framebuffer::kDefaultDrawFramebufferHandle);
-
-    // Remove the default framebuffer
-    if (mState.getReadFramebuffer() == defaultFramebuffer)
-    {
-        mState.setReadFramebufferBinding(nullptr);
-        mReadFramebufferObserverBinding.bind(nullptr);
-    }
-
-    if (mState.getDrawFramebuffer() == defaultFramebuffer)
-    {
-        mState.setDrawFramebufferBinding(nullptr);
-        mDrawFramebufferObserverBinding.bind(nullptr);
-    }
 
     if (defaultFramebuffer)
     {
-        defaultFramebuffer->onDestroy(this);
-        delete defaultFramebuffer;
-    }
+        // Remove the default framebuffer
+        if (defaultFramebuffer == mState.getReadFramebuffer())
+        {
+            mState.setReadFramebufferBinding(nullptr);
+            mReadFramebufferObserverBinding.bind(nullptr);
+        }
 
-    mState.mFramebufferManager->setDefaultFramebuffer(nullptr);
+        if (defaultFramebuffer == mState.getDrawFramebuffer())
+        {
+            mState.setDrawFramebufferBinding(nullptr);
+            mDrawFramebufferObserverBinding.bind(nullptr);
+        }
+
+        defaultFramebuffer->unsetSurfaces(this);
+        mState.mFramebufferManager->setDefaultFramebuffer(nullptr);
+    }
 
     // Always unset the current surface, even if setIsCurrent fails.
     egl::Surface *drawSurface = mCurrentDrawSurface;
@@ -8665,16 +9773,24 @@ egl::Error Context::unsetDefaultFramebuffer()
     }
     if (drawSurface != readSurface)
     {
+        ASSERT(readSurface != nullptr);
         ANGLE_TRY(readSurface->unMakeCurrent(this));
     }
 
     return egl::NoError();
 }
 
-void Context::onPreSwap() const
+void Context::onPreSwap()
 {
+    // Ignore non-window (side-context / aux-pbuffer) swaps for frame boundaries
+    const egl::Surface *drawSurface = getCurrentDrawSurface();
+    if (drawSurface && drawSurface->getType() != EGL_WINDOW_BIT)
+    {
+        return;
+    }
+
     // Dump frame capture if enabled.
-    mFrameCapture->onEndFrame(this);
+    getShareGroup()->getFrameCaptureShared()->onEndFrame(this);
 }
 
 void Context::getTexImage(TextureTarget target,
@@ -8689,12 +9805,27 @@ void Context::getTexImage(TextureTarget target,
                                            format, type, pixels));
 }
 
+void Context::getCompressedTexImage(TextureTarget target, GLint level, void *pixels)
+{
+    Texture *texture   = getTextureByTarget(target);
+    Buffer *packBuffer = mState.getTargetBuffer(BufferBinding::PixelPack);
+    ANGLE_CONTEXT_TRY(texture->getCompressedTexImage(this, mState.getPackState(), packBuffer,
+                                                     target, level, pixels));
+}
+
 void Context::getRenderbufferImage(GLenum target, GLenum format, GLenum type, void *pixels)
 {
     Renderbuffer *renderbuffer = mState.getCurrentRenderbuffer();
     Buffer *packBuffer         = mState.getTargetBuffer(BufferBinding::PixelPack);
     ANGLE_CONTEXT_TRY(renderbuffer->getRenderbufferImage(this, mState.getPackState(), packBuffer,
                                                          format, type, pixels));
+}
+
+void Context::setLogicOpEnabledForGLES1(bool enabled)
+{
+    // Same implementation as ContextPrivateEnable(GL_COLOR_LOGIC_OP), without the GLES1 forwarding.
+    getMutablePrivateState()->setLogicOpEnabled(enabled);
+    getMutablePrivateStateCache()->onCapChange();
 }
 
 egl::Error Context::releaseHighPowerGPU()
@@ -8714,13 +9845,598 @@ void Context::onGPUSwitch()
     initRendererString();
 }
 
-std::mutex &Context::getProgramCacheMutex() const
+egl::Error Context::acquireExternalContext(egl::Surface *drawAndReadSurface)
 {
-    return mDisplay->getProgramCacheMutex();
+    mImplementation->acquireExternalContext(this);
+
+    if (drawAndReadSurface != mCurrentDrawSurface || drawAndReadSurface != mCurrentReadSurface)
+    {
+        ANGLE_TRY(unsetDefaultFramebuffer());
+        ANGLE_TRY(setDefaultFramebuffer(drawAndReadSurface, drawAndReadSurface));
+    }
+
+    return egl::NoError();
+}
+
+egl::Error Context::releaseExternalContext()
+{
+    mImplementation->releaseExternalContext(this);
+    return egl::NoError();
+}
+
+bool Context::supportsGeometryOrTesselation() const
+{
+    return mState.getClientVersion() == ES_3_2 || mState.getExtensions().geometryShaderAny() ||
+           mState.getExtensions().tessellationShaderAny();
+}
+
+void Context::dirtyAllState()
+{
+    mState.setAllDirtyBits();
+    mState.setAllDirtyObjects();
+    getMutableGLES1State()->setAllDirty();
+}
+
+void Context::finishImmutable() const
+{
+    ANGLE_CONTEXT_TRY(mImplementation->finish(this));
+}
+
+void Context::beginPerfMonitor(GLuint monitor)
+{
+    getMutablePrivateState()->setPerfMonitorActive(true);
+}
+
+void Context::deletePerfMonitors(GLsizei n, GLuint *monitors) {}
+
+void Context::endPerfMonitor(GLuint monitor)
+{
+    getMutablePrivateState()->setPerfMonitorActive(false);
+}
+
+void Context::genPerfMonitors(GLsizei n, GLuint *monitors)
+{
+    for (GLsizei monitorIndex = 0; monitorIndex < n; ++monitorIndex)
+    {
+        monitors[monitorIndex] = static_cast<GLuint>(monitorIndex);
+    }
+}
+
+void Context::getPerfMonitorCounterData(GLuint monitor,
+                                        GLenum pname,
+                                        GLsizei dataSize,
+                                        GLuint *data,
+                                        GLint *bytesWritten)
+{
+    using namespace angle;
+    GLint byteCount = 0;
+    switch (pname)
+    {
+        case GL_PERFMON_RESULT_AVAILABLE_AMD:
+        {
+            *data = GL_TRUE;
+            byteCount += sizeof(GLuint);
+            break;
+        }
+        case GL_PERFMON_RESULT_SIZE_AMD:
+        {
+            const PerfMonitorCounterGroupsInfo &perfMonitorGroups =
+                mImplementation->getPerfMonitorCountersInfo();
+            GLuint resultSize = 0;
+            for (const PerfMonitorCounterGroupInfo &group : perfMonitorGroups)
+            {
+                resultSize += sizeof(PerfMonitorTriplet) * group.counters.size();
+            }
+            *data = resultSize;
+            byteCount += sizeof(GLuint);
+            break;
+        }
+        case GL_PERFMON_RESULT_AMD:
+        {
+            const PerfMonitorCounterGroups &perfMonitorGroups =
+                mImplementation->getPerfMonitorCounters();
+            PerfMonitorTriplet *resultsOut = reinterpret_cast<PerfMonitorTriplet *>(data);
+            GLsizei maxResults             = dataSize / sizeof(PerfMonitorTriplet);
+            GLsizei resultCount            = 0;
+            for (size_t groupIndex = 0;
+                 groupIndex < perfMonitorGroups.size() && resultCount < maxResults; ++groupIndex)
+            {
+                const PerfMonitorCounterGroup &group = perfMonitorGroups[groupIndex];
+                for (size_t counterIndex = 0;
+                     counterIndex < group.counters.size() && resultCount < maxResults;
+                     ++counterIndex)
+                {
+                    const PerfMonitorCounter &counter = group.counters[counterIndex];
+                    PerfMonitorTriplet &triplet       = resultsOut[resultCount++];
+                    triplet.counter                   = static_cast<GLuint>(counterIndex);
+                    triplet.group                     = static_cast<GLuint>(groupIndex);
+                    triplet.value                     = counter.value;
+                }
+            }
+            byteCount += sizeof(PerfMonitorTriplet) * resultCount;
+            break;
+        }
+        default:
+            UNREACHABLE();
+    }
+
+    if (bytesWritten)
+    {
+        *bytesWritten = byteCount;
+    }
+}
+
+void Context::getPerfMonitorCounterInfo(GLuint group, GLuint counter, GLenum pname, void *data)
+{
+    using namespace angle;
+    const PerfMonitorCounterGroupsInfo &perfMonitorGroups =
+        mImplementation->getPerfMonitorCountersInfo();
+    ASSERT(group < perfMonitorGroups.size());
+    const PerfMonitorCountersInfo &counters = perfMonitorGroups[group].counters;
+    ASSERT(counter < counters.size());
+
+    switch (pname)
+    {
+        case GL_COUNTER_TYPE_AMD:
+        {
+            GLenum *dataOut = reinterpret_cast<GLenum *>(data);
+            *dataOut        = GL_UNSIGNED_INT;
+            break;
+        }
+        case GL_COUNTER_RANGE_AMD:
+        {
+            GLuint *dataOut = reinterpret_cast<GLuint *>(data);
+            dataOut[0]      = 0;
+            dataOut[1]      = std::numeric_limits<GLuint>::max();
+            break;
+        }
+        default:
+            UNREACHABLE();
+    }
+}
+
+void Context::getPerfMonitorCounterString(GLuint group,
+                                          GLuint counter,
+                                          GLsizei bufSize,
+                                          GLsizei *length,
+                                          GLchar *counterString)
+{
+    using namespace angle;
+    const PerfMonitorCounterGroupsInfo &perfMonitorGroups =
+        mImplementation->getPerfMonitorCountersInfo();
+    ASSERT(group < perfMonitorGroups.size());
+    const PerfMonitorCountersInfo &counters = perfMonitorGroups[group].counters;
+    ASSERT(counter < counters.size());
+    GetPerfMonitorString(counters[counter].name, bufSize, length, counterString);
+}
+
+void Context::getPerfMonitorCounters(GLuint group,
+                                     GLint *numCounters,
+                                     GLint *maxActiveCounters,
+                                     GLsizei counterSize,
+                                     GLuint *counters)
+{
+    using namespace angle;
+    const PerfMonitorCounterGroupsInfo &perfMonitorGroups =
+        mImplementation->getPerfMonitorCountersInfo();
+    ASSERT(group < perfMonitorGroups.size());
+    const PerfMonitorCountersInfo &groupCounters = perfMonitorGroups[group].counters;
+
+    if (numCounters)
+    {
+        *numCounters = static_cast<GLint>(groupCounters.size());
+    }
+
+    if (maxActiveCounters)
+    {
+        *maxActiveCounters = static_cast<GLint>(groupCounters.size());
+    }
+
+    if (counters)
+    {
+        GLsizei maxCounterIndex = std::min(counterSize, static_cast<GLsizei>(groupCounters.size()));
+        for (GLsizei counterIndex = 0; counterIndex < maxCounterIndex; ++counterIndex)
+        {
+            counters[counterIndex] = static_cast<GLuint>(counterIndex);
+        }
+    }
+}
+
+void Context::getPerfMonitorGroupString(GLuint group,
+                                        GLsizei bufSize,
+                                        GLsizei *length,
+                                        GLchar *groupString)
+{
+    using namespace angle;
+    const PerfMonitorCounterGroupsInfo &perfMonitorGroups =
+        mImplementation->getPerfMonitorCountersInfo();
+    ASSERT(group < perfMonitorGroups.size());
+    GetPerfMonitorString(perfMonitorGroups[group].name, bufSize, length, groupString);
+}
+
+void Context::getPerfMonitorGroups(GLint *numGroups, GLsizei groupsSize, GLuint *groups)
+{
+    using namespace angle;
+    const PerfMonitorCounterGroupsInfo &perfMonitorGroups =
+        mImplementation->getPerfMonitorCountersInfo();
+
+    if (numGroups)
+    {
+        *numGroups = static_cast<GLint>(perfMonitorGroups.size());
+    }
+
+    GLuint maxGroupIndex =
+        std::min<GLuint>(groupsSize, static_cast<GLuint>(perfMonitorGroups.size()));
+    for (GLuint groupIndex = 0; groupIndex < maxGroupIndex; ++groupIndex)
+    {
+        groups[groupIndex] = groupIndex;
+    }
+}
+
+void Context::selectPerfMonitorCounters(GLuint monitor,
+                                        GLboolean enable,
+                                        GLuint group,
+                                        GLint numCounters,
+                                        GLuint *counterList)
+{}
+
+const angle::PerfMonitorCounterGroupsInfo &Context::getPerfMonitorCounterGroups() const
+{
+    return mImplementation->getPerfMonitorCountersInfo();
+}
+
+void Context::framebufferFoveationConfig(FramebufferID framebufferPacked,
+                                         GLuint numLayers,
+                                         GLuint focalPointsPerLayer,
+                                         GLuint requestedFeatures,
+                                         GLuint *providedFeatures)
+{
+    ASSERT(numLayers <= gl::IMPLEMENTATION_MAX_NUM_LAYERS);
+    ASSERT(focalPointsPerLayer <= gl::IMPLEMENTATION_MAX_FOCAL_POINTS);
+    ASSERT(providedFeatures);
+
+    Framebuffer *framebuffer = getFramebuffer(framebufferPacked);
+    ASSERT(!framebuffer->isFoveationConfigured());
+
+    *providedFeatures = 0;
+    // We only support GL_FOVEATION_ENABLE_BIT_QCOM feature, for now.
+    // If requestedFeatures == 0 return without configuring the framebuffer.
+    if (requestedFeatures != 0)
+    {
+        framebuffer->configureFoveation();
+        *providedFeatures = framebuffer->getSupportedFoveationFeatures();
+    }
+}
+
+void Context::framebufferFoveationParameters(FramebufferID framebufferPacked,
+                                             GLuint layer,
+                                             GLuint focalPoint,
+                                             GLfloat focalX,
+                                             GLfloat focalY,
+                                             GLfloat gainX,
+                                             GLfloat gainY,
+                                             GLfloat foveaArea)
+{
+    Framebuffer *framebuffer = getFramebuffer(framebufferPacked);
+    ASSERT(framebuffer);
+    framebuffer->setFocalPoint(layer, focalPoint, focalX, focalY, gainX, gainY, foveaArea);
+}
+
+void Context::textureFoveationParameters(TextureID texturePacked,
+                                         GLuint layer,
+                                         GLuint focalPoint,
+                                         GLfloat focalX,
+                                         GLfloat focalY,
+                                         GLfloat gainX,
+                                         GLfloat gainY,
+                                         GLfloat foveaArea)
+{
+    Texture *texture = getTexture(texturePacked);
+    ASSERT(texture);
+    texture->setFocalPoint(layer, focalPoint, focalX, focalY, gainX, gainY, foveaArea);
+}
+
+void Context::framebufferResolveRenderbufferWEBKIT(GLenum target,
+                                                   GLenum attachment,
+                                                   GLenum renderbuffertarget,
+                                                   RenderbufferID renderbuffer)
+{
+#if ANGLE_WEBKIT_EXPLICIT_RESOLVE_TARGET_ENABLED
+    Framebuffer *framebuffer = mState.getTargetFramebuffer(target);
+    ASSERT(framebuffer);
+
+    if (renderbuffer.value != 0)
+    {
+        Renderbuffer *renderbufferObject = getRenderbuffer(renderbuffer);
+
+        framebuffer->setAttachmentResolve(this, GL_RENDERBUFFER, attachment, gl::ImageIndex(),
+                                          renderbufferObject);
+    }
+    else
+    {
+        framebuffer->resetAttachmentResolve(this, attachment);
+    }
+
+    mState.setObjectDirty(target);
+#else
+    UNIMPLEMENTED();
+#endif
+}
+
+void Context::endTiling(GLbitfield preserveMask)
+{
+    ANGLE_CONTEXT_TRY(mImplementation->endTiling(this, preserveMask));
+    getMutablePrivateState()->setTiledRendering(false);
+}
+
+void Context::startTiling(GLuint x, GLuint y, GLuint width, GLuint height, GLbitfield preserveMask)
+{
+    ANGLE_CONTEXT_TRY(syncDirtyObjects(mTilingDirtyObjects, Command::Other));
+    ANGLE_CONTEXT_TRY(syncDirtyBits(kTilingDirtyBits, kTilingExtendedDirtyBits, Command::Other));
+    ANGLE_CONTEXT_TRY(
+        mImplementation->startTiling(this, Rectangle(x, y, width, height), preserveMask));
+    getMutablePrivateState()->setTiledRendering(true);
+}
+
+void Context::clearTexImage(TextureID texturePacked,
+                            GLint level,
+                            GLenum format,
+                            GLenum type,
+                            const void *data)
+{
+    Texture *texture = getTexture(texturePacked);
+
+    // Sync the texture's state directly. EXT_clear_texture does not require that the texture is
+    // bound.
+    if (texture->hasAnyDirtyBit())
+    {
+        ANGLE_CONTEXT_TRY(texture->syncState(this, Command::ClearTexture));
+    }
+
+    ANGLE_CONTEXT_TRY(
+        texture->clearImage(this, level, format, type, static_cast<const uint8_t *>(data)));
+}
+
+void Context::clearTexSubImage(TextureID texturePacked,
+                               GLint level,
+                               GLint xoffset,
+                               GLint yoffset,
+                               GLint zoffset,
+                               GLsizei width,
+                               GLsizei height,
+                               GLsizei depth,
+                               GLenum format,
+                               GLenum type,
+                               const void *data)
+{
+    Texture *texture = getTexture(texturePacked);
+
+    // It is allowed to use extents of 0 as input args. In this case, the function should return
+    // with no changes to the texture.
+    if (width == 0 || height == 0 || depth == 0)
+    {
+        return;
+    }
+
+    // Sync the texture's state directly. EXT_clear_texture does not require that the texture is
+    // bound.
+    if (texture->hasAnyDirtyBit())
+    {
+        ANGLE_CONTEXT_TRY(texture->syncState(this, Command::ClearTexture));
+    }
+
+    Box area(xoffset, yoffset, zoffset, width, height, depth);
+    ANGLE_CONTEXT_TRY(texture->clearSubImage(this, level, area, format, type,
+                                             static_cast<const uint8_t *>(data)));
+}
+
+void Context::blobCacheCallbacks(GLSETBLOBPROCANGLE set,
+                                 GLGETBLOBPROCANGLE get,
+                                 const void *userParam)
+{
+    mState.getBlobCacheCallbacks() = {set, get, userParam};
+}
+
+void Context::bindMetalRasterizationRateMap(GLuint renderbufferHandle,
+                                            GLMTLRasterizationRateMapANGLE map)
+{
+    Renderbuffer *renderbuffer = getRenderbuffer({renderbufferHandle});
+    rx::RenderbufferImpl *renderbufferImpl =
+        renderbuffer ? renderbuffer->getImplementation() : nullptr;
+    ANGLE_CONTEXT_TRY(mImplementation->bindMetalRasterizationRateMap(this, renderbufferImpl, map));
+    getMutablePrivateState()->setVariableRasterizationRateMap(map);
+}
+
+void Context::texStorageAttribs2D(TextureType targetPacked,
+                                  GLsizei levels,
+                                  GLenum internalFormat,
+                                  GLsizei width,
+                                  GLsizei height,
+                                  const GLint *attribList)
+{
+    Extents size(width, height, 1);
+    Texture *texture = getTextureByType(targetPacked);
+    ANGLE_CONTEXT_TRY(
+        texture->setStorageAttribs(this, targetPacked, levels, internalFormat, size, attribList));
+}
+
+void Context::texStorageAttribs3D(TextureType targetPacked,
+                                  GLsizei levels,
+                                  GLenum internalFormat,
+                                  GLsizei width,
+                                  GLsizei height,
+                                  GLsizei depth,
+                                  const GLint *attribList)
+{
+    Extents size(width, height, depth);
+    Texture *texture = getTextureByType(targetPacked);
+    ANGLE_CONTEXT_TRY(
+        texture->setStorageAttribs(this, targetPacked, levels, internalFormat, size, attribList));
+}
+
+size_t Context::getMemoryUsage() const
+{
+    size_t memoryUsage = 0;
+
+    memoryUsage += mState.mBufferManager->getTotalMemorySize();
+    memoryUsage += mState.mRenderbufferManager->getTotalMemorySize();
+    memoryUsage += mState.mTextureManager->getTotalMemorySize();
+
+    return memoryUsage;
+}
+
+void Context::updateActiveAttribsMaskIfNeeded() const
+{
+    if (!mPrivateStateCache.isCachedActiveAttribMasksValid())
+    {
+        mStateCache.updateActiveAttribsMask(this);
+        mPrivateStateCache.setCachedActiveAttribMasksValid();
+    }
+}
+
+AttributesMask Context::getActiveBufferedAttribsMask() const
+{
+    updateActiveAttribsMaskIfNeeded();
+    return mStateCache.getActiveBufferedAttribsMask(mPrivateStateCache);
+}
+
+AttributesMask Context::getActiveClientAttribsMask() const
+{
+    updateActiveAttribsMaskIfNeeded();
+    return mStateCache.getActiveClientAttribsMask(mPrivateStateCache);
+}
+
+AttributesMask Context::getActiveDefaultAttribsMask() const
+{
+    updateActiveAttribsMaskIfNeeded();
+    return mStateCache.getActiveDefaultAttribsMask(mPrivateStateCache);
+}
+
+bool Context::hasAnyEnabledClientAttrib() const
+{
+    updateActiveAttribsMaskIfNeeded();
+    return mStateCache.hasAnyEnabledClientAttrib(mPrivateStateCache);
+}
+
+bool Context::hasAnyActiveClientAttrib() const
+{
+    updateActiveAttribsMaskIfNeeded();
+    return mStateCache.hasAnyActiveClientAttrib(mPrivateStateCache);
+}
+
+GLint64 Context::getNonInstancedVertexElementLimit() const
+{
+    ASSERT(mBufferAccessValidationEnabled);
+    if (!mPrivateStateCache.isCachedVertexElementLimitValid())
+    {
+        mStateCache.updateVertexElementLimits(this);
+        mPrivateStateCache.setCachedVertexElementLimitValid();
+    }
+    return mStateCache.getNonInstancedVertexElementLimit(mPrivateStateCache);
+}
+
+GLint64 Context::getInstancedVertexElementLimit() const
+{
+    ASSERT(mBufferAccessValidationEnabled);
+    if (!mPrivateStateCache.isCachedVertexElementLimitValid())
+    {
+        mStateCache.updateVertexElementLimits(this);
+        mPrivateStateCache.setCachedVertexElementLimitValid();
+    }
+    return mStateCache.getInstancedVertexElementLimit(mPrivateStateCache);
+}
+
+void Context::onActiveTransformFeedbackChange()
+{
+    mStateCache.onActiveTransformFeedbackChange(this);
+    // This can only be called from current context since transform feedback are per context.
+    mPrivateStateCache.invalidateCachedBasicDrawElementsError();
+}
+
+bool Context::retainIdUntilObjectDestroyed() const
+{
+    // If BindGeneratesResource is disabled, then we can defer recycling the handle ID until the
+    // object has had the `onDestroy` method called, preventing ID reuse bugs.
+    //
+    // If the context is being destroyed however, we don't want to try to recycle as the handle
+    // manager may be gone.
+    return !mDestroyedManagers && !mState.isBindGeneratesResourceEnabled();
+}
+
+void Context::onBufferDestroy(const Buffer *buffer) const
+{
+    mState.mBufferManager->recycleHandle(buffer->id());
+}
+
+void Context::onTextureDestroy(const Texture *texture) const
+{
+    mState.mTextureManager->recycleHandle(texture->id());
+}
+
+void Context::onRenderbufferDestroy(const Renderbuffer *renderBuffer) const
+{
+    mState.mRenderbufferManager->recycleHandle(renderBuffer->id());
+}
+
+void Context::onSamplerDestroy(const Sampler *sampler) const
+{
+    mState.mSamplerManager->recycleHandle(sampler->id());
+}
+
+void Context::onSyncDestroy(const Sync *sync) const
+{
+    mState.mSyncManager->recycleHandle(sync->id());
+}
+
+void Context::onFramebufferDestroy(const Framebuffer *framebuffer) const
+{
+    mState.mFramebufferManager->recycleHandle(framebuffer->id());
+}
+
+void Context::onProgramPipelineDestroy(const ProgramPipeline *programPipeline) const
+{
+    mState.mProgramPipelineManager->recycleHandle(programPipeline->id());
+}
+
+void Context::invalidateTransformFeedbackCapacities(const Buffer *buffer) const
+{
+    for (auto pair : UnsafeResourceMapIter(mTransformFeedbackMap))
+    {
+        TransformFeedback *tf = pair.second;
+        if (tf != nullptr && tf->isBufferBound(buffer->id()))
+        {
+            tf->invalidateVertexCapacity();
+        }
+    }
 }
 
 // ErrorSet implementation.
-ErrorSet::ErrorSet(Context *context) : mContext(context) {}
+ErrorSet::ErrorSet(Debug *debug,
+                   const angle::FrontendFeatures &frontendFeatures,
+                   const egl::AttributeMap &attribs)
+    : mDebug(debug),
+      mResetStrategy(GetResetStrategy(attribs)),
+      mLoseContextOnOutOfMemory(frontendFeatures.loseContextOnOutOfMemory.enabled),
+      mLoseContextOnInternalError(frontendFeatures.loseHardenedContextOnBackendError.enabled &&
+                                  (GetWebGLContext(attribs) || GetHardenedContext(attribs))),
+      mContextLostForced(false),
+      mResetStatus(GraphicsResetStatus::NoError),
+      mErrorMessageCount(0),
+      // Limit the error message spam to a small number when the context is not in debug mode, as
+      // some apps make invalid but harmless calls and the spam has a non-trivial cost.
+      //
+      // Note: mMaxErrorMessages is kept far from max to avoid overflowing mErrorMessageCount in
+      // case of multiple contexts simultaneously adding (context loss) errors, hence the division
+      // by 2.
+      mMaxErrorMessages(
+          GetDebug(frontendFeatures, attribs) ? std::numeric_limits<uint32_t>::max() / 2 : 16),
+      mSkipValidation(GetNoError(attribs)),
+      mContextLost(0),
+#if defined(ANGLE_ENABLE_ASSERTS)
+      mPushedErrors(0),
+#endif
+      mHasAnyErrors(0)
+{}
 
 ErrorSet::~ErrorSet() = default;
 
@@ -8730,65 +10446,222 @@ void ErrorSet::handleError(GLenum errorCode,
                            const char *function,
                            unsigned int line)
 {
-    if (errorCode == GL_OUT_OF_MEMORY &&
-        mContext->getGraphicsResetStrategy() == GL_LOSE_CONTEXT_ON_RESET_EXT &&
-        mContext->getDisplay()->getFrontendFeatures().loseContextOnOutOfMemory.enabled)
+    if (mLoseContextOnInternalError ||
+        (errorCode == GL_OUT_OF_MEMORY && mResetStrategy == GL_LOSE_CONTEXT_ON_RESET_EXT &&
+         mLoseContextOnOutOfMemory))
     {
-        mContext->markContextLost(GraphicsResetStatus::UnknownContextReset);
+        markContextLost(GraphicsResetStatus::UnknownContextReset);
     }
 
     std::stringstream errorStream;
-    errorStream << "Error: " << gl::FmtHex(errorCode) << ", in " << file << ", " << function << ":"
+    errorStream << "Error: " << gl::FmtHex(errorCode) << ", in " << file << ", " << function << ':'
                 << line << ". " << message;
 
     std::string formattedMessage = errorStream.str();
 
     // Process the error, but log it with WARN severity so it shows up in logs.
-    ASSERT(errorCode != GL_NO_ERROR);
-    mErrors.insert(errorCode);
+    mDebug->insertMessage(GL_DEBUG_SOURCE_API, GL_DEBUG_TYPE_ERROR, errorCode,
+                          GL_DEBUG_SEVERITY_HIGH, std::move(formattedMessage), gl::LOG_WARN);
 
-    mContext->getState().getDebug().insertMessage(GL_DEBUG_SOURCE_API, GL_DEBUG_TYPE_ERROR,
-                                                  errorCode, GL_DEBUG_SEVERITY_HIGH, message,
-                                                  gl::LOG_WARN);
+    pushError(errorCode);
 }
 
-void ErrorSet::validationError(GLenum errorCode, const char *message)
+void ErrorSet::validationError(angle::EntryPoint entryPoint, GLenum errorCode, const char *message)
 {
-    ASSERT(errorCode != GL_NO_ERROR);
-    mErrors.insert(errorCode);
+    bool reportMessage = true;
+    bool isLastMessage = false;
 
-    mContext->getState().getDebug().insertMessage(GL_DEBUG_SOURCE_API, GL_DEBUG_TYPE_ERROR,
-                                                  errorCode, GL_DEBUG_SEVERITY_HIGH, message,
-                                                  gl::LOG_INFO);
+#if !defined(ANGLE_ENABLE_ASSERTS) && !defined(ANGLE_ALWAYS_REPORT_VALIDATION_ERRORS)
+    // In release mode, don't spam validation errors as they come with a performance cost, affecting
+    // applications that make lots of invalid but otherwise harmless calls. Instead, only report the
+    // first few messages. This can still be helpful to application developers who can fix the first
+    // few errors more easily and get more messages on the next run.
+    //
+    // The error messages are always reported for Chromium which uses the debug callback to detect
+    // errors instead of glGetError().
+    reportMessage =
+        MessageCounterBelowMaxRepeat(&mErrorMessageCount, mMaxErrorMessages, &isLastMessage);
+#endif
+
+    if (reportMessage)
+    {
+        std::string completeMessage = std::string(GetEntryPointName(entryPoint)) + ": " + message;
+        if (isLastMessage)
+        {
+            completeMessage += " (No more validation messages will be reported)";
+        }
+
+        mDebug->insertMessage(GL_DEBUG_SOURCE_API, GL_DEBUG_TYPE_ERROR, errorCode,
+                              GL_DEBUG_SEVERITY_HIGH, completeMessage, gl::LOG_INFO);
+    }
+
+    pushError(errorCode);
 }
 
-bool ErrorSet::empty() const
+void ErrorSet::validationErrorF(angle::EntryPoint entryPoint,
+                                GLenum errorCode,
+                                const char *format,
+                                ...)
 {
-    return mErrors.empty();
+    va_list vargs;
+    va_start(vargs, format);
+    constexpr size_t kMessageSize = 256;
+    char message[kMessageSize];
+    int r = vsnprintf(message, kMessageSize, format, vargs);
+    va_end(vargs);
+
+    if (r > 0)
+    {
+        validationError(entryPoint, errorCode, message);
+    }
+    else
+    {
+        validationError(entryPoint, errorCode, format);
+    }
+}
+
+std::unique_lock<std::mutex> ErrorSet::getLockIfNotAlready()
+{
+    // Avoid mutex recursion and return the lock only if it is not already locked.  This can happen
+    // if device loss is generated while it is being queried.
+    if (mMutex.try_lock())
+    {
+        return std::unique_lock<std::mutex>(mMutex, std::adopt_lock);
+    }
+    return std::unique_lock<std::mutex>();
+}
+
+void ErrorSet::pushError(GLenum errorCode)
+{
+    ASSERT(errorCode != GL_NO_ERROR);
+    {
+        std::lock_guard<std::mutex> lock(mMutex);
+        mErrors.insert(errorCode);
+#if defined(ANGLE_ENABLE_ASSERTS)
+        mPushedErrors++;
+#endif
+        mHasAnyErrors = 1;
+    }
 }
 
 GLenum ErrorSet::popError()
 {
+    std::lock_guard<std::mutex> lock(mMutex);
+
     ASSERT(!empty());
     GLenum error = *mErrors.begin();
     mErrors.erase(mErrors.begin());
+    if (mErrors.empty())
+    {
+        mHasAnyErrors = 0;
+    }
     return error;
+}
+
+// NOTE: this function should not assume that this context is current!
+void ErrorSet::markContextLost(GraphicsResetStatus status)
+{
+    // This function may be called indirectly through ErrorSet::getGraphicsResetStatus() from the
+    // backend, in which case mMutex is already held.
+    std::unique_lock<std::mutex> lock = getLockIfNotAlready();
+
+    ASSERT(status != GraphicsResetStatus::NoError);
+    if (mResetStrategy == GL_LOSE_CONTEXT_ON_RESET_EXT)
+    {
+        mResetStatus       = status;
+        mContextLostForced = true;
+    }
+    setContextLost();
+}
+
+void ErrorSet::setContextLost()
+{
+    // Always called with the mutex held.
+    ASSERT(mMutex.try_lock() == false);
+
+    mContextLost = 1;
+
+    // Stop skipping validation, since many implementation entrypoint assume they can't
+    // be called when lost, or with null object arguments, etc.
+    mSkipValidation = 0;
+
+    // Make sure we update TLS.
+    SetCurrentValidContext(nullptr);
+}
+
+GLenum ErrorSet::getGraphicsResetStatus(rx::ContextImpl *contextImpl)
+{
+    std::lock_guard<std::mutex> lock(mMutex);
+
+    // Even if the application doesn't want to know about resets, we want to know
+    // as it will allow us to skip all the calls.
+    if (mResetStrategy == GL_NO_RESET_NOTIFICATION_EXT)
+    {
+        if (!isContextLost() && contextImpl->getResetStatus() != GraphicsResetStatus::NoError)
+        {
+            setContextLost();
+        }
+
+        // EXT_robustness, section 2.6: If the reset notification behavior is
+        // NO_RESET_NOTIFICATION_EXT, then the implementation will never deliver notification of
+        // reset events, and GetGraphicsResetStatusEXT will always return NO_ERROR.
+        return GL_NO_ERROR;
+    }
+
+    // The GL_EXT_robustness spec says that if a reset is encountered, a reset
+    // status should be returned at least once, and GL_NO_ERROR should be returned
+    // once the device has finished resetting.
+    if (!isContextLost())
+    {
+        ASSERT(mResetStatus == GraphicsResetStatus::NoError);
+        mResetStatus = contextImpl->getResetStatus();
+
+        if (mResetStatus != GraphicsResetStatus::NoError)
+        {
+            setContextLost();
+        }
+    }
+    else if (!mContextLostForced && mResetStatus != GraphicsResetStatus::NoError)
+    {
+        // If markContextLost was used to mark the context lost then
+        // assume that is not recoverable, and continue to report the
+        // lost reset status for the lifetime of this context.
+        mResetStatus = contextImpl->getResetStatus();
+    }
+
+    return ToGLenum(mResetStatus);
+}
+
+GLenum ErrorSet::getErrorForCapture() const
+{
+    if (mErrors.empty())
+    {
+        return GL_NO_ERROR;
+    }
+    else
+    {
+        // Return the error without clearing it
+        return *mErrors.begin();
+    }
 }
 
 // StateCache implementation.
 StateCache::StateCache()
-    : mCachedHasAnyEnabledClientAttrib(false),
-      mCachedNonInstancedVertexElementLimit(0),
+    : mCachedNonInstancedVertexElementLimit(0),
       mCachedInstancedVertexElementLimit(0),
-      mCachedBasicDrawStatesError(kInvalidPointer),
-      mCachedBasicDrawElementsError(kInvalidPointer),
+      mCachedBasicDrawStatesErrorString(kInvalidPointer),
+      mCachedBasicDrawStatesErrorCode(GL_NO_ERROR),
+      mCachedProgramPipelineError(kInvalidPointer),
+      mCachedHasAnyEnabledClientAttrib(false),
       mCachedTransformFeedbackActiveUnpaused(false),
       mCachedCanDraw(false)
-{}
+{
+    mCachedValidDrawModes.fill(false);
+}
 
 StateCache::~StateCache() = default;
 
-ANGLE_INLINE void StateCache::updateVertexElementLimits(Context *context)
+ANGLE_INLINE void StateCache::updateVertexElementLimits(const Context *context)
 {
     if (context->isBufferAccessValidationEnabled())
     {
@@ -8802,12 +10675,10 @@ void StateCache::initialize(Context *context)
     updateValidBindTextureTypes(context);
     updateValidDrawElementsTypes(context);
     updateBasicDrawStatesError();
-    updateBasicDrawElementsError();
-    updateVertexAttribTypesValidation(context);
     updateCanDraw(context);
 }
 
-void StateCache::updateActiveAttribsMask(Context *context)
+void StateCache::updateActiveAttribsMask(const Context *context)
 {
     bool isGLES1         = context->isGLES1();
     const State &glState = context->getState();
@@ -8837,7 +10708,7 @@ void StateCache::updateActiveAttribsMask(Context *context)
     mCachedHasAnyEnabledClientAttrib = (clientAttribs & enabledAttribs).any();
 }
 
-void StateCache::updateVertexElementLimitsImpl(Context *context)
+void StateCache::updateVertexElementLimitsImpl(const Context *context)
 {
     ASSERT(context->isBufferAccessValidationEnabled());
 
@@ -8867,8 +10738,14 @@ void StateCache::updateVertexElementLimitsImpl(Context *context)
         GLint64 limit = attrib.getCachedElementLimit();
         if (binding.getDivisor() > 0)
         {
+            // For instanced draw calls, |divisor| times this limit is the limit for instance count
+            // (because every |divisor| instances accesses the same attribute)
+            angle::CheckedNumeric<GLint64> checkedLimit = limit;
+            checkedLimit *= binding.getDivisor();
+
             mCachedInstancedVertexElementLimit =
-                std::min(mCachedInstancedVertexElementLimit, limit);
+                std::min<GLint64>(mCachedInstancedVertexElementLimit,
+                                  checkedLimit.ValueOrDefault(VertexAttribute::kIntegerOverflow));
         }
         else
         {
@@ -8878,36 +10755,35 @@ void StateCache::updateVertexElementLimitsImpl(Context *context)
     }
 }
 
-void StateCache::updateBasicDrawStatesError()
+intptr_t StateCache::getBasicDrawStatesErrorImpl(const Context *context,
+                                                 const PrivateStateCache *privateStateCache) const
 {
-    mCachedBasicDrawStatesError = kInvalidPointer;
+    ASSERT(mCachedBasicDrawStatesErrorString == kInvalidPointer ||
+           !privateStateCache->isCachedBasicDrawStatesErrorValid());
+    ASSERT(mCachedBasicDrawStatesErrorCode == GL_NO_ERROR ||
+           !privateStateCache->isCachedBasicDrawStatesErrorValid());
+
+    // Only assign the error code after ValidateDrawStates has completed. ValidateDrawStates calls
+    // updateBasicDrawStatesError in some cases and resets the value mid-call.
+    GLenum errorCode = GL_NO_ERROR;
+    mCachedBasicDrawStatesErrorString =
+        reinterpret_cast<intptr_t>(ValidateDrawStates(context, &errorCode));
+    mCachedBasicDrawStatesErrorCode = errorCode;
+
+    // Ensure that if an error is set mCachedBasicDrawStatesErrorCode must be GL_NO_ERROR and if no
+    // error is set mCachedBasicDrawStatesErrorCode must be an error.
+    ASSERT((mCachedBasicDrawStatesErrorString == 0) ==
+           (mCachedBasicDrawStatesErrorCode == GL_NO_ERROR));
+
+    privateStateCache->setCachedBasicDrawStatesErrorValid();
+    return mCachedBasicDrawStatesErrorString;
 }
 
-void StateCache::updateBasicDrawElementsError()
+intptr_t StateCache::getProgramPipelineErrorImpl(const Context *context) const
 {
-    mCachedBasicDrawElementsError = kInvalidPointer;
-}
-
-intptr_t StateCache::getBasicDrawStatesErrorImpl(const Context *context) const
-{
-    ASSERT(mCachedBasicDrawStatesError == kInvalidPointer);
-    mCachedBasicDrawStatesError = reinterpret_cast<intptr_t>(ValidateDrawStates(context));
-    return mCachedBasicDrawStatesError;
-}
-
-intptr_t StateCache::getBasicDrawElementsErrorImpl(const Context *context) const
-{
-    ASSERT(mCachedBasicDrawElementsError == kInvalidPointer);
-    mCachedBasicDrawElementsError = reinterpret_cast<intptr_t>(ValidateDrawElementsStates(context));
-    return mCachedBasicDrawElementsError;
-}
-
-void StateCache::onVertexArrayBindingChange(Context *context)
-{
-    updateActiveAttribsMask(context);
-    updateVertexElementLimits(context);
-    updateBasicDrawStatesError();
-    updateBasicDrawElementsError();
+    ASSERT(mCachedProgramPipelineError == kInvalidPointer);
+    mCachedProgramPipelineError = reinterpret_cast<intptr_t>(ValidateProgramPipeline(context));
+    return mCachedProgramPipelineError;
 }
 
 void StateCache::onProgramExecutableChange(Context *context)
@@ -8915,35 +10791,11 @@ void StateCache::onProgramExecutableChange(Context *context)
     updateActiveAttribsMask(context);
     updateVertexElementLimits(context);
     updateBasicDrawStatesError();
+    updateProgramPipelineError();
     updateValidDrawModes(context);
     updateActiveShaderStorageBufferIndices(context);
     updateActiveImageUnitIndices(context);
     updateCanDraw(context);
-}
-
-void StateCache::onVertexArrayFormatChange(Context *context)
-{
-    updateVertexElementLimits(context);
-}
-
-void StateCache::onVertexArrayBufferContentsChange(Context *context)
-{
-    updateVertexElementLimits(context);
-    updateBasicDrawStatesError();
-}
-
-void StateCache::onVertexArrayStateChange(Context *context)
-{
-    updateActiveAttribsMask(context);
-    updateVertexElementLimits(context);
-    updateBasicDrawStatesError();
-    updateBasicDrawElementsError();
-}
-
-void StateCache::onVertexArrayBufferStateChange(Context *context)
-{
-    updateBasicDrawStatesError();
-    updateBasicDrawElementsError();
 }
 
 void StateCache::onGLES1ClientStateChange(Context *context)
@@ -8951,22 +10803,12 @@ void StateCache::onGLES1ClientStateChange(Context *context)
     updateActiveAttribsMask(context);
 }
 
+void StateCache::onGLES1TextureStateChange(Context *context)
+{
+    updateActiveAttribsMask(context);
+}
+
 void StateCache::onDrawFramebufferChange(Context *context)
-{
-    updateBasicDrawStatesError();
-}
-
-void StateCache::onContextCapChange(Context *context)
-{
-    updateBasicDrawStatesError();
-}
-
-void StateCache::onStencilStateChange(Context *context)
-{
-    updateBasicDrawStatesError();
-}
-
-void StateCache::onDefaultVertexAttributeChange(Context *context)
 {
     updateBasicDrawStatesError();
 }
@@ -8985,7 +10827,6 @@ void StateCache::onActiveTransformFeedbackChange(Context *context)
 {
     updateTransformFeedbackActiveUnpaused(context);
     updateBasicDrawStatesError();
-    updateBasicDrawElementsError();
     updateValidDrawModes(context);
 }
 
@@ -8994,12 +10835,12 @@ void StateCache::onUniformBufferStateChange(Context *context)
     updateBasicDrawStatesError();
 }
 
-void StateCache::onColorMaskChange(Context *context)
+void StateCache::onAtomicCounterBufferStateChange(Context *context)
 {
     updateBasicDrawStatesError();
 }
 
-void StateCache::onBlendFuncIndexedChange(Context *context)
+void StateCache::onShaderStorageBufferStateChange(Context *context)
 {
     updateBasicDrawStatesError();
 }
@@ -9008,29 +10849,46 @@ void StateCache::setValidDrawModes(bool pointsOK,
                                    bool linesOK,
                                    bool trisOK,
                                    bool lineAdjOK,
-                                   bool triAdjOK)
+                                   bool triAdjOK,
+                                   bool patchOK)
 {
     mCachedValidDrawModes[PrimitiveMode::Points]                 = pointsOK;
     mCachedValidDrawModes[PrimitiveMode::Lines]                  = linesOK;
-    mCachedValidDrawModes[PrimitiveMode::LineStrip]              = linesOK;
     mCachedValidDrawModes[PrimitiveMode::LineLoop]               = linesOK;
+    mCachedValidDrawModes[PrimitiveMode::LineStrip]              = linesOK;
     mCachedValidDrawModes[PrimitiveMode::Triangles]              = trisOK;
-    mCachedValidDrawModes[PrimitiveMode::TriangleFan]            = trisOK;
     mCachedValidDrawModes[PrimitiveMode::TriangleStrip]          = trisOK;
+    mCachedValidDrawModes[PrimitiveMode::TriangleFan]            = trisOK;
     mCachedValidDrawModes[PrimitiveMode::LinesAdjacency]         = lineAdjOK;
     mCachedValidDrawModes[PrimitiveMode::LineStripAdjacency]     = lineAdjOK;
     mCachedValidDrawModes[PrimitiveMode::TrianglesAdjacency]     = triAdjOK;
     mCachedValidDrawModes[PrimitiveMode::TriangleStripAdjacency] = triAdjOK;
+    mCachedValidDrawModes[PrimitiveMode::Patches]                = patchOK;
 }
 
 void StateCache::updateValidDrawModes(Context *context)
 {
     const State &state = context->getState();
-    Program *program   = state.getProgram();
+
+    const ProgramExecutable *programExecutable = context->getState().getProgramExecutable();
+
+    // If tessellation is active primitive mode must be GL_PATCHES.
+    if (programExecutable && programExecutable->hasLinkedTessellationShader())
+    {
+        setValidDrawModes(false, false, false, false, false, true);
+        return;
+    }
+
+    bool pointsOK  = true;
+    bool linesOK   = true;
+    bool trisOK    = true;
+    bool lineAdjOK = true;
+    bool triAdjOK  = true;
 
     if (mCachedTransformFeedbackActiveUnpaused)
     {
         TransformFeedback *curTransformFeedback = state.getCurrentTransformFeedback();
+        mCachedValidDrawModes.fill(false);
 
         // ES Spec 3.0 validation text:
         // When transform feedback is active and not paused, all geometric primitives generated must
@@ -9040,71 +10898,120 @@ void StateCache::updateValidDrawModes(Context *context)
         // DrawElements, DrawElementsInstanced, and DrawRangeElements while transform feedback is
         // active and not paused, regardless of mode. Any primitive type may be used while transform
         // feedback is paused.
-        if (!context->getExtensions().geometryShader)
+        if (!context->getExtensions().geometryShaderAny() &&
+            !context->getExtensions().tessellationShaderAny() &&
+            context->getClientVersion() < ES_3_2)
         {
-            mCachedValidDrawModes.fill(false);
             mCachedValidDrawModes[curTransformFeedback->getPrimitiveMode()] = true;
             return;
         }
 
-        // EXT_geometry_shader validation text:
-        // When transform feedback is active and not paused, all geometric primitives generated must
-        // be compatible with the value of <primitiveMode> passed to BeginTransformFeedback. If a
-        // geometry shader is active, the type of primitive emitted by that shader is used instead
-        // of the <mode> parameter passed to drawing commands for the purposes of this error check.
-        // Any primitive type may be used while transform feedback is paused.
-        bool pointsOK = curTransformFeedback->getPrimitiveMode() == PrimitiveMode::Points;
-        bool linesOK  = curTransformFeedback->getPrimitiveMode() == PrimitiveMode::Lines;
-        bool trisOK   = curTransformFeedback->getPrimitiveMode() == PrimitiveMode::Triangles;
+        // From: EXT_geometry_shader
+        //
+        // Transform Feedback  Allowed render primitive
+        // <primitiveMode>     <modes>
+        // -------------------+----------------------------------------
+        // POINTS             | POINTS
+        // LINES              | LINES, LINE_LOOP, LINE_STRIP
+        // TRIANGLES          | TRIANGLES, TRIANGLE_STRIP, TRIANGLE_FAN
+        // ------------------------------------------------------------
+        // Table 12.1gs: Legal combinations of the transform feedback
+        // primitive mode, as passed to BeginTransformFeedback, and the
+        // current primitive mode.
+        const PrimitiveMode xfbMode = curTransformFeedback->getPrimitiveMode();
 
-        setValidDrawModes(pointsOK, linesOK, trisOK, false, false);
-        return;
+        // If a geometry shader is bound, the primitive that interacts with transform feedback is
+        // the geometry shader's output primitive type, which is independent from its input. In that
+        // case, either all inputs are ok (if the output matches) or none are (if the output
+        // doesn't match).
+        if (programExecutable && programExecutable->hasLinkedShaderStage(ShaderType::Geometry))
+        {
+            const PrimitiveMode gsOutMode =
+                programExecutable->getGeometryShaderOutputPrimitiveType();
+
+            // Note: the geometry shader output is either points, line_strip or triangle_strip.
+            bool matchingModes = false;
+            switch (gsOutMode)
+            {
+                case PrimitiveMode::Points:
+                    matchingModes = xfbMode == PrimitiveMode::Points;
+                    break;
+                case PrimitiveMode::LineStrip:
+                    matchingModes = xfbMode == PrimitiveMode::Lines;
+                    break;
+                case PrimitiveMode::TriangleStrip:
+                    matchingModes = xfbMode == PrimitiveMode::Triangles;
+                    break;
+                default:
+                    // Invalid geometry shader output mode
+                    ASSERT(false);
+            }
+
+            if (!matchingModes)
+            {
+                // All draw modes are set to false, so every draw will fail.
+                return;
+            }
+        }
+        else
+        {
+            // When geometry shader is not involved, the draw call's primitive mode is expected to
+            // match the transform feedback's.
+            pointsOK = xfbMode == PrimitiveMode::Points;
+            linesOK  = xfbMode == PrimitiveMode::Lines;
+            trisOK   = xfbMode == PrimitiveMode::Triangles;
+        }
     }
 
-    const ProgramExecutable *programExecutable = context->getState().getProgramExecutable();
     if (!programExecutable || !programExecutable->hasLinkedShaderStage(ShaderType::Geometry))
     {
-        mCachedValidDrawModes = kValidBasicDrawModes;
-        return;
+        bool adjacencyOK =
+            (context->getExtensions().geometryShaderAny() || context->getClientVersion() >= ES_3_2);
+
+        // All draw modes are valid, since drawing without a program does not generate an error and
+        // operations requiring a GS will trigger other validation errors.
+        // `patchOK = false` due to checking above already enabling it if a TS is present.
+        lineAdjOK = lineAdjOK && adjacencyOK;
+        triAdjOK  = triAdjOK && adjacencyOK;
+    }
+    else
+    {
+        const PrimitiveMode gsMode = programExecutable->getGeometryShaderInputPrimitiveType();
+        pointsOK                   = pointsOK && gsMode == PrimitiveMode::Points;
+        linesOK                    = linesOK && gsMode == PrimitiveMode::Lines;
+        trisOK                     = trisOK && gsMode == PrimitiveMode::Triangles;
+        lineAdjOK                  = lineAdjOK && gsMode == PrimitiveMode::LinesAdjacency;
+        triAdjOK                   = triAdjOK && gsMode == PrimitiveMode::TrianglesAdjacency;
     }
 
-    ASSERT(programExecutable->hasLinkedShaderStage(ShaderType::Geometry));
-    PrimitiveMode gsMode = program->getGeometryShaderInputPrimitiveType();
-
-    bool pointsOK  = gsMode == PrimitiveMode::Points;
-    bool linesOK   = gsMode == PrimitiveMode::Lines;
-    bool trisOK    = gsMode == PrimitiveMode::Triangles;
-    bool lineAdjOK = gsMode == PrimitiveMode::LinesAdjacency;
-    bool triAdjOK  = gsMode == PrimitiveMode::TrianglesAdjacency;
-
-    setValidDrawModes(pointsOK, linesOK, trisOK, lineAdjOK, triAdjOK);
+    setValidDrawModes(pointsOK, linesOK, trisOK, lineAdjOK, triAdjOK, false);
 }
 
 void StateCache::updateValidBindTextureTypes(Context *context)
 {
     const Extensions &exts = context->getExtensions();
-    bool isGLES3           = context->getClientMajorVersion() >= 3;
-    bool isGLES31          = context->getClientVersion() >= Version(3, 1);
+    const bool isGLES3     = context->getClientVersion() >= ES_3_0;
+    const bool isGLES31    = context->getClientVersion() >= ES_3_1;
+    const bool isGLES32    = context->getClientVersion() >= ES_3_2;
 
     mCachedValidBindTextureTypes = {{
         {TextureType::_2D, true},
         {TextureType::_2DArray, isGLES3},
-        {TextureType::_2DMultisample, isGLES31 || exts.textureMultisample},
-        {TextureType::_2DMultisampleArray, exts.textureStorageMultisample2DArrayOES},
+        {TextureType::_2DMultisample, isGLES31 || exts.textureMultisampleANGLE},
+        {TextureType::_2DMultisampleArray, isGLES32 || exts.textureStorageMultisample2dArrayOES},
         {TextureType::_3D, isGLES3 || exts.texture3DOES},
-        {TextureType::External, exts.eglImageExternalOES || exts.eglStreamConsumerExternalNV},
-        {TextureType::Rectangle, exts.textureRectangle},
+        {TextureType::External, exts.EGLImageExternalOES || exts.EGLStreamConsumerExternalNV},
+        {TextureType::Rectangle, exts.textureRectangleANGLE},
         {TextureType::CubeMap, true},
-        {TextureType::CubeMapArray, exts.textureCubeMapArrayAny()},
-        {TextureType::VideoImage, exts.webglVideoTexture},
-        {TextureType::Buffer, exts.textureBufferAny()},
+        {TextureType::CubeMapArray, isGLES32 || exts.textureCubeMapArrayAny()},
+        {TextureType::Buffer, isGLES32 || exts.textureBufferAny()},
     }};
 }
 
 void StateCache::updateValidDrawElementsTypes(Context *context)
 {
     bool supportsUint =
-        (context->getClientMajorVersion() >= 3 || context->getExtensions().elementIndexUintOES);
+        (context->getClientVersion() >= ES_3_0 || context->getExtensions().elementIndexUintOES);
 
     mCachedValidDrawElementsTypes = {{
         {DrawElementsType::UnsignedByte, true},
@@ -9119,17 +11026,86 @@ void StateCache::updateTransformFeedbackActiveUnpaused(Context *context)
     mCachedTransformFeedbackActiveUnpaused = xfb && xfb->isActive() && !xfb->isPaused();
 }
 
-void StateCache::updateVertexAttribTypesValidation(Context *context)
+void StateCache::updateActiveShaderStorageBufferIndices(Context *context)
+{
+    mCachedActiveShaderStorageBufferIndices.reset();
+    const ProgramExecutable *executable = context->getState().getProgramExecutable();
+    if (executable)
+    {
+        const std::vector<InterfaceBlock> &blocks = executable->getShaderStorageBlocks();
+        for (size_t blockIndex = 0; blockIndex < blocks.size(); ++blockIndex)
+        {
+            const GLuint binding = executable->getShaderStorageBlockBinding(blockIndex);
+            mCachedActiveShaderStorageBufferIndices.set(binding);
+        }
+    }
+}
+
+void StateCache::updateActiveImageUnitIndices(Context *context)
+{
+    mCachedActiveImageUnitIndices.reset();
+    const ProgramExecutable *executable = context->getState().getProgramExecutable();
+    if (executable)
+    {
+        for (const ImageBinding &imageBinding : executable->getImageBindings())
+        {
+            for (GLuint binding : imageBinding.boundImageUnits)
+            {
+                mCachedActiveImageUnitIndices.set(binding);
+            }
+        }
+    }
+}
+
+void StateCache::updateCanDraw(Context *context)
+{
+    // Can draw if:
+    //
+    // - Is GLES1: GLES1 always creates programs as needed
+    // - There is an installed executable with a vertex shader
+    // - A program pipeline is to be used: Program pipelines don't have a specific link function, so
+    //   the pipeline might just be waiting to be linked at draw time (in which case there won't
+    //   necessarily be an executable installed yet).
+    mCachedCanDraw =
+        context->isGLES1() || (context->getState().getProgramExecutable() &&
+                               context->getState().getProgramExecutable()->hasVertexShader());
+}
+
+bool StateCache::isCurrentContext(const Context *context,
+                                  const PrivateStateCache *privateStateCache) const
+{
+    // Ensure that the state cache is not queried by any context other than the one that owns it.
+    return &context->getStateCache() == this &&
+           &context->getPrivateStateCache() == privateStateCache;
+}
+
+// PrivateStateCache implementation
+PrivateStateCache::PrivateStateCache()
+    : mIsCachedBasicDrawStatesErrorValid(true),
+      mIsCachedActiveAttribMasksValid(true),
+      mIsCachedVertexElementLimitValid(true),
+      mCachedBasicDrawElementsError(kInvalidPointer)
+{}
+
+PrivateStateCache::~PrivateStateCache() = default;
+
+void PrivateStateCache::initialize(const Context *context)
+{
+    updateVertexAttribTypesValidation(context);
+    mCachedBasicDrawElementsError = kInvalidPointer;
+}
+
+void PrivateStateCache::updateVertexAttribTypesValidation(const Context *context)
 {
     VertexAttribTypeCase halfFloatValidity = (context->getExtensions().vertexHalfFloatOES)
                                                  ? VertexAttribTypeCase::Valid
                                                  : VertexAttribTypeCase::Invalid;
 
-    VertexAttribTypeCase vertexType1010102Validity =
-        (context->getExtensions().vertexAttribType1010102OES) ? VertexAttribTypeCase::ValidSize3or4
-                                                              : VertexAttribTypeCase::Invalid;
+    VertexAttribTypeCase vertexType1010102Validity = (context->getExtensions().vertexType1010102OES)
+                                                         ? VertexAttribTypeCase::ValidSize3or4
+                                                         : VertexAttribTypeCase::Invalid;
 
-    if (context->getClientMajorVersion() <= 2)
+    if (context->getClientVersion() < ES_3_0)
     {
         mCachedVertexAttribTypesValidation = {{
             {VertexAttribType::Byte, VertexAttribTypeCase::Valid},
@@ -9170,41 +11146,4 @@ void StateCache::updateVertexAttribTypesValidation(Context *context)
         }};
     }
 }
-
-void StateCache::updateActiveShaderStorageBufferIndices(Context *context)
-{
-    mCachedActiveShaderStorageBufferIndices.reset();
-    const ProgramExecutable *executable = context->getState().getProgramExecutable();
-    if (executable)
-    {
-        for (const InterfaceBlock &block : executable->getShaderStorageBlocks())
-        {
-            mCachedActiveShaderStorageBufferIndices.set(block.binding);
-        }
-    }
-}
-
-void StateCache::updateActiveImageUnitIndices(Context *context)
-{
-    mCachedActiveImageUnitIndices.reset();
-    const ProgramExecutable *executable = context->getState().getProgramExecutable();
-    if (executable)
-    {
-        for (const ImageBinding &imageBinding : executable->getImageBindings())
-        {
-            for (GLuint binding : imageBinding.boundImageUnits)
-            {
-                mCachedActiveImageUnitIndices.set(binding);
-            }
-        }
-    }
-}
-
-void StateCache::updateCanDraw(Context *context)
-{
-    mCachedCanDraw = (context->isGLES1() ||
-                      (context->getState().getProgramExecutable() &&
-                       context->getState().getProgramExecutable()->hasVertexAndFragmentShader()));
-}
-
 }  // namespace gl

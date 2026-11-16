@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008, 2014 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008, 2014 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,98 +27,98 @@
 #include "config.h"
 #include "ThreadGlobalData.h"
 
-#include "CachedResourceRequestInitiators.h"
+#include "CachedResourceRequestInitiatorTypes.h"
 #include "EventNames.h"
+#include "FontCache.h"
 #include "MIMETypeRegistry.h"
 #include "QualifiedNameCache.h"
-#include "TextCodecICU.h"
+#include "SharedTimer.h"
 #include "ThreadTimers.h"
 #include <wtf/MainThread.h>
-#include <wtf/ThreadSpecific.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/Threading.h>
 #include <wtf/text/StringImpl.h>
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ThreadGlobalData);
+
 ThreadGlobalData::ThreadGlobalData()
-    : m_threadTimers(makeUnique<ThreadTimers>())
-    , m_cachedConverterICU(makeUnique<ICUConverterWrapper>())
+    : PAL::ThreadGlobalData(Type::WebCoreThreadGlobalData)
+    , m_threadTimers(makeUniqueRef<ThreadTimers>())
 #ifndef NDEBUG
     , m_isMainThread(isMainThread())
 #endif
 {
-    // This constructor will have been called on the main thread before being called on
-    // any other thread, and is only called once per thread - this makes this a convenient
-    // point to call methods that internally perform a one-time initialization that is not
-    // threadsafe.
-    Thread::current();
 }
 
 ThreadGlobalData::~ThreadGlobalData() = default;
 
 void ThreadGlobalData::destroy()
 {
-    m_cachedConverterICU = nullptr;
-
-    m_eventNames = nullptr;
-    m_threadTimers = nullptr;
-    m_qualifiedNameCache = nullptr;
+    if (CheckedPtr fontCache = m_fontCache.get())
+        fontCache->invalidate();
+    m_fontCache = nullptr;
+    m_destroyed = true;
 }
 
 #if USE(WEB_THREAD)
-static ThreadSpecific<RefPtr<ThreadGlobalData>>* staticData { nullptr };
 static ThreadGlobalData* sharedMainThreadStaticData { nullptr };
 
 void ThreadGlobalData::setWebCoreThreadData()
 {
     ASSERT(isWebThread());
-    ASSERT(&threadGlobalData() != sharedMainThreadStaticData);
+    ASSERT(&threadGlobalDataSingleton() != sharedMainThreadStaticData);
 
     // Set WebThread's ThreadGlobalData object to be the same as the main UI thread.
-    **staticData = adoptRef(sharedMainThreadStaticData);
+    Thread::currentSingleton().m_clientData = adoptRef(sharedMainThreadStaticData);
 
-    ASSERT(&threadGlobalData() == sharedMainThreadStaticData);
+    ASSERT(&threadGlobalDataSingleton() == sharedMainThreadStaticData);
 }
 
-ThreadGlobalData& threadGlobalData()
+ThreadGlobalData& threadGlobalDataSlow()
 {
-    if (UNLIKELY(!staticData)) {
-        staticData = new ThreadSpecific<RefPtr<ThreadGlobalData>>;
-        auto& result = **staticData;
-        ASSERT(!result);
-        result = adoptRef(new ThreadGlobalData);
-        // WebThread and main UI thread need to share the same object. Save it in a static
-        // here, the WebThread will pick it up in setWebCoreThreadData().
-        if (pthread_main_np()) {
-            sharedMainThreadStaticData = result.get();
-            result->ref();
-        }
-        return *result;
+    auto& thread = Thread::currentSingleton();
+
+    // No need to ref the clientData as we're simply returning it right away.
+    SUPPRESS_UNCOUNTED_LOCAL if (auto* clientData = thread.m_clientData.get()) [[unlikely]]
+        return *static_cast<ThreadGlobalData*>(clientData);
+
+    Ref data = adoptRef(*new ThreadGlobalData);
+    if (pthread_main_np()) {
+        sharedMainThreadStaticData = data.ptr();
+        data->ref();
     }
 
-    auto& result = **staticData;
-    if (!result)
-        result = adoptRef(new ThreadGlobalData);
-    return *result;
+
+    // No need to ref clientData here as we've just constructed it.
+    SUPPRESS_UNCOUNTED_LOCAL auto* clientData = data.ptr();
+    thread.m_clientData = WTF::move(data);
+    return *clientData;
 }
 
 #else
 
-static ThreadSpecific<ThreadGlobalData>* staticData { nullptr };
-
-ThreadGlobalData& threadGlobalData()
+ThreadGlobalData& threadGlobalDataSlow()
 {
-    if (UNLIKELY(!staticData))
-        staticData = new ThreadSpecific<ThreadGlobalData>;
-    return **staticData;
+    auto& thread = Thread::currentSingleton();
+    // No need to ref the clientData as we're simply returning it right away.
+    SUPPRESS_UNCOUNTED_LOCAL if (auto* clientData = thread.m_clientData.get()) [[unlikely]]
+        return downcast<ThreadGlobalData>(*clientData);
+
+    Ref data = adoptRef(*new ThreadGlobalData);
+    // No need to ref clientData here as we've just constructed it.
+    SUPPRESS_UNCOUNTED_LOCAL auto* clientData = data.ptr();
+    thread.m_clientData = WTF::move(data);
+    return *clientData;
 }
 
 #endif
 
-void ThreadGlobalData::initializeCachedResourceRequestInitiators()
+void ThreadGlobalData::initializeCachedResourceRequestInitiatorTypes()
 {
-    ASSERT(!m_cachedResourceRequestInitiators);
-    m_cachedResourceRequestInitiators = makeUnique<CachedResourceRequestInitiators>();
+    ASSERT(!m_cachedResourceRequestInitiatorTypes);
+    m_cachedResourceRequestInitiatorTypes = makeUnique<CachedResourceRequestInitiatorTypes>();
 }
 
 void ThreadGlobalData::initializeEventNames()
@@ -139,4 +139,19 @@ void ThreadGlobalData::initializeMimeTypeRegistryThreadGlobalData()
     m_MIMETypeRegistryThreadGlobalData = MIMETypeRegistry::createMIMETypeRegistryThreadGlobalData();
 }
 
+void ThreadGlobalData::initializeFontCache()
+{
+    ASSERT(!m_fontCache);
+    m_fontCache = makeUnique<FontCache>();
+}
+
 } // namespace WebCore
+
+namespace PAL {
+
+ThreadGlobalData& threadGlobalDataSingleton()
+{
+    return WebCore::threadGlobalDataSingleton();
+}
+
+} // namespace PAL

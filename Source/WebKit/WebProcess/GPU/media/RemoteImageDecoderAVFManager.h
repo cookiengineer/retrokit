@@ -30,12 +30,12 @@
 #include "Connection.h"
 #include "GPUProcessConnection.h"
 #include "MessageReceiver.h"
-#include "WebProcessSupplement.h"
 #include <WebCore/ImageDecoderIdentifier.h>
 #include <WebCore/ImageTypes.h>
 #include <WebCore/IntSize.h>
 #include <WebCore/SharedBuffer.h>
 #include <wtf/HashMap.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebKit {
 
@@ -43,34 +43,34 @@ class RemoteImageDecoderAVF;
 class WebProcess;
 
 class RemoteImageDecoderAVFManager final
-    : public WebProcessSupplement
-    , private GPUProcessConnection::Client
-    , private IPC::MessageReceiver {
-    WTF_MAKE_FAST_ALLOCATED;
+    : private GPUProcessConnection::Client
+    , private IPC::MessageReceiver
+    , public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<RemoteImageDecoderAVFManager> {
+    WTF_MAKE_TZONE_ALLOCATED(RemoteImageDecoderAVFManager);
 public:
-    explicit RemoteImageDecoderAVFManager(WebProcess&);
+    static Ref<RemoteImageDecoderAVFManager> create();
     virtual ~RemoteImageDecoderAVFManager();
 
     void deleteRemoteImageDecoder(const WebCore::ImageDecoderIdentifier&);
 
-    static const char* supplementName();
-
     void setUseGPUProcess(bool);
     GPUProcessConnection& ensureGPUProcessConnection();
 
+    WTF_ABSTRACT_THREAD_SAFE_REF_COUNTED_AND_CAN_MAKE_WEAK_PTR_IMPL;
+
 private:
-    RefPtr<RemoteImageDecoderAVF> createImageDecoder(WebCore::SharedBuffer& data, const String& mimeType, WebCore::AlphaOption, WebCore::GammaAndColorProfileOption);
+    RemoteImageDecoderAVFManager();
+    RefPtr<RemoteImageDecoderAVF> createImageDecoder(WebCore::FragmentedSharedBuffer& data, const String& mimeType, WebCore::AlphaOption, WebCore::GammaAndColorProfileOption);
 
     // GPUProcessConnection::Client.
     void gpuProcessConnectionDidClose(GPUProcessConnection&) final;
 
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) final;
-    void encodedDataStatusChanged(const WebCore::ImageDecoderIdentifier&, size_t frameCount, const WebCore::IntSize&, bool hasTrack);
+    void encodedDataStatusChanged(const WebCore::ImageDecoderIdentifier&, uint64_t frameCount, const WebCore::IntSize&, bool hasTrack);
 
     HashMap<WebCore::ImageDecoderIdentifier, WeakPtr<RemoteImageDecoderAVF>> m_remoteImageDecoders;
 
-    WebProcess& m_process;
-    WeakPtr<GPUProcessConnection> m_gpuProcessConnection;
+    ThreadSafeWeakPtr<GPUProcessConnection> m_gpuProcessConnection;
 };
 
 }

@@ -25,67 +25,88 @@
 
 #include "config.h"
 #include "PageNetworkAgent.h"
+#include "DocumentPage.h"
 
-#include "Document.h"
 #include "DocumentLoader.h"
-#include "Frame.h"
+#include "FrameConsoleClient.h"
+#include "FrameDestructionObserverInlines.h"
+#include "InspectorBackendClient.h"
+#include "InspectorIdentifierRegistry.h"
 #include "InstrumentingAgents.h"
+#include "LocalFrameInlines.h"
 #include "Page.h"
-#include "ScriptState.h"
+#include "PageInspectorController.h"
+#include "Settings.h"
+#include "ThreadableWebSocketChannel.h"
 #include "WebSocket.h"
-#include "WebSocketChannel.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 using namespace Inspector;
 
-PageNetworkAgent::PageNetworkAgent(PageAgentContext& context)
-    : InspectorNetworkAgent(context)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PageNetworkAgent);
+
+PageNetworkAgent::PageNetworkAgent(PageAgentContext& context, InspectorBackendClient* client)
+    : InspectorNetworkAgent(context, { context.inspectedPage->settings().inspectorMaximumResourcesContentSize(), context.inspectedPage->settings().inspectorSupportsShowingCertificate() })
     , m_inspectedPage(context.inspectedPage)
+#if ENABLE(INSPECTOR_NETWORK_THROTTLING)
+    , m_client(client)
+#endif
 {
+#if !ENABLE(INSPECTOR_NETWORK_THROTTLING)
+    UNUSED_PARAM(client);
+#endif
 }
 
 PageNetworkAgent::~PageNetworkAgent() = default;
 
-Protocol::Network::LoaderId PageNetworkAgent::loaderIdentifier(DocumentLoader* loader)
+Inspector::Protocol::ErrorStringOr<void> PageNetworkAgent::enable()
 {
-    if (loader) {
-        if (auto* pageAgent = m_instrumentingAgents.enabledPageAgent())
-            return pageAgent->loaderId(loader);
-    }
+    // Under Site Isolation, ProxyingNetworkAgent in the UIProcess handles Network
+    // events for all processes. PageNetworkAgent should not be enabled to avoid
+    // duplicate events for same-process frames.
+    if (RefPtr page = m_inspectedPage.get(); page && page->settings().siteIsolationEnabled())
+        return { };
+
+    return InspectorNetworkAgent::enable();
+}
+
+Inspector::Protocol::Network::LoaderId PageNetworkAgent::loaderIdentifier(DocumentLoader* loader)
+{
+    if (loader)
+        return m_inspectedPage->inspectorController().identifierRegistry().loaderId(loader);
     return { };
 }
 
-Protocol::Network::FrameId PageNetworkAgent::frameIdentifier(DocumentLoader* loader)
+Inspector::Protocol::Network::FrameId PageNetworkAgent::frameIdentifier(DocumentLoader* loader)
 {
-    if (loader) {
-        if (auto* pageAgent = m_instrumentingAgents.enabledPageAgent())
-            return pageAgent->frameId(loader->frame());
-    }
+    if (loader)
+        return m_inspectedPage->inspectorController().identifierRegistry().frameId(loader->frame());
     return { };
 }
 
-Vector<WebSocket*> PageNetworkAgent::activeWebSockets()
+Vector<Ref<WebSocket>> PageNetworkAgent::activeWebSockets()
 {
-    Vector<WebSocket*> webSockets;
+    Vector<Ref<WebSocket>> webSockets;
 
-    for (auto* webSocket : WebSocket::allActiveWebSockets()) {
-        auto channel = webSocket->channel();
+    for (CheckedPtr webSocket : WebSocket::allActiveWebSockets()) {
+        RefPtr channel = webSocket->channel();
         if (!channel)
             continue;
 
         if (!channel->hasCreatedHandshake())
             continue;
 
-        if (!is<Document>(webSocket->scriptExecutionContext()))
+        RefPtr document = dynamicDowncast<Document>(webSocket->scriptExecutionContext());
+        if (!document)
             continue;
 
         // FIXME: <https://webkit.org/b/168475> Web Inspector: Correctly display iframe's WebSockets
-        auto* document = downcast<Document>(webSocket->scriptExecutionContext());
-        if (document->page() != &m_inspectedPage)
+        if (document->page() != m_inspectedPage.ptr())
             continue;
 
-        webSockets.append(webSocket);
+        webSockets.append(*webSocket);
     }
 
     return webSockets;
@@ -93,28 +114,39 @@ Vector<WebSocket*> PageNetworkAgent::activeWebSockets()
 
 void PageNetworkAgent::setResourceCachingDisabledInternal(bool disabled)
 {
-    m_inspectedPage.setResourceCachingDisabledByWebInspector(disabled);
+    m_inspectedPage->setResourceCachingDisabledByWebInspector(disabled);
 }
 
-ScriptExecutionContext* PageNetworkAgent::scriptExecutionContext(Protocol::ErrorString& errorString, const Protocol::Network::FrameId& frameId)
-{
-    auto* pageAgent = m_instrumentingAgents.enabledPageAgent();
-    if (!pageAgent) {
-        errorString = "Page domain must be enabled"_s;
-        return nullptr;
-    }
+#if ENABLE(INSPECTOR_NETWORK_THROTTLING)
 
-    auto* frame = pageAgent->assertFrame(errorString, frameId);
+bool PageNetworkAgent::setEmulatedConditionsInternal(std::optional<int>&& bytesPerSecondLimit)
+{
+    return m_client && m_client->setEmulatedConditions(WTF::move(bytesPerSecondLimit));
+}
+
+#endif // ENABLE(INSPECTOR_NETWORK_THROTTLING)
+
+ScriptExecutionContext* PageNetworkAgent::scriptExecutionContext(Inspector::Protocol::ErrorString& errorString, const Inspector::Protocol::Network::FrameId& frameId)
+{
+    RefPtr frame = m_inspectedPage->inspectorController().identifierRegistry().assertFrame(errorString, frameId);
     if (!frame)
         return nullptr;
 
-    auto* document = frame->document();
+    SUPPRESS_UNCOUNTED_LOCAL auto* document = frame->document();
     if (!document) {
         errorString = "Missing frame of docuemnt for given frameId"_s;
         return nullptr;
     }
 
     return document;
+}
+
+void PageNetworkAgent::addConsoleMessage(std::unique_ptr<Inspector::ConsoleMessage>&& message)
+{
+    RefPtr localMainFrame = m_inspectedPage->localMainFrame();
+    if (!localMainFrame)
+        return;
+    localMainFrame->console().addMessage(WTF::move(message));
 }
 
 } // namespace WebCore

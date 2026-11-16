@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -20,36 +20,39 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef MediaSourcePrivateClient_h
-#define MediaSourcePrivateClient_h
+#pragma once
 
 #if ENABLE(MEDIA_SOURCE)
 
-#include "PlatformTimeRanges.h"
+#include <WebCore/MediaPromiseTypes.h>
+#include <WebCore/PlatformTimeRanges.h>
+#include <wtf/CompletionHandler.h>
+#include <wtf/Forward.h>
 #include <wtf/Logger.h>
-#include <wtf/RefCounted.h>
+#include <wtf/ThreadSafeWeakPtr.h>
+
+namespace WebCore {
+struct SeekTarget;
+} // namespace WebCore
 
 namespace WebCore {
 
 class MediaSourcePrivate;
 
-class MediaSourcePrivateClient : public RefCounted<MediaSourcePrivateClient> {
+class MediaSourcePrivateClient : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<MediaSourcePrivateClient> {
 public:
     virtual ~MediaSourcePrivateClient() = default;
 
     virtual void setPrivateAndOpen(Ref<MediaSourcePrivate>&&) = 0;
-    virtual MediaTime duration() const = 0;
-    virtual std::unique_ptr<PlatformTimeRanges> buffered() const = 0;
-    virtual void seekToTime(const MediaTime&) = 0;
-#if USE(GSTREAMER)
-    virtual void monitorSourceBuffers() = 0;
-#endif
+    virtual void reOpen() = 0;
+    virtual RefPtr<MediaSourcePrivate> mediaSourcePrivate() const = 0;
 
 #if !RELEASE_LOG_DISABLED
-    virtual void setLogIdentifier(const void*) = 0;
+    virtual void setLogIdentifier(uint64_t) = 0;
+    virtual const Logger* logger() const { return nullptr; }
 #endif
 
     enum class RendererType { Audio, Video };
@@ -59,5 +62,3 @@ public:
 }
 
 #endif // ENABLE(MEDIA_SOURCE)
-
-#endif

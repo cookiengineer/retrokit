@@ -22,11 +22,10 @@
 #include "config.h"
 #include "TextureMapperShaderProgram.h"
 
-#if USE(TEXTURE_MAPPER_GL)
+#if USE(TEXTURE_MAPPER)
 
 #include "GLContext.h"
 #include "Logging.h"
-#include "TextureMapperGL.h"
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
@@ -51,106 +50,117 @@ static inline bool compositingLogEnabled()
         GLSL_DIRECTIVE(define TextureSpaceMatrixPrecision mediump) \
     GLSL_DIRECTIVE(endif)
 
+// ES 3.0 Compatibility Macros
+#define ES3_COMPATIBILITY_VERTEX \
+    GLSL_DIRECTIVE(if __VERSION__ >= 300) \
+        GLSL_DIRECTIVE(define texture2D texture) \
+        GLSL_DIRECTIVE(define texture2DProj textureProj) \
+        GLSL_DIRECTIVE(define texture2DLod textureLod) \
+        GLSL_DIRECTIVE(define texture2DProjLod textureProjLod) \
+        GLSL_DIRECTIVE(define textureCube texture) \
+        GLSL_DIRECTIVE(define textureCubeLod textureLod) \
+        GLSL_DIRECTIVE(define attribute in) \
+        GLSL_DIRECTIVE(define varying out) \
+    GLSL_DIRECTIVE(endif)
 
-// Input/output variables definition for both GLES and OpenGL < 3.2.
-// The default precision directive is only needed for GLES.
+#define ES3_COMPATIBILITY_FRAGMENT \
+    GLSL_DIRECTIVE(if __VERSION__ >= 300) \
+        GLSL_DIRECTIVE(define texture2D texture) \
+        GLSL_DIRECTIVE(define texture2DProj textureProj) \
+        GLSL_DIRECTIVE(define texture2DLod textureLod) \
+        GLSL_DIRECTIVE(define texture2DProjLod textureProjLod) \
+        GLSL_DIRECTIVE(define textureCube texture) \
+        GLSL_DIRECTIVE(define textureCubeLod textureLod) \
+        GLSL_DIRECTIVE(define varying in) \
+        "out mediump vec4 fragColor;\n" \
+        GLSL_DIRECTIVE(define gl_FragColor fragColor) \
+    GLSL_DIRECTIVE(endif)
+
+// Input/output variables definition for OpenGL ES < 3.2.
 static const char* vertexTemplateLT320Vars =
-#if USE(OPENGL_ES)
     TEXTURE_SPACE_MATRIX_PRECISION_DIRECTIVE
-#endif
-#if USE(OPENGL_ES)
     STRINGIFY(
         precision TextureSpaceMatrixPrecision float;
     )
-#endif
     STRINGIFY(
         attribute vec4 a_vertex;
         varying vec2 v_texCoord;
         varying vec2 v_transformedTexCoord;
         varying float v_antialias;
-        varying vec4 v_nonProjectedPosition;
+        varying highp vec4 v_nonProjectedPosition;
     );
-
-#if !USE(OPENGL_ES)
-// Input/output variables definition for OpenGL >= 3.2.
-static const char* vertexTemplateGE320Vars =
-    STRINGIFY(
-        in vec4 a_vertex;
-        out vec2 v_texCoord;
-        out vec2 v_transformedTexCoord;
-        out float v_antialias;
-        out vec4 v_nonProjectedPosition;
-    );
-#endif
-
+// clang-format off
 static const char* vertexTemplateCommon =
     STRINGIFY(
         uniform mat4 u_modelViewMatrix;
         uniform mat4 u_projectionMatrix;
         uniform mat4 u_textureSpaceMatrix;
 
-        void noop(inout vec2 dummyParameter) { }
+        void noop(vec2 position) { }
 
-        vec4 toViewportSpace(vec2 pos) { return vec4(pos, 0., 1.) * u_modelViewMatrix; }
+        vec4 toViewportSpace(vec2 pos) { return u_modelViewMatrix * vec4(pos, 0., 1.); }
 
         // This function relies on the assumption that we get edge triangles with control points,
         // a control point being the nearest point to the coordinate that is on the edge.
-        void applyAntialiasing(inout vec2 position)
+        void applyAntialiasing(vec2 position)
         {
-            // We count on the fact that quad passed in is always a unit rect,
-            // and the transformation matrix applies the real rect.
             const vec2 center = vec2(0.5, 0.5);
             const float antialiasInflationDistance = 1.;
-
             // We pass the control point as the zw coordinates of the vertex.
             // The control point is the point on the edge closest to the current position.
-            // The control point is used to compute the antialias value.
             vec2 controlPoint = a_vertex.zw;
+            bool isCenter = distance(position, controlPoint) > 0.;
+            if (isCenter) {
+                // v_antialias needs to be 0 for the outer edge and 1. for the inner edge.
+                // We make sure that the varying interpolates between 0 (outer edge), 1 (inner edge) and n > 1 (center).
+                // Mathematically, v_antialias for the center is:
+                //
+                //    v_antialias = (viewportSpaceDistance + antialiasInflationDistance) / antialiasInflationDistance
+                //
+                // Because we use homogeneous coordinates for the viewport space, we use it for v_antialias, too.
+                // The denominator is v_nonProjectedPosition.w. So. multiply the numerator by v_nonProjectedPosition.w:
+                //
+                //    v_antialias = (viewportSpaceDistance + antialiasInflationDistance) * v_nonProjectedPosition.w / antialiasInflationDistance
 
-            // First we calculate the distance in viewport space.
-            vec4 centerInViewportCoordinates = toViewportSpace(center);
-            vec4 controlPointInViewportCoordinates = toViewportSpace(controlPoint);
-            float viewportSpaceDistance = distance(centerInViewportCoordinates, controlPointInViewportCoordinates);
-
-            // We add the inflation distance to the computed distance, and compute the ratio.
-            float inflationRatio = (viewportSpaceDistance + antialiasInflationDistance) / viewportSpaceDistance;
-
-            // v_antialias needs to be 0 for the outer edge and 1. for the inner edge.
-            // Since the controlPoint is equal to the position in the edge vertices, the value is always 0 for those.
-            // For the center point, the distance is always 0.5, so we normalize to 1. by multiplying by 2.
-            // By multplying by inflationRatio and dividing by (inflationRatio - 1),
-            // We make sure that the varying interpolates between 0 (outer edge), 1 (inner edge) and n > 1 (center).
-            v_antialias = distance(controlPoint, position) * 2. * inflationRatio / (inflationRatio - 1.);
-
-            // Now inflate the actual position. By using this formula instead of inflating position directly,
-            // we ensure that the center vertex is never inflated.
-            position = center + (position - center) * inflationRatio;
+                vec4 controlPointInViewportCoordinates = toViewportSpace(controlPoint);
+                // Calculate the distance after the reduction to common denominator.
+                float viewportSpaceDistance = distance(v_nonProjectedPosition.xy * controlPointInViewportCoordinates.w, controlPointInViewportCoordinates.xy * v_nonProjectedPosition.w);
+                // Calculate the distance multiplied by v_nonProjectedPosition.w.
+                // FIXME: The case of controlPointInViewportCoordinates.w <= 0.
+                if (controlPointInViewportCoordinates.w > 0.)
+                    viewportSpaceDistance /= controlPointInViewportCoordinates.w;
+                v_antialias = (viewportSpaceDistance + antialiasInflationDistance * v_nonProjectedPosition.w) / antialiasInflationDistance;
+            } else {
+                vec4 centerInViewportCoordinates = toViewportSpace(center);
+                // Calculate the 2D direction from the center to the vertex in the viewport space (homogeneous coordinates).
+                // Subtract after the reduction to common denominator, centerInViewportCoordinates.w * v_nonProjectedPosition.w.
+                vec2 direction = v_nonProjectedPosition.xy * centerInViewportCoordinates.w - centerInViewportCoordinates.xy * v_nonProjectedPosition.w;
+                if (length(direction) > 0.) {
+                    float oldDistance = distance(v_nonProjectedPosition.xyz, centerInViewportCoordinates.xyz);
+                    // Move the vertex toward the direction from the center to the vertex.
+                    v_nonProjectedPosition += vec4(normalize(direction) * antialiasInflationDistance * v_nonProjectedPosition.w, 0., 0.);
+                    float newDistance = distance(v_nonProjectedPosition.xyz, centerInViewportCoordinates.xyz);
+                    // Move v_texCoord based on 3D distance inflation ratio.
+                    v_texCoord += normalize(position - center) * (newDistance - oldDistance) / oldDistance;
+                }
+                v_antialias = 0.;
+            }
         }
 
         void main(void)
         {
             vec2 position = a_vertex.xy;
-            applyAntialiasingIfNeeded(position);
 
             v_texCoord = position;
-            vec4 clampedPosition = clamp(vec4(position, 0., 1.), 0., 1.);
-            v_transformedTexCoord = (u_textureSpaceMatrix * clampedPosition).xy;
-            v_nonProjectedPosition = u_modelViewMatrix * vec4(position, 0., 1.);
+            v_transformedTexCoord = (u_textureSpaceMatrix * vec4(position, 0., 1.)).xy;
+            v_nonProjectedPosition = toViewportSpace(position);
+            applyAntialiasingIfNeeded(position);
             gl_Position = u_projectionMatrix * v_nonProjectedPosition;
         }
     );
-
-#define RECT_TEXTURE_DIRECTIVE \
-    GLSL_DIRECTIVE(ifdef ENABLE_Rect) \
-        GLSL_DIRECTIVE(define SamplerType sampler2DRect) \
-        GLSL_DIRECTIVE(define SamplerFunction texture2DRect) \
-    GLSL_DIRECTIVE(else) \
-        GLSL_DIRECTIVE(define SamplerType sampler2D) \
-        GLSL_DIRECTIVE(define SamplerFunction texture2D) \
-    GLSL_DIRECTIVE(endif)
-
+// clang-format on
 #define ANTIALIASING_TEX_COORD_DIRECTIVE \
-    GLSL_DIRECTIVE(if defined(ENABLE_Antialiasing) && defined(ENABLE_Texture)) \
+    GLSL_DIRECTIVE(if defined(ENABLE_Antialiasing)) \
         GLSL_DIRECTIVE(define transformTexCoord fragmentTransformTexCoord) \
     GLSL_DIRECTIVE(else) \
         GLSL_DIRECTIVE(define transformTexCoord vertexTransformTexCoord) \
@@ -159,17 +169,34 @@ static const char* vertexTemplateCommon =
 #define ENABLE_APPLIER(Name) "#define ENABLE_"#Name"\n#define apply"#Name"IfNeeded apply"#Name"\n"
 #define DISABLE_APPLIER(Name) "#define apply"#Name"IfNeeded noop\n"
 #define BLUR_CONSTANTS \
-    GLSL_DIRECTIVE(define GAUSSIAN_KERNEL_HALF_WIDTH 11) \
-    GLSL_DIRECTIVE(define GAUSSIAN_KERNEL_STEP 0.2)
+    GLSL_DIRECTIVE(define GAUSSIAN_KERNEL_MAX_HALF_SIZE 6)
 
 
 #define OES_EGL_IMAGE_EXTERNAL_DIRECTIVE \
     GLSL_DIRECTIVE(ifdef ENABLE_TextureExternalOES) \
-        GLSL_DIRECTIVE(extension GL_OES_EGL_image_external : require) \
+        GLSL_DIRECTIVE(if __VERSION__ >= 300) \
+            GLSL_DIRECTIVE(extension GL_OES_EGL_image_external_essl3 : require) \
+        GLSL_DIRECTIVE(else) \
+            GLSL_DIRECTIVE(extension GL_OES_EGL_image_external : require) \
+        GLSL_DIRECTIVE(endif) \
         GLSL_DIRECTIVE(define SamplerExternalOESType samplerExternalOES) \
+        STRINGIFY( \
+            precision mediump samplerExternalOES;\n \
+        ) \
     GLSL_DIRECTIVE(else) \
         GLSL_DIRECTIVE(define SamplerExternalOESType sampler2D) \
     GLSL_DIRECTIVE(endif)
+
+// clang-format off
+#define EXT_YUV_TARGET_DIRECTIVE \
+    STRINGIFY(\n) \
+    GLSL_DIRECTIVE(ifdef ENABLE_TextureExternalOESYUV) \
+        GLSL_DIRECTIVE(extension GL_EXT_YUV_target : require) \
+        GLSL_DIRECTIVE(define SamplerExternalOESYUVType __samplerExternal2DY2YEXT) \
+    GLSL_DIRECTIVE(else) \
+        GLSL_DIRECTIVE(define SamplerExternalOESYUVType sampler2D) \
+    GLSL_DIRECTIVE(endif)
+// clang-format on
 
 // The max number of stacked rounded rectangle clips allowed is 10, which is also the
 // max number of transforms that we can get. We need 3 components for each rounded
@@ -183,75 +210,159 @@ static const char* vertexTemplateCommon =
 
 // Common header for all versions. We define the matrices variables here to keep the precision
 // directives scope: the first one applies to the matrices variables and the next one to the
-// rest of them. The precision is only used in GLES.
+// rest of them.
+// clang-format off
 static const char* fragmentTemplateHeaderCommon =
-    RECT_TEXTURE_DIRECTIVE
     ANTIALIASING_TEX_COORD_DIRECTIVE
     BLUR_CONSTANTS
     ROUNDED_RECT_CONSTANTS
     OES_EGL_IMAGE_EXTERNAL_DIRECTIVE
-#if USE(OPENGL_ES)
-    TEXTURE_SPACE_MATRIX_PRECISION_DIRECTIVE
+    TEXTURE_SPACE_MATRIX_PRECISION_DIRECTIVE;
+
+static const char* fragmentTemplateHeaderCommonVariables =
     STRINGIFY(
         precision TextureSpaceMatrixPrecision float;
     )
-#endif
     STRINGIFY(
         uniform mat4 u_textureSpaceMatrix;
         uniform mat4 u_textureColorSpaceMatrix;
     )
-#if USE(OPENGL_ES)
     STRINGIFY(
         precision mediump float;
-    )
-#endif
-    ;
+    );
 
-// Input/output variables definition for both GLES and OpenGL < 3.2.
+// Input/output variables definition for both OpenGL ES < 3.2.
 static const char* fragmentTemplateLT320Vars =
     STRINGIFY(
         varying float v_antialias;
         varying vec2 v_texCoord;
         varying vec2 v_transformedTexCoord;
-        varying vec4 v_nonProjectedPosition;
+        varying highp vec4 v_nonProjectedPosition;
     );
 
-#if !USE(OPENGL_ES)
-// Input/output variables definition for OpenGL >= 3.2.
-static const char* fragmentTemplateGE320Vars =
+static const char* fragmentTemplateYUVToRGB =
+    "\n"
+    GLSL_DIRECTIVE(ifdef ENABLE_TextureExternalOESYUV)
     STRINGIFY(
-        in float v_antialias;
-        in vec2 v_texCoord;
-        in vec2 v_transformedTexCoord;
-        in vec4 v_nonProjectedPosition;
+        void applyTextureExternalOESYUV(inout vec4 color, vec2 texCoord)
+        {
+            vec4 contentColor = vec4(yuv_2_rgb(texture2D(s_yuvToRgbSampler, texCoord).rgb, itu_601).rgb, 1.0);
+            color = sourceOver(contentColor, color);
+        }
+    )
+    "\n"
+    GLSL_DIRECTIVE(else)
+    STRINGIFY(
+        void applyTextureExternalOESYUV(inout vec4 color, vec2 texCoord)
+        {
+            vec4 contentColor = texture2D(s_yuvToRgbSampler, texCoord);
+            color = sourceOver(contentColor, color);
+        }
+    )
+    "\n"
+    GLSL_DIRECTIVE(endif);
+
+static const char* fragmentTemplateYUVToRGBNoop =
+    "\n"
+    STRINGIFY(
+        void applyTextureExternalOESYUV(inout vec4 color, vec2 texCoord)
+        {
+            vec4 contentColor = texture2D(s_yuvToRgbSampler, texCoord);
+            color = sourceOver(contentColor, color);
+        }
     );
-#endif
+
+// PQ tone-mapping function with conditional highp precision.
+// Only enabled when highp is available in fragment shaders, because we get banding artifacts with mediump
+// precision.
+static const char* fragmentTemplateToneMapPq =
+    "\n"
+    GLSL_DIRECTIVE(ifdef GL_FRAGMENT_PRECISION_HIGH)
+    STRINGIFY(
+        void applyToneMapPQ(inout vec4 color)
+        {
+            // Reference PQ EOTF (ITU-R BT.2100)
+            highp float m1 = 0.1593017578125;
+            highp float m2 = 78.84375;
+            highp float c1 = 0.8359375;
+            highp float c2 = 18.8515625;
+            highp float c3 = 18.6875;
+
+            highp vec3 pqPowM2 = pow(max(color.rgb, vec3(0.0)), vec3(1.0 / m2));
+            highp vec3 numerator = max(pqPowM2 - c1, vec3(0.0));
+            highp vec3 denominator = c2 - c3 * pqPowM2;
+            highp vec3 linear = pow(numerator / denominator, vec3(1.0 / m1));
+
+            // Normalize using HDR reference white (ITU-R BT.2408)
+            const highp float hdrReferenceWhite = 203.0;
+            const highp float pqMaxNits = 10000.0;
+            highp vec3 normalized = linear * (pqMaxNits / hdrReferenceWhite);
+
+            // Tone-map using maxRGB-based Reinhard, which preserves saturation.
+            // Simplified version of that Chromium does, described in
+            // https://docs.google.com/document/d/17T2ek1i2R7tXdfHCnM-i5n6__RoYe0JyMfKmTEjoGR8/edit?tab=t.0#heading=h.h00l7d53phqy
+            highp float maxRGB = max(max(normalized.r, normalized.g), normalized.b);
+            highp vec3 toneMapped = normalized / (1.0 + maxRGB);
+
+            // Convert from BT.2020 to BT.709 color primaries
+            highp mat3 bt2020ToBt709 = mat3(
+                1.6605, -0.1246, -0.0182,
+                -0.5876, 1.1329, -0.1006,
+                -0.0728, -0.0083, 1.1187
+            );
+            highp vec3 bt709Linear = bt2020ToBt709 * toneMapped;
+
+            // Apply inverse EOTF for sRGB gamma encoding (IEC 61966-2)
+            bvec3 cutoff = lessThan(bt709Linear, vec3(0.0031308));
+            highp vec3 higher = vec3(1.055) * pow(bt709Linear, vec3(1.0 / 2.4)) - vec3(0.055);
+            highp vec3 lower = bt709Linear * vec3(12.92);
+            highp vec3 srgb = mix(higher, lower, vec3(cutoff));
+
+            color = vec4(srgb, color.a);
+        }
+    )
+    "\n"
+    GLSL_DIRECTIVE(else)
+    STRINGIFY(
+        void applyToneMapPQ(inout vec4 color) { }
+    )
+    "\n"
+    GLSL_DIRECTIVE(endif);
 
 static const char* fragmentTemplateCommon =
     STRINGIFY(
-        uniform SamplerType s_sampler;
-        uniform SamplerType s_samplerY;
-        uniform SamplerType s_samplerU;
-        uniform SamplerType s_samplerV;
-        uniform SamplerType s_samplerA;
+        uniform sampler2D s_sampler;
+        uniform sampler2D s_samplerY;
+        uniform sampler2D s_samplerU;
+        uniform sampler2D s_samplerV;
+        uniform sampler2D s_samplerA;
         uniform sampler2D s_contentTexture;
         uniform SamplerExternalOESType s_externalOESTexture;
+        uniform SamplerExternalOESYUVType s_yuvToRgbSampler;
         uniform float u_opacity;
         uniform float u_filterAmount;
-        uniform mat3 u_yuvToRgb;
-        uniform vec2 u_blurRadius;
-        uniform vec2 u_shadowOffset;
+        uniform mat4 u_yuvToRgb;
         uniform vec4 u_color;
-        uniform float u_gaussianKernel[GAUSSIAN_KERNEL_HALF_WIDTH];
+        uniform vec2 u_texelSize;
+        uniform vec2 u_uvMax;
+        uniform float u_gaussianKernel[GAUSSIAN_KERNEL_MAX_HALF_SIZE];
+        uniform float u_gaussianKernelOffset[GAUSSIAN_KERNEL_MAX_HALF_SIZE];
+        uniform int u_gaussianKernelHalfSize;
+        uniform vec2 u_blurDirection;
         uniform int u_roundedRectNumber;
-        uniform vec4 u_roundedRect[ROUNDED_RECT_ARRAY_SIZE];
-        uniform mat4 u_roundedRectInverseTransformMatrix[ROUNDED_RECT_INVERSE_TRANSFORM_ARRAY_SIZE];
+        uniform highp vec4 u_roundedRect[ROUNDED_RECT_ARRAY_SIZE];
+        uniform highp mat4 u_roundedRectInverseTransformMatrix[ROUNDED_RECT_INVERSE_TRANSFORM_ARRAY_SIZE];
 
         void noop(inout vec4 dummyParameter) { }
         void noop(inout vec4 dummyParameter, vec2 texCoord) { }
         void noop(inout vec2 dummyParameter) { }
 
-        float antialias() { return smoothstep(0., 1., v_antialias); }
+        float antialias()
+        {
+            if (v_nonProjectedPosition.w <= 0.)
+                return 1.;
+            return smoothstep(0., 1., v_antialias / v_nonProjectedPosition.w);
+        }
 
         vec2 fragmentTransformTexCoord()
         {
@@ -263,50 +374,59 @@ static const char* fragmentTemplateCommon =
 
         void applyManualRepeat(inout vec2 pos) { pos = fract(pos); }
 
-        void applyTextureRGB(inout vec4 color, vec2 texCoord) { color = u_textureColorSpaceMatrix * SamplerFunction(s_sampler, texCoord); }
+        void applyClampUVBounds(inout vec2 texCoord)
+        {
+            vec2 uvMax = u_uvMax - u_texelSize / 2.;
+            texCoord = clamp(texCoord, vec2(0.), uvMax);
+        }
+
+        void applyTextureRGB(inout vec4 color, vec2 texCoord) { color = u_textureColorSpaceMatrix * texture2D(s_sampler, texCoord); }
 
         void applyPremultiply(inout vec4 color) { color = vec4(color.rgb * color.a, color.a); }
 
+        void applyToneMapPQ(inout vec4 color);
+
+        void applyTextureExternalOESYUV(inout vec4 color, vec2 texCoord);
+
         vec3 yuvToRgb(float y, float u, float v)
         {
-            // yuv is either bt601 or bt709 so the offset is the same
-            vec3 yuv = vec3(y - 0.0625, u - 0.5, v - 0.5);
-            return yuv * u_yuvToRgb;
+            vec4 rgb = vec4(y, u, v, 1.0) * u_yuvToRgb;
+            return rgb.xyz;
         }
         void applyTextureYUV(inout vec4 color, vec2 texCoord)
         {
-            float y = SamplerFunction(s_samplerY, texCoord).r;
-            float u = SamplerFunction(s_samplerU, texCoord).r;
-            float v = SamplerFunction(s_samplerV, texCoord).r;
+            float y = texture2D(s_samplerY, texCoord).r;
+            float u = texture2D(s_samplerU, texCoord).r;
+            float v = texture2D(s_samplerV, texCoord).r;
             vec4 data = vec4(yuvToRgb(y, u, v), 1.0);
             color = u_textureColorSpaceMatrix * data;
         }
         void applyTextureYUVA(inout vec4 color, vec2 texCoord)
         {
-            float y = SamplerFunction(s_samplerY, texCoord).r;
-            float u = SamplerFunction(s_samplerU, texCoord).r;
-            float v = SamplerFunction(s_samplerV, texCoord).r;
-            float a = SamplerFunction(s_samplerA, texCoord).r;
+            float y = texture2D(s_samplerY, texCoord).r;
+            float u = texture2D(s_samplerU, texCoord).r;
+            float v = texture2D(s_samplerV, texCoord).r;
+            float a = texture2D(s_samplerA, texCoord).r;
             vec4 data = vec4(yuvToRgb(y, u, v), a);
             color = u_textureColorSpaceMatrix * data;
         }
         void applyTextureNV12(inout vec4 color, vec2 texCoord)
         {
-            float y = SamplerFunction(s_samplerY, texCoord).r;
-            vec2 uv = SamplerFunction(s_samplerU, texCoord).rg;
+            float y = texture2D(s_samplerY, texCoord).r;
+            vec2 uv = texture2D(s_samplerU, texCoord).rg;
             vec4 data = vec4(yuvToRgb(y, uv.x, uv.y), 1.0);
             color = u_textureColorSpaceMatrix * data;
         }
         void applyTextureNV21(inout vec4 color, vec2 texCoord)
         {
-            float y = SamplerFunction(s_samplerY, texCoord).r;
-            vec2 uv = SamplerFunction(s_samplerU, texCoord).gr;
+            float y = texture2D(s_samplerY, texCoord).r;
+            vec2 uv = texture2D(s_samplerU, texCoord).gr;
             vec4 data = vec4(yuvToRgb(y, uv.x, uv.y), 1.0);
             color = u_textureColorSpaceMatrix * data;
         }
         void applyTexturePackedYUV(inout vec4 color, vec2 texCoord)
         {
-            vec4 data = SamplerFunction(s_sampler, texCoord);
+            vec4 data = texture2D(s_sampler, texCoord);
             color = u_textureColorSpaceMatrix * vec4(yuvToRgb(data.b, data.g, data.r), data.a);
         }
         void applyOpacity(inout vec4 color) { color *= u_opacity; }
@@ -371,24 +491,28 @@ static const char* fragmentTemplateCommon =
             color *= u_filterAmount;
         }
 
-        vec4 sampleColorAtRadius(float radius, vec2 texCoord)
+        void applyTextureCopy(inout vec4 color, vec2 texCoord)
         {
-            vec2 coord = texCoord + radius * u_blurRadius;
-            return SamplerFunction(s_sampler, coord);
-        }
+            vec2 min = (u_textureSpaceMatrix * vec4(0., 0., 0., 1.)).xy + u_texelSize / 2.;
+            vec2 max = (u_textureSpaceMatrix * vec4(1., 1., 0., 1.)).xy - u_texelSize / 2.;
 
-        float sampleAlphaAtRadius(float radius, vec2 texCoord)
-        {
-            vec2 coord = texCoord - u_shadowOffset + radius * u_blurRadius;
-            return SamplerFunction(s_sampler, coord).a * float(coord.x > 0. && coord.y > 0. && coord.x < 1. && coord.y < 1.);
+            vec2 coord = clamp(texCoord, min, max);
+
+            color = texture2D(s_sampler, coord);
         }
 
         void applyBlurFilter(inout vec4 color, vec2 texCoord)
         {
-            vec4 total = sampleColorAtRadius(0., texCoord) * u_gaussianKernel[0];
-            for (int i = 1; i < GAUSSIAN_KERNEL_HALF_WIDTH; i++) {
-                total += sampleColorAtRadius(float(i) * GAUSSIAN_KERNEL_STEP, texCoord) * u_gaussianKernel[i];
-                total += sampleColorAtRadius(float(-1 * i) * GAUSSIAN_KERNEL_STEP, texCoord) * u_gaussianKernel[i];
+            vec2 step = u_blurDirection * u_texelSize;
+            vec2 min = (u_textureSpaceMatrix * vec4(0., 0., 0., 1.)).xy + u_texelSize / 2.;
+            vec2 max = (u_textureSpaceMatrix * vec4(1., 1., 0., 1.)).xy - u_texelSize / 2.;
+
+            vec4 total = texture2D(s_sampler, texCoord) * u_gaussianKernel[0];
+
+            for (int i = 1; i < GaussianKernelHalfSize; i++) {
+                vec2 offset = step * u_gaussianKernelOffset[i];
+                total += texture2D(s_sampler, clamp(texCoord + offset, min, max)) * u_gaussianKernel[i];
+                total += texture2D(s_sampler, clamp(texCoord - offset, min, max)) * u_gaussianKernel[i];
             }
 
             color = total;
@@ -396,13 +520,26 @@ static const char* fragmentTemplateCommon =
 
         void applyAlphaBlur(inout vec4 color, vec2 texCoord)
         {
-            float total = sampleAlphaAtRadius(0., texCoord) * u_gaussianKernel[0];
-            for (int i = 1; i < GAUSSIAN_KERNEL_HALF_WIDTH; i++) {
-                total += sampleAlphaAtRadius(float(i) * GAUSSIAN_KERNEL_STEP, texCoord) * u_gaussianKernel[i];
-                total += sampleAlphaAtRadius(float(-1 * i) * GAUSSIAN_KERNEL_STEP, texCoord) * u_gaussianKernel[i];
+            vec2 step = u_blurDirection * u_texelSize;
+            vec2 min = (u_textureSpaceMatrix * vec4(0., 0., 0., 1.)).xy + u_texelSize / 2.;
+            vec2 max = (u_textureSpaceMatrix * vec4(1., 1., 0., 1.)).xy - u_texelSize / 2.;
+
+            float total = texture2D(s_sampler, texCoord).a * u_gaussianKernel[0];
+
+            for (int i = 1; i < GaussianKernelHalfSize; i++) {
+                vec2 offset = step * u_gaussianKernelOffset[i];
+                total += texture2D(s_sampler, clamp(texCoord + offset, min, max)).a * u_gaussianKernel[i];
+                total += texture2D(s_sampler, clamp(texCoord - offset, min, max)).a * u_gaussianKernel[i];
             }
 
-            color *= total;
+            color = vec4(0., 0., 0., total);
+        }
+
+        void applyAlphaToShadow(inout vec4 color, vec2 texCoord)
+        {
+            vec2 coord = clamp(texCoord, u_texelSize / 2., vec2(1., 1.) - u_texelSize / 2.);
+            color *= u_color;
+            color *= texture2D(s_sampler, coord).a;
         }
 
         vec4 sourceOver(vec4 src, vec4 dst) { return src + dst * (1. - src.a); }
@@ -421,32 +558,32 @@ static const char* fragmentTemplateCommon =
 
         void applySolidColor(inout vec4 color) { color *= u_color; }
 
-        float ellipsisDist(vec2 p, vec2 radius)
+        float ellipsisDist(highp vec2 p, highp vec2 radius)
         {
             if (radius == vec2(0, 0))
                 return 0.0;
 
-            vec2 p0 = p / radius;
-            vec2 p1 = 2.0 * p0 / radius;
+            highp vec2 p0 = p / radius;
+            highp vec2 p1 = 2.0 * p0 / radius;
 
             return (dot(p0, p0) - 1.0) / length (p1);
         }
 
-        float ellipsisCoverage(vec2 point, vec2 center, vec2 radius)
+        float ellipsisCoverage(highp vec2 point, highp vec2 center, highp vec2 radius)
         {
-            float d = ellipsisDist(point - center, radius);
+            highp float d = ellipsisDist(point - center, radius);
             return clamp(0.5 - d, 0.0, 1.0);
         }
 
-        float roundedRectCoverage(vec2 p, vec4 bounds, vec2 topLeftRadii, vec2 topRightRadii, vec2 bottomLeftRadii, vec2 bottomRightRadii)
+        float roundedRectCoverage(highp vec2 p, highp vec4 bounds, highp vec2 topLeftRadii, highp vec2 topRightRadii, highp vec2 bottomLeftRadii, highp vec2 bottomRightRadii)
         {
             if (p.x < bounds.x || p.y < bounds.y || p.x >= bounds.z || p.y >= bounds.w)
                 return 0.0;
 
-            vec2 topLeftCenter = bounds.xy + topLeftRadii;
-            vec2 topRightCenter = bounds.zy + (topRightRadii * vec2(-1, 1));
-            vec2 bottomLeftCenter = bounds.xw + (bottomLeftRadii * vec2(1, -1));
-            vec2 bottomRightCenter = bounds.zw + (bottomRightRadii * vec2(-1, -1));
+            highp vec2 topLeftCenter = bounds.xy + topLeftRadii;
+            highp vec2 topRightCenter = bounds.zy + (topRightRadii * vec2(-1, 1));
+            highp vec2 bottomLeftCenter = bounds.xw + (bottomLeftRadii * vec2(1, -1));
+            highp vec2 bottomRightCenter = bounds.zw + (bottomRightRadii * vec2(-1, -1));
 
             if (p.x < topLeftCenter.x && p.y < topLeftCenter.y)
                 return ellipsisCoverage(p, topLeftCenter, topLeftRadii);
@@ -474,18 +611,41 @@ static const char* fragmentTemplateCommon =
             //
             // This implementation is not optimal, but it's done this way in order to overcome rpi3's
             // proprietary video driver limitations (see https://bugs.webkit.org/show_bug.cgi?id=219739).
+            //
+            // The round-clip data, varying and locals carry highp because some proprietary GLES
+            // drivers mishandle the (dot(p0,p0) - 1.0) / length(p1) form in ellipsisDist() under
+            // mediump (fp16): on PowerVR B-Series (Imagination DDK) ellipsisCoverage returns 0
+            // for fragments deep inside the inscribed ellipse, turning the clipped descendant
+            // layers into solid coverage=0 (silent black). highp on the round-clip path only
+            // restores correct output and preserves mediump elsewhere.
 
             for (int rectIndex = 0; rectIndex < ROUNDED_RECT_MAX_RECTS; rectIndex++) {
                 if (rectIndex >= u_roundedRectNumber)
                     break;
 
-                vec4 fragCoord = u_roundedRectInverseTransformMatrix[rectIndex] * v_nonProjectedPosition;
-                vec4 bounds = vec4(u_roundedRect[rectIndex * 3].xy, u_roundedRect[rectIndex * 3].xy + u_roundedRect[rectIndex * 3].zw);
-                vec2 topLeftRadii = u_roundedRect[(rectIndex * 3) + 1].xy;
-                vec2 topRightRadii = u_roundedRect[(rectIndex * 3) + 1].zw;
-                vec2 bottomLeftRadii = u_roundedRect[(rectIndex * 3) + 2].xy;
-                vec2 bottomRightRadii = u_roundedRect[(rectIndex * 3) + 2].zw;
-                color *= roundedRectCoverage(fragCoord.xy, bounds, topLeftRadii, topRightRadii, bottomLeftRadii, bottomRightRadii);
+                highp vec4 fragCoord = u_roundedRectInverseTransformMatrix[rectIndex] * v_nonProjectedPosition;
+                highp vec4 bounds = vec4(u_roundedRect[rectIndex * 3].xy, u_roundedRect[rectIndex * 3].xy + u_roundedRect[rectIndex * 3].zw);
+                highp vec2 topLeftRadii = u_roundedRect[(rectIndex * 3) + 1].xy;
+                highp vec2 topRightRadii = u_roundedRect[(rectIndex * 3) + 1].zw;
+                highp vec2 bottomLeftRadii = u_roundedRect[(rectIndex * 3) + 2].xy;
+                highp vec2 bottomRightRadii = u_roundedRect[(rectIndex * 3) + 2].zw;
+                float coverage = roundedRectCoverage(fragCoord.xy, bounds, topLeftRadii, topRightRadii, bottomLeftRadii, bottomRightRadii);
+
+                // Pixels outside the rect have coverage 0.0.
+                // Pixels inside the rect have coverage 1.0.
+                // Pixels on the border of the rounded parts have coverage between 0.0 and 1.0.
+
+                // Discard the fragments that are outside the rect.
+                if (coverage == 0.0)
+                    discard;
+
+                // By multiplying the color by the coverage, pixels on the border of the rounded corners get
+                // a bit more transparent.
+                // If blending is enabled, this does some antialiasing on the border pixels.
+                // If blending is disabled it means that we're rendering a holepunch buffer, so the color
+                // is always (0,0,0,0). In this case, multiplying by the coverage doesn't cause any effect
+                // and no antialiasing is done.
+                color *= coverage;
             }
         }
 
@@ -494,14 +654,19 @@ static const char* fragmentTemplateCommon =
             vec4 color = vec4(1., 1., 1., 1.);
             vec2 texCoord = transformTexCoord();
             applyManualRepeatIfNeeded(texCoord);
+            applyClampUVBoundsIfNeeded(texCoord);
             applyTextureRGBIfNeeded(color, texCoord);
             applyTextureYUVIfNeeded(color, texCoord);
             applyTextureYUVAIfNeeded(color, texCoord);
             applyTextureNV12IfNeeded(color, texCoord);
             applyTextureNV21IfNeeded(color, texCoord);
             applyTexturePackedYUVIfNeeded(color, texCoord);
+            applyToneMapPQIfNeeded(color);
             applyPremultiplyIfNeeded(color);
             applySolidColorIfNeeded(color);
+            applyAlphaBlurIfNeeded(color, texCoord);
+            applyAlphaToShadowIfNeeded(color, texCoord);
+            applyContentTextureIfNeeded(color, texCoord);
             applyAntialiasingIfNeeded(color);
             applyOpacityIfNeeded(color);
             applyGrayscaleFilterIfNeeded(color);
@@ -512,20 +677,23 @@ static const char* fragmentTemplateCommon =
             applyBrightnessFilterIfNeeded(color);
             applyContrastFilterIfNeeded(color);
             applyOpacityFilterIfNeeded(color);
+            applyTextureCopyIfNeeded(color, texCoord);
             applyBlurFilterIfNeeded(color, texCoord);
-            applyAlphaBlurIfNeeded(color, texCoord);
-            applyContentTextureIfNeeded(color, texCoord);
             applyTextureExternalOESIfNeeded(color, texCoord);
+            applyTextureExternalOESYUVIfNeeded(color, texCoord);
             applyRoundedRectClipIfNeeded(color);
             gl_FragColor = color;
         }
     );
+// clang-format on
 
 Ref<TextureMapperShaderProgram> TextureMapperShaderProgram::create(TextureMapperShaderProgram::Options options)
 {
 #define SET_APPLIER_FROM_OPTIONS(Applier) \
     optionsApplierBuilder.append(\
-        (options & TextureMapperShaderProgram::Applier) ? ENABLE_APPLIER(Applier) : DISABLE_APPLIER(Applier))
+        (options & TextureMapperShaderProgram::Applier) ? unsafeSpan(ENABLE_APPLIER(Applier)) : unsafeSpan(DISABLE_APPLIER(Applier)))
+
+    unsigned glVersion = GLContext::current()->version();
 
     StringBuilder optionsApplierBuilder;
     SET_APPLIER_FROM_OPTIONS(TextureRGB);
@@ -534,7 +702,7 @@ Ref<TextureMapperShaderProgram> TextureMapperShaderProgram::create(TextureMapper
     SET_APPLIER_FROM_OPTIONS(TextureNV12);
     SET_APPLIER_FROM_OPTIONS(TextureNV21);
     SET_APPLIER_FROM_OPTIONS(TexturePackedYUV);
-    SET_APPLIER_FROM_OPTIONS(Rect);
+    SET_APPLIER_FROM_OPTIONS(ToneMapPQ);
     SET_APPLIER_FROM_OPTIONS(SolidColor);
     SET_APPLIER_FROM_OPTIONS(Opacity);
     SET_APPLIER_FROM_OPTIONS(Antialiasing);
@@ -546,65 +714,72 @@ Ref<TextureMapperShaderProgram> TextureMapperShaderProgram::create(TextureMapper
     SET_APPLIER_FROM_OPTIONS(ContrastFilter);
     SET_APPLIER_FROM_OPTIONS(InvertFilter);
     SET_APPLIER_FROM_OPTIONS(OpacityFilter);
+    SET_APPLIER_FROM_OPTIONS(TextureCopy);
     SET_APPLIER_FROM_OPTIONS(BlurFilter);
     SET_APPLIER_FROM_OPTIONS(AlphaBlur);
+    SET_APPLIER_FROM_OPTIONS(AlphaToShadow);
     SET_APPLIER_FROM_OPTIONS(ContentTexture);
     SET_APPLIER_FROM_OPTIONS(ManualRepeat);
+    SET_APPLIER_FROM_OPTIONS(ClampUVBounds);
     SET_APPLIER_FROM_OPTIONS(TextureExternalOES);
+    SET_APPLIER_FROM_OPTIONS(TextureExternalOESYUV);
     SET_APPLIER_FROM_OPTIONS(RoundedRectClip);
     SET_APPLIER_FROM_OPTIONS(Premultiply);
 
     StringBuilder vertexShaderBuilder;
 
-    // OpenGL >= 3.2 requires a #version directive at the beginning of the code.
-#if !USE(OPENGL_ES)
-    unsigned glVersion = GLContext::current()->version();
-    if (glVersion >= 320)
-        vertexShaderBuilder.append(GLSL_DIRECTIVE(version 150));
-#endif
+    if (glVersion >= 300) {
+        vertexShaderBuilder.append(unsafeSpan(GLSL_DIRECTIVE(version 300 es)));
+        vertexShaderBuilder.append(unsafeSpan(ES3_COMPATIBILITY_VERTEX));
+    }
 
     // Append the options.
     vertexShaderBuilder.append(optionsApplierBuilder.toString());
 
     // Append the appropriate input/output variable definitions.
-#if USE(OPENGL_ES)
-    vertexShaderBuilder.append(vertexTemplateLT320Vars);
-#else
-    if (glVersion >= 320)
-        vertexShaderBuilder.append(vertexTemplateGE320Vars);
-    else
-        vertexShaderBuilder.append(vertexTemplateLT320Vars);
-#endif
+    vertexShaderBuilder.append(unsafeSpan(vertexTemplateLT320Vars));
 
     // Append the common code.
-    vertexShaderBuilder.append(vertexTemplateCommon);
+    vertexShaderBuilder.append(unsafeSpan(vertexTemplateCommon));
 
     StringBuilder fragmentShaderBuilder;
 
-    // OpenGL >= 3.2 requires a #version directive at the beginning of the code.
-#if !USE(OPENGL_ES)
-    if (glVersion >= 320)
-        fragmentShaderBuilder.append(GLSL_DIRECTIVE(version 150));
-#endif
+    if (glVersion >= 300) {
+        fragmentShaderBuilder.append(unsafeSpan(GLSL_DIRECTIVE(version 300 es)));
+        fragmentShaderBuilder.append(unsafeSpan(ES3_COMPATIBILITY_FRAGMENT));
+    }
 
     // Append the options.
     fragmentShaderBuilder.append(optionsApplierBuilder.toString());
 
+    if (glVersion >= 300)
+        fragmentShaderBuilder.append(unsafeSpan(GLSL_DIRECTIVE(define GaussianKernelHalfSize u_gaussianKernelHalfSize)));
+    else
+        fragmentShaderBuilder.append(unsafeSpan(GLSL_DIRECTIVE(define GaussianKernelHalfSize GAUSSIAN_KERNEL_MAX_HALF_SIZE)));
+
     // Append the common header.
-    fragmentShaderBuilder.append(fragmentTemplateHeaderCommon);
+    fragmentShaderBuilder.append(unsafeSpan(fragmentTemplateHeaderCommon));
+
+    if (GLContext::current()->glExtensions().EXT_YUV_target)
+        fragmentShaderBuilder.append(unsafeSpan(EXT_YUV_TARGET_DIRECTIVE));
+    else
+        fragmentShaderBuilder.append(unsafeSpan(GLSL_DIRECTIVE(define SamplerExternalOESYUVType sampler2D)));
+
+    fragmentShaderBuilder.append(unsafeSpan(fragmentTemplateHeaderCommonVariables));
 
     // Append the appropriate input/output variable definitions.
-#if USE(OPENGL_ES)
-    fragmentShaderBuilder.append(fragmentTemplateLT320Vars);
-#else
-    if (glVersion >= 320)
-        fragmentShaderBuilder.append(fragmentTemplateGE320Vars);
-    else
-        fragmentShaderBuilder.append(fragmentTemplateLT320Vars);
-#endif
+    fragmentShaderBuilder.append(unsafeSpan(fragmentTemplateLT320Vars));
 
     // Append the common code.
-    fragmentShaderBuilder.append(fragmentTemplateCommon);
+    fragmentShaderBuilder.append(unsafeSpan(fragmentTemplateCommon));
+
+    // Append the PQ tone mapping function.
+    fragmentShaderBuilder.append(unsafeSpan(fragmentTemplateToneMapPq));
+
+    if (GLContext::current()->glExtensions().EXT_YUV_target)
+        fragmentShaderBuilder.append(unsafeSpan(fragmentTemplateYUVToRGB));
+    else
+        fragmentShaderBuilder.append(unsafeSpan(fragmentTemplateYUVToRGBNoop));
 
     return adoptRef(*new TextureMapperShaderProgram(vertexShaderBuilder.toString(), fragmentShaderBuilder.toString()));
 }
@@ -619,10 +794,10 @@ static CString getShaderLog(GLuint shader)
 
     Vector<GLchar> info(logLength);
     GLsizei infoLength = 0;
-    glGetShaderInfoLog(shader, logLength, &infoLength, info.data());
+    glGetShaderInfoLog(shader, logLength, &infoLength, info.mutableSpan().data());
 
     size_t stringLength = std::max(infoLength, 0);
-    return { info.data(), stringLength };
+    return byteCast<char>(info.span().first(stringLength));
 }
 
 static CString getProgramLog(GLuint program)
@@ -634,10 +809,10 @@ static CString getProgramLog(GLuint program)
 
     Vector<GLchar> info(logLength);
     GLsizei infoLength = 0;
-    glGetProgramInfoLog(program, logLength, &infoLength, info.data());
+    glGetProgramInfoLog(program, logLength, &infoLength, info.mutableSpan().data());
 
     size_t stringLength = std::max(infoLength, 0);
-    return { info.data(), stringLength };
+    return byteCast<char>(info.span().first(stringLength));
 }
 #endif
 
@@ -710,4 +885,4 @@ GLuint TextureMapperShaderProgram::getLocation(VariableID variable, ASCIILiteral
 
 } // namespace WebCore
 
-#endif // USE(TEXTURE_MAPPER_GL)
+#endif // USE(TEXTURE_MAPPER)

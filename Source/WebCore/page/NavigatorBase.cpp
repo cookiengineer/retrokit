@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,13 +27,23 @@
 #include "config.h"
 #include "NavigatorBase.h"
 
+#include "ContextDestructionObserverInlines.h"
 #include "Document.h"
-#include "RuntimeEnabledFeatures.h"
+#include "GPU.h"
+#include "ScriptTrackingPrivacyCategory.h"
 #include "ServiceWorkerContainer.h"
+#include "Settings.h"
+#include "StorageManager.h"
+#include "WebCoreOpaqueRoot.h"
+#include "WebLockManager.h"
 #include <mutex>
 #include <wtf/Language.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/NumberOfCores.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/UniqueRef.h>
+#include <wtf/WeakRandom.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/WTFString.h>
 
 #if OS(LINUX)
@@ -42,7 +52,7 @@
 #endif
 
 #if PLATFORM(IOS_FAMILY)
-#include "Device.h"
+#import <pal/system/ios/Device.h>
 #endif
 
 #ifndef WEBCORE_NAVIGATOR_PRODUCT
@@ -62,6 +72,8 @@
 #endif // ifndef WEBCORE_NAVIGATOR_VENDOR_SUB
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(NavigatorBase);
 
 NavigatorBase::NavigatorBase(ScriptExecutionContext* context)
     : ContextDestructionObserver(context)
@@ -85,19 +97,19 @@ String NavigatorBase::appVersion() const
 String NavigatorBase::platform() const
 {
 #if OS(LINUX)
-    static LazyNeverDestroyed<String> platformName;
-    static std::once_flag onceKey;
-    std::call_once(onceKey, [] {
+    static NeverDestroyed<String> platformName = [] {
         struct utsname osname;
-        platformName.construct(uname(&osname) >= 0 ? String(osname.sysname) + " "_str + String(osname.machine) : String(""_s));
-    });
+        return uname(&osname) >= 0 ? makeString(unsafeSpan(osname.sysname), " "_s, unsafeSpan(osname.machine)) : emptyString();
+    }();
     return platformName->isolatedCopy();
 #elif PLATFORM(IOS_FAMILY)
-    return deviceName();
-#elif OS(MAC_OS_X)
+    return PAL::deviceName();
+#elif OS(MACOS)
     return "MacIntel"_s;
 #elif OS(WINDOWS)
     return "Win32"_s;
+#elif OS(HAIKU)
+    return "Haiku"_s;
 #else
     return ""_s;
 #endif
@@ -139,21 +151,56 @@ Vector<String> NavigatorBase::languages()
     return { defaultLanguage() };
 }
 
-#if ENABLE(SERVICE_WORKER)
+StorageManager& NavigatorBase::storage()
+{
+    if (!m_storageManager)
+        m_storageManager = StorageManager::create(*this);
+
+    return *m_storageManager;
+}
+
+WebLockManager& NavigatorBase::locks()
+{
+    if (!m_webLockManager)
+        m_webLockManager = WebLockManager::create(*this);
+
+    return *m_webLockManager;
+}
+
 ServiceWorkerContainer& NavigatorBase::serviceWorker()
 {
-    ASSERT(RuntimeEnabledFeatures::sharedFeatures().serviceWorkerEnabled());
+    ASSERT(!scriptExecutionContext() || scriptExecutionContext()->settingsValues().serviceWorkersEnabled);
     if (!m_serviceWorkerContainer)
-        m_serviceWorkerContainer = makeUnique<ServiceWorkerContainer>(scriptExecutionContext(), *this);
+        m_serviceWorkerContainer = ServiceWorkerContainer::create(protect(scriptExecutionContext()).get(), *this).moveToUniquePtr();
     return *m_serviceWorkerContainer;
 }
 
 ExceptionOr<ServiceWorkerContainer&> NavigatorBase::serviceWorker(ScriptExecutionContext& context)
 {
-    if (is<Document>(context) && downcast<Document>(context).isSandboxed(SandboxOrigin))
-        return Exception { SecurityError, "Service Worker is disabled because the context is sandboxed and lacks the 'allow-same-origin' flag" };
+    if (RefPtr document = dynamicDowncast<Document>(context); document && document->isSandboxed(SandboxFlag::Origin))
+        return Exception { ExceptionCode::SecurityError, "Service Worker is disabled because the context is sandboxed and lacks the 'allow-same-origin' flag"_s };
     return serviceWorker();
 }
-#endif
+
+int NavigatorBase::hardwareConcurrency(ScriptExecutionContext& context)
+{
+    if (context.requiresScriptTrackingPrivacyProtection(ScriptTrackingPrivacyCategory::HardwareConcurrency)) {
+        auto randomSeed = static_cast<unsigned>(context.noiseInjectionHashSalt().value_or(0));
+        return 1 + WeakRandom { randomSeed }.getUint32(63);
+    }
+
+    // Enforce a maximum for the number of cores reported to mitigate
+    // fingerprinting for the minority of machines with large numbers of cores.
+    // If machines with more than 8 cores become commonplace, we should bump this number.
+    // see https://bugs.webkit.org/show_bug.cgi?id=132588 for the
+    // rationale behind this decision.
+    static int numberOfCores = WTF::numberOfProcessorCores() < 8 ? 4 : 8;
+    return numberOfCores;
+}
+
+WebCoreOpaqueRoot root(NavigatorBase* navigator)
+{
+    return WebCoreOpaqueRoot { navigator };
+}
 
 } // namespace WebCore

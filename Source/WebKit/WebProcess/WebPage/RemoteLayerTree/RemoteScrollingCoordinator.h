@@ -29,9 +29,7 @@
 
 #include "MessageReceiver.h"
 #include <WebCore/AsyncScrollingCoordinator.h>
-#include <WebCore/ScrollTypes.h>
-#include <WebCore/ScrollingConstraints.h>
-#include <WebCore/Timer.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace IPC {
 class Decoder;
@@ -44,19 +42,32 @@ class WebPage;
 class RemoteScrollingCoordinatorTransaction;
 class RemoteScrollingUIState;
 
-class RemoteScrollingCoordinator : public WebCore::AsyncScrollingCoordinator, public IPC::MessageReceiver {
+class RemoteScrollingCoordinator final : public WebCore::AsyncScrollingCoordinator, public IPC::MessageReceiver {
+    WTF_MAKE_TZONE_ALLOCATED(RemoteScrollingCoordinator);
 public:
     static Ref<RemoteScrollingCoordinator> create(WebPage* page)
     {
         return adoptRef(*new RemoteScrollingCoordinator(page));
     }
 
-    void buildTransaction(RemoteScrollingCoordinatorTransaction&);
+    void ref() const final { WebCore::AsyncScrollingCoordinator::ref(); }
+    void deref() const final { WebCore::AsyncScrollingCoordinator::deref(); }
+
+    RemoteScrollingCoordinatorTransaction buildTransaction(WebCore::FrameIdentifier);
 
     void scrollingStateInUIProcessChanged(const RemoteScrollingUIState&);
 
     void addNodeWithActiveRubberBanding(WebCore::ScrollingNodeID);
     void removeNodeWithActiveRubberBanding(WebCore::ScrollingNodeID);
+    
+    void setCurrentWheelEventWillStartSwipe(std::optional<bool> value) { m_currentWheelEventWillStartSwipe = value; }
+
+    struct NodeAndGestureState {
+        std::optional<WebCore::ScrollingNodeID> wheelGestureNode;
+        std::optional<WebCore::WheelScrollGestureState> wheelGestureState;
+    };
+
+    NodeAndGestureState takeCurrentWheelGestureInfo() { return std::exchange(m_currentWheelGestureInfo, { }); }
 
 private:
     RemoteScrollingCoordinator(WebPage*);
@@ -65,27 +76,52 @@ private:
     bool isRemoteScrollingCoordinator() const override { return true; }
     
     // ScrollingCoordinator
-    bool coordinatesScrollingForFrameView(const WebCore::FrameView&) const override;
+    bool coordinatesScrollingForFrameView(const WebCore::LocalFrameView&) const override;
     void scheduleTreeStateCommit() override;
+    void willSendScrollPositionRequest(WebCore::ScrollingNodeID, WebCore::RequestedScrollData&) override;
 
-    bool isRubberBandInProgress(WebCore::ScrollingNodeID) const final;
-    bool isUserScrollInProgress(WebCore::ScrollingNodeID) const final;
-    bool isScrollSnapInProgress(WebCore::ScrollingNodeID) const final;
+    bool isRubberBandInProgress(std::optional<WebCore::ScrollingNodeID>) const final;
+    bool isUserScrollInProgress(std::optional<WebCore::ScrollingNodeID>) const final;
+    bool isScrollSnapInProgress(std::optional<WebCore::ScrollingNodeID>) const final;
 
     void setScrollPinningBehavior(WebCore::ScrollPinningBehavior) override;
+    
+    void startMonitoringWheelEvents(bool clearLatchingState) final;
 
     // IPC::MessageReceiver
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
     
     // Respond to UI process changes.
-    void scrollPositionChangedForNode(WebCore::ScrollingNodeID, const WebCore::FloatPoint& scrollPosition, bool syncLayerPosition);
+    void scrollUpdateForNode(WebCore::ScrollUpdate&&, CompletionHandler<void()>&&);
     void currentSnapPointIndicesChangedForNode(WebCore::ScrollingNodeID, std::optional<unsigned> horizontal, std::optional<unsigned> vertical);
 
-    WebPage* m_webPage;
+    void receivedWheelEventWithPhases(WebCore::PlatformWheelEventPhase phase, WebCore::PlatformWheelEventPhase momentumPhase);
+    void startDeferringScrollingTestCompletionForNode(WebCore::ScrollingNodeID, OptionSet<WebCore::WheelEventTestMonitor::DeferReason>);
+    void stopDeferringScrollingTestCompletionForNode(WebCore::ScrollingNodeID, OptionSet<WebCore::WheelEventTestMonitor::DeferReason>);
+    void scrollingTreeNodeScrollbarVisibilityDidChange(WebCore::ScrollingNodeID, WebCore::ScrollbarOrientation, bool);
+    void scrollingTreeNodeScrollbarMinimumThumbLengthDidChange(WebCore::ScrollingNodeID nodeID, WebCore::ScrollbarOrientation orientation, int minimumThumbLength);
+
+    WebCore::WheelEventHandlingResult handleWheelEventForScrolling(const WebCore::PlatformWheelEvent&, WebCore::ScrollingNodeID, std::optional<WebCore::WheelScrollGestureState>) override;
+
+    WeakPtr<WebPage> m_webPage;
+
+    WebCore::PageIdentifier m_pageIdentifier;
 
     HashSet<WebCore::ScrollingNodeID> m_nodesWithActiveRubberBanding;
     HashSet<WebCore::ScrollingNodeID> m_nodesWithActiveScrollSnap;
     HashSet<WebCore::ScrollingNodeID> m_nodesWithActiveUserScrolls;
+
+    struct PendingScrollResponseInfo {
+        Markable<WebCore::ScrollRequestIdentifier> identifier;
+        bool pendingScrollEnd { false };
+    };
+    HashMap<WebCore::ScrollingNodeID, PendingScrollResponseInfo> m_scrollRequestsPendingResponse;
+
+    NodeAndGestureState m_currentWheelGestureInfo;
+
+    bool m_clearScrollLatchingInNextTransaction { false };
+    
+    std::optional<bool> m_currentWheelEventWillStartSwipe;
 };
 
 } // namespace WebKit

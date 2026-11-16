@@ -43,12 +43,12 @@ public:
 
 private:
     WebUndoStep(Ref<WebCore::UndoStep>&& step, WebUndoStepID stepID)
-        : m_step(WTFMove(step))
+        : m_step(WTF::move(step))
         , m_stepID(stepID)
     {
     }
 
-    Ref<WebCore::UndoStep> m_step;
+    const Ref<WebCore::UndoStep> m_step;
     WebUndoStepID m_stepID;
 };
 

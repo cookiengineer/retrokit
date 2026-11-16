@@ -24,15 +24,22 @@
  */
 
 [
-    Conditional=APPLE_PAY
+    Conditional=APPLE_PAY,
 ] dictionary MockPaymentAddress {
-    DOMString countryCode;
-    FrozenArray<DOMString> addressLines;
-    DOMString administrativeArea;
-    DOMString locality;
-    DOMString subLocality;
-    DOMString postalCode;
-    DOMString localizedName;
     DOMString phoneNumber;
     DOMString emailAddress;
+    DOMString givenName;
+    DOMString familyName;
+    DOMString phoneticGivenName;
+    DOMString phoneticFamilyName;
+    FrozenArray<DOMString> addressLines;
+    DOMString subLocality;
+    DOMString locality;
+    DOMString postalCode;
+    DOMString subAdministrativeArea;
+    DOMString administrativeArea;
+    DOMString country;
+    DOMString countryCode;
+    DOMString localizedName;
+    DOMString localizedPhoneticName;
 };

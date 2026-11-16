@@ -1,8 +1,8 @@
 {
     "domain": "DOMStorage",
     "description": "Query and modify DOM storage.",
-    "debuggableTypes": ["itml", "page", "web-page"],
-    "targetTypes": ["itml", "page"],
+    "debuggableTypes": ["itml", "web-page"],
+    "targetTypes": ["itml", "frame", "page"],
     "types": [
         {
             "id": "StorageId",

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,28 +29,23 @@
 #if ENABLE(WEBASSEMBLY)
 
 #include "JSCInlines.h"
-#include "JSWebAssemblyCodeBlock.h"
 #include "JSWebAssemblyCompileError.h"
+#include "JSWebAssemblyLinkError.h"
+#include "WasmBinding.h"
+#include "WasmDebugServer.h"
 #include "WasmFormat.h"
 #include "WasmModule.h"
 #include "WasmModuleInformation.h"
 #include <wtf/StdLibExtras.h>
+#include <wtf/text/MakeString.h>
 
 namespace JSC {
 
-const ClassInfo JSWebAssemblyModule::s_info = { "WebAssembly.Module", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSWebAssemblyModule) };
+const ClassInfo JSWebAssemblyModule::s_info = { "WebAssembly.Module"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSWebAssemblyModule) };
 
-JSWebAssemblyModule* JSWebAssemblyModule::createStub(VM& vm, JSGlobalObject* globalObject, Structure* structure, Wasm::Module::ValidationResult&& result)
+JSWebAssemblyModule* JSWebAssemblyModule::create(VM& vm, Structure* structure, Ref<Wasm::Module>&& result)
 {
-    auto scope = DECLARE_THROW_SCOPE(vm);
-    if (!result.has_value()) {
-        auto* error = createJSWebAssemblyCompileError(globalObject, vm, result.error());
-        RETURN_IF_EXCEPTION(scope, nullptr);
-        throwException(globalObject, scope, error);
-        return nullptr;
-    }
-
-    auto* module = new (NotNull, allocateCell<JSWebAssemblyModule>(vm.heap)) JSWebAssemblyModule(vm, structure, result.value().releaseNonNull());
+    auto* module = new (NotNull, allocateCell<JSWebAssemblyModule>(vm)) JSWebAssemblyModule(vm, structure, WTF::move(result));
     module->finishCreation(vm);
     return module;
 }
@@ -63,14 +58,14 @@ Structure* JSWebAssemblyModule::createStructure(VM& vm, JSGlobalObject* globalOb
 
 JSWebAssemblyModule::JSWebAssemblyModule(VM& vm, Structure* structure, Ref<Wasm::Module>&& module)
     : Base(vm, structure)
-    , m_module(WTFMove(module))
+    , m_module(WTF::move(module))
 {
 }
 
 void JSWebAssemblyModule::finishCreation(VM& vm)
 {
     Base::finishCreation(vm);
-    ASSERT(inherits(vm, info()));
+    ASSERT(inherits(info()));
 
     // On success, a new WebAssembly.Module object is returned with [[Module]] set to the validated Ast.module.
     SymbolTable* exportSymbolTable = SymbolTable::create(vm);
@@ -81,8 +76,7 @@ void JSWebAssemblyModule::finishCreation(VM& vm)
     }
     for (auto& exp : moduleInformation.exports) {
         auto offset = exportSymbolTable->takeNextScopeOffset(NoLockingNecessary);
-        String field = String::fromUTF8(exp.field);
-        exportSymbolTable->set(NoLockingNecessary, AtomString(field).impl(), SymbolTableEntry(VarOffset(offset)));
+        exportSymbolTable->set(NoLockingNecessary, makeAtomString(exp.field).impl(), SymbolTableEntry(VarOffset(offset)));
     }
 
     m_exportSymbolTable.set(vm, this, exportSymbolTable);
@@ -91,7 +85,7 @@ void JSWebAssemblyModule::finishCreation(VM& vm)
 void JSWebAssemblyModule::destroy(JSCell* cell)
 {
     static_cast<JSWebAssemblyModule*>(cell)->JSWebAssemblyModule::~JSWebAssemblyModule();
-    Wasm::SignatureInformation::tryCleanup();
+    Wasm::TypeInformation::tryCleanup();
 }
 
 const Wasm::ModuleInformation& JSWebAssemblyModule::moduleInformation() const
@@ -104,14 +98,9 @@ SymbolTable* JSWebAssemblyModule::exportSymbolTable() const
     return m_exportSymbolTable.get();
 }
 
-Wasm::SignatureIndex JSWebAssemblyModule::signatureIndexFromFunctionIndexSpace(unsigned functionIndexSpace) const
+const Wasm::RTT& JSWebAssemblyModule::rttFromFunctionIndexSpace(Wasm::FunctionSpaceIndex functionIndexSpace) const
 {
-    return m_module->signatureIndexFromFunctionIndexSpace(functionIndexSpace);
-}
-
-JSWebAssemblyCodeBlock* JSWebAssemblyModule::codeBlock(Wasm::MemoryMode mode)
-{
-    return m_codeBlocks[static_cast<size_t>(mode)].get();
+    return m_module->rttFromFunctionIndexSpace(functionIndexSpace);
 }
 
 Wasm::Module& JSWebAssemblyModule::module()
@@ -119,21 +108,14 @@ Wasm::Module& JSWebAssemblyModule::module()
     return m_module.get();
 }
 
-void JSWebAssemblyModule::setCodeBlock(VM& vm, Wasm::MemoryMode mode, JSWebAssemblyCodeBlock* codeBlock)
-{
-    m_codeBlocks[static_cast<size_t>(mode)].set(vm, this, codeBlock);
-}
-
 template<typename Visitor>
 void JSWebAssemblyModule::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    JSWebAssemblyModule* thisObject = jsCast<JSWebAssemblyModule*>(cell);
+    JSWebAssemblyModule* thisObject = uncheckedDowncast<JSWebAssemblyModule>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
 
     Base::visitChildren(thisObject, visitor);
     visitor.append(thisObject->m_exportSymbolTable);
-    for (unsigned i = 0; i < Wasm::NumberOfMemoryModes; ++i)
-        visitor.append(thisObject->m_codeBlocks[i]);
 }
 
 DEFINE_VISIT_CHILDREN(JSWebAssemblyModule);

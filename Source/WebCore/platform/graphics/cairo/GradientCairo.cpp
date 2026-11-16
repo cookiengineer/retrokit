@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006, 2007, 2008 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006, 2007, 2008 Apple Inc. All rights reserved.
  * Copyright (C) 2007 Alp Toker <alp@atoker.com>
  * Copyright (C) 2019 Igalia S.L.
  *
@@ -35,6 +35,7 @@
 #include "CairoUtilities.h"
 #include "ColorBlending.h"
 #include "GraphicsContextCairo.h"
+#include <numbers>
 #include <wtf/MathExtras.h>
 
 namespace WebCore {
@@ -43,9 +44,9 @@ void Gradient::stopsChanged()
 {
 }
 
-static void addColorStopRGBA(cairo_pattern_t *gradient, Gradient::ColorStop stop, float globalAlpha)
+static void addColorStopRGBA(cairo_pattern_t *gradient, GradientColorStop stop, float globalAlpha)
 {
-    auto [r, g, b, a] = stop.color.toSRGBALossy<float>();
+    auto [r, g, b, a] = stop.color.toColorTypeLossy<SRGBA<float>>().resolved();
     cairo_pattern_add_color_stop_rgba(gradient, stop.offset, r, g, b, a * globalAlpha);
 }
 
@@ -53,17 +54,17 @@ typedef struct point_t {
     double x, y;
 } point_t;
 
-static void setCornerColorRGBA(cairo_pattern_t* gradient, int id, Gradient::ColorStop stop, float globalAlpha)
+static void setCornerColorRGBA(cairo_pattern_t* gradient, int id, GradientColorStop stop, float globalAlpha)
 {
-    auto [r, g, b, a] = stop.color.toSRGBALossy<float>();
+    auto [r, g, b, a] = stop.color.toColorTypeLossy<SRGBA<float>>().resolved();
     cairo_mesh_pattern_set_corner_color_rgba(gradient, id, r, g, b, a * globalAlpha);
 }
 
 static constexpr double deg0 = 0;
-static constexpr double deg90 = piDouble / 2;
-static constexpr double deg180 = piDouble;
-static constexpr double deg270 = 3 * piDouble / 2;
-static constexpr double deg360 = 2 * piDouble;
+static constexpr double deg90 = std::numbers::pi / 2;
+static constexpr double deg180 = std::numbers::pi;
+static constexpr double deg270 = 3 * std::numbers::pi / 2;
+static constexpr double deg360 = 2 * std::numbers::pi;
 
 static double normalizeAngle(double angle)
 {
@@ -74,14 +75,14 @@ static double normalizeAngle(double angle)
 }
 
 static void addConicSector(cairo_pattern_t *gradient, float cx, float cy, float r, float angleRadians,
-    Gradient::ColorStop from, Gradient::ColorStop to, float globalAlpha)
+    GradientColorStop from, GradientColorStop to, float globalAlpha)
 {
     const double angOffset = 0.25; // 90 degrees.
 
     // Substract 90 degrees so angles start from top left.
     // Convert to radians and add angleRadians offset.
-    double angleStart = ((from.offset - angOffset) * 2 * piDouble) + angleRadians;
-    double angleEnd = ((to.offset - angOffset) * 2 * piDouble) + angleRadians;
+    double angleStart = ((from.offset - angOffset) * 2 * std::numbers::pi) + angleRadians;
+    double angleEnd = ((to.offset - angOffset) * 2 * std::numbers::pi) + angleRadians;
 
     // Calculate center offset depending on quadrant.
     //
@@ -149,8 +150,22 @@ static void addConicSector(cairo_pattern_t *gradient, float cx, float cy, float 
 }
 
 static RefPtr<cairo_pattern_t> createConic(float xo, float yo, float r, float angleRadians,
-    Gradient::ColorStopVector stops, float globalAlpha)
+    GradientColorStops::StopVector stops, float globalAlpha)
 {
+    // Locate last stop with offset 0.
+    size_t i = stops.size() - 1;
+    for (; i > 0; i--) {
+        if (!stops[i].offset)
+            break;
+    }
+    // Remove stops with offset zero before last one.
+    if (i > 0) {
+        GradientColorStops::StopVector newStops;
+        for (; i < stops.size(); i++)
+            newStops.append(stops[i]);
+        stops = newStops;
+    }
+
     // Degenerated gradients with two stops at the same offset arrive with a single stop at 0.0
     // Add another point here so it can be interpolated properly below.
     if (stops.size() == 1)
@@ -173,7 +188,7 @@ static RefPtr<cairo_pattern_t> createConic(float xo, float yo, float r, float an
                 last, {0.25, last.color}, {0.5, last.color}, {0.75, last.color}, {1.0, last.color}
             };
         } else {
-            auto interpolatedStop = [&] (double fraction) -> Gradient::ColorStop {
+            auto interpolatedStop = [&] (double fraction) -> GradientColorStop {
                 auto offset = blend(stops.first().offset, stops.last().offset, fraction);
                 auto interpColor = blendWithoutPremultiply(stops.first().color, stops.last().color, fraction);
                 return { offset, interpColor };
@@ -224,7 +239,7 @@ RefPtr<cairo_pattern_t> Gradient::createPattern(float globalAlpha, const AffineT
             // Thus, here I give the radius an extremely large value. The resulting gradient will be later clipped by fillRect.
             // An alternative solution could be to change the API and pass a rect's width and height to optimize the computation of the radius.
             const float radius = 4096;
-            return createConic(data.point0.x(), data.point0.y(), radius, data.angleRadians, stops(), globalAlpha);
+            return createConic(data.point0.x(), data.point0.y(), radius, data.angleRadians, stops().stops(), globalAlpha);
         }
     );
 
@@ -247,7 +262,7 @@ RefPtr<cairo_pattern_t> Gradient::createPattern(float globalAlpha, const AffineT
 
 void Gradient::fill(GraphicsContext& context, const FloatRect& rect)
 {
-    auto pattern = createPattern(1.0, context.state().fillGradientSpaceTransform);
+    auto pattern = createPattern(1.0, context.fillGradientSpaceTransform());
     if (!pattern)
         return;
 

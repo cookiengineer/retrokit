@@ -3,7 +3,7 @@
  * Copyright (C) 2016 Yusuke Suzuki <utatane.tea@gmail.com>
  * Copyright (C) 2011 Igalia S.L.
  * Copyright (C) 2010 Apple Inc. All rights reserved.
- * Portions Copyright (c) 2010 Motorola Mobility, Inc.  All rights reserved.
+ * Portions Copyright (c) 2010 Motorola Mobility, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,52 +30,56 @@
 #include "config.h"
 #include <wtf/WorkQueue.h>
 
+#include <wtf/CurrentThread.h>
 #include <wtf/threads/BinarySemaphore.h>
 
-Ref<WorkQueue> WorkQueue::constructMainWorkQueue()
+namespace WTF {
+
+WorkQueueBase::WorkQueueBase(RunLoop& runLoop)
+    : m_runLoop(runLoop)
+    , m_threadID(mainThreadID)
 {
-    return adoptRef(*new WorkQueue(RunLoop::main()));
 }
 
-WorkQueue::WorkQueue(RunLoop& runLoop)
-    : m_runLoop(&runLoop)
+void WorkQueueBase::platformInitialize(ASCIILiteral name, Type, QOS qos)
 {
-}
-
-void WorkQueue::platformInitialize(const char* name, Type, QOS)
-{
+    m_runLoop = RunLoop::create(name, ThreadType::Unknown, qos);
     BinarySemaphore semaphore;
-    Thread::create(name, [&] {
-        m_runLoop = &RunLoop::current();
+    m_runLoop->dispatch([&] {
+        m_threadID = currentThreadID();
         semaphore.signal();
-        m_runLoop->run();
-    })->detach();
+    });
     semaphore.wait();
 }
 
-void WorkQueue::platformInvalidate()
+void WorkQueueBase::platformInvalidate()
 {
     if (m_runLoop) {
-        Ref<RunLoop> protector(*m_runLoop);
+        Ref<RunLoop> protector = m_runLoop.releaseNonNull();
         protector->stop();
         protector->dispatch([] {
-            RunLoop::current().stop();
+            RunLoop::currentSingleton().stop();
         });
     }
 }
 
-void WorkQueue::dispatch(Function<void()>&& function)
+void WorkQueueBase::dispatch(Function<void()>&& function)
 {
-    RefPtr<WorkQueue> protect(this);
-    m_runLoop->dispatch([protect, function = WTFMove(function)] {
+    m_runLoop->dispatch([protectedThis = Ref { *this }, function = WTF::move(function)] {
         function();
     });
 }
 
-void WorkQueue::dispatchAfter(Seconds delay, Function<void()>&& function)
+void WorkQueueBase::dispatchAfter(Seconds delay, Function<void()>&& function)
 {
-    RefPtr<WorkQueue> protect(this);
-    m_runLoop->dispatchAfter(delay, [protect, function = WTFMove(function)] {
+    m_runLoop->dispatchAfter(delay, [protectedThis = Ref { *this }, function = WTF::move(function)] {
         function();
     });
+}
+
+WorkQueue::WorkQueue(MainTag)
+    : WorkQueueBase(RunLoop::mainSingleton())
+{
+}
+
 }

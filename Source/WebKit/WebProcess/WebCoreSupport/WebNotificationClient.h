@@ -23,41 +23,43 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WebNotificationClient_h
-#define WebNotificationClient_h
+#pragma once
 
 #if ENABLE(NOTIFICATIONS)
 
 #include <WebCore/NotificationClient.h>
-
-namespace WebCore {
-class ScriptExecutionContext;
-} // namespace WebCore
+#include <WebCore/SecurityOriginData.h>
+#include <wtf/HashSet.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebKit {
 
 class WebPage;
 
-class WebNotificationClient : public WebCore::NotificationClient {
-    WTF_MAKE_FAST_ALLOCATED;
+class WebNotificationClient final : public WebCore::NotificationClient {
+    WTF_MAKE_TZONE_ALLOCATED(WebNotificationClient);
 public:
     WebNotificationClient(WebPage*);
     virtual ~WebNotificationClient();
+    void clearNotificationPermissionState();
 
 private:
-    bool show(WebCore::Notification*) override;
-    void cancel(WebCore::Notification*) override;
-    void clearNotifications(WebCore::ScriptExecutionContext*) override;
-    void notificationObjectDestroyed(WebCore::Notification*) override;
-    void notificationControllerDestroyed() override;
-    void requestPermission(WebCore::ScriptExecutionContext&, PermissionHandler&&) override;
-    WebCore::NotificationClient::Permission checkPermission(WebCore::ScriptExecutionContext*) override;
-    
-    WebPage* m_page;
+    bool show(WebCore::ScriptExecutionContext&, WebCore::NotificationData&&, RefPtr<WebCore::NotificationResources>&&, CompletionHandler<void()>&&) final;
+    void cancel(WebCore::NotificationData&&) final;
+    void notificationObjectDestroyed(WebCore::NotificationData&&) final;
+    void notificationControllerDestroyed() final;
+    void requestPermission(WebCore::ScriptExecutionContext&, PermissionHandler&&) final;
+    WebCore::NotificationClient::Permission checkPermission(WebCore::ScriptExecutionContext*) final;
+    bool isWebKit2WebNotificationClient() const final { return true; }
+
+    HashSet<WebCore::SecurityOriginData> m_notificationPermissionRequesters;
+    WeakPtr<WebPage> m_page;
 };
 
 } // namespace WebKit
 
-#endif // ENABLE(NOTIFICATIONS)
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebNotificationClient)
+static bool isType(const WebCore::NotificationClient& client) { return client.isWebKit2WebNotificationClient(); }
+SPECIALIZE_TYPE_TRAITS_END()
 
-#endif // WebNotificationClient_h
+#endif // ENABLE(NOTIFICATIONS)

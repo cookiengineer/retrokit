@@ -51,6 +51,7 @@ WI.DetailsSection = class DetailsSection extends WI.Object
         }
 
         this._titleElement = document.createElement("span");
+        this._titleElement.className = "title";
         this._headerElement.appendChild(this._titleElement);
 
         this._contentElement = document.createElement("div");
@@ -78,6 +79,7 @@ WI.DetailsSection = class DetailsSection extends WI.Object
 
     set title(title)
     {
+        this._headerElement.toggleAttribute("hidden", !title);
         this._titleElement.textContent = title;
     }
 

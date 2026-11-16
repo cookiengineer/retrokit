@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,18 +27,29 @@
 
 #if ENABLE(USER_MESSAGE_HANDLERS)
 
-#include "DOMWindowProperty.h"
+#include "LocalDOMWindowProperty.h"
+#include <JavaScriptCore/Strong.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
 
+namespace JSC {
+class JSGlobalObject;
+class JSValue;
+}
+
 namespace WebCore {
 
+class Node;
 class UserContentProvider;
 class UserMessageHandlersNamespace;
+class WebKitBuffer;
+class WebKitBufferNamespace;
+class WebKitJSHandle;
+class WebKitNodeSnapshot;
 
-class WebKitNamespace : public DOMWindowProperty, public RefCounted<WebKitNamespace> {
+class WebKitNamespace : public LocalDOMWindowProperty, public RefCounted<WebKitNamespace> {
 public:
-    static Ref<WebKitNamespace> create(DOMWindow& window, UserContentProvider& userContentProvider)
+    static Ref<WebKitNamespace> create(LocalDOMWindow& window, UserContentProvider& userContentProvider)
     {
         return adoptRef(*new WebKitNamespace(window, userContentProvider));
     }
@@ -46,11 +57,20 @@ public:
     virtual ~WebKitNamespace();
 
     UserMessageHandlersNamespace* messageHandlers();
+    WebKitBufferNamespace& NODELETE buffers();
+    JSC::JSValue evaluateScript(JSC::JSGlobalObject&, const String& source, const String& url);
+    Ref<WebKitJSHandle> createJSHandle(JSC::Strong<JSC::JSObject>);
+
+    struct NodeSnapshotInit {
+        bool deep { false };
+    };
+    ExceptionOr<Ref<WebKitNodeSnapshot>> createNodeSnapshot(Node&, NodeSnapshotInit&&);
 
 private:
-    explicit WebKitNamespace(DOMWindow&, UserContentProvider&);
+    explicit WebKitNamespace(LocalDOMWindow&, UserContentProvider&);
 
-    Ref<UserMessageHandlersNamespace> m_messageHandlerNamespace;
+    const Ref<UserMessageHandlersNamespace> m_messageHandlerNamespace;
+    const Ref<WebKitBufferNamespace> m_buffers;
 };
 
 } // namespace WebCore

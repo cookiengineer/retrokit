@@ -80,14 +80,13 @@ WI.NetworkDetailView = class NetworkDetailView extends WI.View
         closeNavigationItem.addEventListener(WI.ButtonNavigationItem.Event.Clicked, this._handleCloseButton, this);
         closeNavigationItem.visibilityPriority = WI.NavigationItem.VisibilityPriority.High;
 
-        let contentViewNavigationItemsGroup = new WI.GroupNavigationItem;
-        let contentViewNavigationItemsFlexItem = new WI.FlexibleSpaceNavigationItem(contentViewNavigationItemsGroup, WI.FlexibleSpaceNavigationItem.Align.End);
-        contentViewNavigationItemsFlexItem.visibilityPriority = WI.NavigationItem.VisibilityPriority.Low;
+        let contentViewNavigationItemGroup = new WI.GroupNavigationItem;
+        let flexibleNavigationItem = new WI.FlexibleSpaceNavigationItem(contentViewNavigationItemGroup, WI.FlexibleSpaceNavigationItem.Align.End);
+        flexibleNavigationItem.visibilityPriority = WI.NavigationItem.VisibilityPriority.Low;
 
         const element = null;
-        const disableBackForward = true;
-        const disableFindBanner = false;
-        this._contentBrowser = new WI.ContentBrowser(element, this, disableBackForward, disableFindBanner, contentViewNavigationItemsFlexItem, contentViewNavigationItemsGroup);
+        this._contentBrowser = new WI.ContentBrowser(element, this, {hideBackForwardButtons: true, flexibleNavigationItem, contentViewNavigationItemGroup});
+        this._contentBrowser.addEventListener(WI.ContentBrowser.Event.CurrentContentViewDidChange, this._handleCurrentContentViewDidChange, this);
 
         // Insert all of our custom navigation items at the start of the ContentBrowser's NavigationBar.
         let index = 0;
@@ -144,6 +143,12 @@ WI.NetworkDetailView = class NetworkDetailView extends WI.View
 
         console.assert(firstNavigationItem, "Should have found at least one navigation item above");
         this._contentBrowser.navigationBar.selectedNavigationItem = firstNavigationItem;
+    }
+
+    _handleCurrentContentViewDidChange(event)
+    {
+        // Redispatch this event since this view is basically just a wrapper.
+        this.dispatchEventToListeners(event.type, event.data);
     }
 
     _navigationItemSelected(event)

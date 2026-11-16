@@ -25,12 +25,12 @@
 
 #pragma once
 
-#include "CodeLocation.h"
+#include <JavaScriptCore/CodeLocation.h>
 #include <wtf/Forward.h>
 
 namespace JSC {
 
-enum class HandlerType {
+enum class HandlerType : uint8_t {
     Catch = 0,
     Finally = 1,
     SynthesizedCatch = 2,

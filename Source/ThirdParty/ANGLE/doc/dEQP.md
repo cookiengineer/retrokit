@@ -8,29 +8,22 @@ testing against GLES 2, GLES 3, EGL, and GLES 3.1 (on supported platforms).
 ## How to build dEQP
 
 You should have dEQP as a target if you followed the [DevSetup](DevSetup.md)
-instructions. Current targets:
+instructions. Some of the current targets are:
 
-  * `angle_deqp_gles2_tests` for GLES 2.0 tests
-  * `angle_deqp_gles2_no_gtest` for GLES 2.0 tests without google test suite
-  * `angle_deqp_gles3_tests` for GLES 3.0 tests
-  * `angle_deqp_gles3_no_gtest` for GLES 3.0 tests without google test suite
   * `angle_deqp_egl_tests` for EGL 1.x tests
-  * `angle_deqp_egl_no_gtest` for EGL 1.x tests without google test suite
-  * `angle_deqp_gles31_tests` for GLES 3.1 tests (currently very experimental)
-  * `angle_deqp_gles31_no_gtest` for GLES 3.1 tests (currently very experimental) without google test suite
+  * `angle_deqp_gles2_tests` for GLES 2.0 tests
+  * `angle_deqp_gles3_tests` for GLES 3.0 tests
+  * `angle_deqp_gles31_tests` for GLES 3.1 tests
 
 ## How to use dEQP
 
 Note:
-To run an individual test, use the `--deqp-case` flag on any of the `no_gtest` targets.
-It supports simple wildcard support. For example: `--deqp-case=dEQP-
-GLES2.functional.shaders.linkage.*`.
-The `gtest` targets support wildcards via the `--gtest_filter` argument,
-but have different test names.
+To run an individual test, use the `--gtest_filter` argument.
+It supports simple wildcards. For example: `--gtest_filter=dEQP-GLES2.functional.shaders.linkage.*`.
 
-The tests lists are sourced from the Android CTS masters in
-`third_party/VK-GL-CTS/src/android/cts/master`. See `gles2-master.txt`,
-`gles3-master.txt`, `gles31-master.txt` and `egl-master.txt`.
+The tests lists are sourced from the Android CTS mains in
+`third_party/VK-GL-CTS/src/android/cts/main`. See `gles2-main.txt`,
+`gles3-main.txt`, `gles31-main.txt` and `egl-main.txt`.
 
 If you're running a full test suite, it might take very long time. Running in
 Debug is only useful to isolate and fix particular failures, Release will give
@@ -38,7 +31,7 @@ a better sense of total passing rate.
 
 ### Choosing a Renderer
 
-By default ANGLE tests with D3D11 on Windows, GLES on mobile and Desktop GL otherwise.
+By default ANGLE tests with Vulkan, except on Apple platforms where OpenGL is used.
 To specify the exact platform for ANGLE + dEQP, use the arguments:
 
   * `--deqp-egl-display-type=angle-d3d11` for D3D11 (highest available feature level)
@@ -69,17 +62,22 @@ for instructions on how to run Cherry on Linux or Windows.
 
 ANGLE also supports the same set of targets built with GoogleTest, for running
 on the bots. We don't currently recommend using these for local debugging, but
-we do maintain lists of test expectations in `src/tests/deqp_support`. When
+we do maintain lists of test expectations in `src/tests/deqp_support` (see
+[Handling Test Failures](TestingAndProcesses.md)). When
 you fix tests, please remove the suppression(s) from the relevant files!
 
 ### Running dEQP on Android
 
-Running the tests not using the test runner is tricky, but is necessary in order to get a complete TestResults.qpa from the dEQP tests (since the runner shards the tests, only the results of the last shard will be available when using the test runner). First, use the runner to install the APK, test data and test expectations on the device. After the tests start running, the test runner can be stopped with Ctrl+C. Then, run
+When you only need to run a few tests with `--gtest_filter`, you can use Android wrappers such as `angle_deqp_egl_tests` directly, but beware that Android test runner wipes data by default (try `--skip-clear-data`).
+
+In addition, there is currently a limitation on the usage of the character "`-`" in the test filter when using the Android wrappers. In such cases, please replace this character with "`?`" (e.g., `--gtest_filter=dEQP?EGL.*`).
+
+Running the tests not using the test runner is tricky, but is necessary in order to get a complete `TestResults.qpa` from the dEQP tests when running many tests (since the runner shards the tests, only the results of the last shard will be available when using the test runner). First, use the runner to install the APK, test data and test expectations on the device. After the tests start running, the test runner can be stopped with Ctrl+C. Then, run
 ```
 adb shell am start -a android.intent.action.MAIN -n org.chromium.native_test/.NativeUnitTestNativeActivity -e org.chromium.native_test.NativeTest.StdoutFile /sdcard/chromium_tests_root/out.txt
 ```
-After the tests finish, get the results with
+After the tests finish, get the results with (requires `adb root`)
 ```
-adb pull /sdcard/chromium_tests_root/third_party/angle/third_party/deqp/src/data/TestResults.qpa .
+adb pull /data/data/com.android.angle.test/TestResults.qpa .
 ```
 Note: this location might change, one can double-check with `adb logcat -d | grep qpa`.

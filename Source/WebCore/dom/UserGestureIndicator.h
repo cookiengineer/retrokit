@@ -25,112 +25,137 @@
 
 #pragma once
 
-#include "DOMPasteAccess.h"
+#include <JavaScriptCore/CrossTaskToken.h>
+#include <WebCore/DOMPasteAccess.h>
+#include <wtf/CanMakeWeakPtr.h>
 #include <wtf/Function.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/Noncopyable.h>
-#include <wtf/RefCounted.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/UUID.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakHashSet.h>
-#include <wtf/WeakPtr.h>
 
+namespace JSC {
+class VM;
+}
 namespace WebCore {
 
 class Document;
+class WeakPtrImplWithEventTargetData;
 
-enum ProcessingUserGestureState {
-    ProcessingUserGesture,
-    ProcessingPotentialUserGesture,
-    NotProcessingUserGesture
+enum class IsProcessingUserGesture : uint8_t { No, Yes, Potentially };
+
+enum class CanRequestDOMPaste : bool { No, Yes };
+enum class UserGestureType : uint8_t { EscapeKey, ActivationTriggering, Other };
+enum class ProcessInteractionStyle { Immediate, Delayed, Never };
+enum class GestureScope : bool { All, MediaOnly };
+
+struct UserGestureTokenData {
+    IsProcessingUserGesture isProcessingUserGesture { IsProcessingUserGesture::No };
+    UserGestureType userGestureType { UserGestureType::ActivationTriggering };
+    std::optional<WTF::UUID> authorizationToken;
+    CanRequestDOMPaste canRequestDOMPaste { CanRequestDOMPaste::No };
+    MonotonicTime startTime { MonotonicTime::now() };
+    DOMPasteAccessPolicy domPasteAccessPolicy { DOMPasteAccessPolicy::NotRequestedYet };
+    GestureScope scope { GestureScope::All };
+
+    bool hasExpired(Seconds expirationInterval) const
+    {
+        return startTime + expirationInterval < MonotonicTime::now();
+    }
 };
 
-enum class UserGestureType { EscapeKey, Other };
-
-class UserGestureToken : public RefCounted<UserGestureToken>, public CanMakeWeakPtr<UserGestureToken> {
+class UserGestureToken : public JSC::CrossTaskToken {
 public:
-    static constexpr Seconds maximumIntervalForUserGestureForwarding { 1_s }; // One second matches Gecko.
-    static const Seconds& maximumIntervalForUserGestureForwardingForFetch();
-    WEBCORE_EXPORT static void setMaximumIntervalForUserGestureForwardingForFetchForTesting(Seconds);
+    using GestureScope = WebCore::GestureScope;
 
-    static Ref<UserGestureToken> create(ProcessingUserGestureState state, UserGestureType gestureType, Document* document = nullptr)
-    {
-        return adoptRef(*new UserGestureToken(state, gestureType, document));
-    }
+    static constexpr Seconds maximumIntervalForUserGestureForwarding { 1_s }; // One second matches Gecko.
+    static const Seconds& NODELETE maximumIntervalForUserGestureForwardingForFetch();
+    WEBCORE_EXPORT static void NODELETE setMaximumIntervalForUserGestureForwardingForFetchForTesting(Seconds);
+
+    static Ref<UserGestureToken> create(IsProcessingUserGesture, UserGestureType, Document*, std::optional<WTF::UUID> authorizationToken, CanRequestDOMPaste, MonotonicTime, DOMPasteAccessPolicy, GestureScope);
 
     WEBCORE_EXPORT ~UserGestureToken();
 
-    ProcessingUserGestureState state() const { return m_state; }
-    bool processingUserGesture() const { return m_scope == GestureScope::All && m_state == ProcessingUserGesture; }
-    bool processingUserGestureForMedia() const { return m_state == ProcessingUserGesture || m_state == ProcessingPotentialUserGesture; }
-    UserGestureType gestureType() const { return m_gestureType; }
+    IsProcessingUserGesture isProcessingUserGesture() const { return m_data.isProcessingUserGesture; }
+    bool processingUserGesture() const { return m_data.scope == GestureScope::All && m_data.isProcessingUserGesture == IsProcessingUserGesture::Yes; }
+    bool processingUserGestureForMedia() const { return m_data.isProcessingUserGesture == IsProcessingUserGesture::Yes || m_data.isProcessingUserGesture == IsProcessingUserGesture::Potentially; }
+    UserGestureType gestureType() const { return m_data.userGestureType; }
 
-    void addDestructionObserver(WTF::Function<void (UserGestureToken&)>&& observer)
+    void addDestructionObserver(Function<void(UserGestureToken&)>&& observer)
     {
-        m_destructionObservers.append(WTFMove(observer));
+        m_destructionObservers.append(WTF::move(observer));
     }
 
-    DOMPasteAccessPolicy domPasteAccessPolicy() const { return m_domPasteAccessPolicy; }
+    DOMPasteAccessPolicy domPasteAccessPolicy() const { return m_data.domPasteAccessPolicy; }
     void didRequestDOMPasteAccess(DOMPasteAccessResponse response)
     {
         switch (response) {
         case DOMPasteAccessResponse::DeniedForGesture:
-            m_domPasteAccessPolicy = DOMPasteAccessPolicy::Denied;
+            m_data.domPasteAccessPolicy = DOMPasteAccessPolicy::Denied;
             break;
         case DOMPasteAccessResponse::GrantedForCommand:
             break;
         case DOMPasteAccessResponse::GrantedForGesture:
-            m_domPasteAccessPolicy = DOMPasteAccessPolicy::Granted;
+            m_data.domPasteAccessPolicy = DOMPasteAccessPolicy::Granted;
             break;
         }
     }
-    void resetDOMPasteAccess() { m_domPasteAccessPolicy = DOMPasteAccessPolicy::NotRequestedYet; }
+    void resetDOMPasteAccess() { m_data.domPasteAccessPolicy = DOMPasteAccessPolicy::NotRequestedYet; }
 
-    enum class GestureScope { All, MediaOnly };
-    void setScope(GestureScope scope) { m_scope = scope; }
-    void resetScope() { m_scope = GestureScope::All; }
+    void setScope(GestureScope scope) { m_data.scope = scope; }
+    void resetScope() { m_data.scope = GestureScope::All; }
+    GestureScope scope() const { return m_data.scope; }
 
     // Expand the following methods if more propagation sources are added later.
-    enum class IsPropagatedFromFetch { Yes, No };
-    void setIsPropagatedFromFetch(IsPropagatedFromFetch is) { m_isPropagatedFromFetch = is; }
-    void resetIsPropagatedFromFetch() { m_isPropagatedFromFetch = IsPropagatedFromFetch::No; }
-    bool isPropagatedFromFetch() const { return m_isPropagatedFromFetch == IsPropagatedFromFetch::Yes; }
+    enum class ShouldPropagateToMicroTask : bool { No, Yes };
+    void setShouldPropagateToMicroTask(ShouldPropagateToMicroTask is) { CrossTaskToken::setShouldPropagateToMicroTask(is == ShouldPropagateToMicroTask::Yes); }
 
     bool hasExpired(Seconds expirationInterval) const
     {
-        return m_startTime + expirationInterval < MonotonicTime::now();
+        return m_data.hasExpired(expirationInterval);
     }
 
-    MonotonicTime startTime() const { return m_startTime; }
+    MonotonicTime startTime() const { return m_data.startTime; }
 
-    bool isValidForDocument(const Document&) const;
+    std::optional<WTF::UUID> authorizationToken() const { return m_data.authorizationToken; }
+
+    bool canRequestDOMPaste() const { return m_data.canRequestDOMPaste == CanRequestDOMPaste::Yes; }
+
+    bool NODELETE isValidForDocument(const Document&) const;
+
+    void forEachImpactedDocument(Function<void(Document&)>&&);
+
+    RefPtr<JSC::MicrotaskDispatcher> createMicrotaskDispatcher(JSC::VM&, JSC::JSGlobalObject*) override;
+
+    const UserGestureTokenData& data() const { return m_data; }
 
 private:
-    UserGestureToken(ProcessingUserGestureState, UserGestureType, Document*);
+    UserGestureToken(IsProcessingUserGesture, UserGestureType, Document*, std::optional<WTF::UUID> authorizationToken, CanRequestDOMPaste, MonotonicTime, DOMPasteAccessPolicy, GestureScope);
 
-    ProcessingUserGestureState m_state = NotProcessingUserGesture;
-    Vector<WTF::Function<void (UserGestureToken&)>> m_destructionObservers;
-    UserGestureType m_gestureType;
-    WeakHashSet<Document> m_documentsImpactedByUserGesture;
-    DOMPasteAccessPolicy m_domPasteAccessPolicy { DOMPasteAccessPolicy::NotRequestedYet };
-    GestureScope m_scope { GestureScope::All };
-    MonotonicTime m_startTime { MonotonicTime::now() };
-    IsPropagatedFromFetch m_isPropagatedFromFetch { IsPropagatedFromFetch::No };
+    UserGestureTokenData m_data;
+    Vector<Function<void(UserGestureToken&)>> m_destructionObservers;
+    WeakHashSet<Document, WeakPtrImplWithEventTargetData> m_documentsImpactedByUserGesture;
 };
 
 class UserGestureIndicator {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(UserGestureIndicator, WEBCORE_EXPORT);
     WTF_MAKE_NONCOPYABLE(UserGestureIndicator);
 public:
     WEBCORE_EXPORT static RefPtr<UserGestureToken> currentUserGesture();
 
-    WEBCORE_EXPORT static bool processingUserGesture(const Document* = nullptr);
+    WEBCORE_EXPORT static bool NODELETE processingUserGesture(const Document* = nullptr);
     WEBCORE_EXPORT static bool processingUserGestureForMedia();
 
     // If a document is provided, its last known user gesture timestamp is updated.
-    enum class ProcessInteractionStyle { Immediate, Delayed };
-    WEBCORE_EXPORT explicit UserGestureIndicator(std::optional<ProcessingUserGestureState>, Document* = nullptr, UserGestureType = UserGestureType::Other, ProcessInteractionStyle = ProcessInteractionStyle::Immediate);
-    WEBCORE_EXPORT explicit UserGestureIndicator(RefPtr<UserGestureToken>, UserGestureToken::GestureScope = UserGestureToken::GestureScope::All, UserGestureToken::IsPropagatedFromFetch = UserGestureToken::IsPropagatedFromFetch::No);
+    using ProcessInteractionStyle = WebCore::ProcessInteractionStyle;
+    WEBCORE_EXPORT explicit UserGestureIndicator(const UserGestureTokenData&, Document*);
+    WEBCORE_EXPORT explicit UserGestureIndicator(std::optional<IsProcessingUserGesture>, Document* = nullptr, UserGestureType = UserGestureType::ActivationTriggering, ProcessInteractionStyle = ProcessInteractionStyle::Immediate, std::optional<WTF::UUID> authorizationToken = std::nullopt, CanRequestDOMPaste = CanRequestDOMPaste::Yes, MonotonicTime startTime = MonotonicTime::now(), DOMPasteAccessPolicy = DOMPasteAccessPolicy::NotRequestedYet, GestureScope = GestureScope::All);
+    WEBCORE_EXPORT explicit UserGestureIndicator(RefPtr<UserGestureToken>, UserGestureToken::GestureScope = UserGestureToken::GestureScope::All, UserGestureToken::ShouldPropagateToMicroTask = UserGestureToken::ShouldPropagateToMicroTask::No);
     WEBCORE_EXPORT ~UserGestureIndicator();
+
+    WEBCORE_EXPORT std::optional<WTF::UUID> authorizationToken() const;
 
 private:
     RefPtr<UserGestureToken> m_previousToken;

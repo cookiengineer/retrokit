@@ -27,10 +27,12 @@
 
 #include "AlternativeTextClient.h"
 #include "DocumentMarker.h"
+#include "EventLoop.h"
 #include "Position.h"
-#include "Timer.h"
+#include <wtf/CheckedRef.h>
 #include <wtf/Noncopyable.h>
-#include <wtf/Variant.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakRef.h>
 
 namespace WebCore {
 
@@ -56,9 +58,10 @@ struct TextCheckingResult;
 #define UNLESS_ENABLED(functionBody) functionBody
 #endif
 
-class AlternativeTextController {
+class AlternativeTextController final : public CanMakeWeakPtr<AlternativeTextController>, public CanMakeCheckedPtr<AlternativeTextController> {
+    WTF_MAKE_TZONE_ALLOCATED(AlternativeTextController);
     WTF_MAKE_NONCOPYABLE(AlternativeTextController);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(AlternativeTextController);
 public:
     explicit AlternativeTextController(Document& document) UNLESS_ENABLED(: m_document(document) { })
     ~AlternativeTextController() UNLESS_ENABLED({ })
@@ -73,7 +76,7 @@ public:
     bool applyAutocorrectionBeforeTypingIfAppropriate() UNLESS_ENABLED({ return false; })
 
     void respondToUnappliedSpellCorrection(const VisibleSelection&, const String& corrected, const String& correction) UNLESS_ENABLED({ UNUSED_PARAM(corrected); UNUSED_PARAM(correction); })
-    void respondToAppliedEditing(CompositeEditCommand*) UNLESS_ENABLED({ })
+    void respondToAppliedEditing(CompositeEditCommand*);
     void respondToUnappliedEditing(EditCommandComposition*) UNLESS_ENABLED({ })
     void respondToChangedSelection(const VisibleSelection& oldSelection) UNLESS_ENABLED({ UNUSED_PARAM(oldSelection); })
 
@@ -83,10 +86,11 @@ public:
     void handleAlternativeTextUIResult(const String& result) UNLESS_ENABLED({ UNUSED_PARAM(result); })
     void handleCancelOperation() UNLESS_ENABLED({ })
 
-    bool hasPendingCorrection() const UNLESS_ENABLED({ return false; })
+    bool NODELETE hasPendingCorrection() const UNLESS_ENABLED({ return false; })
     bool isSpellingMarkerAllowed(const SimpleRange& misspellingRange) const UNLESS_ENABLED({ UNUSED_PARAM(misspellingRange); return true; })
     bool isAutomaticSpellingCorrectionEnabled() UNLESS_ENABLED({ return false; })
     bool canEnableAutomaticSpellingCorrection() const UNLESS_ENABLED({ return false; })
+    bool isAlternativeTextUIActive() const UNLESS_ENABLED({ return false; })
     bool shouldRemoveMarkersUponEditing();
 
     void recordAutocorrectionResponse(AutocorrectionResponse, const String& replacedString, const SimpleRange& replacementRange) UNLESS_ENABLED({ UNUSED_PARAM(replacedString); UNUSED_PARAM(replacementRange); })
@@ -113,13 +117,13 @@ private:
     bool shouldStartTimerFor(const DocumentMarker&, int endOffset) const;
     bool respondToMarkerAtEndOfWord(const DocumentMarker&, const Position& endOfWordPosition);
 
-    EditorClient* editorClient();
+    EditorClient* NODELETE editorClient();
     
     TextCheckerClient* textChecker();
     FloatRect rootViewRectForRange(const SimpleRange&) const;
     void markPrecedingWhitespaceForDeletedAutocorrectionAfterCommand(EditCommand*);
 
-    Timer m_timer;
+    EventLoopTimerHandle m_timer;
     std::optional<SimpleRange> m_rangeWithAlternative;
     bool m_isActive { };
     bool m_isDismissedByEditing { };
@@ -131,12 +135,13 @@ private:
     Position m_positionForLastDeletedAutocorrection;
 #endif
 #if USE(DICTATION_ALTERNATIVES) || USE(AUTOCORRECTION_PANEL)
-    String markerDescriptionForAppliedAlternativeText(AlternativeTextType, DocumentMarker::MarkerType);
-    void applyAlternativeTextToRange(const SimpleRange&, const String&, AlternativeTextType, OptionSet<DocumentMarker::MarkerType>);
-    AlternativeTextClient* alternativeTextClient();
+    String NODELETE markerDescriptionForAppliedAlternativeText(AlternativeTextType, DocumentMarkerType);
+    void applyAlternativeTextToRange(const SimpleRange&, const String&, AlternativeTextType, OptionSet<DocumentMarkerType>);
+    AlternativeTextClient* NODELETE alternativeTextClient();
 #endif
+    void removeCorrectionIndicatorMarkers();
 
-    Document& m_document;
+    WeakRef<Document, WeakPtrImplWithEventTargetData> m_document;
 };
 
 #undef UNLESS_ENABLED

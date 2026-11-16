@@ -23,12 +23,13 @@
 
 #pragma once
 
-#include "HTMLElement.h"
+#include <WebCore/HTMLElement.h>
 
 namespace WebCore {
 
 class HTMLBodyElement final : public HTMLElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLBodyElement);
+    WTF_MAKE_TZONE_ALLOCATED(HTMLBodyElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLBodyElement);
 public:
     WEBCORE_EXPORT static Ref<HTMLBodyElement> create(Document&);
     static Ref<HTMLBodyElement> create(const QualifiedName&, Document&);
@@ -39,20 +40,18 @@ public:
 private:
     HTMLBodyElement(const QualifiedName&, Document&);
 
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
     bool hasPresentationalHintsForAttribute(const QualifiedName&) const final;
     void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
 
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    void didFinishInsertingNode() final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void postConnectionSteps() final;
 
-    bool isURLAttribute(const Attribute&) const final;
+    bool NODELETE isURLAttribute(const Attribute&) const final;
     
     bool supportsFocus() const final;
 
-    void addSubresourceAttributeURLs(ListHashSet<URL>&) const final;
-
-    static EventHandlerNameMap createWindowEventHandlerNameMap();
+    void addSubresourceAttributeURLs(OrderedHashSet<URL>&) const final;
 };
 
 } //namespace

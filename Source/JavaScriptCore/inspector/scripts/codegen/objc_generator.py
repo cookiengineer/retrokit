@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Copyright (c) 2014, 2016 Apple Inc. All rights reserved.
 #
@@ -27,7 +27,7 @@ import logging
 try:
     from .generator import Generator, ucfirst
     from .models import PrimitiveType, ObjectType, ArrayType, EnumType, AliasedType, Frameworks
-except ValueError:
+except ImportError:
     from generator import Generator, ucfirst
     from models import PrimitiveType, ObjectType, ArrayType, EnumType, AliasedType, Frameworks
 
@@ -370,7 +370,7 @@ class ObjCGenerator(Generator):
         category = ObjCTypeCategory.category_for_type(var_type)
         if category in [ObjCTypeCategory.Simple, ObjCTypeCategory.String]:
             if isinstance(var_type, EnumType):
-                return 'toProtocolString(%s)' % var_name
+                return 'toProtocolString(%s).createNSString().get()' % var_name
             return var_name
         if category == ObjCTypeCategory.Object:
             return '[%s toJSONObject]' % var_name
@@ -422,7 +422,7 @@ class ObjCGenerator(Generator):
         category = ObjCTypeCategory.category_for_type(member.type)
         if category in [ObjCTypeCategory.Simple, ObjCTypeCategory.String]:
             if isinstance(member.type, EnumType):
-                return 'toProtocolString(%s)' % sub_expression
+                return 'toProtocolString(%s).createNSString().get()' % sub_expression
             return sub_expression
         if category == ObjCTypeCategory.Object:
             return sub_expression

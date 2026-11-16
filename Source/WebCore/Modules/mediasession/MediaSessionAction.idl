@@ -34,7 +34,17 @@
     "nexttrack",
     "skipad",
     "stop",
-    "seekto"
+    "seekto",
+    "togglemicrophone",
+    "togglecamera",
+    "togglescreenshare",
+    "hangup",
+    "previousslide",
+    "nextslide",
+    "enterpictureinpicture",
+    "voiceactivity",
+    "togglecaptions",
+    "selectcaptiontrack"
 #if defined(ENABLE_MEDIA_SESSION_PLAYLIST) && ENABLE_MEDIA_SESSION_PLAYLIST
     , "settrack"
 #endif

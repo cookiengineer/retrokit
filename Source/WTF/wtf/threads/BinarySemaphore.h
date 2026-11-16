@@ -34,7 +34,7 @@ namespace WTF {
 
 class BinarySemaphore final {
     WTF_MAKE_NONCOPYABLE(BinarySemaphore);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(BinarySemaphore);
 public:
     constexpr BinarySemaphore() = default;
 
@@ -43,7 +43,7 @@ public:
 
     bool waitFor(Seconds relativeTimeout)
     {
-        return waitUntil(MonotonicTime::now() + relativeTimeout);
+        return waitUntil(MonotonicTime::timePointFromNow(relativeTimeout));
     }
 
     void wait()

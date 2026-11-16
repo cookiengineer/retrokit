@@ -25,7 +25,7 @@
 
 WI.ImageResourceContentView = class ImageResourceContentView extends WI.ResourceContentView
 {
-    constructor(resource, {disableInteractions} = {})
+    constructor(resource, {disableInteractions, disableDropZone} = {})
     {
         console.assert(resource instanceof WI.Resource);
 
@@ -34,6 +34,7 @@ WI.ImageResourceContentView = class ImageResourceContentView extends WI.Resource
         this._imageElement = null;
         this._draggingInternalImageElement = false;
         this._disableInteractions = disableInteractions || false;
+        this._disableDropZone = disableDropZone || false;
 
         const toolTip = WI.repeatedUIString.showTransparencyGridTooltip();
         const activatedToolTip = WI.UIString("Hide transparency grid");
@@ -123,7 +124,7 @@ WI.ImageResourceContentView = class ImageResourceContentView extends WI.Resource
             this._gestureNavigationItemsDivider.hidden = false;
             this._updateResetGestureButtonNavigationItemLabel();
 
-            if (WI.NetworkManager.supportsOverridingResponses()) {
+            if (WI.NetworkManager.supportsOverridingResponses() && !this._disableDropZone) {
                 let dropZoneView = new WI.DropZoneView(this);
                 dropZoneView.targetElement = this._imageContainer;
                 this.addSubview(dropZoneView);
@@ -178,9 +179,8 @@ WI.ImageResourceContentView = class ImageResourceContentView extends WI.Resource
         if (existingOverrides.length > 1)
             return false;
 
-        // Request overrides cannot be created/updated from a file as files don't have network info.
         let localResourceOverride = this.resource.localResourceOverride || existingOverrides[0];
-        if (localResourceOverride?.type === WI.LocalResourceOverride.InterceptType.Request)
+        if (localResourceOverride && !localResourceOverride.canMapToFile)
             return false;
 
         // Appear if the drop contains a file.
@@ -217,7 +217,7 @@ WI.ImageResourceContentView = class ImageResourceContentView extends WI.Resource
             revision.updateRevisionContent(content, {base64Encoded, mimeType});
 
             if (!this.resource.localResourceOverride)
-                WI.showLocalResourceOverride(localResourceOverride);
+                WI.showLocalResourceOverride(localResourceOverride, {overriddenResource: this.resource});
         });
     }
 

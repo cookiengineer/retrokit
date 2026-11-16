@@ -23,17 +23,17 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#pragma once
-
 #include "config.h"
 #include "PerformanceNavigationTiming.h"
 
 #include "CachedResource.h"
+#include "Performance.h"
 #include "ResourceTiming.h"
+#include <wtf/ReducedResolutionSeconds.h>
 
 namespace WebCore {
 
-static PerformanceNavigationTiming::NavigationType toPerformanceNavigationTimingNavigationType(NavigationType navigationType)
+static PerformanceNavigationTiming::NavigationType NODELETE toPerformanceNavigationTimingNavigationType(NavigationType navigationType)
 {
     switch (navigationType) {
     case NavigationType::BackForward:
@@ -121,11 +121,17 @@ PerformanceNavigationTiming::NavigationType PerformanceNavigationTiming::type() 
     return m_navigationType;
 }
 
+bool PerformanceNavigationTiming::shouldExposeRedirectTiming() const
+{
+    // https://html.spec.whatwg.org/C#initialise-the-document-object step 15 zeroes redirectCount when a
+    // cross-origin redirect chain does not opt in, so hide the redirect gap only then; a navigation with
+    // no such redirect (e.g. served by a service worker) must still expose its real fetch start.
+    auto& metrics = m_resourceTiming.networkLoadMetrics();
+    return metrics.redirectCount || !metrics.hasCrossOriginRedirect;
+}
+
 unsigned short PerformanceNavigationTiming::redirectCount() const
 {
-    if (m_resourceTiming.networkLoadMetrics().hasCrossOriginRedirect)
-        return 0;
-
     return m_resourceTiming.networkLoadMetrics().redirectCount;
 }
 
@@ -139,6 +145,12 @@ double PerformanceNavigationTiming::duration() const
 {
     // https://www.w3.org/TR/navigation-timing-2/#dom-PerformanceNavigationTiming-duration
     return loadEventEnd() - startTime();
+}
+
+void PerformanceNavigationTiming::documentLoadFinished(const NetworkLoadMetrics& metrics)
+{
+    m_documentLoadTiming.markEndTime();
+    m_resourceTiming.networkLoadMetrics().updateFromFinalMetrics(metrics);
 }
 
 } // namespace WebCore

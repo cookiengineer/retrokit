@@ -13,6 +13,9 @@
 #define INDEXCHARS_H
 
 #include "unicode/utypes.h"
+
+#if U_SHOW_CPLUSPLUS_API
+
 #include "unicode/uobject.h"
 #include "unicode/locid.h"
 #include "unicode/unistr.h"
@@ -41,7 +44,7 @@ typedef enum UAlphabeticIndexLabelType {
     U_ALPHAINDEX_NORMAL    = 0,
 
     /**
-     * Undeflow Label.  The bucket with this label contains names
+     * Underflow Label.  The bucket with this label contains names
      * in scripts that sort before any of the bucket labels in this index.
      * @stable ICU 4.8
      */
@@ -58,7 +61,7 @@ typedef enum UAlphabeticIndexLabelType {
     U_ALPHAINDEX_INFLOW    = 2,
 
     /**
-     * Overflow Label. Te bucket with this label contains names in scripts
+     * Overflow Label. The bucket with this label contains names in scripts
      * that sort after all of the bucket labels in this index.
      * @stable ICU 4.8
      */
@@ -266,13 +269,15 @@ public:
          * Use getBucket() to get the bucket's properties.
          *
          * @param name the string to be sorted into an index bucket
+         * @param errorCode Error code, will be set with the reason if the
+         *                  operation fails.
          * @return the bucket number for the name
          * @stable ICU 51
          */
         int32_t getBucketIndex(const UnicodeString &name, UErrorCode &errorCode) const;
 
         /**
-         * Returns the index-th bucket. Returns NULL if the index is out of range.
+         * Returns the index-th bucket. Returns nullptr if the index is out of range.
          *
          * @param index bucket number
          * @return the index-th bucket
@@ -377,9 +382,10 @@ public:
 
 
    /**
-     * Get the default label used for abbreviated buckets <i>between</i> other index characters.
-     * For example, consider the labels when Latin and Greek are used:
-     *     X Y Z ... &#x0391; &#x0392; &#x0393;.
+     * Get the default label used for abbreviated buckets *between* other index characters.
+     * For example, consider the labels when Latin (X Y Z) and Greek (Α Β Γ) are used:
+     *
+     *     X Y Z ... Α Β Γ.
      *
      * @return inflow label
      * @stable ICU 4.8
@@ -543,14 +549,14 @@ public:
 
 
     /**
-     *   Advance the iteration over the Buckets of this index.  Return FALSE if
+     *   Advance the iteration over the Buckets of this index.  Return false if
      *   there are no more Buckets.
      *
      *   @param status  Error code, will be set with the reason if the operation fails.
      *   U_ENUM_OUT_OF_SYNC_ERROR will be reported if the index is modified while
      *   an enumeration of its contents are in process.
      *
-     *   @return TRUE if success, FALSE if at end of iteration
+     *   @return true if success, false if at end of iteration
      *   @stable ICU 4.8
      */
     virtual UBool nextBucket(UErrorCode &status);
@@ -603,7 +609,7 @@ public:
      *   @param status  Error code, will be set with the reason if the operation fails.
      *   U_ENUM_OUT_OF_SYNC_ERROR will be reported if the index is modified while
      *   an enumeration of its contents are in process.
-     *   @return TRUE if successful, FALSE when the iteration advances past the last item.
+     *   @return true if successful, false when the iteration advances past the last item.
      *   @stable ICU 4.8
      */
     virtual UBool nextRecord(UErrorCode &status);
@@ -621,7 +627,7 @@ public:
 
     /**
      * Return the data pointer of the Record currently being iterated over.
-     * Return NULL if the current iteration position before the first item in this Bucket,
+     * Return nullptr if the current iteration position before the first item in this Bucket,
      * or after the last.
      *
      *  @return The current Record's data pointer.
@@ -641,26 +647,26 @@ public:
 private:
      /**
       * No Copy constructor.
-      * @internal
+      * @internal (private)
       */
-     AlphabeticIndex(const AlphabeticIndex &other);
+     AlphabeticIndex(const AlphabeticIndex &other) = delete;
 
      /**
       *   No assignment.
       */
-     AlphabeticIndex &operator =(const AlphabeticIndex & /*other*/) { return *this;};
+     AlphabeticIndex &operator =(const AlphabeticIndex & /*other*/) { return *this;}
 
     /**
      * No Equality operators.
-     * @internal
+     * @internal (private)
      */
-     virtual UBool operator==(const AlphabeticIndex& other) const;
+     virtual bool operator==(const AlphabeticIndex& other) const;
 
     /**
      * Inequality operator.
-     * @internal
+     * @internal (private)
      */
-     virtual UBool operator!=(const AlphabeticIndex& other) const;
+     virtual bool operator!=(const AlphabeticIndex& other) const;
 
      // Common initialization, for use from all constructors.
      void init(const Locale *locale, UErrorCode &status);
@@ -700,6 +706,7 @@ public:
     /**
      * A (name, data) pair, to be sorted by name into one of the index buckets.
      * The user data is not used by the index implementation.
+     * \cond
      * @internal
      */
     struct Record: public UMemory {
@@ -708,6 +715,7 @@ public:
         Record(const UnicodeString &name, const void *data);
         ~Record();
     };
+    /** \endcond */
 #endif  /* U_HIDE_INTERNAL_API */
 
 private:
@@ -715,7 +723,7 @@ private:
     /**
      * Holds all user records before they are distributed into buckets.
      * Type of contents is (Record *)
-     * @internal
+     * @internal (private)
      */
     UVector  *inputList_;
 
@@ -723,7 +731,7 @@ private:
     int32_t  itemsIterIndex_;
     Bucket   *currentBucket_;         // While an iteration of the index in underway,
                                       //   point to the bucket for the current label.
-                                      // NULL when no iteration underway.
+                                      // nullptr when no iteration underway.
 
     int32_t    maxLabelCount_;        // Limit on # of labels permitted in the index.
 
@@ -752,4 +760,7 @@ private:
 U_NAMESPACE_END
 
 #endif  // !UCONFIG_NO_COLLATION
+
+#endif /* U_SHOW_CPLUSPLUS_API */
+
 #endif

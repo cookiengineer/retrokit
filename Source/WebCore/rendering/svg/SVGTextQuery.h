@@ -1,5 +1,6 @@
 /*
  * Copyright (C) Research In Motion Limited 2010. All rights reserved.
+ * Copyright (C) 2014 Google Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -20,6 +21,8 @@
 #pragma once
 
 #include "FloatRect.h"
+#include "InlineIteratorInlineBox.h"
+#include "InlineIteratorSVGTextBox.h"
 #include "SVGTextFragment.h"
 #include <wtf/Vector.h>
 
@@ -49,13 +52,13 @@ private:
     typedef bool (SVGTextQuery::*ProcessTextFragmentCallback)(Data*, const SVGTextFragment&) const;
     bool executeQuery(Data*, ProcessTextFragmentCallback) const;
 
-    void collectTextBoxesInFlowBox(LegacyInlineFlowBox*);
+    void collectTextBoxesInInlineBox(InlineIterator::InlineBoxIterator);
     bool mapStartEndPositionsIntoFragmentCoordinates(Data*, const SVGTextFragment&, unsigned& startPosition, unsigned& endPosition) const;
-    void modifyStartEndPositionsRespectingLigatures(Data*, unsigned& startPosition, unsigned& endPosition) const;
+    void modifyStartEndPositionsRespectingLigatures(Data*, const SVGTextFragment&, unsigned& startPosition, unsigned& endPosition) const;
 
 private:
-    bool numberOfCharactersCallback(Data*, const SVGTextFragment&) const;
-    bool textLengthCallback(Data*, const SVGTextFragment&) const;
+    bool NODELETE numberOfCharactersCallback(Data*, const SVGTextFragment&) const;
+    bool NODELETE textLengthCallback(Data*, const SVGTextFragment&) const;
     bool subStringLengthCallback(Data*, const SVGTextFragment&) const;
     bool startPositionOfCharacterCallback(Data*, const SVGTextFragment&) const;
     bool endPositionOfCharacterCallback(Data*, const SVGTextFragment&) const;
@@ -64,7 +67,7 @@ private:
     bool characterNumberAtPositionCallback(Data*, const SVGTextFragment&) const;
 
 private:
-    Vector<SVGInlineTextBox*> m_textBoxes;
+    Vector<InlineIterator::SVGTextBoxIterator> m_textBoxes;
 };
 
 } // namespace WebCore

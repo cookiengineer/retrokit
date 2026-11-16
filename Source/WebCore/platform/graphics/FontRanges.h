@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008, 2009, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,77 +23,85 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef FontRanges_h
-#define FontRanges_h
+#pragma once
 
-#include "Font.h"
+#include <WebCore/Font.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
 
 class FontAccessor;
 
-enum class ExternalResourceDownloadPolicy {
+enum class ExternalResourceDownloadPolicy : bool {
     Forbid,
     Allow
+};
+
+enum class IsGenericFontFamily : bool {
+    No,
+    Yes
 };
 
 class FontRanges {
 public:
     struct Range {
-        Range(UChar32 from, UChar32 to, Ref<FontAccessor>&& fontAccessor)
+        Range(char32_t from, char32_t to, Ref<FontAccessor>&& fontAccessor)
             : m_from(from)
             , m_to(to)
-            , m_fontAccessor(WTFMove(fontAccessor))
+            , m_fontAccessor(WTF::move(fontAccessor))
         {
         }
 
-        Range(const Range& range)
-            : m_from(range.m_from)
-            , m_to(range.m_to)
-            , m_fontAccessor(range.m_fontAccessor.copyRef())
-        {
-        }
-
+        Range(const Range&) = default;
         Range(Range&&) = default;
         Range& operator=(const Range&) = delete;
         Range& operator=(Range&&) = default;
 
-        UChar32 from() const { return m_from; }
-        UChar32 to() const { return m_to; }
-        const Font* font(ExternalResourceDownloadPolicy) const;
+        char32_t from() const { return m_from; }
+        char32_t to() const { return m_to; }
+        WEBCORE_EXPORT const Font* font(ExternalResourceDownloadPolicy) const;
         const FontAccessor& fontAccessor() const { return m_fontAccessor; }
 
     private:
-        UChar32 m_from;
-        UChar32 m_to;
+        char32_t m_from;
+        char32_t m_to;
         Ref<FontAccessor> m_fontAccessor;
     };
 
-    FontRanges();
+    FontRanges() = default;
     explicit FontRanges(RefPtr<Font>&&);
     ~FontRanges();
 
     FontRanges(const FontRanges&) = default;
+    FontRanges(FontRanges&& other, IsGenericFontFamily);
     FontRanges& operator=(FontRanges&&) = default;
 
     bool isNull() const { return m_ranges.isEmpty(); }
 
-    void appendRange(Range&& range) { m_ranges.append(WTFMove(range)); }
+    void appendRange(Range&& range) { m_ranges.append(WTF::move(range)); }
     unsigned size() const { return m_ranges.size(); }
     const Range& rangeAt(unsigned i) const { return m_ranges[i]; }
 
     void shrinkToFit() { m_ranges.shrinkToFit(); }
 
-    WEBCORE_EXPORT GlyphData glyphDataForCharacter(UChar32, ExternalResourceDownloadPolicy) const;
-    WEBCORE_EXPORT const Font* fontForCharacter(UChar32) const;
+    bool hasRangeContaining(char32_t character) const
+    {
+        for (auto& range : m_ranges) {
+            if (range.from() <= character && character <= range.to())
+                return true;
+        }
+        return false;
+    }
+
+    WEBCORE_EXPORT GlyphData glyphDataForCharacter(char32_t, ExternalResourceDownloadPolicy) const;
+    WEBCORE_EXPORT const Font* fontForCharacter(char32_t) const;
     WEBCORE_EXPORT const Font& fontForFirstRange() const;
     bool isLoading() const;
+    bool isGenericFontFamily() const { return m_isGenericFontFamily == IsGenericFontFamily::Yes; }
 
 private:
     Vector<Range, 1> m_ranges;
+    IsGenericFontFamily m_isGenericFontFamily { IsGenericFontFamily::No };
 };
 
 }
-
-#endif

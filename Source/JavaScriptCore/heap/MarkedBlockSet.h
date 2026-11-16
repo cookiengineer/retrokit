@@ -25,8 +25,8 @@
 
 #pragma once
 
-#include "MarkedBlock.h"
-#include "TinyBloomFilter.h"
+#include <JavaScriptCore/MarkedBlock.h>
+#include <JavaScriptCore/TinyBloomFilter.h>
 #include <wtf/HashSet.h>
 
 namespace JSC {
@@ -38,19 +38,19 @@ public:
     void add(MarkedBlock*);
     void remove(MarkedBlock*);
 
-    TinyBloomFilter filter() const;
-    const HashSet<MarkedBlock*>& set() const;
+    TinyBloomFilter<uintptr_t> filter() const;
+    const UncheckedKeyHashSet<MarkedBlock*>& set() const;
 
 private:
     void recomputeFilter();
 
-    TinyBloomFilter m_filter;
-    HashSet<MarkedBlock*> m_set;
+    TinyBloomFilter<uintptr_t> m_filter;
+    UncheckedKeyHashSet<MarkedBlock*> m_set;
 };
 
 inline void MarkedBlockSet::add(MarkedBlock* block)
 {
-    m_filter.add(reinterpret_cast<Bits>(block));
+    m_filter.add(reinterpret_cast<uintptr_t>(block));
     m_set.add(block);
 }
 
@@ -64,18 +64,18 @@ inline void MarkedBlockSet::remove(MarkedBlock* block)
 
 inline void MarkedBlockSet::recomputeFilter()
 {
-    TinyBloomFilter filter;
-    for (HashSet<MarkedBlock*>::iterator it = m_set.begin(); it != m_set.end(); ++it)
-        filter.add(reinterpret_cast<Bits>(*it));
+    TinyBloomFilter<uintptr_t> filter;
+    for (auto* block : m_set)
+        filter.add(reinterpret_cast<uintptr_t>(block));
     m_filter = filter;
 }
 
-inline TinyBloomFilter MarkedBlockSet::filter() const
+inline TinyBloomFilter<uintptr_t> MarkedBlockSet::filter() const
 {
     return m_filter;
 }
 
-inline const HashSet<MarkedBlock*>& MarkedBlockSet::set() const
+inline const UncheckedKeyHashSet<MarkedBlock*>& MarkedBlockSet::set() const
 {
     return m_set;
 }

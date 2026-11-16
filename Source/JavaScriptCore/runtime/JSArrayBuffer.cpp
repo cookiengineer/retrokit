@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,12 +27,14 @@
 #include "JSArrayBuffer.h"
 
 #include "JSCInlines.h"
+#if ENABLE(WEBASSEMBLY)
+#include "JSWebAssemblyMemory.h"
+#endif // ENABLE(WEBASSEMBLY)
 #include "TypedArrayController.h"
 
 namespace JSC {
 
-const ClassInfo JSArrayBuffer::s_info = {
-    "ArrayBuffer", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSArrayBuffer)};
+const ClassInfo JSArrayBuffer::s_info = { "ArrayBuffer"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSArrayBuffer) };
 
 JSArrayBuffer::JSArrayBuffer(VM& vm, Structure* structure, RefPtr<ArrayBuffer>&& arrayBuffer)
     : Base(vm, structure)
@@ -45,16 +47,16 @@ void JSArrayBuffer::finishCreation(VM& vm, JSGlobalObject* globalObject)
     Base::finishCreation(vm);
     // This probably causes GCs in the various VMs to overcount the impact of the array buffer.
     vm.heap.addReference(this, impl());
-    vm.m_typedArrayController->registerWrapper(globalObject, impl(), this);
+    vm.m_typedArrayController->registerWrapper(globalObject, *impl(), *this);
 }
 
 JSArrayBuffer* JSArrayBuffer::create(
     VM& vm, Structure* structure, RefPtr<ArrayBuffer>&& buffer)
 {
     JSArrayBuffer* result =
-        new (NotNull, allocateCell<JSArrayBuffer>(vm.heap))
-        JSArrayBuffer(vm, structure, WTFMove(buffer));
-    result->finishCreation(vm, structure->globalObject());
+        new (NotNull, allocateCell<JSArrayBuffer>(vm))
+        JSArrayBuffer(vm, structure, WTF::move(buffer));
+    result->finishCreation(vm, structure->realm());
     return result;
 }
 
@@ -78,10 +80,41 @@ ArrayBufferSharingMode JSArrayBuffer::sharingMode() const
 
 size_t JSArrayBuffer::estimatedSize(JSCell* cell, VM& vm)
 {
-    JSArrayBuffer* thisObject = jsCast<JSArrayBuffer*>(cell);
+    JSArrayBuffer* thisObject = uncheckedDowncast<JSArrayBuffer>(cell);
     size_t bufferEstimatedSize = thisObject->impl()->gcSizeEstimateInBytes();
     return Base::estimatedSize(cell, vm) + bufferEstimatedSize;
 }
+
+#if ENABLE(WEBASSEMBLY)
+JSWebAssemblyMemory* JSArrayBuffer::associatedWasmMemoryWrapper() const
+{
+    return m_associatedWasmMemoryWrapper.get();
+}
+
+void JSArrayBuffer::setAssociatedWasmMemoryWrapper(VM& vm, JSWebAssemblyMemory* wrapper)
+{
+    ASSERT(impl()->isWasmMemory() && impl()->isResizableNonShared());
+    m_associatedWasmMemoryWrapper.set(vm, this, wrapper);
+}
+
+void JSArrayBuffer::clearAssociatedWasmMemoryWrapper()
+{
+    m_associatedWasmMemoryWrapper.clear();
+}
+#endif // ENABLE(WEBASSEMBLY)
+
+template<typename Visitor>
+void JSArrayBuffer::visitChildrenImpl(JSCell* cell, Visitor& visitor)
+{
+    auto* thisObject = uncheckedDowncast<JSArrayBuffer>(cell);
+    ASSERT_GC_OBJECT_INHERITS(thisObject, info());
+    Base::visitChildren(thisObject, visitor);
+#if ENABLE(WEBASSEMBLY)
+    visitor.append(thisObject->m_associatedWasmMemoryWrapper);
+#endif // ENABLE(WEBASSEMBLY)
+}
+
+DEFINE_VISIT_CHILDREN(JSArrayBuffer);
 
 } // namespace JSC
 

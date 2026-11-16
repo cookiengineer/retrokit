@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,9 +26,12 @@
 #pragma once
 
 #include "Connection.h"
+#include "SharedPreferencesForWebProcess.h"
 #include <WebCore/BroadcastChannelIdentifier.h>
-#include <WebCore/SecurityOriginData.h>
+#include <WebCore/ClientOrigin.h>
 #include <wtf/HashMap.h>
+#include <wtf/RefCounted.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 struct MessageWithMessagePorts;
@@ -36,33 +39,29 @@ struct MessageWithMessagePorts;
 
 namespace WebKit {
 
-class NetworkBroadcastChannelRegistry {
-    WTF_MAKE_FAST_ALLOCATED;
+class NetworkProcess;
+
+class NetworkBroadcastChannelRegistry : public RefCounted<NetworkBroadcastChannelRegistry> {
+    WTF_MAKE_TZONE_ALLOCATED(NetworkBroadcastChannelRegistry);
 public:
-    NetworkBroadcastChannelRegistry();
+    static Ref<NetworkBroadcastChannelRegistry> create(NetworkProcess&);
+    ~NetworkBroadcastChannelRegistry();
 
     void removeConnection(IPC::Connection&);
 
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
 
-    void registerChannel(IPC::Connection&, const WebCore::SecurityOriginData&, const String& name, WebCore::BroadcastChannelIdentifier);
-    void unregisterChannel(IPC::Connection&, const WebCore::SecurityOriginData&, const String& name, WebCore::BroadcastChannelIdentifier);
-    void postMessage(IPC::Connection&, const WebCore::SecurityOriginData&, const String& name, WebCore::BroadcastChannelIdentifier source, WebCore::MessageWithMessagePorts&&, CompletionHandler<void()>&&);
+    void registerChannel(IPC::Connection&, const WebCore::ClientOrigin&, const String& name);
+    void unregisterChannel(IPC::Connection&, const WebCore::ClientOrigin&, const String& name);
+    void postMessage(IPC::Connection&, const WebCore::ClientOrigin&, const String& name, WebCore::MessageWithMessagePorts&&, CompletionHandler<void()>&&);
 
+    std::optional<SharedPreferencesForWebProcess> sharedPreferencesForWebProcess(const IPC::Connection&) const;
 private:
-    struct GlobalBroadcastChannelIdentifier {
-        IPC::Connection::UniqueID connectionIdentifier;
-        WebCore::BroadcastChannelIdentifier channelIndentifierInProcess;
+    explicit NetworkBroadcastChannelRegistry(NetworkProcess&);
 
-        bool operator==(const GlobalBroadcastChannelIdentifier& other) const
-        {
-            return connectionIdentifier == other.connectionIdentifier && channelIndentifierInProcess == other.channelIndentifierInProcess;
-        }
-    };
-
-    // FIXME: BroadcastChannel needs partitioning (https://github.com/whatwg/html/issues/5803).
-    using NameToChannelIdentifiersMap = HashMap<String, Vector<GlobalBroadcastChannelIdentifier>>;
-    HashMap<WebCore::SecurityOriginData, NameToChannelIdentifiersMap> m_broadcastChannels;
+    const Ref<NetworkProcess> m_networkProcess;
+    using NameToConnectionIdentifiersMap = HashMap<String, Vector<IPC::Connection::UniqueID>>;
+    HashMap<WebCore::ClientOrigin, NameToConnectionIdentifiersMap> m_broadcastChannels;
 };
 
 } // namespace WebKit

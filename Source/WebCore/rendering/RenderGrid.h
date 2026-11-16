@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 Apple Inc. All rights reserved.
+ * Copyright (C) 2011, 2022 Apple Inc. All rights reserved.
  * Copyright (C) 2013-2017 Igalia S.L.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,171 +27,279 @@
 #pragma once
 
 #include "Grid.h"
+#include "GridMasonryLayout.h"
 #include "GridTrackSizingAlgorithm.h"
 #include "RenderBlock.h"
+#include "StyleGridTrackSizingDirection.h"
+#include <wtf/TZoneMalloc.h>
+
+namespace WTF {
+template<typename T>
+class Range;
+}
 
 namespace WebCore {
 
+namespace LayoutIntegration {
+class GridLayout;
+}
+
 class GridArea;
+class RenderGridLayoutState;
 class GridSpan;
+class LayoutRange;
 
 struct ContentAlignmentData {
-    WTF_MAKE_NONCOPYABLE(ContentAlignmentData); WTF_MAKE_FAST_ALLOCATED;
-public:
-    ContentAlignmentData() = default;
-    bool isValid() const { return positionOffset >= 0 && distributionOffset >= 0; }
-
     LayoutUnit positionOffset;
     LayoutUnit distributionOffset;
 };
 
-enum GridAxisPosition {GridAxisStart, GridAxisEnd, GridAxisCenter};
+enum class GridAxisPosition : uint8_t { GridAxisStart, GridAxisEnd, GridAxisCenter };
+
+enum class SubgridDidChange : bool { No, Yes };
+
+class GridItemSizeCache {
+public:
+    void setSizeForGridItem(const RenderBox& gridItem, LayoutUnit size);
+    std::optional<LayoutUnit> NODELETE sizeForItem(const RenderBox& gridItem) const;
+    void invalidateSizeForItem(const RenderBox& gridItem);
+
+private:
+    SingleThreadWeakHashMap<const RenderBox, std::optional<LayoutUnit>> m_sizes;
+};
 
 class RenderGrid final : public RenderBlock {
-    WTF_MAKE_ISO_ALLOCATED(RenderGrid);
+    WTF_MAKE_TZONE_ALLOCATED(RenderGrid);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderGrid);
 public:
-    RenderGrid(Element&, RenderStyle&&);
+    RenderGrid(Element&, Style::ComputedStyle&&);
     virtual ~RenderGrid();
 
     Element& element() const { return downcast<Element>(nodeForNonAnonymous()); }
 
-    void styleDidChange(StyleDifference, const RenderStyle* oldStyle) override;
-    void layoutBlock(bool relayoutChildren, LayoutUnit pageLogicalHeight = 0_lu) override;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) override;
+    void layoutBlock(RelayoutChildren, LayoutUnit pageLogicalHeight = 0_lu) override;
 
-    bool avoidsFloats() const override { return true; }
     bool canDropAnonymousBlockChild() const override { return false; }
 
-    void dirtyGrid();
-    Vector<LayoutUnit> trackSizesForComputedStyle(GridTrackSizingDirection) const;
+    bool isComputingTrackSizes() const { return m_isComputingTrackSizes; }
 
-    const Vector<LayoutUnit>& columnPositions() const { return m_columnPositions; }
-    const Vector<LayoutUnit>& rowPositions() const { return m_rowPositions; }
+    bool hasDefiniteLogicalHeight() const;
+    const std::optional<LayoutUnit> availableLogicalHeightForContentBox() const;
 
-    unsigned autoRepeatCountForDirection(GridTrackSizingDirection direction) const { return m_grid.autoRepeatTracks(direction); }
-    unsigned explicitGridStartForDirection(GridTrackSizingDirection direction) const { return m_grid.explicitGridStart(direction); }
+    void setNeedsItemPlacement(SubgridDidChange descendantSubgridsNeedItemPlacement = SubgridDidChange::No);
+    const Vector<LayoutUnit>& trackSizesForComputedStyle(Style::GridTrackSizingDirection) const LIFETIME_BOUND;
+
+    const Vector<LayoutUnit>& columnPositions() const LIFETIME_BOUND { return m_columnPositions; }
+    const Vector<LayoutUnit>& rowPositions() const LIFETIME_BOUND { return m_rowPositions; }
+    const Vector<LayoutUnit>& positions(Style::GridTrackSizingDirection direction) const LIFETIME_BOUND { return direction == Style::GridTrackSizingDirection::Columns ? columnPositions() : rowPositions(); }
+
+    unsigned autoRepeatCountForDirection(Style::GridTrackSizingDirection direction) const { return currentGrid().autoRepeatTracks(direction); }
+    unsigned explicitGridStartForDirection(Style::GridTrackSizingDirection direction) const { return currentGrid().explicitGridStart(direction); }
 
     // Required by GridTrackSizingAlgorithm. Keep them under control.
-    LayoutUnit guttersSize(const Grid&, GridTrackSizingDirection, unsigned startLine, unsigned span, std::optional<LayoutUnit> availableSize) const;
-    LayoutUnit gridItemOffset(GridTrackSizingDirection) const;
+    LayoutUnit guttersSize(Style::GridTrackSizingDirection, unsigned startLine, unsigned span, std::optional<LayoutUnit> availableSize) const;
+    LayoutUnit NODELETE gridItemOffset(Style::GridTrackSizingDirection) const;
 
+    std::optional<LayoutUnit> explicitIntrinsicInnerLogicalSize(Style::GridTrackSizingDirection) const;
     void updateGridAreaLogicalSize(RenderBox&, std::optional<LayoutUnit> width, std::optional<LayoutUnit> height) const;
-    bool isBaselineAlignmentForChild(const RenderBox&) const;
-    bool isBaselineAlignmentForChild(const RenderBox& child, GridAxis, AllowedBaseLine = BothLines) const;
+    bool isBaselineAlignmentForGridItem(const RenderBox&) const;
+    bool isBaselineAlignmentForGridItem(const RenderBox& gridItem, Style::GridTrackSizingDirection alignmentContext) const;
 
-    StyleSelfAlignmentData selfAlignmentForChild(GridAxis, const RenderBox&, const RenderStyle* = nullptr) const;
+    StyleContentAlignmentData contentAlignment(Style::GridTrackSizingDirection) const;
+    StyleSelfAlignmentData selfAlignmentForGridItem(const RenderBox&, LogicalBoxAxis containingAxis, StretchingMode = StretchingMode::Normal, const Style::ComputedStyle* = nullptr) const;
+    bool willStretchItem(const RenderBox& item, LogicalBoxAxis containingAxis, StretchingMode = StretchingMode::Normal) const override;
 
-    StyleContentAlignmentData contentAlignment(GridTrackSizingDirection) const;
+    // These functions handle the actual implementation of layoutBlock based on if
+    // the grid is a standard grid or a masonry one. While masonry is an extension of grid,
+    // keeping the logic in the same function was leading to a messy amount of if statements being added to handle
+    // specific masonry cases.
+    void layoutGrid(RelayoutChildren);
+    void layoutMasonry(RelayoutChildren);
+
+    // Computes the span relative to this RenderGrid, even if the RenderBox is a grid item
+    // of a descendant subgrid.
+    GridSpan gridSpanForGridItem(const RenderBox&, Style::GridTrackSizingDirection) const;
+
+    bool isSubgrid() const;
+    bool isSubgrid(Style::GridTrackSizingDirection) const;
+    bool isSubgridRows() const { return isSubgrid(Style::GridTrackSizingDirection::Rows); }
+    bool isSubgridColumns() const { return isSubgrid(Style::GridTrackSizingDirection::Columns); }
+    bool isSubgridInParentDirection(Style::GridTrackSizingDirection parentDirection) const;
+
+    // Returns true if this grid is inheriting subgridded tracks for
+    // the given direction from the specified ancestor. This handles
+    // nested subgrids, where ancestor may not be our direct parent.
+    bool isSubgridOf(Style::GridTrackSizingDirection, const RenderGrid& ancestor) const;
+
+    bool NODELETE isMasonry() const;
+    bool isMasonry(Style::GridTrackSizingDirection) const;
+    bool isMasonry(LogicalBoxAxis axis) const { return isMasonry(Style::gridTrackSizingDirection(axis)); }
+    bool areMasonryRows() const { return isMasonry(Style::GridTrackSizingDirection::Rows); }
+    bool areMasonryColumns() const { return isMasonry(Style::GridTrackSizingDirection::Columns); }
+
+    const Grid& NODELETE currentGrid() const LIFETIME_BOUND;
+    Grid& NODELETE currentGrid() LIFETIME_BOUND;
+
+    unsigned numTracks(Style::GridTrackSizingDirection) const;
+
+    void placeItems();
+
+    std::optional<LayoutUnit> availableSpaceForGutters(Style::GridTrackSizingDirection) const;
+    LayoutUnit gridGap(Style::GridTrackSizingDirection) const;
+    LayoutUnit gridGap(Style::GridTrackSizingDirection, std::optional<LayoutUnit> availableSize) const;
+
+    LayoutUnit NODELETE masonryContentSize() const;
+
+    void updateIntrinsicLogicalHeightsForRowSizingFirstPassCacheAvailability();
+    std::optional<GridItemSizeCache>& NODELETE intrinsicLogicalHeightsForRowSizingFirstPass() const LIFETIME_BOUND;
+
+    bool shouldCheckExplicitIntrinsicInnerLogicalSize(Style::GridTrackSizingDirection) const;
+
+    // Checks both the grid container and the grid since the grid container is sized
+    // according to the rules of the formatting context it lives in while the size of the
+    // grid is determined by the lines/grid areas which come from track sizing.
+    bool isExtrinsicallySized() const;
 
 private:
-    ItemPosition selfAlignmentNormalBehavior(const RenderBox* child = nullptr) const override
+    friend class GridTrackSizingAlgorithm;
+    friend class GridTrackSizingAlgorithmStrategy;
+    friend class GridMasonryLayout;
+    friend class PositionedLayoutConstraints;
+    friend class LayoutIntegration::GridLayout;
+
+    inline void updateGridAreaWithEstimate(RenderBox& gridItem, const GridTrackSizingAlgorithm&) const;
+    inline void updateGridAreaIncludingAlignment(RenderBox& gridItem) const;
+
+    void computeLayoutRequirementsForItemsBeforeLayout(RenderGridLayoutState&) const;
+    bool canSetColumnAxisStretchRequirementForItem(const RenderBox&) const;
+
+    ASCIILiteral renderName() const override;
+    std::pair<LayoutUnit, LayoutUnit> computeIntrinsicLogicalWidths() const override;
+
+    bool selfAlignmentChangedToStretch(LogicalBoxAxis containingAxis, const Style::ComputedStyle& oldStyle, const Style::ComputedStyle& newStyle, const RenderBox& gridItem) const;
+    bool selfAlignmentChangedFromStretch(LogicalBoxAxis containingAxis, const Style::ComputedStyle& oldStyle, const Style::ComputedStyle& newStyle, const RenderBox& gridItem) const;
+
+    SubgridDidChange NODELETE subgridDidChange(const Style::ComputedStyle& oldStyle) const;
+    bool NODELETE explicitGridDidResize(const Style::ComputedStyle&) const;
+    bool namedGridLinesDefinitionDidChange(const Style::ComputedStyle&) const;
+    bool implicitGridLinesDefinitionDidChange(const Style::ComputedStyle&) const;
+
+    unsigned computeAutoRepeatTracksCount(Style::GridTrackSizingDirection, std::optional<LayoutUnit> availableSize) const;
+
+    unsigned clampAutoRepeatTracks(Style::GridTrackSizingDirection, unsigned autoRepeatTracks) const;
+
+    WTF::Range<size_t> NODELETE autoRepeatTracksRange(Style::GridTrackSizingDirection) const;
+    std::unique_ptr<OrderedTrackIndexSet> computeEmptyTracksForAutoRepeat(Style::GridTrackSizingDirection) const;
+
+    enum class ShouldUpdateGridAreaLogicalSize : bool { No, Yes };
+    void performPreLayoutForGridItems(const GridTrackSizingAlgorithm&, const ShouldUpdateGridAreaLogicalSize) const;
+
+    void placeItemsOnGrid(std::optional<LayoutUnit> availableLogicalWidth);
+    void populateExplicitGridAndOrderIterator();
+    GridArea createEmptyGridAreaAtSpecifiedPositionsOutsideGrid(const RenderBox&, Style::GridTrackSizingDirection, const GridSpan&) const;
+    bool isPlacedWithinExtrinsicallySizedExplicitTracks(const RenderBox&) const;
+    void placeSpecifiedMajorAxisItemsOnGrid(const Vector<RenderBox*>&);
+    void placeAutoMajorAxisItemsOnGrid(const Vector<RenderBox*>&);
+    typedef std::pair<unsigned, unsigned> AutoPlacementCursor;
+    void placeAutoMajorAxisItemOnGrid(RenderBox&, AutoPlacementCursor&);
+    Style::GridTrackSizingDirection NODELETE autoPlacementMajorAxisDirection() const;
+    Style::GridTrackSizingDirection NODELETE autoPlacementMinorAxisDirection() const;
+
+    static bool itemGridAreaIsWithinImplicitGrid(const GridArea& area, unsigned gridAxisLinesCount, Style::GridTrackSizingDirection gridAxisDirection)
     {
-        ASSERT(child);
-        return child->isRenderReplaced() ? ItemPosition::Start : ItemPosition::Stretch;
+        auto itemSpan = area.span(gridAxisDirection);
+        return itemSpan.startLine() < gridAxisLinesCount && itemSpan.endLine() < gridAxisLinesCount;
     }
 
-    const char* renderName() const override;
-    bool isRenderGrid() const override { return true; }
-    void computeIntrinsicLogicalWidths(LayoutUnit& minLogicalWidth, LayoutUnit& maxLogicalWidth) const override;
-
-    bool selfAlignmentChangedToStretch(GridAxis, const RenderStyle& oldStyle, const RenderStyle& newStyle, const RenderBox&) const;
-    bool selfAlignmentChangedFromStretch(GridAxis, const RenderStyle& oldStyle, const RenderStyle& newStyle, const RenderBox&) const;
-
-    std::optional<LayoutUnit> availableSpaceForGutters(GridTrackSizingDirection) const;
-
-    bool explicitGridDidResize(const RenderStyle&) const;
-    bool namedGridLinesDefinitionDidChange(const RenderStyle&) const;
-
-    unsigned computeAutoRepeatTracksCount(GridTrackSizingDirection, std::optional<LayoutUnit> availableSize) const;
-
-    unsigned clampAutoRepeatTracks(GridTrackSizingDirection, unsigned autoRepeatTracks) const;
-
-    std::unique_ptr<OrderedTrackIndexSet> computeEmptyTracksForAutoRepeat(Grid&, GridTrackSizingDirection) const;
-
-    void performGridItemsPreLayout(const GridTrackSizingAlgorithm&) const;
-
-    void placeItemsOnGrid(GridTrackSizingAlgorithm&, std::optional<LayoutUnit> availableLogicalWidth) const;
-    void populateExplicitGridAndOrderIterator(Grid&) const;
-    std::unique_ptr<GridArea> createEmptyGridAreaAtSpecifiedPositionsOutsideGrid(Grid&, const RenderBox&, GridTrackSizingDirection, const GridSpan&) const;
-    void placeSpecifiedMajorAxisItemsOnGrid(Grid&, const Vector<RenderBox*>&) const;
-    void placeAutoMajorAxisItemsOnGrid(Grid&, const Vector<RenderBox*>&) const;
-    typedef std::pair<unsigned, unsigned> AutoPlacementCursor;
-    void placeAutoMajorAxisItemOnGrid(Grid&, RenderBox&, AutoPlacementCursor&) const;
-    GridTrackSizingDirection autoPlacementMajorAxisDirection() const;
-    GridTrackSizingDirection autoPlacementMinorAxisDirection() const;
-
     bool canPerformSimplifiedLayout() const final;
-    void prepareChildForPositionedLayout(RenderBox&);
-    bool hasStaticPositionForChild(const RenderBox&, GridTrackSizingDirection) const;
-    void layoutPositionedObject(RenderBox&, bool relayoutChildren, bool fixedPositionObjectsOnly) override;
+    void prepareGridItemForPositionedLayout(RenderBox&);
+    bool NODELETE hasStaticPositionForGridItem(const RenderBox&, Style::GridTrackSizingDirection) const;
+    void layoutOutOfFlowBox(RenderBox&, RelayoutChildren, bool fixedPositionObjectsOnly) override;
 
-    void computeTrackSizesForDefiniteSize(GridTrackSizingDirection, LayoutUnit availableSpace);
-    void computeTrackSizesForIndefiniteSize(GridTrackSizingAlgorithm&, GridTrackSizingDirection, LayoutUnit* minIntrinsicSize = nullptr, LayoutUnit* maxIntrinsicSize = nullptr) const;
+    void computeTrackSizesForDefiniteSize(Style::GridTrackSizingDirection, LayoutUnit availableSpace, RenderGridLayoutState&);
+    std::pair<LayoutUnit, LayoutUnit> computeTrackSizesForIndefiniteSize(GridTrackSizingAlgorithm&, Style::GridTrackSizingDirection, RenderGridLayoutState&) const;
     LayoutUnit computeTrackBasedLogicalHeight() const;
 
-    void repeatTracksSizingIfNeeded(LayoutUnit availableSpaceForColumns, LayoutUnit availableSpaceForRows);
+    void repeatTracksSizingIfNeeded(LayoutUnit availableSpaceForColumns, LayoutUnit availableSpaceForRows, RenderGridLayoutState&);
 
-    void layoutGridItems();
-    void populateGridPositionsForDirection(GridTrackSizingDirection);
+    void updateGridAreaForAspectRatioItems(const Vector<RenderBox*>&, RenderGridLayoutState&);
 
-    LayoutUnit resolveAutoStartGridPosition(GridTrackSizingDirection) const;
-    LayoutUnit resolveAutoEndGridPosition(GridTrackSizingDirection) const;
-    LayoutUnit gridAreaBreadthForOutOfFlowChild(const RenderBox&, GridTrackSizingDirection);
-    LayoutUnit logicalOffsetForOutOfFlowChild(const RenderBox&, GridTrackSizingDirection, LayoutUnit) const;
-    void gridAreaPositionForOutOfFlowChild(const RenderBox&, GridTrackSizingDirection, LayoutUnit& start, LayoutUnit& end) const;
-    void gridAreaPositionForInFlowChild(const RenderBox&, GridTrackSizingDirection, LayoutUnit& start, LayoutUnit& end) const;
-    void gridAreaPositionForChild(const RenderBox&, GridTrackSizingDirection, LayoutUnit& start, LayoutUnit& end) const;
+    void layoutGridItems(RenderGridLayoutState&);
+    void layoutMasonryItems(RenderGridLayoutState&);
 
-    GridAxisPosition columnAxisPositionForChild(const RenderBox&) const;
-    GridAxisPosition rowAxisPositionForChild(const RenderBox&) const;
-    LayoutUnit columnAxisOffsetForChild(const RenderBox&) const;
-    LayoutUnit rowAxisOffsetForChild(const RenderBox&) const;
-    void computeContentPositionAndDistributionOffset(GridTrackSizingDirection, const LayoutUnit& availableFreeSpace, unsigned numberOfGridTracks);
-    void setLogicalPositionForChild(RenderBox&) const;
-    void setLogicalOffsetForChild(RenderBox&, GridTrackSizingDirection) const;
-    LayoutUnit logicalOffsetForChild(const RenderBox&, GridTrackSizingDirection) const;
-    GridArea cachedGridArea(const RenderBox&) const;
-    GridSpan cachedGridSpan(const RenderBox&, GridTrackSizingDirection) const;
+    void populateGridPositionsForDirection(const GridTrackSizingAlgorithm&, Style::GridTrackSizingDirection);
 
-    LayoutUnit gridAreaBreadthForChildIncludingAlignmentOffsets(const RenderBox&, GridTrackSizingDirection) const;
+    LayoutRange gridAreaRangeForOutOfFlow(const RenderBox&, Style::GridTrackSizingDirection) const;
+    std::pair<LayoutUnit, LayoutUnit> gridAreaPositionForInFlowGridItem(const RenderBox&, Style::GridTrackSizingDirection) const;
+
+    GridAxisPosition columnAxisPositionForGridItem(const RenderBox&) const;
+    GridAxisPosition rowAxisPositionForGridItem(const RenderBox&) const;
+    LayoutUnit columnAxisOffsetForGridItem(const RenderBox&) const;
+    LayoutUnit rowAxisOffsetForGridItem(const RenderBox&) const;
+    ContentAlignmentData computeContentPositionAndDistributionOffset(Style::GridTrackSizingDirection, const LayoutUnit& availableFreeSpace, unsigned numberOfGridTracks) const;
+    void setLogicalPositionForGridItem(RenderBox&) const;
+    LayoutUnit logicalOffsetForGridItem(const RenderBox&, Style::GridTrackSizingDirection) const;
+
+    LayoutUnit gridAreaBreadthForGridItemIncludingAlignmentOffsets(const RenderBox&, Style::GridTrackSizingDirection) const;
 
     void paintChildren(PaintInfo& forSelf, const LayoutPoint& paintOffset, PaintInfo& forChild, bool usePrintRect) override;
-    LayoutUnit availableAlignmentSpaceForChildBeforeStretching(LayoutUnit gridAreaBreadthForChild, const RenderBox&) const;
-    StyleSelfAlignmentData justifySelfForChild(const RenderBox&, StretchingMode = StretchingMode::Any, const RenderStyle* = nullptr) const;
-    StyleSelfAlignmentData alignSelfForChild(const RenderBox&, StretchingMode = StretchingMode::Any, const RenderStyle* = nullptr) const;
-    void applyStretchAlignmentToChildIfNeeded(RenderBox&);
-    bool hasAutoSizeInColumnAxis(const RenderBox& child) const;
-    bool hasAutoSizeInRowAxis(const RenderBox& child) const;
-    bool allowedToStretchChildAlongColumnAxis(const RenderBox& child) const { return alignSelfForChild(child).position() == ItemPosition::Stretch && hasAutoSizeInColumnAxis(child) && !hasAutoMarginsInColumnAxis(child); }
-    bool allowedToStretchChildAlongRowAxis(const RenderBox& child) const { return justifySelfForChild(child).position() == ItemPosition::Stretch && hasAutoSizeInRowAxis(child) && !hasAutoMarginsInRowAxis(child); }
-    bool hasAutoMarginsInColumnAxis(const RenderBox&) const;
-    bool hasAutoMarginsInRowAxis(const RenderBox&) const;
-    void resetAutoMarginsAndLogicalTopInColumnAxis(RenderBox& child);
-    void updateAutoMarginsInColumnAxisIfNeeded(RenderBox&);
-    void updateAutoMarginsInRowAxisIfNeeded(RenderBox&);
+    bool hitTestChildren(const HitTestRequest&, HitTestResult&, const HitTestLocation&, const LayoutPoint& adjustedLocation, HitTestAction) override;
+    LayoutOptionalOutsets allowedLayoutOverflow() const override;
+    LayoutRect contentOverflowRect() const;
 
-    LayoutUnit baselinePosition(FontBaseline, bool firstLine, LineDirectionMode, LinePositionMode = PositionOnContainingLine) const final;
+    void applyStretchAlignmentToGridItemIfNeeded(RenderBox&, RenderGridLayoutState&);
+    void applySubgridStretchAlignmentToGridItemIfNeeded(RenderBox&);
+    bool isChildEligibleForMarginTrim(Style::MarginTrimSide, const RenderBox&) const final;
+
     std::optional<LayoutUnit> firstLineBaseline() const final;
-    std::optional<LayoutUnit> inlineBlockBaseline(LineDirectionMode) const final;
-    bool isInlineBaselineAlignedChild(const RenderBox&) const;
+    std::optional<LayoutUnit> lastLineBaseline() const final;
+    const RenderBox* baselineGridItem(ItemPosition alignment) const;
 
-    LayoutUnit columnAxisBaselineOffsetForChild(const RenderBox&) const;
-    LayoutUnit rowAxisBaselineOffsetForChild(const RenderBox&) const;
+    LayoutUnit columnAxisBaselineOffsetForGridItem(const RenderBox&) const;
+    LayoutUnit rowAxisBaselineOffsetForGridItem(const RenderBox&) const;
 
-    LayoutUnit gridGap(GridTrackSizingDirection) const;
-    LayoutUnit gridGap(GridTrackSizingDirection, std::optional<LayoutUnit> availableSize) const;
+    unsigned NODELETE nonCollapsedTracks(Style::GridTrackSizingDirection) const;
 
-    unsigned nonCollapsedTracks(GridTrackSizingDirection) const;
-    unsigned numTracks(GridTrackSizingDirection, const Grid&) const;
-
-    LayoutUnit translateOutOfFlowRTLCoordinate(const RenderBox&, LayoutUnit) const;
     LayoutUnit translateRTLCoordinate(LayoutUnit) const;
 
     bool shouldResetLogicalHeightBeforeLayout() const override { return true; }
 
-    bool aspectRatioPrefersInline(const RenderBox& child, bool blockFlowIsColumnAxis);
+    bool aspectRatioPrefersInline(const RenderBox& gridItem, bool blockFlowIsColumnAxis);
 
-    Grid m_grid;
+    Vector<RenderBox*> computeAspectRatioDependentAndBaselineItems(RenderGridLayoutState&);
 
+    GridSpan gridSpanForOutOfFlowGridItem(const RenderBox&, Style::GridTrackSizingDirection) const;
+
+    bool computeGridPositionsForOutOfFlowGridItem(const RenderBox&, Style::GridTrackSizingDirection, int&, bool&, int&, bool&) const;
+
+    AutoRepeatType NODELETE autoRepeatType(Style::GridTrackSizingDirection) const;
+
+    Vector<LayoutUnit>& positions(Style::GridTrackSizingDirection direction) LIFETIME_BOUND { return direction == Style::GridTrackSizingDirection::Columns ? m_columnPositions : m_rowPositions; }
+
+    // https://drafts.csswg.org/css-grid-2/#resolved-track-list
+    // The resolved value of grid-template-columns / grid-template-rows for a grid container is its
+    // used value: every track listed individually with its size serialized as a length in pixels.
+    // We compute this once at the end of layout instead of on demand for each getComputedStyle query.
+    Vector<LayoutUnit> computeResolvedTrackList(Style::GridTrackSizingDirection) const;
+    void updateResolvedTrackListsAfterLayout();
+    void setResolvedTrackSizes(Vector<LayoutUnit>&& columnSizes, Vector<LayoutUnit>&& rowSizes);
+
+    ContentAlignmentData& offsetBetweenTracks(Style::GridTrackSizingDirection direction) LIFETIME_BOUND { return direction == Style::GridTrackSizingDirection::Columns ? m_offsetBetweenColumns : m_offsetBetweenRows; }
+    const ContentAlignmentData& offsetBetweenTracks(Style::GridTrackSizingDirection direction) const LIFETIME_BOUND { return direction == Style::GridTrackSizingDirection::Columns ? m_offsetBetweenColumns : m_offsetBetweenRows; }
+
+    bool canCreateIntrinsicLogicalHeightsForRowSizingFirstPassCache() const;
+
+    class GridWrapper {
+        Grid m_layoutGrid;
+    public:
+        GridWrapper(RenderGrid&);
+        void NODELETE resetCurrentGrid() const;
+        mutable std::reference_wrapper<Grid> m_currentGrid { std::ref(m_layoutGrid) };
+    } m_grid;
+
+    // FIXME: Refactor m_trackSizingAlgorithm to be inside of layoutGrid and layoutMasonry.
+    // https://bugs.webkit.org/show_bug.cgi?id=277496
     GridTrackSizingAlgorithm m_trackSizingAlgorithm;
 
     Vector<LayoutUnit> m_columnPositions;
@@ -199,12 +307,34 @@ private:
     ContentAlignmentData m_offsetBetweenColumns;
     ContentAlignmentData m_offsetBetweenRows;
 
-    typedef HashMap<const RenderBox*, std::optional<size_t>> OutOfFlowPositionsMap;
-    OutOfFlowPositionsMap m_outOfFlowItemColumn;
-    OutOfFlowPositionsMap m_outOfFlowItemRow;
+    // Cached resolved value of grid-template-columns / grid-template-rows (see computeResolvedTrackList).
+    // Invalidated when a full (non-simplified) layout begins and repopulated at the end of that layout,
+    // so a stale read trips the assert in trackSizesForComputedStyle().
+    struct ResolvedTrackList {
+        Vector<LayoutUnit> columnSizes;
+        Vector<LayoutUnit> rowSizes;
+        bool isValid { false };
 
-    bool m_hasAnyOrthogonalItem {false};
-    bool m_baselineItemsCached {false};
+        void invalidate()
+        {
+            isValid = false;
+            columnSizes.clear();
+            rowSizes.clear();
+        }
+
+        const Vector<LayoutUnit>& sizes(Style::GridTrackSizingDirection direction) const LIFETIME_BOUND { return direction == Style::GridTrackSizingDirection::Columns ? columnSizes : rowSizes; }
+        Vector<LayoutUnit>& sizes(Style::GridTrackSizingDirection direction) LIFETIME_BOUND { return direction == Style::GridTrackSizingDirection::Columns ? columnSizes : rowSizes; }
+    } m_resolvedTrackList;
+
+    mutable GridMasonryLayout m_masonryLayout;
+
+    mutable std::optional<GridItemSizeCache> m_intrinsicLogicalHeightsForRowSizingFirstPass;
+
+    bool layoutUsingGridFormattingContext();
+
+    std::optional<bool> m_hasGridFormattingContextLayout;
+
+    mutable bool m_isComputingTrackSizes { false };
 };
 
 } // namespace WebCore

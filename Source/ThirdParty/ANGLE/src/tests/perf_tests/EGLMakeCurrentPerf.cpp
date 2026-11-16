@@ -49,9 +49,15 @@ EGLMakeCurrentPerfTest::EGLMakeCurrentPerfTest()
 {
     auto platform = GetParam().eglParameters;
 
-    std::vector<EGLint> displayAttributes;
+    mOSWindow = OSWindow::New();
+    mOSWindow->initialize("EGLMakeCurrent Test", 64, 64);
+    const EGLenum platformType = mOSWindow->getNativeDisplayPlatformType();
+
+    std::vector<EGLAttrib> displayAttributes;
     displayAttributes.push_back(EGL_PLATFORM_ANGLE_TYPE_ANGLE);
     displayAttributes.push_back(platform.renderer);
+    displayAttributes.push_back(EGL_PLATFORM_ANGLE_NATIVE_PLATFORM_TYPE_ANGLE);
+    displayAttributes.push_back(platformType);
     displayAttributes.push_back(EGL_PLATFORM_ANGLE_MAX_VERSION_MAJOR_ANGLE);
     displayAttributes.push_back(platform.majorVersion);
     displayAttributes.push_back(EGL_PLATFORM_ANGLE_MAX_VERSION_MINOR_ANGLE);
@@ -60,14 +66,10 @@ EGLMakeCurrentPerfTest::EGLMakeCurrentPerfTest()
     displayAttributes.push_back(platform.deviceType);
     displayAttributes.push_back(EGL_NONE);
 
-    mOSWindow = OSWindow::New();
-    mOSWindow->initialize("EGLMakeCurrent Test", 64, 64);
-
     mEGLLibrary.reset(
-        angle::OpenSharedLibrary(ANGLE_EGL_LIBRARY_NAME, angle::SearchType::ApplicationDir));
+        angle::OpenSharedLibrary(ANGLE_EGL_LIBRARY_NAME, angle::SearchType::ModuleDir));
 
-    angle::LoadProc getProc =
-        reinterpret_cast<angle::LoadProc>(mEGLLibrary->getSymbol("eglGetProcAddress"));
+    LoadProc getProc = reinterpret_cast<LoadProc>(mEGLLibrary->getSymbol("eglGetProcAddress"));
 
     if (!getProc)
     {
@@ -75,15 +77,17 @@ EGLMakeCurrentPerfTest::EGLMakeCurrentPerfTest()
     }
     else
     {
-        angle::LoadEGL(getProc);
+        LoadUtilEGL(getProc);
+        // Test harness warmup calls glFinish so we need GLES too.
+        LoadUtilGLES(getProc);
 
-        if (!eglGetPlatformDisplayEXT)
+        if (!eglGetPlatformDisplay)
         {
             abortTest();
         }
         else
         {
-            mDisplay = eglGetPlatformDisplayEXT(
+            mDisplay = eglGetPlatformDisplay(
                 EGL_PLATFORM_ANGLE_ANGLE, reinterpret_cast<void *>(mOSWindow->getNativeDisplay()),
                 &displayAttributes[0]);
         }
@@ -92,6 +96,8 @@ EGLMakeCurrentPerfTest::EGLMakeCurrentPerfTest()
 
 void EGLMakeCurrentPerfTest::SetUp()
 {
+    ANGLEPerfTest::SetUp();
+
     ASSERT_NE(EGL_NO_DISPLAY, mDisplay);
     EGLint majorVersion, minorVersion;
     ASSERT_TRUE(eglInitialize(mDisplay, &majorVersion, &minorVersion));
@@ -145,6 +151,8 @@ TEST_P(EGLMakeCurrentPerfTest, Run)
     run();
 }
 
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(EGLMakeCurrentPerfTest);
+// We want to run this test on GL(ES) and Vulkan everywhere except Android
 #if !defined(ANGLE_PLATFORM_ANDROID)
 ANGLE_INSTANTIATE_TEST(EGLMakeCurrentPerfTest,
                        angle::ES2_D3D11(),
@@ -152,8 +160,6 @@ ANGLE_INSTANTIATE_TEST(EGLMakeCurrentPerfTest,
                        angle::ES2_OPENGL(),
                        angle::ES2_OPENGLES(),
                        angle::ES2_VULKAN());
-#else
-ANGLE_INSTANTIATE_TEST(EGLMakeCurrentPerfTest, angle::ES2_D3D11());
 #endif
 
 }  // namespace

@@ -7,7 +7,7 @@ A basic guide to get up and running fixing bugs and performance issues in ANGLE.
 ### Windows
 
 - Download and install
-  [Visual Studio 2017 Community](https://www.visualstudio.com/en-us/products/visual-studio-community-vs.aspx).
+  [Visual Studio Community](https://www.visualstudio.com/en-us/products/visual-studio-community-vs.aspx).
   Installing takes some time.
 
 - Take the time to register a Microsoft account, otherwise you'll get nagged to death.
@@ -22,10 +22,10 @@ A basic guide to get up and running fixing bugs and performance issues in ANGLE.
 - (recommended) Download and install [Git for Windows](http://gitforwindows.org/).
 
 - Open Git bash, head to C:/src and follow the steps on
-  [the ANGLE wiki](https://chromium.googlesource.com/angle/angle/+/master/doc/DevSetup.md#Development-setup-Getting-the-source)
+  [the ANGLE wiki](https://chromium.googlesource.com/angle/angle/+/main/doc/DevSetup.md#Development-setup-Getting-the-source)
   to set up the ANGLE solution for the first time.
 
-- The VS 2017 solution will be in `c:/src/angle/out/sln/ANGLE.sln`. Open and let the installation
+- If you follow the [ANGLE wiki VS solution building and debugging guide](https://chromium.googlesource.com/angle/angle/+/main/doc/DevSetup.md#building-and-debugging-with-visual-studio), the VS solution will be in `c:/src/angle/out/Debug/angle-debug.sln`. Open and let the installation
   finish.  **Important**: set indent style to spaces, not tabs!
 
 - Building should work at this point!
@@ -47,7 +47,7 @@ A basic guide to get up and running fixing bugs and performance issues in ANGLE.
 - Ensure you add `depot_tools` to your bashrc as in the wiki link above.
 
 - Follow the steps on
-  [the ANGLE wiki](https://chromium.googlesource.com/angle/angle/+/master/doc/DevSetup.md#Development-setup-Getting-the-source)
+  [the ANGLE wiki](https://chromium.googlesource.com/angle/angle/+/main/doc/DevSetup.md#Development-setup-Getting-the-source)
   to setup ANGLE's build.
 
 - Building should work at this point! Follow the steps on the Wiki.
@@ -60,14 +60,14 @@ A basic guide to get up and running fixing bugs and performance issues in ANGLE.
   ANGLE checks out a copy in `<angledir>/third_party/cherry`.
 
 - Follow the instructions in the
-  [installation README](https://android.googlesource.com/platform/external/cherry/+/refs/heads/master/README)
+  [installation README](https://android.googlesource.com/platform/external/cherry/+/refs/heads/main/README)
   to get it running. On Windows, use 64-bit.
 
 - Read up on testing with
-  [dEQP on the ANGLE Wiki](https://chromium.googlesource.com/angle/angle/+/master/doc/dEQP.md).
+  [dEQP on the ANGLE Wiki](https://chromium.googlesource.com/angle/angle/+/main/doc/dEQP.md).
 
-- Try running `angle_deqp_gles2_tests_no_gtest` with the flag
-  `--deqp-case=dEQP-GLES2.functional.negative_api.*` and load a test report in Cherry.
+- Try running `angle_deqp_gles2_tests` with the flag
+  `--gtest_filter=dEQP-GLES2.functional.negative_api.*` and load a test report in Cherry.
 
 - To use Cherry, browse to [http://localhost:8080/#/results](http://localhost:8080/#/results) and
   click '**Import existing batch**', loading `TestResults.qpa`.  Look for the qpa file in the
@@ -79,16 +79,13 @@ A basic guide to get up and running fixing bugs and performance issues in ANGLE.
 
 ## Profiling
 
-- You can use `scripts/perf_test_runner.py` to run any target of `./angle_perftests` (see script
-  source for details).
-
 ### With Visual Studio
 
 - In Visual Studio 2017, look under Debug/Profiler/Performance Explorer/New Performance Session.
   Right-click "Targets" and add `angle_perftests` as a Target Project.
 
 - Run `angle_perftests` with the flag `--gtest_filter=DrawCallPerfBenchmark.Run/d3d11_null` for
-  D3D11, `.../d3d9_null` for D3D9, `.../gl_null` for OpenGL and `.../vulkan_null` for Vulkan.
+  D3D11, `.../d3d9_null` for D3D9, and `.../vulkan_null` for Vulkan.
 
 - Make sure you close all open instances of Chrome, they use a lot of background CPU and GPU. In
   fact, close every process and application you can.
@@ -99,7 +96,7 @@ A basic guide to get up and running fixing bugs and performance issues in ANGLE.
 
 - Canary's install dir is usually `%APPDATA%/Local/Google/Chrome SxS/Application`
 
-- Build ANGLE x64, Release, and run 'python scripts/update_canary_angle.py' to replace Canary's
+- Build ANGLE x64, Release, and run 'python scripts/update_chrome_angle.py' to replace Canary's
   ANGLE with your custom ANGLE. (Note: Canary must be closed)
 
 - Start Canary with `--gpu-startup-dialog --disable-gpu-sandbox`, wait for the dialog.

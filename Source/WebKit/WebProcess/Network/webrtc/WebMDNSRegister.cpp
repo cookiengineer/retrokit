@@ -31,39 +31,49 @@
 #include "NetworkMDNSRegisterMessages.h"
 #include "NetworkProcessConnection.h"
 #include "WebProcess.h"
+#include "WebRTCNetworkBase.h"
 #include <WebCore/Document.h>
 
 namespace WebKit {
 using namespace WebCore;
 
-void WebMDNSRegister::finishedRegisteringMDNSName(MDNSRegisterIdentifier identifier, LibWebRTCProvider::MDNSNameOrError&& result)
+WebMDNSRegister::WebMDNSRegister(WebRTCNetworkBase& webRTCNetwork)
+    : m_webRTCNetwork(webRTCNetwork)
 {
-    auto pendingRegistration = m_pendingRegistrations.take(identifier);
-    if (!pendingRegistration.callback)
-        return;
-
-    if (result.has_value()) {
-        auto iterator = m_registeringDocuments.find(pendingRegistration.documentIdentifier);
-        if (iterator == m_registeringDocuments.end()) {
-            pendingRegistration.callback(makeUnexpected(WebCore::MDNSRegisterError::DNSSD));
-            return;
-        }
-        iterator->value.add(pendingRegistration.ipAddress, result.value());
-    }
-
-    pendingRegistration.callback(WTFMove(result));
 }
 
-void WebMDNSRegister::unregisterMDNSNames(DocumentIdentifier identifier)
+void WebMDNSRegister::ref() const
+{
+    m_webRTCNetwork->ref();
+}
+
+void WebMDNSRegister::deref() const
+{
+    m_webRTCNetwork->deref();
+}
+
+void WebMDNSRegister::finishedRegisteringMDNSName(WebCore::ScriptExecutionContextIdentifier documentIdentifier, const String& ipAddress, String&& name, std::optional<MDNSRegisterError> error, CompletionHandler<void(const String&, std::optional<MDNSRegisterError>)>&& completionHandler)
+{
+    if (!error) {
+        auto iterator = m_registeringDocuments.find(documentIdentifier);
+        if (iterator == m_registeringDocuments.end())
+            return completionHandler(name, WebCore::MDNSRegisterError::DNSSD);
+        iterator->value.add(ipAddress, name);
+    }
+
+    completionHandler(name, error);
+}
+
+void WebMDNSRegister::unregisterMDNSNames(ScriptExecutionContextIdentifier identifier)
 {
     if (m_registeringDocuments.take(identifier).isEmpty())
         return;
 
-    auto& connection = WebProcess::singleton().ensureNetworkProcessConnection().connection();
-    connection.send(Messages::NetworkMDNSRegister::UnregisterMDNSNames { identifier }, 0);
+    Ref connection = WebProcess::singleton().ensureNetworkProcessConnection().connection();
+    connection->send(Messages::NetworkMDNSRegister::UnregisterMDNSNames { identifier }, 0);
 }
 
-void WebMDNSRegister::registerMDNSName(DocumentIdentifier identifier, const String& ipAddress, CompletionHandler<void(LibWebRTCProvider::MDNSNameOrError&&)>&& callback)
+void WebMDNSRegister::registerMDNSName(ScriptExecutionContextIdentifier identifier, const String& ipAddress, CompletionHandler<void(const String&, std::optional<MDNSRegisterError>)>&& callback)
 {
     auto& map = m_registeringDocuments.ensure(identifier, [] {
         return HashMap<String, String> { };
@@ -71,16 +81,17 @@ void WebMDNSRegister::registerMDNSName(DocumentIdentifier identifier, const Stri
 
     auto iterator = map.find(ipAddress);
     if (iterator != map.end()) {
-        callback(iterator->value);
+        callback(iterator->value, { });
         return;
     }
 
-    auto requestIdentifier = MDNSRegisterIdentifier::generate();
-    m_pendingRegistrations.add(requestIdentifier, PendingRegistration { WTFMove(callback), identifier, ipAddress });
-
     auto& connection = WebProcess::singleton().ensureNetworkProcessConnection().connection();
-    if (!connection.send(Messages::NetworkMDNSRegister::RegisterMDNSName { requestIdentifier, identifier, ipAddress }, 0))
-        finishedRegisteringMDNSName(requestIdentifier, makeUnexpected(MDNSRegisterError::Internal));
+    connection.sendWithAsyncReply(Messages::NetworkMDNSRegister::RegisterMDNSName { identifier, ipAddress }, [weakThis = WeakPtr { *this }, callback = WTF::move(callback), identifier, ipAddress] (String&& mdnsName, std::optional<MDNSRegisterError> error) mutable {
+        if (RefPtr protectedThis = weakThis.get())
+            protectedThis->finishedRegisteringMDNSName(identifier, ipAddress, WTF::move(mdnsName), error, WTF::move(callback));
+        else
+            callback({ }, MDNSRegisterError::Internal);
+    });
 }
 
 } // namespace WebKit

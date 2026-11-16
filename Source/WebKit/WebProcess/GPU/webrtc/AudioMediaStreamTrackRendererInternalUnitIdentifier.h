@@ -29,7 +29,7 @@
 
 namespace WebKit {
 
-enum AudioMediaStreamTrackRendererInternalUnitIdentifierType { };
+struct AudioMediaStreamTrackRendererInternalUnitIdentifierType;
 using AudioMediaStreamTrackRendererInternalUnitIdentifier = ObjectIdentifier<AudioMediaStreamTrackRendererInternalUnitIdentifierType>;
 
 } // namespace WebKit

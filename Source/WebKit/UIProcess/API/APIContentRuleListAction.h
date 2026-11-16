@@ -33,18 +33,24 @@ namespace API {
 
 class ContentRuleListAction final : public ObjectImpl<Object::Type::ContentRuleListAction> {
 public:
+#if ENABLE(CONTENT_EXTENSIONS)
     static Ref<ContentRuleListAction> create(WebCore::ContentRuleListResults::Result&&);
     virtual ~ContentRuleListAction();
 
-    bool blockedLoad() const;
-    bool madeHTTPS() const;
-    bool blockedCookies() const;
-    const Vector<WTF::String>& notifications() const;
+    bool NODELETE blockedLoad() const;
+    bool NODELETE madeHTTPS() const;
+    bool NODELETE blockedCookies() const;
+    bool NODELETE redirected() const;
+    bool NODELETE modifiedHeaders() const;
+    const Vector<WTF::String>& NODELETE notifications() const LIFETIME_BOUND;
 
 private:
     ContentRuleListAction(WebCore::ContentRuleListResults::Result&&);
 
     WebCore::ContentRuleListResults::Result m_result;
+#endif // ENABLE(CONTENT_EXTENSIONS)
 };
     
 } // namespace API
+
+SPECIALIZE_TYPE_TRAITS_API_OBJECT(ContentRuleListAction);

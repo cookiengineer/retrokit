@@ -1,6 +1,6 @@
 /*
  * Copyright 2005 Frerich Raabe <raabe@kde.org>
- * Copyright (C) 2006 Apple Inc.
+ * Copyright (C) 2006 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,6 +27,7 @@
 #include "config.h"
 #include "XPathEvaluator.h"
 
+#include "ExceptionOr.h"
 #include "NativeXPathNSResolver.h"
 #include "XPathExpression.h"
 #include "XPathResult.h"
@@ -34,11 +35,9 @@
 
 namespace WebCore {
 
-using namespace XPath;
-
 ExceptionOr<Ref<XPathExpression>> XPathEvaluator::createExpression(const String& expression, RefPtr<XPathNSResolver>&& resolver)
 {
-    return XPathExpression::createExpression(expression, WTFMove(resolver));
+    return XPathExpression::createExpression(expression, WTF::move(resolver));
 }
 
 Ref<XPathNSResolver> XPathEvaluator::createNSResolver(Node& nodeResolver)
@@ -48,14 +47,14 @@ Ref<XPathNSResolver> XPathEvaluator::createNSResolver(Node& nodeResolver)
 
 ExceptionOr<Ref<XPathResult>> XPathEvaluator::evaluate(const String& expression, Node& contextNode, RefPtr<XPathNSResolver>&& resolver, unsigned short type, XPathResult* result)
 {
-    if (!isValidContextNode(contextNode))
-        return Exception { NotSupportedError };
+    if (!XPath::isValidContextNode(contextNode))
+        return Exception { ExceptionCode::NotSupportedError };
 
-    auto createResult = createExpression(expression, WTFMove(resolver));
+    auto createResult = createExpression(expression, WTF::move(resolver));
     if (createResult.hasException())
         return createResult.releaseException();
 
-    return createResult.releaseReturnValue()->evaluate(contextNode, type, result);
+    return RefPtr { createResult.releaseReturnValue() }->evaluate(contextNode, type, result);
 }
 
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -37,25 +37,35 @@
 #include "B3DataSection.h"
 #include "B3Dominators.h"
 #include "B3NaturalLoops.h"
+#include "B3OriginDump.h"
 #include "B3ProcedureInlines.h"
 #include "B3ValueInlines.h"
 #include "B3Variable.h"
 #include "JITOpaqueByproducts.h"
+#include <wtf/GraphOrdering.h>
+#include <wtf/ListDump.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/MakeString.h>
 
 namespace JSC { namespace B3 {
 
-Procedure::Procedure()
+WTF_MAKE_SEQUESTERED_ARENA_ALLOCATED_IMPL(Procedure);
+
+Procedure::Procedure(bool usesSIMD)
     : m_cfg(new CFG(*this))
     , m_lastPhaseName("initial")
     , m_byproducts(makeUnique<OpaqueByproducts>())
-    , m_code(new Air::Code(*this))
+    , m_heaps(makeUniqueRef<AbstractHeapRepository>())
 {
+    if (usesSIMD)
+        setUsesSIMD();
+    // Initialize all our fields before constructing Air::Code since
+    // it looks into our fields.
+    m_code = std::unique_ptr<Air::Code>(new Air::Code(*this));
     m_code->setNumEntrypoints(m_numEntrypoints);
 }
 
-Procedure::~Procedure()
-{
-}
+Procedure::~Procedure() = default;
 
 void Procedure::printOrigin(PrintStream& out, Origin origin) const
 {
@@ -69,7 +79,7 @@ BasicBlock* Procedure::addBlock(double frequency)
 {
     std::unique_ptr<BasicBlock> block(new BasicBlock(m_blocks.size(), frequency));
     BasicBlock* result = block.get();
-    m_blocks.append(WTFMove(block));
+    m_blocks.append(WTF::move(block));
     return result;
 }
 
@@ -86,7 +96,7 @@ Variable* Procedure::addVariable(Type type)
 Type Procedure::addTuple(Vector<Type>&& types)
 {
     Type result = Type::tupleFromIndex(m_tuples.size());
-    m_tuples.append(WTFMove(types));
+    m_tuples.append(WTF::move(types));
     ASSERT(result.isTuple());
     return result;
 }
@@ -106,7 +116,7 @@ Value* Procedure::clone(Value* value)
     std::unique_ptr<Value> clone(value->cloneImpl());
     clone->m_index = UINT_MAX;
     clone->owner = nullptr;
-    return m_values.add(WTFMove(clone));
+    return m_values.add(WTF::move(clone));
 }
 
 Value* Procedure::addIntConstant(Origin origin, Type type, int64_t value)
@@ -139,9 +149,23 @@ Value* Procedure::addConstant(Origin origin, Type type, uint64_t bits)
     case Int64:
         return add<Const64Value>(origin, bits);
     case Float:
-        return add<ConstFloatValue>(origin, bitwise_cast<float>(static_cast<int32_t>(bits)));
+        return add<ConstFloatValue>(origin, std::bit_cast<float>(static_cast<int32_t>(bits)));
     case Double:
-        return add<ConstDoubleValue>(origin, bitwise_cast<double>(bits));
+        return add<ConstDoubleValue>(origin, std::bit_cast<double>(bits));
+    case V128:
+        RELEASE_ASSERT(!bits);
+        return addConstant(origin, type, v128_t { });
+    default:
+        RELEASE_ASSERT_NOT_REACHED();
+        return nullptr;
+    }
+}
+
+Value* Procedure::addConstant(Origin origin, Type type, v128_t bits)
+{
+    switch (type.kind()) {
+    case V128:
+        return add<Const128Value>(origin, bits);
     default:
         RELEASE_ASSERT_NOT_REACHED();
         return nullptr;
@@ -152,7 +176,7 @@ Value* Procedure::addBottom(Origin origin, Type type)
 {
     if (type.isTuple())
         return add<BottomTupleValue>(origin, type);
-    return addIntConstant(origin, type, 0);
+    return addConstant(origin, type, 0);
 }
 
 Value* Procedure::addBottom(Value* value)
@@ -228,6 +252,7 @@ void Procedure::invalidateCFG()
 
 void Procedure::dump(PrintStream& out) const
 {
+    out.print("Opt Level: ", optLevel(), "\n");
     IndexSet<Value*> valuesInBlocks;
     for (BasicBlock* block : *this) {
         out.print(deepDump(*this, block));
@@ -262,12 +287,18 @@ void Procedure::dump(PrintStream& out) const
 
 Vector<BasicBlock*> Procedure::blocksInPreOrder()
 {
-    return B3::blocksInPreOrder(at(0));
+    Vector<BasicBlock*> result;
+    result.reserveInitialCapacity(size());
+    appendNodesInOrder(cfg(), GraphOrder::PreOrder, result);
+    return result;
 }
 
 Vector<BasicBlock*> Procedure::blocksInPostOrder()
 {
-    return B3::blocksInPostOrder(at(0));
+    Vector<BasicBlock*> result;
+    result.reserveInitialCapacity(size());
+    appendNodesInOrder(cfg(), GraphOrder::PostOrder, result);
+    return result;
 }
 
 void Procedure::deleteVariable(Variable* variable)
@@ -350,7 +381,7 @@ void* Procedure::addDataSection(size_t size)
         return nullptr;
     std::unique_ptr<DataSection> dataSection = makeUnique<DataSection>(size);
     void* result = dataSection->data();
-    m_byproducts->add(WTFMove(dataSection));
+    m_byproducts->add(WTF::move(dataSection));
     return result;
 }
 
@@ -423,11 +454,6 @@ RegisterSet Procedure::mutableGPRs()
     return code().mutableGPRs();
 }
 
-RegisterSet Procedure::mutableFPRs()
-{
-    return code().mutableFPRs();
-}
-
 void Procedure::setNumEntrypoints(unsigned numEntrypoints)
 {
     m_numEntrypoints = numEntrypoints;
@@ -477,6 +503,119 @@ void Procedure::freeUnneededB3ValuesAfterLowering()
             m_values.remove(value);
     }
     m_values.packIndices();
+}
+
+void Procedure::setShouldDumpIR()
+{
+    m_shouldDumpIR = true;
+    m_code->forcePreservationOfB3Origins();
+}
+
+void Procedure::setNeedsPCToOriginMap()
+{ 
+    m_needsPCToOriginMap = true;
+    m_code->forcePreservationOfB3Origins();
+}
+
+void Procedure::setIonGraphPasses(Ref<JSON::Array>&& array)
+{
+    m_ionGraphPasses = array.get();
+    m_code->setIonGraphPasses(WTF::move(array));
+}
+
+void Procedure::appendIonGraphPass(ASCIILiteral passName)
+{
+    auto pass = JSON::Object::create();
+    pass->setString("name"_s, makeString("B3: "_s, passName));
+    {
+        auto ionGraph = JSON::Object::create();
+        auto ionBlocks = JSON::Array::create();
+        ionGraph->setArray("blocks"_s, ionBlocks);
+
+        for (auto* block : *this) {
+            if (!block)
+                continue;
+
+            auto ionBlock = JSON::Object::create();
+            auto attributes = JSON::Array::create();
+            auto predecessors = JSON::Array::create();
+            auto successors = JSON::Array::create();
+            auto instructions = JSON::Array::create();
+
+            for (auto* value : *block) {
+                auto instruction = JSON::Object::create();
+                auto inputs = JSON::Array::create();
+
+                for (auto* child : value->children())
+                    inputs->pushInteger(child->index());
+
+                String type;
+                {
+                    StringPrintStream stream;
+                    if (value->type().isTuple())
+                        stream.print(listDump(tupleForType(value->type())));
+                    else
+                        stream.print(value->type());
+                    type = stream.toString();
+                }
+
+                StringPrintStream stream;
+                stream.print(value->kind(), "("_s);
+                CommaPrinter comma;
+                for (auto* child : value->children())
+                    stream.print(comma, child->kind(), "#"_s, child->index());
+                value->dumpMeta(comma, stream);
+                auto effects = value->effects();
+                {
+                    CString string = toCString(effects);
+                    if (string.length())
+                        stream.print(comma, string);
+                }
+                if (auto origin = value->origin())
+                    stream.print(comma, OriginDump(this, origin));
+                stream.print(")"_s);
+
+                if (effects.terminal) {
+                    stream.print(" -> "_s);
+                    value->dumpSuccessors(block, stream);
+                }
+
+                instruction->setInteger("ptr"_s, value->index() + 1);
+                instruction->setInteger("id"_s, value->index());
+                instruction->setString("opcode"_s, stream.toString());
+                instruction->setArray("attributes"_s, JSON::Array::create());
+                instruction->setArray("inputs"_s, WTF::move(inputs));
+                instruction->setArray("uses"_s, JSON::Array::create());
+                instruction->setArray("memInputs"_s, JSON::Array::create());
+                instruction->setString("type"_s, WTF::move(type));
+
+                instructions->pushObject(WTF::move(instruction));
+            }
+
+            for (auto predecessor : block->predecessors())
+                predecessors->pushInteger(predecessor->index());
+
+            for (auto successor : block->successors())
+                successors->pushInteger(successor.block()->index());
+
+            ionBlock->setInteger("ptr"_s, block->index() + 1);
+            ionBlock->setInteger("id"_s, block->index());
+            ionBlock->setInteger("loopDepth"_s, 0);
+            ionBlock->setArray("attributes"_s, JSON::Array::create());
+            ionBlock->setArray("predecessors"_s, WTF::move(predecessors));
+            ionBlock->setArray("successors"_s, WTF::move(successors));
+            ionBlock->setArray("instructions"_s, WTF::move(instructions));
+            ionBlocks->pushObject(ionBlock);
+        }
+
+        pass->setObject("mir"_s, WTF::move(ionGraph)); // MIR stands for SpiderMonkey's middle-level IR.
+    }
+    {
+        auto ionGraph = JSON::Object::create();
+        ionGraph->setArray("blocks"_s, JSON::Array::create());
+        pass->setObject("lir"_s, WTF::move(ionGraph)); // LIR stands for SpiderMonkey's low-level IR.
+    }
+    m_ionGraphPasses->pushObject(pass);
 }
 
 } } // namespace JSC::B3

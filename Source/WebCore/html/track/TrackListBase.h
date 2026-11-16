@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011, 2012 Apple Inc.  All rights reserved.
+ * Copyright (C) 2011, 2012 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,35 +29,44 @@
 
 #include "ActiveDOMObject.h"
 #include "EventTarget.h"
+#include "WebCoreOpaqueRoot.h"
+#include <wtf/Observer.h>
 #include <wtf/RefCounted.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
-class HTMLMediaElement;
-class Element;
 class TrackBase;
+class TrackOpaqueRoot;
+using TrackID = uint64_t;
 
-class TrackListBase : public RefCounted<TrackListBase>, public EventTargetWithInlineData, public ActiveDOMObject {
-    WTF_MAKE_ISO_ALLOCATED(TrackListBase);
+class TrackListBase : public RefCounted<TrackListBase>, public EventTarget, public ActiveDOMObject {
+    WTF_MAKE_TZONE_ALLOCATED(TrackListBase);
 public:
     virtual ~TrackListBase();
 
-    virtual unsigned length() const;
+    // ContextDestructionObserver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+    USING_CAN_MAKE_WEAKPTR(EventTarget);
+
+    virtual unsigned NODELETE length() const;
     virtual bool contains(TrackBase&) const;
+    virtual bool contains(TrackID) const;
     virtual void remove(TrackBase&, bool scheduleEvent = true);
+    virtual void remove(TrackID, bool scheduleEvent = true);
+    virtual RefPtr<TrackBase> find(TrackID) const;
 
     // EventTarget
-    EventTargetInterface eventTargetInterface() const override = 0;
-    using RefCounted<TrackListBase>::ref;
-    using RefCounted<TrackListBase>::deref;
-    ScriptExecutionContext* scriptExecutionContext() const final { return ContextDestructionObserver::scriptExecutionContext(); }
+    enum EventTargetInterfaceType eventTargetInterface() const override = 0;
+    ScriptExecutionContext* scriptExecutionContext() const final;
+    WebCoreOpaqueRoot NODELETE opaqueRoot() const final;
 
-    virtual void clearElement();
-    Element* element() const;
-    void* opaqueRoot() const;
-    WeakPtr<HTMLMediaElement> mediaElement() const { return m_element; }
+    void didMoveToNewDocument(Document&);
+
+    TrackOpaqueRoot* trackOpaqueRoot() { return m_trackOpaqueRoot.get(); }
+    virtual void setOpaqueRoot(TrackOpaqueRoot&);
 
     // Needs to be public so tracks can call it
     void scheduleChangeEvent();
@@ -66,12 +75,12 @@ public:
     bool isAnyTrackEnabled() const;
 
 protected:
-    TrackListBase(WeakPtr<HTMLMediaElement>, ScriptExecutionContext*);
+    explicit TrackListBase(ScriptExecutionContext*);
 
     void scheduleAddTrackEvent(Ref<TrackBase>&&);
     void scheduleRemoveTrackEvent(Ref<TrackBase>&&);
 
-    Vector<RefPtr<TrackBase>> m_inbandTracks;
+    Vector<Ref<TrackBase>> m_inbandTracks;
 
 private:
     void scheduleTrackEvent(const AtomString& eventName, Ref<TrackBase>&&);
@@ -80,9 +89,14 @@ private:
     void refEventTarget() final { ref(); }
     void derefEventTarget() final { deref(); }
 
-    WeakPtr<HTMLMediaElement> m_element;
+    RefPtr<TrackOpaqueRoot> m_trackOpaqueRoot;
     bool m_isChangeEventScheduled { false };
 };
+
+inline WebCoreOpaqueRoot root(TrackListBase* trackList)
+{
+    return trackList->opaqueRoot();
+}
 
 } // namespace WebCore
 

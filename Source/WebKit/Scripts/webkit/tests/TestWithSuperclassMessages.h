@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,14 +27,13 @@
 #include "ArgumentCoders.h"
 #include "Connection.h"
 #include "MessageNames.h"
-#include "TestClassName.h"
-#include "TestWithSuperclassMessagesReplies.h"
-#include <optional>
 #include <wtf/Forward.h>
+#include <wtf/RuntimeApplicationChecks.h>
 #include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebKit {
+class TestClassName;
 enum class TestTwoStateEnum : bool;
 }
 
@@ -48,23 +47,27 @@ static inline IPC::ReceiverName messageReceiverName()
 
 class LoadURL {
 public:
-    using Arguments = std::tuple<const String&>;
+    using Arguments = std::tuple<String>;
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithSuperclass_LoadURL; }
     static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
     explicit LoadURL(const String& url)
-        : m_arguments(url)
+        : m_url(url)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        encoder << m_url;
     }
 
 private:
-    Arguments m_arguments;
+    const String& m_url;
 };
 
 #if ENABLE(TEST_FEATURE)
@@ -74,27 +77,60 @@ public:
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithSuperclass_TestAsyncMessage; }
     static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
-    static void callReply(IPC::Decoder&, CompletionHandler<void(uint64_t&&)>&&);
-    static void cancelReply(CompletionHandler<void(uint64_t&&)>&&);
     static IPC::MessageName asyncMessageReplyName() { return IPC::MessageName::TestWithSuperclass_TestAsyncMessageReply; }
-    using AsyncReply = TestAsyncMessageAsyncReply;
     static constexpr auto callbackThread = WTF::CompletionHandlerCallThread::MainThread;
-    static void send(UniqueRef<IPC::Encoder>&&, IPC::Connection&, uint64_t result);
-    using Reply = std::tuple<uint64_t&>;
     using ReplyArguments = std::tuple<uint64_t>;
+    using Reply = CompletionHandler<void(uint64_t)>;
+    using Promise = WTF::NativePromise<uint64_t, IPC::Error>;
     explicit TestAsyncMessage(WebKit::TestTwoStateEnum twoStateEnum)
-        : m_arguments(twoStateEnum)
+        : m_twoStateEnum(twoStateEnum)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        encoder << m_twoStateEnum;
     }
 
 private:
-    Arguments m_arguments;
+    WebKit::TestTwoStateEnum m_twoStateEnum;
+};
+#endif
+
+#if ENABLE(TEST_FEATURE)
+class TestAsyncMessageAnyThread {
+public:
+    using Arguments = std::tuple<WebKit::TestTwoStateEnum>;
+
+    static IPC::MessageName name() { return IPC::MessageName::TestWithSuperclass_TestAsyncMessageAnyThread; }
+    static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
+
+    static IPC::MessageName asyncMessageReplyName() { return IPC::MessageName::TestWithSuperclass_TestAsyncMessageAnyThreadReply; }
+    static constexpr auto callbackThread = WTF::CompletionHandlerCallThread::AnyThread;
+    using ReplyArguments = std::tuple<uint64_t>;
+    using Reply = CompletionHandler<void(uint64_t)>;
+    using Promise = WTF::NativePromise<uint64_t, IPC::Error>;
+    explicit TestAsyncMessageAnyThread(WebKit::TestTwoStateEnum twoStateEnum)
+        : m_twoStateEnum(twoStateEnum)
+    {
+    }
+
+    template<typename Encoder>
+    void encode(Encoder& encoder)
+    {
+        encoder << m_twoStateEnum;
+    }
+
+private:
+    WebKit::TestTwoStateEnum m_twoStateEnum;
 };
 #endif
 
@@ -105,22 +141,25 @@ public:
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithSuperclass_TestAsyncMessageWithNoArguments; }
     static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
-    static void callReply(IPC::Decoder&, CompletionHandler<void()>&&);
-    static void cancelReply(CompletionHandler<void()>&&);
     static IPC::MessageName asyncMessageReplyName() { return IPC::MessageName::TestWithSuperclass_TestAsyncMessageWithNoArgumentsReply; }
-    using AsyncReply = TestAsyncMessageWithNoArgumentsAsyncReply;
     static constexpr auto callbackThread = WTF::CompletionHandlerCallThread::ConstructionThread;
-    static void send(UniqueRef<IPC::Encoder>&&, IPC::Connection&);
-    using Reply = std::tuple<>;
     using ReplyArguments = std::tuple<>;
-    const Arguments& arguments() const
+    using Reply = CompletionHandler<void()>;
+    using Promise = WTF::NativePromise<void, IPC::Error>;
+    TestAsyncMessageWithNoArguments()
     {
-        return m_arguments;
+    }
+
+    template<typename Encoder>
+    void encode(Encoder& encoder)
+    {
     }
 
 private:
-    Arguments m_arguments;
 };
 #endif
 
@@ -131,53 +170,57 @@ public:
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithSuperclass_TestAsyncMessageWithMultipleArguments; }
     static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
-    static void callReply(IPC::Decoder&, CompletionHandler<void(bool&&, uint64_t&&)>&&);
-    static void cancelReply(CompletionHandler<void(bool&&, uint64_t&&)>&&);
     static IPC::MessageName asyncMessageReplyName() { return IPC::MessageName::TestWithSuperclass_TestAsyncMessageWithMultipleArgumentsReply; }
-    using AsyncReply = TestAsyncMessageWithMultipleArgumentsAsyncReply;
     static constexpr auto callbackThread = WTF::CompletionHandlerCallThread::ConstructionThread;
-    static void send(UniqueRef<IPC::Encoder>&&, IPC::Connection&, bool flag, uint64_t value);
-    using Reply = std::tuple<bool&, uint64_t&>;
     using ReplyArguments = std::tuple<bool, uint64_t>;
-    const Arguments& arguments() const
+    using Reply = CompletionHandler<void(bool, uint64_t)>;
+    using Promise = WTF::NativePromise<std::tuple<bool, uint64_t>, IPC::Error>;
+    TestAsyncMessageWithMultipleArguments()
     {
-        return m_arguments;
+    }
+
+    template<typename Encoder>
+    void encode(Encoder& encoder)
+    {
     }
 
 private:
-    Arguments m_arguments;
 };
 #endif
 
 #if ENABLE(TEST_FEATURE)
 class TestAsyncMessageWithConnection {
 public:
-    using Arguments = std::tuple<const int&>;
+    using Arguments = std::tuple<int>;
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithSuperclass_TestAsyncMessageWithConnection; }
     static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
-    static void callReply(IPC::Decoder&, CompletionHandler<void(bool&&)>&&);
-    static void cancelReply(CompletionHandler<void(bool&&)>&&);
     static IPC::MessageName asyncMessageReplyName() { return IPC::MessageName::TestWithSuperclass_TestAsyncMessageWithConnectionReply; }
-    using AsyncReply = TestAsyncMessageWithConnectionAsyncReply;
     static constexpr auto callbackThread = WTF::CompletionHandlerCallThread::ConstructionThread;
-    static void send(UniqueRef<IPC::Encoder>&&, IPC::Connection&, bool flag);
-    using Reply = std::tuple<bool&>;
     using ReplyArguments = std::tuple<bool>;
+    using Reply = CompletionHandler<void(bool)>;
+    using Promise = WTF::NativePromise<bool, IPC::Error>;
     explicit TestAsyncMessageWithConnection(const int& value)
-        : m_arguments(value)
+        : m_value(value)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        SUPPRESS_FORWARD_DECL_ARG encoder << m_value;
     }
 
 private:
-    Arguments m_arguments;
+    SUPPRESS_FORWARD_DECL_MEMBER const int& m_value;
 };
 #endif
 
@@ -187,24 +230,26 @@ public:
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithSuperclass_TestSyncMessage; }
     static constexpr bool isSync = true;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
-    using DelayedReply = TestSyncMessageDelayedReply;
     static constexpr auto callbackThread = WTF::CompletionHandlerCallThread::ConstructionThread;
-    static void send(UniqueRef<IPC::Encoder>&&, IPC::Connection&, uint8_t reply);
-    using Reply = std::tuple<uint8_t&>;
     using ReplyArguments = std::tuple<uint8_t>;
+    using Reply = CompletionHandler<void(uint8_t)>;
     explicit TestSyncMessage(uint32_t param)
-        : m_arguments(param)
+        : m_param(param)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        encoder << m_param;
     }
 
 private:
-    Arguments m_arguments;
+    uint32_t m_param;
 };
 
 class TestSynchronousMessage {
@@ -213,25 +258,162 @@ public:
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithSuperclass_TestSynchronousMessage; }
     static constexpr bool isSync = true;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
-    using DelayedReply = TestSynchronousMessageDelayedReply;
     static constexpr auto callbackThread = WTF::CompletionHandlerCallThread::ConstructionThread;
-    static void send(UniqueRef<IPC::Encoder>&&, IPC::Connection&, const std::optional<WebKit::TestClassName>& optionalReply);
-    using Reply = std::tuple<std::optional<WebKit::TestClassName>&>;
     using ReplyArguments = std::tuple<std::optional<WebKit::TestClassName>>;
+    using Reply = CompletionHandler<void(std::optional<WebKit::TestClassName>&&)>;
     explicit TestSynchronousMessage(bool value)
-        : m_arguments(value)
+        : m_value(value)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        encoder << m_value;
     }
 
 private:
-    Arguments m_arguments;
+    bool m_value;
 };
+
+#if ENABLE(TEST_FEATURE)
+class TestAsyncMessageReply {
+public:
+    using Arguments = std::tuple<uint64_t>;
+
+    static IPC::MessageName name() { return IPC::MessageName::TestWithSuperclass_TestAsyncMessageReply; }
+    static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
+
+    explicit TestAsyncMessageReply(uint64_t result)
+        : m_result(result)
+    {
+    }
+
+    template<typename Encoder>
+    void encode(Encoder& encoder)
+    {
+        encoder << m_result;
+    }
+
+private:
+    uint64_t m_result;
+};
+#endif
+
+#if ENABLE(TEST_FEATURE)
+class TestAsyncMessageAnyThreadReply {
+public:
+    using Arguments = std::tuple<uint64_t>;
+
+    static IPC::MessageName name() { return IPC::MessageName::TestWithSuperclass_TestAsyncMessageAnyThreadReply; }
+    static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
+
+    explicit TestAsyncMessageAnyThreadReply(uint64_t result)
+        : m_result(result)
+    {
+    }
+
+    template<typename Encoder>
+    void encode(Encoder& encoder)
+    {
+        encoder << m_result;
+    }
+
+private:
+    uint64_t m_result;
+};
+#endif
+
+#if ENABLE(TEST_FEATURE)
+class TestAsyncMessageWithNoArgumentsReply {
+public:
+    using Arguments = std::tuple<>;
+
+    static IPC::MessageName name() { return IPC::MessageName::TestWithSuperclass_TestAsyncMessageWithNoArgumentsReply; }
+    static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
+
+    TestAsyncMessageWithNoArgumentsReply()
+    {
+    }
+
+    template<typename Encoder>
+    void encode(Encoder& encoder)
+    {
+    }
+
+private:
+};
+#endif
+
+#if ENABLE(TEST_FEATURE)
+class TestAsyncMessageWithMultipleArgumentsReply {
+public:
+    using Arguments = std::tuple<bool, uint64_t>;
+
+    static IPC::MessageName name() { return IPC::MessageName::TestWithSuperclass_TestAsyncMessageWithMultipleArgumentsReply; }
+    static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
+
+    TestAsyncMessageWithMultipleArgumentsReply(bool flag, uint64_t value)
+        : m_flag(flag)
+        , m_value(value)
+    {
+    }
+
+    template<typename Encoder>
+    void encode(Encoder& encoder)
+    {
+        encoder << m_flag;
+        encoder << m_value;
+    }
+
+private:
+    bool m_flag;
+    uint64_t m_value;
+};
+#endif
+
+#if ENABLE(TEST_FEATURE)
+class TestAsyncMessageWithConnectionReply {
+public:
+    using Arguments = std::tuple<bool>;
+
+    static IPC::MessageName name() { return IPC::MessageName::TestWithSuperclass_TestAsyncMessageWithConnectionReply; }
+    static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
+
+    explicit TestAsyncMessageWithConnectionReply(bool flag)
+        : m_flag(flag)
+    {
+    }
+
+    template<typename Encoder>
+    void encode(Encoder& encoder)
+    {
+        encoder << m_flag;
+    }
+
+private:
+    bool m_flag;
+};
+#endif
 
 } // namespace TestWithSuperclass
 } // namespace Messages

@@ -22,21 +22,24 @@
 #include "MediaPlayerPrivateHolePunch.h"
 
 #if USE(EXTERNAL_HOLEPUNCH)
+#include "CoordinatedPlatformLayerBufferHolePunch.h"
+#include "CoordinatedPlatformLayerBufferProxy.h"
 #include "MediaPlayer.h"
-#include "TextureMapperPlatformLayerBuffer.h"
-#include "TextureMapperPlatformLayerProxy.h"
+#include <wtf/NeverDestroyed.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MediaPlayerPrivateHolePunch);
+
 static const FloatSize s_holePunchDefaultFrameSize(1280, 720);
 
-MediaPlayerPrivateHolePunch::MediaPlayerPrivateHolePunch(MediaPlayer* player)
+MediaPlayerPrivateHolePunch::MediaPlayerPrivateHolePunch(MediaPlayer& player)
     : m_player(player)
-    , m_readyTimer(RunLoop::main(), this, &MediaPlayerPrivateHolePunch::notifyReadyState)
-#if USE(NICOSIA)
-    , m_nicosiaLayer(Nicosia::ContentLayer::create(Nicosia::ContentLayerTextureMapperImpl::createFactory(*this)))
-#else
-    , m_platformLayerProxy(adoptRef(new TextureMapperPlatformLayerProxy()))
+    , m_readyTimer(RunLoop::mainSingleton(), "MediaPlayerPrivateHolePunch::ReadyTimer"_s, this, &MediaPlayerPrivateHolePunch::notifyReadyState)
+    , m_networkState(MediaPlayer::NetworkState::Empty)
+#if USE(COORDINATED_GRAPHICS)
+    , m_contentsBufferProxy(CoordinatedPlatformLayerBufferProxy::create())
 #endif
 {
     pushNextHolePunchBuffer();
@@ -46,21 +49,14 @@ MediaPlayerPrivateHolePunch::MediaPlayerPrivateHolePunch(MediaPlayer* player)
     m_readyTimer.startOneShot(0_s);
 }
 
-MediaPlayerPrivateHolePunch::~MediaPlayerPrivateHolePunch()
-{
-#if USE(NICOSIA)
-    downcast<Nicosia::ContentLayerTextureMapperImpl>(m_nicosiaLayer->impl()).invalidateClient();
-#endif
-}
+MediaPlayerPrivateHolePunch::~MediaPlayerPrivateHolePunch() = default;
 
+#if USE(COORDINATED_GRAPHICS)
 PlatformLayer* MediaPlayerPrivateHolePunch::platformLayer() const
 {
-#if USE(NICOSIA)
-    return m_nicosiaLayer.ptr();
-#else
-    return const_cast<MediaPlayerPrivateHolePunch*>(this);
-#endif
+    return m_contentsBufferProxy.get();
 }
+#endif
 
 FloatSize MediaPlayerPrivateHolePunch::naturalSize() const
 {
@@ -72,54 +68,30 @@ FloatSize MediaPlayerPrivateHolePunch::naturalSize() const
 
 void MediaPlayerPrivateHolePunch::pushNextHolePunchBuffer()
 {
-    auto proxyOperation =
-        [this](TextureMapperPlatformLayerProxy& proxy)
-        {
-            Locker locker { proxy.lock() };
-            std::unique_ptr<TextureMapperPlatformLayerBuffer> layerBuffer = makeUnique<TextureMapperPlatformLayerBuffer>(0, m_size, TextureMapperGL::ShouldNotBlend, GL_DONT_CARE);
-            proxy.pushNextBuffer(WTFMove(layerBuffer));
-        };
-
-#if USE(NICOSIA)
-    proxyOperation(downcast<Nicosia::ContentLayerTextureMapperImpl>(m_nicosiaLayer->impl()).proxy());
-#else
-    proxyOperation(*m_platformLayerProxy);
-#endif
+    m_contentsBufferProxy->setDisplayBuffer(CoordinatedPlatformLayerBufferHolePunch::create(m_size));
 }
 
-void MediaPlayerPrivateHolePunch::swapBuffersIfNeeded()
+static HashSet<String>& mimeTypeCache()
 {
-    pushNextHolePunchBuffer();
-}
-
-#if !USE(NICOSIA)
-RefPtr<TextureMapperPlatformLayerProxy> MediaPlayerPrivateHolePunch::proxy() const
-{
-    return m_platformLayerProxy.copyRef();
-}
-#endif
-
-static HashSet<String, ASCIICaseInsensitiveHash>& mimeTypeCache()
-{
-    static NeverDestroyed<HashSet<String, ASCIICaseInsensitiveHash>> cache;
+    static NeverDestroyed<HashSet<String>> cache;
     static bool typeListInitialized = false;
 
     if (typeListInitialized)
         return cache;
 
-    const char* mimeTypes[] = {
-        "video/holepunch"
+    const ASCIILiteral mimeTypes[] = {
+        "video/holepunch"_s
     };
 
     for (unsigned i = 0; i < (sizeof(mimeTypes) / sizeof(*mimeTypes)); ++i)
-        cache.get().add(String(mimeTypes[i]));
+        cache.get().add(mimeTypes[i]);
 
     typeListInitialized = true;
 
     return cache;
 }
 
-void MediaPlayerPrivateHolePunch::getSupportedTypes(HashSet<String, ASCIICaseInsensitiveHash>& types)
+void MediaPlayerPrivateHolePunch::getSupportedTypes(HashSet<String>& types)
 {
     types = mimeTypeCache();
 }
@@ -140,15 +112,17 @@ MediaPlayer::SupportsType MediaPlayerPrivateHolePunch::supportsType(const MediaE
 }
 
 class MediaPlayerFactoryHolePunch final : public MediaPlayerFactory {
+    WTF_MAKE_TZONE_ALLOCATED(MediaPlayerFactoryHolePunch);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(MediaPlayerFactoryHolePunch);
 private:
     MediaPlayerEnums::MediaEngineIdentifier identifier() const final { return MediaPlayerEnums::MediaEngineIdentifier::HolePunch; };
 
-    std::unique_ptr<MediaPlayerPrivateInterface> createMediaEnginePlayer(MediaPlayer* player) const final
+    Ref<MediaPlayerPrivateInterface> createMediaEnginePlayer(MediaPlayer& player) const final
     {
-        return makeUnique<MediaPlayerPrivateHolePunch>(player);
+        return adoptRef(*new MediaPlayerPrivateHolePunch(player));
     }
 
-    void getSupportedTypes(HashSet<String, ASCIICaseInsensitiveHash>& types) const final
+    void getSupportedTypes(HashSet<String>& types) const final
     {
         return MediaPlayerPrivateHolePunch::getSupportedTypes(types);
     }
@@ -167,7 +141,27 @@ void MediaPlayerPrivateHolePunch::registerMediaEngine(MediaEngineRegistrar regis
 void MediaPlayerPrivateHolePunch::notifyReadyState()
 {
     // Notify the ready state so the GraphicsLayer gets created.
-    m_player->readyStateChanged();
+    if (auto player = m_player.get())
+        player->readyStateChanged();
 }
+
+void MediaPlayerPrivateHolePunch::setNetworkState(MediaPlayer::NetworkState networkState)
+{
+    m_networkState = networkState;
+    if (auto player = m_player.get())
+        player->networkStateChanged();
 }
+
+void MediaPlayerPrivateHolePunch::load(const String&)
+{
+    auto player = m_player.get();
+    if (!player)
+        return;
+
+    auto mimeType = player->contentMIMEType();
+    if (mimeType.isEmpty() || !mimeTypeCache().contains(mimeType))
+        setNetworkState(MediaPlayer::NetworkState::FormatError);
+}
+
+} // namespace WebCore
 #endif // USE(EXTERNAL_HOLEPUNCH)

@@ -26,38 +26,38 @@
 #include "config.h"
 #include "IDBFactory.h"
 
-#include "Document.h"
+#include "DocumentPage.h"
+#include "FrameDestructionObserverInlines.h"
 #include "IDBBindingUtilities.h"
 #include "IDBConnectionProxy.h"
 #include "IDBDatabaseIdentifier.h"
 #include "IDBKey.h"
 #include "IDBOpenDBRequest.h"
+#include "JSDOMConvertDictionary.h"
+#include "JSDOMConvertSequences.h"
+#include "JSDOMPromiseDeferred.h"
 #include "JSIDBFactory.h"
 #include "Logging.h"
 #include "Page.h"
 #include "ScriptExecutionContext.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 using namespace JSC;
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(IDBFactory);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(IDBFactory);
 
 static bool shouldThrowSecurityException(ScriptExecutionContext& context)
 {
     ASSERT(is<Document>(context) || context.isWorkerGlobalScope());
-    if (is<Document>(context)) {
-        Document& document = downcast<Document>(context);
-        if (!document.frame())
+    if (auto* document = dynamicDowncast<Document>(context)) {
+        if (!document->frame())
             return true;
-        if (!document.page())
+        if (!document->page())
             return true;
     }
 
-    if (!context.securityOrigin()->canAccessDatabase(nullptr))
-        return true;
-
-    return false;
+    return context.canAccessResource(ScriptExecutionContext::ResourceType::IndexedDB) == ScriptExecutionContext::HasResourceAccess::No;
 }
 
 Ref<IDBFactory> IDBFactory::create(IDBClient::IDBConnectionProxy& connectionProxy)
@@ -77,97 +77,115 @@ ExceptionOr<Ref<IDBOpenDBRequest>> IDBFactory::open(ScriptExecutionContext& cont
     LOG(IndexedDB, "IDBFactory::open");
     
     if (version && !version.value())
-        return Exception { TypeError, "IDBFactory.open() called with a version of 0"_s };
+        return Exception { ExceptionCode::TypeError, "IDBFactory.open() called with a version of 0"_s };
 
     return openInternal(context, name, version.value_or(0));
 }
 
+Ref<IDBClient::IDBConnectionProxy> IDBFactory::ensureConnectionProxy(ScriptExecutionContext& context)
+{
+    if (RefPtr currentProxy = context.idbConnectionProxy(); currentProxy && currentProxy != m_connectionProxy.ptr())
+        m_connectionProxy = *currentProxy;
+    return m_connectionProxy;
+}
+
 ExceptionOr<Ref<IDBOpenDBRequest>> IDBFactory::openInternal(ScriptExecutionContext& context, const String& name, uint64_t version)
 {
+    Ref connectionProxy = ensureConnectionProxy(context);
+
     if (name.isNull())
-        return Exception { TypeError, "IDBFactory.open() called without a database name"_s };
+        return Exception { ExceptionCode::TypeError, "IDBFactory.open() called without a database name"_s };
 
     if (shouldThrowSecurityException(context))
-        return Exception { SecurityError, "IDBFactory.open() called in an invalid security context"_s };
+        return Exception { ExceptionCode::SecurityError, "IDBFactory.open() called in an invalid security context"_s };
 
     ASSERT(context.securityOrigin());
-    bool isTransient = !context.securityOrigin()->canAccessDatabase(&context.topOrigin());
+    bool isTransient = (context.canAccessResource(ScriptExecutionContext::ResourceType::IndexedDB) == ScriptExecutionContext::HasResourceAccess::DefaultForThirdParty);
     IDBDatabaseIdentifier databaseIdentifier(name, SecurityOriginData { context.securityOrigin()->data() }, SecurityOriginData { context.topOrigin().data() }, isTransient);
     if (!databaseIdentifier.isValid())
-        return Exception { TypeError, "IDBFactory.open() called with an invalid security origin"_s };
+        return Exception { ExceptionCode::TypeError, "IDBFactory.open() called with an invalid security origin"_s };
 
     LOG(IndexedDBOperations, "IDB opening database: %s %" PRIu64, name.utf8().data(), version);
 
-    return m_connectionProxy->openDatabase(context, databaseIdentifier, version);
+    return connectionProxy->openDatabase(context, databaseIdentifier, version);
 }
 
 ExceptionOr<Ref<IDBOpenDBRequest>> IDBFactory::deleteDatabase(ScriptExecutionContext& context, const String& name)
 {
     LOG(IndexedDB, "IDBFactory::deleteDatabase - %s", name.utf8().data());
 
+    Ref connectionProxy = ensureConnectionProxy(context);
+
     if (name.isNull())
-        return Exception { TypeError, "IDBFactory.deleteDatabase() called without a database name"_s };
+        return Exception { ExceptionCode::TypeError, "IDBFactory.deleteDatabase() called without a database name"_s };
 
     if (shouldThrowSecurityException(context))
-        return Exception { SecurityError, "IDBFactory.deleteDatabase() called in an invalid security context"_s };
+        return Exception { ExceptionCode::SecurityError, "IDBFactory.deleteDatabase() called in an invalid security context"_s };
 
     ASSERT(context.securityOrigin());
-    bool isTransient = !context.securityOrigin()->canAccessDatabase(&context.topOrigin());
+    bool isTransient = (context.canAccessResource(ScriptExecutionContext::ResourceType::IndexedDB) == ScriptExecutionContext::HasResourceAccess::DefaultForThirdParty);
     IDBDatabaseIdentifier databaseIdentifier(name, SecurityOriginData { context.securityOrigin()->data() }, SecurityOriginData { context.topOrigin().data() }, isTransient);
     if (!databaseIdentifier.isValid())
-        return Exception { TypeError, "IDBFactory.deleteDatabase() called with an invalid security origin"_s };
+        return Exception { ExceptionCode::TypeError, "IDBFactory.deleteDatabase() called with an invalid security origin"_s };
 
     LOG(IndexedDBOperations, "IDB deleting database: %s", name.utf8().data());
 
-    return m_connectionProxy->deleteDatabase(context, databaseIdentifier);
+    return connectionProxy->deleteDatabase(context, databaseIdentifier);
 }
 
 ExceptionOr<short> IDBFactory::cmp(JSGlobalObject& execState, JSValue firstValue, JSValue secondValue)
 {
     auto first = scriptValueToIDBKey(execState, firstValue);
     if (!first->isValid())
-        return Exception { DataError, "Failed to execute 'cmp' on 'IDBFactory': The parameter is not a valid key."_s };
+        return Exception { ExceptionCode::DataError, "Failed to execute 'cmp' on 'IDBFactory': The parameter is not a valid key."_s };
 
     auto second = scriptValueToIDBKey(execState, secondValue);
     if (!second->isValid())
-        return Exception { DataError, "Failed to execute 'cmp' on 'IDBFactory': The parameter is not a valid key."_s };
+        return Exception { ExceptionCode::DataError, "Failed to execute 'cmp' on 'IDBFactory': The parameter is not a valid key."_s };
 
-    return first->compare(second.get());
+    auto comparison = first->compare(second.get());
+    if (is_eq(comparison))
+        return 0;
+    return is_lt(comparison) ? -1 : 1;
 }
 
 void IDBFactory::databases(ScriptExecutionContext& context, IDBDatabasesResponsePromise&& promise)
 {
     LOG(IndexedDB, "IDBFactory::databases");
 
+    Ref connectionProxy = ensureConnectionProxy(context);
+
     if (shouldThrowSecurityException(context)) {
-        promise.reject(SecurityError);
+        promise.reject(ExceptionCode::SecurityError);
         return;
     }
 
     ASSERT(context.securityOrigin());
 
-    m_connectionProxy->getAllDatabaseNamesAndVersions(context, [promise = WTFMove(promise)](auto&& result) mutable {
+    connectionProxy->getAllDatabaseNamesAndVersions(context, [promise = WTF::move(promise)](auto&& result) mutable {
         if (!result) {
-            promise.reject(Exception { UnknownError });
+            promise.reject(Exception { ExceptionCode::UnknownError });
             return;
         }
 
         promise.resolve(WTF::map(*result, [](auto&& info) {
-            return IDBFactory::DatabaseInfo { WTFMove(info.name), info.version };
+            return IDBFactory::DatabaseInfo { WTF::move(info.name), info.version };
         }));
     });
 }
 
 void IDBFactory::getAllDatabaseNames(ScriptExecutionContext& context, Function<void(const Vector<String>&)>&& callback)
 {
-    m_connectionProxy->getAllDatabaseNamesAndVersions(context, [callback = WTFMove(callback)](auto&& result) mutable {
+    Ref connectionProxy = ensureConnectionProxy(context);
+
+    connectionProxy->getAllDatabaseNamesAndVersions(context, [callback = WTF::move(callback)](auto&& result) mutable {
         if (!result) {
             callback({ });
             return;
         }
 
         callback(WTF::map(*result, [](auto&& info) {
-            return WTFMove(info.name);
+            return WTF::move(info.name);
         }));
     });
 }

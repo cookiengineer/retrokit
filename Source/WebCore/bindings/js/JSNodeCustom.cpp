@@ -32,19 +32,15 @@
 #include "Document.h"
 #include "DocumentFragment.h"
 #include "DocumentType.h"
-#include "HTMLAudioElement.h"
+#include "FrameDestructionObserverInlines.h"
 #include "HTMLCanvasElement.h"
 #include "HTMLElement.h"
-#include "HTMLFrameElementBase.h"
-#include "HTMLImageElement.h"
-#include "HTMLLinkElement.h"
 #include "HTMLNames.h"
-#include "HTMLScriptElement.h"
-#include "HTMLStyleElement.h"
 #include "JSAttr.h"
 #include "JSCDATASection.h"
 #include "JSComment.h"
 #include "JSDOMBinding.h"
+#include "JSDOMWindowCustom.h"
 #include "JSDocument.h"
 #include "JSDocumentFragment.h"
 #include "JSDocumentType.h"
@@ -56,154 +52,124 @@
 #include "JSSVGElementWrapperFactory.h"
 #include "JSShadowRoot.h"
 #include "JSText.h"
+#include "LocalDOMWindow.h"
 #include "MathMLElement.h"
 #include "Node.h"
 #include "ProcessingInstruction.h"
 #include "RegisteredEventListener.h"
 #include "SVGElement.h"
-#include "ScriptState.h"
 #include "ShadowRoot.h"
 #include "GCReachableRef.h"
-#include "StyleSheet.h"
-#include "StyledElement.h"
 #include "Text.h"
-
+#include "WebCoreOpaqueRootInlines.h"
 
 namespace WebCore {
-using namespace JSC;
 
+using namespace JSC;
 using namespace HTMLNames;
 
-static inline bool isReachableFromDOM(Node* node, AbstractSlotVisitor& visitor, const char** reason)
+bool JSNodeOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
-    if (!node->isConnected()) {
-        if (is<Element>(*node)) {
-            auto& element = downcast<Element>(*node);
-
-            // If a wrapper is the last reference to an image element
-            // that is loading but not in the document, the wrapper is observable
-            // because it is the only thing keeping the image element alive, and if
-            // the element is destroyed, its load event will not fire.
-            // FIXME: The DOM should manage this issue without the help of JavaScript wrappers.
-            if (is<HTMLImageElement>(element)) {
-                if (downcast<HTMLImageElement>(element).hasPendingActivity()) {
-                    if (UNLIKELY(reason))
-                        *reason = "Image element with pending activity";
-                    return true;
-                }
-            }
-#if ENABLE(VIDEO)
-            else if (is<HTMLAudioElement>(element)) {
-                if (!downcast<HTMLAudioElement>(element).paused()) {
-                    if (UNLIKELY(reason))
-                        *reason = "Audio element which is not paused";
-                    return true;
-                }
-            }
-#endif
-        }
-
-        // If a node is firing event listeners, its wrapper is observable because
-        // its wrapper is responsible for marking those event listeners.
-        if (node->isFiringEventListeners()) {
-            if (UNLIKELY(reason))
-                *reason = "Node which is firing event listeners";
-            return true;
-        }
-        if (GCReachableRefMap::contains(*node)) {
-            if (UNLIKELY(reason))
-                *reason = "Node is scheduled to be used in an async script invocation)";
+    SUPPRESS_UNCHECKED_LOCAL auto& node = downcast<JSNode>(handle.slot()->asCell())->wrapped();
+    if (!node.isConnected()) {
+        if (GCReachableRefMap::contains(node) || node.isInCustomElementReactionQueue()) {
+            if (reason) [[unlikely]]
+                *reason = "Node is scheduled to be used in an async script invocation)"_s;
             return true;
         }
     }
 
-    if (UNLIKELY(reason))
-        *reason = "Connected node";
+    if (reason) [[unlikely]]
+        *reason = "Connected node"_s;
 
-    return visitor.containsOpaqueRoot(root(node));
-}
-
-bool JSNodeOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, AbstractSlotVisitor& visitor, const char** reason)
-{
-    JSNode* jsNode = jsCast<JSNode*>(handle.slot()->asCell());
-    return isReachableFromDOM(&jsNode->wrapped(), visitor, reason);
-}
-
-JSScope* JSNode::pushEventHandlerScope(JSGlobalObject* lexicalGlobalObject, JSScope* node) const
-{
-    if (inherits<JSHTMLElement>(lexicalGlobalObject->vm()))
-        return jsCast<const JSHTMLElement*>(this)->pushEventHandlerScope(lexicalGlobalObject, node);
-    return node;
+    return containsWebCoreOpaqueRoot(visitor, node);
 }
 
 template<typename Visitor>
-void JSNode::visitAdditionalChildren(Visitor& visitor)
+void JSNode::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    visitor.addOpaqueRoot(root(wrapped()));
+    addWebCoreOpaqueRoot(visitor, wrapped());
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSNode);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSNode);
 
-static ALWAYS_INLINE JSValue createWrapperInline(JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<Node>&& node)
+JSDOMGlobalObject* globalObjectForNode(Node& node, JSDOMGlobalObject* globalObject)
+{
+    // window is owned by node's document, which outlives this call.
+    SUPPRESS_UNCOUNTED_LOCAL auto* window = globalObject->worldIsNormal() ? node.document().window() : nullptr;
+    if (window && window->cachedMainWorldGlobalObject() == globalObject) [[likely]]
+        return globalObject;
+
+    if (auto* documentGlobalObject = toJSDOMGlobalObject(node.document(), globalObject->world()))
+        return documentGlobalObject;
+    return globalObject;
+}
+
+static ALWAYS_INLINE JSValue createWrapperForGlobalObject(JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<Node>&& node)
 {
     ASSERT(!getCachedWrapper(globalObject->world(), node));
-    
-    JSDOMObject* wrapper;    
+
+    JSDOMObject* wrapper;
     switch (node->nodeType()) {
-        case Node::ELEMENT_NODE:
-            if (is<HTMLElement>(node))
-                wrapper = createJSHTMLWrapper(globalObject, static_reference_cast<HTMLElement>(WTFMove(node)));
-            else if (is<SVGElement>(node))
-                wrapper = createJSSVGWrapper(globalObject, static_reference_cast<SVGElement>(WTFMove(node)));
+    case NodeType::Element:
+        if (is<HTMLElement>(node))
+            wrapper = createJSHTMLWrapper(globalObject, uncheckedDowncast<HTMLElement>(WTF::move(node)));
+        else if (is<SVGElement>(node))
+            wrapper = createJSSVGWrapper(globalObject, uncheckedDowncast<SVGElement>(WTF::move(node)));
 #if ENABLE(MATHML)
-            else if (is<MathMLElement>(node))
-                wrapper = createJSMathMLWrapper(globalObject, static_reference_cast<MathMLElement>(WTFMove(node)));
+        else if (is<MathMLElement>(node))
+            wrapper = createJSMathMLWrapper(globalObject, uncheckedDowncast<MathMLElement>(WTF::move(node)));
 #endif
-            else
-                wrapper = createWrapper<Element>(globalObject, WTFMove(node));
-            break;
-        case Node::ATTRIBUTE_NODE:
-            wrapper = createWrapper<Attr>(globalObject, WTFMove(node));
-            break;
-        case Node::TEXT_NODE:
-            wrapper = createWrapper<Text>(globalObject, WTFMove(node));
-            break;
-        case Node::CDATA_SECTION_NODE:
-            wrapper = createWrapper<CDATASection>(globalObject, WTFMove(node));
-            break;
-        case Node::PROCESSING_INSTRUCTION_NODE:
-            wrapper = createWrapper<ProcessingInstruction>(globalObject, WTFMove(node));
-            break;
-        case Node::COMMENT_NODE:
-            wrapper = createWrapper<Comment>(globalObject, WTFMove(node));
-            break;
-        case Node::DOCUMENT_NODE:
-            // we don't want to cache the document itself in the per-document dictionary
-            return toJS(lexicalGlobalObject, globalObject, downcast<Document>(node.get()));
-        case Node::DOCUMENT_TYPE_NODE:
-            wrapper = createWrapper<DocumentType>(globalObject, WTFMove(node));
-            break;
-        case Node::DOCUMENT_FRAGMENT_NODE:
-            if (node->isShadowRoot())
-                wrapper = createWrapper<ShadowRoot>(globalObject, WTFMove(node));
-            else
-                wrapper = createWrapper<DocumentFragment>(globalObject, WTFMove(node));
-            break;
-        default:
-            wrapper = createWrapper<Node>(globalObject, WTFMove(node));
+        else
+            wrapper = createWrapper<Element>(globalObject, WTF::move(node));
+        break;
+    case NodeType::Attribute:
+        wrapper = createWrapper<Attr>(globalObject, WTF::move(node));
+        break;
+    case NodeType::Text:
+        wrapper = createWrapper<Text>(globalObject, WTF::move(node));
+        break;
+    case NodeType::CDATASection:
+        wrapper = createWrapper<CDATASection>(globalObject, WTF::move(node));
+        break;
+    case NodeType::ProcessingInstruction:
+        wrapper = createWrapper<ProcessingInstruction>(globalObject, WTF::move(node));
+        break;
+    case NodeType::Comment:
+        wrapper = createWrapper<Comment>(globalObject, WTF::move(node));
+        break;
+    case NodeType::Document:
+        // we don't want to cache the document itself in the per-document dictionary
+        return toJS(lexicalGlobalObject, globalObject, uncheckedDowncast<Document>(node.get()));
+    case NodeType::DocumentType:
+        wrapper = createWrapper<DocumentType>(globalObject, WTF::move(node));
+        break;
+    case NodeType::DocumentFragment:
+        if (node->isShadowRoot())
+            wrapper = createWrapper<ShadowRoot>(globalObject, WTF::move(node));
+        else
+            wrapper = createWrapper<DocumentFragment>(globalObject, WTF::move(node));
+        break;
+    default:
+        wrapper = createWrapper<Node>(globalObject, WTF::move(node));
     }
 
     return wrapper;
 }
 
+static ALWAYS_INLINE JSValue createWrapperInline(JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<Node>&& node)
+{
+    return createWrapperForGlobalObject(lexicalGlobalObject, globalObjectForNode(node, globalObject), WTF::move(node));
+}
+
 JSValue createWrapper(JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<Node>&& node)
 {
-    return createWrapperInline(lexicalGlobalObject, globalObject, WTFMove(node));
+    return createWrapperInline(lexicalGlobalObject, globalObject, WTF::move(node));
 }
     
 JSValue toJSNewlyCreated(JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<Node>&& node)
 {
-    return createWrapperInline(lexicalGlobalObject, globalObject, WTFMove(node));
+    return createWrapperInline(lexicalGlobalObject, globalObject, WTF::move(node));
 }
 
 JSC::JSObject* getOutOfLineCachedWrapper(JSDOMGlobalObject* globalObject, Node& node)
@@ -212,14 +178,24 @@ JSC::JSObject* getOutOfLineCachedWrapper(JSDOMGlobalObject* globalObject, Node& 
     return globalObject->world().wrappers().get(&node);
 }
 
-void willCreatePossiblyOrphanedTreeByRemovalSlowCase(Node* root)
+void createNodeWrapperInDocumentRealmSlowCase(Node& node, Document& document)
 {
-    JSC::JSGlobalObject* lexicalGlobalObject = mainWorldExecState(root->document().frame());
-    if (!lexicalGlobalObject)
+    ASSERT(!node.wrapper());
+
+    // FIXME: This only preserves the realm for the main world.
+    auto* globalObject = [&] -> JSDOMGlobalObject* {
+        Ref contextDocument = document.contextDocument();
+        if (RefPtr frame = contextDocument->frame())
+            return &mainWorldGlobalObject(*frame);
+        if (RefPtr window = contextDocument->window())
+            return window->cachedMainWorldGlobalObject();
+        return nullptr;
+    }();
+    if (!globalObject)
         return;
 
-    JSLockHolder lock(lexicalGlobalObject);
-    toJS(lexicalGlobalObject, static_cast<JSDOMGlobalObject*>(lexicalGlobalObject), *root);
+    JSLockHolder lock(globalObject);
+    createWrapperForGlobalObject(globalObject, globalObject, node);
 }
 
 } // namespace WebCore

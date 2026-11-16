@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,52 +25,41 @@
 
 #pragma once
 
-#include "GCDeferralContext.h"
-#include "Heap.h"
-#include "HeapCellInlines.h"
-#include "IndexingHeader.h"
-#include "JSCast.h"
-#include "Structure.h"
+#include <JavaScriptCore/GCDeferralContext.h>
+#include <JavaScriptCore/Heap.h>
+#include <JavaScriptCore/HeapCellInlines.h>
+#include <JavaScriptCore/IndexingHeader.h>
+#include <JavaScriptCore/JSCast.h>
+#include <JavaScriptCore/Structure.h>
 #include <type_traits>
 #include <wtf/Assertions.h>
 #include <wtf/MainThread.h>
-#include <wtf/RandomNumber.h>
 
 namespace JSC {
 
 ALWAYS_INLINE VM& Heap::vm() const
 {
-    return *bitwise_cast<VM*>(bitwise_cast<uintptr_t>(this) - OBJECT_OFFSETOF(VM, heap));
+    return *std::bit_cast<VM*>(std::bit_cast<uintptr_t>(this) - OBJECT_OFFSETOF(VM, heap));
 }
 
-ALWAYS_INLINE Heap* Heap::heap(const HeapCell* cell)
+ALWAYS_INLINE JSC::Heap* Heap::heap(const HeapCell* cell)
 {
     if (!cell)
         return nullptr;
     return cell->heap();
 }
 
-inline Heap* Heap::heap(const JSValue v)
+inline JSC::Heap* Heap::heap(const JSValue v)
 {
     if (!v.isCell())
         return nullptr;
     return heap(v.asCell());
 }
 
-inline bool Heap::hasHeapAccess() const
-{
-    return m_worldState.load() & hasAccessBit;
-}
-
-inline bool Heap::worldIsStopped() const
-{
-    return m_worldIsStopped;
-}
-
 ALWAYS_INLINE bool Heap::isMarked(const void* rawCell)
 {
     ASSERT(!m_isMarkingForGCVerifier);
-    HeapCell* cell = bitwise_cast<HeapCell*>(rawCell);
+    HeapCell* cell = std::bit_cast<HeapCell*>(rawCell);
     if (cell->isPreciseAllocation())
         return cell->preciseAllocation().isMarked();
     MarkedBlock& block = cell->markedBlock();
@@ -79,17 +68,17 @@ ALWAYS_INLINE bool Heap::isMarked(const void* rawCell)
 
 ALWAYS_INLINE bool Heap::testAndSetMarked(HeapVersion markingVersion, const void* rawCell)
 {
-    HeapCell* cell = bitwise_cast<HeapCell*>(rawCell);
+    HeapCell* cell = std::bit_cast<HeapCell*>(rawCell);
     if (cell->isPreciseAllocation())
         return cell->preciseAllocation().testAndSetMarked();
     MarkedBlock& block = cell->markedBlock();
-    Dependency dependency = block.aboutToMark(markingVersion);
+    Dependency dependency = block.aboutToMark(markingVersion, cell);
     return block.testAndSetMarked(cell, dependency);
 }
 
 ALWAYS_INLINE size_t Heap::cellSize(const void* rawCell)
 {
-    return bitwise_cast<HeapCell*>(rawCell)->cellSize();
+    return std::bit_cast<HeapCell*>(rawCell)->cellSize();
 }
 
 inline void Heap::writeBarrier(const JSCell* from, JSValue to)
@@ -107,45 +96,46 @@ inline void Heap::writeBarrier(const JSCell* from, JSCell* to)
 #if ENABLE(WRITE_BARRIER_PROFILING)
     WriteBarrierCounters::countWriteBarrier();
 #endif
-    if (!from)
+    ASSERT_GC_OBJECT_LOOKS_VALID(const_cast<JSCell*>(from));
+    // FIXME: above assert verifies from is never nullptr so should be unnecessary
+    if (!from) [[unlikely]]
         return;
-    if (!isWithinThreshold(from->cellState(), barrierThreshold()))
+    if (!to) [[unlikely]]
         return;
-    if (LIKELY(!to))
-        return;
-    writeBarrierSlowPath(from);
+    ASSERT_GC_OBJECT_LOOKS_VALID(to);
+    if (isWithinThreshold(from->cellState(), barrierThreshold())) [[unlikely]]
+        writeBarrierSlowPath(from);
 }
 
 inline void Heap::writeBarrier(const JSCell* from)
 {
     ASSERT_GC_OBJECT_LOOKS_VALID(const_cast<JSCell*>(from));
-    if (!from)
+    // FIXME: above assert verifies from is never nullptr so should be unnecessary
+    if (!from) [[unlikely]]
         return;
-    if (UNLIKELY(isWithinThreshold(from->cellState(), barrierThreshold())))
+    if (isWithinThreshold(from->cellState(), barrierThreshold())) [[unlikely]]
         writeBarrierSlowPath(from);
-}
-
-inline void Heap::writeBarrierWithoutFence(const JSCell* from)
-{
-    ASSERT_GC_OBJECT_LOOKS_VALID(const_cast<JSCell*>(from));
-    if (!from)
-        return;
-    if (UNLIKELY(isWithinThreshold(from->cellState(), blackThreshold)))
-        addToRememberedSet(from);
 }
 
 inline void Heap::mutatorFence()
 {
-    if (isX86() || UNLIKELY(mutatorShouldBeFenced()))
+    // We could push this condition in the lower `if` as on X86 a storeStoreFence is a compilerFence
+    // but this condition makes the logic a bit more explicit.
+    if constexpr (isX86()) {
+        WTF::compilerFence();
+        return;
+    }
+
+    if (mutatorShouldBeFenced()) [[unlikely]]
         WTF::storeStoreFence();
 }
 
-template<typename Functor> inline void Heap::forEachCodeBlock(const Functor& func)
+template<typename Functor> inline void Heap::forEachCodeBlock(NOESCAPE const Functor& func)
 {
     forEachCodeBlockImpl(scopedLambdaRef<void(CodeBlock*)>(func));
 }
 
-template<typename Functor> inline void Heap::forEachCodeBlockIgnoringJITPlans(const AbstractLocker& codeBlockSetLocker, const Functor& func)
+template<typename Functor> inline void Heap::forEachCodeBlockIgnoringJITPlans(const AbstractLocker& codeBlockSetLocker, NOESCAPE const Functor& func)
 {
     forEachCodeBlockIgnoringJITPlansImpl(codeBlockSetLocker, scopedLambdaRef<void(CodeBlock*)>(func));
 }
@@ -161,14 +151,14 @@ template<typename Functor> inline void Heap::forEachProtectedCell(const Functor&
 template <typename T>
 inline void Heap::releaseSoon(RetainPtr<T>&& object)
 {
-    m_delayedReleaseObjects.append(WTFMove(object));
+    m_delayedReleaseObjects.append(WTF::move(object));
 }
 #endif
 
 #ifdef JSC_GLIB_API_ENABLED
 inline void Heap::releaseSoon(std::unique_ptr<JSCGLibWrapperObject>&& object)
 {
-    m_delayedReleaseObjects.append(WTFMove(object));
+    m_delayedReleaseObjects.append(WTF::move(object));
 }
 #endif
 
@@ -189,7 +179,7 @@ inline void Heap::decrementDeferralDepthAndGCIfNeeded()
     ASSERT(!Thread::mayBeGCThread() || m_worldIsStopped);
     m_deferralDepth--;
     
-    if (UNLIKELY(m_didDeferGCWork) || Options::forceDidDeferGCWork()) {
+    if (m_didDeferGCWork || Options::forceDidDeferGCWork()) [[unlikely]] {
         decrementDeferralDepthAndGCIfNeededSlow();
         
         // Here are the possible relationships between m_deferralDepth and m_didDeferGCWork.
@@ -215,56 +205,20 @@ inline void Heap::decrementDeferralDepthAndGCIfNeeded()
     }
 }
 
-inline HashSet<MarkedArgumentBuffer*>& Heap::markListSet()
-{
-    if (!m_markListSet)
-        m_markListSet = makeUnique<HashSet<MarkedArgumentBuffer*>>();
-    return *m_markListSet;
-}
-
-inline void Heap::reportExtraMemoryAllocated(size_t size)
-{
-    if (size > minExtraMemory) 
-        reportExtraMemoryAllocatedSlowCase(size);
-}
-
-inline void Heap::deprecatedReportExtraMemory(size_t size)
-{
-    if (size > minExtraMemory) 
-        deprecatedReportExtraMemorySlowCase(size);
-}
-
 inline void Heap::acquireAccess()
 {
     if constexpr (validateDFGDoesGC)
-        verifyCanGC();
+        vm().verifyCanGC();
 
     if (m_worldState.compareExchangeWeak(0, hasAccessBit))
         return;
     acquireAccessSlow();
 }
 
-inline bool Heap::hasAccess() const
-{
-    return m_worldState.loadRelaxed() & hasAccessBit;
-}
-
-inline void Heap::releaseAccess()
-{
-    if (m_worldState.compareExchangeWeak(hasAccessBit, 0))
-        return;
-    releaseAccessSlow();
-}
-
-inline bool Heap::mayNeedToStop()
-{
-    return m_worldState.loadRelaxed() != hasAccessBit;
-}
-
 inline void Heap::stopIfNecessary()
 {
     if constexpr (validateDFGDoesGC)
-        verifyCanGC();
+        vm().verifyCanGC();
 
     if (mayNeedToStop())
         stopIfNecessarySlow();
@@ -278,5 +232,14 @@ void Heap::forEachSlotVisitor(const Func& func)
     for (auto& visitor : m_parallelSlotVisitors)
         func(*visitor);
 }
+
+namespace GCClient {
+
+ALWAYS_INLINE VM& Heap::vm() const
+{
+    return *std::bit_cast<VM*>(std::bit_cast<uintptr_t>(this) - OBJECT_OFFSETOF(VM, clientHeap));
+}
+
+} // namespace GCClient
 
 } // namespace JSC

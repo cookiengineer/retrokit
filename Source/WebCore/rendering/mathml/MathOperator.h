@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2016 Igalia S.L. All rights reserved.
- * Copyright (C) 2016 Apple Inc.  All rights reserved.
+ * Copyright (C) 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -36,34 +36,37 @@
 
 namespace WebCore {
 
-class RenderStyle;
+namespace Style {
+class ComputedStyle;
+}
 
 class MathOperator {
 public:
-    MathOperator();
+    MathOperator() { }
     enum class Type { NormalOperator, DisplayOperator, VerticalOperator, HorizontalOperator };
-    void setOperator(const RenderStyle&, UChar32 baseCharacter, Type);
-    void reset(const RenderStyle&);
+    void setOperator(const Style::ComputedStyle&, char32_t baseCharacter, Type);
+    void reset(const Style::ComputedStyle&);
 
     LayoutUnit width() const { return m_width; }
     LayoutUnit maxPreferredWidth() const { return m_maxPreferredWidth; }
     LayoutUnit ascent() const { return m_ascent; }
     LayoutUnit descent() const { return m_descent; }
     LayoutUnit italicCorrection() const { return m_italicCorrection; }
+    LayoutUnit unstretchedSize() const { return m_unstretchedSize; }
 
-    void stretchTo(const RenderStyle&, LayoutUnit width);
+    void stretchTo(const Style::ComputedStyle&, LayoutUnit width);
 
-    void paint(const RenderStyle&, PaintInfo&, const LayoutPoint&);
+    void paint(const Style::ComputedStyle&, PaintInfo&, const LayoutPoint&, float deviceScaleFactor);
 
 private:
     struct GlyphAssemblyData {
-        UChar32 topOrRightCodePoint { 0 };
+        char32_t topOrRightCodePoint { 0 };
         Glyph topOrRightFallbackGlyph { 0 };
-        UChar32 extensionCodePoint { 0 };
+        char32_t extensionCodePoint { 0 };
         Glyph extensionFallbackGlyph { 0 };
-        UChar32 bottomOrLeftCodePoint { 0 };
+        char32_t bottomOrLeftCodePoint { 0 };
         Glyph bottomOrLeftFallbackGlyph { 0 };
-        UChar32 middleCodePoint { 0 };
+        char32_t middleCodePoint { 0 };
         Glyph middleFallbackGlyph { 0 };
 
         bool hasExtension() const { return extensionCodePoint || extensionFallbackGlyph; }
@@ -71,36 +74,36 @@ private:
         void initialize();
     };
     enum class StretchType { Unstretched, SizeVariant, GlyphAssembly };
-    enum GlyphPaintTrimming {
-        TrimTop,
-        TrimBottom,
-        TrimTopAndBottom,
-        TrimLeft,
-        TrimRight,
-        TrimLeftAndRight
+    enum class GlyphPaintTrimming : uint8_t {
+        Top,
+        Bottom,
+        TopAndBottom,
+        Left,
+        Right,
+        LeftAndRight
     };
 
-    LayoutUnit stretchSize() const;
-    bool getGlyph(const RenderStyle&, UChar32 character, GlyphData&) const;
-    bool getBaseGlyph(const RenderStyle& style, GlyphData& baseGlyph) const { return getGlyph(style, m_baseCharacter, baseGlyph); }
+    LayoutUnit NODELETE stretchSize() const;
+    bool getGlyph(const Style::ComputedStyle&, char32_t character, GlyphData&) const;
+    bool getBaseGlyph(const Style::ComputedStyle&, GlyphData&);
     void setSizeVariant(const GlyphData&);
-    void setGlyphAssembly(const RenderStyle&, const GlyphAssemblyData&);
-    void getMathVariantsWithFallback(const RenderStyle&, bool isVertical, Vector<Glyph>&, Vector<OpenTypeMathData::AssemblyPart>&);
-    void calculateDisplayStyleLargeOperator(const RenderStyle&);
-    void calculateStretchyData(const RenderStyle&, bool calculateMaxPreferredWidth, LayoutUnit targetSize = 0_lu);
-    bool calculateGlyphAssemblyFallback(const Vector<OpenTypeMathData::AssemblyPart>&, GlyphAssemblyData&) const;
+    void setGlyphAssembly(const Style::ComputedStyle&, const GlyphAssemblyData&);
+    void getMathVariantsWithFallback(const Style::ComputedStyle&, bool isVertical, Vector<Glyph>&, Vector<OpenTypeMathData::AssemblyPart>&);
+    void calculateDisplayStyleLargeOperator(const Style::ComputedStyle&);
+    void calculateStretchyData(const Style::ComputedStyle&, bool calculateMaxPreferredWidth, LayoutUnit targetSize = 0_lu);
+    bool NODELETE calculateGlyphAssemblyFallback(const Vector<OpenTypeMathData::AssemblyPart>&, GlyphAssemblyData&) const;
 
-    LayoutRect paintGlyph(const RenderStyle&, PaintInfo&, const GlyphData&, const LayoutPoint& origin, GlyphPaintTrimming);
-    void fillWithVerticalExtensionGlyph(const RenderStyle&, PaintInfo&, const LayoutPoint& from, const LayoutPoint& to);
-    void fillWithHorizontalExtensionGlyph(const RenderStyle&, PaintInfo&, const LayoutPoint& from, const LayoutPoint& to);
-    void paintVerticalGlyphAssembly(const RenderStyle&, PaintInfo&, const LayoutPoint&);
-    void paintHorizontalGlyphAssembly(const RenderStyle&, PaintInfo&, const LayoutPoint&);
+    LayoutRect paintGlyph(const Style::ComputedStyle&, PaintInfo&, const GlyphData&, const LayoutPoint& origin, GlyphPaintTrimming);
+    void fillWithVerticalExtensionGlyph(const Style::ComputedStyle&, PaintInfo&, const LayoutPoint& from, const LayoutPoint& to);
+    void fillWithHorizontalExtensionGlyph(const Style::ComputedStyle&, PaintInfo&, const LayoutPoint& from, const LayoutPoint& to);
+    void paintVerticalGlyphAssembly(const Style::ComputedStyle&, PaintInfo&, const LayoutPoint&);
+    void paintHorizontalGlyphAssembly(const Style::ComputedStyle&, PaintInfo&, const LayoutPoint&);
 
-    UChar32 m_baseCharacter { 0 };
+    char32_t m_baseCharacter { 0 };
     Type m_operatorType { Type::NormalOperator };
     StretchType m_stretchType { StretchType::Unstretched };
     union {
-        Glyph m_variantGlyph;
+        Glyph m_variantGlyph { 0 };
         GlyphAssemblyData m_assembly;
     };
     LayoutUnit m_maxPreferredWidth { 0 };
@@ -108,7 +111,9 @@ private:
     LayoutUnit m_ascent { 0 };
     LayoutUnit m_descent { 0 };
     LayoutUnit m_italicCorrection { 0 };
+    LayoutUnit m_unstretchedSize { 0 };
     float m_radicalVerticalScale { 1 };
+    bool m_baseGlyphMirroredByRTLM { false };
 };
 
 }

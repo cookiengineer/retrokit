@@ -28,7 +28,8 @@ FunctionsEGLDL::FunctionsEGLDL() : mGetProcAddressPtr(nullptr) {}
 
 FunctionsEGLDL::~FunctionsEGLDL() {}
 
-egl::Error FunctionsEGLDL::initialize(EGLNativeDisplayType nativeDisplay,
+egl::Error FunctionsEGLDL::initialize(EGLAttrib platformType,
+                                      EGLNativeDisplayType nativeDisplay,
                                       const char *libName,
                                       void *eglHandle)
 {
@@ -45,7 +46,9 @@ egl::Error FunctionsEGLDL::initialize(EGLNativeDisplayType nativeDisplay,
         nativeEGLHandle = dlopen(libName, RTLD_NOW);
         if (!nativeEGLHandle)
         {
-            return egl::EglNotInitialized() << "Could not dlopen native EGL: " << dlerror();
+            std::ostringstream err;
+            err << "Could not dlopen native EGL: " << dlerror();
+            return egl::Error(EGL_NOT_INITIALIZED, err.str());
         }
     }
 
@@ -53,10 +56,10 @@ egl::Error FunctionsEGLDL::initialize(EGLNativeDisplayType nativeDisplay,
         reinterpret_cast<PFNEGLGETPROCADDRESSPROC>(dlsym(nativeEGLHandle, "eglGetProcAddress"));
     if (!mGetProcAddressPtr)
     {
-        return egl::EglNotInitialized() << "Could not find eglGetProcAddress";
+        return egl::Error(EGL_NOT_INITIALIZED, "Could not find eglGetProcAddress");
     }
 
-    return FunctionsEGL::initialize(nativeDisplay);
+    return FunctionsEGL::initialize(platformType, nativeDisplay);
 }
 
 void *FunctionsEGLDL::getProcAddress(const char *name) const

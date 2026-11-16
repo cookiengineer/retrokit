@@ -27,73 +27,97 @@
 
 #if ENABLE(CONTENT_EXTENSIONS)
 
-#include "CachedResource.h"
+#include <WebCore/CachedResource.h>
 #include <wtf/OptionSet.h>
 #include <wtf/URL.h>
 
-namespace WebCore {
-namespace ContentExtensions {
+namespace WebCore::ContentExtensions {
 
-enum class ResourceType : uint16_t {
-    Document = 0x0001,
-    Image = 0x0002,
-    StyleSheet = 0x0004,
-    Script = 0x0008,
-    Font = 0x0010,
-    SVGDocument = 0x0020,
-    Media = 0x0040,
-    Popup = 0x0080,
-    Ping = 0x0100,
-    Fetch = 0x0200,
-    WebSocket = 0x0400,
-    Other = 0x0800,
+enum class ActionCondition : uint32_t {
+    None = 0x00000,
+    IfTopURL = 0x40000,
+    UnlessTopURL = 0x80000,
+    IfFrameURL = 0x140000,
+    UnlessFrameURL = 0x180000
 };
-const uint16_t ResourceTypeMask = 0x0FFF;
+static constexpr uint32_t ActionConditionMask = 0x1C0000;
 
-enum class LoadType : uint16_t {
-    FirstParty = 0x1000,
-    ThirdParty = 0x2000,
+enum class ResourceType : uint32_t {
+    TopDocument = 0x0001,
+    ChildDocument = 0x0002,
+    Image = 0x0004,
+    StyleSheet = 0x0008,
+    Script = 0x0010,
+    Font = 0x0020,
+    SVGDocument = 0x0040,
+    Media = 0x0080,
+    Popup = 0x0100,
+    Ping = 0x0200,
+    Fetch = 0x0400,
+    WebSocket = 0x0800,
+    CSPReport = 0x1000,
+    Other = 0x2000,
 };
-const uint16_t LoadTypeMask = 0x3000;
+static constexpr uint32_t ResourceTypeMask = 0x3FFF;
 
-enum class LoadContext : uint16_t {
-    TopFrame = 0x4000,
-    ChildFrame = 0x8000,
+enum class LoadType : uint32_t {
+    FirstParty = 0x4000,
+    ThirdParty = 0x8000,
 };
-const uint16_t LoadContextMask = 0xC000;
+static constexpr uint32_t LoadTypeMask = 0xC000;
 
-static_assert(!(ResourceTypeMask & LoadTypeMask), "ResourceTypeMask and LoadTypeMask should be mutually exclusive because they are stored in the same uint16_t");
-static_assert(!(ResourceTypeMask & LoadContextMask), "ResourceTypeMask and LoadContextMask should be mutually exclusive because they are stored in the same uint16_t");
-static_assert(!(LoadContextMask & LoadTypeMask), "LoadContextMask and LoadTypeMask should be mutually exclusive because they are stored in the same uint16_t");
+enum class LoadContext : uint32_t {
+    TopFrame = 0x10000,
+    ChildFrame = 0x20000,
+};
+static constexpr uint32_t LoadContextMask = 0x30000;
 
-typedef uint16_t ResourceFlags;
+enum class RequestMethod : uint32_t {
+    None = 0x0000000,
+    Get = 0x200000,
+    Head = 0x400000,
+    Options = 0x600000,
+    Trace = 0x800000,
+    Put = 0xA00000,
+    Delete = 0xC00000,
+    Post = 0xE00000,
+    Patch = 0x1000000,
+    Connect = 0x1200000,
+};
+static constexpr uint32_t RequestMethodMask = 0x1E00000;
+
+using ResourceFlags = uint32_t;
+
+constexpr ResourceFlags AllResourceFlags = LoadTypeMask | ResourceTypeMask | LoadContextMask | ActionConditionMask | RequestMethodMask;
 
 // The first 32 bits of a uint64_t action are used for the action location.
-// The next 16 bits are used for the flags (ResourceType and LoadType).
-// The next bit is used to mark actions that are from a rule with an if-domain.
-//     Actions from rules with unless-domain conditions are distinguished from
-//     rules with if-domain conditions by not having this bit set.
-//     Actions from rules with no conditions are put in the DFA without conditions.
+// The next 25 bits are used for the flags (ResourceType, LoadType, LoadContext, ActionCondition, RequestMethod).
 // The values -1 and -2 are used for removed and empty values in HashTables.
-const uint64_t ActionFlagMask = 0x0000FFFF00000000;
-const uint64_t IfConditionFlag = 0x0001000000000000;
+static constexpr uint64_t ActionFlagMask = 0x01FFFFFF00000000;
 
-OptionSet<ResourceType> toResourceType(CachedResource::Type, ResourceRequestBase::Requester);
+OptionSet<ResourceType> toResourceType(CachedResource::Type, ResourceRequestRequester, bool isMainFrame);
 std::optional<OptionSet<ResourceType>> readResourceType(StringView);
 std::optional<OptionSet<LoadType>> readLoadType(StringView);
 std::optional<OptionSet<LoadContext>> readLoadContext(StringView);
+std::optional<RequestMethod> readRequestMethod(StringView);
+
+ASCIILiteral resourceTypeToString(OptionSet<ResourceType>);
+ASCIILiteral resourceTypeToStringForMatchedRule(OptionSet<ResourceType>);
 
 struct ResourceLoadInfo {
     URL resourceURL;
     URL mainDocumentURL;
+    URL frameURL;
     OptionSet<ResourceType> type;
     bool mainFrameContext { false };
+    RequestMethod requestMethod { RequestMethod::None };
 
     bool isThirdParty() const;
     ResourceFlags getResourceFlags() const;
+    ResourceLoadInfo isolatedCopy() const & { return { resourceURL.isolatedCopy(), mainDocumentURL.isolatedCopy(), frameURL.isolatedCopy(), type, mainFrameContext, requestMethod }; }
+    ResourceLoadInfo isolatedCopy() && { return { WTF::move(resourceURL).isolatedCopy(), WTF::move(mainDocumentURL).isolatedCopy(), WTF::move(frameURL).isolatedCopy(), type, mainFrameContext, requestMethod }; }
 };
 
-} // namespace ContentExtensions
-} // namespace WebCore
+} // namespace WebCore::ContentExtensions
 
 #endif

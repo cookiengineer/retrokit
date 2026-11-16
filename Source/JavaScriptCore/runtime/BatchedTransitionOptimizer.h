@@ -26,7 +26,7 @@
 
 #pragma once
 
-#include "JSObject.h"
+#include <JavaScriptCore/JSObject.h>
 
 namespace JSC {
 
@@ -35,7 +35,7 @@ class BatchedTransitionOptimizer {
 public:
     BatchedTransitionOptimizer(VM& vm, JSObject* object)
     {
-        if (!object->structure(vm)->isDictionary())
+        if (!object->structure()->isDictionary())
             object->convertToDictionary(vm);
     }
 };

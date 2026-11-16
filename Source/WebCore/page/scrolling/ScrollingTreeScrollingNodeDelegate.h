@@ -27,40 +27,73 @@
 
 #if ENABLE(ASYNC_SCROLLING)
 
-#include "ScrollingTreeScrollingNode.h"
+#include <WebCore/RubberbandingState.h>
+#include <WebCore/ScrollingTreeScrollingNode.h>
+#include <wtf/EnumSet.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class ScrollingTreeScrollingNodeDelegate {
+    WTF_MAKE_TZONE_ALLOCATED(ScrollingTreeScrollingNodeDelegate);
 public:
     WEBCORE_EXPORT explicit ScrollingTreeScrollingNodeDelegate(ScrollingTreeScrollingNode&);
     WEBCORE_EXPORT virtual ~ScrollingTreeScrollingNodeDelegate();
 
-    ScrollingTreeScrollingNode& scrollingNode() { return m_scrollingNode; }
-    const ScrollingTreeScrollingNode& scrollingNode() const { return m_scrollingNode; }
+    Ref<ScrollingTreeScrollingNode> scrollingNode() { return m_scrollingNode; }
+    Ref<const ScrollingTreeScrollingNode> scrollingNode() const { return m_scrollingNode; }
+
+    virtual bool startAnimatedScrollToPosition(FloatPoint) = 0;
+
+    virtual void stopAnimatedScroll(EnumSet<AnimatedScrollType>) = 0;
+
+    virtual void serviceScrollAnimation(MonotonicTime) = 0;
+
+    virtual void updateFromStateNode(const ScrollingStateScrollingNode&) { }
+    
+    virtual void handleWheelEventPhase(const PlatformWheelEventPhase) { }
+    
+    virtual void viewWillStartLiveResize() { }
+    virtual void viewWillEndLiveResize() { }
+    virtual void viewSizeDidChange() { }
+    
+    virtual void updateScrollbarLayers() { }
+    virtual void initScrollbars() { }
+
+    virtual void handleKeyboardScrollRequest(const RequestedKeyboardScrollData&) { }
+
+    virtual FloatPoint adjustedScrollPosition(const FloatPoint& scrollPosition) const { return scrollPosition; }
+    virtual String scrollbarStateForOrientation(ScrollbarOrientation) const { return ""_s; }
+
+    virtual float rubberbandHyperbolicCoefficientForTesting() const { return 0; }
+
+#if HAVE(RUBBER_BANDING)
+    virtual std::optional<RubberbandingState> captureRubberbandingState() const { return std::nullopt; }
+#endif
 
 protected:
-    WEBCORE_EXPORT ScrollingTree& scrollingTree() const;
+    WEBCORE_EXPORT RefPtr<ScrollingTree> scrollingTree() const;
+
     WEBCORE_EXPORT FloatPoint lastCommittedScrollPosition() const;
-    WEBCORE_EXPORT const FloatSize& totalContentsSize();
-    WEBCORE_EXPORT const FloatSize& reachableContentsSize();
-    WEBCORE_EXPORT const IntPoint& scrollOrigin() const;
+    WEBCORE_EXPORT FloatSize totalContentsSize();
+    WEBCORE_EXPORT FloatSize reachableContentsSize();
+    WEBCORE_EXPORT IntPoint scrollOrigin() const;
 
-    FloatPoint currentScrollPosition() const { return m_scrollingNode.currentScrollPosition(); }
-    FloatPoint minimumScrollPosition() const { return m_scrollingNode.minimumScrollPosition(); }
-    FloatPoint maximumScrollPosition() const { return m_scrollingNode.maximumScrollPosition(); }
+    FloatPoint currentScrollPosition() const { return scrollingNode()->currentScrollPosition(); }
+    FloatPoint minimumScrollPosition() const { return scrollingNode()->minimumScrollPosition(); }
+    FloatPoint maximumScrollPosition() const { return scrollingNode()->maximumScrollPosition(); }
 
-    FloatSize scrollableAreaSize() const { return m_scrollingNode.scrollableAreaSize(); }
-    FloatSize totalContentsSize() const { return m_scrollingNode.totalContentsSize(); }
+    FloatSize scrollableAreaSize() const { return scrollingNode()->scrollableAreaSize(); }
+    FloatSize totalContentsSize() const { return scrollingNode()->totalContentsSize(); }
 
-    bool allowsHorizontalScrolling() const { return m_scrollingNode.allowsHorizontalScrolling(); }
-    bool allowsVerticalScrolling() const { return m_scrollingNode.allowsVerticalScrolling(); }
+    bool allowsHorizontalScrolling() const { return scrollingNode()->allowsHorizontalScrolling(); }
+    bool allowsVerticalScrolling() const { return scrollingNode()->allowsVerticalScrolling(); }
 
-    ScrollElasticity horizontalScrollElasticity() const { return m_scrollingNode.horizontalScrollElasticity(); }
-    ScrollElasticity verticalScrollElasticity() const { return m_scrollingNode.verticalScrollElasticity(); }
+    ScrollElasticity horizontalScrollElasticity() const { return scrollingNode()->horizontalScrollElasticity(); }
+    ScrollElasticity verticalScrollElasticity() const { return scrollingNode()->verticalScrollElasticity(); }
 
 private:
-    ScrollingTreeScrollingNode& m_scrollingNode;
+    ThreadSafeWeakRef<ScrollingTreeScrollingNode> m_scrollingNode;
 };
 
 } // namespace WebCore

@@ -3,6 +3,7 @@
  * Copyright (C) 2004, 2005, 2007 Rob Buis <buis@kde.org>
  * Copyright (C) 2009 Google, Inc.
  * Copyright (C) 2009 Apple Inc. All rights reserved.
+ * Copyright (c) 2020, 2021, 2022 Igalia S.L.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -23,51 +24,49 @@
 #pragma once
 
 #include "RenderSVGContainer.h"
+#include "RenderSVGRoot.h"
 
 namespace WebCore {
 
-// This is used for non-root <svg> elements and <marker> elements, neither of which are SVGTransformable
-// thus we inherit from RenderSVGContainer instead of RenderSVGTransformableContainer
+class SVGSVGElement;
+
 class RenderSVGViewportContainer final : public RenderSVGContainer {
-    WTF_MAKE_ISO_ALLOCATED(RenderSVGViewportContainer);
+    WTF_MAKE_TZONE_ALLOCATED(RenderSVGViewportContainer);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderSVGViewportContainer);
 public:
-    RenderSVGViewportContainer(SVGSVGElement&, RenderStyle&&);
+    RenderSVGViewportContainer(RenderSVGRoot&, Style::ComputedStyle&&);
+    RenderSVGViewportContainer(SVGSVGElement&, Style::ComputedStyle&&);
+    virtual ~RenderSVGViewportContainer();
 
-    SVGSVGElement& svgSVGElement() const;
+    SVGSVGElement& NODELETE svgSVGElement() const;
+    FloatRect viewport() const { return { { }, viewportSize() }; }
+    FloatSize viewportSize() const { return m_viewport.size(); }
 
-    FloatRect viewport() const { return m_viewport; }
-
-    bool isLayoutSizeChanged() const { return m_isLayoutSizeChanged; }
-    bool didTransformToRootUpdate() override { return m_didTransformToRootUpdate; }
-
-    void determineIfLayoutSizeChanged() override;
-    void setNeedsTransformUpdate() override { m_needsTransformUpdate = true; }
-
-    void paint(PaintInfo&, const LayoutPoint&) override;
+    void updateFromStyle() final;
 
 private:
+    ASCIILiteral renderName() const final { return "RenderSVGViewportContainer"_s; }
+
     void element() const = delete;
 
-    bool isSVGViewportContainer() const override { return true; }
-    const char* renderName() const override { return "RenderSVGViewportContainer"; }
+    bool isOutermostSVGViewportContainer() const { return isAnonymous(); }
+    bool updateLayoutSizeIfNeeded() final;
+    std::optional<FloatRect> overridenObjectBoundingBoxWithoutTransformations() const final { return std::make_optional(viewport()); }
 
-    AffineTransform viewportTransform() const;
-    const AffineTransform& localToParentTransform() const override { return m_localToParentTransform; }
+    FloatPoint computeViewportLocation() const;
+    FloatSize computeViewportSize() const;
 
-    void calcViewport() override;
-    bool calculateLocalTransform() override;
+    void applyTransform(TransformationMatrix&, const Style::ComputedStyle&, const FloatRect& boundingBox, OptionSet<Style::TransformResolverOption>) const final;
+    LayoutRect overflowClipRect(const LayoutPoint& location, OverlayScrollbarSizeRelevancy = OverlayScrollbarSizeRelevancy::IgnoreOverlayScrollbarSize, PaintPhase = PaintPhase::BlockBackground) const final;
+    void updateLayerTransform() final;
+    bool needsHasSVGTransformFlags() const final;
 
-    void applyViewportClip(PaintInfo&) override;
-    bool pointIsInsideViewportClip(const FloatPoint& pointInParent) override;
-
-    bool m_didTransformToRootUpdate : 1;
-    bool m_isLayoutSizeChanged : 1;
-    bool m_needsTransformUpdate : 1;
-
+    AffineTransform m_supplementalLayerTransform;
     FloatRect m_viewport;
-    mutable AffineTransform m_localToParentTransform;
+    SingleThreadWeakPtr<RenderSVGRoot> m_owningSVGRoot;
 };
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderSVGViewportContainer, isSVGViewportContainer())
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderSVGViewportContainer, isRenderSVGViewportContainer())
+

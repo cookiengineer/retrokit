@@ -16,7 +16,7 @@
 
 using namespace angle;
 
-class EGLAndroidFrameBufferTargetTest : public ANGLETest
+class EGLAndroidFrameBufferTargetTest : public ANGLETest<>
 {
   protected:
     EGLAndroidFrameBufferTargetTest() {}
@@ -87,4 +87,6 @@ TEST_P(EGLAndroidFrameBufferTargetTest, MatchFramebufferTargetConfigs)
     EXPECT_EQ(matchConfigs, filterConfigs) << "Filtered configs do not match selection Configs";
 }
 
+// This test suite is not instantiated on some OSes.
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(EGLAndroidFrameBufferTargetTest);
 ANGLE_INSTANTIATE_TEST(EGLAndroidFrameBufferTargetTest, ES2_VULKAN(), ES3_VULKAN());

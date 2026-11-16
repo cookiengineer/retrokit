@@ -26,15 +26,17 @@
 #ifndef Region_h
 #define Region_h
 
-#include "IntRect.h"
+#include <WebCore/IntRect.h>
+#include <wtf/ArgumentCoder.h>
 #include <wtf/PointerComparison.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
 
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(Region);
 class Region {
-    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(Region);
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(Region, Region);
 public:
     WEBCORE_EXPORT Region();
     WEBCORE_EXPORT Region(const IntRect&);
@@ -57,12 +59,12 @@ public:
     WEBCORE_EXPORT void intersect(const Region&);
     WEBCORE_EXPORT void subtract(const Region&);
 
-    WEBCORE_EXPORT void translate(const IntSize&);
+    WEBCORE_EXPORT void NODELETE translate(const IntSize&);
 
     // Returns true if the query region is a subset of this region.
     WEBCORE_EXPORT bool contains(const Region&) const;
 
-    WEBCORE_EXPORT bool contains(const IntPoint&) const;
+    WEBCORE_EXPORT bool NODELETE contains(const IntPoint&) const;
 
     // Returns true if the query region intersects any part of this region.
     WEBCORE_EXPORT bool intersects(const Region&) const;
@@ -71,42 +73,26 @@ public:
 
     unsigned gridSize() const { return m_shape ? m_shape->gridSize() : 0; }
 
-#ifndef NDEBUG
-    void dump() const;
-#endif
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<Region> decode(Decoder&);
-    // FIXME: Remove legacy decode.
-    template<class Decoder> static WARN_UNUSED_RETURN bool decode(Decoder&, Region&);
-
-private:
     struct Span {
         int y { 0 };
-        size_t segmentIndex { 0 };
+        uint64_t segmentIndex { 0 };
 
-        template<class Encoder> void encode(Encoder&) const;
-        template<class Decoder> static std::optional<Span> decode(Decoder&);
+        friend bool operator==(const Span&, const Span&) = default;
     };
 
     class Shape {
-        WTF_MAKE_FAST_ALLOCATED;
+        WTF_MAKE_TZONE_ALLOCATED_EXPORT(Shape, WEBCORE_EXPORT);
     public:
         Shape() = default;
-        Shape(const IntRect&);
+        WEBCORE_EXPORT Shape(const IntRect&);
 
-        IntRect bounds() const;
+        IntRect NODELETE bounds() const;
         bool isEmpty() const { return m_spans.isEmpty(); }
         bool isRect() const { return m_spans.size() <= 2 && m_segments.size() <= 2; }
         unsigned gridSize() const { return m_spans.size() * m_segments.size(); }
 
-        typedef const Span* SpanIterator;
-        SpanIterator spans_begin() const;
-        SpanIterator spans_end() const;
-        
-        typedef const int* SegmentIterator;
-        SegmentIterator segments_begin(SpanIterator) const;
-        SegmentIterator segments_end(SpanIterator) const;
+        std::span<const Span> spans() const LIFETIME_BOUND { return m_spans.span(); }
+        std::span<const int> NODELETE segments(std::span<const Span>) const LIFETIME_BOUND;
 
         static Shape unionShapes(const Shape& shape1, const Shape& shape2);
         static Shape intersectShapes(const Shape& shape1, const Shape& shape2);
@@ -118,47 +104,55 @@ private:
         struct CompareIntersectsOperation;
 
         template<typename CompareOperation>
-        static bool compareShapes(const Shape& shape1, const Shape& shape2);
+        static bool NODELETE compareShapes(const Shape& shape1, const Shape& shape2);
 
-        template<class Encoder> void encode(Encoder&) const;
-        template<class Decoder> static std::optional<Shape> decode(Decoder&);
+        WEBCORE_EXPORT static bool NODELETE isValidShape(std::span<const int> segments, std::span<const Span> spans);
 
-#ifndef NDEBUG
-        void dump() const;
-#endif
-
+        static Shape createForTesting(Vector<int, 32>&& segments, Vector<Span, 16>&& spans) { return Shape { WTF::move(segments), WTF::move(spans) }; }
+        std::pair<Vector<int, 32>, Vector<Span, 16>> dataForTesting() const { return { m_segments, m_spans }; }
     private:
+        WEBCORE_EXPORT Shape(Vector<int, 32>&&, Vector<Span, 16>&&);
         struct UnionOperation;
         struct IntersectOperation;
         struct SubtractOperation;
-        
+
         template<typename Operation>
         static Shape shapeOperation(const Shape& shape1, const Shape& shape2);
 
-        void appendSegment(int x);
         void appendSpan(int y);
-        void appendSpan(int y, SegmentIterator begin, SegmentIterator end);
-        void appendSpans(const Shape&, SpanIterator begin, SpanIterator end);
+        void appendSpan(int y, std::span<const int> segments);
+        void appendSpans(const Shape&, std::span<const Span> spans);
 
-        bool canCoalesce(SegmentIterator begin, SegmentIterator end);
+        bool canCoalesce(std::span<const int> segments);
 
         Vector<int, 32> m_segments;
         Vector<Span, 16> m_spans;
-
-        friend bool operator==(const Shape&, const Shape&);
+        friend struct IPC::ArgumentCoder<WebCore::Region::Shape>;
+        friend bool operator==(const Shape&, const Shape&) = default;
+        WEBCORE_EXPORT friend WTF::TextStream& operator<<(WTF::TextStream&, const Shape&);
     };
+    static Region createForTesting(Shape&& shape) { return Region { WTF::move(shape) }; }
+    Shape dataForTesting() const { return data(); }
+private:
+    friend struct IPC::ArgumentCoder<WebCore::Region>;
+    explicit Region(Shape&& shape) { setShape(WTF::move(shape)); }
+    Shape data() const;
 
     std::unique_ptr<Shape> copyShape() const { return m_shape ? makeUnique<Shape>(*m_shape) : nullptr; }
-    void setShape(Shape&&);
+    WEBCORE_EXPORT void setShape(Shape&&);
 
     IntRect m_bounds;
     std::unique_ptr<Shape> m_shape;
 
     friend bool operator==(const Region&, const Region&);
-    friend bool operator==(const Shape&, const Shape&);
-    friend bool operator==(const Span&, const Span&);
-    friend bool operator!=(const Span&, const Span&);
 };
+
+inline Region::Shape Region::data() const
+{
+    if (m_shape)
+        return *m_shape;
+    return m_bounds;
+}
 
 static inline Region intersect(const Region& a, const Region& b)
 {
@@ -188,123 +182,9 @@ inline bool operator==(const Region& a, const Region& b)
 {
     return a.m_bounds == b.m_bounds && arePointingToEqualData(a.m_shape, b.m_shape);
 }
-inline bool operator!=(const Region& a, const Region& b)
-{
-    return !(a == b);
-}
-
-inline bool operator==(const Region::Shape& a, const Region::Shape& b)
-{
-    return a.m_spans == b.m_spans && a.m_segments == b.m_segments;
-}
-
-inline bool operator==(const Region::Span& a, const Region::Span& b)
-{
-    return a.y == b.y && a.segmentIndex == b.segmentIndex;
-}
-
-inline bool operator!=(const Region::Span& a, const Region::Span& b)
-{
-    return !(a == b);
-}
 
 WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const Region&);
-
-template<class Encoder>
-void Region::Span::encode(Encoder& encoder) const
-{
-    encoder << y << static_cast<uint64_t>(segmentIndex);
-}
-
-template<class Decoder>
-std::optional<Region::Span> Region::Span::decode(Decoder& decoder)
-{
-    std::optional<int> y;
-    decoder >> y;
-    if (!y)
-        return { };
-
-    std::optional<uint64_t> segmentIndex;
-    decoder >> segmentIndex;
-    if (!segmentIndex)
-        return { };
-
-    return { { *y, static_cast<size_t>(*segmentIndex) } };
-}
-
-template<class Encoder>
-void Region::Shape::encode(Encoder& encoder) const
-{
-    encoder << m_segments;
-    encoder << m_spans;
-}
-
-template<class Decoder>
-std::optional<Region::Shape> Region::Shape::decode(Decoder& decoder)
-{
-    std::optional<Vector<int>> segments;
-    decoder >> segments;
-    if (!segments)
-        return std::nullopt;
-
-    std::optional<Vector<Region::Span>> spans;
-    decoder >> spans;
-    if (!spans)
-        return std::nullopt;
-
-    Shape shape;
-    shape.m_segments = WTFMove(*segments);
-    shape.m_spans = WTFMove(*spans);
-
-    return { shape };
-}
-
-template<class Encoder>
-void Region::encode(Encoder& encoder) const
-{
-    encoder << m_bounds;
-    bool hasShape = !!m_shape;
-    encoder << hasShape;
-    if (hasShape)
-        encoder << *m_shape;
-}
-
-template<class Decoder>
-std::optional<Region> Region::decode(Decoder& decoder)
-{
-    std::optional<IntRect> bounds;
-    decoder >> bounds;
-    if (!bounds)
-        return std::nullopt;
-
-    std::optional<bool> hasShape;
-    decoder >> hasShape;
-    if (!hasShape)
-        return std::nullopt;
-
-    Region region = { *bounds };
-
-    if (*hasShape) {
-        std::optional<Shape> shape;
-        decoder >> shape;
-        if (!shape)
-            return std::nullopt;
-        region.m_shape = makeUnique<Shape>(WTFMove(*shape));
-    }
-
-    return { region };
-}
-
-template<class Decoder>
-bool Region::decode(Decoder& decoder, Region& region)
-{
-    std::optional<Region> decodedRegion;
-    decoder >> decodedRegion;
-    if (!decodedRegion)
-        return false;
-    region = WTFMove(*decodedRegion);
-    return true;
-}
+WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const Region::Shape&);
 
 } // namespace WebCore
 

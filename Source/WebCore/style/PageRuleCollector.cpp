@@ -29,24 +29,23 @@
 #include "config.h"
 #include "PageRuleCollector.h"
 
+#include "CommonAtomStrings.h"
 #include "StyleProperties.h"
 #include "StyleRule.h"
 #include "UserAgentStyle.h"
+#include <ranges>
 
 namespace WebCore {
 namespace Style {
 
-static inline bool comparePageRules(const StyleRulePage* r1, const StyleRulePage* r2)
+static inline bool NODELETE comparePageRules(const StyleRulePage* r1, const StyleRulePage* r2)
 {
-    return r1->selector()->specificityForPage() < r2->selector()->specificityForPage();
+    return r1->selector().specificityForPage() < r2->selector().specificityForPage();
 }
 
 bool PageRuleCollector::isLeftPage(int pageIndex) const
 {
-    bool isFirstPageLeft = false;
-    if (!m_state.rootElementStyle()->isLeftToRightDirection())
-        isFirstPageLeft = true;
-
+    bool isFirstPageLeft = !m_rootWritingMode.isAnyLeftToRight();
     return (pageIndex + (isFirstPageLeft ? 1 : 0)) % 2;
 }
 
@@ -56,7 +55,7 @@ bool PageRuleCollector::isFirstPage(int pageIndex) const
     return (!pageIndex);
 }
 
-String PageRuleCollector::pageName(int /* pageIndex */) const
+WTF::String PageRuleCollector::pageName(int /* pageIndex */) const
 {
     // FIXME: Implement page index to page name mapping.
     return emptyString();
@@ -64,18 +63,18 @@ String PageRuleCollector::pageName(int /* pageIndex */) const
 
 void PageRuleCollector::matchAllPageRules(int pageIndex)
 {
-    const bool isLeft = isLeftPage(pageIndex);
-    const bool isFirst = isFirstPage(pageIndex);
-    const String page = pageName(pageIndex);
-    
-    matchPageRules(UserAgentStyle::defaultPrintStyle, isLeft, isFirst, page);
-    matchPageRules(m_ruleSets.userStyle(), isLeft, isFirst, page);
+    auto isLeft = isLeftPage(pageIndex);
+    auto isFirst = isFirstPage(pageIndex);
+    auto page = pageName(pageIndex);
+
+    matchPageRules(protect(UserAgentStyle::defaultPrintStyle), isLeft, isFirst, page);
+    matchPageRules(protect(m_ruleSets.userStyle()), isLeft, isFirst, page);
     // Only consider the global author RuleSet for @page rules, as per the HTML5 spec.
     if (m_ruleSets.isAuthorStyleDefined())
-        matchPageRules(&m_ruleSets.authorStyle(), isLeft, isFirst, page);
+        matchPageRules(protect(&m_ruleSets.authorStyle()), isLeft, isFirst, page);
 }
 
-void PageRuleCollector::matchPageRules(RuleSet* rules, bool isLeftPage, bool isFirstPage, const String& pageName)
+void PageRuleCollector::matchPageRules(RuleSet* rules, bool isLeftPage, bool isFirstPage, const WTF::String& pageName)
 {
     if (!rules)
         return;
@@ -85,24 +84,25 @@ void PageRuleCollector::matchPageRules(RuleSet* rules, bool isLeftPage, bool isF
     if (matchedPageRules.isEmpty())
         return;
 
-    std::stable_sort(matchedPageRules.begin(), matchedPageRules.end(), comparePageRules);
+    std::ranges::stable_sort(matchedPageRules, comparePageRules);
 
-    for (unsigned i = 0; i < matchedPageRules.size(); i++)
-        m_result.authorDeclarations.append({ &matchedPageRules[i]->properties() });
+    m_result->authorDeclarations.appendContainerWithMapping(matchedPageRules, [](auto& pageRule) {
+        return MatchedProperties { pageRule->properties() };
+    });
 }
 
-static bool checkPageSelectorComponents(const CSSSelector* selector, bool isLeftPage, bool isFirstPage, const String& pageName)
+static bool NODELETE checkPageSelectorComponents(const CSSSelector& selector, bool isLeftPage, bool isFirstPage, const WTF::String& pageName)
 {
-    for (const CSSSelector* component = selector; component; component = component->tagHistory()) {
-        if (component->match() == CSSSelector::Tag) {
+    for (const CSSSelector* component = &selector; component; component = component->precedingInComplexSelector()) {
+        if (component->match() == CSSSelector::Match::Tag) {
             const AtomString& localName = component->tagQName().localName();
             if (localName != starAtom() && localName != pageName)
                 return false;
-        } else if (component->match() == CSSSelector::PagePseudoClass) {
-            CSSSelector::PagePseudoClassType pseudoType = component->pagePseudoClassType();
-            if ((pseudoType == CSSSelector::PagePseudoClassLeft && !isLeftPage)
-                || (pseudoType == CSSSelector::PagePseudoClassRight && isLeftPage)
-                || (pseudoType == CSSSelector::PagePseudoClassFirst && !isFirstPage))
+        } else if (component->match() == CSSSelector::Match::PagePseudoClass) {
+            auto pseudoType = component->pagePseudoClass();
+            if ((pseudoType == CSSSelector::PagePseudoClass::Left && !isLeftPage)
+                || (pseudoType == CSSSelector::PagePseudoClass::Right && isLeftPage)
+                || (pseudoType == CSSSelector::PagePseudoClass::First && !isFirstPage))
             {
                 return false;
             }
@@ -111,17 +111,17 @@ static bool checkPageSelectorComponents(const CSSSelector* selector, bool isLeft
     return true;
 }
 
-void PageRuleCollector::matchPageRulesForList(Vector<StyleRulePage*>& matchedRules, const Vector<StyleRulePage*>& rules, bool isLeftPage, bool isFirstPage, const String& pageName)
+void PageRuleCollector::matchPageRulesForList(Vector<StyleRulePage*>& matchedRules, const Vector<StyleRulePage*>& rules, bool isLeftPage, bool isFirstPage, const WTF::String& pageName)
 {
     for (unsigned i = 0; i < rules.size(); ++i) {
-        StyleRulePage* rule = rules[i];
+        RefPtr rule = rules[i];
 
         if (!checkPageSelectorComponents(rule->selector(), isLeftPage, isFirstPage, pageName))
             continue;
 
         // If the rule has no properties to apply, then ignore it.
-        const StyleProperties& properties = rule->properties();
-        if (properties.isEmpty())
+        Ref properties = rule->properties();
+        if (properties->isEmpty())
             continue;
 
         // Add this rule to our list of matched rules.

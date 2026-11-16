@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006 Apple Inc. All rights reserved.
  * Copyright (C) 2008-2009 Torch Mobile, Inc.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -32,14 +32,14 @@
 // ICU defines TRUE and FALSE macros, breaking libjpeg v9 headers
 #undef TRUE
 #undef FALSE
-extern "C" {
-#include "jpeglib.h"
-}
 
 #if USE(LCMS)
-typedef void* cmsHPROFILE;
-typedef void* cmsHTRANSFORM;
+#include "LCMSUniquePtr.h"
 #endif
+
+extern "C" {
+#include <jpeglib.h>
+}
 
 namespace WebCore {
 
@@ -90,8 +90,7 @@ namespace WebCore {
 
         std::unique_ptr<JPEGImageReader> m_reader;
 #if USE(LCMS)
-        cmsHPROFILE m_iccProfile { nullptr };
-        cmsHTRANSFORM m_iccTransform { nullptr };
+        LCMSTransformPtr m_iccTransform;
 #endif
     };
 

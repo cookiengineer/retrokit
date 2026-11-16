@@ -1,10 +1,10 @@
 /*
- * Copyright (C) 2012, 2017 Igalia S.L.
+ * Copyright (C) 2012, 2017, 2026 Igalia S.L.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2,1 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -24,6 +24,7 @@
 #include "WebKitFaviconDatabasePrivate.h"
 #include <WebCore/Image.h>
 #include <WebCore/IntSize.h>
+#include <WebCore/NotImplemented.h>
 #include <WebCore/SharedBuffer.h>
 #include <glib/gi18n-lib.h>
 #include <wtf/FileSystem.h>
@@ -31,73 +32,75 @@
 #include <wtf/glib/GRefPtr.h>
 #include <wtf/glib/GUniquePtr.h>
 #include <wtf/glib/WTFGType.h>
-#include <wtf/text/CString.h>
+#include <wtf/text/CStringView.h>
 
 #if PLATFORM(GTK)
+#include "GtkUtilities.h"
 #include <WebCore/RefPtrCairo.h>
+#endif
+
+#if ENABLE(2022_GLIB_API)
+#include "WebKitImagePrivate.h"
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <skia/core/SkBitmap.h>
+#include <skia/core/SkPixmap.h>
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 #endif
 
 using namespace WebKit;
 using namespace WebCore;
 
 /**
- * SECTION: WebKitFaviconDatabase
- * @Short_description: A WebKit favicon database
- * @Title: WebKitFaviconDatabase
+ * WebKitFaviconDatabase:
  *
- * #WebKitFaviconDatabase provides access to the icons associated with
- * web sites.
+ * Provides access to the icons associated with web sites.
  *
- * WebKit will automatically look for available icons in &lt;link&gt;
+ * WebKit will automatically look for available icons in `<link>`
  * elements on opened pages as well as an existing favicon.ico and
  * load the images found into a memory cache if possible. That cache
  * is frozen to an on-disk database for persistence.
  *
- * If #WebKitSettings:enable-private-browsing is %TRUE, new icons
+ * If [property@WebsiteDataManager:is-ephemeral] is %TRUE, new icons
  * won't be added to the on-disk database and no existing icons will
  * be deleted from it. Nevertheless, WebKit will still store them in
  * the in-memory cache during the current execution.
- *
  */
 
+#if PLATFORM(GTK)
 enum {
     FAVICON_CHANGED,
 
     LAST_SIGNAL
 };
 
-static guint signals[LAST_SIGNAL] = { 0, };
+static std::array<unsigned, LAST_SIGNAL> signals;
+#endif // PLATFORM(GTK)
 
 struct _WebKitFaviconDatabasePrivate {
     RefPtr<IconDatabase> iconDatabase;
 };
 
-WEBKIT_DEFINE_TYPE(WebKitFaviconDatabase, webkit_favicon_database, G_TYPE_OBJECT)
+WEBKIT_DEFINE_FINAL_TYPE(WebKitFaviconDatabase, webkit_favicon_database, G_TYPE_OBJECT, GObject)
 
 static void webkit_favicon_database_class_init(WebKitFaviconDatabaseClass* faviconDatabaseClass)
 {
-    /**
-     * WebKitFaviconDatabase::favicon-changed:
-     * @database: the object on which the signal is emitted
-     * @page_uri: the URI of the Web page containing the icon
-     * @favicon_uri: the URI of the favicon
-     *
-     * This signal is emitted when the favicon URI of @page_uri has
-     * been changed to @favicon_uri in the database. You can connect
-     * to this signal and call webkit_favicon_database_get_favicon()
-     * to get the favicon. If you are interested in the favicon of a
-     * #WebKitWebView it's easier to use the #WebKitWebView:favicon
-     * property. See webkit_web_view_get_favicon() for more details.
-     */
+#if PLATFORM(GTK)
+#if USE(GTK4)
+    static constexpr auto faviconChangedSignalFlags =
+        static_cast<GSignalFlags>(G_SIGNAL_RUN_LAST | G_SIGNAL_DEPRECATED);
+#else
+    static constexpr auto faviconChangedSignalFlags = G_SIGNAL_RUN_LAST;
+#endif // USE(GTK4)
     signals[FAVICON_CHANGED] = g_signal_new(
         "favicon-changed",
         G_TYPE_FROM_CLASS(faviconDatabaseClass),
-        G_SIGNAL_RUN_LAST,
+        faviconChangedSignalFlags,
         0, nullptr, nullptr,
         g_cclosure_marshal_generic,
         G_TYPE_NONE, 2,
         G_TYPE_STRING,
         G_TYPE_STRING);
+#endif // PLATFORM(GTK)
 }
 
 WebKitFaviconDatabase* webkitFaviconDatabaseCreate()
@@ -123,7 +126,7 @@ void webkitFaviconDatabaseClose(WebKitFaviconDatabase* database)
     database->priv->iconDatabase = nullptr;
 }
 
-#if PLATFORM(GTK)
+#if PLATFORM(GTK) || ENABLE(2022_GLIB_API)
 void webkitFaviconDatabaseGetLoadDecisionForIcon(WebKitFaviconDatabase* database, const LinkIcon& icon, const String& pageURL, bool isEphemeral, Function<void(bool)>&& completionHandler)
 {
     if (!webkitFaviconDatabaseIsOpen(database)) {
@@ -133,12 +136,19 @@ void webkitFaviconDatabaseGetLoadDecisionForIcon(WebKitFaviconDatabase* database
 
     database->priv->iconDatabase->checkIconURLAndSetPageURLIfNeeded(icon.url.string(), pageURL,
         isEphemeral ? IconDatabase::AllowDatabaseWrite::No : IconDatabase::AllowDatabaseWrite::Yes,
-            [database = GRefPtr<WebKitFaviconDatabase>(database), url = icon.url.string().isolatedCopy(), pageURL = pageURL.isolatedCopy(), completionHandler = WTFMove(completionHandler)](bool found, bool changed) {
-            if (!webkitFaviconDatabaseIsOpen(database.get()))
+            [database = GRefPtr<WebKitFaviconDatabase>(database), url = icon.url.string().isolatedCopy(), pageURL = pageURL.isolatedCopy(), completionHandler = WTF::move(completionHandler)](bool found, bool changed) {
+            if (!webkitFaviconDatabaseIsOpen(database.get())) {
+                completionHandler(false);
                 return;
+            }
 
+#if PLATFORM(GTK)
             if (found && changed)
                 g_signal_emit(database.get(), signals[FAVICON_CHANGED], 0, pageURL.utf8().data(), url.utf8().data());
+#else
+            UNUSED_PARAM(changed);
+#endif
+
             completionHandler(!found);
         });
 }
@@ -148,17 +158,26 @@ void webkitFaviconDatabaseSetIconForPageURL(WebKitFaviconDatabase* database, con
     if (!webkitFaviconDatabaseIsOpen(database))
         return;
 
-    database->priv->iconDatabase->setIconForPageURL(icon.url.string(), iconData.bytes(), iconData.size(), pageURL,
+    database->priv->iconDatabase->setIconForPageURL(icon.url.string(), iconData.span(), pageURL,
         isEphemeral ? IconDatabase::AllowDatabaseWrite::No : IconDatabase::AllowDatabaseWrite::Yes,
         [database = GRefPtr<WebKitFaviconDatabase>(database), url = icon.url.string().isolatedCopy(), pageURL = pageURL.isolatedCopy()](bool success) {
             if (!webkitFaviconDatabaseIsOpen(database.get()) || !success)
                 return;
 
+#if PLATFORM(GTK)
             g_signal_emit(database.get(), signals[FAVICON_CHANGED], 0, pageURL.utf8().data(), url.utf8().data());
+#endif
         });
 }
-#endif
+#endif // PLATFORM(GTK) || ENABLE(2022_GLIB_API)
 
+/**
+ * webkit_favicon_database_error_quark:
+ *
+ * Gets the quark for the domain of favicon database errors.
+ *
+ * Returns: favicon database error domain.
+ */
 GQuark webkit_favicon_database_error_quark(void)
 {
     return g_quark_from_static_string("WebKitFaviconDatabaseError");
@@ -169,11 +188,11 @@ void webkitFaviconDatabaseGetFaviconInternal(WebKitFaviconDatabase* database, co
 {
     if (!webkitFaviconDatabaseIsOpen(database)) {
         g_task_report_new_error(database, callback, userData, 0,
-            WEBKIT_FAVICON_DATABASE_ERROR, WEBKIT_FAVICON_DATABASE_ERROR_NOT_INITIALIZED, _("Favicons database not initialized yet"));
+            WEBKIT_FAVICON_DATABASE_ERROR, WEBKIT_FAVICON_DATABASE_ERROR_NOT_INITIALIZED, _("Favicon database not initialized yet"));
         return;
     }
 
-    if (g_str_has_prefix(pageURI, "about:")) {
+    if (startsWith(CStringView::unsafeFromUTF8(pageURI).span(), "about:"_s)) {
         g_task_report_new_error(database, callback, userData, 0,
             WEBKIT_FAVICON_DATABASE_ERROR, WEBKIT_FAVICON_DATABASE_ERROR_FAVICON_NOT_FOUND, _("Page %s does not have a favicon"), pageURI);
         return;
@@ -181,40 +200,20 @@ void webkitFaviconDatabaseGetFaviconInternal(WebKitFaviconDatabase* database, co
 
     GRefPtr<GTask> task = adoptGRef(g_task_new(database, cancellable, callback, userData));
     WebKitFaviconDatabasePrivate* priv = database->priv;
-    priv->iconDatabase->loadIconForPageURL(String::fromUTF8(pageURI), isEphemeral ? IconDatabase::AllowDatabaseWrite::No : IconDatabase::AllowDatabaseWrite::Yes,
-        [task = WTFMove(task), pageURI = CString(pageURI)](RefPtr<cairo_surface_t>&& icon) {
-            if (!icon) {
+    priv->iconDatabase->loadIconsForPageURL(String::fromUTF8(pageURI), isEphemeral ? IconDatabase::AllowDatabaseWrite::No : IconDatabase::AllowDatabaseWrite::Yes,
+        [task = WTF::move(task), pageURI = CString(pageURI)](Vector<PlatformImagePtr>&& icons) {
+            if (icons.isEmpty()) {
                 g_task_return_new_error(task.get(), WEBKIT_FAVICON_DATABASE_ERROR, WEBKIT_FAVICON_DATABASE_ERROR_FAVICON_UNKNOWN,
                     _("Unknown favicon for page %s"), pageURI.data());
                 return;
             }
-            g_task_return_pointer(task.get(), icon.leakRef(), reinterpret_cast<GDestroyNotify>(cairo_surface_destroy));
+            auto& icon = icons.last();
+            g_task_return_pointer(task.get(), SkRef(icon.get()), [](gpointer data) {
+                static_cast<SkImage*>(data)->unref();
+            });
         });
 }
 
-/**
- * webkit_favicon_database_get_favicon:
- * @database: a #WebKitFaviconDatabase
- * @page_uri: URI of the page for which we want to retrieve the favicon
- * @cancellable: (allow-none): A #GCancellable or %NULL.
- * @callback: (scope async): A #GAsyncReadyCallback to call when the request is
- *            satisfied or %NULL if you don't care about the result.
- * @user_data: (closure): The data to pass to @callback.
- *
- * Asynchronously obtains a #cairo_surface_t of the favicon for the
- * given page URI. It returns the cached icon if it's in the database
- * asynchronously waiting for the icon to be read from the database.
- *
- * This is an asynchronous method. When the operation is finished, callback will
- * be invoked. You can then call webkit_favicon_database_get_favicon_finish()
- * to get the result of the operation.
- *
- * You must call webkit_web_context_set_favicon_database_directory() for
- * the #WebKitWebContext associated with this #WebKitFaviconDatabase
- * before attempting to use this function; otherwise,
- * webkit_favicon_database_get_favicon_finish() will return
- * %WEBKIT_FAVICON_DATABASE_ERROR_NOT_INITIALIZED.
- */
 void webkit_favicon_database_get_favicon(WebKitFaviconDatabase* database, const gchar* pageURI, GCancellable* cancellable, GAsyncReadyCallback callback, gpointer userData)
 {
     g_return_if_fail(WEBKIT_IS_FAVICON_DATABASE(database));
@@ -223,40 +222,31 @@ void webkit_favicon_database_get_favicon(WebKitFaviconDatabase* database, const 
     webkitFaviconDatabaseGetFaviconInternal(database, pageURI, false, cancellable, callback, userData);
 }
 
-/**
- * webkit_favicon_database_get_favicon_finish:
- * @database: a #WebKitFaviconDatabase
- * @result: A #GAsyncResult obtained from the #GAsyncReadyCallback passed to webkit_favicon_database_get_favicon()
- * @error: (allow-none): Return location for error or %NULL.
- *
- * Finishes an operation started with webkit_favicon_database_get_favicon().
- *
- * Returns: (transfer full): a new reference to a #cairo_surface_t, or
- * %NULL in case of error.
- */
+#if USE(GTK4)
+GdkTexture* webkit_favicon_database_get_favicon_finish(WebKitFaviconDatabase* database, GAsyncResult* result, GError** error)
+#else
 cairo_surface_t* webkit_favicon_database_get_favicon_finish(WebKitFaviconDatabase* database, GAsyncResult* result, GError** error)
-{
-    g_return_val_if_fail(WEBKIT_IS_FAVICON_DATABASE(database), 0);
-    g_return_val_if_fail(g_task_is_valid(result, database), 0);
-
-    GTask* task = G_TASK(result);
-    if (auto* icon = g_task_propagate_pointer(task, error))
-        return static_cast<cairo_surface_t*>(icon);
-
-    return nullptr;
-}
 #endif
+{
+    g_return_val_if_fail(WEBKIT_IS_FAVICON_DATABASE(database), nullptr);
+    g_return_val_if_fail(g_task_is_valid(result, database), nullptr);
 
-/**
- * webkit_favicon_database_get_favicon_uri:
- * @database: a #WebKitFaviconDatabase
- * @page_uri: URI of the page containing the icon
- *
- * Obtains the URI of the favicon for the given @page_uri.
- *
- * Returns: a newly allocated URI for the favicon, or %NULL if the
- * database doesn't have a favicon for @page_uri.
- */
+#if USE(GTK4)
+    sk_sp image { static_cast<SkImage*>(g_task_propagate_pointer(G_TASK(result), error)) };
+    auto texture = image ? skiaImageToGdkTexture(*image) : nullptr;
+
+    if (texture)
+        return texture.leakRef();
+    // FIXME: Add a new WEBKIT_FAVICON_DATABASE_ERROR
+    if (error && !*error)
+        g_set_error_literal(error, WEBKIT_FAVICON_DATABASE_ERROR, WEBKIT_FAVICON_DATABASE_ERROR_FAVICON_UNKNOWN, _("Failed to create texture"));
+    return nullptr;
+#else
+    sk_sp image { static_cast<SkImage*>(g_task_propagate_pointer(G_TASK(result), error)) };
+    return image ? skiaImageToCairoSurface(*image).leakRef() : nullptr;
+#endif
+}
+
 gchar* webkit_favicon_database_get_favicon_uri(WebKitFaviconDatabase* database, const gchar* pageURL)
 {
     g_return_val_if_fail(WEBKIT_IS_FAVICON_DATABASE(database), nullptr);
@@ -266,12 +256,100 @@ gchar* webkit_favicon_database_get_favicon_uri(WebKitFaviconDatabase* database, 
     if (!webkitFaviconDatabaseIsOpen(database))
         return nullptr;
 
-    String iconURLForPageURL = database->priv->iconDatabase->iconURLForPageURL(String::fromUTF8(pageURL));
-    if (iconURLForPageURL.isEmpty())
+    const auto& iconURLsForPageURL = database->priv->iconDatabase->iconURLsForPageURL(String::fromUTF8(pageURL));
+    if (iconURLsForPageURL.isEmpty())
         return nullptr;
 
-    return g_strdup(iconURLForPageURL.utf8().data());
+    return g_strdup(iconURLsForPageURL.last().utf8().data());
 }
+#endif // PLATFORM(GTK)
+
+#if ENABLE(2022_GLIB_API)
+/**
+ * webkit_favicon_database_get_page_icons:
+ * @database: a #WebKitFaviconDatabase
+ * @page_uri: URI of the page to get icons for
+ * @cancellable: (nullable): A #GCancellable or %NULL
+ * @callback: (scope async) (nullable): A #GAsyncReadyCallback to invoke when the request
+ *    is satisfied or %NULL to discard the result.
+ * @user_data: Additional data to pass to @callback.
+ *
+ * Obtains the set of icons for a page.
+ *
+ * Starts an asynchronous operation to obtain the set of icons cached in the database for a given
+ * page URI. Available icons will be read from the database and provided as a [struct@ImageList]
+ * that can be retrieved using [id@webkit_favicon_database_get_page_icons_finish] in the completion
+ * @callback.
+ *
+ * Since: 2.54
+ */
+void webkit_favicon_database_get_page_icons(WebKitFaviconDatabase* database, const gchar* pageURI, GCancellable* cancellable, GAsyncReadyCallback callback, gpointer userData)
+{
+    g_return_if_fail(WEBKIT_IS_FAVICON_DATABASE(database));
+    g_return_if_fail(pageURI);
+
+    if (!webkitFaviconDatabaseIsOpen(database))
+        return g_task_report_new_error(database, callback, userData, 0, WEBKIT_FAVICON_DATABASE_ERROR, WEBKIT_FAVICON_DATABASE_ERROR_NOT_INITIALIZED, _("Favicons database not initialized yet"));
+
+    const auto uriString = String::fromUTF8(pageURI);
+    if (uriString.startsWith("about:"_s))
+        return g_task_report_new_error(database, callback, userData, 0, WEBKIT_FAVICON_DATABASE_ERROR, WEBKIT_FAVICON_DATABASE_ERROR_FAVICON_NOT_FOUND, _("Page %s does not have a favicon"), pageURI);
+
+    auto task = adoptGRef(g_task_new(database, cancellable, callback, userData));
+    database->priv->iconDatabase->loadIconsForPageURL(uriString, IconDatabase::AllowDatabaseWrite::Yes, [task = WTF::move(task)](Vector<PlatformImagePtr>&& icons) {
+        auto images = icons.map([](PlatformImagePtr image) -> GRefPtr<WebKitImage> {
+            SkPixmap pixmap;
+            RELEASE_ASSERT(image->peekPixels(&pixmap));
+
+            if (image->colorType() != SkColorType::kN32_SkColorType || !image->colorSpace()->isSRGB()) [[unlikely]] {
+                auto newImageInfo = SkImageInfo::MakeS32(image->width(), image->height(), SkAlphaType::kPremul_SkAlphaType);
+                SkBitmap destination;
+                destination.allocPixels(newImageInfo);
+                RELEASE_ASSERT(destination.writePixels(pixmap));
+                destination.setImmutable();
+
+                // Replace image with the converted one, and re-fill pixmap.
+                image = SkImages::RasterFromBitmap(destination);
+                RELEASE_ASSERT(image->peekPixels(&pixmap));
+            }
+
+            RELEASE_ASSERT(image->colorType() == SkColorType::kN32_SkColorType);
+            RELEASE_ASSERT(image->colorSpace()->isSRGB());
+
+            int width = pixmap.width();
+            int height = pixmap.height();
+            unsigned stride = pixmap.rowBytes();
+            auto bytes = adoptGRef(g_bytes_new_with_free_func(pixmap.addr32(), pixmap.computeByteSize(), [](void* data) {
+                static_cast<SkImage*>(data)->unref();
+            }, image.release()));
+            return adoptGRef(webkitImageNew(width, height, stride, WTF::move(bytes)));
+        });
+
+        g_task_return_pointer(task.get(), webkitImageListCreate(WTF::move(images)), [](void* data) {
+            webkit_image_list_unref(static_cast<WebKitImageList*>(data));
+        });
+    });
+}
+
+/**
+ * webkit_favicon_database_get_page_icons_finish:
+ * @database: A #WebKitFaviconDatabase
+ * @result: A #GAsyncResult obtained from the #GAsyncReadyCallback passed to [id@webkit_favicon_database_get_page_icons].
+ * @error: (nullable): Return location for an error or %NULL.
+ *
+ * Finishes an operation started with [id@webkit_favicon_database_get_page_icons].
+ *
+ * Returns: (transfer full): the set of icons for the page, or %NULL in case of error.
+ *
+ * Since: 2.54
+ */
+WebKitImageList* webkit_favicon_database_get_page_icons_finish(WebKitFaviconDatabase* database, GAsyncResult* result, GError** error)
+{
+    g_return_val_if_fail(WEBKIT_IS_FAVICON_DATABASE(database), nullptr);
+
+    return static_cast<WebKitImageList*>(g_task_propagate_pointer(G_TASK(result), error));
+}
+#endif // ENABLE(2022_GLIB_API)
 
 /**
  * webkit_favicon_database_clear:

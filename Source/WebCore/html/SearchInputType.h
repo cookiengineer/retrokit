@@ -32,43 +32,80 @@
 #pragma once
 
 #include "BaseTextInputType.h"
+#include "PopupMenuClient.h"
+#include "SearchPopupMenu.h"
 #include "Timer.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class SearchFieldResultsButtonElement;
 
-class SearchInputType final : public BaseTextInputType {
-    template<typename DowncastedType> friend bool isInvalidInputType(const InputType&, const String&);
+class SearchInputType final : public BaseTextInputType, public PopupMenuClient {
+    WTF_MAKE_TZONE_ALLOCATED(SearchInputType);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SearchInputType);
 public:
-    explicit SearchInputType(HTMLInputElement&);
+    static Ref<SearchInputType> create(HTMLInputElement& element)
+    {
+        return adoptRef(*new SearchInputType(element));
+    }
 
-    void stopSearchEventTimer();
+    // PopupMenuClient ref-counting (disambiguating from InputType)
+    void ref() const final { InputType::ref(); }
+    void deref() const final { InputType::deref(); }
+
+    // PopupMenuClient methods
+    void valueChanged(unsigned listIndex, bool fireEvents = true) override;
+    String itemText(unsigned listIndex) const override;
+    String itemToolTip(unsigned) const override { return String(); }
+    String itemAccessibilityText(unsigned) const override { return String(); }
+    bool itemIsEnabled(unsigned listIndex) const override;
+    PopupMenuStyle itemStyle(unsigned listIndex) const override;
+    PopupMenuStyle menuStyle() const override;
+    int listSize() const override;
+    void popupDidHide() override;
+    bool itemIsSeparator(unsigned listIndex) const override;
+    bool itemIsLabel(unsigned listIndex) const override;
+    bool itemIsSelected(unsigned listIndex) const override;
+    bool shouldPopOver() const override { return false; }
+#if !PLATFORM(COCOA)
+    void setTextFromItem(unsigned listIndex) override;
+#endif
+#if PLATFORM(WIN)
+    int clientInsetLeft() const override;
+    int clientInsetRight() const override;
+    LayoutUnit clientPaddingLeft() const override;
+    LayoutUnit clientPaddingRight() const override;
+    FontSelector* fontSelector() const override;
+    HostWindow* hostWindow() const override;
+#endif
+
+    Vector<RecentSearch>& recentSearches() LIFETIME_BOUND { return m_recentSearches; }
 
 private:
+    explicit SearchInputType(HTMLInputElement&);
+
     void addSearchResult() final;
     void attributeChanged(const QualifiedName&) final;
-    RenderPtr<RenderElement> createInputRenderer(RenderStyle&&) final;
+    RenderPtr<RenderElement> createInputRenderer(Style::ComputedStyle&&) final;
     const AtomString& formControlType() const final;
     bool needsContainer() const final;
-    void createShadowSubtreeAndUpdateInnerTextElementEditability(ContainerNode::ChildChange::Source, bool) final;
-    void destroyShadowSubtree() final;
-    HTMLElement* resultsButtonElement() const final;
-    HTMLElement* cancelButtonElement() const final;
+    void createShadowSubtree() final;
+    void removeShadowSubtree() final;
+    HTMLElement* NODELETE resultsButtonElement() const final;
+    HTMLElement* NODELETE cancelButtonElement() const final;
     ShouldCallBaseEventHandler handleKeydownEvent(KeyboardEvent&) final;
     void didSetValueByUserEdit() final;
     bool sizeShouldIncludeDecoration(int defaultSize, int& preferredSize) const final;
-    float decorationWidth() const final;
-
-    void searchEventTimerFired();
-    bool searchEventsShouldBeDispatched() const;
-    void startSearchEventTimer();
+    float decorationWidth(float inputWidth) const final;
+    void setValue(const String&, bool valueChanged, TextFieldEventBehavior, TextControlSetValueSelection) final;
 
     RefPtr<SearchFieldResultsButtonElement> m_resultsButton;
     RefPtr<HTMLElement> m_cancelButton;
-    Timer m_searchEventTimer;
+
+    Vector<RecentSearch> m_recentSearches;
 };
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_INPUT_TYPE(SearchInputType, isSearchField())
+SPECIALIZE_TYPE_TRAITS_INPUT_TYPE(SearchInputType, Type::Search)

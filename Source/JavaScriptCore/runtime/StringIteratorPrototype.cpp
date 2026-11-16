@@ -27,19 +27,38 @@
 #include "config.h"
 #include "StringIteratorPrototype.h"
 
-#include "JSCBuiltins.h"
+#include "IteratorOperations.h"
 #include "JSCInlines.h"
+#include "JSStringIteratorInlines.h"
 
 namespace JSC {
 
-const ClassInfo StringIteratorPrototype::s_info = { "String Iterator", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(StringIteratorPrototype) };
+static JSC_DECLARE_HOST_FUNCTION(stringIteratorProtoFuncNext);
+
+const ClassInfo StringIteratorPrototype::s_info = { "String Iterator"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(StringIteratorPrototype) };
 
 void StringIteratorPrototype::finishCreation(VM& vm, JSGlobalObject* globalObject)
 {
     Base::finishCreation(vm);
-    ASSERT(inherits(vm, info()));
-    JSC_BUILTIN_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->next, stringIteratorPrototypeNextCodeGenerator, static_cast<unsigned>(PropertyAttribute::DontEnum));
+    ASSERT(inherits(info()));
+    JSC_NATIVE_INTRINSIC_FUNCTION_WITHOUT_TRANSITION(vm.propertyNames->next, stringIteratorProtoFuncNext, static_cast<unsigned>(PropertyAttribute::DontEnum), 0, ImplementationVisibility::Public, JSStringIteratorNextIntrinsic);
     JSC_TO_STRING_TAG_WITHOUT_TRANSITION();
+}
+
+JSC_DEFINE_HOST_FUNCTION(stringIteratorProtoFuncNext, (JSGlobalObject* globalObject, CallFrame* callFrame))
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    auto* iterator = dynamicDowncast<JSStringIterator>(callFrame->thisValue());
+    if (!iterator) [[unlikely]]
+        return throwVMTypeError(globalObject, scope, "%StringIteratorPrototype%.next requires that |this| be a String Iterator instance"_s);
+
+    JSString* value = iterator->nextWithAdvance(globalObject, vm);
+    RETURN_IF_EXCEPTION(scope, { });
+    if (!value)
+        return JSValue::encode(createIteratorResultObject(globalObject, jsUndefined(), true));
+    return JSValue::encode(createIteratorResultObject(globalObject, value, false));
 }
 
 } // namespace JSC

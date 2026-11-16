@@ -32,25 +32,39 @@
 #include "RealtimeIncomingVideoSourceLibWebRTC.h"
 
 #include "GStreamerVideoFrameLibWebRTC.h"
-#include "MediaSampleGStreamer.h"
+#include "LibWebRTCVideoFrameUtilities.h"
+#include "VideoFrameGStreamer.h"
 
 namespace WebCore {
 
-Ref<RealtimeIncomingVideoSource> RealtimeIncomingVideoSource::create(rtc::scoped_refptr<webrtc::VideoTrackInterface>&& videoTrack, String&& trackId)
+GST_DEBUG_CATEGORY(webkit_libwebrtc_incoming_video_debug);
+#define GST_CAT_DEFAULT webkit_libwebrtc_incoming_video_debug
+
+Ref<RealtimeIncomingVideoSource> RealtimeIncomingVideoSource::create(Ref<webrtc::VideoTrackInterface>&& videoTrack, String&& trackId)
 {
-    auto source = RealtimeIncomingVideoSourceLibWebRTC::create(WTFMove(videoTrack), WTFMove(trackId));
+    auto source = RealtimeIncomingVideoSourceLibWebRTC::create(WTF::move(videoTrack), WTF::move(trackId));
     source->start();
     return source;
 }
 
-Ref<RealtimeIncomingVideoSourceLibWebRTC> RealtimeIncomingVideoSourceLibWebRTC::create(rtc::scoped_refptr<webrtc::VideoTrackInterface>&& videoTrack, String&& trackId)
+Ref<RealtimeIncomingVideoSourceLibWebRTC> RealtimeIncomingVideoSourceLibWebRTC::create(Ref<webrtc::VideoTrackInterface>&& videoTrack, String&& trackId)
 {
-    return adoptRef(*new RealtimeIncomingVideoSourceLibWebRTC(WTFMove(videoTrack), WTFMove(trackId)));
+    return adoptRef(*new RealtimeIncomingVideoSourceLibWebRTC(WTF::move(videoTrack), WTF::move(trackId)));
 }
 
-RealtimeIncomingVideoSourceLibWebRTC::RealtimeIncomingVideoSourceLibWebRTC(rtc::scoped_refptr<webrtc::VideoTrackInterface>&& videoTrack, String&& videoTrackId)
-    : RealtimeIncomingVideoSource(WTFMove(videoTrack), WTFMove(videoTrackId))
+RealtimeIncomingVideoSourceLibWebRTC::RealtimeIncomingVideoSourceLibWebRTC(Ref<webrtc::VideoTrackInterface>&& videoTrack, String&& videoTrackId)
+    : RealtimeIncomingVideoSource(WTF::move(videoTrack), WTF::move(videoTrackId))
 {
+    static std::once_flag onceFlag;
+    std::call_once(onceFlag, [] {
+        GST_DEBUG_CATEGORY_INIT(webkit_libwebrtc_incoming_video_debug, "webkitlibwebrtcvideoincoming", 0, "WebKit LibWebRTC incoming video source");
+    });
+    GST_DEBUG("Created incoming video source with ID: %s", persistentID().utf8().data());
+}
+
+RealtimeIncomingVideoSourceLibWebRTC::~RealtimeIncomingVideoSourceLibWebRTC()
+{
+    stop();
 }
 
 void RealtimeIncomingVideoSourceLibWebRTC::OnFrame(const webrtc::VideoFrame& frame)
@@ -58,13 +72,25 @@ void RealtimeIncomingVideoSourceLibWebRTC::OnFrame(const webrtc::VideoFrame& fra
     if (!isProducingData())
         return;
 
-    callOnMainThread([protectedThis = makeRef(*this), frame] {
-        auto gstSample = GStreamerSampleFromLibWebRTCVideoFrame(frame);
-        auto sample = MediaSampleGStreamer::create(WTFMove(gstSample), { }, { });
-        protectedThis->videoSampleAvailable(sample.get());
-    });
+#if GST_CHECK_VERSION(1, 22, 0)
+    GST_TRACE_ID(persistentID().utf8().data(), "Handling incoming video frame");
+#else
+    GST_TRACE("Handling incoming video frame");
+#endif
+
+    auto sample = convertLibWebRTCVideoFrameToGStreamerSample(frame);
+    VideoFrameGStreamer::CreateOptions options;
+    options.timeMetadata = std::make_optional(metadataFromVideoFrame(frame));
+    options.presentationTime = MediaTime(frame.timestamp_us(), G_USEC_PER_SEC);
+    options.presentationSize = { frame.width(), frame.height() };
+    options.rotation = videoRotationFromLibWebRTCVideoFrame(frame);
+    options.colorSpace = colorSpaceFromLibWebRTCVideoFrame(frame);
+    options.contentHint = VideoFrameContentHint::WebRTC;
+    videoFrameAvailable(VideoFrameGStreamer::create(WTF::move(sample), options), { });
 }
+
+#undef GST_CAT_DEFAULT
 
 } // namespace WebCore
 
-#endif // USE(LIBWEBRTC)
+#endif // USE(LIBWEBRTC) && USE(GSTREAMER)

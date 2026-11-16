@@ -31,21 +31,22 @@
 
 namespace WebCore {
 
-std::optional<const char*> hashAlgorithmName(CryptoAlgorithmIdentifier identifier)
+ASCIILiteral hashAlgorithmName(CryptoAlgorithmIdentifier identifier)
 {
     switch (identifier) {
     case CryptoAlgorithmIdentifier::SHA_1:
-        return "sha1";
-    case CryptoAlgorithmIdentifier::SHA_224:
-        return "sha224";
+        return "sha1"_s;
+    case CryptoAlgorithmIdentifier::DEPRECATED_SHA_224:
+        RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE(sha224DeprecationMessage);
+        return "sha256"_s;
     case CryptoAlgorithmIdentifier::SHA_256:
-        return "sha256";
+        return "sha256"_s;
     case CryptoAlgorithmIdentifier::SHA_384:
-        return "sha384";
+        return "sha384"_s;
     case CryptoAlgorithmIdentifier::SHA_512:
-        return "sha512";
+        return "sha512"_s;
     default:
-        return std::nullopt;
+        return { };
     }
 }
 
@@ -54,8 +55,9 @@ std::optional<int> hmacAlgorithm(CryptoAlgorithmIdentifier identifier)
     switch (identifier) {
     case CryptoAlgorithmIdentifier::SHA_1:
         return GCRY_MAC_HMAC_SHA1;
-    case CryptoAlgorithmIdentifier::SHA_224:
-        return GCRY_MAC_HMAC_SHA224;
+    case CryptoAlgorithmIdentifier::DEPRECATED_SHA_224:
+        RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE(sha224DeprecationMessage);
+        return GCRY_MAC_HMAC_SHA256;
     case CryptoAlgorithmIdentifier::SHA_256:
         return GCRY_MAC_HMAC_SHA256;
     case CryptoAlgorithmIdentifier::SHA_384:
@@ -72,8 +74,9 @@ std::optional<int> digestAlgorithm(CryptoAlgorithmIdentifier identifier)
     switch (identifier) {
     case CryptoAlgorithmIdentifier::SHA_1:
         return GCRY_MD_SHA1;
-    case CryptoAlgorithmIdentifier::SHA_224:
-        return GCRY_MD_SHA224;
+    case CryptoAlgorithmIdentifier::DEPRECATED_SHA_224:
+        RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE(sha224DeprecationMessage);
+        return GCRY_MD_SHA256;
     case CryptoAlgorithmIdentifier::SHA_256:
         return GCRY_MD_SHA256;
     case CryptoAlgorithmIdentifier::SHA_384:
@@ -85,19 +88,20 @@ std::optional<int> digestAlgorithm(CryptoAlgorithmIdentifier identifier)
     }
 }
 
-std::optional<PAL::CryptoDigest::Algorithm> hashCryptoDigestAlgorithm(CryptoAlgorithmIdentifier identifier)
+std::optional<PAL::Crypto::CryptoDigest::Algorithm> hashCryptoDigestAlgorithm(CryptoAlgorithmIdentifier identifier)
 {
     switch (identifier) {
     case CryptoAlgorithmIdentifier::SHA_1:
-        return PAL::CryptoDigest::Algorithm::SHA_1;
-    case CryptoAlgorithmIdentifier::SHA_224:
-        return PAL::CryptoDigest::Algorithm::SHA_224;
+        return PAL::Crypto::CryptoDigest::Algorithm::SHA_1;
+    case CryptoAlgorithmIdentifier::DEPRECATED_SHA_224:
+        RELEASE_ASSERT_NOT_REACHED_WITH_MESSAGE(sha224DeprecationMessage);
+        return PAL::Crypto::CryptoDigest::Algorithm::SHA_256;
     case CryptoAlgorithmIdentifier::SHA_256:
-        return PAL::CryptoDigest::Algorithm::SHA_256;
+        return PAL::Crypto::CryptoDigest::Algorithm::SHA_256;
     case CryptoAlgorithmIdentifier::SHA_384:
-        return PAL::CryptoDigest::Algorithm::SHA_384;
+        return PAL::Crypto::CryptoDigest::Algorithm::SHA_384;
     case CryptoAlgorithmIdentifier::SHA_512:
-        return PAL::CryptoDigest::Algorithm::SHA_512;
+        return PAL::Crypto::CryptoDigest::Algorithm::SHA_512;
     default:
         return std::nullopt;
     }
@@ -135,7 +139,7 @@ std::optional<Vector<uint8_t>> mpiData(gcry_mpi_t paramMPI)
 
     // Copy the MPI data into a properly-sized buffer.
     Vector<uint8_t> output(*length);
-    gcry_error_t error = gcry_mpi_print(GCRYMPI_FMT_USG, output.data(), output.size(), nullptr, paramMPI);
+    gcry_error_t error = gcry_mpi_print(GCRYMPI_FMT_USG, output.mutableSpan().data(), output.size(), nullptr, paramMPI);
     if (error != GPG_ERR_NO_ERROR) {
         PAL::GCrypt::logError(error);
         return std::nullopt;
@@ -153,9 +157,9 @@ std::optional<Vector<uint8_t>> mpiZeroPrefixedData(gcry_mpi_t paramMPI, size_t t
 
     // Fill out the output buffer with zeros. Properly determine the zero prefix length,
     // and copy the MPI data into memory area following the prefix (if any).
-    Vector<uint8_t> output(targetLength, 0);
+    Vector<uint8_t> output(FillWith { }, targetLength, 0);
     size_t prefixLength = targetLength - *length;
-    gcry_error_t error = gcry_mpi_print(GCRYMPI_FMT_USG, output.data() + prefixLength, targetLength, nullptr, paramMPI);
+    gcry_error_t error = gcry_mpi_print(GCRYMPI_FMT_USG, const_cast<uint8_t*>(output.subspan(prefixLength).data()), targetLength, nullptr, paramMPI);
     if (error != GPG_ERR_NO_ERROR) {
         PAL::GCrypt::logError(error);
         return std::nullopt;
@@ -190,7 +194,7 @@ std::optional<Vector<uint8_t>> mpiSignedData(gcry_mpi_t mpi)
     if (!data)
         return std::nullopt;
 
-    if (data->at(0) & 0x80)
+    if (data->isEmpty() || data->at(0) & 0x80)
         data->insert(0, 0x00);
 
     return data;
@@ -202,7 +206,7 @@ std::optional<Vector<uint8_t>> mpiSignedData(gcry_sexp_t paramSexp)
     if (!data)
         return std::nullopt;
 
-    if (data->at(0) & 0x80)
+    if (data->isEmpty() || data->at(0) & 0x80)
         data->insert(0, 0x00);
 
     return data;

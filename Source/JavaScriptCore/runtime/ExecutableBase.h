@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2009-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,14 +25,13 @@
 
 #pragma once
 
-#include "ArityCheckMode.h"
-#include "CallData.h"
-#include "CodeBlockHash.h"
-#include "CodeSpecializationKind.h"
-#include "JITCode.h"
-#include "JSGlobalObject.h"
-#include "UnlinkedCodeBlock.h"
-#include "UnlinkedFunctionExecutable.h"
+#include <JavaScriptCore/ArityCheckMode.h>
+#include <JavaScriptCore/CallData.h>
+#include <JavaScriptCore/CodeBlockHash.h>
+#include <JavaScriptCore/CodeSpecializationKind.h>
+#include <JavaScriptCore/JITCode.h>
+#include <JavaScriptCore/UnlinkedCodeBlock.h>
+#include <JavaScriptCore/UnlinkedFunctionExecutable.h>
 
 namespace JSC {
 
@@ -45,19 +44,21 @@ class LLIntOffsetsExtractor;
 class ModuleProgramCodeBlock;
 class ProgramCodeBlock;
 
-enum CompilationKind { FirstCompilation, OptimizingCompilation };
+enum class CompilationKind { FirstCompilation, OptimizingCompilation };
 
 inline bool isCall(CodeSpecializationKind kind)
 {
-    if (kind == CodeForCall)
+    if (kind == CodeSpecializationKind::CodeForCall)
         return true;
-    ASSERT(kind == CodeForConstruct);
+    ASSERT(kind == CodeSpecializationKind::CodeForConstruct);
     return false;
 }
 
 class ExecutableBase : public JSCell {
     friend class JIT;
-    friend MacroAssemblerCodeRef<JITThunkPtrTag> boundFunctionCallGenerator(VM*);
+    friend class LLIntOffsetsExtractor;
+    friend MacroAssemblerCodeRef<JSEntryPtrTag> boundFunctionCallGenerator(VM*);
+    using Base = JSCell;
 
 protected:
     ExecutableBase(VM& vm, Structure* structure)
@@ -65,16 +66,12 @@ protected:
     {
     }
 
-    void finishCreation(VM& vm)
-    {
-        Base::finishCreation(vm);
-    }
+    DECLARE_DEFAULT_FINISH_CREATION;
 
 public:
-    typedef JSCell Base;
     static constexpr unsigned StructureFlags = Base::StructureFlags;
 
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
     static void destroy(JSCell*);
     
     // Force subclasses to override this.
@@ -104,56 +101,80 @@ public:
         return type() == NativeExecutableType;
     }
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue proto) { return Structure::create(vm, globalObject, proto, TypeInfo(CellType, StructureFlags), info()); }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
     DECLARE_EXPORT_INFO;
 
 public:
-    Ref<JITCode> generatedJITCodeForCall() const
+    Ref<JSC::JITCode> generatedJITCodeForCall() const
     {
         ASSERT(m_jitCodeForCall);
         return *m_jitCodeForCall;
     }
 
-    Ref<JITCode> generatedJITCodeForConstruct() const
+    Ref<JSC::JITCode> generatedJITCodeForConstruct() const
     {
         ASSERT(m_jitCodeForConstruct);
         return *m_jitCodeForConstruct;
     }
-        
-    Ref<JITCode> generatedJITCodeFor(CodeSpecializationKind kind) const
+
+    void* generatedJITCodeAddressForCall() const
     {
-        if (kind == CodeForCall)
+        ASSERT(m_jitCodeForCall);
+        return m_jitCodeForCall->addressForCall();
+    }
+
+    Ref<JSC::JITCode> generatedJITCodeFor(CodeSpecializationKind kind) const
+    {
+        if (kind == CodeSpecializationKind::CodeForCall)
             return generatedJITCodeForCall();
-        ASSERT(kind == CodeForConstruct);
+        ASSERT(kind == CodeSpecializationKind::CodeForConstruct);
         return generatedJITCodeForConstruct();
     }
 
-    MacroAssemblerCodePtr<JSEntryPtrTag> entrypointFor(CodeSpecializationKind kind, ArityCheckMode arity)
+    CodePtr<JSEntryPtrTag> generatedJITCodeWithArityCheckForCall() const
+    {
+        return m_jitCodeForCallWithArityCheck;
+    }
+
+    CodePtr<JSEntryPtrTag> generatedJITCodeWithArityCheckForConstruct() const
+    {
+        return m_jitCodeForConstructWithArityCheck;
+    }
+
+    CodePtr<JSEntryPtrTag> generatedJITCodeWithArityCheckFor(CodeSpecializationKind kind) const
+    {
+        if (kind == CodeSpecializationKind::CodeForCall)
+            return generatedJITCodeWithArityCheckForCall();
+        ASSERT(kind == CodeSpecializationKind::CodeForConstruct);
+        return generatedJITCodeWithArityCheckForConstruct();
+    }
+
+    CodePtr<JSEntryPtrTag> entrypointFor(CodeSpecializationKind kind, ArityCheckMode arity)
     {
         // Check if we have a cached result. We only have it for arity check because we use the
         // no-arity entrypoint in non-virtual calls, which will "cache" this value directly in
         // machine code.
-        if (arity == MustCheckArity) {
+        if (arity == ArityCheckMode::MustCheckArity) {
             switch (kind) {
-            case CodeForCall:
-                if (MacroAssemblerCodePtr<JSEntryPtrTag> result = m_jitCodeForCallWithArityCheck)
+            case CodeSpecializationKind::CodeForCall:
+                if (CodePtr<JSEntryPtrTag> result = m_jitCodeForCallWithArityCheck)
                     return result;
                 break;
-            case CodeForConstruct:
-                if (MacroAssemblerCodePtr<JSEntryPtrTag> result = m_jitCodeForConstructWithArityCheck)
+            case CodeSpecializationKind::CodeForConstruct:
+                if (CodePtr<JSEntryPtrTag> result = m_jitCodeForConstructWithArityCheck)
                     return result;
                 break;
             }
         }
-        MacroAssemblerCodePtr<JSEntryPtrTag> result = generatedJITCodeFor(kind)->addressForCall(arity);
-        if (arity == MustCheckArity) {
+        CodePtr<JSEntryPtrTag> result = generatedJITCodeFor(kind)->addressForCall(arity);
+        if (arity == ArityCheckMode::MustCheckArity) {
             // Cache the result; this is necessary for the JIT's virtual call optimizations.
             switch (kind) {
-            case CodeForCall:
+            case CodeSpecializationKind::CodeForCall:
                 m_jitCodeForCallWithArityCheck = result;
                 break;
-            case CodeForConstruct:
+            case CodeSpecializationKind::CodeForConstruct:
                 m_jitCodeForConstructWithArityCheck = result;
                 break;
             }
@@ -161,13 +182,13 @@ public:
         return result;
     }
 
-    static ptrdiff_t offsetOfJITCodeWithArityCheckFor(
+    static constexpr ptrdiff_t offsetOfJITCodeWithArityCheckFor(
         CodeSpecializationKind kind)
     {
         switch (kind) {
-        case CodeForCall:
+        case CodeSpecializationKind::CodeForCall:
             return OBJECT_OFFSETOF(ExecutableBase, m_jitCodeForCallWithArityCheck);
-        case CodeForConstruct:
+        case CodeSpecializationKind::CodeForConstruct:
             return OBJECT_OFFSETOF(ExecutableBase, m_jitCodeForConstructWithArityCheck);
         }
         RELEASE_ASSERT_NOT_REACHED();
@@ -179,29 +200,49 @@ public:
 
     bool hasJITCodeFor(CodeSpecializationKind kind) const
     {
-        if (kind == CodeForCall)
+        if (kind == CodeSpecializationKind::CodeForCall)
             return hasJITCodeForCall();
-        ASSERT(kind == CodeForConstruct);
+        ASSERT(kind == CodeSpecializationKind::CodeForConstruct);
         return hasJITCodeForConstruct();
     }
 
     // Intrinsics are only for calls, currently.
-    Intrinsic intrinsic() const;
+    inline Intrinsic intrinsic() const;
         
-    Intrinsic intrinsicFor(CodeSpecializationKind kind) const
+    inline Intrinsic intrinsicFor(CodeSpecializationKind) const;
+
+    ImplementationVisibility implementationVisibility() const;
+    InlineAttribute inlineAttribute() const;
+
+    CodePtr<JSEntryPtrTag> swapGeneratedJITCodeWithArityCheckForDebugger(CodeSpecializationKind kind, CodePtr<JSEntryPtrTag> jitCodeWithArityCheck)
     {
-        if (isCall(kind))
-            return intrinsic();
-        return NoIntrinsic;
+        if (kind == CodeSpecializationKind::CodeForCall)
+            return swapGeneratedJITCodeForCallWithArityCheckForDebugger(jitCodeWithArityCheck);
+        ASSERT(kind == CodeSpecializationKind::CodeForConstruct);
+        return swapGeneratedJITCodeForConstructWithArityCheckForDebugger(jitCodeWithArityCheck);
+    }
+
+    CodePtr<JSEntryPtrTag> swapGeneratedJITCodeForCallWithArityCheckForDebugger(CodePtr<JSEntryPtrTag> jitCodeForCallWithArityCheck)
+    {
+        auto old = m_jitCodeForCallWithArityCheck;
+        m_jitCodeForCallWithArityCheck = jitCodeForCallWithArityCheck;
+        return old;
+    }
+
+    CodePtr<JSEntryPtrTag> swapGeneratedJITCodeForConstructWithArityCheckForDebugger(CodePtr<JSEntryPtrTag> jitCodeForConstructWithArityCheck)
+    {
+        auto old = m_jitCodeForConstructWithArityCheck;
+        m_jitCodeForConstructWithArityCheck = jitCodeForConstructWithArityCheck;
+        return old;
     }
     
     void dump(PrintStream&) const;
         
 protected:
-    RefPtr<JITCode> m_jitCodeForCall;
-    RefPtr<JITCode> m_jitCodeForConstruct;
-    MacroAssemblerCodePtr<JSEntryPtrTag> m_jitCodeForCallWithArityCheck;
-    MacroAssemblerCodePtr<JSEntryPtrTag> m_jitCodeForConstructWithArityCheck;
+    RefPtr<JSC::JITCode> m_jitCodeForCall;
+    RefPtr<JSC::JITCode> m_jitCodeForConstruct;
+    CodePtr<JSEntryPtrTag> m_jitCodeForCallWithArityCheck;
+    CodePtr<JSEntryPtrTag> m_jitCodeForConstructWithArityCheck;
 };
 
 } // namespace JSC

@@ -37,33 +37,40 @@ namespace WebCore {
 class AudioWorkletGlobalScope;
 class AudioWorkletMessagingProxy;
 
-class AudioWorkletThread : public WorkerOrWorkletThread {
+class AudioWorkletThread final : public WorkerOrWorkletThread {
 public:
-    static Ref<AudioWorkletThread> create(AudioWorkletMessagingProxy& messagingProxy, const WorkletParameters& parameters)
+    static Ref<AudioWorkletThread> create(AudioWorkletMessagingProxy& messagingProxy, WorkletParameters&& parameters)
     {
-        return adoptRef(*new AudioWorkletThread(messagingProxy, parameters));
+        return adoptRef(*new AudioWorkletThread(messagingProxy, WTF::move(parameters)));
     }
     ~AudioWorkletThread();
 
-    AudioWorkletGlobalScope* globalScope() const;
+    AudioWorkletGlobalScope* NODELETE globalScope() const;
+
+    void clearProxies() final;
 
     // WorkerOrWorkletThread.
-    WorkerLoaderProxy& workerLoaderProxy() final;
-    WorkerDebuggerProxy* workerDebuggerProxy() const final;
+    WorkerLoaderProxy* NODELETE workerLoaderProxy() const final;
+    WorkerDebuggerProxy* NODELETE workerDebuggerProxy() const final;
 
-    AudioWorkletMessagingProxy& messagingProxy() { return m_messagingProxy; }
+    AudioWorkletMessagingProxy* messagingProxy() { return m_messagingProxy.get(); }
 
 private:
-    AudioWorkletThread(AudioWorkletMessagingProxy&, const WorkletParameters&);
+    AudioWorkletThread(AudioWorkletMessagingProxy&, WorkletParameters&&);
+    bool isAudioWorkletThread() const final { return true; }
 
     // WorkerOrWorkletThread.
-    Ref<WTF::Thread> createThread() final;
+    Ref<Thread> createThread() final;
     RefPtr<WorkerOrWorkletGlobalScope> createGlobalScope() final;
 
-    AudioWorkletMessagingProxy& m_messagingProxy;
+    CheckedPtr<AudioWorkletMessagingProxy> m_messagingProxy;
     WorkletParameters m_parameters;
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::AudioWorkletThread)
+    static bool isType(const WebCore::WorkerOrWorkletThread& thread) { return thread.isAudioWorkletThread(); }
+SPECIALIZE_TYPE_TRAITS_END()
 
 #endif // ENABLE(WEB_AUDIO)

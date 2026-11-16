@@ -29,6 +29,7 @@
 #include "APIURLRequest.h"
 #include "WKAPICast.h"
 #include "WKData.h"
+#include <wtf/StdLibExtras.h>
 #include <wtf/URL.h>
 
 WKTypeID WKURLRequestGetTypeID()
@@ -38,7 +39,7 @@ WKTypeID WKURLRequestGetTypeID()
 
 WKURLRequestRef WKURLRequestCreateWithWKURL(WKURLRef url)
 {
-    return WebKit::toAPI(&API::URLRequest::create(URL(URL(), WebKit::toImpl(url)->string())).leakRef());
+    return WebKit::toAPILeakingRef(API::URLRequest::create(URL { WebKit::toImpl(url)->string() }));
 }
 
 WKURLRef WKURLRequestCopyURL(WKURLRequestRef requestRef)
@@ -59,8 +60,8 @@ WKStringRef WKURLRequestCopyHTTPMethod(WKURLRequestRef requestRef)
 WKURLRequestRef WKURLRequestCopySettingHTTPBody(WKURLRequestRef requestRef, WKDataRef body)
 {
     WebCore::ResourceRequest requestCopy(WebKit::toImpl(requestRef)->resourceRequest());
-    requestCopy.setHTTPBody(WebCore::FormData::create(WKDataGetBytes(body), WKDataGetSize(body)));
-    return WebKit::toAPI(&API::URLRequest::create(requestCopy).leakRef());
+    requestCopy.setHTTPBody(WebCore::FormData::create(WKDataGetSpan(body)));
+    return WebKit::toAPILeakingRef(API::URLRequest::create(requestCopy));
 }
 
 void WKURLRequestSetDefaultTimeoutInterval(double timeoutInterval)

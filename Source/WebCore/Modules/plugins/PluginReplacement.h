@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,55 +25,42 @@
 
 #pragma once
 
-#include "RenderPtr.h"
-#include <JavaScriptCore/JSCJSValue.h>
-#include <JavaScriptCore/JSCJSValueInlines.h>
+#include <WebCore/RenderPtr.h>
 #include <wtf/text/WTFString.h>
-
-namespace JSC {
-class JSObject;
-}
 
 namespace WebCore {
 
 class HTMLPlugInElement;
 class RenderElement;
-class RenderStyle;
 class RenderTreePosition;
-class Settings;
 class ShadowRoot;
+
+namespace Style {
+class ComputedStyle;
+}
 
 class PluginReplacement : public RefCounted<PluginReplacement> {
 public:
     virtual ~PluginReplacement() = default;
 
-    struct InstallResult {
-        bool success;
-#if PLATFORM(COCOA)
-        JSC::JSValue scriptObject { };
-#endif
-    };
-
-    virtual InstallResult installReplacement(ShadowRoot&) = 0;
+    virtual void installReplacement(ShadowRoot&) = 0;
 
     virtual bool willCreateRenderer() { return false; }
-    virtual RenderPtr<RenderElement> createElementRenderer(HTMLPlugInElement&, RenderStyle&&, const RenderTreePosition&) = 0;
+    virtual RenderPtr<RenderElement> createElementRenderer(HTMLPlugInElement&, Style::ComputedStyle&&, const RenderTreePosition&) = 0;
 };
 
-typedef Ref<PluginReplacement> (*CreatePluginReplacement)(HTMLPlugInElement&, const Vector<String>& paramNames, const Vector<String>& paramValues);
+typedef Ref<PluginReplacement> (*CreatePluginReplacement)(HTMLPlugInElement&, const Vector<AtomString>& paramNames, const Vector<AtomString>& paramValues);
 typedef bool (*PluginReplacementSupportsType)(const String&);
-typedef bool (*PluginReplacementSupportsFileExtension)(const String&);
+typedef bool (*PluginReplacementSupportsFileExtension)(StringView);
 typedef bool (*PluginReplacementSupportsURL)(const URL&);
-typedef bool (*PluginReplacementEnabledForSettings)(const Settings&);
 
 class ReplacementPlugin {
 public:
-    ReplacementPlugin(CreatePluginReplacement constructor, PluginReplacementSupportsType supportsType, PluginReplacementSupportsFileExtension supportsFileExtension, PluginReplacementSupportsURL supportsURL, PluginReplacementEnabledForSettings isEnabledBySettings)
+    ReplacementPlugin(CreatePluginReplacement constructor, PluginReplacementSupportsType supportsType, PluginReplacementSupportsFileExtension supportsFileExtension, PluginReplacementSupportsURL supportsURL)
         : m_constructor(constructor)
         , m_supportsType(supportsType)
         , m_supportsFileExtension(supportsFileExtension)
         , m_supportsURL(supportsURL)
-        , m_isEnabledBySettings(isEnabledBySettings)
     {
     }
 
@@ -82,22 +69,19 @@ public:
         , m_supportsType(other.m_supportsType)
         , m_supportsFileExtension(other.m_supportsFileExtension)
         , m_supportsURL(other.m_supportsURL)
-        , m_isEnabledBySettings(other.m_isEnabledBySettings)
     {
     }
 
-    Ref<PluginReplacement> create(HTMLPlugInElement& element, const Vector<String>& paramNames, const Vector<String>& paramValues) const { return m_constructor(element, paramNames, paramValues); }
+    Ref<PluginReplacement> create(HTMLPlugInElement& element, const Vector<AtomString>& paramNames, const Vector<AtomString>& paramValues) const { return m_constructor(element, paramNames, paramValues); }
     bool supportsType(const String& mimeType) const { return m_supportsType(mimeType); }
-    bool supportsFileExtension(const String& extension) const { return m_supportsFileExtension(extension); }
+    bool supportsFileExtension(StringView extension) const { return m_supportsFileExtension(extension); }
     bool supportsURL(const URL& url) const { return m_supportsURL(url); }
-    bool isEnabledBySettings(const Settings& settings) const { return m_isEnabledBySettings(settings); };
 
 private:
     CreatePluginReplacement m_constructor;
     PluginReplacementSupportsType m_supportsType;
     PluginReplacementSupportsFileExtension m_supportsFileExtension;
     PluginReplacementSupportsURL m_supportsURL;
-    PluginReplacementEnabledForSettings m_isEnabledBySettings;
 };
 
 typedef void (*PluginReplacementRegistrar)(const ReplacementPlugin&);

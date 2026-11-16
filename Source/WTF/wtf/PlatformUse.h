@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2026 Apple Inc. All rights reserved.
  * Copyright (C) 2007-2009 Torch Mobile, Inc.
  * Copyright (C) 2010, 2011 Research In Motion Limited. All rights reserved.
  *
@@ -70,25 +70,21 @@
 #define USE_GLIB 1
 #endif
 
-#if PLATFORM(GTK) || PLATFORM(WPE)
-#define USE_FREETYPE 1
+#if PLATFORM(COCOA) || USE(GLIB)
+#define USE_TIME_ZONE_CHANGE_NOTIFICATIONS 1
 #endif
 
 #if PLATFORM(GTK) || PLATFORM(WPE)
 #define USE_HARFBUZZ 1
+#define USE_FONT_VARIANT_VIA_FEATURES 1
 #endif
 
 #if PLATFORM(GTK) || PLATFORM(WPE)
 #define USE_SOUP 1
 #endif
 
-#if PLATFORM(GTK) || PLATFORM(WPE)
-#define USE_WEBP 1
-#endif
-
-/* On Windows, use QueryPerformanceCounter by default */
-#if OS(WINDOWS)
-#define USE_QUERY_PERFORMANCE_COUNTER  1
+#if USE(COORDINATED_GRAPHICS) && USE(THEME_ADWAITA) && USE(SKIA)
+#define USE_COORDINATED_GRAPHICS_ASYNC_SCROLLBAR 1
 #endif
 
 #if PLATFORM(COCOA)
@@ -107,7 +103,7 @@
 #define USE_APPKIT 1
 #endif
 
-#if PLATFORM(MAC)
+#if PLATFORM(MAC) || PLATFORM(IOS) || PLATFORM(VISION)
 #define USE_PASSKIT 1
 #endif
 
@@ -131,14 +127,19 @@
 #define USE_ACCELERATE 1
 #endif
 
-#if OS(WINDOWS)
-#define USE_SYSTEM_MALLOC 1
-#endif
-
 #if CPU(REGISTER64)
 #define USE_JSVALUE64 1
 #else
 #define USE_JSVALUE32_64 1
+#endif
+
+// FIXME: this should instead be based on SIZE_MAX == UINT64_MAX
+// But this requires including <cstdint> and Platform.h is included in all kind of weird places, including non-cpp files
+// And in practice CPU(ADDRESS64) is equivalent on all platforms we support (verified by static_asserts in ArrayBuffer.h)
+#if CPU(ADDRESS64)
+#define USE_LARGE_TYPED_ARRAYS 1
+#else
+#define USE_LARGE_TYPED_ARRAYS 0
 #endif
 
 #if USE(JSVALUE64)
@@ -149,7 +150,7 @@
 
 /* FIXME: This name should be more specific if it is only for use with CallFrame* */
 /* Use __builtin_frame_address(1) to get CallFrame* */
-#if COMPILER(GCC_COMPATIBLE) && (CPU(ARM64) || CPU(X86_64))
+#if CPU(ARM64) || CPU(X86_64)
 #define USE_BUILTIN_FRAME_ADDRESS 1
 #endif
 
@@ -157,15 +158,11 @@
 #define USE_EXECUTE_ONLY_JIT_WRITE_FUNCTION 1
 #endif
 
-#if PLATFORM(IOS)
-#define USE_PASSKIT 1
-#endif
-
-#if PLATFORM(IOS)
+#if PLATFORM(IOS) || PLATFORM(VISION)
 #define USE_QUICK_LOOK 1
 #endif
 
-#if PLATFORM(IOS)
+#if PLATFORM(IOS) || PLATFORM(VISION)
 #define USE_SYSTEM_PREVIEW 1
 #endif
 
@@ -189,11 +186,7 @@
 #define USE_IMLANG_FONT_LINK2 1
 #endif
 
-#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MAX_ALLOWED < 101500
-#define USE_AV_SAMPLE_BUFFER_DISPLAY_LAYER 1
-#endif
-
-#if PLATFORM(COCOA) || PLATFORM(GTK)
+#if PLATFORM(COCOA) || PLATFORM(GTK) || PLATFORM(WPE)
 #define USE_UNIFIED_TEXT_CHECKING 1
 #endif
 
@@ -240,12 +233,7 @@
 /* Use GLib's event loop abstraction. Primarily GTK port uses it. */
 #define USE_GLIB_EVENT_LOOP 1
 #elif OS(WINDOWS)
-/* Use Windows message pump abstraction.
- * Even if the port is AppleWin, we use the Windows message pump system for the event loop,
- * so that USE(WINDOWS_EVENT_LOOP) && USE(CF) can be true.
- * And PLATFORM(WIN) and PLATFORM(GTK) are exclusive. If the port is GTK,
- * PLATFORM(WIN) should be false. And in that case, GLib's event loop is used.
- */
+/* Use Windows message pump abstraction. */
 #define USE_WINDOWS_EVENT_LOOP 1
 #elif PLATFORM(COCOA)
 /* OS X and IOS. Use CoreFoundation & GCD abstraction. */
@@ -255,16 +243,24 @@
 #endif
 #endif
 
+#if !defined(USE_MIMALLOC)
+#define USE_MIMALLOC 0
+#endif
+
+#if !defined(USE_SYSTEM_MALLOC)
+#if OS(DARWIN) && !CPU(ADDRESS64)
+#define USE_SYSTEM_MALLOC 1
+#else
+#define USE_SYSTEM_MALLOC 0
+#endif
+#endif
+
 #if PLATFORM(COCOA)
 #define USE_DICTATION_ALTERNATIVES 1
 #endif
 
-#if (PLATFORM(MAC) && USE(APPLE_INTERNAL_SDK) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101500) || PLATFORM(IOS_FAMILY)
+#if (PLATFORM(MAC) && USE(APPLE_INTERNAL_SDK)) || PLATFORM(IOS_FAMILY)
 #define USE_SOURCE_APPLICATION_AUDIT_DATA 1
-#endif
-
-#if PLATFORM(COCOA) && USE(CA)
-#define USE_IOSURFACE_CANVAS_BACKING_STORE 1
 #endif
 
 /* The override isn't needed on iOS family, as the default behavior is to not sniff. */
@@ -272,17 +268,12 @@
 #define USE_CFNETWORK_CONTENT_ENCODING_SNIFFING_OVERRIDE 1
 #endif
 
-#if PLATFORM(MAC) || PLATFORM(WPE) || PLATFORM(GTK)
-/* FIXME: This really needs a descriptive name, this "new theme" was added in 2008. */
-#define USE_NEW_THEME 1
-#endif
-
-#if PLATFORM(IOS) || PLATFORM(MACCATALYST)
+#if PLATFORM(IOS) || PLATFORM(MACCATALYST) || PLATFORM(VISION) || PLATFORM(APPLETV)
 #define USE_UICONTEXTMENU 1
 #endif
 
-#if PLATFORM(IOS_FAMILY) || (!(defined(USE_SYSTEM_MALLOC) && USE_SYSTEM_MALLOC) && (OS(LINUX) && (PLATFORM(GTK) || PLATFORM(WPE))))
-#define USE_BMALLOC_MEMORY_FOOTPRINT_API 1
+#if PLATFORM(IOS_FAMILY) || (OS(LINUX) && (PLATFORM(GTK) || PLATFORM(WPE)))
+#define USE_MEMORY_FOOTPRINT_API 1
 #endif
 
 #if !defined(USE_PLATFORM_REGISTERS_WITH_PROFILE) && OS(DARWIN) && CPU(ARM64) && defined(__LP64__)
@@ -293,34 +284,8 @@
 #define USE_DARWIN_REGISTER_MACROS 1
 #endif
 
-#if PLATFORM(COCOA) && !(PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 110000)
-#define USE_CTFONTSHAPEGLYPHS 1
-#endif
-
-#if PLATFORM(COCOA) && (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 110000)
-#define USE_CTFONTGETADVANCES_WORKAROUND 1
-#endif
-
-#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 120000) \
-    || (PLATFORM(IOS_FAMILY) && __IPHONE_OS_VERSION_MIN_REQUIRED < 150000) \
-    || (PLATFORM(WATCHOS) && !PLATFORM(IOS_FAMILY_SIMULATOR) && __WATCH_OS_VERSION_MIN_REQUIRED < 80000) \
-    || (PLATFORM(APPLETV) && !PLATFORM(IOS_FAMILY_SIMULATOR) && __TV_OS_VERSION_MIN_REQUIRED < 150000)
-#define USE_CTFONTSHAPEGLYPHS_WORKAROUND 1
-#endif
-
-#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 120000) \
-    || (PLATFORM(IOS_FAMILY) && __IPHONE_OS_VERSION_MIN_REQUIRED < 150000) \
-    || (PLATFORM(WATCHOS) && !PLATFORM(IOS_FAMILY_SIMULATOR) && __WATCH_OS_VERSION_MIN_REQUIRED < 80000) \
-    || (PLATFORM(APPLETV) && !PLATFORM(IOS_FAMILY_SIMULATOR) && __TV_OS_VERSION_MIN_REQUIRED < 150000)
-#define USE_NON_VARIABLE_SYSTEM_FONT 1
-#endif
-
-#if PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED < 101500
-#define USE_LEGACY_CFNETWORK_DOWNLOADS 1
-#endif
-
-#if (PLATFORM(MAC) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 110000) \
-    || (PLATFORM(MACCATALYST) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 140000)
+// Use OS(MACOS) to pick up JSCOnly ports on Mac.
+#if OS(MACOS) || PLATFORM(MACCATALYST) || (PLATFORM(IOS_FAMILY) && TARGET_OS_SIMULATOR)
 #if USE(APPLE_INTERNAL_SDK)
 /* Always use the macro on internal builds */
 #define USE_PTHREAD_JIT_PERMISSIONS_API 0 
@@ -330,10 +295,18 @@
 #endif
 
 #if PLATFORM(COCOA)
-#define USE_OPENXR 0
-#define USE_IOSURFACE_FOR_XR_LAYER_DATA 1
-#if !defined(HAVE_WEBXR_INTERNALS) && !HAVE(WEBXR_INTERNALS)
+#define USE_FONT_VARIANT_VIA_FEATURES 1
+#endif
+
+#if PLATFORM(COCOA)
 #define USE_EMPTYXR 1
+#if PLATFORM(VISION) && HAVE(COMPOSITOR_SERVICES)
+#undef USE_EMPTYXR
+#define USE_COMPOSITORXR 1
+#endif
+#if PLATFORM(IOS) && HAVE(ARKIT)
+#undef USE_EMPTYXR
+#define USE_ARKITXR_IOS 1
 #endif
 #endif
 
@@ -341,12 +314,96 @@
 #define USE_SANDBOX_EXTENSIONS_FOR_CACHE_AND_TEMP_DIRECTORY_ACCESS 1
 #endif
 
-#if !defined(USE_LIBPAS_JIT_HEAP) && !USE(SYSTEM_MALLOC)
-#include <bmalloc/BPlatform.h>
-#if BENABLE(LIBPAS)
-#if PLATFORM(MAC) && CPU(ARM64)
-#define USE_LIBPAS_JIT_HEAP 1
-#endif
+#if !defined(USE_TZONE_MALLOC)
+#if (!USE(MIMALLOC) && !USE(SYSTEM_MALLOC)) && (CPU(ARM64) || CPU(X86_64)) && OS(DARWIN) && CPU(ADDRESS64)
+#define USE_TZONE_MALLOC 1
+#else
+#define USE_TZONE_MALLOC 0
 #endif
 #endif
 
+#if !defined(USE_PROTECTED_JIT)
+#if CPU(ARM64) && OS(DARWIN) && USE(APPLE_INTERNAL_SDK) \
+    && ((OS(MACOS) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 260400) \
+    || (PLATFORM(IOS_FAMILY) && !PLATFORM(IOS_FAMILY_SIMULATOR) && __IPHONE_OS_VERSION_MIN_REQUIRED >= 270000) \
+    || (PLATFORM(VISION) && __VISION_OS_VERSION_MIN_REQUIRED >= 270000))
+#define USE_PROTECTED_JIT 1
+#else
+#define USE_PROTECTED_JIT 0
+#endif
+#endif
+
+#if USE(PROTECTED_JIT) && OS(MACOS)
+#define USE_PROTECTED_JIT_STACKS 0
+#else
+#define USE_PROTECTED_JIT_STACKS 0
+#endif
+
+#if PLATFORM(IOS_FAMILY) || (USE(APPLE_INTERNAL_SDK) && PLATFORM(MAC))
+#define USE_RUNNINGBOARD 1
+#endif
+
+#if PLATFORM(MAC)
+#define USE_NSPRESENTATIONSTATE 1
+#endif
+
+#if !defined(USE_MEDIAPARSERD) && (PLATFORM(IOS) || PLATFORM(VISION))
+#define USE_MEDIAPARSERD 1
+#endif
+
+#if !defined(USE_AVIF)
+#define USE_AVIF 0
+#endif
+
+#if PLATFORM(COCOA)
+#define USE_GRAPHICS_CONTEXT_FILTERS 1
+#endif
+
+#if PLATFORM(COCOA) || USE(GSTREAMER)
+#define USE_CONCATENATED_IMPULSE_RESPONSES 1
+#endif
+
+#if PLATFORM(IOS_FAMILY) && !PLATFORM(APPLETV)
+#define USE_POPOVER_PRESENTATION_FOR_DATE_PICKER 1
+#define USE_UITOOLBAR_FOR_DATE_PICKER_ACCESSORY_VIEW 1
+#endif
+
+#if !defined(USE_NSSPELLCHECKER_GRAMMAR_CHECKING_POLICY) && PLATFORM(MAC)
+#define USE_NSSPELLCHECKER_GRAMMAR_CHECKING_POLICY 1
+#endif
+
+#if PLATFORM(IOS) && !PLATFORM(IOS_FAMILY_SIMULATOR)
+#if CPU(ARM64)
+#define USE_INLINE_JIT_PERMISSIONS_API 1
+#endif
+#endif
+
+#if PLATFORM(COCOA)
+#define USE_SANDBOX_VERSION_3 1
+#endif
+
+#if !defined(USE_EXTENSIONKIT) && PLATFORM(IOS)
+#define USE_EXTENSIONKIT 1
+#endif
+
+#if !defined(USE_BROWSERENGINEKIT) && PLATFORM(IOS) && __has_include(<BrowserEngineKit/BETextInput.h>)
+#define USE_BROWSERENGINEKIT 1
+#endif
+
+#if !USE(EXTENSIONKIT_PROCESS_TERMINATION) && PLATFORM(IOS)
+#define USE_EXTENSIONKIT_PROCESS_TERMINATION 1
+#endif
+
+#if !defined(USE_MODERN_AVCONTENTKEYSESSION_WITH_VTDECOMPRESSIONSESSION) \
+    && (PLATFORM(MAC) \
+    || (PLATFORM(IOS_FAMILY) && !PLATFORM(IOS_FAMILY_SIMULATOR)))
+#define USE_MODERN_AVCONTENTKEYSESSION_WITH_VTDECOMPRESSIONSESSION 1
+#endif
+
+#if !defined(USE_SANDBOX_PARAMS) && PLATFORM(MAC)
+#define USE_SANDBOX_PARAMS 1
+#endif
+
+#if PLATFORM(IOS) || PLATFORM(VISION)
+#define USE_ITP_TCC_CHECK 1
+#endif

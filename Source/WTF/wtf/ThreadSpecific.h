@@ -41,10 +41,11 @@
 
 #pragma once
 
+#include <wtf/AlignedStorage.h>
 #include <wtf/MainThread.h>
 #include <wtf/Noncopyable.h>
-#include <wtf/StdLibExtras.h>
 #include <wtf/Threading.h>
+#include <wtf/ThreadingEnums.h>
 
 // X11 headers define a bunch of macros with common terms, interfering with WebCore and WTF enum values.
 // As a workaround, we explicitly undef them here.
@@ -57,14 +58,9 @@
 
 namespace WTF {
 
-enum class CanBeGCThread {
-    False,
-    True
-};
-
 template<typename T, CanBeGCThread canBeGCThread = CanBeGCThread::False> class ThreadSpecific {
     WTF_MAKE_NONCOPYABLE(ThreadSpecific);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(ThreadSpecific);
 public:
     ThreadSpecific();
     bool isSet(); // Useful as a fast check to see if this thread has set this value.
@@ -81,7 +77,7 @@ private:
 
     struct Data {
         WTF_MAKE_NONCOPYABLE(Data);
-        WTF_MAKE_FAST_ALLOCATED;
+        WTF_DEPRECATED_MAKE_FAST_ALLOCATED(Data);
     public:
         using PointerType = typename std::remove_const<T>::type*;
 
@@ -100,9 +96,9 @@ private:
             owner->setInTLS(nullptr);
         }
 
-        PointerType storagePointer() const { return const_cast<PointerType>(reinterpret_cast<const T*>(&m_storage)); }
+        PointerType storagePointer() const { return const_cast<PointerType>(m_storage.get()); }
 
-        typename std::aligned_storage<sizeof(T), std::alignment_of<T>::value>::type m_storage;
+        AlignedStorage<T> m_storage;
         ThreadSpecific<T, canBeGCThread>* owner;
     };
 
@@ -157,7 +153,7 @@ inline ThreadSpecific<T, canBeGCThread>::ThreadSpecific()
 template<typename T, CanBeGCThread canBeGCThread>
 inline T* ThreadSpecific<T, canBeGCThread>::get()
 {
-    auto data = static_cast<Data*>(Thread::current().specificStorage().get(m_key));
+    auto data = static_cast<Data*>(Thread::currentSingleton().specificStorage().get(m_key));
     if (!data)
         return nullptr;
     return data->storagePointer();
@@ -166,7 +162,7 @@ inline T* ThreadSpecific<T, canBeGCThread>::get()
 template<typename T, CanBeGCThread canBeGCThread>
 inline void ThreadSpecific<T, canBeGCThread>::setInTLS(Data* data)
 {
-    return Thread::current().specificStorage().set(m_key, data);
+    return Thread::currentSingleton().specificStorage().set(m_key, data);
 }
 
 #else

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Google Inc.  All rights reserved.
+ * Copyright (C) 2012 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,30 +29,25 @@
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA)
 
 #include <JavaScriptCore/Uint8Array.h>
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(WebKitMediaKeyNeededEvent);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebKitMediaKeyNeededEvent);
 
 WebKitMediaKeyNeededEvent::WebKitMediaKeyNeededEvent(const AtomString& type, Uint8Array* initData)
-    : Event(type, CanBubble::No, IsCancelable::No)
+    : Event(EventInterfaceType::WebKitMediaKeyNeededEvent, type, CanBubble::No, IsCancelable::No)
     , m_initData(initData)
 {
 }
 
-WebKitMediaKeyNeededEvent::WebKitMediaKeyNeededEvent(const AtomString& type, const Init& initializer, IsTrusted isTrusted)
-    : Event(type, initializer, isTrusted)
-    , m_initData(initializer.initData)
+WebKitMediaKeyNeededEvent::WebKitMediaKeyNeededEvent(const AtomString& type, Init&& initializer, IsTrusted isTrusted)
+    : Event(EventInterfaceType::WebKitMediaKeyNeededEvent, type, WTF::move(initializer), isTrusted)
+    , m_initData(WTF::move(initializer.initData))
 {
 }
 
 WebKitMediaKeyNeededEvent::~WebKitMediaKeyNeededEvent() = default;
-
-EventInterface WebKitMediaKeyNeededEvent::eventInterface() const
-{
-    return WebKitMediaKeyNeededEventInterfaceType;
-}
 
 } // namespace WebCore
 

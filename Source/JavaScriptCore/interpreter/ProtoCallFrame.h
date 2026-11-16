@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2019 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2013-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,10 +25,17 @@
 
 #pragma once
 
-#include "CodeBlock.h"
-#include "Register.h"
-#include "StackAlignment.h"
+#include <JavaScriptCore/CodeBlock.h>
+#include <JavaScriptCore/Register.h>
+#include <JavaScriptCore/StackAlignment.h>
 #include <wtf/ForbidHeapAllocation.h>
+#include <wtf/Platform.h>
+
+#if ENABLE(WEBASSEMBLY)
+#include <JavaScriptCore/JSWebAssemblyInstance.h>
+#endif
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
@@ -42,12 +49,12 @@ public:
     Register calleeValue;
     Register argCountAndCodeOriginValue;
     Register thisArg;
+    JSCell* context { nullptr };
     uint32_t paddedArgCount;
-    bool hasArityMismatch;
-    JSValue *args;
+    EncodedJSValue* args;
     JSGlobalObject* globalObject;
 
-    inline void init(CodeBlock*, JSGlobalObject*, JSObject*, JSValue, int, JSValue* otherArgs = nullptr);
+    inline void init(CodeBlock*, JSGlobalObject*, JSObject*, JSValue, JSCell* context, int, EncodedJSValue* otherArgs = nullptr);
 
     inline CodeBlock* codeBlock() const;
     inline void setCodeBlock(CodeBlock*);
@@ -69,18 +76,25 @@ public:
     JSValue thisValue() const { return thisArg.Register::jsValue(); }
     void setThisValue(JSValue value) { thisArg = value; }
 
-    bool needArityCheck() { return hasArityMismatch; }
+#if ENABLE(WEBASSEMBLY)
+    void setWasmInstance(JSWebAssemblyInstance* instance)
+    {
+        codeBlockValue = instance;
+    }
+#endif
 
     JSValue argument(size_t argumentIndex)
     {
         ASSERT(static_cast<int>(argumentIndex) < argumentCount());
-        return args[argumentIndex];
+        return JSValue::decode(args[argumentIndex]);
     }
     void setArgument(size_t argumentIndex, JSValue value)
     {
         ASSERT(static_cast<int>(argumentIndex) < argumentCount());
-        args[argumentIndex] = value;
+        args[argumentIndex] = JSValue::encode(value);
     }
 };
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

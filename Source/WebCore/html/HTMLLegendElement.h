@@ -2,7 +2,8 @@
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2000 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2004-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2026 Apple Inc. All rights reserved.
+ * Copyright (C) 2018 Google Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -23,27 +24,24 @@
 
 #pragma once
 
-#include "HTMLElement.h"
+#include <WebCore/HTMLElement.h>
 
 namespace WebCore {
 
-class HTMLFormControlElement;
-
 class HTMLLegendElement final : public HTMLElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLLegendElement);
+    WTF_MAKE_TZONE_ALLOCATED(HTMLLegendElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLLegendElement);
 public:
     static Ref<HTMLLegendElement> create(const QualifiedName&, Document&);
 
-    WEBCORE_EXPORT HTMLFormElement* form() const final;
+    WEBCORE_EXPORT HTMLFormElement* NODELETE form() const;
+    RefPtr<HTMLFormElement> formForBindings() const;
 
 private:
     HTMLLegendElement(const QualifiedName&, Document&);
 
-    // Control in the legend's field set that gets focus and access key.
-    RefPtr<HTMLFormControlElement> associatedControl();
-
-    bool accessKeyAction(bool sendMouseEvents) final;
-    void focus(const FocusOptions&) final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void removingSteps(RemovalType, ContainerNode& oldParentOfRemovedTree) final;
 };
 
 } // namespace WebCore

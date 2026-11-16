@@ -22,18 +22,37 @@
 
 #pragma once
 
+#include <WebCore/CollectionType.h>
+
+namespace WebCore {
+
+class WindowNameCollection;
+class DocumentNameCollection;
+
+template<>
+struct CollectionClassTraits<WindowNameCollection> {
+    static constexpr CollectionType collectionType = CollectionType::WindowNamedItems;
+};
+
+template<>
+struct CollectionClassTraits<DocumentNameCollection> {
+    static constexpr CollectionType collectionType = CollectionType::DocumentNamedItems;
+};
+
+} // namespace WebCore
+
 #include "CachedHTMLCollection.h"
 #include "NodeRareData.h"
-#include <wtf/IsoMalloc.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/AtomString.h>
 
 namespace WebCore {
 
 class Document;
 
-template <typename HTMLCollectionClass, CollectionTraversalType traversalType>
-class HTMLNameCollection : public CachedHTMLCollection<HTMLCollectionClass, traversalType> {
-    WTF_MAKE_ISO_NONALLOCATABLE(HTMLNameCollection);
+template <typename HTMLCollectionClass>
+class HTMLNameCollection : public CachedHTMLCollection<HTMLCollectionClass> {
+    WTF_MAKE_TZONE_NON_HEAP_ALLOCATABLE(HTMLNameCollection);
 public:
     virtual ~HTMLNameCollection();
 
@@ -45,23 +64,15 @@ protected:
     AtomString m_name;
 };
 
-template <typename HTMLCollectionClass, CollectionTraversalType traversalType>
-HTMLNameCollection<HTMLCollectionClass, traversalType>::HTMLNameCollection(Document& document, CollectionType type, const AtomString& name)
-    : CachedHTMLCollection<HTMLCollectionClass, traversalType>(document, type)
+template <typename HTMLCollectionClass>
+HTMLNameCollection<HTMLCollectionClass>::HTMLNameCollection(Document& document, CollectionType type, const AtomString& name)
+    : CachedHTMLCollection<HTMLCollectionClass>(document, type)
     , m_name(name)
 {
 }
 
-template <typename HTMLCollectionClass, CollectionTraversalType traversalType>
-HTMLNameCollection<HTMLCollectionClass, traversalType>::~HTMLNameCollection()
-{
-    ASSERT(this->type() == WindowNamedItems || this->type() == DocumentNamedItems);
-
-    document().nodeLists()->removeCachedCollection(this, m_name);
-}
-
-class WindowNameCollection final : public HTMLNameCollection<WindowNameCollection, CollectionTraversalType::Descendants> {
-    WTF_MAKE_ISO_ALLOCATED(WindowNameCollection);
+class WindowNameCollection final : public HTMLNameCollection<WindowNameCollection> {
+    WTF_MAKE_TZONE_ALLOCATED(WindowNameCollection);
 public:
     static Ref<WindowNameCollection> create(Document& document, CollectionType type, const AtomString& name)
     {
@@ -69,45 +80,45 @@ public:
     }
 
     // For CachedHTMLCollection.
-    bool elementMatches(const Element& element) const { return elementMatches(element, m_name.impl()); }
+    bool NODELETE elementMatches(const Element& element) const { return elementMatches(element, m_name.impl()); }
 
     static bool elementMatchesIfIdAttributeMatch(const Element&) { return true; }
-    static bool elementMatchesIfNameAttributeMatch(const Element&);
-    static bool elementMatches(const Element&, const AtomStringImpl*);
+    static bool NODELETE elementMatchesIfNameAttributeMatch(const Element&);
+    static bool NODELETE elementMatches(const Element&, const AtomString&);
 
 private:
     WindowNameCollection(Document& document, CollectionType type, const AtomString& name)
-        : HTMLNameCollection<WindowNameCollection, CollectionTraversalType::Descendants>(document, type, name)
+        : HTMLNameCollection<WindowNameCollection>(document, type, name)
     {
-        ASSERT(type == WindowNamedItems);
+        ASSERT(type == CollectionType::WindowNamedItems);
     }
 };
 
-class DocumentNameCollection final : public HTMLNameCollection<DocumentNameCollection, CollectionTraversalType::Descendants> {
-    WTF_MAKE_ISO_ALLOCATED(DocumentNameCollection);
+class DocumentNameCollection final : public HTMLNameCollection<DocumentNameCollection> {
+    WTF_MAKE_TZONE_ALLOCATED(DocumentNameCollection);
 public:
     static Ref<DocumentNameCollection> create(Document& document, CollectionType type, const AtomString& name)
     {
         return adoptRef(*new DocumentNameCollection(document, type, name));
     }
 
-    static bool elementMatchesIfIdAttributeMatch(const Element&);
-    static bool elementMatchesIfNameAttributeMatch(const Element&);
+    static bool NODELETE elementMatchesIfIdAttributeMatch(const Element&);
+    static bool NODELETE elementMatchesIfNameAttributeMatch(const Element&);
 
     // For CachedHTMLCollection.
     bool elementMatches(const Element& element) const { return elementMatches(element, m_name.impl()); }
 
-    static bool elementMatches(const Element&, const AtomStringImpl*);
+    static bool elementMatches(const Element&, const AtomString&);
 
 private:
     DocumentNameCollection(Document& document, CollectionType type, const AtomString& name)
-        : HTMLNameCollection<DocumentNameCollection, CollectionTraversalType::Descendants>(document, type, name)
+        : HTMLNameCollection<DocumentNameCollection>(document, type, name)
     {
-        ASSERT(type == DocumentNamedItems);
+        ASSERT(type == CollectionType::DocumentNamedItems);
     }
 };
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_HTMLCOLLECTION(WindowNameCollection, WindowNamedItems)
-SPECIALIZE_TYPE_TRAITS_HTMLCOLLECTION(DocumentNameCollection, DocumentNamedItems)
+SPECIALIZE_TYPE_TRAITS_HTMLCOLLECTION(WindowNameCollection)
+SPECIALIZE_TYPE_TRAITS_HTMLCOLLECTION(DocumentNameCollection)

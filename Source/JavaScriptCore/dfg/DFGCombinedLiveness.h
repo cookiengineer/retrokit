@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,13 +27,15 @@
 
 #if ENABLE(DFG_JIT)
 
-#include "DFGBlockMap.h"
 #include "DFGGraph.h"
+#include <wtf/IndexMap.h>
 
 namespace JSC { namespace DFG {
 
 // Returns the set of nodes live at head, both due to DFG and due to bytecode (i.e. OSR exit).
 NodeSet liveNodesAtHead(Graph&, BasicBlock*);
+
+NodeSet bytecodeLivenessAtTerminal(Graph&, BasicBlock*);
 
 // WARNING: This currently does not reason about the liveness of shadow values. The execution
 // semantics of DFG SSA are that an Upsilon stores to the shadow value of a Phi, and the Phi loads
@@ -44,9 +46,11 @@ struct CombinedLiveness {
     CombinedLiveness() { }
     
     CombinedLiveness(Graph&);
-    
-    BlockMap<NodeSet> liveAtHead;
-    BlockMap<NodeSet> liveAtTail;
+
+    using NodeLivenessMap = IndexMap<BasicBlock*, NodeSet>;
+
+    NodeLivenessMap liveAtHead;
+    NodeLivenessMap liveAtTail;
 };
 
 } } // namespace JSC::DFG

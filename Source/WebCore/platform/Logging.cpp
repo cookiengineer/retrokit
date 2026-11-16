@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003-2021 Apple Inc.  All rights reserved.
+ * Copyright (C) 2003-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,8 +30,15 @@ namespace WebCore {
 
 #if !LOG_DISABLED || !RELEASE_LOG_DISABLED
 
-#define DEFINE_WEBCORE_LOG_CHANNEL(name) DEFINE_LOG_CHANNEL(name, LOG_CHANNEL_WEBKIT_SUBSYSTEM)
-WEBCORE_LOG_CHANNELS(DEFINE_WEBCORE_LOG_CHANNEL)
+#if ENABLE(LOGD_BLOCKING_IN_WEBCONTENT)
+std::unique_ptr<LogClient>& logClient()
+{
+    static NeverDestroyed<std::unique_ptr<LogClient>> client;
+    return client;
+}
+#endif
+
+WEBCORE_LOG_CHANNELS(DEFINE_LOG_CHANNEL)
 
 #endif // !LOG_DISABLED || !RELEASE_LOG_DISABLED
 

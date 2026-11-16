@@ -32,6 +32,8 @@
 #include "AudioWorkletThread.h"
 #include "MessagePort.h"
 #include "WorkletGlobalScope.h"
+#include <wtf/RobinHoodHashMap.h>
+#include <wtf/ThreadSafeWeakHashSet.h>
 
 namespace JSC {
 class VM;
@@ -47,13 +49,16 @@ class JSAudioWorkletProcessorConstructor;
 struct WorkletParameters;
 
 class AudioWorkletGlobalScope final : public WorkletGlobalScope {
-    WTF_MAKE_ISO_ALLOCATED(AudioWorkletGlobalScope);
+    WTF_MAKE_TZONE_ALLOCATED(AudioWorkletGlobalScope);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(AudioWorkletGlobalScope);
 public:
     static RefPtr<AudioWorkletGlobalScope> tryCreate(AudioWorkletThread&, const WorkletParameters&);
     ~AudioWorkletGlobalScope();
 
     ExceptionOr<void> registerProcessor(String&& name, Ref<JSAudioWorkletProcessorConstructor>&&);
     RefPtr<AudioWorkletProcessor> createProcessor(const String& name, TransferredMessagePort, Ref<SerializedScriptValue>&& options);
+    void processorIsNoLongerNeeded(AudioWorkletProcessor&);
+    void visitProcessorsInGCThread(JSC::AbstractSlotVisitor&);
 
     size_t currentFrame() const { return m_currentFrame; }
 
@@ -61,7 +66,7 @@ public:
 
     double currentTime() const { return m_sampleRate > 0.0 ? m_currentFrame / static_cast<double>(m_sampleRate) : 0.0; }
 
-    AudioWorkletThread& thread() const;
+    Ref<AudioWorkletThread> thread() const;
     void prepareForDestruction() final;
 
     std::unique_ptr<AudioWorkletProcessorConstructionData> takePendingProcessorConstructionData();
@@ -78,15 +83,20 @@ private:
 
     size_t m_currentFrame { 0 };
     const float m_sampleRate;
-    HashMap<String, RefPtr<JSAudioWorkletProcessorConstructor>> m_processorConstructorMap;
+    MemoryCompactRobinHoodHashMap<String, Ref<JSAudioWorkletProcessorConstructor>> m_processorConstructorMap;
+    ThreadSafeWeakHashSet<AudioWorkletProcessor> m_processors;
     std::unique_ptr<AudioWorkletProcessorConstructionData> m_pendingProcessorConstructionData;
-    std::optional<JSC::JSLockHolder> m_lockDuringRendering;
+    std::optional<JSC::VM::DrainMicrotaskDelayScope> m_delayMicrotaskDrainingDuringRendering;
 };
 
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::AudioWorkletGlobalScope)
-static bool isType(const WebCore::ScriptExecutionContext& context) { return is<WebCore::WorkletGlobalScope>(context) && downcast<WebCore::WorkletGlobalScope>(context).isAudioWorkletGlobalScope(); }
+static bool isType(const WebCore::ScriptExecutionContext& context)
+{
+    auto* workletGlobalScope = dynamicDowncast<WebCore::WorkletGlobalScope>(context);
+    return workletGlobalScope && workletGlobalScope->isAudioWorkletGlobalScope();
+}
 static bool isType(const WebCore::WorkletGlobalScope& context) { return context.isAudioWorkletGlobalScope(); }
 SPECIALIZE_TYPE_TRAITS_END()
 

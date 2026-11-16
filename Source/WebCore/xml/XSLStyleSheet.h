@@ -28,6 +28,8 @@
 #include "StyleSheet.h"
 #include <libxml/parser.h>
 #include <libxslt/transform.h>
+#include <wtf/CheckedPtr.h>
+#include <wtf/Lock.h>
 #include <wtf/Ref.h>
 #include <wtf/TypeCasts.h>
 
@@ -36,19 +38,21 @@ namespace WebCore {
 class CachedResourceLoader;
 class XSLImportRule;
     
-class XSLStyleSheet final : public StyleSheet {
+class XSLStyleSheet final : public StyleSheet, public CanMakeWeakPtr<XSLStyleSheet> {
 public:
-    static Ref<XSLStyleSheet> create(XSLImportRule* parentImport, const String& originalURL, const URL& finalURL)
+    static Ref<XSLStyleSheet> create(XSLStyleSheet* parentSheet, const String& originalURL, const URL& finalURL)
     {
-        return adoptRef(*new XSLStyleSheet(parentImport, originalURL, finalURL));
+        return adoptRef(*new XSLStyleSheet(parentSheet, originalURL, finalURL));
     }
-    static Ref<XSLStyleSheet> create(ProcessingInstruction* parentNode, const String& originalURL, const URL& finalURL)
+
+    static Ref<XSLStyleSheet> create(ProcessingInstruction& parentNode, const String& originalURL, const URL& finalURL)
     {
-        return adoptRef(*new XSLStyleSheet(parentNode, originalURL, finalURL, false));
+        return adoptRef(*new XSLStyleSheet(&parentNode, originalURL, finalURL, false));
     }
-    static Ref<XSLStyleSheet> createEmbedded(ProcessingInstruction* parentNode, const URL& finalURL)
+
+    static Ref<XSLStyleSheet> createEmbedded(ProcessingInstruction& parentNode, const URL& finalURL)
     {
-        return adoptRef(*new XSLStyleSheet(parentNode, finalURL.string(), finalURL, true));
+        return adoptRef(*new XSLStyleSheet(&parentNode, finalURL.string(), finalURL, true));
     }
 
     // Taking an arbitrary node is unsafe, because owner node pointer can become stale.
@@ -64,7 +68,7 @@ public:
     
     void checkLoaded();
     
-    const URL& finalURL() const { return m_finalURL; }
+    const URL& finalURL() const LIFETIME_BOUND { return m_finalURL; }
 
     void loadChildSheets();
     void loadChildSheet(const String& href);
@@ -72,8 +76,8 @@ public:
     CachedResourceLoader* cachedResourceLoader();
 
     Document* ownerDocument();
-    XSLStyleSheet* parentStyleSheet() const override { return m_parentStyleSheet; }
-    void setParentStyleSheet(XSLStyleSheet* parent);
+    XSLStyleSheet* parentStyleSheet() const override { return m_parentStyleSheet.get(); }
+    void NODELETE setParentStyleSheet(XSLStyleSheet* parent);
 
     xmlDocPtr document();
     xsltStylesheetPtr compileStyleSheet();
@@ -81,35 +85,37 @@ public:
 
     void clearDocuments();
 
-    void markAsProcessed();
+    void NODELETE markAsProcessed();
     bool processed() const { return m_processed; }
     
-    String type() const override { return "text/xml"; }
+    String type() const override { return "text/xml"_s; }
     bool disabled() const override { return m_isDisabled; }
     void setDisabled(bool b) override { m_isDisabled = b; }
-    Node* ownerNode() const override { return m_ownerNode; }
+    Node* ownerNode() const override { return m_ownerNode.get(); }
     String href() const override { return m_originalURL; }
-    String title() const override { return emptyString(); }
+    String title() const override { return { }; }
 
-    void clearOwnerNode() override { m_ownerNode = nullptr; }
+    void clearOwnerNode() override;
+    WebCoreOpaqueRoot opaqueRootForGCThread() override;
     URL baseURL() const override { return m_finalURL; }
     bool isLoading() const override;
 
 private:
     XSLStyleSheet(Node* parentNode, const String& originalURL, const URL& finalURL, bool embedded);
-    XSLStyleSheet(XSLImportRule* parentImport, const String& originalURL, const URL& finalURL);
+    XSLStyleSheet(XSLStyleSheet* parentSheet, const String& originalURL, const URL& finalURL);
 
     bool isXSLStyleSheet() const override { return true; }
     String debugDescription() const final;
 
     void clearXSLStylesheetDocument();
 
-    Node* m_ownerNode;
+    mutable Lock m_opaqueRootLockForGC;
+    CheckedPtr<Node> m_ownerNode;
     String m_originalURL;
     URL m_finalURL;
     bool m_isDisabled { false };
 
-    Vector<std::unique_ptr<XSLImportRule>> m_children;
+    Vector<Ref<XSLImportRule>> m_children;
 
     bool m_embedded;
     bool m_processed;
@@ -118,7 +124,7 @@ private:
     bool m_stylesheetDocTaken { false };
     bool m_compilationFailed { false };
 
-    XSLStyleSheet* m_parentStyleSheet { nullptr };
+    WeakPtr<XSLStyleSheet> m_parentStyleSheet;
 };
 
 } // namespace WebCore

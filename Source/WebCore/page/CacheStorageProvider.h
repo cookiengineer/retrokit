@@ -25,12 +25,13 @@
 
 #pragma once
 
-#include "CacheStorageConnection.h"
-#include <wtf/RefCounted.h>
+#include <WebCore/CacheStorageConnection.h>
+#include <wtf/NativePromise.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 
 namespace WebCore {
 
-class CacheStorageProvider : public RefCounted<CacheStorageProvider> {
+class CacheStorageProvider : public RefCountedAndCanMakeWeakPtr<CacheStorageProvider> {
 public:
     class DummyCacheStorageConnection final : public WebCore::CacheStorageConnection {
     public:
@@ -41,14 +42,16 @@ public:
         {
         }
 
-        void open(const ClientOrigin&, const String&, DOMCacheEngine::CacheIdentifierCallback&&) final { }
-        void remove(uint64_t, DOMCacheEngine::CacheIdentifierCallback&&) final { }
-        void retrieveCaches(const ClientOrigin&, uint64_t, DOMCacheEngine::CacheInfosCallback&&) final { }
-        void retrieveRecords(uint64_t, const RetrieveRecordsOptions&, DOMCacheEngine::RecordsCallback&&) final { }
-        void batchDeleteOperation(uint64_t, const ResourceRequest&, CacheQueryOptions&&, DOMCacheEngine::RecordIdentifiersCallback&&) final { }
-        void batchPutOperation(uint64_t, Vector<DOMCacheEngine::Record>&&, DOMCacheEngine::RecordIdentifiersCallback&&) final { }
-        void reference(uint64_t) final { }
-        void dereference(uint64_t) final { }
+        Ref<OpenPromise> open(const ClientOrigin&, const String&) final { return OpenPromise::createAndReject(DOMCacheEngine::Error::Stopped); }
+        Ref<RemovePromise> remove(DOMCacheIdentifier) final { return RemovePromise::createAndReject(DOMCacheEngine::Error::Stopped); }
+        Ref<RetrieveCachesPromise> retrieveCaches(const ClientOrigin&, uint64_t)  final { return RetrieveCachesPromise::createAndReject(DOMCacheEngine::Error::Stopped); }
+        Ref<RetrieveRecordsPromise> retrieveRecords(DOMCacheIdentifier, RetrieveRecordsOptions&&)  final { return RetrieveRecordsPromise::createAndReject(DOMCacheEngine::Error::Stopped); }
+        Ref<BatchPromise> batchDeleteOperation(DOMCacheIdentifier, const ResourceRequest&, CacheQueryOptions&&)  final { return BatchPromise::createAndReject(DOMCacheEngine::Error::Stopped); }
+        Ref<BatchPromise> batchPutOperation(DOMCacheIdentifier, Vector<DOMCacheEngine::CrossThreadRecord>&&)  final { return BatchPromise::createAndReject(DOMCacheEngine::Error::Stopped); }
+        void reference(DOMCacheIdentifier) final { }
+        void dereference(DOMCacheIdentifier) final { }
+        void lockStorage(const ClientOrigin&) final { }
+        void unlockStorage(const ClientOrigin&) final { }
     };
 
     static Ref<CacheStorageProvider> create() { return adoptRef(*new CacheStorageProvider); }

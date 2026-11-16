@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2006 Nikolas Zimmermann <zimmermann@kde.org>
- * Copyright (C) Research In Motion Limited 2010. All rights reserved.
+ * Copyright (C) Research In Motion Limited 2009-2010. All rights reserved.
+ * Copyright (C) 2021, 2022, 2023 Igalia S.L.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -20,42 +20,45 @@
 
 #pragma once
 
+#include "AffineTransform.h"
 #include "RadialGradientAttributes.h"
 #include "RenderSVGResourceGradient.h"
-#include "SVGRadialGradientElement.h"
+#include "SVGGradientElement.h"
+#include "SVGUnitTypes.h"
 
 namespace WebCore {
 
 class SVGRadialGradientElement;
 
 class RenderSVGResourceRadialGradient final : public RenderSVGResourceGradient {
-    WTF_MAKE_ISO_ALLOCATED(RenderSVGResourceRadialGradient);
+    WTF_MAKE_TZONE_ALLOCATED(RenderSVGResourceRadialGradient);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderSVGResourceRadialGradient);
 public:
-    RenderSVGResourceRadialGradient(SVGRadialGradientElement&, RenderStyle&&);
+    RenderSVGResourceRadialGradient(SVGRadialGradientElement&, Style::ComputedStyle&&);
     virtual ~RenderSVGResourceRadialGradient();
 
-    SVGRadialGradientElement& radialGradientElement() const { return downcast<SVGRadialGradientElement>(RenderSVGResourceGradient::gradientElement()); }
+    inline SVGRadialGradientElement& radialGradientElement() const;
 
-    FloatPoint centerPoint(const RadialGradientAttributes&) const;
-    FloatPoint focalPoint(const RadialGradientAttributes&) const;
-    float radius(const RadialGradientAttributes&) const;
-    float focalRadius(const RadialGradientAttributes&) const;
+    SVGUnitTypes::SVGUnitType gradientUnits() const final { return m_attributes ? m_attributes.value().gradientUnits() : SVGUnitTypes::SVG_UNIT_TYPE_UNKNOWN; }
+    AffineTransform gradientTransform() const final { return m_attributes ? m_attributes.value().gradientTransform() : identity; }
+
+    void invalidateGradient() final
+    {
+        m_gradient = nullptr;
+        m_attributes = std::nullopt;
+        repaintAllClients();
+    }
 
 private:
-    RenderSVGResourceType resourceType() const final { return RadialGradientResourceType; }
+    void collectGradientAttributesIfNeeded() final;
+    RefPtr<Gradient> createGradient(const Style::ComputedStyle&) final;
 
-    SVGUnitTypes::SVGUnitType gradientUnits() const final { return m_attributes.gradientUnits(); }
-    AffineTransform gradientTransform() const final { return m_attributes.gradientTransform(); }
-    Ref<Gradient> buildGradient(const RenderStyle&) const final;
+    void element() const = delete;
+    ASCIILiteral renderName() const final { return "RenderSVGResourceRadialGradient"_s; }
 
-    void gradientElement() const = delete;
-
-    const char* renderName() const final { return "RenderSVGResourceRadialGradient"; }
-    bool collectGradientAttributes() final;
-
-    RadialGradientAttributes m_attributes;
+    std::optional<RadialGradientAttributes> m_attributes;
 };
 
-} // namespace WebCore
+}
 
-SPECIALIZE_TYPE_TRAITS_RENDER_SVG_RESOURCE(RenderSVGResourceRadialGradient, RadialGradientResourceType)
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderSVGResourceRadialGradient, isRenderSVGResourceRadialGradient())

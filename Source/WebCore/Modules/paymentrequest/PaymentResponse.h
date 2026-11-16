@@ -30,21 +30,27 @@
 #include "ActiveDOMObject.h"
 #include "ContextDestructionObserver.h"
 #include "EventTarget.h"
+#include "EventTargetInterfaces.h"
+#include "ExceptionOr.h"
 #include "JSValueInWrappedObject.h"
 #include "PaymentAddress.h"
-#include "PaymentComplete.h"
+#include <JavaScriptCore/Strong.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
 class Document;
 class PaymentRequest;
+
+struct PaymentCompleteDetails;
 struct PaymentValidationErrors;
+
+enum class PaymentComplete;
 
 template<typename IDLType> class DOMPromiseDeferred;
 
-class PaymentResponse final : public ActiveDOMObject, public EventTargetWithInlineData, public RefCounted<PaymentResponse> {
-    WTF_MAKE_ISO_ALLOCATED(PaymentResponse);
+class PaymentResponse final : public ActiveDOMObject, public EventTarget, public RefCounted<PaymentResponse> {
+    WTF_MAKE_TZONE_ALLOCATED(PaymentResponse);
 public:
     using DetailsFunction = Function<JSC::Strong<JSC::JSObject>(JSC::JSGlobalObject&)>;
 
@@ -57,53 +63,54 @@ public:
 
     ~PaymentResponse();
 
-    const String& requestId() const { return m_requestId; }
+    // ContextDestructionObserver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+    USING_CAN_MAKE_WEAKPTR(EventTarget);
+
+    const String& requestId() const LIFETIME_BOUND { return m_requestId; }
     void setRequestId(const String& requestId) { m_requestId = requestId; }
 
-    const String& methodName() const { return m_methodName; }
+    const String& methodName() const LIFETIME_BOUND { return m_methodName; }
     void setMethodName(const String& methodName) { m_methodName = methodName; }
 
-    const DetailsFunction& detailsFunction() const { return m_detailsFunction; }
+    const DetailsFunction& detailsFunction() const LIFETIME_BOUND { return m_detailsFunction; }
     void setDetailsFunction(DetailsFunction&&);
 
-    JSValueInWrappedObject& cachedDetails() { return m_cachedDetails; }
+    JSValueInWrappedObject& cachedDetails() LIFETIME_BOUND { return m_cachedDetails; }
 
     PaymentAddress* shippingAddress() const { return m_shippingAddress.get(); }
     void setShippingAddress(PaymentAddress* shippingAddress) { m_shippingAddress = shippingAddress; }
 
-    const String& shippingOption() const { return m_shippingOption; }
+    const String& shippingOption() const LIFETIME_BOUND { return m_shippingOption; }
     void setShippingOption(const String& shippingOption) { m_shippingOption = shippingOption; }
 
-    const String& payerName() const { return m_payerName; }
+    const String& payerName() const LIFETIME_BOUND { return m_payerName; }
     void setPayerName(const String& payerName) { m_payerName = payerName; }
 
-    const String& payerEmail() const { return m_payerEmail; }
+    const String& payerEmail() const LIFETIME_BOUND { return m_payerEmail; }
     void setPayerEmail(const String& payerEmail) { m_payerEmail = payerEmail; }
 
-    const String& payerPhone() const { return m_payerPhone; }
+    const String& payerPhone() const LIFETIME_BOUND { return m_payerPhone; }
     void setPayerPhone(const String& payerPhone) { m_payerPhone = payerPhone; }
 
-    void complete(std::optional<PaymentComplete>&&, DOMPromiseDeferred<void>&&);
-    void retry(PaymentValidationErrors&&, DOMPromiseDeferred<void>&&);
+    void complete(Document&, std::optional<PaymentComplete>&&, std::optional<PaymentCompleteDetails>&&, DOMPromiseDeferred<void>&&);
+    void retry(const Document&, PaymentValidationErrors&&, DOMPromiseDeferred<void>&&);
     void abortWithException(Exception&&);
     bool hasRetryPromise() const { return !!m_retryPromise; }
     void settleRetryPromise(ExceptionOr<void>&& = { });
-
-    using RefCounted<PaymentResponse>::ref;
-    using RefCounted<PaymentResponse>::deref;
 
 private:
     PaymentResponse(ScriptExecutionContext*, PaymentRequest&);
     void finishConstruction();
 
     // ActiveDOMObject
-    const char* activeDOMObjectName() const final { return "PaymentResponse"; }
     void stop() final;
     void suspend(ReasonForSuspension) final;
 
     // EventTarget
-    EventTargetInterface eventTargetInterface() const final { return PaymentResponseEventTargetInterfaceType; }
-    ScriptExecutionContext* scriptExecutionContext() const final { return ActiveDOMObject::scriptExecutionContext(); }
+    enum EventTargetInterfaceType eventTargetInterface() const final { return EventTargetInterfaceType::PaymentResponse; }
+    ScriptExecutionContext* NODELETE scriptExecutionContext() const final;
     void refEventTarget() final { ref(); }
     void derefEventTarget() final { deref(); }
 
@@ -113,7 +120,7 @@ private:
         Stopped,
     };
 
-    WeakPtr<PaymentRequest> m_request;
+    WeakPtr<PaymentRequest, WeakPtrImplWithEventTargetData> m_request;
     String m_requestId;
     String m_methodName;
     DetailsFunction m_detailsFunction;
@@ -129,5 +136,7 @@ private:
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_EVENTTARGET(PaymentResponse)
 
 #endif // ENABLE(PAYMENT_REQUEST)

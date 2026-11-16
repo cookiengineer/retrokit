@@ -3,6 +3,7 @@
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2000 Simon Hausmann <hausmann@kde.org>
  * Copyright (C) 2004, 2006, 2009, 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -23,60 +24,62 @@
 
 #pragma once
 
-#include "HTMLElement.h"
-#include <wtf/UniqueArray.h>
+#include <WebCore/HTMLElement.h>
+#include <WebCore/HTMLParserIdioms.h>
+#include <WebCore/StylePrimitiveNumericTypes.h>
+#include <wtf/FixedVector.h>
 
 namespace WebCore {
 
+class WindowProxy;
+
 class HTMLFrameSetElement final : public HTMLElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLFrameSetElement);
+    WTF_MAKE_TZONE_ALLOCATED(HTMLFrameSetElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLFrameSetElement);
 public:
     static Ref<HTMLFrameSetElement> create(const QualifiedName&, Document&);
 
     bool hasFrameBorder() const { return m_frameborder; }
     bool noResize() const { return m_noresize; }
 
-    int totalRows() const { return m_totalRows; }
-    int totalCols() const { return m_totalCols; }
+    int totalRows() const { return m_rowDimensions.isEmpty() ? 1 : m_rowDimensions.size(); }
+    int totalCols() const { return m_colDimensions.isEmpty() ? 1 : m_colDimensions.size(); }
     int border() const { return hasFrameBorder() ? m_border : 0; }
 
     bool hasBorderColor() const { return m_borderColorSet; }
 
-    const Length* rowLengths() const { return m_rowLengths.get(); }
-    const Length* colLengths() const { return m_colLengths.get(); }
+    std::span<const HTMLDimensionsListValue> rowDimensions() const { return m_rowDimensions.span(); }
+    std::span<const HTMLDimensionsListValue> colDimensions() const { return m_colDimensions.span(); }
 
     static RefPtr<HTMLFrameSetElement> findContaining(Element* descendant);
-    
-    Vector<AtomString> supportedPropertyNames() const;
+
+    Vector<AtomString> NODELETE supportedPropertyNames() const;
     WindowProxy* namedItem(const AtomString&);
+    bool isSupportedPropertyName(const AtomString&);
 
 private:
     HTMLFrameSetElement(const QualifiedName&, Document&);
 
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
     bool hasPresentationalHintsForAttribute(const QualifiedName&) const final;
     void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
 
     void willAttachRenderers() final;
-    bool rendererIsNeeded(const RenderStyle&) final;
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) final;
     
     void defaultEventHandler(Event&) final;
 
-    void willRecalcStyle(Style::Change) final;
+    void willRecalcStyle(OptionSet<Style::Change>) final;
 
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    void removedFromAncestor(RemovalType, ContainerNode&) final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void removingSteps(RemovalType, ContainerNode&) final;
 
-    UniqueArray<Length> m_rowLengths;
-    UniqueArray<Length> m_colLengths;
+    FixedVector<HTMLDimensionsListValue> m_rowDimensions;
+    FixedVector<HTMLDimensionsListValue> m_colDimensions;
 
-    int m_totalRows;
-    int m_totalCols;
-    
     int m_border;
     bool m_borderSet;
-    
+
     bool m_borderColorSet;
 
     bool m_frameborder;

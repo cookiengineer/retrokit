@@ -1,6 +1,6 @@
 /*
  *  Copyright (C) 1999-2000 Harri Porten (porten@kde.org)
- *  Copyright (C) 2007-2019 Apple Inc. All rights reserved.
+ *  Copyright (C) 2007-2021 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -20,8 +20,8 @@
 
 #pragma once
 
-#include "InternalFunction.h"
-#include "ProxyObject.h"
+#include <JavaScriptCore/InternalFunction.h>
+#include <JavaScriptCore/ProxyObject.h>
 
 namespace JSC {
 
@@ -30,33 +30,34 @@ class ArrayPrototype;
 class JSArray;
 class GetterSetter;
 
+inline constexpr ASCIILiteral ArrayInvalidLengthError { "Array length must be a positive integer of safe magnitude."_s };
+
 class ArrayConstructor final : public InternalFunction {
 public:
     typedef InternalFunction Base;
     static constexpr unsigned StructureFlags = Base::StructureFlags | HasStaticPropertyTable;
 
-    static ArrayConstructor* create(VM& vm, JSGlobalObject* globalObject, Structure* structure, ArrayPrototype* arrayPrototype, GetterSetter* speciesSymbol)
+    static ArrayConstructor* create(VM& vm, JSGlobalObject* globalObject, Structure* structure, ArrayPrototype* arrayPrototype)
     {
-        ArrayConstructor* constructor = new (NotNull, allocateCell<ArrayConstructor>(vm.heap)) ArrayConstructor(vm, structure);
-        constructor->finishCreation(vm, globalObject, arrayPrototype, speciesSymbol);
+        ArrayConstructor* constructor = new (NotNull, allocateCell<ArrayConstructor>(vm)) ArrayConstructor(vm, structure);
+        constructor->finishCreation(vm, globalObject, arrayPrototype);
         return constructor;
     }
 
     DECLARE_INFO;
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(InternalFunctionType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
 private:
     ArrayConstructor(VM&, Structure*);
-    void finishCreation(VM&, JSGlobalObject*, ArrayPrototype*, GetterSetter* speciesSymbol);
+    void finishCreation(VM&, JSGlobalObject*, ArrayPrototype*);
 };
 STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(ArrayConstructor, InternalFunction);
 
 JSArray* constructArrayWithSizeQuirk(JSGlobalObject*, ArrayAllocationProfile*, JSValue length, JSValue prototype = JSValue());
 
+JSC_DECLARE_HOST_FUNCTION(arrayConstructorIsArray);
+JSC_DECLARE_HOST_FUNCTION(arrayConstructorPrivateFromFastWithoutMapFn);
 JSC_DECLARE_HOST_FUNCTION(arrayConstructorPrivateFuncIsArraySlow);
 bool isArraySlow(JSGlobalObject*, ProxyObject* argument);
 
@@ -67,13 +68,13 @@ inline bool isArray(JSGlobalObject* globalObject, JSValue argumentValue)
     if (!argumentValue.isObject())
         return false;
 
-    JSObject* argument = jsCast<JSObject*>(argumentValue);
+    JSObject* argument = uncheckedDowncast<JSObject>(argumentValue);
     if (argument->type() == ArrayType || argument->type() == DerivedArrayType)
         return true;
 
     if (argument->type() != ProxyObjectType)
         return false;
-    return isArraySlow(globalObject, jsCast<ProxyObject*>(argument));
+    return isArraySlow(globalObject, uncheckedDowncast<ProxyObject>(argument));
 }
 
 } // namespace JSC

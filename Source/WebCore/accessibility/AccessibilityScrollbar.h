@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,7 +25,7 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
- 
+
 #pragma once
 
 #include "AccessibilityMockObject.h"
@@ -36,31 +36,31 @@ class Scrollbar;
 
 class AccessibilityScrollbar final : public AccessibilityMockObject {
 public:
-    static Ref<AccessibilityScrollbar> create(Scrollbar*);
+    static Ref<AccessibilityScrollbar> create(AXID, Scrollbar&, AXObjectCache&);
 
-    Scrollbar* scrollbar() const { return m_scrollbar.get(); }
-    
 private:
-    explicit AccessibilityScrollbar(Scrollbar*);
+    explicit AccessibilityScrollbar(AXID, Scrollbar&, AXObjectCache&);
 
-    bool canSetValueAttribute() const override { return true; }
-    bool canSetNumericValue() const override { return true; }
+    bool canSetValueAttribute() const final { return true; }
 
-    bool isAccessibilityScrollbar() const override { return true; }
-    LayoutRect elementRect() const override;
-    
-    AccessibilityRole roleValue() const override { return AccessibilityRole::ScrollBar; }
-    AccessibilityOrientation orientation() const override;
-    Document* document() const override;
-    bool isEnabled() const override;
-    
+    bool isAccessibilityScrollbar() const final { return true; }
+    LayoutRect elementRect() const final;
+
+    AccessibilityRole determineAccessibilityRole() final { return AccessibilityRole::ScrollBar; }
+    std::optional<AccessibilityOrientation> explicitOrientation() const final;
+    Document* document() const final;
+    bool isEnabled() const final;
+
     // Assumes float [0..1]
-    bool setValue(float) override;
-    float valueForRange() const override;
+    bool setValue(float) final;
+    float valueForRange() const final;
 
-    RefPtr<Scrollbar> m_scrollbar;
+    const Ref<Scrollbar> m_scrollbar;
 };
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_ACCESSIBILITY(AccessibilityScrollbar, isAccessibilityScrollbar())
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::AccessibilityScrollbar) \
+    static bool isType(const WebCore::AccessibilityObject& object) { return object.isAccessibilityScrollbar(); } \
+SPECIALIZE_TYPE_TRAITS_END()

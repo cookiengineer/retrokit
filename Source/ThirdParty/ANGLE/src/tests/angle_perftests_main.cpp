@@ -15,7 +15,7 @@ void ANGLEProcessPerfTestArgs(int *argc, char **argv);
 
 int main(int argc, char **argv)
 {
-    angle::TestSuite testSuite(&argc, argv);
     ANGLEProcessPerfTestArgs(&argc, argv);
+    angle::TestSuite testSuite(&argc, argv);
     return testSuite.run();
 }

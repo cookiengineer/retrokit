@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,22 +27,20 @@
 #include "IntlSegments.h"
 
 #include "IntlObjectInlines.h"
+#include "IntlSegmentDataObject.h"
 #include "IntlSegmentIterator.h"
 #include "IntlWorkaround.h"
 #include "JSCInlines.h"
 #include "ObjectConstructor.h"
-#include <unicode/ucurr.h>
-#include <unicode/uloc.h>
-#include <wtf/unicode/icu/ICUHelpers.h>
 
 namespace JSC {
 
-const ClassInfo IntlSegments::s_info = { "Object", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(IntlSegments) };
+const ClassInfo IntlSegments::s_info = { "Object"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(IntlSegments) };
 
-IntlSegments* IntlSegments::create(VM& vm, Structure* structure, std::unique_ptr<UBreakIterator, UBreakIteratorDeleter>&& segmenter, Box<Vector<UChar>>&& buffer, JSString* string, IntlSegmenter::Granularity granularity)
+IntlSegments* IntlSegments::create(VM& vm, Structure* structure, std::unique_ptr<UBreakIterator, UBreakIteratorDeleter>&& segmenter, Box<Vector<char16_t>>&& buffer, JSString* string, IntlSegmenter::Granularity granularity)
 {
-    auto* object = new (NotNull, allocateCell<IntlSegments>(vm.heap)) IntlSegments(vm, structure, WTFMove(segmenter), WTFMove(buffer), granularity);
-    object->finishCreation(vm, string);
+    auto* object = new (NotNull, allocateCell<IntlSegments>(vm)) IntlSegments(vm, structure, WTF::move(segmenter), WTF::move(buffer), granularity, string);
+    object->finishCreation(vm);
     return object;
 }
 
@@ -52,19 +49,13 @@ Structure* IntlSegments::createStructure(VM& vm, JSGlobalObject* globalObject, J
     return Structure::create(vm, globalObject, prototype, TypeInfo(ObjectType, StructureFlags), info());
 }
 
-IntlSegments::IntlSegments(VM& vm, Structure* structure, std::unique_ptr<UBreakIterator, UBreakIteratorDeleter>&& segmenter, Box<Vector<UChar>>&& buffer, IntlSegmenter::Granularity granularity)
+IntlSegments::IntlSegments(VM& vm, Structure* structure, std::unique_ptr<UBreakIterator, UBreakIteratorDeleter>&& segmenter, Box<Vector<char16_t>>&& buffer, IntlSegmenter::Granularity granularity, JSString* string)
     : Base(vm, structure)
-    , m_segmenter(WTFMove(segmenter))
-    , m_buffer(WTFMove(buffer))
+    , m_segmenter(WTF::move(segmenter))
+    , m_buffer(WTF::move(buffer))
+    , m_string(string, WriteBarrierEarlyInit)
     , m_granularity(granularity)
 {
-}
-
-void IntlSegments::finishCreation(VM& vm, JSString* string)
-{
-    Base::finishCreation(vm);
-    ASSERT(inherits(vm, info()));
-    m_string.set(vm, this, string);
 }
 
 // https://tc39.es/proposal-intl-segmenter/#sec-intl.segmenter.prototype.containing
@@ -91,7 +82,7 @@ JSValue IntlSegments::containing(JSGlobalObject* globalObject, JSValue indexValu
         endIndex = m_buffer->size();
 
     scope.release();
-    return IntlSegmenter::createSegmentDataObject(globalObject, m_string.get(), startIndex, endIndex, *m_segmenter, m_granularity);
+    return createSegmentDataObject(globalObject, m_string.get(), startIndex, endIndex, *m_segmenter, m_granularity);
 }
 
 // https://tc39.es/proposal-intl-segmenter/#sec-%segmentsprototype%-@@iterator
@@ -108,13 +99,13 @@ JSObject* IntlSegments::createSegmentIterator(JSGlobalObject* globalObject)
     }
 
     ubrk_first(segmenter.get());
-    return IntlSegmentIterator::create(vm, globalObject->segmentIteratorStructure(), WTFMove(segmenter), m_buffer, m_string.get(), m_granularity);
+    return IntlSegmentIterator::create(vm, globalObject->segmentIteratorStructure(), WTF::move(segmenter), m_buffer, m_string.get(), m_granularity);
 }
 
 template<typename Visitor>
 void IntlSegments::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    auto* thisObject = jsCast<IntlSegments*>(cell);
+    auto* thisObject = uncheckedDowncast<IntlSegments>(cell);
     Base::visitChildren(thisObject, visitor);
     visitor.append(thisObject->m_string);
 }

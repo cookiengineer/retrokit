@@ -22,28 +22,28 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 # THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-. common.sh
+. ./common.sh
 
-function build_variant {
+build_variant_xcodebuild() {
     variant=$1
-    extra_xcodebuild_options="$2"
-    target=$3
-    
+    target=$2
+    extra_defines=$3
+
     build_dir=build-$sdk-$variant
     mkdir -p $build_dir
-    
-    xcodebuild_options="-project libpas.xcodeproj -configuration $config -sdk $sdk OBJROOT=$build_dir SYMROOT=$build_dir $extra_xcodebuild_options"
+
+    xcodebuild_options="-project libpas.xcodeproj -configuration $config -sdk $sdk OBJROOT=$build_dir SYMROOT=$build_dir"
 
     if [ "x$archs" != "xblank" ]
     then
         xcodebuild_options="$xcodebuild_options ARCHS=$archs"
     fi
-    
-    xcodebuild $xcodebuild_options -target $target
+
+    xcodebuild $xcodebuild_options "EXTRA_DEFINES=$extra_defines" -target $target
             
     case $target in
         mbmalloc|all)
-            function link_mbmalloc_personality {
+            link_mbmalloc_personality() {
                 personality=$1
                 
                 mkdir -p $build_dir/$configdir/mbmalloc_$personality
@@ -60,17 +60,58 @@ function build_variant {
     esac
 }
 
-function build_variants {
+build_variant_cmake() {
+    variant=$1
+    target=$2
+    extra_options=$3
+
+    case $config in
+        Release)
+            ;;
+        Debug)
+            ;;
+        *)
+            echo "Bad value of config"
+            exit 1
+    esac
+
+    build_dir=build-$sdk-$variant/$configdir
+    mkdir -p $build_dir
+
+    extra_cmake_options=""
+    for option in $extra_options; do
+        extra_cmake_options="${extra_cmake_options} -D${option}"
+    done
+    extra_cmake_options=\"${extra_cmake_options#* }\"
+
+    echo $extra_cmake_options
+
+    cmake -DCMAKE_BUILD_TYPE=$config -DCMAKE_C_FLAGS=$extra_cmake_options -DCMAKE_CXX_FLAGS=$extra_cmake_options -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -B $build_dir
+    cmake --build $build_dir --parallel
+}
+
+build_variant() {
+    case $sdk in
+        cmake)
+            build_variant_cmake "$@"
+            ;;
+        *)
+            build_variant_xcodebuild "$@"
+            ;;
+    esac
+}
+
+build_variants() {
     target=$1
-    
+
     case $variants in
         all|testing)
-            build_variant testing "EXTRA_DEFINES=ENABLE_PAS_TESTING" $target
+            build_variant testing $target "ENABLE_PAS_TESTING PAS_BMALLOC_HIDDEN=0"
             ;;
     esac
     case $variants in
         all|default)
-            build_variant default "EXTRA_DEFINES=" $target
+            build_variant default $target "PAS_BMALLOC_HIDDEN=0"
             ;;
     esac
 }

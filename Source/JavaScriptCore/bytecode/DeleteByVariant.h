@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,6 +31,7 @@
 #include "PropertyOffset.h"
 #include "StructureSet.h"
 #include <wtf/Box.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC {
 
@@ -39,7 +40,7 @@ class DeleteByStatus;
 struct DumpContext;
 
 class DeleteByVariant {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(DeleteByVariant);
 public:
     DeleteByVariant(
         CacheableIdentifier, bool result,
@@ -48,18 +49,18 @@ public:
     ~DeleteByVariant();
 
     DeleteByVariant(const DeleteByVariant&);
-    DeleteByVariant& operator=(const DeleteByVariant&);
+    DeleteByVariant& NODELETE operator=(const DeleteByVariant&);
 
     Structure* oldStructure() const { return m_oldStructure; }
     Structure* newStructure() const { return m_newStructure; }
     bool result() const { return m_result; }
-    bool writesStructures() const;
+    bool NODELETE writesStructures() const;
 
     PropertyOffset offset() const { return m_offset; }
 
     bool isPropertyUnset() const { return offset() == invalidOffset; }
 
-    bool attemptToMerge(const DeleteByVariant& other);
+    bool NODELETE attemptToMerge(const DeleteByVariant& other);
 
     DECLARE_VISIT_AGGREGATE;
     template<typename Visitor> void markIfCheap(Visitor&);

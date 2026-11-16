@@ -54,6 +54,10 @@ body:not(.window-inactive, .window-docked-inactive) .tree-outline:focus-within .
     opacity: 1;
 }
 
+.item.recording-action > .titles .parameter.object-handle {
+    color: var(--text-color-gray-medium);
+}
+
 .item.recording-action > .titles .parameter.swizzled {
     color: var(--text-color-gray-medium);
 }
@@ -100,26 +104,6 @@ body:not(.window-inactive, .window-docked-inactive) .tree-outline:focus-within .
 
 .item.recording-action.visual:not(.selected, .invalid) {
     background-color: var(--value-changed-highlight);
-}
-
-.item.recording-action > .titles .context-replacer::after {
-    content: ".";
-}
-
-.item.recording-action.attribute > .titles .parameters::before {
-    content: " = ";
-}
-
-.item.recording-action:not(.attribute) > .titles .parameters::before {
-    content: "(";
-}
-
-.item.recording-action:not(.attribute) > .titles .parameters::after {
-    content: ")";
-}
-
-.item.recording-action > .titles .parameter:not(:last-child)::after {
-    content: ", ";
 }
 
 .item.recording-action:not(.selected) > .titles .parameter.swizzled {

@@ -26,21 +26,18 @@
 #include "config.h"
 #include "LayoutBoxGeometry.h"
 
-#if ENABLE(LAYOUT_FORMATTING_CONTEXT)
-
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 namespace Layout {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(BoxGeometry);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(BoxGeometry);
 
 BoxGeometry::BoxGeometry(const BoxGeometry& other)
     : m_topLeft(other.m_topLeft)
-    , m_contentWidth(other.m_contentWidth)
-    , m_contentHeight(other.m_contentHeight)
-    , m_horizontalMargin(other.m_horizontalMargin)
-    , m_verticalMargin(other.m_verticalMargin)
+    , m_contentBoxWidth(other.m_contentBoxWidth)
+    , m_contentBoxHeight(other.m_contentBoxHeight)
+    , m_margin(other.m_margin)
     , m_border(other.m_border)
     , m_padding(other.m_padding)
     , m_verticalSpaceForScrollbar(other.m_verticalSpaceForScrollbar)
@@ -52,16 +49,14 @@ BoxGeometry::BoxGeometry(const BoxGeometry& other)
     , m_hasValidVerticalMargin(other.m_hasValidVerticalMargin)
     , m_hasValidBorder(other.m_hasValidBorder)
     , m_hasValidPadding(other.m_hasValidPadding)
-    , m_hasValidContentHeight(other.m_hasValidContentHeight)
-    , m_hasValidContentWidth(other.m_hasValidContentWidth)
+    , m_hasValidContentBoxHeight(other.m_hasValidContentBoxHeight)
+    , m_hasValidContentBoxWidth(other.m_hasValidContentBoxWidth)
     , m_hasPrecomputedMarginBefore(other.m_hasPrecomputedMarginBefore)
 #endif
 {
 }
 
-BoxGeometry::~BoxGeometry()
-{
-}
+BoxGeometry::~BoxGeometry() = default;
 
 Rect BoxGeometry::marginBox() const
 {
@@ -88,10 +83,10 @@ Rect BoxGeometry::paddingBox() const
     auto borderBox = this->borderBox();
 
     Rect paddingBox;
-    paddingBox.setTop(borderBox.top() + borderTop());
-    paddingBox.setLeft(borderBox.left() + borderLeft());
-    paddingBox.setHeight(borderBox.bottom() - verticalSpaceForScrollbar() - borderBottom() - borderTop());
-    paddingBox.setWidth(borderBox.width() - borderRight() - horizontalSpaceForScrollbar() - borderLeft());
+    paddingBox.setTop(borderBox.top() + borderBefore());
+    paddingBox.setLeft(borderBox.left() + borderStart());
+    paddingBox.setHeight(borderBox.bottom() - verticalSpaceForScrollbar() - borderAfter() - borderBefore());
+    paddingBox.setWidth(borderBox.width() - borderEnd() - horizontalSpaceForScrollbar() - borderStart());
     return paddingBox;
 }
 
@@ -105,7 +100,21 @@ Rect BoxGeometry::contentBox() const
     return contentBox;
 }
 
+void BoxGeometry::reset()
+{
+    setTopLeft({ });
+
+    setHorizontalMargin({ });
+    setVerticalMargin({ });
+    setBorder({ });
+    setPadding({ });
+
+    setContentBoxSize({ });
+
+    setVerticalSpaceForScrollbar({ });
+    setHorizontalSpaceForScrollbar({ });
+}
+
 }
 }
 
-#endif

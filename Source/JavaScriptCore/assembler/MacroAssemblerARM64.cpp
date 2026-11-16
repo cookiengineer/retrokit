@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,8 +29,18 @@
 #include "MacroAssembler.h"
 
 #include "JSCPtrTag.h"
+#include "OperationResult.h"
 #include "ProbeContext.h"
 #include <wtf/InlineASM.h>
+#include <wtf/TZoneMallocInlines.h>
+
+#if OS(DARWIN)
+#include <sys/sysctl.h>
+#endif
+
+#if OS(WINDOWS)
+#include <processthreadsapi.h>
+#endif
 
 #if OS(LINUX)
 #include <asm/hwcap.h>
@@ -57,12 +67,10 @@ static unsigned long getauxval(unsigned long type)
 
 namespace JSC {
 
-extern "C" JSC_DECLARE_JIT_OPERATION(ctiMasmProbeTrampoline, void, ());
-JSC_ANNOTATE_JIT_OPERATION(ctiMasmProbeTrampolineId, ctiMasmProbeTrampoline);
+JSC_DECLARE_NOEXCEPT_JIT_OPERATION(ctiMasmProbeTrampoline, void, ());
+JSC_ANNOTATE_JIT_OPERATION_PROBE(ctiMasmProbeTrampoline);
 
 using namespace ARM64Registers;
-
-#if COMPILER(GCC_COMPATIBLE)
 
 // The following are offsets for Probe::State fields accessed
 // by the ctiMasmProbeTrampoline stub.
@@ -117,42 +125,42 @@ using namespace ARM64Registers;
 #define PROBE_CPU_NZCV_OFFSET (PROBE_FIRST_GPREG_OFFSET + (33 * GPREG_SIZE))
 #define PROBE_CPU_FPSR_OFFSET (PROBE_FIRST_GPREG_OFFSET + (34 * GPREG_SIZE))
 
-#define PROBE_FIRST_FPREG_OFFSET (PROBE_FIRST_GPREG_OFFSET + (35 * GPREG_SIZE))
+#define PROBE_FIRST_VECTOR_OFFSET (PROBE_FIRST_GPREG_OFFSET + (35 * GPREG_SIZE))
 
-#define FPREG_SIZE 8
-#define PROBE_CPU_Q0_OFFSET (PROBE_FIRST_FPREG_OFFSET + (0 * FPREG_SIZE))
-#define PROBE_CPU_Q1_OFFSET (PROBE_FIRST_FPREG_OFFSET + (1 * FPREG_SIZE))
-#define PROBE_CPU_Q2_OFFSET (PROBE_FIRST_FPREG_OFFSET + (2 * FPREG_SIZE))
-#define PROBE_CPU_Q3_OFFSET (PROBE_FIRST_FPREG_OFFSET + (3 * FPREG_SIZE))
-#define PROBE_CPU_Q4_OFFSET (PROBE_FIRST_FPREG_OFFSET + (4 * FPREG_SIZE))
-#define PROBE_CPU_Q5_OFFSET (PROBE_FIRST_FPREG_OFFSET + (5 * FPREG_SIZE))
-#define PROBE_CPU_Q6_OFFSET (PROBE_FIRST_FPREG_OFFSET + (6 * FPREG_SIZE))
-#define PROBE_CPU_Q7_OFFSET (PROBE_FIRST_FPREG_OFFSET + (7 * FPREG_SIZE))
-#define PROBE_CPU_Q8_OFFSET (PROBE_FIRST_FPREG_OFFSET + (8 * FPREG_SIZE))
-#define PROBE_CPU_Q9_OFFSET (PROBE_FIRST_FPREG_OFFSET + (9 * FPREG_SIZE))
-#define PROBE_CPU_Q10_OFFSET (PROBE_FIRST_FPREG_OFFSET + (10 * FPREG_SIZE))
-#define PROBE_CPU_Q11_OFFSET (PROBE_FIRST_FPREG_OFFSET + (11 * FPREG_SIZE))
-#define PROBE_CPU_Q12_OFFSET (PROBE_FIRST_FPREG_OFFSET + (12 * FPREG_SIZE))
-#define PROBE_CPU_Q13_OFFSET (PROBE_FIRST_FPREG_OFFSET + (13 * FPREG_SIZE))
-#define PROBE_CPU_Q14_OFFSET (PROBE_FIRST_FPREG_OFFSET + (14 * FPREG_SIZE))
-#define PROBE_CPU_Q15_OFFSET (PROBE_FIRST_FPREG_OFFSET + (15 * FPREG_SIZE))
-#define PROBE_CPU_Q16_OFFSET (PROBE_FIRST_FPREG_OFFSET + (16 * FPREG_SIZE))
-#define PROBE_CPU_Q17_OFFSET (PROBE_FIRST_FPREG_OFFSET + (17 * FPREG_SIZE))
-#define PROBE_CPU_Q18_OFFSET (PROBE_FIRST_FPREG_OFFSET + (18 * FPREG_SIZE))
-#define PROBE_CPU_Q19_OFFSET (PROBE_FIRST_FPREG_OFFSET + (19 * FPREG_SIZE))
-#define PROBE_CPU_Q20_OFFSET (PROBE_FIRST_FPREG_OFFSET + (20 * FPREG_SIZE))
-#define PROBE_CPU_Q21_OFFSET (PROBE_FIRST_FPREG_OFFSET + (21 * FPREG_SIZE))
-#define PROBE_CPU_Q22_OFFSET (PROBE_FIRST_FPREG_OFFSET + (22 * FPREG_SIZE))
-#define PROBE_CPU_Q23_OFFSET (PROBE_FIRST_FPREG_OFFSET + (23 * FPREG_SIZE))
-#define PROBE_CPU_Q24_OFFSET (PROBE_FIRST_FPREG_OFFSET + (24 * FPREG_SIZE))
-#define PROBE_CPU_Q25_OFFSET (PROBE_FIRST_FPREG_OFFSET + (25 * FPREG_SIZE))
-#define PROBE_CPU_Q26_OFFSET (PROBE_FIRST_FPREG_OFFSET + (26 * FPREG_SIZE))
-#define PROBE_CPU_Q27_OFFSET (PROBE_FIRST_FPREG_OFFSET + (27 * FPREG_SIZE))
-#define PROBE_CPU_Q28_OFFSET (PROBE_FIRST_FPREG_OFFSET + (28 * FPREG_SIZE))
-#define PROBE_CPU_Q29_OFFSET (PROBE_FIRST_FPREG_OFFSET + (29 * FPREG_SIZE))
-#define PROBE_CPU_Q30_OFFSET (PROBE_FIRST_FPREG_OFFSET + (30 * FPREG_SIZE))
-#define PROBE_CPU_Q31_OFFSET (PROBE_FIRST_FPREG_OFFSET + (31 * FPREG_SIZE))
-#define PROBE_SIZE (PROBE_FIRST_FPREG_OFFSET + (32 * FPREG_SIZE))
+#define VECTOR_SIZE 16
+#define PROBE_CPU_Q0_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (0 * VECTOR_SIZE))
+#define PROBE_CPU_Q1_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (1 * VECTOR_SIZE))
+#define PROBE_CPU_Q2_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (2 * VECTOR_SIZE))
+#define PROBE_CPU_Q3_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (3 * VECTOR_SIZE))
+#define PROBE_CPU_Q4_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (4 * VECTOR_SIZE))
+#define PROBE_CPU_Q5_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (5 * VECTOR_SIZE))
+#define PROBE_CPU_Q6_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (6 * VECTOR_SIZE))
+#define PROBE_CPU_Q7_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (7 * VECTOR_SIZE))
+#define PROBE_CPU_Q8_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (8 * VECTOR_SIZE))
+#define PROBE_CPU_Q9_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (9 * VECTOR_SIZE))
+#define PROBE_CPU_Q10_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (10 * VECTOR_SIZE))
+#define PROBE_CPU_Q11_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (11 * VECTOR_SIZE))
+#define PROBE_CPU_Q12_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (12 * VECTOR_SIZE))
+#define PROBE_CPU_Q13_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (13 * VECTOR_SIZE))
+#define PROBE_CPU_Q14_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (14 * VECTOR_SIZE))
+#define PROBE_CPU_Q15_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (15 * VECTOR_SIZE))
+#define PROBE_CPU_Q16_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (16 * VECTOR_SIZE))
+#define PROBE_CPU_Q17_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (17 * VECTOR_SIZE))
+#define PROBE_CPU_Q18_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (18 * VECTOR_SIZE))
+#define PROBE_CPU_Q19_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (19 * VECTOR_SIZE))
+#define PROBE_CPU_Q20_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (20 * VECTOR_SIZE))
+#define PROBE_CPU_Q21_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (21 * VECTOR_SIZE))
+#define PROBE_CPU_Q22_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (22 * VECTOR_SIZE))
+#define PROBE_CPU_Q23_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (23 * VECTOR_SIZE))
+#define PROBE_CPU_Q24_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (24 * VECTOR_SIZE))
+#define PROBE_CPU_Q25_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (25 * VECTOR_SIZE))
+#define PROBE_CPU_Q26_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (26 * VECTOR_SIZE))
+#define PROBE_CPU_Q27_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (27 * VECTOR_SIZE))
+#define PROBE_CPU_Q28_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (28 * VECTOR_SIZE))
+#define PROBE_CPU_Q29_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (29 * VECTOR_SIZE))
+#define PROBE_CPU_Q30_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (30 * VECTOR_SIZE))
+#define PROBE_CPU_Q31_OFFSET (PROBE_FIRST_VECTOR_OFFSET + (31 * VECTOR_SIZE))
+#define PROBE_SIZE (PROBE_FIRST_VECTOR_OFFSET + (32 * VECTOR_SIZE))
 
 #define SAVED_PROBE_RETURN_PC_OFFSET        (PROBE_SIZE + (0 * GPREG_SIZE))
 #define PROBE_SIZE_PLUS_EXTRAS              (PROBE_SIZE + (3 * GPREG_SIZE))
@@ -207,39 +215,39 @@ static_assert(PROBE_OFFSETOF(cpu.sprs[ARM64Registers::fpsr]) == PROBE_CPU_FPSR_O
 
 static_assert(!(PROBE_CPU_Q0_OFFSET & 0x7), "Probe::State::cpu.fprs[q0]'s offset should be 8 byte aligned");
 
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q0]) == PROBE_CPU_Q0_OFFSET, "Probe::State::cpu.fprs[q0]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q1]) == PROBE_CPU_Q1_OFFSET, "Probe::State::cpu.fprs[q1]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q2]) == PROBE_CPU_Q2_OFFSET, "Probe::State::cpu.fprs[q2]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q3]) == PROBE_CPU_Q3_OFFSET, "Probe::State::cpu.fprs[q3]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q4]) == PROBE_CPU_Q4_OFFSET, "Probe::State::cpu.fprs[q4]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q5]) == PROBE_CPU_Q5_OFFSET, "Probe::State::cpu.fprs[q5]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q6]) == PROBE_CPU_Q6_OFFSET, "Probe::State::cpu.fprs[q6]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q7]) == PROBE_CPU_Q7_OFFSET, "Probe::State::cpu.fprs[q7]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q8]) == PROBE_CPU_Q8_OFFSET, "Probe::State::cpu.fprs[q8]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q9]) == PROBE_CPU_Q9_OFFSET, "Probe::State::cpu.fprs[q9]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q10]) == PROBE_CPU_Q10_OFFSET, "Probe::State::cpu.fprs[q10]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q11]) == PROBE_CPU_Q11_OFFSET, "Probe::State::cpu.fprs[q11]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q12]) == PROBE_CPU_Q12_OFFSET, "Probe::State::cpu.fprs[q12]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q13]) == PROBE_CPU_Q13_OFFSET, "Probe::State::cpu.fprs[q13]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q14]) == PROBE_CPU_Q14_OFFSET, "Probe::State::cpu.fprs[q14]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q15]) == PROBE_CPU_Q15_OFFSET, "Probe::State::cpu.fprs[q15]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q0]) == PROBE_CPU_Q0_OFFSET, "Probe::State::cpu.fprs[q0]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q1]) == PROBE_CPU_Q1_OFFSET, "Probe::State::cpu.fprs[q1]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q2]) == PROBE_CPU_Q2_OFFSET, "Probe::State::cpu.fprs[q2]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q3]) == PROBE_CPU_Q3_OFFSET, "Probe::State::cpu.fprs[q3]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q4]) == PROBE_CPU_Q4_OFFSET, "Probe::State::cpu.fprs[q4]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q5]) == PROBE_CPU_Q5_OFFSET, "Probe::State::cpu.fprs[q5]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q6]) == PROBE_CPU_Q6_OFFSET, "Probe::State::cpu.fprs[q6]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q7]) == PROBE_CPU_Q7_OFFSET, "Probe::State::cpu.fprs[q7]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q8]) == PROBE_CPU_Q8_OFFSET, "Probe::State::cpu.fprs[q8]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q9]) == PROBE_CPU_Q9_OFFSET, "Probe::State::cpu.fprs[q9]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q10]) == PROBE_CPU_Q10_OFFSET, "Probe::State::cpu.fprs[q10]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q11]) == PROBE_CPU_Q11_OFFSET, "Probe::State::cpu.fprs[q11]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q12]) == PROBE_CPU_Q12_OFFSET, "Probe::State::cpu.fprs[q12]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q13]) == PROBE_CPU_Q13_OFFSET, "Probe::State::cpu.fprs[q13]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q14]) == PROBE_CPU_Q14_OFFSET, "Probe::State::cpu.fprs[q14]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q15]) == PROBE_CPU_Q15_OFFSET, "Probe::State::cpu.fprs[q15]'s offset matches ctiMasmProbeTrampoline");
 
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q16]) == PROBE_CPU_Q16_OFFSET, "Probe::State::cpu.fprs[q16]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q17]) == PROBE_CPU_Q17_OFFSET, "Probe::State::cpu.fprs[q17]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q18]) == PROBE_CPU_Q18_OFFSET, "Probe::State::cpu.fprs[q18]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q19]) == PROBE_CPU_Q19_OFFSET, "Probe::State::cpu.fprs[q19]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q20]) == PROBE_CPU_Q20_OFFSET, "Probe::State::cpu.fprs[q20]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q21]) == PROBE_CPU_Q21_OFFSET, "Probe::State::cpu.fprs[q21]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q22]) == PROBE_CPU_Q22_OFFSET, "Probe::State::cpu.fprs[q22]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q23]) == PROBE_CPU_Q23_OFFSET, "Probe::State::cpu.fprs[q23]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q24]) == PROBE_CPU_Q24_OFFSET, "Probe::State::cpu.fprs[q24]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q25]) == PROBE_CPU_Q25_OFFSET, "Probe::State::cpu.fprs[q25]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q26]) == PROBE_CPU_Q26_OFFSET, "Probe::State::cpu.fprs[q26]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q27]) == PROBE_CPU_Q27_OFFSET, "Probe::State::cpu.fprs[q27]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q28]) == PROBE_CPU_Q28_OFFSET, "Probe::State::cpu.fprs[q28]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q29]) == PROBE_CPU_Q29_OFFSET, "Probe::State::cpu.fprs[q29]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q30]) == PROBE_CPU_Q30_OFFSET, "Probe::State::cpu.fprs[q30]'s offset matches ctiMasmProbeTrampoline");
-static_assert(PROBE_OFFSETOF(cpu.fprs[ARM64Registers::q31]) == PROBE_CPU_Q31_OFFSET, "Probe::State::cpu.fprs[q31]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q16]) == PROBE_CPU_Q16_OFFSET, "Probe::State::cpu.fprs[q16]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q17]) == PROBE_CPU_Q17_OFFSET, "Probe::State::cpu.fprs[q17]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q18]) == PROBE_CPU_Q18_OFFSET, "Probe::State::cpu.fprs[q18]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q19]) == PROBE_CPU_Q19_OFFSET, "Probe::State::cpu.fprs[q19]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q20]) == PROBE_CPU_Q20_OFFSET, "Probe::State::cpu.fprs[q20]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q21]) == PROBE_CPU_Q21_OFFSET, "Probe::State::cpu.fprs[q21]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q22]) == PROBE_CPU_Q22_OFFSET, "Probe::State::cpu.fprs[q22]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q23]) == PROBE_CPU_Q23_OFFSET, "Probe::State::cpu.fprs[q23]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q24]) == PROBE_CPU_Q24_OFFSET, "Probe::State::cpu.fprs[q24]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q25]) == PROBE_CPU_Q25_OFFSET, "Probe::State::cpu.fprs[q25]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q26]) == PROBE_CPU_Q26_OFFSET, "Probe::State::cpu.fprs[q26]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q27]) == PROBE_CPU_Q27_OFFSET, "Probe::State::cpu.fprs[q27]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q28]) == PROBE_CPU_Q28_OFFSET, "Probe::State::cpu.fprs[q28]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q29]) == PROBE_CPU_Q29_OFFSET, "Probe::State::cpu.fprs[q29]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q30]) == PROBE_CPU_Q30_OFFSET, "Probe::State::cpu.fprs[q30]'s offset matches ctiMasmProbeTrampoline");
+static_assert(PROBE_OFFSETOF(cpu.fprs.vectors[ARM64Registers::q31]) == PROBE_CPU_Q31_OFFSET, "Probe::State::cpu.fprs[q31]'s offset matches ctiMasmProbeTrampoline");
 
 static_assert(sizeof(Probe::State) == PROBE_SIZE, "Probe::State's size matches ctiMasmProbeTrampoline");
 
@@ -249,7 +257,7 @@ static_assert(!(PROBE_SIZE_PLUS_EXTRAS & 0xf), "PROBE_SIZE_PLUS_EXTRAS should be
 
 #undef PROBE_OFFSETOF
 
-#define FPR_OFFSET(fpr) (PROBE_CPU_##fpr##_OFFSET - PROBE_CPU_Q0_OFFSET)
+#define VECTOR_OFFSET(fpr) (PROBE_CPU_##fpr##_OFFSET - PROBE_CPU_Q0_OFFSET)
 
 struct IncomingProbeRecord {
     UCPURegister x24;
@@ -323,9 +331,13 @@ static_assert(JIT_PROBE_STACK_INITIALIZATION_FUNCTION_PTR_TAG == JITProbeStackIn
 
 // We use x29 and x30 instead of fp and lr because GCC's inline assembler does not recognize fp and lr.
 // See https://bugs.webkit.org/show_bug.cgi?id=175512 for details.
-asm (
+__asm__(
     ".text" "\n"
+#if OS(WINDOWS)
+    ".align 4" "\n"
+#else
     ".balign 16" "\n"
+#endif
     ".globl " SYMBOL_STRING(ctiMasmProbeTrampoline) "\n"
     HIDE_SYMBOL(ctiMasmProbeTrampoline) "\n"
     SYMBOL_STRING(ctiMasmProbeTrampoline) ":" "\n"
@@ -383,22 +395,22 @@ asm (
     "stp       x0, x1, [sp, #" STRINGIZE_VALUE_OF(PROBE_CPU_NZCV_OFFSET) "]" "\n" // Store nzcv and fpsr (preloaded into x0 and x1 above).
 
     "add       x9, sp, #" STRINGIZE_VALUE_OF(PROBE_CPU_Q0_OFFSET) "\n"
-    "stp       d0, d1, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q0)) "]" "\n"
-    "stp       d2, d3, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q2)) "]" "\n"
-    "stp       d4, d5, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q4)) "]" "\n"
-    "stp       d6, d7, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q6)) "]" "\n"
-    "stp       d8, d9, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q8)) "]" "\n"
-    "stp       d10, d11, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q10)) "]" "\n"
-    "stp       d12, d13, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q12)) "]" "\n"
-    "stp       d14, d15, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q14)) "]" "\n"
-    "stp       d16, d17, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q16)) "]" "\n"
-    "stp       d18, d19, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q18)) "]" "\n"
-    "stp       d20, d21, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q20)) "]" "\n"
-    "stp       d22, d23, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q22)) "]" "\n"
-    "stp       d24, d25, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q24)) "]" "\n"
-    "stp       d26, d27, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q26)) "]" "\n"
-    "stp       d28, d29, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q28)) "]" "\n"
-    "stp       d30, d31, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q30)) "]" "\n"
+    "stp       q0,   q1, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q0)) "]" "\n"
+    "stp       q2,   q3, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q2)) "]" "\n"
+    "stp       q4,   q5, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q4)) "]" "\n"
+    "stp       q6,   q7, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q6)) "]" "\n"
+    "stp       q8,   q9, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q8)) "]" "\n"
+    "stp       q10, q11, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q10)) "]" "\n"
+    "stp       q12, q13, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q12)) "]" "\n"
+    "stp       q14, q15, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q14)) "]" "\n"
+    "stp       q16, q17, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q16)) "]" "\n"
+    "stp       q18, q19, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q18)) "]" "\n"
+    "stp       q20, q21, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q20)) "]" "\n"
+    "stp       q22, q23, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q22)) "]" "\n"
+    "stp       q24, q25, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q24)) "]" "\n"
+    "stp       q26, q27, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q26)) "]" "\n"
+    "stp       q28, q29, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q28)) "]" "\n"
+    "stp       q30, q31, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q30)) "]" "\n"
 
     "mov       x27, sp" "\n" // Save the Probe::State* in a callee saved register.
 
@@ -459,22 +471,22 @@ asm (
     // See https://developer.apple.com/library/ios/documentation/Xcode/Conceptual/iPhoneOSABIReference/Articles/ARM64FunctionCallingConventions.html.
 
     "add       x9, sp, #" STRINGIZE_VALUE_OF(PROBE_CPU_Q0_OFFSET) "\n"
-    "ldp       d0, d1, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q0)) "]" "\n"
-    "ldp       d2, d3, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q2)) "]" "\n"
-    "ldp       d4, d5, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q4)) "]" "\n"
-    "ldp       d6, d7, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q6)) "]" "\n"
-    "ldp       d8, d9, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q8)) "]" "\n"
-    "ldp       d10, d11, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q10)) "]" "\n"
-    "ldp       d12, d13, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q12)) "]" "\n"
-    "ldp       d14, d15, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q14)) "]" "\n"
-    "ldp       d16, d17, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q16)) "]" "\n"
-    "ldp       d18, d19, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q18)) "]" "\n"
-    "ldp       d20, d21, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q20)) "]" "\n"
-    "ldp       d22, d23, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q22)) "]" "\n"
-    "ldp       d24, d25, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q24)) "]" "\n"
-    "ldp       d26, d27, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q26)) "]" "\n"
-    "ldp       d28, d29, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q28)) "]" "\n"
-    "ldp       d30, d31, [x9, #" STRINGIZE_VALUE_OF(FPR_OFFSET(Q30)) "]" "\n"
+    "ldp       q0,   q1, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q0)) "]" "\n"
+    "ldp       q2,   q3, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q2)) "]" "\n"
+    "ldp       q4,   q5, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q4)) "]" "\n"
+    "ldp       q6,   q7, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q6)) "]" "\n"
+    "ldp       q8,   q9, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q8)) "]" "\n"
+    "ldp       q10, q11, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q10)) "]" "\n"
+    "ldp       q12, q13, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q12)) "]" "\n"
+    "ldp       q14, q15, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q14)) "]" "\n"
+    "ldp       q16, q17, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q16)) "]" "\n"
+    "ldp       q18, q19, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q18)) "]" "\n"
+    "ldp       q20, q21, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q20)) "]" "\n"
+    "ldp       q22, q23, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q22)) "]" "\n"
+    "ldp       q24, q25, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q24)) "]" "\n"
+    "ldp       q26, q27, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q26)) "]" "\n"
+    "ldp       q28, q29, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q28)) "]" "\n"
+    "ldp       q30, q31, [x9, #" STRINGIZE_VALUE_OF(VECTOR_OFFSET(Q30)) "]" "\n"
 
     "ldp       x0, x1, [sp, #" STRINGIZE_VALUE_OF(PROBE_CPU_X0_OFFSET) "]" "\n"
     "ldp       x2, x3, [sp, #" STRINGIZE_VALUE_OF(PROBE_CPU_X2_OFFSET) "]" "\n"
@@ -525,7 +537,7 @@ asm (
     "xpaci     x28" "\n"
     "cmp       x28, x27" "\n"
     "beq     " LOCAL_LABEL_STRING(ctiMasmProbeTrampolinePCAuthDone) "\n"
-    "brk       #0xc471" "\n"
+    "brk       #" STRINGIZE_VALUE_OF(WTF_FATAL_CRASH_CODE) "\n"
     LOCAL_LABEL_STRING(ctiMasmProbeTrampolinePCAuthDone) ":" "\n"
 #endif
     "sub       x27, x27, #" STRINGIZE_VALUE_OF(2 * GPREG_SIZE) "\n" // The return point PC is at 2 instructions before the end of the probe.
@@ -552,7 +564,7 @@ asm (
     "xpaci     x27" "\n"
     "cmp       x27, x28" "\n"
     "beq     " LOCAL_LABEL_STRING(ctiMasmProbeTrampolinePCAuthDone2) "\n"
-    "brk       #0xc471" "\n"
+    "brk       #" STRINGIZE_VALUE_OF(WTF_FATAL_CRASH_CODE) "\n"
     LOCAL_LABEL_STRING(ctiMasmProbeTrampolinePCAuthDone2) ":" "\n"
     "add       x27, x30, #48" "\n" // Compute sp at return point.
     "pacib     x28, x27" "\n"
@@ -572,11 +584,14 @@ asm (
 #else
     "ret" "\n"
 #endif
+#if !OS(WINDOWS)
+    ".previous" "\n"
+#endif
 );
-#endif // COMPILER(GCC_COMPATIBLE)
 
 void MacroAssembler::probe(Probe::Function function, void* arg)
 {
+    JIT_COMMENT(*this, "Probe start");
     sub64(TrustedImm32(sizeof(IncomingProbeRecord)), sp);
 
     storePair64(x24, x25, sp, TrustedImm32(offsetof(IncomingProbeRecord, x24)));
@@ -592,6 +607,7 @@ void MacroAssembler::probe(Probe::Function function, void* arg)
     // ctiMasmProbeTrampoline should have restored every register except for lr and the sp.
     load64(Address(sp, offsetof(LRRestorationRecord, lr)), lr);
     add64(TrustedImm32(sizeof(LRRestorationRecord)), sp);
+    JIT_COMMENT(*this, "First non-probe instruction");
 }
 
 void MacroAssemblerARM64::collectCPUFeatures()
@@ -608,21 +624,139 @@ void MacroAssemblerARM64::collectCPUFeatures()
         // that feature, the kernel does not tell it to users.), it is a stable approach.
         // https://www.kernel.org/doc/Documentation/arm64/elf_hwcaps.txt
         uint64_t hwcaps = getauxval(AT_HWCAP);
+        uint64_t hwcaps2 = getauxval(AT_HWCAP2);
+
+#if !defined(HWCAP_ATOMICS)
+#define HWCAP_ATOMICS (1 << 8)
+#endif
+
+#if !defined(HWCAP_FPHP)
+#define HWCAP_FPHP (1 << 9)
+#endif
+
+#if !defined(HWCAP_ASIMDHP)
+#define HWCAP_ASIMDHP (1 << 10)
+#endif
 
 #if !defined(HWCAP_JSCVT)
 #define HWCAP_JSCVT (1 << 13)
 #endif
 
-        s_jscvtCheckState = (hwcaps & HWCAP_JSCVT) ? CPUIDCheckState::Set : CPUIDCheckState::Clear;
-    });
-#elif HAVE(FJCVTZS_INSTRUCTION)
-    s_jscvtCheckState = CPUIDCheckState::Set;
-#else
-    s_jscvtCheckState = CPUIDCheckState::Clear;
+#if !defined(HWCAP_SHA3)
+#define HWCAP_SHA3 (1 << 17)
 #endif
+
+#if !defined(HWCAP_ASIMDDP)
+#define HWCAP_ASIMDDP (1 << 20)
+#endif
+
+#if !defined(HWCAP2_FRINT)
+#define HWCAP2_FRINT (1 << 8)
+#endif
+
+        s_lseCheckState = (hwcaps & HWCAP_ATOMICS) ? CPUIDCheckState::Set : CPUIDCheckState::Clear;
+        s_jscvtCheckState = (hwcaps & HWCAP_JSCVT) ? CPUIDCheckState::Set : CPUIDCheckState::Clear;
+        s_float16CheckState = ((hwcaps & HWCAP_FPHP) && (hwcaps & HWCAP_ASIMDHP)) ? CPUIDCheckState::Set : CPUIDCheckState::Clear;
+        s_frintCheckState = (hwcaps2 & HWCAP2_FRINT) ? CPUIDCheckState::Set : CPUIDCheckState::Clear;
+        s_sha3CheckState = (hwcaps & HWCAP_SHA3) ? CPUIDCheckState::Set : CPUIDCheckState::Clear;
+        s_dotProdCheckState = (hwcaps & HWCAP_ASIMDDP) ? CPUIDCheckState::Set : CPUIDCheckState::Clear;
+    });
+#endif
+
+#if OS(DARWIN)
+    static std::once_flag onceKey;
+    std::call_once(onceKey, [] {
+        auto checkCPU = [&](const char* string) {
+            uint32_t val = 0;
+            size_t valSize = sizeof(val);
+            int rc = sysctlbyname(string, &val, &valSize, nullptr, 0);
+            return (rc >= 0 && val) ? CPUIDCheckState::Set : CPUIDCheckState::Clear;
+        };
+
+        s_lseCheckState = checkCPU("hw.optional.arm.FEAT_LSE");
+        s_jscvtCheckState = checkCPU("hw.optional.arm.FEAT_JSCVT");
+        s_float16CheckState = checkCPU("hw.optional.arm.FEAT_FP16");
+        s_frintCheckState = checkCPU("hw.optional.arm.FEAT_FRINTTS");
+        s_sha3CheckState = checkCPU("hw.optional.arm.FEAT_SHA3");
+        s_dotProdCheckState = checkCPU("hw.optional.arm.FEAT_DotProd");
+    });
+#endif
+
+#if OS(WINDOWS)
+    static std::once_flag onceKey;
+    std::call_once(onceKey, [] {
+        // https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-isprocessorfeaturepresent
+#if !defined(PF_ARM_V81_ATOMIC_INSTRUCTIONS_AVAILABLE)
+#define PF_ARM_V81_ATOMIC_INSTRUCTIONS_AVAILABLE 34
+#endif
+#if !defined(PF_ARM_V82_DP_INSTRUCTIONS_AVAILABLE)
+#define PF_ARM_V82_DP_INSTRUCTIONS_AVAILABLE 43
+#endif
+#if !defined(PF_ARM_V83_JSCVT_INSTRUCTIONS_AVAILABLE)
+#define PF_ARM_V83_JSCVT_INSTRUCTIONS_AVAILABLE 44
+#endif
+#if !defined(PF_ARM_SHA3_INSTRUCTIONS_AVAILABLE)
+#define PF_ARM_SHA3_INSTRUCTIONS_AVAILABLE 64
+#endif
+#if !defined(PF_ARM_V82_FP16_INSTRUCTIONS_AVAILABLE)
+#define PF_ARM_V82_FP16_INSTRUCTIONS_AVAILABLE 67
+#endif
+        s_lseCheckState = IsProcessorFeaturePresent(PF_ARM_V81_ATOMIC_INSTRUCTIONS_AVAILABLE) ? CPUIDCheckState::Set : CPUIDCheckState::Clear;
+        s_jscvtCheckState = IsProcessorFeaturePresent(PF_ARM_V83_JSCVT_INSTRUCTIONS_AVAILABLE) ? CPUIDCheckState::Set : CPUIDCheckState::Clear;
+        s_float16CheckState = IsProcessorFeaturePresent(PF_ARM_V82_FP16_INSTRUCTIONS_AVAILABLE) ? CPUIDCheckState::Set : CPUIDCheckState::Clear;
+        s_sha3CheckState = IsProcessorFeaturePresent(PF_ARM_SHA3_INSTRUCTIONS_AVAILABLE) ? CPUIDCheckState::Set : CPUIDCheckState::Clear;
+        s_dotProdCheckState = IsProcessorFeaturePresent(PF_ARM_V82_DP_INSTRUCTIONS_AVAILABLE) ? CPUIDCheckState::Set : CPUIDCheckState::Clear;
+        // FRINT has no Windows PF_ constant for now.
+    });
+#endif
+
+    if (s_lseCheckState == CPUIDCheckState::NotChecked) {
+#if HAVE(LSE_INSTRUCTION)
+        s_lseCheckState = CPUIDCheckState::Set;
+#else
+        s_lseCheckState = CPUIDCheckState::Clear;
+#endif
+    }
+
+    if (s_jscvtCheckState == CPUIDCheckState::NotChecked) {
+#if HAVE(FJCVTZS_INSTRUCTION)
+        s_jscvtCheckState = CPUIDCheckState::Set;
+#else
+        s_jscvtCheckState = CPUIDCheckState::Clear;
+#endif
+    }
+
+    if (s_float16CheckState == CPUIDCheckState::NotChecked) {
+#if HAVE(FLOAT16_INSTRUCTION)
+        s_float16CheckState = CPUIDCheckState::Set;
+#else
+        s_float16CheckState = CPUIDCheckState::Clear;
+#endif
+    }
+
+    if (s_frintCheckState == CPUIDCheckState::NotChecked) {
+#if HAVE(FRINT_INSTRUCTION)
+        s_frintCheckState = CPUIDCheckState::Set;
+#else
+        s_frintCheckState = CPUIDCheckState::Clear;
+#endif
+    }
+
+    if (s_sha3CheckState == CPUIDCheckState::NotChecked) {
+#if HAVE(SHA3_INSTRUCTION)
+        s_sha3CheckState = CPUIDCheckState::Set;
+#else
+        s_sha3CheckState = CPUIDCheckState::Clear;
+#endif
+    }
 }
 
+MacroAssemblerARM64::CPUIDCheckState MacroAssemblerARM64::s_lseCheckState = CPUIDCheckState::NotChecked;
 MacroAssemblerARM64::CPUIDCheckState MacroAssemblerARM64::s_jscvtCheckState = CPUIDCheckState::NotChecked;
+MacroAssemblerARM64::CPUIDCheckState MacroAssemblerARM64::s_float16CheckState = CPUIDCheckState::NotChecked;
+MacroAssemblerARM64::CPUIDCheckState MacroAssemblerARM64::s_frintCheckState = CPUIDCheckState::NotChecked;
+MacroAssemblerARM64::CPUIDCheckState MacroAssemblerARM64::s_sha3CheckState = CPUIDCheckState::NotChecked;
+MacroAssemblerARM64::CPUIDCheckState MacroAssemblerARM64::s_dotProdCheckState = CPUIDCheckState::NotChecked;
 
 } // namespace JSC
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,48 +29,71 @@
 #pragma once
 
 #include "EmptyClients.h"
+#include "ImageObserver.h"
 #include "SVGImage.h"
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
 class SVGImageChromeClient final : public EmptyChromeClient {
-    WTF_MAKE_NONCOPYABLE(SVGImageChromeClient); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(SVGImageChromeClient);
+    WTF_MAKE_NONCOPYABLE(SVGImageChromeClient);
 public:
     SVGImageChromeClient(SVGImage* image)
         : m_image(image)
     {
     }
+    ~SVGImageChromeClient()
+    {
+        // Verify that page teardown destroyed the Chrome
+        ASSERT(!m_image);
+    }
     
     bool isSVGImageChromeClient() const final { return true; }
-    SVGImage* image() const { return m_image; }
+    SVGImage* image() const { return m_image.get(); }
     
 private:
     void chromeDestroyed() final
     {
         m_image = nullptr;
     }
-    
-    void invalidateContentsAndRootView(const IntRect& r) final
+
+    void didFinishLoadingImageForSVGImage(SVGImageElement&) final
     {
-        // If m_image->m_page is null, we're being destroyed.
-        if (!m_image || !m_image->m_page)
+        RefPtr image { m_image.get() };
+        if (!image || !image->internalPage())
             return;
 
-        auto* imageObserver = m_image->imageObserver();
+        if (RefPtr imageObserver = image->imageObserver())
+            imageObserver->imageContentChanged(*image);
+    }
+
+    void invalidateContentsAndRootView(const IntRect& rect) final
+    {
+        RefPtr image { m_image.get() };
+
+        // If m_image->internalPage() is null, we're being destroyed.
+        if (!image || !image->internalPage())
+            return;
+
+        RefPtr imageObserver = image->imageObserver();
         if (!imageObserver)
             return;
 
-        imageObserver->imageFrameAvailable(*m_image, m_image->isAnimating() ? ImageAnimatingState::Yes : ImageAnimatingState::No, &r);
+        imageObserver->imageFrameAvailable(*image, image->isAnimating() ? ImageAnimatingState::Yes : ImageAnimatingState::No, &rect);
     }
 
     bool scheduleRenderingUpdate() final
     {
-        if (m_image && m_image->imageObserver())
-            m_image->imageObserver()->scheduleRenderingUpdate(*m_image);
+        RefPtr image { m_image.get() };
+        if (!image)
+            return true;
+        if (RefPtr imageObserver = image->imageObserver())
+            imageObserver->scheduleRenderingUpdate(*image);
         return true;
     }
 
-    SVGImage* m_image;
+    WeakPtr<SVGImage> m_image;
 };
 
 } // namespace WebCore

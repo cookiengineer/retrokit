@@ -29,16 +29,19 @@
 #if ENABLE(DRAG_SUPPORT)
 
 #include "WebPage.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 using namespace WebCore;
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebDragClient);
+
 void WebDragClient::willPerformDragDestinationAction(DragDestinationAction action, const DragData&)
 {
     if (action == DragDestinationAction::Load)
-        m_page->willPerformLoadDragDestinationAction();
+        protect(m_page.get())->willPerformLoadDragDestinationAction();
     else
-        m_page->mayPerformUploadDragDestinationAction(); // Upload can happen from a drop event handler, so we should prepare early.
+        protect(m_page.get())->mayPerformUploadDragDestinationAction(); // Upload can happen from a drop event handler, so we should prepare early.
 }
 
 void WebDragClient::willPerformDragSourceAction(DragSourceAction, const IntPoint&, DataTransfer&)
@@ -47,11 +50,11 @@ void WebDragClient::willPerformDragSourceAction(DragSourceAction, const IntPoint
 
 OptionSet<DragSourceAction> WebDragClient::dragSourceActionMaskForPoint(const IntPoint&)
 {
-    return m_page->allowedDragSourceActions();
+    return m_page.get()->allowedDragSourceActions();
 }
 
-#if !PLATFORM(COCOA) && !PLATFORM(GTK)
-void WebDragClient::startDrag(DragItem, DataTransfer&, Frame&)
+#if !PLATFORM(COCOA) && !PLATFORM(GTK) && !PLATFORM(WPE)
+void WebDragClient::startDrag(DragItem, DataTransfer&, Frame&, const std::optional<NodeIdentifier>&)
 {
 }
 

@@ -20,7 +20,8 @@
 
 #pragma once
 
-#include <wtf/RefCounted.h>
+#include <cstdint>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/WeakPtr.h>
 
 namespace JSC {
@@ -35,26 +36,27 @@ class ScriptExecutionContext;
 class Event;
 class EventTarget;
 
-class EventListener : public RefCounted<EventListener>, public CanMakeWeakPtr<EventListener> {
+class EventListener : public RefCountedAndCanMakeWeakPtr<EventListener> {
 public:
-    enum Type {
-        JSEventListenerType, 
-        ImageEventListenerType, 
+    enum Type : uint8_t {
+        JSEventListenerType,
+        ImageEventListenerType,
         ObjCEventListenerType,
         CPPEventListenerType,
         ConditionEventListenerType,
         GObjectEventListenerType,
         NativeEventListenerType,
         SVGTRefTargetEventListenerType,
+        PDFJSDocumentEventListenerType,
     };
 
     virtual ~EventListener() = default;
-    virtual bool operator==(const EventListener&) const = 0;
-    virtual void handleEvent(ScriptExecutionContext&, Event&) = 0;
-    virtual bool wasCreatedFromMarkup() const { return false; }
+    virtual bool operator==(const EventListener& other) const { return this == &other; }
 
-    virtual void visitJSFunction(JSC::AbstractSlotVisitor&) { }
-    virtual void visitJSFunction(JSC::SlotVisitor&) { }
+    virtual void handleEvent(ScriptExecutionContext&, Event&) = 0;
+
+    virtual void visitJSFunctionInGCThread(JSC::AbstractSlotVisitor&) { }
+    virtual void visitJSFunctionInGCThread(JSC::SlotVisitor&) { }
 
     virtual bool isAttribute() const { return false; }
     Type type() const { return m_type; }

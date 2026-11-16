@@ -26,33 +26,26 @@
 #if ENABLE(VIDEO) && ENABLE(MEDIA_SOURCE) && USE(GSTREAMER)
 
 #include "GStreamerCommon.h"
-#include "MediaPlayer.h"
-#include "MediaSource.h"
-#include "MediaSourcePrivate.h"
-#include "SourceBufferPrivate.h"
-#include "SourceBufferPrivateClient.h"
-#include "SourceBufferPrivateGStreamer.h"
+#include <wtf/Forward.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 
 namespace WebCore {
-
 class MediaPlayerPrivateGStreamerMSE;
-
+class MediaSourceTrackGStreamer;
 } // namespace WebCore
 
-G_BEGIN_DECLS
-
-#define WEBKIT_TYPE_MEDIA_SRC            (webkit_media_src_get_type ())
-#define WEBKIT_MEDIA_SRC(obj)            (G_TYPE_CHECK_INSTANCE_CAST ((obj), WEBKIT_TYPE_MEDIA_SRC, WebKitMediaSrc))
-#define WEBKIT_MEDIA_SRC_CLASS(klass)    (G_TYPE_CHECK_CLASS_CAST ((klass), WEBKIT_TYPE_MEDIA_SRC, WebKitMediaSrcClass))
-#define WEBKIT_IS_MEDIA_SRC(obj)         (G_TYPE_CHECK_INSTANCE_TYPE ((obj), WEBKIT_TYPE_MEDIA_SRC))
-#define WEBKIT_IS_MEDIA_SRC_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE ((klass), WEBKIT_TYPE_MEDIA_SRC))
+#define WEBKIT_TYPE_MEDIA_SRC            (webkit_media_src_get_type())
+#define WEBKIT_MEDIA_SRC(obj)            (G_TYPE_CHECK_INSTANCE_CAST((obj), WEBKIT_TYPE_MEDIA_SRC, WebKitMediaSrc))
+#define WEBKIT_MEDIA_SRC_CLASS(klass)    (G_TYPE_CHECK_CLASS_CAST((klass), WEBKIT_TYPE_MEDIA_SRC, WebKitMediaSrcClass))
+#define WEBKIT_IS_MEDIA_SRC(obj)         (G_TYPE_CHECK_INSTANCE_TYPE((obj), WEBKIT_TYPE_MEDIA_SRC))
+#define WEBKIT_IS_MEDIA_SRC_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE((klass), WEBKIT_TYPE_MEDIA_SRC))
 
 struct WebKitMediaSrcPrivate;
 
 struct WebKitMediaSrc {
     GstElement parent;
 
-    WebKitMediaSrcPrivate *priv;
+    WebKitMediaSrcPrivate* priv;
 };
 
 struct WebKitMediaSrcClass {
@@ -61,16 +54,10 @@ struct WebKitMediaSrcClass {
 
 GType webkit_media_src_get_type(void);
 
-void webKitMediaSrcEmitStreams(WebKitMediaSrc* source, const Vector<RefPtr<WebCore::MediaSourceTrackGStreamer>>& tracks);
+void webKitMediaSrcEmitStreams(WebKitMediaSrc*, const Vector<RefPtr<WebCore::MediaSourceTrackGStreamer>>&);
 
-void webKitMediaSrcFlush(WebKitMediaSrc*, const AtomString& streamName);
+void webKitMediaSrcFlush(WebKitMediaSrc*, WebCore::TrackID);
 
-G_END_DECLS
+void webKitMediaSrcSetPlayer(WebKitMediaSrc*, ThreadSafeWeakPtr<WebCore::MediaPlayerPrivateGStreamerMSE>&&);
 
-namespace WTF {
-template<> GRefPtr<WebKitMediaSrc> adoptGRef(WebKitMediaSrc* ptr);
-template<> WebKitMediaSrc* refGPtr<WebKitMediaSrc>(WebKitMediaSrc* ptr);
-template<> void derefGPtr<WebKitMediaSrc>(WebKitMediaSrc* ptr);
-} // namespace WTF
-
-#endif // USE(GSTREAMER)
+#endif // ENABLE(VIDEO) && ENABLE(MEDIA_SOURCE) && USE(GSTREAMER)

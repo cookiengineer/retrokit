@@ -25,16 +25,17 @@
 namespace WebCore {
 
 class SVGTSpanElement final : public SVGTextPositioningElement {
-    WTF_MAKE_ISO_ALLOCATED(SVGTSpanElement);
+    WTF_MAKE_TZONE_ALLOCATED(SVGTSpanElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGTSpanElement);
 public:
     static Ref<SVGTSpanElement> create(const QualifiedName&, Document&);
 
 private:
     SVGTSpanElement(const QualifiedName&, Document&);
             
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) override;
     bool childShouldCreateRenderer(const Node&) const override;
-    bool rendererIsNeeded(const RenderStyle&) override;
+    bool rendererIsNeeded(const Style::ComputedStyle&) override;
 };
 
 } // namespace WebCore

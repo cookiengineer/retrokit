@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011, 2013 Google Inc. All rights reserved.
+ * Copyright (C) 2011-2018 Google Inc. All rights reserved.
  * Copyright (C) 2011-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -34,91 +34,108 @@
 
 #if ENABLE(VIDEO)
 
+#include "CommonAtomStrings.h"
+#include "ContextDestructionObserverInlines.h"
 #include "DataCue.h"
-#include "Document.h"
 #include "Event.h"
-#include "HTMLMediaElement.h"
+#include "ExceptionOr.h"
 #include "SourceBuffer.h"
+#include "TextTrackClient.h"
 #include "TextTrackCueList.h"
 #include "TextTrackList.h"
 #include "VTTRegion.h"
 #include "VTTRegionList.h"
-#include <wtf/IsoMallocInlines.h>
+#include <numeric>
 #include <wtf/NeverDestroyed.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(TextTrack);
-
-const AtomString& TextTrack::subtitlesKeyword()
-{
-    static MainThreadNeverDestroyed<const AtomString> subtitles("subtitles", AtomString::ConstructFromLiteral);
-    return subtitles;
-}
-
-static const AtomString& captionsKeyword()
-{
-    static MainThreadNeverDestroyed<const AtomString> captions("captions", AtomString::ConstructFromLiteral);
-    return captions;
-}
+WTF_MAKE_TZONE_ALLOCATED_IMPL(TextTrack);
 
 static const AtomString& descriptionsKeyword()
 {
-    static MainThreadNeverDestroyed<const AtomString> descriptions("descriptions", AtomString::ConstructFromLiteral);
+    static MainThreadNeverDestroyed<const AtomString> descriptions("descriptions"_s);
     return descriptions;
 }
 
 static const AtomString& chaptersKeyword()
 {
-    static MainThreadNeverDestroyed<const AtomString> chapters("chapters", AtomString::ConstructFromLiteral);
+    static MainThreadNeverDestroyed<const AtomString> chapters("chapters"_s);
     return chapters;
 }
 
 static const AtomString& metadataKeyword()
 {
-    static MainThreadNeverDestroyed<const AtomString> metadata("metadata", AtomString::ConstructFromLiteral);
+    static MainThreadNeverDestroyed<const AtomString> metadata("metadata"_s);
     return metadata;
 }
     
 static const AtomString& forcedKeyword()
 {
-    static MainThreadNeverDestroyed<const AtomString> forced("forced", AtomString::ConstructFromLiteral);
+    static MainThreadNeverDestroyed<const AtomString> forced("forced"_s);
     return forced;
 }
 
-TextTrack& TextTrack::captionMenuOffItem()
+TextTrack& TextTrack::captionMenuOffItemSingleton()
 {
-    static TextTrack& off = TextTrack::create(nullptr, nullptr, "off menu item", emptyAtom(), emptyAtom(), emptyAtom()).leakRef();
-    return off;
+    static NeverDestroyed<Ref<TextTrack>> off = TextTrack::create(nullptr, "off menu item"_s, emptyAtom(), emptyAtom(), emptyAtom());
+    return off->get();
 }
 
-TextTrack& TextTrack::captionMenuAutomaticItem()
+TextTrack& TextTrack::captionMenuOnItemSingleton()
 {
-    static TextTrack& automatic = TextTrack::create(nullptr, nullptr, "automatic menu item", emptyAtom(), emptyAtom(), emptyAtom()).leakRef();
-    return automatic;
+    static NeverDestroyed<Ref<TextTrack>> on = TextTrack::create(nullptr, "on menu item"_s, emptyAtom(), emptyAtom(), emptyAtom());
+    return on->get();
 }
 
-TextTrack::TextTrack(ScriptExecutionContext* context, TextTrackClient* client, const AtomString& kind, const AtomString& id, const AtomString& label, const AtomString& language, TextTrackType type)
-    : TrackBase(TrackBase::TextTrack, id, label, language)
+TextTrack& TextTrack::captionMenuAutomaticItemSingleton()
+{
+    static NeverDestroyed<Ref<TextTrack>> automatic = TextTrack::create(nullptr, "automatic menu item"_s, emptyAtom(), emptyAtom(), emptyAtom());
+    return automatic->get();
+}
+
+TextTrack::Kind TextTrack::convertKind(const AtomString& kind)
+{
+    if (kind == captionsAtom())
+        return Kind::Captions;
+    if (kind == chaptersKeyword())
+        return Kind::Chapters;
+    if (kind == descriptionsKeyword())
+        return Kind::Descriptions;
+    if (kind == forcedKeyword())
+        return Kind::Forced;
+    if (kind == metadataKeyword())
+        return Kind::Metadata;
+    return Kind::Subtitles;
+}
+
+TextTrack::TextTrack(ScriptExecutionContext* context, const AtomString& kind, TrackID id, const AtomString& label, const AtomString& language, TextTrackType type)
+    : TrackBase(context, TrackBase::TextTrack, std::nullopt, id, label, language)
     , ActiveDOMObject(context)
-    , m_client(client)
+    , m_kind(convertKind(kind))
     , m_trackType(type)
 {
-    if (kind == captionsKeyword())
-        m_kind = Kind::Captions;
-    else if (kind == chaptersKeyword())
-        m_kind = Kind::Chapters;
-    else if (kind == descriptionsKeyword())
-        m_kind = Kind::Descriptions;
-    else if (kind == forcedKeyword())
-        m_kind = Kind::Forced;
-    else if (kind == metadataKeyword())
-        m_kind = Kind::Metadata;
 }
 
-Ref<TextTrack> TextTrack::create(Document* document, TextTrackClient* client, const AtomString& kind, const AtomString& id, const AtomString& label, const AtomString& language)
+TextTrack::TextTrack(ScriptExecutionContext* context, const AtomString& kind, const AtomString& id, const AtomString& label, const AtomString& language, TextTrackType type)
+    : TrackBase(context, TrackBase::TextTrack, id, 0, label, language)
+    , ActiveDOMObject(context)
+    , m_kind(convertKind(kind))
+    , m_trackType(type)
 {
-    auto textTrack = adoptRef(*new TextTrack(document, client, kind, id, label, language, AddTrack));
+}
+
+Ref<TextTrack> TextTrack::create(ScriptExecutionContext* context, const AtomString& kind, TrackID id, const AtomString& label, const AtomString& language)
+{
+    auto textTrack = adoptRef(*new TextTrack(context, kind, id, label, language, AddTrack));
+    textTrack->suspendIfNeeded();
+    return textTrack;
+}
+
+Ref<TextTrack> TextTrack::create(ScriptExecutionContext* context, const AtomString& kind, const AtomString& id, const AtomString& label, const AtomString& language)
+{
+    auto textTrack = adoptRef(*new TextTrack(context, kind, id, label, language, AddTrack));
     textTrack->suspendIfNeeded();
     return textTrack;
 }
@@ -126,21 +143,37 @@ Ref<TextTrack> TextTrack::create(Document* document, TextTrackClient* client, co
 TextTrack::~TextTrack()
 {
     if (m_cues) {
-        if (m_client)
-            m_client->textTrackRemoveCues(*this, *m_cues);
+        m_clients.forEach([this](auto& client) {
+            client.textTrackRemoveCues(*this, *m_cues);
+        });
         for (size_t i = 0; i < m_cues->length(); ++i)
-            m_cues->item(i)->setTrack(nullptr);
-    }
-    if (m_regions) {
-        for (size_t i = 0; i < m_regions->length(); ++i)
-            m_regions->item(i)->setTrack(nullptr);
+            protect(m_cues->item(i))->setTrack(nullptr);
     }
 }
 
-Document& TextTrack::document() const
+void TextTrack::didMoveToNewDocument(Document& newDocument)
 {
-    ASSERT(scriptExecutionContext());
-    return downcast<Document>(*scriptExecutionContext());
+    TrackBase::didMoveToNewDocument(newDocument);
+    ActiveDOMObject::didMoveToNewDocument(newDocument);
+    if (m_cues)
+        m_cues->didMoveToNewDocument(newDocument);
+}
+
+TextTrackList* TextTrack::textTrackList() const
+{
+    return downcast<TextTrackList>(trackList());
+}
+
+void TextTrack::addClient(TextTrackClient& client)
+{
+    ASSERT(!m_clients.contains(client));
+    m_clients.add(client);
+}
+
+void TextTrack::clearClient(TextTrackClient& client)
+{
+    ASSERT(m_clients.contains(client));
+    m_clients.remove(client);
 }
 
 bool TextTrack::enabled() const
@@ -150,9 +183,9 @@ bool TextTrack::enabled() const
 
 bool TextTrack::isValidKindKeyword(const AtomString& value)
 {
-    if (value == subtitlesKeyword())
+    if (value == subtitlesAtom())
         return true;
-    if (value == captionsKeyword())
+    if (value == captionsAtom())
         return true;
     if (value == descriptionsKeyword())
         return true;
@@ -170,7 +203,7 @@ const AtomString& TextTrack::kindKeyword() const
 {
     switch (m_kind) {
     case Kind::Captions:
-        return captionsKeyword();
+        return captionsAtom();
     case Kind::Chapters:
         return chaptersKeyword();
     case Kind::Descriptions:
@@ -180,10 +213,10 @@ const AtomString& TextTrack::kindKeyword() const
     case Kind::Metadata:
         return metadataKeyword();
     case Kind::Subtitles:
-        return subtitlesKeyword();
+        return subtitlesAtom();
     }
     ASSERT_NOT_REACHED();
-    return subtitlesKeyword();
+    return subtitlesAtom();
 }
 
 void TextTrack::setKind(Kind newKind)
@@ -200,19 +233,15 @@ void TextTrack::setKind(Kind newKind)
 #if ENABLE(MEDIA_SOURCE)
     // 3. If the sourceBuffer attribute on this track is not null, then queue a task to fire a simple
     // event named change at sourceBuffer.textTracks.
-    if (m_sourceBuffer)
-        m_sourceBuffer->textTracks().scheduleChangeEvent();
-
     // 4. Queue a task to fire a simple event named change at the TextTrackList object referenced by
     // the textTracks attribute on the HTMLMediaElement.
-    if (mediaElement())
-        mediaElement()->ensureTextTracks().scheduleChangeEvent();
 #endif
 
     if (oldKind != m_kind) {
         ALWAYS_LOG(LOGIDENTIFIER, m_kind);
-        if (m_client)
-            m_client->textTrackKindChanged(*this);
+        m_clients.forEach([this](auto& client) {
+            client.textTrackKindChanged(*this);
+        });
     }
 }
 
@@ -223,17 +252,17 @@ void TextTrack::setKindKeywordIgnoringASCIICase(StringView keyword)
         setKind(Kind::Subtitles);
         return;
     }
-    if (equalLettersIgnoringASCIICase(keyword, "captions"))
+    if (equalLettersIgnoringASCIICase(keyword, "captions"_s))
         setKind(Kind::Captions);
-    else if (equalLettersIgnoringASCIICase(keyword, "chapters"))
+    else if (equalLettersIgnoringASCIICase(keyword, "chapters"_s))
         setKind(Kind::Chapters);
-    else if (equalLettersIgnoringASCIICase(keyword, "descriptions"))
+    else if (equalLettersIgnoringASCIICase(keyword, "descriptions"_s))
         setKind(Kind::Descriptions);
-    else if (equalLettersIgnoringASCIICase(keyword, "forced"))
+    else if (equalLettersIgnoringASCIICase(keyword, "forced"_s))
         setKind(Kind::Forced);
-    else if (equalLettersIgnoringASCIICase(keyword, "metadata"))
+    else if (equalLettersIgnoringASCIICase(keyword, "metadata"_s))
         setKind(Kind::Metadata);
-    else if (equalLettersIgnoringASCIICase(keyword, "subtitles"))
+    else if (equalLettersIgnoringASCIICase(keyword, "subtitles"_s))
         setKind(Kind::Subtitles);
     else {
         // The invalid value default is the metadata state.
@@ -252,18 +281,22 @@ void TextTrack::setMode(Mode mode)
 
     // If mode changes to disabled, remove this track's cues from the client
     // because they will no longer be accessible from the cues() function.
-    if (mode == Mode::Disabled && m_client && m_cues)
-        m_client->textTrackRemoveCues(*this, *m_cues);
+    if (mode == Mode::Disabled && m_cues) {
+        m_clients.forEach([this](auto& client) {
+            client.textTrackRemoveCues(*this, *m_cues);
+        });
+    }
 
     if (mode != Mode::Showing && m_cues) {
         for (size_t i = 0; i < m_cues->length(); ++i)
-            m_cues->item(i)->removeDisplayTree();
+            protect(m_cues->item(i))->removeDisplayTree();
     }
 
     m_mode = mode;
 
-    if (m_client)
-        m_client->textTrackModeChanged(*this);
+    m_clients.forEach([this](auto& client) {
+        client.textTrackModeChanged(*this);
+    });
 }
 
 TextTrackCueList* TextTrack::cues()
@@ -285,16 +318,17 @@ void TextTrack::removeAllCues()
 
     ALWAYS_LOG(LOGIDENTIFIER);
 
-    if (m_client)
-        m_client->textTrackRemoveCues(*this, *m_cues);
-    
+    m_clients.forEach([this](auto& client) {
+        client.textTrackRemoveCues(*this, *m_cues);
+    });
+
     for (size_t i = 0; i < m_cues->length(); ++i)
-        m_cues->item(i)->setTrack(nullptr);
-    
+        protect(m_cues->item(i))->setTrack(nullptr);
+
     m_cues->clear();
 }
 
-TextTrackCueList* TextTrack::activeCues() const
+TextTrackCueList* TextTrack::activeCues() const LIFETIME_BOUND
 {
     // 4.8.10.12.5 If the text track mode ... is not the text track disabled mode,
     // then the activeCues attribute must return a live TextTrackCueList object ...
@@ -304,6 +338,7 @@ TextTrackCueList* TextTrack::activeCues() const
     // http://www.whatwg.org/specs/web-apps/current-work/#dom-texttrack-activecues
     if (!m_cues || m_mode == Mode::Disabled)
         return nullptr;
+
     return &m_cues->activeCues();
 }
 
@@ -315,20 +350,19 @@ ExceptionOr<void> TextTrack::addCue(Ref<TextTrackCue>&& cue)
     // If a DataCue is added to a TextTrack via the addCue() method but the text track does not have its text
     // track kind set to metadata, throw a InvalidNodeTypeError exception and don't add the cue to the TextTrackList
     // of the TextTrack.
-    if (is<DataCue>(cue.get()) && m_kind != Kind::Metadata)
-        return Exception { InvalidNodeTypeError };
+    if (is<DataCue>(cue) && m_kind != Kind::Metadata)
+        return Exception { ExceptionCode::InvalidNodeTypeError };
 
     INFO_LOG(LOGIDENTIFIER, cue.get());
 
-    // TODO(93143): Add spec-compliant behavior for negative time values.
-    if (!cue->startMediaTime().isValid() || !cue->endMediaTime().isValid() || cue->startMediaTime() < MediaTime::zeroTime() || cue->endMediaTime() < MediaTime::zeroTime())
+    if (!cue->startMediaTime().isValid() || !cue->endMediaTime().isValid())
         return { };
 
     // 4.8.10.12.5 Text track API
 
     // The addCue(cue) method of TextTrack objects, when invoked, must run the following steps:
 
-    auto cueTrack = makeRefPtr(cue->track());
+    RefPtr cueTrack = cue->track();
     if (cueTrack == this)
         return { };
 
@@ -339,10 +373,11 @@ ExceptionOr<void> TextTrack::addCue(Ref<TextTrackCue>&& cue)
 
     // 2. Add cue to the method's TextTrack object's text track's text track list of cues.
     cue->setTrack(this);
-    ensureTextTrackCueList().add(cue.copyRef());
+    protect(ensureTextTrackCueList())->add(cue.copyRef());
 
-    if (m_client)
-        m_client->textTrackAddCue(*this, cue);
+    m_clients.forEach([this, cue](auto& client) {
+        client.textTrackAddCue(*this, cue);
+    });
 
     return { };
 }
@@ -356,9 +391,9 @@ ExceptionOr<void> TextTrack::removeCue(TextTrackCue& cue)
     // 1. If the given cue is not currently listed in the method's TextTrack 
     // object's text track's text track list of cues, then throw a NotFoundError exception.
     if (cue.track() != this)
-        return Exception { NotFoundError };
+        return Exception { ExceptionCode::NotFoundError };
     if (!m_cues)
-        return Exception { InvalidStateError };
+        return Exception { ExceptionCode::InvalidStateError };
 
     INFO_LOG(LOGIDENTIFIER, cue);
 
@@ -366,13 +401,14 @@ ExceptionOr<void> TextTrack::removeCue(TextTrackCue& cue)
     m_cues->remove(cue);
     cue.setIsActive(false);
     cue.setTrack(nullptr);
-    if (m_client)
-        m_client->textTrackRemoveCue(*this, cue);
+    m_clients.forEach([&](auto& client) {
+        client.textTrackRemoveCue(*this, cue);
+    });
 
     return { };
 }
 
-void TextTrack::removeCuesNotInTimeRanges(PlatformTimeRanges& buffered)
+void TextTrack::removeCuesNotInTimeRanges(const PlatformTimeRanges& buffered)
 {
     ASSERT(shouldPurgeCuesFromUnbufferedRanges());
 
@@ -381,13 +417,13 @@ void TextTrack::removeCuesNotInTimeRanges(PlatformTimeRanges& buffered)
 
     Vector<Ref<TextTrackCue>> toPurge;
     for (size_t i = 0; i < m_cues->length(); ++i) {
-        auto cue = m_cues->item(i);
+        RefPtr cue = m_cues->item(i);
         ASSERT(cue->track() == this);
 
         PlatformTimeRanges activeCueRange { cue->startMediaTime(), cue->endMediaTime() };
         activeCueRange.intersectWith(buffered);
         if (!activeCueRange.length())
-            toPurge.append(*cue);
+            toPurge.append(cue.releaseNonNull());
     }
 
     if (!toPurge.size())
@@ -420,112 +456,76 @@ VTTRegionList* TextTrack::regions()
     return &ensureVTTRegionList();
 }
 
-void TextTrack::addRegion(Ref<VTTRegion>&& region)
-{
-    auto& regionList = ensureVTTRegionList();
-
-    // 1. If the given region is in a text track list of regions, then remove
-    // region from that text track list of regions.
-    auto regionTrack = makeRefPtr(region->track());
-    if (regionTrack && regionTrack != this)
-        regionTrack->removeRegion(region.get());
-
-    // 2. If the method's TextTrack object's text track list of regions contains
-    // a region with the same identifier as region replace the values of that
-    // region's width, height, anchor point, viewport anchor point and scroll
-    // attributes with those of region.
-    auto existingRegion = makeRefPtr(regionList.getRegionById(region->id()));
-    if (existingRegion) {
-        existingRegion->updateParametersFromRegion(region);
-        return;
-    }
-
-    // Otherwise: add region to the method's TextTrack object's text track list of regions.
-    region->setTrack(this);
-    regionList.add(WTFMove(region));
-}
-
-ExceptionOr<void> TextTrack::removeRegion(VTTRegion& region)
-{
-    // 1. If the given region is not currently listed in the method's TextTrack
-    // object's text track list of regions, then throw a NotFoundError exception.
-    if (region.track() != this)
-        return Exception { NotFoundError };
-
-    ASSERT(m_regions);
-    m_regions->remove(region);
-    region.setTrack(nullptr);
-    return { };
-}
-
 void TextTrack::cueWillChange(TextTrackCue& cue)
 {
-    if (!m_client)
-        return;
-
-    // The cue may need to be repositioned in the media element's interval tree, may need to
-    // be re-rendered, etc, so remove it before the modification...
-    m_client->textTrackRemoveCue(*this, cue);
+    m_clients.forEach([&](auto& client) {
+        // The cue may need to be repositioned in the media element's interval tree, may need to
+        // be re-rendered, etc, so remove it before the modification...
+        client.textTrackRemoveCue(*this, cue);
+    });
 }
 
-void TextTrack::cueDidChange(TextTrackCue& cue)
+void TextTrack::cueDidChange(TextTrackCue& cue, bool updateCueOrder)
 {
-    if (!m_client)
-        return;
-
     // Make sure the TextTrackCueList order is up-to-date.
-    ensureTextTrackCueList().updateCueIndex(cue);
+    if (updateCueOrder)
+        protect(ensureTextTrackCueList())->updateCueIndex(cue);
 
     // ... and add it back again.
-    m_client->textTrackAddCue(*this, cue);
+    m_clients.forEach([&](auto& client) {
+        client.textTrackAddCue(*this, cue);
+    });
 }
 
 int TextTrack::trackIndex()
 {
     if (!m_trackIndex) {
-        if (!m_mediaElement)
+        RefPtr textTrackList = this->textTrackList();
+        if (!textTrackList)
             return 0;
-        m_trackIndex = m_mediaElement->ensureTextTracks().getTrackIndex(*this);
+
+        m_trackIndex = textTrackList->getTrackIndex(*this);
     }
     return m_trackIndex.value();
 }
 
-void TextTrack::invalidateTrackIndex()
-{
-    m_trackIndex = std::nullopt;
-    m_renderedTrackIndex = std::nullopt;
-}
-
 bool TextTrack::isRendered()
 {
-    return (m_kind == Kind::Captions || m_kind == Kind::Subtitles || m_kind == Kind::Forced)
+    return (m_kind == Kind::Captions || m_kind == Kind::Subtitles || m_kind == Kind::Forced || m_kind == Kind::Descriptions)
         && m_mode == Mode::Showing;
+}
+
+bool TextTrack::isSpoken()
+{
+    return m_kind == Kind::Descriptions && m_mode == Mode::Showing;
 }
 
 TextTrackCueList& TextTrack::ensureTextTrackCueList()
 {
     if (!m_cues)
-        m_cues = TextTrackCueList::create();
+        lazyInitialize(m_cues, TextTrackCueList::create());
     return *m_cues;
 }
 
 int TextTrack::trackIndexRelativeToRenderedTracks()
 {
     if (!m_renderedTrackIndex) {
-        if (!m_mediaElement)
+        auto* textTrackList = this->textTrackList();
+        if (!textTrackList)
             return 0;
-        m_renderedTrackIndex = m_mediaElement->ensureTextTracks().getTrackIndexRelativeToRenderedTracks(*this);
+
+        m_renderedTrackIndex = textTrackList->getTrackIndexRelativeToRenderedTracks(*this);
     }
     return m_renderedTrackIndex.value();
 }
 
-bool TextTrack::hasCue(TextTrackCue& cue, TextTrackCue::CueMatchRules match)
+RefPtr<TextTrackCue> TextTrack::matchCue(TextTrackCue& cue, TextTrackCue::CueMatchRules match)
 {
     if (cue.startMediaTime() < MediaTime::zeroTime() || cue.endMediaTime() < MediaTime::zeroTime())
-        return false;
+        return nullptr;
     
     if (!m_cues || !m_cues->length())
-        return false;
+        return nullptr;
     
     size_t searchStart = 0;
     size_t searchEnd = m_cues->length();
@@ -539,11 +539,11 @@ bool TextTrack::hasCue(TextTrackCue& cue, TextTrackCue::CueMatchRules match)
         // Cues in the TextTrackCueList are maintained in start time order.
         if (searchStart == searchEnd) {
             if (!searchStart)
-                return false;
+                return nullptr;
 
             // If there is more than one cue with the same start time, back up to first one so we
             // consider all of them.
-            while (searchStart >= 2 && cue.hasEquivalentStartTime(*m_cues->item(searchStart - 2)))
+            while (searchStart >= 2 && cue.hasEquivalentStartTime(*protect(m_cues->item(searchStart - 2))))
                 --searchStart;
             
             bool firstCompare = true;
@@ -552,21 +552,21 @@ bool TextTrack::hasCue(TextTrackCue& cue, TextTrackCue::CueMatchRules match)
                     ++searchStart;
                 firstCompare = false;
                 if (searchStart > m_cues->length())
-                    return false;
+                    return nullptr;
 
                 existingCue = m_cues->item(searchStart - 1);
                 if (!existingCue)
-                    return false;
+                    return nullptr;
 
                 if (cue.startMediaTime() > (existingCue->startMediaTime() + startTimeVariance()))
-                    return false;
+                    return nullptr;
 
                 if (existingCue->isEqual(cue, match))
-                    return true;
+                    return existingCue;
             }
         }
         
-        size_t index = (searchStart + searchEnd) / 2;
+        size_t index = std::midpoint(searchStart, searchEnd);
         existingCue = m_cues->item(index);
         if ((cue.startMediaTime() + startTimeVariance()) < existingCue->startMediaTime() || (match != TextTrackCue::IgnoreDuration && cue.hasEquivalentStartTime(*existingCue) && cue.endMediaTime() > existingCue->endMediaTime()))
             searchEnd = index;
@@ -575,7 +575,7 @@ bool TextTrack::hasCue(TextTrackCue& cue, TextTrackCue::CueMatchRules match)
     }
     
     ASSERT_NOT_REACHED();
-    return false;
+    return nullptr;
 }
 
 bool TextTrack::isMainProgramContent() const
@@ -583,8 +583,8 @@ bool TextTrack::isMainProgramContent() const
     // "Main program" content is intrinsic to the presentation of the media file, regardless of locale. Content such as
     // directors commentary is not "main program" because it is not essential for the presentation. HTML5 doesn't have
     // a way to express this in a machine-reable form, it is typically done with the track label, so we assume that caption
-    // tracks are main content and all other track types are not.
-    return m_kind == Kind::Captions;
+    // and subtitle tracks are main content and all other track types are not.
+    return m_kind == Kind::Captions || m_kind == Kind::Subtitles;
 }
 
 bool TextTrack::containsOnlyForcedSubtitles() const
@@ -592,12 +592,6 @@ bool TextTrack::containsOnlyForcedSubtitles() const
     return m_kind == Kind::Forced;
 }
 
-const char* TextTrack::activeDOMObjectName() const
-{
-    return "TextTrack";
-}
-
-#if ENABLE(MEDIA_SOURCE)
 void TextTrack::setLanguage(const AtomString& language)
 {
     // 11.1 language, on setting:
@@ -611,15 +605,40 @@ void TextTrack::setLanguage(const AtomString& language)
 
     // 3. If the sourceBuffer attribute on this track is not null, then queue a task to fire a simple
     // event named change at sourceBuffer.textTracks.
-    if (m_sourceBuffer)
-        m_sourceBuffer->textTracks().scheduleChangeEvent();
-
     // 4. Queue a task to fire a simple event named change at the TextTrackList object referenced by
     // the textTracks attribute on the HTMLMediaElement.
-    if (mediaElement())
-        mediaElement()->ensureTextTracks().scheduleChangeEvent();
+    m_clients.forEach([&](auto& client) {
+        client.textTrackLanguageChanged(*this);
+    });
 }
-#endif
+
+void TextTrack::setId(TrackID id)
+{
+    TrackBase::setId(id);
+    m_clients.forEach([this](auto& client) {
+        client.textTrackIdChanged(*this);
+    });
+}
+
+void TextTrack::setLabel(const AtomString& label)
+{
+    TrackBase::setLabel(label);
+    m_clients.forEach([this](auto& client) {
+        client.textTrackLabelChanged(*this);
+    });
+}
+
+void TextTrack::newCuesAvailable(const TextTrackCueList& list)
+{
+    m_clients.forEach([&](auto& client) {
+        client.textTrackAddCues(*this, list);
+    });
+}
+
+ScriptExecutionContext* TextTrack::scriptExecutionContext() const
+{
+    return ActiveDOMObject::scriptExecutionContext();
+}
 
 } // namespace WebCore
 

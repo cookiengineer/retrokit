@@ -36,13 +36,15 @@ namespace WebKit {
 
 class MockNfcService final : public NfcService {
 public:
-    MockNfcService(Observer&, const WebCore::MockWebAuthenticationConfiguration&);
+    static Ref<MockNfcService> create(AuthenticatorTransportServiceObserver&, const WebCore::MockWebAuthenticationConfiguration&);
 
     NSData* transceive();
-    void receiveStopPolling();
+    void NODELETE receiveStopPolling();
     void receiveStartPolling();
 
 private:
+    MockNfcService(AuthenticatorTransportServiceObserver&, const WebCore::MockWebAuthenticationConfiguration&);
+
     void platformStartDiscovery() final;
 
     void detectTags() const;

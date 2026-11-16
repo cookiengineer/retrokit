@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,180 +31,244 @@
 #include "GPUConnectionToWebProcess.h"
 #include "Logging.h"
 #include "RemoteAudioDestinationManagerMessages.h"
-#include "WebCoreArgumentCoders.h"
 #include "WebProcess.h"
 #include <WebCore/AudioBus.h>
 #include <WebCore/AudioUtilities.h>
+#include <WebCore/RealtimeAudioThread.h>
+#include <WebCore/SharedMemory.h>
+#include <algorithm>
+#include <wtf/StdLibExtras.h>
 
 #if PLATFORM(COCOA)
+#include <WebCore/AudioUtilitiesCocoa.h>
 #include <WebCore/CARingBuffer.h>
 #include <WebCore/WebAudioBufferList.h>
 #include <mach/mach_time.h>
+#include <pal/cf/CoreAudioExtras.h>
 #endif
 
 namespace WebKit {
 
+#if PLATFORM(COCOA)
 // Allocate a ring buffer large enough to contain 2 seconds of audio.
 constexpr size_t ringBufferSizeInSecond = 2;
+constexpr unsigned maxAudioBufferListSampleCount = 4096;
+#endif
 
-using AudioDestination = WebCore::AudioDestination;
 using AudioIOCallback = WebCore::AudioIOCallback;
 
-Ref<AudioDestination> RemoteAudioDestinationProxy::create(AudioIOCallback& callback,
-    const String& inputDeviceId, unsigned numberOfInputChannels, unsigned numberOfOutputChannels, float sampleRate)
+Ref<RemoteAudioDestinationProxy> RemoteAudioDestinationProxy::create(const CreationOptions& options)
 {
-    return adoptRef(*new RemoteAudioDestinationProxy(callback, inputDeviceId, numberOfInputChannels, numberOfOutputChannels, sampleRate));
+    return adoptRef(*new RemoteAudioDestinationProxy(options));
 }
 
-RemoteAudioDestinationProxy::RemoteAudioDestinationProxy(AudioIOCallback& callback, const String& inputDeviceId, unsigned numberOfInputChannels, unsigned numberOfOutputChannels, float sampleRate)
-#if PLATFORM(COCOA)
-    : WebCore::AudioDestinationCocoa(callback, numberOfOutputChannels, sampleRate, false)
-    , m_numberOfFrames(hardwareSampleRate() * ringBufferSizeInSecond)
-    , m_ringBuffer(makeUnique<WebCore::CARingBuffer>(makeUniqueRef<SharedRingBufferStorage>(std::bind(&RemoteAudioDestinationProxy::storageChanged, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3))))
-    , m_sampleRate(hardwareSampleRate())
-#else
-    : WebCore::AudioDestinationGStreamer(callback, numberOfOutputChannels, sampleRate)
-    , m_numberOfOutputChannels(numberOfOutputChannels)
+RemoteAudioDestinationProxy::RemoteAudioDestinationProxy(const CreationOptions& options)
+    : WebCore::AudioDestinationResampler(options, hardwareSampleRate())
+    , m_inputDeviceId(options.inputDeviceId)
+    , m_numberOfInputChannels(options.numberOfInputChannels)
+    , m_remoteSampleRate(hardwareSampleRate())
+#if PLATFORM(IOS_FAMILY)
+    , m_sceneIdentifier(options.sceneIdentifier)
 #endif
-    , m_inputDeviceId(inputDeviceId)
-    , m_numberOfInputChannels(numberOfInputChannels)
 {
+#if PLATFORM(MAC)
+    // On macOS, we are seeing page load time improvements when eagerly creating the Audio destination in the GPU process. See rdar://124071843.
+    RunLoop::currentSingleton().dispatch([protectedThis = Ref { *this }]() {
+        protectedThis->connection();
+    });
+#endif
+}
+
+uint32_t RemoteAudioDestinationProxy::totalFrameCount() const
+{
+    RELEASE_ASSERT(m_frameCount->size() == sizeof(std::atomic<uint32_t>));
+    return WTF::atomicLoad(&spanReinterpretCast<uint32_t>(m_frameCount->mutableSpan())[0]);
 }
 
 void RemoteAudioDestinationProxy::startRenderingThread()
 {
     ASSERT(!m_renderThread);
 
-    auto offThreadRendering = [this]() mutable {
+    auto offThreadRendering = [this, protectedThis = Ref { *this }]() mutable {
         do {
             m_renderSemaphore.wait();
-            if (m_shouldStopThread)
+            if (m_shouldStopThread || !m_frameCount)
                 break;
 
-            renderQuantum();
+            uint32_t totalFrameCount = this->totalFrameCount();
+            uint32_t frameCount = totalFrameCount - m_lastFrameCount;
+
+            m_lastFrameCount = totalFrameCount;
+            renderAudio(frameCount);
+
         } while (!m_shouldStopThread);
     };
-    m_renderThread = Thread::create("RemoteAudioDestinationProxy render thread", WTFMove(offThreadRendering), ThreadType::Audio, Thread::QOS::UserInteractive);
+
+    // FIXME(263073): Coalesce compatible realtime threads together to render sequentially
+    // rather than have separate realtime threads for each RemoteAudioDestinationProxy.
+    m_renderThread = WebCore::createMaybeRealtimeAudioThread("RemoteAudioDestinationProxy render thread"_s, WTF::move(offThreadRendering), Seconds { 128 / m_remoteSampleRate });
 }
 
 void RemoteAudioDestinationProxy::stopRenderingThread()
 {
-    if (!m_renderThread)
+    RefPtr renderThread = m_renderThread;
+    if (!renderThread)
         return;
 
     m_shouldStopThread = true;
     m_renderSemaphore.signal();
-    m_renderThread->waitForCompletion();
+    renderThread->waitForCompletion();
     m_renderThread = nullptr;
+    m_shouldStopThread = false;
 }
 
 IPC::Connection* RemoteAudioDestinationProxy::connection()
 {
-    if (!m_gpuProcessConnection) {
-        m_gpuProcessConnection = makeWeakPtr(WebProcess::singleton().ensureGPUProcessConnection());
-        m_gpuProcessConnection->addClient(*this);
+    RefPtr gpuProcessConnection = m_gpuProcessConnection.get();
+    if (!gpuProcessConnection) {
+        gpuProcessConnection = WebProcess::singleton().ensureGPUProcessConnection();
+        m_gpuProcessConnection = gpuProcessConnection;
+        gpuProcessConnection->addClient(*this);
+        m_destinationID = RemoteAudioDestinationIdentifier::generate();
 
-        if (!m_gpuProcessConnection->connection().sendSync(Messages::RemoteAudioDestinationManager::CreateAudioDestination(m_inputDeviceId, m_numberOfInputChannels, numberOfOutputChannels(), sampleRate(), hardwareSampleRate(), m_renderSemaphore), Messages::RemoteAudioDestinationManager::CreateAudioDestination::Reply(m_destinationID), 0)) {
-            // The GPUProcess likely crashed during this synchronous IPC. gpuProcessConnectionDidClose() will get called to reconnect to the GPUProcess.
-            RELEASE_LOG_ERROR(Media, "RemoteAudioDestinationProxy::destinationID: IPC to create the audio destination failed, the GPUProcess likely crashed.");
-            return nullptr;
-        }
+        m_lastFrameCount = 0;
+        std::optional<WebCore::SharedMemory::Handle> frameCountHandle;
+        RefPtr frameCount = WebCore::SharedMemory::allocate(sizeof(std::atomic<uint32_t>));
+        m_frameCount = frameCount;
+        if (frameCount)
+            frameCountHandle = frameCount->createHandle(WebCore::SharedMemory::Protection::ReadWrite);
+        RELEASE_ASSERT(frameCountHandle.has_value());
+        gpuProcessConnection->connection().sendWithAsyncReply(Messages::RemoteAudioDestinationManager::CreateAudioDestination(*m_destinationID, m_inputDeviceId, m_numberOfInputChannels, m_outputBus->numberOfChannels(), sampleRate(), m_remoteSampleRate, m_renderSemaphore, WTF::move(*frameCountHandle)), [protectedThis = Ref { *this }](size_t latency) {
+            protectedThis->m_audioUnitLatency = latency;
+        }, 0);
 
 #if PLATFORM(COCOA)
         m_currentFrame = 0;
-        AudioStreamBasicDescription streamFormat;
-        getAudioStreamBasicDescription(streamFormat);
-        m_ringBuffer->allocate(streamFormat, m_numberOfFrames);
+        auto streamFormat = audioStreamBasicDescriptionForAudioBus(m_outputBus);
+        size_t numberOfFrames = m_remoteSampleRate * ringBufferSizeInSecond;
+        auto result = ProducerSharedCARingBuffer::allocate(streamFormat, numberOfFrames);
+        RELEASE_ASSERT(result); // FIXME(https://bugs.webkit.org/show_bug.cgi?id=262690): Handle allocation failure.
+        auto [ringBuffer, handle] = WTF::move(*result);
+        m_ringBuffer = WTF::move(ringBuffer);
+        gpuProcessConnection->connection().send(Messages::RemoteAudioDestinationManager::AudioSamplesStorageChanged { *m_destinationID, WTF::move(handle) }, 0);
         m_audioBufferList = makeUnique<WebCore::WebAudioBufferList>(streamFormat);
-        m_audioBufferList->setSampleCount(WebCore::AudioUtilities::renderQuantumSize);
+        m_audioBufferList->setSampleCount(maxAudioBufferListSampleCount);
+#endif
+
+#if PLATFORM(IOS_FAMILY)
+        gpuProcessConnection->connection().send(Messages::RemoteAudioDestinationManager::SetSceneIdentifier { *m_destinationID, m_sceneIdentifier }, 0);
 #endif
 
         startRenderingThread();
     }
-    return m_destinationID ? &m_gpuProcessConnection->connection() : nullptr;
+    return m_destinationID ? &gpuProcessConnection->connection() : nullptr;
 }
 
 IPC::Connection* RemoteAudioDestinationProxy::existingConnection()
 {
-    return m_gpuProcessConnection && m_destinationID ? &m_gpuProcessConnection->connection() : nullptr;
+    auto gpuProcessConnection = m_gpuProcessConnection.get();
+    return gpuProcessConnection && m_destinationID ? &gpuProcessConnection->connection() : nullptr;
 }
 
 RemoteAudioDestinationProxy::~RemoteAudioDestinationProxy()
 {
-    if (m_gpuProcessConnection && m_destinationID) {
-        m_gpuProcessConnection->connection().sendWithAsyncReply(
-            Messages::RemoteAudioDestinationManager::DeleteAudioDestination(m_destinationID), [] {
-            // Can't remove this from proxyMap() here because the object would have been already deleted.
-        });
-    }
-
+    if (auto gpuProcessConnection = m_gpuProcessConnection.get(); gpuProcessConnection && m_destinationID)
+        gpuProcessConnection->connection().send(Messages::RemoteAudioDestinationManager::DeleteAudioDestination(*m_destinationID), 0);
     stopRenderingThread();
 }
 
 void RemoteAudioDestinationProxy::startRendering(CompletionHandler<void(bool)>&& completionHandler)
 {
-    auto* connection = this->connection();
-    if (!connection)
-        return completionHandler(false);
+    RefPtr connection = this->connection();
+    if (!connection) {
+        RunLoop::currentSingleton().dispatch([protectedThis = Ref { *this }, completionHandler = WTF::move(completionHandler)]() mutable {
+            protectedThis->setIsPlaying(false);
+            completionHandler(false);
+        });
+        return;
+    }
 
-    connection->sendWithAsyncReply(Messages::RemoteAudioDestinationManager::StartAudioDestination(m_destinationID), [this, protectedThis = makeRef(*this), completionHandler = WTFMove(completionHandler)](bool isPlaying) mutable {
-        setIsPlaying(isPlaying);
+    connection->sendWithAsyncReply(Messages::RemoteAudioDestinationManager::StartAudioDestination(*m_destinationID), [protectedThis = Ref { *this }, completionHandler = WTF::move(completionHandler)](bool isPlaying, size_t latency) mutable {
+        protectedThis->setIsPlaying(isPlaying);
+        protectedThis->m_audioUnitLatency = latency;
         completionHandler(isPlaying);
     });
 }
 
 void RemoteAudioDestinationProxy::stopRendering(CompletionHandler<void(bool)>&& completionHandler)
 {
-    auto* connection = this->connection();
-    if (!connection)
-        return completionHandler(false);
+    RefPtr connection = existingConnection();
+    if (!connection) {
+        RunLoop::currentSingleton().dispatch([protectedThis = Ref { *this }, completionHandler = WTF::move(completionHandler)]() mutable {
+            protectedThis->setIsPlaying(false);
+            completionHandler(true);
+        });
+        return;
+    }
 
-    connection->sendWithAsyncReply(Messages::RemoteAudioDestinationManager::StopAudioDestination(m_destinationID), [this, protectedThis = makeRef(*this), completionHandler = WTFMove(completionHandler)](bool isPlaying) mutable {
-        setIsPlaying(isPlaying);
+    connection->sendWithAsyncReply(Messages::RemoteAudioDestinationManager::StopAudioDestination(*m_destinationID), [protectedThis = Ref { *this }, completionHandler = WTF::move(completionHandler)](bool isPlaying) mutable {
+        protectedThis->setIsPlaying(isPlaying);
         completionHandler(!isPlaying);
     });
 }
 
-void RemoteAudioDestinationProxy::renderQuantum()
+MediaTime RemoteAudioDestinationProxy::outputLatency() const
+{
+    return (MediaTime { static_cast<int64_t>(m_audioUnitLatency), static_cast<uint32_t>(sampleRate()) }
+#if USE(AUDIO_SESSION)
+            + MediaTime { static_cast<int64_t>(WebCore::AudioSession::singleton().outputLatency()), static_cast<uint32_t>(WebCore::AudioSession::singleton().sampleRate()) }
+#endif
+            );
+}
+
+void RemoteAudioDestinationProxy::renderAudio(unsigned frameCount)
 {
     ASSERT(!isMainRunLoop());
 
 #if PLATFORM(COCOA)
-    AudioDestinationCocoa::render(m_currentFrame / static_cast<double>(m_sampleRate), mach_absolute_time(), WebCore::AudioUtilities::renderQuantumSize, m_audioBufferList->list());
-    m_ringBuffer->store(m_audioBufferList->list(), WebCore::AudioUtilities::renderQuantumSize, m_currentFrame);
-    m_currentFrame += WebCore::AudioUtilities::renderQuantumSize;
+    while (frameCount) {
+        auto sampleTime = m_currentFrame / static_cast<double>(m_remoteSampleRate);
+        auto hostTime =  MonotonicTime::fromMachAbsoluteTime(mach_absolute_time());
+        size_t numberOfFrames = std::min(frameCount, maxAudioBufferListSampleCount);
+        frameCount -= numberOfFrames;
+        auto* ioData = m_audioBufferList->list();
+
+
+        auto numberOfBuffers = std::min<UInt32>(ioData->mNumberBuffers, m_outputBus->numberOfChannels());
+        auto buffers = unsafeMakeSpan(ioData->mBuffers, numberOfBuffers);
+
+        // Associate the destination data array with the output bus then fill the FIFO.
+        for (UInt32 i = 0; i < numberOfBuffers; ++i) {
+            auto memory = PAL::mutableSpan<float>(buffers[i]);
+            if (numberOfFrames < memory.size())
+                memory = memory.first(numberOfFrames);
+            m_outputBus->setChannelMemory(i, memory);
+        }
+        size_t framesToRender = pullRendered(numberOfFrames);
+        m_ringBuffer->store(m_audioBufferList->list(), numberOfFrames, m_currentFrame);
+        render(sampleTime, hostTime, framesToRender);
+        m_currentFrame += numberOfFrames;
+    }
 #endif
 }
 
-#if PLATFORM(COCOA)
-void RemoteAudioDestinationProxy::storageChanged(SharedMemory* storage, const WebCore::CAAudioStreamDescription& format, size_t frameCount)
+#if PLATFORM(IOS_FAMILY)
+void RemoteAudioDestinationProxy::setSceneIdentifier(const String& sceneIdentifier)
 {
-    auto* connection = existingConnection();
-    if (!connection)
+    if (sceneIdentifier == m_sceneIdentifier)
         return;
+    m_sceneIdentifier = sceneIdentifier;
 
-    SharedMemory::Handle handle;
-    if (storage)
-        storage->createHandle(handle, SharedMemory::Protection::ReadOnly);
-
-    // FIXME: Send the actual data size with IPCHandle.
-#if OS(DARWIN) || OS(WINDOWS)
-    uint64_t dataSize = handle.size();
-#else
-    uint64_t dataSize = 0;
-#endif
-
-    m_gpuProcessConnection->connection().send(Messages::RemoteAudioDestinationManager::AudioSamplesStorageChanged { m_destinationID, SharedMemory::IPCHandle { WTFMove(handle), dataSize }, format, frameCount }, 0);
+    if (auto gpuProcessConnection = m_gpuProcessConnection.get(); gpuProcessConnection && m_destinationID)
+        gpuProcessConnection->connection().send(Messages::RemoteAudioDestinationManager::SetSceneIdentifier { *m_destinationID, m_sceneIdentifier }, 0);
 }
 #endif
 
 void RemoteAudioDestinationProxy::gpuProcessConnectionDidClose(GPUProcessConnection& oldConnection)
 {
-    oldConnection.removeClient(*this);
-
     stopRenderingThread();
     m_gpuProcessConnection = nullptr;
-    m_destinationID = { };
+    m_destinationID = std::nullopt;
 
     if (isPlaying())
         startRendering([](bool) { });

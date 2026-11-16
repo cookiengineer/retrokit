@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Copyright (c) 2016-2021 Apple Inc. All rights reserved.
 #
@@ -67,16 +67,7 @@ class BuiltinsInternalsWrapperImplementationGenerator(BuiltinsGenerator):
                 ("WebCore", "WebCoreJSClientData.h"),
             ),
             (["WebCore"],
-                ("JavaScriptCore", "heap/HeapInlines.h"),
-            ),
-            (["WebCore"],
-                ("JavaScriptCore", "heap/SlotVisitorInlines.h"),
-            ),
-            (["WebCore"],
-                ("JavaScriptCore", "runtime/JSCJSValueInlines.h"),
-            ),
-            (["WebCore"],
-                ("JavaScriptCore", "runtime/StructureInlines.h"),
+                ("JavaScriptCore", "runtime/JSObjectInlines.h"),
             ),
         ]
         return '\n'.join(self.generate_includes_from_entries(header_includes))
@@ -133,12 +124,12 @@ class BuiltinsInternalsWrapperImplementationGenerator(BuiltinsGenerator):
         return '\n'.join(lines)
 
     def _generate_initialize_static_globals(self):
-        lines = ["    JSVMClientData& clientData = *static_cast<JSVMClientData*>(m_vm.clientData);",
+        lines = ["    JSVMClientData& clientData = *downcast<JSVMClientData>(m_vm.clientData);",
                  "    JSDOMGlobalObject::GlobalPropertyInfo staticGlobals[] = {"]
         for object in self.internals:
             lines.append(BuiltinsGenerator.wrap_with_guard(object.annotations.get('conditional'), self.property_macro(object)))
         lines.append("    };")
-        lines.append("    globalObject.addStaticGlobals(staticGlobals, WTF_ARRAY_LENGTH(staticGlobals));")
+        lines.append("    globalObject.addStaticGlobals(staticGlobals);")
         lines.append("    UNUSED_PARAM(clientData);")
         return '\n'.join(lines)
 

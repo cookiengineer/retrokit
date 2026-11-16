@@ -11,15 +11,31 @@
 #define LIBANGLE_RENDERER_NULL_DISPLAYNULL_H_
 
 #include "libANGLE/renderer/DisplayImpl.h"
+#include "libANGLE/renderer/ShareGroupImpl.h"
 
 namespace rx
 {
 class ShareGroupNULL : public ShareGroupImpl
-{};
+{
+  public:
+    ShareGroupNULL(const egl::ShareGroupState &state) : ShareGroupImpl(state) {}
+};
 
 class AllocationTrackerNULL;
 
-class DisplayNULL : public DisplayImpl
+class ThreadSafeDisplayNULL : public ThreadSafeDisplayImpl
+{
+  public:
+    ThreadSafeDisplayNULL()           = default;
+    ~ThreadSafeDisplayNULL() override = default;
+
+    bool testDeviceLost() override;
+    egl::Error restoreLostDevice(const egl::ThreadSafeDisplay *display) override;
+
+  private:
+};
+
+class DisplayNULL : public DisplayImpl, public ThreadSafeDisplayNULL
 {
   public:
     DisplayNULL(const egl::DisplayState &state);
@@ -35,12 +51,11 @@ class DisplayNULL : public DisplayImpl
 
     egl::ConfigSet generateConfigs() override;
 
-    bool testDeviceLost() override;
-    egl::Error restoreLostDevice(const egl::Display *display) override;
-
     bool isValidNativeWindow(EGLNativeWindowType window) const override;
 
-    std::string getVendorString() const override;
+    std::string getRendererDescription() override;
+    std::string getVendorString() override;
+    std::string getVersionString(bool includeFullVersion) override;
 
     DeviceImpl *createDevice() override;
 
@@ -76,9 +91,11 @@ class DisplayNULL : public DisplayImpl
     StreamProducerImpl *createStreamProducerD3DTexture(egl::Stream::ConsumerType consumerType,
                                                        const egl::AttributeMap &attribs) override;
 
-    ShareGroupImpl *createShareGroup() override;
+    ShareGroupImpl *createShareGroup(const egl::ShareGroupState &state) override;
 
     void populateFeatureList(angle::FeatureList *features) override {}
+
+    ThreadSafeDisplayImpl *getThreadSafeDisplayImpl() override { return this; }
 
   private:
     void generateExtensions(egl::DisplayExtensions *outExtensions) const override;

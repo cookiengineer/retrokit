@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2004, 2005, 2007 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005 Rob Buis <buis@kde.org>
- * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2022 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -22,29 +22,30 @@
 #include "config.h"
 #include "SVGFEComponentTransferElement.h"
 
-#include "ElementIterator.h"
-#include "FilterEffect.h"
-#include "SVGFEFuncAElement.h"
-#include "SVGFEFuncBElement.h"
-#include "SVGFEFuncGElement.h"
-#include "SVGFEFuncRElement.h"
-#include "SVGFilterBuilder.h"
+#include "ElementChildIteratorInlines.h"
+#include "FEComponentTransfer.h"
+#include "NodeName.h"
+#include "SVGComponentTransferFunctionElement.h"
+#include "SVGComponentTransferFunctionElementInlines.h"
+#include "SVGElementTypeHelpers.h"
 #include "SVGNames.h"
-#include <wtf/IsoMallocInlines.h>
+#include "SVGPropertyOwnerRegistry.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(SVGFEComponentTransferElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGFEComponentTransferElement);
 
 inline SVGFEComponentTransferElement::SVGFEComponentTransferElement(const QualifiedName& tagName, Document& document)
-    : SVGFilterPrimitiveStandardAttributes(tagName, document)
+    : SVGFilterPrimitiveStandardAttributes(tagName, document, makeUniqueRef<PropertyRegistry>(*this))
 {
     ASSERT(hasTagName(SVGNames::feComponentTransferTag));
 
-    static std::once_flag onceFlag;
-    std::call_once(onceFlag, [] {
+    static bool didRegistration = false;
+    if (!didRegistration) [[unlikely]] {
+        didRegistration = true;
         PropertyRegistry::registerProperty<SVGNames::inAttr, &SVGFEComponentTransferElement::m_in1>();
-    });
+    }
 }
 
 Ref<SVGFEComponentTransferElement> SVGFEComponentTransferElement::create(const QualifiedName& tagName, Document& document)
@@ -52,42 +53,89 @@ Ref<SVGFEComponentTransferElement> SVGFEComponentTransferElement::create(const Q
     return adoptRef(*new SVGFEComponentTransferElement(tagName, document));
 }
 
-void SVGFEComponentTransferElement::parseAttribute(const QualifiedName& name, const AtomString& value)
+void SVGFEComponentTransferElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
-    if (name == SVGNames::inAttr) {
-        m_in1->setBaseValInternal(value);
+    if (name == SVGNames::inAttr)
+        Ref { m_in1 }->setBaseValInternal(newValue);
+
+    SVGFilterPrimitiveStandardAttributes::attributeChanged(name, oldValue, newValue, attributeModificationReason);
+}
+
+void SVGFEComponentTransferElement::svgAttributeChanged(const QualifiedName& attrName)
+{
+    if (attrName == SVGNames::inAttr) {
+        InstanceInvalidationGuard guard(*this);
+        updateSVGRendererForElementChange();
         return;
     }
 
-    SVGFilterPrimitiveStandardAttributes::parseAttribute(name, value);
+    SVGFilterPrimitiveStandardAttributes::svgAttributeChanged(attrName);
 }
 
-RefPtr<FilterEffect> SVGFEComponentTransferElement::build(SVGFilterBuilder* filterBuilder, Filter& filter) const
+RefPtr<FilterEffect> SVGFEComponentTransferElement::createFilterEffect(const FilterEffectVector&, const GraphicsContext&) const
 {
-    auto input1 = filterBuilder->getEffectById(in1());
-    
-    if (!input1)
-        return nullptr;
+    ComponentTransferFunctions functions;
 
-    ComponentTransferFunction red;
-    ComponentTransferFunction green;
-    ComponentTransferFunction blue;
-    ComponentTransferFunction alpha;
+    for (Ref child : childrenOfType<SVGComponentTransferFunctionElement>(*this))
+        functions[child->channel()] = child->transferFunction();
 
-    for (auto& child : childrenOfType<SVGElement>(*this)) {
-        if (is<SVGFEFuncRElement>(child))
-            red = downcast<SVGFEFuncRElement>(child).transferFunction();
-        else if (is<SVGFEFuncGElement>(child))
-            green = downcast<SVGFEFuncGElement>(child).transferFunction();
-        else if (is<SVGFEFuncBElement>(child))
-            blue = downcast<SVGFEFuncBElement>(child).transferFunction();
-        else if (is<SVGFEFuncAElement>(child))
-            alpha = downcast<SVGFEFuncAElement>(child).transferFunction();
+    return FEComponentTransfer::create(WTF::move(functions));
+}
+
+static bool NODELETE isRelevantTransferFunctionElement(const Element& child)
+{
+    auto name = child.elementName();
+
+    ASSERT(is<SVGComponentTransferFunctionElement>(child));
+
+    for (auto* laterSibling = child.nextElementSibling(); laterSibling; laterSibling = laterSibling->nextElementSibling()) {
+        if (laterSibling->elementName() == name)
+            return false;
     }
-    
-    auto effect = FEComponentTransfer::create(filter, red, green, blue, alpha);
-    effect->inputEffects() = { input1 };
-    return effect;
+
+    return true;
 }
 
+bool SVGFEComponentTransferElement::setFilterEffectAttributeFromChild(FilterEffect& filterEffect, const Element& childElement, const QualifiedName& attrName)
+{
+    ASSERT(isRelevantTransferFunctionElement(childElement));
+
+    RefPtr child = dynamicDowncast<SVGComponentTransferFunctionElement>(childElement);
+    ASSERT(child);
+    if (!child)
+        return false;
+
+    auto& effect = downcast<FEComponentTransfer>(filterEffect);
+
+    switch (attrName.nodeName()) {
+    case AttributeNames::typeAttr:
+        return effect.setType(child->channel(), child->type());
+    case AttributeNames::slopeAttr:
+        return effect.setSlope(child->channel(), child->slope());
+    case AttributeNames::interceptAttr:
+        return effect.setIntercept(child->channel(), child->intercept());
+    case AttributeNames::amplitudeAttr:
+        return effect.setAmplitude(child->channel(), child->amplitude());
+    case AttributeNames::exponentAttr:
+        return effect.setExponent(child->channel(), child->exponent());
+    case AttributeNames::offsetAttr:
+        return effect.setOffset(child->channel(), child->offset());
+    case AttributeNames::tableValuesAttr:
+        return effect.setTableValues(protect(child)->channel(), child->tableValues());
+    default:
+        break;
+    }
+    return false;
 }
+
+void SVGFEComponentTransferElement::transferFunctionAttributeChanged(SVGComponentTransferFunctionElement& child, const QualifiedName& attrName)
+{
+    ASSERT(child.parentNode() == this);
+
+    if (!isRelevantTransferFunctionElement(child))
+        return;
+
+    primitiveAttributeOnChildChanged(child, attrName);
+}
+
+} // namespace WebCore

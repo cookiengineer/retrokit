@@ -28,6 +28,8 @@
 
 #pragma once
 
+#include <WebCore/NavigationAction.h>
+#include <WebCore/ScriptExecutionContextIdentifier.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
@@ -35,7 +37,8 @@ namespace WebCore {
 
 class Document;
 class DocumentParser;
-class Frame;
+class LocalFrame;
+class SharedBuffer;
 class TextResourceDecoder;
 
 class DocumentWriter {
@@ -45,41 +48,43 @@ public:
 
     void replaceDocumentWithResultOfExecutingJavascriptURL(const String&, Document* ownerDocument);
 
-    bool begin();
-    bool begin(const URL&, bool dispatchWindowObjectAvailable = true, Document* ownerDocument = nullptr);
-    void addData(const uint8_t* bytes, size_t length);
-    void insertDataSynchronously(const String&); // For an internal use only to prevent the parser from yielding.
+    WEBCORE_EXPORT bool begin();
+    bool begin(const URL&, bool dispatchWindowObjectAvailable = true, Document* ownerDocument = nullptr, std::optional<ScriptExecutionContextIdentifier> = std::nullopt, const NavigationAction* triggeringAction = nullptr);
+    void addData(const SharedBuffer&);
+    WEBCORE_EXPORT void insertDataSynchronously(const String&); // For an internal use only to prevent the parser from yielding.
     WEBCORE_EXPORT void end();
 
-    void setFrame(Frame&);
+    void NODELETE setFrame(LocalFrame&);
 
-    WEBCORE_EXPORT void setEncoding(const String& encoding, bool userChosen);
+    enum class IsEncodingUserChosen : bool { No, Yes };
+    WEBCORE_EXPORT void setEncoding(const String& encoding, IsEncodingUserChosen);
 
-    const String& mimeType() const { return m_mimeType; }
+    const String& mimeType() const LIFETIME_BOUND { return m_mimeType; }
     void setMIMEType(const String& type) { m_mimeType = type; }
 
     // Exposed for DocumentParser::appendBytes.
     TextResourceDecoder& decoder();
     void reportDataReceived();
 
-    void setDocumentWasLoadedAsPartOfNavigation();
+    void NODELETE setDocumentWasLoadedAsPartOfNavigation();
 
 private:
-    Ref<Document> createDocument(const URL&);
+    Ref<Document> createDocument(const URL&, std::optional<ScriptExecutionContextIdentifier>);
     void clear();
 
-    WeakPtr<Frame> m_frame;
+    WeakPtr<LocalFrame> m_frame;
 
-    bool m_hasReceivedSomeData { false };
     String m_mimeType;
 
-    bool m_encodingWasChosenByUser { false };
     String m_encoding;
     RefPtr<TextResourceDecoder> m_decoder;
     RefPtr<DocumentParser> m_parser;
 
-    enum class State { NotStarted, Started, Finished };
+    enum class State : uint8_t { NotStarted, Started, Finished };
     State m_state { State::NotStarted };
+
+    bool m_hasReceivedSomeData { false };
+    bool m_encodingWasChosenByUser { false };
 };
 
 } // namespace WebCore

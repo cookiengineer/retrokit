@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,40 +30,48 @@
 
 namespace WebCore {
 
-CachedResourceHandleBase::CachedResourceHandleBase()
-    : m_resource(nullptr)
+CachedResourceHandleBase::CachedResourceHandleBase() = default;
+
+CachedResourceHandleBase::CachedResourceHandleBase(Ref<CachedResource>&& resource)
+    : m_resource(WTF::move(resource))
 {
+    protect(m_resource)->registerHandle(this);
 }
 
-CachedResourceHandleBase::CachedResourceHandleBase(CachedResource* resource)
-    : m_resource(resource)
+CachedResourceHandleBase::CachedResourceHandleBase(RefPtr<CachedResource>&& resource)
+    : m_resource(WTF::move(resource))
 {
-    if (m_resource)
-        m_resource->registerHandle(this);
+    if (RefPtr resource = m_resource)
+        resource->registerHandle(this);
 }
 
 CachedResourceHandleBase::CachedResourceHandleBase(const CachedResourceHandleBase& other)
     : m_resource(other.m_resource)
 {
-    if (m_resource)
-        m_resource->registerHandle(this);
+    if (RefPtr resource = m_resource)
+        resource->registerHandle(this);
 }
 
 CachedResourceHandleBase::~CachedResourceHandleBase()
 {
-    if (m_resource)
-        m_resource->unregisterHandle(this);
+    if (RefPtr resource = m_resource)
+        resource->unregisterHandle(this);
 }
 
-void CachedResourceHandleBase::setResource(CachedResource* resource)
+CachedResource* CachedResourceHandleBase::get() const
+{
+    return m_resource.get();
+}
+
+void CachedResourceHandleBase::setResource(RefPtr<CachedResource>&& resource)
 {
     if (resource == m_resource)
         return;
-    if (m_resource)
-        m_resource->unregisterHandle(this);
-    m_resource = resource;
-    if (m_resource)
-        m_resource->registerHandle(this);
+    if (RefPtr resource = m_resource)
+        resource->unregisterHandle(this);
+    m_resource = WTF::move(resource);
+    if (RefPtr resource = m_resource)
+        resource->registerHandle(this);
 }
 
 }

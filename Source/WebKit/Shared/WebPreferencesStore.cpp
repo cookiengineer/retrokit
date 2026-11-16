@@ -26,44 +26,19 @@
 #include "config.h"
 #include "WebPreferencesStore.h"
 
-#include "WebCoreArgumentCoders.h"
+#include "Logging.h"
 #include "WebPreferencesKeys.h"
 #include <wtf/NeverDestroyed.h>
+#include <wtf/text/StringBuilder.h>
 
 namespace WebKit {
 
 typedef HashMap<String, bool> BoolOverridesMap;
 
-static BoolOverridesMap& boolTestRunnerOverridesMap()
+static BoolOverridesMap& NODELETE boolTestRunnerOverridesMap()
 {
     static NeverDestroyed<BoolOverridesMap> map;
     return map;
-}
-
-WebPreferencesStore::WebPreferencesStore()
-{
-}
-
-void WebPreferencesStore::encode(IPC::Encoder& encoder) const
-{
-    encoder << m_values;
-    encoder << m_overriddenDefaults;
-}
-
-bool WebPreferencesStore::decode(IPC::Decoder& decoder, WebPreferencesStore& result)
-{
-    std::optional<ValueMap> values;
-    decoder >> values;
-    if (!values)
-        return false;
-    result.m_values = WTFMove(*values);
-
-    std::optional<ValueMap> overriddenDefaults;
-    decoder >> overriddenDefaults;
-    if (!overriddenDefaults)
-        return false;
-    result.m_overriddenDefaults = WTFMove(*overriddenDefaults);
-    return true;
 }
 
 void WebPreferencesStore::overrideBoolValueForKey(const String& key, bool value)
@@ -80,17 +55,17 @@ template<typename MappedType>
 static MappedType valueForKey(const WebPreferencesStore::ValueMap& values, const WebPreferencesStore::ValueMap& overriddenDefaults, const String& key)
 {
     auto valuesIt = values.find(key);
-    if (valuesIt != values.end() && WTF::holds_alternative<MappedType>(valuesIt->value))
-        return WTF::get<MappedType>(valuesIt->value);
+    if (valuesIt != values.end() && std::holds_alternative<MappedType>(valuesIt->value))
+        return std::get<MappedType>(valuesIt->value);
 
     auto overriddenDefaultsIt = overriddenDefaults.find(key);
-    if (overriddenDefaultsIt != overriddenDefaults.end() && WTF::holds_alternative<MappedType>(overriddenDefaultsIt->value))
-        return WTF::get<MappedType>(overriddenDefaultsIt->value);
+    if (overriddenDefaultsIt != overriddenDefaults.end() && std::holds_alternative<MappedType>(overriddenDefaultsIt->value))
+        return std::get<MappedType>(overriddenDefaultsIt->value);
 
     auto& defaultsMap = WebPreferencesStore::defaults();
     auto defaultsIt = defaultsMap.find(key);
-    if (defaultsIt != defaultsMap.end() && WTF::holds_alternative<MappedType>(defaultsIt->value))
-        return WTF::get<MappedType>(defaultsIt->value);
+    if (defaultsIt != defaultsMap.end() && std::holds_alternative<MappedType>(defaultsIt->value))
+        return std::get<MappedType>(defaultsIt->value);
 
     return MappedType();
 }
@@ -177,6 +152,51 @@ void WebPreferencesStore::deleteKey(const String& key)
 {
     m_values.remove(key);
     m_overriddenDefaults.remove(key);
+}
+
+#if !RELEASE_LOG_DISABLED
+static void appendValueToStringBuilder(StringBuilder& builder, const WebPreferencesStore::Value& value)
+{
+    WTF::switchOn(value,
+        [&](bool b) { builder.append(b ? "true"_s : "false"_s); },
+        [&](uint32_t u) { builder.append(u); },
+        [&](double d) { builder.append(d); },
+        [&](const String& s) { builder.append('"', s, '"'); }
+    );
+}
+#endif
+
+void WebPreferencesStore::logNonDefaultValues() const
+{
+#if !RELEASE_LOG_DISABLED
+    if (m_values.isEmpty() && m_overriddenDefaults.isEmpty())
+        return;
+
+    auto& defaultsMap = defaults();
+
+    StringBuilder nonDefaultPrefs;
+
+    auto checkEntry = [&](const String& key, const Value& value) {
+        auto it = defaultsMap.find(key);
+        if (it != defaultsMap.end() && it->value == value)
+            return;
+        if (!nonDefaultPrefs.isEmpty())
+            nonDefaultPrefs.append(", "_s);
+        nonDefaultPrefs.append(key, '=');
+        appendValueToStringBuilder(nonDefaultPrefs, value);
+    };
+
+    for (auto& [key, value] : m_overriddenDefaults) {
+        if (!m_values.contains(key))
+            checkEntry(key, value);
+    }
+
+    for (auto& [key, value] : m_values)
+        checkEntry(key, value);
+
+    if (!nonDefaultPrefs.isEmpty())
+        RELEASE_LOG(Loading, "WebPreferencesStore: non-default preferences: %" PUBLIC_LOG_STRING, nonDefaultPrefs.toString().utf8().data());
+#endif
 }
 
 } // namespace WebKit

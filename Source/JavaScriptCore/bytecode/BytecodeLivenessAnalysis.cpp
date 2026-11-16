@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,15 +31,19 @@
 #include "CodeBlock.h"
 #include "FullBytecodeLiveness.h"
 #include "JSCJSValueInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(BytecodeLivenessAnalysis);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(FullBytecodeLiveness);
 
 BytecodeLivenessAnalysis::BytecodeLivenessAnalysis(CodeBlock* codeBlock)
     : m_graph(codeBlock, codeBlock->instructions())
 {
     runLivenessFixpoint(codeBlock, codeBlock->instructions(), m_graph);
 
-    if (UNLIKELY(Options::dumpBytecodeLivenessResults()))
+    if (Options::dumpBytecodeLivenessResults()) [[unlikely]]
         dumpResults(codeBlock);
 }
 
@@ -50,10 +54,10 @@ std::unique_ptr<FullBytecodeLiveness> BytecodeLivenessAnalysis::computeFullLiven
     size_t size = codeBlock->instructions().size();
     auto result = makeUnique<FullBytecodeLiveness>(size);
 
-    for (BytecodeBasicBlock& block : m_graph.basicBlocksInReverseOrder()) {
+    for (auto& block : m_graph.basicBlocksInReverseOrder()) {
         if (block.isEntryBlock() || block.isExitBlock())
             continue;
-        
+
         out = block.out();
 
         auto use = [&] (unsigned bitIndex) {
@@ -96,9 +100,9 @@ void BytecodeLivenessAnalysis::dumpResults(CodeBlock* codeBlock)
 
     unsigned numberOfBlocks = m_graph.size();
     Vector<FastBitVector> predecessors(numberOfBlocks);
-    for (BytecodeBasicBlock& block : m_graph)
+    for (auto& block : m_graph)
         predecessors[block.index()].resize(numberOfBlocks);
-    for (BytecodeBasicBlock& block : m_graph) {
+    for (auto& block : m_graph) {
         for (unsigned successorIndex : block.successors()) {
             unsigned blockIndex = block.index();
             predecessors[successorIndex][blockIndex] = true;
@@ -112,7 +116,7 @@ void BytecodeLivenessAnalysis::dumpResults(CodeBlock* codeBlock)
         }
     };
 
-    for (BytecodeBasicBlock& block : m_graph) {
+    for (auto& block : m_graph) {
         dataLogF("\nBytecode basic block %u: %p (offset: %u, length: %u)\n", i++, &block, block.leaderOffset(), block.totalLength());
 
         dataLogF("Predecessors:");
@@ -155,7 +159,7 @@ void BytecodeLivenessAnalysis::dumpResults(CodeBlock* codeBlock)
 }
 
 template<typename EnumType1, typename EnumType2>
-constexpr bool enumValuesEqualAsIntegral(EnumType1 v1, EnumType2 v2)
+constexpr bool NODELETE enumValuesEqualAsIntegral(EnumType1 v1, EnumType2 v2)
 {
     using IntType1 = typename std::underlying_type<EnumType1>::type;
     using IntType2 = typename std::underlying_type<EnumType2>::type;
@@ -165,9 +169,9 @@ constexpr bool enumValuesEqualAsIntegral(EnumType1 v1, EnumType2 v2)
         return static_cast<IntType2>(v1) == static_cast<IntType2>(v2);
 }
 
-Bitmap<maxNumCheckpointTmps> tmpLivenessForCheckpoint(const CodeBlock& codeBlock, BytecodeIndex bytecodeIndex)
+WTF::BitSet<maxNumCheckpointTmps> tmpLivenessForCheckpoint(const CodeBlock& codeBlock, BytecodeIndex bytecodeIndex)
 {
-    Bitmap<maxNumCheckpointTmps> result;
+    WTF::BitSet<maxNumCheckpointTmps> result;
     Checkpoint checkpoint = bytecodeIndex.checkpoint();
 
     if (!checkpoint)
@@ -176,9 +180,11 @@ Bitmap<maxNumCheckpointTmps> tmpLivenessForCheckpoint(const CodeBlock& codeBlock
     switch (codeBlock.instructions().at(bytecodeIndex)->opcodeID()) {
     case op_call_varargs:
     case op_tail_call_varargs:
-    case op_construct_varargs: {
+    case op_construct_varargs:
+    case op_super_construct_varargs: {
         static_assert(enumValuesEqualAsIntegral(OpCallVarargs::makeCall, OpTailCallVarargs::makeCall) && enumValuesEqualAsIntegral(OpCallVarargs::argCountIncludingThis, OpTailCallVarargs::argCountIncludingThis));
         static_assert(enumValuesEqualAsIntegral(OpCallVarargs::makeCall, OpConstructVarargs::makeCall) && enumValuesEqualAsIntegral(OpCallVarargs::argCountIncludingThis, OpConstructVarargs::argCountIncludingThis));
+        static_assert(enumValuesEqualAsIntegral(OpCallVarargs::makeCall, OpSuperConstructVarargs::makeCall) && enumValuesEqualAsIntegral(OpCallVarargs::argCountIncludingThis, OpSuperConstructVarargs::argCountIncludingThis));
         if (checkpoint == OpCallVarargs::makeCall)
             result.set(OpCallVarargs::argCountIncludingThis);
         return result;
@@ -186,8 +192,14 @@ Bitmap<maxNumCheckpointTmps> tmpLivenessForCheckpoint(const CodeBlock& codeBlock
     case op_iterator_open: {
         return result;
     }
+    case op_async_iterator_open: {
+        return result;
+    }
     case op_iterator_next: {
         result.set(OpIteratorNext::nextResult);
+        return result;
+    }
+    case op_instanceof: {
         return result;
     }
     default:

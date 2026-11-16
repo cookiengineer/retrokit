@@ -28,6 +28,8 @@
 #if ENABLE(B3_JIT)
 
 #include "AirArg.h"
+#include "AirHelpers.h"
+#include "AirOpcode.h"
 #include "B3AtomicValue.h"
 
 namespace JSC { namespace B3 {
@@ -39,8 +41,10 @@ inline bool MemoryValue::isLegalOffsetImpl(int32_t offset) const
     // So far only X86 allows exotic loads to have an offset.
     if (requiresSimpleAddr())
         return !offset;
-    
-    return Air::Arg::isValidAddrForm(offset, accessWidth());
+
+    // The opcode is only used on ARM and Air::Move is appropriate for
+    // loads/stores.
+    return Air::Arg::isValidAddrForm(Air::moveForType(accessType()), offset, accessWidth());
 }
 
 inline bool MemoryValue::requiresSimpleAddr() const
@@ -76,6 +80,11 @@ inline Width MemoryValue::accessWidth() const
         RELEASE_ASSERT_NOT_REACHED();
         return Width8;
     }
+}
+
+inline bool MemoryValue::isCanonicalWidth() const
+{
+    return JSC::isCanonicalWidth(accessWidth());
 }
 
 } } // namespace JSC::B3

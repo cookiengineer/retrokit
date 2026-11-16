@@ -29,7 +29,7 @@ namespace JSC {
 
 STATIC_ASSERT_IS_TRIVIALLY_DESTRUCTIBLE(StringObject);
 
-const ClassInfo StringObject::s_info = { "String", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(StringObject) };
+const ClassInfo StringObject::s_info = { "String"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(StringObject) };
 
 StringObject::StringObject(VM& vm, Structure* structure)
     : Base(vm, structure)
@@ -39,14 +39,14 @@ StringObject::StringObject(VM& vm, Structure* structure)
 void StringObject::finishCreation(VM& vm, JSString* string)
 {
     Base::finishCreation(vm);
-    ASSERT(inherits(vm, info()));
+    ASSERT(inherits(info()));
     setInternalValue(vm, string);
     ASSERT_WITH_MESSAGE(type() == StringObjectType || type() == DerivedStringObjectType, "Instance inheriting StringObject should have DerivedStringObjectType");
 }
 
 bool StringObject::getOwnPropertySlot(JSObject* cell, JSGlobalObject* globalObject, PropertyName propertyName, PropertySlot& slot)
 {
-    StringObject* thisObject = jsCast<StringObject*>(cell);
+    StringObject* thisObject = uncheckedDowncast<StringObject>(cell);
     if (thisObject->internalValue()->getStringPropertySlot(globalObject, propertyName, slot))
         return true;
     return JSObject::getOwnPropertySlot(thisObject, globalObject, propertyName, slot);
@@ -54,7 +54,7 @@ bool StringObject::getOwnPropertySlot(JSObject* cell, JSGlobalObject* globalObje
     
 bool StringObject::getOwnPropertySlotByIndex(JSObject* object, JSGlobalObject* globalObject, unsigned propertyName, PropertySlot& slot)
 {
-    StringObject* thisObject = jsCast<StringObject*>(object);
+    StringObject* thisObject = uncheckedDowncast<StringObject>(object);
     if (thisObject->internalValue()->getStringPropertySlot(globalObject, propertyName, slot))
         return true;    
     VM& vm = globalObject->vm();
@@ -66,11 +66,11 @@ bool StringObject::put(JSCell* cell, JSGlobalObject* globalObject, PropertyName 
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    StringObject* thisObject = jsCast<StringObject*>(cell);
+    StringObject* thisObject = uncheckedDowncast<StringObject>(cell);
 
     if (propertyName == vm.propertyNames->length)
         return typeError(globalObject, scope, slot.isStrictMode(), ReadonlyPropertyWriteError);
-    if (UNLIKELY(slot.thisValue() != thisObject))
+    if (slot.thisValue() != thisObject) [[unlikely]]
         RELEASE_AND_RETURN(scope, JSObject::put(cell, globalObject, propertyName, value, slot));
     if (std::optional<uint32_t> index = parseIndex(propertyName)) 
         RELEASE_AND_RETURN(scope, putByIndex(cell, globalObject, index.value(), value, slot.isStrictMode()));
@@ -82,13 +82,13 @@ bool StringObject::putByIndex(JSCell* cell, JSGlobalObject* globalObject, unsign
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    StringObject* thisObject = jsCast<StringObject*>(cell);
+    StringObject* thisObject = uncheckedDowncast<StringObject>(cell);
     if (thisObject->internalValue()->canGetIndex(propertyName))
         return typeError(globalObject, scope, shouldThrow, ReadonlyPropertyWriteError);
     RELEASE_AND_RETURN(scope, JSObject::putByIndex(cell, globalObject, propertyName, value, shouldThrow));
 }
 
-static bool isStringOwnProperty(JSGlobalObject* globalObject, StringObject* object, PropertyName propertyName)
+static bool NODELETE isStringOwnProperty(JSGlobalObject* globalObject, StringObject* object, PropertyName propertyName)
 {
     VM& vm = globalObject->vm();
     if (propertyName == vm.propertyNames->length)
@@ -104,7 +104,7 @@ bool StringObject::defineOwnProperty(JSObject* object, JSGlobalObject* globalObj
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
-    StringObject* thisObject = jsCast<StringObject*>(object);
+    StringObject* thisObject = uncheckedDowncast<StringObject>(object);
 
     if (isStringOwnProperty(globalObject, thisObject, propertyName)) {
         // The current PropertyDescriptor is always
@@ -127,7 +127,7 @@ bool StringObject::defineOwnProperty(JSObject* object, JSGlobalObject* globalObj
 bool StringObject::deleteProperty(JSCell* cell, JSGlobalObject* globalObject, PropertyName propertyName, DeletePropertySlot& slot)
 {
     VM& vm = globalObject->vm();
-    StringObject* thisObject = jsCast<StringObject*>(cell);
+    StringObject* thisObject = uncheckedDowncast<StringObject>(cell);
     if (propertyName == vm.propertyNames->length)
         return false;
     std::optional<uint32_t> index = parseIndex(propertyName);
@@ -138,16 +138,16 @@ bool StringObject::deleteProperty(JSCell* cell, JSGlobalObject* globalObject, Pr
 
 bool StringObject::deletePropertyByIndex(JSCell* cell, JSGlobalObject* globalObject, unsigned i)
 {
-    StringObject* thisObject = jsCast<StringObject*>(cell);
+    StringObject* thisObject = uncheckedDowncast<StringObject>(cell);
     if (thisObject->internalValue()->canGetIndex(i))
         return false;
     return JSObject::deletePropertyByIndex(thisObject, globalObject, i);
 }
 
-void StringObject::getOwnPropertyNames(JSObject* object, JSGlobalObject* globalObject, PropertyNameArray& propertyNames, DontEnumPropertiesMode mode)
+void StringObject::getOwnPropertyNames(JSObject* object, JSGlobalObject* globalObject, PropertyNameArrayBuilder& propertyNames, DontEnumPropertiesMode mode)
 {
     VM& vm = globalObject->vm();
-    StringObject* thisObject = jsCast<StringObject*>(object);
+    StringObject* thisObject = uncheckedDowncast<StringObject>(object);
     if (propertyNames.includeStringProperties()) {
         int size = thisObject->internalValue()->length();
         for (int i = 0; i < size; ++i)

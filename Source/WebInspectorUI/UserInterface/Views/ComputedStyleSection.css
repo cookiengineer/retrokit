@@ -24,9 +24,11 @@
  */
 
 .computed-style-section {
-    padding-bottom: 3px;
+    padding-bottom: var(--computed-style-section-vertical-padding);
     color: var(--text-color-tertiary);
     -webkit-user-select: text;
+
+    --computed-style-section-vertical-padding: 3px;
 }
 
 .computed-style-section .computed-property-item {
@@ -40,6 +42,7 @@
 }
 
 .computed-style-section .computed-property-item.expanded {
+    margin-top: -0.5px;
     padding-bottom: 2px;
     background-color: var(--background-color-intermediate);
     border-top: 0.5px solid var(--text-color-quaternary);
@@ -67,7 +70,7 @@
     background-repeat: no-repeat;
     background-position: center;
     background-size: 13px 13px;
-    -webkit-appearance: none;
+    appearance: none;
 }
 
 .computed-style-section .computed-property-item .property-traces {
@@ -94,7 +97,6 @@
 .computed-style-section .computed-property-item .property-trace-item::before {
     content: "\2022";
     display: inline-block;
-    position: absolute;
     margin-left: -0.8em;
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,25 +25,27 @@
 
 #pragma once
 
+#include "WebURLSchemeHandlerIdentifier.h"
 #include "WebURLSchemeTaskProxy.h"
+#include <wtf/CheckedRef.h>
 #include <wtf/HashMap.h>
-#include <wtf/RefCounted.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 
 namespace WebCore {
 class ResourceError;
 class ResourceLoader;
 class ResourceResponse;
 class ResourceRequest;
+class SharedBuffer;
 }
 
 namespace WebKit {
 
 class WebPage;
-typedef uint64_t ResourceLoadIdentifier;
 
-class WebURLSchemeHandlerProxy : public RefCounted<WebURLSchemeHandlerProxy> {
+class WebURLSchemeHandlerProxy : public RefCountedAndCanMakeWeakPtr<WebURLSchemeHandlerProxy> {
 public:
-    static Ref<WebURLSchemeHandlerProxy> create(WebPage& page, uint64_t identifier)
+    static Ref<WebURLSchemeHandlerProxy> create(WebPage& page, WebURLSchemeHandlerIdentifier identifier)
     {
         return adoptRef(*new WebURLSchemeHandlerProxy(page, identifier));
     }
@@ -52,26 +54,26 @@ public:
     void startNewTask(WebCore::ResourceLoader&, WebFrame&);
     void stopAllTasks();
 
-    void loadSynchronously(ResourceLoadIdentifier, WebFrame&, const WebCore::ResourceRequest&, WebCore::ResourceResponse&, WebCore::ResourceError&, Vector<uint8_t>&);
+    void loadSynchronously(WebCore::ResourceLoaderIdentifier, WebFrame&, const WebCore::ResourceRequest&, WebCore::ResourceResponse&, WebCore::ResourceError&, Vector<uint8_t>&);
 
-    uint64_t identifier() const { return m_identifier; }
-    WebPage& page() { return m_webPage; }
+    WebURLSchemeHandlerIdentifier identifier() const { return m_identifier; }
+    WebPage& page() { return m_webPage.get(); }
 
-    void taskDidPerformRedirection(uint64_t taskIdentifier, WebCore::ResourceResponse&&, WebCore::ResourceRequest&&, CompletionHandler<void(WebCore::ResourceRequest&&)>&&);
-    void taskDidReceiveResponse(uint64_t taskIdentifier, const WebCore::ResourceResponse&);
-    void taskDidReceiveData(uint64_t taskIdentifier, size_t, const uint8_t* data);
-    void taskDidComplete(uint64_t taskIdentifier, const WebCore::ResourceError&);
+    void taskDidPerformRedirection(WebCore::ResourceLoaderIdentifier, WebCore::ResourceResponse&&, WebCore::ResourceRequest&&, CompletionHandler<void(WebCore::ResourceRequest&&)>&&);
+    void taskDidReceiveResponse(WebCore::ResourceLoaderIdentifier, WebCore::ResourceResponse&&);
+    void taskDidReceiveData(WebCore::ResourceLoaderIdentifier, Ref<WebCore::SharedBuffer>&&);
+    void taskDidComplete(WebCore::ResourceLoaderIdentifier, const WebCore::ResourceError&);
     void taskDidStopLoading(WebURLSchemeTaskProxy&);
 
 private:
-    WebURLSchemeHandlerProxy(WebPage&, uint64_t identifier);
+    WebURLSchemeHandlerProxy(WebPage&, WebURLSchemeHandlerIdentifier);
 
-    RefPtr<WebURLSchemeTaskProxy> removeTask(uint64_t identifier);
+    RefPtr<WebURLSchemeTaskProxy> removeTask(WebCore::ResourceLoaderIdentifier);
 
-    WebPage& m_webPage;
-    uint64_t m_identifier { 0 };
+    WeakRef<WebPage> m_webPage;
+    WebURLSchemeHandlerIdentifier m_identifier;
 
-    HashMap<uint64_t, RefPtr<WebURLSchemeTaskProxy>> m_tasks;
+    HashMap<WebCore::ResourceLoaderIdentifier, Ref<WebURLSchemeTaskProxy>> m_tasks;
 }; // class WebURLSchemeHandlerProxy
 
 } // namespace WebKit

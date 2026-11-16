@@ -26,6 +26,7 @@
 #pragma once
 
 #include <JavaScriptCore/InspectorAgentBase.h>
+#include <wtf/WeakRef.h>
 #include <wtf/text/WTFString.h>
 
 namespace Inspector {
@@ -39,9 +40,9 @@ class WebPageProxy;
 
 // FIXME: move this to Inspector namespace when remaining agents move.
 struct WebPageAgentContext {
-    Inspector::FrontendRouter& frontendRouter;
-    Inspector::BackendDispatcher& backendDispatcher;
-    WebPageProxy& inspectedPage;
+    Ref<Inspector::FrontendRouter> frontendRouter;
+    Ref<Inspector::BackendDispatcher> backendDispatcher;
+    WeakRef<WebPageProxy> inspectedPage;
 };
 
 class InspectorAgentBase : public Inspector::InspectorAgentBase {

@@ -25,50 +25,64 @@
 #if ENABLE(MEDIA_STREAM) && USE(GSTREAMER)
 #include "CaptureDevice.h"
 #include "GStreamerVideoCapturer.h"
+#include "PipeWireCaptureDevice.h"
+#include "RealtimeMediaSourceCapabilities.h"
 #include "RealtimeVideoCaptureSource.h"
+#include "VideoFrameGStreamer.h"
 
 namespace WebCore {
 
-class GStreamerVideoCaptureSource : public RealtimeVideoCaptureSource, GStreamerCapturer::Observer {
+class GStreamerVideoCaptureSource final : public RealtimeVideoCaptureSource, GStreamerCapturerObserver {
 public:
-    static CaptureSourceOrError create(String&& deviceID, String&& hashSalt, const MediaConstraints*);
-    static CaptureSourceOrError createPipewireSource(String&& deviceID, int fd, String&& hashSalt, const MediaConstraints*, CaptureDevice::DeviceType);
+    static CaptureSourceOrError create(String&& deviceID, MediaDeviceHashSalts&&, const MediaConstraints*);
+    static CaptureSourceOrError createPipewireSource(const PipeWireCaptureDevice&, MediaDeviceHashSalts&&, const MediaConstraints*);
 
     WEBCORE_EXPORT static VideoCaptureFactory& factory();
 
     WEBCORE_EXPORT static DisplayCaptureFactory& displayFactory();
 
-    const RealtimeMediaSourceCapabilities& capabilities() override;
-    const RealtimeMediaSourceSettings& settings() override;
+    using RealtimeVideoCaptureSource::ref;
+    using RealtimeVideoCaptureSource::deref;
+    void virtualRef() const final { RealtimeVideoCaptureSource::ref(); }
+    void virtualDeref() const final { RealtimeVideoCaptureSource::deref(); }
+
+    const RealtimeMediaSourceCapabilities& capabilities() final;
+    const RealtimeMediaSourceSettings& settings() final;
+    void configurationChanged() final;
+
     GstElement* pipeline() { return m_capturer->pipeline(); }
     GStreamerCapturer* capturer() { return m_capturer.get(); }
-    void processNewFrame(Ref<MediaSample>&&);
 
-    // GStreamerCapturer::Observer
+    // GStreamerCapturerObserver
     void sourceCapsChanged(const GstCaps*) final;
+    void captureEnded() final;
+    void captureDeviceUpdated(const GStreamerCaptureDevice&) final;
+
+    std::pair<GstClockTime, GstClockTime> queryCaptureLatency() const final;
 
 protected:
-    GStreamerVideoCaptureSource(String&& deviceID, String&& name, String&& hashSalt, const gchar* source_factory, CaptureDevice::DeviceType, int fd);
-    GStreamerVideoCaptureSource(GStreamerCaptureDevice, String&& hashSalt);
+    GStreamerVideoCaptureSource(GStreamerCaptureDevice&&, MediaDeviceHashSalts&&);
+    GStreamerVideoCaptureSource(const PipeWireCaptureDevice&, MediaDeviceHashSalts&&);
     virtual ~GStreamerVideoCaptureSource();
-    void startProducingData() override;
-    void stopProducingData() override;
+    void startProducingData() final;
+    void stopProducingData() final;
     bool canResizeVideoFrames() const final { return true; }
-    void generatePresets() override;
-
+    void generatePresets() final;
+    void setSizeFrameRateAndZoom(const VideoPresetConstraints&) final;
+    void applyFrameRateAndZoomWithPreset(double, double, std::optional<VideoPreset>&&) final;
 
     mutable std::optional<RealtimeMediaSourceCapabilities> m_capabilities;
     mutable std::optional<RealtimeMediaSourceSettings> m_currentSettings;
-    CaptureDevice::DeviceType deviceType() const override { return m_deviceType; }
+    CaptureDevice::DeviceType deviceType() const final { return m_deviceType; }
 
 private:
-    static GstFlowReturn newSampleCallback(GstElement*, GStreamerVideoCaptureSource*);
-
     bool isCaptureSource() const final { return true; }
     void settingsDidChange(OptionSet<RealtimeMediaSourceSettings::Flag>) final;
 
-    std::unique_ptr<GStreamerVideoCapturer> m_capturer;
+    RefPtr<GStreamerVideoCapturer> m_capturer;
     CaptureDevice::DeviceType m_deviceType;
+
+    std::optional<VideoPreset> m_currentPreset;
 };
 
 } // namespace WebCore

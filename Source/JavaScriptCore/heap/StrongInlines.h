@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,8 +25,12 @@
 
 #pragma once
 
-#include "JSCJSValueInlines.h"
-#include "VM.h"
+#include <JavaScriptCore/Strong.h>
+#include <JavaScriptCore/VM.h>
+
+#if ENABLE(REFTRACKER)
+#include <JavaScriptCore/InitializeThreading.h>
+#endif
 
 namespace JSC {
 
@@ -50,6 +54,30 @@ inline void Strong<T, shouldStrongDestructorGrabLock>::set(VM& vm, ExternalType 
     if (!slot())
         setSlot(vm.heap.handleSet()->allocate());
     set(value);
+}
+
+template <typename T, ShouldStrongDestructorGrabLock shouldStrongDestructorGrabLock>
+template <typename U> Strong<T, shouldStrongDestructorGrabLock>& Strong<T, shouldStrongDestructorGrabLock>::operator=(const Strong<U>& other)
+{
+    if (!other.slot()) {
+        clear();
+        return *this;
+    }
+
+    set(*HandleSet::heapFor(other.slot())->vm(), other.get());
+    return *this;
+}
+
+template <typename T, ShouldStrongDestructorGrabLock shouldStrongDestructorGrabLock>
+Strong<T, shouldStrongDestructorGrabLock>& Strong<T, shouldStrongDestructorGrabLock>::operator=(const Strong& other)
+{
+    if (!other.slot()) {
+        clear();
+        return *this;
+    }
+
+    set(HandleSet::heapFor(other.slot())->vm(), other.get());
+    return *this;
 }
 
 } // namespace JSC

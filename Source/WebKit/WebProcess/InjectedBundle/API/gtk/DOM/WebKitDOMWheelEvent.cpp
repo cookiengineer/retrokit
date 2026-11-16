@@ -55,7 +55,9 @@ WebKitDOMWheelEvent* wrapWheelEvent(WebCore::WheelEvent* coreObject)
 
 } // namespace WebKit
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK port
 G_DEFINE_TYPE(WebKitDOMWheelEvent, webkit_dom_wheel_event, WEBKIT_DOM_TYPE_MOUSE_EVENT)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 enum {
     DOM_WHEEL_EVENT_PROP_0,
@@ -130,8 +132,6 @@ void webkit_dom_wheel_event_init_wheel_event(WebKitDOMWheelEvent* self, glong wh
     WebCore::JSMainThreadNullState state;
     g_return_if_fail(WEBKIT_DOM_IS_WHEEL_EVENT(self));
     g_return_if_fail(WEBKIT_DOM_IS_DOM_WINDOW(view));
-    WebCore::WheelEvent* item = WebKit::core(self);
-    item->initWebKitWheelEvent(wheelDeltaX, wheelDeltaY, WebKit::toWindowProxy(view), screenX, screenY, clientX, clientY, ctrlKey, altKey, shiftKey, metaKey);
 }
 
 glong webkit_dom_wheel_event_get_wheel_delta_x(WebKitDOMWheelEvent* self)

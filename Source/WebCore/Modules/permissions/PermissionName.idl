@@ -39,5 +39,8 @@ enum PermissionName {
     "midi",
     "nfc",
     "notifications",
-    "speaker-selection"
+    "push",
+    "screen-wake-lock",
+    "speaker-selection",
+    "storage-access"
 };

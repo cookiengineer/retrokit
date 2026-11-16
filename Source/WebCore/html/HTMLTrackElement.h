@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2011 Google Inc. All rights reserved.
- * Copyright (C) 2011-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,69 +30,70 @@
 
 #include "ActiveDOMObject.h"
 #include "HTMLElement.h"
-#include "LoadableTextTrack.h"
+#include "TextTrackClient.h"
 
 namespace WebCore {
 
 class HTMLMediaElement;
+class LoadableTextTrack;
 
 class HTMLTrackElement final : public HTMLElement, public ActiveDOMObject, public TextTrackClient {
-    WTF_MAKE_ISO_ALLOCATED(HTMLTrackElement);
+    WTF_MAKE_TZONE_ALLOCATED(HTMLTrackElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLTrackElement);
 public:
     static Ref<HTMLTrackElement> create(const QualifiedName&, Document&);
 
-    const AtomString& kind();
-    void setKind(const AtomString&);
+    // ActiveDOMObject.
+    void ref() const final { HTMLElement::ref(); }
+    void deref() const final { HTMLElement::deref(); }
 
-    const AtomString& srclang() const;
-    const AtomString& label() const;
-    bool isDefault() const;
+    using HTMLElement::scriptExecutionContext;
+
+    USING_CAN_MAKE_WEAKPTR(HTMLElement);
+
+    const AtomString& kind();
+    bool NODELETE isDefault() const;
 
     enum ReadyState { NONE = 0, LOADING = 1, LOADED = 2, TRACK_ERROR = 3 };
-    ReadyState readyState() const;
+    ReadyState NODELETE readyState() const;
     void setReadyState(ReadyState);
 
-    LoadableTextTrack& track();
+    TextTrack& NODELETE track();
 
     void scheduleLoad();
 
     enum LoadStatus { Failure, Success };
     void didCompleteLoad(LoadStatus);
 
-    RefPtr<HTMLMediaElement> mediaElement() const;
+    RefPtr<HTMLMediaElement> NODELETE mediaElement() const;
     const AtomString& mediaElementCrossOriginAttribute() const;
 
-    void scheduleTask(Function<void()>&&);
+    void scheduleTask(Function<void(HTMLTrackElement&)>&&);
 
 private:
     HTMLTrackElement(const QualifiedName&, Document&);
     virtual ~HTMLTrackElement();
 
     // ActiveDOMObject.
-    const char* activeDOMObjectName() const final;
     bool virtualHasPendingActivity() const final;
 
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
 
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    void removedFromAncestor(RemovalType, ContainerNode&) final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void removingSteps(RemovalType, ContainerNode&) final;
+    void didMoveToNewDocument(Document& oldDocument, Document& newDocument) final;
 
-    bool isURLAttribute(const Attribute&) const final;
+    bool NODELETE isURLAttribute(const Attribute&) const final;
 
     // EventTarget.
     void eventListenersDidChange() final;
 
     // TextTrackClient
     void textTrackModeChanged(TextTrack&) final;
-    void textTrackKindChanged(TextTrack&) final;
-    void textTrackAddCues(TextTrack&, const TextTrackCueList&) final;
-    void textTrackRemoveCues(TextTrack&, const TextTrackCueList&) final;
-    void textTrackAddCue(TextTrack&, TextTrackCue&) final;
-    void textTrackRemoveCue(TextTrack&, TextTrackCue&) final;
 
     bool canLoadURL(const URL&);
 
-    RefPtr<LoadableTextTrack> m_track;
+    const Ref<LoadableTextTrack> m_track;
     bool m_loadPending { false };
     bool m_hasRelevantLoadEventsListener { false };
 };

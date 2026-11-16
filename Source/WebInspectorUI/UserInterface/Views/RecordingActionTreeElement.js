@@ -29,14 +29,13 @@ WI.RecordingActionTreeElement = class RecordingActionTreeElement extends WI.Gene
     {
         console.assert(representedObject instanceof WI.RecordingAction);
 
-        let {titleFragment, copyText} = WI.RecordingActionTreeElement._generateDOM(representedObject, recordingType);
+        let titleFragment = WI.RecordingActionTreeElement._generateDOM(representedObject, recordingType);
         let classNames = WI.RecordingActionTreeElement._getClassNames(representedObject);
 
         const subtitle = null;
         super(classNames, titleFragment, subtitle, representedObject);
 
         this._index = index;
-        this._copyText = copyText;
 
         if (this.representedObject.valid)
             this.representedObject.singleFireEventListener(WI.RecordingAction.Event.ValidityChanged, this._handleValidityChanged, this);
@@ -55,9 +54,13 @@ WI.RecordingActionTreeElement = class RecordingActionTreeElement extends WI.Gene
             switch (swizzleType) {
             case WI.Recording.Swizzle.Number:
                 var constantNameForParameter = WI.RecordingAction.constantNameForParameter(recordingType, recordingAction.name, parameter, index, parameterCount);
+                var bitfieldNamesForParameter = WI.RecordingAction.bitfieldNamesForParameter(recordingType, recordingAction.name, parameter, index, parameterCount);
                 if (constantNameForParameter) {
                     parameterElement.classList.add("constant");
                     parameterElement.textContent = "context." + constantNameForParameter;
+                } else if (bitfieldNamesForParameter) {
+                    parameterElement.classList.add("constant");
+                    parameterElement.textContent = bitfieldNamesForParameter.map((p) => p.startsWith("0x") ? p : "context." + p).join(" | ");
                 } else
                     parameterElement.textContent = parameter.maxDecimals(2);
                 break;
@@ -83,6 +86,10 @@ WI.RecordingActionTreeElement = class RecordingActionTreeElement extends WI.Gene
             case WI.Recording.Swizzle.Path2D:
             case WI.Recording.Swizzle.CanvasGradient:
             case WI.Recording.Swizzle.CanvasPattern:
+                    parameterElement.classList.add("swizzled");
+                    parameterElement.textContent = WI.Recording.displayNameForSwizzleType(swizzleType);
+                    break;
+
             case WI.Recording.Swizzle.WebGLBuffer:
             case WI.Recording.Swizzle.WebGLFramebuffer:
             case WI.Recording.Swizzle.WebGLRenderbuffer:
@@ -94,10 +101,17 @@ WI.RecordingActionTreeElement = class RecordingActionTreeElement extends WI.Gene
             case WI.Recording.Swizzle.WebGLSampler:
             case WI.Recording.Swizzle.WebGLSync:
             case WI.Recording.Swizzle.WebGLTransformFeedback:
-            case WI.Recording.Swizzle.WebGLVertexArrayObject:
-                parameterElement.classList.add("swizzled");
-                parameterElement.textContent = WI.Recording.displayNameForSwizzleType(swizzleType);
+            case WI.Recording.Swizzle.WebGLVertexArrayObject: {
+                let parameterTypeText = WI.Recording.displayNameForSwizzleType(swizzleType);
+                if (!isNaN(parameter)) {
+                    parameterElement.classList.add("object-handle");
+                    parameterElement.textContent = `${parameterTypeText}${parameter + 1}`;
+                } else {
+                    parameterElement.classList.add("swizzled");
+                    parameterElement.textContent = parameterTypeText;
+                }
                 break;
+            }
             }
 
             if (!parameterElement.textContent) {
@@ -109,15 +123,14 @@ WI.RecordingActionTreeElement = class RecordingActionTreeElement extends WI.Gene
         }
 
         let titleFragment = document.createDocumentFragment();
-        let copyText = recordingAction.name;
 
         let contextReplacer = recordingAction.contextReplacer;
         if (contextReplacer) {
-            copyText = contextReplacer + "." + copyText;
-
             let contextReplacerContainer = titleFragment.appendChild(document.createElement("span"));
             contextReplacerContainer.classList.add("context-replacer");
             contextReplacerContainer.textContent = contextReplacer;
+
+            titleFragment.appendChild(document.createTextNode("."));
         }
 
         let nameContainer = titleFragment.appendChild(document.createElement("span"));
@@ -125,30 +138,26 @@ WI.RecordingActionTreeElement = class RecordingActionTreeElement extends WI.Gene
         nameContainer.textContent = recordingAction.name;
 
         if (!parameterCount)
-            return {titleFragment, copyText};
+            return titleFragment;
+
+        titleFragment.appendChild(document.createTextNode(recordingAction.isFunction ? "(" : " = "));
 
         let parametersContainer = titleFragment.appendChild(document.createElement("span"));
         parametersContainer.classList.add("parameters");
 
-        if (recordingAction.isFunction)
-            copyText += "(";
-        else
-            copyText += " = ";
-
         for (let i = 0; i < parameterCount; ++i) {
             let parameter = recordingAction.parameters[i];
             let swizzleType = recordingAction.swizzleTypes[i];
-            let parameterElement = createParameterElement(parameter, swizzleType, i);
-            parametersContainer.appendChild(parameterElement);
 
             if (i)
-                copyText += ", ";
+                parametersContainer.appendChild(document.createTextNode(", "));
 
-            copyText += parameterElement.textContent;
+            let parameterElement = createParameterElement(parameter, swizzleType, i);
+            parametersContainer.appendChild(parameterElement);
         }
 
         if (recordingAction.isFunction)
-            copyText += ")";
+            titleFragment.appendChild(document.createTextNode(")"));
 
         let colorParameters = recordingAction.getColorParameters();
         if (colorParameters.length) {
@@ -185,7 +194,7 @@ WI.RecordingActionTreeElement = class RecordingActionTreeElement extends WI.Gene
             }
         }
 
-        return {titleFragment, copyText};
+        return titleFragment;
     }
 
     static _createSwatchForColorParameters(parameters)
@@ -225,8 +234,7 @@ WI.RecordingActionTreeElement = class RecordingActionTreeElement extends WI.Gene
                 return null;
         }
 
-        const readOnly = true;
-        return new WI.InlineSwatch(WI.InlineSwatch.Type.Color, color, readOnly);
+        return new WI.InlineSwatch(WI.InlineSwatch.Type.Color, color, {readOnly: true});
     }
 
     static _getClassNames(recordingAction)
@@ -285,7 +293,6 @@ WI.RecordingActionTreeElement = class RecordingActionTreeElement extends WI.Gene
         case "createImageData":
         case "drawFocusIfNeeded":
         case "drawImage":
-        case "drawImageFromRect":
         case "filter":
         case "getImageData":
         case "imageSmoothingEnabled":
@@ -397,11 +404,6 @@ WI.RecordingActionTreeElement = class RecordingActionTreeElement extends WI.Gene
 
     // Protected
 
-    customTitleTooltip()
-    {
-        return this._copyText;
-    }
-
     onattach()
     {
         super.onattach();
@@ -417,19 +419,12 @@ WI.RecordingActionTreeElement = class RecordingActionTreeElement extends WI.Gene
     populateContextMenu(contextMenu, event)
     {
         contextMenu.appendItem(WI.UIString("Copy Action"), () => {
-            InspectorFrontendHost.copyText("context." + this._copyText + ";");
+            InspectorFrontendHost.copyText(`context.${this.mainTitle};`);
         });
 
         contextMenu.appendSeparator();
 
-        let sourceCodeLocation = null;
-        for (let callFrame of this.representedObject.trace) {
-            if (callFrame.sourceCodeLocation) {
-                sourceCodeLocation = callFrame.sourceCodeLocation;
-                break;
-            }
-        }
-
+        let sourceCodeLocation = this.representedObject.stackTrace?.firstNonNativeNonAnonymousNotBlackboxedCallFrame;
         if (sourceCodeLocation) {
             contextMenu.appendItem(WI.UIString("Reveal in Sources Tab"), () => {
                 WI.showSourceCodeLocation(sourceCodeLocation, {

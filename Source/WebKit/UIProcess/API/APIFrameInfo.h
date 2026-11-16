@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,15 +27,15 @@
 
 #include "APIObject.h"
 #include "FrameInfoData.h"
-#include "WebPageProxy.h"
 #include <WebCore/ResourceRequest.h>
 
 namespace WebCore {
-struct SecurityOriginData;
+class SecurityOriginData;
 }
 
 namespace WebKit {
 class WebFrameProxy;
+class WebPageProxy;
 struct FrameInfoData;
 }
 
@@ -46,21 +46,31 @@ class SecurityOrigin;
 
 class FrameInfo final : public ObjectImpl<Object::Type::FrameInfo> {
 public:
-    static Ref<FrameInfo> create(WebKit::FrameInfoData&&, WebKit::WebPageProxy*);
+    static Ref<FrameInfo> create(WebKit::FrameInfoData&&);
     virtual ~FrameInfo();
 
     bool isMainFrame() const { return m_data.isMainFrame; }
-    const WebCore::ResourceRequest& request() const { return m_data.request; }
-    WebCore::SecurityOriginData& securityOrigin() { return m_data.securityOrigin; }
+    bool isLocalFrame() const { return m_data.frameType == WebKit::FrameType::Local; }
+    const WebCore::ResourceRequest& request() const LIFETIME_BOUND { return m_data.request; }
+    const WebCore::SecurityOriginData& securityOrigin() const LIFETIME_BOUND { return m_data.securityOrigin; }
     Ref<FrameHandle> handle() const;
-    WebKit::WebPageProxy* page() { return m_page.get(); }
+    WebKit::WebPageProxy* page();
+    const WebKit::WebPageProxy* page() const;
     RefPtr<FrameHandle> parentFrameHandle() const;
+    Markable<WebCore::ScriptExecutionContextIdentifier> documentID() const { return m_data.documentID; }
+    ProcessID processID() const { return m_data.processID; }
+    bool isFocused() const { return m_data.isFocused; }
+    bool errorOccurred() const { return m_data.errorOccurred; }
+    WTF::String title() const;
+
+    const WebKit::FrameInfoData& frameInfoData() const LIFETIME_BOUND { return m_data; }
 
 private:
-    FrameInfo(WebKit::FrameInfoData&&, WebKit::WebPageProxy*);
+    FrameInfo(WebKit::FrameInfoData&&);
 
-    WebKit::FrameInfoData m_data;
-    RefPtr<WebKit::WebPageProxy> m_page;
+    const WebKit::FrameInfoData m_data;
 };
 
 } // namespace API
+
+SPECIALIZE_TYPE_TRAITS_API_OBJECT(FrameInfo);

@@ -37,7 +37,7 @@ namespace WTF {
 template<typename Graph>
 class BackwardsGraph {
     WTF_MAKE_NONCOPYABLE(BackwardsGraph);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(BackwardsGraph);
 public:
     using Node = SingleRootGraphNode<Graph>;
     using Set = SingleRootGraphSet<Graph>;
@@ -50,9 +50,9 @@ public:
         GraphNodeWorklist<typename Graph::Node, typename Graph::Set> worklist;
 
         auto addRootSuccessor = [&] (typename Graph::Node node) {
-            if (worklist.push(node)) {
+            if (m_rootSuccessorSet.add(node))
                 m_rootSuccessorList.append(node);
-                m_rootSuccessorSet.add(node);
+            if (worklist.push(node)) {
                 while (typename Graph::Node node = worklist.pop())
                     worklist.pushAll(graph.predecessors(node));
             }
@@ -77,8 +77,10 @@ public:
 
         for (unsigned i = 0; i < graph.numNodes(); ++i) {
             if (typename Graph::Node node = graph.node(i)) {
-                if (!graph.successors(node).size())
+                if (!graph.successors(node).size()) {
+                    ASSERT(!worklist.saw(node));
                     addRootSuccessor(node);
+                }
             }
         }
 
@@ -88,8 +90,10 @@ public:
         // edges. That would require thinking, so we just use a rough heuristic: add the highest
         // numbered nodes first, which is totally fine if the input program is already sorted nicely.
         for (unsigned i = graph.numNodes(); i--;) {
-            if (typename Graph::Node node = graph.node(i))
-                addRootSuccessor(node);
+            if (typename Graph::Node node = graph.node(i)) {
+                if (!worklist.saw(node))
+                    addRootSuccessor(node);
+            }
         }
     }
 
@@ -161,17 +165,17 @@ public:
             Node node = this->node(i);
             if (!node)
                 continue;
-            out.print(dump(node), ":\n");
-            out.print("    Preds: ");
+            out.print(dump(node), ":\n"_s);
+            out.print("    Preds: "_s);
             CommaPrinter comma;
             for (Node predecessor : predecessors(node))
                 out.print(comma, dump(predecessor));
-            out.print("\n");
-            out.print("    Succs: ");
+            out.print("\n"_s);
+            out.print("    Succs: "_s);
             comma = CommaPrinter();
             for (Node successor : successors(node))
                 out.print(comma, dump(successor));
-            out.print("\n");
+            out.print("\n"_s);
         }
     }
 

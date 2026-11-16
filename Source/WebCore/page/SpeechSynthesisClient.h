@@ -27,7 +27,7 @@
 
 #if ENABLE(SPEECH_SYNTHESIS)
 
-#include <wtf/WeakPtr.h>
+#include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 
 namespace WebCore {
 
@@ -35,22 +35,23 @@ class PlatformSpeechSynthesisUtterance;
 class SpeechSynthesisClientObserver;
 class PlatformSpeechSynthesisVoice;
     
-class SpeechSynthesisClient : public CanMakeWeakPtr<SpeechSynthesisClient> {
+class SpeechSynthesisClient : public AbstractRefCountedAndCanMakeWeakPtr<SpeechSynthesisClient> {
 public:
     virtual ~SpeechSynthesisClient() = default;
 
     virtual void setObserver(WeakPtr<SpeechSynthesisClientObserver>) = 0;
     virtual WeakPtr<SpeechSynthesisClientObserver> observer() const = 0;
     
-    virtual const Vector<RefPtr<PlatformSpeechSynthesisVoice>>& voiceList() = 0;
+    virtual const Vector<Ref<PlatformSpeechSynthesisVoice>>& voiceList() = 0;
     virtual void speak(RefPtr<PlatformSpeechSynthesisUtterance>) = 0;
     virtual void cancel() = 0;
     virtual void pause() = 0;
     virtual void resume() = 0;
+    virtual void resetState() = 0;
 
 };
 
-class SpeechSynthesisClientObserver : public CanMakeWeakPtr<SpeechSynthesisClientObserver>  {
+class SpeechSynthesisClientObserver : public AbstractRefCountedAndCanMakeWeakPtr<SpeechSynthesisClientObserver>  {
 public:
     virtual ~SpeechSynthesisClientObserver() = default;
 
@@ -59,7 +60,7 @@ public:
     virtual void didPauseSpeaking() = 0;
     virtual void didResumeSpeaking() = 0;
     virtual void speakingErrorOccurred() = 0;
-    virtual void boundaryEventOccurred(bool wordBoundary, unsigned charIndex) = 0;
+    virtual void boundaryEventOccurred(bool wordBoundary, unsigned charIndex, unsigned charLength) = 0;
     virtual void voicesChanged() = 0;
 };
 

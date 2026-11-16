@@ -1,4 +1,4 @@
-# Copyright (C) 2012-2020 Apple Inc. All rights reserved.
+# Copyright (C) 2012-2021 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -37,6 +37,8 @@ def cloopMapType(type)
     when :uintptr;        ".u()"
     when :int32;          ".i32()"
     when :uint32;         ".u32()"
+    when :int16;          ".i16()"
+    when :uint16;         ".u16()"
     when :int64;          ".i64()"
     when :uint64;         ".u64()"
     when :int8;           ".i8()"
@@ -85,6 +87,10 @@ class RegisterID
             "pc"
         when "t5"
             "t5"
+        when "t6"
+            "t6"
+        when "t7"
+            "t7"
         when "csr0"
             "pcBase"
         when "csr1"
@@ -259,9 +265,11 @@ class BaseIndex
         case type
         when :int8;       int8MemRef
         when :int32;      int32MemRef
+        when :int16;      int16MemRef
         when :int64;      int64MemRef
         when :intptr;     intptrMemRef
         when :uint8;      uint8MemRef
+        when :uint16;     uint16MemRef
         when :uint32;     uint32MemRef
         when :uint64;     uint64MemRef
         when :uintptr;    uintptrMemRef
@@ -560,7 +568,7 @@ end
 def cloopEmitCallSlowPath(operands)
     $asm.putc "{"
     $asm.putc "    cloopStack.setCurrentStackPointer(sp.vp());"
-    $asm.putc "    SlowPathReturnType result = #{operands[0].cLabel}(#{operands[1].clDump}, #{operands[2].clDump});"
+    $asm.putc "    UGPRPair result = #{operands[0].cLabel}(#{operands[1].clDump}, #{operands[2].clDump});"
     $asm.putc "    decodeResult(result, t0, t1);"
     $asm.putc "}"
 end
@@ -568,6 +576,22 @@ end
 def cloopEmitCallSlowPathVoid(operands)
     $asm.putc "cloopStack.setCurrentStackPointer(sp.vp());"
     $asm.putc "#{operands[0].cLabel}(#{operands[1].clDump}, #{operands[2].clDump});"
+end
+
+def cloopEmitCallSlowPath3(operands)
+    $asm.putc "{"
+    $asm.putc "    cloopStack.setCurrentStackPointer(sp.vp());"
+    $asm.putc "    UGPRPair result = #{operands[0].cLabel}(#{operands[1].clDump}, #{operands[2].clDump}, #{operands[3].clDump});"
+    $asm.putc "    decodeResult(result, t0, t1);"
+    $asm.putc "}"
+end
+
+def cloopEmitCallSlowPath4(operands)
+    $asm.putc "{"
+    $asm.putc "    cloopStack.setCurrentStackPointer(sp.vp());"
+    $asm.putc "    UGPRPair result = #{operands[0].cLabel}(#{operands[1].clDump}, #{operands[2].clDump}, #{operands[3].clDump}, #{operands[4].clDump});"
+    $asm.putc "    decodeResult(result, t0, t1);"
+    $asm.putc "}"
 end
 
 class Instruction
@@ -679,12 +703,17 @@ class Instruction
         when "loadhsq"
             $asm.putc "#{operands[1].clLValue(:uint64)} = (int64_t)#{operands[0].int16MemRef};"
         when "storeh"
-            $asm.putc "*#{operands[1].uint16MemRef} = #{operands[0].clValue(:int16)};"
+            $asm.putc "#{operands[1].uint16MemRef} = #{operands[0].clValue(:int16)};"
         when "loadd"
             $asm.putc "#{operands[1].clLValue(:double)} = #{operands[0].dblMemRef};"
         when "stored"
             $asm.putc "#{operands[1].dblMemRef} = #{operands[0].clValue(:double)};"
-
+        when "transferi"
+            $asm.putc "#{operands[1].uint32MemRef} = #{operands[0].uint32MemRef}"
+        when "transferq"
+            $asm.putc "#{operands[1].uint64MemRef} = #{operands[0].uint64MemRef}"
+        when "transferp"
+            $asm.putc "#{operands[1].uintptrMemRef} = #{operands[0].uintptrMemRef}"
         when "addd"
             cloopEmitOperation(operands, :double, "+")
         when "divd"
@@ -746,7 +775,7 @@ class Instruction
             $asm.putc "#{operands[1].clLValue(:int32)} = #{operands[0].clValue(:int8)};"
         when "sxh2i"
             $asm.putc "#{operands[1].clLValue(:int32)} = #{operands[0].clValue(:int16)};"
-        when "sxb2q"
+        when "sxb2q", "sxb2p"
             $asm.putc "#{operands[1].clLValue(:int64)} = #{operands[0].clValue(:int8)};"
         when "sxh2q"
             $asm.putc "#{operands[1].clLValue(:int64)} = #{operands[0].clValue(:int16)};"
@@ -1148,7 +1177,7 @@ class Instruction
             $asm.putc "lr = getOpcode(llint_cloop_did_return_from_js_#{uid});"
             $asm.putc "opcode = #{operands[0].clValue(:opcode)};"
             $asm.putc "DISPATCH_OPCODE();"
-            $asm.putsLabel("llint_cloop_did_return_from_js_#{uid}", false)
+            $asm.putsLabel("llint_cloop_did_return_from_js_#{uid}", false, false, false, false)
 
         # We can't do generic function calls with an arbitrary set of args, but
         # fortunately we don't have to here. All native function calls always
@@ -1156,7 +1185,7 @@ class Instruction
         when "cloopCallNative"
             $asm.putc "cloopStack.setCurrentStackPointer(sp.vp());"
             $asm.putc "nativeFunc = #{operands[0].clValue(:nativeFunc)};"
-            $asm.putc "functionReturnValue = JSValue::decode(nativeFunc(jsCast<JSGlobalObject*>(t0.cell()), t1.callFrame()));"
+            $asm.putc "functionReturnValue = JSValue::decode(nativeFunc(uncheckedDowncast<JSGlobalObject>(t0.cell()), t1.callFrame()));"
             $asm.putc "#if USE(JSVALUE32_64)"
             $asm.putc "    t1 = functionReturnValue.tag();"
             $asm.putc "    t0 = functionReturnValue.payload();"
@@ -1173,6 +1202,12 @@ class Instruction
         when "cloopCallSlowPathVoid"
             cloopEmitCallSlowPathVoid(operands)
 
+        when "cloopCallSlowPath3"
+            cloopEmitCallSlowPath3(operands)
+
+        when "cloopCallSlowPath4"
+            cloopEmitCallSlowPath4(operands)
+
         # For debugging only. This is used to insert instrumentation into the
         # generated LLIntAssembly.h during llint development only. Do not use
         # for production code.
@@ -1184,13 +1219,8 @@ class Instruction
         end
     end
 
-    def lowerC_LOOP_WIN
-        lowerC_LOOP
-    end
-
     def recordMetaDataC_LOOP
         $asm.codeOrigin codeOriginString if $enableCodeOriginComments
         $asm.annotation annotation if $enableInstrAnnotations && (opcode != "cloopDo")
-        $asm.debugAnnotation codeOrigin.debugDirective if $enableDebugAnnotations
     end
 end

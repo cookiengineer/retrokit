@@ -30,13 +30,18 @@
 #include "PageClientImpl.h"
 #include "WKView.h"
 #include "WebPageProxy.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebKit {
 
 class PlayStationWebView : public API::ObjectImpl<API::Object::Type::View> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(PlayStationWebView);
 public:
+#if USE(WPE_BACKEND_PLAYSTATION)
+    static RefPtr<PlayStationWebView> create(struct wpe_view_backend*, const API::PageConfiguration&);
+#else
     static RefPtr<PlayStationWebView> create(const API::PageConfiguration&);
+#endif
     virtual ~PlayStationWebView();
 
     void setClient(std::unique_ptr<API::ViewClient>&&);
@@ -46,14 +51,15 @@ public:
     void setViewSize(WebCore::IntSize);
     WebCore::IntSize viewSize() const { return m_viewSize; }
 
-    void setViewState(OptionSet<WebCore::ActivityState::Flag>);
-    OptionSet<WebCore::ActivityState::Flag> viewState() const { return m_viewStateFlags; }
+    void setViewState(OptionSet<WebCore::ActivityState>);
+    OptionSet<WebCore::ActivityState> viewState() const { return m_viewStateFlags; }
+
+#if USE(WPE_BACKEND_PLAYSTATION)
+    struct wpe_view_backend* backend() { return m_backend; }
+#endif
 
 #if ENABLE(FULLSCREEN_API)
-    void willEnterFullScreen();
-    void didEnterFullScreen();
-    void willExitFullScreen();
-    void didExitFullScreen();
+    void willEnterFullScreen(CompletionHandler<void(bool)>&&);
     void requestExitFullScreen();
 #endif
 
@@ -62,22 +68,29 @@ public:
 #if ENABLE(FULLSCREEN_API)
     bool isFullScreen();
     void closeFullScreenManager();
-    void enterFullScreen();
-    void exitFullScreen();
-    void beganEnterFullScreen(const WebCore::IntRect&, const WebCore::IntRect&);
-    void beganExitFullScreen(const WebCore::IntRect&, const WebCore::IntRect&);
+    void enterFullScreen(CompletionHandler<void(bool)>&&);
+    void exitFullScreen(CompletionHandler<void()>&&);
+    void beganEnterFullScreen(const WebCore::IntRect&, const WebCore::IntRect&, CompletionHandler<void(bool)>&&);
+    void beganExitFullScreen(const WebCore::IntRect&, const WebCore::IntRect&, CompletionHandler<void()>&&);
 #endif
     void setCursor(const WebCore::Cursor&);
 
 private:
+#if USE(WPE_BACKEND_PLAYSTATION)
+    PlayStationWebView(struct wpe_view_backend*, const API::PageConfiguration&);
+#else
     PlayStationWebView(const API::PageConfiguration&);
+#endif
 
     std::unique_ptr<API::ViewClient> m_client;
-    std::unique_ptr<WebKit::PageClientImpl> m_pageClient;
+    const std::unique_ptr<WebKit::PageClientImpl> m_pageClient;
     RefPtr<WebPageProxy> m_page;
-    OptionSet<WebCore::ActivityState::Flag> m_viewStateFlags;
+    OptionSet<WebCore::ActivityState> m_viewStateFlags;
 
     WebCore::IntSize m_viewSize;
+#if USE(WPE_BACKEND_PLAYSTATION)
+    struct wpe_view_backend* m_backend;
+#endif
 #if ENABLE(FULLSCREEN_API)
     bool m_isFullScreen { false };
 #endif

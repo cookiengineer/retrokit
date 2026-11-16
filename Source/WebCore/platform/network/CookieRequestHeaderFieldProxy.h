@@ -25,10 +25,10 @@
 
 #pragma once
 
-#include "CookieJar.h"
-#include "FrameIdentifier.h"
-#include "PageIdentifier.h"
-#include "SameSiteInfo.h"
+#include <WebCore/CookieJar.h>
+#include <WebCore/FrameIdentifier.h>
+#include <WebCore/PageIdentifier.h>
+#include <WebCore/SameSiteInfo.h>
 #include <wtf/URL.h>
 
 namespace WebCore {
@@ -40,52 +40,6 @@ struct CookieRequestHeaderFieldProxy {
     std::optional<FrameIdentifier> frameID;
     std::optional<PageIdentifier> pageID;
     IncludeSecureCookies includeSecureCookies { IncludeSecureCookies::No };
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<CookieRequestHeaderFieldProxy> decode(Decoder&);
 };
-
-template<class Encoder>
-void CookieRequestHeaderFieldProxy::encode(Encoder& encoder) const
-{
-    encoder << firstParty;
-    encoder << sameSiteInfo;
-    encoder << url;
-    encoder << frameID;
-    encoder << pageID;
-    encoder << includeSecureCookies;
-}
-
-template<class Decoder>
-std::optional<CookieRequestHeaderFieldProxy> CookieRequestHeaderFieldProxy::decode(Decoder& decoder)
-{
-    URL firstParty;
-    if (!decoder.decode(firstParty))
-        return std::nullopt;
-
-    SameSiteInfo sameSiteInfo;
-    if (!decoder.decode(sameSiteInfo))
-        return std::nullopt;
-
-    URL url;
-    if (!decoder.decode(url))
-        return std::nullopt;
-
-    std::optional<std::optional<FrameIdentifier>> frameID;
-    decoder >> frameID;
-    if (!frameID)
-        return std::nullopt;
-
-    std::optional<std::optional<PageIdentifier>> pageID;
-    decoder >> pageID;
-    if (!pageID)
-        return std::nullopt;
-
-    IncludeSecureCookies includeSecureCookies;
-    if (!decoder.decode(includeSecureCookies))
-        return std::nullopt;
-
-    return CookieRequestHeaderFieldProxy { WTFMove(firstParty), WTFMove(sameSiteInfo), WTFMove(url), *frameID, *pageID, includeSecureCookies };
-}
 
 } // namespace WebCore

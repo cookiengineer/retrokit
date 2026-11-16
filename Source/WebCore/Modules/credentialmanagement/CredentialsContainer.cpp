@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2017 Google Inc. All rights reserved.
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,107 +29,187 @@
 
 #if ENABLE(WEB_AUTHN)
 
-#include "AbortSignal.h"
+#include "AuthenticatorCoordinator.h"
 #include "CredentialCreationOptions.h"
+#include "CredentialRequestCoordinator.h"
 #include "CredentialRequestOptions.h"
-#include "Document.h"
-#include "ExceptionOr.h"
+#include "DigitalCredential.h"
+#include "DocumentPage.h"
+#include "JSBasicCredential.h"
+#include "JSDOMConvertInterface.h"
+#include "JSDOMConvertNullable.h"
 #include "JSDOMPromiseDeferred.h"
+#include "JSDigitalCredential.h"
+#include "JSValueInWrappedObjectInlines.h"
+#include "LocalFrame.h"
+#include "Navigator.h"
 #include "Page.h"
-#include "SecurityOrigin.h"
+#include <wtf/OptionSet.h>
 
 namespace WebCore {
 
-CredentialsContainer::CredentialsContainer(WeakPtr<Document>&& document)
-    : m_document(WTFMove(document))
+CredentialsContainer::CredentialsContainer(WeakPtr<Document, WeakPtrImplWithEventTargetData>&& document)
+    : m_document(WTF::move(document))
 {
 }
 
-bool CredentialsContainer::doesHaveSameOriginAsItsAncestors()
+// https://w3c.github.io/webappsec-credential-management/#credential-type-registry
+static bool checkCredentialTypeCombinations(const CredentialRequestOptions& options, CredentialPromise& promise)
 {
-    // The following implements https://w3c.github.io/webappsec-credential-management/#same-origin-with-its-ancestors
-    // as of 14 November 2017.
-    if (!m_document)
-        return false;
+    enum class CredentialType : uint8_t {
+        Password  = 1 << 0,
+        Federated = 1 << 1,
+        Identity  = 1 << 2,
+        OTP       = 1 << 3,
+        PublicKey = 1 << 4,
+        Digital   = 1 << 5,
+    };
 
-    auto& origin = m_document->securityOrigin();
-    for (auto* document = m_document->parentDocument(); document; document = document->parentDocument()) {
-        if (!origin.isSameOriginAs(document->securityOrigin()))
-            return false;
+    OptionSet<CredentialType> requestedTypes;
+    if (options.password)
+        requestedTypes.add(CredentialType::Password);
+    if (options.federated)
+        requestedTypes.add(CredentialType::Federated);
+    if (options.identity)
+        requestedTypes.add(CredentialType::Identity);
+    if (options.otp)
+        requestedTypes.add(CredentialType::OTP);
+    if (options.publicKey)
+        requestedTypes.add(CredentialType::PublicKey);
+    if (options.digital)
+        requestedTypes.add(CredentialType::Digital);
+
+    if (requestedTypes.isEmpty()) {
+        promise.reject(Exception { ExceptionCode::NotSupportedError, "No credential type was specified."_s });
+        return false;
     }
+
+    // NOTE: allowedWith() must be symmetric — if type A lists B, then B must
+    // also list A. Asymmetry causes inconsistent rejection depending on
+    // iteration order. See https://w3c.github.io/webappsec-credential-management/#credential-type-registry
+    auto allowedWith = [](CredentialType type) -> OptionSet<CredentialType> {
+        switch (type) {
+        case CredentialType::Password:  return { CredentialType::Federated };
+        case CredentialType::Federated: return { CredentialType::Password };
+        case CredentialType::Identity:
+        case CredentialType::OTP:
+        case CredentialType::PublicKey:
+        case CredentialType::Digital:   return { };
+        }
+        ASSERT_NOT_REACHED();
+        return { };
+    };
+
+    for (auto type : requestedTypes) {
+        auto others = requestedTypes - type;
+        if (!others.isEmpty() && !allowedWith(type).containsAll(others)) {
+            promise.reject(Exception { ExceptionCode::NotSupportedError, "The credential type combination is not supported."_s });
+            return false;
+        }
+    }
+    return true;
+}
+
+template<typename Options>
+static bool performCommonChecks(const Document& document, const Options& options, CredentialPromise& promise)
+{
+    if (!document.isFullyActive()) {
+        promise.reject(Exception { ExceptionCode::InvalidStateError, "The document is not fully active."_s });
+        return false;
+    }
+
+    if (!document.page()) {
+        promise.reject(Exception { ExceptionCode::InvalidStateError, "No browsing context"_s });
+        return false;
+    }
+
+    if (options.signal && options.signal->aborted()) {
+        promise.rejectType<IDLAny>(options.signal->reason().getValue());
+        return false;
+    }
+
+    if constexpr (std::is_same_v<Options, CredentialRequestOptions>) {
+#if ENABLE(WEB_AUTHN)
+        if (!checkCredentialTypeCombinations(options, promise))
+            return false;
+#else
+        if (!options.publicKey) {
+            promise.reject(Exception { ExceptionCode::NotSupportedError, "Missing request type."_s });
+            return false;
+        }
+#endif
+    }
+
+    ASSERT(document.isSecureContext());
     return true;
 }
 
 void CredentialsContainer::get(CredentialRequestOptions&& options, CredentialPromise&& promise)
 {
-    // The following implements https://www.w3.org/TR/credential-management-1/#algorithm-request as of 4 August 2017
-    // with enhancement from 14 November 2017 Editor's Draft.
-    if (!m_document || !m_document->page()) {
-        promise.reject(Exception { NotSupportedError });
+    // https://w3c.github.io/webappsec-credential-management/#algorithm-request
+    RefPtr document = this->document();
+    if (!document) {
+        promise.reject(Exception { ExceptionCode::NotSupportedError });
         return;
     }
-    if (options.signal && options.signal->aborted()) {
-        promise.reject(Exception { AbortError, "Aborted by AbortSignal."_s });
-        return;
-    }
-    // Step 1-2.
-    ASSERT(m_document->isSecureContext());
 
-    // Step 3 is enhanced with doesHaveSameOriginAsItsAncestors.
-    // Step 4-6. Shortcut as we only support PublicKeyCredential which can only
-    // be requested from [[discoverFromExternalSource]].
+    if (!performCommonChecks(*document, options, promise))
+        return;
+
+    if (options.digital) {
+#if HAVE(DIGITAL_CREDENTIALS_UI)
+        DigitalCredential::discoverFromExternalSource(*document, WTF::move(promise), WTF::move(options));
+#else
+        promise.resolve(nullptr);
+#endif
+        return;
+    }
+
     if (!options.publicKey) {
-        promise.reject(Exception { NotSupportedError, "Only PublicKeyCredential is supported."_s });
+        promise.resolve(nullptr);
         return;
     }
 
-    // Extra.
-    if (!m_document->hasFocus()) {
-        promise.reject(Exception { NotAllowedError, "The document is not focused."_s });
-        return;
-    }
-
-    m_document->page()->authenticatorCoordinator().discoverFromExternalSource(*m_document, options.publicKey.value(), doesHaveSameOriginAsItsAncestors(), WTFMove(options.signal), WTFMove(promise));
+    document->page()->authenticatorCoordinator().discoverFromExternalSource(*document, WTF::move(options), WTF::move(promise));
 }
 
 void CredentialsContainer::store(const BasicCredential&, CredentialPromise&& promise)
 {
-    promise.reject(Exception { NotSupportedError, "Not implemented."_s });
+    promise.reject(Exception { ExceptionCode::NotSupportedError, "Not implemented."_s });
 }
 
 void CredentialsContainer::isCreate(CredentialCreationOptions&& options, CredentialPromise&& promise)
 {
-    // The following implements https://www.w3.org/TR/credential-management-1/#algorithm-create as of 4 August 2017
-    // with enhancement from 14 November 2017 Editor's Draft.
-    if (!m_document || !m_document->page()) {
-        promise.reject(Exception { NotSupportedError });
+    RefPtr document = this->document();
+    if (!document) {
+        promise.reject(Exception { ExceptionCode::NotSupportedError });
         return;
     }
-    if (options.signal && options.signal->aborted()) {
-        promise.reject(Exception { AbortError, "Aborted by AbortSignal."_s });
-        return;
-    }
-    // Step 1-2.
-    ASSERT(m_document->isSecureContext());
 
-    // Step 3-7. Shortcut as we only support one kind of credentials.
-    if (!options.publicKey) {
-        promise.reject(Exception { NotSupportedError, "Only PublicKeyCredential is supported."_s });
+    if (!performCommonChecks(*document, options, promise))
         return;
-    }
 
     // Extra.
-    if (!m_document->hasFocus()) {
-        promise.reject(Exception { NotAllowedError, "The document is not focused."_s });
+    if (!document->hasFocus()) {
+        promise.reject(Exception { ExceptionCode::NotAllowedError, "The document is not focused."_s });
         return;
     }
 
-    m_document->page()->authenticatorCoordinator().create(*m_document, options.publicKey.value(), doesHaveSameOriginAsItsAncestors(), WTFMove(options.signal), WTFMove(promise));
+    if (options.publicKey) {
+        document->page()->authenticatorCoordinator().create(*document, WTF::move(options), WTF::move(options.signal), WTF::move(promise));
+        return;
+    }
+
+    promise.reject(Exception { ExceptionCode::NotSupportedError, "No credential type was specified."_s });
 }
 
 void CredentialsContainer::preventSilentAccess(DOMPromiseDeferred<void>&& promise) const
 {
-    promise.reject(Exception { NotSupportedError, "Not implemented."_s });
+    if (RefPtr document = this->document(); !document || !document->isFullyActive()) {
+        promise.reject(Exception { ExceptionCode::InvalidStateError, "The document is not fully active."_s });
+        return;
+    }
+    promise.resolve();
 }
 
 } // namespace WebCore

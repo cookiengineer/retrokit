@@ -29,40 +29,54 @@
 
 #include "MathMLOperatorDictionary.h"
 #include "MathMLTokenElement.h"
+#include <array>
 
 namespace WebCore {
 
 class MathMLOperatorElement final : public MathMLTokenElement {
-    WTF_MAKE_ISO_ALLOCATED(MathMLOperatorElement);
+    WTF_MAKE_TZONE_ALLOCATED(MathMLOperatorElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(MathMLOperatorElement);
 public:
-    static Ref<MathMLOperatorElement> create(const QualifiedName& tagName, Document&);
+    static Ref<MathMLOperatorElement> create(const QualifiedName&, Document&);
     struct OperatorChar {
-        UChar32 character { 0 };
+        // Exactly one of character or characters is valid, determined by
+        // hasTwoCharacters. For multi-character operators (e.g. "&&", "!=",
+        // "->") the two code units are stored in characters and used for
+        // multi-character dictionary lookup.
+        union {
+            char32_t character;
+            std::array<char16_t, 2> characters;
+        };
         bool isVertical { true };
+        bool hasTwoCharacters { false };
+        OperatorChar()
+            : character(0)
+            {
+            }
     };
     static OperatorChar parseOperatorChar(const String&);
-    const OperatorChar& operatorChar();
-    void setOperatorFormDirty() { m_dictionaryProperty = std::nullopt; }
+    const OperatorChar& operatorChar() LIFETIME_BOUND;
+    void setOperatorFormDirty();
     MathMLOperatorDictionary::Form form() { return dictionaryProperty().form; }
     bool hasProperty(MathMLOperatorDictionary::Flag);
     Length defaultLeadingSpace();
     Length defaultTrailingSpace();
-    const Length& leadingSpace();
-    const Length& trailingSpace();
-    const Length& minSize();
-    const Length& maxSize();
+    const Length& leadingSpace() LIFETIME_BOUND;
+    const Length& trailingSpace() LIFETIME_BOUND;
+    const Length& minSize() LIFETIME_BOUND;
+    const Length& maxSize() LIFETIME_BOUND;
 
 private:
-    MathMLOperatorElement(const QualifiedName& tagName, Document&);
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
+    MathMLOperatorElement(const QualifiedName&, Document&);
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) final;
     void childrenChanged(const ChildChange&) final;
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
 
     std::optional<OperatorChar> m_operatorChar;
 
     std::optional<MathMLOperatorDictionary::Property> m_dictionaryProperty;
     MathMLOperatorDictionary::Property computeDictionaryProperty();
-    const MathMLOperatorDictionary::Property& dictionaryProperty();
+    const MathMLOperatorDictionary::Property& dictionaryProperty() LIFETIME_BOUND;
 
     struct OperatorProperties {
         unsigned short flags;
@@ -77,6 +91,6 @@ private:
     std::optional<Length> m_maxSize;
 };
 
-}
+} // namespace WebCore
 
 #endif // ENABLE(MATHML)

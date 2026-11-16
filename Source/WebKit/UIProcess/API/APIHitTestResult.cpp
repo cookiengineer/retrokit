@@ -21,11 +21,10 @@
 #include "APIHitTestResult.h"
 
 namespace API {
-using namespace WebCore;
 
-Ref<HitTestResult> HitTestResult::create(const WebKit::WebHitTestResultData& hitTestResultData)
+Ref<HitTestResult> HitTestResult::create(const WebKit::WebHitTestResultData& hitTestResultData, WebKit::WebPageProxy* page)
 {
-    return adoptRef(*new HitTestResult(hitTestResultData));
+    return adoptRef(*new HitTestResult(hitTestResultData, page));
 }
 
 } // namespace API

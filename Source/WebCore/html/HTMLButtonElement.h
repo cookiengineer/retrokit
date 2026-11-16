@@ -23,44 +23,56 @@
 
 #pragma once
 
-#include "HTMLFormControlElement.h"
+#include <WebCore/HTMLFormControlElement.h>
 
 namespace WebCore {
 
 class RenderButton;
 
 class HTMLButtonElement final : public HTMLFormControlElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLButtonElement);
+    WTF_MAKE_TZONE_ALLOCATED(HTMLButtonElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLButtonElement);
 public:
-    static Ref<HTMLButtonElement> create(const QualifiedName&, Document&, HTMLFormElement*);
-
-    WEBCORE_EXPORT void setType(const AtomString&);
+    static Ref<HTMLButtonElement> create(const QualifiedName&, Document&);
+    static Ref<HTMLButtonElement> create(Document&);
     
-    const AtomString& value() const;
+    const AtomString& NODELETE value() const;
+    const AtomString& command() const;
 
-    bool willRespondToMouseClickEvents() final;
+    RefPtr<Element> commandForElement() const;
+    CommandType commandType() const;
+
+    bool willRespondToMouseClickEventsWithEditability(Editability) const final;
 
     RenderButton* renderer() const;
 
-private:
-    HTMLButtonElement(const QualifiedName& tagName, Document&, HTMLFormElement*);
+    bool isExplicitlySetSubmitButton() const;
 
-    enum Type { SUBMIT, RESET, BUTTON };
+    bool isDevolvableWidget() const override { return true; }
+
+private:
+    HTMLButtonElement(const QualifiedName& tagName, Document&);
+
+    enum class Type : uint8_t { Submit, Reset, Button };
 
     const AtomString& formControlType() const final;
 
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) final;
 
     int defaultTabIndex() const final;
 
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode& parentOfInsertedTree) final;
+    void removingSteps(RemovalType, ContainerNode& oldParentOfRemovedTree) final;
     bool hasPresentationalHintsForAttribute(const QualifiedName&) const final;
     void defaultEventHandler(Event&) final;
 
-    bool appendFormData(DOMFormData&, bool) final;
+    void handleCommand();
 
-    bool isEnumeratable() const final { return true; }
-    bool supportLabels() const final { return true; }
+    bool appendFormData(DOMFormData&) final;
+
+    bool NODELETE isEnumeratable() const final { return true; }
+    bool isLabelable() const final { return true; }
     bool isInteractiveContent() const final { return true; }
 
     bool isSuccessfulSubmitButton() const final;
@@ -68,15 +80,16 @@ private:
     bool isActivatedSubmit() const final;
     void setActivatedSubmit(bool flag) final;
 
-    bool accessKeyAction(bool sendMouseEvents) final;
-    bool isURLAttribute(const Attribute&) const final;
+    bool NODELETE isURLAttribute(const Attribute&) const final;
 
     bool canStartSelection() const final { return false; }
 
-    bool isOptionalFormControl() const final { return true; }
+    bool NODELETE isOptionalFormControl() const final { return true; }
     bool computeWillValidate() const final;
 
     bool isSubmitButton() const final;
+
+    void computeType(const AtomString& typeAttrValue);
 
     Type m_type;
     bool m_isActivatedSubmit;

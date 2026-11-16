@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2021 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2012-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,13 +30,13 @@
 
 namespace JSC {
 
-const ClassInfo JSWithScope::s_info = { "WithScope", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSWithScope) };
+const ClassInfo JSWithScope::s_info = { "WithScope"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSWithScope) };
 
 JSWithScope* JSWithScope::create(
     VM& vm, JSGlobalObject* globalObject, JSScope* next, JSObject* object)
 {
     Structure* structure = globalObject->withScopeStructure();
-    JSWithScope* withScope = new (NotNull, allocateCell<JSWithScope>(vm.heap)) JSWithScope(vm, structure, object, next);
+    JSWithScope* withScope = new (NotNull, allocateCell<JSWithScope>(vm)) JSWithScope(vm, structure, object, next);
     withScope->finishCreation(vm);
     return withScope;
 }
@@ -44,7 +44,7 @@ JSWithScope* JSWithScope::create(
 template<typename Visitor>
 void JSWithScope::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    JSWithScope* thisObject = jsCast<JSWithScope*>(cell);
+    JSWithScope* thisObject = uncheckedDowncast<JSWithScope>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
     visitor.append(thisObject->m_object);
@@ -59,7 +59,7 @@ Structure* JSWithScope::createStructure(VM& vm, JSGlobalObject* globalObject, JS
 
 JSWithScope::JSWithScope(VM& vm, Structure* structure, JSObject* object, JSScope* next)
     : Base(vm, structure, next)
-    , m_object(vm, this, object)
+    , m_object(object, WriteBarrierEarlyInit)
 {
 }
 

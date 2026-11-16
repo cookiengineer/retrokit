@@ -18,12 +18,10 @@
  *
  */
 
+#include "common/unsafe_buffers.h"
 #include "egluNativeDisplay.hpp"
 
 #include "tcuANGLENativeDisplayFactory.h"
-
-#include <EGL/egl.h>
-#include <EGL/eglext.h>
 
 #include "deClock.h"
 #include "deMemory.h"
@@ -32,6 +30,7 @@
 #include "tcuTexture.hpp"
 #include "util/OSPixmap.h"
 #include "util/OSWindow.h"
+#include "util/autogen/angle_features_autogen.h"
 
 // clang-format off
 #if (DE_OS == DE_OS_WIN32)
@@ -49,6 +48,19 @@
 #    include <X11/Xlib.h>
 #endif
 
+#if defined(ANGLE_USE_WAYLAND)
+#    include <wayland-client.h>
+#    include <wayland-egl-backend.h>
+#endif
+
+#if defined(ANGLE_USE_X11) || defined(ANGLE_USE_WAYLAND)
+#    include "util/linux/LinuxWindow.h"
+#endif
+
+#if (DE_OS == DE_OS_ANDROID)
+#    define NATIVE_EGL_LIBRARY_FULL_NAME "libEGL.so"
+#endif
+
 namespace tcu
 {
 namespace
@@ -60,7 +72,7 @@ destType bitCast(sourceType source)
     constexpr size_t copySize =
         sizeof(destType) < sizeof(sourceType) ? sizeof(destType) : sizeof(sourceType);
     destType output(0);
-    memcpy(&output, &source, copySize);
+    ANGLE_UNSAFE_TODO(memcpy(&output, &source, copySize));
     return output;
 }
 
@@ -78,17 +90,23 @@ constexpr eglu::NativePixmap::Capability kBitmapCapabilities =
     eglu::NativePixmap::CAPABILITY_CREATE_SURFACE_LEGACY;
 constexpr eglu::NativeWindow::Capability kWindowCapabilities =
     static_cast<eglu::NativeWindow::Capability>(
+#if (DE_OS == DE_OS_WIN32)
+        eglu::NativeWindow::CAPABILITY_READ_SCREEN_PIXELS |
+#endif
         eglu::NativeWindow::CAPABILITY_CREATE_SURFACE_LEGACY |
         eglu::NativeWindow::CAPABILITY_GET_SURFACE_SIZE |
         eglu::NativeWindow::CAPABILITY_GET_SCREEN_SIZE |
-        eglu::NativeWindow::CAPABILITY_READ_SCREEN_PIXELS |
         eglu::NativeWindow::CAPABILITY_SET_SURFACE_SIZE |
-        eglu::NativeWindow::CAPABILITY_CHANGE_VISIBILITY);
+        eglu::NativeWindow::CAPABILITY_CHANGE_VISIBILITY |
+        eglu::NativeWindow::CAPABILITY_CREATE_SURFACE_PLATFORM_EXTENSION);
 
 class ANGLENativeDisplay : public eglu::NativeDisplay
 {
   public:
-    explicit ANGLENativeDisplay(EGLNativeDisplayType display, std::vector<eglw::EGLAttrib> attribs);
+    explicit ANGLENativeDisplay(EGLNativeDisplayType display,
+                                std::vector<eglw::EGLAttrib> attribs,
+                                const EGLenum platformType,
+                                const char *eglLibraryName);
     ~ANGLENativeDisplay() override = default;
 
     void *getPlatformNative() override
@@ -169,6 +187,7 @@ class NativeWindow : public eglu::NativeWindow
     ~NativeWindow() override;
 
     eglw::EGLNativeWindowType getLegacyNative() override;
+    void *getPlatformExtension() override;
     IVec2 getSurfaceSize() const override;
     IVec2 getScreenSize() const override { return getSurfaceSize(); }
     void processEvents() override;
@@ -184,10 +203,13 @@ class NativeWindow : public eglu::NativeWindow
 
 // ANGLE NativeDisplay
 
-ANGLENativeDisplay::ANGLENativeDisplay(EGLNativeDisplayType display, std::vector<EGLAttrib> attribs)
-    : eglu::NativeDisplay(kDisplayCapabilities, EGL_PLATFORM_ANGLE_ANGLE, "EGL_EXT_platform_base"),
+ANGLENativeDisplay::ANGLENativeDisplay(EGLNativeDisplayType display,
+                                       std::vector<EGLAttrib> attribs,
+                                       const EGLenum platformType,
+                                       const char *eglLibraryName)
+    : eglu::NativeDisplay(kDisplayCapabilities, platformType, "EGL_EXT_platform_base"),
       mDeviceContext(display),
-      mLibrary(ANGLE_EGL_LIBRARY_FULL_NAME),
+      mLibrary(eglLibraryName),
       mPlatformAttributes(std::move(attribs))
 {}
 
@@ -201,12 +223,12 @@ NativePixmap::NativePixmap(EGLNativeDisplayType display, int width, int height, 
 #else
     if (!mPixmap)
     {
-        throw ResourceError("Failed to create pixmap", DE_NULL, __FILE__, __LINE__);
+        throw ResourceError("Failed to create pixmap", nullptr, __FILE__, __LINE__);
     }
 
     if (!mPixmap->initialize(display, width, height, bitDepth))
     {
-        throw ResourceError("Failed to initialize pixmap", DE_NULL, __FILE__, __LINE__);
+        throw ResourceError("Failed to initialize pixmap", nullptr, __FILE__, __LINE__);
     }
 #endif
 }
@@ -266,7 +288,7 @@ NativeWindowFactory::NativeWindowFactory(EventState *eventState, uint32_t preRot
 eglu::NativeWindow *NativeWindowFactory::createWindow(eglu::NativeDisplay *nativeDisplay,
                                                       const eglu::WindowParams &params) const
 {
-    DE_ASSERT(DE_FALSE);
+    DE_ASSERT(false);
     return nullptr;
 }
 
@@ -287,10 +309,15 @@ NativeWindow::NativeWindow(ANGLENativeDisplay *nativeDisplay,
                            EventState *eventState,
                            uint32_t preRotation)
     : eglu::NativeWindow(kWindowCapabilities),
-      mWindow(OSWindow::New()),
+      // Construct the window on the display the factory connected to. Otherwise
+      // it opens a second connection that setNativeDisplay() below drops again.
+      mWindow(OSWindow::New(nativeDisplay->getPlatformNative())),
       mEvents(eventState),
       mPreRotation(preRotation)
 {
+    // Null when the selected window system is compiled in but unreachable.
+    TCU_CHECK_MSG(mWindow != nullptr, "Failed to create a native window");
+
     int osWindowWidth =
         params.width == eglu::WindowParams::SIZE_DONT_CARE ? DEFAULT_SURFACE_WIDTH : params.width;
     int osWindowHeight = params.height == eglu::WindowParams::SIZE_DONT_CARE
@@ -302,6 +329,7 @@ NativeWindow::NativeWindow(ANGLENativeDisplay *nativeDisplay,
         std::swap(osWindowWidth, osWindowHeight);
     }
 
+    mWindow->setNativeDisplay(nativeDisplay->getDeviceContext());
     bool initialized = mWindow->initialize("dEQP ANGLE Tests", osWindowWidth, osWindowHeight);
     TCU_CHECK(initialized);
 
@@ -323,7 +351,7 @@ void NativeWindow::setVisibility(eglu::WindowParams::Visibility visibility)
             break;
 
         default:
-            DE_ASSERT(DE_FALSE);
+            DE_ASSERT(false);
     }
 }
 
@@ -335,6 +363,11 @@ NativeWindow::~NativeWindow()
 eglw::EGLNativeWindowType NativeWindow::getLegacyNative()
 {
     return reinterpret_cast<eglw::EGLNativeWindowType>(mWindow->getNativeWindow());
+}
+
+void *NativeWindow::getPlatformExtension()
+{
+    return mWindow->getPlatformExtension();
 }
 
 IVec2 NativeWindow::getSurfaceSize() const
@@ -386,12 +419,12 @@ void NativeWindow::readScreenPixels(tcu::TextureLevel *dst) const
                     mWindow->getWidth(), mWindow->getHeight());
     if (!mWindow->takeScreenshot(reinterpret_cast<uint8_t *>(dst->getAccess().getDataPtr())))
     {
-        throw InternalError("Failed to read screen pixels", DE_NULL, __FILE__, __LINE__);
+        throw InternalError("Failed to read screen pixels", nullptr, __FILE__, __LINE__);
     }
 
     if (mPreRotation != 0)
     {
-        throw InternalError("Read screen pixels with prerotation is not supported", DE_NULL,
+        throw InternalError("Read screen pixels with prerotation is not supported", nullptr,
                             __FILE__, __LINE__);
     }
 }
@@ -402,20 +435,42 @@ ANGLENativeDisplayFactory::ANGLENativeDisplayFactory(
     const std::string &name,
     const std::string &description,
     std::vector<eglw::EGLAttrib> platformAttributes,
-    EventState *eventState)
+    EventState *eventState,
+    const EGLenum platformType)
     : eglu::NativeDisplayFactory(name,
                                  description,
                                  kDisplayCapabilities,
-                                 EGL_PLATFORM_ANGLE_ANGLE,
+                                 platformType,
                                  "EGL_EXT_platform_base"),
       mNativeDisplay(bitCast<eglw::EGLNativeDisplayType>(EGL_DEFAULT_DISPLAY)),
-      mPlatformAttributes(std::move(platformAttributes))
+      mPlatformAttributes(std::move(platformAttributes)),
+      mPlatformType(platformType)
 {
-#if (DE_OS == DE_OS_UNIX) && defined(ANGLE_USE_X11)
-    // Make sure to only open the X display once so that it can be used by the EGL display as well
-    // as pixmaps
-    mNativeDisplay = bitCast<eglw::EGLNativeDisplayType>(XOpenDisplay(nullptr));
-#endif  // (DE_OS == DE_OS_UNIX)
+#if (DE_OS == DE_OS_UNIX) && (defined(ANGLE_USE_X11) || defined(ANGLE_USE_WAYLAND))
+    // Connect to the window system the shared policy selected, not to whichever
+    // answers first: XOpenDisplay() also succeeds under XWayland, so trying X11
+    // first would hand an Xlib Display* to a display ANGLEPlatform pinned to
+    // EGL_PLATFORM_WAYLAND_EXT, to be reinterpreted as a wl_display*. The EGL
+    // display, the OSWindow and, on X11, the pixmaps all share this handle.
+    switch (GetNativeDisplayPlatformType())
+    {
+#    if defined(ANGLE_USE_X11)
+        case EGL_PLATFORM_X11_EXT:
+            XInitThreads();
+            mNativeDisplay = bitCast<eglw::EGLNativeDisplayType>(XOpenDisplay(nullptr));
+            break;
+#    endif  // ANGLE_USE_X11
+#    if defined(ANGLE_USE_WAYLAND)
+        case EGL_PLATFORM_WAYLAND_EXT:
+            mNativeDisplay = bitCast<eglw::EGLNativeDisplayType>(wl_display_connect(nullptr));
+            break;
+#    endif  // ANGLE_USE_WAYLAND
+        default:
+            // Nothing reachable. Leave EGL_DEFAULT_DISPLAY; ANGLEPlatform leaves
+            // the native platform type unset to match.
+            break;
+    }
+#endif  // (DE_OS == DE_OS_UNIX) && (ANGLE_USE_X11 || ANGLE_USE_WAYLAND)
 
     // If pre-rotating, let NativeWindowFactory know.
     uint32_t preRotation = 0;
@@ -428,31 +483,48 @@ ANGLENativeDisplayFactory::ANGLENativeDisplayFactory(
             continue;
         }
 
-        const char **preRotationFeatures =
+        const char **enabledFeatures =
             reinterpret_cast<const char **>(mPlatformAttributes[attrIndex + 1]);
-        DE_ASSERT(preRotationFeatures != nullptr && preRotationFeatures[0] != nullptr);
+        DE_ASSERT(enabledFeatures != nullptr && *enabledFeatures != nullptr);
 
-        if (strcmp(preRotationFeatures[0], "emulated_prerotation_90") == 0)
+        for (; *enabledFeatures; ANGLE_UNSAFE_TODO(++enabledFeatures))
         {
-            preRotation = 90;
-        }
-        else if (strcmp(preRotationFeatures[0], "emulated_prerotation_180") == 0)
-        {
-            preRotation = 180;
-        }
-        else if (strcmp(preRotationFeatures[0], "emulated_prerotation_270") == 0)
-        {
-            preRotation = 270;
-        }
-        else
-        {
-            DE_ASSERT(DE_FALSE);
+            if (ANGLE_UNSAFE_TODO(
+                    strcmp(enabledFeatures[0],
+                           angle::GetFeatureName(angle::Feature::EmulatedPrerotation90))) == 0)
+            {
+                preRotation = 90;
+            }
+            else if (ANGLE_UNSAFE_TODO(strcmp(
+                         enabledFeatures[0],
+                         angle::GetFeatureName(angle::Feature::EmulatedPrerotation180))) == 0)
+            {
+                preRotation = 180;
+            }
+            else if (ANGLE_UNSAFE_TODO(strcmp(
+                         enabledFeatures[0],
+                         angle::GetFeatureName(angle::Feature::EmulatedPrerotation270))) == 0)
+            {
+                preRotation = 270;
+            }
         }
         break;
     }
 
     m_nativeWindowRegistry.registerFactory(new NativeWindowFactory(eventState, preRotation));
-    m_nativePixmapRegistry.registerFactory(new NativePixmapFactory());
+
+    // CreateOSPixmap() returns an X11Pixmap, which reads the native display as an
+    // Xlib Display*, so only offer pixmaps when X11 was selected. An empty
+    // registry makes dEQP report pixmap tests as unsupported, matching upstream's
+    // Wayland display factory, which registers a window factory but no pixmaps.
+    bool supportsPixmaps = true;
+#if (DE_OS == DE_OS_UNIX) && (defined(ANGLE_USE_X11) || defined(ANGLE_USE_WAYLAND))
+    supportsPixmaps = GetNativeDisplayPlatformType() == EGL_PLATFORM_X11_EXT;
+#endif
+    if (supportsPixmaps)
+    {
+        m_nativePixmapRegistry.registerFactory(new NativePixmapFactory());
+    }
 }
 
 ANGLENativeDisplayFactory::~ANGLENativeDisplayFactory() = default;
@@ -461,8 +533,27 @@ eglu::NativeDisplay *ANGLENativeDisplayFactory::createDisplay(
     const eglw::EGLAttrib *attribList) const
 {
     DE_UNREF(attribList);
-    return new ANGLENativeDisplay(bitCast<EGLNativeDisplayType>(mNativeDisplay),
-                                  mPlatformAttributes);
+    if (mPlatformType == EGL_PLATFORM_ANGLE_ANGLE)
+    {
+        // Support static linking with -DANGLE_EGL_LIBRARY_NAME \"\"
+        const char *eglLibraryName =
+            (ANGLE_EGL_LIBRARY_NAME[0] == '\0') ? nullptr : ANGLE_EGL_LIBRARY_FULL_NAME;
+        return new ANGLENativeDisplay(bitCast<EGLNativeDisplayType>(mNativeDisplay),
+                                      mPlatformAttributes, mPlatformType,
+                                      eglLibraryName);
+    }
+#if (DE_OS == DE_OS_ANDROID)
+    else if (mPlatformType == EGL_PLATFORM_ANDROID_KHR)
+    {
+        return new ANGLENativeDisplay(bitCast<EGLNativeDisplayType>(mNativeDisplay),
+                                      mPlatformAttributes, mPlatformType,
+                                      NATIVE_EGL_LIBRARY_FULL_NAME);
+    }
+#endif
+    else
+    {
+        throw InternalError("unsupported platform type", nullptr, __FILE__, __LINE__);
+    }
 }
 
 }  // namespace tcu

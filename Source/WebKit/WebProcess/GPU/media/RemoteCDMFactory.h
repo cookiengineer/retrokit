@@ -28,10 +28,12 @@
 #if ENABLE(GPU_PROCESS) && ENABLE(ENCRYPTED_MEDIA)
 
 #include "RemoteCDMIdentifier.h"
+#include "RemoteCDMInstanceIdentifier.h"
 #include "RemoteCDMInstanceSessionIdentifier.h"
 #include "WebProcessSupplement.h"
 #include <WebCore/CDMFactory.h>
 #include <wtf/HashMap.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -52,32 +54,35 @@ class WebProcess;
 
 class RemoteCDMFactory final
     : public WebCore::CDMFactory
-    , public WebProcessSupplement
-    , public CanMakeWeakPtr<RemoteCDMFactory> {
-    WTF_MAKE_FAST_ALLOCATED;
+    , public WebProcessSupplement {
+    WTF_MAKE_TZONE_ALLOCATED(RemoteCDMFactory);
 public:
     explicit RemoteCDMFactory(WebProcess&);
     virtual ~RemoteCDMFactory();
 
-    static const char* supplementName();
-    WebProcess& process() const { return m_process; }
+    void ref() const final;
+    void deref() const final;
+
+    static ASCIILiteral supplementName();
 
     GPUProcessConnection& gpuProcessConnection();
 
-    void registerFactory(Vector<WebCore::CDMFactory*>&);
+    void registerFactory(Vector<WeakRef<WebCore::CDMFactory>>&);
 
     void didReceiveSessionMessage(IPC::Connection&, IPC::Decoder&);
 
-    void addSession(Ref<RemoteCDMInstanceSession>&&);
+    void addSession(RemoteCDMInstanceSession&);
     void removeSession(RemoteCDMInstanceSessionIdentifier);
 
+    void removeInstance(RemoteCDMInstanceIdentifier);
+
 private:
-    std::unique_ptr<WebCore::CDMPrivate> createCDM(const String&) final;
+    std::unique_ptr<WebCore::CDMPrivate> createCDM(const String& keySystem, const String& mediaKeysHashSalt, const WebCore::CDMPrivateClient&) final;
     bool supportsKeySystem(const String&) final;
 
-    HashMap<RemoteCDMInstanceSessionIdentifier, Ref<RemoteCDMInstanceSession>> m_sessions;
+    WeakRef<WebProcess> m_webProcess;
+    HashMap<RemoteCDMInstanceSessionIdentifier, WeakPtr<RemoteCDMInstanceSession>> m_sessions;
     HashMap<RemoteCDMIdentifier, std::unique_ptr<RemoteCDM>> m_cdms;
-    WebProcess& m_process;
 };
 
 }

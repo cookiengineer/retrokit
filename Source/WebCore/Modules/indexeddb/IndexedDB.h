@@ -26,8 +26,6 @@
 
 #pragma once
 
-#include <wtf/EnumTraits.h>
-
 namespace WebCore {
 
 namespace IndexedDB {
@@ -46,22 +44,15 @@ enum class CursorDirection : uint8_t {
     Prev,
     Prevunique,
 };
-const unsigned CursorDirectionMaximum = 3;
 
 enum class CursorType : bool {
     KeyAndValue,
     KeyOnly,
 };
-const unsigned CursorTypeMaximum = 1;
 
 enum class CursorSource : bool {
     Index,
     ObjectStore,
-};
-
-enum class VersionNullness : uint8_t {
-    Null,
-    NonNull,
 };
 
 enum class ObjectStoreOverwriteMode : uint8_t {
@@ -81,7 +72,7 @@ enum class ObjectStoreRecordType : uint8_t {
 };
 
 // In order of the least to the highest precedent in terms of sort order.
-enum KeyType {
+enum class KeyType : int8_t {
     Max = -1,
     Invalid = 0,
     Array,
@@ -101,6 +92,7 @@ enum class RequestType : uint8_t {
 enum class GetAllType : uint8_t {
     Keys,
     Values,
+    Records
 };
 
 enum class ConnectionClosedOnBehalfOfServer : bool { No, Yes };
@@ -113,49 +105,3 @@ enum class CursorIterateOption : bool {
 } // namespace IndexedDB
 
 } // namespace WebCore
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::IndexedDB::CursorDirection> {
-    using values = EnumValues<
-        WebCore::IndexedDB::CursorDirection,
-        WebCore::IndexedDB::CursorDirection::Next,
-        WebCore::IndexedDB::CursorDirection::Nextunique,
-        WebCore::IndexedDB::CursorDirection::Prev,
-        WebCore::IndexedDB::CursorDirection::Prevunique
-    >;
-};
-
-template<> struct EnumTraits<WebCore::IndexedDB::KeyType> {
-    using values = EnumValues<
-        WebCore::IndexedDB::KeyType,
-        WebCore::IndexedDB::KeyType::Max,
-        WebCore::IndexedDB::KeyType::Invalid,
-        WebCore::IndexedDB::KeyType::Array,
-        WebCore::IndexedDB::KeyType::Binary,
-        WebCore::IndexedDB::KeyType::String,
-        WebCore::IndexedDB::KeyType::Date,
-        WebCore::IndexedDB::KeyType::Number,
-        WebCore::IndexedDB::KeyType::Min
-    >;
-};
-
-template<> struct EnumTraits<WebCore::IndexedDB::ObjectStoreOverwriteMode> {
-    using values = EnumValues<
-        WebCore::IndexedDB::ObjectStoreOverwriteMode,
-        WebCore::IndexedDB::ObjectStoreOverwriteMode::Overwrite,
-        WebCore::IndexedDB::ObjectStoreOverwriteMode::OverwriteForCursor,
-        WebCore::IndexedDB::ObjectStoreOverwriteMode::NoOverwrite
-    >;
-};
-
-template<> struct EnumTraits<WebCore::IndexedDB::RequestType> {
-    using values = EnumValues<
-        WebCore::IndexedDB::RequestType,
-        WebCore::IndexedDB::RequestType::Open,
-        WebCore::IndexedDB::RequestType::Delete,
-        WebCore::IndexedDB::RequestType::Other
-    >;
-};
-
-} // namespace WTF

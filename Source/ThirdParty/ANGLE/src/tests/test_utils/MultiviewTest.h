@@ -64,19 +64,24 @@ struct MultiviewImplementationParams : public PlatformParameters
 {
     MultiviewImplementationParams(GLint majorVersion,
                                   GLint minorVersion,
-                                  bool forceUseGeometryShaderOnD3D,
+
                                   const EGLPlatformParameters &eglPlatformParameters,
                                   ExtensionName multiviewExtension)
-        : PlatformParameters(majorVersion, minorVersion, eglPlatformParameters),
-          mForceUseGeometryShaderOnD3D(forceUseGeometryShaderOnD3D),
+        : PlatformParameters(majorVersion,
+                             minorVersion,
+
+                             eglPlatformParameters),
           mMultiviewExtension(multiviewExtension)
     {}
-    bool mForceUseGeometryShaderOnD3D;
     ExtensionName mMultiviewExtension;
 };
 std::ostream &operator<<(std::ostream &os, const MultiviewImplementationParams &params);
 
 MultiviewImplementationParams VertexShaderOpenGL(GLint majorVersion,
+                                                 GLint minorVersion,
+
+                                                 ExtensionName multiviewExtension);
+MultiviewImplementationParams VertexShaderVulkan(GLint majorVersion,
                                                  GLint minorVersion,
                                                  ExtensionName multiviewExtension);
 MultiviewImplementationParams VertexShaderD3D11(GLint majorVersion,
@@ -93,7 +98,6 @@ class MultiviewTestBase : public ANGLETestBase
     {
         setWindowWidth(128);
         setWindowHeight(128);
-        setWebGLCompatibilityEnabled(true);
     }
     virtual ~MultiviewTestBase() {}
 
@@ -104,12 +108,10 @@ class MultiviewTestBase : public ANGLETestBase
 
 // Base class for multiview tests that don't need specific helper functions.
 class MultiviewTest : public MultiviewTestBase,
-                      public ::testing::TestWithParam<MultiviewImplementationParams>
+                      public ::testing::WithParamInterface<MultiviewImplementationParams>
 {
   protected:
     MultiviewTest() : MultiviewTestBase(GetParam()) {}
-
-    void overrideWorkaroundsD3D(FeaturesD3D *features) final;
 
     virtual void testSetUp() {}
     virtual void testTearDown() {}

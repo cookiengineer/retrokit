@@ -24,9 +24,10 @@
 #include "DOMObjectCache.h"
 #include <WebCore/DOMException.h>
 #include <WebCore/Document.h>
-#include "GObjectEventListener.h"
+#include <WebCore/ElementInlines.h>
 #include <WebCore/HTMLNames.h>
 #include <WebCore/JSExecState.h>
+#include "GObjectEventListener.h"
 #include "WebKitDOMEventPrivate.h"
 #include "WebKitDOMEventTarget.h"
 #include "WebKitDOMHTMLButtonElementPrivate.h"
@@ -95,7 +96,9 @@ static void webkit_dom_html_button_element_dom_event_target_init(WebKitDOMEventT
     iface->remove_event_listener = webkit_dom_html_button_element_remove_event_listener;
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK port
 G_DEFINE_TYPE_WITH_CODE(WebKitDOMHTMLButtonElement, webkit_dom_html_button_element, WEBKIT_DOM_TYPE_HTML_ELEMENT, G_IMPLEMENT_INTERFACE(WEBKIT_DOM_TYPE_EVENT_TARGET, webkit_dom_html_button_element_dom_event_target_init))
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 enum {
     DOM_HTML_BUTTON_ELEMENT_PROP_0,
@@ -306,8 +309,7 @@ void webkit_dom_html_button_element_set_button_type(WebKitDOMHTMLButtonElement* 
     g_return_if_fail(WEBKIT_DOM_IS_HTML_BUTTON_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLButtonElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setType(convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::typeAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_html_button_element_get_name(WebKitDOMHTMLButtonElement* self)
@@ -325,8 +327,7 @@ void webkit_dom_html_button_element_set_name(WebKitDOMHTMLButtonElement* self, c
     g_return_if_fail(WEBKIT_DOM_IS_HTML_BUTTON_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLButtonElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::nameAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::nameAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_html_button_element_get_value(WebKitDOMHTMLButtonElement* self)
@@ -344,8 +345,7 @@ void webkit_dom_html_button_element_set_value(WebKitDOMHTMLButtonElement* self, 
     g_return_if_fail(WEBKIT_DOM_IS_HTML_BUTTON_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLButtonElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::valueAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::valueAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gboolean webkit_dom_html_button_element_get_will_validate(WebKitDOMHTMLButtonElement* self)

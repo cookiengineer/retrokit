@@ -26,7 +26,10 @@
 #pragma once
 
 #include "MessageReceiver.h"
+#include "ScriptMessageHandlerIdentifier.h"
 #include "UserContentControllerIdentifier.h"
+#include "UserScriptIdentifier.h"
+#include "UserStyleSheetIdentifier.h"
 #include "WebScriptMessageHandler.h"
 #include "WebUserContentControllerDataTypes.h"
 #include <WebCore/UserContentProvider.h>
@@ -36,23 +39,23 @@
 #include <WebCore/ContentExtensionsBackend.h>
 #endif
 
-namespace WebCore {
-namespace ContentExtensions {
-class CompiledContentExtension;
-}
-}
-
 namespace WebKit {
 
 class InjectedBundleScriptWorld;
 class WebCompiledContentRuleListData;
 class WebUserMessageHandlerDescriptorProxy;
+
+struct UserContentControllerParameters;
+
 enum class InjectUserScriptImmediately : bool;
 
-class WebUserContentController final : public WebCore::UserContentProvider, private IPC::MessageReceiver {
+class WebUserContentController final : public WebCore::UserContentProvider, public IPC::MessageReceiver {
 public:
-    static Ref<WebUserContentController> getOrCreate(UserContentControllerIdentifier);
+    static Ref<WebUserContentController> getOrCreate(UserContentControllerParameters&&);
     virtual ~WebUserContentController();
+
+    void ref() const final { WebCore::UserContentProvider::ref(); }
+    void deref() const final { WebCore::UserContentProvider::deref(); }
 
     UserContentControllerIdentifier identifier() { return m_identifier; }
 
@@ -64,74 +67,80 @@ public:
     void removeUserStyleSheets(InjectedBundleScriptWorld&);
     void removeAllUserContent();
 
+    bool hasBuffersForWorld(const WebCore::DOMWrapperWorld&) const final;
+    WebCore::WebKitBuffer* buffer(const WebCore::DOMWrapperWorld&, const String&) const final;
+
     InjectedBundleScriptWorld* worldForIdentifier(ContentWorldIdentifier);
 
-    void addContentWorlds(const Vector<std::pair<ContentWorldIdentifier, String>>&);
-    InjectedBundleScriptWorld* addContentWorld(const std::pair<ContentWorldIdentifier, String>&);
+    void addContentWorldIfNecessary(const ContentWorldData&);
     void addUserScripts(Vector<WebUserScriptData>&&, InjectUserScriptImmediately);
-    void addUserStyleSheets(const Vector<WebUserStyleSheetData>&);
-    void addUserScriptMessageHandlers(const Vector<WebScriptMessageHandlerData>&);
+    void addUserStyleSheets(Vector<WebUserStyleSheetData>&&);
+    void addUserScriptMessageHandlers(Vector<WebScriptMessageHandlerData>&&);
 #if ENABLE(CONTENT_EXTENSIONS)
-    void addContentRuleLists(Vector<std::pair<String, WebCompiledContentRuleListData>>&&);
+    void addContentRuleLists(Vector<std::pair<WebCompiledContentRuleListData, URL>>&&);
 #endif
+
+    static void removeContentWorld(ContentWorldIdentifier);
 
 private:
     explicit WebUserContentController(UserContentControllerIdentifier);
 
     // WebCore::UserContentProvider
-    void forEachUserScript(Function<void(WebCore::DOMWrapperWorld&, const WebCore::UserScript&)>&&) const final;
-    void forEachUserStyleSheet(Function<void(const WebCore::UserStyleSheet&)>&&) const final;
+    void forEachUserScript(NOESCAPE const Function<void(WebCore::DOMWrapperWorld&, const WebCore::UserScript&)>&) const final;
+    void forEachUserStyleSheet(NOESCAPE const Function<void(const WebCore::UserStyleSheet&)>&) const final;
 #if ENABLE(USER_MESSAGE_HANDLERS)
-    void forEachUserMessageHandler(Function<void(const WebCore::UserMessageHandlerDescriptor&)>&&) const final;
+    void forEachUserMessageHandler(NOESCAPE const Function<void(const WebCore::UserMessageHandlerDescriptor&)>&) const final;
 #endif
 #if ENABLE(CONTENT_EXTENSIONS)
-    WebCore::ContentExtensions::ContentExtensionsBackend& userContentExtensionBackend() override { return m_contentExtensionBackend; }
+    const WebCore::ContentExtensions::ContentExtensionsBackend& userContentExtensionBackend() const LIFETIME_BOUND override { return m_contentExtensionBackend; }
 #endif
 
     // IPC::MessageReceiver.
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
 
-    void removeContentWorlds(const Vector<ContentWorldIdentifier>&);
-
-    void removeUserScript(ContentWorldIdentifier, uint64_t userScriptIdentifier);
+    void removeUserScript(ContentWorldIdentifier, UserScriptIdentifier);
     void removeAllUserScripts(const Vector<ContentWorldIdentifier>&);
 
-    void removeUserStyleSheet(ContentWorldIdentifier, uint64_t userScriptIdentifier);
+    void removeUserStyleSheet(ContentWorldIdentifier, UserStyleSheetIdentifier);
     void removeAllUserStyleSheets(const Vector<ContentWorldIdentifier>&);
 
-    void removeUserScriptMessageHandler(ContentWorldIdentifier, uint64_t userScriptIdentifier);
+    void removeUserScriptMessageHandler(ContentWorldIdentifier, ScriptMessageHandlerIdentifier);
     void removeAllUserScriptMessageHandlersForWorlds(const Vector<ContentWorldIdentifier>&);
     void removeAllUserScriptMessageHandlers();
+
+    void addJSBuffer(WebJSBufferData&&);
+    void removeJSBuffer(ContentWorldIdentifier, const String&);
 
 #if ENABLE(CONTENT_EXTENSIONS)
     void removeContentRuleList(const String& name);
     void removeAllContentRuleLists();
 #endif
 
-    void addUserScriptInternal(InjectedBundleScriptWorld&, const std::optional<uint64_t>& userScriptIdentifier, WebCore::UserScript&&, InjectUserScriptImmediately);
-    void removeUserScriptInternal(InjectedBundleScriptWorld&, uint64_t userScriptIdentifier);
-    void addUserStyleSheetInternal(InjectedBundleScriptWorld&, const std::optional<uint64_t>& userStyleSheetIdentifier, WebCore::UserStyleSheet&&);
-    void removeUserStyleSheetInternal(InjectedBundleScriptWorld&, uint64_t userStyleSheetIdentifier);
+    void addUserScriptInternal(InjectedBundleScriptWorld&, const std::optional<UserScriptIdentifier>&, WebCore::UserScript&&, InjectUserScriptImmediately);
+    void removeUserScriptInternal(InjectedBundleScriptWorld&, UserScriptIdentifier);
+    void addUserStyleSheetInternal(InjectedBundleScriptWorld&, const std::optional<UserStyleSheetIdentifier>&, WebCore::UserStyleSheet&&);
+    void removeUserStyleSheetInternal(InjectedBundleScriptWorld&, UserStyleSheetIdentifier);
 #if ENABLE(USER_MESSAGE_HANDLERS)
-    void addUserScriptMessageHandlerInternal(InjectedBundleScriptWorld&, uint64_t userScriptMessageHandlerIdentifier, const String& name);
-    void removeUserScriptMessageHandlerInternal(InjectedBundleScriptWorld&, uint64_t userScriptMessageHandlerIdentifier);
+    void addUserScriptMessageHandlerInternal(InjectedBundleScriptWorld&, ScriptMessageHandlerIdentifier, const AtomString& name);
+    void removeUserScriptMessageHandlerInternal(InjectedBundleScriptWorld&, ScriptMessageHandlerIdentifier);
 #endif
 
-    UserContentControllerIdentifier m_identifier;
+    const UserContentControllerIdentifier m_identifier;
 
-    typedef HashMap<RefPtr<InjectedBundleScriptWorld>, Vector<std::pair<std::optional<uint64_t>, WebCore::UserScript>>> WorldToUserScriptMap;
+    using WorldToUserScriptMap = HashMap<Ref<InjectedBundleScriptWorld>, Vector<std::pair<std::optional<UserScriptIdentifier>, WebCore::UserScript>>>;
     WorldToUserScriptMap m_userScripts;
 
-    typedef HashMap<RefPtr<InjectedBundleScriptWorld>, Vector<std::pair<std::optional<uint64_t>, WebCore::UserStyleSheet>>> WorldToUserStyleSheetMap;
+    using WorldToUserStyleSheetMap = HashMap<Ref<InjectedBundleScriptWorld>, Vector<std::pair<std::optional<UserStyleSheetIdentifier>, WebCore::UserStyleSheet>>>;
     WorldToUserStyleSheetMap m_userStyleSheets;
 
 #if ENABLE(USER_MESSAGE_HANDLERS)
-    typedef HashMap<RefPtr<InjectedBundleScriptWorld>, Vector<std::pair<uint64_t, RefPtr<WebUserMessageHandlerDescriptorProxy>>>> WorldToUserMessageHandlerVectorMap;
+    using WorldToUserMessageHandlerVectorMap = HashMap<Ref<InjectedBundleScriptWorld>, Vector<std::pair<ScriptMessageHandlerIdentifier, Ref<WebUserMessageHandlerDescriptorProxy>>>>;
     WorldToUserMessageHandlerVectorMap m_userMessageHandlers;
 #endif
 #if ENABLE(CONTENT_EXTENSIONS)
     WebCore::ContentExtensions::ContentExtensionsBackend m_contentExtensionBackend;
 #endif
+    HashMap<ContentWorldIdentifier, HashMap<String, Ref<WebCore::WebKitBuffer>>> m_buffers;
 };
 
 } // namespace WebKit

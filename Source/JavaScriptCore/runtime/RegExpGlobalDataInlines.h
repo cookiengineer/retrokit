@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,9 +25,22 @@
 
 #pragma once
 
+#include "GetVM.h"
+#include "JSGlobalObject.h"
+#include "RegExp.h"
 #include "RegExpGlobalData.h"
 
 namespace JSC {
+
+ALWAYS_INLINE void RegExpCachedResult::record(VM& vm, JSObject* owner, RegExp* regExp, JSString* input, MatchResult result, bool oneCharacterMatch)
+{
+    m_lastRegExp.setWithoutWriteBarrier(regExp);
+    m_lastInput.setWithoutWriteBarrier(input);
+    m_result = result;
+    m_reified = false;
+    m_oneCharacterMatch = oneCharacterMatch;
+    vm.writeBarrier(owner);
+}
 
 inline void RegExpGlobalData::setInput(JSGlobalObject* globalObject, JSString* string)
 {
@@ -39,31 +52,32 @@ inline void RegExpGlobalData::setInput(JSGlobalObject* globalObject, JSString* s
    expression matching through the performMatch function. We use cached results to calculate,
    e.g., RegExp.lastMatch and RegExp.leftParen.
 */
-ALWAYS_INLINE MatchResult RegExpGlobalData::performMatch(JSGlobalObject* owner, RegExp* regExp, JSString* string, const String& input, int startOffset, int** ovector)
+ALWAYS_INLINE MatchResult RegExpGlobalData::performMatch(JSGlobalObject* owner, RegExp* regExp, JSString* string, StringView input, int startOffset, int** ovector)
 {
     ASSERT(owner);
     VM& vm = owner->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
-    int position = regExp->match(owner, input, startOffset, m_ovector);
+    int position = regExp->match(owner, input, startOffset, regExp->ovectorSpan());
     RETURN_IF_EXCEPTION(scope, MatchResult::failed());
 
     if (ovector)
-        *ovector = m_ovector.data();
+        *ovector = regExp->ovectorSpan().data();
 
     if (position == -1)
         return MatchResult::failed();
 
-    ASSERT(!m_ovector.isEmpty());
-    ASSERT(m_ovector[0] == position);
-    ASSERT(m_ovector[1] >= position);
-    size_t end = m_ovector[1];
+    auto ovectorSpan = regExp->ovectorSpan();
+    ASSERT(!ovectorSpan.empty());
+    ASSERT(ovectorSpan[0] == position);
+    ASSERT(ovectorSpan[1] >= position);
+    size_t end = ovectorSpan[1];
 
-    m_cachedResult.record(vm, owner, regExp, string, MatchResult(position, end));
+    m_cachedResult.record(vm, owner, regExp, string, MatchResult(position, end), /* oneCharacterMatch */ false);
 
     return MatchResult(position, end);
 }
 
-ALWAYS_INLINE MatchResult RegExpGlobalData::performMatch(JSGlobalObject* owner, RegExp* regExp, JSString* string, const String& input, int startOffset)
+ALWAYS_INLINE MatchResult RegExpGlobalData::performMatch(JSGlobalObject* owner, RegExp* regExp, JSString* string, StringView input, int startOffset)
 {
     ASSERT(owner);
     VM& vm = owner->vm();
@@ -71,14 +85,27 @@ ALWAYS_INLINE MatchResult RegExpGlobalData::performMatch(JSGlobalObject* owner, 
     MatchResult result = regExp->match(owner, input, startOffset);
     RETURN_IF_EXCEPTION(scope, MatchResult::failed());
     if (result)
-        m_cachedResult.record(vm, owner, regExp, string, result);
+        m_cachedResult.record(vm, owner, regExp, string, result, /* oneCharacterMatch */ false);
     return result;
 }
 
-ALWAYS_INLINE void RegExpGlobalData::recordMatch(VM& vm, JSGlobalObject* owner, RegExp* regExp, JSString* string, const MatchResult& result)
+ALWAYS_INLINE void RegExpGlobalData::recordMatch(VM& vm, JSGlobalObject* owner, RegExp* regExp, JSString* string, const MatchResult& result, bool oneCharacterMatch)
 {
     ASSERT(result);
-    m_cachedResult.record(vm, owner, regExp, string, result);
+    m_cachedResult.record(vm, owner, regExp, string, result, oneCharacterMatch);
+}
+
+inline MatchResult RegExpGlobalData::matchResult() const
+{
+    return m_cachedResult.result();
+}
+
+inline void RegExpGlobalData::resetResultFromCache(JSGlobalObject* owner, RegExp* regExp, JSString* string, MatchResult matchResult, std::span<const int> ovector)
+{
+    auto dest = regExp->ovectorSpan();
+    ASSERT(dest.size() >= ovector.size());
+    std::ranges::copy(ovector, dest.begin());
+    m_cachedResult.record(getVM(owner), owner, regExp, string, matchResult, /* oneCharacterMatch */ false);
 }
 
 }

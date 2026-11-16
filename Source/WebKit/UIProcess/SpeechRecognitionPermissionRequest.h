@@ -40,7 +40,7 @@ class SpeechRecognitionPermissionRequest : public RefCounted<SpeechRecognitionPe
 public:
     static Ref<SpeechRecognitionPermissionRequest> create(WebCore::SpeechRecognitionRequest& request, SpeechRecognitionPermissionRequestCallback&& completionHandler)
     {
-        return adoptRef(*new SpeechRecognitionPermissionRequest(request, WTFMove(completionHandler)));
+        return adoptRef(*new SpeechRecognitionPermissionRequest(request, WTF::move(completionHandler)));
     }
 
     ~SpeechRecognitionPermissionRequest()
@@ -52,37 +52,20 @@ public:
     void complete(std::optional<WebCore::SpeechRecognitionError>&& error)
     {
         auto completionHandler = std::exchange(m_completionHandler, { });
-        completionHandler(WTFMove(error));
+        completionHandler(WTF::move(error));
     }
 
     WebCore::SpeechRecognitionRequest* request() { return m_request.get(); }
 
 private:
     SpeechRecognitionPermissionRequest(WebCore::SpeechRecognitionRequest& request, SpeechRecognitionPermissionRequestCallback&& completionHandler)
-        : m_request(makeWeakPtr(request))
-        , m_completionHandler(WTFMove(completionHandler))
+        : m_request(request)
+        , m_completionHandler(WTF::move(completionHandler))
     { }
 
 
     WeakPtr<WebCore::SpeechRecognitionRequest> m_request;
     SpeechRecognitionPermissionRequestCallback m_completionHandler;
-};
-
-class SpeechRecognitionPermissionCallback : public API::ObjectImpl<API::Object::Type::SpeechRecognitionPermissionCallback> {
-public:
-    static Ref<SpeechRecognitionPermissionCallback> create(CompletionHandler<void(bool)>&& completionHandler)
-    {
-        return adoptRef(*new SpeechRecognitionPermissionCallback(WTFMove(completionHandler)));
-    }
-
-    void complete(bool granted) { m_completionHandler(granted); }
-
-private:
-    SpeechRecognitionPermissionCallback(CompletionHandler<void(bool)>&& completionHandler)
-        : m_completionHandler(WTFMove(completionHandler))
-    { }
-
-    CompletionHandler<void(bool)> m_completionHandler;
 };
 
 } // namespace WebKit

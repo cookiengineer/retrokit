@@ -31,38 +31,49 @@
 
 #pragma once
 
-#include "ScriptCallFrame.h"
+#include <JavaScriptCore/AsyncStackTrace.h>
+#include <JavaScriptCore/ScriptCallFrame.h>
 #include <wtf/Forward.h>
 #include <wtf/RefCounted.h>
 #include <wtf/Vector.h>
 
 namespace Inspector {
 
-class JS_EXPORT_PRIVATE ScriptCallStack : public RefCounted<ScriptCallStack> {
+class AsyncStackTrace;
+
+class ScriptCallStack : public RefCounted<ScriptCallStack> {
 public:
     static constexpr size_t maxCallStackSizeToCapture = 200;
     
     static Ref<ScriptCallStack> create();
-    static Ref<ScriptCallStack> create(Vector<ScriptCallFrame>&);
+    static Ref<ScriptCallStack> create(Vector<ScriptCallFrame>&&, bool truncated = false, AsyncStackTrace* parentStackTrace = nullptr);
 
-    ~ScriptCallStack();
+    JS_EXPORT_PRIVATE ~ScriptCallStack();
 
-    const ScriptCallFrame& at(size_t) const;
-    size_t size() const;
+    JS_EXPORT_PRIVATE const ScriptCallFrame& NODELETE at(size_t) const;
+    JS_EXPORT_PRIVATE size_t NODELETE size() const;
+    bool truncated() const { return m_truncated; }
 
-    const ScriptCallFrame* firstNonNativeCallFrame() const;
+    const RefPtr<AsyncStackTrace>& parentStackTrace() const { return m_parentStackTrace; }
+    void removeParentStackTrace();
+
+    JS_EXPORT_PRIVATE const ScriptCallFrame* firstNonNativeCallFrame() const;
 
     void append(const ScriptCallFrame&);
 
-    bool isEqual(ScriptCallStack*) const;
+    JS_EXPORT_PRIVATE bool NODELETE isEqual(ScriptCallStack*) const;
 
     Ref<JSON::ArrayOf<Protocol::Console::CallFrame>> buildInspectorArray() const;
+    JS_EXPORT_PRIVATE Ref<Protocol::Console::StackTrace> buildInspectorObject() const;
 
 private:
     ScriptCallStack();
-    ScriptCallStack(Vector<ScriptCallFrame>&);
+    ScriptCallStack(Vector<ScriptCallFrame>&&, bool truncated = false, AsyncStackTrace* parentStackTrace = nullptr);
 
     Vector<ScriptCallFrame> m_frames;
+    bool m_truncated { false };
+
+    RefPtr<AsyncStackTrace> m_parentStackTrace;
 };
 
 } // namespace Inspector

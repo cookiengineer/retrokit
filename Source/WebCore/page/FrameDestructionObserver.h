@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 Google, Inc. All Rights Reserved.
+ * Copyright (C) 2011 Google, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,26 +25,29 @@
 
 #pragma once
 
+#include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
-class Frame;
+class LocalFrame;
 
-class FrameDestructionObserver {
+class FrameDestructionObserver : public AbstractRefCountedAndCanMakeWeakPtr<FrameDestructionObserver> {
 public:
-    WEBCORE_EXPORT explicit FrameDestructionObserver(Frame*);
+    WEBCORE_EXPORT explicit FrameDestructionObserver(LocalFrame*);
 
     WEBCORE_EXPORT virtual void frameDestroyed();
     WEBCORE_EXPORT virtual void willDetachPage();
 
-    WEBCORE_EXPORT Frame* frame() const;
+    bool hasFrame() const { return !!m_frame; }
+
+    inline LocalFrame* frame() const; // Defined in FrameDestructionObserverInlines.h.
 
 protected:
     WEBCORE_EXPORT virtual ~FrameDestructionObserver();
-    WEBCORE_EXPORT void observeFrame(Frame*);
+    WEBCORE_EXPORT void observeFrame(LocalFrame*);
 
-    WeakPtr<Frame> m_frame;
+    WeakPtr<LocalFrame> m_frame;
 };
 
 } // namespace WebCore

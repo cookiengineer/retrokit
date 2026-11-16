@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Oleksandr Skachkov <gskachkov@gmail.com>.
+ * Copyright (C) 2025 Sosuke Suzuki <aosukeke@gmail.com>.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,10 +23,27 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-@overriddenName="[Symbol.asyncIterator]"
-function symbolAsyncIteratorGetter()
+// https://tc39.es/proposal-explicit-resource-management/#sec-%asynciteratorprototype%-@@asyncdispose
+@overriddenName="[Symbol.asyncDispose]"
+function asyncDispose()
 {
-    "use strict";
+    'use strict';
 
-    return this;
+    try {
+        var returnMethod = this.return;
+        if (@isUndefinedOrNull(returnMethod))
+            return @newResolvedPromise(@undefined);
+
+        var result = returnMethod.@call(this);
+        var resultWrapper;
+        if (@isPromise(result) && result.constructor === @Promise)
+            resultWrapper = result;
+        else
+            resultWrapper = @newResolvedPromise(result);
+        var promise = @newPromise();
+        @performPromiseThen(resultWrapper, @promiseReturnUndefinedOnFulfilled, @undefined, promise);
+        return promise;
+    } catch (e) {
+        return @newRejectedPromise(e);
+    }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,8 +28,8 @@
 #include "Connection.h"
 #include "IPCSemaphore.h"
 #include "MessageNames.h"
-#include "TestWithSemaphoreMessagesReplies.h"
 #include <wtf/Forward.h>
+#include <wtf/RuntimeApplicationChecks.h>
 #include <wtf/ThreadSafeRefCounted.h>
 
 
@@ -43,23 +43,27 @@ static inline IPC::ReceiverName messageReceiverName()
 
 class SendSemaphore {
 public:
-    using Arguments = std::tuple<const IPC::Semaphore&>;
+    using Arguments = std::tuple<IPC::Semaphore>;
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithSemaphore_SendSemaphore; }
     static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
     explicit SendSemaphore(const IPC::Semaphore& s0)
-        : m_arguments(s0)
+        : m_s0(s0)
     {
     }
 
-    const Arguments& arguments() const
+    template<typename Encoder>
+    void encode(Encoder& encoder)
     {
-        return m_arguments;
+        encoder << m_s0;
     }
 
 private:
-    Arguments m_arguments;
+    const IPC::Semaphore& m_s0;
 };
 
 class ReceiveSemaphore {
@@ -67,18 +71,51 @@ public:
     using Arguments = std::tuple<>;
 
     static IPC::MessageName name() { return IPC::MessageName::TestWithSemaphore_ReceiveSemaphore; }
-    static constexpr bool isSync = true;
+    static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
 
+    static IPC::MessageName asyncMessageReplyName() { return IPC::MessageName::TestWithSemaphore_ReceiveSemaphoreReply; }
     static constexpr auto callbackThread = WTF::CompletionHandlerCallThread::ConstructionThread;
-    using Reply = std::tuple<IPC::Semaphore&>;
     using ReplyArguments = std::tuple<IPC::Semaphore>;
-    const Arguments& arguments() const
+    using Reply = CompletionHandler<void(IPC::Semaphore&&)>;
+    using Promise = WTF::NativePromise<IPC::Semaphore, IPC::Error>;
+    ReceiveSemaphore()
     {
-        return m_arguments;
+    }
+
+    template<typename Encoder>
+    void encode(Encoder& encoder)
+    {
     }
 
 private:
-    Arguments m_arguments;
+};
+
+class ReceiveSemaphoreReply {
+public:
+    using Arguments = std::tuple<IPC::Semaphore>;
+
+    static IPC::MessageName name() { return IPC::MessageName::TestWithSemaphore_ReceiveSemaphoreReply; }
+    static constexpr bool isSync = false;
+    static constexpr bool canDispatchOutOfOrder = false;
+    static constexpr bool replyCanDispatchOutOfOrder = false;
+    static constexpr bool deferSendingIfSuspended = false;
+
+    explicit ReceiveSemaphoreReply(const IPC::Semaphore& r0)
+        : m_r0(r0)
+    {
+    }
+
+    template<typename Encoder>
+    void encode(Encoder& encoder)
+    {
+        encoder << m_r0;
+    }
+
+private:
+    const IPC::Semaphore& m_r0;
 };
 
 } // namespace TestWithSemaphore

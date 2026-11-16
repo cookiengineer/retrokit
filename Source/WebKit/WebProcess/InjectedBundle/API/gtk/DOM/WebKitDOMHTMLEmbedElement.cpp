@@ -24,9 +24,10 @@
 #include "DOMObjectCache.h"
 #include <WebCore/DOMException.h>
 #include <WebCore/Document.h>
-#include "GObjectEventListener.h"
+#include <WebCore/ElementInlines.h>
 #include <WebCore/HTMLNames.h>
 #include <WebCore/JSExecState.h>
+#include "GObjectEventListener.h"
 #include "WebKitDOMEventPrivate.h"
 #include "WebKitDOMEventTarget.h"
 #include "WebKitDOMHTMLEmbedElementPrivate.h"
@@ -93,7 +94,9 @@ static void webkit_dom_html_embed_element_dom_event_target_init(WebKitDOMEventTa
     iface->remove_event_listener = webkit_dom_html_embed_element_remove_event_listener;
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK port
 G_DEFINE_TYPE_WITH_CODE(WebKitDOMHTMLEmbedElement, webkit_dom_html_embed_element, WEBKIT_DOM_TYPE_HTML_ELEMENT, G_IMPLEMENT_INTERFACE(WEBKIT_DOM_TYPE_EVENT_TARGET, webkit_dom_html_embed_element_dom_event_target_init))
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 enum {
     DOM_HTML_EMBED_ELEMENT_PROP_0,
@@ -251,8 +254,7 @@ void webkit_dom_html_embed_element_set_align(WebKitDOMHTMLEmbedElement* self, co
     g_return_if_fail(WEBKIT_DOM_IS_HTML_EMBED_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLEmbedElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::alignAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::alignAttr, WTF::AtomString::fromUTF8(value));
 }
 
 glong webkit_dom_html_embed_element_get_height(WebKitDOMHTMLEmbedElement* self)
@@ -260,7 +262,7 @@ glong webkit_dom_html_embed_element_get_height(WebKitDOMHTMLEmbedElement* self)
     WebCore::JSMainThreadNullState state;
     g_return_val_if_fail(WEBKIT_DOM_IS_HTML_EMBED_ELEMENT(self), 0);
     WebCore::HTMLEmbedElement* item = WebKit::core(self);
-    glong result = item->getIntegralAttribute(WebCore::HTMLNames::heightAttr);
+    glong result = item->integralAttribute(WebCore::HTMLNames::heightAttr);
     return result;
 }
 
@@ -287,8 +289,7 @@ void webkit_dom_html_embed_element_set_name(WebKitDOMHTMLEmbedElement* self, con
     g_return_if_fail(WEBKIT_DOM_IS_HTML_EMBED_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLEmbedElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::nameAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::nameAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_html_embed_element_get_src(WebKitDOMHTMLEmbedElement* self)
@@ -306,8 +307,7 @@ void webkit_dom_html_embed_element_set_src(WebKitDOMHTMLEmbedElement* self, cons
     g_return_if_fail(WEBKIT_DOM_IS_HTML_EMBED_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLEmbedElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::srcAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::srcAttr, WTF::AtomString::fromUTF8(value));
 }
 
 gchar* webkit_dom_html_embed_element_get_type_attr(WebKitDOMHTMLEmbedElement* self)
@@ -325,8 +325,7 @@ void webkit_dom_html_embed_element_set_type_attr(WebKitDOMHTMLEmbedElement* self
     g_return_if_fail(WEBKIT_DOM_IS_HTML_EMBED_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLEmbedElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::typeAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::typeAttr, WTF::AtomString::fromUTF8(value));
 }
 
 glong webkit_dom_html_embed_element_get_width(WebKitDOMHTMLEmbedElement* self)
@@ -334,7 +333,7 @@ glong webkit_dom_html_embed_element_get_width(WebKitDOMHTMLEmbedElement* self)
     WebCore::JSMainThreadNullState state;
     g_return_val_if_fail(WEBKIT_DOM_IS_HTML_EMBED_ELEMENT(self), 0);
     WebCore::HTMLEmbedElement* item = WebKit::core(self);
-    glong result = item->getIntegralAttribute(WebCore::HTMLNames::widthAttr);
+    glong result = item->integralAttribute(WebCore::HTMLNames::widthAttr);
     return result;
 }
 

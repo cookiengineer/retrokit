@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2010 Google Inc. All rights reserved.
- * Copyright (C) 2012 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2012 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -41,12 +41,8 @@
 namespace WebCore {
 
 GeolocationClientMock::GeolocationClientMock()
-    : m_controller(0)
-    , m_hasError(false)
-    , m_controllerTimer(*this, &GeolocationClientMock::controllerTimerFired)
+    : m_controllerTimer(*this, &GeolocationClientMock::controllerTimerFired)
     , m_permissionTimer(*this, &GeolocationClientMock::permissionTimerFired)
-    , m_isActive(false)
-    , m_permissionState(PermissionStateUnset)
 {
 }
 
@@ -55,7 +51,7 @@ GeolocationClientMock::~GeolocationClientMock()
     ASSERT(!m_isActive);
 }
 
-void GeolocationClientMock::setController(GeolocationController *controller)
+void GeolocationClientMock::setController(GeolocationController* controller)
 {
     ASSERT(controller && !m_controller);
     m_controller = controller;
@@ -63,7 +59,7 @@ void GeolocationClientMock::setController(GeolocationController *controller)
 
 void GeolocationClientMock::setPosition(GeolocationPositionData&& position)
 {
-    m_lastPosition = WTFMove(position);
+    m_lastPosition = WTF::move(position);
     clearError();
     asyncUpdateController();
 }
@@ -89,7 +85,7 @@ int GeolocationClientMock::numberOfPendingPermissionRequests() const
 
 void GeolocationClientMock::requestPermission(Geolocation& geolocation)
 {
-    m_pendingPermission.add(&geolocation);
+    m_pendingPermission.add(geolocation);
     if (m_permissionState != PermissionStateUnset)
         asyncUpdatePermission();
 }
@@ -97,7 +93,7 @@ void GeolocationClientMock::requestPermission(Geolocation& geolocation)
 void GeolocationClientMock::cancelPermissionRequest(Geolocation& geolocation)
 {
     // Called from Geolocation::disconnectFrame() in response to Frame destruction.
-    m_pendingPermission.remove(&geolocation);
+    m_pendingPermission.remove(geolocation);
     if (m_pendingPermission.isEmpty() && m_permissionTimer.isActive())
         m_permissionTimer.stop();
 }
@@ -113,14 +109,13 @@ void GeolocationClientMock::permissionTimerFired()
 {
     ASSERT(m_permissionState != PermissionStateUnset);
     bool allowed = m_permissionState == PermissionStateAllowed;
-    GeolocationSet::iterator end = m_pendingPermission.end();
 
     // Once permission has been set (or denied) on a Geolocation object, there can be
     // no further requests for permission to the mock. Consequently the callbacks
     // which fire synchronously from Geolocation::setIsAllowed() cannot reentrantly modify
     // m_pendingPermission.
-    for (GeolocationSet::iterator it = m_pendingPermission.begin(); it != end; ++it)
-        (*it)->setIsAllowed(allowed, { });
+    for (Ref permission : m_pendingPermission)
+        permission->setIsAllowed(allowed, { });
     m_pendingPermission.clear();
 }
 
@@ -136,10 +131,11 @@ void GeolocationClientMock::geolocationDestroyed()
     ASSERT(!m_isActive);
 }
 
-void GeolocationClientMock::startUpdating(const String& authorizationToken)
+void GeolocationClientMock::startUpdating(const String& authorizationToken, bool enableHighAccuracy)
 {
     ASSERT(!m_isActive);
     UNUSED_PARAM(authorizationToken);
+    UNUSED_PARAM(enableHighAccuracy);
     m_isActive = true;
     asyncUpdateController();
 }
@@ -171,14 +167,15 @@ void GeolocationClientMock::asyncUpdateController()
 
 void GeolocationClientMock::controllerTimerFired()
 {
-    ASSERT(m_controller);
+    CheckedPtr controller = m_controller.get();
+    ASSERT(controller);
 
     if (m_lastPosition) {
         ASSERT(!m_hasError);
-        m_controller->positionChanged(*m_lastPosition);
+        controller->positionChanged(*m_lastPosition);
     } else if (m_hasError) {
         auto geolocatioError = GeolocationError::create(GeolocationError::PositionUnavailable, m_errorMessage);
-        m_controller->errorOccurred(geolocatioError.get());
+        controller->errorOccurred(geolocatioError.get());
     }
 }
 

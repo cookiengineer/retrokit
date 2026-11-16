@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,12 +25,16 @@
 
 #pragma once
 
-#include "SpeechRecognitionCaptureSource.h"
-#include "SpeechRecognitionConnectionClientIdentifier.h"
-#include "SpeechRecognitionError.h"
+#include <WebCore/SpeechRecognitionCaptureSource.h>
+#include <WebCore/SpeechRecognitionConnectionClientIdentifier.h>
+#include <WebCore/SpeechRecognitionError.h>
+#include <wtf/CanMakeWeakPtr.h>
+#include <wtf/CheckedRef.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/UniqueRef.h>
 
 #if HAVE(SPEECHRECOGNIZER)
+#include <CoreMedia/CMTime.h>
 #include <wtf/RetainPtr.h>
 OBJC_CLASS WebSpeechRecognizerTask;
 #endif
@@ -40,11 +44,13 @@ namespace WebCore {
 class SpeechRecognitionRequest;
 class SpeechRecognitionUpdate;
 
-class SpeechRecognizer : public CanMakeWeakPtr<SpeechRecognizer> {
-    WTF_MAKE_FAST_ALLOCATED;
+class SpeechRecognizer final : public CanMakeWeakPtr<SpeechRecognizer>, public CanMakeCheckedPtr<SpeechRecognizer> {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(SpeechRecognizer, WEBCORE_EXPORT);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SpeechRecognizer);
 public:
     using DelegateCallback = Function<void(const SpeechRecognitionUpdate&)>;
-    WEBCORE_EXPORT explicit SpeechRecognizer(DelegateCallback&&, UniqueRef<SpeechRecognitionRequest>&&);
+    WEBCORE_EXPORT explicit SpeechRecognizer(DelegateCallback&&, Ref<SpeechRecognitionRequest>&&);
+    WEBCORE_EXPORT ~SpeechRecognizer();
 
 #if ENABLE(MEDIA_STREAM)
     WEBCORE_EXPORT void start(Ref<RealtimeMediaSource>&&, bool mockSpeechRecognitionEnabled);
@@ -53,8 +59,8 @@ public:
     WEBCORE_EXPORT void stop();
     WEBCORE_EXPORT void prepareForDestruction();
 
-    WEBCORE_EXPORT SpeechRecognitionConnectionClientIdentifier clientIdentifier() const;
-    SpeechRecognitionCaptureSource* source() { return m_source.get(); }
+    WEBCORE_EXPORT SpeechRecognitionConnectionClientIdentifier NODELETE clientIdentifier() const;
+    SpeechRecognitionCaptureSource* source() LIFETIME_BOUND { return m_source.get(); }
 
     void setInactive() { m_state = State::Inactive; }
 
@@ -76,12 +82,13 @@ private:
     void stopRecognition();
 
     DelegateCallback m_delegateCallback;
-    UniqueRef<SpeechRecognitionRequest> m_request;
+    const Ref<SpeechRecognitionRequest> m_request;
     std::unique_ptr<SpeechRecognitionCaptureSource> m_source;
     State m_state { State::Inactive };
 
 #if HAVE(SPEECHRECOGNIZER)
     RetainPtr<WebSpeechRecognizerTask> m_task;
+    CMTime m_currentAudioSampleTime;
 #endif
 };
 

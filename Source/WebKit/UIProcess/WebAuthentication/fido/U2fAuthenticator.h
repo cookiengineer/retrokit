@@ -40,13 +40,13 @@ class CtapDriver;
 
 class U2fAuthenticator final : public FidoAuthenticator {
 public:
-    static Ref<U2fAuthenticator> create(std::unique_ptr<CtapDriver>&& driver)
+    static Ref<U2fAuthenticator> create(Ref<CtapDriver>&& driver)
     {
-        return adoptRef(*new U2fAuthenticator(WTFMove(driver)));
+        return adoptRef(*new U2fAuthenticator(WTF::move(driver)));
     }
 
 private:
-    explicit U2fAuthenticator(std::unique_ptr<CtapDriver>&&);
+    explicit U2fAuthenticator(Ref<CtapDriver>&&);
 
     void makeCredential() final;
     void checkExcludeList(size_t index);
@@ -57,7 +57,8 @@ private:
     enum class CommandType : uint8_t {
         RegisterCommand,
         CheckOnlyCommand,
-        BogusCommand,
+        BogusCommandExcludeCredentialsMatch,
+        BogusCommandNoCredentials,
         SignCommand
     };
     void issueNewCommand(Vector<uint8_t>&& command, CommandType);
@@ -66,10 +67,11 @@ private:
     void responseReceived(Vector<uint8_t>&& response, CommandType);
     void continueRegisterCommandAfterResponseReceived(apdu::ApduResponse&&);
     void continueCheckOnlyCommandAfterResponseReceived(apdu::ApduResponse&&);
-    void continueBogusCommandAfterResponseReceived(apdu::ApduResponse&&);
+    void continueBogusCommandExcludeCredentialsMatchAfterResponseReceived(apdu::ApduResponse&&);
+    void continueBogusCommandNoCredentialsAfterResponseReceived(apdu::ApduResponse&&);
     void continueSignCommandAfterResponseReceived(apdu::ApduResponse&&);
 
-    RunLoop::Timer<U2fAuthenticator> m_retryTimer;
+    RunLoop::Timer m_retryTimer;
     Vector<uint8_t> m_lastCommand;
     CommandType m_lastCommandType;
     size_t m_nextListIndex { 0 };

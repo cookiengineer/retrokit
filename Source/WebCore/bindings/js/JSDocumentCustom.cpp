@@ -20,38 +20,28 @@
 #include "config.h"
 #include "JSDocument.h"
 
-#include "Frame.h"
+#include "FrameDestructionObserverInlines.h"
+#include "JSCSSStyleSheet.h"
+#include "JSDOMConvertInterface.h"
+#include "JSDOMConvertSequences.h"
+#include "JSDOMGlobalObjectInlines.h"
 #include "JSDOMWindowCustom.h"
 #include "JSHTMLDocument.h"
 #include "JSXMLDocument.h"
+#include "LocalFrame.h"
 #include "NodeTraversal.h"
+#include "WebCoreOpaqueRootInlines.h"
 #include <JavaScriptCore/HeapAnalyzer.h>
 
 namespace WebCore {
 using namespace JSC;
-
-static inline JSValue createNewDocumentWrapper(JSGlobalObject& lexicalGlobalObject, JSDOMGlobalObject& globalObject, Ref<Document>&& passedDocument)
-{
-    auto& document = passedDocument.get();
-    JSObject* wrapper;
-    if (document.isHTMLDocument())
-        wrapper = createWrapper<HTMLDocument>(&globalObject, WTFMove(passedDocument));
-    else if (document.isXMLDocument())
-        wrapper = createWrapper<XMLDocument>(&globalObject, WTFMove(passedDocument));
-    else
-        wrapper = createWrapper<Document>(&globalObject, WTFMove(passedDocument));
-
-    reportMemoryForDocumentIfFrameless(lexicalGlobalObject, document);
-
-    return wrapper;
-}
 
 JSObject* cachedDocumentWrapper(JSGlobalObject& lexicalGlobalObject, JSDOMGlobalObject& globalObject, Document& document)
 {
     if (auto* wrapper = getCachedWrapper(globalObject.world(), document))
         return wrapper;
 
-    auto* window = document.domWindow();
+    RefPtr window = document.window();
     if (!window)
         return nullptr;
 
@@ -71,7 +61,7 @@ void reportMemoryForDocumentIfFrameless(JSGlobalObject& lexicalGlobalObject, Doc
 
     VM& vm = lexicalGlobalObject.vm();
     size_t memoryCost = 0;
-    for (Node* node = &document; node; node = NodeTraversal::next(*node))
+    for (CheckedPtr<Node> node = &document; node; node = NodeTraversal::next(*node))
         memoryCost += node->approximateMemoryCost();
 
     // FIXME: Adopt reportExtraMemoryVisited, and switch to reportExtraMemoryAllocated.
@@ -79,30 +69,38 @@ void reportMemoryForDocumentIfFrameless(JSGlobalObject& lexicalGlobalObject, Doc
     vm.heap.deprecatedReportExtraMemory(memoryCost);
 }
 
-JSValue toJSNewlyCreated(JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Ref<Document>&& document)
+void setAdoptedStyleSheetsOnTreeScope(TreeScope& treeScope, JSC::JSGlobalObject& lexicalGlobalObject, JSC::JSValue value)
 {
-    return createNewDocumentWrapper(*lexicalGlobalObject, *globalObject, WTFMove(document));
+    auto& vm = JSC::getVM(&lexicalGlobalObject);
+    auto throwScope = DECLARE_THROW_SCOPE(vm);
+
+    auto nativeValue = convert<IDLFrozenArray<IDLInterface<CSSStyleSheet>>>(lexicalGlobalObject, value);
+    if (nativeValue.hasException(throwScope)) [[unlikely]]
+        return;
+
+    auto result = treeScope.setAdoptedStyleSheets(nativeValue.releaseReturnValue());
+    if (result.hasException()) [[unlikely]]
+        propagateException(lexicalGlobalObject, throwScope, result.releaseException());
 }
 
-JSValue toJS(JSGlobalObject* lexicalGlobalObject, JSDOMGlobalObject* globalObject, Document& document)
+void JSDocument::setAdoptedStyleSheets(JSC::JSGlobalObject& lexicalGlobalObject, JSC::JSValue value)
 {
-    if (auto* wrapper = cachedDocumentWrapper(*lexicalGlobalObject, *globalObject, document))
-        return wrapper;
-    return toJSNewlyCreated(lexicalGlobalObject, globalObject, Ref<Document>(document));
+    setAdoptedStyleSheetsOnTreeScope(protect(wrapped()), lexicalGlobalObject, value);
 }
 
 template<typename Visitor>
-void JSDocument::visitAdditionalChildren(Visitor& visitor)
+void JSDocument::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    visitor.addOpaqueRoot(static_cast<ScriptExecutionContext*>(&wrapped()));
+    // This may get called on a GC thread so we cannot ref this object.
+    SUPPRESS_UNCOUNTED_ARG addWebCoreOpaqueRoot(visitor, static_cast<ScriptExecutionContext&>(wrapped()));
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSDocument);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSDocument);
 
 void JSDocument::analyzeHeap(JSCell* cell, HeapAnalyzer& analyzer)
 {
     Base::analyzeHeap(cell, analyzer);
-    auto* thisObject = jsCast<JSDocument*>(cell);
+    auto* thisObject = downcast<JSDocument>(cell);
     analyzer.setLabelForCell(cell, thisObject->wrapped().url().string());
 }
 

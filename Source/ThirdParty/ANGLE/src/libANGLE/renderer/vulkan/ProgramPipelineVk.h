@@ -28,39 +28,15 @@ class ProgramPipelineVk : public ProgramPipelineImpl
     void destroy(const gl::Context *context) override;
     void reset(ContextVk *contextVk);
 
-    const ProgramExecutableVk &getExecutable() const { return mExecutable; }
-    ProgramExecutableVk &getExecutable() { return mExecutable; }
-
-    ProgramVk *getShaderProgram(const gl::State &glState, gl::ShaderType shaderType) const
+    const ProgramExecutableVk *getExecutable() const
     {
-        gl::ProgramPipeline *pipeline = glState.getProgramPipeline();
-        const gl::Program *program    = pipeline->getShaderProgram(shaderType);
-        if (program)
-        {
-            return vk::GetImpl(program);
-        }
-        return nullptr;
+        return vk::GetImpl(&mState.getExecutable());
     }
-
-    void fillProgramStateMap(const ContextVk *contextVk,
-                             gl::ShaderMap<const gl::ProgramState *> *programStatesOut);
+    ProgramExecutableVk *getExecutable() { return vk::GetImpl(&mState.getExecutable()); }
 
     angle::Result link(const gl::Context *glContext,
-                       const gl::ProgramMergedVaryings &mergedVaryings) override;
-
-    angle::Result updateUniforms(ContextVk *contextVk);
-
-    bool dirtyUniforms(const gl::State &glState);
-    void onProgramBind(ContextVk *contextVk);
-
-  private:
-    size_t calcUniformUpdateRequiredSpace(ContextVk *contextVk,
-                                          const gl::ProgramExecutable &glExecutable,
-                                          const gl::State &glState,
-                                          gl::ShaderMap<VkDeviceSize> *uniformOffsets) const;
-    void setAllDefaultUniformsDirty(const gl::State &glState);
-
-    ProgramExecutableVk mExecutable;
+                       const gl::ProgramMergedVaryings &mergedVaryings,
+                       const gl::ProgramVaryingPacking &varyingPacking) override;
 };
 
 }  // namespace rx

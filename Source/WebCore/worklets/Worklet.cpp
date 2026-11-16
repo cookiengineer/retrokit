@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,24 +27,29 @@
 #include "Worklet.h"
 
 #include "ContentSecurityPolicy.h"
-#include "Document.h"
+#include "ContextDestructionObserverInlines.h"
+#include "DocumentPage.h"
+#include "JSDOMPromiseDeferred.h"
 #include "ScriptSourceCode.h"
+#include "ScriptWrappableInlines.h"
 #include "SecurityOrigin.h"
 #include "WorkerRunLoop.h"
 #include "WorkletGlobalScope.h"
 #include "WorkletGlobalScopeProxy.h"
 #include "WorkletPendingTasks.h"
 #include <JavaScriptCore/IdentifiersFactory.h>
+#include <wtf/Borrow.h>
 #include <wtf/CrossThreadCopier.h>
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(Worklet);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Worklet);
 
 Worklet::Worklet(Document& document)
     : ActiveDOMObject(&document)
-    , m_identifier("worklet:" + Inspector::IdentifiersFactory::createIdentifier())
+    , m_identifier(makeString("worklet:"_s, Inspector::IdentifiersFactory::createIdentifier()))
 {
 }
 
@@ -58,35 +63,35 @@ Document* Worklet::document()
 // https://www.w3.org/TR/worklets-1/#dom-worklet-addmodule
 void Worklet::addModule(const String& moduleURLString, WorkletOptions&& options, DOMPromiseDeferred<void>&& promise)
 {
-    auto* document = this->document();
-    if (!document) {
-        promise.reject(Exception { InvalidStateError, "This frame is detached"_s });
+    RefPtr document = this->document();
+    if (!document || !document->page()) {
+        promise.reject(Exception { ExceptionCode::InvalidStateError, "This frame is detached"_s });
         return;
     }
 
-    URL moduleURL = document->completeURL(moduleURLString);
+    URL moduleURL = document->encodingParseURL(moduleURLString);
     if (!moduleURL.isValid()) {
-        promise.reject(Exception { SyntaxError, "Module URL is invalid"_s });
+        promise.reject(Exception { ExceptionCode::SyntaxError, "Module URL is invalid"_s });
         return;
     }
 
-    if (!document->contentSecurityPolicy()->allowScriptFromSource(moduleURL)) {
-        promise.reject(Exception { SecurityError, "Not allowed by CSP"_s });
+    if (!protect(document->contentSecurityPolicy())->allowScriptFromSource(moduleURL, document->currentParserSourcePosition())) {
+        promise.reject(Exception { ExceptionCode::SecurityError, "Not allowed by CSP"_s });
         return;
     }
 
     if (m_proxies.isEmpty())
         m_proxies.appendVector(createGlobalScopes());
 
-    auto pendingTasks = WorkletPendingTasks::create(*this, WTFMove(promise), m_proxies.size());
-    m_pendingTasksSet.add(pendingTasks.copyRef());
+    Ref pendingTasks = WorkletPendingTasks::create(*this, WTF::move(promise), m_proxies.size());
+    m_pendingTasksSet.add(pendingTasks);
 
-    for (auto& proxy : m_proxies) {
+    for (Ref proxy : borrow(m_proxies).get()) {
         proxy->postTaskForModeToWorkletGlobalScope([pendingTasks = pendingTasks.copyRef(), moduleURL = moduleURL.isolatedCopy(), credentials = options.credentials, pendingActivity = makePendingActivity(*this)](ScriptExecutionContext& context) mutable {
-            downcast<WorkletGlobalScope>(context).fetchAndInvokeScript(moduleURL, credentials, [pendingTasks = WTFMove(pendingTasks), pendingActivity = WTFMove(pendingActivity)](std::optional<Exception>&& exception) mutable {
-                callOnMainThread([pendingTasks = WTFMove(pendingTasks), exception = crossThreadCopy(exception), pendingActivity = WTFMove(pendingActivity)]() mutable {
+            downcast<WorkletGlobalScope>(context).fetchAndInvokeScript(moduleURL, credentials, [pendingTasks = WTF::move(pendingTasks), pendingActivity = WTF::move(pendingActivity)](std::optional<Exception>&& exception) mutable {
+                callOnMainThread([pendingTasks = WTF::move(pendingTasks), exception = crossThreadCopy(WTF::move(exception)), pendingActivity = WTF::move(pendingActivity)]() mutable {
                     if (exception)
-                        pendingTasks->abort(WTFMove(*exception));
+                        pendingTasks->abort(WTF::move(*exception));
                     else
                         pendingTasks->decrementCounter();
                 });
@@ -98,14 +103,9 @@ void Worklet::addModule(const String& moduleURLString, WorkletOptions&& options,
 void Worklet::finishPendingTasks(WorkletPendingTasks& tasks)
 {
     ASSERT(isMainThread());
-    ASSERT(m_pendingTasksSet.contains(&tasks));
+    ASSERT(m_pendingTasksSet.contains(tasks));
 
-    m_pendingTasksSet.remove(&tasks);
-}
-
-const char* Worklet::activeDOMObjectName() const
-{
-    return "Worklet";
+    m_pendingTasksSet.remove(tasks);
 }
 
 } // namespace WebCore

@@ -21,72 +21,55 @@
 #include "SVGTextMetrics.h"
 
 #include "RenderSVGInlineText.h"
+#include "FontCascadeInlines.h"
+#include "StyleComputedStyle+GettersInlines.h"
+#include "TextRun.h"
+#include "UnicodeBidi.h"
 
 namespace WebCore {
 
-SVGTextMetrics::SVGTextMetrics()
-    : m_width(0)
-    , m_height(0)
-    , m_length(0)
-{
-}
-
-SVGTextMetrics::SVGTextMetrics(SVGTextMetrics::MetricsType)
-    : m_width(0)
-    , m_height(0)
-    , m_length(1)
-{
-}
-
-SVGTextMetrics::SVGTextMetrics(RenderSVGInlineText& textRenderer, const TextRun& run)
+SVGTextMetrics::SVGTextMetrics(const RenderSVGInlineText& textRenderer, const TextRun& run)
 {
     float scalingFactor = textRenderer.scalingFactor();
     ASSERT(scalingFactor);
 
     const FontCascade& scaledFont = textRenderer.scaledFont();
-    int length = 0;
 
     // Calculate width/height using the scaled font, divide this result by the scalingFactor afterwards.
     m_width = scaledFont.width(run) / scalingFactor;
-    length = run.length();
-    m_glyph.name = emptyString();
-    m_height = scaledFont.fontMetrics().floatHeight() / scalingFactor;
+    m_height = scaledFont.metricsOfPrimaryFont().height() / scalingFactor;
 
-    m_glyph.unicodeString = run.is8Bit() ? String(run.characters8(), length) : String(run.characters16(), length);
-    m_glyph.isValid = true;
-
-    ASSERT(length >= 0);
-    m_length = static_cast<unsigned>(length);
+    m_length = static_cast<unsigned>(run.length());
 }
 
-TextRun SVGTextMetrics::constructTextRun(RenderSVGInlineText& text, unsigned position, unsigned length)
+TextRun SVGTextMetrics::constructTextRun(const RenderSVGInlineText& text, unsigned position, unsigned length)
 {
-    const RenderStyle& style = text.style();
+    const Style::ComputedStyle& style = text.style();
 
-    TextRun run(StringView(text.text()).substring(position, length)
-                , 0 /* xPos, only relevant with allowTabs=true */
-                , 0 /* padding, only relevant for justified text, not relevant for SVG */
-                , AllowRightExpansion
-                , style.direction()
-                , isOverride(style.unicodeBidi()) /* directionalOverride */);
+    TextRun run(StringView(text.text()).substring(position, length),
+        0, /* xPos, only relevant with allowTabs=true */
+        0, /* padding, only relevant for justified text, not relevant for SVG */
+        ExpansionBehavior::allowRightOnly(),
+        style.writingMode().bidiDirection(),
+        isOverride(style.unicodeBidi()) /* directionalOverride */);
 
     // We handle letter & word spacing ourselves.
     run.disableSpacing();
     return run;
 }
 
-SVGTextMetrics SVGTextMetrics::measureCharacterRange(RenderSVGInlineText& text, unsigned position, unsigned length)
+SVGTextMetrics SVGTextMetrics::measureCharacterRange(const RenderSVGInlineText& text, unsigned position, unsigned length)
 {
     return SVGTextMetrics(text, constructTextRun(text, position, length));
 }
 
-SVGTextMetrics::SVGTextMetrics(RenderSVGInlineText& text, unsigned length, float width)
+SVGTextMetrics::SVGTextMetrics(const RenderSVGInlineText& text, unsigned length, float width)
 {
     float scalingFactor = text.scalingFactor();
     ASSERT(scalingFactor);
 
     m_width = width / scalingFactor;
-    m_height = text.scaledFont().fontMetrics().floatHeight() / scalingFactor;
+    m_height = text.scaledFont().metricsOfPrimaryFont().height() / scalingFactor;
 
     m_length = length;
 }

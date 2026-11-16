@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,15 +25,16 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
 #if ENABLE(CONTEXT_MENUS)
 
 #include <wtf/Forward.h>
 
 namespace WebCore {
 
-class Frame;
 class IntPoint;
 class IntRect;
+class LocalFrame;
 
 #if HAVE(TRANSLATION_UI_SERVICES)
 struct TranslationContextMenuInfo;
@@ -42,12 +43,11 @@ struct TranslationContextMenuInfo;
 class ContextMenuClient {
 public:
     virtual ~ContextMenuClient() = default;
-    virtual void contextMenuDestroyed() = 0;
     
     virtual void downloadURL(const URL&) = 0;
-    virtual void searchWithGoogle(const Frame*) = 0;
-    virtual void lookUpInDictionary(Frame*) = 0;
-    virtual bool isSpeaking() = 0;
+    virtual void searchWithGoogle(const LocalFrame*) = 0;
+    virtual void lookUpInDictionary(LocalFrame*) = 0;
+    virtual bool isSpeaking() const = 0;
     virtual void speak(const String&) = 0;
     virtual void stopSpeaking() = 0;
 
@@ -55,16 +55,16 @@ public:
     virtual bool supportsLookUpInImages() = 0;
 #endif
 
+#if ENABLE(IMAGE_ANALYSIS)
+    virtual bool supportsCopySubject() = 0;
+#endif
+
 #if HAVE(TRANSLATION_UI_SERVICES)
     virtual void handleTranslation(const TranslationContextMenuInfo&) = 0;
 #endif
 
-#if PLATFORM(COCOA)
-    virtual void searchWithSpotlight() = 0;
-#endif
-
 #if PLATFORM(GTK)
-    virtual void insertEmoji(Frame&) = 0;
+    virtual void insertEmoji(LocalFrame&) = 0;
 #endif
 
 #if USE(ACCESSIBILITY_CONTEXT_MENUS)

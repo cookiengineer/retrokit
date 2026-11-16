@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2006-2020 Apple Inc.  All rights reserved.
- * Copyright (C) 2016 Canon Inc.  All rights reserved.
+ * Copyright (C) 2006-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2016 Canon Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,7 +26,8 @@
 
 #pragma once
 
-#include <wtf/EnumTraits.h>
+#include <source_location>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/URL.h>
 #include <wtf/text/WTFString.h>
 
@@ -34,11 +35,19 @@ namespace WebCore {
 
 class ResourceError;
 
-WEBCORE_EXPORT extern const char* const errorDomainWebKitInternal; // Used for errors that won't be exposed to clients.
-WEBCORE_EXPORT extern const char* const errorDomainWebKitServiceWorker; // Used for errors that happen when loading a resource from a service worker.
+inline constexpr ASCIILiteral errorDomainWebKitInternal { "WebKitInternal"_s }; // Used for errors that won't be exposed to clients.
+inline constexpr ASCIILiteral errorDomainWebKitServiceWorker { "WebKitServiceWorker"_s }; // Used for errors that happen when loading a resource from a service worker.
+
+enum class ResourceErrorBaseType : uint8_t {
+    Null,
+    General,
+    AccessControl,
+    Cancellation,
+    Timeout
+};
 
 class ResourceErrorBase {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(ResourceErrorBase, WEBCORE_EXPORT);
 public:
     WEBCORE_EXPORT ResourceError isolatedCopy() const;
 
@@ -49,14 +58,14 @@ public:
 
     String sanitizedDescription() const { return m_isSanitized  == IsSanitized::Yes ? m_localizedDescription : "Load failed"_s; }
 
-    enum class Type : uint8_t {
-        Null,
-        General,
-        AccessControl,
-        Cancellation,
-        Timeout
-    };
+    using Type = ResourceErrorBaseType;
+
     enum class IsSanitized : bool { No, Yes };
+
+    enum class ErrorRecoveryMethod : bool {
+        NoRecovery,
+        HTTPFallback
+    };
 
     bool isNull() const { return m_type == Type::Null; }
     bool isGeneral() const { return m_type == Type::General; }
@@ -66,7 +75,7 @@ public:
 
     static bool compare(const ResourceError&, const ResourceError&);
 
-    WEBCORE_EXPORT void setType(Type);
+    WEBCORE_EXPORT void NODELETE setType(Type);
     Type type() const { return m_type; }
 
     bool isSanitized() const { return m_isSanitized == IsSanitized::Yes; }
@@ -101,27 +110,12 @@ protected:
     IsSanitized m_isSanitized { IsSanitized::No };
 
 private:
-    const ResourceError& asResourceError() const;
+    const ResourceError& NODELETE asResourceError() const;
 };
 
-WEBCORE_EXPORT ResourceError internalError(const URL&);
+WEBCORE_EXPORT ResourceError internalError(const URL&, std::source_location = std::source_location::current());
+WEBCORE_EXPORT ResourceError badResponseHeadersError(const URL&);
 
-inline bool operator==(const ResourceError& a, const ResourceError& b) { return ResourceErrorBase::compare(a, b); }
-inline bool operator!=(const ResourceError& a, const ResourceError& b) { return !(a == b); }
+bool operator==(const ResourceError& a, const ResourceError& b);
 
 } // namespace WebCore
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::ResourceErrorBase::Type> {
-    using values = EnumValues<
-        WebCore::ResourceErrorBase::Type,
-        WebCore::ResourceErrorBase::Type::Null,
-        WebCore::ResourceErrorBase::Type::General,
-        WebCore::ResourceErrorBase::Type::AccessControl,
-        WebCore::ResourceErrorBase::Type::Cancellation,
-        WebCore::ResourceErrorBase::Type::Timeout
-    >;
-};
-
-} // namespace WTF

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,13 +35,14 @@ class SessionID;
 namespace WebCore {
 
 class Page;
+class SecurityOrigin;
 class StorageArea;
-struct SecurityOriginData;
 
 class StorageNamespace : public RefCounted<StorageNamespace> {
 public:
     virtual ~StorageNamespace() = default;
-    virtual Ref<StorageArea> storageArea(const SecurityOriginData&) = 0;
+    virtual Ref<StorageArea> storageArea(const SecurityOrigin&) = 0;
+    virtual const SecurityOrigin* topLevelOrigin() const = 0;
 
     // FIXME: This is only valid for session storage and should probably be moved to a subclass.
     virtual Ref<StorageNamespace> copy(Page& newPage) = 0;

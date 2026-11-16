@@ -4,7 +4,7 @@
  * Copyright (C) 2008 Eric Seidel <eric@webkit.org>
  * Copyright (C) 2008 Dirk Schulze <krit@webkit.org>
  * Copyright (C) Research In Motion Limited 2010. All rights reserved.
- * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2025 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -25,35 +25,41 @@
 #include "config.h"
 #include "SVGRadialGradientElement.h"
 
-#include "FloatConversion.h"
+#include "ContainerNodeInlines.h"
 #include "FloatPoint.h"
+#include "LegacyRenderSVGResourceRadialGradient.h"
+#include "NodeName.h"
 #include "RadialGradientAttributes.h"
 #include "RenderSVGResourceRadialGradient.h"
+#include "SVGElementTypeHelpers.h"
 #include "SVGNames.h"
+#include "SVGParsingError.h"
 #include "SVGStopElement.h"
 #include "SVGUnitTypes.h"
-#include <wtf/IsoMallocInlines.h>
+#include "Settings.h"
 #include <wtf/NeverDestroyed.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(SVGRadialGradientElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGRadialGradientElement);
 
 inline SVGRadialGradientElement::SVGRadialGradientElement(const QualifiedName& tagName, Document& document)
-    : SVGGradientElement(tagName, document)
+    : SVGGradientElement(tagName, document, makeUniqueRef<PropertyRegistry>(*this))
 {
     // Spec: If the cx/cy/r/fr attribute is not specified, the effect is as if a value of "50%" were specified.
     ASSERT(hasTagName(SVGNames::radialGradientTag));
 
-    static std::once_flag onceFlag;
-    std::call_once(onceFlag, [] {
+    static bool didRegistration = false;
+    if (!didRegistration) [[unlikely]] {
+        didRegistration = true;
         PropertyRegistry::registerProperty<SVGNames::cxAttr, &SVGRadialGradientElement::m_cx>();
         PropertyRegistry::registerProperty<SVGNames::cyAttr, &SVGRadialGradientElement::m_cy>();
         PropertyRegistry::registerProperty<SVGNames::rAttr, &SVGRadialGradientElement::m_r>();
         PropertyRegistry::registerProperty<SVGNames::fxAttr, &SVGRadialGradientElement::m_fx>();
         PropertyRegistry::registerProperty<SVGNames::fyAttr, &SVGRadialGradientElement::m_fy>();
         PropertyRegistry::registerProperty<SVGNames::frAttr, &SVGRadialGradientElement::m_fr>();
-    });
+    }
 }
 
 Ref<SVGRadialGradientElement> SVGRadialGradientElement::create(const QualifiedName& tagName, Document& document)
@@ -61,26 +67,34 @@ Ref<SVGRadialGradientElement> SVGRadialGradientElement::create(const QualifiedNa
     return adoptRef(*new SVGRadialGradientElement(tagName, document));
 }
 
-void SVGRadialGradientElement::parseAttribute(const QualifiedName& name, const AtomString& value)
+void SVGRadialGradientElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
-    SVGParsingError parseError = NoError;
+    auto parseError = SVGParsingError::None;
 
-    if (name == SVGNames::cxAttr)
-        m_cx->setBaseValInternal(SVGLengthValue::construct(SVGLengthMode::Width, value, parseError));
-    else if (name == SVGNames::cyAttr)
-        m_cy->setBaseValInternal(SVGLengthValue::construct(SVGLengthMode::Height, value, parseError));
-    else if (name == SVGNames::rAttr)
-        m_r->setBaseValInternal(SVGLengthValue::construct(SVGLengthMode::Other, value, parseError, SVGLengthNegativeValuesMode::Forbid));
-    else if (name == SVGNames::fxAttr)
-        m_fx->setBaseValInternal(SVGLengthValue::construct(SVGLengthMode::Width, value, parseError));
-    else if (name == SVGNames::fyAttr)
-        m_fy->setBaseValInternal(SVGLengthValue::construct(SVGLengthMode::Height, value, parseError));
-    else if (name == SVGNames::frAttr)
-        m_fr->setBaseValInternal(SVGLengthValue::construct(SVGLengthMode::Other, value, parseError, SVGLengthNegativeValuesMode::Forbid));
-
-    reportAttributeParsingError(parseError, name, value);
-
-    SVGGradientElement::parseAttribute(name, value);
+    switch (name.nodeName()) {
+    case AttributeNames::cxAttr:
+        protect(m_cx)->setBaseValInternal(SVGLengthValue::construct(SVGLengthMode::Width, newValue, parseError, SVGLengthNegativeValuesMode::Allow, "50%"_s));
+        break;
+    case AttributeNames::cyAttr:
+        protect(m_cy)->setBaseValInternal(SVGLengthValue::construct(SVGLengthMode::Height, newValue, parseError, SVGLengthNegativeValuesMode::Allow, "50%"_s));
+        break;
+    case AttributeNames::rAttr:
+        protect(m_r)->setBaseValInternal(SVGLengthValue::construct(SVGLengthMode::Other, newValue, parseError, SVGLengthNegativeValuesMode::Allow, "50%"_s));
+        break;
+    case AttributeNames::fxAttr:
+        protect(m_fx)->setBaseValInternal(SVGLengthValue::construct(SVGLengthMode::Width, newValue, parseError, SVGLengthNegativeValuesMode::Allow, "50%"_s));
+        break;
+    case AttributeNames::fyAttr:
+        protect(m_fy)->setBaseValInternal(SVGLengthValue::construct(SVGLengthMode::Height, newValue, parseError, SVGLengthNegativeValuesMode::Allow, "50%"_s));
+        break;
+    case AttributeNames::frAttr:
+        protect(m_fr)->setBaseValInternal(SVGLengthValue::construct(SVGLengthMode::Other, newValue, parseError, SVGLengthNegativeValuesMode::Forbid, "0%"_s));
+        break;
+    default:
+        break;
+    }
+    reportAttributeParsingError(parseError, name, newValue);
+    SVGGradientElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
 }
 
 void SVGRadialGradientElement::svgAttributeChanged(const QualifiedName& attrName)
@@ -88,17 +102,18 @@ void SVGRadialGradientElement::svgAttributeChanged(const QualifiedName& attrName
     if (PropertyRegistry::isKnownAttribute(attrName)) {
         InstanceInvalidationGuard guard(*this);
         updateRelativeLengthsInformation();
-        if (RenderObject* object = renderer())
-            object->setNeedsLayout();
+        invalidateGradientResource();
         return;
     }
 
     SVGGradientElement::svgAttributeChanged(attrName);
 }
 
-RenderPtr<RenderElement> SVGRadialGradientElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> SVGRadialGradientElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
-    return createRenderer<RenderSVGResourceRadialGradient>(*this, WTFMove(style));
+    if (document().settings().layerBasedSVGEngineEnabled())
+        return createRenderer<RenderSVGResourceRadialGradient>(*this, WTF::move(style));
+    return createRenderer<LegacyRenderSVGResourceRadialGradient>(*this, WTF::move(style));
 }
 
 static void setGradientAttributes(SVGGradientElement& element, RadialGradientAttributes& attributes, bool isRadial = true)
@@ -110,7 +125,7 @@ static void setGradientAttributes(SVGGradientElement& element, RadialGradientAtt
         attributes.setGradientUnits(element.gradientUnits());
 
     if (!attributes.hasGradientTransform() && element.hasAttribute(SVGNames::gradientTransformAttr))
-        attributes.setGradientTransform(element.gradientTransform().concatenate());
+        attributes.setGradientTransform(element.gradientTransform().concatenate().value_or(identity));
 
     if (!attributes.hasStops())
         attributes.setStops(element.buildStops());
@@ -143,17 +158,17 @@ bool SVGRadialGradientElement::collectGradientAttributes(RadialGradientAttribute
     if (!renderer())
         return false;
 
-    HashSet<SVGGradientElement*> processedGradients;
-    SVGGradientElement* current = this;
+    HashSet<Ref<SVGGradientElement>> processedGradients;
+    Ref<SVGGradientElement> current { *this };
 
-    setGradientAttributes(*current, attributes);
+    setGradientAttributes(current, attributes);
     processedGradients.add(current);
 
     while (true) {
         // Respect xlink:href, take attributes from referenced element
-        auto target = SVGURIReference::targetElementFromIRIString(current->href(), treeScope());
-        if (is<SVGGradientElement>(target.element)) {
-            current = downcast<SVGGradientElement>(target.element.get());
+        auto target = SVGURIReference::targetElementFromIRIString(current->href(), treeScopeForSVGReferences());
+        if (RefPtr gradientElement = dynamicDowncast<SVGGradientElement>(protect(target.element).get())) {
+            current = gradientElement.releaseNonNull();
 
             // Cycle detection
             if (processedGradients.contains(current))
@@ -162,7 +177,7 @@ bool SVGRadialGradientElement::collectGradientAttributes(RadialGradientAttribute
             if (!current->renderer())
                 return false;
 
-            setGradientAttributes(*current, attributes, current->hasTagName(SVGNames::radialGradientTag));
+            setGradientAttributes(current, attributes, current->hasTagName(SVGNames::radialGradientTag));
             processedGradients.add(current);
         } else
             break;

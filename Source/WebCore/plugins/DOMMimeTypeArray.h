@@ -32,15 +32,18 @@ class DOMMimeType;
 class Navigator;
 
 class DOMMimeTypeArray final : public ScriptWrappable, public RefCounted<DOMMimeTypeArray> {
-    WTF_MAKE_ISO_ALLOCATED(DOMMimeTypeArray);
+    WTF_MAKE_TZONE_ALLOCATED(DOMMimeTypeArray);
 public:
     static Ref<DOMMimeTypeArray> create(Navigator&, Vector<Ref<DOMMimeType>>&& = { });
     ~DOMMimeTypeArray();
 
-    unsigned length() const;
-    RefPtr<DOMMimeType> item(unsigned index);
-    RefPtr<DOMMimeType> namedItem(const AtomString& propertyName);
-    Vector<AtomString> supportedPropertyNames();
+    unsigned NODELETE length() const;
+    bool isSupportedPropertyIndex(unsigned index) const { return index < m_types.size(); }
+    RefPtr<DOMMimeType> NODELETE item(unsigned index);
+    RefPtr<DOMMimeType> NODELETE namedItem(const AtomString& propertyName);
+    Vector<AtomString> supportedPropertyNames() const;
+
+    bool isSupportedPropertyName(const AtomString&) const;
 
     Navigator* navigator() { return m_navigator.get(); }
 

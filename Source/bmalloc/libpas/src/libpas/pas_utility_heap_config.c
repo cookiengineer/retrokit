@@ -31,23 +31,23 @@
 
 #include "pas_compact_bootstrap_free_heap.h"
 #include "pas_heap_config_utils_inlines.h"
+#include "pas_stream.h"
 #include "pas_utility_heap.h"
 
-pas_segregated_shared_page_directory pas_utility_heap_shared_page_directory =
-    PAS_SEGREGATED_SHARED_PAGE_DIRECTORY_INITIALIZER(
-        PAS_UTILITY_HEAP_CONFIG.small_segregated_config,
-        pas_share_pages);
+PAS_BEGIN_EXTERN_C;
 
-pas_heap_config pas_utility_heap_config = PAS_UTILITY_HEAP_CONFIG;
+const pas_heap_config pas_utility_heap_config = PAS_UTILITY_HEAP_CONFIG;
 
 PAS_SEGREGATED_PAGE_CONFIG_SPECIALIZATION_DEFINITIONS(
     pas_utility_heap_page_config, PAS_UTILITY_HEAP_CONFIG.small_segregated_config);
 PAS_HEAP_CONFIG_SPECIALIZATION_DEFINITIONS(
     pas_utility_heap_config, PAS_UTILITY_HEAP_CONFIG);
 
-void* pas_utility_heap_allocate_page(pas_segregated_heap* heap)
+void* pas_utility_heap_allocate_page(
+    pas_segregated_heap* heap, pas_physical_memory_transaction* transaction)
 {
     PAS_UNUSED_PARAM(heap);
+    PAS_ASSERT(!transaction);
     return (void*)pas_compact_bootstrap_free_heap_try_allocate_with_alignment(
         PAS_SMALL_PAGE_DEFAULT_SIZE,
         pas_alignment_create_traditional(PAS_SMALL_PAGE_DEFAULT_SIZE),
@@ -55,14 +55,6 @@ void* pas_utility_heap_allocate_page(pas_segregated_heap* heap)
         pas_delegate_allocation).begin;
 }
 
-bool pas_utility_heap_config_for_each_shared_page_directory(
-    pas_segregated_heap* heap,
-    bool (*callback)(pas_segregated_shared_page_directory* directory,
-                     void* arg),
-    void* arg)
-{
-    PAS_ASSERT(heap == &pas_utility_segregated_heap);
-    return callback(&pas_utility_heap_shared_page_directory, arg);
-}
+PAS_END_EXTERN_C;
 
 #endif /* LIBPAS_ENABLED */

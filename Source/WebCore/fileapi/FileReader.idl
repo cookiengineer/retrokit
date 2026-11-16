@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Google Inc.  All rights reserved.
+ * Copyright (C) 2010 Google Inc. All rights reserved.
  * Copyright (C) 2011 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,10 +30,11 @@
  */
 
 [
+    EnabledBySetting=FileReaderAPIEnabled,
     Exposed=(Window,Worker),
     ActiveDOMObject,
 ] interface FileReader : EventTarget {
-    [CallWith=ScriptExecutionContext] constructor();
+    [CallWith=CurrentScriptExecutionContext] constructor();
 
     // ready states
     const unsigned short EMPTY = 0;

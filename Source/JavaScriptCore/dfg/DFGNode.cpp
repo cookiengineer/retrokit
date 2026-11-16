@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,10 +28,13 @@
 
 #if ENABLE(DFG_JIT)
 
+#include "CacheableIdentifierInlines.h"
 #include "DFGGraph.h"
 #include "DFGPromotedHeapLocation.h"
 #include "DOMJITSignature.h"
-#include "JSImmutableButterfly.h"
+#include "JSCellButterfly.h"
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC { namespace DFG {
 
@@ -249,11 +252,50 @@ void Node::convertToNewArrayBuffer(FrozenValue* immutableButterfly)
 {
     setOpAndDefaultFlags(NewArrayBuffer);
     NewArrayBufferData data { };
-    data.indexingMode = immutableButterfly->cast<JSImmutableButterfly*>()->indexingMode();
-    data.vectorLengthHint = immutableButterfly->cast<JSImmutableButterfly*>()->toButterfly()->vectorLength();
+    data.indexingMode = immutableButterfly->cast<JSCellButterfly*>()->indexingMode();
+    data.vectorLengthHint = immutableButterfly->cast<JSCellButterfly*>()->toButterfly()->vectorLength();
     children.reset();
     m_opInfo = immutableButterfly;
     m_opInfo2 = data.asQuadWord;
+}
+
+void Node::convertToNewArrayWithSize()
+{
+    ASSERT(op() == NewArrayWithSpecies);
+    IndexingType indexingType = this->indexingType();
+    unsigned vectorLengthHint = this->vectorLengthHint();
+    setOpAndDefaultFlags(NewArrayWithSize);
+    children.child2() = Edge();
+    m_opInfo = indexingType;
+    m_opInfo2 = vectorLengthHint;
+}
+
+void Node::convertToNewArrayWithButterfly(Graph&, Node* butterfly)
+{
+    ASSERT(op() == NewArrayWithSize);
+    IndexingType indexingType = this->indexingType();
+    setOpAndDefaultFlags(NewArrayWithButterfly);
+    ASSERT(child1()->asInt32() < MIN_ARRAY_STORAGE_CONSTRUCTION_LENGTH);
+    children.child2() = Edge(butterfly, KnownStorageUse);
+    ASSERT_UNUSED(indexingType, indexingType == this->indexingType());
+}
+
+void Node::convertToNewArrayWithSizeAndStructure(Graph& graph, RegisteredStructure structure)
+{
+    ASSERT(op() == Construct);
+    Node* node = graph.child(this, 2).node();
+    setOpAndDefaultFlags(NewArrayWithSizeAndStructure);
+    children.reset();
+    children.child1() = Edge(node, Int32Use);
+    children.child2() = Edge();
+    children.child3() = Edge();
+    m_opInfo = structure;
+}
+
+void Node::convertToNewBoundFunction(FrozenValue* executable)
+{
+    m_op = NewBoundFunction;
+    m_opInfo = executable;
 }
 
 void Node::convertToDirectCall(FrozenValue* executable)
@@ -279,6 +321,12 @@ void Node::convertToDirectCall(FrozenValue* executable)
     
     m_op = newOp;
     m_opInfo = executable;
+}
+
+void Node::convertToCallWasm(FrozenValue* callee)
+{
+    m_op = m_op == Call ? CallWasm : TailCallInlinedCallerWasm;
+    m_opInfo = callee;
 }
 
 void Node::convertToCallDOM(Graph& graph)
@@ -311,6 +359,16 @@ void Node::convertToRegExpExecNonGlobalOrStickyWithoutChecks(FrozenValue* regExp
     m_opInfo = regExp;
 }
 
+void Node::convertToRegExpExecStickyWithoutChecks(FrozenValue* regExp)
+{
+    ASSERT(op() == RegExpExec);
+    setOpAndDefaultFlags(RegExpExecSticky);
+    children.child1() = Edge(children.child1().node(), KnownCellUse);
+    children.child2() = Edge(children.child2().node(), RegExpObjectUse);
+    children.child3() = Edge(children.child3().node(), KnownStringUse);
+    m_opInfo = regExp;
+}
+
 void Node::convertToRegExpMatchFastGlobalWithoutChecks(FrozenValue* regExp)
 {
     ASSERT(op() == RegExpMatchFast);
@@ -319,6 +377,159 @@ void Node::convertToRegExpMatchFastGlobalWithoutChecks(FrozenValue* regExp)
     children.child2() = Edge(children.child3().node(), KnownStringUse);
     children.child3() = Edge();
     m_opInfo = regExp;
+}
+
+void Node::convertToRegExpMatchFast(Node* globalObjectNode)
+{
+    ASSERT(op() == StringMatch);
+    Edge stringEdge = child1();
+    Edge regExpEdge = child2();
+    setOpAndDefaultFlags(RegExpMatchFast);
+    children = AdjacencyList(AdjacencyList::Fixed, Edge(globalObjectNode), regExpEdge, stringEdge);
+}
+
+void Node::convertToRegExpSearch(Node* globalObjectNode)
+{
+    ASSERT(op() == StringSearch);
+    Edge stringEdge = child1();
+    Edge regExpEdge = child2();
+    setOpAndDefaultFlags(RegExpSearch);
+    children = AdjacencyList(AdjacencyList::Fixed, Edge(globalObjectNode), regExpEdge, stringEdge);
+}
+
+void Node::convertToDefineDataProperty(Graph& graph, Edge base, Edge property, Edge value, Edge attributes)
+{
+    ASSERT(op() == ObjectDefinePropertyFromFields);
+    setOpAndDefaultFlags(DefineDataProperty);
+
+    unsigned firstChild = graph.m_varArgChildren.size();
+    graph.m_varArgChildren.append(base);
+    graph.m_varArgChildren.append(property);
+    graph.m_varArgChildren.append(value);
+    graph.m_varArgChildren.append(attributes);
+    children = AdjacencyList(AdjacencyList::Variable, firstChild, 4);
+}
+
+void Node::convertToDefineAccessorProperty(Graph& graph, Edge base, Edge property, Edge getter, Edge setter, Edge attributes)
+{
+    ASSERT(op() == ObjectDefinePropertyFromFields);
+    setOpAndDefaultFlags(DefineAccessorProperty);
+
+    unsigned firstChild = graph.m_varArgChildren.size();
+    graph.m_varArgChildren.append(base);
+    graph.m_varArgChildren.append(property);
+    graph.m_varArgChildren.append(getter);
+    graph.m_varArgChildren.append(setter);
+    graph.m_varArgChildren.append(attributes);
+    children = AdjacencyList(AdjacencyList::Variable, firstChild, 5);
+}
+
+void Node::convertToEnumeratorHasOwnProperty(Graph& graph, Edge base, Edge propertyName, Edge index, Edge mode, Edge enumerator, ArrayMode arrayMode, unsigned enumeratorMetadata)
+{
+    ASSERT(op() == HasOwnProperty);
+    setOpAndDefaultFlags(EnumeratorHasOwnProperty);
+    m_opInfo = arrayMode.asWord();
+    m_opInfo2 = enumeratorMetadata;
+
+    unsigned firstChild = graph.m_varArgChildren.size();
+    graph.m_varArgChildren.append(base);
+    graph.m_varArgChildren.append(propertyName);
+    graph.m_varArgChildren.append(index);
+    graph.m_varArgChildren.append(mode);
+    graph.m_varArgChildren.append(enumerator);
+    children = AdjacencyList(AdjacencyList::Variable, firstChild, 5);
+}
+
+void Node::convertToObjectDefinePropertyFromFields(Graph& graph, Edge target, Edge key, Edge enumerable, Edge configurable, Edge value, Edge writable, Edge getter, Edge setter)
+{
+    ASSERT(op() == ObjectDefineProperty);
+    setOpAndDefaultFlags(ObjectDefinePropertyFromFields);
+
+    unsigned firstChild = graph.m_varArgChildren.size();
+    graph.m_varArgChildren.append(target);
+    graph.m_varArgChildren.append(key);
+    graph.m_varArgChildren.append(enumerable);
+    graph.m_varArgChildren.append(configurable);
+    graph.m_varArgChildren.append(value);
+    graph.m_varArgChildren.append(writable);
+    graph.m_varArgChildren.append(getter);
+    graph.m_varArgChildren.append(setter);
+    children = AdjacencyList(AdjacencyList::Variable, firstChild, 8);
+}
+
+void Node::convertToPutByIdDirect(Graph& graph, Edge base, Edge value, CacheableIdentifier identifier, ECMAMode ecmaMode)
+{
+    ASSERT(op() == DefineDataProperty);
+    for (unsigned i = 0; i < numChildren(); ++i)
+        graph.varArgChild(this, i) = Edge();
+
+    children.reset();
+    clearFlags(NodeHasVarArgs);
+    setOpAndDefaultFlags(PutByIdDirect);
+    child1() = base;
+    child2() = value;
+    m_opInfo = identifier;
+    m_opInfo2 = ecmaMode.value();
+}
+
+void Node::convertToRegExpTestInline(FrozenValue* globalObject, FrozenValue* regExp)
+{
+    ASSERT(op() == RegExpTest);
+    setOpAndDefaultFlags(RegExpTestInline);
+    children.child1() = Edge(children.child1().node(), KnownCellUse);
+    children.child2() = Edge(children.child2().node(), RegExpObjectUse);
+    // We keep the existing child3.
+    m_opInfo = globalObject;
+    m_opInfo2 = regExp;
+}
+
+void Node::convertToGetByIdMaybeMegamorphic(Graph& graph, CacheableIdentifier identifier)
+{
+    ASSERT(op() == GetByVal || op() == GetByValMegamorphic);
+    bool isMegamorphic = op() == GetByValMegamorphic && canUseMegamorphicGetById(graph.m_vm, identifier.uid());
+    Edge base = graph.varArgChild(this, 0);
+    ASSERT(base.useKind() == ObjectUse);
+    for (unsigned i = 0; i < numChildren(); ++i) {
+        Edge& edge = graph.varArgChild(this, i);
+        edge = Edge();
+    }
+    setOpAndDefaultFlags(isMegamorphic ? GetByIdMegamorphic : GetById);
+    children.child1() = Edge(base.node(), CellUse);
+    children.child2() = Edge();
+    children.child3() = Edge();
+    auto* data = graph.m_getByIdData.add(GetByIdData { identifier, CacheType::GetByIdSelf });
+    m_opInfo = data;
+}
+
+void Node::convertToPutByIdMaybeMegamorphic(Graph& graph, CacheableIdentifier identifier)
+{
+    ASSERT(op() == PutByVal || op() == PutByValMegamorphic);
+    bool isMegamorphic = op() == PutByValMegamorphic && canUseMegamorphicPutById(graph.m_vm, identifier.uid());
+    Edge base = graph.child(this, 0);
+    Edge value = graph.child(this, 2);
+    ASSERT(base.useKind() == CellUse);
+    for (unsigned i = 0; i < numChildren(); ++i) {
+        Edge& edge = graph.varArgChild(this, i);
+        edge = Edge();
+    }
+
+    setOpAndDefaultFlags(isMegamorphic ? PutByIdMegamorphic : PutById);
+    children.child1() = Edge(base.node(), CellUse);
+    children.child2() = Edge(value.node());
+    children.child3() = Edge();
+    m_opInfo = identifier;
+}
+
+void Node::convertToInByIdMaybeMegamorphic(Graph& graph, CacheableIdentifier identifier)
+{
+    ASSERT(op() == InByVal || op() == InByValMegamorphic);
+    bool isMegamorphic = op() == InByValMegamorphic && canUseMegamorphicInById(graph.m_vm, identifier.uid());
+    Edge base = graph.child(this, 0);
+    ASSERT(base.useKind() == CellUse);
+    setOpAndDefaultFlags(isMegamorphic ? InByIdMegamorphic : InById);
+    children.setChild1(Edge(base.node(), CellUse));
+    children.setChild2(Edge());
+    m_opInfo = identifier;
 }
 
 String Node::tryGetString(Graph& graph)
@@ -361,7 +572,7 @@ void printInternal(PrintStream& out, SwitchKind kind)
     RELEASE_ASSERT_NOT_REACHED();
 }
 
-void printInternal(PrintStream& out, Node* node)
+void printInternal(PrintStream& out, JSC::DFG::Node* node)
 {
     if (!node) {
         out.print("-");
@@ -376,5 +587,6 @@ void printInternal(PrintStream& out, Node* node)
 
 } // namespace WTF
 
-#endif // ENABLE(DFG_JIT)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
+#endif // ENABLE(DFG_JIT)

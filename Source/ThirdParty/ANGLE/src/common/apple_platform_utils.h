@@ -9,38 +9,56 @@
 #ifndef COMMON_APPLE_PLATFORM_UTILS_H_
 #define COMMON_APPLE_PLATFORM_UTILS_H_
 
-#include <TargetConditionals.h>
+#include "common/platform.h"
 
-// These are macros for substitution of Apple specific directive @available:
+#include <string>
 
-// TARGET_OS_MACCATALYST only available in MacSDK 10.15
-
-#if TARGET_OS_MACCATALYST
-// ANGLE_APPLE_AVAILABLE_XCI: check if either of the 3 platforms (OSX/Catalyst/iOS) min verions is
-// available:
-#    define ANGLE_APPLE_AVAILABLE_XCI(macVer, macCatalystVer, iOSVer) \
-        @available(macOS macVer, macCatalyst macCatalystVer, iOS iOSVer, *)
-// ANGLE_APPLE_AVAILABLE_XC: check if either of the 2 platforms (OSX/Catalyst) min verions is
-// available:
-#    define ANGLE_APPLE_AVAILABLE_XC(macVer, macCatalystVer) \
-        @available(macOS macVer, macCatalyst macCatalystVer, *)
-// ANGLE_APPLE_AVAILABLE_CI: check if either of the 2 platforms (Catalyst/iOS) min verions is
-// available:
-#    define ANGLE_APPLE_AVAILABLE_CI(macCatalystVer, iOSVer) \
-        @available(macCatalyst macCatalystVer, iOS iOSVer, *)
+#if defined(__ARM_ARCH)
+#    define ANGLE_APPLE_IS_ARM (__ARM_ARCH != 0)
 #else
-#    define ANGLE_APPLE_AVAILABLE_XCI(macVer, macCatalystVer, iOSVer) \
-        ANGLE_APPLE_AVAILABLE_XI(macVer, iOSVer)
-
-#    define ANGLE_APPLE_AVAILABLE_XC(macVer, macCatalystVer) @available(macOS macVer, *)
-#    define ANGLE_APPLE_AVAILABLE_CI(macCatalystVer, iOSVer) @available(iOS iOSVer, tvOS iOSVer, *)
+#    define ANGLE_APPLE_IS_ARM 0
 #endif
 
-// ANGLE_APPLE_AVAILABLE_XI: check if either of the 2 platforms (OSX/iOS) min verions is available:
-#define ANGLE_APPLE_AVAILABLE_XI(macVer, iOSVer) \
-    @available(macOS macVer, iOS iOSVer, tvOS iOSVer, *)
+#define ANGLE_APPLE_OBJC_SCOPE @autoreleasepool
 
-// ANGLE_APPLE_AVAILABLE_I: check if a particular iOS version is available
-#define ANGLE_APPLE_AVAILABLE_I(iOSVer) @available(iOS iOSVer, tvOS iOSVer, *)
+#if !__has_feature(objc_arc)
+#    define ANGLE_APPLE_AUTORELEASE autorelease
+#    define ANGLE_APPLE_RETAIN retain
+#    define ANGLE_APPLE_RELEASE release
+#else
+#    define ANGLE_APPLE_AUTORELEASE self
+#    define ANGLE_APPLE_RETAIN self
+#    define ANGLE_APPLE_RELEASE self
+#endif
+
+#define ANGLE_APPLE_UNUSED __attribute__((unused))
+
+#if __has_warning("-Wdeprecated-declarations")
+#    define ANGLE_APPLE_ALLOW_DEPRECATED_BEGIN \
+        _Pragma("GCC diagnostic push")         \
+            _Pragma("GCC diagnostic ignored \"-Wdeprecated-declarations\"")
+#else
+#    define ANGLE_APPLE_ALLOW_DEPRECATED_BEGIN
+#endif
+
+#if __has_warning("-Wdeprecated-declarations")
+#    define ANGLE_APPLE_ALLOW_DEPRECATED_END _Pragma("GCC diagnostic pop")
+#else
+#    define ANGLE_APPLE_ALLOW_DEPRECATED_END
+#endif
+
+namespace angle
+{
+bool IsMetalRendererAvailable();
+
+#if defined(ANGLE_PLATFORM_MACOS) || defined(ANGLE_PLATFORM_MACCATALYST)
+bool GetMacosMachineModel(std::string *outMachineModel);
+bool ParseMacMachineModel(const std::string &identifier,
+                          std::string *type,
+                          int32_t *major,
+                          int32_t *minor);
+#endif
+
+}  // namespace angle
 
 #endif

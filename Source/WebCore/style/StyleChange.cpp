@@ -26,63 +26,87 @@
 #include "config.h"
 #include "StyleChange.h"
 
-#include "RenderStyle.h"
+#include "RenderStyleConstants.h"
+#include "StyleComputedStyle+GettersInlines.h"
+#include <wtf/text/AtomString.h>
 
 namespace WebCore {
 namespace Style {
 
-Change determineChange(const RenderStyle& s1, const RenderStyle& s2)
+OptionSet<Change> determineChanges(const Style::ComputedStyle& s1, const Style::ComputedStyle& s2)
 {
-    if (s1.display() != s2.display())
-        return Change::Renderer;
-    if (s1.hasPseudoStyle(PseudoId::FirstLetter) != s2.hasPseudoStyle(PseudoId::FirstLetter))
-        return Change::Renderer;
+    OptionSet<Change> result;
+
+    if (!s1.nonInheritedEqual(s2))
+        result.add(Change::NonInherited);
+    if (!s1.nonFastPathInheritedEqual(s2))
+        result.add(Change::Inherited);
+    if (!s1.fastPathInheritedEqual(s2))
+        result.add(Change::FastPathInherited);
+
+    if (!s1.descendantAffectingNonInheritedPropertiesEqual(s2))
+        result.add(Change::Inherited);
+
     // We just detach if a renderer acquires or loses a column-span, since spanning elements
     // typically won't contain much content.
     auto columnSpanNeedsNewRenderer = [&] {
-        if (s1.columnSpan() != s2.columnSpan())
+        if (!s1.columnSpanEqual(s2))
             return true;
         if (s1.columnSpan() != ColumnSpan::All)
             return false;
         // Spanning in ignored for floating and out-of-flow boxes.
-        return s1.isFloating() != s2.isFloating() || s1.hasOutOfFlowPosition() != s2.hasOutOfFlowPosition();
-    }();
-    if (columnSpanNeedsNewRenderer)
-        return Change::Renderer;
-    if (!s1.contentDataEquivalent(&s2))
-        return Change::Renderer;
-    // When text-combine property has been changed, we need to prepare a separate renderer object.
-    // When text-combine is on, we use RenderCombineText, otherwise RenderText.
-    // https://bugs.webkit.org/show_bug.cgi?id=55069
-    if (s1.hasTextCombine() != s2.hasTextCombine())
-        return Change::Renderer;
+        return (s1.floating() != Float::None) != (s2.floating() != Float::None)
+            || s1.hasOutOfFlowPosition() != s2.hasOutOfFlowPosition();
+    };
 
-    if (!s1.inheritedEqual(s2))
-        return Change::Inherited;
+    auto needsRendererUpdate = [&] {
+        if (s1.display() != s2.display())
+            return true;
+        if (s1.usedAppearance() != s2.usedAppearance())
+            return s1.usedAppearance() == StyleAppearance::Base || s2.usedAppearance() == StyleAppearance::Base;
+        if (s1.hasPseudoStyle(PseudoElementType::FirstLetter) != s2.hasPseudoStyle(PseudoElementType::FirstLetter))
+            return true;
+        if (columnSpanNeedsNewRenderer())
+            return true;
+        // When text-combine is on, we use RenderCombineText, otherwise RenderText.
+        // https://bugs.webkit.org/show_bug.cgi?id=55069
+        if ((s1.textCombine() != TextCombine::None) != (s2.textCombine() != TextCombine::None))
+            return true;
+        if (s1.content() != s2.content())
+            return true;
+        return false;
+    };
 
-    if (!s1.descendantAffectingNonInheritedPropertiesEqual(s2))
-        return Change::Inherited;
+    if (needsRendererUpdate())
+        result.add(Change::Renderer);
 
-    if (s1 != s2)
-        return Change::NonInherited;
+    // Query container changes affect descendant style.
+    if (!s1.containerTypeAndNamesEqual(s2))
+        result.add(Change::Container);
 
-    // If the pseudoStyles have changed, we want any StyleChange that is not NoChange
-    // because setStyle will do the right thing with anything else.
-    if (s1.hasAnyPublicPseudoStyles()) {
-        for (PseudoId pseudoId = PseudoId::FirstPublicPseudoId; pseudoId < PseudoId::FirstInternalPseudoId; pseudoId = static_cast<PseudoId>(static_cast<unsigned>(pseudoId) + 1)) {
-            if (s1.hasPseudoStyle(pseudoId)) {
-                RenderStyle* ps2 = s2.getCachedPseudoStyle(pseudoId);
-                if (!ps2)
-                    return Change::NonInherited;
-                RenderStyle* ps1 = s1.getCachedPseudoStyle(pseudoId);
-                if (!ps1 || *ps1 != *ps2)
-                    return Change::NonInherited;
-            }
-        }
+    return result;
+}
+
+TextStream& operator<<(TextStream& ts, Change change)
+{
+    switch (change) {
+    case Change::NonInherited: ts << "NonInherited"_s; break;
+    case Change::FastPathInherited: ts << "FastPathInherited"_s; break;
+    case Change::Inherited: ts << "Inherited"_s; break;
+    case Change::Container: ts << "Container"_s; break;
+    case Change::Renderer: ts << "Renderer"_s; break;
     }
-
-    return Change::None;
+    return ts;
 }
 
+TextStream& operator<<(TextStream& ts, OptionSet<Change> changes)
+{
+    auto separator = ""_s;
+    for (auto change : changes)
+        ts << std::exchange(separator, ", "_s) << change;
+    return ts;
 }
-}
+
+} // namespace Style
+
+} // namespace WebCore

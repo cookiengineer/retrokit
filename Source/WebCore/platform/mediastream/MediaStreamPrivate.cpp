@@ -2,7 +2,7 @@
  * Copyright (C) 2011, 2015 Ericsson AB. All rights reserved.
  * Copyright (C) 2013 Google Inc. All rights reserved.
  * Copyright (C) 2013 Nokia Corporation and/or its subsidiary(-ies).
- * Copyright (C) 2015-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -39,7 +39,7 @@
 #include "GraphicsContext.h"
 #include "IntRect.h"
 #include "Logging.h"
-#include <wtf/Algorithms.h>
+#include <algorithm>
 #include <wtf/MainThread.h>
 #include <wtf/RefCounted.h>
 #include <wtf/Vector.h>
@@ -49,7 +49,7 @@ namespace WebCore {
 Ref<MediaStreamPrivate> MediaStreamPrivate::create(Ref<const Logger>&& logger, Ref<RealtimeMediaSource>&& source)
 {
     auto loggerCopy = logger.copyRef();
-    return MediaStreamPrivate::create(WTFMove(logger), MediaStreamTrackPrivateVector::from(MediaStreamTrackPrivate::create(WTFMove(loggerCopy), WTFMove(source))));
+    return MediaStreamPrivate::create(WTF::move(logger), MediaStreamTrackPrivateVector::from(MediaStreamTrackPrivate::create(WTF::move(loggerCopy), WTF::move(source))));
 }
 
 Ref<MediaStreamPrivate> MediaStreamPrivate::create(Ref<const Logger>&& logger, RefPtr<RealtimeMediaSource>&& audioSource, RefPtr<RealtimeMediaSource>&& videoSource)
@@ -58,76 +58,81 @@ Ref<MediaStreamPrivate> MediaStreamPrivate::create(Ref<const Logger>&& logger, R
     tracks.reserveInitialCapacity(2);
 
     if (audioSource)
-        tracks.uncheckedAppend(MediaStreamTrackPrivate::create(logger.copyRef(), audioSource.releaseNonNull()));
+        tracks.append(MediaStreamTrackPrivate::create(logger.copyRef(), audioSource.releaseNonNull()));
     if (videoSource)
-        tracks.uncheckedAppend(MediaStreamTrackPrivate::create(logger.copyRef(), videoSource.releaseNonNull()));
+        tracks.append(MediaStreamTrackPrivate::create(logger.copyRef(), videoSource.releaseNonNull()));
 
-    return MediaStreamPrivate::create(WTFMove(logger), tracks);
+    return MediaStreamPrivate::create(WTF::move(logger), WTF::move(tracks));
 }
 
-MediaStreamPrivate::MediaStreamPrivate(Ref<const Logger>&& logger, const MediaStreamTrackPrivateVector& tracks, String&& id)
-    : m_id(WTFMove(id))
+MediaStreamPrivate::MediaStreamPrivate(Ref<const Logger>&& logger, MediaStreamTrackPrivateVector&& tracks, String&& id)
+    : m_id(WTF::move(id))
+    , m_tracks(tracks)
 #if !RELEASE_LOG_DISABLED
-    , m_logger(WTFMove(logger))
+    , m_logger(WTF::move(logger))
     , m_logIdentifier(uniqueLogIdentifier())
 #endif
 {
     UNUSED_PARAM(logger);
     ASSERT(!m_id.isEmpty());
 
-    for (auto& track : tracks) {
+#if ASSERT_ENABLED
+    HashSet<MediaStreamTrackPrivate*> trackSet;
+#endif
+    for (Ref track : m_tracks) {
+        ASSERT(trackSet.add(track.ptr()).isNewEntry);
         track->addObserver(*this);
-        m_trackSet.add(track->id(), track);
     }
+
     m_isActive = computeActiveState();
     updateActiveVideoTrack();
 }
 
 MediaStreamPrivate::~MediaStreamPrivate()
 {
-    for (auto& track : m_trackSet.values())
+    for (Ref track : m_tracks)
         track->removeObserver(*this);
 }
 
-void MediaStreamPrivate::addObserver(Observer& observer)
+void MediaStreamPrivate::addObserver(MediaStreamPrivateObserver& observer)
 {
     ASSERT(isMainThread());
     m_observers.add(observer);
 }
 
-void MediaStreamPrivate::removeObserver(Observer& observer)
+void MediaStreamPrivate::removeObserver(MediaStreamPrivateObserver& observer)
 {
     ASSERT(isMainThread());
     m_observers.remove(observer);
 }
 
-void MediaStreamPrivate::forEachObserver(const Function<void(Observer&)>& apply)
+void MediaStreamPrivate::forEachObserver(NOESCAPE const Function<void(MediaStreamPrivateObserver&)>& apply)
 {
     ASSERT(isMainThread());
-    auto protectedThis = makeRef(*this);
+    Ref protectedThis { *this };
     m_observers.forEach(apply);
 }
 
 MediaStreamTrackPrivateVector MediaStreamPrivate::tracks() const
 {
-    return copyToVector(m_trackSet.values());
+    return m_tracks;
 }
 
-void MediaStreamPrivate::forEachTrack(const Function<void(const MediaStreamTrackPrivate&)>& callback) const
+void MediaStreamPrivate::forEachTrack(NOESCAPE const Function<void(const MediaStreamTrackPrivate&)>& callback) const
 {
-    for (auto& track : m_trackSet.values())
-        callback(*track);
+    for (Ref track : m_tracks)
+        callback(track.get());
 }
 
-void MediaStreamPrivate::forEachTrack(const Function<void(MediaStreamTrackPrivate&)>& callback)
+void MediaStreamPrivate::forEachTrack(NOESCAPE const Function<void(MediaStreamTrackPrivate&)>& callback)
 {
-    for (auto& track : m_trackSet.values())
-        callback(*track);
+    for (Ref track : m_tracks)
+        callback(track.get());
 }
 
 bool MediaStreamPrivate::computeActiveState()
 {
-    return WTF::anyOf(m_trackSet, [](auto& track) { return !track.value->ended(); });
+    return std::ranges::any_of(m_tracks, [](auto& track) { return !track->ended(); });
 }
 
 void MediaStreamPrivate::updateActiveState()
@@ -149,14 +154,15 @@ void MediaStreamPrivate::updateActiveState()
 
 void MediaStreamPrivate::addTrack(Ref<MediaStreamTrackPrivate>&& track)
 {
-    if (m_trackSet.contains(track->id()))
+    bool isAlreadyAdded = std::ranges::any_of(m_tracks, [&](auto& current) { return current->id() == track->id(); });
+    if (isAlreadyAdded)
         return;
 
     ALWAYS_LOG(LOGIDENTIFIER, track->logIdentifier());
 
-    auto& trackRef = track.get();
+    Ref trackRef = track.get();
     track->addObserver(*this);
-    m_trackSet.add(track->id(), WTFMove(track));
+    m_tracks.append(WTF::move(track));
 
     forEachObserver([&trackRef](auto& observer) {
         observer.didAddTrack(trackRef);
@@ -168,7 +174,10 @@ void MediaStreamPrivate::addTrack(Ref<MediaStreamTrackPrivate>&& track)
 
 void MediaStreamPrivate::removeTrack(MediaStreamTrackPrivate& track)
 {
-    if (!m_trackSet.remove(track.id()))
+    bool hasTrack = m_tracks.removeFirstMatching([&](auto& current) {
+        return current->id() == track.id();
+    });
+    if (!hasTrack)
         return;
 
     ALWAYS_LOG(LOGIDENTIFIER, track.logIdentifier());
@@ -185,20 +194,20 @@ void MediaStreamPrivate::removeTrack(MediaStreamTrackPrivate& track)
 void MediaStreamPrivate::startProducingData()
 {
     ALWAYS_LOG(LOGIDENTIFIER);
-    for (auto& track : m_trackSet.values())
+    for (Ref track : m_tracks)
         track->startProducingData();
 }
 
 void MediaStreamPrivate::stopProducingData()
 {
     ALWAYS_LOG(LOGIDENTIFIER);
-    for (auto& track : m_trackSet.values())
+    for (Ref track : m_tracks)
         track->stopProducingData();
 }
 
 bool MediaStreamPrivate::isProducingData() const
 {
-    for (auto& track : m_trackSet.values()) {
+    for (auto& track : m_tracks) {
         if (track->isProducingData())
             return true;
     }
@@ -207,8 +216,8 @@ bool MediaStreamPrivate::isProducingData() const
 
 bool MediaStreamPrivate::hasVideo() const
 {
-    for (auto& track : m_trackSet.values()) {
-        if (track->type() == RealtimeMediaSource::Type::Video && track->isActive())
+    for (auto& track : m_tracks) {
+        if (track->isVideo() && track->isActive())
             return true;
     }
     return false;
@@ -216,8 +225,8 @@ bool MediaStreamPrivate::hasVideo() const
 
 bool MediaStreamPrivate::hasAudio() const
 {
-    for (auto& track : m_trackSet.values()) {
-        if (track->type() == RealtimeMediaSource::Type::Audio && track->isActive())
+    for (auto& track : m_tracks) {
+        if (track->isAudio() && track->isActive())
             return true;
     }
     return false;
@@ -225,19 +234,18 @@ bool MediaStreamPrivate::hasAudio() const
 
 bool MediaStreamPrivate::muted() const
 {
-    for (auto& track : m_trackSet.values()) {
+    for (auto& track : m_tracks) {
         if (!track->muted() && !track->ended())
             return false;
     }
     return true;
 }
 
-FloatSize MediaStreamPrivate::intrinsicSize() const
+IntSize MediaStreamPrivate::intrinsicSize() const
 {
-    FloatSize size;
-
-    if (m_activeVideoTrack) {
-        const RealtimeMediaSourceSettings& setting = m_activeVideoTrack->settings();
+    IntSize size;
+    if (auto* videoTrack = m_activeVideoTrack.get()) {
+        const RealtimeMediaSourceSettings& setting = videoTrack->settings();
         size.setWidth(setting.width());
         size.setHeight(setting.height());
     }
@@ -248,9 +256,9 @@ FloatSize MediaStreamPrivate::intrinsicSize() const
 void MediaStreamPrivate::updateActiveVideoTrack()
 {
     m_activeVideoTrack = nullptr;
-    for (auto& track : m_trackSet.values()) {
-        if (!track->ended() && track->type() == RealtimeMediaSource::Type::Video) {
-            m_activeVideoTrack = track.get();
+    for (auto& track : m_tracks) {
+        if (!track->ended() && track->isVideo()) {
+            m_activeVideoTrack = track.ptr();
             break;
         }
     }
@@ -313,9 +321,9 @@ void MediaStreamPrivate::trackEnded(MediaStreamTrackPrivate& track)
 
 void MediaStreamPrivate::monitorOrientation(OrientationNotifier& notifier)
 {
-    for (auto& track : m_trackSet.values()) {
-        if (track->source().isCaptureSource() && track->type() == RealtimeMediaSource::Type::Video)
-            track->source().monitorOrientation(notifier);
+    for (Ref track : m_tracks) {
+        if (track->isCaptureTrack() && track->deviceType() == CaptureDevice::DeviceType::Camera)
+            protect(track->source())->monitorOrientation(notifier);
     }
 }
 

@@ -28,23 +28,33 @@
 
 #if ENABLE(MODEL_ELEMENT)
 
+#include "HTMLAnchorElement.h"
 #include "HTMLModelElement.h"
-#include "RenderStyle.h"
-#include <wtf/IsoMallocInlines.h>
+#include "NodeInlines.h"
+#include "PaintInfo.h"
+#include "RenderBoxModelObjectInlines.h"
+#include "RenderLayer.h"
+#include "RenderLayerBacking.h"
+#include "RenderObjectNode.h"
+#include "RenderTheme.h"
+#include "StyleComputedStyle+GettersInlines.h"
+#include "StyleDifference.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(RenderModel);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderModel);
 
-RenderModel::RenderModel(HTMLModelElement& element, RenderStyle&& style)
-    : RenderReplaced { element, WTFMove(style) }
+RenderModel::RenderModel(HTMLModelElement& element, Style::ComputedStyle&& style)
+    : RenderReplaced { Type::Model, element, WTF::move(style) }
 {
+    ASSERT(isRenderModel());
 }
 
 // Do not add any code to the destructor, instead, add it to willBeDestroyed().
 RenderModel::~RenderModel() = default;
 
-HTMLModelElement& RenderModel::modelElement() const
+HTMLModelElement& NODELETE RenderModel::modelElement() const
 {
     return downcast<HTMLModelElement>(nodeForNonAnonymous());
 }
@@ -60,12 +70,57 @@ void RenderModel::updateFromElement()
     update();
 }
 
+void RenderModel::styleDidChange(Style::Difference difference, const Style::ComputedStyle* oldStyle)
+{
+    RenderReplaced::styleDidChange(difference, oldStyle);
+
+#if HAVE(SUPPORT_HDR_DISPLAY) && ENABLE(PIXEL_FORMAT_RGBA16F)
+    if (!oldStyle || style().dynamicRangeLimit() != oldStyle->dynamicRangeLimit())
+        protect(modelElement())->dynamicRangeLimitDidChange(style().dynamicRangeLimit().toPlatformDynamicRangeLimit());
+#endif
+}
+
 void RenderModel::update()
 {
     if (renderTreeBeingDestroyed())
         return;
-    
-    contentChanged(ModelChanged);
+
+    contentChanged(ContentChangeType::Model);
+}
+
+void RenderModel::paintReplaced(PaintInfo& paintInfo, const LayoutPoint& paintOffset)
+{
+    if (paintInfo.phase != PaintPhase::Foreground)
+        return;
+
+    if (paintInfo.context().paintingDisabled())
+        return;
+
+    if (paintInfo.paintBehavior.contains(PaintBehavior::Snapshotting)) {
+        LayoutRect snapshotRect { replacedContentRect() };
+        snapshotRect.moveBy(paintOffset);
+        protect(modelElement())->paintCurrentFrameInContext(paintInfo.context(), snapRectToDevicePixels(snapshotRect, protect(document())->deviceScaleFactor()));
+    }
+
+#if USE(SYSTEM_PREVIEW)
+    if (!modelElement().document().settings().systemPreviewEnabled())
+        return;
+
+    RefPtr anchor = dynamicDowncast<HTMLAnchorElement>(modelElement().parentElement());
+    if (!anchor || !anchor->isSystemPreviewLink())
+        return;
+
+#if ENABLE(MODEL_PROCESS)
+    // If the backing owns a dedicated badge layer (visionOS separated-portal case), it paints the badge itself.
+    if (CheckedPtr layer = this->layer(); layer && layer->backing() && layer->backing()->systemPreviewBadgeLayer())
+        return;
+#endif
+
+    LayoutRect contentRect = replacedContentRect();
+    contentRect.moveBy(paintOffset);
+    RefPtr document = modelElement().document();
+    theme().paintSystemPreviewBadge(paintInfo, snapRectToDevicePixels(contentRect, document->deviceScaleFactor()));
+#endif
 }
 
 }

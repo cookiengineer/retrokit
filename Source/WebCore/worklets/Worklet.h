@@ -27,12 +27,11 @@
 
 #include "ActiveDOMObject.h"
 #include "ContextDestructionObserver.h"
-#include "ExceptionOr.h"
-#include "JSDOMPromiseDeferred.h"
+#include "JSDOMPromiseDeferredForward.h"
 #include "ScriptWrappable.h"
 #include "WorkletOptions.h"
 #include <wtf/HashSet.h>
-#include <wtf/RefCounted.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -41,18 +40,24 @@ class Document;
 class WorkletGlobalScopeProxy;
 class WorkletPendingTasks;
 
-class Worklet : public RefCounted<Worklet>, public ScriptWrappable, public CanMakeWeakPtr<Worklet>, public ActiveDOMObject {
-    WTF_MAKE_ISO_ALLOCATED(Worklet);
+class Worklet : public RefCounted<Worklet>, public ScriptWrappable, public ActiveDOMObject {
+    WTF_MAKE_TZONE_ALLOCATED(Worklet);
 public:
     virtual ~Worklet();
-    
+
+    // ContextDestructionObserver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     virtual void addModule(const String& moduleURL, WorkletOptions&&, DOMPromiseDeferred<void>&&);
 
     void finishPendingTasks(WorkletPendingTasks&);
-    Document* document();
+    Document* NODELETE document();
 
-    const Vector<Ref<WorkletGlobalScopeProxy>>& proxies() const { return m_proxies; }
-    const String& identifier() const { return m_identifier; }
+    const Vector<Ref<WorkletGlobalScopeProxy>>& proxies() const LIFETIME_BOUND { return m_proxies; }
+    const String& identifier() const LIFETIME_BOUND { return m_identifier; }
+
+    virtual bool isAudioWorklet() const { return false; }
 
 protected:
     explicit Worklet(Document&);
@@ -60,12 +65,9 @@ protected:
 private:
     virtual Vector<Ref<WorkletGlobalScopeProxy>> createGlobalScopes() = 0;
 
-    // ActiveDOMObject.
-    const char* activeDOMObjectName() const final;
-
     String m_identifier;
     Vector<Ref<WorkletGlobalScopeProxy>> m_proxies;
-    HashSet<RefPtr<WorkletPendingTasks>> m_pendingTasksSet;
+    HashSet<Ref<WorkletPendingTasks>> m_pendingTasksSet;
 };
 
 } // namespace WebCore

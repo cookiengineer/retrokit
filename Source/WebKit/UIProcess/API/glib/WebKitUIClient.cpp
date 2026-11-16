@@ -22,6 +22,7 @@
 
 #include "APIUIClient.h"
 #include "DrawingAreaProxy.h"
+#include "GeolocationPermissionRequestProxy.h"
 #include "NotificationPermissionRequest.h"
 #include "WebKitDeviceInfoPermissionRequestPrivate.h"
 #include "WebKitFileChooserRequestPrivate.h"
@@ -29,25 +30,36 @@
 #include "WebKitMediaKeySystemPermissionRequestPrivate.h"
 #include "WebKitNavigationActionPrivate.h"
 #include "WebKitNotificationPermissionRequestPrivate.h"
+#include "WebKitPermissionStateQueryPrivate.h"
 #include "WebKitPointerLockPermissionRequestPrivate.h"
 #include "WebKitURIRequestPrivate.h"
 #include "WebKitUserMediaPermissionRequestPrivate.h"
 #include "WebKitWebViewPrivate.h"
 #include "WebKitWebsiteDataAccessPermissionRequestPrivate.h"
 #include "WebKitWindowPropertiesPrivate.h"
+#include "WebKitXRPermissionRequestPrivate.h"
 #include "WebPageProxy.h"
 #include "WebProcessProxy.h"
 #include "WebsiteDataStore.h"
-#include <WebCore/PlatformDisplay.h>
+#include <WebCore/OrganizationStorageAccessPromptQuirk.h>
 #include <wtf/glib/GRefPtr.h>
+#include <wtf/glib/GWeakPtr.h>
 #include <wtf/glib/RunLoopSourcePriority.h>
 
 #if PLATFORM(GTK)
-#include <WebCore/GtkUtilities.h>
-#include <WebCore/GtkVersioning.h>
+#include "Display.h"
+#include "GtkUtilities.h"
+#include "GtkVersioning.h"
 #endif
 
 using namespace WebKit;
+
+class UIClient;
+
+namespace WTF {
+template<typename T> struct IsDeprecatedTimerSmartPointerException;
+template<> struct IsDeprecatedTimerSmartPointerException<UIClient> : std::true_type { };
+}
 
 class UIClient : public API::UIClient {
 public:
@@ -56,19 +68,11 @@ public:
     {
     }
 
-    ~UIClient()
-    {
-#if ENABLE(POINTER_LOCK)
-        if (m_pointerLockPermissionRequest)
-            g_object_remove_weak_pointer(G_OBJECT(m_pointerLockPermissionRequest), reinterpret_cast<void**>(&m_pointerLockPermissionRequest));
-#endif
-    }
-
 private:
-    void createNewPage(WebPageProxy& page, WebCore::WindowFeatures&& windowFeatures, Ref<API::NavigationAction>&& apiNavigationAction, CompletionHandler<void(RefPtr<WebPageProxy>&&)>&& completionHandler) final
+    void createNewPage(WebPageProxy& page, Ref<API::PageConfiguration>&& configuration, Ref<API::NavigationAction>&& apiNavigationAction, CompletionHandler<void(RefPtr<WebPageProxy>&&)>&& completionHandler) final
     {
-        WebKitNavigationAction navigationAction(WTFMove(apiNavigationAction));
-        completionHandler(webkitWebViewCreateNewPage(m_webView, windowFeatures, &navigationAction));
+        WebKitNavigationAction navigationAction(WTF::move(apiNavigationAction));
+        completionHandler(webkitWebViewCreateNewPage(m_webView, WTF::move(configuration), &navigationAction));
     }
 
     void showPage(WebPageProxy*) final
@@ -84,29 +88,29 @@ private:
     void runJavaScriptAlert(WebPageProxy& page, const String& message, WebFrameProxy*, WebKit::FrameInfoData&&, Function<void()>&& completionHandler) final
     {
         page.makeViewBlankIfUnpaintedSinceLastLoadCommit();
-        webkitWebViewRunJavaScriptAlert(m_webView, message.utf8(), WTFMove(completionHandler));
+        webkitWebViewRunJavaScriptAlert(m_webView, message.utf8(), WTF::move(completionHandler));
     }
 
     void runJavaScriptConfirm(WebPageProxy& page, const String& message, WebFrameProxy*, WebKit::FrameInfoData&&, Function<void(bool)>&& completionHandler) final
     {
         page.makeViewBlankIfUnpaintedSinceLastLoadCommit();
-        webkitWebViewRunJavaScriptConfirm(m_webView, message.utf8(), WTFMove(completionHandler));
+        webkitWebViewRunJavaScriptConfirm(m_webView, message.utf8(), WTF::move(completionHandler));
     }
 
     void runJavaScriptPrompt(WebPageProxy& page, const String& message, const String& defaultValue, WebFrameProxy*, WebKit::FrameInfoData&&, Function<void(const String&)>&& completionHandler) final
     {
         page.makeViewBlankIfUnpaintedSinceLastLoadCommit();
-        webkitWebViewRunJavaScriptPrompt(m_webView, message.utf8(), defaultValue.utf8(), WTFMove(completionHandler));
+        webkitWebViewRunJavaScriptPrompt(m_webView, message.utf8(), defaultValue.utf8(), WTF::move(completionHandler));
     }
 
     bool canRunBeforeUnloadConfirmPanel() const final { return true; }
 
-    void runBeforeUnloadConfirmPanel(WebPageProxy&, const String& message, WebFrameProxy*, WebKit::FrameInfoData&&, Function<void(bool)>&& completionHandler) final
+    void runBeforeUnloadConfirmPanel(WebPageProxy&, String&& message, WebFrameProxy*, WebKit::FrameInfoData&&, Function<void(bool)>&& completionHandler) final
     {
-        webkitWebViewRunJavaScriptBeforeUnloadConfirm(m_webView, message.utf8(), WTFMove(completionHandler));
+        webkitWebViewRunJavaScriptBeforeUnloadConfirm(m_webView, message.utf8(), WTF::move(completionHandler));
     }
 
-    void mouseDidMoveOverElement(WebPageProxy&, const WebHitTestResultData& data, OptionSet<WebEvent::Modifier> modifiers, API::Object*) final
+    void mouseDidMoveOverElement(WebPageProxy&, const WebHitTestResultData& data, OptionSet<WebEventModifier> modifiers) final
     {
         webkitWebViewMouseTargetChanged(m_webView, data, modifiers);
     }
@@ -151,10 +155,7 @@ private:
     {
         GdkRectangle geometry = { 0, 0, 0, 0 };
         // Position a toplevel window is not supported under wayland.
-#if PLATFORM(WAYLAND)
-        if (WebCore::PlatformDisplay::sharedDisplay().type() != WebCore::PlatformDisplay::Type::Wayland)
-#endif
-        {
+        if (!Display::singleton().isWayland()) {
             gtk_window_get_position(window, &geometry.x, &geometry.y);
             if (geometry.x != targetGeometry->x || geometry.y != targetGeometry->y)
                 return FALSE;
@@ -164,14 +165,14 @@ private:
         if (geometry.width != targetGeometry->width || geometry.height != targetGeometry->height)
             return FALSE;
 
-        RunLoop::current().stop();
+        RunLoop::currentSingleton().stop();
         return FALSE;
     }
 #endif // PLATFORM(GTK) && !USE(GTK4)
 
     void setWindowFrameTimerFired()
     {
-        RunLoop::current().stop();
+        RunLoop::currentSingleton().stop();
     }
 
     void setWindowFrame(WebPageProxy&, const WebCore::FloatRect& frame) final
@@ -179,15 +180,12 @@ private:
 #if PLATFORM(GTK)
         GdkRectangle geometry = WebCore::IntRect(frame);
         GtkWidget* window = gtk_widget_get_toplevel(GTK_WIDGET(m_webView));
-        if (webkit_web_view_is_controlled_by_automation(m_webView) && WebCore::widgetIsOnscreenToplevelWindow(window) && gtk_widget_get_visible(window)) {
+        if (webkit_web_view_is_controlled_by_automation(m_webView) && widgetIsOnscreenToplevelWindow(window) && gtk_widget_get_visible(window)) {
             bool needsMove = false;
             // Querying and setting window positions is not supported in GTK4.
 #if !USE(GTK4)
             // Position a toplevel window is not supported under wayland.
-#if PLATFORM(WAYLAND)
-            if (WebCore::PlatformDisplay::sharedDisplay().type() != WebCore::PlatformDisplay::Type::Wayland)
-#endif // PLATFORM(WAYLAND)
-            {
+            if (!Display::singleton().isWayland()) {
                 if (geometry.x >= 0 && geometry.y >= 0) {
                     int x, y;
                     gtk_window_get_position(GTK_WINDOW(window), &x, &y);
@@ -208,9 +206,9 @@ private:
 
 #if USE(GTK4)
             auto* surface = gtk_native_get_surface(GTK_NATIVE(window));
-            auto signalID = g_signal_connect(surface, "size-changed", G_CALLBACK(+[](GdkSurface*, int width, int height, GdkRectangle* targetGeometry) {
+            auto signalID = g_signal_connect(surface, "layout", G_CALLBACK(+[](GdkSurface*, int width, int height, GdkRectangle* targetGeometry) {
                 if (width == targetGeometry->width && height == targetGeometry->height)
-                    RunLoop::current().stop();
+                    RunLoop::currentSingleton().stop();
             }), &geometry);
 #else
             auto signalID = g_signal_connect(window, "configure-event", G_CALLBACK(windowConfigureEventCallback), &geometry);
@@ -222,7 +220,7 @@ private:
 
             // We need the move/resize to happen synchronously in automation mode, so we use a nested RunLoop
             // to wait, up top 200 milliseconds, for the configure events.
-            auto timer = makeUnique<RunLoop::Timer<UIClient>>(RunLoop::main(), this, &UIClient::setWindowFrameTimerFired);
+            auto timer = makeUnique<RunLoop::Timer>(RunLoop::mainSingleton(), "setWindowFrame timer"_s, this, &UIClient::setWindowFrameTimerFired);
             timer->setPriority(RunLoopSourcePriority::RunLoopTimer);
             timer->startOneShot(200_ms);
             RunLoop::run();
@@ -242,13 +240,13 @@ private:
 #if PLATFORM(GTK)
         GdkRectangle geometry = { 0, 0, 0, 0 };
         GtkWidget* window = gtk_widget_get_toplevel(GTK_WIDGET(m_webView));
-        if (WebCore::widgetIsOnscreenToplevelWindow(window) && gtk_widget_get_visible(window)) {
+        if (widgetIsOnscreenToplevelWindow(window) && gtk_widget_get_visible(window)) {
             gtk_window_get_position(GTK_WINDOW(window), &geometry.x, &geometry.y);
             gtk_window_get_size(GTK_WINDOW(window), &geometry.width, &geometry.height);
         } else {
             GdkRectangle defaultGeometry;
             webkit_window_properties_get_geometry(webkit_web_view_get_window_properties(m_webView), &defaultGeometry);
-            if ((!defaultGeometry.width || !defaultGeometry.height) && WebCore::widgetIsOnscreenToplevelWindow(window)) {
+            if ((!defaultGeometry.width || !defaultGeometry.height) && widgetIsOnscreenToplevelWindow(window)) {
                 int defaultWidth, defaultHeight;
                 gtk_window_get_default_size(GTK_WINDOW(window), &defaultWidth, &defaultHeight);
                 if (!defaultGeometry.width && defaultWidth != -1)
@@ -261,16 +259,16 @@ private:
 #elif PLATFORM(WPE)
         // FIXME: I guess this is actually the view size in WPE. We need more refactoring here.
         WebCore::FloatRect rect;
-        auto& page = webkitWebViewGetPage(m_webView);
-        if (page.drawingArea())
-            rect.setSize(page.drawingArea()->size());
-        completionHandler(WTFMove(rect));
+        Ref page = webkitWebViewGetPage(m_webView);
+        if (page->drawingArea())
+            rect.setSize(page->drawingArea()->size());
+        completionHandler(WTF::move(rect));
 #endif
     }
 
     void exceededDatabaseQuota(WebPageProxy*, WebFrameProxy*, API::SecurityOrigin*, const String&, const String&, unsigned long long /*currentQuota*/, unsigned long long /*currentOriginUsage*/, unsigned long long /*currentDatabaseUsage*/, unsigned long long /*expectedUsage*/, Function<void(unsigned long long)>&& completionHandler) final
     {
-        static const unsigned long long defaultQuota = 5 * 1024 * 1204; // 5 MB
+        static const unsigned long long defaultQuota = 5 * MB;
         // FIXME: Provide API for this.
         completionHandler(defaultQuota);
     }
@@ -290,7 +288,7 @@ private:
 
     void decidePolicyForMediaKeySystemPermissionRequest(WebPageProxy&, API::SecurityOrigin&, const WTF::String& keySystem, CompletionHandler<void(bool)>&& completionHandler) final
     {
-        auto permissionRequest = adoptGRef(webkitMediaKeySystemPermissionRequestCreate(MediaKeySystemPermissionRequest::create(keySystem, WTFMove(completionHandler))));
+        auto permissionRequest = adoptGRef(webkitMediaKeySystemPermissionRequestCreate(MediaKeySystemPermissionRequest::create(keySystem, WTF::move(completionHandler))));
         webkitWebViewMakePermissionRequest(m_webView, WEBKIT_PERMISSION_REQUEST(permissionRequest.get()));
     }
 
@@ -300,21 +298,15 @@ private:
         webkitWebViewMakePermissionRequest(m_webView, WEBKIT_PERMISSION_REQUEST(userMediaPermissionRequest.get()));
     }
 
-    void checkUserMediaPermissionForOrigin(WebPageProxy& page, WebFrameProxy&, API::SecurityOrigin& userMediaDocumentOrigin, API::SecurityOrigin& topLevelDocumentOrigin, UserMediaPermissionCheckProxy& permissionRequest) override
-    {
-        auto deviceInfoPermissionRequest = adoptGRef(webkitDeviceInfoPermissionRequestCreate(permissionRequest, &page.websiteDataStore().deviceIdHashSaltStorage()));
-        webkitWebViewMakePermissionRequest(m_webView, WEBKIT_PERMISSION_REQUEST(deviceInfoPermissionRequest.get()));
-    }
-
     void decidePolicyForNotificationPermissionRequest(WebPageProxy&, API::SecurityOrigin&, CompletionHandler<void(bool allowed)>&& completionHandler) final
     {
-        GRefPtr<WebKitNotificationPermissionRequest> notificationPermissionRequest = adoptGRef(webkitNotificationPermissionRequestCreate(NotificationPermissionRequest::create(WTFMove(completionHandler)).ptr()));
+        GRefPtr<WebKitNotificationPermissionRequest> notificationPermissionRequest = adoptGRef(webkitNotificationPermissionRequestCreate(NotificationPermissionRequest::create(WTF::move(completionHandler)).ptr()));
         webkitWebViewMakePermissionRequest(m_webView, WEBKIT_PERMISSION_REQUEST(notificationPermissionRequest.get()));
     }
 
-    void requestStorageAccessConfirm(WebPageProxy&, WebFrameProxy*, const WebCore::RegistrableDomain& requestingDomain, const WebCore::RegistrableDomain& currentDomain, CompletionHandler<void(bool)>&& completionHandler) final
+    void requestStorageAccessConfirm(WebPageProxy&, WebFrameProxy*, const WebCore::RegistrableDomain& requestingDomain, const WebCore::RegistrableDomain& currentDomain, std::optional<WebCore::OrganizationStorageAccessPromptQuirk>&&, CompletionHandler<void(bool)>&& completionHandler) final
     {
-        GRefPtr<WebKitWebsiteDataAccessPermissionRequest> websiteDataAccessPermissionRequest = adoptGRef(webkitWebsiteDataAccessPermissionRequestCreate(requestingDomain, currentDomain, WTFMove(completionHandler)));
+        GRefPtr<WebKitWebsiteDataAccessPermissionRequest> websiteDataAccessPermissionRequest = adoptGRef(webkitWebsiteDataAccessPermissionRequestCreate(requestingDomain, currentDomain, WTF::move(completionHandler)));
         webkitWebViewMakePermissionRequest(m_webView, WEBKIT_PERMISSION_REQUEST(websiteDataAccessPermissionRequest.get()));
     }
 
@@ -358,29 +350,52 @@ private:
     }
 
 #if ENABLE(POINTER_LOCK)
-    void requestPointerLock(WebPageProxy* page) final
+    void requestPointerLock(WebPageProxy* page, CompletionHandler<void(bool)>&& completionHandler) final
     {
-        GRefPtr<WebKitPointerLockPermissionRequest> permissionRequest = adoptGRef(webkitPointerLockPermissionRequestCreate(m_webView));
+        GRefPtr<WebKitPointerLockPermissionRequest> permissionRequest = adoptGRef(webkitPointerLockPermissionRequestCreate(m_webView, WTF::move(completionHandler)));
         RELEASE_ASSERT(!m_pointerLockPermissionRequest);
-        m_pointerLockPermissionRequest = permissionRequest.get();
-        g_object_add_weak_pointer(G_OBJECT(m_pointerLockPermissionRequest), reinterpret_cast<void**>(&m_pointerLockPermissionRequest));
+        m_pointerLockPermissionRequest.reset(permissionRequest.get());
         webkitWebViewMakePermissionRequest(m_webView, WEBKIT_PERMISSION_REQUEST(permissionRequest.get()));
     }
 
     void didLosePointerLock(WebPageProxy*) final
     {
         if (m_pointerLockPermissionRequest) {
-            webkitPointerLockPermissionRequestDidLosePointerLock(m_pointerLockPermissionRequest);
-            g_object_remove_weak_pointer(G_OBJECT(m_pointerLockPermissionRequest), reinterpret_cast<void**>(&m_pointerLockPermissionRequest));
+            webkitPointerLockPermissionRequestDidLosePointerLock(m_pointerLockPermissionRequest.get());
             m_pointerLockPermissionRequest = nullptr;
         }
         webkitWebViewDidLosePointerLock(m_webView);
     }
 #endif
 
+    void queryPermission(const WTF::String& permissionName, API::SecurityOrigin& origin, CompletionHandler<void(std::optional<WebCore::PermissionState>)>&& completionHandler) final
+    {
+        auto* query = webkitPermissionStateQueryCreate(permissionName, origin, WTF::move(completionHandler));
+        webkitWebViewPermissionStateQuery(m_webView, query);
+        webkit_permission_state_query_unref(query);
+    }
+
+#if ENABLE(WEBXR) && USE(OPENXR)
+    void requestPermissionOnXRSessionFeatures(WebKit::WebPageProxy&, const WebCore::SecurityOriginData& origin, PlatformXR::SessionMode mode, const PlatformXR::Device::FeatureList& granted, const PlatformXR::Device::FeatureList& consentRequired, const PlatformXR::Device::FeatureList& consentOptional, const PlatformXR::Device::FeatureList& requiredFeaturesRequested, const PlatformXR::Device::FeatureList& optionalFeaturesRequested, CompletionHandler<void(std::optional<PlatformXR::Device::FeatureList>&&)>&& completionHandler) final
+    {
+        GRefPtr<WebKitXRPermissionRequest> request = webkitXRPermissionRequestCreate(origin, mode, granted, consentRequired, consentOptional, requiredFeaturesRequested, optionalFeaturesRequested, WTF::move(completionHandler));
+        webkitWebViewMakePermissionRequest(m_webView, WEBKIT_PERMISSION_REQUEST(request.get()));
+    }
+
+    void didStartXRSession(WebPageProxy&) final
+    {
+        webkitWebViewSetIsImmersiveModeEnabled(m_webView, true);
+    }
+
+    void didEndXRSession(WebPageProxy&) final
+    {
+        webkitWebViewSetIsImmersiveModeEnabled(m_webView, false);
+    }
+#endif
+
     WebKitWebView* m_webView;
 #if ENABLE(POINTER_LOCK)
-    WebKitPointerLockPermissionRequest* m_pointerLockPermissionRequest { nullptr };
+    GWeakPtr<WebKitPointerLockPermissionRequest> m_pointerLockPermissionRequest { nullptr };
 #endif
 };
 

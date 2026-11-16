@@ -1,7 +1,8 @@
 /*
  * Copyright (C) 2004, 2005, 2007, 2008 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2006 Rob Buis <buis@kde.org>
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2026 Apple Inc. All rights reserved.
+* Copyright (C) 2017 Google Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -22,19 +23,26 @@
 #include "config.h"
 #include "SVGGElement.h"
 
+#include "LegacyRenderSVGHiddenContainer.h"
+#include "LegacyRenderSVGResource.h"
+#include "LegacyRenderSVGTransformableContainer.h"
+#include "NodeDocument.h"
 #include "RenderSVGHiddenContainer.h"
-#include "RenderSVGResource.h"
 #include "RenderSVGTransformableContainer.h"
 #include "SVGNames.h"
-#include <wtf/IsoMallocInlines.h>
+#include "SVGPropertyOwnerRegistry.h"
+#include "Settings.h"
+#include "StyleComputedStyle+GettersInlines.h"
+#include "StyleDisplay.h"
 #include <wtf/NeverDestroyed.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(SVGGElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGGElement);
 
 SVGGElement::SVGGElement(const QualifiedName& tagName, Document& document)
-    : SVGGraphicsElement(tagName, document)
+    : SVGGraphicsElement(tagName, document, makeUniqueRef<PropertyRegistry>(*this))
 {
     ASSERT(hasTagName(SVGNames::gTag));
 }
@@ -49,19 +57,27 @@ Ref<SVGGElement> SVGGElement::create(Document& document)
     return create(SVGNames::gTag, document);
 }
 
-RenderPtr<RenderElement> SVGGElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> SVGGElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
+    // FIXME: [LBSE] Support hidden containers
+    if (document().settings().layerBasedSVGEngineEnabled()) {
+        if (style.display() == Style::DisplayType::None)
+            return createRenderer<RenderSVGHiddenContainer>(RenderObject::Type::SVGHiddenContainer, *this, WTF::move(style));
+        return createRenderer<RenderSVGTransformableContainer>(*this, WTF::move(style));
+    }
+
     // SVG 1.1 testsuite explicitly uses constructs like <g display="none"><linearGradient>
     // We still have to create renderers for the <g> & <linearGradient> element, though the
     // subtree may be hidden - we only want the resource renderers to exist so they can be
     // referenced from somewhere else.
-    if (style.display() == DisplayType::None)
-        return createRenderer<RenderSVGHiddenContainer>(*this, WTFMove(style));
-
-    return createRenderer<RenderSVGTransformableContainer>(*this, WTFMove(style));
+    if (style.display() == Style::DisplayType::Contents)
+        return nullptr;
+    if (style.display() == Style::DisplayType::None)
+        return createRenderer<LegacyRenderSVGHiddenContainer>(RenderObject::Type::LegacySVGHiddenContainer, *this, WTF::move(style));
+    return createRenderer<LegacyRenderSVGTransformableContainer>(*this, WTF::move(style));
 }
 
-bool SVGGElement::rendererIsNeeded(const RenderStyle&)
+bool SVGGElement::rendererIsNeeded(const Style::ComputedStyle&)
 {
     // Unlike SVGElement::rendererIsNeeded(), we still create renderers, even if
     // display is set to 'none' - which is special to SVG <g> container elements.

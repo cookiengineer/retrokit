@@ -25,9 +25,10 @@
 
 #pragma once
 
-#include "AnimationFrameRate.h"
-#include "DisplayUpdate.h"
-#include "PlatformScreen.h"
+#include <WebCore/AnimationFrameRate.h>
+#include <WebCore/DisplayUpdate.h>
+#include <WebCore/PlatformScreen.h>
+#include <wtf/CheckedPtr.h>
 #include <wtf/HashSet.h>
 #include <wtf/Lock.h>
 #include <wtf/ThreadSafeRefCounted.h>
@@ -72,41 +73,41 @@ protected:
 
     WEBCORE_EXPORT virtual void dispatchDisplayDidRefresh(const DisplayUpdate&);
 
-    Lock& lock() { return m_lock; }
-    void setMaxUnscheduledFireCount(unsigned count) { m_maxUnscheduledFireCount = count; }
+    Lock& lock() LIFETIME_BOUND WTF_RETURNS_LOCK(m_lock) { return m_lock; }
+    void setMaxUnscheduledFireCount(unsigned count) WTF_REQUIRES_LOCK(m_lock) { m_maxUnscheduledFireCount = count; }
 
     // Returns true if the start was successful.
     WEBCORE_EXPORT virtual bool startNotificationMechanism() = 0;
     WEBCORE_EXPORT virtual void stopNotificationMechanism() = 0;
 
-    bool isScheduled() const { return m_scheduled; }
-    void setIsScheduled(bool scheduled) { m_scheduled = scheduled; }
+    bool isScheduled() const WTF_REQUIRES_LOCK(m_lock) { return m_scheduled; }
+    void setIsScheduled(bool scheduled) WTF_REQUIRES_LOCK(m_lock) { m_scheduled = scheduled; }
 
-    bool isPreviousFrameDone() const { return m_previousFrameDone; }
-    void setIsPreviousFrameDone(bool done) { m_previousFrameDone = done; }
+    bool isPreviousFrameDone() const WTF_REQUIRES_LOCK(m_lock) { return m_previousFrameDone; }
+    void setIsPreviousFrameDone(bool done) WTF_REQUIRES_LOCK(m_lock) { m_previousFrameDone = done; }
 
     WEBCORE_EXPORT void displayDidRefresh(const DisplayUpdate&);
 
 private:
-    bool firedAndReachedMaxUnscheduledFireCount();
+    bool NODELETE firedAndReachedMaxUnscheduledFireCount() WTF_REQUIRES_LOCK(m_lock);
 
     virtual void adjustPreferredFramesPerSecond(FramesPerSecond) { }
 
     std::optional<FramesPerSecond> maximumClientPreferredFramesPerSecond() const;
     void computeMaxPreferredFramesPerSecond();
 
-    HashSet<DisplayRefreshMonitorClient*> m_clients;
-    HashSet<DisplayRefreshMonitorClient*>* m_clientsToBeNotified { nullptr };
+    HashSet<CheckedPtr<DisplayRefreshMonitorClient>> m_clients;
+    HashSet<CheckedPtr<DisplayRefreshMonitorClient>>* m_clientsToBeNotified { nullptr };
 
     PlatformDisplayID m_displayID { 0 };
     std::optional<FramesPerSecond> m_maxClientPreferredFramesPerSecond;
 
     Lock m_lock;
-    bool m_scheduled { false };
-    bool m_previousFrameDone { true };
+    bool m_scheduled WTF_GUARDED_BY_LOCK(m_lock) { false };
+    bool m_previousFrameDone WTF_GUARDED_BY_LOCK(m_lock) { true };
     
-    unsigned m_unscheduledFireCount { 0 };
-    unsigned m_maxUnscheduledFireCount { 0 };
+    unsigned m_unscheduledFireCount WTF_GUARDED_BY_LOCK(m_lock) { 0 };
+    unsigned m_maxUnscheduledFireCount WTF_GUARDED_BY_LOCK(m_lock) { 0 };
 };
 
 }

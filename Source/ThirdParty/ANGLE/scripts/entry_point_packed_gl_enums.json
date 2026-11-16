@@ -9,6 +9,9 @@
         "Note that all entry points have their suffixes stripped in this file.",
         "See gen_packed_gl_enums.py for the generator that uses this data."
     ],
+    "glAcquireTextures": {
+        "textures": "const TextureID *"
+    },
     "glActiveShaderProgram": {
         "pipeline": "ProgramPipelineID",
         "program": "ShaderProgramID"
@@ -145,6 +148,13 @@
     "glClearTexSubImage": {
         "texture": "TextureID"
     },
+    "glClientWaitSync": {
+        "sync": "SyncID"
+    },
+    "glClipControl": {
+        "origin": "ClipOrigin",
+        "depth": "ClipDepthMode"
+    },
     "glColorPointer": {
         "type": "VertexAttribType"
     },
@@ -272,7 +282,7 @@
     "glDeleteBuffers": {
         "buffers": "const BufferID *"
     },
-    "glDeleteFencesNV": {
+    "glDeleteFences": {
         "fences": "const FenceNVID *"
     },
     "glDeleteFramebuffers": {
@@ -304,6 +314,9 @@
     },
     "glDeleteShader": {
         "shader": "ShaderProgramID"
+    },
+    "glDeleteSync": {
+        "sync": "SyncID"
     },
     "glDeleteTextures": {
         "textures": "const TextureID *"
@@ -356,6 +369,10 @@
         "mode": "PrimitiveMode",
         "type": "DrawElementsType"
     },
+    "glDrawElementsInstancedBaseInstance": {
+        "mode": "PrimitiveMode",
+        "type": "DrawElementsType"
+    },
     "glDrawElementsInstancedBaseVertexBaseInstance": {
         "mode": "PrimitiveMode",
         "type": "DrawElementsType"
@@ -380,8 +397,18 @@
     "glDrawTransformFeedbackStreamInstanced": {
         "id": "TransformFeedbackID"
     },
+    "glEGLImageTargetRenderbufferStorage": {
+        "image": "egl::ImageID"
+    },
     "glEGLImageTargetTexture2D": {
-        "target": "TextureType"
+        "target": "TextureType",
+        "image": "egl::ImageID"
+    },
+    "glEGLImageTargetTexStorage": {
+        "image": "egl::ImageID"
+    },
+    "glEGLImageTargetTextureStorage": {
+        "image": "egl::ImageID"
     },
     "glEnableClientState": {
         "array": "ClientVertexArrayType"
@@ -398,7 +425,7 @@
     "glExtIsProgramBinary": {
         "program": "ShaderProgramID"
     },
-    "glFinishFenceNV": {
+    "glFinishFence": {
         "fence": "FenceNVID"
     },
     "glFlushMappedBufferRange": {
@@ -406,6 +433,18 @@
     },
     "glFlushMappedNamedBufferRange": {
         "buffer": "BufferID"
+    },
+    "glFramebufferFoveationConfig": {
+        "framebuffer": "FramebufferID"
+    },
+    "glFramebufferFoveationParameters": {
+        "framebuffer": "FramebufferID"
+    },
+    "glFramebufferParameteri": {
+        "pname": "FramebufferParameter"
+    },
+    "glFramebufferResolveRenderbufferWEBKIT": {
+        "renderbuffer": "RenderbufferID"
     },
     "glFramebufferRenderbuffer": {
         "renderbuffer": "RenderbufferID"
@@ -425,6 +464,9 @@
         "textarget": "TextureTarget",
         "texture": "TextureID"
     },
+    "glFramebufferTextureMultisampleMultiview": {
+        "texture": "TextureID"
+    },
     "glFramebufferTexture3D": {
         "textarget": "TextureTarget",
         "texture": "TextureID"
@@ -436,6 +478,9 @@
     "glFramebufferTextureMultiview": {
         "texture": "TextureID"
     },
+    "glFramebufferTexturePixelLocalStorage": {
+        "backingtexture": "TextureID"
+    },
     "glGenBuffers": {
         "buffers": "BufferID *"
     },
@@ -445,7 +490,7 @@
     "glGenerateTextureMipmap": {
         "texture": "TextureID"
     },
-    "glGenFencesNV": {
+    "glGenFences": {
         "fences": "FenceNVID *"
     },
     "glGenFramebuffers": {
@@ -494,13 +539,18 @@
         "program": "ShaderProgramID"
     },
     "glGetActiveUniformBlockiv": {
-        "program": "ShaderProgramID"
+        "program": "ShaderProgramID",
+        "uniformBlockIndex": "UniformBlockIndex",
+        "pname": "UniformBlockParameter"
     },
     "glGetActiveUniformBlockivRobust": {
-        "program": "ShaderProgramID"
+        "program": "ShaderProgramID",
+        "uniformBlockIndex": "UniformBlockIndex",
+        "pname": "UniformBlockParameter"
     },
     "glGetActiveUniformBlockName": {
-        "program": "ShaderProgramID"
+        "program": "ShaderProgramID",
+        "uniformBlockIndex": "UniformBlockIndex"
     },
     "glGetActiveUniformName": {
         "program": "ShaderProgramID"
@@ -516,22 +566,29 @@
         "program": "ShaderProgramID"
     },
     "glGetBufferParameteri64v": {
-        "target": "BufferBinding"
+        "target": "BufferBinding",
+        "pname": "BufferParam"
     },
     "glGetBufferParameteri64vRobust": {
-        "target": "BufferBinding"
+        "target": "BufferBinding",
+        "pname": "BufferParam"
     },
     "glGetBufferParameteriv": {
-        "target": "BufferBinding"
+        "target": "BufferBinding",
+        "pname": "BufferParam"
     },
     "glGetBufferParameterivRobust": {
-        "target": "BufferBinding"
+        "target": "BufferBinding",
+        "pname": "BufferParam"
     },
     "glGetBufferPointerv": {
         "target": "BufferBinding"
     },
-    "glGetBufferPointervRobust": {
-        "target": "BufferBinding"
+     "glGetBufferPointervRobust": {
+       "target": "BufferBinding"
+    },
+     "glGetCompressedTexImage": {
+       "target": "TextureTarget"
     },
     "glGetCompressedTextureImage": {
         "texture": "TextureID"
@@ -539,7 +596,7 @@
     "glGetCompressedTextureSubImage": {
         "texture": "TextureID"
     },
-    "glGetFenceivNV": {
+    "glGetFenceiv": {
         "fence": "FenceNVID"
     },
     "glGetFragDataIndex": {
@@ -547,6 +604,27 @@
     },
     "glGetFragDataLocation": {
         "program": "ShaderProgramID"
+    },
+    "glGetFramebufferParameteriv": {
+        "pname": "FramebufferParameter"
+    },
+    "glGetFramebufferPixelLocalStorageParameterfv": {
+        "pname": "PlaneParameter"
+    },
+    "glGetFramebufferPixelLocalStorageParameteriv": {
+        "pname": "PlaneParameter"
+    },
+    "glGetFramebufferPixelLocalStorageParameteruiv": {
+        "pname": "PlaneParameter"
+    },
+    "glGetFramebufferPixelLocalStorageParameterfvRobust": {
+        "pname": "PlaneParameter"
+    },
+    "glGetFramebufferPixelLocalStorageParameterivRobust": {
+        "pname": "PlaneParameter"
+    },
+    "glGetFramebufferPixelLocalStorageParameteruivRobust": {
+        "pname": "PlaneParameter"
     },
     "glGetLightfv": {
         "pname": "LightParameter"
@@ -691,59 +769,68 @@
         "buffer": "BufferID"
     },
     "glGetQueryiv": {
-        "target": "QueryType"
+        "target": "QueryType",
+        "pname": "QueryParameter"
     },
     "glGetQueryivRobust": {
-        "id": "QueryID",
-        "target": "QueryType"
+        "target": "QueryType",
+        "pname": "QueryParameter"
     },
     "glGetQueryObjecti64v": {
-        "id": "QueryID"
+        "id": "QueryID",
+        "pname": "QueryObjectParameter"
     },
     "glGetQueryObjecti64vRobust": {
-        "id": "QueryID"
+        "id": "QueryID",
+        "pname": "QueryObjectParameter"
     },
     "glGetQueryObjectiv": {
-        "id": "QueryID"
+        "id": "QueryID",
+        "pname": "QueryObjectParameter"
     },
     "glGetQueryObjectivRobust": {
-        "id": "QueryID"
+        "id": "QueryID",
+        "pname": "QueryObjectParameter"
     },
     "glGetQueryObjectui64v": {
-        "id": "QueryID"
+        "id": "QueryID",
+        "pname": "QueryObjectParameter"
     },
     "glGetQueryObjectui64vRobust": {
-        "id": "QueryID"
+        "id": "QueryID",
+        "pname": "QueryObjectParameter"
     },
     "glGetQueryObjectuiv": {
-        "id": "QueryID"
+        "id": "QueryID",
+        "pname": "QueryObjectParameter"
     },
     "glGetQueryObjectuivRobust": {
-        "id": "QueryID"
+        "id": "QueryID",
+        "pname": "QueryObjectParameter"
     },
     "glGetSamplerParameterfv": {
-        "sampler": "SamplerID"
+        "sampler": "SamplerID",
+        "pname": "SamplerParameter"
     },
     "glGetSamplerParameterfvRobust": {
-        "sampler": "SamplerID"
-    },
-    "glGetSamplerParameterIiv": {
-        "sampler": "SamplerID"
-    },
-    "glGetSamplerParameterIivRobust": {
-        "sampler": "SamplerID"
-    },
-    "glGetSamplerParameterIuiv": {
-        "sampler": "SamplerID"
-    },
-    "glGetSamplerParameterIuivRobust": {
-        "sampler": "SamplerID"
+        "sampler": "SamplerID",
+        "pname": "SamplerParameter"
     },
     "glGetSamplerParameteriv": {
-        "sampler": "SamplerID"
+        "sampler": "SamplerID",
+        "pname": "SamplerParameter"
     },
     "glGetSamplerParameterivRobust": {
-        "sampler": "SamplerID"
+        "sampler": "SamplerID",
+        "pname": "SamplerParameter"
+    },
+    "glGetSamplerParameterIiv": {
+        "sampler": "SamplerID",
+        "pname": "SamplerParameter"
+    },
+    "glGetSamplerParameterIuiv": {
+        "sampler": "SamplerID",
+        "pname": "SamplerParameter"
     },
     "glGetSemaphoreParameterui64v": {
         "semaphore": "SemaphoreID"
@@ -752,10 +839,12 @@
         "shader": "ShaderProgramID"
     },
     "glGetShaderiv": {
-        "shader": "ShaderProgramID"
+        "shader": "ShaderProgramID",
+        "pname": "ShaderParameter"
     },
     "glGetShaderivRobust": {
-        "shader": "ShaderProgramID"
+        "shader": "ShaderProgramID",
+        "pname": "ShaderParameter"
     },
     "glGetShaderPrecisionFormat": {
         "shader": "ShaderProgramID"
@@ -768,6 +857,9 @@
     },
     "glGetSubroutineUniformLocation": {
         "program": "ShaderProgramID"
+    },
+    "glGetSynciv": {
+        "sync": "SyncID"
     },
     "glGetTexEnvfv": {
         "pname": "TextureEnvParameter",
@@ -785,16 +877,20 @@
         "target": "TextureTarget"
     },
     "glGetTexLevelParameterfv": {
-        "target": "TextureTarget"
+        "target": "TextureTarget",
+        "pname": "TextureImageParameter"
     },
     "glGetTexLevelParameterfvRobust": {
-        "target": "TextureTarget"
+        "target": "TextureTarget",
+        "pname": "TextureImageParameter"
     },
     "glGetTexLevelParameteriv": {
-        "target": "TextureTarget"
+        "target": "TextureTarget",
+        "pname": "TextureImageParameter"
     },
     "glGetTexLevelParameterivRobust": {
-        "target": "TextureTarget"
+        "target": "TextureTarget",
+        "pname": "TextureImageParameter"
     },
     "glGetTexParameterfv": {
         "target": "TextureType"
@@ -937,13 +1033,10 @@
     "glInvalidateTexSubImage": {
         "texture": "TextureID"
     },
-    "glInvalidateTexture": {
-        "target": "TextureType"
-    },
     "glIsBuffer": {
         "buffer": "BufferID"
     },
-    "glIsFenceNV": {
+    "glIsFence": {
         "fence": "FenceNVID"
     },
     "glIsFramebuffer": {
@@ -966,6 +1059,9 @@
     },
     "glIsProgramPipeline": {
         "pipeline": "ProgramPipelineID"
+    },
+    "glIsSync": {
+        "sync": "SyncID"
     },
     "glIsQuery": {
         "id": "QueryID"
@@ -1009,6 +1105,9 @@
     "glLogicOp": {
         "opcode": "LogicalOperation"
     },
+    "glLogicOpANGLE": {
+        "opcode": "LogicalOperation"
+    },
     "glLoseContext": {
         "current": "GraphicsResetStatus",
         "other": "GraphicsResetStatus"
@@ -1046,6 +1145,9 @@
     "glMultiDrawArrays": {
         "mode": "PrimitiveMode"
     },
+    "glMultiDrawArraysIndirect": {
+        "mode": "PrimitiveMode"
+    },
     "glMultiDrawArraysInstanced": {
         "mode": "PrimitiveMode"
     },
@@ -1057,6 +1159,10 @@
         "type": "DrawElementsType"
     },
     "glMultiDrawElementsBaseVertex": {
+        "mode": "PrimitiveMode",
+        "type": "DrawElementsType"
+    },
+    "glMultiDrawElementsIndirect": {
         "mode": "PrimitiveMode",
         "type": "DrawElementsType"
     },
@@ -1159,6 +1265,9 @@
     "glPointAlongPath": {
         "path": "PathID"
     },
+    "glPixelStorei": {
+        "pname": "PackUnpackParameter"
+    },
     "glPointParameterf": {
         "pname": "PointParameter"
     },
@@ -1173,6 +1282,9 @@
     },
     "glPointSizePointer": {
         "type": "VertexAttribType"
+    },
+    "glPolygonMode": {
+        "mode": "PolygonMode"
     },
     "glProgramBinary": {
         "program": "ShaderProgramID"
@@ -1384,46 +1496,52 @@
         "location": "UniformLocation"
     },
     "glProvokingVertex": {
+        "provokeMode": "ProvokingVertexConvention",
         "mode": "ProvokingVertexConvention"
     },
     "glQueryCounter": {
         "id": "QueryID",
         "target": "QueryType"
     },
+    "glReleaseTextures": {
+        "textures": "const TextureID *"
+    },
     "glSamplerParameterf": {
-        "sampler": "SamplerID"
+        "sampler": "SamplerID",
+        "pname": "SamplerParameter"
     },
     "glSamplerParameterfv": {
-        "sampler": "SamplerID"
+        "sampler": "SamplerID",
+        "pname": "SamplerParameter"
     },
     "glSamplerParameterfvRobust": {
-        "sampler": "SamplerID"
+        "sampler": "SamplerID",
+        "pname": "SamplerParameter"
     },
     "glSamplerParameteri": {
-        "sampler": "SamplerID"
-    },
-    "glSamplerParameterIiv": {
-        "sampler": "SamplerID"
-    },
-    "glSamplerParameterIivRobust": {
-        "sampler": "SamplerID"
-    },
-    "glSamplerParameterIuiv": {
-        "sampler": "SamplerID"
-    },
-    "glSamplerParameterIuivRobust": {
-        "sampler": "SamplerID"
+        "sampler": "SamplerID",
+        "pname": "SamplerParameter"
     },
     "glSamplerParameteriv": {
-        "sampler": "SamplerID"
+        "sampler": "SamplerID",
+        "pname": "SamplerParameter"
     },
     "glSamplerParameterivRobust": {
-        "sampler": "SamplerID"
+        "sampler": "SamplerID",
+        "pname": "SamplerParameter"
+    },
+    "glSamplerParameterIiv": {
+        "sampler": "SamplerID",
+        "pname": "SamplerParameter"
+    },
+    "glSamplerParameterIuiv": {
+        "sampler": "SamplerID",
+        "pname": "SamplerParameter"
     },
     "glSemaphoreParameterui64v": {
         "semaphore": "SemaphoreID"
     },
-    "glSetFenceNV": {
+    "glSetFence": {
         "fence": "FenceNVID"
     },
     "glShadeModel": {
@@ -1437,6 +1555,13 @@
     },
     "glShaderStorageBlockBinding": {
         "program": "ShaderProgramID"
+    },
+    "glShadingRate": {
+        "rate": "ShadingRate"
+    },
+    "glShadingRateCombinerOps": {
+        "combinerOp0": "CombinerOp",
+        "combinerOp1": "CombinerOp"
     },
     "glSignalSemaphore": {
         "buffers": "const BufferID *",
@@ -1467,7 +1592,7 @@
     "glStencilThenCoverStrokePathInstanced": {
         "pathBase": "PathID"
     },
-    "glTestFenceNV": {
+    "glTestFence": {
         "fence": "FenceNVID"
     },
     "glTexBuffer": {
@@ -1568,6 +1693,12 @@
     "glTexStorage3DMultisample": {
         "target": "TextureType"
     },
+    "glTexStorageAttribs2D": {
+        "target": "TextureType"
+    },
+    "glTexStorageAttribs3D": {
+        "target": "TextureType"
+    },
     "glTexStorageMem2D": {
         "memory": "MemoryObjectID",
         "target": "TextureType"
@@ -1618,6 +1749,9 @@
     },
     "glTextureBufferRange": {
         "buffer": "BufferID",
+        "texture": "TextureID"
+    },
+    "glTextureFoveationParameters": {
         "texture": "TextureID"
     },
     "glTextureParameterf": {
@@ -1673,6 +1807,9 @@
     },
     "glTransformFeedbackVaryings": {
         "program": "ShaderProgramID"
+    },
+    "glTrimMemory": {
+        "trimLevel": "MemoryTrimLevel"
     },
     "glUniform1f": {
         "location": "UniformLocation"
@@ -1825,7 +1962,8 @@
         "location": "UniformLocation"
     },
     "glUniformBlockBinding": {
-        "program": "ShaderProgramID"
+        "program": "ShaderProgramID",
+        "uniformBlockIndex": "UniformBlockIndex"
     },
     "glUnmapBuffer": {
         "target": "BufferBinding"
@@ -1892,5 +2030,8 @@
         "buffers": "const BufferID *",
         "semaphore": "SemaphoreID",
         "textures": "const TextureID *"
+    },
+    "glWaitSync": {
+        "sync": "SyncID"
     }
 }

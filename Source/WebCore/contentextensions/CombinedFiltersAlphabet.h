@@ -27,8 +27,8 @@
 
 #if ENABLE(CONTENT_EXTENSIONS)
 
-#include "ContentExtensionsDebugging.h"
-#include "Term.h"
+#include <WebCore/ContentExtensionsDebugging.h>
+#include <WebCore/Term.h>
 #include <wtf/HashSet.h>
 #include <wtf/Vector.h>
 
@@ -45,7 +45,7 @@ public:
 
 private:
     struct TermPointerHash {
-        static unsigned hash(const Term* key) { return key->hash(); }
+        static unsigned hash(const Term* key) { return computeHash(*key); }
         static inline bool equal(const Term* a, const Term* b)
         {
             return *a == *b;

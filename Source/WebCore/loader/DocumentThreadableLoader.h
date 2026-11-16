@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2009, 2012 Google Inc. All rights reserved.
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -33,24 +33,28 @@
 
 #include "ContentSecurityPolicy.h"
 #include "CrossOriginPreflightChecker.h"
+#include "LoaderMalloc.h"
+#include "ResourceLoaderIdentifier.h"
 #include "ResourceResponse.h"
 #include "SecurityOrigin.h"
 #include "ThreadableLoader.h"
+#include "ThreadableLoaderClient.h"
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
-    class CachedRawResource;
+class CachedRawResource;
     class ContentSecurityPolicy;
     class Document;
     class ThreadableLoaderClient;
+    class WeakPtrImplWithEventTargetData;
 
-    class DocumentThreadableLoader : public RefCounted<DocumentThreadableLoader>, public ThreadableLoader, public CanMakeWeakPtr<DocumentThreadableLoader>, private CachedRawResourceClient {
-        WTF_MAKE_FAST_ALLOCATED;
+    class DocumentThreadableLoader : public RefCounted<DocumentThreadableLoader>, public ThreadableLoader, public CachedRawResourceClient {
+        WTF_DEPRECATED_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(DocumentThreadableLoader, Loader);
     public:
         static void loadResourceSynchronously(Document&, ResourceRequest&&, ThreadableLoaderClient&, const ThreadableLoaderOptions&, RefPtr<SecurityOrigin>&&, std::unique_ptr<ContentSecurityPolicy>&&, std::optional<CrossOriginEmbedderPolicy>&&);
         static void loadResourceSynchronously(Document&, ResourceRequest&&, ThreadableLoaderClient&, const ThreadableLoaderOptions&);
 
-        enum class ShouldLogError { No, Yes };
+        enum class ShouldLogError : bool { No, Yes };
         static RefPtr<DocumentThreadableLoader> create(Document&, ThreadableLoaderClient&, ResourceRequest&&, const ThreadableLoaderOptions&, RefPtr<SecurityOrigin>&&, std::unique_ptr<ContentSecurityPolicy>&&, std::optional<CrossOriginEmbedderPolicy>&&, String&& referrer, ShouldLogError);
         static RefPtr<DocumentThreadableLoader> create(Document&, ThreadableLoaderClient&, ResourceRequest&&, const ThreadableLoaderOptions&, String&& referrer = String());
 
@@ -65,12 +69,9 @@ namespace WebCore {
         friend class InspectorInstrumentation;
         friend class InspectorNetworkAgent;
 
-        using RefCounted<DocumentThreadableLoader>::ref;
-        using RefCounted<DocumentThreadableLoader>::deref;
-
-    protected:
-        void refThreadableLoader() override { ref(); }
-        void derefThreadableLoader() override { deref(); }
+        // CachedResourceClient, ThreadableLoader.
+        void ref() const final { RefCounted::ref(); }
+        void deref() const final { RefCounted::deref(); }
 
     private:
         enum BlockingBehavior {
@@ -84,34 +85,37 @@ namespace WebCore {
 
         // CachedRawResourceClient
         void dataSent(CachedResource&, unsigned long long bytesSent, unsigned long long totalBytesToBeSent) override;
-        void responseReceived(CachedResource&, const ResourceResponse&, CompletionHandler<void()>&&) override;
-        void dataReceived(CachedResource&, const uint8_t* data, int dataLength) override;
+        void responseReceived(const CachedResource&, const ResourceResponse&, CompletionHandler<void()>&&) override;
+        void dataReceived(CachedResource&, const SharedBuffer&) override;
         void redirectReceived(CachedResource&, ResourceRequest&&, const ResourceResponse&, CompletionHandler<void(ResourceRequest&&)>&&) override;
         void finishedTimingForWorkerLoad(CachedResource&, const ResourceTiming&) override;
         void finishedTimingForWorkerLoad(const ResourceTiming&);
-        void notifyFinished(CachedResource&, const NetworkLoadMetrics&) override;
+        void notifyFinished(CachedResource&, const NetworkLoadMetrics&, LoadWillContinueInAnotherProcess) override;
 
-        void didReceiveResponse(unsigned long identifier, const ResourceResponse&);
-        void didReceiveData(unsigned long identifier, const uint8_t* data, int dataLength);
-        void didFinishLoading(unsigned long identifier);
-        void didFail(unsigned long identifier, const ResourceError&);
+        void didReceiveResponse(ResourceLoaderIdentifier, ResourceResponse&&);
+        void didReceiveData(const SharedBuffer&);
+        void didFinishLoading(std::optional<ResourceLoaderIdentifier>, const NetworkLoadMetrics&);
+        void didFail(std::optional<ResourceLoaderIdentifier>, const ResourceError&);
         void makeCrossOriginAccessRequest(ResourceRequest&&);
         void makeSimpleCrossOriginAccessRequest(ResourceRequest&&);
         void makeCrossOriginAccessRequestWithPreflight(ResourceRequest&&);
         void preflightSuccess(ResourceRequest&&);
-        void preflightFailure(unsigned long identifier, const ResourceError&);
+        void preflightFailure(std::optional<ResourceLoaderIdentifier>, const ResourceError&);
 
         void loadRequest(ResourceRequest&&, SecurityCheckPolicy);
         bool isAllowedRedirect(const URL&);
         bool isAllowedByContentSecurityPolicy(const URL&, ContentSecurityPolicy::RedirectResponseReceived, const URL& preRedirectURL = URL());
+        bool isResponseAllowedByContentSecurityPolicy(const ResourceResponse&);
 
+        Ref<SecurityOrigin> topOrigin() const;
         SecurityOrigin& securityOrigin() const;
         const ContentSecurityPolicy& contentSecurityPolicy() const;
-        const CrossOriginEmbedderPolicy& crossOriginEmbedderPolicy() const;
+        const CrossOriginEmbedderPolicy& NODELETE crossOriginEmbedderPolicy() const;
 
-        Document& document() { return m_document; }
-        const ThreadableLoaderOptions& options() const { return m_options; }
-        const String& referrer() const { return m_referrer; }
+        Document* document() { return m_document; }
+
+        const ThreadableLoaderOptions& options() const LIFETIME_BOUND { return m_options; }
+        const String& referrer() const LIFETIME_BOUND { return m_referrer; }
         bool isLoading() { return m_resource || m_preflightChecker; }
 
         void reportRedirectionWithBadScheme(const URL&);
@@ -124,8 +128,8 @@ namespace WebCore {
         bool checkURLSchemeAsCORSEnabled(const URL&);
 
         CachedResourceHandle<CachedRawResource> m_resource;
-        ThreadableLoaderClient* m_client;
-        Document& m_document;
+        WeakPtr<ThreadableLoaderClient> m_client;
+        WeakPtr<Document, WeakPtrImplWithEventTargetData> m_document;
         ThreadableLoaderOptions m_options;
         bool m_responsesCanBeOpaque { true };
         RefPtr<SecurityOrigin> m_origin;
@@ -136,13 +140,12 @@ namespace WebCore {
         bool m_delayCallbacksForIntegrityCheck;
         std::unique_ptr<ContentSecurityPolicy> m_contentSecurityPolicy;
         std::optional<CrossOriginEmbedderPolicy> m_crossOriginEmbedderPolicy;
-        std::optional<CrossOriginPreflightChecker> m_preflightChecker;
+        RefPtr<CrossOriginPreflightChecker> m_preflightChecker;
         std::optional<HTTPHeaderMap> m_originalHeaders;
+        URL m_responseURL;
 
         ShouldLogError m_shouldLogError;
-#if ENABLE(SERVICE_WORKER)
         std::optional<ResourceRequest> m_bypassingPreflightForServiceWorkerRequest;
-#endif
     };
 
 } // namespace WebCore

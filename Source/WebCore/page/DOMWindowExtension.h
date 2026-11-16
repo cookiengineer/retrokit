@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2012-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,7 +25,8 @@
 
 #pragma once
 
-#include "DOMWindow.h"
+#include <WebCore/LocalDOMWindow.h>
+#include <wtf/CheckedRef.h>
 #include <wtf/RefCounted.h>
 #include <wtf/RefPtr.h>
 #include <wtf/WeakPtr.h>
@@ -33,32 +34,35 @@
 namespace WebCore {
 
 class DOMWrapperWorld;
-class Frame;
+class LocalFrame;
 
-class DOMWindowExtension final : public RefCounted<DOMWindowExtension>, public DOMWindow::Observer {
+class DOMWindowExtension final : public RefCounted<DOMWindowExtension>, public LocalDOMWindowObserver {
 public:
-    static Ref<DOMWindowExtension> create(DOMWindow* window, DOMWrapperWorld& world)
+    static Ref<DOMWindowExtension> create(LocalDOMWindow* window, DOMWrapperWorld& world)
     {
         return adoptRef(*new DOMWindowExtension(window, world));
     }
 
     WEBCORE_EXPORT ~DOMWindowExtension();
 
+    // LocalDOMWindowObserver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
     void suspendForBackForwardCache() final;
     void resumeFromBackForwardCache() final;
     void willDestroyGlobalObjectInCachedFrame() final;
     void willDestroyGlobalObjectInFrame() final;
     void willDetachGlobalObjectFromFrame() final;
 
-    WEBCORE_EXPORT Frame* frame() const;
+    WEBCORE_EXPORT LocalFrame* NODELETE frame() const;
     DOMWrapperWorld& world() const { return m_world; }
 
 private:
-    WEBCORE_EXPORT DOMWindowExtension(DOMWindow*, DOMWrapperWorld&);
+    WEBCORE_EXPORT DOMWindowExtension(LocalDOMWindow*, DOMWrapperWorld&);
 
-    WeakPtr<DOMWindow> m_window;
-    Ref<DOMWrapperWorld> m_world;
-    RefPtr<Frame> m_disconnectedFrame;
+    WeakPtr<LocalDOMWindow, WeakPtrImplWithEventTargetData> m_window;
+    const Ref<DOMWrapperWorld> m_world;
+    WeakPtr<LocalFrame> m_disconnectedFrame;
     bool m_wasDetached;
 };
 

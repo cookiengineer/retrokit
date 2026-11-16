@@ -26,32 +26,42 @@
 #pragma once
 
 #include "LegacyCDMSession.h"
-#include <wtf/HashMap.h>
+#include <wtf/RefCounted.h>
+#include <wtf/RobinHoodHashMap.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/WTFString.h>
 
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA)
 
 namespace WebCore {
 
-class CDMSessionClearKey final : public LegacyCDMSession {
-    WTF_MAKE_FAST_ALLOCATED;
+class CDMSessionClearKey final : public LegacyCDMSession, public RefCounted<CDMSessionClearKey> {
+    WTF_MAKE_TZONE_ALLOCATED(CDMSessionClearKey);
 public:
-    CDMSessionClearKey(LegacyCDMSessionClient*);
+    static Ref<CDMSessionClearKey> create(LegacyCDMSessionClient& client)
+    {
+        return adoptRef(*new CDMSessionClearKey(client));
+    }
+
     virtual ~CDMSessionClearKey();
 
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     // CDMSessionPrivate
-    LegacyCDMSessionType type() override { return CDMSessionTypeClearKey; }
-    void setClient(LegacyCDMSessionClient* client) override { m_client = client; }
-    const String& sessionId() const override { return m_sessionId; }
+    LegacyCDMSessionType type() const final { return CDMSessionTypeClearKey; }
+    const String& sessionId() const LIFETIME_BOUND override { return m_sessionId; }
     RefPtr<Uint8Array> generateKeyRequest(const String& mimeType, Uint8Array*, String&, unsigned short&, uint32_t&) override;
     void releaseKeys() override;
     bool update(Uint8Array*, RefPtr<Uint8Array>&, unsigned short&, uint32_t&) override;
     RefPtr<ArrayBuffer> cachedKeyForKeyID(const String&) const override;
 
 private:
-    LegacyCDMSessionClient* m_client;
+    CDMSessionClearKey(LegacyCDMSessionClient&);
+
+    WeakPtr<LegacyCDMSessionClient> m_client;
     RefPtr<Uint8Array> m_initData;
-    HashMap<String, Vector<uint8_t>> m_cachedKeys;
+    MemoryCompactRobinHoodHashMap<String, Vector<uint8_t>> m_cachedKeys;
     String m_sessionId;
 };
 

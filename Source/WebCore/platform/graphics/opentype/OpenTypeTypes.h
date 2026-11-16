@@ -22,17 +22,17 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef OpenTypeTypes_h
-#define OpenTypeTypes_h
+#pragma once
 
 #if ENABLE(OPENTYPE_MATH)
 #include "Glyph.h"
 #endif
 
 #include "SharedBuffer.h"
+#include <numeric>
+#include <wtf/StdLibExtras.h>
 
-namespace WebCore {
-namespace OpenType {
+namespace WebCore::OpenType {
 
 struct BigEndianShort {
     operator short() const { return (v & 0x00ff) << 8 | v >> 8; }
@@ -73,23 +73,32 @@ typedef UInt16 GlyphID;
 typedef uint32_t Tag;
 #define OT_MAKE_TAG(ch1, ch2, ch3, ch4) ((((uint32_t)(ch4)) << 24) | (((uint32_t)(ch3)) << 16) | (((uint32_t)(ch2)) << 8) | ((uint32_t)(ch1)))
 
-template <typename T> static const T* validateTable(const RefPtr<SharedBuffer>& buffer, size_t count = 1)
+template<typename T> static const T* validateTableSingle(const RefPtr<SharedBuffer>& buffer)
 {
-    if (!buffer || buffer->size() < sizeof(T) * count)
-        return 0;
-    return reinterpret_cast<const T*>(buffer->data());
+    if (!buffer || buffer->size() < sizeof(T))
+        return nullptr;
+    return &reinterpretCastSpanStartTo<const T>(buffer->span());
+}
+
+template<typename T> static std::span<const T> validateTable(const RefPtr<SharedBuffer>& buffer, size_t count)
+{
+    if (!buffer || (buffer->size() / sizeof(T)) < count)
+        return { };
+    return spanReinterpretCast<const T>(buffer->span().first(sizeof(T) * count));
 }
 
 struct TableBase {
 protected:
     static bool isValidEnd(const SharedBuffer& buffer, const void* position)
     {
-        if (position < buffer.data())
+        auto bufferSpan = buffer.span();
+        if (position < bufferSpan.data())
             return false;
-        size_t offset = static_cast<const uint8_t*>(position) - buffer.data();
-        return offset <= buffer.size(); // "<=" because end is included as valid
+        size_t offset = static_cast<const uint8_t*>(position) - bufferSpan.data();
+        return offset <= buffer.size(); // "<=" because end is included as valid.
     }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
     template <typename T> static const T* validatePtr(const SharedBuffer& buffer, const void* position)
     {
         const T* casted = reinterpret_cast<const T*>(position);
@@ -102,6 +111,7 @@ protected:
     {
         return validatePtr<T>(buffer, reinterpret_cast<const int8_t*>(this) + offset);
     }
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 };
 
 #if ENABLE(OPENTYPE_VERTICAL) || ENABLE(OPENTYPE_MATH)
@@ -125,6 +135,7 @@ struct Coverage2Table : CoverageTable {
 #endif // ENABLE(OPENTYPE_VERTICAL) || ENABLE(OPENTYPE_MATH)
 
 #if ENABLE(OPENTYPE_MATH)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 struct TableWithCoverage : TableBase {
 protected:
     bool getCoverageIndex(const SharedBuffer& buffer, const CoverageTable* coverage, Glyph glyph, uint32_t& coverageIndex) const
@@ -141,7 +152,7 @@ protected:
             // We do a binary search on the glyph indexes.
             uint32_t imin = 0, imax = glyphCount;
             while (imin < imax) {
-                uint32_t imid = (imin + imax) >> 1;
+                uint32_t imid = std::midpoint(imin, imax);
                 uint16_t glyphMid = coverage1->glyphArray[imid];
                 if (glyphMid == glyph) {
                     coverageIndex = imid;
@@ -165,7 +176,7 @@ protected:
             // We do a binary search on the ranges.
             uint32_t imin = 0, imax = rangeCount;
             while (imin < imax) {
-                uint32_t imid = (imin + imax) >> 1;
+                uint32_t imid = std::midpoint(imin, imax);
                 uint16_t rStart = coverage2->ranges[imid].start;
                 uint16_t rEnd = coverage2->ranges[imid].end;
                 if (rEnd < glyph)
@@ -183,8 +194,7 @@ protected:
         return false;
     }
 };
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 #endif
 
-} // namespace OpenType
-} // namespace WebCore
-#endif // OpenTypeTypes_h
+} // namespace WebCore::OpenType

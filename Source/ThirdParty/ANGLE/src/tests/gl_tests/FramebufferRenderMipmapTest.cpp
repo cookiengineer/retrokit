@@ -4,11 +4,13 @@
 // found in the LICENSE file.
 //
 
+#include <array>
+
 #include "test_utils/ANGLETest.h"
 
 using namespace angle;
 
-class FramebufferRenderMipmapTest : public ANGLETest
+class FramebufferRenderMipmapTest : public ANGLETest<>
 {
   protected:
     FramebufferRenderMipmapTest()
@@ -53,8 +55,6 @@ class FramebufferRenderMipmapTest : public ANGLETest
 // when using a non-zero level in glFramebufferTexture2D.
 TEST_P(FramebufferRenderMipmapTest, Validation)
 {
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(isSwiftshader());
     bool renderToMipmapSupported =
         IsGLExtensionEnabled("GL_OES_fbo_render_mipmap") || getClientMajorVersion() > 2;
 
@@ -103,14 +103,15 @@ TEST_P(FramebufferRenderMipmapTest, RenderToMipmap)
         IsGLExtensionEnabled("GL_OES_fbo_render_mipmap") || getClientMajorVersion() > 2;
     ANGLE_SKIP_TEST_IF(!renderToMipmapSupported);
 
-    // http://anglebug.com/5241
-    ANGLE_SKIP_TEST_IF(IsMetal() && IsOSX() && IsNVIDIA());
-
-    const GLfloat levelColors[] = {
-        1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f,
-        1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 1.0f,
-    };
-    const GLint testLevels = static_cast<GLint>(ArraySize(levelColors) / 4);
+    constexpr std::array<std::array<GLfloat, 4>, 6> levelColors = {{
+        {1.0f, 0.0f, 0.0f, 1.0f},
+        {0.0f, 1.0f, 0.0f, 1.0f},
+        {0.0f, 0.0f, 1.0f, 1.0f},
+        {1.0f, 1.0f, 0.0f, 1.0f},
+        {1.0f, 0.0f, 1.0f, 1.0f},
+        {0.0f, 1.0f, 1.0f, 1.0f},
+    }};
+    const GLint testLevels = static_cast<GLint>(levelColors.size());
 
     GLuint tex = 0;
     glGenTextures(1, &tex);
@@ -136,8 +137,7 @@ TEST_P(FramebufferRenderMipmapTest, RenderToMipmap)
         EXPECT_GL_NO_ERROR();
 
         glUseProgram(mProgram);
-        glUniform4fv(mColorLocation, 1, levelColors + (i * 4));
-
+        glUniform4fv(mColorLocation, 1, levelColors[i].data());
         drawQuad(mProgram, essl1_shaders::PositionAttrib(), 0.5f);
         EXPECT_GL_NO_ERROR();
     }
@@ -148,7 +148,7 @@ TEST_P(FramebufferRenderMipmapTest, RenderToMipmap)
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, i);
         EXPECT_GL_NO_ERROR();
 
-        const GLfloat *color = levelColors + (i * 4);
+        const auto &color = levelColors[i];
         EXPECT_PIXEL_EQ(0, 0, color[0] * 255, color[1] * 255, color[2] * 255, color[3] * 255);
     }
 

@@ -35,21 +35,22 @@ namespace WTF {
 class SocketConnection : public RefCounted<SocketConnection> {
 public:
     typedef void (* MessageCallback)(SocketConnection&, GVariant*, gpointer);
-    using MessageHandlers = HashMap<CString, std::pair<CString, MessageCallback>>;
+    using MessageHandlers = UncheckedKeyHashMap<CString, std::pair<CString, MessageCallback>>;
     static Ref<SocketConnection> create(GRefPtr<GSocketConnection>&& connection, const MessageHandlers& messageHandlers, gpointer userData)
     {
-        return adoptRef(*new SocketConnection(WTFMove(connection), messageHandlers, userData));
+        return adoptRef(*new SocketConnection(WTF::move(connection), messageHandlers, userData));
     }
     WTF_EXPORT_PRIVATE ~SocketConnection();
 
-    WTF_EXPORT_PRIVATE void sendMessage(const char*, GVariant*);
+    WTF_EXPORT_PRIVATE void sendMessage(const CString&, GVariant*);
 
     bool isClosed() const { return !m_connection; }
-    void close();
+    WTF_EXPORT_PRIVATE void close();
 
 private:
     WTF_EXPORT_PRIVATE SocketConnection(GRefPtr<GSocketConnection>&&, const MessageHandlers&, gpointer);
 
+    bool didReceiveInvalidMessage(const CString& message);
     bool read();
     bool readMessage();
     void write();

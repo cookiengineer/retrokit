@@ -26,9 +26,9 @@
 #include "config.h"
 #include "AsyncRevalidation.h"
 
-#if ENABLE(NETWORK_CACHE_STALE_WHILE_REVALIDATE)
 #include <WebCore/CacheValidation.h>
 #include <WebCore/ResourceRequest.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 namespace NetworkCache {
@@ -36,8 +36,6 @@ namespace NetworkCache {
 static inline WebCore::ResourceRequest constructRevalidationRequest(const Key& key, const WebCore::ResourceRequest& request, const Entry& entry)
 {
     WebCore::ResourceRequest revalidationRequest = request;
-    if (!key.partition().isEmpty())
-        revalidationRequest.setCachePartition(key.partition());
     ASSERT_WITH_MESSAGE(key.range().isEmpty(), "range is not supported");
 
     revalidationRequest.makeUnconditional();
@@ -54,6 +52,8 @@ static inline WebCore::ResourceRequest constructRevalidationRequest(const Key& k
     return revalidationRequest;
 }
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(AsyncRevalidation);
+
 void AsyncRevalidation::cancel()
 {
     if (m_load)
@@ -66,9 +66,14 @@ void AsyncRevalidation::staleWhileRevalidateEnding()
         m_completionHandler(Result::Timeout);
 }
 
-AsyncRevalidation::AsyncRevalidation(Cache& cache, const GlobalFrameID& frameID, const WebCore::ResourceRequest& request, std::unique_ptr<NetworkCache::Entry>&& entry, std::optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain, CompletionHandler<void(Result)>&& handler)
+Ref<AsyncRevalidation> AsyncRevalidation::create(Cache& cache, const GlobalFrameID& frameID, const WebCore::ResourceRequest& request, std::unique_ptr<NetworkCache::Entry>&& entry, std::optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections, CompletionHandler<void(Result)>&& handler)
+{
+    return adoptRef(*new AsyncRevalidation(cache, frameID, request, WTF::move(entry), isNavigatingToAppBoundDomain, allowPrivacyProxy, advancedPrivacyProtections, WTF::move(handler)));
+}
+
+AsyncRevalidation::AsyncRevalidation(Cache& cache, const GlobalFrameID& frameID, const WebCore::ResourceRequest& request, std::unique_ptr<NetworkCache::Entry>&& entry, std::optional<NavigatingToAppBoundDomain> isNavigatingToAppBoundDomain, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections, CompletionHandler<void(Result)>&& handler)
     : m_timer(*this, &AsyncRevalidation::staleWhileRevalidateEnding)
-    , m_completionHandler(WTFMove(handler))
+    , m_completionHandler(WTF::move(handler))
 {
     auto key = entry->key();
     auto revalidationRequest = constructRevalidationRequest(key, request, *entry.get());
@@ -77,15 +82,15 @@ AsyncRevalidation::AsyncRevalidation(Cache& cache, const GlobalFrameID& frameID,
     auto responseMaxStaleness = entry->response().cacheControlStaleWhileRevalidate();
     ASSERT(responseMaxStaleness);
     m_timer.startOneShot(*responseMaxStaleness + (lifetime - age));
-    m_load = makeUnique<SpeculativeLoad>(cache, frameID, WTFMove(revalidationRequest), WTFMove(entry), isNavigatingToAppBoundDomain, [this, key, revalidationRequest](auto&& revalidatedEntry) {
+
+    SpeculativeLoad::RevalidationCompletionHandler loadRevalidationCompletionHandler = [this, key, revalidationRequest](auto&& revalidatedEntry) {
         ASSERT(!revalidatedEntry || !revalidatedEntry->needsValidation());
         ASSERT(!revalidatedEntry || revalidatedEntry->key() == key);
         if (m_completionHandler)
             m_completionHandler(revalidatedEntry ? Result::Success : Result::Failure);
-    });
+    };
+    lazyInitialize(m_load, SpeculativeLoad::create(cache, frameID, WTF::move(revalidationRequest), WTF::move(entry), isNavigatingToAppBoundDomain, allowPrivacyProxy, advancedPrivacyProtections, WTF::move(loadRevalidationCompletionHandler)));
 }
 
 } // namespace NetworkCache
 } // namespace WebKit
-
-#endif // ENABLE(NETWORK_CACHE_STALE_WHILE_REVALIDATE)

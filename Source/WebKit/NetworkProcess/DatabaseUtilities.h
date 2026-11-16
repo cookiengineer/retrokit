@@ -27,6 +27,7 @@
 
 #include <WebCore/SQLiteDatabase.h>
 #include <WebCore/SQLiteTransaction.h>
+#include <wtf/RobinHoodHashMap.h>
 #include <wtf/Scope.h>
 
 namespace WebCore {
@@ -39,26 +40,37 @@ namespace WebKit {
 
 enum class PrivateClickMeasurementAttributionType : bool;
 
+using TableAndIndexPair = std::pair<String, std::optional<String>>;
+
 class DatabaseUtilities {
 protected:
     DatabaseUtilities(String&& storageFilePath);
     ~DatabaseUtilities();
 
     WebCore::SQLiteStatementAutoResetScope scopedStatement(std::unique_ptr<WebCore::SQLiteStatement>&, ASCIILiteral query, ASCIILiteral logString) const;
-    ScopeExit<Function<void()>> WARN_UNUSED_RETURN beginTransactionIfNecessary();
+    [[nodiscard]] ScopeExit<Function<void()>> beginTransactionIfNecessary();
     enum class CreatedNewFile : bool { No, Yes };
     CreatedNewFile openDatabaseAndCreateSchemaIfNecessary();
     void enableForeignKeys();
     void close();
     void interrupt();
     virtual bool createSchema() = 0;
+    virtual bool createUniqueIndices() = 0;
     virtual void destroyStatements() = 0;
     virtual String getDomainStringFromDomainID(unsigned) const = 0;
+    virtual bool needsUpdatedSchema() = 0;
+    virtual const MemoryCompactLookupOnlyRobinHoodHashMap<String, TableAndIndexPair>& expectedTableAndIndexQueries() LIFETIME_BOUND = 0;
+    virtual std::span<const ASCIILiteral> sortedTables() = 0;
+    TableAndIndexPair currentTableAndIndexQueries(const String&);
+    String stripIndexQueryToMatchStoredValue(const char* originalQuery);
+    void migrateDataToNewTablesIfNecessary();
+    Vector<String> columnsForTable(ASCIILiteral tableName);
+    bool addMissingColumnToTable(ASCIILiteral tableName, ASCIILiteral columnName);
 
-    WebCore::PrivateClickMeasurement buildPrivateClickMeasurementFromDatabase(WebCore::SQLiteStatement&, PrivateClickMeasurementAttributionType);
+    WebCore::PrivateClickMeasurement buildPrivateClickMeasurementFromDatabase(WebCore::SQLiteStatement&, PrivateClickMeasurementAttributionType) const;
 
     const String m_storageFilePath;
-    mutable WebCore::SQLiteDatabase m_database;
+    const UniqueRef<WebCore::SQLiteDatabase> m_database;
     mutable WebCore::SQLiteTransaction m_transaction;
 };
 

@@ -25,6 +25,7 @@
 
 #include "config.h"
 #include "B3Validate.h"
+#include "B3HeapRange.h"
 
 #if ENABLE(B3_JIT)
 
@@ -66,12 +67,12 @@ public:
 
     void run()
     {
-        HashSet<BasicBlock*> blocks;
-        HashSet<Value*> valueInProc;
-        HashMap<Value*, unsigned> valueInBlock;
-        HashMap<Value*, BasicBlock*> valueOwner;
-        HashMap<Value*, unsigned> valueIndex;
-        HashMap<Value*, Vector<std::optional<Type>>> extractions;
+        UncheckedKeyHashSet<BasicBlock*> blocks;
+        UncheckedKeyHashSet<Value*> valueInProc;
+        UncheckedKeyHashMap<Value*, unsigned> valueInBlock;
+        UncheckedKeyHashMap<Value*, BasicBlock*> valueOwner;
+        UncheckedKeyHashMap<Value*, unsigned> valueIndex;
+        UncheckedKeyHashMap<Value*, Vector<std::optional<Type>>> extractions;
 
         for (unsigned tuple = 0; tuple < m_procedure.tuples().size(); ++tuple) {
             VALIDATE(m_procedure.tuples()[tuple].size(), ("In tuple ", tuple));
@@ -113,7 +114,7 @@ public:
             }
         }
 
-        HashMap<BasicBlock*, HashSet<BasicBlock*>> allPredecessors;
+        UncheckedKeyHashMap<BasicBlock*, UncheckedKeyHashSet<BasicBlock*>> allPredecessors;
         for (BasicBlock* block : blocks) {
             VALIDATE(block->size() >= 1, ("At ", *block));
             for (unsigned i = 0; i < block->size() - 1; ++i)
@@ -121,7 +122,7 @@ public:
             VALIDATE(block->last()->effects().terminal, ("At ", *block->last()));
             
             for (BasicBlock* successor : block->successorBlocks()) {
-                allPredecessors.add(successor, HashSet<BasicBlock*>()).iterator->value.add(block);
+                allPredecessors.add(successor, UncheckedKeyHashSet<BasicBlock*>()).iterator->value.add(block);
                 VALIDATE(
                     blocks.contains(successor), ("At ", *block, "->", pointerDump(successor)));
             }
@@ -130,7 +131,7 @@ public:
         // Note that this totally allows dead code.
         for (auto& entry : allPredecessors) {
             BasicBlock* successor = entry.key;
-            HashSet<BasicBlock*>& predecessors = entry.value;
+            UncheckedKeyHashSet<BasicBlock*>& predecessors = entry.value;
             VALIDATE(predecessors == successor->predecessors(), ("At ", *successor));
         }
 
@@ -171,6 +172,12 @@ public:
                 VALIDATE(!value->numChildren(), ("At ", *value));
                 VALIDATE(value->type() == Float, ("At ", *value));
                 break;
+            case Const128:
+                RELEASE_ASSERT(Options::useWasmSIMD());
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(!value->numChildren(), ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                break;
             case BottomTuple:
                 VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
                 VALIDATE(!value->numChildren(), ("At ", *value));
@@ -196,12 +203,15 @@ public:
                 VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
                 VALIDATE(!value->numChildren(), ("At ", *value));
                 VALIDATE(
-                    (value->as<ArgumentRegValue>()->argumentReg().isGPR() ? pointerType() : Double)
-                    == value->type(), ("At ", *value));
+                    (value->as<ArgumentRegValue>()->argumentReg().isGPR() ? (value->type() == pointerType())
+                        : (value->type() == V128 || value->type() == Double))
+                    , ("At ", *value));
                 break;
             case Add:
             case Sub:
             case Mul:
+            case MulHigh:
+            case UMulHigh:
             case Div:
             case UDiv:
             case Mod:
@@ -227,17 +237,30 @@ public:
                 VALIDATE(value->type() == value->child(1)->type(), ("At ", *value));
                 VALIDATE(value->type().isNumeric(), ("At ", *value));
                 break;
+            case FMax:
+            case FMin:
+                VALIDATE(value->numChildren() == 2, ("At ", *value));
+                VALIDATE(value->type() == value->child(0)->type(), ("At ", *value));
+                VALIDATE(value->type() == value->child(1)->type(), ("At ", *value));
+                VALIDATE(value->type() == Float || value->type() == Double, ("At ", *value));
+                break;
             case Neg:
                 VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
                 VALIDATE(value->numChildren() == 1, ("At ", *value));
                 VALIDATE(value->type() == value->child(0)->type(), ("At ", *value));
                 VALIDATE(value->type().isNumeric(), ("At ", *value));
                 break;
+            case PurifyNaN:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 1, ("At ", *value));
+                VALIDATE(value->type() == value->child(0)->type(), ("At ", *value));
+                VALIDATE(value->type().isFloat(), ("At ", *value));
+                break;
             case Shl:
             case SShr:
             case ZShr:
             case RotR:
-                case RotL:
+            case RotL:
                 VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
                 VALIDATE(value->numChildren() == 2, ("At ", *value));
                 VALIDATE(value->type() == value->child(0)->type(), ("At ", *value));
@@ -262,6 +285,8 @@ public:
                 VALIDATE(value->child(0)->type() == Int32, ("At ", *value));
                 VALIDATE(value->type() == Int32, ("At ", *value));
                 break;
+            case SExt8To64:
+            case SExt16To64:
             case SExt32:
             case ZExt32:
                 VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
@@ -283,9 +308,24 @@ public:
                     || (value->type() == Float && value->child(0)->type() == Double),
                     ("At ", *value));
                 break;
+            case TruncHigh:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 1, ("At ", *value));
+                VALIDATE(
+                    (value->type() == Int32 && value->child(0)->type() == Int64),
+                    ("At ", *value));
+                break;
+            case Stitch:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 2, ("At ", *value));
+                VALIDATE(value->type() == Int64, ("At ", *value));
+                VALIDATE(value->child(0)->type() == Int32, ("At ", *value));
+                VALIDATE(value->child(1)->type() == Int32, ("At ", *value));
+                break;
             case Abs:
             case Ceil:
             case Floor:
+            case FTrunc:
             case Sqrt:
                 VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
                 VALIDATE(value->numChildren() == 1, ("At ", *value));
@@ -388,6 +428,22 @@ public:
                 validateFence(value);
                 validateStackAccess(value);
                 break;
+            case MemoryCopy:
+                VALIDATE(!value->kind().isChill(), ("At ", *value));
+                VALIDATE(value->numChildren() == 3, ("At ", *value));
+                VALIDATE(value->child(0)->type() == pointerType(), ("At ", *value));
+                VALIDATE(value->child(1)->type() == pointerType(), ("At ", *value));
+                VALIDATE(value->child(2)->type() == pointerType(), ("At ", *value));
+                VALIDATE(value->type() == Void, ("At ", *value));
+                break;
+            case MemoryFill:
+                VALIDATE(!value->kind().isChill(), ("At ", *value));
+                VALIDATE(value->numChildren() == 3, ("At ", *value));
+                VALIDATE(value->child(0)->type() == pointerType(), ("At ", *value));
+                VALIDATE(value->child(1)->type() == Int32, ("At ", *value));
+                VALIDATE(value->child(2)->type() == pointerType(), ("At ", *value));
+                VALIDATE(value->type() == Void, ("At ", *value));
+                break;
             case AtomicWeakCAS:
                 VALIDATE(!value->kind().isChill(), ("At ", *value));
                 VALIDATE(value->numChildren() == 3, ("At ", *value));
@@ -434,10 +490,353 @@ public:
                 VALIDATE(value->child(0)->type() == pointerType(), ("At ", *value));
                 VALIDATE(value->type() == pointerType(), ("At ", *value));
                 break;
+            case VectorExtractLane:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 1, ("At ", *value));
+                VALIDATE(value->type() == Wasm::toB3Type(Wasm::simdScalarType(value->asSIMDValue()->simdLane())), ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                break;
+            case VectorReplaceLane:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 2, ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                VALIDATE(value->child(1)->type() == Wasm::toB3Type(Wasm::simdScalarType(value->asSIMDValue()->simdLane())), ("At ", *value));
+                break;
+            case VectorDupElement:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 1, ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->asSIMDValue()->immediate() < (16 / elementByteSize(value->asSIMDValue()->simdLane())), ("At ", *value));
+                break;
+            case VectorNot:
+            case VectorAbs:
+            case VectorNeg:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 1, ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                break;
+
+            case VectorSplat:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 1, ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->child(0)->type() == Wasm::toB3Type(Wasm::simdScalarType(value->asSIMDValue()->simdLane())), ("At ", *value));
+                break;
+
+            case VectorPopcnt:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 1, ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                VALIDATE(value->asSIMDValue()->simdLane() == SIMDLane::i8x16, ("At ", *value));
+                break;
+
+            case VectorMulSat:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 2, ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                VALIDATE(value->child(1)->type() == V128, ("At ", *value));
+                VALIDATE(value->asSIMDValue()->simdLane() == SIMDLane::i16x8, ("At ", *value));
+                break;
+
+            case VectorSwizzle:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 2 || value->numChildren() == 3, ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                VALIDATE(value->child(1)->type() == V128, ("At ", *value));
+                VALIDATE(value->numChildren() == 2 || value->child(2)->type() == V128, ("At ", *value));
+                VALIDATE(value->asSIMDValue()->simdLane() == SIMDLane::i8x16, ("At ", *value));
+                break;
+
+            case VectorUnzipEven:
+            case VectorUnzipOdd:
+            case VectorZipLower:
+            case VectorZipHigher:
+            case VectorTransposeEven:
+            case VectorTransposeOdd:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 2, ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                VALIDATE(value->child(1)->type() == V128, ("At ", *value));
+                break;
+
+            case VectorReverse: {
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 1, ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                unsigned groupSize = value->as<SIMDValue>()->immediate();
+                VALIDATE(groupSize == 2 || groupSize == 4 || groupSize == 8, ("At ", *value));
+                break;
+            }
+
+            case VectorExtractPair:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 2, ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                VALIDATE(value->child(1)->type() == V128, ("At ", *value));
+                break;
+
+            case VectorMulByElement:
+                VALIDATE(isARM64(), ("At ", *value));
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 2, ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->asSIMDValue()->simdLane() == SIMDLane::f64x2 || value->asSIMDValue()->simdLane() == SIMDLane::f32x4, ("At ", *value));
+                VALIDATE(value->asSIMDValue()->immediate() < (16 / elementByteSize(value->asSIMDValue()->simdLane())), ("At ", *value));
+                break;
+
+            case VectorBitmask:
+            case VectorAllTrue:
+            case VectorAnyTrue:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 1, ("At ", *value));
+                VALIDATE(value->type().isInt(), ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                if (value->opcode() == VectorAnyTrue)
+                    VALIDATE(value->asSIMDValue()->simdLane() == SIMDLane::v128, ("At ", *value));
+                else
+                    VALIDATE(scalarTypeIsIntegral(value->asSIMDValue()->simdLane()), ("At ", *value));
+                break;
+
+            case VectorCeil:
+            case VectorFloor:
+            case VectorTrunc:
+            case VectorTruncSat:
+            case VectorRelaxedTruncSat:
+            case VectorNearest:
+            case VectorSqrt:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->numChildren() == 1, ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                VALIDATE(scalarTypeIsFloatingPoint(value->asSIMDValue()->simdLane()), ("At ", *value));
+                break;
+            case VectorConvert:
+            case VectorConvertLow:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->numChildren() == 1, ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                VALIDATE(scalarTypeIsIntegral(value->asSIMDValue()->simdLane()), ("At ", *value));
+                VALIDATE(elementByteSize(value->asSIMDValue()->simdLane()) == 4, ("At ", *value));
+                break;
+
+            case VectorExtendLow:
+            case VectorExtendHigh:
+            case VectorExtaddPairwise:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 1, ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128 || value->child(0)->type() == Double, ("At ", *value));
+                VALIDATE(scalarTypeIsIntegral(value->asSIMDValue()->simdLane()), ("At ", *value));
+                VALIDATE(value->asSIMDValue()->signMode() != SIMDSignMode::None, ("At ", *value));
+                break;
+
+            case VectorPromote:
+            case VectorDemote:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 1, ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                VALIDATE(scalarTypeIsFloatingPoint(value->asSIMDValue()->simdLane()), ("At ", *value));
+                if (value->opcode() == VectorPromote)
+                    VALIDATE(value->asSIMDValue()->simdLane() == SIMDLane::f32x4, ("At ", *value));
+                else
+                    VALIDATE(value->asSIMDValue()->simdLane() == SIMDLane::f64x2, ("At ", *value));
+                break;
+
+            case VectorNotEqual:
+            case VectorLessThan:
+            case VectorLessThanOrEqual:
+            case VectorBelow:
+            case VectorBelowOrEqual:
+            case VectorGreaterThan:
+            case VectorGreaterThanOrEqual:
+            case VectorAbove:
+            case VectorAboveOrEqual:
+            case VectorEqual:
+            case VectorAdd:
+            case VectorSub:
+            case VectorAddSat:
+            case VectorSubSat:
+            case VectorMul:
+            case VectorAnd:
+            case VectorAndnot:
+            case VectorOr:
+            case VectorXor:
+            case VectorAvgRound:
+            case VectorDotProduct:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 2, ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                VALIDATE(value->child(1)->type() == V128, ("At ", *value));
+                if (value->opcode() == VectorAvgRound)
+                    VALIDATE(value->asSIMDValue()->simdLane() == SIMDLane::i8x16 || value->asSIMDValue()->simdLane() == SIMDLane::i16x8,  ("At ", *value));
+                else if (value->opcode() == VectorDotProduct)
+                    VALIDATE(value->asSIMDValue()->simdLane() == SIMDLane::i32x4,  ("At ", *value));
+                break;
+            case VectorMulHigh:
+            case VectorMulLow:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 2, ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                VALIDATE(value->child(1)->type() == V128, ("At ", *value));
+                VALIDATE(scalarTypeIsIntegral(value->asSIMDValue()->simdLane()), ("At ", *value));
+                VALIDATE(value->asSIMDValue()->simdLane() != SIMDLane::i8x16, ("At ", *value));
+                VALIDATE(value->asSIMDValue()->signMode() != SIMDSignMode::None, ("At ", *value));
+                break;
+            case VectorShl:
+            case VectorShr:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 2, ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                VALIDATE(value->child(1)->type() == Int32, ("At ", *value));
+                if (value->opcode() == VectorShr)
+                    VALIDATE(value->asSIMDValue()->signMode() != SIMDSignMode::None, ("At ", *value));
+                break;
+            case VectorMin:
+            case VectorMax:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 2, ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                VALIDATE(value->child(1)->type() == V128, ("At ", *value));
+                break;
+            case VectorPmin:
+            case VectorPmax:
+            case VectorDiv:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 2, ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                VALIDATE(value->child(1)->type() == V128, ("At ", *value));
+                VALIDATE(scalarTypeIsFloatingPoint(value->asSIMDValue()->simdLane()), ("At ", *value));
+                break;
+            case VectorNarrow:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 2, ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                VALIDATE(value->child(1)->type() == V128, ("At ", *value));
+                VALIDATE(scalarTypeIsIntegral(value->asSIMDValue()->simdLane()), ("At ", *value));
+                VALIDATE(value->asSIMDValue()->signMode() != SIMDSignMode::None, ("At ", *value));
+                break;
+            case VectorBitwiseSelect:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 3, ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                VALIDATE(value->child(1)->type() == V128, ("At ", *value));
+                VALIDATE(value->child(2)->type() == V128, ("At ", *value));
+                VALIDATE(value->asSIMDValue()->simdLane() == SIMDLane::v128, ("At ", *value));
+                VALIDATE(value->asSIMDValue()->signMode() == SIMDSignMode::None, ("At ", *value));
+                break;
+
+            // Relaxed SIMD
+            case VectorRelaxedSwizzle:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 2, ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                VALIDATE(value->child(1)->type() == V128, ("At ", *value));
+                VALIDATE(value->asSIMDValue()->simdLane() == SIMDLane::i8x16, ("At ", *value));
+                break;
+
+            case VectorRelaxedMAdd:
+            case VectorRelaxedNMAdd:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 3, ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                VALIDATE(value->child(1)->type() == V128, ("At ", *value));
+                VALIDATE(value->child(2)->type() == V128, ("At ", *value));
+                VALIDATE((value->asSIMDValue()->simdLane() == SIMDLane::f32x4) || (value->asSIMDValue()->simdLane() == SIMDLane::f64x2), ("At ", *value));
+                VALIDATE(value->asSIMDValue()->signMode() == SIMDSignMode::None, ("At ", *value));
+                break;
+
+            case VectorRelaxedLaneSelect:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 3, ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                VALIDATE(value->child(1)->type() == V128, ("At ", *value));
+                VALIDATE(value->child(2)->type() == V128, ("At ", *value));
+                VALIDATE((value->asSIMDValue()->simdLane() == SIMDLane::i8x16)
+                    || (value->asSIMDValue()->simdLane() == SIMDLane::i16x8)
+                    || (value->asSIMDValue()->simdLane() == SIMDLane::i32x4)
+                    || (value->asSIMDValue()->simdLane() == SIMDLane::i64x2), ("At ", *value));
+                VALIDATE(value->asSIMDValue()->signMode() == SIMDSignMode::None, ("At ", *value));
+                break;
+
+            case VectorRelaxedMin:
+            case VectorRelaxedMax:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 2, ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                VALIDATE(value->child(1)->type() == V128, ("At ", *value));
+                VALIDATE((value->asSIMDValue()->simdLane() == SIMDLane::f32x4) || (value->asSIMDValue()->simdLane() == SIMDLane::f64x2), ("At ", *value));
+                VALIDATE(value->asSIMDValue()->signMode() == SIMDSignMode::None, ("At ", *value));
+                break;
+
+            case VectorRelaxedQ15Mulr:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 2, ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                VALIDATE(value->child(1)->type() == V128, ("At ", *value));
+                VALIDATE(value->asSIMDValue()->simdLane() == SIMDLane::i16x8, ("At ", *value));
+                VALIDATE(value->asSIMDValue()->signMode() == SIMDSignMode::Signed, ("At ", *value));
+                break;
+
+            case VectorRelaxedDotI8x16I7x16:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 2, ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                VALIDATE(value->child(1)->type() == V128, ("At ", *value));
+                VALIDATE(value->asSIMDValue()->simdLane() == SIMDLane::i16x8, ("At ", *value));
+                VALIDATE(value->asSIMDValue()->signMode() == SIMDSignMode::Signed, ("At ", *value));
+                break;
+
+            case VectorRelaxedDotI8x16I7x16Add:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 3, ("At ", *value));
+                VALIDATE(value->type() == V128, ("At ", *value));
+                VALIDATE(value->child(0)->type() == V128, ("At ", *value));
+                VALIDATE(value->child(1)->type() == V128, ("At ", *value));
+                VALIDATE(value->child(2)->type() == V128, ("At ", *value));
+                VALIDATE(value->asSIMDValue()->simdLane() == SIMDLane::i32x4, ("At ", *value));
+                VALIDATE(value->asSIMDValue()->signMode() == SIMDSignMode::Signed, ("At ", *value));
+                break;
+
             case CCall:
                 VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
                 VALIDATE(value->numChildren() >= 1, ("At ", *value));
                 VALIDATE(value->child(0)->type() == pointerType(), ("At ", *value));
+                if (value->type().isTuple()) {
+                    // FIXME: Right now we only support a pair of two GPR values since on every calling
+                    // convention we support that's returned in returnValueGPR/returnValueGPR2, respectively.
+                    VALIDATE(m_procedure.resultCount(value->type()) == 2, ("At ", *value));
+                    if (is32Bit())
+                        VALIDATE(m_procedure.typeAtOffset(value->type(), 0) == registerType(), ("At ", *value));
+                    else
+                        VALIDATE(m_procedure.typeAtOffset(value->type(), 0).isInt(), ("At ", *value));
+                    VALIDATE(m_procedure.typeAtOffset(value->type(), 1) == registerType(), ("At ", *value));
+                }
+
                 break;
             case Patchpoint:
                 VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
@@ -459,7 +858,7 @@ public:
                 break;
             case Extract: {
                 VALIDATE(value->numChildren() == 1, ("At ", *value));
-                VALIDATE(value->child(0)->type() == Tuple, ("At ", *value));
+                VALIDATE(value->child(0)->type().isTuple() || (isARM_THUMB2() && value->child(0)->type() == Int64), ("At ", *value));
                 VALIDATE(value->type().isNumeric(), ("At ", *value));
                 break;
             }
@@ -484,7 +883,7 @@ public:
             case WasmBoundsCheck:
                 VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
                 VALIDATE(value->numChildren() == 1, ("At ", *value));
-                VALIDATE(value->child(0)->type() == Int32, ("At ", *value));
+                VALIDATE(value->child(0)->type() == Int32 || value->child(0)->type() == Int64, ("At ", *value));
                 switch (value->as<WasmBoundsCheckValue>()->boundsType()) {
                 case WasmBoundsCheckValue::Type::Pinned:
                     VALIDATE(m_procedure.code().isPinned(value->as<WasmBoundsCheckValue>()->bounds().pinnedSize), ("At ", *value));
@@ -493,6 +892,52 @@ public:
                     break;
                 }
                 VALIDATE(m_procedure.code().wasmBoundsCheckGenerator(), ("At ", *value));
+                break;
+            case WasmStructGet:
+                VALIDATE(value->numChildren() == 1, ("At ", *value));
+                VALIDATE(value->child(0)->type() == Int64, ("At ", *value)); // struct pointer
+                break;
+            case WasmStructSet:
+                VALIDATE(value->numChildren() == 2, ("At ", *value));
+                VALIDATE(value->child(0)->type() == Int64, ("At ", *value)); // struct pointer
+                VALIDATE(value->type() == Void, ("At ", *value));
+                break;
+            case WasmStructNew:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 2, ("At ", *value));
+                VALIDATE(value->type() == Int64, ("At ", *value)); // returns struct pointer
+                break;
+            case WasmArrayGet:
+                VALIDATE(value->numChildren() == 2, ("At ", *value));
+                VALIDATE(value->child(0)->type() == Int64, ("At ", *value)); // array pointer
+                VALIDATE(value->child(1)->type() == Int32, ("At ", *value)); // index
+                break;
+            case WasmArraySet:
+                VALIDATE(value->numChildren() == 3, ("At ", *value));
+                VALIDATE(value->child(0)->type() == Int64, ("At ", *value)); // array pointer
+                VALIDATE(value->child(1)->type() == Int32, ("At ", *value)); // index
+                VALIDATE(value->type() == Void, ("At ", *value));
+                break;
+            case WasmArrayNew:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 3 || value->numChildren() == 4, ("At ", *value));
+                VALIDATE(value->type() == Int64, ("At ", *value)); // returns array pointer
+                break;
+            case WasmArrayLength:
+                VALIDATE(value->numChildren() == 1, ("At ", *value));
+                VALIDATE(value->child(0)->type() == Int64, ("At ", *value)); // array pointer
+                VALIDATE(value->type() == Int32, ("At ", *value)); // returns size
+                break;
+            case WasmRefCast:
+                VALIDATE(value->numChildren() == 1 || value->numChildren() == 2, ("At ", *value));
+                VALIDATE(value->child(0)->type() == Int64, ("At ", *value)); // reference input
+                VALIDATE(value->type() == Int64, ("At ", *value)); // returns reference
+                break;
+            case WasmRefTest:
+                VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
+                VALIDATE(value->numChildren() == 1 || value->numChildren() == 2, ("At ", *value));
+                VALIDATE(value->child(0)->type() == Int64, ("At ", *value)); // reference input
+                VALIDATE(value->type() == Int32, ("At ", *value)); // returns boolean
                 break;
             case Upsilon:
                 VALIDATE(!value->kind().hasExtraBits(), ("At ", *value));
@@ -546,7 +991,7 @@ public:
                 
                 // Check that there are no duplicate cases.
                 Vector<int64_t> caseValues = value->as<SwitchValue>()->caseValues();
-                std::sort(caseValues.begin(), caseValues.end());
+                std::ranges::sort(caseValues);
                 for (unsigned i = 1; i < caseValues.size(); ++i)
                     VALIDATE(caseValues[i - 1] != caseValues[i], ("At ", *value, ", caseValue = ", caseValues[i]));
                 break;
@@ -560,6 +1005,10 @@ public:
             }
 
             VALIDATE(!(value->effects().writes && value->key()), ("At ", *value));
+            // Conceptually, if you exit sideways, you will almost certainly read Top or (AbstractHeapRepository) root. 
+            // Since we can't easily find out what root is here, we settle for checking that you at least read *something*.
+            // This is technically overly strict, but in practice violating this is almost certainly a bug.
+            VALIDATE((!value->effects().exitsSideways || value->effects().reads != HeapRange()), ("At ", *value));
         }
 
         for (Variable* variable : m_procedure.variables())
@@ -567,7 +1016,7 @@ public:
 
         for (BasicBlock* block : m_procedure) {
             // We expect the predecessor list to be de-duplicated.
-            HashSet<BasicBlock*> predecessors;
+            UncheckedKeyHashSet<BasicBlock*> predecessors;
             for (BasicBlock* predecessor : block->predecessors())
                 predecessors.add(predecessor);
             VALIDATE(block->numPredecessors() == predecessors.size(), ("At ", *block));
@@ -620,28 +1069,33 @@ private:
                     VALIDATE(value.value()->type().isInt(), ("At ", *context, ": ", value));
             } else {
                 if (value.value()->type().isTuple())
-                    VALIDATE(m_procedure.extractFromTuple(value.value()->type(), tupleIndex).isFloat(), ("At ", *context, ": ", value));
+                    VALIDATE(m_procedure.extractFromTuple(value.value()->type(), tupleIndex).isFloat() 
+                        || m_procedure.extractFromTuple(value.value()->type(), tupleIndex).isVector(), ("At ", *context, ": ", value));
                 else
-                    VALIDATE(value.value()->type().isFloat(), ("At ", *context, ": ", value));
+                    VALIDATE(value.value()->type().isFloat() || value.value()->type().isVector(), ("At ", *context, ": ", value));
             }
             break;
-        default:
+#if USE(JSVALUE32_64)
+        case ValueRep::RegisterPair:
+#endif
+        case ValueRep::Constant:
+        case ValueRep::Stack:
             VALIDATE(false, ("At ", *context, ": ", value));
             break;
         }
     }
-    
+
     void validateFence(Value* value)
     {
         MemoryValue* memory = value->as<MemoryValue>();
         if (memory->hasFence())
             VALIDATE(memory->accessBank() == GP, ("Fence at ", *memory));
     }
-    
+
     void validateAtomic(Value* value)
     {
         AtomicValue* atomic = value->as<AtomicValue>();
-        
+
         VALIDATE(bestType(GP, atomic->accessWidth()) == atomic->accessType(), ("At ", *value));
     }
 
@@ -661,7 +1115,7 @@ private:
     {
         bool changed = true;
         BitVector blocksToVisit;
-        IndexMap<BasicBlock*, HashSet<Value*>> undominatedPhisAtTail(m_procedure.size());
+        IndexMap<BasicBlock*, UncheckedKeyHashSet<Value*>> undominatedPhisAtTail(m_procedure.size());
         for (BasicBlock* block : m_procedure)
             blocksToVisit.set(block->index());
         while (changed) {
@@ -669,7 +1123,7 @@ private:
             for (BasicBlock* block : m_procedure.blocksInPostOrder()) {
                 if (!blocksToVisit.quickClear(block->index()))
                     continue;
-                HashSet<Value*> undominatedPhis = undominatedPhisAtTail[block];
+                UncheckedKeyHashSet<Value*> undominatedPhis = undominatedPhisAtTail[block];
                 for (unsigned index = block->size()-1; index--;) {
                     Value* value = block->at(index);
                     switch (value->opcode()) {

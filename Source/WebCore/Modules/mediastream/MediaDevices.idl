@@ -28,6 +28,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+typedef (MediaDeviceInfo or InputDeviceInfo) DeviceInfo;
+
 [
     ActiveDOMObject,
     Conditional=MEDIA_STREAM,
@@ -35,11 +37,11 @@
     Exposed=Window
 ] interface MediaDevices : EventTarget {
     attribute EventHandler ondevicechange;
-    Promise<sequence<MediaDeviceInfo>> enumerateDevices();
+    Promise<sequence<DeviceInfo>> enumerateDevices();
 
     MediaTrackSupportedConstraints getSupportedConstraints();
-    [PrivateIdentifier, PublicIdentifier] Promise<MediaStream> getUserMedia(optional MediaStreamConstraints constraints);
-    [EnabledBySetting=ScreenCapture] Promise<MediaStream> getDisplayMedia(optional DisplayMediaStreamConstraints constraints);
+    [PrivateIdentifier, PublicIdentifier] Promise<MediaStream> getUserMedia(optional MediaStreamConstraints constraints = {});
+    [EnabledBySetting=ScreenCaptureEnabled] Promise<MediaStream> getDisplayMedia(optional DisplayMediaStreamConstraints constraints = {});
 };
 
 [
@@ -58,7 +60,7 @@
 
 [
     Conditional=MEDIA_STREAM,
-    EnabledBySetting=ScreenCapture
+    EnabledBySetting=ScreenCaptureEnabled
 ] enum DisplayCaptureSurfaceType {
     "monitor",
     "window",

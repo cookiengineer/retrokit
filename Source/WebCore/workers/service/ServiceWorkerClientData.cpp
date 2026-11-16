@@ -24,30 +24,32 @@
  */
 
 #include "config.h"
-
-#if ENABLE(SERVICE_WORKER)
 #include "ServiceWorkerClientData.h"
 
-#include "DOMWindow.h"
+#include "AdvancedPrivacyProtections.h"
 #include "Document.h"
 #include "DocumentLoader.h"
-#include "Frame.h"
+#include "FrameDestructionObserverInlines.h"
+#include "LocalDOMWindow.h"
+#include "LocalFrame.h"
 #include "SWClientConnection.h"
+#include "WorkerGlobalScope.h"
+#include <wtf/CrossThreadCopier.h>
 
 namespace WebCore {
 
 static ServiceWorkerClientFrameType toServiceWorkerClientFrameType(ScriptExecutionContext& context)
 {
-    if (!is<Document>(context))
+    auto* document = dynamicDowncast<Document>(context);
+    if (!document)
         return ServiceWorkerClientFrameType::None;
 
-    auto& document = downcast<Document>(context);
-    auto* frame = document.frame();
+    RefPtr frame = document->frame();
     if (!frame)
         return ServiceWorkerClientFrameType::None;
 
     if (frame->isMainFrame()) {
-        if (auto* window = document.domWindow()) {
+        if (RefPtr window = document->window()) {
             if (window->opener())
                 return ServiceWorkerClientFrameType::Auxiliary;
         }
@@ -56,27 +58,63 @@ static ServiceWorkerClientFrameType toServiceWorkerClientFrameType(ScriptExecuti
     return ServiceWorkerClientFrameType::Nested;
 }
 
-ServiceWorkerClientData ServiceWorkerClientData::isolatedCopy() const
+ServiceWorkerClientData ServiceWorkerClientData::isolatedCopy() const &
 {
-    return { identifier, type, frameType, url.isolatedCopy(), lastNavigationWasAppInitiated };
+    return { identifier, type, frameType, url.isolatedCopy(), ownerURL.isolatedCopy(), pageIdentifier, frameIdentifier, lastNavigationWasAppInitiated, advancedPrivacyProtections, isVisible, isFocused, focusOrder, crossThreadCopy(ancestorOrigins) };
 }
 
-ServiceWorkerClientData ServiceWorkerClientData::from(ScriptExecutionContext& context, SWClientConnection& connection)
+ServiceWorkerClientData ServiceWorkerClientData::isolatedCopy() &&
 {
-    bool isDocument = is<Document>(context);
-    RELEASE_ASSERT(isDocument); // We do not support dedicated workers as clients yet.
+    return { identifier, type, frameType, WTF::move(url).isolatedCopy(), WTF::move(ownerURL).isolatedCopy(), pageIdentifier, frameIdentifier, lastNavigationWasAppInitiated, advancedPrivacyProtections, isVisible, isFocused, focusOrder, crossThreadCopy(WTF::move(ancestorOrigins)) };
+}
 
-    auto& document = downcast<Document>(context);
-    auto lastNavigationWasAppInitiated = document.loader() && document.loader()->lastNavigationWasAppInitiated() ? LastNavigationWasAppInitiated::Yes : LastNavigationWasAppInitiated::No;
+ServiceWorkerClientData ServiceWorkerClientData::from(ScriptExecutionContext& context)
+{
+    if (RefPtr document = dynamicDowncast<Document>(context)) {
+        auto lastNavigationWasAppInitiated = document->loader() && document->loader()->lastNavigationWasAppInitiated() ? LastNavigationWasAppInitiated::Yes : LastNavigationWasAppInitiated::No;
 
+        Vector<String> ancestorOrigins;
+        if (RefPtr frame = document->frame()) {
+            for (RefPtr ancestor = frame->tree().parent(); ancestor; ancestor = ancestor->tree().parent()) {
+                if (RefPtr origin = ancestor->frameDocumentSecurityOrigin())
+                    ancestorOrigins.append(origin->toString());
+            }
+        }
+
+        return {
+            context.identifier(),
+            ServiceWorkerClientType::Window,
+            toServiceWorkerClientFrameType(context),
+            document->creationURL(),
+            URL(),
+            document->pageID(),
+            document->frameID(),
+            lastNavigationWasAppInitiated,
+            context.advancedPrivacyProtections(),
+            !document->hidden(),
+            document->hasFocus(),
+            0,
+            WTF::move(ancestorOrigins)
+        };
+    }
+
+    RELEASE_ASSERT(is<WorkerGlobalScope>(context));
+    auto& scope = downcast<WorkerGlobalScope>(context);
     return {
-        { connection.serverConnectionIdentifier(), document.identifier() },
-        isDocument ? ServiceWorkerClientType::Window : ServiceWorkerClientType::Worker,
-        toServiceWorkerClientFrameType(context),
-        context.url(), lastNavigationWasAppInitiated
+        scope.identifier(),
+        scope.type() == WebCore::WorkerGlobalScope::Type::SharedWorker ? ServiceWorkerClientType::Sharedworker : ServiceWorkerClientType::Worker,
+        ServiceWorkerClientFrameType::None,
+        scope.url(),
+        scope.ownerURL(),
+        { },
+        { },
+        LastNavigationWasAppInitiated::No,
+        context.advancedPrivacyProtections(),
+        false,
+        false,
+        0,
+        { }
     };
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)

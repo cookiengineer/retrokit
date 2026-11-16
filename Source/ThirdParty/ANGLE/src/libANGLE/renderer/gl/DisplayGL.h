@@ -10,6 +10,7 @@
 #define LIBANGLE_RENDERER_GL_DISPLAYGL_H_
 
 #include "libANGLE/renderer/DisplayImpl.h"
+#include "libANGLE/renderer/ShareGroupImpl.h"
 #include "libANGLE/renderer/gl/FunctionsGL.h"
 
 namespace egl
@@ -19,10 +20,28 @@ class Surface;
 
 namespace rx
 {
+
 class ShareGroupGL : public ShareGroupImpl
-{};
+{
+  public:
+    ShareGroupGL(const egl::ShareGroupState &state) : ShareGroupImpl(state) {}
+};
 
 class RendererGL;
+
+class ThreadSafeDisplayGL : public ThreadSafeDisplayImpl
+{
+  public:
+    ThreadSafeDisplayGL()           = default;
+    ~ThreadSafeDisplayGL() override = default;
+
+    // None of the GL backends can lose the device, so device loss is never reported and the
+    // device can never be restored.
+    bool testDeviceLost() override final;
+    egl::Error restoreLostDevice(const egl::ThreadSafeDisplay *display) override final;
+
+  private:
+};
 
 class DisplayGL : public DisplayImpl
 {
@@ -38,10 +57,15 @@ class DisplayGL : public DisplayImpl
                            EGLenum target,
                            const egl::AttributeMap &attribs) override;
 
+    SurfaceImpl *createPbufferFromClientBuffer(const egl::SurfaceState &state,
+                                               EGLenum buftype,
+                                               EGLClientBuffer clientBuffer,
+                                               const egl::AttributeMap &attribs) override;
+
     StreamProducerImpl *createStreamProducerD3DTexture(egl::Stream::ConsumerType consumerType,
                                                        const egl::AttributeMap &attribs) override;
 
-    ShareGroupImpl *createShareGroup() override;
+    ShareGroupImpl *createShareGroup(const egl::ShareGroupState &state) override;
 
     egl::Error makeCurrent(egl::Display *display,
                            egl::Surface *drawSurface,
@@ -49,6 +73,12 @@ class DisplayGL : public DisplayImpl
                            gl::Context *context) override;
 
     gl::Version getMaxConformantESVersion() const override;
+
+    virtual RendererGL *getRenderer() const = 0;
+
+    std::string getRendererDescription() override;
+    std::string getVendorString() override;
+    std::string getVersionString(bool includeFullVersion) override;
 
   protected:
     void generateExtensions(egl::DisplayExtensions *outExtensions) const override;

@@ -30,74 +30,81 @@
 #include "InspectorInstrumentation.h"
 #include "Page.h"
 #include "ProgressTracker.h"
+#include "WebSocketFrame.h"
 
 namespace WebCore {
 
 WebSocketChannelInspector::WebSocketChannelInspector(Document& document)
+    : m_document(document)
+    , m_progressIdentifier(WebSocketChannelIdentifier::generate())
 {
-    if (auto* page = document.page())
-        m_progressIdentifier = page->progress().createUniqueIdentifier();
 }
 
-void WebSocketChannelInspector::didCreateWebSocket(Document* document, const URL& url)
-{
-    if (!m_progressIdentifier || !document)
-        return;
+WebSocketChannelInspector::~WebSocketChannelInspector() = default;
 
-    InspectorInstrumentation::didCreateWebSocket(document, m_progressIdentifier, url);
+void WebSocketChannelInspector::didCreateWebSocket(const URL& url) const
+{
+    if (RefPtr document = m_document.get())
+        InspectorInstrumentation::didCreateWebSocket(document.get(), m_progressIdentifier, url);
 }
 
-void WebSocketChannelInspector::willSendWebSocketHandshakeRequest(Document* document, const ResourceRequest& request)
+void WebSocketChannelInspector::willSendWebSocketHandshakeRequest(ResourceRequest& request) const
 {
-    if (!m_progressIdentifier || !document)
-        return;
-
-    InspectorInstrumentation::willSendWebSocketHandshakeRequest(document, m_progressIdentifier, request);
+    if (RefPtr document = m_document.get())
+        InspectorInstrumentation::willSendWebSocketHandshakeRequest(document.get(), m_progressIdentifier, request);
 }
 
-void WebSocketChannelInspector::didReceiveWebSocketHandshakeResponse(Document* document, const ResourceResponse& response)
+void WebSocketChannelInspector::didSendWebSocketHandshakeRequest(const ResourceRequest& request) const
 {
-    if (!m_progressIdentifier || !document)
-        return;
-
-    InspectorInstrumentation::didReceiveWebSocketHandshakeResponse(document, m_progressIdentifier, response);
+    if (RefPtr document = m_document.get())
+        InspectorInstrumentation::didSendWebSocketHandshakeRequest(document.get(), m_progressIdentifier, request);
 }
 
-void WebSocketChannelInspector::didCloseWebSocket(Document* document)
+void WebSocketChannelInspector::didReceiveWebSocketHandshakeResponse(const ResourceResponse& response) const
 {
-    if (!m_progressIdentifier || !document)
-        return;
-
-    InspectorInstrumentation::didCloseWebSocket(document, m_progressIdentifier);
+    if (RefPtr document = m_document.get())
+        InspectorInstrumentation::didReceiveWebSocketHandshakeResponse(document.get(), m_progressIdentifier, response);
 }
 
-void WebSocketChannelInspector::didReceiveWebSocketFrame(Document* document, const WebSocketFrame& frame)
+void WebSocketChannelInspector::didCloseWebSocket() const
 {
-    if (!m_progressIdentifier || !document)
-        return;
-
-    InspectorInstrumentation::didReceiveWebSocketFrame(document, m_progressIdentifier, frame);
+    if (RefPtr document = m_document.get())
+        InspectorInstrumentation::didCloseWebSocket(document.get(), m_progressIdentifier);
 }
 
-void WebSocketChannelInspector::didSendWebSocketFrame(Document* document, const WebSocketFrame& frame)
+void WebSocketChannelInspector::didReceiveWebSocketFrame(const WebSocketFrame& frame) const
 {
-    if (!m_progressIdentifier || !document)
-        return;
-
-    InspectorInstrumentation::didSendWebSocketFrame(document, m_progressIdentifier, frame);
+    if (RefPtr document = m_document.get())
+        InspectorInstrumentation::didReceiveWebSocketFrame(document.get(), m_progressIdentifier, frame);
 }
 
-void WebSocketChannelInspector::didReceiveWebSocketFrameError(Document* document, const String& errorMessage)
+void WebSocketChannelInspector::didSendWebSocketFrame(const WebSocketFrame& frame) const
 {
-    if (!m_progressIdentifier || !document)
-        return;
-
-    InspectorInstrumentation::didReceiveWebSocketFrameError(document, m_progressIdentifier, errorMessage);
+    if (RefPtr document = m_document.get())
+        InspectorInstrumentation::didSendWebSocketFrame(document.get(), m_progressIdentifier, frame);
 }
 
-unsigned long WebSocketChannelInspector::progressIdentifier() const
+void WebSocketChannelInspector::didReceiveWebSocketFrameError(const String& errorMessage) const
 {
-    return m_progressIdentifier;
+    if (RefPtr document = m_document.get())
+        InspectorInstrumentation::didReceiveWebSocketFrameError(document.get(), m_progressIdentifier, errorMessage);
+}
+
+WebSocketFrame WebSocketChannelInspector::createFrame(std::span<const uint8_t> data, WebSocketFrame::OpCode opCode)
+{
+    // This is an approximation since frames can be merged on a single message.
+    WebSocketFrame frame;
+    frame.opCode = opCode;
+    frame.masked = false;
+    frame.payload = data;
+
+    // WebInspector does not use them.
+    frame.final = false;
+    frame.compress = false;
+    frame.reserved2 = false;
+    frame.reserved3 = false;
+
+    return frame;
 }
 
 } // namespace WebCore

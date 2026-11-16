@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  * Copyright (C) 2021 Igalia S.A. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,13 +29,14 @@
 #include "CacheableIdentifier.h"
 #include "SlotVisitorMacros.h"
 #include <wtf/Box.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC {
 
 class SetPrivateBrandStatus;
 
 class SetPrivateBrandVariant {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(SetPrivateBrandVariant);
 public:
     SetPrivateBrandVariant(CacheableIdentifier, Structure* oldStructure, Structure* newStructure);
 
@@ -44,7 +45,7 @@ public:
     Structure* oldStructure() const { return m_oldStructure; }
     Structure* newStructure() const { return m_newStructure; }
 
-    bool attemptToMerge(const SetPrivateBrandVariant& other);
+    bool NODELETE attemptToMerge(const SetPrivateBrandVariant& other);
 
     DECLARE_VISIT_AGGREGATE;
     template<typename Visitor> void markIfCheap(Visitor&);

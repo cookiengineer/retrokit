@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 #
-# Copyright (C) 2005 Apple Inc.
+# Copyright (C) 2005-2026 Apple Inc. All rights reserved.
 # Copyright (C) 2006 Anders Carlsson <andersca@mac.com>
 # 
 # This file is part of WebKit
@@ -39,36 +39,36 @@ use File::Basename;
 use Getopt::Long;
 use Text::ParseWords;
 use Cwd;
-use JSON::PP;
+BEGIN { eval { require JSON::XS; JSON::XS->import(); 1 } or do { require JSON::PP; JSON::PP->import() } }
 
 use IDLParser;
 use CodeGenerator;
 
-my @idlDirectories;
 my $outputDirectory;
 my $outputHeadersDirectory;
 my $generator;
 my $defines;
 my $filename;
 my $prefix;
-my $preprocessor;
 my $writeDependencies;
 my $verbose;
 my $supplementalDependencyFile;
 my $idlAttributesFile;
+my $idlFileNamesList;
+my $ignoreStandaloneConstructorAttributes;
 
-GetOptions('include=s@' => \@idlDirectories,
-           'outputDir=s' => \$outputDirectory,
+GetOptions('outputDir=s' => \$outputDirectory,
            'outputHeadersDir=s' => \$outputHeadersDirectory,
            'generator=s' => \$generator,
            'defines=s' => \$defines,
            'filename=s' => \$filename,
            'prefix=s' => \$prefix,
-           'preprocessor=s' => \$preprocessor,
            'verbose' => \$verbose,
            'write-dependencies' => \$writeDependencies,
            'supplementalDependencyFile=s' => \$supplementalDependencyFile,
-           'idlAttributesFile=s' => \$idlAttributesFile);
+           'idlAttributesFile=s' => \$idlAttributesFile,
+           'idlFileNamesList=s' => \$idlFileNamesList,
+           'ignoreStandaloneConstructorAttributes' => \$ignoreStandaloneConstructorAttributes);
 
 die('Must specify input file.') unless @ARGV;
 die('Must specify generator') unless defined($generator);
@@ -77,6 +77,38 @@ die('Must specify IDL attributes file.') unless defined($idlAttributesFile);
 
 if (!$outputHeadersDirectory) {
     $outputHeadersDirectory = $outputDirectory;
+}
+
+# Parse supplemental dependencies and IDL attributes once, shared across all files.
+my %supplementalDependencies;
+if ($supplementalDependencyFile) {
+    # The format of a supplemental dependency file:
+    #
+    # DOMWindow.idl P.idl Q.idl R.idl
+    # Document.idl S.idl
+    # Event.idl
+    # ...
+    #
+    # The above indicates that DOMWindow.idl is supplemented by P.idl, Q.idl and R.idl,
+    # Document.idl is supplemented by S.idl, and Event.idl is supplemented by no IDLs.
+    open FH, "< $supplementalDependencyFile" or die "Cannot open $supplementalDependencyFile\n";
+    while (my $line = <FH>) {
+        my ($idlFile, @followingIdlFiles) = split(/\s+/, $line);
+        $supplementalDependencies{fileparse($idlFile)} = [sort @followingIdlFiles] if $idlFile;
+    }
+    close FH;
+}
+
+my $idlAttributes;
+{
+    local $INPUT_RECORD_SEPARATOR;
+    open(JSON, "<", $idlAttributesFile) or die "Couldn't open $idlAttributesFile: $!";
+    my $input = <JSON>;
+    close(JSON);
+
+    my $jsonDecoder = (eval { JSON::XS->new->utf8 } or JSON::PP->new->utf8);
+    my $jsonHashRef = $jsonDecoder->decode($input);
+    $idlAttributes = $jsonHashRef->{attributes};
 }
 
 generateBindings($_) for (@ARGV);
@@ -91,43 +123,11 @@ sub generateBindings
     }
     my $targetInterfaceName = fileparse($targetIdlFile, ".idl");
 
-    my $idlFound = 0;
-    my %supplementalDependencies;
-    if ($supplementalDependencyFile) {
-        # The format of a supplemental dependency file:
-        #
-        # DOMWindow.idl P.idl Q.idl R.idl
-        # Document.idl S.idl
-        # Event.idl
-        # ...
-        #
-        # The above indicates that DOMWindow.idl is supplemented by P.idl, Q.idl and R.idl,
-        # Document.idl is supplemented by S.idl, and Event.idl is supplemented by no IDLs.
-        open FH, "< $supplementalDependencyFile" or die "Cannot open $supplementalDependencyFile\n";
-        while (my $line = <FH>) {
-            my ($idlFile, @followingIdlFiles) = split(/\s+/, $line);
-            $supplementalDependencies{fileparse($idlFile)} = [sort @followingIdlFiles] if $idlFile;
-        }
-        close FH;
-    }
-
-    my $input;
-    {
-        local $INPUT_RECORD_SEPARATOR;
-        open(JSON, "<", $idlAttributesFile) or die "Couldn't open $idlAttributesFile: $!";
-        $input = <JSON>;
-        close(JSON);
-    }
-
-    my $jsonDecoder = JSON::PP->new->utf8;
-    my $jsonHashRef = $jsonDecoder->decode($input);
-    my $idlAttributes = $jsonHashRef->{attributes};
-
     # Parse the target IDL file.
     my $targetParser = IDLParser->new(!$verbose);
-    my $targetDocument = $targetParser->Parse($targetIdlFile, $defines, $preprocessor, $idlAttributes);
+    my $targetDocument = $targetParser->Parse($targetIdlFile, $defines, $idlAttributes);
 
     # Generate desired output for the target IDL file.
-    my $codeGen = CodeGenerator->new(\@idlDirectories, $generator, $outputDirectory, $outputHeadersDirectory, $preprocessor, $writeDependencies, $verbose, $targetIdlFile, $idlAttributes, \%supplementalDependencies);
+    my $codeGen = CodeGenerator->new($generator, $outputDirectory, $outputHeadersDirectory, $writeDependencies, $verbose, $targetIdlFile, $idlAttributes, \%supplementalDependencies, $idlFileNamesList, $ignoreStandaloneConstructorAttributes);
     $codeGen->ProcessDocument($targetDocument, $defines);
 }

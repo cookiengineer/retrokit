@@ -26,33 +26,36 @@
 #include "config.h"
 #include "JSPaymentMethodChangeEvent.h"
 
+#include "JSValueInWrappedObjectInlines.h"
+
 #if ENABLE(PAYMENT_REQUEST)
 
 namespace WebCore {
 
 JSC::JSValue JSPaymentMethodChangeEvent::methodDetails(JSC::JSGlobalObject& lexicalGlobalObject) const
 {
-    return cachedPropertyValue(lexicalGlobalObject, *this, wrapped().cachedMethodDetails(), [this, &lexicalGlobalObject] {
-        return WTF::switchOn(wrapped().methodDetails(), [](JSC::JSValue methodDetails) {
-            return methodDetails ? methodDetails : JSC::jsNull();
-        }, [&lexicalGlobalObject](const PaymentMethodChangeEvent::MethodDetailsFunction& function) {
+    auto throwScope = DECLARE_THROW_SCOPE(lexicalGlobalObject.vm());
+    return cachedPropertyValue(throwScope, lexicalGlobalObject, *this, wrapped().cachedMethodDetails(), [this, &lexicalGlobalObject](JSC::ThrowScope&) {
+        return WTF::switchOn(wrapped().methodDetails(), [](const JSValueInWrappedObject& methodDetails) -> JSC::JSValue {
+            return methodDetails.getValue(JSC::jsNull());
+        }, [&lexicalGlobalObject](const PaymentMethodChangeEvent::MethodDetailsFunction& function) -> JSC::JSValue {
             return function(lexicalGlobalObject).get();
         });
     });
 }
 
 template<typename Visitor>
-void JSPaymentMethodChangeEvent::visitAdditionalChildren(Visitor& visitor)
+void JSPaymentMethodChangeEvent::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
     WTF::switchOn(wrapped().methodDetails(), [&visitor](const JSValueInWrappedObject& methodDetails) {
-        methodDetails.visit(visitor);
+        methodDetails.visitInGCThread(visitor);
     }, [](const PaymentMethodChangeEvent::MethodDetailsFunction&) {
     });
 
-    wrapped().cachedMethodDetails().visit(visitor);
+    wrapped().cachedMethodDetails().visitInGCThread(visitor);
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSPaymentMethodChangeEvent);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSPaymentMethodChangeEvent);
 
 } // namespace WebCore
 

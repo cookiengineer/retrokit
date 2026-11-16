@@ -27,43 +27,48 @@
 
 #if ENABLE(CONTENT_EXTENSIONS)
 
-#include "ContentExtensionRule.h"
-#include "ContentExtensionsDebugging.h"
-#include "DFABytecode.h"
+#include <WebCore/ContentExtensionRule.h>
+#include <WebCore/ContentExtensionsDebugging.h>
+#include <WebCore/DFABytecode.h>
 #include <wtf/DataLog.h>
 #include <wtf/HashSet.h>
 
-namespace WebCore {
-    
-namespace ContentExtensions {
+namespace WebCore::ContentExtensions {
 
-class WEBCORE_EXPORT DFABytecodeInterpreter {
+class DFABytecodeInterpreter {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(DFABytecodeInterpreter, WEBCORE_EXPORT);
 public:
-    DFABytecodeInterpreter(const DFABytecode* bytecode, unsigned bytecodeLength)
-        : m_bytecode(bytecode)
-        , m_bytecodeLength(bytecodeLength)
-    {
-    }
-    
-    typedef HashSet<uint64_t, DefaultHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>> Actions;
-    
-    Actions interpret(const CString&, uint16_t flags);
-    Actions interpretWithConditions(const CString&, uint16_t flags, const DFABytecodeInterpreter::Actions& conditionActions);
-    Actions actionsMatchingEverything();
+    enum class EnableResumeCache : bool { No, Yes };
+    WEBCORE_EXPORT DFABytecodeInterpreter(std::span<const uint8_t> bytecode, EnableResumeCache = EnableResumeCache::No);
+
+    using Actions = HashSet<uint64_t, DefaultHash<uint64_t>, WTF::UnsignedWithZeroKeyHashTraits<uint64_t>>;
+
+    struct DFACheckpoint {
+        static constexpr uint32_t terminatedBeforeCheckpoint = std::numeric_limits<uint32_t>::max();
+        uint32_t programCounter { 0 };
+        Actions actions;
+    };
+    struct ResumeSlot {
+        String url;
+        ResourceFlags flags { 0 };
+        Vector<DFACheckpoint> perDFA;
+    };
+    using ResumeSlots = Vector<ResumeSlot, 4>;
+
+    WEBCORE_EXPORT Actions interpret(const String&, ResourceFlags);
+    WEBCORE_EXPORT Actions actionsMatchingEverything();
 
 private:
-    void interpretAppendAction(unsigned& programCounter, Actions&, bool ifCondition);
-    void interpretTestFlagsAndAppendAction(unsigned& programCounter, uint16_t flags, Actions&, bool ifCondition);
+    void interpretAppendAction(unsigned& programCounter, Actions&);
+    void interpretTestFlagsAndAppendAction(unsigned& programCounter, ResourceFlags, Actions&);
 
     template<bool caseSensitive>
-    void interpetJumpTable(const char* url, uint32_t& urlIndex, uint32_t& programCounter, bool& urlIndexIsAfterEndOfString);
+    void NODELETE interpretJumpTable(std::span<const Latin1Character> url, uint32_t& urlIndex, uint32_t& programCounter);
 
-    const DFABytecode* m_bytecode;
-    const unsigned m_bytecodeLength;
-    const DFABytecodeInterpreter::Actions* m_topURLActions { nullptr };
+    const std::span<const uint8_t> m_bytecode;
+    std::unique_ptr<ResumeSlots> m_resumeCache;
 };
 
-} // namespace ContentExtensions    
-} // namespace WebCore
+} // namespace WebCore::ContentExtensions
 
 #endif // ENABLE(CONTENT_EXTENSIONS)

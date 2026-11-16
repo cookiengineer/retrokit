@@ -22,14 +22,14 @@
 
 #pragma once
 
-#include "LayoutRect.h"
+#include <WebCore/LayoutRect.h>
 
 namespace WebCore {
 
     struct GapRects {
-        const LayoutRect& left() const { return m_left; }
-        const LayoutRect& center() const { return m_center; }
-        const LayoutRect& right() const { return m_right; }
+        const LayoutRect& left() const LIFETIME_BOUND { return m_left; }
+        const LayoutRect& center() const LIFETIME_BOUND { return m_center; }
+        const LayoutRect& right() const LIFETIME_BOUND { return m_right; }
         
         void uniteLeft(const LayoutRect& r) { m_left.unite(r); }
         void uniteCenter(const LayoutRect& r) { m_center.unite(r); }
@@ -44,11 +44,7 @@ namespace WebCore {
             return result;
         }
 
-        bool operator==(const GapRects& other)
-        {
-            return m_left == other.left() && m_center == other.center() && m_right == other.right();
-        }
-        bool operator!=(const GapRects& other) { return !(*this == other); }
+        friend bool operator==(const GapRects&, const GapRects&) = default;
 
     private:
         LayoutRect m_left;

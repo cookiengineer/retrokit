@@ -26,79 +26,48 @@
 #include "config.h"
 #include "RenderIFrame.h"
 
-#include "Frame.h"
-#include "FrameView.h"
 #include "HTMLIFrameElement.h"
 #include "HTMLNames.h"
+#include "LocalFrame.h"
+#include "LocalFrameView.h"
+#include "RenderBoxInlines.h"
+#include "RenderBoxModelObjectInlines.h"
 #include "RenderView.h"
+#include "RenderWidgetInlines.h"
 #include "Settings.h"
-#include <wtf/IsoMallocInlines.h>
+#include "StyleComputedStyle+GettersInlines.h"
 #include <wtf/StackStats.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(RenderIFrame);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderIFrame);
 
 using namespace HTMLNames;
     
-RenderIFrame::RenderIFrame(HTMLIFrameElement& element, RenderStyle&& style)
-    : RenderFrameBase(element, WTFMove(style))
+RenderIFrame::RenderIFrame(HTMLIFrameElement& element, Style::ComputedStyle&& style)
+    : RenderFrameBase(Type::IFrame, element, WTF::move(style))
 {
+    ASSERT(isRenderIFrame());
 }
 
-HTMLIFrameElement& RenderIFrame::iframeElement() const
+RenderIFrame::~RenderIFrame() = default;
+
+HTMLIFrameElement& NODELETE RenderIFrame::iframeElement() const
 {
     return downcast<HTMLIFrameElement>(RenderFrameBase::frameOwnerElement());
 }
 
-bool RenderIFrame::shouldComputeSizeAsReplaced() const
-{
-    return true;
-}
-
-bool RenderIFrame::isInlineBlockOrInlineTable() const
-{
-    return isInline();
-}
-
 bool RenderIFrame::requiresLayer() const
 {
-    return RenderFrameBase::requiresLayer() || style().resize() != Resize::None;
-}
-
-RenderView* RenderIFrame::contentRootRenderer() const
-{
-    FrameView* childFrameView = childView();
-    return childFrameView ? childFrameView->frame().contentRenderer() : 0;
+    return RenderFrameBase::requiresLayer() || style().resize() != Style::Resize::None;
 }
 
 bool RenderIFrame::isFullScreenIFrame() const
 {
     // Some authors implement fullscreen popups as out-of-flow iframes with size set to full viewport (using vw/vh units).
     // The size used may not perfectly match the viewport size so the following heuristic uses a relaxed constraint.
-    return style().hasOutOfFlowPosition() && style().hasViewportUnits();
-}
-
-bool RenderIFrame::flattenFrame() const
-{
-    if (view().frameView().effectiveFrameFlattening() == FrameFlattening::Disabled)
-        return false;
-
-    if (style().width().isFixed() && style().height().isFixed()) {
-        // Do not flatten iframes with scrolling="no".
-        if (iframeElement().scrollingMode() == ScrollbarAlwaysOff)
-            return false;
-        // Do not flatten iframes that have zero size, as flattening might make them visible.
-        if (style().width().value() <= 0 || style().height().value() <= 0)
-            return false;
-        // Do not flatten "fullscreen" iframes or they could become larger than the viewport.
-        if (view().frameView().effectiveFrameFlattening() <= FrameFlattening::EnabledForNonFullScreenIFrames && isFullScreenIFrame())
-            return false;
-    }
-
-    // Do not flatten offscreen inner frames during frame flattening, as flattening might make them visible.
-    IntRect boundingRect = absoluteBoundingBoxRectIgnoringTransforms();
-    return boundingRect.maxX() > 0 && boundingRect.maxY() > 0;
+    return style().hasOutOfFlowPosition() && style().usesViewportUnits();
 }
 
 void RenderIFrame::layout()
@@ -109,9 +78,6 @@ void RenderIFrame::layout()
     updateLogicalWidth();
     // No kids to layout as a replaced element.
     updateLogicalHeight();
-
-    if (flattenFrame())
-        layoutWithFlattening(style().width().isFixed(), style().height().isFixed());
 
     clearOverflow();
     addVisualEffectOverflow();

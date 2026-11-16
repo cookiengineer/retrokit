@@ -34,9 +34,7 @@ NetworkActivityTracker::NetworkActivityTracker(Label, Domain)
 {
 }
 
-NetworkActivityTracker::~NetworkActivityTracker()
-{
-}
+NetworkActivityTracker::~NetworkActivityTracker() = default;
 
 void NetworkActivityTracker::setParent(NetworkActivityTracker&)
 {

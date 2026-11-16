@@ -1,4 +1,7 @@
 /*
+ * Copyright (C) 2004, 2005, 2008 Nikolas Zimmermann <zimmermann@kde.org>
+ * Copyright (C) 2004, 2005, 2006, 2007 Rob Buis <buis@kde.org>
+ * Copyright (C) 2007 Eric Seidel <eric@webkit.org>
  * Copyright (C) 2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,11 +29,64 @@
 #include "config.h"
 #include "SVGTransformList.h"
 
+#include "ExceptionOr.h"
 #include "SVGParserUtilities.h"
+#include "SVGTransform.h"
+#include "SVGTransformListInlines.h"
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/StringParsingBuffer.h>
+#include <wtf/text/StringView.h>
 
 namespace WebCore {
+
+template<typename CharacterType> static constexpr std::array<CharacterType, 5> skewXDesc  { 's', 'k', 'e', 'w', 'X' };
+template<typename CharacterType> static constexpr std::array<CharacterType, 5> skewYDesc  { 's', 'k', 'e', 'w', 'Y' };
+template<typename CharacterType> static constexpr std::array<CharacterType, 5> scaleDesc  { 's', 'c', 'a', 'l', 'e' };
+template<typename CharacterType> static constexpr std::array<CharacterType, 9> translateDesc  { 't', 'r', 'a', 'n', 's', 'l', 'a', 't', 'e' };
+template<typename CharacterType> static constexpr std::array<CharacterType, 6> rotateDesc  { 'r', 'o', 't', 'a', 't', 'e' };
+template<typename CharacterType> static constexpr std::array<CharacterType, 6> matrixDesc  { 'm', 'a', 't', 'r', 'i', 'x' };
+
+template<typename CharacterType> static std::optional<SVGTransformValue::SVGTransformType> parseTransformTypeGeneric(StringParsingBuffer<CharacterType>& buffer)
+{
+    if (buffer.atEnd())
+        return std::nullopt;
+
+    if (*buffer == 's') {
+        if (skipCharactersExactly(buffer, std::span { skewXDesc<CharacterType> }))
+            return SVGTransformValue::SVG_TRANSFORM_SKEWX;
+        if (skipCharactersExactly(buffer, std::span { skewYDesc<CharacterType> }))
+            return SVGTransformValue::SVG_TRANSFORM_SKEWY;
+        if (skipCharactersExactly(buffer, std::span { scaleDesc<CharacterType> }))
+            return SVGTransformValue::SVG_TRANSFORM_SCALE;
+        return std::nullopt;
+    }
+
+    if (skipCharactersExactly(buffer, std::span { translateDesc<CharacterType> }))
+        return SVGTransformValue::SVG_TRANSFORM_TRANSLATE;
+    if (skipCharactersExactly(buffer, std::span { rotateDesc<CharacterType> }))
+        return SVGTransformValue::SVG_TRANSFORM_ROTATE;
+    if (skipCharactersExactly(buffer, std::span { matrixDesc<CharacterType> }))
+        return SVGTransformValue::SVG_TRANSFORM_MATRIX;
+
+    return std::nullopt;
+}
+
+std::optional<SVGTransformValue::SVGTransformType> SVGTransformList::parseTransformType(StringView string)
+{
+    return readCharactersForParsing(string, [](auto buffer) {
+        return parseTransformType(buffer);
+    });
+}
+
+std::optional<SVGTransformValue::SVGTransformType> SVGTransformList::parseTransformType(StringParsingBuffer<Latin1Character>& buffer)
+{
+    return parseTransformTypeGeneric(buffer);
+}
+
+std::optional<SVGTransformValue::SVGTransformType> SVGTransformList::parseTransformType(StringParsingBuffer<char16_t>& buffer)
+{
+    return parseTransformTypeGeneric(buffer);
+}
 
 ExceptionOr<RefPtr<SVGTransform>> SVGTransformList::consolidate()
 {
@@ -44,41 +100,57 @@ ExceptionOr<RefPtr<SVGTransform>> SVGTransformList::consolidate()
         return nullptr;
 
     if (m_items.size() == 1)
-        return makeRefPtr(at(0).get());
+        return RefPtr { at(0).ptr() };
 
-    auto newItem = SVGTransform::create(concatenate());
+    auto newItem = SVGTransform::create(*concatenate());
     clearItems();
 
-    auto item = append(WTFMove(newItem));
+    auto item = append(WTF::move(newItem));
     commitChange();
-    return makeRefPtr(item.get());
+    return RefPtr { item.ptr() };
 }
 
-AffineTransform SVGTransformList::concatenate() const
+std::optional<AffineTransform> SVGTransformList::concatenate() const
 {
+    if (m_items.isEmpty())
+        return std::nullopt;
     AffineTransform result;
     for (auto& transform : m_items)
-        result *= transform->matrix()->value();
+        result *= transform->matrix().value();
     return result;
 }
 
-template<typename CharacterType> bool SVGTransformList::parseGeneric(StringParsingBuffer<CharacterType>& buffer)
+template<typename CharacterType> bool SVGTransformList::parseGeneric(StringParsingBuffer<CharacterType>& buffer, ListReplacement listReplacement)
 {
     bool delimParsed = false;
     skipOptionalSVGSpaces(buffer);
 
+    size_t itemIndex = 0;
+    auto currentListReplacement = listReplacement;
+
     while (buffer.hasCharactersRemaining()) {
         delimParsed = false;
-        
-        auto parsedTransformType = SVGTransformable::parseTransformType(buffer);
+
+        auto parsedTransformType = parseTransformType(buffer);
         if (!parsedTransformType)
             return false;
 
-        auto parsedTransformValue = SVGTransformable::parseTransformValue(*parsedTransformType, buffer);
-        if (!parsedTransformValue)
-            return false;
+        if (currentListReplacement == ListReplacement::Replace && itemIndex < m_items.size() && parsedTransformType == m_items[itemIndex]->type()) {
+            if (!parseAndReplaceTransform(*parsedTransformType, buffer, m_items[itemIndex]))
+                return false;
+        } else {
+            // Switch to `Append` mode and remove the existing SVGTransforms starting from `itemIndex`.
+            if (currentListReplacement == ListReplacement::Replace) {
+                currentListReplacement = ListReplacement::Append;
+                resize(itemIndex);
+            }
 
-        append(SVGTransform::create(*parsedTransformValue));
+            RefPtr parsedTransform = parseTransform(*parsedTransformType, buffer);
+            if (!parsedTransform)
+                return false;
+
+            append(parsedTransform.releaseNonNull());
+        }
 
         skipOptionalSVGSpaces(buffer);
 
@@ -86,43 +158,49 @@ template<typename CharacterType> bool SVGTransformList::parseGeneric(StringParsi
             delimParsed = true;
 
         skipOptionalSVGSpaces(buffer);
+
+        ++itemIndex;
     }
+
+    if (itemIndex < m_items.size()) {
+        ASSERT(currentListReplacement == ListReplacement::Replace);
+        resize(itemIndex);
+    }
+
     return !delimParsed;
 }
 
-void SVGTransformList::parse(StringView value)
+bool SVGTransformList::parse(StringView value)
 {
-    clearItems();
-
     bool parsingSucceeded = readCharactersForParsing(value, [&](auto buffer) {
-        return parseGeneric(buffer);
+        return parseGeneric(buffer, ListReplacement::Replace);
     });
-    
+
     if (!parsingSucceeded)
         clearItems();
+    return parsingSucceeded;
 }
 
-bool SVGTransformList::parse(StringParsingBuffer<LChar>& buffer)
+bool SVGTransformList::parse(StringParsingBuffer<Latin1Character>& buffer)
 {
-    return parseGeneric(buffer);
+    return parseGeneric(buffer, ListReplacement::Append);
 }
 
-bool SVGTransformList::parse(StringParsingBuffer<UChar>& buffer)
+bool SVGTransformList::parse(StringParsingBuffer<char16_t>& buffer)
 {
-    return parseGeneric(buffer);
+    return parseGeneric(buffer, ListReplacement::Append);
 }
 
 String SVGTransformList::valueAsString() const
 {
     StringBuilder builder;
-    for (const auto& transfrom : m_items) {
+    for (const auto& transform : m_items) {
         if (builder.length())
             builder.append(' ');
 
-        builder.append(transfrom->value().valueAsString());
+        builder.append(transform->value().valueAsString());
     }
     return builder.toString();
 }
 
 }
-

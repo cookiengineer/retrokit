@@ -25,11 +25,12 @@
 
 #pragma once
 
-#include "CodeBlock.h"
-#include "CodeBlockHash.h"
-#include "CodeOrigin.h"
-#include "ValueRecovery.h"
-#include "WriteBarrier.h"
+#include <JavaScriptCore/CallMode.h>
+#include <JavaScriptCore/CodeBlock.h>
+#include <JavaScriptCore/CodeBlockHash.h>
+#include <JavaScriptCore/CodeOrigin.h>
+#include <JavaScriptCore/ValueRecovery.h>
+#include <JavaScriptCore/WriteBarrier.h>
 #include <wtf/PrintStream.h>
 #include <wtf/StdLibExtras.h>
 #include <wtf/Vector.h>
@@ -40,7 +41,11 @@ struct InlineCallFrame;
 class CallFrame;
 class JSFunction;
 
+DECLARE_COMPACT_ALLOCATOR_WITH_HEAP_IDENTIFIER(InlineCallFrame);
+
 struct InlineCallFrame {
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_COMPACT_ALLOCATED_WITH_HEAP_IDENTIFIER(InlineCallFrame, InlineCallFrame);
+
     enum Kind {
         Call,
         Construct,
@@ -48,12 +53,19 @@ struct InlineCallFrame {
         CallVarargs,
         ConstructVarargs,
         TailCallVarargs,
-        
+
         // For these, the stackOffset incorporates the argument count plus the true return PC
         // slot.
         GetterCall,
-        SetterCall
+        SetterCall,
+        ProxyObjectLoadCall,
+        ProxyObjectStoreCall,
+        ProxyObjectInCall,
+        BoundFunctionCall,
+        BoundFunctionTailCall,
+        ArraySortComparatorCall,
     };
+    static constexpr unsigned bitWidthOfKind = 4;
 
     static CallMode callModeFor(Kind kind)
     {
@@ -62,9 +74,15 @@ struct InlineCallFrame {
         case CallVarargs:
         case GetterCall:
         case SetterCall:
+        case ProxyObjectLoadCall:
+        case ProxyObjectStoreCall:
+        case ProxyObjectInCall:
+        case BoundFunctionCall:
+        case ArraySortComparatorCall:
             return CallMode::Regular;
         case TailCall:
         case TailCallVarargs:
+        case BoundFunctionTailCall:
             return CallMode::Tail;
         case Construct:
         case ConstructVarargs:
@@ -108,10 +126,16 @@ struct InlineCallFrame {
         case TailCallVarargs:
         case GetterCall:
         case SetterCall:
-            return CodeForCall;
+        case ProxyObjectLoadCall:
+        case ProxyObjectStoreCall:
+        case ProxyObjectInCall:
+        case BoundFunctionCall:
+        case BoundFunctionTailCall:
+        case ArraySortComparatorCall:
+            return CodeSpecializationKind::CodeForCall;
         case Construct:
         case ConstructVarargs:
-            return CodeForConstruct;
+            return CodeSpecializationKind::CodeForConstruct;
         }
         RELEASE_ASSERT_NOT_REACHED();
     }
@@ -133,6 +157,7 @@ struct InlineCallFrame {
         switch (kind) {
         case TailCall:
         case TailCallVarargs:
+        case BoundFunctionTailCall:
             return true;
         default:
             return false;
@@ -179,11 +204,11 @@ struct InlineCallFrame {
     WriteBarrier<CodeBlock> baselineCodeBlock;
     CodeOrigin directCaller;
 
-    unsigned argumentCountIncludingThis : 22; // Do not include fixups.
-    unsigned tmpOffset : 10;
-    signed stackOffset : 28;
-    unsigned kind : 3; // real type is Kind
-    bool isClosureCall : 1; // If false then we know that callee/scope are constants and the DFG won't treat them as variables, i.e. they have to be recovered manually.
+    unsigned argumentCountIncludingThis : 22 { 0 }; // Do not include fixups.
+    unsigned tmpOffset : 10 { 0 };
+    signed stackOffset : 28 { 0 };
+    unsigned kind : bitWidthOfKind { Call }; // real type is Kind
+    bool isClosureCall : 1 { false }; // If false then we know that callee/scope are constants and the DFG won't treat them as variables, i.e. they have to be recovered manually.
     VirtualRegister argumentCountRegister; // Only set when we inline a varargs call.
 
     ValueRecovery calleeRecovery;
@@ -191,14 +216,7 @@ struct InlineCallFrame {
     // There is really no good notion of a "default" set of values for
     // InlineCallFrame's fields. This constructor is here just to reduce confusion if
     // we forgot to initialize explicitly.
-    InlineCallFrame()
-        : argumentCountIncludingThis(0)
-        , tmpOffset(0)
-        , stackOffset(0)
-        , kind(Call)
-        , isClosureCall(false)
-    {
-    }
+    InlineCallFrame() = default;
     
     bool isVarargs() const
     {
@@ -213,8 +231,8 @@ struct InlineCallFrame {
     JSFunction* calleeForCallFrame(CallFrame*) const;
     
     CString inferredName() const;
+    String inferredNameWithHash() const;
     CodeBlockHash hash() const;
-    CString hashAsStringIfPossible() const;
     
     void setStackOffset(signed offset)
     {
@@ -258,7 +276,7 @@ inline CodeBlock* baselineCodeBlockForOriginAndBaselineCodeBlock(const CodeOrigi
 
 // These function is defined here and not in CodeOrigin because it needs access to the directCaller field in InlineCallFrame
 template <typename Function>
-inline void CodeOrigin::walkUpInlineStack(const Function& function) const
+inline void CodeOrigin::walkUpInlineStack(NOESCAPE const Function& function) const
 {
     CodeOrigin codeOrigin = *this;
     while (true) {

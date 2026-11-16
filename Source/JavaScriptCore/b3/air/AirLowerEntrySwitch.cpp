@@ -35,22 +35,27 @@
 
 namespace JSC { namespace B3 { namespace Air {
 
-void lowerEntrySwitch(Code& code)
+bool lowerEntrySwitch(Code& code)
 {
-    PhaseScope phaseScope(code, "lowerEntrySwitch");
-    
+    PhaseScope phaseScope(code, "lowerEntrySwitch"_s);
+
+    if (!code.proc().usesEntrySwitch()) {
+        Vector<FrequentedBlock> entrypoints(FillWith { }, code.proc().numEntrypoints(), FrequentedBlock(code[0]));
+        code.setEntrypoints(WTF::move(entrypoints));
+        return false;
+    }
+
     // Figure out the set of blocks that should be duplicated.
     BlockWorklist worklist;
     for (BasicBlock* block : code) {
         if (block->last().kind.opcode == EntrySwitch)
             worklist.push(block);
     }
-    
-    // It's possible that we don't have any EntrySwitches. That's fine.
+
     if (worklist.seen().isEmpty()) {
-        Vector<FrequentedBlock> entrypoints(code.proc().numEntrypoints(), FrequentedBlock(code[0]));
-        code.setEntrypoints(WTFMove(entrypoints));
-        return;
+        Vector<FrequentedBlock> entrypoints(FillWith { }, code.proc().numEntrypoints(), FrequentedBlock(code[0]));
+        code.setEntrypoints(WTF::move(entrypoints));
+        return false;
     }
     
     while (BasicBlock* block = worklist.pop())
@@ -58,7 +63,7 @@ void lowerEntrySwitch(Code& code)
     
     RELEASE_ASSERT(worklist.saw(code[0]));
     
-    Vector<FrequencyClass> entrypointFrequencies(code.proc().numEntrypoints(), FrequencyClass::Rare);
+    Vector<FrequencyClass> entrypointFrequencies(FillWith { }, code.proc().numEntrypoints(), FrequencyClass::Rare);
     for (BasicBlock* block : code) {
         if (block->last().kind.opcode != EntrySwitch)
             continue;
@@ -102,8 +107,9 @@ void lowerEntrySwitch(Code& code)
     for (BasicBlock* block : worklist.seen().values(code))
         fixEntrySwitch(block, 0);
     
-    code.setEntrypoints(WTFMove(entrypoints));
+    code.setEntrypoints(WTF::move(entrypoints));
     code.resetReachability();
+    return true;
 }
 
 } } } // namespace JSC::B3::Air

@@ -25,10 +25,10 @@
 
 #pragma once
 
-#if USE(COORDINATED_GRAPHICS) || USE(TEXTURE_MAPPER)
+#if !PLATFORM(WPE) && !PLATFORM(GTK) && (USE(COORDINATED_GRAPHICS) || USE(TEXTURE_MAPPER))
 
-#include "ShareableBitmap.h"
 #include <WebCore/IntRect.h>
+#include <WebCore/ShareableBitmap.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/Vector.h>
 
@@ -39,20 +39,10 @@ class Encoder;
 
 namespace WebKit {
 
-class UpdateInfo {
-    WTF_MAKE_NONCOPYABLE(UpdateInfo);
-
-public:
-    UpdateInfo() { }
-    UpdateInfo(UpdateInfo&&) = default;
-    UpdateInfo& operator=(UpdateInfo&&) = default;
-
-    void encode(IPC::Encoder&) const;
-    static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, UpdateInfo&);
-
+struct UpdateInfo {
     // The size of the web view.
     WebCore::IntSize viewSize;
-    float deviceScaleFactor;
+    float deviceScaleFactor { 0 };
 
     // The rect and delta to be scrolled.
     WebCore::IntRect scrollRect;
@@ -65,10 +55,10 @@ public:
     Vector<WebCore::IntRect> updateRects;
 
     // The page scale factor used to render this update.
-    float updateScaleFactor;
+    float updateScaleFactor { 0 };
 
     // The handle of the shareable bitmap containing the updates. Will be null if there are no updates.
-    ShareableBitmap::Handle bitmapHandle;
+    std::optional<WebCore::ShareableBitmap::Handle> bitmapHandle;
 
     // The offset in the bitmap where the rendered contents are.
     WebCore::IntPoint bitmapOffset;

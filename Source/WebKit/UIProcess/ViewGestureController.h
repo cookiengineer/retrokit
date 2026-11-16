@@ -26,18 +26,24 @@
 #pragma once
 
 #include "MessageReceiver.h"
+#include "NativeWebWheelEvent.h"
 #include "SameDocumentNavigationType.h"
 #include "WebPageProxyIdentifier.h"
+#include <WebCore/BoxExtents.h>
 #include <WebCore/Color.h>
 #include <WebCore/FloatRect.h>
 #include <WebCore/FloatSize.h>
+#include <WebCore/PageIdentifier.h>
+#include <wtf/CheckedRef.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/RunLoop.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 
 #if PLATFORM(COCOA)
 #include <wtf/BlockPtr.h>
+#include <wtf/WeakObjCPtr.h>
 #endif
 
 #if PLATFORM(GTK)
@@ -45,9 +51,7 @@
 #include <wtf/glib/GRefPtr.h>
 
 #if USE(GTK4)
-#include <WebCore/GRefPtrGtk.h>
-#else
-#include <WebCore/CairoUtilities.h>
+#include "GRefPtrGtk.h"
 #endif
 #endif
 
@@ -78,7 +82,8 @@ class Navigation;
 }
 
 #if PLATFORM(MAC)
-typedef NSEvent* PlatformScrollEvent;
+typedef WebKit::NativeWebWheelEvent PlatformScrollEvent;
+typedef NSEvent *PlatformMagnificationEvent;
 #elif PLATFORM(GTK)
 typedef struct {
     WebCore::FloatSize delta;
@@ -87,21 +92,39 @@ typedef struct {
     bool isEnd;
 } PlatformGtkScrollData;
 typedef PlatformGtkScrollData* PlatformScrollEvent;
+#else
+typedef void* PlatformScrollEvent;
 #endif
 
 namespace WebKit {
 
+class SwipeProgressTracker;
 class ViewSnapshot;
+class WebBackForwardList;
+#if ENABLE(BACK_FORWARD_LIST_SWIFT)
+class WebBackForwardListWrapper;
+#else
+using WebBackForwardListWrapper = WebBackForwardList;
+#endif
 class WebBackForwardListItem;
 class WebPageProxy;
 class WebProcessProxy;
 
-class ViewGestureController : private IPC::MessageReceiver {
-    WTF_MAKE_FAST_ALLOCATED;
+class ViewGestureController final : public IPC::MessageReceiver, public RefCounted<ViewGestureController> {
+    WTF_MAKE_TZONE_ALLOCATED(ViewGestureController);
     WTF_MAKE_NONCOPYABLE(ViewGestureController);
 public:
-    ViewGestureController(WebPageProxy&);
+    static constexpr double defaultMinMagnification { 1 };
+    static constexpr double defaultMaxMagnification { 3 };
+
+    static Ref<ViewGestureController> create(WebPageProxy&);
+    static ViewGestureController* NODELETE controllerForPage(WebPageProxyIdentifier);
     ~ViewGestureController();
+
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
+    void platformInitialize();
     void platformTeardown();
 
     void disconnectFromProcess();
@@ -118,10 +141,8 @@ public:
         Swipe
     };
 
-    enum class SwipeDirection {
-        Back,
-        Forward
-    };
+    enum class SwipeDirection : bool { Back, Forward };
+    enum class DeferToConflictingGestures : bool { No, Yes };
 
     typedef uint64_t GestureID;
 
@@ -134,7 +155,7 @@ public:
 
     bool isPhysicallySwipingLeft(SwipeDirection) const;
 
-    double magnification() const;
+    double NODELETE magnification() const;
 
     void prepareMagnificationGesture(WebCore::FloatPoint);
     void applyMagnification();
@@ -143,15 +164,20 @@ public:
 #endif
 
 #if PLATFORM(MAC)
-    void handleMagnificationGestureEvent(PlatformScrollEvent, WebCore::FloatPoint origin);
-    void handleSmartMagnificationGesture(WebCore::FloatPoint origin);
+    void handleMagnificationGestureEvent(PlatformMagnificationEvent, WebCore::FloatPoint origin);
+    void handleSmartMagnificationGesture(WebCore::FloatPoint gestureLocationInViewCoordinates);
 
-    void gestureEventWasNotHandledByWebCore(PlatformScrollEvent, WebCore::FloatPoint origin);
+    void gestureEventWasNotHandledByWebCore(PlatformMagnificationEvent, WebCore::FloatPoint origin);
 
-    void setCustomSwipeViews(Vector<RetainPtr<NSView>> views) { m_customSwipeViews = WTFMove(views); }
-    void setCustomSwipeViewsTopContentInset(float topContentInset) { m_customSwipeViewsTopContentInset = topContentInset; }
+    void setCustomSwipeViews(Vector<RetainPtr<NSView>> views) { m_customSwipeViews = WTF::move(views); }
+    bool hasCustomSwipeViews() const { return !m_customSwipeViews.isEmpty(); }
+    float customSwipeViewsWidth() const { return m_currentSwipeCustomViewBounds.width(); }
+    const WebCore::FloatBoxExtent& customSwipeViewsObscuredContentInsets() const LIFETIME_BOUND { return m_customSwipeViewsObscuredContentInsets; }
+    void setCustomSwipeViewsObscuredContentInsets(WebCore::FloatBoxExtent&& insets) { m_customSwipeViewsObscuredContentInsets = WTF::move(insets); }
     WebCore::FloatRect windowRelativeBoundsForCustomSwipeViews() const;
-    void setDidMoveSwipeSnapshotCallback(BlockPtr<void (CGRect)>&& callback) { m_didMoveSwipeSnapshotCallback = WTFMove(callback); }
+    void setDidMoveSwipeSnapshotCallback(BlockPtr<void (CGRect)>&& callback) { m_didMoveSwipeSnapshotCallback = WTF::move(callback); }
+
+    SwipeProgressTracker* swipeProgressTracker() const { return m_swipeProgressTracker.get(); }
 #elif PLATFORM(IOS_FAMILY)
     bool isNavigationSwipeGestureRecognizer(UIGestureRecognizer *) const;
     void installSwipeHandler(UIView *gestureRecognizerView, UIView *swipingView);
@@ -165,9 +191,11 @@ public:
     void endMagnification();
 #endif
 
-    void setAlternateBackForwardListSourcePage(WebPageProxy*);
+    void NODELETE setAlternateBackForwardListSourcePage(WebPageProxy*);
 
-    bool canSwipeInDirection(SwipeDirection) const;
+    bool canSwipeInDirection(SwipeDirection, DeferToConflictingGestures) const;
+
+    bool hasActiveSwipeGesture() const { return m_activeGestureType == ViewGestureType::Swipe; }
 
     WebCore::Color backgroundColorForCurrentSnapshot() const { return m_backgroundColorForCurrentSnapshot; }
 
@@ -201,21 +229,34 @@ public:
     // Testing
     bool beginSimulatedSwipeInDirectionForTesting(SwipeDirection);
     bool completeSimulatedSwipeInDirectionForTesting(SwipeDirection);
+    bool didCallEndSwipeGesture() const { return m_didCallEndSwipeGesture; }
 
 private:
+    explicit ViewGestureController(WebPageProxy&);
+
     // IPC::MessageReceiver.
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
 
-    static ViewGestureController* controllerForGesture(WebPageProxyIdentifier, GestureID);
+    static ViewGestureController* NODELETE controllerForGesture(WebPageProxyIdentifier, GestureID);
 
-    static GestureID takeNextGestureID();
+    static GestureID NODELETE takeNextGestureID();
     void willBeginGesture(ViewGestureType);
     void didEndGesture();
     void resetState();
 
     void didStartProvisionalOrSameDocumentLoadForMainFrame();
 
-    class SnapshotRemovalTracker {
+#if PLATFORM(COCOA)
+#if ENABLE(BACK_FORWARD_LIST_SWIFT)
+    std::optional<WebBackForwardList> NODELETE backForwardListForNavigation() const;
+#else
+    WebBackForwardList* NODELETE backForwardListForNavigation() const;
+#endif
+#endif
+
+    class SnapshotRemovalTracker : public CanMakeCheckedPtr<SnapshotRemovalTracker> {
+        WTF_DEPRECATED_MAKE_FAST_ALLOCATED(SnapshotRemovalTracker);
+        WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SnapshotRemovalTracker);
     public:
         enum Event : uint8_t {
             VisuallyNonEmptyLayout = 1 << 0,
@@ -241,7 +282,7 @@ private:
         enum class ShouldIgnoreEventIfPaused : bool { No, Yes };
         bool eventOccurred(Events, ShouldIgnoreEventIfPaused = ShouldIgnoreEventIfPaused::Yes);
         bool cancelOutstandingEvent(Events);
-        bool hasOutstandingEvent(Event);
+        bool NODELETE hasOutstandingEvent(Event);
 
         void startWatchdog(Seconds);
 
@@ -250,13 +291,13 @@ private:
 
     private:
         static String eventsDescription(Events);
-        void log(const String&) const;
+        void log(StringView) const;
 
         void fireRemovalCallbackImmediately();
         void fireRemovalCallbackIfPossible();
         void watchdogTimerFired();
 
-        bool stopWaitingForEvent(Events, const String& logReason, ShouldIgnoreEventIfPaused = ShouldIgnoreEventIfPaused::Yes);
+        bool stopWaitingForEvent(Events, ASCIILiteral logReason, ShouldIgnoreEventIfPaused = ShouldIgnoreEventIfPaused::Yes);
 
         Events m_outstandingEvents { 0 };
         WTF::Function<void()> m_removalCallback;
@@ -264,14 +305,14 @@ private:
 
         uint64_t m_renderTreeSizeThreshold { 0 };
 
-        RunLoop::Timer<SnapshotRemovalTracker> m_watchdogTimer;
+        RunLoop::Timer m_watchdogTimer;
 
         bool m_paused { true };
     };
 
 #if PLATFORM(MAC)
     // Message handlers.
-    void didCollectGeometryForSmartMagnificationGesture(WebCore::FloatPoint origin, WebCore::FloatRect renderRect, WebCore::FloatRect visibleContentBounds, bool fitEntireRect, double viewportMinimumScale, double viewportMaximumScale);
+    void didCollectGeometryForSmartMagnificationGesture(WebCore::FloatPoint origin, WebCore::FloatRect absoluteTargetRect, WebCore::FloatRect visibleContentBounds, bool fitEntireRect, double viewportMinimumScale, double viewportMaximumScale);
 #endif
 
 #if !PLATFORM(IOS_FAMILY)
@@ -279,7 +320,9 @@ private:
 
     void endMagnificationGesture();
 
-    WebCore::FloatPoint scaledMagnificationOrigin(WebCore::FloatPoint origin, double scale);
+    WebCore::FloatPoint NODELETE scaledMagnificationOrigin(WebCore::FloatPoint origin, double scale);
+
+    std::optional<bool> platformEventShouldCancelSwipe(PlatformScrollEvent, WebCore::FloatSize);
 
     void startSwipeGesture(PlatformScrollEvent, SwipeDirection);
     void trackSwipeGesture(PlatformScrollEvent, SwipeDirection, RefPtr<WebBackForwardListItem>);
@@ -289,13 +332,13 @@ private:
 
     void willEndSwipeGesture(WebBackForwardListItem& targetItem, bool cancelled);
     void endSwipeGesture(WebBackForwardListItem* targetItem, bool cancelled);
-    bool shouldUseSnapshotForSize(ViewSnapshot&, WebCore::FloatSize swipeLayerSize, float topContentInset);
+    bool NODELETE shouldUseSnapshotForSize(ViewSnapshot&, WebCore::FloatSize swipeLayerSize, WebCore::FloatBoxExtent obscuredContentInsets);
 
 #if PLATFORM(MAC)
-    static double resistanceForDelta(double deltaScale, double currentScale);
+    static double resistanceForDelta(double deltaScale, double currentScale, double minMagnification, double maxMagnification);
 
-    CALayer* determineSnapshotLayerParent() const;
-    CALayer* determineLayerAdjacentToSnapshotForParent(SwipeDirection, CALayer* snapshotLayerParent) const;
+    RetainPtr<CALayer> determineSnapshotLayerParent() const;
+    RetainPtr<CALayer> determineLayerAdjacentToSnapshotForParent(SwipeDirection, CALayer* snapshotLayerParent) const;
     void applyDebuggingPropertiesToSwipeViews();
     void didMoveSwipeSnapshotLayer();
 #endif
@@ -309,12 +352,13 @@ private:
         bool handleEvent(PlatformScrollEvent);
         void eventWasNotHandledByWebCore(PlatformScrollEvent);
 
-        void reset(const char* resetReasonForLogging);
+        void NODELETE reset(ASCIILiteral resetReasonForLogging);
 
         bool shouldIgnorePinnedState() { return m_shouldIgnorePinnedState; }
         void setShouldIgnorePinnedState(bool ignore) { m_shouldIgnorePinnedState = ignore; }
 
     private:
+
         bool tryToStartSwipe(PlatformScrollEvent);
         bool scrollEventCanBecomeSwipe(PlatformScrollEvent, SwipeDirection&);
 
@@ -323,11 +367,12 @@ private:
         bool scrollEventCanInfluenceSwipe(PlatformScrollEvent);
         WebCore::FloatSize scrollEventGetScrollingDeltas(PlatformScrollEvent);
 
-        enum class State {
+        enum class State : uint8_t {
             None,
             WaitingForWebCore,
             InsufficientMagnitude
         };
+        static ASCIILiteral stateToString(State);
 
         State m_state { State::None };
         SwipeDirection m_direction;
@@ -335,8 +380,8 @@ private:
 
         bool m_shouldIgnorePinnedState { false };
 
-        ViewGestureController& m_viewGestureController;
-        WebPageProxy& m_webPageProxy;
+        WeakRef<ViewGestureController> m_viewGestureController;
+        WeakRef<WebPageProxy> m_webPageProxy;
     };
 #endif
 
@@ -344,12 +389,19 @@ private:
     GRefPtr<GtkStyleContext> createStyleContext(const char*);
 #endif
 
-    WebPageProxy& m_webPageProxy;
+#if PLATFORM(COCOA)
+    RefPtr<WebBackForwardListItem> itemForSwipeDirection(SwipeDirection) const;
+#endif
+
+    WeakPtr<WebPageProxy> m_webPageProxy;
+    WebPageProxyIdentifier m_webPageProxyIdentifier;
+    Markable<WebCore::PageIdentifier> m_webPageIDInMainFrameProcess;
+    WeakPtr<WebProcessProxy> m_mainFrameProcess;
     ViewGestureType m_activeGestureType { ViewGestureType::None };
 
     bool m_swipeGestureEnabled { true };
 
-    RunLoop::Timer<ViewGestureController> m_swipeActiveLoadMonitoringTimer;
+    RunLoop::Timer m_swipeActiveLoadMonitoringTimer;
 
     WebCore::Color m_backgroundColorForCurrentSnapshot;
 
@@ -367,10 +419,10 @@ private:
 
     bool m_hasOutstandingRepaintRequest { false };
 
-    double m_magnification;
+    double m_magnification { 1 };
     WebCore::FloatPoint m_magnificationOrigin;
 
-    double m_initialMagnification;
+    double m_initialMagnification { 1 };
     WebCore::FloatPoint m_initialMagnificationOrigin;
 #endif
 
@@ -395,12 +447,15 @@ private:
     Vector<RetainPtr<CALayer>> m_currentSwipeLiveLayers;
 
     Vector<RetainPtr<NSView>> m_customSwipeViews;
-    float m_customSwipeViewsTopContentInset { 0 };
+    WebCore::FloatBoxExtent m_customSwipeViewsObscuredContentInsets;
     WebCore::FloatRect m_currentSwipeCustomViewBounds;
 
     BlockPtr<void (CGRect)> m_didMoveSwipeSnapshotCallback;
+
+    friend class SwipeProgressTracker;
+    std::unique_ptr<SwipeProgressTracker> m_swipeProgressTracker;
 #elif PLATFORM(IOS_FAMILY)
-    UIView* m_liveSwipeView { nullptr };
+    WeakObjCPtr<UIView> m_liveSwipeView;
     RetainPtr<UIView> m_liveSwipeViewClippingView;
     RetainPtr<UIView> m_snapshotView;
     RetainPtr<UIView> m_transitionContainerView;
@@ -453,8 +508,8 @@ private:
         float m_endProgress { 0 };
         bool m_cancelled { false };
 
-        ViewGestureController& m_viewGestureController;
-        WebPageProxy& m_webPageProxy;
+        WeakRef<ViewGestureController> m_viewGestureController;
+        WeakRef<WebPageProxy> m_webPageProxy;
     };
 
     SwipeProgressTracker m_swipeProgressTracker;
@@ -481,13 +536,8 @@ private:
     bool m_didCallEndSwipeGesture { false };
     bool m_removeSnapshotImmediatelyWhenGestureEnds { false };
 
-    SnapshotRemovalTracker m_snapshotRemovalTracker;
+    const UniqueRef<SnapshotRemovalTracker> m_snapshotRemovalTracker;
     WTF::Function<void()> m_loadCallback;
-
-#if !PLATFORM(IOS_FAMILY)
-    static constexpr double minMagnification { 1 };
-    static constexpr double maxMagnification { 3 };
-#endif
 };
 
 } // namespace WebKit

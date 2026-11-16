@@ -31,9 +31,9 @@
 
 #pragma once
 
-#include "CharacterRange.h"
-#include <wtf/EnumTraits.h>
-#include <wtf/ObjectIdentifier.h>
+#include <WebCore/CharacterRange.h>
+#include <WebCore/TextCheckingRequestIdentifier.h>
+#include <wtf/CrossThreadCopier.h>
 #include <wtf/OptionSet.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
@@ -54,10 +54,10 @@ enum class TextCheckingType : uint8_t {
 
 #if PLATFORM(MAC)
 typedef uint64_t NSTextCheckingTypes;
-WEBCORE_EXPORT NSTextCheckingTypes nsTextCheckingTypes(OptionSet<TextCheckingType>);
+WEBCORE_EXPORT NSTextCheckingTypes NODELETE nsTextCheckingTypes(OptionSet<TextCheckingType>);
 #endif
 
-enum TextCheckingProcessType {
+enum class TextCheckingProcessType : bool {
     TextCheckingProcessBatch,
     TextCheckingProcessIncremental
 };
@@ -66,13 +66,32 @@ struct GrammarDetail {
     CharacterRange range;
     Vector<String> guesses;
     String userDescription;
+    String uuid;
+
+    GrammarDetail isolatedCopy() && {
+        return {
+            range,
+            crossThreadCopy(WTF::move(guesses)),
+            WTF::move(userDescription).isolatedCopy(),
+            WTF::move(uuid).isolatedCopy()
+        };
+    }
 };
 
 struct TextCheckingResult {
-    TextCheckingType type;
+    OptionSet<TextCheckingType> type;
     CharacterRange range;
     Vector<GrammarDetail> details;
     String replacement;
+
+    TextCheckingResult isolatedCopy() && {
+        return {
+            type,
+            range,
+            crossThreadCopy(WTF::move(details)),
+            WTF::move(replacement).isolatedCopy()
+        };
+    }
 };
 
 struct TextCheckingGuesses {
@@ -81,8 +100,6 @@ struct TextCheckingGuesses {
     bool ungrammatical { false };
 };
 
-enum TextCheckingRequestIdentifierType { };
-using TextCheckingRequestIdentifier = ObjectIdentifier<TextCheckingRequestIdentifierType>;
 
 class TextCheckingRequestData {
     friend class SpellCheckRequest; // For access to m_identifier.
@@ -97,14 +114,14 @@ public:
     }
 
     std::optional<TextCheckingRequestIdentifier> identifier() const { return m_identifier; }
-    const String& text() const { return m_text; }
+    const String& text() const LIFETIME_BOUND { return m_text; }
     OptionSet<TextCheckingType> checkingTypes() const { return m_checkingTypes; }
     TextCheckingProcessType processType() const { return m_processType; }
 
 private:
     String m_text;
     std::optional<TextCheckingRequestIdentifier> m_identifier;
-    TextCheckingProcessType m_processType { TextCheckingProcessIncremental };
+    TextCheckingProcessType m_processType { TextCheckingProcessType::TextCheckingProcessIncremental };
     OptionSet<TextCheckingType> m_checkingTypes;
 };
 
@@ -118,30 +135,3 @@ public:
 };
 
 } // namespace WebCore
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::TextCheckingProcessType> {
-    using values = EnumValues<
-        WebCore::TextCheckingProcessType,
-        WebCore::TextCheckingProcessType::TextCheckingProcessBatch,
-        WebCore::TextCheckingProcessType::TextCheckingProcessIncremental
-    >;
-};
-
-template<> struct EnumTraits<WebCore::TextCheckingType> {
-    using values = EnumValues<
-        WebCore::TextCheckingType,
-        WebCore::TextCheckingType::None,
-        WebCore::TextCheckingType::Spelling,
-        WebCore::TextCheckingType::Grammar,
-        WebCore::TextCheckingType::Link,
-        WebCore::TextCheckingType::Quote,
-        WebCore::TextCheckingType::Dash,
-        WebCore::TextCheckingType::Replacement,
-        WebCore::TextCheckingType::Correction,
-        WebCore::TextCheckingType::ShowCorrectionPanel
-    >;
-};
-
-} // namespace WTF

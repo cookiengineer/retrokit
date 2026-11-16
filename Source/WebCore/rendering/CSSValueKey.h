@@ -25,52 +25,21 @@
 
 #pragma once
 
-#include "CSSValueKeywords.h"
+#include <WebCore/CSSValueKeywords.h>
 
 namespace WebCore {
 
 struct CSSValueKey {
-
     unsigned hash() const;
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<CSSValueKey> decode(Decoder&);
+    friend bool operator==(const CSSValueKey&, const CSSValueKey&) = default;
+
+    static constexpr bool safeToCompareToHashTableEmptyOrDeletedValue = true;
 
     unsigned cssValueID;
     bool useDarkAppearance;
     bool useElevatedUserInterfaceLevel;
 };
-
-inline bool operator==(const CSSValueKey& a, const CSSValueKey& b)
-{
-    return a.cssValueID == b.cssValueID && a.useDarkAppearance == b.useDarkAppearance && a.useElevatedUserInterfaceLevel == b.useElevatedUserInterfaceLevel;
-}
-
-template<class Encoder>
-void CSSValueKey::encode(Encoder& encoder) const
-{
-    encoder << cssValueID;
-    encoder << useDarkAppearance;
-    encoder << useElevatedUserInterfaceLevel;
-}
-
-template<class Decoder>
-std::optional<CSSValueKey> CSSValueKey::decode(Decoder& decoder)
-{
-    std::optional<unsigned> cssValueID;
-    decoder >> cssValueID;
-    if (!cssValueID)
-        return std::nullopt;
-    std::optional<bool> useDarkAppearance;
-    decoder >> useDarkAppearance;
-    if (!useDarkAppearance)
-        return std::nullopt;
-    std::optional<bool> useElevatedUserInterfaceLevel;
-    decoder >> useElevatedUserInterfaceLevel;
-    if (!useElevatedUserInterfaceLevel)
-        return std::nullopt;
-    return { { WTFMove(*cssValueID), WTFMove(*useDarkAppearance), WTFMove(*useElevatedUserInterfaceLevel) } };
-}
 
 inline unsigned CSSValueKey::hash() const
 {
@@ -81,18 +50,10 @@ inline unsigned CSSValueKey::hash() const
 
 namespace WTF {
 
-struct CSSValueKeyHash {
-    static unsigned hash(const WebCore::CSSValueKey& key) { return key.hash(); }
-    static bool equal(const WebCore::CSSValueKey& a, const WebCore::CSSValueKey& b) { return a == b; }
-    static const bool safeToCompareToEmptyOrDeleted = true;
-};
-
 template<> struct HashTraits<WebCore::CSSValueKey> : GenericHashTraits<WebCore::CSSValueKey> {
     static WebCore::CSSValueKey emptyValue() { return WebCore::CSSValueKey { WebCore::CSSValueInvalid, false, false}; }
     static void constructDeletedValue(WebCore::CSSValueKey& slot) { new (NotNull, &slot) WebCore::CSSValueKey { WebCore::CSSValueInvalid, true, true}; }
     static bool isDeletedValue(const WebCore::CSSValueKey& slot) { return slot.cssValueID == WebCore::CSSValueInvalid && slot.useDarkAppearance && slot.useElevatedUserInterfaceLevel; }
 };
-
-template<> struct DefaultHash<WebCore::CSSValueKey> : CSSValueKeyHash { };
 
 } // namespace WTF

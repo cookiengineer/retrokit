@@ -22,17 +22,19 @@
 
 #pragma once
 
-#include "LightSource.h"
+#include <WebCore/LightSource.h>
+#include <wtf/ArgumentCoder.h>
 #include <wtf/Ref.h>
 
 namespace WebCore {
 
 class DistantLightSource : public LightSource {
+    friend struct IPC::ArgumentCoder<DistantLightSource>;
+
 public:
-    static Ref<DistantLightSource> create(float azimuth, float elevation)
-    {
-        return adoptRef(*new DistantLightSource(azimuth, elevation));
-    }
+    WEBCORE_EXPORT static Ref<DistantLightSource> create(float azimuth, float elevation);
+
+    bool operator==(const DistantLightSource&) const;
 
     // These are in degrees.
     float azimuth() const { return m_azimuth; }
@@ -41,18 +43,15 @@ public:
     bool setAzimuth(float) override;
     bool setElevation(float) override;
 
-    void initPaintingData(const FilterEffect&, PaintingData&) override;
+    void initPaintingData(const Filter&, const FilterImage& result, PaintingData&) const override;
     ComputedLightingData computePixelLightingData(const PaintingData&, int x, int y, float z) const final;
 
     WTF::TextStream& externalRepresentation(WTF::TextStream&) const override;
 
 private:
-    DistantLightSource(float azimuth, float elevation)
-        : LightSource(LS_DISTANT)
-        , m_azimuth(azimuth)
-        , m_elevation(elevation)
-    {
-    }
+    DistantLightSource(float azimuth, float elevation);
+
+    bool operator==(const LightSource& other) const override { return areEqual<DistantLightSource>(*this, other); }
 
     float m_azimuth;
     float m_elevation;
@@ -60,4 +59,4 @@ private:
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_LIGHTSOURCE(DistantLightSource, LS_DISTANT)
+SPECIALIZE_TYPE_TRAITS_LIGHTSOURCE(DistantLightSource, LightType::LS_DISTANT)

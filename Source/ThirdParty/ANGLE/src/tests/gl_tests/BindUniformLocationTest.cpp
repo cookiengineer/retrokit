@@ -16,7 +16,7 @@ using namespace angle;
 namespace
 {
 
-class BindUniformLocationTest : public ANGLETest
+class BindUniformLocationTest : public ANGLETest<>
 {
   protected:
     BindUniformLocationTest()
@@ -579,6 +579,7 @@ TEST_P(BindUniformLocationES31Test, ArrayOfArrays)
 // tests should be run against.
 ANGLE_INSTANTIATE_TEST_ES2(BindUniformLocationTest);
 
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(BindUniformLocationES31Test);
 ANGLE_INSTANTIATE_TEST_ES31(BindUniformLocationES31Test);
 
 }  // namespace

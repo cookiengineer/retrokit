@@ -36,23 +36,25 @@ namespace WebKit {
 class MediaDeviceSandboxExtensions {
     WTF_MAKE_NONCOPYABLE(MediaDeviceSandboxExtensions);
 public:
-    MediaDeviceSandboxExtensions()
-    {
-    }
+    MediaDeviceSandboxExtensions() = default;
     MediaDeviceSandboxExtensions(MediaDeviceSandboxExtensions&&) = default;
     MediaDeviceSandboxExtensions& operator=(MediaDeviceSandboxExtensions&&) = default;
 
-    MediaDeviceSandboxExtensions(Vector<String> ids, Vector<SandboxExtension::Handle>&& handles);
+    MediaDeviceSandboxExtensions(Vector<String> ids, Vector<SandboxExtension::Handle>&& handles, SandboxExtension::Handle&& machBootstrapHandle);
 
-    std::pair<String, RefPtr<SandboxExtension>> operator[](size_t i);
-    size_t size() const;
+    std::pair<String, Ref<SandboxExtension>> operator[](size_t i);
+    size_t NODELETE size() const;
 
-    void encode(IPC::Encoder&) const;
-    static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, MediaDeviceSandboxExtensions&);
+    Vector<String> takeIDs() { return std::exchange(m_ids, { }); }
+    Vector<SandboxExtension::Handle> takeHandles() { return std::exchange(m_handles, { }); }
+    SandboxExtensionHandle takeMachBootstrapHandle() { return std::exchange(m_machBootstrapHandle, { }); }
+
+    RefPtr<SandboxExtension> machBootstrapExtension() { return SandboxExtension::create(WTF::move(m_machBootstrapHandle)); }
 
 private:
     Vector<String> m_ids;
     Vector<SandboxExtension::Handle> m_handles;
+    SandboxExtension::Handle m_machBootstrapHandle;
 };
 
 } // namespace WebKit

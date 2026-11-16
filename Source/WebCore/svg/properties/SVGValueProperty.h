@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc.  All rights reserved.
+ * Copyright (C) 2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -40,26 +40,22 @@ public:
     }
 
     // Getter/Setter for the value.
-    const PropertyType& value() const { return m_value; }
+    const PropertyType& value() const LIFETIME_BOUND { return m_value; }
     void setValue(const PropertyType& value) { m_value = value; }
 
     // Used by the SVGAnimatedPropertyAnimator to pass m_value to SVGAnimationFunction.
-    PropertyType& value() { return m_value; }
+    PropertyType& value() LIFETIME_BOUND { return m_value; }
 
-    // Visual Studio doesn't seem to see these private constructors from subclasses.
-    // FIXME: See what it takes to remove this hack.
-#if !COMPILER(MSVC)
 protected:
-#endif
     // Create an initialized property, e.g creating an item to be appended in an SVGList.
     SVGValueProperty(const PropertyType& value)
         : m_value(value)
     {
     }
 
-    // Needed when value should not be copied, e.g. SVGTransfromValue.
+    // Needed when value should not be copied, e.g. SVGTransformValue.
     SVGValueProperty(PropertyType&& value)
-        : m_value(WTFMove(value))
+        : m_value(WTF::move(value))
     {
     }
 

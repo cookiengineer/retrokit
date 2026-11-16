@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -62,6 +62,11 @@ class PiPSupport extends MediaControllerSupport
 
     syncControl()
     {
+        if (!this.mediaController.layoutTraits?.supportsPiP()) {
+            this.control.enabled = false;
+            return;
+        }
+
         const media = this.mediaController.media;
         if (media.webkitSupportsPresentationMode)
             this.control.enabled = !this.mediaController.isAudio && media.webkitSupportsPresentationMode(PiPMode) && !media.webkitCurrentPlaybackTargetIsWireless;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc.  All rights reserved.
+ * Copyright (C) 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,12 +25,15 @@
 
 #pragma once
 
-#include "Region.h"
+#include <WebCore/Region.h>
+#include <wtf/Forward.h>
 #include <wtf/HashMap.h>
 #include <wtf/text/StringHash.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
+
+struct EventNames;
 
 enum class TrackingType : uint8_t {
     NotTracking = 0,
@@ -38,24 +41,53 @@ enum class TrackingType : uint8_t {
     Synchronous = 2
 };
 
+enum class EventTrackingRegionsEventType : uint8_t {
+    Gesturechange,
+    Gestureend,
+    Gesturestart,
+    Mousedown,
+    Mousemove,
+    Mouseup,
+    Mousewheel,
+    Pointerdown,
+    Pointerenter,
+    Pointerleave,
+    Pointermove,
+    Pointerout,
+    Pointerover,
+    Pointerup,
+    Touchend,
+    Touchforcechange,
+    Touchmove,
+    Touchstart,
+    Wheel,
+};
+
 struct EventTrackingRegions {
+    using EventType = EventTrackingRegionsEventType;
+
+    WEBCORE_EXPORT static ASCIILiteral eventName(EventType);
+    WEBCORE_EXPORT static const AtomString& NODELETE eventNameAtomString(const EventNames&, EventType);
+
     // Region for which events can be dispatched without blocking scrolling.
     Region asynchronousDispatchRegion;
 
     // Regions for which events must be sent before performing the default behavior.
-    // The key is the Event Name with an active handler.
-    HashMap<String, Region> eventSpecificSynchronousDispatchRegions;
+    // The key is the EventType with an active handler.
+    using EventSpecificSynchronousDispatchRegions = HashMap<EventType, Region, WTF::IntHash<EventType>, WTF::StrongEnumHashTraits<EventType>>;
+    EventSpecificSynchronousDispatchRegions eventSpecificSynchronousDispatchRegions;
 
-    bool isEmpty() const;
+    bool NODELETE isEmpty() const;
 
-    void translate(IntSize);
-    void uniteSynchronousRegion(const String& eventName, const Region&);
+    void NODELETE translate(IntSize);
+    void uniteSynchronousRegion(EventType, const Region&);
     void unite(const EventTrackingRegions&);
 
-    TrackingType trackingTypeForPoint(const String& eventName, const IntPoint&);
+    TrackingType NODELETE trackingTypeForPoint(EventType, const IntPoint&) const;
+
+    friend bool operator==(const EventTrackingRegions&, const EventTrackingRegions&) = default;
 };
 
-bool operator==(const EventTrackingRegions&, const EventTrackingRegions&);
-inline bool operator!=(const EventTrackingRegions& a, const EventTrackingRegions& b) { return !(a == b); }
+WEBCORE_EXPORT TextStream& operator<<(TextStream&, const EventTrackingRegions&);
 
 } // namespace WebCore

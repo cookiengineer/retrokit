@@ -41,9 +41,7 @@ WI.TimelineRecordingContentView = class TimelineRecordingContentView extends WI.
         this._timelineOverview.addEventListener(WI.TimelineOverview.Event.EditingInstrumentsDidChange, this._editingInstrumentsDidChange, this);
         this.addSubview(this._timelineOverview);
 
-        const disableBackForward = true;
-        const disableFindBanner = true;
-        this._timelineContentBrowser = new WI.ContentBrowser(null, this, disableBackForward, disableFindBanner);
+        this._timelineContentBrowser = new WI.ContentBrowser(null, this, {hideBackForwardButtons: true, disableFindBanner: true});
         this._timelineContentBrowser.addEventListener(WI.ContentBrowser.Event.CurrentContentViewDidChange, this._currentContentViewDidChange, this);
 
         this._entireRecordingPathComponent = this._createTimelineRangePathComponent(WI.UIString("Entire Recording"));
@@ -204,6 +202,11 @@ WI.TimelineRecordingContentView = class TimelineRecordingContentView extends WI.
         return this._recording.canExport();
     }
 
+    get saveMode()
+    {
+        return this._recording.exportMode;
+    }
+
     get saveData()
     {
         return {customSaveHandler: () => { this._exportTimelineRecording(); }};
@@ -245,6 +248,8 @@ WI.TimelineRecordingContentView = class TimelineRecordingContentView extends WI.
         super.closed();
 
         this._timelineContentBrowser.contentViewContainer.closeAllContentViews();
+
+        this._timelineOverview.closed();
 
         this._recording.removeEventListener(WI.TimelineRecording.Event.InstrumentAdded, this._instrumentAdded, this);
         this._recording.removeEventListener(WI.TimelineRecording.Event.InstrumentRemoved, this._instrumentRemoved, this);
@@ -336,7 +341,7 @@ WI.TimelineRecordingContentView = class TimelineRecordingContentView extends WI.
 
         this._timelineOverview.viewMode = newViewMode;
         this._updateTimelineOverviewHeight();
-        this._updateProgressView();
+        this._updateProgressView(WI.timelineManager.capturingState);
         this._updateFilterBar();
 
         if (timelineView) {
@@ -478,11 +483,11 @@ WI.TimelineRecordingContentView = class TimelineRecordingContentView extends WI.
             this._startTimeNeedsReset = false;
         }
 
-        if (WI.timelineManager.capturingState !== WI.TimelineManager.CapturingState.Stopping) {
+        if (WI.timelineManager.capturingState !== WI.TimelineManager.CapturingState.Stopping || this._recording.imported) {
             // Only update end time while not stopping, otherwise the interface continues scrolling.
             this._timelineOverview.endTime = Math.max(endTime, currentTime);
 
-            if (WI.timelineManager.capturingState !== WI.TimelineManager.CapturingState.Inactive) {
+            if (WI.timelineManager.capturingState !== WI.TimelineManager.CapturingState.Inactive || this._recording.imported) {
                 // Only update current time while active/starting or else the interface continues scrolling.
                 this._currentTime = currentTime;
                 this._timelineOverview.currentTime = currentTime;
@@ -492,10 +497,14 @@ WI.TimelineRecordingContentView = class TimelineRecordingContentView extends WI.
         if (this.currentTimelineView)
             this._updateTimelineViewTimes(this.currentTimelineView);
 
-        // Force a layout now since we are already in an animation frame and don't need to delay it until the next.
-        this._timelineOverview.updateLayoutIfNeeded();
-        if (this.currentTimelineView)
-            this.currentTimelineView.updateLayoutIfNeeded();
+        if (this._recording.imported) {
+            this._timelineOverview.needsLayout();
+            this.currentTimelineView?.needsLayout();
+        } else {
+            // Force a layout now since we are already in an animation frame and don't need to delay it until the next.
+            this._timelineOverview.updateLayoutIfNeeded();
+            this.currentTimelineView?.updateLayoutIfNeeded();
+        }
     }
 
     _startUpdatingCurrentTime(startTime)
@@ -541,14 +550,14 @@ WI.TimelineRecordingContentView = class TimelineRecordingContentView extends WI.
 
     _handleTimelineCapturingStateChanged(event)
     {
-        let {startTime, endTime} = event.data;
+        let {capturingState} = event.data;
 
-        this._updateProgressView();
+        this._updateProgressView(capturingState);
 
-        switch (WI.timelineManager.capturingState) {
+        switch (capturingState) {
         case WI.TimelineManager.CapturingState.Active:
             if (!this._updating)
-                this._startUpdatingCurrentTime(startTime);
+                this._startUpdatingCurrentTime(event.data.startTime);
 
             this._clearTimelineNavigationItem.enabled = !this._recording.readonly;
             this._exportButtonNavigationItem.enabled = false;
@@ -626,11 +635,11 @@ WI.TimelineRecordingContentView = class TimelineRecordingContentView extends WI.
 
         let filename = frameName ? `${frameName}-recording` : this._recording.displayName;
 
-        WI.FileUtilities.save({
+        const forceSaveAs = true;
+        WI.FileUtilities.save(this._recording.exportMode, {
             content: JSON.stringify(json),
             suggestedName: filename + ".json",
-            forceSaveAs: true,
-        });
+        }, forceSaveAs);
     }
 
     _exportButtonNavigationItemClicked(event)
@@ -738,8 +747,10 @@ WI.TimelineRecordingContentView = class TimelineRecordingContentView extends WI.
         this._lastUpdateTimestamp = NaN;
         this._startTimeNeedsReset = true;
 
-        this._recording.removeEventListener(WI.TimelineRecording.Event.TimesUpdated, this._recordingTimesUpdated, this);
-        this._waitingToResetCurrentTime = false;
+        if (this._waitingToResetCurrentTime) {
+            this._recording.removeEventListener(WI.TimelineRecording.Event.TimesUpdated, this._recordingTimesUpdated, this);
+            this._waitingToResetCurrentTime = false;
+        }
 
         this._timelineOverview.reset();
         this._overviewTimelineView.reset();
@@ -972,10 +983,9 @@ WI.TimelineRecordingContentView = class TimelineRecordingContentView extends WI.
         this._filterBarNavigationItem.filterBar.clear();
     }
 
-    _updateProgressView()
+    _updateProgressView(capturingState)
     {
-        let isCapturing = WI.timelineManager.isCapturing();
-        this._progressView.visible = isCapturing && this.currentTimelineView && !this.currentTimelineView.showsLiveRecordingData;
+        this._progressView.visible = capturingState !== WI.TimelineManager.CapturingState.Inactive && this.currentTimelineView && !this.currentTimelineView.showsLiveRecordingData;
     }
 
     _updateFilterBar()

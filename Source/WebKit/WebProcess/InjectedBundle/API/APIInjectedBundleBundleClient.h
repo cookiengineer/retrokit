@@ -26,6 +26,7 @@
 #pragma once
 
 #include <wtf/Forward.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 class InjectedBundle;
@@ -39,14 +40,14 @@ class Object;
 namespace InjectedBundle {
 
 class Client {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(Client);
 public:
     virtual ~Client() = default;
 
     virtual void didCreatePage(WebKit::InjectedBundle&, WebKit::WebPage&) { }
     virtual void willDestroyPage(WebKit::InjectedBundle&, WebKit::WebPage&) { }
-    virtual void didReceiveMessage(WebKit::InjectedBundle&, const WTF::String&, API::Object*) { }
-    virtual void didReceiveMessageToPage(WebKit::InjectedBundle&, WebKit::WebPage&, const WTF::String&, API::Object*) { }
+    virtual void didReceiveMessage(WebKit::InjectedBundle&, const WTF::String&, RefPtr<API::Object>&&) { }
+    virtual void didReceiveMessageToPage(WebKit::InjectedBundle&, WebKit::WebPage&, const WTF::String&, RefPtr<API::Object>&&) { }
 };
 
 } // namespace InjectedBundle

@@ -67,7 +67,9 @@ WebKitDOMDOMSelection* wrapDOMSelection(WebCore::DOMSelection* coreObject)
 
 } // namespace WebKit
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK port
 G_DEFINE_TYPE(WebKitDOMDOMSelection, webkit_dom_dom_selection, WEBKIT_DOM_TYPE_OBJECT)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 enum {
     DOM_DOM_SELECTION_PROP_0,
@@ -397,7 +399,7 @@ void webkit_dom_dom_selection_set_base_and_extent(WebKitDOMDOMSelection* self, W
     WebCore::DOMSelection* item = WebKit::core(self);
     WebCore::Node* convertedBaseNode = WebKit::core(baseNode);
     WebCore::Node* convertedExtentNode = WebKit::core(extentNode);
-    item->setBaseAndExtent(convertedBaseNode, baseOffset, convertedExtentNode, extentOffset);
+    item->setBaseAndExtent(*convertedBaseNode, baseOffset, *convertedExtentNode, extentOffset);
 }
 
 void webkit_dom_dom_selection_set_position(WebKitDOMDOMSelection* self, WebKitDOMNode* node, gulong offset)
@@ -500,7 +502,7 @@ WebKitDOMNode* webkit_dom_dom_selection_get_base_node(WebKitDOMDOMSelection* sel
     WebCore::JSMainThreadNullState state;
     g_return_val_if_fail(WEBKIT_DOM_IS_DOM_SELECTION(self), 0);
     WebCore::DOMSelection* item = WebKit::core(self);
-    RefPtr<WebCore::Node> gobjectResult = WTF::getPtr(item->baseNode());
+    RefPtr<WebCore::Node> gobjectResult = WTF::getPtr(item->anchorNode());
     return WebKit::kit(gobjectResult.get());
 }
 
@@ -509,7 +511,7 @@ gulong webkit_dom_dom_selection_get_base_offset(WebKitDOMDOMSelection* self)
     WebCore::JSMainThreadNullState state;
     g_return_val_if_fail(WEBKIT_DOM_IS_DOM_SELECTION(self), 0);
     WebCore::DOMSelection* item = WebKit::core(self);
-    gulong result = item->baseOffset();
+    gulong result = item->anchorOffset();
     return result;
 }
 
@@ -518,7 +520,7 @@ WebKitDOMNode* webkit_dom_dom_selection_get_extent_node(WebKitDOMDOMSelection* s
     WebCore::JSMainThreadNullState state;
     g_return_val_if_fail(WEBKIT_DOM_IS_DOM_SELECTION(self), 0);
     WebCore::DOMSelection* item = WebKit::core(self);
-    RefPtr<WebCore::Node> gobjectResult = WTF::getPtr(item->extentNode());
+    RefPtr<WebCore::Node> gobjectResult = WTF::getPtr(item->focusNode());
     return WebKit::kit(gobjectResult.get());
 }
 
@@ -527,7 +529,7 @@ gulong webkit_dom_dom_selection_get_extent_offset(WebKitDOMDOMSelection* self)
     WebCore::JSMainThreadNullState state;
     g_return_val_if_fail(WEBKIT_DOM_IS_DOM_SELECTION(self), 0);
     WebCore::DOMSelection* item = WebKit::core(self);
-    gulong result = item->extentOffset();
+    gulong result = item->focusOffset();
     return result;
 }
 

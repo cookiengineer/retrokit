@@ -29,17 +29,19 @@
 
 #include "pas_large_heap_physical_page_sharing_cache.h"
 
-#include "pas_bootstrap_free_heap.h"
+#include "pas_heap_config.h"
 #include "pas_heap_lock.h"
 #include "pas_large_sharing_pool.h"
 #include "pas_page_malloc.h"
 #include "pas_page_sharing_pool.h"
+#include "pas_zero_memory.h"
 #include <stdio.h>
 
 pas_enumerable_range_list pas_large_heap_physical_page_sharing_cache_page_list;
 
 typedef struct {
     pas_large_heap_physical_page_sharing_cache* cache;
+    const pas_heap_config* config;
     bool should_zero;
 } aligned_allocator_data;
 
@@ -89,12 +91,13 @@ static pas_aligned_allocation_result large_aligned_allocator(size_t size,
          here, the memory we have gotten from the OS is still clean, so it doesn't count against our
          peak dirty. */
     if (verbose)
-        printf("Taking %zu later.\n", aligned_size);
+        pas_log("Taking %zu later.\n", aligned_size);
     pas_physical_page_sharing_pool_take_later(aligned_size);
     
     allocation_result = data->cache->provider(
         aligned_size, aligned_alignment,
         "pas_large_heap_physical_page_sharing_cache/chunk",
+        NULL, NULL,
         data->cache->provider_arg);
 
     if (!allocation_result.did_succeed) {
@@ -109,7 +112,7 @@ static pas_aligned_allocation_result large_aligned_allocator(size_t size,
                     (char*)allocation_result.begin + aligned_size);
         }
         
-        pas_allocation_result_zero(&allocation_result, aligned_size);
+        allocation_result = pas_allocation_result_zero(allocation_result, aligned_size);
     }
 
     pas_enumerable_range_list_append(
@@ -125,11 +128,16 @@ static pas_aligned_allocation_result large_aligned_allocator(size_t size,
     /* We are likely to introduce more free memory into this heap than the heap can immediately use.
        But we don't want that memory to then immediately get decommitted, since we believe that this
        memory is likely to be used for the very next allocation our of this heap.
-       
-       So we use boot_free, which frees while bumping the epoch. */
+
+       So we use boot_free, which frees while bumping the epoch. The provider_commit_mode tells
+       boot_free whether the memory arriving from the provider is already physically committed (the
+       common case) or merely reserved; in the latter case the next allocate_and_commit emits a
+       real pas_page_malloc_commit before the bytes are made accessible. */
     pas_large_sharing_pool_boot_free(
         pas_range_create(allocation_result.begin, allocation_result.begin + aligned_size),
-        pas_physical_memory_is_locked_by_virtual_range_common_lock);
+        pas_physical_memory_is_locked_by_virtual_range_common_lock,
+        data->config->page_flags,
+        data->cache->provider_commit_mode);
     
     result.result = (void*)allocation_result.begin;
     result.result_size = size;
@@ -145,11 +153,13 @@ static pas_aligned_allocation_result large_aligned_allocator(size_t size,
 void pas_large_heap_physical_page_sharing_cache_construct(
     pas_large_heap_physical_page_sharing_cache* cache,
     pas_heap_page_provider provider,
-    void* provider_arg)
+    void* provider_arg,
+    pas_commit_mode provider_commit_mode)
 {
     pas_simple_large_free_heap_construct(&cache->free_heap);
     cache->provider = provider;
     cache->provider_arg = provider_arg;
+    cache->provider_commit_mode = provider_commit_mode;
 }
 
 pas_allocation_result
@@ -157,6 +167,7 @@ pas_large_heap_physical_page_sharing_cache_try_allocate_with_alignment(
     pas_large_heap_physical_page_sharing_cache* cache,
     size_t size,
     pas_alignment alignment,
+    const pas_heap_config* heap_config,
     bool should_zero)
 {
     static const bool verbose = false;
@@ -165,6 +176,7 @@ pas_large_heap_physical_page_sharing_cache_try_allocate_with_alignment(
     pas_large_free_heap_config config;
     
     data.cache = cache;
+    data.config = heap_config;
     data.should_zero = should_zero;
     
     config.type_size = 1;

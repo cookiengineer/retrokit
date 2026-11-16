@@ -27,13 +27,7 @@
 
 #include <wtf/Bag.h>
 #include <wtf/Platform.h>
-#include <wtf/RefCountedArray.h>
 #include <wtf/RefPtr.h>
-
-#if OS(DARWIN)
-#include <mach/vm_param.h>
-#include <mach/vm_types.h>
-#endif
 
 namespace WTF {
 
@@ -41,13 +35,11 @@ namespace {
 struct DummyStruct { };
 }
 
-static_assert(sizeof(Bag<DummyStruct>) == sizeof(void*), "");
+static_assert(sizeof(Bag<DummyStruct>) == sizeof(void*));
 
-static_assert(sizeof(Ref<DummyStruct>) == sizeof(DummyStruct*), "");
+static_assert(sizeof(Ref<DummyStruct>) == sizeof(DummyStruct*));
 
-static_assert(sizeof(RefPtr<DummyStruct>) == sizeof(DummyStruct*), "");
-
-static_assert(sizeof(RefCountedArray<DummyStruct>) == sizeof(void*), "");
+static_assert(sizeof(RefPtr<DummyStruct>) == sizeof(DummyStruct*));
 
 #if OS(DARWIN) && CPU(ADDRESS64)
 // NaN boxing encoding relies on this.

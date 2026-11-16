@@ -7,18 +7,14 @@
 //   Tests to validate our Vulkan support tables match hardware support.
 //
 
-#include "test_utils/ANGLETest.h"
-#include "test_utils/angle_test_instantiate.h"
-// 'None' is defined as 'struct None {};' in
-// third_party/googletest/src/googletest/include/gtest/internal/gtest-type-util.h.
-// But 'None' is also defined as a numeric constant 0L in <X11/X.h>.
-// So we need to include ANGLETest.h first to avoid this conflict.
-
 #include "libANGLE/Context.h"
+#include "libANGLE/Display.h"
 #include "libANGLE/angletypes.h"
 #include "libANGLE/formatutils.h"
 #include "libANGLE/renderer/vulkan/ContextVk.h"
-#include "libANGLE/renderer/vulkan/RendererVk.h"
+#include "libANGLE/renderer/vulkan/vk_renderer.h"
+#include "test_utils/ANGLETest.h"
+#include "test_utils/angle_test_instantiate.h"
 #include "util/EGLWindow.h"
 
 using namespace angle;
@@ -26,7 +22,7 @@ using namespace angle;
 namespace
 {
 
-class VulkanFormatTablesTest : public ANGLETest
+class VulkanFormatTablesTest : public ANGLETest<>
 {};
 
 struct ParametersToTest
@@ -43,9 +39,12 @@ TEST_P(VulkanFormatTablesTest, TestFormatSupport)
     ASSERT_TRUE(IsVulkan());
 
     // Hack the angle!
-    const gl::Context *context = static_cast<gl::Context *>(getEGLWindow()->getContext());
+    egl::Display *display   = static_cast<egl::Display *>(getEGLWindow()->getDisplay());
+    gl::ContextID contextID = {
+        static_cast<GLuint>(reinterpret_cast<uintptr_t>(getEGLWindow()->getContext()))};
+    gl::Context *context       = display->getContext(contextID);
     auto *contextVk            = rx::GetImplAs<rx::ContextVk>(context);
-    rx::RendererVk *renderer   = contextVk->getRenderer();
+    rx::vk::Renderer *renderer = contextVk->getRenderer();
 
     // We need to test normal 2D images as well as Cube images.
     const std::vector<ParametersToTest> parametersToTest = {
@@ -70,20 +69,23 @@ TEST_P(VulkanFormatTablesTest, TestFormatSupport)
 
         for (const ParametersToTest params : parametersToTest)
         {
+            VkFormat actualImageVkFormat = rx::vk::GetVkFormatFromFormatID(
+                renderer, vkFormat.getActualImageFormatID(rx::vk::ImageFormatSupport::SampleOnly));
+
             // Now let's verify that against vulkan.
             VkFormatProperties formatProperties;
-            vkGetPhysicalDeviceFormatProperties(renderer->getPhysicalDevice(),
-                                                vkFormat.vkImageFormat, &formatProperties);
+            vkGetPhysicalDeviceFormatProperties(renderer->getPhysicalDevice(), actualImageVkFormat,
+                                                &formatProperties);
 
             VkImageFormatProperties imageProperties;
 
             // isTexturable?
             bool isTexturable =
                 vkGetPhysicalDeviceImageFormatProperties(
-                    renderer->getPhysicalDevice(), vkFormat.vkImageFormat, params.imageType,
+                    renderer->getPhysicalDevice(), actualImageVkFormat, params.imageType,
                     VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_SAMPLED_BIT, params.createFlags,
                     &imageProperties) == VK_SUCCESS;
-            EXPECT_EQ(isTexturable, textureCaps.texturable) << vkFormat.vkImageFormat;
+            EXPECT_EQ(isTexturable, textureCaps.texturable) << actualImageVkFormat;
 
             // TODO(jmadill): Support ES3 textures.
 
@@ -91,27 +93,30 @@ TEST_P(VulkanFormatTablesTest, TestFormatSupport)
             bool isFilterable = (formatProperties.optimalTilingFeatures &
                                  VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) ==
                                 VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
-            EXPECT_EQ(isFilterable, textureCaps.filterable) << vkFormat.vkImageFormat;
+            EXPECT_EQ(isFilterable, textureCaps.filterable) << actualImageVkFormat;
 
             // isRenderable?
+            VkFormat actualRenderableImageVkFormat = rx::vk::GetVkFormatFromFormatID(
+                renderer, vkFormat.getActualRenderableImageFormatID());
             const bool isRenderableColor =
                 (vkGetPhysicalDeviceImageFormatProperties(
-                    renderer->getPhysicalDevice(), vkFormat.vkImageFormat, params.imageType,
+                    renderer->getPhysicalDevice(), actualRenderableImageVkFormat, params.imageType,
                     VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
                     params.createFlags, &imageProperties)) == VK_SUCCESS;
             const bool isRenderableDepthStencil =
                 (vkGetPhysicalDeviceImageFormatProperties(
-                    renderer->getPhysicalDevice(), vkFormat.vkImageFormat, params.imageType,
+                    renderer->getPhysicalDevice(), actualRenderableImageVkFormat, params.imageType,
                     VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
                     params.createFlags, &imageProperties)) == VK_SUCCESS;
 
             bool isRenderable = isRenderableColor || isRenderableDepthStencil;
-            EXPECT_EQ(isRenderable, textureCaps.textureAttachment) << vkFormat.vkImageFormat;
-            EXPECT_EQ(isRenderable, textureCaps.renderbuffer) << vkFormat.vkImageFormat;
+            EXPECT_EQ(isRenderable, textureCaps.textureAttachment) << actualImageVkFormat;
+            EXPECT_EQ(isRenderable, textureCaps.renderbuffer) << actualImageVkFormat;
         }
     }
 }
 
 ANGLE_INSTANTIATE_TEST(VulkanFormatTablesTest, ES2_VULKAN());
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(VulkanFormatTablesTest);
 
 }  // anonymous namespace

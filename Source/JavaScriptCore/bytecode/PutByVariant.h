@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,41 +25,48 @@
 
 #pragma once
 
-#include "CacheableIdentifier.h"
-#include "ObjectPropertyConditionSet.h"
-#include "PropertyOffset.h"
-#include "StructureSet.h"
+#include <JavaScriptCore/CacheableIdentifier.h>
+#include "CallLinkStatus.h"
+#include <JavaScriptCore/Intrinsic.h>
+#include <JavaScriptCore/ObjectPropertyConditionSet.h>
+#include <JavaScriptCore/PropertyOffset.h>
+#include <JavaScriptCore/StructureSet.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC {
 
-class CallLinkStatus;
-
 class PutByVariant {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(PutByVariant);
 public:
     enum Kind {
         NotSet,
         Replace,
         Transition,
-        Setter
+        Setter,
+        CustomAccessorSetter,
+        Proxy,
     };
     
     PutByVariant(CacheableIdentifier identifier)
         : m_kind(NotSet)
         , m_offset(invalidOffset)
         , m_newStructure(nullptr)
-        , m_identifier(WTFMove(identifier))
+        , m_identifier(WTF::move(identifier))
     {
     }
     
     PutByVariant(const PutByVariant&);
     PutByVariant& operator=(const PutByVariant&);
 
-    static PutByVariant replace(CacheableIdentifier, const StructureSet&, PropertyOffset);
+    static PutByVariant replace(CacheableIdentifier, const StructureSet&, PropertyOffset, bool viaGlobalProxy);
     
     static PutByVariant transition(CacheableIdentifier, const StructureSet& oldStructure, Structure* newStructure, const ObjectPropertyConditionSet&, PropertyOffset);
     
-    static PutByVariant setter(CacheableIdentifier, const StructureSet&, PropertyOffset, const ObjectPropertyConditionSet&, std::unique_ptr<CallLinkStatus>);
+    static PutByVariant setter(CacheableIdentifier, const StructureSet&, PropertyOffset, bool viaGlobalProxy, const ObjectPropertyConditionSet&, std::unique_ptr<CallLinkStatus>);
+
+    static PutByVariant customSetter(CacheableIdentifier, const StructureSet&, bool viaGlobalProxy, const ObjectPropertyConditionSet&, CodePtr<CustomAccessorPtrTag>, std::unique_ptr<DOMAttributeAnnotation>&&);
+
+    static PutByVariant proxy(CacheableIdentifier, const StructureSet&, std::unique_ptr<CallLinkStatus>);
     
     Kind kind() const { return m_kind; }
     
@@ -68,13 +75,13 @@ public:
     
     const StructureSet& structure() const
     {
-        ASSERT(kind() == Replace || kind() == Setter);
+        ASSERT(kind() == Replace || kind() == Setter || kind() == Proxy || kind() == CustomAccessorSetter);
         return m_oldStructure;
     }
     
     const StructureSet& oldStructure() const
     {
-        ASSERT(kind() == Transition || kind() == Replace || kind() == Setter);
+        ASSERT(kind() == Transition || kind() == Replace || kind() == Setter || kind() == CustomAccessorSetter || kind() == Proxy);
         return m_oldStructure;
     }
     
@@ -85,7 +92,7 @@ public:
     
     StructureSet& oldStructure()
     {
-        ASSERT(kind() == Transition || kind() == Replace || kind() == Setter);
+        ASSERT(kind() == Transition || kind() == Replace || kind() == Setter || kind() == CustomAccessorSetter || kind() == Proxy);
         return m_oldStructure;
     }
     
@@ -94,7 +101,7 @@ public:
         return oldStructure();
     }
     
-    Structure* oldStructureForTransition() const;
+    Structure* NODELETE oldStructureForTransition() const;
     
     Structure* newStructure() const
     {
@@ -102,13 +109,13 @@ public:
         return m_newStructure;
     }
     
-    void fixTransitionToReplaceIfNecessary();
+    void NODELETE fixTransitionToReplaceIfNecessary();
 
-    bool writesStructures() const;
-    bool reallocatesStorage() const;
-    bool makesCalls() const;
+    bool NODELETE writesStructures() const;
+    bool NODELETE reallocatesStorage() const;
+    bool NODELETE makesCalls() const;
     
-    const ObjectPropertyConditionSet& conditionSet() const { return m_conditionSet; }
+    const ObjectPropertyConditionSet& conditionSet() const LIFETIME_BOUND { return m_conditionSet; }
     
     // We don't support intrinsics for Setters (it would be sweet if we did) but we need this for templated helpers.
     Intrinsic intrinsic() const { return NoIntrinsic; }
@@ -124,7 +131,7 @@ public:
     
     CallLinkStatus* callLinkStatus() const
     {
-        ASSERT(kind() == Setter);
+        ASSERT(kind() == Setter || kind() == Proxy);
         return m_callLinkStatus.get();
     }
 
@@ -141,6 +148,8 @@ public:
 
     bool overlaps(const PutByVariant& other)
     {
+        if (m_viaGlobalProxy != other.m_viaGlobalProxy)
+            return true;
         if (!!m_identifier != !!other.m_identifier)
             return true;
         if (m_identifier) {
@@ -150,15 +159,23 @@ public:
         return structureSet().overlaps(other.structureSet());
     }
 
+    bool viaGlobalProxy() const { return m_viaGlobalProxy; }
+
+    CodePtr<CustomAccessorPtrTag> customAccessorSetter() const { return m_customAccessorSetter; }
+    DOMAttributeAnnotation* domAttribute() const LIFETIME_BOUND { return m_domAttribute.get(); }
+
 private:
     bool attemptToMergeTransitionWithReplace(const PutByVariant& replace);
     
     Kind m_kind;
-    PropertyOffset m_offset;
+    bool m_viaGlobalProxy { false };
+    PropertyOffset m_offset { invalidOffset };
     StructureSet m_oldStructure;
     Structure* m_newStructure { nullptr };
     ObjectPropertyConditionSet m_conditionSet;
     std::unique_ptr<CallLinkStatus> m_callLinkStatus;
+    CodePtr<CustomAccessorPtrTag> m_customAccessorSetter;
+    std::unique_ptr<DOMAttributeAnnotation> m_domAttribute;
     CacheableIdentifier m_identifier;
 };
 

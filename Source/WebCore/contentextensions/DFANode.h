@@ -27,7 +27,7 @@
 
 #if ENABLE(CONTENT_EXTENSIONS)
 
-#include "ContentExtensionsDebugging.h"
+#include <WebCore/ContentExtensionsDebugging.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
@@ -57,7 +57,6 @@ public:
             ASSERT(&dfa  == &other.dfa);
             return position == other.position;
         }
-        bool operator!=(const ConstRangeIterator& other) const { return !(*this == other); }
 
         ConstRangeIterator& operator++()
         {
@@ -98,7 +97,6 @@ public:
             ASSERT(&dfa  == &other.dfa);
             return position == other.position;
         }
-        bool operator!=(const RangeIterator& other) const { return !(*this == other); }
 
         RangeIterator& operator++()
         {
@@ -130,16 +128,16 @@ public:
     }
 
     // FIXME: Stop minimizing killed nodes and add ASSERT(!isKilled()) in many functions here.
-    void kill(DFA&);
+    void NODELETE kill(DFA&);
     Vector<uint64_t> actions(const DFA&) const;
-    bool containsTransition(char, const DFA&) const;
+    bool NODELETE containsTransition(char, const DFA&) const;
     
     bool isKilled() const { return m_flags & IsKilled; }
     bool hasActions() const { return !!m_actionsLength; }
     uint16_t actionsLength() const { return m_actionsLength; }
     uint32_t actionsStart() const { return m_actionsStart; }
 
-    bool canUseFallbackTransition(const DFA&) const;
+    bool NODELETE canUseFallbackTransition(const DFA&) const;
     uint32_t bestFallbackTarget(const DFA&) const;
 
     void setActions(uint32_t start, uint16_t length)
@@ -163,10 +161,10 @@ private:
     uint8_t m_transitionsLength { 0 };
     
     uint8_t m_flags { 0 };
-    const uint8_t IsKilled = 0x01;
+    static constexpr uint8_t IsKilled = 0x01;
 };
 
-COMPILE_ASSERT(sizeof(DFANode) <= 16, Keep the DFANodes small);
+static_assert(sizeof(DFANode) <= 16, "Keep the DFANodes small");
 
 } // namespace ContentExtensions
 } // namespace WebCore

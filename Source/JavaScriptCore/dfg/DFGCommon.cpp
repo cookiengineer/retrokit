@@ -26,14 +26,38 @@
 #include "config.h"
 #include "DFGCommon.h"
 
+#include "FunctionAllowlist.h"
 #include <wtf/Lock.h>
+#include <wtf/NeverDestroyed.h>
 #include <wtf/PrintStream.h>
 
 #if ENABLE(DFG_JIT)
 
 namespace JSC { namespace DFG {
 
-const char* const tierName = "DFG ";
+FunctionAllowlist& ensureGlobalDFGAllowlist()
+{
+    static LazyNeverDestroyed<FunctionAllowlist> dfgAllowlist;
+    static std::once_flag initializeAllowlistFlag;
+    std::call_once(initializeAllowlistFlag, [] {
+        const char* functionAllowlistFile = Options::dfgAllowlist();
+        dfgAllowlist.construct(functionAllowlistFile);
+    });
+    return dfgAllowlist;
+}
+
+#if ENABLE(FTL_JIT)
+FunctionAllowlist& ensureGlobalFTLAllowlist()
+{
+    static LazyNeverDestroyed<FunctionAllowlist> ftlAllowlist;
+    static std::once_flag initializeAllowlistFlag;
+    std::call_once(initializeAllowlistFlag, [] {
+        const char* functionAllowlistFile = Options::ftlAllowlist();
+        ftlAllowlist.construct(functionAllowlistFile);
+    });
+    return ftlAllowlist;
+}
+#endif
 
 static Lock crashLock;
 

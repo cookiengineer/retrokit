@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,9 +25,9 @@
 
 #pragma once
 
-#include "JSDOMPromiseDeferred.h"
-#include "ModuleFetchParameters.h"
 #include <JavaScriptCore/ScriptFetcher.h>
+#include <WebCore/JSDOMPromiseDeferredForward.h>
+#include <WebCore/ModuleFetchParameters.h>
 #include <wtf/RefCounted.h>
 
 namespace WebCore {
@@ -36,7 +36,7 @@ class ModuleScriptLoaderClient;
 
 class ModuleScriptLoader : public RefCounted<ModuleScriptLoader> {
 public:
-    virtual ~ModuleScriptLoader() = default;
+    virtual ~ModuleScriptLoader();
 
     void clearClient()
     {
@@ -45,21 +45,18 @@ public:
     }
 
     JSC::ScriptFetcher& scriptFetcher() { return m_scriptFetcher.get(); }
-    ModuleFetchParameters* parameters() { return m_parameters.get(); }
+    JSC::ScriptFetchParameters* parameters() { return m_parameters.get(); }
+
+    virtual bool isCachedModuleScriptLoader() const { return false; }
+    virtual bool isWorkerModuleScriptLoader() const { return false; }
 
 protected:
-    ModuleScriptLoader(ModuleScriptLoaderClient& client, DeferredPromise& promise, JSC::ScriptFetcher& scriptFetcher, RefPtr<ModuleFetchParameters>&& parameters)
-        : m_client(&client)
-        , m_promise(&promise)
-        , m_scriptFetcher(scriptFetcher)
-        , m_parameters(WTFMove(parameters))
-    {
-    }
+    ModuleScriptLoader(ModuleScriptLoaderClient&, DeferredPromise&, JSC::ScriptFetcher&, RefPtr<JSC::ScriptFetchParameters>&&);
 
     ModuleScriptLoaderClient* m_client;
     RefPtr<DeferredPromise> m_promise;
-    Ref<JSC::ScriptFetcher> m_scriptFetcher;
-    RefPtr<ModuleFetchParameters> m_parameters;
+    const Ref<JSC::ScriptFetcher> m_scriptFetcher;
+    const RefPtr<JSC::ScriptFetchParameters> m_parameters;
 };
 
 } // namespace WebCore

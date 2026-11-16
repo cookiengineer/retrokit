@@ -15,6 +15,7 @@
 // So we need to include ANGLETest.h first to avoid this conflict.
 
 #include "libANGLE/Context.h"
+#include "libANGLE/Display.h"
 #include "libANGLE/angletypes.h"
 #include "libANGLE/renderer/vulkan/ContextVk.h"
 #include "libANGLE/renderer/vulkan/ProgramVk.h"
@@ -28,20 +29,27 @@ using namespace angle;
 namespace
 {
 
-class VulkanFramebufferTest : public ANGLETest
+class VulkanFramebufferTest : public ANGLETest<>
 {
   protected:
+    gl::Context *hackContext() const
+    {
+        egl::Display *display   = static_cast<egl::Display *>(getEGLWindow()->getDisplay());
+        gl::ContextID contextID = {
+            static_cast<GLuint>(reinterpret_cast<uintptr_t>(getEGLWindow()->getContext()))};
+        return display->getContext(contextID);
+    }
+
     rx::ContextVk *hackANGLE() const
     {
         // Hack the angle!
-        const gl::Context *context = static_cast<gl::Context *>(getEGLWindow()->getContext());
-        return rx::GetImplAs<rx::ContextVk>(context);
+        return rx::GetImplAs<rx::ContextVk>(hackContext());
     }
 
     rx::TextureVk *hackTexture(GLuint handle) const
     {
         // Hack the angle!
-        const gl::Context *context = static_cast<gl::Context *>(getEGLWindow()->getContext());
+        const gl::Context *context = hackContext();
         const gl::Texture *texture = context->getTexture({handle});
         return rx::vk::GetImpl(texture);
     }
@@ -70,14 +78,55 @@ TEST_P(VulkanFramebufferTest, TextureAttachmentMipIncomplete)
     glClear(GL_COLOR_BUFFER_BIT);
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::black);
 
-    // http://anglebug.com/4686: The Vulkan backend is allocating three mips of sizes 100x100,
-    // 50x50 and 25x25 instead of one mip of size 100x100.
-    ANGLE_SKIP_TEST_IF(IsVulkan());
-
     rx::TextureVk *textureVk = hackTexture(texture);
     EXPECT_EQ(textureVk->getImage().getLevelCount(), 1u);
 }
 
+// Test ensure that a R4G4B4A4 format sample only will actually uses R4G4B4A4 format instead of
+// R8G8B8A8.
+TEST_P(VulkanFramebufferTest, R4G4B4A4TextureSampleOnlyActuallyUses444Format)
+{
+    rx::ContextVk *contextVk   = hackANGLE();
+    rx::vk::Renderer *renderer = contextVk->getRenderer();
+    angle::FormatID formatID   = angle::FormatID::R4G4B4A4_UNORM;
+
+    // Check if R4G4B4A4_UNORM is supported format.
+    bool isTexturable = renderer->hasImageFormatFeatureBits(
+        formatID,
+        VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT);
+    ANGLE_SKIP_TEST_IF(!isTexturable);
+
+    static constexpr GLsizei kTexWidth  = 100;
+    static constexpr GLsizei kTexHeight = 100;
+    GLTexture texture;
+    glBindTexture(GL_TEXTURE_2D, texture);
+
+    const GLushort u16Color = 0xF00F;  // red
+    std::vector<GLushort> pixels(kTexWidth * kTexHeight, u16Color);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA4, kTexWidth, kTexHeight, 0, GL_RGBA,
+                 GL_UNSIGNED_SHORT_4_4_4_4, pixels.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    ANGLE_GL_PROGRAM(program, essl3_shaders::vs::Texture2DLod(), essl3_shaders::fs::Texture2DLod());
+    glUseProgram(program);
+    GLint textureLocation = glGetUniformLocation(program, essl3_shaders::Texture2DUniform());
+    ASSERT_NE(-1, textureLocation);
+    GLint lodLocation = glGetUniformLocation(program, essl3_shaders::LodUniform());
+    ASSERT_NE(-1, lodLocation);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glClearColor(0, 1, 0, 1);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glUniform1f(lodLocation, 0);
+    drawQuad(program, essl3_shaders::PositionAttrib(), 0.5f);
+    EXPECT_PIXEL_EQ(getWindowWidth() / 2, getWindowHeight() / 2, 255, 0, 0, 255);
+    ASSERT_GL_NO_ERROR();
+
+    rx::TextureVk *textureVk = hackTexture(texture);
+    EXPECT_EQ(textureVk->getImage().getActualFormatID(), formatID);
+}
+
 ANGLE_INSTANTIATE_TEST(VulkanFramebufferTest, ES3_VULKAN());
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(VulkanFramebufferTest);
 
 }  // anonymous namespace

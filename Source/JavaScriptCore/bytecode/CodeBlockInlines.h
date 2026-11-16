@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,65 +25,27 @@
 
 #pragma once
 
+#include "BaselineJITCode.h"
 #include "BytecodeStructs.h"
 #include "CodeBlock.h"
+#include "DFGJITCode.h"
 #include "UnlinkedMetadataTableInlines.h"
 
 namespace JSC {
 
+#define CODEBLOCK_MAGIC 0xc0deb10c
+
 template<typename Functor>
 void CodeBlock::forEachValueProfile(const Functor& func)
 {
-    for (unsigned i = 0; i < numberOfArgumentValueProfiles(); ++i)
-        func(valueProfileForArgument(i), true);
+    for (auto& profile : argumentValueProfiles())
+        func(profile, true);
 
     if (m_metadata) {
-#define VISIT(__op) \
-        m_metadata->forEach<__op>([&] (auto& metadata) { func(metadata.m_profile, false); });
-
-        FOR_EACH_OPCODE_WITH_VALUE_PROFILE(VISIT)
-
-#undef VISIT
-
-        m_metadata->forEach<OpIteratorOpen>([&] (auto& metadata) { 
-            func(metadata.m_iterableProfile, false);
-            func(metadata.m_iteratorProfile, false);
-            func(metadata.m_nextProfile, false);
-        });
-
-        m_metadata->forEach<OpIteratorNext>([&] (auto& metadata) {
-            func(metadata.m_nextResultProfile, false);
-            func(metadata.m_doneProfile, false);
-            func(metadata.m_valueProfile, false);
-        });
-    }   
-
-}
-
-template<typename Functor>
-void CodeBlock::forEachArrayProfile(const Functor& func)
-{
-    if (m_metadata) {
-        m_metadata->forEach<OpGetById>([&] (auto& metadata) {
-            if (metadata.m_modeMetadata.mode == GetByIdMode::ArrayLength)
-                func(metadata.m_modeMetadata.arrayLengthMode.arrayProfile);
-        });
-
-#define VISIT1(__op) \
-    m_metadata->forEach<__op>([&] (auto& metadata) { func(metadata.m_arrayProfile); });
-
-#define VISIT2(__op) \
-    m_metadata->forEach<__op>([&] (auto& metadata) { func(metadata.m_callLinkInfo.m_arrayProfile); });
-
-        FOR_EACH_OPCODE_WITH_ARRAY_PROFILE(VISIT1)
-        FOR_EACH_OPCODE_WITH_LLINT_CALL_LINK_INFO(VISIT2)
-
-#undef VISIT1
-#undef VISIT2
-
-        m_metadata->forEach<OpIteratorNext>([&] (auto& metadata) {
-            func(metadata.m_iterableProfile);
-        });
+        auto wrapper = [&] (ValueProfile& profile) {
+            func(profile, false);
+        };
+        m_metadata->forEachValueProfile(wrapper);
     }
 }
 
@@ -114,16 +76,57 @@ void CodeBlock::forEachObjectAllocationProfile(const Functor& func)
 }
 
 template<typename Functor>
-void CodeBlock::forEachLLIntCallLinkInfo(const Functor& func)
+void CodeBlock::forEachLLIntOrBaselineCallLinkInfo(const Functor& func)
 {
     if (m_metadata) {
 #define VISIT(__op) \
     m_metadata->forEach<__op>([&] (auto& metadata) { func(metadata.m_callLinkInfo); });
 
-        FOR_EACH_OPCODE_WITH_LLINT_CALL_LINK_INFO(VISIT)
+        FOR_EACH_OPCODE_WITH_CALL_LINK_INFO(VISIT)
 
 #undef VISIT
     }
 }
+
+#if ENABLE(JIT)
+ALWAYS_INLINE const JITCodeMap& CodeBlock::jitCodeMap()
+{
+    ASSERT(jitType() == JITType::BaselineJIT);
+    return static_cast<BaselineJITCode*>(m_jitCode.get())->m_jitCodeMap;
+}
+
+ALWAYS_INLINE SimpleJumpTable& CodeBlock::baselineSwitchJumpTable(int tableIndex)
+{
+    ASSERT(jitType() == JITType::BaselineJIT);
+    return static_cast<BaselineJITCode*>(m_jitCode.get())->m_switchJumpTables[tableIndex];
+}
+
+ALWAYS_INLINE StringJumpTable& CodeBlock::baselineStringSwitchJumpTable(int tableIndex)
+{
+    ASSERT(jitType() == JITType::BaselineJIT);
+    return static_cast<BaselineJITCode*>(m_jitCode.get())->m_stringSwitchJumpTables[tableIndex];
+}
+#endif
+
+#if ENABLE(DFG_JIT)
+ALWAYS_INLINE SimpleJumpTable& CodeBlock::dfgSwitchJumpTable(int tableIndex)
+{
+    ASSERT(jitType() == JITType::DFGJIT);
+    return static_cast<DFG::JITCode*>(m_jitCode.get())->m_switchJumpTables[tableIndex];
+}
+
+ALWAYS_INLINE StringJumpTable& CodeBlock::dfgStringSwitchJumpTable(int tableIndex)
+{
+    ASSERT(jitType() == JITType::DFGJIT);
+    return static_cast<DFG::JITCode*>(m_jitCode.get())->m_stringSwitchJumpTables[tableIndex];
+}
+#endif
+
+#if ASSERT_ENABLED
+ALWAYS_INLINE bool CodeBlock::wasDestructed()
+{
+    return m_magic != CODEBLOCK_MAGIC;
+}
+#endif
 
 } // namespace JSC

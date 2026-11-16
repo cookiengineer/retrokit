@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2010 University of Szeged
  * Copyright (C) 2010 Zoltan Herczeg
+ * Copyright (C) 2021-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,134 +27,50 @@
 
 #pragma once
 
-#include "Color.h"
-#include "Filter.h"
-#include "FilterEffect.h"
-#include "LightSource.h"
-#include <JavaScriptCore/Uint8ClampedArray.h>
-
-// Common base class for FEDiffuseLighting and FESpecularLighting
+#include <WebCore/Color.h>
+#include <WebCore/DistantLightSource.h>
+#include <WebCore/FilterEffect.h>
+#include <WebCore/PointLightSource.h>
+#include <WebCore/SpotLightSource.h>
 
 namespace WebCore {
 
 struct FELightingPaintingDataForNeon;
 
 class FELighting : public FilterEffect {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(FELighting);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(FELighting);
 public:
-    void determineAbsolutePaintRect() override { setAbsolutePaintRect(enclosingIntRect(maxEffectRect())); }
+    bool operator==(const FELighting&) const;
+
+    const Color& lightingColor() const LIFETIME_BOUND { return m_lightingColor; }
+    bool NODELETE setLightingColor(const Color&);
 
     float surfaceScale() const { return m_surfaceScale; }
-    bool setSurfaceScale(float);
+    bool NODELETE setSurfaceScale(float);
 
-    const Color& lightingColor() const { return m_lightingColor; }
-    bool setLightingColor(const Color&);
+    float diffuseConstant() const { return m_diffuseConstant; }
+    float specularConstant() const { return m_specularConstant; }
+    float specularExponent() const { return m_specularExponent; }
 
     float kernelUnitLengthX() const { return m_kernelUnitLengthX; }
-    bool setKernelUnitLengthX(float);
+    bool NODELETE setKernelUnitLengthX(float);
 
     float kernelUnitLengthY() const { return m_kernelUnitLengthY; }
-    bool setKernelUnitLengthY(float);
+    bool NODELETE setKernelUnitLengthY(float);
 
-    const LightSource& lightSource() const { return m_lightSource.get(); }
+    LightSource& lightSource() const { return m_lightSource; }
 
 protected:
-    static const int s_minimalRectDimension = 100 * 100; // Empirical data limit for parallel jobs
+    FELighting(Type, const Color& lightingColor, float surfaceScale, float diffuseConstant, float specularConstant, float specularExponent, float kernelUnitLengthX, float kernelUnitLengthY, Ref<LightSource>&&, DestinationColorSpace);
 
-    enum LightingType {
-        DiffuseLighting,
-        SpecularLighting
-    };
-    
-    struct AlphaWindow {
-        uint8_t alpha[3][3] { };
-        
-        // The implementations are lined up to make comparing indices easier.
-        uint8_t topLeft() const             { return alpha[0][0]; }
-        uint8_t left() const                { return alpha[1][0]; }
-        uint8_t bottomLeft() const          { return alpha[2][0]; }
+    using FilterEffect::operator==;
 
-        uint8_t top() const                 { return alpha[0][1]; }
-        uint8_t center() const              { return alpha[1][1]; }
-        uint8_t bottom() const              { return alpha[2][1]; }
+    FloatRect calculateImageRect(const Filter&, std::span<const FloatRect> inputImageRects, const FloatRect& primitiveSubregion) const override;
 
-        void setTop(uint8_t value)          { alpha[0][1] = value; }
-        void setCenter(uint8_t value)       { alpha[1][1] = value; }
-        void setBottom(uint8_t value)       { alpha[2][1] = value; }
-
-        void setTopRight(uint8_t value)     { alpha[0][2] = value; }
-        void setRight(uint8_t value)        { alpha[1][2] = value; }
-        void setBottomRight(uint8_t value)  { alpha[2][2] = value; }
-
-        static void shiftRow(uint8_t alpha[3])
-        {
-            alpha[0] = alpha[1];
-            alpha[1] = alpha[2];
-        }
-        
-        void shift()
-        {
-            shiftRow(alpha[0]);
-            shiftRow(alpha[1]);
-            shiftRow(alpha[2]);
-        }
-    };
-
-    struct LightingData {
-        // This structure contains only read-only (SMP safe) data
-        Uint8ClampedArray* pixels;
-        float surfaceScale;
-        int widthMultipliedByPixelSize;
-        int widthDecreasedByOne;
-        int heightDecreasedByOne;
-
-        inline IntSize topLeftNormal(int offset) const;
-        inline IntSize topRowNormal(int offset) const;
-        inline IntSize topRightNormal(int offset) const;
-        inline IntSize leftColumnNormal(int offset) const;
-        inline IntSize interiorNormal(int offset, AlphaWindow&) const;
-        inline IntSize rightColumnNormal(int offset) const;
-        inline IntSize bottomLeftNormal(int offset) const;
-        inline IntSize bottomRowNormal(int offset) const;
-        inline IntSize bottomRightNormal(int offset) const;
-    };
-
-    template<typename Type>
-    friend class ParallelJobs;
-
-    struct PlatformApplyGenericParameters {
-        FELighting* filter;
-        LightingData data;
-        LightSource::PaintingData paintingData;
-        int yStart;
-        int yEnd;
-    };
-
-    static void platformApplyGenericWorker(PlatformApplyGenericParameters*);
-    static void platformApplyNeonWorker(FELightingPaintingDataForNeon*);
-
-    FELighting(Filter&, LightingType, const Color&, float, float, float, float, float, float, Ref<LightSource>&&, Type);
-
-    const char* filterName() const final { return "FELighting"; }
-
-    bool drawLighting(Uint8ClampedArray&, int, int);
-
-    void setPixel(int offset, const LightingData&, const LightSource::PaintingData&, int x, int y, float factorX, float factorY, IntSize normalVector);
-    void setPixelInternal(int offset, const LightingData&, const LightSource::PaintingData&, int x, int y, float factorX, float factorY, IntSize normalVector, float alpha);
-
-    void platformApplySoftware() override;
-
-    void platformApply(const LightingData&, const LightSource::PaintingData&);
-
-    void platformApplyGenericPaint(const LightingData&, const LightSource::PaintingData&, int startX, int startY);
-    void platformApplyGeneric(const LightingData&, const LightSource::PaintingData&);
-
-#if CPU(ARM_NEON) && CPU(ARM_TRADITIONAL) && COMPILER(GCC_COMPATIBLE)
-    static int getPowerCoefficients(float exponent);
-    inline void platformApplyNeon(const LightingData&, const LightSource::PaintingData&);
-#endif
-
-    LightingType m_lightingType;
-    Ref<LightSource> m_lightSource;
+    OptionSet<FilterRenderingMode> supportedFilterRenderingModes(OptionSet<FilterRenderingMode>) const override;
+    std::unique_ptr<FilterEffectApplier> createAcceleratedApplier() const override;
+    std::unique_ptr<FilterEffectApplier> createSoftwareApplier() const override;
 
     Color m_lightingColor;
     float m_surfaceScale;
@@ -162,7 +79,7 @@ protected:
     float m_specularExponent;
     float m_kernelUnitLengthX;
     float m_kernelUnitLengthY;
+    const Ref<LightSource> m_lightSource;
 };
 
 } // namespace WebCore
-

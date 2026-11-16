@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,24 +28,42 @@
 
 #if ENABLE(WEB_AUTHN)
 
+#include "Logging.h"
+#include <wtf/TZoneMallocInlines.h>
+
 namespace WebKit {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MockAuthenticatorManager);
+
+Ref<MockAuthenticatorManager> MockAuthenticatorManager::create(WebCore::MockWebAuthenticationConfiguration&& configuration)
+{
+    return adoptRef(*new MockAuthenticatorManager(WTF::move(configuration)));
+}
+
 MockAuthenticatorManager::MockAuthenticatorManager(WebCore::MockWebAuthenticationConfiguration&& configuration)
-    : m_testConfiguration(WTFMove(configuration))
+    : m_testConfiguration(WTF::move(configuration))
 {
 }
 
-UniqueRef<AuthenticatorTransportService> MockAuthenticatorManager::createService(WebCore::AuthenticatorTransport transport, AuthenticatorTransportService::Observer& observer) const
+Ref<AuthenticatorTransportService> MockAuthenticatorManager::createService(WebCore::AuthenticatorTransport transport, AuthenticatorTransportServiceObserver& observer) const
 {
     return AuthenticatorTransportService::createMock(transport, observer, m_testConfiguration);
 }
 
-void MockAuthenticatorManager::respondReceivedInternal(Respond&& respond)
+void MockAuthenticatorManager::respondReceivedInternal(Respond&& respond, bool shouldComplete)
 {
+    validateHidExpectedCommands();
+    if (shouldComplete) {
+        invokePendingCompletionHandler(WTF::move(respond));
+        clearStateAsync();
+        requestTimeOutTimer().stop();
+        return;
+    }
+
     if (m_testConfiguration.silentFailure)
         return;
 
-    invokePendingCompletionHandler(WTFMove(respond));
+    invokePendingCompletionHandler(WTF::move(respond));
     clearStateAsync();
     requestTimeOutTimer().stop();
 }
@@ -56,6 +74,17 @@ void MockAuthenticatorManager::filterTransports(TransportSet& transports) const
         transports.remove(WebCore::AuthenticatorTransport::Nfc);
     if (!m_testConfiguration.local)
         transports.remove(WebCore::AuthenticatorTransport::Internal);
+    if (!m_testConfiguration.ccid)
+        transports.remove(WebCore::AuthenticatorTransport::SmartCard);
+    transports.remove(WebCore::AuthenticatorTransport::Ble);
+}
+
+void MockAuthenticatorManager::validateHidExpectedCommands()
+{
+    for (auto& service : services())
+        service->validateExpectedCommandsCompleted();
+
+    RELEASE_LOG(WebAuthn, "MockAuthenticatorManager: validateHidExpectedCommandscompleted");
 }
 
 } // namespace WebKit

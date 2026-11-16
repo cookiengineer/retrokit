@@ -27,11 +27,12 @@
 
 #include "WebProcessSupplement.h"
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WallTime.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
-struct SecurityOriginData;
+class SecurityOriginData;
 }
 
 namespace WebKit {
@@ -39,15 +40,15 @@ namespace WebKit {
 class WebProcess;
 
 class WebMediaKeyStorageManager : public WebProcessSupplement {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(WebMediaKeyStorageManager);
     WTF_MAKE_NONCOPYABLE(WebMediaKeyStorageManager);
 public:
     explicit WebMediaKeyStorageManager(WebProcess&) { }
-    virtual ~WebMediaKeyStorageManager() { }
+    virtual ~WebMediaKeyStorageManager() = default;
 
-    static const char* supplementName();
+    static ASCIILiteral supplementName();
 
-    const String& mediaKeyStorageDirectory() const { return m_mediaKeyStorageDirectory; }
+    const String& mediaKeyStorageDirectory() const LIFETIME_BOUND { return m_mediaKeyStorageDirectory; }
     String mediaKeyStorageDirectoryForOrigin(const WebCore::SecurityOriginData&);
 
     Vector<WebCore::SecurityOriginData> getMediaKeyOrigins();

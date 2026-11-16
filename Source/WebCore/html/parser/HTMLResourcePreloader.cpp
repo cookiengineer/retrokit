@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Google Inc. All Rights Reserved.
+ * Copyright (C) 2013 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,20 +26,26 @@
 #include "config.h"
 #include "HTMLResourcePreloader.h"
 
-#include "CachedResourceLoader.h"
 #include "CrossOriginAccessControl.h"
 #include "DefaultResourceLoadPriority.h"
-#include "Document.h"
-#include "ScriptElementCachedScriptFetcher.h"
-
+#include "DocumentResourceLoader.h"
+#include "DocumentView.h"
 #include "MediaQueryEvaluator.h"
+#include "MediaQueryParser.h"
+#include "NodeRenderStyle.h"
 #include "RenderView.h"
+#include "ScriptElementCachedScriptFetcher.h"
+#include <wtf/TZoneMallocInlines.h>
+#include "FrameDestructionObserverInlines.h"
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PreloadRequest);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLResourcePreloader);
+
 URL PreloadRequest::completeURL(Document& document)
 {
-    return document.completeURL(m_resourceURL, m_baseURL.isEmpty() ? document.baseURL() : m_baseURL);
+    return document.encodingParseURL(m_resourceURL, m_baseURL.isEmpty() ? document.baseURL() : m_baseURL);
 }
 
 CachedResourceRequest PreloadRequest::resourceRequest(Document& document)
@@ -47,46 +53,67 @@ CachedResourceRequest PreloadRequest::resourceRequest(Document& document)
     ASSERT(isMainThread());
 
     bool skipContentSecurityPolicyCheck = false;
-    if (m_resourceType == CachedResource::Type::Script)
-        skipContentSecurityPolicyCheck = document.contentSecurityPolicy()->allowScriptWithNonce(m_nonceAttribute);
-    else if (m_resourceType == CachedResource::Type::CSSStyleSheet)
-        skipContentSecurityPolicyCheck = document.contentSecurityPolicy()->allowStyleWithNonce(m_nonceAttribute);
+    if (!m_nonceAttribute.isEmpty()) {
+        if (m_resourceType == CachedResource::Type::Script || m_resourceType == CachedResource::Type::JSON)
+            skipContentSecurityPolicyCheck = protect(document.contentSecurityPolicy())->allowScriptWithNonce(m_nonceAttribute);
+        else if (m_resourceType == CachedResource::Type::CSSStyleSheet)
+            skipContentSecurityPolicyCheck = protect(document.contentSecurityPolicy())->allowStyleWithNonce(m_nonceAttribute);
+    }
 
     ResourceLoaderOptions options = CachedResourceLoader::defaultCachedResourceOptions();
     if (skipContentSecurityPolicyCheck)
         options.contentSecurityPolicyImposition = ContentSecurityPolicyImposition::SkipPolicyCheck;
 
     String crossOriginMode = m_crossOriginMode;
-    if (m_moduleScript == ModuleScript::Yes) {
+    if (m_scriptType == ScriptType::Module) {
         if (crossOriginMode.isNull())
             crossOriginMode = ScriptElementCachedScriptFetcher::defaultCrossOriginModeForModule;
     }
-    if (m_resourceType == CachedResource::Type::Script || m_resourceType == CachedResource::Type::ImageResource)
+    if (m_resourceType == CachedResource::Type::Script || m_resourceType == CachedResource::Type::JSON || m_resourceType == CachedResource::Type::ImageResource)
         options.referrerPolicy = m_referrerPolicy;
-    auto request = createPotentialAccessControlRequest(completeURL(document), WTFMove(options), document, crossOriginMode);
-    request.setInitiator(m_initiator);
+    options.fetchPriority = m_fetchPriority;
+    options.nonce = m_nonceAttribute;
+    options.integrity = m_integrityAttribute;
+    auto request = createPotentialAccessControlRequest(completeURL(document), WTF::move(options), document, crossOriginMode);
+    request.setInitiatorType(m_initiatorType);
 
-    if (m_scriptIsAsync && m_resourceType == CachedResource::Type::Script && m_moduleScript == ModuleScript::No)
+    if (m_scriptIsAsync && m_resourceType == CachedResource::Type::Script && m_scriptType == ScriptType::Classic)
         request.setPriority(DefaultResourceLoadPriority::asyncScript);
 
     return request;
 }
 
+Ref<HTMLResourcePreloader> HTMLResourcePreloader::create(Document& document)
+{
+    return adoptRef(*new HTMLResourcePreloader(document));
+}
+
+HTMLResourcePreloader::HTMLResourcePreloader(Document& document)
+    : m_document(document)
+{
+}
+
+HTMLResourcePreloader::~HTMLResourcePreloader() = default;
+
 void HTMLResourcePreloader::preload(PreloadRequestStream requests)
 {
     for (auto& request : requests)
-        preload(WTFMove(request));
+        preload(WTF::move(request));
 }
 
 void HTMLResourcePreloader::preload(std::unique_ptr<PreloadRequest> preload)
 {
-    ASSERT(m_document.frame());
-    ASSERT(m_document.renderView());
-    if (!preload->media().isEmpty() && !MediaQueryEvaluator::mediaAttributeMatches(m_document, preload->media()))
+    RefPtr document = m_document.get();
+    if (!document || !document->frame())
         return;
 
-    m_document.cachedResourceLoader().preload(preload->resourceType(), preload->resourceRequest(m_document));
-}
+    ASSERT(document->renderView());
 
+    auto queries = MQ::MediaQueryParser::parse(preload->media(), document->cssParserContext());
+    if (!MQ::MediaQueryEvaluator { screenAtom(), *document }.evaluate(queries))
+        return;
+
+    std::ignore = protect(document->cachedResourceLoader())->preload(preload->resourceType(), preload->resourceRequest(*document));
+}
 
 }

@@ -26,22 +26,28 @@
 #pragma once
 
 #include <wtf/Forward.h>
+#include <wtf/text/ASCIILiteral.h>
 
 namespace WebCore {
 
 class Text;
 
-#define AppleInterchangeNewline   "Apple-interchange-newline"
-#define AppleConvertedSpace       "Apple-converted-space"
-#define ApplePasteAsQuotation     "Apple-paste-as-quotation"
-#define AppleStyleSpanClass       "Apple-style-span"
-#define AppleTabSpanClass         "Apple-tab-span"
-#define WebKitMSOListQuirksStyle  "WebKit-mso-list-quirks-style"
+constexpr auto AppleInterchangeNewline = "Apple-interchange-newline"_s;
+constexpr auto AppleConvertedSpace = "Apple-converted-space"_s;
+constexpr auto WebKitMSOListQuirksStyle = "WebKit-mso-list-quirks-style"_s;
+
+constexpr auto ApplePasteAsQuotation = "Apple-paste-as-quotation"_s;
+constexpr auto AppleStyleSpanClass = "Apple-style-span"_s;
+constexpr auto AppleTabSpanClass = "Apple-tab-span"_s;
+
+constexpr auto AppleDashListClass = "Apple-dash-list"_s;
+constexpr auto AppleDecimalListClass = "Apple-decimal-list"_s;
+constexpr auto AppleDiscListClass = "Apple-disc-list"_s;
 
 // Controls whether a special BR which is removed upon paste in ReplaceSelectionCommand needs to be inserted
 // and making sequence of spaces not collapsible by inserting non-breaking spaces.
 // See https://trac.webkit.org/r8087 and https://trac.webkit.org/r8096.
-enum class AnnotateForInterchange : uint8_t { No, Yes };
+enum class AnnotateForInterchange : bool { No, Yes };
 
 String convertHTMLTextToInterchangeFormat(const String&, const Text*);
 

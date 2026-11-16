@@ -33,9 +33,9 @@
 #include "TextCombinerPadGStreamer.h"
 #include <wtf/glib/WTFGType.h>
 
-static GstStaticPadTemplate sinkTemplate = GST_STATIC_PAD_TEMPLATE("sink_%u", GST_PAD_SINK, GST_PAD_REQUEST, GST_STATIC_CAPS_ANY);
+static GstStaticPadTemplate combinerSinkTemplate = GST_STATIC_PAD_TEMPLATE("sink_%u", GST_PAD_SINK, GST_PAD_REQUEST, GST_STATIC_CAPS_ANY);
 
-static GstStaticPadTemplate srcTemplate = GST_STATIC_PAD_TEMPLATE("src", GST_PAD_SRC, GST_PAD_ALWAYS, GST_STATIC_CAPS_ANY);
+static GstStaticPadTemplate combinerSrcTemplate = GST_STATIC_PAD_TEMPLATE("src", GST_PAD_SRC, GST_PAD_ALWAYS, GST_STATIC_CAPS_ANY);
 
 GST_DEBUG_CATEGORY_STATIC(webkitTextCombinerDebug);
 #define GST_CAT_DEFAULT webkitTextCombinerDebug
@@ -44,7 +44,6 @@ struct _WebKitTextCombinerPrivate {
     GRefPtr<GstElement> combinerElement;
 };
 
-#define webkit_text_combiner_parent_class parent_class
 WEBKIT_DEFINE_TYPE_WITH_CODE(WebKitTextCombiner, webkit_text_combiner, GST_TYPE_BIN,
     GST_DEBUG_CATEGORY_INIT(webkitTextCombinerDebug, "webkittextcombiner", 0, "webkit text combiner"))
 
@@ -55,39 +54,39 @@ void webKitTextCombinerHandleCaps(WebKitTextCombiner* combiner, GstPad* pad, con
     ASSERT(caps);
     GST_DEBUG_OBJECT(combiner, "Handling caps %" GST_PTR_FORMAT, caps);
 
-    auto target = adoptGRef(gst_ghost_pad_get_target(GST_GHOST_PAD(pad)));
+    GRefPtr target = adoptGRef(gst_ghost_pad_get_target(GST_GHOST_PAD(pad)));
     auto targetParent = target ? adoptGRef(gst_pad_get_parent_element(target.get())) : nullptr;
     auto* combinerPad = WEBKIT_TEXT_COMBINER_PAD(pad);
 
     GRefPtr<GstPad> internalPad;
     g_object_get(combinerPad, "inner-combiner-pad", &internalPad.outPtr(), nullptr);
 
-    auto cea608Caps = adoptGRef(gst_caps_new_empty_simple("closedcaption/x-cea-608"));
-    auto textCaps = adoptGRef(gst_caps_new_empty_simple("text/x-raw"));
+    GRefPtr cea608Caps = adoptGRef(gst_caps_new_empty_simple("closedcaption/x-cea-608"));
+    GRefPtr textCaps = adoptGRef(gst_caps_new_empty_simple("text/x-raw"));
     if (gst_caps_can_intersect(textCaps.get(), caps)) {
         // Caps are plain text, we want a WebVTT encoder between the ghostpad and the combinerElement.
         if (!target || gstElementFactoryEquals(targetParent.get(), "webvttenc"_s)) {
             GST_DEBUG_OBJECT(combiner, "Setting up a WebVTT encoder");
-            auto* encoder = makeGStreamerElement("webvttenc", nullptr);
+            auto* encoder = makeGStreamerElement("webvttenc"_s);
             ASSERT(encoder);
 
             gst_bin_add(GST_BIN_CAST(combiner), encoder);
             gst_element_sync_state_with_parent(encoder);
 
             // Switch the ghostpad to target the WebVTT encoder.
-            auto sinkPad = adoptGRef(gst_element_get_static_pad(encoder, "sink"));
+            GRefPtr sinkPad = adoptGRef(gst_element_get_static_pad(encoder, "sink"));
             ASSERT(sinkPad);
 
             gst_ghost_pad_set_target(GST_GHOST_PAD(pad), sinkPad.get());
 
             // Connect the WebVTT encoder to the combinerElement.
-            auto srcPad = adoptGRef(gst_element_get_static_pad(encoder, "src"));
+            GRefPtr srcPad = adoptGRef(gst_element_get_static_pad(encoder, "src"));
             ASSERT(srcPad);
 
             gst_pad_link(srcPad.get(), internalPad.get());
         } // Else: pipeline is already correct.
     } else if (gst_caps_can_intersect(cea608Caps.get(), caps)) {
-        if (!isGStreamerPluginAvailable("rsclosedcaption") || !isGStreamerPluginAvailable("closedcaption")) {
+        if (!isGStreamerPluginAvailable("rsclosedcaption"_s) || !isGStreamerPluginAvailable("closedcaption"_s)) {
             WTFLogAlways("GStreamer closedcaption plugins are missing. Please install gst-plugins-bad and gst-plugins-rs");
             return;
         }
@@ -95,24 +94,24 @@ void webKitTextCombinerHandleCaps(WebKitTextCombiner* combiner, GstPad* pad, con
         GST_DEBUG_OBJECT(combiner, "Converting CEA-608 closed captions to WebVTT.");
         auto* encoder = gst_bin_new(nullptr);
         auto* queue = gst_element_factory_make("queue", nullptr);
-        auto* converter = makeGStreamerElement("ccconverter", nullptr);
+        auto* converter = makeGStreamerElement("ccconverter"_s);
         auto* rawCapsFilter = gst_element_factory_make("capsfilter", nullptr);
-        auto* webvttEncoder = makeGStreamerElement("cea608tott", nullptr);
+        auto* webvttEncoder = makeGStreamerElement("cea608tott"_s);
         auto* vttCapsFilter = gst_element_factory_make("capsfilter", nullptr);
 
-        auto rawCaps = adoptGRef(gst_caps_new_simple("closedcaption/x-cea-608", "format", G_TYPE_STRING, "raw", nullptr));
+        GRefPtr rawCaps = adoptGRef(gst_caps_new_simple("closedcaption/x-cea-608", "format", G_TYPE_STRING, "raw", nullptr));
         g_object_set(rawCapsFilter, "caps", rawCaps.get(), nullptr);
-        auto vttCaps = adoptGRef(gst_caps_new_empty_simple("application/x-subtitle-vtt"));
+        GRefPtr vttCaps = adoptGRef(gst_caps_new_empty_simple("application/x-subtitle-vtt"));
         g_object_set(vttCapsFilter, "caps", vttCaps.get(), nullptr);
 
         gst_bin_add_many(GST_BIN_CAST(encoder), queue, converter, rawCapsFilter, webvttEncoder, vttCapsFilter, nullptr);
         gst_element_link_many(queue, converter, rawCapsFilter, webvttEncoder, vttCapsFilter, nullptr);
 
-        auto encoderSinkPad = adoptGRef(gst_element_get_static_pad(queue, "sink"));
+        GRefPtr encoderSinkPad = adoptGRef(gst_element_get_static_pad(queue, "sink"));
         auto* ghostSinkPad = gst_ghost_pad_new("sink", encoderSinkPad.get());
         gst_element_add_pad(encoder, ghostSinkPad);
 
-        auto encoderSrcPad = adoptGRef(gst_element_get_static_pad(vttCapsFilter, "src"));
+        GRefPtr encoderSrcPad = adoptGRef(gst_element_get_static_pad(vttCapsFilter, "src"));
         auto* ghostSrcPad = gst_ghost_pad_new("src", encoderSrcPad.get());
         gst_element_add_pad(encoder, ghostSrcPad);
 
@@ -141,7 +140,7 @@ void webKitTextCombinerHandleCaps(WebKitTextCombiner* combiner, GstPad* pad, con
     }
 }
 
-static GstPad* webkitTextCombinerRequestNewPad(GstElement* element, GstPadTemplate* templ, const char* name, const GstCaps* caps)
+static GstPad* webkitTextCombinerRequestNewPad(GstElement* element, GstPadTemplate*, const char*, const GstCaps*)
 {
     auto* combiner = WEBKIT_TEXT_COMBINER(element);
     ASSERT(combiner);
@@ -150,7 +149,7 @@ static GstPad* webkitTextCombinerRequestNewPad(GstElement* element, GstPadTempla
     auto* ghostPad = GST_PAD_CAST(g_object_new(WEBKIT_TYPE_TEXT_COMBINER_PAD, "direction", GST_PAD_SINK, nullptr));
     ASSERT(ghostPad);
 
-    auto* internalPad = gst_element_request_pad(combiner->priv->combinerElement.get(), templ, name, caps);
+    auto* internalPad = gst_element_request_pad_simple(combiner->priv->combinerElement.get(), "sink_%u");
     g_object_set(WEBKIT_TEXT_COMBINER_PAD(ghostPad), "inner-combiner-pad", internalPad, nullptr);
 
     gst_pad_set_active(ghostPad, true);
@@ -163,8 +162,8 @@ static void webkitTextCombinerReleasePad(GstElement* element, GstPad* pad)
     auto* combiner = WEBKIT_TEXT_COMBINER(element);
     auto* combinerPad = WEBKIT_TEXT_COMBINER_PAD(pad);
 
-    if (auto target = adoptGRef(gst_ghost_pad_get_target(GST_GHOST_PAD(pad)))) {
-        auto parent = adoptGRef(gst_pad_get_parent_element(target.get()));
+    if (GRefPtr target = adoptGRef(gst_ghost_pad_get_target(GST_GHOST_PAD(pad)))) {
+        GRefPtr parent = adoptGRef(gst_pad_get_parent_element(target.get()));
         ASSERT(parent);
         if (parent) {
             gst_element_set_state(parent.get(), GST_STATE_NULL);
@@ -172,7 +171,7 @@ static void webkitTextCombinerReleasePad(GstElement* element, GstPad* pad)
         }
     }
 
-    auto internalPad = adoptGRef(webKitTextCombinerPadLeakInternalPadRef(combinerPad));
+    GRefPtr internalPad = adoptGRef(webKitTextCombinerPadLeakInternalPadRef(combinerPad));
     gst_element_release_request_pad(combiner->priv->combinerElement.get(), internalPad.get());
 
     gst_element_remove_pad(element, pad);
@@ -180,7 +179,7 @@ static void webkitTextCombinerReleasePad(GstElement* element, GstPad* pad)
 
 static void webKitTextCombinerConstructed(GObject* object)
 {
-    GST_CALL_PARENT(G_OBJECT_CLASS, constructed, (object));
+    G_OBJECT_CLASS(webkit_text_combiner_parent_class)->constructed(object);
 
     auto* combiner = WEBKIT_TEXT_COMBINER(object);
     auto* priv = combiner->priv;
@@ -191,7 +190,7 @@ static void webKitTextCombinerConstructed(GObject* object)
 
     gst_bin_add(GST_BIN_CAST(combiner), priv->combinerElement.get());
 
-    auto pad = adoptGRef(gst_element_get_static_pad(priv->combinerElement.get(), "src"));
+    GRefPtr pad = adoptGRef(gst_element_get_static_pad(priv->combinerElement.get(), "src"));
     ASSERT(pad);
 
     gst_element_add_pad(GST_ELEMENT_CAST(combiner), gst_ghost_pad_new("src", pad.get()));
@@ -204,8 +203,8 @@ static void webkit_text_combiner_class_init(WebKitTextCombinerClass* klass)
 
     objectClass->constructed = webKitTextCombinerConstructed;
 
-    gst_element_class_add_pad_template(elementClass, gst_static_pad_template_get(&sinkTemplate));
-    gst_element_class_add_pad_template(elementClass, gst_static_pad_template_get(&srcTemplate));
+    gst_element_class_add_pad_template(elementClass, gst_static_pad_template_get(&combinerSinkTemplate));
+    gst_element_class_add_pad_template(elementClass, gst_static_pad_template_get(&combinerSrcTemplate));
 
     gst_element_class_set_metadata(elementClass, "WebKit text combiner", "Generic",
         "A combiner that accepts any caps, but converts plain text to WebVTT",
@@ -218,12 +217,14 @@ static void webkit_text_combiner_class_init(WebKitTextCombinerClass* klass)
 GstElement* webkitTextCombinerNew()
 {
     // The combiner relies on webvttenc, fail early if it's not there.
-    if (!isGStreamerPluginAvailable("subenc")) {
-        WTFLogAlways("WebKit wasn't able to find a WebVTT encoder. Not continuing without platform support for subtitles.");
+    if (!isGStreamerPluginAvailable("subenc"_s)) {
+        WTFLogAlways("WebKit wasn't able to find a WebVTT encoder. Subtitles handling will be degraded unless gst-plugins-bad is installed.");
         return nullptr;
     }
 
     return GST_ELEMENT(g_object_new(WEBKIT_TYPE_TEXT_COMBINER, nullptr));
 }
+
+#undef GST_CAT_DEFAULT
 
 #endif // ENABLE(VIDEO) && USE(GSTREAMER)

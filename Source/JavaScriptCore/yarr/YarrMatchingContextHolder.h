@@ -25,9 +25,9 @@
 
 #pragma once
 
-#include "VM.h"
-#include "Yarr.h"
-#include "YarrJIT.h"
+#include <JavaScriptCore/VM.h>
+#include <JavaScriptCore/Yarr.h>
+#include <JavaScriptCore/YarrJIT.h>
 
 namespace JSC {
 
@@ -37,31 +37,26 @@ class RegExp;
 
 namespace Yarr {
 
-class YarrCodeBlock;
-
 class MatchingContextHolder {
     WTF_FORBID_HEAP_ALLOCATION;
 public:
-    MatchingContextHolder(VM&, YarrCodeBlock*, RegExp*, MatchFrom);
+    MatchingContextHolder(VM&, RegExp*, MatchFrom);
     ~MatchingContextHolder();
 
-    static ptrdiff_t offsetOfStackLimit() { return OBJECT_OFFSETOF(MatchingContextHolder, m_stackLimit); }
-#if ENABLE(YARR_JIT_ALL_PARENS_EXPRESSIONS)
-    static ptrdiff_t offsetOfPatternContextBuffer() { return OBJECT_OFFSETOF(MatchingContextHolder, m_patternContextBuffer); }
-    static ptrdiff_t offsetOfPatternContextBufferSize() { return OBJECT_OFFSETOF(MatchingContextHolder, m_patternContextBufferSize); }
-#endif
+    static constexpr ptrdiff_t offsetOfStackLimit() { return OBJECT_OFFSETOF(MatchingContextHolder, m_stackLimit); }
+    static constexpr ptrdiff_t offsetOfFreeList() { return OBJECT_OFFSETOF(MatchingContextHolder, m_freeList); }
+
+    void* stackLimit() const { return m_stackLimit; }
+    void* freeList() const { return m_freeList; }
 
 private:
     VM& m_vm;
     void* m_stackLimit;
-#if ENABLE(YARR_JIT_ALL_PARENS_EXPRESSIONS)
-    void* m_patternContextBuffer { nullptr };
-    unsigned m_patternContextBufferSize { 0 };
-#endif
+    void* m_freeList { nullptr };
     MatchFrom m_matchFrom;
 };
 
-inline MatchingContextHolder::MatchingContextHolder(VM& vm, YarrCodeBlock* yarrCodeBlock, RegExp* regExp, MatchFrom matchFrom)
+inline MatchingContextHolder::MatchingContextHolder(VM& vm, RegExp* regExp, MatchFrom matchFrom)
     : m_vm(vm)
     , m_matchFrom(matchFrom)
 {
@@ -69,26 +64,13 @@ inline MatchingContextHolder::MatchingContextHolder(VM& vm, YarrCodeBlock* yarrC
         m_stackLimit = vm.softStackLimit();
         vm.m_executingRegExp = regExp;
     } else {
-        StackBounds stack = Thread::current().stack();
+        StackBounds stack = Thread::currentSingleton().stack();
         m_stackLimit = stack.recursionLimit(Options::reservedZoneSize());
     }
-
-#if ENABLE(YARR_JIT_ALL_PARENS_EXPRESSIONS)
-    if (yarrCodeBlock && yarrCodeBlock->usesPatternContextBuffer()) {
-        m_patternContextBuffer = m_vm.acquireRegExpPatternContexBuffer();
-        m_patternContextBufferSize = VM::patternContextBufferSize;
-    }
-#else
-    UNUSED_PARAM(yarrCodeBlock);
-#endif
 }
 
 inline MatchingContextHolder::~MatchingContextHolder()
 {
-#if ENABLE(YARR_JIT_ALL_PARENS_EXPRESSIONS)
-    if (m_patternContextBuffer)
-        m_vm.releaseRegExpPatternContexBuffer();
-#endif
     if (m_matchFrom == MatchFrom::VMThread)
         m_vm.m_executingRegExp = nullptr;
 }

@@ -7,6 +7,7 @@
 //
 
 #include <gtest/gtest.h>
+#include "common/unsafe_buffers.h"
 
 #include "../angle_test_instantiate.h"
 #include "TestSuite.h"
@@ -37,7 +38,7 @@ class TestSuiteTest : public testing::Test
     {
         if (!mTempFileName.empty())
         {
-            angle::DeleteFile(mTempFileName.c_str());
+            angle::DeleteSystemFile(mTempFileName.c_str());
         }
     }
 
@@ -49,18 +50,19 @@ class TestSuiteTest : public testing::Test
         EXPECT_NE(executablePath, "");
         executablePath += std::string("/") + kTestHelperExecutable + GetExecutableExtension();
 
-        constexpr uint32_t kMaxTempDirLen = 100;
-        char tempDirName[kMaxTempDirLen * 2];
-
-        if (!GetTempDir(tempDirName, kMaxTempDirLen))
+        const Optional<std::string> tempDirName = GetTempDirectory();
+        if (!tempDirName.valid())
         {
             return false;
         }
 
-        std::stringstream tempFNameStream;
-        tempFNameStream << tempDirName << GetPathSeparator() << "test_temp_" << rand() << ".json";
-        mTempFileName = tempFNameStream.str();
+        Optional<std::string> tempFile = CreateTemporaryFileInDirectory(tempDirName.value());
+        if (!tempFile.valid())
+        {
+            return false;
+        }
 
+        mTempFileName               = tempFile.value();
         std::string resultsFileName = "--results-file=" + mTempFileName;
 
         std::vector<const char *> args = {
@@ -77,12 +79,12 @@ class TestSuiteTest : public testing::Test
             printf("Test arguments:\n");
             for (const char *arg : args)
             {
-                printf("%s ", arg);
+                ANGLE_UNSAFE_TODO(printf("%s ", arg));
             }
             printf("\n");
         }
 
-        ProcessHandle process(args, true, true);
+        ProcessHandle process(args, ProcessOutputCapture::StdoutAndStderrSeparately);
         EXPECT_TRUE(process->started());
         EXPECT_TRUE(process->finish());
         EXPECT_TRUE(process->finished());
@@ -113,9 +115,14 @@ TEST_F(TestSuiteTest, RunMockTests)
     ASSERT_TRUE(runTestSuite(extraArgs, &actual, true));
 
     std::map<TestIdentifier, TestResult> expectedResults = {
-        {{"MockTestSuiteTest", "DISABLED_Pass"}, {TestResultType::Pass, 0.0}},
-        {{"MockTestSuiteTest", "DISABLED_Fail"}, {TestResultType::Fail, 0.0}},
-        {{"MockTestSuiteTest", "DISABLED_Timeout"}, {TestResultType::Timeout, 0.0}},
+        {{"MockTestSuiteTest", "DISABLED_Pass"},
+         {TestResultType::Pass, std::vector<double>({0.0})}},
+        {{"MockTestSuiteTest", "DISABLED_Fail"},
+         {TestResultType::Fail, std::vector<double>({0.0})}},
+        {{"MockTestSuiteTest", "DISABLED_Skip"},
+         {TestResultType::Skip, std::vector<double>({0.0})}},
+        {{"MockTestSuiteTest", "DISABLED_Timeout"},
+         {TestResultType::Timeout, std::vector<double>({0.0})}},
     };
 
     EXPECT_EQ(expectedResults, actual.results);
@@ -130,9 +137,14 @@ TEST_F(TestSuiteTest, RunFlakyTests)
     TestResults actual;
     ASSERT_TRUE(runTestSuite(extraArgs, &actual, true));
 
+    std::vector<double> times;
+    for (int i = 0; i < kFlakyRetries; i++)
+    {
+        times.push_back(0.0);
+    }
     std::map<TestIdentifier, TestResult> expectedResults = {
         {{"MockFlakyTestSuiteTest", "DISABLED_Flaky"},
-         {TestResultType::Pass, 0.0, kFlakyRetries - 1}}};
+         {TestResultType::Pass, times, kFlakyRetries - 1}}};
 
     EXPECT_EQ(expectedResults, actual.results);
 }
@@ -142,6 +154,7 @@ TEST_F(TestSuiteTest, RunCrashingTests)
 {
     std::vector<std::string> extraArgs = {
         "--gtest_filter=MockTestSuiteTest.DISABLED_Pass:MockTestSuiteTest.DISABLED_Fail:"
+        "MockTestSuiteTest.DISABLED_Skip:"
         "MockCrashTestSuiteTest.DISABLED_*",
         "--disable-crash-handler"};
 
@@ -149,13 +162,53 @@ TEST_F(TestSuiteTest, RunCrashingTests)
     ASSERT_TRUE(runTestSuite(extraArgs, &actual, false));
 
     std::map<TestIdentifier, TestResult> expectedResults = {
-        {{"MockTestSuiteTest", "DISABLED_Pass"}, {TestResultType::Pass, 0.0}},
-        {{"MockTestSuiteTest", "DISABLED_Fail"}, {TestResultType::Fail, 0.0}},
-        {{"MockCrashTestSuiteTest", "DISABLED_Crash"}, {TestResultType::Crash, 0.0}},
-        {{"MockCrashTestSuiteTest", "DISABLED_PassAfterCrash"}, {TestResultType::Pass, 0.0}},
+        {{"MockTestSuiteTest", "DISABLED_Pass"},
+         {TestResultType::Pass, std::vector<double>({0.0})}},
+        {{"MockTestSuiteTest", "DISABLED_Fail"},
+         {TestResultType::Fail, std::vector<double>({0.0})}},
+        {{"MockTestSuiteTest", "DISABLED_Skip"},
+         {TestResultType::Skip, std::vector<double>({0.0})}},
+        {{"MockCrashTestSuiteTest", "DISABLED_Crash"},
+         {TestResultType::Crash, std::vector<double>({0.0})}},
+        {{"MockCrashTestSuiteTest", "DISABLED_PassAfterCrash"},
+         {TestResultType::Pass, std::vector<double>({0.0})}},
+        {{"MockCrashTestSuiteTest", "DISABLED_SkipAfterCrash"},
+         {TestResultType::Skip, std::vector<double>({0.0})}},
     };
 
     EXPECT_EQ(expectedResults, actual.results);
+}
+
+// Verifies that the standard GTest --gtest_output flag is preserved by the harness
+// and GTest successfully writes the results JSON file.
+TEST_F(TestSuiteTest, GTestOutputPreserved)
+{
+    const Optional<std::string> tempDirName = GetTempDirectory();
+    ASSERT_TRUE(tempDirName.valid());
+    Optional<std::string> tempFile = CreateTemporaryFileInDirectory(tempDirName.value());
+    ASSERT_TRUE(tempFile.valid());
+    std::string gtestOutputPath = tempFile.value();
+
+    std::vector<std::string> extraArgs = {"--gtest_filter=MockTestSuiteTest.DISABLED_Pass",
+                                          "--gtest_output=json:" + gtestOutputPath};
+
+    TestResults actual;
+    ASSERT_TRUE(runTestSuite(extraArgs, &actual, false));
+
+    // Verify GTest successfully wrote the file (file exists and is readable)
+    std::string content;
+    ASSERT_TRUE(ReadEntireFileToString(gtestOutputPath.c_str(), &content));
+    ASSERT_FALSE(content.empty());
+
+    // Verify it is valid JSON by parsing it
+    js::Document doc;
+    doc.Parse(content.c_str());
+    ASSERT_FALSE(doc.HasParseError());
+    ASSERT_TRUE(doc.IsObject());
+    EXPECT_TRUE(doc.HasMember("tests"));
+
+    // Clean up
+    angle::DeleteSystemFile(gtestOutputPath.c_str());
 }
 
 // Normal passing test.
@@ -176,15 +229,20 @@ TEST(MockTestSuiteTest, DISABLED_Timeout)
     angle::Sleep(20000);
 }
 
+// Trigger a test skip.
+TEST(MockTestSuiteTest, DISABLED_Skip)
+{
+    GTEST_SKIP() << "Test skipped.";
+}
+
 // Trigger a flaky test failure.
 TEST(MockFlakyTestSuiteTest, DISABLED_Flaky)
 {
-    constexpr uint32_t kMaxTempDirLen = 100;
-    char tempDirName[kMaxTempDirLen * 2];
-    ASSERT_TRUE(GetTempDir(tempDirName, kMaxTempDirLen));
+    const Optional<std::string> tempDirName = GetTempDirectory();
+    ASSERT_TRUE(tempDirName.valid());
 
     std::stringstream tempFNameStream;
-    tempFNameStream << tempDirName << GetPathSeparator() << "flaky_temp.txt";
+    tempFNameStream << tempDirName.value() << GetPathSeparator() << "flaky_temp.txt";
     std::string tempFileName = tempFNameStream.str();
 
     int fails = 0;
@@ -192,14 +250,14 @@ TEST(MockFlakyTestSuiteTest, DISABLED_Flaky)
         FILE *fp = fopen(tempFileName.c_str(), "r");
         if (fp)
         {
-            ASSERT_EQ(fscanf(fp, "%d", &fails), 1);
+            ANGLE_UNSAFE_TODO(ASSERT_EQ(fscanf(fp, "%d", &fails), 1));
             fclose(fp);
         }
     }
 
     if (fails >= kFlakyRetries - 1)
     {
-        angle::DeleteFile(tempFileName.c_str());
+        angle::DeleteSystemFile(tempFileName.c_str());
     }
     else
     {
@@ -223,5 +281,11 @@ TEST(MockCrashTestSuiteTest, DISABLED_Crash)
 TEST(MockCrashTestSuiteTest, DISABLED_PassAfterCrash)
 {
     EXPECT_TRUE(true);
+}
+
+// This test runs after the crash test.
+TEST(MockCrashTestSuiteTest, DISABLED_SkipAfterCrash)
+{
+    GTEST_SKIP() << "Test skipped.";
 }
 }  // namespace

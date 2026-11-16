@@ -33,6 +33,7 @@
 #include "OrderIterator.h"
 
 #include "RenderBox.h"
+#include "StyleComputedStyle+GettersInlines.h"
 
 namespace WebCore {
 
@@ -54,32 +55,51 @@ RenderBox* OrderIterator::next()
         if (!m_currentChild) {
             if (m_orderValuesIterator == m_orderValues.end())
                 return nullptr;
-            
+
             if (!m_isReset) {
-                ++m_orderValuesIterator;
-                if (m_orderValuesIterator == m_orderValues.end())
-                    return nullptr;
+                if (m_reversedOrder) {
+                    if (m_orderValuesIterator == m_orderValues.begin())
+                        return nullptr;
+                    --m_orderValuesIterator;
+                } else {
+                    ++m_orderValuesIterator;
+                    if (m_orderValuesIterator == m_orderValues.end())
+                        return nullptr;
+                }
             } else
                 m_isReset = false;
-            m_currentChild = m_containerBox.firstChildBox();
+            m_currentChild = m_reversedOrder ? m_containerBox.lastChildBox() : m_containerBox.firstChildBox();
         } else {
-            m_currentChild = m_currentChild->nextSiblingBox();
+            m_currentChild = m_reversedOrder ? m_currentChild->previousSiblingBox() : m_currentChild->nextSiblingBox();
         }
     } while (!m_currentChild || m_currentChild->style().order() != *m_orderValuesIterator);
-    
+
     return m_currentChild;
 }
 
 void OrderIterator::reset()
 {
     m_currentChild = nullptr;
-    m_orderValuesIterator = m_orderValues.begin();
+    if (m_reversedOrder && !m_orderValues.empty()) {
+        m_orderValuesIterator = m_orderValues.end();
+        --m_orderValuesIterator;
+    } else
+        m_orderValuesIterator = m_orderValues.begin();
     m_isReset = true;
 }
 
 bool OrderIterator::shouldSkipChild(const RenderObject& child) const
 {
     return child.isOutOfFlowPositioned() || child.isExcludedFromNormalLayout();
+}
+
+OrderIterator OrderIterator::reverse()
+{
+    OrderIterator reversedItr(*this);
+    reversedItr.m_reversedOrder = !m_reversedOrder;
+    reversedItr.reset();
+
+    return reversedItr;
 }
 
 OrderIteratorPopulator::~OrderIteratorPopulator()
@@ -89,7 +109,7 @@ OrderIteratorPopulator::~OrderIteratorPopulator()
 
 bool OrderIteratorPopulator::collectChild(const RenderBox& child)
 {
-    m_iterator.m_orderValues.insert(child.style().order());
+    m_iterator.m_orderValues.insert(child.style().order().value);
     return !m_iterator.shouldSkipChild(child);
 }
 

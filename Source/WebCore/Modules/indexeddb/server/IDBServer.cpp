@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,24 +30,23 @@
 #include "IDBResultData.h"
 #include "Logging.h"
 #include "MemoryIDBBackingStore.h"
-#include "SQLiteDatabase.h"
-#include "SQLiteDatabaseTracker.h"
 #include "SQLiteFileSystem.h"
 #include "SQLiteIDBBackingStore.h"
-#include "SQLiteStatement.h"
+#include "SQLiteMemoryIDBBackingStore.h"
 #include "SecurityOrigin.h"
-#include "StorageQuotaManager.h"
-#include <wtf/CrossThreadCopier.h>
-#include <wtf/Locker.h>
+#include <algorithm>
+#include <wtf/CompletionHandler.h>
 #include <wtf/MainThread.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 namespace IDBServer {
 
-IDBServer::IDBServer(PAL::SessionID sessionID, const String& databaseDirectoryPath, StorageQuotaManagerSpaceRequester&& spaceRequester, Lock& lock)
-    : m_sessionID(sessionID)
-    , m_spaceRequester(WTFMove(spaceRequester))
-    , m_lock(lock)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(IDBBackingStore);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(IDBServer);
+
+IDBServer::IDBServer(const String& databaseDirectoryPath, SpaceRequester&& spaceRequester)
+    : m_spaceRequester(WTF::move(spaceRequester))
 {
     ASSERT(!isMainThread());
     ASSERT(databaseDirectoryPath.isSafeToSendToAnotherThread());
@@ -68,13 +67,12 @@ void IDBServer::registerConnection(IDBConnectionToClient& connection)
 {
     ASSERT(!isMainThread());
     ASSERT(!m_connectionMap.contains(connection.identifier()));
-    m_connectionMap.set(connection.identifier(), &connection);
+    m_connectionMap.set(connection.identifier(), connection);
 }
 
 void IDBServer::unregisterConnection(IDBConnectionToClient& connection)
 {
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
     ASSERT(m_connectionMap.contains(connection.identifier()));
     ASSERT(m_connectionMap.get(connection.identifier()) == &connection);
 
@@ -86,7 +84,6 @@ void IDBServer::unregisterConnection(IDBConnectionToClient& connection)
 void IDBServer::registerTransaction(UniqueIDBDatabaseTransaction& transaction)
 {
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
     ASSERT(!m_transactions.contains(transaction.info().identifier()));
     m_transactions.set(transaction.info().identifier(), &transaction);
 }
@@ -94,20 +91,19 @@ void IDBServer::registerTransaction(UniqueIDBDatabaseTransaction& transaction)
 void IDBServer::unregisterTransaction(UniqueIDBDatabaseTransaction& transaction)
 {
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
     ASSERT(m_transactions.contains(transaction.info().identifier()));
     ASSERT(m_transactions.get(transaction.info().identifier()) == &transaction);
 
     m_transactions.remove(transaction.info().identifier());
 }
 
-void IDBServer::registerDatabaseConnection(UniqueIDBDatabaseConnection& connection)
+void IDBServer::registerConnection(UniqueIDBDatabaseConnection& connection)
 {
     ASSERT(!m_databaseConnections.contains(connection.identifier()));
     m_databaseConnections.set(connection.identifier(), &connection);
 }
 
-void IDBServer::unregisterDatabaseConnection(UniqueIDBDatabaseConnection& connection)
+void IDBServer::unregisterConnection(UniqueIDBDatabaseConnection& connection)
 {
     ASSERT(m_databaseConnections.contains(connection.identifier()));
     m_databaseConnections.remove(connection.identifier());
@@ -128,73 +124,71 @@ std::unique_ptr<IDBBackingStore> IDBServer::createBackingStore(const IDBDatabase
 {
     ASSERT(!isMainThread());
     if (m_databaseDirectoryPath.isEmpty())
-        return makeUnique<MemoryIDBBackingStore>(m_sessionID, identifier);
+        return makeUnique<MemoryIDBBackingStore>(identifier);
 
-    ASSERT(!m_sessionID.isEphemeral());
     if (identifier.isTransient())
-        return makeUnique<MemoryIDBBackingStore>(m_sessionID, identifier);
+        return makeUnique<MemoryIDBBackingStore>(identifier);
 
-    return makeUnique<SQLiteIDBBackingStore>(m_sessionID, identifier, m_databaseDirectoryPath);
+    return makeUnique<SQLiteIDBBackingStore>(identifier, upgradedDatabaseDirectory(identifier));
 }
 
-void IDBServer::openDatabase(const IDBRequestData& requestData)
+void IDBServer::openDatabase(const IDBOpenRequestData& requestData)
 {
     LOG(IndexedDB, "IDBServer::openDatabase");
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
-    auto& uniqueIDBDatabase = getOrCreateUniqueIDBDatabase(requestData.databaseIdentifier());
+    CheckedRef uniqueIDBDatabase = getOrCreateUniqueIDBDatabase(requestData.databaseIdentifier());
 
-    auto connection = m_connectionMap.get(requestData.requestIdentifier().connectionIdentifier());
+    auto connectionIdentifier = requestData.requestIdentifier().connectionIdentifier();
+    if (!connectionIdentifier)
+        return;
+
+    RefPtr connection = m_connectionMap.get(*connectionIdentifier);
     if (!connection) {
         // If the connection back to the client is gone, there's no way to open the database as
         // well as no way to message back failure.
         return;
     }
 
-    uniqueIDBDatabase.openDatabaseConnection(*connection, requestData);
+    uniqueIDBDatabase->openDatabaseConnection(*connection, requestData);
 }
 
-void IDBServer::deleteDatabase(const IDBRequestData& requestData)
+void IDBServer::deleteDatabase(const IDBOpenRequestData& requestData)
 {
     LOG(IndexedDB, "IDBServer::deleteDatabase - %s", requestData.databaseIdentifier().loggingString().utf8().data());
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
-    auto connection = m_connectionMap.get(requestData.requestIdentifier().connectionIdentifier());
+    auto connectionIdentifier = requestData.requestIdentifier().connectionIdentifier();
+    if (!connectionIdentifier)
+        return;
+
+    RefPtr connection = m_connectionMap.get(*connectionIdentifier);
     if (!connection) {
         // If the connection back to the client is gone, there's no way to delete the database as
         // well as no way to message back failure.
         return;
     }
 
-    auto* database = m_uniqueIDBDatabaseMap.get(requestData.databaseIdentifier());
-    if (!database)
-        database = &getOrCreateUniqueIDBDatabase(requestData.databaseIdentifier());
+    IDBDatabaseIdentifier databaseIdentifier;
+    {
+        CheckedPtr database = m_uniqueIDBDatabaseMap.get(requestData.databaseIdentifier());
+        if (!database)
+            database = &getOrCreateUniqueIDBDatabase(requestData.databaseIdentifier());
 
-    database->handleDelete(*connection, requestData);
-    if (database->tryClose())
-        m_uniqueIDBDatabaseMap.remove(database->identifier());
-}
-
-std::unique_ptr<UniqueIDBDatabase> IDBServer::closeAndTakeUniqueIDBDatabase(UniqueIDBDatabase& database)
-{
-    LOG(IndexedDB, "IDBServer::closeUniqueIDBDatabase");
-    ASSERT(isMainThread());
-
-    auto uniquePointer = m_uniqueIDBDatabaseMap.take(database.identifier());
-    ASSERT(uniquePointer);
-
-    return uniquePointer;
+        database->handleDelete(*connection, requestData);
+        if (!database->tryClose())
+            return;
+        databaseIdentifier = database->identifier();
+    }
+    m_uniqueIDBDatabaseMap.remove(databaseIdentifier);
 }
 
 void IDBServer::abortTransaction(const IDBResourceIdentifier& transactionIdentifier)
 {
     LOG(IndexedDB, "IDBServer::abortTransaction");
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
-    auto transaction = m_transactions.get(transactionIdentifier);
+    RefPtr transaction = m_transactions.get(transactionIdentifier);
     if (!transaction) {
         // If there is no transaction there is nothing to abort.
         // We also have no access to a connection over which to message failure-to-abort.
@@ -204,13 +198,17 @@ void IDBServer::abortTransaction(const IDBResourceIdentifier& transactionIdentif
     transaction->abort();
 }
 
+RefPtr<UniqueIDBDatabaseTransaction> IDBServer::idbTransaction(const IDBRequestData& requestData) const
+{
+    return m_transactions.get(requestData.transactionIdentifier());
+}
+
 void IDBServer::createObjectStore(const IDBRequestData& requestData, const IDBObjectStoreInfo& info)
 {
     LOG(IndexedDB, "IDBServer::createObjectStore");
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
-    auto transaction = m_transactions.get(requestData.transactionIdentifier());
+    RefPtr transaction = idbTransaction(requestData);
     if (!transaction)
         return;
 
@@ -222,9 +220,8 @@ void IDBServer::deleteObjectStore(const IDBRequestData& requestData, const Strin
 {
     LOG(IndexedDB, "IDBServer::deleteObjectStore");
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
-    auto transaction = m_transactions.get(requestData.transactionIdentifier());
+    RefPtr transaction = idbTransaction(requestData);
     if (!transaction)
         return;
 
@@ -232,13 +229,12 @@ void IDBServer::deleteObjectStore(const IDBRequestData& requestData, const Strin
     transaction->deleteObjectStore(requestData, objectStoreName);
 }
 
-void IDBServer::renameObjectStore(const IDBRequestData& requestData, uint64_t objectStoreIdentifier, const String& newName)
+void IDBServer::renameObjectStore(const IDBRequestData& requestData, IDBObjectStoreIdentifier objectStoreIdentifier, const String& newName)
 {
     LOG(IndexedDB, "IDBServer::renameObjectStore");
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
-    auto transaction = m_transactions.get(requestData.transactionIdentifier());
+    RefPtr transaction = idbTransaction(requestData);
     if (!transaction)
         return;
 
@@ -246,13 +242,12 @@ void IDBServer::renameObjectStore(const IDBRequestData& requestData, uint64_t ob
     transaction->renameObjectStore(requestData, objectStoreIdentifier, newName);
 }
 
-void IDBServer::clearObjectStore(const IDBRequestData& requestData, uint64_t objectStoreIdentifier)
+void IDBServer::clearObjectStore(const IDBRequestData& requestData, IDBObjectStoreIdentifier objectStoreIdentifier)
 {
     LOG(IndexedDB, "IDBServer::clearObjectStore");
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
-    auto transaction = m_transactions.get(requestData.transactionIdentifier());
+    RefPtr transaction = idbTransaction(requestData);
     if (!transaction)
         return;
 
@@ -263,9 +258,8 @@ void IDBServer::createIndex(const IDBRequestData& requestData, const IDBIndexInf
 {
     LOG(IndexedDB, "IDBServer::createIndex");
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
-    auto transaction = m_transactions.get(requestData.transactionIdentifier());
+    RefPtr transaction = idbTransaction(requestData);
     if (!transaction)
         return;
 
@@ -273,13 +267,12 @@ void IDBServer::createIndex(const IDBRequestData& requestData, const IDBIndexInf
     transaction->createIndex(requestData, info);
 }
 
-void IDBServer::deleteIndex(const IDBRequestData& requestData, uint64_t objectStoreIdentifier, const String& indexName)
+void IDBServer::deleteIndex(const IDBRequestData& requestData, IDBObjectStoreIdentifier objectStoreIdentifier, const String& indexName)
 {
     LOG(IndexedDB, "IDBServer::deleteIndex");
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
-    auto transaction = m_transactions.get(requestData.transactionIdentifier());
+    RefPtr transaction = idbTransaction(requestData);
     if (!transaction)
         return;
 
@@ -287,13 +280,12 @@ void IDBServer::deleteIndex(const IDBRequestData& requestData, uint64_t objectSt
     transaction->deleteIndex(requestData, objectStoreIdentifier, indexName);
 }
 
-void IDBServer::renameIndex(const IDBRequestData& requestData, uint64_t objectStoreIdentifier, uint64_t indexIdentifier, const String& newName)
+void IDBServer::renameIndex(const IDBRequestData& requestData, IDBObjectStoreIdentifier objectStoreIdentifier, IDBIndexIdentifier indexIdentifier, const String& newName)
 {
     LOG(IndexedDB, "IDBServer::renameIndex");
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
-    auto transaction = m_transactions.get(requestData.transactionIdentifier());
+    RefPtr transaction = idbTransaction(requestData);
     if (!transaction)
         return;
 
@@ -301,26 +293,24 @@ void IDBServer::renameIndex(const IDBRequestData& requestData, uint64_t objectSt
     transaction->renameIndex(requestData, objectStoreIdentifier, indexIdentifier, newName);
 }
 
-void IDBServer::putOrAdd(const IDBRequestData& requestData, const IDBKeyData& keyData, const IDBValue& value, IndexedDB::ObjectStoreOverwriteMode overwriteMode)
+void IDBServer::putOrAdd(const IDBRequestData& requestData, const IDBKeyData& keyData, const IDBValue& value, const IndexIDToIndexKeyMap& indexKeys, IndexedDB::ObjectStoreOverwriteMode overwriteMode)
 {
     LOG(IndexedDB, "IDBServer::putOrAdd");
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
-    auto transaction = m_transactions.get(requestData.transactionIdentifier());
+    RefPtr transaction = idbTransaction(requestData);
     if (!transaction)
         return;
 
-    transaction->putOrAdd(requestData, keyData, value, overwriteMode);
+    transaction->putOrAdd(requestData, keyData, value, indexKeys, overwriteMode);
 }
 
 void IDBServer::getRecord(const IDBRequestData& requestData, const IDBGetRecordData& getRecordData)
 {
     LOG(IndexedDB, "IDBServer::getRecord");
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
-    auto transaction = m_transactions.get(requestData.transactionIdentifier());
+    RefPtr transaction = idbTransaction(requestData);
     if (!transaction)
         return;
 
@@ -331,9 +321,8 @@ void IDBServer::getAllRecords(const IDBRequestData& requestData, const IDBGetAll
 {
     LOG(IndexedDB, "IDBServer::getAllRecords");
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
-    auto transaction = m_transactions.get(requestData.transactionIdentifier());
+    RefPtr transaction = idbTransaction(requestData);
     if (!transaction)
         return;
 
@@ -344,9 +333,8 @@ void IDBServer::getCount(const IDBRequestData& requestData, const IDBKeyRangeDat
 {
     LOG(IndexedDB, "IDBServer::getCount");
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
-    auto transaction = m_transactions.get(requestData.transactionIdentifier());
+    RefPtr transaction = idbTransaction(requestData);
     if (!transaction)
         return;
 
@@ -357,9 +345,8 @@ void IDBServer::deleteRecord(const IDBRequestData& requestData, const IDBKeyRang
 {
     LOG(IndexedDB, "IDBServer::deleteRecord");
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
-    auto transaction = m_transactions.get(requestData.transactionIdentifier());
+    RefPtr transaction = idbTransaction(requestData);
     if (!transaction)
         return;
 
@@ -370,9 +357,8 @@ void IDBServer::openCursor(const IDBRequestData& requestData, const IDBCursorInf
 {
     LOG(IndexedDB, "IDBServer::openCursor");
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
-    auto transaction = m_transactions.get(requestData.transactionIdentifier());
+    RefPtr transaction = idbTransaction(requestData);
     if (!transaction)
         return;
 
@@ -383,129 +369,140 @@ void IDBServer::iterateCursor(const IDBRequestData& requestData, const IDBIterat
 {
     LOG(IndexedDB, "IDBServer::iterateCursor");
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
-    auto transaction = m_transactions.get(requestData.transactionIdentifier());
+    RefPtr transaction = idbTransaction(requestData);
     if (!transaction)
         return;
 
     transaction->iterateCursor(requestData, data);
 }
 
-void IDBServer::establishTransaction(uint64_t databaseConnectionIdentifier, const IDBTransactionInfo& info)
+void IDBServer::establishTransaction(IDBDatabaseConnectionIdentifier databaseConnectionIdentifier, const IDBTransactionInfo& info)
 {
     LOG(IndexedDB, "IDBServer::establishTransaction");
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
-    auto* databaseConnection = m_databaseConnections.get(databaseConnectionIdentifier);
+    RefPtr databaseConnection = m_databaseConnections.get(databaseConnectionIdentifier);
     if (!databaseConnection)
         return;
 
-    auto* database = databaseConnection->database();
-    databaseConnection->establishTransaction(info);
-    if (database->tryClose())
-        m_uniqueIDBDatabaseMap.remove(database->identifier());
+    IDBDatabaseIdentifier databaseIdentifier;
+    {
+        CheckedPtr database = databaseConnection->database();
+        databaseConnection->establishTransaction(info);
+        if (!database->tryClose())
+            return;
+        databaseIdentifier = database->identifier();
+    }
+    m_uniqueIDBDatabaseMap.remove(databaseIdentifier);
 }
 
-void IDBServer::commitTransaction(const IDBResourceIdentifier& transactionIdentifier, uint64_t pendingRequestCount)
+void IDBServer::commitTransaction(const IDBResourceIdentifier& transactionIdentifier, uint64_t handledRequestResultsCount)
 {
     LOG(IndexedDB, "IDBServer::commitTransaction");
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
-    auto transaction = m_transactions.get(transactionIdentifier);
+    RefPtr transaction = m_transactions.get(transactionIdentifier);
     if (!transaction) {
         // If there is no transaction there is nothing to commit.
         // We also have no access to a connection over which to message failure-to-commit.
         return;
     }
 
-    transaction->commit(pendingRequestCount);
+    transaction->commit(handledRequestResultsCount);
 }
 
-void IDBServer::didFinishHandlingVersionChangeTransaction(uint64_t databaseConnectionIdentifier, const IDBResourceIdentifier& transactionIdentifier)
+void IDBServer::didFinishHandlingVersionChangeTransaction(IDBDatabaseConnectionIdentifier databaseConnectionIdentifier, const IDBResourceIdentifier& transactionIdentifier)
 {
     LOG(IndexedDB, "IDBServer::didFinishHandlingVersionChangeTransaction - %s", transactionIdentifier.loggingString().utf8().data());
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
-    auto* connection = m_databaseConnections.get(databaseConnectionIdentifier);
-    if (!connection)
-        return;
-
-    connection->didFinishHandlingVersionChange(transactionIdentifier);
+    if (RefPtr connection = m_databaseConnections.get(databaseConnectionIdentifier))
+        connection->didFinishHandlingVersionChange(transactionIdentifier);
 }
 
-void IDBServer::databaseConnectionPendingClose(uint64_t databaseConnectionIdentifier)
+void IDBServer::databaseConnectionPendingClose(IDBDatabaseConnectionIdentifier databaseConnectionIdentifier)
 {
-    LOG(IndexedDB, "IDBServer::databaseConnectionPendingClose - %" PRIu64, databaseConnectionIdentifier);
+    LOG(IndexedDB, "IDBServer::databaseConnectionPendingClose - %" PRIu64, databaseConnectionIdentifier.toUInt64());
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
-    auto databaseConnection = m_databaseConnections.get(databaseConnectionIdentifier);
+    auto* databaseConnection = m_databaseConnections.get(databaseConnectionIdentifier);
     if (!databaseConnection)
         return;
 
     databaseConnection->connectionPendingCloseFromClient();
 }
 
-void IDBServer::databaseConnectionClosed(uint64_t databaseConnectionIdentifier)
+void IDBServer::databaseConnectionClosed(IDBDatabaseConnectionIdentifier databaseConnectionIdentifier)
 {
-    LOG(IndexedDB, "IDBServer::databaseConnectionClosed - %" PRIu64, databaseConnectionIdentifier);
+    LOG(IndexedDB, "IDBServer::databaseConnectionClosed - %" PRIu64, databaseConnectionIdentifier.toUInt64());
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
-    auto* databaseConnection = m_databaseConnections.get(databaseConnectionIdentifier);
+    RefPtr databaseConnection = m_databaseConnections.get(databaseConnectionIdentifier);
     if (!databaseConnection)
         return;
 
-    auto* database = databaseConnection->database();
-    databaseConnection->connectionClosedFromClient();
-    if (database->tryClose())
-        m_uniqueIDBDatabaseMap.remove(database->identifier());
+    IDBDatabaseIdentifier databaseIdentifier;
+    {
+        CheckedPtr database = databaseConnection->database();
+        databaseConnection->connectionClosedFromClient();
+        if (!database->tryClose())
+            return;
+        databaseIdentifier = database->identifier();
+    }
+    m_uniqueIDBDatabaseMap.remove(databaseIdentifier);
 }
 
-void IDBServer::abortOpenAndUpgradeNeeded(uint64_t databaseConnectionIdentifier, const IDBResourceIdentifier& transactionIdentifier)
+void IDBServer::abortOpenAndUpgradeNeeded(IDBDatabaseConnectionIdentifier databaseConnectionIdentifier, const std::optional<IDBResourceIdentifier>& transactionIdentifier)
 {
     LOG(IndexedDB, "IDBServer::abortOpenAndUpgradeNeeded");
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
-    auto transaction = m_transactions.get(transactionIdentifier);
-    if (transaction)
-        transaction->abortWithoutCallback();
+    if (transactionIdentifier) {
+        if (RefPtr transaction = m_transactions.get(*transactionIdentifier))
+            transaction->abortWithoutCallback();
+    }
 
-    auto databaseConnection = m_databaseConnections.get(databaseConnectionIdentifier);
+    RefPtr databaseConnection = m_databaseConnections.get(databaseConnectionIdentifier);
     if (!databaseConnection)
         return;
 
     databaseConnection->connectionClosedFromClient();
 }
 
-void IDBServer::didFireVersionChangeEvent(uint64_t databaseConnectionIdentifier, const IDBResourceIdentifier& requestIdentifier, IndexedDB::ConnectionClosedOnBehalfOfServer connectionClosed)
+void IDBServer::didFireVersionChangeEvent(IDBDatabaseConnectionIdentifier databaseConnectionIdentifier, const IDBResourceIdentifier& requestIdentifier, IndexedDB::ConnectionClosedOnBehalfOfServer connectionClosed)
 {
     LOG(IndexedDB, "IDBServer::didFireVersionChangeEvent");
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
-    if (auto databaseConnection = m_databaseConnections.get(databaseConnectionIdentifier))
+    if (RefPtr databaseConnection = m_databaseConnections.get(databaseConnectionIdentifier))
         databaseConnection->didFireVersionChangeEvent(requestIdentifier, connectionClosed);
 }
 
-void IDBServer::openDBRequestCancelled(const IDBRequestData& requestData)
+void IDBServer::didGenerateIndexKeyForRecord(const IDBResourceIdentifier& transactionIdentifier, const IDBResourceIdentifier& requestIdentifier, const IDBIndexInfo& indexInfo, const IDBKeyData& key, const IndexKey& indexKey, std::optional<int64_t> recordID)
+{
+    if (RefPtr transaction = m_transactions.get(transactionIdentifier))
+        transaction->didGenerateIndexKeyForRecord(requestIdentifier, indexInfo, key, indexKey, recordID);
+}
+
+void IDBServer::openDBRequestCancelled(const IDBOpenRequestData& requestData)
 {
     LOG(IndexedDB, "IDBServer::openDBRequestCancelled");
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
-    auto* uniqueIDBDatabase = m_uniqueIDBDatabaseMap.get(requestData.databaseIdentifier());
-    if (!uniqueIDBDatabase)
-        return;
+    IDBDatabaseIdentifier databaseIdentifier;
+    {
+        CheckedPtr uniqueIDBDatabase = m_uniqueIDBDatabaseMap.get(requestData.databaseIdentifier());
+        if (!uniqueIDBDatabase)
+            return;
 
-    uniqueIDBDatabase->openDBRequestCancelled(requestData.requestIdentifier());
-    if (uniqueIDBDatabase->tryClose())
-        m_uniqueIDBDatabaseMap.remove(uniqueIDBDatabase->identifier());
+        uniqueIDBDatabase->openDBRequestCancelled(requestData.requestIdentifier());
+        if (!uniqueIDBDatabase->tryClose())
+            return;
+
+        databaseIdentifier = uniqueIDBDatabase->identifier();
+    }
+    m_uniqueIDBDatabaseMap.remove(databaseIdentifier);
 }
 
 static void getDatabaseNameAndVersionFromOriginDirectory(const String& directory, HashSet<String>& excludedDatabasePaths, Vector<IDBDatabaseNameAndVersion>& result)
@@ -517,49 +514,51 @@ static void getDatabaseNameAndVersionFromOriginDirectory(const String& directory
             continue;
 
         if (auto nameAndVersion = SQLiteIDBBackingStore::databaseNameAndVersionFromFile(fullDatabasePath))
-            result.append(WTFMove(*nameAndVersion));
+            result.append(WTF::move(*nameAndVersion));
     }
 }
 
 void IDBServer::getAllDatabaseNamesAndVersions(IDBConnectionIdentifier serverConnectionIdentifier, const IDBResourceIdentifier& requestIdentifier, const ClientOrigin& origin)
 {
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
     Vector<IDBDatabaseNameAndVersion> result;
     HashSet<String> visitedDatabasePaths;
 
     for (auto& database : m_uniqueIDBDatabaseMap.values()) {
+        if (database->identifier().origin() != origin)
+            continue;
+
         auto path = database->filePath();
         if (!path.isEmpty())
             visitedDatabasePaths.add(path);
 
         if (auto nameAndVersion = database->nameAndVersion())
-            result.append(WTFMove(*nameAndVersion));
+            result.append(WTF::move(*nameAndVersion));
     }
 
-    String oldDirectory = IDBDatabaseIdentifier::databaseDirectoryRelativeToRoot(origin.topOrigin, origin.clientOrigin, m_databaseDirectoryPath, "v0");
+    auto oldDirectory = IDBDatabaseIdentifier::databaseDirectoryRelativeToRoot(origin, m_databaseDirectoryPath, "v0"_s);
     getDatabaseNameAndVersionFromOriginDirectory(oldDirectory, visitedDatabasePaths, result);
 
-    String directory = IDBDatabaseIdentifier::databaseDirectoryRelativeToRoot(origin.topOrigin, origin.clientOrigin, m_databaseDirectoryPath, "v1");
+    auto directory = IDBDatabaseIdentifier::databaseDirectoryRelativeToRoot(origin, m_databaseDirectoryPath, "v1"_s);
     getDatabaseNameAndVersionFromOriginDirectory(directory, visitedDatabasePaths, result);
 
-    auto connection = m_connectionMap.get(serverConnectionIdentifier);
+    RefPtr connection = m_connectionMap.get(serverConnectionIdentifier);
     if (!connection)
         return;
 
-    connection->didGetAllDatabaseNamesAndVersions(requestIdentifier, WTFMove(result));
+    connection->didGetAllDatabaseNamesAndVersions(requestIdentifier, WTF::move(result));
 }
 
 static void collectOriginsForVersion(const String& versionPath, HashSet<WebCore::SecurityOriginData>& securityOrigins)
 {
     for (auto& databaseIdentifier : FileSystem::listDirectory(versionPath)) {
         if (auto securityOrigin = SecurityOriginData::fromDatabaseIdentifier(databaseIdentifier)) {
-            securityOrigins.add(WTFMove(*securityOrigin));
+            securityOrigins.add(WTF::move(*securityOrigin));
         
             for (auto& databaseIdentifier : FileSystem::listDirectory(FileSystem::pathByAppendingComponent(versionPath, databaseIdentifier))) {
                 if (auto securityOrigin = SecurityOriginData::fromDatabaseIdentifier(databaseIdentifier))
-                    securityOrigins.add(WTFMove(*securityOrigin));
+                    securityOrigins.add(WTF::move(*securityOrigin));
             }
         }
     }
@@ -568,14 +567,13 @@ static void collectOriginsForVersion(const String& versionPath, HashSet<WebCore:
 HashSet<SecurityOriginData> IDBServer::getOrigins() const
 {
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
     if (m_databaseDirectoryPath.isEmpty())
         return { };
 
     HashSet<WebCore::SecurityOriginData> securityOrigins;
-    collectOriginsForVersion(FileSystem::pathByAppendingComponent(m_databaseDirectoryPath, "v0"), securityOrigins);
-    collectOriginsForVersion(FileSystem::pathByAppendingComponent(m_databaseDirectoryPath, "v1"), securityOrigins);
+    collectOriginsForVersion(FileSystem::pathByAppendingComponent(m_databaseDirectoryPath, "v0"_s), securityOrigins);
+    collectOriginsForVersion(FileSystem::pathByAppendingComponent(m_databaseDirectoryPath, "v1"_s), securityOrigins);
 
     return securityOrigins;
 }
@@ -583,33 +581,30 @@ HashSet<SecurityOriginData> IDBServer::getOrigins() const
 void IDBServer::closeAndDeleteDatabasesModifiedSince(WallTime modificationTime)
 {
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
     // If the modification time is in the future, don't both doing anything.
     if (modificationTime > WallTime::now())
         return;
 
-    HashSet<UniqueIDBDatabase*> openDatabases;
     for (auto& database : m_uniqueIDBDatabaseMap.values())
         database->immediateClose();
 
     m_uniqueIDBDatabaseMap.clear();
 
     if (!m_databaseDirectoryPath.isEmpty()) {
-        removeDatabasesModifiedSinceForVersion(modificationTime, "v0");
-        removeDatabasesModifiedSinceForVersion(modificationTime, "v1");
+        removeDatabasesModifiedSinceForVersion(modificationTime, "v0"_s);
+        removeDatabasesModifiedSinceForVersion(modificationTime, "v1"_s);
     }
 }
 
 void IDBServer::closeDatabasesForOrigins(const Vector<SecurityOriginData>& targetOrigins, Function<bool(const SecurityOriginData&, const ClientOrigin&)>&& filter)
 {
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
-    HashSet<UniqueIDBDatabase*> openDatabases;
+    HashSet<CheckedPtr<UniqueIDBDatabase>> openDatabases;
     for (auto& database : m_uniqueIDBDatabaseMap.values()) {
         const auto& databaseOrigin = database->identifier().origin();
-        bool filtered = WTF::anyOf(targetOrigins, [&databaseOrigin, &filter](auto& targetOrigin) {
+        bool filtered = std::ranges::any_of(targetOrigins, [&databaseOrigin, &filter](auto& targetOrigin) {
             return filter(targetOrigin, databaseOrigin);
         });
         if (filtered)
@@ -625,15 +620,14 @@ void IDBServer::closeDatabasesForOrigins(const Vector<SecurityOriginData>& targe
 void IDBServer::closeAndDeleteDatabasesForOrigins(const Vector<SecurityOriginData>& origins)
 {
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
     closeDatabasesForOrigins(origins, [](const SecurityOriginData& origin, const ClientOrigin& databaseOrigin) -> bool {
         return databaseOrigin.isRelated(origin);
     });
 
     if (!m_databaseDirectoryPath.isEmpty()) {
-        removeDatabasesWithOriginsForVersion(origins, "v0");
-        removeDatabasesWithOriginsForVersion(origins, "v1");
+        removeDatabasesWithOriginsForVersion(origins, "v0"_s);
+        removeDatabasesWithOriginsForVersion(origins, "v1"_s);
     }
 }
 
@@ -644,7 +638,7 @@ static void removeAllDatabasesForFullOriginPath(const String& originPath, WallTi
 
     for (auto& databaseName : databaseNames) {
         auto databasePath = FileSystem::pathByAppendingComponent(originPath, databaseName);
-        String databaseFile = FileSystem::pathByAppendingComponent(databasePath, "IndexedDB.sqlite3");
+        String databaseFile = FileSystem::pathByAppendingComponent(databasePath, "IndexedDB.sqlite3"_s);
         if (modifiedSince > -WallTime::infinity() && FileSystem::fileExists(databaseFile)) {
             auto modificationTime = FileSystem::fileModificationTime(databaseFile);
             if (!modificationTime)
@@ -668,7 +662,7 @@ static void removeAllDatabasesForFullOriginPath(const String& originPath, WallTi
             auto fileNameLength = fileName.length();
             if (fileNameLength < 6)
                 continue;
-            if (!fileName.endsWith(".blob"))
+            if (!fileName.endsWith(".blob"_s))
                 continue;
 
             bool validFileName = true;
@@ -740,34 +734,28 @@ void IDBServer::renameOrigin(const WebCore::SecurityOriginData& oldOrigin, const
         return databaseOrigin.topOrigin == targetOrigin;
     });
 
-    auto versionPath = FileSystem::pathByAppendingComponent(m_databaseDirectoryPath, "v1");
+    auto versionPath = FileSystem::pathByAppendingComponent(m_databaseDirectoryPath, "v1"_s);
     auto oldOriginPath = FileSystem::pathByAppendingComponent(versionPath, oldOrigin.databaseIdentifier());
     auto newOriginPath = FileSystem::pathByAppendingComponent(versionPath, newOrigin.databaseIdentifier());
     if (FileSystem::fileExists(oldOriginPath))
         FileSystem::moveFile(oldOriginPath, newOriginPath);
 }
 
-StorageQuotaManager::Decision IDBServer::requestSpace(const ClientOrigin& origin, uint64_t taskSize) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
+void IDBServer::requestSpace(const ClientOrigin& origin, uint64_t taskSize, CompletionHandler<void(bool)>&& completionHandler)
 {
     ASSERT(!isMainThread());
-    ASSERT(m_lock.isHeld());
 
-    StorageQuotaManager::Decision result = StorageQuotaManager::Decision::Deny;
+    bool result = m_spaceRequester(origin, taskSize);
 
-    // Release lock because space requesting could be blocked.
-    m_lock.unlock();
-    result = m_spaceRequester(origin, taskSize);
-    m_lock.lock();
-
-    return result;
+    completionHandler(result);
 }
 
 uint64_t IDBServer::diskUsage(const String& rootDirectory, const ClientOrigin& origin)
 {
     ASSERT(!isMainThread());
 
-    auto oldVersionOriginDirectory = IDBDatabaseIdentifier::databaseDirectoryRelativeToRoot(origin.topOrigin, origin.clientOrigin, rootDirectory, "v0"_str);
-    auto newVersionOriginDirectory = IDBDatabaseIdentifier::databaseDirectoryRelativeToRoot(origin.topOrigin, origin.clientOrigin, rootDirectory, "v1"_str);
+    auto oldVersionOriginDirectory = IDBDatabaseIdentifier::databaseDirectoryRelativeToRoot(origin, rootDirectory, "v0"_s);
+    auto newVersionOriginDirectory = IDBDatabaseIdentifier::databaseDirectoryRelativeToRoot(origin, rootDirectory, "v1"_s);
     return SQLiteIDBBackingStore::databasesSizeForDirectory(oldVersionOriginDirectory) + SQLiteIDBBackingStore::databasesSizeForDirectory(newVersionOriginDirectory);
 }
 
@@ -776,41 +764,26 @@ void IDBServer::upgradeFilesIfNecessary()
     if (m_databaseDirectoryPath.isEmpty() || !FileSystem::fileExists(m_databaseDirectoryPath))
         return;
 
-    String newVersionDirectory = FileSystem::pathByAppendingComponent(m_databaseDirectoryPath, "v1");
+    String newVersionDirectory = FileSystem::pathByAppendingComponent(m_databaseDirectoryPath, "v1"_s);
     if (!FileSystem::fileExists(newVersionDirectory))
         FileSystem::makeAllDirectories(newVersionDirectory);
 }
 
-bool IDBServer::hasDatabaseActivitiesOnMainThread() const
+String IDBServer::upgradedDatabaseDirectory(const WebCore::IDBDatabaseIdentifier& identifier)
 {
-    ASSERT(isMainThread());
-    ASSERT(m_lock.isHeld());
+    String oldOriginDirectory = identifier.databaseDirectoryRelativeToRoot(m_databaseDirectoryPath, "v0"_s);
+    String oldDatabaseDirectory = FileSystem::pathByAppendingComponent(oldOriginDirectory, SQLiteIDBBackingStore::encodeDatabaseName(identifier.databaseName()));
+    String newOriginDirectory = identifier.databaseDirectoryRelativeToRoot(m_databaseDirectoryPath, "v1"_s);
+    String fileNameHash = SQLiteFileSystem::computeHashForFileName(identifier.databaseName());
+    String newDatabaseDirectory = FileSystem::pathByAppendingComponent(newOriginDirectory, fileNameHash);
+    FileSystem::makeAllDirectories(newDatabaseDirectory);
 
-    if (m_sessionID.isEphemeral())
-        return false;
-
-    for (auto& database : m_uniqueIDBDatabaseMap.values()) {
-        if (!database->identifier().isTransient() && database->hasActiveTransactions())
-            return true;
+    if (FileSystem::fileExists(oldDatabaseDirectory)) {
+        FileSystem::moveFile(oldDatabaseDirectory, newDatabaseDirectory);
+        FileSystem::deleteEmptyDirectory(oldOriginDirectory);
     }
-    
-    return false;
-}
 
-void IDBServer::stopDatabaseActivitiesOnMainThread()
-{
-    ASSERT(isMainThread());
-    ASSERT(m_lock.isHeld());
-
-    // Only stop non-ephemeral IDBServer that can hold database file lock.
-    if (m_sessionID.isEphemeral())
-        return;
-
-    for (auto& database : m_uniqueIDBDatabaseMap.values()) {
-        // Only stop databases with non-ephemeral backing store that can hold database file lock.
-        if (!database->identifier().isTransient())
-            database->abortActiveTransactions();
-    }
+    return newDatabaseDirectory;
 }
 
 } // namespace IDBServer

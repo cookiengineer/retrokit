@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2018 Apple Inc.  All rights reserved.
+* Copyright (C) 2018 Apple Inc. All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
 * modification, are permitted provided that the following conditions
@@ -23,13 +23,18 @@
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+// https://drafts.css-houdini.org/css-typed-om/#cssstylepropertymapreadonly
 [
-    EnabledAtRuntime=CSSTypedOM,
-    Conditional=CSS_TYPED_OM,
     Exposed=(Window,Worker,PaintWorklet),
     SkipVTableValidation,
-    JSGenerateToJSObject,
+    JSCustomMarkFunction
 ] interface StylePropertyMapReadOnly {
-    // FIXME: should be (undefined or CSSStyleValue), not null
-    CSSStyleValue? get(USVString property);
+    // FIXME: iterable value should be `sequence<CSSStyleValue>`.
+    iterable<USVString, sequence<CSSStyleValue?>>;
+    [CallWith=CurrentScriptExecutionContext] (undefined or CSSStyleValue) get([AtomString] USVString property);
+    // FIXME: `getAll` should return `sequence<CSSStyleValue>`.
+    [CallWith=CurrentScriptExecutionContext] sequence<CSSStyleValue?> getAll([AtomString] USVString property);
+    [CallWith=CurrentScriptExecutionContext] boolean has([AtomString] USVString property);
+
+    readonly attribute unsigned long size;
 };

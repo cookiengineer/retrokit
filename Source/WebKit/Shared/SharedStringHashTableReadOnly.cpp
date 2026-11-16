@@ -26,22 +26,15 @@
 #include "config.h"
 #include "SharedStringHashTableReadOnly.h"
 
-#include "SharedMemory.h"
+#include <WebCore/SharedMemory.h>
+#include <wtf/MathExtras.h>
+#include <wtf/StdLibExtras.h>
 
 namespace WebKit {
 
 using namespace WebCore;
 
-#if ASSERT_ENABLED
-static inline bool isPowerOf2(unsigned v)
-{
-    // Taken from http://www.cs.utk.edu/~vose/c-stuff/bithacks.html
-
-    return !(v & (v - 1)) && v;
-}
-#endif
-
-static inline unsigned doubleHash(unsigned key)
+static inline unsigned NODELETE doubleHash(unsigned key)
 {
     key = ~key + (key >> 23);
     key ^= (key << 12);
@@ -51,27 +44,21 @@ static inline unsigned doubleHash(unsigned key)
     return key;
 }
 
-SharedStringHashTableReadOnly::SharedStringHashTableReadOnly()
-{
-}
+SharedStringHashTableReadOnly::SharedStringHashTableReadOnly() = default;
 
-SharedStringHashTableReadOnly::~SharedStringHashTableReadOnly()
-{
-}
+SharedStringHashTableReadOnly::~SharedStringHashTableReadOnly() = default;
 
 void SharedStringHashTableReadOnly::setSharedMemory(RefPtr<SharedMemory>&& sharedMemory)
 {
-    m_sharedMemory = WTFMove(sharedMemory);
+    m_sharedMemory = WTF::move(sharedMemory);
 
     if (m_sharedMemory) {
         ASSERT(!(m_sharedMemory->size() % sizeof(SharedStringHash)));
-        m_table = static_cast<SharedStringHash*>(m_sharedMemory->data());
-        m_tableSize = m_sharedMemory->size() / sizeof(SharedStringHash);
-        ASSERT(isPowerOf2(m_tableSize));
-        m_tableSizeMask = m_tableSize - 1;
+        m_table = spanReinterpretCast<SharedStringHash>(m_sharedMemory->mutableSpan());
+        ASSERT(isPowerOfTwo(m_table.size()));
+        m_tableSizeMask = m_table.size() - 1;
     } else {
-        m_table = nullptr;
-        m_tableSize = 0;
+        m_table = { };
         m_tableSizeMask = 0;
     }
 }
@@ -88,21 +75,20 @@ SharedStringHash* SharedStringHashTableReadOnly::findSlot(SharedStringHash share
         return nullptr;
 
     int k = 0;
-    SharedStringHash* table = m_table;
+    auto table = m_table;
     int sizeMask = m_tableSizeMask;
     unsigned h = static_cast<unsigned>(sharedStringHash);
     int i = h & sizeMask;
 
-    SharedStringHash* entry;
     while (1) {
-        entry = table + i;
+        auto& entry = table[i];
 
         // Check if we've reached the end of the table.
-        if (!*entry)
-            return entry;
+        if (!entry)
+            return &entry;
 
-        if (*entry == sharedStringHash)
-            return entry;
+        if (entry == sharedStringHash)
+            return &entry;
 
         if (!k)
             k = 1 | doubleHash(h);

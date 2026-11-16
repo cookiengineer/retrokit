@@ -26,19 +26,20 @@
 #pragma once
 
 #include "SpeechRecognitionResult.h"
-#include <wtf/IsoMalloc.h>
 #include <wtf/RefCounted.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class SpeechRecognitionResultList final : public RefCounted<SpeechRecognitionResultList> {
-    WTF_MAKE_ISO_ALLOCATED(SpeechRecognitionResultList);
+    WTF_MAKE_TZONE_ALLOCATED(SpeechRecognitionResultList);
 public:
     static Ref<SpeechRecognitionResultList> create();
     static Ref<SpeechRecognitionResultList> create(Vector<Ref<SpeechRecognitionResult>>&&);
 
+    bool isSupportedPropertyIndex(unsigned index) const { return index < length(); }
     size_t length() const { return m_list.size(); }
-    SpeechRecognitionResult* item(uint64_t index) const;
+    SpeechRecognitionResult* NODELETE item(uint64_t index) const;
 
     void add(SpeechRecognitionResult&);
 

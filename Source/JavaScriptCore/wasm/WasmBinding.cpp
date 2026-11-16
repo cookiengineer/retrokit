@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,64 +26,66 @@
 #include "config.h"
 #include "WasmBinding.h"
 
-#if ENABLE(WEBASSEMBLY)
+#include "CallFrame.h"
+
+#if ENABLE(WEBASSEMBLY) && ENABLE(JIT)
 
 #include "CCallHelpers.h"
+#include "DisallowMacroScratchRegisterUsage.h"
+#include "JSWebAssemblyInstance.h"
 #include "LinkBuffer.h"
 #include "WasmCallingConvention.h"
-#include "WasmInstance.h"
 
 namespace JSC { namespace Wasm {
 
 using JIT = CCallHelpers;
 
-Expected<MacroAssemblerCodeRef<WasmEntryPtrTag>, BindingFailure> wasmToWasm(unsigned importIndex)
+Expected<MacroAssemblerCodeRef<WasmEntryPtrTag>, BindingFailure> wasmToWasm(const Wasm::ModuleInformation& info, unsigned importIndex)
 {
     // FIXME: Consider uniquify the stubs based on signature + index to see if this saves memory.
     // https://bugs.webkit.org/show_bug.cgi?id=184157
-
-    const PinnedRegisterInfo& pinnedRegs = PinnedRegisterInfo::get();
     JIT jit;
 
     GPRReg scratch = wasmCallingConvention().prologueScratchGPRs[0];
-    GPRReg baseMemory = pinnedRegs.baseMemoryPointer;
-    ASSERT(baseMemory != GPRReg::InvalidGPRReg);
-    ASSERT(baseMemory != scratch);
-    ASSERT(pinnedRegs.boundsCheckingSizeRegister != baseMemory);
-    ASSERT(pinnedRegs.boundsCheckingSizeRegister != scratch);
-    GPRReg sizeRegAsScratch = pinnedRegs.boundsCheckingSizeRegister;
-    ASSERT(sizeRegAsScratch != GPRReg::InvalidGPRReg);
+    ASSERT(scratch != GPRReg::InvalidGPRReg);
+    ASSERT(noOverlap(scratch, GPRInfo::wasmContextInstancePointer));
 
+    JIT_COMMENT(jit, "Store Callee's wasm callee for import function ", importIndex);
+    jit.loadPtr(JIT::Address(GPRInfo::wasmContextInstancePointer, JSWebAssemblyInstance::offsetOfBoxedCallee(info, importIndex)), scratch);
+    // We are halfway between being the caller and the callee: we have already made the call, but not yet completed the prologue.
+    // On ARM64 this doesn't really matter, but on intel we need to worry about the pushed pc.
+    jit.storeWasmCalleeToCalleeCallFrame(scratch, safeCast<int>(sizeof(CallerFrameAndPC)) - safeCast<int>(prologueStackPointerDelta()));
+
+    // FIXME: This could be a load pair.
     // B3's call codegen ensures that the JSCell is a WebAssemblyFunction.
-    jit.loadWasmContextInstance(sizeRegAsScratch); // Old Instance*
-    // Get the callee's Wasm::Instance and set it as WasmContext's instance. The caller will take care of restoring its own Instance.
-    jit.loadPtr(JIT::Address(sizeRegAsScratch, Instance::offsetOfTargetInstance(importIndex)), baseMemory); // Instance*.
     // While we're accessing that cacheline, also get the wasm entrypoint so we can tail call to it below.
-    jit.loadPtr(JIT::Address(sizeRegAsScratch, Instance::offsetOfWasmEntrypointLoadLocation(importIndex)), scratch);
-    jit.storeWasmContextInstance(baseMemory);
 
-    jit.loadPtr(JIT::Address(sizeRegAsScratch, Instance::offsetOfCachedStackLimit()), sizeRegAsScratch);
-    jit.storePtr(sizeRegAsScratch, JIT::Address(baseMemory, Instance::offsetOfCachedStackLimit()));
+    jit.loadPtr(JIT::Address(GPRInfo::wasmContextInstancePointer, JSWebAssemblyInstance::offsetOfEntrypointLoadLocation(info, importIndex)), scratch);
+    // Get the callee's JSWebAssemblyInstance and set it as WasmContext's instance. The caller will take care of restoring its own JSWebAssemblyInstance.
+    // This switches the current instance.
+    jit.loadPtr(JIT::Address(GPRInfo::wasmContextInstancePointer, JSWebAssemblyInstance::offsetOfTargetInstance(info, importIndex)), GPRInfo::wasmContextInstancePointer); // JSWebAssemblyInstance*.
 
-    // FIXME the following code assumes that all Wasm::Instance have the same pinned registers. https://bugs.webkit.org/show_bug.cgi?id=162952
-    // Set up the callee's baseMemory register as well as the memory size registers.
+#if !CPU(ARM) // ARM has no pinned registers for Wasm Memory, so no need to set them up
+    // FIXME the following code assumes that all JSWebAssemblyInstance have the same pinned registers. https://bugs.webkit.org/show_bug.cgi?id=162952
+    // Set up the callee's baseMemoryPointer register as well as the memory size registers.
     {
-        jit.loadPtr(JIT::Address(baseMemory, Wasm::Instance::offsetOfCachedBoundsCheckingSize()), pinnedRegs.boundsCheckingSizeRegister); // Bound checking size.
-        jit.loadPtr(JIT::Address(baseMemory, Wasm::Instance::offsetOfCachedMemory()), baseMemory); // Wasm::Memory::TaggedArrayStoragePtr<void> (void*).
-        jit.cageConditionallyAndUntag(Gigacage::Primitive, baseMemory, pinnedRegs.boundsCheckingSizeRegister, wasmCallingConvention().prologueScratchGPRs[1]);
+        // pinned registers always store base and size of memory 0
+        jit.loadPairPtr(GPRInfo::wasmContextInstancePointer, CCallHelpers::TrustedImm32(JSWebAssemblyInstance::offsetOfCachedMemoryBaseSizePair(0)), GPRInfo::wasmBaseMemoryPointer, GPRInfo::wasmBoundsCheckingSizeRegister);
+        jit.cageConditionally(Gigacage::Primitive, GPRInfo::wasmBaseMemoryPointer, GPRInfo::wasmBoundsCheckingSizeRegister, wasmCallingConvention().prologueScratchGPRs[1]);
     }
+#endif
 
     // Tail call into the callee WebAssembly function.
-    jit.loadPtr(scratch, scratch);
+    jit.loadPtr(JIT::Address(scratch), scratch);
     jit.farJump(scratch, WasmEntryPtrTag);
 
-    LinkBuffer patchBuffer(jit, GLOBAL_THUNK_ID, LinkBuffer::Profile::WasmThunk, JITCompilationCanFail);
-    if (UNLIKELY(patchBuffer.didFailToAllocate()))
+    LinkBuffer patchBuffer(jit, GLOBAL_THUNK_ID, LinkBuffer::Profile::WasmThunk, JITCompilationMustSucceed);
+    if (patchBuffer.didFailToAllocate()) [[unlikely]]
         return makeUnexpected(BindingFailure::OutOfMemory);
 
-    return FINALIZE_WASM_CODE(patchBuffer, WasmEntryPtrTag, "WebAssembly->WebAssembly import[%i]", importIndex);
+    return FINALIZE_WASM_CODE(patchBuffer, WasmEntryPtrTag, nullptr, "WebAssembly->WebAssembly import[%i]", importIndex);
 }
 
 } } // namespace JSC::Wasm
 
-#endif // ENABLE(WEBASSEMBLY)
+#endif // ENABLE(WEBASSEMBLY) && ENABLE(JIT)

@@ -27,24 +27,31 @@
 
 #pragma once
 
-#include "FloatSize.h"
+#include <WebCore/FloatSize.h>
 #include <wtf/Forward.h>
+#include <wtf/Platform.h>
 
 namespace WebCore {
 
 class Document;
 
-enum ViewportErrorCode {
-    UnrecognizedViewportArgumentKeyError,
-    UnrecognizedViewportArgumentValueError,
-    TruncatedViewportArgumentValueError,
-    MaximumScaleTooLargeError
+enum class ViewportErrorCode : uint8_t {
+    UnrecognizedViewportArgumentKey,
+    UnrecognizedViewportArgumentValue,
+    TruncatedViewportArgumentValue,
+    MaximumScaleTooLarge,
 };
 
-enum class ViewportFit {
+enum class ViewportFit : uint8_t {
     Auto,
     Contain,
     Cover
+};
+
+enum class InteractiveWidget : uint8_t {
+    ResizesVisual,
+    ResizesContent,
+    OverlaysContent
 };
 
 struct ViewportAttributes {
@@ -59,31 +66,46 @@ struct ViewportAttributes {
     float shrinkToFit;
 
     ViewportFit viewportFit;
+
+    InteractiveWidget interactiveWidget;
 };
 
 struct ViewportArguments {
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(ViewportArguments);
 
-    enum Type {
+    enum class Type : uint8_t {
         // These are ordered in increasing importance.
         Implicit,
 #if PLATFORM(IOS_FAMILY)
-        PluginDocument,
         ImageDocument,
 #endif
         ViewportMeta,
-        CSSDeviceAdaptation
     } type;
 
-    enum {
-        ValueAuto = -1,
-        ValueDeviceWidth = -2,
-        ValueDeviceHeight = -3,
-        ValuePortrait = -4,
-        ValueLandscape = -5
-    };
+    static constexpr int ValueAuto = -1;
+    static constexpr int ValueDeviceWidth = -2;
+    static constexpr int ValueDeviceHeight = -3;
+    static constexpr int ValuePortrait = -4;
+    static constexpr int ValueLandscape = -5;
 
-    explicit ViewportArguments(Type type = Implicit)
+    explicit ViewportArguments(Type type = Type::Implicit)
         : type(type)
+    {
+    }
+
+    ViewportArguments(Type type, float width, float height, float zoom, float minZoom, float maxZoom, float userZoom, float orientation, float shrinkToFit, ViewportFit viewportFit, bool widthWasExplicit, InteractiveWidget interactiveWidget)
+        : type(type)
+        , width(width)
+        , height(height)
+        , zoom(zoom)
+        , minZoom(minZoom)
+        , maxZoom(maxZoom)
+        , userZoom(userZoom)
+        , orientation(orientation)
+        , shrinkToFit(shrinkToFit)
+        , viewportFit(viewportFit)
+        , widthWasExplicit(widthWasExplicit)
+        , interactiveWidget(interactiveWidget)
     {
     }
 
@@ -91,11 +113,7 @@ struct ViewportArguments {
     ViewportAttributes resolve(const FloatSize& initialViewportSize, const FloatSize& deviceSize, int defaultWidth) const;
 
     float width { ValueAuto };
-    float minWidth { ValueAuto };
-    float maxWidth { ValueAuto };
     float height { ValueAuto };
-    float minHeight { ValueAuto };
-    float maxHeight { ValueAuto };
     float zoom { ValueAuto };
     float minZoom { ValueAuto };
     float maxZoom { ValueAuto };
@@ -104,17 +122,14 @@ struct ViewportArguments {
     float shrinkToFit { ValueAuto };
     ViewportFit viewportFit { ViewportFit::Auto };
     bool widthWasExplicit { false };
+    InteractiveWidget interactiveWidget { InteractiveWidget::ResizesVisual };
 
     bool operator==(const ViewportArguments& other) const
     {
         // Used for figuring out whether to reset the viewport or not,
         // thus we are not taking type into account.
         return width == other.width
-            && minWidth == other.minWidth
-            && maxWidth == other.maxWidth
             && height == other.height
-            && minHeight == other.minHeight
-            && maxHeight == other.maxHeight
             && zoom == other.zoom
             && minZoom == other.minZoom
             && maxZoom == other.maxZoom
@@ -122,12 +137,8 @@ struct ViewportArguments {
             && orientation == other.orientation
             && shrinkToFit == other.shrinkToFit
             && viewportFit == other.viewportFit
-            && widthWasExplicit == other.widthWasExplicit;
-    }
-
-    bool operator!=(const ViewportArguments& other) const
-    {
-        return !(*this == other);
+            && widthWasExplicit == other.widthWasExplicit
+            && interactiveWidget == other.interactiveWidget;
     }
 
 #if PLATFORM(GTK)
@@ -140,13 +151,13 @@ struct ViewportArguments {
 WEBCORE_EXPORT ViewportAttributes computeViewportAttributes(ViewportArguments args, int desktopWidth, int deviceWidth, int deviceHeight, float devicePixelRatio, IntSize visibleViewport);
 
 WEBCORE_EXPORT void restrictMinimumScaleFactorToViewportSize(ViewportAttributes& result, IntSize visibleViewport, float devicePixelRatio);
-WEBCORE_EXPORT void restrictScaleFactorToInitialScaleIfNotUserScalable(ViewportAttributes& result);
+WEBCORE_EXPORT void NODELETE restrictScaleFactorToInitialScaleIfNotUserScalable(ViewportAttributes& result);
 WEBCORE_EXPORT float computeMinimumScaleFactorForContentContained(const ViewportAttributes& result, const IntSize& viewportSize, const IntSize& contentSize);
 
-typedef WTF::Function<void(ViewportErrorCode, const String&)> ViewportErrorHandler;
+typedef Function<void(ViewportErrorCode, const String&)> ViewportErrorHandler;
 void setViewportFeature(ViewportArguments&, Document&, StringView key, StringView value);
-WEBCORE_EXPORT void setViewportFeature(ViewportArguments&, StringView key, StringView value, bool viewportFitEnabled, const ViewportErrorHandler&);
+WEBCORE_EXPORT void setViewportFeature(ViewportArguments&, StringView key, StringView value, bool metaViewportInteractiveWidgetEnabled, NOESCAPE const ViewportErrorHandler&);
 
-WTF::TextStream& operator<<(WTF::TextStream&, const ViewportArguments&);
+WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const ViewportArguments&);
 
 } // namespace WebCore

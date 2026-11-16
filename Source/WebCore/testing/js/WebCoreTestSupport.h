@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2011, 2015 Google Inc. All rights reserved.
- * Copyright (C) 2016-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,7 +26,10 @@
 
 #pragma once
 
+#include <span>
 #include <wtf/Forward.h>
+#include <wtf/OptionSet.h>
+#include <wtf/Platform.h>
 
 typedef const struct OpaqueJSContext* JSContextRef;
 typedef struct OpaqueJSString* JSStringRef;
@@ -39,38 +42,66 @@ typedef struct OpaqueJSValue* JSObjectRef;
 #endif
 
 namespace WebCore {
-class Frame;
+class LocalFrame;
+enum class ParserContentPolicy : uint8_t;
 }
 
 namespace WebCoreTestSupport {
 
-void injectInternalsObject(JSContextRef) TEST_SUPPORT_EXPORT;
-void resetInternalsObject(JSContextRef) TEST_SUPPORT_EXPORT;
-void monitorWheelEvents(WebCore::Frame&, bool clearLatchingState) TEST_SUPPORT_EXPORT;
-void setWheelEventMonitorTestCallbackAndStartMonitoring(bool expectWheelEndOrCancel, bool expectMomentumEnd, WebCore::Frame&, JSContextRef, JSObjectRef) TEST_SUPPORT_EXPORT;
-void clearWheelEventTestMonitor(WebCore::Frame&) TEST_SUPPORT_EXPORT;
+TEST_SUPPORT_EXPORT void initializeNames();
 
-void setLogChannelToAccumulate(const WTF::String& name) TEST_SUPPORT_EXPORT;
-void clearAllLogChannelsToAccumulate() TEST_SUPPORT_EXPORT;
-void initializeLogChannelsIfNecessary() TEST_SUPPORT_EXPORT;
-void setAllowsAnySSLCertificate(bool) TEST_SUPPORT_EXPORT;
-void setLinkedOnOrAfterEverythingForTesting() TEST_SUPPORT_EXPORT;
+TEST_SUPPORT_EXPORT void injectInternalsObject(JSContextRef);
+TEST_SUPPORT_EXPORT void resetInternalsObject(JSContextRef);
+TEST_SUPPORT_EXPORT void monitorWheelEvents(WebCore::LocalFrame&, bool clearLatchingState);
+TEST_SUPPORT_EXPORT void setWheelEventMonitorTestCallbackAndStartMonitoring(bool expectWheelEndOrCancel, bool expectMomentumEnd, WebCore::LocalFrame&, JSContextRef, JSObjectRef);
+TEST_SUPPORT_EXPORT void clearWheelEventTestMonitor(WebCore::LocalFrame&);
 
-void installMockGamepadProvider() TEST_SUPPORT_EXPORT;
-void connectMockGamepad(unsigned index) TEST_SUPPORT_EXPORT;
-void disconnectMockGamepad(unsigned index) TEST_SUPPORT_EXPORT;
-void setMockGamepadDetails(unsigned index, const WTF::String& gamepadID, const WTF::String& mapping, unsigned axisCount, unsigned buttonCount) TEST_SUPPORT_EXPORT;
-void setMockGamepadAxisValue(unsigned index, unsigned axisIndex, double value) TEST_SUPPORT_EXPORT;
-void setMockGamepadButtonValue(unsigned index, unsigned buttonIndex, double value) TEST_SUPPORT_EXPORT;
+TEST_SUPPORT_EXPORT void NODELETE setLogChannelToAccumulate(const String& name);
+TEST_SUPPORT_EXPORT void NODELETE clearAllLogChannelsToAccumulate();
+TEST_SUPPORT_EXPORT void initializeLogChannelsIfNecessary();
+TEST_SUPPORT_EXPORT void setAllowsAnySSLCertificate(bool);
+TEST_SUPPORT_EXPORT bool allowsAnySSLCertificate();
+TEST_SUPPORT_EXPORT void setLinkedOnOrAfterEverythingForTesting();
 
-void setupNewlyCreatedServiceWorker(uint64_t serviceWorkerIdentifier) TEST_SUPPORT_EXPORT;
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+TEST_SUPPORT_EXPORT void setAccessibilityIsolatedTreeEnabled(bool);
+TEST_SUPPORT_EXPORT bool isAccessibilityIsolatedTreeModeEnabled();
+TEST_SUPPORT_EXPORT void setAccessibilityTestTeardownCallback(Function<void()>&&);
+TEST_SUPPORT_EXPORT void notifyAccessibilityTestTeardown();
+#endif
+
+TEST_SUPPORT_EXPORT void installMockGamepadProvider();
+TEST_SUPPORT_EXPORT void connectMockGamepad(unsigned index);
+TEST_SUPPORT_EXPORT void disconnectMockGamepad(unsigned index);
+TEST_SUPPORT_EXPORT void setMockGamepadDetails(unsigned index, const String& gamepadID, const String& mapping, unsigned axisCount, unsigned buttonCount, bool supportsDualRumble, bool wasConnected);
+TEST_SUPPORT_EXPORT void setMockGamepadAxisValue(unsigned index, unsigned axisIndex, double value);
+TEST_SUPPORT_EXPORT void setMockGamepadButtonValue(unsigned index, unsigned buttonIndex, double value);
+
+TEST_SUPPORT_EXPORT void setupNewlyCreatedServiceWorker(uint64_t serviceWorkerIdentifier);
     
-void setAdditionalSupportedImageTypesForTesting(const WTF::String&) TEST_SUPPORT_EXPORT;
+TEST_SUPPORT_EXPORT void setAdditionalSupportedImageTypesForTesting(const String&);
+
+#if ENABLE(JIT_OPERATION_VALIDATION) || ENABLE(JIT_OPERATION_DISASSEMBLY)
+#if ENABLE(JIT_OPERATION_DISASSEMBLY)
+TEST_SUPPORT_EXPORT void populateDisassemblyLabels();
+#else
+inline void populateDisassemblyLabels() { }
+#endif
 
 #if ENABLE(JIT_OPERATION_VALIDATION)
-void populateJITOperations() TEST_SUPPORT_EXPORT;
+TEST_SUPPORT_EXPORT void populateJITOperations();
+#else
+inline void populateJITOperations() { populateDisassemblyLabels(); }
+#endif
+
 #else
 inline void populateJITOperations() { }
+#endif // ENABLE(JIT_OPERATION_VALIDATION) || ENABLE(JIT_OPERATION_DISASSEMBLY)
+
+TEST_SUPPORT_EXPORT bool testDocumentFragmentParseXML(const String&, OptionSet<WebCore::ParserContentPolicy>);
+
+#if ENABLE(WEB_AUDIO)
+TEST_SUPPORT_EXPORT void testSincResamplerProcessBuffer(std::span<const float> source, std::span<float> destination, double scaleFactor);
 #endif
 
 } // namespace WebCoreTestSupport

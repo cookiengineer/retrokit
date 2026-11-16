@@ -26,6 +26,9 @@
 #include "config.h"
 #include "PerGlobalObjectWrapperWorld.h"
 
+#include "JSGlobalObject.h"
+#include "StrongInlines.h"
+
 namespace Inspector {
 
 using namespace JSC;

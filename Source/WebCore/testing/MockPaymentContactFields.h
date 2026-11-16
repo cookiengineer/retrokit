@@ -31,13 +31,24 @@
 
 namespace WebCore {
 
-struct MockPaymentContactFields : public ApplePaySessionPaymentRequest::ContactFields {
-    MockPaymentContactFields() = default;
-    MockPaymentContactFields(const ApplePaySessionPaymentRequest::ContactFields& contactFields)
-        : ApplePaySessionPaymentRequest::ContactFields { contactFields }
-    {
-    }
+struct MockPaymentContactFields {
+    bool postalAddress { false };
+    bool phone { false };
+    bool email { false };
+    bool name { false };
+    bool phoneticName { false };
 };
+
+inline MockPaymentContactFields toMockPaymentContactFields(const ApplePaySessionPaymentRequestContactFields& fields)
+{
+    return {
+        fields.postalAddress,
+        fields.phone,
+        fields.email,
+        fields.name,
+        fields.phoneticName
+    };
+}
 
 } // namespace WebCore
 

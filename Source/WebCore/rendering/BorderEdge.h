@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,6 +27,7 @@
 #pragma once
 
 #include "Color.h"
+#include "LayoutSize.h"
 #include "LayoutUnit.h"
 #include "RectEdges.h"
 #include "RenderObjectEnums.h"
@@ -34,7 +36,9 @@
 
 namespace WebCore {
 
-class RenderStyle;
+namespace Style {
+class ComputedStyle;
+}
 
 class BorderEdge {
 public:
@@ -42,17 +46,18 @@ public:
     BorderEdge(float edgeWidth, Color edgeColor, BorderStyle edgeStyle, bool edgeIsTransparent, bool edgeIsPresent, float devicePixelRatio);
 
     BorderStyle style() const { return m_style; }
-    const Color& color() const { return m_color; }
+    LayoutUnit width() const { return m_width; }
+    const Color& color() const LIFETIME_BOUND { return m_color; }
     bool isTransparent() const { return m_isTransparent; }
     bool isPresent() const { return m_isPresent; }
 
-    inline bool hasVisibleColorAndStyle() const { return m_style > BorderStyle::Hidden && !m_isTransparent; }
+    inline bool hasVisibleColorAndStyle() const { return isVisibleBorderStyle(m_style) && !m_isTransparent; }
     inline bool shouldRender() const { return m_isPresent && widthForPainting() && hasVisibleColorAndStyle(); }
     inline bool presentButInvisible() const { return widthForPainting() && !hasVisibleColorAndStyle(); }
-    inline float widthForPainting() const { return m_isPresent ?  m_flooredToDevicePixelWidth : 0; }
+    inline float widthForPainting() const { return m_isPresent ? m_flooredToDevicePixelWidth : 0; }
     void getDoubleBorderStripeWidths(LayoutUnit& outerWidth, LayoutUnit& innerWidth) const;
-    bool obscuresBackgroundEdge(float scale) const;
-    bool obscuresBackground() const;
+    bool NODELETE obscuresBackgroundEdge(float scale) const;
+    bool NODELETE obscuresBackground() const;
 
 private:
     inline float borderWidthInDevicePixel(int logicalPixels) const { return LayoutUnit(logicalPixels / m_devicePixelRatio).toFloat(); }
@@ -67,18 +72,18 @@ private:
 };
 
 using BorderEdges = RectEdges<BorderEdge>;
-BorderEdges borderEdges(const RenderStyle&, float deviceScaleFactor, bool includeLogicalLeftEdge = true, bool includeLogicalRightEdge = true);
 
-inline bool edgesShareColor(const BorderEdge& firstEdge, const BorderEdge& secondEdge) { return firstEdge.color() == secondEdge.color(); }
-inline BoxSideFlag edgeFlagForSide(BoxSide side) { return static_cast<BoxSideFlag>(1 << static_cast<unsigned>(side)); }
-inline bool includesEdge(OptionSet<BoxSideFlag> flags, BoxSide side) { return flags.contains(edgeFlagForSide(side)); }
+// inflation is only added to edges with non-zero widths.
+BorderEdges borderEdges(const Style::ComputedStyle&, float deviceScaleFactor, RectEdges<bool> closedEdges = { true }, LayoutSize inflation = { }, bool setColorsToBlack = false);
+BorderEdges borderEdgesForOutline(const Style::ComputedStyle&, BorderStyle, float deviceScaleFactor);
 
-inline bool includesAdjacentEdges(OptionSet<BoxSideFlag> flags)
+inline bool edgesShareColor(const BorderEdge& firstEdge, const BorderEdge& secondEdge) { return equalIgnoringSemanticColor(firstEdge.color(), secondEdge.color()); }
+
+inline bool includesAdjacentEdges(EnumSet<BoxSide> sides)
 {
-    return flags.containsAll({ BoxSideFlag::Top, BoxSideFlag::Right })
-        || flags.containsAll({ BoxSideFlag::Right, BoxSideFlag::Bottom })
-        || flags.containsAll({ BoxSideFlag::Bottom, BoxSideFlag::Left })
-        || flags.containsAll({ BoxSideFlag::Left, BoxSideFlag::Top });
+    // The set includes adjacent edges if and only if it contains at least one horizontal and one vertical edge.
+    return sides.containsAny({ BoxSide::Top, BoxSide::Bottom })
+        && sides.containsAny({ BoxSide::Left, BoxSide::Right });
 }
 
 } // namespace WebCore

@@ -25,10 +25,11 @@
 
 #pragma once
 
+#include <pal/ExportMacros.h>
 #include <wtf/text/WTFString.h>
 
 namespace PAL {
 
-PAL_EXPORT String fileSizeDescription(uint64_t);
+PAL_EXPORT AtomString fileSizeDescription(uint64_t);
 
 } // namespace PAL

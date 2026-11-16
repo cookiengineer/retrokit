@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc.  All rights reserved.
+ * Copyright (C) 2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,18 +24,20 @@
  */
 
 #include "config.h"
-#include "Logging.h"
+#include <wtf/Logging.h>
 
 namespace WTF {
 
 #if !LOG_DISABLED || !RELEASE_LOG_DISABLED
 
-DEFINE_LOG_CHANNEL(Language, LOG_CHANNEL_WEBKIT_SUBSYSTEM);
-DEFINE_LOG_CHANNEL_WITH_DETAILS(RefCountedLeaks, logChannelStateOn,  logLevelError, LOG_CHANNEL_WEBKIT_SUBSYSTEM);
-DEFINE_LOG_CHANNEL_WITH_DETAILS(Process,         logChannelStateOn,  logLevelError, LOG_CHANNEL_WEBKIT_SUBSYSTEM);
-DEFINE_LOG_CHANNEL_WITH_DETAILS(Threading,       logChannelStateOn,  logLevelError, LOG_CHANNEL_WEBKIT_SUBSYSTEM);
-DEFINE_LOG_CHANNEL(MemoryPressure, LOG_CHANNEL_WEBKIT_SUBSYSTEM);
+DEFINE_LOG_CHANNEL(Language);
+DEFINE_LOG_CHANNEL_WITH_DETAILS(RefCountedLeaks, logChannelStateOn,  logLevelError);
+DEFINE_LOG_CHANNEL_WITH_DETAILS(Process,         logChannelStateOn,  logLevelError);
+DEFINE_LOG_CHANNEL_WITH_DETAILS(Threading,       logChannelStateOn,  logLevelError);
+DEFINE_LOG_CHANNEL(MemoryPressure);
+DEFINE_LOG_CHANNEL(SuspendableWorkQueue);
+DEFINE_LOG_CHANNEL(NativePromise);
 
 #endif // !LOG_DISABLED || !RELEASE_LOG_DISABLED
 
-} // namespace WebCore
+} // namespace WTF

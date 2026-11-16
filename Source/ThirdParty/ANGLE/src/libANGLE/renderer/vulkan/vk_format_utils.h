@@ -9,12 +9,13 @@
 #ifndef LIBANGLE_RENDERER_VULKAN_VK_FORMAT_UTILS_H_
 #define LIBANGLE_RENDERER_VULKAN_VK_FORMAT_UTILS_H_
 
+#include "common/SimpleMutex.h"
 #include "common/vulkan/vk_headers.h"
 #include "libANGLE/formatutils.h"
 #include "libANGLE/renderer/Format.h"
 #include "libANGLE/renderer/copyvertex.h"
 #include "libANGLE/renderer/renderer_utils.h"
-#include "platform/FeaturesVk.h"
+#include "platform/autogen/FeaturesVk_autogen.h"
 
 #include <array>
 
@@ -26,110 +27,166 @@ class TextureCapsMap;
 
 namespace rx
 {
-class RendererVk;
 class ContextVk;
 
 namespace vk
 {
+class Renderer;
+
 // VkFormat values in range [0, kNumVkFormats) are used as indices in various tables.
 constexpr uint32_t kNumVkFormats = 185;
+
+enum ImageFormatSupport
+{
+    SampleOnly,
+    Renderable,
+};
 
 struct ImageFormatInitInfo final
 {
     angle::FormatID format;
-    VkFormat vkFormat;
     InitializeTextureDataFunction initializer;
 };
 
 struct BufferFormatInitInfo final
 {
     angle::FormatID format;
-    VkFormat vkFormat;
     bool vkFormatIsPacked;
     VertexCopyFunction vertexLoadFunction;
     bool vertexLoadRequiresConversion;
 };
 
+VkFormat GetVkFormatFromFormatID(const Renderer *renderer, angle::FormatID actualFormatID);
+angle::FormatID GetFormatIDFromVkFormat(VkFormat vkFormat);
+
+// Returns buffer alignment for image-copy operations (to or from a buffer).
+size_t GetImageCopyBufferAlignment(angle::FormatID actualFormatID);
+size_t GetValidImageCopyBufferAlignment(angle::FormatID intendedFormatID,
+                                        angle::FormatID actualFormatID);
+bool HasEmulatedImageChannels(const angle::Format &intendedFormat,
+                              const angle::Format &actualFormat);
+// Returns true if the image has a different image format than intended.
+bool HasEmulatedImageFormat(angle::FormatID intendedFormatID, angle::FormatID actualFormatID);
+
 // Describes a Vulkan format. For more information on formats in the Vulkan back-end please see
-// https://chromium.googlesource.com/angle/angle/+/master/src/libANGLE/renderer/vulkan/doc/FormatTablesAndEmulation.md
-struct Format final : private angle::NonCopyable
+// https://chromium.googlesource.com/angle/angle/+/main/src/libANGLE/renderer/vulkan/doc/FormatTablesAndEmulation.md
+class Format final : private angle::NonCopyable
 {
+  public:
     Format();
 
-    bool valid() const { return internalFormat != 0; }
+    bool valid() const { return mIntendedGLFormat != 0; }
+    GLenum getIntendedGLFormat() const { return mIntendedGLFormat; }
 
     // The intended format is the front-end format. For Textures this usually correponds to a
     // GLenum in the headers. Buffer formats don't always have a corresponding GLenum type.
     // Some Surface formats and unsized types also don't have a corresponding GLenum.
-    const angle::Format &intendedFormat() const { return angle::Format::Get(intendedFormatID); }
+    angle::FormatID getIntendedFormatID() const { return mIntendedFormatID; }
+    const angle::Format &getIntendedFormat() const { return angle::Format::Get(mIntendedFormatID); }
 
     // The actual Image format is used to implement the front-end format for Texture/Renderbuffers.
-    const angle::Format &actualImageFormat() const
+    const angle::Format &getActualImageFormat(ImageFormatSupport support) const
     {
-        return angle::Format::Get(actualImageFormatID);
+        return angle::Format::Get(getActualImageFormatID(support));
     }
 
-    // The actual Buffer format is used to implement the front-end format for Buffers.
-    const angle::Format &actualBufferFormat(bool compressed) const
+    angle::FormatID getActualRenderableImageFormatID() const
     {
-        return angle::Format::Get(compressed ? actualCompressedBufferFormatID
-                                             : actualBufferFormatID);
+        return mActualRenderableImageFormatID;
+    }
+    const angle::Format &getActualRenderableImageFormat() const
+    {
+        return angle::Format::Get(mActualRenderableImageFormatID);
+    }
+    VkFormat getActualRenderableImageVkFormat(const Renderer *renderer) const
+    {
+        return GetVkFormatFromFormatID(renderer, mActualRenderableImageFormatID);
     }
 
-    VertexCopyFunction getVertexLoadFunction(bool compressed) const
+    angle::FormatID getActualImageFormatID(ImageFormatSupport support) const
     {
-        return compressed ? compressedVertexLoadFunction : vertexLoadFunction;
+        return support == ImageFormatSupport::Renderable ? mActualRenderableImageFormatID
+                                                         : mActualSampleOnlyImageFormatID;
+    }
+    VkFormat getActualImageVkFormat(const Renderer *renderer, ImageFormatSupport support) const
+    {
+        return GetVkFormatFromFormatID(renderer, getActualImageFormatID(support));
     }
 
-    bool getVertexLoadRequiresConversion(bool compressed) const
+    LoadImageFunctionInfo getTextureLoadFunction(ImageFormatSupport support, GLenum type) const
     {
-        return compressed ? compressedVertexLoadRequiresConversion : vertexLoadRequiresConversion;
+        return support == ImageFormatSupport::Renderable ? mRenderableTextureLoadFunctions(type)
+                                                         : mTextureLoadFunctions(type);
     }
 
-    // The |internalFormat| always correponds to a valid GLenum type. For types that don't have a
+    static LoadFunctionMap GetRGB565TextureLoadFunction(const Renderer *renderer);
+
+    // The actual Buffer format is used to implement the front-end format for Buffers.  This format
+    // is used by vertex buffers as well as texture buffers.  Note that all formats required for
+    // GL_EXT_texture_buffer have mandatory support for vertex buffers in Vulkan, so they won't be
+    // using an emulated format.
+    const angle::Format &getActualBufferFormat() const
+    {
+        return angle::Format::Get(mActualBufferFormatID);
+    }
+
+    VkFormat getActualBufferVkFormat(const Renderer *renderer) const
+    {
+        return GetVkFormatFromFormatID(renderer, mActualBufferFormatID);
+    }
+
+    VertexCopyFunction getVertexLoadFunction() const { return mVertexLoadFunction; }
+
+    bool getVertexLoadRequiresConversion() const { return mVertexLoadRequiresConversion; }
+
+    // |intendedGLFormat| always correponds to a valid GLenum type. For types that don't have a
     // corresponding GLenum we do our best to specify a GLenum that is "close".
     const gl::InternalFormat &getInternalFormatInfo(GLenum type) const
     {
-        return gl::GetInternalFormatInfo(internalFormat, type);
+        return gl::GetInternalFormatInfo(mIntendedGLFormat, type);
     }
 
-    // Returns buffer alignment for image-copy operations (to or from a buffer).
-    size_t getImageCopyBufferAlignment() const;
-    size_t getValidImageCopyBufferAlignment() const;
+    bool hasRenderableImageFallbackFormat() const
+    {
+        return mActualSampleOnlyImageFormatID != mActualRenderableImageFormatID;
+    }
 
-    // Returns true if the Image format has more channels than the ANGLE format.
-    bool hasEmulatedImageChannels() const;
+    // Returns the alignment for a buffer to be used with the vertex input stage in Vulkan. This
+    // calculation is listed in the Vulkan spec at the end of the section 'Vertex Input
+    // Description'.
+    size_t getVertexInputAlignment() const;
+
+  private:
+    friend class FormatTable;
 
     // This is an auto-generated method in vk_format_table_autogen.cpp.
-    void initialize(RendererVk *renderer, const angle::Format &angleFormat);
+    void initialize(Renderer *renderer, const angle::Format &intendedAngleFormat);
 
     // These are used in the format table init.
-    void initImageFallback(RendererVk *renderer, const ImageFormatInitInfo *info, int numInfo);
-    void initBufferFallback(RendererVk *renderer,
+    void initImageFallback(Renderer *renderer, const ImageFormatInitInfo *info, int numInfo);
+    void initBufferFallback(Renderer *renderer,
                             const BufferFormatInitInfo *fallbackInfo,
                             int numInfo,
                             int compressedStartIndex);
 
-    angle::FormatID intendedFormatID;
-    GLenum internalFormat;
-    angle::FormatID actualImageFormatID;
-    VkFormat vkImageFormat;
-    angle::FormatID actualBufferFormatID;
-    VkFormat vkBufferFormat;
-    angle::FormatID actualCompressedBufferFormatID;
-    VkFormat vkCompressedBufferFormat;
+    angle::FormatID mIntendedFormatID;
+    GLenum mIntendedGLFormat;
+    angle::FormatID mActualSampleOnlyImageFormatID;
+    angle::FormatID mActualRenderableImageFormatID;
+    angle::FormatID mActualBufferFormatID;
 
-    InitializeTextureDataFunction imageInitializerFunction;
-    LoadFunctionMap textureLoadFunctions;
-    VertexCopyFunction vertexLoadFunction;
-    VertexCopyFunction compressedVertexLoadFunction;
+    InitializeTextureDataFunction mImageInitializerFunction;
+    LoadFunctionMap mTextureLoadFunctions;
+    LoadFunctionMap mRenderableTextureLoadFunctions;
+    VertexCopyFunction mVertexLoadFunction;
+    VertexCopyFunction mCompressedVertexLoadFunction;
 
-    bool vertexLoadRequiresConversion;
-    bool compressedVertexLoadRequiresConversion;
-    bool vkBufferFormatIsPacked;
-    bool vkCompressedBufferFormatIsPacked;
-    bool vkFormatIsInt;
-    bool vkFormatIsUnsigned;
+    bool mVertexLoadRequiresConversion;
+    bool mCompressedVertexLoadRequiresConversion;
+    bool mVkBufferFormatIsPacked;
+    bool mVkCompressedBufferFormatIsPacked;
+    bool mVkFormatIsInt;
+    bool mVkFormatIsUnsigned;
 };
 
 bool operator==(const Format &lhs, const Format &rhs);
@@ -142,9 +199,7 @@ class FormatTable final : angle::NonCopyable
     ~FormatTable();
 
     // Also initializes the TextureCapsMap and the compressedTextureCaps in the Caps instance.
-    void initialize(RendererVk *renderer,
-                    gl::TextureCapsMap *outTextureCapsMap,
-                    std::vector<GLenum> *outCompressedTextureFormats);
+    void initialize(Renderer *renderer, gl::TextureCapsMap *outTextureCapsMap);
 
     ANGLE_INLINE const Format &operator[](GLenum internalFormat) const
     {
@@ -162,174 +217,84 @@ class FormatTable final : angle::NonCopyable
     std::array<Format, angle::kNumANGLEFormats> mFormatData;
 };
 
+// Extra data required for a renderable external format, for EXT_yuv_target support.
+// We have one of these structures per external format slot (angle::FormatID::EXTERNALn)
+// and allocate them to particular actual external formats in the order we see them.
+struct ExternalYuvFormatInfo
+{
+    // Vendor-specific external format value to be passed in VkExternalFormatANDROID
+    uint64_t externalFormat;
+    // Format the driver wants us to use for a temporary color attachment in order to render into
+    // this external format
+    VkFormat colorAttachmentFormat;
+    VkFormatFeatureFlags formatFeatures;
+};
+
+class ExternalFormatTable final : angle::NonCopyable
+{
+  public:
+    // Convert externalFormat to one of angle::FormatID::EXTERNALn so that we can pass around in
+    // ANGLE
+    angle::FormatID getOrAllocExternalFormatID(uint64_t externalFormat,
+                                               VkFormat colorAttachmentFormat,
+                                               VkFormatFeatureFlags formatFeatures);
+    const ExternalYuvFormatInfo &getExternalFormatInfo(angle::FormatID format) const;
+
+  private:
+    static constexpr size_t kMaxExternalFormatCountSupported =
+        ToUnderlying(angle::FormatID::EXTERNAL7) - ToUnderlying(angle::FormatID::EXTERNAL0) + 1;
+    // YUV rendering format cache. We build this table at run time when external formats are used.
+    angle::FixedVector<ExternalYuvFormatInfo, kMaxExternalFormatCountSupported> mExternalYuvFormats;
+    mutable angle::SimpleMutex mExternalYuvFormatMutex;
+};
+
+bool IsYUVExternalFormat(angle::FormatID formatID);
+
 // This will return a reference to a VkFormatProperties with the feature flags supported
 // if the format is a mandatory format described in section 31.3.3. Required Format Support
 // of the Vulkan spec. If the vkFormat isn't mandatory, it will return a VkFormatProperties
 // initialized to 0.
-const VkFormatProperties &GetMandatoryFormatSupport(VkFormat vkFormat);
+const VkFormatProperties &GetMandatoryFormatSupport(angle::FormatID formatID);
 
-VkImageUsageFlags GetMaximalImageUsageFlags(RendererVk *renderer, VkFormat format);
+VkImageUsageFlags GetMaximalImageUsageFlags(Renderer *renderer, angle::FormatID formatID);
+VkImageCreateFlags GetMinimalImageCreateFlags(Renderer *renderer,
+                                              gl::TextureType textureType,
+                                              VkImageUsageFlags usage);
 
 }  // namespace vk
 
-// Checks if a vkFormat supports all the features needed to use it as a GL texture format
-bool HasFullTextureFormatSupport(RendererVk *renderer, VkFormat vkFormat);
-// Checks if a vkFormat supports all the features except texture filtering
-bool HasNonFilterableTextureFormatSupport(RendererVk *renderer, VkFormat vkFormat);
-// Checks if a vkFormat supports all the features except rendering
-bool HasNonRenderableTextureFormatSupport(RendererVk *renderer, VkFormat vkFormat);
+// Checks if a Vulkan format supports all the features needed to use it as a GL texture format.
+bool HasFullTextureFormatSupport(vk::Renderer *renderer, angle::FormatID formatID);
+// Checks if a Vulkan format supports all the features except rendering.
+bool HasNonRenderableTextureFormatSupport(vk::Renderer *renderer, angle::FormatID formatID);
+// Checks if a Vulkan format supports all the features needed for a non-filterable texture.
+bool HasNonFilterableTextureFormatSupport(vk::Renderer *renderer, angle::FormatID formatID);
+// Checks if a Vulkan format supports all the features needed for a sample-only (no filtering, no
+// rendering) texture.
+bool HasSampleOnlyTextureFormatSupport(vk::Renderer *renderer, angle::FormatID formatID);
+// Checks if a format supports filtering.
+bool IsFilterableFormat(const angle::Format &format);
+// Checks if it is a ETC texture format
+bool IsETCFormat(angle::FormatID formatID);
+// Checks if it is an ASTC texture format
+bool IsASTC3DFormat(angle::FormatID formatID);
+// Checks if it is a BC texture format
+bool IsBCFormat(angle::FormatID formatID);
 
-// Returns the alignment for a buffer to be used with the vertex input stage in Vulkan. This
-// calculation is listed in the Vulkan spec at the end of the section 'Vertex Input Description'.
-size_t GetVertexInputAlignment(const vk::Format &format, bool compressed);
+angle::FormatID GetTranscodeBCFormatID(angle::FormatID formatID);
+
+VkFormat AdjustASTCFormatForHDR(const vk::Renderer *renderer, VkFormat vkFormat);
+
+// Get Etc format cpu transcoding to Bc function.
+LoadImageFunctionInfo GetEtcToBcTransCodingFunc(angle::FormatID formatID);
 
 // Get the swizzle state based on format's requirements and emulations.
-gl::SwizzleState GetFormatSwizzle(const ContextVk *contextVk,
-                                  const vk::Format &format,
-                                  const bool sized);
+gl::SwizzleState GetFormatSwizzle(const angle::Format &angleFormat, const bool sized);
 
 // Apply application's swizzle to the swizzle implied by format as received from GetFormatSwizzle.
 gl::SwizzleState ApplySwizzle(const gl::SwizzleState &formatSwizzle,
                               const gl::SwizzleState &toApply);
 
-namespace vk
-{
-
-ANGLE_INLINE VkFormat ConvertToSRGB(VkFormat format)
-{
-    switch (format)
-    {
-        case VK_FORMAT_R8_UNORM:
-            return VK_FORMAT_R8_SRGB;
-        case VK_FORMAT_R8G8_UNORM:
-            return VK_FORMAT_R8G8_SRGB;
-        case VK_FORMAT_R8G8B8_UNORM:
-            return VK_FORMAT_R8G8B8_SRGB;
-        case VK_FORMAT_B8G8R8_UNORM:
-            return VK_FORMAT_B8G8R8_SRGB;
-        case VK_FORMAT_R8G8B8A8_UNORM:
-            return VK_FORMAT_R8G8B8A8_SRGB;
-        case VK_FORMAT_B8G8R8A8_UNORM:
-            return VK_FORMAT_B8G8R8A8_SRGB;
-        case VK_FORMAT_BC1_RGB_UNORM_BLOCK:
-            return VK_FORMAT_BC1_RGB_SRGB_BLOCK;
-        case VK_FORMAT_BC1_RGBA_UNORM_BLOCK:
-            return VK_FORMAT_BC1_RGBA_SRGB_BLOCK;
-        case VK_FORMAT_BC2_UNORM_BLOCK:
-            return VK_FORMAT_BC2_SRGB_BLOCK;
-        case VK_FORMAT_BC3_UNORM_BLOCK:
-            return VK_FORMAT_BC3_SRGB_BLOCK;
-        case VK_FORMAT_BC7_UNORM_BLOCK:
-            return VK_FORMAT_BC7_SRGB_BLOCK;
-        case VK_FORMAT_ETC2_R8G8B8_UNORM_BLOCK:
-            return VK_FORMAT_ETC2_R8G8B8_SRGB_BLOCK;
-        case VK_FORMAT_ETC2_R8G8B8A1_UNORM_BLOCK:
-            return VK_FORMAT_ETC2_R8G8B8A1_SRGB_BLOCK;
-        case VK_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK:
-            return VK_FORMAT_ETC2_R8G8B8A8_SRGB_BLOCK;
-        case VK_FORMAT_ASTC_4x4_UNORM_BLOCK:
-            return VK_FORMAT_ASTC_4x4_SRGB_BLOCK;
-        case VK_FORMAT_ASTC_5x4_UNORM_BLOCK:
-            return VK_FORMAT_ASTC_5x4_SRGB_BLOCK;
-        case VK_FORMAT_ASTC_5x5_UNORM_BLOCK:
-            return VK_FORMAT_ASTC_5x5_SRGB_BLOCK;
-        case VK_FORMAT_ASTC_6x5_UNORM_BLOCK:
-            return VK_FORMAT_ASTC_6x5_SRGB_BLOCK;
-        case VK_FORMAT_ASTC_6x6_UNORM_BLOCK:
-            return VK_FORMAT_ASTC_6x6_SRGB_BLOCK;
-        case VK_FORMAT_ASTC_8x5_UNORM_BLOCK:
-            return VK_FORMAT_ASTC_8x5_SRGB_BLOCK;
-        case VK_FORMAT_ASTC_8x6_UNORM_BLOCK:
-            return VK_FORMAT_ASTC_8x6_SRGB_BLOCK;
-        case VK_FORMAT_ASTC_8x8_UNORM_BLOCK:
-            return VK_FORMAT_ASTC_8x8_SRGB_BLOCK;
-        case VK_FORMAT_ASTC_10x5_UNORM_BLOCK:
-            return VK_FORMAT_ASTC_10x5_SRGB_BLOCK;
-        case VK_FORMAT_ASTC_10x6_UNORM_BLOCK:
-            return VK_FORMAT_ASTC_10x6_SRGB_BLOCK;
-        case VK_FORMAT_ASTC_10x8_UNORM_BLOCK:
-            return VK_FORMAT_ASTC_10x8_SRGB_BLOCK;
-        case VK_FORMAT_ASTC_10x10_UNORM_BLOCK:
-            return VK_FORMAT_ASTC_10x10_SRGB_BLOCK;
-        case VK_FORMAT_ASTC_12x10_UNORM_BLOCK:
-            return VK_FORMAT_ASTC_12x10_SRGB_BLOCK;
-        case VK_FORMAT_ASTC_12x12_UNORM_BLOCK:
-            return VK_FORMAT_ASTC_12x12_SRGB_BLOCK;
-        default:
-            return VK_FORMAT_UNDEFINED;
-    }
-}
-
-ANGLE_INLINE VkFormat ConvertToLinear(VkFormat format)
-{
-    switch (format)
-    {
-        case VK_FORMAT_R8_SRGB:
-            return VK_FORMAT_R8_UNORM;
-        case VK_FORMAT_R8G8_SRGB:
-            return VK_FORMAT_R8G8_UNORM;
-        case VK_FORMAT_R8G8B8_SRGB:
-            return VK_FORMAT_R8G8B8_UNORM;
-        case VK_FORMAT_B8G8R8_SRGB:
-            return VK_FORMAT_B8G8R8_UNORM;
-        case VK_FORMAT_R8G8B8A8_SRGB:
-            return VK_FORMAT_R8G8B8A8_UNORM;
-        case VK_FORMAT_B8G8R8A8_SRGB:
-            return VK_FORMAT_B8G8R8A8_UNORM;
-        case VK_FORMAT_BC1_RGB_SRGB_BLOCK:
-            return VK_FORMAT_BC1_RGB_UNORM_BLOCK;
-        case VK_FORMAT_BC1_RGBA_SRGB_BLOCK:
-            return VK_FORMAT_BC1_RGBA_UNORM_BLOCK;
-        case VK_FORMAT_BC2_SRGB_BLOCK:
-            return VK_FORMAT_BC2_UNORM_BLOCK;
-        case VK_FORMAT_BC3_SRGB_BLOCK:
-            return VK_FORMAT_BC3_UNORM_BLOCK;
-        case VK_FORMAT_BC7_SRGB_BLOCK:
-            return VK_FORMAT_BC7_UNORM_BLOCK;
-        case VK_FORMAT_ETC2_R8G8B8_SRGB_BLOCK:
-            return VK_FORMAT_ETC2_R8G8B8_UNORM_BLOCK;
-        case VK_FORMAT_ETC2_R8G8B8A1_SRGB_BLOCK:
-            return VK_FORMAT_ETC2_R8G8B8A1_UNORM_BLOCK;
-        case VK_FORMAT_ETC2_R8G8B8A8_SRGB_BLOCK:
-            return VK_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK;
-        case VK_FORMAT_ASTC_4x4_SRGB_BLOCK:
-            return VK_FORMAT_ASTC_4x4_UNORM_BLOCK;
-        case VK_FORMAT_ASTC_5x4_SRGB_BLOCK:
-            return VK_FORMAT_ASTC_5x4_UNORM_BLOCK;
-        case VK_FORMAT_ASTC_5x5_SRGB_BLOCK:
-            return VK_FORMAT_ASTC_5x5_UNORM_BLOCK;
-        case VK_FORMAT_ASTC_6x5_SRGB_BLOCK:
-            return VK_FORMAT_ASTC_6x5_UNORM_BLOCK;
-        case VK_FORMAT_ASTC_6x6_SRGB_BLOCK:
-            return VK_FORMAT_ASTC_6x6_UNORM_BLOCK;
-        case VK_FORMAT_ASTC_8x5_SRGB_BLOCK:
-            return VK_FORMAT_ASTC_8x5_UNORM_BLOCK;
-        case VK_FORMAT_ASTC_8x6_SRGB_BLOCK:
-            return VK_FORMAT_ASTC_8x6_UNORM_BLOCK;
-        case VK_FORMAT_ASTC_8x8_SRGB_BLOCK:
-            return VK_FORMAT_ASTC_8x8_UNORM_BLOCK;
-        case VK_FORMAT_ASTC_10x5_SRGB_BLOCK:
-            return VK_FORMAT_ASTC_10x5_UNORM_BLOCK;
-        case VK_FORMAT_ASTC_10x6_SRGB_BLOCK:
-            return VK_FORMAT_ASTC_10x6_UNORM_BLOCK;
-        case VK_FORMAT_ASTC_10x8_SRGB_BLOCK:
-            return VK_FORMAT_ASTC_10x8_UNORM_BLOCK;
-        case VK_FORMAT_ASTC_10x10_SRGB_BLOCK:
-            return VK_FORMAT_ASTC_10x10_UNORM_BLOCK;
-        case VK_FORMAT_ASTC_12x10_SRGB_BLOCK:
-            return VK_FORMAT_ASTC_12x10_UNORM_BLOCK;
-        case VK_FORMAT_ASTC_12x12_SRGB_BLOCK:
-            return VK_FORMAT_ASTC_12x12_UNORM_BLOCK;
-        default:
-            return VK_FORMAT_UNDEFINED;
-    }
-}
-
-ANGLE_INLINE bool IsOverridableLinearFormat(VkFormat format)
-{
-    return ConvertToSRGB(format) != VK_FORMAT_UNDEFINED;
-}
-}  // namespace vk
 }  // namespace rx
 
 #endif  // LIBANGLE_RENDERER_VULKAN_VK_FORMAT_UTILS_H_

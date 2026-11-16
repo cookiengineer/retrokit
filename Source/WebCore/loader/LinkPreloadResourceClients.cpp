@@ -32,15 +32,15 @@
 namespace WebCore {
 
 LinkPreloadResourceClient::LinkPreloadResourceClient(LinkLoader& loader, CachedResource& resource)
+    : m_loader(loader)
+    , m_resource(&resource)
 {
-    m_loader = makeWeakPtr(loader);
-    m_resource = &resource;
 }
 
 void LinkPreloadResourceClient::triggerEvents(const CachedResource& resource)
 {
-    if (m_loader)
-        m_loader->triggerEvents(resource);
+    if (RefPtr loader = m_loader.get())
+        loader->triggerEvents(resource);
 }
 
 }

@@ -1,5 +1,5 @@
 // Copyright 2017 The Chromium Authors. All rights reserved.
-// Copyright (C) 2018 Apple Inc. All rights reserved.
+// Copyright (C) 2018-2021 Apple Inc. All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are
@@ -32,6 +32,7 @@
 
 #if ENABLE(WEB_AUTHN)
 
+#include "BufferSource.h"
 #include <new>
 #include <utility>
 
@@ -44,7 +45,7 @@ CBORValue::CBORValue()
 
 CBORValue::CBORValue(CBORValue&& that)
 {
-    internalMoveConstructFrom(WTFMove(that));
+    internalMoveConstructFrom(WTF::move(that));
 }
 
 CBORValue::CBORValue(Type type)
@@ -96,18 +97,29 @@ CBORValue::CBORValue(const BinaryValue& inBytes)
 
 CBORValue::CBORValue(BinaryValue&& inBytes)
     : m_type(Type::ByteString)
-    , m_byteStringValue(WTFMove(inBytes))
+    , m_byteStringValue(WTF::move(inBytes))
+{
+}
+
+CBORValue::CBORValue(const WebCore::BufferSource& bufferSource)
+    : m_type(Type::ByteString)
+    , m_byteStringValue(bufferSource.span())
 {
 }
 
 CBORValue::CBORValue(const char* inString)
-    : CBORValue(String(inString))
+    : CBORValue(String::fromLatin1(inString))
+{
+}
+
+CBORValue::CBORValue(ASCIILiteral inString)
+    : CBORValue(String { inString })
 {
 }
 
 CBORValue::CBORValue(String&& inString)
     : m_type(Type::String)
-    , m_stringValue(WTFMove(inString))
+    , m_stringValue(WTF::move(inString))
 {
 }
 
@@ -119,16 +131,13 @@ CBORValue::CBORValue(const String& inString)
 
 CBORValue::CBORValue(const ArrayValue& inArray)
     : m_type(Type::Array)
-    , m_arrayValue()
+    , m_arrayValue(inArray.map([](auto& value) { return value.clone(); }))
 {
-    m_arrayValue.reserveCapacity(inArray.size());
-    for (const auto& val : inArray)
-        m_arrayValue.append(val.clone());
 }
 
 CBORValue::CBORValue(ArrayValue&& inArray)
     : m_type(Type::Array)
-    , m_arrayValue(WTFMove(inArray))
+    , m_arrayValue(WTF::move(inArray))
 {
 }
 
@@ -142,7 +151,7 @@ CBORValue::CBORValue(const MapValue& inMap)
 
 CBORValue::CBORValue(MapValue&& inMap)
     : m_type(Type::Map)
-    , m_mapValue(WTFMove(inMap))
+    , m_mapValue(WTF::move(inMap))
 {
 }
 
@@ -162,7 +171,7 @@ CBORValue::CBORValue(bool inBool)
 CBORValue& CBORValue::operator=(CBORValue&& that)
 {
     internalCleanup();
-    internalMoveConstructFrom(WTFMove(that));
+    internalMoveConstructFrom(WTF::move(that));
 
     return *this;
 }
@@ -262,16 +271,16 @@ void CBORValue::internalMoveConstructFrom(CBORValue&& that)
         m_integerValue = that.m_integerValue;
         return;
     case Type::ByteString:
-        new (&m_byteStringValue) BinaryValue(WTFMove(that.m_byteStringValue));
+        new (&m_byteStringValue) BinaryValue(WTF::move(that.m_byteStringValue));
         return;
     case Type::String:
-        new (&m_stringValue) String(WTFMove(that.m_stringValue));
+        new (&m_stringValue) String(WTF::move(that.m_stringValue));
         return;
     case Type::Array:
-        new (&m_arrayValue) ArrayValue(WTFMove(that.m_arrayValue));
+        new (&m_arrayValue) ArrayValue(WTF::move(that.m_arrayValue));
         return;
     case Type::Map:
-        new (&m_mapValue) MapValue(WTFMove(that.m_mapValue));
+        new (&m_mapValue) MapValue(WTF::move(that.m_mapValue));
         return;
     case Type::SimpleValue:
         m_simpleValue = that.m_simpleValue;

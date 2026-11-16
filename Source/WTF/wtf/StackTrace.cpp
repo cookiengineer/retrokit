@@ -29,19 +29,15 @@
 
 #include <wtf/Assertions.h>
 #include <wtf/PrintStream.h>
-
-#if HAVE(BACKTRACE_SYMBOLS) || HAVE(BACKTRACE)
-#include <execinfo.h>
-#endif
+#include <wtf/StringPrintStream.h>
 
 #if HAVE(DLADDR)
 #include <cxxabi.h>
-#include <dlfcn.h>
 #endif
 
-#if OS(WINDOWS)
-#include <windows.h>
-#include <wtf/win/DbgHelperWin.h>
+#if USE(LIBBACKTRACE)
+#include <string.h>
+#include <wtf/NeverDestroyed.h>
 #endif
 
 void WTFGetBacktrace(void** stack, int* size)
@@ -58,35 +54,87 @@ void WTFGetBacktrace(void** stack, int* size)
 
 namespace WTF {
 
-ALWAYS_INLINE size_t StackTrace::instanceSize(int capacity)
+#if USE(LIBBACKTRACE)
+static struct backtrace_state* backtraceState()
 {
-    ASSERT(capacity >= 1);
-    return sizeof(StackTrace) + (capacity - 1) * sizeof(void*);
+    static NeverDestroyed<struct backtrace_state*> backtraceState = backtrace_create_state(nullptr, 1, nullptr, nullptr);
+    return backtraceState;
 }
 
-std::unique_ptr<StackTrace> StackTrace::captureStackTrace(int maxFrames, int framesToSkip)
+static void backtraceSyminfoCallback(void* data, uintptr_t, const char* symname, uintptr_t, uintptr_t)
 {
-    maxFrames = std::max(1, maxFrames);
-    size_t sizeToAllocate = instanceSize(maxFrames);
-    std::unique_ptr<StackTrace> trace(new (NotNull, fastMalloc(sizeToAllocate)) StackTrace());
+    const char** symbol = static_cast<const char**>(data);
+    *symbol = symname;
+}
 
+static int backtraceFullCallback(void* data, uintptr_t, const char*, int, const char* function)
+{
+    const char** symbol = static_cast<const char**>(data);
+    *symbol = function;
+    return 0;
+}
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+char** symbolize(void* const* addresses, int size)
+{
+    struct backtrace_state* state = backtraceState();
+    if (!state)
+        return nullptr;
+
+    char** symbols = static_cast<char**>(malloc(sizeof(char*) * size));
+
+    for (int i = 0; i < size; ++i) {
+        uintptr_t pc = reinterpret_cast<uintptr_t>(addresses[i]);
+        char* symbol;
+
+        backtrace_pcinfo(state, pc, backtraceFullCallback, nullptr, &symbol);
+        if (!symbol)
+            backtrace_syminfo(backtraceState(), pc, backtraceSyminfoCallback, nullptr, &symbol);
+
+        if (symbol) {
+            char* demangled = abi::__cxa_demangle(symbol, nullptr, nullptr, nullptr);
+            if (demangled)
+                symbols[i] = demangled;
+            else
+                symbols[i] = strdup(symbol);
+        } else
+            symbols[i] = strdup("???");
+    }
+    return symbols;
+}
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+#endif
+
+std::unique_ptr<StackTrace> StackTrace::captureStackTrace(size_t maxFrames, size_t framesToSkip)
+{
+    static_assert(sizeof(StackTrace) == sizeof(void*) * 3);
+    // We overwrite the memory of the two first skipped frames, m_stack[0] will hold the third one.
+    static_assert(offsetof(StackTrace, m_stack) == sizeof(void*) * 2);
+
+    maxFrames = std::max<size_t>(1, maxFrames);
     // Skip 2 additional frames i.e. StackTrace::captureStackTrace and WTFGetBacktrace.
     framesToSkip += 2;
-    int numberOfFrames = maxFrames + framesToSkip;
-
-    WTFGetBacktrace(&trace->m_skippedFrame0, &numberOfFrames);
-    if (numberOfFrames) {
-        RELEASE_ASSERT(numberOfFrames >= framesToSkip);
-        trace->m_size = numberOfFrames - framesToSkip;
-    } else
-        trace->m_size = 0;
-
-    trace->m_capacity = maxFrames;
-
-    return trace;
+    size_t capacity = maxFrames + framesToSkip;
+    void** storage = static_cast<void**>(fastMalloc(capacity * sizeof(void*)));
+    size_t size = 0;
+    size_t initialFrame = 0;
+    int capturedFrames = static_cast<int>(capacity);
+    WTFGetBacktrace(storage, &capturedFrames);
+    if (static_cast<size_t>(capturedFrames) > framesToSkip) {
+        size = static_cast<size_t>(capturedFrames) - framesToSkip;
+        initialFrame = framesToSkip - 2; 
+    }
+    return std::unique_ptr<StackTrace> { new (NotNull, storage) StackTrace(size, initialFrame) };
 }
 
-auto StackTrace::demangle(void* pc) -> std::optional<DemangleEntry>
+String StackTrace::toString() const
+{
+    StringPrintStream stream;
+    dump(stream);
+    return stream.toString();
+}
+
+auto StackTraceSymbolResolver::demangle(void* pc) -> std::optional<DemangleEntry>
 {
 #if HAVE(DLADDR)
     const char* mangledName = nullptr;
@@ -107,48 +155,13 @@ auto StackTrace::demangle(void* pc) -> std::optional<DemangleEntry>
     return std::nullopt;
 }
 
-void StackTrace::dump(PrintStream& out, const char* indentString) const
+void StackTracePrinter::dump(PrintStream& out) const
 {
-    const auto* stack = this->stack();
-#if HAVE(BACKTRACE_SYMBOLS)
-    char** symbols = backtrace_symbols(stack, m_size);
-    if (!symbols)
-        return;
-#elif OS(WINDOWS)
-    HANDLE hProc = GetCurrentProcess();
-    uint8_t symbolData[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR)] = { 0 };
-    auto symbolInfo = reinterpret_cast<SYMBOL_INFO*>(symbolData);
-
-    symbolInfo->SizeOfStruct = sizeof(SYMBOL_INFO);
-    symbolInfo->MaxNameLen = MAX_SYM_NAME;
-#endif
-
-    if (!indentString)
-        indentString = "";
-    for (int i = 0; i < m_size; ++i) {
-        const char* mangledName = nullptr;
-        const char* cxaDemangled = nullptr;
-#if HAVE(BACKTRACE_SYMBOLS)
-        mangledName = symbols[i];
-#elif OS(WINDOWS)
-        if (DbgHelper::SymFromAddress(hProc, reinterpret_cast<DWORD64>(stack[i]), nullptr, symbolInfo))
-            mangledName = symbolInfo->Name;
-#endif
-        auto demangled = demangle(stack[i]);
-        if (demangled) {
-            mangledName = demangled->mangledName();
-            cxaDemangled = demangled->demangledName();
-        }
-        const int frameNumber = i + 1;
-        if (mangledName || cxaDemangled)
-            out.printf("%s%s%-3d %p %s\n", m_prefix ? m_prefix : "", indentString, frameNumber, stack[i], cxaDemangled ? cxaDemangled : mangledName);
-        else
-            out.printf("%s%s%-3d %p\n", m_prefix ? m_prefix : "", indentString, frameNumber, stack[i]);
-    }
-
-#if HAVE(BACKTRACE_SYMBOLS)
-    free(symbols);
-#endif
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+    StackTraceSymbolResolver { m_stack }.forEach([&](int frameNumber, void* stackFrame, const char* name) {
+        out.printf("%s%-3d %p %s\n", m_prefix ? m_prefix : "", frameNumber, stackFrame, name);
+    });
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 }
 
 } // namespace WTF

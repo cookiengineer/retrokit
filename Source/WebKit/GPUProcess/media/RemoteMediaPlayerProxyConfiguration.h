@@ -28,6 +28,8 @@
 #if ENABLE(GPU_PROCESS)
 
 #include <WebCore/ContentType.h>
+#include <WebCore/FourCC.h>
+#include <WebCore/LayoutRect.h>
 #include <WebCore/PlatformTextTrack.h>
 #include <WebCore/SecurityOriginData.h>
 #include <wtf/text/WTFString.h>
@@ -39,110 +41,32 @@ struct RemoteMediaPlayerProxyConfiguration {
     String userAgent;
     String sourceApplicationIdentifier;
     String networkInterfaceName;
+    String audioOutputDeviceId;
     Vector<WebCore::ContentType> mediaContentTypesRequiringHardwareSupport;
+    std::optional<Vector<String>> allowedMediaContainerTypes;
+    std::optional<Vector<String>> allowedMediaCodecTypes;
+    std::optional<Vector<WebCore::FourCC>> allowedMediaVideoCodecIDs;
+    std::optional<Vector<WebCore::FourCC>> allowedMediaAudioCodecIDs;
+    std::optional<Vector<WebCore::FourCC>> allowedMediaCaptionFormatTypes;
+    WebCore::LayoutRect playerContentBoxRect;
     Vector<String> preferredAudioCharacteristics;
-#if ENABLE(AVF_CAPTIONS)
+#if PLATFORM(COCOA)
     Vector<WebCore::PlatformTextTrackData> outOfBandTrackData;
 #endif
     WebCore::SecurityOriginData documentSecurityOrigin;
+    WebCore::IntSize presentationSize { };
+    WebCore::FloatSize videoLayerSize { };
     uint64_t logIdentifier { 0 };
     bool shouldUsePersistentCache { false };
-    bool isVideo { 0 };
-
-    template<class Encoder>
-    void encode(Encoder& encoder) const
-    {
-        encoder << referrer;
-        encoder << userAgent;
-        encoder << sourceApplicationIdentifier;
-        encoder << networkInterfaceName;
-        encoder << mediaContentTypesRequiringHardwareSupport;
-        encoder << preferredAudioCharacteristics;
-#if ENABLE(AVF_CAPTIONS)
-        encoder << outOfBandTrackData;
+    bool isVideo { false };
+    bool renderingCanBeAccelerated { false };
+    bool shouldDisableHDR { false };
+#if PLATFORM(IOS_FAMILY)
+    bool canShowWhileLocked { false };
 #endif
-        encoder << documentSecurityOrigin;
-        encoder << logIdentifier;
-        encoder << shouldUsePersistentCache;
-        encoder << isVideo;
-    }
-
-    template <class Decoder>
-    static std::optional<RemoteMediaPlayerProxyConfiguration> decode(Decoder& decoder)
-    {
-        std::optional<String> referrer;
-        decoder >> referrer;
-        if (!referrer)
-            return std::nullopt;
-
-        std::optional<String> userAgent;
-        decoder >> userAgent;
-        if (!userAgent)
-            return std::nullopt;
-
-        std::optional<String> sourceApplicationIdentifier;
-        decoder >> sourceApplicationIdentifier;
-        if (!sourceApplicationIdentifier)
-            return std::nullopt;
-
-        std::optional<String> networkInterfaceName;
-        decoder >> networkInterfaceName;
-        if (!networkInterfaceName)
-            return std::nullopt;
-
-        std::optional<Vector<WebCore::ContentType>> mediaContentTypesRequiringHardwareSupport;
-        decoder >> mediaContentTypesRequiringHardwareSupport;
-        if (!mediaContentTypesRequiringHardwareSupport)
-            return std::nullopt;
-
-        std::optional<Vector<String>> preferredAudioCharacteristics;
-        decoder >> preferredAudioCharacteristics;
-        if (!preferredAudioCharacteristics)
-            return std::nullopt;
-
-#if ENABLE(AVF_CAPTIONS)
-        std::optional<Vector<WebCore::PlatformTextTrackData>> outOfBandTrackData;
-        decoder >> outOfBandTrackData;
-        if (!outOfBandTrackData)
-            return std::nullopt;
+#if HAVE(SPATIAL_AUDIO_EXPERIENCE)
+    bool prefersSpatialAudioExperience { false };
 #endif
-
-        std::optional<WebCore::SecurityOriginData> documentSecurityOrigin;
-        decoder >> documentSecurityOrigin;
-        if (!documentSecurityOrigin)
-            return std::nullopt;
-
-        std::optional<uint64_t> logIdentifier;
-        decoder >> logIdentifier;
-        if (!logIdentifier)
-            return std::nullopt;
-
-        std::optional<bool> shouldUsePersistentCache;
-        decoder >> shouldUsePersistentCache;
-        if (!shouldUsePersistentCache)
-            return std::nullopt;
-
-        std::optional<bool> isVideo;
-        decoder >> isVideo;
-        if (!isVideo)
-            return std::nullopt;
-
-        return {{
-            WTFMove(*referrer),
-            WTFMove(*userAgent),
-            WTFMove(*sourceApplicationIdentifier),
-            WTFMove(*networkInterfaceName),
-            WTFMove(*mediaContentTypesRequiringHardwareSupport),
-            WTFMove(*preferredAudioCharacteristics),
-#if ENABLE(AVF_CAPTIONS)
-            WTFMove(*outOfBandTrackData),
-#endif
-            WTFMove(*documentSecurityOrigin),
-            *logIdentifier,
-            *shouldUsePersistentCache,
-            *isVideo,
-        }};
-    }
 };
 
 } // namespace WebKit

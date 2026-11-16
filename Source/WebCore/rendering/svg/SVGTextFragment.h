@@ -25,18 +25,6 @@ namespace WebCore {
 
 // A SVGTextFragment describes a text fragment of a RenderSVGInlineText which can be rendered at once.
 struct SVGTextFragment {
-    SVGTextFragment()
-        : characterOffset(0)
-        , metricsListOffset(0)
-        , length(0)
-        , isTextOnPath(false)
-        , x(0)
-        , y(0)
-        , width(0)
-        , height(0)
-    {
-    }
-
     enum TransformType {
         TransformRespectingTextLength,
         TransformIgnoringTextLength
@@ -57,15 +45,20 @@ struct SVGTextFragment {
     }
 
     // The first rendered character starts at RenderSVGInlineText::characters() + characterOffset.
-    unsigned characterOffset;
-    unsigned metricsListOffset;
-    unsigned length : 31;
-    bool isTextOnPath : 1;
+    unsigned characterOffset { 0 };
+    unsigned metricsListOffset { 0 };
+    unsigned length : 31 { 0 };
+    bool isTextOnPath : 1 { false };
 
-    float x;
-    float y;
-    float width;
-    float height;
+    float x { 0 };
+    float y { 0 };
+    float width { 0 };
+    float height { 0 };
+
+    // Baseline shift from dominant-baseline / alignment-baseline / baseline-shift CSS properties.
+    // Stored separately so that query APIs (getStartPositionOfChar, getEndPositionOfChar, getExtentOfChar)
+    // return positions based on the y attribute value, while rendering applies this shift visually.
+    float baselineShift { 0 };
 
     // Includes rotation/glyph-orientation-(horizontal|vertical) transforms, as well as orientation related shifts
     // (see SVGTextLayoutEngine, which builds this transformation).

@@ -25,13 +25,13 @@
 
 #pragma once
 
-#include "ScrollBehavior.h"
+#include <WebCore/ScrollBehavior.h>
 #include <optional>
 
 namespace WebCore {
 
 struct ScrollOptions {
-    std::optional<ScrollBehavior> behavior { ScrollBehavior::Auto };
+    ScrollBehavior behavior { ScrollBehavior::Auto };
 };
 
 } // namespace WebCore

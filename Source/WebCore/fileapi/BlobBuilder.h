@@ -41,15 +41,17 @@ class ArrayBufferView;
 namespace WebCore {
 
 class Blob;
+class FragmentedSharedBuffer;
 
 class BlobBuilder {
 public:
     BlobBuilder(EndingType);
 
-    void append(RefPtr<JSC::ArrayBuffer>&&);
-    void append(RefPtr<JSC::ArrayBufferView>&&);
-    void append(RefPtr<Blob>&&);
+    void append(Ref<JSC::ArrayBuffer>&&);
+    void append(Ref<JSC::ArrayBufferView>&&);
+    void append(Ref<Blob>&&);
     void append(const String& text);
+    void append(Ref<FragmentedSharedBuffer>&&);
 
     Vector<BlobPart> finalize();
 

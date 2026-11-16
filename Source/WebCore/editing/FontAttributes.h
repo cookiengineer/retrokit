@@ -25,72 +25,38 @@
 
 #pragma once
 
-#include "FontShadow.h"
-#include "RenderStyleConstants.h"
+#include <WebCore/Font.h>
+#include <WebCore/FontShadow.h>
+#include <WebCore/RenderStyleConstants.h>
+#include <WebCore/StyleListStyleType.h>
+#include <wtf/Platform.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/text/WTFString.h>
 
 OBJC_CLASS NSDictionary;
-OBJC_CLASS NSFont;
 OBJC_CLASS NSTextList;
-OBJC_CLASS UIFont;
 
 namespace WebCore {
 
 struct TextList {
-    ListStyleType style { ListStyleType::None };
+    Style::ListStyleType styleType { CSS::Keyword::None { } };
     int startingItemNumber { 0 };
     bool ordered { false };
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<TextList> decode(Decoder&);
 
 #if PLATFORM(COCOA)
     RetainPtr<NSTextList> createTextList() const;
 #endif
 };
 
-template<class Encoder> inline void TextList::encode(Encoder& encoder) const
-{
-    encoder << static_cast<uint8_t>(style) << startingItemNumber << ordered;
-}
-
-template<class Decoder> inline std::optional<TextList> TextList::decode(Decoder& decoder)
-{
-    std::optional<uint8_t> style;
-    decoder >> style;
-    if (!style)
-        return std::nullopt;
-
-    std::optional<int> startingItemNumber;
-    decoder >> startingItemNumber;
-    if (!startingItemNumber)
-        return std::nullopt;
-
-    std::optional<bool> ordered;
-    decoder >> ordered;
-    if (!ordered)
-        return std::nullopt;
-
-    return {{ static_cast<ListStyleType>(WTFMove(*style)), WTFMove(*startingItemNumber), WTFMove(*ordered) }};
-}
-
 struct FontAttributes {
     enum class SubscriptOrSuperscript : uint8_t { None, Subscript, Superscript };
     enum class HorizontalAlignment : uint8_t { Left, Center, Right, Justify, Natural };
 
 #if PLATFORM(COCOA)
-    bool encodingRequiresPlatformData() const { return true; }
-
     WEBCORE_EXPORT RetainPtr<NSDictionary> createDictionary() const;
-#else
-    bool encodingRequiresPlatformData() const { return false; }
 #endif
 
-#if PLATFORM(MAC)
-    RetainPtr<NSFont> font;
-#elif PLATFORM(IOS_FAMILY)
-    RetainPtr<UIFont> font;
-#endif
+    RefPtr<Font> font;
     Color backgroundColor;
     Color foregroundColor;
     FontShadow fontShadow;
@@ -99,30 +65,7 @@ struct FontAttributes {
     Vector<TextList> textLists;
     bool hasUnderline { false };
     bool hasStrikeThrough { false };
+    bool hasMultipleFonts { false };
 };
 
 } // namespace WebCore
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::FontAttributes::SubscriptOrSuperscript> {
-    using values = EnumValues<
-        WebCore::FontAttributes::SubscriptOrSuperscript,
-        WebCore::FontAttributes::SubscriptOrSuperscript::None,
-        WebCore::FontAttributes::SubscriptOrSuperscript::Subscript,
-        WebCore::FontAttributes::SubscriptOrSuperscript::Superscript
-    >;
-};
-
-template<> struct EnumTraits<WebCore::FontAttributes::HorizontalAlignment> {
-    using values = EnumValues<
-        WebCore::FontAttributes::HorizontalAlignment,
-        WebCore::FontAttributes::HorizontalAlignment::Left,
-        WebCore::FontAttributes::HorizontalAlignment::Center,
-        WebCore::FontAttributes::HorizontalAlignment::Right,
-        WebCore::FontAttributes::HorizontalAlignment::Justify,
-        WebCore::FontAttributes::HorizontalAlignment::Natural
-    >;
-};
-
-} // namespace WTF

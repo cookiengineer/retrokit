@@ -27,8 +27,9 @@
 
 #if ENABLE(VIDEO)
 
-#include "Color.h"
-#include "InbandGenericCueIdentifier.h"
+#include <WebCore/Color.h>
+#include <WebCore/InbandGenericCueIdentifier.h>
+#include <wtf/Markable.h>
 #include <wtf/MediaTime.h>
 
 namespace WebCore {
@@ -39,7 +40,7 @@ struct GenericCueData {
     enum class Status : uint8_t { Uninitialized, Partial, Complete };
 
     GenericCueData() = default;
-    GenericCueData(InbandGenericCueIdentifier uniqueId, const MediaTime& startTime, const MediaTime& endTime, const String& id, const String& content, const String& fontName, double line, double position, double size, double baseFontSize, double relativeFontSize, const Color& foregroundColor, const Color& backgroundColor, const Color& highlightColor, GenericCueData::Alignment align, GenericCueData::Status status)
+    GenericCueData(Markable<InbandGenericCueIdentifier> uniqueId, const MediaTime& startTime, const MediaTime& endTime, const AtomString& id, const String& content, const String& fontName, double line, double position, double size, double baseFontSize, double relativeFontSize, const Color& foregroundColor, const Color& backgroundColor, const Color& highlightColor, GenericCueData::Alignment positionAlign, GenericCueData::Alignment align, GenericCueData::Status status, bool preventLineWrapping)
         : m_uniqueId(uniqueId)
         , m_startTime(startTime)
         , m_endTime(endTime)
@@ -54,19 +55,21 @@ struct GenericCueData {
         , m_foregroundColor(foregroundColor)
         , m_backgroundColor(backgroundColor)
         , m_highlightColor(highlightColor)
+        , m_positionAlign(positionAlign)
         , m_align(align)
         , m_status(status)
+        , m_preventLineWrapping(preventLineWrapping)
     {
         ASSERT(isValid());
     }
 
     bool isValid() const { return !!m_uniqueId; }
-    bool equalNotConsideringTimesOrId(const GenericCueData&) const;
+    bool NODELETE equalNotConsideringTimesOrId(const GenericCueData&) const;
 
-    InbandGenericCueIdentifier m_uniqueId;
+    Markable<InbandGenericCueIdentifier> m_uniqueId;
     MediaTime m_startTime;
     MediaTime m_endTime;
-    String m_id;
+    AtomString m_id;
     String m_content;
     String m_fontName;
     double m_line { -1 };
@@ -77,155 +80,18 @@ struct GenericCueData {
     Color m_foregroundColor;
     Color m_backgroundColor;
     Color m_highlightColor;
+    Alignment m_positionAlign { Alignment::None };
     Alignment m_align { Alignment::None };
     Status m_status { Status::Uninitialized };
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<GenericCueData> decode(Decoder&);
+    bool m_preventLineWrapping { true };
 };
-
-template <class Decoder>
-std::optional<GenericCueData> GenericCueData::decode(Decoder& decoder)
-{
-    std::optional<InbandGenericCueIdentifier> uniqueId;
-    decoder >> uniqueId;
-    if (!uniqueId)
-        return std::nullopt;
-
-    std::optional<MediaTime> startTime;
-    decoder >> startTime;
-    if (!startTime)
-        return std::nullopt;
-
-    std::optional<MediaTime> endTime;
-    decoder >> endTime;
-    if (!endTime)
-        return std::nullopt;
-
-    std::optional<String> identifier;
-    decoder >> identifier;
-    if (!identifier)
-        return std::nullopt;
-
-    std::optional<String> content;
-    decoder >> content;
-    if (!content)
-        return std::nullopt;
-
-    std::optional<String> fontName;
-    decoder >> fontName;
-    if (!fontName)
-        return std::nullopt;
-
-    std::optional<double> line;
-    decoder >> line;
-    if (!line)
-        return std::nullopt;
-
-    std::optional<double> position;
-    decoder >> position;
-    if (!position)
-        return std::nullopt;
-
-    std::optional<double> size;
-    decoder >> size;
-    if (!size)
-        return std::nullopt;
-
-    std::optional<double> baseFontSize;
-    decoder >> baseFontSize;
-    if (!baseFontSize)
-        return std::nullopt;
-
-    std::optional<double> relativeFontSize;
-    decoder >> relativeFontSize;
-    if (!relativeFontSize)
-        return std::nullopt;
-
-    std::optional<Color> foregroundColor;
-    decoder >> foregroundColor;
-    if (!foregroundColor)
-        return std::nullopt;
-
-    std::optional<Color> backgroundColor;
-    decoder >> backgroundColor;
-    if (!backgroundColor)
-        return std::nullopt;
-
-    std::optional<Color> highlightColor;
-    decoder >> highlightColor;
-    if (!highlightColor)
-        return std::nullopt;
-
-    std::optional<Alignment> alignment;
-    decoder >> alignment;
-    if (!alignment)
-        return std::nullopt;
-
-    std::optional<Status> status;
-    decoder >> status;
-    if (!status)
-        return std::nullopt;
-
-    GenericCueData data = {
-
-        WTFMove(*uniqueId),
-
-        WTFMove(*startTime),
-        WTFMove(*endTime),
-
-        WTFMove(*identifier),
-        WTFMove(*content),
-        WTFMove(*fontName),
-
-        WTFMove(*line),
-        WTFMove(*position),
-        WTFMove(*size),
-        WTFMove(*baseFontSize),
-        WTFMove(*relativeFontSize),
-
-        WTFMove(*foregroundColor),
-        WTFMove(*backgroundColor),
-        WTFMove(*highlightColor),
-
-        WTFMove(*alignment),
-        WTFMove(*status),
-
-    };
-
-    if (!data.isValid())
-        return std::nullopt;
-
-    return data;
-}
-
-template<class Encoder>
-void GenericCueData::encode(Encoder& encoder) const
-{
-    encoder << m_uniqueId;
-    encoder << m_startTime;
-    encoder << m_endTime;
-    encoder << m_id;
-    encoder << m_content;
-    encoder << m_fontName;
-    encoder << m_line;
-    encoder << m_position;
-    encoder << m_size;
-    encoder << m_baseFontSize;
-    encoder << m_relativeFontSize;
-    encoder << m_foregroundColor;
-    encoder << m_backgroundColor;
-    encoder << m_highlightColor;
-    encoder << m_align;
-    encoder << m_status;
-}
 
 class InbandGenericCue : public RefCounted<InbandGenericCue> {
 public:
     static Ref<InbandGenericCue> create() { return adoptRef(*new InbandGenericCue); }
-    static Ref<InbandGenericCue> create(GenericCueData&& cueData) { return adoptRef(*new InbandGenericCue(WTFMove(cueData))); }
+    static Ref<InbandGenericCue> create(GenericCueData&& cueData) { return adoptRef(*new InbandGenericCue(WTF::move(cueData))); }
 
-    InbandGenericCueIdentifier uniqueId() const { return m_cueData.m_uniqueId; }
+    InbandGenericCueIdentifier uniqueId() const { return *m_cueData.m_uniqueId; }
 
     MediaTime startTime() const { return m_cueData.m_startTime; }
     void setStartTime(const MediaTime& startTime) { m_cueData.m_startTime = startTime; }
@@ -233,10 +99,10 @@ public:
     MediaTime endTime() const { return m_cueData.m_endTime; }
     void setEndTime(const MediaTime& endTime) { m_cueData.m_endTime = endTime; }
 
-    const String& id() const { return m_cueData.m_id; }
-    void setId(const String& id) { m_cueData.m_id = id; }
+    const AtomString& id() const LIFETIME_BOUND { return m_cueData.m_id; }
+    void setId(const AtomString& id) { m_cueData.m_id = id; }
 
-    const String& content() const { return m_cueData.m_content; }
+    const String& content() const LIFETIME_BOUND { return m_cueData.m_content; }
     void setContent(const String& content) { m_cueData.m_content = content; }
 
     double line() const { return m_cueData.m_line; }
@@ -245,28 +111,34 @@ public:
     double position() const { return m_cueData.m_position; }
     void setPosition(double position) { m_cueData.m_position = position; }
 
+    GenericCueData::Alignment positionAlign() const { return m_cueData.m_positionAlign; }
+    void setPositionAlign(GenericCueData::Alignment align) { m_cueData.m_positionAlign = align; }
+
     double size() const { return m_cueData.m_size; }
     void setSize(double size) { m_cueData.m_size = size; }
 
     GenericCueData::Alignment align() const { return m_cueData.m_align; }
     void setAlign(GenericCueData::Alignment align) { m_cueData.m_align = align; }
 
-    const String& fontName() const { return m_cueData.m_fontName; }
+    const String& fontName() const LIFETIME_BOUND { return m_cueData.m_fontName; }
     void setFontName(const String& fontName) { m_cueData.m_fontName = fontName; }
 
     double baseFontSize() const { return m_cueData.m_baseFontSize; }
     void setBaseFontSize(double baseFontSize) { m_cueData.m_baseFontSize = baseFontSize; }
 
+    bool preventLineWrapping() const { return m_cueData.m_preventLineWrapping; }
+    void setPreventLineWrapping(bool preventWrapping) { m_cueData.m_preventLineWrapping = preventWrapping; }
+
     double relativeFontSize() const { return m_cueData.m_relativeFontSize; }
     void setRelativeFontSize(double relativeFontSize) { m_cueData.m_relativeFontSize = relativeFontSize; }
 
-    const Color& foregroundColor() const { return m_cueData.m_foregroundColor; }
+    const Color& foregroundColor() const LIFETIME_BOUND { return m_cueData.m_foregroundColor; }
     void setForegroundColor(const Color& color) { m_cueData.m_foregroundColor = color; }
 
-    const Color& backgroundColor() const { return m_cueData.m_backgroundColor; }
+    const Color& backgroundColor() const LIFETIME_BOUND { return m_cueData.m_backgroundColor; }
     void setBackgroundColor(const Color& color) { m_cueData.m_backgroundColor = color; }
 
-    const Color& highlightColor() const { return m_cueData.m_highlightColor; }
+    const Color& highlightColor() const LIFETIME_BOUND { return m_cueData.m_highlightColor; }
     void setHighlightColor(const Color& color) { m_cueData.m_highlightColor = color; }
 
     GenericCueData::Status status() { return m_cueData.m_status; }
@@ -276,12 +148,12 @@ public:
 
     String toJSONString() const;
 
-    const GenericCueData& cueData() const { return m_cueData; }
+    const GenericCueData& cueData() const LIFETIME_BOUND { return m_cueData; }
 
 private:
     InbandGenericCue();
     explicit InbandGenericCue(GenericCueData&& cueData)
-        : m_cueData(WTFMove(cueData))
+        : m_cueData(WTF::move(cueData))
     {
         ASSERT(m_cueData.isValid());
     }
@@ -300,25 +172,6 @@ struct LogArgument<WebCore::InbandGenericCue> {
     {
         return cue.toJSONString();
     }
-};
-
-template<> struct EnumTraits<WebCore::GenericCueData::Alignment> {
-    using values = EnumValues<
-        WebCore::GenericCueData::Alignment,
-        WebCore::GenericCueData::Alignment::None,
-        WebCore::GenericCueData::Alignment::Start,
-        WebCore::GenericCueData::Alignment::Middle,
-        WebCore::GenericCueData::Alignment::End
-    >;
-};
-
-template<> struct EnumTraits<WebCore::GenericCueData::Status> {
-    using values = EnumValues<
-        WebCore::GenericCueData::Status,
-        WebCore::GenericCueData::Status::Uninitialized,
-        WebCore::GenericCueData::Status::Partial,
-        WebCore::GenericCueData::Status::Complete
-    >;
 };
 
 } // namespace WTF

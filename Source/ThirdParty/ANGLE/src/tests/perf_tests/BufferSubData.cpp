@@ -3,11 +3,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
-// BufferSubDataBenchmark:
+// BufferSubData.cpp:
 //   Performance test for ANGLE buffer updates.
 //
 
 #include <sstream>
+#include "common/unsafe_buffers.h"
 
 #include "ANGLEPerfTest.h"
 #include "test_utils/draw_call_perf_utils.h"
@@ -101,12 +102,12 @@ GLsizeiptr GetNormalizedData(GLsizeiptr numElements, GLfloat *floatData, std::ve
     GLsizeiptr triDataSize = sizeof(T) * numElements;
     data->resize(triDataSize);
 
-    T *destPtr = reinterpret_cast<T *>(data->data());
+    T *destPtr = ANGLE_UNSAFE_TODO(reinterpret_cast<T *>(data->data()));
 
     for (GLsizeiptr dataIndex = 0; dataIndex < numElements; dataIndex++)
     {
-        GLfloat scaled = floatData[dataIndex] * 0.25f;
-        destPtr[dataIndex] =
+        GLfloat scaled = ANGLE_UNSAFE_TODO(floatData[dataIndex]) * 0.25f;
+        ANGLE_UNSAFE_TODO(destPtr[dataIndex]) =
             static_cast<T>(scaled * static_cast<GLfloat>(std::numeric_limits<T>::max()));
     }
 
@@ -119,11 +120,12 @@ GLsizeiptr GetIntData(GLsizeiptr numElements, GLfloat *floatData, std::vector<ui
     GLsizeiptr triDataSize = sizeof(T) * numElements;
     data->resize(triDataSize);
 
-    T *destPtr = reinterpret_cast<T *>(data->data());
+    T *destPtr = ANGLE_UNSAFE_TODO(reinterpret_cast<T *>(data->data()));
 
     for (GLsizeiptr dataIndex = 0; dataIndex < numElements; dataIndex++)
     {
-        destPtr[dataIndex] = static_cast<T>(floatData[dataIndex]);
+        ANGLE_UNSAFE_TODO(destPtr[dataIndex]) =
+            static_cast<T>(ANGLE_UNSAFE_TODO(floatData[dataIndex]));
     }
 
     return triDataSize;
@@ -141,7 +143,7 @@ GLsizeiptr GetVertexData(GLenum type,
     {
         triDataSize = sizeof(GLfloat) * componentCount * 3;
         data->resize(triDataSize);
-        memcpy(data->data(), floatData, triDataSize);
+        ANGLE_UNSAFE_TODO(memcpy(data->data(), floatData, triDataSize));
     }
     else if (normalized == GL_TRUE)
     {
@@ -275,12 +277,11 @@ void BufferSubDataBenchmark::initializeBenchmark()
 
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 
-    std::vector<uint8_t> zeroData(params.bufferSize);
-    memset(&zeroData[0], 0, zeroData.size());
+    std::vector<uint8_t> zeroData(params.bufferSize, 0);
 
     glGenBuffers(1, &mBuffer);
     glBindBuffer(GL_ARRAY_BUFFER, mBuffer);
-    glBufferData(GL_ARRAY_BUFFER, params.bufferSize, &zeroData[0], GL_DYNAMIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, params.bufferSize, zeroData.data(), GL_DYNAMIC_DRAW);
 
     glVertexAttribPointer(0, params.vertexComponentCount, params.vertexType,
                           params.vertexNormalized, 0, 0);
@@ -298,14 +299,14 @@ void BufferSubDataBenchmark::initializeBenchmark()
     mNumTris = static_cast<int>(params.updateSize / triDataSize);
     for (int i = 0, offset = 0; i < mNumTris; ++i)
     {
-        memcpy(mUpdateData + offset, &data[0], triDataSize);
+        ANGLE_UNSAFE_BUFFERS(memcpy(mUpdateData + offset, data.data(), triDataSize));
         offset += triDataSize;
     }
 
     if (params.updateSize == 0)
     {
         mNumTris = 1;
-        glBufferSubData(GL_ARRAY_BUFFER, 0, data.size(), &data[0]);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, data.size(), data.data());
     }
 
     // Set the viewport
@@ -350,6 +351,16 @@ BufferSubDataParams BufferUpdateD3D11Params()
     return params;
 }
 
+BufferSubDataParams BufferUpdateMetalParams()
+{
+    BufferSubDataParams params;
+    params.eglParameters        = egl_platform::METAL();
+    params.vertexType           = GL_FLOAT;
+    params.vertexComponentCount = 4;
+    params.vertexNormalized     = GL_FALSE;
+    return params;
+}
+
 BufferSubDataParams BufferUpdateOpenGLOrGLESParams()
 {
     BufferSubDataParams params;
@@ -377,6 +388,7 @@ TEST_P(BufferSubDataBenchmark, Run)
 
 ANGLE_INSTANTIATE_TEST(BufferSubDataBenchmark,
                        BufferUpdateD3D11Params(),
+                       BufferUpdateMetalParams(),
                        BufferUpdateOpenGLOrGLESParams(),
                        BufferUpdateVulkanParams());
 

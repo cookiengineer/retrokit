@@ -20,7 +20,7 @@ DebugAnnotatorVk::DebugAnnotatorVk() {}
 DebugAnnotatorVk::~DebugAnnotatorVk() {}
 
 void DebugAnnotatorVk::beginEvent(gl::Context *context,
-                                  gl::EntryPoint entryPoint,
+                                  angle::EntryPoint entryPoint,
                                   const char *eventName,
                                   const char *eventMessage)
 {
@@ -34,72 +34,29 @@ void DebugAnnotatorVk::beginEvent(gl::Context *context,
 
 void DebugAnnotatorVk::endEvent(gl::Context *context,
                                 const char *eventName,
-                                gl::EntryPoint entryPoint)
+                                angle::EntryPoint entryPoint)
 {
     angle::LoggingAnnotator::endEvent(context, eventName, entryPoint);
-    if (vkCmdBeginDebugUtilsLabelEXT && context && isDrawOrDispatchEntryPoint(entryPoint))
+    if (vkCmdBeginDebugUtilsLabelEXT && context)
     {
         ContextVk *contextVk = vk::GetImpl(static_cast<gl::Context *>(context));
-        contextVk->endEventLog(entryPoint);
+        if (angle::IsDrawEntryPoint(entryPoint))
+        {
+            contextVk->endEventLog(entryPoint, PipelineType::Graphics);
+        }
+        else if (angle::IsDispatchEntryPoint(entryPoint))
+        {
+            contextVk->endEventLog(entryPoint, PipelineType::Compute);
+        }
+        else if (angle::IsClearEntryPoint(entryPoint) || angle::IsQueryEntryPoint(entryPoint))
+        {
+            contextVk->endEventLogForClearOrQuery();
+        }
     }
 }
 
-bool DebugAnnotatorVk::getStatus()
+bool DebugAnnotatorVk::getStatus(const gl::Context *context)
 {
     return true;
 }
-
-bool DebugAnnotatorVk::isDrawOrDispatchEntryPoint(gl::EntryPoint entryPoint) const
-{
-    switch (entryPoint)
-    {
-        case gl::EntryPoint::DispatchCompute:
-        case gl::EntryPoint::DispatchComputeIndirect:
-        case gl::EntryPoint::DrawArrays:
-        case gl::EntryPoint::DrawArraysIndirect:
-        case gl::EntryPoint::DrawArraysInstanced:
-        case gl::EntryPoint::DrawArraysInstancedANGLE:
-        case gl::EntryPoint::DrawArraysInstancedBaseInstance:
-        case gl::EntryPoint::DrawArraysInstancedBaseInstanceANGLE:
-        case gl::EntryPoint::DrawArraysInstancedEXT:
-        case gl::EntryPoint::DrawBuffer:
-        case gl::EntryPoint::DrawBuffers:
-        case gl::EntryPoint::DrawBuffersEXT:
-        case gl::EntryPoint::DrawElements:
-        case gl::EntryPoint::DrawElementsBaseVertex:
-        case gl::EntryPoint::DrawElementsBaseVertexEXT:
-        case gl::EntryPoint::DrawElementsBaseVertexOES:
-        case gl::EntryPoint::DrawElementsIndirect:
-        case gl::EntryPoint::DrawElementsInstanced:
-        case gl::EntryPoint::DrawElementsInstancedANGLE:
-        case gl::EntryPoint::DrawElementsInstancedBaseInstance:
-        case gl::EntryPoint::DrawElementsInstancedBaseVertex:
-        case gl::EntryPoint::DrawElementsInstancedBaseVertexBaseInstance:
-        case gl::EntryPoint::DrawElementsInstancedBaseVertexBaseInstanceANGLE:
-        case gl::EntryPoint::DrawElementsInstancedBaseVertexEXT:
-        case gl::EntryPoint::DrawElementsInstancedBaseVertexOES:
-        case gl::EntryPoint::DrawElementsInstancedEXT:
-        case gl::EntryPoint::DrawPixels:
-        case gl::EntryPoint::DrawRangeElements:
-        case gl::EntryPoint::DrawRangeElementsBaseVertex:
-        case gl::EntryPoint::DrawRangeElementsBaseVertexEXT:
-        case gl::EntryPoint::DrawRangeElementsBaseVertexOES:
-        case gl::EntryPoint::DrawTexfOES:
-        case gl::EntryPoint::DrawTexfvOES:
-        case gl::EntryPoint::DrawTexiOES:
-        case gl::EntryPoint::DrawTexivOES:
-        case gl::EntryPoint::DrawTexsOES:
-        case gl::EntryPoint::DrawTexsvOES:
-        case gl::EntryPoint::DrawTexxOES:
-        case gl::EntryPoint::DrawTexxvOES:
-        case gl::EntryPoint::DrawTransformFeedback:
-        case gl::EntryPoint::DrawTransformFeedbackInstanced:
-        case gl::EntryPoint::DrawTransformFeedbackStream:
-        case gl::EntryPoint::DrawTransformFeedbackStreamInstanced:
-            return true;
-        default:
-            return false;
-    }
-}
-
 }  // namespace rx

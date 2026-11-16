@@ -23,20 +23,21 @@
 #include "Comment.h"
 
 #include "Document.h"
-#include <wtf/IsoMallocInlines.h>
+#include "SerializedNode.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(Comment);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Comment);
 
-inline Comment::Comment(Document& document, const String& text)
-    : CharacterData(document, text)
+inline Comment::Comment(Document& document, String&& text)
+    : CharacterData(document, WTF::move(text), NodeType::Comment)
 {
 }
 
-Ref<Comment> Comment::create(Document& document, const String& text)
+Ref<Comment> Comment::create(Document& document, String&& text)
 {
-    return adoptRef(*new Comment(document, text));
+    return adoptRef(*new Comment(document, WTF::move(text)));
 }
 
 String Comment::nodeName() const
@@ -44,19 +45,14 @@ String Comment::nodeName() const
     return "#comment"_s;
 }
 
-Node::NodeType Comment::nodeType() const
+Ref<Node> Comment::cloneNodeInternal(Document& document, CloningOperation, CustomElementRegistry*) const
 {
-    return COMMENT_NODE;
+    return create(document, String { data() });
 }
 
-Ref<Node> Comment::cloneNodeInternal(Document& targetDocument, CloningOperation)
+SerializedNode Comment::serializeNode(CloningOperation) const
 {
-    return create(targetDocument, data());
-}
-
-bool Comment::childTypeAllowed(NodeType) const
-{
-    return false;
+    return { SerializedNode::Comment { data() } };
 }
 
 } // namespace WebCore

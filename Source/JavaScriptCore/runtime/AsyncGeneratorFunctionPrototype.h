@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2017-2019 Oleksandr Skachkov <gskachkov@gmail.com>.
+ * Copyright (C) 2021-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,28 +32,25 @@ namespace JSC {
 class AsyncGeneratorFunctionPrototype final : public JSNonFinalObject {
 public:
     using Base = JSNonFinalObject;
-    static constexpr unsigned StructureFlags = Base::StructureFlags | HasStaticPropertyTable;
+    static constexpr unsigned StructureFlags = Base::StructureFlags;
 
     template<typename CellType, SubspaceAccess>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         STATIC_ASSERT_ISO_SUBSPACE_SHARABLE(AsyncGeneratorFunctionPrototype, Base);
-        return &vm.plainObjectSpace;
+        return &vm.plainObjectSpace();
     }
 
     DECLARE_INFO;
 
     static AsyncGeneratorFunctionPrototype* create(VM& vm, Structure* structure)
     {
-        AsyncGeneratorFunctionPrototype* prototype = new (NotNull, allocateCell<AsyncGeneratorFunctionPrototype>(vm.heap)) AsyncGeneratorFunctionPrototype(vm, structure);
+        AsyncGeneratorFunctionPrototype* prototype = new (NotNull, allocateCell<AsyncGeneratorFunctionPrototype>(vm)) AsyncGeneratorFunctionPrototype(vm, structure);
         prototype->finishCreation(vm);
         return prototype;
     }
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue proto)
-    {
-        return Structure::create(vm, globalObject, proto, TypeInfo(ObjectType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
 private:
     AsyncGeneratorFunctionPrototype(VM&, Structure*);

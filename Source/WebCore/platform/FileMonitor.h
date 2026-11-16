@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,12 +26,12 @@
 #pragma once
 
 #include <wtf/Function.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WorkQueue.h>
 #include <wtf/text/WTFString.h>
 
 #if USE(COCOA_EVENT_LOOP)
-#include <dispatch/dispatch.h>
-#include <wtf/OSObjectPtr.h>
+#include <wtf/darwin/DispatchOSObject.h>
 #endif
 
 #if USE(GLIB)
@@ -42,11 +42,11 @@
 namespace WebCore {
 
 class FileMonitor {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(FileMonitor, WEBCORE_EXPORT);
 public:
     enum class FileChangeType { Modification, Removal };
 
-    WEBCORE_EXPORT FileMonitor(const String&, Ref<WorkQueue>&& handlerQueue, WTF::Function<void(FileChangeType)>&& modificationHandler);
+    WEBCORE_EXPORT FileMonitor(const String&, Ref<WorkQueue>&& handlerQueue, Function<void(FileChangeType)>&& modificationHandler);
     WEBCORE_EXPORT ~FileMonitor();
 
 private:
@@ -57,7 +57,7 @@ private:
     static void fileChangedCallback(GFileMonitor*, GFile*, GFile*, GFileMonitorEvent, FileMonitor*);
     void didChange(FileChangeType);
     void cancel();
-    Ref<WorkQueue> m_handlerQueue;
+    const Ref<WorkQueue> m_handlerQueue;
     Function<void(FileChangeType)> m_modificationHandler;
     GRefPtr<GFileMonitor> m_platformMonitor;
 #endif

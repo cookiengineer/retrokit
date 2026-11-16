@@ -25,19 +25,20 @@
 
 #pragma once
 
-#include "AffineTransform.h"
-#include "GraphicsContext.h"
-#include "IntRect.h"
-#include "LayoutRect.h"
-#include "PaintPhase.h"
+#include <WebCore/AffineTransform.h>
+#include <WebCore/EventRegion.h>
+#include <WebCore/GraphicsContext.h>
+#include <WebCore/IntRect.h>
+#include <WebCore/LayoutRect.h>
+#include <WebCore/PaintPhase.h>
 #include <limits>
 #include <wtf/HashMap.h>
-#include <wtf/ListHashSet.h>
 #include <wtf/OptionSet.h>
+#include <wtf/WeakListHashSet.h>
 
 namespace WebCore {
 
-class EventRegionContext;
+class AccessibilityRegionContext;
 class OverlapTestRequestClient;
 class RenderInline;
 class RenderLayer;
@@ -52,7 +53,7 @@ typedef HashMap<OverlapTestRequestClient*, IntRect> OverlapTestRequestMap;
  */
 struct PaintInfo {
     PaintInfo(GraphicsContext& newContext, const LayoutRect& newRect, PaintPhase newPhase, OptionSet<PaintBehavior> newPaintBehavior,
-        RenderObject* newSubtreePaintRoot = nullptr, ListHashSet<RenderInline*>* newOutlineObjects = nullptr,
+        RenderObject* newSubtreePaintRoot = nullptr, SingleThreadWeakListHashSet<RenderInline>* newOutlineObjects = nullptr,
         OverlapTestRequestMap* overlapTestRequests = nullptr, const RenderLayerModelObject* newPaintContainer = nullptr,
         const RenderLayer* enclosingSelfPaintingLayer = nullptr, bool newRequireSecurityOriginAccessForWidgets = false)
             : rect(newRect)
@@ -68,7 +69,7 @@ struct PaintInfo {
     {
     }
 
-    GraphicsContext& context() const
+    GraphicsContext& context() const LIFETIME_BOUND
     {
         ASSERT(m_context);
         return *m_context;
@@ -116,21 +117,24 @@ struct PaintInfo {
         if (rect.isInfinite())
             return;
 
-        FloatRect tranformedRect(localToAncestorTransform.inverse().value_or(AffineTransform()).mapRect(rect));
+        FloatRect tranformedRect(valueOrDefault(localToAncestorTransform.inverse()).mapRect(rect));
         rect.setLocation(LayoutPoint(tranformedRect.location()));
         rect.setSize(LayoutSize(tranformedRect.size()));
     }
 
+    EventRegionContext* eventRegionContext() { return dynamicDowncast<EventRegionContext>(regionContext); }
+    inline AccessibilityRegionContext* accessibilityRegionContext();
+
     LayoutRect rect;
     PaintPhase phase;
     OptionSet<PaintBehavior> paintBehavior;
-    RenderObject* subtreePaintRoot; // used to draw just one element and its visual children
-    ListHashSet<RenderInline*>* outlineObjects; // used to list outlines that should be painted by a block with inline children
+    SUPPRESS_FORWARD_DECL_MEMBER RenderObject* subtreePaintRoot; // used to draw just one element and its visual children
+    SingleThreadWeakListHashSet<RenderInline>* outlineObjects; // used to list outlines that should be painted by a block with inline children
     OverlapTestRequestMap* overlapTestRequests;
-    const RenderLayerModelObject* paintContainer; // the layer object that originates the current painting
+    SUPPRESS_FORWARD_DECL_MEMBER const RenderLayerModelObject* paintContainer; // the layer object that originates the current painting
     bool requireSecurityOriginAccessForWidgets { false };
-    const RenderLayer* m_enclosingSelfPaintingLayer { nullptr };
-    EventRegionContext* eventRegionContext { nullptr }; // For PaintPhase::EventRegion.
+    SUPPRESS_FORWARD_DECL_MEMBER const RenderLayer* m_enclosingSelfPaintingLayer { nullptr };
+    RegionContext* regionContext { nullptr }; // For PaintPhase::EventRegion and PaintPhase::Accessibility.
 
 private:
     GraphicsContext* m_context;

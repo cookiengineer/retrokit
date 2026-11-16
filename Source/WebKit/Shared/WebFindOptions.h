@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include <wtf/EnumTraits.h>
+#include <WebCore/FindOptions.h>
 
 namespace WebKit {
 
@@ -40,26 +40,16 @@ enum class FindOptions : uint16_t {
     ShowHighlight = 1 << 7,
     DetermineMatchIndex = 1 << 8,
     NoIndexChange = 1 << 9,
+    AtWordEnds = 1 << 10,
+    DoNotSetSelection = 1 << 11,
 };
+
+enum class FindDecorationStyle : uint8_t {
+    Normal,
+    Found,
+    Highlighted,
+};
+
+WebCore::FindOptions NODELETE core(OptionSet<FindOptions>);
 
 } // namespace WebKit
-
-namespace WTF {
-
-template<> struct EnumTraits<WebKit::FindOptions> {
-    using values = EnumValues<
-        WebKit::FindOptions,
-        WebKit::FindOptions::CaseInsensitive,
-        WebKit::FindOptions::AtWordStarts,
-        WebKit::FindOptions::TreatMedialCapitalAsWordStart,
-        WebKit::FindOptions::Backwards,
-        WebKit::FindOptions::WrapAround,
-        WebKit::FindOptions::ShowOverlay,
-        WebKit::FindOptions::ShowFindIndicator,
-        WebKit::FindOptions::ShowHighlight,
-        WebKit::FindOptions::DetermineMatchIndex,
-        WebKit::FindOptions::NoIndexChange
-    >;
-};
-
-} // namespace WTF

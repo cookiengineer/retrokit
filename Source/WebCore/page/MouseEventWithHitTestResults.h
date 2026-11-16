@@ -1,6 +1,6 @@
 /* 
    Copyright (C) 2000 Simon Hausmann <hausmann@kde.org>
-   Copyright (C) 2006 Apple Inc.
+   Copyright (C) 2006 Apple Inc. All rights reserved.
 
    This library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Library General Public
@@ -31,11 +31,11 @@ class MouseEventWithHitTestResults {
 public:
     MouseEventWithHitTestResults(const PlatformMouseEvent&, const HitTestResult&);
 
-    const PlatformMouseEvent& event() const { return m_event; }
-    const HitTestResult& hitTestResult() const { return m_hitTestResult; }
+    const PlatformMouseEvent& event() const LIFETIME_BOUND { return m_event; }
+    const HitTestResult& hitTestResult() const LIFETIME_BOUND { return m_hitTestResult; }
     LayoutPoint localPoint() const { return m_hitTestResult.localPoint(); }
     Scrollbar* scrollbar() const { return m_hitTestResult.scrollbar(); }
-    bool isOverLink() const;
+    bool NODELETE isOverLink() const;
     bool isOverWidget() const { return m_hitTestResult.isOverWidget(); }
     Node* targetNode() const { return m_hitTestResult.targetNode(); }
 

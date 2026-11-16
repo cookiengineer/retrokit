@@ -25,21 +25,21 @@
 
 #pragma once
 
-#include "BroadcastChannelIdentifier.h"
+#include <WebCore/BroadcastChannelIdentifier.h>
 #include <wtf/Forward.h>
 #include <wtf/RefCounted.h>
 
 namespace WebCore {
 
+struct PartitionedSecurityOrigin;
 class SerializedScriptValue;
-struct SecurityOriginData;
 
 class BroadcastChannelRegistry : public RefCounted<BroadcastChannelRegistry> {
 public:
     virtual ~BroadcastChannelRegistry() { }
-    virtual void registerChannel(const SecurityOriginData&, const String& name, BroadcastChannelIdentifier) = 0;
-    virtual void unregisterChannel(const SecurityOriginData&, const String& name, BroadcastChannelIdentifier) = 0;
-    virtual void postMessage(const SecurityOriginData&, const String& name, BroadcastChannelIdentifier source, Ref<SerializedScriptValue>&&, CompletionHandler<void()>&&) = 0;
+    virtual void registerChannel(const PartitionedSecurityOrigin&, const String& name, BroadcastChannelIdentifier) = 0;
+    virtual void unregisterChannel(const PartitionedSecurityOrigin&, const String& name, BroadcastChannelIdentifier) = 0;
+    virtual void postMessage(const PartitionedSecurityOrigin&, const String& name, BroadcastChannelIdentifier source, Ref<SerializedScriptValue>&&, CompletionHandler<void()>&&) = 0;
 };
 
 } // namespace WebCore

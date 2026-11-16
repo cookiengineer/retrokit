@@ -27,6 +27,12 @@
 
 #include "Connection.h"
 #include <WebCore/BroadcastChannelRegistry.h>
+#include <WebCore/ClientOrigin.h>
+#include <WebCore/PartitionedSecurityOrigin.h>
+#include <WebCore/SecurityOrigin.h>
+#include <wtf/CallbackAggregator.h>
+#include <wtf/HashMap.h>
+#include <wtf/Vector.h>
 
 namespace WebCore {
 struct MessageWithMessagePorts;
@@ -41,16 +47,21 @@ public:
         return adoptRef(*new WebBroadcastChannelRegistry);
     }
 
-    void registerChannel(const WebCore::SecurityOriginData&, const String& name, WebCore::BroadcastChannelIdentifier) final;
-    void unregisterChannel(const WebCore::SecurityOriginData&, const String& name, WebCore::BroadcastChannelIdentifier) final;
-    void postMessage(const WebCore::SecurityOriginData&, const String& name, WebCore::BroadcastChannelIdentifier source, Ref<WebCore::SerializedScriptValue>&&, CompletionHandler<void()>&&) final;
+    void registerChannel(const WebCore::PartitionedSecurityOrigin&, const String& name, WebCore::BroadcastChannelIdentifier) final;
+    void unregisterChannel(const WebCore::PartitionedSecurityOrigin&, const String& name, WebCore::BroadcastChannelIdentifier) final;
+    void postMessage(const WebCore::PartitionedSecurityOrigin&, const String& name, WebCore::BroadcastChannelIdentifier source, Ref<WebCore::SerializedScriptValue>&&, CompletionHandler<void()>&&) final;
+
+    void networkProcessCrashed();
 
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
 
 private:
     WebBroadcastChannelRegistry() = default;
 
-    void postMessageToRemote(WebCore::BroadcastChannelIdentifier, WebCore::MessageWithMessagePorts&&, CompletionHandler<void()>&&);
+    void postMessageToRemote(const WebCore::ClientOrigin&, const String& name, WebCore::MessageWithMessagePorts&&, CompletionHandler<void()>&&);
+    void postMessageLocally(const WebCore::PartitionedSecurityOrigin&, const String& name, std::optional<WebCore::BroadcastChannelIdentifier> sourceInProcess, Ref<WebCore::SerializedScriptValue>&&, Ref<WTF::CallbackAggregator>&&);
+
+    HashMap<WebCore::PartitionedSecurityOrigin, HashMap<String, Vector<WebCore::BroadcastChannelIdentifier>>> m_channelsPerOrigin;
 };
 
 } // namespace WebKit

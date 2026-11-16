@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc.  All rights reserved.
+ * Copyright (C) 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,6 +30,9 @@
 #include "IntSize.h"
 #include "NativeImage.h"
 #include "SharedBuffer.h"
+#include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/ParsingUtilities.h>
 
 namespace WebCore {
 
@@ -40,15 +43,20 @@ static const int cairoMaxImageSize = 32768;
 #endif
 
 class ImageBackingStore {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(ImageBackingStore);
 public:
     static std::unique_ptr<ImageBackingStore> create(const IntSize& size, bool premultiplyAlpha = true)
     {
-        return std::unique_ptr<ImageBackingStore>(new ImageBackingStore(size, premultiplyAlpha));
+        auto backingStore = std::unique_ptr<ImageBackingStore>(new ImageBackingStore(size, premultiplyAlpha));
+        if (!backingStore->m_pixels)
+            return nullptr;
+        return backingStore;
     }
 
     static std::unique_ptr<ImageBackingStore> create(const ImageBackingStore& other)
     {
+        if (!other.m_pixels)
+            return nullptr;
         return std::unique_ptr<ImageBackingStore>(new ImageBackingStore(other));
     }
 
@@ -66,8 +74,8 @@ public:
             return false;
 
         buffer.grow(bufferSize);
-        m_pixels = SharedBuffer::DataSegment::create(WTFMove(buffer));
-        m_pixelsPtr = reinterpret_cast<uint32_t*>(const_cast<uint8_t*>(m_pixels->data()));
+        m_pixels = FragmentedSharedBuffer::DataSegment::create(WTF::move(buffer));
+        m_pixelsSpan = spanReinterpretCast<uint32_t>(spanConstCast<uint8_t>(m_pixels->span()));
         m_size = size;
         m_frameRect = IntRect(IntPoint(), m_size);
         clear();
@@ -81,12 +89,12 @@ public:
         m_frameRect = frameRect;
     }
 
-    const IntSize& size() const { return m_size; }
-    const IntRect& frameRect() const { return m_frameRect; }
+    const IntSize& size() const LIFETIME_BOUND { return m_size; }
+    const IntRect& frameRect() const LIFETIME_BOUND { return m_frameRect; }
 
     void clear()
     {
-        memset(m_pixelsPtr, 0, m_size.area() * sizeof(uint32_t));
+        zeroSpan(m_pixelsSpan);
     }
 
     void clearRect(const IntRect& rect)
@@ -94,11 +102,11 @@ public:
         if (rect.isEmpty() || !inBounds(rect))
             return;
 
-        size_t rowBytes = rect.width() * sizeof(uint32_t);
-        uint32_t* start = pixelAt(rect.x(), rect.y());
+        auto pixels = pixelsStartingAt(rect.x(), rect.y());
         for (int i = 0; i < rect.height(); ++i) {
-            memset(start, 0, rowBytes);
-            start += m_size.width();
+            if (i)
+                skip(pixels, m_size.width());
+            zeroSpan(pixels.first(rect.width()));
         }
     }
 
@@ -107,12 +115,13 @@ public:
         if (rect.isEmpty() || !inBounds(rect))
             return;
 
-        uint32_t* start = pixelAt(rect.x(), rect.y());
+        auto pixels = pixelsStartingAt(rect.x(), rect.y());
         uint32_t pixelValue = this->pixelValue(r, g, b, a);
         for (int i = 0; i < rect.height(); ++i) {
+            if (i)
+                skip(pixels, m_size.width());
             for (int j = 0; j < rect.width(); ++j)
-                start[j] = pixelValue;
-            start += m_size.width();
+                pixels[j] = pixelValue;
         }
     }
 
@@ -121,25 +130,31 @@ public:
         if (rect.isEmpty() || !inBounds(rect))
             return;
 
-        size_t rowBytes = rect.width() * sizeof(uint32_t);
-        uint32_t* src = pixelAt(rect.x(), rect.y());
-        uint32_t* dest = src + m_size.width();
+        auto sourcePixels = pixelsStartingAt(rect.x(), rect.y());
+        auto destinationPixels = sourcePixels.subspan(m_size.width());
+        auto sourceRow = sourcePixels.first(rect.width());
         for (int i = 1; i < rect.height(); ++i) {
-            memcpy(dest, src, rowBytes);
-            dest += m_size.width();
+            if (i != 1)
+                skip(destinationPixels, m_size.width());
+            memcpySpan(destinationPixels, sourceRow);
         }
     }
 
-    uint32_t* pixelAt(int x, int y) const
+    std::span<uint32_t> pixelsStartingAt(int x, int y)
     {
         ASSERT(inBounds(IntPoint(x, y)));
-        return m_pixelsPtr + y * m_size.width() + x;
+        return m_pixelsSpan.subspan(y * m_size.width() + x);
     }
 
-    void setPixel(uint32_t* dest, uint8_t r, uint8_t g, uint8_t b, uint8_t a)
+    uint32_t& pixelAt(int x, int y)
     {
-        ASSERT(dest);
-        *dest = pixelValue(r, g, b, a);
+        ASSERT(inBounds(IntPoint(x, y)));
+        return m_pixelsSpan[y * m_size.width() + x];
+    }
+
+    void setPixel(uint32_t& destination, uint8_t r, uint8_t g, uint8_t b, uint8_t a)
+    {
+        destination = pixelValue(r, g, b, a);
     }
 
     void setPixel(int x, int y, uint8_t r, uint8_t g, uint8_t b, uint8_t a)
@@ -147,20 +162,20 @@ public:
         setPixel(pixelAt(x, y), r, g, b, a);
     }
 
-    void blendPixel(uint32_t* dest, uint8_t r, uint8_t g, uint8_t b, uint8_t a)
+    void blendPixel(uint32_t& destination, uint8_t r, uint8_t g, uint8_t b, uint8_t a)
     {
         if (!a)
             return;
 
-        auto pixel = asSRGBA(PackedColor::ARGB { *dest });
+        auto pixel = asSRGBA(PackedColor::ARGB { destination }).resolved();
 
         if (a >= 255 || !pixel.alpha) {
-            setPixel(dest, r, g, b, a);
+            setPixel(destination, r, g, b, a);
             return;
         }
 
         if (!m_premultiplyAlpha)
-            pixel = premultipliedFlooring(pixel);
+            pixel = premultipliedFlooring(pixel).resolved();
 
         uint8_t d = 255 - a;
 
@@ -174,7 +189,7 @@ public:
         if (!m_premultiplyAlpha)
             result = unpremultiplied(result);
 
-        *dest = PackedColor::ARGB { result }.value;
+        destination = PackedColor::ARGB { result }.value;
     }
 
     static bool isOverSize(const IntSize& size)
@@ -197,17 +212,18 @@ private:
         : m_premultiplyAlpha(premultiplyAlpha)
     {
         ASSERT(!size.isEmpty() && !isOverSize(size));
-        setSize(size);
+        RELEASE_ASSERT(setSize(size));
     }
 
     ImageBackingStore(const ImageBackingStore& other)
         : m_size(other.m_size)
+        , m_frameRect(other.m_frameRect)
         , m_premultiplyAlpha(other.m_premultiplyAlpha)
     {
         ASSERT(!m_size.isEmpty() && !isOverSize(m_size));
-        Vector<uint8_t> buffer { other.m_pixels->data(), other.m_pixels->size() };
-        m_pixels = SharedBuffer::DataSegment::create(WTFMove(buffer));
-        m_pixelsPtr = reinterpret_cast<uint32_t*>(const_cast<uint8_t*>(m_pixels->data()));
+        Vector<uint8_t> buffer(other.m_pixels->span());
+        m_pixels = FragmentedSharedBuffer::DataSegment::create(WTF::move(buffer));
+        m_pixelsSpan = spanReinterpretCast<uint32_t>(spanConstCast<uint8_t>(m_pixels->span()));
     }
 
     bool inBounds(const IntPoint& point) const
@@ -233,8 +249,9 @@ private:
         return PackedColor::ARGB { result }.value;
     }
 
-    RefPtr<SharedBuffer::DataSegment> m_pixels;
-    uint32_t* m_pixelsPtr { nullptr };
+    // m_pixels type should be identical to the one set in ImageBackingStoreCairo.cpp
+    RefPtr<FragmentedSharedBuffer::DataSegment> m_pixels;
+    std::span<uint32_t> m_pixelsSpan;
     IntSize m_size;
     IntRect m_frameRect; // This will always just be the entire buffer except for GIF and PNG frames
     bool m_premultiplyAlpha { true };

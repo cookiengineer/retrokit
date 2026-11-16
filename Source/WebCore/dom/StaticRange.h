@@ -25,8 +25,8 @@
 
 #pragma once
 
-#include "AbstractRange.h"
-#include "SimpleRange.h"
+#include <WebCore/AbstractRange.h>
+#include <WebCore/SimpleRange.h>
 
 namespace JSC {
 
@@ -39,18 +39,18 @@ namespace WebCore {
 template<typename> class ExceptionOr;
 
 class StaticRange final : public AbstractRange, public SimpleRange {
-    WTF_MAKE_ISO_ALLOCATED(StaticRange);
+    WTF_MAKE_TZONE_ALLOCATED(StaticRange);
 public:
     struct Init {
-        RefPtr<Node> startContainer;
+        Ref<Node> startContainer;
         unsigned startOffset { 0 };
-        RefPtr<Node> endContainer;
+        Ref<Node> endContainer;
         unsigned endOffset { 0 };
     };
 
     static ExceptionOr<Ref<StaticRange>> create(Init&&);
     WEBCORE_EXPORT static Ref<StaticRange> create(const SimpleRange&);
-    static Ref<StaticRange> create(SimpleRange&&);
+    WEBCORE_EXPORT static Ref<StaticRange> create(SimpleRange&&);
 
     Node& startContainer() const final { return SimpleRange::startContainer(); }
     unsigned startOffset() const final { return SimpleRange::startOffset(); }
@@ -58,15 +58,18 @@ public:
     unsigned endOffset() const final { return SimpleRange::endOffset(); }
     bool collapsed() const final { return SimpleRange::collapsed(); }
 
-    void visitNodesConcurrently(JSC::AbstractSlotVisitor&) const;
+    // https://dom.spec.whatwg.org/#staticrange-valid
+    WEBCORE_EXPORT bool computeValidity() const;
+
+    void visitNodesInGCThread(JSC::AbstractSlotVisitor&) const;
 
 private:
-    StaticRange(SimpleRange&&);
+    explicit StaticRange(SimpleRange&&);
 
     bool isLiveRange() const final { return false; }
 };
 
-}
+} // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::StaticRange)
     static bool isType(const WebCore::AbstractRange& range) { return !range.isLiveRange(); }

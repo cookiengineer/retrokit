@@ -25,12 +25,14 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if ENABLE(FTL_JIT)
 
-#include "DFGCommon.h"
-#include "FPRInfo.h"
-#include "GPRInfo.h"
-#include "Reg.h"
+#include <JavaScriptCore/DFGCommon.h>
+#include <JavaScriptCore/FPRInfo.h>
+#include <JavaScriptCore/GPRInfo.h>
+#include <JavaScriptCore/Reg.h>
 #include <wtf/HashMap.h>
 
 namespace JSC {
@@ -88,7 +90,7 @@ public:
         return result;
     }
 
-    static Location forValueRep(const B3::ValueRep&);
+    static Location NODELETE forValueRep(const B3::ValueRep&);
 
     Kind kind() const { return m_kind; }
 
@@ -125,7 +127,8 @@ public:
     bool operator!() const { return !static_cast<bool>(*this); }
     
     bool isHashTableDeletedValue() const { return kind() == Unprocessed && u.variable.offset; }
-    
+    static constexpr bool safeToCompareToHashTableEmptyOrDeletedValue = true;
+
     bool operator==(const Location& other) const
     {
         return m_kind == other.m_kind
@@ -160,13 +163,13 @@ public:
     
     void dump(PrintStream&) const;
     
-    bool isGPR() const;
-    bool involvesGPR() const;
-    GPRReg gpr() const;
-    GPRReg directGPR() const; // Get the GPR and assert that there is no addend.
+    bool NODELETE isGPR() const;
+    bool NODELETE involvesGPR() const;
+    GPRReg NODELETE gpr() const;
+    GPRReg NODELETE directGPR() const; // Get the GPR and assert that there is no addend.
     
-    bool isFPR() const;
-    FPRReg fpr() const;
+    bool NODELETE isFPR() const;
+    FPRReg NODELETE fpr() const;
     
     // Assuming that all registers are saved to the savedRegisters buffer according
     // to FTLSaveRestore convention, this loads the value into the given register.
@@ -188,20 +191,11 @@ private:
     } u;
 };
 
-struct LocationHash {
-    static unsigned hash(const Location& key) { return key.hash(); }
-    static bool equal(const Location& a, const Location& b) { return a == b; }
-    static constexpr bool safeToCompareToEmptyOrDeleted = true;
-};
-
 } } // namespace JSC::FTL
 
 namespace WTF {
 
 void printInternal(PrintStream&, JSC::FTL::Location::Kind);
-
-template<typename T> struct DefaultHash;
-template<> struct DefaultHash<JSC::FTL::Location> : JSC::FTL::LocationHash { };
 
 template<typename T> struct HashTraits;
 template<> struct HashTraits<JSC::FTL::Location> : SimpleClassHashTraits<JSC::FTL::Location> { };

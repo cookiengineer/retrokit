@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Google Inc.  All rights reserved.
+ * Copyright (C) 2010 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -30,12 +30,15 @@
 
 #pragma once
 
-#include "BlobResourceHandle.h"
-#include "ExceptionCode.h"
-#include <wtf/URL.h>
-#include "TextEncoding.h"
-#include "ThreadableLoaderClient.h"
+#include <JavaScriptCore/ArrayBuffer.h>
+#include <WebCore/BlobResourceHandle.h>
+#include <WebCore/ExceptionCode.h>
+#include <WebCore/ThreadableLoaderClient.h>
+#include <WebCore/URLKeepingBlobAlive.h>
+#include <pal/text/TextEncoding.h>
 #include <wtf/Forward.h>
+#include <wtf/RefCounted.h>
+#include <wtf/URL.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
@@ -51,28 +54,34 @@ class ScriptExecutionContext;
 class TextResourceDecoder;
 class ThreadableLoader;
 
-class FileReaderLoader : public ThreadableLoaderClient {
+DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(FileReaderLoader);
+class FileReaderLoader final : public ThreadableLoaderClient, public RefCounted<FileReaderLoader> {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(FileReaderLoader, FileReaderLoader);
 public:
     enum ReadType {
         ReadAsArrayBuffer,
         ReadAsBinaryString,
         ReadAsBlob,
         ReadAsText,
-        ReadAsDataURL
+        ReadAsDataURL,
+        ReadAsBinaryChunks
     };
 
     // If client is given, do the loading asynchronously. Otherwise, load synchronously.
-    WEBCORE_EXPORT FileReaderLoader(ReadType, FileReaderLoaderClient*);
-    ~FileReaderLoader();
+    WEBCORE_EXPORT static Ref<FileReaderLoader> create(ReadType, FileReaderLoaderClient*);
+    WEBCORE_EXPORT ~FileReaderLoader();
 
     WEBCORE_EXPORT void start(ScriptExecutionContext*, Blob&);
+    void start(ScriptExecutionContext*, const URL&);
     WEBCORE_EXPORT void cancel();
 
-    // ThreadableLoaderClient
-    void didReceiveResponse(unsigned long, const ResourceResponse&) override;
-    void didReceiveData(const uint8_t*, int) override;
-    void didFinishLoading(unsigned long) override;
-    void didFail(const ResourceError&) override;
+    // ThreadableLoaderClient.
+    void didReceiveResponse(ScriptExecutionContextIdentifier, std::optional<ResourceLoaderIdentifier>, const ResourceResponse&) override;
+    void didReceiveData(const SharedBuffer&) override;
+    void didFinishLoading(ScriptExecutionContextIdentifier, std::optional<ResourceLoaderIdentifier>, const NetworkLoadMetrics&) override;
+    void didFail(std::optional<ScriptExecutionContextIdentifier>, const ResourceError&) override;
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
 
     String stringResult();
     WEBCORE_EXPORT RefPtr<JSC::ArrayBuffer> arrayBufferResult() const;
@@ -80,36 +89,39 @@ public:
     unsigned totalBytes() const { return m_totalBytes; }
     std::optional<ExceptionCode> errorCode() const { return m_errorCode; }
 
-    void setEncoding(const String&);
+    void setEncoding(StringView);
     void setDataType(const String& dataType) { m_dataType = dataType; }
 
-    const URL& url() { return m_urlForReading; }
+    const URL& url() LIFETIME_BOUND { return m_urlForReading; }
 
-    bool isCompleted() const;
+    bool NODELETE isCompleted() const;
 
 private:
+    // If client is given, do the loading asynchronously. Otherwise, load synchronously.
+    FileReaderLoader(ReadType, FileReaderLoaderClient*);
+
     void terminate();
     void cleanup();
     void failed(ExceptionCode);
     void convertToText();
     void convertToDataURL();
+    bool processResponse(const ResourceResponse&);
 
-    static ExceptionCode httpStatusCodeToErrorCode(int);
-    static ExceptionCode toErrorCode(BlobResourceHandle::Error);
+    static ExceptionCode NODELETE httpStatusCodeToErrorCode(int);
+    static ExceptionCode NODELETE toErrorCode(BlobResourceHandle::Error);
 
     ReadType m_readType;
     WeakPtr<FileReaderLoaderClient> m_client;
-    TextEncoding m_encoding;
+    PAL::TextEncoding m_encoding;
     String m_dataType;
 
-    URL m_urlForReading;
+    URLKeepingBlobAlive m_urlForReading;
     RefPtr<ThreadableLoader> m_loader;
 
     RefPtr<JSC::ArrayBuffer> m_rawData;
     bool m_isRawDataConverted;
 
     String m_stringResult;
-    RefPtr<Blob> m_blobResult;
 
     // The decoder used to decode the text data.
     RefPtr<TextResourceDecoder> m_decoder;

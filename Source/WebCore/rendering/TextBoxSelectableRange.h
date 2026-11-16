@@ -33,13 +33,19 @@ struct TextBoxSelectableRange {
     const unsigned length;
     const unsigned additionalLengthAtEnd { 0 };
     const bool isLineBreak { false };
+    // FIXME: Consider holding onto the truncation position instead. See webkit.org/b/164999
     const std::optional<unsigned> truncation { };
+    const bool hasMismatchingContentDirection { false }; // where containing block's bidi direction != text box's direction.
 
     unsigned clamp(unsigned offset) const
     {
         auto clampedOffset = std::clamp(offset, start, start + length) - start;
 
-        if (truncation)
+        if (hasMismatchingContentDirection && truncation && *truncation)
+            return std::max<unsigned>(clampedOffset, length - *truncation);
+
+        // FIXME: For some reason we allow the caret move to (invisible) fully truncated text. The zero test is to keep that behavior.
+        if (truncation && *truncation)
             return std::min<unsigned>(clampedOffset, *truncation);
 
         if (clampedOffset == length)

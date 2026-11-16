@@ -9,6 +9,7 @@
 #define UTIL_GL_H_
 
 #include "common/platform.h"
+#include "common/unsafe_buffers.h"
 
 #if defined(ANGLE_USE_UTIL_LOADER)
 #    include "util/egl_loader_autogen.h"
@@ -27,7 +28,9 @@
 #    include "angle_gl.h"
 #endif  // defined(ANGLE_USE_UTIL_LOADER)
 
+#include <cstring>
 #include <string>
+#include <utility>
 
 namespace angle
 {
@@ -36,6 +39,18 @@ inline bool CheckExtensionExists(const char *allExtensions, const std::string &e
     const std::string paddedExtensions = std::string(" ") + allExtensions + std::string(" ");
     return paddedExtensions.find(std::string(" ") + extName + std::string(" ")) !=
            std::string::npos;
+}
+
+inline std::pair<EGLint, EGLint> GetCurrentContextVersion()
+{
+    const char *versionString = reinterpret_cast<const char *>(glGetString(GL_VERSION));
+    if ((versionString == nullptr) ||
+        ANGLE_UNSAFE_TODO(std::strstr(versionString, "OpenGL ES")) == nullptr)
+    {
+        return {0, 0};
+    }
+
+    return {ANGLE_UNSAFE_TODO(versionString[10]) - '0', ANGLE_UNSAFE_TODO(versionString[12]) - '0'};
 }
 }  // namespace angle
 #endif  // UTIL_GL_H_

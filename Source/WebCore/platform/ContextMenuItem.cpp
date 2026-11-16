@@ -27,10 +27,13 @@
 #include "ContextMenuItem.h"
 
 #include "ContextMenu.h"
+#include <wtf/TZoneMallocInlines.h>
 
 #if ENABLE(CONTEXT_MENUS)
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ContextMenuItem);
 
 ContextMenuItem::ContextMenuItem(ContextMenuItemType type, ContextMenuAction action, const String& title, ContextMenu* subMenu)
     : m_type(type)
@@ -55,7 +58,7 @@ ContextMenuItem::ContextMenuItem(ContextMenuItemType type, ContextMenuAction act
 }
         
 ContextMenuItem::ContextMenuItem(ContextMenuAction action, const String& title, bool enabled, bool checked, const Vector<ContextMenuItem>& subMenuItems, unsigned indentationLevel)
-    : m_type(SubmenuType)
+    : m_type(ContextMenuItemType::Submenu)
     , m_action(action)
     , m_title(title)
     , m_enabled(enabled)
@@ -66,7 +69,7 @@ ContextMenuItem::ContextMenuItem(ContextMenuAction action, const String& title, 
 }
 
 ContextMenuItem::ContextMenuItem()
-    : m_type(SeparatorType)
+    : m_type(ContextMenuItemType::Separator)
     , m_action(ContextMenuItemTagNoAction)
     , m_enabled(false)
     , m_checked(false)
@@ -85,10 +88,10 @@ bool ContextMenuItem::isNull() const
 void ContextMenuItem::setSubMenu(ContextMenu* subMenu)
 {
     if (subMenu) {
-        m_type = SubmenuType;
+        m_type = ContextMenuItemType::Submenu;
         m_subMenuItems = subMenu->items();
     } else {
-        m_type = ActionType;
+        m_type = ContextMenuItemType::Action;
         m_subMenuItems.clear();
     }
 }
@@ -143,7 +146,7 @@ bool ContextMenuItem::enabled() const
     return m_enabled;
 }
 
-bool isValidContextMenuAction(ContextMenuAction action)
+static bool NODELETE isValidContextMenuAction(WebCore::ContextMenuAction action)
 {
     switch (action) {
     case ContextMenuAction::ContextMenuItemTagNoAction:
@@ -153,8 +156,9 @@ bool isValidContextMenuAction(ContextMenuAction action)
     case ContextMenuAction::ContextMenuItemTagOpenImageInNewWindow:
     case ContextMenuAction::ContextMenuItemTagDownloadImageToDisk:
     case ContextMenuAction::ContextMenuItemTagCopyImageToClipboard:
+    case ContextMenuAction::ContextMenuItemTagCopySubject:
 #if PLATFORM(GTK)
-    case ContextMenuAction::ContextMenuItemTagCopyImageUrlToClipboard:
+    case ContextMenuAction::ContextMenuItemTagCopyImageURLToClipboard:
 #endif
     case ContextMenuAction::ContextMenuItemTagOpenFrameInNewWindow:
     case ContextMenuAction::ContextMenuItemTagCopy:
@@ -187,7 +191,6 @@ bool isValidContextMenuAction(ContextMenuAction action)
     case ContextMenuAction::ContextMenuItemTagIgnoreSpelling:
     case ContextMenuAction::ContextMenuItemTagLearnSpelling:
     case ContextMenuAction::ContextMenuItemTagOther:
-    case ContextMenuAction::ContextMenuItemTagSearchInSpotlight:
     case ContextMenuAction::ContextMenuItemTagSearchWeb:
     case ContextMenuAction::ContextMenuItemTagLookUpInDictionary:
     case ContextMenuAction::ContextMenuItemTagOpenWithDefaultApplication:
@@ -196,6 +199,9 @@ bool isValidContextMenuAction(ContextMenuAction action)
     case ContextMenuAction::ContextMenuItemPDFZoomOut:
     case ContextMenuAction::ContextMenuItemPDFAutoSize:
     case ContextMenuAction::ContextMenuItemPDFSinglePage:
+    case ContextMenuAction::ContextMenuItemPDFSinglePageContinuous:
+    case ContextMenuAction::ContextMenuItemPDFTwoPages:
+    case ContextMenuAction::ContextMenuItemPDFTwoPagesContinuous:
     case ContextMenuAction::ContextMenuItemPDFFacingPages:
     case ContextMenuAction::ContextMenuItemPDFContinuous:
     case ContextMenuAction::ContextMenuItemPDFNextPage:
@@ -231,6 +237,7 @@ bool isValidContextMenuAction(ContextMenuAction action)
     case ContextMenuAction::ContextMenuItemTagTextDirectionRightToLeft:
     case ContextMenuAction::ContextMenuItemTagAddHighlightToCurrentQuickNote:
     case ContextMenuAction::ContextMenuItemTagAddHighlightToNewQuickNote:
+    case ContextMenuAction::ContextMenuItemTagCopyLinkWithHighlight:
 #if PLATFORM(COCOA)
     case ContextMenuAction::ContextMenuItemTagCorrectSpellingAutomatically:
     case ContextMenuAction::ContextMenuItemTagSubstitutionsMenu:
@@ -239,31 +246,50 @@ bool isValidContextMenuAction(ContextMenuAction action)
     case ContextMenuAction::ContextMenuItemTagSmartQuotes:
     case ContextMenuAction::ContextMenuItemTagSmartDashes:
     case ContextMenuAction::ContextMenuItemTagSmartLinks:
+    case ContextMenuAction::ContextMenuItemTagSmartLists:
     case ContextMenuAction::ContextMenuItemTagTextReplacement:
     case ContextMenuAction::ContextMenuItemTagTransformationsMenu:
     case ContextMenuAction::ContextMenuItemTagMakeUpperCase:
     case ContextMenuAction::ContextMenuItemTagMakeLowerCase:
     case ContextMenuAction::ContextMenuItemTagCapitalize:
     case ContextMenuAction::ContextMenuItemTagChangeBack:
+    case ContextMenuAction::ContextMenuItemTagConvertToTraditionalChinese:
+    case ContextMenuAction::ContextMenuItemTagConvertToSimplifiedChinese:
 #endif
     case ContextMenuAction::ContextMenuItemTagOpenMediaInNewWindow:
     case ContextMenuAction::ContextMenuItemTagDownloadMediaToDisk:
     case ContextMenuAction::ContextMenuItemTagCopyMediaLinkToClipboard:
     case ContextMenuAction::ContextMenuItemTagToggleMediaControls:
     case ContextMenuAction::ContextMenuItemTagToggleMediaLoop:
+    case ContextMenuAction::ContextMenuItemTagShowMediaStats:
     case ContextMenuAction::ContextMenuItemTagEnterVideoFullscreen:
     case ContextMenuAction::ContextMenuItemTagMediaPlayPause:
     case ContextMenuAction::ContextMenuItemTagMediaMute:
     case ContextMenuAction::ContextMenuItemTagDictationAlternative:
     case ContextMenuAction::ContextMenuItemTagToggleVideoFullscreen:
     case ContextMenuAction::ContextMenuItemTagShareMenu:
-    case ContextMenuAction::ContextMenuItemTagToggleVideoEnhancedFullscreen:
-    case ContextMenuAction::ContextMenuItemTagQuickLookImage:
+    case ContextMenuAction::ContextMenuItemTagToggleVideoViewer:
+    case ContextMenuAction::ContextMenuItemTagTogglePictureInPicture:
+    case ContextMenuAction::ContextMenuItemTagLookUpImage:
     case ContextMenuAction::ContextMenuItemTagTranslate:
+    case ContextMenuAction::ContextMenuItemTagWritingTools:
+    case ContextMenuAction::ContextMenuItemTagProofread:
+    case ContextMenuAction::ContextMenuItemTagRewrite:
+    case ContextMenuAction::ContextMenuItemTagSummarize:
+    case ContextMenuAction::ContextMenuItemCaptionDisplayStyleSubmenu:
     case ContextMenuAction::ContextMenuItemBaseCustomTag:
     case ContextMenuAction::ContextMenuItemLastCustomTag:
     case ContextMenuAction::ContextMenuItemBaseApplicationTag:
         return true;
+    case ContextMenuAction::ContextMenuItemTagPlayAllAnimations:
+    case ContextMenuAction::ContextMenuItemTagPauseAllAnimations:
+    case ContextMenuAction::ContextMenuItemTagPlayAnimation:
+    case ContextMenuAction::ContextMenuItemTagPauseAnimation:
+#if ENABLE(ACCESSIBILITY_ANIMATION_CONTROL)
+        return true;
+#else
+        return false;
+#endif
     }
 
     if (action > ContextMenuAction::ContextMenuItemBaseCustomTag && action < ContextMenuAction::ContextMenuItemLastCustomTag)
@@ -276,5 +302,14 @@ bool isValidContextMenuAction(ContextMenuAction action)
 }
 
 } // namespace WebCore
+
+namespace WTF {
+
+template<> bool NODELETE isValidEnum<WebCore::ContextMenuAction>(std::underlying_type_t<WebCore::ContextMenuAction> action)
+{
+    return WebCore::isValidContextMenuAction(static_cast<WebCore::ContextMenuAction>(action));
+}
+
+}
 
 #endif // ENABLE(CONTEXT_MENUS)

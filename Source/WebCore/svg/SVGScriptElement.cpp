@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2004, 2005, 2008 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2007 Rob Buis <buis@kde.org>
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2025 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -23,31 +23,48 @@
 #include "SVGScriptElement.h"
 
 #include "Document.h"
+#include "ElementInlines.h"
 #include "Event.h"
-#include <wtf/IsoMallocInlines.h>
+#include "EventNames.h"
+#include "ScriptElement.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(SVGScriptElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGScriptElement);
 
 inline SVGScriptElement::SVGScriptElement(const QualifiedName& tagName, Document& document, bool wasInsertedByParser, bool alreadyStarted)
-    : SVGElement(tagName, document)
+    : SVGElement(tagName, document, makeUniqueRef<PropertyRegistry>(*this))
     , SVGURIReference(this)
     , ScriptElement(*this, wasInsertedByParser, alreadyStarted)
-    , m_loadEventTimer(*this, &SVGElement::loadEventTimerFired)
 {
     ASSERT(hasTagName(SVGNames::scriptTag));
 }
 
-Ref<SVGScriptElement> SVGScriptElement::create(const QualifiedName& tagName, Document& document, bool insertedByParser)
+Ref<SVGScriptElement> SVGScriptElement::create(const QualifiedName& tagName, Document& document, bool wasInsertedByParser, bool alreadyStarted)
 {
-    return adoptRef(*new SVGScriptElement(tagName, document, insertedByParser, false));
+    Ref scriptElement = adoptRef(*new SVGScriptElement(tagName, document, wasInsertedByParser, alreadyStarted));
+    scriptElement->suspendIfNeeded();
+    return scriptElement;
 }
 
-void SVGScriptElement::parseAttribute(const QualifiedName& name, const AtomString& value)
+void SVGScriptElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
-    SVGElement::parseAttribute(name, value);
-    SVGURIReference::parseAttribute(name, value);
+    if (name == SVGNames::asyncAttr)
+        handleAsyncAttribute();
+
+    SVGURIReference::parseAttribute(name, newValue);
+    SVGElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
+}
+
+bool SVGScriptElement::async() const
+{
+    return hasAsyncAttribute() || forceAsync();
+}
+
+bool SVGScriptElement::hasAsyncAttribute() const
+{
+    return hasAttributeWithoutSynchronization(SVGNames::asyncAttr);
 }
 
 void SVGScriptElement::svgAttributeChanged(const QualifiedName& attrName)
@@ -62,15 +79,16 @@ void SVGScriptElement::svgAttributeChanged(const QualifiedName& attrName)
     SVGElement::svgAttributeChanged(attrName);
 }
 
-Node::InsertedIntoAncestorResult SVGScriptElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+Node::NeedsPostConnectionSteps SVGScriptElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    SVGElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
-    return ScriptElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    auto result1 = SVGElement::insertionSteps(insertionType, parentOfInsertedTree);
+    auto result2 = ScriptElement::insertionSteps(insertionType, parentOfInsertedTree);
+    return result1 == NeedsPostConnectionSteps::Yes ? result1 : result2;
 }
 
-void SVGScriptElement::didFinishInsertingNode()
+void SVGScriptElement::postConnectionSteps()
 {
-    ScriptElement::didFinishInsertingNode();
+    ScriptElement::postConnectionSteps();
 }
 
 void SVGScriptElement::childrenChanged(const ChildChange& change)
@@ -79,21 +97,51 @@ void SVGScriptElement::childrenChanged(const ChildChange& change)
     ScriptElement::childrenChanged(change);
 }
 
-void SVGScriptElement::addSubresourceAttributeURLs(ListHashSet<URL>& urls) const
+void SVGScriptElement::finishParsingChildren()
+{
+    SVGElement::finishParsingChildren();
+    ScriptElement::finishParsingChildren();
+}
+
+bool SVGScriptElement::isURLAttribute(const Attribute& attribute) const
+{
+    return SVGURIReference::isKnownAttribute(attribute.name()) || SVGElement::isURLAttribute(attribute);
+}
+
+void SVGScriptElement::addSubresourceAttributeURLs(OrderedHashSet<URL>& urls) const
 {
     SVGElement::addSubresourceAttributeURLs(urls);
 
-    addSubresourceURL(urls, document().completeURL(href()));
+    addSubresourceURL(urls, protect(document())->encodingParseURL(href()));
 }
-Ref<Element> SVGScriptElement::cloneElementWithoutAttributesAndChildren(Document& targetDocument)
+Ref<Element> SVGScriptElement::cloneElementWithoutAttributesAndChildren(Document& document, CustomElementRegistry*) const
 {
-    return adoptRef(*new SVGScriptElement(tagQName(), targetDocument, false, alreadyStarted()));
+    return SVGScriptElement::create(tagQName(), document, false, alreadyStarted());
+}
+
+void SVGScriptElement::dispatchLoadEvent()
+{
+    // Keep the JS wrapper alive until the end of this method.
+    Ref wrapperProtector = makePendingActivity(*this);
+
+    SVGURIReference::dispatchLoadEvent();
 }
 
 void SVGScriptElement::dispatchErrorEvent()
 {
     setErrorOccurred(true);
     ScriptElement::dispatchErrorEvent();
+}
+
+void SVGScriptElement::didMoveToNewDocument(Document& oldDocument, Document& newDocument)
+{
+    SVGElement::didMoveToNewDocument(oldDocument, newDocument);
+    ScriptElement::didMoveToNewDocument(newDocument);
+}
+
+void SVGScriptElement::eventListenersDidChange()
+{
+    setHasRelevantLoadEventsListener(hasEventListeners(eventNames().errorEvent) || hasEventListeners(eventNames().loadEvent));
 }
 
 }

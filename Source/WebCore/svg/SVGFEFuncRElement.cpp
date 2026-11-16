@@ -21,9 +21,13 @@
 #include "config.h"
 #include "SVGFEFuncRElement.h"
 
+#include "ImageBuffer.h"
 #include "SVGNames.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SVGFEFuncRElement);
 
 inline SVGFEFuncRElement::SVGFEFuncRElement(const QualifiedName& tagName, Document& document)
     : SVGComponentTransferFunctionElement(tagName, document)

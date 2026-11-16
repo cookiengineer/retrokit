@@ -23,6 +23,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
+#pragma once
+
+
 #ifdef __cplusplus
 #define __PAS_BEGIN_EXTERN_C extern "C" { struct __pas_require_semicolon
 #define __PAS_END_EXTERN_C } struct __pas_require_semicolon
@@ -53,10 +56,21 @@ __PAS_BEGIN_EXTERN_C;
 #define __PAS_NEVER_INLINE __attribute__((__noinline__))
 #define __PAS_NO_RETURN __attribute((__noreturn__))
 
-#if defined(PAS_LIBMALLOC) && PAS_LIBMALLOC
+// build.sh defines this for freestanding builds
+#if !defined(PAS_BMALLOC_HIDDEN)
+#define PAS_BMALLOC_HIDDEN 1
+#endif
+
+#if defined(PAS_LIBMALLOC) && PAS_LIBMALLOC || defined(PAS_BMALLOC_HIDDEN) && PAS_BMALLOC_HIDDEN
 #define __PAS_API __attribute__((visibility("hidden")))
 #else
-#define __PAS_API
+#define __PAS_API __attribute__((visibility("default")))
+#endif
+
+#if defined(PAS_BMALLOC) && PAS_BMALLOC && !(defined(PAS_BMALLOC_HIDDEN) && PAS_BMALLOC_HIDDEN)
+#define __PAS_BAPI __attribute__((visibility("default")))
+#else
+#define __PAS_BAPI __PAS_API
 #endif
 
 #define __PAS_UNUSED_PARAM(variable) (void)variable
@@ -64,7 +78,7 @@ __PAS_BEGIN_EXTERN_C;
 #define __PAS_OFFSETOF(type, field) __builtin_offsetof(type, field)
 
 typedef __SIZE_TYPE__ __pas_size_t;
-typedef typeof((char*)0 - (char*)0) __pas_ptrdiff_t;
+typedef __PTRDIFF_TYPE__ __pas_ptrdiff_t;
 
 __PAS_API void __pas_set_deallocation_did_fail_callback(
     void (*callback)(const char* reason, void* begin));
@@ -89,22 +103,22 @@ static inline __pas_size_t __pas_round_up_to_power_of_2(__pas_size_t size, __pas
 
 static __PAS_ALWAYS_INLINE void __pas_compiler_fence(void)
 {
-    asm volatile("" ::: "memory");
+    __asm__ volatile("" ::: "memory");
 }
 
 static __PAS_ALWAYS_INLINE void __pas_fence(void)
 {
-#if !__PAS_ARM
+#if !__PAS_ARM && !__PAS_RISCV
     if (sizeof(void*) == 8)
-        asm volatile("lock; orl $0, (%%rsp)" ::: "memory");
+        __asm__ volatile("lock; orl $0, (%%rsp)" ::: "memory");
     else
-        asm volatile("lock; orl $0, (%%esp)" ::: "memory");
+        __asm__ volatile("lock; orl $0, (%%esp)" ::: "memory");
 #else
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
 #endif
 }
 
-static __PAS_ALWAYS_INLINE unsigned __pas_depend_impl(unsigned long input, _Bool cpu_only)
+static __PAS_ALWAYS_INLINE unsigned __pas_depend_impl(unsigned long input, int cpu_only)
 {
     unsigned output;
 #if __PAS_ARM64
@@ -118,13 +132,13 @@ static __PAS_ALWAYS_INLINE unsigned __pas_depend_impl(unsigned long input, _Bool
     // dependent loads in their store order without the reader using a barrier
     // or an acquire load.
     __PAS_UNUSED_PARAM(cpu_only);
-    asm volatile ("eor %w[out], %w[in], %w[in]"
+    __asm__ volatile ("eor %w[out], %w[in], %w[in]"
                   : [out] "=r"(output)
                   : [in] "r"(input)
                   : "memory");
 #elif __PAS_ARM
     __PAS_UNUSED_PARAM(cpu_only);
-    asm volatile ("eor %[out], %[in], %[in]"
+    __asm__ volatile ("eor %[out], %[in], %[in]"
                   : [out] "=r"(output)
                   : [in] "r"(input)
                   : "memory");
@@ -140,19 +154,14 @@ static __PAS_ALWAYS_INLINE unsigned __pas_depend_impl(unsigned long input, _Bool
 
 static __PAS_ALWAYS_INLINE unsigned __pas_depend(unsigned long input)
 {
-    _Bool cpu_only = 0;
+    int cpu_only = 0;
     return __pas_depend_impl(input, cpu_only);
 }
 
 static __PAS_ALWAYS_INLINE unsigned __pas_depend_cpu_only(unsigned long input)
 {
-    _Bool cpu_only = 1;
+    int cpu_only = 1;
     return __pas_depend_impl(input, cpu_only);
-}
-
-static inline void __pas_memcpy(volatile void* to, const volatile void* from, __pas_size_t size)
-{
-    __builtin_memcpy((void*)(unsigned long)to, (void*)(unsigned long)from, size);
 }
 
 __PAS_END_EXTERN_C;

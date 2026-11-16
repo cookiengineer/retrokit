@@ -29,8 +29,8 @@
 #include "ExitFlag.h"
 #include "ICStatusMap.h"
 #include "PrivateFieldPutKind.h"
+#include "PropertyInlineCacheSummary.h"
 #include "PutByVariant.h"
-#include "StubInfoSummary.h"
 
 namespace JSC {
 
@@ -39,25 +39,31 @@ class VM;
 class JSGlobalObject;
 class Structure;
 class StructureChain;
-class StructureStubInfo;
+class PropertyInlineCache;
 
-typedef HashMap<CodeOrigin, StructureStubInfo*, CodeOriginApproximateHash> StubInfoMap;
+DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(PutByStatus);
 
 class PutByStatus final {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(PutByStatus, PutByStatus);
 public:
     enum State {
         // It's uncached so we have no information.
         NoInformation,
         // It's cached as a simple store of some kind.
         Simple,
+        // It's cached for a custom accessor with a possible structure chain.
+        CustomAccessor,
+        // It's cached for a proxy object.
+        ProxyObject,
+        // It's cached for a megamorphic case.
+        Megamorphic,
         // It will likely take the slow path.
         LikelyTakesSlowPath,
-        // It's known to take slow path. We also observed that the slow path was taken on StructureStubInfo.
+        // It's known to take slow path. We also observed that the slow path was taken on PropertyInlineCache.
         ObservedTakesSlowPath,
         // It will likely take the slow path and will make calls.
         MakesCalls,
-        // It known to take paths that make calls. We also observed that the slow path was taken on StructureStubInfo.
+        // It known to take paths that make calls. We also observed that the slow path was taken on PropertyInlineCache.
         ObservedSlowPathAndMakesCalls,
     };
     
@@ -76,6 +82,8 @@ public:
         case ObservedTakesSlowPath:
         case MakesCalls:
         case ObservedSlowPathAndMakesCalls:
+        case Megamorphic:
+        case ProxyObject:
             break;
         default:
             RELEASE_ASSERT_NOT_REACHED();
@@ -84,7 +92,7 @@ public:
 #endif
     }
     
-    explicit PutByStatus(StubInfoSummary, StructureStubInfo&);
+    explicit PutByStatus(PropertyInlineCacheSummary, PropertyInlineCache&);
     
     PutByStatus(const PutByVariant& variant)
         : m_state(Simple)
@@ -98,7 +106,8 @@ public:
     static PutByStatus computeFor(CodeBlock* baselineBlock, ICStatusMap& baselineMap, ICStatusContextStack&, CodeOrigin);
 
 #if ENABLE(JIT)
-    static PutByStatus computeForStubInfo(const ConcurrentJSLocker&, CodeBlock* baselineBlock, StructureStubInfo*, CodeOrigin);
+    static PutByStatus computeForPropertyInlineCache
+(const ConcurrentJSLocker&, CodeBlock* baselineBlock, PropertyInlineCache*, CodeOrigin);
 #endif
     
     State state() const { return m_state; }
@@ -106,9 +115,14 @@ public:
     bool isSet() const { return m_state != NoInformation; }
     bool operator!() const { return m_state == NoInformation; }
     bool isSimple() const { return m_state == Simple; }
+    bool isCustomAccessor() const { return m_state == CustomAccessor; }
+    bool isMegamorphic() const { return m_state == Megamorphic; }
+    bool isProxyObject() const { return m_state == ProxyObject; }
     bool takesSlowPath() const
     {
         switch (m_state) {
+        case CustomAccessor:
+        case Megamorphic:
         case LikelyTakesSlowPath:
         case ObservedTakesSlowPath:
             return true;
@@ -116,16 +130,23 @@ public:
             return false;
         }
     }
-    bool makesCalls() const;
-    PutByStatus slowVersion() const;
-    bool observedStructureStubInfoSlowPath() const { return m_state == ObservedTakesSlowPath || m_state == ObservedSlowPathAndMakesCalls; }
+    bool NODELETE makesCalls() const;
+    PutByStatus NODELETE slowVersion() const;
+    bool observedPropertyInlineCacheSlowPath() const { return m_state == ObservedTakesSlowPath || m_state == ObservedSlowPathAndMakesCalls; }
     
     size_t numVariants() const { return m_variants.size(); }
-    const Vector<PutByVariant, 1>& variants() const { return m_variants; }
+    const Vector<PutByVariant, 1>& variants() const LIFETIME_BOUND { return m_variants; }
     const PutByVariant& at(size_t index) const { return m_variants[index]; }
     const PutByVariant& operator[](size_t index) const { return at(index); }
-    CacheableIdentifier singleIdentifier() const;
-    
+    CacheableIdentifier NODELETE singleIdentifier() const;
+
+    bool viaGlobalProxy() const
+    {
+        if (m_variants.isEmpty())
+            return false;
+        return m_variants.first().viaGlobalProxy();
+    }
+
     DECLARE_VISIT_AGGREGATE;
     template<typename Visitor> void markIfCheap(Visitor&);
     bool finalize(VM&);
@@ -138,7 +159,8 @@ public:
     
 private:
 #if ENABLE(JIT)
-    static PutByStatus computeForStubInfo(const ConcurrentJSLocker&, CodeBlock*, StructureStubInfo*, CallLinkStatus::ExitSiteData);
+    static PutByStatus computeForPropertyInlineCache
+(const ConcurrentJSLocker&, CodeBlock*, PropertyInlineCache*, CallLinkStatus::ExitSiteData, CodeOrigin);
 #endif
     static PutByStatus computeFromLLInt(CodeBlock*, BytecodeIndex);
     

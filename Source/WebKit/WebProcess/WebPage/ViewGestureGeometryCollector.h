@@ -27,7 +27,11 @@
 #define ViewGestureGeometryCollector_h
 
 #include "MessageReceiver.h"
+#include <WebCore/PageIdentifier.h>
+#include <wtf/RefCounted.h>
 #include <wtf/RunLoop.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakRef.h>
 
 namespace WebCore {
 class FloatPoint;
@@ -39,22 +43,31 @@ namespace WebKit {
 
 class WebPage;
 
-class ViewGestureGeometryCollector : private IPC::MessageReceiver {
-    WTF_MAKE_FAST_ALLOCATED;
+class ViewGestureGeometryCollector : private IPC::MessageReceiver, public RefCounted<ViewGestureGeometryCollector> {
+    WTF_MAKE_TZONE_ALLOCATED(ViewGestureGeometryCollector);
 public:
-    ViewGestureGeometryCollector(WebPage&);
+    static Ref<ViewGestureGeometryCollector> create(WebPage& webPage)
+    {
+        return adoptRef(*new ViewGestureGeometryCollector(webPage));
+    }
+
     ~ViewGestureGeometryCollector();
+
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
 
     void mainFrameDidLayout();
 
-    void computeZoomInformationForNode(WebCore::Node&, WebCore::FloatPoint& origin, WebCore::FloatRect& renderRect, bool& isReplaced, double& viewportMinimumScale, double& viewportMaximumScale);
+    void computeZoomInformationForNode(WebCore::Node&, WebCore::FloatPoint& origin, WebCore::FloatRect& absoluteBoundingRect, bool& isReplaced, double& viewportMinimumScale, double& viewportMaximumScale);
 
 private:
+    explicit ViewGestureGeometryCollector(WebPage&);
+
     // IPC::MessageReceiver.
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
 
     // Message handlers.
-    void collectGeometryForSmartMagnificationGesture(WebCore::FloatPoint origin);
+    void collectGeometryForSmartMagnificationGesture(WebCore::FloatPoint gestureLocationInViewCoordinates);
 
 #if !PLATFORM(IOS_FAMILY)
     void collectGeometryForMagnificationGesture();
@@ -63,14 +76,15 @@ private:
     void sendDidHitRenderTreeSizeThresholdIfNeeded();
 #endif
 
-    void dispatchDidCollectGeometryForSmartMagnificationGesture(WebCore::FloatPoint origin, WebCore::FloatRect targetRect, WebCore::FloatRect visibleContentRect, bool fitEntireRect, double viewportMinimumScale, double viewportMaximumScale);
+    void dispatchDidCollectGeometryForSmartMagnificationGesture(WebCore::FloatPoint origin, WebCore::FloatRect absoluteTargetRect, WebCore::FloatRect visibleContentRect, bool fitEntireRect, double viewportMinimumScale, double viewportMaximumScale);
     void computeMinimumAndMaximumViewportScales(double& viewportMinimumScale, double& viewportMaximumScale) const;
 
 #if PLATFORM(IOS_FAMILY)
     std::optional<std::pair<double, double>> computeTextLegibilityScales(double& viewportMinimumScale, double& viewportMaximumScale);
 #endif
 
-    WebPage& m_webPage;
+    WeakPtr<WebPage> m_webPage;
+    WebCore::PageIdentifier m_webPageIdentifier;
 
 #if !PLATFORM(IOS_FAMILY)
     uint64_t m_renderTreeSizeNotificationThreshold;

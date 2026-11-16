@@ -29,13 +29,14 @@ void FenceNVVk::onDestroy(const gl::Context *context)
 angle::Result FenceNVVk::set(const gl::Context *context, GLenum condition)
 {
     ASSERT(condition == GL_ALL_COMPLETED_NV);
-    return mFenceSync.initialize(vk::GetImpl(context));
+    return mFenceSync.initialize(vk::GetImpl(context), SyncFenceScope::CurrentContextToShareGroup);
 }
 
 angle::Result FenceNVVk::test(const gl::Context *context, GLboolean *outFinished)
 {
-    bool signaled = false;
-    ANGLE_TRY(mFenceSync.getStatus(vk::GetImpl(context), &signaled));
+    ContextVk *contextVk = vk::GetImpl(context);
+    bool signaled        = false;
+    ANGLE_TRY(mFenceSync.getStatus(contextVk, contextVk, &signaled));
 
     ASSERT(outFinished);
     *outFinished = signaled ? GL_TRUE : GL_FALSE;
@@ -44,9 +45,7 @@ angle::Result FenceNVVk::test(const gl::Context *context, GLboolean *outFinished
 
 angle::Result FenceNVVk::finish(const gl::Context *context)
 {
-    VkResult outResult;
-    ContextVk *contextVk = vk::GetImpl(context);
-    return mFenceSync.clientWait(contextVk, contextVk, true, UINT64_MAX, &outResult);
+    return mFenceSync.finish(vk::GetImpl(context));
 }
 
 }  // namespace rx

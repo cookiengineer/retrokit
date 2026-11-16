@@ -25,26 +25,26 @@
 
 #pragma once
 
-#include "JSCJSValue.h"
+#include <JavaScriptCore/JSCJSValue.h>
 
 namespace JSC {
 
 class CodeBlock;
 class FunctionExecutable;
 
-JS_EXPORT_PRIVATE FunctionExecutable* getExecutableForFunction(JSValue theFunctionValue);
+JS_EXPORT_PRIVATE FunctionExecutable* NODELETE getExecutableForFunction(JSValue theFunctionValue);
 JS_EXPORT_PRIVATE CodeBlock* getSomeBaselineCodeBlockForFunction(JSValue theFunctionValue);
 
 JS_EXPORT_PRIVATE JSValue numberOfDFGCompiles(JSValue function);
-JS_EXPORT_PRIVATE JSValue setNeverInline(JSValue function);
-JS_EXPORT_PRIVATE JSValue setNeverOptimize(JSValue function);
+JS_EXPORT_PRIVATE JSValue NODELETE setNeverInline(JSValue function);
+JS_EXPORT_PRIVATE JSValue NODELETE setNeverOptimize(JSValue function);
 JS_EXPORT_PRIVATE JSValue optimizeNextInvocation(JSValue function);
 
-JS_EXPORT_PRIVATE JSValue failNextNewCodeBlock(JSGlobalObject*);
+JS_EXPORT_PRIVATE JSValue NODELETE failNextNewCodeBlock(JSGlobalObject*);
 JS_EXPORT_PRIVATE JSValue numberOfDFGCompiles(JSGlobalObject*, CallFrame*);
 JS_EXPORT_PRIVATE JSValue setNeverInline(JSGlobalObject*, CallFrame*);
 JS_EXPORT_PRIVATE JSValue setNeverOptimize(JSGlobalObject*, CallFrame*);
-JS_EXPORT_PRIVATE JSValue setCannotUseOSRExitFuzzing(JSGlobalObject*, CallFrame*);
+JS_EXPORT_PRIVATE JSValue NODELETE setCannotUseOSRExitFuzzing(JSGlobalObject*, CallFrame*);
 JS_EXPORT_PRIVATE JSValue optimizeNextInvocation(JSGlobalObject*, CallFrame*);
 
 JS_EXPORT_PRIVATE unsigned numberOfExceptionFuzzChecks();
@@ -52,7 +52,7 @@ JS_EXPORT_PRIVATE unsigned numberOfExecutableAllocationFuzzChecks();
 JS_EXPORT_PRIVATE unsigned numberOfStaticOSRExitFuzzChecks();
 JS_EXPORT_PRIVATE unsigned numberOfOSRExitFuzzChecks();
 
-JS_EXPORT_PRIVATE void finalizeStatsAtEndOfTesting();
+JS_EXPORT_PRIVATE void NODELETE finalizeStatsAtEndOfTesting();
 
 JS_EXPORT_PRIVATE void waitForVMDestruction();
 

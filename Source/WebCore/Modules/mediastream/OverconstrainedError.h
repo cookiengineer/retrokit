@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,34 +30,37 @@
 
 #if ENABLE(MEDIA_STREAM)
 
-#include <wtf/RefCounted.h>
+#include "DOMException.h"
+#include "MediaConstraintType.h"
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
-class OverconstrainedError  : public RefCounted<OverconstrainedError> {
+class OverconstrainedError final : public DOMException {
 public:
     static Ref<OverconstrainedError> create(const String& constraint, const String& message)
     {
         return adoptRef(*new OverconstrainedError(constraint, message));
     }
-
-    String constraint() const { return m_constraint; }
-    String message() const { return m_message; }
-    String name() const { return "OverconstrainedError"_s; }
-
-protected:
-    explicit OverconstrainedError(const String& constraint, const String& message)
-        : m_constraint(constraint)
-        , m_message(message)
+    static Ref<OverconstrainedError> create(MediaConstraintType invalidConstraint, const String& message)
     {
+        return adoptRef(*new OverconstrainedError(invalidConstraint, message));
     }
 
+    String constraint() const;
+
 private:
-    String m_constraint;
-    String m_message;
+    OverconstrainedError(const String& constraint, const String& message);
+    OverconstrainedError(MediaConstraintType invalidConstraint, const String& message);
+
+    mutable String m_constraint;
+    MediaConstraintType m_invalidConstraint { MediaConstraintType::Unknown };
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::OverconstrainedError)
+    static bool isType(const WebCore::DOMException& exception) { return exception.type() == WebCore::DOMException::Type::OverconstrainedError; }
+SPECIALIZE_TYPE_TRAITS_END()
 
 #endif

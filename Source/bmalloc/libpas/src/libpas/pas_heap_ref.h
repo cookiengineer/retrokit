@@ -28,7 +28,6 @@
 
 #include "pas_config.h"
 #include "pas_heap_ref_kind.h"
-#include "pas_segregated_heap_lookup_kind.h"
 #include "pas_utils.h"
 
 #include "pas_heap_ref_prefix.h"
@@ -51,12 +50,12 @@ typedef struct pas_heap_runtime_config pas_heap_runtime_config;
 
 PAS_API pas_heap* pas_ensure_heap_slow(pas_heap_ref* heap_ref,
                                        pas_heap_ref_kind heap_ref_kind,
-                                       pas_heap_config* config,
+                                       const pas_heap_config* config,
                                        pas_heap_runtime_config* runtime_config);
 
 static inline pas_heap* pas_ensure_heap(pas_heap_ref* heap_ref,
                                         pas_heap_ref_kind heap_ref_kind,
-                                        pas_heap_config* config,
+                                        const pas_heap_config* config,
                                         pas_heap_runtime_config* runtime_config)
 {
     pas_heap* heap = heap_ref->heap;

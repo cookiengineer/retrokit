@@ -26,15 +26,16 @@
 #include "config.h"
 #include "ServiceWorkerRegistrationOptions.h"
 
-#if ENABLE(SERVICE_WORKER)
-
 namespace WebCore {
 
-ServiceWorkerRegistrationOptions ServiceWorkerRegistrationOptions::isolatedCopy() const
+ServiceWorkerRegistrationOptions ServiceWorkerRegistrationOptions::isolatedCopy() const &
 {
     return ServiceWorkerRegistrationOptions { scope.isolatedCopy(), type, updateViaCache };
 }
 
-} // namespace WebCore
+ServiceWorkerRegistrationOptions ServiceWorkerRegistrationOptions::isolatedCopy() &&
+{
+    return ServiceWorkerRegistrationOptions { WTF::move(scope).isolatedCopy(), type, updateViaCache };
+}
 
-#endif // ENABLE(SERVICE_WORKER)
+} // namespace WebCore

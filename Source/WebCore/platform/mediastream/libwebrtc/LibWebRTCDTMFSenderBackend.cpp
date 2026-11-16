@@ -26,19 +26,23 @@
 #include "config.h"
 #include "LibWebRTCDTMFSenderBackend.h"
 
-#if ENABLE(WEB_RTC)
+#if USE(LIBWEBRTC)
 
+#include <wtf/CheckedPtr.h>
 #include <wtf/MainThread.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(LibWebRTCDTMFSenderBackend);
+
 static inline String toWTFString(const std::string& value)
 {
-    return String::fromUTF8(value.data(), value.length());
+    return String::fromUTF8(value);
 }
 
-LibWebRTCDTMFSenderBackend::LibWebRTCDTMFSenderBackend(rtc::scoped_refptr<webrtc::DtmfSenderInterface>&& sender)
-    : m_sender(WTFMove(sender))
+LibWebRTCDTMFSenderBackend::LibWebRTCDTMFSenderBackend(Ref<webrtc::DtmfSenderInterface>&& sender)
+    : m_sender(WTF::move(sender))
 {
     m_sender->RegisterObserver(this);
 }
@@ -53,9 +57,9 @@ bool LibWebRTCDTMFSenderBackend::canInsertDTMF()
     return m_sender->CanInsertDtmf();
 }
 
-void LibWebRTCDTMFSenderBackend::playTone(const String& tone, size_t duration, size_t interToneGap)
+void LibWebRTCDTMFSenderBackend::playTone(const char tone, size_t duration, size_t interToneGap)
 {
-    bool ok = m_sender->InsertDtmf(tone.utf8().data(), duration, interToneGap);
+    bool ok = m_sender->InsertDtmf(std::string(1, tone), duration, interToneGap);
     ASSERT_UNUSED(ok, ok);
 }
 
@@ -79,19 +83,18 @@ void LibWebRTCDTMFSenderBackend::OnToneChange(const std::string& tone, const std
     // We are just interested in notifying the end of the tone, which corresponds to the empty string.
     if (!tone.empty())
         return;
-    callOnMainThread([this, weakThis = makeWeakPtr(*this), tone = toWTFString(tone)] {
-        if (!weakThis)
-            return;
-        if (m_onTonePlayed)
-            m_onTonePlayed(tone);
+    callOnMainThread([weakThis = WeakPtr { *this }] {
+        CheckedPtr checkedThis = weakThis.get();
+        if (checkedThis && checkedThis->m_onTonePlayed)
+            checkedThis->m_onTonePlayed();
     });
 }
 
-void LibWebRTCDTMFSenderBackend::onTonePlayed(Function<void(const String&)>&& onTonePlayed)
+void LibWebRTCDTMFSenderBackend::onTonePlayed(Function<void()>&& onTonePlayed)
 {
-    m_onTonePlayed = WTFMove(onTonePlayed);
+    m_onTonePlayed = WTF::move(onTonePlayed);
 }
 
 } // namespace WebCore
 
-#endif // ENABLE(WEB_RTC)
+#endif // USE(LIBWEBRTC)

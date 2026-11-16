@@ -39,7 +39,14 @@ class XRFrameRequestCallback : public RefCounted<XRFrameRequestCallback>, public
 public:
     using ActiveDOMCallback::ActiveDOMCallback;
 
-    virtual CallbackResult<void> handleEvent(double highResTimeMs, WebXRFrame&) = 0;
+    // ContextDestructionObserver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
+    virtual bool isJSXRFrameRequestCallback() const { return false; }
+
+    virtual CallbackResult<void> invoke(double highResTimeMs, WebXRFrame&) = 0;
+    virtual CallbackResult<void> invokeRethrowingException(double highResTimeMs, WebXRFrame&) = 0;
 
     unsigned callbackId() { ASSERT(m_id); return m_id; }
     void setCallbackId(unsigned id) { ASSERT(!m_id); m_id = id; }
@@ -47,6 +54,8 @@ public:
     bool isFiredOrCancelled() const { return m_firedOrCancelled; }
 
 private:
+    virtual bool hasCallback() const = 0;
+
     unsigned m_id { 0 };
     bool m_firedOrCancelled { false };
 };

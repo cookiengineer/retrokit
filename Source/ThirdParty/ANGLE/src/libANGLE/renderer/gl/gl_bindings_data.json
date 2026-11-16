@@ -605,8 +605,7 @@
         "VertexAttribFormat",
         "VertexAttribIFormat",
         "VertexAttribLFormat",
-        "VertexBindingDivisor",
-        "CoverageModulationNV"
+        "VertexBindingDivisor"
     ],
 
     "4.4":
@@ -774,10 +773,11 @@
     [
         "MaxShaderCompilerThreadsKHR"
     ],
-    
-    "GL_OVR_multiview2":
+
+    "GL_OVR_multiview":
     [
-        "FramebufferTextureMultiviewOVR"
+        "FramebufferTextureMultiviewOVR",
+        "NamedFramebufferTextureMultiviewOVR"
     ],
 
     "GL_EXT_memory_object":
@@ -844,5 +844,53 @@
     [
         "TexBufferEXT",
         "TexBufferRangeEXT"
+    ],
+
+    "GL_EXT_framebuffer_blit":
+    [
+        "BlitFramebufferEXT"
+    ],
+
+    "GL_NV_framebuffer_blit":
+    [
+        "BlitFramebufferNV"
+    ],
+
+    "GL_IMG_multisampled_render_to_texture":
+    [
+        "RenderbufferStorageMultisampleIMG",
+        "FramebufferTexture2DMultisampleIMG"
+    ],
+
+    "GL_EXT_multisampled_render_to_texture":
+    [
+        "RenderbufferStorageMultisampleEXT",
+        "FramebufferTexture2DMultisampleEXT"
+    ],
+
+    "GL_NV_polygon_mode":
+    [
+        "PolygonModeNV"
+    ],
+
+    "GL_EXT_polygon_offset_clamp":
+    [
+        "PolygonOffsetClampEXT"
+    ],
+
+    "GL_EXT_shader_framebuffer_fetch_non_coherent":
+    [
+        "FramebufferFetchBarrierEXT"
+    ],
+
+    "GL_MESA_framebuffer_flip_y":
+    [
+        "FramebufferParameteriMESA"
+    ],
+
+    "GL_QCOM_tiled_rendering":
+    [
+        "StartTilingQCOM",
+        "EndTilingQCOM"
     ]
 }

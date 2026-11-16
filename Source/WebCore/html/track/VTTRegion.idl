@@ -24,21 +24,23 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
+// https://w3c.github.io/webvtt/#the-vttregion-interface
+
+enum ScrollSetting { "" /* none */, "up" };
+
 [
     Conditional=VIDEO,
     JSGenerateToNativeObject,
     Exposed=Window
 ] interface VTTRegion {
-    [CallWith=ScriptExecutionContext] constructor();
-
-    readonly attribute TextTrack track;
+    [CallWith=CurrentScriptExecutionContext] constructor();
 
     attribute DOMString id;
     attribute double width;
-    attribute long lines;
+    attribute unsigned long lines;
     attribute double regionAnchorX;
     attribute double regionAnchorY;
     attribute double viewportAnchorX;
     attribute double viewportAnchorY;
-    attribute DOMString scroll;
+    attribute ScrollSetting scroll;
 };

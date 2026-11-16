@@ -49,7 +49,7 @@ PlatformWheelEvent PlatformWheelEvent::createFromGesture(const PlatformGestureEv
     bool ctrlKey = true;
     bool altKey = platformGestureEvent.modifiers().contains(PlatformEvent::Modifier::AltKey);
     bool metaKey = platformGestureEvent.modifiers().contains(PlatformEvent::Modifier::MetaKey);
-    PlatformWheelEvent platformWheelEvent(platformGestureEvent.pos(), platformGestureEvent.globalPosition(), deltaX, deltaY, wheelTicksX, wheelTicksY, ScrollByPixelWheelEvent, shiftKey, ctrlKey, altKey, metaKey);
+    PlatformWheelEvent platformWheelEvent(platformGestureEvent.pos(), platformGestureEvent.globalPosition(), deltaX, deltaY, wheelTicksX, wheelTicksY, PlatformWheelEventGranularity::ScrollByPixelWheelEvent, shiftKey, ctrlKey, altKey, metaKey);
 
     // PlatformEvent
     platformWheelEvent.m_timestamp = platformGestureEvent.timestamp();
@@ -59,13 +59,13 @@ PlatformWheelEvent PlatformWheelEvent::createFromGesture(const PlatformGestureEv
 
 #if ENABLE(KINETIC_SCROLLING)
     switch (platformGestureEvent.type()) {
-    case PlatformEvent::GestureStart:
+    case PlatformEvent::Type::GestureStart:
         platformWheelEvent.m_phase = PlatformWheelEventPhase::Began;
         break;
-    case PlatformEvent::GestureChange:
+    case PlatformEvent::Type::GestureChange:
         platformWheelEvent.m_phase = PlatformWheelEventPhase::Changed;
         break;
-    case PlatformEvent::GestureEnd:
+    case PlatformEvent::Type::GestureEnd:
         platformWheelEvent.m_phase = PlatformWheelEventPhase::Ended;
         break;
     default:
@@ -75,6 +75,8 @@ PlatformWheelEvent PlatformWheelEvent::createFromGesture(const PlatformGestureEv
 #endif // ENABLE(KINETIC_SCROLLING)
 
 #if PLATFORM(COCOA)
+    platformWheelEvent.m_ioHIDEventTimestamp = platformWheelEvent.m_timestamp;
+    platformWheelEvent.m_rawPlatformDelta = platformWheelEvent.m_rawPlatformDelta;
     platformWheelEvent.m_unacceleratedScrollingDeltaY = deltaY;
 #endif // PLATFORM(COCOA)
 
@@ -83,52 +85,38 @@ PlatformWheelEvent PlatformWheelEvent::createFromGesture(const PlatformGestureEv
 
 #endif // ENABLE(MAC_GESTURE_EVENTS)
 
-#if ENABLE(KINETIC_SCROLLING)
-
 TextStream& operator<<(TextStream& ts, PlatformWheelEventPhase phase)
 {
     switch (phase) {
-    case PlatformWheelEventPhase::None: ts << "none"; break;
-    case PlatformWheelEventPhase::Began: ts << "began"; break;
-    case PlatformWheelEventPhase::Stationary: ts << "stationary"; break;
-    case PlatformWheelEventPhase::Changed: ts << "changed"; break;
-    case PlatformWheelEventPhase::Ended: ts << "ended"; break;
-    case PlatformWheelEventPhase::Cancelled: ts << "cancelled"; break;
-    case PlatformWheelEventPhase::MayBegin: ts << "mayBegin"; break;
+    case PlatformWheelEventPhase::None: ts << "none"_s; break;
+#if ENABLE(KINETIC_SCROLLING)
+    case PlatformWheelEventPhase::Began: ts << "began"_s; break;
+    case PlatformWheelEventPhase::Stationary: ts << "stationary"_s; break;
+    case PlatformWheelEventPhase::Changed: ts << "changed"_s; break;
+    case PlatformWheelEventPhase::Ended: ts << "ended"_s; break;
+    case PlatformWheelEventPhase::Cancelled: ts << "cancelled"_s; break;
+    case PlatformWheelEventPhase::MayBegin: ts << "mayBegin"_s; break;
+    case PlatformWheelEventPhase::WillBegin: ts << "willBegin"_s; break;
+#endif
     }
     return ts;
 }
-
-#endif
 
 TextStream& operator<<(TextStream& ts, const PlatformWheelEvent& event)
 {
-    ts << "PlatformWheelEvent " << &event << " at " << event.position() << " deltaX " << event.deltaX() << " deltaY " << event.deltaY();
+    ts << "PlatformWheelEvent "_s << &event << " at "_s << event.position() << " deltaX "_s << event.deltaX() << " deltaY "_s << event.deltaY();
+    ts << " phase \""_s << event.phase() << "\" momentum phase \""_s << event.momentumPhase() << '"';
+    ts << " velocity "_s << event.scrollingVelocity();
 
-#if ENABLE(KINETIC_SCROLLING)
-    ts << " phase \"" << event.phase() << "\" momentum phase \"" << event.momentumPhase() << "\"";
-#endif
-
-    return ts;
-}
-
-TextStream& operator<<(TextStream& ts, WheelEventProcessingSteps steps)
-{
-    switch (steps) {
-    case WheelEventProcessingSteps::ScrollingThread: ts << "scrolling thread"; break;
-    case WheelEventProcessingSteps::MainThreadForScrolling: ts << "main thread scrolling"; break;
-    case WheelEventProcessingSteps::MainThreadForNonBlockingDOMEventDispatch: ts << "main thread non-blocking DOM event dispatch"; break;
-    case WheelEventProcessingSteps::MainThreadForBlockingDOMEventDispatch: ts << "main thread blocking DOM event dispatch"; break;
-    }
     return ts;
 }
 
 TextStream& operator<<(TextStream& ts, EventHandling steps)
 {
     switch (steps) {
-    case EventHandling::DispatchedToDOM: ts << "dispatched to DOM"; break;
-    case EventHandling::DefaultPrevented: ts << "default prevented"; break;
-    case EventHandling::DefaultHandled: ts << "default handled"; break;
+    case EventHandling::DispatchedToDOM: ts << "dispatched to DOM"_s; break;
+    case EventHandling::DefaultPrevented: ts << "default prevented"_s; break;
+    case EventHandling::DefaultHandled: ts << "default handled"_s; break;
     }
     return ts;
 }
@@ -136,8 +124,8 @@ TextStream& operator<<(TextStream& ts, EventHandling steps)
 TextStream& operator<<(TextStream& ts, WheelScrollGestureState state)
 {
     switch (state) {
-    case WheelScrollGestureState::Blocking: ts << "blocking"; break;
-    case WheelScrollGestureState::NonBlocking: ts << "non-blocking"; break;
+    case WheelScrollGestureState::Blocking: ts << "blocking"_s; break;
+    case WheelScrollGestureState::NonBlocking: ts << "non-blocking"_s; break;
     }
     return ts;
 }

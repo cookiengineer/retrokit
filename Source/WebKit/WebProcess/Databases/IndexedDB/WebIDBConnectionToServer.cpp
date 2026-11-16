@@ -26,13 +26,14 @@
 #include "config.h"
 #include "WebIDBConnectionToServer.h"
 
-#include "DataReference.h"
+#include "MessageSenderInlines.h"
 #include "NetworkConnectionToWebProcessMessages.h"
 #include "NetworkProcessConnection.h"
-#include "WebCoreArgumentCoders.h"
+#include "NetworkStorageManagerMessages.h"
+#include "WebFileSystemStorageConnection.h"
 #include "WebIDBResult.h"
-#include "WebIDBServerMessages.h"
 #include "WebProcess.h"
+#include <WebCore/FileSystemHandleStorageKeepAlive.h>
 #include <WebCore/IDBConnectionToServer.h>
 #include <WebCore/IDBCursorInfo.h>
 #include <WebCore/IDBError.h>
@@ -51,21 +52,20 @@
 namespace WebKit {
 using namespace WebCore;
 
-Ref<WebIDBConnectionToServer> WebIDBConnectionToServer::create()
+Ref<WebIDBConnectionToServer> WebIDBConnectionToServer::create(PAL::SessionID sessionID)
 {
-    return adoptRef(*new WebIDBConnectionToServer());
+    return adoptRef(*new WebIDBConnectionToServer(sessionID));
 }
 
-WebIDBConnectionToServer::WebIDBConnectionToServer()
-    : m_connectionToServer(IDBClient::IDBConnectionToServer::create(*this))
+WebIDBConnectionToServer::WebIDBConnectionToServer(PAL::SessionID sessionID)
 {
+    relaxAdoptionRequirement();
+    lazyInitialize(m_connectionToServer, IDBClient::IDBConnectionToServer::create(*this, sessionID));
 }
 
-WebIDBConnectionToServer::~WebIDBConnectionToServer()
-{
-}
+WebIDBConnectionToServer::~WebIDBConnectionToServer() = default;
 
-IDBConnectionIdentifier WebIDBConnectionToServer::identifier() const
+std::optional<IDBConnectionIdentifier> WebIDBConnectionToServer::identifier() const
 {
     return Process::identifier();
 }
@@ -77,137 +77,142 @@ IPC::Connection* WebIDBConnectionToServer::messageSenderConnection() const
 
 IDBClient::IDBConnectionToServer& WebIDBConnectionToServer::coreConnectionToServer()
 {
-    return m_connectionToServer;
+    return *m_connectionToServer;
 }
 
-void WebIDBConnectionToServer::deleteDatabase(const IDBRequestData& requestData)
+void WebIDBConnectionToServer::deleteDatabase(const IDBOpenRequestData& requestData)
 {
-    send(Messages::WebIDBServer::DeleteDatabase(requestData));
+    send(Messages::NetworkStorageManager::DeleteDatabase(requestData));
 }
 
-void WebIDBConnectionToServer::openDatabase(const IDBRequestData& requestData)
+void WebIDBConnectionToServer::openDatabase(const IDBOpenRequestData& requestData)
 {
-    send(Messages::WebIDBServer::OpenDatabase(requestData));
+    send(Messages::NetworkStorageManager::OpenDatabase(requestData));
 }
 
 void WebIDBConnectionToServer::abortTransaction(const IDBResourceIdentifier& transactionIdentifier)
 {
-    send(Messages::WebIDBServer::AbortTransaction(transactionIdentifier));
+    send(Messages::NetworkStorageManager::AbortTransaction(transactionIdentifier));
 }
 
-void WebIDBConnectionToServer::commitTransaction(const IDBResourceIdentifier& transactionIdentifier, uint64_t pendingRequestCount)
+void WebIDBConnectionToServer::commitTransaction(const IDBResourceIdentifier& transactionIdentifier, uint64_t handledRequestResultsCount)
 {
-    send(Messages::WebIDBServer::CommitTransaction(transactionIdentifier, pendingRequestCount));
+    send(Messages::NetworkStorageManager::CommitTransaction(transactionIdentifier, handledRequestResultsCount));
 }
 
-void WebIDBConnectionToServer::didFinishHandlingVersionChangeTransaction(uint64_t databaseConnectionIdentifier, const IDBResourceIdentifier& transactionIdentifier)
+void WebIDBConnectionToServer::didFinishHandlingVersionChangeTransaction(IDBDatabaseConnectionIdentifier databaseConnectionIdentifier, const IDBResourceIdentifier& transactionIdentifier)
 {
-    send(Messages::WebIDBServer::DidFinishHandlingVersionChangeTransaction(databaseConnectionIdentifier, transactionIdentifier));
+    send(Messages::NetworkStorageManager::DidFinishHandlingVersionChangeTransaction(databaseConnectionIdentifier, transactionIdentifier));
 }
 
 void WebIDBConnectionToServer::createObjectStore(const IDBRequestData& requestData, const IDBObjectStoreInfo& info)
 {
-    send(Messages::WebIDBServer::CreateObjectStore(requestData, info));
+    send(Messages::NetworkStorageManager::CreateObjectStore(requestData, info));
 }
 
 void WebIDBConnectionToServer::deleteObjectStore(const IDBRequestData& requestData, const String& objectStoreName)
 {
-    send(Messages::WebIDBServer::DeleteObjectStore(requestData, objectStoreName));
+    send(Messages::NetworkStorageManager::DeleteObjectStore(requestData, objectStoreName));
 }
 
-void WebIDBConnectionToServer::renameObjectStore(const IDBRequestData& requestData, uint64_t objectStoreIdentifier, const String& newName)
+void WebIDBConnectionToServer::renameObjectStore(const IDBRequestData& requestData, WebCore::IDBObjectStoreIdentifier objectStoreIdentifier, const String& newName)
 {
-    send(Messages::WebIDBServer::RenameObjectStore(requestData, objectStoreIdentifier, newName));
+    send(Messages::NetworkStorageManager::RenameObjectStore(requestData, objectStoreIdentifier, newName));
 }
 
-void WebIDBConnectionToServer::clearObjectStore(const IDBRequestData& requestData, uint64_t objectStoreIdentifier)
+void WebIDBConnectionToServer::clearObjectStore(const IDBRequestData& requestData, WebCore::IDBObjectStoreIdentifier objectStoreIdentifier)
 {
-    send(Messages::WebIDBServer::ClearObjectStore(requestData, objectStoreIdentifier));
+    send(Messages::NetworkStorageManager::ClearObjectStore(requestData, objectStoreIdentifier));
 }
 
 void WebIDBConnectionToServer::createIndex(const IDBRequestData& requestData, const IDBIndexInfo& info)
 {
-    send(Messages::WebIDBServer::CreateIndex(requestData, info));
+    send(Messages::NetworkStorageManager::CreateIndex(requestData, info));
 }
 
-void WebIDBConnectionToServer::deleteIndex(const IDBRequestData& requestData, uint64_t objectStoreIdentifier, const String& indexName)
+void WebIDBConnectionToServer::deleteIndex(const IDBRequestData& requestData, WebCore::IDBObjectStoreIdentifier objectStoreIdentifier, const String& indexName)
 {
-    send(Messages::WebIDBServer::DeleteIndex(requestData, objectStoreIdentifier, indexName));
+    send(Messages::NetworkStorageManager::DeleteIndex(requestData, objectStoreIdentifier, indexName));
 }
 
-void WebIDBConnectionToServer::renameIndex(const IDBRequestData& requestData, uint64_t objectStoreIdentifier, uint64_t indexIdentifier, const String& newName)
+void WebIDBConnectionToServer::renameIndex(const IDBRequestData& requestData, WebCore::IDBObjectStoreIdentifier objectStoreIdentifier, WebCore::IDBIndexIdentifier indexIdentifier, const String& newName)
 {
-    send(Messages::WebIDBServer::RenameIndex(requestData, objectStoreIdentifier, indexIdentifier, newName));
+    send(Messages::NetworkStorageManager::RenameIndex(requestData, objectStoreIdentifier, indexIdentifier, newName));
 }
 
-void WebIDBConnectionToServer::putOrAdd(const IDBRequestData& requestData, const IDBKeyData& keyData, const IDBValue& value, const IndexedDB::ObjectStoreOverwriteMode mode)
+void WebIDBConnectionToServer::putOrAdd(const IDBRequestData& requestData, const IDBKeyData& keyData, const IDBValue& value, const IndexIDToIndexKeyMap& indexKeys, const IndexedDB::ObjectStoreOverwriteMode mode)
 {
-    send(Messages::WebIDBServer::PutOrAdd(requestData, keyData, value, mode));
+    send(Messages::NetworkStorageManager::PutOrAdd(requestData, keyData, value, indexKeys, mode));
 }
 
 void WebIDBConnectionToServer::getRecord(const IDBRequestData& requestData, const IDBGetRecordData& getRecordData)
 {
-    send(Messages::WebIDBServer::GetRecord(requestData, getRecordData));
+    send(Messages::NetworkStorageManager::GetRecord(requestData, getRecordData));
 }
 
 void WebIDBConnectionToServer::getAllRecords(const IDBRequestData& requestData, const IDBGetAllRecordsData& getAllRecordsData)
 {
-    send(Messages::WebIDBServer::GetAllRecords(requestData, getAllRecordsData));
+    send(Messages::NetworkStorageManager::GetAllRecords(requestData, getAllRecordsData));
 }
 
 void WebIDBConnectionToServer::getCount(const IDBRequestData& requestData, const IDBKeyRangeData& range)
 {
-    send(Messages::WebIDBServer::GetCount(requestData, range));
+    send(Messages::NetworkStorageManager::GetCount(requestData, range));
 }
 
 void WebIDBConnectionToServer::deleteRecord(const IDBRequestData& requestData, const IDBKeyRangeData& range)
 {
-    send(Messages::WebIDBServer::DeleteRecord(requestData, range));
+    send(Messages::NetworkStorageManager::DeleteRecord(requestData, range));
 }
 
 void WebIDBConnectionToServer::openCursor(const IDBRequestData& requestData, const IDBCursorInfo& info)
 {
-    send(Messages::WebIDBServer::OpenCursor(requestData, info));
+    send(Messages::NetworkStorageManager::OpenCursor(requestData, info));
 }
 
 void WebIDBConnectionToServer::iterateCursor(const IDBRequestData& requestData, const IDBIterateCursorData& data)
 {
-    send(Messages::WebIDBServer::IterateCursor(requestData, data));
+    send(Messages::NetworkStorageManager::IterateCursor(requestData, data));
 }
 
-void WebIDBConnectionToServer::establishTransaction(uint64_t databaseConnectionIdentifier, const IDBTransactionInfo& info)
+void WebIDBConnectionToServer::establishTransaction(IDBDatabaseConnectionIdentifier databaseConnectionIdentifier, const IDBTransactionInfo& info)
 {
-    send(Messages::WebIDBServer::EstablishTransaction(databaseConnectionIdentifier, info));
+    send(Messages::NetworkStorageManager::EstablishTransaction(databaseConnectionIdentifier, info));
 }
 
-void WebIDBConnectionToServer::databaseConnectionPendingClose(uint64_t databaseConnectionIdentifier)
+void WebIDBConnectionToServer::databaseConnectionPendingClose(IDBDatabaseConnectionIdentifier databaseConnectionIdentifier)
 {
-    send(Messages::WebIDBServer::DatabaseConnectionPendingClose(databaseConnectionIdentifier));
+    send(Messages::NetworkStorageManager::DatabaseConnectionPendingClose(databaseConnectionIdentifier));
 }
 
-void WebIDBConnectionToServer::databaseConnectionClosed(uint64_t databaseConnectionIdentifier)
+void WebIDBConnectionToServer::databaseConnectionClosed(IDBDatabaseConnectionIdentifier databaseConnectionIdentifier)
 {
-    send(Messages::WebIDBServer::DatabaseConnectionClosed(databaseConnectionIdentifier));
+    send(Messages::NetworkStorageManager::DatabaseConnectionClosed(databaseConnectionIdentifier));
 }
 
-void WebIDBConnectionToServer::abortOpenAndUpgradeNeeded(uint64_t databaseConnectionIdentifier, const IDBResourceIdentifier& transactionIdentifier)
+void WebIDBConnectionToServer::abortOpenAndUpgradeNeeded(IDBDatabaseConnectionIdentifier databaseConnectionIdentifier, const std::optional<IDBResourceIdentifier>& transactionIdentifier)
 {
-    send(Messages::WebIDBServer::AbortOpenAndUpgradeNeeded(databaseConnectionIdentifier, transactionIdentifier));
+    send(Messages::NetworkStorageManager::AbortOpenAndUpgradeNeeded(databaseConnectionIdentifier, transactionIdentifier));
 }
 
-void WebIDBConnectionToServer::didFireVersionChangeEvent(uint64_t databaseConnectionIdentifier, const IDBResourceIdentifier& requestIdentifier, const IndexedDB::ConnectionClosedOnBehalfOfServer connectionClosed)
+void WebIDBConnectionToServer::didFireVersionChangeEvent(IDBDatabaseConnectionIdentifier databaseConnectionIdentifier, const IDBResourceIdentifier& requestIdentifier, const IndexedDB::ConnectionClosedOnBehalfOfServer connectionClosed)
 {
-    send(Messages::WebIDBServer::DidFireVersionChangeEvent(databaseConnectionIdentifier, requestIdentifier, connectionClosed));
+    send(Messages::NetworkStorageManager::DidFireVersionChangeEvent(databaseConnectionIdentifier, requestIdentifier, connectionClosed));
 }
 
-void WebIDBConnectionToServer::openDBRequestCancelled(const IDBRequestData& requestData)
+void WebIDBConnectionToServer::didGenerateIndexKeyForRecord(const WebCore::IDBResourceIdentifier& transactionIdentifier, const WebCore::IDBResourceIdentifier& requestIdentifier, const WebCore::IDBIndexInfo& indexInfo, const WebCore::IDBKeyData& key, const WebCore::IndexKey& indexKey, std::optional<int64_t> recordID)
 {
-    send(Messages::WebIDBServer::OpenDBRequestCancelled(requestData));
+    send(Messages::NetworkStorageManager::DidGenerateIndexKeyForRecord(transactionIdentifier, requestIdentifier, indexInfo, key, indexKey, recordID));
+}
+
+void WebIDBConnectionToServer::openDBRequestCancelled(const IDBOpenRequestData& requestData)
+{
+    send(Messages::NetworkStorageManager::OpenDBRequestCancelled(requestData));
 }
 
 void WebIDBConnectionToServer::getAllDatabaseNamesAndVersions(const IDBResourceIdentifier& requestIdentifier, const ClientOrigin& origin)
 {
-    send(Messages::WebIDBServer::GetAllDatabaseNamesAndVersions(requestIdentifier, origin));
+    send(Messages::NetworkStorageManager::GetAllDatabaseNamesAndVersions(requestIdentifier, origin));
 }
 
 void WebIDBConnectionToServer::didDeleteDatabase(const IDBResultData& result)
@@ -272,11 +277,17 @@ void WebIDBConnectionToServer::didPutOrAdd(const IDBResultData& result)
 
 void WebIDBConnectionToServer::didGetRecord(const WebIDBResult& result)
 {
+    if (result.clientOrigin())
+        attachStorageKeepAliveIfNeeded(result, result.resultData().getResult().value());
     m_connectionToServer->didGetRecord(result.resultData());
 }
 
 void WebIDBConnectionToServer::didGetAllRecords(const WebIDBResult& result)
 {
+    if (result.clientOrigin()) {
+        for (auto& value : result.resultData().getAllResult().values())
+            attachStorageKeepAliveIfNeeded(result, value);
+    }
     m_connectionToServer->didGetAllRecords(result.resultData());
 }
 
@@ -292,17 +303,42 @@ void WebIDBConnectionToServer::didDeleteRecord(const IDBResultData& result)
 
 void WebIDBConnectionToServer::didOpenCursor(const WebIDBResult& result)
 {
+    if (result.clientOrigin()) {
+        attachStorageKeepAliveIfNeeded(result, result.resultData().getResult().value());
+        for (auto& cursorRecord : result.resultData().getResult().prefetchedRecords())
+            attachStorageKeepAliveIfNeeded(result, cursorRecord.value);
+    }
     m_connectionToServer->didOpenCursor(result.resultData());
 }
 
 void WebIDBConnectionToServer::didIterateCursor(const WebIDBResult& result)
 {
+    if (result.clientOrigin()) {
+        attachStorageKeepAliveIfNeeded(result, result.resultData().getResult().value());
+        for (auto& cursorRecord : result.resultData().getResult().prefetchedRecords())
+            attachStorageKeepAliveIfNeeded(result, cursorRecord.value);
+    }
     m_connectionToServer->didIterateCursor(result.resultData());
 }
 
-void WebIDBConnectionToServer::fireVersionChangeEvent(uint64_t uniqueDatabaseConnectionIdentifier, const IDBResourceIdentifier& requestIdentifier, uint64_t requestedVersion)
+void WebIDBConnectionToServer::attachStorageKeepAliveIfNeeded(const WebIDBResult& result, const IDBValue& value)
+{
+    if (value.fileSystemHandleGlobalIdentifiers().isEmpty() || !result.clientOrigin())
+        return;
+    value.attachStorageKeepAlive(FileSystemHandleStorageKeepAlive::create(
+        ClientOrigin { *result.clientOrigin() },
+        Vector { value.fileSystemHandleGlobalIdentifiers() },
+        Ref { WebProcess::singleton().fileSystemStorageConnection() }));
+}
+
+void WebIDBConnectionToServer::fireVersionChangeEvent(IDBDatabaseConnectionIdentifier uniqueDatabaseConnectionIdentifier, const IDBResourceIdentifier& requestIdentifier, uint64_t requestedVersion)
 {
     m_connectionToServer->fireVersionChangeEvent(uniqueDatabaseConnectionIdentifier, requestIdentifier, requestedVersion);
+}
+
+void WebIDBConnectionToServer::generateIndexKeyForRecord(const WebCore::IDBResourceIdentifier& requestIdentifier, const WebCore::IDBIndexInfo& indexInfo, const std::optional<WebCore::IDBKeyPath>& keyPath, const WebCore::IDBKeyData& key, const WebCore::IDBValue& value, std::optional<int64_t> recordID)
+{
+    m_connectionToServer->generateIndexKeyForRecord(requestIdentifier, indexInfo, keyPath, key, value, recordID);
 }
 
 void WebIDBConnectionToServer::didStartTransaction(const IDBResourceIdentifier& transactionIdentifier, const IDBError& error)
@@ -310,7 +346,7 @@ void WebIDBConnectionToServer::didStartTransaction(const IDBResourceIdentifier& 
     m_connectionToServer->didStartTransaction(transactionIdentifier, error);
 }
 
-void WebIDBConnectionToServer::didCloseFromServer(uint64_t databaseConnectionIdentifier, const IDBError& error)
+void WebIDBConnectionToServer::didCloseFromServer(IDBDatabaseConnectionIdentifier databaseConnectionIdentifier, const IDBError& error)
 {
     m_connectionToServer->didCloseFromServer(databaseConnectionIdentifier, error);
 }
@@ -322,12 +358,12 @@ void WebIDBConnectionToServer::notifyOpenDBRequestBlocked(const IDBResourceIdent
 
 void WebIDBConnectionToServer::didGetAllDatabaseNamesAndVersions(const IDBResourceIdentifier& requestIdentifier, Vector<IDBDatabaseNameAndVersion>&& databases)
 {
-    m_connectionToServer->didGetAllDatabaseNamesAndVersions(requestIdentifier, WTFMove(databases));
+    m_connectionToServer->didGetAllDatabaseNamesAndVersions(requestIdentifier, WTF::move(databases));
 }
 
 void WebIDBConnectionToServer::connectionToServerLost()
 {
-    m_connectionToServer->connectionToServerLost(IDBError { WebCore::UnknownError, "An internal error was encountered in the Indexed Database server"_s });
+    m_connectionToServer->connectionToServerLost(IDBError { ExceptionCode::UnknownError, "An internal error was encountered in the Indexed Database server"_s });
 }
 
 } // namespace WebKit

@@ -38,12 +38,15 @@ static String readFileIntoString(const char* fileName)
     long bufferCapacity = ftell(file);
     RELEASE_ASSERT(bufferCapacity != -1);
     RELEASE_ASSERT(fseek(file, 0, SEEK_SET) != -1);
-    Vector<char> buffer;
-    buffer.resize(bufferCapacity);
+
+    std::span<Latin1Character> buffer;
+    String string = String::createUninitialized(bufferCapacity, buffer);
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
     size_t readSize = fread(buffer.data(), 1, buffer.size(), file);
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
     fclose(file);
-    RELEASE_ASSERT(readSize == buffer.size());
-    return String(buffer.data(), buffer.size());
+    RELEASE_ASSERT(readSize == static_cast<size_t>(bufferCapacity));
+    return string;
 }
 
 FuzzerPredictions::FuzzerPredictions(const char* filename)
@@ -65,7 +68,6 @@ FuzzerPredictions::FuzzerPredictions(const char* filename)
         // Example predictions:
         // foo.js|op_construct|702|721:1000084
         // foo.js|op_call|748|760:408800
-        // foo.js|op_bitnot|770|770:280000000
 
         // Predictions can be generated using PredictionFileCreatingFuzzerAgent.
         // Some opcodes are aliased together to make generating the predictions more straightforward.

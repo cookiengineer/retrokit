@@ -26,6 +26,7 @@
 #pragma once
 
 #include "AtomIndices.h"
+#include "HeapCellInlines.h"
 #include "IsoCellSet.h"
 #include "MarkedBlockInlines.h"
 
@@ -33,20 +34,28 @@ namespace JSC {
 
 inline bool IsoCellSet::add(HeapCell* cell)
 {
+    // We want to return true if the cell is newly added. concurrentTestAndSet() returns the
+    // previous bit value. Since we're trying to set the bit for this add, the cell would be
+    // newly added only if the previous bit was not set. Hence, our result will be the
+    // inverse of the concurrentTestAndSet() result.
     if (cell->isPreciseAllocation())
-        return !m_lowerTierBits.concurrentTestAndSet(cell->preciseAllocation().lowerTierIndex());
+        return !m_lowerTierPreciseBits.concurrentTestAndSet(cell->preciseAllocation().lowerTierPreciseIndex());
     AtomIndices atomIndices(cell);
     auto& bitsPtrRef = m_bits[atomIndices.blockIndex];
     auto* bits = bitsPtrRef.get();
-    if (UNLIKELY(!bits))
+    if (!bits) [[unlikely]]
         bits = addSlow(atomIndices.blockIndex);
     return !bits->concurrentTestAndSet(atomIndices.atomNumber);
 }
 
 inline bool IsoCellSet::remove(HeapCell* cell)
 {
+    // We want to return true if the cell was previously present and will be removed now.
+    // concurrentTestAndClear() returns the previous bit value. Since we're trying to clear
+    // the bit for this remove, the cell would be newly removed only if the previous bit
+    // was set. Hence, our result matches the concurrentTestAndClear() result.
     if (cell->isPreciseAllocation())
-        return !m_lowerTierBits.concurrentTestAndClear(cell->preciseAllocation().lowerTierIndex());
+        return m_lowerTierPreciseBits.concurrentTestAndClear(cell->preciseAllocation().lowerTierPreciseIndex());
     AtomIndices atomIndices(cell);
     auto& bitsPtrRef = m_bits[atomIndices.blockIndex];
     auto* bits = bitsPtrRef.get();
@@ -58,7 +67,7 @@ inline bool IsoCellSet::remove(HeapCell* cell)
 inline bool IsoCellSet::contains(HeapCell* cell) const
 {
     if (cell->isPreciseAllocation())
-        return !m_lowerTierBits.get(cell->preciseAllocation().lowerTierIndex());
+        return !m_lowerTierPreciseBits.get(cell->preciseAllocation().lowerTierPreciseIndex());
     AtomIndices atomIndices(cell);
     auto* bits = m_bits[atomIndices.blockIndex].get();
     if (bits)
@@ -70,7 +79,8 @@ template<typename Func>
 void IsoCellSet::forEachMarkedCell(const Func& func)
 {
     BlockDirectory& directory = m_subspace.m_directory;
-    (directory.m_bits.markingNotEmpty() & m_blocksWithBits).forEachSetBit(
+    directory.assertIsMutatorOrMutatorIsStopped();
+    (directory.markingNotEmptyBitsView() & m_blocksWithBits).forEachSetBit(
         [&] (unsigned blockIndex) {
             MarkedBlock::Handle* block = directory.m_blocks[blockIndex];
 
@@ -86,7 +96,7 @@ void IsoCellSet::forEachMarkedCell(const Func& func)
     CellAttributes attributes = m_subspace.attributes();
     m_subspace.forEachPreciseAllocation(
         [&] (PreciseAllocation* allocation) {
-            if (m_lowerTierBits.get(allocation->lowerTierIndex()) && allocation->isMarked())
+            if (m_lowerTierPreciseBits.get(allocation->lowerTierPreciseIndex()) && allocation->isMarked())
                 func(allocation->cell(), attributes.cellKind);
         });
 }
@@ -116,17 +126,13 @@ Ref<SharedTask<void(Visitor&)>> IsoCellSet::forEachMarkedCellInParallel(const Fu
                     });
             }
 
-            {
-                Locker locker { m_lock };
-                if (!m_needToVisitPreciseAllocations)
-                    return;
-                m_needToVisitPreciseAllocations = false;
-            }
+            if (m_doneVisitingPreciseAllocations.test_and_set(std::memory_order_relaxed))
+                return;
 
             CellAttributes attributes = m_set.m_subspace.attributes();
             m_set.m_subspace.forEachPreciseAllocation(
                 [&] (PreciseAllocation* allocation) {
-                    if (m_set.m_lowerTierBits.get(allocation->lowerTierIndex()) && allocation->isMarked())
+                    if (m_set.m_lowerTierPreciseBits.get(allocation->lowerTierPreciseIndex()) && allocation->isMarked())
                         m_func(visitor, allocation->cell(), attributes.cellKind);
                 });
         }
@@ -135,8 +141,7 @@ Ref<SharedTask<void(Visitor&)>> IsoCellSet::forEachMarkedCellInParallel(const Fu
         IsoCellSet& m_set;
         Ref<SharedTask<MarkedBlock::Handle*()>> m_blockSource;
         Func m_func;
-        Lock m_lock;
-        bool m_needToVisitPreciseAllocations { true };
+        std::atomic_flag m_doneVisitingPreciseAllocations { };
     };
     
     return adoptRef(*new Task(*this, func));
@@ -162,14 +167,14 @@ void IsoCellSet::forEachLiveCell(const Func& func)
     CellAttributes attributes = m_subspace.attributes();
     m_subspace.forEachPreciseAllocation(
         [&] (PreciseAllocation* allocation) {
-            if (m_lowerTierBits.get(allocation->lowerTierIndex()) && allocation->isLive())
+            if (m_lowerTierPreciseBits.get(allocation->lowerTierPreciseIndex()) && allocation->isLive())
                 func(allocation->cell(), attributes.cellKind);
         });
 }
 
-inline void IsoCellSet::clearLowerTierCell(unsigned index)
+inline void IsoCellSet::clearLowerTierPreciseCell(unsigned index)
 {
-    m_lowerTierBits.concurrentTestAndClear(index);
+    m_lowerTierPreciseBits.concurrentTestAndClear(index);
 }
 
 } // namespace JSC

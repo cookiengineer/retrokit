@@ -30,12 +30,17 @@
 
 #include "CairoUtilities.h"
 #include "GraphicsContext.h"
+#include "NativeImage.h"
 
 namespace WebCore {
 
 cairo_pattern_t* Pattern::createPlatformPattern(const AffineTransform&) const
 {
-    auto platformImage = tileImage().platformImage();
+    auto nativeImage = tileNativeImage();
+    if (!nativeImage)
+        return nullptr;
+
+    auto platformImage = nativeImage->platformImage();
     if (!platformImage)
         return nullptr;
 

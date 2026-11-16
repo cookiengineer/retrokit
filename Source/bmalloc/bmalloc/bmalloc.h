@@ -25,113 +25,250 @@
 
 #pragma once
 
-#include "AvailableMemory.h"
-#include "Cache.h"
-#include "DebugHeap.h"
+#ifdef __cplusplus
+
+#include "BPlatform.h"
+
+BALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
+#include "AllocationCounts.h"
+#include "CompactAllocationMode.h"
 #include "Gigacage.h"
-#include "Heap.h"
-#include "IsoTLS.h"
+#include "HeapKind.h"
 #include "Mutex.h"
-#include "PerHeapKind.h"
-#include "Scavenger.h"
+#include "SystemHeap.h"
 
 #if BUSE(LIBPAS)
-#ifndef PAS_BMALLOC
-#define PAS_BMALLOC 1
-#endif
 #include "bmalloc_heap_inlines.h"
+#endif
+
+#if BUSE(MIMALLOC)
+#include "mimalloc.h"
 #endif
 
 namespace bmalloc {
 namespace api {
 
 #if BUSE(LIBPAS)
-extern pas_primitive_heap_ref gigacageHeaps[Gigacage::NumberOfKinds];
+extern pas_primitive_heap_ref gigacageHeaps[static_cast<size_t>(Gigacage::NumberOfKinds)];
 
 inline pas_primitive_heap_ref& heapForKind(Gigacage::Kind kind)
 {
-    RELEASE_BASSERT(static_cast<unsigned>(kind) < Gigacage::NumberOfKinds);
-    return gigacageHeaps[static_cast<unsigned>(kind)];
+    RELEASE_BASSERT(static_cast<size_t>(kind) < static_cast<size_t>(Gigacage::NumberOfKinds));
+    return gigacageHeaps[static_cast<size_t>(kind)];
 }
 #endif
 
 // Returns null on failure.
-BINLINE void* tryMalloc(size_t size, HeapKind kind = HeapKind::Primary)
+BINLINE void* tryMalloc(size_t size, CompactAllocationMode mode, HeapKind kind = HeapKind::Primary)
 {
 #if BUSE(LIBPAS)
     if (!isGigacage(kind))
-        return bmalloc_try_allocate_inline(size);
-    return bmalloc_try_allocate_auxiliary_inline(&heapForKind(gigacageKind(kind)), size);
+        return bmalloc_try_allocate_inline(size, asPasAllocationMode(mode));
+    return bmalloc_try_allocate_auxiliary_inline(&heapForKind(gigacageKind(kind)), size, asPasAllocationMode(mode));
+#elif BUSE(MIMALLOC)
+    BUNUSED(mode);
+    BUNUSED(kind);
+    return mi_malloc(size);
 #else
-    return Cache::tryAllocate(kind, size);
+    BUNUSED(mode);
+    BUNUSED(kind);
+    return ::malloc(size);
 #endif
 }
 
 // Crashes on failure.
-BINLINE void* malloc(size_t size, HeapKind kind = HeapKind::Primary)
+BINLINE void* malloc(size_t size, CompactAllocationMode mode, HeapKind kind = HeapKind::Primary)
 {
 #if BUSE(LIBPAS)
     if (!isGigacage(kind))
-        return bmalloc_allocate_inline(size);
-    return bmalloc_allocate_auxiliary_inline(&heapForKind(gigacageKind(kind)), size);
+        return bmalloc_allocate_inline(size, asPasAllocationMode(mode));
+    return bmalloc_allocate_auxiliary_inline(&heapForKind(gigacageKind(kind)), size, asPasAllocationMode(mode));
+#elif BUSE(MIMALLOC)
+    BUNUSED(mode);
+    BUNUSED(kind);
+    void* memory = mi_malloc(size);
+    RELEASE_BASSERT(memory);
+    return memory;
 #else
-    return Cache::allocate(kind, size);
+    BUNUSED(mode);
+    BUNUSED(kind);
+    void* memory = ::malloc(size);
+    RELEASE_BASSERT(memory);
+    return memory;
 #endif
 }
 
-BEXPORT void* mallocOutOfLine(size_t size, HeapKind kind = HeapKind::Primary);
-
-// Returns null on failure.
-BINLINE void* tryMemalign(size_t alignment, size_t size, HeapKind kind = HeapKind::Primary)
+BINLINE void* tryZeroedMalloc(size_t size, CompactAllocationMode mode, HeapKind kind = HeapKind::Primary)
 {
 #if BUSE(LIBPAS)
     if (!isGigacage(kind))
-        return bmalloc_try_allocate_with_alignment_inline(size, alignment);
+        return bmalloc_try_allocate_zeroed_inline(size, asPasAllocationMode(mode));
+    return bmalloc_try_allocate_auxiliary_zeroed_inline(&heapForKind(gigacageKind(kind)), size, asPasAllocationMode(mode));
+#elif BUSE(MIMALLOC)
+    BUNUSED(mode);
+    BUNUSED(kind);
+    return mi_zalloc(size);
+#else
+    BUNUSED(mode);
+    BUNUSED(kind);
+    return ::calloc(1, size);
+#endif
+}
+
+// Crashes on failure.
+BINLINE void* zeroedMalloc(size_t size, CompactAllocationMode mode, HeapKind kind = HeapKind::Primary)
+{
+#if BUSE(LIBPAS)
+    if (!isGigacage(kind))
+        return bmalloc_allocate_zeroed_inline(size, asPasAllocationMode(mode));
+    return bmalloc_allocate_auxiliary_zeroed_inline(&heapForKind(gigacageKind(kind)), size, asPasAllocationMode(mode));
+#elif BUSE(MIMALLOC)
+    BUNUSED(mode);
+    BUNUSED(kind);
+    void* memory = mi_zalloc(size);
+    RELEASE_BASSERT(memory);
+    return memory;
+#else
+    BUNUSED(mode);
+    BUNUSED(kind);
+    void* memory = ::calloc(1, size);
+    RELEASE_BASSERT(memory);
+    return memory;
+#endif
+}
+
+BEXPORT void* mallocOutOfLine(size_t size, CompactAllocationMode mode, HeapKind kind = HeapKind::Primary);
+
+// Returns null on failure.
+BINLINE void* tryMemalign(size_t alignment, size_t size, CompactAllocationMode mode, HeapKind kind = HeapKind::Primary)
+{
+#if BUSE(LIBPAS)
+    if (!isGigacage(kind))
+        return bmalloc_try_allocate_with_alignment_inline(size, alignment, asPasAllocationMode(mode));
     return bmalloc_try_allocate_auxiliary_with_alignment_inline(
-        &heapForKind(gigacageKind(kind)), size, alignment);
+        &heapForKind(gigacageKind(kind)), size, alignment, asPasAllocationMode(mode));
+#elif BUSE(MIMALLOC)
+    BUNUSED(mode);
+    BUNUSED(kind);
+    return mi_malloc_aligned(size, alignment);
 #else
-    return Cache::tryAllocate(kind, alignment, size);
+    BUNUSED(mode);
+    BUNUSED(kind);
+    return ::aligned_alloc(alignment, size);
 #endif
 }
 
 // Crashes on failure.
-BINLINE void* memalign(size_t alignment, size_t size, HeapKind kind = HeapKind::Primary)
+BINLINE void* memalign(size_t alignment, size_t size, CompactAllocationMode mode, HeapKind kind = HeapKind::Primary)
 {
 #if BUSE(LIBPAS)
     if (!isGigacage(kind))
-        return bmalloc_allocate_with_alignment_inline(size, alignment);
+        return bmalloc_allocate_with_alignment_inline(size, alignment, asPasAllocationMode(mode));
     return bmalloc_allocate_auxiliary_with_alignment_inline(
-        &heapForKind(gigacageKind(kind)), size, alignment);
+        &heapForKind(gigacageKind(kind)), size, alignment, asPasAllocationMode(mode));
+#elif BUSE(MIMALLOC)
+    BUNUSED(mode);
+    BUNUSED(kind);
+    void* memory = mi_malloc_aligned(size, alignment);
+    RELEASE_BASSERT(memory);
+    return memory;
 #else
-    return Cache::allocate(kind, alignment, size);
+    BUNUSED(mode);
+    BUNUSED(kind);
+    void* memory = ::aligned_alloc(alignment, size);
+    RELEASE_BASSERT(memory);
+    return memory;
 #endif
 }
 
 // Returns null on failure.
-BINLINE void* tryRealloc(void* object, size_t newSize, HeapKind kind = HeapKind::Primary)
+BINLINE void* tryZeroedMemalign(size_t alignment, size_t size, CompactAllocationMode mode, HeapKind kind = HeapKind::Primary)
+{
+#if BUSE(LIBPAS)
+    if (!isGigacage(kind))
+        return bmalloc_try_allocate_zeroed_with_alignment_inline(size, alignment, asPasAllocationMode(mode));
+    return bmalloc_try_allocate_auxiliary_zeroed_with_alignment_inline(
+        &heapForKind(gigacageKind(kind)), size, alignment, asPasAllocationMode(mode));
+#elif BUSE(MIMALLOC)
+    BUNUSED(mode);
+    BUNUSED(kind);
+    return mi_zalloc_aligned(size, alignment);
+#else
+    BUNUSED(mode);
+    BUNUSED(kind);
+    void* memory = ::aligned_alloc(alignment, size);
+    if (memory) [[likely]]
+        memset(memory, 0, size);
+    return memory;
+#endif
+}
+
+// Crashes on failure.
+BINLINE void* zeroedMemalign(size_t alignment, size_t size, CompactAllocationMode mode, HeapKind kind = HeapKind::Primary)
+{
+#if BUSE(LIBPAS)
+    if (!isGigacage(kind))
+        return bmalloc_allocate_zeroed_with_alignment_inline(size, alignment, asPasAllocationMode(mode));
+    return bmalloc_allocate_auxiliary_zeroed_with_alignment_inline(
+        &heapForKind(gigacageKind(kind)), size, alignment, asPasAllocationMode(mode));
+#elif BUSE(MIMALLOC)
+    BUNUSED(mode);
+    BUNUSED(kind);
+    void* memory = mi_zalloc_aligned(size, alignment);
+    RELEASE_BASSERT(memory);
+    return memory;
+#else
+    BUNUSED(mode);
+    BUNUSED(kind);
+    void* memory = ::aligned_alloc(alignment, size);
+    RELEASE_BASSERT(memory);
+    memset(memory, 0, size);
+    return memory;
+#endif
+}
+
+// Returns null on failure.
+BINLINE void* tryRealloc(void* object, size_t newSize, CompactAllocationMode mode, HeapKind kind = HeapKind::Primary)
 {
 #if BUSE(LIBPAS)
     if (!isGigacage(kind)) {
         return bmalloc_try_reallocate_inline(
-            object, newSize, pas_reallocate_free_if_successful);
+            object, newSize, asPasAllocationMode(mode), pas_reallocate_free_if_successful);
     }
     return bmalloc_try_reallocate_auxiliary_inline(
-        object, &heapForKind(gigacageKind(kind)), newSize, pas_reallocate_free_if_successful);
+        object, &heapForKind(gigacageKind(kind)), newSize, asPasAllocationMode(mode), pas_reallocate_free_if_successful);
+#elif BUSE(MIMALLOC)
+    BUNUSED(mode);
+    BUNUSED(kind);
+    return mi_realloc(object, newSize);
 #else
-    return Cache::tryReallocate(kind, object, newSize);
+    BUNUSED(mode);
+    BUNUSED(kind);
+    return ::realloc(object, newSize);
 #endif
 }
 
 // Crashes on failure.
-BINLINE void* realloc(void* object, size_t newSize, HeapKind kind = HeapKind::Primary)
+BINLINE void* realloc(void* object, size_t newSize, CompactAllocationMode mode, HeapKind kind = HeapKind::Primary)
 {
 #if BUSE(LIBPAS)
     if (!isGigacage(kind))
-        return bmalloc_reallocate_inline(object, newSize, pas_reallocate_free_if_successful);
+        return bmalloc_reallocate_inline(object, newSize, asPasAllocationMode(mode), pas_reallocate_free_if_successful);
     return bmalloc_reallocate_auxiliary_inline(
-        object, &heapForKind(gigacageKind(kind)), newSize, pas_reallocate_free_if_successful);
+        object, &heapForKind(gigacageKind(kind)), newSize, asPasAllocationMode(mode), pas_reallocate_free_if_successful);
+#elif BUSE(MIMALLOC)
+    BUNUSED(mode);
+    BUNUSED(kind);
+    void* memory = mi_realloc(object, newSize);
+    RELEASE_BASSERT(memory);
+    return memory;
 #else
-    return Cache::reallocate(kind, object, newSize);
+    BUNUSED(mode);
+    BUNUSED(kind);
+    void* memory = ::realloc(object, newSize);
+    RELEASE_BASSERT(memory);
+    return memory;
 #endif
 }
 
@@ -139,15 +276,19 @@ BINLINE void* realloc(void* object, size_t newSize, HeapKind kind = HeapKind::Pr
 // This API will give you zeroed pages that are ready to be used. These pages
 // will page fault on first access. It returns to you memory that initially only
 // uses up virtual address space, not `size` bytes of physical memory.
-BEXPORT void* tryLargeZeroedMemalignVirtual(size_t alignment, size_t size, HeapKind kind = HeapKind::Primary);
+BEXPORT void* tryLargeZeroedMemalignVirtual(size_t alignment, size_t size, CompactAllocationMode mode, HeapKind kind = HeapKind::Primary);
 
 BINLINE void free(void* object, HeapKind kind = HeapKind::Primary)
 {
 #if BUSE(LIBPAS)
     BUNUSED(kind);
     bmalloc_deallocate_inline(object);
+#elif BUSE(MIMALLOC)
+    BUNUSED(kind);
+    mi_free(object);
 #else
-    Cache::deallocate(kind, object);
+    BUNUSED(kind);
+    ::free(object);
 #endif
 }
 
@@ -160,37 +301,44 @@ BEXPORT void scavengeThisThread();
 BEXPORT void scavenge();
 
 BEXPORT bool isEnabled(HeapKind kind = HeapKind::Primary);
+BEXPORT bool isMTEEnabled(HeapKind kind = HeapKind::Primary);
 
 // ptr must be aligned to vmPageSizePhysical and size must be divisible 
 // by vmPageSizePhysical.
 BEXPORT void decommitAlignedPhysical(void* object, size_t, HeapKind = HeapKind::Primary);
 BEXPORT void commitAlignedPhysical(void* object, size_t, HeapKind = HeapKind::Primary);
-    
-inline size_t availableMemory()
-{
-    return bmalloc::availableMemory();
-}
-    
-#if BPLATFORM(IOS_FAMILY) || BOS(LINUX) || BOS(FREEBSD)
-inline size_t memoryFootprint()
-{
-    return bmalloc::memoryFootprint();
-}
-
-inline double percentAvailableMemoryInUse()
-{
-    return bmalloc::percentAvailableMemoryInUse();
-}
-#endif
 
 #if BOS(DARWIN)
 BEXPORT void setScavengerThreadQOSClass(qos_class_t overrideClass);
 #endif
 
-BEXPORT void enableMiniMode();
+BEXPORT void enableMiniMode(bool forceMiniMode = false);
 
 // Used for debugging only.
 BEXPORT void disableScavenger();
+BEXPORT void forceEnablePGM(uint16_t guardMallocRate);
+
+#if BENABLE(MALLOC_SIZE)
+inline size_t mallocSize(const void* object)
+{
+    if (auto* systemHeap = SystemHeap::tryGetIfShouldSupplantBmalloc())
+        return systemHeap->mallocSize(object);
+    return bmalloc_get_allocation_size(const_cast<void*>(object));
+}
+#endif
+
+#if BENABLE(MALLOC_GOOD_SIZE)
+inline size_t mallocGoodSize(size_t size)
+{
+    if (auto* systemHeap = SystemHeap::tryGetIfShouldSupplantBmalloc())
+        return systemHeap->mallocGoodSize(size);
+    return size;
+}
+#endif
 
 } // namespace api
 } // namespace bmalloc
+
+BALLOW_UNSAFE_BUFFER_USAGE_END
+
+#endif // __cplusplus

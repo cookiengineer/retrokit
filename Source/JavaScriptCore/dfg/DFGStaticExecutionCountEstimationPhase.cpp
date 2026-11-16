@@ -38,7 +38,7 @@ namespace JSC { namespace DFG {
 class StaticExecutionCountEstimationPhase : public Phase {
 public:
     StaticExecutionCountEstimationPhase(Graph& graph)
-        : Phase(graph, "static execution count estimation")
+        : Phase(graph, "static execution count estimation"_s)
     {
     }
     
@@ -94,7 +94,7 @@ public:
     }
 
 private:
-    void applyCounts(BranchTarget& target)
+    void NODELETE applyCounts(BranchTarget& target)
     {
         target.count = target.block->executionCount;
     }

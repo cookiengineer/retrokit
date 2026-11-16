@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple, Inc. All Rights Reserved.
+ * Copyright (C) 2016 Apple, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,50 +25,68 @@
 
 #pragma once
 
-#include "CachedResourceClient.h"
-#include "CachedResourceHandle.h"
 #include "CachedScript.h"
-#include "LoadableScript.h"
-#include "ReferrerPolicy.h"
+#include <WebCore/CachedResourceClient.h>
+#include <WebCore/CachedResourceHandle.h>
+#include <WebCore/Document.h>
+#include <WebCore/LoadableScript.h>
+#include <WebCore/LoadableScriptError.h>
+#include <WebCore/ReferrerPolicy.h>
 #include <wtf/TypeCasts.h>
 
 namespace WebCore {
 
-// A CachedResourceHandle alone does not prevent the underlying CachedResource
+class WeakPtrImplWithEventTargetData;
+
+// A RefPtr alone does not prevent the underlying CachedResource
 // from purging its data buffer. This class holds a client until this class is
 // destroyed in order to guarantee that the data buffer will not be purged.
-class LoadableClassicScript final : public LoadableScript, private CachedResourceClient {
+class LoadableNonModuleScriptBase : public LoadableScript, protected CachedResourceClient {
 public:
-    virtual ~LoadableClassicScript();
+    virtual ~LoadableNonModuleScriptBase();
 
-    static Ref<LoadableClassicScript> create(const String& nonce, const String& integrity, ReferrerPolicy, const String& crossOriginMode, const String& charset, const AtomString& initiatorName, bool isInUserAgentShadowTree, bool isAsync);
+    // CachedResourceClient.
+    void ref() const final { LoadableScript::ref(); }
+    void deref() const final { LoadableScript::deref(); }
+
     bool isLoaded() const final;
-    std::optional<Error> error() const final;
+    bool hasError() const final;
+    std::optional<Error> takeError() final;
     bool wasCanceled() const final;
+    bool isInlineModule() const final { return false; }
 
+    Document* document() { return m_weakDocument.get(); }
     CachedScript& cachedScript() { return *m_cachedScript; }
 
-    bool isClassicScript() const final { return true; }
-    bool isModuleScript() const final { return false; }
+    bool load(Document&, const URL&);
+    bool isAsync() const { return m_isAsync; }
+    const AtomString& integrity() const LIFETIME_BOUND { return m_integrity; }
+
+protected:
+    LoadableNonModuleScriptBase(const AtomString& nonce, const AtomString& integrity, ReferrerPolicy, RequestPriority, const AtomString& crossOriginMode, const AtomString& charset, const AtomString& initiatorType, bool isInUserAgentShadowTree, bool isAsync);
+
+private:
+    void notifyFinished(CachedResource&, const NetworkLoadMetrics&, LoadWillContinueInAnotherProcess) final;
+
+protected:
+    CachedResourceHandle<CachedScript> m_cachedScript { };
+    WeakPtr<Document, WeakPtrImplWithEventTargetData> m_weakDocument;
+    std::optional<Error> m_error { std::nullopt };
+    const AtomString m_integrity;
+    bool m_isAsync { false };
+};
+
+
+class LoadableClassicScript final : public LoadableNonModuleScriptBase {
+public:
+    static Ref<LoadableClassicScript> create(const AtomString& nonce, const AtomString& integrity, ReferrerPolicy, RequestPriority, const AtomString& crossOriginMode, const AtomString& charset, const AtomString& initiatorType, bool isInUserAgentShadowTree, bool isAsync);
+
+    ScriptType scriptType() const final { return ScriptType::Classic; }
 
     void execute(ScriptElement&) final;
 
-    bool load(Document&, const URL&);
-
 private:
-    LoadableClassicScript(const String& nonce, const String& integrity, ReferrerPolicy policy, const String& crossOriginMode, const String& charset, const AtomString& initiatorName, bool isInUserAgentShadowTree, bool isAsync)
-        : LoadableScript(nonce, policy, crossOriginMode, charset, initiatorName, isInUserAgentShadowTree)
-        , m_integrity(integrity)
-        , m_isAsync(isAsync)
-    {
-    }
-
-    void notifyFinished(CachedResource&, const NetworkLoadMetrics&) final;
-
-    CachedResourceHandle<CachedScript> m_cachedScript { };
-    std::optional<Error> m_error { std::nullopt };
-    String m_integrity;
-    bool m_isAsync { false };
+    LoadableClassicScript(const AtomString& nonce, const AtomString& integrity, ReferrerPolicy, RequestPriority, const AtomString& crossOriginMode, const AtomString& charset, const AtomString& initiatorType, bool isInUserAgentShadowTree, bool isAsync);
 };
 
 }

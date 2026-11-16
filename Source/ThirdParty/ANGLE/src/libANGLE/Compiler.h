@@ -31,13 +31,16 @@ class State;
 class Compiler final : public RefCountObjectNoID
 {
   public:
-    Compiler(rx::GLImplFactory *implFactory, const State &data, egl::Display *display);
+    Compiler(rx::GLImplFactory *implFactory, const State &data);
 
     void onDestroy(const Context *context) override;
 
     ShCompilerInstance getInstance(ShaderType shaderType);
     void putInstance(ShCompilerInstance &&instance);
     ShShaderOutput getShaderOutputType() const { return mOutputType; }
+    const ShBuiltInResources &getBuiltInResources() const { return mResources; }
+
+    static ShShaderSpec SelectShaderSpec(const State &state);
 
   private:
     ~Compiler() override;
@@ -61,7 +64,7 @@ class ShCompilerInstance final : public angle::NonCopyable
 
     ShHandle getHandle();
     ShaderType getShaderType() const;
-    const std::string &getBuiltinResourcesString();
+    ShBuiltInResources getBuiltInResources() const;
     ShShaderOutput getShaderOutputType() const;
 
   private:

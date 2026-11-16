@@ -35,6 +35,7 @@
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/StringHash.h>
 
 namespace WebCore {
@@ -42,17 +43,18 @@ namespace WebCore {
 class SQLTransaction;
 
 class SQLTransactionCoordinator {
-    WTF_MAKE_NONCOPYABLE(SQLTransactionCoordinator); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(SQLTransactionCoordinator);
+    WTF_MAKE_NONCOPYABLE(SQLTransactionCoordinator);
 public:
     SQLTransactionCoordinator();
     void acquireLock(SQLTransaction&);
     void releaseLock(SQLTransaction&);
     void shutdown();
 private:
-    typedef Deque<RefPtr<SQLTransaction>> TransactionsQueue;
+    typedef Deque<Ref<SQLTransaction>> TransactionsQueue;
     struct CoordinationInfo {
         TransactionsQueue pendingTransactions;
-        HashSet<RefPtr<SQLTransaction>> activeReadTransactions;
+        HashSet<Ref<SQLTransaction>> activeReadTransactions;
         RefPtr<SQLTransaction> activeWriteTransaction;
     };
     // Maps database names to information about pending transactions

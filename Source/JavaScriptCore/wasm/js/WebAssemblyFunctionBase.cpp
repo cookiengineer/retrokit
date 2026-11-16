@@ -30,34 +30,35 @@
 
 #include "HeapCellInlines.h"
 #include "HeapInlines.h"
+#include "JSCellInlines.h"
 #include "JSWebAssemblyInstance.h"
 #include "SlotVisitorInlines.h"
+#include "WasmTypeDefinitionInlines.h"
 
 namespace JSC {
 
-const ClassInfo WebAssemblyFunctionBase::s_info = { "WebAssemblyFunctionBase", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(WebAssemblyFunctionBase) };
+const ClassInfo WebAssemblyFunctionBase::s_info = { "WebAssemblyFunctionBase"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(WebAssemblyFunctionBase) };
 
-WebAssemblyFunctionBase::WebAssemblyFunctionBase(VM& vm, NativeExecutable* executable, JSGlobalObject* globalObject, Structure* structure, WasmToWasmImportableFunction importableFunction)
+WebAssemblyFunctionBase::WebAssemblyFunctionBase(VM& vm, NativeExecutable* executable, JSGlobalObject* globalObject, Structure* structure, Wasm::WasmOrJSImportableFunction&& importableFunction, Wasm::WasmOrJSImportableFunctionCallLinkInfo* callLinkInfo)
     : Base(vm, executable, globalObject, structure)
-    , m_importableFunction(importableFunction)
+    , m_importableFunction(WTF::move(importableFunction))
+    , m_callLinkInfo(callLinkInfo)
 { }
 
 template<typename Visitor>
 void WebAssemblyFunctionBase::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    WebAssemblyFunctionBase* thisObject = jsCast<WebAssemblyFunctionBase*>(cell);
+    WebAssemblyFunctionBase* thisObject = uncheckedDowncast<WebAssemblyFunctionBase>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
     Base::visitChildren(thisObject, visitor);
-    visitor.append(thisObject->m_instance);
+    visitor.append(thisObject->m_importableFunction.targetInstance);
 }
 
 DEFINE_VISIT_CHILDREN(WebAssemblyFunctionBase);
 
-void WebAssemblyFunctionBase::finishCreation(VM& vm, NativeExecutable* executable, unsigned length, const String& name, JSWebAssemblyInstance* instance)
+const Wasm::RTT& WebAssemblyFunctionBase::signature() const
 {
-    Base::finishCreation(vm, executable, length, name);
-    ASSERT(inherits(vm, info()));
-    m_instance.set(vm, this, instance);
+    return *m_importableFunction.rtt;
 }
 
 } // namespace JSC

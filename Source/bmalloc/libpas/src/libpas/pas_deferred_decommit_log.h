@@ -26,7 +26,6 @@
 #ifndef PAS_DEFERRED_DECOMMIT_LOG_H
 #define PAS_DEFERRED_DECOMMIT_LOG_H
 
-#include "pas_bootstrap_free_heap.h"
 #include "pas_range_locked_mode.h"
 #include "pas_utils.h"
 #include "pas_virtual_range_min_heap.h"

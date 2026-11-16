@@ -32,29 +32,30 @@
 namespace WebCore {
 
 class MathMLSelectElement final : public MathMLRowElement {
-    WTF_MAKE_ISO_ALLOCATED(MathMLSelectElement);
+    WTF_MAKE_TZONE_ALLOCATED(MathMLSelectElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(MathMLSelectElement);
 public:
     static Ref<MathMLSelectElement> create(const QualifiedName& tagName, Document&);
     static bool isMathMLEncoding(const AtomString& value);
     static bool isSVGEncoding(const AtomString& value);
-    static bool isHTMLEncoding(const AtomString& value);
+    static bool NODELETE isHTMLEncoding(const AtomString& value);
 
 private:
     MathMLSelectElement(const QualifiedName& tagName, Document&);
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) final;
 
     bool childShouldCreateRenderer(const Node&) const final;
 
     void finishParsingChildren() final;
     void childrenChanged(const ChildChange&) final;
-    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason = ModifiedDirectly) final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason = AttributeModificationReason::Directly) final;
     void defaultEventHandler(Event&) final;
-    bool willRespondToMouseClickEvents() final;
+    bool willRespondToMouseClickEventsWithEditability(Editability) const final;
 
     void toggle();
     int getSelectedActionChildAndIndex(Element*& selectedChild);
-    Element* getSelectedActionChild();
-    Element* getSelectedSemanticsChild();
+    RefPtr<Element> getSelectedActionChild();
+    RefPtr<Element> getSelectedSemanticsChild();
 
     void updateSelectedChild() final;
     RefPtr<Element> m_selectedChild;

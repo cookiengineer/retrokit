@@ -31,12 +31,12 @@
 #include "config.h"
 #include "DateComponents.h"
 
-#include "ParsingUtilities.h"
 #include <limits.h>
 #include <wtf/ASCIICType.h>
 #include <wtf/DateMath.h>
 #include <wtf/MathExtras.h>
-#include <wtf/text/StringConcatenateNumbers.h>
+#include <wtf/text/MakeString.h>
+#include <wtf/text/ParsingUtilities.h>
 #include <wtf/text/StringParsingBuffer.h>
 
 namespace WebCore {
@@ -51,21 +51,10 @@ static constexpr int maximumMonthInMaximumYear = 8; // This is September, since 
 static constexpr int maximumDayInMaximumMonth = 13;
 static constexpr int maximumWeekInMaximumYear = 37; // The week of 275760-09-13
 
-static constexpr int daysInMonth[12] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
-
-static bool isLeapYear(int year)
-{
-    if (year % 4)
-        return false;
-    if (!(year % 400))
-        return true;
-    if (!(year % 100))
-        return false;
-    return true;
-}
+static constexpr std::array<int, 12> daysInMonth { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
 
 // 'month' is 0-based.
-static int maxDayOfMonth(int year, int month)
+static int NODELETE maxDayOfMonth(int year, int month)
 {
     if (month != 1) // February?
         return daysInMonth[month];
@@ -73,7 +62,7 @@ static int maxDayOfMonth(int year, int month)
 }
 
 // 'month' is 0-based.
-static int dayOfWeek(int year, int month, int day)
+static int NODELETE dayOfWeek(int year, int month, int day)
 {
     int shiftedMonth = month + 2;
     // 2:January, 3:Feburuary, 4:March, ...
@@ -98,7 +87,7 @@ int DateComponents::maxWeekNumberInYear() const
     return day == Thursday || (day == Wednesday && isLeapYear(m_year)) ? maximumWeekNumber : maximumWeekNumber - 1;
 }
 
-template<typename CharacterType> static unsigned countDigits(StringParsingBuffer<CharacterType> buffer)
+template<typename CharacterType> static unsigned NODELETE countDigits(StringParsingBuffer<CharacterType> buffer)
 {
     auto begin = buffer.position();
     skipWhile<isASCIIDigit>(buffer);
@@ -106,7 +95,7 @@ template<typename CharacterType> static unsigned countDigits(StringParsingBuffer
 }
 
 // Differences from parseInteger<int>: Takes StringParsingBuffer. Does not allow leading or trailing spaces. Does not allow leading "+".
-template<typename CharacterType> static std::optional<int> parseInt(StringParsingBuffer<CharacterType>& buffer, unsigned maximumNumberOfDigitsToParse)
+template<typename CharacterType> static std::optional<int> NODELETE parseInt(StringParsingBuffer<CharacterType>& buffer, unsigned maximumNumberOfDigitsToParse)
 {
     if (maximumNumberOfDigitsToParse > buffer.lengthRemaining() || !maximumNumberOfDigitsToParse)
         return std::nullopt;
@@ -128,7 +117,7 @@ template<typename CharacterType> static std::optional<int> parseInt(StringParsin
     return value;
 }
 
-template<typename CharacterType> static std::optional<int> parseIntWithinLimits(StringParsingBuffer<CharacterType>& buffer, unsigned maximumNumberOfDigitsToParse, int minimumValue, int maximumValue)
+template<typename CharacterType> static std::optional<int> NODELETE parseIntWithinLimits(StringParsingBuffer<CharacterType>& buffer, unsigned maximumNumberOfDigitsToParse, int minimumValue, int maximumValue)
 {
     auto value = parseInt(buffer, maximumNumberOfDigitsToParse);
     if (!(value && *value >= minimumValue && *value <= maximumValue))
@@ -136,6 +125,7 @@ template<typename CharacterType> static std::optional<int> parseIntWithinLimits(
     return value;
 }
 
+// https://html.spec.whatwg.org/multipage/common-microsyntaxes.html#months
 template<typename CharacterType> bool DateComponents::parseYear(StringParsingBuffer<CharacterType>& buffer)
 {
     unsigned digitsLength = countDigits(buffer);
@@ -151,7 +141,7 @@ template<typename CharacterType> bool DateComponents::parseYear(StringParsingBuf
     return true;
 }
 
-static bool withinHTMLDateLimits(int year, int month)
+static bool NODELETE withinHTMLDateLimits(int year, int month)
 {
     if (year < DateComponents::minimumYear())
         return false;
@@ -160,7 +150,7 @@ static bool withinHTMLDateLimits(int year, int month)
     return month <= maximumMonthInMaximumYear;
 }
 
-static bool withinHTMLDateLimits(int year, int month, int monthDay)
+static bool NODELETE withinHTMLDateLimits(int year, int month, int monthDay)
 {
     if (year < DateComponents::minimumYear())
         return false;
@@ -171,7 +161,7 @@ static bool withinHTMLDateLimits(int year, int month, int monthDay)
     return monthDay <= maximumDayInMaximumMonth;
 }
 
-static bool withinHTMLDateLimits(int year, int month, int monthDay, int hour, int minute, int second, int millisecond)
+static bool NODELETE withinHTMLDateLimits(int year, int month, int monthDay, int hour, int minute, int second, int millisecond)
 {
     if (year < DateComponents::minimumYear())
         return false;
@@ -337,6 +327,7 @@ bool DateComponents::addMinute(int minute)
     return true;
 }
 
+// https://html.spec.whatwg.org/multipage/common-microsyntaxes.html#time-zones
 // Parses a timezone part, and adjust year, month, monthDay, hour, minute, second, millisecond.
 template<typename CharacterType> bool DateComponents::parseTimeZone(StringParsingBuffer<CharacterType>& buffer)
 {
@@ -373,6 +364,7 @@ template<typename CharacterType> bool DateComponents::parseTimeZone(StringParsin
     return true;
 }
 
+// https://html.spec.whatwg.org/multipage/common-microsyntaxes.html#months
 template<typename CharacterType> bool DateComponents::parseMonth(StringParsingBuffer<CharacterType>& buffer)
 {
     if (!parseYear(buffer))
@@ -394,6 +386,7 @@ template<typename CharacterType> bool DateComponents::parseMonth(StringParsingBu
     return true;
 }
 
+// https://html.spec.whatwg.org/multipage/common-microsyntaxes.html#dates
 template<typename CharacterType> bool DateComponents::parseDate(StringParsingBuffer<CharacterType>& buffer)
 {
     if (!parseMonth(buffer))
@@ -414,6 +407,7 @@ template<typename CharacterType> bool DateComponents::parseDate(StringParsingBuf
     return true;
 }
 
+// https://html.spec.whatwg.org/multipage/common-microsyntaxes.html#weeks
 template<typename CharacterType> bool DateComponents::parseWeek(StringParsingBuffer<CharacterType>& buffer)
 {
     if (!parseYear(buffer))
@@ -436,6 +430,7 @@ template<typename CharacterType> bool DateComponents::parseWeek(StringParsingBuf
     return true;
 }
 
+// https://html.spec.whatwg.org/multipage/common-microsyntaxes.html#times
 template<typename CharacterType> bool DateComponents::parseTime(StringParsingBuffer<CharacterType>& buffer)
 {
     auto hour = parseIntWithinLimits(buffer, 2, 0, 23);
@@ -471,12 +466,10 @@ template<typename CharacterType> bool DateComponents::parseTime(StringParsingBuf
                     } else if (digitsLength == 2) {
                         millisecond = parseInt(temporaryBuffer, 2);
                         *millisecond *= 10;
-                    } else {
-                        // Regardless of the number of digits, we only ever parse at most 3. All other
-                        // digits after that are ignored, but the buffer is incremented as if they were
-                        // all parsed.
+                    } else if (digitsLength == 3)
                         millisecond = parseInt(temporaryBuffer, 3);
-                    }
+                    else
+                        return false;
 
                     // Due to the countDigits above, the parseInt calls should all be successful.
                     ASSERT(millisecond);
@@ -496,12 +489,20 @@ template<typename CharacterType> bool DateComponents::parseTime(StringParsingBuf
     return true;
 }
 
+// Gecko allows both 'T' and a space as datetime-local separator (see https://github.com/whatwg/html/issues/2276).
+// WPT tests also expect this behavior.
+template<typename CharacterType> static bool NODELETE isDateTimeLocalSeparator(CharacterType c)
+{
+    return c == 'T' || c == ' ';
+}
+
+// https://html.spec.whatwg.org/multipage/common-microsyntaxes.html#local-dates-and-times
 template<typename CharacterType> bool DateComponents::parseDateTimeLocal(StringParsingBuffer<CharacterType>& buffer)
 {
     if (!parseDate(buffer))
         return false;
 
-    if (!skipExactly(buffer, 'T'))
+    if (!skipExactly<isDateTimeLocalSeparator>(buffer))
         return false;
 
     if (!parseTime(buffer))
@@ -662,7 +663,7 @@ bool DateComponents::setMonthsSinceEpoch(double months)
 
 // Offset from January 1st to Monday of the ISO 8601's first week.
 //   ex. If January 1st is Friday, such Monday is 3 days later. Returns 3.
-static int offsetTo1stWeekStart(int year)
+static int NODELETE offsetTo1stWeekStart(int year)
 {
     int offsetTo1stWeekStart = 1 - dayOfWeek(year, 0, 1);
     if (offsetTo1stWeekStart <= -4)
@@ -747,14 +748,20 @@ String DateComponents::toStringForTime(SecondFormat format) const
     default:
         ASSERT_NOT_REACHED();
 #if !ASSERT_ENABLED
-        FALLTHROUGH; // To None.
+        [[fallthrough]]; // To None.
 #endif
     case SecondFormat::None:
         return makeString(pad('0', 2, m_hour), ':', pad('0', 2, m_minute));
     case SecondFormat::Second:
         return makeString(pad('0', 2, m_hour), ':', pad('0', 2, m_minute), ':', pad('0', 2, m_second));
-    case SecondFormat::Millisecond:
-        return makeString(pad('0', 2, m_hour), ':', pad('0', 2, m_minute), ':', pad('0', 2, m_second), '.', pad('0', 3, m_millisecond));
+    case SecondFormat::Millisecond: {
+        auto resultWithoutMilliseconds = makeString(pad('0', 2, m_hour), ':', pad('0', 2, m_minute), ':', pad('0', 2, m_second), '.');
+        if (!(m_millisecond % 100))
+            return makeString(resultWithoutMilliseconds, m_millisecond / 100);
+        if (!(m_millisecond % 10))
+            return makeString(resultWithoutMilliseconds, pad('0', 2, m_millisecond / 10));
+        return makeString(resultWithoutMilliseconds, pad('0', 3, m_millisecond));
+    }
     }
 }
 
@@ -770,7 +777,7 @@ String DateComponents::toString(SecondFormat format) const
     case DateComponentsType::Time:
         return toStringForTime(format);
     case DateComponentsType::Week:
-        return makeString(pad('0', 4, m_year), "-W", pad('0', 2, m_week));
+        return makeString(pad('0', 4, m_year), "-W"_s, pad('0', 2, m_week));
     case DateComponentsType::Invalid:
         break;
     }

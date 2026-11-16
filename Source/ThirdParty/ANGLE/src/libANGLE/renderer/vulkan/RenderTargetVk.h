@@ -19,8 +19,6 @@ namespace rx
 {
 namespace vk
 {
-struct Format;
-class FramebufferHelper;
 class ImageHelper;
 class ImageView;
 class Resource;
@@ -37,6 +35,9 @@ enum class RenderTargetTransience
     // Multisampled-render-to-texture textures, where the implicit multisampled image is transient,
     // but the resolved image is persistent.
     MultisampledTransient,
+    // Renderable YUV textures, where the color attachment (if it exists at all) is transient,
+    // but the resolved image is persistent.
+    YuvResolveTransient,
     // Multisampled-render-to-texture depth/stencil textures.
     EntirelyTransient,
 };
@@ -57,17 +58,27 @@ class RenderTargetVk final : public FramebufferAttachmentRenderTarget
               vk::ImageViewHelper *imageViews,
               vk::ImageHelper *resolveImage,
               vk::ImageViewHelper *resolveImageViews,
-              gl::LevelIndex levelIndexGL,
-              uint32_t layerIndex,
+              gl::OwnerLevel levelIndexGL,
+              gl::OwnerLayer layerIndex,
+              uint32_t layerCount,
               RenderTargetTransience transience);
-    void reset();
 
-    vk::ImageViewSubresourceSerial getDrawSubresourceSerial() const;
-    vk::ImageViewSubresourceSerial getResolveSubresourceSerial() const;
+    vk::ImageOrBufferViewSubresourceSerial getDrawSubresourceSerial() const;
+    vk::ImageOrBufferViewSubresourceSerial getResolveSubresourceSerial() const;
 
     // Note: RenderTargets should be called in order, with the depth/stencil onRender last.
-    void onColorDraw(ContextVk *contextVk);
-    void onDepthStencilDraw(ContextVk *contextVk);
+    void onColorDraw(ContextVk *contextVk,
+                     uint32_t framebufferLayerCount,
+                     vk::PackedAttachmentIndex index);
+    void onColorResolve(ContextVk *contextVk,
+                        uint32_t framebufferLayerCount,
+                        size_t readColorIndexGL,
+                        const vk::ImageView &view);
+    void onDepthStencilDraw(ContextVk *contextVk, uint32_t framebufferLayerCount);
+    void onDepthStencilResolve(ContextVk *contextVk,
+                               uint32_t framebufferLayerCount,
+                               VkImageAspectFlags aspects,
+                               const vk::ImageView &view);
 
     vk::ImageHelper &getImageForRenderPass();
     const vk::ImageHelper &getImageForRenderPass() const;
@@ -80,20 +91,39 @@ class RenderTargetVk final : public FramebufferAttachmentRenderTarget
 
     // For cube maps we use single-level single-layer 2D array views.
     angle::Result getImageView(ContextVk *contextVk, const vk::ImageView **imageViewOut) const;
+    angle::Result getImageViewWithColorspace(ContextVk *contextVk,
+                                             gl::SrgbWriteControlMode srgbWriteContrlMode,
+                                             const vk::ImageView **imageViewOut) const;
     angle::Result getResolveImageView(ContextVk *contextVk,
                                       const vk::ImageView **imageViewOut) const;
+    angle::Result getDepthOrStencilImageView(ContextVk *contextVk,
+                                             VkImageAspectFlagBits aspect,
+                                             const vk::ImageView **imageViewOut) const;
+    angle::Result getDepthOrStencilImageViewForCopy(ContextVk *contextVk,
+                                                    VkImageAspectFlagBits aspect,
+                                                    const vk::ImageView **imageViewOut) const;
+    angle::Result getResolveDepthOrStencilImageView(ContextVk *contextVk,
+                                                    VkImageAspectFlagBits aspect,
+                                                    const vk::ImageView **imageViewOut) const;
 
     // For 3D textures, the 2D view created for render target is invalid to read from.  The
     // following will return a view to the whole image (for all types, including 3D and 2DArray).
-    angle::Result getAndRetainCopyImageView(ContextVk *contextVk,
-                                            const vk::ImageView **imageViewOut) const;
+    angle::Result getCopyImageView(ContextVk *contextVk, const vk::ImageView **imageViewOut) const;
 
-    const vk::Format &getImageFormat() const;
+    angle::FormatID getImageActualFormatID() const;
+    const angle::Format &getImageActualFormat() const;
+    angle::FormatID getImageIntendedFormatID() const;
+    const angle::Format &getImageIntendedFormat() const;
+
     gl::Extents getExtents() const;
-    gl::LevelIndex getLevelIndex() const { return mLevelIndexGL; }
-    uint32_t getLayerIndex() const { return mLayerIndex; }
+    gl::Extents getRotatedExtents() const;
+    gl::OwnerLevel getLevelIndex() const { return mLevelIndexGL; }
+    gl::OwnerLevel getLevelIndexForImage(const vk::ImageHelper &image) const;
+    gl::OwnerLayer getLayerIndex() const { return mLayerIndex; }
+    uint32_t getLayerCount() const { return mLayerCount; }
+    bool is3DImage() const { return getOwnerOfData()->getType() == VK_IMAGE_TYPE_3D; }
 
-    gl::ImageIndex getImageIndex() const;
+    gl::OwnerImageIndex getImageIndexForClear(uint32_t layerCount) const;
 
     // Special mutator for Surface RenderTargets. Allows the Framebuffer to keep a single
     // RenderTargetVk pointer.
@@ -104,18 +134,17 @@ class RenderTargetVk final : public FramebufferAttachmentRenderTarget
 
     angle::Result flushStagedUpdates(ContextVk *contextVk,
                                      vk::ClearValuesArray *deferredClears,
-                                     uint32_t deferredClearIndex);
-
-    void retainImageViews(ContextVk *contextVk) const;
+                                     uint32_t deferredClearIndex,
+                                     uint32_t framebufferLayerCount);
 
     bool hasDefinedContent() const;
     bool hasDefinedStencilContent() const;
     // Mark content as undefined so that certain optimizations are possible such as using DONT_CARE
-    // as loadOp of the render target in the next renderpass.
-    void invalidateEntireContent(ContextVk *contextVk);
-    void invalidateEntireStencilContent(ContextVk *contextVk);
-    void restoreEntireContent();
-    void restoreEntireStencilContent();
+    // as loadOp of the render target in the next renderpass.  If |preferToKeepContentsDefinedOut|
+    // is set to true, it's preferred to ignore the invalidation due to image format and device
+    // architecture properties.
+    void invalidateEntireContent(ContextVk *contextVk, bool *preferToKeepContentsDefinedOut);
+    void invalidateEntireStencilContent(ContextVk *contextVk, bool *preferToKeepContentsDefinedOut);
 
     // See the description of mTransience for details of how the following two can interact.
     bool hasResolveAttachment() const { return mResolveImage != nullptr && !isEntirelyTransient(); }
@@ -124,14 +153,78 @@ class RenderTargetVk final : public FramebufferAttachmentRenderTarget
     {
         return mTransience == RenderTargetTransience::EntirelyTransient;
     }
+    bool isYuvResolve() const
+    {
+        return mResolveImage != nullptr ? mResolveImage->isYuvExternalFormat() : false;
+    }
+
+    void onNewFramebuffer(const vk::SharedFramebufferCacheKey &sharedFramebufferCacheKey)
+    {
+        mFramebufferCacheManager.addKey(sharedFramebufferCacheKey);
+    }
+    void releaseFramebuffers(ContextVk *contextVk)
+    {
+        mFramebufferCacheManager.releaseKeys(contextVk);
+    }
+    // Resets all members to the initial state without releasing framebuffers since Window Surface
+    // framebuffers are not managed by the cache.
+    void releaseSwapchainImage() { reset(); }
+    // Releases framebuffers and resets all members to the initial state.
+    void release(ContextVk *contextVk)
+    {
+        releaseFramebuffers(contextVk);
+        reset();
+    }
+    // Destroys framebuffers and resets all members to the initial state.
+    void destroy(vk::Renderer *renderer)
+    {
+        mFramebufferCacheManager.destroyKeys(renderer);
+        reset();
+    }
+
+    // Helpers to update rendertarget colorspace
+    void updateWriteColorspace(gl::SrgbWriteControlMode srgbWriteControlMode)
+    {
+        ASSERT(mImage && mImage->valid() && mImageViews);
+        mImageViews->updateSrgbWriteControlMode(mImage->getActualFormat(), srgbWriteControlMode);
+        if (hasResolveAttachment() && !isYuvResolve())
+        {
+            ASSERT(mResolveImage && mResolveImage->valid() && mResolveImageViews);
+            mResolveImageViews->updateSrgbWriteControlMode(mResolveImage->getActualFormat(),
+                                                           srgbWriteControlMode);
+        }
+    }
+    bool hasColorspaceOverrideForRead() const
+    {
+        ASSERT(mImage && mImage->valid() && mImageViews);
+        return mImageViews->hasColorspaceOverrideForRead(*mImage);
+    }
+    bool hasColorspaceOverrideForWrite() const
+    {
+        ASSERT(mImage && mImage->valid() && mImageViews);
+        return mImageViews->hasColorspaceOverrideForWrite(*mImage);
+    }
+    angle::FormatID getColorspaceOverrideFormatForWrite(angle::FormatID format) const
+    {
+        ASSERT(mImage && mImage->valid() && mImageViews);
+        return mImageViews->getColorspaceOverrideFormatForWrite(format);
+    }
 
   private:
+    void reset();
+
     angle::Result getImageViewImpl(ContextVk *contextVk,
                                    const vk::ImageHelper &image,
                                    vk::ImageViewHelper *imageViews,
                                    const vk::ImageView **imageViewOut) const;
+    angle::Result getDepthOrStencilImageViewImpl(ContextVk *contextVk,
+                                                 const vk::ImageHelper &image,
+                                                 vk::ImageViewHelper *imageViews,
+                                                 VkImageAspectFlagBits aspect,
+                                                 const vk::ImageView **imageViewOut) const;
 
-    vk::ImageViewSubresourceSerial getSubresourceSerialImpl(vk::ImageViewHelper *imageViews) const;
+    vk::ImageOrBufferViewSubresourceSerial getSubresourceSerialImpl(
+        vk::ImageViewHelper *imageViews) const;
 
     bool isResolveImageOwnerOfData() const;
     vk::ImageHelper *getOwnerOfData() const;
@@ -151,8 +244,19 @@ class RenderTargetVk final : public FramebufferAttachmentRenderTarget
     vk::ImageViewHelper *mResolveImageViews;
 
     // Which subresource of the image is used as render target.
-    gl::LevelIndex mLevelIndexGL;
-    uint32_t mLayerIndex;
+    //
+    // |mLevelIndexGL| applies to the level index of mImage unless there is a resolve attachment,
+    // in which case |mLevelIndexGL| applies to the mResolveImage since mImage is always
+    // single-level.
+    //
+    // For single-layer render targets, |mLayerIndex| will contain the layer index and |mLayerCount|
+    // will be 1.  For layered render targets, |mLayerIndex| will be 0 and |mLayerCount| will be the
+    // number of layers in the image (or level depth, if image is 3D).  Note that blit and other
+    // functions that read or write to the render target always use layer 0, so this works out for
+    // users of |getLayerIndex()|.
+    gl::OwnerLevel mLevelIndexGL;
+    gl::OwnerLayer mLayerIndex;
+    uint32_t mLayerCount;
 
     // If resolve attachment exists, |mTransience| could be *Transient if the multisampled results
     // need to be discarded.
@@ -192,6 +296,9 @@ class RenderTargetVk final : public FramebufferAttachmentRenderTarget
     // resolve attachment, it is not used.  The only purpose of |mResolveImage| is to store deferred
     // clears.
     RenderTargetTransience mTransience;
+
+    // Track references to the cached Framebuffer object that created out of this object
+    vk::FramebufferCacheManager mFramebufferCacheManager;
 };
 
 // A vector of rendertargets

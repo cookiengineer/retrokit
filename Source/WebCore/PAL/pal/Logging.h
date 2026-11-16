@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003-2017 Apple Inc.  All rights reserved.
+ * Copyright (C) 2003-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,11 +25,31 @@
 
 #pragma once
 
+#include <pal/ExportMacros.h>
+#include <wtf/Assertions.h>
 #include <wtf/Forward.h>
 
 namespace PAL {
 
-PAL_EXPORT void registerNotifyCallback(const String&, WTF::Function<void()>&&);
+PAL_EXPORT void registerNotifyCallback(ASCIILiteral, Function<void()>&&);
+
+#if !LOG_DISABLED || !RELEASE_LOG_DISABLED
+
+#ifndef LOG_CHANNEL_PREFIX
+#define LOG_CHANNEL_PREFIX Log
+#endif
+
+#define PAL_LOG_CHANNELS(M) \
+    M(Media) \
+    M(TextEncoding)
+
+#undef DECLARE_LOG_CHANNEL
+#define DECLARE_LOG_CHANNEL(name) \
+PAL_EXPORT extern WTFLogChannel JOIN_LOG_CHANNEL_WITH_PREFIX(LOG_CHANNEL_PREFIX, name);
+
+PAL_LOG_CHANNELS(DECLARE_LOG_CHANNEL)
+
+#endif // !LOG_DISABLED || !RELEASE_LOG_DISABLED
 
 } // namespace PAL
 

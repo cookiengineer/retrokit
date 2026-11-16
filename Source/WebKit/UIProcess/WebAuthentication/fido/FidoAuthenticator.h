@@ -35,16 +35,18 @@ class CtapDriver;
 
 class FidoAuthenticator : public Authenticator {
 public:
-    ~FidoAuthenticator() override;
+    ~FidoAuthenticator();
 
 protected:
-    explicit FidoAuthenticator(std::unique_ptr<CtapDriver>&&);
+    explicit FidoAuthenticator(Ref<CtapDriver>&&);
 
-    CtapDriver& driver() const;
-    std::unique_ptr<CtapDriver> releaseDriver();
+    CtapDriver& NODELETE driver() const;
+    Ref<CtapDriver> releaseDriver();
+
+    String transportForDebugging() const;
 
 private:
-    std::unique_ptr<CtapDriver> m_driver;
+    RefPtr<CtapDriver> m_driver;
 };
 
 } // namespace WebKit

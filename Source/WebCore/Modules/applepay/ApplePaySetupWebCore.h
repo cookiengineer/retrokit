@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,9 +27,9 @@
 
 #if ENABLE(APPLE_PAY)
 
+#include "ActiveDOMObject.h"
 #include "ApplePaySetupConfiguration.h"
-#include <WebCore/ActiveDOMObject.h>
-#include <WebCore/JSDOMPromiseDeferred.h>
+#include "JSDOMPromiseDeferredForward.h"
 #include <wtf/Forward.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
@@ -38,34 +38,31 @@
 namespace WebCore {
 
 class ApplePaySetupFeature;
-class DeferredPromise;
 class Document;
 
 class ApplePaySetup : public ActiveDOMObject, public RefCounted<ApplePaySetup> {
 public:
-    static Ref<ApplePaySetup> create(ScriptExecutionContext& context, ApplePaySetupConfiguration&& configuration)
-    {
-        return adoptRef(*new ApplePaySetup(context, WTFMove(configuration)));
-    }
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
+    static Ref<ApplePaySetup> create(ScriptExecutionContext&, ApplePaySetupConfiguration&&);
 
     using SetupFeaturesPromise = DOMPromiseDeferred<IDLSequence<IDLInterface<ApplePaySetupFeature>>>;
     void getSetupFeatures(Document&, SetupFeaturesPromise&&);
 
     using BeginPromise = DOMPromiseDeferred<IDLBoolean>;
-    void begin(Document&, Vector<RefPtr<ApplePaySetupFeature>>&&, BeginPromise&&);
+    void begin(Document&, Vector<Ref<ApplePaySetupFeature>>&&, BeginPromise&&);
 
 private:
     ApplePaySetup(ScriptExecutionContext&, ApplePaySetupConfiguration&&);
 
     // ActiveDOMObject
-    const char* activeDOMObjectName() const final { return "ApplePaySetup"; }
     void stop() final;
     void suspend(ReasonForSuspension) final;
 
     ApplePaySetupConfiguration m_configuration;
-    std::optional<SetupFeaturesPromise> m_setupFeaturesPromise;
-    std::optional<BeginPromise> m_beginPromise;
-    RefPtr<PendingActivity<ApplePaySetup>> m_pendingActivity;
+    std::unique_ptr<SetupFeaturesPromise> m_setupFeaturesPromise;
+    std::unique_ptr<BeginPromise> m_beginPromise;
 };
 
 } // namespace WebCore

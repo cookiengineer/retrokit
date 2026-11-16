@@ -1,14 +1,14 @@
 {
   "scripts/gen_gl_enum_utils.py":
-    "7c409a08898d49014584b10880f828df",
-  "scripts/gl.xml":
-    "e74a595068cbdd6064300be1e71b7cc9",
+    "bf766b6c9f69979e59e358b93607cb75",
   "scripts/gl_angle_ext.xml":
-    "0b4f3476d76a5ccc40af342d6c08739d",
+    "fc346145012b6744a27199a3210f6f88",
   "scripts/registry_xml.py":
-    "b14d62484c30cabc731df342b3046421",
-  "src/libANGLE/gl_enum_utils_autogen.cpp":
-    "aefd6f8d92a098843b886d739d02363e",
-  "src/libANGLE/gl_enum_utils_autogen.h":
-    "dd54f34be733affcb994fc315c3b972d"
+    "f08436820f54c6120c2865cd9374316b",
+  "src/common/gl_enum_utils_autogen.cpp":
+    "60f8beaaa474601ad1b337c63a277fd0",
+  "src/common/gl_enum_utils_autogen.h":
+    "b5f641cd3aad9bc06a85ad5cfd401a1f",
+  "third_party/OpenGL-Registry/src/xml/gl.xml":
+    "1eb37882507017323d5e447e42e74f62"
 }

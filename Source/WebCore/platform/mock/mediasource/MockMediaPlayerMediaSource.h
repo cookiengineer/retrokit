@@ -20,7 +20,7 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #ifndef MockMediaPlayerMediaSource_h
@@ -31,6 +31,8 @@
 #include "MediaPlayerPrivate.h"
 #include <wtf/Logger.h>
 #include <wtf/MediaTime.h>
+#include <wtf/NativePromise.h>
+#include <wtf/RefCounted.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -38,36 +40,45 @@ namespace WebCore {
 class MediaSource;
 class MockMediaSourcePrivate;
 
-class MockMediaPlayerMediaSource : public MediaPlayerPrivateInterface, public CanMakeWeakPtr<MockMediaPlayerMediaSource> {
+class MockMediaPlayerMediaSource final
+    : public MediaPlayerPrivateInterface
+    , public RefCounted<MockMediaPlayerMediaSource>
+    , public CanMakeWeakPtr<MockMediaPlayerMediaSource> {
 public:
-    explicit MockMediaPlayerMediaSource(MediaPlayer*);
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
+    explicit MockMediaPlayerMediaSource(MediaPlayer&);
 
     // MediaPlayer Engine Support
     WEBCORE_EXPORT static void registerMediaEngine(MediaEngineRegistrar);
-    static void getSupportedTypes(HashSet<String, ASCIICaseInsensitiveHash>& types);
+    static void getSupportedTypes(HashSet<String>& types);
     static MediaPlayer::SupportsType supportsType(const MediaEngineSupportParameters&);
 
     virtual ~MockMediaPlayerMediaSource();
 
+    constexpr MediaPlayerType mediaPlayerType() const final { return MediaPlayerType::MockMSE; }
+
     void advanceCurrentTime();
-    MediaTime currentMediaTime() const override;
+    MediaTime currentTime() const override;
+    bool timeIsProgressing() const override;
+    void notifyActiveSourceBuffersChanged() final;
     void updateDuration(const MediaTime&);
 
     MediaPlayer::ReadyState readyState() const override;
-    void setReadyState(MediaPlayer::ReadyState);
+    void readyStateFromMediaSourceChanged() final;
+    void characteristicsFromMediaSourceChanged() final;
     void setNetworkState(MediaPlayer::NetworkState);
-    void waitForSeekCompleted();
-    void seekCompleted();
 
 #if !RELEASE_LOG_DISABLED
-    const void* mediaPlayerLogIdentifier() { return m_player->mediaPlayerLogIdentifier(); }
-    const Logger& mediaPlayerLogger() { return m_player->mediaPlayerLogger(); }
+    uint64_t mediaPlayerLogIdentifier() { return m_player.get()->mediaPlayerLogIdentifier(); }
+    const Logger& mediaPlayerLogger() { return m_player.get()->mediaPlayerLogger(); }
 #endif
 
 private:
     // MediaPlayerPrivate Overrides
     void load(const String& url) override;
-    void load(const URL&, const ContentType&, MediaSourcePrivateClient*) override;
+    void load(const URL&, const LoadOptions&, MediaSourcePrivateClient&) override;
 #if ENABLE(MEDIA_STREAM)
     void load(MediaStreamPrivate&) override { }
 #endif
@@ -78,30 +89,35 @@ private:
     bool hasVideo() const override;
     bool hasAudio() const override;
     void setPageIsVisible(bool) final;
-    bool seeking() const override;
+    Ref<MediaTimePromise> seekToTarget(const SeekTarget&) final;
     bool paused() const override;
     MediaPlayer::NetworkState networkState() const override;
-    MediaTime maxMediaTimeSeekable() const override;
-    std::unique_ptr<PlatformTimeRanges> buffered() const override;
+    void mediaSourceHasRetrievedAllData() final;
+    MediaTime maxTimeSeekable() const override;
+    const PlatformTimeRanges& buffered() const override;
     bool didLoadingProgress() const override;
-    void setSize(const IntSize&) override;
+    void setPresentationSize(const IntSize&) override;
     void paint(GraphicsContext&, const FloatRect&) override;
-    MediaTime durationMediaTime() const override;
-    void seekWithTolerance(const MediaTime&, const MediaTime&, const MediaTime&) override;
+    MediaTime duration() const override;
     std::optional<VideoPlaybackQualityMetrics> videoPlaybackQualityMetrics() override;
+    DestinationColorSpace colorSpace() override;
 
-    MediaPlayer* m_player;
+    ThreadSafeWeakPtr<MediaPlayer> m_player;
     RefPtr<MockMediaSourcePrivate> m_mediaSourcePrivate;
 
     MediaTime m_currentTime;
     MediaTime m_duration;
-    MediaPlayer::ReadyState m_readyState;
-    MediaPlayer::NetworkState m_networkState;
-    bool m_playing;
-    bool m_seekCompleted;
+    std::optional<SeekTarget> m_lastSeekTarget;
+    std::optional<MediaTimePromise::AutoRejectProducer> m_seekPromise;
+    MediaPlayer::NetworkState m_networkState { MediaPlayer::NetworkState::Empty };
+    bool m_playing { false };
 };
 
 }
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::MockMediaPlayerMediaSource)
+static bool isType(const WebCore::MediaPlayerPrivateInterface& player) { return player.mediaPlayerType() == WebCore::MediaPlayerType::MockMSE; }
+SPECIALIZE_TYPE_TRAITS_END()
 
 #endif // ENABLE(MEDIA_SOURCE)
 

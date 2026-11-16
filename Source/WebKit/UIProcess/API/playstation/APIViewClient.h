@@ -25,6 +25,9 @@
 
 #pragma once
 
+#include <wtf/CompletionHandler.h>
+#include <wtf/TZoneMallocInlines.h>
+
 namespace WebCore {
 class Cursor;
 class IntRect;
@@ -38,16 +41,16 @@ class PlayStationWebView;
 namespace API {
 
 class ViewClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(ViewClient);
 public:
     virtual ~ViewClient() = default;
 
     virtual void setViewNeedsDisplay(WebKit::PlayStationWebView&, const WebCore::Region&) { }
-    virtual void enterFullScreen(WebKit::PlayStationWebView&) { }
+    virtual void enterFullScreen(WebKit::PlayStationWebView&, CompletionHandler<void(bool)>&& completionHandler) { completionHandler(false); }
     virtual void exitFullScreen(WebKit::PlayStationWebView&) { }
     virtual void closeFullScreen(WebKit::PlayStationWebView&) { }
-    virtual void beganEnterFullScreen(WebKit::PlayStationWebView&, const WebCore::IntRect&, const WebCore::IntRect&) { }
-    virtual void beganExitFullScreen(WebKit::PlayStationWebView&, const WebCore::IntRect&, const WebCore::IntRect&) { }
+    virtual void beganEnterFullScreen(WebKit::PlayStationWebView&, const WebCore::IntRect&, const WebCore::IntRect&, CompletionHandler<void(bool)>&& completionHandler) { completionHandler(false); }
+    virtual void beganExitFullScreen(WebKit::PlayStationWebView&, const WebCore::IntRect&, const WebCore::IntRect&, CompletionHandler<void()>&& completionHandler) { completionHandler(); }
     virtual void setCursor(WebKit::PlayStationWebView& view, const WebCore::Cursor& cursor) { }
 };
 

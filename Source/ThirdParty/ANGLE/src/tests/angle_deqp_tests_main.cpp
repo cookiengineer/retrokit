@@ -14,12 +14,16 @@
 // in Chromium.
 namespace angle
 {
-void InitTestHarness(int *argc, char **argv);
+int RunGLCTSTests(int *argc, char **argv);
 }  // namespace angle
 
 int main(int argc, char **argv)
 {
-    angle::InitTestHarness(&argc, argv);
-    angle::TestSuite testSuite(&argc, argv);
-    return testSuite.run();
+#if defined(ANGLE_PLATFORM_MACOS) && defined(ANGLE_OUTSIDE_WEBKIT)
+    // By default, we should hook file API functions on macOS to avoid slow Metal shader caching
+    // file access.
+    angle::InitMetalFileAPIHooking(argc, argv);
+#endif
+
+    return angle::RunGLCTSTests(&argc, argv);
 }

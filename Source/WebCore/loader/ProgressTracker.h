@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007, 2018 Apple Inc.  All rights reserved.
+ * Copyright (C) 2007-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,56 +25,59 @@
 
 #pragma once
 
-#include "Timer.h"
+#include <WebCore/Page.h>
+#include <WebCore/ResourceLoaderIdentifier.h>
+#include <WebCore/Timer.h>
+#include <wtf/CheckedRef.h>
 #include <wtf/Forward.h>
 #include <wtf/HashMap.h>
 #include <wtf/Noncopyable.h>
-#include <wtf/RefPtr.h>
 #include <wtf/UniqueRef.h>
+#include <wtf/WeakPtr.h>
+#include <wtf/WeakRef.h>
 
 namespace WebCore {
 
-class Frame;
+class LocalFrame;
 class ResourceResponse;
 class ProgressTrackerClient;
 struct ProgressItem;
 
-class ProgressTracker {
+class ProgressTracker final : public CanMakeCheckedPtr<ProgressTracker> {
     WTF_MAKE_NONCOPYABLE(ProgressTracker);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(ProgressTracker, Loader);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(ProgressTracker);
 public:
-    explicit ProgressTracker(UniqueRef<ProgressTrackerClient>&&);
+    explicit ProgressTracker(Page&, UniqueRef<ProgressTrackerClient>&&);
     ~ProgressTracker();
 
     ProgressTrackerClient& client() { return m_client.get(); }
 
-    static unsigned long createUniqueIdentifier();
+    double estimatedProgress() const { return m_progressValue; }
 
-    WEBCORE_EXPORT double estimatedProgress() const;
+    void progressStarted(LocalFrame&);
+    void progressCompleted(LocalFrame&);
 
-    void progressStarted(Frame&);
-    void progressCompleted(Frame&);
-
-    void incrementProgress(unsigned long identifier, const ResourceResponse&);
-    void incrementProgress(unsigned long identifier, unsigned bytesReceived);
-    void completeProgress(unsigned long identifier);
+    void incrementProgress(ResourceLoaderIdentifier, const ResourceResponse&);
+    void incrementProgress(ResourceLoaderIdentifier, unsigned bytesReceived);
+    void completeProgress(ResourceLoaderIdentifier);
 
     long long totalPageAndResourceBytesToLoad() const { return m_totalPageAndResourceBytesToLoad; }
     long long totalBytesReceived() const { return m_totalBytesReceived; }
 
-    bool isMainLoadProgressing() const;
+    bool NODELETE isMainLoadProgressing() const;
 
 private:
     void reset();
     void finalProgressComplete();
+    void progressEstimateChanged(LocalFrame&);
 
     void progressHeartbeatTimerFired();
 
-    static unsigned long s_uniqueIdentifier;
-
-    UniqueRef<ProgressTrackerClient> m_client;
-    RefPtr<Frame> m_originatingProgressFrame;
-    HashMap<unsigned long, std::unique_ptr<ProgressItem>> m_progressItems;
+    WeakRef<Page> m_page;
+    const UniqueRef<ProgressTrackerClient> m_client;
+    WeakPtr<LocalFrame> m_originatingProgressFrame;
+    HashMap<ResourceLoaderIdentifier, std::unique_ptr<ProgressItem>> m_progressItems;
     Timer m_progressHeartbeatTimer;
 
     long long m_totalPageAndResourceBytesToLoad { 0 };

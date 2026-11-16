@@ -40,14 +40,13 @@ public:
 
     void install(VM&);
 
-    const ObjectPropertyCondition& key() const { return m_key; }
+    const ObjectPropertyCondition& key() const LIFETIME_BOUND { return m_key; }
 
     void fireInternal(VM&, const FireDetail&);
     
 private:
-    // Own destructor may not be called. Keep members trivially destructible.
-    JSC_WATCHPOINT_FIELD(PackedCellPtr<StructureRareData>, m_structureRareData);
-    JSC_WATCHPOINT_FIELD(ObjectPropertyCondition, m_key);
+    PackedCellPtr<StructureRareData> m_structureRareData;
+    ObjectPropertyCondition m_key;
 };
 
 }

@@ -26,32 +26,30 @@
 
 #pragma once
 
-#if ENABLE(DATE_AND_TIME_INPUT_TYPES)
-
 #include "DateTimeFieldElement.h"
 #include "TypeAhead.h"
 
 namespace WebCore {
 
 class DateTimeSymbolicFieldElement : public DateTimeFieldElement, public TypeAheadDataSource {
-    WTF_MAKE_ISO_ALLOCATED(DateTimeSymbolicFieldElement);
+    WTF_MAKE_TZONE_ALLOCATED(DateTimeSymbolicFieldElement);
 protected:
-    DateTimeSymbolicFieldElement(Document&, FieldOwner&, const Vector<String>&, int);
+    DateTimeSymbolicFieldElement(Document&, DateTimeFieldElementFieldOwner&, const Vector<String>&, int);
     size_t symbolsSize() const { return m_symbols.size(); }
     bool hasValue() const final;
-    void initialize(const AtomString& pseudo);
-    void setEmptyValue(EventBehavior = DispatchNoEvent) final;
-    void setValueAsInteger(int, EventBehavior = DispatchNoEvent) final;
-    int valueAsInteger() const final;
+    void setEmptyValue(EventBehavior = DispatchNoEvent) override;
+    void setValueAsInteger(int, EventBehavior = DispatchNoEvent) override;
+    int valueAsInteger() const final { return m_selectedIndex; }
+    int placeholderValueAsInteger() const final { return m_placeholderIndex; }
 
 private:
     static constexpr int invalidIndex = -1;
 
     // DateTimeFieldElement functions:
-    void adjustMinWidth(RenderStyle&) const final;
+    void adjustMinInlineSize(Style::ComputedStyle&) const final;
     void stepDown() final;
     void stepUp() final;
-    String value() const final;
+    ValueOrReference<String> value() const final;
     String placeholderValue() const final;
     void handleKeyboardEvent(KeyboardEvent&) final;
 
@@ -68,5 +66,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(DATE_AND_TIME_INPUT_TYPES)

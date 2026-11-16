@@ -31,6 +31,7 @@
 #include "APIError.h"
 #include "Logging.h"
 #include <WebCore/LocalizedStrings.h>
+#include <WebCore/ResourceError.h>
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/ResourceResponse.h>
 
@@ -40,6 +41,11 @@ using namespace WebCore;
 ResourceError blockedError(const ResourceRequest& request)
 {
     return ResourceError(API::Error::webKitPolicyErrorDomain(), API::Error::Policy::CannotUseRestrictedPort, request.url(), WEB_UI_STRING("Not allowed to use restricted network port", "WebKitErrorCannotUseRestrictedPort description"));
+}
+
+bool isBlockedError(const ResourceError& error)
+{
+    return error.domain() == API::Error::webKitPolicyErrorDomain() && error.errorCode() == API::Error::Policy::CannotUseRestrictedPort;
 }
 
 ResourceError blockedByContentBlockerError(const ResourceRequest& request)
@@ -62,6 +68,11 @@ ResourceError interruptedForPolicyChangeError(const ResourceRequest& request)
     return ResourceError(API::Error::webKitPolicyErrorDomain(), API::Error::Policy::FrameLoadInterruptedByPolicyChange, request.url(), WEB_UI_STRING("Frame load interrupted", "WebKitErrorFrameLoadInterruptedByPolicyChange description"));
 }
 
+ResourceError ftpDisabledError(const ResourceRequest& request)
+{
+    return ResourceError(errorDomainWebKitInternal, 0, request.url(), "FTP URLs are disabled"_s, ResourceError::Type::AccessControl);
+}
+
 ResourceError failedCustomProtocolSyncLoad(const ResourceRequest& request)
 {
     return ResourceError(errorDomainWebKitInternal, 0, request.url(), WEB_UI_STRING("Error handling synchronous load with custom protocol", "Custom protocol synchronous load failure description"));
@@ -72,6 +83,12 @@ ResourceError blockedByContentFilterError(const ResourceRequest& request)
 {
     return ResourceError(API::Error::webKitPolicyErrorDomain(), API::Error::Policy::FrameLoadBlockedByContentFilter, request.url(), WEB_UI_STRING("The URL was blocked by a content filter", "WebKitErrorFrameLoadBlockedByContentFilter description"));
 }
+
+bool isBlockedByContentFilterError(const WebCore::ResourceError& error)
+{
+    return error.domain() == API::Error::webKitPolicyErrorDomain() && error.errorCode() == API::Error::Policy::FrameLoadBlockedByContentFilter;
+}
+
 #endif
 
 ResourceError cannotShowMIMETypeError(const ResourceResponse& response)
@@ -94,6 +111,26 @@ ResourceError fileDoesNotExistError(const ResourceResponse& response)
 {
     return ResourceError(API::Error::webKitNetworkErrorDomain(), API::Error::Network::FileDoesNotExist, response.url(), WEB_UI_STRING("File does not exist", "The requested file doesn't exist"));
 }
+
+ResourceError decodeError(const URL&)
+{
+    return { };
+}
 #endif
+
+ResourceError httpsUpgradeRedirectLoopError(const ResourceRequest& request)
+{
+    return ResourceError(API::Error::webKitNetworkErrorDomain(), API::Error::Network::HTTPSUpgradeRedirectLoop, request.url(), WEB_UI_STRING("HTTPS Upgrade redirect loop detected", "WebKitErrorHTTPSUpgradeRedirectLoop description"));
+}
+
+ResourceError httpNavigationWithHTTPSOnlyError(const ResourceRequest& request)
+{
+    return ResourceError(API::Error::webKitNetworkErrorDomain(), API::Error::Network::HTTPNavigationWithHTTPSOnlyError, request.url(), WEB_UI_STRING("Navigation failed because the request was for an HTTP URL with HTTPS-Only enabled", "WebKitErrorHTTPSOnlyHTTPURL description"));
+}
+
+bool isHttpNavigationWithHTTPSOnlyError(const WebCore::ResourceError& error)
+{
+    return error.domain() == API::Error::webKitNetworkErrorDomain() && error.errorCode() == API::Error::Network::HTTPNavigationWithHTTPSOnlyError;
+}
 
 } // namespace WebKit

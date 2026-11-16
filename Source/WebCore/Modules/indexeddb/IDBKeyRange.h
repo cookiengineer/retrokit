@@ -25,8 +25,7 @@
 
 #pragma once
 
-#include "ExceptionOr.h"
-#include "ScriptWrappable.h"
+#include <WebCore/ScriptWrappable.h>
 #include <wtf/RefCounted.h>
 #include <wtf/RefPtr.h>
 
@@ -40,9 +39,10 @@ namespace WebCore {
 
 class IDBKey;
 class ScriptExecutionContext;
+template<typename> class ExceptionOr;
 
 class IDBKeyRange final : public ScriptWrappable, public RefCounted<IDBKeyRange> {
-    WTF_MAKE_ISO_ALLOCATED(IDBKeyRange);
+    WTF_MAKE_TZONE_ALLOCATED(IDBKeyRange);
 public:
     static Ref<IDBKeyRange> create(RefPtr<IDBKey>&& lower, RefPtr<IDBKey>&& upper, bool isLowerOpen, bool isUpperOpen);
     static Ref<IDBKeyRange> create(RefPtr<IDBKey>&&);
@@ -53,6 +53,10 @@ public:
     bool lowerOpen() const { return m_isLowerOpen; }
     bool upperOpen() const { return m_isUpperOpen; }
 
+    static bool isPotentiallyValidKeyRange(JSC::JSGlobalObject& execState, JSC::JSValue value);
+
+    static ExceptionOr<Ref<IDBKeyRange>> fromValue(JSC::JSGlobalObject&, JSC::JSValue value);
+
     static ExceptionOr<Ref<IDBKeyRange>> only(RefPtr<IDBKey>&& value);
     static ExceptionOr<Ref<IDBKeyRange>> only(JSC::JSGlobalObject&, JSC::JSValue key);
 
@@ -60,16 +64,15 @@ public:
     static ExceptionOr<Ref<IDBKeyRange>> upperBound(JSC::JSGlobalObject&, JSC::JSValue bound, bool open);
 
     static ExceptionOr<Ref<IDBKeyRange>> bound(JSC::JSGlobalObject&, JSC::JSValue lower, JSC::JSValue upper, bool lowerOpen, bool upperOpen);
+    static Ref<IDBKeyRange> unbounded();
 
     ExceptionOr<bool> includes(JSC::JSGlobalObject&, JSC::JSValue key);
-
-    WEBCORE_EXPORT bool isOnlyKey() const;
 
 private:
     IDBKeyRange(RefPtr<IDBKey>&& lower, RefPtr<IDBKey>&& upper, bool isLowerOpen, bool isUpperOpen);
 
-    RefPtr<IDBKey> m_lower;
-    RefPtr<IDBKey> m_upper;
+    const RefPtr<IDBKey> m_lower;
+    const RefPtr<IDBKey> m_upper;
     bool m_isLowerOpen;
     bool m_isUpperOpen;
 };

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010, Google Inc. All rights reserved.
+ * Copyright (C) 2010 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,12 +33,12 @@ namespace WebCore {
 
 class EqualPowerPanner final : public Panner {
 public:
-    explicit EqualPowerPanner(float sampleRate);
+    EqualPowerPanner();
 
-    void pan(double azimuth, double elevation, const AudioBus* inputBus, AudioBus* outputBuf, size_t framesToProcess) final;
-    void panWithSampleAccurateValues(double* azimuth, double* elevation, const AudioBus* inputBus, AudioBus* outputBus, size_t framesToProcess) final;
+    void pan(double azimuth, double elevation, const AudioBus& inputBus, AudioBus& outputBuf, size_t framesToProcess) final;
+    void panWithSampleAccurateValues(std::span<double> azimuth, std::span<double> elevation, const AudioBus& inputBus, AudioBus& outputBus, size_t framesToProcess) final;
 
-    void reset() override { m_isFirstRender = true; }
+    void reset() override { }
 
     double tailTime() const override { return 0; }
     double latencyTime() const override { return 0; }
@@ -46,13 +46,6 @@ public:
 
 private:
     void calculateDesiredGain(double& desiredGainL, double& desiredGainR, double azimuth, unsigned numberOfChannels);
-
-    // For smoothing / de-zippering
-    bool m_isFirstRender { true };
-    double m_smoothingConstant;
-    
-    double m_gainL { 0 };
-    double m_gainR { 0 };
 };
 
 } // namespace WebCore

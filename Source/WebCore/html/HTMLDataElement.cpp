@@ -27,11 +27,11 @@
 #include "HTMLDataElement.h"
 
 #include "HTMLNames.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLDataElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLDataElement);
 
 using namespace HTMLNames;
 
@@ -45,5 +45,7 @@ inline HTMLDataElement::HTMLDataElement(const QualifiedName& tagName, Document& 
 {
     ASSERT(hasTagName(dataTag));
 }
+
+HTMLDataElement::~HTMLDataElement() = default;
 
 } // namespace WebCore.

@@ -30,19 +30,22 @@
 
 #include "MathMLNames.h"
 #include "MathMLOperatorElement.h"
+#include "NodeDocument.h"
 #include "RenderMathMLFenced.h"
 #include "RenderMathMLMenclose.h"
 #include "RenderMathMLRow.h"
-#include <wtf/IsoMallocInlines.h>
+#include "Settings.h"
+#include "StyleComputedStyle.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(MathMLRowElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MathMLRowElement);
 
 using namespace MathMLNames;
 
-MathMLRowElement::MathMLRowElement(const QualifiedName& tagName, Document& document)
-    : MathMLPresentationElement(tagName, document)
+MathMLRowElement::MathMLRowElement(const QualifiedName& tagName, Document& document, OptionSet<TypeFlag> constructionType)
+    : MathMLPresentationElement(tagName, document, constructionType)
 {
 }
 
@@ -53,26 +56,27 @@ Ref<MathMLRowElement> MathMLRowElement::create(const QualifiedName& tagName, Doc
 
 void MathMLRowElement::childrenChanged(const ChildChange& change)
 {
-    for (auto child = firstChild(); child; child = child->nextSibling()) {
-        if (child->hasTagName(moTag))
-            static_cast<MathMLOperatorElement*>(child)->setOperatorFormDirty();
+    // FIXME: Avoid this invalidation for valid MathMLFractionElement/MathMLScriptsElement.
+    // See https://bugs.webkit.org/show_bug.cgi?id=276828.
+    for (RefPtr child = firstChild(); child; child = child->nextSibling()) {
+        if (RefPtr mo = dynamicDowncast<MathMLOperatorElement>(*child))
+            mo->setOperatorFormDirty();
     }
 
     MathMLPresentationElement::childrenChanged(change);
 }
 
-RenderPtr<RenderElement> MathMLRowElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> MathMLRowElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
-    if (hasTagName(mfencedTag))
-        return createRenderer<RenderMathMLFenced>(*this, WTFMove(style));
+    if (!document().settings().coreMathMLEnabled() && hasTagName(mfencedTag))
+        return createRenderer<RenderMathMLFenced>(*this, WTF::move(style));
 
-    ASSERT(hasTagName(merrorTag) || hasTagName(mphantomTag) || hasTagName(mrowTag) || hasTagName(mstyleTag));
-    return createRenderer<RenderMathMLRow>(*this, WTFMove(style));
+    return createRenderer<RenderMathMLRow>(RenderObject::Type::MathMLRow, *this, WTF::move(style));
 }
 
-bool MathMLRowElement::acceptsMathVariantAttribute()
+bool MathMLRowElement::acceptsLegacyMathVariantAttribute()
 {
-    return hasTagName(mstyleTag);
+    return !document().settings().coreMathMLDeprecateLegacyMathvariant() && hasTagName(mstyleTag);
 }
 
 }

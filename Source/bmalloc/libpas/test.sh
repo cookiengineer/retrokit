@@ -22,9 +22,9 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 # THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-. common.sh
+. ./common.sh
 
-function copy_variant {
+copy_variant() {
     variant=$1
     
     tar -czvf /dev/stdout build-$sdk-$variant/$configdir test-impl.sh common.sh | \

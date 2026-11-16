@@ -25,9 +25,7 @@
 
 #pragma once
 
-#if ENABLE(LAYOUT_FORMATTING_CONTEXT)
-
-#include "LayoutUnit.h"
+#include <WebCore/LayoutUnit.h>
 #include <optional>
 
 namespace WebCore {
@@ -103,4 +101,3 @@ struct PrecomputedMarginBefore {
 
 }
 }
-#endif

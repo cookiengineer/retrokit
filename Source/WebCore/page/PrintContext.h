@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2007 Alp Toker <alp@atoker.com>
- * Copyright (C) 2007 Apple Inc.
+ * Copyright (C) 2007 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -20,10 +20,11 @@
 
 #pragma once
 
-#include "FrameDestructionObserver.h"
-#include "LengthBox.h"
+#include <WebCore/BoxExtents.h>
+#include <WebCore/FrameDestructionObserver.h>
 #include <wtf/Forward.h>
 #include <wtf/HashMap.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
@@ -31,18 +32,22 @@ namespace WebCore {
 
 class Document;
 class Element;
-class Frame;
 class FloatRect;
 class FloatSize;
 class GraphicsContext;
 class IntRect;
+class LocalFrame;
 class Node;
 
-class PrintContext : public FrameDestructionObserver {
-    WTF_MAKE_FAST_ALLOCATED;
+class PrintContext : public FrameDestructionObserver, public RefCounted<PrintContext> {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(PrintContext, WEBCORE_EXPORT);
 public:
-    WEBCORE_EXPORT explicit PrintContext(Frame*);
-    WEBCORE_EXPORT ~PrintContext();
+    WEBCORE_EXPORT static Ref<PrintContext> create(LocalFrame*);
+    ~PrintContext();
+
+    // FrameDestructionObserver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
 
     // Break up a page into rects without relayout.
     // FIXME: This means that CSS page breaks won't be on page boundary if the size is different than what was passed to begin(). That's probably not always desirable.
@@ -55,8 +60,8 @@ public:
 
     // These are only valid after page rects are computed.
     size_t pageCount() const { return m_pageRects.size(); }
-    const IntRect& pageRect(size_t pageNumber) const { return m_pageRects[pageNumber]; }
-    const Vector<IntRect>& pageRects() const { return m_pageRects; }
+    const IntRect& pageRect(size_t pageNumber) const LIFETIME_BOUND { return m_pageRects[pageNumber]; }
+    const Vector<IntRect>& pageRects() const LIFETIME_BOUND { return m_pageRects; }
     WEBCORE_EXPORT FloatBoxExtent computedPageMargin(FloatBoxExtent printMargin);
     WEBCORE_EXPORT FloatSize computedPageSize(FloatSize pageSize, FloatBoxExtent printMargin);
 
@@ -76,14 +81,14 @@ public:
 
     // Used by layout tests.
     WEBCORE_EXPORT static int pageNumberForElement(Element*, const FloatSize& pageSizeInPixels); // Returns -1 if page isn't found.
-    WEBCORE_EXPORT static String pageProperty(Frame*, const char* propertyName, int pageNumber);
-    WEBCORE_EXPORT static bool isPageBoxVisible(Frame*, int pageNumber);
-    WEBCORE_EXPORT static String pageSizeAndMarginsInPixels(Frame*, int pageNumber, int width, int height, int marginTop, int marginRight, int marginBottom, int marginLeft);
-    WEBCORE_EXPORT static int numberOfPages(Frame&, const FloatSize& pageSizeInPixels);
+    WEBCORE_EXPORT static String pageProperty(LocalFrame*, const String& propertyName, int pageNumber);
+    WEBCORE_EXPORT static bool isPageBoxVisible(LocalFrame*, int pageNumber);
+    WEBCORE_EXPORT static String pageSizeAndMarginsInPixels(LocalFrame*, int pageNumber, int width, int height, int marginTop, int marginRight, int marginBottom, int marginLeft);
+    WEBCORE_EXPORT static int numberOfPages(LocalFrame&, const FloatSize& pageSizeInPixels);
     // Draw all pages into a graphics context with lines which mean page boundaries.
     // The height of the graphics context should be
     // (pageSizeInPixels.height() + 1) * number-of-pages - 1
-    WEBCORE_EXPORT static void spoolAllPagesWithBoundaries(Frame&, GraphicsContext&, const FloatSize& pageSizeInPixels);
+    WEBCORE_EXPORT static void spoolAllPagesWithBoundaries(LocalFrame&, GraphicsContext&, const FloatSize& pageSizeInPixels);
     
     // By imaging to a width a little wider than the available pixels,
     // thin pages will be scaled down a little, matching the way they
@@ -98,19 +103,18 @@ public:
     // behavior matches MacIE and Mozilla, at least)
     static constexpr float maximumShrinkFactor() { return 2; }
 
-protected:
-    Vector<IntRect> m_pageRects;
-
 private:
+    explicit PrintContext(LocalFrame*);
+
     void computePageRectsWithPageSizeInternal(const FloatSize& pageSizeInPixels, bool allowHorizontalTiling);
-    bool beginAndComputePageRectsWithPageSize(Frame&, const FloatSize& pageSizeInPixels);
+    bool beginAndComputePageRectsWithPageSize(LocalFrame&, const FloatSize& pageSizeInPixels);
     void collectLinkedDestinations(Document&);
     void outputLinkedDestinations(GraphicsContext&, Document&, const IntRect& pageRect);
 
+    Vector<IntRect> m_pageRects;
+    std::unique_ptr<HashMap<String, Ref<Element>>> m_linkedDestinations;
     // Used to prevent misuses of begin() and end() (e.g., call end without begin).
     bool m_isPrinting { false };
-
-    std::unique_ptr<HashMap<String, Ref<Element>>> m_linkedDestinations;
 };
 
 } // namespace WebCore

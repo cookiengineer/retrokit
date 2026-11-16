@@ -28,9 +28,10 @@
 #if ENABLE(APPLE_PAY)
 
 #include "ActiveDOMObject.h"
+#include "ApplePayPaymentAuthorizationResult.h"
 #include "ApplePayPaymentRequest.h"
 #include "EventTarget.h"
-#include "ExceptionOr.h"
+#include "EventTargetInterfaces.h"
 #include "PaymentSession.h"
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
@@ -49,30 +50,34 @@ class Payment;
 class PaymentContact;
 class PaymentCoordinator;
 class PaymentMethod;
-enum class PaymentAuthorizationStatus;
 struct ApplePayCouponCodeUpdate;
 struct ApplePayLineItem;
 struct ApplePayPaymentRequest;
 struct ApplePayShippingMethod;
-struct ApplePayPaymentAuthorizationResult;
 struct ApplePayPaymentMethodUpdate;
 struct ApplePayShippingContactUpdate;
 struct ApplePayShippingMethodUpdate;
+template<typename> class ExceptionOr;
 
-class ApplePaySession final : public PaymentSession, public ActiveDOMObject, public EventTargetWithInlineData {
-    WTF_MAKE_ISO_ALLOCATED(ApplePaySession);
+class ApplePaySession final : public PaymentSession, public ActiveDOMObject, public EventTarget {
+    WTF_MAKE_TZONE_ALLOCATED(ApplePaySession);
 public:
     static ExceptionOr<Ref<ApplePaySession>> create(Document&, unsigned version, ApplePayPaymentRequest&&);
     virtual ~ApplePaySession();
 
-    static const unsigned short STATUS_SUCCESS = 0;
-    static const unsigned short STATUS_FAILURE = 1;
-    static const unsigned short STATUS_INVALID_BILLING_POSTAL_ADDRESS = 2;
-    static const unsigned short STATUS_INVALID_SHIPPING_POSTAL_ADDRESS = 3;
-    static const unsigned short STATUS_INVALID_SHIPPING_CONTACT = 4;
-    static const unsigned short STATUS_PIN_REQUIRED = 5;
-    static const unsigned short STATUS_PIN_INCORRECT = 6;
-    static const unsigned short STATUS_PIN_LOCKOUT = 7;
+    // ContextDestructionObserver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+    USING_CAN_MAKE_WEAKPTR(EventTarget);
+
+    static constexpr auto STATUS_SUCCESS = ApplePayPaymentAuthorizationResult::Success;
+    static constexpr auto STATUS_FAILURE = ApplePayPaymentAuthorizationResult::Failure;
+    static constexpr auto STATUS_INVALID_BILLING_POSTAL_ADDRESS = ApplePayPaymentAuthorizationResult::InvalidBillingPostalAddress;
+    static constexpr auto STATUS_INVALID_SHIPPING_POSTAL_ADDRESS = ApplePayPaymentAuthorizationResult::InvalidShippingPostalAddress;
+    static constexpr auto STATUS_INVALID_SHIPPING_CONTACT = ApplePayPaymentAuthorizationResult::InvalidShippingContact;
+    static constexpr auto STATUS_PIN_REQUIRED = ApplePayPaymentAuthorizationResult::PINRequired;
+    static constexpr auto STATUS_PIN_INCORRECT = ApplePayPaymentAuthorizationResult::PINIncorrect;
+    static constexpr auto STATUS_PIN_LOCKOUT = ApplePayPaymentAuthorizationResult::PINLockout;
 
     static ExceptionOr<bool> supportsVersion(Document&, unsigned version);
     static ExceptionOr<bool> canMakePayments(Document&);
@@ -96,28 +101,24 @@ public:
     ExceptionOr<void> completePaymentMethodSelection(ApplePayLineItem&& newTotal, Vector<ApplePayLineItem>&& newLineItems);
     ExceptionOr<void> completePayment(unsigned short status);
 
-    const ApplePaySessionPaymentRequest& paymentRequest() const { return m_paymentRequest; }
-
-    using PaymentSession::ref;
-    using PaymentSession::deref;
+    const ApplePaySessionPaymentRequest& paymentRequest() const LIFETIME_BOUND { return m_paymentRequest; }
 
 private:
     ApplePaySession(Document&, unsigned version, ApplePaySessionPaymentRequest&&);
 
     // ActiveDOMObject.
-    const char* activeDOMObjectName() const override;
     void stop() override;
     void suspend(ReasonForSuspension) override;
-    bool virtualHasPendingActivity() const final;
+    bool NODELETE virtualHasPendingActivity() const final;
 
-    // EventTargetWithInlineData.
-    EventTargetInterface eventTargetInterface() const override { return ApplePaySessionEventTargetInterfaceType; }
-    ScriptExecutionContext* scriptExecutionContext() const override { return ActiveDOMObject::scriptExecutionContext(); }
+    // EventTarget.
+    enum EventTargetInterfaceType eventTargetInterface() const override { return EventTargetInterfaceType::ApplePaySession; }
+    ScriptExecutionContext* NODELETE scriptExecutionContext() const override;
     void refEventTarget() override { ref(); }
     void derefEventTarget() override { deref(); }
 
     // PaymentSession
-    unsigned version() const override;
+    unsigned version() const override { return m_version; }
     void validateMerchant(URL&&) override;
     void didAuthorizePayment(const Payment&) override;
     void didSelectShippingMethod(const ApplePayShippingMethod&) override;
@@ -128,22 +129,22 @@ private:
 #endif
     void didCancelPaymentSession(PaymentSessionError&&) override;
 
-    PaymentCoordinator& paymentCoordinator() const;
+    PaymentCoordinator& NODELETE paymentCoordinator() const;
 
-    bool canBegin() const;
-    bool canAbort() const;
-    bool canCancel() const;
-    bool canCompleteMerchantValidation() const;
-    bool canCompleteShippingMethodSelection() const;
-    bool canCompleteShippingContactSelection() const;
-    bool canCompletePaymentMethodSelection() const;
+    bool NODELETE canBegin() const;
+    bool NODELETE canAbort() const;
+    bool NODELETE canCancel() const;
+    bool NODELETE canCompleteMerchantValidation() const;
+    bool NODELETE canCompleteShippingMethodSelection() const;
+    bool NODELETE canCompleteShippingContactSelection() const;
+    bool NODELETE canCompletePaymentMethodSelection() const;
 #if ENABLE(APPLE_PAY_COUPON_CODE)
-    bool canCompleteCouponCodeChange() const;
+    bool NODELETE canCompleteCouponCodeChange() const;
 #endif
-    bool canCompletePayment() const;
-    bool canSuspendWithoutCanceling() const;
+    bool NODELETE canCompletePayment() const;
+    bool NODELETE canSuspendWithoutCanceling() const;
 
-    bool isFinalState() const;
+    bool NODELETE isFinalState() const;
 
     enum class State {
         Idle,
@@ -173,6 +174,8 @@ private:
     unsigned m_version;
 };
 
-}
+} // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_EVENTTARGET(ApplePaySession)
 
 #endif

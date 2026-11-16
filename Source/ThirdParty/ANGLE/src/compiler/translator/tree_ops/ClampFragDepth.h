@@ -12,6 +12,7 @@
 #define COMPILER_TRANSLATOR_TREEOPS_CLAMPFRAGDEPTH_H_
 
 #include "common/angleutils.h"
+#include "common/debug.h"
 
 namespace sh
 {
@@ -20,9 +21,9 @@ class TCompiler;
 class TIntermBlock;
 class TSymbolTable;
 
-ANGLE_NO_DISCARD bool ClampFragDepth(TCompiler *compiler,
-                                     TIntermBlock *root,
-                                     TSymbolTable *symbolTable);
+[[nodiscard]] bool ClampFragDepth(TCompiler *compiler,
+                                  TIntermBlock *root,
+                                  TSymbolTable *symbolTable);
 
 }  // namespace sh
 

@@ -26,11 +26,14 @@
 #include "config.h"
 #include "ParserArena.h"
 
-#include "CatchScope.h"
 #include "JSBigInt.h"
 #include "JSCInlines.h"
 #include "Nodes.h"
+#include "TopExceptionScope.h"
 #include "VMTrapsInlines.h"
+#include <wtf/text/MakeString.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
@@ -79,15 +82,21 @@ void ParserArena::allocateFreeablePool()
     ASSERT(freeablePool() == pool);
 }
 
-const Identifier& IdentifierArena::makeBigIntDecimalIdentifier(VM& vm, const Identifier& identifier, uint8_t radix)
+const Identifier* IdentifierArena::makeBigIntDecimalIdentifier(VM& vm, const Identifier& identifier, uint8_t radix)
 {
     if (radix == 10)
-        return identifier;
+        return &identifier;
 
     DeferTermination deferScope(vm);
-    auto scope = DECLARE_CATCH_SCOPE(vm);
+    auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
     JSValue bigInt = JSBigInt::parseInt(nullptr, vm, identifier.string(), radix, JSBigInt::ErrorParseMode::ThrowExceptions, JSBigInt::ParseIntSign::Unsigned);
     scope.assertNoException();
+
+    if (bigInt.isEmpty()) {
+        // Handle out-of-memory or other failures by returning null, since
+        // we don't have a global object to throw exceptions to in this scope.
+        return nullptr;
+    }
 
     // FIXME: We are allocating a JSBigInt just to be able to use
     // JSBigInt::tryGetString when radix is not 10.
@@ -106,15 +115,17 @@ const Identifier& IdentifierArena::makeBigIntDecimalIdentifier(VM& vm, const Ide
         heapBigInt = bigInt.asHeapBigInt();
 
     m_identifiers.append(Identifier::fromString(vm, JSBigInt::tryGetString(vm, heapBigInt, 10)));
-    return m_identifiers.last();
+    return &m_identifiers.last();
 }
 
 const Identifier& IdentifierArena::makePrivateIdentifier(VM& vm, ASCIILiteral prefix, unsigned identifier)
 {
     auto symbolName = makeString(prefix, identifier);
-    auto symbol = vm.privateSymbolRegistry().symbolForKey(symbolName);
+    auto symbol = protect(vm.privateSymbolRegistry())->symbolForKey(symbolName);
     m_identifiers.append(Identifier::fromUid(symbol));
     return m_identifiers.last();
 }
 
 }
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

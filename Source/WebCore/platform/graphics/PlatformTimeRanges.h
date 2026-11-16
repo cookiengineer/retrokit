@@ -23,12 +23,16 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef PlatformTimeRanges_h
-#define PlatformTimeRanges_h
+#pragma once
 
 #include <algorithm>
+#include <wtf/ArgumentCoder.h>
 #include <wtf/MediaTime.h>
+#include <wtf/Platform.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
+
+OBJC_CLASS NSArray;
 
 namespace WTF {
 class PrintStream;
@@ -36,130 +40,132 @@ class PrintStream;
 
 namespace WebCore {
 
-class WEBCORE_EXPORT PlatformTimeRanges {
-    WTF_MAKE_FAST_ALLOCATED;
+enum class AddTimeRangeOption : uint8_t {
+    None,
+    EliminateSmallGaps,
+};
+
+class WEBCORE_EXPORT PlatformTimeRanges final {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(PlatformTimeRanges, WEBCORE_EXPORT);
 public:
-    explicit PlatformTimeRanges() { }
+    PlatformTimeRanges();
     PlatformTimeRanges(const MediaTime& start, const MediaTime& end);
 
-    MediaTime start(unsigned index) const;
+    PlatformTimeRanges copyWithEpsilon(const MediaTime&) const;
+
+    static const PlatformTimeRanges& emptyRanges();
+    static MediaTime NODELETE timeFudgeFactor();
+
+    MediaTime NODELETE start(unsigned index) const;
     MediaTime start(unsigned index, bool& valid) const;
-    MediaTime end(unsigned index) const;
+    MediaTime NODELETE end(unsigned index) const;
     MediaTime end(unsigned index, bool& valid) const;
     MediaTime duration(unsigned index) const;
-    MediaTime maximumBufferedTime() const;
+    MediaTime NODELETE maximumBufferedTime() const;
+    MediaTime NODELETE minimumBufferedTime() const;
 
     void invert();
     void intersectWith(const PlatformTimeRanges&);
     void unionWith(const PlatformTimeRanges&);
+    PlatformTimeRanges& operator+=(const PlatformTimeRanges&);
+    PlatformTimeRanges& operator-=(const PlatformTimeRanges&);
 
     unsigned length() const { return m_ranges.size(); }
 
-    void add(const MediaTime& start, const MediaTime& end);
+    void add(const MediaTime& start, const MediaTime& end, AddTimeRangeOption = AddTimeRangeOption::None);
     void clear();
     
     bool contain(const MediaTime&) const;
+    bool containWithEpsilon(const MediaTime&, const MediaTime& epsilon) const;
+    bool containWithEpsilon(const PlatformTimeRanges&, const MediaTime& epsilon) const;
+    // Variable-epsilon overloads: `epsilonAtTime(t)` is consulted at every
+    // boundary / gap location (rangeMin, rangeMax, and between adjacent
+    // sub-ranges). Used by the MSE gap-skipping policy where the
+    // tolerance varies by stream position.
+    bool containWithEpsilon(const MediaTime&, NOESCAPE const Function<MediaTime(const MediaTime&)>& epsilonAtTime) const;
+    bool containWithEpsilon(const PlatformTimeRanges&, NOESCAPE const Function<MediaTime(const MediaTime&)>& epsilonAtTime) const;
 
     size_t find(const MediaTime&) const;
-    
+    size_t findWithEpsilon(const MediaTime&, const MediaTime& epsilon) const;
+
     MediaTime nearest(const MediaTime&) const;
 
     MediaTime totalDuration() const;
 
-    void dump(WTF::PrintStream&) const;
+    void dump(PrintStream&) const;
+    String toString() const;
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<PlatformTimeRanges> decode(Decoder&);
-
-private:
     // We consider all the Ranges to be semi-bounded as follow: [start, end[
     struct Range {
-        Range() { }
-        Range(const MediaTime& start, const MediaTime& end)
-            : m_start(start)
-            , m_end(end)
+        MediaTime start;
+        MediaTime end;
+
+        inline bool isEmpty() const
         {
-        }
-
-        MediaTime m_start;
-        MediaTime m_end;
-
-        template<class Encoder>
-        void encode(Encoder& encoder) const
-        {
-            encoder << m_start;
-            encoder << m_end;
-        }
-
-        template <class Decoder>
-        static std::optional<Range> decode(Decoder& decoder)
-        {
-            std::optional<MediaTime> start;
-            decoder >> start;
-            if (!start)
-                return std::nullopt;
-
-            std::optional<MediaTime> end;
-            decoder >> end;
-            if (!end)
-                return std::nullopt;
-
-            return {{ WTFMove(*start), WTFMove(*end) }};
+            return start == end;
         }
 
         inline bool isPointInRange(const MediaTime& point) const
         {
-            return m_start <= point && point < m_end;
+            return start <= point && point < end;
         }
         
         inline bool isOverlappingRange(const Range& range) const
         {
-            return isPointInRange(range.m_start) || isPointInRange(range.m_end) || range.isPointInRange(m_start);
+            return isPointInRange(range.start) || isPointInRange(range.end) || range.isPointInRange(start);
         }
 
         inline bool isContiguousWithRange(const Range& range) const
         {
-            return range.m_start == m_end || range.m_end == m_start;
+            return range.start == end || range.end == start;
         }
         
         inline Range unionWithOverlappingOrContiguousRange(const Range& range) const
         {
             Range ret;
 
-            ret.m_start = std::min(m_start, range.m_start);
-            ret.m_end = std::max(m_end, range.m_end);
+            ret.start = std::min(start, range.start);
+            ret.end = std::max(end, range.end);
 
             return ret;
         }
 
         inline bool isBeforeRange(const Range& range) const
         {
-            return range.m_start >= m_end;
+            return range.start >= end;
         }
+
+        friend bool operator==(const Range&, const Range&) = default;
     };
 
+    std::span<const Range> span() const LIFETIME_BOUND { return m_ranges.span(); }
+
+    friend bool operator==(const PlatformTimeRanges&, const PlatformTimeRanges&) = default;
+
+private:
+    friend struct IPC::ArgumentCoder<PlatformTimeRanges>;
+
     PlatformTimeRanges(Vector<Range>&&);
+    PlatformTimeRanges& operator-=(const Range&);
+
+    size_t findLastRangeIndexBefore(const MediaTime& start, const MediaTime& end) const;
 
     Vector<Range> m_ranges;
 };
 
-template<class Encoder>
-void PlatformTimeRanges::encode(Encoder& encoder) const
-{
-    encoder << m_ranges;
-}
+#if PLATFORM(COCOA)
+WEBCORE_EXPORT RetainPtr<NSArray> makeNSArray(const PlatformTimeRanges&);
+#endif
 
-template <class Decoder>
-std::optional<PlatformTimeRanges> PlatformTimeRanges::decode(Decoder& decoder)
-{
-    std::optional<Vector<Range>> buffered;
-    decoder >> buffered;
-    if (!buffered)
-        return std::nullopt;
-
-    return {{ WTFMove(*buffered) }};
-}
+inline String toString(const PlatformTimeRanges& platformTimeRanges) { return platformTimeRanges.toString(); }
 
 } // namespace WebCore
 
-#endif
+namespace WTF {
+template<typename> struct LogArgument;
+
+template<> struct LogArgument<WebCore::PlatformTimeRanges> {
+    static String toString(const WebCore::PlatformTimeRanges& platformTimeRanges) { return platformTimeRanges.toString(); }
+};
+
+} // namespace WTF

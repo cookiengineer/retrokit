@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,25 +24,47 @@
  */
 
 #include "config.h"
-#include "ObjectIdentifier.h"
+#include <wtf/ObjectIdentifier.h>
 
+#include <atomic>
+#include <wtf/MainThread.h>
+#include <wtf/PrintStream.h>
+#include <wtf/text/TextStream.h>
 
 namespace WTF {
 
-uint64_t ObjectIdentifierBase::generateIdentifierInternal()
+uint64_t ObjectIdentifierMainThreadAccessTraits<uint64_t>::generateIdentifierInternal()
 {
-    static uint64_t current;
+    ASSERT(isMainThread()); // You should use AtomicObjectIdentifier if you're hitting this assertion.
+    static uint64_t current = 0;
     return ++current;
 }
 
-uint64_t ObjectIdentifierBase::generateThreadSafeIdentifierInternal()
+void printInternal(PrintStream& out, const ObjectIdentifierGenericBase<uint64_t>& identifier)
 {
-    static LazyNeverDestroyed<std::atomic<uint64_t>> current;
-    static std::once_flag initializeCurrentIdentifier;
-    std::call_once(initializeCurrentIdentifier, [] {
-        current.construct(0);
-    });
-    return ++current.get();
+    out.print(identifier.toRawValue());
+}
+
+uint64_t ObjectIdentifierThreadSafeAccessTraits<uint64_t>::generateIdentifierInternal()
+{
+    static std::atomic<uint64_t> current;
+    return ++current;
+}
+
+UUID ObjectIdentifierMainThreadAccessTraits<UUID>::generateIdentifierInternal()
+{
+    ASSERT(isMainThread()); // You should use AtomicObjectIdentifier if you're hitting this assertion.
+    return UUID::createVersion4();
+}
+
+UUID ObjectIdentifierThreadSafeAccessTraits<UUID>::generateIdentifierInternal()
+{
+    return UUID::createVersion4();
+}
+
+void printInternal(PrintStream& out, const ObjectIdentifierGenericBase<UUID>& identifier)
+{
+    out.print(identifier.toRawValue());
 }
 
 } // namespace WTF

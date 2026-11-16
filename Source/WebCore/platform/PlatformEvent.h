@@ -25,8 +25,9 @@
 
 #pragma once
 
+#include <wtf/MonotonicTime.h>
 #include <wtf/OptionSet.h>
-#include <wtf/WallTime.h>
+#include <wtf/UUID.h>
 
 namespace WebCore {
 
@@ -36,58 +37,64 @@ enum class EventHandling : uint8_t {
     DefaultHandled      = 1 << 2,
 };
 
-class PlatformEvent {
-public:
-    enum Type : uint8_t {
-        NoType = 0,
+enum class PlatformEventType : uint8_t {
+    NoType = 0,
 
-        // PlatformKeyboardEvent
-        KeyDown,
-        KeyUp,
-        RawKeyDown,
-        Char,
+    // PlatformKeyboardEvent
+    KeyDown,
+    KeyUp,
+    RawKeyDown,
+    Char,
 
-        // PlatformMouseEvent
-        MouseMoved,
-        MousePressed,
-        MouseReleased,
-        MouseForceChanged,
-        MouseForceDown,
-        MouseForceUp,
-        MouseScroll,
+    // PlatformMouseEvent
+    MouseMoved,
+    MousePressed,
+    MouseReleased,
+    MouseForceChanged,
+    MouseForceDown,
+    MouseForceUp,
+    MouseScroll,
 
-        // PlatformWheelEvent
-        Wheel,
+    // PlatformWheelEvent
+    Wheel,
 
 #if ENABLE(TOUCH_EVENTS)
-        // PlatformTouchEvent
-        TouchStart,
-        TouchMove,
-        TouchEnd,
-        TouchCancel,
-        TouchForceChange,
+    // PlatformTouchEvent
+    TouchStart,
+    TouchMove,
+    TouchEnd,
+    TouchCancel,
+    TouchForceChange,
 #endif
 
 #if ENABLE(MAC_GESTURE_EVENTS)
-        // PlatformGestureEvent
-        GestureStart,
-        GestureChange,
-        GestureEnd,
+    // PlatformGestureEvent
+    GestureStart,
+    GestureChange,
+    GestureEnd,
 #endif
-    };
+};
 
-    enum class Modifier : uint8_t {
-        AltKey      = 1 << 0,
-        ControlKey  = 1 << 1,
-        MetaKey     = 1 << 2,
-        ShiftKey    = 1 << 3,
-        CapsLockKey = 1 << 4,
+enum class PlatformEventModifier : uint8_t {
+    AltKey      = 1 << 0,
+    ControlKey  = 1 << 1,
+    MetaKey     = 1 << 2,
+    ShiftKey    = 1 << 3,
+    CapsLockKey = 1 << 4,
 
-        // Never used in native platforms but added for initEvent
-        AltGraphKey = 1 << 5,
-    };
+    // Populated from native events on platforms with an AltGraph (AltGr) key
+    // (Windows, GTK/X11); also set for JS-constructed events via initEvent.
+    AltGraphKey = 1 << 5,
+};
 
-    Type type() const { return static_cast<Type>(m_type); }
+
+class PlatformEvent {
+public:
+
+    using Type = PlatformEventType;
+    using Modifier = PlatformEventModifier;
+
+    Type type() const { return m_type; }
 
     bool shiftKey() const { return m_modifiers.contains(Modifier::ShiftKey); }
     bool controlKey() const { return m_modifiers.contains(Modifier::ControlKey); }
@@ -96,11 +103,12 @@ public:
 
     OptionSet<Modifier> modifiers() const { return m_modifiers; }
 
-    WallTime timestamp() const { return m_timestamp; }
+    MonotonicTime timestamp() const { return m_timestamp; }
+    std::optional<WTF::UUID> authorizationToken() const { return m_authorizationToken; };
 
 protected:
     PlatformEvent()
-        : m_type(NoType)
+        : m_type(Type::NoType)
     {
     }
 
@@ -109,14 +117,14 @@ protected:
     {
     }
 
-    PlatformEvent(Type type, OptionSet<Modifier> modifiers, WallTime timestamp)
+    PlatformEvent(Type type, OptionSet<Modifier> modifiers, MonotonicTime timestamp)
         : m_timestamp(timestamp)
         , m_type(type)
         , m_modifiers(modifiers)
     {
     }
 
-    PlatformEvent(Type type, bool shiftKey, bool ctrlKey, bool altKey, bool metaKey, WallTime timestamp)
+    PlatformEvent(Type type, bool shiftKey, bool ctrlKey, bool altKey, bool metaKey, MonotonicTime timestamp)
         : m_timestamp(timestamp)
         , m_type(type)
     {
@@ -134,25 +142,10 @@ protected:
     // delete a PlatformEvent.
     ~PlatformEvent() = default;
 
-    WallTime m_timestamp;
-    unsigned m_type;
+    MonotonicTime m_timestamp;
+    Type m_type;
     OptionSet<Modifier> m_modifiers;
+    std::optional<WTF::UUID> m_authorizationToken;
 };
 
 } // namespace WebCore
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::PlatformEvent::Modifier> {
-    using values = EnumValues<
-        WebCore::PlatformEvent::Modifier,
-        WebCore::PlatformEvent::Modifier::AltKey,
-        WebCore::PlatformEvent::Modifier::ControlKey,
-        WebCore::PlatformEvent::Modifier::MetaKey,
-        WebCore::PlatformEvent::Modifier::ShiftKey,
-        WebCore::PlatformEvent::Modifier::CapsLockKey,
-        WebCore::PlatformEvent::Modifier::AltGraphKey
-    >;
-};
-
-} // namespace WTF

@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2011 Google Inc.  All rights reserved.
- * Copyright (C) 2007, 2008, 2013 Apple Inc.  All rights reserved.
+ * Copyright (C) 2011 Google Inc. All rights reserved.
+ * Copyright (C) 2007, 2008, 2013 Apple Inc. All rights reserved.
  * Copyright (C) 2008 Matt Lilek <webkit@mattlilek.com>
  * Copyright (C) 2009 Joseph Pecoraro
  *
@@ -57,6 +57,15 @@ WI.linkifyAccessibilityNodeReference = function(node)
     return link;
 };
 
+WI.linkifyStyleable = function(styleable)
+{
+    console.assert(styleable instanceof WI.DOMStyleable, styleable);
+    let displayName = styleable.displayName;
+    let link = document.createElement("span");
+    link.append(displayName);
+    return WI.linkifyNodeReferenceElement(styleable.node, link, {displayName});
+};
+
 WI.linkifyNodeReference = function(node, options = {})
 {
     let displayName = node.displayName;
@@ -74,7 +83,7 @@ WI.linkifyNodeReferenceElement = function(node, element, options = {})
     element.title = options.displayName || node.displayName;
 
     let nodeType = node.nodeType();
-    if ((nodeType !== Node.DOCUMENT_NODE || node.parentNode) && nodeType !== Node.TEXT_NODE)
+    if (!options.ignoreClick && (nodeType !== Node.DOCUMENT_NODE || node.parentNode) && nodeType !== Node.TEXT_NODE)
         element.classList.add("node-link");
 
     WI.bindInteractionsForNodeToElement(node, element, options);
@@ -356,7 +365,7 @@ WI.xpathIndex = function(node)
     //   - look for a unique localName
     //   - fallback to index
 
-    function isSimiliarNode(a, b) {
+    function isSimilarNode(a, b) {
         if (a === b)
             return true;
 
@@ -380,7 +389,7 @@ WI.xpathIndex = function(node)
 
     let xPathIndexCounter = 1; // XPath indices start at 1.
     for (let sibling of siblings) {
-        if (!isSimiliarNode(node, sibling))
+        if (!isSimilarNode(node, sibling))
             continue;
 
         if (node === sibling) {

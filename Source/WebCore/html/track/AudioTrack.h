@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2011 Google Inc. All rights reserved.
- * Copyright (C) 2011-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,73 +28,79 @@
 
 #if ENABLE(VIDEO)
 
-#include "AudioTrackPrivate.h"
-#include "TrackBase.h"
+#include <WebCore/AudioTrackPrivateClient.h>
+#include <WebCore/TrackBase.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakHashSet.h>
 
 namespace WebCore {
 
-class AudioTrack;
-
-class AudioTrackClient {
-public:
-    virtual ~AudioTrackClient() = default;
-    virtual void audioTrackEnabledChanged(AudioTrack&) = 0;
-};
+class AudioTrackClient;
+class AudioTrackConfiguration;
 
 class AudioTrack final : public MediaTrackBase, private AudioTrackPrivateClient {
+    WTF_MAKE_TZONE_ALLOCATED(AudioTrack);
 public:
-    static Ref<AudioTrack> create(AudioTrackClient& client, AudioTrackPrivate& trackPrivate)
+    static Ref<AudioTrack> create(ScriptExecutionContext* context, AudioTrackPrivate& trackPrivate)
     {
-        return adoptRef(*new AudioTrack(client, trackPrivate));
+        return adoptRef(*new AudioTrack(context, trackPrivate));
     }
-    virtual ~AudioTrack();
+    WEBCORE_EXPORT virtual ~AudioTrack();
 
-    static const AtomString& alternativeKeyword();
+    // AudioTrackPrivateClient.
+    void ref() const final { MediaTrackBase::ref(); }
+    void deref() const final { MediaTrackBase::deref(); }
+
     static const AtomString& descriptionKeyword();
-    static const AtomString& mainKeyword();
     static const AtomString& mainDescKeyword();
     static const AtomString& translationKeyword();
-    static const AtomString& commentaryKeyword();
 
     bool enabled() const final { return m_enabled; }
     void setEnabled(const bool);
 
-    void clearClient() final { m_client = nullptr; }
-    AudioTrackClient* client() const { return m_client; }
+    void addClient(AudioTrackClient&);
+    void clearClient(AudioTrackClient&);
 
     size_t inbandTrackIndex() const;
 
     const AudioTrackPrivate& privateTrack() const { return m_private; }
     void setPrivate(AudioTrackPrivate&);
 
-    void setMediaElement(WeakPtr<HTMLMediaElement>) override;
+    void setLanguage(const AtomString&) final;
+
+    AudioTrackConfiguration& configuration() const { return m_configuration; }
+
 #if !RELEASE_LOG_DISABLED
-    void setLogger(const Logger&, const void*) final;
+    void setLogger(const Logger&, uint64_t) final;
 #endif
 
 private:
-    AudioTrack(AudioTrackClient&, AudioTrackPrivate&);
+    AudioTrack(ScriptExecutionContext*, AudioTrackPrivate&);
 
     bool isValidKind(const AtomString&) const final;
 
     // AudioTrackPrivateClient
     void enabledChanged(bool) final;
+    void configurationChanged(const PlatformAudioTrackConfiguration&) final;
 
     // TrackPrivateBaseClient
-    void idChanged(const AtomString&) final;
-    void labelChanged(const AtomString&) final;
-    void languageChanged(const AtomString&) final;
+    void idChanged(TrackID) final;
+    void labelChanged(const String&) final;
+    void languageChanged(const String&) final;
     void willRemove() final;
 
     void updateKindFromPrivate();
+    void updateConfigurationFromPrivate();
 
 #if !RELEASE_LOG_DISABLED
-    const char* logClassName() const final { return "AudioTrack"; }
+    ASCIILiteral logClassName() const final { return "AudioTrack"_s; }
 #endif
 
-    AudioTrackClient* m_client { nullptr };
+    WeakHashSet<AudioTrackClient> m_clients;
     Ref<AudioTrackPrivate> m_private;
     bool m_enabled { false };
+
+    const Ref<AudioTrackConfiguration> m_configuration;
 };
 
 } // namespace WebCore

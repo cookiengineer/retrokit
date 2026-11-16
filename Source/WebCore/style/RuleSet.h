@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
- * Copyright (C) 2003-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2023 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -21,29 +21,45 @@
 
 #pragma once
 
-#include "MediaList.h"
+#include "CSSSelectorList.h"
+#include "MediaQuery.h"
 #include "RuleData.h"
 #include "RuleFeature.h"
 #include "SelectorCompiler.h"
 #include "StyleRule.h"
 #include <wtf/Forward.h>
 #include <wtf/HashMap.h>
-#include <wtf/VectorHash.h>
+#include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/text/AtomString.h>
 #include <wtf/text/AtomStringHash.h>
 
 namespace WebCore {
 
 class CSSSelector;
-class MediaQueryEvaluator;
 class StyleSheetContents;
+class StyleRuleFunction;
+class StyleRulePositionTry;
+class StyleRuleViewTransition;
+
+namespace MQ {
+class MediaQueryEvaluator;
+}
 
 namespace Style {
 
 class Resolver;
 class RuleSet;
 
-using InvalidationRuleSetVector = Vector<RefPtr<const RuleSet>, 1>;
+using CascadeLayerPriority = uint16_t;
+
+struct RuleSetAndNegation {
+    RefPtr<const RuleSet> ruleSet;
+    IsNegation isNegation { IsNegation::No };
+    // Selector for the :has() scope element, used to bound invalidation traversal.
+    // Null means scope-breaking (no scope element can be identified).
+    RefPtr<const RefCountedCSSSelectorList> scopeSelector { };
+};
+using InvalidationRuleSetVector = Vector<RuleSetAndNegation, 1>;
 
 struct DynamicMediaQueryEvaluationChanges {
     enum class Type { InvalidateStyle, ResetStyle };
@@ -56,11 +72,11 @@ struct DynamicMediaQueryEvaluationChanges {
         if (type == Type::ResetStyle)
             invalidationRuleSets.clear();
         else
-            invalidationRuleSets.appendVector(WTFMove(other.invalidationRuleSets));
+            invalidationRuleSets.appendVector(WTF::move(other.invalidationRuleSets));
     };
 };
 
-class RuleSet : public RefCounted<RuleSet> {
+class RuleSet : public ThreadSafeRefCounted<RuleSet> {
     WTF_MAKE_NONCOPYABLE(RuleSet);
 public:
     static Ref<RuleSet> create() { return adoptRef(*new RuleSet); }
@@ -70,134 +86,141 @@ public:
     typedef Vector<RuleData, 1> RuleDataVector;
     typedef HashMap<AtomString, std::unique_ptr<RuleDataVector>> AtomRuleMap;
 
-    struct DynamicMediaQueryRules {
-        Vector<Ref<const MediaQuerySet>> mediaQuerySets;
-        Vector<size_t> affectedRulePositions;
-        RuleFeatureVector ruleFeatures;
-        bool requiresFullReset { false };
-        bool result { true };
-
-        void shrinkToFit()
-        {
-            mediaQuerySets.shrinkToFit();
-            affectedRulePositions.shrinkToFit();
-            ruleFeatures.shrinkToFit();
-        }
-    };
-
-    struct MediaQueryCollector {
-        ~MediaQueryCollector();
-
-        const MediaQueryEvaluator& evaluator;
-        const bool collectDynamic { false };
-
-        struct DynamicContext {
-            Ref<const MediaQuerySet> set;
-            Vector<size_t> affectedRulePositions { };
-            RuleFeatureVector ruleFeatures { };
-        };
-        Vector<DynamicContext> dynamicContextStack { };
-
-        Vector<DynamicMediaQueryRules> dynamicMediaQueryRules { };
-        bool didMutateResolverWithinDynamicMediaQuery { false };
-        bool hasViewportDependentMediaQueries { false };
-
-        bool pushAndEvaluate(const MediaQuerySet*);
-        void pop(const MediaQuerySet*);
-        void didMutateResolver();
-        void addRuleIfNeeded(const RuleData&);
-    };
-
-    void addRulesFromSheet(const StyleSheetContents&, const MediaQueryEvaluator&);
-    void addRulesFromSheet(const StyleSheetContents&, const MediaQuerySet* sheetQuery, const MediaQueryEvaluator&, Style::Resolver&);
-
-    void addRule(const StyleRule&, unsigned selectorIndex, unsigned selectorListIndex, unsigned cascadeLayerOrder = 0, MediaQueryCollector* = nullptr);
+    void addRule(const StyleRule&, unsigned selectorIndex, unsigned selectorListIndex);
     void addPageRule(StyleRulePage&);
+    void NODELETE setViewTransitionRule(StyleRuleViewTransition&);
+    RefPtr<StyleRuleViewTransition> NODELETE viewTransitionRule() const;
 
     void addToRuleSet(const AtomString& key, AtomRuleMap&, const RuleData&);
     void shrinkToFit();
-    void disableAutoShrinkToFit() { m_autoShrinkToFitEnabled = false; }
 
     bool hasViewportDependentMediaQueries() const { return m_hasViewportDependentMediaQueries; }
 
-    std::optional<DynamicMediaQueryEvaluationChanges> evaluateDynamicMediaQueryRules(const MediaQueryEvaluator&);
+    std::optional<DynamicMediaQueryEvaluationChanges> evaluateDynamicMediaQueryRules(const MQ::MediaQueryEvaluator&);
 
-    const RuleFeatureSet& features() const { return m_features; }
+    const RuleFeatureSet& features() const LIFETIME_BOUND { return m_features; }
 
-    const RuleDataVector* idRules(const AtomString& key) const { return m_idRules.get(key); }
-    const RuleDataVector* classRules(const AtomString& key) const { return m_classRules.get(key); }
-    const RuleDataVector* tagRules(const AtomString& key, bool isHTMLName) const;
-    const RuleDataVector* shadowPseudoElementRules(const AtomString& key) const { return m_shadowPseudoElementRules.get(key); }
-    const RuleDataVector* linkPseudoClassRules() const { return &m_linkPseudoClassRules; }
+    const RuleDataVector* idRules(const AtomString& key) const LIFETIME_BOUND { return m_idRules.get(key); }
+    const RuleDataVector* classRules(const AtomString& key) const LIFETIME_BOUND { return m_classRules.get(key); }
+    const RuleDataVector* attributeRules(const AtomString& key, bool isHTMLName) const LIFETIME_BOUND;
+    const RuleDataVector* tagRules(const AtomString& key, bool isHTMLName) const LIFETIME_BOUND;
+    const RuleDataVector* userAgentPartRules(const AtomString& key) const LIFETIME_BOUND { return m_userAgentPartRules.get(key); }
+    const RuleDataVector& linkPseudoClassRules() const LIFETIME_BOUND { return m_linkPseudoClassRules; }
+    const RuleDataVector* namedPseudoElementRules(const AtomString& key) const LIFETIME_BOUND { return m_namedPseudoElementRules.get(key); }
 #if ENABLE(VIDEO)
-    const RuleDataVector& cuePseudoRules() const { return m_cuePseudoRules; }
+    const RuleDataVector& cuePseudoRules() const LIFETIME_BOUND { return m_cuePseudoRules; }
 #endif
-    const RuleDataVector& hostPseudoClassRules() const { return m_hostPseudoClassRules; }
-    const RuleDataVector& slottedPseudoElementRules() const { return m_slottedPseudoElementRules; }
-    const RuleDataVector& partPseudoElementRules() const { return m_partPseudoElementRules; }
-    const RuleDataVector* focusPseudoClassRules() const { return &m_focusPseudoClassRules; }
-    const RuleDataVector* universalRules() const { return &m_universalRules; }
+    const RuleDataVector& hostPseudoClassRules() const LIFETIME_BOUND { return m_hostPseudoClassRules; }
+    const RuleDataVector& slottedPseudoElementRules() const LIFETIME_BOUND { return m_slottedPseudoElementRules; }
+    const RuleDataVector& partPseudoElementRules() const LIFETIME_BOUND { return m_partPseudoElementRules; }
+    const RuleDataVector& focusPseudoClassRules() const LIFETIME_BOUND { return m_focusPseudoClassRules; }
+    const RuleDataVector& focusVisiblePseudoClassRules() const LIFETIME_BOUND { return m_focusVisiblePseudoClassRules; }
+    const RuleDataVector& fullscreenPseudoClassRules() const LIFETIME_BOUND { return m_fullscreenPseudoClassRules; }
+    const RuleDataVector& rootElementRules() const LIFETIME_BOUND { return m_rootElementRules; }
+    const RuleDataVector& universalRules() const LIFETIME_BOUND { return m_universalRules; }
+    // For pseudo-element rules that apply to all elements or all HTML elements like "::marker".
+    const RuleDataVector& universalPseudoElementRules() const LIFETIME_BOUND { return m_universalPseudoElementRules; }
+    // Pseudo element types applying to all elements in HTML namespace.
+    EnumSet<PseudoElementType> universalHTMLPseudoElementTypes() const { return m_universalHTMLPseudoElementTypes; }
+    // Pseudo element types applying to all elements.
+    EnumSet<PseudoElementType> universalPseudoElementTypes() const { return m_universalPseudoElementTypes; }
 
-    const Vector<StyleRulePage*>& pageRules() const { return m_pageRules; }
+    const Vector<StyleRulePage*>& pageRules() const LIFETIME_BOUND { return m_pageRules; }
 
     unsigned ruleCount() const { return m_ruleCount; }
 
-    bool hasShadowPseudoElementRules() const { return !m_shadowPseudoElementRules.isEmpty(); }
+    bool hasAttributeRules() const { return !m_attributeLocalNameRules.isEmpty(); }
+    bool hasUserAgentPartRules() const { return !m_userAgentPartRules.isEmpty(); }
     bool hasHostPseudoClassRulesMatchingInShadowTree() const { return m_hasHostPseudoClassRulesMatchingInShadowTree; }
+    bool hasHostOrScopePseudoClassRulesInUniversalBucket() const { return m_hasHostOrScopePseudoClassRulesInUniversalBucket; }
 
-    unsigned cascadeLayerOrderFor(const RuleData&) const;
+    static constexpr auto cascadeLayerPriorityForPresentationalHints = std::numeric_limits<CascadeLayerPriority>::min();
+    static constexpr auto cascadeLayerPriorityForUnlayered = std::numeric_limits<CascadeLayerPriority>::max();
+
+    CascadeLayerPriority cascadeLayerPriorityFor(const RuleData&) const;
+
+    bool hasContainerQueries() const { return !m_containerQueries.isEmpty(); }
+    Vector<Ref<const StyleRuleContainer>> containerQueriesFor(const RuleData&) const;
+    Vector<Ref<const StyleRuleContainer>> containerQueryRules() const;
+
+    bool hasScopeRules() const { return !m_scopeRules.isEmpty(); }
+    Vector<Ref<const StyleRuleScope>> scopeRulesFor(const RuleData&) const;
+
+    const RefPtr<const StyleRulePositionTry> NODELETE positionTryRuleForName(const AtomString&) const;
+
+    WTF::String selectorsForDebugging() const;
 
 private:
+    friend class RuleSetBuilder;
+
     RuleSet();
 
     using CascadeLayerIdentifier = unsigned;
+    using ContainerQueryIdentifier = unsigned;
+    using ScopeRuleIdentifier = unsigned;
 
-    struct Builder {
-        enum class Mode { Normal, ResolverMutationScan };
+    void addRule(RuleData&&, CascadeLayerIdentifier, ContainerQueryIdentifier, ScopeRuleIdentifier, RuleFeatureSet::CollectionContext*);
+    void addRuleToBucket(RuleData&);
 
-        Ref<RuleSet> ruleSet;
-        MediaQueryCollector mediaQueryCollector;
-        Style::Resolver* resolver { nullptr };
-        Mode mode { Mode::Normal };
-        CascadeLayerName resolvedCascadeLayerName { };
-        HashMap<CascadeLayerName, CascadeLayerIdentifier> cascadeLayerIdentifierMap { };
-        CascadeLayerIdentifier currentCascadeLayerIdentifier { 0 };
-
-        void addRulesFromSheet(const StyleSheetContents&);
-
-        ~Builder();
-        
-    private:
-        void addChildRules(const Vector<RefPtr<StyleRuleBase>>&);
-        void addStyleRule(const StyleRule&);
-
-        void pushCascadeLayer(const CascadeLayerName&);
-        void popCascadeLayer(const CascadeLayerName&);
-        void updateCascadeLayerOrder();
+    struct ResolverMutatingRule {
+        Ref<StyleRuleBase> rule;
+        CascadeLayerIdentifier layerIdentifier;
     };
 
     struct CollectedMediaQueryChanges {
         bool requiredFullReset { false };
         Vector<size_t> changedQueryIndexes { };
-        Vector<RuleFeatureVector*> ruleFeatures { };
+        Vector<Vector<Ref<const StyleRule>>*> affectedRules { };
     };
-    CollectedMediaQueryChanges evaluateDynamicMediaQueryRules(const MediaQueryEvaluator&, size_t startIndex);
+    CollectedMediaQueryChanges evaluateDynamicMediaQueryRules(const MQ::MediaQueryEvaluator&, size_t startIndex);
 
     template<typename Function> void traverseRuleDatas(Function&&);
+    template<typename Function> void traverseRuleDatas(Function&&) const;
 
     struct CascadeLayer {
         CascadeLayerName resolvedName;
         CascadeLayerIdentifier parentIdentifier;
-        unsigned order { 0 };
+        CascadeLayerPriority priority { 0 };
     };
-    CascadeLayer& cascadeLayerForIdentifier(CascadeLayerIdentifier identifier) { return m_cascadeLayers[identifier - 1]; }
-    const CascadeLayer& cascadeLayerForIdentifier(CascadeLayerIdentifier identifier) const { return m_cascadeLayers[identifier - 1]; }
+    CascadeLayer& cascadeLayerForIdentifier(CascadeLayerIdentifier identifier) LIFETIME_BOUND { return m_cascadeLayers[identifier - 1]; }
+    const CascadeLayer& cascadeLayerForIdentifier(CascadeLayerIdentifier identifier) const LIFETIME_BOUND { return m_cascadeLayers[identifier - 1]; }
+    CascadeLayerPriority cascadeLayerPriorityForIdentifier(CascadeLayerIdentifier) const;
+
+    struct ScopeAndParent {
+        Ref<const StyleRuleScope> scopeRule;
+        ScopeRuleIdentifier parent;
+    };
+
+    struct ContainerQueryAndParent {
+        Ref<const StyleRuleContainer> containerRule;
+        ContainerQueryIdentifier parent;
+    };
+    const ContainerQueryAndParent& containerQueryForIdentifier(ContainerQueryIdentifier identifier) const LIFETIME_BOUND { return m_containerQueries[identifier - 1]; }
+    Vector<Ref<const StyleRuleContainer>> containerQueryChainFor(ContainerQueryIdentifier) const;
+
+    struct DynamicMediaQueryRules {
+        Vector<MQ::MediaQueryList> mediaQueries;
+        Vector<size_t> affectedRulePositions;
+        Vector<Ref<const StyleRule>> affectedRules;
+        bool requiresFullReset { false };
+        bool result { true };
+
+        void shrinkToFit()
+        {
+            mediaQueries.shrinkToFit();
+            affectedRulePositions.shrinkToFit();
+            affectedRules.shrinkToFit();
+        }
+    };
 
     AtomRuleMap m_idRules;
     AtomRuleMap m_classRules;
+    AtomRuleMap m_attributeLocalNameRules;
+    AtomRuleMap m_attributeLowercaseLocalNameRules;
     AtomRuleMap m_tagLocalNameRules;
     AtomRuleMap m_tagLowercaseLocalNameRules;
-    AtomRuleMap m_shadowPseudoElementRules;
+    AtomRuleMap m_userAgentPartRules;
+    AtomRuleMap m_namedPseudoElementRules;
     RuleDataVector m_linkPseudoClassRules;
 #if ENABLE(VIDEO)
     RuleDataVector m_cuePseudoRules;
@@ -206,8 +229,15 @@ private:
     RuleDataVector m_slottedPseudoElementRules;
     RuleDataVector m_partPseudoElementRules;
     RuleDataVector m_focusPseudoClassRules;
+    RuleDataVector m_focusVisiblePseudoClassRules;
+    RuleDataVector m_fullscreenPseudoClassRules;
+    RuleDataVector m_rootElementRules;
     RuleDataVector m_universalRules;
+    RuleDataVector m_universalPseudoElementRules;
+    EnumSet<PseudoElementType> m_universalHTMLPseudoElementTypes;
+    EnumSet<PseudoElementType> m_universalPseudoElementTypes;
     Vector<StyleRulePage*> m_pageRules;
+    RefPtr<StyleRuleViewTransition> m_viewTransitionRule;
     RuleFeatureSet m_features;
     Vector<DynamicMediaQueryRules> m_dynamicMediaQueryRules;
     HashMap<Vector<size_t>, Ref<const RuleSet>> m_mediaQueryInvalidationRuleSetCache;
@@ -217,29 +247,70 @@ private:
     // This is a side vector to hold layer identifiers without bloating RuleData.
     Vector<CascadeLayerIdentifier> m_cascadeLayerIdentifierForRulePosition;
 
+    Vector<ResolverMutatingRule> m_resolverMutatingRulesInLayers;
+
+    Vector<ContainerQueryAndParent> m_containerQueries;
+    Vector<ContainerQueryIdentifier> m_containerQueryIdentifierForRulePosition;
+
+    // @scope
+    Vector<ScopeAndParent> m_scopeRules;
+    Vector<ScopeRuleIdentifier> m_scopeRuleIdentifierForRulePosition;
+
+    // @position-try
+    HashMap<AtomString, Ref<const StyleRulePositionTry>> m_positionTryRules;
+
     bool m_hasHostPseudoClassRulesMatchingInShadowTree { false };
-    bool m_autoShrinkToFitEnabled { true };
     bool m_hasViewportDependentMediaQueries { false };
+    bool m_hasHostOrScopePseudoClassRulesInUniversalBucket { false };
+
+    // For checking against re-entrancy.
+    bool m_isBuilding { false };
 };
+
+inline const RuleSet::RuleDataVector* RuleSet::attributeRules(const AtomString& key, bool isHTMLName) const
+{
+    auto& rules = isHTMLName ? m_attributeLowercaseLocalNameRules : m_attributeLocalNameRules;
+    return rules.get(key);
+}
 
 inline const RuleSet::RuleDataVector* RuleSet::tagRules(const AtomString& key, bool isHTMLName) const
 {
-    const AtomRuleMap* tagRules;
-    if (isHTMLName)
-        tagRules = &m_tagLowercaseLocalNameRules;
-    else
-        tagRules = &m_tagLocalNameRules;
-    return tagRules->get(key);
+    auto& rules = isHTMLName ? m_tagLowercaseLocalNameRules : m_tagLocalNameRules;
+    return rules.get(key);
 }
 
-inline unsigned RuleSet::cascadeLayerOrderFor(const RuleData& ruleData) const
+inline CascadeLayerPriority RuleSet::cascadeLayerPriorityForIdentifier(CascadeLayerIdentifier identifier) const
+{
+    if (!identifier)
+        return cascadeLayerPriorityForUnlayered;
+    return cascadeLayerForIdentifier(identifier).priority;
+}
+
+inline CascadeLayerPriority RuleSet::cascadeLayerPriorityFor(const RuleData& ruleData) const
 {
     if (m_cascadeLayerIdentifierForRulePosition.size() <= ruleData.position())
-        return 0;
+        return cascadeLayerPriorityForUnlayered;
     auto identifier = m_cascadeLayerIdentifierForRulePosition[ruleData.position()];
-    if (!identifier)
-        return 0;
-    return cascadeLayerForIdentifier(identifier).order;
+    return cascadeLayerPriorityForIdentifier(identifier);
+}
+
+inline Vector<Ref<const StyleRuleContainer>> RuleSet::containerQueryChainFor(ContainerQueryIdentifier identifier) const
+{
+    Vector<Ref<const StyleRuleContainer>> chain;
+    while (identifier) {
+        auto& query = containerQueryForIdentifier(identifier);
+        chain.append(query.containerRule);
+        identifier = query.parent;
+    }
+    return chain;
+}
+
+inline Vector<Ref<const StyleRuleContainer>> RuleSet::containerQueriesFor(const RuleData& ruleData) const
+{
+    if (m_containerQueryIdentifierForRulePosition.size() <= ruleData.position())
+        return { };
+
+    return containerQueryChainFor(m_containerQueryIdentifierForRulePosition[ruleData.position()]);
 }
 
 } // namespace Style

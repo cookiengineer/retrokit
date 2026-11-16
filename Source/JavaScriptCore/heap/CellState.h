@@ -25,8 +25,6 @@
 
 #pragma once
 
-#include <wtf/Assertions.h>
-
 namespace JSC {
 
 // The CellState of a cell is a kind of hint about what the state of the cell is.

@@ -35,25 +35,21 @@ namespace WebKit {
 
 class WebCompiledContentRuleList final : public WebCore::ContentExtensions::CompiledContentExtension {
 public:
-    static Ref<WebCompiledContentRuleList> create(WebCompiledContentRuleListData&&);
+    static RefPtr<WebCompiledContentRuleList> create(WebCompiledContentRuleListData&&);
     virtual ~WebCompiledContentRuleList();
 
-    const WebCompiledContentRuleListData& data() const { return m_data; }
+    const WebCompiledContentRuleListData& data() const LIFETIME_BOUND { return m_data; }
 
 private:
     WebCompiledContentRuleList(WebCompiledContentRuleListData&&);
 
-    const WebCore::ContentExtensions::DFABytecode* filtersWithoutConditionsBytecode() const final;
-    unsigned filtersWithoutConditionsBytecodeLength() const final;
-    const WebCore::ContentExtensions::DFABytecode* filtersWithConditionsBytecode() const final;
-    unsigned filtersWithConditionsBytecodeLength() const final;
-    const WebCore::ContentExtensions::DFABytecode* topURLFiltersBytecode() const final;
-    unsigned topURLFiltersBytecodeLength() const final;
-    bool conditionsApplyOnlyToDomain() const final;
+    std::span<const uint8_t> urlFiltersBytecode() const final;
+    std::span<const uint8_t> topURLFiltersBytecode() const final;
+    std::span<const uint8_t> frameURLFiltersBytecode() const final;
+    std::span<const uint8_t> serializedActions() const final;
     
-    const WebCore::ContentExtensions::SerializedActionByte* actions() const final;
-    unsigned actionsLength() const final;
-    
+    std::span<const uint8_t> NODELETE spanWithOffsetAndLength(size_t, size_t) const;
+
     WebCompiledContentRuleListData m_data;
 };
 

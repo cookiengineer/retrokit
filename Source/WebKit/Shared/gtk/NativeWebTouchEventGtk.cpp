@@ -28,24 +28,37 @@
 
 #if ENABLE(TOUCH_EVENTS)
 
-#include <WebCore/GtkVersioning.h>
+#include "GtkVersioning.h"
 #include "WebEventFactory.h"
-#include <gdk/gdk.h>
+#include <wtf/MonotonicTime.h>
 
 namespace WebKit {
 
+#if USE(GTK4)
+#define constructNativeEvent(event) event
+#else
+#define constructNativeEvent(event) gdk_event_copy(event)
+#endif
+
 NativeWebTouchEvent::NativeWebTouchEvent(GdkEvent* event, Vector<WebPlatformTouchPoint>&& touchPoints)
-    : WebTouchEvent(WebEventFactory::createWebTouchEvent(event, WTFMove(touchPoints)))
-    , m_nativeEvent(gdk_event_copy(event))
+    : WebTouchEvent(WebEventFactory::createWebTouchEvent(event, WTF::move(touchPoints)))
+    , m_nativeEvent(constructNativeEvent(event))
+{
+}
+
+NativeWebTouchEvent::NativeWebTouchEvent(WebEventType type, OptionSet<WebEventModifier> modifiers, Vector<WebPlatformTouchPoint>&& touchPoints)
+    : WebTouchEvent({ type, modifiers, MonotonicTime::now() }, WTF::move(touchPoints), { }, { })
 {
 }
 
 NativeWebTouchEvent::NativeWebTouchEvent(const NativeWebTouchEvent& event)
-    : WebTouchEvent(WebEventFactory::createWebTouchEvent(event.nativeEvent(), Vector<WebPlatformTouchPoint>(event.touchPoints())))
-    , m_nativeEvent(gdk_event_copy(const_cast<GdkEvent*>(event.nativeEvent())))
+    : WebTouchEvent(event)
+    , m_nativeEvent(constructNativeEvent(const_cast<GdkEvent*>(event.nativeEvent())))
 {
 }
 
 } // namespace WebKit
+
+#undef constructNativeEvent
 
 #endif // ENABLE(TOUCH_EVENTS)

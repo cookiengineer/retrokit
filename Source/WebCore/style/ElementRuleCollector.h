@@ -21,7 +21,10 @@
 
 #pragma once
 
+#include "MatchResult.h"
 #include "MediaQueryEvaluator.h"
+#include "PropertyAllowlist.h"
+#include "PseudoElementRequest.h"
 #include "RuleSet.h"
 #include "SelectorChecker.h"
 #include "StyleScopeOrdinal.h"
@@ -29,71 +32,25 @@
 #include <wtf/RefPtr.h>
 #include <wtf/Vector.h>
 
-namespace WebCore {
+namespace WebCore::Style {
 
-class SelectorFilter;
-
-namespace Style {
-
-class MatchRequest;
 class ScopeRuleSets;
-
-class PseudoElementRequest {
-public:
-    PseudoElementRequest(PseudoId pseudoId, std::optional<StyleScrollbarState> scrollbarState = std::nullopt)
-        : pseudoId(pseudoId)
-        , scrollbarState(scrollbarState)
-    {
-    }
-
-    PseudoElementRequest(PseudoId pseudoId, const AtomString& highlightName)
-        : pseudoId(pseudoId)
-        , highlightName(highlightName)
-    {
-        ASSERT(pseudoId == PseudoId::Highlight);
-    }
-
-    PseudoId pseudoId;
-    std::optional<StyleScrollbarState> scrollbarState;
-    AtomString highlightName;
-};
+struct MatchRequest;
+struct SelectorMatchingState;
+enum class DeclarationOrigin : uint8_t;
 
 struct MatchedRule {
-    const RuleData* ruleData;
-    unsigned specificity;
+    const RuleData* ruleData { nullptr };
+    unsigned specificity { 0 };
+    unsigned scopingRootDistance { 0 };
     ScopeOrdinal styleScopeOrdinal;
-    unsigned cascadeLayerOrder;
-};
-
-struct MatchedProperties {
-    RefPtr<const StyleProperties> properties;
-    uint16_t linkMatchType { SelectorChecker::MatchAll };
-    uint16_t allowlistType { PropertyAllowlistNone };
-    ScopeOrdinal styleScopeOrdinal { ScopeOrdinal::Element };
-};
-
-struct MatchResult {
-    bool isCacheable { true };
-    Vector<MatchedProperties> userAgentDeclarations;
-    Vector<MatchedProperties> userDeclarations;
-    Vector<MatchedProperties> authorDeclarations;
-
-    bool operator==(const MatchResult& other) const
-    {
-        return isCacheable == other.isCacheable
-            && userAgentDeclarations == other.userAgentDeclarations
-            && userDeclarations == other.userDeclarations
-            && authorDeclarations == other.authorDeclarations;
-    }
-    bool operator!=(const MatchResult& other) const { return !(*this == other); }
-
-    bool isEmpty() const { return userAgentDeclarations.isEmpty() && userDeclarations.isEmpty() && authorDeclarations.isEmpty(); }
+    CascadeLayerPriority cascadeLayerPriority;
 };
 
 class ElementRuleCollector {
 public:
-    ElementRuleCollector(const Element&, const ScopeRuleSets&, const SelectorFilter*);
-    ElementRuleCollector(const Element&, const RuleSet& authorStyle, const SelectorFilter*);
+    ElementRuleCollector(const Element&, const ScopeRuleSets&, SelectorMatchingState*, SelectorChecker::Mode = SelectorChecker::Mode::ResolvingStyle);
+    ElementRuleCollector(const Element&, const RuleSet& authorStyle, SelectorMatchingState*, SelectorChecker::Mode = SelectorChecker::Mode::ResolvingStyle);
 
     void setIncludeEmptyRules(bool value) { m_shouldIncludeEmptyRules = value; }
 
@@ -104,50 +61,60 @@ public:
 
     bool matchesAnyAuthorRules();
 
-    void setMode(SelectorChecker::Mode mode) { m_mode = mode; }
-    void setPseudoElementRequest(const PseudoElementRequest& request) { m_pseudoElementRequest = request; }
-    void setMedium(const MediaQueryEvaluator* medium) { m_isPrintStyle = medium->mediaTypeMatchSpecific("print"); }
+    void setPseudoElementRequest(const std::optional<PseudoElementRequest>& request) { m_pseudoElementRequest = request; }
+    void setMedium(const MQ::MediaQueryEvaluator& medium) { m_isPrintStyle = medium.isPrintMedia(); }
 
-    bool hasAnyMatchingRules(const RuleSet*);
 
-    const MatchResult& matchResult() const;
-    const Vector<RefPtr<const StyleRule>>& matchedRuleList() const;
+    const MatchResult& NODELETE matchResult() const;
+    Ref<MatchResult> NODELETE releaseMatchResult();
+
+    const Vector<Ref<const StyleRule>>& NODELETE matchedRuleList() const;
 
     void clearMatchedRules();
 
-    const PseudoIdSet& matchedPseudoElementIds() const { return m_matchedPseudoElementIds; }
-    const Relations& styleRelations() const { return m_styleRelations; }
-    bool didMatchUncommonAttributeSelector() const { return m_didMatchUncommonAttributeSelector; }
+    EnumSet<PseudoElementType> matchedPseudoElements() const { return m_matchedPseudoElements; }
+    const Relations& styleRelations() const LIFETIME_BOUND { return m_styleRelations; }
+
+    void addAuthorKeyframeRules(const StyleRuleKeyframe&);
 
 private:
-    void addElementStyleProperties(const StyleProperties*, bool isCacheable = true);
+    void addElementStyleProperties(const StyleProperties*, CascadeLayerPriority, IsCacheable = IsCacheable::Yes, FromStyleAttribute = FromStyleAttribute::No);
 
     void matchUARules(const RuleSet&);
 
-    void collectMatchingAuthorRules();
     void addElementInlineStyleProperties(bool includeSMILProperties);
 
-    void matchAuthorShadowPseudoElementRules();
-    void matchHostPseudoClassRules();
-    void matchSlottedPseudoElementRules();
-    void matchPartPseudoElementRules();
-    void matchPartPseudoElementRulesForScope(const ShadowRoot& scopeShadowRoot);
+    void matchUserAgentPartRules(DeclarationOrigin);
+    void matchHostPseudoClassRules(DeclarationOrigin);
+    void matchSlottedPseudoElementRules(DeclarationOrigin);
+    void matchSlottedPseudoElementRulesInUserAgentShadowTree(DeclarationOrigin);
+    void matchPartPseudoElementRules(DeclarationOrigin);
+    void matchPartPseudoElementRulesForScope(const Element& partMatchingElement, DeclarationOrigin);
 
-    void collectMatchingShadowPseudoElementRules(const MatchRequest&);
-    std::unique_ptr<RuleSet::RuleDataVector> collectSlottedPseudoElementRulesForSlot();
+    void collectMatchingUserAgentPartRules(const MatchRequest&);
 
+    void collectMatchingRules(DeclarationOrigin);
     void collectMatchingRules(const MatchRequest&);
     void collectMatchingRulesForList(const RuleSet::RuleDataVector*, const MatchRequest&);
-    bool ruleMatches(const RuleData&, unsigned& specificity);
+    void collectMatchingRulesForList(const RuleSet::RuleDataVector&, const MatchRequest&);
+    void collectMatchingRulesForListSlow(const RuleSet::RuleDataVector&, const MatchRequest&);
+    bool NODELETE isFirstMatchModeAndHasMatchedAnyRules() const;
+    struct ScopingRootWithDistance {
+        RefPtr<const ContainerNode> scopingRoot;
+        unsigned distance { std::numeric_limits<unsigned>::max() };
+        bool matchesVisited { false };
+    };
+    bool ruleMatches(const RuleData&, unsigned& specificity, ScopeOrdinal, const ScopingRootWithDistance* = nullptr);
+    bool containerQueriesMatch(const RuleData&, const MatchRequest&);
+    std::pair<bool, std::optional<Vector<ScopingRootWithDistance>>> scopeRulesMatch(const RuleData&, const MatchRequest&);
 
     void sortMatchedRules();
 
-    enum class DeclarationOrigin { UserAgent, User, Author };
-    static Vector<MatchedProperties>& declarationsForOrigin(MatchResult&, DeclarationOrigin);
+    Vector<MatchedProperties>& NODELETE declarationsForOrigin(DeclarationOrigin);
     void sortAndTransferMatchedRules(DeclarationOrigin);
     void transferMatchedRules(DeclarationOrigin, std::optional<ScopeOrdinal> forScope = { });
 
-    void addMatchedRule(const RuleData&, unsigned specificity, const MatchRequest&);
+    void addMatchedRule(const RuleData&, unsigned specificity, unsigned scopingRootDistance, const MatchRequest&);
     void addMatchedProperties(MatchedProperties&&, DeclarationOrigin);
 
     const Element& element() const { return m_element.get(); }
@@ -156,37 +123,36 @@ private:
     Ref<const RuleSet> m_authorStyle;
     RefPtr<const RuleSet> m_userStyle;
     RefPtr<const RuleSet> m_userAgentMediaQueryStyle;
-    const SelectorFilter* m_selectorFilter;
+    RefPtr<const RuleSet> m_dynamicViewTransitionsStyle;
+    SelectorMatchingState* m_selectorMatchingState;
 
     bool m_shouldIncludeEmptyRules { false };
     bool m_isPrintStyle { false };
-    PseudoElementRequest m_pseudoElementRequest { PseudoId::None };
-    SelectorChecker::Mode m_mode { SelectorChecker::Mode::ResolvingStyle };
-    bool m_isMatchingSlottedPseudoElements { false };
-    bool m_isMatchingHostPseudoClass { false };
-    RefPtr<const Element> m_shadowHostInPartRuleScope;
-    Vector<std::unique_ptr<RuleSet::RuleDataVector>> m_keepAliveSlottedPseudoElementRules;
+    std::optional<PseudoElementRequest> m_pseudoElementRequest { };
+    const SelectorChecker::Mode m_mode { SelectorChecker::Mode::ResolvingStyle };
 
     Vector<MatchedRule, 64> m_matchedRules;
     size_t m_matchedRuleTransferIndex { 0 };
 
     // Output.
-    Vector<RefPtr<const StyleRule>> m_matchedRuleList;
-    bool m_didMatchUncommonAttributeSelector { false };
-    MatchResult m_result;
+    Vector<Ref<const StyleRule>> m_matchedRuleList;
+    Ref<MatchResult> m_result;
     Relations m_styleRelations;
-    PseudoIdSet m_matchedPseudoElementIds;
+    EnumSet<PseudoElementType> m_matchedPseudoElements;
 };
 
-inline bool operator==(const MatchedProperties& a, const MatchedProperties& b)
+ALWAYS_INLINE void ElementRuleCollector::collectMatchingRulesForList(const RuleSet::RuleDataVector* rules, const MatchRequest& matchRequest)
 {
-    return a.properties == b.properties && a.linkMatchType == b.linkMatchType;
+    if (!rules || rules->isEmpty())
+        return;
+    collectMatchingRulesForListSlow(*rules, matchRequest);
 }
 
-inline bool operator!=(const MatchedProperties& a, const MatchedProperties& b)
+ALWAYS_INLINE void ElementRuleCollector::collectMatchingRulesForList(const RuleSet::RuleDataVector& rules, const MatchRequest& matchRequest)
 {
-    return !(a == b);
+    if (rules.isEmpty())
+        return;
+    collectMatchingRulesForListSlow(rules, matchRequest);
 }
 
-} // namespace Style
-} // namespace WebCore
+}

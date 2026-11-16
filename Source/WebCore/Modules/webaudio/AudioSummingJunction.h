@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012, Google Inc. All rights reserved.
+ * Copyright (C) 2012 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,18 +25,23 @@
 #pragma once
 
 #include "AudioBus.h"
+#include <wtf/CheckedRef.h>
 #include <wtf/HashSet.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
-class BaseAudioContext;
 class AudioNodeOutput;
+class BaseAudioContext;
+class WeakPtrImplWithEventTargetData;
 
 // An AudioSummingJunction represents a point where zero, one, or more AudioNodeOutputs connect.
 
-class AudioSummingJunction {
+class AudioSummingJunction : public CanMakeThreadSafeCheckedPtr<AudioSummingJunction> {
+    WTF_MAKE_TZONE_ALLOCATED(AudioSummingJunction);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(AudioSummingJunction);
 public:
     explicit AudioSummingJunction(BaseAudioContext&);
     virtual ~AudioSummingJunction();
@@ -63,12 +68,12 @@ public:
 
     void markRenderingStateAsDirty();
 
-protected:
-    WeakPtr<BaseAudioContext> m_context;
-
     // numberOfConnections() should never be called from the audio rendering thread.
     // Instead numberOfRenderingConnections() and renderingOutput() should be used.
     unsigned numberOfConnections() const { return m_outputs.size(); }
+
+protected:
+    WeakPtr<BaseAudioContext, WeakPtrImplWithEventTargetData> m_context;
 
     unsigned maximumNumberOfChannels() const;
 

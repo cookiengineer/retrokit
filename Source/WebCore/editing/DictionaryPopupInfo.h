@@ -25,25 +25,31 @@
 
 #pragma once
 
-#include "FloatPoint.h"
-#include "TextIndicator.h"
-#include <wtf/RetainPtr.h>
+#include <WebCore/FloatPoint.h>
+#include <WebCore/TextIndicator.h>
 
-OBJC_CLASS NSAttributedString;
+#if ENABLE(LEGACY_PDFKIT_PLUGIN)
+#include <WebCore/AttributedString.h>
+#include <wtf/RetainPtr.h>
 OBJC_CLASS NSDictionary;
+#endif
 
 namespace WebCore {
 
+#if ENABLE(LEGACY_PDFKIT_PLUGIN)
+struct DictionaryPopupInfoCocoa {
+    AttributedString attributedString;
+};
+#endif
+
 struct DictionaryPopupInfo {
     FloatPoint origin;
-    TextIndicatorData textIndicator;
-#if PLATFORM(COCOA)
-    RetainPtr<NSDictionary> options;
-    RetainPtr<NSAttributedString> attributedString;
+    RefPtr<TextIndicator> textIndicator;
 
-    bool encodingRequiresPlatformData() const { return true; }
+#if ENABLE(LEGACY_PDFKIT_PLUGIN)
+    DictionaryPopupInfoCocoa platformData;
 #else
-    bool encodingRequiresPlatformData() const { return false; }
+    String text;
 #endif
 };
 

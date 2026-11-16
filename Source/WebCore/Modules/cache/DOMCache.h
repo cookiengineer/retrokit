@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -37,7 +37,10 @@ class ScriptExecutionContext;
 
 class DOMCache final : public RefCounted<DOMCache>, public ActiveDOMObject {
 public:
-    static Ref<DOMCache> create(ScriptExecutionContext& context, String&& name, uint64_t identifier, Ref<CacheStorageConnection>&& connection) { return adoptRef(*new DOMCache(context, WTFMove(name), identifier, WTFMove(connection))); }
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
+    static Ref<DOMCache> create(ScriptExecutionContext&, String&&, DOMCacheIdentifier, Ref<CacheStorageConnection>&&);
     ~DOMCache();
 
     using RequestInfo = FetchRequest::Info;
@@ -55,8 +58,8 @@ public:
     void remove(RequestInfo&&, CacheQueryOptions&&, DOMPromiseDeferred<IDLBoolean>&&);
     void keys(std::optional<RequestInfo>&&, CacheQueryOptions&&, KeysPromise&&);
 
-    const String& name() const { return m_name; }
-    uint64_t identifier() const { return m_identifier; }
+    const String& name() const LIFETIME_BOUND { return m_name; }
+    DOMCacheIdentifier identifier() const { return m_identifier; }
 
     using MatchCallback = CompletionHandler<void(ExceptionOr<RefPtr<FetchResponse>>)>;
     void doMatch(RequestInfo&&, CacheQueryOptions&&, MatchCallback&&);
@@ -64,13 +67,12 @@ public:
     CacheStorageConnection& connection() { return m_connection.get(); }
 
 private:
-    DOMCache(ScriptExecutionContext&, String&& name, uint64_t identifier, Ref<CacheStorageConnection>&&);
+    DOMCache(ScriptExecutionContext&, String&& name, DOMCacheIdentifier, Ref<CacheStorageConnection>&&);
 
-    ExceptionOr<Ref<FetchRequest>> requestFromInfo(RequestInfo&&, bool ignoreMethod);
+    ExceptionOr<Ref<FetchRequest>> requestFromInfo(RequestInfo&&, bool ignoreMethod, bool* requestValidationFailed = nullptr);
 
     // ActiveDOMObject
     void stop() final;
-    const char* activeDOMObjectName() const final;
 
     void putWithResponseData(DOMPromiseDeferred<void>&&, Ref<FetchRequest>&&, Ref<FetchResponse>&&, ExceptionOr<RefPtr<SharedBuffer>>&&);
 
@@ -82,12 +84,12 @@ private:
     void batchPutOperation(const FetchRequest&, FetchResponse&, DOMCacheEngine::ResponseBody&&, CompletionHandler<void(ExceptionOr<void>&&)>&&);
     void batchPutOperation(Vector<DOMCacheEngine::Record>&&, CompletionHandler<void(ExceptionOr<void>&&)>&&);
 
-    Vector<Ref<FetchResponse>> cloneResponses(const Vector<DOMCacheEngine::Record>&);
+    Vector<Ref<FetchResponse>> cloneResponses(const Vector<DOMCacheEngine::Record>&, MonotonicTime);
     DOMCacheEngine::Record toConnectionRecord(const FetchRequest&, FetchResponse&, DOMCacheEngine::ResponseBody&&);
 
     String m_name;
-    uint64_t m_identifier;
-    Ref<CacheStorageConnection> m_connection;
+    DOMCacheIdentifier m_identifier;
+    const Ref<CacheStorageConnection> m_connection;
 
     bool m_isStopped { false };
 };

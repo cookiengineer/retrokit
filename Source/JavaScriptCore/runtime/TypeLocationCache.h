@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2014 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,10 +25,10 @@
 
 #pragma once
 
-#include "TypeLocation.h"
+#include <JavaScriptCore/SourceID.h>
+#include <JavaScriptCore/TypeLocation.h>
 #include <wtf/FastMalloc.h>
-#include <wtf/HashMethod.h>
-#include <wtf/StdUnorderedMap.h>
+#include <wtf/GenericHashKey.h>
 
 namespace JSC {
 
@@ -38,13 +38,7 @@ class TypeLocationCache {
 public:
     struct LocationKey {
         LocationKey() {}
-        bool operator==(const LocationKey& other) const 
-        {
-            return m_globalVariableID == other.m_globalVariableID
-                && m_sourceID == other.m_sourceID
-                && m_start == other.m_start
-                && m_end == other.m_end;
-        }
+        friend bool operator==(const LocationKey&, const LocationKey&) = default;
 
         unsigned hash() const
         {
@@ -52,14 +46,14 @@ public:
         }
 
         GlobalVariableID m_globalVariableID;
-        intptr_t m_sourceID;
+        SourceID m_sourceID;
         unsigned m_start;
         unsigned m_end;
     };
 
-    std::pair<TypeLocation*, bool> getTypeLocation(GlobalVariableID, intptr_t, unsigned start, unsigned end, RefPtr<TypeSet>&&, VM*);
+    std::pair<TypeLocation*, bool> getTypeLocation(GlobalVariableID, SourceID, unsigned start, unsigned end, RefPtr<TypeSet>&&, VM*);
 private:
-    using LocationMap = StdUnorderedMap<LocationKey, TypeLocation*, HashMethod<LocationKey>>;
+    using LocationMap = UncheckedKeyHashMap<GenericHashKey<LocationKey>, TypeLocation*>;
     LocationMap m_locationMap;
 };
 

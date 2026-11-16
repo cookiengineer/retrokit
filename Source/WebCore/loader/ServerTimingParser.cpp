@@ -27,7 +27,6 @@
 #include "ServerTimingParser.h"
 
 #include "HeaderFieldTokenizer.h"
-#include "RuntimeEnabledFeatures.h"
 #include "ServerTiming.h"
 
 #include <wtf/text/CString.h>
@@ -38,7 +37,6 @@ namespace ServerTimingParser {
 
 Vector<ServerTiming> parseServerTiming(const String& headerValue)
 {
-    ASSERT(RuntimeEnabledFeatures::sharedFeatures().serverTimingEnabled());
     auto entries = Vector<ServerTiming>();
     if (headerValue.isNull())
         return entries;
@@ -51,14 +49,14 @@ Vector<ServerTiming> parseServerTiming(const String& headerValue)
         if (name.isNull())
             break;
 
-        ServerTiming entry(WTFMove(name));
+        ServerTiming entry(WTF::move(name));
 
         while (tokenizer.consume(';')) {
             String parameterName = tokenizer.consumeToken();
             if (parameterName.isNull())
                 break;
 
-            String value = "";
+            String value = emptyString();
             if (tokenizer.consume('=')) {
                 value = tokenizer.consumeTokenOrQuotedString();
                 tokenizer.consumeBeforeAnyCharMatch({',', ';'});
@@ -66,7 +64,7 @@ Vector<ServerTiming> parseServerTiming(const String& headerValue)
             entry.setParameter(parameterName, value);
         }
 
-        entries.append(WTFMove(entry));
+        entries.append(WTF::move(entry));
 
         if (!tokenizer.consume(','))
             break;

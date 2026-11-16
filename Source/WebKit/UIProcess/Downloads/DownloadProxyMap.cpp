@@ -37,6 +37,7 @@
 #include "ProcessAssertion.h"
 #include "WebProcessPool.h"
 #include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 
 #if PLATFORM(COCOA)
 #include <wtf/cocoa/Entitlements.h>
@@ -44,10 +45,12 @@
 
 namespace WebKit {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(DownloadProxyMap);
+
 DownloadProxyMap::DownloadProxyMap(NetworkProcessProxy& process)
     : m_process(process)
-#if PLATFORM(COCOA)
-    , m_shouldTakeAssertion(WTF::processHasEntitlement("com.apple.multitasking.systemappassertions"))
+#if PLATFORM(COCOA) && !HAVE(MODERN_DOWNLOADPROGRESS)
+    , m_shouldTakeAssertion(WTF::processHasEntitlement("com.apple.multitasking.systemappassertions"_s))
 #endif
 {
     platformCreate();
@@ -57,6 +60,16 @@ DownloadProxyMap::~DownloadProxyMap()
 {
     ASSERT(m_downloads.isEmpty());
     platformDestroy();
+}
+
+void DownloadProxyMap::ref() const
+{
+    m_process->ref();
+}
+
+void DownloadProxyMap::deref() const
+{
+    m_process->deref();
 }
 
 #if !PLATFORM(COCOA)
@@ -69,36 +82,20 @@ void DownloadProxyMap::platformDestroy()
 }
 #endif
 
-void DownloadProxyMap::applicationDidEnterBackground()
+Ref<DownloadProxy> DownloadProxyMap::createDownloadProxy(WebsiteDataStore& dataStore, Ref<API::DownloadClient>&& client, const WebCore::ResourceRequest& resourceRequest, const std::optional<FrameInfoData>& frameInfo, WebPageProxy* originatingPage)
 {
-    m_process.send(Messages::NetworkProcess::ApplicationDidEnterBackground(), 0);
-}
-
-void DownloadProxyMap::applicationWillEnterForeground()
-{
-    m_process.send(Messages::NetworkProcess::ApplicationWillEnterForeground(), 0);
-}
-
-DownloadProxy& DownloadProxyMap::createDownloadProxy(WebsiteDataStore& dataStore, WebProcessPool& processPool, const WebCore::ResourceRequest& resourceRequest, const FrameInfoData& frameInfo, WebPageProxy* originatingPage)
-{
-    auto* legacyDownloadClient = processPool.legacyDownloadClient();
-    Ref<API::DownloadClient> client = legacyDownloadClient ? Ref<API::DownloadClient>(*legacyDownloadClient) : adoptRef(*new API::DownloadClient);
-    auto downloadProxy = DownloadProxy::create(*this, dataStore, WTFMove(client), resourceRequest, frameInfo, originatingPage);
-    m_downloads.set(downloadProxy->downloadID(), downloadProxy.copyRef());
+    Ref downloadProxy = DownloadProxy::create(*this, dataStore, WTF::move(client), resourceRequest, frameInfo, originatingPage);
+    m_downloads.set(downloadProxy->downloadID(), downloadProxy);
 
     RELEASE_LOG(Loading, "Adding download %" PRIu64 " to UIProcess DownloadProxyMap", downloadProxy->downloadID().toUInt64());
 
     if (m_downloads.size() == 1 && m_shouldTakeAssertion) {
         ASSERT(!m_downloadUIAssertion);
         m_downloadUIAssertion = ProcessAssertion::create(getCurrentProcessID(), "WebKit downloads"_s, ProcessAssertionType::UnboundedNetworking);
-
-        ASSERT(!m_downloadNetworkingAssertion);
-        m_downloadNetworkingAssertion = ProcessAssertion::create(m_process.processIdentifier(), "WebKit downloads"_s, ProcessAssertionType::UnboundedNetworking);
-
-        RELEASE_LOG(ProcessSuspension, "UIProcess took 'WebKit downloads' assertions for UIProcess and NetworkProcess");
+        RELEASE_LOG(ProcessSuspension, "UIProcess took 'WebKit downloads' assertion for UIProcess");
     }
 
-    m_process.addMessageReceiver(Messages::DownloadProxy::messageReceiverName(), downloadProxy->downloadID().toUInt64(), downloadProxy.get());
+    protect(process())->addMessageReceiver(Messages::DownloadProxy::messageReceiverName(), downloadProxy->downloadID().toUInt64(), downloadProxy.get());
 
     return downloadProxy;
 }
@@ -111,16 +108,14 @@ void DownloadProxyMap::downloadFinished(DownloadProxy& downloadProxy)
 
     ASSERT(m_downloads.contains(downloadID));
 
-    m_process.removeMessageReceiver(Messages::DownloadProxy::messageReceiverName(), downloadID.toUInt64());
+    protect(process())->removeMessageReceiver(Messages::DownloadProxy::messageReceiverName(), downloadID.toUInt64());
     downloadProxy.invalidate();
     m_downloads.remove(downloadID);
 
     if (m_downloads.isEmpty() && m_shouldTakeAssertion) {
         ASSERT(m_downloadUIAssertion);
-        ASSERT(m_downloadNetworkingAssertion);
         m_downloadUIAssertion = nullptr;
-        m_downloadNetworkingAssertion = nullptr;
-        RELEASE_LOG(ProcessSuspension, "UIProcess released 'WebKit downloads' assertions for UIProcess and NetworkProcess");
+        RELEASE_LOG(ProcessSuspension, "UIProcess released 'WebKit downloads' assertion for UIProcess");
     }
 }
 
@@ -130,13 +125,12 @@ void DownloadProxyMap::invalidate()
     for (const auto& download : m_downloads.values()) {
         download->processDidClose();
         download->invalidate();
-        m_process.removeMessageReceiver(Messages::DownloadProxy::messageReceiverName(), download->downloadID().toUInt64());
+        protect(process())->removeMessageReceiver(Messages::DownloadProxy::messageReceiverName(), download->downloadID().toUInt64());
     }
 
     m_downloads.clear();
     m_downloadUIAssertion = nullptr;
-    m_downloadNetworkingAssertion = nullptr;
-    RELEASE_LOG(ProcessSuspension, "UIProcess DownloadProxyMap invalidated - Released 'WebKit downloads' assertions for UIProcess and NetworkProcess");
+    RELEASE_LOG(ProcessSuspension, "UIProcess DownloadProxyMap invalidated - Released 'WebKit downloads' assertion for UIProcess");
 }
 
 } // namespace WebKit

@@ -25,8 +25,6 @@
 
 #pragma once
 
-#if ENABLE(LAYOUT_FORMATTING_CONTEXT)
-
 #include <optional>
 
 namespace WebCore {
@@ -41,9 +39,9 @@ public:
         Invalidation,
         Layout
     };
-    static bool isInTreeBuilding();
-    static bool isInLayout();
-    static bool isInInvalidation();
+    static bool NODELETE isInTreeBuilding();
+    static bool NODELETE isInLayout();
+    static bool NODELETE isInInvalidation();
 
 private:
     friend class PhaseScope;
@@ -63,4 +61,3 @@ public:
 
 }
 }
-#endif

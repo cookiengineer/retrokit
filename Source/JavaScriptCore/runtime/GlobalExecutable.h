@@ -25,8 +25,7 @@
 
 #pragma once
 
-#include "ExecutableToCodeBlockEdge.h"
-#include "ScriptExecutable.h"
+#include <JavaScriptCore/ScriptExecutable.h>
 
 namespace JSC {
 
@@ -40,20 +39,40 @@ public:
     unsigned lastLine() const { return m_lastLine; }
     unsigned endColumn() const { return m_endColumn; }
 
-    void recordParse(CodeFeatures features, LexicalScopeFeatures lexicalScopeFeatures, bool hasCapturedVariables, int lastLine, unsigned endColumn)
+    void recordParse(CodeFeatures features, LexicallyScopedFeatures lexicallyScopedFeatures, bool hasCapturedVariables, int lastLine, unsigned endColumn)
     {
-        Base::recordParse(features, lexicalScopeFeatures, hasCapturedVariables);
+        Base::recordParse(features, lexicallyScopedFeatures, hasCapturedVariables);
         m_lastLine = lastLine;
         m_endColumn = endColumn;
         ASSERT(endColumn != UINT_MAX);
     }
 
+    DECLARE_VISIT_CHILDREN;
+    DECLARE_VISIT_OUTPUT_CONSTRAINTS;
+
+    void finalizeUnconditionally(VM&, CollectionScope);
+
 protected:
-    GlobalExecutable(Structure* structure, VM& vm, const SourceCode& sourceCode, bool isInStrictContext, DerivedContextType derivedContextType, bool isInArrowFunctionContext, bool isInsideOrdinaryFunction, EvalContextType evalContextType, Intrinsic intrinsic)
-        : Base(structure, vm, sourceCode, isInStrictContext ? StrictModeLexicalFeature : NoLexicalFeatures, derivedContextType, isInArrowFunctionContext, isInsideOrdinaryFunction, evalContextType, intrinsic)
+    friend class ScriptExecutable;
+    GlobalExecutable(Structure* structure, VM& vm, const SourceCode& sourceCode, LexicallyScopedFeatures lexicallyScopedFeatures, DerivedContextType derivedContextType, bool isInArrowFunctionContext, bool isInsideOrdinaryFunction, EvalContextType evalContextType, Intrinsic intrinsic)
+        : Base(structure, vm, sourceCode, lexicallyScopedFeatures, derivedContextType, isInArrowFunctionContext, isInsideOrdinaryFunction, evalContextType, intrinsic)
     {
     }
 
+    CodeBlock* codeBlock() const
+    {
+        return m_codeBlock.get();
+    }
+
+    UnlinkedCodeBlock* unlinkedCodeBlock() const
+    {
+        return m_unlinkedCodeBlock.get();
+    }
+
+    CodeBlock* replaceCodeBlockWith(VM&, CodeBlock*);
+
+    WriteBarrier<CodeBlock> m_codeBlock;
+    WriteBarrier<UnlinkedCodeBlock> m_unlinkedCodeBlock;
     int m_lastLine { -1 };
     unsigned m_endColumn { UINT_MAX };
 };

@@ -31,59 +31,39 @@
 
 namespace JSC {
 
-template<typename BytecodeMetadata>
-ArrayProfile* arrayProfileForImpl(BytecodeMetadata& metadata, unsigned checkpointIndex)
+template <typename Bytecode>
+unsigned valueProfileOffsetFor(const Bytecode& bytecode, unsigned checkpointIndex)
 {
     UNUSED_PARAM(checkpointIndex);
-    return &metadata.m_callLinkInfo.m_arrayProfile;
-}
-
-template<typename BytecodeMetadata>
-bool hasArrayProfileFor(BytecodeMetadata& metadata, unsigned checkpointIndex)
-{
-    return arrayProfileForImpl(metadata, checkpointIndex);
-}
-
-template<typename BytecodeMetadata>
-ArrayProfile& arrayProfileFor(BytecodeMetadata& metadata, unsigned checkpointIndex)
-{
-    ASSERT(hasArrayProfileFor(metadata, checkpointIndex));
-    return *arrayProfileForImpl(metadata, checkpointIndex);
-}
-
-template<typename BytecodeMetadata>
-ValueProfile* valueProfileForImpl(BytecodeMetadata& metadata, unsigned checkpointIndex)
-{
-    UNUSED_PARAM(checkpointIndex);
-    if constexpr (BytecodeMetadata::opcodeID == op_iterator_open) {
+    if constexpr (Bytecode::opcodeID == op_iterator_open) {
         switch (checkpointIndex) {
-        case OpIteratorOpen::symbolCall: return &metadata.m_iteratorProfile;
-        case OpIteratorOpen::getNext: return &metadata.m_nextProfile;
+        case OpIteratorOpen::symbolCall: return bytecode.m_iteratorValueProfile;
+        case OpIteratorOpen::getNext: return bytecode.m_nextValueProfile;
         default: RELEASE_ASSERT_NOT_REACHED();
         }
 
-    } else if constexpr (BytecodeMetadata::opcodeID == op_iterator_next) {
+    } else if constexpr (Bytecode::opcodeID == op_async_iterator_open) {
         switch (checkpointIndex) {
-        case OpIteratorNext::computeNext: return &metadata.m_nextResultProfile;
-        case OpIteratorNext::getDone: return &metadata.m_doneProfile;
-        case OpIteratorNext::getValue: return &metadata.m_valueProfile;
+        case OpAsyncIteratorOpen::symbolCall: return bytecode.m_iteratorValueProfile;
+        case OpAsyncIteratorOpen::getNext: return bytecode.m_nextValueProfile;
+        default: RELEASE_ASSERT_NOT_REACHED();
+        }
+
+    } else if constexpr (Bytecode::opcodeID == op_iterator_next) {
+        switch (checkpointIndex) {
+        case OpIteratorNext::computeNext: return bytecode.m_nextResultValueProfile;
+        case OpIteratorNext::getDone: return bytecode.m_doneValueProfile;
+        case OpIteratorNext::getValue: return bytecode.m_valueValueProfile;
+        default: RELEASE_ASSERT_NOT_REACHED();
+        }
+    } else if constexpr (Bytecode::opcodeID == op_instanceof) {
+        switch (checkpointIndex) {
+        case OpInstanceof::getHasInstance: return bytecode.m_hasInstanceValueProfile;
+        case OpInstanceof::getPrototype: return bytecode.m_prototypeValueProfile;
         default: RELEASE_ASSERT_NOT_REACHED();
         }
     } else 
-        return &metadata.m_profile;
-}
-
-template<typename BytecodeMetadata>
-bool hasValueProfileFor(BytecodeMetadata& metadata, unsigned checkpointIndex)
-{
-    return valueProfileForImpl(metadata, checkpointIndex);
-}
-
-template<typename BytecodeMetadata>
-ValueProfile& valueProfileFor(BytecodeMetadata& metadata, unsigned checkpointIndex)
-{
-    ASSERT(hasValueProfileFor(metadata, checkpointIndex));
-    return *valueProfileForImpl(metadata, checkpointIndex);
+        return bytecode.m_valueProfile;
 }
 
 template<typename Bytecode>
@@ -94,6 +74,13 @@ Operand destinationFor(const Bytecode& bytecode, unsigned checkpointIndex, JITTy
         switch (checkpointIndex) {
         case OpIteratorOpen::symbolCall: return bytecode.m_iterator;
         case OpIteratorOpen::getNext: return bytecode.m_next;
+        default: RELEASE_ASSERT_NOT_REACHED();
+        }
+        return { };
+    } else if constexpr (Bytecode::opcodeID == op_async_iterator_open) {
+        switch (checkpointIndex) {
+        case OpAsyncIteratorOpen::symbolCall: return bytecode.m_iterator;
+        case OpAsyncIteratorOpen::getNext: return bytecode.m_next;
         default: RELEASE_ASSERT_NOT_REACHED();
         }
         return { };
@@ -109,6 +96,8 @@ Operand destinationFor(const Bytecode& bytecode, unsigned checkpointIndex, JITTy
         default: RELEASE_ASSERT_NOT_REACHED();
         }
         return { };
+    } else if constexpr (Bytecode::opcodeID == op_call_ignore_result) {
+        return { };
     } else
         return bytecode.m_dst;
 }
@@ -122,8 +111,13 @@ VirtualRegister calleeFor(const Bytecode& bytecode, unsigned checkpointIndex)
     if constexpr (Bytecode::opcodeID == op_iterator_open) {
         ASSERT(checkpointIndex == OpIteratorOpen::symbolCall);
         return bytecode.m_symbolIterator;
+    } else if constexpr (Bytecode::opcodeID == op_async_iterator_open) {
+        ASSERT(checkpointIndex == OpAsyncIteratorOpen::symbolCall);
+        return bytecode.m_symbolIterator;
     } else if constexpr (Bytecode::opcodeID == op_iterator_next) {
         ASSERT(checkpointIndex == OpIteratorNext::computeNext);
+        return bytecode.m_next;
+    } else if constexpr (Bytecode::opcodeID == op_async_iterator_next) {
         return bytecode.m_next;
     } else
         return bytecode.m_callee;
@@ -136,8 +130,13 @@ unsigned argumentCountIncludingThisFor(const Bytecode& bytecode, unsigned checkp
     if constexpr (Bytecode::opcodeID == op_iterator_open) {
         ASSERT(checkpointIndex == OpIteratorOpen::symbolCall);
         return 1;
+    } else if constexpr (Bytecode::opcodeID == op_async_iterator_open) {
+        ASSERT(checkpointIndex == OpAsyncIteratorOpen::symbolCall);
+        return 1;
     } else if constexpr (Bytecode::opcodeID == op_iterator_next) {
         ASSERT(checkpointIndex == OpIteratorNext::computeNext);
+        return 1;
+    } else if constexpr (Bytecode::opcodeID == op_async_iterator_next) {
         return 1;
     } else
         return bytecode.m_argc;
@@ -150,15 +149,20 @@ ptrdiff_t stackOffsetInRegistersForCall(const Bytecode& bytecode, unsigned check
     if constexpr (Bytecode::opcodeID == op_iterator_open) {
         ASSERT(checkpointIndex == OpIteratorOpen::symbolCall);
         return CallFrame::headerSizeInRegisters - bytecode.m_iterable.offset();
+    } else if constexpr (Bytecode::opcodeID == op_async_iterator_open) {
+        ASSERT(checkpointIndex == OpAsyncIteratorOpen::symbolCall);
+        return CallFrame::headerSizeInRegisters - bytecode.m_iterable.offset();
     } else if constexpr (Bytecode::opcodeID == op_iterator_next) {
         ASSERT(checkpointIndex == OpIteratorNext::computeNext);
+        return CallFrame::headerSizeInRegisters - bytecode.m_iterator.offset();
+    } else if constexpr (Bytecode::opcodeID == op_async_iterator_next) {
         return CallFrame::headerSizeInRegisters - bytecode.m_iterator.offset();
     } else
         return bytecode.m_argv;
 }
 
 template<typename BytecodeMetadata>
-LLIntCallLinkInfo& callLinkInfoFor(BytecodeMetadata& metadata, unsigned checkpointIndex)
+CallLinkInfo& callLinkInfoFor(BytecodeMetadata& metadata, unsigned checkpointIndex)
 {
     UNUSED_PARAM(checkpointIndex);
     return metadata.m_callLinkInfo;

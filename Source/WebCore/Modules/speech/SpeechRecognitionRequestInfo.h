@@ -25,9 +25,9 @@
 
 #pragma once
 
-#include "ClientOrigin.h"
-#include "FrameIdentifier.h"
-#include "SpeechRecognitionConnectionClientIdentifier.h"
+#include <WebCore/ClientOrigin.h>
+#include <WebCore/FrameIdentifier.h>
+#include <WebCore/SpeechRecognitionConnectionClientIdentifier.h>
 
 namespace WebCore {
 
@@ -38,65 +38,7 @@ struct SpeechRecognitionRequestInfo {
     bool interimResults { false };
     uint64_t maxAlternatives { 1 };
     ClientOrigin clientOrigin;
-    FrameIdentifier frameIdentifier;
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<SpeechRecognitionRequestInfo> decode(Decoder&);
+    FrameIdentifier mainFrameIdentifier;
 };
-
-template<class Encoder>
-void SpeechRecognitionRequestInfo::encode(Encoder& encoder) const
-{
-    encoder << clientIdentifier << lang << continuous << interimResults << maxAlternatives << clientOrigin << frameIdentifier;
-}
-
-template<class Decoder>
-std::optional<SpeechRecognitionRequestInfo> SpeechRecognitionRequestInfo::decode(Decoder& decoder)
-{
-    std::optional<SpeechRecognitionConnectionClientIdentifier> clientIdentifier;
-    decoder >> clientIdentifier;
-    if (!clientIdentifier)
-        return std::nullopt;
-
-    std::optional<String> lang;
-    decoder >> lang;
-    if (!lang)
-        return std::nullopt;
-
-    std::optional<bool> continuous;
-    decoder >> continuous;
-    if (!continuous)
-        return std::nullopt;
-
-    std::optional<bool> interimResults;
-    decoder >> interimResults;
-    if (!interimResults)
-        return std::nullopt;
-
-    std::optional<uint64_t> maxAlternatives;
-    decoder >> maxAlternatives;
-    if (!maxAlternatives)
-        return std::nullopt;
-
-    std::optional<ClientOrigin> clientOrigin;
-    decoder >> clientOrigin;
-    if (!clientOrigin)
-        return std::nullopt;
-
-    std::optional<FrameIdentifier> frameIdentifier;
-    decoder >> frameIdentifier;
-    if (!frameIdentifier)
-        return std::nullopt;
-
-    return {{
-        WTFMove(*clientIdentifier),
-        WTFMove(*lang),
-        WTFMove(*continuous),
-        WTFMove(*interimResults),
-        WTFMove(*maxAlternatives),
-        WTFMove(*clientOrigin),
-        WTFMove(*frameIdentifier)
-    }};
-}
 
 } // namespace WebCore

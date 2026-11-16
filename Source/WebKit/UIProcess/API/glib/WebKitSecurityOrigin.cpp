@@ -25,9 +25,9 @@
 #include <wtf/text/CString.h>
 
 /**
- * SECTION: WebKitSecurityOrigin
- * @Short_description: A security boundary for websites
- * @Title: WebKitSecurityOrigin
+ * WebKitSecurityOrigin:
+ *
+ * A security boundary for websites.
  *
  * #WebKitSecurityOrigin is a representation of a security domain
  * defined by websites. A security origin consists of a protocol, a
@@ -43,7 +43,7 @@
 
 struct _WebKitSecurityOrigin {
     explicit _WebKitSecurityOrigin(WebCore::SecurityOriginData&& data)
-        : securityOriginData(WTFMove(data))
+        : securityOriginData(WTF::move(data))
     {
     }
 
@@ -58,7 +58,7 @@ G_DEFINE_BOXED_TYPE(WebKitSecurityOrigin, webkit_security_origin, webkit_securit
 WebKitSecurityOrigin* webkitSecurityOriginCreate(WebCore::SecurityOriginData&& data)
 {
     WebKitSecurityOrigin* origin = static_cast<WebKitSecurityOrigin*>(fastMalloc(sizeof(WebKitSecurityOrigin)));
-    new (origin) WebKitSecurityOrigin(WTFMove(data));
+    new (origin) WebKitSecurityOrigin(WTF::move(data));
     return origin;
 }
 
@@ -88,7 +88,7 @@ WebKitSecurityOrigin* webkit_security_origin_new(const gchar* protocol, const gc
     g_return_val_if_fail(host, nullptr);
 
     std::optional<uint16_t> optionalPort;
-    if (port && !WTF::isDefaultPortForProtocol(port, protocol))
+    if (port && !WTF::isDefaultPortForProtocol(port, StringView::fromLatin1(protocol)))
         optionalPort = port;
 
     return webkitSecurityOriginCreate(WebCore::SecurityOriginData(String::fromUTF8(protocol), String::fromUTF8(host), optionalPort));
@@ -97,6 +97,8 @@ WebKitSecurityOrigin* webkit_security_origin_new(const gchar* protocol, const gc
 /**
  * webkit_security_origin_new_for_uri:
  * @uri: The URI for the new origin
+ *
+ * Create a new security origin from the provided URI.
  *
  * Create a new security origin from the provided URI. Components of
  * @uri other than protocol, host, and port do not affect the created
@@ -110,7 +112,7 @@ WebKitSecurityOrigin* webkit_security_origin_new_for_uri(const gchar* uri)
 {
     g_return_val_if_fail(uri, nullptr);
 
-    return webkitSecurityOriginCreate(WebCore::SecurityOriginData::fromURL(URL(URL(), String::fromUTF8(uri))));
+    return webkitSecurityOriginCreate(WebCore::SecurityOriginData::fromURLWithoutStrictOpaqueness(URL { String::fromUTF8(uri) }));
 }
 
 /**
@@ -118,6 +120,7 @@ WebKitSecurityOrigin* webkit_security_origin_new_for_uri(const gchar* uri)
  * @origin: a #WebKitSecurityOrigin
  *
  * Atomically increments the reference count of @origin by one.
+ *
  * This function is MT-safe and may be called from any thread.
  *
  * Returns: The passed #WebKitSecurityOrigin
@@ -137,6 +140,7 @@ WebKitSecurityOrigin* webkit_security_origin_ref(WebKitSecurityOrigin* origin)
  * @origin: A #WebKitSecurityOrigin
  *
  * Atomically decrements the reference count of @origin by one.
+ *
  * If the reference count drops to 0, all memory allocated by
  * #WebKitSecurityOrigin is released. This function is MT-safe and may be
  * called from any thread.
@@ -167,11 +171,11 @@ const gchar* webkit_security_origin_get_protocol(WebKitSecurityOrigin* origin)
 {
     g_return_val_if_fail(origin, nullptr);
 
-    if (origin->securityOriginData.protocol.isEmpty())
+    if (origin->securityOriginData.protocol().isEmpty())
         return nullptr;
 
     if (origin->protocol.isNull())
-        origin->protocol = origin->securityOriginData.protocol.utf8();
+        origin->protocol = origin->securityOriginData.protocol().utf8();
     return origin->protocol.data();
 }
 
@@ -179,7 +183,9 @@ const gchar* webkit_security_origin_get_protocol(WebKitSecurityOrigin* origin)
  * webkit_security_origin_get_host:
  * @origin: a #WebKitSecurityOrigin
  *
- * Gets the hostname of @origin. It is reasonable for this to be %NULL
+ * Gets the hostname of @origin.
+ *
+ * It is reasonable for this to be %NULL
  * if its protocol does not require a host component.
  *
  * Returns: (allow-none): The host of the #WebKitSecurityOrigin
@@ -190,11 +196,11 @@ const gchar* webkit_security_origin_get_host(WebKitSecurityOrigin* origin)
 {
     g_return_val_if_fail(origin, nullptr);
 
-    if (origin->securityOriginData.host.isEmpty())
+    if (origin->securityOriginData.host().isEmpty())
         return nullptr;
 
     if (origin->host.isNull())
-        origin->host = origin->securityOriginData.host.utf8();
+        origin->host = origin->securityOriginData.host().utf8();
     return origin->host.data();
 }
 
@@ -202,7 +208,9 @@ const gchar* webkit_security_origin_get_host(WebKitSecurityOrigin* origin)
  * webkit_security_origin_get_port:
  * @origin: a #WebKitSecurityOrigin
  *
- * Gets the port of @origin. This function will always return 0 if the
+ * Gets the port of @origin.
+ *
+ * This function will always return 0 if the
  * port is the default port for the given protocol. For example,
  * http://example.com has the same security origin as
  * http://example.com:80, and this function will return 0 for a
@@ -216,15 +224,18 @@ guint16 webkit_security_origin_get_port(WebKitSecurityOrigin* origin)
 {
     g_return_val_if_fail(origin, 0);
 
-    return origin->securityOriginData.port.value_or(0);
+    return origin->securityOriginData.port().value_or(0);
 }
 
+#if !ENABLE(2022_GLIB_API)
 /**
  * webkit_security_origin_is_opaque:
  * @origin: a #WebKitSecurityOrigin
  *
+ * This function returns %FALSE.
+ *
  * This function returns %FALSE. #WebKitSecurityOrigin is now a simple
- * wrapper around a &lt;protocol, host, port&gt; triplet, and no longer
+ * wrapper around a <protocol, host, port> triplet, and no longer
  * represents an origin as defined by web standards that may be opaque.
  *
  * Returns: %FALSE
@@ -239,12 +250,15 @@ gboolean webkit_security_origin_is_opaque(WebKitSecurityOrigin* origin)
 
     return FALSE;
 }
+#endif
 
 /**
  * webkit_security_origin_to_string:
  * @origin: a #WebKitSecurityOrigin
  *
- * Gets a string representation of @origin. The string representation
+ * Gets a string representation of @origin.
+ *
+ * The string representation
  * is a valid URI with only protocol, host, and port components, or
  * %NULL.
  *
@@ -257,5 +271,5 @@ gchar* webkit_security_origin_to_string(WebKitSecurityOrigin* origin)
     g_return_val_if_fail(origin, nullptr);
 
     CString cstring = origin->securityOriginData.toString().utf8();
-    return cstring == "null" || cstring == "" ? nullptr : g_strdup (cstring.data());
+    return cstring == "null"_s || cstring == ""_s ? nullptr : g_strdup (cstring.data());
 }

@@ -25,9 +25,15 @@
 
 #pragma once
 
+#include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
+
+namespace WebCore {
+class VisibilityChangeClient;
+}
+
 namespace WebCore {
 
-class VisibilityChangeClient : public CanMakeWeakPtr<VisibilityChangeClient> {
+class VisibilityChangeClient : public AbstractRefCountedAndCanMakeWeakPtr<VisibilityChangeClient> {
 public:
     virtual ~VisibilityChangeClient() = default;
 

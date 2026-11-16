@@ -26,20 +26,20 @@
 #pragma once
 
 #include "WebGLExtension.h"
+#include "WebGLRenderingContextBase.h"
+#include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
-class WebGLRenderingContextBase;
-
-class ANGLEInstancedArrays final : public WebGLExtension {
-    WTF_MAKE_ISO_ALLOCATED(ANGLEInstancedArrays);
+class ANGLEInstancedArrays final : public WebGLExtension<WebGLRenderingContextBase> {
+    WTF_MAKE_TZONE_ALLOCATED(ANGLEInstancedArrays);
+    WTF_MAKE_NONCOPYABLE(ANGLEInstancedArrays);
 public:
     explicit ANGLEInstancedArrays(WebGLRenderingContextBase&);
-    virtual ~ANGLEInstancedArrays();
+    ~ANGLEInstancedArrays();
 
-    ExtensionName getName() const final;
-
-    static bool supported(WebGLRenderingContextBase&);
+    static bool supported(GraphicsContextGL&);
 
     void drawArraysInstancedANGLE(GCGLenum mode, GCGLint first, GCGLsizei count, GCGLsizei primcount);
     void drawElementsInstancedANGLE(GCGLenum mode, GCGLsizei count, GCGLenum type, long long offset, GCGLsizei primcount);
@@ -47,3 +47,5 @@ public:
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_WEBGL_EXTENSION(ANGLEInstancedArrays)

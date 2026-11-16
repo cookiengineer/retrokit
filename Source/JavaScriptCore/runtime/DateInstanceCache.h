@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2009 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "PureNaN.h"
+#include <JavaScriptCore/PureNaN.h>
 #include <array>
 #include <wtf/GregorianDateTime.h>
 #include <wtf/HashFunctions.h>
@@ -37,10 +37,10 @@ class DateInstanceData : public RefCounted<DateInstanceData> {
 public:
     static Ref<DateInstanceData> create() { return adoptRef(*new DateInstanceData); }
 
-    static ptrdiff_t offsetOfGregorianDateTimeCachedForMS() { return OBJECT_OFFSETOF(DateInstanceData, m_gregorianDateTimeCachedForMS); }
-    static ptrdiff_t offsetOfCachedGregorianDateTime() { return OBJECT_OFFSETOF(DateInstanceData, m_cachedGregorianDateTime); }
-    static ptrdiff_t offsetOfGregorianDateTimeUTCCachedForMS() { return OBJECT_OFFSETOF(DateInstanceData, m_gregorianDateTimeUTCCachedForMS); }
-    static ptrdiff_t offsetOfCachedGregorianDateTimeUTC() { return OBJECT_OFFSETOF(DateInstanceData, m_cachedGregorianDateTimeUTC); }
+    static constexpr ptrdiff_t offsetOfGregorianDateTimeCachedForMS() { return OBJECT_OFFSETOF(DateInstanceData, m_gregorianDateTimeCachedForMS); }
+    static constexpr ptrdiff_t offsetOfCachedGregorianDateTime() { return OBJECT_OFFSETOF(DateInstanceData, m_cachedGregorianDateTime); }
+    static constexpr ptrdiff_t offsetOfGregorianDateTimeUTCCachedForMS() { return OBJECT_OFFSETOF(DateInstanceData, m_gregorianDateTimeUTCCachedForMS); }
+    static constexpr ptrdiff_t offsetOfCachedGregorianDateTimeUTC() { return OBJECT_OFFSETOF(DateInstanceData, m_cachedGregorianDateTimeUTC); }
 
     double m_gregorianDateTimeCachedForMS { PNaN };
     GregorianDateTime m_cachedGregorianDateTime;
@@ -60,8 +60,17 @@ public:
 
     void reset()
     {
-        for (size_t i = 0; i < cacheSize; ++i)
+        for (size_t i = 0; i < cacheSize; ++i) {
             m_cache[i].key = PNaN;
+            // FIXME: This only reaches DateInstanceData still occupying a slot.
+            // One that was evicted (its slot overwritten by another ms) but is
+            // still referenced by a live DateInstance is missed and keeps its
+            // stale local GregorianDateTime for that DateInstance's lifetime.
+            if (auto* value = m_cache[i].value.get()) {
+                value->m_gregorianDateTimeCachedForMS = PNaN;
+                value->m_gregorianDateTimeUTCCachedForMS = PNaN;
+            }
+        }
     }
 
     DateInstanceData* add(double d)

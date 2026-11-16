@@ -25,7 +25,9 @@
 
 #pragma once
 
+#include <tuple>
 #include <type_traits>
+#include <wtf/Platform.h>
 
 namespace WTF {
 
@@ -38,7 +40,7 @@ template<typename T>
 static constexpr unsigned slotsForCCallArgument()
 {
     static_assert(!std::is_class<T>::value || sizeof(T) <= sizeof(void*), "This doesn't support complex structs.");
-    static_assert(sizeof(T) == 8 || sizeof(T) <= 4, "");
+    static_assert(sizeof(T) == 8 || sizeof(T) <= 4);
     // This assumes that all integral values are passed on the stack.
     if (sizeof(T) == 8)
         return 2;
@@ -50,7 +52,8 @@ template<typename T>
 static constexpr unsigned computeCCallSlots() { return slotsForCCallArgument<T>(); }
 
 template<typename T, typename... Ts>
-static constexpr std::enable_if_t<!!sizeof...(Ts), unsigned> computeCCallSlots() { return computeCCallSlots<Ts...>() + slotsForCCallArgument<T>(); }
+    requires (sizeof...(Ts) > 0)
+static constexpr unsigned computeCCallSlots() { return computeCCallSlots<Ts...>() + slotsForCCallArgument<T>(); }
 
 #endif
 
@@ -62,7 +65,8 @@ struct FunctionTraits<Result(Args...)> {
 
     static constexpr std::size_t arity = sizeof...(Args);
 
-    template <std::size_t n, typename = std::enable_if_t<(n < arity)>>
+    template<std::size_t n>
+        requires (n < arity)
     using ArgumentType = typename std::tuple_element<n, std::tuple<Args...>>::type;
     using ArgumentTypes = std::tuple<Args...>;
 
@@ -76,9 +80,21 @@ struct FunctionTraits<Result(Args...)> {
 
 };
 
+#if OS(WINDOWS) && CPU(X86_64)
+template<typename Result, typename... Args>
+struct FunctionTraits<Result SYSV_ABI(Args...)> : public FunctionTraits<Result(Args...)> {
+};
+#endif
+
 template<typename Result, typename... Args>
 struct FunctionTraits<Result(*)(Args...)> : public FunctionTraits<Result(Args...)> {
 };
+
+#if OS(WINDOWS) && CPU(X86_64)
+template<typename Result, typename... Args>
+struct FunctionTraits<Result SYSV_ABI (*)(Args...)> : public FunctionTraits<Result(Args...)> {
+};
+#endif
 
 template<typename Result, typename... Args>
 struct FunctionTraits<Result(Args...) noexcept> : public FunctionTraits<Result(Args...)> {

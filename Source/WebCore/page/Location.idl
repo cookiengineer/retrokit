@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc.  All rights reserved.
+ * Copyright (C) 2008 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -38,12 +38,12 @@
     CustomPut,
     ExportMacro=WEBCORE_EXPORT,
     GenerateIsReachable=ReachableFromDOMWindow,
+    JSCustomMarkFunction,
     IsImmutablePrototypeExoticObject,
-    ImplementationLacksVTable,
     LegacyUnforgeable,
     Exposed=Window
 ] interface Location {
-    [SetterCallWith=IncumbentWindow&FirstWindow, DoNotCheckSecurityOnSetter] stringifier attribute USVString href;
+    [SetterCallWith=LegacyActiveWindowForAccessor&FirstWindow, DoNotCheckSecurityOnSetter] stringifier attribute USVString href;
 
     // FIXME: We should use IncumbentWindow once we found why https://bugs.webkit.org/show_bug.cgi?id=228943 issue occured.
     [CallWith=ActiveWindow&FirstWindow] undefined assign(USVString url);
@@ -51,15 +51,15 @@
     [CallWith=ActiveWindow] undefined reload();
 
     // URI decomposition attributes
-    [SetterCallWith=IncumbentWindow&FirstWindow] attribute USVString protocol;
-    [SetterCallWith=IncumbentWindow&FirstWindow] attribute USVString host;
-    [SetterCallWith=IncumbentWindow&FirstWindow] attribute USVString hostname;
-    [SetterCallWith=IncumbentWindow&FirstWindow] attribute USVString port;
-    [SetterCallWith=IncumbentWindow&FirstWindow] attribute USVString pathname;
-    [SetterCallWith=IncumbentWindow&FirstWindow] attribute USVString search;
-    [SetterCallWith=IncumbentWindow&FirstWindow] attribute USVString hash;
+    [SetterCallWith=LegacyActiveWindowForAccessor&FirstWindow] attribute USVString protocol;
+    [SetterCallWith=LegacyActiveWindowForAccessor&FirstWindow] attribute USVString host;
+    [SetterCallWith=LegacyActiveWindowForAccessor&FirstWindow] attribute USVString hostname;
+    [SetterCallWith=LegacyActiveWindowForAccessor&FirstWindow] attribute USVString port;
+    [SetterCallWith=LegacyActiveWindowForAccessor&FirstWindow] attribute USVString pathname;
+    [SetterCallWith=LegacyActiveWindowForAccessor&FirstWindow] attribute USVString search;
+    [SetterCallWith=LegacyActiveWindowForAccessor&FirstWindow] attribute USVString hash;
 
     readonly attribute USVString origin;
 
-    [SameObject, CachedAttribute] readonly attribute DOMStringList ancestorOrigins;
+    readonly attribute DOMStringList ancestorOrigins;
 };

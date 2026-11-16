@@ -42,7 +42,7 @@ NetworkContentRuleListManager::NetworkContentRuleListManager(NetworkProcess& net
 
 NetworkContentRuleListManager::~NetworkContentRuleListManager()
 {
-    auto pendingCallbacks = WTFMove(m_pendingCallbacks);
+    auto pendingCallbacks = WTF::move(m_pendingCallbacks);
     if (pendingCallbacks.isEmpty())
         return;
 
@@ -51,6 +51,16 @@ NetworkContentRuleListManager::~NetworkContentRuleListManager()
         for (auto& callback : callbacks)
             callback(backend);
     }
+}
+
+void NetworkContentRuleListManager::ref() const
+{
+    m_networkProcess->ref();
+}
+
+void NetworkContentRuleListManager::deref() const
+{
+    m_networkProcess->deref();
 }
 
 void NetworkContentRuleListManager::contentExtensionsBackend(UserContentControllerIdentifier identifier, BackendCallback&& callback)
@@ -62,19 +72,21 @@ void NetworkContentRuleListManager::contentExtensionsBackend(UserContentControll
     }
     m_pendingCallbacks.ensure(identifier, [] {
         return Vector<BackendCallback> { };
-    }).iterator->value.append(WTFMove(callback));
-    m_networkProcess.parentProcessConnection()->send(Messages::NetworkProcessProxy::ContentExtensionRules { identifier }, 0);
+    }).iterator->value.append(WTF::move(callback));
+    m_networkProcess->parentProcessConnection()->send(Messages::NetworkProcessProxy::ContentExtensionRules { identifier }, 0);
 }
 
-void NetworkContentRuleListManager::addContentRuleLists(UserContentControllerIdentifier identifier, Vector<std::pair<String, WebCompiledContentRuleListData>>&& contentRuleLists)
+void NetworkContentRuleListManager::addContentRuleLists(UserContentControllerIdentifier identifier, Vector<std::pair<WebCompiledContentRuleListData, URL>>&& contentRuleLists)
 {
     auto& backend = *m_contentExtensionBackends.ensure(identifier, [] {
         return makeUnique<WebCore::ContentExtensions::ContentExtensionsBackend>();
     }).iterator->value;
 
-    for (auto&& contentRuleList : contentRuleLists) {
-        auto compiledContentRuleList = WebCompiledContentRuleList::create(WTFMove(contentRuleList.second));
-        backend.addContentExtension(contentRuleList.first, WTFMove(compiledContentRuleList), ContentExtensions::ContentExtension::ShouldCompileCSS::No);
+    for (auto&& pair : contentRuleLists) {
+        auto&& contentRuleList = WTF::move(pair.first);
+        String identifier = contentRuleList.identifier;
+        if (RefPtr compiledContentRuleList = WebCompiledContentRuleList::create(WTF::move(contentRuleList)))
+            backend.addContentExtension(identifier, compiledContentRuleList.releaseNonNull(), WTF::move(pair.second), ContentExtensions::ContentExtension::ShouldCompileCSS::No);
     }
 
     auto pendingCallbacks = m_pendingCallbacks.take(identifier);

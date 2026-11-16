@@ -27,7 +27,7 @@
 
 #if ENABLE(ENCRYPTED_MEDIA)
 
-#include "CDMSessionType.h"
+#include <WebCore/CDMSessionType.h>
 #include <wtf/HashSet.h>
 
 namespace WebCore {
@@ -35,40 +35,7 @@ namespace WebCore {
 struct CDMRestrictions {
     bool distinctiveIdentifierDenied { false };
     bool persistentStateDenied { false };
-    HashSet<CDMSessionType, WTF::IntHash<CDMSessionType>, WTF::StrongEnumHashTraits<CDMSessionType>> deniedSessionTypes;
-
-    template<class Encoder>
-    void encode(Encoder& encoder) const
-    {
-        encoder << distinctiveIdentifierDenied;
-        encoder << persistentStateDenied;
-        encoder << deniedSessionTypes;
-    }
-
-    template <class Decoder>
-    static std::optional<CDMRestrictions> decode(Decoder& decoder)
-    {
-        std::optional<bool> distinctiveIdentifierDenied;
-        decoder >> distinctiveIdentifierDenied;
-        if (!distinctiveIdentifierDenied)
-            return std::nullopt;
-
-        std::optional<bool> persistentStateDenied;
-        decoder >> persistentStateDenied;
-        if (!persistentStateDenied)
-            return std::nullopt;
-
-        std::optional<HashSet<CDMSessionType, WTF::IntHash<CDMSessionType>, WTF::StrongEnumHashTraits<CDMSessionType>>> deniedSessionTypes;
-        decoder >> deniedSessionTypes;
-        if (!deniedSessionTypes)
-            return std::nullopt;
-
-        return {{
-            *distinctiveIdentifierDenied,
-            *persistentStateDenied,
-            WTFMove(*deniedSessionTypes),
-        }};
-    }
+    HashSet<CDMSessionType, IntHash<CDMSessionType>, WTF::StrongEnumHashTraits<CDMSessionType>> deniedSessionTypes;
 };
 
 } // namespace WebCore

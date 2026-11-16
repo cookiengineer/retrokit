@@ -20,8 +20,10 @@
 
 #pragma once
 
+#include <wtf/CurrentThread.h>
+#include <wtf/Function.h>
 #include <wtf/Lock.h>
-#include <wtf/Threading.h>
+#include <wtf/ThreadSanitizerSupport.h>
 
 namespace WTF {
 
@@ -44,7 +46,7 @@ template <typename T> class DataMutexLocker;
 
 template<typename T>
 class DataMutex {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(DataMutex);
     WTF_MAKE_NONCOPYABLE(DataMutex);
 public:
     template<typename ...Args>
@@ -58,7 +60,7 @@ private:
     Lock m_mutex;
     T m_data WTF_GUARDED_BY_LOCK(m_mutex);
 #if ENABLE_DATA_MUTEX_CHECKS
-    Thread* m_currentMutexHolder { nullptr };
+    uint32_t m_currentMutexHolder { 0 };
 #endif
 };
 
@@ -109,7 +111,7 @@ public:
     // Used to avoid excessive brace scoping when only small parts of the code need to be run unlocked.
     // Please be mindful that accessing the wrapped data from the callback is unsafe and will fail on assertions.
     // It's helpful to use a minimal lambda capture to be conscious of what data you're having access to in these sections.
-    void runUnlocked(const Function<void()>& callback) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
+    void runUnlocked(NOESCAPE const Function<void()>& callback) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
     {
         unlock();
         callback();
@@ -122,11 +124,11 @@ private:
 
     void lock() WTF_ACQUIRES_LOCK(m_dataMutex.m_mutex)
     {
-        DATA_MUTEX_CHECK(m_dataMutex.m_currentMutexHolder != &Thread::current()); // Thread attempted recursive lock on non-recursive lock.
+        DATA_MUTEX_CHECK(m_dataMutex.m_currentMutexHolder != currentThreadID());
         mutex().lock();
         m_isLocked = true;
 #if ENABLE_DATA_MUTEX_CHECKS
-        m_dataMutex.m_currentMutexHolder = &Thread::current();
+        m_dataMutex.m_currentMutexHolder = currentThreadID();
 #endif
     }
 
@@ -135,7 +137,7 @@ private:
         DATA_MUTEX_CHECK(mutex().isHeld());
         assertIsHeld(m_dataMutex.m_mutex);
 #if ENABLE_DATA_MUTEX_CHECKS
-        m_dataMutex.m_currentMutexHolder = nullptr;
+        m_dataMutex.m_currentMutexHolder = 0;
 #endif
         m_isLocked = false;
         mutex().unlock();

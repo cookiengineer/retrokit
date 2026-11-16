@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,8 +27,8 @@
 
 #include "ObjectPropertyCondition.h"
 #include "Watchpoint.h"
-#include <wtf/FastMalloc.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC {
 
@@ -36,15 +36,15 @@ namespace JSC {
 // https://bugs.webkit.org/show_bug.cgi?id=202381
 class AdaptiveInferredPropertyValueWatchpointBase {
     WTF_MAKE_NONCOPYABLE(AdaptiveInferredPropertyValueWatchpointBase);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(AdaptiveInferredPropertyValueWatchpointBase);
 
 public:
     AdaptiveInferredPropertyValueWatchpointBase(const ObjectPropertyCondition&);
     AdaptiveInferredPropertyValueWatchpointBase() = default;
 
-    const ObjectPropertyCondition& key() const { return m_key; }
+    const ObjectPropertyCondition& key() const LIFETIME_BOUND { return m_key; }
 
-    void initialize(const ObjectPropertyCondition&);
+    void NODELETE initialize(const ObjectPropertyCondition&);
     void install(VM&);
 
     virtual ~AdaptiveInferredPropertyValueWatchpointBase() = default;
@@ -57,8 +57,7 @@ public:
 
         void fireInternal(VM&, const FireDetail&);
     };
-    // Own destructor may not be called. Keep members trivially destructible.
-    static_assert(sizeof(StructureWatchpoint) == sizeof(Watchpoint), "");
+    static_assert(sizeof(StructureWatchpoint) == sizeof(Watchpoint));
 
     class PropertyWatchpoint final : public Watchpoint {
     public:
@@ -68,8 +67,7 @@ public:
 
         void fireInternal(VM&, const FireDetail&);
     };
-    // Own destructor may not be called. Keep members trivially destructible.
-    static_assert(sizeof(PropertyWatchpoint) == sizeof(Watchpoint), "");
+    static_assert(sizeof(PropertyWatchpoint) == sizeof(Watchpoint));
 
 protected:
     virtual bool isValid() const;

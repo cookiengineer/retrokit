@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -39,14 +39,13 @@ public:
     static Ref<MessageChannel> create(ScriptExecutionContext&);
     ~MessageChannel();
 
-    MessagePort* port1() const { return m_port1.get(); }
-    MessagePort* port2() const { return m_port2.get(); }
+    MessagePort& port1() const { return m_ports.first; }
+    MessagePort& port2() const { return m_ports.second; }
 
 private:
     explicit MessageChannel(ScriptExecutionContext&);
 
-    RefPtr<MessagePort> m_port1;
-    RefPtr<MessagePort> m_port2;
+    const std::pair<const Ref<MessagePort>, const Ref<MessagePort>> m_ports;
 };
 
 } // namespace WebCore

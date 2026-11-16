@@ -13,6 +13,7 @@
 #include <random>
 #include <sstream>
 
+#include "media/etc2bc_rgba8.inc"
 #include "test_utils/gl_raii.h"
 #include "util/shader_utils.h"
 
@@ -88,6 +89,12 @@ class TextureUploadSubImageBenchmark : public TextureUploadBenchmarkBase
     TextureUploadSubImageBenchmark() : TextureUploadBenchmarkBase("TexSubImage")
     {
         addExtensionPrerequisite("GL_EXT_texture_storage");
+
+        if (IsLinux() && IsIntel() &&
+            GetParam().eglParameters.renderer == EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE)
+        {
+            skipTest("http://anglebug.com/42264836");
+        }
     }
 
     void initializeBenchmark() override
@@ -172,16 +179,126 @@ class PBOCompressedSubImageBenchmark : public TextureUploadBenchmarkBase
     GLuint mPBO;
 };
 
+class TextureUploadETC2TranscodingBenchmark : public TextureUploadBenchmarkBase
+{
+  public:
+    TextureUploadETC2TranscodingBenchmark() : TextureUploadBenchmarkBase("ETC2Transcoding") {}
+
+    void initializeBenchmark() override
+    {
+        static GLsizei kMaxTextureSize = 2048;
+        static GLsizei kMinTextureSize = 4;
+        const auto &params             = GetParam();
+        ASSERT(params.baseSize <= kMaxTextureSize && params.baseSize >= kMinTextureSize);
+        initShaders();
+        ASSERT_GL_NO_ERROR();
+
+        glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+        glViewport(0, 0, getWindow()->getWidth(), getWindow()->getHeight());
+        ASSERT_GL_NO_ERROR();
+        mLevels               = (int)ceilf(log2(params.baseSize));
+        mTextureBaseLevelSize = 1 << (mLevels - 1);
+        // since we testing ETC texture, the minimum block size is 4.
+        mLevels -= 2;
+        ASSERT_TRUE(mLevels > 0);
+
+        mTextures.resize(params.iterationsPerStep);
+        glGenTextures(params.iterationsPerStep, mTextures.data());
+        for (unsigned int i = 0; i < params.iterationsPerStep; ++i)
+        {
+            glBindTexture(GL_TEXTURE_CUBE_MAP, mTextures[i]);
+            glTexStorage2D(GL_TEXTURE_CUBE_MAP, mLevels, GL_COMPRESSED_RGB8_ETC2,
+                           mTextureBaseLevelSize, mTextureBaseLevelSize);
+            glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        }
+        glActiveTexture(GL_TEXTURE0);
+        ASSERT_GL_NO_ERROR();
+    }
+
+    void destroyBenchmark()
+    {
+        TextureUploadBenchmarkBase::destroyBenchmark();
+        glDeleteTextures(static_cast<GLsizei>(mTextures.size()), mTextures.data());
+    }
+
+    void drawBenchmark() override;
+
+    void initShaders();
+
+  public:
+    GLsizei mTextureBaseLevelSize;
+    GLsizei mLevels;
+    std::vector<GLuint> mTextures;
+};
+
+void TextureUploadETC2TranscodingBenchmark::initShaders()
+{
+    constexpr char kVS[] = R"(#version 300 es
+in vec4 a_position;
+void main()
+{
+    gl_Position = a_position;
+})";
+
+    constexpr char kFS[] = R"(#version 300 es
+precision mediump float;
+uniform samplerCube texCube;
+out vec4 FragColor;
+void main()
+{
+    FragColor = texture(texCube, vec3(1.0f, 1.0f, 1.0f));
+})";
+
+    mProgram = CompileProgram(kVS, kFS);
+    ASSERT_NE(0u, mProgram);
+
+    mPositionLoc = glGetAttribLocation(mProgram, "a_position");
+    mSamplerLoc  = glGetUniformLocation(mProgram, "texCube");
+    glUseProgram(mProgram);
+    glUniform1i(mSamplerLoc, 0);
+
+    glDisable(GL_DEPTH_TEST);
+
+    ASSERT_GL_NO_ERROR();
+}
+
+void TextureUploadETC2TranscodingBenchmark::drawBenchmark()
+{
+    const auto &params = GetParam();
+    startGpuTimer();
+    for (unsigned int iteration = 0; iteration < params.iterationsPerStep; ++iteration)
+    {
+        glBindTexture(GL_TEXTURE_CUBE_MAP, mTextures[iteration]);
+        GLsizei size = mTextureBaseLevelSize;
+        for (GLint level = 0; level < mLevels; ++level)
+        {
+            for (GLenum face = GL_TEXTURE_CUBE_MAP_POSITIVE_X;
+                 face <= GL_TEXTURE_CUBE_MAP_NEGATIVE_Z; ++face)
+            {
+                glCompressedTexSubImage2D(face, level, 0, 0, size, size, GL_COMPRESSED_RGB8_ETC2,
+                                          size / 4 * size / 4 * 8, garden_etc2_rgba8);
+            }
+            size >>= 1;
+        }
+        // Perform a draw just so the texture data is flushed.  With the position attributes not
+        // set, a constant default value is used, resulting in a very cheap draw.
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+    }
+    stopGpuTimer();
+}
+
 TextureUploadBenchmarkBase::TextureUploadBenchmarkBase(const char *benchmarkName)
     : ANGLERenderTest(benchmarkName, GetParam())
 {
     setWebGLCompatibilityEnabled(GetParam().webgl);
     setRobustResourceInit(GetParam().webgl);
 
-    // Crashes on nvidia+d3d11. http://crbug.com/945415
     if (GetParam().getRenderer() == EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE)
     {
-        mSkipTest = true;
+        skipTest("http://crbug.com/945415 Crashes on nvidia+d3d11");
     }
 }
 
@@ -192,11 +309,6 @@ void TextureUploadBenchmarkBase::initializeBenchmark()
     initShaders();
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
     glViewport(0, 0, getWindow()->getWidth(), getWindow()->getHeight());
-
-    if (params.webgl)
-    {
-        glRequestExtensionANGLE("GL_EXT_disjoint_timer_query");
-    }
 
     glActiveTexture(GL_TEXTURE0);
     glGenTextures(1, &mTexture);
@@ -339,6 +451,14 @@ TextureUploadParams D3D11Params(bool webglCompat)
     return params;
 }
 
+TextureUploadParams MetalParams(bool webglCompat)
+{
+    TextureUploadParams params;
+    params.eglParameters = egl_platform::METAL();
+    params.webgl         = webglCompat;
+    return params;
+}
+
 TextureUploadParams OpenGLOrGLESParams(bool webglCompat)
 {
     TextureUploadParams params;
@@ -355,10 +475,38 @@ TextureUploadParams VulkanParams(bool webglCompat)
     return params;
 }
 
-TextureUploadParams VulkanPBOParams(GLsizei baseSize, GLsizei subImageSize)
+TextureUploadParams ES3VulkanParams(bool webglCompat)
 {
     TextureUploadParams params;
     params.eglParameters = egl_platform::VULKAN();
+    params.webgl         = webglCompat;
+    params.majorVersion  = 3;
+    params.minorVersion  = 0;
+    params.enable(Feature::SupportsComputeTranscodeEtcToBc);
+    params.iterationsPerStep = 16;
+    params.baseSize          = 256;
+    return params;
+}
+
+TextureUploadParams ES3MetalPBOParams(GLsizei baseSize, GLsizei subImageSize)
+{
+    TextureUploadParams params;
+    params.eglParameters = egl_platform::METAL();
+    params.majorVersion  = 3;
+    params.minorVersion  = 0;
+    params.webgl         = false;
+    params.trackGpuTime  = false;
+    params.baseSize      = baseSize;
+    params.subImageSize  = subImageSize;
+    return params;
+}
+
+TextureUploadParams ES3VulkanPBOParams(GLsizei baseSize, GLsizei subImageSize)
+{
+    TextureUploadParams params;
+    params.eglParameters = egl_platform::VULKAN();
+    params.majorVersion  = 3;
+    params.minorVersion  = 0;
     params.webgl         = false;
     params.trackGpuTime  = false;
     params.baseSize      = baseSize;
@@ -380,6 +528,12 @@ TextureUploadParams ES3OpenGLPBOParams(GLsizei baseSize, GLsizei subImageSize)
 }
 
 }  // anonymous namespace
+
+// Test etc to bc transcoding performance.
+TEST_P(TextureUploadETC2TranscodingBenchmark, Run)
+{
+    run();
+}
 
 TEST_P(TextureUploadSubImageBenchmark, Run)
 {
@@ -406,24 +560,34 @@ using namespace params;
 ANGLE_INSTANTIATE_TEST(TextureUploadSubImageBenchmark,
                        D3D11Params(false),
                        D3D11Params(true),
+                       MetalParams(false),
+                       MetalParams(true),
                        OpenGLOrGLESParams(false),
                        OpenGLOrGLESParams(true),
                        VulkanParams(false),
                        NullDevice(VulkanParams(false)),
                        VulkanParams(true));
 
+ANGLE_INSTANTIATE_TEST(TextureUploadETC2TranscodingBenchmark, ES3VulkanParams(false));
+
 ANGLE_INSTANTIATE_TEST(TextureUploadFullMipBenchmark,
                        D3D11Params(false),
                        D3D11Params(true),
+                       MetalParams(false),
+                       MetalParams(true),
                        OpenGLOrGLESParams(false),
                        OpenGLOrGLESParams(true),
                        VulkanParams(false),
                        VulkanParams(true));
 
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(PBOSubImageBenchmark);
 ANGLE_INSTANTIATE_TEST(PBOSubImageBenchmark,
                        ES3OpenGLPBOParams(1024, 128),
-                       VulkanPBOParams(1024, 128));
+                       ES3MetalPBOParams(1024, 128),
+                       ES3VulkanPBOParams(1024, 128));
 
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(PBOCompressedSubImageBenchmark);
 ANGLE_INSTANTIATE_TEST(PBOCompressedSubImageBenchmark,
                        ES3OpenGLPBOParams(128, 128),
-                       VulkanPBOParams(128, 128));
+                       ES3MetalPBOParams(128, 128),
+                       ES3VulkanPBOParams(128, 128));

@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2009-2018 Apple Inc. All rights reserved.
+ *  Copyright (C) 2009-2023 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Library General Public
@@ -179,9 +179,11 @@ namespace JSC {
     {
     }
 
-    inline ImportNode::ImportNode(const JSTokenLocation& location, ExpressionNode* expr)
+    inline ImportNode::ImportNode(const JSTokenLocation& location, ExpressionNode* expr, ExpressionNode* option, bool deferred)
         : ExpressionNode(location)
         , m_expr(expr)
+        , m_option(option)
+        , m_deferred(deferred)
     {
     }
 
@@ -249,36 +251,39 @@ namespace JSC {
     {
     }
 
+    inline PropertyNode::PropertyNode(const Identifier& name, Type type, SuperBinding superBinding, ClassElementTag tag)
+        : m_name(&name)
+        , m_type(type)
+        , m_needsSuperBinding(superBinding == SuperBinding::Needed)
+        , m_classElementTag(static_cast<unsigned>(tag))
+    {
+        ASSERT(name.impl());
+    }
+
     inline PropertyNode::PropertyNode(const Identifier& name, ExpressionNode* assign, Type type, SuperBinding superBinding, ClassElementTag tag)
         : m_name(&name)
-        , m_expression(nullptr)
         , m_assign(assign)
         , m_type(type)
         , m_needsSuperBinding(superBinding == SuperBinding::Needed)
         , m_classElementTag(static_cast<unsigned>(tag))
-        , m_isOverriddenByDuplicate(false)
     {
+        ASSERT(name.impl());
     }
     
     inline PropertyNode::PropertyNode(ExpressionNode* assign, Type type, SuperBinding superBinding, ClassElementTag tag)
-        : m_name(nullptr)
-        , m_expression(nullptr)
-        , m_assign(assign)
+        : m_assign(assign)
         , m_type(type)
         , m_needsSuperBinding(superBinding == SuperBinding::Needed)
         , m_classElementTag(static_cast<unsigned>(tag))
-        , m_isOverriddenByDuplicate(false)
     {
     }
 
     inline PropertyNode::PropertyNode(ExpressionNode* name, ExpressionNode* assign, Type type, SuperBinding superBinding, ClassElementTag tag)
-        : m_name(nullptr)
-        , m_expression(name)
+        : m_expression(name)
         , m_assign(assign)
         , m_type(type)
         , m_needsSuperBinding(superBinding == SuperBinding::Needed)
         , m_classElementTag(static_cast<unsigned>(tag))
-        , m_isOverriddenByDuplicate(false)
     {
     }
 
@@ -289,8 +294,8 @@ namespace JSC {
         , m_type(type)
         , m_needsSuperBinding(superBinding == SuperBinding::Needed)
         , m_classElementTag(static_cast<unsigned>(tag))
-        , m_isOverriddenByDuplicate(false)
     {
+        ASSERT(ident.impl());
     }
 
     inline PropertyListNode::PropertyListNode(const JSTokenLocation& location, PropertyNode* node)
@@ -397,37 +402,49 @@ namespace JSC {
     {
     }
 
-    inline FunctionCallValueNode::FunctionCallValueNode(const JSTokenLocation& location, ExpressionNode* expr, ArgumentsNode* args, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd)
+    inline FunctionCallValueNode::FunctionCallValueNode(const JSTokenLocation& location, ExpressionNode* expr, ArgumentsNode* args, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd, bool isOptionalCall)
         : ExpressionNode(location)
         , ThrowableExpressionData(divot, divotStart, divotEnd)
         , m_expr(expr)
         , m_args(args)
+        , m_isOptionalCall(isOptionalCall)
     {
         ASSERT(divot.offset >= divotStart.offset);
     }
 
-    inline FunctionCallResolveNode::FunctionCallResolveNode(const JSTokenLocation& location, const Identifier& ident, ArgumentsNode* args, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd)
+    inline StaticBlockFunctionCallNode::StaticBlockFunctionCallNode(const JSTokenLocation& location, ExpressionNode* expr, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd)
+        : ExpressionNode(location)
+        , ThrowableExpressionData(divot, divotStart, divotEnd)
+        , m_expr(expr)
+    {
+        ASSERT(divot.offset >= divotStart.offset);
+    }
+
+    inline FunctionCallResolveNode::FunctionCallResolveNode(const JSTokenLocation& location, const Identifier& ident, ArgumentsNode* args, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd, bool isOptionalCall)
         : ExpressionNode(location)
         , ThrowableExpressionData(divot, divotStart, divotEnd)
         , m_ident(ident)
         , m_args(args)
+        , m_isOptionalCall(isOptionalCall)
     {
     }
 
-    inline FunctionCallBracketNode::FunctionCallBracketNode(const JSTokenLocation& location, ExpressionNode* base, ExpressionNode* subscript, bool subscriptHasAssignments, ArgumentsNode* args, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd)
+    inline FunctionCallBracketNode::FunctionCallBracketNode(const JSTokenLocation& location, ExpressionNode* base, ExpressionNode* subscript, bool subscriptHasAssignments, ArgumentsNode* args, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd, bool isOptionalCall)
         : ExpressionNode(location)
         , ThrowableSubExpressionData(divot, divotStart, divotEnd)
         , m_base(base)
         , m_subscript(subscript)
         , m_args(args)
         , m_subscriptHasAssignments(subscriptHasAssignments)
+        , m_isOptionalCall(isOptionalCall)
     {
     }
 
-    inline FunctionCallDotNode::FunctionCallDotNode(const JSTokenLocation& location, ExpressionNode* base, const Identifier& ident, DotType type, ArgumentsNode* args, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd)
+    inline FunctionCallDotNode::FunctionCallDotNode(const JSTokenLocation& location, ExpressionNode* base, const Identifier& ident, DotType type, ArgumentsNode* args, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd, bool isOptionalCall)
         : BaseDotNode(location, base, ident, type)
         , ThrowableSubExpressionData(divot, divotStart, divotEnd)
         , m_args(args)
+        , m_isOptionalCall(isOptionalCall)
     {
     }
 
@@ -441,20 +458,20 @@ namespace JSC {
     {
     }
 
-    inline CallFunctionCallDotNode::CallFunctionCallDotNode(const JSTokenLocation& location, ExpressionNode* base, const Identifier& ident, DotType type, ArgumentsNode* args, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd, size_t distanceToInnermostCallOrApply)
-        : FunctionCallDotNode(location, base, ident, type, args, divot, divotStart, divotEnd)
+    inline CallFunctionCallDotNode::CallFunctionCallDotNode(const JSTokenLocation& location, ExpressionNode* base, const Identifier& ident, DotType type, ArgumentsNode* args, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd, bool isOptionalCall, size_t distanceToInnermostCallOrApply)
+        : FunctionCallDotNode(location, base, ident, type, args, divot, divotStart, divotEnd, isOptionalCall)
         , m_distanceToInnermostCallOrApply(distanceToInnermostCallOrApply)
     {
     }
 
-    inline ApplyFunctionCallDotNode::ApplyFunctionCallDotNode(const JSTokenLocation& location, ExpressionNode* base, const Identifier& ident, DotType type, ArgumentsNode* args, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd, size_t distanceToInnermostCallOrApply)
-        : FunctionCallDotNode(location, base, ident, type, args, divot, divotStart, divotEnd)
+    inline ApplyFunctionCallDotNode::ApplyFunctionCallDotNode(const JSTokenLocation& location, ExpressionNode* base, const Identifier& ident, DotType type, ArgumentsNode* args, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd, bool isOptionalCall, size_t distanceToInnermostCallOrApply)
+        : FunctionCallDotNode(location, base, ident, type, args, divot, divotStart, divotEnd, isOptionalCall)
         , m_distanceToInnermostCallOrApply(distanceToInnermostCallOrApply)
     {
     }
 
-    inline HasOwnPropertyFunctionCallDotNode::HasOwnPropertyFunctionCallDotNode(const JSTokenLocation& location, ExpressionNode* base, const Identifier& ident, DotType type, ArgumentsNode* args, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd)
-        : FunctionCallDotNode(location, base, ident, type, args, divot, divotStart, divotEnd)
+    inline HasOwnPropertyFunctionCallDotNode::HasOwnPropertyFunctionCallDotNode(const JSTokenLocation& location, ExpressionNode* base, const Identifier& ident, DotType type, ArgumentsNode* args, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd, bool isOptionalCall)
+        : FunctionCallDotNode(location, base, ident, type, args, divot, divotStart, divotEnd, isOptionalCall)
     {
     }
 
@@ -498,8 +515,9 @@ namespace JSC {
     {
     }
 
-    inline TypeOfResolveNode::TypeOfResolveNode(const JSTokenLocation& location, const Identifier& ident)
+    inline TypeOfResolveNode::TypeOfResolveNode(const JSTokenLocation& location, const Identifier& ident, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd)
         : ExpressionNode(location, ResultType::stringType())
+        , ThrowableExpressionData(divot, divotStart, divotEnd)
         , m_ident(ident)
     {
     }
@@ -798,20 +816,19 @@ namespace JSC {
     {
     }
 
-    inline ShortCircuitReadModifyDotNode::ShortCircuitReadModifyDotNode(const JSTokenLocation& location, ExpressionNode* base, const Identifier& ident, Operator oper, ExpressionNode* right, bool rightHasAssignments, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd)
-        : ExpressionNode(location)
+    inline ShortCircuitReadModifyDotNode::ShortCircuitReadModifyDotNode(const JSTokenLocation& location, ExpressionNode* base, const Identifier& ident, DotType type, Operator oper, ExpressionNode* right, bool rightHasAssignments, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd)
+        : BaseDotNode(location, base, ident, type)
         , ThrowableSubExpressionData(divot, divotStart, divotEnd)
-        , m_base(base)
-        , m_ident(ident)
         , m_right(right)
         , m_operator(oper)
         , m_rightHasAssignments(rightHasAssignments)
     {
     }
 
-    inline AssignErrorNode::AssignErrorNode(const JSTokenLocation& location, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd)
+    inline AssignErrorNode::AssignErrorNode(const JSTokenLocation& location, ExpressionNode* left, const JSTextPosition& divot, const JSTextPosition& divotStart, const JSTextPosition& divotEnd)
         : ExpressionNode(location)
         , ThrowableExpressionData(divot, divotStart, divotEnd)
+        , m_left(left)
     {
     }
 
@@ -839,14 +856,12 @@ namespace JSC {
         : StatementNode(location)
         , m_expr(expr)
     {
-        m_expr->setIsOnlyChildOfStatement();
     }
 
     inline DeclarationStatement::DeclarationStatement(const JSTokenLocation& location, ExpressionNode* expr)
         : StatementNode(location)
         , m_expr(expr)
     {
-        m_expr->setIsOnlyChildOfStatement();
     }
 
     inline ModuleDeclarationNode::ModuleDeclarationNode(const JSTokenLocation& location)
@@ -867,16 +882,19 @@ namespace JSC {
     {
     }
 
-    inline ImportDeclarationNode::ImportDeclarationNode(const JSTokenLocation& location, ImportSpecifierListNode* importSpecifierList, ModuleNameNode* moduleName)
+    inline ImportDeclarationNode::ImportDeclarationNode(const JSTokenLocation& location, ImportType type, ImportSpecifierListNode* importSpecifierList, ModuleNameNode* moduleName, ImportAttributesListNode* importAttributesList)
         : ModuleDeclarationNode(location)
         , m_specifierList(importSpecifierList)
         , m_moduleName(moduleName)
+        , m_attributesList(importAttributesList)
+        , m_type(type)
     {
     }
 
-    inline ExportAllDeclarationNode::ExportAllDeclarationNode(const JSTokenLocation& location, ModuleNameNode* moduleName)
+    inline ExportAllDeclarationNode::ExportAllDeclarationNode(const JSTokenLocation& location, ModuleNameNode* moduleName, ImportAttributesListNode* importAttributesList)
         : ModuleDeclarationNode(location)
         , m_moduleName(moduleName)
+        , m_attributesList(importAttributesList)
     {
     }
 
@@ -893,10 +911,11 @@ namespace JSC {
     {
     }
 
-    inline ExportNamedDeclarationNode::ExportNamedDeclarationNode(const JSTokenLocation& location, ExportSpecifierListNode* exportSpecifierList, ModuleNameNode* moduleName)
+    inline ExportNamedDeclarationNode::ExportNamedDeclarationNode(const JSTokenLocation& location, ExportSpecifierListNode* exportSpecifierList, ModuleNameNode* moduleName, ImportAttributesListNode* importAttributesList)
         : ModuleDeclarationNode(location)
         , m_specifierList(exportSpecifierList)
         , m_moduleName(moduleName)
+        , m_attributesList(importAttributesList)
     {
     }
 
@@ -941,13 +960,14 @@ namespace JSC {
     {
     }
 
-    inline ForNode::ForNode(const JSTokenLocation& location, ExpressionNode* expr1, ExpressionNode* expr2, ExpressionNode* expr3, StatementNode* statement, VariableEnvironment&& lexicalVariables)
+    inline ForNode::ForNode(const JSTokenLocation& location, ExpressionNode* expr1, ExpressionNode* expr2, ExpressionNode* expr3, StatementNode* statement, VariableEnvironment&& lexicalVariables, bool initializerContainsClosure)
         : StatementNode(location)
-        , VariableEnvironmentNode(WTFMove(lexicalVariables))
+        , VariableEnvironmentNode(WTF::move(lexicalVariables))
         , m_expr1(expr1)
         , m_expr2(expr2)
         , m_expr3(expr3)
         , m_statement(statement)
+        , m_initializerContainsClosure(initializerContainsClosure)
     {
         ASSERT(statement);
     }
@@ -968,8 +988,6 @@ namespace JSC {
         : StatementNode(location)
         , m_value(value)
     {
-        if (m_value)
-            m_value->setIsOnlyChildOfStatement();
     }
 
     inline WithNode::WithNode(const JSTokenLocation& location, ExpressionNode* expr, StatementNode* statement, const JSTextPosition& divot, uint32_t expressionLength)
@@ -992,12 +1010,11 @@ namespace JSC {
         : StatementNode(location)
         , m_expr(expr)
     {
-        m_expr->setIsOnlyChildOfStatement();
     }
 
     inline TryNode::TryNode(const JSTokenLocation& location, StatementNode* tryBlock, DestructuringPatternNode* catchPattern, StatementNode* catchBlock, VariableEnvironment&& catchEnvironment, StatementNode* finallyBlock)
         : StatementNode(location)
-        , VariableEnvironmentNode(WTFMove(catchEnvironment))
+        , VariableEnvironmentNode(WTF::move(catchEnvironment))
         , m_tryBlock(tryBlock)
         , m_catchPattern(catchPattern)
         , m_catchBlock(catchBlock)
@@ -1057,7 +1074,7 @@ namespace JSC {
     {
     }
 
-    inline DefineFieldNode::DefineFieldNode(const JSTokenLocation& location, const Identifier* ident, ExpressionNode* assign, Type type)
+    inline DefineFieldNode::DefineFieldNode(const JSTokenLocation& location, const Identifier& ident, ExpressionNode* assign, Type type)
         : StatementNode(location)
         , m_ident(ident)
         , m_assign(assign)
@@ -1073,8 +1090,8 @@ namespace JSC {
 
     inline ClassExprNode::ClassExprNode(const JSTokenLocation& location, const Identifier& name, const SourceCode& classSource, VariableEnvironment&& classHeadEnvironment, VariableEnvironment&& classEnvironment, ExpressionNode* constructorExpression, ExpressionNode* classHeritage, PropertyListNode* classElements)
         : ExpressionNode(location)
-        , VariableEnvironmentNode(WTFMove(classEnvironment))
-        , m_classHeadEnvironment(WTFMove(classHeadEnvironment))
+        , VariableEnvironmentNode(WTF::move(classEnvironment))
+        , m_classHeadEnvironment(WTF::move(classHeadEnvironment))
         , m_classSource(classSource)
         , m_name(name)
         , m_ecmaName(&name)
@@ -1111,7 +1128,7 @@ namespace JSC {
 
     inline SwitchNode::SwitchNode(const JSTokenLocation& location, ExpressionNode* expr, CaseBlockNode* block, VariableEnvironment&& lexicalVariables, FunctionStack&& functionStack)
         : StatementNode(location)
-        , VariableEnvironmentNode(WTFMove(lexicalVariables), WTFMove(functionStack))
+        , VariableEnvironmentNode(WTF::move(lexicalVariables), WTF::move(functionStack))
         , m_expr(expr)
         , m_block(block)
     {
@@ -1119,14 +1136,14 @@ namespace JSC {
 
     inline BlockNode::BlockNode(const JSTokenLocation& location, SourceElements* statements, VariableEnvironment&& lexicalVariables, FunctionStack&& functionStack)
         : StatementNode(location)
-        , VariableEnvironmentNode(WTFMove(lexicalVariables), WTFMove(functionStack))
+        , VariableEnvironmentNode(WTF::move(lexicalVariables), WTF::move(functionStack))
         , m_statements(statements)
     {
     }
 
     inline EnumerationNode::EnumerationNode(const JSTokenLocation& location, ExpressionNode* lexpr, ExpressionNode* expr, StatementNode* statement, VariableEnvironment&& lexicalVariables)
         : StatementNode(location)
-        , VariableEnvironmentNode(WTFMove(lexicalVariables))
+        , VariableEnvironmentNode(WTF::move(lexicalVariables))
         , m_lexpr(lexpr)
         , m_expr(expr)
         , m_statement(statement)
@@ -1135,12 +1152,12 @@ namespace JSC {
     }
     
     inline ForInNode::ForInNode(const JSTokenLocation& location, ExpressionNode* lexpr, ExpressionNode* expr, StatementNode* statement, VariableEnvironment&& lexicalVariables)
-        : EnumerationNode(location, lexpr, expr, statement, WTFMove(lexicalVariables))
+        : EnumerationNode(location, lexpr, expr, statement, WTF::move(lexicalVariables))
     {
     }
     
     inline ForOfNode::ForOfNode(bool isForAwait, const JSTokenLocation& location, ExpressionNode* lexpr, ExpressionNode* expr, StatementNode* statement, VariableEnvironment&& lexicalVariables)
-        : EnumerationNode(location, lexpr, expr, statement, WTFMove(lexicalVariables))
+        : EnumerationNode(location, lexpr, expr, statement, WTF::move(lexicalVariables))
         , m_isForAwait(isForAwait)
     {
     }

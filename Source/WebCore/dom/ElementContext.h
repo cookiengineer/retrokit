@@ -25,69 +25,30 @@
 
 #pragma once
 
-#include "DocumentIdentifier.h"
-#include "ElementIdentifier.h"
-#include "FloatRect.h"
-#include "PageIdentifier.h"
+#include <WebCore/FloatRect.h>
+#include <WebCore/NodeIdentifier.h>
+#include <WebCore/PageIdentifier.h>
+#include <WebCore/ProcessQualified.h>
+#include <WebCore/ScriptExecutionContextIdentifier.h>
+#include <wtf/ObjectIdentifier.h>
 
 namespace WebCore {
 
 struct ElementContext {
     FloatRect boundingRect;
 
-    PageIdentifier webPageIdentifier;
-    DocumentIdentifier documentIdentifier;
-    ElementIdentifier elementIdentifier;
-
-    ~ElementContext() = default;
+    Markable<PageIdentifier> webPageIdentifier;
+    Markable<ScriptExecutionContextIdentifier> documentIdentifier;
+    Markable<NodeIdentifier> nodeIdentifier;
 
     bool isSameElement(const ElementContext& other) const
     {
-        return webPageIdentifier == other.webPageIdentifier && documentIdentifier == other.documentIdentifier && elementIdentifier == other.elementIdentifier;
+        return webPageIdentifier == other.webPageIdentifier && documentIdentifier == other.documentIdentifier && nodeIdentifier == other.nodeIdentifier;
     }
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<ElementContext> decode(Decoder&);
 };
 
 inline bool operator==(const ElementContext& a, const ElementContext& b)
 {
     return a.boundingRect == b.boundingRect && a.isSameElement(b);
 }
-
-template<class Encoder>
-void ElementContext::encode(Encoder& encoder) const
-{
-    encoder << boundingRect;
-    encoder << webPageIdentifier;
-    encoder << documentIdentifier;
-    encoder << elementIdentifier;
-}
-
-template<class Decoder>
-std::optional<ElementContext> ElementContext::decode(Decoder& decoder)
-{
-    ElementContext context;
-
-    if (!decoder.decode(context.boundingRect))
-        return std::nullopt;
-
-    auto pageIdentifier = PageIdentifier::decode(decoder);
-    if (!pageIdentifier)
-        return std::nullopt;
-    context.webPageIdentifier = *pageIdentifier;
-
-    auto documentIdentifier = DocumentIdentifier::decode(decoder);
-    if (!documentIdentifier)
-        return std::nullopt;
-    context.documentIdentifier = *documentIdentifier;
-
-    auto elementIdentifier = ElementIdentifier::decode(decoder);
-    if (!elementIdentifier)
-        return std::nullopt;
-    context.elementIdentifier = *elementIdentifier;
-
-    return context;
-}
-
 }

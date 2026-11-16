@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc.  All rights reserved.
+ * Copyright (C) 2020-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,72 +27,103 @@
 
 #if ENABLE(GPU_PROCESS)
 
+#include "RemoteDisplayListIdentifier.h"
+#include "RemoteGradientIdentifier.h"
+#include "RemotePathImplIdentifier.h"
 #include "RenderingUpdateID.h"
+#include <WebCore/FilterFunction.h>
+#include <WebCore/Gradient.h>
 #include <WebCore/NativeImage.h>
-#include <WebCore/RenderingResourceIdentifier.h>
+#include <WebCore/ShareableBitmap.h>
+#include <wtf/CheckedPtr.h>
 #include <wtf/HashMap.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/UniqueRef.h>
 
 namespace WebCore {
+class Filter;
 class Font;
-class ImageBuffer;
+struct FontCustomPlatformData;
 }
 
 namespace WebKit {
 
+class RemoteImageBufferProxy;
+class RemoteNativeImageProxy;
 class RemoteRenderingBackendProxy;
 
-class RemoteResourceCacheProxy : public WebCore::NativeImage::Observer {
+class RemoteResourceCacheProxy final : private WebCore::RenderingResourceObserver,  public CanMakeCheckedPtr<RemoteResourceCacheProxy> {
+    WTF_MAKE_TZONE_ALLOCATED(RemoteResourceCacheProxy);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RemoteResourceCacheProxy);
+
 public:
-    RemoteResourceCacheProxy(RemoteRenderingBackendProxy&);
+    using WeakValueType = RemoteResourceCacheProxy;
+    static UniqueRef<RemoteResourceCacheProxy> create(RemoteRenderingBackendProxy&);
     ~RemoteResourceCacheProxy();
 
-    void cacheImageBuffer(WebCore::ImageBuffer&);
-    WebCore::ImageBuffer* cachedImageBuffer(WebCore::RenderingResourceIdentifier);
-    void releaseImageBuffer(WebCore::RenderingResourceIdentifier);
+    Ref<RemoteNativeImageProxy> createNativeImage(const WebCore::IntSize&, WebCore::PlatformColorSpace&&, bool hasAlpha);
 
-    void recordNativeImageUse(WebCore::NativeImage&);
+    [[nodiscard]] bool recordNativeImageUse(const WebCore::NativeImage&, const WebCore::DestinationColorSpace&);
+    RemotePathImplIdentifier recordPathImplUse(const WebCore::PathImpl&);
     void recordFontUse(WebCore::Font&);
-    void recordImageBufferUse(WebCore::ImageBuffer&);
+    RemoteGradientIdentifier recordGradientUse(WebCore::Gradient&);
+    void recordFilterUse(WebCore::Filter&);
+    void recordFontCustomPlatformDataUse(const WebCore::FontCustomPlatformData&);
+    RemoteDisplayListIdentifier recordDisplayListUse(const WebCore::DisplayList::DisplayList&);
+    void didPaintLayers();
 
-    void finalizeRenderingUpdate();
-
-    void remoteResourceCacheWasDestroyed();
-    void releaseAllRemoteFonts();
+    void disconnect();
     void releaseMemory();
 
+    void willDestroyRemoteNativeImageProxy(const RemoteNativeImageProxy&);
+    WebCore::PlatformImagePtr platformImage(const RemoteNativeImageProxy&);
+
+    // CheckedPtr interface.
+    uint32_t checkedPtrCount() const final { return CanMakeCheckedPtr::checkedPtrCount(); }
+    uint32_t checkedPtrCountWithoutThreadCheck() const final { return CanMakeCheckedPtr::checkedPtrCountWithoutThreadCheck(); }
+    void incrementCheckedPtrCount() const final { CanMakeCheckedPtr::incrementCheckedPtrCount(); }
+    void decrementCheckedPtrCount() const final { CanMakeCheckedPtr::decrementCheckedPtrCount(); }
+    void setDidBeginCheckedPtrDeletion() final { CanMakeCheckedPtr::setDidBeginCheckedPtrDeletion(); }
+
+    unsigned nativeImageCountForTesting() const { return m_nativeImages.size(); }
+
 private:
-    struct ImageBufferState {
-        WeakPtr<WebCore::ImageBuffer> imageBuffer;
-        uint64_t useCount;
-    };
-    using ImageBufferHashMap = HashMap<WebCore::RenderingResourceIdentifier, ImageBufferState>;
+    RemoteResourceCacheProxy(RemoteRenderingBackendProxy&);
 
-    struct NativeImageState {
-        WeakPtr<WebCore::NativeImage> image;
-        uint64_t useCount;
-    };
-    using NativeImageHashMap = HashMap<WebCore::RenderingResourceIdentifier, NativeImageState>;
-
-    struct FontState {
-        RenderingUpdateID lastRenderingUpdateVersionUsedWithin;
-        uint64_t useCount;
-    };
-    using FontHashMap = HashMap<WebCore::RenderingResourceIdentifier, FontState>;
-    
-    void releaseNativeImage(WebCore::RenderingResourceIdentifier) override;
-    void clearNativeImageMap();
+    // WebCore::RenderingResourceObserver overrides.
+    void willDestroyNativeImage(const WebCore::NativeImage&) override;
+    void willDestroyGradient(const WebCore::Gradient&) override;
+    void willDestroyPathImpl(const WebCore::PathImpl&) override;
+    void willDestroyFilter(WebCore::RenderingResourceIdentifier) override;
+    void willDestroyDisplayList(const WebCore::DisplayList::DisplayList&) override;
 
     void finalizeRenderingUpdateForFonts();
-    void prepareForNextRenderingUpdate();
-    void clearFontMap();
+    void NODELETE prepareForNextRenderingUpdate();
+    void releaseFonts();
+    void releaseFontCustomPlatformDatas();
 
-    ImageBufferHashMap m_imageBuffers;
-    NativeImageHashMap m_nativeImages;
+    struct NativeImageEntry {
+        RefPtr<WebCore::ShareableBitmap> bitmap; // Reused across GPUP crashes, held through the associated NativeImage lifetime.
+        bool existsInRemote = true;
+    };
+    HashMap<CheckedPtr<const WebCore::NativeImage>, NativeImageEntry> m_nativeImages;
+    HashMap<CheckedPtr<const WebCore::Gradient>, RemoteGradientIdentifier> m_gradients;
+    HashMap<CheckedPtr<const WebCore::PathImpl>, RemotePathImplIdentifier> m_paths;
+    HashSet<WebCore::RenderingResourceIdentifier> m_filters;
+    HashMap<CheckedPtr<const WebCore::DisplayList::DisplayList>, RemoteDisplayListIdentifier> m_displayLists;
+    WeakPtrFactory<WebCore::RenderingResourceObserver> m_resourceObserverWeakFactory;
+    WeakPtrFactory<WebCore::RenderingResourceObserver> m_nativeImageResourceObserverWeakFactory;
+    WeakPtrFactory<RemoteResourceCacheProxy> m_remoteNativeImageProxyWeakFactory;
+
+    using FontHashMap = HashMap<WebCore::RenderingResourceIdentifier, uint64_t>;
     FontHashMap m_fonts;
+    FontHashMap m_fontCustomPlatformDatas;
 
     unsigned m_numberOfFontsUsedInCurrentRenderingUpdate { 0 };
+    unsigned m_numberOfFontCustomPlatformDatasUsedInCurrentRenderingUpdate { 0 };
 
-    RemoteRenderingBackendProxy& m_remoteRenderingBackendProxy;
+    const CheckedRef<RemoteRenderingBackendProxy> m_remoteRenderingBackendProxy;
+    uint64_t m_renderingUpdateID;
 };
 
 } // namespace WebKit

@@ -34,6 +34,7 @@ WHICH GENERATES THE GLSL ES preprocessor expression parser.
 #endif
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wunreachable-code"
+#pragma clang diagnostic ignored "-Wunused-but-set-variable"
 #endif
 
 #include "ExpressionParser.h"
@@ -83,8 +84,8 @@ struct Context
 }  // namespace
 %}
 
-%pure-parser
-%name-prefix "pp"
+%define api.pure
+%define api.prefix {pp}
 %parse-param {Context *context}
 %lex-param {Context *context}
 
@@ -207,8 +208,7 @@ expression
                 stream << $1 << " >> " << $3;
                 std::string text = stream.str();
                 context->diagnostics->report(angle::pp::Diagnostics::PP_UNDEFINED_SHIFT,
-                                             context->token->location,
-                                             text.c_str());
+                                             context->token->location, text);
                 *(context->valid) = false;
             }
             $$ = static_cast<YYSTYPE>(0);
@@ -232,8 +232,7 @@ expression
                 stream << $1 << " << " << $3;
                 std::string text = stream.str();
                 context->diagnostics->report(angle::pp::Diagnostics::PP_UNDEFINED_SHIFT,
-                                             context->token->location,
-                                             text.c_str());
+                                             context->token->location, text);
                 *(context->valid) = false;
             }
             $$ = static_cast<YYSTYPE>(0);
@@ -260,8 +259,7 @@ expression
                 stream << $1 << " % " << $3;
                 std::string text = stream.str();
                 context->diagnostics->report(angle::pp::Diagnostics::PP_DIVISION_BY_ZERO,
-                                             context->token->location,
-                                             text.c_str());
+                                             context->token->location, text);
                 *(context->valid) = false;
             }
             $$ = static_cast<YYSTYPE>(0);
@@ -286,8 +284,7 @@ expression
                 stream << $1 << " / " << $3;
                 std::string text = stream.str();
                 context->diagnostics->report(angle::pp::Diagnostics::PP_DIVISION_BY_ZERO,
-                                            context->token->location,
-                                            text.c_str());
+                                            context->token->location, text);
                 *(context->valid) = false;
             }
             $$ = static_cast<YYSTYPE>(0);

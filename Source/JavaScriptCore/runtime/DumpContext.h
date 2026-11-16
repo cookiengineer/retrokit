@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "Structure.h"
+#include <JavaScriptCore/Structure.h>
 #include <wtf/PrintStream.h>
 #include <wtf/StringHashDumpContext.h>
 
@@ -37,7 +37,7 @@ struct DumpContext {
     DumpContext();
     ~DumpContext();
     
-    bool isEmpty() const;
+    bool NODELETE isEmpty() const;
     
     void dump(PrintStream&, const char* prefix = "") const;
     

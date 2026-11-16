@@ -25,103 +25,21 @@
 
 #pragma once
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
-#include <WebCore/AudioTrackPrivate.h>
-#include <WebCore/VideoTrackPrivate.h>
+#include <WebCore/TrackBase.h>
 #include <wtf/MediaTime.h>
 
 namespace WebKit {
 
 struct TrackPrivateRemoteConfiguration {
-    AtomString trackId;
-    AtomString label;
-    AtomString language;
+    WebCore::TrackID trackId;
+    String label;
+    String language;
     MediaTime startTimeVariance { MediaTime::zeroTime() };
     int trackIndex;
-
-    bool enabled;
-    WebCore::AudioTrackPrivate::Kind audioKind { WebCore::AudioTrackPrivate::Kind::None };
-
-    bool selected;
-    WebCore::VideoTrackPrivate::Kind videoKind { WebCore::VideoTrackPrivate::Kind::None };
-
-    template<class Encoder>
-    void encode(Encoder& encoder) const
-    {
-        encoder << trackId;
-        encoder << label;
-        encoder << language;
-        encoder << startTimeVariance;
-        encoder << trackIndex;
-        encoder << enabled;
-        encoder << audioKind;
-        encoder << selected;
-        encoder << videoKind;
-    }
-
-    template <class Decoder>
-    static std::optional<TrackPrivateRemoteConfiguration> decode(Decoder& decoder)
-    {
-        std::optional<AtomString> trackId;
-        decoder >> trackId;
-        if (!trackId)
-            return std::nullopt;
-
-        std::optional<AtomString> label;
-        decoder >> label;
-        if (!label)
-            return std::nullopt;
-
-        std::optional<AtomString> language;
-        decoder >> language;
-        if (!language)
-            return std::nullopt;
-
-        std::optional<MediaTime> startTimeVariance;
-        decoder >> startTimeVariance;
-        if (!startTimeVariance)
-            return std::nullopt;
-
-        std::optional<int> trackIndex;
-        decoder >> trackIndex;
-        if (!trackIndex)
-            return std::nullopt;
-
-        std::optional<bool> enabled;
-        decoder >> enabled;
-        if (!enabled)
-            return std::nullopt;
-
-        std::optional<WebCore::AudioTrackPrivate::Kind> audioKind;
-        decoder >> audioKind;
-        if (!audioKind)
-            return std::nullopt;
-
-        std::optional<bool> selected;
-        decoder >> selected;
-        if (!selected)
-            return std::nullopt;
-
-        std::optional<WebCore::VideoTrackPrivate::Kind> videoKind;
-        decoder >> videoKind;
-        if (!videoKind)
-            return std::nullopt;
-
-        return {{
-            WTFMove(*trackId),
-            WTFMove(*label),
-            WTFMove(*language),
-            WTFMove(*startTimeVariance),
-            *trackIndex,
-            *enabled,
-            *audioKind,
-            *selected,
-            *videoKind,
-        }};
-    }
 };
 
 } // namespace WebKit
 
-#endif
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,23 +32,27 @@
 
 #if ENABLE(MEDIA_STREAM)
 
-#include "ImageBuffer.h"
-#include "MockMediaDevice.h"
-#include "RealtimeMediaSourceFactory.h"
+#include <WebCore/ImageBuffer.h>
+#include <WebCore/MockMediaDevice.h>
+#include <WebCore/RealtimeMediaSourceFactory.h>
 #include <wtf/RunLoop.h>
 #include <wtf/WorkQueue.h>
 
 namespace WebCore {
 
-class MockRealtimeAudioSource : public RealtimeMediaSource {
+class MockRealtimeAudioSource : public RealtimeMediaSource, public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<MockRealtimeAudioSource, WTF::DestructionThread::MainRunLoop> {
 public:
-    static CaptureSourceOrError create(String&& deviceID, String&& name, String&& hashSalt, const MediaConstraints*);
+    static CaptureSourceOrError create(String&& deviceID, AtomString&& name, MediaDeviceHashSalts&&, const MediaConstraints*, std::optional<PageIdentifier>);
     virtual ~MockRealtimeAudioSource();
+
+    static void setIsInterrupted(bool);
 
     WEBCORE_EXPORT void setChannelCount(unsigned);
 
+    WTF_ABSTRACT_THREAD_SAFE_REF_COUNTED_AND_CAN_MAKE_WEAK_PTR_IMPL;
+
 protected:
-    MockRealtimeAudioSource(String&& deviceID, String&& name, String&& hashSalt);
+    MockRealtimeAudioSource(String&& deviceID, AtomString&& name, MediaDeviceHashSalts&&, std::optional<PageIdentifier>);
 
     virtual void render(Seconds) = 0;
     void settingsDidChange(OptionSet<RealtimeMediaSourceSettings::Flag>) override;
@@ -56,11 +60,13 @@ protected:
     static Seconds renderInterval() { return 60_ms; }
 
 private:
+    friend class MockRealtimeAudioSourceGStreamer;
+
     const RealtimeMediaSourceCapabilities& capabilities() final;
     const RealtimeMediaSourceSettings& settings() final;
 
-    void startProducingData() final;
-    void stopProducingData() final;
+    void startProducingData() override;
+    void stopProducingData() override;
 
     bool isCaptureSource() const final { return true; }
     CaptureDevice::DeviceType deviceType() const final { return CaptureDevice::DeviceType::Microphone; }
@@ -71,7 +77,7 @@ private:
     void tick();
 
 protected:
-    Ref<WorkQueue> m_workQueue;
+    const Ref<WorkQueue> m_workQueue;
     unsigned m_channelCount { 2 };
 
 private:
@@ -79,7 +85,7 @@ private:
     std::optional<RealtimeMediaSourceSettings> m_currentSettings;
     RealtimeMediaSourceSupportedConstraints m_supportedConstraints;
 
-    RunLoop::Timer<MockRealtimeAudioSource> m_timer;
+    RunLoop::Timer m_timer;
     MonotonicTime m_startTime { MonotonicTime::nan() };
     MonotonicTime m_lastRenderTime { MonotonicTime::nan() };
     Seconds m_elapsedTime { 0_s };

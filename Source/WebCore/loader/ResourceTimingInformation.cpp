@@ -27,14 +27,17 @@
 #include "ResourceTimingInformation.h"
 
 #include "CachedResource.h"
-#include "DOMWindow.h"
-#include "Document.h"
-#include "Frame.h"
+#include "DocumentSecurityOrigin.h"
+#include "DocumentView.h"
+#include "FrameDestructionObserverInlines.h"
+#include "FrameInlines.h"
 #include "FrameLoader.h"
 #include "HTMLFrameOwnerElement.h"
+#include "LocalDOMWindow.h"
+#include "LocalFrame.h"
 #include "Performance.h"
 #include "ResourceTiming.h"
-#include "RuntimeEnabledFeatures.h"
+#include "SecurityOrigin.h"
 
 namespace WebCore {
 
@@ -45,12 +48,22 @@ bool ResourceTimingInformation::shouldAddResourceTiming(CachedResource& resource
         && resource.options().loadedFromOpaqueSource == LoadedFromOpaqueSource::No;
 }
 
+void ResourceTimingInformation::addResourceTimingToDocument(Document& document, ResourceTiming&& resourceTiming)
+{
+    RefPtr window = document.window();
+    if (!window)
+        return;
+
+    resourceTiming.updateExposure(protect(document.securityOrigin()));
+    protect(window->performance())->addResourceTiming(WTF::move(resourceTiming));
+}
+
 void ResourceTimingInformation::addResourceTiming(CachedResource& resource, Document& document, ResourceTiming&& resourceTiming)
 {
     if (!ResourceTimingInformation::shouldAddResourceTiming(resource))
         return;
 
-    auto iterator = m_initiatorMap.find(&resource);
+    auto iterator = m_initiatorMap.find(resource);
     if (iterator == m_initiatorMap.end())
         return;
 
@@ -58,42 +71,43 @@ void ResourceTimingInformation::addResourceTiming(CachedResource& resource, Docu
     if (info.added == Added)
         return;
 
-    Document* initiatorDocument = &document;
-    if (resource.type() == CachedResource::Type::MainResource && document.frame() && document.frame()->loader().shouldReportResourceTimingToParentFrame())
+    RefPtr initiatorDocument = &document;
+    if (resource.type() == CachedResource::Type::MainResource && document.frame() && document.frame()->loader().shouldReportResourceTimingToParentFrame()) {
         initiatorDocument = document.parentDocument();
+        if (initiatorDocument)
+            resourceTiming.updateExposure(protect(initiatorDocument->securityOrigin()));
+    }
     if (!initiatorDocument)
         return;
 
-    auto* initiatorWindow = initiatorDocument->domWindow();
+    RefPtr initiatorWindow = initiatorDocument->window();
     if (!initiatorWindow)
         return;
 
-    resourceTiming.overrideInitiatorName(info.name);
+    resourceTiming.overrideInitiatorType(info.type);
 
-    initiatorWindow->performance().addResourceTiming(WTFMove(resourceTiming));
+    protect(initiatorWindow->performance())->addResourceTiming(WTF::move(resourceTiming));
 
     info.added = Added;
 }
 
 void ResourceTimingInformation::removeResourceTiming(CachedResource& resource)
 {
-    m_initiatorMap.remove(&resource);
+    m_initiatorMap.remove(resource);
 }
 
-void ResourceTimingInformation::storeResourceTimingInitiatorInformation(const CachedResourceHandle<CachedResource>& resource, const AtomString& initiatorName, Frame* frame)
+void ResourceTimingInformation::storeResourceTimingInitiatorInformation(CachedResource& resource, const AtomString& initiatorType, LocalFrame* frame)
 {
-    ASSERT(resource.get());
-
-    if (resource->type() == CachedResource::Type::MainResource) {
+    if (resource.type() == CachedResource::Type::MainResource) {
         // <iframe>s should report the initial navigation requested by the parent document, but not subsequent navigations.
         ASSERT(frame);
         if (frame->ownerElement()) {
             InitiatorInfo info = { frame->ownerElement()->localName(), NotYetAdded };
-            m_initiatorMap.add(resource.get(), info);
+            m_initiatorMap.add(resource, info);
         }
     } else {
-        InitiatorInfo info = { initiatorName, NotYetAdded };
-        m_initiatorMap.add(resource.get(), info);
+        InitiatorInfo info = { initiatorType, NotYetAdded };
+        m_initiatorMap.add(resource, info);
     }
 }
 

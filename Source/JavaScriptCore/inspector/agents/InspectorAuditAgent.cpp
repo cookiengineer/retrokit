@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,24 +31,28 @@
 #include "JSLock.h"
 #include "ObjectConstructor.h"
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/Vector.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/WTFString.h>
 
 namespace Inspector {
 
 using namespace JSC;
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(InspectorAuditAgent);
+
 InspectorAuditAgent::InspectorAuditAgent(AgentContext& context)
     : InspectorAgentBase("Audit"_s)
     , m_backendDispatcher(AuditBackendDispatcher::create(context.backendDispatcher, this))
     , m_injectedScriptManager(context.injectedScriptManager)
-    , m_debugger(context.environment.debugger())
+    , m_debugger(CheckedRef { context.environment }->debugger())
 {
 }
 
 InspectorAuditAgent::~InspectorAuditAgent() = default;
 
-void InspectorAuditAgent::didCreateFrontendAndBackend(FrontendRouter*, BackendDispatcher*)
+void InspectorAuditAgent::didCreateFrontendAndBackend()
 {
 }
 
@@ -63,7 +67,7 @@ Protocol::ErrorStringOr<void> InspectorAuditAgent::setup(std::optional<Protocol:
     if (hasActiveAudit())
         return makeUnexpected("Must call teardown before calling setup again"_s);
 
-    InjectedScript injectedScript = injectedScriptForEval(errorString, WTFMove(executionContextId));
+    InjectedScript injectedScript = injectedScriptForEval(errorString, WTF::move(executionContextId));
     if (injectedScript.hasNoValue())
         return makeUnexpected(errorString);
 
@@ -88,11 +92,11 @@ Protocol::ErrorStringOr<std::tuple<Ref<Protocol::Runtime::RemoteObject>, std::op
 {
     Protocol::ErrorString errorString;
 
-    InjectedScript injectedScript = injectedScriptForEval(errorString, WTFMove(executionContextId));
+    InjectedScript injectedScript = injectedScriptForEval(errorString, WTF::move(executionContextId));
     if (injectedScript.hasNoValue())
         return makeUnexpected(errorString);
 
-    auto functionString = makeString("(function(WebInspectorAudit) { \"use strict\"; return eval(`(", String { test }.replace('`', "\\`"), ")`)(WebInspectorAudit); })");
+    auto functionString = makeString("(function(WebInspectorAudit) { \"use strict\"; return eval(`("_s, makeStringByReplacingAll(test, '`', "\\`"_s), ")`)(WebInspectorAudit); })"_s);
 
     InjectedScript::ExecuteOptions options;
     options.objectGroup = "audit"_s;
@@ -103,19 +107,22 @@ Protocol::ErrorStringOr<std::tuple<Ref<Protocol::Runtime::RemoteObject>, std::op
     std::optional<bool> wasThrown;
     std::optional<int> savedResultIndex;
 
-    JSC::Debugger::TemporarilyDisableExceptionBreakpoints temporarilyDisableExceptionBreakpoints(m_debugger);
-    temporarilyDisableExceptionBreakpoints.replace();
+    std::optional<JSC::Debugger::TemporarilyDisableExceptionBreakpoints> temporarilyDisableExceptionBreakpoints;
+    if (m_debugger) {
+        temporarilyDisableExceptionBreakpoints.emplace(*m_debugger);
+        temporarilyDisableExceptionBreakpoints->replace();
+    }
 
     muteConsole();
 
-    injectedScript.execute(errorString, functionString, WTFMove(options), result, wasThrown, savedResultIndex);
+    injectedScript.execute(errorString, functionString, WTF::move(options), result, wasThrown, savedResultIndex);
 
     unmuteConsole();
 
     if (!result)
         return makeUnexpected(errorString);
 
-    return { { result.releaseNonNull(), WTFMove(wasThrown) } };
+    return { { result.releaseNonNull(), WTF::move(wasThrown) } };
 }
 
 Protocol::ErrorStringOr<void> InspectorAuditAgent::teardown()
@@ -142,7 +149,7 @@ void InspectorAuditAgent::populateAuditObject(JSC::JSGlobalObject* globalObject,
     JSC::VM& vm = globalObject->vm();
     JSC::JSLockHolder lock(vm);
 
-    auditObject->putDirect(vm, JSC::Identifier::fromString(vm, "Version"), JSC::JSValue(Protocol::Audit::VERSION));
+    auditObject->putDirect(vm, JSC::Identifier::fromString(vm, "Version"_s), JSC::JSValue(Protocol::Audit::VERSION));
 }
 
 } // namespace Inspector

@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <concepts>
 #include <math.h>
 #include <wtf/MathExtras.h>
 
@@ -35,44 +36,74 @@ template<typename, size_t> struct ColorComponents;
 template<size_t ColumnCount, size_t RowCount>
 class ColorMatrix {
 public:
-    template<typename ...Ts>
+    explicit constexpr ColorMatrix(std::span<const float, RowCount * ColumnCount> s)
+    {
+        std::ranges::copy(s, m_matrix.begin());
+    }
+
+    template<std::convertible_to<float> ...Ts>
     explicit constexpr ColorMatrix(Ts ...input)
-        : m_matrix {{ input ... }}
+        : m_matrix {{ static_cast<float>(input) ... }}
     {
         static_assert(sizeof...(Ts) == RowCount * ColumnCount);
     }
 
-    constexpr ColorComponents<float, 4> transformedColorComponents(const ColorComponents<float, 4>&) const;
+    template<size_t ToColumnCount, size_t ToRowCount>
+    constexpr operator ColorMatrix<ToColumnCount, ToRowCount>() const;
+
+    template<size_t NumberOfComponents>
+    constexpr ColorComponents<float, NumberOfComponents> transformedColorComponents(const ColorComponents<float, NumberOfComponents>&) const;
 
     constexpr float at(size_t row, size_t column) const
     {
         return m_matrix[(row * ColumnCount) + column];
     }
 
+    const std::array<float, RowCount * ColumnCount>& data() const LIFETIME_BOUND { return m_matrix; }
+
+    friend bool operator==(const ColorMatrix&, const ColorMatrix&) = default;
+
 private:
     std::array<float, RowCount * ColumnCount> m_matrix;
 };
 
-template<size_t ColumnCount, size_t RowCount>
-constexpr bool operator==(const ColorMatrix<ColumnCount, RowCount>& a, const ColorMatrix<ColumnCount, RowCount>& b)
+template <> template <> constexpr ColorMatrix<3, 3>::operator ColorMatrix<5, 4>() const
 {
-    for (size_t row = 0; row < RowCount; ++row) {
-        for (size_t column = 0; column < ColumnCount; ++column) {
-            if (a.at(row, column) != b.at(row, column))
-                return false;
-        }
-    }
-    return true;
+    return ColorMatrix<5, 4> {
+        at(0, 0), at(0, 1), at(0, 2), 0, 0,
+        at(1, 0), at(1, 1), at(1, 2), 0, 0,
+        at(2, 0), at(2, 1), at(2, 2), 0, 0,
+        0, 0, 0, 1, 0
+    };
 }
 
-template<size_t ColumnCount, size_t RowCount>
-constexpr bool operator!=(const ColorMatrix<ColumnCount, RowCount>& a, const ColorMatrix<ColumnCount, RowCount>& b)
+constexpr ColorMatrix<3, 3> brightnessColorMatrix(float amount)
 {
-    return !(a == b);
+    // Brightness is specified as a component transfer function: https://www.w3.org/TR/filter-effects-1/#brightnessEquivalent
+    // which is equivalent to the following matrix.
+    amount = std::max(amount, 0.0f);
+    return ColorMatrix<3, 3> {
+        amount, 0.0f, 0.0f,
+        0.0f, amount, 0.0f,
+        0.0f, 0.0f, amount,
+    };
 }
 
+constexpr ColorMatrix<5, 4> contrastColorMatrix(float amount)
+{
+    // Contrast is specified as a component transfer function: https://www.w3.org/TR/filter-effects-1/#contrastEquivalent
+    // which is equivalent to the following matrix.
+    amount = std::max(amount, 0.0f);
+    float intercept = -0.5f * amount + 0.5f;
 
-// FIXME: These are only used in FilterOperations.cpp. Consider moving them there.
+    return ColorMatrix<5, 4> {
+        amount, 0.0f, 0.0f, 0.0f, intercept,
+        0.0f, amount, 0.0f, 0.0f, intercept,
+        0.0f, 0.0f, amount, 0.0f, intercept,
+        0.0f, 0.0f, 0.0f, 1.0f, 0.0f
+    };
+}
+
 constexpr ColorMatrix<3, 3> grayscaleColorMatrix(float amount)
 {
     // Values from https://www.w3.org/TR/filter-effects-1/#grayscaleEquivalent
@@ -81,6 +112,44 @@ constexpr ColorMatrix<3, 3> grayscaleColorMatrix(float amount)
         0.2126f + 0.7874f * oneMinusAmount, 0.7152f - 0.7152f * oneMinusAmount, 0.0722f - 0.0722f * oneMinusAmount,
         0.2126f - 0.2126f * oneMinusAmount, 0.7152f + 0.2848f * oneMinusAmount, 0.0722f - 0.0722f * oneMinusAmount,
         0.2126f - 0.2126f * oneMinusAmount, 0.7152f - 0.7152f * oneMinusAmount, 0.0722f + 0.9278f * oneMinusAmount
+    };
+}
+
+constexpr ColorMatrix<5, 4> invertColorMatrix(float amount)
+{
+    // Invert is specified as a component transfer function: https://www.w3.org/TR/filter-effects-1/#invertEquivalent
+    // which is equivalent to the following matrix.
+    amount = std::clamp(amount, 0.0f, 1.0f);
+    float multiplier = 1.0f - amount * 2.0f;
+    return ColorMatrix<5, 4> {
+        multiplier, 0.0f, 0.0f, 0.0f, amount,
+        0.0f, multiplier, 0.0f, 0.0f, amount,
+        0.0f, 0.0f, multiplier, 0.0f, amount,
+        0.0f, 0.0f, 0.0f, 1.0f, 0.0f
+    };
+}
+
+constexpr ColorMatrix<5, 4> opacityColorMatrix(float amount)
+{
+    // Opacity is specified as a component transfer function: https://www.w3.org/TR/filter-effects-1/#opacityEquivalent
+    // which is equivalent to the following matrix.
+    amount = std::clamp(amount, 0.0f, 1.0f);
+    return ColorMatrix<5, 4> {
+        1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, amount, 0.0f
+    };
+}
+
+constexpr ColorMatrix<5, 4> luminanceToAlphaColorMatrix()
+{
+    // https://drafts.csswg.org/filter-effects/#attr-valuedef-type-luminancetoalpha
+    return ColorMatrix<5, 4> {
+        0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+        0.2126f, 0.7152f, 0.0722f, 0.0f, 0.0f
     };
 }
 
@@ -120,24 +189,25 @@ inline ColorMatrix<3, 3> hueRotateColorMatrix(float angleInDegrees)
 }
 
 template<size_t ColumnCount, size_t RowCount>
-constexpr ColorComponents<float, 4> ColorMatrix<ColumnCount, RowCount>::transformedColorComponents(const ColorComponents<float, 4>& inputVector) const
+template<size_t NumberOfComponents>
+constexpr auto ColorMatrix<ColumnCount, RowCount>::transformedColorComponents(const ColorComponents<float, NumberOfComponents>& inputVector) const -> ColorComponents<float, NumberOfComponents>
 {
-    static_assert(ColorComponents<float, 4>::Size >= RowCount);
+    static_assert(ColorComponents<float, NumberOfComponents>::Size >= RowCount);
     
-    ColorComponents<float, 4> result;
+    ColorComponents<float, NumberOfComponents> result;
     for (size_t row = 0; row < RowCount; ++row) {
-        if constexpr (ColumnCount <= ColorComponents<float, 4>::Size) {
+        if constexpr (ColumnCount <= ColorComponents<float, NumberOfComponents>::Size) {
             for (size_t column = 0; column < ColumnCount; ++column)
                 result[row] += at(row, column) * inputVector[column];
-        } else if constexpr (ColumnCount > ColorComponents<float, 4>::Size) {
-            for (size_t column = 0; column < ColorComponents<float, 4>::Size; ++column)
+        } else if constexpr (ColumnCount > ColorComponents<float, NumberOfComponents>::Size) {
+            for (size_t column = 0; column < ColorComponents<float, NumberOfComponents>::Size; ++column)
                 result[row] += at(row, column) * inputVector[column];
-            for (size_t additionalColumn = ColorComponents<float, 4>::Size; additionalColumn < ColumnCount; ++additionalColumn)
+            for (size_t additionalColumn = ColorComponents<float, NumberOfComponents>::Size; additionalColumn < ColumnCount; ++additionalColumn)
                 result[row] += at(row, additionalColumn);
         }
     }
-    if constexpr (ColorComponents<float, 4>::Size > RowCount) {
-        for (size_t additionalRow = RowCount; additionalRow < ColorComponents<float, 4>::Size; ++additionalRow)
+    if constexpr (ColorComponents<float, NumberOfComponents>::Size > RowCount) {
+        for (size_t additionalRow = RowCount; additionalRow < ColorComponents<float, NumberOfComponents>::Size; ++additionalRow)
             result[additionalRow] = inputVector[additionalRow];
     }
 

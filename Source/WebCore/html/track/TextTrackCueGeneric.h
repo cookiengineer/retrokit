@@ -28,40 +28,41 @@
 #if ENABLE(VIDEO)
 
 #include "Color.h"
+#include "EventTargetInterfaces.h"
 #include "VTTCue.h"
 
 namespace WebCore {
 
 // A "generic" cue is a non-WebVTT cue, so it is not positioned/sized with the WebVTT logic.
 class TextTrackCueGeneric final : public VTTCue {
-    WTF_MAKE_ISO_ALLOCATED_EXPORT(TextTrackCueGeneric, WEBCORE_EXPORT);
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(TextTrackCueGeneric, WEBCORE_EXPORT);
 public:
     WEBCORE_EXPORT static Ref<TextTrackCueGeneric> create(ScriptExecutionContext&, const MediaTime& start, const MediaTime& end, const String& content);
 
-    ExceptionOr<void> setLine(const LineAndPositionSetting&) final;
     ExceptionOr<void> setPosition(const LineAndPositionSetting&) final;
 
     bool useDefaultPosition() const { return m_useDefaultPosition; }
 
     double baseFontSizeRelativeToVideoHeight() const { return m_baseFontSizeRelativeToVideoHeight; }
-    void setBaseFontSizeRelativeToVideoHeight(double size) { m_baseFontSizeRelativeToVideoHeight = size; }
+    void NODELETE setBaseFontSizeRelativeToVideoHeight(double);
 
     double fontSizeMultiplier() const { return m_fontSizeMultiplier; }
-    void setFontSizeMultiplier(double size) { m_fontSizeMultiplier = size; }
+    void NODELETE setFontSizeMultiplier(double);
 
-    const String& fontName() const { return m_fontName; }
+    const String& fontName() const LIFETIME_BOUND { return m_fontName; }
     void setFontName(const String& name) { m_fontName = name; }
 
-    const Color& foregroundColor() const { return m_foregroundColor; }
+    const Color& foregroundColor() const LIFETIME_BOUND { return m_foregroundColor; }
     void setForegroundColor(const Color& color) { m_foregroundColor = color; }
-    
-    const Color& backgroundColor() const { return m_backgroundColor; }
+
+    const Color& backgroundColor() const LIFETIME_BOUND { return m_backgroundColor; }
     void setBackgroundColor(const Color& color) { m_backgroundColor = color; }
-    
-    const Color& highlightColor() const { return m_highlightColor; }
+
+    const Color& highlightColor() const LIFETIME_BOUND { return m_highlightColor; }
     void setHighlightColor(const Color& color) { m_highlightColor = color; }
 
-    void setFontSize(int, const IntSize&, bool important) final;
+    bool preventLineWrapping() const override { return m_preventLineWrapping; }
+    void setPreventLineWrapping(bool preventWrapping) { m_preventLineWrapping = preventWrapping; }
 
 private:
     TextTrackCueGeneric(Document&, const MediaTime& start, const MediaTime& end, const String&);
@@ -69,7 +70,7 @@ private:
     bool isOrderedBefore(const TextTrackCue*) const final;
     bool isPositionedAbove(const TextTrackCue*) const final;
 
-    Ref<VTTCueBox> createDisplayTree() final;
+    RefPtr<VTTCueBox> createDisplayTree() final;
 
     bool cueContentsMatch(const TextTrackCue&) const final;
 
@@ -84,6 +85,7 @@ private:
     double m_fontSizeMultiplier { 0 };
     String m_fontName;
     bool m_useDefaultPosition { true };
+    bool m_preventLineWrapping { true };
 };
 
 } // namespace WebCore
@@ -92,10 +94,11 @@ namespace WTF {
 
 template<> struct LogArgument<WebCore::TextTrackCueGeneric> : LogArgument<WebCore::TextTrackCue> { };
 
-}
+} // namespace WTF
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::TextTrackCueGeneric)
 static bool isType(const WebCore::TextTrackCue& cue) { return cue.cueType() == WebCore::TextTrackCue::ConvertedToWebVTT; }
+static bool isType(const WebCore::EventTarget& context) { return context.eventTargetInterface() == WebCore::EventTargetInterfaceType::TextTrackCue; }
 SPECIALIZE_TYPE_TRAITS_END()
 
 #endif

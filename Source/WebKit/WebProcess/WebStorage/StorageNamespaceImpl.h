@@ -33,30 +33,30 @@
 #include <WebCore/StorageArea.h>
 #include <WebCore/StorageMap.h>
 #include <WebCore/StorageNamespace.h>
+#include <WebCore/StorageType.h>
 #include <pal/SessionID.h>
 #include <wtf/HashMap.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebKit {
 
 class StorageAreaMap;
 class WebPage;
 
-class StorageNamespaceImpl final : public WebCore::StorageNamespace {
+class StorageNamespaceImpl final : public WebCore::StorageNamespace, public CanMakeWeakPtr<StorageNamespaceImpl> {
 public:
     using Identifier = StorageNamespaceIdentifier;
 
-    static Ref<StorageNamespaceImpl> createSessionStorageNamespace(Identifier, WebCore::PageIdentifier, unsigned quotaInBytes);
-    static Ref<StorageNamespaceImpl> createLocalStorageNamespace(Identifier, unsigned quotaInBytes);
-    static Ref<StorageNamespaceImpl> createTransientLocalStorageNamespace(Identifier, WebCore::SecurityOrigin& topLevelOrigin, uint64_t quotaInBytes);
+    static Ref<StorageNamespaceImpl> createSessionStorageNamespace(Identifier, WebCore::PageIdentifier, const WebCore::SecurityOrigin&, unsigned quotaInBytes);
+    static Ref<StorageNamespaceImpl> createLocalStorageNamespace(unsigned quotaInBytes);
+    static Ref<StorageNamespaceImpl> createTransientLocalStorageNamespace(WebCore::SecurityOrigin& topLevelOrigin, uint64_t quotaInBytes);
 
     virtual ~StorageNamespaceImpl();
 
     WebCore::StorageType storageType() const { return m_storageType; }
-    Identifier storageNamespaceID() const { return m_storageNamespaceID; }
-    // Namespace IDs for local storage namespaces are currently equivalent to web page group IDs.
+    std::optional<Identifier> storageNamespaceID() const { return m_storageNamespaceID; }
     WebCore::PageIdentifier sessionStoragePageID() const;
-    PageGroupIdentifier pageGroupID() const;
-    WebCore::SecurityOrigin* topLevelOrigin() const { return m_topLevelOrigin.get(); }
+    const WebCore::SecurityOrigin* topLevelOrigin() const final { return m_topLevelOrigin.get(); }
     unsigned quotaInBytes() const { return m_quotaInBytes; }
     PAL::SessionID sessionID() const override;
 
@@ -65,24 +65,29 @@ public:
     void setSessionIDForTesting(PAL::SessionID) override;
 
 private:
-    StorageNamespaceImpl(WebCore::StorageType, Identifier, const std::optional<WebCore::PageIdentifier>&, WebCore::SecurityOrigin* topLevelOrigin, unsigned quotaInBytes);
+    StorageNamespaceImpl(WebCore::StorageType, const std::optional<WebCore::PageIdentifier>&, const WebCore::SecurityOrigin* topLevelOrigin, unsigned quotaInBytes, std::optional<Identifier> = std::nullopt);
 
-    Ref<WebCore::StorageArea> storageArea(const WebCore::SecurityOriginData&) override;
+    Ref<WebCore::StorageArea> storageArea(const WebCore::SecurityOrigin&) final;
     uint64_t storageAreaMapCountForTesting() const final { return m_storageAreaMaps.size(); }
 
     // FIXME: This is only valid for session storage and should probably be moved to a subclass.
     Ref<WebCore::StorageNamespace> copy(WebCore::Page&) override;
 
     const WebCore::StorageType m_storageType;
-    const Identifier m_storageNamespaceID;
     std::optional<WebCore::PageIdentifier> m_sessionPageID;
 
-    // Only used for transient local storage namespaces.
-    const RefPtr<WebCore::SecurityOrigin> m_topLevelOrigin;
-
+    // Used for transient local storage and session storage namespaces, nullptr otherwise.
+    const RefPtr<const WebCore::SecurityOrigin> m_topLevelOrigin;
     const unsigned m_quotaInBytes;
+    std::optional<Identifier> m_storageNamespaceID;
 
-    HashMap<WebCore::SecurityOriginData, std::unique_ptr<StorageAreaMap>> m_storageAreaMaps;
+    HashMap<WebCore::SecurityOriginData, Ref<StorageAreaMap>> m_storageAreaMaps;
 };
+
+inline WebCore::PageIdentifier StorageNamespaceImpl::sessionStoragePageID() const
+{
+    ASSERT(m_storageType == WebCore::StorageType::Session);
+    return *m_sessionPageID;
+}
 
 } // namespace WebKit

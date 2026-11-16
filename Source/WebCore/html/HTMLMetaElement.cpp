@@ -2,7 +2,8 @@
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2001 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2003, 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2013 Google Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -24,24 +25,31 @@
 #include "HTMLMetaElement.h"
 
 #include "Attribute.h"
+#include "CSSPropertyParserConsumer+Color.h"
 #include "Color.h"
 #include "Document.h"
-#include "Frame.h"
-#include "FrameView.h"
+#include "DocumentQuirks.h"
+#include "DocumentView.h"
+#include "ElementInlines.h"
+#include "FrameDestructionObserverInlines.h"
 #include "HTMLHeadElement.h"
 #include "HTMLNames.h"
 #include "HTMLParserIdioms.h"
-#include "MediaList.h"
+#include "LocalFrame.h"
+#include "LocalFrameView.h"
 #include "MediaQueryEvaluator.h"
 #include "MediaQueryParser.h"
-#include "RenderStyle.h"
+#include "MediaQueryParserContext.h"
+#include "NodeName.h"
+#include "Quirks.h"
 #include "Settings.h"
+#include "StyleComputedStyle.h"
 #include "StyleResolveForDocument.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLMetaElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLMetaElement);
 
 using namespace HTMLNames;
 
@@ -61,127 +69,139 @@ Ref<HTMLMetaElement> HTMLMetaElement::create(const QualifiedName& tagName, Docum
     return adoptRef(*new HTMLMetaElement(tagName, document));
 }
 
+#if ENABLE(DARK_MODE_CSS)
+static bool isNameColorScheme(const AtomString& nameValue)
+{
+    return equalLettersIgnoringASCIICase(nameValue, "color-scheme"_s) || equalLettersIgnoringASCIICase(nameValue, "supported-color-schemes"_s);
+}
+#endif
+
 bool HTMLMetaElement::mediaAttributeMatches()
 {
-    auto& document = this->document();
+    Ref document = this->document();
 
-    if (!m_media)
-        m_media = MediaQuerySet::create(attributeWithoutSynchronization(mediaAttr).convertToASCIILowercase(), MediaQueryParserContext(document));
+    if (!m_mediaQueryList) {
+        auto mediaText = attributeWithoutSynchronization(mediaAttr).convertToASCIILowercase();
+        m_mediaQueryList = MQ::MediaQueryParser::parse(mediaText, document->cssParserContext());
+    }
 
-    std::optional<RenderStyle> documentStyle;
-    if (document.hasLivingRenderTree())
-        documentStyle = Style::resolveForDocument(document);
-
-    String mediaType;
-    if (auto* frame = document.frame()) {
-        if (auto* frameView = frame->view())
+    AtomString mediaType;
+    if (RefPtr frame = document->frame()) {
+        if (RefPtr frameView = frame->view())
             mediaType = frameView->mediaType();
     }
 
-    return MediaQueryEvaluator(mediaType, document, documentStyle ? &*documentStyle : nullptr).evaluate(*m_media);
+    auto evaluator = MQ::MediaQueryEvaluator { mediaType, document };
+    return evaluator.evaluate(*m_mediaQueryList);
 }
 
 const Color& HTMLMetaElement::contentColor()
 {
     if (!m_contentColor)
-        m_contentColor = CSSParser::parseColor(content());
+        m_contentColor = CSSPropertyParserHelpers::deprecatedParseColorRawWithoutContext(content());
     return *m_contentColor;
 }
 
-void HTMLMetaElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason reason)
+void HTMLMetaElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
-    HTMLElement::attributeChanged(name, oldValue, newValue, reason);
+    HTMLElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
 
-    if (!isInDocumentTree())
-        return;
-
-    if (name == nameAttr) {
-        if (equalLettersIgnoringASCIICase(oldValue, "theme-color") && !equalLettersIgnoringASCIICase(newValue, "theme-color"))
-            document().metaElementThemeColorChanged(*this);
-        return;
-    }
-}
-
-void HTMLMetaElement::parseAttribute(const QualifiedName& name, const AtomString& value)
-{
-    if (name == nameAttr) {
-        process();
-        return;
-    }
-
-    if (name == contentAttr) {
+    switch (name.nodeName()) {
+    case AttributeNames::nameAttr:
+        process(oldValue);
+        if (isInDocumentTree()) {
+            if (equalLettersIgnoringASCIICase(oldValue, "theme-color"_s) && !equalLettersIgnoringASCIICase(newValue, "theme-color"_s))
+                protect(document())->metaElementThemeColorChanged(*this);
+        }
+        break;
+    case AttributeNames::contentAttr:
         m_contentColor = std::nullopt;
         process();
-        return;
-    }
-
-    if (name == http_equivAttr) {
+        break;
+    case AttributeNames::http_equivAttr:
         process();
-        return;
-    }
-
-    if (name == mediaAttr) {
-        m_media = nullptr;
+        break;
+    case AttributeNames::mediaAttr:
+        m_mediaQueryList = { };
         process();
-        return;
+        break;
+    default:
+        break;
     }
-
-    HTMLElement::parseAttribute(name, value);
 }
 
-Node::InsertedIntoAncestorResult HTMLMetaElement::insertedIntoAncestor(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
+Node::NeedsPostConnectionSteps HTMLMetaElement::insertionSteps(InsertionType insertionType, ContainerNode& parentOfInsertedTree)
 {
-    HTMLElement::insertedIntoAncestor(insertionType, parentOfInsertedTree);
+    HTMLElement::insertionSteps(insertionType, parentOfInsertedTree);
     if (insertionType.connectedToDocument)
-        return InsertedIntoAncestorResult::NeedsPostInsertionCallback;
-    return InsertedIntoAncestorResult::Done;
+        return NeedsPostConnectionSteps::Yes;
+    return NeedsPostConnectionSteps::No;
 }
 
-void HTMLMetaElement::didFinishInsertingNode()
+void HTMLMetaElement::postConnectionSteps()
 {
     process();
 }
 
-void HTMLMetaElement::removedFromAncestor(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
+void HTMLMetaElement::removingSteps(RemovalType removalType, ContainerNode& oldParentOfRemovedTree)
 {
-    HTMLElement::removedFromAncestor(removalType, oldParentOfRemovedTree);
+    HTMLElement::removingSteps(removalType, oldParentOfRemovedTree);
 
-    if (removalType.disconnectedFromDocument && equalLettersIgnoringASCIICase(name(), "theme-color"))
-        oldParentOfRemovedTree.document().metaElementThemeColorChanged(*this);
+    if (removalType.disconnectedFromDocument && equalLettersIgnoringASCIICase(name(), "theme-color"_s))
+        protect(oldParentOfRemovedTree.document())->metaElementThemeColorChanged(*this);
+#if ENABLE(DARK_MODE_CSS)
+    else if (removalType.disconnectedFromDocument && isNameColorScheme(name()))
+        protect(oldParentOfRemovedTree.document())->metaElementColorSchemeChanged();
+#endif
 }
 
-void HTMLMetaElement::process()
+void HTMLMetaElement::process(const AtomString& oldValue)
 {
     // Changing a meta tag while it's not in the document tree shouldn't have any effect on the document.
     if (!isInDocumentTree())
         return;
 
+    const AtomString& nameValue = attributeWithoutSynchronization(nameAttr);
+    Ref document = this->document();
+#if ENABLE(DARK_MODE_CSS)
+    if (isNameColorScheme(nameValue) || (!oldValue.isNull() && isNameColorScheme(oldValue)))
+        document->metaElementColorSchemeChanged();
+#else
+    UNUSED_PARAM(oldValue);
+#endif
+
+    // https://html.spec.whatwg.org/multipage/semantics.html#the-meta-element
+    // All below situations require a content attribute (which can be the empty string).
     const AtomString& contentValue = attributeWithoutSynchronization(contentAttr);
     if (contentValue.isNull())
         return;
-
-    if (equalLettersIgnoringASCIICase(name(), "viewport"))
-        document().processViewport(contentValue, ViewportArguments::ViewportMeta);
-    else if (document().settings().disabledAdaptationsMetaTagEnabled() && equalLettersIgnoringASCIICase(name(), "disabled-adaptations"))
-        document().processDisabledAdaptations(contentValue);
-#if ENABLE(DARK_MODE_CSS)
-    else if (equalLettersIgnoringASCIICase(name(), "color-scheme") || equalLettersIgnoringASCIICase(name(), "supported-color-schemes"))
-        document().processColorScheme(contentValue);
-#endif
-    else if (equalLettersIgnoringASCIICase(name(), "theme-color"))
-        document().metaElementThemeColorChanged(*this);
-#if PLATFORM(IOS_FAMILY)
-    else if (equalLettersIgnoringASCIICase(name(), "format-detection"))
-        document().processFormatDetection(contentValue);
-    else if (equalLettersIgnoringASCIICase(name(), "apple-mobile-web-app-orientations"))
-        document().processWebAppOrientations();
-#endif
-    else if (equalLettersIgnoringASCIICase(name(), "referrer"))
-        document().processReferrerPolicy(contentValue, ReferrerPolicySource::MetaTag);
-
+    
     const AtomString& httpEquivValue = attributeWithoutSynchronization(http_equivAttr);
+    // Get the document to process the tag, but only if we're actually part of DOM
+    // tree (changing a meta tag while it's not in the tree shouldn't have any effect
+    // on the document)
     if (!httpEquivValue.isNull())
-        document().processMetaHttpEquiv(httpEquivValue, contentValue, isDescendantOf(document().head()));
+        document->processMetaHttpEquiv(httpEquivValue, contentValue, isDescendantOf(document->head()));
+    
+    if (nameValue.isNull())
+        return;
+
+    if (equalLettersIgnoringASCIICase(nameValue, "viewport"_s))
+        document->processViewport(contentValue, ViewportArguments::Type::ViewportMeta);
+    else if (document->settings().disabledAdaptationsMetaTagEnabled() && equalLettersIgnoringASCIICase(nameValue, "disabled-adaptations"_s))
+        document->processDisabledAdaptations(contentValue);
+    else if (equalLettersIgnoringASCIICase(nameValue, "theme-color"_s))
+        document->metaElementThemeColorChanged(*this);
+#if PLATFORM(IOS_FAMILY)
+    else if (equalLettersIgnoringASCIICase(nameValue, "format-detection"_s))
+        document->processFormatDetection(contentValue);
+    else if (equalLettersIgnoringASCIICase(nameValue, "apple-mobile-web-app-orientations"_s))
+        document->processWebAppOrientations();
+#endif
+    else if (equalLettersIgnoringASCIICase(nameValue, "referrer"_s))
+        document->processReferrerPolicy(contentValue, ReferrerPolicySource::MetaTag);
+    else if (equalLettersIgnoringASCIICase(nameValue, "confluence-request-time"_s))
+        document->quirks().setNeedsToCopyUserSelectNoneQuirk();
 }
 
 const AtomString& HTMLMetaElement::content() const

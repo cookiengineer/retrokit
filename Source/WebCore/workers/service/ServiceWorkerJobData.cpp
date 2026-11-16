@@ -26,28 +26,34 @@
 #include "config.h"
 #include "ServiceWorkerJobData.h"
 
-#if ENABLE(SERVICE_WORKER)
+#include <wtf/CrossThreadCopier.h>
 
 namespace WebCore {
 
-static inline ServiceWorkerOrClientIdentifier serviceWorkerOrClientIdentifier(SWServerConnectionIdentifier connectionIdentifier, const DocumentOrWorkerIdentifier& localSourceContext)
-{
-    return WTF::switchOn(localSourceContext, [&](DocumentIdentifier documentIdentifier) -> ServiceWorkerOrClientIdentifier {
-        return ServiceWorkerClientIdentifier { connectionIdentifier, documentIdentifier };
-    }, [&](ServiceWorkerIdentifier serviceWorkerIdentifier) -> ServiceWorkerOrClientIdentifier {
-        return serviceWorkerIdentifier;
-    });
-}
-
-ServiceWorkerJobData::ServiceWorkerJobData(SWServerConnectionIdentifier connectionIdentifier, const DocumentOrWorkerIdentifier& localSourceContext)
-    : sourceContext(serviceWorkerOrClientIdentifier(connectionIdentifier, localSourceContext))
-    , m_identifier { connectionIdentifier, ServiceWorkerJobIdentifier::generateThreadSafe() }
+ServiceWorkerJobData::ServiceWorkerJobData(SWServerConnectionIdentifier connectionIdentifier, const ServiceWorkerOrClientIdentifier& localSourceContext)
+    : sourceContext(localSourceContext)
+    , m_identifier { connectionIdentifier, ServiceWorkerJobIdentifier::generate() }
 {
 }
 
-ServiceWorkerJobData::ServiceWorkerJobData(Identifier identifier, const DocumentOrWorkerIdentifier& localSourceContext)
-    : sourceContext(serviceWorkerOrClientIdentifier(identifier.connectionIdentifier, localSourceContext))
+ServiceWorkerJobData::ServiceWorkerJobData(Identifier identifier, const ServiceWorkerOrClientIdentifier& localSourceContext)
+    : sourceContext(localSourceContext)
     , m_identifier { identifier }
+{
+}
+
+ServiceWorkerJobData::ServiceWorkerJobData(WebCore::ServiceWorkerJobDataIdentifier&& identifier, URL&& scriptURL, URL&& clientCreationURL, WebCore::SecurityOriginData&& topOrigin, URL&& scopeURL, WebCore::ServiceWorkerOrClientIdentifier&& sourceContext, WebCore::WorkerType workerType, WebCore::ServiceWorkerJobType type, bool shouldBlockThirdPartyStorage, bool isFromServiceWorkerPage, std::optional<WebCore::ServiceWorkerRegistrationOptions>&& registrationOptions)
+    : scriptURL(WTF::move(scriptURL))
+    , clientCreationURL(WTF::move(clientCreationURL))
+    , topOrigin(WTF::move(topOrigin))
+    , scopeURL(WTF::move(scopeURL))
+    , sourceContext(WTF::move(sourceContext))
+    , workerType(workerType)
+    , type(type)
+    , shouldBlockThirdPartyStorage(shouldBlockThirdPartyStorage)
+    , isFromServiceWorkerPage(isFromServiceWorkerPage)
+    , registrationOptions(WTF::move(registrationOptions))
+    , m_identifier(WTF::move(identifier))
 {
 }
 
@@ -55,23 +61,32 @@ ServiceWorkerRegistrationKey ServiceWorkerJobData::registrationKey() const
 {
     URL scope = scopeURL;
     scope.removeFragmentIdentifier();
-    return { SecurityOriginData { topOrigin }, WTFMove(scope) };
+    return { SecurityOriginData { topOrigin }, WTF::move(scope) };
+}
+
+std::optional<ScriptExecutionContextIdentifier> ServiceWorkerJobData::serviceWorkerPageIdentifier() const
+{
+    if (isFromServiceWorkerPage && std::holds_alternative<ScriptExecutionContextIdentifier>(sourceContext))
+        return std::get<ScriptExecutionContextIdentifier>(sourceContext);
+    return std::nullopt;
 }
 
 ServiceWorkerJobData ServiceWorkerJobData::isolatedCopy() const
 {
-    ServiceWorkerJobData result;
-    result.m_identifier = identifier();
-    result.sourceContext = sourceContext;
+    ServiceWorkerJobData result { identifier(), sourceContext };
     result.workerType = workerType;
     result.type = type;
+    result.isFromServiceWorkerPage = isFromServiceWorkerPage;
 
     result.scriptURL = scriptURL.isolatedCopy();
     result.clientCreationURL = clientCreationURL.isolatedCopy();
     result.topOrigin = topOrigin.isolatedCopy();
     result.scopeURL = scopeURL.isolatedCopy();
-    result.registrationOptions = registrationOptions.isolatedCopy();
-
+    result.shouldBlockThirdPartyStorage = shouldBlockThirdPartyStorage;
+    if (registrationOptions) {
+        ASSERT(type == ServiceWorkerJobType::Register);
+        result.registrationOptions = crossThreadCopy(registrationOptions);
+    }
     return result;
 }
 
@@ -83,11 +98,15 @@ bool ServiceWorkerJobData::isEquivalent(const ServiceWorkerJobData& job) const
 
     switch (type) {
     case ServiceWorkerJobType::Register:
-    case ServiceWorkerJobType::Update:
+        ASSERT(registrationOptions && job.registrationOptions);
         return scopeURL == job.scopeURL
             && scriptURL == job.scriptURL
             && workerType == job.workerType
-            && registrationOptions.updateViaCache == job.registrationOptions.updateViaCache;
+            && registrationOptions->updateViaCache == job.registrationOptions->updateViaCache;
+    case ServiceWorkerJobType::Update:
+        return scopeURL == job.scopeURL
+            && scriptURL == job.scriptURL
+            && workerType == job.workerType;
     case ServiceWorkerJobType::Unregister:
         return scopeURL == job.scopeURL;
     }
@@ -95,5 +114,3 @@ bool ServiceWorkerJobData::isEquivalent(const ServiceWorkerJobData& job) const
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(SERVICE_WORKER)

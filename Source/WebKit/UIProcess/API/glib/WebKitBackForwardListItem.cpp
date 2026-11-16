@@ -30,14 +30,13 @@
 using namespace WebKit;
 
 /**
- * SECTION: WebKitBackForwardListItem
- * @Short_description: One item of the #WebKitBackForwardList
- * @Title: WebKitBackForwardListItem
+ * WebKitBackForwardListItem:
  * @See_also: #WebKitBackForwardList
  *
- * A history item is part of the #WebKitBackForwardList and consists
- * out of a title and a URI.
+ * One item of the #WebKitBackForwardList.
  *
+ * A history item is part of the #WebKitBackForwardList and consists
+ * of a title and a URI.
  */
 
 struct _WebKitBackForwardListItemPrivate {
@@ -47,7 +46,7 @@ struct _WebKitBackForwardListItemPrivate {
     CString originalURI;
 };
 
-WEBKIT_DEFINE_TYPE(WebKitBackForwardListItem, webkit_back_forward_list_item, G_TYPE_INITIALLY_UNOWNED)
+WEBKIT_DEFINE_FINAL_TYPE(WebKitBackForwardListItem, webkit_back_forward_list_item, G_TYPE_INITIALLY_UNOWNED, GInitiallyUnowned)
 
 static void webkit_back_forward_list_item_class_init(WebKitBackForwardListItemClass*)
 {
@@ -94,6 +93,8 @@ WebBackForwardListItem* webkitBackForwardListItemGetItem(WebKitBackForwardListIt
  * webkit_back_forward_list_item_get_uri:
  * @list_item: a #WebKitBackForwardListItem
  *
+ * Obtain the URI of the item.
+ *
  * This URI may differ from the original URI if the page was,
  * for example, redirected to a new location.
  * See also webkit_back_forward_list_item_get_original_uri().
@@ -118,6 +119,8 @@ const gchar* webkit_back_forward_list_item_get_uri(WebKitBackForwardListItem* li
  * webkit_back_forward_list_item_get_title:
  * @list_item: a #WebKitBackForwardListItem
  *
+ * Obtain the title of the item.
+ *
  * Returns: the page title of @list_item or %NULL
  *    when the title is empty.
  */
@@ -137,6 +140,8 @@ const gchar* webkit_back_forward_list_item_get_title(WebKitBackForwardListItem* 
 /**
  * webkit_back_forward_list_item_get_original_uri:
  * @list_item: a #WebKitBackForwardListItem
+ *
+ * Obtain the original URI of the item.
  *
  * See also webkit_back_forward_list_item_get_uri().
  *

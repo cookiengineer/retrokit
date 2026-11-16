@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003, 2006, 2008, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2024 Apple Inc. All rights reserved.
  * Copyright 2010, The Android Open Source Project
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,20 +27,25 @@
 #include "config.h"
 #include "BridgeJSC.h"
 
-#include "DOMWindow.h"
 #include "JSDOMWindowBase.h"
+#include "LocalDOMWindow.h"
 #include "runtime_object.h"
 #include "runtime_root.h"
 #include <JavaScriptCore/JSCInlines.h>
 #include <JavaScriptCore/JSLock.h>
 #include <JavaScriptCore/ObjectPrototype.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC {
 
 namespace Bindings {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Class);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Field);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Method);
+
 Array::Array(RefPtr<RootObject>&& rootObject)
-    : m_rootObject(WTFMove(rootObject))
+    : m_rootObject(WTF::move(rootObject))
 {
     ASSERT(m_rootObject);
 }
@@ -48,7 +53,7 @@ Array::Array(RefPtr<RootObject>&& rootObject)
 Array::~Array() = default;
 
 Instance::Instance(RefPtr<RootObject>&& rootObject)
-    : m_rootObject(WTFMove(rootObject))
+    : m_rootObject(WTF::move(rootObject))
 {
     ASSERT(m_rootObject);
 }
@@ -78,7 +83,7 @@ JSObject* Instance::createRuntimeObject(JSGlobalObject* lexicalGlobalObject)
     JSLockHolder lock(lexicalGlobalObject);
     RuntimeObject* newObject = newRuntimeObject(lexicalGlobalObject);
     m_runtimeObject = JSC::Weak<RuntimeObject>(newObject);
-    m_rootObject->addRuntimeObject(lexicalGlobalObject->vm(), newObject);
+    protect(m_rootObject)->addRuntimeObject(lexicalGlobalObject->vm(), newObject);
     return newObject;
 }
 

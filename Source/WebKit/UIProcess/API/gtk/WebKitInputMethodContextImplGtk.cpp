@@ -22,6 +22,7 @@
 
 #include <gtk/gtk.h>
 #include <wtf/MathExtras.h>
+#include <wtf/StdLibExtras.h>
 #include <wtf/glib/GRefPtr.h>
 #include <wtf/glib/WTFGType.h>
 #include <wtf/text/CString.h>
@@ -38,6 +39,7 @@ static GtkInputPurpose toGtkInputPurpose(WebKitInputPurpose purpose)
 {
     switch (purpose) {
     case WEBKIT_INPUT_PURPOSE_FREE_FORM:
+    case WEBKIT_INPUT_PURPOSE_SEARCH:
         return GTK_INPUT_PURPOSE_FREE_FORM;
     case WEBKIT_INPUT_PURPOSE_DIGITS:
         return GTK_INPUT_PURPOSE_DIGITS;
@@ -164,6 +166,8 @@ static void webkitInputMethodContextImplGtkGetPreedit(WebKitInputMethodContext* 
         }
     }
 
+    g_clear_pointer(&attrList, pango_attr_list_unref);
+
     if (cursorOffset)
         *cursorOffset = clampTo<unsigned>(offset);
 }
@@ -200,7 +204,7 @@ static void webkitInputMethodContextImplGtkNotifyCursorArea(WebKitInputMethodCon
 static void webkitInputMethodContextImplGtkNotifySurrounding(WebKitInputMethodContext* context, const gchar* text, unsigned length, unsigned cursorIndex, unsigned)
 {
     auto* priv = WEBKIT_INPUT_METHOD_CONTEXT_IMPL_GTK(context)->priv;
-    priv->surroundingText = { text, length };
+    priv->surroundingText = unsafeMakeSpan(text, length);
     priv->surroundingCursorIndex = cursorIndex;
 }
 

@@ -27,7 +27,8 @@
 
 #if ENABLE(WEB_AUTHN)
 
-#include "AuthenticatorResponse.h"
+#include <WebCore/AuthenticationResponseJSON.h>
+#include <WebCore/AuthenticatorResponse.h>
 #include <wtf/RetainPtr.h>
 #include <wtf/spi/cocoa/SecuritySPI.h>
 
@@ -39,41 +40,56 @@ class AuthenticatorAssertionResponse : public AuthenticatorResponse {
 public:
     static Ref<AuthenticatorAssertionResponse> create(Ref<ArrayBuffer>&& rawId, Ref<ArrayBuffer>&& authenticatorData, Ref<ArrayBuffer>&& signature, RefPtr<ArrayBuffer>&& userHandle, std::optional<AuthenticationExtensionsClientOutputs>&&, AuthenticatorAttachment);
     WEBCORE_EXPORT static Ref<AuthenticatorAssertionResponse> create(const Vector<uint8_t>& rawId, const Vector<uint8_t>& authenticatorData, const Vector<uint8_t>& signature,  const Vector<uint8_t>& userHandle, AuthenticatorAttachment);
-    WEBCORE_EXPORT static Ref<AuthenticatorAssertionResponse> create(Ref<ArrayBuffer>&& rawId, Ref<ArrayBuffer>&& userHandle, String&& name, SecAccessControlRef, AuthenticatorAttachment);
+    static Ref<AuthenticatorAssertionResponse> create(const Vector<uint8_t>& rawId, const Vector<uint8_t>& authenticatorData, const Vector<uint8_t>& signature, const Vector<uint8_t>& userHandle, std::optional<AuthenticationExtensionsClientOutputs>&&, AuthenticatorAttachment);
+    WEBCORE_EXPORT static Ref<AuthenticatorAssertionResponse> create(Ref<ArrayBuffer>&& rawId, RefPtr<ArrayBuffer>&& userHandle, String&& name, SecAccessControlRef, AuthenticatorAttachment);
     virtual ~AuthenticatorAssertionResponse() = default;
 
     ArrayBuffer* authenticatorData() const { return m_authenticatorData.get(); }
     ArrayBuffer* signature() const { return m_signature.get(); }
     ArrayBuffer* userHandle() const { return m_userHandle.get(); }
-    const String& name() const { return m_name; }
-    const String& displayName() const { return m_displayName; }
+    const String& name() const LIFETIME_BOUND { return m_name; }
+    const String& displayName() const LIFETIME_BOUND { return m_displayName; }
     size_t numberOfCredentials() const { return m_numberOfCredentials; }
     SecAccessControlRef accessControl() const { return m_accessControl.get(); }
+    const String& group() const LIFETIME_BOUND { return m_group; }
+    bool synchronizable() const { return m_synchronizable; }
     LAContext * laContext() const { return m_laContext.get(); }
+    RefPtr<ArrayBuffer> largeBlob() const { return m_largeBlob; }
+    const String& accessGroup() const LIFETIME_BOUND { return m_accessGroup; }
 
     WEBCORE_EXPORT void setAuthenticatorData(Vector<uint8_t>&&);
-    void setSignature(Ref<ArrayBuffer>&& signature) { m_signature = WTFMove(signature); }
+    void setSignature(Ref<ArrayBuffer>&& signature) { m_signature = WTF::move(signature); }
     void setName(const String& name) { m_name = name; }
     void setDisplayName(const String& displayName) { m_displayName = displayName; }
     void setNumberOfCredentials(size_t numberOfCredentials) { m_numberOfCredentials = numberOfCredentials; }
+    void setGroup(const String& group) { m_group = group; }
+    void setSynchronizable(bool synchronizable) { m_synchronizable = synchronizable; }
     void setLAContext(LAContext *context) { m_laContext = context; }
+    void setLargeBlob(Ref<ArrayBuffer>&& largeBlob) { m_largeBlob = WTF::move(largeBlob); }
+    void setAccessGroup(const String& accessGroup) { m_accessGroup = accessGroup; }
+
+    AuthenticationResponseJSON::AuthenticatorAssertionResponseJSON toJSON();
 
 private:
     AuthenticatorAssertionResponse(Ref<ArrayBuffer>&&, Ref<ArrayBuffer>&&, Ref<ArrayBuffer>&&, RefPtr<ArrayBuffer>&&, AuthenticatorAttachment);
-    AuthenticatorAssertionResponse(Ref<ArrayBuffer>&&, Ref<ArrayBuffer>&&, String&&, SecAccessControlRef, AuthenticatorAttachment);
+    AuthenticatorAssertionResponse(Ref<ArrayBuffer>&&, RefPtr<ArrayBuffer>&&, String&&, SecAccessControlRef, AuthenticatorAttachment);
 
     Type type() const final { return Type::Assertion; }
     AuthenticatorResponseData data() const final;
 
     RefPtr<ArrayBuffer> m_authenticatorData;
     RefPtr<ArrayBuffer> m_signature;
-    RefPtr<ArrayBuffer> m_userHandle;
+    const RefPtr<ArrayBuffer> m_userHandle;
 
     String m_name;
     String m_displayName;
+    String m_group;
+    bool m_synchronizable { false };
     size_t m_numberOfCredentials { 0 };
-    RetainPtr<SecAccessControlRef> m_accessControl;
+    const RetainPtr<SecAccessControlRef> m_accessControl;
     RetainPtr<LAContext> m_laContext;
+    RefPtr<ArrayBuffer> m_largeBlob;
+    String m_accessGroup;
 };
 
 } // namespace WebCore

@@ -25,11 +25,30 @@
 
 #pragma once
 
-#include "CallFrame.h"
-#include "Identifier.h"
-#include "Symbol.h"
+#include <JavaScriptCore/Identifier.h>
+#include <JavaScriptCore/JSString.h>
+#include <JavaScriptCore/Symbol.h>
+#include <JavaScriptCore/VM.h>
 
 namespace JSC  {
+
+inline Identifier::Identifier(VM& vm, std::span<const Latin1Character> string)
+    : m_string(add(vm, string))
+{
+    ASSERT(m_string.impl()->isAtom());
+}
+
+inline Identifier::Identifier(VM& vm, std::span<const char16_t> string)
+    : m_string(add(vm, string))
+{
+    ASSERT(m_string.impl()->isAtom());
+}
+
+ALWAYS_INLINE Identifier::Identifier(VM& vm, ASCIILiteral literal)
+    : m_string(add(vm, literal))
+{
+    ASSERT(m_string.impl()->isAtom());
+}
 
 inline Identifier::Identifier(VM& vm, AtomStringImpl* string)
     : m_string(string)
@@ -44,7 +63,7 @@ inline Identifier::Identifier(VM& vm, AtomStringImpl* string)
 }
 
 inline Identifier::Identifier(VM& vm, const AtomString& string)
-    : m_string(string.string())
+    : m_string(string)
 {
 #ifndef NDEBUG
     checkCurrentAtomStringTable(vm);
@@ -55,6 +74,40 @@ inline Identifier::Identifier(VM& vm, const AtomString& string)
 #endif
 }
 
+inline Identifier::Identifier(VM& vm, const String& string)
+    : m_string(add(vm, string.impl()))
+{
+    ASSERT(m_string.impl()->isAtom());
+}
+
+inline Identifier::Identifier(VM& vm, StringImpl* rep)
+    : m_string(add(vm, rep))
+{
+    ASSERT(m_string.impl()->isAtom());
+}
+
+inline Ref<AtomStringImpl> Identifier::add(VM& vm, ASCIILiteral literal)
+{
+    if (literal.length() == 1)
+        return vm.smallStrings.singleCharacterStringRep(literal.codeUnitAt(0));
+    return AtomStringImpl::add(literal);
+}
+
+
+template <typename T>
+Ref<AtomStringImpl> Identifier::add(VM& vm, std::span<const T> string)
+{
+    if (string.size() == 1) {
+        T c = string.front();
+        if (canUseSingleCharacterString(c))
+            return vm.smallStrings.singleCharacterStringRep(c);
+    }
+    if (string.empty())
+        return *static_cast<AtomStringImpl*>(StringImpl::empty());
+
+    return *AtomStringImpl::add(string);
+}
+
 inline Ref<AtomStringImpl> Identifier::add(VM& vm, StringImpl* r)
 {
 #ifndef NDEBUG
@@ -63,7 +116,12 @@ inline Ref<AtomStringImpl> Identifier::add(VM& vm, StringImpl* r)
     return *AtomStringImpl::addWithStringTableProvider(vm, r);
 }
 
-inline Identifier Identifier::fromUid(VM& vm, UniquedStringImpl* uid)
+inline Identifier Identifier::createLatin1(VM& vm, std::span<const char16_t> string)
+{
+    return Identifier(vm, add8(vm, string));
+}
+
+SUPPRESS_NODELETE inline Identifier Identifier::fromUid(VM& vm, UniquedStringImpl* uid)
 {
     if (!uid || !uid->isSymbol())
         return Identifier(vm, uid);
@@ -80,25 +138,19 @@ inline Identifier Identifier::fromUid(SymbolImpl& symbol)
     return symbol;
 }
 
-template<unsigned charactersCount>
-inline Identifier Identifier::fromString(VM& vm, const char (&characters)[charactersCount])
+ALWAYS_INLINE Identifier Identifier::fromString(VM& vm, ASCIILiteral s)
 {
-    return Identifier(&vm, characters);
+    return Identifier(vm, s);
 }
 
-inline Identifier Identifier::fromString(VM& vm, ASCIILiteral s)
+inline Identifier Identifier::fromString(VM& vm, std::span<const Latin1Character> s)
 {
-    return Identifier(vm, String(s));
+    return Identifier(vm, s);
 }
 
-inline Identifier Identifier::fromString(VM& vm, const LChar* s, int length)
+inline Identifier Identifier::fromString(VM& vm, std::span<const char16_t> s)
 {
-    return Identifier(vm, s, length);
-}
-
-inline Identifier Identifier::fromString(VM& vm, const UChar* s, int length)
-{
-    return Identifier(vm, s, length);
+    return Identifier(vm, s);
 }
 
 inline Identifier Identifier::fromString(VM& vm, const String& string)
@@ -113,7 +165,7 @@ inline Identifier Identifier::fromString(VM& vm, AtomStringImpl* atomStringImpl)
 
 inline Identifier Identifier::fromString(VM& vm, Ref<AtomStringImpl>&& atomStringImpl)
 {
-    return Identifier(vm, WTFMove(atomStringImpl));
+    return Identifier(vm, WTF::move(atomStringImpl));
 }
 
 inline Identifier Identifier::fromString(VM& vm, const AtomString& atomString)
@@ -126,23 +178,18 @@ inline Identifier Identifier::fromString(VM& vm, SymbolImpl* symbolImpl)
     return Identifier(vm, symbolImpl);
 }
 
-inline Identifier Identifier::fromString(VM& vm, const char* s)
-{
-    return Identifier(vm, AtomString(s));
-}
-
 inline JSValue identifierToJSValue(VM& vm, const Identifier& identifier)
 {
     if (identifier.isSymbol())
         return Symbol::create(vm, static_cast<SymbolImpl&>(*identifier.impl()));
-    return jsString(vm, identifier.impl());
+    return jsString(vm, identifier.string());
 }
 
 inline JSValue identifierToSafePublicJSValue(VM& vm, const Identifier& identifier) 
 {
     if (identifier.isSymbol() && !identifier.isPrivateName())
         return Symbol::create(vm, static_cast<SymbolImpl&>(*identifier.impl()));
-    return jsString(vm, identifier.impl());
+    return jsString(vm, identifier.string());
 }
 
 } // namespace JSC

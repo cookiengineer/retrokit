@@ -25,28 +25,35 @@
 
 #pragma once
 
-#include "CacheableIdentifier.h"
+#include <JavaScriptCore/CacheableIdentifier.h>
 
-#include "Identifier.h"
-#include "JSCJSValueInlines.h"
-#include "JSCell.h"
-#include "VM.h"
+#include <JavaScriptCore/Identifier.h>
+#include <JavaScriptCore/JSCJSValueInlines.h>
+#include <JavaScriptCore/JSCell.h>
+#include <JavaScriptCore/VM.h>
 #include <wtf/text/UniquedStringImpl.h>
 
 namespace JSC {
 
-inline CacheableIdentifier CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(CodeBlock* codeBlock, const Identifier& i)
+template <typename CodeBlockType>
+inline CacheableIdentifier CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(CodeBlockType* codeBlock, const Identifier& i)
 {
     return createFromIdentifierOwnedByCodeBlock(codeBlock, i.impl());
 }
 
-inline CacheableIdentifier CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(CodeBlock* codeBlock, UniquedStringImpl* uid)
+template <typename CodeBlockType>
+inline CacheableIdentifier CacheableIdentifier::createFromIdentifierOwnedByCodeBlock(CodeBlockType* codeBlock, UniquedStringImpl* uid)
 {
     ASSERT_UNUSED(codeBlock, codeBlock->hasIdentifier(uid));
     return CacheableIdentifier(uid);
 }
 
 inline CacheableIdentifier CacheableIdentifier::createFromImmortalIdentifier(UniquedStringImpl* uid)
+{
+    return CacheableIdentifier(uid);
+}
+
+inline CacheableIdentifier CacheableIdentifier::createFromSharedStub(UniquedStringImpl* uid)
 {
     return CacheableIdentifier(uid);
 }
@@ -70,7 +77,7 @@ inline CacheableIdentifier::CacheableIdentifier(JSCell* identifier)
 inline JSCell* CacheableIdentifier::cell() const
 {
     ASSERT(isCell());
-    return bitwise_cast<JSCell*>(m_bits);
+    return std::bit_cast<JSCell*>(m_bits);
 }
 
 inline UniquedStringImpl* CacheableIdentifier::uid() const
@@ -78,12 +85,27 @@ inline UniquedStringImpl* CacheableIdentifier::uid() const
     if (!m_bits)
         return nullptr;
     if (isUid())
-        return bitwise_cast<UniquedStringImpl*>(m_bits & ~s_uidTag);
+        return std::bit_cast<UniquedStringImpl*>(m_bits & ~s_uidTag);
     if (isSymbolCell())
-        return &jsCast<Symbol*>(cell())->uid();
+        return &uncheckedDowncast<Symbol>(cell())->uid();
     ASSERT(isStringCell());
-    JSString* string = jsCast<JSString*>(cell());
-    return bitwise_cast<UniquedStringImpl*>(string->getValueImpl());
+    JSString* string = uncheckedDowncast<JSString>(cell());
+    return std::bit_cast<UniquedStringImpl*>(string->getValueImpl());
+}
+
+inline bool CacheableIdentifier::isSymbol() const
+{
+    return m_bits && uid()->isSymbol();
+}
+
+inline bool CacheableIdentifier::isPrivateName() const
+{
+    return isSymbol() && static_cast<SymbolImpl&>(*uid()).isPrivate();
+}
+
+inline unsigned CacheableIdentifier::hash() const
+{
+    return uid()->symbolAwareHash();
 }
 
 inline bool CacheableIdentifier::isCacheableIdentifierCell(JSCell* cell)
@@ -92,7 +114,7 @@ inline bool CacheableIdentifier::isCacheableIdentifierCell(JSCell* cell)
         return true;
     if (!cell->isString())
         return false;
-    JSString* string = jsCast<JSString*>(cell);
+    JSString* string = uncheckedDowncast<JSString>(cell);
     if (const StringImpl* impl = string->tryGetValueImpl())
         return impl->isAtom();
     return false;
@@ -105,6 +127,25 @@ inline bool CacheableIdentifier::isCacheableIdentifierCell(JSValue value)
     return isCacheableIdentifierCell(value.asCell());
 }
 
+inline GCOwnedDataScope<const UniquedStringImpl*> CacheableIdentifier::getCacheableIdentifier(JSCell* cell)
+{
+    if (cell->isSymbol())
+        return { cell, &asSymbol(cell)->uid() };
+    if (!cell->isString())
+        return { };
+    JSString* string = uncheckedDowncast<JSString>(cell);
+    if (const StringImpl* impl = string->tryGetValueImpl(); impl && impl->isAtom())
+        return { cell, static_cast<const AtomStringImpl*>(impl) };
+    return { };
+}
+
+inline GCOwnedDataScope<const UniquedStringImpl*> CacheableIdentifier::getCacheableIdentifier(JSValue value)
+{
+    if (!value.isCell())
+        return { };
+    return getCacheableIdentifier(value.asCell());
+}
+
 inline bool CacheableIdentifier::isSymbolCell() const
 {
     return isCell() && cell()->isSymbol();
@@ -115,15 +156,26 @@ inline bool CacheableIdentifier::isStringCell() const
     return isCell() && cell()->isString();
 }
 
+inline void CacheableIdentifier::ensureIsCell(VM& vm)
+{
+    if (!isCell()) {
+        if (uid()->isSymbol())
+            setCellBits(Symbol::create(vm, static_cast<SymbolImpl&>(*uid())));
+        else
+            setCellBits(jsString(vm, String(static_cast<AtomStringImpl*>(uid()))));
+    }
+    ASSERT(isCell());
+}
+
 inline void CacheableIdentifier::setCellBits(JSCell* cell)
 {
     RELEASE_ASSERT(isCacheableIdentifierCell(cell));
-    m_bits = bitwise_cast<uintptr_t>(cell);
+    m_bits = std::bit_cast<uintptr_t>(cell);
 }
 
 inline void CacheableIdentifier::setUidBits(UniquedStringImpl* uid)
 {
-    m_bits = bitwise_cast<uintptr_t>(uid) | s_uidTag;
+    m_bits = std::bit_cast<uintptr_t>(uid) | s_uidTag;
 }
 
 template<typename Visitor>
@@ -133,15 +185,9 @@ inline void CacheableIdentifier::visitAggregate(Visitor& visitor) const
         visitor.appendUnbarriered(cell());
 }
 
-
 inline bool CacheableIdentifier::operator==(const CacheableIdentifier& other) const
 {
     return uid() == other.uid();
-}
-
-inline bool CacheableIdentifier::operator!=(const CacheableIdentifier& other) const
-{
-    return uid() != other.uid();
 }
 
 inline bool CacheableIdentifier::operator==(const Identifier& other) const

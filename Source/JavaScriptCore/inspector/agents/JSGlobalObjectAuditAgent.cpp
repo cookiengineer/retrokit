@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,10 +28,13 @@
 
 #include "InjectedScript.h"
 #include "InjectedScriptManager.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace Inspector {
 
 using namespace JSC;
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(JSGlobalObjectAuditAgent);
 
 JSGlobalObjectAuditAgent::JSGlobalObjectAuditAgent(JSAgentContext& context)
     : InspectorAuditAgent(context)
@@ -48,7 +51,7 @@ InjectedScript JSGlobalObjectAuditAgent::injectedScriptForEval(Protocol::ErrorSt
         return InjectedScript();
     }
 
-    InjectedScript injectedScript = injectedScriptManager().injectedScriptFor(&m_globalObject);
+    auto injectedScript = injectedScriptManager().injectedScriptFor(&m_globalObject);
     if (injectedScript.hasNoValue())
         errorString = "Internal error: main world execution context not found"_s;
 

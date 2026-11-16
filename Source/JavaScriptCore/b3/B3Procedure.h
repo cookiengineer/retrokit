@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,6 +27,7 @@
 
 #if ENABLE(B3_JIT)
 
+#include "B3AbstractHeapRepository.h"
 #include "B3Origin.h"
 #include "B3PCToOriginMap.h"
 #include "B3SparseCollection.h"
@@ -39,11 +40,15 @@
 #include <wtf/FastMalloc.h>
 #include <wtf/HashSet.h>
 #include <wtf/IndexedContainerIterator.h>
+#include <wtf/JSONValues.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/PrintStream.h>
+#include <wtf/SequesteredMalloc.h>
 #include <wtf/SharedTask.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/TriState.h>
 #include <wtf/Vector.h>
+#include <wtf/text/WTFString.h>
 
 namespace JSC {
 
@@ -60,13 +65,14 @@ class Dominators;
 class NaturalLoops;
 class Value;
 class Variable;
+class WasmBoundsCheckValue;
 
 namespace Air {
 class Code;
 class StackSlot;
 } // namespace Air
 
-typedef void WasmBoundsCheckGeneratorFunction(CCallHelpers&, GPRReg);
+typedef void WasmBoundsCheckGeneratorFunction(CCallHelpers&, WasmBoundsCheckValue*, GPRReg);
 typedef SharedTask<WasmBoundsCheckGeneratorFunction> WasmBoundsCheckGenerator;
 
 // This represents B3's view of a piece of code. Note that this object must exist in a 1:1
@@ -78,10 +84,10 @@ typedef SharedTask<WasmBoundsCheckGeneratorFunction> WasmBoundsCheckGenerator;
 
 class Procedure {
     WTF_MAKE_NONCOPYABLE(Procedure);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_SEQUESTERED_ARENA_ALLOCATED(Procedure);
 public:
 
-    JS_EXPORT_PRIVATE Procedure();
+    JS_EXPORT_PRIVATE Procedure(bool usesSIMD = false);
     JS_EXPORT_PRIVATE ~Procedure();
 
     template<typename Callback>
@@ -93,6 +99,9 @@ public:
 
     // Usually you use this via OriginDump, though it's cool to use it directly.
     void printOrigin(PrintStream& out, Origin origin) const;
+
+    void setName(String name) { m_name = WTF::move(name); }
+    const String& name() const { return m_name; }
 
     // This is a debugging hack. Sometimes while debugging B3 you need to break the abstraction
     // and get at the DFG Graph, or whatever data structure the frontend used to describe the
@@ -119,9 +128,9 @@ public:
 
     JS_EXPORT_PRIVATE Type addTuple(Vector<Type>&& types);
     const Vector<Vector<Type>>& tuples() const { return m_tuples; };
-    bool isValidTuple(Type tuple) const;
+    bool NODELETE isValidTuple(Type tuple) const;
     Type extractFromTuple(Type tuple, unsigned index) const;
-    JS_EXPORT_PRIVATE const Vector<Type>& tupleForType(Type tuple) const;
+    JS_EXPORT_PRIVATE const Vector<Type>& NODELETE tupleForType(Type tuple) const;
 
     unsigned resultCount(Type type) const { return type.isTuple() ? tupleForType(type).size() : type.isNumeric(); }
     Type typeAtOffset(Type type, unsigned index) const { ASSERT(index < resultCount(type)); return type.isTuple() ? extractFromTuple(type, index) : type; }
@@ -134,8 +143,9 @@ public:
     Value* addIntConstant(Origin, Type, int64_t value);
     Value* addIntConstant(Value*, int64_t value);
 
-    // bits is a bitwise_cast of the constant you want.
+    // bits is a std::bit_cast of the constant you want.
     JS_EXPORT_PRIVATE Value* addConstant(Origin, Type, uint64_t bits);
+    JS_EXPORT_PRIVATE Value* addConstant(Origin, Type, v128_t bits);
 
     // You're guaranteed that bottom is zero.
     Value* addBottom(Origin, Type);
@@ -144,7 +154,7 @@ public:
     // Returns null for TriState::Indeterminate.
     Value* addBoolConstant(Origin, TriState);
 
-    void resetValueOwners();
+    void NODELETE resetValueOwners();
     JS_EXPORT_PRIVATE void resetReachability();
 
     // This destroys CFG analyses. If we ask for them again, we will recompute them. Usually you
@@ -168,14 +178,14 @@ public:
     SparseCollection<Air::StackSlot>& stackSlots();
     const SparseCollection<Air::StackSlot>& stackSlots() const;
 
-    SparseCollection<Variable>& variables() { return m_variables; }
-    const SparseCollection<Variable>& variables() const { return m_variables; }
+    SparseCollection<Variable>& variables() LIFETIME_BOUND { return m_variables; }
+    const SparseCollection<Variable>& variables() const LIFETIME_BOUND { return m_variables; }
 
     // Short for variables().remove(). It's better to call this method since it's out of line.
     void deleteVariable(Variable*);
 
-    SparseCollection<Value>& values() { return m_values; }
-    const SparseCollection<Value>& values() const { return m_values; }
+    SparseCollection<Value>& values() LIFETIME_BOUND { return m_values; }
+    const SparseCollection<Value>& values() const LIFETIME_BOUND { return m_values; }
 
     // Short for values().remove(). It's better to call this method since it's out of line.
     void deleteValue(Value*);
@@ -189,12 +199,12 @@ public:
     CFG& cfg() const { return *m_cfg; }
 
     Dominators& dominators();
-    NaturalLoops& naturalLoops();
+    JS_EXPORT_PRIVATE NaturalLoops& naturalLoops();
     BackwardsCFG& backwardsCFG();
-    BackwardsDominators& backwardsDominators();
+    JS_EXPORT_PRIVATE BackwardsDominators& backwardsDominators();
 
     void addFastConstant(const ValueKey&);
-    bool isFastConstant(const ValueKey&);
+    bool NODELETE isFastConstant(const ValueKey&);
     
     unsigned numEntrypoints() const { return m_numEntrypoints; }
     JS_EXPORT_PRIVATE void setNumEntrypoints(unsigned);
@@ -232,20 +242,20 @@ public:
     // just keeps alive things like the double constant pool and switch lookup tables. If this sounds
     // confusing, you should probably be using the JSC::Compilation API to compile code. If you use
     // that API, then you don't have to worry about this.
-    std::unique_ptr<OpaqueByproducts> releaseByproducts() { return WTFMove(m_byproducts); }
+    std::unique_ptr<OpaqueByproducts> releaseByproducts() { return WTF::move(m_byproducts); }
 
     // This gives you direct access to Code. However, the idea is that clients of B3 shouldn't have to
     // call this. So, Procedure has some methods (below) that expose some Air::Code functionality.
     const Air::Code& code() const { return *m_code; }
     Air::Code& code() { return *m_code; }
 
-    unsigned callArgAreaSizeInBytes() const;
+    unsigned NODELETE callArgAreaSizeInBytes() const;
     void requestCallArgAreaSizeInBytes(unsigned size);
 
     // This tells the register allocators to stay away from this register.
     JS_EXPORT_PRIVATE void pinRegister(Reg);
     
-    JS_EXPORT_PRIVATE void setOptLevel(unsigned value);
+    JS_EXPORT_PRIVATE void NODELETE setOptLevel(unsigned value);
     unsigned optLevel() const { return m_optLevel; }
     
     // You can turn off used registers calculation. This may speed up compilation a bit. But if
@@ -254,14 +264,14 @@ public:
     void setNeedsUsedRegisters(bool value) { m_needsUsedRegisters = value; }
     bool needsUsedRegisters() const { return m_needsUsedRegisters; }
 
-    JS_EXPORT_PRIVATE unsigned frameSize() const;
+    JS_EXPORT_PRIVATE unsigned NODELETE frameSize() const;
     JS_EXPORT_PRIVATE RegisterAtOffsetList calleeSaveRegisterAtOffsetList() const;
 
-    PCToOriginMap& pcToOriginMap() { return m_pcToOriginMap; }
+    PCToOriginMap& pcToOriginMap() LIFETIME_BOUND { return m_pcToOriginMap; }
     PCToOriginMap releasePCToOriginMap()
     {
         RELEASE_ASSERT(needsPCToOriginMap());
-        return WTFMove(m_pcToOriginMap);
+        return WTF::move(m_pcToOriginMap);
     }
 
     JS_EXPORT_PRIVATE void setWasmBoundsCheckGenerator(RefPtr<WasmBoundsCheckGenerator>);
@@ -273,12 +283,52 @@ public:
     }
 
     JS_EXPORT_PRIVATE RegisterSet mutableGPRs();
-    JS_EXPORT_PRIVATE RegisterSet mutableFPRs();
 
-    void setNeedsPCToOriginMap() { m_needsPCToOriginMap = true; }
+    void NODELETE setNeedsPCToOriginMap();
     bool needsPCToOriginMap() { return m_needsPCToOriginMap; }
 
     JS_EXPORT_PRIVATE void freeUnneededB3ValuesAfterLowering();
+
+    bool shouldDumpIR() const { return m_shouldDumpIR; }
+    JS_EXPORT_PRIVATE void NODELETE setShouldDumpIR();
+
+    void setUsesSIMD()
+    { 
+        RELEASE_ASSERT(Options::useWasmSIMD());
+        m_usesSIMD = true;
+    }
+    bool usesSIMD() const
+    {
+        // See also: WasmModuleInformation::usesSIMD().
+        if (!Options::useWasmSIMD())
+            return false;
+        if (Options::forceAllFunctionsToUseSIMD())
+            return true;
+        // The LLInt discovers this value.
+        ASSERT(Options::useWasmIPInt());
+        return m_usesSIMD;
+    }
+
+    void setIonGraphPasses(Ref<JSON::Array>&&);
+    void appendIonGraphPass(ASCIILiteral);
+
+    AbstractHeapRepository& heaps() { return m_heaps.get(); }
+    const AbstractHeapRepository& heaps() const { return m_heaps.get(); }
+
+    void setIsWasm(bool flag) { m_isWasm = flag; }
+    bool isWasm() const { return m_isWasm; }
+
+    void setUsesWasmGCStructAllocations(bool flag = true) { m_usesWasmGCStructAllocations = flag; }
+    bool usesWasmGCStructAllocations() const { return m_usesWasmGCStructAllocations; }
+    void setUsesWasmGCArrayAllocations(bool flag = true) { m_usesWasmGCArrayAllocations = flag; }
+    bool usesWasmGCArrayAllocations() const { return m_usesWasmGCArrayAllocations; }
+
+    void setUsesColdCCall(bool flag) { m_usesColdCCall = flag; }
+    bool usesColdCCall() const { return m_usesColdCCall; }
+    void setUsesShuffle(bool flag) { m_usesShuffle = flag; }
+    bool usesShuffle() const { return m_usesShuffle; }
+    void setUsesEntrySwitch(bool flag) { m_usesEntrySwitch = flag; }
+    bool usesEntrySwitch() const { return m_usesEntrySwitch; }
 
 private:
     friend class BlockInsertionSet;
@@ -295,18 +345,29 @@ private:
     std::unique_ptr<NaturalLoops> m_naturalLoops;
     std::unique_ptr<BackwardsCFG> m_backwardsCFG;
     std::unique_ptr<BackwardsDominators> m_backwardsDominators;
-    HashSet<ValueKey> m_fastConstants;
+    UncheckedKeyHashSet<ValueKey> m_fastConstants;
     const char* m_lastPhaseName;
     std::unique_ptr<OpaqueByproducts> m_byproducts;
     std::unique_ptr<Air::Code> m_code;
+    UniqueRef<AbstractHeapRepository> m_heaps;
     RefPtr<SharedTask<void(PrintStream&, Origin)>> m_originPrinter;
     const void* m_frontendData;
+    String m_name;
     PCToOriginMap m_pcToOriginMap;
+    RefPtr<JSON::Array> m_ionGraphPasses;
     unsigned m_numEntrypoints { 1 };
     unsigned m_optLevel { defaultOptLevel() };
-    bool m_needsUsedRegisters { true };
-    bool m_hasQuirks { false };
-    bool m_needsPCToOriginMap { false };
+    bool m_needsUsedRegisters : 1 { true };
+    bool m_hasQuirks : 1 { false };
+    bool m_needsPCToOriginMap : 1 { false };
+    bool m_shouldDumpIR : 1 { false };
+    bool m_usesSIMD : 1 { false };
+    bool m_isWasm : 1 { false };
+    bool m_usesWasmGCStructAllocations : 1 { false };
+    bool m_usesWasmGCArrayAllocations : 1 { false };
+    bool m_usesColdCCall : 1 { false };
+    bool m_usesShuffle : 1 { false };
+    bool m_usesEntrySwitch : 1 { false };
 };
     
 } } // namespace JSC::B3

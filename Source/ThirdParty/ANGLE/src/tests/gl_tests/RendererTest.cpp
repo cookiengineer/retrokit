@@ -7,18 +7,21 @@
 //   These tests are designed to ensure that the various configurations of the test fixtures work as
 //   expected. If one of these tests fails, then it is likely that some of the other tests are being
 //   configured incorrectly. For example, they might be using the D3D11 renderer when the test is
-//   meant to be using the D3D9 renderer.
+//   meant to be using the Vulkan renderer.
 
-#include "test_utils/ANGLETest.h"
-
+#include <regex>
 #include "common/string_utils.h"
+#include "test_utils/ANGLETest.h"
+#include "test_utils/gl_raii.h"
+#include "util/shader_utils.h"
+#include "util/test_utils.h"
 
 using namespace angle;
 
-namespace
+namespace angle
 {
 
-class RendererTest : public ANGLETest
+class RendererTest : public ANGLETest<>
 {
   protected:
     RendererTest()
@@ -54,12 +57,6 @@ TEST_P(RendererTest, RequestedRendererCreated)
     if (platform.renderer == EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE)
     {
         ASSERT_NE(rendererString.find(std::string("direct3d11")), std::string::npos);
-    }
-
-    // Ensure that the renderer string contains D3D9, if we requested a D3D9 renderer.
-    if (platform.renderer == EGL_PLATFORM_ANGLE_TYPE_D3D9_ANGLE)
-    {
-        ASSERT_NE(rendererString.find(std::string("direct3d9")), std::string::npos);
     }
 
     // Ensure that the major and minor versions trigger expected behavior in D3D11
@@ -101,15 +98,10 @@ TEST_P(RendererTest, RequestedRendererCreated)
             }
         }
 
-        if (platform.majorVersion == 9 && platform.minorVersion == 3)
-        {
-            acceptableShaderModels.push_back("ps_4_0_level_9_3");
-        }
-
         bool found = false;
-        for (size_t i = 0; i < acceptableShaderModels.size(); i++)
+        for (const std::string &acceptableShaderModel : acceptableShaderModels)
         {
-            if (rendererString.find(acceptableShaderModels[i]) != std::string::npos)
+            if (rendererString.find(acceptableShaderModel) != std::string::npos)
             {
                 found = true;
             }
@@ -128,26 +120,32 @@ TEST_P(RendererTest, RequestedRendererCreated)
         ASSERT_TRUE(IsVulkan());
     }
 
-    EGLint glesMajorVersion = GetParam().majorVersion;
-    EGLint glesMinorVersion = GetParam().minorVersion;
-
-    // Ensure that the renderer string contains the requested version number
-    if (glesMajorVersion == 3 && glesMinorVersion == 1)
+    // EGL_ANGLE_create_context_backwards_compatible is required to guarantee the expected context
+    // version.
+    EGLint glesMajorVersion;
+    EGLint glesMinorVersion;
+    EGLWindow *window  = getEGLWindow();
+    EGLDisplay display = window->getDisplay();
+    if (IsEGLDisplayExtensionEnabled(display, "EGL_ANGLE_create_context_backwards_compatible"))
     {
-        ASSERT_NE(versionString.find(std::string("es 3.1")), std::string::npos);
-    }
-    else if (glesMajorVersion == 3 && glesMinorVersion == 0)
-    {
-        ASSERT_NE(versionString.find(std::string("es 3.0")), std::string::npos);
-    }
-    else if (glesMajorVersion == 2 && glesMinorVersion == 0)
-    {
-        ASSERT_NE(versionString.find(std::string("es 2.0")), std::string::npos);
+        // If the extension is available, verify the requested version matches the returned version.
+        glesMajorVersion = GetParam().majorVersion;
+        glesMinorVersion = GetParam().minorVersion;
     }
     else
     {
-        FAIL() << "Unhandled GL ES client version.";
+        // Otherwise, get the created context's (maximally conformant) version.
+        glesMajorVersion = getClientMajorVersion();
+        glesMinorVersion = getClientMinorVersion();
+        // Verify that the returned version is >= the requested version.
+        ASSERT_GE(glesMajorVersion, GetParam().majorVersion);
+        ASSERT_GE(glesMinorVersion, GetParam().minorVersion);
     }
+
+    std::ostringstream expectedVersionString;
+    expectedVersionString << "es " << glesMajorVersion << "." << glesMinorVersion;
+
+    ASSERT_NE(versionString.find(expectedVersionString.str()), std::string::npos);
 
     ASSERT_GL_NO_ERROR();
     ASSERT_EGL_SUCCESS();
@@ -169,8 +167,103 @@ TEST_P(RendererTest, SimpleOperation)
     ASSERT_GL_NO_ERROR();
 }
 
+// Perform a simple buffer operation.
+TEST_P(RendererTest, BufferData)
+{
+    constexpr size_t kBufferSize = 1024;
+    std::array<uint8_t, kBufferSize> data;
+    for (size_t i = 0; i < kBufferSize; i++)
+    {
+        data[i] = static_cast<uint8_t>(i);
+    }
+
+    // All at once in the glBufferData call
+    {
+        GLBuffer buffer;
+        glBindBuffer(GL_ARRAY_BUFFER, buffer);
+
+        glBufferData(GL_ARRAY_BUFFER, 1024, data.data(), GL_STATIC_DRAW);
+    }
+
+    // Set data with sub data
+    {
+        GLBuffer buffer;
+        glBindBuffer(GL_ARRAY_BUFFER, buffer);
+
+        glBufferData(GL_ARRAY_BUFFER, 1024, nullptr, GL_STATIC_DRAW);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, kBufferSize, data.data());
+    }
+}
+
+// Compile simple vertex and fragment shaders
+TEST_P(RendererTest, CompileShader)
+{
+    GLuint vs = CompileShader(GL_VERTEX_SHADER, essl1_shaders::vs::Zero());
+    EXPECT_NE(vs, 0u);
+    glDeleteShader(vs);
+
+    GLuint fs = CompileShader(GL_FRAGMENT_SHADER, essl1_shaders::fs::Red());
+    EXPECT_NE(fs, 0u);
+    glDeleteShader(fs);
+}
+
+// Link a simple program
+TEST_P(RendererTest, LinkProgram)
+{
+    ANGLE_GL_PROGRAM(prog, essl1_shaders::vs::Zero(), essl1_shaders::fs::Red());
+}
+
+// Draw a triangle using no vertex attributes
+TEST_P(RendererTest, Draw)
+{
+    ANGLE_GL_PROGRAM(prog, essl1_shaders::vs::Zero(), essl1_shaders::fs::Red());
+    glUseProgram(prog);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+}
+
+// This test validates that the GL_RENDERER string reported by ANGLE adheres to the
+// canonical format: "ANGLE (Vendor, Renderer, Version)".
+// This format is a de-facto API contract relied upon by upstream clients like Skia
+// to enable workarounds and optimizations.
+TEST_P(RendererTest, ValidateCanonicalFormat)
+{
+    // Use the idiomatic IsNULL() check to skip this test on the Null backend.
+    if (IsNULL())
+    {
+        std::cout << "Skipping canonical format validation for the Null backend." << std::endl;
+        return;
+    }
+
+    // 1. Query the renderer string from the driver.
+    const char *rendererCStr = reinterpret_cast<const char *>(glGetString(GL_RENDERER));
+    ASSERT_NE(rendererCStr, nullptr);
+    std::string rendererStr(rendererCStr);
+    std::cout << "Renderer string: \"" << rendererStr << "\"" << std::endl;
+
+    // 2. Validate the entire string structure using a single regular expression.
+    //    This regex enforces the "ANGLE (...)" wrapper and the presence of three
+    //    comma-space-separated components, while allowing components to be empty.
+    const std::regex kRendererFormat("^ANGLE \\((.*), (.*), (.*)\\)$");
+    std::smatch match;
+
+    bool matches = std::regex_match(rendererStr, match, kRendererFormat);
+
+    // 3. Assert that the string matches the format and contains the correct number of groups.
+    //    match[0] is the full string, match[1-3] are the captured components.
+    ASSERT_TRUE(matches && match.size() == 4)
+        << "Renderer string does not match the expected format 'ANGLE (Vendor, Renderer, Version)'."
+        << "\n  Actual string: " << rendererStr;
+
+    // 4. For clarity in test logs, print the parsed components.
+    std::cout << "Successfully parsed renderer string components:" << std::endl;
+    std::cout << "  - Vendor:   \"" << match[1].str() << "\"" << std::endl;
+    std::cout << "  - Renderer: \"" << match[2].str() << "\"" << std::endl;
+    std::cout << "  - Version:  \"" << match[3].str() << "\"" << std::endl;
+
+    EXPECT_GL_NO_ERROR();
+}
+
 // Select configurations (e.g. which renderer, which GLES major version) these tests should be run
 // against.
-
 ANGLE_INSTANTIATE_TEST_ES2_AND_ES3_AND_ES31_AND_NULL(RendererTest);
-}  // anonymous namespace
+}  // namespace angle

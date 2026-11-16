@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -37,9 +37,18 @@ WI.ContentView = class ContentView extends WI.View
         this.element.classList.add("content-view");
 
         this._parentContainer = null;
+        this._isClosed = false;
+        this._visible = false;
     }
 
     // Static
+
+    static shouldNotRemoveFromDOMWhenHidden()
+    {
+        // Implemented by subclasses.
+        // Returns true if the content view should *not* be detached from the DOM when hidden.
+        return false;
+    }
 
     static createFromRepresentedObject(representedObject, extraArguments)
     {
@@ -91,6 +100,9 @@ WI.ContentView = class ContentView extends WI.View
 
             if (timelineType === WI.TimelineRecord.Type.Media)
                 return new WI.MediaTimelineView(representedObject, extraArguments);
+            
+            if (timelineType === WI.TimelineRecord.Type.Screenshots)
+                return new WI.ScreenshotsTimelineView(representedObject, extraArguments);
         }
 
         if (representedObject instanceof WI.JavaScriptBreakpoint || representedObject instanceof WI.IssueMessage) {
@@ -99,7 +111,7 @@ WI.ContentView = class ContentView extends WI.View
         }
 
         if (representedObject instanceof WI.LocalResourceOverride) {
-            if (representedObject.type === WI.LocalResourceOverride.InterceptType.Request)
+            if (representedObject.type === WI.LocalResourceOverride.InterceptType.Block || representedObject.type === WI.LocalResourceOverride.InterceptType.Request)
                 return new WI.LocalResourceOverrideRequestContentView(representedObject);
             return WI.ContentView.createFromRepresentedObject(representedObject.localResource);
         }
@@ -110,12 +122,6 @@ WI.ContentView = class ContentView extends WI.View
         if (representedObject instanceof WI.CookieStorageObject)
             return new WI.CookieStorageContentView(representedObject, extraArguments);
 
-        if (representedObject instanceof WI.DatabaseTableObject)
-            return new WI.DatabaseTableContentView(representedObject, extraArguments);
-
-        if (representedObject instanceof WI.DatabaseObject)
-            return new WI.DatabaseContentView(representedObject, extraArguments);
-
         if (representedObject instanceof WI.IndexedDatabase)
             return new WI.IndexedDatabaseContentView(representedObject, extraArguments);
 
@@ -124,9 +130,6 @@ WI.ContentView = class ContentView extends WI.View
 
         if (representedObject instanceof WI.IndexedDatabaseObjectStoreIndex)
             return new WI.IndexedDatabaseObjectStoreContentView(representedObject, extraArguments);
-
-        if (representedObject instanceof WI.ApplicationCacheFrame)
-            return new WI.ApplicationCacheFrameContentView(representedObject, extraArguments);
 
         if (representedObject instanceof WI.DOMTree)
             return new WI.FrameDOMTreeContentView(representedObject, extraArguments);
@@ -262,7 +265,7 @@ WI.ContentView = class ContentView extends WI.View
             return representedObject.sourceCode;
 
         if (representedObject instanceof WI.LocalResourceOverride) {
-            if (representedObject.type !== WI.LocalResourceOverride.InterceptType.Request)
+            if (representedObject.type === WI.LocalResourceOverride.InterceptType.Response || representedObject.type === WI.LocalResourceOverride.InterceptType.ResponseMappedDirectory || representedObject.type === WI.LocalResourceOverride.InterceptType.ResponseSkippingNetwork)
                 return representedObject.localResource;
             return representedObject;
         }
@@ -296,17 +299,11 @@ WI.ContentView = class ContentView extends WI.View
             return true;
         if (representedObject instanceof WI.CookieStorageObject)
             return true;
-        if (representedObject instanceof WI.DatabaseTableObject)
-            return true;
-        if (representedObject instanceof WI.DatabaseObject)
-            return true;
         if (representedObject instanceof WI.IndexedDatabase)
             return true;
         if (representedObject instanceof WI.IndexedDatabaseObjectStore)
             return true;
         if (representedObject instanceof WI.IndexedDatabaseObjectStoreIndex)
-            return true;
-        if (representedObject instanceof WI.ApplicationCacheFrame)
             return true;
         if (representedObject instanceof WI.DOMTree)
             return true;
@@ -337,6 +334,19 @@ WI.ContentView = class ContentView extends WI.View
     }
 
     // Public
+
+    get isClosed() { return this._isClosed; }
+
+    get visible()
+    {
+        return !this.isClosed && this._visible;
+    }
+
+    set visible(value)
+    {
+        this._visible = !!value;
+        this.element.classList.toggle("not-visible", !this._visible);
+    }
 
     get representedObject()
     {
@@ -393,6 +403,7 @@ WI.ContentView = class ContentView extends WI.View
     closed()
     {
         // Implemented by subclasses.
+        this._isClosed = true;
     }
 
     saveToCookie(cookie)

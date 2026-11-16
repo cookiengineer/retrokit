@@ -13,12 +13,15 @@
 #include "common/PackedEnums.h"
 #include "libANGLE/angletypes.h"
 #include "libANGLE/renderer/DisplayImpl.h"
+#include "libANGLE/renderer/ShareGroupImpl.h"
 #include "libANGLE/renderer/metal/mtl_command_buffer.h"
+#include "libANGLE/renderer/metal/mtl_context_device.h"
 #include "libANGLE/renderer/metal/mtl_format_utils.h"
+#include "libANGLE/renderer/metal/mtl_library_cache.h"
 #include "libANGLE/renderer/metal/mtl_render_utils.h"
 #include "libANGLE/renderer/metal/mtl_state_cache.h"
 #include "libANGLE/renderer/metal/mtl_utils.h"
-#include "platform/FeaturesMtl.h"
+#include "platform/autogen/FeaturesMtl_autogen.h"
 
 namespace egl
 {
@@ -28,13 +31,27 @@ class Surface;
 namespace rx
 {
 class ShareGroupMtl : public ShareGroupImpl
-{};
+{
+  public:
+    ShareGroupMtl(const egl::ShareGroupState &state) : ShareGroupImpl(state) {}
+};
 
 class ContextMtl;
 
 struct DefaultShaderAsyncInfoMtl;
 
-class DisplayMtl : public DisplayImpl
+class ThreadSafeDisplayMtl : public ThreadSafeDisplayImpl
+{
+  public:
+    ThreadSafeDisplayMtl()           = default;
+    ~ThreadSafeDisplayMtl() override = default;
+
+    EGLSyncImpl *createSync() override;
+
+  private:
+};
+
+class DisplayMtl : public DisplayImpl, public ThreadSafeDisplayMtl
 {
   public:
     DisplayMtl(const egl::DisplayState &state);
@@ -43,19 +60,21 @@ class DisplayMtl : public DisplayImpl
     egl::Error initialize(egl::Display *display) override;
     void terminate() override;
 
-    bool testDeviceLost() override;
-    egl::Error restoreLostDevice(const egl::Display *display) override;
+    egl::Display *getDisplay() const { return mDisplay; }
 
-    std::string getVendorString() const override;
+    bool testDeviceLost() override;
+    egl::Error restoreLostDevice(const egl::ThreadSafeDisplay *display) override;
+
+    std::string getRendererDescription() override;
+    std::string getVendorString() override;
+    std::string getVersionString(bool includeFullVersion) override;
 
     DeviceImpl *createDevice() override;
 
     egl::Error waitClient(const gl::Context *context) override;
     egl::Error waitNative(const gl::Context *context, EGLint engine) override;
-    egl::Error validateClientBuffer(const egl::Config *configuration,
-                                    EGLenum buftype,
-                                    EGLClientBuffer clientBuffer,
-                                    const egl::AttributeMap &attribs) const override;
+
+    egl::Error waitUntilWorkScheduled() override;
 
     SurfaceImpl *createWindowSurface(const egl::SurfaceState &state,
                                      EGLNativeWindowType window,
@@ -84,7 +103,7 @@ class DisplayMtl : public DisplayImpl
     StreamProducerImpl *createStreamProducerD3DTexture(egl::Stream::ConsumerType consumerType,
                                                        const egl::AttributeMap &attribs) override;
 
-    ShareGroupImpl *createShareGroup() override;
+    ShareGroupImpl *createShareGroup(const egl::ShareGroupState &state) override;
 
     ExternalImageSiblingImpl *createExternalImageSibling(const gl::Context *context,
                                                          EGLenum target,
@@ -93,16 +112,21 @@ class DisplayMtl : public DisplayImpl
     gl::Version getMaxSupportedESVersion() const override;
     gl::Version getMaxConformantESVersion() const override;
 
-    EGLSyncImpl *createSync(const egl::AttributeMap &attribs) override;
-
     egl::Error makeCurrent(egl::Display *display,
                            egl::Surface *drawSurface,
                            egl::Surface *readSurface,
                            gl::Context *context) override;
 
+    void initializeFrontendFeatures(angle::FrontendFeatures *features) const override;
+
     void populateFeatureList(angle::FeatureList *features) override;
 
     bool isValidNativeWindow(EGLNativeWindowType window) const override;
+
+    egl::Error validateClientBuffer(const egl::Config *configuration,
+                                    EGLenum buftype,
+                                    EGLClientBuffer clientBuffer,
+                                    const egl::AttributeMap &attribs) const override;
 
     egl::Error validateImageClientBuffer(const gl::Context *context,
                                          EGLenum target,
@@ -111,38 +135,40 @@ class DisplayMtl : public DisplayImpl
 
     egl::ConfigSet generateConfigs() override;
 
-    std::string getRendererDescription() const;
     gl::Caps getNativeCaps() const;
     const gl::TextureCapsMap &getNativeTextureCaps() const;
     const gl::Extensions &getNativeExtensions() const;
     const gl::Limitations &getNativeLimitations() const;
+    const ShPixelLocalStorageOptions &getNativePixelLocalStorageOptions() const;
     const angle::FeaturesMtl &getFeatures() const { return mFeatures; }
 
     // Check whether either of the specified iOS or Mac GPU family is supported
     bool supportsEitherGPUFamily(uint8_t iOSFamily, uint8_t macFamily) const;
-    bool supportsIOSGPUFamily(uint8_t iOSFamily) const;
+    bool supportsAppleGPUFamily(uint8_t iOSFamily) const;
     bool supportsMacGPUFamily(uint8_t macFamily) const;
+    bool supportsDepth24Stencil8PixelFormat() const;
+    bool supports32BitFloatFiltering() const;
+    bool supportsShaderBarycentricCoordinates() const;
+    bool supportsBCTextureCompression() const;
+    bool supportsVariableRasterizationRate() const;
     bool isAMD() const;
+    bool isAMDBronzeDriver() const;
+    bool isAMDFireProDevice() const;
     bool isIntel() const;
     bool isNVIDIA() const;
+    bool isSimulator() const;
 
     id<MTLDevice> getMetalDevice() const { return mMetalDevice; }
 
     mtl::CommandQueue &cmdQueue() { return mCmdQueue; }
     const mtl::FormatTable &getFormatTable() const { return mFormatTable; }
-    mtl::RenderUtils &getUtils() { return mUtils; }
+    mtl::RenderUtils &getUtils() { return *mUtils; }
     mtl::StateCache &getStateCache() { return mStateCache; }
+    mtl::LibraryCache &getLibraryCache() { return mLibraryCache; }
+    uint32_t getMaxVisibilityQueryOffset() const { return mMaxVisibilityQueryOffset; }
+    bool hasFragmentMemoryBarriers() const { return mHasFragmentMemoryBarriers; }
 
     id<MTLLibrary> getDefaultShadersLib();
-
-    id<MTLDepthStencilState> getDepthStencilState(const mtl::DepthStencilDesc &desc)
-    {
-        return mStateCache.getDepthStencilState(getMetalDevice(), desc);
-    }
-    id<MTLSamplerState> getSamplerState(const mtl::SamplerDesc &desc)
-    {
-        return mStateCache.getSamplerState(getMetalDevice(), desc);
-    }
 
     const mtl::Format &getPixelFormat(angle::FormatID angleFormatId) const
     {
@@ -159,9 +185,11 @@ class DisplayMtl : public DisplayImpl
     {
         return mFormatTable.getVertexFormat(angleFormatId, tightlyPacked);
     }
-#if ANGLE_MTL_EVENT_AVAILABLE
-    mtl::AutoObjCObj<MTLSharedEventListener> getOrCreateSharedEventListener();
-#endif
+
+    angle::ObjCPtr<MTLSharedEventListener> getOrCreateSharedEventListener();
+
+    ThreadSafeDisplayImpl *getThreadSafeDisplayImpl() override { return this; }
+
   protected:
     void generateExtensions(egl::DisplayExtensions *outExtensions) const override;
     void generateCaps(egl::Caps *outCaps) const override;
@@ -173,36 +201,40 @@ class DisplayMtl : public DisplayImpl
     void initializeExtensions() const;
     void initializeTextureCaps() const;
     void initializeFeatures();
-    void initializeLimitations();
     EGLenum EGLDrawingBufferTextureTarget();
-    mtl::AutoObjCPtr<id<MTLDevice>> getMetalDeviceMatchingAttribute(const egl::AttributeMap &attribs);
+    angle::ObjCPtr<id<MTLDevice>> getMetalDeviceMatchingAttribute(const egl::AttributeMap &attribs);
     angle::Result initializeShaderLibrary();
 
-    mtl::AutoObjCPtr<id<MTLDevice>> mMetalDevice;
+    egl::Display *mDisplay;
+
+    angle::ObjCPtr<id<MTLDevice>> mMetalDevice   = nil;
     uint32_t mMetalDeviceVendorId                = 0;
+
+    // Expensive-to-compute AMD Bronze driver detection
+    mutable bool mComputedAMDBronze = false;
+    mutable bool mIsAMDBronze       = false;
 
     mtl::CommandQueue mCmdQueue;
 
     mutable mtl::FormatTable mFormatTable;
     mtl::StateCache mStateCache;
-    mtl::RenderUtils mUtils;
+    mtl::LibraryCache mLibraryCache;
+    std::unique_ptr<mtl::RenderUtils> mUtils;
 
     // Built-in Shaders
-    std::shared_ptr<DefaultShaderAsyncInfoMtl> mDefaultShadersAsyncInfo;
-#if ANGLE_MTL_EVENT_AVAILABLE
-    mtl::AutoObjCObj<MTLSharedEventListener> mSharedEventListener;
-#endif
+    angle::ObjCPtr<id<MTLLibrary>> mDefaultShaders;
+    angle::ObjCPtr<MTLSharedEventListener> mSharedEventListener;
 
     mutable bool mCapsInitialized;
     mutable gl::TextureCapsMap mNativeTextureCaps;
     mutable gl::Extensions mNativeExtensions;
     mutable gl::Caps mNativeCaps;
     mutable gl::Limitations mNativeLimitations;
+    mutable ShPixelLocalStorageOptions mNativePLSOptions;
+    mutable uint32_t mMaxVisibilityQueryOffset = 0;
+    mutable bool mHasFragmentMemoryBarriers;
 
     angle::FeaturesMtl mFeatures;
-
-    // track whether we initialized (or released) glslang
-    bool mGlslangInitialized;
 };
 
 }  // namespace rx

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2003-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2023 Apple Inc. All rights reserved.
  * Copyright (C) 2006 Rob Buis <buis@kde.org>
  * Copyright (C) 2007-2008 Torch Mobile, Inc.
  *
@@ -22,436 +22,238 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #pragma once
 
-#include "FloatRect.h"
-#include "InlinePathData.h"
-#include "WindRule.h"
-#include <wtf/EnumTraits.h>
-#include <wtf/FastMalloc.h>
-#include <wtf/Function.h>
-#include <wtf/Forward.h>
-
-#if USE(CG)
-
-#include <wtf/RetainPtr.h>
-#include <CoreGraphics/CGPath.h>
-typedef struct CGPath PlatformPath;
-
-#elif USE(DIRECT2D)
-#include "COMPtr.h"
-
-interface ID2D1Geometry;
-interface ID2D1GeometryGroup;
-interface ID2D1PathGeometry;
-interface ID2D1GeometrySink;
-
-typedef ID2D1GeometryGroup PlatformPath;
-
-namespace WebCore {
-class PlatformContextDirect2D;
-}
-
-#elif USE(CAIRO)
-#include "RefPtrCairo.h"
-
-#else
-
-typedef void PlatformPath;
-
-#endif
-
-#if !USE(CAIRO)
-typedef PlatformPath* PlatformPathPtr;
-
-#if USE(CG)
-using PlatformPathStorageType = RetainPtr<CGMutablePathRef>;
-#elif USE(DIRECT2D)
-using PlatformPathStorageType = COMPtr<ID2D1GeometryGroup>;
-#else
-using PlatformPathStorageType = PlatformPathPtr;
-#endif
-#endif
-
-namespace WTF {
-class TextStream;
-}
+#include <WebCore/PathElement.h>
+#include <WebCore/PathImpl.h>
+#include <WebCore/PathSegment.h>
+#include <WebCore/PlatformPath.h>
+#include <WebCore/WindRule.h>
+#include <wtf/DataRef.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/Variant.h>
 
 namespace WebCore {
 
-class AffineTransform;
-class FloatPoint;
-class FloatRoundedRect;
-class FloatSize;
 class GraphicsContext;
+class LayoutRoundedRect;
 class PathTraversalState;
-class RoundedRect;
-
-// The points in the structure are the same as those that would be used with the
-// add... method. For example, a line returns the endpoint, while a cubic returns
-// two tangent points and the endpoint.
-struct PathElement {
-    enum class Type : uint8_t {
-        MoveToPoint, // The points member will contain 1 value.
-        AddLineToPoint, // The points member will contain 1 value.
-        AddQuadCurveToPoint, // The points member will contain 2 values.
-        AddCurveToPoint, // The points member will contain 3 values.
-        CloseSubpath // The points member will contain no values.
-    };
-
-    FloatPoint points[3];
-    Type type;
-};
-
-using PathApplierFunction = WTF::Function<void(const PathElement&)>;
 
 class Path {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(Path);
 public:
-    WEBCORE_EXPORT Path();
-#if USE(CG)
-    Path(RetainPtr<CGMutablePathRef>&&);
-#endif
-#if USE(CAIRO)
-    explicit Path(RefPtr<cairo_t>&&);
-#endif
-    WEBCORE_EXPORT ~Path();
+    Path() = default;
+    Path(PathSegment&&);
+    WEBCORE_EXPORT Path(Vector<PathSegment>&&);
+    explicit Path(const Vector<FloatPoint>& points);
+    WEBCORE_EXPORT Path(Ref<PathImpl>&&);
 
-    WEBCORE_EXPORT Path(const Path&);
-    WEBCORE_EXPORT Path(Path&&);
-    WEBCORE_EXPORT Path& operator=(const Path&);
-    WEBCORE_EXPORT Path& operator=(Path&&);
+    WEBCORE_EXPORT bool definitelyEqual(const Path&) const;
 
-#if ENABLE(INLINE_PATH_DATA)
-    static Path from(const InlinePathData& inlineData)
-    {
-        Path path;
-        path.m_inlineData = inlineData;
-        return path;
-    }
-#endif
+    void moveTo(const FloatPoint&);
+    void addLineTo(const FloatPoint&);
+    void addQuadCurveTo(const FloatPoint& controlPoint, const FloatPoint& endPoint);
+    void addBezierCurveTo(const FloatPoint& controlPoint1, const FloatPoint& controlPoint2, const FloatPoint& endPoint);
+    void addArcTo(const FloatPoint& point1, const FloatPoint& point2, float radius);
+    void addArc(const FloatPoint&, float radius, float startAngle, float endAngle, RotationDirection);
+    void addEllipse(const FloatPoint&, float radiusX, float radiusY, float rotation, float startAngle, float endAngle, RotationDirection);
+    void addEllipseInRect(const FloatRect&);
+    void addRect(const FloatRect&);
+    WEBCORE_EXPORT void addRoundedRect(const FloatRoundedRect&, PathRoundedRect::Strategy = PathRoundedRect::Strategy::PreferNative);
+    void addRoundedRect(const FloatRect&, const FloatSize& roundingRadii, PathRoundedRect::Strategy = PathRoundedRect::Strategy::PreferNative);
+    void addContinuousRoundedRect(const FloatRect&, float cornerRadius);
+    void addContinuousRoundedRect(const FloatRect&, float cornerWidth, float cornerHeight);
+    void addRoundedRect(const LayoutRoundedRect&);
+    void closeSubpath();
 
-    static Path polygonPathFromPoints(const Vector<FloatPoint>&);
+    WEBCORE_EXPORT void addPath(const Path&, const AffineTransform&);
 
-    bool contains(const FloatPoint&, WindRule = WindRule::NonZero) const;
-    bool strokeContains(const FloatPoint&, const Function<void(GraphicsContext&)>& strokeStyleApplier) const;
+    void applySegments(const PathSegmentApplier&) const;
+    WEBCORE_EXPORT void applyElements(const PathElementApplier&) const;
+    void clear();
 
-    // fastBoundingRect() should equal or contain boundingRect(); boundingRect()
-    // should perfectly bound the points within the path.
-    FloatRect boundingRect() const;
-    WEBCORE_EXPORT FloatRect fastBoundingRect() const;
-    FloatRect strokeBoundingRect(const Function<void(GraphicsContext&)>& strokeStyleApplier = { }) const;
+    void translate(const FloatSize& delta);
+    void transform(const AffineTransform&);
 
-    WEBCORE_EXPORT size_t elementCount() const;
+    static constexpr float circleControlPoint() { return PathImpl::circleControlPoint(); }
+
+    WEBCORE_EXPORT std::optional<PathSegment> singleSegment() const;
+    std::optional<PathDataLine> singleDataLine() const;
+
+    bool isEmpty() const;
+    bool definitelySingleLine() const;
+    WEBCORE_EXPORT PlatformPathPtr platformPath() const;
+
+    const PathSegment* singleSegmentIfExists() const { return asSingle(); }
+    WEBCORE_EXPORT const Vector<PathSegment>* segmentsIfExists() const;
+    WEBCORE_EXPORT Vector<PathSegment> segments() const;
+
     float length() const;
+    bool isClosed() const;
+    bool hasSubpaths() const;
+    FloatPoint currentPoint() const;
     PathTraversalState traversalStateAtLength(float length) const;
     FloatPoint pointAtLength(float length) const;
 
-    WEBCORE_EXPORT void clear();
-    WEBCORE_EXPORT bool isNull() const;
-    bool isEmpty() const;
-    // Gets the current point of the current path, which is conceptually the final point reached by the path so far.
-    // Note the Path can be empty (isEmpty() == true) and still have a current point.
-    // FIXME: The above comment might need to be updated; on all supported platforms, the result of hasCurrentPoint() is identical
-    // to !isEmpty().
-    bool hasCurrentPoint() const;
-    FloatPoint currentPoint() const;
+    WEBCORE_EXPORT bool contains(const FloatPoint&, WindRule = WindRule::NonZero) const;
+    WEBCORE_EXPORT bool strokeContains(const FloatPoint&, NOESCAPE const Function<void(GraphicsContext&)>& strokeStyleApplier) const;
 
-    WEBCORE_EXPORT void moveTo(const FloatPoint&);
-    WEBCORE_EXPORT void addLineTo(const FloatPoint&);
-    WEBCORE_EXPORT void addQuadCurveTo(const FloatPoint& controlPoint, const FloatPoint& endPoint);
-    WEBCORE_EXPORT void addBezierCurveTo(const FloatPoint& controlPoint1, const FloatPoint& controlPoint2, const FloatPoint& endPoint);
-    void addArcTo(const FloatPoint&, const FloatPoint&, float radius);
-    WEBCORE_EXPORT void closeSubpath();
+    WEBCORE_EXPORT FloatRect fastBoundingRect() const;
+    WEBCORE_EXPORT FloatRect boundingRect() const;
+    FloatRect strokeBoundingRect(NOESCAPE const Function<void(GraphicsContext&)>& strokeStyleApplier = { }) const;
 
-    void addArc(const FloatPoint&, float radius, float startAngle, float endAngle, bool anticlockwise);
-    WEBCORE_EXPORT void addRect(const FloatRect&);
-    void addEllipse(FloatPoint, float radiusX, float radiusY, float rotation, float startAngle, float endAngle, bool anticlockwise);
-    void addEllipse(const FloatRect&);
+    WEBCORE_EXPORT void ensureImplForTesting();
+    WEBCORE_EXPORT const PathImpl* asImpl() const;
 
-    enum class RoundedRectStrategy : uint8_t {
-        PreferNative,
-        PreferBezier
-    };
-
-    WEBCORE_EXPORT void addRoundedRect(const FloatRect&, const FloatSize& roundingRadii, RoundedRectStrategy = RoundedRectStrategy::PreferNative);
-    WEBCORE_EXPORT void addRoundedRect(const FloatRoundedRect&, RoundedRectStrategy = RoundedRectStrategy::PreferNative);
-    void addRoundedRect(const RoundedRect&);
-
-    void addPath(const Path&, const AffineTransform&);
-
-    void translate(const FloatSize&);
-
-    // To keep Path() cheap, it does not allocate a PlatformPath immediately
-    // meaning Path::platformPath() can return null.
-#if USE(DIRECT2D)
-    FloatRect fastBoundingRectForStroke(const PlatformContextDirect2D&) const;
-    PlatformPathPtr platformPath() const { return m_path.get(); }
-#elif USE(CG)
-    WEBCORE_EXPORT PlatformPathPtr platformPath() const;
-#elif USE(CAIRO)
-    cairo_t* cairoPath() const { return m_path.get(); }
-#else
-    PlatformPathPtr platformPath() const { return m_path; }
-#endif
-
-#if !USE(CAIRO)
-    // ensurePlatformPath() will allocate a PlatformPath if it has not yet been and will never return null.
-    WEBCORE_EXPORT PlatformPathPtr ensurePlatformPath();
-#endif
-
-    WEBCORE_EXPORT void apply(const PathApplierFunction&) const;
-    void transform(const AffineTransform&);
-
-    static float circleControlPoint()
-    {
-        // Approximation of control point positions on a bezier to simulate a quarter of a circle.
-        // This is 1-kappa, where kappa = 4 * (sqrt(2) - 1) / 3
-        return 0.447715;
-    }
-
-    void addBeziersForRoundedRect(const FloatRect&, const FloatSize& topLeftRadius, const FloatSize& topRightRadius, const FloatSize& bottomLeftRadius, const FloatSize& bottomRightRadius);
-
-#if USE(CG) || USE(DIRECT2D)
-    void platformAddPathForRoundedRect(const FloatRect&, const FloatSize& topLeftRadius, const FloatSize& topRightRadius, const FloatSize& bottomLeftRadius, const FloatSize& bottomRightRadius);
-#endif
-
-#if USE(DIRECT2D)
-    void appendGeometry(ID2D1Geometry*);
-    void createGeometryWithFillMode(WindRule, COMPtr<ID2D1GeometryGroup>&) const;
-
-    void openFigureAtCurrentPointIfNecessary();
-    void closeAnyOpenGeometries(unsigned figureEndStyle) const;
-    void clearGeometries();
-#endif
-
-#ifndef NDEBUG
-    void dump() const;
-#endif
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<Path> decode(Decoder&);
-
-#if ENABLE(INLINE_PATH_DATA)
-    template<typename DataType> const DataType& inlineData() const;
-    InlinePathData inlineData() const { return m_inlineData; }
-    template<typename DataType> bool hasInlineData() const;
-    bool hasInlineData() const;
-#endif
+    void setNotTransient();
 
 private:
-#if ENABLE(INLINE_PATH_DATA)
-    template<typename DataType> DataType& inlineData();
-    std::optional<FloatRect> fastBoundingRectFromInlineData() const;
-    std::optional<FloatRect> boundingRectFromInlineData() const;
-#endif
+    PlatformPathImpl& ensurePlatformPathImpl();
+    PathImpl& setImpl(Ref<PathImpl>&&);
+    WEBCORE_EXPORT PathImpl& ensureImpl();
 
-    void moveToSlowCase(const FloatPoint&);
-    void addLineToSlowCase(const FloatPoint&);
-    void addArcSlowCase(const FloatPoint&, float radius, float startAngle, float endAngle, bool anticlockwise);
-    void addQuadCurveToSlowCase(const FloatPoint& controlPoint, const FloatPoint& endPoint);
-    void addBezierCurveToSlowCase(const FloatPoint& controlPoint1, const FloatPoint& controlPoint2, const FloatPoint& endPoint);
+    PathSegment* asSingle() { return std::get_if<PathSegment>(&m_data); }
+    const PathSegment* asSingle() const { return std::get_if<PathSegment>(&m_data); }
 
-    FloatRect boundingRectSlowCase() const;
-    FloatRect fastBoundingRectSlowCase() const;
-    bool isEmptySlowCase() const;
-    FloatPoint currentPointSlowCase() const;
-    size_t elementCountSlowCase() const;
-    void applySlowCase(const PathApplierFunction&) const;
+    PathImpl* asImpl();
 
-#if USE(CG)
-    void createCGPath() const;
-    void swap(Path&);
-#endif
+    std::optional<FloatPoint> initialMoveToPoint() const;
 
-#if USE(CAIRO)
-    cairo_t* ensureCairoPath();
-    void appendElement(PathElement::Type, Vector<FloatPoint, 3>&&);
-#endif
-
-#if USE(CAIRO)
-    RefPtr<cairo_t> m_path;
-#else
-    mutable PlatformPathStorageType m_path;
-#endif
-
-#if USE(DIRECT2D)
-    Vector<ID2D1Geometry*> m_geometries;
-    mutable COMPtr<ID2D1GeometrySink> m_activePath;
-    mutable bool m_figureIsOpened { false };
-#endif
-
-#if ENABLE(INLINE_PATH_DATA)
-    InlinePathData m_inlineData;
-#endif
-#if USE(CG)
-    mutable bool m_copyPathBeforeMutation { false };
-#endif
-#if USE(CAIRO)
-    std::optional<Vector<PathElement>> m_elements;
-#endif
+    Variant<std::monostate, PathSegment, DataRef<PathImpl>> m_data;
 };
 
-WTF::TextStream& operator<<(WTF::TextStream&, const Path&);
+WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const Path&);
 
-template<class Encoder> void Path::encode(Encoder& encoder) const
+inline Path::Path(PathSegment&& segment)
+    : m_data(WTF::move(segment))
 {
-#if ENABLE(INLINE_PATH_DATA)
-    bool hasInlineData = this->hasInlineData();
-    encoder << hasInlineData;
-    if (hasInlineData) {
-        encoder << m_inlineData;
+}
+
+inline bool Path::isEmpty() const
+{
+    return std::holds_alternative<std::monostate>(m_data);
+}
+
+inline void Path::moveTo(const FloatPoint& point)
+{
+    if (isEmpty())
+        m_data = PathSegment(PathMoveTo { point });
+    else
+        protect(ensureImpl())->add(PathMoveTo { point });
+}
+
+inline void Path::addLineTo(const FloatPoint& point)
+{
+    if (auto initial = initialMoveToPoint())
+        m_data = PathSegment(PathDataLine { *initial, point });
+    else
+        protect(ensureImpl())->add(PathLineTo { point });
+}
+
+inline void Path::addQuadCurveTo(const FloatPoint& controlPoint, const FloatPoint& endPoint)
+{
+    if (auto initial = initialMoveToPoint())
+        m_data = PathSegment(PathDataQuadCurve { *initial, controlPoint, endPoint });
+    else
+        protect(ensureImpl())->add(PathQuadCurveTo { controlPoint, endPoint });
+}
+
+inline void Path::addBezierCurveTo(const FloatPoint& controlPoint1, const FloatPoint& controlPoint2, const FloatPoint& endPoint)
+{
+    if (auto initial = initialMoveToPoint())
+        m_data = PathSegment(PathDataBezierCurve { *initial, controlPoint1, controlPoint2, endPoint });
+    else
+        protect(ensureImpl())->add(PathBezierCurveTo { controlPoint1, controlPoint2, endPoint });
+}
+
+inline void Path::addArcTo(const FloatPoint& point1, const FloatPoint& point2, float radius)
+{
+    if (auto initial = initialMoveToPoint())
+        m_data = PathSegment(PathDataArc { *initial, point1, point2, radius });
+    else
+        protect(ensureImpl())->add(PathArcTo { point1, point2, radius });
+}
+
+inline void Path::addArc(const FloatPoint& point, float radius, float startAngle, float endAngle, RotationDirection direction)
+{
+    // Workaround for <rdar://problem/5189233> CGPathAddArc hangs or crashes when passed inf as start or end angle,
+    // as well as http://bugs.webkit.org/show_bug.cgi?id=16449, since cairo_arc() functions hang or crash when
+    // passed inf as radius or start/end angle.
+    if (!std::isfinite(radius) || !std::isfinite(startAngle) || !std::isfinite(endAngle))
         return;
+
+    if (isEmpty())
+        m_data = PathSegment(PathArc { point, radius, startAngle, endAngle, direction });
+    else
+        protect(ensureImpl())->add(PathArc { point, radius, startAngle, endAngle, direction });
+}
+
+inline void Path::addEllipse(const FloatPoint& point, float radiusX, float radiusY, float rotation, float startAngle, float endAngle, RotationDirection direction)
+{
+    if (isEmpty())
+        m_data = PathSegment(PathEllipse { point, radiusX, radiusY, rotation, startAngle, endAngle, direction });
+    else
+        protect(ensureImpl())->add(PathEllipse { point, radiusX, radiusY, rotation, startAngle, endAngle, direction });
+}
+
+inline void Path::addEllipseInRect(const FloatRect& rect)
+{
+    if (isEmpty())
+        m_data = PathSegment(PathEllipseInRect { rect });
+    else
+        protect(ensureImpl())->add(PathEllipseInRect { rect });
+}
+
+inline void Path::addRect(const FloatRect& rect)
+{
+    if (isEmpty())
+        m_data = PathSegment(PathRect { rect });
+    else
+        protect(ensureImpl())->add(PathRect { rect });
+}
+
+inline void Path::closeSubpath()
+{
+    if (std::holds_alternative<std::monostate>(m_data))
+        return;
+    if (const auto* segment = std::get_if<PathSegment>(&m_data)) {
+        const auto* data = &segment->data();
+        if (auto* arc = std::get_if<PathArc>(data)) {
+            m_data = PathSegment(PathClosedArc { *arc });
+            return;
+        }
+        if (std::holds_alternative<PathCloseSubpath>(*data))
+            return;
     }
-#endif
-
-    encoder << static_cast<uint64_t>(elementCount());
-
-    apply([&](auto& element) {
-        encoder << element.type;
-
-        switch (element.type) {
-        case PathElement::Type::MoveToPoint:
-            encoder << element.points[0];
-            break;
-        case PathElement::Type::AddLineToPoint:
-            encoder << element.points[0];
-            break;
-        case PathElement::Type::AddQuadCurveToPoint:
-            encoder << element.points[0];
-            encoder << element.points[1];
-            break;
-        case PathElement::Type::AddCurveToPoint:
-            encoder << element.points[0];
-            encoder << element.points[1];
-            encoder << element.points[2];
-            break;
-        case PathElement::Type::CloseSubpath:
-            break;
-        }
-    });
+    Ref impl = ensureImpl();
+    if (impl->isClosed())
+        return;
+    impl->add(PathCloseSubpath { });
 }
 
-template<class Decoder> std::optional<Path> Path::decode(Decoder& decoder)
+inline FloatPoint Path::currentPoint() const
 {
-    Path path;
-
-#if ENABLE(INLINE_PATH_DATA)
-    bool hasInlineData;
-    if (!decoder.decode(hasInlineData))
-        return std::nullopt;
-
-    if (hasInlineData) {
-        if (!decoder.decode(path.m_inlineData))
-            return std::nullopt;
-
-        return path;
+    if (std::holds_alternative<std::monostate>(m_data))
+        return { 0, 0 };
+    if (const auto* segment = std::get_if<PathSegment>(&m_data)) {
+        FloatPoint lastMoveToPoint;
+        return segment->calculateEndPoint({ }, lastMoveToPoint);
     }
-#endif
+    SUPPRESS_UNCOUNTED_ARG return asImpl()->currentPoint();
+}
 
-    uint64_t numPoints;
-    if (!decoder.decode(numPoints))
-        return std::nullopt;
-
-    path.clear();
-
-    for (uint64_t i = 0; i < numPoints; ++i) {
-        PathElement::Type elementType;
-        if (!decoder.decode(elementType))
-            return std::nullopt;
-
-        switch (elementType) {
-        case PathElement::Type::MoveToPoint: {
-            FloatPoint point;
-            if (!decoder.decode(point))
-                return std::nullopt;
-            path.moveTo(point);
-            break;
-        }
-        case PathElement::Type::AddLineToPoint: {
-            FloatPoint point;
-            if (!decoder.decode(point))
-                return std::nullopt;
-            path.addLineTo(point);
-            break;
-        }
-        case PathElement::Type::AddQuadCurveToPoint: {
-            FloatPoint controlPoint;
-            if (!decoder.decode(controlPoint))
-                return std::nullopt;
-
-            FloatPoint endPoint;
-            if (!decoder.decode(endPoint))
-                return std::nullopt;
-
-            path.addQuadCurveTo(controlPoint, endPoint);
-            break;
-        }
-        case PathElement::Type::AddCurveToPoint: {
-            FloatPoint controlPoint1;
-            if (!decoder.decode(controlPoint1))
-                return std::nullopt;
-
-            FloatPoint controlPoint2;
-            if (!decoder.decode(controlPoint2))
-                return std::nullopt;
-
-            FloatPoint endPoint;
-            if (!decoder.decode(endPoint))
-                return std::nullopt;
-
-            path.addBezierCurveTo(controlPoint1, controlPoint2, endPoint);
-            break;
-        }
-        case PathElement::Type::CloseSubpath:
-            path.closeSubpath();
-            break;
-        }
+inline std::optional<FloatPoint> Path::initialMoveToPoint() const
+{
+    if (std::holds_alternative<std::monostate>(m_data))
+        return FloatPoint { 0, 0 };
+    if (const auto* segment = std::get_if<PathSegment>(&m_data)) {
+        if (const auto* moveTo = std::get_if<PathMoveTo>(&segment->data()))
+            return moveTo->point;
     }
-
-    return path;
+    return std::nullopt;
 }
-
-#if ENABLE(INLINE_PATH_DATA)
-
-template <typename DataType> inline bool Path::hasInlineData() const
-{
-    return WTF::holds_alternative<DataType>(m_inlineData);
-}
-
-template<typename DataType> inline const DataType& Path::inlineData() const
-{
-    return WTF::get<DataType>(m_inlineData);
-}
-
-template<typename DataType> inline DataType& Path::inlineData()
-{
-    return WTF::get<DataType>(m_inlineData);
-}
-
-inline bool Path::hasInlineData() const
-{
-    return !hasInlineData<Monostate>();
-}
-
-#endif
 
 } // namespace WebCore
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::PathElement::Type> {
-    using values = EnumValues<
-        WebCore::PathElement::Type,
-        WebCore::PathElement::Type::MoveToPoint,
-        WebCore::PathElement::Type::AddLineToPoint,
-        WebCore::PathElement::Type::AddQuadCurveToPoint,
-        WebCore::PathElement::Type::AddCurveToPoint,
-        WebCore::PathElement::Type::CloseSubpath
-    >;
-};
-
-} // namespace WTF

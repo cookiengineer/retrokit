@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,44 +26,49 @@
 
 #pragma once
 
-#if ENABLE(CSS_TYPED_OM)
-
 #include "CSSNumericValue.h"
 #include <wtf/RefCounted.h>
-#include <wtf/text/StringConcatenateNumbers.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
-class CSSUnitValue final : public CSSNumericValue {
-    WTF_MAKE_ISO_ALLOCATED(CSSUnitValue);
-public:
-    static Ref<CSSUnitValue> create(double value, const String& unit)
-    {
-        return adoptRef(*new CSSUnitValue(value, unit));
-    }
+enum class CSSUnitType : uint8_t;
 
-    // FIXME: not correct.
-    String toString() const final { return makeString((int) m_value, m_unit); }
+class CSSUnitValue final : public CSSNumericValue {
+    WTF_MAKE_TZONE_ALLOCATED(CSSUnitValue);
+public:
+    static ExceptionOr<Ref<CSSUnitValue>> create(double value, const String& unit);
+    static Ref<CSSUnitValue> create(double value, CSSUnitType unit) { return adoptRef(*new CSSUnitValue(value, unit)); }
+    static ExceptionOr<Ref<CSSUnitValue>> reifyValue(Document&, const CSSValue&);
+
+    void serialize(StringBuilder&, OptionSet<SerializationArguments>) const final;
 
     double value() const { return m_value; }
     void setValue(double value) { m_value = value; }
-    const String& unit() const { return m_unit; }
-    void setUnit(const String& unit) { m_unit = unit; }
+    ASCIILiteral unit() const;
+    ASCIILiteral unitSerialization() const;
+    CSSUnitType unitEnum() const { return m_unit; }
+
+    RefPtr<CSSUnitValue> convertTo(CSSUnitType) const;
+    static CSSUnitType parseUnit(const String& unit);
+
+    RefPtr<CSSValue> toCSSValue() const final;
+    RefPtr<CSSValue> toCSSValueWithProperty(CSSPropertyID) const final;
+    std::optional<CSSCalc::Child> toCalcTreeNode() const final;
 
 private:
-    CSSUnitValue(double value, const String& unit)
-        : m_value(value)
-        , m_unit(unit)
-    {
-    }
+    CSSUnitValue(double, CSSUnitType);
 
-    CSSStyleValueType getType() const final { return CSSStyleValueType::CSSUnitValue; }
+    CSSStyleValueType styleValueType() const final { return CSSStyleValueType::CSSUnitValue; }
+    std::optional<SumValue> toSumValue() const final;
+    bool NODELETE equals(const CSSNumericValue&) const final;
 
     double m_value;
-    String m_unit;
+    const CSSUnitType m_unit;
 };
 
 } // namespace WebCore
 
-#endif
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::CSSUnitValue)
+static bool isType(const WebCore::CSSStyleValue& styleValue) { return styleValue.styleValueType() == WebCore::CSSStyleValueType::CSSUnitValue; }
+SPECIALIZE_TYPE_TRAITS_END()

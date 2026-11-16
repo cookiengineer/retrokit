@@ -26,76 +26,7 @@
 #include "config.h"
 #include "ExitKind.h"
 
-#include <wtf/Assertions.h>
-#include <wtf/PrintStream.h>
-
 namespace JSC {
-
-const char* exitKindToString(ExitKind kind)
-{
-    switch (kind) {
-    case ExitKindUnset:
-        return "Unset";
-    case BadType:
-        return "BadType";
-    case BadConstantValue:
-        return "BadConstantValue";
-    case BadIdent:
-        return "BadIdent";
-    case BadExecutable:
-        return "BadExecutable";
-    case BadCache:
-        return "BadCache";
-    case BadConstantCache:
-        return "BadConstantCache";
-    case BadIndexingType:
-        return "BadIndexingType";
-    case BadTypeInfoFlags:
-        return "BadTypeInfoFlags";
-    case Overflow:
-        return "Overflow";
-    case NegativeZero:
-        return "NegativeZero";
-    case NegativeIndex:
-        return "NegativeIndex";
-    case Int52Overflow:
-        return "Int52Overflow";
-    case StoreToHole:
-        return "StoreToHole";
-    case LoadFromHole:
-        return "LoadFromHole";
-    case OutOfBounds:
-        return "OutOfBounds";
-    case InadequateCoverage:
-        return "InadequateCoverage";
-    case ArgumentsEscaped:
-        return "ArgumentsEscaped";
-    case ExoticObjectMode:
-        return "ExoticObjectMode";
-    case VarargsOverflow:
-        return "VarargsOverflow";
-    case TDZFailure:
-        return "TDZFailure";
-    case HoistingFailed:
-        return "HoistingFailed";
-    case Uncountable:
-        return "Uncountable";
-    case UncountableInvalidation:
-        return "UncountableInvalidation";
-    case WatchdogTimerFired:
-        return "WatchdogTimerFired";
-    case DebuggerEvent:
-        return "DebuggerEvent";
-    case ExceptionCheck:
-        return "ExceptionCheck";
-    case GenericUnwind:
-        return "GenericUnwind";
-    case BigInt32Overflow:
-        return "BigInt32Overflow";
-    }
-    RELEASE_ASSERT_NOT_REACHED();
-    return "Unknown";
-}
 
 bool exitKindMayJettison(ExitKind kind)
 {
@@ -109,13 +40,3 @@ bool exitKindMayJettison(ExitKind kind)
 }
 
 } // namespace JSC
-
-namespace WTF {
-
-void printInternal(PrintStream& out, JSC::ExitKind kind)
-{
-    out.print(exitKindToString(kind));
-}
-
-} // namespace WTF
-

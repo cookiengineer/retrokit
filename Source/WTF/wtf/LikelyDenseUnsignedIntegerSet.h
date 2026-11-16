@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2021, 2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -39,14 +39,16 @@ DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(LikelyDenseUnsignedIntegerSet);
 
 // This is effectively a Variant<HashSet, Pair<BitVector, IndexType>>
 // If it is in BitVector mode, it keeps track of the minimum value in the set, and has the bitVector shifted by the same amount.
-// So for example {4000, 4002, 4003} would be represented as the bitVector 1101 with a m_min of 4000.
+// So for example {64000, 64002, 64003} would be represented as the bitVector 1101 with a m_min of 64000.
 // It shifts between the two modes whenever that would at least halve its memory usage. So it will never use more than twice the optimal amount of memory, and yet should not ping-pong between the two modes too often.
+// As an optimization, instead of keeping track of the minimum value, it keeps track of the minimum value rounded down to the next multiple of 64.
+// This reduces repeated re-indexings of the bitvector when repeatedly adding a value just below the current minimum.
 template<typename IndexType>
 class LikelyDenseUnsignedIntegerSet {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(LikelyDenseUnsignedIntegerSet);
     WTF_MAKE_NONCOPYABLE(LikelyDenseUnsignedIntegerSet);
     static_assert(std::is_unsigned<IndexType>::value);
-    using Set = HashSet<IndexType, WTF::IntHash<IndexType>, WTF::UnsignedWithZeroKeyHashTraits<IndexType> >;
+    using Set = UncheckedKeyHashSet<IndexType, WTF::IntHash<IndexType>, WTF::UnsignedWithZeroKeyHashTraits<IndexType> >;
 public:
     LikelyDenseUnsignedIntegerSet()
         : m_size(0)
@@ -70,9 +72,9 @@ public:
         , m_max(other.m_max)
     {
         if (isBitVector())
-            new (NotNull, &m_inline.bitVector) BitVector(WTFMove(other.m_inline.bitVector));
+            new (NotNull, &m_inline.bitVector) BitVector(WTF::move(other.m_inline.bitVector));
         else
-            new (NotNull, &m_inline.hashSet) Set(WTFMove(other.m_inline.hashSet));
+            new (NotNull, &m_inline.hashSet) Set(WTF::move(other.m_inline.hashSet));
     }
 
     void clear()
@@ -111,18 +113,25 @@ public:
 
         if (!m_size) {
             ASSERT(isBitVector());
-            m_min = value;
+            m_min = value & ~63;
             m_max = value;
             m_size = 1;
-            m_inline.bitVector.quickSet(0);
+            // not quickSet, as value - m_min might be 63, and the inline bit vector cannot store that value.
+            // So there might be some overflow here, forcing an allocation of an outline bit vector.
+            m_inline.bitVector.set(value - m_min);
             return { true };
         }
+
+        auto computeNewMin = [&]() {
+            IndexType roundedDownValue = value & ~63;
+            return std::min(m_min, roundedDownValue);
+        };
 
         if (!isBitVector()) {
             bool isNewEntry = m_inline.hashSet.add(value).isNewEntry;
             if (!isNewEntry)
                 return { false };
-            m_min = std::min(m_min, value);
+            m_min = computeNewMin();
             m_max = std::max(m_max, value);
             unsigned hashSetSize = m_inline.hashSet.capacity() * sizeof(IndexType);
             unsigned wouldBeBitVectorSize = (m_max - m_min) / 8;
@@ -140,7 +149,7 @@ public:
         // We are in BitVector mode, and value is not in the bounds: we will definitely insert it as a new entry.
         ++m_size;
 
-        IndexType newMin = std::min(m_min, value);
+        IndexType newMin = computeNewMin();
         IndexType newMax = std::max(m_max, value);
         unsigned bitVectorSize = (newMax - newMin) / 8;
         unsigned wouldBeHashSetSize = estimateHashSetSize(m_size);
@@ -153,23 +162,15 @@ public:
             return { true };
         }
 
-        if (m_min <= value) {
-            bool isNewEntry = !m_inline.bitVector.set(value - m_min);
-            ASSERT_UNUSED(isNewEntry, isNewEntry);
-            ASSERT(newMax == value);
-            m_max = value;
-            return { true };
+        if (value < m_min) {
+            ASSERT(newMin < m_min);
+            m_inline.bitVector.shiftRightByMultipleOf64(m_min - newMin);
+            m_min = newMin;
         }
 
-        BitVector newBitVector;
-        newBitVector.resize(m_max - value + 1);
-        IndexType shiftReduction = m_min - value;
-        for (IndexType oldIndex : m_inline.bitVector)
-            newBitVector.quickSet(oldIndex + shiftReduction);
-        newBitVector.quickSet(0);
-        m_inline.bitVector = WTFMove(newBitVector);
-        ASSERT(newMin == value);
-        m_min = value;
+        bool isNewEntry = !m_inline.bitVector.set(value - m_min);
+        ASSERT_UNUSED(isNewEntry, isNewEntry);
+        m_max = newMax;
         return { true };
     }
 
@@ -181,7 +182,7 @@ public:
     }
 
     class iterator {
-        WTF_MAKE_FAST_ALLOCATED;
+        WTF_DEPRECATED_MAKE_FAST_ALLOCATED(iterator);
     public:
         iterator(BitVector::iterator it, IndexType shift)
             : m_underlying({ it })
@@ -205,31 +206,24 @@ public:
         IndexType operator*() const
         {
             return WTF::switchOn(m_underlying,
-                [&](const BitVector::iterator& it) { return *it + m_shift; },
-                [](const typename Set::iterator& it) { return *it; });
+                [&](const BitVector::iterator& it) -> IndexType { return *it + m_shift; },
+                [](const typename Set::iterator& it) -> IndexType { return *it; });
         }
 
-        bool operator==(const iterator& other) const
-        {
-            return m_underlying == other.m_underlying && m_shift == other.m_shift;
-        }
-        bool operator!=(const iterator& other) const
-        {
-            return m_underlying != other.m_underlying || m_shift != other.m_shift;
-        }
+        friend bool operator==(const iterator&, const iterator&) = default;
 
     private:
-        WTF::Variant<BitVector::iterator, typename Set::iterator> m_underlying;
+        Variant<BitVector::iterator, typename Set::iterator> m_underlying;
         IndexType m_shift;
     };
 
-    iterator begin() const
+    iterator begin() const LIFETIME_BOUND
     {
         if (isBitVector())
             return { m_inline.bitVector.begin(), m_min };
         return { m_inline.hashSet.begin(), m_min };
     }
-    iterator end() const
+    iterator end() const LIFETIME_BOUND
     {
         if (isBitVector())
             return { m_inline.bitVector.end(), m_min };
@@ -265,7 +259,9 @@ public:
             }
         }
         if (m_size) {
-            RELEASE_ASSERT(m_min == min);
+            RELEASE_ASSERT(m_min <= min);
+            RELEASE_ASSERT(m_min + 64 > min);
+            RELEASE_ASSERT(!(m_min & 63));
             RELEASE_ASSERT(m_max == max);
         }
     }
@@ -295,7 +291,7 @@ private:
         for (IndexType oldIndex : m_inline.bitVector)
             newSet.add(oldIndex + m_min);
         m_inline.bitVector.~BitVector();
-        new (NotNull, &m_inline.hashSet) Set(WTFMove(newSet));
+        new (NotNull, &m_inline.hashSet) Set(WTF::move(newSet));
         m_size = std::numeric_limits<unsigned>::max();
 
         ASSERT(!isBitVector());
@@ -312,9 +308,8 @@ private:
             newBitVector.quickSet(oldValue - m_min);
             ++m_size;
         }
-        ASSERT(newBitVector.quickGet(0));
         m_inline.hashSet.~Set();
-        new (NotNull, &m_inline.bitVector) BitVector(WTFMove(newBitVector));
+        new (NotNull, &m_inline.bitVector) BitVector(WTF::move(newBitVector));
 
         ASSERT(isBitVector());
     }

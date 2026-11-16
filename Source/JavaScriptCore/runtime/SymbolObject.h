@@ -1,6 +1,6 @@
 /*
  *  Copyright (C) 1999-2000 Harri Porten (porten@kde.org)
- *  Copyright (C) 2007, 2008 Apple Inc. All rights reserved.
+ *  Copyright (C) 2007-2022 Apple Inc. All rights reserved.
  *  Copyright (C) 2015 Yusuke Suzuki <utatane.tea@gmail.com>.
  *
  *  This library is free software; you can redistribute it and/or
@@ -21,8 +21,8 @@
 
 #pragma once
 
-#include "JSWrapperObject.h"
-#include "Symbol.h"
+#include <JavaScriptCore/JSWrapperObject.h>
+#include <JavaScriptCore/Symbol.h>
 
 namespace JSC {
 
@@ -31,7 +31,7 @@ public:
     using Base = JSWrapperObject;
 
     template<typename, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         return vm.symbolObjectSpace<mode>();
     }
@@ -39,26 +39,22 @@ public:
     static SymbolObject* create(VM& vm, Structure* structure)
     {
         Symbol* symbol = Symbol::create(vm);
-        SymbolObject* object = new (NotNull, allocateCell<SymbolObject>(vm.heap)) SymbolObject(vm, structure);
+        SymbolObject* object = new (NotNull, allocateCell<SymbolObject>(vm)) SymbolObject(vm, structure);
         object->finishCreation(vm, symbol);
         return object;
     }
     static SymbolObject* create(VM& vm, Structure* structure, Symbol* symbol)
     {
-        SymbolObject* object = new (NotNull, allocateCell<SymbolObject>(vm.heap)) SymbolObject(vm, structure);
+        SymbolObject* object = new (NotNull, allocateCell<SymbolObject>(vm)) SymbolObject(vm, structure);
         object->finishCreation(vm, symbol);
         return object;
     }
-    static SymbolObject* create(VM&, JSGlobalObject*, Symbol*);
 
     DECLARE_EXPORT_INFO;
 
     Symbol* internalValue() const { return asSymbol(JSWrapperObject::internalValue()); }
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(ObjectType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
 private:
     JS_EXPORT_PRIVATE void finishCreation(VM&, Symbol*);

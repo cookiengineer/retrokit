@@ -31,8 +31,6 @@
 #include "AuthenticationManager.h"
 #include "AuthenticationManagerMessages.h"
 #include "AuxiliaryProcessProxy.h"
-#include "WebCertificateInfo.h"
-#include "WebCoreArgumentCoders.h"
 #include "WebCredential.h"
 #include "WebProcessProxy.h"
 #include "WebProtectionSpace.h"
@@ -43,20 +41,23 @@
 
 namespace WebKit {
 
-AuthenticationChallengeProxy::AuthenticationChallengeProxy(WebCore::AuthenticationChallenge&& authenticationChallenge, uint64_t challengeID, Ref<IPC::Connection>&& connection, WeakPtr<SecKeyProxyStore>&& secKeyProxyStore)
-    : m_coreAuthenticationChallenge(WTFMove(authenticationChallenge))
-    , m_listener(AuthenticationDecisionListener::create([challengeID, connection = WTFMove(connection), secKeyProxyStore = WTFMove(secKeyProxyStore)](AuthenticationChallengeDisposition disposition, const WebCore::Credential& credential) {
+AuthenticationChallengeProxy::AuthenticationChallengeProxy(WebCore::AuthenticationChallenge&& authenticationChallenge, AuthenticationChallengeIdentifier challengeID, Ref<IPC::Connection>&& connection, WeakPtrSecKeyProxyStore&& secKeyProxyStore)
+    : m_coreAuthenticationChallenge(WTF::move(authenticationChallenge))
+    , m_listener(AuthenticationDecisionListener::create([challengeID, connection = WTF::move(connection), secKeyProxyStore = WTF::move(secKeyProxyStore)](AuthenticationChallengeDisposition disposition, const WebCore::Credential& credential) {
 #if HAVE(SEC_KEY_PROXY)
         if (secKeyProxyStore && secKeyProxyStore->initialize(credential)) {
             sendClientCertificateCredentialOverXpc(connection, *secKeyProxyStore, challengeID, credential);
             return;
         }
+#else
+        UNUSED_PARAM(secKeyProxyStore);
 #endif
         connection->send(Messages::AuthenticationManager::CompleteAuthenticationChallenge(challengeID, disposition, credential), 0);
     }))
 {
-    ASSERT(challengeID);
 }
+
+AuthenticationChallengeProxy::~AuthenticationChallengeProxy() = default;
 
 WebCredential* AuthenticationChallengeProxy::proposedCredential() const
 {

@@ -14,7 +14,7 @@ using namespace angle;
 
 namespace
 {
-class DifferentStencilMasksTest : public ANGLETest
+class DifferentStencilMasksTest : public ANGLETest<>
 {
   protected:
     DifferentStencilMasksTest() : mProgram(0)
@@ -67,9 +67,6 @@ TEST_P(DifferentStencilMasksTest, DrawWithSameEffectiveMask)
 // Tests that effectively different front and back masks are illegal.
 TEST_P(DifferentStencilMasksTest, DrawWithDifferentMask)
 {
-    // TODO(hqle): Make this test work for Metal. http://anglebug.com/4134
-    ANGLE_SKIP_TEST_IF(IsMetal());
-
     glStencilMaskSeparate(GL_FRONT, 0x0001);
     glStencilMaskSeparate(GL_BACK, 0x0002);
 
@@ -84,12 +81,12 @@ TEST_P(DifferentStencilMasksTest, DrawWithDifferentMask)
 TEST_P(DifferentStencilMasksTest, DrawWithDifferentMask_NoStencilBuffer)
 {
     GLTexture texture;
-    glBindTexture(GL_TEXTURE_2D, texture.get());
+    glBindTexture(GL_TEXTURE_2D, texture);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 64, 64, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 
     GLFramebuffer framebuffer;
-    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer.get());
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture.get(), 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
 
     glStencilMaskSeparate(GL_FRONT, 0x0001);
     glStencilMaskSeparate(GL_BACK, 0x0002);

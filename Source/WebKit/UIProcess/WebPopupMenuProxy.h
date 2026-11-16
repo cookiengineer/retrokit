@@ -23,49 +23,58 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WebPopupMenuProxy_h
-#define WebPopupMenuProxy_h
+#pragma once
 
-#include <WebCore/WritingMode.h>
+#include <wtf/CheckedPtr.h>
 #include <wtf/Forward.h>
 #include <wtf/RefCounted.h>
 
 namespace WebCore {
-    class IntRect;
+class IntRect;
+enum class TextDirection : bool;
 }
 
 namespace WebKit {
 
+class NativeWebMouseEvent;
+
 struct PlatformPopupMenuData;
 struct WebPopupItem;
-class NativeWebMouseEvent;
+
+class WebPopupMenuProxy;
+
+class WebPopupMenuProxyClient : public CanMakeCheckedPtr<WebPopupMenuProxyClient> {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(WebPopupMenuProxyClient);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WebPopupMenuProxyClient);
+protected:
+    virtual ~WebPopupMenuProxyClient() = default;
+
+public:
+#if !PLATFORM(IOS_FAMILY)
+    virtual void valueChangedForPopupMenu(WebPopupMenuProxy*, int32_t newSelectedIndex) = 0;
+    virtual NativeWebMouseEvent* currentlyProcessedMouseDownEvent() = 0;
+#endif
+#if !PLATFORM(COCOA)
+    virtual void setTextFromItemForPopupMenu(WebPopupMenuProxy*, int32_t index) = 0;
+#endif
+#if PLATFORM(GTK) || PLATFORM(WPE)
+    virtual void failedToShowPopupMenu() = 0;
+#endif
+};
 
 class WebPopupMenuProxy : public RefCounted<WebPopupMenuProxy> {
 public:
-    class Client {
-    protected:
-        virtual ~Client()
-        {
-        }
+    using Client = WebPopupMenuProxyClient;
 
-    public:
-        virtual void valueChangedForPopupMenu(WebPopupMenuProxy*, int32_t newSelectedIndex) = 0;
-        virtual void setTextFromItemForPopupMenu(WebPopupMenuProxy*, int32_t index) = 0;
-        virtual NativeWebMouseEvent* currentlyProcessedMouseDownEvent() = 0;
-#if PLATFORM(GTK)
-        virtual void failedToShowPopupMenu() = 0;
-#endif
-    };
-
-    virtual ~WebPopupMenuProxy()
-    {
-    }
+    virtual ~WebPopupMenuProxy() = default;
 
     virtual void showPopupMenu(const WebCore::IntRect& rect, WebCore::TextDirection, double pageScaleFactor, const Vector<WebPopupItem>& items, const PlatformPopupMenuData&, int32_t selectedIndex) = 0;
     virtual void hidePopupMenu() = 0;
     virtual void cancelTracking() { }
 
-    void invalidate() { m_client = 0; }
+    void invalidate() { m_client = nullptr; }
+
+    virtual bool isWebPopupMenuProxyMac() const { return false; }
 
 protected:
     explicit WebPopupMenuProxy(Client& client)
@@ -73,9 +82,10 @@ protected:
     {
     }
 
-    Client* m_client;
+    Client* client() const { return m_client.get(); }
+
+private:
+    CheckedPtr<Client> m_client;
 };
 
 } // namespace WebKit
-
-#endif // WebPopupMenuProxy_h

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007, 2013 Apple Inc.  All rights reserved.
+ * Copyright (C) 2007-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,27 +26,29 @@
 #include "config.h"
 #include "RenderLayoutState.h"
 
+#include "RenderBoxModelObjectInlines.h"
+#include "RenderElementInlines.h"
 #include "RenderFragmentedFlow.h"
 #include "RenderInline.h"
 #include "RenderLayer.h"
 #include "RenderMultiColumnFlow.h"
+#include "RenderObjectInlines.h"
 #include "RenderView.h"
+#include "StyleComputedStyle+GettersInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
-RenderLayoutState::RenderLayoutState(RenderElement& renderer, IsPaginated isPaginated)
-    : m_clipped(false)
-    , m_isPaginated(isPaginated == IsPaginated::Yes)
-    , m_pageLogicalHeightChanged(false)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderLayoutState);
+
+RenderLayoutState::RenderLayoutState(RenderElement& renderer)
 #if ASSERT_ENABLED
-    , m_layoutDeltaXSaturated(false)
-    , m_layoutDeltaYSaturated(false)
-    , m_renderer(&renderer)
+    : m_renderer(&renderer)
 #endif
 {
     if (RenderElement* container = renderer.container()) {
-        FloatPoint absContentPoint = container->localToAbsolute(FloatPoint(), UseTransforms);
+        FloatPoint absContentPoint = container->localToAbsolute(FloatPoint(), MapCoordinatesMode::UseTransforms);
         m_paintOffset = LayoutSize(absContentPoint.x(), absContentPoint.y());
 
         if (container->hasNonVisibleOverflow()) {
@@ -62,13 +64,10 @@ RenderLayoutState::RenderLayoutState(RenderElement& renderer, IsPaginated isPagi
     }
 }
 
-RenderLayoutState::RenderLayoutState(const FrameViewLayoutContext::LayoutStateStack& layoutStateStack, RenderBox& renderer, const LayoutSize& offset, LayoutUnit pageLogicalHeight, bool pageLogicalHeightChanged)
-    : m_clipped(false)
-    , m_isPaginated(false)
-    , m_pageLogicalHeightChanged(false)
+RenderLayoutState::RenderLayoutState(const LocalFrameViewLayoutContext::LayoutStateStack& layoutStateStack, RenderBox& renderer, const LayoutSize& offset, LayoutUnit pageLogicalHeight, bool pageLogicalHeightChanged, std::optional<LineClamp> lineClamp, std::optional<LegacyLineClamp> legacyLineClamp)
+    : m_lineClamp(lineClamp)
+    , m_legacyLineClamp(legacyLineClamp)
 #if ASSERT_ENABLED
-    , m_layoutDeltaXSaturated(false)
-    , m_layoutDeltaYSaturated(false)
     , m_renderer(&renderer)
 #endif
 {
@@ -84,15 +83,15 @@ void RenderLayoutState::computeOffsets(const RenderLayoutState& ancestor, Render
 {
     bool fixed = renderer.isFixedPositioned();
     if (fixed) {
-        FloatPoint fixedOffset = renderer.view().localToAbsolute(FloatPoint(), IsFixed);
+        FloatPoint fixedOffset = renderer.view().localToAbsolute(FloatPoint(), MapCoordinatesMode::IsFixed);
         m_paintOffset = LayoutSize(fixedOffset.x(), fixedOffset.y()) + offset;
     } else
         m_paintOffset = ancestor.paintOffset() + offset;
 
     if (renderer.isOutOfFlowPositioned() && !fixed) {
-        if (auto* container = renderer.container()) {
-            if (container->isInFlowPositioned() && is<RenderInline>(*container))
-                m_paintOffset += downcast<RenderInline>(*container).offsetForInFlowPositionedInline(&renderer);
+        if (CheckedPtr container = dynamicDowncast<RenderInline>(renderer.container())) {
+            if (container && container->isInFlowPositioned())
+                m_paintOffset += container->offsetForInFlowPositionedInline(&renderer);
         }
     }
 
@@ -104,10 +103,18 @@ void RenderLayoutState::computeOffsets(const RenderLayoutState& ancestor, Render
     if (renderer.hasNonVisibleOverflow())
         m_paintOffset -= toLayoutSize(renderer.scrollPosition());
 
-    m_layoutDelta = ancestor.layoutDelta();
+    // A repaint container (own backing store, a full-layer filter, or a fragmented flow) is the origin
+    // of its own repaint coordinate space, so a delta accumulated in the ancestor space must not leak
+    // into the subtree; reset it here and let in-container repositions accumulate onto the fresh value.
+    auto isRepaintContainer = [&] {
+        if (CheckedPtr layer = renderer.layer())
+            return compositedWithOwnBackingStore(*layer) || layer->requiresFullLayerImageForFilters();
+        return renderer.isRenderFragmentedFlow();
+    }();
+    m_layoutDeltaForRepaint = isRepaintContainer ? LayoutSize() : ancestor.layoutDelta();
 #if ASSERT_ENABLED
-    m_layoutDeltaXSaturated = ancestor.m_layoutDeltaXSaturated;
-    m_layoutDeltaYSaturated = ancestor.m_layoutDeltaYSaturated;
+    m_layoutDeltaForRepaintXSaturated = isRepaintContainer ? false : ancestor.m_layoutDeltaForRepaintXSaturated;
+    m_layoutDeltaForRepaintYSaturated = isRepaintContainer ? false : ancestor.m_layoutDeltaForRepaintYSaturated;
 #endif
 }
 
@@ -129,14 +136,14 @@ void RenderLayoutState::computeClipRect(const RenderLayoutState& ancestor, Rende
     // FIXME: <http://bugs.webkit.org/show_bug.cgi?id=13443> Apply control clip if present.
 }
 
-void RenderLayoutState::computePaginationInformation(const FrameViewLayoutContext::LayoutStateStack& layoutStateStack, RenderBox& renderer, LayoutUnit pageLogicalHeight, bool pageLogicalHeightChanged)
+void RenderLayoutState::computePaginationInformation(const LocalFrameViewLayoutContext::LayoutStateStack& layoutStateStack, RenderBox& renderer, LayoutUnit pageLogicalHeight, bool pageLogicalHeightChanged)
 {
     auto* ancestor = layoutStateStack.isEmpty() ? nullptr : layoutStateStack.last().get();
     // If we establish a new page height, then cache the offset to the top of the first page.
     // We can compare this later on to figure out what part of the page we're actually on.
     if (pageLogicalHeight || renderer.isRenderFragmentedFlow()) {
         m_pageLogicalHeight = pageLogicalHeight;
-        bool isFlipped = renderer.style().isFlippedBlocksWritingMode();
+        bool isFlipped = renderer.writingMode().isBlockFlipped();
         m_pageOffset = LayoutSize(m_layoutOffset.width() + (!isFlipped ? renderer.borderLeft() + renderer.paddingLeft() : renderer.borderRight() + renderer.paddingRight()), m_layoutOffset.height() + (!isFlipped ? renderer.borderTop() + renderer.paddingTop() : renderer.borderBottom() + renderer.paddingBottom()));
         m_pageLogicalHeightChanged = pageLogicalHeightChanged;
         m_isPaginated = true;
@@ -158,12 +165,16 @@ void RenderLayoutState::computePaginationInformation(const FrameViewLayoutContex
     if (ancestor)
         propagateLineGridInfo(*ancestor, renderer);
 
-    if (lineGrid() && (lineGrid()->style().writingMode() == renderer.style().writingMode()) && is<RenderMultiColumnFlow>(renderer))
-        computeLineGridPaginationOrigin(downcast<RenderMultiColumnFlow>(renderer));
+    if (lineGrid() && (lineGrid()->writingMode().computedWritingMode() == renderer.writingMode().computedWritingMode())) {
+        if (CheckedPtr columnFlow = dynamicDowncast<RenderMultiColumnFlow>(renderer))
+            computeLineGridPaginationOrigin(*columnFlow);
+    }
 
     // If we have a new grid to track, then add it to our set.
-    if (renderer.style().lineGrid() != RenderStyle::initialLineGrid() && is<RenderBlockFlow>(renderer))
-        establishLineGrid(layoutStateStack, downcast<RenderBlockFlow>(renderer));
+    if (!renderer.style().lineGrid().isNone()) {
+        if (auto* blockFlow = dynamicDowncast<RenderBlockFlow>(renderer))
+            establishLineGrid(layoutStateStack, *blockFlow);
+    }
 }
 
 LayoutUnit RenderLayoutState::pageLogicalOffset(RenderBox* child, LayoutUnit childLogicalOffset) const
@@ -184,10 +195,6 @@ void RenderLayoutState::computeLineGridPaginationOrigin(const RenderMultiColumnF
     // at the top of each column.
     // Get the current line grid and offset.
     ASSERT(m_lineGrid);
-    // Get the hypothetical line box used to establish the grid.
-    auto* lineGridBox = m_lineGrid->lineGridBox();
-    if (!lineGridBox)
-        return;
 
     // Now determine our position on the grid. Our baseline needs to be adjusted to the nearest baseline multiple
     // as established by the line box.
@@ -195,17 +202,17 @@ void RenderLayoutState::computeLineGridPaginationOrigin(const RenderMultiColumnF
     // the grid should honor line-box-contain.
     bool isHorizontalWritingMode = m_lineGrid->isHorizontalWritingMode();
     LayoutUnit lineGridBlockOffset = isHorizontalWritingMode ? m_lineGridOffset.height() : m_lineGridOffset.width();
-    LayoutUnit firstLineTopWithLeading = lineGridBlockOffset + lineGridBox->lineBoxTop();
+    LayoutUnit firstLineTop = lineGridBlockOffset + m_lineGrid->borderAndPaddingBefore();
     LayoutUnit pageLogicalTop = isHorizontalWritingMode ? m_pageOffset.height() : m_pageOffset.width();
-    if (pageLogicalTop <= firstLineTopWithLeading)
+    if (pageLogicalTop <= firstLineTop)
         return;
 
     // Shift to the next highest line grid multiple past the page logical top. Cache the delta
     // between this new value and the page logical top as the pagination origin.
-    auto lineBoxHeight = lineGridBox->lineBoxHeight();
+    auto lineBoxHeight = LayoutUnit::fromFloatCeil(m_lineGrid->style().computedLineHeight());
     if (!roundToInt(lineBoxHeight))
         return;
-    LayoutUnit remainder = roundToInt(pageLogicalTop - firstLineTopWithLeading) % roundToInt(lineBoxHeight);
+    LayoutUnit remainder = roundToInt(pageLogicalTop - firstLineTop) % roundToInt(lineBoxHeight);
     LayoutUnit paginationDelta = lineBoxHeight - remainder;
     if (isHorizontalWritingMode)
         m_lineGridPaginationOrigin.setHeight(paginationDelta);
@@ -220,12 +227,12 @@ void RenderLayoutState::propagateLineGridInfo(const RenderLayoutState& ancestor,
     if (renderer.isUnsplittableForPagination())
         return;
 
-    m_lineGrid = makeWeakPtr(ancestor.lineGrid());
+    m_lineGrid = ancestor.lineGrid();
     m_lineGridOffset = ancestor.lineGridOffset();
     m_lineGridPaginationOrigin = ancestor.lineGridPaginationOrigin();
 }
 
-void RenderLayoutState::establishLineGrid(const FrameViewLayoutContext::LayoutStateStack& layoutStateStack, RenderBlockFlow& renderer)
+void RenderLayoutState::establishLineGrid(const LocalFrameViewLayoutContext::LayoutStateStack& layoutStateStack, RenderBlockFlow& renderer)
 {
     // First check to see if this grid has been established already.
     if (m_lineGrid) {
@@ -240,7 +247,7 @@ void RenderLayoutState::establishLineGrid(const FrameViewLayoutContext::LayoutSt
             if (!currentGrid)
                 break;
             if (currentGrid->style().lineGrid() == renderer.style().lineGrid()) {
-                m_lineGrid = makeWeakPtr(currentGrid);
+                m_lineGrid = currentGrid;
                 m_lineGridOffset = currentState.m_lineGridOffset;
                 return;
             }
@@ -248,23 +255,23 @@ void RenderLayoutState::establishLineGrid(const FrameViewLayoutContext::LayoutSt
     }
     
     // We didn't find an already-established grid with this identifier. Our render object establishes the grid.
-    m_lineGrid = makeWeakPtr(renderer);
+    m_lineGrid = renderer;
     m_lineGridOffset = m_layoutOffset;
 }
 
 void RenderLayoutState::addLayoutDelta(LayoutSize delta)
 {
-    m_layoutDelta += delta;
+    m_layoutDeltaForRepaint += delta;
 #if ASSERT_ENABLED
-    m_layoutDeltaXSaturated |= m_layoutDelta.width() == LayoutUnit::max() || m_layoutDelta.width() == LayoutUnit::min();
-    m_layoutDeltaYSaturated |= m_layoutDelta.height() == LayoutUnit::max() || m_layoutDelta.height() == LayoutUnit::min();
+    m_layoutDeltaForRepaintXSaturated |= m_layoutDeltaForRepaint.width() == LayoutUnit::max() || m_layoutDeltaForRepaint.width() == LayoutUnit::min();
+    m_layoutDeltaForRepaintYSaturated |= m_layoutDeltaForRepaint.height() == LayoutUnit::max() || m_layoutDeltaForRepaint.height() == LayoutUnit::min();
 #endif
 }
 
 #if ASSERT_ENABLED
 bool RenderLayoutState::layoutDeltaMatches(LayoutSize delta) const
 {
-    return (delta.width() == m_layoutDelta.width() || m_layoutDeltaXSaturated) && (delta.height() == m_layoutDelta.height() || m_layoutDeltaYSaturated);
+    return (delta.width() == m_layoutDeltaForRepaint.width() || m_layoutDeltaForRepaintXSaturated) && (delta.height() == m_layoutDeltaForRepaint.height() || m_layoutDeltaForRepaintYSaturated);
 }
 #endif
 
@@ -286,7 +293,7 @@ LayoutStateMaintainer::~LayoutStateMaintainer()
         m_context.enablePaintOffsetCache();
 }
 
-LayoutStateDisabler::LayoutStateDisabler(FrameViewLayoutContext& context)
+LayoutStateDisabler::LayoutStateDisabler(LocalFrameViewLayoutContext& context)
     : m_context(context)
 {
     m_context.disablePaintOffsetCache();
@@ -300,7 +307,7 @@ LayoutStateDisabler::~LayoutStateDisabler()
 static bool shouldDisablePaintOffsetCacheForSubtree(RenderElement& subtreeLayoutRoot)
 {
     for (auto* renderer = &subtreeLayoutRoot; renderer; renderer = renderer->container()) {
-        if (renderer->hasTransform() || renderer->hasReflection())
+        if (renderer->isTransformed() || renderer->hasReflection())
             return true;
     }
     return false;
@@ -327,16 +334,34 @@ SubtreeLayoutStateMaintainer::~SubtreeLayoutStateMaintainer()
     }
 }
 
-PaginatedLayoutStateMaintainer::PaginatedLayoutStateMaintainer(RenderBlockFlow& flow)
-    : m_context(flow.view().frameView().layoutContext())
-    , m_pushed(m_context.pushLayoutStateForPaginationIfNeeded(flow))
+FlexPercentResolveDisabler::FlexPercentResolveDisabler(LocalFrameViewLayoutContext& layoutContext, const RenderBox& flexItem)
+    : m_layoutContext(layoutContext)
+    , m_flexItem(flexItem)
 {
+    m_layoutContext->disablePercentHeightResolveFor(flexItem);
 }
 
-PaginatedLayoutStateMaintainer::~PaginatedLayoutStateMaintainer()
+FlexPercentResolveDisabler::~FlexPercentResolveDisabler()
 {
-    if (m_pushed)
-        m_context.popLayoutState();
+    m_layoutContext->enablePercentHeightResolveFor(m_flexItem);
+}
+
+ContentVisibilityOverrideScope::ContentVisibilityOverrideScope(LocalFrameViewLayoutContext& layoutContext, OptionSet<OverrideType> overrideTypes)
+    : m_layoutContext(layoutContext)
+{
+    if (overrideTypes.contains(OverrideType::Hidden))
+        layoutContext.setIsVisiblityHiddenIgnored(true);
+    if (overrideTypes.contains(OverrideType::Auto))
+        layoutContext.setIsVisiblityAutoIgnored(true);
+    if (overrideTypes.contains(OverrideType::RevealedWhenFound))
+        layoutContext.setIsRevealedWhenFoundIgnored(true);
+}
+
+ContentVisibilityOverrideScope::~ContentVisibilityOverrideScope()
+{
+    m_layoutContext->setIsVisiblityHiddenIgnored(false);
+    m_layoutContext->setIsVisiblityAutoIgnored(false);
+    m_layoutContext->setIsRevealedWhenFoundIgnored(false);
 }
 
 } // namespace WebCore

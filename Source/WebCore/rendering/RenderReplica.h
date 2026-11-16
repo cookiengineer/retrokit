@@ -33,12 +33,13 @@
 namespace WebCore {
 
 class RenderReplica final : public RenderBox {
-    WTF_MAKE_ISO_ALLOCATED(RenderReplica);
+    WTF_MAKE_TZONE_ALLOCATED(RenderReplica);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderReplica);
 public:
-    RenderReplica(Document&, RenderStyle&&);
+    RenderReplica(Document&, Style::ComputedStyle&&);
     virtual ~RenderReplica();
 
-    const char* renderName() const override { return "RenderReplica"; }
+    ASCIILiteral renderName() const override { return "RenderReplica"_s; }
 
     bool requiresLayer() const override { return true; }
 
@@ -47,9 +48,11 @@ public:
     void paint(PaintInfo&, const LayoutPoint&) override;
 
 private:
-    bool isReplica() const override { return true; }
     bool canHaveChildren() const override { return false; }
-    void computePreferredLogicalWidths() override;
+    void computeIntrinsicLogicalWidthContributions() override;
+    std::pair<LayoutUnit, LayoutUnit> computeIntrinsicLogicalWidths() const override { ASSERT_NOT_REACHED(); return { }; }
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderReplica, isRenderReplica())

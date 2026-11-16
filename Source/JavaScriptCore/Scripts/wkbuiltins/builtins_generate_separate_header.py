@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Copyright (c) 2014, 2015 Apple Inc. All rights reserved.
 # Copyright (c) 2014 University of Washington. All rights reserved.
@@ -64,6 +64,7 @@ class BuiltinsSeparateHeaderGenerator(BuiltinsGenerator):
         sections.append(Template(Templates.HeaderIncludeGuard).substitute(args))
         if conditional_guard is not None:
             sections.append("#if %s" % conditional_guard)
+        sections.append(Template(Templates.RequiredHeaderIncludes).substitute(args))
         sections.append(self.generate_secondary_header_includes())
         sections.append(self.generate_forward_declarations())
         sections.append(Template(Templates.NamespaceTop).substitute(args))
@@ -103,6 +104,10 @@ class FunctionExecutable;
             (["WebCore"],
                 ("JavaScriptCore", "runtime/JSFunction.h"),
             ),
+
+            (["WebCore"],
+                ("JavaScriptCore", "heap/SlotVisitorInlines.h"),
+            ),
         ]
 
         return '\n'.join(self.generate_includes_from_entries(header_includes))
@@ -128,7 +133,9 @@ class FunctionExecutable;
             lines.append("""extern const char* const s_%(codeName)s;
 extern const int s_%(codeName)sLength;
 extern const JSC::ConstructAbility s_%(codeName)sConstructAbility;
-extern const JSC::ConstructorKind s_%(codeName)sConstructorKind;""" % function_args)
+extern const JSC::ConstructorKind s_%(codeName)sConstructorKind;
+extern const JSC::ImplementationVisibility s_%(codeName)sImplementationVisibility;
+extern const JSC::InlineAttribute s_%(codeName)sInlineAttribute;""" % function_args)
 
         return lines
 

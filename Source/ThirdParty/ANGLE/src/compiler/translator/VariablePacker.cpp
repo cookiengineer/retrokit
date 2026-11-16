@@ -33,9 +33,8 @@ void ExpandStructVariable(const ShaderVariable &variable,
 
     const std::vector<ShaderVariable> &fields = variable.fields;
 
-    for (size_t fieldIndex = 0; fieldIndex < fields.size(); fieldIndex++)
+    for (const ShaderVariable &field : fields)
     {
-        const ShaderVariable &field = fields[fieldIndex];
         ExpandVariable(field, name + "." + field.name, expanded);
     }
 }
@@ -239,11 +238,10 @@ bool VariablePacker::checkExpandedVariablesWithinPackingLimits(
             break;
         }
         topNonFullRow_ += GetVariablePackingRows(variable);
-    }
-
-    if (topNonFullRow_ > maxRows_)
-    {
-        return false;
+        if (topNonFullRow_ > maxRows_)
+        {
+            return false;
+        }
     }
 
     // Packs the 3 column variables.
@@ -255,12 +253,12 @@ bool VariablePacker::checkExpandedVariablesWithinPackingLimits(
         {
             break;
         }
-        num3ColumnRows += GetVariablePackingRows(variable);
-    }
 
-    if (topNonFullRow_ + num3ColumnRows > maxRows_)
-    {
-        return false;
+        num3ColumnRows += GetVariablePackingRows(variable);
+        if (topNonFullRow_ + num3ColumnRows > maxRows_)
+        {
+            return false;
+        }
     }
 
     fillColumns(topNonFullRow_, num3ColumnRows, 0, 3);

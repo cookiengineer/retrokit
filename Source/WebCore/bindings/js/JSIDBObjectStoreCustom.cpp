@@ -30,17 +30,17 @@
 
 #include "JSDOMBinding.h"
 #include "JSIDBObjectStore.h"
-
+#include "ScriptExecutionContext.h"
 
 namespace WebCore {
 using namespace JSC;
 
 template<typename Visitor>
-void JSIDBObjectStore::visitAdditionalChildren(Visitor& visitor)
+void JSIDBObjectStore::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    static_cast<IDBObjectStore&>(wrapped()).visitReferencedIndexes(visitor);
+    static_cast<IDBObjectStore&>(wrapped()).visitReferencedIndexesInGCThread(visitor);
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSIDBObjectStore);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSIDBObjectStore);
 
 } // namespace WebCore

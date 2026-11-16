@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,47 +34,57 @@
 #include "RemoteCDMInstanceSessionProxy.h"
 #include "RemoteCDMProxy.h"
 #include <WebCore/CDMFactory.h>
-#include <wtf/Algorithms.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 
 using namespace WebCore;
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteCDMFactoryProxy);
+
 RemoteCDMFactoryProxy::RemoteCDMFactoryProxy(GPUConnectionToWebProcess& connection)
-    : m_gpuConnectionToWebProcess(makeWeakPtr(connection))
+    : m_gpuConnectionToWebProcess(connection)
 {
 }
 
-RemoteCDMFactoryProxy::~RemoteCDMFactoryProxy() = default;
+RemoteCDMFactoryProxy::~RemoteCDMFactoryProxy()
+{
+    clear();
+}
+
+void RemoteCDMFactoryProxy::clear()
+{
+    m_proxies.clear();
+}
 
 static CDMFactory* factoryForKeySystem(const String& keySystem)
 {
     auto& factories = CDMFactory::registeredFactories();
-    auto foundIndex = factories.findMatching([&] (auto& factory) { return factory->supportsKeySystem(keySystem); });
+    auto foundIndex = factories.findIf([&] (auto& factory) { return factory->supportsKeySystem(keySystem); });
     if (foundIndex == notFound)
         return nullptr;
-    return factories[foundIndex];
+    return factories[foundIndex].ptr();
 }
 
-void RemoteCDMFactoryProxy::createCDM(const String& keySystem, CompletionHandler<void(RemoteCDMIdentifier&&, RemoteCDMConfiguration&&)>&& completion)
+void RemoteCDMFactoryProxy::createCDM(const String& keySystem, const String& mediaKeysHashSalt, CompletionHandler<void(std::optional<RemoteCDMIdentifier>&&, RemoteCDMConfiguration&&)>&& completion)
 {
-    auto factory = factoryForKeySystem(keySystem);
+    RefPtr factory = factoryForKeySystem(keySystem);
     if (!factory) {
-        completion({ }, { });
+        completion(std::nullopt, { });
         return;
     }
 
-    auto privateCDM = factory->createCDM(keySystem);
+    auto privateCDM = factory->createCDM(keySystem, mediaKeysHashSalt, *this);
     if (!privateCDM) {
-        completion({ }, { });
+        completion(std::nullopt, { });
         return;
     }
 
-    auto proxy = RemoteCDMProxy::create(makeWeakPtr(this), WTFMove(privateCDM));
+    Ref proxy = RemoteCDMProxy::create(*this, makeUniqueRefFromNonNullUniquePtr(WTF::move(privateCDM)));
     auto identifier = RemoteCDMIdentifier::generate();
     RemoteCDMConfiguration configuration = proxy->configuration();
-    addProxy(identifier, WTFMove(proxy));
-    completion(WTFMove(identifier), WTFMove(configuration));
+    addProxy(identifier, WTF::move(proxy));
+    completion(WTF::move(identifier), WTF::move(configuration));
 }
 
 void RemoteCDMFactoryProxy::supportsKeySystem(const String& keySystem, CompletionHandler<void(bool)>&& completion)
@@ -84,47 +94,62 @@ void RemoteCDMFactoryProxy::supportsKeySystem(const String& keySystem, Completio
 
 void RemoteCDMFactoryProxy::didReceiveCDMMessage(IPC::Connection& connection, IPC::Decoder& decoder)
 {
-    if (auto* proxy = m_proxies.get(makeObjectIdentifier<RemoteCDMIdentifierType>(decoder.destinationID())))
-        proxy->didReceiveMessage(connection, decoder);
+    if (ObjectIdentifier<RemoteCDMIdentifierType>::isValidIdentifier(decoder.destinationID())) {
+        if (RefPtr proxy = m_proxies.get(ObjectIdentifier<RemoteCDMIdentifierType>(decoder.destinationID())))
+            proxy->didReceiveMessage(connection, decoder);
+    }
 }
 
 void RemoteCDMFactoryProxy::didReceiveCDMInstanceMessage(IPC::Connection& connection, IPC::Decoder& decoder)
 {
-    if (auto* instance = m_instances.get(makeObjectIdentifier<RemoteCDMInstanceIdentifierType>(decoder.destinationID())))
-        instance->didReceiveMessage(connection, decoder);
+    if (ObjectIdentifier<RemoteCDMInstanceIdentifierType>::isValidIdentifier(decoder.destinationID())) {
+        if (RefPtr instance = m_instances.get(ObjectIdentifier<RemoteCDMInstanceIdentifierType>(decoder.destinationID())))
+            instance->didReceiveMessage(connection, decoder);
+    }
 }
 
 void RemoteCDMFactoryProxy::didReceiveCDMInstanceSessionMessage(IPC::Connection& connection, IPC::Decoder& decoder)
 {
-    if (auto* session = m_sessions.get(makeObjectIdentifier<RemoteCDMInstanceSessionIdentifierType>(decoder.destinationID())))
-        session->didReceiveMessage(connection, decoder);
+    if (ObjectIdentifier<RemoteCDMInstanceSessionIdentifierType>::isValidIdentifier(decoder.destinationID())) {
+        if (RefPtr session = m_sessions.get(ObjectIdentifier<RemoteCDMInstanceSessionIdentifierType>(decoder.destinationID())))
+            session->didReceiveMessage(connection, decoder);
+    }
 }
 
-bool RemoteCDMFactoryProxy::didReceiveSyncCDMMessage(IPC::Connection& connection, IPC::Decoder& decoder, UniqueRef<IPC::Encoder>& encoder)
+void RemoteCDMFactoryProxy::didReceiveSyncCDMMessage(IPC::Connection& connection, IPC::Decoder& decoder, UniqueRef<IPC::Encoder>& encoder)
 {
-    if (auto* proxy = m_proxies.get(makeObjectIdentifier<RemoteCDMIdentifierType>(decoder.destinationID())))
-        return proxy->didReceiveSyncMessage(connection, decoder, encoder);
-    return false;
+    if (ObjectIdentifier<RemoteCDMIdentifierType>::isValidIdentifier(decoder.destinationID())) {
+        if (RefPtr proxy = m_proxies.get(ObjectIdentifier<RemoteCDMIdentifierType>(decoder.destinationID()))) {
+            proxy->didReceiveSyncMessage(connection, decoder, encoder);
+            return;
+        }
+    }
 }
 
-bool RemoteCDMFactoryProxy::didReceiveSyncCDMInstanceMessage(IPC::Connection& connection, IPC::Decoder& decoder, UniqueRef<IPC::Encoder>& encoder)
+void RemoteCDMFactoryProxy::didReceiveSyncCDMInstanceMessage(IPC::Connection& connection, IPC::Decoder& decoder, UniqueRef<IPC::Encoder>& encoder)
 {
-    if (auto* instance = m_instances.get(makeObjectIdentifier<RemoteCDMInstanceIdentifierType>(decoder.destinationID())))
-        return instance->didReceiveSyncMessage(connection, decoder, encoder);
-    return false;
+    if (ObjectIdentifier<RemoteCDMInstanceIdentifierType>::isValidIdentifier(decoder.destinationID())) {
+        if (RefPtr instance = m_instances.get(ObjectIdentifier<RemoteCDMInstanceIdentifierType>(decoder.destinationID()))) {
+            instance->didReceiveSyncMessage(connection, decoder, encoder);
+            return;
+        }
+    }
 }
 
-bool RemoteCDMFactoryProxy::didReceiveSyncCDMInstanceSessionMessage(IPC::Connection& connection, IPC::Decoder& decoder, UniqueRef<IPC::Encoder>& encoder)
+void RemoteCDMFactoryProxy::didReceiveSyncCDMInstanceSessionMessage(IPC::Connection& connection, IPC::Decoder& decoder, UniqueRef<IPC::Encoder>& encoder)
 {
-    if (auto* session = m_sessions.get(makeObjectIdentifier<RemoteCDMInstanceSessionIdentifierType>(decoder.destinationID())))
-        return session->didReceiveSyncMessage(connection, decoder, encoder);
-    return false;
+    if (ObjectIdentifier<RemoteCDMInstanceSessionIdentifierType>::isValidIdentifier(decoder.destinationID())) {
+        if (RefPtr session = m_sessions.get(ObjectIdentifier<RemoteCDMInstanceSessionIdentifierType>(decoder.destinationID()))) {
+            session->didReceiveSyncMessage(connection, decoder, encoder);
+            return;
+        }
+    }
 }
 
-void RemoteCDMFactoryProxy::addProxy(const RemoteCDMIdentifier& identifier, std::unique_ptr<RemoteCDMProxy>&& proxy)
+void RemoteCDMFactoryProxy::addProxy(const RemoteCDMIdentifier& identifier, Ref<RemoteCDMProxy>&& proxy)
 {
     ASSERT(!m_proxies.contains(identifier));
-    m_proxies.set(identifier, WTFMove(proxy));
+    m_proxies.set(identifier, WTF::move(proxy));
 }
 
 void RemoteCDMFactoryProxy::removeProxy(const RemoteCDMIdentifier& identifier)
@@ -133,18 +158,19 @@ void RemoteCDMFactoryProxy::removeProxy(const RemoteCDMIdentifier& identifier)
     m_proxies.remove(identifier);
 }
 
-void RemoteCDMFactoryProxy::addInstance(const RemoteCDMInstanceIdentifier& identifier, std::unique_ptr<RemoteCDMInstanceProxy>&& instance)
+void RemoteCDMFactoryProxy::addInstance(const RemoteCDMInstanceIdentifier& identifier, Ref<RemoteCDMInstanceProxy>&& instance)
 {
     ASSERT(!m_instances.contains(identifier));
-    m_instances.set(identifier, WTFMove(instance));
+    m_instances.set(identifier, WTF::move(instance));
 }
 
 void RemoteCDMFactoryProxy::removeInstance(const RemoteCDMInstanceIdentifier& identifier)
 {
     ASSERT(m_instances.contains(identifier));
     m_instances.remove(identifier);
-    if (m_gpuConnectionToWebProcess && allowsExitUnderMemoryPressure())
-        m_gpuConnectionToWebProcess->gpuProcess().tryExitIfUnusedAndUnderMemoryPressure();
+    auto connection = m_gpuConnectionToWebProcess.get();
+    if (connection && allowsExitUnderMemoryPressure())
+        connection->gpuProcess().tryExitIfUnusedAndUnderMemoryPressure();
 }
 
 RemoteCDMInstanceProxy* RemoteCDMFactoryProxy::getInstance(const RemoteCDMInstanceIdentifier& identifier)
@@ -152,10 +178,10 @@ RemoteCDMInstanceProxy* RemoteCDMFactoryProxy::getInstance(const RemoteCDMInstan
     return m_instances.get(identifier);
 }
 
-void RemoteCDMFactoryProxy::addSession(const RemoteCDMInstanceSessionIdentifier& identifier, std::unique_ptr<RemoteCDMInstanceSessionProxy>&& session)
+void RemoteCDMFactoryProxy::addSession(const RemoteCDMInstanceSessionIdentifier& identifier, Ref<RemoteCDMInstanceSessionProxy>&& session)
 {
     ASSERT(!m_sessions.contains(identifier));
-    m_sessions.set(identifier, WTFMove(session));
+    m_sessions.set(identifier, WTF::move(session));
 }
 
 void RemoteCDMFactoryProxy::removeSession(const RemoteCDMInstanceSessionIdentifier& identifier)
@@ -167,6 +193,34 @@ void RemoteCDMFactoryProxy::removeSession(const RemoteCDMInstanceSessionIdentifi
 bool RemoteCDMFactoryProxy::allowsExitUnderMemoryPressure() const
 {
     return m_instances.isEmpty();
+}
+
+String RemoteCDMFactoryProxy::mediaKeysStorageDirectory() const
+{
+    if (RefPtr connection = m_gpuConnectionToWebProcess.get())
+        return connection->mediaKeysStorageDirectory();
+    return emptyString();
+}
+
+#if !RELEASE_LOG_DISABLED
+const Logger& RemoteCDMFactoryProxy::logger() const
+{
+    if (!m_logger) {
+        m_logger = Logger::create(this);
+        RefPtr connection { m_gpuConnectionToWebProcess.get() };
+        m_logger->setEnabled(this, connection && connection->isAlwaysOnLoggingAllowed());
+    }
+
+    return *m_logger;
+}
+#endif
+
+std::optional<SharedPreferencesForWebProcess> RemoteCDMFactoryProxy::sharedPreferencesForWebProcess() const
+{
+    if (RefPtr gpuConnectionToWebProcess = m_gpuConnectionToWebProcess.get())
+        return gpuConnectionToWebProcess->sharedPreferencesForWebProcess();
+
+    return std::nullopt;
 }
 
 }

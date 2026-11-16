@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2004, 2005, 2008, 2009 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005 Rob Buis <buis@kde.org>
- * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2024 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -24,25 +24,35 @@
 #include "Document.h"
 #include "QualifiedName.h"
 #include "SVGPropertyOwnerRegistry.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
+
+namespace Style {
+struct SVGMarkerResource;
+struct URL;
+}
 
 class SVGElement;
 
 class SVGURIReference {
+    WTF_MAKE_TZONE_ALLOCATED(SVGURIReference);
     WTF_MAKE_NONCOPYABLE(SVGURIReference);
 public:
     virtual ~SVGURIReference() = default;
 
     void parseAttribute(const QualifiedName&, const AtomString&);
 
-    static String fragmentIdentifierFromIRIString(const String&, const Document&);
+    static AtomString fragmentIdentifierFromIRIString(const String&, const Document&);
+    static AtomString fragmentIdentifierFromIRIString(const Style::URL&, const Document&);
+    static AtomString fragmentIdentifierFromIRIString(const Style::SVGMarkerResource&, const Document&);
 
     struct TargetElementResult {
         RefPtr<Element> element;
-        String identifier;
+        AtomString identifier;
     };
     static TargetElementResult targetElementFromIRIString(const String&, const TreeScope&, RefPtr<Document> externalDocument = nullptr);
+    static TargetElementResult targetElementFromIRIString(const Style::URL&, const TreeScope&, RefPtr<Document> externalDocument = nullptr);
 
     static bool isExternalURIReference(const String& uri, const Document& document)
     {
@@ -51,7 +61,7 @@ public:
             return false;
 
         // If the URI matches our documents URL, we're dealing with a local reference.
-        URL url = document.completeURL(uri);
+        URL url = document.encodingParseURL(uri);
         ASSERT(!url.protocolIsData());
         return !equalIgnoringFragmentIdentifier(url, document.url());
     }
@@ -64,7 +74,7 @@ public:
 protected:
     SVGURIReference(SVGElement* contextElement);
 
-    static bool isKnownAttribute(const QualifiedName& attributeName);
+    static bool NODELETE isKnownAttribute(const QualifiedName& attributeName);
 
     virtual bool haveFiredLoadEvent() const { return false; }
     virtual void setHaveFiredLoadEvent(bool) { }
@@ -75,9 +85,9 @@ protected:
     void dispatchLoadEvent();
 
 private:
-    SVGElement& contextElement() const;
+    SVGElement& NODELETE contextElement() const;
 
-    Ref<SVGAnimatedString> m_href;
+    const Ref<SVGAnimatedString> m_href;
 };
 
 } // namespace WebCore

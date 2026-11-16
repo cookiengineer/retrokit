@@ -25,21 +25,11 @@
 
 #pragma once
 
-#include "GenericTypedArrayView.h"
-#include "TypedArrayAdaptors.h"
+#include <wtf/Compiler.h>
 
-namespace JSC {
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
-typedef GenericTypedArrayView<Int8Adaptor> Int8Array;
-typedef GenericTypedArrayView<Int16Adaptor> Int16Array;
-typedef GenericTypedArrayView<Int32Adaptor> Int32Array;
-typedef GenericTypedArrayView<Uint8Adaptor> Uint8Array;
-typedef GenericTypedArrayView<Uint8ClampedAdaptor> Uint8ClampedArray;
-typedef GenericTypedArrayView<Uint16Adaptor> Uint16Array;
-typedef GenericTypedArrayView<Uint32Adaptor> Uint32Array;
-typedef GenericTypedArrayView<Float32Adaptor> Float32Array;
-typedef GenericTypedArrayView<Float64Adaptor> Float64Array;
-typedef GenericTypedArrayView<BigInt64Adaptor> BigInt64Array;
-typedef GenericTypedArrayView<BigUint64Adaptor> BigUint64Array;
+#include <JavaScriptCore/GenericTypedArrayView.h>
+#include <JavaScriptCore/TypedArrayAdaptors.h>
 
-} // namespace JSC
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

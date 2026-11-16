@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,9 +25,10 @@
 
 #pragma once
 
-#if ENABLE(DATE_AND_TIME_INPUT_TYPES)
-
 #include <WebCore/DateTimeChooser.h>
+#include <wtf/CheckedRef.h>
+#include <wtf/RefCounted.h>
+#include <wtf/WeakRef.h>
 
 namespace WebCore {
 class DateTimeChooserClient;
@@ -38,21 +39,30 @@ namespace WebKit {
 
 class WebPage;
 
-class WebDateTimeChooser final : public WebCore::DateTimeChooser {
+class WebDateTimeChooser final : public RefCounted<WebDateTimeChooser>, public WebCore::DateTimeChooser {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(WebDateTimeChooser);
 public:
-    WebDateTimeChooser(WebPage&, WebCore::DateTimeChooserClient&);
+    static Ref<WebDateTimeChooser> create(WebPage& page, WebCore::DateTimeChooserClient& client)
+    {
+        return adoptRef(*new WebDateTimeChooser(page, client));
+    }
+
+    ~WebDateTimeChooser();
+
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
 
     void didChooseDate(StringView);
     void didEndChooser();
 
 private:
+    WebDateTimeChooser(WebPage&, WebCore::DateTimeChooserClient&);
+
     void endChooser() final;
     void showChooser(const WebCore::DateTimeChooserParameters&) final;
 
-    WebCore::DateTimeChooserClient& m_client;
-    WebPage& m_page;
+    const CheckedRef<WebCore::DateTimeChooserClient> m_client;
+    WeakPtr<WebPage> m_page;
 };
 
 } // namespace WebKit
-
-#endif

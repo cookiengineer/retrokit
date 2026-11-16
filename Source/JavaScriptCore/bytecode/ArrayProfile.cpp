@@ -28,6 +28,8 @@
 
 #include "CodeBlock.h"
 #include "JSCellInlines.h"
+#include "JSGlobalObjectInlines.h"
+#include "JSTypedArrays.h"
 #include <wtf/CommaPrinter.h>
 #include <wtf/StringPrintStream.h>
 
@@ -42,6 +44,7 @@ const ArrayModes typedArrayModes[NumberOfTypedArrayTypesExcludingDataView] = {
     Uint16ArrayMode,
     Int32ArrayMode,
     Uint32ArrayMode,
+    Float16ArrayMode,
     Float32ArrayMode,
     Float64ArrayMode,
     BigInt64ArrayMode,
@@ -51,139 +54,149 @@ const ArrayModes typedArrayModes[NumberOfTypedArrayTypesExcludingDataView] = {
 void dumpArrayModes(PrintStream& out, ArrayModes arrayModes)
 {
     if (!arrayModes) {
-        out.print("<empty>");
+        out.print("<empty>"_s);
         return;
     }
     
     if (arrayModes == ALL_ARRAY_MODES) {
-        out.print("TOP");
+        out.print("TOP"_s);
         return;
     }
     
-    CommaPrinter comma("|");
+    CommaPrinter comma("|"_s);
     if (arrayModes & asArrayModesIgnoringTypedArrays(NonArray))
-        out.print(comma, "NonArray");
+        out.print(comma, "NonArray"_s);
     if (arrayModes & asArrayModesIgnoringTypedArrays(NonArrayWithInt32))
-        out.print(comma, "NonArrayWithInt32");
+        out.print(comma, "NonArrayWithInt32"_s);
     if (arrayModes & asArrayModesIgnoringTypedArrays(NonArrayWithDouble))
-        out.print(comma, "NonArrayWithDouble");
+        out.print(comma, "NonArrayWithDouble"_s);
     if (arrayModes & asArrayModesIgnoringTypedArrays(NonArrayWithContiguous))
-        out.print(comma, "NonArrayWithContiguous");
+        out.print(comma, "NonArrayWithContiguous"_s);
     if (arrayModes & asArrayModesIgnoringTypedArrays(NonArrayWithArrayStorage))
-        out.print(comma, "NonArrayWithArrayStorage");
+        out.print(comma, "NonArrayWithArrayStorage"_s);
     if (arrayModes & asArrayModesIgnoringTypedArrays(NonArrayWithSlowPutArrayStorage))
-        out.print(comma, "NonArrayWithSlowPutArrayStorage");
+        out.print(comma, "NonArrayWithSlowPutArrayStorage"_s);
     if (arrayModes & asArrayModesIgnoringTypedArrays(ArrayClass))
-        out.print(comma, "ArrayClass");
+        out.print(comma, "ArrayClass"_s);
     if (arrayModes & asArrayModesIgnoringTypedArrays(ArrayWithUndecided))
-        out.print(comma, "ArrayWithUndecided");
+        out.print(comma, "ArrayWithUndecided"_s);
     if (arrayModes & asArrayModesIgnoringTypedArrays(ArrayWithInt32))
-        out.print(comma, "ArrayWithInt32");
+        out.print(comma, "ArrayWithInt32"_s);
     if (arrayModes & asArrayModesIgnoringTypedArrays(ArrayWithDouble))
-        out.print(comma, "ArrayWithDouble");
+        out.print(comma, "ArrayWithDouble"_s);
     if (arrayModes & asArrayModesIgnoringTypedArrays(ArrayWithContiguous))
-        out.print(comma, "ArrayWithContiguous");
+        out.print(comma, "ArrayWithContiguous"_s);
     if (arrayModes & asArrayModesIgnoringTypedArrays(ArrayWithArrayStorage))
-        out.print(comma, "ArrayWithArrayStorage");
+        out.print(comma, "ArrayWithArrayStorage"_s);
     if (arrayModes & asArrayModesIgnoringTypedArrays(ArrayWithSlowPutArrayStorage))
-        out.print(comma, "ArrayWithSlowPutArrayStorage");
+        out.print(comma, "ArrayWithSlowPutArrayStorage"_s);
     if (arrayModes & asArrayModesIgnoringTypedArrays(CopyOnWriteArrayWithInt32))
-        out.print(comma, "CopyOnWriteArrayWithInt32");
+        out.print(comma, "CopyOnWriteArrayWithInt32"_s);
     if (arrayModes & asArrayModesIgnoringTypedArrays(CopyOnWriteArrayWithDouble))
-        out.print(comma, "CopyOnWriteArrayWithDouble");
+        out.print(comma, "CopyOnWriteArrayWithDouble"_s);
     if (arrayModes & asArrayModesIgnoringTypedArrays(CopyOnWriteArrayWithContiguous))
-        out.print(comma, "CopyOnWriteArrayWithContiguous");
+        out.print(comma, "CopyOnWriteArrayWithContiguous"_s);
 
     if (arrayModes & Int8ArrayMode)
-        out.print(comma, "Int8ArrayMode");
+        out.print(comma, "Int8ArrayMode"_s);
     if (arrayModes & Int16ArrayMode)
-        out.print(comma, "Int16ArrayMode");
+        out.print(comma, "Int16ArrayMode"_s);
     if (arrayModes & Int32ArrayMode)
-        out.print(comma, "Int32ArrayMode");
+        out.print(comma, "Int32ArrayMode"_s);
     if (arrayModes & Uint8ArrayMode)
-        out.print(comma, "Uint8ArrayMode");
+        out.print(comma, "Uint8ArrayMode"_s);
     if (arrayModes & Uint8ClampedArrayMode)
-        out.print(comma, "Uint8ClampedArrayMode");
+        out.print(comma, "Uint8ClampedArrayMode"_s);
     if (arrayModes & Uint16ArrayMode)
-        out.print(comma, "Uint16ArrayMode");
+        out.print(comma, "Uint16ArrayMode"_s);
     if (arrayModes & Uint32ArrayMode)
-        out.print(comma, "Uint32ArrayMode");
+        out.print(comma, "Uint32ArrayMode"_s);
+    if (arrayModes & Float16ArrayMode)
+        out.print(comma, "Float16ArrayMode"_s);
     if (arrayModes & Float32ArrayMode)
-        out.print(comma, "Float32ArrayMode");
+        out.print(comma, "Float32ArrayMode"_s);
     if (arrayModes & Float64ArrayMode)
-        out.print(comma, "Float64ArrayMode");
+        out.print(comma, "Float64ArrayMode"_s);
     if (arrayModes & BigInt64ArrayMode)
-        out.print(comma, "BigInt64ArrayMode");
+        out.print(comma, "BigInt64ArrayMode"_s);
     if (arrayModes & BigUint64ArrayMode)
-        out.print(comma, "BigUint64ArrayMode");
+        out.print(comma, "BigUint64ArrayMode"_s);
 }
 
-void ArrayProfile::computeUpdatedPrediction(const ConcurrentJSLocker& locker, CodeBlock* codeBlock)
+void ArrayProfile::computeUpdatedPrediction(CodeBlock* codeBlock)
 {
-    if (!m_lastSeenStructureID)
-        return;
-    
-    Structure* lastSeenStructure = codeBlock->heap()->structureIDTable().get(m_lastSeenStructureID);
-    computeUpdatedPrediction(locker, codeBlock, lastSeenStructure);
-    m_lastSeenStructureID = 0;
+    if (auto structureID = std::exchange(m_lastSeenStructureID, StructureID()))
+        computeUpdatedPrediction(codeBlock, structureID.decode());
+    if (auto structureID = std::exchange(m_speculationFailureStructureID, StructureID()))
+        computeUpdatedPrediction(codeBlock, structureID.decode());
 }
 
-void ArrayProfile::computeUpdatedPrediction(const ConcurrentJSLocker&, CodeBlock* codeBlock, Structure* lastSeenStructure)
+void ArrayProfile::computeUpdatedPrediction(CodeBlock* codeBlock, Structure* lastSeenStructure)
 {
     m_observedArrayModes |= arrayModesFromStructure(lastSeenStructure);
-    
-    if (!m_didPerformFirstRunPruning
-        && hasTwoOrMoreBitsSet(m_observedArrayModes)) {
+
+    if (!m_arrayProfileFlags.contains(ArrayProfileFlag::DidPerformFirstRunPruning) && hasTwoOrMoreBitsSet(m_observedArrayModes)) {
         m_observedArrayModes = arrayModesFromStructure(lastSeenStructure);
-        m_didPerformFirstRunPruning = true;
+        m_arrayProfileFlags.add(ArrayProfileFlag::DidPerformFirstRunPruning);
     }
-    
-    m_mayInterceptIndexedAccesses |=
-        lastSeenStructure->typeInfo().interceptsGetOwnPropertySlotByIndexEvenWhenLengthIsNotZero();
+
+    if (lastSeenStructure->typeInfo().interceptsGetOwnPropertySlotByIndexEvenWhenLengthIsNotZero())
+        m_arrayProfileFlags.add(ArrayProfileFlag::MayInterceptIndexedAccesses);
+
     JSGlobalObject* globalObject = codeBlock->globalObject();
-    if (!globalObject->isOriginalArrayStructure(lastSeenStructure)
-        && !globalObject->isOriginalTypedArrayStructure(lastSeenStructure))
-        m_usesOriginalArrayStructures = false;
+    bool isResizableOrGrowableShared = false;
+    if (!globalObject->isOriginalArrayStructure(lastSeenStructure) && !globalObject->isOriginalTypedArrayStructure(lastSeenStructure, isResizableOrGrowableShared)) {
+        m_arrayProfileFlags.add(ArrayProfileFlag::UsesNonOriginalArrayStructures);
+        if (lastSeenStructure == globalObject->regExpMatchesArrayStructure() || lastSeenStructure == globalObject->regExpMatchesArrayWithIndicesStructure())
+            m_arrayProfileFlags.add(ArrayProfileFlag::MayBeRegExpMatchesArray);
+    }
+
+    if (isTypedArrayTypeIncludingDataView(lastSeenStructure->typeInfo().type())) {
+        if (isResizableOrGrowableSharedTypedArrayIncludingDataView(lastSeenStructure->classInfoForCells()))
+            m_arrayProfileFlags.add(ArrayProfileFlag::MayBeResizableOrGrowableSharedTypedArray);
+    }
 }
 
-void ArrayProfile::observeIndexedRead(VM& vm, JSCell* cell, unsigned index)
+void ArrayProfile::observeIndexedRead(JSCell* cell, unsigned index)
 {
     m_lastSeenStructureID = cell->structureID();
 
-    if (JSObject* object = jsDynamicCast<JSObject*>(vm, cell)) {
+    if (JSObject* object = dynamicDowncast<JSObject>(cell)) {
         if (hasAnyArrayStorage(object->indexingType()) && index >= object->getVectorLength())
             setOutOfBounds();
         else if (index >= object->getArrayLength())
             setOutOfBounds();
     }
 
-    if (JSString* string = jsDynamicCast<JSString*>(vm, cell)) {
+    if (JSString* string = dynamicDowncast<JSString>(cell)) {
         if (index >= string->length())
             setOutOfBounds();
     }
 }
 
-CString ArrayProfile::briefDescription(const ConcurrentJSLocker& locker, CodeBlock* codeBlock)
+CString ArrayProfile::briefDescription(CodeBlock* codeBlock)
 {
-    computeUpdatedPrediction(locker, codeBlock);
-    return briefDescriptionWithoutUpdating(locker);
+    computeUpdatedPrediction(codeBlock);
+    return briefDescriptionWithoutUpdating();
 }
 
-CString ArrayProfile::briefDescriptionWithoutUpdating(const ConcurrentJSLocker&)
+CString ArrayProfile::briefDescriptionWithoutUpdating()
 {
     StringPrintStream out;
     CommaPrinter comma;
 
     if (m_observedArrayModes)
         out.print(comma, ArrayModesDump(m_observedArrayModes));
-    if (m_mayStoreToHole)
-        out.print(comma, "Hole");
-    if (m_outOfBounds)
-        out.print(comma, "OutOfBounds");
-    if (m_mayInterceptIndexedAccesses)
-        out.print(comma, "Intercept");
-    if (m_usesOriginalArrayStructures)
-        out.print(comma, "Original");
+    if (m_arrayProfileFlags.contains(ArrayProfileFlag::MayStoreHole))
+        out.print(comma, "Hole"_s);
+    if (m_arrayProfileFlags.contains(ArrayProfileFlag::OutOfBounds))
+        out.print(comma, "OutOfBounds"_s);
+    if (m_arrayProfileFlags.contains(ArrayProfileFlag::MayInterceptIndexedAccesses))
+        out.print(comma, "Intercept"_s);
+    if (!m_arrayProfileFlags.contains(ArrayProfileFlag::UsesNonOriginalArrayStructures))
+        out.print(comma, "Original"_s);
+    if (!m_arrayProfileFlags.contains(ArrayProfileFlag::MayBeResizableOrGrowableSharedTypedArray))
+        out.print(comma, "Resizable"_s);
 
     return out.toCString();
 }

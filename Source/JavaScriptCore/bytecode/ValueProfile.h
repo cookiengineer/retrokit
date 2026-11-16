@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,25 +28,31 @@
 
 #pragma once
 
-#include "ConcurrentJSLock.h"
-#include "SpeculatedType.h"
-#include "Structure.h"
+#include <JavaScriptCore/ConcurrentJSLock.h>
+#include <JavaScriptCore/SpeculatedType.h>
+#include <JavaScriptCore/Structure.h>
+#include <JavaScriptCore/VirtualRegister.h>
+#include <span>
 #include <wtf/PrintStream.h>
 #include <wtf/StringPrintStream.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
-template<unsigned numberOfBucketsArgument>
+class UnlinkedValueProfile;
+
+template<unsigned numberOfBucketsArgument, unsigned numberOfSpecFailBucketsArgument>
 struct ValueProfileBase {
+    friend class UnlinkedValueProfile;
+
     static constexpr unsigned numberOfBuckets = numberOfBucketsArgument;
-    static constexpr unsigned numberOfSpecFailBuckets = 1;
-    static constexpr unsigned bucketIndexMask = numberOfBuckets - 1;
+    static constexpr unsigned numberOfSpecFailBuckets = numberOfSpecFailBucketsArgument;
     static constexpr unsigned totalNumberOfBuckets = numberOfBuckets + numberOfSpecFailBuckets;
     
     ValueProfileBase()
     {
-        for (unsigned i = 0; i < totalNumberOfBuckets; ++i)
-            m_buckets[i] = JSValue::encode(JSValue());
+        clearBuckets();
     }
     
     EncodedJSValue* specFailBucket(unsigned i)
@@ -54,14 +60,20 @@ struct ValueProfileBase {
         ASSERT(numberOfBuckets + i < totalNumberOfBuckets);
         return m_buckets + numberOfBuckets + i;
     }
+
+    void clearBuckets()
+    {
+        for (unsigned i = 0; i < totalNumberOfBuckets; ++i)
+            clearEncodedJSValueConcurrent(m_buckets[i]);
+    }
     
     const ClassInfo* classInfo(unsigned bucket) const
     {
-        JSValue value = JSValue::decode(m_buckets[bucket]);
+        JSValue value = JSValue::decodeConcurrent(&m_buckets[bucket]);
         if (!!value) {
             if (!value.isCell())
                 return nullptr;
-            return value.asCell()->structure()->classInfo();
+            return value.asCell()->classInfo();
         }
         return nullptr;
     }
@@ -70,7 +82,7 @@ struct ValueProfileBase {
     {
         unsigned result = 0;
         for (unsigned i = 0; i < totalNumberOfBuckets; ++i) {
-            if (!!JSValue::decode(m_buckets[i]))
+            if (!!JSValue::decodeConcurrent(&m_buckets[i]))
                 result++;
         }
         return result;
@@ -83,21 +95,12 @@ struct ValueProfileBase {
 
     bool isSampledBefore() const { return m_prediction != SpecNone; }
     
-    bool isLive() const
-    {
-        for (unsigned i = 0; i < totalNumberOfBuckets; ++i) {
-            if (!!JSValue::decode(m_buckets[i]))
-                return true;
-        }
-        return false;
-    }
-    
     CString briefDescription(const ConcurrentJSLocker& locker)
     {
-        computeUpdatedPrediction(locker);
+        SpeculatedType prediction = computeUpdatedPrediction(locker);
         
         StringPrintStream out;
-        out.print("predicting ", SpeculationDump(m_prediction));
+        out.print("predicting ", SpeculationDump(prediction));
         return out.toCString();
     }
     
@@ -118,44 +121,48 @@ struct ValueProfileBase {
         }
     }
     
-    // Updates the prediction and returns the new one. Never call this from any thread
-    // that isn't executing the code.
     SpeculatedType computeUpdatedPrediction(const ConcurrentJSLocker&)
     {
+        SpeculatedType merged = SpecNone;
         for (unsigned i = 0; i < totalNumberOfBuckets; ++i) {
-            JSValue value = JSValue::decode(m_buckets[i]);
+            JSValue value = JSValue::decodeConcurrent(&m_buckets[i]);
             if (!value)
                 continue;
             
-            mergeSpeculation(m_prediction, speculationFromValue(value));
-            
-            m_buckets[i] = JSValue::encode(JSValue());
+            mergeSpeculation(merged, speculationFromValue(value));
+
+            updateEncodedJSValueConcurrent(m_buckets[i], JSValue::encode(JSValue()));
         }
+
+        mergeSpeculation(m_prediction, merged);
         
         return m_prediction;
     }
-    
+
+    void computeUpdatedPredictionForExtraValue(const ConcurrentJSLocker&, JSValue& value)
+    {
+        if (value)
+            mergeSpeculation(m_prediction, speculationFromValue(value));
+        value = JSValue();
+    }
+
     EncodedJSValue m_buckets[totalNumberOfBuckets];
 
     SpeculatedType m_prediction { SpecNone };
 };
 
-struct MinimalValueProfile : public ValueProfileBase<0> {
-    MinimalValueProfile(): ValueProfileBase<0>() { }
+struct MinimalValueProfile : public ValueProfileBase<0, 1> {
+    MinimalValueProfile(): ValueProfileBase<0, 1>() { }
 };
 
-template<unsigned logNumberOfBucketsArgument>
-struct ValueProfileWithLogNumberOfBuckets : public ValueProfileBase<1 << logNumberOfBucketsArgument> {
-    static constexpr unsigned logNumberOfBuckets = logNumberOfBucketsArgument;
-    
-    ValueProfileWithLogNumberOfBuckets()
-        : ValueProfileBase<1 << logNumberOfBucketsArgument>()
-    {
-    }
+struct ValueProfile : public ValueProfileBase<1, 0> {
+    ValueProfile() : ValueProfileBase<1, 0>() { }
+    static constexpr ptrdiff_t offsetOfFirstBucket() { return OBJECT_OFFSETOF(ValueProfile, m_buckets[0]); }
 };
 
-struct ValueProfile : public ValueProfileWithLogNumberOfBuckets<0> {
-    ValueProfile() : ValueProfileWithLogNumberOfBuckets<0>() { }
+struct ArgumentValueProfile : public ValueProfileBase<1, 1> {
+    ArgumentValueProfile() : ValueProfileBase<1, 1>() { }
+    static constexpr ptrdiff_t offsetOfFirstBucket() { return OBJECT_OFFSETOF(ValueProfile, m_buckets[0]); }
 };
 
 struct ValueProfileAndVirtualRegister : public ValueProfile {
@@ -187,10 +194,12 @@ public:
     }
 
     unsigned size() const { return m_size; }
-    ValueProfileAndVirtualRegister* data() const
+    ValueProfileAndVirtualRegister* data() const LIFETIME_BOUND
     {
-        return bitwise_cast<ValueProfileAndVirtualRegister*>(this + 1);
+        return std::bit_cast<ValueProfileAndVirtualRegister*>(this + 1);
     }
+
+    std::span<ValueProfileAndVirtualRegister> span() LIFETIME_BOUND { return { data(), size() }; }
 
 private:
 
@@ -213,4 +222,28 @@ private:
     unsigned m_size;
 };
 
+class UnlinkedValueProfile {
+public:
+    UnlinkedValueProfile() = default;
+
+    void update(ValueProfile& profile)
+    {
+        SpeculatedType newType = profile.m_prediction | m_prediction;
+        profile.m_prediction = newType;
+        m_prediction = newType;
+    }
+
+    void update(ArgumentValueProfile& profile)
+    {
+        SpeculatedType newType = profile.m_prediction | m_prediction;
+        profile.m_prediction = newType;
+        m_prediction = newType;
+    }
+
+private:
+    SpeculatedType m_prediction { SpecNone };
+};
+
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

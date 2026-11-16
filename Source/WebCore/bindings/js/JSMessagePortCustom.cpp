@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2008-2021 Apple Inc. All Rights Reserved.
- * Copyright (C) 2011 Google Inc. All Rights Reserved.
+ * Copyright (C) 2008-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2011 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,19 +26,19 @@
 
 #include "config.h"
 #include "JSMessagePort.h"
-
+#include "WebCoreOpaqueRootInlines.h"
 
 namespace WebCore {
 using namespace JSC;
 
 template<typename Visitor>
-void JSMessagePort::visitAdditionalChildren(Visitor& visitor)
+void JSMessagePort::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
     // If we have a locally entangled port, we can directly mark it as reachable. Ports that are remotely entangled are marked in-use by markActiveObjectsForContext().
-    if (MessagePort* port = wrapped().locallyEntangledPort())
-        visitor.addOpaqueRoot(port);
+    if (auto* port = wrapped().locallyEntangledPort())
+        addWebCoreOpaqueRoot(visitor, *port);
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSMessagePort);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSMessagePort);
 
 } // namespace WebCore

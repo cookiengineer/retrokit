@@ -28,38 +28,38 @@
 #if ENABLE(ENCRYPTED_MEDIA)
 
 #include "SandboxExtension.h"
-#include <WebCore/MediaCanStartListener.h>
 #include <WebCore/MediaKeySystemClient.h>
 #include <WebCore/MediaKeySystemRequest.h>
+#include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 #include <wtf/HashMap.h>
 #include <wtf/Ref.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakRef.h>
 
 namespace WebKit {
 
 class WebPage;
 
-class MediaKeySystemPermissionRequestManager : private WebCore::MediaCanStartListener {
-    WTF_MAKE_FAST_ALLOCATED;
+class MediaKeySystemPermissionRequestManager : public AbstractRefCountedAndCanMakeWeakPtr<MediaKeySystemPermissionRequestManager> {
+    WTF_MAKE_TZONE_ALLOCATED(MediaKeySystemPermissionRequestManager);
 public:
     explicit MediaKeySystemPermissionRequestManager(WebPage&);
-    ~MediaKeySystemPermissionRequestManager() = default;
+
+    void ref() const final;
+    void deref() const final;
 
     void startMediaKeySystemRequest(WebCore::MediaKeySystemRequest&);
     void cancelMediaKeySystemRequest(WebCore::MediaKeySystemRequest&);
-    void mediaKeySystemWasGranted(WebCore::MediaKeySystemRequestIdentifier, CompletionHandler<void()>&&);
+    void mediaKeySystemWasGranted(WebCore::MediaKeySystemRequestIdentifier, String&& mediaKeysHashSalt);
     void mediaKeySystemWasDenied(WebCore::MediaKeySystemRequestIdentifier, String&&);
 
 private:
     void sendMediaKeySystemRequest(WebCore::MediaKeySystemRequest&);
 
-    // WebCore::MediaCanStartListener
-    void mediaCanStart(WebCore::Document&) final;
-
-    WebPage& m_page;
+    WeakRef<WebPage> m_page;
 
     HashMap<WebCore::MediaKeySystemRequestIdentifier, Ref<WebCore::MediaKeySystemRequest>> m_ongoingMediaKeySystemRequests;
-    HashMap<RefPtr<WebCore::Document>, Vector<Ref<WebCore::MediaKeySystemRequest>>> m_pendingMediaKeySystemRequests;
 };
 
 } // namespace WebKit

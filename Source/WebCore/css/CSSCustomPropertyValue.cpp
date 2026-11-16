@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2016-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,72 +27,160 @@
 #include "config.h"
 #include "CSSCustomPropertyValue.h"
 
-#include "CSSTokenizer.h"
+#include "CSSSerializationContext.h"
+#include <wtf/NeverDestroyed.h>
 
 namespace WebCore {
 
 Ref<CSSCustomPropertyValue> CSSCustomPropertyValue::createEmpty(const AtomString& name)
 {
-    return adoptRef(*new CSSCustomPropertyValue(name, Monostate { }));
+    static NeverDestroyed<Ref<CSSVariableData>> empty { CSSVariableData::create({ }) };
+    return createSyntaxAll(name, protect(empty.get()));
+}
+
+Ref<CSSCustomPropertyValue> CSSCustomPropertyValue::createUnresolved(const AtomString& name, Ref<CSSSubstitutionValue>&& value)
+{
+    return adoptRef(*new CSSCustomPropertyValue(name, VariantValue { WTF::InPlaceType<Ref<CSSSubstitutionValue>>, WTF::move(value) }));
+}
+
+Ref<CSSCustomPropertyValue> CSSCustomPropertyValue::createSyntaxAll(const AtomString& name, Ref<CSSVariableData>&& value)
+{
+    return adoptRef(*new CSSCustomPropertyValue(name, VariantValue { WTF::InPlaceType<Ref<CSSVariableData>>, WTF::move(value) }));
+}
+
+Ref<CSSCustomPropertyValue> CSSCustomPropertyValue::createWithCSSWideKeyword(const AtomString& name, CSSWideKeyword keyword)
+{
+    return adoptRef(*new CSSCustomPropertyValue(name, VariantValue { keyword }));
+}
+
+bool CSSCustomPropertyValue::isVariableReference() const
+{
+    return std::holds_alternative<Ref<CSSSubstitutionValue>>(m_value);
+}
+
+bool CSSCustomPropertyValue::isVariableData() const
+{
+    return std::holds_alternative<Ref<CSSVariableData>>(m_value);
+}
+
+bool CSSCustomPropertyValue::isCSSWideKeyword() const
+{
+    return std::holds_alternative<CSSWideKeyword>(m_value);
+}
+
+std::optional<CSSWideKeyword> CSSCustomPropertyValue::tryCSSWideKeyword() const
+{
+    if (auto* keyword = std::get_if<CSSWideKeyword>(&m_value))
+        return *keyword;
+    return { };
 }
 
 bool CSSCustomPropertyValue::equals(const CSSCustomPropertyValue& other) const
 {
     if (m_name != other.m_name || m_value.index() != other.m_value.index())
         return false;
-    return WTF::switchOn(m_value, [&](const Monostate&) {
-        return true;
-    }, [&](const Ref<CSSVariableReferenceValue>& value) {
-        return value.get() == WTF::get<Ref<CSSVariableReferenceValue>>(other.m_value).get();
-    }, [&](const CSSValueID& value) {
-        return value == WTF::get<CSSValueID>(other.m_value);
-    }, [&](const Ref<CSSVariableData>& value) {
-        return value.get() == WTF::get<Ref<CSSVariableData>>(other.m_value).get();
-    }, [&](const Length& value) {
-        return value == WTF::get<Length>(other.m_value);
-    }, [&](const Ref<StyleImage>& value) {
-        return value.get() == WTF::get<Ref<StyleImage>>(other.m_value).get();
-    });
+
+    return WTF::switchOn(m_value,
+        [&](const Ref<CSSSubstitutionValue>& value) {
+            return arePointingToEqualData(value, std::get<Ref<CSSSubstitutionValue>>(other.m_value));
+        },
+        [&](const Ref<CSSVariableData>& value) {
+            return arePointingToEqualData(value, std::get<Ref<CSSVariableData>>(other.m_value));
+        },
+        [&](const CSSWideKeyword& keyword) {
+            return keyword == std::get<CSSWideKeyword>(other.m_value);
+        }
+    );
 }
 
-String CSSCustomPropertyValue::customCSSText() const
+String CSSCustomPropertyValue::customCSSText(const CSS::SerializationContext& context) const
 {
-    if (m_stringValue.isNull()) {
-        WTF::switchOn(m_value, [&](const Monostate&) {
-            m_stringValue = emptyString();
-        }, [&](const Ref<CSSVariableReferenceValue>& value) {
-            m_stringValue = value->cssText();
-        }, [&](const CSSValueID& value) {
-            m_stringValue = getValueName(value);
-        }, [&](const Ref<CSSVariableData>& value) {
-            m_stringValue = value->tokenRange().serialize();
-        }, [&](const Length& value) {
-            m_stringValue = CSSPrimitiveValue::create(value.value(), CSSUnitType::CSS_PX)->cssText();
-        }, [&](const Ref<StyleImage>& value) {
-            m_stringValue = value->cssValue()->cssText();
-        });
+    auto serialize = [&] {
+        return WTF::switchOn(m_value,
+            [&](const Ref<CSSSubstitutionValue>& value) {
+                return value->cssText(context);
+            },
+            [&](const Ref<CSSVariableData>& value) {
+                return value->serialize();
+            },
+            [&](const CSSWideKeyword& value) {
+                return nameStringForSerialization(toValueID(value)).string();
+            }
+        );
+    };
+
+    if (m_cachedCSSText.isNull())
+        m_cachedCSSText = serialize();
+
+    return m_cachedCSSText;
+}
+
+const Vector<CSSParserToken>& CSSCustomPropertyValue::tokens() const
+{
+    static NeverDestroyed<Vector<CSSParserToken>> emptyTokens;
+
+    return WTF::switchOn(m_value,
+        [&](const Ref<CSSSubstitutionValue>& value) -> const Vector<CSSParserToken>& {
+            return value->data().tokens();
+        },
+        [&](const Ref<CSSVariableData>& value) -> const Vector<CSSParserToken>& {
+            return value->tokens();
+        },
+        [&](const CSSWideKeyword&) -> const Vector<CSSParserToken>& {
+            // Do nothing.
+            return emptyTokens;
+        }
+    );
+}
+
+Ref<const CSSVariableData> CSSCustomPropertyValue::asVariableData() const
+{
+    return WTF::switchOn(m_value,
+        [&](const Ref<CSSSubstitutionValue>& value) -> Ref<const CSSVariableData> {
+            return value->data();
+        },
+        [&](const Ref<CSSVariableData>& value) -> Ref<const CSSVariableData> {
+            return value.get();
+        },
+        [&](const CSSWideKeyword&) -> Ref<const CSSVariableData> {
+            return CSSVariableData::create(tokens());
+        }
+    );
+}
+
+bool CSSCustomPropertyValue::isCurrentColor() const
+{
+    // FIXME: Registered properties?
+    auto tokenRange = switchOn(m_value,
+        [&](const Ref<CSSSubstitutionValue>& substitutionValue) {
+            return substitutionValue->data().tokenRange();
+        },
+        [&](const Ref<CSSVariableData>& data) {
+            return data->tokenRange();
+        },
+        [&](const CSSWideKeyword&) {
+            return CSSParserTokenRange { };
+        }
+    );
+
+    if (tokenRange.atEnd())
+        return false;
+
+    auto token = tokenRange.consumeIncludingWhitespace();
+    if (!tokenRange.atEnd())
+        return false;
+
+    // FIXME: This should probably check all tokens.
+    return token.id() == CSSValueCurrentcolor;
+}
+
+IterationStatus CSSCustomPropertyValue::customVisitChildren(NOESCAPE const Function<IterationStatus(CSSValue&)>& func) const
+{
+    if (auto* value = std::get_if<Ref<CSSSubstitutionValue>>(&m_value)) {
+        if (func(*value) == IterationStatus::Done)
+            return IterationStatus::Done;
     }
-    return m_stringValue;
+    return IterationStatus::Continue;
 }
 
-Vector<CSSParserToken> CSSCustomPropertyValue::tokens() const
-{
-    Vector<CSSParserToken> result;
-    WTF::switchOn(m_value, [&](const Monostate&) {
-        // Do nothing.
-    }, [&](const Ref<CSSVariableReferenceValue>&) {
-        ASSERT_NOT_REACHED();
-    }, [&](const CSSValueID&) {
-        // Do nothing.
-    }, [&](const Ref<CSSVariableData>& value) {
-        result.appendVector(value->tokens());
-    }, [&](auto&) {
-        CSSTokenizer tokenizer(customCSSText());
-        auto tokenizerRange = tokenizer.tokenRange();
-        while (!tokenizerRange.atEnd())
-            result.append(tokenizerRange.consume());
-    });
-    return result;
-}
-
-}
+} // namespace WebCore

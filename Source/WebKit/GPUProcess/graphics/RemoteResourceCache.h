@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc.  All rights reserved.
+ * Copyright (C) 2020-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,62 +27,72 @@
 
 #if ENABLE(GPU_PROCESS)
 
-#include <WebCore/Font.h>
-#include <WebCore/ImageBuffer.h>
-#include <WebCore/NativeImage.h>
+#include "RemoteDisplayListIdentifier.h"
+#include "RemoteGradientIdentifier.h"
+#include "RemotePathImplIdentifier.h"
+#include <WebCore/DisplayList.h>
 #include <WebCore/RenderingResourceIdentifier.h>
 #include <wtf/HashMap.h>
+#include <wtf/RefPtr.h>
+
+namespace WebCore {
+
+class Filter;
+class Font;
+class Gradient;
+class ImageBuffer;
+class NativeImage;
+struct FontCustomPlatformData;
+
+}
 
 namespace WebKit {
 
-class RemoteRenderingBackend;
-
 class RemoteResourceCache {
 public:
-    RemoteResourceCache() = default;
+    RemoteResourceCache();
+    ~RemoteResourceCache();
 
-    void cacheImageBuffer(Ref<WebCore::ImageBuffer>&&);
-    WebCore::ImageBuffer* cachedImageBuffer(WebCore::RenderingResourceIdentifier);
-    void cacheNativeImage(Ref<WebCore::NativeImage>&&);
-    void cacheFont(Ref<WebCore::Font>&&);
-    void deleteAllFonts();
-    bool releaseRemoteResource(WebCore::RenderingResourceIdentifier, uint64_t useCount);
-    void recordResourceUse(WebCore::RenderingResourceIdentifier);
+    bool cacheNativeImage(WebCore::RenderingResourceIdentifier, Ref<WebCore::NativeImage>&&);
+    bool releaseNativeImage(WebCore::RenderingResourceIdentifier);
+    RefPtr<WebCore::NativeImage> cachedNativeImage(WebCore::RenderingResourceIdentifier) const;
 
-    const WebCore::ImageBufferHashMap& imageBuffers() const { return m_imageBuffers; }
-    const WebCore::NativeImageHashMap& nativeImages() const { return m_nativeImages; }
-    const WebCore::FontRenderingResourceMap& fonts() const { return m_fonts; }
+    bool cachePathImpl(RemotePathImplIdentifier, Ref<WebCore::PathImpl>&&);
+    bool releasePathImpl(RemotePathImplIdentifier);
+    RefPtr<WebCore::PathImpl> cachedPathImpl(RemotePathImplIdentifier) const;
+
+    bool cacheGradient(RemoteGradientIdentifier, Ref<WebCore::Gradient>&&);
+    bool releaseGradient(RemoteGradientIdentifier);
+    RefPtr<WebCore::Gradient> cachedGradient(RemoteGradientIdentifier) const;
+
+    bool cacheFilter(Ref<WebCore::Filter>&&);
+    bool releaseFilter(WebCore::RenderingResourceIdentifier);
+    RefPtr<WebCore::Filter> cachedFilter(WebCore::RenderingResourceIdentifier) const;
+
+    bool cacheFont(Ref<WebCore::Font>&&);
+    bool releaseFont(WebCore::RenderingResourceIdentifier);
+    RefPtr<WebCore::Font> cachedFont(WebCore::RenderingResourceIdentifier) const;
+
+    bool cacheFontCustomPlatformData(Ref<WebCore::FontCustomPlatformData>&&);
+    bool releaseFontCustomPlatformData(WebCore::RenderingResourceIdentifier);
+    RefPtr<WebCore::FontCustomPlatformData> cachedFontCustomPlatformData(WebCore::RenderingResourceIdentifier) const;
+
+    bool cacheDisplayList(RemoteDisplayListIdentifier, Ref<const WebCore::DisplayList::DisplayList>);
+    RefPtr<const WebCore::DisplayList::DisplayList> cachedDisplayList(RemoteDisplayListIdentifier) const;
+    bool releaseDisplayList(RemoteDisplayListIdentifier);
+
+    void releaseAllResources();
+    void releaseMemory();
 
 private:
-    // Because the cache/release messages are sent asynchronously from the display list items which
-    // reference the resources, it's totally possible that we see a release message before we've
-    // executed all the display list items which reference the resource. The web process tells us
-    // how many display list items will reference this resource, and we defer deletion of the resource
-    // until we execute that many display list items. It's actually a bit worse than this, though,
-    // because we may actually see a *new* cache message during the time when deletion is deferred.
-    //
-    // We can only safely delete a resource when:
-    // 1. All the cache messages have an accompanying release message, and
-    // 2. We've processed as many display list items that reference a particular resource as the web
-    // process has encoded.
-    enum class ResourceState {
-        Alive,
-        ToBeDeleted
-    };
-    struct ResourceUseCounter {
-        ResourceState state { ResourceState::Alive };
-        int64_t useOrPendingCount { 0 };
-    };
-    using ResourceUseCountersMap = HashMap<WebCore::RenderingResourceIdentifier, ResourceUseCounter>;
-
-    bool maybeRemoveResource(WebCore::RenderingResourceIdentifier, ResourceUseCountersMap::iterator&);
-    void ensureResourceUseCounter(WebCore::RenderingResourceIdentifier);
-
-    WebCore::ImageBufferHashMap m_imageBuffers;
-    WebCore::NativeImageHashMap m_nativeImages;
-    WebCore::FontRenderingResourceMap m_fonts;
-
-    ResourceUseCountersMap m_resourceUseCounters;
+    HashMap<WebCore::RenderingResourceIdentifier, Ref<WebCore::ImageBuffer>> m_imageBuffers;
+    HashMap<WebCore::RenderingResourceIdentifier, Ref<WebCore::NativeImage>> m_nativeImages;
+    HashMap<RemoteGradientIdentifier, Ref<WebCore::Gradient>> m_gradients;
+    HashMap<WebCore::RenderingResourceIdentifier, Ref<WebCore::Filter>> m_filters;
+    HashMap<WebCore::RenderingResourceIdentifier, Ref<WebCore::Font>> m_fonts;
+    HashMap<WebCore::RenderingResourceIdentifier, Ref<WebCore::FontCustomPlatformData>> m_fontCustomPlatformDatas;
+    HashMap<RemotePathImplIdentifier, Ref<WebCore::PathImpl>> m_paths;
+    HashMap<RemoteDisplayListIdentifier, Ref<const WebCore::DisplayList::DisplayList>> m_displayLists;
 };
 
 } // namespace WebKit

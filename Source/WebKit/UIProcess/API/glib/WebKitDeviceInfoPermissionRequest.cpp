@@ -27,17 +27,22 @@
 #include <glib/gi18n-lib.h>
 #include <wtf/glib/WTFGType.h>
 
+#if !ENABLE(2022_GLIB_API)
+typedef WebKitPermissionRequestIface WebKitPermissionRequestInterface;
+#endif
+
 using namespace WebKit;
 
 /**
- * SECTION: WebKitDeviceInfoPermissionRequest
- * @Short_description: A permission request for accessing user's audio/video devices.
- * @Title: WebKitDeviceInfoPermissionRequest
+ * WebKitDeviceInfoPermissionRequest:
  * @See_also: #WebKitPermissionRequest, #WebKitWebView
  *
- * WebKitUserMediaPermissionRequest represents a request for
- * permission to whether WebKit should be allowed to access the user's
- * devices information when requested through the enumeraceDevices API.
+ * A permission request for enumerating the user's media devices
+ *
+ * WebKitDeviceInfoPermissionRequest represents a request for
+ * permission to decide whether WebKit should be allowed to access the user's
+ * device information when requested through the MediaDevices.enumerateDevices
+ * API.
  *
  * When a WebKitDeviceInfoPermissionRequest is not handled by the user,
  * it is denied by default.
@@ -45,7 +50,7 @@ using namespace WebKit;
  * Since: 2.24
  */
 
-static void webkit_permission_request_interface_init(WebKitPermissionRequestIface*);
+static void webkit_permission_request_interface_init(WebKitPermissionRequestInterface*);
 
 struct _WebKitDeviceInfoPermissionRequestPrivate {
     RefPtr<UserMediaPermissionCheckProxy> request;
@@ -53,8 +58,8 @@ struct _WebKitDeviceInfoPermissionRequestPrivate {
     bool madeDecision;
 };
 
-WEBKIT_DEFINE_TYPE_WITH_CODE(
-    WebKitDeviceInfoPermissionRequest, webkit_device_info_permission_request, G_TYPE_OBJECT,
+WEBKIT_DEFINE_FINAL_TYPE_WITH_CODE(
+    WebKitDeviceInfoPermissionRequest, webkit_device_info_permission_request, G_TYPE_OBJECT, GObject,
     G_IMPLEMENT_INTERFACE(WEBKIT_TYPE_PERMISSION_REQUEST, webkit_permission_request_interface_init))
 
 static void webkitDeviceInfoPermissionRequestAllow(WebKitPermissionRequest* request)
@@ -95,7 +100,7 @@ static void webkitDeviceInfoPermissionRequestDeny(WebKitPermissionRequest* reque
     priv->request->setUserMediaAccessInfo(false);
 }
 
-static void webkit_permission_request_interface_init(WebKitPermissionRequestIface* iface)
+static void webkit_permission_request_interface_init(WebKitPermissionRequestInterface* iface)
 {
     iface->allow = webkitDeviceInfoPermissionRequestAllow;
     iface->deny = webkitDeviceInfoPermissionRequestDeny;

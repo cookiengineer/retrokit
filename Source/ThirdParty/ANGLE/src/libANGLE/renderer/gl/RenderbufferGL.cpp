@@ -19,7 +19,7 @@
 #include "libANGLE/renderer/gl/StateManagerGL.h"
 #include "libANGLE/renderer/gl/formatutilsgl.h"
 #include "libANGLE/renderer/gl/renderergl_utils.h"
-#include "platform/FeaturesGL.h"
+#include "platform/autogen/FeaturesGL_autogen.h"
 
 namespace rx
 {
@@ -48,6 +48,11 @@ angle::Result RenderbufferGL::setStorage(const gl::Context *context,
     StateManagerGL *stateManager      = GetStateManagerGL(context);
     const angle::FeaturesGL &features = GetFeaturesGL(context);
 
+    if (features.reattachFboDepthStencilOnReallocation.enabled)
+    {
+        onStateChange(angle::SubjectMessage::ObjectReallocated);
+    }
+
     stateManager->bindRenderbuffer(GL_RENDERBUFFER, mRenderbufferID);
 
     nativegl::RenderbufferFormat renderbufferFormat =
@@ -68,21 +73,45 @@ angle::Result RenderbufferGL::setStorageMultisample(const gl::Context *context,
                                                     GLsizei height,
                                                     gl::MultisamplingMode mode)
 {
-    // Note: GL_EXT_multisampled_render_to_texture is not supported in the GL backend.
-    // http://anglebug.com/2894
-    ASSERT(mode == gl::MultisamplingMode::Regular);
-
     const FunctionsGL *functions      = GetFunctionsGL(context);
     StateManagerGL *stateManager      = GetStateManagerGL(context);
     const angle::FeaturesGL &features = GetFeaturesGL(context);
+
+    if (features.reattachFboDepthStencilOnReallocation.enabled)
+    {
+        onStateChange(angle::SubjectMessage::ObjectReallocated);
+    }
 
     stateManager->bindRenderbuffer(GL_RENDERBUFFER, mRenderbufferID);
 
     nativegl::RenderbufferFormat renderbufferFormat =
         nativegl::GetRenderbufferFormat(functions, features, internalformat);
-    ANGLE_GL_TRY_ALWAYS_CHECK(
-        context, functions->renderbufferStorageMultisample(
-                     GL_RENDERBUFFER, samples, renderbufferFormat.internalFormat, width, height));
+    if (mode == gl::MultisamplingMode::Regular)
+    {
+        ANGLE_GL_TRY_ALWAYS_CHECK(context, functions->renderbufferStorageMultisample(
+                                               GL_RENDERBUFFER, samples,
+                                               renderbufferFormat.internalFormat, width, height));
+    }
+    else
+    {
+        ASSERT(mode == gl::MultisamplingMode::MultisampledRenderToTexture);
+
+        if (functions->renderbufferStorageMultisampleEXT)
+        {
+            ANGLE_GL_TRY_ALWAYS_CHECK(
+                context,
+                functions->renderbufferStorageMultisampleEXT(
+                    GL_RENDERBUFFER, samples, renderbufferFormat.internalFormat, width, height));
+        }
+        else
+        {
+            ASSERT(functions->renderbufferStorageMultisampleIMG);
+            ANGLE_GL_TRY_ALWAYS_CHECK(
+                context,
+                functions->renderbufferStorageMultisampleIMG(
+                    GL_RENDERBUFFER, samples, renderbufferFormat.internalFormat, width, height));
+        }
+    }
 
     mNativeInternalFormat = renderbufferFormat.internalFormat;
 
@@ -102,6 +131,7 @@ GLuint RenderbufferGL::getRenderbufferID() const
 }
 
 angle::Result RenderbufferGL::initializeContents(const gl::Context *context,
+                                                 GLenum binding,
                                                  const gl::ImageIndex &imageIndex)
 {
     BlitGL *blitter = GetBlitGL(context);

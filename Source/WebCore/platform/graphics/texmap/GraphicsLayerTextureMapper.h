@@ -23,8 +23,10 @@
 
 #include "GraphicsLayer.h"
 #include "GraphicsLayerClient.h"
+#include "GraphicsLayerContentsDisplayDelegate.h"
 #include "Image.h"
 #include "NativeImage.h"
+#include "TextureMapperAnimation.h"
 #include "TextureMapperLayer.h"
 #include "TextureMapperPlatformLayer.h"
 #include "TextureMapperTiledBackingStore.h"
@@ -35,8 +37,6 @@ class GraphicsLayerTextureMapper final : public GraphicsLayer, TextureMapperPlat
 public:
     explicit GraphicsLayerTextureMapper(Type, GraphicsLayerClient&);
     virtual ~GraphicsLayerTextureMapper();
-
-    void setID(uint32_t id) { m_layer.setID(id); }
 
     // GraphicsLayer
     bool setChildren(Vector<Ref<GraphicsLayer>>&&) override;
@@ -59,24 +59,27 @@ public:
     void setContentsVisible(bool) override;
     void setContentsOpaque(bool) override;
     void setBackfaceVisibility(bool) override;
+    void setBackgroundColor(const Color&) override;
     void setOpacity(float) override;
     bool setFilters(const FilterOperations&) override;
     bool setBackdropFilters(const FilterOperations&) override;
     void setBackdropFiltersRect(const FloatRoundedRect&) override;
 
     void setNeedsDisplay() override;
-    void setNeedsDisplayInRect(const FloatRect&, ShouldClipToLayer = ClipToLayer) override;
+    void setNeedsDisplayInRect(const FloatRect&, ShouldClipToLayer = ShouldClipToLayer::Clip) override;
     void setContentsNeedsDisplay() override;
     void setContentsRect(const FloatRect&) override;
     void setContentsClippingRect(const FloatRoundedRect&) override;
+    void setContentsRectClipsDescendants(bool) override;
 
-    bool addAnimation(const KeyframeValueList&, const FloatSize&, const Animation*, const String&, double) override;
+    bool addAnimation(const GraphicsLayerKeyframeValueList&, const GraphicsLayerAnimation*, const String&, double) override;
     void pauseAnimation(const String&, double) override;
-    void removeAnimation(const String&) override;
+    void removeAnimation(const String&, std::optional<AnimatedProperty>) override;
 
     void setContentsToImage(Image*) override;
     void setContentsToSolidColor(const Color&) override;
     void setContentsToPlatformLayer(PlatformLayer*, ContentsLayerPurpose) override;
+    void setContentsDisplayDelegate(RefPtr<GraphicsLayerContentsDisplayDelegate>&&, ContentsLayerPurpose) override;
     bool usesContentsLayer() const override { return m_contentsLayer; }
     PlatformLayer* platformLayer() const override { return m_contentsLayer; }
 
@@ -87,7 +90,7 @@ public:
     void flushCompositingState(const FloatRect&) override;
     void flushCompositingStateForThisLayerOnly() override;
 
-    void updateBackingStoreIncludingSubLayers(TextureMapper&);
+    WEBCORE_EXPORT void updateBackingStoreIncludingSubLayers(TextureMapper&);
 
     TextureMapperLayer& layer() { return m_layer; }
 
@@ -149,6 +152,7 @@ private:
 
         AnimationStarted =          (1L << 26),
         BackdropLayerChange =       (1L << 27),
+        SolidColorChange =          (1L << 28),
     };
     void notifyChange(ChangeMask);
 
@@ -167,7 +171,7 @@ private:
 
     TextureMapperPlatformLayer* m_contentsLayer;
     FloatRect m_needsDisplayRect;
-    Nicosia::Animations m_animations;
+    TextureMapperAnimations m_animations;
     MonotonicTime m_animationStartTime;
 };
 

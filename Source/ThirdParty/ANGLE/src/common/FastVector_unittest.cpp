@@ -7,7 +7,10 @@
 //   Tests of the FastVector class
 //
 
+#include <array>
+
 #include <gtest/gtest.h>
+#include "common/unsafe_buffers.h"
 
 #include "common/FastVector.h"
 
@@ -19,32 +22,55 @@ TEST(FastVector, Constructors)
     FastVector<int, 5> defaultContructor;
     EXPECT_EQ(0u, defaultContructor.size());
 
-    FastVector<int, 5> count(3);
-    EXPECT_EQ(3u, count.size());
+    // Try varying initial vector sizes to test purely stack-allocated and
+    // heap-allocated vectors, and ensure they copy correctly.
+    static constexpr std::array<size_t, 4> vectorSizes = {5, 3, 16, 32};
 
-    FastVector<int, 5> countAndValue(3, 2);
-    EXPECT_EQ(3u, countAndValue.size());
-    EXPECT_EQ(2, countAndValue[1]);
+    for (size_t vectorSize : vectorSizes)
+    {
+        FastVector<int, 5> count(vectorSize);
+        EXPECT_EQ(vectorSize, count.size());
 
-    FastVector<int, 5> copy(countAndValue);
-    EXPECT_EQ(copy, countAndValue);
+        FastVector<int, 5> countAndValue(vectorSize, 2);
+        EXPECT_EQ(vectorSize, countAndValue.size());
+        EXPECT_EQ(2, countAndValue[1]);
 
-    FastVector<int, 5> copyRValue(std::move(count));
-    EXPECT_EQ(3u, copyRValue.size());
+        FastVector<int, 5> copy(countAndValue);
+        EXPECT_EQ(copy, countAndValue);
+
+        FastVector<int, 5> copyRValue(std::move(count));
+        EXPECT_EQ(vectorSize, copyRValue.size());
+
+        FastVector<int, 5> copyIter(countAndValue.begin(), countAndValue.end());
+        EXPECT_EQ(copyIter, countAndValue);
+
+        FastVector<int, 5> copyIterEmpty(countAndValue.begin(), countAndValue.begin());
+        EXPECT_TRUE(copyIterEmpty.empty());
+
+        FastVector<int, 5> assignCopy(copyRValue);
+        EXPECT_EQ(vectorSize, assignCopy.size());
+
+        FastVector<int, 5> assignRValue(std::move(assignCopy));
+        EXPECT_EQ(vectorSize, assignRValue.size());
+    }
 
     FastVector<int, 5> initializerList{1, 2, 3, 4, 5};
     EXPECT_EQ(5u, initializerList.size());
     EXPECT_EQ(3, initializerList[2]);
 
-    FastVector<int, 5> assignCopy(copyRValue);
-    EXPECT_EQ(3u, assignCopy.size());
-
-    FastVector<int, 5> assignRValue(std::move(assignCopy));
-    EXPECT_EQ(3u, assignRValue.size());
+    // Larger than stack-allocated vector size
+    FastVector<int, 5> initializerListHeap{1, 2, 3, 4, 5, 6, 7, 8};
+    EXPECT_EQ(8u, initializerListHeap.size());
+    EXPECT_EQ(3, initializerListHeap[2]);
 
     FastVector<int, 5> assignmentInitializerList = {1, 2, 3, 4, 5};
     EXPECT_EQ(5u, assignmentInitializerList.size());
     EXPECT_EQ(3, assignmentInitializerList[2]);
+
+    // Larger than stack-allocated vector size
+    FastVector<int, 5> assignmentInitializerListLarge = {1, 2, 3, 4, 5, 6, 7, 8};
+    EXPECT_EQ(8u, assignmentInitializerListLarge.size());
+    EXPECT_EQ(3, assignmentInitializerListLarge[2]);
 }
 
 // Test indexing operations (at, operator[])
@@ -185,6 +211,27 @@ TEST(FastVector, Resize)
     EXPECT_EQ(2u, vec.size());
 }
 
+// Test resetWithRawData on the vector
+TEST(FastVector, resetWithRawData)
+{
+    FastVector<int, 5> vec;
+    std::array<int, 9> data = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+
+    vec.resetWithRawData(9, reinterpret_cast<uint8_t *>(&data[0]));
+    EXPECT_EQ(9u, vec.size());
+    for (size_t i = 0; i < vec.size(); i++)
+    {
+        EXPECT_EQ(vec[i], data[i]);
+    }
+
+    vec.resetWithRawData(4, reinterpret_cast<uint8_t *>(&data[0]));
+    EXPECT_EQ(4u, vec.size());
+    for (size_t i = 0; i < vec.size(); i++)
+    {
+        EXPECT_EQ(vec[i], data[i]);
+    }
+}
+
 // Test iterating over the vector
 TEST(FastVector, Iteration)
 {
@@ -234,10 +281,10 @@ TEST(FastVector, NonCopyable)
     EXPECT_EQ(3, copy[0].x);
 }
 
-// Basic functionality for FastUnorderedMap
-TEST(FastUnorderedMap, BasicUsage)
+// Basic functionality for FlatUnorderedMap
+TEST(FlatUnorderedMap, BasicUsage)
 {
-    FastUnorderedMap<int, bool, 3> testMap;
+    FlatUnorderedMap<int, bool, 3> testMap;
     EXPECT_TRUE(testMap.empty());
     EXPECT_EQ(testMap.size(), 0u);
 
@@ -271,10 +318,10 @@ TEST(FastUnorderedMap, BasicUsage)
     }
 }
 
-// Basic functionality for FastUnorderedSet
-TEST(FastUnorderedSet, BasicUsage)
+// Basic functionality for FlatUnorderedSet
+TEST(FlatUnorderedSet, BasicUsage)
 {
-    FastUnorderedSet<int, 3> testMap;
+    FlatUnorderedSet<int, 3> testMap;
     EXPECT_TRUE(testMap.empty());
 
     testMap.insert(5);
@@ -296,70 +343,52 @@ TEST(FastUnorderedSet, BasicUsage)
     }
 }
 
-// Basic functionality for FastIntegerSet
-TEST(FastIntegerSet, BasicUsage)
+// Comparison of FlatUnorderedSet
+TEST(FlatUnorderedSet, Comparison)
 {
-    FastIntegerSet testMap;
-    EXPECT_TRUE(testMap.empty());
+    FlatUnorderedSet<int, 3> testSet0;
+    FlatUnorderedSet<int, 3> testSet1;
+    EXPECT_TRUE(testSet0.empty());
+    EXPECT_TRUE(testSet1.empty());
 
-    testMap.insert(5);
-    EXPECT_TRUE(testMap.contains(5));
-    EXPECT_FALSE(testMap.contains(6));
-    EXPECT_FALSE(testMap.empty());
+    testSet0.insert(5);
+    EXPECT_FALSE(testSet0 == testSet1);
 
-    testMap.clear();
-    EXPECT_TRUE(testMap.empty());
+    testSet0.insert(10);
+    EXPECT_FALSE(testSet0 == testSet1);
 
-    for (int i = 0; i < 10; ++i)
-    {
-        testMap.insert(i);
-    }
+    testSet1.insert(5);
+    EXPECT_FALSE(testSet0 == testSet1);
 
-    for (int i = 0; i < 10; ++i)
-    {
-        EXPECT_TRUE(testMap.contains(i));
-    }
+    testSet1.insert(15);
+    EXPECT_FALSE(testSet0 == testSet1);
+
+    testSet1.clear();
+    testSet1.insert(5);
+    testSet1.insert(10);
+    EXPECT_TRUE(testSet0 == testSet1);
 }
 
-// Basic functionality for FastIntegerMap
-TEST(FastIntegerMap, BasicUsage)
+// Basic usage tests of fast map.
+TEST(FastMap, Basic)
 {
-    using KeyValuePair             = std::pair<int, std::string>;
-    std::set<KeyValuePair> entries = {KeyValuePair(17, "testing"), KeyValuePair(63, "fast"),
-                                      KeyValuePair(97, "integer"), KeyValuePair(256, "map")};
-
-    FastIntegerMap<std::string> testMap;
+    FastMap<int, 5> testMap;
     EXPECT_TRUE(testMap.empty());
 
-    std::string str;
-    testMap.insert(entries.begin()->first, entries.begin()->second);
-    EXPECT_TRUE(testMap.contains(entries.begin()->first));
-    EXPECT_FALSE(testMap.contains(entries.rbegin()->first));
+    testMap[5] = 5;
     EXPECT_FALSE(testMap.empty());
-    EXPECT_EQ(testMap.size(), 1u);
-    EXPECT_TRUE(testMap.get(entries.begin()->first, &str));
-    EXPECT_EQ(entries.begin()->second, str);
-    EXPECT_FALSE(testMap.get(1, &str));
 
     testMap.clear();
     EXPECT_TRUE(testMap.empty());
-    EXPECT_EQ(testMap.size(), 0u);
 
-    for (KeyValuePair entry : entries)
+    for (int i = 0; i < 10; ++i)
     {
-        testMap.insert(entry.first, entry.second);
-    }
-    EXPECT_EQ(testMap.size(), 4u);
-
-    for (KeyValuePair entry : entries)
-    {
-        std::string str;
-        EXPECT_TRUE(testMap.get(entry.first, &str));
-        EXPECT_EQ(entry.second, str);
+        testMap[i] = i;
     }
 
-    testMap.clear();
-    EXPECT_TRUE(testMap.empty());
-    EXPECT_EQ(testMap.size(), 0u);
+    for (int i = 0; i < 10; ++i)
+    {
+        EXPECT_TRUE(testMap[i] == i);
+    }
 }
 }  // namespace angle

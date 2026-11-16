@@ -25,15 +25,21 @@
 
 #pragma once
 
-#include <wtf/EnumTraits.h>
 #include <wtf/HashMap.h>
-#include <wtf/glib/GUniquePtr.h>
+#include <wtf/Vector.h>
 #include <wtf/text/CString.h>
 
 namespace WebCore {
 
+enum class SoupNetworkProxySettingsMode : uint8_t {
+    Default,
+    NoProxy,
+    Custom,
+    Auto
+};
+
 struct SoupNetworkProxySettings {
-    enum class Mode { Default, NoProxy, Custom };
+    using Mode = SoupNetworkProxySettingsMode;
 
     SoupNetworkProxySettings() = default;
 
@@ -42,42 +48,32 @@ struct SoupNetworkProxySettings {
     {
     }
 
-    SoupNetworkProxySettings(const WebCore::SoupNetworkProxySettings& other)
-        : mode(other.mode)
-        , defaultProxyURL(other.defaultProxyURL)
-        , ignoreHosts(g_strdupv(other.ignoreHosts.get()))
-        , proxyMap(other.proxyMap)
+    SoupNetworkProxySettings(Mode proxyMode, CString&& defaultURL, Vector<CString>&& hosts, HashMap<CString, CString>&& map)
+        : mode(proxyMode)
+        , defaultProxyURL(WTF::move(defaultURL))
+        , ignoreHosts(WTF::move(hosts))
+        , proxyMap(WTF::move(map))
     {
     }
 
-    SoupNetworkProxySettings& operator=(const WebCore::SoupNetworkProxySettings& other)
+    bool isEmpty() const
     {
-        mode = other.mode;
-        defaultProxyURL = other.defaultProxyURL;
-        ignoreHosts.reset(g_strdupv(other.ignoreHosts.get()));
-        proxyMap = other.proxyMap;
-        return *this;
+        switch (mode) {
+        case Mode::Default:
+        case Mode::NoProxy:
+            return false;
+        case Mode::Custom:
+            return defaultProxyURL.isNull() && ignoreHosts.isEmpty() && proxyMap.isEmpty();
+        case Mode::Auto:
+            return defaultProxyURL.isNull();
+        }
+        RELEASE_ASSERT_NOT_REACHED();
     }
-
-    bool isEmpty() const { return mode == Mode::Custom && defaultProxyURL.isNull() && !ignoreHosts && proxyMap.isEmpty(); }
 
     Mode mode { Mode::Default };
     CString defaultProxyURL;
-    GUniquePtr<char*> ignoreHosts;
+    Vector<CString> ignoreHosts;
     HashMap<CString, CString> proxyMap;
 };
 
 } // namespace WebCore
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::SoupNetworkProxySettings::Mode> {
-    using values = EnumValues<
-        WebCore::SoupNetworkProxySettings::Mode,
-        WebCore::SoupNetworkProxySettings::Mode::Default,
-        WebCore::SoupNetworkProxySettings::Mode::NoProxy,
-        WebCore::SoupNetworkProxySettings::Mode::Custom
-    >;
-};
-
-} // namespace WTF

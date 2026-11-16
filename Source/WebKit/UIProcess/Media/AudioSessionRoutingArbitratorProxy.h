@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,6 +29,8 @@
 
 #include "MessageReceiver.h"
 #include <WebCore/AudioSession.h>
+#include <wtf/CheckedRef.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WallTime.h>
 #include <wtf/WeakPtr.h>
 
@@ -39,12 +41,13 @@
 namespace WebKit {
 
 class WebProcessProxy;
+struct SharedPreferencesForWebProcess;
 
 class AudioSessionRoutingArbitratorProxy
     : public IPC::MessageReceiver {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(AudioSessionRoutingArbitratorProxy);
 public:
-    AudioSessionRoutingArbitratorProxy(WebProcessProxy&);
+    explicit AudioSessionRoutingArbitratorProxy(WebProcessProxy&);
     virtual ~AudioSessionRoutingArbitratorProxy();
 
     void processDidTerminate();
@@ -64,6 +67,16 @@ public:
 
     ArbitrationStatus arbitrationStatus() const { return m_arbitrationStatus; }
     WallTime arbitrationUpdateTime() const { return m_arbitrationUpdateTime; }
+    std::optional<SharedPreferencesForWebProcess> NODELETE sharedPreferencesForWebProcess() const;
+
+    void ref() const final;
+    void deref() const final;
+
+protected:
+    Logger& logger();
+    uint64_t logIdentifier() const { return m_logIdentifier; }
+    ASCIILiteral logClassName() const { return "AudioSessionRoutingArbitrator"_s; }
+    WTFLogChannel& NODELETE logChannel() const;
 
 private:
     // IPC::MessageReceiver
@@ -73,13 +86,14 @@ private:
     void beginRoutingArbitrationWithCategory(WebCore::AudioSession::CategoryType, ArbitrationCallback&&);
     void endRoutingArbitration();
 
-    WebProcessProxy& m_process;
+    WeakRef<WebProcessProxy> m_process;
     WebCore::AudioSession::CategoryType m_category { WebCore::AudioSession::CategoryType::None };
     ArbitrationStatus m_arbitrationStatus { ArbitrationStatus::None };
     WallTime m_arbitrationUpdateTime;
+    uint64_t m_logIdentifier { 0 };
 
 #if HAVE(AVAUDIO_ROUTING_ARBITER)
-    UniqueRef<WebCore::SharedRoutingArbitrator::Token> m_token;
+    const UniqueRef<WebCore::SharedRoutingArbitratorToken> m_token;
 #endif
 };
 

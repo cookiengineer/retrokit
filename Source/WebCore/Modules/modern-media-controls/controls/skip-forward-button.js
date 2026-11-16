@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,9 +30,10 @@ class SkipForwardButton extends Button
     {
         super({
             cssClassName: "skip-forward",
-            iconName: Icons.SkipForward,
             layoutDelegate
         });
+
+        this.iconName = Icons["SkipForward" + this.layoutTraits.skipDuration()];
     }
 
 }

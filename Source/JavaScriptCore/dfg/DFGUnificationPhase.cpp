@@ -37,7 +37,7 @@ namespace JSC { namespace DFG {
 class UnificationPhase : public Phase {
 public:
     UnificationPhase(Graph& graph)
-        : Phase(graph, "unification")
+        : Phase(graph, "unification"_s)
     {
     }
     
@@ -75,6 +75,7 @@ public:
             data->find()->mergeShouldNeverUnbox(data->shouldNeverUnbox());
             data->find()->mergeIsLoadedFrom(data->isLoadedFrom());
             data->find()->mergeIsProfitableToUnbox(data->isProfitableToUnbox());
+            data->find()->mergeFlags(data->flags());
         }
         
         m_graph.m_unificationState = GloballyUnified;

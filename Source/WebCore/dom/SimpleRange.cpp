@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,8 +27,9 @@
 #include "SimpleRange.h"
 
 #include "CharacterData.h"
-#include "Frame.h"
+#include "BoundaryPointInlines.h"
 #include "HTMLFrameOwnerElement.h"
+#include "LocalFrame.h"
 #include "NodeTraversal.h"
 #include "ShadowRoot.h"
 
@@ -41,19 +42,31 @@ SimpleRange::SimpleRange(const BoundaryPoint& start, const BoundaryPoint& end)
 }
 
 SimpleRange::SimpleRange(BoundaryPoint&& start, BoundaryPoint&& end)
-    : start(WTFMove(start))
-    , end(WTFMove(end))
+    : start(WTF::move(start))
+    , end(WTF::move(end))
 {
 }
 
-bool operator==(const SimpleRange& a, const SimpleRange& b)
+String SimpleRange::debugDescription() const
 {
-    return a.start == b.start && a.end == b.end;
+    return makeString("{start: "_s, start.debugDescription(), ", end: "_s, end.debugDescription(), '}');
+}
+
+WeakSimpleRange::WeakSimpleRange(const WeakBoundaryPoint& start, const WeakBoundaryPoint& end)
+    : start(start)
+    , end(end)
+{
+}
+
+WeakSimpleRange::WeakSimpleRange(WeakBoundaryPoint&& start, WeakBoundaryPoint&& end)
+    : start(WTF::move(start))
+    , end(WTF::move(end))
+{
 }
 
 std::optional<SimpleRange> makeRangeSelectingNode(Node& node)
 {
-    auto parent = node.parentNode();
+    RefPtr parent = node.parentNode();
     if (!parent)
         return std::nullopt;
     unsigned offset = node.computeNodeIndex();
@@ -71,7 +84,7 @@ OffsetRange characterDataOffsetRange(const SimpleRange& range, const Node& node)
         &node == range.end.container.ptr() ? range.end.offset : std::numeric_limits<unsigned>::max() };
 }
 
-static RefPtr<Node> firstIntersectingNode(const SimpleRange& range)
+static RefPtr<Node> NODELETE firstIntersectingNode(const SimpleRange& range)
 {
     if (range.start.container->isCharacterDataNode())
         return range.start.container.ptr();
@@ -80,7 +93,7 @@ static RefPtr<Node> firstIntersectingNode(const SimpleRange& range)
     return NodeTraversal::nextSkippingChildren(range.start.container);
 }
 
-static RefPtr<Node> nodePastLastIntersectingNode(const SimpleRange& range)
+static RefPtr<Node> NODELETE nodePastLastIntersectingNode(const SimpleRange& range)
 {
     if (range.end.container->isCharacterDataNode())
         return NodeTraversal::nextSkippingChildren(range.end.container);
@@ -89,7 +102,7 @@ static RefPtr<Node> nodePastLastIntersectingNode(const SimpleRange& range)
     return NodeTraversal::nextSkippingChildren(range.end.container);
 }
 
-static RefPtr<Node> firstIntersectingNodeWithDeprecatedZeroOffsetStartQuirk(const SimpleRange& range)
+static RefPtr<Node> NODELETE firstIntersectingNodeWithDeprecatedZeroOffsetStartQuirk(const SimpleRange& range)
 {
     if (range.start.container->isCharacterDataNode())
         return range.start.container.ptr();
@@ -123,8 +136,9 @@ void IntersectingNodeIterator::advance()
 
 void IntersectingNodeIterator::advanceSkippingChildren()
 {
-    ASSERT(m_node);
-    m_node = m_node->contains(m_pastLastNode.get()) ? nullptr : NodeTraversal::nextSkippingChildren(*m_node);
+    RefPtr node = m_node;
+    ASSERT(node);
+    m_node = node->contains(m_pastLastNode.get()) ? nullptr : NodeTraversal::nextSkippingChildren(*node);
     enforceEndInvariant();
 }
 
@@ -155,9 +169,12 @@ template<TreeType treeType> bool contains(const SimpleRange& range, const std::o
     return point && contains<treeType>(range, *point);
 }
 
-template bool contains<ComposedTree>(const SimpleRange&, const std::optional<BoundaryPoint>&);
+template<> bool contains<ComposedTree>(const SimpleRange& range, const std::optional<BoundaryPoint>& point)
+{
+    return point && contains<ComposedTree>(range, *point);
+}
 
-bool containsForTesting(TreeType type, const SimpleRange& range, const BoundaryPoint& point)
+bool contains(TreeType type, const SimpleRange& range, const BoundaryPoint& point)
 {
     switch (type) {
     case Tree:
@@ -166,31 +183,33 @@ bool containsForTesting(TreeType type, const SimpleRange& range, const BoundaryP
         return contains<ShadowIncludingTree>(range, point);
     case ComposedTree:
         return contains<ComposedTree>(range, point);
+    case ComposedTreeIncludingPseudoElements:
+        return contains<ComposedTreeIncludingPseudoElements>(range, point);
     }
     ASSERT_NOT_REACHED();
     return false;
 }
 
-template<TreeType treeType> PartialOrdering treeOrder(const SimpleRange& range, const BoundaryPoint& point)
+template<TreeType treeType> std::partial_ordering treeOrder(const SimpleRange& range, const BoundaryPoint& point)
 {
     if (auto order = treeOrder<treeType>(range.start, point); !is_lt(order))
         return order;
     if (auto order = treeOrder<treeType>(range.end, point); !is_gt(order))
         return order;
-    return PartialOrdering::equivalent;
+    return std::partial_ordering::equivalent;
 }
 
-template<TreeType treeType> PartialOrdering treeOrder(const BoundaryPoint& point, const SimpleRange& range)
+template<TreeType treeType> std::partial_ordering treeOrder(const BoundaryPoint& point, const SimpleRange& range)
 {
     if (auto order = treeOrder<treeType>(point, range.start); !is_gt(order))
         return order;
     if (auto order = treeOrder<treeType>(point, range.end); !is_lt(order))
         return order;
-    return PartialOrdering::equivalent;
+    return std::strong_ordering::equivalent;
 }
 
-template PartialOrdering treeOrder<Tree>(const SimpleRange&, const BoundaryPoint&);
-template PartialOrdering treeOrder<Tree>(const BoundaryPoint&, const SimpleRange&);
+template std::partial_ordering treeOrder<Tree>(const SimpleRange&, const BoundaryPoint&);
+template std::partial_ordering treeOrder<Tree>(const BoundaryPoint&, const SimpleRange&);
 
 template<TreeType treeType> bool contains(const SimpleRange& outerRange, const SimpleRange& innerRange)
 {
@@ -200,7 +219,7 @@ template<TreeType treeType> bool contains(const SimpleRange& outerRange, const S
 template bool contains<Tree>(const SimpleRange&, const SimpleRange&);
 template bool contains<ComposedTree>(const SimpleRange&, const SimpleRange&);
 
-bool containsForTesting(TreeType type, const SimpleRange& outerRange, const SimpleRange& innerRange)
+bool contains(TreeType type, const SimpleRange& outerRange, const SimpleRange& innerRange)
 {
     switch (type) {
     case Tree:
@@ -209,6 +228,8 @@ bool containsForTesting(TreeType type, const SimpleRange& outerRange, const Simp
         return contains<ShadowIncludingTree>(outerRange, innerRange);
     case ComposedTree:
         return contains<ComposedTree>(outerRange, innerRange);
+    case ComposedTreeIncludingPseudoElements:
+        return contains<ComposedTreeIncludingPseudoElements>(outerRange, innerRange);
     }
     ASSERT_NOT_REACHED();
     return false;
@@ -231,6 +252,8 @@ bool intersectsForTesting(TreeType type, const SimpleRange& a, const SimpleRange
         return intersects<ShadowIncludingTree>(a, b);
     case ComposedTree:
         return intersects<ComposedTree>(a, b);
+    case ComposedTreeIncludingPseudoElements:
+        return contains<ComposedTreeIncludingPseudoElements>(a, b);
     }
     ASSERT_NOT_REACHED();
     return false;
@@ -265,7 +288,7 @@ template<TreeType treeType> bool contains(const SimpleRange& range, const Node& 
 template bool contains<Tree>(const SimpleRange&, const Node&);
 template bool contains<ComposedTree>(const SimpleRange&, const Node&);
 
-bool containsForTesting(TreeType type, const SimpleRange& range, const Node& node)
+bool contains(TreeType type, const SimpleRange& range, const Node& node)
 {
     switch (type) {
     case Tree:
@@ -274,6 +297,8 @@ bool containsForTesting(TreeType type, const SimpleRange& range, const Node& nod
         return contains<ShadowIncludingTree>(range, node);
     case ComposedTree:
         return contains<ComposedTree>(range, node);
+    case ComposedTreeIncludingPseudoElements:
+        return contains<ComposedTreeIncludingPseudoElements>(range, node);
     }
     ASSERT_NOT_REACHED();
     return false;
@@ -281,7 +306,7 @@ bool containsForTesting(TreeType type, const SimpleRange& range, const Node& nod
 
 template<TreeType treeType> bool contains(const Node& outer, const Node& inner)
 {
-    for (auto inclusiveAncestor = &inner; inclusiveAncestor; inclusiveAncestor = parent<treeType>(*inclusiveAncestor)) {
+    for (RefPtr inclusiveAncestor = &inner; inclusiveAncestor; inclusiveAncestor = parent<treeType>(*inclusiveAncestor)) {
         if (inclusiveAncestor == &outer)
             return true;
     }
@@ -316,6 +341,8 @@ bool intersectsForTesting(TreeType type, const SimpleRange& range, const Node& n
         return intersects<ShadowIncludingTree>(range, node);
     case ComposedTree:
         return intersects<ComposedTree>(range, node);
+    case ComposedTreeIncludingPseudoElements:
+        return contains<ComposedTreeIncludingPseudoElements>(range, node);
     }
     ASSERT_NOT_REACHED();
     return false;
@@ -323,7 +350,7 @@ bool intersectsForTesting(TreeType type, const SimpleRange& range, const Node& n
 
 bool containsCrossingDocumentBoundaries(const SimpleRange& range, Node& node)
 {
-    auto* ancestor = &node;
+    RefPtr ancestor = &node;
     while (&range.start.document() != &ancestor->document()) {
         ancestor = ancestor->document().ownerElement();
         if (!ancestor)

@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2007, 2008, 2009, 2010, 2011, 2012, 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,85 +28,35 @@
 
 #if ENABLE(TEXT_AUTOSIZING)
 
-#include "RenderStyle.h"
+#include "StyleComputedStyle.h"
+#include <memory>
 #include <wtf/HashMap.h>
-#include <wtf/HashSet.h>
-#include <wtf/RefCounted.h>
-#include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
-class Document;
 class Text;
+class TextAutoSizingValue;
 
-// FIXME: We can probably get rid of this class entirely and use std::unique_ptr<RenderStyle> as key
+// FIXME: We can probably get rid of this class entirely and use std::unique_ptr<Style::ComputedStyle> as key
 // as long as we use the right hash traits.
 class TextAutoSizingKey {
 public:
     TextAutoSizingKey() = default;
     enum DeletedTag { Deleted };
     explicit TextAutoSizingKey(DeletedTag);
-    TextAutoSizingKey(const RenderStyle&, unsigned hash);
+    TextAutoSizingKey(const Style::ComputedStyle&, unsigned hash);
 
-    const RenderStyle* style() const { ASSERT(!isDeleted()); return m_style.get(); }
-    bool isDeleted() const { return HashTraits<std::unique_ptr<RenderStyle>>::isDeletedValue(m_style); }
+    const Style::ComputedStyle* style() const LIFETIME_BOUND { ASSERT(!isDeleted()); return m_style.get(); }
+    bool isDeleted() const { return HashTraits<std::unique_ptr<Style::ComputedStyle>>::isDeletedValue(m_style); }
+    static constexpr bool safeToCompareToHashTableEmptyOrDeletedValue = true;
 
     unsigned hash() const { return m_hash; }
+    bool operator==(const TextAutoSizingKey&) const;
 
 private:
-    std::unique_ptr<RenderStyle> m_style;
+    std::unique_ptr<Style::ComputedStyle> m_style;
     unsigned m_hash { 0 };
-};
-
-inline bool operator==(const TextAutoSizingKey& a, const TextAutoSizingKey& b)
-{
-    if (a.isDeleted() || b.isDeleted())
-        return false;
-    if (!a.style() || !b.style())
-        return a.style() == b.style();
-    return a.style()->equalForTextAutosizing(*b.style());
-}
-
-struct TextAutoSizingHash {
-    static unsigned hash(const TextAutoSizingKey& key) { return key.hash(); }
-    static bool equal(const TextAutoSizingKey& a, const TextAutoSizingKey& b) { return a == b; }
-    static const bool safeToCompareToEmptyOrDeleted = true;
-};
-
-struct TextAutoSizingHashTranslator {
-    static unsigned hash(const RenderStyle& style)
-    {
-        return style.hashForTextAutosizing();
-    }
-
-    static bool equal(const TextAutoSizingKey& key, const RenderStyle& style)
-    {
-        if (key.isDeleted() || !key.style())
-            return false;
-        return key.style()->equalForTextAutosizing(style);
-    }
-
-    static void translate(TextAutoSizingKey& key, const RenderStyle& style, unsigned hash)
-    {
-        key = { style, hash };
-    }
-};
-
-class TextAutoSizingValue {
-    WTF_MAKE_FAST_ALLOCATED;
-public:
-    TextAutoSizingValue() = default;
-    ~TextAutoSizingValue();
-
-    void addTextNode(Text&, float size);
-
-    enum class StillHasNodes { No, Yes };
-    StillHasNodes adjustTextNodeSizes();
-
-private:
-    void reset();
-
-    HashSet<RefPtr<Text>> m_autoSizedNodes;
 };
 
 struct TextAutoSizingTraits : HashTraits<TextAutoSizingKey> {
@@ -115,16 +66,17 @@ struct TextAutoSizingTraits : HashTraits<TextAutoSizingKey> {
 };
 
 class TextAutoSizing {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(TextAutoSizing);
 public:
-    TextAutoSizing() = default;
+    TextAutoSizing();
+    ~TextAutoSizing();
 
     void addTextNode(Text&, float size);
     void updateRenderTree();
     void reset();
 
 private:
-    HashMap<TextAutoSizingKey, std::unique_ptr<TextAutoSizingValue>, TextAutoSizingHash, TextAutoSizingTraits> m_textNodes;
+    HashMap<TextAutoSizingKey, std::unique_ptr<TextAutoSizingValue>, DefaultHash<TextAutoSizingKey>, TextAutoSizingTraits> m_textNodes;
 };
 
 } // namespace WebCore

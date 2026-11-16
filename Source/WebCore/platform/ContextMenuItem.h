@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2020 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006-2020 Apple Inc. All rights reserved.
  * Copyright (C) 2010 Igalia S.L
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,6 +27,8 @@
 #pragma once
 
 #include <wtf/EnumTraits.h>
+#include <wtf/Platform.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
@@ -43,7 +45,7 @@ enum ContextMenuAction {
     ContextMenuItemTagDownloadImageToDisk,
     ContextMenuItemTagCopyImageToClipboard,
 #if PLATFORM(GTK)
-    ContextMenuItemTagCopyImageUrlToClipboard,
+    ContextMenuItemTagCopyImageURLToClipboard,
 #endif
     ContextMenuItemTagOpenFrameInNewWindow,
     ContextMenuItemTagCopy,
@@ -76,8 +78,11 @@ enum ContextMenuAction {
     ContextMenuItemTagIgnoreSpelling,
     ContextMenuItemTagLearnSpelling,
     ContextMenuItemTagOther,
-    ContextMenuItemTagSearchInSpotlight,
-    ContextMenuItemTagSearchWeb,
+#if PLATFORM(GTK)
+    ContextMenuItemTagSearchWeb = 38,
+#else
+    ContextMenuItemTagSearchWeb = 21,
+#endif
     ContextMenuItemTagLookUpInDictionary,
     ContextMenuItemTagOpenWithDefaultApplication,
     ContextMenuItemPDFActualSize,
@@ -142,59 +147,84 @@ enum ContextMenuAction {
     ContextMenuItemTagMediaPlayPause,
     ContextMenuItemTagMediaMute,
     ContextMenuItemTagDictationAlternative,
+    ContextMenuItemTagPlayAllAnimations,
+    ContextMenuItemTagPauseAllAnimations,
+    ContextMenuItemTagPlayAnimation,
+    ContextMenuItemTagPauseAnimation,
     ContextMenuItemTagToggleVideoFullscreen,
     ContextMenuItemTagShareMenu,
-    ContextMenuItemTagToggleVideoEnhancedFullscreen,
+    ContextMenuItemTagTogglePictureInPicture,
+    ContextMenuItemTagToggleVideoViewer,
     ContextMenuItemTagAddHighlightToCurrentQuickNote,
     ContextMenuItemTagAddHighlightToNewQuickNote,
-    ContextMenuItemTagQuickLookImage,
+    ContextMenuItemTagLookUpImage,
     ContextMenuItemTagTranslate,
+    ContextMenuItemTagWritingTools,
+    ContextMenuItemTagCopySubject,
+    ContextMenuItemPDFSinglePageContinuous,
+    ContextMenuItemPDFTwoPages,
+    ContextMenuItemPDFTwoPagesContinuous,
+    ContextMenuItemTagShowMediaStats,
+    ContextMenuItemTagCopyLinkWithHighlight,
+    ContextMenuItemTagProofread,
+    ContextMenuItemTagRewrite,
+    ContextMenuItemTagSummarize,
+    ContextMenuItemCaptionDisplayStyleSubmenu,
+#if PLATFORM(COCOA)
+    ContextMenuItemTagSmartLists,
+    ContextMenuItemTagConvertToTraditionalChinese,
+    ContextMenuItemTagConvertToSimplifiedChinese,
+    ContextMenuItemLastNonCustomTag = ContextMenuItemTagConvertToSimplifiedChinese,
+#else
+    ContextMenuItemLastNonCustomTag = ContextMenuItemCaptionDisplayStyleSubmenu,
+#endif
     ContextMenuItemBaseCustomTag = 5000,
     ContextMenuItemLastCustomTag = 5999,
     ContextMenuItemBaseApplicationTag = 10000
 };
 
-enum ContextMenuItemType {
-    ActionType,
-    CheckableActionType,
-    SeparatorType,
-    SubmenuType
+enum class ContextMenuItemType : uint8_t {
+    Action,
+    CheckableAction,
+    Separator,
+    Submenu,
 };
 
 class ContextMenuItem {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(ContextMenuItem, WEBCORE_EXPORT);
 public:
-    WEBCORE_EXPORT ContextMenuItem(ContextMenuItemType, ContextMenuAction, const String&, ContextMenu* subMenu = 0);
+    WEBCORE_EXPORT ContextMenuItem(ContextMenuItemType, ContextMenuAction, const String&, ContextMenu* subMenu = nullptr);
     WEBCORE_EXPORT ContextMenuItem(ContextMenuItemType, ContextMenuAction, const String&, bool enabled, bool checked, unsigned indentationLevel = 0);
 
     WEBCORE_EXPORT ~ContextMenuItem();
 
-    void setType(ContextMenuItemType);
-    WEBCORE_EXPORT ContextMenuItemType type() const;
+    void NODELETE setType(ContextMenuItemType);
+    WEBCORE_EXPORT ContextMenuItemType NODELETE type() const;
 
-    void setAction(ContextMenuAction);
-    WEBCORE_EXPORT ContextMenuAction action() const;
+    void NODELETE setAction(ContextMenuAction);
+    WEBCORE_EXPORT ContextMenuAction NODELETE action() const;
 
-    void setChecked(bool = true);
-    WEBCORE_EXPORT bool checked() const;
+    void NODELETE setChecked(bool = true);
+    WEBCORE_EXPORT bool NODELETE checked() const;
 
-    void setEnabled(bool = true);
-    WEBCORE_EXPORT bool enabled() const;
+    void NODELETE setEnabled(bool = true);
+    WEBCORE_EXPORT bool NODELETE enabled() const;
 
-    void setIndentationLevel(unsigned);
-    WEBCORE_EXPORT unsigned indentationLevel() const;
+    void NODELETE setIndentationLevel(unsigned);
+    WEBCORE_EXPORT unsigned NODELETE indentationLevel() const;
 
     void setSubMenu(ContextMenu*);
 
     WEBCORE_EXPORT ContextMenuItem(ContextMenuAction, const String&, bool enabled, bool checked, const Vector<ContextMenuItem>& subMenuItems, unsigned indentationLevel = 0);
     ContextMenuItem();
 
-    bool isNull() const;
+    bool NODELETE isNull() const;
 
+    void setTitle(String&& title) { m_title = WTF::move(title); }
     void setTitle(const String& title) { m_title = title; }
-    const String& title() const { return m_title; }
+    const String& title() const LIFETIME_BOUND { return m_title; }
 
-    const Vector<ContextMenuItem>& subMenuItems() const { return m_subMenuItems; }
+    const Vector<ContextMenuItem>& subMenuItems() const LIFETIME_BOUND { return m_subMenuItems; }
 private:
     ContextMenuItemType m_type;
     ContextMenuAction m_action;
@@ -205,29 +235,10 @@ private:
     Vector<ContextMenuItem> m_subMenuItems;
 };
 
-WEBCORE_EXPORT bool isValidContextMenuAction(ContextMenuAction);
-
 } // namespace WebCore
 
 namespace WTF {
 
-template<>
-struct EnumTraits<WebCore::ContextMenuAction> {
-    template<typename T>
-    static std::enable_if_t<sizeof(T) == sizeof(WebCore::ContextMenuAction), bool> isValidEnum(T action)
-    {
-        return WebCore::isValidContextMenuAction(static_cast<WebCore::ContextMenuAction>(action));
-    };
-};
-
-template<> struct EnumTraits<WebCore::ContextMenuItemType> {
-    using values = EnumValues<
-        WebCore::ContextMenuItemType,
-        WebCore::ContextMenuItemType::ActionType,
-        WebCore::ContextMenuItemType::CheckableActionType,
-        WebCore::ContextMenuItemType::SeparatorType,
-        WebCore::ContextMenuItemType::SubmenuType
-    >;
-};
+template<> WEBCORE_EXPORT bool isValidEnum<WebCore::ContextMenuAction>(std::underlying_type_t<WebCore::ContextMenuAction>);
 
 } // namespace WTF

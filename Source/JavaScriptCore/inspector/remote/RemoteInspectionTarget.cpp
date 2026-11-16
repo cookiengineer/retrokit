@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013, 2015 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2013-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,21 +32,67 @@
 #include "RemoteInspector.h"
 #include <wtf/RunLoop.h>
 
+#if PLATFORM(COCOA)
+#include <wtf/spi/darwin/OSVariantSPI.h>
+#endif
+
 namespace Inspector {
+
+RemoteInspectionTarget::RemoteInspectionTarget() = default;
+
+RemoteInspectionTarget::~RemoteInspectionTarget() = default;
 
 bool RemoteInspectionTarget::remoteControlAllowed() const
 {
-    return remoteDebuggingAllowed() || hasLocalDebugger();
+    return allowsInspectionByPolicy() || hasLocalDebugger();
 }
 
-void RemoteInspectionTarget::setRemoteDebuggingAllowed(bool allowed)
+bool RemoteInspectionTarget::allowsInspectionByPolicy() const
 {
-    if (m_allowed == allowed)
-        return;
+    switch (m_inspectable) {
+    case Inspectable::Yes:
+        return true;
+    case Inspectable::No:
+#if PLATFORM(COCOA)
+        static bool allowInternalSecurityPolicies = os_variant_allows_internal_security_policies("com.apple.WebInspector");
+        if (allowInternalSecurityPolicies && !RemoteInspector::singleton().isSimulatingCustomerInstall())
+            return true;
+        [[fallthrough]];
+#endif
+    case Inspectable::NoIgnoringInternalPolicies:
+        return false;
+    }
 
-    m_allowed = allowed;
+    ASSERT_NOT_REACHED();
+    return false;
+}
 
-    if (m_allowed && automaticInspectionAllowed())
+bool RemoteInspectionTarget::inspectable() const
+{
+    switch (m_inspectable) {
+    case Inspectable::Yes:
+        return true;
+    case Inspectable::No:
+    case Inspectable::NoIgnoringInternalPolicies:
+        return false;
+    }
+
+    ASSERT_NOT_REACHED();
+    return false;
+}
+
+void RemoteInspectionTarget::setInspectable(bool inspectable)
+{
+    if (inspectable)
+        m_inspectable = Inspectable::Yes;
+    else {
+        if (!JSRemoteInspectorGetInspectionFollowsInternalPolicies())
+            m_inspectable = Inspectable::NoIgnoringInternalPolicies;
+        else
+            m_inspectable = Inspectable::No;
+    }
+
+    if (allowsInspectionByPolicy() && automaticInspectionAllowed())
         RemoteInspector::singleton().updateAutomaticInspectionCandidate(this);
     else
         RemoteInspector::singleton().updateTarget(this);
@@ -55,18 +101,27 @@ void RemoteInspectionTarget::setRemoteDebuggingAllowed(bool allowed)
 void RemoteInspectionTarget::pauseWaitingForAutomaticInspection()
 {
     ASSERT(targetIdentifier());
-    ASSERT(m_allowed);
+    ASSERT(allowsInspectionByPolicy());
     ASSERT(automaticInspectionAllowed());
 
-    while (RemoteInspector::singleton().waitingForAutomaticInspection(targetIdentifier())) {
-        if (RunLoop::cycle(JSGlobalObjectDebugger::runLoopMode()) == RunLoop::CycleResult::Stop)
+    m_isPausedWaitingForAutomaticInspection = true;
+    while (m_isPausedWaitingForAutomaticInspection) {
+        if (RunLoop::cycle(JSGlobalObjectDebugger::runLoopModeSingleton()) == RunLoop::CycleResult::Stop)
             break;
     }
 }
 
-void RemoteInspectionTarget::unpauseForInitializedInspector()
+void RemoteInspectionTarget::unpauseForResolvedAutomaticInspection()
 {
-    RemoteInspector::singleton().setupCompleted(targetIdentifier());
+    m_isPausedWaitingForAutomaticInspection = false;
+}
+
+void RemoteInspectionTarget::setPresentingApplicationPID(std::optional<ProcessID>&& pid)
+{
+    m_presentingApplicationPID = pid;
+#if PLATFORM(COCOA)
+    RemoteInspector::singleton().setUsePerTargetPresentingApplicationPIDs(true);
+#endif
 }
 
 } // namespace Inspector

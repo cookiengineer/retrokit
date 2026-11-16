@@ -28,21 +28,61 @@
 #if USE(LIBWEBRTC)
 
 #include <WebCore/LibWebRTCMacros.h>
-#include <webrtc/rtc_base/async_packet_socket.h>
 #include <wtf/Forward.h>
 
-namespace IPC {
-class Decoder;
-class Encoder;
-}
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <webrtc/rtc_base/async_packet_socket.h>
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 
 namespace WebKit {
 
 struct RTCPacketOptions {
-    void encode(IPC::Encoder&) const;
-    static std::optional<RTCPacketOptions> decode(IPC::Decoder&);
+    enum class DifferentiatedServicesCodePoint : int8_t {
+        NoChange = -1,
+        Default = 0, // Same as CS0.
+        CS0 = 0, // The default.
+        CS1 = 8, // Bulk/background traffic.
+        AF11 = 10,
+        AF12 = 12,
+        AF13 = 14,
+        CS2 = 16,
+        AF21 = 18,
+        AF22 = 20,
+        AF23 = 22,
+        CS3 = 24,
+        AF31 = 26,
+        AF32 = 28,
+        AF33 = 30,
+        CS4 = 32,
+        AF41 = 34, // Video.
+        AF42 = 36, // Video.
+        AF43 = 38, // Video.
+        CS5 = 40, // Video.
+        EF = 46, // Voice.
+        CS6 = 48, // Voice.
+        CS7 = 56 // Control messages.
+    };
 
-    rtc::PacketOptions options;
+    struct SerializableData {
+        int32_t packetId;
+#if !PLATFORM(COCOA)
+        DifferentiatedServicesCodePoint dscp;
+        int rtpSendtimeExtensionId;
+        int64_t srtpAuthTagLength;
+        std::span<const char> srtpAuthKey;
+        int64_t srtpPacketIndex;
+#endif
+    };
+
+    explicit RTCPacketOptions(const webrtc::AsyncSocketPacketOptions& options)
+        : options(options)
+    { }
+
+    explicit RTCPacketOptions(const SerializableData&);
+
+    SerializableData NODELETE serializableData() const;
+
+    webrtc::AsyncSocketPacketOptions options;
 };
 
 }

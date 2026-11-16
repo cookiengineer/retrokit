@@ -4,6 +4,7 @@
 // found in the LICENSE file.
 //
 
+#include "common/unsafe_buffers.h"
 #include "test_utils/ANGLETest.h"
 #include "test_utils/gl_raii.h"
 
@@ -12,7 +13,7 @@ using namespace angle;
 namespace
 {
 
-class ViewportTest : public ANGLETest
+class ViewportTest : public ANGLETest<>
 {
   protected:
     ViewportTest()
@@ -52,8 +53,8 @@ class ViewportTest : public ANGLETest
         // Firstly ensure that no errors have been hit.
         EXPECT_GL_NO_ERROR();
 
-        GLint viewportSize[4];
-        glGetIntegerv(GL_VIEWPORT, viewportSize);
+        std::array<GLint, 4> viewportSize;
+        glGetIntegerv(GL_VIEWPORT, viewportSize.data());
 
         // Clear to green. Might be a scissored clear, if scissorSize != window size
         glClearColor(0, 1, 0, 1);
@@ -340,8 +341,8 @@ TEST_P(ViewportTest, Overflow)
     glVertexAttribPointer(positionLocation, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
     glEnableVertexAttribArray(positionLocation);
 
-    constexpr int kMaxSize            = std::numeric_limits<int>::max();
-    const int kTestViewportSizes[][4] = {
+    constexpr int kMaxSize = std::numeric_limits<int>::max();
+    constexpr std::array<std::array<int, 4>, 4> kTestViewportSizes = {{
         {
             kMaxSize,
             kMaxSize,
@@ -366,9 +367,9 @@ TEST_P(ViewportTest, Overflow)
             kMaxSize,
             kMaxSize,
         },
-    };
+    }};
 
-    for (const int *viewportSize : kTestViewportSizes)
+    for (const auto &viewportSize : kTestViewportSizes)
     {
         // Set the viewport.
         glViewport(viewportSize[0], viewportSize[1], viewportSize[2], viewportSize[3]);
@@ -382,15 +383,61 @@ TEST_P(ViewportTest, Overflow)
     }
 }
 
+// Test that viewport dimensions are clamped to implementation-defined maximums
+TEST_P(ViewportTest, ClampOnStore)
+{
+    GLint maxDims[2];
+    glGetIntegerv(GL_MAX_VIEWPORT_DIMS, maxDims);
+    ASSERT_GT(maxDims[0], 0);
+    ASSERT_GT(maxDims[1], 0);
+
+    GLint viewport[4];
+    glViewport(0, 0, 1, 1);
+    ASSERT_GL_NO_ERROR();
+    glGetIntegerv(GL_VIEWPORT, viewport);
+    ASSERT_EQ(viewport[0], 0);
+    ASSERT_EQ(viewport[1], 0);
+    ASSERT_EQ(viewport[2], 1);
+    ASSERT_EQ(viewport[3], 1);
+
+    glViewport(0, 0, -2, 2);
+    ASSERT_GL_ERROR(GL_INVALID_VALUE);
+    glGetIntegerv(GL_VIEWPORT, viewport);
+    ASSERT_EQ(viewport[0], 0);
+    ASSERT_EQ(viewport[1], 0);
+    ASSERT_EQ(viewport[2], 1);
+    ASSERT_EQ(viewport[3], 1);
+
+    glViewport(0, 0, 3, -3);
+    ASSERT_GL_ERROR(GL_INVALID_VALUE);
+    glGetIntegerv(GL_VIEWPORT, viewport);
+    ASSERT_EQ(viewport[0], 0);
+    ASSERT_EQ(viewport[1], 0);
+    ASSERT_EQ(viewport[2], 1);
+    ASSERT_EQ(viewport[3], 1);
+
+    glViewport(0, 0, maxDims[0], maxDims[1]);
+    ASSERT_GL_NO_ERROR();
+    glGetIntegerv(GL_VIEWPORT, viewport);
+    ASSERT_EQ(viewport[0], 0);
+    ASSERT_EQ(viewport[1], 0);
+    ASSERT_EQ(viewport[2], maxDims[0]);
+    ASSERT_EQ(viewport[3], maxDims[1]);
+
+    glViewport(0, 0, maxDims[0] + 1, maxDims[1] + 1);
+    ASSERT_GL_NO_ERROR();
+    glGetIntegerv(GL_VIEWPORT, viewport);
+    ASSERT_EQ(viewport[0], 0);
+    ASSERT_EQ(viewport[1], 0);
+    ASSERT_EQ(viewport[2], maxDims[0]);
+    ASSERT_EQ(viewport[3], maxDims[1]);
+}
+
 // Use this to select which configurations (e.g. which renderer, which GLES major version) these
-// tests should be run against. D3D11 Feature Level 9 and D3D9 emulate large and negative viewports
-// in the vertex shader. We should test both of these as well as D3D11 Feature Level 10_0+.
-ANGLE_INSTANTIATE_TEST(ViewportTest,
-                       ES2_D3D9(),
-                       ES2_D3D11(),
-                       ES2_D3D11_PRESENT_PATH_FAST(),
-                       ES2_OPENGLES(),
-                       ES3_OPENGLES(),
-                       ES2_VULKAN());
+// tests should be run against.
+ANGLE_INSTANTIATE_TEST_ES2_AND(ViewportTest, ES2_D3D11_PRESENT_PATH_FAST());
+
+// This test suite is not instantiated on some OSes.
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ViewportTest);
 
 }  // namespace

@@ -25,8 +25,7 @@
 
 [
     Conditional=WEB_RTC,
-    EnabledBySetting=PeerConnection,
-    ImplementedAs=RTCOfferAnswerOptions
+    EnabledBySetting=PeerConnectionEnabled,
 ] dictionary RTCOfferAnswerOptions {
     boolean voiceActivityDetection = true;
 };

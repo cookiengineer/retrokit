@@ -22,6 +22,7 @@
     CustomIsReachable,
     CustomToJSObject,
     ExportToWrappedFunction,
+    EmbedderArrayLike,
     JSCustomHeader,
     ReportExtraMemoryCost,
     SkipVTableValidation,

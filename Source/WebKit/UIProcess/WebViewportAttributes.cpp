@@ -33,8 +33,6 @@ WebViewportAttributes::WebViewportAttributes(const WebCore::ViewportAttributes& 
 {
 }
 
-WebViewportAttributes::~WebViewportAttributes()
-{
-}
+WebViewportAttributes::~WebViewportAttributes() = default;
 
 } // namespace WebKit

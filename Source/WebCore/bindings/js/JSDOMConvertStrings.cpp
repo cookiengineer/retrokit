@@ -22,19 +22,32 @@
 #include "config.h"
 #include "JSDOMConvertStrings.h"
 
-#include "JSDOMExceptionHandling.h"
+#include "JSDOMGlobalObject.h"
+#include "JSTrustedScript.h"
+#include "ScriptExecutionContext.h"
 #include <JavaScriptCore/HeapInlines.h>
 #include <JavaScriptCore/JSCJSValueInlines.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/unicode/CharacterNames.h>
 
-
 namespace WebCore {
 using namespace JSC;
 
+auto Converter<IDLDOMString>::convert(JSC::JSGlobalObject& lexicalGlobalObject, JSC::JSValue value) -> Result
+{
+    auto& vm = lexicalGlobalObject.vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    auto string = value.toWTFString(&lexicalGlobalObject);
+
+    RETURN_IF_EXCEPTION(scope, Result::exception());
+
+    return Result { WTF::move(string) };
+}
+
 String identifierToString(JSGlobalObject& lexicalGlobalObject, const Identifier& identifier)
 {
-    if (UNLIKELY(identifier.isSymbol())) {
+    if (identifier.isSymbol()) [[unlikely]] {
         auto scope = DECLARE_THROW_SCOPE(lexicalGlobalObject.vm());
         throwTypeError(&lexicalGlobalObject, scope, SymbolCoercionError);
         return { };
@@ -43,14 +56,13 @@ String identifierToString(JSGlobalObject& lexicalGlobalObject, const Identifier&
     return identifier.string();
 }
 
-static inline String stringToByteString(JSGlobalObject& lexicalGlobalObject, JSC::ThrowScope& scope, String&& string)
+static inline bool throwIfInvalidByteString(JSGlobalObject& lexicalGlobalObject, JSC::ThrowScope& scope, const String& string)
 {
-    if (!string.isAllLatin1()) {
+    if (!string.containsOnlyLatin1()) [[unlikely]] {
         throwTypeError(&lexicalGlobalObject, scope);
-        return { };
+        return true;
     }
-
-    return WTFMove(string);
+    return false;
 }
 
 String identifierToByteString(JSGlobalObject& lexicalGlobalObject, const Identifier& identifier)
@@ -60,18 +72,37 @@ String identifierToByteString(JSGlobalObject& lexicalGlobalObject, const Identif
 
     auto string = identifierToString(lexicalGlobalObject, identifier);
     RETURN_IF_EXCEPTION(scope, { });
-    return stringToByteString(lexicalGlobalObject, scope, WTFMove(string));
+    if (throwIfInvalidByteString(lexicalGlobalObject, scope, string)) [[unlikely]]
+        return { };
+    return string;
 }
 
-String valueToByteString(JSGlobalObject& lexicalGlobalObject, JSValue value)
+ConversionResult<IDLByteString> valueToByteString(JSGlobalObject& lexicalGlobalObject, JSValue value)
 {
     VM& vm = lexicalGlobalObject.vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     auto string = value.toWTFString(&lexicalGlobalObject);
-    RETURN_IF_EXCEPTION(scope, { });
+    RETURN_IF_EXCEPTION(scope, ConversionResult<IDLByteString>::exception());
 
-    return stringToByteString(lexicalGlobalObject, scope, WTFMove(string));
+    if (throwIfInvalidByteString(lexicalGlobalObject, scope, string)) [[unlikely]]
+        return ConversionResult<IDLByteString>::exception();
+
+    return { WTF::move(string) };
+}
+
+ConversionResult<IDLAtomStringAdaptor<IDLByteString>> valueToByteAtomString(JSC::JSGlobalObject& lexicalGlobalObject, JSC::JSValue value)
+{
+    VM& vm = lexicalGlobalObject.vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    AtomString string = value.toString(&lexicalGlobalObject)->toAtomString(&lexicalGlobalObject).data;
+    RETURN_IF_EXCEPTION(scope, ConversionResult<IDLAtomStringAdaptor<IDLByteString>>::exception());
+
+    if (throwIfInvalidByteString(lexicalGlobalObject, scope, string.string())) [[unlikely]]
+        return ConversionResult<IDLAtomStringAdaptor<IDLByteString>>::exception();
+
+    return string;
 }
 
 String identifierToUSVString(JSGlobalObject& lexicalGlobalObject, const Identifier& identifier)
@@ -79,15 +110,54 @@ String identifierToUSVString(JSGlobalObject& lexicalGlobalObject, const Identifi
     return replaceUnpairedSurrogatesWithReplacementCharacter(identifierToString(lexicalGlobalObject, identifier));
 }
 
-String valueToUSVString(JSGlobalObject& lexicalGlobalObject, JSValue value)
+ConversionResult<IDLUSVString> valueToUSVString(JSGlobalObject& lexicalGlobalObject, JSValue value)
 {
     VM& vm = lexicalGlobalObject.vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
     auto string = value.toWTFString(&lexicalGlobalObject);
-    RETURN_IF_EXCEPTION(scope, { });
+    RETURN_IF_EXCEPTION(scope, ConversionResult<IDLUSVString>::exception());
 
-    return replaceUnpairedSurrogatesWithReplacementCharacter(WTFMove(string));
+    return { replaceUnpairedSurrogatesWithReplacementCharacter(WTF::move(string)) };
+}
+
+ConversionResult<IDLAtomStringAdaptor<IDLUSVString>> valueToUSVAtomString(JSGlobalObject& lexicalGlobalObject, JSValue value)
+{
+    VM& vm = lexicalGlobalObject.vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    auto string = value.toString(&lexicalGlobalObject)->toAtomString(&lexicalGlobalObject);
+    RETURN_IF_EXCEPTION(scope, ConversionResult<IDLAtomStringAdaptor<IDLUSVString>>::exception());
+
+    return replaceUnpairedSurrogatesWithReplacementCharacter(AtomString(string));
+}
+
+// https://w3c.github.io/trusted-types/dist/spec/#get-trusted-type-compliant-string-algorithm
+ConversionResult<IDLDOMString> trustedScriptCompliantString(JSGlobalObject& global, JSValue input, const String& sink)
+{
+    VM& vm = global.vm();
+    auto throwScope = DECLARE_THROW_SCOPE(vm);
+
+    if (RefPtr trustedScript = JSTrustedScript::toWrapped(vm, input))
+        return trustedScript->toString();
+
+    RefPtr scriptExecutionContext = dynamicDowncast<JSDOMGlobalObject>(&global)->scriptExecutionContext();
+    if (!scriptExecutionContext) {
+        ASSERT_NOT_REACHED();
+        return { String() };
+    }
+
+    auto convertedValue = ConversionResult<IDLDOMString> { convert<IDLUSVString>(global, input) };
+    if (convertedValue.hasException(throwScope)) [[unlikely]]
+        return ConversionResultException { };
+
+    auto stringValueHolder = trustedTypeCompliantString(TrustedType::TrustedScript, *scriptExecutionContext, convertedValue.releaseReturnValue(), sink);
+    if (stringValueHolder.hasException()) {
+        propagateException(global, throwScope, stringValueHolder.releaseException());
+        RETURN_IF_EXCEPTION(throwScope, ConversionResultException { });
+    }
+
+    return stringValueHolder.releaseReturnValue();
 }
 
 } // namespace WebCore

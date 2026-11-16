@@ -11,28 +11,18 @@
 
 #include "common/angleutils.h"
 #include "libANGLE/renderer/d3d/RendererD3D.h"
+#include "libANGLE/renderer/d3d/ShaderD3D.h"
 
 namespace rx
 {
-std::string generateShaderForImage2DBindSignature(
-    const d3d::Context *context,
-    ProgramD3D &programD3D,
-    const gl::ProgramState &programData,
+std::string GenerateShaderForImage2DBindSignatureImpl(
+    ProgramExecutableD3D &executableD3D,
     gl::ShaderType shaderType,
+    const SharedCompiledShaderStateD3D &shaderData,
+    const std::string &shaderHLSL,
     std::vector<sh::ShaderVariable> &image2DUniforms,
-    const gl::ImageUnitTextureTypeMap &image2DBindLayout);
-
-inline std::string GenerateComputeShaderForImage2DBindSignature(
-    const d3d::Context *context,
-    ProgramD3D &programD3D,
-    const gl::ProgramState &programData,
-    std::vector<sh::ShaderVariable> &image2DUniforms,
-    const gl::ImageUnitTextureTypeMap &image2DBindLayout)
-{
-    return generateShaderForImage2DBindSignature(context, programD3D, programData,
-                                                 gl::ShaderType::Compute, image2DUniforms,
-                                                 image2DBindLayout);
-}
+    const gl::ImageUnitTextureTypeMap &image2DBindLayout,
+    unsigned int baseUAVRegister);
 
 }  // namespace rx
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,8 +29,8 @@
 #include "Options.h"
 #include <wtf/DataLog.h>
 #include <wtf/Lock.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/Vector.h>
-#include <wtf/text/WTFString.h>
 
 namespace JSC {
 
@@ -38,7 +38,7 @@ namespace {
 
 class CompilerTimingScopeState {
     WTF_MAKE_NONCOPYABLE(CompilerTimingScopeState);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(CompilerTimingScopeState);
 public:
     CompilerTimingScopeState() { }
     
@@ -47,7 +47,9 @@ public:
         Locker locker { lock };
 
         for (auto& tuple : totals) {
-            if (String(std::get<0>(tuple)) == String(compilerName) && String(std::get<1>(tuple)) == String(name)) {
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+            if (!strcmp(std::get<0>(tuple), compilerName) && !strcmp(std::get<1>(tuple), name)) {
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
                 std::get<2>(tuple) += duration;
                 std::get<3>(tuple) = std::max(std::get<3>(tuple), duration);
                 return std::get<2>(tuple);
@@ -62,7 +64,7 @@ public:
     {
         for (auto& tuple : totals) {
             dataLogLn(
-                "[", std::get<0>(tuple), "] ", std::get<1>(tuple), " total ms: ", std::get<2>(tuple).milliseconds(), " max ms: ", std::get<3>(tuple).milliseconds());
+                "total ms: ", FixedWidthDouble(std::get<2>(tuple).milliseconds(), 8, 3), " max ms: ", FixedWidthDouble(std::get<3>(tuple).milliseconds(), 7, 3), " [", std::get<0>(tuple), "] ", std::get<1>(tuple));
         }
     }
     
@@ -70,6 +72,8 @@ private:
     Vector<std::tuple<const char*, const char*, Seconds, Seconds>> totals;
     Lock lock;
 };
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(CompilerTimingScopeState);
 
 CompilerTimingScopeState& compilerTimingScopeState()
 {
@@ -79,17 +83,17 @@ CompilerTimingScopeState& compilerTimingScopeState()
 
 } // anonymous namespace
 
-CompilerTimingScope::CompilerTimingScope(const char* compilerName, const char* name)
+CompilerTimingScope::CompilerTimingScope(ASCIILiteral compilerName, ASCIILiteral name)
     : m_compilerName(compilerName)
     , m_name(name)
 {
-    if (UNLIKELY(Options::logPhaseTimes() || Options::reportTotalPhaseTimes()))
+    if (Options::logPhaseTimes() || Options::reportTotalPhaseTimes()) [[unlikely]]
         m_before = MonotonicTime::now();
 }
 
 CompilerTimingScope::~CompilerTimingScope()
 {
-    if (UNLIKELY(Options::logPhaseTimes() || Options::reportTotalPhaseTimes())) {
+    if (Options::logPhaseTimes() || Options::reportTotalPhaseTimes()) [[unlikely]] {
         Seconds duration = MonotonicTime::now() - m_before;
         auto total = compilerTimingScopeState().addToTotal(m_compilerName, m_name, duration);
         if (Options::logPhaseTimes()) {

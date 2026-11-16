@@ -25,26 +25,25 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
-#include "SharedMemory.h"
 #include "SharedStringHashTableReadOnly.h"
+#include <WebCore/SharedMemory.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
-struct SecurityOriginData;
+class SecurityOriginData;
 }
 
 namespace WebKit {
 
 class WebSWOriginTable {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(WebSWOriginTable);
 public:
     WebSWOriginTable() = default;
 
     bool isImported() const { return m_isImported; }
     void setIsImported() { m_isImported = true; }
     bool contains(const WebCore::SecurityOriginData&) const;
-    void setSharedMemory(const SharedMemory::Handle&);
+    void setSharedMemory(WebCore::SharedMemory::Handle&&);
 
 private:
     SharedStringHashTableReadOnly m_serviceWorkerOriginTable;
@@ -52,5 +51,3 @@ private:
 };
 
 } // namespace WebKit
-
-#endif // ENABLE(SERVICE_WORKER)

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc.
+ * Copyright (C) 2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted, provided that the following conditions
@@ -28,6 +28,7 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
 #if USE(LIBWEBRTC)
 
 #if PLATFORM(IOS_FAMILY)
@@ -42,5 +43,17 @@
 #define WEBRTC_WEBKIT_BUILD 1
 #define WEBRTC_POSIX 1
 #define _COMMON_INCLUDED_
+
+#define WEBRTC_NON_STATIC_TRACE_EVENT_HANDLERS 0
+
+// This private header defines some short-name macros that collide with
+// libwebrtc/abseil identifiers. Include it early and undef the offenders.
+#if USE(APPLE_INTERNAL_SDK) && __has_include(<CoreUtils/CommonServices.h>)
+#include <CoreUtils/CommonServices.h>
+#endif
+#undef IsPowerOf2
+#undef RoundTo
+#undef Read8
+#undef RoundUp
 
 #endif // USE(LIBWEBRTC)

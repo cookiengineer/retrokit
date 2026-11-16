@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "InstructionStream.h"
+#include <JavaScriptCore/InstructionStream.h>
 #include <wtf/HashSet.h>
 
 namespace JSC {
@@ -33,9 +33,9 @@ namespace JSC {
 // Reference count indicates number of live registers that alias this object.
 class StaticPropertyAnalysis : public RefCounted<StaticPropertyAnalysis> {
 public:
-    static Ref<StaticPropertyAnalysis> create(InstructionStream::MutableRef&& instructionRef)
+    static Ref<StaticPropertyAnalysis> create(JSInstructionStream::MutableRef&& instructionRef)
     {
-        return adoptRef(*new StaticPropertyAnalysis(WTFMove(instructionRef))); 
+        return adoptRef(*new StaticPropertyAnalysis(WTF::move(instructionRef)));
     }
 
     void addPropertyIndex(unsigned propertyIndex) { m_propertyIndexes.add(propertyIndex); }
@@ -45,13 +45,13 @@ public:
     int propertyIndexCount() { return m_propertyIndexes.size(); }
 
 private:
-    StaticPropertyAnalysis(InstructionStream::MutableRef&& instructionRef)
-        : m_instructionRef(WTFMove(instructionRef))
+    StaticPropertyAnalysis(JSInstructionStream::MutableRef&& instructionRef)
+        : m_instructionRef(WTF::move(instructionRef))
     {
     }
 
-    InstructionStream::MutableRef m_instructionRef;
-    typedef HashSet<unsigned, WTF::IntHash<unsigned>, WTF::UnsignedWithZeroKeyHashTraits<unsigned>> PropertyIndexSet;
+    JSInstructionStream::MutableRef m_instructionRef;
+    typedef UncheckedKeyHashSet<unsigned, WTF::IntHash<unsigned>, WTF::UnsignedWithZeroKeyHashTraits<unsigned>> PropertyIndexSet;
     PropertyIndexSet m_propertyIndexes;
 };
 

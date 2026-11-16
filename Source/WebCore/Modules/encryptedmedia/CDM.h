@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,15 +27,15 @@
 
 #if ENABLE(ENCRYPTED_MEDIA)
 
-#include "ContextDestructionObserver.h"
 #include "MediaKeySessionType.h"
 #include "MediaKeySystemConfiguration.h"
 #include "MediaKeySystemMediaCapability.h"
 #include "MediaKeysRestrictions.h"
-#include "SharedBuffer.h"
+#include <WebCore/CDMPrivate.h>
+#include <WebCore/ContextDestructionObserver.h>
 #include <wtf/Function.h>
 #include <wtf/Ref.h>
-#include <wtf/RefCounted.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
@@ -54,18 +54,22 @@ class Document;
 class ScriptExecutionContext;
 class SharedBuffer;
 
-class CDM : public RefCounted<CDM>, public CanMakeWeakPtr<CDM>, private ContextDestructionObserver {
+class CDM : public RefCounted<CDM>, public CDMPrivateClient, private ContextDestructionObserver {
 public:
     static bool supportsKeySystem(const String&);
     static bool isPersistentType(MediaKeySessionType);
 
-    static Ref<CDM> create(Document&, const String& keySystem);
+    static Ref<CDM> create(Document&, const String& keySystem, const String& mediaKeysHashSalt);
     ~CDM();
 
-    using SupportedConfigurationCallback = WTF::Function<void(std::optional<MediaKeySystemConfiguration>)>;
+    // ContextDestructionObserver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
+    using SupportedConfigurationCallback = Function<void(std::optional<MediaKeySystemConfiguration>)>;
     void getSupportedConfiguration(MediaKeySystemConfiguration&& candidateConfiguration, SupportedConfigurationCallback&&);
 
-    const String& keySystem() const { return m_keySystem; }
+    const String& keySystem() const LIFETIME_BOUND { return m_keySystem; }
 
     void loadAndInitialize();
     RefPtr<CDMInstance> createInstance();
@@ -82,15 +86,23 @@ public:
 
     String storageDirectory() const;
 
-private:
-    CDM(Document&, const String& keySystem);
+    const String& mediaKeysHashSalt() const LIFETIME_BOUND { return m_mediaKeysHashSalt; }
 
 #if !RELEASE_LOG_DISABLED
-    Ref<WTF::Logger> m_logger;
-    const void* m_logIdentifier;
+    const Logger& logger() const final { return m_logger; }
+    uint64_t logIdentifier() const { return m_logIdentifier; }
+#endif
+
+private:
+    CDM(Document&, const String& keySystem, const String& mediaKeysHashSalt);
+
+#if !RELEASE_LOG_DISABLED
+    const Ref<const Logger> m_logger;
+    const uint64_t m_logIdentifier;
 #endif
     String m_keySystem;
-    std::unique_ptr<CDMPrivate> m_private;
+    String m_mediaKeysHashSalt;
+    const std::unique_ptr<CDMPrivate> m_private;
 };
 
 }

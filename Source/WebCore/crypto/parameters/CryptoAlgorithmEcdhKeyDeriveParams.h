@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,17 +25,23 @@
 
 #pragma once
 
+#include "CryptoAlgorithmEcdhKeyDeriveParamsInit.h"
 #include "CryptoAlgorithmParameters.h"
-
-#if ENABLE(WEB_CRYPTO)
 
 namespace WebCore {
 
 class CryptoKey;
 
 class CryptoAlgorithmEcdhKeyDeriveParams final : public CryptoAlgorithmParameters {
+    WTF_MAKE_TZONE_ALLOCATED(CryptoAlgorithmEcdhKeyDeriveParams);
 public:
     RefPtr<CryptoKey> publicKey;
+
+    CryptoAlgorithmEcdhKeyDeriveParams(CryptoAlgorithmIdentifier identifier, CryptoAlgorithmEcdhKeyDeriveParamsInit init)
+        : CryptoAlgorithmParameters { WTF::move(identifier), WTF::move(init) }
+        , publicKey { WTF::move(init.publicKey) }
+    {
+    }
 
     Class parametersClass() const final { return Class::EcdhKeyDeriveParams; }
 };
@@ -43,5 +49,3 @@ public:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_CRYPTO_ALGORITHM_PARAMETERS(EcdhKeyDeriveParams)
-
-#endif // ENABLE(WEB_CRYPTO)

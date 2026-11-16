@@ -1,10 +1,11 @@
-/**
+/*
  * Copyright (C) 2007 Rob Buis <buis@kde.org>
  * Copyright (C) 2007 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2007 Eric Seidel <eric@webkit.org>
- * Copyright (C) 2009 Google, Inc.  All rights reserved.
+ * Copyright (C) 2009 Google, Inc. All rights reserved.
  * Copyright (C) Research In Motion Limited 2010. All rights reserved.
  * Copyright (C) 2012 Zoltan Herczeg <zherczeg@webkit.org>.
+ * Copyright (C) 2022 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -33,9 +34,8 @@ class AffineTransform;
 class FloatRect;
 class RenderElement;
 class RenderObject;
-class RenderSVGResourceFilter;
+class LegacyRenderSVGResourceFilter;
 
-// SVGRenderingContext 
 class SVGRenderingContext {
 public:
     enum NeedsGraphicsContextSave {
@@ -47,6 +47,9 @@ public:
     SVGRenderingContext()
     {
     }
+
+    SVGRenderingContext(SVGRenderingContext&&);
+    SVGRenderingContext(const SVGRenderingContext&) = delete;
 
     SVGRenderingContext(RenderElement& object, PaintInfo& paintinfo, NeedsGraphicsContextSave needsGraphicsContextSave = DontSaveGraphicsContext)
     {
@@ -60,15 +63,13 @@ public:
     void prepareToRenderSVGContent(RenderElement&, PaintInfo&, NeedsGraphicsContextSave = DontSaveGraphicsContext);
     bool isRenderingPrepared() const { return m_renderingFlags & RenderingPrepared; }
 
-    static RefPtr<ImageBuffer> createImageBuffer(const FloatRect& targetRect, const AffineTransform& absoluteTransform, const DestinationColorSpace&, RenderingMode, const GraphicsContext* = nullptr);
-    static RefPtr<ImageBuffer> createImageBuffer(const FloatRect& targetRect, const FloatRect& clampedRect, const DestinationColorSpace&, RenderingMode, const GraphicsContext* = nullptr);
+    bool pathClippingIsEntirelyWithinRendererContents() const { return m_pathClippingIsEntirelyWithinRendererContents; }
 
     static void renderSubtreeToContext(GraphicsContext&, RenderElement&, const AffineTransform&);
-    static void clipToImageBuffer(GraphicsContext&, const AffineTransform& absoluteTransform, const FloatRect& targetRect, RefPtr<ImageBuffer>&, bool safeToClear);
+    static void clipToImageBuffer(GraphicsContext&, const FloatRect& targetRect, const FloatSize& scale, RefPtr<ImageBuffer>&, bool safeToClear);
 
     static float calculateScreenFontSizeScalingFactor(const RenderObject&);
     static AffineTransform calculateTransformationToOutermostCoordinateSystem(const RenderObject&);
-    static void clear2DRotation(AffineTransform&);
 
     static IntRect calculateImageBufferRect(const FloatRect& targetRect, const AffineTransform& absoluteTransform)
     {
@@ -77,6 +78,8 @@ public:
 
     // Support for the buffered-rendering hint.
     bool bufferForeground(RefPtr<ImageBuffer>&);
+
+    const RenderElement* renderer() const { return m_renderer; }
 
 private:
     // To properly revert partially successful initializtions in the destructor, we record all successful steps.
@@ -94,9 +97,11 @@ private:
     RenderElement* m_renderer { nullptr };
     PaintInfo* m_paintInfo { nullptr };
     GraphicsContext* m_savedContext  { nullptr };
-    RenderSVGResourceFilter* m_filter  { nullptr };
+    LegacyRenderSVGResourceFilter* m_filter  { nullptr };
     LayoutRect m_savedPaintRect;
     int m_renderingFlags { 0 };
+    // True with path-based clipping is known to contrain the clipped area to within the renderer; used to optimize away a context clip.
+    bool m_pathClippingIsEntirelyWithinRendererContents { false };
 };
 
 } // namespace WebCore

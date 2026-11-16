@@ -25,12 +25,10 @@
 
 #pragma once
 
-#if ENABLE(LAYOUT_FORMATTING_CONTEXT)
-
 #include "BlockFormattingContext.h"
 #include "BlockFormattingQuirks.h"
 #include "TableWrapperBlockFormattingQuirks.h"
-#include <wtf/IsoMalloc.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 namespace Layout {
@@ -38,22 +36,22 @@ namespace Layout {
 // This class implements the special block formatting context layout logic for the table wrapper.
 // https://www.w3.org/TR/CSS22/tables.html#model
 class TableWrapperBlockFormattingContext final : public BlockFormattingContext {
-    WTF_MAKE_ISO_ALLOCATED(TableWrapperBlockFormattingContext);
+    WTF_MAKE_TZONE_ALLOCATED(TableWrapperBlockFormattingContext);
 public:
-    TableWrapperBlockFormattingContext(const ContainerBox& formattingContextRoot, BlockFormattingState&);
+    TableWrapperBlockFormattingContext(const ElementBox& formattingContextRoot, BlockFormattingState&);
 
-    void layoutInFlowContent(InvalidationState&, const ConstraintsForInFlowContent&) final;
+    void layoutInFlowContent(const ConstraintsForInFlowContent&) final;
 
     void setHorizontalConstraintsIgnoringFloats(const HorizontalConstraints& horizontalConstraints) { m_horizontalConstraintsIgnoringFloats = horizontalConstraints; }
 
-    const TableWrapperQuirks& formattingQuirks() const final { return m_tableWrapperFormattingQuirks; }
+    const TableWrapperQuirks& formattingQuirks() const LIFETIME_BOUND { return m_tableWrapperFormattingQuirks; }
 
 private:
-    void layoutTableBox(const ContainerBox& tableBox, const ConstraintsForInFlowContent&);
+    void layoutTableBox(const ElementBox& tableBox, const ConstraintsForInFlowContent&);
 
-    void computeBorderAndPaddingForTableBox(const ContainerBox&, const HorizontalConstraints&);
-    void computeWidthAndMarginForTableBox(const ContainerBox&, const HorizontalConstraints&);
-    void computeHeightAndMarginForTableBox(const ContainerBox&, const ConstraintsForInFlowContent&);
+    void computeBorderAndPaddingForTableBox(const ElementBox&, const HorizontalConstraints&);
+    void computeWidthAndMarginForTableBox(const ElementBox&, const HorizontalConstraints&);
+    void computeHeightAndMarginForTableBox(const ElementBox&, const ConstraintsForInFlowContent&);
 
     HorizontalConstraints m_horizontalConstraintsIgnoringFloats;
     const TableWrapperQuirks m_tableWrapperFormattingQuirks;
@@ -64,4 +62,3 @@ private:
 
 SPECIALIZE_TYPE_TRAITS_LAYOUT_FORMATTING_CONTEXT(TableWrapperBlockFormattingContext, isTableWrapperBlockFormattingContext())
 
-#endif

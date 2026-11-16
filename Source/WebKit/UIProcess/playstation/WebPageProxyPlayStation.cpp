@@ -29,7 +29,12 @@
 #include "EditorState.h"
 #include "WebsiteDataStore.h"
 #include <WebCore/NotImplemented.h>
+#include <WebCore/SearchPopupMenu.h>
 #include <WebCore/UserAgent.h>
+
+#if USE(GRAPHICS_LAYER_WC)
+#include "PageClientImpl.h"
+#endif
 
 namespace WebKit {
 
@@ -53,12 +58,12 @@ String WebPageProxy::standardUserAgent(const String& applicationNameForUserAgent
     return WebCore::standardUserAgent(applicationNameForUserAgent);
 }
 
-void WebPageProxy::saveRecentSearches(const String&, const Vector<WebCore::RecentSearch>&)
+void WebPageProxy::saveRecentSearches(IPC::Connection&, const String&, const Vector<WebCore::RecentSearch>&)
 {
     notImplemented();
 }
 
-void WebPageProxy::loadRecentSearches(const String&, CompletionHandler<void(Vector<WebCore::RecentSearch>&&)>&& completionHandler)
+void WebPageProxy::loadRecentSearches(IPC::Connection&, const String&, CompletionHandler<void(Vector<WebCore::RecentSearch>&&)>&& completionHandler)
 {
     notImplemented();
     completionHandler({ });
@@ -67,5 +72,12 @@ void WebPageProxy::loadRecentSearches(const String&, CompletionHandler<void(Vect
 void WebPageProxy::didUpdateEditorState(const EditorState&, const EditorState&)
 {
 }
+
+#if USE(GRAPHICS_LAYER_WC)
+uint64_t WebPageProxy::viewWidget()
+{
+    return static_cast<PageClientImpl&>(pageClient()).viewWidget();
+}
+#endif
 
 } // namespace WebKit

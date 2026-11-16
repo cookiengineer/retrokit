@@ -7,7 +7,9 @@
 //   Performance tests for ANGLE's Vulkan backend w.r.t barrier efficiency.
 //
 
+#include <array>
 #include <sstream>
+#include "common/unsafe_buffers.h"
 
 #include "ANGLEPerfTest.h"
 #include "test_utils/gl_raii.h"
@@ -41,15 +43,13 @@ struct VulkanBarriersPerfParams final : public RenderTestParams
     std::string story() const override;
 
     // Static parameters
-    static constexpr int kImageSizes[3] = {256, 512, 4096};
-    static constexpr int kBufferSize    = 4096 * 4096;
+    static constexpr std::array<int, 3> kImageSizes = {256, 512, 4096};
+    static constexpr int kBufferSize                = 4096 * 4096;
 
     bool doBufferCopy;
     bool doLargeTransfers;
     bool doSlowFragmentShaders;
 };
-
-constexpr int VulkanBarriersPerfParams::kImageSizes[];
 
 std::ostream &operator<<(std::ostream &os, const VulkanBarriersPerfParams &params)
 {
@@ -84,13 +84,13 @@ class VulkanBarriersPerfBenchmark : public ANGLERenderTest,
     GLint mSamplerLoc;
 
     // Texture handles
-    GLTexture mTextures[4];
+    std::array<GLTexture, 4> mTextures;
 
     // Uniform buffer handles
-    GLBuffer mUniformBuffers[2];
+    std::array<GLBuffer, 2> mUniformBuffers;
 
     // Framebuffer handles
-    GLFramebuffer mFbos[2];
+    std::array<GLFramebuffer, 2> mFbos;
 
     // Buffer handle
     GLBuffer mVertexBuffer;
@@ -140,10 +140,11 @@ VulkanBarriersPerfBenchmark::VulkanBarriersPerfBenchmark()
       mTexCoordLoc(-1),
       mSamplerLoc(-1)
 {
-    // Fails on Windows7 NVIDIA Vulkan, presumably due to old drivers. http://crbug.com/1096510
     if (IsNVIDIA() && IsWindows7())
     {
-        mSkipTest = true;
+        skipTest(
+            "http://crbug.com/1096510 Fails on Windows7 NVIDIA Vulkan, presumably due to old "
+            "drivers");
     }
 }
 
@@ -187,7 +188,7 @@ void VulkanBarriersPerfBenchmark::createTexture(uint32_t textureIndex,
     const auto &params = GetParam();
 
     // TODO(syoussefi): compressed copy using vkCmdCopyImage not yet implemented in the vulkan
-    // backend. http://anglebug.com/2999
+    // backend. http://anglebug.com/42261682
 
     glBindTexture(GL_TEXTURE_2D, mTextures[textureIndex]);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, params.kImageSizes[sizeIndex],
@@ -402,6 +403,7 @@ TEST_P(VulkanBarriersPerfBenchmark, Run)
     run();
 }
 
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(VulkanBarriersPerfBenchmark);
 ANGLE_INSTANTIATE_TEST(VulkanBarriersPerfBenchmark,
                        VulkanBarriersPerfParams(false, false, false),
                        VulkanBarriersPerfParams(true, false, false),

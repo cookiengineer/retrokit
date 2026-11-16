@@ -29,17 +29,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <wtf/PageBlock.h>
 
 namespace WTF {
 
-static inline size_t systemPageSize()
-{
-    static size_t pageSize = 0;
-    if (!pageSize)
-        pageSize = sysconf(_SC_PAGE_SIZE);
-    return pageSize;
-}
-
+IGNORE_CLANG_WARNINGS_BEGIN("unsafe-buffer-usage-in-libc-call")
 void currentProcessMemoryStatus(ProcessMemoryStatus& memoryStatus)
 {
     FILE* file = fopen("/proc/self/statm", "r");
@@ -52,7 +46,7 @@ void currentProcessMemoryStatus(ProcessMemoryStatus& memoryStatus)
     if (!line)
         return;
 
-    size_t pageSize = systemPageSize();
+    size_t pageSize = WTF::pageSize();
     char* end = nullptr;
     unsigned long long intValue = strtoull(line, &end, 10);
     memoryStatus.size = intValue * pageSize;
@@ -69,5 +63,6 @@ void currentProcessMemoryStatus(ProcessMemoryStatus& memoryStatus)
     intValue = strtoull(end, &end, 10);
     memoryStatus.dt = intValue * pageSize;
 }
+IGNORE_CLANG_WARNINGS_END
 
 } // namespace WTF

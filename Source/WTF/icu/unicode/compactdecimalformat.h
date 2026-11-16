@@ -14,6 +14,9 @@
 #define __COMPACT_DECIMAL_FORMAT_H__
 
 #include "unicode/utypes.h"
+
+#if U_SHOW_CPLUSPLUS_API
+
 /**
  * \file
  * \brief C++ API: Compatibility APIs for compact decimal number formatting.
@@ -30,30 +33,31 @@ U_NAMESPACE_BEGIN
 class PluralRules;
 
 /**
- * <p><strong>IMPORTANT:</strong> New users are strongly encouraged to see if
+ * **IMPORTANT:** New users are strongly encouraged to see if
  * numberformatter.h fits their use case.  Although not deprecated, this header
  * is provided for backwards compatibility only.
- * <hr/>
+ *
+ * -----------------------------------------------------------------------------
  *
  * The CompactDecimalFormat produces abbreviated numbers, suitable for display in
  * environments will limited real estate. For example, 'Hits: 1.2B' instead of
  * 'Hits: 1,200,000,000'. The format will be appropriate for the given language,
  * such as "1,2 Mrd." for German.
- * <p>
+ *
  * For numbers under 1000 trillion (under 10^15, such as 123,456,789,012,345),
  * the result will be short for supported languages. However, the result may
  * sometimes exceed 7 characters, such as when there are combining marks or thin
  * characters. In such cases, the visual width in fonts should still be short.
- * <p>
+ *
  * By default, there are 3 significant digits. After creation, if more than
  * three significant digits are set (with setMaximumSignificantDigits), or if a
  * fixed number of digits are set (with setMaximumIntegerDigits or
  * setMaximumFractionDigits), then result may be wider.
- * <p>
+ *
  * At this time, parsing is not supported, and will produce a U_UNSUPPORTED_ERROR.
  * Resetting the pattern prefixes or suffixes is not supported; the method calls
  * are ignored.
- * <p>
+ *
  * @stable ICU 51
  */
 class U_I18N_API CompactDecimalFormat : public DecimalFormat {
@@ -61,9 +65,9 @@ public:
 
      /**
       * Returns a compact decimal instance for specified locale.
-     * <p>
-     * <strong>NOTE:</strong> New users are strongly encouraged to use
-     * {@link NumberFormatter} instead of NumberFormat.
+      *
+      * **NOTE:** New users are strongly encouraged to use
+      * `number::NumberFormatter` instead of NumberFormat.
       * @param inLocale the given locale.
       * @param style whether to use short or long style.
       * @param status error code returned  here.
@@ -84,7 +88,7 @@ public:
      * Destructor.
      * @stable ICU 51
      */
-    ~CompactDecimalFormat() U_OVERRIDE;
+    ~CompactDecimalFormat() override;
 
     /**
      * Assignment operator.
@@ -101,7 +105,7 @@ public:
      * @return    a polymorphic copy of this CompactDecimalFormat.
      * @stable ICU 51
      */
-    Format* clone() const U_OVERRIDE;
+    CompactDecimalFormat* clone() const override;
 
     using DecimalFormat::format;
 
@@ -115,7 +119,7 @@ public:
      * @stable ICU 51
      */
     void parse(const UnicodeString& text, Formattable& result,
-               ParsePosition& parsePosition) const U_OVERRIDE;
+               ParsePosition& parsePosition) const override;
 
     /**
      * CompactDecimalFormat does not support parsing. This implementation
@@ -126,7 +130,7 @@ public:
      * @param status    Always set to U_UNSUPPORTED_ERROR.
      * @stable ICU 51
      */
-    void parse(const UnicodeString& text, Formattable& result, UErrorCode& status) const U_OVERRIDE;
+    void parse(const UnicodeString& text, Formattable& result, UErrorCode& status) const override;
 
 #ifndef U_HIDE_INTERNAL_API
     /**
@@ -137,7 +141,7 @@ public:
      * This method will fail if this format is not a currency format,
      * that is, if it does not contain the currency pattern symbol
      * (U+00A4) in its prefix or suffix. This implementation always returns
-     * NULL.
+     * nullptr.
      *
      * @param text the string to parse
      * @param pos  input-output position; on input, the position within text
@@ -146,10 +150,10 @@ public:
      *             If the parse fails, the position in unchanged upon output.
      * @return     if parse succeeds, a pointer to a newly-created CurrencyAmount
      *             object (owned by the caller) containing information about
-     *             the parsed currency; if parse fails, this is NULL.
+     *             the parsed currency; if parse fails, this is nullptr.
      * @internal
      */
-    CurrencyAmount* parseCurrency(const UnicodeString& text, ParsePosition& pos) const U_OVERRIDE;
+    CurrencyAmount* parseCurrency(const UnicodeString& text, ParsePosition& pos) const override;
 #endif  /* U_HIDE_INTERNAL_API */
 
     /**
@@ -176,7 +180,7 @@ public:
      *                  other classes have different class IDs.
      * @stable ICU 51
      */
-    UClassID getDynamicClassID() const U_OVERRIDE;
+    UClassID getDynamicClassID() const override;
 
   private:
     CompactDecimalFormat(const Locale& inLocale, UNumberCompactStyle style, UErrorCode& status);
@@ -185,6 +189,8 @@ public:
 U_NAMESPACE_END
 
 #endif /* #if !UCONFIG_NO_FORMATTING */
+
+#endif /* U_SHOW_CPLUSPLUS_API */
 
 #endif // __COMPACT_DECIMAL_FORMAT_H__
 //eof

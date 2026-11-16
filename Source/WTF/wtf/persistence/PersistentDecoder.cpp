@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,50 +26,48 @@
 #include "config.h"
 #include <wtf/persistence/PersistentDecoder.h>
 
+#include <wtf/StdLibExtras.h>
 #include <wtf/persistence/PersistentEncoder.h>
 
-namespace WTF {
-namespace Persistence {
+namespace WTF::Persistence {
 
-Decoder::Decoder(Span<const uint8_t> span)
+Decoder::Decoder(std::span<const uint8_t> span)
     : m_buffer(span)
     , m_bufferPosition(span.begin())
 {
 }
 
-Decoder::~Decoder()
-{
-}
+Decoder::~Decoder() = default;
 
 bool Decoder::bufferIsLargeEnoughToContain(size_t size) const
 {
-    return size <= static_cast<size_t>(m_buffer.end() - m_bufferPosition);
+    return size <= static_cast<size_t>(std::distance(m_bufferPosition, m_buffer.end()));
 }
 
-const uint8_t* Decoder::bufferPointerForDirectRead(size_t size)
+std::span<const uint8_t> Decoder::bufferPointerForDirectRead(size_t size)
 {
     if (!bufferIsLargeEnoughToContain(size))
-        return nullptr;
+        return { };
 
-    auto data = m_bufferPosition;
+    auto data = m_buffer.subspan(currentOffset(), size);
     m_bufferPosition += size;
 
-    Encoder::updateChecksumForData(m_sha1, { data, size });
+    Encoder::updateChecksumForData(m_sha1, data);
     return data;
 }
 
-bool Decoder::decodeFixedLengthData(Span<uint8_t> span)
+bool Decoder::decodeFixedLengthData(std::span<uint8_t> span)
 {
     auto buffer = bufferPointerForDirectRead(span.size());
-    if (!buffer)
+    if (!buffer.data())
         return false;
-    memcpy(span.data(), buffer, span.size());
+    memcpySpan(span, buffer);
     return true;
 }
 
 bool Decoder::rewind(size_t size)
 {
-    if (size <= static_cast<size_t>(m_bufferPosition - m_buffer.begin())) {
+    if (size <= currentOffset()) {
         m_bufferPosition -= size;
         return true;
     }
@@ -83,7 +81,7 @@ Decoder& Decoder::decodeNumber(std::optional<T>& optional)
         return *this;
 
     T value;
-    memcpy(&value, m_bufferPosition, sizeof(T));
+    memcpySpan(asMutableByteSpan(value), m_buffer.subspan(currentOffset(), sizeof(T)));
     m_bufferPosition += sizeof(T);
 
     Encoder::updateChecksumForNumber(m_sha1, value);
@@ -147,11 +145,10 @@ bool Decoder::verifyChecksum()
     m_sha1.computeHash(computedHash);
 
     SHA1::Digest savedHash;
-    if (!decodeFixedLengthData({ savedHash.data(), sizeof(savedHash) }))
+    if (!decodeFixedLengthData({ savedHash }))
         return false;
 
     return computedHash == savedHash;
 }
 
-} // namespace Persistence
-} // namespace WTF
+} // namespace WTF::Persistence

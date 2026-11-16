@@ -25,10 +25,12 @@
 
 #pragma once
 
-#include "ExceptionOr.h"
 #include "PerformanceMark.h"
 #include "PerformanceMeasure.h"
+#include "PerformanceMeasureOptions.h"
 #include <wtf/HashMap.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakRef.h>
 #include <wtf/text/StringHash.h>
 
 namespace JSC {
@@ -38,11 +40,13 @@ class JSGlobalObject;
 namespace WebCore {
 
 class Performance;
+class WeakPtrImplWithEventTargetData;
+template<typename> class ExceptionOr;
 
-using PerformanceEntryMap = HashMap<String, Vector<RefPtr<PerformanceEntry>>>;
+using PerformanceEntryMap = HashMap<String, Vector<Ref<PerformanceEntry>>>;
 
 class PerformanceUserTiming {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(PerformanceUserTiming);
 public:
     explicit PerformanceUserTiming(Performance&);
 
@@ -50,14 +54,14 @@ public:
     void clearMarks(const String& markName);
 
     using StartOrMeasureOptions = Variant<String, PerformanceMeasureOptions>;
-    ExceptionOr<Ref<PerformanceMeasure>> measure(JSC::JSGlobalObject&, const String& measureName, std::optional<StartOrMeasureOptions>&&, const String& endMark);
+    ExceptionOr<Ref<PerformanceMeasure>> measure(JSC::JSGlobalObject&, const String& measureName, StartOrMeasureOptions&&, const String& endMark);
     void clearMeasures(const String& measureName);
 
-    Vector<RefPtr<PerformanceEntry>> getMarks() const;
-    Vector<RefPtr<PerformanceEntry>> getMeasures() const;
+    Vector<Ref<PerformanceEntry>> getMarks() const;
+    Vector<Ref<PerformanceEntry>> getMeasures() const;
 
-    Vector<RefPtr<PerformanceEntry>> getMarks(const String& name) const;
-    Vector<RefPtr<PerformanceEntry>> getMeasures(const String& name) const;
+    Vector<Ref<PerformanceEntry>> getMarks(const String& name) const;
+    Vector<Ref<PerformanceEntry>> getMeasures(const String& name) const;
 
     static bool isRestrictedMarkName(const String& markName);
 
@@ -69,7 +73,7 @@ private:
     ExceptionOr<Ref<PerformanceMeasure>> measure(const String& measureName, const String& startMark, const String& endMark);
     ExceptionOr<Ref<PerformanceMeasure>> measure(JSC::JSGlobalObject&, const String& measureName, const PerformanceMeasureOptions&);
 
-    Performance& m_performance;
+    WeakRef<Performance, WeakPtrImplWithEventTargetData> m_performance;
     PerformanceEntryMap m_marksMap;
     PerformanceEntryMap m_measuresMap;
 };

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,27 +29,45 @@
 #if ENABLE(WEBASSEMBLY)
 
 #include "JSCJSValueInlines.h"
+#include "JSWebAssemblyGlobal.h"
 #include "JSWebAssemblyHelpers.h"
 #include "JSWebAssemblyRuntimeError.h"
+#include "WasmTypeDefinitionInlines.h"
 #include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC { namespace Wasm {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Global);
+
 JSValue Global::get(JSGlobalObject* globalObject) const
 {
+    VM& vm = globalObject->vm();
+    auto throwScope = DECLARE_THROW_SCOPE(vm);
+
     switch (m_type.kind) {
     case TypeKind::I32:
-        return jsNumber(bitwise_cast<int32_t>(static_cast<uint32_t>(m_value.m_primitive)));
+        return jsNumber(std::bit_cast<int32_t>(static_cast<uint32_t>(m_value.m_primitive)));
     case TypeKind::I64:
-        return JSBigInt::makeHeapBigIntOrBigInt32(globalObject, static_cast<int64_t>(m_value.m_primitive));
+        RELEASE_AND_RETURN(throwScope, JSBigInt::makeHeapBigIntOrBigInt32(globalObject, static_cast<int64_t>(m_value.m_primitive)));
     case TypeKind::F32:
-        return jsNumber(purifyNaN(static_cast<double>(bitwise_cast<float>(static_cast<uint32_t>(m_value.m_primitive)))));
+        return jsNumber(purifyNaN(static_cast<double>(std::bit_cast<float>(static_cast<uint32_t>(m_value.m_primitive)))));
     case TypeKind::F64:
-        return jsNumber(purifyNaN(bitwise_cast<double>(m_value.m_primitive)));
+        return jsNumber(purifyNaN(std::bit_cast<double>(m_value.m_primitive)));
+    case TypeKind::V128:
+        throwException(globalObject, throwScope, createJSWebAssemblyRuntimeError(globalObject, vm, "Cannot get value of v128 global"_s));
+        return { };
+    case TypeKind::Exnref:
     case TypeKind::Externref:
     case TypeKind::Funcref:
-    case TypeKind::TypeIdx:
+    case TypeKind::Ref:
+    case TypeKind::RefNull: {
+        if (isExnref(m_type)) [[unlikely]] {
+            throwException(globalObject, throwScope, createJSWebAssemblyRuntimeError(globalObject, vm, "Cannot get value of exnref global"_s));
+            return { };
+        }
         return m_value.m_externref.get();
+    }
     default:
         return jsUndefined();
     }
@@ -59,7 +77,7 @@ void Global::set(JSGlobalObject* globalObject, JSValue argument)
 {
     VM& vm = globalObject->vm();
     auto throwScope = DECLARE_THROW_SCOPE(vm);
-    ASSERT(m_mutability != Wasm::GlobalInformation::Immutable);
+    ASSERT(m_mutability != Wasm::Immutable);
     switch (m_type.kind) {
     case TypeKind::I32: {
         int32_t value = argument.toInt32(globalObject);
@@ -76,66 +94,74 @@ void Global::set(JSGlobalObject* globalObject, JSValue argument)
     case TypeKind::F32: {
         float value = argument.toFloat(globalObject);
         RETURN_IF_EXCEPTION(throwScope, void());
-        m_value.m_primitive = static_cast<uint64_t>(bitwise_cast<uint32_t>(value));
+        m_value.m_primitive = static_cast<uint64_t>(std::bit_cast<uint32_t>(value));
         break;
     }
     case TypeKind::F64: {
         double value = argument.toNumber(globalObject);
         RETURN_IF_EXCEPTION(throwScope, void());
-        m_value.m_primitive = bitwise_cast<uint64_t>(value);
+        m_value.m_primitive = std::bit_cast<uint64_t>(value);
         break;
     }
-    case TypeKind::Externref: {
-        RELEASE_ASSERT(m_owner);
-        if (!m_type.isNullable() && argument.isNull()) {
-            throwException(globalObject, throwScope, createJSWebAssemblyRuntimeError(globalObject, vm, "Non-null Externref cannot be null"));
-            return;
-        }
-        m_value.m_externref.set(m_owner->vm(), m_owner, argument);
-        break;
+    case TypeKind::V128: {
+        throwTypeError(globalObject, throwScope, "Cannot set value of v128 global"_s);
+        return;
     }
-    case TypeKind::TypeIdx:
-    case TypeKind::Funcref: {
-        RELEASE_ASSERT(m_owner);
-        bool isNullable = m_type.isNullable();
-        WebAssemblyFunction* wasmFunction = nullptr;
-        WebAssemblyWrapperFunction* wasmWrapperFunction = nullptr;
-        if (!isWebAssemblyHostFunction(vm, argument, wasmFunction, wasmWrapperFunction) && (!isNullable || !argument.isNull())) {
-            throwException(globalObject, throwScope, createJSWebAssemblyRuntimeError(globalObject, vm, "Funcref must be an exported wasm function"));
-            return;
-        }
-        if (m_type.kind == TypeKind::TypeIdx && (wasmFunction || wasmWrapperFunction)) {
-            Wasm::SignatureIndex paramIndex = m_type.index;
-            Wasm::SignatureIndex argIndex;
-            if (wasmFunction)
-                argIndex = wasmFunction->signatureIndex();
-            else
-                argIndex = wasmWrapperFunction->signatureIndex();
-            if (paramIndex != argIndex) {
-                throwException(globalObject, throwScope, createJSWebAssemblyRuntimeError(globalObject, vm, "Argument function did not match the reference type"));
+    case Wasm::TypeKind::Ref:
+    case Wasm::TypeKind::RefNull:
+    case Wasm::TypeKind::Externref:
+    case Wasm::TypeKind::Funcref: {
+        if (isExternref(m_type)) {
+            RELEASE_ASSERT(m_owner);
+            if (!m_type.isNullable() && argument.isNull()) {
+                throwTypeError(globalObject, throwScope, "Non-null Externref cannot be null"_s);
                 return;
             }
+            m_value.m_externref.set(m_owner->vm(), m_owner, argument);
+        } else if (isFuncref(m_type) || (isRefWithTypeIndex(m_type) && TypeInformation::tryGetRTT(m_type.index) && TypeInformation::tryGetRTT(m_type.index)->kind() == RTTKind::Function)) {
+            RELEASE_ASSERT(m_owner);
+            WebAssemblyFunction* wasmFunction = nullptr;
+            WebAssemblyWrapperFunction* wasmWrapperFunction = nullptr;
+            if (!isWebAssemblyHostFunction(argument, wasmFunction, wasmWrapperFunction) && (!m_type.isNullable() || !argument.isNull())) {
+                throwTypeError(globalObject, throwScope, "Argument value did not match the reference type"_s);
+                return;
+            }
+
+            if (isRefWithTypeIndex(m_type) && !argument.isNull()) {
+                Wasm::TypeIndex paramIndex = m_type.index;
+                Wasm::TypeIndex argIndex = (wasmFunction ? wasmFunction->rtt() : wasmWrapperFunction->rtt())->asTypeIndex();
+                if (paramIndex != argIndex) {
+                    throwTypeError(globalObject, throwScope, "Argument value did not match the reference type"_s);
+                    return;
+                }
+            }
+            m_value.m_externref.set(m_owner->vm(), m_owner, argument);
+        } else if (isExnref(m_type)) {
+            throwTypeError(globalObject, throwScope, "Cannot set value of exnref global"_s);
+            return;
+        } else {
+            JSValue internref = Wasm::internalizeExternref(argument);
+            if (!Wasm::TypeInformation::isReferenceValueAssignable(internref, m_type.isNullable(), m_type.index)) {
+                // FIXME: provide a better error message here
+                // https://bugs.webkit.org/show_bug.cgi?id=247746
+                throwTypeError(globalObject, throwScope, "Argument value did not match the reference type"_s);
+                return;
+            }
+            m_value.m_externref.set(m_owner->vm(), m_owner, internref);
         }
-        m_value.m_externref.set(m_owner->vm(), m_owner, argument);
         break;
     }
     default:
-        break;
+        RELEASE_ASSERT_NOT_REACHED();
     }
 }
 
 template<typename Visitor>
 void Global::visitAggregateImpl(Visitor& visitor)
 {
-    switch (m_type.kind) {
-    case TypeKind::Externref:
-    case TypeKind::Funcref: {
+    if (isRefType(m_type)) {
         RELEASE_ASSERT(m_owner);
         visitor.append(m_value.m_externref);
-        break;
-    }
-    default:
-        break;
     }
 }
 

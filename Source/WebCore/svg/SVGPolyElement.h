@@ -23,39 +23,43 @@
 
 #include "SVGGeometryElement.h"
 #include "SVGNames.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class SVGPolyElement : public SVGGeometryElement {
-    WTF_MAKE_ISO_ALLOCATED(SVGPolyElement);
+    WTF_MAKE_TZONE_ALLOCATED(SVGPolyElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGPolyElement);
 public:
     const SVGPointList& points() const { return m_points->currentValue(); }
 
     SVGPointList& points() { return m_points->baseVal(); }
-    SVGPointList& animatedPoints() { return *m_points->animVal(); }
+    SVGPointList& animatedPoints() { return m_points->animVal(); }
 
     size_t approximateMemoryCost() const override;
+
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGPolyElement, SVGGeometryElement>;
 
 protected:
     SVGPolyElement(const QualifiedName&, Document&);
 
 private:
-    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGPolyElement, SVGGeometryElement>;
-    const SVGPropertyRegistry& propertyRegistry() const final { return m_propertyRegistry; }
-
-    void parseAttribute(const QualifiedName&, const AtomString&) override; 
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
     void svgAttributeChanged(const QualifiedName&) override;
 
     bool isValid() const override { return SVGTests::isValid(); }
     bool supportsMarkers() const override { return true; }
 
-    PropertyRegistry m_propertyRegistry { *this };
-    Ref<SVGAnimatedPointList> m_points { SVGAnimatedPointList::create(this) };
+    const Ref<SVGAnimatedPointList> m_points { SVGAnimatedPointList::create(this) };
 };
 
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::SVGPolyElement)
     static bool isType(const WebCore::SVGElement& element) { return element.hasTagName(WebCore::SVGNames::polygonTag) || element.hasTagName(WebCore::SVGNames::polylineTag); }
-    static bool isType(const WebCore::Node& node) { return is<WebCore::SVGElement>(node) && isType(downcast<WebCore::SVGElement>(node)); }
+    static bool isType(const WebCore::Node& node)
+    {
+        auto* svgElement = dynamicDowncast<WebCore::SVGElement>(node);
+        return svgElement && isType(*svgElement);
+    }
 SPECIALIZE_TYPE_TRAITS_END()

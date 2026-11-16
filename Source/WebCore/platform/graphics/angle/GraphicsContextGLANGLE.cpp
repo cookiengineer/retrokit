@@ -21,37 +21,38 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "config.h"
 
-#if ENABLE(WEBGL) && USE(ANGLE)
-#include "GraphicsContextGL.h"
+#if ENABLE(WEBGL)
+#include "GraphicsContextGLANGLE.h"
 
 #include "ANGLEHeaders.h"
-#include "ExtensionsGLANGLE.h"
-#include "GraphicsContextGLANGLEUtilities.h"
-#include "GraphicsContextGLOpenGL.h"
+#include "ANGLEUtilities.h"
+#include "GraphicsContext.h"
 #include "ImageBuffer.h"
 #include "IntRect.h"
 #include "IntSize.h"
 #include "Logging.h"
+#include "NativeImage.h"
 #include "NotImplemented.h"
-#include "PixelBuffer.h"
-#include "TemporaryANGLESetting.h"
-#include <JavaScriptCore/RegularExpression.h>
+#include "TypedArrayPixelBuffer.h"
 #include <algorithm>
 #include <cstring>
-#include <wtf/HexNumber.h>
+#include <sstream>
+#include <string>
+#include <wtf/MallocSpan.h>
+#include <wtf/RuntimeApplicationChecks.h>
 #include <wtf/Seconds.h>
-#include <wtf/ThreadSpecific.h>
+#include <wtf/SortedArrayMap.h>
+#include <wtf/StdLibExtras.h>
 #include <wtf/text/CString.h>
+#include <wtf/text/CStringView.h>
 #include <wtf/text/StringBuilder.h>
-
-
 #if ENABLE(VIDEO) && USE(AVFOUNDATION)
-#include "GraphicsContextGLCVANGLE.h"
+#include "GraphicsContextGLCVCocoa.h"
 #endif
 
 // This one definition short-circuits the need for gl2ext.h, which
@@ -60,55 +61,360 @@
 
 namespace WebCore {
 
-static const char* packedDepthStencilExtensionName = "GL_OES_packed_depth_stencil";
-
-static Seconds maxFrameDuration = 5_s;
-
-#if PLATFORM(MAC) || PLATFORM(IOS_FAMILY)
-static void wipeAlphaChannelFromPixels(int width, int height, unsigned char* pixels)
+// List of displays ever instantiated from EGL. When terminating all EGL resources, we need to
+// terminate all displays. However, we cannot ask EGL all the displays it has created.
+// We must know all the displays via this set.
+static HashSet<GCGLDisplay>& NODELETE usedDisplays()
 {
-    // We can assume this doesn't overflow because the calling functions
-    // use checked arithmetic.
-    int totalBytes = width * height * 4;
-    for (int i = 0; i < totalBytes; i += 4)
-        pixels[i + 3] = 255;
+    static NeverDestroyed<HashSet<GCGLDisplay>> s_usedDisplays;
+    return s_usedDisplays;
 }
+
+static inline const Vector<const void*> asPointers(std::span<const GCGLsizei> offsets)
+{
+    // Must cast offsets from int to void* before passing down to ANGLE.
+
+    return WTF::map(offsets, [](const GCGLsizei offset) {
+        return reinterpret_cast<const void*>(offset);
+    });
+}
+
+static std::span<uint8_t> glMapBufferRangeSpan(GLenum target, GLintptr offset, GLsizeiptr length, GLbitfield access)
+{
+    void* ptr = GL_MapBufferRange(target, offset, length, access);
+    if (!ptr)
+        return { };
+    return unsafeMakeSpan(static_cast<uint8_t*>(ptr), length);
+}
+
+static constexpr SortedArrayMap extensionsMapping { WTF::toArray<std::pair<ComparableASCIILiteral, GCGLExtension>>({
+    { "GL_ANGLE_base_vertex_base_instance"_s, GCGLExtension::ANGLE_base_vertex_base_instance },
+    { "GL_ANGLE_clip_cull_distance"_s, GCGLExtension::ANGLE_clip_cull_distance },
+    { "GL_ANGLE_compressed_texture_etc"_s, GCGLExtension::ANGLE_compressed_texture_etc },
+    { "GL_ANGLE_depth_texture"_s, GCGLExtension::ANGLE_depth_texture },
+    { "GL_ANGLE_instanced_arrays"_s, GCGLExtension::ANGLE_instanced_arrays },
+    { "GL_ANGLE_multi_draw"_s, GCGLExtension::ANGLE_multi_draw },
+    { "GL_ANGLE_pack_reverse_row_order"_s, GCGLExtension::ANGLE_pack_reverse_row_order },
+    { "GL_ANGLE_polygon_mode"_s, GCGLExtension::ANGLE_polygon_mode },
+    { "GL_ANGLE_provoking_vertex"_s, GCGLExtension::ANGLE_provoking_vertex },
+    { "GL_ANGLE_stencil_texturing"_s, GCGLExtension::ANGLE_stencil_texturing },
+    { "GL_ANGLE_texture_compression_dxt3"_s, GCGLExtension::ANGLE_texture_compression_dxt3 },
+    { "GL_ANGLE_texture_compression_dxt5"_s, GCGLExtension::ANGLE_texture_compression_dxt5 },
+    { "GL_ANGLE_translated_shader_source"_s, GCGLExtension::ANGLE_translated_shader_source },
+    { "GL_CHROMIUM_color_buffer_float_rgb"_s, GCGLExtension::CHROMIUM_color_buffer_float_rgb },
+    { "GL_CHROMIUM_color_buffer_float_rgba"_s, GCGLExtension::CHROMIUM_color_buffer_float_rgba },
+    { "GL_EXT_blend_func_extended"_s, GCGLExtension::EXT_blend_func_extended },
+    { "GL_EXT_blend_minmax"_s, GCGLExtension::EXT_blend_minmax },
+    { "GL_EXT_clip_control"_s, GCGLExtension::EXT_clip_control },
+    { "GL_EXT_color_buffer_float"_s, GCGLExtension::EXT_color_buffer_float },
+    { "GL_EXT_color_buffer_half_float"_s, GCGLExtension::EXT_color_buffer_half_float },
+    { "GL_EXT_conservative_depth"_s, GCGLExtension::EXT_conservative_depth },
+    { "GL_EXT_depth_clamp"_s, GCGLExtension::EXT_depth_clamp },
+    { "GL_EXT_disjoint_timer_query"_s, GCGLExtension::EXT_disjoint_timer_query },
+    { "GL_EXT_draw_buffers"_s, GCGLExtension::EXT_draw_buffers },
+    { "GL_EXT_float_blend"_s, GCGLExtension::EXT_float_blend },
+    { "GL_EXT_frag_depth"_s, GCGLExtension::EXT_frag_depth },
+    { "GL_EXT_polygon_offset_clamp"_s, GCGLExtension::EXT_polygon_offset_clamp },
+    { "GL_EXT_render_snorm"_s, GCGLExtension::EXT_render_snorm },
+    { "GL_EXT_sRGB"_s, GCGLExtension::EXT_sRGB },
+    { "GL_EXT_shader_texture_lod"_s, GCGLExtension::EXT_shader_texture_lod },
+    { "GL_EXT_texture_compression_bptc"_s, GCGLExtension::EXT_texture_compression_bptc },
+    { "GL_EXT_texture_compression_dxt1"_s, GCGLExtension::EXT_texture_compression_dxt1 },
+    { "GL_EXT_texture_compression_rgtc"_s, GCGLExtension::EXT_texture_compression_rgtc },
+    { "GL_EXT_texture_compression_s3tc_srgb"_s, GCGLExtension::EXT_texture_compression_s3tc_srgb },
+    { "GL_EXT_texture_filter_anisotropic"_s, GCGLExtension::EXT_texture_filter_anisotropic },
+    { "GL_EXT_texture_mirror_clamp_to_edge"_s, GCGLExtension::EXT_texture_mirror_clamp_to_edge },
+    { "GL_EXT_texture_norm16"_s, GCGLExtension::EXT_texture_norm16 },
+    { "GL_IMG_texture_compression_pvrtc"_s, GCGLExtension::IMG_texture_compression_pvrtc },
+    { "GL_KHR_parallel_shader_compile"_s, GCGLExtension::KHR_parallel_shader_compile },
+    { "GL_KHR_texture_compression_astc_hdr"_s, GCGLExtension::KHR_texture_compression_astc_hdr },
+    { "GL_KHR_texture_compression_astc_ldr"_s, GCGLExtension::KHR_texture_compression_astc_ldr },
+    { "GL_NV_shader_noperspective_interpolation"_s, GCGLExtension::NV_shader_noperspective_interpolation },
+    { "GL_OES_compressed_ETC1_RGB8_texture"_s, GCGLExtension::OES_compressed_ETC1_RGB8_texture },
+    { "GL_OES_depth_texture"_s, GCGLExtension::OES_depth_texture },
+    { "GL_OES_draw_buffers_indexed"_s, GCGLExtension::OES_draw_buffers_indexed },
+    { "GL_OES_element_index_uint"_s, GCGLExtension::OES_element_index_uint },
+    { "GL_OES_fbo_render_mipmap"_s, GCGLExtension::OES_fbo_render_mipmap },
+    { "GL_OES_packed_depth_stencil"_s, GCGLExtension::OES_packed_depth_stencil },
+    { "GL_OES_sample_variables"_s, GCGLExtension::OES_sample_variables },
+    { "GL_OES_shader_multisample_interpolation"_s, GCGLExtension::OES_shader_multisample_interpolation },
+    { "GL_OES_standard_derivatives"_s, GCGLExtension::OES_standard_derivatives },
+    { "GL_OES_texture_float"_s, GCGLExtension::OES_texture_float },
+    { "GL_OES_texture_float_linear"_s, GCGLExtension::OES_texture_float_linear },
+    { "GL_OES_texture_half_float"_s, GCGLExtension::OES_texture_half_float },
+    { "GL_OES_texture_half_float_linear"_s, GCGLExtension::OES_texture_half_float_linear },
+    { "GL_OES_vertex_array_object"_s, GCGLExtension::OES_vertex_array_object },
+    { "GL_QCOM_render_shared_exponent"_s, GCGLExtension::QCOM_render_shared_exponent },
+}) };
+
+static ASCIILiteral NODELETE extensionName(GCGLExtension extension)
+{
+    size_t index = static_cast<size_t>(extension);
+    std::span mapping { extensionsMapping.array() };
+    if (mapping.size() < index) {
+        ASSERT_NOT_REACHED();
+        return { };
+    }
+    auto [name, enumValue] = mapping[index];
+    if (enumValue != extension) {
+        // Verifies that the enums do not get disconnected from the string.
+        ASSERT_NOT_REACHED();
+        return { };
+    }
+    return name.literal;
+}
+
+static std::optional<GCGLExtension> extensionEnum(const CString& extension)
+{
+    if (auto* result = extensionsMapping.tryGet(extension.span()))
+        return *result;
+    return std::nullopt;
+}
+
+GraphicsContextGLANGLE::GraphicsContextGLANGLE(GraphicsContextGLAttributes attributes)
+    : GraphicsContextGL(attributes)
+{
+}
+
+bool GraphicsContextGLANGLE::initialize()
+{
+    if (contextAttributes().failContextCreationForTesting == GraphicsContextGLAttributes::SimulatedCreationFailure::FailPlatformContextCreation)
+        return false;
+    if (!platformInitializeContext())
+        return false;
+
+    {
+        StringView extensionsString { unsafeSpan(byteCast<char>(GL_GetString(GL_EXTENSIONS))) };
+        for (auto extension : extensionsString.split(' '))
+            m_extensions.add(extension.span8());
+    }
+    {
+        StringView extensionsString { unsafeSpan(byteCast<char>(GL_GetString(GL_REQUESTABLE_EXTENSIONS_ANGLE))) };
+        for (auto extension : extensionsString.split(' '))
+            m_allRequestableExtensions.add(extension.span8());
+    }
+
+    validateAttributes();
+    auto attributes = contextAttributes(); // They may have changed during validation.
+
+    if (m_isForWebGL2 && !enableExtensionsImpl({ "GL_EXT_occlusion_query_boolean"_s, "GL_ANGLE_framebuffer_multisample"_s }))
+        return false;
+
+    if (!platformInitializeExtensions())
+        return false;
+
+    if (m_isForWebGL2)
+        GL_Enable(GraphicsContextGL::PRIMITIVE_RESTART_FIXED_INDEX);
+
+    // Create the texture that will be used for the framebuffer.
+    GLenum textureTarget = GL_TEXTURE_2D;
+
+    GL_GenTextures(1, &m_texture);
+    GL_BindTexture(textureTarget, m_texture);
+    GL_TexParameteri(textureTarget, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    GL_TexParameteri(textureTarget, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    GL_TexParameteri(textureTarget, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    GL_TexParameteri(textureTarget, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    GL_BindTexture(textureTarget, 0);
+
+    GL_GenFramebuffers(1, &m_fbo);
+    GL_BindFramebuffer(GL_FRAMEBUFFER, m_fbo);
+    m_state.boundDrawFBO = m_state.boundReadFBO = m_fbo;
+
+    if (!attributes.antialias && (attributes.stencil || attributes.depth))
+        GL_GenRenderbuffers(1, &m_depthStencilBuffer);
+
+    // If necessary, create another framebuffer for the multisample results.
+    if (attributes.antialias) {
+        GL_GenFramebuffers(1, &m_multisampleFBO);
+        GL_BindFramebuffer(GL_FRAMEBUFFER, m_multisampleFBO);
+        m_state.boundDrawFBO = m_state.boundReadFBO = m_multisampleFBO;
+        GL_GenRenderbuffers(1, &m_multisampleColorBuffer);
+        if (attributes.stencil || attributes.depth)
+            GL_GenRenderbuffers(1, &m_multisampleDepthStencilBuffer);
+    } else if (attributes.preserveDrawingBuffer) {
+        // If necessary, create another texture to handle preserveDrawingBuffer:true without
+        // antialiasing.
+        GL_GenTextures(1, &m_preserveDrawingBufferTexture);
+        GL_BindTexture(GL_TEXTURE_2D, m_preserveDrawingBufferTexture);
+        GL_TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        GL_TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        GL_TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        GL_TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        GL_BindTexture(GL_TEXTURE_2D, 0);
+        // Create an FBO with which to perform BlitFramebuffer from one texture to the other.
+        GL_GenFramebuffers(1, &m_preserveDrawingBufferFBO);
+    }
+
+    GL_ClearColor(0, 0, 0, 0);
+
+    // Compute initial platform-independent max internal framebuffer size.
+    GCGLint maxTextureSize;
+    GCGLint maxRenderbufferSize;
+    std::array<GCGLint, 2> maxViewportDims { 0, 0 };
+    GL_GetIntegerv(GraphicsContextGL::MAX_TEXTURE_SIZE, &maxTextureSize);
+    GL_GetIntegerv(GraphicsContextGL::MAX_RENDERBUFFER_SIZE, &maxRenderbufferSize);
+    GL_GetIntegerv(GraphicsContextGL::MAX_VIEWPORT_DIMS, maxViewportDims.data());
+    m_maxInternalFramebufferSize = { maxViewportDims[0], maxViewportDims[1] };
+    m_maxInternalFramebufferSize.clampToMinimumSize({ maxTextureSize, maxTextureSize });
+    m_maxInternalFramebufferSize.clampToMinimumSize({ maxRenderbufferSize, maxRenderbufferSize });
+
+    if (!platformInitialize())
+        return false;
+
+    // EGL resources are only ever released if we run in process mode where EGL is used on host app threads, e.g. WK1
+    // mode.
+    static bool tracksUsedDisplays = !(isInWebProcess() || isInGPUProcess());
+    if (tracksUsedDisplays) {
+        // TODO: Move to ~GraphicsContextGLANGLE() when the function is moved to this file.
+        ASSERT(m_displayObj);
+        usedDisplays().add(m_displayObj);
+    }
+
+    bool khrDebugIsSupported = enableExtensionsImpl({ "GL_KHR_debug"_s });
+    ASSERT_UNUSED(khrDebugIsSupported, khrDebugIsSupported);
+    GL_Enable(DEBUG_OUTPUT);
+    GL_Enable(DEBUG_OUTPUT_SYNCHRONOUS);
+    GL_DebugMessageControlKHR(DONT_CARE, DONT_CARE, DONT_CARE, 0, nullptr, 0);
+    GL_DebugMessageControlKHR(DEBUG_SOURCE_API, DONT_CARE, DONT_CARE, 0, nullptr, 1);
+    auto debugMessageCallback = [](GCGLenum, GCGLenum type, GCGLenum id, GCGLenum severity, GCGLsizei length, const GCGLchar* message, const void* context) {
+        auto* gl = reinterpret_cast<const GraphicsContextGLANGLE*>(context);
+        if (gl->m_client)
+            gl->m_client->addDebugMessage(type, id, severity, CString { unsafeMakeSpan(message, length) });
+    };
+    GL_DebugMessageCallbackKHR(debugMessageCallback, this);
+
+    bool packReverseRowOrderIsSupported = enableExtensionsImpl({ "GL_ANGLE_pack_reverse_row_order"_s });
+#if PLATFORM(COCOA)
+    ASSERT_UNUSED(packReverseRowOrderIsSupported, packReverseRowOrderIsSupported);
+#else
+    UNUSED_VARIABLE(packReverseRowOrderIsSupported);
 #endif
 
-std::optional<PixelBuffer> GraphicsContextGLOpenGL::readPixelsForPaintResults()
+    ASSERT(GL_GetError() == NO_ERROR);
+
+    for (auto& extensionString : m_extensions) {
+        if (auto extension = extensionEnum(extensionString))
+            m_knownActiveExtensions.add(*extension);
+    }
+    for (auto& extensionString : m_allEnabledRequestableExtensions) {
+        if (auto extension = extensionEnum(extensionString))
+            m_knownActiveExtensions.add(*extension);
+    }
+    for (auto& extensionString : m_allRequestableExtensions) {
+        if (auto extension = extensionEnum(extensionString)) {
+            if (*extension == GCGLExtension::ANGLE_base_vertex_base_instance && !attributes.supportWebGLDraftExtensions)
+                continue;
+            m_requestableExtensions.add(*extension);
+        }
+    }
+    return true;
+}
+
+bool GraphicsContextGLANGLE::platformInitializeExtensions()
+{
+    return true;
+}
+
+bool GraphicsContextGLANGLE::platformInitialize()
+{
+    return true;
+}
+
+bool GraphicsContextGLANGLE::releaseThreadResources(ReleaseThreadResourceBehavior releaseBehavior)
+{
+    platformReleaseThreadResources();
+
+    if (!platformIsANGLEAvailable())
+        return false;
+
+    // Unset the EGL current context, since the next access might be from another thread, and the
+    // context cannot be current on multiple threads.
+    if (releaseBehavior == ReleaseThreadResourceBehavior::ReleaseCurrentContext) {
+        EGLDisplay display = EGL_GetCurrentDisplay();
+        if (display == EGL_NO_DISPLAY)
+            return true;
+        // At the time of writing, ANGLE does not flush on MakeCurrent. Since we are
+        // potentially switching threads, we should flush.
+        // Note: Here we assume also that ANGLE has only one platform context -- otherwise
+        // we would need to flush each EGL context that has been used.
+        GL_Flush();
+        return EGL_MakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    }
+    if (releaseBehavior == ReleaseThreadResourceBehavior::TerminateAndReleaseThreadResources) {
+        EGLDisplay currentDisplay = EGL_GetCurrentDisplay();
+        if (currentDisplay != EGL_NO_DISPLAY) {
+            ASSERT_NOT_REACHED(); // All resources must have been destroyed.
+            EGL_MakeCurrent(currentDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        }
+        for (auto display : usedDisplays())
+            EGL_Terminate(display);
+        usedDisplays().clear();
+    }
+    // Called when we do not know if we will ever see another call from this thread again.
+    // Unset the EGL current context by releasing whole EGL thread state.
+    return EGL_ReleaseThread();
+}
+
+RefPtr<PixelBuffer> GraphicsContextGLANGLE::readPixelsForPaintResults()
 {
     PixelBufferFormat format { AlphaPremultiplication::Unpremultiplied, PixelFormat::RGBA8, DestinationColorSpace::SRGB() };
-    auto pixelBuffer = PixelBuffer::tryCreate(format, getInternalFramebufferSize());
+    auto pixelBuffer = ByteArrayPixelBuffer::tryCreate(format, getInternalFramebufferSize());
     if (!pixelBuffer)
-        return std::nullopt;
-    ScopedPixelStorageMode packAlignment(GL_PACK_ALIGNMENT);
-    if (packAlignment > 4)
-        packAlignment.pixelStore(4);
-    ScopedPixelStorageMode packRowLength(GL_PACK_ROW_LENGTH, 0, m_isForWebGL2);
-    ScopedPixelStorageMode packSkipRows(GL_PACK_SKIP_ROWS, 0, m_isForWebGL2);
-    ScopedPixelStorageMode packSkipPixels(GL_PACK_SKIP_PIXELS, 0, m_isForWebGL2);
+        return nullptr;
     ScopedBufferBinding scopedPixelPackBufferReset(GL_PIXEL_PACK_BUFFER, 0, m_isForWebGL2);
-
-    gl::ReadnPixelsRobustANGLE(0, 0, pixelBuffer->size().width(), pixelBuffer->size().height(), GL_RGBA, GL_UNSIGNED_BYTE, pixelBuffer->data().byteLength(), nullptr, nullptr, nullptr, pixelBuffer->data().data());
-    // FIXME: Rendering to GL_RGB textures with a IOSurface bound to the texture image leaves
-    // the alpha in the IOSurface in incorrect state. Also ANGLE gl::ReadPixels will in some
-    // cases expose the non-255 values.
-    // https://bugs.webkit.org/show_bug.cgi?id=215804
-#if PLATFORM(MAC) || PLATFORM(IOS_FAMILY)
-    if (!contextAttributes().alpha)
-        wipeAlphaChannelFromPixels(pixelBuffer->size().width(), pixelBuffer->size().height(), pixelBuffer->data().data());
-#endif
+    // The currently bound read framebuffer always has its color buffer attached at COLOR_ATTACHMENT0.
+    // Force GL_READ_BUFFER back to COLOR_ATTACHMENT0 for the duration of the read so content cannot
+    // make the read fail by setting glReadBuffer(GL_NONE) on the emulated default framebuffer (m_fbo).
+    ScopedReadBuffer scopedReadBuffer(GL_COLOR_ATTACHMENT0, m_isForWebGL2);
+    setPackParameters(1, 0, false);
+    updateErrors();
+    GL_ReadPixelsRobustANGLE(0, 0, pixelBuffer->size().width(), pixelBuffer->size().height(), GL_RGBA, GL_UNSIGNED_BYTE, pixelBuffer->bytes().size(), nullptr, nullptr, nullptr, pixelBuffer->bytes().data());
+    // The pixel buffer is uninitialized; never return it if the read was rejected for any reason.
+    if (updateErrors())
+        return nullptr;
     return pixelBuffer;
 }
 
-void GraphicsContextGLOpenGL::validateAttributes()
+void GraphicsContextGLANGLE::validateAttributes()
 {
-    m_internalColorFormat = contextAttributes().alpha ? GL_RGBA8 : GL_RGB8;
+    auto attrs = contextAttributes();
+    m_internalColorFormat = attrs.alpha ? GL_RGBA8 : GL_RGB8;
+    if (attrs.stencil && attrs.depth) {
+        if (supportsExtensionImpl("GL_OES_packed_depth_stencil"_s))
+            m_internalDepthStencilFormat = GL_DEPTH24_STENCIL8_OES;
+        else {
+            // Combined buffer not supported, prefer depth when both requested.
+            if (supportsExtensionImpl("GL_OES_depth24"_s))
+                m_internalDepthStencilFormat = GL_DEPTH_COMPONENT24_OES;
+            else
+                m_internalDepthStencilFormat = GL_DEPTH_COMPONENT16;
+            attrs.stencil = false;
+            setContextAttributes(attrs);
+        }
+    } else if (attrs.stencil)
+        m_internalDepthStencilFormat = GL_STENCIL_INDEX8;
+    else if (attrs.depth) {
+        if (supportsExtensionImpl("GL_OES_depth24"_s))
+            m_internalDepthStencilFormat = GL_DEPTH_COMPONENT24_OES;
+        else
+            m_internalDepthStencilFormat = GL_DEPTH_COMPONENT16;
+    }
 
-    validateDepthStencil(packedDepthStencilExtensionName);
+    if (attrs.antialias) {
+        // FIXME: must adjust this when upgrading to WebGL 2.0 / OpenGL ES 3.0 support.
+        if (!enableExtensionsImpl({ "GL_ANGLE_framebuffer_multisample"_s, "GL_ANGLE_framebuffer_blit"_s, "GL_OES_rgb8_rgba8"_s })) {
+            attrs.antialias = false;
+            setContextAttributes(attrs);
+        }
+    } else if (attrs.preserveDrawingBuffer) {
+        // Needed for preserveDrawingBuffer:true support without antialiasing.
+        bool supported = enableExtensionsImpl({ "GL_ANGLE_framebuffer_blit"_s });
+        ASSERT_UNUSED(supported, supported);
+    }
 }
 
-bool GraphicsContextGLOpenGL::reshapeFBOs(const IntSize& size)
+bool GraphicsContextGLANGLE::reshapeFBOs(const IntSize& size)
 {
     auto attrs = contextAttributes();
     const int width = size.width();
@@ -118,40 +424,40 @@ bool GraphicsContextGLOpenGL::reshapeFBOs(const IntSize& size)
     // Resize multisample FBO.
     if (attrs.antialias) {
         GLint maxSampleCount;
-        gl::GetIntegerv(GL_MAX_SAMPLES_ANGLE, &maxSampleCount);
+        GL_GetIntegerv(GL_MAX_SAMPLES_ANGLE, &maxSampleCount);
         // Using more than 4 samples is slow on some hardware and is unlikely to
         // produce a significantly better result.
         GLint sampleCount = std::min(4, maxSampleCount);
-        gl::BindFramebuffer(GL_FRAMEBUFFER, m_multisampleFBO);
-        gl::BindRenderbuffer(GL_RENDERBUFFER, m_multisampleColorBuffer);
-        gl::RenderbufferStorageMultisampleANGLE(GL_RENDERBUFFER, sampleCount, m_internalColorFormat, width, height);
-        gl::FramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, m_multisampleColorBuffer);
+        GL_BindFramebuffer(GL_FRAMEBUFFER, m_multisampleFBO);
+        GL_BindRenderbuffer(GL_RENDERBUFFER, m_multisampleColorBuffer);
+        GL_RenderbufferStorageMultisampleANGLE(GL_RENDERBUFFER, sampleCount, m_internalColorFormat, width, height);
+        GL_FramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, m_multisampleColorBuffer);
         if (attrs.stencil || attrs.depth) {
-            gl::BindRenderbuffer(GL_RENDERBUFFER, m_multisampleDepthStencilBuffer);
-            gl::RenderbufferStorageMultisampleANGLE(GL_RENDERBUFFER, sampleCount, m_internalDepthStencilFormat, width, height);
+            ASSERT(m_internalDepthStencilFormat);
+            ASSERT(!attrs.stencil || m_internalDepthStencilFormat == GL_STENCIL_INDEX8 || m_internalDepthStencilFormat == GL_DEPTH24_STENCIL8_OES);
+            ASSERT(!attrs.depth || m_internalDepthStencilFormat != GL_STENCIL_INDEX8);
+            GL_BindRenderbuffer(GL_RENDERBUFFER, m_multisampleDepthStencilBuffer);
+            GL_RenderbufferStorageMultisampleANGLE(GL_RENDERBUFFER, sampleCount, m_internalDepthStencilFormat, width, height);
             // WebGL 1.0's rules state that combined depth/stencil renderbuffers
             // have to be attached to the synthetic DEPTH_STENCIL_ATTACHMENT point.
-            if (!isGLES2Compliant() && m_internalDepthStencilFormat == GL_DEPTH24_STENCIL8_OES)
-                gl::FramebufferRenderbuffer(GL_FRAMEBUFFER, DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_multisampleDepthStencilBuffer);
-            else {
-                if (attrs.stencil)
-                    gl::FramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_multisampleDepthStencilBuffer);
-                if (attrs.depth)
-                    gl::FramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, m_multisampleDepthStencilBuffer);
-            }
+            if (attrs.stencil && attrs.depth)
+                GL_FramebufferRenderbuffer(GL_FRAMEBUFFER, DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_multisampleDepthStencilBuffer);
+            else if (attrs.stencil)
+                GL_FramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_multisampleDepthStencilBuffer);
+            else
+                GL_FramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, m_multisampleDepthStencilBuffer);
         }
-        gl::BindRenderbuffer(GL_RENDERBUFFER, 0);
-        if (gl::CheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        GL_BindRenderbuffer(GL_RENDERBUFFER, 0);
+        if (GL_CheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
             // FIXME: cleanup.
             notImplemented();
         }
     }
 
     // resize regular FBO
-    gl::BindFramebuffer(GL_FRAMEBUFFER, m_fbo);
+    GL_BindFramebuffer(GL_FRAMEBUFFER, m_fbo);
 
-#if PLATFORM(COCOA)
-    if (!reshapeDisplayBufferBacking()) {
+    if (!reshapeDrawingBuffer()) {
         RELEASE_LOG(WebGL, "Fatal: Unable to allocate backing store of size %d x %d", width, height);
         forceContextLost();
         return true;
@@ -160,42 +466,25 @@ bool GraphicsContextGLOpenGL::reshapeFBOs(const IntSize& size)
         // The context requires the use of an intermediate texture in order to implement
         // preserveDrawingBuffer:true without antialiasing.
         GLint texture2DBinding = 0;
-        gl::GetIntegerv(GL_TEXTURE_BINDING_2D, &texture2DBinding);
-        gl::BindTexture(GL_TEXTURE_2D, m_preserveDrawingBufferTexture);
+        GL_GetIntegerv(GL_TEXTURE_BINDING_2D, &texture2DBinding);
+        GL_BindTexture(GL_TEXTURE_2D, m_preserveDrawingBufferTexture);
         // Note that any pixel unpack buffer was unbound earlier, in reshape().
-        gl::TexImage2D(GL_TEXTURE_2D, 0, colorFormat, width, height, 0, colorFormat, GL_UNSIGNED_BYTE, 0);
+        GL_TexImage2D(GL_TEXTURE_2D, 0, colorFormat, width, height, 0, colorFormat, GL_UNSIGNED_BYTE, 0);
         // m_fbo is bound at this point.
-        gl::FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_preserveDrawingBufferTexture, 0);
-        gl::BindTexture(GL_TEXTURE_2D, texture2DBinding);
+        GL_FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_preserveDrawingBufferTexture, 0);
+        GL_BindTexture(GL_TEXTURE_2D, texture2DBinding);
         // Attach m_texture to m_preserveDrawingBufferFBO for later blitting.
-        gl::BindFramebuffer(GL_FRAMEBUFFER, m_preserveDrawingBufferFBO);
-        gl::FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, drawingBufferTextureTarget(), m_texture, 0);
-        gl::BindFramebuffer(GL_FRAMEBUFFER, m_fbo);
+        GL_BindFramebuffer(GL_FRAMEBUFFER, m_preserveDrawingBufferFBO);
+        GL_FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_texture, 0);
+        GL_BindFramebuffer(GL_FRAMEBUFFER, m_fbo);
     } else
-        gl::FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, drawingBufferTextureTarget(), m_texture, 0);
-#else
-    GLenum textureTarget = drawingBufferTextureTarget();
-    GLuint internalColorFormat = textureTarget == GL_TEXTURE_2D ? colorFormat : m_internalColorFormat;
-    gl::BindTexture(textureTarget, m_texture);
-    gl::TexImage2D(textureTarget, 0, internalColorFormat, width, height, 0, colorFormat, GL_UNSIGNED_BYTE, 0);
-    gl::FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, textureTarget, m_texture, 0);
-#if USE(COORDINATED_GRAPHICS)
-    if (m_compositorTexture) {
-        gl::BindTexture(textureTarget, m_compositorTexture);
-        gl::TexImage2D(textureTarget, 0, m_internalColorFormat, width, height, 0, colorFormat, GL_UNSIGNED_BYTE, 0);
-        gl::BindTexture(textureTarget, 0);
-        gl::BindTexture(textureTarget, m_intermediateTexture);
-        gl::TexImage2D(textureTarget, 0, m_internalColorFormat, width, height, 0, colorFormat, GL_UNSIGNED_BYTE, 0);
-        gl::BindTexture(textureTarget, 0);
-    }
-#endif
-#endif // PLATFORM(COCOA)
+        GL_FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_texture, 0);
 
     attachDepthAndStencilBufferIfNeeded(m_internalDepthStencilFormat, width, height);
 
     bool mustRestoreFBO = true;
     if (attrs.antialias) {
-        gl::BindFramebuffer(GL_FRAMEBUFFER, m_multisampleFBO);
+        GL_BindFramebuffer(GL_FRAMEBUFFER, m_multisampleFBO);
         if (m_state.boundDrawFBO == m_multisampleFBO && m_state.boundReadFBO == m_multisampleFBO)
             mustRestoreFBO = false;
     } else {
@@ -206,307 +495,367 @@ bool GraphicsContextGLOpenGL::reshapeFBOs(const IntSize& size)
     return mustRestoreFBO;
 }
 
-void GraphicsContextGLOpenGL::attachDepthAndStencilBufferIfNeeded(GLuint internalDepthStencilFormat, int width, int height)
+void GraphicsContextGLANGLE::attachDepthAndStencilBufferIfNeeded(GLuint internalDepthStencilFormat, int width, int height)
 {
     auto attrs = contextAttributes();
 
     if (!attrs.antialias && (attrs.stencil || attrs.depth)) {
-        gl::BindRenderbuffer(GL_RENDERBUFFER, m_depthStencilBuffer);
-        gl::RenderbufferStorage(GL_RENDERBUFFER, internalDepthStencilFormat, width, height);
+        ASSERT(internalDepthStencilFormat);
+        ASSERT(!attrs.stencil || m_internalDepthStencilFormat == GL_STENCIL_INDEX8 || m_internalDepthStencilFormat == GL_DEPTH24_STENCIL8_OES);
+        ASSERT(!attrs.depth || internalDepthStencilFormat != GL_STENCIL_INDEX8);
+        GL_BindRenderbuffer(GL_RENDERBUFFER, m_depthStencilBuffer);
+        GL_RenderbufferStorage(GL_RENDERBUFFER, internalDepthStencilFormat, width, height);
         // WebGL 1.0's rules state that combined depth/stencil renderbuffers
         // have to be attached to the synthetic DEPTH_STENCIL_ATTACHMENT point.
-        if (!isGLES2Compliant() && internalDepthStencilFormat == GL_DEPTH24_STENCIL8_OES)
-            gl::FramebufferRenderbuffer(GL_FRAMEBUFFER, DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_depthStencilBuffer);
-        else {
-            if (attrs.stencil)
-                gl::FramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_depthStencilBuffer);
-            if (attrs.depth)
-                gl::FramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, m_depthStencilBuffer);
-        }
-        gl::BindRenderbuffer(GL_RENDERBUFFER, 0);
+        if (attrs.stencil && attrs.depth)
+            GL_FramebufferRenderbuffer(GL_FRAMEBUFFER, DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_depthStencilBuffer);
+        else if (attrs.stencil)
+            GL_FramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_depthStencilBuffer);
+        else
+            GL_FramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, m_depthStencilBuffer);
+        GL_BindRenderbuffer(GL_RENDERBUFFER, 0);
     }
 
-    if (gl::CheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+    if (GL_CheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
         // FIXME: cleanup
         notImplemented();
     }
 }
 
-void GraphicsContextGLOpenGL::resolveMultisamplingIfNecessary(const IntRect& rect)
+void GraphicsContextGLANGLE::resolveMultisamplingIfNecessary(const IntRect& rect)
 {
-    TemporaryANGLESetting scopedScissor(GL_SCISSOR_TEST, GL_FALSE);
-    TemporaryANGLESetting scopedDither(GL_DITHER, GL_FALSE);
+    prepareForDrawingBufferWrite();
+    ScopedGLCapability scopedScissor(GL_SCISSOR_TEST, GL_FALSE);
+    ScopedGLCapability scopedDither(GL_DITHER, GL_FALSE);
 
     GLint boundFrameBuffer = 0;
     GLint boundReadFrameBuffer = 0;
     if (m_isForWebGL2) {
-        gl::GetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &boundFrameBuffer);
-        gl::GetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &boundReadFrameBuffer);
+        GL_GetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &boundFrameBuffer);
+        GL_GetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &boundReadFrameBuffer);
     } else
-        gl::GetIntegerv(GL_FRAMEBUFFER_BINDING, &boundFrameBuffer);
-    gl::BindFramebuffer(GL_READ_FRAMEBUFFER_ANGLE, m_multisampleFBO);
-    gl::BindFramebuffer(GL_DRAW_FRAMEBUFFER_ANGLE, m_fbo);
+        GL_GetIntegerv(GL_FRAMEBUFFER_BINDING, &boundFrameBuffer);
+    GL_BindFramebuffer(GL_READ_FRAMEBUFFER_ANGLE, m_multisampleFBO);
+    GL_BindFramebuffer(GL_DRAW_FRAMEBUFFER_ANGLE, m_fbo);
 
     // FIXME: figure out more efficient solution for iOS.
     if (m_isForWebGL2) {
         // ES 3.0 has BlitFramebuffer.
         IntRect resolveRect = rect.isEmpty() ? IntRect { 0, 0, m_currentWidth, m_currentHeight } : rect;
-        gl::BlitFramebuffer(resolveRect.x(), resolveRect.y(), resolveRect.maxX(), resolveRect.maxY(), resolveRect.x(), resolveRect.y(), resolveRect.maxX(), resolveRect.maxY(), GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        GL_BlitFramebuffer(resolveRect.x(), resolveRect.y(), resolveRect.maxX(), resolveRect.maxY(), resolveRect.x(), resolveRect.y(), resolveRect.maxX(), resolveRect.maxY(), GL_COLOR_BUFFER_BIT, GL_NEAREST);
     } else {
         // ES 2.0 has BlitFramebufferANGLE only.
-        gl::BlitFramebufferANGLE(0, 0, m_currentWidth, m_currentHeight, 0, 0, m_currentWidth, m_currentHeight, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        GL_BlitFramebufferANGLE(0, 0, m_currentWidth, m_currentHeight, 0, 0, m_currentWidth, m_currentHeight, GL_COLOR_BUFFER_BIT, GL_NEAREST);
     }
     if (m_isForWebGL2) {
-        gl::BindFramebuffer(GL_DRAW_FRAMEBUFFER, boundFrameBuffer);
-        gl::BindFramebuffer(GL_READ_FRAMEBUFFER, boundReadFrameBuffer);
+        GL_BindFramebuffer(GL_DRAW_FRAMEBUFFER, boundFrameBuffer);
+        GL_BindFramebuffer(GL_READ_FRAMEBUFFER, boundReadFrameBuffer);
     } else
-        gl::BindFramebuffer(GL_FRAMEBUFFER, boundFrameBuffer);
+        GL_BindFramebuffer(GL_FRAMEBUFFER, boundFrameBuffer);
 }
 
-void GraphicsContextGLOpenGL::renderbufferStorage(GCGLenum target, GCGLenum internalformat, GCGLsizei width, GCGLsizei height)
+void GraphicsContextGLANGLE::renderbufferStorage(GCGLenum target, GCGLenum internalformat, GCGLsizei width, GCGLsizei height)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::RenderbufferStorage(target, internalformat, width, height);
+    GL_RenderbufferStorage(target, internalformat, width, height);
 }
 
-void GraphicsContextGLOpenGL::getIntegerv(GCGLenum pname, GCGLSpan<GCGLint> value)
+void GraphicsContextGLANGLE::getIntegerv(GCGLenum pname, std::span<GCGLint> value)
 {
     if (!makeContextCurrent())
         return;
-    gl::GetIntegervRobustANGLE(pname, value.bufSize, nullptr, value.data);
+    GL_GetIntegervRobustANGLE(pname, value.size(), nullptr, value.data());
 }
 
-void GraphicsContextGLOpenGL::getShaderPrecisionFormat(GCGLenum shaderType, GCGLenum precisionType, GCGLSpan<GCGLint, 2> range, GCGLint* precision)
+void GraphicsContextGLANGLE::getIntegeri_v(GCGLenum pname, GCGLuint index, std::span<GCGLint, 4> value) // NOLINT
+{
+    if (!makeContextCurrent())
+        return;
+    GL_GetIntegeri_vRobustANGLE(pname, index, value.size(), nullptr, value.data());
+}
+
+GCGLint GraphicsContextGLANGLE::maxCombinedTextureImageUnits()
+{
+    return getInteger(GraphicsContextGL::MAX_COMBINED_TEXTURE_IMAGE_UNITS);
+}
+
+GCGLint GraphicsContextGLANGLE::maxVertexAttribs()
+{
+    return getInteger(GraphicsContextGL::MAX_VERTEX_ATTRIBS);
+}
+
+GCGLint GraphicsContextGLANGLE::maxTextureSize()
+{
+    return getInteger(GraphicsContextGL::MAX_TEXTURE_SIZE);
+}
+
+GCGLint GraphicsContextGLANGLE::maxCubeMapTextureSize()
+{
+    return getInteger(GraphicsContextGL::MAX_CUBE_MAP_TEXTURE_SIZE);
+}
+
+GCGLint GraphicsContextGLANGLE::maxRenderbufferSize()
+{
+    return getInteger(GraphicsContextGL::MAX_RENDERBUFFER_SIZE);
+}
+
+std::array<GCGLint, 2> GraphicsContextGLANGLE::maxViewportDims()
+{
+    std::array<GCGLint, 2> dims { 0, 0 };
+    getIntegerv(GraphicsContextGL::MAX_VIEWPORT_DIMS, dims);
+    return dims;
+}
+
+GCGLint GraphicsContextGLANGLE::maxSamples()
+{
+    return getInteger(GraphicsContextGL::MAX_SAMPLES);
+}
+
+GCGLint GraphicsContextGLANGLE::maxTransformFeedbackSeparateAttribs()
+{
+    return getInteger(GraphicsContextGL::MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS);
+}
+
+GCGLint GraphicsContextGLANGLE::maxUniformBufferBindings()
+{
+    return getInteger(GraphicsContextGL::MAX_UNIFORM_BUFFER_BINDINGS);
+}
+
+GCGLint GraphicsContextGLANGLE::uniformBufferOffsetAlignment()
+{
+    return getInteger(GraphicsContextGL::UNIFORM_BUFFER_OFFSET_ALIGNMENT);
+}
+
+GCGLint GraphicsContextGLANGLE::max3DTextureSize()
+{
+    return getInteger(GraphicsContextGL::MAX_3D_TEXTURE_SIZE);
+}
+
+GCGLint GraphicsContextGLANGLE::maxArrayTextureLayers()
+{
+    return getInteger(GraphicsContextGL::MAX_ARRAY_TEXTURE_LAYERS);
+}
+
+void GraphicsContextGLANGLE::getShaderPrecisionFormat(GCGLenum shaderType, GCGLenum precisionType, std::span<GCGLint, 2> range, GCGLint* precision)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::GetShaderPrecisionFormat(shaderType, precisionType, range.data, precision);
+    GL_GetShaderPrecisionFormat(shaderType, precisionType, range.data(), precision);
 }
 
-void GraphicsContextGLOpenGL::texImage2D(GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLint border, GCGLenum format, GCGLenum type, GCGLSpan<const GCGLvoid> pixels)
+void GraphicsContextGLANGLE::texImage2D(GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLint border, GCGLenum format, GCGLenum type, std::span<const uint8_t> pixels)
 {
     if (!m_isForWebGL2)
-        internalformat = static_cast<ExtensionsGLANGLE&>(getExtensions()).adjustWebGL1TextureInternalFormat(internalformat, format, type);
+        internalformat = adjustWebGL1TextureInternalFormat(internalformat, format, type);
     if (!makeContextCurrent())
         return;
-    gl::TexImage2DRobustANGLE(target, level, internalformat, width, height, border, format, type, pixels.bufSize, pixels.data);
-    m_state.textureSeedCount.add(m_state.currentBoundTexture());
+    GL_TexImage2DRobustANGLE(target, level, internalformat, width, height, border, format, type, pixels.size(), pixels.data());
+    invalidateKnownTextureContent(m_state.currentBoundTexture());
+}
+
+void GraphicsContextGLANGLE::texImage2D(GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLint border, GCGLenum format, GCGLenum type, GCGLintptr offset)
+{
+    if (!m_isForWebGL2)
+        internalformat = adjustWebGL1TextureInternalFormat(internalformat, format, type);
+    if (!makeContextCurrent())
+        return;
+    GCGLuint pixelUnpackBuffer = 0;
+    GL_GetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, reinterpret_cast<GCGLint*>(&pixelUnpackBuffer));
+    if (!pixelUnpackBuffer) {
+        addError(GCGLErrorCode::InvalidOperation);
+        return;
+    }
+    GL_TexImage2DRobustANGLE(target, level, internalformat, width, height, border, format, type, 0, reinterpret_cast<GLvoid*>(offset));
+    invalidateKnownTextureContent(m_state.currentBoundTexture());
+}
+
+void GraphicsContextGLANGLE::texSubImage2D(GCGLenum target, GCGLint level, GCGLint xoff, GCGLint yoff, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLenum type, std::span<const uint8_t> pixels)
+{
+    if (!makeContextCurrent())
+        return;
+    // FIXME: we will need to deal with PixelStore params when dealing with image buffers that differ from the subimage size.
+    GL_TexSubImage2DRobustANGLE(target, level, xoff, yoff, width, height, format, type, pixels.size(), pixels.data());
+    invalidateKnownTextureContent(m_state.currentBoundTexture());
+}
+
+void GraphicsContextGLANGLE::texSubImage2D(GCGLenum target, GCGLint level, GCGLint xoff, GCGLint yoff, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLenum type, GCGLintptr offset)
+{
+    if (!makeContextCurrent())
+        return;
+    GCGLuint pixelUnpackBuffer = 0;
+    GL_GetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, reinterpret_cast<GCGLint*>(&pixelUnpackBuffer));
+    if (!pixelUnpackBuffer) {
+        addError(GCGLErrorCode::InvalidOperation);
+        return;
+    }
+    // FIXME: we will need to deal with PixelStore params when dealing with image buffers that differ from the subimage size.
+    GL_TexSubImage2DRobustANGLE(target, level, xoff, yoff, width, height, format, type, 0, reinterpret_cast<GLvoid*>(offset));
+    invalidateKnownTextureContent(m_state.currentBoundTexture());
+}
+
+void GraphicsContextGLANGLE::compressedTexImage2D(GCGLenum target, int level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, int border, std::span<const uint8_t> data)
+{
+    if (!makeContextCurrent())
+        return;
+    GL_CompressedTexImage2D(target, level, internalformat, width, height, border, data.size(), data.data());
+    invalidateKnownTextureContent(m_state.currentBoundTexture());
+}
+
+void GraphicsContextGLANGLE::compressedTexImage2D(GCGLenum target, int level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, int border, GCGLsizei imageSize, GCGLintptr offset)
+{
+    if (!makeContextCurrent())
+        return;
+    GCGLuint pixelUnpackBuffer = 0;
+    GL_GetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, reinterpret_cast<GCGLint*>(&pixelUnpackBuffer));
+    if (!pixelUnpackBuffer) {
+        addError(GCGLErrorCode::InvalidOperation);
+        return;
+    }
+    GL_CompressedTexImage2D(target, level, internalformat, width, height, border, imageSize, reinterpret_cast<GLvoid*>(offset));
+    invalidateKnownTextureContent(m_state.currentBoundTexture());
+}
+
+void GraphicsContextGLANGLE::compressedTexSubImage2D(GCGLenum target, int level, int xoffset, int yoffset, GCGLsizei width, GCGLsizei height, GCGLenum format, std::span<const uint8_t> data)
+{
+    if (!makeContextCurrent())
+        return;
+    GL_CompressedTexSubImage2D(target, level, xoffset, yoffset, width, height, format, data.size(), data.data());
+    invalidateKnownTextureContent(m_state.currentBoundTexture());
+}
+
+void GraphicsContextGLANGLE::compressedTexSubImage2D(GCGLenum target, int level, int xoffset, int yoffset, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLsizei imageSize, GCGLintptr offset)
+{
+    if (!makeContextCurrent())
+        return;
+    GCGLuint pixelUnpackBuffer = 0;
+    GL_GetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, reinterpret_cast<GCGLint*>(&pixelUnpackBuffer));
+    if (!pixelUnpackBuffer) {
+        addError(GCGLErrorCode::InvalidOperation);
+        return;
+    }
+    GL_CompressedTexSubImage2D(target, level, xoffset, yoffset, width, height, format, imageSize, reinterpret_cast<GLvoid*>(offset));
+    invalidateKnownTextureContent(m_state.currentBoundTexture());
+}
+
+void GraphicsContextGLANGLE::depthRange(GCGLclampf zNear, GCGLclampf zFar)
+{
+    if (!makeContextCurrent())
+        return;
+
+    GL_DepthRangef(static_cast<float>(zNear), static_cast<float>(zFar));
+}
+
+void GraphicsContextGLANGLE::clearDepth(GCGLclampf depth)
+{
+    if (!makeContextCurrent())
+        return;
+
+    GL_ClearDepthf(static_cast<float>(depth));
+}
+
+void GraphicsContextGLANGLE::readPixels(IntRect rect, GCGLenum format, GCGLenum type, std::span<uint8_t> data, GCGLint alignment, GCGLint rowLength, GCGLboolean reverseRowOrder)
+{
+    if (!makeContextCurrent())
+        return;
+    ScopedBufferBinding scopedPixelPackBufferReset(GL_PIXEL_PACK_BUFFER, 0, m_isForWebGL2);
+    setPackParameters(alignment, rowLength, reverseRowOrder);
+    readPixelsImpl(rect, format, type, data);
+}
+
+std::optional<IntSize> GraphicsContextGLANGLE::readPixelsWithStatus(IntRect rect, GCGLenum format, GCGLenum type, GCGLboolean reverseRowOrder, std::span<uint8_t> data)
+{
+    if (!makeContextCurrent())
+        return std::nullopt;
+    ScopedBufferBinding scopedPixelPackBufferReset(GL_PIXEL_PACK_BUFFER, 0, m_isForWebGL2);
+    setPackParameters(1, 0, reverseRowOrder); // Used for tight packing read only.
+    return readPixelsImpl(rect, format, type, data);
+}
+
+void GraphicsContextGLANGLE::readPixelsBufferObject(IntRect rect, GCGLenum format, GCGLenum type, GCGLintptr offset, GCGLint alignment, GCGLint rowLength)
+{
+    if (!makeContextCurrent())
+        return;
+
+    if (!m_isForWebGL2) {
+        addError(GCGLErrorCode::InvalidOperation);
+        return;
     }
 
-void GraphicsContextGLOpenGL::texImage2D(GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLint border, GCGLenum format, GCGLenum type, GCGLintptr offset)
-{
-    texImage2D(target, level, internalformat, width, height, border, format, type, makeGCGLSpan(reinterpret_cast<const GCGLvoid*>(offset), 0));
-}
-
-void GraphicsContextGLOpenGL::texSubImage2D(GCGLenum target, GCGLint level, GCGLint xoff, GCGLint yoff, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLenum type, GCGLSpan<const GCGLvoid> pixels)
-{
-    if (!makeContextCurrent())
+    GCGLuint pixelPackBuffer = 0;
+    GL_GetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, reinterpret_cast<GCGLint*>(&pixelPackBuffer));
+    if (!pixelPackBuffer) {
+        addError(GCGLErrorCode::InvalidOperation);
         return;
+    }
 
-    // FIXME: we will need to deal with PixelStore params when dealing with image buffers that differ from the subimage size.
-    gl::TexSubImage2DRobustANGLE(target, level, xoff, yoff, width, height, format, type, pixels.bufSize, pixels.data);
-    m_state.textureSeedCount.add(m_state.currentBoundTexture());
+    auto attrs = contextAttributes();
+    if (attrs.antialias && m_state.boundReadFBO == m_multisampleFBO) {
+        resolveMultisamplingIfNecessary(rect);
+        GL_BindFramebuffer(GraphicsContextGL::READ_FRAMEBUFFER, m_fbo);
+    }
+
+    setPackParameters(alignment, rowLength, false);
+
+    // ANGLE validates the read size against the PBO size.
+    GLsizei bufferSize = std::numeric_limits<GLsizei>::max();
+
+    GL_ReadPixelsRobustANGLE(rect.x(), rect.y(), rect.width(), rect.height(), format, type, bufferSize, nullptr, nullptr, nullptr, reinterpret_cast<void*>(offset));
+
+    if (attrs.antialias && m_state.boundReadFBO == m_multisampleFBO)
+        GL_BindFramebuffer(GraphicsContextGL::READ_FRAMEBUFFER, m_multisampleFBO);
 }
 
-void GraphicsContextGLOpenGL::texSubImage2D(GCGLenum target, GCGLint level, GCGLint xoff, GCGLint yoff, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLenum type, GCGLintptr offset)
+std::optional<IntSize> GraphicsContextGLANGLE::readPixelsImpl(IntRect rect, GCGLenum format, GCGLenum type, std::span<uint8_t> data)
 {
-    texSubImage2D(target, level, xoff, yoff, width, height, format, type, makeGCGLSpan(reinterpret_cast<const GCGLvoid*>(offset), 0));
-}
-
-void GraphicsContextGLOpenGL::compressedTexImage2D(GCGLenum target, int level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, int border, GCGLsizei imageSize, GCGLSpan<const GCGLvoid> data)
-{
-    if (!makeContextCurrent())
-        return;
-
-    gl::CompressedTexImage2DRobustANGLE(target, level, internalformat, width, height, border, imageSize, data.bufSize, data.data);
-    m_state.textureSeedCount.add(m_state.currentBoundTexture());
-}
-
-void GraphicsContextGLOpenGL::compressedTexImage2D(GCGLenum target, int level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, int border, GCGLsizei imageSize, GCGLintptr offset)
-{
-    compressedTexImage2D(target, level, internalformat, width, height, border, imageSize, makeGCGLSpan(reinterpret_cast<const GCGLvoid*>(offset), 0));
-}
-
-void GraphicsContextGLOpenGL::compressedTexSubImage2D(GCGLenum target, int level, int xoffset, int yoffset, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLsizei imageSize, GCGLSpan<const GCGLvoid> data)
-{
-    if (!makeContextCurrent())
-        return;
-
-    gl::CompressedTexSubImage2DRobustANGLE(target, level, xoffset, yoffset, width, height, format, imageSize, data.bufSize, data.data);
-    m_state.textureSeedCount.add(m_state.currentBoundTexture());
-}
-
-void GraphicsContextGLOpenGL::compressedTexSubImage2D(GCGLenum target, int level, int xoffset, int yoffset, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLsizei imageSize, GCGLintptr offset)
-{
-    compressedTexSubImage2D(target, level, xoffset, yoffset, width, height, format, imageSize, makeGCGLSpan(reinterpret_cast<const GCGLvoid*>(offset), 0));
-}
-
-void GraphicsContextGLOpenGL::depthRange(GCGLclampf zNear, GCGLclampf zFar)
-{
-    if (!makeContextCurrent())
-        return;
-
-    gl::DepthRangef(static_cast<float>(zNear), static_cast<float>(zFar));
-}
-
-void GraphicsContextGLOpenGL::clearDepth(GCGLclampf depth)
-{
-    if (!makeContextCurrent())
-        return;
-
-    gl::ClearDepthf(static_cast<float>(depth));
-}
-
-ExtensionsGL& GraphicsContextGLOpenGL::getExtensions()
-{
-    if (!m_extensions)
-        m_extensions = makeUnique<ExtensionsGLANGLE>(this);
-    return *m_extensions;
-}
-
-void GraphicsContextGLOpenGL::readnPixels(GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLenum type, GCGLSpan<GCGLvoid> data)
-{
-    readnPixelsImpl(x, y, width, height, format, type, data.bufSize, nullptr, nullptr, nullptr, data.data, false);
-}
-
-void GraphicsContextGLOpenGL::readnPixels(GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLenum type, GCGLintptr offset)
-{
-    readnPixelsImpl(x, y, width, height, format, type, 0, nullptr, nullptr, nullptr, reinterpret_cast<GCGLvoid*>(offset), true);
-}
-
-void GraphicsContextGLOpenGL::readnPixelsImpl(GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height, GCGLenum format, GCGLenum type, GCGLsizei bufSize, GCGLsizei* length, GCGLsizei* columns, GCGLsizei* rows, GCGLvoid* data, bool readingToPixelBufferObject)
-{
-    if (!makeContextCurrent())
-        return;
-
     // FIXME: remove the two glFlush calls when the driver bug is fixed, i.e.,
     // all previous rendering calls should be done before reading pixels.
-    gl::Flush();
+    GL_Flush();
     auto attrs = contextAttributes();
     GCGLenum framebufferTarget = m_isForWebGL2 ? GraphicsContextGL::READ_FRAMEBUFFER : GraphicsContextGL::FRAMEBUFFER;
     if (attrs.antialias && m_state.boundReadFBO == m_multisampleFBO) {
-        resolveMultisamplingIfNecessary(IntRect(x, y, width, height));
-        gl::BindFramebuffer(framebufferTarget, m_fbo);
-        gl::Flush();
+        resolveMultisamplingIfNecessary(rect);
+        GL_BindFramebuffer(framebufferTarget, m_fbo);
+        GL_Flush();
     }
-    moveErrorsToSyntheticErrorList();
-    gl::ReadnPixelsRobustANGLE(x, y, width, height, format, type, bufSize, length, columns, rows, data);
-    GLenum error = gl::GetError();
+    updateErrors();
+    GLsizei rows = 0;
+    GLsizei columns = 0;
+    GL_ReadPixelsRobustANGLE(rect.x(), rect.y(), rect.width(), rect.height(), format, type, data.size(), nullptr, &rows, &columns, data.data());
     if (attrs.antialias && m_state.boundReadFBO == m_multisampleFBO)
-        gl::BindFramebuffer(framebufferTarget, m_multisampleFBO);
+        GL_BindFramebuffer(framebufferTarget, m_multisampleFBO);
 
-    if (error) {
-        // ANGLE detected a failure during the ReadnPixelsRobustANGLE operation. Surface this in the
-        // synthetic error list, and skip the alpha channel fixup below.
-        synthesizeGLError(error);
-        return;
-    }
+    if (updateErrors())
+        return std::nullopt;
 
-
-#if PLATFORM(MAC) || PLATFORM(IOS_FAMILY)
-    if (!readingToPixelBufferObject && !attrs.alpha && (format == GraphicsContextGL::RGBA || format == GraphicsContextGL::BGRA) && (type == GraphicsContextGL::UNSIGNED_BYTE) && (m_state.boundReadFBO == m_fbo || (attrs.antialias && m_state.boundReadFBO == m_multisampleFBO)))
-        wipeAlphaChannelFromPixels(width, height, static_cast<unsigned char*>(data));
-#else
-    UNUSED_PARAM(readingToPixelBufferObject);
-#endif
+    return IntSize { rows, columns };
 }
 
-// The contents of GraphicsContextGLOpenGLCommon follow, ported to use ANGLE.
-
-void GraphicsContextGLOpenGL::validateDepthStencil(const char* packedDepthStencilExtension)
+void GraphicsContextGLANGLE::prepareTexture()
 {
-    ExtensionsGL& extensions = getExtensions();
-    // FIXME: Since the constructors of various platforms are not shared, we initialize this here.
-    // Upon constructing the context, always initialize the extensions that the WebGLRenderingContext* will
-    // use to turn on feature flags.
-    if (extensions.supports(packedDepthStencilExtension)) {
-        extensions.ensureEnabled(packedDepthStencilExtension);
-        m_internalDepthStencilFormat = GL_DEPTH24_STENCIL8_OES;
-    } else
-        m_internalDepthStencilFormat = GL_DEPTH_COMPONENT16;
-
-    auto attrs = contextAttributes();
-    if (attrs.stencil) {
-        if (m_internalDepthStencilFormat == GL_DEPTH24_STENCIL8_OES) {
-            // Force depth if stencil is true.
-            attrs.depth = true;
-        } else
-            attrs.stencil = false;
-        setContextAttributes(attrs);
-    }
-
-    if (attrs.antialias) {
-        // FIXME: must adjust this when upgrading to WebGL 2.0 / OpenGL ES 3.0 support.
-        if (!extensions.supports("GL_ANGLE_framebuffer_multisample") || !extensions.supports("GL_ANGLE_framebuffer_blit") || !extensions.supports("GL_OES_rgb8_rgba8")) {
-            attrs.antialias = false;
-            setContextAttributes(attrs);
-        } else {
-            extensions.ensureEnabled("GL_ANGLE_framebuffer_multisample");
-            extensions.ensureEnabled("GL_ANGLE_framebuffer_blit");
-            extensions.ensureEnabled("GL_OES_rgb8_rgba8");
-        }
-    } else if (attrs.preserveDrawingBuffer) {
-        // Needed for preserveDrawingBuffer:true support without antialiasing.
-        extensions.ensureEnabled("GL_ANGLE_framebuffer_blit");
-    }
-}
-
-void GraphicsContextGLOpenGL::prepareTexture()
-{
-    if (m_layerComposited)
-        return;
-
-    if (!makeContextCurrent())
-        return;
-
-    prepareTextureImpl();
-}
-
-void GraphicsContextGLOpenGL::prepareTextureImpl()
-{
-    ASSERT(!m_layerComposited);
-
     if (contextAttributes().antialias)
         resolveMultisamplingIfNecessary();
 
-#if USE(COORDINATED_GRAPHICS)
-    std::swap(m_texture, m_compositorTexture);
-    std::swap(m_texture, m_intermediateTexture);
-    gl::BindFramebuffer(GL_FRAMEBUFFER, m_fbo);
-    gl::FramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_RECTANGLE_ANGLE, m_texture, 0);
-    gl::Flush();
-
-    if (m_state.boundDrawFBO != m_fbo)
-        gl::BindFramebuffer(GraphicsContextGL::FRAMEBUFFER, m_state.boundDrawFBO);
-    else
-        gl::BindFramebuffer(GraphicsContextGL::FRAMEBUFFER, m_fbo);
-#else
     if (m_preserveDrawingBufferTexture) {
+        prepareForDrawingBufferWrite();
         // Blit m_preserveDrawingBufferTexture into m_texture.
-        gl::BindFramebuffer(GL_DRAW_FRAMEBUFFER_ANGLE, m_preserveDrawingBufferFBO);
-        gl::BindFramebuffer(GL_READ_FRAMEBUFFER_ANGLE, m_fbo);
-        gl::BlitFramebufferANGLE(0, 0, m_currentWidth, m_currentHeight, 0, 0, m_currentWidth, m_currentHeight, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        ScopedGLCapability scopedScissor(GL_SCISSOR_TEST, GL_FALSE);
+        ScopedGLCapability scopedDither(GL_DITHER, GL_FALSE);
+        GL_BindFramebuffer(GL_DRAW_FRAMEBUFFER_ANGLE, m_preserveDrawingBufferFBO);
+        GL_BindFramebuffer(GL_READ_FRAMEBUFFER_ANGLE, m_fbo);
+        GL_BlitFramebufferANGLE(0, 0, m_currentWidth, m_currentHeight, 0, 0, m_currentWidth, m_currentHeight, GL_COLOR_BUFFER_BIT, GL_NEAREST);
 
-        // Note: it's been observed that BlitFramebuffer may destroy the alpha channel of the
-        // destination texture if it's an RGB texture bound to an IOSurface. This wasn't observable
-        // through the WebGL conformance tests, but it may be necessary to save and restore the
-        // color mask and clear color, and use the color mask to clear the alpha channel of the
-        // destination texture to 1.0.
-
-        // Restore user's framebuffer bindings.
         if (m_isForWebGL2) {
-            gl::BindFramebuffer(GL_DRAW_FRAMEBUFFER, m_state.boundDrawFBO);
-            gl::BindFramebuffer(GL_READ_FRAMEBUFFER, m_state.boundReadFBO);
+            GL_BindFramebuffer(GL_DRAW_FRAMEBUFFER, m_state.boundDrawFBO);
+            GL_BindFramebuffer(GL_READ_FRAMEBUFFER, m_state.boundReadFBO);
         } else
-            gl::BindFramebuffer(GL_FRAMEBUFFER, m_state.boundDrawFBO);
+            GL_BindFramebuffer(GL_FRAMEBUFFER, m_state.boundDrawFBO);
     }
-#endif
 }
 
-std::optional<PixelBuffer> GraphicsContextGLOpenGL::readRenderingResults()
+RefPtr<PixelBuffer> GraphicsContextGLANGLE::readRenderingResults()
 {
     ScopedRestoreReadFramebufferBinding fboBinding(m_isForWebGL2, m_state.boundReadFBO);
     if (contextAttributes().antialias) {
@@ -517,7 +866,7 @@ std::optional<PixelBuffer> GraphicsContextGLOpenGL::readRenderingResults()
     return readPixelsForPaintResults();
 }
 
-void GraphicsContextGLOpenGL::reshape(int width, int height)
+void GraphicsContextGLANGLE::reshape(int width, int height)
 {
     if (width == m_currentWidth && height == m_currentHeight)
         return;
@@ -526,120 +875,123 @@ void GraphicsContextGLOpenGL::reshape(int width, int height)
     if (width < 0 || height < 0)
         return;
 
+    if (width > m_maxInternalFramebufferSize.width() || height > m_maxInternalFramebufferSize.height())
+        return;
+
     if (!makeContextCurrent())
         return;
 
     // FIXME: these may call makeContextCurrent again, we need to do this before changing the size.
-    moveErrorsToSyntheticErrorList();
+    updateErrors();
     validateAttributes();
-
-    markContextChanged();
 
     m_currentWidth = width;
     m_currentHeight = height;
 
-    TemporaryANGLESetting scopedScissor(GL_SCISSOR_TEST, GL_FALSE);
-    TemporaryANGLESetting scopedDither(GL_DITHER, GL_FALSE);
+    ScopedGLCapability scopedScissor(GL_SCISSOR_TEST, GL_FALSE);
+    ScopedGLCapability scopedDither(GL_DITHER, GL_FALSE);
     ScopedBufferBinding scopedPixelUnpackBufferReset(GL_PIXEL_UNPACK_BUFFER, 0, m_isForWebGL2);
 
     bool mustRestoreFBO = reshapeFBOs(IntSize(width, height));
     auto attrs = contextAttributes();
 
     // Initialize renderbuffers to 0.
-    GLfloat clearColor[] = {0, 0, 0, 0}, clearDepth = 0;
+    std::array<GLfloat, 4> clearColor { 0, 0, 0, 0 };
+    GLfloat clearDepth = 0;
     GLint clearStencil = 0;
-    GLboolean colorMask[] = {GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE}, depthMask = GL_TRUE;
+    std::array<GLboolean, 4> colorMask { GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE };
+    GLboolean depthMask = GL_TRUE;
     GLuint stencilMask = 0xffffffff, stencilMaskBack = 0xffffffff;
     GLbitfield clearMask = GL_COLOR_BUFFER_BIT;
-    gl::GetFloatv(GL_COLOR_CLEAR_VALUE, clearColor);
-    gl::ClearColor(0, 0, 0, 0);
-    gl::GetBooleanv(GL_COLOR_WRITEMASK, colorMask);
-    gl::ColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    GL_GetFloatv(GL_COLOR_CLEAR_VALUE, clearColor.data());
+    GL_ClearColor(0, 0, 0, 0);
+    GL_GetBooleanv(GL_COLOR_WRITEMASK, colorMask.data());
+    GL_ColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     if (attrs.depth) {
-        gl::GetFloatv(GL_DEPTH_CLEAR_VALUE, &clearDepth);
-        gl::ClearDepthf(1.0f);
-        gl::GetBooleanv(GL_DEPTH_WRITEMASK, &depthMask);
-        gl::DepthMask(GL_TRUE);
+        GL_GetFloatv(GL_DEPTH_CLEAR_VALUE, &clearDepth);
+        GL_ClearDepthf(1.0f);
+        GL_GetBooleanv(GL_DEPTH_WRITEMASK, &depthMask);
+        GL_DepthMask(GL_TRUE);
         clearMask |= GL_DEPTH_BUFFER_BIT;
     }
 
     if (attrs.stencil) {
-        gl::GetIntegerv(GL_STENCIL_CLEAR_VALUE, &clearStencil);
-        gl::ClearStencil(0);
-        gl::GetIntegerv(GL_STENCIL_WRITEMASK, reinterpret_cast<GLint*>(&stencilMask));
-        gl::GetIntegerv(GL_STENCIL_BACK_WRITEMASK, reinterpret_cast<GLint*>(&stencilMaskBack));
-        gl::StencilMaskSeparate(GL_FRONT, 0xffffffff);
-        gl::StencilMaskSeparate(GL_BACK, 0xffffffff);
+        GL_GetIntegerv(GL_STENCIL_CLEAR_VALUE, &clearStencil);
+        GL_ClearStencil(0);
+        GL_GetIntegerv(GL_STENCIL_WRITEMASK, reinterpret_cast<GLint*>(&stencilMask));
+        GL_GetIntegerv(GL_STENCIL_BACK_WRITEMASK, reinterpret_cast<GLint*>(&stencilMaskBack));
+        GL_StencilMaskSeparate(GL_FRONT, 0xffffffff);
+        GL_StencilMaskSeparate(GL_BACK, 0xffffffff);
         clearMask |= GL_STENCIL_BUFFER_BIT;
     }
 
-    gl::Clear(clearMask);
+    GL_Clear(clearMask);
 
-    gl::ClearColor(clearColor[0], clearColor[1], clearColor[2], clearColor[3]);
-    gl::ColorMask(colorMask[0], colorMask[1], colorMask[2], colorMask[3]);
+    GL_ClearColor(clearColor[0], clearColor[1], clearColor[2], clearColor[3]);
+    GL_ColorMask(colorMask[0], colorMask[1], colorMask[2], colorMask[3]);
     if (attrs.depth) {
-        gl::ClearDepthf(clearDepth);
-        gl::DepthMask(depthMask);
+        GL_ClearDepthf(clearDepth);
+        GL_DepthMask(depthMask);
     }
     if (attrs.stencil) {
-        gl::ClearStencil(clearStencil);
-        gl::StencilMaskSeparate(GL_FRONT, stencilMask);
-        gl::StencilMaskSeparate(GL_BACK, stencilMaskBack);
+        GL_ClearStencil(clearStencil);
+        GL_StencilMaskSeparate(GL_FRONT, stencilMask);
+        GL_StencilMaskSeparate(GL_BACK, stencilMaskBack);
     }
 
     if (mustRestoreFBO) {
-        gl::BindFramebuffer(GraphicsContextGL::FRAMEBUFFER, m_state.boundDrawFBO);
+        GL_BindFramebuffer(GraphicsContextGL::FRAMEBUFFER, m_state.boundDrawFBO);
         if (m_isForWebGL2 && m_state.boundDrawFBO != m_state.boundReadFBO)
-            gl::BindFramebuffer(GraphicsContextGL::READ_FRAMEBUFFER, m_state.boundReadFBO);
+            GL_BindFramebuffer(GraphicsContextGL::READ_FRAMEBUFFER, m_state.boundReadFBO);
     }
 
-    auto error = gl::GetError();
+    auto error = GL_GetError();
     if (error != GL_NO_ERROR) {
         RELEASE_LOG(WebGL, "Fatal: OpenGL error during GraphicsContextGL buffer initialization (%d).", error);
         forceContextLost();
         return;
     }
 
-    gl::Flush();
+    GL_Flush();
 }
 
-void GraphicsContextGLOpenGL::activeTexture(GCGLenum texture)
+void GraphicsContextGLANGLE::activeTexture(GCGLenum texture)
 {
     if (!makeContextCurrent())
         return;
 
     m_state.activeTextureUnit = texture;
-    gl::ActiveTexture(texture);
+    GL_ActiveTexture(texture);
 }
 
-void GraphicsContextGLOpenGL::attachShader(PlatformGLObject program, PlatformGLObject shader)
+void GraphicsContextGLANGLE::attachShader(PlatformGLObject program, PlatformGLObject shader)
 {
     ASSERT(program);
     ASSERT(shader);
     if (!makeContextCurrent())
         return;
 
-    gl::AttachShader(program, shader);
+    GL_AttachShader(program, shader);
 }
 
-void GraphicsContextGLOpenGL::bindAttribLocation(PlatformGLObject program, GCGLuint index, const String& name)
+void GraphicsContextGLANGLE::bindAttribLocation(PlatformGLObject program, GCGLuint index, const CString& name)
 {
     ASSERT(program);
     if (!makeContextCurrent())
         return;
 
-    gl::BindAttribLocation(program, index, name.utf8().data());
+    GL_BindAttribLocation(program, index, name.data());
 }
 
-void GraphicsContextGLOpenGL::bindBuffer(GCGLenum target, PlatformGLObject buffer)
+void GraphicsContextGLANGLE::bindBuffer(GCGLenum target, PlatformGLObject buffer)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::BindBuffer(target, buffer);
+    GL_BindBuffer(target, buffer);
 }
 
-void GraphicsContextGLOpenGL::bindFramebuffer(GCGLenum target, PlatformGLObject buffer)
+void GraphicsContextGLANGLE::bindFramebuffer(GCGLenum target, PlatformGLObject buffer)
 {
     if (!makeContextCurrent())
         return;
@@ -650,7 +1002,7 @@ void GraphicsContextGLOpenGL::bindFramebuffer(GCGLenum target, PlatformGLObject 
     else
         fbo = (contextAttributes().antialias ? m_multisampleFBO : m_fbo);
 
-    gl::BindFramebuffer(target, fbo);
+    GL_BindFramebuffer(target, fbo);
     if (target == GL_FRAMEBUFFER) {
         m_state.boundReadFBO = m_state.boundDrawFBO = fbo;
     } else if (target == GL_READ_FRAMEBUFFER) {
@@ -660,247 +1012,292 @@ void GraphicsContextGLOpenGL::bindFramebuffer(GCGLenum target, PlatformGLObject 
     }
 }
 
-void GraphicsContextGLOpenGL::bindRenderbuffer(GCGLenum target, PlatformGLObject renderbuffer)
+void GraphicsContextGLANGLE::bindRenderbuffer(GCGLenum target, PlatformGLObject renderbuffer)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::BindRenderbuffer(target, renderbuffer);
+    GL_BindRenderbuffer(target, renderbuffer);
 }
 
 
-void GraphicsContextGLOpenGL::bindTexture(GCGLenum target, PlatformGLObject texture)
+void GraphicsContextGLANGLE::bindTexture(GCGLenum target, PlatformGLObject texture)
 {
     if (!makeContextCurrent())
         return;
 
     m_state.setBoundTexture(m_state.activeTextureUnit, texture, target);
-    gl::BindTexture(target, texture);
+    GL_BindTexture(target, texture);
 }
 
-void GraphicsContextGLOpenGL::blendColor(GCGLclampf red, GCGLclampf green, GCGLclampf blue, GCGLclampf alpha)
+void GraphicsContextGLANGLE::blendColor(GCGLclampf red, GCGLclampf green, GCGLclampf blue, GCGLclampf alpha)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::BlendColor(red, green, blue, alpha);
+    GL_BlendColor(red, green, blue, alpha);
 }
 
-void GraphicsContextGLOpenGL::blendEquation(GCGLenum mode)
+void GraphicsContextGLANGLE::blendEquation(GCGLenum mode)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::BlendEquation(mode);
+    GL_BlendEquation(mode);
 }
 
-void GraphicsContextGLOpenGL::blendEquationSeparate(GCGLenum modeRGB, GCGLenum modeAlpha)
+void GraphicsContextGLANGLE::blendEquationSeparate(GCGLenum modeRGB, GCGLenum modeAlpha)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::BlendEquationSeparate(modeRGB, modeAlpha);
+    GL_BlendEquationSeparate(modeRGB, modeAlpha);
 }
 
 
-void GraphicsContextGLOpenGL::blendFunc(GCGLenum sfactor, GCGLenum dfactor)
+void GraphicsContextGLANGLE::blendFunc(GCGLenum sfactor, GCGLenum dfactor)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::BlendFunc(sfactor, dfactor);
+    GL_BlendFunc(sfactor, dfactor);
 }
 
-void GraphicsContextGLOpenGL::blendFuncSeparate(GCGLenum srcRGB, GCGLenum dstRGB, GCGLenum srcAlpha, GCGLenum dstAlpha)
+void GraphicsContextGLANGLE::blendFuncSeparate(GCGLenum srcRGB, GCGLenum dstRGB, GCGLenum srcAlpha, GCGLenum dstAlpha)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::BlendFuncSeparate(srcRGB, dstRGB, srcAlpha, dstAlpha);
+    GL_BlendFuncSeparate(srcRGB, dstRGB, srcAlpha, dstAlpha);
 }
 
-void GraphicsContextGLOpenGL::bufferData(GCGLenum target, GCGLsizeiptr size, GCGLenum usage)
+void GraphicsContextGLANGLE::bufferData(GCGLenum target, GCGLsizeiptr size, GCGLenum usage)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::BufferData(target, size, 0, usage);
+    GL_BufferData(target, size, 0, usage);
 }
 
-void GraphicsContextGLOpenGL::bufferData(GCGLenum target, GCGLSpan<const GCGLvoid> data, GCGLenum usage)
+void GraphicsContextGLANGLE::bufferData(GCGLenum target, std::span<const uint8_t> data, GCGLenum usage)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::BufferData(target, data.bufSize, data.data, usage);
+    GL_BufferData(target, data.size(), data.data(), usage);
 }
 
-void GraphicsContextGLOpenGL::bufferSubData(GCGLenum target, GCGLintptr offset, GCGLSpan<const GCGLvoid> data)
+void GraphicsContextGLANGLE::bufferSubData(GCGLenum target, GCGLintptr offset, std::span<const uint8_t> data)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::BufferSubData(target, offset, data.bufSize, data.data);
+    GL_BufferSubData(target, offset, data.size(), data.data());
 }
 
-void GraphicsContextGLOpenGL::getBufferSubData(GCGLenum target, GCGLintptr offset, GCGLSpan<GCGLvoid> data)
+bool GraphicsContextGLANGLE::getBufferSubDataImpl(GCGLenum target, GCGLintptr offset, std::span<uint8_t> data)
 {
-    if (!makeContextCurrent())
-        return;
-    GCGLvoid* ptr = gl::MapBufferRange(target, offset, data.bufSize, GraphicsContextGL::MAP_READ_BIT);
-    if (!ptr)
-        return;
-    memcpy(data.data, ptr, data.bufSize);
-    if (!gl::UnmapBuffer(target))
-        synthesizeGLError(GraphicsContextGL::INVALID_OPERATION);
+    auto span = glMapBufferRangeSpan(target, offset, data.size(), GraphicsContextGL::MAP_READ_BIT);
+    if (!span.data())
+        return false;
+
+    memcpySpan(data, span);
+
+    if (!GL_UnmapBuffer(target))
+        addError(GCGLErrorCode::InvalidOperation);
+
+    return true;
 }
 
-void GraphicsContextGLOpenGL::copyBufferSubData(GCGLenum readTarget, GCGLenum writeTarget, GCGLintptr readOffset, GCGLintptr writeOffset, GCGLsizeiptr size)
-{
-    if (!makeContextCurrent())
-        return;
-
-    gl::CopyBufferSubData(readTarget, writeTarget, readOffset, writeOffset, size);
-}
-
-void GraphicsContextGLOpenGL::getInternalformativ(GCGLenum target, GCGLenum internalformat, GCGLenum pname, GCGLSpan<GCGLint> data)
-{
-    if (!makeContextCurrent())
-        return;
-    gl::GetInternalformativRobustANGLE(target, internalformat, pname, data.bufSize, nullptr, data.data);
-}
-
-void GraphicsContextGLOpenGL::renderbufferStorageMultisample(GCGLenum target, GCGLsizei samples, GCGLenum internalformat, GCGLsizei width, GCGLsizei height)
+void GraphicsContextGLANGLE::getBufferSubData(GCGLenum target, GCGLintptr offset, std::span<uint8_t> data)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::RenderbufferStorageMultisample(target, samples, internalformat, width, height);
+    getBufferSubDataImpl(target, offset, data);
 }
 
-void GraphicsContextGLOpenGL::texStorage2D(GCGLenum target, GCGLsizei levels, GCGLenum internalformat, GCGLsizei width, GCGLsizei height)
+bool GraphicsContextGLANGLE::getBufferSubDataWithStatus(GCGLenum target, GCGLintptr offset, std::span<uint8_t> data)
+{
+    if (!makeContextCurrent())
+        return false;
+
+    return getBufferSubDataImpl(target, offset, data);
+}
+
+void GraphicsContextGLANGLE::copyBufferSubData(GCGLenum readTarget, GCGLenum writeTarget, GCGLintptr readOffset, GCGLintptr writeOffset, GCGLsizeiptr size)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::TexStorage2D(target, levels, internalformat, width, height);
-    m_state.textureSeedCount.add(m_state.currentBoundTexture());
+    GL_CopyBufferSubData(readTarget, writeTarget, readOffset, writeOffset, size);
 }
 
-void GraphicsContextGLOpenGL::texStorage3D(GCGLenum target, GCGLsizei levels, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLsizei depth)
+void GraphicsContextGLANGLE::getInternalformativ(GCGLenum target, GCGLenum internalformat, GCGLenum pname, std::span<GCGLint> data)
+{
+    if (!makeContextCurrent())
+        return;
+    GL_GetInternalformativRobustANGLE(target, internalformat, pname, data.size(), nullptr, data.data());
+}
+
+void GraphicsContextGLANGLE::renderbufferStorageMultisample(GCGLenum target, GCGLsizei samples, GCGLenum internalformat, GCGLsizei width, GCGLsizei height)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::TexStorage3D(target, levels, internalformat, width, height, depth);
-    m_state.textureSeedCount.add(m_state.currentBoundTexture());
+    GL_RenderbufferStorageMultisample(target, samples, internalformat, width, height);
 }
 
-void GraphicsContextGLOpenGL::texImage3D(GCGLenum target, int level, int internalformat, GCGLsizei width, GCGLsizei height, GCGLsizei depth, int border, GCGLenum format, GCGLenum type, GCGLSpan<const GCGLvoid> pixels)
+void GraphicsContextGLANGLE::renderbufferStorageMultisampleANGLE(GCGLenum target, GCGLsizei samples, GCGLenum internalformat, GCGLsizei width, GCGLsizei height)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::TexImage3DRobustANGLE(target, level, internalformat, width, height, depth, border, format, type, pixels.bufSize, pixels.data);
+    GL_RenderbufferStorageMultisampleANGLE(target, samples, internalformat, width, height);
 }
 
-void GraphicsContextGLOpenGL::texImage3D(GCGLenum target, int level, int internalformat, GCGLsizei width, GCGLsizei height, GCGLsizei depth, int border, GCGLenum format, GCGLenum type, GCGLintptr offset)
-{
-    texImage3D(target, level, internalformat, width, height, depth, border, format, type, makeGCGLSpan(reinterpret_cast<const GCGLvoid*>(offset), 0));
-}
-
-void GraphicsContextGLOpenGL::texSubImage3D(GCGLenum target, int level, int xoffset, int yoffset, int zoffset, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLenum format, GCGLenum type, GCGLSpan<const GCGLvoid> pixels)
+void GraphicsContextGLANGLE::texStorage2D(GCGLenum target, GCGLsizei levels, GCGLenum internalformat, GCGLsizei width, GCGLsizei height)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::TexSubImage3DRobustANGLE(target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, pixels.bufSize, pixels.data);
+    GL_TexStorage2D(target, levels, internalformat, width, height);
+    invalidateKnownTextureContent(m_state.currentBoundTexture());
 }
 
-void GraphicsContextGLOpenGL::texSubImage3D(GCGLenum target, int level, int xoffset, int yoffset, int zoffset, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLenum format, GCGLenum type, GCGLintptr offset)
-{
-    texSubImage3D(target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, makeGCGLSpan(reinterpret_cast<const GCGLvoid*>(offset), 0));
-}
-
-void GraphicsContextGLOpenGL::compressedTexImage3D(GCGLenum target, int level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLsizei depth, int border, GCGLsizei imageSize, GCGLSpan<const GCGLvoid> data)
+void GraphicsContextGLANGLE::texStorage3D(GCGLenum target, GCGLsizei levels, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLsizei depth)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::CompressedTexImage3DRobustANGLE(target, level, internalformat, width, height, depth, border, imageSize, data.bufSize, data.data);
+    GL_TexStorage3D(target, levels, internalformat, width, height, depth);
+    invalidateKnownTextureContent(m_state.currentBoundTexture());
 }
 
-void GraphicsContextGLOpenGL::compressedTexImage3D(GCGLenum target, int level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLsizei depth, int border, GCGLsizei imageSize, GCGLintptr offset)
-{
-    compressedTexImage3D(target, level, internalformat, width, height, depth, border, imageSize, makeGCGLSpan(reinterpret_cast<const GCGLvoid*>(offset), 0));
-}
-
-void GraphicsContextGLOpenGL::compressedTexSubImage3D(GCGLenum target, int level, int xoffset, int yoffset, int zoffset, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLenum format, GCGLsizei imageSize, GCGLSpan<const GCGLvoid> data)
+void GraphicsContextGLANGLE::texImage3D(GCGLenum target, int level, int internalformat, GCGLsizei width, GCGLsizei height, GCGLsizei depth, int border, GCGLenum format, GCGLenum type, std::span<const uint8_t> pixels)
 {
     if (!makeContextCurrent())
         return;
-
-    gl::CompressedTexSubImage3DRobustANGLE(target, level, xoffset, yoffset, zoffset, width, height, depth, format, imageSize, data.bufSize, data.data);
+    GL_TexImage3DRobustANGLE(target, level, internalformat, width, height, depth, border, format, type, pixels.size(), pixels.data());
 }
 
-void GraphicsContextGLOpenGL::compressedTexSubImage3D(GCGLenum target, int level, int xoffset, int yoffset, int zoffset, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLenum format, GCGLsizei imageSize, GCGLintptr offset)
+void GraphicsContextGLANGLE::texImage3D(GCGLenum target, int level, int internalformat, GCGLsizei width, GCGLsizei height, GCGLsizei depth, int border, GCGLenum format, GCGLenum type, GCGLintptr offset)
 {
-    compressedTexSubImage3D(target, level, xoffset, yoffset, zoffset, width, height, depth, format, imageSize, makeGCGLSpan(reinterpret_cast<const GCGLvoid*>(offset), 0));
-}
-
-Vector<GCGLint> GraphicsContextGLOpenGL::getActiveUniforms(PlatformGLObject program, const Vector<GCGLuint>& uniformIndices, GCGLenum pname)
-{
-    Vector<GCGLint> result(uniformIndices.size(), 0);
-    ASSERT(program);
     if (!makeContextCurrent())
-        return result;
-
-    gl::GetActiveUniformsiv(program, uniformIndices.size(), uniformIndices.data(), pname, result.data());
-    return result;
+        return;
+    GCGLuint pixelUnpackBuffer = 0;
+    GL_GetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, reinterpret_cast<GCGLint*>(&pixelUnpackBuffer));
+    if (!pixelUnpackBuffer) {
+        addError(GCGLErrorCode::InvalidOperation);
+        return;
+    }
+    GL_TexImage3DRobustANGLE(target, level, internalformat, width, height, depth, border, format, type, 0, reinterpret_cast<GLvoid*>(offset));
 }
 
-GCGLenum GraphicsContextGLOpenGL::checkFramebufferStatus(GCGLenum target)
+void GraphicsContextGLANGLE::texSubImage3D(GCGLenum target, int level, int xoffset, int yoffset, int zoffset, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLenum format, GCGLenum type, std::span<const uint8_t> pixels)
+{
+    if (!makeContextCurrent())
+        return;
+    GL_TexSubImage3DRobustANGLE(target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, pixels.size(), pixels.data());
+}
+
+void GraphicsContextGLANGLE::texSubImage3D(GCGLenum target, int level, int xoffset, int yoffset, int zoffset, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLenum format, GCGLenum type, GCGLintptr offset)
+{
+    if (!makeContextCurrent())
+        return;
+    GCGLuint pixelUnpackBuffer = 0;
+    GL_GetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, reinterpret_cast<GCGLint*>(&pixelUnpackBuffer));
+    if (!pixelUnpackBuffer) {
+        addError(GCGLErrorCode::InvalidOperation);
+        return;
+    }
+    GL_TexSubImage3DRobustANGLE(target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, 0, reinterpret_cast<GLvoid*>(offset));
+}
+
+void GraphicsContextGLANGLE::compressedTexImage3D(GCGLenum target, int level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLsizei depth, int border, std::span<const uint8_t> data)
+{
+    if (!makeContextCurrent())
+        return;
+    GL_CompressedTexImage3D(target, level, internalformat, width, height, depth, border, data.size(), data.data());
+}
+
+void GraphicsContextGLANGLE::compressedTexImage3D(GCGLenum target, int level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLsizei depth, int border, GCGLsizei imageSize, GCGLintptr offset)
+{
+    if (!makeContextCurrent())
+        return;
+    GCGLuint pixelUnpackBuffer = 0;
+    GL_GetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, reinterpret_cast<GCGLint*>(&pixelUnpackBuffer));
+    if (!pixelUnpackBuffer) {
+        addError(GCGLErrorCode::InvalidOperation);
+        return;
+    }
+    GL_CompressedTexImage3D(target, level, internalformat, width, height, depth, border, imageSize, reinterpret_cast<GLvoid*>(offset));
+}
+
+void GraphicsContextGLANGLE::compressedTexSubImage3D(GCGLenum target, int level, int xoffset, int yoffset, int zoffset, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLenum format, std::span<const uint8_t> data)
+{
+    if (!makeContextCurrent())
+        return;
+    GL_CompressedTexSubImage3D(target, level, xoffset, yoffset, zoffset, width, height, depth, format, data.size(), data.data());
+}
+
+void GraphicsContextGLANGLE::compressedTexSubImage3D(GCGLenum target, int level, int xoffset, int yoffset, int zoffset, GCGLsizei width, GCGLsizei height, GCGLsizei depth, GCGLenum format, GCGLsizei imageSize, GCGLintptr offset)
+{
+    if (!makeContextCurrent())
+        return;
+    GCGLuint pixelUnpackBuffer = 0;
+    GL_GetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, reinterpret_cast<GCGLint*>(&pixelUnpackBuffer));
+    if (!pixelUnpackBuffer) {
+        addError(GCGLErrorCode::InvalidOperation);
+        return;
+    }
+    GL_CompressedTexSubImage3D(target, level, xoffset, yoffset, zoffset, width, height, depth, format, imageSize, reinterpret_cast<GLvoid*>(offset));
+}
+
+GCGLenum GraphicsContextGLANGLE::checkFramebufferStatus(GCGLenum target)
 {
     if (!makeContextCurrent())
         return GL_INVALID_OPERATION;
 
-    return gl::CheckFramebufferStatus(target);
+    return GL_CheckFramebufferStatus(target);
 }
 
-void GraphicsContextGLOpenGL::clearColor(GCGLclampf r, GCGLclampf g, GCGLclampf b, GCGLclampf a)
+void GraphicsContextGLANGLE::clearColor(GCGLclampf r, GCGLclampf g, GCGLclampf b, GCGLclampf a)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::ClearColor(r, g, b, a);
+    GL_ClearColor(r, g, b, a);
 }
 
-void GraphicsContextGLOpenGL::clear(GCGLbitfield mask)
+void GraphicsContextGLANGLE::clear(GCGLbitfield mask)
 {
     if (!makeContextCurrent())
         return;
+    if (mask & COLOR_BUFFER_BIT)
+        prepareForDrawingBufferWriteIfBound();
 
-    gl::Clear(mask);
+    GL_Clear(mask);
     checkGPUStatus();
 }
 
-void GraphicsContextGLOpenGL::clearStencil(GCGLint s)
+void GraphicsContextGLANGLE::clearStencil(GCGLint s)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::ClearStencil(s);
+    GL_ClearStencil(s);
 }
 
-void GraphicsContextGLOpenGL::colorMask(GCGLboolean red, GCGLboolean green, GCGLboolean blue, GCGLboolean alpha)
+void GraphicsContextGLANGLE::colorMask(GCGLboolean red, GCGLboolean green, GCGLboolean blue, GCGLboolean alpha)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::ColorMask(red, green, blue, alpha);
+    GL_ColorMask(red, green, blue, alpha);
 }
 
-void GraphicsContextGLOpenGL::compileShader(PlatformGLObject shader)
+void GraphicsContextGLANGLE::compileShader(PlatformGLObject shader)
 {
     ASSERT(shader);
     if (!makeContextCurrent())
@@ -910,32 +1307,15 @@ void GraphicsContextGLOpenGL::compileShader(PlatformGLObject shader)
     // We need the ANGLE_texture_rectangle extension to support IOSurface
     // backbuffers, but we don't want it exposed to WebGL user shaders.
     // Temporarily disable it during shader compilation.
-    gl::Disable(GL_TEXTURE_RECTANGLE_ANGLE);
+    GL_Disable(GL_TEXTURE_RECTANGLE_ANGLE);
 #endif
-    gl::CompileShader(shader);
+    GL_CompileShader(shader);
 #if !PLATFORM(WIN)
-    gl::Enable(GL_TEXTURE_RECTANGLE_ANGLE);
+    GL_Enable(GL_TEXTURE_RECTANGLE_ANGLE);
 #endif
 }
 
-void GraphicsContextGLOpenGL::compileShaderDirect(PlatformGLObject shader)
-{
-    ASSERT(shader);
-    if (!makeContextCurrent())
-        return;
-
-    gl::CompileShader(shader);
-}
-
-void GraphicsContextGLOpenGL::texImage2DDirect(GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLsizei width, GCGLsizei height, GCGLint border, GCGLenum format, GCGLenum type, const void* pixels)
-{
-    if (!makeContextCurrent())
-        return;
-    gl::TexImage2D(target, level, internalformat, width, height, border, format, type, pixels);
-    m_state.textureSeedCount.add(m_state.currentBoundTexture());
-}
-
-void GraphicsContextGLOpenGL::copyTexImage2D(GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height, GCGLint border)
+void GraphicsContextGLANGLE::copyTexImage2D(GCGLenum target, GCGLint level, GCGLenum internalformat, GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height, GCGLint border)
 {
     if (!makeContextCurrent())
         return;
@@ -945,14 +1325,14 @@ void GraphicsContextGLOpenGL::copyTexImage2D(GCGLenum target, GCGLint level, GCG
 
     if (attrs.antialias && m_state.boundReadFBO == m_multisampleFBO) {
         resolveMultisamplingIfNecessary(IntRect(x, y, width, height));
-        gl::BindFramebuffer(framebufferTarget, m_fbo);
+        GL_BindFramebuffer(framebufferTarget, m_fbo);
     }
-    gl::CopyTexImage2D(target, level, internalformat, x, y, width, height, border);
+    GL_CopyTexImage2D(target, level, internalformat, x, y, width, height, border);
     if (attrs.antialias && m_state.boundReadFBO == m_multisampleFBO)
-        gl::BindFramebuffer(framebufferTarget, m_multisampleFBO);
+        GL_BindFramebuffer(framebufferTarget, m_multisampleFBO);
 }
 
-void GraphicsContextGLOpenGL::copyTexSubImage2D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height)
+void GraphicsContextGLANGLE::copyTexSubImage2D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height)
 {
     if (!makeContextCurrent())
         return;
@@ -962,237 +1342,235 @@ void GraphicsContextGLOpenGL::copyTexSubImage2D(GCGLenum target, GCGLint level, 
 
     if (attrs.antialias && m_state.boundReadFBO == m_multisampleFBO) {
         resolveMultisamplingIfNecessary(IntRect(x, y, width, height));
-        gl::BindFramebuffer(framebufferTarget, m_fbo);
+        GL_BindFramebuffer(framebufferTarget, m_fbo);
     }
-    gl::CopyTexSubImage2D(target, level, xoffset, yoffset, x, y, width, height);
+    GL_CopyTexSubImage2D(target, level, xoffset, yoffset, x, y, width, height);
     if (attrs.antialias && m_state.boundReadFBO == m_multisampleFBO)
-        gl::BindFramebuffer(framebufferTarget, m_multisampleFBO);
+        GL_BindFramebuffer(framebufferTarget, m_multisampleFBO);
 }
 
-void GraphicsContextGLOpenGL::cullFace(GCGLenum mode)
+void GraphicsContextGLANGLE::cullFace(GCGLenum mode)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::CullFace(mode);
+    GL_CullFace(mode);
 }
 
-void GraphicsContextGLOpenGL::depthFunc(GCGLenum func)
+void GraphicsContextGLANGLE::depthFunc(GCGLenum func)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::DepthFunc(func);
+    GL_DepthFunc(func);
 }
 
-void GraphicsContextGLOpenGL::depthMask(GCGLboolean flag)
+void GraphicsContextGLANGLE::depthMask(GCGLboolean flag)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::DepthMask(flag);
+    GL_DepthMask(flag);
 }
 
-void GraphicsContextGLOpenGL::detachShader(PlatformGLObject program, PlatformGLObject shader)
+void GraphicsContextGLANGLE::detachShader(PlatformGLObject program, PlatformGLObject shader)
 {
     ASSERT(program);
     ASSERT(shader);
     if (!makeContextCurrent())
         return;
 
-    gl::DetachShader(program, shader);
+    GL_DetachShader(program, shader);
 }
 
-void GraphicsContextGLOpenGL::disable(GCGLenum cap)
+void GraphicsContextGLANGLE::disable(GCGLenum cap)
+{
+    if (!makeContextCurrent())
+        return;
+    if (cap == PRIMITIVE_RESTART_FIXED_INDEX) {
+        if (m_isForWebGL2)
+            addError(GCGLErrorCode::InvalidOperation);
+        return;
+    }
+    GL_Disable(cap);
+}
+
+void GraphicsContextGLANGLE::disableVertexAttribArray(GCGLuint index)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::Disable(cap);
+    GL_DisableVertexAttribArray(index);
 }
 
-void GraphicsContextGLOpenGL::disableVertexAttribArray(GCGLuint index)
+void GraphicsContextGLANGLE::drawArrays(GCGLenum mode, GCGLint first, GCGLsizei count)
 {
     if (!makeContextCurrent())
         return;
-
-    gl::DisableVertexAttribArray(index);
-}
-
-void GraphicsContextGLOpenGL::drawArrays(GCGLenum mode, GCGLint first, GCGLsizei count)
-{
-    if (!makeContextCurrent())
-        return;
-
-    gl::DrawArrays(mode, first, count);
+    prepareForDrawingBufferWriteIfBound();
+    GL_DrawArrays(mode, first, count);
     checkGPUStatus();
 }
 
-void GraphicsContextGLOpenGL::drawElements(GCGLenum mode, GCGLsizei count, GCGLenum type, GCGLintptr offset)
+void GraphicsContextGLANGLE::drawElements(GCGLenum mode, GCGLsizei count, GCGLenum type, GCGLintptr offset)
 {
     if (!makeContextCurrent())
         return;
-
-    gl::DrawElements(mode, count, type, reinterpret_cast<GLvoid*>(static_cast<intptr_t>(offset)));
+    prepareForDrawingBufferWriteIfBound();
+    GL_DrawElements(mode, count, type, reinterpret_cast<GLvoid*>(static_cast<intptr_t>(offset)));
     checkGPUStatus();
 }
 
-void GraphicsContextGLOpenGL::enable(GCGLenum cap)
+void GraphicsContextGLANGLE::enable(GCGLenum cap)
 {
     if (!makeContextCurrent())
         return;
-
-    gl::Enable(cap);
-}
-
-void GraphicsContextGLOpenGL::enableVertexAttribArray(GCGLuint index)
-{
-    if (!makeContextCurrent())
-        return;
-
-    gl::EnableVertexAttribArray(index);
-}
-
-void GraphicsContextGLOpenGL::finish()
-{
-    if (!makeContextCurrent())
-        return;
-
-    gl::Finish();
-}
-
-void GraphicsContextGLOpenGL::flush()
-{
-    if (!makeContextCurrent())
-        return;
-
-    gl::Flush();
-}
-
-void GraphicsContextGLOpenGL::framebufferRenderbuffer(GCGLenum target, GCGLenum attachment, GCGLenum renderbuffertarget, PlatformGLObject buffer)
-{
-    if (!makeContextCurrent())
-        return;
-
-    gl::FramebufferRenderbuffer(target, attachment, renderbuffertarget, buffer);
-}
-
-void GraphicsContextGLOpenGL::framebufferTexture2D(GCGLenum target, GCGLenum attachment, GCGLenum textarget, PlatformGLObject texture, GCGLint level)
-{
-    if (!makeContextCurrent())
-        return;
-
-    gl::FramebufferTexture2D(target, attachment, textarget, texture, level);
-    m_state.textureSeedCount.add(m_state.currentBoundTexture());
-}
-
-void GraphicsContextGLOpenGL::frontFace(GCGLenum mode)
-{
-    if (!makeContextCurrent())
-        return;
-
-    gl::FrontFace(mode);
-}
-
-void GraphicsContextGLOpenGL::generateMipmap(GCGLenum target)
-{
-    if (!makeContextCurrent())
-        return;
-
-    gl::GenerateMipmap(target);
-}
-
-bool GraphicsContextGLOpenGL::getActiveAttribImpl(PlatformGLObject program, GCGLuint index, ActiveInfo& info)
-{
-    if (!program) {
-        synthesizeGLError(INVALID_VALUE);
-        return false;
-    }
-    if (!makeContextCurrent())
-        return false;
-
-    GLint maxAttributeSize = 0;
-    gl::GetProgramiv(program, GL_ACTIVE_ATTRIBUTE_MAX_LENGTH, &maxAttributeSize);
-    Vector<GLchar> name(maxAttributeSize); // GL_ACTIVE_ATTRIBUTE_MAX_LENGTH includes null termination.
-    GLsizei nameLength = 0;
-    GLint size = 0;
-    GLenum type = 0;
-    gl::GetActiveAttrib(program, index, maxAttributeSize, &nameLength, &size, &type, name.data());
-    if (!nameLength)
-        return false;
-
-    info.name = String(name.data(), nameLength);
-    info.type = type;
-    info.size = size;
-    return true;
-}
-
-bool GraphicsContextGLOpenGL::getActiveAttrib(PlatformGLObject program, GCGLuint index, ActiveInfo& info)
-{
-    return getActiveAttribImpl(program, index, info);
-}
-
-bool GraphicsContextGLOpenGL::getActiveUniformImpl(PlatformGLObject program, GCGLuint index, ActiveInfo& info)
-{
-    if (!program) {
-        synthesizeGLError(INVALID_VALUE);
-        return false;
-    }
-
-    if (!makeContextCurrent())
-        return false;
-
-    GLint maxUniformSize = 0;
-    gl::GetProgramiv(program, GL_ACTIVE_UNIFORM_MAX_LENGTH, &maxUniformSize);
-    Vector<GLchar> name(maxUniformSize); // GL_ACTIVE_UNIFORM_MAX_LENGTH includes null termination.
-    GLsizei nameLength = 0;
-    GLint size = 0;
-    GLenum type = 0;
-    gl::GetActiveUniform(program, index, maxUniformSize, &nameLength, &size, &type, name.data());
-    if (!nameLength)
-        return false;
-
-    info.name = String(name.data(), nameLength);
-    info.type = type;
-    info.size = size;
-    return true;
-}
-
-bool GraphicsContextGLOpenGL::getActiveUniform(PlatformGLObject program, GCGLuint index, ActiveInfo& info)
-{
-    return getActiveUniformImpl(program, index, info);
-}
-
-void GraphicsContextGLOpenGL::getAttachedShaders(PlatformGLObject program, GCGLsizei maxCount, GCGLsizei* count, PlatformGLObject* shaders)
-{
-    if (!program) {
-        synthesizeGLError(INVALID_VALUE);
+    if (cap == PRIMITIVE_RESTART_FIXED_INDEX) {
+        if (!m_isForWebGL2)
+            addError(GCGLErrorCode::InvalidOperation);
         return;
     }
+    GL_Enable(cap);
+}
+
+void GraphicsContextGLANGLE::enableVertexAttribArray(GCGLuint index)
+{
     if (!makeContextCurrent())
         return;
 
-    gl::GetAttachedShaders(program, maxCount, count, shaders);
+    GL_EnableVertexAttribArray(index);
 }
 
-int GraphicsContextGLOpenGL::getAttribLocation(PlatformGLObject program, const String& name)
+void GraphicsContextGLANGLE::finish()
 {
-    if (!program)
-        return -1;
-
     if (!makeContextCurrent())
-        return -1;
+        return;
 
-
-    return gl::GetAttribLocation(program, name.utf8().data());
+    GL_Finish();
 }
 
-int GraphicsContextGLOpenGL::getAttribLocationDirect(PlatformGLObject program, const String& name)
+void GraphicsContextGLANGLE::flush()
 {
-    return getAttribLocation(program, name);
+    if (!makeContextCurrent())
+        return;
+
+    GL_Flush();
 }
 
-bool GraphicsContextGLOpenGL::moveErrorsToSyntheticErrorList()
+void GraphicsContextGLANGLE::framebufferRenderbuffer(GCGLenum target, GCGLenum attachment, GCGLenum renderbuffertarget, PlatformGLObject buffer)
+{
+    if (!makeContextCurrent())
+        return;
+
+    GL_FramebufferRenderbuffer(target, attachment, renderbuffertarget, buffer);
+}
+
+void GraphicsContextGLANGLE::framebufferTexture2D(GCGLenum target, GCGLenum attachment, GCGLenum textarget, PlatformGLObject texture, GCGLint level)
+{
+    if (!makeContextCurrent())
+        return;
+
+    GL_FramebufferTexture2D(target, attachment, textarget, texture, level);
+    invalidateKnownTextureContent(m_state.currentBoundTexture());
+}
+
+void GraphicsContextGLANGLE::frontFace(GCGLenum mode)
+{
+    if (!makeContextCurrent())
+        return;
+
+    GL_FrontFace(mode);
+}
+
+void GraphicsContextGLANGLE::generateMipmap(GCGLenum target)
+{
+    if (!makeContextCurrent())
+        return;
+
+    GL_GenerateMipmap(target);
+}
+
+Vector<GCGLAttribActiveInfo> GraphicsContextGLANGLE::activeAttribs(PlatformGLObject program)
+{
+    if (!makeContextCurrent())
+        return { };
+    GLint maxLength = 0;
+    GL_GetProgramiv(program, GL_ACTIVE_ATTRIBUTE_MAX_LENGTH, &maxLength);
+    if (!maxLength)
+        return { };
+    GLsizei activeAttribs = 0;
+    GL_GetProgramiv(program, GL_ACTIVE_ATTRIBUTES, &activeAttribs);
+    std::string name;
+    Vector<GCGLAttribActiveInfo> result;
+    result.reserveCapacity(activeAttribs);
+    for (GLsizei index = 0; index < activeAttribs; ++index) {
+        name.resize(maxLength); // GL_ACTIVE_ATTRIBUTE_MAX_LENGTH includes nul termination.
+        GLsizei length = 0;
+        GLint size = 0;
+        GLenum type = 0;
+        GL_GetActiveAttrib(program, index, maxLength, &length, &size, &type, name.data());
+        if (length < 1 || size != 1) {
+            ASSERT_NOT_REACHED();
+            return { };
+        }
+        name.resize(length);
+        result.append(GCGLAttribActiveInfo { name.data(), type, GL_GetAttribLocation(program, name.data()) });
+    }
+    return result;
+}
+
+Vector<GCGLUniformActiveInfo> GraphicsContextGLANGLE::activeUniforms(PlatformGLObject program)
+{
+    if (!makeContextCurrent())
+        return { };
+
+    GLint maxLength = 0;
+    GL_GetProgramiv(program, GL_ACTIVE_UNIFORM_MAX_LENGTH, &maxLength);
+    if (!maxLength)
+        return { };
+    GLsizei activeUniforms = 0;
+    GL_GetProgramiv(program, GL_ACTIVE_UNIFORMS, &activeUniforms);
+    std::string name;
+    Vector<GCGLUniformActiveInfo> result;
+    result.reserveCapacity(activeUniforms);
+    for (GLuint index = 0; index < static_cast<GLuint>(activeUniforms); ++index) {
+        name.resize(maxLength); // GL_ACTIVE_UNIFORM_MAX_LENGTH includes nul termination.
+        GCGLUniformActiveInfo info;
+        GLsizei length = 0;
+        GL_GetActiveUniform(program, index, maxLength, &length, &info.size, &info.type, name.data());
+        if (length < 1 || info.size < 1) {
+            ASSERT_NOT_REACHED();
+            return { };
+        }
+        name.resize(length);
+        info.name = name;
+        if (m_isForWebGL2) {
+            GL_GetActiveUniformsiv(program, 1, &index, GL_UNIFORM_BLOCK_INDEX, &info.blockIndex);
+            GL_GetActiveUniformsiv(program, 1, &index, GL_UNIFORM_OFFSET, &info.offset);
+            GL_GetActiveUniformsiv(program, 1, &index, GL_UNIFORM_ARRAY_STRIDE, &info.arrayStride);
+            GL_GetActiveUniformsiv(program, 1, &index, GL_UNIFORM_MATRIX_STRIDE, &info.matrixStride);
+            GL_GetActiveUniformsiv(program, 1, &index, GL_UNIFORM_IS_ROW_MAJOR, &info.isRowMajor);
+        }
+        if (info.blockIndex == -1) {
+            info.locations.append(GL_GetUniformLocation(program, name.data()));
+            if (info.size > 1) {
+                if (!name.ends_with("[0]")) {
+                    ASSERT_NOT_REACHED();
+                    return { };
+                }
+                name.resize(name.length() - 3);
+                for (GLint arrayIndex = 1; arrayIndex < info.size; ++arrayIndex) {
+                    auto elementName = (std::ostringstream() << name << '[' << arrayIndex << ']').str();
+                    info.locations.append(GL_GetUniformLocation(program, elementName.data()));
+                }
+            }
+        }
+        result.append(WTF::move(info));
+    }
+    return result;
+}
+
+bool GraphicsContextGLANGLE::updateErrors()
 {
     if (!makeContextCurrent())
         return false;
@@ -1203,49 +1581,41 @@ bool GraphicsContextGLOpenGL::moveErrorsToSyntheticErrorList()
     // a problem driver has a bug that causes it to never clear the error.
     // Otherwise, we would just loop until we got NO_ERROR.
     for (unsigned i = 0; i < 100; ++i) {
-        GCGLenum error = gl::GetError();
+        GCGLenum error = GL_GetError();
         if (error == NO_ERROR)
             break;
-        m_syntheticErrors.add(error);
+        addError(enumToErrorCode(error));
         movedAnError = true;
     }
 
     return movedAnError;
 }
 
-GCGLenum GraphicsContextGLOpenGL::getError()
-{
-    if (!m_syntheticErrors.isEmpty()) {
-        // Need to move the current errors to the synthetic error list in case
-        // that error is already there, since the expected behavior of both
-        // glGetError and getError is to only report each error code once.
-        moveErrorsToSyntheticErrorList();
-        return m_syntheticErrors.takeFirst();
-    }
-
-    if (!makeContextCurrent())
-        return GL_INVALID_OPERATION;
-
-    return gl::GetError();
-}
-
-String GraphicsContextGLOpenGL::getString(GCGLenum name)
+GCGLErrorCodeSet GraphicsContextGLANGLE::getErrors()
 {
     if (!makeContextCurrent())
-        return String();
+        return GCGLErrorCode::InvalidOperation;
 
-    return String(reinterpret_cast<const char*>(gl::GetString(name)));
+    updateErrors();
+    return std::exchange(m_errors, { });
 }
 
-void GraphicsContextGLOpenGL::hint(GCGLenum target, GCGLenum mode)
+CString GraphicsContextGLANGLE::getString(GCGLenum name)
+{
+    if (!makeContextCurrent())
+        return { };
+    return CString { byteCast<char>(GL_GetString(name)) };
+}
+
+void GraphicsContextGLANGLE::hint(GCGLenum target, GCGLenum mode)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::Hint(target, mode);
+    GL_Hint(target, mode);
 }
 
-GCGLboolean GraphicsContextGLOpenGL::isBuffer(PlatformGLObject buffer)
+GCGLboolean GraphicsContextGLANGLE::isBuffer(PlatformGLObject buffer)
 {
     if (!buffer)
         return GL_FALSE;
@@ -1253,18 +1623,18 @@ GCGLboolean GraphicsContextGLOpenGL::isBuffer(PlatformGLObject buffer)
     if (!makeContextCurrent())
         return GL_FALSE;
 
-    return gl::IsBuffer(buffer);
+    return GL_IsBuffer(buffer);
 }
 
-GCGLboolean GraphicsContextGLOpenGL::isEnabled(GCGLenum cap)
+GCGLboolean GraphicsContextGLANGLE::isEnabled(GCGLenum cap)
 {
     if (!makeContextCurrent())
         return GL_FALSE;
 
-    return gl::IsEnabled(cap);
+    return GL_IsEnabled(cap);
 }
 
-GCGLboolean GraphicsContextGLOpenGL::isFramebuffer(PlatformGLObject framebuffer)
+GCGLboolean GraphicsContextGLANGLE::isFramebuffer(PlatformGLObject framebuffer)
 {
     if (!framebuffer)
         return GL_FALSE;
@@ -1272,10 +1642,10 @@ GCGLboolean GraphicsContextGLOpenGL::isFramebuffer(PlatformGLObject framebuffer)
     if (!makeContextCurrent())
         return GL_FALSE;
 
-    return gl::IsFramebuffer(framebuffer);
+    return GL_IsFramebuffer(framebuffer);
 }
 
-GCGLboolean GraphicsContextGLOpenGL::isProgram(PlatformGLObject program)
+GCGLboolean GraphicsContextGLANGLE::isProgram(PlatformGLObject program)
 {
     if (!program)
         return GL_FALSE;
@@ -1283,10 +1653,10 @@ GCGLboolean GraphicsContextGLOpenGL::isProgram(PlatformGLObject program)
     if (!makeContextCurrent())
         return GL_FALSE;
 
-    return gl::IsProgram(program);
+    return GL_IsProgram(program);
 }
 
-GCGLboolean GraphicsContextGLOpenGL::isRenderbuffer(PlatformGLObject renderbuffer)
+GCGLboolean GraphicsContextGLANGLE::isRenderbuffer(PlatformGLObject renderbuffer)
 {
     if (!renderbuffer)
         return GL_FALSE;
@@ -1294,10 +1664,10 @@ GCGLboolean GraphicsContextGLOpenGL::isRenderbuffer(PlatformGLObject renderbuffe
     if (!makeContextCurrent())
         return GL_FALSE;
 
-    return gl::IsRenderbuffer(renderbuffer);
+    return GL_IsRenderbuffer(renderbuffer);
 }
 
-GCGLboolean GraphicsContextGLOpenGL::isShader(PlatformGLObject shader)
+GCGLboolean GraphicsContextGLANGLE::isShader(PlatformGLObject shader)
 {
     if (!shader)
         return GL_FALSE;
@@ -1305,10 +1675,10 @@ GCGLboolean GraphicsContextGLOpenGL::isShader(PlatformGLObject shader)
     if (!makeContextCurrent())
         return GL_FALSE;
 
-    return gl::IsShader(shader);
+    return GL_IsShader(shader);
 }
 
-GCGLboolean GraphicsContextGLOpenGL::isTexture(PlatformGLObject texture)
+GCGLboolean GraphicsContextGLANGLE::isTexture(PlatformGLObject texture)
 {
     if (!texture)
         return GL_FALSE;
@@ -1316,427 +1686,438 @@ GCGLboolean GraphicsContextGLOpenGL::isTexture(PlatformGLObject texture)
     if (!makeContextCurrent())
         return GL_FALSE;
 
-    return gl::IsTexture(texture);
+    return GL_IsTexture(texture);
 }
 
-void GraphicsContextGLOpenGL::lineWidth(GCGLfloat width)
+void GraphicsContextGLANGLE::lineWidth(GCGLfloat width)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::LineWidth(width);
+    GL_LineWidth(width);
 }
 
-void GraphicsContextGLOpenGL::linkProgram(PlatformGLObject program)
+void GraphicsContextGLANGLE::linkProgram(PlatformGLObject program)
 {
     ASSERT(program);
     if (!makeContextCurrent())
         return;
 
-    gl::LinkProgram(program);
+    GL_LinkProgram(program);
 }
 
-void GraphicsContextGLOpenGL::pixelStorei(GCGLenum pname, GCGLint param)
+void GraphicsContextGLANGLE::pixelStorei(GCGLenum pname, GCGLint param)
+{
+    if (!makeContextCurrent())
+        return;
+    switch (pname) {
+    case UNPACK_ALIGNMENT:
+    case UNPACK_ROW_LENGTH:
+    case UNPACK_IMAGE_HEIGHT:
+    case UNPACK_SKIP_PIXELS:
+    case UNPACK_SKIP_ROWS:
+    case UNPACK_SKIP_IMAGES:
+        break;
+    default:
+        // Should be never set, rather passed to the commands that need these.
+        addError(GCGLErrorCode::InvalidOperation);
+        return;
+    }
+    GL_PixelStorei(pname, param);
+}
+
+void GraphicsContextGLANGLE::polygonOffset(GCGLfloat factor, GCGLfloat units)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::PixelStorei(pname, param);
+    GL_PolygonOffset(factor, units);
 }
 
-void GraphicsContextGLOpenGL::polygonOffset(GCGLfloat factor, GCGLfloat units)
+void GraphicsContextGLANGLE::sampleCoverage(GCGLclampf value, GCGLboolean invert)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::PolygonOffset(factor, units);
+    GL_SampleCoverage(value, invert);
 }
 
-void GraphicsContextGLOpenGL::sampleCoverage(GCGLclampf value, GCGLboolean invert)
+void GraphicsContextGLANGLE::scissor(GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::SampleCoverage(value, invert);
+    GL_Scissor(x, y, width, height);
 }
 
-void GraphicsContextGLOpenGL::scissor(GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height)
-{
-    if (!makeContextCurrent())
-        return;
-
-    gl::Scissor(x, y, width, height);
-}
-
-void GraphicsContextGLOpenGL::shaderSource(PlatformGLObject shader, const String& string)
+void GraphicsContextGLANGLE::shaderSource(PlatformGLObject shader, const CString& source)
 {
     ASSERT(shader);
 
     if (!makeContextCurrent())
         return;
 
-    const CString& shaderSourceCString = string.utf8();
-    const char* shaderSourcePtr = shaderSourceCString.data();
-    int shaderSourceLength = shaderSourceCString.length();
-    gl::ShaderSource(shader, 1, &shaderSourcePtr, &shaderSourceLength);
+    const char* sources = source.data();
+    int lengths = source.length();
+    GL_ShaderSource(shader, 1, &sources, &lengths);
 }
 
-void GraphicsContextGLOpenGL::stencilFunc(GCGLenum func, GCGLint ref, GCGLuint mask)
+void GraphicsContextGLANGLE::stencilFunc(GCGLenum func, GCGLint ref, GCGLuint mask)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::StencilFunc(func, ref, mask);
+    GL_StencilFunc(func, ref, mask);
 }
 
-void GraphicsContextGLOpenGL::stencilFuncSeparate(GCGLenum face, GCGLenum func, GCGLint ref, GCGLuint mask)
+void GraphicsContextGLANGLE::stencilFuncSeparate(GCGLenum face, GCGLenum func, GCGLint ref, GCGLuint mask)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::StencilFuncSeparate(face, func, ref, mask);
+    GL_StencilFuncSeparate(face, func, ref, mask);
 }
 
-void GraphicsContextGLOpenGL::stencilMask(GCGLuint mask)
+void GraphicsContextGLANGLE::stencilMask(GCGLuint mask)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::StencilMask(mask);
+    GL_StencilMask(mask);
 }
 
-void GraphicsContextGLOpenGL::stencilMaskSeparate(GCGLenum face, GCGLuint mask)
+void GraphicsContextGLANGLE::stencilMaskSeparate(GCGLenum face, GCGLuint mask)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::StencilMaskSeparate(face, mask);
+    GL_StencilMaskSeparate(face, mask);
 }
 
-void GraphicsContextGLOpenGL::stencilOp(GCGLenum fail, GCGLenum zfail, GCGLenum zpass)
+void GraphicsContextGLANGLE::stencilOp(GCGLenum fail, GCGLenum zfail, GCGLenum zpass)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::StencilOp(fail, zfail, zpass);
+    GL_StencilOp(fail, zfail, zpass);
 }
 
-void GraphicsContextGLOpenGL::stencilOpSeparate(GCGLenum face, GCGLenum fail, GCGLenum zfail, GCGLenum zpass)
+void GraphicsContextGLANGLE::stencilOpSeparate(GCGLenum face, GCGLenum fail, GCGLenum zfail, GCGLenum zpass)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::StencilOpSeparate(face, fail, zfail, zpass);
+    GL_StencilOpSeparate(face, fail, zfail, zpass);
 }
 
-void GraphicsContextGLOpenGL::texParameterf(GCGLenum target, GCGLenum pname, GCGLfloat value)
+void GraphicsContextGLANGLE::texParameterf(GCGLenum target, GCGLenum pname, GCGLfloat value)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::TexParameterf(target, pname, value);
+    GL_TexParameterf(target, pname, value);
 }
 
-void GraphicsContextGLOpenGL::texParameteri(GCGLenum target, GCGLenum pname, GCGLint value)
+void GraphicsContextGLANGLE::texParameteri(GCGLenum target, GCGLenum pname, GCGLint value)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::TexParameteri(target, pname, value);
+    GL_TexParameteri(target, pname, value);
 }
 
-void GraphicsContextGLOpenGL::uniform1f(GCGLint location, GCGLfloat v0)
+void GraphicsContextGLANGLE::uniform1f(GCGLint location, GCGLfloat v0)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::Uniform1f(location, v0);
+    GL_Uniform1f(location, v0);
 }
 
-void GraphicsContextGLOpenGL::uniform1fv(GCGLint location, GCGLSpan<const GCGLfloat> array)
+void GraphicsContextGLANGLE::uniform1fv(GCGLint location, std::span<const GCGLfloat> array)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::Uniform1fv(location, array.bufSize, array.data);
+    GL_Uniform1fv(location, array.size(), array.data());
 }
 
-void GraphicsContextGLOpenGL::uniform2f(GCGLint location, GCGLfloat v0, GCGLfloat v1)
+void GraphicsContextGLANGLE::uniform2f(GCGLint location, GCGLfloat v0, GCGLfloat v1)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::Uniform2f(location, v0, v1);
+    GL_Uniform2f(location, v0, v1);
 }
 
-void GraphicsContextGLOpenGL::uniform2fv(GCGLint location, GCGLSpan<const GCGLfloat> array)
+void GraphicsContextGLANGLE::uniform2fv(GCGLint location, std::span<const GCGLfloat> array)
 {
-    ASSERT(!(array.bufSize % 2));
+    ASSERT(!(array.size() % 2));
     if (!makeContextCurrent())
         return;
 
-    gl::Uniform2fv(location, array.bufSize / 2, array.data);
+    GL_Uniform2fv(location, array.size() / 2, array.data());
 }
 
-void GraphicsContextGLOpenGL::uniform3f(GCGLint location, GCGLfloat v0, GCGLfloat v1, GCGLfloat v2)
-{
-    if (!makeContextCurrent())
-        return;
-
-    gl::Uniform3f(location, v0, v1, v2);
-}
-
-void GraphicsContextGLOpenGL::uniform3fv(GCGLint location, GCGLSpan<const GCGLfloat> array)
-{
-    ASSERT(!(array.bufSize % 3));
-    if (!makeContextCurrent())
-        return;
-
-    gl::Uniform3fv(location, array.bufSize / 3, array.data);
-}
-
-void GraphicsContextGLOpenGL::uniform4f(GCGLint location, GCGLfloat v0, GCGLfloat v1, GCGLfloat v2, GCGLfloat v3)
+void GraphicsContextGLANGLE::uniform3f(GCGLint location, GCGLfloat v0, GCGLfloat v1, GCGLfloat v2)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::Uniform4f(location, v0, v1, v2, v3);
+    GL_Uniform3f(location, v0, v1, v2);
 }
 
-void GraphicsContextGLOpenGL::uniform4fv(GCGLint location, GCGLSpan<const GCGLfloat> array)
+void GraphicsContextGLANGLE::uniform3fv(GCGLint location, std::span<const GCGLfloat> array)
 {
-    ASSERT(!(array.bufSize % 4));
+    ASSERT(!(array.size() % 3));
     if (!makeContextCurrent())
         return;
 
-    gl::Uniform4fv(location, array.bufSize / 4, array.data);
+    GL_Uniform3fv(location, array.size() / 3, array.data());
 }
 
-void GraphicsContextGLOpenGL::uniform1i(GCGLint location, GCGLint v0)
-{
-    if (!makeContextCurrent())
-        return;
-
-    gl::Uniform1i(location, v0);
-}
-
-void GraphicsContextGLOpenGL::uniform1iv(GCGLint location, GCGLSpan<const GCGLint> array)
+void GraphicsContextGLANGLE::uniform4f(GCGLint location, GCGLfloat v0, GCGLfloat v1, GCGLfloat v2, GCGLfloat v3)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::Uniform1iv(location, array.bufSize, array.data);
+    GL_Uniform4f(location, v0, v1, v2, v3);
 }
 
-void GraphicsContextGLOpenGL::uniform2i(GCGLint location, GCGLint v0, GCGLint v1)
+void GraphicsContextGLANGLE::uniform4fv(GCGLint location, std::span<const GCGLfloat> array)
+{
+    ASSERT(!(array.size() % 4));
+    if (!makeContextCurrent())
+        return;
+
+    GL_Uniform4fv(location, array.size() / 4, array.data());
+}
+
+void GraphicsContextGLANGLE::uniform1i(GCGLint location, GCGLint v0)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::Uniform2i(location, v0, v1);
+    GL_Uniform1i(location, v0);
 }
 
-void GraphicsContextGLOpenGL::uniform2iv(GCGLint location, GCGLSpan<const GCGLint> array)
-{
-    ASSERT(!(array.bufSize % 2));
-    if (!makeContextCurrent())
-        return;
-
-    gl::Uniform2iv(location, array.bufSize / 2, array.data);
-}
-
-void GraphicsContextGLOpenGL::uniform3i(GCGLint location, GCGLint v0, GCGLint v1, GCGLint v2)
+void GraphicsContextGLANGLE::uniform1iv(GCGLint location, std::span<const GCGLint> array)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::Uniform3i(location, v0, v1, v2);
+    GL_Uniform1iv(location, array.size(), array.data());
 }
 
-void GraphicsContextGLOpenGL::uniform3iv(GCGLint location, GCGLSpan<const GCGLint> array)
-{
-    ASSERT(!(array.bufSize % 3));
-    if (!makeContextCurrent())
-        return;
-
-    gl::Uniform3iv(location, array.bufSize / 3, array.data);
-}
-
-void GraphicsContextGLOpenGL::uniform4i(GCGLint location, GCGLint v0, GCGLint v1, GCGLint v2, GCGLint v3)
+void GraphicsContextGLANGLE::uniform2i(GCGLint location, GCGLint v0, GCGLint v1)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::Uniform4i(location, v0, v1, v2, v3);
+    GL_Uniform2i(location, v0, v1);
 }
 
-void GraphicsContextGLOpenGL::uniform4iv(GCGLint location, GCGLSpan<const GCGLint> array)
+void GraphicsContextGLANGLE::uniform2iv(GCGLint location, std::span<const GCGLint> array)
 {
-    ASSERT(!(array.bufSize % 4));
+    ASSERT(!(array.size() % 2));
     if (!makeContextCurrent())
         return;
 
-    gl::Uniform4iv(location, array.bufSize / 4, array.data);
+    GL_Uniform2iv(location, array.size() / 2, array.data());
 }
 
-void GraphicsContextGLOpenGL::uniformMatrix2fv(GCGLint location, GCGLboolean transpose, GCGLSpan<const GCGLfloat> array)
-{
-    if (!makeContextCurrent())
-        return;
-
-    gl::UniformMatrix2fv(location, array.bufSize / 4, transpose, array.data);
-}
-
-void GraphicsContextGLOpenGL::uniformMatrix3fv(GCGLint location, GCGLboolean transpose, GCGLSpan<const GCGLfloat> array)
-{
-    ASSERT(!(array.bufSize % 9));
-    if (!makeContextCurrent())
-        return;
-
-    gl::UniformMatrix3fv(location, array.bufSize / 9, transpose, array.data);
-}
-
-void GraphicsContextGLOpenGL::uniformMatrix4fv(GCGLint location, GCGLboolean transpose, GCGLSpan<const GCGLfloat> array)
-{
-    ASSERT(!(array.bufSize % 16));
-    if (!makeContextCurrent())
-        return;
-
-    gl::UniformMatrix4fv(location, array.bufSize / 16, transpose, array.data);
-}
-
-void GraphicsContextGLOpenGL::useProgram(PlatformGLObject program)
+void GraphicsContextGLANGLE::uniform3i(GCGLint location, GCGLint v0, GCGLint v1, GCGLint v2)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::UseProgram(program);
+    GL_Uniform3i(location, v0, v1, v2);
 }
 
-void GraphicsContextGLOpenGL::validateProgram(PlatformGLObject program)
+void GraphicsContextGLANGLE::uniform3iv(GCGLint location, std::span<const GCGLint> array)
+{
+    ASSERT(!(array.size() % 3));
+    if (!makeContextCurrent())
+        return;
+
+    GL_Uniform3iv(location, array.size() / 3, array.data());
+}
+
+void GraphicsContextGLANGLE::uniform4i(GCGLint location, GCGLint v0, GCGLint v1, GCGLint v2, GCGLint v3)
+{
+    if (!makeContextCurrent())
+        return;
+
+    GL_Uniform4i(location, v0, v1, v2, v3);
+}
+
+void GraphicsContextGLANGLE::uniform4iv(GCGLint location, std::span<const GCGLint> array)
+{
+    ASSERT(!(array.size() % 4));
+    if (!makeContextCurrent())
+        return;
+
+    GL_Uniform4iv(location, array.size() / 4, array.data());
+}
+
+void GraphicsContextGLANGLE::uniformMatrix2fv(GCGLint location, GCGLboolean transpose, std::span<const GCGLfloat> array)
+{
+    if (!makeContextCurrent())
+        return;
+
+    GL_UniformMatrix2fv(location, array.size() / 4, transpose, array.data());
+}
+
+void GraphicsContextGLANGLE::uniformMatrix3fv(GCGLint location, GCGLboolean transpose, std::span<const GCGLfloat> array)
+{
+    ASSERT(!(array.size() % 9));
+    if (!makeContextCurrent())
+        return;
+
+    GL_UniformMatrix3fv(location, array.size() / 9, transpose, array.data());
+}
+
+void GraphicsContextGLANGLE::uniformMatrix4fv(GCGLint location, GCGLboolean transpose, std::span<const GCGLfloat> array)
+{
+    ASSERT(!(array.size() % 16));
+    if (!makeContextCurrent())
+        return;
+
+    GL_UniformMatrix4fv(location, array.size() / 16, transpose, array.data());
+}
+
+void GraphicsContextGLANGLE::useProgram(PlatformGLObject program)
+{
+    if (!makeContextCurrent())
+        return;
+
+    GL_UseProgram(program);
+}
+
+void GraphicsContextGLANGLE::validateProgram(PlatformGLObject program)
 {
     ASSERT(program);
 
     if (!makeContextCurrent())
         return;
 
-    gl::ValidateProgram(program);
+    GL_ValidateProgram(program);
 }
 
-void GraphicsContextGLOpenGL::vertexAttrib1f(GCGLuint index, GCGLfloat v0)
+void GraphicsContextGLANGLE::vertexAttrib1f(GCGLuint index, GCGLfloat v0)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::VertexAttrib1f(index, v0);
+    GL_VertexAttrib1f(index, v0);
 }
 
-void GraphicsContextGLOpenGL::vertexAttrib1fv(GCGLuint index, GCGLSpan<const GCGLfloat, 1> array)
+void GraphicsContextGLANGLE::vertexAttrib1fv(GCGLuint index, std::span<const GCGLfloat, 1> array)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::VertexAttrib1fv(index, array.data);
+    GL_VertexAttrib1fv(index, array.data());
 }
 
-void GraphicsContextGLOpenGL::vertexAttrib2f(GCGLuint index, GCGLfloat v0, GCGLfloat v1)
+void GraphicsContextGLANGLE::vertexAttrib2f(GCGLuint index, GCGLfloat v0, GCGLfloat v1)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::VertexAttrib2f(index, v0, v1);
+    GL_VertexAttrib2f(index, v0, v1);
 }
 
-void GraphicsContextGLOpenGL::vertexAttrib2fv(GCGLuint index, GCGLSpan<const GCGLfloat, 2> array)
+void GraphicsContextGLANGLE::vertexAttrib2fv(GCGLuint index, std::span<const GCGLfloat, 2> array)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::VertexAttrib2fv(index, array.data);
+    GL_VertexAttrib2fv(index, array.data());
 }
 
-void GraphicsContextGLOpenGL::vertexAttrib3f(GCGLuint index, GCGLfloat v0, GCGLfloat v1, GCGLfloat v2)
+void GraphicsContextGLANGLE::vertexAttrib3f(GCGLuint index, GCGLfloat v0, GCGLfloat v1, GCGLfloat v2)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::VertexAttrib3f(index, v0, v1, v2);
+    GL_VertexAttrib3f(index, v0, v1, v2);
 }
 
-void GraphicsContextGLOpenGL::vertexAttrib3fv(GCGLuint index, GCGLSpan<const GCGLfloat, 3> array)
+void GraphicsContextGLANGLE::vertexAttrib3fv(GCGLuint index, std::span<const GCGLfloat, 3> array)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::VertexAttrib3fv(index, array.data);
+    GL_VertexAttrib3fv(index, array.data());
 }
 
-void GraphicsContextGLOpenGL::vertexAttrib4f(GCGLuint index, GCGLfloat v0, GCGLfloat v1, GCGLfloat v2, GCGLfloat v3)
+void GraphicsContextGLANGLE::vertexAttrib4f(GCGLuint index, GCGLfloat v0, GCGLfloat v1, GCGLfloat v2, GCGLfloat v3)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::VertexAttrib4f(index, v0, v1, v2, v3);
+    GL_VertexAttrib4f(index, v0, v1, v2, v3);
 }
 
-void GraphicsContextGLOpenGL::vertexAttrib4fv(GCGLuint index, GCGLSpan<const GCGLfloat, 4> array)
+void GraphicsContextGLANGLE::vertexAttrib4fv(GCGLuint index, std::span<const GCGLfloat, 4> array)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::VertexAttrib4fv(index, array.data);
+    GL_VertexAttrib4fv(index, array.data());
 }
 
-void GraphicsContextGLOpenGL::vertexAttribPointer(GCGLuint index, GCGLint size, GCGLenum type, GCGLboolean normalized, GCGLsizei stride, GCGLintptr offset)
+void GraphicsContextGLANGLE::vertexAttribPointer(GCGLuint index, GCGLint size, GCGLenum type, GCGLboolean normalized, GCGLsizei stride, GCGLintptr offset)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::VertexAttribPointer(index, size, type, normalized, stride, reinterpret_cast<GLvoid*>(static_cast<intptr_t>(offset)));
+    GL_VertexAttribPointer(index, size, type, normalized, stride, reinterpret_cast<GLvoid*>(static_cast<intptr_t>(offset)));
 }
 
-void GraphicsContextGLOpenGL::vertexAttribIPointer(GCGLuint index, GCGLint size, GCGLenum type, GCGLsizei stride, GCGLintptr offset)
+void GraphicsContextGLANGLE::vertexAttribIPointer(GCGLuint index, GCGLint size, GCGLenum type, GCGLsizei stride, GCGLintptr offset)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::VertexAttribIPointer(index, size, type, stride, reinterpret_cast<GLvoid*>(static_cast<intptr_t>(offset)));
+    GL_VertexAttribIPointer(index, size, type, stride, reinterpret_cast<GLvoid*>(static_cast<intptr_t>(offset)));
 }
 
-void GraphicsContextGLOpenGL::viewport(GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height)
+void GraphicsContextGLANGLE::viewport(GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::Viewport(x, y, width, height);
+    GL_Viewport(x, y, width, height);
 }
 
-PlatformGLObject GraphicsContextGLOpenGL::createVertexArray()
+PlatformGLObject GraphicsContextGLANGLE::createVertexArray()
 {
     if (!makeContextCurrent())
         return 0;
 
     GLuint array = 0;
     if (m_isForWebGL2)
-        gl::GenVertexArrays(1, &array);
+        GL_GenVertexArrays(1, &array);
     else
-        gl::GenVertexArraysOES(1, &array);
+        GL_GenVertexArraysOES(1, &array);
     return array;
 }
 
-void GraphicsContextGLOpenGL::deleteVertexArray(PlatformGLObject array)
+void GraphicsContextGLANGLE::deleteVertexArray(PlatformGLObject array)
 {
     if (!array)
         return;
     if (!makeContextCurrent())
         return;
     if (m_isForWebGL2)
-        gl::DeleteVertexArrays(1, &array);
+        GL_DeleteVertexArrays(1, &array);
     else
-        gl::DeleteVertexArraysOES(1, &array);
+        GL_DeleteVertexArraysOES(1, &array);
 }
 
-GCGLboolean GraphicsContextGLOpenGL::isVertexArray(PlatformGLObject array)
+GCGLboolean GraphicsContextGLANGLE::isVertexArray(PlatformGLObject array)
 {
     if (!array)
         return GL_FALSE;
@@ -1744,301 +2125,253 @@ GCGLboolean GraphicsContextGLOpenGL::isVertexArray(PlatformGLObject array)
         return GL_FALSE;
 
     if (m_isForWebGL2)
-        return gl::IsVertexArray(array);
-    return gl::IsVertexArrayOES(array);
+        return GL_IsVertexArray(array);
+    return GL_IsVertexArrayOES(array);
 }
 
-void GraphicsContextGLOpenGL::bindVertexArray(PlatformGLObject array)
+void GraphicsContextGLANGLE::bindVertexArray(PlatformGLObject array)
 {
     if (!makeContextCurrent())
         return;
     if (m_isForWebGL2)
-        gl::BindVertexArray(array);
+        GL_BindVertexArray(array);
     else
-        gl::BindVertexArrayOES(array);
+        GL_BindVertexArrayOES(array);
 }
 
-void GraphicsContextGLOpenGL::getBooleanv(GCGLenum pname, GCGLSpan<GCGLboolean> value)
+void GraphicsContextGLANGLE::getBooleanv(GCGLenum pname, std::span<GCGLboolean> value)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::GetBooleanvRobustANGLE(pname, value.bufSize, nullptr, value.data);
+    GL_GetBooleanvRobustANGLE(pname, value.size(), nullptr, value.data());
 }
 
-GCGLint GraphicsContextGLOpenGL::getBufferParameteri(GCGLenum target, GCGLenum pname)
+GCGLint GraphicsContextGLANGLE::getBufferParameteri(GCGLenum target, GCGLenum pname)
 {
     GCGLint value = 0;
     if (!makeContextCurrent())
         return value;
-    gl::GetBufferParameterivRobustANGLE(target, pname, 1, nullptr, &value);
+    GL_GetBufferParameterivRobustANGLE(target, pname, 1, nullptr, &value);
     return value;
 }
 
-void GraphicsContextGLOpenGL::getFloatv(GCGLenum pname, GCGLSpan<GCGLfloat> value)
+void GraphicsContextGLANGLE::getFloatv(GCGLenum pname, std::span<GCGLfloat> value)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::GetFloatvRobustANGLE(pname, value.bufSize, nullptr, value.data);
+    GL_GetFloatvRobustANGLE(pname, value.size(), nullptr, value.data());
 }
-    
-GCGLint64 GraphicsContextGLOpenGL::getInteger64(GCGLenum pname)
+
+GCGLint64 GraphicsContextGLANGLE::getInteger64(GCGLenum pname)
 {
     GCGLint64 value = 0;
     if (!makeContextCurrent())
         return value;
-    gl::GetInteger64vRobustANGLE(pname, 1, nullptr, &value);
+    GL_GetInteger64vRobustANGLE(pname, 1, nullptr, &value);
     return value;
 }
 
-GCGLint64 GraphicsContextGLOpenGL::getInteger64i(GCGLenum pname, GCGLuint index)
+GCGLint64 GraphicsContextGLANGLE::getInteger64i(GCGLenum pname, GCGLuint index)
 {
     GCGLint64 value = 0;
     if (!makeContextCurrent())
         return value;
-    gl::GetInteger64i_vRobustANGLE(pname, index, 1, nullptr, &value);
+    GL_GetInteger64i_vRobustANGLE(pname, index, 1, nullptr, &value);
     return value;
 }
 
-GCGLint GraphicsContextGLOpenGL::getFramebufferAttachmentParameteri(GCGLenum target, GCGLenum attachment, GCGLenum pname)
+GCGLint GraphicsContextGLANGLE::getFramebufferAttachmentParameteri(GCGLenum target, GCGLenum attachment, GCGLenum pname)
 {
     GCGLint value = 0;
     if (!makeContextCurrent())
         return value;
     if (attachment == DEPTH_STENCIL_ATTACHMENT)
         attachment = DEPTH_ATTACHMENT; // Or STENCIL_ATTACHMENT, either works.
-    gl::GetFramebufferAttachmentParameterivRobustANGLE(target, attachment, pname, 1, nullptr, &value);
+    GL_GetFramebufferAttachmentParameterivRobustANGLE(target, attachment, pname, 1, nullptr, &value);
     return value;
 }
 
-GCGLint GraphicsContextGLOpenGL::getProgrami(PlatformGLObject program, GCGLenum pname)
+GCGLint GraphicsContextGLANGLE::getProgrami(PlatformGLObject program, GCGLenum pname)
 {
     GCGLint value = 0;
     if (!makeContextCurrent())
         return value;
-    gl::GetProgramivRobustANGLE(program, pname, 1, nullptr, &value);
+    GL_GetProgramivRobustANGLE(program, pname, 1, nullptr, &value);
     return value;
 }
 
-String GraphicsContextGLOpenGL::getUnmangledInfoLog(PlatformGLObject shaders[2], GCGLsizei count, const String& log)
+CString GraphicsContextGLANGLE::getProgramInfoLog(PlatformGLObject program)
 {
-    UNUSED_PARAM(shaders);
-    UNUSED_PARAM(count);
-    LOG(WebGL, "Original ShaderInfoLog:\n%s", log.utf8().data());
-
-    StringBuilder processedLog;
-
-    // ANGLE inserts a "#extension" line into the shader source that
-    // causes a warning in some compilers. There is no point showing
-    // this warning to the user since they didn't write the code that
-    // is causing it.
-    static const NeverDestroyed<String> angleWarning { "WARNING: 0:1: extension 'GL_ARB_gpu_shader5' is not supported\n"_s };
-    int startFrom = log.startsWith(angleWarning) ? angleWarning.get().length() : 0;
-    processedLog.append(log.substring(startFrom, log.length() - startFrom));
-
-    LOG(WebGL, "Unmangled ShaderInfoLog:\n%s", processedLog.toString().utf8().data());
-    return processedLog.toString();
-}
-
-String GraphicsContextGLOpenGL::getProgramInfoLog(PlatformGLObject program)
-{
-    ASSERT(program);
-
     if (!makeContextCurrent())
-        return String();
-
-    GLint length = 0;
-    gl::GetProgramiv(program, GL_INFO_LOG_LENGTH, &length);
-    if (!length)
-        return String(); 
-
-    GLsizei size = 0;
-    Vector<GLchar> info(length);
-    gl::GetProgramInfoLog(program, length, &size, info.data());
-
-    GCGLsizei count;
-    PlatformGLObject shaders[2];
-    getAttachedShaders(program, 2, &count, shaders);
-
-    return getUnmangledInfoLog(shaders, count, String(info.data(), size));
+        return { };
+    GLint maxLength = 0;
+    GL_GetProgramiv(program, GL_INFO_LOG_LENGTH, &maxLength);
+    if (!maxLength)
+        return "";
+    Vector<char, 64> buffer(maxLength); // GL_INFO_LOG_LENGTH includes nul termination.
+    GLsizei length = 0;
+    GL_GetProgramInfoLog(program, maxLength, &length, buffer.mutableSpan().data());
+    ASSERT(length == maxLength - 1);
+    return buffer.subspan(0, length);
 }
 
-GCGLint GraphicsContextGLOpenGL::getRenderbufferParameteri(GCGLenum target, GCGLenum pname)
+GCGLint GraphicsContextGLANGLE::getRenderbufferParameteri(GCGLenum target, GCGLenum pname)
 {
     GCGLint value = 0;
     if (!makeContextCurrent())
         return value;
-    gl::GetRenderbufferParameterivRobustANGLE(target, pname, 1, nullptr, &value);
+    GL_GetRenderbufferParameterivRobustANGLE(target, pname, 1, nullptr, &value);
     return value;
 }
 
-GCGLint GraphicsContextGLOpenGL::getShaderi(PlatformGLObject shader, GCGLenum pname)
+GCGLint GraphicsContextGLANGLE::getShaderi(PlatformGLObject shader, GCGLenum pname)
 {
     ASSERT(shader);
     GCGLint value = 0;
     if (!makeContextCurrent())
         return value;
-    gl::GetShaderivRobustANGLE(shader, pname, 1, nullptr, &value);
+    GL_GetShaderivRobustANGLE(shader, pname, 1, nullptr, &value);
     return value;
 }
 
-String GraphicsContextGLOpenGL::getShaderInfoLog(PlatformGLObject shader)
+CString GraphicsContextGLANGLE::getShaderInfoLog(PlatformGLObject shader)
 {
-    ASSERT(shader);
-
     if (!makeContextCurrent())
-        return String();
-
-    GLint length = 0;
-    gl::GetShaderiv(shader, GL_INFO_LOG_LENGTH, &length);
-    if (!length)
-        return String(); 
-
-    GLsizei size = 0;
-    Vector<GLchar> info(length);
-    gl::GetShaderInfoLog(shader, length, &size, info.data());
-
-    PlatformGLObject shaders[2] = { shader, 0 };
-    return getUnmangledInfoLog(shaders, 1, String(info.data(), size));
+        return { };
+    GLint maxLength = 0;
+    GL_GetShaderiv(shader, GL_INFO_LOG_LENGTH, &maxLength);
+    if (!maxLength)
+        return "";
+    Vector<char, 64> buffer(maxLength); // GL_INFO_LOG_LENGTH includes nul termination.
+    GLsizei length = 0;
+    GL_GetShaderInfoLog(shader, maxLength, &length, buffer.mutableSpan().data());
+    ASSERT(length == maxLength - 1);
+    return buffer.subspan(0, length);
 }
 
-String GraphicsContextGLOpenGL::getShaderSource(PlatformGLObject)
-{
-    return emptyString();
-}
-
-GCGLfloat GraphicsContextGLOpenGL::getTexParameterf(GCGLenum target, GCGLenum pname)
+GCGLfloat GraphicsContextGLANGLE::getTexParameterf(GCGLenum target, GCGLenum pname)
 {
     GCGLfloat value = 0.f;
     if (!makeContextCurrent())
         return value;
-    gl::GetTexParameterfvRobustANGLE(target, pname, 1, nullptr, &value);
+    GL_GetTexParameterfvRobustANGLE(target, pname, 1, nullptr, &value);
     return value;
 }
 
-GCGLint GraphicsContextGLOpenGL::getTexParameteri(GCGLenum target, GCGLenum pname)
+GCGLint GraphicsContextGLANGLE::getTexParameteri(GCGLenum target, GCGLenum pname)
 {
     GCGLint value = 0;
     if (!makeContextCurrent())
         return value;
-    gl::GetTexParameterivRobustANGLE(target, pname, 1, nullptr, &value);
+    GL_GetTexParameterivRobustANGLE(target, pname, 1, nullptr, &value);
     return value;
 }
 
-void GraphicsContextGLOpenGL::getUniformfv(PlatformGLObject program, GCGLint location, GCGLSpan<GCGLfloat> value)
+void GraphicsContextGLANGLE::getUniformfv(PlatformGLObject program, GCGLint location, std::span<GCGLfloat> value)
 {
     if (!makeContextCurrent())
         return;
     // FIXME: Bug in ANGLE bufSize validation for uniforms. See https://bugs.webkit.org/show_bug.cgi?id=219069.
-    auto bufSize = value.bufSize * sizeof(*value);
-    gl::GetUniformfvRobustANGLE(program, location, bufSize, nullptr, value.data);
+    auto bufSize = value.size() * sizeof(value[0]);
+    GL_GetUniformfvRobustANGLE(program, location, bufSize, nullptr, value.data());
 }
 
-void GraphicsContextGLOpenGL::getUniformiv(PlatformGLObject program, GCGLint location, GCGLSpan<GCGLint> value)
+void GraphicsContextGLANGLE::getUniformiv(PlatformGLObject program, GCGLint location, std::span<GCGLint> value)
 {
     if (!makeContextCurrent())
         return;
     // FIXME: Bug in ANGLE bufSize validation for uniforms. See https://bugs.webkit.org/show_bug.cgi?id=219069.
-    auto bufSize = value.bufSize * sizeof(*value);
-    gl::GetUniformivRobustANGLE(program, location, bufSize, nullptr, value.data);
+    auto bufSize = value.size() * sizeof(value[0]);
+    GL_GetUniformivRobustANGLE(program, location, bufSize, nullptr, value.data());
 }
 
-void GraphicsContextGLOpenGL::getUniformuiv(PlatformGLObject program, GCGLint location, GCGLSpan<GCGLuint> value)
+void GraphicsContextGLANGLE::getUniformuiv(PlatformGLObject program, GCGLint location, std::span<GCGLuint> value)
 {
     if (!makeContextCurrent())
         return;
     // FIXME: Bug in ANGLE bufSize validation for uniforms. See https://bugs.webkit.org/show_bug.cgi?id=219069.
-    auto bufSize = value.bufSize * sizeof(*value);
-    gl::GetUniformuivRobustANGLE(program, location, bufSize, nullptr, value.data);
+    auto bufSize = value.size() * sizeof(value[0]);
+    GL_GetUniformuivRobustANGLE(program, location, bufSize, nullptr, value.data());
 }
 
-GCGLint GraphicsContextGLOpenGL::getUniformLocation(PlatformGLObject program, const String& name)
-{
-    ASSERT(program);
-
-    if (!makeContextCurrent())
-        return -1;
-
-    return gl::GetUniformLocation(program, name.utf8().data());
-}
-
-GCGLsizeiptr GraphicsContextGLOpenGL::getVertexAttribOffset(GCGLuint index, GCGLenum pname)
+GCGLsizeiptr GraphicsContextGLANGLE::getVertexAttribOffset(GCGLuint index, GCGLenum pname)
 {
     if (!makeContextCurrent())
         return 0;
 
-    GLvoid* pointer = 0;
-    gl::GetVertexAttribPointervRobustANGLE(index, pname, 1, nullptr, &pointer);
+    GLvoid* pointer = nullptr;
+    GL_GetVertexAttribPointervRobustANGLE(index, pname, 1, nullptr, &pointer);
     return static_cast<GCGLsizeiptr>(reinterpret_cast<intptr_t>(pointer));
 }
 
-PlatformGLObject GraphicsContextGLOpenGL::createBuffer()
+PlatformGLObject GraphicsContextGLANGLE::createBuffer()
 {
     if (!makeContextCurrent())
         return 0;
 
     GLuint o = 0;
-    gl::GenBuffers(1, &o);
+    GL_GenBuffers(1, &o);
     return o;
 }
 
-PlatformGLObject GraphicsContextGLOpenGL::createFramebuffer()
+PlatformGLObject GraphicsContextGLANGLE::createFramebuffer()
 {
     if (!makeContextCurrent())
         return 0;
 
     GLuint o = 0;
-    gl::GenFramebuffers(1, &o);
+    GL_GenFramebuffers(1, &o);
     return o;
 }
 
-PlatformGLObject GraphicsContextGLOpenGL::createProgram()
+PlatformGLObject GraphicsContextGLANGLE::createProgram()
 {
     if (!makeContextCurrent())
         return 0;
 
-    return gl::CreateProgram();
+    return GL_CreateProgram();
 }
 
-PlatformGLObject GraphicsContextGLOpenGL::createRenderbuffer()
+PlatformGLObject GraphicsContextGLANGLE::createRenderbuffer()
 {
     if (!makeContextCurrent())
         return 0;
 
     GLuint o = 0;
-    gl::GenRenderbuffers(1, &o);
+    GL_GenRenderbuffers(1, &o);
     return o;
 }
 
-PlatformGLObject GraphicsContextGLOpenGL::createShader(GCGLenum type)
+PlatformGLObject GraphicsContextGLANGLE::createShader(GCGLenum type)
 {
     if (!makeContextCurrent())
         return 0;
 
-    return gl::CreateShader((type == FRAGMENT_SHADER) ? GL_FRAGMENT_SHADER : GL_VERTEX_SHADER);
+    return GL_CreateShader((type == FRAGMENT_SHADER) ? GL_FRAGMENT_SHADER : GL_VERTEX_SHADER);
 }
 
-PlatformGLObject GraphicsContextGLOpenGL::createTexture()
+PlatformGLObject GraphicsContextGLANGLE::createTexture()
 {
     if (!makeContextCurrent())
         return 0;
 
     GLuint o = 0;
-    gl::GenTextures(1, &o);
-    m_state.textureSeedCount.add(o);
+    GL_GenTextures(1, &o);
+    invalidateKnownTextureContent(o);
     return o;
 }
 
-void GraphicsContextGLOpenGL::deleteBuffer(PlatformGLObject buffer)
+void GraphicsContextGLANGLE::deleteBuffer(PlatformGLObject buffer)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::DeleteBuffers(1, &buffer);
+    GL_DeleteBuffers(1, &buffer);
 }
 
-void GraphicsContextGLOpenGL::deleteFramebuffer(PlatformGLObject framebuffer)
+void GraphicsContextGLANGLE::deleteFramebuffer(PlatformGLObject framebuffer)
 {
     if (!makeContextCurrent())
         return;
@@ -2052,34 +2385,34 @@ void GraphicsContextGLOpenGL::deleteFramebuffer(PlatformGLObject framebuffer)
             bindFramebuffer(READ_FRAMEBUFFER, 0);
     } else if (framebuffer == m_state.boundDrawFBO)
         bindFramebuffer(FRAMEBUFFER, 0);
-    gl::DeleteFramebuffers(1, &framebuffer);
+    GL_DeleteFramebuffers(1, &framebuffer);
 }
 
-void GraphicsContextGLOpenGL::deleteProgram(PlatformGLObject program)
+void GraphicsContextGLANGLE::deleteProgram(PlatformGLObject program)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::DeleteProgram(program);
+    GL_DeleteProgram(program);
 }
 
-void GraphicsContextGLOpenGL::deleteRenderbuffer(PlatformGLObject renderbuffer)
+void GraphicsContextGLANGLE::deleteRenderbuffer(PlatformGLObject renderbuffer)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::DeleteRenderbuffers(1, &renderbuffer);
+    GL_DeleteRenderbuffers(1, &renderbuffer);
 }
 
-void GraphicsContextGLOpenGL::deleteShader(PlatformGLObject shader)
+void GraphicsContextGLANGLE::deleteShader(PlatformGLObject shader)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::DeleteShader(shader);
+    GL_DeleteShader(shader);
 }
 
-void GraphicsContextGLOpenGL::deleteTexture(PlatformGLObject texture)
+void GraphicsContextGLANGLE::deleteTexture(PlatformGLObject texture)
 {
     if (!makeContextCurrent())
         return;
@@ -2087,304 +2420,250 @@ void GraphicsContextGLOpenGL::deleteTexture(PlatformGLObject texture)
     m_state.boundTextureMap.removeIf([texture] (auto& keyValue) {
         return keyValue.value.first == texture;
     });
-    gl::DeleteTextures(1, &texture);
-    m_state.textureSeedCount.removeAll(texture);
+    GL_DeleteTextures(1, &texture);
+    invalidateKnownTextureContent(texture);
 }
 
-void GraphicsContextGLOpenGL::synthesizeGLError(GCGLenum error)
-{
-    // Need to move the current errors to the synthetic error list to
-    // preserve the order of errors, so a caller to getError will get
-    // any errors from gl::Error before the error we are synthesizing.
-    moveErrorsToSyntheticErrorList();
-    m_syntheticErrors.add(error);
-}
-
-void GraphicsContextGLOpenGL::markContextChanged()
-{
-    m_layerComposited = false;
-}
-
-void GraphicsContextGLOpenGL::markLayerComposited()
-{
-    m_layerComposited = true;
-    resetBuffersToAutoClear();
-
-    for (auto* client : copyToVector(m_clients))
-        client->didComposite();
-}
-
-bool GraphicsContextGLOpenGL::layerComposited() const
-{
-    return m_layerComposited;
-}
-
-void GraphicsContextGLOpenGL::forceContextLost()
-{
-    for (auto* client : copyToVector(m_clients))
-        client->forceContextLost();
-}
-
-void GraphicsContextGLOpenGL::recycleContext()
-{
-    for (auto* client : copyToVector(m_clients))
-        client->recycleContext();
-}
-
-void GraphicsContextGLOpenGL::dispatchContextChangedNotification()
-{
-    for (auto* client : copyToVector(m_clients))
-        client->dispatchContextChangedNotification();
-}
-
-void GraphicsContextGLOpenGL::drawArraysInstanced(GCGLenum mode, GCGLint first, GCGLsizei count, GCGLsizei primcount)
+void GraphicsContextGLANGLE::drawArraysInstanced(GCGLenum mode, GCGLint first, GCGLsizei count, GCGLsizei primcount)
 {
     if (!makeContextCurrent())
         return;
-
+    prepareForDrawingBufferWriteIfBound();
     if (m_isForWebGL2)
-        gl::DrawArraysInstanced(mode, first, count, primcount);
+        GL_DrawArraysInstanced(mode, first, count, primcount);
     else
-        gl::DrawArraysInstancedANGLE(mode, first, count, primcount);
+        GL_DrawArraysInstancedANGLE(mode, first, count, primcount);
     checkGPUStatus();
 }
 
-void GraphicsContextGLOpenGL::drawElementsInstanced(GCGLenum mode, GCGLsizei count, GCGLenum type, GCGLintptr offset, GCGLsizei primcount)
+void GraphicsContextGLANGLE::drawElementsInstanced(GCGLenum mode, GCGLsizei count, GCGLenum type, GCGLintptr offset, GCGLsizei primcount)
 {
     if (!makeContextCurrent())
         return;
-
+    prepareForDrawingBufferWriteIfBound();
     if (m_isForWebGL2)
-        gl::DrawElementsInstanced(mode, count, type, reinterpret_cast<void*>(offset), primcount);
+        GL_DrawElementsInstanced(mode, count, type, reinterpret_cast<void*>(offset), primcount);
     else
-        gl::DrawElementsInstancedANGLE(mode, count, type, reinterpret_cast<void*>(offset), primcount);
+        GL_DrawElementsInstancedANGLE(mode, count, type, reinterpret_cast<void*>(offset), primcount);
     checkGPUStatus();
 }
 
-void GraphicsContextGLOpenGL::vertexAttribDivisor(GCGLuint index, GCGLuint divisor)
+void GraphicsContextGLANGLE::vertexAttribDivisor(GCGLuint index, GCGLuint divisor)
 {
     if (!makeContextCurrent())
         return;
 
     if (m_isForWebGL2)
-        gl::VertexAttribDivisor(index, divisor);
+        GL_VertexAttribDivisor(index, divisor);
     else
-        gl::VertexAttribDivisorANGLE(index, divisor);
+        GL_VertexAttribDivisorANGLE(index, divisor);
 }
 
-GCGLuint GraphicsContextGLOpenGL::getUniformBlockIndex(PlatformGLObject program, const String& uniformBlockName)
+GCGLuint GraphicsContextGLANGLE::getUniformBlockIndex(PlatformGLObject program, const CString& uniformBlockName)
 {
     ASSERT(program);
     if (!makeContextCurrent())
         return GL_INVALID_INDEX;
 
-    return gl::GetUniformBlockIndex(program, uniformBlockName.utf8().data());
+    return GL_GetUniformBlockIndex(program, uniformBlockName.data());
 }
 
-String GraphicsContextGLOpenGL::getActiveUniformBlockName(PlatformGLObject program, GCGLuint uniformBlockIndex)
+CString GraphicsContextGLANGLE::getActiveUniformBlockName(PlatformGLObject program, GCGLuint uniformBlockIndex)
 {
     ASSERT(program);
     if (!makeContextCurrent())
-        return String();
-
+        return { };
     GLint maxLength = 0;
-    gl::GetProgramiv(program, GL_ACTIVE_UNIFORM_BLOCK_MAX_NAME_LENGTH, &maxLength);
-    if (maxLength <= 0) {
-        synthesizeGLError(INVALID_VALUE);
-        return String();
-    }
-    Vector<GLchar> buffer(maxLength);
+    GL_GetProgramiv(program, GL_ACTIVE_UNIFORM_BLOCK_MAX_NAME_LENGTH, &maxLength);
+    // maxLength == 0 is ok, trying to access uniformBlockIndex in below call sets the consistent error.
+    Vector<char, 64> buffer(maxLength); // GL_ACTIVE_UNIFORM_BLOCK_MAX_NAME_LENGTH includes nul termination.
     GLsizei length = 0;
-    gl::GetActiveUniformBlockName(program, uniformBlockIndex, buffer.size(), &length, buffer.data());
+    GL_GetActiveUniformBlockName(program, uniformBlockIndex, maxLength, &length, buffer.mutableSpan().data());
     if (!length)
-        return String();
-    return String(buffer.data(), length);
+        return { };
+    return buffer.subspan(0, length);
 }
 
-void GraphicsContextGLOpenGL::uniformBlockBinding(PlatformGLObject program, GCGLuint uniformBlockIndex, GCGLuint uniformBlockBinding)
+void GraphicsContextGLANGLE::uniformBlockBinding(PlatformGLObject program, GCGLuint uniformBlockIndex, GCGLuint uniformBlockBinding)
 {
     ASSERT(program);
     if (!makeContextCurrent())
         return;
 
-    gl::UniformBlockBinding(program, uniformBlockIndex, uniformBlockBinding);
+    GL_UniformBlockBinding(program, uniformBlockIndex, uniformBlockBinding);
 }
 
 // Query Functions
 
-PlatformGLObject GraphicsContextGLOpenGL::createQuery()
+PlatformGLObject GraphicsContextGLANGLE::createQuery()
 {
     if (!makeContextCurrent())
         return 0;
 
     GLuint name = 0;
-    gl::GenQueries(1, &name);
+    GL_GenQueries(1, &name);
     return name;
 }
 
-void GraphicsContextGLOpenGL::beginQuery(GCGLenum target, PlatformGLObject query)
+void GraphicsContextGLANGLE::beginQuery(GCGLenum target, PlatformGLObject query)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::BeginQuery(target, query);
+    GL_BeginQuery(target, query);
 }
 
-void GraphicsContextGLOpenGL::endQuery(GCGLenum target)
+void GraphicsContextGLANGLE::endQuery(GCGLenum target)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::EndQuery(target);
+    GL_EndQuery(target);
 }
 
-GCGLuint GraphicsContextGLOpenGL::getQueryObjectui(GCGLuint id, GCGLenum pname)
+GCGLuint GraphicsContextGLANGLE::getQueryObjectui(GCGLuint id, GCGLenum pname)
 {
     GCGLuint value = 0;
     if (!makeContextCurrent())
         return value;
-    gl::GetQueryObjectuivRobustANGLE(id, pname, 1, nullptr, &value);
+    GL_GetQueryObjectuivRobustANGLE(id, pname, 1, nullptr, &value);
     return value;
 }
 
 // Transform Feedback Functions
 
-PlatformGLObject GraphicsContextGLOpenGL::createTransformFeedback()
+PlatformGLObject GraphicsContextGLANGLE::createTransformFeedback()
 {
     if (!makeContextCurrent())
         return 0;
 
     GLuint name = 0;
-    gl::GenTransformFeedbacks(1, &name);
+    GL_GenTransformFeedbacks(1, &name);
     return name;
 }
 
-void GraphicsContextGLOpenGL::deleteTransformFeedback(PlatformGLObject transformFeedback)
+void GraphicsContextGLANGLE::deleteTransformFeedback(PlatformGLObject transformFeedback)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::DeleteTransformFeedbacks(1, &transformFeedback);
+    GL_DeleteTransformFeedbacks(1, &transformFeedback);
 }
 
-GCGLboolean GraphicsContextGLOpenGL::isTransformFeedback(PlatformGLObject transformFeedback)
+GCGLboolean GraphicsContextGLANGLE::isTransformFeedback(PlatformGLObject transformFeedback)
 {
     if (!makeContextCurrent())
         return GL_FALSE;
 
-    return gl::IsTransformFeedback(transformFeedback);
+    return GL_IsTransformFeedback(transformFeedback);
 }
 
-void GraphicsContextGLOpenGL::bindTransformFeedback(GCGLenum target, PlatformGLObject transformFeedback)
+void GraphicsContextGLANGLE::bindTransformFeedback(GCGLenum target, PlatformGLObject transformFeedback)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::BindTransformFeedback(target, transformFeedback);
+    GL_BindTransformFeedback(target, transformFeedback);
 }
 
-void GraphicsContextGLOpenGL::beginTransformFeedback(GCGLenum primitiveMode)
+void GraphicsContextGLANGLE::beginTransformFeedback(GCGLenum primitiveMode)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::BeginTransformFeedback(primitiveMode);
+    GL_BeginTransformFeedback(primitiveMode);
 }
 
-void GraphicsContextGLOpenGL::endTransformFeedback()
+void GraphicsContextGLANGLE::endTransformFeedback()
 {
     if (!makeContextCurrent())
         return;
 
-    gl::EndTransformFeedback();
+    GL_EndTransformFeedback();
 }
 
-void GraphicsContextGLOpenGL::transformFeedbackVaryings(PlatformGLObject program, const Vector<String>& varyings, GCGLenum bufferMode)
+void GraphicsContextGLANGLE::transformFeedbackVaryings(PlatformGLObject program, const Vector<CString>& varyings, GCGLenum bufferMode)
 {
     if (!makeContextCurrent())
         return;
-
-    Vector<CString> convertedVaryings = varyings.map([](const String& varying) {
-        return varying.utf8();
-    });
-    Vector<const char*> pointersToVaryings = convertedVaryings.map([](const CString& varying) {
+    Vector<const char*> pointersToVaryings = varyings.map([](const CString& varying) {
         return varying.data();
     });
-
-    gl::TransformFeedbackVaryings(program, pointersToVaryings.size(), pointersToVaryings.data(), bufferMode);
+    GL_TransformFeedbackVaryings(program, pointersToVaryings.size(), pointersToVaryings.span().data(), bufferMode);
 }
 
-void GraphicsContextGLOpenGL::getTransformFeedbackVarying(PlatformGLObject program, GCGLuint index, ActiveInfo& info)
+std::optional<GCGLTransformFeedbackActiveInfo> GraphicsContextGLANGLE::getTransformFeedbackVarying(PlatformGLObject program, GCGLuint index)
+{
+    if (!makeContextCurrent())
+        return std::nullopt;
+    GLsizei maxLength = 0;
+    GL_GetProgramiv(program, GL_TRANSFORM_FEEDBACK_VARYING_MAX_LENGTH, &maxLength);
+    // maxLength == 0 is ok, trying to access index in below call sets the consistent error.
+    Vector<char, 64> buffer(maxLength); // GL_TRANSFORM_FEEDBACK_VARYING_MAX_LENGTH includes nul termination.
+    GLsizei length = 0;
+    GLsizei size = 0;
+    GLenum type = 0;
+    GL_GetTransformFeedbackVarying(program, index, maxLength, &length, &size, &type, buffer.mutableSpan().data());
+    if (!length)
+        return std::nullopt;
+    return GCGLTransformFeedbackActiveInfo { buffer.subspan(0, length), type, size };
+}
+
+void GraphicsContextGLANGLE::bindBufferBase(GCGLenum target, GCGLuint index, PlatformGLObject buffer)
 {
     if (!makeContextCurrent())
         return;
 
-    GCGLsizei bufSize = 0;
-    gl::GetProgramiv(program, GraphicsContextGLOpenGL::TRANSFORM_FEEDBACK_VARYING_MAX_LENGTH, &bufSize);
-    if (!bufSize)
-        return;
-
-    GCGLsizei length = 0;
-    GCGLsizei size = 0;
-    GCGLenum type = 0;
-    Vector<GCGLchar> name(bufSize);
-
-    gl::GetTransformFeedbackVarying(program, index, bufSize, &length, &size, &type, name.data());
-
-    info.name = String(name.data(), length);
-    info.size = size;
-    info.type = type;
+    GL_BindBufferBase(target, index, buffer);
 }
 
-void GraphicsContextGLOpenGL::bindBufferBase(GCGLenum target, GCGLuint index, PlatformGLObject buffer)
+void GraphicsContextGLANGLE::blitFramebuffer(GCGLint srcX0, GCGLint srcY0, GCGLint srcX1, GCGLint srcY1, GCGLint dstX0, GCGLint dstY0, GCGLint dstX1, GCGLint dstY1, GCGLbitfield mask, GCGLenum filter)
+{
+    if (!makeContextCurrent())
+        return;
+    prepareForDrawingBufferWriteIfBound();
+    if (m_isForWebGL2)
+        GL_BlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter);
+    else if (isExtensionEnabledImpl("GL_NV_framebuffer_blit"_s))
+        GL_BlitFramebufferNV(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter);
+    else
+        GL_BlitFramebufferANGLE(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter);
+    checkGPUStatus();
+}
+
+void GraphicsContextGLANGLE::framebufferTextureLayer(GCGLenum target, GCGLenum attachment, PlatformGLObject texture, GCGLint level, GCGLint layer)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::BindBufferBase(target, index, buffer);
+    GL_FramebufferTextureLayer(target, attachment, texture, level, layer);
 }
 
-void GraphicsContextGLOpenGL::blitFramebuffer(GCGLint srcX0, GCGLint srcY0, GCGLint srcX1, GCGLint srcY1, GCGLint dstX0, GCGLint dstY0, GCGLint dstX1, GCGLint dstY1, GCGLbitfield mask, GCGLenum filter)
+void GraphicsContextGLANGLE::invalidateFramebuffer(GCGLenum target, std::span<const GCGLenum> attachments)
+{
+    if (!makeContextCurrent())
+        return;
+    prepareForDrawingBufferWriteIfBound();
+    GL_InvalidateFramebuffer(target, attachments.size(), attachments.data());
+}
+
+void GraphicsContextGLANGLE::invalidateSubFramebuffer(GCGLenum target, std::span<const GCGLenum> attachments, GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height)
+{
+    if (!makeContextCurrent())
+        return;
+    prepareForDrawingBufferWriteIfBound();
+    GL_InvalidateSubFramebuffer(target, attachments.size(), attachments.data(), x, y, width, height);
+}
+
+void GraphicsContextGLANGLE::readBuffer(GCGLenum src)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::BlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter);
+    GL_ReadBuffer(src);
 }
 
-void GraphicsContextGLOpenGL::framebufferTextureLayer(GCGLenum target, GCGLenum attachment, PlatformGLObject texture, GCGLint level, GCGLint layer)
-{
-    if (!makeContextCurrent())
-        return;
-
-    gl::FramebufferTextureLayer(target, attachment, texture, level, layer);
-}
-
-void GraphicsContextGLOpenGL::invalidateFramebuffer(GCGLenum target, GCGLSpan<const GCGLenum> attachments)
-{
-    if (!makeContextCurrent())
-        return;
-
-    gl::InvalidateFramebuffer(target, attachments.bufSize, attachments.data);
-}
-
-void GraphicsContextGLOpenGL::invalidateSubFramebuffer(GCGLenum target, GCGLSpan<const GCGLenum> attachments, GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height)
-{
-    if (!makeContextCurrent())
-        return;
-
-    gl::InvalidateSubFramebuffer(target, attachments.bufSize, attachments.data, x, y, width, height);
-}
-
-void GraphicsContextGLOpenGL::readBuffer(GCGLenum src)
-{
-    if (!makeContextCurrent())
-        return;
-
-    gl::ReadBuffer(src);
-}
-
-void GraphicsContextGLOpenGL::copyTexSubImage3D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLint zoffset, GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height)
+void GraphicsContextGLANGLE::copyTexSubImage3D(GCGLenum target, GCGLint level, GCGLint xoffset, GCGLint yoffset, GCGLint zoffset, GCGLint x, GCGLint y, GCGLsizei width, GCGLsizei height)
 {
     if (!makeContextCurrent())
         return;
@@ -2394,484 +2673,926 @@ void GraphicsContextGLOpenGL::copyTexSubImage3D(GCGLenum target, GCGLint level, 
 
     if (attrs.antialias && m_state.boundReadFBO == m_multisampleFBO) {
         resolveMultisamplingIfNecessary(IntRect(x, y, width, height));
-        gl::BindFramebuffer(framebufferTarget, m_fbo);
+        GL_BindFramebuffer(framebufferTarget, m_fbo);
     }
-    gl::CopyTexSubImage3D(target, level, xoffset, yoffset, zoffset, x, y, width, height);
+    GL_CopyTexSubImage3D(target, level, xoffset, yoffset, zoffset, x, y, width, height);
     if (attrs.antialias && m_state.boundReadFBO == m_multisampleFBO)
-        gl::BindFramebuffer(framebufferTarget, m_multisampleFBO);
+        GL_BindFramebuffer(framebufferTarget, m_multisampleFBO);
 }
 
-GCGLint GraphicsContextGLOpenGL::getFragDataLocation(PlatformGLObject program, const String& name)
+GCGLint GraphicsContextGLANGLE::getFragDataLocation(PlatformGLObject program, const CString& name)
 {
     if (!makeContextCurrent())
         return -1;
 
-    return gl::GetFragDataLocation(program, name.utf8().data());
+    return GL_GetFragDataLocation(program, name.data());
 }
 
-void GraphicsContextGLOpenGL::uniform1ui(GCGLint location, GCGLuint v0)
+void GraphicsContextGLANGLE::uniform1ui(GCGLint location, GCGLuint v0)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::Uniform1ui(location, v0);
+    GL_Uniform1ui(location, v0);
 }
 
-void GraphicsContextGLOpenGL::uniform2ui(GCGLint location, GCGLuint v0, GCGLuint v1)
+void GraphicsContextGLANGLE::uniform2ui(GCGLint location, GCGLuint v0, GCGLuint v1)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::Uniform2ui(location, v0, v1);
+    GL_Uniform2ui(location, v0, v1);
 }
 
-void GraphicsContextGLOpenGL::uniform3ui(GCGLint location, GCGLuint v0, GCGLuint v1, GCGLuint v2)
+void GraphicsContextGLANGLE::uniform3ui(GCGLint location, GCGLuint v0, GCGLuint v1, GCGLuint v2)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::Uniform3ui(location, v0, v1, v2);
+    GL_Uniform3ui(location, v0, v1, v2);
 }
 
-void GraphicsContextGLOpenGL::uniform4ui(GCGLint location, GCGLuint v0, GCGLuint v1, GCGLuint v2, GCGLuint v3)
+void GraphicsContextGLANGLE::uniform4ui(GCGLint location, GCGLuint v0, GCGLuint v1, GCGLuint v2, GCGLuint v3)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::Uniform4ui(location, v0, v1, v2, v3);
+    GL_Uniform4ui(location, v0, v1, v2, v3);
 }
 
-void GraphicsContextGLOpenGL::uniform1uiv(GCGLint location, GCGLSpan<const GCGLuint> data)
+void GraphicsContextGLANGLE::uniform1uiv(GCGLint location, std::span<const GCGLuint> data)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::Uniform1uiv(location, data.bufSize, data.data);
+    GL_Uniform1uiv(location, data.size(), data.data());
 }
 
-void GraphicsContextGLOpenGL::uniform2uiv(GCGLint location, GCGLSpan<const GCGLuint> data)
+void GraphicsContextGLANGLE::uniform2uiv(GCGLint location, std::span<const GCGLuint> data)
 {
-    ASSERT(!(data.bufSize % 2));
+    ASSERT(!(data.size() % 2));
     if (!makeContextCurrent())
         return;
 
-    gl::Uniform2uiv(location, data.bufSize / 2, data.data);
+    GL_Uniform2uiv(location, data.size() / 2, data.data());
 }
 
-void GraphicsContextGLOpenGL::uniform3uiv(GCGLint location, GCGLSpan<const GCGLuint> data)
+void GraphicsContextGLANGLE::uniform3uiv(GCGLint location, std::span<const GCGLuint> data)
 {
-    ASSERT(!(data.bufSize % 3));
+    ASSERT(!(data.size() % 3));
     if (!makeContextCurrent())
         return;
 
-    gl::Uniform3uiv(location, data.bufSize / 3, data.data);
+    GL_Uniform3uiv(location, data.size() / 3, data.data());
 }
 
-void GraphicsContextGLOpenGL::uniform4uiv(GCGLint location, GCGLSpan<const GCGLuint> data)
+void GraphicsContextGLANGLE::uniform4uiv(GCGLint location, std::span<const GCGLuint> data)
 {
-    ASSERT(!(data.bufSize % 4));
+    ASSERT(!(data.size() % 4));
     if (!makeContextCurrent())
         return;
 
-    gl::Uniform4uiv(location, data.bufSize / 4, data.data);
+    GL_Uniform4uiv(location, data.size() / 4, data.data());
 }
 
-void GraphicsContextGLOpenGL::uniformMatrix2x3fv(GCGLint location, GCGLboolean transpose, GCGLSpan<const GCGLfloat> data)
+void GraphicsContextGLANGLE::uniformMatrix2x3fv(GCGLint location, GCGLboolean transpose, std::span<const GCGLfloat> data)
 {
-    ASSERT(!(data.bufSize % 6));
+    ASSERT(!(data.size() % 6));
     if (!makeContextCurrent())
         return;
 
-    gl::UniformMatrix2x3fv(location, data.bufSize / 6, transpose, data.data);
+    GL_UniformMatrix2x3fv(location, data.size() / 6, transpose, data.data());
 }
 
-void GraphicsContextGLOpenGL::uniformMatrix3x2fv(GCGLint location, GCGLboolean transpose, GCGLSpan<const GCGLfloat> data)
+void GraphicsContextGLANGLE::uniformMatrix3x2fv(GCGLint location, GCGLboolean transpose, std::span<const GCGLfloat> data)
 {
-    ASSERT(!(data.bufSize % 6));
+    ASSERT(!(data.size() % 6));
     if (!makeContextCurrent())
         return;
 
-    gl::UniformMatrix3x2fv(location, data.bufSize / 6, transpose, data.data);
+    GL_UniformMatrix3x2fv(location, data.size() / 6, transpose, data.data());
 }
 
-void GraphicsContextGLOpenGL::uniformMatrix2x4fv(GCGLint location, GCGLboolean transpose, GCGLSpan<const GCGLfloat> data)
+void GraphicsContextGLANGLE::uniformMatrix2x4fv(GCGLint location, GCGLboolean transpose, std::span<const GCGLfloat> data)
 {
-    ASSERT(!(data.bufSize % 8));
+    ASSERT(!(data.size() % 8));
     if (!makeContextCurrent())
         return;
 
-    gl::UniformMatrix2x4fv(location, data.bufSize / 8, transpose, data.data);
+    GL_UniformMatrix2x4fv(location, data.size() / 8, transpose, data.data());
 }
 
-void GraphicsContextGLOpenGL::uniformMatrix4x2fv(GCGLint location, GCGLboolean transpose, GCGLSpan<const GCGLfloat> data)
+void GraphicsContextGLANGLE::uniformMatrix4x2fv(GCGLint location, GCGLboolean transpose, std::span<const GCGLfloat> data)
 {
-    ASSERT(!(data.bufSize % 8));
+    ASSERT(!(data.size() % 8));
     if (!makeContextCurrent())
         return;
 
-    gl::UniformMatrix4x2fv(location, data.bufSize / 8, transpose, data.data);
+    GL_UniformMatrix4x2fv(location, data.size() / 8, transpose, data.data());
 }
 
-void GraphicsContextGLOpenGL::uniformMatrix3x4fv(GCGLint location, GCGLboolean transpose, GCGLSpan<const GCGLfloat> data)
+void GraphicsContextGLANGLE::uniformMatrix3x4fv(GCGLint location, GCGLboolean transpose, std::span<const GCGLfloat> data)
 {
-    ASSERT(!(data.bufSize % 12));
+    ASSERT(!(data.size() % 12));
     if (!makeContextCurrent())
         return;
 
-    gl::UniformMatrix3x4fv(location, data.bufSize / 12, transpose, data.data);
+    GL_UniformMatrix3x4fv(location, data.size() / 12, transpose, data.data());
 }
 
-void GraphicsContextGLOpenGL::uniformMatrix4x3fv(GCGLint location, GCGLboolean transpose, GCGLSpan<const GCGLfloat> data)
+void GraphicsContextGLANGLE::uniformMatrix4x3fv(GCGLint location, GCGLboolean transpose, std::span<const GCGLfloat> data)
 {
-    ASSERT(!(data.bufSize % 12));
+    ASSERT(!(data.size() % 12));
     if (!makeContextCurrent())
         return;
 
-    gl::UniformMatrix4x3fv(location, data.bufSize / 12, transpose, data.data);
+    GL_UniformMatrix4x3fv(location, data.size() / 12, transpose, data.data());
 }
 
-void GraphicsContextGLOpenGL::vertexAttribI4i(GCGLuint index, GCGLint x, GCGLint y, GCGLint z, GCGLint w)
-{
-    if (!makeContextCurrent())
-        return;
-
-    gl::VertexAttribI4i(index, x, y, z, w);
-}
-
-void GraphicsContextGLOpenGL::vertexAttribI4iv(GCGLuint index, GCGLSpan<const GCGLint, 4> values)
+void GraphicsContextGLANGLE::vertexAttribI4i(GCGLuint index, GCGLint x, GCGLint y, GCGLint z, GCGLint w)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::VertexAttribI4iv(index, values.data);
+    GL_VertexAttribI4i(index, x, y, z, w);
 }
 
-void GraphicsContextGLOpenGL::vertexAttribI4ui(GCGLuint index, GCGLuint x, GCGLuint y, GCGLuint z, GCGLuint w)
+void GraphicsContextGLANGLE::vertexAttribI4iv(GCGLuint index, std::span<const GCGLint, 4> values)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::VertexAttribI4ui(index, x, y, z, w);
+    GL_VertexAttribI4iv(index, values.data());
 }
 
-void GraphicsContextGLOpenGL::vertexAttribI4uiv(GCGLuint index, GCGLSpan<const GCGLuint, 4> values)
+void GraphicsContextGLANGLE::vertexAttribI4ui(GCGLuint index, GCGLuint x, GCGLuint y, GCGLuint z, GCGLuint w)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::VertexAttribI4uiv(index, values.data);
+    GL_VertexAttribI4ui(index, x, y, z, w);
 }
 
-void GraphicsContextGLOpenGL::drawRangeElements(GCGLenum mode, GCGLuint start, GCGLuint end, GCGLsizei count, GCGLenum type, GCGLintptr offset)
+void GraphicsContextGLANGLE::vertexAttribI4uiv(GCGLuint index, std::span<const GCGLuint, 4> values)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::DrawRangeElements(mode, start, end, count, type, reinterpret_cast<void*>(offset));
+    GL_VertexAttribI4uiv(index, values.data());
 }
 
-void GraphicsContextGLOpenGL::drawBuffers(GCGLSpan<const GCGLenum> bufs)
+void GraphicsContextGLANGLE::drawRangeElements(GCGLenum mode, GCGLuint start, GCGLuint end, GCGLsizei count, GCGLenum type, GCGLintptr offset)
+{
+    if (!makeContextCurrent())
+        return;
+    prepareForDrawingBufferWriteIfBound();
+    GL_DrawRangeElements(mode, start, end, count, type, reinterpret_cast<void*>(offset));
+    checkGPUStatus();
+}
+
+void GraphicsContextGLANGLE::drawBuffers(std::span<const GCGLenum> bufs)
+{
+    if (!makeContextCurrent())
+        return;
+    GL_DrawBuffers(bufs.size(), bufs.data());
+}
+
+void GraphicsContextGLANGLE::clearBufferiv(GCGLenum buffer, GCGLint drawbuffer, std::span<const GCGLint> values)
+{
+    if (!makeContextCurrent())
+        return;
+    if (!validateClearBufferv(buffer, values.size()))
+        return;
+    prepareForDrawingBufferWriteIfBound();
+    GL_ClearBufferiv(buffer, drawbuffer, values.data());
+    checkGPUStatus();
+}
+
+void GraphicsContextGLANGLE::clearBufferuiv(GCGLenum buffer, GCGLint drawbuffer, std::span<const GCGLuint> values)
+{
+    if (!makeContextCurrent())
+        return;
+    if (!validateClearBufferv(buffer, values.size()))
+        return;
+    prepareForDrawingBufferWriteIfBound();
+    GL_ClearBufferuiv(buffer, drawbuffer, values.data());
+    checkGPUStatus();
+}
+
+void GraphicsContextGLANGLE::clearBufferfv(GCGLenum buffer, GCGLint drawbuffer, std::span<const GCGLfloat> values)
+{
+    if (!makeContextCurrent())
+        return;
+    if (!validateClearBufferv(buffer, values.size()))
+        return;
+    prepareForDrawingBufferWriteIfBound();
+    GL_ClearBufferfv(buffer, drawbuffer, values.data());
+    checkGPUStatus();
+}
+
+void GraphicsContextGLANGLE::clearBufferfi(GCGLenum buffer, GCGLint drawbuffer, GCGLfloat depth, GCGLint stencil)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::DrawBuffers(bufs.bufSize, bufs.data);
+    GL_ClearBufferfi(buffer, drawbuffer, depth, stencil);
+    checkGPUStatus();
 }
 
-void GraphicsContextGLOpenGL::clearBufferiv(GCGLenum buffer, GCGLint drawbuffer, GCGLSpan<const GCGLint> values)
+void GraphicsContextGLANGLE::deleteQuery(PlatformGLObject query)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::ClearBufferiv(buffer, drawbuffer, values.data);
+    GL_DeleteQueries(1, &query);
 }
 
-void GraphicsContextGLOpenGL::clearBufferuiv(GCGLenum buffer, GCGLint drawbuffer, GCGLSpan<const GCGLuint> values)
-{
-    if (!makeContextCurrent())
-        return;
-
-    gl::ClearBufferuiv(buffer, drawbuffer, values.data);
-}
-
-void GraphicsContextGLOpenGL::clearBufferfv(GCGLenum buffer, GCGLint drawbuffer, GCGLSpan<const GCGLfloat> values)
-{
-    if (!makeContextCurrent())
-        return;
-
-    gl::ClearBufferfv(buffer, drawbuffer, values.data);
-}
-
-void GraphicsContextGLOpenGL::clearBufferfi(GCGLenum buffer, GCGLint drawbuffer, GCGLfloat depth, GCGLint stencil)
-{
-    if (!makeContextCurrent())
-        return;
-
-    gl::ClearBufferfi(buffer, drawbuffer, depth, stencil);
-}
-
-void GraphicsContextGLOpenGL::deleteQuery(PlatformGLObject query)
-{
-    if (!makeContextCurrent())
-        return;
-
-    gl::DeleteQueries(1, &query);
-}
-
-GCGLboolean GraphicsContextGLOpenGL::isQuery(PlatformGLObject query)
+GCGLboolean GraphicsContextGLANGLE::isQuery(PlatformGLObject query)
 {
     if (!makeContextCurrent())
         return GL_FALSE;
 
-    return gl::IsQuery(query);
+    return GL_IsQuery(query);
 }
 
-PlatformGLObject GraphicsContextGLOpenGL::getQuery(GCGLenum target, GCGLenum pname)
+GCGLint GraphicsContextGLANGLE::getQuery(GCGLenum target, GCGLenum pname)
 {
     if (!makeContextCurrent())
         return 0;
 
-    GLint value;
-    gl::GetQueryiv(target, pname, &value);
-    return static_cast<PlatformGLObject>(value);
+    GLint value = 0;
+    GL_GetQueryiv(target, pname, &value);
+    return value;
 }
 
-PlatformGLObject GraphicsContextGLOpenGL::createSampler()
+PlatformGLObject GraphicsContextGLANGLE::createSampler()
 {
     if (!makeContextCurrent())
         return 0;
 
     GLuint name = 0;
-    gl::GenSamplers(1, &name);
+    GL_GenSamplers(1, &name);
     return name;
 }
 
-void GraphicsContextGLOpenGL::deleteSampler(PlatformGLObject sampler)
+void GraphicsContextGLANGLE::deleteSampler(PlatformGLObject sampler)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::DeleteSamplers(1, &sampler);
+    GL_DeleteSamplers(1, &sampler);
 }
 
-GCGLboolean GraphicsContextGLOpenGL::isSampler(PlatformGLObject sampler)
+GCGLboolean GraphicsContextGLANGLE::isSampler(PlatformGLObject sampler)
 {
     if (!makeContextCurrent())
         return GL_FALSE;
 
-    return gl::IsSampler(sampler);
+    return GL_IsSampler(sampler);
 }
 
-void GraphicsContextGLOpenGL::bindSampler(GCGLuint unit, PlatformGLObject sampler)
+void GraphicsContextGLANGLE::bindSampler(GCGLuint unit, PlatformGLObject sampler)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::BindSampler(unit, sampler);
+    GL_BindSampler(unit, sampler);
 }
 
-void GraphicsContextGLOpenGL::samplerParameteri(PlatformGLObject sampler, GCGLenum pname, GCGLint param)
+void GraphicsContextGLANGLE::samplerParameteri(PlatformGLObject sampler, GCGLenum pname, GCGLint param)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::SamplerParameteri(sampler, pname, param);
+    GL_SamplerParameteri(sampler, pname, param);
 }
 
-void GraphicsContextGLOpenGL::samplerParameterf(PlatformGLObject sampler, GCGLenum pname, GCGLfloat param)
+void GraphicsContextGLANGLE::samplerParameterf(PlatformGLObject sampler, GCGLenum pname, GCGLfloat param)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::SamplerParameterf(sampler, pname, param);
+    GL_SamplerParameterf(sampler, pname, param);
 }
 
-GCGLfloat GraphicsContextGLOpenGL::getSamplerParameterf(PlatformGLObject sampler, GCGLenum pname)
+GCGLfloat GraphicsContextGLANGLE::getSamplerParameterf(PlatformGLObject sampler, GCGLenum pname)
 {
     GCGLfloat value = 0.f;
     if (!makeContextCurrent())
         return value;
 
-    gl::GetSamplerParameterfvRobustANGLE(sampler, pname, 1, nullptr, &value);
+    GL_GetSamplerParameterfvRobustANGLE(sampler, pname, 1, nullptr, &value);
     return value;
 }
 
-GCGLint GraphicsContextGLOpenGL::getSamplerParameteri(PlatformGLObject sampler, GCGLenum pname)
+GCGLint GraphicsContextGLANGLE::getSamplerParameteri(PlatformGLObject sampler, GCGLenum pname)
 {
     GCGLint value = 0;
     if (!makeContextCurrent())
         return value;
 
-    gl::GetSamplerParameterivRobustANGLE(sampler, pname, 1, nullptr, &value);
+    GL_GetSamplerParameterivRobustANGLE(sampler, pname, 1, nullptr, &value);
     return value;
 }
 
-GCGLsync GraphicsContextGLOpenGL::fenceSync(GCGLenum condition, GCGLbitfield flags)
+GCGLsync GraphicsContextGLANGLE::fenceSync(GCGLenum condition, GCGLbitfield flags)
 {
     if (!makeContextCurrent())
         return 0;
 
-    return gl::FenceSync(condition, flags);
+    return GL_FenceSync(condition, flags);
 }
 
-GCGLboolean GraphicsContextGLOpenGL::isSync(GCGLsync sync)
+GCGLboolean GraphicsContextGLANGLE::isSync(GCGLsync sync)
 {
     if (!makeContextCurrent())
         return GL_FALSE;
 
-    return gl::IsSync(sync);
+    return GL_IsSync(static_cast<GLsync>(sync));
 }
 
-void GraphicsContextGLOpenGL::deleteSync(GCGLsync sync)
+void GraphicsContextGLANGLE::deleteSync(GCGLsync sync)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::DeleteSync(sync);
+    GL_DeleteSync(static_cast<GLsync>(sync));
 }
 
-GCGLenum GraphicsContextGLOpenGL::clientWaitSync(GCGLsync sync, GCGLbitfield flags, GCGLuint64 timeout)
+GCGLenum GraphicsContextGLANGLE::clientWaitSync(GCGLsync sync, GCGLbitfield flags, GCGLuint64 timeout)
 {
     if (!makeContextCurrent())
         return GL_WAIT_FAILED;
 
-    return gl::ClientWaitSync(sync, flags, timeout);
+    return GL_ClientWaitSync(static_cast<GLsync>(sync), flags, timeout);
 }
 
-void GraphicsContextGLOpenGL::waitSync(GCGLsync sync, GCGLbitfield flags, GCGLint64 timeout)
+void GraphicsContextGLANGLE::waitSync(GCGLsync sync, GCGLbitfield flags, GCGLint64 timeout)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::WaitSync(sync, flags, timeout);
+    GL_WaitSync(static_cast<GLsync>(sync), flags, timeout);
 }
 
-GCGLint GraphicsContextGLOpenGL::getSynci(GCGLsync sync, GCGLenum pname)
+GCGLint GraphicsContextGLANGLE::getSynci(GCGLsync sync, GCGLenum pname)
 {
     GCGLint value = 0;
     if (!makeContextCurrent())
         return value;
 
-    gl::GetSynciv(sync, pname, 1, nullptr, &value);
+    GL_GetSynciv(static_cast<GLsync>(sync), pname, 1, nullptr, &value);
     return value;
 }
 
-void GraphicsContextGLOpenGL::pauseTransformFeedback()
+void GraphicsContextGLANGLE::pauseTransformFeedback()
 {
     if (!makeContextCurrent())
         return;
 
-    gl::PauseTransformFeedback();
+    GL_PauseTransformFeedback();
 }
 
-void GraphicsContextGLOpenGL::resumeTransformFeedback()
+void GraphicsContextGLANGLE::resumeTransformFeedback()
 {
     if (!makeContextCurrent())
         return;
 
-    gl::ResumeTransformFeedback();
+    GL_ResumeTransformFeedback();
 }
 
-void GraphicsContextGLOpenGL::bindBufferRange(GCGLenum target, GCGLuint index, PlatformGLObject buffer, GCGLintptr offset, GCGLsizeiptr size)
+void GraphicsContextGLANGLE::bindBufferRange(GCGLenum target, GCGLuint index, PlatformGLObject buffer, GCGLintptr offset, GCGLsizeiptr size)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::BindBufferRange(target, index, buffer, offset, size);
+    GL_BindBufferRange(target, index, buffer, offset, size);
 }
 
-Vector<GCGLuint> GraphicsContextGLOpenGL::getUniformIndices(PlatformGLObject program, const Vector<String>& uniformNames)
+void GraphicsContextGLANGLE::getActiveUniformBlockiv(PlatformGLObject program, GCGLuint uniformBlockIndex, GCGLenum pname, std::span<GCGLint> params)
 {
-    ASSERT(program);
+    if (!makeContextCurrent())
+        return;
+    GL_GetActiveUniformBlockivRobustANGLE(program, uniformBlockIndex, pname, params.size(), nullptr, params.data());
+}
+
+#if ENABLE(WEBXR)
+GCGLExternalImage GraphicsContextGLANGLE::createExternalImage(ExternalImageSource&&, GCGLenum, GCGLint)
+{
+    notImplemented();
+    return { };
+}
+
+void GraphicsContextGLANGLE::bindExternalImage(GCGLenum, GCGLExternalImage)
+{
+    notImplemented();
+}
+
+void GraphicsContextGLANGLE::deleteExternalImage(GCGLExternalImage image)
+{
+    if (!image) [[unlikely]]
+        return;
+    auto eglImage = m_eglImages.take(image);
+    if (!eglImage) [[unlikely]] {
+        addError(GCGLErrorCode::InvalidOperation);
+        return;
+    }
+    bool result = EGL_DestroyImageKHR(platformDisplay(), eglImage);
+    ASSERT(result);
+    if (!result) [[unlikely]]
+        addError(GCGLErrorCode::InvalidOperation);
+}
+
+GCGLExternalSync GraphicsContextGLANGLE::createExternalSync(ExternalSyncSource&&)
+{
+    notImplemented();
+    return { };
+}
+
+void GraphicsContextGLANGLE::deleteExternalSync(GCGLExternalSync sync)
+{
+    if (!sync) [[unlikely]]
+        return;
+    EGLSync eglSync = m_eglSyncs.take(sync);
+    if (!eglSync) [[unlikely]] {
+        addError(GCGLErrorCode::InvalidOperation);
+        return;
+    }
+    bool result = EGL_DestroySync(platformDisplay(), eglSync);
+    ASSERT(result);
+    if (!result) [[unlikely]]
+        addError(GCGLErrorCode::InvalidOperation);
+}
+
+void GraphicsContextGLANGLE::framebufferDiscard(GCGLenum target, std::span<const GCGLenum> attachments)
+{
+    if (!makeContextCurrent())
+        return;
+
+    GL_DiscardFramebufferEXT(target, attachments.size(), attachments.data());
+}
+#endif
+
+void GraphicsContextGLANGLE::multiDrawArraysANGLE(GCGLenum mode, GCGLSpanTuple<const GCGLint, const GCGLsizei> firstsAndCounts)
+{
+    if (!makeContextCurrent())
+        return;
+    prepareForDrawingBufferWriteIfBound();
+    GL_MultiDrawArraysANGLE(mode, firstsAndCounts.data<0>(), firstsAndCounts.data<1>(), firstsAndCounts.bufSize);
+    checkGPUStatus();
+}
+
+void GraphicsContextGLANGLE::multiDrawArraysInstancedANGLE(GCGLenum mode, GCGLSpanTuple<const GCGLint, const GCGLsizei, const GCGLsizei> firstsCountsAndInstanceCounts)
+{
+    if (!makeContextCurrent())
+        return;
+    prepareForDrawingBufferWriteIfBound();
+    GL_MultiDrawArraysInstancedANGLE(mode, firstsCountsAndInstanceCounts.data<0>(), firstsCountsAndInstanceCounts.data<1>(), firstsCountsAndInstanceCounts.data<2>(), firstsCountsAndInstanceCounts.bufSize);
+    checkGPUStatus();
+}
+
+void GraphicsContextGLANGLE::multiDrawElementsANGLE(GCGLenum mode, GCGLSpanTuple<const GCGLsizei, const GCGLsizei> countsAndOffsets, GCGLenum type)
+{
+    if (!makeContextCurrent())
+        return;
+
+    prepareForDrawingBufferWriteIfBound();
+    GL_MultiDrawElementsANGLE(mode, countsAndOffsets.data<0>(), type, asPointers(countsAndOffsets.span<1>()).span().data(), countsAndOffsets.bufSize);
+    checkGPUStatus();
+}
+
+void GraphicsContextGLANGLE::multiDrawElementsInstancedANGLE(GCGLenum mode, GCGLSpanTuple<const GCGLsizei, const GCGLsizei, const GCGLsizei> countsOffsetsAndInstanceCounts, GCGLenum type)
+{
+    if (!makeContextCurrent())
+        return;
+
+    prepareForDrawingBufferWriteIfBound();
+    GL_MultiDrawElementsInstancedANGLE(mode, countsOffsetsAndInstanceCounts.data<0>(), type, asPointers(countsOffsetsAndInstanceCounts.span<1>()).span().data(), countsOffsetsAndInstanceCounts.data<2>(), countsOffsetsAndInstanceCounts.bufSize);
+    checkGPUStatus();
+}
+
+bool GraphicsContextGLANGLE::enableExtension(GCGLExtension extension)
+{
+    if (m_knownActiveExtensions.contains(extension))
+        return true;
+    if (!m_requestableExtensions.contains(extension))
+        return false;
+    auto name = extensionName(extension);
+    if (name.isEmpty()) {
+        ASSERT_NOT_REACHED();
+        return false;
+    }
+    m_knownActiveExtensions.add(extension);
+    if (!makeContextCurrent())
+        return true;
+    bool success = enableExtensionsImpl({ name });
+    ASSERT_UNUSED(success, success);
+    return true;
+}
+
+bool GraphicsContextGLANGLE::enableExtensionsImpl(std::initializer_list<ASCIILiteral> names)
+{
+    Vector<ASCIILiteral> requests;
+    requests.reserveCapacity(names.size());
+    for (auto name : names) {
+        if (m_extensions.contains(name))
+            continue;
+        if (!m_allRequestableExtensions.contains(name))
+            return false;
+        if (m_allEnabledRequestableExtensions.contains(name))
+            continue;
+        requests.append(name);
+    }
+    for (auto name : requests) {
+        GL_RequestExtensionANGLE(name.span().data());
+        m_allEnabledRequestableExtensions.add(name);
+    }
+    return true;
+}
+
+bool GraphicsContextGLANGLE::supportsExtensionImpl(ASCIILiteral name) const
+{
+    return m_extensions.contains(name);
+}
+
+bool GraphicsContextGLANGLE::isExtensionEnabledImpl(ASCIILiteral name) const
+{
+    return m_extensions.contains(name) || m_allEnabledRequestableExtensions.contains(name);
+}
+
+CString GraphicsContextGLANGLE::getTranslatedShaderSourceANGLE(PlatformGLObject shader)
+{
     if (!makeContextCurrent())
         return { };
-
-    Vector<CString> utf8 = uniformNames.map([](auto& x) { return x.utf8(); });
-    Vector<const char*> cstr = utf8.map([](auto& x) { return x.data(); });
-    Vector<GCGLuint> result(cstr.size(), 0);
-    gl::GetUniformIndices(program, cstr.size(), cstr.data(), result.data());
-    return result;
+    GLint maxLength = 0;
+    GL_GetShaderivRobustANGLE(shader, GL_TRANSLATED_SHADER_SOURCE_LENGTH_ANGLE, 1, nullptr, &maxLength);
+    if (!maxLength)
+        return "";
+    Vector<char, 64> buffer(maxLength); // GL_TRANSLATED_SHADER_SOURCE_LENGTH_ANGLE includes nul termination.
+    GLsizei length = 0;
+    GL_GetTranslatedShaderSourceANGLE(shader, maxLength, &length, buffer.mutableSpan().data());
+    ASSERT(length == maxLength - 1);
+    return buffer.subspan(0, length);
 }
 
-void GraphicsContextGLOpenGL::getActiveUniformBlockiv(GCGLuint program, GCGLuint uniformBlockIndex, GCGLenum pname, GCGLSpan<GCGLint> params)
-{
-    if (!makeContextCurrent())
-        return;
-    gl::GetActiveUniformBlockivRobustANGLE(program, uniformBlockIndex, pname, params.bufSize, nullptr, params.data);
-}
-
-void GraphicsContextGLOpenGL::multiDrawArraysANGLE(GCGLenum mode, GCGLSpan<const GCGLint> firsts, GCGLSpan<const GCGLsizei> counts, GCGLsizei drawcount)
+void GraphicsContextGLANGLE::drawBuffersEXT(std::span<const GCGLenum> bufs)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::MultiDrawArraysANGLE(mode, firsts.data, counts.data, drawcount);
+    GL_DrawBuffersEXT(bufs.size(), bufs.data());
 }
 
-void GraphicsContextGLOpenGL::multiDrawArraysInstancedANGLE(GCGLenum mode, GCGLSpan<const GCGLint> firsts, GCGLSpan<const GCGLsizei> counts, GCGLSpan<const GCGLsizei> instanceCounts, GCGLsizei drawcount)
+PlatformGLObject GraphicsContextGLANGLE::createQueryEXT()
+{
+    if (!makeContextCurrent())
+        return 0;
+
+    GLuint name = 0;
+    GL_GenQueriesEXT(1, &name);
+    return name;
+}
+
+void GraphicsContextGLANGLE::deleteQueryEXT(PlatformGLObject query)
 {
     if (!makeContextCurrent())
         return;
 
-    gl::MultiDrawArraysInstancedANGLE(mode, firsts.data, counts.data, instanceCounts.data, drawcount);
+    GL_DeleteQueriesEXT(1, &query);
 }
 
-void GraphicsContextGLOpenGL::multiDrawElementsANGLE(GCGLenum mode, GCGLSpan<const GCGLsizei> counts, GCGLenum type, GCGLSpan<const GCGLint> offsets, GCGLsizei drawcount)
+GCGLboolean GraphicsContextGLANGLE::isQueryEXT(PlatformGLObject query)
+{
+    if (!makeContextCurrent())
+        return GL_FALSE;
+
+    return GL_IsQueryEXT(query);
+}
+
+void GraphicsContextGLANGLE::beginQueryEXT(GCGLenum target, PlatformGLObject query)
 {
     if (!makeContextCurrent())
         return;
 
-    // Must perform conversion from integer offsets to void* pointers before passing down to ANGLE.
-    Vector<void*> pointers;
-    for (size_t i = 0; i < offsets.bufSize; ++i)
-        pointers.append(reinterpret_cast<void*>(offsets[i]));
-
-    gl::MultiDrawElementsANGLE(mode, counts.data, type, pointers.data(), drawcount);
+    GL_BeginQueryEXT(target, query);
 }
 
-void GraphicsContextGLOpenGL::multiDrawElementsInstancedANGLE(GCGLenum mode, GCGLSpan<const GCGLsizei> counts, GCGLenum type, GCGLSpan<const GCGLint> offsets, GCGLSpan<const GCGLsizei> instanceCounts, GCGLsizei drawcount)
+void GraphicsContextGLANGLE::endQueryEXT(GCGLenum target)
 {
     if (!makeContextCurrent())
         return;
 
-    // Must perform conversion from integer offsets to void* pointers before passing down to ANGLE.
-    Vector<void*> pointers;
-    for (size_t i = 0; i < offsets.bufSize; ++i)
-        pointers.append(reinterpret_cast<void*>(offsets[i]));
-
-    gl::MultiDrawElementsInstancedANGLE(mode, counts.data, type, pointers.data(), instanceCounts.data, drawcount);
+    GL_EndQueryEXT(target);
 }
 
-#if ENABLE(VIDEO) && USE(AVFOUNDATION)
-GraphicsContextGLCV* GraphicsContextGLOpenGL::asCV()
+void GraphicsContextGLANGLE::queryCounterEXT(PlatformGLObject query, GCGLenum target)
 {
-    if (!m_cv)
-        m_cv = makeUnique<GraphicsContextGLCVANGLE>(*this);
-    return m_cv.get();
-}
-#endif
+    if (!makeContextCurrent())
+        return;
 
-bool GraphicsContextGLOpenGL::waitAndUpdateOldestFrame()
+    GL_QueryCounterEXT(query, target);
+}
+
+GCGLint GraphicsContextGLANGLE::getQueryiEXT(GCGLenum target, GCGLenum pname)
 {
-    size_t oldestFrameCompletionFence = m_oldestFrameCompletionFence++ % maxPendingFrames;
-    bool success = true;
-    if (ScopedGLFence fence = WTFMove(m_frameCompletionFences[oldestFrameCompletionFence])) {
-        // Wait so that rendering doeØs not get more than maxPendingFrames frames ahead.
-        GLbitfield flags = GL_SYNC_FLUSH_COMMANDS_BIT;
-#if PLATFORM(COCOA)
-        // Avoid using the GL_SYNC_FLUSH_COMMANDS_BIT because each each frame is ended with a flush
-        // due to external IOSurface access. This particular fence is maxPendingFrames behind.
-        // This means the creation of this fence has already been flushed.
-        flags = 0;
-#endif
-        GLenum result = gl::ClientWaitSync(fence, flags, maxFrameDuration.nanosecondsAs<GLuint64>());
-        ASSERT(result != GL_WAIT_FAILED);
-        success = result != GL_WAIT_FAILED && result != GL_TIMEOUT_EXPIRED;
+    if (!makeContextCurrent())
+        return 0;
+
+    GLint value = 0;
+    GL_GetQueryivRobustANGLE(target, pname, 1, nullptr, &value);
+    return value;
+}
+
+GCGLint GraphicsContextGLANGLE::getQueryObjectiEXT(PlatformGLObject query, GCGLenum pname)
+{
+    if (!makeContextCurrent())
+        return 0;
+
+    GLint value = 0;
+    GL_GetQueryObjectivRobustANGLE(query, pname, 1, nullptr, &value);
+    return value;
+}
+
+GCGLuint64 GraphicsContextGLANGLE::getQueryObjectui64EXT(PlatformGLObject query, GCGLenum pname)
+{
+    if (!makeContextCurrent())
+        return 0;
+
+    GLuint64 value = 0;
+    GL_GetQueryObjectui64vRobustANGLE(query, pname, 1, nullptr, &value);
+    return value;
+}
+
+GCGLint64 GraphicsContextGLANGLE::getInteger64EXT(GCGLenum pname)
+{
+    if (!makeContextCurrent())
+        return 0;
+
+    GCGLint64 value = 0;
+    GL_GetInteger64vRobustANGLE(pname, 1, nullptr, &value);
+    return value;
+}
+
+void GraphicsContextGLANGLE::enableiOES(GCGLenum target, GCGLuint index)
+{
+    if (!makeContextCurrent())
+        return;
+
+    GL_EnableiOES(target, index);
+}
+
+void GraphicsContextGLANGLE::disableiOES(GCGLenum target, GCGLuint index)
+{
+    if (!makeContextCurrent())
+        return;
+
+    GL_DisableiOES(target, index);
+}
+
+void GraphicsContextGLANGLE::blendEquationiOES(GCGLuint buf, GCGLenum mode)
+{
+    if (!makeContextCurrent())
+        return;
+
+    GL_BlendEquationiOES(buf, mode);
+}
+
+void GraphicsContextGLANGLE::blendEquationSeparateiOES(GCGLuint buf, GCGLenum modeRGB, GCGLenum modeAlpha)
+{
+    if (!makeContextCurrent())
+        return;
+
+    GL_BlendEquationSeparateiOES(buf, modeRGB, modeAlpha);
+}
+
+void GraphicsContextGLANGLE::blendFunciOES(GCGLuint buf, GCGLenum src, GCGLenum dst)
+{
+    if (!makeContextCurrent())
+        return;
+
+    GL_BlendFunciOES(buf, src, dst);
+}
+
+void GraphicsContextGLANGLE::blendFuncSeparateiOES(GCGLuint buf, GCGLenum srcRGB, GCGLenum dstRGB, GCGLenum srcAlpha, GCGLenum dstAlpha)
+{
+    if (!makeContextCurrent())
+        return;
+
+    GL_BlendFuncSeparateiOES(buf, srcRGB, dstRGB, srcAlpha, dstAlpha);
+}
+
+void GraphicsContextGLANGLE::colorMaskiOES(GCGLuint buf, GCGLboolean red, GCGLboolean green, GCGLboolean blue, GCGLboolean alpha)
+{
+    if (!makeContextCurrent())
+        return;
+
+    GL_ColorMaskiOES(buf, red, green, blue, alpha);
+}
+
+void GraphicsContextGLANGLE::drawArraysInstancedBaseInstanceANGLE(GCGLenum mode, GCGLint first, GCGLsizei count, GCGLsizei instanceCount, GCGLuint baseInstance)
+{
+    if (!makeContextCurrent())
+        return;
+    prepareForDrawingBufferWriteIfBound();
+    GL_DrawArraysInstancedBaseInstanceANGLE(mode, first, count, instanceCount, baseInstance);
+    checkGPUStatus();
+}
+
+void GraphicsContextGLANGLE::drawElementsInstancedBaseVertexBaseInstanceANGLE(GCGLenum mode, GCGLsizei count, GCGLenum type, GCGLintptr offset, GCGLsizei instanceCount, GCGLint baseVertex, GCGLuint baseInstance)
+{
+    if (!makeContextCurrent())
+        return;
+    prepareForDrawingBufferWriteIfBound();
+    GL_DrawElementsInstancedBaseVertexBaseInstanceANGLE(mode, count, type, reinterpret_cast<void*>(offset), instanceCount, baseVertex, baseInstance);
+    checkGPUStatus();
+}
+
+void GraphicsContextGLANGLE::multiDrawArraysInstancedBaseInstanceANGLE(GCGLenum mode, GCGLSpanTuple<const GCGLint, const GCGLsizei, const GCGLsizei, const GCGLuint> firstsCountsInstanceCountsAndBaseInstances)
+{
+    if (!makeContextCurrent())
+        return;
+    prepareForDrawingBufferWriteIfBound();
+    GL_MultiDrawArraysInstancedBaseInstanceANGLE(mode, firstsCountsInstanceCountsAndBaseInstances.data<0>(), firstsCountsInstanceCountsAndBaseInstances.data<1>(), firstsCountsInstanceCountsAndBaseInstances.data<2>(), firstsCountsInstanceCountsAndBaseInstances.data<3>(), firstsCountsInstanceCountsAndBaseInstances.bufSize);
+    checkGPUStatus();
+}
+
+void GraphicsContextGLANGLE::multiDrawElementsInstancedBaseVertexBaseInstanceANGLE(GCGLenum mode, GCGLSpanTuple<const GCGLsizei, const GCGLsizei, const GCGLsizei, const GCGLint, const GCGLuint> countsOffsetsInstanceCountsBaseVerticesAndBaseInstances, GCGLenum type)
+{
+    if (!makeContextCurrent())
+        return;
+
+    prepareForDrawingBufferWriteIfBound();
+    GL_MultiDrawElementsInstancedBaseVertexBaseInstanceANGLE(mode, countsOffsetsInstanceCountsBaseVerticesAndBaseInstances.data<0>(), type, asPointers(countsOffsetsInstanceCountsBaseVerticesAndBaseInstances.span<1>()).span().data(), countsOffsetsInstanceCountsBaseVerticesAndBaseInstances.data<2>(), countsOffsetsInstanceCountsBaseVerticesAndBaseInstances.data<3>(), countsOffsetsInstanceCountsBaseVerticesAndBaseInstances.data<4>(), countsOffsetsInstanceCountsBaseVerticesAndBaseInstances.bufSize);
+    checkGPUStatus();
+}
+
+void GraphicsContextGLANGLE::clipControlEXT(GCGLenum origin, GCGLenum depth)
+{
+    if (!makeContextCurrent())
+        return;
+
+    GL_ClipControlEXT(origin, depth);
+}
+
+void GraphicsContextGLANGLE::provokingVertexANGLE(GCGLenum provokeMode)
+{
+    if (!makeContextCurrent())
+        return;
+
+    GL_ProvokingVertexANGLE(provokeMode);
+}
+
+void GraphicsContextGLANGLE::polygonModeANGLE(GCGLenum face, GCGLenum mode)
+{
+    if (!makeContextCurrent())
+        return;
+
+    GL_PolygonModeANGLE(face, mode);
+}
+
+void GraphicsContextGLANGLE::polygonOffsetClampEXT(GCGLfloat factor, GCGLfloat units, GCGLfloat clamp)
+{
+    if (!makeContextCurrent())
+        return;
+
+    GL_PolygonOffsetClampEXT(factor, units, clamp);
+}
+
+void GraphicsContextGLANGLE::simulateEventForTesting(SimulatedEventForTesting event)
+{
+    if (event == SimulatedEventForTesting::GPUStatusFailure || event == SimulatedEventForTesting::DisplayBufferAllocationFailure) {
+        m_failNextStatusCheck = true;
+        return;
     }
-    m_frameCompletionFences[oldestFrameCompletionFence].fenceSync();
-    return success;
+}
+
+RefPtr<NativeImage> GraphicsContextGLANGLE::copyNativeImageYFlipped(SurfaceBuffer source)
+{
+    if (!makeContextCurrent())
+        return nullptr;
+    if (getInternalFramebufferSize().isEmpty())
+        return nullptr;
+    RefPtr<PixelBuffer> pixelBuffer;
+    if (source == SurfaceBuffer::DrawingBuffer)
+        pixelBuffer = readRenderingResults();
+    else
+        pixelBuffer = readCompositedResults();
+    if (!pixelBuffer)
+        return nullptr;
+    return createNativeImageFromPixelBuffer(contextAttributes(), pixelBuffer.releaseNonNull());
+}
+
+RefPtr<PixelBuffer> GraphicsContextGLANGLE::drawingBufferToPixelBuffer(FlipY flipY)
+{
+    // Reading premultiplied alpha would involve unpremultiplying, which is lossy.
+    if (contextAttributes().premultipliedAlpha)
+        return nullptr;
+    auto results = readRenderingResultsForPainting();
+    if (flipY == FlipY::Yes && results && !results->size().isEmpty()) {
+        ASSERT(results->format().pixelFormat == PixelFormat::RGBA8 || results->format().pixelFormat == PixelFormat::BGRA8);
+        // FIXME: Make PixelBufferConversions support negative rowBytes and in-place conversions.
+        size_t rowStride = results->size().width() * 4;
+        auto rowBuffer = MallocSpan<uint8_t>::malloc(rowStride);
+        for (auto bytes = results->bytes(); bytes.size() >= rowStride * 2; bytes = bytes.subspan(rowStride, bytes.size() - 2 * rowStride)) {
+            auto top = bytes.first(rowStride);
+            auto bottom = bytes.last(rowStride);
+            memcpySpan(rowBuffer.mutableSpan(), bottom);
+            memcpySpan(bottom, top);
+            memcpySpan(top, rowBuffer.span());
+        }
+    }
+    return results;
+}
+
+RefPtr<PixelBuffer> GraphicsContextGLANGLE::readRenderingResultsForPainting()
+{
+    if (!makeContextCurrent())
+        return nullptr;
+    if (getInternalFramebufferSize().isEmpty())
+        return nullptr;
+    return readRenderingResults();
+}
+
+void GraphicsContextGLANGLE::addError(GCGLErrorCode errorCode)
+{
+    m_errors.add(errorCode);
+}
+
+EnumSet<GCGLExtension> GraphicsContextGLANGLE::knownActiveExtensions() const
+{
+    return m_knownActiveExtensions;
+}
+
+EnumSet<GCGLExtension> GraphicsContextGLANGLE::requestableExtensions() const
+{
+    return m_requestableExtensions;
+}
+
+void GraphicsContextGLANGLE::invalidateKnownTextureContent(GCGLuint)
+{
+}
+
+GCGLenum GraphicsContextGLANGLE::adjustWebGL1TextureInternalFormat(GCGLenum internalformat, GCGLenum format, GCGLenum type)
+{
+    // The implementation of WEBGL_color_buffer_float for WebGL 1.0 / ES 2.0 requires a sized
+    // internal format. Adjust it if necessary at this lowest level.
+    if (type == GL_FLOAT) {
+        if (m_knownActiveExtensions.contains(GCGLExtension::CHROMIUM_color_buffer_float_rgba) && format == GL_RGBA && internalformat == GL_RGBA)
+            return GL_RGBA32F;
+        if (m_knownActiveExtensions.contains(GCGLExtension::CHROMIUM_color_buffer_float_rgb) && format == GL_RGB && internalformat == GL_RGB)
+            return GL_RGB32F;
+    }
+    return internalformat;
+}
+
+void GraphicsContextGLANGLE::setPackParameters(GCGLint alignment, GCGLint rowLength, GCGLboolean reverseRowOrder)
+{
+    if (m_packAlignment != alignment) {
+        GL_PixelStorei(GL_PACK_ALIGNMENT, alignment);
+        m_packAlignment = alignment;
+    }
+    if (m_packRowLength != rowLength) {
+        GL_PixelStorei(GL_PACK_ROW_LENGTH, rowLength);
+        m_packRowLength = rowLength;
+    }
+    if (m_packReverseRowOrder != reverseRowOrder) {
+        GL_PixelStorei(GL_PACK_REVERSE_ROW_ORDER_ANGLE, reverseRowOrder);
+        m_packReverseRowOrder = reverseRowOrder;
+    }
+}
+
+bool GraphicsContextGLANGLE::validateClearBufferv(GCGLenum buffer, size_t valuesSize)
+{
+    // ClearBuffersfv, iv, uiv are missing ANGLE Robust* entry-point. Make the call act similar way as other
+    // calls that validate buffer sizes by validating it here.
+    switch (buffer) {
+    case GraphicsContextGL::COLOR:
+        if (valuesSize == 4)
+            return true;
+        break;
+    case GraphicsContextGL::DEPTH:
+    case GraphicsContextGL::STENCIL:
+        if (valuesSize == 1)
+            return true;
+        break;
+    default:
+        break;
+    }
+    addError(GCGLErrorCode::InvalidOperation);
+    return false;
+}
+
+void GraphicsContextGLANGLE::prepareForDrawingBufferWriteIfBound()
+{
+    if (m_state.boundDrawFBO != m_fbo)
+        return;
+    prepareForDrawingBufferWrite();
+}
+
+void GraphicsContextGLANGLE::prepareForDrawingBufferWrite()
+{
 }
 
 }
 
-#endif // ENABLE(WEBGL) && USE(ANGLE)
+#endif // ENABLE(WEBGL)

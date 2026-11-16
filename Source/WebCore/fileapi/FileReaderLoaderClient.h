@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Google Inc.  All rights reserved.
+ * Copyright (C) 2010 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -30,17 +30,19 @@
 
 #pragma once
 
-#include "ExceptionCode.h"
-#include <wtf/WeakPtr.h>
+#include <WebCore/ExceptionCode.h>
+#include <WebCore/SharedBuffer.h>
+#include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 
 namespace WebCore {
 
-class FileReaderLoaderClient : public CanMakeWeakPtr<FileReaderLoaderClient> {
+class FileReaderLoaderClient : public AbstractRefCountedAndCanMakeWeakPtr<FileReaderLoaderClient> {
 public:
     virtual ~FileReaderLoaderClient() = default;
 
     virtual void didStartLoading() = 0;
     virtual void didReceiveData() = 0;
+    virtual void didReceiveBinaryChunk(const SharedBuffer&) { }
     virtual void didFinishLoading() = 0;
     virtual void didFail(ExceptionCode errorCode) = 0;
 };

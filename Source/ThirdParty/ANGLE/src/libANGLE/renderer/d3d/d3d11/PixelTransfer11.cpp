@@ -97,16 +97,16 @@ angle::Result PixelTransfer11::loadResources(const gl::Context *context)
     constantBufferDesc.StructureByteStride = 0;
 
     ANGLE_TRY(mRenderer->allocateResource(context11, constantBufferDesc, &mParamsConstantBuffer));
-    mParamsConstantBuffer.setDebugName("PixelTransfer11 constant buffer");
+    mParamsConstantBuffer.setInternalName("PixelTransfer11ConstantBuffer");
 
     // init shaders
     ANGLE_TRY(mRenderer->allocateResource(context11, ShaderData(g_VS_BufferToTexture),
                                           &mBufferToTextureVS));
-    mBufferToTextureVS.setDebugName("BufferToTexture VS");
+    mBufferToTextureVS.setInternalName("BufferToTextureVS");
 
     ANGLE_TRY(mRenderer->allocateResource(context11, ShaderData(g_GS_BufferToTexture),
                                           &mBufferToTextureGS));
-    mBufferToTextureGS.setDebugName("BufferToTexture GS");
+    mBufferToTextureGS.setInternalName("BufferToTextureGS");
 
     ANGLE_TRY(buildShaderMap(context));
 
@@ -135,9 +135,10 @@ void PixelTransfer11::setBufferToTextureCopyParams(const gl::Box &destArea,
         (alignmentBytes <= bytesPerPixel ? 1 : alignmentBytes / bytesPerPixel);
 
     parametersOut->FirstPixelOffset = offset / bytesPerPixel;
-    parametersOut->PixelsPerRow =
-        static_cast<unsigned int>((unpack.rowLength > 0) ? unpack.rowLength : destArea.width);
-    parametersOut->RowStride    = roundUp(parametersOut->PixelsPerRow, alignmentPixels);
+    parametersOut->PixelsPerRow     = static_cast<unsigned int>(destArea.width);
+    parametersOut->RowStride        = roundUp(
+        static_cast<unsigned int>((unpack.rowLength > 0) ? unpack.rowLength : destArea.width),
+        alignmentPixels);
     parametersOut->RowsPerSlice = static_cast<unsigned int>(destArea.height);
     parametersOut->PositionOffset[0] =
         texelCenterX + (destArea.x / float(destSize.width)) * 2.0f - 1.0f;
@@ -184,8 +185,11 @@ angle::Result PixelTransfer11::copyBufferToTexture(const gl::Context *context,
     ASSERT(srvFormat != DXGI_FORMAT_UNKNOWN);
     Buffer11 *bufferStorage11                  = GetAs<Buffer11>(unpackBuffer->getImplementation());
     const d3d11::ShaderResourceView *bufferSRV = nullptr;
-    ANGLE_TRY(bufferStorage11->getSRV(context, srvFormat, &bufferSRV));
+    BufferFeedback feedback;
+    ANGLE_TRY(bufferStorage11->getSRV(context, srvFormat, &bufferSRV, &feedback));
+
     ASSERT(bufferSRV != nullptr);
+    unpackBuffer->applyImplFeedback(context, feedback);
 
     const d3d11::RenderTargetView &textureRTV =
         GetAs<RenderTarget11>(destRenderTarget)->getRenderTargetView();
@@ -224,7 +228,7 @@ angle::Result PixelTransfer11::copyBufferToTexture(const gl::Context *context,
     // Set the viewport
     stateManager->setSimpleViewport(destSize);
 
-    UINT numPixels = (destArea.width * destArea.height * destArea.depth);
+    UINT numPixels = (shaderParams.PixelsPerRow * destArea.height * destArea.depth);
     deviceContext->Draw(numPixels, 0);
 
     return angle::Result::Continue;
@@ -245,9 +249,9 @@ angle::Result PixelTransfer11::buildShaderMap(const gl::Context *context)
     ANGLE_TRY(mRenderer->allocateResource(context11, ShaderData(g_PS_BufferToTexture_4UI),
                                           &bufferToTextureUint));
 
-    bufferToTextureFloat.setDebugName("BufferToTexture RGBA ps");
-    bufferToTextureInt.setDebugName("BufferToTexture RGBA-I ps");
-    bufferToTextureUint.setDebugName("BufferToTexture RGBA-UI ps");
+    bufferToTextureFloat.setInternalName("BufferToTextureRGBA.ps");
+    bufferToTextureInt.setInternalName("BufferToTextureRGBA-I.ps");
+    bufferToTextureUint.setInternalName("BufferToTextureRGBA-UI.ps");
 
     mBufferToTexturePSMap[GL_FLOAT]        = std::move(bufferToTextureFloat);
     mBufferToTexturePSMap[GL_INT]          = std::move(bufferToTextureInt);

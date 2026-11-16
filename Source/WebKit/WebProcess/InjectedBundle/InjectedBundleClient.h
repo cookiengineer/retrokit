@@ -30,6 +30,7 @@
 #include "APIInjectedBundleBundleClient.h"
 #include "WKBundle.h"
 #include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace API {
 class Object;
@@ -46,13 +47,14 @@ class WebPage;
 class WebPageGroupProxy;
 
 class InjectedBundleClient : public API::InjectedBundle::Client, public API::Client<WKBundleClientBase> {
+    WTF_MAKE_TZONE_ALLOCATED(InjectedBundleClient);
 public:
     explicit InjectedBundleClient(const WKBundleClientBase*);
 
     void didCreatePage(InjectedBundle&, WebPage&) override;
     void willDestroyPage(InjectedBundle&, WebPage&) override;
-    void didReceiveMessage(InjectedBundle&, const WTF::String&, API::Object*) override;
-    void didReceiveMessageToPage(InjectedBundle&, WebPage&, const WTF::String&, API::Object*) override;
+    void didReceiveMessage(InjectedBundle&, const WTF::String&, RefPtr<API::Object>&&) override;
+    void didReceiveMessageToPage(InjectedBundle&, WebPage&, const WTF::String&, RefPtr<API::Object>&&) override;
 };
 
 } // namespace WebKit

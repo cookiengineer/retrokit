@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc.
+ * Copyright (C) 2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,53 +27,54 @@
 
 #if ENABLE(WEB_RTC)
 
+#include "Connection.h"
 #include "NetworkConnectionToWebProcessMessages.h"
 #include "NetworkProcessConnection.h"
 #include "RTCDataChannelRemoteManagerMessages.h"
 #include "RTCDataChannelRemoteManagerProxyMessages.h"
 #include "WebProcess.h"
 #include <WebCore/RTCDataChannel.h>
+#include <WebCore/RTCError.h>
 #include <WebCore/ScriptExecutionContext.h>
+#include <wtf/NeverDestroyed.h>
+#include <wtf/Ref.h>
 
 namespace WebKit {
 
-RTCDataChannelRemoteManager& RTCDataChannelRemoteManager::sharedManager()
+RTCDataChannelRemoteManager& RTCDataChannelRemoteManager::singleton()
 {
-    static RTCDataChannelRemoteManager* sharedManager = new RTCDataChannelRemoteManager;
-    return *sharedManager;
+    static NeverDestroyed<Ref<RTCDataChannelRemoteManager>> sharedManager = [] {
+        Ref instance = adoptRef(*new RTCDataChannelRemoteManager);
+        instance->initialize();
+        return instance;
+    }();
+    return sharedManager.get();
 }
 
 RTCDataChannelRemoteManager::RTCDataChannelRemoteManager()
-    : m_queue(WorkQueue::create("RTCDataChannelRemoteManager"))
+    : m_queue(WorkQueue::create("RTCDataChannelRemoteManager"_s))
+    , m_connection(WebProcess::singleton().ensureNetworkProcessConnection().connection())
 {
-    setConnection(&WebProcess::singleton().ensureNetworkProcessConnection().connection());
 }
 
-void RTCDataChannelRemoteManager::setConnection(IPC::Connection* connection)
+void RTCDataChannelRemoteManager::initialize()
 {
-    if (m_connection == connection)
-        return;
-
-    if (m_connection)
-        m_connection->removeWorkQueueMessageReceiver(Messages::RTCDataChannelRemoteManager::messageReceiverName());
-
-    m_connection = connection;
-
-    if (m_connection)
-        m_connection->addWorkQueueMessageReceiver(Messages::RTCDataChannelRemoteManager::messageReceiverName(), m_queue, this);
+    // FIXME: If the network process crashes, all RTC data will be misdelivered for the web process.
+    // https://bugs.webkit.org/show_bug.cgi?id=245062
+    m_connection->addMessageReceiver(m_queue, *this, Messages::RTCDataChannelRemoteManager::messageReceiverName());
 }
 
 bool RTCDataChannelRemoteManager::connectToRemoteSource(WebCore::RTCDataChannelIdentifier localIdentifier, WebCore::RTCDataChannelIdentifier remoteIdentifier)
 {
-    ASSERT(WebCore::Process::identifier() == localIdentifier.processIdentifier);
-    if (WebCore::Process::identifier() != localIdentifier.processIdentifier)
+    ASSERT(WebCore::Process::identifier() == localIdentifier.processIdentifier());
+    if (WebCore::Process::identifier() != localIdentifier.processIdentifier())
         return false;
 
-    auto handler = WebCore::RTCDataChannel::handlerFromIdentifier(localIdentifier.channelIdentifier);
+    auto handler = WebCore::RTCDataChannel::handlerFromIdentifier(localIdentifier.object());
     if (!handler)
         return false;
 
-    auto iterator = m_sources.add(remoteIdentifier.channelIdentifier, WebCore::RTCDataChannelRemoteSource::create(remoteIdentifier, makeUniqueRefFromNonNullUniquePtr(WTFMove(handler)), remoteSourceConnection()));
+    auto iterator = m_sources.add(remoteIdentifier.object(), WebCore::RTCDataChannelRemoteSource::create(localIdentifier, remoteIdentifier, makeUniqueRefFromNonNullUniquePtr(WTF::move(handler)), remoteSourceConnection()));
     return iterator.isNewEntry;
 }
 
@@ -93,16 +94,16 @@ WebCore::RTCDataChannelRemoteSourceConnection& RTCDataChannelRemoteManager::remo
 
 void RTCDataChannelRemoteManager::postTaskToHandler(WebCore::RTCDataChannelIdentifier handlerIdentifier, Function<void(WebCore::RTCDataChannelRemoteHandler&)>&& function)
 {
-    ASSERT(WebCore::Process::identifier() == handlerIdentifier.processIdentifier);
-    if (WebCore::Process::identifier() != handlerIdentifier.processIdentifier)
+    ASSERT(WebCore::Process::identifier() == handlerIdentifier.processIdentifier());
+    if (WebCore::Process::identifier() != handlerIdentifier.processIdentifier())
         return;
 
-    auto iterator = m_handlers.find(handlerIdentifier.channelIdentifier);
+    auto iterator = m_handlers.find(handlerIdentifier.object());
     if (iterator == m_handlers.end())
         return;
     auto& remoteHandler = iterator->value;
 
-    WebCore::ScriptExecutionContext::postTaskTo(remoteHandler.contextIdentifier, [handler = remoteHandler.handler, function = WTFMove(function)](auto&) mutable {
+    WebCore::ScriptExecutionContext::postTaskTo(*remoteHandler.contextIdentifier, [handler = remoteHandler.handler, function = WTF::move(function)](auto&) mutable {
         if (handler)
             function(*handler);
     });
@@ -110,26 +111,26 @@ void RTCDataChannelRemoteManager::postTaskToHandler(WebCore::RTCDataChannelIdent
 
 WebCore::RTCDataChannelRemoteSource* RTCDataChannelRemoteManager::sourceFromIdentifier(WebCore::RTCDataChannelIdentifier sourceIdentifier)
 {
-    ASSERT(WebCore::Process::identifier() == sourceIdentifier.processIdentifier);
-    if (WebCore::Process::identifier() != sourceIdentifier.processIdentifier)
+    ASSERT(WebCore::Process::identifier() == sourceIdentifier.processIdentifier());
+    if (WebCore::Process::identifier() != sourceIdentifier.processIdentifier())
         return nullptr;
 
-    return m_sources.get(sourceIdentifier.channelIdentifier);
+    return m_sources.get(sourceIdentifier.object());
 }
 
-void RTCDataChannelRemoteManager::sendData(WebCore::RTCDataChannelIdentifier sourceIdentifier, bool isRaw, const IPC::DataReference& data)
+void RTCDataChannelRemoteManager::sendData(WebCore::RTCDataChannelIdentifier sourceIdentifier, bool isRaw, std::span<const uint8_t> data)
 {
-    if (auto* source = sourceFromIdentifier(sourceIdentifier)) {
+    if (RefPtr source = sourceFromIdentifier(sourceIdentifier)) {
         if (isRaw)
-            source->sendRawData(data.data(), data.size());
+            source->sendRawData(data);
         else
-            source->sendStringData(CString(data.data(), data.size()));
+            source->sendStringData(CString(byteCast<Latin1Character>(data)));
     }
 }
 
 void RTCDataChannelRemoteManager::close(WebCore::RTCDataChannelIdentifier sourceIdentifier)
 {
-    if (auto* source = sourceFromIdentifier(sourceIdentifier))
+    if (RefPtr source = sourceFromIdentifier(sourceIdentifier))
         source->close();
 }
 
@@ -140,31 +141,31 @@ void RTCDataChannelRemoteManager::changeReadyState(WebCore::RTCDataChannelIdenti
     });
 }
 
-void RTCDataChannelRemoteManager::receiveData(WebCore::RTCDataChannelIdentifier handlerIdentifier, bool isRaw, const IPC::DataReference& data)
+void RTCDataChannelRemoteManager::receiveData(WebCore::RTCDataChannelIdentifier handlerIdentifier, bool isRaw, std::span<const uint8_t> data)
 {
     Vector<uint8_t> buffer;
     String text;
     if (isRaw)
-        buffer = data.vector();
+        buffer = Vector(data);
     else
-        text = String::fromUTF8(data.data(), data.size());
+        text = String::fromUTF8(data);
 
-    postTaskToHandler(handlerIdentifier, [isRaw, text = WTFMove(text).isolatedCopy(), buffer = WTFMove(buffer)](auto& handler) mutable {
+    postTaskToHandler(handlerIdentifier, [isRaw, text = WTF::move(text).isolatedCopy(), buffer = WTF::move(buffer)](auto& handler) mutable {
         if (isRaw)
-            handler.didReceiveRawData(buffer.data(), buffer.size());
+            handler.didReceiveRawData(buffer.span());
         else
-            handler.didReceiveStringData(WTFMove(text));
+            handler.didReceiveStringData(WTF::move(text));
     });
 }
 
-void RTCDataChannelRemoteManager::detectError(WebCore::RTCDataChannelIdentifier handlerIdentifier)
+void RTCDataChannelRemoteManager::detectError(WebCore::RTCDataChannelIdentifier handlerIdentifier, WebCore::RTCErrorDetailType detail, String&& message)
 {
-    postTaskToHandler(handlerIdentifier, [](auto& handler) {
-        handler.didDetectError();
+    postTaskToHandler(handlerIdentifier, [detail, message = WTF::move(message)](auto& handler) mutable {
+        handler.didDetectError(WebCore::RTCError::create(detail, WTF::move(message)));
     });
 }
 
-void RTCDataChannelRemoteManager::bufferedAmountIsDecreasing(WebCore::RTCDataChannelIdentifier handlerIdentifier, size_t amount)
+void RTCDataChannelRemoteManager::bufferedAmountIsDecreasing(WebCore::RTCDataChannelIdentifier handlerIdentifier, uint64_t amount)
 {
     postTaskToHandler(handlerIdentifier, [amount](auto& handler) {
         handler.bufferedAmountIsDecreasing(amount);
@@ -173,24 +174,24 @@ void RTCDataChannelRemoteManager::bufferedAmountIsDecreasing(WebCore::RTCDataCha
 
 Ref<RTCDataChannelRemoteManager::RemoteHandlerConnection> RTCDataChannelRemoteManager::RemoteHandlerConnection::create(Ref<WorkQueue>&& queue)
 {
-    return adoptRef(*new RemoteHandlerConnection(WTFMove(queue)));
+    return adoptRef(*new RemoteHandlerConnection(WTF::move(queue)));
 }
 
 RTCDataChannelRemoteManager::RemoteHandlerConnection::RemoteHandlerConnection(Ref<WorkQueue>&& queue)
     : m_connection(WebProcess::singleton().ensureNetworkProcessConnection().connection())
-    , m_queue(WTFMove(queue))
+    , m_queue(WTF::move(queue))
 {
 }
 
-void RTCDataChannelRemoteManager::RemoteHandlerConnection::connectToSource(WebCore::RTCDataChannelRemoteHandler& handler, WebCore::ScriptExecutionContextIdentifier contextIdentifier, WebCore::RTCDataChannelIdentifier localIdentifier, WebCore::RTCDataChannelIdentifier remoteIdentifier)
+void RTCDataChannelRemoteManager::RemoteHandlerConnection::connectToSource(WebCore::RTCDataChannelRemoteHandler& handler, std::optional<WebCore::ScriptExecutionContextIdentifier> contextIdentifier, WebCore::RTCDataChannelIdentifier localIdentifier, WebCore::RTCDataChannelIdentifier remoteIdentifier)
 {
-    m_queue->dispatch([handler = makeWeakPtr(handler), contextIdentifier, localIdentifier]() mutable {
-        RTCDataChannelRemoteManager::sharedManager().m_handlers.add(localIdentifier.channelIdentifier, RemoteHandler { WTFMove(handler), contextIdentifier });
+    m_queue->dispatch([handler = WeakPtr { handler }, contextIdentifier, localIdentifier]() mutable {
+        RTCDataChannelRemoteManager::singleton().m_handlers.add(localIdentifier.object(), RemoteHandler { WTF::move(handler), *contextIdentifier });
     });
     m_connection->sendWithAsyncReply(Messages::NetworkConnectionToWebProcess::ConnectToRTCDataChannelRemoteSource { localIdentifier, remoteIdentifier }, [localIdentifier](auto&& result) {
-        RTCDataChannelRemoteManager::sharedManager().postTaskToHandler(localIdentifier, [result](auto& handler) {
+        RTCDataChannelRemoteManager::singleton().postTaskToHandler(localIdentifier, [result](auto& handler) {
             if (!result || !*result) {
-                handler.didDetectError();
+                handler.didDetectError(WebCore::RTCError::create(WebCore::RTCErrorDetailType::DataChannelFailure, "Unable to find data channel"_s));
                 return;
             }
             handler.readyToSend();
@@ -198,9 +199,9 @@ void RTCDataChannelRemoteManager::RemoteHandlerConnection::connectToSource(WebCo
     }, 0);
 }
 
-void RTCDataChannelRemoteManager::RemoteHandlerConnection::sendData(WebCore::RTCDataChannelIdentifier identifier, bool isRaw, const unsigned char* data, size_t size)
+void RTCDataChannelRemoteManager::RemoteHandlerConnection::sendData(WebCore::RTCDataChannelIdentifier identifier, bool isRaw, std::span<const uint8_t> data)
 {
-    m_connection->send(Messages::RTCDataChannelRemoteManagerProxy::SendData { identifier, isRaw, IPC::DataReference { data, size } }, 0);
+    m_connection->send(Messages::RTCDataChannelRemoteManagerProxy::SendData { identifier, isRaw, data }, 0);
 }
 
 void RTCDataChannelRemoteManager::RemoteHandlerConnection::close(WebCore::RTCDataChannelIdentifier identifier)
@@ -227,20 +228,20 @@ void RTCDataChannelRemoteManager::RemoteSourceConnection::didChangeReadyState(We
 void RTCDataChannelRemoteManager::RemoteSourceConnection::didReceiveStringData(WebCore::RTCDataChannelIdentifier identifier, const String& string)
 {
     auto text = string.utf8();
-    m_connection->send(Messages::RTCDataChannelRemoteManagerProxy::ReceiveData { identifier, false, IPC::DataReference { text.dataAsUInt8Ptr(), text.length() } }, 0);
+    m_connection->send(Messages::RTCDataChannelRemoteManagerProxy::ReceiveData { identifier, false, byteCast<uint8_t>(text.span()) }, 0);
 }
 
-void RTCDataChannelRemoteManager::RemoteSourceConnection::didReceiveRawData(WebCore::RTCDataChannelIdentifier identifier, const uint8_t* data, size_t size)
+void RTCDataChannelRemoteManager::RemoteSourceConnection::didReceiveRawData(WebCore::RTCDataChannelIdentifier identifier, std::span<const uint8_t> data)
 {
-    m_connection->send(Messages::RTCDataChannelRemoteManagerProxy::ReceiveData { identifier, true, IPC::DataReference { data, size  } }, 0);
+    m_connection->send(Messages::RTCDataChannelRemoteManagerProxy::ReceiveData { identifier, true, data }, 0);
 }
 
-void RTCDataChannelRemoteManager::RemoteSourceConnection::didDetectError(WebCore::RTCDataChannelIdentifier identifier)
+void RTCDataChannelRemoteManager::RemoteSourceConnection::didDetectError(WebCore::RTCDataChannelIdentifier identifier, WebCore::RTCErrorDetailType type, const String& message)
 {
-    m_connection->send(Messages::RTCDataChannelRemoteManagerProxy::DetectError { identifier }, 0);
+    m_connection->send(Messages::RTCDataChannelRemoteManagerProxy::DetectError { identifier, type, message }, 0);
 }
 
-void RTCDataChannelRemoteManager::RemoteSourceConnection::bufferedAmountIsDecreasing(WebCore::RTCDataChannelIdentifier identifier, size_t amount)
+void RTCDataChannelRemoteManager::RemoteSourceConnection::bufferedAmountIsDecreasing(WebCore::RTCDataChannelIdentifier identifier, uint64_t amount)
 {
     m_connection->send(Messages::RTCDataChannelRemoteManagerProxy::BufferedAmountIsDecreasing { identifier, amount }, 0);
 }

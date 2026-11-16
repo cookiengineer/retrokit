@@ -72,7 +72,7 @@ function parseSecurityOrigin(securityOrigin)
 
 function parseDataURL(url)
 {
-    if (!url.startsWith("data:"))
+    if (!url || !url.startsWith("data:"))
         return null;
 
     // data:[<media type>][;charset=<character set>][;base64],<data>
@@ -249,7 +249,7 @@ function parseQueryString(queryString, arrayResult)
 
 WI.displayNameForURL = function(url, urlComponents, options = {})
 {
-    if (url.startsWith("data:"))
+    if (url && url.startsWith("data:"))
         return WI.truncateURL(url);
 
     if (!urlComponents)
@@ -270,7 +270,7 @@ WI.displayNameForURL = function(url, urlComponents, options = {})
 
 WI.truncateURL = function(url, multiline = false, dataURIMaxSize = 6)
 {
-    if (!url.startsWith("data:"))
+    if (!url || !url.startsWith("data:"))
         return url;
 
     const dataIndex = url.indexOf(",") + 1;
@@ -287,6 +287,24 @@ WI.truncateURL = function(url, multiline = false, dataURIMaxSize = 6)
     const middleChunk = multiline ? `\n${ellipsis}\n` : ellipsis;
     const lastChunk = data.slice(-Math.floor(dataURIMaxSize / 2));
     return header + firstChunk + middleChunk + lastChunk;
+};
+
+WI.urlWithoutExtension = function(urlString)
+{
+    let url = null;
+    try {
+        url = new URL(urlString);
+    } catch { }
+    if (!url)
+        return urlString;
+
+    let firstDotInLastPathComponentIndex = url.pathname.indexOf(".", url.pathname.lastIndexOf("/"));
+    if (firstDotInLastPathComponentIndex !== -1)
+        url.pathname = url.pathname.substring(0, firstDotInLastPathComponentIndex);
+
+    url.search = "";
+    url.hash = "";
+    return url.toString();
 };
 
 WI.urlWithoutFragment = function(urlString)
@@ -308,6 +326,35 @@ WI.urlWithoutFragment = function(urlString)
 
     return urlString;
 };
+
+WI.urlWithoutUserQueryOrFragment = function(urlString)
+{
+    try {
+        let url = new URL(urlString);
+
+        if (url.username) {
+            url.username = "";
+        }
+        if (url.password) {
+            url.password = "";
+        }
+        if (url.search) {
+            url.search = "";
+        }
+        if (url.hash) {
+            url.hash = "";
+        }
+
+        let result = url.toString();
+        if (result.endsWith("#"))
+            return result.substring(0, result.length - 1);
+
+        return result;
+
+    } catch { }
+
+    return urlString;
+}
 
 WI.displayNameForHost = function(host)
 {

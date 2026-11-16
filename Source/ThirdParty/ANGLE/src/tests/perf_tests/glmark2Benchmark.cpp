@@ -8,6 +8,7 @@
 //
 
 #include <gtest/gtest.h>
+#include "common/unsafe_buffers.h"
 
 #include <stdio.h>
 #include <sstream>
@@ -15,6 +16,7 @@
 #include "../perf_tests/third_party/perf/perf_result_reporter.h"
 #include "ANGLEPerfTestArgs.h"
 #include "common/platform.h"
+#include "common/string_utils.h"
 #include "common/system_utils.h"
 #include "test_utils/angle_test_configs.h"
 #include "test_utils/angle_test_instantiate.h"
@@ -104,6 +106,9 @@ class GLMark2Benchmark : public testing::TestWithParam<GLMark2TestParams>
             case EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE:
                 mBackend = "vulkan";
                 break;
+            case EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE:
+                mBackend = "metal";
+                break;
             default:
                 break;
         }
@@ -145,11 +150,11 @@ class GLMark2Benchmark : public testing::TestWithParam<GLMark2TestParams>
         {
             args.push_back("--benchmark");
             args.push_back(benchmark);
-            fprintf(stderr, "Running benchmark: %s\n", benchmark);
+            ANGLE_UNSAFE_TODO(fprintf(stderr, "Running benchmark: %s\n", benchmark));
         }
         args.push_back(nullptr);
 
-        ProcessHandle process(args, true, false);
+        ProcessHandle process(args, ProcessOutputCapture::StdoutOnly);
         ASSERT_TRUE(process && process->started());
         ASSERT_TRUE(process->finish());
 
@@ -177,9 +182,11 @@ class GLMark2Benchmark : public testing::TestWithParam<GLMark2TestParams>
         //     glmark2 2017.07
         // =======================================================
         //     OpenGL Information
-        //     GL_VENDOR:     ...
-        //     GL_RENDERER:   ...
-        //     GL_VERSION:    ...
+        //     GL_VENDOR:      ...
+        //     GL_RENDERER:    ...
+        //     GL_VERSION:     ...
+        //     Surface Config: ...
+        //     Surface Size:   ...
         // =======================================================
         // [test] config: FPS: uint FrameTime: float ms
         // [test] config: Not Supported
@@ -193,8 +200,13 @@ class GLMark2Benchmark : public testing::TestWithParam<GLMark2TestParams>
         std::istringstream glmark2Output(output);
         std::string line;
 
+        // Forward any INFO: lines that may have been generated.
+        while (std::getline(glmark2Output, line) && BeginsWith(line, "INFO:"))
+        {
+            fprintf(stderr, "%s\n", line.c_str());
+        }
+
         // Expect ==== at the top of the header
-        std::getline(glmark2Output, line);
         ASSERT_EQ('=', line[0]);
 
         // Skip one line
@@ -213,6 +225,10 @@ class GLMark2Benchmark : public testing::TestWithParam<GLMark2TestParams>
         // The fourth line is the GL_VERSION.  Expect it to include ANGLE, otherwise we are not
         // running against ANGLE.
         ASSERT_NE(line.find("ANGLE"), std::string::npos);
+
+        // Skip two Surface lines
+        std::getline(glmark2Output, line);
+        std::getline(glmark2Output, line);
 
         // Expect ==== at the bottom of the header
         std::getline(glmark2Output, line);
@@ -291,7 +307,7 @@ using namespace egl_platform;
 
 std::vector<GLMark2TestParams> gTestsWithInfo =
     CombineWithValues({GLMark2TestParams()}, kBenchmarks, CombineInfo);
-std::vector<EGLPlatformParameters> gEGLPlatforms = {D3D11(), OPENGLES(), VULKAN()};
+std::vector<EGLPlatformParameters> gEGLPlatforms = {D3D11(), METAL(), OPENGLES(), VULKAN()};
 std::vector<GLMark2TestParams> gTestsWithPlatform =
     CombineWithValues(gTestsWithInfo, gEGLPlatforms, CombineEGLPlatform);
 

@@ -29,17 +29,18 @@
 #if ENABLE(WEB_AUTHN)
 
 #include "APIData.h"
+#include <JavaScriptCore/ArrayBuffer.h>
 
 namespace API {
 using namespace WebCore;
 
 Ref<WebAuthenticationAssertionResponse> WebAuthenticationAssertionResponse::create(Ref<WebCore::AuthenticatorAssertionResponse>&& response)
 {
-    return adoptRef(*new WebAuthenticationAssertionResponse(WTFMove(response)));
+    return adoptRef(*new WebAuthenticationAssertionResponse(WTF::move(response)));
 }
 
 WebAuthenticationAssertionResponse::WebAuthenticationAssertionResponse(Ref<WebCore::AuthenticatorAssertionResponse>&& response)
-    : m_response(WTFMove(response))
+    : m_response(WTF::move(response))
 {
 }
 
@@ -48,11 +49,19 @@ WebAuthenticationAssertionResponse::~WebAuthenticationAssertionResponse() = defa
 RefPtr<Data> WebAuthenticationAssertionResponse::userHandle() const
 {
     RefPtr<API::Data> data;
-    if (auto* userHandle = m_response->userHandle()) {
-        userHandle->ref();
-        data = API::Data::createWithoutCopying(static_cast<unsigned char*>(userHandle->data()), userHandle->byteLength(), [] (unsigned char*, const void* data) {
-            static_cast<ArrayBuffer*>(const_cast<void*>(data))->deref();
-        }, userHandle);
+    if (RefPtr userHandle = m_response->userHandle()) {
+        auto userHandleSpan = userHandle->span();
+        data = API::Data::createWithoutCopying(userHandleSpan, [userHandle = WTF::move(userHandle)] { });
+    }
+    return data;
+}
+
+RefPtr<Data> WebAuthenticationAssertionResponse::credentialID() const
+{
+    RefPtr<API::Data> data;
+    if (RefPtr rawId = m_response->rawId()) {
+        auto rawIdSpan = rawId->span();
+        data = API::Data::createWithoutCopying(rawIdSpan, [rawId = WTF::move(rawId)] { });
     }
     return data;
 }

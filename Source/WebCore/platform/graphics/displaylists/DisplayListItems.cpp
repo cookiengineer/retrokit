@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -20,28 +20,27 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "config.h"
 #include "DisplayListItems.h"
 
-#include "DisplayListReplayer.h"
+#include "DisplayList.h"
+#include "Filter.h"
+#include "FilterResults.h"
 #include "FontCascade.h"
 #include "ImageBuffer.h"
 #include "MediaPlayer.h"
 #include "SharedBuffer.h"
 #include <wtf/text/TextStream.h>
 
-#if USE(CG)
-#include "GraphicsContextPlatformPrivateCG.h"
+#if USE(SKIA)
+#include "GraphicsContextSkia.h"
 #endif
 
 namespace WebCore {
 namespace DisplayList {
-
-// Should match RenderTheme::platformFocusRingWidth()
-static const float platformFocusRingWidth = 3;
 
 void Save::apply(GraphicsContext& context) const
 {
@@ -58,12 +57,10 @@ void Translate::apply(GraphicsContext& context) const
     context.translate(m_x, m_y);
 }
 
-static TextStream& operator<<(TextStream& ts, const Translate& item)
+void Translate::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("x", item.x());
-    ts.dumpProperty("y", item.y());
-
-    return ts;
+    ts.dumpProperty("x"_s, x());
+    ts.dumpProperty("y"_s, y());
 }
 
 void Rotate::apply(GraphicsContext& context) const
@@ -71,11 +68,9 @@ void Rotate::apply(GraphicsContext& context) const
     context.rotate(m_angle);
 }
 
-static TextStream& operator<<(TextStream& ts, const Rotate& item)
+void Rotate::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("angle", item.angle());
-
-    return ts;
+    ts.dumpProperty("angle"_s, angle());
 }
 
 void Scale::apply(GraphicsContext& context) const
@@ -83,23 +78,19 @@ void Scale::apply(GraphicsContext& context) const
     context.scale(m_size);
 }
 
-static TextStream& operator<<(TextStream& ts, const Scale& item)
+void Scale::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("size", item.amount());
-
-    return ts;
+    ts.dumpProperty("size"_s, amount());
 }
 
-void SetCTM::apply(GraphicsContext& context) const
+void SetCTM::apply(GraphicsContext& context, const AffineTransform& baseTransform) const
 {
-    context.setCTM(m_transform);
+    context.setCTM(baseTransform * m_transform);
 }
 
-static TextStream& operator<<(TextStream& ts, const SetCTM& item)
+void SetCTM::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("set-ctm", item.transform());
-
-    return ts;
+    ts.dumpProperty("set-ctm"_s, transform());
 }
 
 void ConcatenateCTM::apply(GraphicsContext& context) const
@@ -107,88 +98,9 @@ void ConcatenateCTM::apply(GraphicsContext& context) const
     context.concatCTM(m_transform);
 }
 
-static TextStream& operator<<(TextStream& ts, const ConcatenateCTM& item)
+void ConcatenateCTM::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("ctm", item.transform());
-
-    return ts;
-}
-
-SetInlineFillGradient::SetInlineFillGradient(const Gradient& gradient, const AffineTransform& gradientSpaceTransform)
-    : m_data(gradient.data())
-    , m_gradientSpaceTransform(gradientSpaceTransform)
-    , m_spreadMethod(gradient.spreadMethod())
-    , m_colorStopCount(static_cast<uint8_t>(gradient.stops().size()))
-{
-    RELEASE_ASSERT(m_colorStopCount <= maxColorStopCount);
-    for (uint8_t i = 0; i < m_colorStopCount; ++i) {
-        m_offsets[i] = gradient.stops()[i].offset;
-        m_colors[i] = *gradient.stops()[i].color.tryGetAsSRGBABytes();
-    }
-}
-
-SetInlineFillGradient::SetInlineFillGradient(float offsets[maxColorStopCount], SRGBA<uint8_t> colors[maxColorStopCount], const Gradient::Data& data, const AffineTransform& gradientSpaceTransform, GradientSpreadMethod spreadMethod, uint8_t colorStopCount)
-    : m_data(data)
-    , m_gradientSpaceTransform(gradientSpaceTransform)
-    , m_spreadMethod(spreadMethod)
-    , m_colorStopCount(colorStopCount)
-{
-    RELEASE_ASSERT(m_colorStopCount <= maxColorStopCount);
-    for (uint8_t i = 0; i < m_colorStopCount; ++i) {
-        m_offsets[i] = offsets[i];
-        m_colors[i] = colors[i];
-    }
-}
-
-SetInlineFillGradient::SetInlineFillGradient(const SetInlineFillGradient& other)
-{
-    if (WTF::holds_alternative<Gradient::RadialData>(other.m_data) || WTF::holds_alternative<Gradient::LinearData>(other.m_data) || WTF::holds_alternative<Gradient::ConicData>(other.m_data)) {
-        m_data = other.m_data;
-        m_gradientSpaceTransform = other.m_gradientSpaceTransform;
-        m_spreadMethod = other.m_spreadMethod;
-        m_colorStopCount = other.m_colorStopCount;
-        if (m_colorStopCount > maxColorStopCount)
-            m_colorStopCount = 0;
-        for (uint8_t i = 0; i < m_colorStopCount; ++i) {
-            m_offsets[i] = other.m_offsets[i];
-            m_colors[i] = other.m_colors[i];
-        }
-    } else
-        m_isValid = false;
-}
-
-Ref<Gradient> SetInlineFillGradient::gradient() const
-{
-    auto gradient = Gradient::create(Gradient::Data(m_data));
-    for (uint8_t i = 0; i < m_colorStopCount; ++i)
-        gradient->addColorStop({ m_offsets[i], Color(m_colors[i]) });
-    gradient->setSpreadMethod(m_spreadMethod);
-    return gradient;
-}
-
-void SetInlineFillGradient::apply(GraphicsContext& context) const
-{
-    if (m_colorStopCount <= maxColorStopCount)
-        context.setFillGradient(gradient(), m_gradientSpaceTransform);
-}
-
-bool SetInlineFillGradient::isInline(const Gradient& gradient)
-{
-    if (gradient.stops().size() > SetInlineFillGradient::maxColorStopCount)
-        return false;
-
-    for (auto& colorStop : gradient.stops()) {
-        if (!colorStop.color.tryGetAsSRGBABytes())
-            return false;
-    }
-
-    return true;
-}
-
-static TextStream& operator<<(TextStream& ts, const SetInlineFillGradient&)
-{
-    // FIXME: Dump gradient data.
-    return ts;
+    ts.dumpProperty("ctm"_s, transform());
 }
 
 void SetInlineFillColor::apply(GraphicsContext& context) const
@@ -196,59 +108,40 @@ void SetInlineFillColor::apply(GraphicsContext& context) const
     context.setFillColor(color());
 }
 
-static TextStream& operator<<(TextStream& ts, const SetInlineFillColor& state)
+void SetInlineFillColor::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("color", state.color());
-    return ts;
+    ts.dumpProperty("color"_s, color());
 }
 
-void SetInlineStrokeColor::apply(GraphicsContext& context) const
+void SetInlineStroke::apply(GraphicsContext& context) const
 {
-    context.setStrokeColor(color());
+    if (auto color = this->color())
+        context.setStrokeColor(*color);
+    if (auto thickness = this->thickness())
+        context.setStrokeThickness(*thickness);
 }
 
-static TextStream& operator<<(TextStream& ts, const SetInlineStrokeColor& state)
+void SetInlineStroke::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("color", state.color());
-    return ts;
+    if (auto color = this->color())
+        ts.dumpProperty("color"_s, *color);
+    if (auto thickness = this->thickness())
+        ts.dumpProperty("thickness"_s, *thickness);
 }
 
-void SetStrokeThickness::apply(GraphicsContext& context) const
-{
-    context.setStrokeThickness(m_thickness);
-}
-
-static TextStream& operator<<(TextStream& ts, const SetStrokeThickness& state)
-{
-    ts.dumpProperty("thickness", state.thickness());
-    return ts;
-}
-
-SetState::SetState(const GraphicsContextState& state, GraphicsContextState::StateChangeFlags flags)
-    : m_stateChange(state, flags)
+SetState::SetState(const GraphicsContextState& state)
+    : m_state(state)
 {
 }
 
-SetState::SetState(const GraphicsContextStateChange& stateChange, const PatternData& strokePattern, const PatternData& fillPattern)
-    : m_stateChange(stateChange)
-    , m_strokePattern(strokePattern)
-    , m_fillPattern(fillPattern)
+void SetState::apply(GraphicsContext& context) const
 {
+    context.mergeLastChanges(m_state);
 }
 
-void SetState::apply(GraphicsContext& context, NativeImage* strokePatternImage, NativeImage* fillPatternImage)
+void SetState::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    if (m_stateChange.m_changeFlags.contains(GraphicsContextState::StrokePatternChange) && strokePatternImage)
-        m_stateChange.m_state.strokePattern = Pattern::create(makeRef(*strokePatternImage), m_strokePattern.parameters);
-    if (m_stateChange.m_changeFlags.contains(GraphicsContextState::FillPatternChange) && fillPatternImage)
-        m_stateChange.m_state.fillPattern = Pattern::create(makeRef(*fillPatternImage), m_fillPattern.parameters);
-    m_stateChange.apply(context);
-}
-
-static TextStream& operator<<(TextStream& ts, const SetState& state)
-{
-    ts << state.stateChange();
-    return ts;
+    ts << state();
 }
 
 void SetLineCap::apply(GraphicsContext& context) const
@@ -256,10 +149,9 @@ void SetLineCap::apply(GraphicsContext& context) const
     context.setLineCap(m_lineCap);
 }
 
-static TextStream& operator<<(TextStream& ts, const SetLineCap& lineCap)
+void SetLineCap::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("line-cap", lineCap.lineCap());
-    return ts;
+    ts.dumpProperty("line-cap"_s, lineCap());
 }
 
 void SetLineDash::apply(GraphicsContext& context) const
@@ -267,11 +159,10 @@ void SetLineDash::apply(GraphicsContext& context) const
     context.setLineDash(m_dashArray, m_dashOffset);
 }
 
-static TextStream& operator<<(TextStream& ts, const SetLineDash& lineDash)
+void SetLineDash::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("dash-array", lineDash.dashArray());
-    ts.dumpProperty("dash-offset", lineDash.dashOffset());
-    return ts;
+    ts.dumpProperty("dash-array"_s, dashArray());
+    ts.dumpProperty("dash-offset"_s, dashOffset());
 }
 
 void SetLineJoin::apply(GraphicsContext& context) const
@@ -279,10 +170,9 @@ void SetLineJoin::apply(GraphicsContext& context) const
     context.setLineJoin(m_lineJoin);
 }
 
-static TextStream& operator<<(TextStream& ts, const SetLineJoin& lineJoin)
+void SetLineJoin::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("line-join", lineJoin.lineJoin());
-    return ts;
+    ts.dumpProperty("line-join"_s, lineJoin());
 }
 
 void SetMiterLimit::apply(GraphicsContext& context) const
@@ -290,15 +180,9 @@ void SetMiterLimit::apply(GraphicsContext& context) const
     context.setMiterLimit(m_miterLimit);
 }
 
-static TextStream& operator<<(TextStream& ts, const SetMiterLimit& miterLimit)
+void SetMiterLimit::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("mitre-limit", miterLimit.miterLimit());
-    return ts;
-}
-
-void ClearShadow::apply(GraphicsContext& context) const
-{
-    context.clearShadow();
+    ts.dumpProperty("mitre-limit"_s, miterLimit());
 }
 
 void Clip::apply(GraphicsContext& context) const
@@ -306,10 +190,19 @@ void Clip::apply(GraphicsContext& context) const
     context.clip(m_rect);
 }
 
-static TextStream& operator<<(TextStream& ts, const Clip& item)
+void Clip::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("rect", item.rect());
-    return ts;
+    ts.dumpProperty("rect"_s, rect());
+}
+
+void ClipRoundedRect::apply(GraphicsContext& context) const
+{
+    context.clipRoundedRect(m_rect);
+}
+
+void ClipRoundedRect::dump(TextStream& ts, OptionSet<AsTextFlag>) const
+{
+    ts.dumpProperty("rect"_s, rect());
 }
 
 void ClipOut::apply(GraphicsContext& context) const
@@ -317,27 +210,31 @@ void ClipOut::apply(GraphicsContext& context) const
     context.clipOut(m_rect);
 }
 
-static TextStream& operator<<(TextStream& ts, const ClipOut& item)
+void ClipOut::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("rect", item.rect());
-    return ts;
+    ts.dumpProperty("rect"_s, rect());
 }
 
-NO_RETURN_DUE_TO_ASSERT void ClipToImageBuffer::apply(GraphicsContext&) const
+void ClipOutRoundedRect::apply(GraphicsContext& context) const
 {
-    ASSERT_NOT_REACHED();
+    context.clipOutRoundedRect(m_rect);
 }
 
-void ClipToImageBuffer::apply(GraphicsContext& context, WebCore::ImageBuffer& imageBuffer) const
+void ClipOutRoundedRect::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    context.clipToImageBuffer(imageBuffer, m_destinationRect);
+    ts.dumpProperty("rect"_s, rect());
 }
 
-static TextStream& operator<<(TextStream& ts, const ClipToImageBuffer& item)
+void ClipToImageBuffer::apply(GraphicsContext& context) const
 {
-    ts.dumpProperty("image-buffer-identifier", item.imageBufferIdentifier());
-    ts.dumpProperty("dest-rect", item.destinationRect());
-    return ts;
+    context.clipToImageBuffer(m_imageBuffer, m_destinationRect);
+}
+
+void ClipToImageBuffer::dump(TextStream& ts, OptionSet<AsTextFlag> flags) const
+{
+    if (flags.contains(AsTextFlag::IncludeResourceIdentifiers))
+        ts.dumpProperty("image-buffer-identifier"_s, m_imageBuffer->renderingResourceIdentifier());
+    ts.dumpProperty("dest-rect"_s, destinationRect());
 }
 
 void ClipOutToPath::apply(GraphicsContext& context) const
@@ -345,10 +242,9 @@ void ClipOutToPath::apply(GraphicsContext& context) const
     context.clipOut(m_path);
 }
 
-static TextStream& operator<<(TextStream& ts, const ClipOutToPath& item)
+void ClipOutToPath::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("path", item.path());
-    return ts;
+    ts.dumpProperty("path"_s, path());
 }
 
 void ClipPath::apply(GraphicsContext& context) const
@@ -356,150 +252,166 @@ void ClipPath::apply(GraphicsContext& context) const
     context.clipPath(m_path, m_windRule);
 }
 
-static TextStream& operator<<(TextStream& ts, const ClipPath& item)
+void ClipPath::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("path", item.path());
-    ts.dumpProperty("wind-rule", item.windRule());
-    return ts;
+    ts.dumpProperty("path"_s, path());
+    ts.dumpProperty("wind-rule"_s, windRule());
 }
 
-static TextStream& operator<<(TextStream& ts, const BeginClipToDrawingCommands& item)
+void ResetClip::apply(GraphicsContext& context) const
 {
-    ts.dumpProperty("destination", item.destination());
-    ts.dumpProperty("color-space", item.colorSpace());
-    return ts;
+    context.resetClip();
 }
 
-static TextStream& operator<<(TextStream& ts, const EndClipToDrawingCommands& item)
+void DrawFilteredImageBuffer::apply(GraphicsContext& context) const
 {
-    ts.dumpProperty("destination", item.destination());
-    return ts;
+    FilterResults results;
+    context.drawFilteredImageBuffer(m_sourceImage.get(), m_sourceImageRect, m_filter, results);
 }
 
-DrawGlyphs::DrawGlyphs(RenderingResourceIdentifier fontIdentifier, Vector<GlyphBufferGlyph, 128>&& glyphs, Vector<GlyphBufferAdvance, 128>&& advances, const FloatRect& bounds, const FloatPoint& localAnchor, FontSmoothingMode smoothingMode)
-    : m_fontIdentifier(fontIdentifier)
-    , m_glyphs(WTFMove(glyphs))
-    , m_advances(WTFMove(advances))
-    , m_bounds(bounds)
-    , m_localAnchor(localAnchor)
-    , m_smoothingMode(smoothingMode)
+void DrawFilteredImageBuffer::dump(TextStream& ts, OptionSet<AsTextFlag> flags) const
 {
-}
-
-DrawGlyphs::DrawGlyphs(const Font& font, const GlyphBufferGlyph* glyphs, const GlyphBufferAdvance* advances, unsigned count, const FloatPoint& localAnchor, FontSmoothingMode smoothingMode)
-    : m_fontIdentifier(font.renderingResourceIdentifier())
-    , m_localAnchor(localAnchor)
-    , m_smoothingMode(smoothingMode)
-{
-    m_glyphs.reserveInitialCapacity(count);
-    m_advances.reserveInitialCapacity(count);
-    for (unsigned i = 0; i < count; ++i) {
-        m_glyphs.uncheckedAppend(glyphs[i]);
-        m_advances.uncheckedAppend(advances[i]);
+    if (flags.contains(AsTextFlag::IncludeResourceIdentifiers)) {
+        if (m_sourceImage)
+            ts.dumpProperty("source-image-identifier"_s, m_sourceImage->renderingResourceIdentifier());
     }
-    computeBounds(font);
+    ts.dumpProperty("source-image-rect"_s, sourceImageRect());
 }
 
-void DrawGlyphs::apply(GraphicsContext& context, const Font& font) const
+void DrawGlyphs::apply(GraphicsContext& context) const
 {
-    context.drawGlyphs(font, m_glyphs.data(), m_advances.data(), m_glyphs.size(), anchorPoint(), m_smoothingMode);
+    context.drawGlyphs(m_font, m_glyphs.span(), m_advances.span(), m_localAnchor, m_fontSmoothingMode);
 }
 
-void DrawGlyphs::computeBounds(const Font& font)
-{
-    // FIXME: This code doesn't actually take the extents of the glyphs into consideration. It assumes that
-    // the glyph lies entirely within its [(ascent + descent), advance] rect.
-    float ascent = font.fontMetrics().floatAscent();
-    float descent = font.fontMetrics().floatDescent();
-    FloatPoint current = localAnchor();
-    size_t numGlyphs = m_glyphs.size();
-    for (size_t i = 0; i < numGlyphs; ++i) {
-        GlyphBufferAdvance advance = m_advances[i];
-        FloatRect glyphRect = FloatRect(current.x(), current.y() - ascent, width(advance), ascent + descent);
-        m_bounds.unite(glyphRect);
-
-        current.move(width(advance), height(advance));
-    }
-}
-
-static TextStream& operator<<(TextStream& ts, const DrawGlyphs& item)
+void DrawGlyphs::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
     // FIXME: dump more stuff.
-    ts.dumpProperty("local-anchor", item.localAnchor());
-    ts.dumpProperty("anchor-point", item.anchorPoint());
-    ts.dumpProperty("length", item.glyphs().size());
-
-    return ts;
+    ts.dumpProperty("local-anchor"_s, localAnchor());
+    ts.dumpProperty("font-smoothing-mode"_s, fontSmoothingMode());
+    ts.dumpProperty("length"_s, length());
 }
 
-NO_RETURN_DUE_TO_ASSERT void DrawImageBuffer::apply(GraphicsContext&) const
+#if USE(SKIA)
+void DrawTextBlob::apply(GraphicsContext& context) const
 {
-    ASSERT_NOT_REACHED();
+    if (m_textBlob)
+        static_cast<GraphicsContextSkia*>(&context)->drawSkiaText(m_textBlob, SkFloatToScalar(m_localAnchor.x()), SkFloatToScalar(m_localAnchor.y()), m_enableAntialiasing, m_isVertical);
 }
 
-void DrawImageBuffer::apply(GraphicsContext& context, WebCore::ImageBuffer& imageBuffer) const
+void DrawTextBlob::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    context.drawImageBuffer(imageBuffer, m_destinationRect, m_srcRect, m_options);
+    ts.dumpProperty("local-anchor"_s, localAnchor());
+    ts.dumpProperty("font-smoothing-mode"_s, fontSmoothingMode());
+    ts.dumpProperty("length"_s, length());
 }
+#endif // USE(SKIA)
 
-static TextStream& operator<<(TextStream& ts, const DrawImageBuffer& item)
+DrawDisplayList::DrawDisplayList(Ref<const DisplayList>&& displayList)
+    : m_displayList(WTF::move(displayList))
 {
-    ts.dumpProperty("image-buffer-identifier", item.imageBufferIdentifier());
-    ts.dumpProperty("source-rect", item.source());
-    ts.dumpProperty("dest-rect", item.destinationRect());
-    return ts;
 }
 
-NO_RETURN_DUE_TO_ASSERT void DrawNativeImage::apply(GraphicsContext&) const
+DrawDisplayList::~DrawDisplayList() = default;
+
+Ref<const DisplayList> DrawDisplayList::displayList() const
 {
-    ASSERT_NOT_REACHED();
+    return m_displayList;
 }
 
-void DrawNativeImage::apply(GraphicsContext& context, NativeImage& image) const
+void DrawDisplayList::apply(GraphicsContext& context, ControlFactory& controlFactory) const
 {
-    context.drawNativeImage(image, m_imageSize, m_destinationRect, m_srcRect, m_options);
+    return context.drawDisplayList(m_displayList, controlFactory);
 }
 
-static TextStream& operator<<(TextStream& ts, const DrawNativeImage& item)
+void DrawDisplayList::dump(TextStream& ts, OptionSet<AsTextFlag>) const
+{
+    Ref displayList = this->displayList();
+    ts.dumpProperty("display-list"_s, displayList);
+}
+
+DrawPlaceholder::DrawPlaceholder(Function<void(GraphicsContext&)>&& function)
+    : m_function(FunctionHolder::create(WTF::move(function)))
+{
+}
+
+DrawPlaceholder::~DrawPlaceholder() = default;
+
+void DrawPlaceholder::apply(GraphicsContext& context) const
+{
+    return (*m_function)(context);
+}
+
+void DrawPlaceholder::dump(TextStream&, OptionSet<AsTextFlag>) const
+{
+}
+
+void DrawImageBuffer::apply(GraphicsContext& context) const
+{
+    context.drawImageBuffer(m_imageBuffer, m_destinationRect, m_srcRect, m_options);
+}
+
+void DrawImageBuffer::dump(TextStream& ts, OptionSet<AsTextFlag> flags) const
+{
+    if (flags.contains(AsTextFlag::IncludeResourceIdentifiers))
+        ts.dumpProperty("image-buffer-identifier"_s, m_imageBuffer->renderingResourceIdentifier());
+    ts.dumpProperty("source-rect"_s, source());
+    ts.dumpProperty("dest-rect"_s, destinationRect());
+}
+
+void DrawNativeImage::apply(GraphicsContext& context) const
+{
+    context.drawNativeImage(m_image, m_destinationRect, m_srcRect, m_options);
+}
+
+void DrawNativeImage::dump(TextStream& ts, OptionSet<AsTextFlag> flags) const
+{
+    if (flags.contains(AsTextFlag::IncludeResourceIdentifiers))
+        ts.dumpProperty("image-identifier"_s, m_image->renderingResourceIdentifier());
+    ts.dumpProperty("source-rect"_s, source());
+    ts.dumpProperty("dest-rect"_s, destinationRect());
+}
+
+void DrawSystemImage::apply(GraphicsContext& context) const
+{
+    context.drawSystemImage(m_systemImage, m_destinationRect);
+}
+
+void DrawSystemImage::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
     // FIXME: dump more stuff.
-    ts.dumpProperty("image-identifier", item.imageIdentifier());
-    ts.dumpProperty("source-rect", item.source());
-    ts.dumpProperty("dest-rect", item.destinationRect());
-    return ts;
+    ts.dumpProperty("destination"_s, destinationRect());
 }
 
-DrawPattern::DrawPattern(RenderingResourceIdentifier imageIdentifier, const FloatSize& imageSize, const FloatRect& destRect, const FloatRect& tileRect, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, const ImagePaintingOptions& options)
-    : m_imageIdentifier(imageIdentifier)
-    , m_imageSize(imageSize)
-    , m_destination(destRect)
-    , m_tileRect(tileRect)
-    , m_patternTransform(patternTransform)
-    , m_phase(phase)
-    , m_spacing(spacing)
-    , m_options(options)
+void DrawPatternNativeImage::apply(GraphicsContext& context) const
 {
+    context.drawPattern(m_image, m_destination, m_tileRect, m_patternTransform, m_phase, m_spacing, m_options);
 }
 
-NO_RETURN_DUE_TO_ASSERT void DrawPattern::apply(GraphicsContext&) const
+void DrawPatternNativeImage::dump(TextStream& ts, OptionSet<AsTextFlag> flags) const
 {
-    ASSERT_NOT_REACHED();
+    if (flags.contains(AsTextFlag::IncludeResourceIdentifiers))
+        ts.dumpProperty("image-identifier"_s, m_image->renderingResourceIdentifier());
+    ts.dumpProperty("pattern-transform"_s, patternTransform());
+    ts.dumpProperty("tile-rect"_s, tileRect());
+    ts.dumpProperty("dest-rect"_s, destRect());
+    ts.dumpProperty("phase"_s, phase());
+    ts.dumpProperty("spacing"_s, spacing());
 }
 
-void DrawPattern::apply(GraphicsContext& context, NativeImage& image) const
+void DrawPatternImageBuffer::apply(GraphicsContext& context) const
 {
-    context.drawPattern(image, m_imageSize, m_destination, m_tileRect, m_patternTransform, m_phase, m_spacing, m_options);
+    context.drawPattern(m_imageBuffer, m_destination, m_tileRect, m_patternTransform, m_phase, m_spacing, m_options);
 }
 
-static TextStream& operator<<(TextStream& ts, const DrawPattern& item)
+void DrawPatternImageBuffer::dump(TextStream& ts, OptionSet<AsTextFlag> flags) const
 {
-    ts.dumpProperty("image-identifier", item.imageIdentifier());
-    ts.dumpProperty("pattern-transform", item.patternTransform());
-    ts.dumpProperty("tile-rect", item.tileRect());
-    ts.dumpProperty("dest-rect", item.destRect());
-    ts.dumpProperty("phase", item.phase());
-    ts.dumpProperty("spacing", item.spacing());
-    return ts;
+    if (flags.contains(AsTextFlag::IncludeResourceIdentifiers))
+        ts.dumpProperty("image-identifier"_s, m_imageBuffer->renderingResourceIdentifier());
+    ts.dumpProperty("pattern-transform"_s, patternTransform());
+    ts.dumpProperty("tile-rect"_s, tileRect());
+    ts.dumpProperty("dest-rect"_s, destRect());
+    ts.dumpProperty("phase"_s, phase());
+    ts.dumpProperty("spacing"_s, spacing());
 }
 
 void DrawRect::apply(GraphicsContext& context) const
@@ -507,18 +419,10 @@ void DrawRect::apply(GraphicsContext& context) const
     context.drawRect(m_rect, m_borderThickness);
 }
 
-static TextStream& operator<<(TextStream& ts, const DrawRect& item)
+void DrawRect::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("rect", item.rect());
-    ts.dumpProperty("border-thickness", item.borderThickness());
-    return ts;
-}
-
-std::optional<FloatRect> DrawLine::localBounds(const GraphicsContext&) const
-{
-    FloatRect bounds;
-    bounds.fitToPoints(m_point1, m_point2);
-    return bounds;
+    ts.dumpProperty("rect"_s, rect());
+    ts.dumpProperty("border-thickness"_s, borderThickness());
 }
 
 void DrawLine::apply(GraphicsContext& context) const
@@ -526,70 +430,45 @@ void DrawLine::apply(GraphicsContext& context) const
     context.drawLine(m_point1, m_point2);
 }
 
-static TextStream& operator<<(TextStream& ts, const DrawLine& item)
+void DrawLine::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("point-1", item.point1());
-    ts.dumpProperty("point-2", item.point2());
-    return ts;
+    ts.dumpProperty("point-1"_s, point1());
+    ts.dumpProperty("point-2"_s, point2());
 }
 
-DrawLinesForText::DrawLinesForText(const FloatPoint& blockLocation, const FloatSize& localAnchor, float thickness, const DashArray& widths, bool printing, bool doubleLines)
-    : m_blockLocation(blockLocation)
-    , m_localAnchor(localAnchor)
-    , m_widths(widths)
+DrawLinesForText::DrawLinesForText(const FloatPoint& point, std::span<const FloatSegment> lineSegments, float thickness, bool printing, bool doubleLines, StrokeStyle style)
+    : m_point(point)
+    , m_lineSegments(lineSegments)
     , m_thickness(thickness)
     , m_printing(printing)
     , m_doubleLines(doubleLines)
+    , m_style(style)
 {
 }
 
 void DrawLinesForText::apply(GraphicsContext& context) const
 {
-    context.drawLinesForText(point(), m_thickness, m_widths, m_printing, m_doubleLines);
+    context.drawLinesForText(m_point, m_thickness, m_lineSegments, m_printing, m_doubleLines, m_style);
 }
 
-std::optional<FloatRect> DrawLinesForText::localBounds(const GraphicsContext&) const
+void DrawLinesForText::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    // This function needs to return a value equal to or enclosing what GraphicsContext::computeLineBoundsAndAntialiasingModeForText() returns.
-
-    if (!m_widths.size())
-        return FloatRect();
-
-    FloatRect result(point(), FloatSize(m_widths.last(), m_thickness));
-    result.inflate(1); // Account for pixel snapping. FIXME: This isn't perfect, as it doesn't take the CTM into account.
-    return result;
-}
-
-static TextStream& operator<<(TextStream& ts, const DrawLinesForText& item)
-{
-    ts.dumpProperty("block-location", item.blockLocation());
-    ts.dumpProperty("local-anchor", item.localAnchor());
-    ts.dumpProperty("point", item.point());
-    ts.dumpProperty("thickness", item.thickness());
-    ts.dumpProperty("double", item.doubleLines());
-    ts.dumpProperty("widths", item.widths());
-    ts.dumpProperty("is-printing", item.isPrinting());
-    ts.dumpProperty("double", item.doubleLines());
-    return ts;
+    ts.dumpProperty("point"_s, point());
+    ts.dumpProperty("thickness"_s, thickness());
+    ts.dumpProperty("double"_s, doubleLines());
+    ts.dumpProperty("lineSegments"_s, lineSegments());
+    ts.dumpProperty("is-printing"_s, isPrinting());
+    ts.dumpProperty("double"_s, doubleLines());
 }
 
 void DrawDotsForDocumentMarker::apply(GraphicsContext& context) const
 {
-    context.drawDotsForDocumentMarker(m_rect, {
-        static_cast<DocumentMarkerLineStyle::Mode>(m_styleMode),
-        m_styleShouldUseDarkAppearance,
-    });
+    context.drawDotsForDocumentMarker(m_rect, m_style);
 }
 
-std::optional<FloatRect> DrawDotsForDocumentMarker::localBounds(const GraphicsContext&) const
+void DrawDotsForDocumentMarker::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    return m_rect;
-}
-
-static TextStream& operator<<(TextStream& ts, const DrawDotsForDocumentMarker& item)
-{
-    ts.dumpProperty("rect", item.rect());
-    return ts;
+    ts.dumpProperty("rect"_s, rect());
 }
 
 void DrawEllipse::apply(GraphicsContext& context) const
@@ -597,10 +476,9 @@ void DrawEllipse::apply(GraphicsContext& context) const
     context.drawEllipse(m_rect);
 }
 
-static TextStream& operator<<(TextStream& ts, const DrawEllipse& item)
+void DrawEllipse::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("rect", item.rect());
-    return ts;
+    ts.dumpProperty("rect"_s, rect());
 }
 
 void DrawPath::apply(GraphicsContext& context) const
@@ -608,73 +486,46 @@ void DrawPath::apply(GraphicsContext& context) const
     context.drawPath(m_path);
 }
 
-static TextStream& operator<<(TextStream& ts, const DrawPath&)
+void DrawPath::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    // FIXME: add logging for paths.
-    return ts;
+    ts.dumpProperty("path"_s, path());
 }
 
 void DrawFocusRingPath::apply(GraphicsContext& context) const
 {
-    context.drawFocusRing(m_path, m_width, m_offset, m_color);
+    context.drawFocusRing(m_path, m_outlineWidth, m_color, m_zoomFactor);
 }
 
-std::optional<FloatRect> DrawFocusRingPath::localBounds(const GraphicsContext&) const
+void DrawFocusRingPath::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    FloatRect result = m_path.fastBoundingRect();
-    result.inflate(platformFocusRingWidth);
-    return result;
-}
-
-static TextStream& operator<<(TextStream& ts, const DrawFocusRingPath& item)
-{
-//    ts.dumpProperty("path", item.path()); // FIXME: add logging for paths.
-    ts.dumpProperty("width", item.width());
-    ts.dumpProperty("offset", item.offset());
-    ts.dumpProperty("color", item.color());
-    return ts;
-}
-
-DrawFocusRingRects::DrawFocusRingRects(const Vector<FloatRect>& rects, float width, float offset, const Color& color)
-    : m_rects(rects)
-    , m_width(width)
-    , m_offset(offset)
-    , m_color(color)
-{
+    ts.dumpProperty("path"_s, path());
+    ts.dumpProperty("outline-width"_s, outlineWidth());
+    ts.dumpProperty("color"_s, color());
+    ts.dumpProperty("zoom-factor"_s, zoomFactor());
 }
 
 void DrawFocusRingRects::apply(GraphicsContext& context) const
 {
-    context.drawFocusRing(m_rects, m_width, m_offset, m_color);
+    context.drawFocusRing(m_rects, m_outlineWidth, m_color, m_zoomFactor);
 }
 
-std::optional<FloatRect> DrawFocusRingRects::localBounds(const GraphicsContext&) const
+void DrawFocusRingRects::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    FloatRect result;
-    for (auto& rect : m_rects)
-        result.unite(rect);
-    result.inflate(platformFocusRingWidth);
-    return result;
-}
-
-static TextStream& operator<<(TextStream& ts, const DrawFocusRingRects& item)
-{
-    ts.dumpProperty("rects", item.rects());
-    ts.dumpProperty("width", item.width());
-    ts.dumpProperty("offset", item.offset());
-    ts.dumpProperty("color", item.color());
-    return ts;
+    ts.dumpProperty("rects"_s, rects());
+    ts.dumpProperty("outline-width"_s, outlineWidth());
+    ts.dumpProperty("color"_s, color());
+    ts.dumpProperty("zoom-factor"_s, zoomFactor());
 }
 
 void FillRect::apply(GraphicsContext& context) const
 {
-    context.fillRect(m_rect);
+    context.fillRect(m_rect, m_requiresClipToRect);
 }
 
-static TextStream& operator<<(TextStream& ts, const FillRect& item)
+void FillRect::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("rect", item.rect());
-    return ts;
+    ts.dumpProperty("rect"_s, rect());
+    ts.dumpProperty("requiresClipToRect"_s, m_requiresClipToRect == GraphicsContext::RequiresClipToRect::Yes);
 }
 
 void FillRectWithColor::apply(GraphicsContext& context) const
@@ -682,11 +533,10 @@ void FillRectWithColor::apply(GraphicsContext& context) const
     context.fillRect(m_rect, m_color);
 }
 
-static TextStream& operator<<(TextStream& ts, const FillRectWithColor& item)
+void FillRectWithColor::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("rect", item.rect());
-    ts.dumpProperty("color", item.color());
-    return ts;
+    ts.dumpProperty("rect"_s, rect());
+    ts.dumpProperty("color"_s, color());
 }
 
 FillRectWithGradient::FillRectWithGradient(const FloatRect& rect, Gradient& gradient)
@@ -695,16 +545,50 @@ FillRectWithGradient::FillRectWithGradient(const FloatRect& rect, Gradient& grad
 {
 }
 
-void FillRectWithGradient::apply(GraphicsContext& context) const
+FillRectWithGradient::FillRectWithGradient(FloatRect&& rect, Ref<Gradient>&& gradient)
+    : m_rect(WTF::move(rect))
+    , m_gradient(WTF::move(gradient))
 {
-    context.fillRect(m_rect, m_gradient.get());
 }
 
-static TextStream& operator<<(TextStream& ts, const FillRectWithGradient& item)
+void FillRectWithGradient::apply(GraphicsContext& context) const
+{
+    context.fillRect(m_rect, m_gradient);
+}
+
+void FillRectWithGradient::dump(TextStream& ts, OptionSet<AsTextFlag>) const
+{
+    ts.dumpProperty("rect"_s, rect());
+    ts.dumpProperty("gradient"_s, m_gradient);
+}
+
+FillRectWithGradientAndSpaceTransform::FillRectWithGradientAndSpaceTransform(const FloatRect& rect, Gradient& gradient, const AffineTransform& gradientSpaceTransform, GraphicsContext::RequiresClipToRect requiresClipToRect)
+    : m_rect(rect)
+    , m_gradient(gradient)
+    , m_gradientSpaceTransform(gradientSpaceTransform)
+    , m_requiresClipToRect(requiresClipToRect)
+{
+}
+
+FillRectWithGradientAndSpaceTransform::FillRectWithGradientAndSpaceTransform(FloatRect&& rect, Ref<Gradient>&& gradient, AffineTransform&& gradientSpaceTransform, GraphicsContext::RequiresClipToRect requiresClipToRect)
+    : m_rect(WTF::move(rect))
+    , m_gradient(WTF::move(gradient))
+    , m_gradientSpaceTransform(WTF::move(gradientSpaceTransform))
+    , m_requiresClipToRect(requiresClipToRect)
+{
+}
+
+void FillRectWithGradientAndSpaceTransform::apply(GraphicsContext& context) const
+{
+    context.fillRect(m_rect, m_gradient, m_gradientSpaceTransform, m_requiresClipToRect);
+}
+
+void FillRectWithGradientAndSpaceTransform::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
     // FIXME: log gradient.
-    ts.dumpProperty("rect", item.rect());
-    return ts;
+    ts.dumpProperty("rect"_s, rect());
+    ts.dumpProperty("gradient-space-transform"_s, gradientSpaceTransform());
+    ts.dumpProperty("requiresClipToRect"_s, m_requiresClipToRect == GraphicsContext::RequiresClipToRect::Yes);
 }
 
 void FillCompositedRect::apply(GraphicsContext& context) const
@@ -712,13 +596,12 @@ void FillCompositedRect::apply(GraphicsContext& context) const
     context.fillRect(m_rect, m_color, m_op, m_blendMode);
 }
 
-static TextStream& operator<<(TextStream& ts, const FillCompositedRect& item)
+void FillCompositedRect::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("rect", item.rect());
-    ts.dumpProperty("color", item.color());
-    ts.dumpProperty("composite-operation", item.compositeOperator());
-    ts.dumpProperty("blend-mode", item.blendMode());
-    return ts;
+    ts.dumpProperty("rect"_s, rect());
+    ts.dumpProperty("color"_s, color());
+    ts.dumpProperty("composite-operation"_s, compositeOperator());
+    ts.dumpProperty("blend-mode"_s, blendMode());
 }
 
 void FillRoundedRect::apply(GraphicsContext& context) const
@@ -726,12 +609,11 @@ void FillRoundedRect::apply(GraphicsContext& context) const
     context.fillRoundedRect(m_rect, m_color, m_blendMode);
 }
 
-static TextStream& operator<<(TextStream& ts, const FillRoundedRect& item)
+void FillRoundedRect::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("rect", item.roundedRect());
-    ts.dumpProperty("color", item.color());
-    ts.dumpProperty("blend-mode", item.blendMode());
-    return ts;
+    ts.dumpProperty("rect"_s, roundedRect());
+    ts.dumpProperty("color"_s, color());
+    ts.dumpProperty("blend-mode"_s, blendMode());
 }
 
 void FillRectWithRoundedHole::apply(GraphicsContext& context) const
@@ -739,71 +621,21 @@ void FillRectWithRoundedHole::apply(GraphicsContext& context) const
     context.fillRectWithRoundedHole(m_rect, m_roundedHoleRect, m_color);
 }
 
-static TextStream& operator<<(TextStream& ts, const FillRectWithRoundedHole& item)
+void FillRectWithRoundedHole::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("rect", item.rect());
-    ts.dumpProperty("rounded-hole-rect", item.roundedHoleRect());
-    ts.dumpProperty("color", item.color());
-    return ts;
+    ts.dumpProperty("rect"_s, rect());
+    ts.dumpProperty("rounded-hole-rect"_s, roundedHoleRect());
+    ts.dumpProperty("color"_s, color());
 }
-
-#if ENABLE(INLINE_PATH_DATA)
-
-void FillLine::apply(GraphicsContext& context) const
-{
-    context.fillPath(path());
-}
-
-static TextStream& operator<<(TextStream& ts, const FillLine& item)
-{
-    ts.dumpProperty("path", item.path());
-    return ts;
-}
-
-void FillArc::apply(GraphicsContext& context) const
-{
-    context.fillPath(path());
-}
-
-static TextStream& operator<<(TextStream& ts, const FillArc& item)
-{
-    ts.dumpProperty("path", item.path());
-    return ts;
-}
-
-void FillQuadCurve::apply(GraphicsContext& context) const
-{
-    context.fillPath(path());
-}
-
-static TextStream& operator<<(TextStream& ts, const FillQuadCurve& item)
-{
-    ts.dumpProperty("path", item.path());
-    return ts;
-}
-
-void FillBezierCurve::apply(GraphicsContext& context) const
-{
-    context.fillPath(path());
-}
-
-static TextStream& operator<<(TextStream& ts, const FillBezierCurve& item)
-{
-    ts.dumpProperty("path", item.path());
-    return ts;
-}
-
-#endif // ENABLE(INLINE_PATH_DATA)
 
 void FillPath::apply(GraphicsContext& context) const
 {
     context.fillPath(m_path);
 }
 
-static TextStream& operator<<(TextStream& ts, const FillPath& item)
+void FillPath::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("path", item.path());
-    return ts;
+    ts.dumpProperty("path"_s, path());
 }
 
 void FillEllipse::apply(GraphicsContext& context) const
@@ -811,92 +643,9 @@ void FillEllipse::apply(GraphicsContext& context) const
     context.fillEllipse(m_rect);
 }
 
-static TextStream& operator<<(TextStream& ts, const FillEllipse& item)
+void FillEllipse::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("rect", item.rect());
-    return ts;
-}
-
-static TextStream& operator<<(TextStream& ts, const GetPixelBuffer& item)
-{
-    ts.dumpProperty("outputFormat", item.outputFormat());
-    ts.dumpProperty("srcRect", item.srcRect());
-    return ts;
-}
-
-PutPixelBuffer::PutPixelBuffer(const PixelBuffer& pixelBuffer, const IntRect& srcRect, const IntPoint& destPoint, AlphaPremultiplication destFormat)
-    : m_srcRect(srcRect)
-    , m_destPoint(destPoint)
-    , m_pixelBuffer(pixelBuffer.deepClone()) // This copy is actually required to preserve the semantics of putPixelBuffer().
-    , m_destFormat(destFormat)
-{
-}
-
-PutPixelBuffer::PutPixelBuffer(PixelBuffer&& pixelBuffer, const IntRect& srcRect, const IntPoint& destPoint, AlphaPremultiplication destFormat)
-    : m_srcRect(srcRect)
-    , m_destPoint(destPoint)
-    , m_pixelBuffer(WTFMove(pixelBuffer))
-    , m_destFormat(destFormat)
-{
-}
-
-PutPixelBuffer::PutPixelBuffer(const PutPixelBuffer& other)
-    : m_srcRect(other.m_srcRect)
-    , m_destPoint(other.m_destPoint)
-    , m_pixelBuffer(other.m_pixelBuffer.deepClone())
-    , m_destFormat(other.m_destFormat)
-{
-}
-
-PutPixelBuffer& PutPixelBuffer::operator=(const PutPixelBuffer& other)
-{
-    PutPixelBuffer copy { other };
-    swap(copy);
-    return *this;
-}
-
-void PutPixelBuffer::swap(PutPixelBuffer& other)
-{
-    std::swap(m_srcRect, other.m_srcRect);
-    std::swap(m_destPoint, other.m_destPoint);
-    std::swap(m_pixelBuffer, other.m_pixelBuffer);
-    std::swap(m_destFormat, other.m_destFormat);
-}
-
-static TextStream& operator<<(TextStream& ts, const PutPixelBuffer& item)
-{
-    ts.dumpProperty("pixelBufferSize", item.pixelBuffer().size());
-    ts.dumpProperty("srcRect", item.srcRect());
-    ts.dumpProperty("destPoint", item.destPoint());
-    ts.dumpProperty("destFormat", item.destFormat());
-    return ts;
-}
-
-#if ENABLE(VIDEO)
-PaintFrameForMedia::PaintFrameForMedia(MediaPlayer& player, const FloatRect& destination)
-    : m_identifier(player.identifier())
-    , m_destination(destination)
-{
-}
-
-NO_RETURN_DUE_TO_ASSERT void PaintFrameForMedia::apply(GraphicsContext&) const
-{
-    // Should be handled by the delegate.
-    ASSERT_NOT_REACHED();
-}
-
-static TextStream& operator<<(TextStream& ts, const PaintFrameForMedia& item)
-{
-    ts.dumpProperty("destination", item.destination());
-    return ts;
-}
-#endif
-
-std::optional<FloatRect> StrokeRect::localBounds(const GraphicsContext&) const
-{
-    FloatRect bounds = m_rect;
-    bounds.expand(m_lineWidth, m_lineWidth);
-    return bounds;
+    ts.dumpProperty("rect"_s, rect());
 }
 
 void StrokeRect::apply(GraphicsContext& context) const
@@ -904,21 +653,10 @@ void StrokeRect::apply(GraphicsContext& context) const
     context.strokeRect(m_rect, m_lineWidth);
 }
 
-static TextStream& operator<<(TextStream& ts, const StrokeRect& item)
+void StrokeRect::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("rect", item.rect());
-    ts.dumpProperty("line-width", item.lineWidth());
-    return ts;
-}
-
-std::optional<FloatRect> StrokePath::localBounds(const GraphicsContext& context) const
-{
-    // FIXME: Need to take stroke thickness into account correctly, via CGPathByStrokingPath().
-    float strokeThickness = context.strokeThickness();
-
-    FloatRect bounds = m_path.fastBoundingRect();
-    bounds.expand(strokeThickness, strokeThickness);
-    return bounds;
+    ts.dumpProperty("rect"_s, rect());
+    ts.dumpProperty("line-width"_s, lineWidth());
 }
 
 void StrokePath::apply(GraphicsContext& context) const
@@ -926,19 +664,9 @@ void StrokePath::apply(GraphicsContext& context) const
     context.strokePath(m_path);
 }
 
-static TextStream& operator<<(TextStream& ts, const StrokePath& item)
+void StrokePath::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("path", item.path());
-    return ts;
-}
-
-std::optional<FloatRect> StrokeEllipse::localBounds(const GraphicsContext& context) const
-{
-    float strokeThickness = context.strokeThickness();
-
-    FloatRect bounds = m_rect;
-    bounds.expand(strokeThickness, strokeThickness);
-    return bounds;
+    ts.dumpProperty("path"_s, path());
 }
 
 void StrokeEllipse::apply(GraphicsContext& context) const
@@ -946,117 +674,42 @@ void StrokeEllipse::apply(GraphicsContext& context) const
     context.strokeEllipse(m_rect);
 }
 
-static TextStream& operator<<(TextStream& ts, const StrokeEllipse& item)
+void StrokeEllipse::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("rect", item.rect());
-    return ts;
+    ts.dumpProperty("rect"_s, rect());
 }
-
-std::optional<FloatRect> StrokeLine::localBounds(const GraphicsContext& context) const
-{
-    float strokeThickness = context.strokeThickness();
-
-    FloatRect bounds;
-    bounds.fitToPoints(start(), end());
-    bounds.expand(strokeThickness, strokeThickness);
-    return bounds;
-}
-
-void StrokeLine::apply(GraphicsContext& context) const
-{
-#if ENABLE(INLINE_PATH_DATA)
-    auto path = Path::from(InlinePathData { LineData { start(), end() } });
-#else
-    Path path;
-    path.moveTo(start());
-    path.addLineTo(end());
-#endif
-    context.strokePath(path);
-}
-
-static TextStream& operator<<(TextStream& ts, const StrokeLine& item)
-{
-    ts.dumpProperty("start", item.start());
-    ts.dumpProperty("end", item.end());
-    return ts;
-}
-
-#if ENABLE(INLINE_PATH_DATA)
-
-std::optional<FloatRect> StrokeArc::localBounds(const GraphicsContext& context) const
-{
-    // FIXME: Need to take stroke thickness into account correctly, via CGPathByStrokingPath().
-    float strokeThickness = context.strokeThickness();
-
-    auto bounds = path().fastBoundingRect();
-    bounds.expand(strokeThickness, strokeThickness);
-    return bounds;
-}
-
-void StrokeArc::apply(GraphicsContext& context) const
-{
-    context.strokePath(path());
-}
-
-static TextStream& operator<<(TextStream& ts, const StrokeArc& item)
-{
-    ts.dumpProperty("path", item.path());
-    return ts;
-}
-
-std::optional<FloatRect> StrokeQuadCurve::localBounds(const GraphicsContext& context) const
-{
-    // FIXME: Need to take stroke thickness into account correctly, via CGPathByStrokingPath().
-    float strokeThickness = context.strokeThickness();
-
-    auto bounds = path().fastBoundingRect();
-    bounds.expand(strokeThickness, strokeThickness);
-    return bounds;
-}
-
-void StrokeQuadCurve::apply(GraphicsContext& context) const
-{
-    context.strokePath(path());
-}
-
-static TextStream& operator<<(TextStream& ts, const StrokeQuadCurve& item)
-{
-    ts.dumpProperty("path", item.path());
-    return ts;
-}
-
-std::optional<FloatRect> StrokeBezierCurve::localBounds(const GraphicsContext& context) const
-{
-    // FIXME: Need to take stroke thickness into account correctly, via CGPathByStrokingPath().
-    float strokeThickness = context.strokeThickness();
-
-    auto bounds = path().fastBoundingRect();
-    bounds.expand(strokeThickness, strokeThickness);
-    return bounds;
-}
-
-void StrokeBezierCurve::apply(GraphicsContext& context) const
-{
-    context.strokePath(path());
-}
-
-static TextStream& operator<<(TextStream& ts, const StrokeBezierCurve& item)
-{
-    ts.dumpProperty("path", item.path());
-    return ts;
-}
-
-#endif // ENABLE(INLINE_PATH_DATA)
 
 void ClearRect::apply(GraphicsContext& context) const
 {
     context.clearRect(m_rect);
 }
 
-static TextStream& operator<<(TextStream& ts, const ClearRect& item)
+void ClearRect::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("rect", item.rect());
-    return ts;
+    ts.dumpProperty("rect"_s, rect());
+}
+
+DrawControlPart::DrawControlPart(ControlPart& part, const FloatRoundedRect& borderRect, float deviceScaleFactor, const ControlStyle& style)
+    : m_part(part)
+    , m_borderRect(borderRect)
+    , m_deviceScaleFactor(deviceScaleFactor)
+    , m_style(style)
+{
+}
+
+void DrawControlPart::apply(GraphicsContext& context, ControlFactory& controlFactory) const
+{
+    m_part->setOverrideControlFactory(&controlFactory);
+    context.drawControlPart(m_part, m_borderRect, m_deviceScaleFactor, m_style);
+    m_part->setOverrideControlFactory(nullptr);
+}
+
+void DrawControlPart::dump(TextStream& ts, OptionSet<AsTextFlag>) const
+{
+    ts.dumpProperty("type"_s, type());
+    ts.dumpProperty("border-rect"_s, borderRect());
+    ts.dumpProperty("device-scale-factor"_s, deviceScaleFactor());
+    ts.dumpProperty("style"_s, style());
 }
 
 void BeginTransparencyLayer::apply(GraphicsContext& context) const
@@ -1064,10 +717,20 @@ void BeginTransparencyLayer::apply(GraphicsContext& context) const
     context.beginTransparencyLayer(m_opacity);
 }
 
-static TextStream& operator<<(TextStream& ts, const BeginTransparencyLayer& item)
+void BeginTransparencyLayerWithCompositeMode::apply(GraphicsContext& context) const
 {
-    ts.dumpProperty("opacity", item.opacity());
-    return ts;
+    context.beginTransparencyLayer(m_compositeMode.operation, m_compositeMode.blendMode);
+}
+
+void BeginTransparencyLayer::dump(TextStream& ts, OptionSet<AsTextFlag>) const
+{
+    ts.dumpProperty("opacity"_s, opacity());
+}
+
+void BeginTransparencyLayerWithCompositeMode::dump(TextStream& ts, OptionSet<AsTextFlag>) const
+{
+    ts.dumpProperty("composite-operator"_s, compositeMode().operation);
+    ts.dumpProperty("blend-mode"_s, compositeMode().blendMode);
 }
 
 void EndTransparencyLayer::apply(GraphicsContext& context) const
@@ -1094,325 +757,36 @@ void ApplyDeviceScaleFactor::apply(GraphicsContext& context) const
     context.applyDeviceScaleFactor(m_scaleFactor);
 }
 
-static TextStream& operator<<(TextStream& ts, const ApplyDeviceScaleFactor& item)
+void ApplyDeviceScaleFactor::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("scale-factor", item.scaleFactor());
-    return ts;
+    ts.dumpProperty("scale-factor"_s, scaleFactor());
 }
 
-void FlushContext::apply(GraphicsContext&) const
+void BeginPage::apply(GraphicsContext& context) const
 {
-    // Handled by client.
+    context.beginPage(m_pageRect);
 }
 
-static TextStream& operator<<(TextStream& ts, const FlushContext& item)
+void BeginPage::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    ts.dumpProperty("identifier", item.identifier());
-    return ts;
+    ts.dumpProperty("page-rect"_s, pageRect());
 }
 
-static TextStream& operator<<(TextStream& ts, const MetaCommandChangeItemBuffer& item)
+void EndPage::apply(GraphicsContext& context) const
 {
-    ts.dumpProperty("identifier", item.identifier());
-    return ts;
+    context.endPage();
 }
 
-static TextStream& operator<<(TextStream& ts, const MetaCommandChangeDestinationImageBuffer& item)
+void SetURLForRect::apply(GraphicsContext& context) const
 {
-    ts.dumpProperty("identifier", item.identifier());
-    return ts;
+    context.setURLForRect(m_link, m_destRect);
 }
 
-static TextStream& operator<<(TextStream& ts, ItemType type)
+void SetURLForRect::dump(TextStream& ts, OptionSet<AsTextFlag>) const
 {
-    switch (type) {
-    case ItemType::Save: ts << "save"; break;
-    case ItemType::Restore: ts << "restore"; break;
-    case ItemType::Translate: ts << "translate"; break;
-    case ItemType::Rotate: ts << "rotate"; break;
-    case ItemType::Scale: ts << "scale"; break;
-    case ItemType::SetCTM: ts << "set-ctm"; break;
-    case ItemType::ConcatenateCTM: ts << "concatentate-ctm"; break;
-    case ItemType::SetInlineFillGradient: ts << "set-inline-fill-gradient"; break;
-    case ItemType::SetInlineFillColor: ts << "set-inline-fill-color"; break;
-    case ItemType::SetInlineStrokeColor: ts << "set-inline-stroke-color"; break;
-    case ItemType::SetStrokeThickness: ts << "set-stroke-thickness"; break;
-    case ItemType::SetState: ts << "set-state"; break;
-    case ItemType::SetLineCap: ts << "set-line-cap"; break;
-    case ItemType::SetLineDash: ts << "set-line-dash"; break;
-    case ItemType::SetLineJoin: ts << "set-line-join"; break;
-    case ItemType::SetMiterLimit: ts << "set-miter-limit"; break;
-    case ItemType::Clip: ts << "clip"; break;
-    case ItemType::ClipOut: ts << "clip-out"; break;
-    case ItemType::ClipToImageBuffer: ts << "clip-to-image-buffer"; break;
-    case ItemType::ClipOutToPath: ts << "clip-out-to-path"; break;
-    case ItemType::ClipPath: ts << "clip-path"; break;
-    case ItemType::BeginClipToDrawingCommands: ts << "begin-clip-to-drawing-commands:"; break;
-    case ItemType::EndClipToDrawingCommands: ts << "end-clip-to-drawing-commands"; break;
-    case ItemType::DrawGlyphs: ts << "draw-glyphs"; break;
-    case ItemType::DrawImageBuffer: ts << "draw-image-buffer"; break;
-    case ItemType::DrawNativeImage: ts << "draw-native-image"; break;
-    case ItemType::DrawPattern: ts << "draw-pattern"; break;
-    case ItemType::DrawRect: ts << "draw-rect"; break;
-    case ItemType::DrawLine: ts << "draw-line"; break;
-    case ItemType::DrawLinesForText: ts << "draw-lines-for-text"; break;
-    case ItemType::DrawDotsForDocumentMarker: ts << "draw-dots-for-document-marker"; break;
-    case ItemType::DrawEllipse: ts << "draw-ellipse"; break;
-    case ItemType::DrawPath: ts << "draw-path"; break;
-    case ItemType::DrawFocusRingPath: ts << "draw-focus-ring-path"; break;
-    case ItemType::DrawFocusRingRects: ts << "draw-focus-ring-rects"; break;
-    case ItemType::FillRect: ts << "fill-rect"; break;
-    case ItemType::FillRectWithColor: ts << "fill-rect-with-color"; break;
-    case ItemType::FillRectWithGradient: ts << "fill-rect-with-gradient"; break;
-    case ItemType::FillCompositedRect: ts << "fill-composited-rect"; break;
-    case ItemType::FillRoundedRect: ts << "fill-rounded-rect"; break;
-    case ItemType::FillRectWithRoundedHole: ts << "fill-rect-with-rounded-hole"; break;
-#if ENABLE(INLINE_PATH_DATA)
-    case ItemType::FillLine: ts << "fill-line"; break;
-    case ItemType::FillArc: ts << "fill-arc"; break;
-    case ItemType::FillQuadCurve: ts << "fill-quad-curve"; break;
-    case ItemType::FillBezierCurve: ts << "fill-bezier-curve"; break;
-#endif
-    case ItemType::FillPath: ts << "fill-path"; break;
-    case ItemType::FillEllipse: ts << "fill-ellipse"; break;
-    case ItemType::FlushContext: ts << "flush-context"; break;
-    case ItemType::MetaCommandChangeDestinationImageBuffer: ts << "meta-command-change-destination-image-buffer"; break;
-    case ItemType::MetaCommandChangeItemBuffer: ts << "meta-command-change-item-buffer"; break;
-    case ItemType::GetPixelBuffer: ts << "get-pixel-buffer"; break;
-    case ItemType::PutPixelBuffer: ts << "put-pixel-buffer"; break;
-#if ENABLE(VIDEO)
-    case ItemType::PaintFrameForMedia: ts << "paint-frame-for-media"; break;
-#endif
-    case ItemType::StrokeRect: ts << "stroke-rect"; break;
-    case ItemType::StrokeLine: ts << "stroke-line"; break;
-#if ENABLE(INLINE_PATH_DATA)
-    case ItemType::StrokeArc: ts << "stroke-arc"; break;
-    case ItemType::StrokeQuadCurve: ts << "stroke-quad-curve"; break;
-    case ItemType::StrokeBezierCurve: ts << "stroke-bezier-curve"; break;
-#endif
-    case ItemType::StrokePath: ts << "stroke-path"; break;
-    case ItemType::StrokeEllipse: ts << "stroke-ellipse"; break;
-    case ItemType::ClearRect: ts << "clear-rect"; break;
-    case ItemType::BeginTransparencyLayer: ts << "begin-transparency-layer"; break;
-    case ItemType::EndTransparencyLayer: ts << "end-transparency-layer"; break;
-#if USE(CG)
-    case ItemType::ApplyStrokePattern: ts << "apply-stroke-pattern"; break;
-    case ItemType::ApplyFillPattern: ts << "apply-fill-pattern"; break;
-#endif
-    case ItemType::ApplyDeviceScaleFactor: ts << "apply-device-scale-factor"; break;
-    case ItemType::ClearShadow: ts << "clear-shadow"; break;
-    }
-    return ts;
+    ts.dumpProperty("link"_s, link());
+    ts.dumpProperty("dest_rect"_s, destRect());
 }
 
-TextStream& operator<<(TextStream& ts, ItemHandle item)
-{
-    ts << item.type();
-
-    switch (item.type()) {
-    case ItemType::Translate:
-        ts << item.get<Translate>();
-        break;
-    case ItemType::Rotate:
-        ts << item.get<Rotate>();
-        break;
-    case ItemType::Scale:
-        ts << item.get<Scale>();
-        break;
-    case ItemType::SetCTM:
-        ts << item.get<SetCTM>();
-        break;
-    case ItemType::ConcatenateCTM:
-        ts << item.get<ConcatenateCTM>();
-        break;
-    case ItemType::SetInlineFillGradient:
-        ts << item.get<SetInlineFillGradient>();
-        break;
-    case ItemType::SetInlineFillColor:
-        ts << item.get<SetInlineFillColor>();
-        break;
-    case ItemType::SetInlineStrokeColor:
-        ts << item.get<SetInlineStrokeColor>();
-        break;
-    case ItemType::SetStrokeThickness:
-        ts << item.get<SetStrokeThickness>();
-        break;
-    case ItemType::SetState:
-        ts << item.get<SetState>();
-        break;
-    case ItemType::SetLineCap:
-        ts << item.get<SetLineCap>();
-        break;
-    case ItemType::SetLineDash:
-        ts << item.get<SetLineDash>();
-        break;
-    case ItemType::SetLineJoin:
-        ts << item.get<SetLineJoin>();
-        break;
-    case ItemType::SetMiterLimit:
-        ts << item.get<SetMiterLimit>();
-        break;
-    case ItemType::Clip:
-        ts << item.get<Clip>();
-        break;
-    case ItemType::ClipOut:
-        ts << item.get<ClipOut>();
-        break;
-    case ItemType::ClipToImageBuffer:
-        ts << item.get<ClipToImageBuffer>();
-        break;
-    case ItemType::ClipOutToPath:
-        ts << item.get<ClipOutToPath>();
-        break;
-    case ItemType::ClipPath:
-        ts << item.get<ClipPath>();
-        break;
-    case ItemType::BeginClipToDrawingCommands:
-        ts << item.get<BeginClipToDrawingCommands>();
-        break;
-    case ItemType::EndClipToDrawingCommands:
-        ts << item.get<EndClipToDrawingCommands>();
-        break;
-    case ItemType::DrawGlyphs:
-        ts << item.get<DrawGlyphs>();
-        break;
-    case ItemType::DrawImageBuffer:
-        ts << item.get<DrawImageBuffer>();
-        break;
-    case ItemType::DrawNativeImage:
-        ts << item.get<DrawNativeImage>();
-        break;
-    case ItemType::DrawPattern:
-        ts << item.get<DrawPattern>();
-        break;
-    case ItemType::DrawRect:
-        ts << item.get<DrawRect>();
-        break;
-    case ItemType::DrawLine:
-        ts << item.get<DrawLine>();
-        break;
-    case ItemType::DrawLinesForText:
-        ts << item.get<DrawLinesForText>();
-        break;
-    case ItemType::DrawDotsForDocumentMarker:
-        ts << item.get<DrawDotsForDocumentMarker>();
-        break;
-    case ItemType::DrawEllipse:
-        ts << item.get<DrawEllipse>();
-        break;
-    case ItemType::DrawPath:
-        ts << item.get<DrawPath>();
-        break;
-    case ItemType::DrawFocusRingPath:
-        ts << item.get<DrawFocusRingPath>();
-        break;
-    case ItemType::DrawFocusRingRects:
-        ts << item.get<DrawFocusRingRects>();
-        break;
-    case ItemType::FillRect:
-        ts << item.get<FillRect>();
-        break;
-    case ItemType::FillRectWithColor:
-        ts << item.get<FillRectWithColor>();
-        break;
-    case ItemType::FillRectWithGradient:
-        ts << item.get<FillRectWithGradient>();
-        break;
-    case ItemType::FillCompositedRect:
-        ts << item.get<FillCompositedRect>();
-        break;
-    case ItemType::FillRoundedRect:
-        ts << item.get<FillRoundedRect>();
-        break;
-    case ItemType::FillRectWithRoundedHole:
-        ts << item.get<FillRectWithRoundedHole>();
-        break;
-#if ENABLE(INLINE_PATH_DATA)
-    case ItemType::FillLine:
-        ts << item.get<FillLine>();
-        break;
-    case ItemType::FillArc:
-        ts << item.get<FillArc>();
-        break;
-    case ItemType::FillQuadCurve:
-        ts << item.get<FillQuadCurve>();
-        break;
-    case ItemType::FillBezierCurve:
-        ts << item.get<FillBezierCurve>();
-        break;
-#endif
-    case ItemType::FillPath:
-        ts << item.get<FillPath>();
-        break;
-    case ItemType::FillEllipse:
-        ts << item.get<FillEllipse>();
-        break;
-    case ItemType::FlushContext:
-        ts << item.get<FlushContext>();
-        break;
-    case ItemType::MetaCommandChangeDestinationImageBuffer:
-        ts << item.get<MetaCommandChangeDestinationImageBuffer>();
-        break;
-    case ItemType::MetaCommandChangeItemBuffer:
-        ts << item.get<MetaCommandChangeItemBuffer>();
-        break;
-    case ItemType::GetPixelBuffer:
-        ts << item.get<GetPixelBuffer>();
-        break;
-    case ItemType::PutPixelBuffer:
-        ts << item.get<PutPixelBuffer>();
-        break;
-#if ENABLE(VIDEO)
-    case ItemType::PaintFrameForMedia:
-        ts << item.get<PaintFrameForMedia>();
-        break;
-#endif
-    case ItemType::StrokeRect:
-        ts << item.get<StrokeRect>();
-        break;
-    case ItemType::StrokeLine:
-        ts << item.get<StrokeLine>();
-        break;
-#if ENABLE(INLINE_PATH_DATA)
-    case ItemType::StrokeArc:
-        ts << item.get<StrokeArc>();
-        break;
-    case ItemType::StrokeQuadCurve:
-        ts << item.get<StrokeQuadCurve>();
-        break;
-    case ItemType::StrokeBezierCurve:
-        ts << item.get<StrokeBezierCurve>();
-        break;
-#endif
-    case ItemType::StrokePath:
-        ts << item.get<StrokePath>();
-        break;
-    case ItemType::StrokeEllipse:
-        ts << item.get<StrokeEllipse>();
-        break;
-    case ItemType::ClearRect:
-        ts << item.get<ClearRect>();
-        break;
-    case ItemType::BeginTransparencyLayer:
-        ts << item.get<BeginTransparencyLayer>();
-        break;
-    case ItemType::ApplyDeviceScaleFactor:
-        ts << item.get<ApplyDeviceScaleFactor>();
-        break;
-
-    // Items with no additional data.
-    case ItemType::Save:
-    case ItemType::Restore:
-    case ItemType::EndTransparencyLayer:
-#if USE(CG)
-    case ItemType::ApplyStrokePattern:
-    case ItemType::ApplyFillPattern:
-#endif
-    case ItemType::ClearShadow:
-        break;
-    }
-    return ts;
-}
-
-}
-}
+} // namespace DisplayList
+} // namespace WebCore

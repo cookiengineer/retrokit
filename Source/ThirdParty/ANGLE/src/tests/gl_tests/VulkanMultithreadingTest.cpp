@@ -5,7 +5,6 @@
 //
 // VulkanMultithreadingTest.cpp : Tests of multithreaded rendering specific to the Vulkan back end.
 
-#include "platform/FeaturesVk.h"
 #include "test_utils/ANGLETest.h"
 #include "test_utils/gl_raii.h"
 #include "util/EGLWindow.h"
@@ -22,7 +21,7 @@ namespace angle
 constexpr char kExtensionName[] = "GL_ANGLE_get_image";
 static constexpr int kSize      = 256;
 
-class VulkanMultithreadingTest : public ANGLETest
+class VulkanMultithreadingTest : public ANGLETest<>
 {
   protected:
     VulkanMultithreadingTest()
@@ -88,7 +87,7 @@ class VulkanMultithreadingTest : public ANGLETest
                     surface = eglCreatePbufferSurface(dpy, config, pbufferAttributes);
                     EXPECT_EGL_SUCCESS();
 
-                    ctx = window->createContext(EGL_NO_CONTEXT);
+                    ctx = window->createContext(EGL_NO_CONTEXT, nullptr);
                     EXPECT_NE(EGL_NO_CONTEXT, ctx);
 
                     EXPECT_EGL_TRUE(eglMakeCurrent(dpy, surface, surface, ctx));
@@ -126,6 +125,8 @@ class VulkanMultithreadingTest : public ANGLETest
 // descriptor pools.
 TEST_P(VulkanMultithreadingTest, MultiContextDrawSmallDescriptorPools)
 {
+    // TODO(http://anglebug.com/42265131: Flaky on linux.
+    ANGLE_SKIP_TEST_IF(IsLinux());
     ANGLE_SKIP_TEST_IF(!platformSupportsMultithreading());
     // Verify the extension is enabled.
     ASSERT_TRUE(IsGLExtensionEnabled(kExtensionName));
@@ -190,7 +191,7 @@ TEST_P(VulkanMultithreadingTest, MultiContextDrawSmallDescriptorPools)
 
             // There's a good chance this test will crash before failing, but if not we'll try and
             // verify the contents of the copied texture.
-            // TODO(http://anglebug.com/5204): Need to re-enable for Linux/Windows.
+            // TODO(http://anglebug.com/42263765): Need to re-enable for Linux/Windows.
             if (IsGLExtensionEnabled(kExtensionName) && !(IsLinux() || IsWindows()))
             {
                 // Verify glCopyTexImage2D() was successful.
@@ -204,5 +205,6 @@ TEST_P(VulkanMultithreadingTest, MultiContextDrawSmallDescriptorPools)
 }
 
 ANGLE_INSTANTIATE_TEST(VulkanMultithreadingTest, ES2_VULKAN(), ES3_VULKAN());
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(VulkanMultithreadingTest);
 
 }  // namespace angle

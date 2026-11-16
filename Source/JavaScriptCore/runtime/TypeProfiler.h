@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2014-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,10 +25,12 @@
 
 #pragma once
 
-#include "TypeLocation.h"
-#include "TypeLocationCache.h"
+#include <JavaScriptCore/SourceID.h>
+#include <JavaScriptCore/TypeLocation.h>
+#include <JavaScriptCore/TypeLocationCache.h>
 #include <wtf/Bag.h>
 #include <wtf/HashMap.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
@@ -50,31 +52,28 @@ struct QueryKey {
         , m_searchDescriptor(TypeProfilerSearchDescriptorFunctionReturn)
     { }
 
-    QueryKey(intptr_t sourceID, unsigned divot, TypeProfilerSearchDescriptor searchDescriptor)
+    QueryKey(SourceID sourceID, unsigned divot, TypeProfilerSearchDescriptor searchDescriptor)
         : m_sourceID(sourceID)
         , m_divot(divot)
         , m_searchDescriptor(searchDescriptor)
     { }
 
     QueryKey(WTF::HashTableDeletedValueType)
-        : m_sourceID(INTPTR_MAX)
+        : m_sourceID(UINT_MAX)
         , m_divot(UINT_MAX)
         , m_searchDescriptor(TypeProfilerSearchDescriptorFunctionReturn)
     { }
 
     bool isHashTableDeletedValue() const 
     { 
-        return m_sourceID == INTPTR_MAX 
+        return m_sourceID == UINT_MAX
             && m_divot == UINT_MAX
             && m_searchDescriptor == TypeProfilerSearchDescriptorFunctionReturn;
     }
 
-    bool operator==(const QueryKey& other) const
-    {
-        return m_sourceID == other.m_sourceID 
-            && m_divot == other.m_divot
-            && m_searchDescriptor == other.m_searchDescriptor;
-    }
+    static constexpr bool safeToCompareToHashTableEmptyOrDeletedValue = true;
+
+    friend bool operator==(const QueryKey&, const QueryKey&) = default;
 
     unsigned hash() const 
     { 
@@ -82,23 +81,14 @@ struct QueryKey {
         return hash;
     }
 
-    intptr_t m_sourceID;
+    SourceID m_sourceID;
     unsigned m_divot;
     TypeProfilerSearchDescriptor m_searchDescriptor;
-};
-
-struct QueryKeyHash {
-    static unsigned hash(const QueryKey& key) { return key.hash(); }
-    static bool equal(const QueryKey& a, const QueryKey& b) { return a == b; }
-    static constexpr bool safeToCompareToEmptyOrDeleted = true;
 };
 
 } // namespace JSC
 
 namespace WTF {
-
-template<typename T> struct DefaultHash;
-template<> struct DefaultHash<JSC::QueryKey> : JSC::QueryKeyHash { };
 
 template<typename T> struct HashTraits;
 template<> struct HashTraits<JSC::QueryKey> : SimpleClassHashTraits<JSC::QueryKey> {
@@ -112,24 +102,24 @@ namespace JSC {
 class VM;
 
 class TypeProfiler {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(TypeProfiler);
 public:
     TypeProfiler();
     void logTypesForTypeLocation(TypeLocation*, VM&);
-    JS_EXPORT_PRIVATE String typeInformationForExpressionAtOffset(TypeProfilerSearchDescriptor, unsigned offset, intptr_t sourceID, VM&);
+    JS_EXPORT_PRIVATE String typeInformationForExpressionAtOffset(TypeProfilerSearchDescriptor, unsigned offset, SourceID, VM&);
     void insertNewLocation(TypeLocation*);
-    TypeLocationCache* typeLocationCache() { return &m_typeLocationCache; }
-    TypeLocation* findLocation(unsigned divot, intptr_t sourceID, TypeProfilerSearchDescriptor, VM&);
+    TypeLocationCache* typeLocationCache() LIFETIME_BOUND { return &m_typeLocationCache; }
+    TypeLocation* findLocation(unsigned divot, SourceID, TypeProfilerSearchDescriptor, VM&);
     GlobalVariableID getNextUniqueVariableID() { return m_nextUniqueVariableID++; }
     TypeLocation* nextTypeLocation();
     void invalidateTypeSetCache(VM&);
     void dumpTypeProfilerData(VM&);
     
 private:
-    typedef HashMap<intptr_t, Vector<TypeLocation*>> SourceIDToLocationBucketMap;
+    typedef UncheckedKeyHashMap<SourceID, Vector<TypeLocation*>> SourceIDToLocationBucketMap;
     SourceIDToLocationBucketMap m_bucketMap;
     TypeLocationCache m_typeLocationCache;
-    typedef HashMap<QueryKey, TypeLocation*> TypeLocationQueryCache;
+    typedef UncheckedKeyHashMap<QueryKey, TypeLocation*> TypeLocationQueryCache;
     TypeLocationQueryCache m_queryCache;
     GlobalVariableID m_nextUniqueVariableID;
     Bag<TypeLocation> m_typeLocationInfo;

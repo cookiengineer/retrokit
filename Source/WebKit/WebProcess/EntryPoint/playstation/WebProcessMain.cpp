@@ -47,14 +47,42 @@ int main(int argc, char** argv)
         exit(EXIT_FAILURE);
     }
 
-    loadLibraryOrExit("libpng16");
-    loadLibraryOrExit("libicu");
-    loadLibraryOrExit("libfreetype");
-    loadLibraryOrExit("libfontconfig");
-    loadLibraryOrExit("libharfbuzz");
-    loadLibraryOrExit("libcairo");
-    loadLibraryOrExit("libSceNKWebKitRequirements");
+    loadLibraryOrExit(ICU_LOAD_AT);
+    loadLibraryOrExit(PNG_LOAD_AT);
+#if defined(LCMS2_LOAD_AT)
+    loadLibraryOrExit(LCMS2_LOAD_AT);
+#endif
+#if defined(JPEG_LOAD_AT)
+    loadLibraryOrExit(JPEG_LOAD_AT);
+#endif 
+#if defined(WebP_LOAD_AT)
+    loadLibraryOrExit(WebP_LOAD_AT);
+#endif
+#if defined(Brotli_LOAD_AT)
+    loadLibraryOrExit(Brotli_LOAD_AT);
+#endif
+#if defined(JPEGXL_LOAD_AT)
+    loadLibraryOrExit(JPEGXL_LOAD_AT);
+#endif
+    loadLibraryOrExit(Freetype_LOAD_AT);
+    loadLibraryOrExit(Fontconfig_LOAD_AT);
+    loadLibraryOrExit(HarfBuzz_LOAD_AT);
+#if USE(CAIRO) && defined(Cairo_LOAD_AT)
+    loadLibraryOrExit(Cairo_LOAD_AT);
+#endif
+#if defined(LibPSL_LOAD_AT)
+    loadLibraryOrExit(LibPSL_LOAD_AT);
+#endif
+#if defined(LibXml2_LOAD_AT)
+    loadLibraryOrExit(LibXml2_LOAD_AT);
+#endif
+    loadLibraryOrExit(WebKitRequirements_LOAD_AT);
+#if defined(WPE_LOAD_AT)
+    loadLibraryOrExit(WPE_LOAD_AT);
+#endif
+#if !ENABLE(STATIC_JSC)
     loadLibraryOrExit("libJavaScriptCore");
+#endif
     loadLibraryOrExit("libWebKit");
 
     char* coreProcessIdentifier = argv[1];

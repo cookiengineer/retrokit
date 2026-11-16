@@ -39,7 +39,7 @@ namespace JSC { namespace B3 { namespace Air {
 
 bool eliminateDeadCode(Code& code)
 {
-    PhaseScope phaseScope(code, "eliminateDeadCode");
+    PhaseScope phaseScope(code, "eliminateDeadCode"_s);
 
     TmpSet liveTmps;
     IndexSet<StackSlot*> liveStackSlots;
@@ -60,10 +60,7 @@ bool eliminateDeadCode(Code& code)
         }
     };
 
-    auto isInstLive = [&] (Inst& inst) -> bool {
-        if (inst.hasNonArgEffects())
-            return true;
-
+    auto isInstLiveByDefs = [&] (Inst& inst) -> bool {
         // This instruction should be presumed dead, if its Args are all dead.
         bool storesToLive = false;
         inst.forEachArg(
@@ -76,15 +73,13 @@ bool eliminateDeadCode(Code& code)
             });
         return storesToLive;
     };
-    
-    // Returns true if it's live.
-    auto handleInst = [&] (Inst& inst) -> bool {
-        if (!isInstLive(inst))
-            return false;
 
-        // We get here if the Inst is live. For simplicity we say that a live instruction forces
-        // liveness upon everything it mentions.
-        for (Arg& arg : inst.args) {
+    auto isInstLive = [&] (Inst& inst) -> bool {
+        return inst.hasNonArgEffects() || isInstLiveByDefs(inst);
+    };
+
+    auto markArgsLive = [&] (Inst& inst) {
+        for (Arg& arg : inst.args()) {
             if (arg.isStack() && !arg.stackSlot()->isLocked())
                 changed |= liveStackSlots.add(arg.stackSlot());
             arg.forEachTmpFast(
@@ -93,18 +88,28 @@ bool eliminateDeadCode(Code& code)
                         changed |= liveTmps.add(tmp);
                 });
         }
-        return true;
     };
 
     Vector<Inst*> possiblyDead;
-    
+
     for (BasicBlock* block : code) {
         for (Inst& inst : *block) {
-            if (!handleInst(inst))
+            if (!isInstLive(inst))
                 possiblyDead.append(&inst);
+            else
+                markArgsLive(inst);
         }
     }
-    
+
+    // Inst in possiblyDead already have hasNonArgEffects() == false, invariant
+    // under live-set growth, so the fixpoint skips that re-check.
+    auto handleInst = [&] (Inst& inst) -> bool {
+        if (!isInstLiveByDefs(inst))
+            return false;
+        markArgsLive(inst);
+        return true;
+    };
+
     auto runForward = [&] () -> bool {
         changed = false;
         possiblyDead.removeAllMatching(
@@ -141,15 +146,22 @@ bool eliminateDeadCode(Code& code)
             break;
     }
 
-    unsigned removedInstCount = 0;
+    // After the fixpoint, possiblyDead holds exactly the dead Insts. Null them
+    // out and sweep with the cheap !inst predicate.
+    if (possiblyDead.isEmpty())
+        return false;
+
+    for (Inst* inst : possiblyDead)
+        *inst = Inst();
+
     for (BasicBlock* block : code) {
-        removedInstCount += block->insts().removeAllMatching(
+        block->insts().removeAllMatching(
             [&] (Inst& inst) -> bool {
-                return !isInstLive(inst);
+                return !inst;
             });
     }
 
-    return !!removedInstCount;
+    return true;
 }
 
 } } } // namespace JSC::B3::Air

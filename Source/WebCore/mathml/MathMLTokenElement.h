@@ -34,24 +34,23 @@
 namespace WebCore {
 
 class MathMLTokenElement : public MathMLPresentationElement {
-    WTF_MAKE_ISO_ALLOCATED(MathMLTokenElement);
+    WTF_MAKE_TZONE_ALLOCATED(MathMLTokenElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(MathMLTokenElement);
 public:
     static Ref<MathMLTokenElement> create(const QualifiedName& tagName, Document&);
-
-    static std::optional<UChar32> convertToSingleCodePoint(StringView);
 
 protected:
     MathMLTokenElement(const QualifiedName& tagName, Document&);
     void childrenChanged(const ChildChange&) override;
 
 private:
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) override;
     bool childShouldCreateRenderer(const Node&) const final;
 
     void didAttachRenderers() final;
 
     bool isMathMLToken() const final { return true; }
-    bool acceptsMathVariantAttribute() final { return true; }
+    bool acceptsLegacyMathVariantAttribute() final;
 };
 
 }

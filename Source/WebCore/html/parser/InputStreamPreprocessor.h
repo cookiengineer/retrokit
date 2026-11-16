@@ -1,7 +1,7 @@
 /*
- * Copyright (C) 2008 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008 Apple Inc. All rights reserved.
  * Copyright (C) 2009 Torch Mobile, Inc. http://www.torchmobile.com/
- * Copyright (C) 2013 Google, Inc. All Rights Reserved.
+ * Copyright (C) 2013 Google, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,23 +32,19 @@
 
 namespace WebCore {
 
-// http://www.whatwg.org/specs/web-apps/current-work/#preprocessing-the-input-stream
-template <typename Tokenizer>
+// https://html.spec.whatwg.org/#preprocessing-the-input-stream
 class InputStreamPreprocessor {
 public:
-    explicit InputStreamPreprocessor(Tokenizer& tokenizer)
-        : m_tokenizer(tokenizer)
-    {
-    }
 
-    ALWAYS_INLINE UChar nextInputCharacter() const { return m_nextInputCharacter; }
+    ALWAYS_INLINE char16_t nextInputCharacter() const { return m_nextInputCharacter; }
+    ALWAYS_INLINE bool skipNextNewLine() const { return m_skipNextNewLine; }
 
     // Returns whether we succeeded in peeking at the next character.
     // The only way we can fail to peek is if there are no more
     // characters in |source| (after collapsing \r\n, etc).
     ALWAYS_INLINE bool peek(SegmentedString& source, bool skipNullCharacters = false)
     {
-        if (UNLIKELY(source.isEmpty()))
+        if (source.isEmpty()) [[unlikely]]
             return false;
 
         m_nextInputCharacter = source.currentCharacter();
@@ -57,8 +53,8 @@ public:
         // fast-reject branch for characters that don't require special
         // handling. Please run the parser benchmark whenever you touch
         // this function. It's very hot.
-        constexpr UChar specialCharacterMask = '\n' | '\r' | '\0';
-        if (LIKELY(m_nextInputCharacter & ~specialCharacterMask)) {
+        constexpr char16_t specialCharacterMask = '\n' | '\r' | '\0';
+        if (m_nextInputCharacter & ~specialCharacterMask) [[likely]] {
             m_skipNextNewLine = false;
             return true;
         }
@@ -98,7 +94,7 @@ private:
         m_skipNextNewLine = false;
         if (m_nextInputCharacter || isAtEndOfFile(source))
             return true;
-        if (skipNullCharacters && !m_tokenizer.neverSkipNullCharacters()) {
+        if (skipNullCharacters) {
             source.advancePastNonNewline();
             if (source.isEmpty())
                 return false;
@@ -114,10 +110,8 @@ private:
         return source.isClosed() && source.length() == 1;
     }
 
-    Tokenizer& m_tokenizer;
-
-    // http://www.whatwg.org/specs/web-apps/current-work/#next-input-character
-    UChar m_nextInputCharacter { 0 };
+    // https://html.spec.whatwg.org/#next-input-character
+    char16_t m_nextInputCharacter { 0 };
     bool m_skipNextNewLine { false };
 };
 

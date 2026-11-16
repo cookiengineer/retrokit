@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,91 +27,66 @@
 
 #if ENABLE(GPU_PROCESS)
 
-#include "Decoder.h"
-#include "GPUConnectionToWebProcess.h"
-#include "Logging.h"
-#include <WebCore/ConcreteImageBuffer.h>
-#include <WebCore/DisplayList.h>
-#include <WebCore/DisplayListItems.h>
-#include <WebCore/DisplayListReplayer.h>
+#include "IPCEvent.h"
+#include "RemoteGraphicsContextIdentifier.h"
+#include "ScopedActiveMessageReceiveQueue.h"
+#include "ScopedRenderingResourcesRequest.h"
+#include "StreamMessageReceiver.h"
+#include <WebCore/ImageBuffer.h>
+#include <WebCore/ShareableBitmap.h>
+
+#if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
+#include <WebCore/DynamicContentScalingDisplayList.h>
+#endif
+
+namespace IPC {
+class Semaphore;
+class StreamConnectionWorkQueue;
+}
 
 namespace WebKit {
 
-template<typename BackendType>
-class RemoteImageBuffer : public WebCore::ConcreteImageBuffer<BackendType> {
-    using BaseConcreteImageBuffer = WebCore::ConcreteImageBuffer<BackendType>;
-    using BaseConcreteImageBuffer::context;
-    using BaseConcreteImageBuffer::m_backend;
-    using BaseConcreteImageBuffer::putPixelBuffer;
+class RemoteImageBufferGraphicsContext;
+class RemoteRenderingBackend;
 
+class RemoteImageBuffer : public IPC::StreamMessageReceiver {
 public:
-    static auto create(const WebCore::FloatSize& size, float resolutionScale, const WebCore::DestinationColorSpace& colorSpace, WebCore::PixelFormat pixelFormat, RemoteRenderingBackend& remoteRenderingBackend, WebCore::RenderingResourceIdentifier renderingResourceIdentifier)
-    {
-        return BaseConcreteImageBuffer::template create<RemoteImageBuffer>(size, resolutionScale, colorSpace, pixelFormat, nullptr, remoteRenderingBackend, renderingResourceIdentifier);
-    }
+    static Ref<RemoteImageBuffer> create(Ref<WebCore::ImageBuffer>&&, WebCore::RenderingResourceIdentifier, RemoteGraphicsContextIdentifier, RemoteRenderingBackend&);
+    ~RemoteImageBuffer();
+    void stopListeningForIPC();
+    Ref<WebCore::ImageBuffer> imageBuffer() const { return m_imageBuffer; }
+    static Ref<WebCore::ImageBuffer> sinkIntoImageBuffer(Ref<RemoteImageBuffer>&&);
+private:
+    RemoteImageBuffer(Ref<WebCore::ImageBuffer>&&, WebCore::RenderingResourceIdentifier, RemoteGraphicsContextIdentifier, RemoteRenderingBackend&);
+    void startListeningForIPC();
+    IPC::StreamConnectionWorkQueue& NODELETE workQueue() const;
 
-    RemoteImageBuffer(const WebCore::ImageBufferBackend::Parameters& parameters, std::unique_ptr<BackendType>&& backend, RemoteRenderingBackend& remoteRenderingBackend, WebCore::RenderingResourceIdentifier renderingResourceIdentifier)
-        : BaseConcreteImageBuffer(parameters, WTFMove(backend), renderingResourceIdentifier)
-        , m_remoteRenderingBackend(remoteRenderingBackend)
-        , m_renderingResourceIdentifier(renderingResourceIdentifier)
-    {
-        m_remoteRenderingBackend.didCreateImageBufferBackend(m_backend->createImageBufferBackendHandle(), renderingResourceIdentifier);
-    }
+    // IPC::StreamMessageReceiver
+    void didReceiveStreamMessage(IPC::StreamServerConnection&, IPC::Decoder&) final;
 
-    ~RemoteImageBuffer()
-    {
-        // Unwind the context's state stack before destruction, since calls to restore may not have
-        // been flushed yet, or the web process may have terminated.
-        while (context().stackSize())
-            context().restore();
-    }
+    // Messages
+    // This is using location and size as opposed to rect because invalid rect object gets restricted by IPC rect object decoder and triggers timeout in WebContent process.
+    void getPixelBuffer(WebCore::PixelBufferFormat, WebCore::IntPoint srcPoint, WebCore::IntSize srcSize, CompletionHandler<void()>&&);
+    void getPixelBufferWithNewMemory(WebCore::SharedMemory::Handle&&, WebCore::PixelBufferFormat, WebCore::IntPoint srcPoint, WebCore::IntSize srcSize, CompletionHandler<void()>&&);
+    void putPixelBuffer(const WebCore::PixelBufferSourceView&, WebCore::IntPoint srcPoint, WebCore::IntSize srcSize, WebCore::IntPoint destPoint, WebCore::AlphaPremultiplication destFormat);
+    void copyNativeImage(WebCore::RenderingResourceIdentifier imageIdentifier);
+    void filteredNativeImage(Ref<WebCore::Filter>, CompletionHandler<void(std::optional<WebCore::ShareableBitmap::Handle>&&)>&&);
+    void convertToLuminanceMask();
+    void transformToColorSpace(const WebCore::DestinationColorSpace&);
+    void setFlushSignal(IPC::Signal&&);
+    void flushContext();
+    void flushContextSync(CompletionHandler<void()>&&);
 
-#if HAVE(IOSURFACE_SET_OWNERSHIP_IDENTITY)
-    void setProcessOwnership(task_id_token_t newOwner)
-    {
-        if (m_backend)
-            m_backend->setProcessOwnership(newOwner);
-    }
+#if ENABLE(RE_DYNAMIC_CONTENT_SCALING)
+    void dynamicContentScalingDisplayList(CompletionHandler<void(std::optional<WebCore::DynamicContentScalingDisplayList>&&)>&&);
 #endif
 
-private:
-    friend class RemoteRenderingBackend;
-
-    bool apply(WebCore::DisplayList::ItemHandle item, WebCore::GraphicsContext& context)
-    {
-        if (item.is<WebCore::DisplayList::GetPixelBuffer>()) {
-            auto& getPixelBufferItem = item.get<WebCore::DisplayList::GetPixelBuffer>();
-            auto pixelBuffer = BaseConcreteImageBuffer::getPixelBuffer(getPixelBufferItem.outputFormat(), getPixelBufferItem.srcRect());
-            m_remoteRenderingBackend.populateGetPixelBufferSharedMemory(WTFMove(pixelBuffer));
-            return true;
-        }
-
-        if (item.is<WebCore::DisplayList::PutPixelBuffer>()) {
-            auto& putPixelBufferItem = item.get<WebCore::DisplayList::PutPixelBuffer>();
-            putPixelBuffer(putPixelBufferItem.pixelBuffer(), putPixelBufferItem.srcRect(), putPixelBufferItem.destPoint(), putPixelBufferItem.destFormat());
-            return true;
-        }
-
-        if (item.is<WebCore::DisplayList::FlushContext>()) {
-            BaseConcreteImageBuffer::flushContext();
-            auto identifier = item.get<WebCore::DisplayList::FlushContext>().identifier();
-            LOG_WITH_STREAM(SharedDisplayLists, stream << "Acknowledging Flush{" << identifier << "} in Image(" << m_renderingResourceIdentifier << ")");
-            m_remoteRenderingBackend.didFlush(identifier, m_renderingResourceIdentifier);
-            return true;
-        }
-
-        if (item.is<WebCore::DisplayList::MetaCommandChangeItemBuffer>()) {
-            auto nextBufferIdentifier = item.get<WebCore::DisplayList::MetaCommandChangeItemBuffer>().identifier();
-            LOG_WITH_STREAM(SharedDisplayLists, stream << "Switching to Items[" << nextBufferIdentifier << "]");
-            m_remoteRenderingBackend.setNextItemBufferToRead(nextBufferIdentifier, m_renderingResourceIdentifier);
-            return true;
-        }
-
-        return m_remoteRenderingBackend.applyMediaItem(item, context);
-    }
-
-    RemoteRenderingBackend& m_remoteRenderingBackend;
-    WebCore::RenderingResourceIdentifier m_renderingResourceIdentifier;
+    const Ref<WebCore::ImageBuffer> m_imageBuffer;
+    const WebCore::RenderingResourceIdentifier m_identifier;
+    const Ref<RemoteRenderingBackend> m_renderingBackend;
+    IPC::ScopedActiveMessageReceiveQueue<RemoteImageBufferGraphicsContext> m_context;
+    ScopedRenderingResourcesRequest m_renderingResourcesRequest { ScopedRenderingResourcesRequest::acquire() };
+    std::optional<IPC::Signal> m_flushSignal;
 };
 
 } // namespace WebKit

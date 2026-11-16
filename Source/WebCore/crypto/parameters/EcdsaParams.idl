@@ -26,8 +26,7 @@
 typedef (object or DOMString) HashAlgorithmIdentifier;
 
 [
-    Conditional=WEB_CRYPTO,
-    ImplementedAs=CryptoAlgorithmEcdsaParams
+    ImplementedAs=CryptoAlgorithmEcdsaParamsInit
 ] dictionary EcdsaParams : CryptoAlgorithmParameters {
     // The hash algorithm to use
     required HashAlgorithmIdentifier hash;

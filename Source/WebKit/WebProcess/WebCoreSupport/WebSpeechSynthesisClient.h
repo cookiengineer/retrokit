@@ -30,35 +30,44 @@
 #include <WebCore/PlatformSpeechSynthesisUtterance.h>
 #include <WebCore/PlatformSpeechSynthesisVoice.h>
 #include <WebCore/SpeechSynthesisClient.h>
+#include <wtf/RefCounted.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebKit {
 
 class WebPage;
     
-class WebSpeechSynthesisClient : public WebCore::SpeechSynthesisClient {
-    WTF_MAKE_FAST_ALLOCATED;
+class WebSpeechSynthesisClient final : public RefCounted<WebSpeechSynthesisClient>, public WebCore::SpeechSynthesisClient {
+    WTF_MAKE_TZONE_ALLOCATED(WebSpeechSynthesisClient);
 public:
-    WebSpeechSynthesisClient(WebPage& page)
-        : m_page(page)
+    static Ref<WebSpeechSynthesisClient> create(WebPage& webPage)
     {
+        return adoptRef(*new WebSpeechSynthesisClient(webPage));
     }
-    
-    virtual ~WebSpeechSynthesisClient() { }
-    
-    const Vector<RefPtr<WebCore::PlatformSpeechSynthesisVoice>>& voiceList() override;
+
+    virtual ~WebSpeechSynthesisClient() = default;
+
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
+    const Vector<Ref<WebCore::PlatformSpeechSynthesisVoice>>& voiceList() override;
     void speak(RefPtr<WebCore::PlatformSpeechSynthesisUtterance>) override;
     void cancel() override;
     void pause() override;
     void resume() override;
+
 private:
+    explicit WebSpeechSynthesisClient(WebPage&);
+
     void setObserver(WeakPtr<WebCore::SpeechSynthesisClientObserver> observer) override { m_observer = observer; }
     WeakPtr<WebCore::SpeechSynthesisClientObserver> observer() const override { return m_observer; }
+    void resetState() override;
 
     WebCore::SpeechSynthesisClientObserver* corePageObserver() const;
     
-    WebPage& m_page;
+    WeakPtr<WebPage> m_page;
     WeakPtr<WebCore::SpeechSynthesisClientObserver> m_observer;
-    Vector<RefPtr<WebCore::PlatformSpeechSynthesisVoice>> m_voices;
+    Vector<Ref<WebCore::PlatformSpeechSynthesisVoice>> m_voices;
 };
 
 } // namespace WebKit

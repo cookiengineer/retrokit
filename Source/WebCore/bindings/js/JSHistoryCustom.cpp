@@ -29,6 +29,7 @@
 #include "config.h"
 #include "JSHistory.h"
 
+#include "JSValueInWrappedObjectInlines.h"
 #include "SerializedScriptValue.h"
 #include <JavaScriptCore/JSCInlines.h>
 
@@ -38,18 +39,23 @@ using namespace JSC;
 
 JSValue JSHistory::state(JSGlobalObject& lexicalGlobalObject) const
 {
-    return cachedPropertyValue(lexicalGlobalObject, *this, wrapped().cachedState(), [this, &lexicalGlobalObject] {
-        auto* serialized = wrapped().state();
-        return serialized ? serialized->deserialize(lexicalGlobalObject, globalObject()) : jsNull();
+    auto throwScope = DECLARE_THROW_SCOPE(lexicalGlobalObject.vm());
+    return cachedPropertyValue(throwScope, lexicalGlobalObject, *this, wrapped().cachedState(), [this, &throwScope, &lexicalGlobalObject](JSC::ThrowScope&) {
+        if (wrapped().state().hasException()) [[unlikely]] {
+            propagateException(lexicalGlobalObject, throwScope, wrapped().state().releaseException());
+            return jsNull();
+        }
+        RefPtr serialized = wrapped().state().releaseReturnValue();
+        return serialized ? serialized->deserialize(lexicalGlobalObject, realm()) : jsNull();
     });
 }
 
 template<typename Visitor>
-void JSHistory::visitAdditionalChildren(Visitor& visitor)
+void JSHistory::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    wrapped().cachedStateForGC().visit(visitor);
+    wrapped().cachedStateForGC().visitInGCThread(visitor);
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSHistory);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSHistory);
 
 } // namespace WebCore

@@ -1,7 +1,8 @@
 /*
  * This file is part of the select element renderer in WebCore.
  *
- * Copyright (C) 2006, 2007, 2009, 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2014 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,45 +36,58 @@
 
 namespace WebCore {
 
+class HTMLOptGroupElement;
+class HTMLOptionElement;
 class HTMLSelectElement;
 
 class RenderListBox final : public RenderBlockFlow, public ScrollableArea {
-    WTF_MAKE_ISO_ALLOCATED(RenderListBox);
+    WTF_MAKE_TZONE_ALLOCATED(RenderListBox);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderListBox);
 public:
-    RenderListBox(HTMLSelectElement&, RenderStyle&&);
+    RenderListBox(HTMLSelectElement&, Style::ComputedStyle&&);
     virtual ~RenderListBox();
 
-    HTMLSelectElement& selectElement() const;
+    // CheckedPtr interface
+    uint32_t checkedPtrCount() const final { return CanMakeCheckedPtr::checkedPtrCount(); }
+    uint32_t checkedPtrCountWithoutThreadCheck() const final { return CanMakeCheckedPtr::checkedPtrCountWithoutThreadCheck(); }
+    void incrementCheckedPtrCount() const final { CanMakeCheckedPtr::incrementCheckedPtrCount(); }
+    void decrementCheckedPtrCount() const final { CanMakeCheckedPtr::decrementCheckedPtrCount(); }
+    void setDidBeginCheckedPtrDeletion() final { CanMakeCheckedPtr::setDidBeginCheckedPtrDeletion(); }
+
+    HTMLSelectElement& NODELETE selectElement() const;
 
     void selectionChanged();
 
     void setOptionsChanged(bool changed) { m_optionsChanged = changed; }
 
-    int listIndexAtOffset(const LayoutSize&);
-    LayoutRect itemBoundingBoxRect(const LayoutPoint&, int index);
+    int listIndexAtOffset(const LayoutSize&) const;
+    LayoutRect itemBoundingBoxRect(const LayoutPoint&, int index) const;
+
+    std::optional<LayoutRect> localBoundsOfOption(const HTMLOptionElement&) const;
+    std::optional<LayoutRect> localBoundsOfOptGroup(const HTMLOptGroupElement&) const;
 
     bool scrollToRevealElementAtListIndex(int index);
     bool listIndexIsVisible(int index);
 
     int scrollToward(const IntPoint&); // Returns the new index or -1 if no scroll occurred
 
-    int size() const;
+    unsigned size() const;
 
-    bool scroll(ScrollDirection, ScrollGranularity, float multiplier = 1, Element** stopElement = nullptr, RenderBox* startBox = nullptr, const IntPoint& wheelEventAbsolutePoint = IntPoint()) override;
+    bool scroll(ScrollDirection, ScrollGranularity, unsigned stepCount = 1, Element** stopElement = nullptr, RenderBox* startBox = nullptr, const IntPoint& wheelEventAbsolutePoint = IntPoint()) override;
+    std::optional<FrameIdentifier> rootFrameID() const final;
 
-    bool scrolledToTop() const final;
-    bool scrolledToBottom() const final;
-    bool scrolledToLeft() const final;
-    bool scrolledToRight() const final;
+    void scrollDidEnd() final;
+
+    bool NODELETE isScrollableOrRubberbandable() final;
 
 private:
+    bool isVisibleToHitTesting() const final;
+
     void willBeDestroyed() override;
 
     void element() const = delete;
 
-    const char* renderName() const override { return "RenderListBox"; }
-
-    bool isListBox() const override { return true; }
+    ASCIILiteral renderName() const override { return "RenderListBox"_s; }
 
     void updateFromElement() override;
     bool hasControlClip() const override { return true; }
@@ -82,25 +96,24 @@ private:
 
     bool isPointInOverflowControl(HitTestResult&, const LayoutPoint& locationInContainer, const LayoutPoint& accumulatedOffset) override;
 
-    bool logicalScroll(ScrollLogicalDirection, ScrollGranularity, float multiplier = 1, Element** stopElement = nullptr) override;
+    bool logicalScroll(ScrollLogicalDirection, ScrollGranularity, unsigned stepCount = 1, Element** stopElement = nullptr) override;
 
-    void computeIntrinsicLogicalWidths(LayoutUnit& minLogicalWidth, LayoutUnit& maxLogicalWidth) const override;
-    void computePreferredLogicalWidths() override;
-    LayoutUnit baselinePosition(FontBaseline, bool firstLine, LineDirectionMode, LinePositionMode = PositionOnContainingLine) const override;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) override;
+
+    std::pair<LayoutUnit, LayoutUnit> computeIntrinsicLogicalWidths() const override;
+    void computeIntrinsicLogicalWidthContributions() override;
     LogicalExtentComputedValues computeLogicalHeight(LayoutUnit logicalHeight, LayoutUnit logicalTop) const override;
 
     void layout() override;
-
-    void addFocusRingRects(Vector<LayoutRect>&, const LayoutPoint& additionalOffset, const RenderLayerModelObject* paintContainer = nullptr) override;
 
     bool canBeProgramaticallyScrolled() const override { return true; }
     void autoscroll(const IntPoint&) override;
     void stopAutoscroll() override;
 
-    virtual bool shouldPanScroll() const { return true; }
     void panScroll(const IntPoint&) override;
 
     int verticalScrollbarWidth() const override;
+    int horizontalScrollbarHeight() const override;
     int scrollLeft() const override;
     int scrollTop() const override;
     int scrollWidth() const override;
@@ -108,17 +121,22 @@ private:
     void setScrollLeft(int, const ScrollPositionChangeOptions&) override;
     void setScrollTop(int, const ScrollPositionChangeOptions&) override;
 
+    int logicalScrollTop() const;
+    void setLogicalScrollTop(int);
+
     bool nodeAtPoint(const HitTestRequest&, HitTestResult&, const HitTestLocation& locationInContainer, const LayoutPoint& accumulatedOffset, HitTestAction) override;
 
     // ScrollableArea interface.
+    bool hasSteppedScrolling() const final { return true; }
+
     void setScrollOffset(const ScrollOffset&) final;
 
-    ScrollPosition scrollPosition() const final;
+    ScrollPosition NODELETE scrollPosition() const final;
     ScrollPosition minimumScrollPosition() const final;
     ScrollPosition maximumScrollPosition() const final;
 
     void invalidateScrollbarRect(Scrollbar&, const IntRect&) final;
-    bool isActive() const final;
+    bool NODELETE isActive() const final;
     bool isScrollCornerVisible() const final { return false; } // We don't support resize on list boxes yet. If we did these would have to change.
     IntRect scrollCornerRect() const final { return IntRect(); }
     void invalidateScrollCornerRect(const IntRect&) final { }
@@ -126,68 +144,86 @@ private:
     IntRect convertFromContainingViewToScrollbar(const Scrollbar&, const IntRect&) const final;
     IntPoint convertFromScrollbarToContainingView(const Scrollbar&, const IntPoint&) const final;
     IntPoint convertFromContainingViewToScrollbar(const Scrollbar&, const IntPoint&) const final;
-    Scrollbar* verticalScrollbar() const final { return m_vBar.get(); }
+    Scrollbar* NODELETE verticalScrollbar() const final;
+    Scrollbar* NODELETE horizontalScrollbar() const final;
     IntSize contentsSize() const final;
-    IntSize visibleSize() const final { return IntSize(width(), height()); }
+    IntSize visibleSize() const final { return IntSize(borderBoxWidth(), borderBoxHeight()); }
     IntPoint lastKnownMousePositionInView() const final;
     bool isHandlingWheelEvent() const final;
     bool shouldSuspendScrollAnimations() const final;
-    bool forceUpdateScrollbarsOnMainThreadForPerformanceTesting() const final;
+    bool NODELETE forceUpdateScrollbarsOnMainThreadForPerformanceTesting() const final;
 
     ScrollableArea* enclosingScrollableArea() const final;
-    bool isScrollableOrRubberbandable() final;
     bool hasScrollableOrRubberbandableAncestor() final;
     IntRect scrollableAreaBoundingBox(bool* = nullptr) const final;
-    bool usesMockScrollAnimator() const final;
-    void logMockScrollAnimatorMessage(const String&) const final;
+    bool NODELETE mockScrollbarsControllerEnabled() const final;
+    void logMockScrollbarsControllerMessage(const String&) const final;
     String debugDescription() const final;
+    void didStartScrollAnimation() final;
+
+    bool useDarkAppearance() const final;
 
     // NOTE: This should only be called by the overridden setScrollOffset from ScrollableArea.
-    void scrollTo(int newOffset);
+    void scrollTo(const ScrollPosition&);
 
-    using PaintFunction = WTF::Function<void(PaintInfo&, const LayoutPoint&, int listItemIndex)>;
+    void scrollToPosition(int positionIndex);
+
+    using PaintFunction = Function<void(PaintInfo&, const LayoutPoint&, int listItemIndex)>;
     void paintItem(PaintInfo&, const LayoutPoint&, const PaintFunction&);
 
-    void setHasVerticalScrollbar(bool hasScrollbar);
-    Ref<Scrollbar> createScrollbar();
+    void setHasScrollbar(ScrollbarOrientation);
+    Ref<Scrollbar> createScrollbar(ScrollbarOrientation);
     void destroyScrollbar();
-    
-    int maximumNumberOfItemsThatFitInPaddingBottomArea() const;
 
-    int numberOfVisibleItemsInPaddingTop() const;
-    int numberOfVisibleItemsInPaddingBottom() const;
+    int maximumNumberOfItemsThatFitInPaddingAfterArea() const;
 
-    void computeFirstIndexesVisibleInPaddingTopBottomAreas();
+    int numberOfVisibleItemsInPaddingBefore() const;
+    int numberOfVisibleItemsInPaddingAfter() const;
 
-    LayoutUnit itemHeight() const;
-    void valueChanged(unsigned listIndex);
+    void computeFirstIndexesVisibleInPaddingBeforeAfterAreas();
 
-    enum class ConsiderPadding { Yes, No };
+    LayoutUnit itemLogicalHeight() const;
+
+    enum class ConsiderPadding : bool { No, Yes };
     int numVisibleItems(ConsiderPadding = ConsiderPadding::No) const;
     int numItems() const;
-    LayoutUnit listHeight() const;
-    void paintScrollbar(PaintInfo&, const LayoutPoint&);
+    LayoutUnit listLogicalHeight() const;
+
+    std::optional<int> optionRowIndex(const HTMLOptionElement&) const;
+
+    float NODELETE deviceScaleFactor() const final;
+
+    LayoutRect rectForScrollbar(const Scrollbar&) const;
+
+    void paintScrollbar(PaintInfo&, const LayoutPoint&, Scrollbar&);
     void paintItemForeground(PaintInfo&, const LayoutPoint&, int listIndex);
     void paintItemBackground(PaintInfo&, const LayoutPoint&, int listIndex);
     void scrollToRevealSelection();
 
+    ScrollbarOrientation NODELETE scrollbarOrientationForWritingMode() const;
+
     bool shouldPlaceVerticalScrollbarOnLeft() const final { return RenderBlockFlow::shouldPlaceVerticalScrollbarOnLeft(); }
 
-    bool m_optionsChanged;
-    bool m_scrollToRevealSelectionAfterLayout;
-    bool m_inAutoscroll;
-    int m_optionsWidth;
-    int m_indexOffset;
+    int indexOffset() const;
 
-    std::optional<int> m_indexOfFirstVisibleItemInsidePaddingTopArea;
-    std::optional<int> m_indexOfFirstVisibleItemInsidePaddingBottomArea;
+    bool m_optionsChanged { true };
+    bool m_scrollToRevealSelectionAfterLayout { false };
+    bool m_inAutoscroll { false };
+    int m_optionsLogicalWidth { 0 };
 
-    RefPtr<Scrollbar> m_vBar;
+    RefPtr<Scrollbar> m_scrollbar;
+
+    // Note: This is based on item index rather than a pixel offset.
+    ScrollPosition m_scrollPosition;
+
+    std::optional<int> m_indexOfFirstVisibleItemInsidePaddingBeforeArea;
+    std::optional<int> m_indexOfFirstVisibleItemInsidePaddingAfterArea;
+
 };
 
 } // namepace WebCore
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::RenderListBox)
-    static bool isType(const WebCore::RenderObject& widget) { return widget.isListBox(); }
+    static bool isType(const WebCore::RenderObject& renderer) { return renderer.isRenderListBox(); }
     static bool isType(const WebCore::ScrollableArea& area) { return area.isListBox(); }
 SPECIALIZE_TYPE_TRAITS_END()

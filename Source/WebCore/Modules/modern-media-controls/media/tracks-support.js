@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -47,6 +47,7 @@ class TracksSupport extends MediaControllerSupport
     {
         this.mediaController.showMediaControlsContextMenu(control, {
             promoteSubMenus: this.mediaController.layoutTraits.promoteSubMenusWhenShowingMediaControlsContextMenu(),
+            includeSubtitles: !this.mediaController.isAudio,
         });
     }
 
@@ -69,13 +70,16 @@ class TracksSupport extends MediaControllerSupport
 
     _canPickAudioTracks()
     {
-        const audioTracks = this._audioTracks();
+        const audioTracks = this.mediaController.media.audioTracks;
         return audioTracks && audioTracks.length > 1;
     }
 
     _canPickTextTracks()
     {
-        const textTracks = this._textTracks();
+        if (this.mediaController.isAudio)
+            return false;
+
+        const textTracks = this.mediaController.media.textTracks;
         return textTracks && textTracks.length > 0;
     }
 

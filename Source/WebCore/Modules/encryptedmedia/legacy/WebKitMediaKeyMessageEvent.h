@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2012 Google Inc.  All rights reserved.
- * Copyright (C) 2013 Apple Inc.  All rights reserved.
+ * Copyright (C) 2012 Google Inc. All rights reserved.
+ * Copyright (C) 2013 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,7 +34,7 @@
 namespace WebCore {
 
 class WebKitMediaKeyMessageEvent final : public Event {
-    WTF_MAKE_ISO_ALLOCATED(WebKitMediaKeyMessageEvent);
+    WTF_MAKE_TZONE_ALLOCATED(WebKitMediaKeyMessageEvent);
 public:
     virtual ~WebKitMediaKeyMessageEvent();
 
@@ -48,21 +48,19 @@ public:
         String destinationURL;
     };
 
-    static Ref<WebKitMediaKeyMessageEvent> create(const AtomString& type, const Init& initializer, IsTrusted isTrusted = IsTrusted::No)
+    static Ref<WebKitMediaKeyMessageEvent> create(const AtomString& type, Init&& initializer, IsTrusted isTrusted = IsTrusted::No)
     {
-        return adoptRef(*new WebKitMediaKeyMessageEvent(type, initializer, isTrusted));
+        return adoptRef(*new WebKitMediaKeyMessageEvent(type, WTF::move(initializer), isTrusted));
     }
-
-    EventInterface eventInterface() const override;
 
     Uint8Array* message() const { return m_message.get(); }
     String destinationURL() const { return m_destinationURL; }
 
 private:
     WebKitMediaKeyMessageEvent(const AtomString& type, Uint8Array* message, const String& destinationURL);
-    WebKitMediaKeyMessageEvent(const AtomString& type, const Init&, IsTrusted);
+    WebKitMediaKeyMessageEvent(const AtomString& type, Init&&, IsTrusted);
 
-    RefPtr<Uint8Array> m_message;
+    const RefPtr<Uint8Array> m_message;
     String m_destinationURL;
 };
 

@@ -25,17 +25,17 @@
 
 #pragma once
 
-#if ENABLE(SERVICE_WORKER)
-
 #include "SharedStringHashStore.h"
 #include <WebCore/SWOriginStore.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakHashSet.h>
 
 namespace WebKit {
 
 class WebSWServerConnection;
 
-class WebSWOriginStore final : public WebCore::SWOriginStore, private SharedStringHashStore::Client {
+class WebSWOriginStore final : public WebCore::SWOriginStore, public SharedStringHashStore::Client {
+    WTF_MAKE_TZONE_ALLOCATED(WebSWOriginStore);
 public:
     WebSWOriginStore();
 
@@ -53,11 +53,9 @@ private:
     // SharedStringHashStore::Client.
     void didInvalidateSharedMemory() final;
 
-    SharedStringHashStore m_store;
+    const UniqueRef<SharedStringHashStore> m_store;
     bool m_isImported { false };
     WeakHashSet<WebSWServerConnection> m_webSWServerConnections;
 };
 
 } // namespace WebKit
-
-#endif // ENABLE(SERVICE_WORKER)

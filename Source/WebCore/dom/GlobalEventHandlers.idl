@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2015, 2020 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2015, 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2023 Tetsuharu Ohzeki <tetsuharu.ohzeki@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,12 +27,13 @@
 
 // https://html.spec.whatwg.org/multipage/webappapis.html#globaleventhandlers
 interface mixin GlobalEventHandlers {
-    // Commented out event handlers are defined by the HTML5 specification but
-    // are not yet implemented.
+    // Commented out event handlers are defined by HTML but are not yet implemented.
 
     attribute EventHandler onabort;
-    // FIXME: Implement 'onauxclick'.
-    // attribute EventHandler onauxclick;
+    attribute EventHandler onauxclick;
+    attribute EventHandler onbeforeinput;
+    [EnabledBySetting=HiddenUntilFoundEnabled] attribute EventHandler onbeforematch;
+    attribute EventHandler onbeforetoggle;
     attribute EventHandler onblur;
     attribute EventHandler oncancel;
     attribute EventHandler oncanplay;
@@ -39,8 +41,14 @@ interface mixin GlobalEventHandlers {
     attribute EventHandler onchange;
     attribute EventHandler onclick;
     attribute EventHandler onclose;
+    [EnabledBySetting=CommandAttributesEnabled] attribute EventHandler oncommand;
+    attribute EventHandler oncontentvisibilityautostatechange;
+    // attribute EventHandler oncontextlost;
     attribute EventHandler oncontextmenu;
+    // attribute EventHandler oncontextrestored;
+    attribute EventHandler oncopy;
     attribute EventHandler oncuechange;
+    attribute EventHandler oncut;
     attribute EventHandler ondblclick;
     attribute EventHandler ondrag;
     attribute EventHandler ondragend;
@@ -52,8 +60,7 @@ interface mixin GlobalEventHandlers {
     attribute EventHandler ondurationchange;
     attribute EventHandler onemptied;
     attribute EventHandler onended;
-    // FIXME: The spec 'onerror' should be of type 'OnErrorEventHandler'.
-    attribute EventHandler onerror;
+    attribute OnErrorEventHandler onerror;
     attribute EventHandler onfocus;
     attribute EventHandler onformdata;
     attribute EventHandler oninput;
@@ -72,6 +79,7 @@ interface mixin GlobalEventHandlers {
     attribute EventHandler onmouseout;
     attribute EventHandler onmouseover;
     attribute EventHandler onmouseup;
+    attribute EventHandler onpaste;
     attribute EventHandler onpause;
     attribute EventHandler onplay;
     attribute EventHandler onplaying;
@@ -80,6 +88,7 @@ interface mixin GlobalEventHandlers {
     attribute EventHandler onreset;
     attribute EventHandler onresize;
     attribute EventHandler onscroll;
+    [EnabledBySetting=ScrollendEventEnabled] attribute EventHandler onscrollend;
     attribute EventHandler onsecuritypolicyviolation;
     attribute EventHandler onseeked;
     attribute EventHandler onseeking;
@@ -101,14 +110,13 @@ interface mixin GlobalEventHandlers {
     // Non-standard additions.
 
     attribute EventHandler onmousewheel;
-    [NotEnumerable] attribute EventHandler onsearch;
-    [NotEnumerable, Conditional=TOUCH_EVENTS, EnabledAtRuntime=TouchEvents] attribute EventHandler ontouchcancel;
-    [NotEnumerable, Conditional=TOUCH_EVENTS, EnabledAtRuntime=TouchEvents] attribute EventHandler ontouchend;
-    [NotEnumerable, Conditional=TOUCH_EVENTS, EnabledAtRuntime=TouchEvents] attribute EventHandler ontouchmove;
-    [NotEnumerable, Conditional=TOUCH_EVENTS, EnabledAtRuntime=TouchEvents] attribute EventHandler ontouchstart;
-    [NotEnumerable, Conditional=TOUCH_EVENTS, EnabledAtRuntime=TouchEvents] attribute EventHandler ontouchforcechange;
-    [NotEnumerable, Conditional=MOUSE_FORCE_EVENTS] attribute EventHandler onwebkitmouseforcechanged;
-    [NotEnumerable, Conditional=MOUSE_FORCE_EVENTS] attribute EventHandler onwebkitmouseforcedown;
-    [NotEnumerable, Conditional=MOUSE_FORCE_EVENTS] attribute EventHandler onwebkitmouseforcewillbegin;
-    [NotEnumerable, Conditional=MOUSE_FORCE_EVENTS] attribute EventHandler onwebkitmouseforceup;
+    [NotEnumerable, Conditional=TOUCH_EVENTS, EnabledBySetting=TouchEventDOMAttributesEnabled] attribute EventHandler ontouchcancel;
+    [NotEnumerable, Conditional=TOUCH_EVENTS, EnabledBySetting=TouchEventDOMAttributesEnabled] attribute EventHandler ontouchend;
+    [NotEnumerable, Conditional=TOUCH_EVENTS, EnabledBySetting=TouchEventDOMAttributesEnabled] attribute EventHandler ontouchmove;
+    [NotEnumerable, Conditional=TOUCH_EVENTS, EnabledBySetting=TouchEventDOMAttributesEnabled] attribute EventHandler ontouchstart;
+    [NotEnumerable, Conditional=TOUCH_EVENTS, EnabledBySetting=TouchEventDOMAttributesEnabled] attribute EventHandler ontouchforcechange;
+    [NotEnumerable] attribute EventHandler onwebkitmouseforcechanged;
+    [NotEnumerable] attribute EventHandler onwebkitmouseforcedown;
+    [NotEnumerable] attribute EventHandler onwebkitmouseforcewillbegin;
+    [NotEnumerable] attribute EventHandler onwebkitmouseforceup;
 };

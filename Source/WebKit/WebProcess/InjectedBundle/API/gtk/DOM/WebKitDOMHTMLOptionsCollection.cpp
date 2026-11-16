@@ -56,7 +56,9 @@ WebKitDOMHTMLOptionsCollection* wrapHTMLOptionsCollection(WebCore::HTMLOptionsCo
 
 } // namespace WebKit
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK port
 G_DEFINE_TYPE(WebKitDOMHTMLOptionsCollection, webkit_dom_html_options_collection, WEBKIT_DOM_TYPE_HTML_COLLECTION)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 enum {
     DOM_HTML_OPTIONS_COLLECTION_PROP_0,
@@ -134,8 +136,7 @@ WebKitDOMNode* webkit_dom_html_options_collection_named_item(WebKitDOMHTMLOption
     g_return_val_if_fail(WEBKIT_DOM_IS_HTML_OPTIONS_COLLECTION(self), 0);
     g_return_val_if_fail(name, 0);
     WebCore::HTMLOptionsCollection* item = WebKit::core(self);
-    WTF::String convertedName = WTF::String::fromUTF8(name);
-    RefPtr<WebCore::Node> gobjectResult = WTF::getPtr(item->namedItem(convertedName));
+    RefPtr<WebCore::Node> gobjectResult = WTF::getPtr(item->namedItem(WTF::AtomString::fromUTF8(name)));
     return WebKit::kit(gobjectResult.get());
 }
 

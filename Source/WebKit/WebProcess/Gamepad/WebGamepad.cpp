@@ -30,20 +30,24 @@
 
 #include "GamepadData.h"
 #include "Logging.h"
+#include <wtf/TZoneMallocInlines.h>
 
 using WebCore::SharedGamepadValue;
 
 namespace WebKit {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebGamepad);
+
 WebGamepad::WebGamepad(const GamepadData& gamepadData)
     : PlatformGamepad(gamepadData.index())
+    , m_axisValues(gamepadData.axisValues().size())
+    , m_buttonValues(gamepadData.buttonValues().size())
 {
     LOG(Gamepad, "Connecting WebGamepad %u", gamepadData.index());
 
     m_id = gamepadData.id();
     m_mapping = gamepadData.mapping();
-    m_axisValues.resize(gamepadData.axisValues().size());
-    m_buttonValues.resize(gamepadData.buttonValues().size());
+    m_supportedEffectTypes = gamepadData.supportedEffectTypes();
 
     updateValues(gamepadData);
 }
@@ -60,7 +64,6 @@ const Vector<SharedGamepadValue>& WebGamepad::buttonValues() const
 
 void WebGamepad::updateValues(const GamepadData& gamepadData)
 {
-    ASSERT(!gamepadData.isNull());
     ASSERT(gamepadData.index() == index());
     ASSERT(m_axisValues.size() == gamepadData.axisValues().size());
     ASSERT(m_buttonValues.size() == gamepadData.buttonValues().size());

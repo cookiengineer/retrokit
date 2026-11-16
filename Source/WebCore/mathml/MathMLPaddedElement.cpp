@@ -1,4 +1,5 @@
 /*
+ * Copyright (C) 2025 Apple Inc. All rights reserved.
  * Copyright (C) 2016 Igalia S.L. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,12 +30,16 @@
 
 #if ENABLE(MATHML)
 
+#include "ContainerNodeInlines.h"
+#include "ElementInlinesLight.h"
+#include "NodeName.h"
 #include "RenderMathMLPadded.h"
-#include <wtf/IsoMallocInlines.h>
+#include "RenderObjectInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(MathMLPaddedElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(MathMLPaddedElement);
 
 using namespace MathMLNames;
 
@@ -73,26 +78,46 @@ const MathMLElement::Length& MathMLPaddedElement::voffset()
     return cachedMathMLLength(MathMLNames::voffsetAttr, m_voffset);
 }
 
-void MathMLPaddedElement::parseAttribute(const QualifiedName& name, const AtomString& value)
+void MathMLPaddedElement::attributeChanged(const QualifiedName& name, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason attributeModificationReason)
 {
-    if (name == widthAttr)
+    bool affectsLayout = false;
+    switch (name.nodeName()) {
+    case AttributeNames::widthAttr:
         m_width = std::nullopt;
-    else if (name == heightAttr)
+        affectsLayout = true;
+        break;
+    case AttributeNames::heightAttr:
         m_height = std::nullopt;
-    else if (name == depthAttr)
+        affectsLayout = true;
+        break;
+    case AttributeNames::depthAttr:
         m_depth = std::nullopt;
-    else if (name == lspaceAttr)
+        affectsLayout = true;
+        break;
+    case AttributeNames::lspaceAttr:
         m_lspace = std::nullopt;
-    else if (name == voffsetAttr)
+        affectsLayout = true;
+        break;
+    case AttributeNames::voffsetAttr:
         m_voffset = std::nullopt;
+        affectsLayout = true;
+        break;
+    default:
+        break;
+    }
 
-    MathMLElement::parseAttribute(name, value);
+    if (affectsLayout) {
+        if (CheckedPtr renderer = this->renderer())
+            renderer->setNeedsLayoutAndInvalidateContentLogicalWidths();
+    }
+
+    MathMLElement::attributeChanged(name, oldValue, newValue, attributeModificationReason);
 }
 
-RenderPtr<RenderElement> MathMLPaddedElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
+RenderPtr<RenderElement> MathMLPaddedElement::createElementRenderer(Style::ComputedStyle&& style, const RenderTreePosition&)
 {
     ASSERT(hasTagName(MathMLNames::mpaddedTag));
-    return createRenderer<RenderMathMLPadded>(*this, WTFMove(style));
+    return createRenderer<RenderMathMLPadded>(*this, WTF::move(style));
 }
 
 }

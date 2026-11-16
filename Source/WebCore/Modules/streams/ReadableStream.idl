@@ -1,4 +1,5 @@
 /*
+ * Copyright (C) 2025 Apple Inc.
  * Copyright (C) 2015 Canon Inc.
  * Copyright (C) 2015 Igalia S.L.
  *
@@ -27,19 +28,42 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+enum ReadableStreamReaderMode { "byob" };
+
+dictionary ReadableStreamGetReaderOptions {
+    ReadableStreamReaderMode mode;
+};
+
+dictionary ReadableWritablePair {
+    required ReadableStream readable;
+    required WritableStream writable;
+};
+
+dictionary ReadableStreamIteratorOptions {
+    boolean preventCancel = false;
+};
+
+typedef (ReadableStreamDefaultReader or ReadableStreamBYOBReader) ReadableStreamReader;
+
 [
-    Exposed=(Window,Worker),
-    JSBuiltin,
+    ActiveDOMObject,
+    ExportMacro=WEBCORE_EXPORT,
+    Exposed=*,
+    GenerateIsReachable=Impl,
+    JSCustomMarkFunction,
     PrivateIdentifier,
     PublicIdentifier
 ] interface ReadableStream {
-    constructor(optional any underlyingSource, optional any options);
+    [CallWith=CurrentGlobalObject] constructor(optional object underlyingSource, optional object options);
+    [EnabledBySetting=ReadableStreamFromEnabled, CallWith=CurrentGlobalObject] static ReadableStream from(any asyncIterable);
 
-    [NotEnumerable] Promise<any> cancel(optional any reason);
-    [NotEnumerable] Object getReader(optional any options);
-    [NotEnumerable] Promise<any> pipeTo(any streams, optional any options);
-    [NotEnumerable] Object pipeThrough(any dest, any options);
-    [NotEnumerable] Object tee();
+    [ImplementedAs=isLocked] readonly attribute boolean locked;
 
-    [NotEnumerable] readonly attribute boolean locked;
+    [CallWith=CurrentGlobalObject, ReturnsOwnPromise, ImplementedAs=cancelForBindings] Promise<undefined> cancel(optional any reason);
+    [CallWith=CurrentGlobalObject] ReadableStreamReader getReader(optional ReadableStreamGetReaderOptions options = {});
+    [CallWith=CurrentGlobalObject] Promise<undefined> pipeTo(WritableStream destination, optional StreamPipeOptions options = {});
+    [CallWith=CurrentGlobalObject] ReadableStream pipeThrough(ReadableWritablePair transform, optional StreamPipeOptions options = {});
+    [CallWith=CurrentGlobalObject] sequence<ReadableStream> tee();
+
+    [EnabledBySetting=ReadableStreamIterableEnabled] async_iterable<any>(optional ReadableStreamIteratorOptions options = {});
 };

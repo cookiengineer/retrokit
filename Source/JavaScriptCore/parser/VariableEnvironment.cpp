@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2015-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,11 +25,17 @@
 
 #include "config.h"
 #include "VariableEnvironment.h"
+#include "VariableEnvironmentInlines.h"
 #include <wtf/CommaPrinter.h>
 #include <wtf/HexNumber.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/UniquedStringImpl.h>
 
 namespace JSC {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(CompactTDZEnvironment);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(VariableEnvironment);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(VariableEnvironment::RareData);
 
 void VariableEnvironmentEntry::dump(PrintStream& out) const
 {
@@ -43,14 +49,14 @@ VariableEnvironment& VariableEnvironment::operator=(const VariableEnvironment& o
     return *this;
 }
 
-void VariableEnvironment::markVariableAsCapturedIfDefined(const RefPtr<UniquedStringImpl>& identifier)
+void VariableEnvironment::markVariableAsCapturedIfDefined(const UniquedStringImpl* identifier)
 {
     auto findResult = m_map.find(identifier);
     if (findResult != m_map.end())
         findResult->value.setIsCaptured();
 }
 
-void VariableEnvironment::markVariableAsCaptured(const RefPtr<UniquedStringImpl>& identifier)
+void VariableEnvironment::markVariableAsCaptured(const UniquedStringImpl* identifier)
 {
     auto findResult = m_map.find(identifier);
     RELEASE_ASSERT(findResult != m_map.end());
@@ -93,18 +99,19 @@ bool VariableEnvironment::captures(UniquedStringImpl* identifier) const
 void VariableEnvironment::swap(VariableEnvironment& other)
 {
     m_map.swap(other.m_map);
-    m_isEverythingCaptured = other.m_isEverythingCaptured;
+    std::swap(m_isEverythingCaptured, other.m_isEverythingCaptured);
+    std::swap(m_hasAwaitUsingDeclaration, other.m_hasAwaitUsingDeclaration);
     m_rareData.swap(other.m_rareData);
 }
 
-void VariableEnvironment::markVariableAsImported(const RefPtr<UniquedStringImpl>& identifier)
+void VariableEnvironment::markVariableAsImported(const UniquedStringImpl* identifier)
 {
     auto findResult = m_map.find(identifier);
     RELEASE_ASSERT(findResult != m_map.end());
     findResult->value.setIsImported();
 }
 
-void VariableEnvironment::markVariableAsExported(const RefPtr<UniquedStringImpl>& identifier)
+void VariableEnvironment::markVariableAsExported(const UniquedStringImpl* identifier)
 {
     auto findResult = m_map.find(identifier);
     RELEASE_ASSERT(findResult != m_map.end());
@@ -204,31 +211,28 @@ bool VariableEnvironment::declarePrivateMethod(const RefPtr<UniquedStringImpl>& 
 
 void VariableEnvironment::dump(PrintStream& out) const
 {
-    CommaPrinter comma(", ");
+    CommaPrinter comma(", "_s);
     for (auto& pair : m_map)
-        out.print(comma, pair.key, " => ", pair.value);
+        out.print(comma, pair.key, " => "_s, pair.value);
 }
 
 void CompactTDZEnvironment::sortCompact(Compact& compact)
 {
-    std::sort(compact.begin(), compact.end(), [] (auto& a, auto& b) {
+    std::ranges::sort(compact, [](auto& a, auto& b) {
         return a.get() < b.get();
     });
 }
 
 CompactTDZEnvironment::CompactTDZEnvironment(const TDZEnvironment& env)
 {
-    Compact compactVariables;
-    compactVariables.reserveCapacity(env.size());
-
     m_hash = 0; // Note: XOR is commutative so order doesn't matter here.
-    for (auto& key : env) {
-        compactVariables.append(key.get());
+    Compact variables = WTF::map(env, [this](auto& key) -> PackedRefPtr<UniquedStringImpl> {
         m_hash ^= key->hash();
-    }
+        return key.get();
+    });
 
-    sortCompact(compactVariables);
-    m_variables = WTFMove(compactVariables);
+    sortCompact(variables);
+    m_variables = WTF::move(variables);
 }
 
 bool CompactTDZEnvironment::operator==(const CompactTDZEnvironment& other) const
@@ -277,14 +281,14 @@ TDZEnvironment& CompactTDZEnvironment::toTDZEnvironmentSlow() const
 {
     Inflated inflated;
     {
-        auto& compact = WTF::get<Compact>(m_variables);
+        auto& compact = std::get<Compact>(m_variables);
         for (size_t i = 0; i < compact.size(); ++i) {
             auto addResult = inflated.add(compact[i]);
             ASSERT_UNUSED(addResult, addResult.isNewEntry);
         }
     }
-    m_variables = Variables(WTFMove(inflated));
-    return const_cast<Inflated&>(WTF::get<Inflated>(m_variables));
+    m_variables = Variables(WTF::move(inflated));
+    return const_cast<Inflated&>(std::get<Inflated>(m_variables));
 }
 
 CompactTDZEnvironmentMap::Handle CompactTDZEnvironmentMap::get(const TDZEnvironment& env)
@@ -342,7 +346,7 @@ CompactTDZEnvironmentMap::Handle::Handle(const CompactTDZEnvironmentMap::Handle&
 CompactTDZEnvironmentMap::Handle::Handle(CompactTDZEnvironment& environment, CompactTDZEnvironmentMap& map)
     : m_environment(&environment)
     , m_map(&map)
-{ 
+{
 }
 
 } // namespace JSC

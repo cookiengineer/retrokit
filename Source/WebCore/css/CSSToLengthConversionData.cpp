@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2013 Google Inc. All rights reserved.
+ * Copyright (C) 2026 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -31,62 +32,147 @@
 #include "config.h"
 #include "CSSToLengthConversionData.h"
 
-#include "RenderStyle.h"
+#include "ContainerNodeInlines.h"
+#include "DocumentView.h"
+#include "FloatSize.h"
 #include "RenderView.h"
+#include "StyleBuilderState.h"
+#include "StyleComputedStyle+GettersInlines.h"
 
 namespace WebCore {
 
+CSSToLengthConversionData::CSSToLengthConversionData() = default;
+CSSToLengthConversionData::CSSToLengthConversionData(const CSSToLengthConversionData&) = default;
+CSSToLengthConversionData::CSSToLengthConversionData(CSSToLengthConversionData&&) = default;
+
+// FIXME: Only rely on the RenderView for style resolution if we have an active LocalFrameView.
+static RenderView* NODELETE renderViewForDocument(const Document& document)
+{
+    if (document.view()) [[likely]]
+        return document.renderView();
+    return nullptr;
+}
+
+CSSToLengthConversionData::CSSToLengthConversionData(const Style::ComputedStyle& style, Style::BuilderState& builderState)
+    : m_style(&style)
+    , m_rootStyle(builderState.rootElementRenderStyle())
+    , m_parentStyle(&builderState.parentRenderStyle())
+    , m_renderView(renderViewForDocument(builderState.document()))
+    , m_elementForContainerUnitResolution(builderState.element())
+    , m_styleBuilderState(&builderState)
+{
+}
+
+CSSToLengthConversionData::CSSToLengthConversionData(const Style::ComputedStyle& style, const Style::ComputedStyle* rootStyle, const Style::ComputedStyle* parentStyle, const RenderView* renderView, const Element* elementForContainerUnitResolution, CSS::RangeZoomOptions rangeZoomOptions)
+    : m_style(&style)
+    , m_rootStyle(rootStyle)
+    , m_parentStyle(parentStyle)
+    , m_renderView(renderView)
+    , m_elementForContainerUnitResolution(elementForContainerUnitResolution)
+    , m_zoom(1.f)
+    , m_rangeZoomOption(rangeZoomOptions)
+{
+}
+
+std::optional<CSSToLengthConversionData> CSSToLengthConversionData::tryCreateForNonStyleBuildingResolution(Element& element)
+{
+    CheckedPtr elementRenderer = element.renderer();
+    if (!elementRenderer)
+        return std::nullopt;
+    CheckedPtr elementParentRenderer = elementRenderer->parent();
+    Ref document = element.document();
+    CheckedPtr documentElement = document->documentElement();
+    if (!documentElement)
+        return std::nullopt;
+
+    // FIXME: Investigate container query units
+    return CSSToLengthConversionData {
+        elementRenderer->style(),
+        documentElement->renderer() ? &documentElement->renderer()->style() : nullptr,
+        elementParentRenderer ? &elementParentRenderer->style() : nullptr,
+        document->renderView()
+    };
+}
+
+std::optional<CSSToLengthConversionData> CSSToLengthConversionData::tryCreateForNonStyleBuildingResolution(Element* element)
+{
+    if (!element)
+        return std::nullopt;
+    return tryCreateForNonStyleBuildingResolution(*element);
+}
+
+CSSToLengthConversionData::~CSSToLengthConversionData() = default;
+
+const FontCascade& CSSToLengthConversionData::fontCascadeForFontUnits() const
+{
+    if (computingFontSize()) {
+        ASSERT(parentStyle());
+        return parentStyle()->fontCascade();
+    }
+    ASSERT(style());
+    return style()->fontCascade();
+}
+
+
 float CSSToLengthConversionData::zoom() const
 {
-    if (!m_zoom)
-        return m_style ? m_style->effectiveZoom() : 1;
-    return *m_zoom;
+    return m_zoom.value_or(m_style ? m_style->usedZoom() : 1.f);
 }
 
-double CSSToLengthConversionData::viewportWidthFactor() const
+FloatSize CSSToLengthConversionData::defaultViewportFactor() const
 {
-    if (m_viewportDependencyDetectionStyle)
-        m_viewportDependencyDetectionStyle->setHasViewportUnits();
+    if (m_styleBuilderState)
+        m_styleBuilderState->setUsesViewportUnits();
 
     if (!m_renderView)
-        return 0;
+        return { };
 
-    return m_renderView->viewportSizeForCSSViewportUnits().width() / 100.0;
+    return m_renderView->sizeForCSSDefaultViewportUnits() / 100.0;
 }
 
-double CSSToLengthConversionData::viewportHeightFactor() const
+FloatSize CSSToLengthConversionData::smallViewportFactor() const
 {
-    if (m_viewportDependencyDetectionStyle)
-        m_viewportDependencyDetectionStyle->setHasViewportUnits();
+    if (m_styleBuilderState)
+        m_styleBuilderState->setUsesViewportUnits();
 
     if (!m_renderView)
-        return 0;
+        return { };
 
-    return m_renderView->viewportSizeForCSSViewportUnits().height() / 100.0;
+    return m_renderView->sizeForCSSSmallViewportUnits() / 100.0;
 }
 
-double CSSToLengthConversionData::viewportMinFactor() const
+FloatSize CSSToLengthConversionData::largeViewportFactor() const
 {
-    if (m_viewportDependencyDetectionStyle)
-        m_viewportDependencyDetectionStyle->setHasViewportUnits();
+    if (m_styleBuilderState)
+        m_styleBuilderState->setUsesViewportUnits();
 
     if (!m_renderView)
-        return 0;
+        return { };
 
-    IntSize viewportSizeForCSSViewportUnits = m_renderView->viewportSizeForCSSViewportUnits();
-    return std::min(viewportSizeForCSSViewportUnits.width(), viewportSizeForCSSViewportUnits.height()) / 100.0;
+    return m_renderView->sizeForCSSLargeViewportUnits() / 100.0;
 }
 
-double CSSToLengthConversionData::viewportMaxFactor() const
+FloatSize CSSToLengthConversionData::dynamicViewportFactor() const
 {
-    if (m_viewportDependencyDetectionStyle)
-        m_viewportDependencyDetectionStyle->setHasViewportUnits();
+    if (m_styleBuilderState)
+        m_styleBuilderState->setUsesViewportUnits();
 
     if (!m_renderView)
-        return 0;
+        return { };
 
-    IntSize viewportSizeForCSSViewportUnits = m_renderView->viewportSizeForCSSViewportUnits();
-    return std::max(viewportSizeForCSSViewportUnits.width(), viewportSizeForCSSViewportUnits.height()) / 100.0;
+    return m_renderView->sizeForCSSDynamicViewportUnits() / 100.0;
+}
+
+void CSSToLengthConversionData::setUsesContainerUnits() const
+{
+    if (m_styleBuilderState)
+        m_styleBuilderState->setIsContainerDependent();
+}
+
+bool CSSToLengthConversionData::evaluationTimeZoomEnabled() const
+{
+    ASSERT(m_style);
+    return m_style->evaluationTimeZoomEnabled();
 }
 
 } // namespace WebCore

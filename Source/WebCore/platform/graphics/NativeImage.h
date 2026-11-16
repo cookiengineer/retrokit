@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004-2020 Apple Inc.  All rights reserved.
+ * Copyright (C) 2004-2026 Apple Inc. All rights reserved.
  * Copyright (C) 2007-2008 Torch Mobile, Inc.
  * Copyright (C) 2012 Company 100 Inc.
  *
@@ -27,53 +27,99 @@
 
 #pragma once
 
-#include "Color.h"
-#include "IntSize.h"
-#include "PlatformImage.h"
-#include "RenderingResourceIdentifier.h"
-#include <wtf/HashMap.h>
-#include <wtf/HashSet.h>
-#include <wtf/RefCounted.h>
-#include <wtf/WeakPtr.h>
+#include <WebCore/DecodingOptions.h>
+#include <WebCore/GainMap.h>
+#include <WebCore/ImageTypes.h>
+#include <WebCore/PlatformImage.h>
+#include <WebCore/RenderingResource.h>
+#include <wtf/CheckedRef.h>
+#include <wtf/TZoneMalloc.h>
+
+#if USE(SKIA)
+class GrDirectContext;
+#endif
 
 namespace WebCore {
 
-class NativeImage : public RefCounted<NativeImage>, public CanMakeWeakPtr<NativeImage> {
-    WTF_MAKE_FAST_ALLOCATED;
+class Color;
+class DestinationColorSpace;
+class FloatRect;
+class GraphicsContext;
+class IntSize;
+class NativeImageBackend;
+struct ImagePaintingOptions;
+
+class NativeImage : public ThreadSafeRefCounted<NativeImage>, public CanMakeThreadSafeCheckedPtr<NativeImage> {
+    WTF_MAKE_TZONE_ALLOCATED(NativeImage);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(NativeImage);
 public:
-    class Observer {
-    public:
-        virtual ~Observer() = default;
-        virtual void releaseNativeImage(RenderingResourceIdentifier) = 0;
-    protected:
-        Observer() = default;
-    };
+#if USE(SKIA)
+    static WEBCORE_EXPORT RefPtr<NativeImage> create(PlatformImagePtr&&, std::optional<GainMap>&&, GrDirectContext* = nullptr);
+    static WEBCORE_EXPORT RefPtr<NativeImage> create(PlatformImagePtr&&, GrDirectContext* = nullptr);
+    // Creates a NativeImage that is intended to be drawn once or only few times. Signals the platform to avoid generating any caches for the image.
+    static WEBCORE_EXPORT RefPtr<NativeImage> createTransient(PlatformImagePtr&&, GrDirectContext* = nullptr);
+#else
+    static WEBCORE_EXPORT RefPtr<NativeImage> create(PlatformImagePtr&&, std::optional<GainMap>&&);
+    static WEBCORE_EXPORT RefPtr<NativeImage> create(PlatformImagePtr&&);
+    // Creates a NativeImage that is intended to be drawn once or only few times. Signals the platform to avoid generating any caches for the image.
+    static WEBCORE_EXPORT RefPtr<NativeImage> createTransient(PlatformImagePtr&&);
+#endif
 
-    static WEBCORE_EXPORT RefPtr<NativeImage> create(PlatformImagePtr&&, RenderingResourceIdentifier = RenderingResourceIdentifier::generate());
+    WEBCORE_EXPORT virtual ~NativeImage();
 
-    WEBCORE_EXPORT ~NativeImage();
+    WEBCORE_EXPORT virtual const PlatformImagePtr& platformImage() const;
+    WEBCORE_EXPORT const std::optional<GainMap>& gainMap() const;
+    WEBCORE_EXPORT virtual IntSize size() const;
+    WEBCORE_EXPORT virtual bool hasAlpha() const;
+    WEBCORE_EXPORT size_t sizeInBytes() const;
+    std::optional<Color> singlePixelSolidColor() const;
+    WEBCORE_EXPORT virtual DestinationColorSpace colorSpace() const;
+    WEBCORE_EXPORT bool hasHDRContent() const;
+    bool hasHDRGainMap() const { return m_gainMap.has_value(); }
+    Headroom baseImageHeadroom() const { return m_baseImageHeadroom; }
+    Headroom headroom() const { return m_headroom; }
 
-    const PlatformImagePtr& platformImage() const { return m_platformImage; }
-    RenderingResourceIdentifier renderingResourceIdentifier() const { return m_renderingResourceIdentifier; }
-
-    WEBCORE_EXPORT IntSize size() const;
-    bool hasAlpha() const;
-    Color singlePixelSolidColor() const;
-
-    void addObserver(Observer& observer) { m_observers.add(&observer); }
-    void removeObserver(Observer& observer) { m_observers.remove(&observer); }
-    
     void clearSubimages();
 
-private:
-    NativeImage(PlatformImagePtr&&);
-    NativeImage(PlatformImagePtr&&, RenderingResourceIdentifier);
+    WEBCORE_EXPORT void replacePlatformImage(PlatformImagePtr&&) const;
 
-    PlatformImagePtr m_platformImage;
-    HashSet<Observer*> m_observers;
-    RenderingResourceIdentifier m_renderingResourceIdentifier;
+#if USE(SKIA) || USE(COORDINATED_GRAPHICS)
+    uint64_t uniqueID() const;
+#endif
+
+#if USE(SKIA)
+    GrDirectContext* grContext() const { return m_grContext; }
+#endif
+
+    void addObserver(WeakRef<RenderingResourceObserver>&& observer) const
+    {
+        m_observers.add(WTF::move(observer));
+    }
+
+    RenderingResourceIdentifier renderingResourceIdentifier() const
+    {
+        return m_renderingResourceIdentifier;
+    }
+
+protected:
+    WEBCORE_EXPORT NativeImage();
+#if USE(SKIA)
+    WEBCORE_EXPORT NativeImage(PlatformImagePtr&&, std::optional<GainMap>&&, GrDirectContext*);
+#else
+    WEBCORE_EXPORT NativeImage(PlatformImagePtr&&, std::optional<GainMap>&&);
+#endif
+
+    void computeHeadroom() const;
+
+    mutable PlatformImagePtr m_platformImage;
+    mutable std::optional<GainMap> m_gainMap;
+    mutable Headroom m_baseImageHeadroom { Headroom::None };
+    mutable Headroom m_headroom { Headroom::None };
+    mutable WeakHashSet<RenderingResourceObserver> m_observers;
+    RenderingResourceIdentifier m_renderingResourceIdentifier { RenderingResourceIdentifier::generate() };
+#if USE(SKIA)
+    GrDirectContext* m_grContext { nullptr };
+#endif
 };
-
-using NativeImageHashMap = HashMap<RenderingResourceIdentifier, Ref<NativeImage>>;
 
 } // namespace WebCore

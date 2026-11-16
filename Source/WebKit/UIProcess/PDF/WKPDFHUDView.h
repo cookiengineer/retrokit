@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,23 +23,41 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#if ENABLE(UI_PROCESS_PDF_HUD)
+#pragma once
 
-#import "PDFPluginIdentifier.h"
+#import <wtf/Platform.h>
 
-namespace WebKit {
-class WebPageProxy;
-}
+#if ENABLE(PDF_HUD)
 
+#import <AppKit/AppKit.h>
+
+@class WKWebView;
+
+NS_HEADER_AUDIT_BEGIN(nullability, sendability)
+
+NS_SWIFT_UI_ACTOR
 @interface WKPDFHUDView : NSView
 
-- (instancetype)initWithFrame:(NSRect)frame pluginIdentifier:(WebKit::PDFPluginIdentifier)pluginIdentifier page:(WebKit::WebPageProxy&)page;
-- (void)setFrame:(NSRect)frame;
-- (void)mouseMoved:(NSEvent *)event;
-- (void)mouseDown:(NSEvent *)event;
-- (void)mouseUp:(NSEvent *)event;
-- (void)setDeviceScaleFactor:(CGFloat)deviceScaleFactor;
+@property (nonatomic, readonly) uint64_t pluginIdentifier;
+@property (nonatomic, readonly) uint64_t frameIdentifier;
+@property (nonatomic, readonly, weak, nullable) WKWebView *webView;
+
+- (instancetype)initWithFrame:(NSRect)frame pluginIdentifier:(uint64_t)pluginIdentifier frameIdentifier:(uint64_t)frameIdentifier webView:(nullable WKWebView *)webView NS_DESIGNATED_INITIALIZER;
+- (instancetype)initWithCoder:(NSCoder *)coder NS_UNAVAILABLE;
+- (instancetype)initWithFrame:(NSRect)frame NS_UNAVAILABLE;
+- (void)show;
 
 @end
 
-#endif // ENABLE(UI_PROCESS_PDF_HUD)
+@interface WKPDFHUDView (Cpp)
+
+- (void)performPDFZoomIn;
+- (void)performPDFZoomOut;
+- (void)performPDFOpenWithPreview;
+- (void)performPDFSaveToPDF;
+
+@end
+
+NS_HEADER_AUDIT_END(nullability, sendability)
+
+#endif // ENABLE(PDF_HUD)

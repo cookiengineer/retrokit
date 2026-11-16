@@ -25,6 +25,11 @@
 
 #pragma once
 
+#include <optional>
+#include <wtf/text/ASCIILiteral.h>
+#include <wtf/text/AtomString.h>
+#include <wtf/text/StringView.h>
+
 namespace WebCore {
 
 enum class ShadowRootMode : uint8_t {
@@ -32,5 +37,32 @@ enum class ShadowRootMode : uint8_t {
     Closed,
     Open
 };
+
+static constexpr auto shadowRootModeOpenLiteral = "open"_s;
+static constexpr auto shadowRootModeClosedLiteral = "closed"_s;
+
+inline std::optional<ShadowRootMode> parseShadowRootMode(StringView value)
+{
+    if (equalLettersIgnoringASCIICase(value, shadowRootModeOpenLiteral))
+        return ShadowRootMode::Open;
+    if (equalLettersIgnoringASCIICase(value, shadowRootModeClosedLiteral))
+        return ShadowRootMode::Closed;
+    return { };
+}
+
+inline const AtomString& serializeShadowRootMode(ShadowRootMode mode)
+{
+    static MainThreadNeverDestroyed<const AtomString> open(shadowRootModeOpenLiteral);
+    static MainThreadNeverDestroyed<const AtomString> closed(shadowRootModeClosedLiteral);
+    switch (mode) {
+    case ShadowRootMode::Open:
+        return open;
+    case ShadowRootMode::Closed:
+        return closed;
+    case ShadowRootMode::UserAgent:
+        break;
+    }
+    RELEASE_ASSERT_NOT_REACHED();
+}
 
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Samsung Electronics. All Rights Reserved.
+ * Copyright (C) 2013 Samsung Electronics. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,6 +30,7 @@
 
 #include "Document.h"
 #include "ScriptElement.h"
+#include <wtf/WeakRef.h>
 
 namespace WebCore {
 
@@ -39,17 +40,17 @@ public:
     CurrentScriptIncrementer(Document& document, ScriptElement& scriptElement)
         : m_document(document)
     {
-        bool shouldPushNullForCurrentScript = scriptElement.element().isInShadowTree() || scriptElement.scriptType() != ScriptElement::ScriptType::Classic;
-        m_document.pushCurrentScript(shouldPushNullForCurrentScript ? nullptr : &scriptElement.element());
+        bool shouldPushNullForCurrentScript = scriptElement.element().isInShadowTree() || scriptElement.scriptType() != ScriptType::Classic;
+        protect(m_document)->pushCurrentScript(shouldPushNullForCurrentScript ? nullptr : &scriptElement.element());
     }
 
     ~CurrentScriptIncrementer()
     {
-        m_document.popCurrentScript();
+        protect(m_document)->popCurrentScript();
     }
 
 private:
-    Document& m_document;
+    WeakRef<Document, WeakPtrImplWithEventTargetData> m_document;
 };
 
 } // namespace WebCore

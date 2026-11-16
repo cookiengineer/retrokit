@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,14 +29,20 @@
 #include "config.h"
 #include "TypeProfilerLog.h"
 
+#include "FrameTracers.h"
 #include "JSCJSValueInlines.h"
 #include "TypeLocation.h"
+#include <wtf/TZoneMallocInlines.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
 namespace TypeProfilerLogInternal {
 static constexpr bool verbose = false;
 }
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(TypeProfilerLog);
 
 TypeProfilerLog::TypeProfilerLog(VM& vm)
     : m_vm(vm)
@@ -58,9 +64,9 @@ void TypeProfilerLog::processLogEntries(VM& vm, const String& reason)
     // We need to do this because this code will call into calculatedDisplayName.
     // calculatedDisplayName will clear any exception it sees (because it thinks
     // it's a stack overflow). We may be called when an exception was already
-    // thrown, so we don't want calcualtedDisplayName to clear that exception that
+    // thrown, so we don't want calculatedDisplayName to clear that exception that
     // was thrown before we even got here.
-    VM::DeferExceptionScope deferExceptionScope(vm);
+    SuspendExceptionScope suspendExceptionScope(vm);
 
     MonotonicTime before { };
     if (TypeProfilerLogInternal::verbose) {
@@ -68,8 +74,8 @@ void TypeProfilerLog::processLogEntries(VM& vm, const String& reason)
         before = MonotonicTime::now();
     }
 
-    HashMap<Structure*, RefPtr<StructureShape>> cachedMonoProtoShapes;
-    HashMap<std::pair<Structure*, JSCell*>, RefPtr<StructureShape>> cachedPolyProtoShapes;
+    UncheckedKeyHashMap<Structure*, RefPtr<StructureShape>> cachedMonoProtoShapes;
+    UncheckedKeyHashMap<std::pair<Structure*, JSCell*>, RefPtr<StructureShape>> cachedPolyProtoShapes;
 
     LogEntry* entry = m_logStartPtr;
 
@@ -80,7 +86,7 @@ void TypeProfilerLog::processLogEntries(VM& vm, const String& reason)
         Structure* structure = nullptr;
         bool sawPolyProtoStructure = false;
         if (id) {
-            structure = Heap::heap(value.asCell())->structureIDTable().get(id);
+            structure = id.decode();
             auto iter = cachedMonoProtoShapes.find(structure);
             if (iter == cachedMonoProtoShapes.end()) {
                 auto key = std::make_pair(structure, value.asCell());
@@ -101,12 +107,12 @@ void TypeProfilerLog::processLogEntries(VM& vm, const String& reason)
                 shape = iter->value;
         }
 
-        RuntimeType type = runtimeTypeForValue(m_vm, value);
+        RuntimeType type = runtimeTypeForValue(value);
         TypeLocation* location = entry->location;
         location->m_lastSeenType = type;
         if (location->m_globalTypeSet)
             location->m_globalTypeSet->addTypeInformation(type, shape.copyRef(), structure, sawPolyProtoStructure);
-        location->m_instructionTypeSet->addTypeInformation(type, WTFMove(shape), structure, sawPolyProtoStructure);
+        location->m_instructionTypeSet->addTypeInformation(type, WTF::move(shape), structure, sawPolyProtoStructure);
 
         entry++;
     }
@@ -131,10 +137,12 @@ void TypeProfilerLog::visit(AbstractSlotVisitor& visitor)
     for (LogEntry* entry = m_logStartPtr; entry != m_currentLogEntryPtr; ++entry) {
         visitor.appendUnbarriered(entry->value);
         if (StructureID id = entry->structureID) {
-            Structure* structure = visitor.heap()->structureIDTable().get(id); 
+            Structure* structure = id.decode();
             visitor.appendUnbarriered(structure);
         }
     }
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

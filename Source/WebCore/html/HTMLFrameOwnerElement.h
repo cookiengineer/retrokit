@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2006-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2006-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2016 Google Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -20,9 +21,11 @@
 
 #pragma once
 
-#include "Frame.h"
-#include "HTMLElement.h"
-#include "ReferrerPolicy.h"
+#include <WebCore/Document.h>
+#include <WebCore/Frame.h>
+#include <WebCore/HTMLElement.h>
+#include <WebCore/ReferrerPolicy.h>
+#include <WebCore/SecurityContext.h>
 #include <wtf/HashCountedSet.h>
 #include <wtf/NeverDestroyed.h>
 
@@ -31,31 +34,32 @@ namespace WebCore {
 class RenderWidget;
 
 class HTMLFrameOwnerElement : public HTMLElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLFrameOwnerElement);
+    WTF_MAKE_TZONE_ALLOCATED(HTMLFrameOwnerElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLFrameOwnerElement);
 public:
     virtual ~HTMLFrameOwnerElement();
 
     Frame* contentFrame() const { return m_contentFrame.get(); }
-    WEBCORE_EXPORT WindowProxy* contentWindow() const;
-    WEBCORE_EXPORT Document* contentDocument() const;
+    WEBCORE_EXPORT WindowProxy* NODELETE contentWindow() const;
+    WEBCORE_EXPORT Document* NODELETE contentDocument() const;
 
-    void setContentFrame(Frame&);
-    void clearContentFrame();
+    WEBCORE_EXPORT void NODELETE setContentFrame(Frame&);
+    void NODELETE clearContentFrame();
 
     void disconnectContentFrame();
 
     // Most subclasses use RenderWidget (either RenderEmbeddedObject or RenderIFrame)
     // except for HTMLObjectElement and HTMLEmbedElement which may return any
     // RenderElement when using fallback content.
-    RenderWidget* renderWidget() const;
+    RenderWidget* NODELETE renderWidget() const;
 
-    ExceptionOr<Document&> getSVGDocument() const;
+    Document* NODELETE getSVGDocument() const;
 
-    virtual ScrollbarMode scrollingMode() const { return ScrollbarAuto; }
+    virtual ScrollbarMode scrollingMode() const { return ScrollbarMode::Auto; }
 
     SandboxFlags sandboxFlags() const { return m_sandboxFlags; }
 
-    void scheduleInvalidateStyleAndLayerComposition();
+    WEBCORE_EXPORT void scheduleInvalidateStyleAndLayerComposition();
 
     virtual bool canLoadScriptURL(const URL&) const = 0;
 
@@ -65,16 +69,16 @@ public:
     virtual bool isLazyLoadObserverActive() const { return false; }
 
 protected:
-    HTMLFrameOwnerElement(const QualifiedName& tagName, Document&);
+    HTMLFrameOwnerElement(const QualifiedName& tagName, Document&, OptionSet<TypeFlag> = { });
     void setSandboxFlags(SandboxFlags);
     bool isProhibitedSelfReference(const URL&) const;
+    bool isKeyboardFocusable(const FocusEventData&) const override;
 
 private:
-    bool isKeyboardFocusable(KeyboardEvent*) const override;
-    bool isFrameOwnerElement() const final { return true; }
+    bool isHTMLFrameOwnerElement() const final { return true; }
 
     WeakPtr<Frame> m_contentFrame;
-    SandboxFlags m_sandboxFlags { SandboxNone };
+    SandboxFlags m_sandboxFlags;
 };
 
 class SubframeLoadingDisabler {
@@ -83,13 +87,13 @@ public:
         : m_root(root)
     {
         if (m_root)
-            disabledSubtreeRoots().add(m_root);
+            disabledSubtreeRoots().add(m_root.get());
     }
 
     ~SubframeLoadingDisabler()
     {
         if (m_root)
-            disabledSubtreeRoots().remove(m_root);
+            disabledSubtreeRoots().remove(m_root.get());
     }
 
     static bool canLoadFrame(HTMLFrameOwnerElement&);
@@ -101,11 +105,11 @@ private:
         return nodes;
     }
 
-    ContainerNode* m_root;
+    WeakPtr<ContainerNode, WeakPtrImplWithEventTargetData> m_root;
 };
 
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::HTMLFrameOwnerElement)
-    static bool isType(const WebCore::Node& node) { return node.isFrameOwnerElement(); }
+    static bool isType(const WebCore::Node& node) { return node.isHTMLFrameOwnerElement(); }
 SPECIALIZE_TYPE_TRAITS_END()

@@ -27,10 +27,12 @@
 #include "ComplexTextController.h"
 
 #include "CairoUtilities.h"
-#include "FontCascade.h"
+#include "FontCascadeInlines.h"
+#include "FontFeatureValues.h"
 #include "FontTaggedSettings.h"
 #include "HbUniquePtr.h"
 #include "SurrogatePairAwareTextIterator.h"
+#include "TextFlags.h"
 #include <hb-ft.h>
 #include <hb-icu.h>
 #include <hb-ot.h>
@@ -130,16 +132,16 @@ static hb_font_funcs_t* harfBuzzFontFunctions()
     return fontFunctions;
 }
 
-ComplexTextController::ComplexTextRun::ComplexTextRun(hb_buffer_t* buffer, const Font& font, const UChar* characters, unsigned stringLocation, unsigned stringLength, unsigned indexBegin, unsigned indexEnd)
+ComplexTextController::ComplexTextRun::ComplexTextRun(hb_buffer_t* buffer, const Font& font, std::span<const char16_t> characters, unsigned stringLocation, unsigned indexBegin, unsigned indexEnd)
     : m_initialAdvance(0, 0)
     , m_font(font)
     , m_characters(characters)
-    , m_stringLength(stringLength)
     , m_indexBegin(indexBegin)
     , m_indexEnd(indexEnd)
     , m_glyphCount(hb_buffer_get_length(buffer))
     , m_stringLocation(stringLocation)
     , m_isLTR(HB_DIRECTION_IS_FORWARD(hb_buffer_get_direction(buffer)))
+    , m_textAutospaceSize(TextAutospace::textAutospaceSize(font))
 {
     if (!m_glyphCount)
         return;
@@ -157,7 +159,7 @@ ComplexTextController::ComplexTextRun::ComplexTextRun(hb_buffer_t* buffer, const
         m_coreTextIndices[i] = glyphInfos[i].cluster;
 
         uint16_t glyph = glyphInfos[i].codepoint;
-        if (m_font.isZeroWidthSpaceGlyph(glyph) || !m_font.platformData().size()) {
+        if (m_font->isZeroWidthSpaceGlyph(glyph) || !m_font->platformData().size()) {
             m_glyphs[i] = glyph;
             m_baseAdvances[i] = { };
             m_glyphOrigins[i] = { };
@@ -176,190 +178,6 @@ ComplexTextController::ComplexTextRun::ComplexTextRun(hb_buffer_t* buffer, const
     m_initialAdvance = toFloatSize(m_glyphOrigins[0]);
 }
 
-using FeaturesMap = HashMap<FontTag, int, FourCharacterTagHash, FourCharacterTagHashTraits>;
-
-static void setFeatureSettingsFromVariants(const FontVariantSettings& variantSettings, FeaturesMap& features)
-{
-    switch (variantSettings.commonLigatures) {
-    case FontVariantLigatures::Normal:
-        break;
-    case FontVariantLigatures::Yes:
-        features.set(fontFeatureTag("liga"), 1);
-        features.set(fontFeatureTag("clig"), 1);
-        break;
-    case FontVariantLigatures::No:
-        features.set(fontFeatureTag("liga"), 0);
-        features.set(fontFeatureTag("clig"), 0);
-        break;
-    }
-
-    switch (variantSettings.discretionaryLigatures) {
-    case FontVariantLigatures::Normal:
-        break;
-    case FontVariantLigatures::Yes:
-        features.set(fontFeatureTag("dlig"), 1);
-        break;
-    case FontVariantLigatures::No:
-        features.set(fontFeatureTag("dlig"), 0);
-        break;
-    }
-
-    switch (variantSettings.historicalLigatures) {
-    case FontVariantLigatures::Normal:
-        break;
-    case FontVariantLigatures::Yes:
-        features.set(fontFeatureTag("hlig"), 1);
-        break;
-    case FontVariantLigatures::No:
-        features.set(fontFeatureTag("hlig"), 0);
-        break;
-    }
-
-    switch (variantSettings.contextualAlternates) {
-    case FontVariantLigatures::Normal:
-        break;
-    case FontVariantLigatures::Yes:
-        features.set(fontFeatureTag("calt"), 1);
-        break;
-    case FontVariantLigatures::No:
-        features.set(fontFeatureTag("calt"), 0);
-        break;
-    }
-
-    switch (variantSettings.position) {
-    case FontVariantPosition::Normal:
-        break;
-    case FontVariantPosition::Subscript:
-        features.set(fontFeatureTag("subs"), 1);
-        break;
-    case FontVariantPosition::Superscript:
-        features.set(fontFeatureTag("sups"), 1);
-        break;
-    }
-
-    switch (variantSettings.caps) {
-    case FontVariantCaps::Normal:
-        break;
-    case FontVariantCaps::AllSmall:
-        features.set(fontFeatureTag("c2sc"), 1);
-        FALLTHROUGH;
-    case FontVariantCaps::Small:
-        features.set(fontFeatureTag("smcp"), 1);
-        break;
-    case FontVariantCaps::AllPetite:
-        features.set(fontFeatureTag("c2pc"), 1);
-        FALLTHROUGH;
-    case FontVariantCaps::Petite:
-        features.set(fontFeatureTag("pcap"), 1);
-        break;
-    case FontVariantCaps::Unicase:
-        features.set(fontFeatureTag("unic"), 1);
-        break;
-    case FontVariantCaps::Titling:
-        features.set(fontFeatureTag("titl"), 1);
-        break;
-    }
-
-    switch (variantSettings.numericFigure) {
-    case FontVariantNumericFigure::Normal:
-        break;
-    case FontVariantNumericFigure::LiningNumbers:
-        features.set(fontFeatureTag("lnum"), 1);
-        break;
-    case FontVariantNumericFigure::OldStyleNumbers:
-        features.set(fontFeatureTag("onum"), 1);
-        break;
-    }
-
-    switch (variantSettings.numericSpacing) {
-    case FontVariantNumericSpacing::Normal:
-        break;
-    case FontVariantNumericSpacing::ProportionalNumbers:
-        features.set(fontFeatureTag("pnum"), 1);
-        break;
-    case FontVariantNumericSpacing::TabularNumbers:
-        features.set(fontFeatureTag("tnum"), 1);
-        break;
-    }
-
-    switch (variantSettings.numericFraction) {
-    case FontVariantNumericFraction::Normal:
-        break;
-    case FontVariantNumericFraction::DiagonalFractions:
-        features.set(fontFeatureTag("frac"), 1);
-        break;
-    case FontVariantNumericFraction::StackedFractions:
-        features.set(fontFeatureTag("afrc"), 1);
-        break;
-    }
-
-    switch (variantSettings.numericOrdinal) {
-    case FontVariantNumericOrdinal::Normal:
-        break;
-    case FontVariantNumericOrdinal::Yes:
-        features.set(fontFeatureTag("ordn"), 1);
-        break;
-    }
-
-    switch (variantSettings.numericSlashedZero) {
-    case FontVariantNumericSlashedZero::Normal:
-        break;
-    case FontVariantNumericSlashedZero::Yes:
-        features.set(fontFeatureTag("zero"), 1);
-        break;
-    }
-
-    switch (variantSettings.alternates) {
-    case FontVariantAlternates::Normal:
-        break;
-    case FontVariantAlternates::HistoricalForms:
-        features.set(fontFeatureTag("hist"), 1);
-        break;
-    }
-
-    switch (variantSettings.eastAsianVariant) {
-    case FontVariantEastAsianVariant::Normal:
-        break;
-    case FontVariantEastAsianVariant::Jis78:
-        features.set(fontFeatureTag("jp78"), 1);
-        break;
-    case FontVariantEastAsianVariant::Jis83:
-        features.set(fontFeatureTag("jp83"), 1);
-        break;
-    case FontVariantEastAsianVariant::Jis90:
-        features.set(fontFeatureTag("jp90"), 1);
-        break;
-    case FontVariantEastAsianVariant::Jis04:
-        features.set(fontFeatureTag("jp04"), 1);
-        break;
-    case FontVariantEastAsianVariant::Simplified:
-        features.set(fontFeatureTag("smpl"), 1);
-        break;
-    case FontVariantEastAsianVariant::Traditional:
-        features.set(fontFeatureTag("trad"), 1);
-        break;
-    }
-
-    switch (variantSettings.eastAsianWidth) {
-    case FontVariantEastAsianWidth::Normal:
-        break;
-    case FontVariantEastAsianWidth::Full:
-        features.set(fontFeatureTag("fwid"), 1);
-        break;
-    case FontVariantEastAsianWidth::Proportional:
-        features.set(fontFeatureTag("pwid"), 1);
-        break;
-    }
-
-    switch (variantSettings.eastAsianRuby) {
-    case FontVariantEastAsianRuby::Normal:
-        break;
-    case FontVariantEastAsianRuby::Yes:
-        features.set(fontFeatureTag("ruby"), 1);
-        break;
-    }
-}
-
 static Vector<hb_feature_t, 4> fontFeatures(const FontCascade& font, const FontPlatformData& fontPlatformData)
 {
     FeaturesMap featuresToBeApplied;
@@ -373,12 +191,19 @@ static Vector<hb_feature_t, 4> fontFeatures(const FontCascade& font, const FontP
     //    font-feature-settings descriptor in the @font-face rule.
     auto* fcPattern = fontPlatformData.fcPattern();
     FcChar8* fcFontFeature;
-    for (int i = 0; FcPatternGetString(fcPattern, FC_FONT_FEATURES, i, &fcFontFeature) == FcResultMatch; ++i)
-        featuresToBeApplied.set(fontFeatureTag(reinterpret_cast<char*>(fcFontFeature)), 1);
+    for (int i = 0; FcPatternGetString(fcPattern, FC_FONT_FEATURES, i, &fcFontFeature) == FcResultMatch; ++i) {
+        auto fcFontFeatureSpan = unsafeSpanIncludingNullTerminator(reinterpret_cast<char*>(fcFontFeature)).subspan<0, 5>();
+        featuresToBeApplied.set(fontFeatureTag(fcFontFeatureSpan), 1);
+    }
 
     // 3. Font features implied by the value of the ‘font-variant’ property, the related ‘font-variant’
     //    subproperties and any other CSS property that uses OpenType features.
-    setFeatureSettingsFromVariants(font.fontDescription().variantSettings(), featuresToBeApplied);
+
+    // FIXME: pass a proper FontFeatureValues object.
+    // https://bugs.webkit.org/show_bug.cgi?id=246121
+    for (auto& feature : computeFeatureSettingsFromVariants(font.fontDescription().variantSettings(), { }))
+        featuresToBeApplied.set(feature.key, feature.value);
+
     featuresToBeApplied.set(fontFeatureTag("kern"), font.enableKerning() ? 1 : 0);
 
     // 4. Feature settings determined by properties other than ‘font-variant’ or ‘font-feature-settings’.
@@ -401,7 +226,7 @@ static Vector<hb_feature_t, 4> fontFeatures(const FontCascade& font, const FontP
     return features;
 }
 
-static std::optional<UScriptCode> characterScript(UChar32 character)
+static std::optional<UScriptCode> characterScript(char32_t character)
 {
     UErrorCode errorCode = U_ZERO_ERROR;
     UScriptCode script = uscript_getScript(character, &errorCode);
@@ -416,10 +241,10 @@ struct HBRun {
     UScriptCode script;
 };
 
-static std::optional<HBRun> findNextRun(const UChar* characters, unsigned length, unsigned offset)
+static std::optional<HBRun> findNextRun(std::span<const char16_t> characters, unsigned offset)
 {
-    SurrogatePairAwareTextIterator textIterator(characters + offset, offset, length, length);
-    UChar32 character;
+    SurrogatePairAwareTextIterator textIterator(characters.subspan(offset), offset, characters.size());
+    char32_t character;
     unsigned clusterLength = 0;
     if (!textIterator.consume(character, clusterLength))
         return std::nullopt;
@@ -483,18 +308,18 @@ static hb_script_t findScriptForVerticalGlyphSubstitution(hb_face_t* face)
     return HB_SCRIPT_INVALID;
 }
 
-void ComplexTextController::collectComplexTextRunsForCharacters(const UChar* characters, unsigned length, unsigned stringLocation, const Font* font)
+void ComplexTextController::collectComplexTextRunsForCharacters(std::span<const char16_t> characters, unsigned stringLocation, const Font* font)
 {
     if (!font) {
         // Create a run of missing glyphs from the primary font.
-        m_complexTextRuns.append(ComplexTextRun::create(m_font.primaryFont(), characters, stringLocation, length, 0, length, m_run.ltr()));
+        m_complexTextRuns.append(ComplexTextRun::create(m_fontCascade->primaryFont(), characters, stringLocation, 0, characters.size(), m_run->ltr()));
         return;
     }
 
     Vector<HBRun> runList;
     unsigned offset = 0;
-    while (offset < length) {
-        auto run = findNextRun(characters, length, offset);
+    while (offset < characters.size()) {
+        auto run = findNextRun(characters, offset);
         if (!run)
             break;
         runList.append(run.value());
@@ -526,13 +351,13 @@ void ComplexTextController::collectComplexTextRunsForCharacters(const UChar* cha
     if (!FT_Get_MM_Var(ftFace, &ftMMVar)) {
         Vector<FT_Fixed, 4> coords;
         coords.resize(ftMMVar->num_axis);
-        if (!FT_Get_Var_Design_Coordinates(ftFace, coords.size(), coords.data())) {
+        if (!FT_Get_Var_Design_Coordinates(ftFace, coords.size(), coords.mutableSpan().data())) {
             Vector<hb_variation_t, 4> variations(coords.size());
             for (FT_UInt i = 0; i < ftMMVar->num_axis; ++i) {
                 variations[i].tag = ftMMVar->axis[i].tag;
                 variations[i].value = coords[i] / 65536.0;
             }
-            hb_font_set_variations(harfBuzzFont.get(), variations.data(), variations.size());
+            hb_font_set_variations(harfBuzzFont.get(), variations.span().data(), variations.size());
         }
         FT_Done_MM_Var(ftFace->glyph->library, ftMMVar);
     }
@@ -540,26 +365,26 @@ void ComplexTextController::collectComplexTextRunsForCharacters(const UChar* cha
 
     hb_font_make_immutable(harfBuzzFont.get());
 
-    auto features = fontFeatures(m_font, fontPlatformData);
+    auto features = fontFeatures(m_fontCascade, fontPlatformData);
     HbUniquePtr<hb_buffer_t> buffer(hb_buffer_create());
     if (fontPlatformData.orientation() == FontOrientation::Vertical)
         hb_buffer_set_script(buffer.get(), findScriptForVerticalGlyphSubstitution(face.get()));
 
     for (unsigned i = 0; i < runCount; ++i) {
-        auto& run = runList[m_run.rtl() ? runCount - i - 1 : i];
+        auto& run = runList[m_run->rtl() ? runCount - i - 1 : i];
 
         if (fontPlatformData.orientation() != FontOrientation::Vertical)
             hb_buffer_set_script(buffer.get(), hb_icu_script_to_script(run.script));
-        if (!m_mayUseNaturalWritingDirection || m_run.directionalOverride())
-            hb_buffer_set_direction(buffer.get(), m_run.rtl() ? HB_DIRECTION_RTL : HB_DIRECTION_LTR);
+        if (!m_mayUseNaturalWritingDirection || m_run->directionalOverride())
+            hb_buffer_set_direction(buffer.get(), m_run->rtl() ? HB_DIRECTION_RTL : HB_DIRECTION_LTR);
         else {
             // Leaving direction to HarfBuzz to guess is *really* bad, but will do for now.
             hb_buffer_guess_segment_properties(buffer.get());
         }
-        hb_buffer_add_utf16(buffer.get(), reinterpret_cast<const uint16_t*>(characters), length, run.startIndex, run.endIndex - run.startIndex);
+        hb_buffer_add_utf16(buffer.get(), reinterpret_cast<const uint16_t*>(characters.data()), characters.size(), run.startIndex, run.endIndex - run.startIndex);
 
-        hb_shape(harfBuzzFont.get(), buffer.get(), features.isEmpty() ? nullptr : features.data(), features.size());
-        m_complexTextRuns.append(ComplexTextRun::create(buffer.get(), *font, characters, stringLocation, length, run.startIndex, run.endIndex));
+        hb_shape(harfBuzzFont.get(), buffer.get(), features.isEmpty() ? nullptr : features.span().data(), features.size());
+        m_complexTextRuns.append(ComplexTextRun::create(buffer.get(), *font, characters, stringLocation, run.startIndex, run.endIndex));
         hb_buffer_reset(buffer.get());
     }
 }

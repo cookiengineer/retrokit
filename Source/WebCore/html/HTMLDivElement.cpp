@@ -26,16 +26,21 @@
 #include "CSSPropertyNames.h"
 #include "CSSValueKeywords.h"
 #include "HTMLNames.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLDivElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLDivElement);
 
 using namespace HTMLNames;
 
-HTMLDivElement::HTMLDivElement(const QualifiedName& tagName, Document& document)
-    : HTMLElement(tagName, document)
+HTMLDivElement::HTMLDivElement(Document& document, OptionSet<TypeFlag> typeFlags)
+    : HTMLDivElement(divTag, document, typeFlags)
+{
+}
+
+HTMLDivElement::HTMLDivElement(const QualifiedName& tagName, Document& document, OptionSet<TypeFlag> typeFlags)
+    : HTMLElement(tagName, document, typeFlags)
 {
     ASSERT(hasTagName(divTag));
 }
@@ -53,11 +58,11 @@ Ref<HTMLDivElement> HTMLDivElement::create(const QualifiedName& tagName, Documen
 void HTMLDivElement::collectPresentationalHintsForAttribute(const QualifiedName& name, const AtomString& value, MutableStyleProperties& style)
 {
     if (name == alignAttr) {
-        if (equalLettersIgnoringASCIICase(value, "middle") || equalLettersIgnoringASCIICase(value, "center"))
+        if (equalLettersIgnoringASCIICase(value, "middle"_s) || equalLettersIgnoringASCIICase(value, "center"_s))
             addPropertyToPresentationalHintStyle(style, CSSPropertyTextAlign, CSSValueWebkitCenter);
-        else if (equalLettersIgnoringASCIICase(value, "left"))
+        else if (equalLettersIgnoringASCIICase(value, "left"_s))
             addPropertyToPresentationalHintStyle(style, CSSPropertyTextAlign, CSSValueWebkitLeft);
-        else if (equalLettersIgnoringASCIICase(value, "right"))
+        else if (equalLettersIgnoringASCIICase(value, "right"_s))
             addPropertyToPresentationalHintStyle(style, CSSPropertyTextAlign, CSSValueWebkitRight);
         else
             addPropertyToPresentationalHintStyle(style, CSSPropertyTextAlign, value);

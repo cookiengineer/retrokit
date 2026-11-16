@@ -26,18 +26,53 @@
 #include "config.h"
 #include "Disassembler.h"
 
-#if ENABLE(UDIS86)
+#if ENABLE(ZYDIS)
 
+#include "AssemblyComments.h"
 #include "MacroAssemblerCodeRef.h"
-#include "UDis86Disassembler.h"
+#include "Zydis.h"
+#include <wtf/Compiler.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
-bool tryToDisassemble(const MacroAssemblerCodePtr<DisassemblyPtrTag>& codePtr, size_t size, const char* prefix, PrintStream& out)
+bool tryToDisassemble(const CodePtr<DisassemblyPtrTag>& codePtr, size_t size, void*, void*, const char* prefix, PrintStream& out)
 {
-    return tryToDisassembleWithUDis86(codePtr, size, prefix, out);
+    ZydisDecoder decoder;
+    ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64);
+
+    ZydisFormatter formatter;
+    ZydisFormatterInit(&formatter, ZYDIS_FORMATTER_STYLE_ATT);
+    ZydisFormatterSetProperty(&formatter, ZYDIS_FORMATTER_PROP_FORCE_SIZE, ZYAN_TRUE);
+    ZydisFormatterSetProperty(&formatter, ZYDIS_FORMATTER_PROP_HEX_UPPERCASE, ZYAN_FALSE);
+    ZydisFormatterSetProperty(&formatter, ZYDIS_FORMATTER_PROP_ADDR_PADDING_ABSOLUTE, ZYDIS_PADDING_DISABLED);
+    ZydisFormatterSetProperty(&formatter, ZYDIS_FORMATTER_PROP_ADDR_PADDING_RELATIVE, ZYDIS_PADDING_DISABLED);
+    ZydisFormatterSetProperty(&formatter, ZYDIS_FORMATTER_PROP_DISP_PADDING, ZYDIS_PADDING_DISABLED);
+    ZydisFormatterSetProperty(&formatter, ZYDIS_FORMATTER_PROP_IMM_PADDING, ZYDIS_PADDING_DISABLED);
+
+    const auto* data = codePtr.dataLocation<unsigned char*>();
+    ZyanUSize offset = 0;
+    ZydisDecodedInstruction instruction;
+    ZydisDecodedOperand operands[ZYDIS_MAX_OPERAND_COUNT];
+    char formatted[1024];
+    while (ZYAN_SUCCESS(ZydisDecoderDecodeFull(&decoder, data + offset, size - offset, &instruction, operands))) {
+        if (ZYAN_SUCCESS(ZydisFormatterFormatInstruction(&formatter, &instruction, operands, instruction.operand_count, formatted, sizeof(formatted), std::bit_cast<unsigned long long>(data + offset), nullptr)))
+            out.printf("%s%#16llx: %s", prefix, static_cast<unsigned long long>(std::bit_cast<uintptr_t>(data + offset)), formatted);
+        else
+            out.printf("%s%#16llx: failed-to-format", prefix, static_cast<unsigned long long>(std::bit_cast<uintptr_t>(data + offset)));
+        if (auto str = AssemblyCommentRegistry::singleton().comment(reinterpret_cast<void*>(std::bit_cast<uintptr_t>(data + offset))))
+            out.printf("; %s\n", str->ascii().data());
+        else
+            out.printf("\n");
+        offset += instruction.length;
+    }
+
+    return true;
 }
 
 } // namespace JSC
 
-#endif // ENABLE(UDIS86)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+
+#endif // ENABLE(ZYDIS)

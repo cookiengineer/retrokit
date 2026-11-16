@@ -215,7 +215,7 @@ private:
             switchValue->appendCase(switchCase);
             predecessorCases.append(switchCase.caseValue());
         }
-        std::sort(predecessorCases.begin(), predecessorCases.end());
+        std::ranges::sort(predecessorCases);
         auto isPredecessorCase = [&] (int64_t value) -> bool {
             return !!tryBinarySearch<int64_t>(
                 predecessorCases, predecessorCases.size(), value,
@@ -320,14 +320,14 @@ private:
     
     Procedure& m_proc;
     InsertionSet m_insertionSet;
-    UseCounts m_useCounts;
+    UseCountsWithoutUsingInstructions m_useCounts;
 };
 
 } // anonymous namespace
 
 bool inferSwitches(Procedure& proc)
 {
-    PhaseScope phaseScope(proc, "inferSwitches");
+    PhaseScope phaseScope(proc, "inferSwitches"_s);
     InferSwitches inferSwitches(proc);
     return inferSwitches.run();
 }

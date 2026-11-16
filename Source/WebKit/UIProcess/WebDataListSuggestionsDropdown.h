@@ -25,10 +25,9 @@
 
 #pragma once
 
-#if ENABLE(DATALIST_ELEMENT)
-
 #include <WebCore/DataListSuggestionPicker.h>
-#include <wtf/RefCounted.h>
+#include <WebCore/FrameIdentifier.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/RefPtr.h>
 #include <wtf/WeakPtr.h>
 
@@ -36,20 +35,21 @@ namespace WebKit {
 
 class WebPageProxy;
 
-class WebDataListSuggestionsDropdown : public RefCounted<WebDataListSuggestionsDropdown>, public CanMakeWeakPtr<WebDataListSuggestionsDropdown> {
+class WebDataListSuggestionsDropdown : public RefCountedAndCanMakeWeakPtr<WebDataListSuggestionsDropdown> {
 public:
     virtual ~WebDataListSuggestionsDropdown();
 
-    virtual void show(WebCore::DataListSuggestionInformation&&) = 0;
+    void show(WebCore::DataListSuggestionInformation&&);
     virtual void handleKeydownWithIdentifier(const String&) = 0;
     virtual void close();
 
 protected:
     explicit WebDataListSuggestionsDropdown(WebPageProxy&);
 
+    virtual void platformShow(WebCore::DataListSuggestionInformation&&) = 0;
+
     WeakPtr<WebPageProxy> m_page;
+    std::optional<WebCore::FrameIdentifier> m_targetFrameID;
 };
 
 } // namespace WebKit
-
-#endif // ENABLE(DATALIST_ELEMENT)

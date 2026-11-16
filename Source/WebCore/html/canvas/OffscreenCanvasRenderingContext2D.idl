@@ -25,25 +25,22 @@
 
 [
     CustomIsReachable,
-    EnabledAtRuntime=OffscreenCanvas,
+    EnabledBySetting=OffscreenCanvasEnabled,
     Conditional=OFFSCREEN_CANVAS,
     ConditionalForWorker=OFFSCREEN_CANVAS_IN_WORKERS,
     EnabledForContext,
+    ReportExtraMemoryCost,
+    ReportExternalMemoryCost,
     Exposed=(Window,Worker),
-    JSGenerateToJSObject,
     JSCustomMarkFunction,
-    // CallTracer=InspectorCanvasCallTracer, // FIXME: OffscreenCanvas.
+    TaggedWrapper,
+    CallTracer=InspectorCanvasCallTracer,
 ] interface OffscreenCanvasRenderingContext2D {
     readonly attribute OffscreenCanvas canvas;
-    undefined commit();
-
-    // Inspector-only.
-    // FIXME: OffscreenCanvas.
-    // [EnabledAtRuntime=InspectorAdditions] undefined setPath(Path2D path);
-    // [EnabledAtRuntime=InspectorAdditions, NewObject] Path2D getPath();
 };
 
 OffscreenCanvasRenderingContext2D includes CanvasState;
+OffscreenCanvasRenderingContext2D includes CanvasLayers;
 OffscreenCanvasRenderingContext2D includes CanvasTransform;
 OffscreenCanvasRenderingContext2D includes CanvasCompositing;
 OffscreenCanvasRenderingContext2D includes CanvasImageSmoothing;

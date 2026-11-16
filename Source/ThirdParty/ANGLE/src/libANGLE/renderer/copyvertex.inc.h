@@ -6,8 +6,57 @@
 
 // copyvertex.inc.h: Implementation of vertex buffer copying and conversion functions
 
+#ifdef UNSAFE_BUFFERS_BUILD
+#    pragma allow_unsafe_buffers
+#endif
+
+#include <array>
+
 namespace rx
 {
+
+// Returns an aligned buffer to read the input from
+template <typename T, size_t inputComponentCount>
+inline const T *GetAlignedOffsetInput(const T *offsetInput, T *alignedElement)
+{
+    if (reinterpret_cast<uintptr_t>(offsetInput) % sizeof(T) != 0)
+    {
+        // Applications may pass in arbitrarily aligned buffers as input.
+        // Certain architectures have restrictions regarding unaligned reads. Specifically, we crash
+        // on armeabi-v7a devices with a SIGBUS error when performing such operations. arm64 and
+        // x86-64 devices do not appear to have such issues.
+        //
+        // The workaround is to detect if the input buffer is unaligned and if so, perform a
+        // byte-wise copy of the unaligned portion and a memcpy of the rest of the buffer.
+        uint8_t *alignedBuffer               = reinterpret_cast<uint8_t *>(&alignedElement[0]);
+        uintptr_t unalignedInputStartAddress = reinterpret_cast<uintptr_t>(offsetInput);
+        constexpr size_t kAlignmentMinusOne  = sizeof(T) - 1;
+        uintptr_t alignedInputStartAddress =
+            (reinterpret_cast<uintptr_t>(offsetInput) + kAlignmentMinusOne) & ~(kAlignmentMinusOne);
+        ASSERT(alignedInputStartAddress >= unalignedInputStartAddress);
+
+        const size_t totalBytesToCopy     = sizeof(T) * inputComponentCount;
+        const size_t unalignedBytesToCopy = alignedInputStartAddress - unalignedInputStartAddress;
+        ASSERT(totalBytesToCopy >= unalignedBytesToCopy);
+
+        // byte-wise copy of unaligned portion
+        for (size_t i = 0; i < unalignedBytesToCopy; i++)
+        {
+            alignedBuffer[i] = reinterpret_cast<const uint8_t *>(&offsetInput[0])[i];
+        }
+
+        // memcpy remaining buffer
+        memcpy(&alignedBuffer[unalignedBytesToCopy],
+               &reinterpret_cast<const uint8_t *>(&offsetInput[0])[unalignedBytesToCopy],
+               totalBytesToCopy - unalignedBytesToCopy);
+
+        return alignedElement;
+    }
+    else
+    {
+        return offsetInput;
+    }
+}
 
 template <typename T,
           size_t inputComponentCount,
@@ -25,10 +74,14 @@ inline void CopyNativeVertexData(const uint8_t *input, size_t stride, size_t cou
 
     if (inputComponentCount == outputComponentCount)
     {
+        std::array<T, inputComponentCount> offsetInputAligned;
         for (size_t i = 0; i < count; i++)
         {
             const T *offsetInput = reinterpret_cast<const T *>(input + (i * stride));
-            T *offsetOutput      = reinterpret_cast<T *>(output) + i * outputComponentCount;
+            offsetInput = GetAlignedOffsetInput<T, inputComponentCount>(offsetInput,
+                                                                        offsetInputAligned.data());
+
+            T *offsetOutput = reinterpret_cast<T *>(output) + i * outputComponentCount;
 
             memcpy(offsetOutput, offsetInput, attribSize);
         }
@@ -38,10 +91,15 @@ inline void CopyNativeVertexData(const uint8_t *input, size_t stride, size_t cou
     const T defaultAlphaValue                = gl::bitCast<T>(alphaDefaultValueBits);
     const size_t lastNonAlphaOutputComponent = std::min<size_t>(outputComponentCount, 3);
 
+    std::array<T, inputComponentCount> offsetInputAligned;
+    ASSERT(sizeof(offsetInputAligned) == attribSize);
     for (size_t i = 0; i < count; i++)
     {
         const T *offsetInput = reinterpret_cast<const T *>(input + (i * stride));
-        T *offsetOutput      = reinterpret_cast<T *>(output) + i * outputComponentCount;
+        offsetInput =
+            GetAlignedOffsetInput<T, inputComponentCount>(offsetInput, offsetInputAligned.data());
+
+        T *offsetOutput = reinterpret_cast<T *>(output) + i * outputComponentCount;
 
         memcpy(offsetOutput, offsetInput, attribSize);
 
@@ -177,44 +235,75 @@ inline void Copy32FixedTo32FVertexData(const uint8_t *input,
     }
 }
 
-template <typename T, size_t inputComponentCount, size_t outputComponentCount, bool normalized>
-inline void CopyTo32FVertexData(const uint8_t *input, size_t stride, size_t count, uint8_t *output)
+template <typename T,
+          size_t inputComponentCount,
+          size_t outputComponentCount,
+          bool normalized,
+          bool toHalf>
+inline void CopyToFloatVertexData(const uint8_t *input,
+                                  size_t stride,
+                                  size_t count,
+                                  uint8_t *output)
 {
     typedef std::numeric_limits<T> NL;
+    typedef typename std::conditional<toHalf, GLhalf, float>::type outputType;
 
+    std::array<T, inputComponentCount> offsetInputAligned;
     for (size_t i = 0; i < count; i++)
     {
         const T *offsetInput = reinterpret_cast<const T *>(input + (stride * i));
-        float *offsetOutput  = reinterpret_cast<float *>(output) + i * outputComponentCount;
+        outputType *offsetOutput =
+            reinterpret_cast<outputType *>(output) + i * outputComponentCount;
+
+        offsetInput =
+            GetAlignedOffsetInput<T, inputComponentCount>(offsetInput, offsetInputAligned.data());
 
         for (size_t j = 0; j < inputComponentCount; j++)
         {
+            float result = 0;
+
             if (normalized)
             {
                 if (NL::is_signed)
                 {
-                    offsetOutput[j] = static_cast<float>(offsetInput[j]) / NL::max();
-                    offsetOutput[j] = (offsetOutput[j] >= -1.0f) ? (offsetOutput[j]) : (-1.0f);
+                    result = static_cast<float>(offsetInput[j]) / static_cast<float>(NL::max());
+                    result = result >= -1.0f ? result : -1.0f;
                 }
                 else
                 {
-                    offsetOutput[j] = static_cast<float>(offsetInput[j]) / NL::max();
+                    result = static_cast<float>(offsetInput[j]) / static_cast<float>(NL::max());
                 }
             }
             else
             {
-                offsetOutput[j] = static_cast<float>(offsetInput[j]);
+                result = static_cast<float>(offsetInput[j]);
+            }
+
+            if (toHalf)
+            {
+                offsetOutput[j] = gl::float32ToFloat16(result);
+            }
+            else
+            {
+                offsetOutput[j] = static_cast<outputType>(result);
             }
         }
 
-        // This would require special padding.
-        static_assert(!(inputComponentCount < 4 && outputComponentCount == 4),
-                      "An inputComponentCount less than 4 and an outputComponentCount equal to 4 "
-                      "is not supported.");
-
         for (size_t j = inputComponentCount; j < outputComponentCount; j++)
         {
-            offsetOutput[j] = 0.0f;
+            offsetOutput[j] = 0;
+        }
+
+        if (inputComponentCount < 4 && outputComponentCount == 4)
+        {
+            if (toHalf)
+            {
+                offsetOutput[3] = gl::Float16One;
+            }
+            else
+            {
+                offsetOutput[3] = static_cast<outputType>(1.0f);
+            }
         }
     }
 }
@@ -273,26 +362,21 @@ inline void CopyXYZ32FToX11Y11B10F(const uint8_t *input,
 namespace priv
 {
 
-template <bool isSigned, bool normalized, bool toFloat>
+template <bool isSigned, bool normalized, bool toFloat, bool toHalf>
 static inline void CopyPackedRGB(uint32_t data, uint8_t *output)
 {
     const uint32_t rgbSignMask  = 0x200;       // 1 set at the 9 bit
     const uint32_t negativeMask = 0xFFFFFC00;  // All bits from 10 to 31 set to 1
 
-    if (toFloat)
+    if (toFloat || toHalf)
     {
-        GLfloat *floatOutput = reinterpret_cast<GLfloat *>(output);
+        GLfloat finalValue = static_cast<GLfloat>(data);
         if (isSigned)
         {
-            GLfloat finalValue = 0;
             if (data & rgbSignMask)
             {
                 int negativeNumber = data | negativeMask;
                 finalValue         = static_cast<GLfloat>(negativeNumber);
-            }
-            else
-            {
-                finalValue = static_cast<GLfloat>(data);
             }
 
             if (normalized)
@@ -309,11 +393,7 @@ static inline void CopyPackedRGB(uint32_t data, uint8_t *output)
                 }
 
                 const int32_t halfRange = (maxValue - minValue) >> 1;
-                *floatOutput            = ((finalValue - minValue) / halfRange) - 1.0f;
-            }
-            else
-            {
-                *floatOutput = finalValue;
+                finalValue              = ((finalValue - minValue) / halfRange) - 1.0f;
             }
         }
         else
@@ -321,12 +401,17 @@ static inline void CopyPackedRGB(uint32_t data, uint8_t *output)
             if (normalized)
             {
                 const uint32_t maxValue = 0x3FF;  // 1 set in bits 0 through 9
-                *floatOutput = static_cast<GLfloat>(data) / static_cast<GLfloat>(maxValue);
+                finalValue /= static_cast<GLfloat>(maxValue);
             }
-            else
-            {
-                *floatOutput = static_cast<GLfloat>(data);
-            }
+        }
+
+        if (toHalf)
+        {
+            *reinterpret_cast<GLhalf *>(output) = gl::float32ToFloat16(finalValue);
+        }
+        else
+        {
+            *reinterpret_cast<GLfloat *>(output) = finalValue;
         }
     }
     else
@@ -352,12 +437,14 @@ static inline void CopyPackedRGB(uint32_t data, uint8_t *output)
     }
 }
 
-template <bool isSigned, bool normalized, bool toFloat>
+template <bool isSigned, bool normalized, bool toFloat, bool toHalf>
 inline void CopyPackedAlpha(uint32_t data, uint8_t *output)
 {
-    if (toFloat)
+    ASSERT(data >= 0 && data <= 3);
+
+    if (toFloat || toHalf)
     {
-        GLfloat *floatOutput = reinterpret_cast<GLfloat *>(output);
+        GLfloat finalValue = 0;
         if (isSigned)
         {
             if (normalized)
@@ -365,16 +452,16 @@ inline void CopyPackedAlpha(uint32_t data, uint8_t *output)
                 switch (data)
                 {
                     case 0x0:
-                        *floatOutput = 0.0f;
+                        finalValue = 0.0f;
                         break;
                     case 0x1:
-                        *floatOutput = 1.0f;
+                        finalValue = 1.0f;
                         break;
                     case 0x2:
-                        *floatOutput = -1.0f;
+                        finalValue = -1.0f;
                         break;
                     case 0x3:
-                        *floatOutput = -1.0f;
+                        finalValue = -1.0f;
                         break;
                     default:
                         UNREACHABLE();
@@ -385,16 +472,16 @@ inline void CopyPackedAlpha(uint32_t data, uint8_t *output)
                 switch (data)
                 {
                     case 0x0:
-                        *floatOutput = 0.0f;
+                        finalValue = 0.0f;
                         break;
                     case 0x1:
-                        *floatOutput = 1.0f;
+                        finalValue = 1.0f;
                         break;
                     case 0x2:
-                        *floatOutput = -2.0f;
+                        finalValue = -2.0f;
                         break;
                     case 0x3:
-                        *floatOutput = -1.0f;
+                        finalValue = -1.0f;
                         break;
                     default:
                         UNREACHABLE();
@@ -405,44 +492,21 @@ inline void CopyPackedAlpha(uint32_t data, uint8_t *output)
         {
             if (normalized)
             {
-                switch (data)
-                {
-                    case 0x0:
-                        *floatOutput = 0.0f / 3.0f;
-                        break;
-                    case 0x1:
-                        *floatOutput = 1.0f / 3.0f;
-                        break;
-                    case 0x2:
-                        *floatOutput = 2.0f / 3.0f;
-                        break;
-                    case 0x3:
-                        *floatOutput = 3.0f / 3.0f;
-                        break;
-                    default:
-                        UNREACHABLE();
-                }
+                finalValue = data / 3.0f;
             }
             else
             {
-                switch (data)
-                {
-                    case 0x0:
-                        *floatOutput = 0.0f;
-                        break;
-                    case 0x1:
-                        *floatOutput = 1.0f;
-                        break;
-                    case 0x2:
-                        *floatOutput = 2.0f;
-                        break;
-                    case 0x3:
-                        *floatOutput = 3.0f;
-                        break;
-                    default:
-                        UNREACHABLE();
-                }
+                finalValue = static_cast<float>(data);
             }
+        }
+
+        if (toHalf)
+        {
+            *reinterpret_cast<GLhalf *>(output) = gl::float32ToFloat16(finalValue);
+        }
+        else
+        {
+            *reinterpret_cast<GLfloat *>(output) = finalValue;
         }
     }
     else
@@ -470,37 +534,20 @@ inline void CopyPackedAlpha(uint32_t data, uint8_t *output)
         }
         else
         {
-            GLushort *uintOutput = reinterpret_cast<GLushort *>(output);
-            switch (data)
-            {
-                case 0x0:
-                    *uintOutput = 0;
-                    break;
-                case 0x1:
-                    *uintOutput = 1;
-                    break;
-                case 0x2:
-                    *uintOutput = 2;
-                    break;
-                case 0x3:
-                    *uintOutput = 3;
-                    break;
-                default:
-                    UNREACHABLE();
-            }
+            *reinterpret_cast<GLushort *>(output) = static_cast<GLushort>(data);
         }
     }
 }
 
 }  // namespace priv
 
-template <bool isSigned, bool normalized, bool toFloat>
-inline void CopyXYZ10W2ToXYZW32FVertexData(const uint8_t *input,
-                                           size_t stride,
-                                           size_t count,
-                                           uint8_t *output)
+template <bool isSigned, bool normalized, bool toFloat, bool toHalf>
+inline void CopyXYZ10W2ToXYZWFloatVertexData(const uint8_t *input,
+                                             size_t stride,
+                                             size_t count,
+                                             uint8_t *output)
 {
-    const size_t outputComponentSize = toFloat ? 4 : 2;
+    const size_t outputComponentSize = toFloat && !toHalf ? 4 : 2;
     const size_t componentCount      = 4;
 
     const uint32_t rgbMask  = 0x3FF;  // 1 set in bits 0 through 9
@@ -516,24 +563,24 @@ inline void CopyXYZ10W2ToXYZW32FVertexData(const uint8_t *input,
         GLuint packedValue    = *reinterpret_cast<const GLuint *>(input + (i * stride));
         uint8_t *offsetOutput = output + (i * outputComponentSize * componentCount);
 
-        priv::CopyPackedRGB<isSigned, normalized, toFloat>(
+        priv::CopyPackedRGB<isSigned, normalized, toFloat, toHalf>(
             (packedValue >> redShift) & rgbMask, offsetOutput + (0 * outputComponentSize));
-        priv::CopyPackedRGB<isSigned, normalized, toFloat>(
+        priv::CopyPackedRGB<isSigned, normalized, toFloat, toHalf>(
             (packedValue >> greenShift) & rgbMask, offsetOutput + (1 * outputComponentSize));
-        priv::CopyPackedRGB<isSigned, normalized, toFloat>(
+        priv::CopyPackedRGB<isSigned, normalized, toFloat, toHalf>(
             (packedValue >> blueShift) & rgbMask, offsetOutput + (2 * outputComponentSize));
-        priv::CopyPackedAlpha<isSigned, normalized, toFloat>(
+        priv::CopyPackedAlpha<isSigned, normalized, toFloat, toHalf>(
             (packedValue >> alphaShift) & alphaMask, offsetOutput + (3 * outputComponentSize));
     }
 }
 
-template <bool isSigned, bool normalized>
-inline void CopyXYZ10ToXYZW32FVertexData(const uint8_t *input,
-                                         size_t stride,
-                                         size_t count,
-                                         uint8_t *output)
+template <bool isSigned, bool normalized, bool toHalf>
+inline void CopyXYZ10ToXYZWFloatVertexData(const uint8_t *input,
+                                           size_t stride,
+                                           size_t count,
+                                           uint8_t *output)
 {
-    const size_t outputComponentSize = 4;
+    const size_t outputComponentSize = toHalf ? 2 : 4;
     const size_t componentCount      = 4;
 
     const uint32_t rgbMask  = 0x3FF;  // 1 set in bits 0 through 9
@@ -548,24 +595,24 @@ inline void CopyXYZ10ToXYZW32FVertexData(const uint8_t *input,
         GLuint packedValue    = *reinterpret_cast<const GLuint *>(input + (i * stride));
         uint8_t *offsetOutput = output + (i * outputComponentSize * componentCount);
 
-        priv::CopyPackedRGB<isSigned, normalized, true>((packedValue >> redShift) & rgbMask,
-                                                        offsetOutput + (0 * outputComponentSize));
-        priv::CopyPackedRGB<isSigned, normalized, true>((packedValue >> greenShift) & rgbMask,
-                                                        offsetOutput + (1 * outputComponentSize));
-        priv::CopyPackedRGB<isSigned, normalized, true>((packedValue >> blueShift) & rgbMask,
-                                                        offsetOutput + (2 * outputComponentSize));
-        priv::CopyPackedAlpha<isSigned, normalized, true>(alphaDefaultValueBits,
-                                                          offsetOutput + (3 * outputComponentSize));
+        priv::CopyPackedRGB<isSigned, normalized, true, toHalf>(
+            (packedValue >> redShift) & rgbMask, offsetOutput + (0 * outputComponentSize));
+        priv::CopyPackedRGB<isSigned, normalized, true, toHalf>(
+            (packedValue >> greenShift) & rgbMask, offsetOutput + (1 * outputComponentSize));
+        priv::CopyPackedRGB<isSigned, normalized, true, toHalf>(
+            (packedValue >> blueShift) & rgbMask, offsetOutput + (2 * outputComponentSize));
+        priv::CopyPackedAlpha<isSigned, normalized, true, toHalf>(
+            alphaDefaultValueBits, offsetOutput + (3 * outputComponentSize));
     }
 }
 
-template <bool isSigned, bool normalized>
-inline void CopyW2XYZ10ToXYZW32FVertexData(const uint8_t *input,
-                                           size_t stride,
-                                           size_t count,
-                                           uint8_t *output)
+template <bool isSigned, bool normalized, bool toHalf>
+inline void CopyW2XYZ10ToXYZWFloatVertexData(const uint8_t *input,
+                                             size_t stride,
+                                             size_t count,
+                                             uint8_t *output)
 {
-    const size_t outputComponentSize = 4;
+    const size_t outputComponentSize = toHalf ? 2 : 4;
     const size_t componentCount      = 4;
 
     const uint32_t rgbMask  = 0x3FF;  // 1 set in bits 0 through 9
@@ -581,14 +628,14 @@ inline void CopyW2XYZ10ToXYZW32FVertexData(const uint8_t *input,
         GLuint packedValue    = *reinterpret_cast<const GLuint *>(input + (i * stride));
         uint8_t *offsetOutput = output + (i * outputComponentSize * componentCount);
 
-        priv::CopyPackedRGB<isSigned, normalized, true>((packedValue >> redShift) & rgbMask,
-                                                        offsetOutput + (0 * outputComponentSize));
-        priv::CopyPackedRGB<isSigned, normalized, true>((packedValue >> greenShift) & rgbMask,
-                                                        offsetOutput + (1 * outputComponentSize));
-        priv::CopyPackedRGB<isSigned, normalized, true>((packedValue >> blueShift) & rgbMask,
-                                                        offsetOutput + (2 * outputComponentSize));
-        priv::CopyPackedAlpha<isSigned, normalized, true>((packedValue >> alphaShift) & alphaMask,
-                                                          offsetOutput + (3 * outputComponentSize));
+        priv::CopyPackedRGB<isSigned, normalized, true, toHalf>(
+            (packedValue >> redShift) & rgbMask, offsetOutput + (0 * outputComponentSize));
+        priv::CopyPackedRGB<isSigned, normalized, true, toHalf>(
+            (packedValue >> greenShift) & rgbMask, offsetOutput + (1 * outputComponentSize));
+        priv::CopyPackedRGB<isSigned, normalized, true, toHalf>(
+            (packedValue >> blueShift) & rgbMask, offsetOutput + (2 * outputComponentSize));
+        priv::CopyPackedAlpha<isSigned, normalized, true, toHalf>(
+            (packedValue >> alphaShift) & alphaMask, offsetOutput + (3 * outputComponentSize));
     }
 }
 }  // namespace rx

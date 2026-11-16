@@ -25,10 +25,11 @@
 
 [
     Conditional=WEB_RTC,
-    EnabledBySetting=PeerConnection
+    EnabledBySetting=PeerConnectionEnabled
 ] enum RTCRtpTransceiverDirection {
     "sendrecv",
     "sendonly",
     "recvonly",
-    "inactive"
+    "inactive",
+    "stopped"
 };

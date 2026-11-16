@@ -37,16 +37,20 @@
 #include "WKRetainPtr.h"
 #include "WKString.h"
 #include "WebPage.h"
+#include <WebCore/CSSStyleProperties.h>
 #include <WebCore/DocumentFragment.h>
-#include <WebCore/StyleProperties.h>
+#include <WebCore/MutableStyleProperties.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebKit {
 using namespace WebCore;
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(InjectedBundlePageEditorClient);
+
 static RefPtr<InjectedBundleCSSStyleDeclarationHandle> createHandle(const StyleProperties& style)
 {
-    return InjectedBundleCSSStyleDeclarationHandle::getOrCreate(&style.mutableCopy()->ensureCSSStyleDeclaration());
+    return InjectedBundleCSSStyleDeclarationHandle::getOrCreate(Ref { style.mutableCopy()->ensureCSSStyleProperties() }.ptr());
 }
 
 InjectedBundlePageEditorClient::InjectedBundlePageEditorClient(const WKBundlePageEditorClientBase& client)
@@ -152,12 +156,12 @@ void InjectedBundlePageEditorClient::getPasteboardDataForRange(WebPage& page, co
 
         ASSERT(typesArray->size() == dataArray->size());
 
-        for (auto type : typesArray->elementsOfType<API::String>())
+        for (RefPtr type : typesArray->elementsOfType<API::String>())
             pasteboardTypes.append(type->string());
 
-        for (auto item : dataArray->elementsOfType<API::Data>()) {
-            auto buffer = SharedBuffer::create(item->bytes(), item->size());
-            pasteboardData.append(WTFMove(buffer));
+        for (RefPtr item : dataArray->elementsOfType<API::Data>()) {
+            auto buffer = SharedBuffer::create(item->span());
+            pasteboardData.append(WTF::move(buffer));
         }
     }
 }

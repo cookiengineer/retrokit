@@ -29,24 +29,238 @@
 #if ENABLE(DFG_JIT)
 
 #include "CodeBlock.h"
+#include "DFGThunks.h"
 #include "FTLForOSREntryJITCode.h"
+#include "JumpTable.h"
 
 namespace JSC { namespace DFG {
 
-JITCode::JITCode()
+JITData::JITData(unsigned propertyCacheSize, unsigned poolSize, const JITCode& jitCode, ExitVector&& exits)
+    : Base(propertyCacheSize, poolSize)
+    , m_callLinkInfos(jitCode.m_unlinkedCallLinkInfos.size())
+    , m_exits(WTF::move(exits))
+{
+    unsigned numberOfWatchpoints = 0;
+    for (unsigned i = 0; i < jitCode.m_linkerIR.size(); ++i) {
+        auto entry = jitCode.m_linkerIR.at(i);
+        switch (entry.type()) {
+        case LinkerIR::Type::HavingABadTimeWatchpointSet:
+        case LinkerIR::Type::MasqueradesAsUndefinedWatchpointSet:
+        case LinkerIR::Type::ArrayBufferDetachWatchpointSet:
+        case LinkerIR::Type::ArrayIteratorProtocolWatchpointSet:
+        case LinkerIR::Type::SetIteratorProtocolWatchpointSet:
+        case LinkerIR::Type::NumberToStringWatchpointSet:
+        case LinkerIR::Type::StructureCacheClearedWatchpointSet:
+        case LinkerIR::Type::StringToStringWatchpointSet:
+        case LinkerIR::Type::StringValueOfWatchpointSet:
+        case LinkerIR::Type::StringSymbolMatchWatchpointSet:
+        case LinkerIR::Type::StringSymbolSearchWatchpointSet:
+        case LinkerIR::Type::StringSymbolReplaceWatchpointSet:
+        case LinkerIR::Type::StringSymbolSplitWatchpointSet:
+        case LinkerIR::Type::StringSymbolToPrimitiveWatchpointSet:
+        case LinkerIR::Type::RegExpPrimordialPropertiesWatchpointSet:
+        case LinkerIR::Type::RegExpSpeciesWatchpointSet:
+        case LinkerIR::Type::PromiseThenWatchpointSet:
+        case LinkerIR::Type::ArraySpeciesWatchpointSet:
+        case LinkerIR::Type::ArrayPrototypeChainIsSaneWatchpointSet:
+        case LinkerIR::Type::StringPrototypeChainIsSaneWatchpointSet:
+        case LinkerIR::Type::ObjectPrototypeChainIsSaneWatchpointSet:
+        case LinkerIR::Type::PromiseSpeciesWatchpointSet: {
+            ++numberOfWatchpoints;
+            break;
+        }
+        case LinkerIR::Type::Invalid:
+        case LinkerIR::Type::CallLinkInfo:
+        case LinkerIR::Type::CellPointer:
+        case LinkerIR::Type::NonCellPointer:
+        case LinkerIR::Type::GlobalObject:
+            break;
+        }
+    }
+    m_watchpoints = FixedVector<CodeBlockJettisoningWatchpoint>(numberOfWatchpoints);
+}
+
+template<typename WatchpointSet>
+static bool attemptToWatch(CodeBlock* codeBlock, WatchpointSet& set, CodeBlockJettisoningWatchpoint& watchpoint)
+{
+    if (set.hasBeenInvalidated())
+        return false;
+    {
+        ConcurrentJSLocker locker(codeBlock->m_lock);
+        watchpoint.initialize(codeBlock);
+    }
+    set.add(&watchpoint);
+    return true;
+}
+
+bool JITData::tryInitialize(VM& vm, CodeBlock* codeBlock, const JITCode& jitCode)
+{
+    m_globalObject = codeBlock->globalObject();
+    m_stackOffset = codeBlock->stackPointerOffset() * sizeof(Register);
+
+    for (unsigned index = 0; index < jitCode.m_unlinkedPropertyInlineCaches.size(); ++index) {
+        const UnlinkedPropertyInlineCache& unlinkedPropertyCache = jitCode.m_unlinkedPropertyInlineCaches[index];
+        propertyCache(index).initializeFromDFGUnlinkedPropertyInlineCache(codeBlock, unlinkedPropertyCache);
+    }
+
+    unsigned indexOfWatchpoints = 0;
+    bool success = true;
+    for (unsigned i = 0; i < jitCode.m_linkerIR.size(); ++i) {
+        auto entry = jitCode.m_linkerIR.at(i);
+        switch (entry.type()) {
+        case LinkerIR::Type::Invalid: {
+            trailingSpan()[i] = entry.pointer();
+            break;
+        }
+        case LinkerIR::Type::CallLinkInfo: {
+            unsigned index = std::bit_cast<uintptr_t>(entry.pointer());
+            const UnlinkedCallLinkInfo& unlinkedCallLinkInfo = jitCode.m_unlinkedCallLinkInfos[index];
+            OptimizingCallLinkInfo& callLinkInfo = m_callLinkInfos[index];
+            callLinkInfo.initializeFromDFGUnlinkedCallLinkInfo(vm, unlinkedCallLinkInfo, codeBlock);
+            trailingSpan()[i] = &callLinkInfo;
+            break;
+        }
+        case LinkerIR::Type::CellPointer: {
+            trailingSpan()[i] = entry.pointer();
+            break;
+        }
+        case LinkerIR::Type::NonCellPointer: {
+            trailingSpan()[i] = entry.pointer();
+            break;
+        }
+        case LinkerIR::Type::GlobalObject: {
+            trailingSpan()[i] = codeBlock->globalObject();
+            break;
+        }
+        case LinkerIR::Type::HavingABadTimeWatchpointSet: {
+            auto& watchpoint = m_watchpoints[indexOfWatchpoints++];
+            success &= attemptToWatch(codeBlock, m_globalObject->havingABadTimeWatchpointSet(), watchpoint);
+            break;
+        }
+        case LinkerIR::Type::MasqueradesAsUndefinedWatchpointSet: {
+            auto& watchpoint = m_watchpoints[indexOfWatchpoints++];
+            success &= attemptToWatch(codeBlock, m_globalObject->masqueradesAsUndefinedWatchpointSet(), watchpoint);
+            break;
+        }
+        case LinkerIR::Type::ArrayBufferDetachWatchpointSet: {
+            auto& watchpoint = m_watchpoints[indexOfWatchpoints++];
+            success &= attemptToWatch(codeBlock, m_globalObject->arrayBufferDetachWatchpointSet(), watchpoint);
+            break;
+        }
+        case LinkerIR::Type::ArrayIteratorProtocolWatchpointSet: {
+            auto& watchpoint = m_watchpoints[indexOfWatchpoints++];
+            success &= attemptToWatch(codeBlock, m_globalObject->arrayIteratorProtocolWatchpointSet(), watchpoint);
+            break;
+        }
+        case LinkerIR::Type::SetIteratorProtocolWatchpointSet: {
+            auto& watchpoint = m_watchpoints[indexOfWatchpoints++];
+            success &= attemptToWatch(codeBlock, m_globalObject->setIteratorProtocolWatchpointSet(), watchpoint);
+            break;
+        }
+        case LinkerIR::Type::NumberToStringWatchpointSet: {
+            auto& watchpoint = m_watchpoints[indexOfWatchpoints++];
+            success &= attemptToWatch(codeBlock, m_globalObject->numberToStringWatchpointSet(), watchpoint);
+            break;
+        }
+        case LinkerIR::Type::StructureCacheClearedWatchpointSet: {
+            auto& watchpoint = m_watchpoints[indexOfWatchpoints++];
+            success &= attemptToWatch(codeBlock, m_globalObject->structureCacheClearedWatchpointSet(), watchpoint);
+            break;
+        }
+        case LinkerIR::Type::StringToStringWatchpointSet: {
+            auto& watchpoint = m_watchpoints[indexOfWatchpoints++];
+            success &= attemptToWatch(codeBlock, m_globalObject->stringToStringWatchpointSet(), watchpoint);
+            break;
+        }
+        case LinkerIR::Type::StringValueOfWatchpointSet: {
+            auto& watchpoint = m_watchpoints[indexOfWatchpoints++];
+            success &= attemptToWatch(codeBlock, m_globalObject->stringValueOfWatchpointSet(), watchpoint);
+            break;
+        }
+        case LinkerIR::Type::StringSymbolMatchWatchpointSet: {
+            auto& watchpoint = m_watchpoints[indexOfWatchpoints++];
+            success &= attemptToWatch(codeBlock, m_globalObject->stringSymbolMatchWatchpointSet(), watchpoint);
+            break;
+        }
+        case LinkerIR::Type::StringSymbolSearchWatchpointSet: {
+            auto& watchpoint = m_watchpoints[indexOfWatchpoints++];
+            success &= attemptToWatch(codeBlock, m_globalObject->stringSymbolSearchWatchpointSet(), watchpoint);
+            break;
+        }
+        case LinkerIR::Type::StringSymbolReplaceWatchpointSet: {
+            auto& watchpoint = m_watchpoints[indexOfWatchpoints++];
+            success &= attemptToWatch(codeBlock, m_globalObject->stringSymbolReplaceWatchpointSet(), watchpoint);
+            break;
+        }
+        case LinkerIR::Type::StringSymbolSplitWatchpointSet: {
+            auto& watchpoint = m_watchpoints[indexOfWatchpoints++];
+            success &= attemptToWatch(codeBlock, m_globalObject->stringSymbolSplitWatchpointSet(), watchpoint);
+            break;
+        }
+        case LinkerIR::Type::StringSymbolToPrimitiveWatchpointSet: {
+            auto& watchpoint = m_watchpoints[indexOfWatchpoints++];
+            success &= attemptToWatch(codeBlock, m_globalObject->stringSymbolToPrimitiveWatchpointSet(), watchpoint);
+            break;
+        }
+        case LinkerIR::Type::RegExpPrimordialPropertiesWatchpointSet: {
+            auto& watchpoint = m_watchpoints[indexOfWatchpoints++];
+            success &= attemptToWatch(codeBlock, m_globalObject->regExpPrimordialPropertiesWatchpointSet(), watchpoint);
+            break;
+        }
+        case LinkerIR::Type::RegExpSpeciesWatchpointSet: {
+            auto& watchpoint = m_watchpoints[indexOfWatchpoints++];
+            success &= attemptToWatch(codeBlock, m_globalObject->regExpSpeciesWatchpointSet(), watchpoint);
+            break;
+        }
+        case LinkerIR::Type::PromiseThenWatchpointSet: {
+            auto& watchpoint = m_watchpoints[indexOfWatchpoints++];
+            success &= attemptToWatch(codeBlock, m_globalObject->promiseThenWatchpointSet(), watchpoint);
+            break;
+        }
+        case LinkerIR::Type::ArraySpeciesWatchpointSet: {
+            auto& watchpoint = m_watchpoints[indexOfWatchpoints++];
+            success &= attemptToWatch(codeBlock, m_globalObject->arraySpeciesWatchpointSet(), watchpoint);
+            break;
+        }
+        case LinkerIR::Type::ArrayPrototypeChainIsSaneWatchpointSet: {
+            auto& watchpoint = m_watchpoints[indexOfWatchpoints++];
+            success &= attemptToWatch(codeBlock, m_globalObject->arrayPrototypeChainIsSaneWatchpointSet(), watchpoint);
+            break;
+        }
+        case LinkerIR::Type::StringPrototypeChainIsSaneWatchpointSet: {
+            auto& watchpoint = m_watchpoints[indexOfWatchpoints++];
+            success &= attemptToWatch(codeBlock, m_globalObject->stringPrototypeChainIsSaneWatchpointSet(), watchpoint);
+            break;
+        }
+        case LinkerIR::Type::ObjectPrototypeChainIsSaneWatchpointSet: {
+            auto& watchpoint = m_watchpoints[indexOfWatchpoints++];
+            success &= attemptToWatch(codeBlock, m_globalObject->objectPrototypeChainIsSaneWatchpointSet(), watchpoint);
+            break;
+        }
+        case LinkerIR::Type::PromiseSpeciesWatchpointSet: {
+            auto& watchpoint = m_watchpoints[indexOfWatchpoints++];
+            success &= attemptToWatch(codeBlock, m_globalObject->promiseSpeciesWatchpointSet(), watchpoint);
+            break;
+        }
+        }
+    }
+    return success;
+}
+
+JITCode::JITCode(bool isUnlinked)
     : DirectJITCode(JITType::DFGJIT)
-#if ENABLE(FTL_JIT)
-    , osrEntryRetry(0)
-    , abandonOSREntry(false)
-#endif // ENABLE(FTL_JIT)
+    , common(isUnlinked)
 {
 }
 
-JITCode::~JITCode()
-{
-}
+JITCode::~JITCode() = default;
 
 CommonData* JITCode::dfgCommon()
+{
+    return &common;
+}
+
+const CommonData* JITCode::dfgCommon() const
 {
     return &common;
 }
@@ -56,19 +270,17 @@ JITCode* JITCode::dfg()
     return this;
 }
 
-void JITCode::shrinkToFit(const ConcurrentJSLocker&)
+void JITCode::shrinkToFit()
 {
     common.shrinkToFit();
     minifiedDFG.prepareAndShrink();
-    variableEventStream.shrinkToFit();
 }
 
 void JITCode::reconstruct(
     CodeBlock* codeBlock, CodeOrigin codeOrigin, unsigned streamIndex,
     Operands<ValueRecovery>& result)
 {
-    variableEventStream.reconstruct(
-        codeBlock, codeOrigin, minifiedDFG, streamIndex, result);
+    variableEventStream.reconstruct(codeBlock, codeOrigin, minifiedDFG, streamIndex, result);
 }
 
 void JITCode::reconstruct(CallFrame* callFrame, CodeBlock* codeBlock, CodeOrigin codeOrigin, unsigned streamIndex, Operands<std::optional<JSValue>>& result)
@@ -92,13 +304,13 @@ RegisterSet JITCode::liveRegistersToPreserveAtExceptionHandlingCallSite(CodeBloc
                 const ValueRecovery& recovery = valueRecoveries[index];
                 if (recovery.isInRegisters()) {
                     if (recovery.isInGPR())
-                        liveAtOSRExit.set(recovery.gpr());
+                        liveAtOSRExit.add(recovery.gpr(), IgnoreVectors);
                     else if (recovery.isInFPR())
-                        liveAtOSRExit.set(recovery.fpr());
+                        liveAtOSRExit.add(recovery.fpr(), IgnoreVectors);
 #if USE(JSVALUE32_64)
                     else if (recovery.isInJSValueRegs()) {
-                        liveAtOSRExit.set(recovery.payloadGPR());
-                        liveAtOSRExit.set(recovery.tagGPR());
+                        liveAtOSRExit.add(recovery.payloadGPR(), IgnoreVectors);
+                        liveAtOSRExit.add(recovery.tagGPR(), IgnoreVectors);
                     }
 #endif
                     else
@@ -117,21 +329,21 @@ RegisterSet JITCode::liveRegistersToPreserveAtExceptionHandlingCallSite(CodeBloc
 bool JITCode::checkIfOptimizationThresholdReached(CodeBlock* codeBlock)
 {
     ASSERT(codeBlock->jitType() == JITType::DFGJIT);
-    return tierUpCounter.checkIfThresholdCrossedAndSet(codeBlock);
+    return codeBlock->dfgJITData()->tierUpCounter().checkIfThresholdCrossedAndSet(codeBlock);
 }
 
 void JITCode::optimizeNextInvocation(CodeBlock* codeBlock)
 {
     ASSERT(codeBlock->jitType() == JITType::DFGJIT);
     dataLogLnIf(Options::verboseOSR(), *codeBlock, ": FTL-optimizing next invocation.");
-    tierUpCounter.setNewThreshold(0, codeBlock);
+    codeBlock->dfgJITData()->tierUpCounter().setNewThreshold(0, codeBlock);
 }
 
 void JITCode::dontOptimizeAnytimeSoon(CodeBlock* codeBlock)
 {
     ASSERT(codeBlock->jitType() == JITType::DFGJIT);
     dataLogLnIf(Options::verboseOSR(), *codeBlock, ": Not FTL-optimizing anytime soon.");
-    tierUpCounter.deferIndefinitely();
+    codeBlock->dfgJITData()->tierUpCounter().deferIndefinitely();
 }
 
 void JITCode::optimizeAfterWarmUp(CodeBlock* codeBlock)
@@ -139,9 +351,12 @@ void JITCode::optimizeAfterWarmUp(CodeBlock* codeBlock)
     ASSERT(codeBlock->jitType() == JITType::DFGJIT);
     dataLogLnIf(Options::verboseOSR(), *codeBlock, ": FTL-optimizing after warm-up.");
     CodeBlock* baseline = codeBlock->baselineVersion();
-    tierUpCounter.setNewThreshold(
-        baseline->adjustedCounterValue(Options::thresholdForFTLOptimizeAfterWarmUp()),
-        baseline);
+    int32_t threshold = Options::thresholdForFTLOptimizeAfterWarmUp();
+    if (baseline->unlinkedCodeBlock()->isQuickFTLTierUp()) {
+        threshold = static_cast<int32_t>(threshold * Options::quickFTLTierUpThresholdFactor());
+        dataLogLnIf(Options::verboseOSR(), *codeBlock, ": Quick FTL tier-up enabled and code is stable, adjustedThreshold=", threshold, ", finalThreshold=", baseline->adjustedCounterValue(threshold));
+    }
+    codeBlock->dfgJITData()->tierUpCounter().setNewThreshold(baseline->adjustedCounterValue(threshold), baseline);
 }
 
 void JITCode::optimizeSoon(CodeBlock* codeBlock)
@@ -149,16 +364,14 @@ void JITCode::optimizeSoon(CodeBlock* codeBlock)
     ASSERT(codeBlock->jitType() == JITType::DFGJIT);
     dataLogLnIf(Options::verboseOSR(), *codeBlock, ": FTL-optimizing soon.");
     CodeBlock* baseline = codeBlock->baselineVersion();
-    tierUpCounter.setNewThreshold(
-        baseline->adjustedCounterValue(Options::thresholdForFTLOptimizeSoon()),
-        codeBlock);
+    codeBlock->dfgJITData()->tierUpCounter().setNewThreshold(baseline->adjustedCounterValue(Options::thresholdForFTLOptimizeSoon()), codeBlock);
 }
 
 void JITCode::forceOptimizationSlowPathConcurrently(CodeBlock* codeBlock)
 {
     ASSERT(codeBlock->jitType() == JITType::DFGJIT);
     dataLogLnIf(Options::verboseOSR(), *codeBlock, ": Forcing slow path concurrently for FTL entry.");
-    tierUpCounter.forceSlowPathConcurrently();
+    codeBlock->dfgJITData()->tierUpCounter().forceSlowPathConcurrently();
 }
 
 void JITCode::setOptimizationThresholdBasedOnCompilationResult(
@@ -166,18 +379,19 @@ void JITCode::setOptimizationThresholdBasedOnCompilationResult(
 {
     ASSERT(codeBlock->jitType() == JITType::DFGJIT);
     switch (result) {
-    case CompilationSuccessful:
+    case CompilationResult::CompilationSuccessful:
         optimizeNextInvocation(codeBlock);
         codeBlock->baselineVersion()->m_hasBeenCompiledWithFTL = true;
         return;
-    case CompilationFailed:
+    case CompilationResult::CompilationFailed:
         dontOptimizeAnytimeSoon(codeBlock);
         codeBlock->baselineVersion()->m_didFailFTLCompilation = true;
+        codeBlock->didFailFTLCompilation();
         return;
-    case CompilationDeferred:
+    case CompilationResult::CompilationDeferred:
         optimizeAfterWarmUp(codeBlock);
         return;
-    case CompilationInvalidated:
+    case CompilationResult::CompilationInvalidated:
         // This is weird - it will only happen in cases when the DFG code block (i.e.
         // the code block that this JITCode belongs to) is also invalidated. So it
         // doesn't really matter what we do. But, we do the right thing anyway. Note
@@ -195,7 +409,7 @@ void JITCode::setOSREntryBlock(VM& vm, const JSCell* owner, CodeBlock* osrEntryB
 {
     if (Options::verboseOSR()) {
         dataLogLn(RawPointer(this), ": Setting OSR entry block to ", RawPointer(osrEntryBlock));
-        dataLogLn("OSR entries will go to ", osrEntryBlock->jitCode()->ftlForOSREntry()->addressForCall(ArityCheckNotRequired));
+        dataLogLn("OSR entries will go to ", osrEntryBlock->jitCode()->ftlForOSREntry()->addressForCall(ArityCheckMode::ArityCheckNotRequired));
     }
     m_osrEntryBlock.set(vm, owner, osrEntryBlock);
 }
@@ -208,7 +422,7 @@ void JITCode::clearOSREntryBlockAndResetThresholds(CodeBlock *dfgCodeBlock)
     m_osrEntryBlock.clear();
     osrEntryRetry = 0;
     tierUpEntryTriggers.set(osrEntryBytecode, JITCode::TriggerReason::DontTrigger);
-    setOptimizationThresholdBasedOnCompilationResult(dfgCodeBlock, CompilationDeferred);
+    setOptimizationThresholdBasedOnCompilationResult(dfgCodeBlock, CompilationResult::CompilationDeferred);
 }
 #endif // ENABLE(FTL_JIT)
 
@@ -224,12 +438,19 @@ void JITCode::validateReferences(const TrackedReferences& trackedReferences)
     minifiedDFG.validateReferences(trackedReferences);
 }
 
-std::optional<CodeOrigin> JITCode::findPC(CodeBlock*, void* pc)
+std::optional<CodeOrigin> JITCode::findPC(CodeBlock* codeBlock, void* pc)
 {
-    for (OSRExit& exit : m_osrExit) {
-        if (ExecutableMemoryHandle* handle = exit.m_code.executableMemory()) {
-            if (handle->start().untaggedPtr() <= pc && pc < handle->end().untaggedPtr())
-                return std::optional<CodeOrigin>(exit.m_codeOriginForExitProfile);
+    const auto* jitData = codeBlock->dfgJITData();
+    auto osrExitThunk = codeBlock->vm().getCTIStub(osrExitGenerationThunkGenerator).retagged<OSRExitPtrTag>();
+    for (unsigned exitIndex = 0; exitIndex < m_osrExit.size(); ++exitIndex) {
+        const auto& codeRef = jitData->exitCode(exitIndex);
+        if (ExecutableMemoryHandle* handle = codeRef.executableMemory()) {
+            if (handle != osrExitThunk.executableMemory()) {
+                if (handle->start().untaggedPtr() <= pc && pc < handle->end().untaggedPtr()) {
+                    OSRExit& exit = m_osrExit[exitIndex];
+                    return std::optional<CodeOrigin>(exit.m_codeOriginForExitProfile);
+                }
+            }
         }
     }
 
@@ -238,10 +459,7 @@ std::optional<CodeOrigin> JITCode::findPC(CodeBlock*, void* pc)
 
 void JITCode::finalizeOSREntrypoints(Vector<OSREntryData>&& osrEntry)
 {
-    auto comparator = [] (const auto& a, const auto& b) {
-        return a.m_bytecodeIndex < b.m_bytecodeIndex;
-    };
-    std::sort(osrEntry.begin(), osrEntry.end(), comparator);
+    std::ranges::sort(osrEntry, { }, &OSREntryData::m_bytecodeIndex);
 
 #if ASSERT_ENABLED
     auto verifyIsSorted = [&] (auto& osrVector) {
@@ -250,7 +468,7 @@ void JITCode::finalizeOSREntrypoints(Vector<OSREntryData>&& osrEntry)
     };
     verifyIsSorted(osrEntry);
 #endif
-    m_osrEntry = WTFMove(osrEntry);
+    m_osrEntry = WTF::move(osrEntry);
 }
 
 } } // namespace JSC::DFG

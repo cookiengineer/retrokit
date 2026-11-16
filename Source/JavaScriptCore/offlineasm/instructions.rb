@@ -1,4 +1,4 @@
-# Copyright (C) 2011-2020 Apple Inc. All rights reserved.
+# Copyright (C) 2011-2022 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -59,6 +59,7 @@ MACRO_INSTRUCTIONS =
      "rrotateq",
      "subi",
      "xori",
+     "load2ia",
      "loadi",
      "loadis",
      "loadb",
@@ -67,14 +68,20 @@ MACRO_INSTRUCTIONS =
      "loadh",
      "loadhsi",
      "loadhsq",
+     "store2ia",
      "storei",
      "storeh",
      "storeb",
+     "transferi",
+     "transferq",
+     "transferp",
      "loadf",
      "loadd",
+     "loadv",
      "moved",
      "storef",
      "stored",
+     "storev",
      "addf",
      "addd",
      "divf",
@@ -137,13 +144,16 @@ MACRO_INSTRUCTIONS =
      "bcd2i",
      "movdz",
      "pop",
+     "popv",
      "push",
+     "pushv",
      "move",
      "sxi2q",
      "zxi2q",
      "sxb2i",
      "sxh2i",
      "sxb2q",
+     "sxb2p",
      "sxh2q",
      "nop",
      "bieq",
@@ -373,13 +383,34 @@ X86_INSTRUCTIONS =
      "atomicloadi",
      "atomicloadq",
      "fence",
+     "adcq",
+     "sbcq",
+     "umulhq",
+     "smulhq",
+    ]
+
+X86_SIMD_INSTRUCTIONS =
+    [
     ]
 
 ARM_INSTRUCTIONS =
     [
+     "adci",
+     "bcs",
      "clrbp",
      "mvlbl",
-     "globaladdr"
+     "globaladdr",
+     "sbci",
+     "moveii",
+     "loadlinkb",
+     "loadlinkh",
+     "loadlinki",
+     "loadlink2i",
+     "storecondb",
+     "storecondh",
+     "storecondi",
+     "storecond2i",
+     "writefence",
     ]
 
 ARM64_INSTRUCTIONS =
@@ -387,11 +418,8 @@ ARM64_INSTRUCTIONS =
      "bfiq", # Bit field insert <source reg> <last bit written> <width immediate> <dest reg>
      "pcrtoaddr",   # Address from PC relative offset - adr instruction
      "globaladdr",
-     "divi",
-     "divis",
-     "divq",
-     "divqs",
      "notq",
+     "loadqinc",
      "loadlinkacqb",
      "loadlinkacqh",
      "loadlinkacqi",
@@ -430,15 +458,49 @@ ARM64_INSTRUCTIONS =
      "atomicloadh",
      "atomicloadi",
      "atomicloadq",
+     "loadpairq",
+     "loadpairp",
+     "loadpairi",
+     "storepairq",
+     "storepairp",
+     "storepairi",
+     "loadpaird",
+     "storepaird",
+     "loadpairv",
+     "storepairv",
+     "addlshiftp",
+     "addqs",
+     "subqs",
+     "adcq",
+     "sbcq",
+     "smulhq",
+     "umulhq"
+    ]
+
+ARM64_SIMD_INSTRUCTIONS =
+    [
+     "umovb",
+     "umovh",
+     "umovi",
+     "umovq",
     ]
 
 RISC_INSTRUCTIONS =
     [
      "smulli",  # Multiply two 32-bit words and produce a 64-bit word
+     "umulli",  # Multiply two 32-bit words and produce a 64-bit word
      "addis",   # Add integers and set a flag.
      "subis",   # Same, but for subtraction.
      "oris",    # Same, but for bitwise or.
-     "addps"    # addis but for pointers.
+     "addps",   # addis but for pointers.
+     "divi",
+     "divis",
+     "divq",
+     "divqs",
+     "remi",
+     "remis",
+     "remq",
+     "remqs"
     ]
 
 MIPS_INSTRUCTIONS =
@@ -459,6 +521,8 @@ CXX_INSTRUCTIONS =
      "cloopCallNative",         # operands: callee
      "cloopCallSlowPath",       # operands: callTarget, currentFrame, currentPC
      "cloopCallSlowPathVoid",   # operands: callTarget, currentFrame, currentPC
+     "cloopCallSlowPath3",      # operands: callTarget, a0, a1, a2
+     "cloopCallSlowPath4",      # operands: callTarget, a0, a1, a2, a3
 
      # For debugging only:
      # Takes no operands but simply emits whatever follows in // comments as
@@ -469,7 +533,7 @@ CXX_INSTRUCTIONS =
      "cloopDo",              # no operands
     ]
 
-INSTRUCTIONS = MACRO_INSTRUCTIONS + X86_INSTRUCTIONS + ARM_INSTRUCTIONS + ARM64_INSTRUCTIONS + RISC_INSTRUCTIONS + MIPS_INSTRUCTIONS + CXX_INSTRUCTIONS
+INSTRUCTIONS = MACRO_INSTRUCTIONS + X86_INSTRUCTIONS + X86_SIMD_INSTRUCTIONS + ARM_INSTRUCTIONS + ARM64_INSTRUCTIONS + ARM64_SIMD_INSTRUCTIONS + RISC_INSTRUCTIONS + MIPS_INSTRUCTIONS + CXX_INSTRUCTIONS
 
 INSTRUCTION_SET = INSTRUCTIONS.to_set
 

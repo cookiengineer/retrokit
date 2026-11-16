@@ -25,13 +25,14 @@
 
 #pragma once
 
-#if ENABLE(RESIZE_OBSERVER)
-
 #include "GCReachableRef.h"
 #include "ResizeObservation.h"
 #include "ResizeObserverCallback.h"
 #include <wtf/Lock.h>
-#include <wtf/RefCounted.h>
+#include <wtf/OrderedHashSet.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/WeakHashMap.h>
+#include <wtf/WeakHashSet.h>
 #include <wtf/WeakPtr.h>
 
 namespace JSC {
@@ -44,21 +45,28 @@ namespace WebCore {
 
 class Document;
 class Element;
+struct ResizeObserverOptions;
 
 struct ResizeObserverData {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED;
-    Vector<WeakPtr<ResizeObserver>> observers;
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(ResizeObserverData);
+    WeakHashSet<ResizeObserver> observers;
 };
 
-class ResizeObserver : public RefCounted<ResizeObserver>, public CanMakeWeakPtr<ResizeObserver> {
+using NativeResizeObserverCallback = void (*)(const Vector<Ref<ResizeObserverEntry>>&, ResizeObserver&);
+using JSOrNativeResizeObserverCallback = Variant<Ref<ResizeObserverCallback>, NativeResizeObserverCallback>;
+
+class ResizeObserver : public RefCountedAndCanMakeWeakPtr<ResizeObserver> {
+    WTF_MAKE_TZONE_ALLOCATED(ResizeObserver);
 public:
     static Ref<ResizeObserver> create(Document&, Ref<ResizeObserverCallback>&&);
+    static Ref<ResizeObserver> createNativeObserver(Document&, NativeResizeObserverCallback&&);
     ~ResizeObserver();
 
     bool hasObservations() const { return m_observations.size(); }
     bool hasActiveObservations() const { return m_activeObservations.size(); }
 
     void observe(Element&);
+    void observe(Element&, const ResizeObserverOptions&);
     void unobserve(Element&);
     void disconnect();
     void targetDestroyed(Element&);
@@ -69,25 +77,50 @@ public:
     bool hasSkippedObservations() const { return m_hasSkippedObservations; }
     void setHasSkippedObservations(bool skipped) { m_hasSkippedObservations = skipped; }
 
-    ResizeObserverCallback* callbackConcurrently() { return m_callback.get(); }
+    void resetObservationSize(Element&);
+
+    const Vector<WeakPtr<Element, WeakPtrImplWithEventTargetData>>& activeObservationTargets() const LIFETIME_BOUND WTF_REQUIRES_LOCK(m_observationTargetsLock) { return m_activeObservationTargets; }
+    const Vector<WeakPtr<Element, WeakPtrImplWithEventTargetData>>& targetsWaitingForFirstObservation() const LIFETIME_BOUND WTF_REQUIRES_LOCK(m_observationTargetsLock) { return m_targetsWaitingForFirstObservation; }
+    Lock& observationTargetsLock() LIFETIME_BOUND WTF_RETURNS_LOCK(m_observationTargetsLock) { return m_observationTargetsLock; }
+
+    ResizeObserverCallback* callbackConcurrently();
     bool isReachableFromOpaqueRoots(JSC::AbstractSlotVisitor&) const;
 
 private:
-    ResizeObserver(Document&, Ref<ResizeObserverCallback>&&);
+    ResizeObserver(Document&, JSOrNativeResizeObserverCallback&&);
 
     bool removeTarget(Element&);
     void removeAllTargets();
     bool removeObservation(const Element&);
+    void observeInternal(Element&, const ResizeObserverBoxOptions);
+    bool NODELETE isNativeCallback();
+    bool NODELETE isJSCallback();
 
-    WeakPtr<Document> m_document;
-    RefPtr<ResizeObserverCallback> m_callback;
-    Vector<Ref<ResizeObservation>> m_observations;
+    struct ResizeObservationHashFunctions {
+        using T = Ref<ResizeObservation>;
+        using PtrType = const ResizeObservation*;
+
+        static unsigned hash(const PtrType observation) { return PtrHash<Element*>::hash(observation->target()); }
+        static bool equal(const PtrType a, const PtrType b) { return a->target() == b->target(); }
+        static const bool safeToCompareToEmptyOrDeleted = true;
+
+        static unsigned hash(const T& observation) { return hash(observation.ptr()); }
+        static bool equal(const T& a, const T& b) { return equal(a.ptr(), b.ptr()); }
+        static bool equal(const PtrType a, const T& b) { return equal(a, b.ptr()); }
+        static bool equal(const T& a, const PtrType b) { return equal(a.ptr(), b); }
+    };
+
+    WeakPtr<Document, WeakPtrImplWithEventTargetData> m_document;
+    const JSOrNativeResizeObserverCallback m_JSOrNativeCallback;
+    OrderedHashSet<Ref<ResizeObservation>, ResizeObservationHashFunctions> m_observations;
+    WeakHashMap<Element, Ref<ResizeObservation>, WeakPtrImplWithEventTargetData> m_observationMap;
 
     Vector<Ref<ResizeObservation>> m_activeObservations;
-    Vector<GCReachableRef<Element>> m_activeObservationTargets;
+    Vector<WeakPtr<Element, WeakPtrImplWithEventTargetData>> m_activeObservationTargets WTF_GUARDED_BY_LOCK(m_observationTargetsLock);
+    Vector<WeakPtr<Element, WeakPtrImplWithEventTargetData>> m_targetsWaitingForFirstObservation WTF_GUARDED_BY_LOCK(m_observationTargetsLock);
+
+    mutable Lock m_observationTargetsLock;
     bool m_hasSkippedObservations { false };
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(RESIZE_OBSERVER)

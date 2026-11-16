@@ -27,6 +27,7 @@
 #define APIInjectedBundleFormClient_h
 
 #include <wtf/Forward.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 class Element;
@@ -47,15 +48,15 @@ class Object;
 namespace InjectedBundle {
 
 class FormClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(FormClient);
 public:
-    virtual ~FormClient() { }
+    virtual ~FormClient() = default;
 
-    virtual void didFocusTextField(WebKit::WebPage*, WebCore::HTMLInputElement*, WebKit::WebFrame*) { }
-    virtual void textFieldDidBeginEditing(WebKit::WebPage*, WebCore::HTMLInputElement*, WebKit::WebFrame*) { }
-    virtual void textFieldDidEndEditing(WebKit::WebPage*, WebCore::HTMLInputElement*, WebKit::WebFrame*) { }
-    virtual void textDidChangeInTextField(WebKit::WebPage*, WebCore::HTMLInputElement*, WebKit::WebFrame*, bool) { }
-    virtual void textDidChangeInTextArea(WebKit::WebPage*, WebCore::HTMLTextAreaElement*, WebKit::WebFrame*) { }
+    virtual void didFocusTextField(WebKit::WebPage*, WebCore::HTMLInputElement&, WebKit::WebFrame*) { }
+    virtual void textFieldDidBeginEditing(WebKit::WebPage*, WebCore::HTMLInputElement&, WebKit::WebFrame*) { }
+    virtual void textFieldDidEndEditing(WebKit::WebPage*, WebCore::HTMLInputElement&, WebKit::WebFrame*) { }
+    virtual void textDidChangeInTextField(WebKit::WebPage*, WebCore::HTMLInputElement&, WebKit::WebFrame*, bool) { }
+    virtual void textDidChangeInTextArea(WebKit::WebPage*, WebCore::HTMLTextAreaElement&, WebKit::WebFrame*) { }
 
     enum class InputFieldAction {
         MoveUp,
@@ -67,10 +68,10 @@ public:
         InsertDelete,
     };
 
-    virtual bool shouldPerformActionInTextField(WebKit::WebPage*, WebCore::HTMLInputElement*, InputFieldAction, WebKit::WebFrame*) { return false; }
+    virtual bool shouldPerformActionInTextField(WebKit::WebPage*, WebCore::HTMLInputElement&, InputFieldAction, WebKit::WebFrame*) { return false; }
     virtual void willSubmitForm(WebKit::WebPage*, WebCore::HTMLFormElement*, WebKit::WebFrame*, WebKit::WebFrame*, const Vector<std::pair<WTF::String, WTF::String>>&, RefPtr<API::Object>& userData) { UNUSED_PARAM(userData); }
     virtual void willSendSubmitEvent(WebKit::WebPage*, WebCore::HTMLFormElement*, WebKit::WebFrame*, WebKit::WebFrame*, const Vector<std::pair<WTF::String, WTF::String>>&) { }
-    virtual void didAssociateFormControls(WebKit::WebPage*, const Vector<RefPtr<WebCore::Element>>&, WebKit::WebFrame*) { }
+    virtual void didAssociateFormControls(WebKit::WebPage*, const Vector<Ref<WebCore::Element>>&, WebKit::WebFrame*) { }
     virtual bool shouldNotifyOnFormChanges(WebKit::WebPage*) { return false; }
     virtual void willBeginInputSession(WebKit::WebPage*, WebCore::Element*, WebKit::WebFrame*, bool userIsInteracting, RefPtr<API::Object>& userData) { UNUSED_PARAM(userData); }
 };

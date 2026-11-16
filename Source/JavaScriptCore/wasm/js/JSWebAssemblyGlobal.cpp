@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,18 +33,11 @@
 
 namespace JSC {
 
-const ClassInfo JSWebAssemblyGlobal::s_info = { "WebAssembly.Global", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSWebAssemblyGlobal) };
+const ClassInfo JSWebAssemblyGlobal::s_info = { "WebAssembly.Global"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSWebAssemblyGlobal) };
 
-JSWebAssemblyGlobal* JSWebAssemblyGlobal::tryCreate(JSGlobalObject* globalObject, VM& vm, Structure* structure, Ref<Wasm::Global>&& global)
+JSWebAssemblyGlobal* JSWebAssemblyGlobal::create(VM& vm, Structure* structure, Ref<Wasm::Global>&& global)
 {
-    auto throwScope = DECLARE_THROW_SCOPE(vm);
-
-    if (!globalObject->webAssemblyEnabled()) {
-        throwException(globalObject, throwScope, createEvalError(globalObject, globalObject->webAssemblyDisabledErrorMessage()));
-        return nullptr;
-    }
-
-    auto* instance = new (NotNull, allocateCell<JSWebAssemblyGlobal>(vm.heap)) JSWebAssemblyGlobal(vm, structure, WTFMove(global));
+    auto* instance = new (NotNull, allocateCell<JSWebAssemblyGlobal>(vm)) JSWebAssemblyGlobal(vm, structure, WTF::move(global));
     instance->global()->setOwner(instance);
     instance->finishCreation(vm);
     return instance;
@@ -57,14 +50,8 @@ Structure* JSWebAssemblyGlobal::createStructure(VM& vm, JSGlobalObject* globalOb
 
 JSWebAssemblyGlobal::JSWebAssemblyGlobal(VM& vm, Structure* structure, Ref<Wasm::Global>&& global)
     : Base(vm, structure)
-    , m_global(WTFMove(global))
+    , m_global(WTF::move(global))
 {
-}
-
-void JSWebAssemblyGlobal::finishCreation(VM& vm)
-{
-    Base::finishCreation(vm);
-    ASSERT(inherits(vm, info()));
 }
 
 void JSWebAssemblyGlobal::destroy(JSCell* cell)
@@ -75,7 +62,7 @@ void JSWebAssemblyGlobal::destroy(JSCell* cell)
 template<typename Visitor>
 void JSWebAssemblyGlobal::visitChildrenImpl(JSCell* cell, Visitor& visitor)
 {
-    JSWebAssemblyGlobal* thisObject = jsCast<JSWebAssemblyGlobal*>(cell);
+    JSWebAssemblyGlobal* thisObject = uncheckedDowncast<JSWebAssemblyGlobal>(cell);
     ASSERT_GC_OBJECT_INHERITS(thisObject, info());
 
     Base::visitChildren(thisObject, visitor);
@@ -88,33 +75,13 @@ JSObject* JSWebAssemblyGlobal::type(JSGlobalObject* globalObject)
 
     JSObject* result = constructEmptyObject(globalObject, globalObject->objectPrototype(), 2);
 
-    result->putDirect(vm, Identifier::fromString(vm, "mutable"), jsBoolean(m_global->mutability() == Wasm::GlobalInformation::Mutable));
+    result->putDirect(vm, Identifier::fromString(vm, "mutable"_s), jsBoolean(m_global->mutability() == Wasm::Mutable));
 
     Wasm::Type valueType = m_global->type();
-    JSString* valueString = nullptr;
-    switch (valueType.kind) {
-    case Wasm::TypeKind::I32:
-        valueString = jsNontrivialString(vm, "i32");
-        break;
-    case Wasm::TypeKind::I64:
-        valueString = jsNontrivialString(vm, "i64");
-        break;
-    case Wasm::TypeKind::F32:
-        valueString = jsNontrivialString(vm, "f32");
-        break;
-    case Wasm::TypeKind::F64:
-        valueString = jsNontrivialString(vm, "f64");
-        break;
-    case Wasm::TypeKind::Externref:
-        valueString = jsNontrivialString(vm, "externref");
-        break;
-    case Wasm::TypeKind::Funcref:
-        valueString = jsNontrivialString(vm, "funcref");
-        break;
-    default:
-        RELEASE_ASSERT_NOT_REACHED();
-    }
-    result->putDirect(vm, Identifier::fromString(vm, "value"), valueString);
+    JSString* valueString = typeToJSAPIString(vm, valueType);
+    if (!valueString)
+        return nullptr;
+    result->putDirect(vm, Identifier::fromString(vm, "value"_s), valueString);
 
     return result;
 }

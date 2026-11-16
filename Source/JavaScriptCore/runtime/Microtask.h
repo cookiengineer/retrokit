@@ -25,19 +25,86 @@
 
 #pragma once
 
-#include <wtf/RefCounted.h>
+#include <wtf/ObjectIdentifier.h>
+#include <wtf/Platform.h>
 
 namespace JSC {
 
-class CallFrame;
+enum class MicrotaskIdentifierType { };
+using MicrotaskIdentifier = ObjectIdentifier<MicrotaskIdentifierType>;
 
-class Microtask : public RefCounted<Microtask> {
-public:
-    virtual ~Microtask()
-    {
-    }
+enum class InternalMicrotask : uint8_t {
+    None = 0,
+    PromiseResolveThenableJobFast,
+    PromiseResolveThenableJobWithInternalMicrotaskFast,
 
-    virtual void run(JSGlobalObject*) = 0;
+    PromiseResolveThenableJob,
+    PromiseResolveThenableJobWithInternalMicrotask,
+
+    PromiseResolveWithoutHandlerJob,
+    PromiseFulfillWithoutHandlerJob,
+
+    PromiseRaceResolveJob,
+    PromiseAllResolveJob,
+    PromiseAllSettledResolveJob,
+    PromiseAnyResolveJob,
+    PromiseFinallyReactionJob,
+    PromiseFinallyAwaitJob,
+
+    PromiseReactionJob,
+
+    AsyncFunctionResume,
+    AsyncFromSyncIteratorContinue,
+    AsyncFromSyncIteratorDone,
+    AsyncGeneratorYieldAwaited,
+    AsyncGeneratorBodyCallNormal,
+    AsyncGeneratorBodyCallReturn,
+    AsyncGeneratorAwaitReturn,
+    AsyncGeneratorDriverResume,
+
+    InvokeFunctionJob,
+    AsyncModuleExecutionResume,
+    AsyncModuleExecutionDone,
+    ModuleRegistryFetchSettled,
+    ModuleRegistryModuleSettled,
+    ModuleGraphLoadingError,
+    ModuleLoadStep,
+    ModuleLoadTopSettled,
+    ModuleLoadTopRejected,
+    ModuleLoadSpecifierTransform,
+    ModuleLoadCombinedLoadSettled,
+    ModuleLoadCombinedStateSettled,
+    ModuleLoadLinkEvaluateSettled,
+    ModuleLoadReturnRecord,
+    ModuleLoadReturnModuleKey,
+    ModuleLoadStoreError,
+    DynamicImportLoadSettled,
+    DynamicImportEvaluateSettled,
+    DynamicImportDeferLoadSettled,
+    DynamicImportDeferDependencySettled,
+    ImportModuleNamespace,
+#if ENABLE(WEBASSEMBLY)
+    WebAssemblyCompileStreaming,
+    WebAssemblyInstantiateStreaming,
+#endif
+    Opaque, // Dispatch must handle everything.
+};
+
+constexpr unsigned maxMicrotaskArguments = 3;
+
+// True for Promise.all/allSettled/any element jobs, whose reaction packs
+// (globalContext cell, element index) instead of a single context cell.
+constexpr bool promiseReactionPacksGlobalContextAndIndex(InternalMicrotask task)
+{
+    static_assert(static_cast<uint8_t>(InternalMicrotask::PromiseAllSettledResolveJob) == static_cast<uint8_t>(InternalMicrotask::PromiseAllResolveJob) + 1);
+    static_assert(static_cast<uint8_t>(InternalMicrotask::PromiseAnyResolveJob) == static_cast<uint8_t>(InternalMicrotask::PromiseAllSettledResolveJob) + 1);
+    return task >= InternalMicrotask::PromiseAllResolveJob && task <= InternalMicrotask::PromiseAnyResolveJob;
+}
+
+enum class QueuedTaskResult : uint8_t {
+    Executed,
+    Discard,
+    Suspended,
 };
 
 } // namespace JSC

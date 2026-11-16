@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Copyright (c) 2014, 2015 Apple Inc. All rights reserved.
 # Copyright (c) 2014 University of Washington. All rights reserved.
@@ -71,8 +71,8 @@ class BuiltinsCombinedImplementationGenerator(BuiltinsGenerator):
         for ch in combinedCode:
             combinedCharacters.append(str(ord(ch)))
 
-        sections.append("const char s_%sCombinedCode[] = { %s };" % (args['namespace'], (", ".join(combinedCharacters))));
-        sections.append("const unsigned s_%sCombinedCodeLength = %d;" % (args['namespace'], len(combinedCharacters)));
+        sections.append("constinit const char s_%sCombinedCode[] = { %s };" % (args['namespace'], (", ".join(combinedCharacters))))
+        sections.append("constinit const unsigned s_%sCombinedCodeLength = %d;" % (args['namespace'], len(combinedCharacters)))
 
         for data in function_data:
             sections.append(self.generate_embedded_code_string_section_for_data(data))
@@ -91,25 +91,22 @@ class BuiltinsCombinedImplementationGenerator(BuiltinsGenerator):
                 ("JavaScriptCore", "builtins/BuiltinExecutables.h"),
             ),
             (["JavaScriptCore", "WebCore"],
-                ("JavaScriptCore", "heap/HeapInlines.h"),
-            ),
-            (["JavaScriptCore", "WebCore"],
                 ("JavaScriptCore", "runtime/UnlinkedFunctionExecutable.h"),
             ),
-            (["JavaScriptCore", "WebCore"],
+            (["JavaScriptCore"],
                 ("JavaScriptCore", "runtime/JSCellInlines.h"),
             ),
             (["WebCore"],
-                ("JavaScriptCore", "runtime/StructureInlines.h"),
-            ),
-            (["WebCore"],
-                ("JavaScriptCore", "runtime/JSCJSValueInlines.h"),
+                ("JavaScriptCore", "runtime/JSObjectInlines.h"),
             ),
             (["JavaScriptCore", "WebCore"],
                 ("JavaScriptCore", "runtime/VM.h"),
             ),
             (["JavaScriptCore", "WebCore"],
                 ("JavaScriptCore", "runtime/IdentifierInlines.h"),
+            ),
+            (["JavaScriptCore", "WebCore"],
+                ("JavaScriptCore", "runtime/ImplementationVisibility.h"),
             ),
             (["JavaScriptCore", "WebCore"],
                 ("JavaScriptCore", "runtime/Intrinsic.h"),

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,7 +25,8 @@
 
 #pragma once
 
-#include "ScrollbarTheme.h"
+#include <WebCore/ScrollbarTheme.h>
+#include <wtf/Platform.h>
 
 #if PLATFORM(COCOA)
 OBJC_CLASS NSScrollerImp;
@@ -37,7 +38,7 @@ class ScrollbarThemeComposite : public ScrollbarTheme {
 public:
     // Implement ScrollbarTheme interface
     bool paint(Scrollbar&, GraphicsContext&, const IntRect& damageRect) override;
-    ScrollbarPart hitTest(Scrollbar&, const IntPoint&) override;
+    ScrollbarPart hitTest(Scrollbar&, const IntPoint&, ScrollbarHitTestTolerance) override;
     void invalidatePart(Scrollbar&, ScrollbarPart) override;
     int thumbPosition(Scrollbar&) override;
     int thumbLength(Scrollbar&) override;

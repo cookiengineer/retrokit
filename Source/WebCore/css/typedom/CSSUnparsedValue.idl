@@ -1,5 +1,5 @@
 /*
-* Copyright (C) 2018 Apple Inc.  All rights reserved.
+* Copyright (C) 2018 Apple Inc. All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
 * modification, are permitted provided that the following conditions
@@ -25,10 +25,9 @@
 
 typedef (USVString or CSSOMVariableReferenceValue) CSSUnparsedSegment;
 
+// https://drafts.css-houdini.org/css-typed-om/#cssunparsedvalue
 [
     InterfaceName=CSSUnparsedValue,
-    EnabledAtRuntime=CSSTypedOM,
-    Conditional=CSS_TYPED_OM,
     Exposed=(Window,Worker,PaintWorklet),
     JSGenerateToNativeObject
 ] interface CSSUnparsedValue : CSSStyleValue {
@@ -36,6 +35,6 @@ typedef (USVString or CSSOMVariableReferenceValue) CSSUnparsedSegment;
 
     iterable<CSSUnparsedSegment>;
     readonly attribute unsigned long length;
-    getter CSSUnparsedSegment (unsigned long index);
-    setter CSSUnparsedSegment (unsigned long index, CSSUnparsedSegment val);
+    getter CSSUnparsedSegment? (unsigned long index);
+    setter undefined (unsigned long index, CSSUnparsedSegment val);
 };

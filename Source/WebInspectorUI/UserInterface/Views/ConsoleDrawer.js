@@ -28,9 +28,12 @@ WI.ConsoleDrawer = class ConsoleDrawer extends WI.ContentBrowser
     constructor(element)
     {
         const delegate = null;
-        const disableBackForward = true;
-        const disableFindBanner = false;
-        super(element, delegate, disableBackForward, disableFindBanner);
+        super(element, delegate, {
+            hideBackForwardButtons: true,
+            disableBackForwardNavigation: true,
+            disableFindBanner: true,
+            flexibleNavigationItem: new WI.NavigationItem,
+        });
 
         this.element.classList.add("console-drawer");
 
@@ -121,14 +124,14 @@ WI.ConsoleDrawer = class ConsoleDrawer extends WI.ContentBrowser
             return;
 
         let resizerElement = event.target;
-        let quickConsoleHeight = window.innerHeight - (this.element.totalOffsetTop + this.height);
+        let quickConsoleHeight = WI.quickConsole.element.offsetHeight;
         let mouseOffset = quickConsoleHeight - (event.pageY - resizerElement.totalOffsetTop);
 
         function dockedResizerDrag(event)
         {
             let height = window.innerHeight - event.pageY - mouseOffset;
             this._drawerHeightSetting.value = height;
-            this._updateDrawerHeight(height);
+            this._updateDrawerHeight(height, quickConsoleHeight);
             this.collapsed = false;
         }
 
@@ -145,13 +148,13 @@ WI.ConsoleDrawer = class ConsoleDrawer extends WI.ContentBrowser
 
     _restoreDrawerHeight()
     {
-        this._updateDrawerHeight(this._drawerHeightSetting.value);
+        this._updateDrawerHeight(this._drawerHeightSetting.value, WI.quickConsole.element.offsetHeight);
     }
 
-    _updateDrawerHeight(height)
+    _updateDrawerHeight(height, quickConsoleHeight)
     {
         const minimumHeight = 64;
-        const maximumHeight = this.element.parentNode.offsetHeight - 100;
+        let maximumHeight = this.element.parentNode.offsetHeight - WI.TabBrowser.MinimumHeight - quickConsoleHeight;
 
         let heightCSSValue = Number.constrain(height, minimumHeight, maximumHeight) + "px";
         if (this.element.style.height === heightCSSValue)

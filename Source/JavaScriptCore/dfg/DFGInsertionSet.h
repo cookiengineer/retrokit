@@ -50,7 +50,7 @@ public:
     // a stable sort on the insertions.
     Node* insert(const Insertion& insertion)
     {
-        if (LIKELY(!m_insertions.size() || m_insertions.last().index() <= insertion.index()))
+        if (!m_insertions.size() || m_insertions.last().index() <= insertion.index()) [[likely]]
             m_insertions.append(insertion);
         else
             insertSlow(insertion);
@@ -68,14 +68,8 @@ public:
         return insert(index, m_graph.addNode(type, params...));
     }
     
-    Node* insertConstant(
-        size_t index, NodeOrigin origin, FrozenValue* value,
-        NodeType op = JSConstant)
-    {
-        return insertNode(
-            index, speculationFromValue(value->value()), op, origin, OpInfo(value));
-    }
-    
+    Node* insertConstant(size_t index, NodeOrigin, FrozenValue*, NodeType op = JSConstant);
+
     Edge insertConstantForUse(
         size_t index, NodeOrigin origin, FrozenValue* value, UseKind useKind)
     {
@@ -135,6 +129,11 @@ public:
     }
     
     size_t execute(BasicBlock* block);
+
+    bool isEmpty()
+    {
+        return m_insertions.isEmpty();
+    }
 
 private:
     void insertSlow(const Insertion&);

@@ -2,7 +2,8 @@
  * Copyright (C) 2001 Peter Kelly (pmk@post.com)
  * Copyright (C) 2001 Tobias Anton (anton@stud.fbi.fh-darmstadt.de)
  * Copyright (C) 2006 Samuel Weinig (sam.weinig@gmail.com)
- * Copyright (C) 2003-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2003-2024 Apple Inc. All rights reserved.
+ * Copyright (C) 2017 Google Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -23,10 +24,12 @@
 
 #pragma once
 
-#include "EventModifierInit.h"
-#include "KeypressCommand.h"
-#include "UIEventWithKeyState.h"
+#include <WebCore/EventModifierInit.h>
+#include <WebCore/FocusEventData.h>
+#include <WebCore/KeypressCommand.h>
+#include <WebCore/UIEventWithKeyState.h>
 #include <memory>
+#include <wtf/Platform.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
@@ -34,8 +37,10 @@ namespace WebCore {
 class Node;
 class PlatformKeyboardEvent;
 
+struct FocusEventData;
+
 class KeyboardEvent final : public UIEventWithKeyState {
-    WTF_MAKE_ISO_ALLOCATED(KeyboardEvent);
+    WTF_MAKE_TZONE_ALLOCATED(KeyboardEvent);
 public:
     enum KeyLocationCode {
         DOM_KEY_LOCATION_STANDARD = 0x00,
@@ -55,8 +60,7 @@ public:
         bool isComposing;
 
         // Legacy.
-        String keyIdentifier;
-        std::optional<unsigned> keyLocation;
+        AtomString keyIdentifier;
         unsigned charCode;
         unsigned keyCode;
         unsigned which;
@@ -67,32 +71,33 @@ public:
     virtual ~KeyboardEvent();
     
     WEBCORE_EXPORT void initKeyboardEvent(const AtomString& type, bool canBubble, bool cancelable, RefPtr<WindowProxy>&&,
-        const String& keyIdentifier, unsigned location,
-        bool ctrlKey, bool altKey, bool shiftKey, bool metaKey, bool altGraphKey = false);
+        const AtomString& keyIdentifier, unsigned location,
+        bool ctrlKey, bool altKey, bool shiftKey, bool metaKey);
     
-    const String& key() const { return m_key; }
-    const String& code() const { return m_code; }
-    const String& keyIdentifier() const { return m_keyIdentifier; }
+    const String& key() const LIFETIME_BOUND { return m_key; }
+    const String& code() const LIFETIME_BOUND { return m_code; }
+    const AtomString& keyIdentifier() const LIFETIME_BOUND { return m_keyIdentifier; }
     unsigned location() const { return m_location; }
     bool repeat() const { return m_repeat; }
 
-    const PlatformKeyboardEvent* underlyingPlatformEvent() const { return m_underlyingPlatformEvent.get(); }
-    PlatformKeyboardEvent* underlyingPlatformEvent() { return m_underlyingPlatformEvent.get(); }
+    const PlatformKeyboardEvent* underlyingPlatformEvent() const LIFETIME_BOUND { return m_underlyingPlatformEvent.get(); }
+    PlatformKeyboardEvent* underlyingPlatformEvent() LIFETIME_BOUND { return m_underlyingPlatformEvent.get(); }
 
     WEBCORE_EXPORT int keyCode() const; // key code for keydown and keyup, character for keypress
+    int NODELETE keyCodeForKeyDown() const; // key code for the keydown that matches the keypress
     WEBCORE_EXPORT int charCode() const; // character code for keypress, 0 for keydown and keyup
 
-    EventInterface eventInterface() const final;
-    bool isKeyboardEvent() const final;
-    int which() const final;
+    unsigned which() const final;
 
     bool isComposing() const { return m_isComposing; }
 
 #if PLATFORM(COCOA)
     bool handledByInputMethod() const { return m_handledByInputMethod; }
-    const Vector<KeypressCommand>& keypressCommands() const { return m_keypressCommands; }
-    Vector<KeypressCommand>& keypressCommands() { return m_keypressCommands; }
+    const Vector<KeypressCommand>& keypressCommands() const LIFETIME_BOUND { return m_keypressCommands; }
+    Vector<KeypressCommand>& keypressCommands() LIFETIME_BOUND { return m_keypressCommands; }
 #endif
+
+    FocusEventData NODELETE focusEventData() const;
 
 private:
     KeyboardEvent();
@@ -102,7 +107,7 @@ private:
     std::unique_ptr<PlatformKeyboardEvent> m_underlyingPlatformEvent;
     String m_key;
     String m_code;
-    String m_keyIdentifier;
+    AtomString m_keyIdentifier;
     unsigned m_location { DOM_KEY_LOCATION_STANDARD };
     bool m_repeat { false };
     bool m_isComposing { false };

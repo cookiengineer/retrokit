@@ -32,19 +32,20 @@
 namespace WebCore {
 
 class MathMLPaddedElement final : public MathMLRowElement {
-    WTF_MAKE_ISO_ALLOCATED(MathMLPaddedElement);
+    WTF_MAKE_TZONE_ALLOCATED(MathMLPaddedElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(MathMLPaddedElement);
 public:
     static Ref<MathMLPaddedElement> create(const QualifiedName& tagName, Document&);
     // FIXME: Pseudo-units are not supported yet (https://bugs.webkit.org/show_bug.cgi?id=85730).
-    const Length& width();
-    const Length& height();
-    const Length& depth();
-    const Length& lspace();
-    const Length& voffset();
+    const Length& width() LIFETIME_BOUND;
+    const Length& height() LIFETIME_BOUND;
+    const Length& depth() LIFETIME_BOUND;
+    const Length& lspace() LIFETIME_BOUND;
+    const Length& voffset() LIFETIME_BOUND;
 private:
     MathMLPaddedElement(const QualifiedName& tagName, Document&);
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
 
     std::optional<Length> m_width;
     std::optional<Length> m_height;

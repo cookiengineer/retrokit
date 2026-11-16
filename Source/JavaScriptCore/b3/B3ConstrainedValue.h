@@ -28,10 +28,27 @@
 #if ENABLE(B3_JIT)
 
 #include "B3ValueRep.h"
+#include "B3Width.h"
+#include "WasmCallingConvention.h"
 
 namespace JSC { namespace B3 {
 
 class Value;
+
+#if ENABLE(WEBASSEMBLY)
+struct ArgumentLocation {
+    ArgumentLocation(Wasm::ValueLocation loc, Width width)
+        : location(loc)
+        , width(width)
+    {
+    }
+
+    ArgumentLocation() { }
+
+    Wasm::ValueLocation location;
+    Width width;
+};
+#endif
 
 class ConstrainedValue {
 public:
@@ -51,10 +68,29 @@ public:
     {
     }
 
+#if ENABLE(WEBASSEMBLY)
+#if USE(JSVALUE32_64)
+    ConstrainedValue(Value* value, const Wasm::ArgumentLocation& loc)
+        : m_value(value)
+    {
+        if (loc.location.isGPR() && loc.usedWidth == Width32)
+            m_rep = B3::ValueRep(loc.location.jsr().payloadGPR());
+        else
+            m_rep = B3::ValueRep(loc.location);
+    }
+#else
+    ConstrainedValue(Value* value, const Wasm::ArgumentLocation& loc)
+        : m_value(value)
+        , m_rep(loc.location)
+    {
+    }
+#endif // USE(JSVALUE32_64)
+#endif // ENABLE(WEBASSEMBLY)
+
     explicit operator bool() const { return m_value || m_rep; }
 
     Value* value() const { return m_value; }
-    const ValueRep& rep() const { return m_rep; }
+    const ValueRep& rep() const LIFETIME_BOUND { return m_rep; }
 
     void dump(PrintStream& out) const;
 

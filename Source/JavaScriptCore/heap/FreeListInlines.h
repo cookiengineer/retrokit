@@ -25,46 +25,56 @@
 
 #pragma once
 
-#include "FreeList.h"
-#include "MarkedBlock.h"
+#include <JavaScriptCore/FreeList.h>
+#include <JavaScriptCore/MarkedBlock.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
 template<typename Func>
-ALWAYS_INLINE HeapCell* FreeList::allocate(const Func& slowPath)
+ALWAYS_INLINE HeapCell* FreeList::allocateWithCellSize(const Func& slowPath, size_t cellSize)
 {
-    unsigned remaining = m_remaining;
-    if (remaining) {
-        unsigned cellSize = m_cellSize;
-        remaining -= cellSize;
-        m_remaining = remaining;
-        return bitwise_cast<HeapCell*>(m_payloadEnd - remaining - cellSize);
+    if (m_intervalStart < m_intervalEnd) [[likely]] {
+        char* result = m_intervalStart;
+        m_intervalStart += cellSize;
+        return std::bit_cast<HeapCell*>(result);
     }
     
-    FreeCell* result = head();
-    if (UNLIKELY(!result))
+    FreeCell* cell = nextInterval();
+    if (isSentinel(cell)) [[unlikely]]
         return slowPath();
+
+    FreeCell::advance(m_secret, m_nextInterval, m_intervalStart, m_intervalEnd);
     
-    m_scrambledHead = result->scrambledNext;
-    return bitwise_cast<HeapCell*>(result);
+    // It's an invariant of our allocator that we don't create empty intervals, so there 
+    // should always be enough space remaining to allocate a cell.
+    char* result = m_intervalStart;
+    m_intervalStart += cellSize;
+    return std::bit_cast<HeapCell*>(result);
 }
 
 template<typename Func>
 void FreeList::forEach(const Func& func) const
 {
-    if (m_remaining) {
-        for (unsigned remaining = m_remaining; remaining; remaining -= m_cellSize)
-            func(bitwise_cast<HeapCell*>(m_payloadEnd - remaining));
-    } else {
-        for (FreeCell* cell = head(); cell;) {
-            // We can use this to overwrite free objects before destroying the free list. So, we need
-            // to get next before proceeding further.
-            FreeCell* next = cell->next(m_secret);
-            func(bitwise_cast<HeapCell*>(cell));
-            cell = next;
-        }
+    FreeCell* cell = nextInterval();
+    char* intervalStart = m_intervalStart;
+    char* intervalEnd = m_intervalEnd;
+    ASSERT(intervalEnd - intervalStart < (ptrdiff_t)MarkedBlock::blockSize);
+
+    while (true) {
+        for (; intervalStart < intervalEnd; intervalStart += m_cellSize)
+            func(std::bit_cast<HeapCell*>(intervalStart));
+
+        // If we explore the whole interval and the cell is the sentinel value, though, we should
+        // immediately exit so we don't decode anything out of bounds.
+        if (isSentinel(cell))
+            break;
+
+        FreeCell::advance(m_secret, cell, intervalStart, intervalEnd);
     }
 }
 
 } // namespace JSC
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

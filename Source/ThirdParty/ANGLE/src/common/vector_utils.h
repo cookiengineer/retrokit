@@ -12,6 +12,8 @@
 #include <cstddef>
 #include <ostream>
 #include <type_traits>
+#include "common/debug.h"
+#include "common/unsafe_buffers.h"
 
 namespace angle
 {
@@ -45,7 +47,7 @@ class VectorBase
     VectorBase(const VectorBase<Dimension, Type2> &other);
 
     template <typename Arg1, typename Arg2, typename... Args>
-    VectorBase(const Arg1 &arg1, const Arg2 &arg2, const Args &... args);
+    VectorBase(const Arg1 &arg1, const Arg2 &arg2, const Args &...args);
 
     // Access the vector backing storage directly
     const Type *data() const { return mData; }
@@ -57,8 +59,8 @@ class VectorBase
     static void Store(const VectorN &source, Type *destination);
 
     // Index the vector
-    Type &operator[](size_t i) { return mData[i]; }
-    const Type &operator[](size_t i) const { return mData[i]; }
+    Type &operator[](size_t i) { return ANGLE_UNSAFE_TODO(mData[i]); }
+    const Type &operator[](size_t i) const { return ANGLE_UNSAFE_TODO(mData[i]); }
 
     // Basic arithmetic operations
     VectorN operator+() const;
@@ -80,8 +82,8 @@ class VectorBase
     VectorN &operator/=(Type other);
 
     // Comparison operators
-    bool operator==(const VectorN &other) const;
-    bool operator!=(const VectorN &other) const;
+    bool operator==(const VectorBase<Dimension, Type> &other) const;
+    bool operator!=(const VectorBase<Dimension, Type> &other) const;
 
     // Other arithmetic operations
     Type length() const;
@@ -91,7 +93,7 @@ class VectorBase
 
   protected:
     template <size_t CurrentIndex, size_t OtherDimension, typename OtherType, typename... Args>
-    void initWithList(const Vector<OtherDimension, OtherType> &arg1, const Args &... args);
+    void initWithList(const Vector<OtherDimension, OtherType> &arg1, const Args &...args);
 
     // Some old compilers consider this function an alternative for initWithList(Vector)
     // when the variant above is more precise. Use SFINAE on the return value to hide
@@ -99,7 +101,7 @@ class VectorBase
     template <size_t CurrentIndex, typename OtherType, typename... Args>
     typename std::enable_if<std::is_arithmetic<OtherType>::value>::type initWithList(
         OtherType arg1,
-        const Args &... args);
+        const Args &...args);
 
     template <size_t CurrentIndex>
     void initWithList() const;
@@ -183,7 +185,7 @@ VectorBase<Dimension, Type>::VectorBase(Type element)
 {
     for (size_t i = 0; i < Dimension; ++i)
     {
-        mData[i] = element;
+        ANGLE_UNSAFE_TODO(mData[i]) = element;
     }
 }
 
@@ -209,7 +211,7 @@ VectorBase<Dimension, Type>::VectorBase(const VectorBase<Dimension, Type2> &othe
 //  - the compound constructor for two or more arguments, hence the arg1, and arg2 here.
 template <size_t Dimension, typename Type>
 template <typename Arg1, typename Arg2, typename... Args>
-VectorBase<Dimension, Type>::VectorBase(const Arg1 &arg1, const Arg2 &arg2, const Args &... args)
+VectorBase<Dimension, Type>::VectorBase(const Arg1 &arg1, const Arg2 &arg2, const Args &...args)
 {
     initWithList<0>(arg1, arg2, args...);
 }
@@ -217,13 +219,14 @@ VectorBase<Dimension, Type>::VectorBase(const Arg1 &arg1, const Arg2 &arg2, cons
 template <size_t Dimension, typename Type>
 template <size_t CurrentIndex, size_t OtherDimension, typename OtherType, typename... Args>
 void VectorBase<Dimension, Type>::initWithList(const Vector<OtherDimension, OtherType> &arg1,
-                                               const Args &... args)
+                                               const Args &...args)
 {
     static_assert(CurrentIndex + OtherDimension <= Dimension,
                   "Too much data in the vector constructor.");
     for (size_t i = 0; i < OtherDimension; ++i)
     {
-        mData[CurrentIndex + i] = static_cast<Type>(arg1.mData[i]);
+        ANGLE_UNSAFE_TODO(mData[CurrentIndex + i]) =
+            static_cast<Type>(ANGLE_UNSAFE_TODO(arg1.mData[i]));
     }
     initWithList<CurrentIndex + OtherDimension>(args...);
 }
@@ -231,7 +234,7 @@ void VectorBase<Dimension, Type>::initWithList(const Vector<OtherDimension, Othe
 template <size_t Dimension, typename Type>
 template <size_t CurrentIndex, typename OtherType, typename... Args>
 typename std::enable_if<std::is_arithmetic<OtherType>::value>::type
-VectorBase<Dimension, Type>::initWithList(OtherType arg1, const Args &... args)
+VectorBase<Dimension, Type>::initWithList(OtherType arg1, const Args &...args)
 {
     static_assert(CurrentIndex + 1 <= Dimension, "Too much data in the vector constructor.");
     mData[CurrentIndex] = static_cast<Type>(arg1);
@@ -251,7 +254,7 @@ Vector<Dimension, Type> VectorBase<Dimension, Type>::Load(const Type *source)
     Vector<Dimension, Type> result;
     for (size_t i = 0; i < Dimension; ++i)
     {
-        result.mData[i] = source[i];
+        ANGLE_UNSAFE_TODO(result.mData[i] = source[i]);
     }
     return result;
 }
@@ -261,7 +264,7 @@ void VectorBase<Dimension, Type>::Store(const Vector<Dimension, Type> &source, T
 {
     for (size_t i = 0; i < Dimension; ++i)
     {
-        destination[i] = source.mData[i];
+        ANGLE_UNSAFE_TODO(destination[i] = source.mData[i]);
     }
 }
 
@@ -272,7 +275,7 @@ Vector<Dimension, Type> VectorBase<Dimension, Type>::operator+() const
     Vector<Dimension, Type> result;
     for (size_t i = 0; i < Dimension; ++i)
     {
-        result.mData[i] = +mData[i];
+        ANGLE_UNSAFE_TODO(result.mData[i] = +mData[i]);
     }
     return result;
 }
@@ -283,7 +286,7 @@ Vector<Dimension, Type> VectorBase<Dimension, Type>::operator-() const
     Vector<Dimension, Type> result;
     for (size_t i = 0; i < Dimension; ++i)
     {
-        result.mData[i] = -mData[i];
+        ANGLE_UNSAFE_TODO(result.mData[i] = -mData[i]);
     }
     return result;
 }
@@ -295,7 +298,7 @@ Vector<Dimension, Type> VectorBase<Dimension, Type>::operator+(
     Vector<Dimension, Type> result;
     for (size_t i = 0; i < Dimension; ++i)
     {
-        result.mData[i] = mData[i] + other.mData[i];
+        ANGLE_UNSAFE_TODO(result.mData[i] = mData[i] + other.mData[i]);
     }
     return result;
 }
@@ -307,7 +310,7 @@ Vector<Dimension, Type> VectorBase<Dimension, Type>::operator-(
     Vector<Dimension, Type> result;
     for (size_t i = 0; i < Dimension; ++i)
     {
-        result.mData[i] = mData[i] - other.mData[i];
+        ANGLE_UNSAFE_TODO(result.mData[i] = mData[i] - other.mData[i]);
     }
     return result;
 }
@@ -319,7 +322,7 @@ Vector<Dimension, Type> VectorBase<Dimension, Type>::operator*(
     Vector<Dimension, Type> result;
     for (size_t i = 0; i < Dimension; ++i)
     {
-        result.mData[i] = mData[i] * other.mData[i];
+        ANGLE_UNSAFE_TODO(result.mData[i] = mData[i] * other.mData[i]);
     }
     return result;
 }
@@ -331,7 +334,7 @@ Vector<Dimension, Type> VectorBase<Dimension, Type>::operator/(
     Vector<Dimension, Type> result;
     for (size_t i = 0; i < Dimension; ++i)
     {
-        result.mData[i] = mData[i] / other.mData[i];
+        ANGLE_UNSAFE_TODO(result.mData[i] = mData[i] / other.mData[i]);
     }
     return result;
 }
@@ -342,7 +345,7 @@ Vector<Dimension, Type> VectorBase<Dimension, Type>::operator*(Type other) const
     Vector<Dimension, Type> result;
     for (size_t i = 0; i < Dimension; ++i)
     {
-        result.mData[i] = mData[i] * other;
+        ANGLE_UNSAFE_TODO(result.mData[i] = mData[i] * other);
     }
     return result;
 }
@@ -353,7 +356,7 @@ Vector<Dimension, Type> VectorBase<Dimension, Type>::operator/(Type other) const
     Vector<Dimension, Type> result;
     for (size_t i = 0; i < Dimension; ++i)
     {
-        result.mData[i] = mData[i] / other;
+        ANGLE_UNSAFE_TODO(result.mData[i] = mData[i] / other);
     }
     return result;
 }
@@ -365,7 +368,7 @@ Vector<Dimension, Type> &VectorBase<Dimension, Type>::operator+=(
 {
     for (size_t i = 0; i < Dimension; ++i)
     {
-        mData[i] += other.mData[i];
+        ANGLE_UNSAFE_TODO(mData[i] += other.mData[i]);
     }
     return *static_cast<Vector<Dimension, Type> *>(this);
 }
@@ -376,7 +379,7 @@ Vector<Dimension, Type> &VectorBase<Dimension, Type>::operator-=(
 {
     for (size_t i = 0; i < Dimension; ++i)
     {
-        mData[i] -= other.mData[i];
+        ANGLE_UNSAFE_TODO(mData[i] -= other.mData[i]);
     }
     return *static_cast<Vector<Dimension, Type> *>(this);
 }
@@ -387,7 +390,7 @@ Vector<Dimension, Type> &VectorBase<Dimension, Type>::operator*=(
 {
     for (size_t i = 0; i < Dimension; ++i)
     {
-        mData[i] *= other.mData[i];
+        ANGLE_UNSAFE_TODO(mData[i] *= other.mData[i]);
     }
     return *static_cast<Vector<Dimension, Type> *>(this);
 }
@@ -398,7 +401,7 @@ Vector<Dimension, Type> &VectorBase<Dimension, Type>::operator/=(
 {
     for (size_t i = 0; i < Dimension; ++i)
     {
-        mData[i] /= other.mData[i];
+        ANGLE_UNSAFE_TODO(mData[i] /= other.mData[i]);
     }
     return *static_cast<Vector<Dimension, Type> *>(this);
 }
@@ -408,7 +411,7 @@ Vector<Dimension, Type> &VectorBase<Dimension, Type>::operator*=(Type other)
 {
     for (size_t i = 0; i < Dimension; ++i)
     {
-        mData[i] *= other;
+        ANGLE_UNSAFE_TODO(mData[i]) *= other;
     }
     return *static_cast<Vector<Dimension, Type> *>(this);
 }
@@ -418,18 +421,18 @@ Vector<Dimension, Type> &VectorBase<Dimension, Type>::operator/=(Type other)
 {
     for (size_t i = 0; i < Dimension; ++i)
     {
-        mData[i] /= other;
+        ANGLE_UNSAFE_TODO(mData[i]) /= other;
     }
     return *static_cast<Vector<Dimension, Type> *>(this);
 }
 
 // Implementation of comparison operators
 template <size_t Dimension, typename Type>
-bool VectorBase<Dimension, Type>::operator==(const Vector<Dimension, Type> &other) const
+bool VectorBase<Dimension, Type>::operator==(const VectorBase<Dimension, Type> &other) const
 {
     for (size_t i = 0; i < Dimension; ++i)
     {
-        if (mData[i] != other.mData[i])
+        if (ANGLE_UNSAFE_TODO(mData[i] != other.mData[i]))
         {
             return false;
         }
@@ -438,7 +441,7 @@ bool VectorBase<Dimension, Type>::operator==(const Vector<Dimension, Type> &othe
 }
 
 template <size_t Dimension, typename Type>
-bool VectorBase<Dimension, Type>::operator!=(const Vector<Dimension, Type> &other) const
+bool VectorBase<Dimension, Type>::operator!=(const VectorBase<Dimension, Type> &other) const
 {
     return !(*this == other);
 }
@@ -464,7 +467,7 @@ Type VectorBase<Dimension, Type>::dot(const VectorBase<Dimension, Type> &other) 
     Type sum = Type();
     for (size_t i = 0; i < Dimension; ++i)
     {
-        sum += mData[i] * other.mData[i];
+        ANGLE_UNSAFE_TODO(sum += mData[i] * other.mData[i]);
     }
     return sum;
 }
@@ -479,7 +482,7 @@ std::ostream &operator<<(std::ostream &ostream, const VectorBase<Dimension, Type
         {
             ostream << ", ";
         }
-        ostream << vector.data()[elementIdx];
+        ostream << ANGLE_UNSAFE_TODO(vector.data()[elementIdx]);
     }
     ostream << " ]";
     return ostream;
@@ -490,6 +493,7 @@ Vector<Dimension, Type> VectorBase<Dimension, Type>::normalized() const
 {
     static_assert(std::is_floating_point<Type>::value,
                   "VectorN::normalized is only defined for floating point vectors");
+    ASSERT(length() != Type());
     return *this / length();
 }
 

@@ -25,18 +25,18 @@
 
 #pragma once
 
-#include "UserMediaPermissionCheckProxy.h"
 #include <WebCore/KeyedCoding.h>
 #include <WebCore/SecurityOrigin.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/HashMap.h>
 #include <wtf/HashSet.h>
 #include <wtf/Ref.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 #include <wtf/WorkQueue.h>
 
 namespace WebKit {
 
-class DeviceIdHashSaltStorage : public ThreadSafeRefCounted<DeviceIdHashSaltStorage, WTF::DestructionThread::MainRunLoop> {
+class DeviceIdHashSaltStorage : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<DeviceIdHashSaltStorage, WTF::DestructionThread::MainRunLoop> {
 public:
     static Ref<DeviceIdHashSaltStorage> create(const String& deviceIdHashSaltStorageDirectory);
     ~DeviceIdHashSaltStorage();
@@ -49,21 +49,17 @@ public:
 
 private:
     struct HashSaltForOrigin {
-        WTF_MAKE_STRUCT_FAST_ALLOCATED;
+        WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(HashSaltForOrigin);
 
-        HashSaltForOrigin(WebCore::SecurityOriginData&& documentOrigin, WebCore::SecurityOriginData&& parentOrigin, String&& deviceIdHashSalt)
-            : documentOrigin(WTFMove(documentOrigin))
-            , parentOrigin(WTFMove(parentOrigin))
-            , deviceIdHashSalt(WTFMove(deviceIdHashSalt))
-            , lastTimeUsed(WallTime::now())
-        { };
+        HashSaltForOrigin(WebCore::SecurityOriginData&& documentOrigin, WebCore::SecurityOriginData&& parentOrigin, String&& deviceIdHashSalt, WallTime lastTimeUsed = WallTime::now())
+            : documentOrigin(WTF::move(documentOrigin))
+            , parentOrigin(WTF::move(parentOrigin))
+            , deviceIdHashSalt(WTF::move(deviceIdHashSalt))
+            , lastTimeUsed(lastTimeUsed)
+        { }
 
-        HashSaltForOrigin isolatedCopy() const
-        {
-            auto isolatedCopy = HashSaltForOrigin(documentOrigin.isolatedCopy(), parentOrigin.isolatedCopy(), deviceIdHashSalt.isolatedCopy());
-            isolatedCopy.lastTimeUsed = lastTimeUsed;
-            return isolatedCopy;
-        };
+        HashSaltForOrigin isolatedCopy() const & { return { documentOrigin.isolatedCopy(), parentOrigin.isolatedCopy(), deviceIdHashSalt.isolatedCopy(), lastTimeUsed }; }
+        HashSaltForOrigin isolatedCopy() && { return { WTF::move(documentOrigin).isolatedCopy(), WTF::move(parentOrigin).isolatedCopy(), WTF::move(deviceIdHashSalt).isolatedCopy(), lastTimeUsed }; }
 
         WebCore::SecurityOriginData documentOrigin;
         WebCore::SecurityOriginData parentOrigin;
@@ -80,9 +76,10 @@ private:
     void completePendingHandler(CompletionHandler<void(HashSet<WebCore::SecurityOriginData>&&)>&&);
     void completeDeviceIdHashSaltForOriginCall(WebCore::SecurityOriginData&& documentOrigin, WebCore::SecurityOriginData&& parentOrigin, CompletionHandler<void(String&&)>&&);
 
-    Ref<WorkQueue> m_queue;
+    const Ref<WorkQueue> m_queue;
     HashMap<String, std::unique_ptr<HashSaltForOrigin>> m_deviceIdHashSaltForOrigins;
     bool m_isLoaded { false };
+    bool m_isClosed { false };
     Vector<CompletionHandler<void()>> m_pendingCompletionHandlers;
     const String m_deviceIdHashSaltStorageDirectory;
 };

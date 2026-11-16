@@ -6,8 +6,11 @@
 
 // system_utils_linux.cpp: Implementation of OS-specific functions for Linux
 
+#include "common/debug.h"
+#include "common/unsafe_buffers.h"
 #include "system_utils.h"
 
+#include <string.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
@@ -29,7 +32,7 @@ std::string GetExecutablePath()
         return "";
     }
 
-    path[result] = '\0';
+    ANGLE_UNSAFE_TODO(path[result]) = '\0';
     return path;
 }
 
@@ -45,11 +48,25 @@ const char *GetSharedLibraryExtension()
     return "so";
 }
 
-double GetCurrentTime()
+double GetCurrentSystemTime()
 {
     struct timespec currentTime;
-    clock_gettime(CLOCK_MONOTONIC, &currentTime);
+    clock_gettime(CLOCK_MONOTONIC_RAW, &currentTime);
     return currentTime.tv_sec + currentTime.tv_nsec * 1e-9;
 }
 
+uint64_t GetCurrentSystemTimeNs()
+{
+    struct timespec currentTime;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &currentTime);
+    return static_cast<uint64_t>(currentTime.tv_sec) * 1000'000'000 + currentTime.tv_nsec;
+}
+
+void SetCurrentThreadName(const char *name)
+{
+    // There's a 15-character (16 including '\0') limit.  If the name is too big (and ERANGE is
+    // returned), name will be ignored.
+    ASSERT(strlen(name) < 16);
+    pthread_setname_np(pthread_self(), name);
+}
 }  // namespace angle

@@ -27,6 +27,7 @@
 #include "MediaKeySystemPermissionRequestProxy.h"
 
 #include "MediaKeySystemPermissionRequestManagerProxy.h"
+#include "WebPageProxy.h"
 #include <WebCore/SecurityOrigin.h>
 #include <WebCore/SecurityOriginData.h>
 #include <wtf/text/StringHash.h>
@@ -34,32 +35,35 @@
 namespace WebKit {
 using namespace WebCore;
 
-MediaKeySystemPermissionRequestProxy::MediaKeySystemPermissionRequestProxy(MediaKeySystemPermissionRequestManagerProxy& manager, MediaKeySystemRequestIdentifier mediaKeySystemID, FrameIdentifier mainFrameID, FrameIdentifier frameID, Ref<WebCore::SecurityOrigin>&& topLevelDocumentOrigin, const String& keySystem)
-    : m_manager(makeWeakPtr(manager))
+MediaKeySystemPermissionRequestProxy::MediaKeySystemPermissionRequestProxy(MediaKeySystemPermissionRequestManagerProxy& manager, MediaKeySystemRequestIdentifier mediaKeySystemID, FrameIdentifier mainFrameID, FrameIdentifier frameID, Ref<WebCore::SecurityOrigin>&& userMediaSecurityOrigin, Ref<WebCore::SecurityOrigin>&& topLevelDocumentOrigin, const String& keySystem)
+    : m_manager(manager)
     , m_mediaKeySystemID(mediaKeySystemID)
     , m_mainFrameID(mainFrameID)
     , m_frameID(frameID)
-    , m_topLevelDocumentSecurityOrigin(WTFMove(topLevelDocumentOrigin))
+    , m_mediaKeyRequestSecurityOrigin(WTF::move(userMediaSecurityOrigin))
+    , m_topLevelDocumentSecurityOrigin(WTF::move(topLevelDocumentOrigin))
     , m_keySystem(keySystem)
 {
 }
 
 void MediaKeySystemPermissionRequestProxy::allow()
 {
-    ASSERT(m_manager);
-    if (!m_manager)
+    RefPtr manager = m_manager.get();
+    ASSERT(manager);
+    if (!manager)
         return;
 
-    m_manager->grantRequest(*this);
+    manager->grantRequest(*this);
     invalidate();
 }
 
 void MediaKeySystemPermissionRequestProxy::deny()
 {
-    if (!m_manager)
+    RefPtr manager = m_manager.get();
+    if (!manager)
         return;
 
-    m_manager->denyRequest(*this);
+    manager->denyRequest(*this);
     invalidate();
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011, 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,6 +27,7 @@
 #include "WKGeolocationPosition.h"
 
 #include "WKAPICast.h"
+#include "WebFrameProxy.h"
 #include "WebGeolocationPosition.h"
 
 using namespace WebKit;
@@ -60,6 +61,5 @@ WKGeolocationPositionRef WKGeolocationPositionCreate_c(double timestamp, double 
     if (providesFloorLevel)
         corePosition.floorLevel = floorLevel;
 
-    auto position = WebGeolocationPosition::create(WTFMove(corePosition));
-    return toAPI(&position.leakRef());
+    return toAPILeakingRef(WebGeolocationPosition::create(WTF::move(corePosition)));
 }

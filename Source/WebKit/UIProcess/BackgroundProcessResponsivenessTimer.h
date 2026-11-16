@@ -26,13 +26,17 @@
 #pragma once
 
 #include "ResponsivenessTimer.h"
+#include <wtf/CheckedPtr.h>
 #include <wtf/RunLoop.h>
+#include <wtf/WeakRef.h>
 
 namespace WebKit {
 
 class WebProcessProxy;
 
-class BackgroundProcessResponsivenessTimer {
+class BackgroundProcessResponsivenessTimer : public CanMakeCheckedPtr<BackgroundProcessResponsivenessTimer> {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(BackgroundProcessResponsivenessTimer);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(BackgroundProcessResponsivenessTimer);
 public:
     explicit BackgroundProcessResponsivenessTimer(WebProcessProxy&);
     ~BackgroundProcessResponsivenessTimer();
@@ -49,15 +53,15 @@ private:
     void timeoutTimerFired();
     void setResponsive(bool);
 
-    bool shouldBeActive() const;
+    bool NODELETE shouldBeActive() const;
     bool isActive() const;
     void scheduleNextResponsivenessCheck();
-    ResponsivenessTimer::Client& client() const;
+    ResponsivenessTimer::Client& NODELETE client() const;
 
-    WebProcessProxy& m_webProcessProxy;
+    WeakRef<WebProcessProxy> m_webProcessProxy;
     Seconds m_checkingInterval;
-    RunLoop::Timer<BackgroundProcessResponsivenessTimer> m_responsivenessCheckTimer;
-    RunLoop::Timer<BackgroundProcessResponsivenessTimer> m_timeoutTimer;
+    RunLoop::Timer m_responsivenessCheckTimer;
+    RunLoop::Timer m_timeoutTimer;
     bool m_isResponsive { true };
 };
 

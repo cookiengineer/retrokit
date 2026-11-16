@@ -25,19 +25,26 @@
 
 #pragma once
 
-#include "AnimationList.h"
-#include "CSSPropertyNames.h"
-#include "WebAnimationTypes.h"
+#include <WebCore/AnimationMalloc.h>
+#include <WebCore/CSSPropertyNames.h>
+#include <WebCore/StyleAnimations.h>
+#include <WebCore/WebAnimationTypes.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
+class Document;
 class KeyframeEffect;
-class RenderStyle;
+class Settings;
+
+namespace Style {
+class ComputedStyle;
+struct ResolutionContext;
+}
 
 class KeyframeEffectStack {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(KeyframeEffectStack, Animation);
 public:
     explicit KeyframeEffectStack();
     ~KeyframeEffectStack();
@@ -45,23 +52,41 @@ public:
     bool addEffect(KeyframeEffect&);
     void removeEffect(KeyframeEffect&);
     bool hasEffects() const { return !m_effects.isEmpty(); }
-    Vector<WeakPtr<KeyframeEffect>> sortedEffects();
-    const AnimationList* cssAnimationList() const { return m_cssAnimationList.get(); }
-    void setCSSAnimationList(RefPtr<const AnimationList>&&);
+    const Vector<WeakPtr<KeyframeEffect>>& sortedEffects() LIFETIME_BOUND;
+    const std::optional<Style::Animations>& cssAnimationList() const LIFETIME_BOUND { return m_cssAnimationList; }
+    void setCSSAnimationList(std::optional<Style::Animations>&&);
+    bool containsProperty(CSSPropertyID) const;
     bool isCurrentlyAffectingProperty(CSSPropertyID) const;
     bool requiresPseudoElement() const;
-    OptionSet<AnimationImpact> applyKeyframeEffects(RenderStyle& targetStyle, const RenderStyle& previousLastStyleChangeEventStyle, const RenderStyle* parentElementStyle);
-    bool hasEffectWithImplicitKeyframes() const;
+    OptionSet<AnimationImpact> applyKeyframeEffects(Style::ComputedStyle& targetStyle, HashSet<AnimatableCSSProperty>& affectedProperties, const Style::ComputedStyle* previousLastStyleChangeEventStyle, const Style::ResolutionContext&);
+    bool hasMatchingEffect(NOESCAPE const Function<bool(const KeyframeEffect&)>&) const;
 
-    void stopAcceleratingTransformRelatedProperties(UseAcceleratedAction);
+    void effectAbilityToBeAcceleratedDidChange(const KeyframeEffect&);
+    bool allowsAcceleration() const;
+
+    void clearInvalidCSSAnimationNames();
+    bool NODELETE hasInvalidCSSAnimationNames() const;
+    bool containsInvalidCSSAnimationName(const String&) const;
+    void addInvalidCSSAnimationName(const String&);
+
+    void lastStyleChangeEventStyleDidChange(const Style::ComputedStyle* previousStyle, const Style::ComputedStyle* currentStyle);
+    void cascadeDidOverrideProperties(const HashSet<AnimatableCSSProperty>&, const Document&);
+
+    const HashSet<AnimatableCSSProperty>& acceleratedPropertiesOverriddenByCascade() const LIFETIME_BOUND { return m_acceleratedPropertiesOverriddenByCascade; }
+
+    void applyPendingAcceleratedActions() const;
+
+    bool hasAcceleratedEffects() const;
 
 private:
-    void ensureEffectsAreSorted();
+    void startAcceleratedAnimationsIfPossible();
+    void stopAcceleratedAnimations();
 
     Vector<WeakPtr<KeyframeEffect>> m_effects;
-    RefPtr<const AnimationList> m_cssAnimationList;
+    HashSet<String> m_invalidCSSAnimationNames;
+    HashSet<AnimatableCSSProperty> m_acceleratedPropertiesOverriddenByCascade;
+    std::optional<Style::Animations> m_cssAnimationList;
     bool m_isSorted { true };
-
 };
 
 } // namespace WebCore

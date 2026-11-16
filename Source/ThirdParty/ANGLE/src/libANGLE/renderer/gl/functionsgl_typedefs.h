@@ -1307,9 +1307,6 @@ typedef void(INTERNAL_GL_APIENTRY *PFNGLVERTEXATTRIBIFORMATPROC)(GLuint, GLint, 
 typedef void(INTERNAL_GL_APIENTRY *PFNGLVERTEXATTRIBLFORMATPROC)(GLuint, GLint, GLenum, GLuint);
 typedef void(INTERNAL_GL_APIENTRY *PFNGLVERTEXBINDINGDIVISORPROC)(GLuint, GLuint);
 
-// NV_framebuffer_mixed_samples
-typedef void(INTERNAL_GL_APIENTRY *PFNGLCOVERAGEMODULATIONNVPROC)(GLenum);
-
 // 4.4
 typedef void(INTERNAL_GL_APIENTRY *PFNGLBINDBUFFERSBASEPROC)(GLenum,
                                                              GLuint,
@@ -1745,13 +1742,21 @@ typedef void(INTERNAL_GL_APIENTRY *PFNGLGETINTERNALFORMATSAMPLEIVNVPROC)(GLenum 
                                                                          GLsizei bufSize,
                                                                          GLint *params);
 
-// GL_OVR_multiview2
+// GL_OVR_multiview
 typedef void(INTERNAL_GL_APIENTRY *PFNGLFRAMEBUFFERTEXTUREMULTIVIEWOVRPROC)(GLenum target,
                                                                             GLenum attachment,
                                                                             GLuint texture,
                                                                             GLint level,
                                                                             GLint baseViewIndex,
                                                                             GLsizei numViews);
+typedef void(INTERNAL_GL_APIENTRY *PFNGLNAMEDFRAMEBUFFERTEXTUREMULTIVIEWOVRPROC)(
+    GLuint framebuffer,
+    GLenum attachment,
+    GLuint texture,
+    GLint level,
+    GLint baseViewIndex,
+    GLsizei numViews);
+
 // EXT_debug_marker
 typedef void(INTERNAL_GL_APIENTRY *PFNGLINSERTEVENTMARKEREXTPROC)(GLsizei length,
                                                                   const GLchar *marker);
@@ -1932,6 +1937,98 @@ typedef void(
 typedef void(INTERNAL_GL_APIENTRY *PFNGLTEXBUFFEREXTPROC)(GLenum, GLenum, GLuint);
 typedef void(
     INTERNAL_GL_APIENTRY *PFNGLTEXBUFFERRANGEEXTPROC)(GLenum, GLenum, GLuint, GLintptr, GLsizeiptr);
+
+// GL_EXT_framebuffer_blit
+typedef void(INTERNAL_GL_APIENTRY *PFNGLBLITFRAMEBUFFEREXTPROC)(GLint srcX0,
+                                                                GLint srcY0,
+                                                                GLint srcX1,
+                                                                GLint srcY1,
+                                                                GLint dstX0,
+                                                                GLint dstY0,
+                                                                GLint dstX1,
+                                                                GLint dstY1,
+                                                                GLbitfield mask,
+                                                                GLenum filter);
+
+// GL_NV_framebuffer_blit
+typedef void(INTERNAL_GL_APIENTRY *PFNGLBLITFRAMEBUFFERNVPROC)(GLint srcX0,
+                                                               GLint srcY0,
+                                                               GLint srcX1,
+                                                               GLint srcY1,
+                                                               GLint dstX0,
+                                                               GLint dstY0,
+                                                               GLint dstX1,
+                                                               GLint dstY1,
+                                                               GLbitfield mask,
+                                                               GLenum filter);
+
+// GL_EXT_multisampled_render_to_texture
+typedef void(INTERNAL_GL_APIENTRY *PFNGLRENDERBUFFERSTORAGEMULTISAMPLEEXTPROC)(
+    GLenum target,
+    GLsizei samples,
+    GLenum internalformat,
+    GLsizei width,
+    GLsizei height);
+typedef void(INTERNAL_GL_APIENTRY *PFNGLFRAMEBUFFERTEXTURE2DMULTISAMPLEEXTPROC)(GLenum target,
+                                                                                GLenum attachment,
+                                                                                GLenum textarget,
+                                                                                GLuint texture,
+                                                                                GLint level,
+                                                                                GLsizei samples);
+
+// GL_IMG_multisampled_render_to_texture
+typedef void(INTERNAL_GL_APIENTRY *PFNGLRENDERBUFFERSTORAGEMULTISAMPLEIMGPROC)(
+    GLenum target,
+    GLsizei samples,
+    GLenum internalformat,
+    GLsizei width,
+    GLsizei height);
+typedef void(INTERNAL_GL_APIENTRY *PFNGLFRAMEBUFFERTEXTURE2DMULTISAMPLEIMGPROC)(GLenum target,
+                                                                                GLenum attachment,
+                                                                                GLenum textarget,
+                                                                                GLuint texture,
+                                                                                GLint level,
+                                                                                GLsizei samples);
+
+// GL_NV_polygon_mode
+typedef void(INTERNAL_GL_APIENTRY *PFNGLPOLYGONMODENVPROC)(GLenum face, GLenum mode);
+
+// GL_EXT_polygon_offset_clamp
+typedef void(INTERNAL_GL_APIENTRY *PFNGLPOLYGONOFFSETCLAMPEXTPROC)(GLfloat factor,
+                                                                   GLfloat units,
+                                                                   GLfloat clamp);
+
+// GL_EXT_shader_framebuffer_fetch_non_coherent
+typedef void(INTERNAL_GL_APIENTRY *PFNGLFRAMEBUFFERFETCHBARRIEREXTPROC)();
+
+// GL_MESA_framebuffer_flip_y
+typedef void(INTERNAL_GL_APIENTRY *PFNGLFRAMEBUFFERPARAMETERIMESAPROC)(GLenum, GLenum, GLint);
+
+// GL_QCOM_tiled_rendering
+typedef void(INTERNAL_GL_APIENTRY *PFNGLSTARTTILINGQCOMPROC)(GLuint x,
+                                                             GLuint y,
+                                                             GLuint width,
+                                                             GLuint height,
+                                                             GLbitfield preserveMask);
+typedef void(INTERNAL_GL_APIENTRY *PFNGLENDTILINGQCOMPROC)(GLbitfield preserveMask);
+
+// GL_EXT_clear_texture
+typedef void(INTERNAL_GL_APIENTRY *PFNGLCLEARTEXIMAGEEXTPROC)(GLuint texture,
+                                                              GLint level,
+                                                              GLenum format,
+                                                              GLenum type,
+                                                              const void *data);
+typedef void(INTERNAL_GL_APIENTRY *PFNGLCLEARTEXSUBIMAGEEXTPROC)(GLuint texture,
+                                                                 GLint level,
+                                                                 GLint xoffset,
+                                                                 GLint yoffset,
+                                                                 GLint zoffset,
+                                                                 GLsizei width,
+                                                                 GLsizei height,
+                                                                 GLsizei depth,
+                                                                 GLenum format,
+                                                                 GLenum type,
+                                                                 const void *data);
 
 }  // namespace rx
 

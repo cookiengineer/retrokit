@@ -23,9 +23,10 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// https://w3c.github.io/media-capabilities/#dictdef-mediacapabilitiesdecodinginfo
 [
-    EnabledBySetting=MediaCapabilities,
+    EnabledBySetting=MediaCapabilitiesEnabled,
     JSGenerateToJSObject,
 ] dictionary MediaCapabilitiesDecodingInfo : MediaCapabilitiesInfo {
-    [EnabledBySetting=MediaCapabilitiesExtensions] MediaDecodingConfiguration supportedConfiguration;
+    [EnabledBySetting=MediaCapabilitiesExtensionsEnabled] required MediaDecodingConfiguration configuration;
 };

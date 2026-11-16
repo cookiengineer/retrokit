@@ -25,8 +25,6 @@
 
 #pragma once
 
-#if ENABLE(INTERSECTION_OBSERVER)
-
 #include "ActiveDOMCallback.h"
 #include "CallbackResult.h"
 #include <wtf/Forward.h>
@@ -41,11 +39,15 @@ class IntersectionObserverCallback : public RefCounted<IntersectionObserverCallb
 public:
     using ActiveDOMCallback::ActiveDOMCallback;
 
-    virtual bool hasCallback() const = 0;
+    // ContextDestructionObserver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
 
-    virtual CallbackResult<void> handleEvent(IntersectionObserver&, const Vector<Ref<IntersectionObserverEntry>>&, IntersectionObserver&) = 0;
+    virtual bool hasCallback() const = 0;
+    virtual bool isJSIntersectionObserverCallback() const { return false; }
+
+    virtual CallbackResult<void> invoke(IntersectionObserver&, const Vector<Ref<IntersectionObserverEntry>>&, IntersectionObserver&) = 0;
+    virtual CallbackResult<void> invokeRethrowingException(IntersectionObserver&, const Vector<Ref<IntersectionObserverEntry>>&, IntersectionObserver&) = 0;
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(INTERSECTION_OBSERVER)

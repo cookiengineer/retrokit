@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,28 +27,35 @@
 
 #if ENABLE(LEGACY_ENCRYPTED_MEDIA)
 
-#include "ExceptionOr.h"
 #include "LegacyCDM.h"
-#include <JavaScriptCore/Uint8Array.h>
+#include <JavaScriptCore/Forward.h>
+#include <wtf/CheckedRef.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
+class Document;
+class WeakPtrImplWithEventTargetData;
 class HTMLMediaElement;
-class ScriptExecutionContext;
 class WebKitMediaKeySession;
+template<typename> class ExceptionOr;
 
 class WebKitMediaKeys final : public RefCounted<WebKitMediaKeys>, private LegacyCDMClient {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(WebKitMediaKeys);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WebKitMediaKeys);
 public:
     static ExceptionOr<Ref<WebKitMediaKeys>> create(const String& keySystem);
     virtual ~WebKitMediaKeys();
 
-    ExceptionOr<Ref<WebKitMediaKeySession>> createSession(ScriptExecutionContext&, const String& mimeType, Ref<Uint8Array>&& initData);
-    static bool isTypeSupported(const String& keySystem, const String& mimeType);
-    const String& keySystem() const { return m_keySystem; }
+    void decrementCheckedPtrCount() const { CanMakeCheckedPtr::decrementCheckedPtrCount(); }
+    void incrementCheckedPtrCount() const { CanMakeCheckedPtr::incrementCheckedPtrCount(); }
 
-    LegacyCDM& cdm() { ASSERT(m_cdm); return *m_cdm; }
+    ExceptionOr<Ref<WebKitMediaKeySession>> createSession(Document&, const String& mimeType, Ref<Uint8Array>&& initData);
+    static bool isTypeSupported(const String& keySystem, const String& mimeType);
+    const String& keySystem() const LIFETIME_BOUND { return m_keySystem; }
+
+    LegacyCDM& cdm() { return m_cdm; }
 
     void setMediaElement(HTMLMediaElement*);
 
@@ -58,12 +65,12 @@ public:
 private:
     RefPtr<MediaPlayer> cdmMediaPlayer(const LegacyCDM*) const final;
 
-    WebKitMediaKeys(const String& keySystem, std::unique_ptr<LegacyCDM>&&);
+    WebKitMediaKeys(const String& keySystem, Ref<LegacyCDM>&&);
 
     Vector<Ref<WebKitMediaKeySession>> m_sessions;
     WeakPtr<HTMLMediaElement> m_mediaElement;
     String m_keySystem;
-    std::unique_ptr<LegacyCDM> m_cdm;
+    const Ref<LegacyCDM> m_cdm;
 };
 
 }

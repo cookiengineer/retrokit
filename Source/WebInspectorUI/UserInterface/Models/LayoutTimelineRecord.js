@@ -25,18 +25,23 @@
 
 WI.LayoutTimelineRecord = class LayoutTimelineRecord extends WI.TimelineRecord
 {
-    constructor(eventType, startTime, endTime, callFrames, sourceCodeLocation, quad)
+    constructor(eventType, startTime, endTime, stackTrace, sourceCodeLocation, {quad, area, domNodeOrInfo} = {})
     {
-        super(WI.TimelineRecord.Type.Layout, startTime, endTime, callFrames, sourceCodeLocation);
+        super(WI.TimelineRecord.Type.Layout, startTime, endTime, stackTrace, sourceCodeLocation);
 
         console.assert(eventType);
         console.assert(!quad || quad instanceof WI.Quad);
+        console.assert(!domNodeOrInfo || domNodeOrInfo instanceof WI.DOMNode || domNodeOrInfo.displayName, domNodeOrInfo);
 
         if (eventType in WI.LayoutTimelineRecord.EventType)
             eventType = WI.LayoutTimelineRecord.EventType[eventType];
 
         this._eventType = eventType;
         this._quad = quad || null;
+        this._area = area || null;
+        this._domNodeOrInfo = domNodeOrInfo;
+        this._domNodeDisplayName = domNodeOrInfo?.displayName;
+        this._domNodeCSSPath = domNodeOrInfo instanceof WI.DOMNode ? WI.cssPath(domNodeOrInfo, {full: true}) : domNodeOrInfo?.cssPath;
     }
 
     // Static
@@ -50,6 +55,8 @@ WI.LayoutTimelineRecord = class LayoutTimelineRecord extends WI.TimelineRecord
             return WI.UIString("Styles Recalculated");
         case WI.LayoutTimelineRecord.EventType.InvalidateLayout:
             return WI.UIString("Layout Invalidated");
+        case WI.LayoutTimelineRecord.EventType.ScheduleLayout:
+            return WI.UIString("Layout Scheduled");
         case WI.LayoutTimelineRecord.EventType.ForcedLayout:
             return WI.UIString("Forced Layout", "Layout phase records that were imperative (forced)");
         case WI.LayoutTimelineRecord.EventType.Layout:
@@ -58,6 +65,10 @@ WI.LayoutTimelineRecord = class LayoutTimelineRecord extends WI.TimelineRecord
             return WI.repeatedUIString.timelineRecordPaint();
         case WI.LayoutTimelineRecord.EventType.Composite:
             return WI.repeatedUIString.timelineRecordComposite();
+        case WI.LayoutTimelineRecord.EventType.FirstContentfulPaint:
+            return WI.UIString("First Contentful Paint");
+        case WI.LayoutTimelineRecord.EventType.LargestContentfulPaint:
+            return WI.UIString("Largest Contentful Paint");
         }
     }
 
@@ -65,15 +76,32 @@ WI.LayoutTimelineRecord = class LayoutTimelineRecord extends WI.TimelineRecord
 
     static async fromJSON(json)
     {
-        let {eventType, startTime, endTime, callFrames, sourceCodeLocation, quad} = json;
+        let {eventType, startTime, endTime, stackTrace, sourceCodeLocation, quad, domNodeDisplayName, domNodeCSSPath} = json;
         quad = quad ? WI.Quad.fromJSON(quad) : null;
-        return new WI.LayoutTimelineRecord(eventType, startTime, endTime, callFrames, sourceCodeLocation, quad);
+
+        let domNodeOrInfo = null;
+        if (domNodeCSSPath) {
+            let documentNode = await WI.domManager.requestDocument();
+            try {
+                let nodeId = await documentNode.querySelector(domNodeCSSPath);
+                if (nodeId)
+                    domNodeOrInfo = WI.domManager.nodeForId(nodeId);
+            } catch { }
+        }
+        if (!domNodeOrInfo && domNodeDisplayName) {
+            domNodeOrInfo = {
+                displayName: domNodeDisplayName,
+                cssPath: domNodeCSSPath ?? null,
+            };
+        }
+
+        return new WI.LayoutTimelineRecord(eventType, startTime, endTime, stackTrace, sourceCodeLocation, {quad, domNodeOrInfo});
     }
 
     toJSON()
     {
-        // FIXME: CallFrames
-        // FIXME: SourceCodeLocation
+        // FIXME: stackTrace
+        // FIXME: sourceCodeLocation
 
         return {
             type: this.type,
@@ -81,6 +109,8 @@ WI.LayoutTimelineRecord = class LayoutTimelineRecord extends WI.TimelineRecord
             startTime: this.startTime,
             endTime: this.endTime,
             quad: this._quad || undefined,
+            domNodeDisplayName: this._domNodeDisplayName || undefined,
+            domNodeCSSPath: this._domNodeCSSPath || undefined,
         };
     }
 
@@ -103,12 +133,17 @@ WI.LayoutTimelineRecord = class LayoutTimelineRecord extends WI.TimelineRecord
 
     get area()
     {
-        return this.width * this.height;
+        return this._area ?? this.width * this.height;;
     }
 
     get quad()
     {
         return this._quad;
+    }
+
+    get domNodeOrInfo()
+    {
+        return this._domNodeOrInfo;
     }
 
     saveIdentityToCookie(cookie)
@@ -123,10 +158,13 @@ WI.LayoutTimelineRecord.EventType = {
     InvalidateStyles: "invalidate-styles",
     RecalculateStyles: "recalculate-styles",
     InvalidateLayout: "invalidate-layout",
+    ScheduleLayout: "schedule-layout",
     ForcedLayout: "forced-layout",
     Layout: "layout",
     Paint: "paint",
-    Composite: "composite"
+    Composite: "composite",
+    FirstContentfulPaint: "first-contentful-paint",
+    LargestContentfulPaint: "largest-contentful-paint",
 };
 
 WI.LayoutTimelineRecord.TypeIdentifier = "layout-timeline-record";

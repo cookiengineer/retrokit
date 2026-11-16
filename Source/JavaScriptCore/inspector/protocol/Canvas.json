@@ -1,8 +1,8 @@
 {
     "domain": "Canvas",
     "description": "Canvas domain allows tracking of canvases that have an associated graphics context. Tracks canvases in the DOM and CSS canvases created with -webkit-canvas.",
-    "debuggableTypes": ["page", "web-page"],
-    "targetTypes": ["page"],
+    "debuggableTypes": ["web-page"],
+    "targetTypes": ["page", "worker"],
     "types": [
         {
             "id": "CanvasId",
@@ -16,9 +16,19 @@
             "description": "Unique shader program identifier."
         },
         {
+            "id": "ColorSpace",
+            "type": "string",
+            "enum": ["srgb", "srgb-linear", "display-p3", "display-p3-linear"]
+        },
+        {
             "id": "ContextType",
             "type": "string",
-            "enum": ["canvas-2d", "bitmaprenderer", "webgl", "webgl2"],
+            "enum": [
+                "canvas-2d", "offscreen-canvas-2d",
+                "bitmaprenderer", "offscreen-bitmaprenderer",
+                "webgl", "offscreen-webgl",
+                "webgl2", "offscreen-webgl2"
+            ],
             "description": "The type of rendering context backing the canvas element."
         },
         {
@@ -39,6 +49,9 @@
             "description": "Drawing surface attributes.",
             "properties": [
                 { "name": "alpha", "type": "boolean", "optional": true, "description": "WebGL, WebGL2, ImageBitmapRenderingContext" },
+                { "name": "colorSpace", "$ref": "ColorSpace", "optional": true, "description": "2D" },
+                { "name": "desynchronized", "type": "boolean", "optional": true, "description": "2D" },
+                { "name": "willReadFrequently", "type": "boolean", "optional": true, "description": "2D" },
                 { "name": "depth", "type": "boolean", "optional": true, "description": "WebGL, WebGL2" },
                 { "name": "stencil", "type": "boolean", "optional": true, "description": "WebGL, WebGL2" },
                 { "name": "antialias", "type": "boolean", "optional": true, "description": "WebGL, WebGL2" },
@@ -55,11 +68,13 @@
             "properties": [
                 { "name": "canvasId", "$ref": "CanvasId", "description": "Canvas identifier." },
                 { "name": "contextType", "$ref": "ContextType", "description": "The type of rendering context backing the canvas." },
+                { "name": "width", "type": "number", "description": "Width of the canvas in pixels." },
+                { "name": "height", "type": "number", "description": "Height of the canvas in pixels." },
                 { "name": "nodeId", "$ref": "DOM.NodeId", "optional": true, "description": "The corresponding DOM node id." },
                 { "name": "cssCanvasName", "type": "string", "optional": true, "description": "The CSS canvas identifier, for canvases created with <code>document.getCSSCanvasContext</code>." },
                 { "name": "contextAttributes", "$ref": "ContextAttributes", "optional": true, "description": "Context attributes for rendering contexts." },
                 { "name": "memoryCost", "type": "number", "optional": true, "description": "Memory usage of the canvas in bytes." },
-                { "name": "backtrace", "type": "array", "items": { "$ref": "Console.CallFrame" }, "optional": true, "description": "Backtrace that was captured when this canvas context was created." }
+                { "name": "stackTrace", "$ref": "Console.StackTrace", "optional": true, "description": "Backtrace that was captured when this canvas context was created." }
             ]
         },
         {
@@ -86,6 +101,7 @@
         {
             "name": "requestNode",
             "description": "Gets the NodeId for the canvas node with the given CanvasId.",
+            "targetTypes": ["page"],
             "parameters": [
                 { "name": "canvasId", "$ref": "CanvasId", "description": "Canvas identifier." }
             ],
@@ -106,6 +122,7 @@
         {
             "name": "requestClientNodes",
             "description": "Gets all <code>-webkit-canvas</code> nodes or active <code>HTMLCanvasElement</code> for a <code>WebGPUDevice</code>.",
+            "targetTypes": ["page"],
             "parameters": [
                 { "name": "canvasId", "$ref": "CanvasId" }
             ],
@@ -202,6 +219,14 @@
             ]
         },
         {
+            "name": "canvasSizeChanged",
+            "parameters": [
+                { "name": "canvasId", "$ref": "CanvasId", "description": "Identifier of canvas that changed." },
+                { "name": "width", "type": "number", "description": "Width of the canvas in pixels." },
+                { "name": "height", "type": "number", "description": "Height of the canvas in pixels." }
+            ]
+        },
+        {
             "name": "canvasMemoryChanged",
             "parameters": [
                 { "name": "canvasId", "$ref": "CanvasId", "description": "Identifier of canvas that changed." },
@@ -217,6 +242,7 @@
         },
         {
             "name": "clientNodesChanged",
+            "targetTypes": ["page"],
             "parameters": [
                 { "name": "canvasId", "$ref": "CanvasId", "description": "Identifier of canvas that changed." }
             ]

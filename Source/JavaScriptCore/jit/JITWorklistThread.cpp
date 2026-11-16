@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Igalia S.L.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,8 +32,11 @@
 #include "HeapInlines.h"
 #include "JITWorklist.h"
 #include "VM.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace JSC {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(JITWorklistThread);
 
 class JITWorklistThread::WorkScope final {
 public:
@@ -40,34 +44,53 @@ public:
         : m_thread(thread)
         , m_tier(thread.m_plan->tier())
     {
-        RELEASE_ASSERT(m_thread.m_plan);
-        RELEASE_ASSERT(m_thread.m_worklist.m_numberOfActiveThreads);
+        RELEASE_ASSERT(m_thread->m_plan);
     }
 
     ~WorkScope()
     {
-        Locker locker { *m_thread.m_worklist.m_lock };
-        m_thread.m_plan = nullptr;
-        m_thread.m_worklist.m_numberOfActiveThreads--;
-        m_thread.m_worklist.m_ongoingCompilationsPerTier[static_cast<unsigned>(m_tier)]--;
+        Locker locker { *m_thread->m_worklist.m_lock };
+        m_thread->m_plan = nullptr;
+        m_thread->m_worklist.m_ongoingCompilationsPerTier[static_cast<unsigned>(m_tier)]--;
+
+        ASSERT(m_thread->m_planLoad);
+        ASSERT(m_thread->m_worklist.m_totalLoad >= m_thread->m_planLoad);
+        m_thread->m_worklist.m_totalLoad -= m_thread->m_planLoad;
+        m_thread->m_planLoad = 0;
+
+        ASSERT(!m_thread->m_worklist.m_totalLoad ==
+            (!m_thread->m_worklist.queueLength(locker) && !m_thread->m_worklist.totalOngoingCompilations(locker)));
     }
 
 private:
-    JITWorklistThread& m_thread;
+#if USE(PROTECTED_JIT)
+    // Must be constructed before we allocate anything using SequesteredArenaMalloc
+    ArenaLifetime m_saLifetime { };
+#endif
+    CheckedRef<JITWorklistThread> m_thread;
     JITPlan::Tier m_tier;
 };
 
+#if USE(PROTECTED_JIT_STACKS)
 JITWorklistThread::JITWorklistThread(const AbstractLocker& locker, JITWorklist& worklist)
-    : AutomaticThread(locker, worklist.m_lock, worklist.m_planEnqueued.copyRef(), ThreadType::Compiler)
+    : SequesteredAutomaticThread(locker, worklist.m_lock, worklist.m_planEnqueued.copyRef())
     , m_worklist(worklist)
 {
 }
-const char* JITWorklistThread::name() const
+#else
+JITWorklistThread::JITWorklistThread(const AbstractLocker& locker, JITWorklist& worklist)
+    : AutomaticThread(locker, worklist.m_lock, worklist.m_planEnqueued.copyRef(), ThreadType::Compiler, compilerThreadQOS())
+    , m_worklist(worklist)
+{
+}
+#endif
+
+ASCIILiteral JITWorklistThread::name() const
 {
 #if OS(LINUX)
-    return "JITWorker";
+    return "JITWorker"_s;
 #else
-    return "JIT Worklist Helper Thread";
+    return "JIT Worklist Helper Thread"_s;
 #endif
 }
 
@@ -78,12 +101,11 @@ auto JITWorklistThread::poll(const AbstractLocker& locker) -> PollResult
         if (queue.isEmpty())
             continue;
 
-
         if (m_worklist.m_ongoingCompilationsPerTier[i] >= m_worklist.m_maximumNumberOfConcurrentCompilationsPerTier[i])
             continue;
 
         m_plan = queue.takeFirst();
-        if (UNLIKELY(!m_plan)) {
+        if (!m_plan) [[unlikely]] {
             if (Options::verboseCompilationQueue()) {
                 m_worklist.dump(locker, WTF::dataFile());
                 dataLog(": Thread shutting down\n");
@@ -92,11 +114,14 @@ auto JITWorklistThread::poll(const AbstractLocker& locker) -> PollResult
         }
 
         RELEASE_ASSERT(m_plan->stage() == JITPlanStage::Preparing);
-        m_worklist.m_numberOfActiveThreads++;
+        // Dequeuing this plan doesn't change the total load yet, but it will once the compilation finishes.
+        // If the plan is canceled during compilation, the codeBlock may no longer be alive, so remember the plan's load now.
+        m_planLoad = m_worklist.planLoad(*m_plan);
         m_worklist.m_ongoingCompilationsPerTier[i]++;
         return PollResult::Work;
     }
-
+    RELEASE_ASSERT(m_worklist.m_numberOfActiveThreads);
+    m_worklist.m_numberOfActiveThreads--;
     return PollResult::Wait;
 }
 
@@ -111,8 +136,6 @@ auto JITWorklistThread::work() -> WorkResult
             return WorkResult::Continue;
         m_plan->notifyCompiling();
     }
-
-
     dataLogLnIf(Options::verboseCompilationQueue(), m_worklist, ": Compiling ", m_plan->key(), " asynchronously");
 
     // There's no way for the GC to be safepointing since we own rightToRun.
@@ -141,7 +164,7 @@ auto JITWorklistThread::work() -> WorkResult
         }
 
         RELEASE_ASSERT(!m_plan->vm()->heap.worldIsStopped());
-        m_worklist.m_readyPlans.append(WTFMove(m_plan));
+        m_worklist.m_readyPlans.append(m_plan.releaseNonNull());
         m_worklist.m_planCompiledOrCancelled.notifyAll();
     }
 

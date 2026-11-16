@@ -33,7 +33,7 @@ namespace WebCore {
 class Storage;
 
 class StorageEvent final : public Event {
-    WTF_MAKE_ISO_ALLOCATED(StorageEvent);
+    WTF_MAKE_TZONE_ALLOCATED(StorageEvent);
 public:
     static Ref<StorageEvent> create(const AtomString& type, const String& key, const String& oldValue, const String& newValue, const String& url, Storage* storageArea);
     static Ref<StorageEvent> createForBindings();
@@ -46,26 +46,21 @@ public:
         RefPtr<Storage> storageArea;
     };
 
-    static Ref<StorageEvent> create(const AtomString&, const Init&, IsTrusted = IsTrusted::No);
+    static Ref<StorageEvent> create(const AtomString&, Init&&, IsTrusted = IsTrusted::No);
     virtual ~StorageEvent();
 
-    const String& key() const { return m_key; }
-    const String& oldValue() const { return m_oldValue; }
-    const String& newValue() const { return m_newValue; }
-    const String& url() const { return m_url; }
-    Storage* storageArea() const { return m_storageArea.get(); }
+    const String& key() const LIFETIME_BOUND { return m_key; }
+    const String& oldValue() const LIFETIME_BOUND { return m_oldValue; }
+    const String& newValue() const LIFETIME_BOUND { return m_newValue; }
+    const String& url() const LIFETIME_BOUND { return m_url; }
+    Storage* storageArea() const { return m_storageArea; }
 
     void initStorageEvent(const AtomString& type, bool canBubble, bool cancelable, const String& key, const String& oldValue, const String& newValue, const String& url, Storage* storageArea);
-
-    // Needed once we support init<blank>EventNS
-    // void initStorageEventNS(in DOMString namespaceURI, in DOMString typeArg, in boolean canBubbleArg, in boolean cancelableArg, in DOMString keyArg, in DOMString oldValueArg, in DOMString newValueArg, in DOMString urlArg, Storage storageAreaArg);
-
-    EventInterface eventInterface() const override;
 
 private:
     StorageEvent();
     StorageEvent(const AtomString& type, const String& key, const String& oldValue, const String& newValue, const String& url, Storage* storageArea);
-    StorageEvent(const AtomString&, const Init&, IsTrusted);
+    StorageEvent(const AtomString&, Init&&, IsTrusted);
 
     String m_key;
     String m_oldValue;

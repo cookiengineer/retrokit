@@ -4,11 +4,15 @@
 // found in the LICENSE file.
 //
 
+#include <cmath>
+#include "common/unsafe_buffers.h"
+
 #include "test_utils/ANGLETest.h"
+#include "test_utils/gl_raii.h"
 
 using namespace angle;
 
-class MaxTextureSizeTest : public ANGLETest
+class MaxTextureSizeTest : public ANGLETest<>
 {
   protected:
     MaxTextureSizeTest()
@@ -99,13 +103,13 @@ TEST_P(MaxTextureSizeTest, SpecificationTexImage)
     {
         for (int x = 0; x < textureWidth; x++)
         {
-            GLubyte *pixel = &data[0] + ((y * textureWidth + x) * 4);
+            GLubyte *pixel = ANGLE_UNSAFE_TODO(&data[0] + ((y * textureWidth + x) * 4));
 
             // Draw a gradient, red in direction, green in y direction
             pixel[0] = static_cast<GLubyte>((float(x) / textureWidth) * 255);
-            pixel[1] = static_cast<GLubyte>((float(y) / textureHeight) * 255);
-            pixel[2] = 0;
-            pixel[3] = 255;
+            ANGLE_UNSAFE_TODO(pixel[1]) = static_cast<GLubyte>((float(y) / textureHeight) * 255);
+            ANGLE_UNSAFE_TODO(pixel[2]) = 0;
+            ANGLE_UNSAFE_TODO(pixel[3]) = 255;
         }
     }
 
@@ -125,13 +129,15 @@ TEST_P(MaxTextureSizeTest, SpecificationTexImage)
     {
         for (int x = 1; x < getWindowWidth(); x++)
         {
-            const GLubyte *prevPixel = &pixels[0] + (((y - 1) * getWindowWidth() + (x - 1)) * 4);
-            const GLubyte *curPixel  = &pixels[0] + ((y * getWindowWidth() + x) * 4);
+            const GLubyte *prevPixel =
+                ANGLE_UNSAFE_TODO(&pixels[0] + (((y - 1) * getWindowWidth() + (x - 1)) * 4));
+            const GLubyte *curPixel =
+                ANGLE_UNSAFE_TODO(&pixels[0] + ((y * getWindowWidth() + x) * 4));
 
             EXPECT_GE(curPixel[0], prevPixel[0]);
-            EXPECT_GE(curPixel[1], prevPixel[1]);
-            EXPECT_EQ(curPixel[2], prevPixel[2]);
-            EXPECT_EQ(curPixel[3], prevPixel[3]);
+            ANGLE_UNSAFE_TODO(EXPECT_GE(curPixel[1], prevPixel[1]));
+            ANGLE_UNSAFE_TODO(EXPECT_EQ(curPixel[2], prevPixel[2]));
+            ANGLE_UNSAFE_TODO(EXPECT_EQ(curPixel[3], prevPixel[3]));
         }
     }
 }
@@ -161,13 +167,13 @@ TEST_P(MaxTextureSizeTest, SpecificationTexStorage)
     {
         for (int x = 0; x < textureWidth; x++)
         {
-            GLubyte *pixel = &data[0] + ((y * textureWidth + x) * 4);
+            GLubyte *pixel = ANGLE_UNSAFE_TODO(&data[0] + ((y * textureWidth + x) * 4));
 
             // Draw a gradient, red in direction, green in y direction
             pixel[0] = static_cast<GLubyte>((float(x) / textureWidth) * 255);
-            pixel[1] = static_cast<GLubyte>((float(y) / textureHeight) * 255);
-            pixel[2] = 0;
-            pixel[3] = 255;
+            ANGLE_UNSAFE_TODO(pixel[1]) = static_cast<GLubyte>((float(y) / textureHeight) * 255);
+            ANGLE_UNSAFE_TODO(pixel[2]) = 0;
+            ANGLE_UNSAFE_TODO(pixel[3]) = 255;
         }
     }
 
@@ -197,13 +203,15 @@ TEST_P(MaxTextureSizeTest, SpecificationTexStorage)
     {
         for (int x = 1; x < getWindowWidth(); x++)
         {
-            const GLubyte *prevPixel = &pixels[0] + (((y - 1) * getWindowWidth() + (x - 1)) * 4);
-            const GLubyte *curPixel  = &pixels[0] + ((y * getWindowWidth() + x) * 4);
+            const GLubyte *prevPixel =
+                ANGLE_UNSAFE_TODO(&pixels[0] + (((y - 1) * getWindowWidth() + (x - 1)) * 4));
+            const GLubyte *curPixel =
+                ANGLE_UNSAFE_TODO(&pixels[0] + ((y * getWindowWidth() + x) * 4));
 
             EXPECT_GE(curPixel[0], prevPixel[0]);
-            EXPECT_GE(curPixel[1], prevPixel[1]);
-            EXPECT_EQ(curPixel[2], prevPixel[2]);
-            EXPECT_EQ(curPixel[3], prevPixel[3]);
+            ANGLE_UNSAFE_TODO(EXPECT_GE(curPixel[1], prevPixel[1]));
+            ANGLE_UNSAFE_TODO(EXPECT_EQ(curPixel[2], prevPixel[2]));
+            ANGLE_UNSAFE_TODO(EXPECT_EQ(curPixel[3], prevPixel[3]));
         }
     }
 }
@@ -237,7 +245,7 @@ TEST_P(MaxTextureSizeTest, RenderToTexture)
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureId, 0);
 
     EXPECT_GL_NO_ERROR();
-    EXPECT_GLENUM_EQ(GL_FRAMEBUFFER_COMPLETE, glCheckFramebufferStatus(GL_FRAMEBUFFER));
+    EXPECT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
 
     const int frameCount = 64;
     for (int i = 0; i < frameCount; i++)
@@ -279,9 +287,59 @@ TEST_P(MaxTextureSizeTest, RenderToTexture)
     glDeleteTextures(1, &textureId);
 }
 
+TEST_P(MaxTextureSizeTest, Render1xTexture)
+{
+    // This is not spec compliant but checking for now anyway. We can fix it
+    // if we find a driver for which this is not true.
+    float power = std::roundf(std::log(static_cast<float>(mMaxTexture2DSize)) / std::log(2.0f));
+    EXPECT_EQ(std::pow(2.0f, power), mMaxTexture2DSize);
+
+    // Make a the largest possbile texture but not too big.
+    const GLint testSize = std::min(mMaxTexture2DSize, 128 * 1024);
+
+    glUseProgram(mTextureProgram);
+    glUniform1i(mTextureUniformLocation, 0);
+
+    constexpr GLColor testColor(0, 255, 128, 255);
+    std::vector<GLColor> data(testSize, testColor);
+
+    // Test a wide texture.
+    {
+        GLTexture texture1Id;
+        glBindTexture(GL_TEXTURE_2D, texture1Id);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, mMaxTexture2DSize, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                     data.data());
+        glGenerateMipmap(GL_TEXTURE_2D);
+
+        glClear(GL_COLOR_BUFFER_BIT);
+        drawQuad(mTextureProgram, "position", 0.5f);
+
+        EXPECT_PIXEL_RECT_EQ(0, 0, getWindowWidth(), getWindowHeight(), testColor);
+    }
+
+    // Test a tall texture.
+    {
+        GLTexture texture2Id;
+        glBindTexture(GL_TEXTURE_2D, texture2Id);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, mMaxTexture2DSize, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                     data.data());
+        glGenerateMipmap(GL_TEXTURE_2D);
+
+        glClear(GL_COLOR_BUFFER_BIT);
+        drawQuad(mTextureProgram, "position", 0.5f);
+    }
+
+    EXPECT_PIXEL_RECT_EQ(0, 0, getWindowWidth(), getWindowHeight(), testColor);
+
+    EXPECT_GL_NO_ERROR();
+}
+
 // TODO(geofflang): Fix the dependence on glBlitFramebufferANGLE without checks and assuming the
-// default framebuffer is BGRA to enable the GL and GLES backends. (http://anglebug.com/1289)
+// default framebuffer is BGRA to enable the GL and GLES backends. (http://anglebug.com/42260299)
 
 // Use this to select which configurations (e.g. which renderer, which GLES major version) these
 // tests should be run against.
-ANGLE_INSTANTIATE_TEST(MaxTextureSizeTest, ES2_D3D9(), ES2_D3D11(), ES2_VULKAN());
+ANGLE_INSTANTIATE_TEST(MaxTextureSizeTest, ES2_D3D11(), ES2_VULKAN(), ES2_METAL());
+
+// This test suite is not instantiated on some OSes.
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(MaxTextureSizeTest);

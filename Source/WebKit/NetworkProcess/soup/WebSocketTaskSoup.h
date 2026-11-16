@@ -25,24 +25,24 @@
 
 #pragma once
 
-#include "DataReference.h"
 #include <WebCore/ResourceRequest.h>
 #include <libsoup/soup.h>
 #include <wtf/RunLoop.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/glib/GRefPtr.h>
 
 namespace WebKit {
 class NetworkSocketChannel;
 struct SessionSet;
 
-class WebSocketTask {
-    WTF_MAKE_FAST_ALLOCATED;
+class WebSocketTask : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<WebSocketTask> {
+    WTF_MAKE_TZONE_ALLOCATED(WebSocketTask);
 public:
-    WebSocketTask(NetworkSocketChannel&, const WebCore::ResourceRequest&, SoupSession*, SoupMessage*, const String& protocol);
+    static Ref<WebSocketTask> create(NetworkSocketChannel&, const WebCore::ResourceRequest&, SoupSession*, SoupMessage*, const String& protocol);
     ~WebSocketTask();
 
-    void sendString(const IPC::DataReference&, CompletionHandler<void()>&&);
-    void sendData(const IPC::DataReference&, CompletionHandler<void()>&&);
+    void sendString(std::span<const uint8_t>, CompletionHandler<void()>&&);
+    void sendData(std::span<const uint8_t>, CompletionHandler<void()>&&);
     void close(int32_t code, const String& reason);
 
     void cancel();
@@ -51,8 +51,10 @@ public:
     SessionSet* sessionSet() { return nullptr; }
 
 private:
+    WebSocketTask(NetworkSocketChannel&, const WebCore::ResourceRequest&, SoupSession*, SoupMessage*, const String& protocol);
+
     void didConnect(GRefPtr<SoupWebsocketConnection>&&);
-    void didFail(const String&);
+    void didFail(String&&);
     void didClose(unsigned short code, const String& reason);
     void delayFailTimerFired();
 
@@ -62,7 +64,7 @@ private:
     static void didReceiveErrorCallback(WebSocketTask*, GError*);
     static void didCloseCallback(WebSocketTask*);
 
-    NetworkSocketChannel& m_channel;
+    WeakPtr<NetworkSocketChannel> m_channel;
     WebCore::ResourceRequest m_request;
     GRefPtr<SoupMessage> m_handshakeMessage;
     GRefPtr<SoupWebsocketConnection> m_connection;
@@ -70,7 +72,7 @@ private:
     bool m_receivedDidFail { false };
     bool m_receivedDidClose { false };
     String m_delayErrorMessage;
-    RunLoop::Timer<WebSocketTask> m_delayFailTimer;
+    RunLoop::Timer m_delayFailTimer;
 };
 
 } // namespace WebKit

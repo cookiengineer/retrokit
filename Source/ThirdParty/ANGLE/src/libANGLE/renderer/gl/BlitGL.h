@@ -15,6 +15,7 @@
 #include "libANGLE/angletypes.h"
 #include "libANGLE/renderer/gl/formatutilsgl.h"
 
+#include <array>
 #include <map>
 
 namespace angle
@@ -36,6 +37,7 @@ class FunctionsGL;
 class RenderbufferGL;
 class StateManagerGL;
 class TextureGL;
+struct VertexArrayStateGL;
 
 class BlitGL : angle::NonCopyable
 {
@@ -107,6 +109,7 @@ class BlitGL : angle::NonCopyable
                                  bool unpackFlipY,
                                  bool unpackPremultiplyAlpha,
                                  bool unpackUnmultiplyAlpha,
+                                 bool transformLinearToSrgb,
                                  bool *copySucceededOut);
 
     angle::Result copySubTextureCPUReadback(const gl::Context *context,
@@ -148,13 +151,23 @@ class BlitGL : angle::NonCopyable
                                     RenderbufferGL *source,
                                     GLenum sizedInternalFormat);
 
-    angle::Result clearFramebuffer(const gl::Context *context, FramebufferGL *source);
+    angle::Result clearFramebuffer(const gl::Context *context,
+                                   const gl::DrawBufferMask &colorAttachments,
+                                   bool depthClear,
+                                   bool stencilClear,
+                                   FramebufferGL *source);
 
     angle::Result clearRenderableTextureAlphaToOne(const gl::Context *context,
                                                    GLuint texture,
                                                    gl::TextureTarget target,
                                                    size_t level);
 
+    angle::Result generateMipmap(const gl::Context *context,
+                                 TextureGL *source,
+                                 GLuint baseLevel,
+                                 GLuint levelCount,
+                                 const gl::Extents &sourceBaseLevelSize,
+                                 const nativegl::TexImageFormat &format);
     angle::Result generateSRGBMipmap(const gl::Context *context,
                                      TextureGL *source,
                                      GLuint baseLevel,
@@ -168,6 +181,8 @@ class BlitGL : angle::NonCopyable
     angle::Result setScratchTextureParameter(const gl::Context *context,
                                              GLenum param,
                                              GLenum value);
+    angle::Result setVAOState(const gl::Context *context);
+    angle::Result initializeVAOState(const gl::Context *context);
 
     const FunctionsGL *mFunctions;
     const angle::FeaturesGL &mFeatures;
@@ -175,12 +190,13 @@ class BlitGL : angle::NonCopyable
 
     struct BlitProgram
     {
-        GLuint program                = 0;
-        GLint sourceTextureLocation   = -1;
-        GLint scaleLocation           = -1;
-        GLint offsetLocation          = -1;
-        GLint multiplyAlphaLocation   = -1;
-        GLint unMultiplyAlphaLocation = -1;
+        GLuint program                      = 0;
+        GLint sourceTextureLocation         = -1;
+        GLint scaleLocation                 = -1;
+        GLint offsetLocation                = -1;
+        GLint multiplyAlphaLocation         = -1;
+        GLint unMultiplyAlphaLocation       = -1;
+        GLint transformLinearToSrgbLocation = -1;
     };
 
     angle::Result getBlitProgram(const gl::Context *context,
@@ -195,11 +211,15 @@ class BlitGL : angle::NonCopyable
     using BlitProgramType = std::tuple<gl::TextureType, GLenum, GLenum>;
     std::map<BlitProgramType, BlitProgram> mBlitPrograms;
 
-    GLuint mScratchTextures[2];
-    GLuint mScratchFBO;
+    std::array<GLuint, 2> mScratchTextures = {0};
+    GLuint mScratchFBO         = 0;
 
-    GLuint mVAO;
-    GLuint mVertexBuffer;
+    GLuint mVAO                   = 0;
+    bool mOwnsVAO                 = false;
+    VertexArrayStateGL *mVAOState = nullptr;
+
+    const GLuint mTexcoordAttribLocation = 0;
+    GLuint mVertexBuffer                 = 0;
 
     nativegl::TexImageFormat mSRGBMipmapGenerationFormat;
 };

@@ -28,89 +28,105 @@
 #include "HTMLSlotElement.h"
 #include "PseudoElement.h"
 #include "ShadowRoot.h"
+#include "SlotAssignment.h"
 
 namespace WebCore {
 
 class HTMLSlotElement;
 
+template<typename ElementType = Element>
 class ComposedTreeAncestorIterator {
 public:
     ComposedTreeAncestorIterator();
-    ComposedTreeAncestorIterator(Node& current);
+    ComposedTreeAncestorIterator(ElementType& current);
+    ComposedTreeAncestorIterator(const Node& current);
 
-    Element& operator*() { return get(); }
-    Element* operator->() { return &get(); }
+    ElementType& operator*() { return get(); }
+    ElementType* operator->() { return &get(); }
 
-    bool operator==(const ComposedTreeAncestorIterator& other) const { return m_current == other.m_current; }
-    bool operator!=(const ComposedTreeAncestorIterator& other) const { return m_current != other.m_current; }
+    friend bool operator==(ComposedTreeAncestorIterator, ComposedTreeAncestorIterator) = default;
 
-    ComposedTreeAncestorIterator& operator++() { return traverseParent(); }
+    ComposedTreeAncestorIterator& operator++()
+    {
+        m_current = traverseParent(m_current.get());
+        return *this;
+    }
 
-    Element& get() { return downcast<Element>(*m_current); }
-    ComposedTreeAncestorIterator& traverseParent();
+    ElementType& get() { return *m_current; }
 
 private:
-    void traverseParentInShadowTree();
+    static ElementType* NODELETE traverseParent(const Node*);
 
-    Node* m_current { 0 };
+    CheckedPtr<ElementType> m_current;
 };
 
-inline ComposedTreeAncestorIterator::ComposedTreeAncestorIterator()
+template<typename ElementType>
+inline ComposedTreeAncestorIterator<ElementType>::ComposedTreeAncestorIterator()
 {
 }
 
-inline ComposedTreeAncestorIterator::ComposedTreeAncestorIterator(Node& current)
+template<typename ElementType>
+inline ComposedTreeAncestorIterator<ElementType>::ComposedTreeAncestorIterator(const Node& current)
+    : m_current(traverseParent(&current))
+{
+    ASSERT(!is<ShadowRoot>(current));
+}
+
+template<typename ElementType>
+inline ComposedTreeAncestorIterator<ElementType>::ComposedTreeAncestorIterator(ElementType& current)
     : m_current(&current)
 {
-    ASSERT(!is<ShadowRoot>(m_current));
 }
 
-inline ComposedTreeAncestorIterator& ComposedTreeAncestorIterator::traverseParent()
+template<typename ElementType>
+inline ElementType* ComposedTreeAncestorIterator<ElementType>::traverseParent(const Node* current)
 {
-    auto* parent = m_current->parentNode();
-    if (!parent) {
-        m_current = nullptr;
-        return *this;
-    }
-    if (is<ShadowRoot>(*parent)) {
-        m_current = downcast<ShadowRoot>(*parent).host();
-        return *this;
-    }
-    if (!is<Element>(*parent)) {
-        m_current = nullptr;
-        return *this;
-    };
-
-    if (auto* shadowRoot = parent->shadowRoot()) {
-        m_current = shadowRoot->findAssignedSlot(*m_current);
-        return *this;
-    }
-
-    m_current = parent;
-    return *this;
+    auto* parent = current->parentNode();
+    if (!parent)
+        return nullptr;
+    if (auto* shadowRoot = dynamicDowncast<ShadowRoot>(*parent))
+        return shadowRoot->host();
+    auto* parentElement = dynamicDowncast<Element>(*parent);
+    if (!parentElement)
+        return nullptr;
+    if (auto* shadowRoot = parentElement->shadowRoot())
+        return shadowRoot->findAssignedSlot(*current);
+    return parentElement;
 }
 
+template<typename ElementType = Element>
 class ComposedTreeAncestorAdapter {
 public:
-    using iterator = ComposedTreeAncestorIterator;
+    using iterator = ComposedTreeAncestorIterator<ElementType>;
+    using NodeType = std::conditional_t<std::is_const_v<ElementType>, const Node, Node>;
 
-    ComposedTreeAncestorAdapter(Node& node)
+    ComposedTreeAncestorAdapter(NodeType& node)
         : m_node(node)
     { }
 
     iterator begin()
     {
-        if (is<ShadowRoot>(m_node))
-            return iterator(*downcast<ShadowRoot>(m_node).host());
-        if (is<PseudoElement>(m_node))
-            return iterator(*downcast<PseudoElement>(m_node).hostElement());
-        return iterator(m_node).traverseParent();
+        if (auto* shadowRoot = dynamicDowncast<ShadowRoot>(m_node.get())) {
+            auto* shadowHost = shadowRoot->host();
+            ASSERT(shadowHost);
+            if (!shadowHost)
+                return end();
+            return iterator(*shadowHost);
+        }
+        if (auto* pseudoElement = dynamicDowncast<PseudoElement>(m_node.get())) {
+            auto* hostElement = pseudoElement->hostElement();
+            ASSERT(hostElement);
+            if (!hostElement)
+                return end();
+            return iterator(*hostElement);
+        }
+        return iterator(m_node);
     }
     iterator end()
     {
         return iterator();
     }
-    Element* first()
+    ElementType* first()
     {
         auto it = begin();
         if (it == end())
@@ -119,13 +135,43 @@ public:
     }
 
 private:
-    Node& m_node;
+    const Ref<NodeType> m_node;
 };
 
-// FIXME: We should have const versions too.
-inline ComposedTreeAncestorAdapter composedTreeAncestors(Node& node)
+inline ComposedTreeAncestorAdapter<Element> composedTreeAncestors(Node& node)
 {
-    return ComposedTreeAncestorAdapter(node);
+    return ComposedTreeAncestorAdapter<Element>(node);
+}
+
+inline ComposedTreeAncestorAdapter<const Element> composedTreeAncestors(const Node& node)
+{
+    return ComposedTreeAncestorAdapter<const Element>(node);
+}
+
+template<typename ElementType = Element>
+class ComposedTreeLineageAdapter {
+public:
+    using iterator = ComposedTreeAncestorIterator<ElementType>;
+
+    ComposedTreeLineageAdapter(ElementType& element)
+        : m_element(element)
+    { }
+
+    iterator begin() { return iterator(m_element.get()); }
+    iterator end() { return iterator(); }
+
+private:
+    const Ref<ElementType> m_element;
+};
+
+inline ComposedTreeLineageAdapter<Element> composedTreeLineage(Element& element)
+{
+    return ComposedTreeLineageAdapter<Element>(element);
+}
+
+inline ComposedTreeLineageAdapter<const Element> composedTreeLineage(const Element& element)
+{
+    return ComposedTreeLineageAdapter<const Element>(element);
 }
 
 } // namespace WebCore

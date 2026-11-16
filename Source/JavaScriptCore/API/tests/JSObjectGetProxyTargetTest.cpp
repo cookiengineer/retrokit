@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,11 +27,13 @@
 #include "JSObjectGetProxyTargetTest.h"
 
 #include "APICast.h"
+#include "IntegrityInlines.h"
 #include "JSCInlines.h"
+#include "JSGlobalProxyInlines.h"
 #include "JSObjectRefPrivate.h"
-#include "JSProxy.h"
 #include "JavaScript.h"
 #include "ProxyObject.h"
+#include <wtf/text/ASCIILiteral.h>
 
 using namespace JSC;
 
@@ -41,8 +43,8 @@ int testJSObjectGetProxyTarget()
     
     printf("JSObjectGetProxyTargetTest:\n");
     
-    auto test = [&] (const char* description, bool currentResult) {
-        printf("    %s: %s\n", description, currentResult ? "PASS" : "FAIL");
+    auto test = [&] (ASCIILiteral description, bool currentResult) {
+        SAFE_PRINTF("    %s: %s\n", description, currentResult ? "PASS"_s : "FAIL"_s);
         overallResult &= currentResult;
     };
     
@@ -54,15 +56,15 @@ int testJSObjectGetProxyTarget()
 
     JSGlobalObject* globalObjectObject;
     JSObjectRef globalObjectRef;
-    JSProxy* jsProxyObject;
+    JSGlobalProxy* jsProxyObject;
 
     {
         JSLockHolder locker(vm);
-        JSProxy* globalObjectProxyObject = jsCast<JSProxy*>(toJS(globalObjectProxy));
-        globalObjectObject = jsCast<JSGlobalObject*>(globalObjectProxyObject->target());
-        Structure* proxyStructure = JSProxy::createStructure(vm, globalObjectObject, globalObjectObject->objectPrototype());
-        globalObjectRef = toRef(jsCast<JSObject*>(globalObjectObject));
-        jsProxyObject = JSProxy::create(vm, proxyStructure);
+        JSGlobalProxy* globalObjectProxyObject = uncheckedDowncast<JSGlobalProxy>(toJS(globalObjectProxy));
+        globalObjectObject = globalObjectProxyObject->target();
+        Structure* proxyStructure = JSGlobalProxy::createStructure(vm, globalObjectObject, globalObjectObject->objectPrototype());
+        globalObjectRef = toRef(static_cast<JSObject*>(globalObjectObject));
+        jsProxyObject = JSGlobalProxy::create(vm, proxyStructure);
     }
     
     JSObjectRef array = JSObjectMakeArray(context, 0, nullptr, nullptr);
@@ -81,14 +83,14 @@ int testJSObjectGetProxyTarget()
     
     test("proxy target of null is null", !JSObjectGetProxyTarget(nullptr));
     test("proxy target of non-proxy is null", !JSObjectGetProxyTarget(array));
-    test("proxy target of uninitialized JSProxy is null", !JSObjectGetProxyTarget(jsProxy));
+    test("proxy target of uninitialized JSGlobalProxy is null", !JSObjectGetProxyTarget(jsProxy));
     
     {
         JSLockHolder locker(vm);
         jsProxyObject->setTarget(vm, globalObjectObject);
     }
     
-    test("proxy target of initialized JSProxy works", JSObjectGetProxyTarget(jsProxy) == globalObjectRef);
+    test("proxy target of initialized JSGlobalProxy works", JSObjectGetProxyTarget(jsProxy) == globalObjectRef);
     
     test("proxy target of ProxyObject works", JSObjectGetProxyTarget(proxyObject) == array);
     
@@ -97,7 +99,7 @@ int testJSObjectGetProxyTarget()
     JSGlobalContextRelease(context);
     JSContextGroupRelease(group);
 
-    printf("JSObjectGetProxyTargetTest: %s\n", overallResult ? "PASS" : "FAIL");
+    SAFE_PRINTF("JSObjectGetProxyTargetTest: %s\n", overallResult ? "PASS"_s : "FAIL"_s);
     return !overallResult;
 }
 

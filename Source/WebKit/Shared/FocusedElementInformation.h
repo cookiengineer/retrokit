@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,23 +25,24 @@
 
 #pragma once
 
-#include "ArgumentCoders.h"
+#include "ColorControlSupportsAlpha.h"
+#include "FrameInfoData.h"
 #include "IdentifierTypes.h"
 #include <WebCore/AutocapitalizeTypes.h>
 #include <WebCore/Autofill.h>
 #include <WebCore/Color.h>
 #include <WebCore/ElementContext.h>
 #include <WebCore/EnterKeyHint.h>
-#include <WebCore/GraphicsLayer.h>
+#include <WebCore/FrameIdentifier.h>
 #include <WebCore/InputMode.h>
 #include <WebCore/IntRect.h>
-#include <wtf/EnumTraits.h>
+#include <WebCore/ScrollTypes.h>
 #include <wtf/URL.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebKit {
 
-enum class InputType {
+enum class InputType : uint8_t {
     None,
     ContentEditable,
     Text,
@@ -60,16 +61,43 @@ enum class InputType {
     Time,
     Select,
     Drawing,
-#if ENABLE(INPUT_TYPE_COLOR)
     Color
-#endif
 };
+
+inline bool isSingleLineInputType(InputType type)
+{
+    switch (type) {
+    case InputType::None:
+    case InputType::ContentEditable:
+    case InputType::TextArea:
+        return false;
+    case InputType::Text:
+    case InputType::Password:
+    case InputType::Search:
+    case InputType::Email:
+    case InputType::URL:
+    case InputType::Phone:
+    case InputType::Number:
+    case InputType::NumberPad:
+    case InputType::Date:
+    case InputType::DateTimeLocal:
+    case InputType::Month:
+    case InputType::Week:
+    case InputType::Time:
+    case InputType::Select:
+    case InputType::Drawing:
+    case InputType::Color:
+        return true;
+    }
+    ASSERT_NOT_REACHED();
+    return false;
+}
 
 #if PLATFORM(IOS_FAMILY)
 struct OptionItem {
     OptionItem() = default;
 
-    OptionItem(const String& text, bool isGroup, int parentID, bool selected, bool disabled)
+    OptionItem(const String& text, bool isGroup, bool selected, bool disabled, int parentID)
         : text(text)
         , isGroup(isGroup)
         , isSelected(selected)
@@ -83,9 +111,6 @@ struct OptionItem {
     bool isSelected { false };
     bool disabled { false };
     int parentGroupID { 0 };
-
-    void encode(IPC::Encoder&) const;
-    static std::optional<OptionItem> decode(IPC::Decoder&);
 };
 
 struct FocusedElementInformation {
@@ -105,8 +130,10 @@ struct FocusedElementInformation {
     bool isMultiSelect { false };
     bool isReadOnly {false };
     bool allowsUserScaling { false };
+    bool usesBaseAppearancePicker { false };
     bool allowsUserScalingIgnoringAlwaysScalable { false };
     bool insideFixedPosition { false };
+    bool hasPlainText { false };
     WebCore::AutocapitalizeType autocapitalizeType { WebCore::AutocapitalizeType::Default };
     InputType elementType { InputType::None };
     WebCore::InputMode inputMode { WebCore::InputMode::Unspecified };
@@ -121,61 +148,38 @@ struct FocusedElementInformation {
     bool isAutofillableUsernameField { false };
     URL representingPageURL;
     WebCore::AutofillFieldName autofillFieldName { WebCore::AutofillFieldName::None };
+    WebCore::NonAutofillCredentialType nonAutofillCredentialType { WebCore::NonAutofillCredentialType::None };
     String placeholder;
     String label;
     String ariaLabel;
-#if ENABLE(DATALIST_ELEMENT)
     bool hasSuggestions { false };
     bool isFocusingWithDataListDropdown { false };
-#if ENABLE(INPUT_TYPE_COLOR)
     WebCore::Color colorValue;
+    ColorControlSupportsAlpha supportsAlpha { ColorControlSupportsAlpha::No };
     Vector<WebCore::Color> suggestedColors;
-#endif
-#endif
+    bool hasEverBeenPasswordField { false };
     bool shouldSynthesizeKeyEventsForEditing { false };
     bool isSpellCheckingEnabled { true };
+    bool isWritingSuggestionsEnabled { false };
     bool shouldAvoidResizingWhenInputViewBoundsChange { false };
     bool shouldAvoidScrollingWhenFocusedContentIsVisible { false };
     bool shouldUseLegacySelectPopoverDismissalBehaviorInDataActivation { false };
+    bool shouldHideSoftTopScrollEdgeEffect { false };
     bool isFocusingWithValidationMessage { false };
+    bool preventScroll { false };
 
     FocusedElementInformationIdentifier identifier;
-    WebCore::ScrollingNodeID containerScrollingNodeID { 0 };
+    Markable<WebCore::ScrollingNodeID> containerScrollingNodeID;
 
-    void encode(IPC::Encoder&) const;
-    static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, FocusedElementInformation&);
+    std::optional<FrameInfoData> frame;
+
+    std::optional<WebCore::FrameIdentifier> frameID() const
+    {
+        if (frame)
+            return frame->frameID;
+        return std::nullopt;
+    }
 };
 #endif
 
 } // namespace WebKit
-
-namespace WTF {
-
-template<> struct EnumTraits<WebKit::InputType> {
-    using values = EnumValues<
-        WebKit::InputType,
-        WebKit::InputType::None,
-        WebKit::InputType::ContentEditable,
-        WebKit::InputType::Text,
-        WebKit::InputType::Password,
-        WebKit::InputType::TextArea,
-        WebKit::InputType::Search,
-        WebKit::InputType::Email,
-        WebKit::InputType::URL,
-        WebKit::InputType::Phone,
-        WebKit::InputType::Number,
-        WebKit::InputType::NumberPad,
-        WebKit::InputType::Date,
-        WebKit::InputType::DateTimeLocal,
-        WebKit::InputType::Month,
-        WebKit::InputType::Week,
-        WebKit::InputType::Time,
-        WebKit::InputType::Select,
-        WebKit::InputType::Drawing
-#if ENABLE(INPUT_TYPE_COLOR)
-        , WebKit::InputType::Color
-#endif
-    >;
-};
-
-} // namespace WTF

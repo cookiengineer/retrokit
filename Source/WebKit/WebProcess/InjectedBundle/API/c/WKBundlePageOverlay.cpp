@@ -38,9 +38,11 @@
 #include "WebPage.h"
 #include "WebPageOverlay.h"
 #include <WebCore/GraphicsContext.h>
+#include <WebCore/ImageBuffer.h>
 #include <WebCore/PageOverlay.h>
 #include <WebCore/PlatformMouseEvent.h>
 #include <WebCore/Range.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace API {
 
@@ -55,7 +57,7 @@ template<> struct ClientTraits<WKBundlePageOverlayAccessibilityClientBase> {
 }
 
 class PageOverlayClientImpl : API::Client<WKBundlePageOverlayClientBase>, public WebKit::WebPageOverlay::Client {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(PageOverlayClientImpl);
 public:
     explicit PageOverlayClientImpl(WKBundlePageOverlayClientBase* client)
     {
@@ -69,6 +71,8 @@ public:
 
 private:
     // WebKit::WebPageOverlay::Client.
+    bool isPageOverlayClientImpl() const final { return true; }
+
     void willMoveToPage(WebKit::WebPageOverlay& pageOverlay, WebKit::WebPage* page) override
     {
         if (!m_client.willMoveToPage)
@@ -76,7 +80,7 @@ private:
 
         m_client.willMoveToPage(toAPI(&pageOverlay), toAPI(page), m_client.base.clientInfo);
     }
-    
+
     void didMoveToPage(WebKit::WebPageOverlay& pageOverlay, WebKit::WebPage* page) override
     {
         if (!m_client.didMoveToPage)
@@ -90,9 +94,17 @@ private:
         if (!m_client.drawRect)
             return;
 
-        m_client.drawRect(toAPI(&pageOverlay), graphicsContext.platformContext(), WebKit::toAPI(dirtyRect), m_client.base.clientInfo);
+        auto imageBuffer = graphicsContext.createAlignedImageBuffer(dirtyRect.size(), WebCore::DestinationColorSpace::SRGB(), WebCore::RenderingMethod::Local);
+        if (!imageBuffer)
+            return;
+
+        auto& imageBufferContext = imageBuffer->context();
+        imageBufferContext.translate(-dirtyRect.location());
+        m_client.drawRect(toAPI(&pageOverlay), imageBufferContext.platformContext(), WebKit::toAPI(dirtyRect), m_client.base.clientInfo);
+
+        graphicsContext.drawConsumingImageBuffer(WTF::move(imageBuffer), dirtyRect);
     }
-    
+
     bool mouseEvent(WebKit::WebPageOverlay& pageOverlay, const WebCore::PlatformMouseEvent& event) override
     {
         switch (event.type()) {
@@ -100,27 +112,27 @@ private:
             if (!m_client.mouseDown)
                 return false;
 
-            return m_client.mouseDown(toAPI(&pageOverlay), WebKit::toAPI(event.position()), WebKit::toAPI(event.button()), m_client.base.clientInfo);
+            return m_client.mouseDown(toAPI(&pageOverlay), WebKit::toAPI(flooredIntPoint(event.position())), WebKit::toAPI(event.button()), m_client.base.clientInfo);
         }
         case WebCore::PlatformMouseEvent::Type::MouseReleased: {
             if (!m_client.mouseUp)
                 return false;
 
-            return m_client.mouseUp(toAPI(&pageOverlay), WebKit::toAPI(event.position()), WebKit::toAPI(event.button()), m_client.base.clientInfo);
+            return m_client.mouseUp(toAPI(&pageOverlay), WebKit::toAPI(flooredIntPoint(event.position())), WebKit::toAPI(event.button()), m_client.base.clientInfo);
         }
         case WebCore::PlatformMouseEvent::Type::MouseMoved: {
-            if (event.button() == WebCore::MouseButton::NoButton) {
+            if (event.button() == WebCore::MouseButton::None) {
                 if (!m_client.mouseMoved)
                     return false;
 
-                return m_client.mouseMoved(toAPI(&pageOverlay), WebKit::toAPI(event.position()), m_client.base.clientInfo);
+                return m_client.mouseMoved(toAPI(&pageOverlay), WebKit::toAPI(flooredIntPoint(event.position())), m_client.base.clientInfo);
             }
 
             // This is a MouseMove event with a mouse button pressed. Call mouseDragged.
             if (!m_client.mouseDragged)
                 return false;
 
-            return m_client.mouseDragged(toAPI(&pageOverlay), WebKit::toAPI(event.position()), WebKit::toAPI(event.button()), m_client.base.clientInfo);
+            return m_client.mouseDragged(toAPI(&pageOverlay), WebKit::toAPI(flooredIntPoint(event.position())), WebKit::toAPI(event.button()), m_client.base.clientInfo);
         }
 
         default:
@@ -135,7 +147,7 @@ private:
             return std::nullopt;
 
         WKBundleRangeHandleRef apiRange = nullptr;
-        auto actionContext = (DDActionContext *)m_client.actionContextForResultAtPoint(toAPI(&pageOverlay), WKPointMake(location.x(), location.y()), &apiRange, m_client.base.clientInfo);
+        auto actionContext = (WKDDActionContext *)m_client.actionContextForResultAtPoint(toAPI(&pageOverlay), WKPointMake(location.x(), location.y()), &apiRange, m_client.base.clientInfo);
         if (!actionContext || !apiRange)
             return std::nullopt;
 
@@ -172,7 +184,7 @@ private:
         if (!m_accessibilityClient.client().copyAccessibilityAttributeValue)
             return false;
         auto wkType = m_accessibilityClient.client().copyAccessibilityAttributeValue(toAPI(&pageOverlay), WebKit::toCopiedAPI(attribute), WKPointCreate(WKPointMake(parameter.x(), parameter.y())), m_accessibilityClient.client().base.clientInfo);
-        if (WebKit::toImpl(wkType)->type() != API::String::APIType)
+        if (protect(WebKit::toImpl(wkType))->type() != API::String::APIType)
             return false;
         value = WebKit::toWTFString(static_cast<WKStringRef>(wkType));
         return true;
@@ -183,7 +195,7 @@ private:
         if (!m_accessibilityClient.client().copyAccessibilityAttributeValue)
             return false;
         auto wkType = m_accessibilityClient.client().copyAccessibilityAttributeValue(toAPI(&pageOverlay), WebKit::toCopiedAPI(attribute), WKPointCreate(WKPointMake(parameter.x(), parameter.y())), m_accessibilityClient.client().base.clientInfo);
-        if (WebKit::toImpl(wkType)->type() != API::Boolean::APIType)
+        if (protect(WebKit::toImpl(wkType))->type() != API::Boolean::APIType)
             return false;
         value = WKBooleanGetValue(static_cast<WKBooleanRef>(wkType));
         return true;
@@ -197,17 +209,23 @@ private:
         auto wkNames = m_accessibilityClient.client().copyAccessibilityAttributeNames(toAPI(&pageOverlay), paramerizedNames, m_accessibilityClient.client().base.clientInfo);
 
         size_t count = WKArrayGetSize(wkNames);
+        names.reserveInitialCapacity(count);
         for (size_t k = 0; k < count; k++) {
             WKTypeRef item = WKArrayGetItemAtIndex(wkNames, k);
-            if (WebKit::toImpl(item)->type() == API::String::APIType)
+            if (protect(WebKit::toImpl(item))->type() == API::String::APIType)
                 names.append(WebKit::toWTFString(static_cast<WKStringRef>(item)));
         }
+        names.shrinkToFit();
 
         return names;
     }
-    
+
     API::Client<WKBundlePageOverlayAccessibilityClientBase> m_accessibilityClient;
 };
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(PageOverlayClientImpl)
+static bool isType(const WebKit::WebPageOverlay::Client& client) { return client.isPageOverlayClientImpl(); }
+SPECIALIZE_TYPE_TRAITS_END()
 
 WKTypeID WKBundlePageOverlayGetTypeID()
 {
@@ -217,17 +235,17 @@ WKTypeID WKBundlePageOverlayGetTypeID()
 WKBundlePageOverlayRef WKBundlePageOverlayCreate(WKBundlePageOverlayClientBase* wkClient)
 {
     auto clientImpl = makeUnique<PageOverlayClientImpl>(wkClient);
-    return toAPI(&WebKit::WebPageOverlay::create(WTFMove(clientImpl)).leakRef());
+    return toAPILeakingRef(WebKit::WebPageOverlay::create(WTF::move(clientImpl)));
 }
 
 void WKBundlePageOverlaySetAccessibilityClient(WKBundlePageOverlayRef bundlePageOverlayRef, WKBundlePageOverlayAccessibilityClientBase* client)
 {
-    static_cast<PageOverlayClientImpl&>(WebKit::toImpl(bundlePageOverlayRef)->client()).setAccessibilityClient(client);
+    downcast<PageOverlayClientImpl>(WebKit::toImpl(bundlePageOverlayRef)->client()).setAccessibilityClient(client);
 }
 
 void WKBundlePageOverlaySetNeedsDisplay(WKBundlePageOverlayRef bundlePageOverlayRef, WKRect rect)
 {
-    WebKit::toImpl(bundlePageOverlayRef)->setNeedsDisplay(enclosingIntRect(WebKit::toFloatRect(rect)));
+    protect(WebKit::toImpl(bundlePageOverlayRef))->setNeedsDisplay(enclosingIntRect(WebKit::toFloatRect(rect)));
 }
 
 float WKBundlePageOverlayFractionFadedIn(WKBundlePageOverlayRef)
@@ -241,5 +259,5 @@ float WKBundlePageOverlayFractionFadedIn(WKBundlePageOverlayRef)
 
 void WKBundlePageOverlayClear(WKBundlePageOverlayRef bundlePageOverlayRef)
 {
-    WebKit::toImpl(bundlePageOverlayRef)->clear();
+    protect(WebKit::toImpl(bundlePageOverlayRef))->clear();
 }

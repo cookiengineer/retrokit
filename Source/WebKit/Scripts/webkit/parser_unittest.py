@@ -21,19 +21,16 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 # Examples of how to run:
-# python Source/WebKit/Scripts/webkit/parser_unittest.py
-# cd Source/WebKit/Scripts && python -m webkit.parser_unittest
-# cd Source/WebKit/Scripts && python -m unittest discover -p '*_unittest.py'
+# python3 Source/WebKit/Scripts/webkit/parser_unittest.py
+# cd Source/WebKit/Scripts && python3 -m webkit.parser_unittest
+# cd Source/WebKit/Scripts && python3 -m unittest discover -p '*_unittest.py'
 
 import os
 import re
 import sys
 import unittest
 
-if sys.version_info > (3, 0):
-    from io import StringIO
-else:
-    from StringIO import StringIO
+from io import StringIO
 
 module_directory = os.path.dirname(os.path.abspath(__file__))
 
@@ -184,14 +181,24 @@ _expected_model_base = {
         {
             'name': 'SetVideoLayerID',
             'parameters': (
-                ('WebCore::GraphicsLayer::PlatformLayerID', 'videoLayerID'),
+                ('WebCore::PlatformLayerIdentifier', 'videoLayerID'),
+            ),
+            'conditions': (None),
+        },
+        {
+            'name': 'OpaqueTypeSecurityAssertion',
+            'parameters': (
+                ('NotDispatchableFromWebContent', 'ping'),
+            ),
+            'reply_parameters': (
+                ('NotDispatchableFromWebContent', 'pong'),
             ),
             'conditions': (None),
         },
         {
             'name': 'DidCreateWebProcessConnection',
             'parameters': (
-                ('IPC::MachPort', 'connectionIdentifier'),
+                ('MachSendRight', 'connectionIdentifier'),
                 ('OptionSet<WebKit::SelectionFlags>', 'flags'),
             ),
             'conditions': ('PLATFORM(MAC)'),
@@ -218,7 +225,7 @@ _expected_model_base = {
             'parameters': (
                 ('IPC::DummyType', 'dummy'),
             ),
-            'conditions': ('ENABLE(EXPERIMENTAL_FEATURE)'),
+            'conditions': ('ENABLE(FEATURE_FOR_TESTING)'),
         }
     ),
 }
@@ -241,6 +248,16 @@ _expected_model_test_with_superclass = {
         },
         {
             'name': 'TestAsyncMessage',
+            'parameters': (
+                ('WebKit::TestTwoStateEnum', 'twoStateEnum'),
+            ),
+            'reply_parameters': (
+                ('uint64_t', 'result'),
+            ),
+            'conditions': ('ENABLE(TEST_FEATURE)'),
+        },
+        {
+            'name': 'TestAsyncMessageAnyThread',
             'parameters': (
                 ('WebKit::TestTwoStateEnum', 'twoStateEnum'),
             ),
@@ -316,41 +333,41 @@ class ParsingTest(unittest.TestCase):
         self.receivers = [parse_receiver(expected_model['name']) for expected_model in _parsing_test_cases]
 
     def check_message(self, message, expected_message):
-        self.assertEquals(message.name, expected_message['name'])
-        self.assertEquals(len(message.parameters), len(expected_message['parameters']))
+        self.assertEqual(message.name, expected_message['name'])
+        self.assertEqual(len(message.parameters), len(expected_message['parameters']))
         for index, parameter in enumerate(message.parameters):
             expected_parameter = expected_message['parameters'][index]
-            self.assertEquals(parameter.type, expected_parameter[0])
-            self.assertEquals(parameter.name, expected_parameter[1])
+            self.assertEqual(parameter.type, expected_parameter[0])
+            self.assertEqual(parameter.name, expected_parameter[1])
             if len(expected_parameter) > 2:
-                self.assertEquals(parameter.attributes, frozenset(expected_parameter[2]))
+                self.assertEqual(parameter.attributes, frozenset(expected_parameter[2]))
                 for attribute in expected_parameter[2]:
                     self.assertTrue(parameter.has_attribute(attribute))
             else:
-                self.assertEquals(parameter.attributes, frozenset())
+                self.assertEqual(parameter.attributes, frozenset())
         if message.reply_parameters is not None:
             for index, parameter in enumerate(message.reply_parameters):
-                self.assertEquals(parameter.type, expected_message['reply_parameters'][index][0])
-                self.assertEquals(parameter.name, expected_message['reply_parameters'][index][1])
+                self.assertEqual(parameter.type, expected_message['reply_parameters'][index][0])
+                self.assertEqual(parameter.name, expected_message['reply_parameters'][index][1])
         else:
             self.assertFalse('reply_parameters' in expected_message)
-        self.assertEquals(message.condition, expected_message['conditions'])
+        self.assertEqual(message.condition, expected_message['conditions'])
 
     def test_receiver(self):
         """Receiver should be parsed as expected"""
         for receiver, expected_model in zip(self.receivers, _parsing_test_cases):
-            self.assertEquals(receiver.name, expected_model['name'])
-            self.assertEquals(receiver.condition, expected_model['conditions'])
-            self.assertEquals(len(receiver.messages), len(expected_model['messages']))
+            self.assertEqual(receiver.name, expected_model['name'])
+            self.assertEqual(receiver.condition, expected_model['conditions'])
+            self.assertEqual(len(receiver.messages), len(expected_model['messages']))
             for index, message in enumerate(receiver.messages):
                 self.check_message(message, expected_model['messages'][index])
 
 
 class UnsupportedPrecompilerDirectiveTest(unittest.TestCase):
     def test_error_at_else(self):
-        with self.assertRaisesRegexp(Exception, r"ERROR: '#else.*' is not supported in the \*\.in files"):
+        with self.assertRaisesRegex(Exception, r"ERROR: '#else.*' is not supported in the \*\.in files"):
             parser.parse(StringIO("asd\n#else bla\nfoo"))
 
     def test_error_at_elif(self):
-        with self.assertRaisesRegexp(Exception, r"ERROR: '#elif.*' is not supported in the \*\.in files"):
+        with self.assertRaisesRegex(Exception, r"ERROR: '#elif.*' is not supported in the \*\.in files"):
             parser.parse(StringIO("asd\n#elif bla\nfoo"))

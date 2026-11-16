@@ -37,8 +37,14 @@ namespace WebKit {
 Ref<WebCore::CacheStorageConnection> WebCacheStorageProvider::createCacheStorageConnection()
 {
     if (!m_connection)
-        m_connection = WebCacheStorageConnection::create(*this);
+        lazyInitialize(m_connection, WebCacheStorageConnection::create());
     return *m_connection;
+}
+
+void WebCacheStorageProvider::networkProcessConnectionClosed()
+{
+    if (m_connection)
+        m_connection->networkProcessConnectionClosed();
 }
 
 }

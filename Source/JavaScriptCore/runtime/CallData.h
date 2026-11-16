@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,7 +28,8 @@
 
 #pragma once
 
-#include "NativeFunction.h"
+#include <JavaScriptCore/NativeFunction.h>
+#include <wtf/Forward.h>
 #include <wtf/NakedPtr.h>
 
 namespace JSC {
@@ -37,14 +38,18 @@ class ArgList;
 class Exception;
 class FunctionExecutable;
 class JSScope;
+class JSValue;
 
 struct CallData {
     enum class Type : uint8_t { None, Native, JS };
     Type type { Type::None };
 
+    CallData() { } // Needed for the anonymous union below.
     union {
         struct {
             TaggedNativeFunction function;
+            bool isBoundFunction;
+            bool isWasm;
         } native;
         struct {
             FunctionExecutable* functionExecutable;
@@ -60,8 +65,8 @@ enum class ProfilingReason : uint8_t {
 };
 
 // Convenience wrapper so you don't need to deal with CallData unless you are going to use it.
-JS_EXPORT_PRIVATE JSValue call(JSGlobalObject*, JSValue functionObject, const ArgList&, const char* errorMessage);
-JS_EXPORT_PRIVATE JSValue call(JSGlobalObject*, JSValue functionObject, JSValue thisValue, const ArgList&, const char* errorMessage);
+JS_EXPORT_PRIVATE JSValue call(JSGlobalObject*, JSValue functionObject, const ArgList&, ASCIILiteral errorMessage);
+JS_EXPORT_PRIVATE JSValue call(JSGlobalObject*, JSValue functionObject, JSValue thisValue, const ArgList&, ASCIILiteral errorMessage);
 
 JS_EXPORT_PRIVATE JSValue call(JSGlobalObject*, JSValue functionObject, const CallData&, JSValue thisValue, const ArgList&);
 JS_EXPORT_PRIVATE JSValue call(JSGlobalObject*, JSValue functionObject, const CallData&, JSValue thisValue, const ArgList&, NakedPtr<Exception>& returnedException);

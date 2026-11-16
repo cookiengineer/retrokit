@@ -32,21 +32,24 @@
 #include "NodeRareData.h"
 
 #include "Page.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(NodeMutationObserverData);
+
 struct SameSizeAsNodeRareData {
-    uint32_t m_tabIndex;
-    uint32_t m_childIndexAndIsElementRareDataFlag;
     void* m_pointer[2];
+    WeakPtr<Node, WeakPtrImplWithEventTargetData> m_weakPointer;
+    bool m_isElementRareData;
 };
 
-COMPILE_ASSERT(sizeof(NodeRareData) == sizeof(SameSizeAsNodeRareData), NodeRareDataShouldStaySmall);
+static_assert(sizeof(NodeRareData) == sizeof(SameSizeAsNodeRareData), "NodeRareData should stay small");
 
 // Ensure the 10 bits reserved for the m_connectedFrameCount cannot overflow
 static_assert(Page::maxNumberOfFrames < 1024, "Frame limit should fit in rare data count");
 
 DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(NodeListsNodeData);
-DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(NodeRareData);
+DEFINE_COMPACT_ALLOCATOR_WITH_HEAP_IDENTIFIER(NodeRareData);
 
 } // namespace WebCore

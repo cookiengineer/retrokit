@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010, 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,6 +29,7 @@
 #if !PLATFORM(IOS_FAMILY)
 
 #include "WKAPICast.h"
+#include "WebFrameProxy.h"
 #include "WebInspectorUIProxy.h"
 #include "WebPageProxy.h"
 
@@ -41,7 +42,7 @@ WKTypeID WKInspectorGetTypeID()
 
 WKPageRef WKInspectorGetPage(WKInspectorRef inspectorRef)
 {
-    return toAPI(toImpl(inspectorRef)->inspectedPage());
+    return toAPI(protect(toImpl(inspectorRef)->inspectedPage()).get());
 }
 
 bool WKInspectorIsConnected(WKInspectorRef inspectorRef)
@@ -56,42 +57,42 @@ bool WKInspectorIsVisible(WKInspectorRef inspectorRef)
 
 bool WKInspectorIsFront(WKInspectorRef inspectorRef)
 {
-    return toImpl(inspectorRef)->isFront();
+    return protect(toImpl(inspectorRef))->isFront();
 }
 
 void WKInspectorConnect(WKInspectorRef inspectorRef)
 {
-    toImpl(inspectorRef)->connect();
+    protect(toImpl(inspectorRef))->connect();
 }
 
 void WKInspectorShow(WKInspectorRef inspectorRef)
 {
-    toImpl(inspectorRef)->show();
+    protect(toImpl(inspectorRef))->show();
 }
 
 void WKInspectorHide(WKInspectorRef inspectorRef)
 {
-    toImpl(inspectorRef)->hide();
+    protect(toImpl(inspectorRef))->hide();
 }
 
 void WKInspectorClose(WKInspectorRef inspectorRef)
 {
-    toImpl(inspectorRef)->close();
+    protect(toImpl(inspectorRef))->close();
 }
 
 void WKInspectorShowConsole(WKInspectorRef inspectorRef)
 {
-    toImpl(inspectorRef)->showConsole();
+    protect(toImpl(inspectorRef))->showConsole();
 }
 
 void WKInspectorShowResources(WKInspectorRef inspectorRef)
 {
-    toImpl(inspectorRef)->showResources();
+    protect(toImpl(inspectorRef))->showResources();
 }
 
 void WKInspectorShowMainResourceForFrame(WKInspectorRef inspectorRef, WKFrameRef frameRef)
 {
-    toImpl(inspectorRef)->showMainResourceForFrame(toImpl(frameRef));
+    protect(toImpl(inspectorRef))->showMainResourceForFrame(toImpl(frameRef)->frameID());
 }
 
 bool WKInspectorIsAttached(WKInspectorRef inspectorRef)
@@ -101,13 +102,13 @@ bool WKInspectorIsAttached(WKInspectorRef inspectorRef)
 
 void WKInspectorAttach(WKInspectorRef inspectorRef)
 {
-    auto inspector = toImpl(inspectorRef);
+    Ref inspector = *toImpl(inspectorRef);
     inspector->attach(inspector->attachmentSide());
 }
 
 void WKInspectorDetach(WKInspectorRef inspectorRef)
 {
-    toImpl(inspectorRef)->detach();
+    protect(toImpl(inspectorRef))->detach();
 }
 
 bool WKInspectorIsProfilingPage(WKInspectorRef inspectorRef)
@@ -117,7 +118,7 @@ bool WKInspectorIsProfilingPage(WKInspectorRef inspectorRef)
 
 void WKInspectorTogglePageProfiling(WKInspectorRef inspectorRef)
 {
-    toImpl(inspectorRef)->togglePageProfiling();
+    protect(toImpl(inspectorRef))->togglePageProfiling();
 }
 
 bool WKInspectorIsElementSelectionActive(WKInspectorRef inspectorRef)
@@ -127,7 +128,7 @@ bool WKInspectorIsElementSelectionActive(WKInspectorRef inspectorRef)
 
 void WKInspectorToggleElementSelection(WKInspectorRef inspectorRef)
 {
-    toImpl(inspectorRef)->toggleElementSelection();
+    protect(toImpl(inspectorRef))->toggleElementSelection();
 }
 
 #endif // !PLATFORM(IOS_FAMILY)

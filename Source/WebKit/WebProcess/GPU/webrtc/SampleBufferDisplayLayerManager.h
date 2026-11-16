@@ -29,22 +29,29 @@
 
 #include "SampleBufferDisplayLayer.h"
 #include <wtf/HashMap.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 
 namespace WebKit {
 
+class GPUProcessConnection;
+
 class SampleBufferDisplayLayerManager : public CanMakeWeakPtr<SampleBufferDisplayLayerManager> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(SampleBufferDisplayLayerManager);
 public:
-    SampleBufferDisplayLayerManager() = default;
-    ~SampleBufferDisplayLayerManager() = default;
+    SampleBufferDisplayLayerManager(GPUProcessConnection&);
+
+    void ref() const;
+    void deref() const;
 
     void addLayer(SampleBufferDisplayLayer&);
     void removeLayer(SampleBufferDisplayLayer&);
 
     void didReceiveLayerMessage(IPC::Connection&, IPC::Decoder&);
-    std::unique_ptr<WebCore::SampleBufferDisplayLayer> createLayer(WebCore::SampleBufferDisplayLayer::Client&);
+    RefPtr<WebCore::SampleBufferDisplayLayer> createLayer(WebCore::SampleBufferDisplayLayerClient&);
 
 private:
+    ThreadSafeWeakPtr<GPUProcessConnection> m_gpuProcessConnection;
     HashMap<SampleBufferDisplayLayerIdentifier, WeakPtr<SampleBufferDisplayLayer>> m_layers;
 };
 

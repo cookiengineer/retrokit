@@ -32,6 +32,7 @@
 #include "CSSSupportsRule.h"
 
 #include "CSSStyleSheet.h"
+#include "StyleProperties.h"
 #include "StyleRule.h"
 #include <wtf/text/StringBuilder.h>
 
@@ -49,21 +50,23 @@ Ref<CSSSupportsRule> CSSSupportsRule::create(StyleRuleSupports& rule, CSSStyleSh
 
 String CSSSupportsRule::cssText() const
 {
-    StringBuilder result;
-    result.append("@supports ", conditionText(), " {\n");
-    appendCSSTextForItems(result);
-    result.append('}');
-    return result.toString();
+    StringBuilder builder;
+    builder.append("@supports "_s, conditionText());
+    appendCSSTextForItems(builder);
+    return builder.toString();
+}
+
+String CSSSupportsRule::cssText(const CSS::SerializationContext& context) const
+{
+    StringBuilder builder;
+    builder.append("@supports "_s, conditionText());
+    appendCSSTextWithReplacementURLsForItems(builder, context);
+    return builder.toString();
 }
 
 String CSSSupportsRule::conditionText() const
 {
     return downcast<StyleRuleSupports>(groupRule()).conditionText();
-}
-
-void CSSSupportsRule::setConditionText(const String&)
-{
-    // FIXME: Not implemented yet.
 }
 
 } // namespace WebCore

@@ -16,26 +16,19 @@
 namespace angle
 {
 
-namespace
-{
-std::pair<EGLint, EGLint> GetCurrentContextVersion()
-{
-    const char *versionString = reinterpret_cast<const char *>(glGetString(GL_VERSION));
-    EXPECT_TRUE(strstr(versionString, "OpenGL ES") != nullptr);
-    return {versionString[10] - '0', versionString[12] - '0'};
-}
-}  // anonymous namespace
-
-class EGLBackwardsCompatibleContextTest : public ANGLETest
+class EGLBackwardsCompatibleContextTest : public ANGLETest<>
 {
   public:
     EGLBackwardsCompatibleContextTest() : mDisplay(0) {}
 
     void testSetUp() override
     {
-        EGLint dispattrs[] = {EGL_PLATFORM_ANGLE_TYPE_ANGLE, GetParam().getRenderer(), EGL_NONE};
-        mDisplay           = eglGetPlatformDisplayEXT(
-            EGL_PLATFORM_ANGLE_ANGLE, reinterpret_cast<void *>(EGL_DEFAULT_DISPLAY), dispattrs);
+        EGLAttrib dispattrs[] = {EGL_PLATFORM_ANGLE_TYPE_ANGLE, GetParam().getRenderer(),
+                                 EGL_PLATFORM_ANGLE_NATIVE_PLATFORM_TYPE_ANGLE,
+                                 static_cast<EGLAttrib>(GetPbufferOnlyDefaultPlatformType()),
+                                 EGL_NONE};
+        mDisplay              = eglGetPlatformDisplay(GetEglPlatform(),
+                                                      reinterpret_cast<void *>(EGL_DEFAULT_DISPLAY), dispattrs);
         ASSERT_TRUE(mDisplay != EGL_NO_DISPLAY);
 
         ASSERT_EGL_TRUE(eglInitialize(mDisplay, nullptr, nullptr));
@@ -95,6 +88,9 @@ class EGLBackwardsCompatibleContextTest : public ANGLETest
 // Test extension presence.  All backends should expose this extension
 TEST_P(EGLBackwardsCompatibleContextTest, PbufferDifferentConfig)
 {
+    // The system EGL may not expose ANGLE-specific extensions, which is not a failure.
+    ANGLE_SKIP_TEST_IF(isDriverSystemEgl());
+
     EXPECT_TRUE(
         IsEGLDisplayExtensionEnabled(mDisplay, "EGL_ANGLE_create_context_backwards_compatible"));
 }
@@ -133,6 +129,7 @@ TEST_P(EGLBackwardsCompatibleContextTest, BackwardsCompatibleDisbled)
         auto contextVersion = GetCurrentContextVersion();
         EXPECT_EQ(version, contextVersion);
 
+        ASSERT_EGL_TRUE(eglMakeCurrent(mDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT));
         eglDestroyContext(mDisplay, context);
     }
 }
@@ -163,6 +160,7 @@ TEST_P(EGLBackwardsCompatibleContextTest, BackwardsCompatibleEnabledES3)
 
     ASSERT_EGL_TRUE(eglMakeCurrent(mDisplay, mPbuffer, mPbuffer, es2Context));
     auto es2ContextVersion = GetCurrentContextVersion();
+    ASSERT_EGL_TRUE(eglMakeCurrent(mDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT));
     eglDestroyContext(mDisplay, es2Context);
 
     EXPECT_EQ(es3ContextVersion, es2ContextVersion);
@@ -184,6 +182,7 @@ TEST_P(EGLBackwardsCompatibleContextTest, BackwardsCompatibleEnabledES1)
     ASSERT_EGL_TRUE(eglMakeCurrent(mDisplay, mPbuffer, mPbuffer, es11Context));
     auto es11ContextVersion = GetCurrentContextVersion();
     ASSERT_EQ(std::make_pair(1, 1), es11ContextVersion);
+    ASSERT_EGL_TRUE(eglMakeCurrent(mDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT));
     eglDestroyContext(mDisplay, es11Context);
 
     EGLint es10ContextAttribs[] = {
@@ -195,12 +194,13 @@ TEST_P(EGLBackwardsCompatibleContextTest, BackwardsCompatibleEnabledES1)
     ASSERT_EGL_TRUE(eglMakeCurrent(mDisplay, mPbuffer, mPbuffer, es10Context));
     auto es10ContextVersion = GetCurrentContextVersion();
     ASSERT_EQ(std::make_pair(1, 1), es10ContextVersion);
+    ASSERT_EGL_TRUE(eglMakeCurrent(mDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT));
     eglDestroyContext(mDisplay, es10Context);
 }
 
 ANGLE_INSTANTIATE_TEST(EGLBackwardsCompatibleContextTest,
-                       WithNoFixture(ES2_D3D9()),
                        WithNoFixture(ES2_D3D11()),
+                       WithNoFixture(ES2_METAL()),
                        WithNoFixture(ES2_OPENGL()),
                        WithNoFixture(ES2_OPENGLES()),
                        WithNoFixture(ES2_VULKAN()));

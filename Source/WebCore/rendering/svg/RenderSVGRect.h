@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2011 University of Szeged
  * Copyright (C) 2011 Renata Hodovan <reni@webkit.org>
+ * Copyright (C) 2020, 2021, 2022 Igalia S.L.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,25 +29,27 @@
 #pragma once
 
 #include "RenderSVGShape.h"
-#include "SVGRectElement.h"
 
 namespace WebCore {
 
+class SVGRectElement;
+
 class RenderSVGRect final : public RenderSVGShape {
-    WTF_MAKE_ISO_ALLOCATED(RenderSVGRect);
+    WTF_MAKE_TZONE_ALLOCATED(RenderSVGRect);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderSVGRect);
 public:
-    RenderSVGRect(SVGRectElement&, RenderStyle&&);
+    RenderSVGRect(SVGRectElement&, Style::ComputedStyle&&);
     virtual ~RenderSVGRect();
 
-    SVGRectElement& rectElement() const;
+    SVGRectElement& NODELETE rectElement() const;
 
 private:
     void graphicsElement() const = delete;
 
-    const char* renderName() const override { return "RenderSVGRect"; }
+    ASCIILiteral renderName() const override { return "RenderSVGRect"_s; }
 
     void updateShapeFromElement() override;
-    bool isEmpty() const override { return m_usePathFallback ? RenderSVGShape::isEmpty() : m_fillBoundingBox.isEmpty(); }
+    bool isEmpty() const override { return hasPath() ? RenderSVGShape::isEmpty() : m_fillBoundingBox.isEmpty(); }
     bool isRenderingDisabled() const override;
     void fillShape(GraphicsContext&) const override;
     void strokeShape(GraphicsContext&) const override;
@@ -54,9 +57,8 @@ private:
     bool shapeDependentFillContains(const FloatPoint&, const WindRule) const override;
 
 private:
-    FloatRect m_innerStrokeRect;
-    FloatRect m_outerStrokeRect;
-    bool m_usePathFallback;
+    bool NODELETE definitelyHasSimpleStroke() const;
+    bool NODELETE canUseStrokeHitTestFastPath() const;
 };
 
 } // namespace WebCore

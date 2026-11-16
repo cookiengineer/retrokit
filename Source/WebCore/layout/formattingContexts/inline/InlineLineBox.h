@@ -25,14 +25,13 @@
 
 #pragma once
 
-#if ENABLE(LAYOUT_FORMATTING_CONTEXT)
-
-#include "InlineLevelBox.h"
-#include "InlineLine.h"
-#include "InlineRect.h"
-#include <wtf/IsoMallocInlines.h>
+#include <WebCore/FontBaseline.h>
+#include <WebCore/InlineLevelBox.h>
+#include <WebCore/InlineLine.h>
+#include <WebCore/InlineRect.h>
+#include <WebCore/LayoutElementBox.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/UniqueRef.h>
-#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 namespace Layout {
@@ -41,6 +40,7 @@ class BoxGeometry;
 class InlineFormattingContext;
 class LineBoxBuilder;
 class LineBoxVerticalAligner;
+class RubyFormattingContext;
 
 //   ____________________________________________________________ Line Box
 // |                                    --------------------
@@ -58,53 +58,102 @@ class LineBoxVerticalAligner;
 // The resulting rectangular area that contains the boxes that form a single line of inline-level content is called a line box.
 // https://www.w3.org/TR/css-inline-3/#model
 class LineBox {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(LineBox);
 public:
-    LineBox(const Box& rootLayoutBox, InlineLayoutUnit contentLogicalLeft, InlineLayoutUnit contentLogicalWidth, size_t nonSpanningInlineLevelBoxCount);
+    LineBox(const Box& rootLayoutBox, InlineLayoutUnit contentLogicalLeft, InlineLayoutUnit contentLogicalWidth, size_t lineIndex, bool isFirstFormattedLine, size_t nonSpanningInlineLevelBoxCount);
 
     // Note that the line can have many inline boxes and be "empty" the same time e.g. <div><span></span><span></span></div>
-    bool hasContent() const { return m_hasContent; }
     bool hasInlineBox() const { return m_boxTypes.contains(InlineLevelBox::Type::InlineBox); }
-    bool hasNonInlineBox() const { return m_boxTypes.containsAny({ InlineLevelBox::Type::AtomicInlineLevelBox, InlineLevelBox::Type::LineBreakBox, InlineLevelBox::Type::GenericInlineLevelBox }); }
-    bool hasAtomicInlineLevelBox() const { return m_boxTypes.contains(InlineLevelBox::Type::AtomicInlineLevelBox); }
-
-    const InlineLevelBox& inlineLevelBoxForLayoutBox(const Box& layoutBox) const { return const_cast<LineBox&>(*this).inlineLevelBoxForLayoutBox(layoutBox); }
+    bool hasNonInlineBox() const { return m_boxTypes.containsAny({ InlineLevelBox::Type::AtomicInlineBox, InlineLevelBox::Type::LineBreakBox, InlineLevelBox::Type::GenericInlineLevelBox }); }
+    bool hasAtomicInlineBox() const { return m_boxTypes.contains(InlineLevelBox::Type::AtomicInlineBox); }
 
     InlineRect logicalRectForTextRun(const Line::Run&) const;
     InlineRect logicalRectForLineBreakBox(const Box&) const;
     InlineRect logicalRectForRootInlineBox() const { return m_rootInlineBox.logicalRect(); }
-    InlineRect logicalBorderBoxForAtomicInlineLevelBox(const Box&, const BoxGeometry&) const;
+    InlineRect logicalBorderBoxForAtomicInlineBox(const Box&, const BoxGeometry&) const;
     InlineRect logicalBorderBoxForInlineBox(const Box&, const BoxGeometry&) const;
+    InlineRect logicalContentBoxForInlineBox(const Box&) const;
 
-    const InlineLevelBox& rootInlineBox() const { return m_rootInlineBox; }
+    const InlineLevelBox* inlineLevelBoxFor(const Box& layoutBox) const LIFETIME_BOUND { return const_cast<LineBox&>(*this).inlineLevelBoxFor(layoutBox); }
+    const InlineLevelBox& inlineLevelBoxFor(const Line::Run& lineRun) const LIFETIME_BOUND { return const_cast<LineBox&>(*this).inlineLevelBoxFor(lineRun); }
+
+    const InlineLevelBox& rootInlineBox() const LIFETIME_BOUND { return m_rootInlineBox; }
     using InlineLevelBoxList = Vector<InlineLevelBox>;
-    const InlineLevelBoxList& nonRootInlineLevelBoxes() const { return m_nonRootInlineLevelBoxList; }
+    const InlineLevelBoxList& nonRootInlineLevelBoxes() const LIFETIME_BOUND { return m_nonRootInlineLevelBoxList; }
+
+    InlineLayoutUnit alignmentBaseline() const { return logicalRectForRootInlineBox().top() + rootInlineBox().ascent(); }
+    FontBaseline baselineType() const { return m_baselineType; }
+
+    const InlineRect& logicalRect() const LIFETIME_BOUND { return m_logicalRect; }
+
+    size_t lineIndex() const { return m_lineIndex; }
+
+    bool isFirstFormattedLine() const { return m_isFirstFormattedLine; }
 
 private:
     friend class LineBoxBuilder;
     friend class LineBoxVerticalAligner;
+    friend class RubyFormattingContext;
 
     void addInlineLevelBox(InlineLevelBox&&);
-    InlineLevelBoxList& nonRootInlineLevelBoxes() { return m_nonRootInlineLevelBoxList; }
+    InlineLevelBoxList& nonRootInlineLevelBoxes() LIFETIME_BOUND { return m_nonRootInlineLevelBoxList; }
 
-    InlineLevelBox& rootInlineBox() { return m_rootInlineBox; }
+    InlineLevelBox& rootInlineBox() LIFETIME_BOUND { return m_rootInlineBox; }
 
-    InlineLevelBox& inlineLevelBoxForLayoutBox(const Box& layoutBox) { return &layoutBox == &m_rootInlineBox.layoutBox() ? m_rootInlineBox : m_nonRootInlineLevelBoxList[m_nonRootInlineLevelBoxMap.get(&layoutBox)]; }
+    const InlineLevelBox& parentInlineBox(const InlineLevelBox& inlineLevelBox) const LIFETIME_BOUND { return const_cast<LineBox&>(*this).parentInlineBox(inlineLevelBox); }
+    InlineLevelBox& parentInlineBox(const InlineLevelBox&) LIFETIME_BOUND;
+
+    const InlineLevelBox& parentInlineBox(const Line::Run& lineRun) const LIFETIME_BOUND { return const_cast<LineBox&>(*this).parentInlineBox(lineRun); }
+    InlineLevelBox& parentInlineBox(const Line::Run&) LIFETIME_BOUND;
+
+    InlineLevelBox& inlineLevelBoxFor(const Line::Run&) LIFETIME_BOUND;
+    InlineLevelBox* inlineLevelBoxFor(const Box& layoutBox) LIFETIME_BOUND;
+
     InlineRect logicalRectForInlineLevelBox(const Box& layoutBox) const;
 
-    void setHasContent(bool hasContent) { m_hasContent = hasContent; }
+    void setLogicalRect(const InlineRect& logicalRect) { m_logicalRect = logicalRect; }
+    void setBaselineType(FontBaseline baselineType) { m_baselineType = baselineType; }
+
+    InlineLayoutUnit inlineLevelBoxAbsoluteTop(const InlineLevelBox&) const;
 
 private:
-    bool m_hasContent { false };
-    OptionSet<InlineLevelBox::Type> m_boxTypes;
+    size_t m_lineIndex { 0 };
+    bool m_isFirstFormattedLine { true };
+    InlineRect m_logicalRect;
+    EnumSet<InlineLevelBox::Type> m_boxTypes;
 
+    FontBaseline m_baselineType { FontBaseline::Alphabetic };
     InlineLevelBox m_rootInlineBox;
     InlineLevelBoxList m_nonRootInlineLevelBoxList;
 
     HashMap<const Box*, size_t> m_nonRootInlineLevelBoxMap;
 };
 
+inline InlineLevelBox* LineBox::inlineLevelBoxFor(const Box& layoutBox)
+{
+    if (&layoutBox == &m_rootInlineBox.layoutBox())
+        return &m_rootInlineBox;
+    auto entry = m_nonRootInlineLevelBoxMap.find(&layoutBox);
+    if (entry == m_nonRootInlineLevelBoxMap.end())
+        return nullptr;
+    return &m_nonRootInlineLevelBoxList[entry->value];
+}
+
+inline InlineLevelBox& LineBox::parentInlineBox(const InlineLevelBox& inlineLevelBox)
+{
+    return *inlineLevelBoxFor(inlineLevelBox.layoutBox().parent());
+}
+
+inline InlineLevelBox& LineBox::parentInlineBox(const Line::Run& lineRun)
+{
+    return *inlineLevelBoxFor(lineRun.layoutBox().parent());
+}
+
+inline InlineLevelBox& LineBox::inlineLevelBoxFor(const Line::Run& lineRun)
+{
+    return *inlineLevelBoxFor(lineRun.layoutBox());
+}
+
 }
 }
 
-#endif

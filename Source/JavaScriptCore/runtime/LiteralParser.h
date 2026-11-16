@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009 Apple Inc. All rights reserved.
+ * Copyright (C) 2009-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,15 +25,23 @@
 
 #pragma once
 
+#include "ArgList.h"
+#include "GetVM.h"
 #include "Identifier.h"
 #include "JSCJSValue.h"
+#include "Strong.h"
 #include <array>
+#include <wtf/Range.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/WTFString.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
-enum ParserMode : uint8_t { StrictJSON, NonStrictJSON, JSONP };
+enum ParserMode : uint8_t { StrictJSON, SloppyJSON, JSONP };
+enum class JSONReviverMode : uint8_t { Disabled, Enabled };
 
 enum JSONPPathEntryType : uint8_t {
     JSONPPathEntryTypeDeclareVar, // var pathEntryName = JSON
@@ -50,9 +58,11 @@ enum ParserState : uint8_t {
 
 enum TokenType : uint8_t {
     TokLBracket, TokRBracket, TokLBrace, TokRBrace,
-    TokString, TokIdentifier, TokNumber, TokColon,
+    TokString, TokIdentifier, TokNumber, TokNumberInt32, TokColon,
     TokLParen, TokRParen, TokComma, TokTrue, TokFalse,
-    TokNull, TokEnd, TokDot, TokAssign, TokSemi, TokError };
+    TokNull, TokEnd, TokDot, TokAssign, TokSemi, TokError, TokErrorSpace };
+
+enum class JSONIdentifierHint : uint8_t { MaybeIdentifier, Unknown };
 
 struct JSONPPathEntry {
     Identifier m_pathEntryName;
@@ -65,40 +75,69 @@ struct JSONPData {
     Strong<Unknown> m_value;
 };
 
-template <typename CharType>
-struct LiteralParserToken {
-private:
-WTF_MAKE_NONCOPYABLE(LiteralParserToken<CharType>);
-
+class JSONRanges {
 public:
+    struct Entry;
+    using Object = UncheckedKeyHashMap<RefPtr<UniquedStringImpl>, Entry, IdentifierRepHash>;
+    using Array = Vector<Entry>;
+    struct Entry {
+        JSValue value;
+        WTF::Range<unsigned> range;
+        Variant<std::monostate, Object, Array> properties;
+    };
+
+    JSONRanges() = default;
+
+    const Entry& root() const LIFETIME_BOUND { return m_root; }
+
+    JSValue record(JSValue value)
+    {
+        m_values.appendWithCrashOnOverflow(value);
+        return value;
+    }
+
+    void setRoot(Entry root)
+    {
+        m_root = WTF::move(root);
+    }
+
+private:
+    Entry m_root { };
+    MarkedArgumentBuffer m_values;
+};
+
+
+template<typename CharacterType> struct LiteralParserToken {
+    WTF_MAKE_NONCOPYABLE(LiteralParserToken);
+
     LiteralParserToken() = default;
 
     TokenType type;
-    const CharType* start;
-    const CharType* end;
+    unsigned stringIs8Bit : 1; // Only used for TokString.
+    unsigned stringOrIdentifierLength : 31;
     union {
-        double numberToken;
-        struct {
-            union {
-                const LChar* stringToken8;
-                const UChar* stringToken16;
-            };
-            unsigned stringIs8Bit : 1;
-            unsigned stringLength : 31;
-        };
+        double numberToken; // Only used for TokNumber.
+        int32_t int32Token; // Only used for TokNumberInt32.
+        const CharacterType* identifierStart;
+        const Latin1Character* stringStart8;
+        const char16_t* stringStart16;
     };
+
+    std::span<const CharacterType> identifier() const { return { identifierStart, stringOrIdentifierLength }; }
+    std::span<const Latin1Character> string8() const { return { stringStart8, stringOrIdentifierLength }; }
+    std::span<const char16_t> string16() const { return { stringStart16, stringOrIdentifierLength }; }
 };
 
 template <typename CharType>
-ALWAYS_INLINE void setParserTokenString(LiteralParserToken<CharType>&, const CharType* string);
+ALWAYS_INLINE void NODELETE setParserTokenString(LiteralParserToken<CharType>&, const CharType* string);
 
-template <typename CharType>
+template <typename CharType, JSONReviverMode reviverMode>
 class LiteralParser {
 public:
-    LiteralParser(JSGlobalObject* globalObject, const CharType* characters, unsigned length, ParserMode mode, CodeBlock* nullOrCodeBlock = nullptr)
+    LiteralParser(JSGlobalObject* globalObject, std::span<const CharType> characters, ParserMode mode, CodeBlock* nullOrCodeBlock = nullptr)
         : m_globalObject(globalObject)
         , m_nullOrCodeBlock(nullOrCodeBlock)
-        , m_lexer(characters, length, mode)
+        , m_lexer(characters, mode)
         , m_mode(mode)
     {
     }
@@ -106,39 +145,83 @@ public:
     String getErrorMessage()
     { 
         if (!m_lexer.getErrorMessage().isEmpty())
-            return "JSON Parse error: " + m_lexer.getErrorMessage();
+            return makeString("JSON Parse error: "_s, m_lexer.getErrorMessage());
         if (!m_parseErrorMessage.isEmpty())
-            return "JSON Parse error: " + m_parseErrorMessage;
+            return makeString("JSON Parse error: "_s, m_parseErrorMessage);
         return "JSON Parse error: Unable to parse JSON string"_s;
     }
     
     JSValue tryLiteralParse()
+        requires (reviverMode == JSONReviverMode::Disabled)
     {
+        ASSERT(m_mode == StrictJSON);
         m_lexer.next();
-        JSValue result = parse(m_mode == StrictJSON ? StartParseExpression : StartParseStatement);
+        VM& vm = getVM(m_globalObject);
+        JSValue result = parseRecursivelyEntry(vm);
+        if (m_lexer.currentToken()->type != TokEnd)
+            return JSValue();
+        return result;
+    }
+
+    JSValue tryLiteralParse(JSONRanges* sourceRanges)
+        requires (reviverMode == JSONReviverMode::Enabled)
+    {
+        ASSERT(m_mode == StrictJSON);
+        m_lexer.next();
+        JSValue result = parse(getVM(m_globalObject), StartParseExpression, sourceRanges);
+        if (m_lexer.currentToken()->type != TokEnd)
+            return JSValue();
+        return result;
+    }
+
+    JSValue tryEval()
+        requires (reviverMode == JSONReviverMode::Disabled)
+    {
+        ASSERT(m_mode == SloppyJSON);
+        m_lexer.next();
+        VM& vm = getVM(m_globalObject);
+        JSValue result = evalRecursivelyEntry(vm);
         if (m_lexer.currentToken()->type == TokSemi)
             m_lexer.next();
         if (m_lexer.currentToken()->type != TokEnd)
             return JSValue();
         return result;
     }
-    
-    bool tryJSONPParse(Vector<JSONPData>&, bool needsFullSourceInfo);
+
+    JSValue tryLiteralParsePrimitiveValue()
+        requires (reviverMode == JSONReviverMode::Disabled)
+    {
+        ASSERT(m_mode == StrictJSON);
+        m_lexer.next();
+        JSValue result = parsePrimitiveValue(getVM(m_globalObject));
+        if (result) {
+            if (m_lexer.currentToken()->type != TokEnd) {
+                m_parseErrorMessage = "Unexpected content at end of JSON literal"_s;
+                return JSValue();
+            }
+        }
+        return result;
+    }
+
+    bool tryJSONPParse(Vector<JSONPData>&, bool needsFullSourceInfo)
+        requires (reviverMode == JSONReviverMode::Disabled);
 
 private:
     class Lexer {
     public:
-        Lexer(const CharType* characters, unsigned length, ParserMode mode)
+        Lexer(std::span<const CharType> characters, ParserMode mode)
             : m_mode(mode)
-            , m_ptr(characters)
-            , m_end(characters + length)
+            , m_ptr(characters.data())
+            , m_end(std::to_address(characters.end()))
+            , m_start(characters.data())
         {
         }
         
         TokenType next();
+        TokenType nextMaybeIdentifier();
         
 #if !ASSERT_ENABLED
-        typedef const LiteralParserToken<CharType>* LiteralParserTokenPtr;
+        using LiteralParserTokenPtr = const LiteralParserToken<CharType>*;
 
         LiteralParserTokenPtr currentToken()
         {
@@ -173,13 +256,21 @@ private:
 #endif // ASSERT_ENABLED
         
         String getErrorMessage() { return m_lexErrorMessage; }
+
+        const CharType* ptr() const { return m_ptr; }
+        const CharType* start() const { return m_start; }
+        inline const CharType* NODELETE currentTokenStart() const;
+        inline const CharType* NODELETE currentTokenEnd() const;
         
     private:
+        template<JSONIdentifierHint>
         TokenType lex(LiteralParserToken<CharType>&);
         ALWAYS_INLINE TokenType lexIdentifier(LiteralParserToken<CharType>&);
+        template<JSONIdentifierHint>
         ALWAYS_INLINE TokenType lexString(LiteralParserToken<CharType>&, CharType terminator);
         TokenType lexStringSlow(LiteralParserToken<CharType>&, const CharType* runStart, CharType terminator);
         ALWAYS_INLINE TokenType lexNumber(LiteralParserToken<CharType>&);
+        TokenType lexNumberError(LiteralParserToken<CharType>&);
 
         String m_lexErrorMessage;
         LiteralParserToken<CharType> m_currentToken;
@@ -187,25 +278,41 @@ private:
         const CharType* m_ptr;
         const CharType* m_end;
         StringBuilder m_builder;
+        const CharType* m_start;
+        const CharType* m_currentTokenStart { nullptr };
+        const CharType* m_currentTokenEnd { nullptr };
 #if ASSERT_ENABLED
         unsigned m_currentTokenID { 0 };
 #endif
     };
     
     class StackGuard;
-    JSValue parse(ParserState);
+    JSValue parseRecursivelyEntry(VM&) requires (reviverMode == JSONReviverMode::Disabled);
+    JSValue evalRecursivelyEntry(VM&) requires (reviverMode == JSONReviverMode::Disabled);
+    template<ParserMode> JSValue parseRecursively(VM&, uint8_t* stackLimit) requires (reviverMode == JSONReviverMode::Disabled);
+    JSValue parse(VM&, ParserState, JSONRanges*);
 
-    template<typename LiteralCharType>
-    ALWAYS_INLINE Identifier makeIdentifier(const LiteralCharType* characters, size_t length);
+    JSValue parsePrimitiveValue(VM&);
 
-    JSGlobalObject* m_globalObject;
-    CodeBlock* m_nullOrCodeBlock;
-    typename LiteralParser<CharType>::Lexer m_lexer;
-    ParserMode m_mode;
+    static ALWAYS_INLINE bool equalIdentifier(UniquedStringImpl*, typename Lexer::LiteralParserTokenPtr);
+    static ALWAYS_INLINE AtomStringImpl* existingIdentifier(VM&, typename Lexer::LiteralParserTokenPtr);
+    static ALWAYS_INLINE Identifier makeIdentifier(VM&, typename Lexer::LiteralParserTokenPtr);
+    static ALWAYS_INLINE JSString* makeJSString(VM&, typename Lexer::LiteralParserTokenPtr);
+
+    void setErrorMessageForToken(TokenType);
+
+    JSGlobalObject* const m_globalObject;
+    CodeBlock* const m_nullOrCodeBlock;
+    Lexer m_lexer;
+    const ParserMode m_mode;
     String m_parseErrorMessage;
-    static constexpr unsigned maximumCachableCharacter = 128;
-    std::array<uint8_t, maximumCachableCharacter> m_recentIdentifiersIndex { };
-    Vector<Identifier, maximumCachableCharacter> m_recentIdentifiers;
+    UncheckedKeyHashSet<JSObject*> m_visitedUnderscoreProto;
+    MarkedArgumentBuffer m_objectStack;
+    Vector<ParserState, 16, UnsafeVectorOverflow> m_stateStack;
+    Vector<Identifier, 16, UnsafeVectorOverflow> m_identifierStack;
+    Vector<JSONRanges::Entry, 8> m_rangesStack;
 };
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

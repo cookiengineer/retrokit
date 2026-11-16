@@ -29,7 +29,7 @@
 #pragma once
 
 #if ENABLE(WEB_AUDIO)
-#include <wtf/HashMap.h>
+#include <wtf/OrderedHashMap.h>
 #include <wtf/RefCounted.h>
 
 namespace WebCore {
@@ -48,12 +48,12 @@ public:
     void initializeMapLike(DOMMapAdapter&);
     void add(const String&, Ref<AudioParam>&&);
 
-    const HashMap<String, Ref<AudioParam>>& map() const { return m_map; }
+    const OrderedHashMap<String, Ref<AudioParam>>& map() const LIFETIME_BOUND { return m_map; }
 
 private:
     AudioParamMap();
 
-    HashMap<String, Ref<AudioParam>> m_map;
+    OrderedHashMap<String, Ref<AudioParam>> m_map;
 };
 
 } // namespace WebCore

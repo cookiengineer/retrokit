@@ -31,41 +31,45 @@ WI.RecordingContentView = class RecordingContentView extends WI.ContentView
 
         super(representedObject);
 
-        let isCanvas2D = this.representedObject.type === WI.Recording.Type.Canvas2D;
-        let isCanvasBitmapRenderer = this.representedObject.type === WI.Recording.Type.CanvasBitmapRenderer;
-        let isCanvasWebGL = this.representedObject.type === WI.Recording.Type.CanvasWebGL;
-        let isCanvasWebGL2 = this.representedObject.type === WI.Recording.Type.CanvasWebGL2;
-
         this._index = NaN;
         this._action = null;
         this._snapshots = [];
         this._initialContent = null;
         this._generateContentThrottler = new Throttler(() => {
-            if (isCanvas2D)
+            if (this.representedObject.isCanvas2D)
                 this._generateContentCanvas2D(this._index);
-            else if (isCanvasBitmapRenderer || isCanvasWebGL || isCanvasWebGL2)
+            else if (this.representedObject.isCanvasBitmapRenderer || this.representedObject.isCanvasWebGL || this.representedObject.isCanvasWebGL2)
                 this._generateContentFromSnapshot(this._index);
         }, 200);
 
         this.element.classList.add("recording", this.representedObject.type);
 
-        if (isCanvas2D || isCanvasBitmapRenderer || isCanvasWebGL || isCanvasWebGL2) {
-            if (isCanvas2D && WI.ImageUtilities.supportsCanvasPathDebugging()) {
+        if (this.representedObject.isCanvas) {
+            if (this.representedObject.isCanvas2D) {
                 this._pathContext = null;
 
                 this._showPathButtonNavigationItem = new WI.ActivateButtonNavigationItem("show-path", WI.UIString("Show Path"), WI.UIString("Hide Path"), "Images/Path.svg", 16, 16);
+                this._showPathButtonNavigationItem.visibilityPriority = WI.NavigationItem.VisibilityPriority.High;
                 this._showPathButtonNavigationItem.addEventListener(WI.ButtonNavigationItem.Event.Clicked, this._showPathButtonClicked, this);
                 this._showPathButtonNavigationItem.activated = !!WI.settings.showCanvasPath.value;
             }
 
             this._showGridButtonNavigationItem = new WI.ActivateButtonNavigationItem("show-grid", WI.repeatedUIString.showTransparencyGridTooltip(), WI.UIString("Hide transparency grid"), "Images/NavigationItemCheckers.svg", 13, 13);
-            this._showGridButtonNavigationItem.visibilityPriority = WI.NavigationItem.VisibilityPriority.Low;
+            this._showGridButtonNavigationItem.visibilityPriority = WI.NavigationItem.VisibilityPriority.High;
             this._showGridButtonNavigationItem.addEventListener(WI.ButtonNavigationItem.Event.Clicked, this._showGridButtonClicked, this);
             this._showGridButtonNavigationItem.activated = !!WI.settings.showImageGrid.value;
 
-            this._exportButtonNavigationItem = new WI.ButtonNavigationItem("export-recording", WI.UIString("Export"), "Images/Export.svg", 15, 15);
+            if (this.representedObject.isCanvas2D && WI.FileUtilities.canSave(WI.FileUtilities.SaveMode.FileVariants))
+                this._saveMode = WI.FileUtilities.SaveMode.FileVariants;
+            else if (WI.FileUtilities.canSave(WI.FileUtilities.SaveMode.SingleFile))
+                this._saveMode = WI.FileUtilities.SaveMode.SingleFile;
+            else
+                this._saveMode = null;
+
+            this._exportButtonNavigationItem = new WI.ButtonNavigationItem("export", WI.UIString("Export"), "Images/Export.svg", 15, 15);
+            this._exportButtonNavigationItem.tooltip = WI.UIString("Export (%s)").format(WI.saveKeyboardShortcut.displayName);
             this._exportButtonNavigationItem.buttonStyle = WI.ButtonNavigationItem.Style.ImageAndText;
-            this._exportButtonNavigationItem.visibilityPriority = WI.NavigationItem.VisibilityPriority.High;
+            this._exportButtonNavigationItem.enabled = this._saveMode;
             this._exportButtonNavigationItem.addEventListener(WI.ButtonNavigationItem.Event.Clicked, this._handleExportNavigationItemClicked, this);
             this._updateExportButton();
         }
@@ -75,15 +79,11 @@ WI.RecordingContentView = class RecordingContentView extends WI.ContentView
 
     get navigationItems()
     {
-        let isCanvas2D = this.representedObject.type === WI.Recording.Type.Canvas2D;
-        let isCanvasBitmapRenderer = this.representedObject.type === WI.Recording.Type.CanvasBitmapRenderer;
-        let isCanvasWebGL = this.representedObject.type === WI.Recording.Type.CanvasWebGL;
-        let isCanvasWebGL2 = this.representedObject.type === WI.Recording.Type.CanvasWebGL2;
-        if (!isCanvas2D && !isCanvasBitmapRenderer && !isCanvasWebGL && !isCanvasWebGL2)
+        if (!this.representedObject.isCanvas)
             return [];
 
         let navigationItems = [this._exportButtonNavigationItem, new WI.DividerNavigationItem];
-        if (isCanvas2D && WI.ImageUtilities.supportsCanvasPathDebugging())
+        if (this.representedObject.isCanvas2D)
             navigationItems.push(this._showPathButtonNavigationItem);
 
         navigationItems.push(this._showGridButtonNavigationItem);
@@ -123,12 +123,8 @@ WI.RecordingContentView = class RecordingContentView extends WI.ContentView
     {
         super.attached();
 
-        let isCanvas2D = this.representedObject.type === WI.Recording.Type.Canvas2D;
-        let isCanvasBitmapRenderer = this.representedObject.type === WI.Recording.Type.CanvasBitmapRenderer;
-        let isCanvasWebGL = this.representedObject.type === WI.Recording.Type.CanvasWebGL;
-        let isCanvasWebGL2 = this.representedObject.type === WI.Recording.Type.CanvasWebGL2;
-        if (isCanvas2D || isCanvasBitmapRenderer || isCanvasWebGL || isCanvasWebGL2) {
-            if (isCanvas2D && WI.ImageUtilities.supportsCanvasPathDebugging())
+        if (this.representedObject.isCanvas) {
+            if (this.representedObject.isCanvas2D)
                 this._updateCanvasPath();
             this._updateImageGrid();
         }
@@ -145,12 +141,17 @@ WI.RecordingContentView = class RecordingContentView extends WI.ContentView
 
     get supportsSave()
     {
-        return true;
+        return !!this._saveMode;
+    }
+
+    get saveMode()
+    {
+        return this._saveMode;
     }
 
     get saveData()
     {
-        return {customSaveHandler: () => { this._exportRecording(); }};
+        return {customSaveHandler: () => { this._export(); }};
     }
 
     initialLayout()
@@ -187,31 +188,55 @@ WI.RecordingContentView = class RecordingContentView extends WI.ContentView
 
     // Private
 
-    _exportRecording()
+    _export()
     {
-        let filename = this.representedObject.displayName;
-
-        WI.FileUtilities.save({
-            content: JSON.stringify(this.representedObject.toJSON()),
-            suggestedName: filename + ".json",
-            forceSaveAs: true,
-        });
-    }
-
-    _exportReduction()
-    {
-        if (!this.representedObject.ready) {
-            InspectorFrontendHost.beep();
+        if (this._saveMode === WI.FileUtilities.SaveMode.SingleFile) {
+            this._exportRecording();
             return;
         }
 
         let filename = this.representedObject.displayName;
 
-        WI.FileUtilities.save({
+        let data = [];
+        data.push({
+            displayType: WI.UIString("Recording"),
+            content: JSON.stringify(this.representedObject.toJSON()),
+            suggestedName: filename + ".recording",
+        });
+        if (this.representedObject.isCanvas2D && this.representedObject.ready) {
+            data.push({
+                displayType: WI.UIString("Reduction"),
+                content: this.representedObject.toHTML(),
+                suggestedName: filename + ".html",
+            });
+        }
+
+        const forceSaveAs = true;
+        WI.FileUtilities.save(WI.FileUtilities.SaveMode.FileVariants, data, forceSaveAs);
+    }
+
+    _exportRecording()
+    {
+        let filename = this.representedObject.displayName;
+
+        const forceSaveAs = true;
+        WI.FileUtilities.save(WI.FileUtilities.SaveMode.SingleFile, {
+            content: JSON.stringify(this.representedObject.toJSON()),
+            suggestedName: filename + ".recording",
+        }, forceSaveAs);
+    }
+
+    _exportReduction()
+    {
+        console.assert(this.representedObject.ready);
+
+        let filename = this.representedObject.displayName;
+
+        const forceSaveAs = true;
+        WI.FileUtilities.save(WI.FileUtilities.SaveMode.SingleFile, {
             content: this.representedObject.toHTML(),
             suggestedName: filename + ".html",
-            forceSaveAs: true,
-        });
+        }, forceSaveAs);
     }
 
     _generateContentCanvas2D(index)
@@ -235,7 +260,6 @@ WI.RecordingContentView = class RecordingContentView extends WI.ContentView
         let snapshotIndex = Math.floor(index / WI.RecordingContentView.SnapshotInterval);
         let snapshot = this._snapshots[snapshotIndex];
 
-        let showCanvasPath = WI.ImageUtilities.supportsCanvasPathDebugging() && WI.settings.showCanvasPath.value;
         let indexOfLastBeginPathAction = Infinity;
 
         let actions = this.representedObject.actions;
@@ -244,11 +268,13 @@ WI.RecordingContentView = class RecordingContentView extends WI.ContentView
             let saveCount = 0;
             snapshot.context.save();
 
+            let canvas = snapshot.context.canvas;
+
             for (let attribute in snapshot.attributes)
-                snapshot.element[attribute] = snapshot.attributes[attribute];
+                canvas[attribute] = snapshot.attributes[attribute];
 
             if (snapshot.content) {
-                snapshot.context.clearRect(0, 0, snapshot.element.width, snapshot.element.height);
+                snapshot.context.clearRect(0, 0, canvas.width, canvas.height);
                 snapshot.context.drawImage(snapshot.content, 0, 0);
             }
 
@@ -273,21 +299,21 @@ WI.RecordingContentView = class RecordingContentView extends WI.ContentView
                 actions[i].apply(snapshot.context);
             }
 
-            if (showCanvasPath && indexOfLastBeginPathAction <= to) {
+            if (WI.settings.showCanvasPath.value && indexOfLastBeginPathAction <= to) {
                 if (!this._pathContext) {
                     let pathCanvas = document.createElement("canvas");
                     pathCanvas.classList.add("path");
                     this._pathContext = pathCanvas.getContext("2d");
                 }
 
-                this._pathContext.canvas.width = snapshot.element.width;
-                this._pathContext.canvas.height = snapshot.element.height;
-                this._pathContext.clearRect(0, 0, snapshot.element.width, snapshot.element.height);
+                this._pathContext.canvas.width = canvas.width;
+                this._pathContext.canvas.height = canvas.height;
+                this._pathContext.clearRect(0, 0, canvas.width, canvas.height);
 
                 this._pathContext.save();
 
                 this._pathContext.fillStyle = "hsla(0, 0%, 100%, 0.75)";
-                this._pathContext.fillRect(0, 0, snapshot.element.width, snapshot.element.height);
+                this._pathContext.fillRect(0, 0, canvas.width, canvas.height);
 
                 function actionModifiesPath(action) {
                     switch (action.name) {
@@ -353,8 +379,9 @@ WI.RecordingContentView = class RecordingContentView extends WI.ContentView
             while (snapshot.index && actions[snapshot.index].name !== "beginPath")
                 --snapshot.index;
 
-            snapshot.context = this.representedObject.createContext();
-            snapshot.element = snapshot.context.canvas;
+            let {context, element} = this.representedObject.createContext();
+            snapshot.context = context;
+            snapshot.element = element;
 
             let lastSnapshotIndex = snapshotIndex;
             while (--lastSnapshotIndex >= 0) {
@@ -366,7 +393,7 @@ WI.RecordingContentView = class RecordingContentView extends WI.ContentView
             if (lastSnapshotIndex < 0) {
                 snapshot.content = this._initialContent;
                 snapshot.states = actions[0].states;
-                snapshot.attributes = Object.shallowCopy(initialState.attributes);
+                snapshot.attributes = {...initialState.attributes};
             } else {
                 let lastSnapshot = this._snapshots[lastSnapshotIndex];
                 snapshot.content = lastSnapshot.content;
@@ -390,7 +417,7 @@ WI.RecordingContentView = class RecordingContentView extends WI.ContentView
 
         this._previewContainer.removeChildren();
 
-        if (showCanvasPath) {
+        if (WI.settings.showCanvasPath.value) {
             indexOfLastBeginPathAction = this._index;
             while (indexOfLastBeginPathAction > snapshot.index && actions[indexOfLastBeginPathAction].name !== "beginPath")
                 --indexOfLastBeginPathAction;
@@ -449,7 +476,10 @@ WI.RecordingContentView = class RecordingContentView extends WI.ContentView
 
     _updateExportButton()
     {
-        if (this.representedObject.type === WI.Recording.Type.Canvas2D && this.representedObject.ready)
+        if (this._saveMode !== WI.FileUtilities.SaveMode.SingleFile)
+            return;
+
+        if (this.representedObject.isCanvas2D && this.representedObject.ready)
             this._exportButtonNavigationItem.tooltip = WI.UIString("Export recording (%s)\nShift-click to export a HTML reduction").format(WI.saveKeyboardShortcut.displayName);
         else
             this._exportButtonNavigationItem.tooltip = WI.UIString("Export recording (%s)").format(WI.saveKeyboardShortcut.displayName);
@@ -507,10 +537,12 @@ WI.RecordingContentView = class RecordingContentView extends WI.ContentView
 
     _handleExportNavigationItemClicked(event)
     {
-        if (event.data.nativeEvent.shiftKey && this.representedObject.type === WI.Recording.Type.Canvas2D && this.representedObject.ready)
+        if (this._saveMode === WI.FileUtilities.SaveMode.SingleFile && this.representedObject.isCanvas2D && this.representedObject.ready && event.data.nativeEvent.shiftKey) {
             this._exportReduction();
-        else
-            this._exportRecording();
+            return;
+        }
+
+        this._export();
     }
 
     _sliderChanged()

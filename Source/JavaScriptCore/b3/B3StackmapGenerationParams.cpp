@@ -32,6 +32,7 @@
 #include "AirGenerationContext.h"
 #include "B3Procedure.h"
 #include "B3StackmapValue.h"
+#include "B3ValueInlines.h"
 
 namespace JSC { namespace B3 {
 
@@ -46,15 +47,16 @@ RegisterSet StackmapGenerationParams::unavailableRegisters() const
 {
     RegisterSet result = usedRegisters();
     
-    RegisterSet unsavedCalleeSaves = RegisterSet::vmCalleeSaveRegisters();
+    RegisterSet unsavedCalleeSaves = RegisterSet::calleeSaveRegisters();
+    ASSERT(!unsavedCalleeSaves.hasAnyWideRegisters());
     unsavedCalleeSaves.exclude(m_context.code->calleeSaveRegisters());
 
     result.merge(unsavedCalleeSaves);
 
     for (GPRReg gpr : m_gpScratch)
-        result.clear(gpr);
+        result.remove(gpr);
     for (FPRReg fpr : m_fpScratch)
-        result.clear(fpr);
+        result.remove(fpr);
     
     return result;
 }
@@ -96,6 +98,11 @@ StackmapGenerationParams::StackmapGenerationParams(
     , m_reps(reps)
     , m_context(context)
 {
+}
+
+Origin StackmapGenerationParams::origin() const
+{
+    return m_value->origin();
 }
 
 } } // namespace JSC::B3

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,12 +26,13 @@
 #pragma once
 
 #include "Blob.h"
+#include "Document.h"
 #include "Pasteboard.h"
 
 namespace WebCore {
 
 class Document;
-class SharedBuffer;
+class FragmentedSharedBuffer;
 
 struct ClipboardImageReader : PasteboardFileReader {
     ClipboardImageReader(Document* document, const String& mimeType)
@@ -48,6 +49,7 @@ private:
 
     bool shouldReadBuffer(const String&) const final;
     void readBuffer(const String& filename, const String& type, Ref<SharedBuffer>&&) final;
+    void readSVG(const SharedBuffer&);
 
     RefPtr<Document> m_document;
     String m_mimeType;

@@ -25,29 +25,34 @@
 
 #pragma once
 
-#if ENABLE(INPUT_TYPE_COLOR)
-
-#include <wtf/RefCounted.h>
-#include <wtf/RefPtr.h>
+#include <WebCore/FrameIdentifier.h>
+#include <wtf/CheckedPtr.h>
+#include <wtf/Ref.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 
 namespace WebCore {
 class Color;
+class IntRect;
 }
 
 namespace WebKit {
 
 class WebPageProxy;
 
-class WebColorPicker : public RefCounted<WebColorPicker> {
+class WebColorPickerClient : public CanMakeCheckedPtr<WebColorPickerClient> {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(WebColorPickerClient);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WebColorPickerClient);
 public:
-    class Client {
-    protected:
-        virtual ~Client() { }
+    virtual void didChooseColor(const WebCore::Color&) = 0;
+    virtual void didEndColorPicker() = 0;
 
-    public:
-        virtual void didChooseColor(const WebCore::Color&) = 0;
-        virtual void didEndColorPicker() = 0;
-    };
+protected:
+    virtual ~WebColorPickerClient() = default;
+};
+
+class WebColorPicker : public RefCountedAndCanMakeWeakPtr<WebColorPicker> {
+public:
+    using Client = WebColorPickerClient;
 
     static Ref<WebColorPicker> create(Client* client)
     {
@@ -58,14 +63,18 @@ public:
 
     virtual void endPicker();
     virtual void setSelectedColor(const WebCore::Color&);
-    virtual void showColorPicker(const WebCore::Color&);
+    virtual void showColorPicker(const WebCore::Color&, const WebCore::IntRect&);
+
+    std::optional<WebCore::FrameIdentifier> frameID() const { return m_frameID; }
 
 protected:
-    explicit WebColorPicker(Client*);
+    explicit WebColorPicker(Client*, std::optional<WebCore::FrameIdentifier> = std::nullopt);
 
-    Client* m_client;
+    Client* client() const { return m_client.get(); }
+
+private:
+    CheckedPtr<Client> m_client;
+    std::optional<WebCore::FrameIdentifier> m_frameID;
 };
 
 } // namespace WebKit
-
-#endif // ENABLE(INPUT_TYPE_COLOR)

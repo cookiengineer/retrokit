@@ -25,8 +25,8 @@
 
 #pragma once
 
-#include "JSExportMacros.h"
 #include <cstddef>
+#include <wtf/GetPtr.h>
 #include <wtf/HashTraits.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/VectorTraits.h>
@@ -35,9 +35,7 @@ namespace JSC {
 
 class WeakImpl;
 class WeakHandleOwner;
-
-// This is a free function rather than a Weak<T> member function so we can put it in Weak.cpp.
-JS_EXPORT_PRIVATE void weakClearSlowCase(WeakImpl*&);
+class VM;
 
 template<typename T> class Weak {
     WTF_MAKE_NONCOPYABLE(Weak);
@@ -50,10 +48,14 @@ public:
     }
 
     Weak(T*, WeakHandleOwner* = nullptr, void* context = nullptr);
+    Weak(VM&, T* t, WeakHandleOwner* owner = nullptr, void* context = nullptr)
+        : Weak(t, owner, context)
+    {
+    }
 
     bool isHashTableDeletedValue() const;
     Weak(WTF::HashTableDeletedValueType);
-    constexpr bool isHashTableEmptyValue() const { return !m_impl; }
+    constexpr bool isHashTableEmptyValue() const { return !impl(); }
 
     Weak(Weak&&);
 
@@ -71,21 +73,19 @@ public:
     inline T& operator*() const;
     inline T* get() const;
 
+    inline void set(VM&, T*);
+
     inline bool was(T*) const;
 
     inline explicit operator bool() const;
 
-    inline WeakImpl* leakImpl() WARN_UNUSED_RETURN;
-    WeakImpl* unsafeImpl() const { return m_impl; }
-    void clear()
-    {
-        if (!m_impl)
-            return;
-        weakClearSlowCase(m_impl);
-    }
-    
+    [[nodiscard]] inline WeakImpl* leakImpl();
+    WeakImpl* unsafeImpl() const { return impl(); }
+    void clear();
+
 private:
     static inline WeakImpl* hashTableDeletedValue();
+    WeakImpl* impl() const { return m_impl; }
 
     WeakImpl* m_impl { nullptr };
 };

@@ -25,9 +25,7 @@
 
 #pragma once
 
-#include "SVGParserUtilities.h"
 #include "SVGPrimitiveList.h"
-#include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 
@@ -42,17 +40,15 @@ public:
         return adoptRef(*new SVGStringList(owner));
     }
 
-    void reset(const String& string)
-    {
-        parse(string, ' ');
+    void setFromCommaSeparatedTokens(StringView);
+    void setFromSpaceSeparatedTokens(StringView);
 
-        // Add empty string, if list is empty.
-        if (m_items.isEmpty())
-            m_items.append(emptyString());
-    }
-
-    bool parse(StringView, UChar delimiter);
     String valueAsString() const override;
+
+private:
+    void parseCommaSeparatedTokens(StringView);
+    void parseSpaceSeparatedTokens(StringView);
+    char16_t m_delimiter { ' ' };
 };
 
 } // namespace WebCore

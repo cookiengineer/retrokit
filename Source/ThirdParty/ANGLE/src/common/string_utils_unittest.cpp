@@ -9,6 +9,7 @@
 
 #include "string_utils.h"
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 using namespace angle;
@@ -17,7 +18,7 @@ namespace
 {
 
 // Basic SplitString tests
-TEST(StringUtilsTest, SplitString_Basics)
+TEST(StringUtilsTest, SplitStringBasics)
 {
     std::vector<std::string> r;
 
@@ -32,8 +33,10 @@ TEST(StringUtilsTest, SplitString_Basics)
     // Should split on any of the separators.
     r = SplitString("::,,;;", ",:;", KEEP_WHITESPACE, SPLIT_WANT_ALL);
     ASSERT_EQ(7u, r.size());
-    for (auto str : r)
+    for (const std::string &str : r)
+    {
         ASSERT_TRUE(str.empty());
+    }
 
     r = SplitString("red, green; blue:", ",:;", TRIM_WHITESPACE, SPLIT_WANT_NONEMPTY);
     ASSERT_EQ(3u, r.size());
@@ -57,7 +60,7 @@ TEST(StringUtilsTest, SplitString_Basics)
 }
 
 // Check different whitespace and result types for SplitString
-TEST(StringUtilsTest, SplitString_WhitespaceAndResultType)
+TEST(StringUtilsTest, SplitStringWhitespaceAndResultType)
 {
     std::vector<std::string> r;
 
@@ -90,6 +93,46 @@ TEST(StringUtilsTest, SplitString_WhitespaceAndResultType)
     EXPECT_EQ("", r[2]);
     r = SplitString(", ,", ",", TRIM_WHITESPACE, SPLIT_WANT_NONEMPTY);
     ASSERT_TRUE(r.empty());
+}
+
+// Tests for SplitStringAlongWhitespace
+TEST(StringUtilsTest, SplitStringAlongWhitespace)
+{
+    {
+        // No whitespace.
+        std::vector<std::string> r;
+        SplitStringAlongWhitespace("abcd", &r);
+        ASSERT_THAT(r, testing::ElementsAre("abcd"));
+    }
+
+    {
+        // Just whitespace.
+        std::vector<std::string> r;
+        SplitStringAlongWhitespace(" \t", &r);
+        ASSERT_THAT(r, testing::ElementsAre());
+    }
+
+    {
+        // Consecutive whitespace of same type.
+        std::vector<std::string> r;
+        SplitStringAlongWhitespace("a  b", &r);
+        ASSERT_THAT(r, testing::ElementsAre("a", "b"));
+    }
+
+    {
+        // Consecutive whitespace of different types.
+        std::vector<std::string> r;
+        SplitStringAlongWhitespace("ab \tcd", &r);
+        ASSERT_THAT(r, testing::ElementsAre("ab", "cd"));
+    }
+
+    {
+        // Non-empty output std::vector.
+        std::vector<std::string> r;
+        r.push_back("z");
+        SplitStringAlongWhitespace("abc", &r);
+        ASSERT_THAT(r, testing::ElementsAre("z", "abc"));
+    }
 }
 
 // Tests for TrimString
@@ -134,6 +177,178 @@ TEST(StringUtilsTest, HexStringToUIntBasic)
 
     std::string testStringD("0x BADF00D");
     EXPECT_FALSE(HexStringToUInt(testStringD, &uintValue));
+}
+
+// Tests for ToCamelCase
+TEST(StringUtilsTest, ToCamelCase)
+{
+    // No underscore in input; expect identical output
+    EXPECT_EQ("", ToCamelCase(""));
+    EXPECT_EQ("a", ToCamelCase("a"));
+    EXPECT_EQ("AbCdEfG", ToCamelCase("AbCdEfG"));
+    EXPECT_EQ("aBcDeFg", ToCamelCase("aBcDeFg"));
+
+    // Underscore should be removed and the next character turned upper case
+    EXPECT_EQ("", ToCamelCase("_"));
+    EXPECT_EQ("aB", ToCamelCase("a_b"));
+    EXPECT_EQ("aB", ToCamelCase("a_b"));
+    EXPECT_EQ("camelCase", ToCamelCase("camel_case"));
+    EXPECT_EQ("abCDeBEfG", ToCamelCase("abCDe_bEfG"));
+
+    // Multiple underscores
+    EXPECT_EQ("aBCDEFG", ToCamelCase("a_b_c_d_e_f_g"));
+    EXPECT_EQ("abCdEfGh", ToCamelCase("ab_cd_ef_gh"));
+    EXPECT_EQ("aShortName", ToCamelCase("a_short_name"));
+    EXPECT_EQ("someShortWords", ToCamelCase("some_short_words"));
+    EXPECT_EQ("bunchOLetters", ToCamelCase("bunch_o_letters"));
+    EXPECT_EQ("whatEndsInE", ToCamelCase("what_ends_in_e"));
+    EXPECT_EQ("adjustSrcDstRegionForBlitFramebuffer",
+              ToCamelCase("adjust_src_dst_region_for_BlitFramebuffer"));
+
+    // Uppercase after underscore
+    EXPECT_EQ("abCDEFGh", ToCamelCase("ab_CD_eF_Gh"));
+    EXPECT_EQ("IWasThere", ToCamelCase("I_was_there"));
+    EXPECT_EQ("whereDidTHATComeFrom", ToCamelCase("where_did_THAT_come_from"));
+
+    // Digits
+    EXPECT_EQ("ab123c4deF5gHi6J", ToCamelCase("ab1_2_3c_4de_f5g_hi6_j"));
+    EXPECT_EQ("maxSize16KB", ToCamelCase("max_size_16KB"));
+    EXPECT_EQ("supportRGBA8", ToCamelCase("support_RGBA8"));
+}
+
+// Basic functionality for NamesMatchWithWildcard.
+TEST(StringUtilsTest, NamesMatchWithWildcard)
+{
+    EXPECT_TRUE(NamesMatchWithWildcard("ASDF", "ASDF"));
+
+    // '*' matching
+    EXPECT_TRUE(NamesMatchWithWildcard("A*", "ASDF"));
+    EXPECT_TRUE(NamesMatchWithWildcard("AS*", "ASDF"));
+    EXPECT_TRUE(NamesMatchWithWildcard("ASD*", "ASDF"));
+    EXPECT_TRUE(NamesMatchWithWildcard("ASDF*", "ASDF"));
+
+    EXPECT_TRUE(NamesMatchWithWildcard("*F", "ASDF"));
+    EXPECT_TRUE(NamesMatchWithWildcard("*DF", "ASDF"));
+    EXPECT_TRUE(NamesMatchWithWildcard("*SDF", "ASDF"));
+    EXPECT_TRUE(NamesMatchWithWildcard("*ASDF", "ASDF"));
+
+    EXPECT_TRUE(NamesMatchWithWildcard("AS**", "ASDF"));
+    EXPECT_TRUE(NamesMatchWithWildcard("AS***", "ASDF"));
+    EXPECT_TRUE(NamesMatchWithWildcard("**DF", "ASDF"));
+    EXPECT_TRUE(NamesMatchWithWildcard("***DF", "ASDF"));
+
+    EXPECT_TRUE(NamesMatchWithWildcard("A*F", "ASDF"));
+    EXPECT_TRUE(NamesMatchWithWildcard("A**F", "ASDF"));
+    EXPECT_TRUE(NamesMatchWithWildcard("*SD*", "ASDF"));
+    EXPECT_TRUE(NamesMatchWithWildcard("*S*D*", "ASDF"));
+
+    EXPECT_TRUE(NamesMatchWithWildcard("ASD*", "ASDF*"));
+
+    // '?' matching
+    EXPECT_TRUE(NamesMatchWithWildcard("AS?F", "ASDF"));
+    EXPECT_FALSE(NamesMatchWithWildcard("AS??F", "ASDF"));
+    EXPECT_TRUE(NamesMatchWithWildcard("????", "ASDF"));
+    EXPECT_TRUE(NamesMatchWithWildcard("??D?", "ASDF"));
+    EXPECT_FALSE(NamesMatchWithWildcard("AS?DF", "ASDF"));
+
+    // Mixed '?' and '*' matching
+    EXPECT_TRUE(NamesMatchWithWildcard("AS?*F", "ASDF"));
+    EXPECT_TRUE(NamesMatchWithWildcard("AS*?*F", "ASDF"));
+    EXPECT_TRUE(NamesMatchWithWildcard("*AS*?*F*", "ASDF"));
+    EXPECT_TRUE(NamesMatchWithWildcard("*S*?**", "ASDF"));
+    EXPECT_TRUE(NamesMatchWithWildcard("*?*", "ASDF"));
+}
+
+// Test HexStringToUintVector
+TEST(StringUtilsTest, HexStringToUintVector)
+{
+    {
+        constexpr std::string_view kHex        = "";
+        constexpr std::vector<uint8_t> kExpect = {};
+        EXPECT_EQ(HexStringToUintVector(kHex), kExpect);
+    }
+
+    {
+        constexpr std::string_view kHex    = "0";
+        const std::vector<uint8_t> kExpect = {0};
+        EXPECT_EQ(HexStringToUintVector(kHex), kExpect);
+    }
+
+    {
+        constexpr std::string_view kHex    = "a";
+        const std::vector<uint8_t> kExpect = {0xA};
+        EXPECT_EQ(HexStringToUintVector(kHex), kExpect);
+    }
+
+    {
+        constexpr std::string_view kHex    = "B";
+        const std::vector<uint8_t> kExpect = {0xB};
+        EXPECT_EQ(HexStringToUintVector(kHex), kExpect);
+    }
+
+    {
+        constexpr std::string_view kHex    = "2C";
+        const std::vector<uint8_t> kExpect = {0x2C};
+        EXPECT_EQ(HexStringToUintVector(kHex), kExpect);
+    }
+
+    {
+        constexpr std::string_view kHex    = "902";
+        const std::vector<uint8_t> kExpect = {0x90, 0x02};
+        EXPECT_EQ(HexStringToUintVector(kHex), kExpect);
+    }
+
+    {
+        constexpr std::string_view kHex    = "12F0BC875DE7A460";
+        const std::vector<uint8_t> kExpect = {0x12, 0xF0, 0xBC, 0x87, 0x5D, 0xE7, 0xA4, 0x60};
+        EXPECT_EQ(HexStringToUintVector(kHex), kExpect);
+    }
+}
+
+// Test UintStreamToHexString
+TEST(StringUtilsTest, UintStreamToHexString)
+{
+    {
+        constexpr std::array<uint8_t, 0> kStream = {};
+        constexpr std::string_view kExpect       = "";
+        EXPECT_EQ(UintStreamToHexString(kStream), kExpect);
+    }
+
+    {
+        const std::array<uint8_t, 1> kStream = {0};
+        constexpr std::string_view kExpect   = "00";
+        EXPECT_EQ(UintStreamToHexString(kStream), kExpect);
+    }
+
+    {
+        const std::array<uint8_t, 1> kStream = {0xA};
+        constexpr std::string_view kExpect   = "0A";
+        EXPECT_EQ(UintStreamToHexString(kStream), kExpect);
+    }
+
+    {
+        const std::array<uint8_t, 1> kStream = {0xB};
+        constexpr std::string_view kExpect   = "0B";
+        EXPECT_EQ(UintStreamToHexString(kStream), kExpect);
+    }
+
+    {
+        const std::array<uint8_t, 1> kStream = {0x2C};
+        constexpr std::string_view kExpect   = "2C";
+        EXPECT_EQ(UintStreamToHexString(kStream), kExpect);
+    }
+
+    {
+        const std::array<uint8_t, 2> kStream = {0x90, 0x02};
+        constexpr std::string_view kExpect   = "9002";
+        EXPECT_EQ(UintStreamToHexString(kStream), kExpect);
+    }
+
+    {
+        const std::array<uint8_t, 8> kStream = {0x12, 0xF0, 0xBC, 0x87, 0x5D, 0xE7, 0xA4, 0x60};
+        constexpr std::string_view kExpect   = "12F0BC875DE7A460";
+        EXPECT_EQ(UintStreamToHexString(kStream), kExpect);
+    }
 }
 
 // Note: ReadFileToString is harder to test

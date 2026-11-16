@@ -3,6 +3,7 @@
  * Copyright (C) 2004, 2005 Rob Buis <buis@kde.org>
  * Copyright (C) 2005 Eric Seidel <eric@webkit.org>
  * Copyright (C) 2014 Adobe Systems Incorporated. All rights reserved.
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -22,34 +23,38 @@
 
 #pragma once
 
-#include "FilterEffect.h"
-
-#include "Filter.h"
+#include <WebCore/FilterEffect.h>
+#include <WebCore/GraphicsTypes.h>
 
 namespace WebCore {
 
-class FEBlend : public FilterEffect {
+class FEBlend final : public FilterEffect {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(FEBlend);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(FEBlend);
 public:
-    static Ref<FEBlend> create(Filter&, BlendMode);
+    WEBCORE_EXPORT static Ref<FEBlend> create(BlendMode, DestinationColorSpace = DestinationColorSpace::SRGB());
+
+    bool operator==(const FEBlend&) const;
 
     BlendMode blendMode() const { return m_mode; }
-    bool setBlendMode(BlendMode);
+    bool NODELETE setBlendMode(BlendMode);
 
 private:
-    const char* filterName() const final { return "FEBlend"; }
+    FEBlend(BlendMode, DestinationColorSpace);
 
-    void platformApplySoftware() override;
-    void platformApplyGeneric(unsigned char* srcPixelArrayA, unsigned char* srcPixelArrayB, unsigned char* dstPixelArray,
-                           unsigned colorArrayLength);
-    void platformApplyNEON(unsigned char* srcPixelArrayA, unsigned char* srcPixelArrayB, unsigned char* dstPixelArray,
-                           unsigned colorArrayLength);
+    bool operator==(const FilterEffect& other) const override { return areEqual<FEBlend>(*this, other); }
 
-    WTF::TextStream& externalRepresentation(WTF::TextStream&, RepresentationType) const override;
+    unsigned numberOfEffectInputs() const override { return 2; }
 
-    FEBlend(Filter&, BlendMode);
+    OptionSet<FilterRenderingMode> supportedFilterRenderingModes(OptionSet<FilterRenderingMode>) const override;
+    std::unique_ptr<FilterEffectApplier> createAcceleratedApplier() const override;
+    std::unique_ptr<FilterEffectApplier> createSoftwareApplier() const override;
+
+    WTF::TextStream& externalRepresentation(WTF::TextStream&, FilterRepresentation) const override;
 
     BlendMode m_mode;
 };
 
 } // namespace WebCore
 
+SPECIALIZE_TYPE_TRAITS_FILTER_FUNCTION(FEBlend)

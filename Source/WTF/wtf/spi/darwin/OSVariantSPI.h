@@ -25,6 +25,12 @@
 
 #pragma once
 
+#include <wtf/Compiler.h>
+
+DECLARE_SYSTEM_HEADER
+
+#include <wtf/Platform.h>
+
 #if USE(APPLE_INTERNAL_SDK)
 
 #import <os/variant_private.h>
@@ -33,6 +39,7 @@
 
 WTF_EXTERN_C_BEGIN
 bool os_variant_allows_internal_security_policies(const char *);
+bool os_variant_is_basesystem(const char *);
 WTF_EXTERN_C_END
 
 #endif

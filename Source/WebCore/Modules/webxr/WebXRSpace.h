@@ -29,7 +29,9 @@
 
 #include "ContextDestructionObserver.h"
 #include "EventTarget.h"
+#include "EventTargetInterfaces.h"
 #include "TransformationMatrix.h"
+#include "WebXRSession.h"
 #include <wtf/RefCounted.h>
 
 namespace WebCore {
@@ -37,20 +39,29 @@ namespace WebCore {
 class Document;
 class ScriptExecutionContext;
 class WebXRRigidTransform;
-class WebXRSession;
 
-class WebXRSpace : public EventTargetWithInlineData, public ContextDestructionObserver {
-    WTF_MAKE_ISO_ALLOCATED(WebXRSpace);
+class WebXRSpace : public EventTarget, public ContextDestructionObserver {
+    WTF_MAKE_TZONE_ALLOCATED(WebXRSpace);
 public:
     virtual ~WebXRSpace();
 
-    virtual WebXRSession& session() const = 0;
-    virtual TransformationMatrix nativeOrigin() const = 0;
-    TransformationMatrix effectiveOrigin() const;
-    virtual bool isPositionEmulated() const;
+    using ContextDestructionObserver::ref;
+    using ContextDestructionObserver::deref;
+    USING_CAN_MAKE_WEAKPTR(EventTarget);
+
+    virtual WebXRSession* session() const = 0;
+    virtual std::optional<TransformationMatrix> nativeOrigin() const = 0;
+#if ENABLE(WEBXR_HIT_TEST)
+    virtual std::optional<PlatformXR::NativeOriginInformation> nativeOriginInformation() const { return std::nullopt; }
+#endif
+    std::optional<TransformationMatrix> effectiveOrigin() const;
+    virtual std::optional<bool> isPositionEmulated() const;
 
     virtual bool isReferenceSpace() const { return false; }
     virtual bool isBoundedReferenceSpace() const { return false; }
+#if ENABLE(WEBXR_HANDS)
+    virtual bool isJointSpace() const { return false; }
+#endif
 
 protected:
     WebXRSpace(Document&, Ref<WebXRRigidTransform>&&);
@@ -58,35 +69,18 @@ protected:
     const WebXRRigidTransform& originOffset() const { return m_originOffset.get(); }
 
     // EventTarget
-    ScriptExecutionContext* scriptExecutionContext() const final { return ContextDestructionObserver::scriptExecutionContext(); }
+    ScriptExecutionContext* scriptExecutionContext() const final;
 
 private:
     // EventTarget
-    EventTargetInterface eventTargetInterface() const final { return WebXRSpaceEventTargetInterfaceType; }
+    enum EventTargetInterfaceType eventTargetInterface() const final { return EventTargetInterfaceType::WebXRSpace; }
 
-    Ref<WebXRRigidTransform> m_originOffset;
-};
-
-// https://immersive-web.github.io/webxr/#xrsession-viewer-reference-space
-// This is a helper class to implement the viewer space owned by a WebXRSession.
-// It avoids a circular reference between the session and the reference space.
-class WebXRViewerSpace : public WebXRSpace {
-    WTF_MAKE_ISO_ALLOCATED(WebXRViewerSpace);
-public:
-    WebXRViewerSpace(Document&, WebXRSession&);
-    virtual ~WebXRViewerSpace();
-
-private:
-    WebXRSession& session() const final { return m_session; }
-    TransformationMatrix nativeOrigin() const final;
-
-    void refEventTarget() final { RELEASE_ASSERT_NOT_REACHED(); }
-    void derefEventTarget() final { RELEASE_ASSERT_NOT_REACHED(); }
-
-    WebXRSession& m_session;
+    const Ref<WebXRRigidTransform> m_originOffset;
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_EVENTTARGET(WebXRSpace)
 
 #define SPECIALIZE_TYPE_TRAITS_WEBXRSPACE(ToValueTypeName, predicate) \
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::ToValueTypeName) \

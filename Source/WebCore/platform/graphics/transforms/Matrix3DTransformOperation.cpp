@@ -32,6 +32,17 @@
 
 namespace WebCore {
 
+Ref<Matrix3DTransformOperation> Matrix3DTransformOperation::create(const TransformationMatrix& matrix)
+{
+    return adoptRef(*new Matrix3DTransformOperation(matrix));
+}
+
+Matrix3DTransformOperation::Matrix3DTransformOperation(const TransformationMatrix& mat)
+    : TransformOperation(TransformOperation::Type::Matrix3D)
+    , m_matrix(mat)
+{
+}
+
 bool Matrix3DTransformOperation::operator==(const TransformOperation& other) const
 {
     return isSameType(other) && m_matrix == downcast<Matrix3DTransformOperation>(other).m_matrix;
@@ -39,37 +50,31 @@ bool Matrix3DTransformOperation::operator==(const TransformOperation& other) con
 
 static Ref<TransformOperation> createOperation(TransformationMatrix& to, TransformationMatrix& from, const BlendingContext& context)
 {
-    to.blend(from, context.progress);
+    to.blend(from, context.progress, context.compositeOperation);
     return Matrix3DTransformOperation::create(to);
 }
 
-Ref<TransformOperation> Matrix3DTransformOperation::blend(const TransformOperation* from, const BlendingContext& context, bool blendToIdentity)
+Ref<TransformOperation> Matrix3DTransformOperation::blend(const TransformOperation* from, const BlendingContext& context, bool blendToIdentity) const
 {
-    if (from && !from->isSameType(*this))
-        return *this;
+    if (!sharedPrimitiveType(from))
+        return const_cast<Matrix3DTransformOperation&>(*this);
 
     // Convert the TransformOperations into matrices
-    FloatSize size;
     TransformationMatrix fromT;
     TransformationMatrix toT;
     if (from)
-        from->apply(fromT, size);
+        from->apply(fromT);
 
-    apply(toT, size);
+    apply(toT);
 
     if (blendToIdentity)
         return createOperation(fromT, toT, context);
     return createOperation(toT, fromT, context);
 }
 
-bool Matrix3DTransformOperation::isRepresentableIn2D() const
-{
-    return m_matrix.isAffine();
-}
-
 void Matrix3DTransformOperation::dump(TextStream& ts) const
 {
-    ts << type() << "(" << m_matrix << ")";
+    ts << type() << '(' << m_matrix << ')';
 }
 
 } // namespace WebCore

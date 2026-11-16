@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-.tree-outline.dom .badge-css-grid {
+.tree-outline.dom .badge {
     /* Using sans-serif San Francisco font here creates a badge 1px taller than the selected
     area. Use the same monospace font as the rest of the DOM tree outline. */
 
@@ -38,19 +38,49 @@
     box-shadow: 0 0 1px hsla(0, 0%, 0%, 0.5);
 }
 
-.tree-outline.dom .badge-css-grid.activated {
+.tree-outline.dom .badge.activated {
     background: var(--glyph-color-active);
     color: white;
 }
 
-body:not(.window-inactive, .window-docked-inactive) .tree-outline.dom:focus-within li.selected .badge-css-grid {
+body:not(.window-inactive, .window-docked-inactive) .tree-outline.dom:focus-within li.selected .badge {
     /* Override `li.selected * {color: inherited}` from DOMTreeOutline.css */
     color: var(--text-color);
 }
 
+.event-badge-popover-content, .slot-filled-badge-popover-content {
+    overflow: hidden;
+}
+
+.event-badge-popover-content > .details-section.event-listeners {
+    max-height: calc(100vh - var(--tab-bar-height) - var(--console-prompt-min-height));
+    overflow: auto;
+    will-change: z-index; /* Workaround for <rdar://125601926> - Content renders on top of the scroll bar */
+}
+
+.event-badge-popover-content > .details-section.event-listeners .details-section {
+    border-inline: 1px solid var(--border-color);
+}
+
+.slot-filled-badge-popover-content > table {
+    border-collapse: collapse;
+}
+
+.slot-filled-badge-popover-content > table > tr + tr > td {
+    padding-top: 2px;
+}
+
+.slot-filled-badge-popover-content > table > tr > td:first-child {
+    font-family: -webkit-system-font, sans-serif;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    text-align: end;
+    vertical-align: top;
+    color: var(--console-secondary-text-color);
+}
 
 @media (prefers-color-scheme: dark) {
-    .tree-outline.dom .badge-css-grid {
+    .tree-outline.dom .badge {
         background: hsla(0, 0%, 30%, 0.8);
         border-color: hsla(0, 0%, 100%, 0.1);
     }

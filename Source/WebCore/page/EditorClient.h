@@ -26,24 +26,41 @@
 
 #pragma once
 
-#include "EditorInsertAction.h"
-#include "SerializedAttachmentData.h"
-#include "TextAffinity.h"
-#include "TextChecking.h"
-#include "UndoStep.h"
+#include <WebCore/EditorInsertAction.h>
+#include <WebCore/FrameIdentifier.h>
+#include <WebCore/SerializedAttachmentData.h>
+#include <WebCore/TextAffinity.h>
+#include <WebCore/TextChecking.h>
+#include <WebCore/UndoStep.h>
+#include <wtf/CheckedPtr.h>
 #include <wtf/Forward.h>
+#include <wtf/Platform.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
+enum class DOMPasteAccessCategory : uint8_t;
 enum class DOMPasteAccessResponse : uint8_t;
+enum class MouseEventInputSource : uint8_t;
 
+#if PLATFORM(COCOA)
+struct AttributedString;
+#endif
+
+#if ENABLE(ATTACHMENT_ELEMENT)
+enum class AttachmentAssociatedElementType : uint8_t;
+#endif
+
+class SharedBuffer;
+class Document;
 class DocumentFragment;
 class Element;
-class Frame;
 class KeyboardEvent;
+class LocalFrame;
 class Node;
-class SharedBuffer;
+class FragmentedSharedBuffer;
 class StyleProperties;
 class TextCheckerClient;
 class VisibleSelection;
@@ -52,9 +69,11 @@ struct GapRects;
 struct GrammarDetail;
 struct SimpleRange;
 
-class EditorClient {
+class WEBCORE_EXPORT EditorClient : public CanMakeWeakPtr<EditorClient>, public CanMakeCheckedPtr<EditorClient> {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(EditorClient);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(EditorClient);
 public:
-    virtual ~EditorClient() = default;
+    virtual ~EditorClient();
 
     virtual bool shouldDeleteRange(const std::optional<SimpleRange>&) = 0;
     virtual bool smartInsertDeleteEnabled() = 0; 
@@ -72,18 +91,19 @@ public:
     virtual bool shouldChangeSelectedRange(const std::optional<SimpleRange>& fromRange, const std::optional<SimpleRange>& toRange, Affinity, bool stillSelecting) = 0;
     virtual bool shouldRevealCurrentSelectionAfterInsertion() const { return true; };
     virtual bool shouldSuppressPasswordEcho() const { return false; };
+    virtual bool shouldRemoveDictationAlternativesAfterEditing() const { return true; }
     
     virtual bool shouldApplyStyle(const StyleProperties&, const std::optional<SimpleRange>&) = 0;
     virtual void didApplyStyle() = 0;
     virtual bool shouldMoveRangeAfterDelete(const SimpleRange&, const SimpleRange&) = 0;
 
 #if ENABLE(ATTACHMENT_ELEMENT)
-    virtual void registerAttachmentIdentifier(const String& /* identifier */, const String& /* contentType */, const String& /* preferredFileName */, Ref<SharedBuffer>&&) { }
+    virtual void registerAttachmentIdentifier(const String& /* identifier */, const String& /* contentType */, const String& /* preferredFileName */, Ref<FragmentedSharedBuffer>&&) { }
     virtual void registerAttachmentIdentifier(const String& /* identifier */, const String& /* contentType */, const String& /* filePath */) { }
     virtual void registerAttachments(Vector<SerializedAttachmentData>&&) { }
     virtual void registerAttachmentIdentifier(const String& /* identifier */) { }
     virtual void cloneAttachmentData(const String& /* fromIdentifier */, const String& /* toIdentifier */) { }
-    virtual void didInsertAttachmentWithIdentifier(const String& /* identifier */, const String& /* source */, bool /* hasEnclosingImage */) { }
+    virtual void didInsertAttachmentWithIdentifier(const String& /* identifier */, const String& /* source */, AttachmentAssociatedElementType /* associatedElementType */) { }
     virtual void didRemoveAttachmentWithIdentifier(const String&) { }
     virtual bool supportsClientSideAttachmentData() const { return false; }
     virtual Vector<SerializedAttachmentData> serializedAttachmentDataForIdentifiers(const Vector<String>&) { return { }; }
@@ -91,21 +111,24 @@ public:
 
     virtual void didBeginEditing() = 0;
     virtual void respondToChangedContents() = 0;
-    virtual void respondToChangedSelection(Frame*) = 0;
+    virtual void respondToChangedSelection(LocalFrame*) = 0;
     virtual void didEndUserTriggeredSelectionChanges() = 0;
     virtual void updateEditorStateAfterLayoutIfEditabilityChanged() = 0;
     virtual void didEndEditing() = 0;
     virtual void willWriteSelectionToPasteboard(const std::optional<SimpleRange>&) = 0;
     virtual void didWriteSelectionToPasteboard() = 0;
-    virtual void getClientPasteboardData(const std::optional<SimpleRange>&, Vector<String>& pasteboardTypes, Vector<RefPtr<SharedBuffer>>& pasteboardData) = 0;
+    virtual void getClientPasteboardData(const std::optional<SimpleRange>&, Vector<std::pair<String, RefPtr<WebCore::SharedBuffer>>>& pasteboardTypesAndData) = 0;
+#if PLATFORM(COCOA)
+    virtual HashMap<FrameIdentifier, AttributedString> collectAttributedStringsForRemoteFrames(FrameIdentifier rootFrameIdentifier, const Vector<FrameIdentifier>&) = 0;
+#endif
     virtual void requestCandidatesForSelection(const VisibleSelection&) { }
     virtual void handleAcceptedCandidateWithSoftSpaces(TextCheckingResult) { }
 
-    virtual DOMPasteAccessResponse requestDOMPasteAccess(const String& originIdentifier) = 0;
+    virtual DOMPasteAccessResponse requestDOMPasteAccess(DOMPasteAccessCategory, FrameIdentifier, const String& originIdentifier) = 0;
 
     // Notify an input method that a composition was voluntarily discarded by WebCore, so that it could clean up too.
     // This function is not called when a composition is closed per a request from an input method.
-    virtual void discardedComposition(Frame*) = 0;
+    virtual void discardedComposition(const Document&) = 0;
     virtual void canceledComposition() = 0;
     virtual void didUpdateComposition() = 0;
 
@@ -113,8 +136,8 @@ public:
     virtual void registerRedoStep(UndoStep&) = 0;
     virtual void clearUndoRedoOperations() = 0;
 
-    virtual bool canCopyCut(Frame*, bool defaultValue) const = 0;
-    virtual bool canPaste(Frame*, bool defaultValue) const = 0;
+    virtual bool canCopyCut(LocalFrame*, bool defaultValue) const = 0;
+    virtual bool canPaste(LocalFrame*, bool defaultValue) const = 0;
     virtual bool canUndo() const = 0;
     virtual bool canRedo() const = 0;
     
@@ -125,12 +148,12 @@ public:
     virtual void handleInputMethodKeydown(KeyboardEvent&) = 0;
     virtual void didDispatchInputMethodKeydown(KeyboardEvent&) { }
     
-    virtual void textFieldDidBeginEditing(Element*) = 0;
-    virtual void textFieldDidEndEditing(Element*) = 0;
-    virtual void textDidChangeInTextField(Element*) = 0;
-    virtual bool doTextFieldCommandFromEvent(Element*, KeyboardEvent*) = 0;
-    virtual void textWillBeDeletedInTextField(Element*) = 0;
-    virtual void textDidChangeInTextArea(Element*) = 0;
+    virtual void textFieldDidBeginEditing(Element&) = 0;
+    virtual void textFieldDidEndEditing(Element&) = 0;
+    virtual void textDidChangeInTextField(Element&) = 0;
+    virtual bool doTextFieldCommandFromEvent(Element&, KeyboardEvent*) = 0;
+    virtual void textWillBeDeletedInTextField(Element&) = 0;
+    virtual void textDidChangeInTextArea(Element&) = 0;
     virtual void overflowScrollPositionChanged() = 0;
     virtual void subFrameScrollPositionChanged() = 0;
 
@@ -152,6 +175,11 @@ public:
     virtual void uppercaseWord() = 0;
     virtual void lowercaseWord() = 0;
     virtual void capitalizeWord() = 0;
+    virtual bool canApplyCaseTransformations(const String&) = 0;
+    virtual bool canConvertToTraditionalChinese(const String&) = 0;
+    virtual bool canConvertToSimplifiedChinese(const String&) = 0;
+    virtual void convertToTraditionalChinese() = 0;
+    virtual void convertToSimplifiedChinese() = 0;
 #endif
 
 #if USE(AUTOMATIC_TEXT_REPLACEMENT)
@@ -168,6 +196,8 @@ public:
     virtual void toggleAutomaticTextReplacement() = 0;
     virtual bool isAutomaticSpellingCorrectionEnabled() = 0;
     virtual void toggleAutomaticSpellingCorrection() = 0;
+    virtual bool isSmartListsEnabled() = 0;
+    virtual void toggleSmartLists() = 0;
 #endif
     
 #if PLATFORM(GTK)
@@ -180,7 +210,6 @@ public:
     virtual void updateSpellingUIWithMisspelledWord(const String&) = 0;
     virtual void showSpellingUI(bool show) = 0;
     virtual bool spellingUIIsShowing() = 0;
-    virtual void willSetInputMethodState() = 0;
     virtual void setInputMethodState(Element*) = 0;
 
     // Support for global selections, used on platforms like the X Window System that treat
@@ -189,12 +218,14 @@ public:
 
     virtual bool performTwoStepDrop(DocumentFragment&, const SimpleRange& destination, bool isMove) = 0;
 
-    virtual bool canShowFontPanel() const = 0;
-
-    virtual bool shouldAllowSingleClickToChangeSelection(Node&, const VisibleSelection&) const { return true; }
+    virtual bool shouldAllowSingleClickToChangeSelection(Node&, const VisibleSelection&, MouseEventInputSource) const { return true; }
 
     virtual void willChangeSelectionForAccessibility() { }
     virtual void didChangeSelectionForAccessibility() { }
+
+#if PLATFORM(IOS_FAMILY)
+    virtual bool shouldDrawVisuallyContiguousBidiSelection() const { return false; }
+#endif
 };
 
 }

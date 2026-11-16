@@ -30,23 +30,35 @@
 #include "WebPageProxy.h"
 #include "WebProcessPool.h"
 #include "WebProcessProxy.h"
+#include <WebCore/DiagnosticLoggingClient.h>
 #include <WebCore/DiagnosticLoggingKeys.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 using namespace WebCore;
 
 static const Seconds loggingInterval { 60_min };
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PerActivityStateCPUUsageSampler);
+
 PerActivityStateCPUUsageSampler::PerActivityStateCPUUsageSampler(WebProcessPool& processPool)
     : m_processPool(processPool)
-    , m_loggingTimer(RunLoop::main(), this, &PerActivityStateCPUUsageSampler::loggingTimerFired)
+    , m_loggingTimer(RunLoop::mainSingleton(), "PerActivityStateCPUUsageSampler::LoggingTimer"_s, this, &PerActivityStateCPUUsageSampler::loggingTimerFired)
 {
     m_lastCPUTime = MonotonicTime::now();
     m_loggingTimer.startRepeating(loggingInterval);
 }
 
-PerActivityStateCPUUsageSampler::~PerActivityStateCPUUsageSampler()
+PerActivityStateCPUUsageSampler::~PerActivityStateCPUUsageSampler() = default;
+
+void PerActivityStateCPUUsageSampler::ref() const
 {
+    m_processPool->ref();
+}
+
+void PerActivityStateCPUUsageSampler::deref() const
+{
+    m_processPool->deref();
 }
 
 void PerActivityStateCPUUsageSampler::reportWebContentCPUTime(Seconds cpuTime, ActivityStateForCPUSampling activityState)
@@ -70,7 +82,7 @@ static inline String loggingKeyForActivityState(ActivityStateForCPUSampling stat
 
 void PerActivityStateCPUUsageSampler::loggingTimerFired()
 {
-    auto* page = pageForLogging();
+    auto page = pageForLogging();
     if (!page) {
         m_cpuTimeInActivityState.clear();
         return;
@@ -90,12 +102,13 @@ void PerActivityStateCPUUsageSampler::loggingTimerFired()
     m_lastCPUTime = currentCPUTime;
 }
 
-WebPageProxy* PerActivityStateCPUUsageSampler::pageForLogging() const
+RefPtr<WebPageProxy> PerActivityStateCPUUsageSampler::pageForLogging() const
 {
-    for (auto& webProcess : m_processPool.processes()) {
+    Ref processPool = m_processPool;
+    for (Ref webProcess : processPool->processes()) {
         if (!webProcess->pageCount())
             continue;
-        return *webProcess->pages().begin();
+        return webProcess->pages()[0].ptr();
     }
     return nullptr;
 }

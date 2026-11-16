@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,11 +25,8 @@
 
 #pragma once
 
-#if ENABLE(CSS_PAINTING_API)
-
 #include "GeneratedImage.h"
 #include "PaintWorkletGlobalScope.h"
-
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -39,29 +36,29 @@ class RenderElement;
 
 class CustomPaintImage final : public GeneratedImage {
 public:
-    static Ref<CustomPaintImage> create(PaintWorkletGlobalScope::PaintDefinition& definition, const FloatSize& size, RenderElement& element, const Vector<String>& arguments)
+    static Ref<CustomPaintImage> create(PaintDefinition& definition, const FloatSize& size, const RenderElement& element, const Vector<String>& arguments)
     {
         return adoptRef(*new CustomPaintImage(definition, size, element, arguments));
     }
 
     virtual ~CustomPaintImage();
-    bool isCustomPaintImage() const override { return true; }
 
 private:
-    CustomPaintImage(PaintWorkletGlobalScope::PaintDefinition&, const FloatSize&, RenderElement&, const Vector<String>& arguments);
+    CustomPaintImage(PaintDefinition&, const FloatSize&, const RenderElement&, const Vector<String>& arguments);
+
+    bool isCustomPaintImage() const final { return true; }
 
     ImageDrawResult doCustomPaint(GraphicsContext&, const FloatSize&);
 
-    ImageDrawResult draw(GraphicsContext&, const FloatRect& dstRect, const FloatRect& srcRect, const ImagePaintingOptions& = { }) final;
-    void drawPattern(GraphicsContext&, const FloatRect& destRect, const FloatRect& srcRect, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, const ImagePaintingOptions& = { }) final;
+    ImageDrawResult draw(GraphicsContext&, const FloatRect& dstRect, const FloatRect& srcRect, ImagePaintingOptions = { }) final;
+    void drawPattern(GraphicsContext&, const FloatRect& destRect, const FloatRect& srcRect, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, ImagePaintingOptions = { }) final;
 
-    WeakPtr<PaintWorkletGlobalScope::PaintDefinition> m_paintDefinition;
-    Vector<String> m_inputProperties;
-    WeakPtr<RenderElement> m_element;
+    WeakPtr<PaintDefinition> m_paintDefinition;
+    Vector<AtomString> m_inputProperties;
+    SingleThreadWeakPtr<const RenderElement> m_element;
     Vector<String> m_arguments;
 };
 
 }
 
 SPECIALIZE_TYPE_TRAITS_IMAGE(CustomPaintImage)
-#endif

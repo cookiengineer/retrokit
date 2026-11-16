@@ -30,39 +30,45 @@
 #include <atomic>
 #include <wtf/Deque.h>
 #include <wtf/FunctionDispatcher.h>
-#include <wtf/HashSet.h>
 #include <wtf/Lock.h>
 #include <wtf/Threading.h>
+#include <wtf/Vector.h>
 
 namespace IPC {
 
-class StreamConnectionWorkQueue final : public FunctionDispatcher {
+class WTF_CAPABILITY("is current") StreamConnectionWorkQueue final : public SerialFunctionDispatcher {
 public:
-    StreamConnectionWorkQueue(const char*);
-    ~StreamConnectionWorkQueue() = default;
-    void addStreamConnection(StreamServerConnectionBase&);
-    void removeStreamConnection(StreamServerConnectionBase&);
+    static Ref<StreamConnectionWorkQueue> create(ASCIILiteral name)
+    {
+        return adoptRef(*new StreamConnectionWorkQueue(name));
+    }
 
-    void dispatch(WTF::Function<void()>&&) final;
-    void stop();
-
+    StreamConnectionWorkQueue(ASCIILiteral);
+    ~StreamConnectionWorkQueue();
+    void addStreamConnection(StreamServerConnection&);
+    void removeStreamConnection(StreamServerConnection&);
+    void stopAndWaitForCompletion(NOESCAPE WTF::Function<void()>&& cleanupFunction = nullptr);
     void wakeUp();
+    Semaphore& wakeUpSemaphore() LIFETIME_BOUND { return m_wakeUpSemaphore; }
 
-    Semaphore& wakeUpSemaphore();
+    // SerialFunctionDispatcher
+    void dispatch(WTF::Function<void()>&&) final;
+    bool isCurrent() const final;
+
 private:
-    void wakeUpProcessingThread();
+    void startProcessingThread() WTF_REQUIRES_LOCK(m_lock);
     void processStreams();
 
-    const char* const m_name;
+    ASCIILiteral m_name;
 
     Semaphore m_wakeUpSemaphore;
-    RefPtr<Thread> m_processingThread;
-
     std::atomic<bool> m_shouldQuit { false };
 
-    Lock m_lock;
+    mutable Lock m_lock;
+    RefPtr<Thread> m_processingThread WTF_GUARDED_BY_LOCK(m_lock);
     Deque<Function<void()>> m_functions WTF_GUARDED_BY_LOCK(m_lock);
-    HashSet<Ref<StreamServerConnectionBase>> m_connections WTF_GUARDED_BY_LOCK(m_lock);
+    WTF::Function<void()> m_cleanupFunction WTF_GUARDED_BY_LOCK(m_lock);
+    Vector<Ref<StreamServerConnection>> m_connections WTF_GUARDED_BY_LOCK(m_lock);
 };
 
 }

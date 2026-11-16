@@ -24,18 +24,20 @@
 #include "config.h"
 #include "HTMLHtmlElement.h"
 
-#include "ApplicationCacheHost.h"
 #include "Document.h"
 #include "DocumentLoader.h"
 #include "DocumentParser.h"
-#include "Frame.h"
+#include "ElementInlines.h"
+#include "FrameDestructionObserverInlines.h"
 #include "FrameLoader.h"
 #include "HTMLNames.h"
-#include <wtf/IsoMallocInlines.h>
+#include "LocalFrame.h"
+#include "Logging.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLHtmlElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLHtmlElement);
 
 using namespace HTMLNames;
 
@@ -55,31 +57,6 @@ Ref<HTMLHtmlElement> HTMLHtmlElement::create(const QualifiedName& tagName, Docum
     return adoptRef(*new HTMLHtmlElement(tagName, document));
 }
 
-bool HTMLHtmlElement::isURLAttribute(const Attribute& attribute) const
-{
-    return attribute.name() == manifestAttr || HTMLElement::isURLAttribute(attribute);
-}
+HTMLHtmlElement::~HTMLHtmlElement() = default;
 
-void HTMLHtmlElement::insertedByParser()
-{
-    // When parsing a fragment, its dummy document has a null parser.
-    if (!document().parser() || !document().parser()->documentWasLoadedAsPartOfNavigation())
-        return;
-
-    if (!document().frame())
-        return;
-
-    auto documentLoader = makeRefPtr(document().frame()->loader().documentLoader());
-    if (!documentLoader)
-        return;
-
-    auto& manifest = attributeWithoutSynchronization(manifestAttr);
-    if (manifest.isEmpty())
-        documentLoader->applicationCacheHost().selectCacheWithoutManifest();
-    else {
-        document().addConsoleMessage(MessageSource::AppCache, MessageLevel::Warning, "ApplicationCache is deprecated. Please use ServiceWorkers instead."_s);
-        documentLoader->applicationCacheHost().selectCacheWithManifest(document().completeURL(manifest));
-    }
-}
-
-}
+} // namespace WebCore

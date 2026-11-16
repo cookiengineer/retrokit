@@ -25,10 +25,15 @@
 
 #if ENABLE(GPU_PROCESS) && ENABLE(ENCRYPTED_MEDIA)
 
-messages -> RemoteCDMInstanceProxy NotRefCounted {
-    CreateSession() -> (WebKit::RemoteCDMInstanceSessionIdentifier identifier) Synchronous
-    InitializeWithConfiguration(struct WebCore::CDMKeySystemConfiguration configuration, enum:bool WebCore::CDMInstance::AllowDistinctiveIdentifiers distinctiveIdentifiersAllowed, enum:bool WebCore::CDMInstance::AllowPersistentState persistentStateAllowed) -> (enum:bool WebCore::CDMInstance::SuccessValue success) Async
-    SetServerCertificate(IPC::SharedBufferCopy certificate) -> (enum:bool WebCore::CDMInstance::SuccessValue success) Async
+[
+    DispatchedFrom=WebContent,
+    DispatchedTo=GPU,
+    EnabledBy=EncryptedMediaAPIEnabled
+]
+messages -> RemoteCDMInstanceProxy {
+    CreateSession(uint64_t logIdentifier) -> (std::optional<WebKit::RemoteCDMInstanceSessionIdentifier> identifier) Synchronous
+    InitializeWithConfiguration(struct WebCore::CDMKeySystemConfiguration configuration, enum:bool WebCore::CDMInstanceAllowDistinctiveIdentifiers distinctiveIdentifiersAllowed, enum:bool WebCore::CDMInstanceAllowPersistentState persistentStateAllowed) -> (enum:bool WebCore::CDMInstanceSuccessValue success)
+    SetServerCertificate(Ref<WebCore::SharedBuffer> certificate) -> (enum:bool WebCore::CDMInstanceSuccessValue success)
     SetStorageDirectory(String directory)
 }
 

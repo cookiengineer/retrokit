@@ -25,6 +25,11 @@
 
 #pragma once
 
+#include <wtf/ExportMacros.h>
+#include <wtf/FastMalloc.h>
+#include <wtf/Forward.h>
+#include <wtf/Platform.h>
+
 #if PLATFORM(COCOA)
 
 #include <mach/mach_port.h>
@@ -32,25 +37,24 @@
 namespace WTF {
 
 class MachSendRight {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(MachSendRight);
 public:
     WTF_EXPORT_PRIVATE static MachSendRight adopt(mach_port_t);
     WTF_EXPORT_PRIVATE static MachSendRight create(mach_port_t);
+    WTF_EXPORT_PRIVATE static MachSendRight createFromReceiveRight(mach_port_t);
 
     MachSendRight() = default;
-    WTF_EXPORT_PRIVATE MachSendRight(const MachSendRight&);
+    WTF_EXPORT_PRIVATE explicit MachSendRight(const MachSendRight&);
     WTF_EXPORT_PRIVATE MachSendRight(MachSendRight&&);
     WTF_EXPORT_PRIVATE ~MachSendRight();
 
-    WTF_EXPORT_PRIVATE MachSendRight& operator=(const MachSendRight&);
     WTF_EXPORT_PRIVATE MachSendRight& operator=(MachSendRight&&);
 
     explicit operator bool() const { return m_port != MACH_PORT_NULL; }
 
-    mach_port_t sendRight() const { return m_port; }
+    mach_port_t sendRight() const LIFETIME_BOUND { return m_port; }
 
-    WTF_EXPORT_PRIVATE MachSendRight copySendRight() const;
-    WTF_EXPORT_PRIVATE mach_port_t leakSendRight() WARN_UNUSED_RETURN;
+    [[nodiscard]] WTF_EXPORT_PRIVATE mach_port_t NODELETE leakSendRight();
 
 private:
     explicit MachSendRight(mach_port_t);
@@ -62,7 +66,6 @@ WTF_EXPORT_PRIVATE void deallocateSendRightSafely(mach_port_t);
 
 }
 
-using WTF::MachSendRight;
 using WTF::deallocateSendRightSafely;
 
 #endif

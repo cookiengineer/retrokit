@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007, 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2007-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,49 +30,33 @@
 #include "BarProp.h"
 
 #include "Chrome.h"
-#include "Frame.h"
+#include "LocalFrame.h"
 #include "Page.h"
-#include <wtf/IsoMallocInlines.h>
+#include "ScriptWrappableInlines.h"
+#include <wtf/TZoneMallocInlines.h>
+#include "DocumentPage.h"
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(BarProp);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(BarProp);
 
-BarProp::BarProp(DOMWindow& window, Type type)
-    : DOMWindowProperty(&window)
-    , m_type(type)
+BarProp::BarProp(LocalDOMWindow& window)
+    : LocalDOMWindowProperty(&window)
 {
-}
-
-BarProp::Type BarProp::type() const
-{
-    return m_type;
 }
 
 bool BarProp::visible() const
 {
-    auto* frame = this->frame();
+    RefPtr frame = this->frame();
     if (!frame)
         return false;
-    auto* page = frame->page();
+    RefPtr page = frame->page();
     if (!page)
         return false;
 
-    switch (m_type) {
-    case Locationbar:
-    case Personalbar:
-    case Toolbar:
-        return page->chrome().toolbarsVisible();
-    case Menubar:
-        return page->chrome().menubarVisible();
-    case Scrollbars:
-        return page->chrome().scrollbarsVisible();
-    case Statusbar:
-        return page->chrome().statusbarVisible();
-    }
-
-    ASSERT_NOT_REACHED();
-    return false;
+    return !page->chrome().isPopup();
 }
+
+BarProp::~BarProp() = default;
 
 } // namespace WebCore

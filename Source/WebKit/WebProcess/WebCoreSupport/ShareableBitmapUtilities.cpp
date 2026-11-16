@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,16 +26,22 @@
 #include "config.h"
 #include "ShareableBitmapUtilities.h"
 
-#include "ShareableBitmap.h"
 #include <WebCore/CachedImage.h>
-#include <WebCore/Frame.h>
 #include <WebCore/FrameSnapshotting.h>
 #include <WebCore/GeometryUtilities.h>
 #include <WebCore/GraphicsContext.h>
+#include <WebCore/HTMLVideoElement.h>
 #include <WebCore/ImageBuffer.h>
 #include <WebCore/IntSize.h>
+#include <WebCore/LocalFrame.h>
+#include <WebCore/LocalFrameView.h>
+#include <WebCore/NativeImage.h>
 #include <WebCore/PlatformScreen.h>
 #include <WebCore/RenderImage.h>
+#include <WebCore/RenderObjectDocument.h>
+#include <WebCore/RenderVideo.h>
+#include <WebCore/ShareableBitmap.h>
+#include <wtf/NativePromise.h>
 
 namespace WebKit {
 using namespace WebCore;
@@ -43,8 +49,8 @@ using namespace WebCore;
 RefPtr<ShareableBitmap> createShareableBitmap(RenderImage& renderImage, CreateShareableBitmapFromImageOptions&& options)
 {
     Ref frame = renderImage.frame();
-    auto colorSpaceForBitmap = screenColorSpace(frame->mainFrame().view());
-    if (!renderImage.isMedia() && !renderImage.opacity() && options.useSnapshotForTransparentImages == UseSnapshotForTransparentImages::Yes) {
+    auto colorSpaceForBitmap = screenColorSpace(protect(protect(frame->mainFrame())->virtualView()).get());
+    if (!renderImage.isRenderMedia() && !opacity(renderImage) && options.useSnapshotForTransparentImages == UseSnapshotForTransparentImages::Yes) {
         auto snapshotRect = renderImage.absoluteBoundingBoxRect();
         if (snapshotRect.isEmpty())
             return { };
@@ -54,27 +60,32 @@ RefPtr<ShareableBitmap> createShareableBitmap(RenderImage& renderImage, CreateSh
         if (!imageBuffer)
             return { };
 
-        auto snapshotImage = ImageBuffer::sinkIntoImage(WTFMove(imageBuffer), PreserveResolution::Yes);
+        auto snapshotImage = ImageBuffer::sinkIntoNativeImage(WTF::move(imageBuffer));
         if (!snapshotImage)
             return { };
 
-        auto bitmap = ShareableBitmap::createShareable(snapshotRect.size(), { WTFMove(colorSpaceForBitmap) });
+        auto bitmap = ShareableBitmap::create({ snapshotImage->size(), WTF::move(colorSpaceForBitmap) });
         if (!bitmap)
             return { };
 
         auto context = bitmap->createGraphicsContext();
         if (!context)
             return { };
-
-        context->drawImage(*snapshotImage, { FloatPoint::zero(), snapshotRect.size() });
+        FloatRect imageRect { { }, snapshotImage->size() };
+        context->drawNativeImage(*snapshotImage, imageRect, imageRect);
         return bitmap;
     }
 
-    auto* cachedImage = renderImage.cachedImage();
+#if ENABLE(VIDEO)
+    if (auto* renderVideo = dynamicDowncast<RenderVideo>(renderImage))
+        return protect(renderVideo->videoElement())->bitmapImageForCurrentTimeSync();
+#endif // ENABLE(VIDEO)
+
+    RefPtr cachedImage = renderImage.cachedImage();
     if (!cachedImage || cachedImage->errorOccurred())
         return { };
 
-    auto* image = cachedImage->imageForRenderer(&renderImage);
+    RefPtr image = cachedImage->imageForRenderer(&renderImage);
     if (!image || image->width() <= 1 || image->height() <= 1)
         return { };
 
@@ -88,7 +99,7 @@ RefPtr<ShareableBitmap> createShareableBitmap(RenderImage& renderImage, CreateSh
     }
 
     // FIXME: Only select ExtendedColor on images known to need wide gamut.
-    auto sharedBitmap = ShareableBitmap::createShareable(IntSize(bitmapSize), { WTFMove(colorSpaceForBitmap) });
+    auto sharedBitmap = ShareableBitmap::create({ IntSize(bitmapSize), WTF::move(colorSpaceForBitmap) });
     if (!sharedBitmap)
         return { };
 
@@ -98,6 +109,17 @@ RefPtr<ShareableBitmap> createShareableBitmap(RenderImage& renderImage, CreateSh
 
     graphicsContext->drawImage(*image, FloatRect(0, 0, bitmapSize.width(), bitmapSize.height()), { renderImage.imageOrientation() });
     return sharedBitmap;
+}
+
+Ref<NativePromise<Ref<WebCore::ShareableBitmap>, void>> createShareableBitmapAsync(WebCore::RenderImage& renderImage, CreateShareableBitmapFromImageOptions&& options)
+{
+#if ENABLE(VIDEO)
+    if (auto* renderVideo = dynamicDowncast<RenderVideo>(renderImage))
+        return protect(renderVideo->videoElement())->bitmapImageForCurrentTime();
+#endif
+    if (RefPtr shareableBitmap = createShareableBitmap(renderImage, WTF::move(options)))
+        return NativePromise<Ref<WebCore::ShareableBitmap>, void>::createAndResolve(shareableBitmap.releaseNonNull());
+    return NativePromise<Ref<WebCore::ShareableBitmap>, void>::createAndReject();
 }
 
 }

@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2011 Google Inc. All rights reserved.
+ * Copyright (C) 2024-2025 Samuel Weinig <sam@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,6 +26,7 @@
 
 #pragma once
 
+#include "CSSPrimitiveNumericTypes.h"
 #include "CSSValue.h"
 #include "FontTaggedSettings.h"
 
@@ -32,22 +34,22 @@ namespace WebCore {
 
 class CSSFontFeatureValue final : public CSSValue {
 public:
-    static Ref<CSSFontFeatureValue> create(FontTag&& tag, int value)
+    static Ref<CSSFontFeatureValue> create(FontTag&& tag, CSS::Integer<CSS::Nonnegative>&& value)
     {
-        return adoptRef(*new CSSFontFeatureValue(WTFMove(tag), value));
+        return adoptRef(*new CSSFontFeatureValue(WTF::move(tag), WTF::move(value)));
     }
 
-    const FontTag& tag() const { return m_tag; }
-    int value() const { return m_value; }
-    String customCSSText() const;
+    const FontTag& tag() const LIFETIME_BOUND { return m_tag; }
+    const CSS::Integer<CSS::Nonnegative>& value() const { return m_value; }
+    String customCSSText(const CSS::SerializationContext&) const;
 
     bool equals(const CSSFontFeatureValue&) const;
 
 private:
-    CSSFontFeatureValue(FontTag&&, int);
+    CSSFontFeatureValue(FontTag&&, CSS::Integer<CSS::Nonnegative>&&);
 
-    FontTag m_tag;
-    const int m_value;
+    const FontTag m_tag;
+    const CSS::Integer<CSS::Nonnegative> m_value;
 };
 
 } // namespace WebCore

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -37,23 +37,36 @@
 #include "FrameTracers.h"
 #include "InlineCallFrame.h"
 #include "JSArrayIterator.h"
+#include "JSAsyncFromSyncIterator.h"
 #include "JSAsyncFunction.h"
+#include "JSAsyncFunctionGenerator.h"
+#include "JSAsyncGenerator.h"
 #include "JSAsyncGeneratorFunction.h"
+#include "JSCellButterfly.h"
 #include "JSCInlines.h"
+#include "JSGenerator.h"
 #include "JSGeneratorFunction.h"
-#include "JSImmutableButterfly.h"
-#include "JSInternalPromise.h"
-#include "JSLexicalEnvironment.h"
+#include "JSIteratorHelper.h"
+#include "JSLexicalEnvironmentInlines.h"
 #include "JSMapIterator.h"
+#include "JSPromise.h"
+#include "JSPromiseReaction.h"
+#include "JSRegExpStringIterator.h"
 #include "JSSetIterator.h"
+#include "JSStringIterator.h"
+#include "JSWrapForValidIterator.h"
 #include "RegExpObject.h"
+#include "ResourceExhaustion.h"
+#include "VMTrapsInlines.h"
 #include <wtf/Assertions.h>
 
 IGNORE_WARNINGS_BEGIN("frame-address")
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC { namespace FTL {
 
-JSC_DEFINE_JIT_OPERATION(operationPopulateObjectInOSR, void, (JSGlobalObject* globalObject, ExitTimeObjectMaterialization* materialization, EncodedJSValue* encodedValue, EncodedJSValue* values))
+JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationPopulateObjectInOSR, void, (JSGlobalObject* globalObject, ExitTimeObjectMaterialization* materialization, EncodedJSValue* encodedValue, EncodedJSValue* values))
 {
     using namespace DFG;
     VM& vm = globalObject->vm();
@@ -65,12 +78,76 @@ JSC_DEFINE_JIT_OPERATION(operationPopulateObjectInOSR, void, (JSGlobalObject* gl
     // We cannot GC. We've got pointers in evil places.
     // FIXME: We are not doing anything that can GC here, and this is
     // probably unnecessary.
-    DeferGCForAWhile deferGC(vm.heap);
+    DeferGCForAWhile deferGC(vm);
 
     switch (materialization->type()) {
+    case PhantomNewArrayWithButterfly: {
+        auto scope = DECLARE_THROW_SCOPE(vm);
+        // This might be unnecessary because operationMaterializeObjectInOSR does DeferGCForAWhile but its better to be safe.
+        JSArray* array = uncheckedDowncast<JSArray>(JSValue::decode(*encodedValue));
+
+        // This may be called during a GenericUnwind OSR exit (e.g. stack overflow caught by
+        // try/catch), where vm.exception() is already set. Suspend it so the assertion below
+        // only fires on new exceptions from putDirectIndex; it is restored on scope exit.
+        SuspendExceptionScope suspendException(vm);
+
+        for (unsigned i = materialization->properties().size(); i--;) {
+            const ExitPropertyValue& property = materialization->properties()[i];
+            if (property.location().kind() != ArrayIndexedPropertyPLoc)
+                continue;
+
+            JSValue value = JSValue::decode(values[i]);
+            unsigned index = property.location().info();
+
+            // When a double array element's Phi resolves to PNaN (the hole default), the OSR exit
+            // compiler boxes it as jsNumber(NaN). To preserve hole semantics for double Arrays,
+            // store PNaN directly instead of going through putDirectIndex which would trigger a
+            // double-to-contiguous conversion. This is safe because values written to sunk double
+            // arrays use DoubleRepRealUse (proven non-NaN), so any NaN here must be the hole
+            // sentinel and is not user-visible.
+            //
+            // The analogous case for Int32/Contiguous arrays: an unwritten element's Phi resolves
+            // to the empty JSValue, which is the hole sentinel for these indexing types. For Int32
+            // arrays, putDirectIndex would spuriously convert the array to Contiguous because the
+            // empty JSValue is not an Int32. Contiguous is also handled here for the debug ASSERT
+            // in putDirectIndex that null-derefs on the empty JSValue. Write directly into the
+            // butterfly to preserve the indexing type.
+            //
+            // If the VM had a bad time between FTL compilation and this OSR exit, the Array was
+            // switched to SlowPutArrayStorage in operationMaterializeObjectInOSR. A hole must then
+            // be cleared in the ArrayStorage vector rather than the contiguous butterfly to match
+            // the rematerialized layout. Note that the hole arrives as the hole sentinel of the
+            // indexing type the Array was sunk with, not of the Array's current indexing type:
+            // boxed NaN if the Array was sunk as Double, the empty JSValue otherwise.
+            // m_numValuesInVector is also decremented because the cleared slot was counted when
+            // the sentinel-filled butterfly was converted to ArrayStorage.
+            bool valueIsHole = hasDouble(materialization->indexingType()) ? value.isNumber() && isHole(value.asNumber()) : !value;
+            if (hasDouble(array->indexingType()) && valueIsHole) [[unlikely]]
+                array->butterfly()->contiguousDouble().atUnsafe(index) = PNaN;
+            else if ((hasInt32(array->indexingType()) || hasContiguous(array->indexingType())) && valueIsHole) [[unlikely]]
+                array->butterfly()->contiguous().atUnsafe(index).setStartingValue(JSValue());
+            else if (hasAnyArrayStorage(array->indexingType()) && valueIsHole) [[unlikely]] {
+                ArrayStorage* storage = array->butterfly()->arrayStorage();
+                ASSERT(storage->m_vector[index]);
+                ASSERT(storage->m_numValuesInVector);
+                storage->m_vector[index].clear();
+                storage->m_numValuesInVector--;
+            } else
+                array->putDirectIndex(globalObject, index, value);
+
+            scope.assertNoExceptionExceptTermination();
+        }
+
+        // This might be unnecessary because operationMaterializeObjectInOSR does DeferGCForAWhile but its better to be safe.
+        if (hasContiguous(array->indexingType()) || hasAnyArrayStorage(array->indexingType()))
+            vm.writeBarrier(array);
+        break;
+    }
+
+
     case PhantomNewObject: {
-        JSFinalObject* object = jsCast<JSFinalObject*>(JSValue::decode(*encodedValue));
-        Structure* structure = object->structure(vm);
+        JSFinalObject* object = uncheckedDowncast<JSFinalObject>(JSValue::decode(*encodedValue));
+        Structure* structure = object->structure();
 
         // Figure out what the heck to populate the object with. Use
         // getPropertiesConcurrently() because that happens to be
@@ -79,20 +156,21 @@ JSC_DEFINE_JIT_OPERATION(operationPopulateObjectInOSR, void, (JSGlobalObject* gl
         // minimal visible effects on the system. Also, don't mind
         // that this is O(n^2). It doesn't matter. We only get here
         // from OSR exit.
-        for (PropertyMapEntry entry : structure->getPropertiesConcurrently()) {
+        for (const PropertyTableEntry& entry : structure->getPropertiesConcurrently()) {
             for (unsigned i = materialization->properties().size(); i--;) {
                 const ExitPropertyValue& property = materialization->properties()[i];
                 if (property.location().kind() != NamedPropertyPLoc)
                     continue;
-                if (codeBlock->identifier(property.location().info()).impl() != entry.key)
+                if (codeBlock->identifier(property.location().info()).impl() != entry.key())
                     continue;
 
-                object->putDirect(vm, entry.offset, JSValue::decode(values[i]));
+                object->putDirectOffset(vm, entry.offset(), JSValue::decode(values[i]));
             }
         }
         break;
     }
 
+    case PhantomNewButterflyWithSize:
     case PhantomNewFunction:
     case PhantomNewGeneratorFunction:
     case PhantomNewAsyncFunction:
@@ -103,11 +181,12 @@ JSC_DEFINE_JIT_OPERATION(operationPopulateObjectInOSR, void, (JSGlobalObject* gl
     case PhantomSpread:
     case PhantomNewArrayWithSpread:
     case PhantomNewArrayBuffer:
+    case PhantomNewPromise:
         // Those are completely handled by operationMaterializeObjectInOSR
         break;
 
     case PhantomCreateActivation: {
-        JSLexicalEnvironment* activation = jsCast<JSLexicalEnvironment*>(JSValue::decode(*encodedValue));
+        JSLexicalEnvironment* activation = uncheckedDowncast<JSLexicalEnvironment>(JSValue::decode(*encodedValue));
 
         // Figure out what to populate the activation with
         for (unsigned i = materialization->properties().size(); i--;) {
@@ -134,24 +213,37 @@ JSC_DEFINE_JIT_OPERATION(operationPopulateObjectInOSR, void, (JSGlobalObject* gl
             }
         };
 
-        JSObject* target = jsCast<JSObject*>(JSValue::decode(*encodedValue));
+        JSObject* target = uncheckedDowncast<JSObject>(JSValue::decode(*encodedValue));
         switch (target->type()) {
         case JSArrayIteratorType:
-            materialize(jsCast<JSArrayIterator*>(target));
+            materialize(uncheckedDowncast<JSArrayIterator>(target));
             break;
         case JSMapIteratorType:
-            materialize(jsCast<JSMapIterator*>(target));
+            materialize(uncheckedDowncast<JSMapIterator>(target));
             break;
         case JSSetIteratorType:
-            materialize(jsCast<JSSetIterator*>(target));
+            materialize(uncheckedDowncast<JSSetIterator>(target));
             break;
-        case JSPromiseType:
-            if (target->classInfo(vm) == JSInternalPromise::info())
-                materialize(jsCast<JSInternalPromise*>(target));
-            else {
-                ASSERT(target->classInfo(vm) == JSPromise::info());
-                materialize(jsCast<JSPromise*>(target));
-            }
+        case JSStringIteratorType:
+            materialize(uncheckedDowncast<JSStringIterator>(target));
+            break;
+        case JSIteratorHelperType:
+            materialize(uncheckedDowncast<JSIteratorHelper>(target));
+            break;
+        case JSWrapForValidIteratorType:
+            materialize(uncheckedDowncast<JSWrapForValidIterator>(target));
+            break;
+        case JSRegExpStringIteratorType:
+            materialize(uncheckedDowncast<JSRegExpStringIterator>(target));
+            break;
+        case JSGeneratorType:
+            materialize(uncheckedDowncast<JSGenerator>(target));
+            break;
+        case JSAsyncFunctionGeneratorType:
+            materialize(uncheckedDowncast<JSAsyncFunctionGenerator>(target));
+            break;
+        case JSAsyncGeneratorType:
+            materialize(uncheckedDowncast<JSAsyncGenerator>(target));
             break;
         default:
             RELEASE_ASSERT_NOT_REACHED();
@@ -160,8 +252,8 @@ JSC_DEFINE_JIT_OPERATION(operationPopulateObjectInOSR, void, (JSGlobalObject* gl
         break;
     }
 
-    case PhantomNewRegexp: {
-        RegExpObject* regExpObject = jsCast<RegExpObject*>(JSValue::decode(*encodedValue));
+    case PhantomNewRegExp: {
+        RegExpObject* regExpObject = uncheckedDowncast<RegExpObject>(JSValue::decode(*encodedValue));
 
         for (unsigned i = materialization->properties().size(); i--;) {
             const ExitPropertyValue& property = materialization->properties()[i];
@@ -182,17 +274,111 @@ JSC_DEFINE_JIT_OPERATION(operationPopulateObjectInOSR, void, (JSGlobalObject* gl
 }
 
 
-JSC_DEFINE_JIT_OPERATION(operationMaterializeObjectInOSR, JSCell*, (JSGlobalObject* globalObject, ExitTimeObjectMaterialization* materialization, EncodedJSValue* values))
+JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationMaterializeObjectInOSR, HeapCell*, (JSGlobalObject* globalObject, ExitTimeObjectMaterialization* materialization, EncodedJSValue* values))
 {
     using namespace DFG;
     VM& vm = globalObject->vm();
     CallFrame* callFrame = DECLARE_CALL_FRAME(vm);
     JITOperationPrologueCallFrameTracer tracer(vm, callFrame);
 
+    // It's too hairy to handle TerminationExceptions during OSR object materialization.
+    // Let's just wait until after.
+    DeferTerminationForAWhile deferTermination(vm);
+
     // We cannot GC. We've got pointers in evil places.
-    DeferGCForAWhile deferGC(vm.heap);
-    
+    DeferGCForAWhile deferGC(vm);
+
     switch (materialization->type()) {
+    case PhantomNewButterflyWithSize: {
+        auto scope = DECLARE_THROW_SCOPE(vm);
+
+        size_t size = UINT64_MAX;
+        for (unsigned i = 0; i < materialization->properties().size(); ++i) {
+            const ExitPropertyValue& property = materialization->properties()[i];
+            if (property.location() != PromotedLocationDescriptor(ArrayButterflyPublicLengthPLoc))
+                continue;
+
+
+            RELEASE_ASSERT(JSValue::decode(values[i]).isInt32());
+            size = JSValue::decode(values[i]).asInt32();
+            break;
+        }
+        RELEASE_ASSERT(size < MIN_ARRAY_STORAGE_CONSTRUCTION_LENGTH);
+
+        unsigned preCapacity = 0;
+        unsigned propertyCapacity = 0;
+        IndexingHeader header;
+        header.setPublicLength(size);
+        header.setVectorLength(size);
+        Butterfly* result = Butterfly::tryCreate(vm, globalObject, preCapacity, propertyCapacity, true, header, size * sizeof(JSValue));
+        if (!result) [[unlikely]] {
+            throwOutOfMemoryError(globalObject, scope);
+            OPERATION_RETURN(scope, nullptr);
+        }
+        Butterfly::clearRange(materialization->indexingType(), result, 0, size);
+
+        return std::bit_cast<HeapCell*>(result);
+    }
+
+    case PhantomNewArrayWithButterfly: {
+        // Rematerialized butterflies are always non-ArrayStorage. However, isHavingABadTime could
+        // have become true between the FTL compilation and the rematerialization, which would have
+        // switched arrayStructureForIndexingTypeDuringAllocation to SlowPutArrayStorage for all
+        // indexing types. To avoid a layout mismatch, the original Array structure is used to
+        // rematerialize the Array initially. If we're having a bad time, the layout is switched to
+        // SlowPutArrayStorage below.
+        Structure* structure = globalObject->originalArrayStructureForIndexingType(materialization->indexingType());
+
+        Butterfly* butterfly = nullptr;
+        for (unsigned i = 0; i < materialization->properties().size(); ++i) {
+            const ExitPropertyValue& property = materialization->properties()[i];
+            if (property.location().kind() == ArrayButterflyPLoc) {
+                butterfly = std::bit_cast<Butterfly*>(values[i]);
+                break;
+            }
+        }
+        RELEASE_ASSERT(butterfly);
+
+        JSArray* result =  JSArray::createWithButterfly(vm, nullptr, structure, butterfly);
+
+        // The real values will be put subsequently by
+        // operationPopulateNewObjectInOSR. We can't fill them in
+        // now, because they may not be available yet (typically
+        // because we have a cyclic dependency graph).
+
+        // We put a dummy value here in order to avoid super-subtle
+        // GC-and-OSR-exit crashes in case we have a bug and some
+        // field is, for any reason, not filled later.
+        // We use a random-ish number instead of a sensible value like
+        // undefined to make possible bugs easier to track.
+        for (unsigned i = 0; i < materialization->properties().size(); ++i) {
+            const ExitPropertyValue& property = materialization->properties()[i];
+            if (property.location().kind() != ArrayIndexedPropertyPLoc) {
+                ASSERT(property.location().kind() == ArrayButterflyPLoc);
+                continue;
+            }
+
+            unsigned index = property.location().info();
+
+            int sentinel = 0xD3137E; // delete
+            ASSERT(jsNumber(sentinel).isInt32());
+            if (hasDouble(materialization->indexingType()))
+                butterfly->contiguousDouble().atUnsafe(index) = static_cast<double>(sentinel);
+            else
+                butterfly->contiguous().atUnsafe(index).setStartingValue(jsNumber(sentinel));
+        }
+
+        if (globalObject->isHavingABadTime()) [[unlikely]] {
+#if ASSERT_ENABLED
+            Structure* originalStructure = globalObject->arrayStructureForIndexingTypeDuringAllocation(materialization->indexingType());
+            ASSERT(!originalStructure || hasSlowPutArrayStorage(originalStructure->indexingType()));
+#endif
+            result->switchToSlowPutArrayStorage(vm);
+        }
+
+        return result;
+    }
+
     case PhantomNewObject: {
         // Figure out what the structure is
         Structure* structure = nullptr;
@@ -201,8 +387,8 @@ JSC_DEFINE_JIT_OPERATION(operationMaterializeObjectInOSR, JSCell*, (JSGlobalObje
             if (property.location() != PromotedLocationDescriptor(StructurePLoc))
                 continue;
 
-            RELEASE_ASSERT(JSValue::decode(values[i]).asCell()->inherits<Structure>(vm));
-            structure = jsCast<Structure*>(JSValue::decode(values[i]));
+            RELEASE_ASSERT(JSValue::decode(values[i]).asCell()->inherits<Structure>());
+            structure = uncheckedDowncast<Structure>(JSValue::decode(values[i]));
             break;
         }
         RELEASE_ASSERT(structure);
@@ -219,8 +405,8 @@ JSC_DEFINE_JIT_OPERATION(operationMaterializeObjectInOSR, JSCell*, (JSGlobalObje
         // field is, for any reason, not filled later.
         // We use a random-ish number instead of a sensible value like
         // undefined to make possible bugs easier to track.
-        for (PropertyMapEntry entry : structure->getPropertiesConcurrently())
-            result->putDirect(vm, entry.offset, jsNumber(19723));
+        for (const PropertyTableEntry& entry : structure->getPropertiesConcurrently())
+            result->putDirectOffset(vm, entry.offset(), jsNumber(19723));
 
         return result;
     }
@@ -235,24 +421,26 @@ JSC_DEFINE_JIT_OPERATION(operationMaterializeObjectInOSR, JSCell*, (JSGlobalObje
         for (unsigned i = materialization->properties().size(); i--;) {
             const ExitPropertyValue& property = materialization->properties()[i];
             if (property.location() == PromotedLocationDescriptor(FunctionExecutablePLoc)) {
-                RELEASE_ASSERT(JSValue::decode(values[i]).asCell()->inherits<FunctionExecutable>(vm));
-                executable = jsCast<FunctionExecutable*>(JSValue::decode(values[i]));
+                RELEASE_ASSERT(JSValue::decode(values[i]).asCell()->inherits<FunctionExecutable>());
+                executable = uncheckedDowncast<FunctionExecutable>(JSValue::decode(values[i]));
             }
             if (property.location() == PromotedLocationDescriptor(FunctionActivationPLoc)) {
-                RELEASE_ASSERT(JSValue::decode(values[i]).asCell()->inherits<JSScope>(vm));
-                activation = jsCast<JSScope*>(JSValue::decode(values[i]));
+                RELEASE_ASSERT(JSValue::decode(values[i]).asCell()->inherits<JSScope>());
+                activation = uncheckedDowncast<JSScope>(JSValue::decode(values[i]));
             }
         }
         RELEASE_ASSERT(executable && activation);
 
+        CodeBlock* codeBlock = baselineCodeBlockForOriginAndBaselineCodeBlock(materialization->origin(), callFrame->codeBlock()->baselineAlternative());
+        JSGlobalObject* globalObject = codeBlock->globalObject();
         if (materialization->type() == PhantomNewFunction)
-            return JSFunction::createWithInvalidatedReallocationWatchpoint(vm, executable, activation);
+            return JSFunction::createWithInvalidatedReallocationWatchpoint(vm, globalObject, executable, activation);
         else if (materialization->type() == PhantomNewGeneratorFunction)
-            return JSGeneratorFunction::createWithInvalidatedReallocationWatchpoint(vm, executable, activation);    
+            return JSGeneratorFunction::createWithInvalidatedReallocationWatchpoint(vm, globalObject, executable, activation);
         else if (materialization->type() == PhantomNewAsyncGeneratorFunction)
-            return JSAsyncGeneratorFunction::createWithInvalidatedReallocationWatchpoint(vm, executable, activation);
+            return JSAsyncGeneratorFunction::createWithInvalidatedReallocationWatchpoint(vm, globalObject, executable, activation);
         ASSERT(materialization->type() == PhantomNewAsyncFunction);
-        return JSAsyncFunction::createWithInvalidatedReallocationWatchpoint(vm, executable, activation);
+        return JSAsyncFunction::createWithInvalidatedReallocationWatchpoint(vm, globalObject, executable, activation);
     }
 
     case PhantomCreateActivation: {
@@ -262,11 +450,11 @@ JSC_DEFINE_JIT_OPERATION(operationMaterializeObjectInOSR, JSCell*, (JSGlobalObje
         for (unsigned i = materialization->properties().size(); i--;) {
             const ExitPropertyValue& property = materialization->properties()[i];
             if (property.location() == PromotedLocationDescriptor(ActivationScopePLoc)) {
-                RELEASE_ASSERT(JSValue::decode(values[i]).asCell()->inherits<JSScope>(vm));
-                scope = jsCast<JSScope*>(JSValue::decode(values[i]));
+                RELEASE_ASSERT(JSValue::decode(values[i]).asCell()->inherits<JSScope>());
+                scope = uncheckedDowncast<JSScope>(JSValue::decode(values[i]));
             } else if (property.location() == PromotedLocationDescriptor(ActivationSymbolTablePLoc)) {
-                RELEASE_ASSERT(JSValue::decode(values[i]).asCell()->inherits<SymbolTable>(vm));
-                table = jsCast<SymbolTable*>(JSValue::decode(values[i]));
+                RELEASE_ASSERT(JSValue::decode(values[i]).asCell()->inherits<SymbolTable>());
+                table = uncheckedDowncast<SymbolTable>(JSValue::decode(values[i]));
             }
         }
         RELEASE_ASSERT(scope);
@@ -317,7 +505,7 @@ JSC_DEFINE_JIT_OPERATION(operationMaterializeObjectInOSR, JSCell*, (JSGlobalObje
                 if (property.location().kind() == ClosureVarPLoc)
                     numberOfClosureVarPloc++;
             }
-            ASSERT(numberOfClosureVarPloc == table->scopeSize());
+            ASSERT_UNUSED(numberOfClosureVarPloc, numberOfClosureVarPloc == table->scopeSize());
         }
 
         return result;
@@ -329,8 +517,8 @@ JSC_DEFINE_JIT_OPERATION(operationMaterializeObjectInOSR, JSCell*, (JSGlobalObje
         for (unsigned i = materialization->properties().size(); i--;) {
             const ExitPropertyValue& property = materialization->properties()[i];
             if (property.location() == PromotedLocationDescriptor(StructurePLoc)) {
-                RELEASE_ASSERT(JSValue::decode(values[i]).asCell()->inherits<Structure>(vm));
-                structure = jsCast<Structure*>(JSValue::decode(values[i]));
+                RELEASE_ASSERT(JSValue::decode(values[i]).asCell()->inherits<Structure>());
+                structure = uncheckedDowncast<Structure>(JSValue::decode(values[i]));
             }
         }
         RELEASE_ASSERT(structure);
@@ -338,37 +526,51 @@ JSC_DEFINE_JIT_OPERATION(operationMaterializeObjectInOSR, JSCell*, (JSGlobalObje
         // The real values will be put subsequently by
         // operationPopulateNewObjectInOSR. See the PhantomNewObject
         // case for details.
+        auto create = [&]<typename T>() -> T* {
+            auto* result = T::createWithInitialValues(vm, structure);
+            RELEASE_ASSERT(materialization->properties().size() - 1 == T::numberOfInternalFields);
+            return result;
+        };
+
         switch (structure->typeInfo().type()) {
-        case JSArrayIteratorType: {
-            JSArrayIterator* result = JSArrayIterator::createWithInitialValues(vm, structure);
-            RELEASE_ASSERT(materialization->properties().size() - 1 == JSArrayIterator::numberOfInternalFields);
-            return result;
-        }
-        case JSMapIteratorType: {
-            JSMapIterator* result = JSMapIterator::createWithInitialValues(vm, structure);
-            RELEASE_ASSERT(materialization->properties().size() - 1 == JSMapIterator::numberOfInternalFields);
-            return result;
-        }
-        case JSSetIteratorType: {
-            JSSetIterator* result = JSSetIterator::createWithInitialValues(vm, structure);
-            RELEASE_ASSERT(materialization->properties().size() - 1 == JSSetIterator::numberOfInternalFields);
-            return result;
-        }
-        case JSPromiseType: {
-            if (structure->classInfo() == JSInternalPromise::info()) {
-                JSInternalPromise* result = JSInternalPromise::createWithInitialValues(vm, structure);
-                RELEASE_ASSERT(materialization->properties().size() - 1 == JSInternalPromise::numberOfInternalFields);
-                return result;
-            }
-            ASSERT(structure->classInfo() == JSPromise::info());
-            JSPromise* result = JSPromise::createWithInitialValues(vm, structure);
-            RELEASE_ASSERT(materialization->properties().size() - 1 == JSPromise::numberOfInternalFields);
-            return result;
-        }
+        case JSArrayIteratorType:
+            return create.operator()<JSArrayIterator>();
+        case JSMapIteratorType:
+            return create.operator()<JSMapIterator>();
+        case JSSetIteratorType:
+            return create.operator()<JSSetIterator>();
+        case JSStringIteratorType:
+            return create.operator()<JSStringIterator>();
+        case JSIteratorHelperType:
+            return create.operator()<JSIteratorHelper>();
+        case JSWrapForValidIteratorType:
+            return create.operator()<JSWrapForValidIterator>();
+        case JSRegExpStringIteratorType:
+            return create.operator()<JSRegExpStringIterator>();
+        case JSGeneratorType:
+            return create.operator()<JSGenerator>();
+        case JSAsyncFunctionGeneratorType:
+            return create.operator()<JSAsyncFunctionGenerator>();
+        case JSAsyncGeneratorType:
+            return create.operator()<JSAsyncGenerator>();
         default:
             RELEASE_ASSERT_NOT_REACHED();
             return nullptr;
         }
+    }
+
+    case PhantomNewPromise: {
+        Structure* structure = nullptr;
+        for (unsigned i = materialization->properties().size(); i--;) {
+            const ExitPropertyValue& property = materialization->properties()[i];
+            if (property.location() == PromotedLocationDescriptor(StructurePLoc)) {
+                RELEASE_ASSERT(JSValue::decode(values[i]).asCell()->inherits<Structure>());
+                structure = uncheckedDowncast<Structure>(JSValue::decode(values[i]));
+            }
+        }
+        RELEASE_ASSERT(structure);
+        ASSERT(structure->classInfoForCells() == JSPromise::info());
+        return JSPromise::create(vm, structure);
     }
 
     case PhantomCreateRest:
@@ -378,8 +580,11 @@ JSC_DEFINE_JIT_OPERATION(operationMaterializeObjectInOSR, JSCell*, (JSGlobalObje
             switch (materialization->type()) {
             case PhantomDirectArguments:
                 return DirectArguments::createByCopying(globalObject, callFrame);
-            case PhantomClonedArguments:
-                return ClonedArguments::createWithMachineFrame(globalObject, callFrame, ArgumentsMode::Cloned);
+            case PhantomClonedArguments: {
+                ClonedArguments* result = ClonedArguments::createWithMachineFrame(globalObject, callFrame, ArgumentsMode::Cloned);
+                RELEASE_ASSERT(result);
+                return result;
+            }
             case PhantomCreateRest: {
                 CodeBlock* codeBlock = baselineCodeBlockForOriginAndBaselineCodeBlock(
                     materialization->origin(), callFrame->codeBlock()->baselineAlternative());
@@ -418,7 +623,7 @@ JSC_DEFINE_JIT_OPERATION(operationMaterializeObjectInOSR, JSCell*, (JSGlobalObje
                 if (property.location() != PromotedLocationDescriptor(ArgumentsCalleePLoc))
                     continue;
                 
-                callee = jsCast<JSFunction*>(JSValue::decode(values[i]));
+                callee = uncheckedDowncast<JSFunction>(JSValue::decode(values[i]));
                 break;
             }
         } else
@@ -461,9 +666,10 @@ JSC_DEFINE_JIT_OPERATION(operationMaterializeObjectInOSR, JSCell*, (JSGlobalObje
         }
         case PhantomClonedArguments: {
             unsigned length = argumentCount - 1;
-            ClonedArguments* result = ClonedArguments::createEmpty(
-                vm, codeBlock->globalObject()->clonedArgumentsStructure(), callee, length);
-            
+            JSGlobalObject* globalObject = codeBlock->globalObject();
+            ClonedArguments* result = ClonedArguments::createEmpty(vm, nullptr, globalObject->clonedArgumentsStructure(), callee, length, nullptr);
+            RELEASE_ASSERT_RESOURCE_AVAILABLE(result, MemoryExhaustion, "Crash intentionally because memory is exhausted.");
+
             for (unsigned i = materialization->properties().size(); i--;) {
                 const ExitPropertyValue& property = materialization->properties()[i];
                 if (property.location().kind() != ArgumentPLoc)
@@ -541,27 +747,27 @@ JSC_DEFINE_JIT_OPERATION(operationMaterializeObjectInOSR, JSCell*, (JSGlobalObje
         for (unsigned i = materialization->properties().size(); i--;) {
             const ExitPropertyValue& property = materialization->properties()[i];
             if (property.location().kind() == SpreadPLoc) {
-                array = jsCast<JSArray*>(JSValue::decode(values[i]));
+                array = uncheckedDowncast<JSArray>(JSValue::decode(values[i]));
                 break;
             }
         }
         RELEASE_ASSERT(array);
 
-        // Note: it is sound for JSImmutableButterfly::createFromArray to call getDirectIndex here
+        // Note: it is sound for JSCellButterfly::createFromArray to call getDirectIndex here
         // because we're guaranteed we won't be calling any getters. The reason for this is
         // that we only support PhantomSpread over CreateRest, which is an array we create.
         // Any attempts to put a getter on any indices on the rest array will escape the array.
-        auto* fixedArray = JSImmutableButterfly::createFromArray(globalObject, vm, array);
+        auto* fixedArray = JSCellButterfly::createFromArray(globalObject, vm, array);
         RELEASE_ASSERT(fixedArray);
         return fixedArray;
     }
 
     case PhantomNewArrayBuffer: {
-        JSImmutableButterfly* immutableButterfly = nullptr;
+        JSCellButterfly* immutableButterfly = nullptr;
         for (unsigned i = materialization->properties().size(); i--;) {
             const ExitPropertyValue& property = materialization->properties()[i];
             if (property.location().kind() == NewArrayBufferPLoc) {
-                immutableButterfly = jsCast<JSImmutableButterfly*>(JSValue::decode(values[i]));
+                immutableButterfly = uncheckedDowncast<JSCellButterfly>(JSValue::decode(values[i]));
                 break;
             }
         }
@@ -570,11 +776,10 @@ JSC_DEFINE_JIT_OPERATION(operationMaterializeObjectInOSR, JSCell*, (JSGlobalObje
         // For now, we use array allocation profile in the actual CodeBlock. It is OK since current NewArrayBuffer
         // and PhantomNewArrayBuffer are always bound to a specific op_new_array_buffer.
         CodeBlock* codeBlock = baselineCodeBlockForOriginAndBaselineCodeBlock(materialization->origin(), callFrame->codeBlock()->baselineAlternative());
-        const Instruction* currentInstruction = codeBlock->instructions().at(materialization->origin().bytecodeIndex()).ptr();
+        const auto* currentInstruction = codeBlock->instructions().at(materialization->origin().bytecodeIndex()).ptr();
         if (!currentInstruction->is<OpNewArrayBuffer>()) {
-            // This case can happen if Object.keys, an OpCall is first converted into a NewArrayBuffer which is then converted into a PhantomNewArrayBuffer.
+            // This case can happen if Object.keys, an OpCall, and others is first converted into a NewArrayBuffer which is then converted into a PhantomNewArrayBuffer.
             // There is no need to update the array allocation profile in that case.
-            RELEASE_ASSERT(currentInstruction->is<OpCall>());
             Structure* structure = globalObject->arrayStructureForIndexingTypeDuringAllocation(immutableButterfly->indexingMode());
             return CommonSlowPaths::allocateNewArrayBuffer(vm, structure, immutableButterfly);
         }
@@ -587,8 +792,8 @@ JSC_DEFINE_JIT_OPERATION(operationMaterializeObjectInOSR, JSCell*, (JSGlobalObje
         ASSERT(isCopyOnWrite(indexingMode));
         ASSERT(!structure->outOfLineCapacity());
 
-        if (UNLIKELY(immutableButterfly->indexingMode() != indexingMode)) {
-            auto* newButterfly = JSImmutableButterfly::create(vm, indexingMode, immutableButterfly->length());
+        if (immutableButterfly->indexingMode() != indexingMode) [[unlikely]] {
+            auto* newButterfly = JSCellButterfly::create(vm, indexingMode, immutableButterfly->length());
             for (unsigned i = 0; i < immutableButterfly->length(); ++i)
                 newButterfly->setIndex(vm, i, immutableButterfly->get(i));
             immutableButterfly = newButterfly;
@@ -619,7 +824,7 @@ JSC_DEFINE_JIT_OPERATION(operationMaterializeObjectInOSR, JSCell*, (JSGlobalObje
             if (property.location().kind() == NewArrayWithSpreadArgumentPLoc) {
                 ++numProperties;
                 JSValue value = JSValue::decode(values[i]);
-                if (JSImmutableButterfly* immutableButterfly = jsDynamicCast<JSImmutableButterfly*>(vm, value))
+                if (JSCellButterfly* immutableButterfly = dynamicDowncast<JSCellButterfly>(value))
                     checkedArraySize += immutableButterfly->publicLength();
                 else
                     checkedArraySize += 1;
@@ -661,7 +866,7 @@ JSC_DEFINE_JIT_OPERATION(operationMaterializeObjectInOSR, JSCell*, (JSGlobalObje
 
         unsigned arrayIndex = 0;
         for (JSValue value : arguments) {
-            if (JSImmutableButterfly* immutableButterfly = jsDynamicCast<JSImmutableButterfly*>(vm, value)) {
+            if (JSCellButterfly* immutableButterfly = dynamicDowncast<JSCellButterfly>(value)) {
                 for (unsigned i = 0; i < immutableButterfly->publicLength(); i++) {
                     ASSERT(immutableButterfly->get(i));
                     result->putDirectIndex(globalObject, arrayIndex, immutableButterfly->get(i));
@@ -677,19 +882,20 @@ JSC_DEFINE_JIT_OPERATION(operationMaterializeObjectInOSR, JSCell*, (JSGlobalObje
         return result;
     }
 
-    case PhantomNewRegexp: {
+    case PhantomNewRegExp: {
         RegExp* regExp = nullptr;
         for (unsigned i = materialization->properties().size(); i--;) {
             const ExitPropertyValue& property = materialization->properties()[i];
             if (property.location() == PromotedLocationDescriptor(RegExpObjectRegExpPLoc)) {
-                RELEASE_ASSERT(JSValue::decode(values[i]).asCell()->inherits<RegExp>(vm));
-                regExp = jsCast<RegExp*>(JSValue::decode(values[i]));
+                RELEASE_ASSERT(JSValue::decode(values[i]).asCell()->inherits<RegExp>());
+                regExp = uncheckedDowncast<RegExp>(JSValue::decode(values[i]));
             }
         }
         RELEASE_ASSERT(regExp);
         CodeBlock* codeBlock = baselineCodeBlockForOriginAndBaselineCodeBlock(materialization->origin(), callFrame->codeBlock()->baselineAlternative());
         Structure* structure = codeBlock->globalObject()->regExpStructure();
-        return RegExpObject::create(vm, structure, regExp);
+        static constexpr bool areLegacyFeaturesEnabled = true;
+        return RegExpObject::create(vm, structure, regExp, areLegacyFeaturesEnabled);
     }
 
     default:
@@ -698,42 +904,46 @@ JSC_DEFINE_JIT_OPERATION(operationMaterializeObjectInOSR, JSCell*, (JSGlobalObje
     }
 }
 
-JSC_DEFINE_JIT_OPERATION(operationSwitchStringAndGetIndex, unsigned, (JSGlobalObject* globalObject, const UnlinkedStringJumpTable* unlinkedTable, JSString* string))
+JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationSwitchStringAndGetIndex, UCPUStrictInt32, (JSGlobalObject* globalObject, const UnlinkedStringJumpTable* unlinkedTable, JSString* string))
 {
     VM& vm = globalObject->vm();
     CallFrame* callFrame = DECLARE_CALL_FRAME(vm);
     JITOperationPrologueCallFrameTracer tracer(vm, callFrame);
     auto throwScope = DECLARE_THROW_SCOPE(vm);
 
-    StringImpl* strImpl = string->value(globalObject).impl();
+    unsigned length = string->length();
+    if (length < unlinkedTable->minLength() || length > unlinkedTable->maxLength())
+        return toUCPUStrictInt32(std::numeric_limits<unsigned>::max());
+
+    auto str = string->value(globalObject);
 
     RETURN_IF_EXCEPTION(throwScope, 0);
 
-    return unlinkedTable->indexForValue(strImpl, std::numeric_limits<unsigned>::max());
+    return toUCPUStrictInt32(unlinkedTable->indexForValue(str->impl(), std::numeric_limits<unsigned>::max()));
 }
 
-JSC_DEFINE_JIT_OPERATION(operationTypeOfObjectAsTypeofType, int32_t, (JSGlobalObject* globalObject, JSCell* object))
+JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationTypeOfObjectAsTypeofType, UCPUStrictInt32, (JSGlobalObject* globalObject, JSCell* object))
 {
     VM& vm = globalObject->vm();
     CallFrame* callFrame = DECLARE_CALL_FRAME(vm);
     JITOperationPrologueCallFrameTracer tracer(vm, callFrame);
 
-    ASSERT(jsDynamicCast<JSObject*>(vm, object));
+    ASSERT(is<JSObject>(object));
 
-    if (object->structure(vm)->masqueradesAsUndefined(globalObject))
-        return static_cast<int32_t>(TypeofType::Undefined);
-    if (object->isCallable(vm))
-        return static_cast<int32_t>(TypeofType::Function);
-    return static_cast<int32_t>(TypeofType::Object);
+    if (object->structure()->masqueradesAsUndefined(globalObject))
+        return toUCPUStrictInt32(static_cast<int32_t>(TypeofType::Undefined));
+    if (object->isCallable())
+        return toUCPUStrictInt32(static_cast<int32_t>(TypeofType::Function));
+    return toUCPUStrictInt32(static_cast<int32_t>(TypeofType::Object));
 }
 
-JSC_DEFINE_JIT_OPERATION(operationCompileFTLLazySlowPath, void*, (CallFrame* callFrame, unsigned index))
+JSC_DEFINE_NOEXCEPT_JIT_OPERATION(operationCompileFTLLazySlowPath, void*, (CallFrame* callFrame, unsigned index))
 {
     VM& vm = callFrame->deprecatedVM();
     // Don't need an ActiveScratchBufferScope here because we DeferGCForAWhile.
 
     // We cannot GC. We've got pointers in evil places.
-    DeferGCForAWhile deferGC(vm.heap);
+    DeferGCForAWhile deferGC(vm);
 
     CodeBlock* codeBlock = callFrame->codeBlock();
     JITCode* jitCode = codeBlock->jitCode()->ftl();
@@ -741,12 +951,12 @@ JSC_DEFINE_JIT_OPERATION(operationCompileFTLLazySlowPath, void*, (CallFrame* cal
     LazySlowPath& lazySlowPath = *jitCode->lazySlowPaths[index];
     lazySlowPath.generate(codeBlock);
 
-    return lazySlowPath.stub().code().executableAddress();
+    return lazySlowPath.stub().code().taggedPtr();
 }
 
-JSC_DEFINE_JIT_OPERATION_WITH_ATTRIBUTES(operationReportBoundsCheckEliminationErrorAndCrash, NO_RETURN_DUE_TO_CRASH, void, (intptr_t codeBlockAsIntPtr, int32_t nodeIndex, int32_t child1Index, int32_t child2Index, int32_t checkedIndex, int32_t bounds))
+JSC_DEFINE_NOEXCEPT_JIT_OPERATION_WITH_ATTRIBUTES(operationReportBoundsCheckEliminationErrorAndCrash, NO_RETURN_DUE_TO_CRASH, void, (intptr_t codeBlockAsIntPtr, int32_t nodeIndex, int32_t child1Index, int32_t child2Index, int32_t checkedIndex, int32_t bounds))
 {
-    CodeBlock* codeBlock = bitwise_cast<CodeBlock*>(codeBlockAsIntPtr);
+    CodeBlock* codeBlock = std::bit_cast<CodeBlock*>(codeBlockAsIntPtr);
     dataLogLn("Bounds Check Eimination error found @ D@", nodeIndex, ": AssertInBounds(index D@", child1Index, ": ", checkedIndex, ", bounds D@", child2Index, " ", bounds, ") in ", codeBlock);
     CRASH();
 }
@@ -755,5 +965,6 @@ JSC_DEFINE_JIT_OPERATION_WITH_ATTRIBUTES(operationReportBoundsCheckEliminationEr
 
 IGNORE_WARNINGS_END
 
-#endif // ENABLE(FTL_JIT)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
+#endif // ENABLE(FTL_JIT)

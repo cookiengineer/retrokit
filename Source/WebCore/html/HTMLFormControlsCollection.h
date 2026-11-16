@@ -22,31 +22,44 @@
 
 #pragma once
 
+#include <WebCore/CollectionType.h>
+
+namespace WebCore {
+
+class HTMLFormControlsCollection;
+
+template<>
+struct CollectionClassTraits<HTMLFormControlsCollection> {
+    static constexpr CollectionType collectionType = CollectionType::FormControls;
+};
+
+} // namespace WebCore
+
 #include "CachedHTMLCollection.h"
 #include "HTMLFormElement.h"
 #include "RadioNodeList.h"
 
 namespace WebCore {
 
-class FormAssociatedElement;
+class FormListedElement;
 class HTMLImageElement;
 
 // This class is just a big hack to find form elements even in malformed HTML elements.
 // The famous <table><tr><form><td> problem.
 
-class HTMLFormControlsCollection final : public CachedHTMLCollection<HTMLFormControlsCollection, CollectionTypeTraits<FormControls>::traversalType> {
-    WTF_MAKE_ISO_ALLOCATED(HTMLFormControlsCollection);
+class HTMLFormControlsCollection final : public CachedHTMLCollection<HTMLFormControlsCollection> {
+    WTF_MAKE_TZONE_ALLOCATED(HTMLFormControlsCollection);
 public:
     static Ref<HTMLFormControlsCollection> create(ContainerNode&, CollectionType);
     virtual ~HTMLFormControlsCollection();
 
     HTMLElement* item(unsigned offset) const override;
-    std::optional<Variant<RefPtr<RadioNodeList>, RefPtr<Element>>> namedItemOrItems(const String&) const;
+    std::optional<Variant<Ref<RadioNodeList>, Ref<Element>>> namedItemOrItems(const AtomString&) const;
 
-    HTMLFormElement& ownerNode() const;
+    HTMLFormElement& NODELETE ownerNode() const;
 
     // For CachedHTMLCollection.
-    HTMLElement* customElementAfter(Element*) const;
+    HTMLElement* NODELETE customElementAfter(Element*) const;
 
 private:
     explicit HTMLFormControlsCollection(ContainerNode&);
@@ -54,15 +67,10 @@ private:
     void invalidateCacheForDocument(Document&) override;
     void updateNamedElementCache() const override;
 
-    mutable Element* m_cachedElement;
-    mutable unsigned m_cachedElementOffsetInArray;
+    mutable CheckedPtr<Element> m_cachedElement;
+    mutable unsigned m_cachedElementOffsetInArray { 0 };
 };
-
-inline HTMLElement* HTMLFormControlsCollection::item(unsigned offset) const
-{
-    return downcast<HTMLElement>(CachedHTMLCollection::item(offset));
-}
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_HTMLCOLLECTION(HTMLFormControlsCollection, FormControls)
+SPECIALIZE_TYPE_TRAITS_HTMLCOLLECTION(HTMLFormControlsCollection)

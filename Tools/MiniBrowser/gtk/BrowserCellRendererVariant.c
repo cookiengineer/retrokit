@@ -24,7 +24,6 @@
  */
 
 #include "BrowserCellRendererVariant.h"
-#include "BrowserMarshal.h"
 #include <errno.h>
 
 enum {
@@ -332,15 +331,13 @@ static void browser_cell_renderer_variant_class_init(BrowserCellRendererVariantC
     g_object_class_install_property(gobjectClass,
                                     PROP_VALUE,
                                     g_param_spec_boxed("value",
-                                                       "Value",
-                                                       "The cell renderer value",
+                                                       NULL, NULL,
                                                        G_TYPE_VALUE,
                                                        G_PARAM_READWRITE));
     g_object_class_install_property(gobjectClass,
                                     PROP_ADJUSTMENT,
                                     g_param_spec_object("adjustment",
-                                                        "Adjustment",
-                                                        "The adjustment that holds the value of the spin button",
+                                                        NULL, NULL,
                                                         GTK_TYPE_ADJUSTMENT,
                                                         G_PARAM_READWRITE));
 
@@ -348,8 +345,7 @@ static void browser_cell_renderer_variant_class_init(BrowserCellRendererVariantC
         g_signal_new("changed",
                      G_TYPE_FROM_CLASS(gobjectClass),
                      G_SIGNAL_RUN_LAST,
-                     0, NULL, NULL,
-                     browser_marshal_VOID__STRING_BOXED,
+                     0, NULL, NULL, NULL,
                      G_TYPE_NONE, 2,
                      G_TYPE_STRING, G_TYPE_VALUE);
 }

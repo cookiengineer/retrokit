@@ -27,10 +27,12 @@
 
 namespace WebCore {
 
+void teardownGStreamerRegistryScannerMSE();
+
 class GStreamerRegistryScannerMSE : public GStreamerRegistryScanner {
 public:
     static GStreamerRegistryScannerMSE& singleton();
-    static void getSupportedDecodingTypes(HashSet<String, ASCIICaseInsensitiveHash>&);
+    static void getSupportedDecodingTypes(HashSet<String>&);
     GStreamerRegistryScannerMSE();
 };
 

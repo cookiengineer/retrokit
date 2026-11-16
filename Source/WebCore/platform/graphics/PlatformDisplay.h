@@ -23,15 +23,13 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef PlatformDisplay_h
-#define PlatformDisplay_h
+#pragma once
 
+#include "GLDisplay.h"
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/TypeCasts.h>
-
-#if USE(EGL)
-typedef void *EGLDisplay;
-#endif
+#include <wtf/text/WTFString.h>
 
 #if ENABLE(VIDEO) && USE(GSTREAMER_GL)
 #include "GRefPtrGStreamer.h"
@@ -40,94 +38,124 @@ typedef struct _GstGLContext GstGLContext;
 typedef struct _GstGLDisplay GstGLDisplay;
 #endif // ENABLE(VIDEO) && USE(GSTREAMER_GL)
 
-#if USE(LCMS)
-typedef void* cmsHPROFILE;
+#if USE(SKIA)
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <skia/gpu/ganesh/GrDirectContext.h>
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
+#include <wtf/ThreadSafeWeakHashSet.h>
 #endif
+
+namespace WTF {
+enum class Critical : bool;
+}
 
 namespace WebCore {
 
 class GLContext;
+#if USE(SKIA)
+class SkiaGLContext;
+#endif
 
 class PlatformDisplay {
-    WTF_MAKE_NONCOPYABLE(PlatformDisplay); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(PlatformDisplay);
+    WTF_MAKE_NONCOPYABLE(PlatformDisplay);
 public:
     WEBCORE_EXPORT static PlatformDisplay& sharedDisplay();
-    WEBCORE_EXPORT static PlatformDisplay& sharedDisplayForCompositing();
+#if !PLATFORM(WIN)
+    WEBCORE_EXPORT static void setSharedDisplay(std::unique_ptr<PlatformDisplay>&&);
+    WEBCORE_EXPORT static PlatformDisplay* sharedDisplayIfExists();
+    WEBCORE_EXPORT static void destroySharedDisplay();
+#endif
     virtual ~PlatformDisplay();
 
     enum class Type {
-#if PLATFORM(X11)
-        X11,
-#endif
-#if PLATFORM(WAYLAND)
-        Wayland,
-#endif
 #if PLATFORM(WIN)
         Windows,
 #endif
 #if USE(WPE_RENDERER)
         WPE,
 #endif
+        Surfaceless,
+#if USE(GBM)
+        GBM,
+#endif
+#if OS(ANDROID)
+        Android,
+#endif
+#if PLATFORM(GTK) || OS(ANDROID)
+        Default,
+#endif
     };
 
     virtual Type type() const = 0;
 
-#if USE(EGL) || USE(GLX)
     WEBCORE_EXPORT GLContext* sharingGLContext();
+    void clearGLContexts();
+    EGLDisplay eglDisplay() const;
+    GLDisplay& glDisplay() const { return m_eglDisplay.get(); }
+    bool eglCheckVersion(int major, int minor) const;
+
+    const GLDisplay::Extensions& eglExtensions() const;
+
+    EGLImage createEGLImage(EGLContext, EGLenum target, EGLClientBuffer, const Vector<EGLAttrib>&) const;
+    bool destroyEGLImage(EGLImage) const;
+#if USE(GBM) || OS(ANDROID)
+    const Vector<GLDisplay::BufferFormat>& bufferFormats();
+#endif
+#if USE(GBM) && USE(GSTREAMER)
+    const Vector<GLDisplay::BufferFormat>& bufferFormatsForVideo();
 #endif
 
-#if USE(EGL)
-    EGLDisplay eglDisplay() const;
-    bool eglCheckVersion(int major, int minor) const;
+#if ENABLE(WEBGL)
+    EGLDisplay angleEGLDisplay() const;
+    EGLContext angleSharingGLContext();
 #endif
 
 #if ENABLE(VIDEO) && USE(GSTREAMER_GL)
     GstGLDisplay* gstGLDisplay() const;
     GstGLContext* gstGLContext() const;
+    void clearGStreamerGLState();
 #endif
 
-#if USE(LCMS)
-    virtual cmsHPROFILE colorProfile() const;
+#if USE(SKIA)
+    GLContext* skiaGLContext();
+    static void makeSkiaGLContextCurrentIfExists();
+    void setSkiaGLContextForCurrentThread(std::unique_ptr<GLContext>&&);
+    GrDirectContext* skiaGrContext() const;
+    unsigned msaaSampleCount() const;
+    size_t maxSkiaResourceCacheBytes() const;
+    void skiaReleaseUnusedResources(WTF::Critical);
 #endif
 
 protected:
-    enum class NativeDisplayOwned { No, Yes };
-    explicit PlatformDisplay(NativeDisplayOwned);
+    explicit PlatformDisplay(Ref<GLDisplay>&&);
 
-    static void setSharedDisplayForCompositing(PlatformDisplay&);
-
-    NativeDisplayOwned m_nativeDisplayOwned { NativeDisplayOwned::No };
-
-#if USE(EGL)
-    virtual void initializeEGLDisplay();
-
-    EGLDisplay m_eglDisplay;
-#endif
-
-#if USE(EGL) || USE(GLX)
+    const Ref<GLDisplay> m_eglDisplay;
     std::unique_ptr<GLContext> m_sharingGLContext;
-#endif
 
-#if USE(LCMS)
-    mutable cmsHPROFILE m_iccProfile { nullptr };
+#if ENABLE(WEBGL) && !PLATFORM(WIN)
+    std::optional<int> m_anglePlatform;
+    void* m_angleNativeDisplay { nullptr };
 #endif
 
 private:
-    static std::unique_ptr<PlatformDisplay> createPlatformDisplay();
+#if USE(SKIA)
+    void clearSkiaGLContext();
+#endif
 
-#if USE(EGL)
     void terminateEGLDisplay();
 
-    bool m_eglDisplayInitialized { false };
-    int m_eglMajorVersion { 0 };
-    int m_eglMinorVersion { 0 };
+#if ENABLE(WEBGL) && !PLATFORM(WIN)
+    mutable EGLDisplay m_angleEGLDisplay { nullptr };
 #endif
 
 #if ENABLE(VIDEO) && USE(GSTREAMER_GL)
-    bool tryEnsureGstGLContext() const;
-
     mutable GRefPtr<GstGLDisplay> m_gstGLDisplay;
     mutable GRefPtr<GstGLContext> m_gstGLContext;
+#endif
+
+#if USE(SKIA)
+    ThreadSafeWeakHashSet<SkiaGLContext> m_skiaGLContexts;
 #endif
 };
 
@@ -137,5 +165,3 @@ private:
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::ToClassName) \
     static bool isType(const WebCore::PlatformDisplay& display) { return display.type() == WebCore::PlatformDisplay::Type::DisplayType; } \
 SPECIALIZE_TYPE_TRAITS_END()
-
-#endif // PltformDisplay_h

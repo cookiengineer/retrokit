@@ -30,24 +30,22 @@
 #if ENABLE(WEB_AUTHN)
 
 #include "Document.h"
-#include "Frame.h"
+#include "LocalFrameInlines.h"
 #include "Navigator.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(NavigatorCredentials);
 
 NavigatorCredentials::NavigatorCredentials() = default;
 
 NavigatorCredentials::~NavigatorCredentials() = default;
 
-const char* NavigatorCredentials::supplementName()
-{
-    return "NavigatorCredentials";
-}
-
-CredentialsContainer* NavigatorCredentials::credentials(WeakPtr<Document>&& document)
+CredentialsContainer* NavigatorCredentials::credentials(WeakPtr<Document, WeakPtrImplWithEventTargetData>&& document)
 {
     if (!m_credentialsContainer)
-        m_credentialsContainer = CredentialsContainer::create(WTFMove(document));
+        m_credentialsContainer = CredentialsContainer::create(WTF::move(document));
 
     return m_credentialsContainer.get();
 }
@@ -56,16 +54,16 @@ CredentialsContainer* NavigatorCredentials::credentials(Navigator& navigator)
 {
     if (!navigator.frame() || !navigator.frame()->document())
         return nullptr;
-    return NavigatorCredentials::from(&navigator)->credentials(makeWeakPtr(*navigator.frame()->document()));
+    return NavigatorCredentials::from(&navigator)->credentials(*navigator.frame()->document());
 }
 
 NavigatorCredentials* NavigatorCredentials::from(Navigator* navigator)
 {
-    NavigatorCredentials* supplement = static_cast<NavigatorCredentials*>(Supplement<Navigator>::from(navigator, supplementName()));
+    NavigatorCredentials* supplement = downcast<NavigatorCredentials>(Supplement<Navigator>::from(navigator, supplementName()));
     if (!supplement) {
         auto newSupplement = makeUnique<NavigatorCredentials>();
         supplement = newSupplement.get();
-        provideTo(navigator, supplementName(), WTFMove(newSupplement));
+        provideTo(navigator, supplementName(), WTF::move(newSupplement));
     }
     return supplement;
 }

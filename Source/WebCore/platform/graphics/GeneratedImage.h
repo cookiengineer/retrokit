@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008, 2013 Apple Inc.  All rights reserved.
+ * Copyright (C) 2008, 2013 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,34 +25,32 @@
 
 #pragma once
 
-#include "FloatSize.h"
-#include "Image.h"
+#include <WebCore/FloatSize.h>
+#include <WebCore/Image.h>
 
 namespace WebCore {
 
 class GeneratedImage : public Image {
 public:
-    bool hasSingleSecurityOrigin() const override { return true; }
-
     void setContainerSize(const FloatSize& size) override { m_size = size; }
     bool usesContainerSize() const override { return true; }
+    bool hasIntrinsicWidth() const override { return false; }
+    bool hasIntrinsicHeight() const override { return false; }
     bool hasRelativeWidth() const override { return true; }
     bool hasRelativeHeight() const override { return true; }
-    void computeIntrinsicDimensions(Length& intrinsicWidth, Length& intrinsicHeight, FloatSize& intrinsicRatio) override;
+    void computeIntrinsicDimensions(float& intrinsicWidth, float& intrinsicHeight, FloatSize& intrinsicRatio) override;
 
-    FloatSize size(ImageOrientation = ImageOrientation::FromImage) const override { return m_size; }
-
-    // Assume that generated content has no decoded data we need to worry about
-    void destroyDecodedData(bool /*destroyAll*/ = true) override { }
+    FloatSize size(ImageOrientation = ImageOrientation::Orientation::FromImage) const override { return m_size; }
 
 protected:
-    ImageDrawResult draw(GraphicsContext&, const FloatRect& dstRect, const FloatRect& srcRect, const ImagePaintingOptions& = { }) override = 0;
-    void drawPattern(GraphicsContext&, const FloatRect& destRect, const FloatRect& srcRect, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, const ImagePaintingOptions& = { }) override = 0;
+    ImageDrawResult draw(GraphicsContext&, const FloatRect& dstRect, const FloatRect& srcRect, ImagePaintingOptions = { }) override = 0;
+    void drawPattern(GraphicsContext&, const FloatRect& destRect, const FloatRect& srcRect, const AffineTransform& patternTransform, const FloatPoint& phase, const FloatSize& spacing, ImagePaintingOptions = { }) override = 0;
 
     // FIXME: Implement this to be less conservative.
     bool currentFrameKnownToBeOpaque() const override { return false; }
+    bool currentFrameIsComplete() const override { return true; }
 
-    GeneratedImage() { }
+    GeneratedImage() = default;
 
 private:
     bool isGeneratedImage() const override { return true; }

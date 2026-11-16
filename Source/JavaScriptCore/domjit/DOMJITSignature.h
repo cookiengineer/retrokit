@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,11 +25,15 @@
 
 #pragma once
 
-#include "ClassInfo.h"
-#include "DOMJITEffect.h"
-#include "SpeculatedType.h"
+#include <JavaScriptCore/ClassInfo.h>
+#include <JavaScriptCore/DOMJITEffect.h>
+#include <wtf/CodePtr.h>
 
-namespace JSC { namespace DOMJIT {
+namespace JSC {
+
+using SpeculatedType = uint64_t;
+
+namespace DOMJIT {
 
 // FIXME: Currently, we only support functions which arguments are up to 2.
 // Eventually, we should extend this. But possibly, 2 or 3 can cover typical use cases.
@@ -37,13 +41,13 @@ namespace JSC { namespace DOMJIT {
 #define JSC_DOMJIT_SIGNATURE_MAX_ARGUMENTS 2
 #define JSC_DOMJIT_SIGNATURE_MAX_ARGUMENTS_INCLUDING_THIS (1 + JSC_DOMJIT_SIGNATURE_MAX_ARGUMENTS)
 
-using FunctionPtr = void (*WTF_VTBL_FUNCPTR_PTRAUTH(DOMJITFunctionPtrTag))();
-
 class Signature {
 public:
+    using CodePtr = WTF::CodePtr<CFunctionPtrTag>;
+
     template<typename... Arguments>
-    constexpr Signature(CFunctionPtr functionWithoutTypeCheck, const ClassInfo* classInfo, Effect effect, SpeculatedType result, Arguments... arguments)
-        : functionWithoutTypeCheck(functionWithoutTypeCheck.get())
+    constexpr Signature(CodePtr functionWithoutTypeCheck, const ClassInfo* classInfo, Effect effect, SpeculatedType result, Arguments... arguments)
+        : functionWithoutTypeCheckPtr(functionWithoutTypeCheck.untypedFunc())
         , classInfo(classInfo)
         , result(result)
         , arguments {static_cast<SpeculatedType>(arguments)...}
@@ -52,7 +56,9 @@ public:
     {
     }
 
-    const FunctionPtr functionWithoutTypeCheck;
+    CodePtr functionWithoutTypeCheck() const { return CodePtr(functionWithoutTypeCheckPtr); }
+
+    const WTF_VTBL_FUNCPTR_PTRAUTH(DOMJITSignature) CodePtr::UntypedFunc functionWithoutTypeCheckPtr;
     const ClassInfo* const classInfo;
     const SpeculatedType result;
     const SpeculatedType arguments[JSC_DOMJIT_SIGNATURE_MAX_ARGUMENTS];
@@ -60,4 +66,5 @@ public:
     const Effect effect;
 };
 
-} }
+} // namespace DOMJIT
+} // namespace JSC

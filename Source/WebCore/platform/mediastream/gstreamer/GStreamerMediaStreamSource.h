@@ -24,15 +24,12 @@
 #if ENABLE(VIDEO) && ENABLE(MEDIA_STREAM) && USE(GSTREAMER)
 
 #include <gst/gst.h>
+#include <wtf/RefPtr.h>
 
 namespace WebCore {
 class MediaStreamPrivate;
 class MediaStreamTrackPrivate;
 }
-
-#define WEBKIT_MEDIA_TRACK_TAG_WIDTH "webkit-media-stream-width"
-#define WEBKIT_MEDIA_TRACK_TAG_HEIGHT "webkit-media-stream-height"
-#define WEBKIT_MEDIA_TRACK_TAG_KIND "webkit-media-stream-kind"
 
 #define WEBKIT_MEDIA_STREAM_SRC(o) (G_TYPE_CHECK_INSTANCE_CAST((o), WEBKIT_TYPE_MEDIA_STREAM_SRC, WebKitMediaStreamSrc))
 #define WEBKIT_IS_MEDIA_STREAM_SRC(o) (G_TYPE_CHECK_INSTANCE_TYPE((o), WEBKIT_TYPE_MEDIA_STREAM_SRC))
@@ -56,7 +53,10 @@ struct _WebKitMediaStreamSrcClass {
 
 GstElement* webkitMediaStreamSrcNew();
 void webkitMediaStreamSrcSetStream(WebKitMediaStreamSrc*, WebCore::MediaStreamPrivate*, bool isVideoPlayer);
-void webkitMediaStreamSrcAddTrack(WebKitMediaStreamSrc*, WebCore::MediaStreamTrackPrivate*, bool onlyTrack);
+void webkitMediaStreamSrcAddTrack(WebKitMediaStreamSrc*, WebCore::MediaStreamTrackPrivate*, bool consumerIsVideoPlayer = false);
+void webkitMediaStreamSrcReplaceTrack(WebKitMediaStreamSrc*, WTF::RefPtr<WebCore::MediaStreamTrackPrivate>&&);
 void webkitMediaStreamSrcConfigureAudioTracks(WebKitMediaStreamSrc*, float volume, bool isMuted, bool isPlaying);
+bool webkitMediaStreamSrcSignalEndOfStream(WebKitMediaStreamSrc*);
+bool webkitMediaStreamSrcHasPrerolled(WebKitMediaStreamSrc*);
 
 #endif // ENABLE(VIDEO) && ENABLE(MEDIA_STREAM) && USE(GSTREAMER)

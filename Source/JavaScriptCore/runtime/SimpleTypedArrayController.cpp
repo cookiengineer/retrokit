@@ -30,6 +30,7 @@
 #include "JSArrayBuffer.h"
 #include "JSCJSValueInlines.h"
 #include "JSGlobalObject.h"
+#include "JSGlobalObjectInlines.h"
 
 namespace JSC {
 
@@ -38,23 +39,22 @@ SimpleTypedArrayController::SimpleTypedArrayController(bool allowAtomicsWait)
 {
 }
 
-SimpleTypedArrayController::~SimpleTypedArrayController() { }
+SimpleTypedArrayController::~SimpleTypedArrayController() = default;
 
-JSArrayBuffer* SimpleTypedArrayController::toJS(JSGlobalObject* lexicalGlobalObject, JSGlobalObject* globalObject, ArrayBuffer* native)
+JSArrayBuffer* SimpleTypedArrayController::toJS(JSGlobalObject* lexicalGlobalObject, JSGlobalObject* globalObject, ArrayBuffer& native)
 {
     UNUSED_PARAM(lexicalGlobalObject);
-    if (JSArrayBuffer* buffer = native->m_wrapper.get())
+    if (JSArrayBuffer* buffer = native.m_wrapper.get())
         return buffer;
 
     // The JSArrayBuffer::create function will register the wrapper in finishCreation.
-    JSArrayBuffer* result = JSArrayBuffer::create(globalObject->vm(), globalObject->arrayBufferStructure(native->sharingMode()), native);
-    return result;
+    return JSArrayBuffer::create(globalObject->vm(), globalObject->arrayBufferStructure(native.sharingMode()), &native);
 }
 
-void SimpleTypedArrayController::registerWrapper(JSGlobalObject*, ArrayBuffer* native, JSArrayBuffer* wrapper)
+void SimpleTypedArrayController::registerWrapper(JSGlobalObject*, ArrayBuffer& native, JSArrayBuffer& wrapper)
 {
-    ASSERT(!native->m_wrapper);
-    native->m_wrapper = Weak<JSArrayBuffer>(wrapper, &m_owner);
+    ASSERT(!native.m_wrapper);
+    native.m_wrapper = Weak<JSArrayBuffer>(&wrapper, &m_owner);
 }
 
 bool SimpleTypedArrayController::isAtomicsWaitAllowedOnCurrentThread()
@@ -62,11 +62,11 @@ bool SimpleTypedArrayController::isAtomicsWaitAllowedOnCurrentThread()
     return m_allowAtomicsWait;
 }
 
-bool SimpleTypedArrayController::JSArrayBufferOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, JSC::AbstractSlotVisitor& visitor, const char** reason)
+bool SimpleTypedArrayController::JSArrayBufferOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, JSC::AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
-    if (UNLIKELY(reason))
-        *reason = "JSArrayBuffer is opaque root";
-    auto& wrapper = *JSC::jsCast<JSC::JSArrayBuffer*>(handle.slot()->asCell());
+    if (reason) [[unlikely]]
+        *reason = "JSArrayBuffer is opaque root"_s;
+    auto& wrapper = uncheckedDowncast<JSArrayBuffer>(*handle.slot()->asCell());
     return visitor.containsOpaqueRoot(wrapper.impl());
 }
 

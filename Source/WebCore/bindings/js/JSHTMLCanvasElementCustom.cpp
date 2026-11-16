@@ -26,17 +26,18 @@
 #include "config.h"
 #include "JSHTMLCanvasElement.h"
 
+#include "WebCoreOpaqueRootInlines.h"
 #include <JavaScriptCore/SlotVisitor.h>
 #include <JavaScriptCore/SlotVisitorInlines.h>
 
 namespace WebCore {
 
 template<typename Visitor>
-void JSHTMLCanvasElement::visitAdditionalChildren(Visitor& visitor)
+void JSHTMLCanvasElement::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    visitor.addOpaqueRoot(static_cast<CanvasBase*>(&wrapped()));
+    addWebCoreOpaqueRoot(visitor, static_cast<CanvasBase&>(wrapped()));
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSHTMLCanvasElement);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSHTMLCanvasElement);
 
 } // namespace WebCore

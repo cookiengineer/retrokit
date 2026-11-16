@@ -29,7 +29,6 @@
 
 #include "Logging.h"
 #include "NetworkConnectionToWebProcess.h"
-#include "WebCoreArgumentCoders.h"
 #include <WebCore/CacheQueryOptions.h>
 
 namespace WebKit {
@@ -52,26 +51,36 @@ CacheStorageEngineConnection::CacheStorageEngineConnection(NetworkConnectionToWe
 
 CacheStorageEngineConnection::~CacheStorageEngineConnection()
 {
-    for (auto& references : m_cachesLocks) {
-        ASSERT(references.value);
-        Engine::unlock(m_connection.networkProcess(), sessionID(), references.key);
+    if (auto* session = m_connection.networkSession()) {
+        for (auto& references : m_cachesLocks) {
+            ASSERT(references.value);
+            Engine::unlock(*session, references.key);
+        }
     }
 }
 
 void CacheStorageEngineConnection::open(WebCore::ClientOrigin&& origin, String&& cacheName, CacheIdentifierCallback&& callback)
 {
     CACHE_STORAGE_RELEASE_LOG("open cache");
-    Engine::open(m_connection.networkProcess(), sessionID(), WTFMove(origin), WTFMove(cacheName), [callback = WTFMove(callback), sessionID = this->sessionID()](auto& result) mutable {
-        CACHE_STORAGE_RELEASE_LOG_FUNCTION_IN_CALLBACK("open", "cache identifier is %" PRIu64, [](const auto& value) { return value.identifier; });
+    auto* session = m_connection.networkSession();
+    if (!session)
+        return callback(makeUnexpected(WebCore::DOMCacheEngine::Error::Internal));
+
+    Engine::open(*session, WTF::move(origin), WTF::move(cacheName), [callback = WTF::move(callback), sessionID = this->sessionID()](auto& result) mutable {
+        CACHE_STORAGE_RELEASE_LOG_FUNCTION_IN_CALLBACK("open", "cache identifier is %" PRIu64, [](const auto& value) { return value.identifier.object().toUInt64(); });
         callback(result);
     });
 }
 
-void CacheStorageEngineConnection::remove(uint64_t cacheIdentifier, CacheIdentifierCallback&& callback)
+void CacheStorageEngineConnection::remove(WebCore::DOMCacheIdentifier cacheIdentifier, RemoveCacheIdentifierCallback&& callback)
 {
-    CACHE_STORAGE_RELEASE_LOG("remove cache %" PRIu64, cacheIdentifier);
-    Engine::remove(m_connection.networkProcess(), sessionID(), cacheIdentifier, [callback = WTFMove(callback), sessionID = this->sessionID()](auto& result) mutable {
-        CACHE_STORAGE_RELEASE_LOG_FUNCTION_IN_CALLBACK("remove", "removed cache %" PRIu64, [](const auto& value) { return value.identifier; });
+    CACHE_STORAGE_RELEASE_LOG("remove cache %" PRIu64, cacheIdentifier.object().toUInt64());
+    auto* session = m_connection.networkSession();
+    if (!session)
+        return callback(makeUnexpected(WebCore::DOMCacheEngine::Error::Internal));
+
+    Engine::remove(*session, cacheIdentifier, [callback = WTF::move(callback), sessionID = this->sessionID()](auto& result) mutable {
+        CACHE_STORAGE_RELEASE_LOG_FUNCTION_IN_CALLBACK("caches", "removed cache %d", [](const auto& value) { return value; });
         callback(result);
     });
 }
@@ -79,42 +88,62 @@ void CacheStorageEngineConnection::remove(uint64_t cacheIdentifier, CacheIdentif
 void CacheStorageEngineConnection::caches(WebCore::ClientOrigin&& origin, uint64_t updateCounter, CacheInfosCallback&& callback)
 {
     CACHE_STORAGE_RELEASE_LOG("caches");
-    Engine::retrieveCaches(m_connection.networkProcess(), sessionID(), WTFMove(origin), updateCounter, [callback = WTFMove(callback), origin, sessionID = this->sessionID()](auto&& result) mutable {
+    auto* session = m_connection.networkSession();
+    if (!session)
+        return callback(makeUnexpected(WebCore::DOMCacheEngine::Error::Internal));
+
+    Engine::retrieveCaches(*session, WTF::move(origin), updateCounter, [callback = WTF::move(callback), origin, sessionID = this->sessionID()](auto&& result) mutable {
         CACHE_STORAGE_RELEASE_LOG_FUNCTION_IN_CALLBACK("caches", "caches size is %lu", [](const auto& value) { return value.infos.size(); });
-        callback(WTFMove(result));
+        callback(WTF::move(result));
     });
 }
 
-void CacheStorageEngineConnection::retrieveRecords(uint64_t cacheIdentifier, WebCore::RetrieveRecordsOptions&& options, RecordsCallback&& callback)
+void CacheStorageEngineConnection::retrieveRecords(WebCore::DOMCacheIdentifier cacheIdentifier, WebCore::RetrieveRecordsOptions&& options, RecordsCallback&& callback)
 {
-    CACHE_STORAGE_RELEASE_LOG("retrieveRecords in cache %" PRIu64, cacheIdentifier);
-    Engine::retrieveRecords(m_connection.networkProcess(), sessionID(), cacheIdentifier, WTFMove(options), [callback = WTFMove(callback), sessionID = this->sessionID()](auto&& result) mutable {
+    CACHE_STORAGE_RELEASE_LOG("retrieveRecords in cache %" PRIu64, cacheIdentifier.object().toUInt64());
+    auto* session = m_connection.networkSession();
+    if (!session)
+        return callback(makeUnexpected(WebCore::DOMCacheEngine::Error::Internal));
+
+    Engine::retrieveRecords(*session, cacheIdentifier, WTF::move(options), [callback = WTF::move(callback), sessionID = this->sessionID()](auto&& result) mutable {
         CACHE_STORAGE_RELEASE_LOG_FUNCTION_IN_CALLBACK("retrieveRecords", "records size is %lu", [](const auto& value) { return value.size(); });
-        callback(WTFMove(result));
+        callback(WTF::move(result));
     });
 }
 
-void CacheStorageEngineConnection::deleteMatchingRecords(uint64_t cacheIdentifier, WebCore::ResourceRequest&& request, WebCore::CacheQueryOptions&& options, RecordIdentifiersCallback&& callback)
+void CacheStorageEngineConnection::deleteMatchingRecords(WebCore::DOMCacheIdentifier cacheIdentifier, WebCore::ResourceRequest&& request, WebCore::CacheQueryOptions&& options, RecordIdentifiersCallback&& callback)
 {
-    CACHE_STORAGE_RELEASE_LOG("deleteMatchingRecords in cache %" PRIu64, cacheIdentifier);
-    Engine::deleteMatchingRecords(m_connection.networkProcess(), sessionID(), cacheIdentifier, WTFMove(request), WTFMove(options), [callback = WTFMove(callback), sessionID = this->sessionID()](auto&& result) mutable {
+    CACHE_STORAGE_RELEASE_LOG("deleteMatchingRecords in cache %" PRIu64, cacheIdentifier.object().toUInt64());
+    auto* session = m_connection.networkSession();
+    if (!session)
+        return callback(makeUnexpected(WebCore::DOMCacheEngine::Error::Internal));
+
+    Engine::deleteMatchingRecords(*session, cacheIdentifier, WTF::move(request), WTF::move(options), [callback = WTF::move(callback), sessionID = this->sessionID()](auto&& result) mutable {
         CACHE_STORAGE_RELEASE_LOG_FUNCTION_IN_CALLBACK("deleteMatchingRecords", "deleted %lu records",  [](const auto& value) { return value.size(); });
-        callback(WTFMove(result));
+        callback(WTF::move(result));
     });
 }
 
-void CacheStorageEngineConnection::putRecords(uint64_t cacheIdentifier, Vector<Record>&& records, RecordIdentifiersCallback&& callback)
+void CacheStorageEngineConnection::putRecords(WebCore::DOMCacheIdentifier cacheIdentifier, Vector<Record>&& records, RecordIdentifiersCallback&& callback)
 {
-    CACHE_STORAGE_RELEASE_LOG("putRecords in cache %" PRIu64 ", %lu records", cacheIdentifier, records.size());
-    Engine::putRecords(m_connection.networkProcess(), sessionID(), cacheIdentifier, WTFMove(records), [callback = WTFMove(callback), sessionID = this->sessionID()](auto&& result) mutable {
+    CACHE_STORAGE_RELEASE_LOG("putRecords in cache %" PRIu64 ", %lu records", cacheIdentifier.object().toUInt64(), records.size());
+    auto* session = m_connection.networkSession();
+    if (!session)
+        return callback(makeUnexpected(WebCore::DOMCacheEngine::Error::Internal));
+
+    Engine::putRecords(*session, cacheIdentifier, WTF::move(records), [callback = WTF::move(callback), sessionID = this->sessionID()](auto&& result) mutable {
         CACHE_STORAGE_RELEASE_LOG_FUNCTION_IN_CALLBACK("putRecords", "put %lu records",  [](const auto& value) { return value.size(); });
-        callback(WTFMove(result));
+        callback(WTF::move(result));
     });
 }
 
-void CacheStorageEngineConnection::reference(uint64_t cacheIdentifier)
+void CacheStorageEngineConnection::reference(WebCore::DOMCacheIdentifier cacheIdentifier)
 {
-    CACHE_STORAGE_RELEASE_LOG("reference cache %" PRIu64, cacheIdentifier);
+    CACHE_STORAGE_RELEASE_LOG("reference cache %" PRIu64, cacheIdentifier.object().toUInt64());
+    auto* session = m_connection.networkSession();
+    if (!session)
+        return;
+
     ASSERT(m_cachesLocks.isValidKey(cacheIdentifier));
     if (!m_cachesLocks.isValidKey(cacheIdentifier))
         return;
@@ -123,12 +152,16 @@ void CacheStorageEngineConnection::reference(uint64_t cacheIdentifier)
         return 0;
     }).iterator->value;
     if (!counter++)
-        Engine::lock(m_connection.networkProcess(), sessionID(), cacheIdentifier);
+        Engine::lock(*session, cacheIdentifier);
 }
 
-void CacheStorageEngineConnection::dereference(uint64_t cacheIdentifier)
+void CacheStorageEngineConnection::dereference(WebCore::DOMCacheIdentifier cacheIdentifier)
 {
-    CACHE_STORAGE_RELEASE_LOG("dereference cache %" PRIu64, cacheIdentifier);
+    CACHE_STORAGE_RELEASE_LOG("dereference cache %" PRIu64, cacheIdentifier.object().toUInt64());
+    auto* session = m_connection.networkSession();
+    if (!session)
+        return;
+
     ASSERT(m_cachesLocks.isValidKey(cacheIdentifier));
     if (!m_cachesLocks.isValidKey(cacheIdentifier))
         return;
@@ -141,18 +174,26 @@ void CacheStorageEngineConnection::dereference(uint64_t cacheIdentifier)
     if (--referenceResult->value)
         return;
 
-    Engine::unlock(m_connection.networkProcess(), sessionID(), cacheIdentifier);
+    Engine::unlock(*session, cacheIdentifier);
     m_cachesLocks.remove(referenceResult);
 }
 
 void CacheStorageEngineConnection::clearMemoryRepresentation(WebCore::ClientOrigin&& origin, CompletionHandler<void(std::optional<Error>&&)>&& completionHandler)
 {
-    Engine::clearMemoryRepresentation(m_connection.networkProcess(), sessionID(), WTFMove(origin), WTFMove(completionHandler));
+    auto* session = m_connection.networkSession();
+    if (!session)
+        return completionHandler(WebCore::DOMCacheEngine::Error::Internal);
+
+    Engine::clearMemoryRepresentation(*session, WTF::move(origin), WTF::move(completionHandler));
 }
 
 void CacheStorageEngineConnection::engineRepresentation(CompletionHandler<void(String&&)>&& completionHandler)
 {
-    Engine::representation(m_connection.networkProcess(), sessionID(), WTFMove(completionHandler));
+    auto* session = m_connection.networkSession();
+    if (!session)
+        return completionHandler({ });
+
+    Engine::representation(*session, WTF::move(completionHandler));
 }
 
 PAL::SessionID CacheStorageEngineConnection::sessionID() const

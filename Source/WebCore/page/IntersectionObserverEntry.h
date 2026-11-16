@@ -25,20 +25,22 @@
 
 #pragma once
 
-#if ENABLE(INTERSECTION_OBSERVER)
-
 #include "DOMRectReadOnly.h"
 #include "Element.h"
 #include <wtf/RefCounted.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
+namespace WTF {
+class TextStream;
+}
+
 namespace WebCore {
 
 class Element;
 
 class IntersectionObserverEntry : public RefCounted<IntersectionObserverEntry> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(IntersectionObserverEntry);
 public:
 
     struct Init {
@@ -46,38 +48,37 @@ public:
         std::optional<DOMRectInit> rootBounds;
         DOMRectInit boundingClientRect;
         DOMRectInit intersectionRect;
-        double intersectionRatio;
-        RefPtr<Element> target;
         bool isIntersecting;
+        double intersectionRatio;
+        Ref<Element> target;
     };
 
-    static Ref<IntersectionObserverEntry> create(const Init& init)
+    static Ref<IntersectionObserverEntry> create(Init&& init)
     {
-        return WTF::adoptRef(*new IntersectionObserverEntry(init));
+        return adoptRef(*new IntersectionObserverEntry(WTF::move(init)));
     }
-    
+
     double time() const { return m_time; }
     DOMRectReadOnly* rootBounds() const { return m_rootBounds.get(); }
-    DOMRectReadOnly* boundingClientRect() const { return m_boundingClientRect.get(); }
-    DOMRectReadOnly* intersectionRect() const { return m_intersectionRect.get(); }
-    Element* target() const { return m_target.get(); }
+    DOMRectReadOnly& boundingClientRect() const { return m_boundingClientRect; }
+    DOMRectReadOnly& intersectionRect() const { return m_intersectionRect; }
+    Element& target() const { return m_target; }
 
     bool isIntersecting() const { return m_isIntersecting; }
     double intersectionRatio() const { return m_intersectionRatio; }
 
 private:
-    IntersectionObserverEntry(const Init&);
+    explicit IntersectionObserverEntry(Init&&);
 
     double m_time { 0 };
-    RefPtr<DOMRectReadOnly> m_rootBounds;
-    RefPtr<DOMRectReadOnly> m_boundingClientRect;
-    RefPtr<DOMRectReadOnly> m_intersectionRect;
+    const RefPtr<DOMRectReadOnly> m_rootBounds;
+    const Ref<DOMRectReadOnly> m_boundingClientRect;
+    const Ref<DOMRectReadOnly> m_intersectionRect;
     double m_intersectionRatio { 0 };
-    RefPtr<Element> m_target;
+    const Ref<Element> m_target;
     bool m_isIntersecting { false };
 };
 
+TextStream& operator<<(TextStream&, const IntersectionObserverEntry&);
 
 } // namespace WebCore
-
-#endif // ENABLE(INTERSECTION_OBSERVER)

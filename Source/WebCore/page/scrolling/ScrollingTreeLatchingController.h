@@ -27,7 +27,7 @@
 
 #if ENABLE(ASYNC_SCROLLING)
 
-#include "ScrollTypes.h"
+#include <WebCore/ScrollTypes.h>
 #include <wtf/Lock.h>
 #include <wtf/Markable.h>
 #include <wtf/MonotonicTime.h>
@@ -59,7 +59,7 @@ public:
     void clearLatchedNode();
 
 private:
-    bool latchedNodeIsRelevant() const;
+    bool latchedNodeHasRecentInteraction() const;
 
     mutable Lock m_latchedNodeLock;
     std::optional<ScrollingNodeAndProcessingSteps> m_latchedNodeAndSteps WTF_GUARDED_BY_LOCK(m_latchedNodeLock);

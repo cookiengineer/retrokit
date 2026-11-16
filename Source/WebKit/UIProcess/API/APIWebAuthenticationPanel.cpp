@@ -43,27 +43,26 @@ Ref<WebAuthenticationPanel> WebAuthenticationPanel::create(const AuthenticatorMa
 }
 
 WebAuthenticationPanel::WebAuthenticationPanel()
-    : m_manager(makeUnique<AuthenticatorManager>())
-    , m_client(makeUniqueRef<WebAuthenticationPanelClient>())
+    : m_manager(AuthenticatorManager::create())
+    , m_client(WebAuthenticationPanelClient::create())
 {
     m_manager->enableNativeSupport();
 }
 
 WebAuthenticationPanel::WebAuthenticationPanel(const AuthenticatorManager& manager, const WTF::String& rpId, const TransportSet& transports, ClientDataType type, const WTF::String& userName)
-    : m_client(makeUniqueRef<WebAuthenticationPanelClient>())
-    , m_weakManager(makeWeakPtr(manager))
+    : m_client(WebAuthenticationPanelClient::create())
+    , m_weakManager(manager)
     , m_rpId(rpId)
     , m_clientDataType(type)
     , m_userName(userName)
 {
-    m_transports = Vector<AuthenticatorTransport>();
     m_transports.reserveInitialCapacity(AuthenticatorManager::maxTransportNumber);
     if (transports.contains(AuthenticatorTransport::Usb))
-        m_transports.uncheckedAppend(AuthenticatorTransport::Usb);
+        m_transports.append(AuthenticatorTransport::Usb);
     if (transports.contains(AuthenticatorTransport::Nfc))
-        m_transports.uncheckedAppend(AuthenticatorTransport::Nfc);
+        m_transports.append(AuthenticatorTransport::Nfc);
     if (transports.contains(AuthenticatorTransport::Internal))
-        m_transports.uncheckedAppend(AuthenticatorTransport::Internal);
+        m_transports.append(AuthenticatorTransport::Internal);
 }
 
 WebAuthenticationPanel::~WebAuthenticationPanel() = default;
@@ -71,35 +70,37 @@ WebAuthenticationPanel::~WebAuthenticationPanel() = default;
 void WebAuthenticationPanel::handleRequest(WebAuthenticationRequestData&& request, Callback&& callback)
 {
     ASSERT(m_manager);
-    request.weakPanel = makeWeakPtr(*this);
-    m_manager->handleRequest(WTFMove(request), WTFMove(callback));
+    request.weakPanel = *this;
+    protect(m_manager)->handleRequest(WTF::move(request), WTF::move(callback));
 }
 
 void WebAuthenticationPanel::cancel() const
 {
-    if (m_weakManager) {
-        m_weakManager->cancelRequest(*this);
+    if (RefPtr manager = m_weakManager.get()) {
+        manager->cancelRequest(*this);
         return;
     }
 
-    m_manager->cancel();
+    protect(m_manager)->cancel();
 }
 
 void WebAuthenticationPanel::setMockConfiguration(WebCore::MockWebAuthenticationConfiguration&& configuration)
 {
     ASSERT(m_manager);
 
-    if (!m_manager->isMock()) {
-        m_manager = makeUnique<MockAuthenticatorManager>(WTFMove(configuration));
-        m_manager->enableNativeSupport();
+    if (RefPtr mockManager = dynamicDowncast<MockAuthenticatorManager>(*m_manager)) {
+        mockManager->setTestConfiguration(WTF::move(configuration));
         return;
     }
-    static_cast<MockAuthenticatorManager*>(m_manager.get())->setTestConfiguration(WTFMove(configuration));
+
+    Ref manager = MockAuthenticatorManager::create(WTF::move(configuration));
+    manager->enableNativeSupport();
+    m_manager = WTF::move(manager);
 }
 
-void WebAuthenticationPanel::setClient(UniqueRef<WebAuthenticationPanelClient>&& client)
+void WebAuthenticationPanel::setClient(Ref<WebAuthenticationPanelClient>&& client)
 {
-    m_client = WTFMove(client);
+    m_client = WTF::move(client);
 }
 
 } // namespace API

@@ -25,23 +25,28 @@
 
 #pragma once
 
-#include "SpeechRecognitionConnectionClientIdentifier.h"
-#include <wtf/WeakPtr.h>
+#include <WebCore/SpeechRecognitionConnectionClientIdentifier.h>
+#include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
+#include <wtf/Identified.h>
 
 namespace WebCore {
 
 struct SpeechRecognitionError;
 struct SpeechRecognitionResultData;
 
-class SpeechRecognitionConnectionClient : public CanMakeWeakPtr<SpeechRecognitionConnectionClient> {
+#if ENABLE(MEDIA_STREAM)
+class RealtimeMediaSource;
+#endif
+
+class SpeechRecognitionConnectionClient : public Identified<SpeechRecognitionConnectionClientIdentifier>, public AbstractRefCountedAndCanMakeWeakPtr<SpeechRecognitionConnectionClient> {
 public:
-    SpeechRecognitionConnectionClient()
-        : m_identifier(SpeechRecognitionConnectionClientIdentifier::generate())
-    {
-    }
+    SpeechRecognitionConnectionClient() = default;
 
-    virtual ~SpeechRecognitionConnectionClient() = default;
+    virtual ~SpeechRecognitionConnectionClient() { }
 
+#if ENABLE(MEDIA_STREAM)
+    virtual void captureSourceCreated(RealtimeMediaSource&) { }
+#endif
     virtual void didStart() = 0;
     virtual void didStartCapturingAudio() = 0;
     virtual void didStartCapturingSound() = 0;
@@ -53,11 +58,6 @@ public:
     virtual void didReceiveResult(Vector<SpeechRecognitionResultData>&& resultDatas) = 0;
     virtual void didError(const SpeechRecognitionError&) = 0;
     virtual void didEnd() = 0;
-
-    SpeechRecognitionConnectionClientIdentifier identifier() const { return m_identifier; };
-
-private:
-    SpeechRecognitionConnectionClientIdentifier m_identifier;
 };
 
 } // namespace WebCore

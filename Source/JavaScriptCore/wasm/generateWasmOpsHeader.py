@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#!/usr/bin/env python3
 
 # Copyright (C) 2016-2017 Apple Inc. All rights reserved.
 #
@@ -50,16 +50,39 @@ def cppMacro(wasmOpcode, value, b3, inc, *extraArgs):
     extraArgsStr = ", " + ", ".join(extraArgs) if len(extraArgs) else ""
     return " \\\n    macro(" + wasm.toCpp(wasmOpcode) + ", " + hex(int(value)) + ", " + b3 + ", " + str(inc) + extraArgsStr + ")"
 
+
+def cppMacroPacked(wasmOpcode, value):
+    return " \\\n    macro(" + wasm.toCpp(wasmOpcode) + ", " + hex(int(value)) + ")"
+
+
 def typeMacroizer():
     inc = 0
     for ty in wasm.types:
-        yield cppMacro(ty, wasm.types[ty]["value"], wasm.types[ty]["b3type"], inc)
+        yield cppMacro(ty, wasm.types[ty]["value"], wasm.types[ty]["b3type"], inc, ty, str(wasm.types[ty]["width"]))
         inc += 1
+
+
+def packedTypeMacroizer():
+    for ty in wasm.packed_types:
+        yield cppMacroPacked(ty, wasm.packed_types[ty]["value"])
+
+
+def typeMacroizerFiltered(filter):
+    for t in typeMacroizer():
+        if not filter(t):
+            yield t
 
 type_definitions = ["#define FOR_EACH_WASM_TYPE(macro)"]
 type_definitions.extend([t for t in typeMacroizer()])
+type_definitions.extend(["\n\n#define FOR_EACH_WASM_PACKED_TYPE(macro)"])
+type_definitions.extend([t for t in packedTypeMacroizer()])
 type_definitions = "".join(type_definitions)
 
+type_definitions_except_funcref_externref = ["#define FOR_EACH_WASM_TYPE_EXCEPT_FUNCREF_AND_EXTERNREF(macro)"]
+type_definitions_except_funcref_externref.extend([t for t in typeMacroizerFiltered(lambda x: x == "funcref" or x == "externref")])
+type_definitions_except_funcref_externref = "".join(type_definitions_except_funcref_externref)
+
+min_type_value = min(wasm.types.items(), key=lambda pair: pair[1]['value'])[1]['value']
 
 def opcodeMacroizer(filter, opcodeField="value", modifier=None):
     inc = 0
@@ -97,6 +120,12 @@ def saturatedTruncMacroizer():
     return opcodeMacroizer(lambda op: (op["category"] == "conversion" and op["value"] == 0xfc), modifier=modifier, opcodeField="extendedOp")
 
 
+def wideArithmeticMacroizer():
+    def modifier(op):
+        return [cppType(type) for type in op["parameter"] + op["return"]]
+    return opcodeMacroizer(lambda op: (op["category"] == "widearithmetic"), modifier=modifier, opcodeField="extendedOp")
+
+
 def atomicMemoryLoadMacroizer():
     def modifier(op):
         return [cppType(op["return"][0])]
@@ -116,17 +145,19 @@ def atomicBinaryRMWMacroizer():
 
 
 defines = ["#define FOR_EACH_WASM_SPECIAL_OP(macro)"]
-defines.extend([op for op in opcodeMacroizer(lambda op: not (isUnary(op) or isBinary(op) or op["category"] == "control" or op["category"] == "memory" or op["value"] == 0xfc or isAtomic(op)))])
+defines.extend([op for op in opcodeMacroizer(lambda op: not (isUnary(op) or isBinary(op) or op["category"] == "control" or op["category"] == "memory" or op["value"] == 0xfc or op["category"] == "gc" or isAtomic(op)))])
 defines.append("\n\n#define FOR_EACH_WASM_CONTROL_FLOW_OP(macro)")
 defines.extend([op for op in opcodeMacroizer(lambda op: op["category"] == "control")])
-defines.append("\n\n#define FOR_EACH_WASM_SIMPLE_UNARY_OP(macro)")
-defines.extend([op for op in opcodeWithTypesMacroizer(lambda op: isUnary(op) and isSimple(op))])
-defines.append("\n\n#define FOR_EACH_WASM_UNARY_OP(macro) \\\n    FOR_EACH_WASM_SIMPLE_UNARY_OP(macro)")
-defines.extend([op for op in opcodeWithTypesMacroizer(lambda op: isUnary(op) and not (isSimple(op)))])
-defines.append("\n\n#define FOR_EACH_WASM_SIMPLE_BINARY_OP(macro)")
-defines.extend([op for op in opcodeWithTypesMacroizer(lambda op: isBinary(op) and isSimple(op))])
-defines.append("\n\n#define FOR_EACH_WASM_BINARY_OP(macro) \\\n    FOR_EACH_WASM_SIMPLE_BINARY_OP(macro)")
-defines.extend([op for op in opcodeWithTypesMacroizer(lambda op: isBinary(op) and not (isSimple(op)))])
+defines.append("\n\n#define FOR_EACH_WASM_NON_COMPARE_UNARY_OP(macro)")
+defines.extend([op for op in opcodeWithTypesMacroizer(lambda op: isUnary(op) and not isCompare(op))])
+defines.append("\n\n#define FOR_EACH_WASM_COMPARE_UNARY_OP(macro)")
+defines.extend([op for op in opcodeWithTypesMacroizer(lambda op: isUnary(op) and isCompare(op))])
+defines.append("\n\n#define FOR_EACH_WASM_UNARY_OP(macro) \\\n    FOR_EACH_WASM_NON_COMPARE_UNARY_OP(macro) \\\n    FOR_EACH_WASM_COMPARE_UNARY_OP(macro)")
+defines.append("\n\n#define FOR_EACH_WASM_NON_COMPARE_BINARY_OP(macro)")
+defines.extend([op for op in opcodeWithTypesMacroizer(lambda op: isBinary(op) and not isCompare(op))])
+defines.append("\n\n#define FOR_EACH_WASM_COMPARE_BINARY_OP(macro)")
+defines.extend([op for op in opcodeWithTypesMacroizer(lambda op: isBinary(op) and isCompare(op))])
+defines.append("\n\n#define FOR_EACH_WASM_BINARY_OP(macro) \\\n    FOR_EACH_WASM_NON_COMPARE_BINARY_OP(macro) \\\n    FOR_EACH_WASM_COMPARE_BINARY_OP(macro)")
 defines.append("\n\n#define FOR_EACH_WASM_MEMORY_LOAD_OP(macro)")
 defines.extend([op for op in memoryLoadMacroizer()])
 defines.append("\n\n#define FOR_EACH_WASM_MEMORY_STORE_OP(macro)")
@@ -135,6 +166,8 @@ defines.append("\n\n#define FOR_EACH_WASM_TABLE_OP(macro)")
 defines.extend([op for op in opcodeMacroizer(lambda op: (op["category"] == "exttable"), opcodeField="extendedOp")])
 defines.append("\n\n#define FOR_EACH_WASM_TRUNC_SATURATED_OP(macro)")
 defines.extend([op for op in saturatedTruncMacroizer()])
+defines.append("\n\n#define FOR_EACH_WASM_WIDE_ARITHMETIC_OP(macro)")
+defines.extend([op for op in wideArithmeticMacroizer()])
 defines.append("\n\n#define FOR_EACH_WASM_EXT_ATOMIC_LOAD_OP(macro)")
 defines.extend([op for op in atomicMemoryLoadMacroizer()])
 defines.append("\n\n#define FOR_EACH_WASM_EXT_ATOMIC_STORE_OP(macro)")
@@ -143,11 +176,14 @@ defines.append("\n\n#define FOR_EACH_WASM_EXT_ATOMIC_BINARY_RMW_OP(macro)")
 defines.extend([op for op in atomicBinaryRMWMacroizer()])
 defines.append("\n\n#define FOR_EACH_WASM_EXT_ATOMIC_OTHER_OP(macro)")
 defines.extend([op for op in opcodeMacroizer(lambda op: isAtomic(op) and (not isAtomicLoad(op) and not isAtomicStore(op) and not isAtomicBinaryRMW(op)), opcodeField="extendedOp")])
+defines.append("\n\n#define FOR_EACH_WASM_GC_OP(macro)")
+defines.extend([op for op in opcodeMacroizer(lambda op: (op["category"] == "gc"), opcodeField="extendedOp")])
 defines.append("\n\n")
 
 defines = "".join(defines)
 
 opValueSet = set([op for op in wasm.opcodeIterator(lambda op: True, lambda op: opcodes[op]["value"])])
+opValueSet.add(0xFD)  # ExtSIMD
 maxOpValue = max(opValueSet)
 
 
@@ -191,64 +227,104 @@ contents = wasm.header + """
 
 #pragma once
 
+#include <wtf/Compiler.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
+#include <wtf/Platform.h>
+
 #if ENABLE(WEBASSEMBLY)
 
 #include <cstdint>
+#include <wtf/PrintStream.h>
+#include <wtf/text/ASCIILiteral.h>
 
-#if ENABLE(WEBASSEMBLY_B3JIT)
-#include "B3Type.h"
-#endif
+namespace JSC {
 
-namespace JSC { namespace Wasm {
+enum class Width : uint8_t;
+
+namespace Wasm {
 
 static constexpr unsigned expectedVersionNumber = """ + wasm.expectedVersionNumber + """;
 
 static constexpr unsigned numTypes = """ + str(len(types)) + """;
 
-""" + type_definitions + """
+static constexpr int minTypeValue = """ + str(min_type_value) + """;
+""" + type_definitions + "\n" + """
+""" + type_definitions_except_funcref_externref + """
 #define CREATE_ENUM_VALUE(name, id, ...) name = id,
 enum class TypeKind : int8_t {
     FOR_EACH_WASM_TYPE(CREATE_ENUM_VALUE)
 };
 #undef CREATE_ENUM_VALUE
 
-enum class Nullable : bool {
-  No = false,
-  Yes = true,
+#define CREATE_ENUM_VALUE(name, id) name = id,
+enum class PackedType: int8_t {
+    FOR_EACH_WASM_PACKED_TYPE(CREATE_ENUM_VALUE)
 };
+#undef CREATE_ENUM_VALUE
 
-using SignatureIndex = uintptr_t;
+using TypeIndex = uintptr_t;
+
+inline bool typeIndexIsType(TypeIndex index)
+{
+    auto signedIndex = static_cast<std::make_signed<TypeIndex>::type>(index);
+    return (signedIndex < 0) && (signedIndex > minTypeValue);
+}
 
 struct Type {
     TypeKind kind;
-    Nullable nullable;
-    SignatureIndex index;
+    TypeIndex index;
 
     bool operator==(const Type& other) const
     {
-        return other.kind == kind && other.nullable == nullable && other.index == index;
-    }
-
-    bool operator!=(const Type& other) const
-    {
-        return !(other == *this);
+        return other.kind == kind && other.index == index;
     }
 
     bool isNullable() const
     {
-        return static_cast<bool>(nullable);
+        return kind == TypeKind::RefNull || kind == TypeKind::Externref || kind == TypeKind::Funcref;
     }
 
+    // Saying conservatively.
+    bool definitelyIsCellOrNull() const;
+    bool definitelyIsWasmGCObjectOrNull() const;
+
+    void dump(PrintStream& out) const;
+    Width width() const;
+
+    // Use Wasm::isFuncref and Wasm::isExternref instead because they check against all kinds of representations of function references and external references.
+
     #define CREATE_PREDICATE(name, ...) bool is ## name() const { return kind == TypeKind::name; }
-    FOR_EACH_WASM_TYPE(CREATE_PREDICATE)
+    FOR_EACH_WASM_TYPE_EXCEPT_FUNCREF_AND_EXTERNREF(CREATE_PREDICATE)
     #undef CREATE_PREDICATE
+
+    bool isGP64() const
+    {
+        switch(kind) {
+        case TypeKind::I64:
+        case TypeKind::Funcref:
+        case TypeKind::Exnref:
+        case TypeKind::Externref:
+        case TypeKind::RefNull:
+        case TypeKind::Ref:
+            return true;
+        default:
+            return false;
+        }
+    }
 };
 
 namespace Types
 {
-#define CREATE_CONSTANT(name, id, ...) constexpr Type name = Type{TypeKind::name, Nullable::Yes, 0u};
+#define CREATE_CONSTANT(name, id, ...) constexpr Type name = Type{TypeKind::name, 0u};
 FOR_EACH_WASM_TYPE(CREATE_CONSTANT)
 #undef CREATE_CONSTANT
+#if USE(JSVALUE64)
+constexpr Type IPtr = I64;
+#elif USE(JSVALUE32_64)
+constexpr Type IPtr = I32;
+#endif
 } // namespace Types
 
 #define CREATE_CASE(name, id, ...) case id: return true;
@@ -264,27 +340,38 @@ inline bool isValidTypeKind(Int i)
 }
 #undef CREATE_CASE
 
-#if ENABLE(WEBASSEMBLY_B3JIT)
-#define CREATE_CASE(name, id, b3type, ...) case TypeKind::name: return b3type;
-inline B3::Type toB3Type(Type type)
+#define CREATE_CASE(name, id, ...) case id: return true;
+template <typename Int>
+inline bool isValidPackedType(Int i)
 {
-    switch (type.kind) {
-    FOR_EACH_WASM_TYPE(CREATE_CASE)
+    switch (i) {
+    default: return false;
+    FOR_EACH_WASM_PACKED_TYPE(CREATE_CASE)
     }
     RELEASE_ASSERT_NOT_REACHED();
-    return B3::Void;
+    return false;
 }
 #undef CREATE_CASE
-#endif
 
-#define CREATE_CASE(name, ...) case TypeKind::name: return #name;
-inline const char* makeString(TypeKind kind)
+#define CREATE_CASE(name, ...) case TypeKind::name: return #name ## _s;
+inline ASCIILiteral makeString(TypeKind kind)
 {
     switch (kind) {
     FOR_EACH_WASM_TYPE(CREATE_CASE)
     }
     RELEASE_ASSERT_NOT_REACHED();
-    return nullptr;
+    return { };
+}
+#undef CREATE_CASE
+
+#define CREATE_CASE(name, ...) case PackedType::name: return #name ## _s;
+inline ASCIILiteral makeString(PackedType packedType)
+{
+    switch (packedType) {
+    FOR_EACH_WASM_PACKED_TYPE(CREATE_CASE)
+    }
+    RELEASE_ASSERT_NOT_REACHED();
+    return { };
 }
 #undef CREATE_CASE
 
@@ -312,6 +399,12 @@ inline TypeKind linearizedToType(int i)
 
 
 """ + defines + """
+#define FOR_EACH_WASM_EXT_PREFIX_OP_WITH_ENUM(macro) \\
+    macro(ExtGC, 0xFB, Oops, 0, ExtGCOpType) \\
+    macro(Ext1, 0xFC, Oops, 0, Ext1OpType) \\
+    macro(ExtSIMD, 0xFD, Oops, 0, ExtSIMDOpType) \\
+    macro(ExtAtomic, 0xFE, Oops, 0, ExtAtomicOpType)
+
 #define FOR_EACH_WASM_OP(macro) \\
     FOR_EACH_WASM_SPECIAL_OP(macro) \\
     FOR_EACH_WASM_CONTROL_FLOW_OP(macro) \\
@@ -319,8 +412,7 @@ inline TypeKind linearizedToType(int i)
     FOR_EACH_WASM_BINARY_OP(macro) \\
     FOR_EACH_WASM_MEMORY_LOAD_OP(macro) \\
     FOR_EACH_WASM_MEMORY_STORE_OP(macro) \\
-    macro(Ext1,  0xFC, Oops, 0) \\
-    macro(ExtAtomic, 0xFE, Oops, 0)
+    FOR_EACH_WASM_EXT_PREFIX_OP_WITH_ENUM(macro)
 
 #define CREATE_ENUM_VALUE(name, id, ...) name = id,
 
@@ -352,12 +444,19 @@ enum class StoreOpType : uint8_t {
     FOR_EACH_WASM_MEMORY_STORE_OP(CREATE_ENUM_VALUE)
 };
 
-enum class Ext1OpType : uint8_t {
+enum class Ext1OpType : uint32_t {
     FOR_EACH_WASM_TABLE_OP(CREATE_ENUM_VALUE)
     FOR_EACH_WASM_TRUNC_SATURATED_OP(CREATE_ENUM_VALUE)
+    FOR_EACH_WASM_WIDE_ARITHMETIC_OP(CREATE_ENUM_VALUE)
 };
 
-enum class ExtAtomicOpType : uint8_t {
+enum class ExtSIMDOpType : uint32_t;
+
+enum class ExtGCOpType : uint32_t {
+    FOR_EACH_WASM_GC_OP(CREATE_ENUM_VALUE)
+};
+
+enum class ExtAtomicOpType : uint32_t {
     FOR_EACH_WASM_EXT_ATOMIC_LOAD_OP(CREATE_ENUM_VALUE)
     FOR_EACH_WASM_EXT_ATOMIC_STORE_OP(CREATE_ENUM_VALUE)
     FOR_EACH_WASM_EXT_ATOMIC_BINARY_RMW_OP(CREATE_ENUM_VALUE)
@@ -379,11 +478,11 @@ inline bool isControlOp(OpType op)
     return false;
 }
 
-inline bool isSimple(UnaryOpType op)
+inline bool isControlFlowInstruction(OpType op)
 {
     switch (op) {
-#define CREATE_CASE(name, ...) case UnaryOpType::name:
-    FOR_EACH_WASM_SIMPLE_UNARY_OP(CREATE_CASE)
+#define CREATE_CASE(name, ...) case OpType::name:
+    FOR_EACH_WASM_CONTROL_FLOW_OP(CREATE_CASE)
         return true;
 #undef CREATE_CASE
     default:
@@ -392,16 +491,19 @@ inline bool isSimple(UnaryOpType op)
     return false;
 }
 
-inline bool isSimple(BinaryOpType op)
+// Enhanced version that includes ExtGC branch operations
+// This function requires access to the current extended opcode for ExtGC operations
+template<typename ExtendedOpcodeProvider>
+inline bool isControlFlowInstructionWithExtGC(OpType op, ExtendedOpcodeProvider&& getExtendedOpcode)
 {
-    switch (op) {
-#define CREATE_CASE(name, ...) case BinaryOpType::name:
-    FOR_EACH_WASM_SIMPLE_BINARY_OP(CREATE_CASE)
+    if (isControlFlowInstruction(op))
         return true;
-#undef CREATE_CASE
-    default:
-        break;
+
+    if (op == OpType::ExtGC) {
+        uint32_t extOp = getExtendedOpcode();
+        return extOp == static_cast<uint32_t>(ExtGCOpType::BrOnCast) || extOp == static_cast<uint32_t>(ExtGCOpType::BrOnCastFail);
     }
+
     return false;
 }
 
@@ -428,14 +530,52 @@ inline uint32_t memoryLog2Alignment(ExtAtomicOpType op)
     return 0;
 }
 
-#define CREATE_CASE(name, ...) case name: return #name;
-inline const char* makeString(OpType op)
+#define CREATE_CASE(name, ...) case name: return #name ## _s;
+inline ASCIILiteral makeString(OpType op)
 {
     switch (op) {
     FOR_EACH_WASM_OP(CREATE_CASE)
     }
     RELEASE_ASSERT_NOT_REACHED();
-    return nullptr;
+    return { };
+}
+#undef CREATE_CASE
+
+#define CREATE_CASE(name, ...) case Ext1OpType::name: return #name ## _s;
+inline ASCIILiteral makeString(Ext1OpType op)
+{
+    switch (op) {
+    FOR_EACH_WASM_TABLE_OP(CREATE_CASE)
+    FOR_EACH_WASM_TRUNC_SATURATED_OP(CREATE_CASE)
+    FOR_EACH_WASM_WIDE_ARITHMETIC_OP(CREATE_CASE)
+    }
+    RELEASE_ASSERT_NOT_REACHED();
+    return { };
+}
+#undef CREATE_CASE
+
+#define CREATE_CASE(name, ...) case ExtGCOpType::name: return #name ## _s;
+inline ASCIILiteral makeString(ExtGCOpType op)
+{
+    switch (op) {
+    FOR_EACH_WASM_GC_OP(CREATE_CASE)
+    }
+    RELEASE_ASSERT_NOT_REACHED();
+    return { };
+}
+#undef CREATE_CASE
+
+#define CREATE_CASE(name, ...) case ExtAtomicOpType::name: return #name ## _s;
+inline ASCIILiteral makeString(ExtAtomicOpType op)
+{
+    switch (op) {
+    FOR_EACH_WASM_EXT_ATOMIC_LOAD_OP(CREATE_CASE)
+    FOR_EACH_WASM_EXT_ATOMIC_STORE_OP(CREATE_CASE)
+    FOR_EACH_WASM_EXT_ATOMIC_BINARY_RMW_OP(CREATE_CASE)
+    FOR_EACH_WASM_EXT_ATOMIC_OTHER_OP(CREATE_CASE)
+    }
+    RELEASE_ASSERT_NOT_REACHED();
+    return { };
 }
 #undef CREATE_CASE
 
@@ -453,9 +593,16 @@ inline void printInternal(PrintStream& out, JSC::Wasm::OpType op)
     out.print(JSC::Wasm::makeString(op));
 }
 
+inline void printInternal(PrintStream& out, JSC::Wasm::ExtAtomicOpType op)
+{
+    out.print(JSC::Wasm::makeString(op));
+}
+
 } // namespace WTF
 
 #endif // ENABLE(WEBASSEMBLY)
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 """
 

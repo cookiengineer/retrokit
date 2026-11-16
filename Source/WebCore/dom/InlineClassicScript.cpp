@@ -26,20 +26,26 @@
 #include "config.h"
 #include "InlineClassicScript.h"
 
-#include "Element.h"
+#include "ElementInlines.h"
+#include "HTMLNames.h"
 #include "ScriptElement.h"
 
 namespace WebCore {
 
 Ref<InlineClassicScript> InlineClassicScript::create(ScriptElement& scriptElement)
 {
-    auto& element = scriptElement.element();
+    Ref element = scriptElement.element();
     return adoptRef(*new InlineClassicScript(
-        element.attributeWithoutSynchronization(HTMLNames::nonceAttr),
-        element.attributeWithoutSynchronization(HTMLNames::crossoriginAttr),
+        element->nonce(),
+        element->attributeWithoutSynchronization(HTMLNames::crossoriginAttr),
         scriptElement.scriptCharset(),
-        element.localName(),
-        element.isInUserAgentShadowTree()));
+        element->localName(),
+        element->isInUserAgentShadowTree()));
+}
+
+InlineClassicScript::InlineClassicScript(const AtomString& nonce, const AtomString& crossOriginMode, const AtomString& charset, const AtomString& initiatorType, bool isInUserAgentShadowTree)
+    : ScriptElementCachedScriptFetcher(nonce, ReferrerPolicy::EmptyString, RequestPriority::Auto, crossOriginMode, charset, initiatorType, isInUserAgentShadowTree)
+{
 }
 
 }

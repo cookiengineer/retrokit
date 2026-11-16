@@ -27,27 +27,29 @@
 
 #if ENABLE(MATHML)
 
-#include "MathMLPresentationElement.h"
+#include "MathMLRowElement.h"
 
 namespace WebCore {
 
-class MathMLFractionElement final : public MathMLPresentationElement {
-    WTF_MAKE_ISO_ALLOCATED(MathMLFractionElement);
+class MathMLFractionElement final : public MathMLRowElement {
+    WTF_MAKE_TZONE_ALLOCATED(MathMLFractionElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(MathMLFractionElement);
 public:
     static Ref<MathMLFractionElement> create(const QualifiedName& tagName, Document&);
-    const Length& lineThickness();
-    enum FractionAlignment {
-        FractionAlignmentCenter,
-        FractionAlignmentLeft,
-        FractionAlignmentRight
+    const Length& lineThickness() LIFETIME_BOUND;
+    enum class FractionAlignment : uint8_t {
+        Center,
+        Left,
+        Right
     };
     FractionAlignment numeratorAlignment();
     FractionAlignment denominatorAlignment();
 
 private:
     MathMLFractionElement(const QualifiedName& tagName, Document&);
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) final;
+    bool acceptsLegacyMathVariantAttribute() final { return false; };
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
 
     FractionAlignment cachedFractionAlignment(const QualifiedName&, std::optional<FractionAlignment>&);
 

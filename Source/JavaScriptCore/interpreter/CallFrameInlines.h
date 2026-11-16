@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,19 +25,14 @@
 
 #pragma once
 
-#include "CallFrame.h"
-#include "JSCallee.h"
-#include "JSGlobalObject.h"
-#include "RegisterInlines.h"
+#include <JavaScriptCore/CallFrame.h>
+#include <JavaScriptCore/HeapCellInlines.h>
+#include <JavaScriptCore/JSCalleeInlines.h>
+#include <JavaScriptCore/RegisterInlines.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
-
-inline Register& CallFrame::r(VirtualRegister reg)
-{
-    if (reg.isConstant())
-        return *reinterpret_cast<Register*>(&this->codeBlock()->constantRegister(reg));
-    return this[reg.offset()];
-}
 
 inline Register& CallFrame::uncheckedR(VirtualRegister reg)
 {
@@ -45,20 +40,28 @@ inline Register& CallFrame::uncheckedR(VirtualRegister reg)
     return this[reg.offset()];
 }
 
+ALWAYS_INLINE VM& CallFrame::deprecatedVM() const
+{
+    JSCell* callee = this->callee().asCell();
+    ASSERT(callee);
+    return callee->vm();
+}
+
 inline JSValue CallFrame::guaranteedJSValueCallee() const
 {
-    ASSERT(!callee().isWasm());
+    ASSERT(!callee().isNativeCallee());
     return this[static_cast<int>(CallFrameSlot::callee)].jsValue();
 }
 
 inline JSObject* CallFrame::jsCallee() const
 {
-    ASSERT(!callee().isWasm());
+    ASSERT(!callee().isNativeCallee());
     return this[static_cast<int>(CallFrameSlot::callee)].object();
 }
 
 inline CodeBlock* CallFrame::codeBlock() const
 {
+    ASSERT(!callee().isNativeCallee());
     return this[static_cast<int>(CallFrameSlot::codeBlock)].Register::codeBlock();
 }
 
@@ -69,29 +72,31 @@ inline SUPPRESS_ASAN CodeBlock* CallFrame::unsafeCodeBlock() const
 
 inline JSGlobalObject* CallFrame::lexicalGlobalObject(VM& vm) const
 {
-    UNUSED_PARAM(vm);
-#if ENABLE(WEBASSEMBLY)
-    if (callee().isWasm())
-        return lexicalGlobalObjectFromWasmCallee(vm);
-#endif
-    return jsCallee()->globalObject();
+    if (callee().isNativeCallee())
+        return lexicalGlobalObjectFromNativeCallee(vm);
+    return jsCallee()->realm();
 }
 
-inline bool CallFrame::isStackOverflowFrame() const
+inline bool CallFrame::isZombieFrame() const
 {
-    if (callee().isWasm())
+    if (callee().isNativeCallee())
         return false;
-    return jsCallee() == jsCallee()->globalObject()->stackOverflowFrameCallee();
+    return jsCallee() == jsCallee()->realm()->zombieFrameCallee();
 }
 
-inline bool CallFrame::isWasmFrame() const
+inline bool CallFrame::isNativeCalleeFrame() const
 {
-    return callee().isWasm();
+    return callee().isNativeCallee();
 }
 
 inline void CallFrame::setCallee(JSObject* callee)
 {
     static_cast<Register*>(this)[static_cast<int>(CallFrameSlot::callee)] = callee;
+}
+
+inline void CallFrame::setCallee(NativeCallee* callee)
+{
+    reinterpret_cast<uint64_t*>(this)[static_cast<int>(CallFrameSlot::callee)] = CalleeBits::encodeNativeCallee(callee);
 }
 
 inline void CallFrame::setCodeBlock(CodeBlock* codeBlock)
@@ -117,4 +122,48 @@ inline Register* CallFrame::topOfFrame()
     return topOfFrameInternal();
 }
 
+inline void CallFrame::setArgument(size_t argument, JSValue value)
+{
+    this[argumentOffset(argument)] = value;
+}
+
+inline JSValue* CallFrame::addressOfArgumentsStart() const { return std::bit_cast<JSValue*>(this + argumentOffset(0)); }
+inline JSValue CallFrame::argument(size_t argument) const
+{
+    if (argument >= argumentCount())
+        return jsUndefined();
+    return getArgumentUnsafe(argument);
+}
+
+inline JSValue CallFrame::uncheckedArgument(size_t argument) const
+{
+    ASSERT(argument < argumentCount());
+    return getArgumentUnsafe(argument);
+}
+
+inline JSValue CallFrame::getArgumentUnsafe(size_t argIndex) const
+{
+    // User beware! This method does not verify that there is a valid
+    // argument at the specified argIndex. This is used for debugging
+    // and verification code only. The caller is expected to know what
+    // he/she is doing when calling this method.
+    return this[argumentOffset(argIndex)].jsValue();
+}
+
+inline JSValue CallFrame::thisValue() const { return this[thisArgumentOffset()].jsValue(); }
+inline void CallFrame::setThisValue(JSValue value) { this[thisArgumentOffset()] = value; }
+inline JSValue CallFrame::newTarget() const { return thisValue(); }
+
+SUPPRESS_ASAN ALWAYS_INLINE void CallFrame::setCallSiteIndex(CallSiteIndex callSiteIndex)
+{
+    this[static_cast<int>(CallFrameSlot::argumentCountIncludingThis)].tag() = callSiteIndex.bits();
+}
+
+inline std::span<JSValue> CallFrame::argumentsSpan()
+{
+    return { addressOfArgumentsStart(), argumentCount() };
+}
+
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

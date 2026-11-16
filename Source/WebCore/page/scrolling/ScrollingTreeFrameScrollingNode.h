@@ -25,9 +25,12 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if ENABLE(ASYNC_SCROLLING)
 
-#include "ScrollingTreeScrollingNode.h"
+#include <WebCore/ScrollingTreeScrollingNode.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -35,15 +38,15 @@ class PlatformWheelEvent;
 class ScrollingTree;
 
 class WEBCORE_EXPORT ScrollingTreeFrameScrollingNode : public ScrollingTreeScrollingNode {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(ScrollingTreeFrameScrollingNode, WEBCORE_EXPORT);
 public:
     virtual ~ScrollingTreeFrameScrollingNode();
 
-    void commitStateBeforeChildren(const ScrollingStateNode&) override;
+    bool commitStateBeforeChildren(const ScrollingStateNode&) override;
     
-    bool fixedElementsLayoutRelativeToFrame() const { return m_fixedElementsLayoutRelativeToFrame; }
     bool visualViewportIsSmallerThanLayoutViewport() const { return m_visualViewportIsSmallerThanLayoutViewport; }
 
-    FloatSize viewToContentsOffset(const FloatPoint& scrollPosition) const;
+    FloatSize NODELETE viewToContentsOffset(const FloatPoint& scrollPosition) const;
 
     FloatRect layoutViewport() const { return m_layoutViewport; };
     void setLayoutViewport(const FloatRect& r) { m_layoutViewport = r; };
@@ -51,14 +54,26 @@ public:
     FloatRect layoutViewportRespectingRubberBanding() const;
 
     float frameScaleFactor() const { return m_frameScaleFactor; }
+    int headerHeight() const { return m_headerHeight; }
+    int footerHeight() const { return m_footerHeight; }
+    FloatBoxExtent obscuredContentInsets() const { return m_obscuredContentInsets; }
+#if HAVE(NSREFRESHCONTROLLER)
+    float topScrollStretchForRefreshController() const { return m_topScrollStretchForRefreshController; }
+#endif
+    virtual void viewWillStartLiveResize() { }
+    virtual void viewWillEndLiveResize() { }
+    virtual void viewSizeDidChange() { }
+
+    virtual bool isScrollingTreeFrameScrollingNodeMac() const { return false; };
+
+#if PLATFORM(IOS_FAMILY)
+    virtual bool isScrollingTreeFrameScrollingNodeIOS() const { return false; }
+#endif
 
 protected:
     ScrollingTreeFrameScrollingNode(ScrollingTree&, ScrollingNodeType, ScrollingNodeID);
 
-    int headerHeight() const { return m_headerHeight; }
-    int footerHeight() const { return m_footerHeight; }
-    float topContentInset() const { return m_topContentInset; }
-
+    FloatSize sizeForVisibleContent() const { return m_sizeForVisibleContent; }
     FloatPoint minLayoutViewportOrigin() const { return m_minLayoutViewportOrigin; }
     FloatPoint maxLayoutViewportOrigin() const { return m_maxLayoutViewportOrigin; }
 
@@ -66,25 +81,28 @@ protected:
 
 private:
     void updateViewportForCurrentScrollPosition(std::optional<FloatRect>) override;
-    bool scrollPositionAndLayoutViewportMatch(const FloatPoint& position, std::optional<FloatRect> overrideLayoutViewport) override;
-    FloatRect layoutViewportForScrollPosition(const FloatPoint&, float scale, ScrollBehaviorForFixedElements = StickToDocumentBounds) const;
+    bool NODELETE scrollPositionAndLayoutViewportMatch(const FloatPoint& position, std::optional<FloatRect> overrideLayoutViewport) override;
+    FloatRect layoutViewportForScrollPosition(const FloatPoint&, float scale, ScrollBehaviorForFixedElements = ScrollBehaviorForFixedElements::StickToDocumentBounds) const;
 
-    void dumpProperties(WTF::TextStream&, ScrollingStateTreeAsTextBehavior) const override;
+    void dumpProperties(WTF::TextStream&, OptionSet<ScrollingStateTreeAsTextBehavior>) const override;
 
     FloatRect m_layoutViewport;
+    FloatSize m_sizeForVisibleContent;
     FloatPoint m_minLayoutViewportOrigin;
     FloatPoint m_maxLayoutViewportOrigin;
     std::optional<FloatSize> m_overrideVisualViewportSize;
     
     float m_frameScaleFactor { 1 };
-    float m_topContentInset { 0 };
+    FloatBoxExtent m_obscuredContentInsets;
+#if HAVE(NSREFRESHCONTROLLER)
+    float m_topScrollStretchForRefreshController { 0 };
+#endif
 
     int m_headerHeight { 0 };
     int m_footerHeight { 0 };
     
-    ScrollBehaviorForFixedElements m_behaviorForFixed { StickToDocumentBounds };
+    ScrollBehaviorForFixedElements m_behaviorForFixed { ScrollBehaviorForFixedElements::StickToDocumentBounds };
     
-    bool m_fixedElementsLayoutRelativeToFrame { false };
     bool m_visualViewportIsSmallerThanLayoutViewport { false };
 };
 

@@ -18,13 +18,14 @@ struct GPUTestConfig
     enum API
     {
         kAPIUnknown = 0,
-        kAPID3D9,
         kAPID3D11,
         kAPIGLDesktop,
         kAPIGLES,
         kAPIVulkan,
         kAPISwiftShader,
         kAPIMetal,
+        kAPIWgpu,
+        kAPINative,
     };
 
     enum Condition
@@ -47,28 +48,57 @@ struct GPUTestConfig
         kConditionMacHighSierra,
         kConditionMacMojave,
         kConditionMac,
+        kConditionIOS,
+        kConditionIOSSimulator,
         kConditionLinux,
         kConditionAndroid,
         kConditionNVIDIA,
         kConditionAMD,
         kConditionIntel,
         kConditionVMWare,
+        kConditionApple,
+        kConditionQualcomm,
+        kConditionARM,
+        kConditionSamsung,
         kConditionRelease,
         kConditionDebug,
-        kConditionD3D9,
+        kConditionDebugLayers,
         kConditionD3D11,
         kConditionGLDesktop,
         kConditionGLES,
         kConditionVulkan,
+        kConditionNative,
         kConditionMetal,
+        kConditionWgpu,
         kConditionNexus5X,
         kConditionPixel2OrXL,
+        kConditionPixel4OrXL,
+        kConditionPixel6,
+        kConditionPixel7,
+        kConditionPixel10,
+        kConditionFlipN2,
+        kConditionMaliG710,
+        kConditionGalaxyA23,
+        kConditionGalaxyA34,
+        kConditionGalaxyA54,
+        kConditionGalaxyS22,
+        kConditionGalaxyS23,
+        kConditionGalaxyS24Exynos,
+        kConditionGalaxyS24Qualcomm,
+        kConditionFindX6,
         kConditionNVIDIAQuadroP400,
+        kConditionNVIDIAGTX1660,
+        kConditionPineapple,
         kConditionSwiftShader,
         kConditionPreRotation,
         kConditionPreRotation90,
         kConditionPreRotation180,
         kConditionPreRotation270,
+        kConditionNoSan,
+        kConditionASan,
+        kConditionTSan,
+        kConditionUBSan,
+        kConditionIR,
 
         kNumberOfConditions,
     };
@@ -76,6 +106,7 @@ struct GPUTestConfig
     using ConditionArray = angle::BitSet<GPUTestConfig::kNumberOfConditions>;
 
     GPUTestConfig();
+    GPUTestConfig(bool isSwiftShader);
     GPUTestConfig(const API &api, uint32_t preRotation);
 
     const GPUTestConfig::ConditionArray &getConditions() const;

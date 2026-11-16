@@ -20,130 +20,70 @@
 
 #pragma once
 
-#include "CSSStyleDeclaration.h"
-#include "RenderStyleConstants.h"
-#include "SVGRenderStyleDefs.h"
-#include "TextFlags.h"
-#include <wtf/IsoMalloc.h>
+#include "StyleExtractor.h"
+#include <WebCore/CSSStyleProperties.h>
+#include <WebCore/PseudoElementIdentifier.h>
+#include <WebCore/RenderStyleConstants.h>
+#include <wtf/FixedVector.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
-class CSSFontStyleValue;
-class CSSPrimitiveValue;
-class CSSValueList;
-class Color;
 class Element;
-class FilterOperations;
-class FontSelectionValue;
 class MutableStyleProperties;
-class Node;
-class RenderElement;
-class RenderStyle;
-class SVGPaint;
-class ShadowData;
-class StyleProperties;
-class StylePropertyShorthand;
 
-enum EUpdateLayout { DoNotUpdateLayout = false, UpdateLayout = true };
-
-enum AdjustPixelValuesForComputedStyle { AdjustPixelValues, DoNotAdjustPixelValues };
-
-class ComputedStyleExtractor {
-    WTF_MAKE_FAST_ALLOCATED;
+class CSSComputedStyleDeclaration final : public CSSStyleProperties, public RefCounted<CSSComputedStyleDeclaration> {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(CSSComputedStyleDeclaration, WEBCORE_EXPORT);
 public:
-    ComputedStyleExtractor(Node*, bool allowVisitedStyle = false, PseudoId = PseudoId::None);
-    ComputedStyleExtractor(Element*, bool allowVisitedStyle = false, PseudoId = PseudoId::None);
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
 
-    RefPtr<CSSValue> propertyValue(CSSPropertyID, EUpdateLayout = UpdateLayout);
-    RefPtr<CSSValue> valueForPropertyInStyle(const RenderStyle&, CSSPropertyID, RenderElement* = nullptr);
-    String customPropertyText(const String& propertyName);
-    RefPtr<CSSValue> customPropertyValue(const String& propertyName);
+    enum class AllowVisited : bool { No, Yes };
+    WEBCORE_EXPORT static Ref<CSSComputedStyleDeclaration> create(Element&, AllowVisited);
+    static Ref<CSSComputedStyleDeclaration> create(Element&, const std::optional<Style::PseudoElementIdentifier>&);
+    static Ref<CSSComputedStyleDeclaration> createEmpty(Element&);
 
-    // Helper methods for HTML editing.
-    Ref<MutableStyleProperties> copyPropertiesInSet(const CSSPropertyID* set, unsigned length);
-    Ref<MutableStyleProperties> copyProperties();
-    RefPtr<CSSPrimitiveValue> getFontSizeCSSValuePreferringKeyword();
-    bool useFixedFontDefaultSize();
-    bool propertyMatches(CSSPropertyID, const CSSValue*);
-
-    static Ref<CSSValue> valueForFilter(const RenderStyle&, const FilterOperations&, AdjustPixelValuesForComputedStyle = AdjustPixelValues);
-
-    static Ref<CSSPrimitiveValue> fontNonKeywordWeightFromStyleValue(FontSelectionValue);
-    static Ref<CSSPrimitiveValue> fontWeightFromStyleValue(FontSelectionValue);
-    static Ref<CSSPrimitiveValue> fontNonKeywordStretchFromStyleValue(FontSelectionValue);
-    static Ref<CSSPrimitiveValue> fontStretchFromStyleValue(FontSelectionValue);
-    static Ref<CSSFontStyleValue> fontNonKeywordStyleFromStyleValue(FontSelectionValue);
-    static Ref<CSSFontStyleValue> fontStyleFromStyleValue(std::optional<FontSelectionValue>, FontStyleAxis);
-
-private:
-    // The styled element is either the element passed into
-    // computedPropertyValue, or the PseudoElement for :before and :after if
-    // they exist.
-    Element* styledElement() const;
-
-    // The renderer we should use for resolving layout-dependent properties.
-    // Note that it differs from styledElement()->renderer() in the case we have
-    // no pseudo-element.
-    RenderElement* styledRenderer() const;
-
-    RefPtr<CSSValue> svgPropertyValue(CSSPropertyID);
-    Ref<CSSValue> adjustSVGPaintForCurrentColor(SVGPaintType, const String& url, const Color&, const Color& currentColor) const;
-    static Ref<CSSValue> valueForShadow(const ShadowData*, CSSPropertyID, const RenderStyle&, AdjustPixelValuesForComputedStyle = AdjustPixelValues);
-    Ref<CSSPrimitiveValue> currentColorOrValidColor(const RenderStyle*, const Color&) const;
-
-    Ref<CSSValueList> getCSSPropertyValuesForShorthandProperties(const StylePropertyShorthand&);
-    RefPtr<CSSValueList> getCSSPropertyValuesFor2SidesShorthand(const StylePropertyShorthand&);
-    RefPtr<CSSValueList> getCSSPropertyValuesFor4SidesShorthand(const StylePropertyShorthand&);
-    Ref<CSSValueList> getBackgroundShorthandValue();
-    Ref<CSSValueList> getCSSPropertyValuesForGridShorthand(const StylePropertyShorthand&);
-
-    RefPtr<Element> m_element;
-    PseudoId m_pseudoElementSpecifier;
-    bool m_allowVisitedStyle;
-};
-
-class CSSComputedStyleDeclaration final : public CSSStyleDeclaration {
-    WTF_MAKE_ISO_ALLOCATED_EXPORT(CSSComputedStyleDeclaration, WEBCORE_EXPORT);
-public:
-    WEBCORE_EXPORT static Ref<CSSComputedStyleDeclaration> create(Element&, bool allowVisitedStyle = false, StringView pseudoElementName = StringView { });
-    virtual ~CSSComputedStyleDeclaration();
-
-    WEBCORE_EXPORT void ref() final;
-    WEBCORE_EXPORT void deref() final;
+    WEBCORE_EXPORT virtual ~CSSComputedStyleDeclaration();
 
     String getPropertyValue(CSSPropertyID) const;
 
 private:
-    CSSComputedStyleDeclaration(Element&, bool allowVisitedStyle, StringView);
+    enum class IsEmpty : bool { No, Yes };
+    CSSComputedStyleDeclaration(Element&, AllowVisited);
+    CSSComputedStyleDeclaration(Element&, IsEmpty);
+    CSSComputedStyleDeclaration(Element&, const std::optional<Style::PseudoElementIdentifier>&);
 
     // CSSOM functions. Don't make these public.
-    CSSRule* parentRule() const final;
+    CSSRule* NODELETE parentRule() const final;
+    CSSRuleList* NODELETE cssRules() const final;
     unsigned length() const final;
     String item(unsigned index) const final;
     RefPtr<DeprecatedCSSOMValue> getPropertyCSSValue(const String& propertyName) final;
     String getPropertyValue(const String& propertyName) final;
-    String getPropertyPriority(const String& propertyName) final;
-    String getPropertyShorthand(const String& propertyName) final;
-    bool isPropertyImplicit(const String& propertyName) final;
+    String NODELETE getPropertyPriority(const String& propertyName) final;
+    String NODELETE getPropertyShorthand(const String& propertyName) final;
+    bool NODELETE isPropertyImplicit(const String& propertyName) final;
     ExceptionOr<void> setProperty(const String& propertyName, const String& value, const String& priority) final;
     ExceptionOr<String> removeProperty(const String& propertyName) final;
-    String cssText() const final;
+    String NODELETE cssText() const final;
     ExceptionOr<void> setCssText(const String&) final;
-    RefPtr<CSSValue> getPropertyCSSValueInternal(CSSPropertyID) final;
     String getPropertyValueInternal(CSSPropertyID) final;
-    ExceptionOr<void> setPropertyInternal(CSSPropertyID, const String& value, bool important) final;
+    ExceptionOr<void> setPropertyInternal(CSSPropertyID, const String& value, IsImportant) final;
     Ref<MutableStyleProperties> copyProperties() const final;
 
-    RefPtr<CSSValue> getPropertyCSSValue(CSSPropertyID, EUpdateLayout = UpdateLayout) const;
+    Element& element() const { return m_element; }
 
-    const Settings* settings() const final;
+    const Settings* NODELETE settings() const final;
+    const FixedVector<CSSPropertyID>& exposedComputedCSSPropertyIDs() const;
 
-    mutable Ref<Element> m_element;
-    PseudoId m_pseudoElementSpecifier;
-    bool m_allowVisitedStyle;
-    unsigned m_refCount { 1 };
+    Style::Extractor extractor() const;
+
+    const Ref<Element> m_element;
+    std::optional<Style::PseudoElementIdentifier> m_pseudoElementIdentifier { std::nullopt };
+    bool m_isEmpty { false };
+    bool m_allowVisitedStyle { false };
 };
 
 } // namespace WebCore

@@ -31,8 +31,10 @@
 #include <WebCore/SelectionData.h>
 #include <wtf/Forward.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/glib/GRefPtr.h>
 
+typedef struct _GdkPixbuf GdkPixbuf;
 typedef struct _GtkWidget GtkWidget;
 
 #if USE(GTK4)
@@ -41,20 +43,25 @@ typedef struct _GdkDrag GdkDrag;
 typedef struct _GdkDragContext GdkDragContext;
 #endif
 
+namespace WebCore {
+class ShareableBitmap;
+}
+
 namespace WebKit {
 
-class ShareableBitmap;
-
 class DragSource {
-    WTF_MAKE_NONCOPYABLE(DragSource); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(DragSource);
+    WTF_MAKE_NONCOPYABLE(DragSource);
 public:
 
     explicit DragSource(GtkWidget*);
     ~DragSource();
 
-    void begin(WebCore::SelectionData&&, OptionSet<WebCore::DragOperation>, RefPtr<ShareableBitmap>&&);
+    void begin(WebCore::SelectionData&&, OptionSet<WebCore::DragOperation>, RefPtr<WebCore::ShareableBitmap>&&, WebCore::IntPoint&& imageHotspot);
 
 private:
+    GRefPtr<GdkPixbuf> selectionImage() const;
+
     GtkWidget* m_webView { nullptr };
 #if USE(GTK4)
     GRefPtr<GdkDrag> m_drag;

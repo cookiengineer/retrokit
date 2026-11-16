@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,61 +28,37 @@
 
 #pragma once
 
-#include "FloatPoint.h"
-#include "FloatQuad.h"
-#include "FloatRect.h"
+#include <WebCore/FloatPoint.h>
+#include <WebCore/FloatQuad.h>
+#include <WebCore/FloatRect.h>
 #include <optional>
 
 namespace WebCore {
 
 class FloatLine {
 public:
-    FloatLine() { }
+    FloatLine() = default;
     FloatLine(const FloatPoint& start, const FloatPoint& end)
         : m_start(start)
         , m_end(end)
-        , m_length(sqrtf(powf(start.x() - end.x(), 2) + powf(start.y() - end.y(), 2)))
+        , m_length(std::hypot(start.x() - end.x(), start.y() - end.y()))
     {
     }
     
-    const FloatPoint& start() const { return m_start; }
-    const FloatPoint& end() const { return m_end; }
+    const FloatPoint& start() const LIFETIME_BOUND { return m_start; }
+    const FloatPoint& end() const LIFETIME_BOUND { return m_end; }
     
     float length() const { return m_length; }
 
-    WEBCORE_EXPORT const FloatPoint pointAtAbsoluteDistance(float) const;
-    const FloatPoint pointAtRelativeDistance(float) const;
+    WEBCORE_EXPORT const FloatPoint NODELETE pointAtAbsoluteDistance(float) const;
+    const FloatPoint NODELETE pointAtRelativeDistance(float) const;
     const FloatLine extendedToBounds(const FloatRect&) const;
-    const std::optional<FloatPoint> intersectionWith(const FloatLine&) const;
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<FloatLine> decode(Decoder&);
+    const std::optional<FloatPoint> NODELETE intersectionWith(const FloatLine&) const;
     
 private:
     FloatPoint m_start { 0, 0 };
     FloatPoint m_end { 0, 0 };
     float m_length { 0 };
 };
-
-template<class Encoder> void FloatLine::encode(Encoder& encoder) const
-{
-    encoder << m_start;
-    encoder << m_end;
-}
-
-template<class Decoder> std::optional<FloatLine> FloatLine::decode(Decoder& decoder)
-{
-    std::optional<FloatPoint> start;
-    decoder >> start;
-    if (!start)
-        return std::nullopt;
-
-    std::optional<FloatPoint> end;
-    decoder >> end;
-    if (!end)
-        return std::nullopt;
-
-    return {{ *start, *end }};
-}
 
 }

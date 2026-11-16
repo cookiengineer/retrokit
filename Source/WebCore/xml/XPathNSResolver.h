@@ -1,6 +1,6 @@
 /*
  * Copyright 2005 Frerich Raabe <raabe@kde.org>
- * Copyright (C) 2006 Apple Inc.
+ * Copyright (C) 2006 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,7 +34,7 @@ namespace WebCore {
 class WEBCORE_EXPORT XPathNSResolver : public RefCounted<XPathNSResolver> {
 public:
     virtual ~XPathNSResolver();
-    virtual String lookupNamespaceURI(const String& prefix) = 0;
+    virtual AtomString lookupNamespaceURI(const AtomString& prefix) = 0;
 
 protected:
     XPathNSResolver() = default;

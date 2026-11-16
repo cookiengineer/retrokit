@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2025 Apple Inc. All rights reserved.
  * Copyright (C) 2018 Yusuke Suzuki <yusukesuzuki@slowstart.org>.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,55 +31,76 @@
 #include "WasmFormat.h"
 #include "WasmOps.h"
 #include "WasmParser.h"
+#include "WasmTypeSectionState.h"
 #include <wtf/text/ASCIILiteral.h>
+#include <wtf/text/MakeString.h>
 
 namespace JSC { namespace Wasm {
 
 class SectionParser final : public Parser<void> {
 public:
-    SectionParser(const uint8_t* data, size_t size, size_t offsetInSource, ModuleInformation& info)
-        : Parser(data, size)
+    SectionParser(std::span<const uint8_t> data, size_t offsetInSource, ModuleInformation& info)
+        : Parser(data)
         , m_offsetInSource(offsetInSource)
         , m_info(info)
     {
     }
 
-#define WASM_SECTION_DECLARE_PARSER(NAME, ID, DESCRIPTION) PartialResult WARN_UNUSED_RETURN parse ## NAME();
+#define WASM_SECTION_DECLARE_PARSER(NAME, ID, ORDERING, DESCRIPTION) [[nodiscard]] PartialResult parse ## NAME();
     FOR_EACH_KNOWN_WASM_SECTION(WASM_SECTION_DECLARE_PARSER)
 #undef WASM_SECTION_DECLARE_PARSER
 
-    PartialResult WARN_UNUSED_RETURN parseCustom();
+    [[nodiscard]] PartialResult parseCustom();
 
 private:
     template <typename ...Args>
-    NEVER_INLINE UnexpectedResult WARN_UNUSED_RETURN fail(Args... args) const
+    [[nodiscard]] NEVER_INLINE UnexpectedResult fail(Args... args) const
     {
         using namespace FailureHelper; // See ADL comment in namespace above.
-        if (UNLIKELY(ASSERT_ENABLED && Options::crashOnFailedWebAssemblyValidate()))
+        if (ASSERT_ENABLED && Options::crashOnFailedWasmValidate()) [[unlikely]]
             CRASH();
 
         return UnexpectedResult(makeString("WebAssembly.Module doesn't parse at byte "_s, String::number(m_offset + m_offsetInSource), ": "_s, makeString(args)...));
     }
 
-    PartialResult WARN_UNUSED_RETURN parseGlobalType(GlobalInformation&);
-    PartialResult WARN_UNUSED_RETURN parseMemoryHelper(bool isImport);
-    PartialResult WARN_UNUSED_RETURN parseTableHelper(bool isImport);
+    [[nodiscard]] PartialResult parseGlobalType(GlobalInformation&);
+    [[nodiscard]] PartialResult parseMemoryHelper(bool isImport);
+    [[nodiscard]] PartialResult parseTableHelper(bool isImport);
     enum class LimitsType { Memory, Table };
-    PartialResult WARN_UNUSED_RETURN parseResizableLimits(uint32_t& initial, std::optional<uint32_t>& maximum, bool& isShared, LimitsType);
-    PartialResult WARN_UNUSED_RETURN parseInitExpr(uint8_t&, uint64_t&, Type& initExprType);
-    PartialResult WARN_UNUSED_RETURN parseI32InitExpr(std::optional<I32InitExpr>&, ASCIILiteral failMessage);
+    template <LimitsType T>
+    [[nodiscard]] PartialResult parseResizableLimits(uint64_t& initial, std::optional<uint64_t>& maximum, bool& isShared, bool& is64bit);
+    [[nodiscard]] PartialResult parseInitExpr(uint8_t&, bool&, uint64_t&, v128_t&, Type, Type& initExprType);
+    [[nodiscard]] PartialResult parseI32InitExpr(std::optional<I32InitExpr>&, ASCIILiteral failMessage);
+    [[nodiscard]] PartialResult parseI64InitExpr(std::optional<I64InitExpr>&, ASCIILiteral failMessage);
 
-    PartialResult WARN_UNUSED_RETURN validateElementTableIdx(uint32_t);
-    PartialResult WARN_UNUSED_RETURN parseI32InitExprForElementSection(std::optional<I32InitExpr>&);
-    PartialResult WARN_UNUSED_RETURN parseElementKind(uint8_t& elementKind);
-    PartialResult WARN_UNUSED_RETURN parseIndexCountForElementSection(uint32_t&, const unsigned);
-    PartialResult WARN_UNUSED_RETURN parseElementSegmentVectorOfExpressions(Vector<uint32_t>&, const unsigned, const unsigned);
-    PartialResult WARN_UNUSED_RETURN parseElementSegmentVectorOfIndexes(Vector<uint32_t>&, const unsigned, const unsigned);
+    [[nodiscard]] PartialResult parseFunctionType(uint32_t position, ParsedDef&);
+    [[nodiscard]] PartialResult parsePackedType(PackedType&);
+    [[nodiscard]] PartialResult parseStorageType(StorageType&);
+    [[nodiscard]] PartialResult parseStructType(uint32_t position, ParsedDef&);
+    [[nodiscard]] PartialResult parseArrayType(uint32_t position, ParsedDef&);
+    [[nodiscard]] PartialResult parseRecursionGroup(uint32_t position);
+    [[nodiscard]] PartialResult parseSubtype(uint32_t position, ParsedDef&, Vector<TypeIndex>&, bool);
 
-    PartialResult WARN_UNUSED_RETURN parseI32InitExprForDataSection(std::optional<I32InitExpr>&);
+    [[nodiscard]] PartialResult validateElementTableIdx(uint32_t, Type);
+    [[nodiscard]] PartialResult parseI32InitExprForElementSection(std::optional<I32InitExpr>&);
+    [[nodiscard]] PartialResult parseI64InitExprForElementSection(std::optional<I64InitExpr>&);
+    [[nodiscard]] PartialResult parseElementKind(uint8_t& elementKind);
+    [[nodiscard]] PartialResult parseIndexCountForElementSection(uint32_t&, const unsigned);
+    [[nodiscard]] PartialResult parseElementSegmentVectorOfExpressions(Type, Vector<Element::InitializationType>&, Vector<uint64_t>&, const unsigned, const unsigned);
+    [[nodiscard]] PartialResult parseElementSegmentVectorOfIndexes(Vector<Element::InitializationType>&, Vector<uint64_t>&, const unsigned, const unsigned);
+
+    [[nodiscard]] PartialResult parseI32InitExprForDataSection(std::optional<I32InitExpr>&);
+    [[nodiscard]] PartialResult parseI64InitExprForDataSection(std::optional<I64InitExpr>&);
+
+    static bool checkStructuralSubtype(const RTT& subRTT, const RTT& expandedRTT);
+    [[nodiscard]] PartialResult checkSubtypeValidity(const Subtype&, const RTT& canonicalRTT);
 
     size_t m_offsetInSource;
-    Ref<ModuleInformation> m_info;
+    const Ref<ModuleInformation> m_info;
+    // Parser-local scaffolding for the type section. Only populated during
+    // parseType(); the base class's m_typeSectionState pointer references
+    // this member for the duration of that call.
+    TypeSectionState m_typeSection;
 };
 
 } } // namespace JSC::Wasm

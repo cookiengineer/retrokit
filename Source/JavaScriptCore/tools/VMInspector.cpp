@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -31,83 +31,56 @@
 #include "HeapInlines.h"
 #include "HeapIterationScope.h"
 #include "JSCInlines.h"
+#include "JSWebAssemblyModule.h"
 #include "MarkedSpaceInlines.h"
 #include "StackVisitor.h"
-#include <mutex>
+#include "VMEntryRecord.h"
+#include "VMManager.h"
 #include <wtf/Expected.h>
+#include <wtf/TZoneMallocInlines.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
-VMInspector& VMInspector::instance()
-{
-    static VMInspector* manager;
-    static std::once_flag once;
-    std::call_once(once, [] {
-        manager = new VMInspector();
-    });
-    return *manager;
-}
-
-void VMInspector::add(VM* vm)
-{
-    Locker locker { m_lock };
-    m_vmList.append(vm);
-}
-
-void VMInspector::remove(VM* vm)
-{
-    Locker locker { m_lock };
-    m_vmList.remove(vm);
-}
-
 #if ENABLE(JIT)
-static bool ensureIsSafeToLock(Lock& lock)
+static bool NODELETE ensureIsSafeToLock(Lock& lock) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
 {
     static constexpr unsigned maxRetries = 2;
     unsigned tryCount = 0;
     while (tryCount++ <= maxRetries) {
-        if (lock.tryLock()) {
-            lock.unlock();
+        if (lock.tryLock())
             return true;
-        }
     }
     return false;
 }
 #endif // ENABLE(JIT)
 
-void VMInspector::forEachVM(Function<FunctorStatus(VM&)>&& func)
+// Returns null if the callFrame doesn't actually correspond to any active VM.
+VM* VMInspector::vmForCallFrame(CallFrame* callFrame)
 {
-    VMInspector& inspector = instance();
-    Locker lock { inspector.getLock() };
-    inspector.iterate(func);
+    return VMManager::findMatchingVM([&] (VM& vm) -> bool {
+        void* stackBottom = vm.stackPointerAtVMEntry(); // high memory
+        void* stackTop = vm.stackLimit(); // low memory
+        return stackBottom > callFrame && callFrame > stackTop;
+    });
 }
 
-auto VMInspector::isValidExecutableMemory(void* machinePC) -> Expected<bool, Error>
+WTF_IGNORES_THREAD_SAFETY_ANALYSIS auto VMInspector::isValidExecutableMemory(void* machinePC) -> Expected<bool, Error>
 {
 #if ENABLE(JIT)
-    bool found = false;
-    bool hasTimeout = false;
-    iterate([&] (VM&) -> FunctorStatus {
-        auto& allocator = ExecutableAllocator::singleton();
-        auto& lock = allocator.getLock();
+    auto& allocator = ExecutableAllocator::singleton();
+    auto& lock = allocator.getLock();
 
-        bool isSafeToLock = ensureIsSafeToLock(lock);
-        if (!isSafeToLock) {
-            hasTimeout = true;
-            return FunctorStatus::Continue; // Skip this VM.
-        }
-
-        Locker executableAllocatorLocker { lock };
-        if (allocator.isValidExecutableMemory(executableAllocatorLocker, machinePC)) {
-            found = true;
-            return FunctorStatus::Done;
-        }
-        return FunctorStatus::Continue;
-    });
-
-    if (!found && hasTimeout)
+    bool isSafeToLock = ensureIsSafeToLock(lock);
+    if (!isSafeToLock)
         return makeUnexpected(Error::TimedOut);
-    return found;
+
+    Locker executableAllocatorLocker { AdoptLock, lock };
+    if (allocator.isValidExecutableMemory(executableAllocatorLocker, machinePC))
+        return true;
+
+    return false;
 #else
     UNUSED_PARAM(machinePC);
     return false;
@@ -119,9 +92,12 @@ auto VMInspector::codeBlockForMachinePC(void* machinePC) -> Expected<CodeBlock*,
 #if ENABLE(JIT)
     CodeBlock* codeBlock = nullptr;
     bool hasTimeout = false;
-    iterate([&] (VM& vm) {
+    VMManager::forEachVM([&] (VM& vm) WTF_IGNORES_THREAD_SAFETY_ANALYSIS {
+        if (!vm.isInService())
+            return IterationStatus::Continue;
+
         if (!vm.currentThreadIsHoldingAPILock())
-            return FunctorStatus::Continue;
+            return IterationStatus::Continue;
 
         // It is safe to call Heap::forEachCodeBlockIgnoringJITPlans here because:
         // 1. CodeBlocks are added to the CodeBlockSet from the main thread before
@@ -138,12 +114,12 @@ auto VMInspector::codeBlockForMachinePC(void* machinePC) -> Expected<CodeBlock*,
         bool isSafeToLock = ensureIsSafeToLock(codeBlockSetLock);
         if (!isSafeToLock) {
             hasTimeout = true;
-            return FunctorStatus::Continue; // Skip this VM.
+            return IterationStatus::Continue; // Skip this VM.
         }
 
-        Locker locker { codeBlockSetLock };
+        Locker locker { AdoptLock, codeBlockSetLock };
         vm.heap.forEachCodeBlockIgnoringJITPlans(locker, [&] (CodeBlock* cb) {
-            JITCode* jitCode = cb->jitCode().get();
+            RefPtr jitCode = cb->jitCode();
             if (!jitCode) {
                 // If the codeBlock is a replacement codeBlock which is in the process of being
                 // compiled, its jitCode will be null, and we can disregard it as a match for
@@ -160,8 +136,8 @@ auto VMInspector::codeBlockForMachinePC(void* machinePC) -> Expected<CodeBlock*,
             }
         });
         if (codeBlock)
-            return FunctorStatus::Done;
-        return FunctorStatus::Continue;
+            return IterationStatus::Done;
+        return IterationStatus::Continue;
     });
 
     if (!codeBlock && hasTimeout)
@@ -218,7 +194,7 @@ struct CellAddressCheckFunctor : MarkedBlock::CountFunctor {
     {
     }
 
-    IterationStatus operator()(HeapCell* cell, HeapCell::Kind) const
+    IterationStatus NODELETE operator()(HeapCell* cell, HeapCell::Kind) const
     {
         if (cell == candidate) {
             found = true;
@@ -250,7 +226,7 @@ bool VMInspector::isValidCodeBlock(VM* vm, CodeBlock* candidate)
         {
         }
 
-        void operator()(CodeBlock* codeBlock) const
+        void NODELETE operator()(CodeBlock* codeBlock) const
         {
             if (codeBlock == candidate)
                 found = true;
@@ -280,14 +256,14 @@ CodeBlock* VMInspector::codeBlockForFrame(VM* vm, CallFrame* topCallFrame, unsig
         {
         }
 
-        StackVisitor::Status operator()(StackVisitor& visitor) const
+        IterationStatus NODELETE operator()(StackVisitor& visitor) const
         {
             auto currentFrame = nextFrame++;
             if (currentFrame == targetFrame) {
                 codeBlock = visitor->codeBlock();
-                return StackVisitor::Done;
+                return IterationStatus::Done;
             }
-            return StackVisitor::Continue;
+            return IterationStatus::Continue;
         }
 
         unsigned targetFrame;
@@ -296,7 +272,7 @@ CodeBlock* VMInspector::codeBlockForFrame(VM* vm, CallFrame* topCallFrame, unsig
     };
 
     FetchCodeBlockFunctor functor(frameNumber);
-    topCallFrame->iterate(*vm, functor);
+    StackVisitor::visit(topCallFrame, *vm, functor);
     return functor.codeBlock;
 }
 
@@ -313,7 +289,7 @@ public:
     {
     }
 
-    StackVisitor::Status operator()(StackVisitor& visitor) const
+    IterationStatus operator()(StackVisitor& visitor) const
     {
         m_currentFrame++;
         if (m_currentFrame > m_framesToSkip) {
@@ -322,8 +298,8 @@ public:
             });
         }
         if (m_action == DumpOne && m_currentFrame > m_framesToSkip)
-            return StackVisitor::Done;
-        return StackVisitor::Continue;
+            return IterationStatus::Done;
+        return IterationStatus::Continue;
     }
 
 private:
@@ -337,118 +313,148 @@ void VMInspector::dumpCallFrame(VM* vm, CallFrame* callFrame, unsigned framesToS
     if (!ensureCurrentThreadOwnsJSLock(vm))
         return;
     DumpFrameFunctor functor(DumpFrameFunctor::DumpOne, framesToSkip);
-    callFrame->iterate(*vm, functor);
+    StackVisitor::visit(callFrame, *vm, functor);
 }
 
-void VMInspector::dumpRegisters(CallFrame* callFrame)
+SUPPRESS_ASAN void VMInspector::dumpRegisters(CallFrame* callFrame)
 {
-    CodeBlock* codeBlock = callFrame->codeBlock();
-    if (!codeBlock) {
-        dataLog("Dumping host frame registers not supported.\n");
+    VM* vmPtr = vmForCallFrame(callFrame);
+    if (!vmPtr) {
+        dataLogLn("Cannot find callFrame on any VM stack.");
         return;
     }
-    VM& vm = codeBlock->vm();
+
+    VM& vm = *vmPtr;
+
     auto valueAsString = [&] (JSValue v) -> CString {
         if (!v.isCell() || VMInspector::isValidCell(&vm.heap, reinterpret_cast<JSCell*>(JSValue::encode(v))))
             return toCString(v);
-        return "";
+        return ""_s;
     };
-
-    dataLogF("Register frame: \n\n");
-    dataLogF("-----------------------------------------------------------------------------\n");
-    dataLogF("            use            |   address  |                value               \n");
-    dataLogF("-----------------------------------------------------------------------------\n");
-
-    const Register* it;
-    const Register* end;
-
-    it = callFrame->registers() + (CallFrameSlot::thisArgument + callFrame->argumentCount());
-    end = callFrame->registers() + (CallFrameSlot::thisArgument - 1);
-    while (it > end) {
-        JSValue v = it->jsValue();
-        int registerNumber = it - callFrame->registers();
-        String name = codeBlock->nameForRegister(VirtualRegister(registerNumber));
-        dataLogF("[r% 3d %14s]      | %10p | 0x%-16llx %s\n", registerNumber, name.ascii().data(), it, (long long)JSValue::encode(v), valueAsString(v).data());
-        --it;
-    }
-    
-    dataLogF("-----------------------------------------------------------------------------\n");
-    dataLogF("[ArgumentCount]            | %10p | %lu \n", it, (unsigned long) callFrame->argumentCount());
-
-    callFrame->iterate(vm, [&] (StackVisitor& visitor) {
-        if (visitor->callFrame() == callFrame) {
-            unsigned line = 0;
-            unsigned unusedColumn = 0;
-            visitor->computeLineAndColumn(line, unusedColumn);
-            dataLogF("[ReturnVPC]                | %10p | %d (line %d)\n", it, visitor->bytecodeIndex().offset(), line);
-            return StackVisitor::Done;
-        }
-        return StackVisitor::Continue;
-    });
-
-    --it;
-    dataLogF("[Callee]                   | %10p | 0x%-16llx %s\n", it, (long long)callFrame->callee().rawPtr(), valueAsString(it->jsValue()).data());
-    --it;
-    dataLogF("[CodeBlock]                | %10p | 0x%-16llx ", it, (long long)codeBlock);
-    dataLogLn(codeBlock);
-    --it;
-#if ENABLE(JIT)
-    AbstractPC pc = callFrame->abstractReturnPC(vm);
-    if (pc.hasJITReturnAddress())
-        dataLogF("[ReturnPC]                 | %10p | %p \n", it, pc.jitReturnAddress().value());
-    --it;
-#endif
-    dataLogF("[CallerFrame]              | %10p | %p \n", it, callFrame->callerFrame());
-    --it;
-    dataLogF("-----------------------------------------------------------------------------\n");
-
-    size_t numberOfCalleeSaveSlots = codeBlock->calleeSaveSpaceAsVirtualRegisters();
-    const Register* endOfCalleeSaves = it - numberOfCalleeSaveSlots;
-
-    end = it - codeBlock->numVars();
-    if (it != end) {
-        do {
-            JSValue v = it->jsValue();
-            int registerNumber = it - callFrame->registers();
-            String name = (it > endOfCalleeSaves)
-                ? "CalleeSaveReg"
-                : codeBlock->nameForRegister(VirtualRegister(registerNumber));
-            dataLogF("[r% 3d %14s]      | %10p | 0x%-16llx %s\n", registerNumber, name.ascii().data(), it, (long long)JSValue::encode(v), valueAsString(v).data());
-            --it;
-        } while (it != end);
-    }
-    dataLogF("-----------------------------------------------------------------------------\n");
 
     CallFrame* topCallFrame = vm.topCallFrame;
     CallFrame* nextCallFrame = nullptr;
+    EntryFrame* entryFrame = nullptr;
 
+    // Check if frame is an entryFrame.
+    entryFrame = vm.topEntryFrame;
+    while (entryFrame) {
+        if (entryFrame == std::bit_cast<EntryFrame*>(callFrame)) {
+            dataLogLn("CallFrame ", RawPointer(callFrame), " is an EntryFrame.");
+            auto* entryRecord = vmEntryRecord(entryFrame);
+            dataLogLn("    previous entryFrame: ", RawPointer(entryRecord->prevTopEntryFrame()));
+            dataLogLn("    previous topCallFrame: ", RawPointer(entryRecord->prevTopCallFrame()));
+            return;
+        }
+        auto* entryRecord = vmEntryRecord(entryFrame);
+        entryFrame = entryRecord->prevTopEntryFrame();
+    }
+
+    // Find entryFrame and next frame.
     if (topCallFrame) {
-        topCallFrame->iterate(vm, [&] (StackVisitor& visitor) {
-            if (callFrame == visitor->callFrame())
-                return StackVisitor::Done;
+        StackVisitor::visit(topCallFrame, vm, [&] (StackVisitor& visitor) {
+            if (callFrame == visitor->callFrame()) {
+                entryFrame = visitor->entryFrame();
+                return IterationStatus::Done;
+            }
             nextCallFrame = visitor->callFrame();
-            return StackVisitor::Continue;
+            return IterationStatus::Continue;
         });
     }
 
-    if (!nextCallFrame) {
-        // Don't know how much space on the stack frame is actually allocated for
-        // this frame. ASAN does not like it if we read beyond the frame.
-        end = it; // Stop the dump
-    } else {
-        end = bitwise_cast<const Register*>(nextCallFrame);
-        RELEASE_ASSERT(static_cast<unsigned>(it - end) < codeBlock->numCalleeLocals() - codeBlock->numVars());
+    // Dumping from low memory to high memory.
+    JSCell* owner = callFrame->codeOwnerCell();
+    CodeBlock* codeBlock = dynamicDowncast<CodeBlock>(owner);
+    unsigned numCalleeLocals = codeBlock ? codeBlock->numCalleeLocals() : 0;
+    unsigned numVars = codeBlock ? codeBlock->numVars() : 0;
+    bool isWasm = false;
+#if ENABLE(WEBASSEMBLY)
+    isWasm = owner->inherits<JSWebAssemblyModule>();
+#endif
+
+    const Register* it;
+    const Register* callFrameTop = callFrame->registers();
+    const Register* startOfLocals = callFrameTop - numCalleeLocals;
+    const Register* startOfVars = callFrameTop - numVars;
+
+    if (nextCallFrame)
+        it = nextCallFrame->registers() + static_cast<int>(CallFrameSlot::thisArgument);
+    else
+        it = startOfLocals;
+
+    int registerNumber = it - callFrame->registers();
+    const char* frameType = isWasm ? "Wasm" : codeBlock ? "JS" : "native";
+
+    dataLogF("Registers for %s frame 0x%llx (entryFrame ", frameType, (long long)callFrame);
+    if (entryFrame)
+        dataLogF("0x%llx):\n", (long long)entryFrame);
+    else
+        dataLogF("unknown):\n");
+    dataLogF("-----------------------------------------------------------------------------\n");
+    dataLogF("   VirtualRegister     : address      value\n");
+
+    if (codeBlock) {
+        dataLogF("---------------------------------------------------- Outgoing Args + Misc ---\n");
+        
+        while (it < startOfVars) {
+            JSValue v = it->jsValue();
+            String name = codeBlock->nameForRegister(VirtualRegister(registerNumber));
+            dataLogF("% 4d  %-16s : %10p  0x%llx %s\n", registerNumber++, name.ascii().data(), it++, (long long)JSValue::encode(v), valueAsString(v).data());
+        }
+        
+        dataLogF("--------------------------------------------------------------- Variables ---\n");
+        
+        
+        size_t numberOfCalleeSaveSlots = CodeBlock::calleeSaveSpaceAsVirtualRegisters(*codeBlock->jitCode()->calleeSaveRegisters());
+        const Register* endOfCalleeSaves = callFrameTop - numberOfCalleeSaveSlots;
+        
+        while (it < endOfCalleeSaves) {
+            JSValue v = it->jsValue();
+            String name = codeBlock->nameForRegister(VirtualRegister(registerNumber));
+            dataLogF("% 4d  %-16s : %10p  0x%llx %s\n", registerNumber++, name.ascii().data(), it++, (long long)JSValue::encode(v), valueAsString(v).data());
+        }
+        
+        dataLogF("------------------------------------------------------------ Callee Saves ---\n");
+        
+        while (it != callFrameTop) {
+            JSValue v = it->jsValue();
+            dataLogF("% 4d  %-16s : %10p  0x%llx %s\n", registerNumber++, "CalleeSaveReg", it++, (long long)JSValue::encode(v), valueAsString(v).data());
+        }
     }
 
-    if (it != end) {
-        do {
-            JSValue v = (*it).jsValue();
-            int registerNumber = it - callFrame->registers();
-            dataLogF("[r% 3d]                     | %10p | 0x%-16llx %s\n", registerNumber, it, (long long)JSValue::encode(v), valueAsString(v).data());
-            --it;
-        } while (it != end);
+    dataLogF("-------------------------------------------------------- CallFrame Header ---\n");
+    
+    dataLogF("% 4d  CallerFrame      : %10p  %p \n", registerNumber++, it++, callFrame->callerFrame());
+    if constexpr (isARM64E())
+        dataLogF("% 4d  ReturnPC         : %10p  %p (pac signed %p) \n", registerNumber++, it++, callFrame->returnPCForInspection(), callFrame->rawReturnPC());
+    else
+        dataLogF("% 4d  ReturnPC         : %10p  %p \n", registerNumber++, it++, callFrame->returnPCForInspection());
+    dataLogF("% 4d  CodeBlock        : %10p  0x%llx ", registerNumber++, it++, (long long)codeBlock);
+    dataLogLn(codeBlock);
+    long long calleeBits = (long long)callFrame->callee().rawPtr();
+    auto calleeString = valueAsString(it->jsValue());
+    dataLogF("% 4d  Callee           : %10p  0x%llx %s\n", registerNumber++, it++, calleeBits, calleeString.data());
+    
+    StackVisitor::visit(callFrame, vm, [&] (StackVisitor& visitor) {
+        if (visitor->callFrame() == callFrame) {
+            auto lineColumn = visitor->computeLineAndColumn();
+            dataLogF("% 2d.1  ReturnVPC        : %10p  %d (line %d)\n", registerNumber, it, visitor->bytecodeIndex().offset(), lineColumn.line);
+            return IterationStatus::Done;
+        }
+        return IterationStatus::Continue;
+    });
+    dataLogF("% 2d.2  ArgumentCount    : %10p  %lu \n", registerNumber++, it++, (unsigned long) callFrame->argumentCount());
+    
+    dataLogF("--------------------------------------------------------------- Arguments ---\n");
+    
+    const Register* bottom = callFrame->registers() + (CallFrameSlot::thisArgument + callFrame->argumentCount());
+    while (it <= bottom) {
+        JSValue v = it->jsValue();
+        String name = codeBlock ? codeBlock->nameForRegister(VirtualRegister(registerNumber)) : emptyString();
+        dataLogF("% 4d  %-16s : %10p  0x%llx %s\n", registerNumber++, name.ascii().data(), it++, (long long)JSValue::encode(v), valueAsString(v).data());
     }
-    dataLogF("-----------------------------------------------------------------------------\n");
+    
+    dataLogF("--------------------------------------------------------------------- End ---\n");
 }
 
 void VMInspector::dumpStack(VM* vm, CallFrame* topCallFrame, unsigned framesToSkip)
@@ -458,7 +464,7 @@ void VMInspector::dumpStack(VM* vm, CallFrame* topCallFrame, unsigned framesToSk
     if (!topCallFrame)
         return;
     DumpFrameFunctor functor(DumpFrameFunctor::DumpAll, framesToSkip);
-    topCallFrame->iterate(*vm, functor);
+    StackVisitor::visit(topCallFrame, *vm, functor);
 }
 
 void VMInspector::dumpValue(JSValue value)
@@ -490,9 +496,8 @@ private:
 
 void VMInspector::dumpCellMemoryToStream(JSCell* cell, PrintStream& out)
 {
-    VM& vm = cell->vm();
     StructureID structureID = cell->structureID();
-    Structure* structure = cell->structure(vm);
+    Structure* structure = cell->structure();
     IndexingType indexingTypeAndMisc = cell->indexingTypeAndMisc();
     IndexingType indexingType = structure->indexingType();
     IndexingType indexingMode = structure->indexingMode();
@@ -502,7 +507,7 @@ void VMInspector::dumpCellMemoryToStream(JSCell* cell, PrintStream& out)
     size_t cellSize = cell->cellSize();
     size_t slotCount = cellSize / sizeof(EncodedJSValue);
 
-    EncodedJSValue* slots = bitwise_cast<EncodedJSValue*>(cell);
+    EncodedJSValue* slots = std::bit_cast<EncodedJSValue*>(cell);
     unsigned indentation = 0;
 
     auto indent = [&] {
@@ -519,7 +524,7 @@ void VMInspector::dumpCellMemoryToStream(JSCell* cell, PrintStream& out)
         out.print("\n");
     };
 
-    out.printf("<%p, %s>\n", cell, cell->className(vm));
+    out.printf("<%p, %s>\n", cell, cell->className().characters());
     IndentationScope scope(indentation);
 
     INDENT dumpSlot(slots, 0, "header");
@@ -554,8 +559,6 @@ void VMInspector::dumpCellMemoryToStream(JSCell* cell, PrintStream& out)
                 ? butterfly->base(preCapacity, propertyCapacity)
                 : butterfly->base(structure);
 
-            unsigned publicLength = butterfly->publicLength();
-            unsigned vectorLength = butterfly->vectorLength();
             size_t butterflyCellSize = MarkedSpace::optimalSizeFor(butterflySize);
 
             size_t endOfIndexedPropertiesIndex = butterflySize / sizeof(EncodedJSValue);
@@ -563,11 +566,13 @@ void VMInspector::dumpCellMemoryToStream(JSCell* cell, PrintStream& out)
 
             INDENT out.println("base ", RawPointer(base));
             INDENT out.println("hasIndexingHeader ", (hasIndexingHeader ? "YES" : "NO"), " hasAnyArrayStorage ", (hasAnyArrayStorage ? "YES" : "NO"));
-            if (hasIndexingHeader) {
-                INDENT out.print("publicLength ", publicLength, " vectorLength ", vectorLength);
+            if (hasIndexedProperties(indexingType)) {
+                INDENT out.print("publicLength ", butterfly->publicLength(), " vectorLength ", butterfly->vectorLength());
                 if (hasAnyArrayStorage)
                     out.print(" indexBias ", butterfly->arrayStorage()->m_indexBias);
                 out.print("\n");
+            } else if (hasIndexingHeader) {
+                INDENT out.println("arrayBuffer ", RawPointer(butterfly->indexingHeader()->arrayBuffer()));
             }
             INDENT out.println("preCapacity ", preCapacity, " propertyCapacity ", propertyCapacity);
 
@@ -624,12 +629,14 @@ void VMInspector::dumpSubspaceHashes(VM* vm)
     unsigned count = 0;
     vm->heap.objectSpace().forEachSubspace([&] (const Subspace& subspace) -> IterationStatus {
         const char* name = subspace.name();
-        unsigned hash = StringHasher::computeHash(name);
+        unsigned hash = SuperFastHash::computeHash(name);
         void* hashAsPtr = reinterpret_cast<void*>(static_cast<uintptr_t>(hash));
         dataLogLn("    [", count++, "] ", name, " Hash:", RawPointer(hashAsPtr));
         return IterationStatus::Continue;
     });
     dataLogLn();
 }
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 } // namespace JSC

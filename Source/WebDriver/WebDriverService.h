@@ -27,10 +27,18 @@
 
 #include "HTTPServer.h"
 #include "Session.h"
+#include <wtf/CheckedRef.h>
+#include <wtf/CompletionHandler.h>
+#include <wtf/Deque.h>
 #include <wtf/Forward.h>
 #include <wtf/HashMap.h>
 #include <wtf/JSONValues.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/StringHash.h>
+
+#if ENABLE(WEBDRIVER_BIDI)
+#include "WebSocketServer.h"
+#endif
 
 namespace WebDriver {
 
@@ -38,15 +46,23 @@ struct Capabilities;
 class CommandResult;
 class Session;
 
-class WebDriverService final : public HTTPRequestHandler {
+class WebDriverService final : public HTTPRequestHandler, public CanMakeWeakPtr<WebDriverService>, public CanMakeCheckedPtr<WebDriverService>
+#if ENABLE(WEBDRIVER_BIDI)
+    , public WebSocketMessageHandler
+#endif
+{
+    WTF_MAKE_TZONE_ALLOCATED(WebDriverService);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WebDriverService);
 public:
     WebDriverService();
-    ~WebDriverService() = default;
+    ~WebDriverService();
 
     int run(int argc, char** argv);
 
     static void platformInit();
     static bool platformCompareBrowserVersions(const String&, const String&);
+
+    RefPtr<Session> session() const { return m_session; }
 
 private:
     enum class HTTPMethod { Get, Post, Delete };
@@ -88,7 +104,10 @@ private:
     void findElements(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
     void findElementFromElement(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
     void findElementsFromElement(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
+    void findElementFromShadowRoot(RefPtr<JSON::Object>&&, Function<void(CommandResult&&)>&&);
+    void findElementsFromShadowRoot(RefPtr<JSON::Object>&&, Function<void(CommandResult&&)>&&);
     void getActiveElement(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
+    void getElementShadowRoot(RefPtr<JSON::Object>&&, Function<void(CommandResult&&)>&&);
     void isElementSelected(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
     void getElementAttribute(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
     void getElementProperty(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
@@ -97,6 +116,8 @@ private:
     void getElementTagName(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
     void getElementRect(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
     void isElementEnabled(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
+    void getComputedRole(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
+    void getComputedLabel(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
     void isElementDisplayed(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
     void elementClick(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
     void elementClear(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
@@ -118,6 +139,10 @@ private:
     void takeScreenshot(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
     void takeElementScreenshot(RefPtr<JSON::Object>&&, Function<void (CommandResult&&)>&&);
 
+#if ENABLE(WEBDRIVER_BIDI)
+    void bidiSessionStatus(unsigned id, RefPtr<JSON::Object>&&, Function<void (WebSocketMessageHandler::Message&&)>&&);
+#endif
+
     static Capabilities platformCapabilities();
     Vector<Capabilities> processCapabilities(const JSON::Object&, Function<void (CommandResult&&)>&) const;
     RefPtr<JSON::Object> validatedCapabilities(const JSON::Object&) const;
@@ -126,22 +151,49 @@ private:
     bool platformValidateCapability(const String&, const Ref<JSON::Value>&) const;
     bool platformMatchCapability(const String&, const Ref<JSON::Value>&) const;
     bool platformSupportProxyType(const String&) const;
+    bool platformSupportBidi() const;
     void parseCapabilities(const JSON::Object& desiredCapabilities, Capabilities&) const;
     void platformParseCapabilities(const JSON::Object& desiredCapabilities, Capabilities&) const;
     void connectToBrowser(Vector<Capabilities>&&, Function<void (CommandResult&&)>&&);
-    void createSession(Vector<Capabilities>&&, std::unique_ptr<SessionHost>&&, Function<void (CommandResult&&)>&&);
+    void createSession(Vector<Capabilities>&&, Ref<SessionHost>&&, Function<void (CommandResult&&)>&&);
     bool findSessionOrCompleteWithError(JSON::Object&, Function<void (CommandResult&&)>&);
 
     void handleRequest(HTTPRequestHandler::Request&&, Function<void (HTTPRequestHandler::Response&&)>&& replyHandler) override;
     void sendResponse(Function<void (HTTPRequestHandler::Response&&)>&& replyHandler, CommandResult&&) const;
+    void enqueueOrDispatchRequest(CompletionHandler<void(std::optional<CommandResult>)>&&);
+    void dispatchNextPendingRequest();
+    void flushRequestQueueWithResult(CommandResult&&);
+
+#if ENABLE(WEBDRIVER_BIDI)
+    bool acceptHandshake(HTTPRequestHandler::Request&&) override;
+    void handleMessage(WebSocketMessageHandler::Message&&, Function<void (WebSocketMessageHandler::Message&&)>&& replyHandler) override;
+    void clientDisconnected(const WebSocketMessageHandler::Connection&) override;
+
+    void onBrowserTerminated(const String& sessionId);
+
+    typedef void (WebDriverService::*BidiCommandHandler)(unsigned id, RefPtr<JSON::Object>&&, Function<void (WebSocketMessageHandler::Message&&)>&&);
+    struct BidiCommand {
+        String method;
+        BidiCommandHandler handler;
+    };
+    static const BidiCommand s_bidiCommands[];
+    static bool findBidiCommand(const RefPtr<JSON::Object>&, BidiCommandHandler*, RefPtr<JSON::Object>& parsedParams);
+#endif // ENABLE(WEBDRIVER_BIDI)
 
     HTTPServer m_server;
+#if ENABLE(WEBDRIVER_BIDI)
+    const Ref<WebSocketServer> m_bidiServer;
+    const Ref<SessionHost::BrowserTerminatedObserver> m_browserTerminatedObserver;
+#endif
     RefPtr<Session> m_session;
 
-#if USE(INSPECTOR_SOCKET_SERVER)
+    Deque<CompletionHandler<void(std::optional<CommandResult>)>> m_pendingRequests;
+    bool m_hasRunningRequest { false };
+
     String m_targetAddress;
     uint16_t m_targetPort { 0 };
-#endif
+
+    bool m_replaceOnNewSession { false };
 };
 
 } // namespace WebDriver

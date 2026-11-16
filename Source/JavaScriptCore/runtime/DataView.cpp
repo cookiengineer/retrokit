@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013, 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,32 +28,50 @@
 
 #include "HeapInlines.h"
 #include "JSDataView.h"
-#include "JSGlobalObject.h"
+#include "JSGlobalObjectInlines.h"
 
 namespace JSC {
 
-DataView::DataView(RefPtr<ArrayBuffer>&& buffer, unsigned byteOffset, unsigned byteLength)
-    : ArrayBufferView(WTFMove(buffer), byteOffset, byteLength)
+DataView::DataView(RefPtr<ArrayBuffer>&& buffer, size_t byteOffset, std::optional<size_t> byteLength)
+    : ArrayBufferView(TypeDataView, WTF::move(buffer), byteOffset, byteLength)
 {
 }
 
-Ref<DataView> DataView::create(
-    RefPtr<ArrayBuffer>&& buffer, unsigned byteOffset, unsigned byteLength)
+Ref<DataView> DataView::create(RefPtr<ArrayBuffer>&& buffer, size_t byteOffset, std::optional<size_t> byteLength)
 {
-    return adoptRef(*new DataView(WTFMove(buffer), byteOffset, byteLength));
+    return adoptRef(*new DataView(WTF::move(buffer), byteOffset, byteLength));
 }
 
 Ref<DataView> DataView::create(RefPtr<ArrayBuffer>&& buffer)
 {
-    unsigned byteLength = buffer->byteLength();
-    return create(WTFMove(buffer), 0, byteLength);
+    size_t byteLength = buffer->byteLength();
+    return create(WTF::move(buffer), 0, byteLength);
 }
 
-JSArrayBufferView* DataView::wrap(JSGlobalObject* lexicalGlobalObject, JSGlobalObject* globalObject)
+RefPtr<DataView> DataView::wrappedAs(Ref<ArrayBuffer>&& buffer, size_t byteOffset, std::optional<size_t> byteLength)
+{
+    ASSERT(byteLength || buffer->isResizableOrGrowableShared());
+
+    // We do not check verifySubRangeLength for resizable buffer case since this function is only called from already created JS DataViews.
+    // It is possible that verifySubRangeLength fails when underlying ArrayBuffer is resized, but it is OK since it will be just recognized as OOB DataView.
+    if (!buffer->isResizableOrGrowableShared()) {
+        if (!ArrayBufferView::verifySubRangeLength(buffer->byteLength(), byteOffset, byteLength.value_or(0), 1))
+            return nullptr;
+    } else if (buffer->isGrowableShared()) {
+        // For growable buffer, we extra-check whether byteOffset and length are within maxByteLength.
+        // This does not hit in normal condition, just extra hardening.
+        if (!ArrayBufferView::verifySubRangeLength(buffer->maxByteLength().value(), byteOffset, byteLength.value_or(0), 1))
+            return nullptr;
+    }
+
+    return adoptRef(*new DataView(WTF::move(buffer), byteOffset, byteLength));
+}
+
+JSArrayBufferView* DataView::wrapImpl(JSGlobalObject* lexicalGlobalObject, JSGlobalObject* globalObject)
 {
     return JSDataView::create(
-        lexicalGlobalObject, globalObject->typedArrayStructure(TypeDataView), possiblySharedBuffer(), byteOffset(),
-        byteLength());
+        lexicalGlobalObject, globalObject->typedArrayStructure(TypeDataView, isResizableOrGrowableShared()), possiblySharedBuffer(), byteOffsetRaw(),
+        isAutoLength() ? std::nullopt : std::optional { byteLengthRaw() });
 }
 
 } // namespace JSC

@@ -26,13 +26,14 @@
 #include "config.h"
 #include <wtf/Seconds.h>
 
+#include <wtf/ApproximateTime.h>
 #include <wtf/Condition.h>
+#include <wtf/ContinuousTime.h>
 #include <wtf/Lock.h>
 #include <wtf/MonotonicTime.h>
 #include <wtf/PrintStream.h>
 #include <wtf/TimeWithDynamicClockType.h>
 #include <wtf/WallTime.h>
-#include <wtf/text/TextStream.h>
 
 namespace WTF {
 
@@ -42,6 +43,21 @@ WallTime Seconds::operator+(WallTime other) const
 }
 
 MonotonicTime Seconds::operator+(MonotonicTime other) const
+{
+    return other + *this;
+}
+
+ApproximateTime Seconds::operator+(ApproximateTime other) const
+{
+    return other + *this;
+}
+
+ContinuousTime Seconds::operator+(ContinuousTime other) const
+{
+    return other + *this;
+}
+
+ContinuousApproximateTime Seconds::operator+(ContinuousApproximateTime other) const
 {
     return other + *this;
 }
@@ -61,6 +77,21 @@ MonotonicTime Seconds::operator-(MonotonicTime other) const
     return MonotonicTime::fromRawSeconds(value() - other.secondsSinceEpoch().value());
 }
 
+ApproximateTime Seconds::operator-(ApproximateTime other) const
+{
+    return ApproximateTime::fromRawSeconds(value() - other.secondsSinceEpoch().value());
+}
+
+ContinuousTime Seconds::operator-(ContinuousTime other) const
+{
+    return ContinuousTime::fromRawSeconds(value() - other.secondsSinceEpoch().value());
+}
+
+ContinuousApproximateTime Seconds::operator-(ContinuousApproximateTime other) const
+{
+    return ContinuousApproximateTime::fromRawSeconds(value() - other.secondsSinceEpoch().value());
+}
+
 TimeWithDynamicClockType Seconds::operator-(const TimeWithDynamicClockType& other) const
 {
     return other.withSameClockAndRawSeconds(value() - other.secondsSinceEpoch().value());
@@ -69,12 +100,6 @@ TimeWithDynamicClockType Seconds::operator-(const TimeWithDynamicClockType& othe
 void Seconds::dump(PrintStream& out) const
 {
     out.print(m_value, " sec");
-}
-
-TextStream& operator<<(TextStream& ts, Seconds seconds)
-{
-    ts << seconds.value() << "s";
-    return ts;
 }
 
 void sleep(Seconds value)

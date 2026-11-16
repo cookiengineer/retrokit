@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "JSCJSValue.h"
+#include <JavaScriptCore/JSCJSValue.h>
 #include <wtf/PrintStream.h>
 #include <wtf/WallTime.h>
 #include <wtf/text/CString.h>
@@ -34,6 +34,7 @@ namespace JSC { namespace Profiler {
 
 class Bytecodes;
 class Compilation;
+class Dumper;
 
 class Event {
 public:
@@ -59,10 +60,10 @@ public:
     Bytecodes* bytecodes() const { return m_bytecodes; }
     Compilation* compilation() const { return m_compilation; }
     const char* summary() const { return m_summary; }
-    const CString& detail() const { return m_detail; }
+    const CString& detail() const LIFETIME_BOUND { return m_detail; }
     
     void dump(PrintStream&) const;
-    JSValue toJS(JSGlobalObject*) const;
+    Ref<JSON::Value> toJSON(Dumper&) const;
     
 private:
     WallTime m_time { };

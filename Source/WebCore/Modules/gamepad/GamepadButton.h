@@ -39,14 +39,14 @@ public:
         return adoptRef(*new GamepadButton);
     }
 
-    bool pressed() const;
+    bool NODELETE pressed() const;
     double value() const { return m_value; }
     void setValue(double value) { m_value = value; }
 
 private:
     GamepadButton();
 
-    double m_value;
+    double m_value { 0.0 };
 };
 
 } // namespace WebCore

@@ -35,29 +35,24 @@ namespace WebCore {
 // Conversion to/from Position is O(n) in the offset.
 class PositionIterator {
 public:
-    PositionIterator(const Position& pos)
-        : m_anchorNode(pos.anchorNode())
-        , m_nodeAfterPositionInAnchor(m_anchorNode->traverseToChildAt(pos.deprecatedEditingOffset()))
-        , m_offsetInAnchor(m_nodeAfterPositionInAnchor ? 0 : pos.deprecatedEditingOffset())
-    {
-    }
+    PositionIterator(const Position&);
     operator Position() const;
 
     void increment();
     void decrement();
 
-    Node* node() const { return m_anchorNode; }
+    Node* node() const { return m_anchorNode.get(); }
     int offsetInLeafNode() const { return m_offsetInAnchor; }
 
-    bool atStart() const;
+    bool NODELETE atStart() const;
     bool atEnd() const;
-    bool atStartOfNode() const;
+    bool NODELETE atStartOfNode() const;
     bool atEndOfNode() const;
-    bool isCandidate() const;
+    bool isCandidate(AllowUserSelectNone = AllowUserSelectNone::No) const;
 
 private:
-    Node* m_anchorNode { nullptr };
-    Node* m_nodeAfterPositionInAnchor { nullptr }; // If this is non-null, m_nodeAfterPositionInAnchor->parentNode() == m_anchorNode;
+    RefPtr<Node> m_anchorNode;
+    RefPtr<Node> m_nodeAfterPositionInAnchor; // If this is non-null, m_nodeAfterPositionInAnchor->parentNode() == m_anchorNode;
     int m_offsetInAnchor { 0 };
 };
 

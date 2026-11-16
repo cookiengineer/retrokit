@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2009, 2016 Apple Inc. All rights reserved.
- * Copyright (C) 2009 Google Inc.  All rights reserved.
+ * Copyright (C) 2009 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -31,11 +31,14 @@
 
 #pragma once
 
+#include <wtf/ArgumentCoder.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
 class SocketStreamError {
+private:
+    friend struct IPC::ArgumentCoder<SocketStreamError>;
 public:
     SocketStreamError() = default;
 
@@ -45,21 +48,18 @@ public:
     {
     }
 
-    SocketStreamError(int errorCode, const String& failingURL, const String& localizedDescription)
+    SocketStreamError(int errorCode, const String& failingURL, const String& localizedDescription, bool isNull = false)
         : m_errorCode(errorCode)
         , m_failingURL(failingURL)
         , m_localizedDescription(localizedDescription)
-        , m_isNull(false)
+        , m_isNull(isNull)
     {
     }
 
     bool isNull() const { return m_isNull; }
     int errorCode() const { return m_errorCode; }
-    const String& failingURL() const { return m_failingURL; }
-    const String& localizedDescription() const { return m_localizedDescription; }
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static WARN_UNUSED_RETURN bool decode(Decoder&, SocketStreamError&);
+    const String& failingURL() const LIFETIME_BOUND { return m_failingURL; }
+    const String& localizedDescription() const LIFETIME_BOUND { return m_localizedDescription; }
 
 private:
     int m_errorCode { 0 };
@@ -67,32 +67,5 @@ private:
     String m_localizedDescription;
     bool m_isNull { true };
 };
-
-template<class Encoder>
-void SocketStreamError::encode(Encoder& encoder) const
-{
-    encoder << m_isNull;
-    if (m_isNull)
-        return;
-    encoder << m_errorCode;
-    encoder << m_failingURL;
-    encoder << m_localizedDescription;
-}
-
-template<class Decoder>
-bool SocketStreamError::decode(Decoder& decoder, SocketStreamError& error)
-{
-    if (!decoder.decode(error.m_isNull))
-        return false;
-    if (error.m_isNull)
-        return true;
-    if (!decoder.decode(error.m_errorCode))
-        return false;
-    if (!decoder.decode(error.m_failingURL))
-        return false;
-    if (!decoder.decode(error.m_localizedDescription))
-        return false;
-    return true;
-}
 
 }

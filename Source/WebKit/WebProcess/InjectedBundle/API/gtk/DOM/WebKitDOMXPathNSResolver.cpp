@@ -63,7 +63,9 @@ typedef struct _WebKitDOMNativeXPathNSResolverPrivate {
 
 static void webkitDOMXPathNSResolverIfaceInit(WebKitDOMXPathNSResolverIface*);
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK port
 G_DEFINE_TYPE_WITH_CODE(WebKitDOMNativeXPathNSResolver, webkit_dom_native_xpath_ns_resolver, WEBKIT_DOM_TYPE_OBJECT, G_IMPLEMENT_INTERFACE(WEBKIT_DOM_TYPE_XPATH_NS_RESOLVER, webkitDOMXPathNSResolverIfaceInit))
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 static void webkitDOMNativeXPathNSResolverFinalize(GObject* object)
 {
@@ -100,7 +102,7 @@ static char* webkitDOMNativeXPathNSResolverLookupNamespaceURI(WebKitDOMXPathNSRe
     WebCore::JSMainThreadNullState state;
     g_return_val_if_fail(WEBKIT_DOM_IS_NATIVE_XPATH_NS_RESOLVER(resolver), nullptr);
 
-    return convertToUTF8String(WebKit::core(resolver)->lookupNamespaceURI(WTF::String::fromUTF8(prefix)));
+    return convertToUTF8String(WebKit::core(resolver)->lookupNamespaceURI(WTF::AtomString::fromUTF8(prefix)));
 }
 
 static void webkitDOMXPathNSResolverIfaceInit(WebKitDOMXPathNSResolverIface* iface)

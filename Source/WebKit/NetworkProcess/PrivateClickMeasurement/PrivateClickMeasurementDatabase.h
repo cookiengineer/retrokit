@@ -27,34 +27,45 @@
 
 #include "DatabaseUtilities.h"
 #include <WebCore/PrivateClickMeasurement.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/ThreadSafeRefCounted.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebKit {
-
 namespace PCM {
+class Database;
+}
+}
+
+namespace WebKit::PCM {
 
 struct DebugInfo;
 
 // This is created, used, and destroyed on the Store's queue.
-class Database : public DatabaseUtilities {
-    WTF_MAKE_FAST_ALLOCATED;
+class Database : public DatabaseUtilities, public RefCountedAndCanMakeWeakPtr<Database> {
+    WTF_MAKE_TZONE_ALLOCATED(Database);
 public:
-    Database(const String& storageDirectory);
+    static Ref<Database> create(const String& storageDirectory);
+
     virtual ~Database();
-    
+
+    using ApplicationBundleIdentifier = String;
+
     static void interruptAllDatabases();
 
     void insertPrivateClickMeasurement(WebCore::PrivateClickMeasurement&&, PrivateClickMeasurementAttributionType);
-    std::pair<std::optional<WebCore::PrivateClickMeasurement::AttributionSecondsUntilSendData>, DebugInfo> attributePrivateClickMeasurement(const WebCore::PrivateClickMeasurement::SourceSite&, const WebCore::PrivateClickMeasurement::AttributionDestinationSite&, WebCore::PrivateClickMeasurement::AttributionTriggerData&&);
+    std::pair<std::optional<WebCore::PCM::AttributionSecondsUntilSendData>, DebugInfo> attributePrivateClickMeasurement(const WebCore::PCM::SourceSite&, const WebCore::PCM::AttributionDestinationSite&, const ApplicationBundleIdentifier&, WebCore::PCM::AttributionTriggerData&&, WebCore::PrivateClickMeasurement::IsRunningLayoutTest);
     Vector<WebCore::PrivateClickMeasurement> allAttributedPrivateClickMeasurement();
     void clearPrivateClickMeasurement(std::optional<WebCore::RegistrableDomain>);
     void clearExpiredPrivateClickMeasurement();
-    void clearSentAttribution(WebCore::PrivateClickMeasurement&&, WebCore::PrivateClickMeasurement::AttributionReportEndpoint);
+    void clearSentAttribution(WebCore::PrivateClickMeasurement&&, WebCore::PCM::AttributionReportEndpoint);
 
-    String privateClickMeasurementToStringForTesting();
+    String privateClickMeasurementToStringForTesting() const;
     void markAllUnattributedPrivateClickMeasurementAsExpiredForTesting();
     void markAttributedPrivateClickMeasurementsAsExpiredForTesting();
 
+    Vector<WebCore::RegistrableDomain> fetchRegistrableDomains() const;
 private:
     using UnattributedPrivateClickMeasurement = WebCore::PrivateClickMeasurement;
     using AttributedPrivateClickMeasurement = WebCore::PrivateClickMeasurement;
@@ -64,17 +75,24 @@ private:
     using SourceEarliestTimeToSend = double;
     using DestinationEarliestTimeToSend = double;
 
+    Database(const String& storageDirectory);
     bool createSchema() final;
     void destroyStatements() final;
-    std::pair<std::optional<UnattributedPrivateClickMeasurement>, std::optional<AttributedPrivateClickMeasurement>> findPrivateClickMeasurement(const WebCore::PrivateClickMeasurement::SourceSite&, const WebCore::PrivateClickMeasurement::AttributionDestinationSite&);
+    std::pair<std::optional<UnattributedPrivateClickMeasurement>, std::optional<AttributedPrivateClickMeasurement>> findPrivateClickMeasurement(const WebCore::PCM::SourceSite&, const WebCore::PCM::AttributionDestinationSite&, const ApplicationBundleIdentifier&);
     void removeUnattributed(WebCore::PrivateClickMeasurement&);
-    String attributionToStringForTesting(WebCore::SQLiteStatement&, PrivateClickMeasurementAttributionType);
-    void markReportAsSentToDestination(SourceDomainID, DestinationDomainID);
-    void markReportAsSentToSource(SourceDomainID, DestinationDomainID);
+    String attributionToStringForTesting(const WebCore::PrivateClickMeasurement&) const;
+    void markReportAsSentToDestination(SourceDomainID, DestinationDomainID, const ApplicationBundleIdentifier&);
+    void markReportAsSentToSource(SourceDomainID, DestinationDomainID, const ApplicationBundleIdentifier&);
     std::pair<std::optional<SourceEarliestTimeToSend>, std::optional<DestinationEarliestTimeToSend>> earliestTimesToSend(const WebCore::PrivateClickMeasurement&);
     std::optional<DomainID> ensureDomainID(const WebCore::RegistrableDomain&);
     std::optional<DomainID> domainID(const WebCore::RegistrableDomain&);
     String getDomainStringFromDomainID(DomainID) const final;
+
+    void addDestinationTokenColumnsIfNecessary();
+    bool needsUpdatedSchema() final { return false; };
+    bool createUniqueIndices() final;
+    const MemoryCompactLookupOnlyRobinHoodHashMap<String, TableAndIndexPair>& expectedTableAndIndexQueries() final;
+    std::span<const ASCIILiteral> sortedTables() final;
 
     using Statement = std::unique_ptr<WebCore::SQLiteStatement>;
     mutable Statement m_setUnattributedPrivateClickMeasurementAsExpiredStatement;
@@ -93,6 +111,4 @@ private:
     mutable Statement m_insertObservedDomainStatement;
 };
 
-} // namespace PCM
-
-} // namespace WebKit
+} // namespace WebKit::PCM

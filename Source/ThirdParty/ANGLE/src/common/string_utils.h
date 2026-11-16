@@ -10,10 +10,12 @@
 #ifndef LIBANGLE_STRING_UTILS_H_
 #define LIBANGLE_STRING_UTILS_H_
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
 #include "common/Optional.h"
+#include "common/span.h"
 
 namespace angle
 {
@@ -33,19 +35,25 @@ enum SplitResult
 };
 
 std::vector<std::string> SplitString(const std::string &input,
-                                     const std::string &delimiters,
+                                     const std::string_view &delimiters,
                                      WhitespaceHandling whitespace,
                                      SplitResult resultType);
+
+std::vector<std::string_view> SplitStringView(const std::string_view &input,
+                                              const std::string_view &delimiters,
+                                              WhitespaceHandling whitespace,
+                                              SplitResult resultType);
 
 void SplitStringAlongWhitespace(const std::string &input, std::vector<std::string> *tokensOut);
 
 std::string TrimString(const std::string &input, const std::string &trimChars);
+std::string_view TrimStringView(const std::string_view &input, const std::string &trimChars);
 
 // Return the substring starting at offset and up to the first occurance of the |delimeter|.
 std::string GetPrefix(const std::string &input, size_t offset, const char *delimiter);
 std::string GetPrefix(const std::string &input, size_t offset, char delimiter);
 
-bool HexStringToUInt(const std::string &input, unsigned int *uintOut);
+bool HexStringToUInt(const std::string_view &input, unsigned int *uintOut);
 
 bool ReadFileToString(const std::string &path, std::string *stringOut);
 
@@ -82,6 +90,11 @@ bool EndsWith(const std::string &str, const char *suffix);
 // The comparison is case sensitive.
 bool EndsWith(const char *str, const char *suffix);
 
+// Check if the given token string contains the given token.
+// The tokens are separated by the given delimiter.
+// The comparison is case sensitive.
+bool ContainsToken(const std::string &tokenStr, char delimiter, const std::string &token);
+
 // Convert to lower-case.
 void ToLower(std::string *str);
 
@@ -92,6 +105,14 @@ void ToUpper(std::string *str);
 bool ReplaceSubstring(std::string *str,
                       const std::string &substring,
                       const std::string &replacement);
+
+// Replaces all substrings 'substring' in 'str' with 'replacement'. Returns count of replacements.
+int ReplaceAllSubstrings(std::string *str,
+                         const std::string &substring,
+                         const std::string &replacement);
+
+// Takes a snake_case string and turns it into camelCase.
+std::string ToCamelCase(const std::string &str);
 
 // Split up a string parsed from an environment variable.
 std::vector<std::string> GetStringsFromEnvironmentVarOrAndroidProperty(const char *varName,
@@ -105,6 +126,17 @@ std::vector<std::string> GetCachedStringsFromEnvironmentVarOrAndroidProperty(
     const char *propertyName,
     const char *separator);
 
+// Returns true if `potential_glob` contains characters that require matching using
+// `NamesMatchWithWildcard`
+bool IsGlobPattern(const std::string_view &potential_glob);
+
+// Returns true if and only if the `glob` pattern matches the string `name`. Each
+// pattern consists of regular characters, single-character wildcards (?), and
+// multi-character wildcards (*).
+bool NamesMatchWithWildcard(const std::string_view &glob, const std::string_view &name);
+
+std::vector<uint8_t> HexStringToUintVector(const std::string_view &hexStr);
+std::string UintStreamToHexString(angle::Span<const uint8_t> uintStream);
 }  // namespace angle
 
 #endif  // LIBANGLE_STRING_UTILS_H_

@@ -31,7 +31,7 @@
 
 namespace JSC { namespace FTL {
 
-enum CapabilityLevel {
+enum CapabilityLevel : uint8_t {
     CannotCompile,
     CanCompile,
     CanCompileAndOSREnter

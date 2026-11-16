@@ -25,45 +25,96 @@
 
 #pragma once
 
-#include "ArgumentCoders.h"
-
 #if HAVE(PER_APP_ACCESSIBILITY_PREFERENCES)
 #include "AccessibilitySupportSPI.h"
 #endif
 
 namespace WebKit {
 
+#if HAVE(PER_APP_ACCESSIBILITY_PREFERENCES)
+enum class WebKitAXValueState : int {
+    AXValueStateInvalid = -2,
+    AXValueStateEmpty = -1,
+    AXValueStateOff,
+    AXValueStateOn
+};
+
+inline WebKitAXValueState toWebKitAXValueState(AXValueState value)
+{
+    switch (value) {
+    case AXValueState::AXValueStateInvalid:
+        return WebKitAXValueState::AXValueStateInvalid;
+    case AXValueState::AXValueStateEmpty:
+        return WebKitAXValueState::AXValueStateEmpty;
+    case AXValueState::AXValueStateOff:
+        return WebKitAXValueState::AXValueStateOff;
+    case AXValueState::AXValueStateOn:
+        return WebKitAXValueState::AXValueStateOn;
+    }
+
+    ASSERT_NOT_REACHED();
+    return WebKitAXValueState::AXValueStateInvalid;
+}
+
+inline AXValueState fromWebKitAXValueState(WebKitAXValueState value)
+{
+    switch (value) {
+    case WebKitAXValueState::AXValueStateInvalid:
+        return AXValueState::AXValueStateInvalid;
+    case WebKitAXValueState::AXValueStateEmpty:
+        return AXValueState::AXValueStateEmpty;
+    case WebKitAXValueState::AXValueStateOff:
+        return AXValueState::AXValueStateOff;
+    case WebKitAXValueState::AXValueStateOn:
+        return AXValueState::AXValueStateOn;
+    }
+
+    ASSERT_NOT_REACHED();
+    return AXValueState::AXValueStateInvalid;
+}
+#endif
+
+inline constexpr bool initialImageAnimationEnabled = true;
+inline constexpr bool initialVideoAutoplayPreviewsEnabled = true;
+inline constexpr bool initialShouldEnhanceTextLegibilityOverall = false;
+inline constexpr bool initialPrefersNonBlinkingCursor = false;
+#if HAVE(PER_APP_ACCESSIBILITY_PREFERENCES)
+inline constexpr WebKitAXValueState initialPerAppSettingsState = WebKitAXValueState::AXValueStateEmpty;
+#endif
+
 struct AccessibilityPreferences {
 #if HAVE(PER_APP_ACCESSIBILITY_PREFERENCES)
-    AXValueState reduceMotionEnabled { AXValueStateEmpty };
-    AXValueState increaseButtonLegibility { AXValueStateEmpty };
-    AXValueState enhanceTextLegibility { AXValueStateEmpty };
-    AXValueState darkenSystemColors { AXValueStateEmpty };
-    AXValueState invertColorsEnabled { AXValueStateEmpty };
+    WebKitAXValueState reduceMotionEnabled { initialPerAppSettingsState };
+    WebKitAXValueState increaseButtonLegibility { initialPerAppSettingsState };
+    WebKitAXValueState enhanceTextLegibility { initialPerAppSettingsState };
+    WebKitAXValueState darkenSystemColors { initialPerAppSettingsState };
+    WebKitAXValueState invertColorsEnabled { initialPerAppSettingsState };
+
+#endif
+    bool imageAnimationEnabled { initialImageAnimationEnabled };
+    bool videoAutoplayPreviewsEnabled { initialVideoAutoplayPreviewsEnabled };
+    bool enhanceTextLegibilityOverall { initialShouldEnhanceTextLegibilityOverall };
+#if ENABLE(ACCESSIBILITY_NON_BLINKING_CURSOR)
+    bool prefersNonBlinkingCursor { initialPrefersNonBlinkingCursor };
 #endif
 };
 
 } // namespace WebKit
 
-namespace IPC {
-template<> struct ArgumentCoder<WebKit::AccessibilityPreferences> {
-    static void encode(Encoder&, const WebKit::AccessibilityPreferences&);
-    static std::optional<WebKit::AccessibilityPreferences> decode(Decoder&);
-};
-}
-
+namespace AXPreferenceHelpers {
 #if HAVE(PER_APP_ACCESSIBILITY_PREFERENCES)
-namespace WTF {
+WebKit::WebKitAXValueState reduceMotionEnabled();
+WebKit::WebKitAXValueState increaseButtonLegibility();
+WebKit::WebKitAXValueState enhanceTextLegibility();
+WebKit::WebKitAXValueState darkenSystemColors();
+WebKit::WebKitAXValueState invertColorsEnabled();
+#endif // HAVE(PER_APP_ACCESSIBILITY_PREFERENCES)
 
-template<> struct EnumTraits<AXValueState> {
-    using values = EnumValues<
-        AXValueState,
-        AXValueState::AXValueStateInvalid,
-        AXValueState::AXValueStateEmpty,
-        AXValueState::AXValueStateOff,
-        AXValueState::AXValueStateOn
-    >;
-};
+bool imageAnimationEnabled();
+bool videoAutoplayPreviewsEnabled();
+bool enhanceTextLegibilityOverall();
 
-} // namespace WTF
+#if ENABLE(ACCESSIBILITY_NON_BLINKING_CURSOR)
+bool prefersNonBlinkingCursor();
 #endif
+} // namespace AXPreferenceHelpers

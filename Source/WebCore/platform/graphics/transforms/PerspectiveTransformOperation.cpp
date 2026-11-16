@@ -32,6 +32,17 @@
 
 namespace WebCore {
 
+Ref<PerspectiveTransformOperation> PerspectiveTransformOperation::create(const std::optional<float>& p)
+{
+    return adoptRef(*new PerspectiveTransformOperation(p));
+}
+
+PerspectiveTransformOperation::PerspectiveTransformOperation(const std::optional<float>& p)
+    : TransformOperation(TransformOperation::Type::Perspective)
+    , m_p(p)
+{
+}
+
 bool PerspectiveTransformOperation::operator==(const TransformOperation& other) const
 {
     if (!isSameType(other))
@@ -39,39 +50,44 @@ bool PerspectiveTransformOperation::operator==(const TransformOperation& other) 
     return m_p == downcast<PerspectiveTransformOperation>(other).m_p;
 }
 
-Ref<TransformOperation> PerspectiveTransformOperation::blend(const TransformOperation* from, const BlendingContext& context, bool blendToIdentity)
+Ref<TransformOperation> PerspectiveTransformOperation::blend(const TransformOperation* from, const BlendingContext& context, bool blendToIdentity) const
 {
-    if (from && !from->isSameType(*this))
-        return *this;
-    
+    if (!sharedPrimitiveType(from))
+        return const_cast<PerspectiveTransformOperation&>(*this);
+
+    // https://drafts.csswg.org/css-transforms-2/#interpolation-of-transform-functions
+    // says that we should run matrix decomposition and then run the rules for
+    // interpolation of matrices, but we know what those rules are going to
+    // yield, so just do that directly.
+    auto getInverse = [](const auto& operation) {
+        return !operation->isIdentity() ? (1.0 / (*operation->floatValue())) : 0.0;
+    };
+
+    double ourInverse = getInverse(this);
+    double fromPInverse, toPInverse;
     if (blendToIdentity) {
-        double p = floatValueForLength(m_p, 1);
-        p = WebCore::blend(p, 1.0, context); // FIXME: this seems wrong. https://bugs.webkit.org/show_bug.cgi?id=52700
-        return PerspectiveTransformOperation::create(Length(clampToPositiveInteger(p), LengthType::Fixed));
+        fromPInverse = ourInverse;
+        toPInverse = 0.0;
+    } else {
+        fromPInverse = from ? getInverse(downcast<PerspectiveTransformOperation>(from)) : 0.0;
+        toPInverse = ourInverse;
     }
-    
-    const PerspectiveTransformOperation* fromOp = downcast<PerspectiveTransformOperation>(from);
-    Length fromP = fromOp ? fromOp->m_p : Length(m_p.type());
-    Length toP = m_p;
 
-    TransformationMatrix fromT;
-    TransformationMatrix toT;
-    fromT.applyPerspective(floatValueForLength(fromP, 1));
-    toT.applyPerspective(floatValueForLength(toP, 1));
-    toT.blend(fromT, context.progress);
-    TransformationMatrix::Decomposed4Type decomp;
-    toT.decompose4(decomp);
-
-    if (decomp.perspectiveZ) {
-        double val = -1.0 / decomp.perspectiveZ;
-        return PerspectiveTransformOperation::create(Length(clampToPositiveInteger(val), LengthType::Fixed));
-    }
-    return PerspectiveTransformOperation::create(Length(0, LengthType::Fixed));
+    double pInverse = WebCore::blend(fromPInverse, toPInverse, context);
+    std::optional<float> p;
+    if (pInverse > 0.0 && std::isnormal(pInverse))
+        p = 1.0 / pInverse;
+    return PerspectiveTransformOperation::create(p);
 }
 
 void PerspectiveTransformOperation::dump(TextStream& ts) const
 {
-    ts << type() << "(" << m_p << ")";
+    ts << type() << '(';
+    if (!m_p)
+        ts << "none"_s;
+    else
+        ts << m_p;
+    ts << ')';
 }
 
 } // namespace WebCore

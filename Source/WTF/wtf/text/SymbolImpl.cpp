@@ -26,7 +26,66 @@
 #include "config.h"
 #include <wtf/text/SymbolImpl.h>
 
+#include <wtf/text/SymbolRegistry.h>
+
 namespace WTF {
+
+SymbolImpl::SymbolImpl(std::span<const Latin1Character> characters, Ref<StringImpl>&& base, Flags flags)
+    : UniquedStringImpl(CreateSymbol, characters)
+    , m_owner(&base.leakRef())
+    , m_hashForSymbolShiftedWithFlagCount(nextHashForSymbol())
+    , m_flags(flags)
+{
+    static_assert(StringImpl::tailOffset<StringImpl*>() == OBJECT_OFFSETOF(SymbolImpl, m_owner));
+}
+
+SymbolImpl::SymbolImpl(std::span<const char16_t> characters, Ref<StringImpl>&& base, Flags flags)
+    : UniquedStringImpl(CreateSymbol, characters)
+    , m_owner(&base.leakRef())
+    , m_hashForSymbolShiftedWithFlagCount(nextHashForSymbol())
+    , m_flags(flags)
+{
+    static_assert(StringImpl::tailOffset<StringImpl*>() == OBJECT_OFFSETOF(SymbolImpl, m_owner));
+}
+
+SymbolImpl::SymbolImpl(Flags flags)
+    : UniquedStringImpl(CreateSymbol)
+    , m_owner(StringImpl::empty())
+    , m_hashForSymbolShiftedWithFlagCount(nextHashForSymbol())
+    , m_flags(flags | s_flagIsNullSymbol)
+{
+    static_assert(StringImpl::tailOffset<StringImpl*>() == OBJECT_OFFSETOF(SymbolImpl, m_owner));
+}
+
+IGNORE_CLANG_WARNINGS_BEGIN("missing-noreturn")
+// Always destroyed via StringImpl::destroy().
+SymbolImpl::~SymbolImpl()
+{
+    RELEASE_ASSERT_NOT_REACHED();
+}
+IGNORE_CLANG_WARNINGS_END
+
+PrivateSymbolImpl::PrivateSymbolImpl(std::span<const Latin1Character> characters, Ref<StringImpl>&& base)
+    : SymbolImpl(characters, WTF::move(base), s_flagIsPrivate)
+{
+}
+
+PrivateSymbolImpl::PrivateSymbolImpl(std::span<const char16_t> characters, Ref<StringImpl>&& base)
+    : SymbolImpl(characters, WTF::move(base), s_flagIsPrivate)
+{
+}
+
+RegisteredSymbolImpl::RegisteredSymbolImpl(std::span<const Latin1Character> characters, Ref<StringImpl>&& base, SymbolRegistry& registry, Flags flags)
+    : SymbolImpl(characters, WTF::move(base), flags)
+    , m_symbolRegistry(&registry)
+{
+}
+
+RegisteredSymbolImpl::RegisteredSymbolImpl(std::span<const char16_t> characters, Ref<StringImpl>&& base, SymbolRegistry& registry, Flags flags)
+    : SymbolImpl(characters, WTF::move(base), flags)
+    , m_symbolRegistry(&registry)
+{
+}
 
 // In addition to the normal hash value, store specialized hash value for
 // symbolized StringImpl*. And don't use the normal hash value for symbolized
@@ -38,17 +97,17 @@ unsigned SymbolImpl::nextHashForSymbol()
 {
     static unsigned s_nextHashForSymbol = 0;
     s_nextHashForSymbol += 1 << s_flagCount;
-    s_nextHashForSymbol |= 1 << 31;
+    s_nextHashForSymbol |= 1u << 31;
     return s_nextHashForSymbol;
 }
 
 Ref<SymbolImpl> SymbolImpl::create(StringImpl& rep)
 {
-    auto* ownerRep = (rep.bufferOwnership() == BufferSubstring) ? rep.substringBuffer() : &rep;
+    RefPtr ownerRep = (rep.bufferOwnership() == BufferSubstring) ? rep.substringBuffer() : &rep;
     ASSERT(ownerRep->bufferOwnership() != BufferSubstring);
     if (rep.is8Bit())
-        return adoptRef(*new SymbolImpl(rep.m_data8, rep.length(), *ownerRep));
-    return adoptRef(*new SymbolImpl(rep.m_data16, rep.length(), *ownerRep));
+        return adoptRef(*new SymbolImpl(rep.span8(), *ownerRep));
+    return adoptRef(*new SymbolImpl(rep.span16(), *ownerRep));
 }
 
 Ref<SymbolImpl> SymbolImpl::createNullSymbol()
@@ -58,34 +117,29 @@ Ref<SymbolImpl> SymbolImpl::createNullSymbol()
 
 Ref<PrivateSymbolImpl> PrivateSymbolImpl::create(StringImpl& rep)
 {
-    auto* ownerRep = (rep.bufferOwnership() == BufferSubstring) ? rep.substringBuffer() : &rep;
+    RefPtr ownerRep = (rep.bufferOwnership() == BufferSubstring) ? rep.substringBuffer() : &rep;
     ASSERT(ownerRep->bufferOwnership() != BufferSubstring);
     if (rep.is8Bit())
-        return adoptRef(*new PrivateSymbolImpl(rep.m_data8, rep.length(), *ownerRep));
-    return adoptRef(*new PrivateSymbolImpl(rep.m_data16, rep.length(), *ownerRep));
-}
-
-Ref<PrivateSymbolImpl> PrivateSymbolImpl::createNullSymbol()
-{
-    return adoptRef(*new PrivateSymbolImpl);
+        return adoptRef(*new PrivateSymbolImpl(rep.span8(), *ownerRep));
+    return adoptRef(*new PrivateSymbolImpl(rep.span16(), *ownerRep));
 }
 
 Ref<RegisteredSymbolImpl> RegisteredSymbolImpl::create(StringImpl& rep, SymbolRegistry& symbolRegistry)
 {
-    auto* ownerRep = (rep.bufferOwnership() == BufferSubstring) ? rep.substringBuffer() : &rep;
+    RefPtr ownerRep = (rep.bufferOwnership() == BufferSubstring) ? rep.substringBuffer() : &rep;
     ASSERT(ownerRep->bufferOwnership() != BufferSubstring);
     if (rep.is8Bit())
-        return adoptRef(*new RegisteredSymbolImpl(rep.m_data8, rep.length(), *ownerRep, symbolRegistry));
-    return adoptRef(*new RegisteredSymbolImpl(rep.m_data16, rep.length(), *ownerRep, symbolRegistry));
+        return adoptRef(*new RegisteredSymbolImpl(rep.span8(), *ownerRep, symbolRegistry));
+    return adoptRef(*new RegisteredSymbolImpl(rep.span16(), *ownerRep, symbolRegistry));
 }
 
 Ref<RegisteredSymbolImpl> RegisteredSymbolImpl::createPrivate(StringImpl& rep, SymbolRegistry& symbolRegistry)
 {
-    auto* ownerRep = (rep.bufferOwnership() == BufferSubstring) ? rep.substringBuffer() : &rep;
+    RefPtr ownerRep = (rep.bufferOwnership() == BufferSubstring) ? rep.substringBuffer() : &rep;
     ASSERT(ownerRep->bufferOwnership() != BufferSubstring);
     if (rep.is8Bit())
-        return adoptRef(*new RegisteredSymbolImpl(rep.m_data8, rep.length(), *ownerRep, symbolRegistry, s_flagIsRegistered | s_flagIsPrivate));
-    return adoptRef(*new RegisteredSymbolImpl(rep.m_data16, rep.length(), *ownerRep, symbolRegistry, s_flagIsRegistered | s_flagIsPrivate));
+        return adoptRef(*new RegisteredSymbolImpl(rep.span8(), *ownerRep, symbolRegistry, s_flagIsRegistered | s_flagIsPrivate));
+    return adoptRef(*new RegisteredSymbolImpl(rep.span16(), *ownerRep, symbolRegistry, s_flagIsRegistered | s_flagIsPrivate));
 }
 
 } // namespace WTF

@@ -29,10 +29,9 @@
 #include "ExceptionOr.h"
 #include "ScriptWrappable.h"
 #include "TransformationMatrix.h"
-#include <JavaScriptCore/Float32Array.h>
-#include <JavaScriptCore/Float64Array.h>
+#include <JavaScriptCore/Forward.h>
+#include <wtf/NoVirtualDestructorBase.h>
 #include <wtf/RefCounted.h>
-#include <wtf/Variant.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
@@ -40,15 +39,23 @@ namespace WebCore {
 
 class DOMMatrix;
 class DOMPoint;
+class Document;
 class ScriptExecutionContext;
 struct DOMPointInit;
 
-class DOMMatrixReadOnly : public ScriptWrappable, public RefCounted<DOMMatrixReadOnly> {
-    WTF_MAKE_ISO_ALLOCATED(DOMMatrixReadOnly);
+class DOMMatrixReadOnly : public ScriptWrappable, public RefCounted<DOMMatrixReadOnly>, public NoVirtualDestructorBase {
+    WTF_MAKE_TZONE_ALLOCATED(DOMMatrixReadOnly);
 public:
     static ExceptionOr<Ref<DOMMatrixReadOnly>> create(ScriptExecutionContext&, std::optional<Variant<String, Vector<double>>>&&);
 
-    enum class Is2D { No, Yes };
+    ~DOMMatrixReadOnly();
+
+    enum class Is2D : bool { No, Yes };
+
+    struct AbstractMatrix {
+        TransformationMatrix matrix;
+        bool is2D { true };
+    };
     static Ref<DOMMatrixReadOnly> create(const TransformationMatrix& matrix, Is2D is2D)
     {
         return adoptRef(*new DOMMatrixReadOnly(matrix, is2D));
@@ -56,7 +63,7 @@ public:
 
     static Ref<DOMMatrixReadOnly> create(TransformationMatrix&& matrix, Is2D is2D)
     {
-        return adoptRef(*new DOMMatrixReadOnly(WTFMove(matrix), is2D));
+        return adoptRef(*new DOMMatrixReadOnly(WTF::move(matrix), is2D));
     }
 
     static ExceptionOr<Ref<DOMMatrixReadOnly>> fromMatrix(DOMMatrixInit&&);
@@ -92,17 +99,17 @@ public:
     double m44() const { return m_matrix.m44(); }
 
     bool is2D() const { return m_is2D; }
-    bool isIdentity() const;
+    bool NODELETE isIdentity() const;
 
-    ExceptionOr<void> setMatrixValue(const String&);
-    ExceptionOr<void> setMatrixValue(const Vector<double>&);
+    ExceptionOr<void> setMatrixValue(Document&, const String&);
 
-    Ref<DOMMatrix> translate(double tx = 0, double ty = 0, double tz = 0);
+    Ref<DOMMatrix> NODELETE translate(double tx = 0, double ty = 0, double tz = 0);
     ExceptionOr<Ref<DOMMatrix>> multiply(DOMMatrixInit&& other) const;
-    Ref<DOMMatrix> flipX();
-    Ref<DOMMatrix> flipY();
-    Ref<DOMMatrix> scale(double scaleX = 1, std::optional<double> scaleY = std::nullopt, double scaleZ = 1, double originX = 0, double originY = 0, double originZ = 0);
-    Ref<DOMMatrix> scale3d(double scale = 1, double originX = 0, double originY = 0, double originZ = 0);
+    Ref<DOMMatrix> NODELETE flipX();
+    Ref<DOMMatrix> NODELETE flipY();
+    Ref<DOMMatrix> NODELETE scale(double scaleX = 1, std::optional<double> scaleY = std::nullopt, double scaleZ = 1, double originX = 0, double originY = 0, double originZ = 0);
+    Ref<DOMMatrix> NODELETE scale3d(double scale = 1, double originX = 0, double originY = 0, double originZ = 0);
+    Ref<DOMMatrix> NODELETE scaleNonUniform(double scaleX = 1, double scaleY = 1);
     Ref<DOMMatrix> rotate(double rotX = 0, std::optional<double> rotY = std::nullopt, std::optional<double> rotZ = std::nullopt); // Angles are in degrees.
     Ref<DOMMatrix> rotateFromVector(double x = 0, double y = 0);
     Ref<DOMMatrix> rotateAxisAngle(double x = 0, double y = 0, double z = 0, double angle = 0); // Angle is in degrees.
@@ -117,21 +124,16 @@ public:
 
     ExceptionOr<String> toString() const;
 
-    const TransformationMatrix& transformationMatrix() const { return m_matrix; }
+    const TransformationMatrix& transformationMatrix() const LIFETIME_BOUND { return m_matrix; }
+    
+    Ref<DOMMatrix> cloneAsDOMMatrix() const;
 
 protected:
     DOMMatrixReadOnly() = default;
     DOMMatrixReadOnly(const TransformationMatrix&, Is2D);
     DOMMatrixReadOnly(TransformationMatrix&&, Is2D);
 
-    struct AbstractMatrix {
-        TransformationMatrix matrix;
-        bool is2D { true };
-    };
-
-    static ExceptionOr<AbstractMatrix> parseStringIntoAbstractMatrix(const String&);
-
-    Ref<DOMMatrix> cloneAsDOMMatrix() const;
+    static ExceptionOr<AbstractMatrix> parseStringIntoAbstractMatrix(Document&, const String&);
 
     template <typename T>
     static ExceptionOr<Ref<T>> fromMatrixHelper(DOMMatrixInit&&);

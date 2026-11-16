@@ -26,10 +26,10 @@
 [
     ActiveDOMObject,
     Conditional=LEGACY_ENCRYPTED_MEDIA,
-    EnabledBySetting=LegacyEncryptedMediaAPI,
+    EnabledBySetting=LegacyEncryptedMediaAPIEnabled,
     Exposed=Window
 ] interface WebKitMediaKeySession : EventTarget {
-    readonly attribute WebKitMediaKeyError error;
+    readonly attribute WebKitMediaKeyError? error;
 
     readonly attribute DOMString keySystem;
     readonly attribute DOMString sessionId;

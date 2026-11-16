@@ -25,35 +25,26 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if ENABLE(WEBASSEMBLY)
 
+#include <cstdint>
 #include <wtf/Lock.h>
 #include <wtf/UniqueArray.h>
 #include <wtf/Vector.h>
 
 namespace JSC { namespace Wasm {
 
-class Instance;
-
 struct Context {
-    Instance* load() const;
-    void store(Instance*, void* softStackLimit);
+    struct alignas(16) ScratchBufferEntry {
+        uint8_t data[16]; // Large enough for any type (including v128_t)
+    };
 
-    static bool useFastTLS();
-
-    Instance** pointerToInstance()
-    {
-        ASSERT(!useFastTLS());
-        return &instance;
-    }
-
-    static Instance* tryLoadInstanceFromTLS();
-
-    uint64_t* scratchBufferForSize(size_t numberOfSlots);
+    ScratchBufferEntry* scratchBufferForSize(size_t numberOfSlots);
 
 private:
-    Instance* instance { nullptr };
-    Vector<UniqueArray<uint64_t>> m_scratchBuffers;
+    Vector<UniqueArray<ScratchBufferEntry>> m_scratchBuffers;
     size_t m_sizeOfLastScratchBuffer { 0 };
     Lock m_scratchBufferLock;
 };

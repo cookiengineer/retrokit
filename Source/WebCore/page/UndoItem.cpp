@@ -28,11 +28,11 @@
 
 #include "Document.h"
 #include "UndoManager.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(UndoItem);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(UndoItem);
 
 UndoManager* UndoItem::undoManager() const
 {
@@ -41,21 +41,16 @@ UndoManager* UndoItem::undoManager() const
 
 void UndoItem::setUndoManager(UndoManager* undoManager)
 {
-    m_undoManager = makeWeakPtr(undoManager);
-    m_document = makeWeakPtr(undoManager ? &undoManager->document() : nullptr);
+    m_undoManager = undoManager;
+    m_document = undoManager ? &undoManager->document() : nullptr;
 }
 
 void UndoItem::invalidate()
 {
     if (m_undoManager)
-        m_undoManager->removeItem(*this);
+        protect(m_undoManager)->removeItem(*this);
     m_undoManager.clear();
     m_document.clear();
-}
-
-bool UndoItem::isValid() const
-{
-    return !!m_undoManager;
 }
 
 Document* UndoItem::document() const

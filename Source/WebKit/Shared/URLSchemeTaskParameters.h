@@ -26,23 +26,30 @@
 #pragma once
 
 #include "FrameInfoData.h"
+#include "WebURLSchemeHandlerIdentifier.h"
+#include <WebCore/ResourceLoaderIdentifier.h>
 #include <WebCore/ResourceRequest.h>
 
-namespace IPC {
-class Encoder;
-class Decoder;
+namespace WebCore {
+class FormData;
 }
 
 namespace WebKit {
 
 struct URLSchemeTaskParameters {
-    uint64_t handlerIdentifier { 0 };
-    uint64_t taskIdentifier { 0 };
+    URLSchemeTaskParameters(WebURLSchemeHandlerIdentifier handlerIdentifier, WebCore::ResourceLoaderIdentifier taskIdentifier, const WebCore::ResourceRequest& request, FrameInfoData&& frameInfo)
+        : handlerIdentifier(handlerIdentifier)
+        , taskIdentifier(taskIdentifier)
+        , request(request)
+        , frameInfo(WTF::move(frameInfo))
+    { }
+
+    WebURLSchemeHandlerIdentifier handlerIdentifier;
+    WebCore::ResourceLoaderIdentifier taskIdentifier;
     WebCore::ResourceRequest request;
     FrameInfoData frameInfo;
-    
-    void encode(IPC::Encoder&) const;
-    static std::optional<URLSchemeTaskParameters> decode(IPC::Decoder&);
+
+    RefPtr<WebCore::FormData> requestBody() const;
 };
 
 } // namespace WebKit

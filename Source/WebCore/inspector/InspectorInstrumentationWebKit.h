@@ -25,43 +25,40 @@
 
 #pragma once
 
-#include "InspectorInstrumentationPublic.h"
-#include "ResourceLoader.h"
+#include <WebCore/InspectorInstrumentationPublic.h>
+#include <WebCore/ResourceLoader.h>
 #include <wtf/CompletionHandler.h>
 #include <wtf/Function.h>
 
 namespace WebCore {
 
-class Frame;
+class LocalFrame;
 class ResourceLoader;
 class ResourceRequest;
 class ResourceResponse;
-class SharedBuffer;
+class FragmentedSharedBuffer;
 
 class WEBCORE_EXPORT InspectorInstrumentationWebKit {
 public:
-    static bool shouldInterceptRequest(const Frame*, const ResourceRequest&);
-    static bool shouldInterceptResponse(const Frame*, const ResourceResponse&);
+    static bool shouldInterceptRequest(const ResourceLoader&);
+    static bool shouldInterceptResponse(const LocalFrame*, const ResourceResponse&);
     static void interceptRequest(ResourceLoader&, Function<void(const ResourceRequest&)>&&);
-    static void interceptResponse(const Frame*, const ResourceResponse&, unsigned long identifier, CompletionHandler<void(const ResourceResponse&, RefPtr<SharedBuffer>)>&&);
+    static void interceptResponse(const LocalFrame*, const ResourceResponse&, ResourceLoaderIdentifier, CompletionHandler<void(const ResourceResponse&, RefPtr<FragmentedSharedBuffer>)>&&);
 
 private:
-    static bool shouldInterceptRequestInternal(const Frame&, const ResourceRequest&);
-    static bool shouldInterceptResponseInternal(const Frame&, const ResourceResponse&);
+    static bool shouldInterceptRequestInternal(const ResourceLoader&);
+    static bool shouldInterceptResponseInternal(const LocalFrame&, const ResourceResponse&);
     static void interceptRequestInternal(ResourceLoader&, Function<void(const ResourceRequest&)>&&);
-    static void interceptResponseInternal(const Frame&, const ResourceResponse&, unsigned long identifier, CompletionHandler<void(const ResourceResponse&, RefPtr<SharedBuffer>)>&&);
+    static void interceptResponseInternal(const LocalFrame&, const ResourceResponse&, ResourceLoaderIdentifier, CompletionHandler<void(const ResourceResponse&, RefPtr<FragmentedSharedBuffer>)>&&);
 };
 
-inline bool InspectorInstrumentationWebKit::shouldInterceptRequest(const Frame* frame, const ResourceRequest& request)
+inline bool InspectorInstrumentationWebKit::shouldInterceptRequest(const ResourceLoader& loader)
 {
     FAST_RETURN_IF_NO_FRONTENDS(false);
-    if (!frame)
-        return false;
-
-    return shouldInterceptRequestInternal(*frame, request);
+    return shouldInterceptRequestInternal(loader);
 }
 
-inline bool InspectorInstrumentationWebKit::shouldInterceptResponse(const Frame* frame, const ResourceResponse& response)
+inline bool InspectorInstrumentationWebKit::shouldInterceptResponse(const LocalFrame* frame, const ResourceResponse& response)
 {
     FAST_RETURN_IF_NO_FRONTENDS(false);
     if (!frame)
@@ -72,14 +69,14 @@ inline bool InspectorInstrumentationWebKit::shouldInterceptResponse(const Frame*
 
 inline void InspectorInstrumentationWebKit::interceptRequest(ResourceLoader& loader, Function<void(const ResourceRequest&)>&& handler)
 {
-    ASSERT(InspectorInstrumentationWebKit::shouldInterceptRequest(loader.frame(), loader.request()));
-    interceptRequestInternal(loader, WTFMove(handler));
+    ASSERT(InspectorInstrumentationWebKit::shouldInterceptRequest(loader));
+    interceptRequestInternal(loader, WTF::move(handler));
 }
 
-inline void InspectorInstrumentationWebKit::interceptResponse(const Frame* frame, const ResourceResponse& response, unsigned long identifier, CompletionHandler<void(const ResourceResponse&, RefPtr<SharedBuffer>)>&& handler)
+inline void InspectorInstrumentationWebKit::interceptResponse(const LocalFrame* frame, const ResourceResponse& response, ResourceLoaderIdentifier identifier, CompletionHandler<void(const ResourceResponse&, RefPtr<FragmentedSharedBuffer>)>&& handler)
 {
     ASSERT(InspectorInstrumentationWebKit::shouldInterceptResponse(frame, response));
-    interceptResponseInternal(*frame, response, identifier, WTFMove(handler));
+    interceptResponseInternal(*frame, response, identifier, WTF::move(handler));
 }
 
 }

@@ -41,12 +41,15 @@ using URLSchemeHandlerPair = std::pair<Ref<WebKit::WebURLSchemeHandler>, WTF::St
 class InspectorConfiguration final : public API::ObjectImpl<Object::Type::InspectorConfiguration> {
 public:
     static Ref<InspectorConfiguration> create();
-    
+
+    InspectorConfiguration() = default;
+    virtual ~InspectorConfiguration();
+
     void addURLSchemeHandler(Ref<WebKit::WebURLSchemeHandler>&&, const WTF::String& urlScheme);
-    const Vector<URLSchemeHandlerPair>& urlSchemeHandlers() { return m_customURLSchemes; }
+    const Vector<URLSchemeHandlerPair>& urlSchemeHandlers() LIFETIME_BOUND { return m_customURLSchemes; }
     
-    WebKit::WebProcessPool* processPool();
-    void setProcessPool(WebKit::WebProcessPool*);
+    WebKit::WebProcessPool* NODELETE processPool();
+    void setProcessPool(RefPtr<WebKit::WebProcessPool>&&);
 
 private:
     Vector<URLSchemeHandlerPair> m_customURLSchemes;
@@ -54,3 +57,5 @@ private:
 };
 
 } // namespace API
+
+SPECIALIZE_TYPE_TRAITS_API_OBJECT(InspectorConfiguration);

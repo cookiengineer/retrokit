@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,43 +26,68 @@
 #include "config.h"
 #include "JITOperationList.h"
 
+#include "Disassembler.h"
 #include "Gate.h"
+#include "JITOperationValidation.h"
 #include "LLIntData.h"
 #include "Opcode.h"
+#include "Options.h"
+#include "WebAssemblyBuiltin.h"
 
-#if ENABLE(JIT_CAGE)
-#include <WebKitAdditions/JITCageAdditions.h>
+#if HAVE(DLADDR)
+#include <dlfcn.h>
 #endif
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
-#if ENABLE(JIT_OPERATION_VALIDATION)
+#if ENABLE(JIT_OPERATION_VALIDATION) || ENABLE(JIT_OPERATION_DISASSEMBLY)
 
 LazyNeverDestroyed<JITOperationList> jitOperationList;
 
-extern const uintptr_t startOfJITOperationsInJSC __asm("section$start$__DATA_CONST$__jsc_ops");
-extern const uintptr_t endOfJITOperationsInJSC __asm("section$end$__DATA_CONST$__jsc_ops");
+extern const JITOperationAnnotation startOfJITOperationsInJSC __asm__("section$start$__DATA_CONST$__jsc_ops");
+extern const JITOperationAnnotation endOfJITOperationsInJSC __asm__("section$end$__DATA_CONST$__jsc_ops");
 
 void JITOperationList::initialize()
 {
     jitOperationList.construct();
 }
 
-static SUPPRESS_ASAN ALWAYS_INLINE void addPointers(HashMap<void*, void*>& map, const uintptr_t* beginOperations, const uintptr_t* endOperations)
+#if ENABLE(JIT_OPERATION_VALIDATION)
+
+#if ENABLE(JIT_OPERATION_VALIDATION_ASSERT)
+void JITOperationList::addInverseMap(void* validationEntry, void* pointer)
 {
+    m_validatedOperationsInverseMap.add(validationEntry, pointer);
+}
+
+#define JSC_REGISTER_INVERSE_JIT_CAGED_POINTER_FOR_DEBUG(validationEntry, pointer) \
+    addInverseMap(validationEntry, pointer)
+#else
+#define JSC_REGISTER_INVERSE_JIT_CAGED_POINTER_FOR_DEBUG(validationEntry, pointer)
+#endif // ENABLE(JIT_OPERATION_VALIDATION_ASSERT)
+
+SUPPRESS_ASAN ALWAYS_INLINE void JITOperationList::addPointers(const JITOperationAnnotation* begin, const JITOperationAnnotation* end)
+{
+    auto& map = m_validatedOperations;
 #if ENABLE(JIT_CAGE)
     if (Options::useJITCage()) {
         JSC_JIT_CAGED_POINTER_REGISTRATION();
         return;
     }
 #endif
-    if constexpr (ASSERT_ENABLED) {
-        for (const uintptr_t* current = beginOperations; current != endOperations; ++current) {
-            void* codePtr = removeCodePtrTag(bitwise_cast<void*>(*current));
-            if (codePtr)
-                map.add(codePtr, WTF::tagNativeCodePtrImpl<OperationPtrTag>(codePtr));
+#if ENABLE(JIT_OPERATION_VALIDATION_ASSERT)
+        for (const auto* current = begin; current != end; ++current) {
+            void* operation = removeCodePtrTag(current->operation);
+            if (operation) {
+                void* validator = removeCodePtrTag(Options::useJITCage() ? current->operationWithValidation : current->operation);
+                validator = WTF::tagNativeCodePtrImpl<OperationPtrTag>(validator);
+                map.add(operation, validator);
+                JSC_REGISTER_INVERSE_JIT_CAGED_POINTER_FOR_DEBUG(validator, operation);
+            }
         }
-    }
+#endif
 }
 
 void JITOperationList::populatePointersInJavaScriptCore()
@@ -70,66 +95,217 @@ void JITOperationList::populatePointersInJavaScriptCore()
     static std::once_flag onceKey;
     std::call_once(onceKey, [] {
         if (Options::useJIT())
-            addPointers(jitOperationList->m_validatedOperations, &startOfJITOperationsInJSC, &endOfJITOperationsInJSC);
+            jitOperationList->addPointers(&startOfJITOperationsInJSC, &endOfJITOperationsInJSC);
+#if ENABLE(JIT_OPERATION_DISASSEMBLY)
+        if (Options::needDisassemblySupport()) [[unlikely]]
+            populateDisassemblyLabelsInJavaScriptCore();
+#endif
     });
 }
+
+#endif // ENABLE(JIT_OPERATION_VALIDATION)
+
+LLINT_DECLARE_ROUTINE_VALIDATE(llint_function_for_call_prologue);
+LLINT_DECLARE_ROUTINE_VALIDATE(llint_function_for_construct_prologue);
+LLINT_DECLARE_ROUTINE_VALIDATE(llint_function_for_call_arity_check);
+LLINT_DECLARE_ROUTINE_VALIDATE(llint_function_for_construct_arity_check);
+LLINT_DECLARE_ROUTINE_VALIDATE(llint_eval_prologue);
+LLINT_DECLARE_ROUTINE_VALIDATE(llint_program_prologue);
+LLINT_DECLARE_ROUTINE_VALIDATE(llint_module_program_prologue);
+LLINT_DECLARE_ROUTINE_VALIDATE(llint_throw_during_call_trampoline);
+LLINT_DECLARE_ROUTINE_VALIDATE(llint_handle_uncaught_exception);
+LLINT_DECLARE_ROUTINE_VALIDATE(checkpoint_osr_exit_trampoline);
+LLINT_DECLARE_ROUTINE_VALIDATE(checkpoint_osr_exit_from_inlined_call_trampoline);
+LLINT_DECLARE_ROUTINE_VALIDATE(array_sort_comparator_return_trampoline);
+LLINT_DECLARE_ROUTINE_VALIDATE(normal_osr_exit_trampoline);
+LLINT_DECLARE_ROUTINE_VALIDATE(fuzzer_return_early_from_loop_hint);
+LLINT_DECLARE_ROUTINE_VALIDATE(js_to_wasm_wrapper_entry);
+LLINT_DECLARE_ROUTINE_VALIDATE(wasm_to_wasm_ipint_wrapper_entry);
+LLINT_DECLARE_ROUTINE_VALIDATE(wasm_to_js_wrapper_entry);
+LLINT_DECLARE_ROUTINE_VALIDATE(ipint_trampoline);
+LLINT_DECLARE_ROUTINE_VALIDATE(ipint_entry);
+LLINT_DECLARE_ROUTINE_VALIDATE(ipint_catch_entry);
+LLINT_DECLARE_ROUTINE_VALIDATE(ipint_catch_all_entry);
+LLINT_DECLARE_ROUTINE_VALIDATE(ipint_table_catch_entry);
+LLINT_DECLARE_ROUTINE_VALIDATE(ipint_table_catch_ref_entry);
+LLINT_DECLARE_ROUTINE_VALIDATE(ipint_table_catch_all_entry);
+LLINT_DECLARE_ROUTINE_VALIDATE(ipint_table_catch_allref_entry);
+
+#if ENABLE(JIT_OPERATION_VALIDATION)
+#define LLINT_OP_EXTRAS(validateLabel) reinterpret_cast<void*>(validateLabel)
+#else // ENABLE(JIT_OPERATION_DISASSEMBLY)
+#define LLINT_OP_EXTRAS(validateLabel)
+#endif
+
+#define LLINT_ROUTINE(functionName) { \
+        std::bit_cast<void*>(LLInt::getCodeFunctionPtr<CFunctionPtrTag>(functionName)), \
+        LLINT_OP_EXTRAS(LLINT_ROUTINE_VALIDATE(functionName)) \
+    },
+
+#define LLINT_OP(name) { \
+        std::bit_cast<void*>(LLInt::getCodeFunctionPtr<CFunctionPtrTag>(name)), \
+        LLINT_OP_EXTRAS(LLINT_RETURN_VALIDATE(name)) \
+    }, { \
+        std::bit_cast<void*>(LLInt::getWide16CodeFunctionPtr<CFunctionPtrTag>(name)), \
+        LLINT_OP_EXTRAS(LLINT_RETURN_WIDE16_VALIDATE(name)) \
+    }, { \
+        std::bit_cast<void*>(LLInt::getWide32CodeFunctionPtr<CFunctionPtrTag>(name)), \
+        LLINT_OP_EXTRAS(LLINT_RETURN_WIDE32_VALIDATE(name)) \
+    },
+
+#define LLINT_RETURN_LOCATION(name, ...) \
+    LLINT_OP(name##_return_location)
+
+#if ENABLE(JIT_OPERATION_VALIDATION) && !ENABLE(JIT_CAGE)
+// In this configuration the validation function is a static constexpr equal to the original function.
+// It is not visible here and does not produce a linkable symbol.
+#define BUILTIN_WASM_ENTRY_VALIDATE_NAME(setName, builtinName) BUILTIN_WASM_ENTRY_NAME(setName, builtinName)
+#else
+#define BUILTIN_WASM_ENTRY_VALIDATE_NAME(setName, builtinName) CONCAT(BUILTIN_WASM_ENTRY_NAME(setName, builtinName), Validate)
+#endif
+
+#define DECLARE_WASM_BUILTIN_ENTRY(setName, builtinName, signature) \
+    extern "C" EncodedJSValue BUILTIN_WASM_ENTRY_NAME(setName, builtinName)(); \
+    extern "C" EncodedJSValue BUILTIN_WASM_ENTRY_VALIDATE_NAME(setName, builtinName)();
+
+FOR_EACH_WASM_BUILTIN(DECLARE_WASM_BUILTIN_ENTRY)
+
+#undef DECLARE_WASM_BUILTIN_ENTRY
+
+#define WASM_BUILTIN_RECORD(setName, builtinName, signature) { \
+        std::bit_cast<void*>(&BUILTIN_WASM_ENTRY_NAME(setName, builtinName)), \
+        LLINT_OP_EXTRAS(BUILTIN_WASM_ENTRY_VALIDATE_NAME(setName, builtinName)) \
+    },
+
+static std::span<const JITOperationAnnotation> llintOperations()
+{
+    static std::span<const JITOperationAnnotation> operations;
+    static std::once_flag onceKey;
+    std::call_once(onceKey, [&] {
+        static const auto operationsStorage = WTF::toArray<JITOperationAnnotation>({
+            LLINT_ROUTINE(llint_function_for_call_prologue)
+            LLINT_ROUTINE(llint_function_for_construct_prologue)
+            LLINT_ROUTINE(llint_function_for_call_arity_check)
+            LLINT_ROUTINE(llint_function_for_construct_arity_check)
+            LLINT_ROUTINE(llint_eval_prologue)
+            LLINT_ROUTINE(llint_program_prologue)
+            LLINT_ROUTINE(llint_module_program_prologue)
+            LLINT_ROUTINE(llint_throw_during_call_trampoline)
+            LLINT_ROUTINE(llint_handle_uncaught_exception)
+            LLINT_ROUTINE(checkpoint_osr_exit_trampoline)
+            LLINT_ROUTINE(checkpoint_osr_exit_from_inlined_call_trampoline)
+            LLINT_ROUTINE(array_sort_comparator_return_trampoline)
+            LLINT_ROUTINE(normal_osr_exit_trampoline)
+            LLINT_ROUTINE(fuzzer_return_early_from_loop_hint)
+            LLINT_ROUTINE(js_to_wasm_wrapper_entry)
+            LLINT_ROUTINE(wasm_to_wasm_ipint_wrapper_entry)
+            LLINT_ROUTINE(wasm_to_js_wrapper_entry)
+            LLINT_ROUTINE(ipint_trampoline)
+            LLINT_ROUTINE(ipint_entry)
+            LLINT_ROUTINE(ipint_catch_entry)
+            LLINT_ROUTINE(ipint_catch_all_entry)
+            LLINT_ROUTINE(ipint_table_catch_entry)
+            LLINT_ROUTINE(ipint_table_catch_ref_entry)
+            LLINT_ROUTINE(ipint_table_catch_all_entry)
+            LLINT_ROUTINE(ipint_table_catch_allref_entry)
+
+            FOR_EACH_WASM_BUILTIN(WASM_BUILTIN_RECORD)
+
+            LLINT_OP(op_catch)
+            LLINT_OP(llint_generic_return_point)
+
+            FOR_EACH_LLINT_OPCODE_WITH_RETURN(LLINT_RETURN_LOCATION)
+
+            JSC_JS_GATE_OPCODES(LLINT_RETURN_LOCATION)
+            JSC_WASM_GATE_OPCODES(LLINT_RETURN_LOCATION)
+        });
+        operations = operationsStorage;
+    });
+    return operations;
+}
+
+#undef LLINT_ROUTINE
+#undef LLINT_OP
+#undef LLINT_RETURN_LOCATION
+#undef LLINT_OP_EXTRAS
+#undef WASM_BUILTIN_RECORD
+
+#if ENABLE(JIT_OPERATION_VALIDATION)
 
 void JITOperationList::populatePointersInJavaScriptCoreForLLInt()
 {
     static std::once_flag onceKey;
     std::call_once(onceKey, [] {
-
-#define LLINT_OP(name) \
-    bitwise_cast<uintptr_t>(LLInt::getCodeFunctionPtr<CFunctionPtrTag>(name)), \
-    bitwise_cast<uintptr_t>(LLInt::getWide16CodeFunctionPtr<CFunctionPtrTag>(name)), \
-    bitwise_cast<uintptr_t>(LLInt::getWide32CodeFunctionPtr<CFunctionPtrTag>(name)),
-
-#define LLINT_RETURN_LOCATION(name, ...) \
-    LLINT_OP(name##_return_location)
-
-        const uintptr_t operations[] = {
-            bitwise_cast<uintptr_t>(LLInt::getCodeFunctionPtr<CFunctionPtrTag>(llint_function_for_call_prologue)),
-            bitwise_cast<uintptr_t>(LLInt::getCodeFunctionPtr<CFunctionPtrTag>(llint_function_for_construct_prologue)),
-            bitwise_cast<uintptr_t>(LLInt::getCodeFunctionPtr<CFunctionPtrTag>(llint_function_for_call_arity_check)),
-            bitwise_cast<uintptr_t>(LLInt::getCodeFunctionPtr<CFunctionPtrTag>(llint_function_for_construct_arity_check)),
-            bitwise_cast<uintptr_t>(LLInt::getCodeFunctionPtr<CFunctionPtrTag>(llint_eval_prologue)),
-            bitwise_cast<uintptr_t>(LLInt::getCodeFunctionPtr<CFunctionPtrTag>(llint_program_prologue)),
-            bitwise_cast<uintptr_t>(LLInt::getCodeFunctionPtr<CFunctionPtrTag>(llint_module_program_prologue)),
-            bitwise_cast<uintptr_t>(LLInt::getCodeFunctionPtr<CFunctionPtrTag>(wasm_function_prologue)),
-            bitwise_cast<uintptr_t>(LLInt::getCodeFunctionPtr<CFunctionPtrTag>(wasm_function_prologue_no_tls)),
-            bitwise_cast<uintptr_t>(LLInt::getCodeFunctionPtr<CFunctionPtrTag>(llint_throw_during_call_trampoline)),
-            bitwise_cast<uintptr_t>(LLInt::getCodeFunctionPtr<CFunctionPtrTag>(llint_handle_uncaught_exception)),
-            bitwise_cast<uintptr_t>(LLInt::getCodeFunctionPtr<CFunctionPtrTag>(checkpoint_osr_exit_trampoline)),
-            bitwise_cast<uintptr_t>(LLInt::getCodeFunctionPtr<CFunctionPtrTag>(checkpoint_osr_exit_from_inlined_call_trampoline)),
-            bitwise_cast<uintptr_t>(LLInt::getCodeFunctionPtr<CFunctionPtrTag>(normal_osr_exit_trampoline)),
-            bitwise_cast<uintptr_t>(LLInt::getCodeFunctionPtr<CFunctionPtrTag>(fuzzer_return_early_from_loop_hint)),
-
-            LLINT_OP(op_catch)
-            LLINT_OP(llint_generic_return_point)
-
-            LLINT_RETURN_LOCATION(op_get_by_id)
-            LLINT_RETURN_LOCATION(op_get_by_val)
-            LLINT_RETURN_LOCATION(op_put_by_id)
-            LLINT_RETURN_LOCATION(op_put_by_val)
-
-            JSC_JS_GATE_OPCODES(LLINT_RETURN_LOCATION)
-            JSC_WASM_GATE_OPCODES(LLINT_RETURN_LOCATION)
-        };
-        if (Options::useJIT())
-            addPointers(jitOperationList->m_validatedOperations, operations, operations + WTF_ARRAY_LENGTH(operations));
-#undef LLINT_RETURN_LOCATION
+        if (Options::useJIT()) {
+            auto list = llintOperations();
+            jitOperationList->addPointers(list.data(), list.data() + list.size());
+        }
+#if ENABLE(JIT_OPERATION_DISASSEMBLY)
+        if (Options::needDisassemblySupport()) [[unlikely]]
+            JITOperationList::populateDisassemblyLabelsInJavaScriptCoreForLLInt();
+#endif
     });
 }
 
-
-void JITOperationList::populatePointersInEmbedder(const uintptr_t* beginOperations, const uintptr_t* endOperations)
+void JITOperationList::populatePointersInEmbedder(const JITOperationAnnotation* beginOperations, const JITOperationAnnotation* endOperations)
 {
-    UNUSED_PARAM(beginOperations);
-    UNUSED_PARAM(endOperations);
     if (Options::useJIT())
-        addPointers(jitOperationList->m_validatedOperations, beginOperations, endOperations);
+        jitOperationList->addPointers(beginOperations, endOperations);
 }
 
 #endif // ENABLE(JIT_OPERATION_VALIDATION)
+
+#if ENABLE(JIT_OPERATION_DISASSEMBLY)
+
+SUPPRESS_ASAN void JITOperationList::addDisassemblyLabels(const JITOperationAnnotation* begin, const JITOperationAnnotation* end)
+{
+    RELEASE_ASSERT(Options::needDisassemblySupport());
+    for (const auto* current = begin; current != end; ++current) {
+#if ENABLE(JIT_OPERATION_VALIDATION)
+        auto* operation = current->operationWithValidation;
+#else
+        auto* operation = current->operation;
+#endif
+        Dl_info info;
+        if (dladdr(operation, &info) && info.dli_sname)
+            registerLabel(removeCodePtrTag(operation), info.dli_sname);
+    }
+}
+
+void JITOperationList::populateDisassemblyLabelsInJavaScriptCore()
+{
+    ASSERT(Options::needDisassemblySupport());
+    static std::once_flag onceKey;
+    std::call_once(onceKey, [] {
+        if (Options::useJIT())
+            addDisassemblyLabels(&startOfJITOperationsInJSC, &endOfJITOperationsInJSC);
+    });
+}
+
+void JITOperationList::populateDisassemblyLabelsInJavaScriptCoreForLLInt()
+{
+    ASSERT(Options::needDisassemblySupport());
+    static std::once_flag onceKey;
+    std::call_once(onceKey, [] {
+        if (Options::useJIT()) {
+            auto list = llintOperations();
+            addDisassemblyLabels(list.data(), list.data() + list.size());
+        }
+    });
+}
+
+void JITOperationList::populateDisassemblyLabelsInEmbedder(const JITOperationAnnotation* beginOperations, const JITOperationAnnotation* endOperations)
+{
+    if (!Options::needDisassemblySupport()) [[likely]]
+        return;
+    if (Options::useJIT())
+        addDisassemblyLabels(beginOperations, endOperations);
+}
+
+#endif // ENABLE(JIT_OPERATION_DISASSEMBLY)
+
+#endif // ENABLE(JIT_OPERATION_VALIDATION) || ENABLE(JIT_OPERATION_DISASSEMBLY)
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 } // namespace JSC

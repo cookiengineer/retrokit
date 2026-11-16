@@ -25,7 +25,8 @@
 
 #pragma once
 
-#include "SleepDisablerIdentifier.h"
+#include <WebCore/PageIdentifier.h>
+#include <WebCore/SleepDisablerIdentifier.h>
 #include <wtf/Forward.h>
 
 namespace WebCore {
@@ -33,8 +34,8 @@ namespace WebCore {
 class SleepDisablerClient {
 public:
     virtual ~SleepDisablerClient() { }
-    virtual void didCreateSleepDisabler(SleepDisablerIdentifier, const String& reason, bool display) = 0;
-    virtual void didDestroySleepDisabler(SleepDisablerIdentifier) = 0;
+    virtual void didCreateSleepDisabler(SleepDisablerIdentifier, const String& reason, bool display, std::optional<PageIdentifier>) = 0;
+    virtual void didDestroySleepDisabler(SleepDisablerIdentifier, std::optional<PageIdentifier>) = 0;
 };
 
 WEBCORE_EXPORT std::unique_ptr<SleepDisablerClient>& sleepDisablerClient();

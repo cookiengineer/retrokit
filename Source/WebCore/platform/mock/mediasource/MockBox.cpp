@@ -74,7 +74,7 @@ MockTrackBox::MockTrackBox(ArrayBuffer* data)
     auto array = JSC::Int8Array::create(data, 12, 4);
     for (int i = 0; i < 4; ++i)
         builder.append(static_cast<char>(array->item(i)));
-    m_codec = builder.toString();
+    m_codec = builder.toAtomString();
 
     m_kind = static_cast<TrackKind>(view->get<uint8_t>(16, true));
 }
@@ -92,7 +92,7 @@ MockInitializationBox::MockInitializationBox(ArrayBuffer* data)
 
     auto view = JSC::DataView::create(data, 0, data->byteLength());
     int32_t timeValue = view->get<int32_t>(8, true);
-    int32_t timeScale = view->get<int32_t>(12, true);
+    uint32_t timeScale = view->get<uint32_t>(12, true);
     m_duration = MediaTime(timeValue, timeScale);
     
     size_t offset = 16;
@@ -120,7 +120,7 @@ MockSampleBox::MockSampleBox(ArrayBuffer* data)
     ASSERT(m_length == 30);
 
     auto view = JSC::DataView::create(data, 0, data->byteLength());
-    int32_t timeScale = view->get<int32_t>(8, true);
+    uint32_t timeScale = view->get<uint32_t>(8, true);
 
     int32_t timeValue = view->get<int32_t>(12, true);
     m_presentationTimestamp = MediaTime(timeValue, timeScale);
@@ -128,8 +128,8 @@ MockSampleBox::MockSampleBox(ArrayBuffer* data)
     timeValue = view->get<int32_t>(16, true);
     m_decodeTimestamp = MediaTime(timeValue, timeScale);
 
-    timeValue = view->get<int32_t>(20, true);
-    m_duration = MediaTime(timeValue, timeScale);
+    uint32_t durationValue = view->get<uint32_t>(20, true);
+    m_duration = MediaTime(durationValue, timeScale);
 
     m_trackID = view->get<int32_t>(24, true);
     m_flags = view->get<uint8_t>(28, true);

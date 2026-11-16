@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2005-2026 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -20,9 +20,8 @@
 
 #pragma once
 
-#include <mutex>
+#include <JavaScriptCore/JSExportMacros.h>
 #include <wtf/Assertions.h>
-#include <wtf/ForbidHeapAllocation.h>
 #include <wtf/Lock.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/RefPtr.h>
@@ -55,17 +54,9 @@ class VM;
 class JSGlobalObject;
 class JSLock;
 
-// This class is used to protect the initialization of the legacy single 
-// shared VM.
-class GlobalJSLock {
-    WTF_MAKE_NONCOPYABLE(GlobalJSLock);
-public:
-    JS_EXPORT_PRIVATE GlobalJSLock();
-    JS_EXPORT_PRIVATE ~GlobalJSLock();
-private:
-    static Lock s_sharedInstanceMutex;
-};
-
+// FIXME: We should either have a specialization of WTF::Locker for JSLock or only allow using JSLockHolder.
+// It's weird that WTF::Locker<JSLock> doesn't ref() the VM for the lifetime of the lock and it's unclear
+// there's any noticable performance difference.
 class JSLockHolder {
 public:
     JS_EXPORT_PRIVATE JSLockHolder(VM*);
@@ -96,13 +87,24 @@ public:
 
     std::optional<RefPtr<Thread>> ownerThread() const
     {
-        if (m_hasOwnerThread)
+        if (m_hasOwnerThread.load(std::memory_order_acquire))
             return m_ownerThread;
         return std::nullopt;
     }
-    bool currentThreadIsHoldingLock() { return m_hasOwnerThread && m_ownerThread.get() == &Thread::current(); }
 
-    void willDestroyVM(VM*);
+    // Returns the owner thread's UID without creating temporary RefPtr objects.
+    // This avoids ref counting operations that can cause lock contention
+    // with thread suspension. Returns std::nullopt if there is no owner thread.
+    std::optional<uint64_t> ownerThreadUID() const
+    {
+        if (!m_hasOwnerThread.load(std::memory_order_acquire))
+            return std::nullopt;
+        return m_ownerThread->uid();
+    }
+
+    bool currentThreadIsHoldingLock() { return m_hasOwnerThread.load(std::memory_order_acquire) && m_ownerThread.get() == &Thread::currentSingleton(); }
+
+    void NODELETE willDestroyVM(VM*);
 
     class DropAllLocks {
         WTF_MAKE_NONCOPYABLE(DropAllLocks);
@@ -138,13 +140,18 @@ private:
     unsigned dropAllLocks(DropAllLocks*);
     void grabAllLocks(DropAllLocks*, unsigned lockCount);
 
+#if PLATFORM(COCOA) && CPU(ADDRESS64) && CPU(ARM64)
+    // FIXME: rdar://168614004
+    NO_RETURN_DUE_TO_CRASH NEVER_INLINE void dumpInfoAndCrashForLockNotOwned();
+#endif
+
     Lock m_lock;
     bool m_isWebThreadAware { false };
     // We cannot make m_ownerThread an optional (instead of pairing it with an explicit
     // m_hasOwnerThread) because currentThreadIsHoldingLock() may be called from a
     // different thread, and an optional is vulnerable to races.
     // See https://bugs.webkit.org/show_bug.cgi?id=169042#c6
-    bool m_hasOwnerThread { false };
+    std::atomic<bool> m_hasOwnerThread { false };
     bool m_shouldReleaseHeapAccess;
     RefPtr<Thread> m_ownerThread;
     intptr_t m_lockCount;

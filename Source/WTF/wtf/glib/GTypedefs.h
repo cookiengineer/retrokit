@@ -55,6 +55,7 @@ typedef struct _GMainContext GMainContext;
 typedef struct _GMainLoop GMainLoop;
 typedef struct _GPatternSpec GPatternSpec;
 typedef struct _GPollableOutputStream GPollableOutputStream;
+typedef struct _GResource GResource;
 typedef struct _GSList GSList;
 typedef struct _GSocketClient GSocketClient;
 typedef struct _GSocketConnection GSocketConnection;
@@ -74,11 +75,6 @@ typedef struct _GPtrArray GPtrArray;
 typedef struct _GByteArray GByteArray;
 typedef struct _GBytes GBytes;
 typedef struct _GClosure GClosure;
-
-#if USE(CAIRO)
-typedef struct _cairo_surface cairo_surface_t;
-typedef struct _cairo_rectangle_int cairo_rectangle_int_t;
-#endif
 
 #if PLATFORM(GTK)
 typedef struct _GtkAction GtkAction;

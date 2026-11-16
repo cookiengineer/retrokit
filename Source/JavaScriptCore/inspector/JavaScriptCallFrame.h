@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008, 2013-2014 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,7 +26,7 @@
 #pragma once
 
 #include "DebuggerCallFrame.h"
-#include "JSCJSValueInlines.h"
+#include "JSCJSValue.h"
 #include <wtf/Forward.h>
 #include <wtf/RefCounted.h>
 #include <wtf/text/TextPosition.h>
@@ -37,28 +37,27 @@ class JavaScriptCallFrame : public RefCounted<JavaScriptCallFrame> {
 public:
     static Ref<JavaScriptCallFrame> create(Ref<JSC::DebuggerCallFrame>&& debuggerCallFrame)
     {
-        return adoptRef(*new JavaScriptCallFrame(WTFMove(debuggerCallFrame)));
+        return adoptRef(*new JavaScriptCallFrame(WTF::move(debuggerCallFrame)));
     }
 
     JavaScriptCallFrame* caller();
-    intptr_t sourceID() const { return m_debuggerCallFrame->sourceID(); }
+    JSC::SourceID sourceID() const { return m_debuggerCallFrame->sourceID(); }
     const TextPosition position() const { return m_debuggerCallFrame->position(); }
     int line() const { return m_debuggerCallFrame->line(); }
     int column() const { return m_debuggerCallFrame->column(); }
 
-    String functionName() const { return m_debuggerCallFrame->functionName(); }
-    JSC::DebuggerCallFrame::Type type() const { return m_debuggerCallFrame->type(); }
-    JSC::DebuggerScope* scopeChain() const { return m_debuggerCallFrame->scope(); }
-    JSC::JSGlobalObject* deprecatedVMEntryGlobalObject() const { return m_debuggerCallFrame->deprecatedVMEntryGlobalObject(); }
+    String functionName(JSC::VM& vm) const { return m_debuggerCallFrame->functionName(vm); }
+    JSC::DebuggerCallFrame::Type type(JSC::VM& vm) const { return m_debuggerCallFrame->type(vm); }
+    JSC::DebuggerScope* scopeChain(JSC::VM& vm) const { return m_debuggerCallFrame->scope(vm); }
     bool isTailDeleted() const { return m_debuggerCallFrame->isTailDeleted(); }
 
     JSC::JSValue thisValue(JSC::VM& vm) const { return m_debuggerCallFrame->thisValue(vm); }
-    JSC::JSValue evaluateWithScopeExtension(const String& script, JSC::JSObject* scopeExtension, NakedPtr<JSC::Exception>& exception) const { return m_debuggerCallFrame->evaluateWithScopeExtension(script, scopeExtension, exception); }
+    JSC::JSValue evaluateWithScopeExtension(JSC::VM& vm, const String& script, JSC::JSObject* scopeExtension, NakedPtr<JSC::Exception>& exception) const { return m_debuggerCallFrame->evaluateWithScopeExtension(vm, script, scopeExtension, exception); }
 
 private:
     JavaScriptCallFrame(Ref<JSC::DebuggerCallFrame>&&);
 
-    Ref<JSC::DebuggerCallFrame> m_debuggerCallFrame;
+    const Ref<JSC::DebuggerCallFrame> m_debuggerCallFrame;
     RefPtr<JavaScriptCallFrame> m_caller;
 };
 

@@ -28,15 +28,23 @@
 #include "MessageReceiver.h"
 #include "WebProcessSupplement.h"
 #include <WebCore/NotificationClient.h>
+#include <WebCore/ScriptExecutionContextIdentifier.h>
+#include <optional>
+#include <wtf/CompletionHandler.h>
 #include <wtf/HashMap.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/UUID.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakRef.h>
 #include <wtf/text/StringHash.h>
 
 namespace WebCore {
-class Notification;
 class SecurityOrigin;
+class SecurityOriginData;
+
+struct NotificationData;
 }
 
 namespace WebKit {
@@ -45,27 +53,31 @@ class WebPage;
 class WebProcess;
 
 class WebNotificationManager : public WebProcessSupplement, public IPC::MessageReceiver {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(WebNotificationManager);
     WTF_MAKE_NONCOPYABLE(WebNotificationManager);
 public:
     explicit WebNotificationManager(WebProcess&);
     ~WebNotificationManager();
 
-    static const char* supplementName();
+    void ref() const final;
+    void deref() const final;
+
+    static ASCIILiteral supplementName();
     
-    bool show(WebCore::Notification*, WebPage*);
-    void cancel(WebCore::Notification*, WebPage*);
-    void clearNotifications(WebCore::ScriptExecutionContext*, WebPage*);
+    bool show(WebCore::NotificationData&&, RefPtr<WebCore::NotificationResources>&&, WebPage*, CompletionHandler<void()>&&);
+    void cancel(WebCore::NotificationData&&, WebPage*);
+
+    void requestPermission(WebCore::SecurityOriginData&&, RefPtr<WebPage>, CompletionHandler<void(bool)>&&);
+
     // This callback comes from WebCore, not messaged from the UI process.
-    void didDestroyNotification(WebCore::Notification*, WebPage*);
+    void didDestroyNotification(WebCore::NotificationData&&, WebPage*);
 
     void didUpdateNotificationDecision(const String& originString, bool allowed);
 
     // Looks in local cache for permission. If not found, returns DefaultDenied.
-    WebCore::NotificationClient::Permission policyForOrigin(const String& originString) const;
+    WebCore::NotificationClient::Permission policyForOrigin(const String& originString, WebPage* = nullptr) const;
 
     void removeAllPermissionsForTesting();
-    uint64_t notificationIDForTesting(WebCore::Notification*);
 
 private:
     // WebProcessSupplement
@@ -75,27 +87,14 @@ private:
     // Implemented in generated WebNotificationManagerMessageReceiver.cpp
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
     
-    void didShowNotification(uint64_t notificationID);
-    void didClickNotification(uint64_t notificationID);
-    void didCloseNotifications(const Vector<uint64_t>& notificationIDs);
+    void didShowNotification(const WTF::UUID& notificationID);
+    void didClickNotification(const WTF::UUID& notificationID);
+    void didCloseNotifications(const Vector<WTF::UUID>& notificationIDs);
     void didRemoveNotificationDecisions(const Vector<String>& originStrings);
-    
-#if ENABLE(NOTIFICATIONS)
-    void removeNotificationFromContextMap(uint64_t notificationID, WebCore::Notification*);
-#endif
 
-    WebProcess& m_process;
-
+    WeakRef<WebProcess> m_process;
 #if ENABLE(NOTIFICATIONS)
-    typedef HashMap<RefPtr<WebCore::Notification>, uint64_t> NotificationMap;
-    NotificationMap m_notificationMap;
-    
-    typedef HashMap<uint64_t, RefPtr<WebCore::Notification>> NotificationIDMap;
-    NotificationIDMap m_notificationIDMap;
-    
-    typedef HashMap<RefPtr<WebCore::ScriptExecutionContext>, Vector<uint64_t>> NotificationContextMap;
-    NotificationContextMap m_notificationContextMap;
-    
+    HashMap<WTF::UUID, WebCore::ScriptExecutionContextIdentifier> m_nonPersistentNotificationsContexts;
     HashMap<String, bool> m_permissionsMap;
 #endif
 };

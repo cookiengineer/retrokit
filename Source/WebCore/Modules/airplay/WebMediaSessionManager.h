@@ -25,14 +25,14 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
 #if ENABLE(WIRELESS_PLAYBACK_TARGET) && !PLATFORM(IOS_FAMILY)
 
-#include "MediaPlaybackTargetContext.h"
-#include "MediaPlaybackTargetPicker.h"
-#include "MediaPlaybackTargetPickerMock.h"
-#include "MediaProducer.h"
-#include "PlatformView.h"
-#include "PlaybackTargetClientContextIdentifier.h"
+#include <WebCore/MediaPlaybackTargetPicker.h>
+#include <WebCore/MediaPlaybackTargetPickerMock.h>
+#include <WebCore/MediaProducer.h>
+#include <WebCore/PlaybackTargetClientContextIdentifier.h>
+#include <wtf/CheckedPtr.h>
 #include <wtf/Ref.h>
 #include <wtf/RefPtr.h>
 #include <wtf/RunLoop.h>
@@ -43,24 +43,36 @@ struct ClientState;
 class IntRect;
 class WebMediaSessionLogger;
 class WebMediaSessionManagerClient;
+enum class MediaPlaybackTargetMockState : uint8_t;
 
-class WebMediaSessionManager : public MediaPlaybackTargetPicker::Client {
+class WebMediaSessionManager : public MediaPlaybackTargetPicker::Client, public CanMakeCheckedPtr<WebMediaSessionManager> {
     WTF_MAKE_NONCOPYABLE(WebMediaSessionManager);
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(WebMediaSessionManager);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WebMediaSessionManager);
 public:
 
-    WEBCORE_EXPORT static WebMediaSessionManager& shared();
+    WEBCORE_EXPORT static WebMediaSessionManager& singleton();
 
     WEBCORE_EXPORT void setMockMediaPlaybackTargetPickerEnabled(bool);
-    WEBCORE_EXPORT void setMockMediaPlaybackTargetPickerState(const String&, MediaPlaybackTargetContext::MockState);
+    WEBCORE_EXPORT void setMockMediaPlaybackTargetPickerState(const String&, MediaPlaybackTargetMockState);
     WEBCORE_EXPORT void mockMediaPlaybackTargetPickerDismissPopup();
 
-    WEBCORE_EXPORT PlaybackTargetClientContextIdentifier addPlaybackTargetPickerClient(WebMediaSessionManagerClient&, PlaybackTargetClientContextIdentifier);
+    WEBCORE_EXPORT std::optional<PlaybackTargetClientContextIdentifier> addPlaybackTargetPickerClient(WebMediaSessionManagerClient&, PlaybackTargetClientContextIdentifier);
     WEBCORE_EXPORT void removePlaybackTargetPickerClient(WebMediaSessionManagerClient&, PlaybackTargetClientContextIdentifier);
     WEBCORE_EXPORT void removeAllPlaybackTargetPickerClients(WebMediaSessionManagerClient&);
     WEBCORE_EXPORT void showPlaybackTargetPicker(WebMediaSessionManagerClient&, PlaybackTargetClientContextIdentifier, const IntRect&, bool, bool);
-    WEBCORE_EXPORT void clientStateDidChange(WebMediaSessionManagerClient&, PlaybackTargetClientContextIdentifier, WebCore::MediaProducer::MediaStateFlags);
+    WEBCORE_EXPORT void clientStateDidChange(WebMediaSessionManagerClient&, PlaybackTargetClientContextIdentifier, WebCore::MediaProducerMediaStateFlags);
 
     bool alwaysOnLoggingAllowed() const;
+
+    enum class ConfigurationTaskFlags : uint8_t {
+        InitialConfiguration = 1 << 0,
+        TargetClientsConfiguration = 1 << 1,
+        TargetMonitoringConfiguration = 1 << 2,
+        WatchdogTimerConfiguration = 1 << 3,
+    };
+    using ConfigurationTasks = OptionSet<ConfigurationTaskFlags>;
+    String toString(ConfigurationTasks);
 
 protected:
     WebMediaSessionManager();
@@ -75,26 +87,16 @@ private:
     WebCore::MediaPlaybackTargetPickerMock& mockPicker();
 
     // MediaPlaybackTargetPicker::Client
-    void setPlaybackTarget(Ref<WebCore::MediaPlaybackTarget>&&) override;
-    void externalOutputDeviceAvailableDidChange(bool) override;
-    void playbackTargetPickerWasDismissed() override;
+    void setPlaybackTarget(Ref<WebCore::MediaPlaybackTarget>&&) final;
+    void externalOutputDeviceAvailableDidChange(bool) final;
+    void playbackTargetPickerWasDismissed() final;
 
-    size_t find(WebMediaSessionManagerClient*, PlaybackTargetClientContextIdentifier);
+    size_t NODELETE find(WebMediaSessionManagerClient*, PlaybackTargetClientContextIdentifier);
 
     void configurePlaybackTargetClients();
     void configureNewClients();
     void configurePlaybackTargetMonitoring();
     void configureWatchdogTimer();
-
-    enum ConfigurationTaskFlags {
-        NoTask = 0,
-        InitialConfigurationTask = 1 << 0,
-        TargetClientsConfigurationTask = 1 << 1,
-        TargetMonitoringConfigurationTask = 1 << 2,
-        WatchdogTimerConfigurationTask = 1 << 3,
-    };
-    typedef unsigned ConfigurationTasks;
-    String toString(ConfigurationTasks);
 
     void scheduleDelayedTask(ConfigurationTasks);
     void taskTimerFired();
@@ -103,13 +105,13 @@ private:
 
     WebMediaSessionLogger& logger();
 
-    RunLoop::Timer<WebMediaSessionManager> m_taskTimer;
-    RunLoop::Timer<WebMediaSessionManager> m_watchdogTimer;
+    RunLoop::Timer m_taskTimer;
+    RunLoop::Timer m_watchdogTimer;
 
     Vector<std::unique_ptr<ClientState>> m_clientState;
     RefPtr<MediaPlaybackTarget> m_playbackTarget;
     std::unique_ptr<WebCore::MediaPlaybackTargetPickerMock> m_pickerOverride;
-    ConfigurationTasks m_taskFlags { NoTask };
+    ConfigurationTasks m_taskFlags;
     std::unique_ptr<WebMediaSessionLogger> m_logger;
     Seconds m_currentWatchdogInterval;
     bool m_externalOutputDeviceAvailable { false };
@@ -118,7 +120,7 @@ private:
     bool m_mockPickerEnabled { false };
 };
 
-String mediaProducerStateString(WebCore::MediaProducer::MediaStateFlags);
+String mediaProducerStateString(WebCore::MediaProducerMediaStateFlags);
 
 } // namespace WebCore
 
@@ -126,8 +128,18 @@ namespace WTF {
 
 template<typename> struct LogArgument;
 
-template<> struct LogArgument<WebCore::MediaProducer::MediaStateFlags> {
-    static String toString(WebCore::MediaProducer::MediaStateFlags flags) { return WebCore::mediaProducerStateString(flags); }
+template<> struct LogArgument<WebCore::MediaProducerMediaStateFlags> {
+    static String toString(WebCore::MediaProducerMediaStateFlags flags) { return WebCore::mediaProducerStateString(flags); }
+};
+
+template<> struct EnumTraits<WebCore::WebMediaSessionManager::ConfigurationTaskFlags> {
+    using values = EnumValues<
+        WebCore::WebMediaSessionManager::ConfigurationTaskFlags,
+        WebCore::WebMediaSessionManager::ConfigurationTaskFlags::InitialConfiguration,
+        WebCore::WebMediaSessionManager::ConfigurationTaskFlags::TargetClientsConfiguration,
+        WebCore::WebMediaSessionManager::ConfigurationTaskFlags::TargetMonitoringConfiguration,
+        WebCore::WebMediaSessionManager::ConfigurationTaskFlags::WatchdogTimerConfiguration
+    >;
 };
 
 } // namespace WTF

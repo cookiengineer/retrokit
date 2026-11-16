@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011, 2014 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2011, 2014 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,39 +26,58 @@
 #include "config.h"
 #include "MemoryRelease.h"
 
+#include "AsyncNodeDeletionQueueInlines.h"
 #include "BackForwardCache.h"
 #include "CSSFontSelector.h"
 #include "CSSValuePool.h"
-#include "CachedResourceLoader.h"
 #include "Chrome.h"
 #include "ChromeClient.h"
 #include "CommonVM.h"
 #include "CookieJar.h"
-#include "Document.h"
+#include "DocumentResourceLoader.h"
+#include "DocumentView.h"
 #include "FontCache.h"
-#include "Frame.h"
-#include "GCController.h"
+#include "GarbageCollectionController.h"
+#include "HRTFElevation.h"
 #include "HTMLMediaElement.h"
+#include "HTMLNameCache.h"
+#include "ImmutableStyleProperties.h"
 #include "InlineStyleSheetOwner.h"
 #include "InspectorInstrumentation.h"
 #include "LayoutIntegrationLineLayout.h"
+#include "LocalFrame.h"
 #include "Logging.h"
 #include "MemoryCache.h"
 #include "Page.h"
+#include "PerformanceLogging.h"
+#include "PlatformRenderTheme.h"
+#include "PluginDocument.h"
+#include "RenderObjectInlines.h"
 #include "RenderTheme.h"
+#include "RenderView.h"
+#include "SVGPathElement.h"
 #include "ScrollingThread.h"
-#include "StyleScope.h"
+#include "SelectorChecker.h"
+#include "SelectorQuery.h"
+#include "StyleDocumentScope.h"
+#include "StyleSheetContentsCache.h"
 #include "StyledElement.h"
+#include "TextBreakingPositionCache.h"
 #include "TextPainter.h"
 #include "WorkerGlobalScope.h"
 #include "WorkerThread.h"
 #include <JavaScriptCore/VM.h>
-#include <wtf/FastMalloc.h>
 #include <wtf/ResourceUsage.h>
 #include <wtf/SystemTracing.h>
+#include <wtf/text/MakeString.h>
 
 #if PLATFORM(COCOA)
 #include "ResourceUsageThread.h"
+#include <wtf/spi/darwin/OSVariantSPI.h>
+#endif
+
+#if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
+#include "InteractionRegion.h"
 #endif
 
 namespace WebCore {
@@ -67,24 +86,37 @@ static void releaseNoncriticalMemory(MaintainMemoryCache maintainMemoryCache)
 {
     RenderTheme::singleton().purgeCaches();
 
-    FontCache::singleton().purgeInactiveFontData();
-    FontCache::singleton().clearWidthCaches();
+    FontCache::releaseNoncriticalMemoryInAllFontCaches();
 
-    TextPainter::clearGlyphDisplayLists();
+    GlyphDisplayListCache::singleton().clear();
+    SelectorQueryCache::singleton().clear();
 
-    for (auto* document : Document::allDocuments()) {
-        document->clearSelectorQueryCache();
+    auto allDocuments = Document::allDocuments();
+    auto protectedDocuments = WTF::map(allDocuments, [](auto& document) -> Ref<Document> {
+        return document.get();
+    });
 
-#if ENABLE(LAYOUT_FORMATTING_CONTEXT)
-        if (auto* renderView = document->renderView())
+    for (auto& document : protectedDocuments) {
+        document->asyncNodeDeletionQueue().deleteNodesNow();
+        if (CheckedPtr renderView = document->renderView()) {
             LayoutIntegration::LineLayout::releaseCaches(*renderView);
-#endif
+            Layout::TextBreakingPositionCache::singleton().clear();
+            renderView->layoutContext().deleteDetachedRenderersNow();
+            renderView->layoutContext().deleteDetachedInlineContentNow();
+        }
     }
 
     if (maintainMemoryCache == MaintainMemoryCache::No)
         MemoryCache::singleton().pruneDeadResourcesToSize(0);
 
-    InlineStyleSheetOwner::clearCache();
+    Style::StyleSheetContentsCache::singleton().clear();
+    HTMLNameCache::clear();
+    ImmutableStyleProperties::clearDeduplicationMap();
+    SelectorChecker::clearCompiledHasArgumentSelectors();
+    SVGPathElement::clearCache();
+#if ENABLE(INTERACTION_REGIONS_IN_EVENT_REGION)
+    InteractionRegion::clearCache();
+#endif
 }
 
 static void releaseCriticalMemory(Synchronous synchronous, MaintainBackForwardCache maintainBackForwardCache, MaintainMemoryCache maintainMemoryCache)
@@ -101,33 +133,50 @@ static void releaseCriticalMemory(Synchronous synchronous, MaintainBackForwardCa
     }
 
     CSSValuePool::singleton().drain();
+    FontCache::releaseCriticalMemoryInAllFontCaches();
+#if ENABLE(WEB_AUDIO)
+    HRTFElevation::clearCache();
+#endif
 
     Page::forEachPage([](auto& page) {
         page.cookieJar().clearCache();
     });
 
-    for (auto& document : copyToVectorOf<RefPtr<Document>>(Document::allDocuments())) {
+    auto allDocuments = Document::allDocuments();
+    auto protectedDocuments = WTF::map(allDocuments, [](auto& document) -> Ref<Document> {
+        return document.get();
+    });
+    for (auto& document : protectedDocuments) {
+        document->clearQuerySelectorAllResults();
         document->styleScope().releaseMemory();
-        document->fontSelector().emptyCaches();
-        document->cachedResourceLoader().garbageCollectDocumentResources();
+        if (RefPtr fontSelector = document->fontSelectorIfExists())
+            fontSelector->emptyCaches();
+        protect(document->cachedResourceLoader())->garbageCollectDocumentResources();
+
+        if (RefPtr pluginDocument = dynamicDowncast<PluginDocument>(document))
+            pluginDocument->releaseMemory();
+
+        if (RefPtr localFrame = document->frame())
+            protect(localFrame->editor())->releaseMemory();
     }
 
-    GCController::singleton().deleteAllCode(JSC::DeleteAllCodeIfNotCollecting);
+    if (synchronous == Synchronous::Yes)
+        GarbageCollectionController::singleton().deleteAllCode(JSC::PreventCollectionAndDeleteAllCode);
+    else
+        GarbageCollectionController::singleton().deleteAllCode(JSC::DeleteAllCodeIfNotCollecting);
 
 #if ENABLE(VIDEO)
-    for (auto* mediaElement : HTMLMediaElement::allMediaElements()) {
-        if (mediaElement->paused())
-            mediaElement->purgeBufferedDataIfPossible();
-    }
+    for (auto& mediaElement : HTMLMediaElement::allMediaElements())
+        Ref { mediaElement.get() }->purgeBufferedDataIfPossible();
 #endif
 
     if (synchronous == Synchronous::Yes) {
-        GCController::singleton().garbageCollectNow();
+        GarbageCollectionController::singleton().garbageCollectNow();
     } else {
 #if PLATFORM(IOS_FAMILY)
-        GCController::singleton().garbageCollectNowIfNotDoneRecently();
+        GarbageCollectionController::singleton().garbageCollectNowIfNotDoneRecently();
 #else
-        GCController::singleton().garbageCollectSoon();
+        GarbageCollectionController::singleton().garbageCollectSoon();
 #endif
     }
 
@@ -137,6 +186,11 @@ static void releaseCriticalMemory(Synchronous synchronous, MaintainBackForwardCa
 void releaseMemory(Critical critical, Synchronous synchronous, MaintainBackForwardCache maintainBackForwardCache, MaintainMemoryCache maintainMemoryCache)
 {
     TraceScope scope(MemoryPressureHandlerStart, MemoryPressureHandlerEnd, static_cast<uint64_t>(critical), static_cast<uint64_t>(synchronous));
+
+#if PLATFORM(IOS_FAMILY)
+    if (critical == Critical::No)
+        GarbageCollectionController::singleton().garbageCollectNowIfNotDoneRecently();
+#endif
 
     if (critical == Critical::Yes) {
         // Return unused pages back to the OS now as this will likely give us a little memory to work with.
@@ -173,58 +227,66 @@ void releaseGraphicsMemory(Critical critical, Synchronous synchronous)
     WTF::releaseFastMallocFreeMemory();
 }
 
-#if !RELEASE_LOG_DISABLED
-static unsigned pageCount()
+#if RELEASE_LOG_DISABLED
+void logMemoryStatistics(LogMemoryStatisticsReason) { }
+#else
+static ASCIILiteral logMemoryStatisticsReasonDescription(LogMemoryStatisticsReason reason)
 {
-    unsigned count = 0;
-    Page::forEachPage([&] (Page& page) {
-        if (!page.isUtilityPage())
-            ++count;
-    });
-    return count;
+    switch (reason) {
+    case LogMemoryStatisticsReason::DebugNotification:
+        return "debug notification"_s;
+    case LogMemoryStatisticsReason::WarningMemoryPressureNotification:
+        return "warning memory pressure notification"_s;
+    case LogMemoryStatisticsReason::CriticalMemoryPressureNotification:
+        return "critical memory pressure notification"_s;
+    case LogMemoryStatisticsReason::OutOfMemoryDeath:
+        return "out of memory death"_s;
+    };
+    RELEASE_ASSERT_NOT_REACHED();
 }
-#endif
 
-void logMemoryStatisticsAtTimeOfDeath()
+void logMemoryStatistics(LogMemoryStatisticsReason reason)
 {
-#if !RELEASE_LOG_DISABLED
+    const auto description = logMemoryStatisticsReasonDescription(reason);
+
+    RELEASE_LOG(MemoryPressure, "WebKit memory usage statistics at time of %" PUBLIC_LOG_STRING ":", description.characters());
+    RELEASE_LOG(MemoryPressure, "Websam state: %" PUBLIC_LOG_STRING, MemoryPressureHandler::processStateDescription().characters());
+    auto stats = PerformanceLogging::memoryUsageStatistics(ShouldIncludeExpensiveComputations::Yes);
+    for (auto& [key, val] : stats)
+        RELEASE_LOG(MemoryPressure, "%" PUBLIC_LOG_STRING ": %zu", key.characters(), val);
+
 #if PLATFORM(COCOA)
     auto pageSize = vmPageSize();
     auto pages = pagesPerVMTag();
 
-    RELEASE_LOG(MemoryPressure, "Dirty memory per VM tag at time of death:");
+    RELEASE_LOG(MemoryPressure, "Dirty memory per VM tag at time of %" PUBLIC_LOG_STRING ":", description.characters());
     for (unsigned i = 0; i < 256; ++i) {
         size_t dirty = pages[i].dirty * pageSize;
         if (!dirty)
             continue;
         String tagName = displayNameForVMTag(i);
         if (!tagName)
-            tagName = makeString("Tag ", i);
-        RELEASE_LOG(MemoryPressure, "%16s: %lu MB", tagName.latin1().data(), dirty / MB);
+            tagName = makeString("Tag "_s, i);
+        RELEASE_LOG(MemoryPressure, "  %" PUBLIC_LOG_STRING ": %lu MB in %zu regions", tagName.latin1().data(), dirty / MB, pages[i].regionCount);
     }
+
+    bool shouldLogJavaScriptObjectCounts = os_variant_allows_internal_security_policies("com.apple.WebKit");
+    if (!shouldLogJavaScriptObjectCounts)
+        return;
 #endif
 
     auto& vm = commonVM();
     JSC::JSLockHolder locker(vm);
-    RELEASE_LOG(MemoryPressure, "Memory usage statistics at time of death:");
-    RELEASE_LOG(MemoryPressure, "GC heap size: %zu", vm.heap.size());
-    RELEASE_LOG(MemoryPressure, "GC heap extra memory size: %zu", vm.heap.extraMemorySize());
-#if ENABLE(RESOURCE_USAGE)
-    RELEASE_LOG(MemoryPressure, "GC heap external memory: %zu", vm.heap.externalMemorySize());
-#endif
-    RELEASE_LOG(MemoryPressure, "Global object count: %zu", vm.heap.globalObjectCount());
-
-    RELEASE_LOG(MemoryPressure, "Page count: %u", pageCount());
-    RELEASE_LOG(MemoryPressure, "Document count: %u", Document::allDocuments().size());
-    RELEASE_LOG(MemoryPressure, "Live JavaScript objects:");
-    auto typeCounts = vm.heap.objectTypeCounts();
-    for (auto& it : *typeCounts)
-        RELEASE_LOG(MemoryPressure, "  %s: %d", it.key, it.value);
-#endif
+    RELEASE_LOG(MemoryPressure, "Live JavaScript objects at time of %" PUBLIC_LOG_STRING ":", description.characters());
+    for (auto& it : vm.heap.objectTypeCounts())
+        RELEASE_LOG(MemoryPressure, "  %" PUBLIC_LOG_STRING ": %d", it.key.characters(), it.value);
 }
+#endif
 
 #if !PLATFORM(COCOA)
+#if !USE(SKIA)
 void platformReleaseMemory(Critical) { }
+#endif
 void platformReleaseGraphicsMemory(Critical) { }
 void jettisonExpensiveObjectsOnTopLevelNavigation() { }
 void registerMemoryReleaseNotifyCallbacks() { }

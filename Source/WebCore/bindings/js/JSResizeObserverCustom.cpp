@@ -29,25 +29,38 @@
 
 #include "Element.h"
 #include "JSNodeCustom.h"
+#include "WebCoreOpaqueRootInlines.h"
 #include <JavaScriptCore/JSCInlines.h>
 
 namespace WebCore {
 
 template<typename Visitor>
-void JSResizeObserver::visitAdditionalChildren(Visitor& visitor)
+void JSResizeObserver::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
     ResizeObserverCallback* callback = wrapped().callbackConcurrently();
     if (callback)
-        callback->visitJSFunction(visitor);
+        callback->visitJSFunctionInGCThread(visitor);
+
+    Locker locker { wrapped().observationTargetsLock() };
+
+    for (const auto& weakTarget : wrapped().activeObservationTargets()) {
+        SUPPRESS_UNCHECKED_LOCAL if (auto* element = weakTarget.get())
+            addWebCoreOpaqueRoot(visitor, element);
+    }
+
+    for (const auto& weakTarget : wrapped().targetsWaitingForFirstObservation()) {
+        SUPPRESS_UNCHECKED_LOCAL if (auto* element = weakTarget.get())
+            addWebCoreOpaqueRoot(visitor, element);
+    }
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSResizeObserver);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSResizeObserver);
 
-bool JSResizeObserverOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, JSC::AbstractSlotVisitor& visitor, const char**reason)
+bool JSResizeObserverOwner::isReachableFromOpaqueRoots(JSC::Handle<JSC::Unknown> handle, void*, JSC::AbstractSlotVisitor& visitor, ASCIILiteral* reason)
 {
-    if (JSC::jsCast<JSResizeObserver*>(handle.slot()->asCell())->wrapped().isReachableFromOpaqueRoots(visitor)) {
-        if (UNLIKELY(reason))
-            *reason = "Reachable from observed nodes";
+    if (downcast<JSResizeObserver>(handle.slot()->asCell())->wrapped().isReachableFromOpaqueRoots(visitor)) {
+        if (reason) [[unlikely]]
+            *reason = "Reachable from observed nodes"_s;
         return true;
     }
     return false;

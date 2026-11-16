@@ -42,7 +42,7 @@ WI.RecordingStateDetailsSidebarPanel = class RecordingStateDetailsSidebarPanel e
         if (!(objects instanceof Array))
             objects = [objects];
 
-        this.recording = objects.find((object) => object instanceof WI.Recording && object.type === WI.Recording.Type.Canvas2D);
+        this.recording = objects.find((object) => object instanceof WI.Recording && object.isCanvas2D);
         this.action = objects.find((object) => object instanceof WI.RecordingAction);
 
         return this._recording && this._action;
@@ -70,7 +70,7 @@ WI.RecordingStateDetailsSidebarPanel = class RecordingStateDetailsSidebarPanel e
 
         this._action = action;
 
-        if (this._action && this._recording.type === WI.Recording.Type.Canvas2D)
+        if (this._action && this._recording.isCanvas2D)
             this._generateDetailsCanvas2D(this._action);
 
         this.updateLayoutIfNeeded();
@@ -156,8 +156,7 @@ WI.RecordingStateDetailsSidebarPanel = class RecordingStateDetailsSidebarPanel e
                     }
                 } else if (name === "fillStyle" || name === "strokeStyle" || name === "shadowColor") {
                     let color = WI.Color.fromString(value);
-                    const readOnly = true;
-                    let swatch = new WI.InlineSwatch(WI.InlineSwatch.Type.Color, color, readOnly);
+                    let swatch = new WI.InlineSwatch(WI.InlineSwatch.Type.Color, color, {readOnly: true});
                     value = document.createElement("span");
                     value.append(swatch.element, color.toString());
                 }

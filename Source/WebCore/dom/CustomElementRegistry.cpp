@@ -27,54 +27,95 @@
 #include "CustomElementRegistry.h"
 
 #include "CustomElementReactionQueue.h"
-#include "DOMWindow.h"
 #include "Document.h"
+#include "DocumentQuirks.h"
+#include "ElementRareData.h"
+#include "ElementTraversal.h"
+#include "HTMLElementFactory.h"
 #include "JSCustomElementInterface.h"
 #include "JSDOMPromiseDeferred.h"
+#include "LocalDOMWindow.h"
 #include "MathMLNames.h"
 #include "QualifiedName.h"
 #include "ShadowRoot.h"
-#include "TypedElementDescendantIterator.h"
+#include "TypedElementDescendantIteratorInlines.h"
 #include <JavaScriptCore/JSCJSValueInlines.h>
 #include <wtf/text/AtomString.h>
 
 namespace WebCore {
 
-Ref<CustomElementRegistry> CustomElementRegistry::create(DOMWindow& window, ScriptExecutionContext* scriptExecutionContext)
+Ref<CustomElementRegistry> CustomElementRegistry::create(ScriptExecutionContext& scriptExecutionContext, LocalDOMWindow& window)
 {
-    return adoptRef(*new CustomElementRegistry(window, scriptExecutionContext));
+    return adoptRef(*new CustomElementRegistry(scriptExecutionContext, window));
 }
 
-CustomElementRegistry::CustomElementRegistry(DOMWindow& window, ScriptExecutionContext* scriptExecutionContext)
-    : ContextDestructionObserver(scriptExecutionContext)
+Ref<CustomElementRegistry> CustomElementRegistry::create(ScriptExecutionContext& scriptExecutionContext)
+{
+    return adoptRef(*new CustomElementRegistry(scriptExecutionContext));
+}
+
+CustomElementRegistry::CustomElementRegistry(ScriptExecutionContext& scriptExecutionContext, LocalDOMWindow& window)
+    : ContextDestructionObserver(&scriptExecutionContext)
     , m_window(window)
+{
+}
+
+CustomElementRegistry::CustomElementRegistry(ScriptExecutionContext& scriptExecutionContext)
+    : ContextDestructionObserver(&scriptExecutionContext)
 {
 }
 
 CustomElementRegistry::~CustomElementRegistry() = default;
 
-// https://dom.spec.whatwg.org/#concept-shadow-including-tree-order
-static void enqueueUpgradeInShadowIncludingTreeOrder(ContainerNode& node, JSCustomElementInterface& elementInterface)
+Document* CustomElementRegistry::document() const
 {
-    for (Element* element = ElementTraversal::firstWithin(node); element; element = ElementTraversal::next(*element)) {
-        if (element->isCustomElementUpgradeCandidate() && element->tagQName() == elementInterface.name())
+    return m_window ? m_window->document() : nullptr;
+}
+
+void CustomElementRegistry::didAssociateWithDocument(Document& document)
+{
+    m_associatedDocuments.add(document);
+}
+
+// https://dom.spec.whatwg.org/#concept-shadow-including-tree-order
+static void enqueueUpgradeInShadowIncludingTreeOrder(ContainerNode& node, JSCustomElementInterface& elementInterface, CustomElementRegistry& registry)
+{
+    for (RefPtr element = ElementTraversal::firstWithin(node); element; element = ElementTraversal::next(*element)) {
+        if (element->isCustomElementUpgradeCandidate() && CustomElementRegistry::registryForElement(*element) == &registry && element->tagQName().matches(elementInterface.name()))
             element->enqueueToUpgrade(elementInterface);
-        if (auto* shadowRoot = element->shadowRoot()) {
+        if (RefPtr shadowRoot = element->shadowRoot()) {
             if (shadowRoot->mode() != ShadowRootMode::UserAgent)
-                enqueueUpgradeInShadowIncludingTreeOrder(*shadowRoot, elementInterface);
+                enqueueUpgradeInShadowIncludingTreeOrder(*shadowRoot, elementInterface, registry);
         }
     }
 }
 
 RefPtr<DeferredPromise> CustomElementRegistry::addElementDefinition(Ref<JSCustomElementInterface>&& elementInterface)
 {
+    static MainThreadNeverDestroyed<const AtomString> extendsLi("extends-li"_s);
+
     AtomString localName = elementInterface->name().localName();
     ASSERT(!m_nameMap.contains(localName));
-    m_constructorMap.add(elementInterface->constructor(), elementInterface.ptr());
     m_nameMap.add(localName, elementInterface.copyRef());
+    {
+        Locker locker { m_constructorMapLock };
+        m_constructorMap.add(elementInterface->constructor(), elementInterface.ptr());
+    }
 
-    if (auto* document = m_window.document())
-        enqueueUpgradeInShadowIncludingTreeOrder(*document, elementInterface.get());
+    if (elementInterface->isShadowDisabled())
+        m_disabledShadowSet.add(localName);
+
+    if (RefPtr document = this->document()) { // Global custom element registry
+        // ungap/@custom-elements detection for quirk (rdar://problem/111008826).
+        if (localName == extendsLi.get())
+            document->quirks().setNeedsConfigurableIndexedPropertiesQuirk();
+        enqueueUpgradeInShadowIncludingTreeOrder(*document, elementInterface.get(), *this);
+    }
+
+    for (Ref document : m_associatedDocuments) {
+        if (document->hasBrowsingContext())
+            enqueueUpgradeInShadowIncludingTreeOrder(document, elementInterface.get(), *this);
+    }
 
     return m_promiseMap.take(localName);
 }
@@ -96,42 +137,142 @@ JSCustomElementInterface* CustomElementRegistry::findInterface(const AtomString&
     return m_nameMap.get(name);
 }
 
-JSCustomElementInterface* CustomElementRegistry::findInterface(const JSC::JSObject* constructor) const
+RefPtr<JSCustomElementInterface> CustomElementRegistry::findInterface(const JSC::JSObject* constructor) const
 {
+    Locker locker { m_constructorMapLock };
     return m_constructorMap.get(constructor);
 }
 
 bool CustomElementRegistry::containsConstructor(const JSC::JSObject* constructor) const
 {
+    Locker locker { m_constructorMapLock };
     return m_constructorMap.contains(constructor);
 }
 
 JSC::JSValue CustomElementRegistry::get(const AtomString& name)
 {
-    if (auto* elementInterface = m_nameMap.get(name))
+    if (RefPtr elementInterface = m_nameMap.get(name))
         return elementInterface->constructor();
     return JSC::jsUndefined();
 }
 
-static void upgradeElementsInShadowIncludingDescendants(ContainerNode& root)
+String CustomElementRegistry::getName(JSC::JSValue constructorValue)
 {
-    for (auto& element : descendantsOfType<Element>(root)) {
-        if (element.isCustomElementUpgradeCandidate())
+    auto* constructor = constructorValue.getObject();
+    if (!constructor)
+        return String { };
+    RefPtr elementInterface = findInterface(constructor);
+    if (!elementInterface)
+        return String { };
+    return elementInterface->name().localName();
+}
+
+static void upgradeElementsInShadowIncludingDescendants(CustomElementRegistry& registry, ContainerNode& root)
+{
+    for (Ref element : descendantsOfType<Element>(root)) {
+        if (element->isCustomElementUpgradeCandidate() && CustomElementRegistry::registryForElement(element) == &registry)
             CustomElementReactionQueue::tryToUpgradeElement(element);
-        if (auto* shadowRoot = element.shadowRoot())
-            upgradeElementsInShadowIncludingDescendants(*shadowRoot);
+        if (RefPtr shadowRoot = element->shadowRoot())
+            upgradeElementsInShadowIncludingDescendants(registry, *shadowRoot);
     }
 }
 
 void CustomElementRegistry::upgrade(Node& root)
 {
-    if (!is<ContainerNode>(root))
+    auto* containerNode = dynamicDowncast<ContainerNode>(root);
+    if (!containerNode)
         return;
 
-    if (is<Element>(root) && downcast<Element>(root).isCustomElementUpgradeCandidate())
-        CustomElementReactionQueue::tryToUpgradeElement(downcast<Element>(root));
+    RefPtr element = dynamicDowncast<Element>(*containerNode);
+    if (element && element->isCustomElementUpgradeCandidate() && CustomElementRegistry::registryForElement(*element) == this)
+        CustomElementReactionQueue::tryToUpgradeElement(*element);
 
-    upgradeElementsInShadowIncludingDescendants(downcast<ContainerNode>(root));
+    upgradeElementsInShadowIncludingDescendants(*this, *containerNode);
 }
+
+ExceptionOr<void> CustomElementRegistry::initialize(Node& root)
+{
+    if (!isScoped() && (is<Document>(root) || this != root.document().customElementRegistry()))
+        return Exception { ExceptionCode::NotSupportedError };
+
+    auto* containerRoot = dynamicDowncast<ContainerNode>(root);
+    if (!containerRoot) {
+        ASSERT(!root.usesNullCustomElementRegistry()); // Flag is only set on ShadowRoot and Element.
+        return { };
+    }
+
+    if (RefPtr document = dynamicDowncast<Document>(*containerRoot); document && document->usesNullCustomElementRegistry()) {
+        document->clearUsesNullCustomElementRegistry();
+        document->setCustomElementRegistry(*this);
+    } else if (RefPtr shadowRoot = dynamicDowncast<ShadowRoot>(*containerRoot); shadowRoot && shadowRoot->usesNullCustomElementRegistry()) {
+        ASSERT(shadowRoot->hasScopedCustomElementRegistry());
+        shadowRoot->clearUsesNullCustomElementRegistry();
+        shadowRoot->setCustomElementRegistry(*this);
+        if (shadowRoot->isConnected())
+            didAssociateWithDocument(protect(shadowRoot->document()).get());
+    } else if (auto* documentFragment = dynamicDowncast<DocumentFragment>(*containerRoot); documentFragment && documentFragment->usesNullCustomElementRegistry())
+        documentFragment->clearUsesNullCustomElementRegistry();
+
+    RefPtr registryOfTreeScope = root.isInTreeScope() ? root.treeScope().customElementRegistry() : nullptr;
+    auto updateRegistryIfNeeded = [&](Element& element) {
+        if (!element.usesNullCustomElementRegistry())
+            return;
+        element.clearUsesNullCustomElementRegistry();
+        if (this != registryOfTreeScope)
+            addToScopedCustomElementRegistryMap(element, *this);
+    };
+    auto upgradeElementIfPossible = [&](Element& element) {
+        if (element.isCustomElementUpgradeCandidate() && CustomElementRegistry::registryForElement(element) == this)
+            CustomElementReactionQueue::tryToUpgradeElement(element);
+    };
+
+    if (RefPtr element = dynamicDowncast<Element>(*containerRoot)) {
+        updateRegistryIfNeeded(*element);
+        upgradeElementIfPossible(*element);
+    }
+    for (Ref element : descendantsOfType<Element>(*containerRoot)) {
+        updateRegistryIfNeeded(element);
+        upgradeElementIfPossible(element);
+    }
+    return { };
+}
+
+void CustomElementRegistry::addToScopedCustomElementRegistryMap(Element& element, CustomElementRegistry& registry)
+{
+    ASSERT(!element.usesScopedCustomElementRegistryMap() || scopedCustomElementRegistryMap().get(element) == &registry);
+    if (element.usesScopedCustomElementRegistryMap())
+        return;
+    element.setUsesScopedCustomElementRegistryMap();
+    registry.didAssociateWithDocument(protect(element.document()).get());
+    auto result = scopedCustomElementRegistryMap().add(element, registry);
+    ASSERT_UNUSED(result, result.isNewEntry);
+}
+
+void CustomElementRegistry::removeFromScopedCustomElementRegistryMap(Element& element)
+{
+    ASSERT(element.usesScopedCustomElementRegistryMap());
+    element.clearUsesScopedCustomElementRegistryMap();
+    auto didRemove = scopedCustomElementRegistryMap().remove(element);
+    ASSERT_UNUSED(didRemove, didRemove);
+}
+
+WeakHashMap<Element, Ref<CustomElementRegistry>, WeakPtrImplWithEventTargetData>& CustomElementRegistry::scopedCustomElementRegistryMap()
+{
+    static NeverDestroyed<WeakHashMap<Element, Ref<CustomElementRegistry>, WeakPtrImplWithEventTargetData>> map;
+    return map.get();
+}
+
+template<typename Visitor>
+void CustomElementRegistry::visitJSCustomElementInterfacesInGCThread(Visitor& visitor) const
+{
+    Locker locker { m_constructorMapLock };
+    for (const auto& iterator : m_constructorMap) {
+        // Cannot ref iterator.value here since this may get called on a GC thread.
+        SUPPRESS_UNCOUNTED_ARG iterator.value->visitJSFunctionsInGCThread(visitor);
+    }
+}
+
+template void CustomElementRegistry::visitJSCustomElementInterfacesInGCThread(JSC::AbstractSlotVisitor&) const;
+template void CustomElementRegistry::visitJSCustomElementInterfacesInGCThread(JSC::SlotVisitor&) const;
 
 }

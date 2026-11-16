@@ -29,12 +29,14 @@
 #include "config.h"
 #include "ContentSearchUtilities.h"
 
+#include "InspectorProtocolObjects.h"
 #include "RegularExpression.h"
 #include "Yarr.h"
 #include "YarrFlags.h"
 #include "YarrInterpreter.h"
 #include <wtf/BumpPointerAllocator.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/text/MakeString.h>
 #include <wtf/text/StringBuilder.h>
 #include <wtf/text/TextPosition.h>
 
@@ -50,16 +52,18 @@ static String escapeStringForRegularExpressionSource(const String& text)
     StringBuilder result;
 
     for (unsigned i = 0; i < text.length(); i++) {
-        UChar character = text[i];
+        char16_t character = text[i];
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
         if (isASCII(character) && strchr(regexSpecialCharacters, character))
             result.append('\\');
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
         result.append(character);
     }
 
     return result.toString();
 }
 
-static inline size_t sizetExtractor(const size_t* value)
+static inline size_t NODELETE sizetExtractor(const size_t* value)
 {
     return *value;
 }
@@ -87,11 +91,11 @@ static Vector<std::pair<size_t, String>> getRegularExpressionMatchesByLines(cons
 
     for (size_t lineNumber = 0; lineNumber < size; ++lineNumber) {
         size_t nextStart = endings[lineNumber];
-        String line = text.substring(start, nextStart - start);
+        auto line = StringView(text).substring(start, nextStart - start);
 
         int matchLength;
         if (regex.match(line, 0, &matchLength) != -1)
-            result.append(std::pair<size_t, String>(lineNumber, line));
+            result.append({ lineNumber, line.toString() });
 
         start = nextStart;
     }
@@ -129,21 +133,44 @@ static Ref<Protocol::GenericTypes::SearchMatch> buildObjectForSearchMatch(size_t
         .release();
 }
 
-RegularExpression createRegularExpressionForSearchString(const String& searchString, bool caseSensitive, SearchStringType type)
+Searcher createSearcherForString(const String& string, SearchType type, SearchCaseSensitive caseSensitive)
+{
+    if (type == SearchType::ExactString && caseSensitive == SearchCaseSensitive::Yes)
+        return string;
+    return createRegularExpressionForString(string, type, caseSensitive);
+}
+
+bool searcherMatchesText(const Searcher& searcher, const String& text)
+{
+    return WTF::switchOn(searcher,
+        [&] (const String& string) {
+            return string == text;
+        },
+        [&] (const RegularExpression& regex) {
+            return regex.match(text) != -1;
+        });
+}
+
+RegularExpression createRegularExpressionForString(const String& string, SearchType type, SearchCaseSensitive caseSensitive)
 {
     String pattern;
     switch (type) {
-    case SearchStringType::Regex:
-        pattern = searchString;
+    case SearchType::Regex:
+        pattern = string;
         break;
-    case SearchStringType::ExactString:
-        pattern = makeString('^', escapeStringForRegularExpressionSource(searchString), '$');
+    case SearchType::ExactString:
+        pattern = makeString('^', escapeStringForRegularExpressionSource(string), '$');
         break;
-    case SearchStringType::ContainsString:
-        pattern = escapeStringForRegularExpressionSource(searchString);
+    case SearchType::ContainsString:
+        pattern = escapeStringForRegularExpressionSource(string);
         break;
     }
-    return RegularExpression(pattern, caseSensitive ? TextCaseSensitive : TextCaseInsensitive);
+
+    OptionSet<Flags> flags;
+    if (caseSensitive == SearchCaseSensitive::No)
+        flags.add(Flags::IgnoreCase);
+
+    return RegularExpression(pattern, flags);
 }
 
 int countRegularExpressionMatches(const RegularExpression& regex, const String& content)
@@ -168,14 +195,15 @@ int countRegularExpressionMatches(const RegularExpression& regex, const String& 
 Ref<JSON::ArrayOf<Protocol::GenericTypes::SearchMatch>> searchInTextByLines(const String& text, const String& query, const bool caseSensitive, const bool isRegex)
 {
     auto result = JSON::ArrayOf<Protocol::GenericTypes::SearchMatch>::create();
-    auto searchStringType = isRegex ? ContentSearchUtilities::SearchStringType::Regex : ContentSearchUtilities::SearchStringType::ContainsString;
-    auto regex = ContentSearchUtilities::createRegularExpressionForSearchString(query, caseSensitive, searchStringType);
+    auto searchType = isRegex ? ContentSearchUtilities::SearchType::Regex : ContentSearchUtilities::SearchType::ContainsString;
+    auto searchCaseSensitive = caseSensitive ? ContentSearchUtilities::SearchCaseSensitive::Yes : ContentSearchUtilities::SearchCaseSensitive::No;
+    auto regex = ContentSearchUtilities::createRegularExpressionForString(query, searchType, searchCaseSensitive);
     for (const auto& match : getRegularExpressionMatchesByLines(regex, text))
         result->addItem(buildObjectForSearchMatch(match.first, match.second));
     return result;
 }
 
-static String findMagicComment(const String& content, const String& patternString)
+static String findMagicComment(const String& content, ASCIILiteral patternString)
 {
     if (content.isEmpty())
         return String();
@@ -194,7 +222,7 @@ static String findMagicComment(const String& content, const String& patternStrin
     if (result == offsetNoMatch)
         return String();
 
-    ASSERT(matches[2] > 0 && matches[3] > 0);
+    ASSERT(matches[2] > 0 && matches[3] >= matches[2]);
     return content.substring(matches[2], matches[3] - matches[2]);
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021 Apple Inc. All rights reserved.
+ * Copyright (c) 2021-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -47,7 +47,7 @@ void pas_enumerable_range_list_append(pas_enumerable_range_list* list,
     if (!chunk || chunk->num_entries >= PAS_ENUMERABLE_RANGE_LIST_CHUNK_SIZE) {
         pas_enumerable_range_list_chunk* new_chunk;
         
-        PAS_ASSERT(!chunk || chunk->num_entries == PAS_ENUMERABLE_RANGE_LIST_CHUNK_SIZE);
+        PAS_ASSERT_WITH_DETAIL(!chunk || chunk->num_entries == PAS_ENUMERABLE_RANGE_LIST_CHUNK_SIZE);
 
         new_chunk = pas_immortal_heap_allocate(sizeof(pas_enumerable_range_list_chunk),
                                                "pas_enumerable_range_list_chunk",
@@ -59,7 +59,7 @@ void pas_enumerable_range_list_append(pas_enumerable_range_list* list,
         chunk = new_chunk;
     }
 
-    PAS_ASSERT(chunk->num_entries < PAS_ENUMERABLE_RANGE_LIST_CHUNK_SIZE);
+    PAS_ASSERT_WITH_DETAIL(chunk->num_entries < PAS_ENUMERABLE_RANGE_LIST_CHUNK_SIZE);
 
     chunk->entries[chunk->num_entries] = range;
     pas_compiler_fence();
@@ -78,7 +78,7 @@ bool pas_enumerable_range_list_iterate(
          chunk = pas_compact_atomic_enumerable_range_list_chunk_ptr_load(&chunk->next)) {
         size_t index;
 
-        PAS_ASSERT(chunk->num_entries <= PAS_ENUMERABLE_RANGE_LIST_CHUNK_SIZE);
+        PAS_ASSERT_WITH_DETAIL(chunk->num_entries <= PAS_ENUMERABLE_RANGE_LIST_CHUNK_SIZE);
 
         for (index = chunk->num_entries; index--;) {
             pas_range range;
@@ -99,21 +99,20 @@ bool pas_enumerable_range_list_iterate_remote(
     pas_enumerable_range_list_iterate_remote_callback callback,
     void* arg)
 {
-    pas_enumerable_range_list* list;
+    pas_compact_atomic_enumerable_range_list_chunk_ptr list_head;
     pas_enumerable_range_list_chunk* chunk;
 
-    list = pas_enumerator_read(enumerator, remote_list, sizeof(pas_enumerable_range_list));
-    if (!list)
+    if (!pas_enumerator_copy_remote(enumerator, &list_head, &remote_list->head, sizeof(pas_compact_atomic_enumerable_range_list_chunk_ptr)))
         return false;
 
     for (chunk = pas_compact_atomic_enumerable_range_list_chunk_ptr_load_remote(enumerator,
-                                                                                &list->head);
+                                                                                &list_head);
          chunk;
          chunk = pas_compact_atomic_enumerable_range_list_chunk_ptr_load_remote(enumerator,
                                                                                 &chunk->next)) {
         size_t index;
 
-        PAS_ASSERT(chunk->num_entries <= PAS_ENUMERABLE_RANGE_LIST_CHUNK_SIZE);
+        PAS_ASSERT_WITH_DETAIL(chunk->num_entries <= PAS_ENUMERABLE_RANGE_LIST_CHUNK_SIZE);
 
         for (index = chunk->num_entries; index--;) {
             pas_range range;

@@ -32,6 +32,7 @@
 #include "InspectorWebAgentBase.h"
 #include "StorageArea.h"
 #include <JavaScriptCore/InspectorBackendDispatchers.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/WTFString.h>
 
 namespace Inspector {
@@ -40,20 +41,20 @@ class DOMStorageFrontendDispatcher;
 
 namespace WebCore {
 
-class Frame;
+class LocalFrame;
 class Page;
 class SecurityOrigin;
 class Storage;
 
 class InspectorDOMStorageAgent final : public InspectorAgentBase, public Inspector::DOMStorageBackendDispatcherHandler {
     WTF_MAKE_NONCOPYABLE(InspectorDOMStorageAgent);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(InspectorDOMStorageAgent);
 public:
-    InspectorDOMStorageAgent(PageAgentContext&);
+    explicit InspectorDOMStorageAgent(PageAgentContext&);
     ~InspectorDOMStorageAgent();
 
     // InspectorAgentBase
-    void didCreateFrontendAndBackend(Inspector::FrontendRouter*, Inspector::BackendDispatcher*);
+    void didCreateFrontendAndBackend();
     void willDestroyFrontendAndBackend(Inspector::DisconnectReason);
 
     // DOMStorageBackendDispatcherHandler
@@ -65,19 +66,19 @@ public:
     Inspector::Protocol::ErrorStringOr<void> clearDOMStorageItems(Ref<JSON::Object>&& storageId);
 
     // InspectorInstrumentation
-    void didDispatchDOMStorageEvent(const String& key, const String& oldValue, const String& newValue, StorageType, SecurityOrigin*);
+    void didDispatchDOMStorageEvent(const String& key, const String& oldValue, const String& newValue, StorageType, const SecurityOrigin&);
 
     // CommandLineAPI
     static String storageId(Storage&);
-    static Ref<Inspector::Protocol::DOMStorage::StorageId> storageId(SecurityOrigin*, bool isLocalStorage);
+    static Ref<Inspector::Protocol::DOMStorage::StorageId> storageId(const SecurityOrigin&, bool isLocalStorage);
 
 private:
-    RefPtr<StorageArea> findStorageArea(Inspector::Protocol::ErrorString&, Ref<JSON::Object>&& storageId, Frame*&);
+    RefPtr<StorageArea> findStorageArea(Inspector::Protocol::ErrorString&, Ref<JSON::Object>&& storageId, LocalFrame*&);
 
-    std::unique_ptr<Inspector::DOMStorageFrontendDispatcher> m_frontendDispatcher;
-    RefPtr<Inspector::DOMStorageBackendDispatcher> m_backendDispatcher;
+    const UniqueRef<Inspector::DOMStorageFrontendDispatcher> m_frontendDispatcher;
+    const Ref<Inspector::DOMStorageBackendDispatcher> m_backendDispatcher;
 
-    Page& m_inspectedPage;
+    WeakRef<Page> m_inspectedPage;
 };
 
 } // namespace WebCore

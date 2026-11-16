@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -60,7 +60,7 @@ public:
         LoadResource = 2,
     };
 
-    enum class CompletionCode {
+    enum class CompletionCode : uint8_t {
         Undefined,
         None,
         Success,
@@ -72,9 +72,9 @@ public:
     explicit NetworkActivityTracker(Label, Domain = Domain::WebKit);
     ~NetworkActivityTracker();
 
-    void setParent(NetworkActivityTracker&);
-    void start();
-    void complete(CompletionCode);
+    void NODELETE setParent(NetworkActivityTracker&);
+    void NODELETE start();
+    void NODELETE complete(CompletionCode);
 
 #if HAVE(NW_ACTIVITY)
     nw_activity_t getPlatformObject() const { return m_networkActivity.get(); }

@@ -27,13 +27,13 @@
 
 #include "APIInjectedBundleBundleClient.h"
 #include "APIObject.h"
-#include "DataReference.h"
 #include "SandboxExtension.h"
 #include <JavaScriptCore/JavaScript.h>
 #include <WebCore/UserContentTypes.h>
 #include <WebCore/UserScriptTypes.h>
 #include <wtf/RefPtr.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/UUID.h>
 #include <wtf/text/WTFString.h>
 
 #if USE(GLIB)
@@ -60,7 +60,7 @@ class Connection;
 namespace WebKit {
 
 #if USE(FOUNDATION)
-typedef NSBundle *PlatformBundle;
+typedef RetainPtr<NSBundle> PlatformBundle;
 #elif USE(GLIB)
 typedef ::GModule* PlatformBundle;
 #else
@@ -68,8 +68,6 @@ typedef void* PlatformBundle;
 #endif
 
 class InjectedBundleScriptWorld;
-class WebCertificateInfo;
-class WebConnection;
 class WebFrame;
 class WebPage;
 class WebPageGroupProxy;
@@ -77,22 +75,20 @@ struct WebProcessCreationParameters;
 
 class InjectedBundle : public API::ObjectImpl<API::Object::Type::Bundle> {
 public:
-    static RefPtr<InjectedBundle> create(WebProcessCreationParameters&, API::Object* initializationUserData);
+    static RefPtr<InjectedBundle> create(WebProcessCreationParameters&, RefPtr<API::Object>&& initializationUserData);
 
     ~InjectedBundle();
 
-    bool initialize(const WebProcessCreationParameters&, API::Object* initializationUserData);
+    bool initialize(const WebProcessCreationParameters&, RefPtr<API::Object>&& initializationUserData);
 
-    void setBundleParameter(const String&, const IPC::DataReference&);
-    void setBundleParameters(const IPC::DataReference&);
+    void setBundleParameter(const String&, std::span<const uint8_t>);
+    void setBundleParameters(std::span<const uint8_t>);
 
     // API
     void setClient(std::unique_ptr<API::InjectedBundle::Client>&&);
     void postMessage(const String&, API::Object*);
     void postSynchronousMessage(const String&, API::Object*, RefPtr<API::Object>& returnData);
-    void setServiceWorkerProxyCreationCallback(void (*)(uint64_t));
-
-    WebConnection* webConnectionToUIProcess() const;
+    void NODELETE setServiceWorkerProxyCreationCallback(void (*)(uint64_t));
 
     // TestRunner only SPI
     void addOriginAccessAllowListEntry(const String&, const String&, const String&, bool);
@@ -104,12 +100,11 @@ public:
     String pageSizeAndMarginsInPixels(WebFrame*, int, int, int, int, int, int, int);
     bool isPageBoxVisible(WebFrame*, int);
     void setUserStyleSheetLocation(const String&);
-    void setWebNotificationPermission(WebPage*, const String& originString, bool allowed);
     void removeAllWebNotificationPermissions(WebPage*);
-    uint64_t webNotificationID(JSContextRef, JSValueRef);
+    std::optional<WTF::UUID> webNotificationID(JSContextRef, JSValueRef);
     Ref<API::Data> createWebDataFromUint8Array(JSContextRef, JSValueRef);
     
-    typedef HashMap<uint64_t, String> DocumentIDToURLMap;
+    typedef HashMap<WTF::UUID, String> DocumentIDToURLMap;
     DocumentIDToURLMap liveDocumentURLs(bool excludeDocumentsInPageGroupPages);
 
     // Garbage collection API
@@ -118,25 +113,25 @@ public:
     size_t javaScriptObjectsCount();
 
     // Callback hooks
-    void didCreatePage(WebPage*);
-    void willDestroyPage(WebPage*);
-    void didReceiveMessage(const String&, API::Object*);
-    void didReceiveMessageToPage(WebPage*, const String&, API::Object*);
+    void didCreatePage(WebPage&);
+    void willDestroyPage(WebPage&);
+    void didReceiveMessage(const String&, RefPtr<API::Object>&&);
+    void didReceiveMessageToPage(WebPage&, const String&, RefPtr<API::Object>&&);
 
     static void reportException(JSContextRef, JSValueRef exception);
 
     static bool isProcessingUserGesture();
 
-    void setTabKeyCyclesThroughElements(WebPage*, bool enabled);
+    void NODELETE setTabKeyCyclesThroughElements(WebPage*, bool enabled);
     void setSerialLoadingEnabled(bool);
-    void setAccessibilityIsolatedTreeEnabled(bool);
+    void NODELETE setAccessibilityIsolatedTreeEnabled(bool);
     void dispatchPendingLoadRequests();
 
 #if PLATFORM(COCOA)
     WKWebProcessBundleParameters *bundleParameters();
 
     void extendClassesForParameterCoder(API::Array& classes);
-    NSSet* classesForCoder();
+    RetainPtr<NSSet> classesForCoder();
 #endif
 
 private:
@@ -160,3 +155,7 @@ private:
 };
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::InjectedBundle)
+static bool isType(const API::Object& object) { return object.type() == API::Object::Type::Bundle; }
+SPECIALIZE_TYPE_TRAITS_END()

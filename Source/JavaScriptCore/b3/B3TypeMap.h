@@ -56,13 +56,15 @@ public:
             return m_double;
         case Tuple:
             return m_tuple;
+        case V128:
+            return m_vector;
         }
         ASSERT_NOT_REACHED();
     }
     
     const T& at(Type type) const
     {
-        return bitwise_cast<TypeMap*>(this)->at(type);
+        return std::bit_cast<TypeMap*>(this)->at(type);
     }
     
     T& operator[](Type type)
@@ -82,7 +84,9 @@ public:
             ", int32 = ", m_int32,
             ", int64 = ", m_int64,
             ", float = ", m_float,
-            ", double = ", m_double, "}");
+            ", double = ", m_double,
+            ", vector = ", m_vector,
+            ", tuple = ", m_tuple, "}");
     }
     
 private:
@@ -91,6 +95,7 @@ private:
     T m_int64 { };
     T m_float { };
     T m_double { };
+    T m_vector { };
     T m_tuple { };
 };
 

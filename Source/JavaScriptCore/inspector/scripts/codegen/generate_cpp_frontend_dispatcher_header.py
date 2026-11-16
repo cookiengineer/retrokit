@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Copyright (c) 2014-2016 Apple Inc. All rights reserved.
 # Copyright (c) 2014 University of Washington. All rights reserved.
@@ -35,7 +35,7 @@ try:
     from .cpp_generator_templates import CppGeneratorTemplates as CppTemplates
     from .generator import Generator, ucfirst
     from .models import EnumType
-except ValueError:
+except ImportError:
     from cpp_generator import CppGenerator
     from cpp_generator_templates import CppGeneratorTemplates as CppTemplates
     from generator import Generator, ucfirst
@@ -71,9 +71,12 @@ class CppFrontendDispatcherHeaderGenerator(CppGenerator):
 
     def _generate_secondary_header_includes(self):
         header_includes = [
-            (["JavaScriptCore", "WebKit"], (self.model().framework.name, "%sProtocolObjects.h" % self.protocol_name())),
-            (["JavaScriptCore", "WebKit"], ("WTF", "wtf/JSONValues.h")),
-            (["JavaScriptCore", "WebKit"], ("WTF", "wtf/text/WTFString.h")),
+            (["JavaScriptCore", "WebKit", "WebDriverBidi"], (self.model().framework.name, "%sProtocolObjects.h" % self.protocol_name(), True)),
+            (["JavaScriptCore", "WebKit", "WebDriverBidi"], ("WTF", "wtf/CheckedRef.h")),
+            (["JavaScriptCore", "WebKit", "WebDriverBidi"], ("WTF", "wtf/Noncopyable.h")),
+            (["JavaScriptCore", "WebKit", "WebDriverBidi"], ("WTF", "wtf/Nonmovable.h")),
+            (["JavaScriptCore", "WebKit", "WebDriverBidi"], ("WTF", "wtf/JSONValues.h")),
+            (["JavaScriptCore", "WebKit", "WebDriverBidi"], ("WTF", "wtf/text/WTFString.h")),
         ]
         return '\n'.join(self.generate_includes_from_entries(header_includes))
 

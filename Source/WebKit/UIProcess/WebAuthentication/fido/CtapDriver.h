@@ -27,16 +27,18 @@
 
 #if ENABLE(WEB_AUTHN)
 
+#include <WebCore/AuthenticatorTransport.h>
 #include <WebCore/FidoConstants.h>
 #include <wtf/Forward.h>
 #include <wtf/Function.h>
 #include <wtf/Noncopyable.h>
-#include <wtf/WeakPtr.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 
-class CtapDriver : public CanMakeWeakPtr<CtapDriver> {
-    WTF_MAKE_FAST_ALLOCATED;
+class CtapDriver : public RefCountedAndCanMakeWeakPtr<CtapDriver> {
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(CtapDriver);
     WTF_MAKE_NONCOPYABLE(CtapDriver);
 public:
     using ResponseCallback = Function<void(Vector<uint8_t>&&)>;
@@ -45,15 +47,23 @@ public:
 
     void setProtocol(fido::ProtocolVersion protocol) { m_protocol = protocol; }
 
+    WebCore::AuthenticatorTransport transport() const { return m_transport; }
+    fido::ProtocolVersion protocol() const { return m_protocol; }
+    bool isCtap2Protocol() const { return fido::isCtap2Protocol(m_protocol); }
+    void setMaxMsgSize(std::optional<uint32_t> maxMsgSize) { m_maxMsgSize = maxMsgSize; }
+    bool isValidSize(size_t msgSize) { return !m_maxMsgSize || msgSize <= static_cast<size_t>(*m_maxMsgSize); }
+
     virtual void transact(Vector<uint8_t>&& data, ResponseCallback&&) = 0;
     virtual void cancel() { };
-
 protected:
-    CtapDriver() = default;
-    fido::ProtocolVersion protocol() const { return m_protocol; }
+    explicit CtapDriver(WebCore::AuthenticatorTransport transport)
+        : m_transport(transport)
+    { }
 
 private:
-    fido::ProtocolVersion m_protocol { fido::ProtocolVersion::kCtap };
+    fido::ProtocolVersion m_protocol { fido::ProtocolVersion::kCtap2 };
+    WebCore::AuthenticatorTransport m_transport;
+    std::optional<uint32_t> m_maxMsgSize;
 };
 
 } // namespace WebKit

@@ -24,12 +24,13 @@
 #include "HTMLUListElement.h"
 
 #include "CSSPropertyNames.h"
+#include "CSSValueKeywords.h"
 #include "HTMLNames.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLUListElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLUListElement);
 
 using namespace HTMLNames;
 
@@ -58,9 +59,16 @@ bool HTMLUListElement::hasPresentationalHintsForAttribute(const QualifiedName& n
 
 void HTMLUListElement::collectPresentationalHintsForAttribute(const QualifiedName& name, const AtomString& value, MutableStyleProperties& style)
 {
-    if (name == typeAttr)
-        addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, value);
-    else
+    if (name == typeAttr) {
+        if (equalLettersIgnoringASCIICase(value, "disc"_s))
+            addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueDisc);
+        else if (equalLettersIgnoringASCIICase(value, "circle"_s))
+            addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueCircle);
+        else if (equalLettersIgnoringASCIICase(value, "square"_s))
+            addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueSquare);
+        else if (equalLettersIgnoringASCIICase(value, "none"_s))
+            addPropertyToPresentationalHintStyle(style, CSSPropertyListStyleType, CSSValueNone);
+    } else
         HTMLElement::collectPresentationalHintsForAttribute(name, value, style);
 }
 

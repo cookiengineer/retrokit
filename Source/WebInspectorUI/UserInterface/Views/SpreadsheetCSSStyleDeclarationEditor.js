@@ -60,7 +60,11 @@ WI.SpreadsheetCSSStyleDeclarationEditor = class SpreadsheetCSSStyleDeclarationEd
         if (!this._style)
             return;
 
-        this.element.addEventListener("focus", () => { this.focused = true; }, true);
+        this.element.addEventListener("focus", () => {
+            if (!this._suppressBlur)
+                this.focused = true;
+        }, true);
+
         this.element.addEventListener("blur", (event) => {
             let focusedElement = event.relatedTarget;
             if (focusedElement && this.element.contains(focusedElement))
@@ -167,13 +171,17 @@ WI.SpreadsheetCSSStyleDeclarationEditor = class SpreadsheetCSSStyleDeclarationEd
         if (this._style === style)
             return;
 
-        if (this._style)
+        if (this._style) {
             this._style.removeEventListener(WI.CSSStyleDeclaration.Event.PropertiesChanged, this._propertiesChanged, this);
+            this._style.removeEventListener(WI.CSSStyleDeclaration.Event.LockedChanged, this._handleLockedChanged, this);
+        }
 
         this._style = style || null;
 
-        if (this._style)
+        if (this._style) {
             this._style.addEventListener(WI.CSSStyleDeclaration.Event.PropertiesChanged, this._propertiesChanged, this);
+            this._style.addEventListener(WI.CSSStyleDeclaration.Event.LockedChanged, this._handleLockedChanged, this);
+        }
 
         this.needsLayout();
     }
@@ -253,10 +261,10 @@ WI.SpreadsheetCSSStyleDeclarationEditor = class SpreadsheetCSSStyleDeclarationEd
             properties = this._style.properties;
 
         if (this._style.inherited)
-            properties = properties.filter((property) => property.inherited);
+            properties = properties.filter((property) => property.inherited || property.isNewProperty);
 
         if (this._sortPropertiesByName)
-            properties.sort((a, b) => a.name.extendedLocaleCompare(b.name));
+            properties.sort((a, b) => WI.CSSProperty.sortPreferringNonPrefixed(a.name, b.name));
 
         let hideVariables = this._propertyVisibilityMode === SpreadsheetCSSStyleDeclarationEditor.PropertyVisibilityMode.HideVariables;
         let hideNonVariables = this._propertyVisibilityMode === SpreadsheetCSSStyleDeclarationEditor.PropertyVisibilityMode.HideNonVariables;
@@ -641,6 +649,11 @@ WI.SpreadsheetCSSStyleDeclarationEditor = class SpreadsheetCSSStyleDeclarationEd
 
         this._copySelectedProperties(event);
         this._removeSelectedProperties();
+    }
+
+    _handleLockedChanged(event)
+    {
+        this._delegate?.spreadsheetCSSStyleDeclarationEditorStyleLockedChanged?.(this, event.target.locked);
     }
 
     _copySelectedProperties(event)

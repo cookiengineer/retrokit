@@ -41,64 +41,23 @@ void WebsiteDataStore::platformDestroy()
     notImplemented();
 }
 
-void WebsiteDataStore::platformRemoveRecentSearches(WallTime)
+String WebsiteDataStore::cacheDirectoryFileSystemRepresentation(const String& directoryName, const String& baseCacheDirectory, ShouldCreateDirectory)
 {
-    notImplemented();
+    if (!baseCacheDirectory.isNull())
+        return FileSystem::pathByAppendingComponent(baseCacheDirectory, directoryName);
+    return FileSystem::pathByAppendingComponent("/app0"_s, directoryName);
 }
 
-String WebsiteDataStore::defaultApplicationCacheDirectory()
+String WebsiteDataStore::websiteDataDirectoryFileSystemRepresentation(const String& directoryName, const String& baseDataDirectory, ShouldCreateDirectory)
 {
-    return { };
+    if (!baseDataDirectory.isNull())
+        return FileSystem::pathByAppendingComponent(baseDataDirectory, directoryName);
+    return FileSystem::pathByAppendingComponent("/app0"_s, directoryName);
 }
 
-String WebsiteDataStore::defaultCacheStorageDirectory()
+UnifiedOriginStorageLevel WebsiteDataStore::defaultUnifiedOriginStorageLevel()
 {
-    return { };
-}
-
-String WebsiteDataStore::defaultNetworkCacheDirectory()
-{
-    return { };
-}
-
-String WebsiteDataStore::defaultIndexedDBDatabaseDirectory()
-{
-    return { };
-}
-
-String WebsiteDataStore::defaultServiceWorkerRegistrationDirectory()
-{
-    return { };
-}
-
-String WebsiteDataStore::defaultLocalStorageDirectory()
-{
-    return { };
-}
-
-String WebsiteDataStore::defaultMediaKeysStorageDirectory()
-{
-    return { };
-}
-
-String WebsiteDataStore::defaultWebSQLDatabaseDirectory()
-{
-    return { };
-}
-
-String WebsiteDataStore::defaultResourceLoadStatisticsDirectory()
-{
-    return { };
-}
-
-String WebsiteDataStore::cacheDirectoryFileSystemRepresentation(const String& directoryName, ShouldCreateDirectory)
-{
-    return { };
-}
-
-String WebsiteDataStore::websiteDataDirectoryFileSystemRepresentation(const String& directoryName)
-{
-    return { };
+    return UnifiedOriginStorageLevel::None;
 }
 
 } // namespace WebKit

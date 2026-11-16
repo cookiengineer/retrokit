@@ -35,7 +35,7 @@ enum ToThisStatus {
     ToThisClearedByGC
 };
 
-ToThisStatus merge(ToThisStatus, ToThisStatus);
+ToThisStatus NODELETE merge(ToThisStatus, ToThisStatus);
 
 } // namespace JSC
 

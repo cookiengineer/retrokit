@@ -25,9 +25,16 @@
 
 #pragma once
 
+#include <cstdint>
+#include <wtf/ExportMacros.h>
+
 namespace WTF {
 
 WTF_EXPORT_PRIVATE size_t ramSize();
+
+#if OS(DARWIN)
+WTF_EXPORT_PRIVATE size_t ramSizeDisregardingJetsamLimit();
+#endif
 
 }
 

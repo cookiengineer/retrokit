@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "Exception.h"
+#include <WebCore/Exception.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
@@ -34,34 +34,11 @@ struct ExceptionData {
     ExceptionCode code;
     String message;
 
-    WEBCORE_EXPORT ExceptionData isolatedCopy() const;
+    ExceptionData isolatedCopy() const & { return { code, message.isolatedCopy() }; }
+    ExceptionData isolatedCopy() && { return { code, WTF::move(message).isolatedCopy() }; }
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static WARN_UNUSED_RETURN bool decode(Decoder&, ExceptionData&);
-
-    Exception toException() const
-    {
-        return Exception { code, String { message } };
-    }
+    Exception toException() const & { return Exception { code, String { message } }; }
+    Exception toException() && { return Exception { code, WTF::move(message) }; }
 };
-
-template<class Encoder>
-void ExceptionData::encode(Encoder& encoder) const
-{
-    encoder << code;
-    encoder << message;
-}
-
-template<class Decoder>
-bool ExceptionData::decode(Decoder& decoder, ExceptionData& data)
-{
-    if (!decoder.decode(data.code))
-        return false;
-
-    if (!decoder.decode(data.message))
-        return false;
-
-    return true;
-}
 
 } // namespace WebCore

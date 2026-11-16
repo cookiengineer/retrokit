@@ -35,26 +35,31 @@
 namespace WebCore {
 
 CachedApplicationManifest::CachedApplicationManifest(CachedResourceRequest&& request, PAL::SessionID sessionID, const CookieJar* cookieJar)
-    : CachedResource(WTFMove(request), Type::ApplicationManifest, sessionID, cookieJar)
-    , m_decoder(TextResourceDecoder::create("application/manifest+json", UTF8Encoding()))
+    : CachedResource(WTF::move(request), Type::ApplicationManifest, sessionID, cookieJar)
+    , m_decoder(TextResourceDecoder::create("application/manifest+json"_s, PAL::UTF8Encoding()))
 {
 }
 
-void CachedApplicationManifest::finishLoading(SharedBuffer* data, const NetworkLoadMetrics& metrics)
+void CachedApplicationManifest::finishLoading(const FragmentedSharedBuffer* data, const NetworkLoadMetrics& metrics)
 {
-    m_data = data;
-    setEncodedSize(data ? data->size() : 0);
-    if (data)
-        m_text = m_decoder->decodeAndFlush(data->data(), data->size());
+    if (data) {
+        Ref contiguousData = data->makeContiguous();
+        setEncodedSize(data->size());
+        m_text = protect(m_decoder)->decodeAndFlush(contiguousData->span());
+        m_data = WTF::move(contiguousData);
+    } else {
+        m_data = nullptr;
+        setEncodedSize(0);
+    }
     CachedResource::finishLoading(data, metrics);
 }
 
 void CachedApplicationManifest::setEncoding(const String& chs)
 {
-    m_decoder->setEncoding(chs, TextResourceDecoder::EncodingFromHTTPHeader);
+    protect(m_decoder)->setEncoding(chs, TextResourceDecoder::EncodingFromHTTPHeader);
 }
 
-String CachedApplicationManifest::encoding() const
+ASCIILiteral CachedApplicationManifest::encoding() const
 {
     return m_decoder->encoding().name();
 }

@@ -33,6 +33,7 @@ namespace WTF {
 
 GSocketMonitor::~GSocketMonitor()
 {
+    RELEASE_ASSERT(!m_isExecutingCallback);
     stop();
 }
 
@@ -40,17 +41,34 @@ gboolean GSocketMonitor::socketSourceCallback(GSocket*, GIOCondition condition, 
 {
     if (g_cancellable_is_cancelled(monitor->m_cancellable.get()))
         return G_SOURCE_REMOVE;
-    return monitor->m_callback(condition);
+
+    monitor->m_isExecutingCallback = true;
+    gboolean result = monitor->m_callback(condition);
+    monitor->m_isExecutingCallback = false;
+
+    if (monitor->m_shouldDestroyCallback) {
+        // Destroying m_callback could also destroy this GSocketMonitor, so that has to be last.
+        monitor->m_shouldDestroyCallback = false;
+        monitor->m_callback = nullptr;
+    }
+
+    return result;
 }
 
-void GSocketMonitor::start(GSocket* socket, GIOCondition condition, RunLoop& runLoop, Function<gboolean(GIOCondition)>&& callback)
+void GSocketMonitor::start(GSocket* socket, GIOCondition condition, RunLoop& runLoop, GCancellable* cancellable, Function<gboolean(GIOCondition)>&& callback)
 {
     stop();
 
-    m_cancellable = adoptGRef(g_cancellable_new());
+    if (cancellable) {
+        m_cancellable = cancellable;
+        m_shouldCancelOnStop = false;
+    } else {
+        m_cancellable = adoptGRef(g_cancellable_new());
+        m_shouldCancelOnStop = true;
+    }
     m_source = adoptGRef(g_socket_create_source(socket, condition, m_cancellable.get()));
     g_source_set_name(m_source.get(), "[WebKit] Socket monitor");
-    m_callback = WTFMove(callback);
+    m_callback = WTF::move(callback);
     g_source_set_callback(m_source.get(), reinterpret_cast<GSourceFunc>(reinterpret_cast<GCallback>(socketSourceCallback)), this, nullptr);
     g_source_set_priority(m_source.get(), RunLoopSourcePriority::RunLoopDispatcher);
     g_source_attach(m_source.get(), runLoop.mainContext());
@@ -61,11 +79,18 @@ void GSocketMonitor::stop()
     if (!m_source)
         return;
 
-    g_cancellable_cancel(m_cancellable.get());
+    if (m_shouldCancelOnStop)
+        g_cancellable_cancel(m_cancellable.get());
     m_cancellable = nullptr;
     g_source_destroy(m_source.get());
     m_source = nullptr;
-    m_callback = nullptr;
+
+    // It's normal to stop the socket monitor from inside its callback.
+    // Don't destroy the callback while it's still executing.
+    if (m_isExecutingCallback)
+        m_shouldDestroyCallback = true;
+    else
+        m_callback = nullptr;
 }
 
 } // namespace WTF

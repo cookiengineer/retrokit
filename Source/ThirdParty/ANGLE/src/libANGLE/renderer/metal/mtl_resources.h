@@ -18,6 +18,7 @@
 #include "common/FastVector.h"
 #include "common/MemoryBuffer.h"
 #include "common/angleutils.h"
+#include "common/span.h"
 #include "libANGLE/Error.h"
 #include "libANGLE/angletypes.h"
 #include "libANGLE/renderer/metal/mtl_common.h"
@@ -31,6 +32,7 @@ class ContextMtl;
 namespace mtl
 {
 
+class ContextDevice;
 class CommandQueue;
 class BlitCommandEncoder;
 class Resource;
@@ -43,6 +45,33 @@ using TextureWeakRef = std::weak_ptr<Texture>;
 using BufferRef      = std::shared_ptr<Buffer>;
 using BufferWeakRef  = std::weak_ptr<Buffer>;
 
+class BufferSlice
+{
+  public:
+    BufferSlice()                               = default;
+    BufferSlice(const BufferSlice &)            = default;
+    BufferSlice(BufferSlice &&)                 = default;
+    BufferSlice &operator=(const BufferSlice &) = default;
+    BufferSlice &operator=(BufferSlice &&)      = default;
+
+    inline explicit BufferSlice(const BufferRef &buffer);
+
+    bool empty() const { return mSize == 0; }
+    const BufferRef &buffer() const { return mBuffer; }
+    size_t size() const { return mSize; }
+    size_t offset() const { return mOffset; }
+
+    inline BufferSlice subslice(size_t offset, size_t count) const;
+    inline BufferSlice subslice(size_t offset) const;
+
+  private:
+    inline BufferSlice(const BufferRef &buffer, size_t offset, size_t size);
+
+    BufferRef mBuffer;
+    size_t mSize   = 0;
+    size_t mOffset = 0;
+};
+
 class Resource : angle::NonCopyable
 {
   public:
@@ -51,10 +80,12 @@ class Resource : angle::NonCopyable
     // Check whether the resource still being used by GPU including the pending (uncommitted)
     // command buffer.
     bool isBeingUsedByGPU(Context *context) const;
-    // Checks whether the last command buffer that uses the given resource has been committed or not
+    // Checks whether the last command buffer that uses the given resource has been committed or
+    // not
     bool hasPendingWorks(Context *context) const;
+    bool hasPendingRenderWorks(Context *context) const;
 
-    void setUsedByCommandBufferWithQueueSerial(uint64_t serial, bool writing);
+    void setUsedByCommandBufferWithQueueSerial(uint64_t serial, bool writing, bool isRenderCommand);
 
     uint64_t getCommandBufferQueueSerial() const { return mUsageRef->cmdBufferQueueSerial; }
 
@@ -63,35 +94,68 @@ class Resource : angle::NonCopyable
     bool isCPUReadMemNeedSync() const { return mUsageRef->cpuReadMemNeedSync; }
     void resetCPUReadMemNeedSync() { mUsageRef->cpuReadMemNeedSync = false; }
 
+    bool isCPUReadMemSyncPending() const { return mUsageRef->cpuReadMemSyncPending; }
+    void setCPUReadMemSyncPending(bool value) const { mUsageRef->cpuReadMemSyncPending = value; }
+    void resetCPUReadMemSyncPending() { mUsageRef->cpuReadMemSyncPending = false; }
+
     bool isCPUReadMemDirty() const { return mUsageRef->cpuReadMemDirty; }
     void resetCPUReadMemDirty() { mUsageRef->cpuReadMemDirty = false; }
 
+    uint64_t getLastReadingRenderEncoderSerial() const
+    {
+        return mUsageRef->lastReadingRenderEncoderSerial;
+    }
+    uint64_t getLastWritingRenderEncoderSerial() const
+    {
+        return mUsageRef->lastWritingRenderEncoderSerial;
+    }
+
+    uint64_t getLastRenderEncoderSerial() const
+    {
+        return std::max(mUsageRef->lastReadingRenderEncoderSerial,
+                        mUsageRef->lastWritingRenderEncoderSerial);
+    }
+
+    virtual size_t estimatedByteSize() const = 0;
+    virtual id getID() const                 = 0;
+
   protected:
+    struct UsageRef;
+
     Resource();
     // Share the GPU usage ref with other resource
     Resource(Resource *other);
+    Resource(std::shared_ptr<UsageRef> otherUsageRef);
 
     void reset();
 
-  private:
     struct UsageRef
     {
         // The id of the last command buffer that is using this resource.
         uint64_t cmdBufferQueueSerial = 0;
 
         // This flag means the resource was issued to be modified by GPU, if CPU wants to read
-        // its content, explicit synchornization call must be invoked.
+        // its content, explicit synchronization call must be invoked.
         bool cpuReadMemNeedSync = false;
+
+        // This flag is set when synchronization for the resource has been
+        // encoded on the GPU, and a map operation must wait
+        // until it's completed.
+        bool cpuReadMemSyncPending = false;
 
         // This flag is useful for BufferMtl to know whether it should update the shadow copy
         bool cpuReadMemDirty = false;
+
+        // The id of the last render encoder to read/write to this resource
+        uint64_t lastReadingRenderEncoderSerial = 0;
+        uint64_t lastWritingRenderEncoderSerial = 0;
     };
 
     // One resource object might just be a view of another resource. For example, a texture 2d
-    // object might be a view of one face of a cube texture object. Another example is one texture
-    // object of size 2x2 might be a mipmap view of a texture object size 4x4. Thus, if one object
-    // is being used by a command buffer, it means the other object is being used also. In this
-    // case, the two objects must share the same UsageRef property.
+    // object might be a view of one face of a cube texture object. Another example is one
+    // texture object of size 2x2 might be a mipmap view of a texture object size 4x4. Thus, if
+    // one object is being used by a command buffer, it means the other object is being used
+    // also. In this case, the two objects must share the same UsageRef property.
     std::shared_ptr<UsageRef> mUsageRef;
 };
 
@@ -110,11 +174,12 @@ class Texture final : public Resource,
                                        TextureRef *refOut);
 
     // On macOS, memory will still be allocated for this texture.
-    static angle::Result MakeMemoryLess2DTexture(ContextMtl *context,
-                                                 const Format &format,
-                                                 uint32_t width,
-                                                 uint32_t height,
-                                                 TextureRef *refOut);
+    static angle::Result MakeMemoryLess2DMSTexture(ContextMtl *context,
+                                                   const Format &format,
+                                                   uint32_t width,
+                                                   uint32_t height,
+                                                   uint32_t samples,
+                                                   TextureRef *refOut);
 
     static angle::Result MakeCubeTexture(ContextMtl *context,
                                          const Format &format,
@@ -152,15 +217,6 @@ class Texture final : public Resource,
                                        bool renderTargetOnly,
                                        bool allowFormatView,
                                        TextureRef *refOut);
-
-    static angle::Result MakeIOSurfaceTexture(ContextMtl *context,
-                                              const Format &format,
-                                              uint32_t width,
-                                              uint32_t height,
-                                              IOSurfaceRef ref,
-                                              uint32_t plane,
-                                              TextureRef *refOut);
-
     static TextureRef MakeFromMetal(id<MTLTexture> metalTexture);
 
     // Allow CPU to read & write data directly to this texture?
@@ -168,6 +224,8 @@ class Texture final : public Resource,
     // Allow shaders to read/sample this texture?
     // Texture created with renderTargetOnly flag won't be readable
     bool isShaderReadable() const;
+    // Allow shaders to write this texture?
+    bool isShaderWritable() const;
 
     bool supportFormatView() const;
 
@@ -188,31 +246,46 @@ class Texture final : public Resource,
 
     void getBytes(ContextMtl *context,
                   size_t bytesPerRow,
-                  size_t bytesPer2DInage,
+                  size_t bytesPer2DImage,
                   const MTLRegion &region,
                   const MipmapNativeLevel &mipmapLevel,
                   uint32_t slice,
-                  uint8_t *dataOut);
+                  angle::Span<uint8_t> dataOut);
 
     // Create 2d view of a cube face which full range of mip levels.
     TextureRef createCubeFaceView(uint32_t face);
     // Create a view of one slice at a level.
     TextureRef createSliceMipView(uint32_t slice, const MipmapNativeLevel &level);
+    // Same as createSliceMipView but the target format must be compatible, for example sRGB to
+    // linear. In this case texture doesn't need format view usage flag.
+    TextureRef createSliceMipViewWithCompatibleFormat(uint32_t slice,
+                                                      const MipmapNativeLevel &level,
+                                                      MTLPixelFormat format);
+    // Create a levels range view
+    TextureRef createMipsView(const MipmapNativeLevel &baseLevel, uint32_t levels);
     // Create a view of a level.
     TextureRef createMipView(const MipmapNativeLevel &level);
     // Create a view with different format
     TextureRef createViewWithDifferentFormat(MTLPixelFormat format);
-    // Same as above but the target format must be compatible, for example sRGB to linear. In this
-    // case texture doesn't need format view usage flag.
+    // Create a view for a shader image binding.
+    TextureRef createShaderImageView2D(const MipmapNativeLevel &level,
+                                       int layer,
+                                       MTLPixelFormat format);
+    // Same as above but the target format must be compatible, for example sRGB to linear. In
+    // this case texture doesn't need format view usage flag.
     TextureRef createViewWithCompatibleFormat(MTLPixelFormat format);
     // Create a swizzled view
-    TextureRef createSwizzleView(const TextureSwizzleChannels &swizzle);
+    TextureRef createMipsSwizzleView(const MipmapNativeLevel &baseLevel,
+                                     uint32_t levels,
+                                     MTLPixelFormat format,
+                                     const MTLTextureSwizzleChannels &swizzle);
 
     MTLTextureType textureType() const;
     MTLPixelFormat pixelFormat() const;
 
     uint32_t mipmapLevels() const;
     uint32_t arrayLength() const;
+    uint32_t cubeFaces() const;
     uint32_t cubeFacesOrArrayLength() const;
 
     uint32_t width(const MipmapNativeLevel &level) const;
@@ -229,9 +302,14 @@ class Texture final : public Resource,
 
     uint32_t samples() const;
 
+    bool hasIOSurface() const;
+    bool sameTypeAndDimemsionsAs(const TextureRef &other) const;
+
     angle::Result resize(ContextMtl *context, uint32_t width, uint32_t height);
 
-    // For render target
+    // Get the color write mask to restrict writing to certain color channels in this texture. It's
+    // used for textures having emulated mtl::Format such as RGB which should always have alpha
+    // value being one.
     MTLColorWriteMask getColorWritableMask() const { return *mColorWritableMask; }
     void setColorWritableMask(MTLColorWriteMask mask) { *mColorWritableMask = mask; }
 
@@ -254,11 +332,23 @@ class Texture final : public Resource,
     // Get linear color
     TextureRef getLinearColorView();
 
+    TextureRef parentTexture();
+    MipmapNativeLevel parentRelativeLevel();
+    uint32_t parentRelativeSlice();
+
     // Change the wrapped metal object. Special case for swapchain image
     void set(id<MTLTexture> metalTexture);
 
     // Explicitly sync content between CPU and GPU
     void syncContent(ContextMtl *context, mtl::BlitCommandEncoder *encoder);
+    void setEstimatedByteSize(size_t bytes) { mEstimatedByteSize = bytes; }
+    size_t estimatedByteSize() const override { return mEstimatedByteSize; }
+    id getID() const override { return get(); }
+
+    // Should we disable MTLLoadActionLoad & MTLStoreActionStore when using this texture
+    // as render pass' attachment. This is usually used for memoryless textures and
+    // EXT_multisampled_render_to_texture.
+    bool shouldNotLoadStore() const { return mShouldNotLoadStore; }
 
   private:
     using ParentClass = WrappedObject<id<MTLTexture>>;
@@ -289,6 +379,13 @@ class Texture final : public Resource,
                                      TextureRef *refOut);
 
     Texture(id<MTLTexture> metalTexture);
+
+    // Create a texture that shares ownership of usageRef, underlying MTLTexture and colorWriteMask
+    // with the original texture.
+    Texture(std::shared_ptr<UsageRef> usageRef,
+            id<MTLTexture> metalTexture,
+            std::shared_ptr<MTLColorWriteMask> colorWriteMask);
+
     Texture(ContextMtl *context,
             MTLTextureDescriptor *desc,
             uint32_t mips,
@@ -308,13 +405,22 @@ class Texture final : public Resource,
             bool renderTargetOnly);
 
     // Create a texture view
-    Texture(Texture *original, MTLPixelFormat format);
-    Texture(Texture *original, MTLTextureType type, NSRange mipmapLevelRange, NSRange slices);
-    Texture(Texture *original, const TextureSwizzleChannels &swizzle);
+    Texture(Texture *original, MTLPixelFormat pixelFormat);
+    Texture(Texture *original,
+            MTLPixelFormat pixelFormat,
+            MTLTextureType textureType,
+            NSRange levels,
+            NSRange slices);
+    Texture(Texture *original,
+            MTLPixelFormat pixelFormat,
+            MTLTextureType textureType,
+            NSRange levels,
+            NSRange slices,
+            const MTLTextureSwizzleChannels &swizzle);
 
     void syncContentIfNeeded(ContextMtl *context);
 
-    AutoObjCObj<MTLTextureDescriptor> mCreationDesc;
+    angle::ObjCPtr<MTLTextureDescriptor> mCreationDesc;
 
     // This property is shared between this object and its views:
     std::shared_ptr<MTLColorWriteMask> mColorWritableMask;
@@ -325,43 +431,42 @@ class Texture final : public Resource,
     TextureRef mStencilView;
     // Readable copy of texture
     TextureRef mReadCopy;
+
+    TextureRef mParentTexture;
+
+    size_t mEstimatedByteSize = 0;
+
+    bool mShouldNotLoadStore = false;
 };
 
-class Buffer final : public Resource,
-                     public WrappedObject<id<MTLBuffer>>,
-                     public std::enable_shared_from_this<Buffer>
+class Buffer final : public Resource, public WrappedObject<id<MTLBuffer>>
 {
   public:
-    static angle::Result MakeBuffer(ContextMtl *context,
-                                    size_t size,
-                                    const uint8_t *data,
-                                    BufferRef *bufferOut);
+    static MTLStorageMode getStorageModeForSharedBuffer(ContextMtl *contextMtl);
+    using Usage = gl::BufferUsage;
+    static MTLStorageMode getStorageModeForUsage(ContextMtl *context, Usage usage);
 
-    static angle::Result MakeBufferWithSharedMemOpt(ContextMtl *context,
-                                                    bool forceUseSharedMem,
-                                                    size_t size,
-                                                    const uint8_t *data,
-                                                    BufferRef *bufferOut);
+    static angle::Result MakeBuffer(ContextMtl *context, size_t size, BufferRef *bufferOut);
 
-    static angle::Result MakeBufferWithResOpt(ContextMtl *context,
-                                              MTLResourceOptions resourceOptions,
-                                              size_t size,
-                                              const uint8_t *data,
-                                              BufferRef *bufferOut);
+    static angle::Result MakeBufferWithStorageMode(ContextMtl *context,
+                                                   MTLStorageMode storageMode,
+                                                   size_t size,
+                                                   BufferRef *bufferOut);
 
-    angle::Result reset(ContextMtl *context, size_t size, const uint8_t *data);
-    angle::Result resetWithSharedMemOpt(ContextMtl *context,
-                                        bool forceUseSharedMem,
-                                        size_t size,
-                                        const uint8_t *data);
-    angle::Result resetWithResOpt(ContextMtl *context,
-                                  MTLResourceOptions resourceOptions,
-                                  size_t size,
-                                  const uint8_t *data);
+    angle::Result reset(ContextMtl *context, MTLStorageMode storageMode, size_t size);
 
-    const uint8_t *mapReadOnly(ContextMtl *context);
-    uint8_t *map(ContextMtl *context);
-    uint8_t *mapWithOpt(ContextMtl *context, bool readonly, bool noSync);
+    angle::Span<const uint8_t> mapReadOnly(ContextMtl *context, size_t offset = 0);
+    angle::Span<const uint8_t> mapReadOnly(ContextMtl *context, size_t offset, size_t length);
+    angle::Span<uint8_t> map(ContextMtl *context, size_t offset = 0);
+    angle::Span<uint8_t> map(ContextMtl *context, size_t offset, size_t length);
+    angle::Span<uint8_t> mapNoSync(ContextMtl *context, size_t offset = 0);
+    angle::Span<uint8_t> mapNoSync(ContextMtl *context, size_t offset, size_t length);
+    angle::Span<uint8_t> mapWithOpt(ContextMtl *context, bool readonly, bool noSync, size_t offset);
+    angle::Span<uint8_t> mapWithOpt(ContextMtl *context,
+                                    bool readonly,
+                                    bool noSync,
+                                    size_t offset,
+                                    size_t length);
 
     void unmap(ContextMtl *context);
     // Same as unmap but do not do implicit flush()
@@ -370,19 +475,26 @@ class Buffer final : public Resource,
     void flush(ContextMtl *context, size_t offsetWritten, size_t sizeWritten);
 
     size_t size() const;
-    bool useSharedMem() const;
+    MTLStorageMode storageMode() const;
 
     // Explicitly sync content between CPU and GPU
     void syncContent(ContextMtl *context, mtl::BlitCommandEncoder *encoder);
 
+    size_t estimatedByteSize() const override { return size(); }
+    id getID() const override { return get(); }
+
+    size_t getNumContextSwitchesAtLastUse() { return mContextSwitchesAtLastUse; }
+    void setNumContextSwitchesAtLastUse(size_t num) { mContextSwitchesAtLastUse = num; }
+    size_t getNumCommandBufferCommitsAtLastUse() { return mCommandBufferCommitsAtLastUse; }
+    void setNumCommandBufferCommitsAtLastUse(size_t num) { mCommandBufferCommitsAtLastUse = num; }
+
   private:
-    Buffer(ContextMtl *context, bool forceUseSharedMem, size_t size, const uint8_t *data);
-    Buffer(ContextMtl *context,
-           MTLResourceOptions resourceOptions,
-           size_t size,
-           const uint8_t *data);
+    Buffer(ContextMtl *context, MTLStorageMode storageMode, size_t size);
 
     bool mMapReadOnly = true;
+    // For garbage collecting shadow buffers in BufferManager.
+    size_t mContextSwitchesAtLastUse      = 0;
+    size_t mCommandBufferCommitsAtLastUse = 0;
 };
 
 class NativeTexLevelArray
@@ -405,6 +517,68 @@ class NativeTexLevelArray
   private:
     gl::TexLevelArray<TextureRef> mTexLevels;
 };
+
+inline angle::Span<const uint8_t> Buffer::mapReadOnly(ContextMtl *context, size_t offset)
+{
+    return mapWithOpt(context, true, false, offset);
+}
+
+inline angle::Span<const uint8_t> Buffer::mapReadOnly(ContextMtl *context,
+                                                      size_t offset,
+                                                      size_t length)
+{
+    return mapWithOpt(context, true, false, offset, length);
+}
+
+inline angle::Span<uint8_t> Buffer::map(ContextMtl *context, size_t offset)
+{
+    return mapWithOpt(context, false, false, offset);
+}
+
+inline angle::Span<uint8_t> Buffer::map(ContextMtl *context, size_t offset, size_t length)
+{
+    return mapWithOpt(context, false, false, offset, length);
+}
+
+inline angle::Span<uint8_t> Buffer::mapNoSync(ContextMtl *context, size_t offset)
+{
+    return mapWithOpt(context, false, true, offset);
+}
+
+inline angle::Span<uint8_t> Buffer::mapNoSync(ContextMtl *context, size_t offset, size_t length)
+{
+    return mapWithOpt(context, false, true, offset, length);
+}
+
+inline angle::Span<uint8_t> Buffer::mapWithOpt(ContextMtl *context,
+                                               bool readonly,
+                                               bool noSync,
+                                               size_t offset,
+                                               size_t length)
+{
+    return mapWithOpt(context, readonly, noSync, offset).first(length);
+}
+
+inline BufferSlice::BufferSlice(const BufferRef &buffer)
+    : mBuffer(buffer), mSize(buffer ? buffer->size() : 0), mOffset(0)
+{}
+
+inline BufferSlice::BufferSlice(const BufferRef &buffer, size_t offset, size_t size)
+    : mBuffer(buffer), mSize(size), mOffset(offset)
+{
+    RELEASE_ASSERT(buffer != nullptr && offset + size <= buffer->size());
+}
+
+inline BufferSlice BufferSlice::subslice(size_t offset, size_t count) const
+{
+    RELEASE_ASSERT(offset + count <= mSize);
+    return BufferSlice(mBuffer, mOffset + offset, count);
+}
+
+inline BufferSlice BufferSlice::subslice(size_t offset) const
+{
+    return subslice(offset, mSize - offset);
+}
 
 }  // namespace mtl
 }  // namespace rx

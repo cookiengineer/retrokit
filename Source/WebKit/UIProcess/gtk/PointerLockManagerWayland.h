@@ -30,8 +30,8 @@
 #if PLATFORM(WAYLAND)
 
 #include "relative-pointer-unstable-v1-client-protocol.h"
-#include <WebCore/WlUniquePtr.h>
 #include <wayland-client.h>
+#include <wtf/TZoneMalloc.h>
 
 struct zwp_locked_pointer_v1;
 struct zwp_pointer_constraints_v1;
@@ -41,9 +41,10 @@ namespace WebKit {
 class WebPageProxy;
 
 class PointerLockManagerWayland final : public PointerLockManager {
-    WTF_MAKE_NONCOPYABLE(PointerLockManagerWayland); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(PointerLockManagerWayland);
+    WTF_MAKE_NONCOPYABLE(PointerLockManagerWayland);
 public:
-    PointerLockManagerWayland(WebPageProxy&, const WebCore::FloatPoint&, const WebCore::FloatPoint&, WebMouseEvent::Button, unsigned short, OptionSet<WebEvent::Modifier>);
+    PointerLockManagerWayland(WebPageProxy&, const WebCore::FloatPoint&, const WebCore::FloatPoint&, WebMouseEventButton, unsigned short, OptionSet<WebEventModifier>);
     ~PointerLockManagerWayland();
 
 private:
@@ -53,7 +54,7 @@ private:
     bool lock() override;
     bool unlock() override;
 
-    WebCore::WlUniquePtr<struct wl_registry> m_registry;
+    struct wl_registry* m_registry { nullptr };
     struct zwp_pointer_constraints_v1* m_pointerConstraints { nullptr };
     struct zwp_locked_pointer_v1* m_lockedPointer { nullptr };
     struct zwp_relative_pointer_manager_v1* m_relativePointerManager { nullptr };

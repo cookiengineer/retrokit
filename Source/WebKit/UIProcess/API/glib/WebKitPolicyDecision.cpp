@@ -31,10 +31,10 @@
 using namespace WebKit;
 
 /**
- * SECTION: WebKitPolicyDecision
- * @Short_description: A pending policy decision
- * @Title: WebKitPolicyDecision
+ * WebKitPolicyDecision:
  * @See_also: #WebKitWebView
+ *
+ * A pending policy decision.
  *
  * Often WebKit allows the client to decide the policy for certain
  * operations. For instance, a client may want to open a link in a new
@@ -61,7 +61,7 @@ static void webkitPolicyDecisionDispose(GObject* object)
 
 void webkitPolicyDecisionSetListener(WebKitPolicyDecision* decision, Ref<WebFramePolicyListenerProxy>&& listener)
 {
-    decision->priv->listener = WTFMove(listener);
+    decision->priv->listener = WTF::move(listener);
 }
 
 static void webkit_policy_decision_class_init(WebKitPolicyDecisionClass* decisionClass)
@@ -92,12 +92,14 @@ void webkit_policy_decision_use(WebKitPolicyDecision* decision)
  * @decision: a #WebKitPolicyDecision
  * @policies: a #WebKitWebsitePolicies
  *
+ * Accept the navigation action and continue with provided @policies.
+ *
  * Accept the navigation action which triggered this decision, and
  * continue with @policies affecting all subsequent loads of resources
  * in the origin associated with the accepted navigation action.
  *
  * For example, a navigation decision to a video sharing website may
- * be accepted under the priviso no movies are allowed to autoplay. The
+ * be accepted under the proviso no movies are allowed to autoplay. The
  * autoplay policy in this case would be set in the @policies.
  *
  * Since: 2.30
@@ -118,6 +120,8 @@ void webkit_policy_decision_use_with_policies(WebKitPolicyDecision* decision, We
 /**
  * webkit_policy_decision_ignore:
  * @decision: a #WebKitPolicyDecision
+ *
+ * Ignore the action which triggered this decision.
  *
  * Ignore the action which triggered this decision. For instance, for a
  * #WebKitResponsePolicyDecision, this would cancel the request.

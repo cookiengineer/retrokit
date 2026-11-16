@@ -28,38 +28,101 @@
 
 #include "Decoder.h"
 #include "Encoder.h"
-#include "WebCoreArgumentCoders.h"
+#include "WebKeyboardEvent.h"
+#include <WebCore/WindowsKeyboardCodes.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/text/TextStream.h>
 
 namespace WebKit {
 
-WebEvent::WebEvent()
-    : m_type(static_cast<uint32_t>(NoType))
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebEvent);
+
+#if PLATFORM(GTK) || PLATFORM(WPE)
+static uintptr_t generateSignpostIdentifier()
 {
+    static std::atomic<uintptr_t> identifier;
+    return ++identifier;
 }
 
-WebEvent::WebEvent(Type type, OptionSet<Modifier> modifiers, WallTime timestamp)
+WebEvent::WebEvent(WebEventType type, OptionSet<WebEventModifier> modifiers, MonotonicTime timestamp, WTF::UUID authorizationToken, uintptr_t signpostIdentifier)
     : m_type(type)
     , m_modifiers(modifiers)
     , m_timestamp(timestamp)
+    , m_authorizationToken(authorizationToken)
+    , m_signpostIdentifier(signpostIdentifier)
+{
+}
+#endif
+
+WebEvent::WebEvent(WebEventType type, OptionSet<WebEventModifier> modifiers, MonotonicTime timestamp, WTF::UUID authorizationToken)
+    : m_type(type)
+    , m_modifiers(modifiers)
+    , m_timestamp(timestamp)
+    , m_authorizationToken(authorizationToken)
+#if PLATFORM(GTK) || PLATFORM(WPE)
+    , m_signpostIdentifier(generateSignpostIdentifier())
+#endif
 {
 }
 
-void WebEvent::encode(IPC::Encoder& encoder) const
+WebEvent::WebEvent(WebEventType type, OptionSet<WebEventModifier> modifiers, MonotonicTime timestamp)
+    : m_type(type)
+    , m_modifiers(modifiers)
+    , m_timestamp(timestamp)
+    , m_authorizationToken(WTF::UUID::createVersion4())
+#if PLATFORM(GTK) || PLATFORM(WPE)
+    , m_signpostIdentifier(generateSignpostIdentifier())
+#endif
 {
-    encoder << m_type;
-    encoder << m_modifiers;
-    encoder << m_timestamp;
 }
 
-bool WebEvent::decode(IPC::Decoder& decoder, WebEvent& result)
+// https://html.spec.whatwg.org/multipage/interaction.html#activation-triggering-input-event
+bool WebEvent::isActivationTriggeringEvent() const
 {
-    if (!decoder.decode(result.m_type))
-        return false;
-    if (!decoder.decode(result.m_modifiers))
-        return false;
-    if (!decoder.decode(result.m_timestamp))
-        return false;
-    return true;
+    switch (type()) {
+    case WebEventType::MouseDown:
+#if ENABLE(TOUCH_EVENTS)
+    case WebEventType::TouchEnd:
+#endif
+        return true;
+    case WebEventType::KeyDown:
+        return downcast<WebKeyboardEvent>(*this).windowsVirtualKeyCode() != VK_ESCAPE;
+    default:
+        break;
+    }
+    return false;
+}
+
+TextStream& operator<<(TextStream& ts, WebEventType eventType)
+{
+    switch (eventType) {
+    case WebEventType::MouseDown: ts << "MouseDown"_s; break;
+    case WebEventType::MouseUp: ts << "MouseUp"_s; break;
+    case WebEventType::MouseMove: ts << "MouseMove"_s; break;
+    case WebEventType::MouseForceChanged: ts << "MouseForceChanged"_s; break;
+    case WebEventType::MouseForceDown: ts << "MouseForceDown"_s; break;
+    case WebEventType::MouseForceUp: ts << "MouseForceUp"_s; break;
+    case WebEventType::Wheel: ts << "Wheel"_s; break;
+    case WebEventType::KeyDown: ts << "KeyDown"_s; break;
+    case WebEventType::KeyUp: ts << "KeyUp"_s; break;
+    case WebEventType::RawKeyDown: ts << "RawKeyDown"_s; break;
+    case WebEventType::Char: ts << "Char"_s; break;
+
+#if ENABLE(TOUCH_EVENTS)
+    case WebEventType::TouchStart: ts << "TouchStart"_s; break;
+    case WebEventType::TouchMove: ts << "TouchMove"_s; break;
+    case WebEventType::TouchEnd: ts << "TouchEnd"_s; break;
+    case WebEventType::TouchCancel: ts << "TouchCancel"_s; break;
+#endif
+
+#if ENABLE(MAC_GESTURE_EVENTS)
+    case WebEventType::GestureStart: ts << "GestureStart"_s; break;
+    case WebEventType::GestureChange: ts << "GestureChange"_s; break;
+    case WebEventType::GestureEnd: ts << "GestureEnd"_s; break;
+#endif
+    }
+
+    return ts;
 }
 
 } // namespace WebKit

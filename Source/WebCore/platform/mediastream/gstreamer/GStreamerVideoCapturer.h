@@ -25,30 +25,44 @@
 #if ENABLE(MEDIA_STREAM) && USE(GSTREAMER)
 
 #include "GStreamerCapturer.h"
-
-#include <gst/video/video.h>
+#include "IntSize.h"
 
 namespace WebCore {
 
+class VideoFrameGStreamer;
+
 class GStreamerVideoCapturer final : public GStreamerCapturer {
+    friend class GStreamerVideoCaptureSource;
+    friend class MockRealtimeVideoSourceGStreamer;
 public:
-    GStreamerVideoCapturer(GStreamerCaptureDevice);
-    GStreamerVideoCapturer(const char* source_factory, CaptureDevice::DeviceType);
+    GStreamerVideoCapturer(GStreamerCaptureDevice&&);
+    GStreamerVideoCapturer(const PipeWireCaptureDevice&);
+    ~GStreamerVideoCapturer() = default;
 
-    GstElement* createSource() final;
+    void tearDown(bool disconnectSignals) final;
+    void setupPipeline() final;
     GstElement* createConverter() final;
-    const char* name() final { return "Video"; }
+    ASCIILiteral name() final { return "Video"_s; }
 
-    bool setSize(int width, int height);
-    bool setFrameRate(double);
-    GstVideoInfo getBestFormat();
-
-    void setPipewireFD(int fd) { m_fd = fd; }
-    std::optional<int> pipewireFD() const { return m_fd; }
+    using SinkVideoFrameCallback = Function<void(Ref<VideoFrameGStreamer>&&)>;
+    void setSinkVideoFrameCallback(SinkVideoFrameCallback&&);
 
 private:
-    std::optional<int> m_fd;
+    void handleSample(GRefPtr<GstSample>&&);
+    bool setSize(const IntSize&);
+    const IntSize& size() const LIFETIME_BOUND { return m_size; }
+
+    bool setFrameRate(double);
+    void reconfigure();
+
+    bool isCapturingDisplay() const;
+
+    GRefPtr<GstElement> m_videoSrcMIMETypeFilter;
+
+    std::pair<GStreamerCapturer::SinkSignalsHolder, SinkVideoFrameCallback> m_sinkVideoFrameCallback;
+    IntSize m_size;
 };
 
 } // namespace WebCore
+
 #endif // ENABLE(MEDIA_STREAM) && USE(GSTREAMER)

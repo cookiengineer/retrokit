@@ -25,13 +25,14 @@
 
 #pragma once
 
-#include "ActiveDOMObject.h"
-#include "BroadcastChannelIdentifier.h"
-#include "EventTarget.h"
-#include "ExceptionOr.h"
-#include "SecurityOriginData.h"
+#include <WebCore/ActiveDOMObject.h>
+#include <WebCore/BroadcastChannelIdentifier.h>
+#include <WebCore/ClientOrigin.h>
+#include <WebCore/EventTarget.h>
+#include <WebCore/EventTargetInterfaces.h>
 #include <wtf/Forward.h>
 #include <wtf/RefCounted.h>
+#include <wtf/ThreadSafeWeakPtr.h>
 
 namespace JSC {
 class JSGlobalObject;
@@ -41,9 +42,10 @@ class JSValue;
 namespace WebCore {
 
 class SerializedScriptValue;
+template<typename> class ExceptionOr;
 
-class BroadcastChannel : public RefCounted<BroadcastChannel>, public EventTargetWithInlineData, public ActiveDOMObject {
-    WTF_MAKE_ISO_ALLOCATED(BroadcastChannel);
+class BroadcastChannel : public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<BroadcastChannel>, public EventTarget, public ActiveDOMObject {
+    WTF_MAKE_TZONE_ALLOCATED(BroadcastChannel);
 public:
     static Ref<BroadcastChannel> create(ScriptExecutionContext& context, const String& name)
     {
@@ -53,11 +55,13 @@ public:
     }
     ~BroadcastChannel();
 
-    using RefCounted<BroadcastChannel>::ref;
-    using RefCounted<BroadcastChannel>::deref;
+    // ActiveDOMObject.
+    void ref() const final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::ref(); }
+    void deref() const final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::deref(); }
+    USING_CAN_MAKE_WEAKPTR(EventTarget);
 
-    BroadcastChannelIdentifier identifier() const { return m_identifier; }
-    const String& name() const { return m_name; }
+    BroadcastChannelIdentifier NODELETE identifier() const;
+    String name() const;
 
     ExceptionOr<void> postMessage(JSC::JSGlobalObject&, JSC::JSValue message);
     void close();
@@ -68,25 +72,26 @@ private:
     BroadcastChannel(ScriptExecutionContext&, const String& name);
 
     void dispatchMessage(Ref<SerializedScriptValue>&&);
-    void ensureOnMainThread(Function<void(Document&)>&&);
+
+    bool isEligibleForMessaging() const;
 
     // EventTarget
-    EventTargetInterface eventTargetInterface() const final { return BroadcastChannelEventTargetInterfaceType; }
-    ScriptExecutionContext* scriptExecutionContext() const final { return ActiveDOMObject::scriptExecutionContext(); }
-    void refEventTarget() final { RefCounted<BroadcastChannel>::ref(); }
-    void derefEventTarget() final { RefCounted<BroadcastChannel>::deref(); }
+    enum EventTargetInterfaceType eventTargetInterface() const final { return EventTargetInterfaceType::BroadcastChannel; }
+    ScriptExecutionContext* scriptExecutionContext() const final;
+    void refEventTarget() final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::ref(); }
+    void derefEventTarget() final { ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr::deref(); }
     void eventListenersDidChange() final;
 
-    // ActiveDOMObject
-    const char* activeDOMObjectName() const final;
+    // ActiveDOMObject.
     bool virtualHasPendingActivity() const final;
     void stop() final { close(); }
 
-    const String m_name;
-    const SecurityOriginData m_origin;
-    const BroadcastChannelIdentifier m_identifier;
+    class MainThreadBridge;
+    const Ref<MainThreadBridge> m_mainThreadBridge;
     bool m_isClosed { false };
     bool m_hasRelevantEventListener { false };
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_EVENTTARGET(BroadcastChannel)

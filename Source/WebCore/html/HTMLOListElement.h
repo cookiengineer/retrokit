@@ -22,24 +22,25 @@
 
 #pragma once
 
-#include "HTMLElement.h"
+#include <WebCore/HTMLElement.h>
 
 namespace WebCore {
 
 class HTMLOListElement final : public HTMLElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLOListElement);
+    WTF_MAKE_TZONE_ALLOCATED(HTMLOListElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLOListElement);
 public:
     static Ref<HTMLOListElement> create(Document&);
     static Ref<HTMLOListElement> create(const QualifiedName&, Document&);
 
     int startForBindings() const { return m_start.value_or(1); }
-    WEBCORE_EXPORT void setStartForBindings(int);
 
     // FIXME: The reason start() does not trigger layout is because it is called
     // from rendering code. This is unfortunately one of the few cases where the
     // render tree is mutated during layout.
 
     int start() const { return m_start ? m_start.value() : (m_isReversed ? itemCount() : 1); }
+    bool hasExplicitStart() const { return m_start.has_value(); }
     bool isReversed() const { return m_isReversed; }
     void itemCountChanged() { m_itemCount = std::nullopt; }
 
@@ -48,7 +49,7 @@ private:
         
     WEBCORE_EXPORT unsigned itemCount() const;
 
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
     bool hasPresentationalHintsForAttribute(const QualifiedName&) const final;
     void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
 

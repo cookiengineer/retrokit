@@ -39,7 +39,7 @@ class DXGISwapChainWindowSurfaceWGL : public SurfaceWGL
     egl::Error initialize(const egl::Display *display) override;
     egl::Error makeCurrent(const gl::Context *context) override;
 
-    egl::Error swap(const gl::Context *context) override;
+    egl::Error swap(const gl::Context *context, SurfaceSwapFeedback *feedback) override;
     egl::Error postSubBuffer(const gl::Context *context,
                              EGLint x,
                              EGLint y,
@@ -50,18 +50,16 @@ class DXGISwapChainWindowSurfaceWGL : public SurfaceWGL
                             gl::Texture *texture,
                             EGLint buffer) override;
     egl::Error releaseTexImage(const gl::Context *context, EGLint buffer) override;
-    void setSwapInterval(EGLint interval) override;
+    void setSwapInterval(const egl::Display *display, EGLint interval) override;
 
-    EGLint getWidth() const override;
-    EGLint getHeight() const override;
+    gl::Extents getSize() const override;
 
     EGLint isPostSubBufferSupported() const override;
     EGLint getSwapBehavior() const override;
-
-    FramebufferImpl *createDefaultFramebuffer(const gl::Context *context,
-                                              const gl::FramebufferState &data) override;
-
     HDC getDC() const override;
+
+    void attachToFramebuffer(const gl::Context *context, gl::Framebuffer *framebuffer) override;
+    void detachFromFramebuffer(gl::Framebuffer *framebuffer) override;
 
   private:
     egl::Error setObjectsLocked(bool locked);
@@ -85,9 +83,10 @@ class DXGISwapChainWindowSurfaceWGL : public SurfaceWGL
     GLenum mDepthBufferFormat;
 
     bool mFirstSwap;
-    IDXGISwapChain *mSwapChain;
-    IDXGISwapChain1 *mSwapChain1;
+    angle::ComPtr<IDXGISwapChain> mSwapChain;
+    angle::ComPtr<IDXGISwapChain1> mSwapChain1;
 
+    GLuint mFramebufferID;
     GLuint mColorRenderbufferID;
     HANDLE mRenderbufferBufferHandle;
 

@@ -29,14 +29,28 @@
 
 #pragma once
 
+#include <WebCore/CollectionType.h>
+
+namespace WebCore {
+
+class ClassCollection;
+
+template<>
+struct CollectionClassTraits<ClassCollection> {
+    static constexpr CollectionType collectionType = CollectionType::ByClass;
+};
+
+} // namespace WebCore
+
 #include "CachedHTMLCollection.h"
+#include "Document.h"
 #include "Element.h"
 #include "SpaceSplitString.h"
 
 namespace WebCore {
 
-class ClassCollection final : public CachedHTMLCollection<ClassCollection, CollectionTypeTraits<ByClass>::traversalType> {
-    WTF_MAKE_ISO_ALLOCATED(ClassCollection);
+class ClassCollection final : public CachedHTMLCollection<ClassCollection> {
+    WTF_MAKE_TZONE_ALLOCATED(ClassCollection);
 public:
     static Ref<ClassCollection> create(ContainerNode&, CollectionType, const AtomString& classNames);
 
@@ -53,7 +67,7 @@ private:
 
 inline ClassCollection::ClassCollection(ContainerNode& rootNode, CollectionType type, const AtomString& classNames)
     : CachedHTMLCollection(rootNode, type)
-    , m_classNames(classNames, rootNode.document().inQuirksMode())
+    , m_classNames(classNames, rootNode.document().inQuirksMode() ? SpaceSplitString::ShouldFoldCase::Yes : SpaceSplitString::ShouldFoldCase::No)
     , m_originalClassNames(classNames)
 {
 }
@@ -69,4 +83,4 @@ inline bool ClassCollection::elementMatches(Element& element) const
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_HTMLCOLLECTION(ClassCollection, ByClass)
+SPECIALIZE_TYPE_TRAITS_HTMLCOLLECTION(ClassCollection)

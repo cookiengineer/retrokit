@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2010 Apple Inc. All rights reserved.
- * Portions Copyright (c) 2010 Motorola Mobility, Inc.  All rights reserved.
+ * Portions Copyright (c) 2010 Motorola Mobility, Inc. All rights reserved.
  * Copyright (C) 2011 Igalia S.L.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -49,6 +49,11 @@ void WKViewSetFocus(WKViewRef viewRef, bool focused)
     webkitWebViewBaseSetFocus(toImpl(viewRef), focused);
 }
 
+void WKViewSetEditable(WKViewRef viewRef, bool editable)
+{
+    webkitWebViewBaseSetEditable(toImpl(viewRef), editable);
+}
+
 void WKViewSetEnableBackForwardNavigationGesture(WKViewRef viewRef, bool enabled)
 {
     webkitWebViewBaseSetEnableBackForwardNavigationGesture(toImpl(viewRef), enabled);
@@ -62,4 +67,9 @@ bool WKViewBeginBackSwipeForTesting(WKViewRef viewRef)
 bool WKViewCompleteBackSwipeForTesting(WKViewRef viewRef)
 {
     return webkitWebViewBaseCompleteBackSwipeForTesting(toImpl(viewRef));
+}
+
+GVariant* WKViewContentsOfUserInterfaceItem(WKViewRef viewRef, const char* userInterfaceItem)
+{
+    return webkitWebViewBaseContentsOfUserInterfaceItem(toImpl(viewRef), userInterfaceItem);
 }

@@ -26,20 +26,32 @@
 #pragma once
 
 #include "DrawingAreaInfo.h"
+#include "FrameTreeCreationParameters.h"
 #include "LayerTreeContext.h"
+#include "ProvisionalFrameCreationParameters.h"
 #include "SandboxExtension.h"
 #include "SessionState.h"
+#include "TextManipulationParameters.h"
 #include "UserContentControllerParameters.h"
-#include "WebCoreArgumentCoders.h"
+#include "ViewWindowCoordinates.h"
+#include "VisitedLinkTableIdentifier.h"
 #include "WebPageGroupData.h"
 #include "WebPageProxyIdentifier.h"
 #include "WebPreferencesStore.h"
+#include <WebCore/BrowsingContextGroupIdentifier.h>
+#include "WebURLSchemeHandlerIdentifier.h"
+#include "WebsitePoliciesData.h"
 #include <WebCore/ActivityState.h>
 #include <WebCore/Color.h>
+#include <WebCore/ContentSecurityPolicy.h>
+#include <WebCore/CornerRadii.h>
 #include <WebCore/DestinationColorSpace.h>
 #include <WebCore/FloatSize.h>
+#include <WebCore/FrameIdentifier.h>
 #include <WebCore/HighlightVisibility.h>
+#include <WebCore/IntDegrees.h>
 #include <WebCore/IntSize.h>
+#include <WebCore/LayerHostingContextIdentifier.h>
 #include <WebCore/LayoutMilestone.h>
 #include <WebCore/MediaProducer.h>
 #include <WebCore/PageIdentifier.h>
@@ -48,167 +60,217 @@
 #include <WebCore/ShouldRelaxThirdPartyCookieBlocking.h>
 #include <WebCore/UserInterfaceLayoutDirection.h>
 #include <WebCore/ViewportArguments.h>
-#include <wtf/HashMap.h>
+#include <WebCore/WindowFeatures.h>
+#include <wtf/RobinHoodHashSet.h>
 #include <wtf/text/WTFString.h>
 
 #if ENABLE(APPLICATION_MANIFEST)
 #include <WebCore/ApplicationManifest.h>
 #endif
 
-#if PLATFORM(GTK)
-#include "GtkSettingsState.h"
+#if ENABLE(ADVANCED_PRIVACY_PROTECTIONS)
+#include <WebCore/LinkDecorationFilteringData.h>
 #endif
 
-namespace IPC {
-class Decoder;
-class Encoder;
+#if ENABLE(WK_WEB_EXTENSIONS)
+#include "WebExtensionControllerParameters.h"
+#endif
+
+#if (PLATFORM(GTK) || PLATFORM(WPE)) && (USE(GBM) || OS(ANDROID))
+#include "RendererBufferFormat.h"
+#endif
+
+#if PLATFORM(IOS_FAMILY)
+#include "HardwareKeyboardState.h"
+#endif
+
+#if PLATFORM(VISION) && ENABLE(GAMEPAD)
+#include <WebCore/ShouldRequireExplicitConsentForGamepadAccess.h>
+#endif
+
+#if HAVE(AUDIT_TOKEN)
+#include "CoreIPCAuditToken.h"
+#endif
+
+#if ENABLE(IMAGE_ANALYSIS)
+#include <WebCore/ImageAnalysisQueue.h>
+#endif
+
+namespace WebCore {
+enum class SandboxFlag : uint16_t;
+using SandboxFlags = OptionSet<SandboxFlag>;
+enum class AccessibilityMode : uint8_t;
 }
 
 namespace WebKit {
 
+struct RemotePageParameters {
+    URL initialMainDocumentURL;
+    FrameTreeCreationParameters frameTreeParameters;
+    std::optional<WebsitePoliciesData> websitePoliciesData;
+};
+
 struct WebPageCreationParameters {
-    void encode(IPC::Encoder&) const;
-    static std::optional<WebPageCreationParameters> decode(IPC::Decoder&);
+    WebCore::IntSize viewSize { };
 
-    WebCore::IntSize viewSize;
-
-    OptionSet<WebCore::ActivityState::Flag> activityState;
+    OptionSet<WebCore::ActivityState> activityState { };
     
-    WebPreferencesStore store;
-    DrawingAreaType drawingAreaType;
+    WebPreferencesStore store { };
+#if ENABLE(TILED_CA_DRAWING_AREA)
+    DrawingAreaType drawingAreaType { };
+#endif
     DrawingAreaIdentifier drawingAreaIdentifier;
     WebPageProxyIdentifier webPageProxyIdentifier;
     WebPageGroupData pageGroupData;
+    std::optional<WebCore::BrowsingContextGroupIdentifier> browsingContextGroupIdentifier;
 
-    bool isEditable;
+    bool isEditable { false };
 
-    WebCore::Color underlayColor;
+    WebCore::Color underlayColor { };
 
-    bool useFixedLayout;
-    WebCore::IntSize fixedLayoutSize;
+    bool useFixedLayout { false };
+    WebCore::IntSize fixedLayoutSize { };
 
-    std::optional<WebCore::FloatRect> viewExposedRect;
+    WebCore::FloatSize defaultUnobscuredSize { };
+    WebCore::FloatSize minimumUnobscuredSize { };
+    WebCore::FloatSize maximumUnobscuredSize { };
 
-    bool alwaysShowsHorizontalScroller;
-    bool alwaysShowsVerticalScroller;
+    std::optional<WebCore::FloatRect> viewExposedRect { };
 
-    bool suppressScrollbarAnimations;
+    std::optional<uint32_t> displayID { };
+    std::optional<unsigned> nominalFramesPerSecond { };
 
-    WebCore::Pagination::Mode paginationMode;
-    bool paginationBehavesLikeColumns;
-    double pageLength;
-    double gapBetweenPages;
-    bool paginationLineGridEnabled;
+    bool alwaysShowsHorizontalScroller { false };
+    bool alwaysShowsVerticalScroller { false };
+
+    bool suppressScrollbarAnimations { false };
+
+    WebCore::Pagination::Mode paginationMode { WebCore::Pagination::Mode::Unpaginated };
+    bool paginationBehavesLikeColumns { false };
+    double pageLength { 0 };
+    double gapBetweenPages { 0 };
     
-    String userAgent;
+    String userAgent { };
 
-    bool itemStatesWereRestoredByAPIRequest { false };
-    Vector<BackForwardListItemState> itemStates;
+    VisitedLinkTableIdentifier visitedLinkTableID;
+    bool canRunBeforeUnloadConfirmPanel { false };
+    bool canRunModal { false };
 
-    uint64_t visitedLinkTableID;
-    bool canRunBeforeUnloadConfirmPanel;
-    bool canRunModal;
-
-    float deviceScaleFactor;
-    float viewScaleFactor;
+    float deviceScaleFactor { 0 };
+#if USE(GRAPHICS_LAYER_WC) || USE(GRAPHICS_LAYER_TEXTURE_MAPPER)
+    float intrinsicDeviceScaleFactor { 0 };
+#endif
+    float viewScaleFactor { 0 };
 
     double textZoomFactor { 1 };
     double pageZoomFactor { 1 };
 
-    float topContentInset;
-    
-    float mediaVolume;
-    WebCore::MediaProducer::MutedStateFlags muted;
-    bool mayStartMediaWhenInWindow;
+    WebCore::FloatBoxExtent obscuredContentInsets { };
+
+#if HAVE(NSREFRESHCONTROLLER)
+    bool hasRefreshController { false };
+#endif
+    float mediaVolume { 0 };
+    WebCore::MediaProducerMutedStateFlags muted { };
+    bool openedByDOM { false };
+    bool mayStartMediaWhenInWindow { false };
     bool mediaPlaybackIsSuspended { false };
 
-    WebCore::IntSize minimumSizeForAutoLayout;
-    WebCore::IntSize sizeToContentAutoSizeMaximumSize;
-    bool autoSizingShouldExpandToViewHeight;
-    std::optional<WebCore::IntSize> viewportSizeForCSSViewportUnits;
+    WebCore::IntSize minimumSizeForAutoLayout { };
+    WebCore::IntSize sizeToContentAutoSizeMaximumSize { };
+    bool autoSizingShouldExpandToViewHeight { false };
+    std::optional<WebCore::FloatSize> viewportSizeForCSSViewportUnits { };
     
-    WebCore::ScrollPinningBehavior scrollPinningBehavior;
+    WebCore::ScrollPinningBehavior scrollPinningBehavior { WebCore::ScrollPinningBehavior::DoNotPin };
 
-    // FIXME: This should be std::optional<WebCore::ScrollbarOverlayStyle>, but we would need to
-    // correctly handle enums inside Optionals when encoding and decoding. 
-    std::optional<uint32_t> scrollbarOverlayStyle;
+    std::optional<WebCore::ScrollbarOverlayStyle> scrollbarOverlayStyle { };
 
-    bool backgroundExtendsBeyondPage;
-
-    LayerHostingMode layerHostingMode;
+    bool backgroundExtendsBeyondPage { false };
 
     bool hasResourceLoadClient { false };
 
-    Vector<String> mimeTypesWithCustomContentProviders;
+    Vector<String> mimeTypesWithCustomContentProviders { };
 
-    bool controlledByAutomation;
+    bool controlledByAutomation { false };
     bool isProcessSwap { false };
 
     bool useDarkAppearance { false };
     bool useElevatedUserInterfaceLevel { false };
+    bool allowPostingLegacySynchronousMessages { false };
+    bool backgroundTextExtractionEnabled { false };
 
 #if PLATFORM(MAC)
-    std::optional<WebCore::DestinationColorSpace> colorSpace;
-    bool useSystemAppearance;
+    std::optional<WebCore::DestinationColorSpace> colorSpace { };
+    bool useFormSemanticContext { false };
+    int headerBannerHeight { 0 };
+    int footerBannerHeight { 0 };
+    std::optional<ViewWindowCoordinates> viewWindowCoordinates { };
 #endif
 #if ENABLE(META_VIEWPORT)
-    bool ignoresViewportScaleLimits;
-    WebCore::FloatSize viewportConfigurationViewLayoutSize;
-    double viewportConfigurationLayoutSizeScaleFactor;
-    double viewportConfigurationMinimumEffectiveDeviceWidth;
-    WebCore::FloatSize viewportConfigurationViewSize;
-    std::optional<WebCore::ViewportArguments> overrideViewportArguments;
-#endif
-#if ENABLE(ATTACHMENT_ELEMENT)
-    std::optional<Vector<SandboxExtension::Handle>> attachmentElementExtensionHandles;
+    bool ignoresViewportScaleLimits { false };
+    WebCore::FloatSize viewportConfigurationViewLayoutSize { };
+    double viewportConfigurationLayoutSizeScaleFactorFromClient { 0 };
+    double viewportConfigurationMinimumEffectiveDeviceWidth { 0 };
+    WebCore::FloatSize viewportConfigurationViewSize { };
+    std::optional<WebCore::ViewportArguments> overrideViewportArguments { };
 #endif
 #if PLATFORM(IOS_FAMILY)
-    WebCore::FloatSize screenSize;
-    WebCore::FloatSize availableScreenSize;
-    WebCore::FloatSize overrideScreenSize;
-    float textAutosizingWidth;
-    WebCore::FloatSize maximumUnobscuredSize;
-    int32_t deviceOrientation { 0 };
-    bool keyboardIsAttached { false };
+    WebCore::FloatSize screenSize { };
+    WebCore::FloatSize availableScreenSize { };
+    WebCore::FloatSize overrideScreenSize { };
+    WebCore::FloatSize overrideAvailableScreenSize { };
+    float textAutosizingWidth { 0 };
+    WebCore::IntDegrees deviceOrientation { 0 };
+    HardwareKeyboardState hardwareKeyboardState { };
     bool canShowWhileLocked { false };
     bool isCapturingScreen { false };
+    WebCore::Color insertionPointColor { };
 #endif
 #if PLATFORM(COCOA)
-    bool smartInsertDeleteEnabled;
-    Vector<String> additionalSupportedImageTypes;
-    Vector<SandboxExtension::Handle> mediaExtensionHandles; // FIXME(207716): Remove when GPU process is complete.
-    Vector<SandboxExtension::Handle> mediaIOKitExtensionHandles;
-    Vector<SandboxExtension::Handle> gpuIOKitExtensionHandles;
-    Vector<SandboxExtension::Handle> gpuMachExtensionHandles;
+    bool smartInsertDeleteEnabled { false };
+    Vector<String> additionalSupportedImageTypes { };
+    Vector<SandboxExtension::Handle> gpuIOKitExtensionHandles { };
+    Vector<SandboxExtension::Handle> gpuMachExtensionHandles { };
 #endif
-#if HAVE(STATIC_FONT_REGISTRY)
-    std::optional<SandboxExtension::Handle> fontMachExtensionHandle;
+#if ENABLE(TILED_CA_DRAWING_AREA)
+    SandboxExtension::Handle renderServerMachExtensionHandle { };
+#endif
+#if HAVE(STATIC_FONT_REGISTRY) && !ENABLE(REMOVE_XPC_AND_MACH_SANDBOX_EXTENSIONS_IN_WEBCONTENT)
+    Vector<SandboxExtension::Handle> fontMachExtensionHandles { };
 #endif
 #if HAVE(APP_ACCENT_COLORS)
-    WebCore::Color accentColor;
+    WebCore::Color accentColor { };
+#if PLATFORM(MAC)
+    bool appUsesCustomAccentColor { false };
+#endif
 #endif
 #if USE(WPE_RENDERER)
-    IPC::Attachment hostFileDescriptor;
+    UnixFileDescriptor hostFileDescriptor { };
 #endif
-#if PLATFORM(WIN)
-    uint64_t nativeWindowHandle;
+#if USE(GRAPHICS_LAYER_TEXTURE_MAPPER) || USE(GRAPHICS_LAYER_WC)
+    uint64_t nativeWindowHandle { 0 };
 #endif
-    bool shouldScaleViewToFitDocument;
+#if USE(GRAPHICS_LAYER_WC)
+    bool usesOffscreenRendering { false };
+#endif
+    bool shouldScaleViewToFitDocument { false };
 
-    WebCore::UserInterfaceLayoutDirection userInterfaceLayoutDirection;
-    OptionSet<WebCore::LayoutMilestone> observedLayoutMilestones;
+    WebCore::UserInterfaceLayoutDirection userInterfaceLayoutDirection { WebCore::UserInterfaceLayoutDirection::LTR };
+    OptionSet<WebCore::LayoutMilestone> observedLayoutMilestones { };
 
-    String overrideContentSecurityPolicy;
-    std::optional<double> cpuLimit;
+    String overrideContentSecurityPolicy { };
+    std::optional<double> cpuLimit { };
 
-    HashMap<String, uint64_t> urlSchemeHandlers;
-    Vector<String> urlSchemesWithLegacyCustomProtocolHandlers;
+    HashMap<String, WebURLSchemeHandlerIdentifier> urlSchemeHandlers { };
+    Vector<String> urlSchemesWithLegacyCustomProtocolHandlers { };
 
 #if ENABLE(APPLICATION_MANIFEST)
-    std::optional<WebCore::ApplicationManifest> applicationManifest;
+    std::optional<WebCore::ApplicationManifest> applicationManifest { };
 #endif
 
     bool needsFontAttributes { false };
+
+    bool needsScrollGeometryUpdates { false };
 
     // WebRTC members.
     bool iceCandidateFilteringEnabled { true };
@@ -216,24 +278,30 @@ struct WebPageCreationParameters {
 
     UserContentControllerParameters userContentControllerParameters;
 
-    std::optional<WebCore::Color> backgroundColor;
+#if ENABLE(WK_WEB_EXTENSIONS)
+    std::optional<WebExtensionControllerParameters> webExtensionControllerParameters { };
+#endif
 
-    std::optional<WebCore::PageIdentifier> oldPageID;
+    std::optional<WebCore::Color> backgroundColor { };
 
-    String overriddenMediaType;
-    Vector<String> corsDisablingPatterns;
-    bool userScriptsShouldWaitUntilNotification { true };
+    std::optional<WebCore::PageIdentifier> oldPageID { };
+
+    String overriddenMediaType { };
+    Vector<String> corsDisablingPatterns { };
+    HashSet<String> maskedURLSchemes { };
     bool loadsSubresources { true };
-    std::optional<HashSet<String>> allowedNetworkHosts;
+    std::optional<MemoryCompactLookupOnlyRobinHoodHashSet<String>> allowedNetworkHosts { };
+    std::optional<std::pair<uint16_t, uint16_t>> portsForUpgradingInsecureSchemeForTesting { };
 
     bool crossOriginAccessControlCheckEnabled { true };
-    String processDisplayName;
+    String processDisplayName { };
 
     bool shouldCaptureAudioInUIProcess { false };
     bool shouldCaptureAudioInGPUProcess { false };
     bool shouldCaptureVideoInUIProcess { false };
     bool shouldCaptureVideoInGPUProcess { false };
     bool shouldCaptureDisplayInUIProcess { false };
+    bool shouldCaptureDisplayInGPUProcess { false };
     bool shouldRenderCanvasInGPUProcess { false };
     bool shouldRenderDOMInGPUProcess { false };
     bool shouldPlayMediaInGPUProcess { false };
@@ -242,7 +310,6 @@ struct WebPageCreationParameters {
 #endif
     bool shouldEnableVP8Decoder { false };
     bool shouldEnableVP9Decoder { false };
-    bool shouldEnableVP9SWDecoder { false };
 #if ENABLE(APP_BOUND_DOMAINS)
     bool limitsNavigationsToAppBoundDomains { false };
 #endif
@@ -250,21 +317,85 @@ struct WebPageCreationParameters {
     bool canUseCredentialStorage { true };
 
     WebCore::ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking { WebCore::ShouldRelaxThirdPartyCookieBlocking::No };
-
-#if PLATFORM(GTK)
-    GtkSettingsState gtkSettings;
-#endif
     
     bool httpsUpgradeEnabled { true };
-
-#if PLATFORM(IOS)
-    bool allowsDeprecatedSynchronousXMLHttpRequestDuringUnload { false };
-#endif
     
 #if ENABLE(APP_HIGHLIGHTS)
     WebCore::HighlightVisibility appHighlightsVisible { WebCore::HighlightVisibility::Hidden };
 #endif
-    
+
+#if HAVE(TOUCH_BAR)
+    bool requiresUserActionForEditingControlsManager { false };
+#endif
+
+    bool hasResizableWindows { false };
+
+#if PLATFORM(MAC)
+    double overflowHeightForTopScrollEdgeEffect { 0 };
+#if ENABLE(SCROLL_POCKET_IN_FULLSCREEN)
+    bool fullScreenTitlebarOverlayIsDisplayed { false };
+#endif
+#if HAVE(NSVIEW_CORNER_CONFIGURATION)
+    WebCore::CornerRadii scrollbarAvoidanceCornerRadii;
+#endif
+#endif
+
+    WebCore::ContentSecurityPolicyModeForExtension contentSecurityPolicyModeForExtension { WebCore::ContentSecurityPolicyModeForExtension::None };
+
+    std::optional<RemotePageParameters> remotePageParameters { };
+    std::optional<ProvisionalFrameCreationParameters> provisionalFrameCreationParameters { };
+    WebCore::FrameIdentifier mainFrameIdentifier;
+    String openedMainFrameName;
+    std::optional<WebCore::FrameIdentifier> mainFrameOpenerIdentifier { };
+    URL mainFrameOpenerURL;
+    WebCore::SandboxFlags initialSandboxFlags;
+    WebCore::ReferrerPolicy initialReferrerPolicy { WebCore::ReferrerPolicy::EmptyString };
+    std::optional<WebCore::WindowFeatures> windowFeatures { };
+
+#if ENABLE(ADVANCED_PRIVACY_PROTECTIONS)
+    Vector<WebCore::LinkDecorationFilteringData> linkDecorationFilteringData { };
+    Vector<WebCore::LinkDecorationFilteringData> allowedQueryParametersForAdvancedPrivacyProtections { };
+#endif
+
+#if HAVE(MACH_BOOTSTRAP_EXTENSION)
+    SandboxExtension::Handle machBootstrapHandle { };
+#endif
+
+#if PLATFORM(GTK) || PLATFORM(WPE)
+#if USE(GBM) || OS(ANDROID)
+    Vector<RendererBufferFormat> preferredBufferFormats { };
+#endif
+#endif
+
+#if PLATFORM(VISION) && ENABLE(GAMEPAD)
+    WebCore::ShouldRequireExplicitConsentForGamepadAccess gamepadAccessRequiresExplicitConsent { WebCore::ShouldRequireExplicitConsentForGamepadAccess::No };
+#endif
+
+#if ENABLE(MODEL_ELEMENT_IMMERSIVE)
+    bool allowsImmersiveEnvironments { false };
+#endif
+
+#if HAVE(AUDIT_TOKEN)
+    std::optional<CoreIPCAuditToken> presentingApplicationAuditToken;
+#endif
+
+#if PLATFORM(COCOA)
+    String presentingApplicationBundleIdentifier;
+#endif
+    bool shouldSendConsoleLogsToUIProcessForTesting { false };
+
+#if ENABLE(IMAGE_ANALYSIS)
+    std::optional<WebCore::ImageTranslationLanguageIdentifiers> imageTranslationLanguageIdentifiers { std::nullopt };
+#endif
+
+    std::optional<TextManipulationParameters> textManipulationParameters { std::nullopt };
+
+    bool isPopup { false };
+
+    WebCore::AccessibilityMode accessibilityMode { };
+    bool shouldForceSiteIsolationAlwaysOnForTesting { false };
+    bool shouldEnableNetworkInstrumentation { false };
+    bool shouldEnablePageInstrumentation { false };
 };
 
 } // namespace WebKit

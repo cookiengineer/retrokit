@@ -36,11 +36,14 @@ namespace WebCore {
 class MathMLOperatorElement;
 
 class RenderMathMLOperator : public RenderMathMLToken {
-    WTF_MAKE_ISO_ALLOCATED(RenderMathMLOperator);
+    WTF_MAKE_TZONE_ALLOCATED(RenderMathMLOperator);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderMathMLOperator);
 public:
-    RenderMathMLOperator(MathMLOperatorElement&, RenderStyle&&);
-    RenderMathMLOperator(Document&, RenderStyle&&);
-    MathMLOperatorElement& element() const;
+    RenderMathMLOperator(Type, MathMLOperatorElement&, Style::ComputedStyle&&);
+    RenderMathMLOperator(Type, Document&, Style::ComputedStyle&&);
+    virtual ~RenderMathMLOperator();
+
+    MathMLOperatorElement& NODELETE element() const;
 
     void stretchTo(LayoutUnit heightAboveBaseline, LayoutUnit depthBelowBaseline);
     void stretchTo(LayoutUnit width);
@@ -50,15 +53,15 @@ public:
     bool isStretchWidthLocked() const { return m_isStretchWidthLocked; }
 
     virtual bool hasOperatorFlag(MathMLOperatorDictionary::Flag) const;
-    bool isLargeOperatorInDisplayStyle() const { return !hasOperatorFlag(MathMLOperatorDictionary::Stretchy) && hasOperatorFlag(MathMLOperatorDictionary::LargeOp) && style().mathStyle() == MathStyle::Normal; }
+    bool isLargeOperatorInDisplayStyle() const;
     bool shouldMoveLimits() const { return hasOperatorFlag(MathMLOperatorDictionary::MovableLimits); }
     virtual bool isVertical() const;
     LayoutUnit italicCorrection() const { return m_mathOperator.italicCorrection(); }
 
     void updateTokenContent() final;
     void updateFromElement() final;
-    virtual UChar32 textContent() const;
-    bool isStretchy() const { return textContent() && hasOperatorFlag(MathMLOperatorDictionary::Stretchy); }
+    virtual char32_t singleCharCodePoint() const;
+    bool isStretchy() const { return singleCharCodePoint() && hasOperatorFlag(MathMLOperatorDictionary::Stretchy); }
 
 protected:
     virtual void updateMathOperator();
@@ -69,12 +72,12 @@ protected:
     virtual bool useMathOperator() const;
 
 private:
-    void styleDidChange(StyleDifference, const RenderStyle* oldStyle) final;
-    void computePreferredLogicalWidths() final;
-    void layoutBlock(bool relayoutChildren, LayoutUnit pageLogicalHeight = 0_lu) final;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) final;
+    void computeIntrinsicLogicalWidthContributions() final;
+    void layoutBlock(RelayoutChildren, LayoutUnit pageLogicalHeight = 0_lu) final;
     void paint(PaintInfo&, const LayoutPoint&) final;
 
-    const char* renderName() const final { return isAnonymous() ? "RenderMathMLOperator (anonymous)" : "RenderMathMLOperator"; }
+    ASCIILiteral renderName() const final { return isAnonymous() ? "RenderMathMLOperator (anonymous)"_s : "RenderMathMLOperator"_s; }
     void paintChildren(PaintInfo& forSelf, const LayoutPoint&, PaintInfo& forChild, bool usePrintRect) final;
     bool isRenderMathMLOperator() const final { return true; }
     bool isInvisibleOperator() const;

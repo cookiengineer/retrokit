@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -67,49 +67,49 @@ ALWAYS_INLINE void ObjectAllocationProfileBase<Derived>::initializeProfile(VM& v
     }
 
     unsigned inlineCapacity = 0;
-    if (inferredInlineCapacity < JSFinalObject::defaultInlineCapacity()) {
+    if (inferredInlineCapacity < JSFinalObject::defaultInlineCapacity) {
         // Try to shrink the object based on static analysis.
         inferredInlineCapacity += possibleDefaultPropertyCount(vm, prototype);
 
         if (!inferredInlineCapacity) {
             // Empty objects are rare, so most likely the static analyzer just didn't
             // see the real initializer function. This can happen with helper functions.
-            inferredInlineCapacity = JSFinalObject::defaultInlineCapacity();
-        } else if (inferredInlineCapacity > JSFinalObject::defaultInlineCapacity()) {
+            inferredInlineCapacity = JSFinalObject::defaultInlineCapacity;
+        } else if (inferredInlineCapacity > JSFinalObject::defaultInlineCapacity) {
             // Default properties are weak guesses, so don't allow them to turn a small
             // object into a large object.
-            inferredInlineCapacity = JSFinalObject::defaultInlineCapacity();
+            inferredInlineCapacity = JSFinalObject::defaultInlineCapacity;
         }
 
         inlineCapacity = inferredInlineCapacity;
-        ASSERT(inlineCapacity < JSFinalObject::maxInlineCapacity());
+        ASSERT(inlineCapacity < JSFinalObject::maxInlineCapacity);
     } else {
         // Normal or large object.
         inlineCapacity = inferredInlineCapacity;
-        if (inlineCapacity > JSFinalObject::maxInlineCapacity())
-            inlineCapacity = JSFinalObject::maxInlineCapacity();
+        if (inlineCapacity > JSFinalObject::maxInlineCapacity)
+            inlineCapacity = JSFinalObject::maxInlineCapacity;
     }
 
     if (isPolyProto) {
         ++inlineCapacity;
-        inlineCapacity = std::min(inlineCapacity, JSFinalObject::maxInlineCapacity());
+        inlineCapacity = std::min(inlineCapacity, JSFinalObject::maxInlineCapacity);
     }
 
     ASSERT(inlineCapacity > 0);
-    ASSERT(inlineCapacity <= JSFinalObject::maxInlineCapacity());
+    ASSERT(inlineCapacity <= JSFinalObject::maxInlineCapacity);
 
     size_t allocationSize = JSFinalObject::allocationSize(inlineCapacity);
-    Allocator allocator = subspaceFor<JSFinalObject>(vm)->allocatorForNonVirtual(allocationSize, AllocatorForMode::EnsureAllocator);
+    Allocator allocator = subspaceFor<JSFinalObject>(vm)->allocatorFor(allocationSize, AllocatorForMode::EnsureAllocator);
 
     // Take advantage of extra inline capacity available in the size class.
     if (allocator) {
         size_t slop = (allocator.cellSize() - allocationSize) / sizeof(WriteBarrier<Unknown>);
         inlineCapacity += slop;
-        if (inlineCapacity > JSFinalObject::maxInlineCapacity())
-            inlineCapacity = JSFinalObject::maxInlineCapacity();
+        if (inlineCapacity > JSFinalObject::maxInlineCapacity)
+            inlineCapacity = JSFinalObject::maxInlineCapacity;
     }
 
-    Structure* structure = vm.structureCache.emptyObjectStructureForPrototype(globalObject, prototype, inlineCapacity, isPolyProto, executable);
+    Structure* structure = globalObject->structureCache().emptyObjectStructureForPrototype(globalObject, prototype, inlineCapacity, isPolyProto, executable);
 
     if (isPolyProto) {
         ASSERT(structure->hasPolyProto());
@@ -135,6 +135,12 @@ ALWAYS_INLINE void ObjectAllocationProfileBase<Derived>::initializeProfile(VM& v
     // Ensure that if another thread sees the structure and prototype, it will see it properly created.
     WTF::storeStoreFence();
 
+    // The watchpoint should have been fired already but it's prudent to be safe here.
+    if (functionRareData && m_structure && m_structure.get() != structure) [[unlikely]] {
+        ASSERT(functionRareData->allocationProfileWatchpointSet().hasBeenInvalidated());
+        functionRareData->allocationProfileWatchpointSet().fireAll(vm, "Clearing to be safe because structure has changed");
+    }
+
     m_structure.set(vm, owner, structure);
     static_cast<Derived*>(this)->setPrototype(vm, owner, prototype);
 }
@@ -142,18 +148,19 @@ ALWAYS_INLINE void ObjectAllocationProfileBase<Derived>::initializeProfile(VM& v
 template<typename Derived>
 ALWAYS_INLINE unsigned ObjectAllocationProfileBase<Derived>::possibleDefaultPropertyCount(VM& vm, JSObject* prototype)
 {
-    if (prototype == prototype->globalObject(vm)->objectPrototype())
+    JSGlobalObject* prototypeRealm = prototype->realmMayBeNull();
+    if (!prototypeRealm || prototype == prototypeRealm->objectPrototype())
         return 0;
 
     size_t count = 0;
-    PropertyNameArray propertyNameArray(vm, PropertyNameMode::StringsAndSymbols, PrivateSymbolMode::Include);
-    prototype->structure(vm)->getPropertyNamesFromStructure(vm, propertyNameArray, DontEnumPropertiesMode::Include);
-    PropertyNameArrayData::PropertyNameVector& propertyNameVector = propertyNameArray.data()->propertyNameVector();
+    PropertyNameArrayBuilder propertyNameArrayBuilder(vm, PropertyNameMode::StringsAndSymbols, PrivateSymbolMode::Include);
+    prototype->structure()->getPropertyNamesFromStructure(vm, propertyNameArrayBuilder, DontEnumPropertiesMode::Include);
+    PropertyNameArray::PropertyNameVector& propertyNameVector = propertyNameArrayBuilder.data()->propertyNameVector();
     for (size_t i = 0; i < propertyNameVector.size(); ++i) {
         JSValue value = prototype->getDirect(vm, propertyNameVector[i]);
 
         // Functions are common, and are usually class-level objects that are not overridden.
-        if (jsDynamicCast<JSFunction*>(vm, value))
+        if (is<JSFunction>(value))
             continue;
 
         ++count;

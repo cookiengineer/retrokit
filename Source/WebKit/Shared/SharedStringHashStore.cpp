@@ -27,51 +27,40 @@
 #include "SharedStringHashStore.h"
 
 #include <algorithm>
+#include <ranges>
+#include <wtf/Borrow.h>
+#include <wtf/MathExtras.h>
+#include <wtf/PageBlock.h>
+#include <wtf/StdLibExtras.h>
 
 namespace WebKit {
 
 using namespace WebCore;
 
-const unsigned sharedStringHashTableMaxLoad = 2;
+constexpr unsigned sharedStringHashTableMaxLoad = 2;
 
-static unsigned nextPowerOf2(unsigned v)
-{
-    // Taken from http://www.cs.utk.edu/~vose/c-stuff/bithacks.html
-    // Devised by Sean Anderson, Sepember 14, 2001
-
-    v--;
-    v |= v >> 1;
-    v |= v >> 2;
-    v |= v >> 4;
-    v |= v >> 8;
-    v |= v >> 16;
-    v++;
-
-    return v;
-}
-
-static unsigned tableSizeForKeyCount(unsigned keyCount)
+static unsigned tableLengthForKeyCount(unsigned keyCount)
 {
     // We want the table to be at least half empty.
-    unsigned tableSize = nextPowerOf2(keyCount * sharedStringHashTableMaxLoad);
+    unsigned tableLength = roundUpToPowerOfTwo(keyCount * sharedStringHashTableMaxLoad);
 
-    // Ensure that the table size is at least the size of a page.
-    size_t minimumTableSize = SharedMemory::systemPageSize() / sizeof(SharedStringHash);
-    if (tableSize < minimumTableSize)
-        return minimumTableSize;
+    // Ensure that the table length is at least the size of a page.
+    size_t minimumTableLength = pageSize() / sizeof(SharedStringHash);
+    if (tableLength < minimumTableLength)
+        return minimumTableLength;
 
-    return tableSize;
+    return tableLength;
 }
 
 SharedStringHashStore::SharedStringHashStore(Client& client)
     : m_client(client)
-    , m_pendingOperationsTimer(RunLoop::main(), this, &SharedStringHashStore::processPendingOperations)
+    , m_pendingOperationsTimer(RunLoop::mainSingleton(), "SharedStringHashStore::PendingOperationsTimer"_s, this, &SharedStringHashStore::processPendingOperations)
 {
 }
 
-bool SharedStringHashStore::createSharedMemoryHandle(SharedMemory::Handle& handle)
+std::optional<SharedMemory::Handle> SharedStringHashStore::createSharedMemoryHandle()
 {
-    return m_table.sharedMemory()->createHandle(handle, SharedMemory::Protection::ReadOnly);
+    return protect(m_table.sharedMemory())->createHandle(SharedMemory::Protection::ReadOnly);
 }
 
 void SharedStringHashStore::scheduleAddition(SharedStringHash sharedStringHash)
@@ -101,7 +90,7 @@ void SharedStringHashStore::clear()
     m_pendingOperationsTimer.stop();
     m_pendingOperations.clear();
     m_keyCount = 0;
-    m_tableSize = 0;
+    m_tableLength = 0;
     m_table.clear();
 }
 
@@ -114,29 +103,28 @@ void SharedStringHashStore::flushPendingChanges()
     processPendingOperations();
 }
 
-void SharedStringHashStore::resizeTable(unsigned newTableSize)
+void SharedStringHashStore::resizeTable(unsigned newTableLength)
 {
-    auto newTableMemory = SharedMemory::allocate(newTableSize * sizeof(SharedStringHash));
+    auto newTableMemory = SharedMemory::allocate((Checked<unsigned>(newTableLength) * sizeof(SharedStringHash)).value());
     if (!newTableMemory) {
         LOG_ERROR("Could not allocate shared memory for SharedStringHash table");
         return;
     }
 
-    memset(newTableMemory->data(), 0, newTableMemory->size());
+    zeroSpan(newTableMemory->mutableSpan());
 
     RefPtr<SharedMemory> currentTableMemory = m_table.sharedMemory();
-    unsigned currentTableSize = m_tableSize;
+    unsigned currentTableLength = m_tableLength;
 
     m_table.setSharedMemory(newTableMemory.releaseNonNull());
-    m_tableSize = newTableSize;
+    m_tableLength = newTableLength;
 
     if (currentTableMemory) {
-        ASSERT_UNUSED(currentTableSize, currentTableMemory->size() == currentTableSize * sizeof(SharedStringHash));
+        RELEASE_ASSERT(currentTableMemory->size() == (Checked<unsigned>(currentTableLength) * sizeof(SharedStringHash)).value());
 
         // Go through the current hash table and re-add all entries to the new hash table.
-        const SharedStringHash* currentSharedStringHashes = static_cast<const SharedStringHash*>(currentTableMemory->data());
-        for (unsigned i = 0; i < currentTableSize; ++i) {
-            auto sharedStringHash = currentSharedStringHashes[i];
+        auto currentSharedStringHashes = spanReinterpretCast<const SharedStringHash>(currentTableMemory->span());
+        for (auto& sharedStringHash : currentSharedStringHashes) {
             if (!sharedStringHash)
                 continue;
 
@@ -147,7 +135,7 @@ void SharedStringHashStore::resizeTable(unsigned newTableSize)
         }
     }
 
-    for (auto& operation : m_pendingOperations) {
+    for (auto& operation : borrow(m_pendingOperations).get()) {
         switch (operation.type) {
         case Operation::Add:
             if (m_table.add(operation.sharedStringHash))
@@ -166,17 +154,15 @@ void SharedStringHashStore::resizeTable(unsigned newTableSize)
 
 void SharedStringHashStore::processPendingOperations()
 {
-    unsigned currentTableSize = m_tableSize;
-    unsigned approximateNewHashCount = std::count_if(m_pendingOperations.begin(), m_pendingOperations.end(), [](auto& operation) {
-        return operation.type == Operation::Add;
-    });
+    unsigned currentTableLength = m_tableLength;
+    unsigned approximateNewHashCount = std::ranges::count(m_pendingOperations, Operation::Add, &Operation::type);
     // FIXME: The table can currently only grow. We should probably support shrinking it to save memory.
-    unsigned newTableSize = tableSizeForKeyCount(m_keyCount + approximateNewHashCount);
+    unsigned newTableLength = tableLengthForKeyCount(m_keyCount + approximateNewHashCount);
 
-    newTableSize = std::max(currentTableSize, newTableSize);
+    newTableLength = std::max(currentTableLength, newTableLength);
 
-    if (currentTableSize != newTableSize) {
-        resizeTable(newTableSize);
+    if (currentTableLength != newTableLength) {
+        resizeTable(newTableLength);
         return;
     }
 
@@ -184,17 +170,17 @@ void SharedStringHashStore::processPendingOperations()
     Vector<SharedStringHash> removedSharedStringHashes;
     addedSharedStringHashes.reserveInitialCapacity(approximateNewHashCount);
     removedSharedStringHashes.reserveInitialCapacity(m_pendingOperations.size() - approximateNewHashCount);
-    for (auto& operation : m_pendingOperations) {
+    for (auto& operation : borrow(m_pendingOperations).get()) {
         switch (operation.type) {
         case Operation::Add:
             if (m_table.add(operation.sharedStringHash)) {
-                addedSharedStringHashes.uncheckedAppend(operation.sharedStringHash);
+                addedSharedStringHashes.append(operation.sharedStringHash);
                 ++m_keyCount;
             }
             break;
         case Operation::Remove:
             if (m_table.remove(operation.sharedStringHash)) {
-                removedSharedStringHashes.uncheckedAppend(operation.sharedStringHash);
+                removedSharedStringHashes.append(operation.sharedStringHash);
                 --m_keyCount;
             }
             break;

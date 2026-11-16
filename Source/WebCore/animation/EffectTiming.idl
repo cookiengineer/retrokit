@@ -23,15 +23,19 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// https://drafts.csswg.org/web-animations-1/#dictdef-effecttiming
+//   and then modified by
+// https://drafts.csswg.org/web-animations-2/#the-effecttiming-dictionaries
 [
-    JSGenerateToJSObject
+    JSGenerateToJSObject,
+    JSGenerateToNativeObject,
 ] dictionary EffectTiming {
     double delay = 0;
     double endDelay = 0;
     FillMode fill = "auto";
     double iterationStart = 0.0;
     unrestricted double iterations = 1.0;
-    (unrestricted double or DOMString) duration = "auto";
+    (unrestricted double or CSSNumericValue or DOMString) duration = "auto";
     PlaybackDirection direction = "normal";
     DOMString easing = "linear";
 };

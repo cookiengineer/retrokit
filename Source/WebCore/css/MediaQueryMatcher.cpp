@@ -20,18 +20,19 @@
 #include "config.h"
 #include "MediaQueryMatcher.h"
 
-#include "Document.h"
+#include "DocumentView.h"
 #include "EventNames.h"
-#include "Frame.h"
-#include "FrameView.h"
+#include "FrameDestructionObserverInlines.h"
+#include "LocalFrameInlines.h"
+#include "LocalFrameView.h"
 #include "Logging.h"
-#include "MediaList.h"
 #include "MediaQueryEvaluator.h"
 #include "MediaQueryList.h"
-#include "MediaQueryListEvent.h"
+#include "MediaQueryParser.h"
 #include "MediaQueryParserContext.h"
 #include "NodeRenderStyle.h"
 #include "RenderElement.h"
+#include "ResolvedStyle.h"
 #include "StyleResolver.h"
 #include "StyleScope.h"
 #include <wtf/text/TextStream.h>
@@ -39,7 +40,7 @@
 namespace WebCore {
 
 MediaQueryMatcher::MediaQueryMatcher(Document& document)
-    : m_document(makeWeakPtr(document))
+    : m_document(document)
 {
 }
 
@@ -55,38 +56,25 @@ void MediaQueryMatcher::documentDestroyed()
     }
 }
 
-String MediaQueryMatcher::mediaType() const
+AtomString MediaQueryMatcher::mediaType() const
 {
     if (!m_document || !m_document->frame() || !m_document->frame()->view())
-        return String();
+        return nullAtom();
 
-    return m_document->frame()->view()->mediaType();
+    return protect(m_document->frame()->view())->mediaType();
 }
 
-std::unique_ptr<RenderStyle> MediaQueryMatcher::documentElementUserAgentStyle() const
+bool MediaQueryMatcher::evaluate(const MQ::MediaQueryList& queries)
 {
-    if (!m_document || !m_document->frame())
-        return nullptr;
-
-    auto* documentElement = m_document->documentElement();
-    if (!documentElement)
-        return nullptr;
-
-    return m_document->styleScope().resolver().styleForElement(*documentElement, m_document->renderStyle(), nullptr, RuleMatchingBehavior::MatchOnlyUserAgentRules).renderStyle;
-}
-
-bool MediaQueryMatcher::evaluate(const MediaQuerySet& media)
-{
-    auto style = documentElementUserAgentStyle();
-    if (!style)
+    if (!m_document)
         return false;
-    return MediaQueryEvaluator { mediaType(), *m_document, style.get() }.evaluate(media);
+    return MQ::MediaQueryEvaluator { mediaType(), *m_document }.evaluate(queries);
 }
 
 void MediaQueryMatcher::addMediaQueryList(MediaQueryList& list)
 {
     ASSERT(!m_mediaQueryLists.contains(&list));
-    m_mediaQueryLists.append(makeWeakPtr(&list));
+    m_mediaQueryLists.append(list);
 }
 
 void MediaQueryMatcher::removeMediaQueryList(MediaQueryList& list)
@@ -99,37 +87,30 @@ RefPtr<MediaQueryList> MediaQueryMatcher::matchMedia(const String& query)
     if (!m_document)
         return nullptr;
 
-    auto media = MediaQuerySet::create(query, MediaQueryParserContext(*m_document));
-    reportMediaQueryWarningIfNeeded(m_document.get(), media.ptr());
-    bool matches = evaluate(media.get());
-    return MediaQueryList::create(*m_document, *this, WTFMove(media), matches);
+    auto queries = MQ::MediaQueryParser::parse(query, protect(m_document)->cssParserContext());
+    bool matches = evaluate(queries);
+    return MediaQueryList::create(protect(*m_document), *this, WTF::move(queries), matches);
 }
 
-void MediaQueryMatcher::evaluateAll()
+void MediaQueryMatcher::evaluateAll(EventMode eventMode)
 {
     ASSERT(m_document);
 
     ++m_evaluationRound;
 
-    auto style = documentElementUserAgentStyle();
-    if (!style)
+    if (!m_document)
         return;
 
     LOG_WITH_STREAM(MediaQueries, stream << "MediaQueryMatcher::styleResolverChanged " << m_document->url());
 
-    MediaQueryEvaluator evaluator { mediaType(), *m_document, style.get() };
+    MQ::MediaQueryEvaluator evaluator { mediaType(), *m_document };
 
     auto mediaQueryLists = m_mediaQueryLists;
     for (auto& list : mediaQueryLists) {
-        if (!list)
-            continue;
-        bool notify;
-        list->evaluate(evaluator, notify);
-        if (notify) {
-            if (m_document && m_document->quirks().shouldSilenceMediaQueryListChangeEvents())
-                continue;
-
-            list->dispatchEvent(MediaQueryListEvent::create(eventNames().changeEvent, list->media(), list->matches()));
+        if (RefPtr protectedList = list.get()) {
+            protectedList->evaluate(evaluator, eventMode);
+            if (!m_document)
+                break;
         }
     }
 }

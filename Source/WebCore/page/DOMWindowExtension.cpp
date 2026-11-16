@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2012-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,33 +26,33 @@
 #include "config.h"
 #include "DOMWindowExtension.h"
 
-#include "DOMWindow.h"
 #include "DOMWrapperWorld.h"
 #include "Document.h"
-#include "Frame.h"
 #include "FrameLoader.h"
-#include "FrameLoaderClient.h"
+#include "LocalDOMWindow.h"
+#include "LocalFrameInlines.h"
+#include "LocalFrameLoaderClient.h"
 #include <wtf/Ref.h>
 
 namespace WebCore {
 
-DOMWindowExtension::DOMWindowExtension(DOMWindow* window, DOMWrapperWorld& world)
-    : m_window(makeWeakPtr(window))
+DOMWindowExtension::DOMWindowExtension(LocalDOMWindow* window, DOMWrapperWorld& world)
+    : m_window(window)
     , m_world(world)
     , m_wasDetached(false)
 {
     ASSERT(this->frame());
-    if (m_window)
-        m_window->registerObserver(*this);
+    if (RefPtr window = m_window.get())
+        window->registerObserver(*this);
 }
 
 DOMWindowExtension::~DOMWindowExtension()
 {
-    if (m_window)
-        m_window->unregisterObserver(*this);
+    if (RefPtr window = m_window.get())
+        window->unregisterObserver(*this);
 }
 
-Frame* DOMWindowExtension::frame() const
+LocalFrame* DOMWindowExtension::frame() const
 {
     return m_window ? m_window->frame() : nullptr;
 }
@@ -61,19 +61,19 @@ void DOMWindowExtension::suspendForBackForwardCache()
 {
     // Calling out to the client might result in this DOMWindowExtension being destroyed
     // while there is still work to do.
-    Ref<DOMWindowExtension> protectedThis(*this);
+    Ref protectedThis { *this };
 
-    auto frame = makeRef(*this->frame());
+    Ref frame = *this->frame();
     frame->loader().client().dispatchWillDisconnectDOMWindowExtensionFromGlobalObject(this);
 
-    m_disconnectedFrame = WTFMove(frame);
+    m_disconnectedFrame = frame.get();
 }
 
 void DOMWindowExtension::resumeFromBackForwardCache()
 {
     ASSERT(frame());
     ASSERT(m_disconnectedFrame == frame());
-    ASSERT(frame()->document()->domWindow() == m_window);
+    ASSERT(frame()->document()->window() == m_window);
 
     m_disconnectedFrame = nullptr;
 
@@ -86,17 +86,17 @@ void DOMWindowExtension::willDestroyGlobalObjectInCachedFrame()
 
     // Calling out to the client might result in this DOMWindowExtension being destroyed
     // while there is still work to do.
-    Ref<DOMWindowExtension> protectedThis(*this);
+    Ref protectedThis { *this };
 
-    if (m_disconnectedFrame)
-        m_disconnectedFrame->loader().client().dispatchWillDestroyGlobalObjectForDOMWindowExtension(this);
+    if (RefPtr disconnectedFrame = m_disconnectedFrame.get())
+        disconnectedFrame->loader().client().dispatchWillDestroyGlobalObjectForDOMWindowExtension(this);
     m_disconnectedFrame = nullptr;
 
-    // DOMWindowExtension lifetime isn't tied directly to the DOMWindow itself so it is important that it unregister
-    // itself from any DOMWindow it is associated with if that DOMWindow is going away.
+    // DOMWindowExtension lifetime isn't tied directly to the LocalDOMWindow itself so it is important that it unregister
+    // itself from any LocalDOMWindow it is associated with if that LocalDOMWindow is going away.
     ASSERT(m_window);
-    if (m_window)
-        m_window->unregisterObserver(*this);
+    if (RefPtr window = m_window.get())
+        window->unregisterObserver(*this);
     m_window = nullptr;
 }
 
@@ -106,19 +106,19 @@ void DOMWindowExtension::willDestroyGlobalObjectInFrame()
 
     // Calling out to the client might result in this DOMWindowExtension being destroyed
     // while there is still work to do.
-    Ref<DOMWindowExtension> protectedThis(*this);
+    Ref protectedThis { *this };
 
     if (!m_wasDetached) {
-        Frame* frame = this->frame();
+        RefPtr frame = this->frame();
         ASSERT(frame);
         frame->loader().client().dispatchWillDestroyGlobalObjectForDOMWindowExtension(this);
     }
 
-    // DOMWindowExtension lifetime isn't tied directly to the DOMWindow itself so it is important that it unregister
-    // itself from any DOMWindow it is associated with if that DOMWindow is going away.
+    // DOMWindowExtension lifetime isn't tied directly to the LocalDOMWindow itself so it is important that it unregister
+    // itself from any LocalDOMWindow it is associated with if that LocalDOMWindow is going away.
     ASSERT(m_window);
-    if (m_window)
-        m_window->unregisterObserver(*this);
+    if (RefPtr window = m_window.get())
+        window->unregisterObserver(*this);
     m_window = nullptr;
 }
 
@@ -129,9 +129,9 @@ void DOMWindowExtension::willDetachGlobalObjectFromFrame()
 
     // Calling out to the client might result in this DOMWindowExtension being destroyed
     // while there is still work to do.
-    Ref<DOMWindowExtension> protectedThis(*this);
+    Ref protectedThis { *this };
 
-    Frame* frame = this->frame();
+    RefPtr frame = this->frame();
     ASSERT(frame);
     frame->loader().client().dispatchWillDestroyGlobalObjectForDOMWindowExtension(this);
 

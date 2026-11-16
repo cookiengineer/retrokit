@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008, 2013-2017 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008, 2013-2017 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -339,7 +339,7 @@ WI.DataGridNode = class DataGridNode extends WI.Object
             this._scheduledRefreshIdentifier = undefined;
         }
 
-        this._cachedFilterableData = null;
+        this.clearCachedFilterableData();
         this._needsRefresh = false;
 
         this._element.removeChildren();
@@ -655,12 +655,11 @@ WI.DataGridNode = class DataGridNode extends WI.Object
         if (!cell || !cell.classList.contains("disclosure"))
             return false;
 
-        let computedStyle = window.getComputedStyle(cell);
         let start = 0;
         if (WI.resolvedLayoutDirection() === WI.LayoutDirection.RTL)
-            start += cell.totalOffsetRight - computedStyle.getPropertyCSSValue("padding-right").getFloatValue(CSSPrimitiveValue.CSS_PX) - this.disclosureToggleWidth;
+            start += cell.totalOffsetRight - cell.getComputedCSSPropertyNumberValue("padding-right") - this.disclosureToggleWidth;
         else
-            start += cell.totalOffsetLeft + computedStyle.getPropertyCSSValue("padding-left").getFloatValue(CSSPrimitiveValue.CSS_PX);
+            start += cell.totalOffsetLeft + cell.getComputedCSSPropertyNumberValue("padding-left");
         return event.pageX >= start && event.pageX <= start + this.disclosureToggleWidth;
     }
 
@@ -674,12 +673,12 @@ WI.DataGridNode = class DataGridNode extends WI.Object
         let insertionIndex = -1;
 
         if (!this.isPlaceholderNode) {
-            var previousGridNode = this.traversePreviousNode(true, true);
-            insertionIndex = this.dataGrid._rows.indexOf(previousGridNode);
-            if (insertionIndex === -1)
+            let previousGridNode = this.traversePreviousNode(true, true);
+            if (previousGridNode) {
+                // If the previousGridNode isn't in the list, we'll increment the not found value of `-1` to `0`.
+                insertionIndex = this.dataGrid._rows.lastIndexOf(previousGridNode) + 1;
+            } else
                 insertionIndex = 0;
-            else
-                insertionIndex++;
         }
 
         if (insertionIndex === -1)
@@ -747,6 +746,13 @@ WI.DataGridNode = class DataGridNode extends WI.Object
     {
         let value = this.data[columnIdentifier];
         return typeof value === "string" ? value : null;
+    }
+
+    clearCachedFilterableData()
+    {
+        this._cachedFilterableData = null;
+
+        this.dataGrid?._applyFiltersToNodeAndDispatchEvent(this);
     }
 
     didResizeColumn(columnIdentifier)

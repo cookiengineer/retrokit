@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005, 2006 Apple Inc.  All rights reserved.
+ * Copyright (C) 2005-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,15 +27,18 @@
 #include "InsertLineBreakCommand.h"
 
 #include "Document.h"
-#include "Editing.h"
-#include "Frame.h"
+#include "EditingInlines.h"
+#include "EditingStyle.h"
 #include "FrameSelection.h"
 #include "HTMLBRElement.h"
 #include "HTMLHRElement.h"
 #include "HTMLNames.h"
 #include "HTMLTableElement.h"
+#include "LocalFrame.h"
 #include "RenderElement.h"
+#include "RenderObjectStyle.h"
 #include "RenderText.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "Text.h"
 #include "VisibleUnits.h"
 
@@ -43,8 +46,8 @@ namespace WebCore {
 
 using namespace HTMLNames;
 
-InsertLineBreakCommand::InsertLineBreakCommand(Document& document)
-    : CompositeEditCommand(document)
+InsertLineBreakCommand::InsertLineBreakCommand(Ref<Document>&& document)
+    : CompositeEditCommand(WTF::move(document))
 {
 }
 
@@ -59,8 +62,8 @@ bool InsertLineBreakCommand::shouldUseBreakElement(const Position& position)
     // An editing position like [input, 0] actually refers to the position before
     // the input element, and in that case we need to check the input element's
     // parent's renderer.
-    auto* node = position.parentAnchoredEquivalent().deprecatedNode();
-    return node->renderer() && !node->renderer()->style().preserveNewline();
+    RefPtr node = position.parentAnchoredEquivalent().deprecatedNode();
+    return node && node->renderer() && !node->renderer()->style().preserveNewline();
 }
 
 void InsertLineBreakCommand::doApply()
@@ -81,75 +84,77 @@ void InsertLineBreakCommand::doApply()
     position = positionAvoidingSpecialElementBoundary(position);
     position = positionOutsideTabSpan(position);
 
-    RefPtr<Node> nodeToInsert;
-    if (shouldUseBreakElement(position))
-        nodeToInsert = HTMLBRElement::create(document());
-    else
-        nodeToInsert = document().createTextNode("\n");
-    
+    if (!isEditablePosition(position))
+        return;
+
+    Ref document = this->document();
+    Ref nodeToInsert = [&] -> Ref<Node> {
+        if (shouldUseBreakElement(position))
+            return HTMLBRElement::create(document);
+        return document->createTextNode("\n"_s);
+    }();
+
     // FIXME: Need to merge text nodes when inserting just after or before text.
-    
+    document->updateLayoutIgnorePendingStylesheets();
     if (isEndOfParagraph(caret) && !lineBreakExistsAtVisiblePosition(caret)) {
         bool needExtraLineBreak = !is<HTMLHRElement>(*position.deprecatedNode()) && !is<HTMLTableElement>(*position.deprecatedNode());
-        
-        insertNodeAt(*nodeToInsert, position);
-        
+
+        insertNodeAt(nodeToInsert.copyRef(), position);
+
         if (needExtraLineBreak)
-            insertNodeBefore(nodeToInsert->cloneNode(false), *nodeToInsert);
+            insertNodeBefore(nodeToInsert->cloneNode(false), nodeToInsert);
         
-        VisiblePosition endingPosition(positionBeforeNode(nodeToInsert.get()));
-        setEndingSelection(VisibleSelection(endingPosition, endingSelection().isDirectional()));
-    } else if (position.deprecatedEditingOffset() <= caretMinOffset(*position.deprecatedNode())) {
-        insertNodeAt(*nodeToInsert, position);
+        VisiblePosition endingPosition(positionBeforeNode(nodeToInsert));
+        setEndingSelection(VisibleSelection(endingPosition, endingSelection().directionality()));
+    } else if (position.deprecatedEditingOffset() <= caretMinOffset(*protect(position.deprecatedNode()))) {
+        insertNodeAt(nodeToInsert.copyRef(), position);
         
         // Insert an extra br or '\n' if the just inserted one collapsed.
-        if (!isStartOfParagraph(positionBeforeNode(nodeToInsert.get())))
-            insertNodeBefore(nodeToInsert->cloneNode(false), *nodeToInsert);
+        if (!isStartOfParagraph(positionBeforeNode(nodeToInsert)))
+            insertNodeBefore(nodeToInsert->cloneNode(false), nodeToInsert);
         
-        setEndingSelection(VisibleSelection(positionInParentAfterNode(nodeToInsert.get()), Affinity::Downstream, endingSelection().isDirectional()));
+        setEndingSelection(VisibleSelection(positionInParentAfterNode(nodeToInsert), Affinity::Downstream, endingSelection().directionality()));
     // If we're inserting after all of the rendered text in a text node, or into a non-text node,
     // a simple insertion is sufficient.
-    } else if (position.deprecatedEditingOffset() >= caretMaxOffset(*position.deprecatedNode()) || !is<Text>(*position.deprecatedNode())) {
-        insertNodeAt(*nodeToInsert, position);
-        setEndingSelection(VisibleSelection(positionInParentAfterNode(nodeToInsert.get()), Affinity::Downstream, endingSelection().isDirectional()));
-    } else if (is<Text>(*position.deprecatedNode())) {
+    } else if (position.deprecatedEditingOffset() >= caretMaxOffset(*protect(position.deprecatedNode())) || !is<Text>(*position.deprecatedNode())) {
+        insertNodeAt(nodeToInsert.copyRef(), position);
+        setEndingSelection(VisibleSelection(positionInParentAfterNode(nodeToInsert), Affinity::Downstream, endingSelection().directionality()));
+    } else if (RefPtr textNode = dynamicDowncast<Text>(*position.deprecatedNode())) {
         // Split a text node
-        Text& textNode = downcast<Text>(*position.deprecatedNode());
-        splitTextNode(textNode, position.deprecatedEditingOffset());
-        insertNodeBefore(*nodeToInsert, textNode);
-        Position endingPosition = firstPositionInNode(&textNode);
-        
+        splitTextNode(*textNode, position.deprecatedEditingOffset());
+        insertNodeBefore(nodeToInsert.copyRef(), *textNode);
+        Position endingPosition = firstPositionInNode(*textNode);
+
         // Handle whitespace that occurs after the split
-        document().updateLayoutIgnorePendingStylesheets();
+        document->updateLayoutIgnorePendingStylesheets();
         if (!endingPosition.isRenderedCharacter()) {
-            Position positionBeforeTextNode(positionInParentBeforeNode(&textNode));
+            Position positionBeforeTextNode(positionInParentBeforeNode(*textNode));
             // Clear out all whitespace and insert one non-breaking space
             deleteInsignificantTextDownstream(endingPosition);
-            ASSERT(!textNode.renderer() || textNode.renderer()->style().collapseWhiteSpace());
+            ASSERT(!textNode->renderer() || textNode->renderer()->style().collapseWhiteSpace());
             // Deleting insignificant whitespace will remove textNode if it contains nothing but insignificant whitespace.
-            if (textNode.isConnected())
-                insertTextIntoNode(textNode, 0, nonBreakingSpaceString());
+            if (textNode->isConnected())
+                insertTextIntoNode(*textNode, 0, nonBreakingSpaceString());
             else {
-                auto nbspNode = document().createTextNode(nonBreakingSpaceString());
-                auto* nbspNodePtr = nbspNode.ptr();
-                insertNodeAt(WTFMove(nbspNode), positionBeforeTextNode);
-                endingPosition = firstPositionInNode(nbspNodePtr);
+                auto nbspNode = document->createTextNode(String { nonBreakingSpaceString() });
+                insertNodeAt(nbspNode.copyRef(), positionBeforeTextNode);
+                endingPosition = firstPositionInNode(nbspNode);
             }
         }
         
-        setEndingSelection(VisibleSelection(endingPosition, Affinity::Downstream, endingSelection().isDirectional()));
+        setEndingSelection(VisibleSelection(endingPosition, Affinity::Downstream, endingSelection().directionality()));
     }
 
     // Handle the case where there is a typing style.
 
-    RefPtr<EditingStyle> typingStyle = document().selection().typingStyle();
+    RefPtr<EditingStyle> typingStyle = document->selection().typingStyle();
 
     if (typingStyle && !typingStyle->isEmpty()) {
         // Apply the typing style to the inserted line break, so that if the selection
         // leaves and then comes back, new input will have the right style.
         // FIXME: We shouldn't always apply the typing style to the line break here,
         // see <rdar://problem/5794462>.
-        applyStyle(typingStyle.get(), firstPositionInOrBeforeNode(nodeToInsert.get()), lastPositionInOrAfterNode(nodeToInsert.get()));
+        applyStyle(typingStyle.get(), firstPositionInOrBeforeNode(nodeToInsert.ptr()), lastPositionInOrAfterNode(nodeToInsert.ptr()));
         // Even though this applyStyle operates on a Range, it still sets an endingSelection().
         // It tries to set a VisibleSelection around the content it operated on. So, that VisibleSelection
         // will either (a) select the line break we inserted, or it will (b) be a caret just 

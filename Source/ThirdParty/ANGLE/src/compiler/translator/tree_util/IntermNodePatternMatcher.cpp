@@ -17,33 +17,6 @@
 namespace sh
 {
 
-namespace
-{
-
-bool ContainsMatrixNode(const TIntermSequence &sequence)
-{
-    for (size_t ii = 0; ii < sequence.size(); ++ii)
-    {
-        TIntermTyped *node = sequence[ii]->getAsTyped();
-        if (node && node->isMatrix())
-            return true;
-    }
-    return false;
-}
-
-bool ContainsVectorNode(const TIntermSequence &sequence)
-{
-    for (size_t ii = 0; ii < sequence.size(); ++ii)
-    {
-        TIntermTyped *node = sequence[ii]->getAsTyped();
-        if (node && node->isVector())
-            return true;
-    }
-    return false;
-}
-
-}  // anonymous namespace
-
 IntermNodePatternMatcher::IntermNodePatternMatcher(const unsigned int mask) : mMask(mask) {}
 
 // static
@@ -78,8 +51,7 @@ bool IntermNodePatternMatcher::matchInternal(TIntermBinary *node, TIntermNode *p
 
     if ((mMask & kUnfoldedShortCircuitExpression) != 0)
     {
-        if (node->getRight()->hasSideEffects() &&
-            (node->getOp() == EOpLogicalOr || node->getOp() == EOpLogicalAnd))
+        if (node->isShortCircuitNeeded())
         {
             return true;
         }
@@ -138,21 +110,10 @@ bool IntermNodePatternMatcher::match(TIntermAggregate *node, TIntermNode *parent
                  (parentBinary->getOp() == EOpAssign || parentBinary->getOp() == EOpInitialize));
 
             if (node->getType().isArray() && !parentIsAssignment &&
-                (node->isConstructor() || node->isFunctionCall()) && !parentNode->getAsBlock())
-            {
-                return true;
-            }
-        }
-    }
-    if ((mMask & kScalarizedVecOrMatConstructor) != 0)
-    {
-        if (node->getOp() == EOpConstruct)
-        {
-            if (node->getType().isVector() && ContainsMatrixNode(*(node->getSequence())))
-            {
-                return true;
-            }
-            else if (node->getType().isMatrix() && ContainsVectorNode(*(node->getSequence())))
+                (node->isConstructor() || node->isFunctionCall() ||
+                 (BuiltInGroup::IsBuiltIn(node->getOp()) &&
+                  !BuiltInGroup::IsMath(node->getOp()))) &&
+                !parentNode->getAsBlock())
             {
                 return true;
             }
@@ -193,15 +154,6 @@ bool IntermNodePatternMatcher::match(TIntermDeclaration *node) const
             {
                 return true;
             }
-        }
-    }
-    if ((mMask & kNamelessStructDeclaration) != 0)
-    {
-        TIntermTyped *declarator = node->getSequence()->front()->getAsTyped();
-        if (declarator->getBasicType() == EbtStruct &&
-            declarator->getType().getStruct()->symbolType() == SymbolType::Empty)
-        {
-            return true;
         }
     }
     return false;

@@ -24,8 +24,7 @@
  */
 
 [
-    Conditional=WEB_CRYPTO,
-    JSGenerateToJSObject
+    JSGenerateToJSObject,
 ] dictionary CryptoKeyPair {
     CryptoKey publicKey;
     CryptoKey privateKey;

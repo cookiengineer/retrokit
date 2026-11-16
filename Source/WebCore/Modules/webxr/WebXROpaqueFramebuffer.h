@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2020 Igalia S.L. All rights reserved.
- * Copyright (C) 2021 Apple, Inc. All rights reserved.
+ * Copyright (C) 2021-2025 Apple, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,10 +28,13 @@
 
 #if ENABLE(WEBXR)
 
+#include "GraphicsContextGL.h"
 #include "GraphicsTypesGL.h"
 #include "PlatformXR.h"
 #include "WebXRLayer.h"
 #include <wtf/Ref.h>
+#include <wtf/RetainPtr.h>
+#include <wtf/Vector.h>
 
 namespace WebCore {
 
@@ -39,6 +42,43 @@ class IntSize;
 class WebGLFramebuffer;
 class WebGLRenderingContextBase;
 struct XRWebGLLayerInit;
+
+struct WebXRExternalRenderbuffer {
+    GCGLOwnedRenderbuffer renderBufferObject;
+    GCGLOwnedExternalImage image;
+
+    explicit operator bool() const { return !!image; }
+
+    void destroyImage(GraphicsContextGL&);
+    void release(GraphicsContextGL&);
+    void leakObject();
+};
+
+template<typename T>
+struct WebXRAttachmentSet {
+    T colorBuffer;
+    T depthStencilBuffer;
+
+    operator bool() const
+    {
+        return !!colorBuffer; // Need colorBuffer at the minimum!
+    }
+
+    void release(GraphicsContextGL& gl)
+    {
+        colorBuffer.release(gl);
+        depthStencilBuffer.release(gl);
+    }
+
+    void leakObject()
+    {
+        colorBuffer.leakObject();
+        depthStencilBuffer.leakObject();
+    }
+};
+
+using WebXRAttachments = WebXRAttachmentSet<GCGLOwnedRenderbuffer>;
+using WebXRExternalAttachments = WebXRAttachmentSet<WebXRExternalRenderbuffer>;
 
 class WebXROpaqueFramebuffer {
 public:
@@ -49,38 +89,71 @@ public:
         bool stencil { false };
     };
 
-    static std::unique_ptr<WebXROpaqueFramebuffer> create(PlatformXR::LayerHandle, WebGLRenderingContextBase&, Attributes&&, uint32_t width, uint32_t height);
+    static std::unique_ptr<WebXROpaqueFramebuffer> create(PlatformXR::LayerHandle, WebGLRenderingContextBase&, Attributes&&, IntSize);
     ~WebXROpaqueFramebuffer();
 
-    PlatformXR::LayerHandle handle() const { return m_handle; }
-    const WebGLFramebuffer& framebuffer() const { return m_framebuffer.get(); }
-    uint32_t width() const { return m_width; }
-    uint32_t height() const { return m_height; }
+    bool supportsDynamicViewportScaling() const;
 
-    void startFrame(const PlatformXR::Device::FrameData::LayerData&);
+    PlatformXR::LayerHandle handle() const { return m_handle; }
+    const WebGLFramebuffer& framebuffer() const { return m_drawFramebuffer.get(); }
+    // Return the size of the framebuffer is Screen Space
+    IntSize drawFramebufferSize() const;
+    // Return the viewport for eye in Screen Space
+    IntRect drawViewport(PlatformXR::Eye) const;
+
+    void startFrame(PlatformXR::FrameData::LayerData&);
     void endFrame();
+    bool usesLayeredMode() const;
+
+    void releaseAllDisplayAttachments();
+
+#if USE(OPENXR)
+    WTF::UnixFileDescriptor takeFenceFD();
+#endif
 
 private:
-    WebXROpaqueFramebuffer(PlatformXR::LayerHandle, Ref<WebGLFramebuffer>&&, WebGLRenderingContextBase&, Attributes&&, uint32_t width, uint32_t height);
+    WebXROpaqueFramebuffer(PlatformXR::LayerHandle, Ref<WebGLFramebuffer>&&, WebGLRenderingContextBase&, Attributes&&, IntSize);
 
-    bool setupFramebuffer();
+    bool setupFramebuffer(GraphicsContextGL&, const PlatformXR::FrameData::LayerSetupData&);
+    const std::array<WebXRExternalAttachments, 2>* reusableDisplayAttachments(const PlatformXR::FrameData::ExternalTextureData&) const;
+    void bindCompositorTexturesForDisplay(GraphicsContextGL&, PlatformXR::FrameData::LayerData&);
+    const std::array<WebXRExternalAttachments, 2>* reusableDisplayAttachmentsAtIndex(size_t);
+    void releaseDisplayAttachmentsAtIndex(size_t);
+    void allocateRenderbufferStorage(GraphicsContextGL&, GCGLOwnedRenderbuffer&, GCGLsizei, GCGLenum, IntSize);
+    void allocateAttachments(GraphicsContextGL&, WebXRAttachments&, GCGLsizei, IntSize);
+    void bindAttachments(GraphicsContextGL&, WebXRAttachments&);
+    void bindResolveAttachments(GraphicsContextGL&, WebXRAttachments&);
+    void resolveMSAAFramebuffer(GraphicsContextGL&);
+    void blitShared(GraphicsContextGL&);
+    void blitSharedToLayered(GraphicsContextGL&);
+    IntRect calculateViewportShared(PlatformXR::Eye, bool, const IntRect&, const IntRect&);
 
     PlatformXR::LayerHandle m_handle;
-    Ref<WebGLFramebuffer> m_framebuffer;
-    WebGLRenderingContextBase& m_context;
+    const Ref<WebGLFramebuffer> m_drawFramebuffer;
+    WeakRef<WebGLRenderingContextBase> m_context;
     Attributes m_attributes;
-    uint32_t m_width { 0 };
-    uint32_t m_height { 0 };
-    PlatformGLObject m_depthStencilBuffer { 0 };
-    PlatformGLObject m_stencilBuffer { 0 };
-    PlatformGLObject m_multisampleColorBuffer { 0 };
-    PlatformGLObject m_resolvedFBO { 0 };
-    GCGLint m_sampleCount { 0 };
-    PlatformGLObject m_opaqueTexture { 0 };
-#if USE(IOSURFACE_FOR_XR_LAYER_DATA)
-    void* m_ioSurfaceTextureHandle { nullptr };
-    bool m_ioSurfaceTextureHandleIsShared { false };
+    PlatformXR::Layout m_displayLayout = PlatformXR::Layout::Shared;
+    IntSize m_framebufferSize; // Physical Space
+    IntRect m_leftViewport; // Screen Space
+    IntRect m_rightViewport; // Screen Space
+    IntSize m_leftPhysicalSize; // Physical Space
+    IntSize m_rightPhysicalSize; // Physical Space
+    WebXRAttachments m_drawAttachments;
+    WebXRAttachments m_resolveAttachments;
+    GCGLOwnedFramebuffer m_displayFBO;
+    GCGLOwnedFramebuffer m_resolvedFBO;
+    Vector<std::array<WebXRExternalAttachments, 2>> m_displayAttachmentsSets;
+    size_t m_currentDisplayAttachmentIndex { 0 };
+#if PLATFORM(COCOA)
+    MachSendRight m_completionSyncEvent;
 #endif
+#if USE(OPENXR)
+    WTF::UnixFileDescriptor m_fenceFD;
+#endif
+    uint64_t m_renderingFrameIndex { ~0u };
+    bool m_usingFoveation { false };
+    bool m_blitDepth { false };
+    bool m_isForTesting { false };
 };
 
 } // namespace WebCore

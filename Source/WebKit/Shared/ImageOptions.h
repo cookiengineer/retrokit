@@ -23,38 +23,51 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef ImageOptions_h
-#define ImageOptions_h
+#pragma once
+
+#include <wtf/OptionSet.h>
 
 namespace WebKit {
 
-enum ImageOptions {
-    ImageOptionsShareable = 1 << 0,
+enum class ImageOption : uint8_t {
+    Shareable = 1 << 0,
+    // Makes local in process buffer
+    Local = 1 << 1,
+    Accelerated = 1 << 2,
+    AllowHDR = 1 << 3,
 };
 
-enum {
-    SnapshotOptionsShareable = 1 << 0,
-    SnapshotOptionsExcludeSelectionHighlighting = 1 << 1,
-    SnapshotOptionsInViewCoordinates = 1 << 2,
-    SnapshotOptionsPaintSelectionRectangle = 1 << 3,
-    SnapshotOptionsExcludeDeviceScaleFactor = 1 << 5,
-    SnapshotOptionsForceBlackText = 1 << 6,
-    SnapshotOptionsForceWhiteText = 1 << 7,
-    SnapshotOptionsPrinting = 1 << 8,
-    SnapshotOptionsUseScreenColorSpace = 1 << 9,
+using ImageOptions = OptionSet<ImageOption>;
+
+enum class SnapshotOption : uint16_t {
+    Shareable = 1 << 0,
+    ExcludeSelectionHighlighting = 1 << 1,
+    InViewCoordinates = 1 << 2,
+    PaintSelectionRectangle = 1 << 3,
+    ExcludeDeviceScaleFactor = 1 << 5,
+    ForceBlackText = 1 << 6,
+    ForceWhiteText = 1 << 7,
+    Printing = 1 << 8,
+    UseScreenColorSpace = 1 << 9,
+    VisibleContentRect = 1 << 10,
+    FullContentRect = 1 << 11,
+    TransparentBackground = 1 << 12,
+    // Not supported with takeSnapshotLegacy
+    Accelerated = 1 << 13,
+    AllowHDR = 1 << 14,
 };
-typedef uint32_t SnapshotOptions;
+
+using SnapshotOptions = OptionSet<SnapshotOption>;
 
 inline ImageOptions snapshotOptionsToImageOptions(SnapshotOptions snapshotOptions)
 {
-    unsigned imageOptions = 0;
-
-    if (snapshotOptions & SnapshotOptionsShareable)
-        imageOptions |= ImageOptionsShareable;
-
-    return static_cast<ImageOptions>(imageOptions);
+    if (snapshotOptions.contains(SnapshotOption::Shareable))
+        return ImageOption::Shareable;
+    if (snapshotOptions.contains(SnapshotOption::Accelerated))
+        return ImageOption::Accelerated;
+    if (snapshotOptions.contains(SnapshotOption::AllowHDR))
+        return ImageOption::AllowHDR;
+    return { };
 }
 
 } // namespace WebKit
-
-#endif // ImageOptions_h

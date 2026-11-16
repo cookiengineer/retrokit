@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007 Apple Inc.  All rights reserved.
+ * Copyright (C) 2007 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,25 +25,33 @@
 
 #pragma once
 
-#include "DragActions.h"
-#include "DragData.h"
-#include "DragItem.h"
-#include "FloatPoint.h"
-#include "IntPoint.h"
+#include <WebCore/DragActions.h>
+#include <WebCore/DragData.h>
+#include <WebCore/DragItem.h>
+#include <WebCore/FloatPoint.h>
+#include <WebCore/IntPoint.h>
+#include <wtf/Platform.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+struct NodeIdentifierType;
+using NodeIdentifier = ObjectIdentifier<NodeIdentifierType>;
+
+struct FrameIdentifierType;
+using FrameIdentifier = ObjectIdentifier<FrameIdentifierType>;
     
 class DataTransfer;
 class Element;
 class Frame;
 class Image;
+class LocalFrame;
 
 #if ENABLE(ATTACHMENT_ELEMENT)
 struct PromisedAttachmentInfo;
 #endif
 
 class DragClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(DragClient);
 public:
     virtual bool useLegacyDragClient() { return true; }
 
@@ -52,15 +60,15 @@ public:
     virtual void didConcludeEditDrag() { }
     virtual OptionSet<DragSourceAction> dragSourceActionMaskForPoint(const IntPoint& rootViewPoint) = 0;
     
-    virtual void startDrag(DragItem, DataTransfer&, Frame&) = 0;
+    virtual void startDrag(DragItem, DataTransfer&, Frame&, const std::optional<NodeIdentifier>&) = 0;
     virtual void dragEnded() { }
 
-    virtual void beginDrag(DragItem, Frame&, const IntPoint&, const IntPoint&, DataTransfer&, DragSourceAction) { }
+    virtual void beginDrag(DragItem, LocalFrame&, const IntPoint&, const IntPoint&, DataTransfer&, DragSourceAction) { }
 
 #if PLATFORM(COCOA)
     // Mac-specific helper function to allow access to web archives and NSPasteboard extras in WebKit.
     // This is not abstract as that would require another #if PLATFORM(COCOA) for the SVGImage client empty implentation.
-    virtual void declareAndWriteDragImage(const String&, Element&, const URL&, const String&, Frame*) { }
+    virtual void declareAndWriteDragImage(const String&, Element&, const URL&, const String&, LocalFrame*) { }
 #endif
 
     virtual ~DragClient() = default;

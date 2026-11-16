@@ -28,6 +28,7 @@
 #include "SameDocumentNavigationType.h"
 #include <WebCore/LayoutMilestone.h>
 #include <wtf/Forward.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/WallTime.h>
 #include <wtf/text/WTFString.h>
 
@@ -36,7 +37,7 @@ class DOMWindowExtension;
 class DOMWrapperWorld;
 class ResourceError;
 class ResourceRequest;
-class SharedBuffer;
+class FragmentedSharedBuffer;
 }
 
 namespace WebKit {
@@ -51,12 +52,12 @@ class Object;
 namespace InjectedBundle {
 
 class PageLoaderClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(PageLoaderClient);
 public:
     virtual ~PageLoaderClient() = default;
 
     virtual void willLoadURLRequest(WebKit::WebPage&, const WebCore::ResourceRequest&, API::Object*) { }
-    virtual void willLoadDataRequest(WebKit::WebPage&, const WebCore::ResourceRequest&, WebCore::SharedBuffer*, const WTF::String&, const WTF::String&, const WTF::URL&, API::Object*) { }
+    virtual void willLoadDataRequest(WebKit::WebPage&, const WebCore::ResourceRequest&, RefPtr<WebCore::FragmentedSharedBuffer>, const WTF::String&, const WTF::String&, const WTF::URL&, API::Object*) { }
 
     virtual void didStartProvisionalLoadForFrame(WebKit::WebPage&, WebKit::WebFrame&, RefPtr<API::Object>&) { }
     virtual void didReceiveServerRedirectForProvisionalLoadForFrame(WebKit::WebPage&, WebKit::WebFrame&, RefPtr<API::Object>&) { }
@@ -71,7 +72,6 @@ public:
     virtual void didRemoveFrameFromHierarchy(WebKit::WebPage&, WebKit::WebFrame&, RefPtr<API::Object>&) { }
     virtual void didDisplayInsecureContentForFrame(WebKit::WebPage&, WebKit::WebFrame&, RefPtr<API::Object>&) { }
     virtual void didRunInsecureContentForFrame(WebKit::WebPage&, WebKit::WebFrame&, RefPtr<API::Object>&) { }
-    virtual void didDetectXSSForFrame(WebKit::WebPage&, WebKit::WebFrame&, RefPtr<API::Object>&) { }
 
     virtual void didFirstLayoutForFrame(WebKit::WebPage&, WebKit::WebFrame&, RefPtr<API::Object>&) { }
     virtual void didFirstVisuallyNonEmptyLayoutForFrame(WebKit::WebPage&, WebKit::WebFrame&, RefPtr<API::Object>&) { }
@@ -84,6 +84,7 @@ public:
     virtual void didHandleOnloadEventsForFrame(WebKit::WebPage&, WebKit::WebFrame&) { }
 
     virtual void globalObjectIsAvailableForFrame(WebKit::WebPage&, WebKit::WebFrame&, WebCore::DOMWrapperWorld&) { }
+    virtual void serviceWorkerGlobalObjectIsAvailableForFrame(WebKit::WebPage&, WebKit::WebFrame&, WebCore::DOMWrapperWorld&) { }
     virtual void willDisconnectDOMWindowExtensionFromGlobalObject(WebKit::WebPage&, WebCore::DOMWindowExtension*) { }
     virtual void didReconnectDOMWindowExtensionToGlobalObject(WebKit::WebPage&, WebCore::DOMWindowExtension*) { }
     virtual void willDestroyGlobalObjectForDOMWindowExtension(WebKit::WebPage&, WebCore::DOMWindowExtension*) { }

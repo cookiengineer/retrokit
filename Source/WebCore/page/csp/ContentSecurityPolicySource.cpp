@@ -29,12 +29,15 @@
 
 #include "ContentSecurityPolicy.h"
 #include "SecurityOriginData.h"
-#include "TextEncoding.h"
+#include <pal/text/TextEncoding.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/URL.h>
 
 namespace WebCore {
 
-ContentSecurityPolicySource::ContentSecurityPolicySource(const ContentSecurityPolicy& policy, const String& scheme, const String& host, std::optional<uint16_t> port, const String& path, bool hostHasWildcard, bool portHasWildcard)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ContentSecurityPolicySource);
+
+ContentSecurityPolicySource::ContentSecurityPolicySource(const ContentSecurityPolicy& policy, const String& scheme, const String& host, std::optional<uint16_t> port, const String& path, bool hostHasWildcard, bool portHasWildcard, IsSelfSource isSelfSource)
     : m_policy(policy)
     , m_scheme(scheme)
     , m_host(host)
@@ -42,28 +45,64 @@ ContentSecurityPolicySource::ContentSecurityPolicySource(const ContentSecurityPo
     , m_port(port)
     , m_hostHasWildcard(hostHasWildcard)
     , m_portHasWildcard(portHasWildcard)
+    , m_isSelfSource(isSelfSource == IsSelfSource::Yes)
 {
 }
 
 bool ContentSecurityPolicySource::matches(const URL& url, bool didReceiveRedirectResponse) const
 {
-    if (!schemeMatches(url))
+    // https://www.w3.org/TR/CSP3/#match-url-to-source-expression.
+    auto schemeMatch = schemeMatches(url);
+    if (schemeMatch == SchemeMatchResult::NoMatch)
         return false;
     if (isSchemeOnly())
         return true;
-    return hostMatches(url) && portMatches(url) && (didReceiveRedirectResponse || pathMatches(url));
+    auto shouldUpgradePorts = (schemeMatch == SchemeMatchResult::InsecureUpgradeMatch) ? ShouldUpgradePorts::Yes : ShouldUpgradePorts::No;
+    return hostMatches(url) && portMatches(url, shouldUpgradePorts) && (didReceiveRedirectResponse || pathMatches(url));
 }
 
-bool ContentSecurityPolicySource::schemeMatches(const URL& url) const
+SchemeMatchResult ContentSecurityPolicySource::schemeMatches(const URL& url) const
 {
-    if (m_scheme.isEmpty())
-        return m_policy.protocolMatchesSelf(url);
-    if (equalLettersIgnoringASCIICase(m_scheme, "http"))
-        return url.protocolIsInHTTPFamily();
-    return equalIgnoringASCIICase(url.protocol(), m_scheme);
+    // https://www.w3.org/TR/CSP3/#match-schemes.
+    const auto& scheme = m_scheme.isEmpty() ? m_policy->selfProtocol() : m_scheme;
+    auto urlScheme = url.protocol();
+
+    // Step 1.1: A matches B.
+    if (scheme == urlScheme)
+        return SchemeMatchResult::Match;
+
+    // Step 1.2: A is "http" and B is "https".
+    if (scheme == "http"_s && urlScheme == "https"_s)
+        return SchemeMatchResult::InsecureUpgradeMatch;
+
+    // Step 1.3: A is "ws" and B is "wss", "http", or "https".
+    if (scheme == "ws"_s) {
+        if (urlScheme == "wss"_s || urlScheme == "https"_s)
+            return SchemeMatchResult::InsecureUpgradeMatch;
+        if (urlScheme == "http"_s)
+            return SchemeMatchResult::Match;
+    }
+
+    // Step 1.4: A is "wss" and B is "https".
+    if (scheme == "wss"_s && urlScheme == "https"_s)
+        return SchemeMatchResult::Match;
+
+    // self-sources can always upgrade to secure protocols and side-grade insecure protocols. (§6.7.2.8 step 4 NOTE)
+    if (m_isSelfSource && !scheme.isEmpty()) {
+        if (urlScheme == "https"_s || urlScheme == "wss"_s) {
+            if (scheme == "http"_s || scheme == "ws"_s)
+                return SchemeMatchResult::InsecureUpgradeMatch;
+            return SchemeMatchResult::Match;
+        }
+        if (scheme == "http"_s && urlScheme == "ws"_s)
+            return SchemeMatchResult::Match;
+    }
+
+    // Step 2: return "Does Not Match".
+    return SchemeMatchResult::NoMatch;
 }
 
-static bool wildcardMatches(StringView host, const String& hostWithWildcard)
+static bool NODELETE wildcardMatches(StringView host, const String& hostWithWildcard)
 {
     auto hostLength = host.length();
     auto hostWithWildcardLength = hostWithWildcard.length();
@@ -75,47 +114,104 @@ static bool wildcardMatches(StringView host, const String& hostWithWildcard)
 bool ContentSecurityPolicySource::hostMatches(const URL& url) const
 {
     auto host = url.host();
-    return equalIgnoringASCIICase(host, m_host) || (m_hostHasWildcard && wildcardMatches(host, m_host));
+    if (m_hostHasWildcard) {
+        if (m_host.isEmpty())
+            return true;
+        return wildcardMatches(host, m_host);
+    }
+    return equalIgnoringASCIICase(host, m_host);
 }
 
 bool ContentSecurityPolicySource::pathMatches(const URL& url) const
 {
+    // https://www.w3.org/TR/CSP3/#match-paths
+    // Path A is the source expression's path (m_path, from the CSP directive).
+    // Path B is the URL's path being checked against the policy.
+
+    // Step 1: empty path automatically matches.
     if (m_path.isEmpty())
         return true;
 
-    auto path = decodeURLEscapeSequences(url.path());
+    auto urlPath = url.path();
 
-    if (m_path.endsWith("/"))
-        return path.startsWith(m_path);
+    // Step 2: "/" matches empty path.
+    if (m_path == "/"_s && urlPath.isEmpty())
+        return true;
 
-    return path == m_path;
+    // Step 3: directory match if path A ends with '/'.
+    bool exactMatch = !m_path.endsWith('/');
+
+    // Step 4: strictly split both on '/'.
+    auto pathListA = m_path.splitAllowingEmptyEntries('/');
+    auto pathListB = urlPath.toString().splitAllowingEmptyEntries('/');
+
+    // Step 5: path A must not have more segments than path B.
+    if (pathListA.size() > pathListB.size())
+        return false;
+
+    // Step 6: exact match requires same number of segments.
+    if (exactMatch && pathListA.size() != pathListB.size())
+        return false;
+
+    // Step 7: for directory match, remove trailing empty segment from A.
+    if (!exactMatch) {
+        ASSERT(pathListA.last().isEmpty());
+        pathListA.removeLast();
+    }
+
+    // Step 8: compare each segment after percent-decoding.
+    for (unsigned i = 0; i < pathListA.size(); ++i) {
+        if (PAL::decodeURLEscapeSequences(pathListA[i]) != PAL::decodeURLEscapeSequences(pathListB[i]))
+            return false;
+    }
+
+    return true;
 }
 
-bool ContentSecurityPolicySource::portMatches(const URL& url) const
+bool ContentSecurityPolicySource::portMatches(const URL& url, ShouldUpgradePorts shouldUpgradePorts) const
 {
+    // https://www.w3.org/TR/CSP3/#match-ports
+    // input is the source expression's port-part (m_port).
+    // url is the URL being checked against the policy.
+
+    // Step 1: Assert input is null, "*", or a sequence of one or more ASCII digits.
+    ASSERT(!(m_portHasWildcard && m_port));
+
+    // Step 2: wildcard port matches any URL.
     if (m_portHasWildcard)
         return true;
 
-    std::optional<uint16_t> port = url.port();
+    std::optional<uint16_t> urlPort = url.port();
 
-    if (port == m_port)
+    // Steps 3-4: if normalizedInput equals url's port (including null), return "Matches".
+    if (urlPort == m_port)
         return true;
 
-    if ((m_port && WTF::isDefaultPortForProtocol(m_port.value(), "http")) && ((!port && url.protocolIs("https")) || (port && WTF::isDefaultPortForProtocol(port.value(), "https"))))
-        return true;
+    // When upgrading from an insecure to secure scheme, treat default
+    // ports as equivalent since they differ across schemes (80 vs 443).
+    if (shouldUpgradePorts == ShouldUpgradePorts::Yes) {
+        auto defaultSecurePort = WTF::defaultPortForProtocol("https"_s).value_or(443);
+        auto defaultInsecurePort = WTF::defaultPortForProtocol("http"_s).value_or(80);
+        bool urlOnSecureDefaultPort = (urlPort == defaultSecurePort) || (!urlPort && (url.protocol() == "https"_s || url.protocol() == "wss"_s));
+        bool sourcePortIsUpgradable = !m_port || m_port == defaultInsecurePort || m_port == defaultSecurePort;
+        if (urlOnSecureDefaultPort && sourcePortIsUpgradable)
+            return true;
+    }
 
-    if (!port)
+    // Step 5: if url's port is null, check if source port is the default for url's scheme.
+    if (!urlPort)
         return WTF::isDefaultPortForProtocol(m_port.value(), url.protocol());
 
     if (!m_port)
-        return WTF::isDefaultPortForProtocol(port.value(), url.protocol());
+        return WTF::isDefaultPortForProtocol(urlPort.value(), url.protocol());
 
+    // Step 6: return "Does Not Match".
     return false;
 }
 
 bool ContentSecurityPolicySource::isSchemeOnly() const
 {
-    return m_host.isEmpty();
+    return m_host.isEmpty() && !m_hostHasWildcard;
 }
 
 ContentSecurityPolicySource::operator SecurityOriginData() const

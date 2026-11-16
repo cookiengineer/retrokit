@@ -32,6 +32,8 @@
 
 namespace JSC {
 
+class VM;
+
 class NumberPredictionFuzzerAgent : public FuzzerAgent {
 
 public:

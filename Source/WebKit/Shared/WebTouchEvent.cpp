@@ -29,47 +29,80 @@
 #if ENABLE(TOUCH_EVENTS)
 
 #include "ArgumentCoders.h"
+#include <WebCore/RemoteFrameGeometryTransformer.h>
 
 namespace WebKit {
 
 #if !PLATFORM(IOS_FAMILY)
 
-WebTouchEvent::WebTouchEvent(WebEvent::Type type, Vector<WebPlatformTouchPoint>&& touchPoints, OptionSet<Modifier> modifiers, WallTime timestamp)
-    : WebEvent(type, modifiers, timestamp)
-    , m_touchPoints(WTFMove(touchPoints))
+WebTouchEvent::WebTouchEvent(WebEvent&& event, Vector<WebPlatformTouchPoint>&& touchPoints, Vector<WebTouchEvent>&& coalescedEvents, Vector<WebTouchEvent>&& predictedEvents)
+    : WebEvent(WTF::move(event))
+    , m_touchPoints(WTF::move(touchPoints))
+    , m_coalescedEvents(WTF::move(coalescedEvents))
+    , m_predictedEvents(WTF::move(predictedEvents))
 {
-    ASSERT(isTouchEventType(type));
+    ASSERT(isTouchEventType(type()));
 }
 
-void WebTouchEvent::encode(IPC::Encoder& encoder) const
+bool WebTouchEvent::isTouchEventType(WebEventType type)
 {
-    WebEvent::encode(encoder);
-
-    encoder << m_touchPoints;
-}
-
-bool WebTouchEvent::decode(IPC::Decoder& decoder, WebTouchEvent& result)
-{
-    if (!WebEvent::decode(decoder, result))
-        return false;
-
-    if (!decoder.decode(result.m_touchPoints))
-        return false;
-
-    return true;
-}
-
-bool WebTouchEvent::isTouchEventType(Type type)
-{
-    return type == TouchStart || type == TouchMove || type == TouchEnd || type == TouchCancel;
+    return type == WebEventType::TouchStart || type == WebEventType::TouchMove || type == WebEventType::TouchEnd || type == WebEventType::TouchCancel;
 }
 
 #endif // !PLATFORM(IOS_FAMILY)
 
+#if ENABLE(IOS_TOUCH_EVENTS)
+void WebTouchEvent::transformToRemoteFrameCoordinates(const WebCore::RemoteFrameGeometryTransformer& transformer)
+{
+    ASSERT(!std::exchange(m_hasTransformedToRemoteFrameCoordinates, true));
+
+    m_position = transformer.transformToRemoteFrameCoordinates(m_position);
+    for (auto& touchPoint : m_touchPoints)
+        touchPoint.transformToRemoteFrameCoordinates(transformer);
+    for (auto& event : m_coalescedEvents)
+        event.transformToRemoteFrameCoordinates(transformer);
+    for (auto& event : m_predictedEvents)
+        event.transformToRemoteFrameCoordinates(transformer);
+}
+
+void WebPlatformTouchPoint::transformToRemoteFrameCoordinates(const WebCore::RemoteFrameGeometryTransformer& transformer)
+{
+    m_locationInRootView = transformer.transformToRemoteFrameCoordinates(m_locationInRootView);
+    m_previousLocationInRootView = transformer.transformToRemoteFrameCoordinates(m_previousLocationInRootView);
+
+    // When translating to the coordinate space of a site isolated iframe,
+    // viewport coordinates become the same as root view coordinates because
+    // iframes don't interact with viewports.
+    // Otherwise, if for example the root view of the main frame is partially
+    // obscured, we get bogus values here. Iframe processes don't handle
+    // any difference between root view coordinates and viewport coordinates.
+    m_locationInViewport = m_locationInRootView;
+}
+#endif
+
+#if ENABLE(COORDINATED_TOUCH_EVENTS)
+void WebTouchEvent::mergeMovedTouchPointsFrom(const WebTouchEvent& supersededEvent)
+{
+    ASSERT(type() == WebEventType::TouchMove);
+    ASSERT(supersededEvent.type() == WebEventType::TouchMove);
+
+    for (auto& touchPoint : m_touchPoints) {
+        if (touchPoint.state() != WebPlatformTouchPoint::State::Stationary)
+            continue;
+
+        auto index = supersededEvent.touchPoints().findIf([&](const auto& supersededTouchPoint) {
+            return supersededTouchPoint.id() == touchPoint.id();
+        });
+        if (index != notFound && supersededEvent.touchPoints()[index].state() == WebPlatformTouchPoint::State::Moved)
+            touchPoint.setState(WebPlatformTouchPoint::State::Moved);
+    }
+}
+#endif
+
 bool WebTouchEvent::allTouchPointsAreReleased() const
 {
     for (const auto& touchPoint : touchPoints()) {
-        if (touchPoint.state() != WebPlatformTouchPoint::TouchReleased && touchPoint.state() != WebPlatformTouchPoint::TouchCancelled)
+        if (touchPoint.state() != WebPlatformTouchPoint::State::Released && touchPoint.state() != WebPlatformTouchPoint::State::Cancelled)
             return false;
     }
 

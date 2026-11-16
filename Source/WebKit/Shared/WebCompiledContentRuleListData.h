@@ -27,47 +27,42 @@
 
 #if ENABLE(CONTENT_EXTENSIONS)
 
-#include "SharedMemory.h"
 #include <WebCore/SharedBuffer.h>
+#include <WebCore/SharedMemory.h>
 #include <wtf/RefPtr.h>
-#include <wtf/Variant.h>
-
-namespace IPC {
-class Decoder;
-class Encoder;
-}
 
 namespace WebKit {
 
 class WebCompiledContentRuleListData {
 public:
-    WebCompiledContentRuleListData(RefPtr<SharedMemory>&& data, unsigned conditionsApplyOnlyToDomainOffset, unsigned actionsOffset, unsigned actionsSize, unsigned filtersWithoutConditionsBytecodeOffset, unsigned filtersWithoutConditionsBytecodeSize, unsigned filtersWithConditionsBytecodeOffset, unsigned filtersWithConditionsBytecodeSize, unsigned topURLFiltersBytecodeOffset, unsigned topURLFiltersBytecodeSize)
-        : data(WTFMove(data))
-        , conditionsApplyOnlyToDomainOffset(conditionsApplyOnlyToDomainOffset)
+    WebCompiledContentRuleListData(String&& identifier, Ref<WebCore::SharedMemory>&& data, uint64_t actionsOffset, uint64_t actionsSize, uint64_t urlFiltersBytecodeOffset, uint64_t urlFiltersBytecodeSize, uint64_t topURLFiltersBytecodeOffset, uint64_t topURLFiltersBytecodeSize, uint64_t frameURLFiltersBytecodeOffset, uint64_t frameURLFiltersBytecodeSize)
+        : identifier(WTF::move(identifier))
+        , data(WTF::move(data))
         , actionsOffset(actionsOffset)
         , actionsSize(actionsSize)
-        , filtersWithoutConditionsBytecodeOffset(filtersWithoutConditionsBytecodeOffset)
-        , filtersWithoutConditionsBytecodeSize(filtersWithoutConditionsBytecodeSize)
-        , filtersWithConditionsBytecodeOffset(filtersWithConditionsBytecodeOffset)
-        , filtersWithConditionsBytecodeSize(filtersWithConditionsBytecodeSize)
+        , urlFiltersBytecodeOffset(urlFiltersBytecodeOffset)
+        , urlFiltersBytecodeSize(urlFiltersBytecodeSize)
         , topURLFiltersBytecodeOffset(topURLFiltersBytecodeOffset)
         , topURLFiltersBytecodeSize(topURLFiltersBytecodeSize)
+        , frameURLFiltersBytecodeOffset(frameURLFiltersBytecodeOffset)
+        , frameURLFiltersBytecodeSize(frameURLFiltersBytecodeSize)
     {
     }
 
-    void encode(IPC::Encoder&) const;
-    static std::optional<WebCompiledContentRuleListData> decode(IPC::Decoder&);
+    WebCompiledContentRuleListData(String&& identifier, std::optional<WebCore::SharedMemoryHandle>&& data, uint64_t actionsOffset, uint64_t actionsSize, uint64_t urlFiltersBytecodeOffset, uint64_t urlFiltersBytecodeSize, uint64_t topURLFiltersBytecodeOffset, uint64_t topURLFiltersBytecodeSize, uint64_t frameURLFiltersBytecodeOffset, uint64_t frameURLFiltersBytecodeSize);
 
-    RefPtr<SharedMemory> data;
-    unsigned conditionsApplyOnlyToDomainOffset { 0 };
-    unsigned actionsOffset { 0 };
-    unsigned actionsSize { 0 };
-    unsigned filtersWithoutConditionsBytecodeOffset { 0 };
-    unsigned filtersWithoutConditionsBytecodeSize { 0 };
-    unsigned filtersWithConditionsBytecodeOffset { 0 };
-    unsigned filtersWithConditionsBytecodeSize { 0 };
-    unsigned topURLFiltersBytecodeOffset { 0 };
-    unsigned topURLFiltersBytecodeSize { 0 };
+    std::optional<WebCore::SharedMemoryHandle> createDataHandle(WebCore::SharedMemory::Protection = WebCore::SharedMemory::Protection::ReadOnly) const;
+
+    String identifier;
+    RefPtr<WebCore::SharedMemory> data;
+    uint64_t actionsOffset { 0 };
+    uint64_t actionsSize { 0 };
+    uint64_t urlFiltersBytecodeOffset { 0 };
+    uint64_t urlFiltersBytecodeSize { 0 };
+    uint64_t topURLFiltersBytecodeOffset { 0 };
+    uint64_t topURLFiltersBytecodeSize { 0 };
+    uint64_t frameURLFiltersBytecodeOffset { 0 };
+    uint64_t frameURLFiltersBytecodeSize { 0 };
 };
 
 }

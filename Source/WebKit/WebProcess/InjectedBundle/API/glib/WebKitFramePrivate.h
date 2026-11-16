@@ -17,13 +17,18 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef WebKitFramePrivate_h
-#define WebKitFramePrivate_h
+#pragma once
 
 #include "WebFrame.h"
 #include "WebKitFrame.h"
+#include "WebKitScriptWorld.h"
+#include <WebCore/Element.h>
+#include <wtf/RefPtr.h>
+#include <wtf/Vector.h>
+#include <wtf/glib/GRefPtr.h>
 
 WebKitFrame* webkitFrameCreate(WebKit::WebFrame*);
 WebKit::WebFrame* webkitFrameGetWebFrame(WebKitFrame*);
-
-#endif // WebKitFramePrivate_h
+GRefPtr<JSCValue> webkitFrameGetJSCValueForElementInWorld(WebKitFrame*, WebCore::Element&, WebKitScriptWorld*);
+Vector<GRefPtr<JSCValue>> webkitFrameGetJSCValuesForElementsInWorld(WebKitFrame*, const Vector<Ref<WebCore::Element>>&, WebKitScriptWorld*);
+void webkitFrameSetURI(WebKitFrame*, const CString&);

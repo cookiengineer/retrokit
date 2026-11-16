@@ -27,53 +27,18 @@
 
 #if ENABLE(APPLE_PAY_COUPON_CODE)
 
-#include "ApplePayDetailsUpdateBase.h"
-#include "ApplePayError.h"
-#include "ApplePayShippingMethod.h"
+#include <WebCore/ApplePayDetailsUpdateBase.h>
+#include <WebCore/ApplePayError.h>
+#include <WebCore/ApplePayShippingMethod.h>
 #include <wtf/RefPtr.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
 
 struct ApplePayCouponCodeUpdate final : public ApplePayDetailsUpdateBase {
-    Vector<RefPtr<ApplePayError>> errors;
-
+    Vector<Ref<ApplePayError>> errors;
     Vector<ApplePayShippingMethod> newShippingMethods;
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<ApplePayCouponCodeUpdate> decode(Decoder&);
 };
-
-template<class Encoder>
-void ApplePayCouponCodeUpdate::encode(Encoder& encoder) const
-{
-    ApplePayDetailsUpdateBase::encode(encoder);
-    encoder << errors;
-    encoder << newShippingMethods;
-}
-
-template<class Decoder>
-std::optional<ApplePayCouponCodeUpdate> ApplePayCouponCodeUpdate::decode(Decoder& decoder)
-{
-    ApplePayCouponCodeUpdate result;
-
-    if (!result.decodeBase(decoder))
-        return std::nullopt;
-
-    std::optional<Vector<RefPtr<ApplePayError>>> errors;
-    decoder >> errors;
-    if (!errors)
-        return std::nullopt;
-    result.errors = WTFMove(*errors);
-
-    std::optional<Vector<ApplePayShippingMethod>> newShippingMethods;
-    decoder >> newShippingMethods;
-    if (!newShippingMethods)
-        return std::nullopt;
-    result.newShippingMethods = WTFMove(*newShippingMethods);
-
-    return result;
-}
 
 } // namespace WebCore
 

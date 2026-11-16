@@ -34,15 +34,11 @@ namespace JSC { namespace B3 { namespace Air {
 class Code;
 class StackSlot;
 
-// This is a collection of utilities shared by both stack allocators
-// (allocateStackByGraphColoring and allocateRegistersAndStackByLinearScan).
-
-// Attempt to put the given stack slot at the given offset. Returns false if this would cause
-// the slot to overlap with any of the given slots.
-bool attemptAssignment(StackSlot*, intptr_t offsetFromFP, const Vector<StackSlot*>& adjacent);
+// This is a collection of utilities shared by stack allocators.
 
 // Performs a first-fit assignment (smallest possible offset) of the given stack slot such that
-// it does not overlap with any of the adjacent slots.
+// it does not overlap with any of the adjacent slots. The adjacent slots must all have assigned
+// offsets (offsetFromFP < 0) and be sorted by offsetFromFP descending (closest to FP first).
 void assign(StackSlot*, const Vector<StackSlot*>& adjacent);
 
 // Allocates all stack slots that escape - that is, that don't have live ranges that can be

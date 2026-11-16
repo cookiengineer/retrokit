@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2007 Nikolas Zimmermann <zimmermann@kde.org>
+ * Copyright (C) 2025 Samuel Weinig <sam@webkit.org>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -20,53 +21,71 @@
 #include "config.h"
 #include "RenderSVGTextPath.h"
 
+#include "ContainerNodeInlines.h"
 #include "FloatQuad.h"
 #include "RenderBlock.h"
+#include "RenderBoxModelObjectInlines.h"
+#include "RenderElementStyleInlines.h"
+#include "RenderLayer.h"
+#include "RenderObjectInlines.h"
+#include "RenderSVGInlineInlines.h"
+#include "RenderSVGShape.h"
+#include "SVGElementTypeHelpers.h"
 #include "SVGGeometryElement.h"
 #include "SVGInlineTextBox.h"
 #include "SVGNames.h"
-#include "SVGPathData.h"
 #include "SVGPathElement.h"
+#include "SVGPathFromElement.h"
 #include "SVGRootInlineBox.h"
 #include "SVGTextPathElement.h"
-#include <wtf/IsoMallocInlines.h>
+#include "Settings.h"
+#include "StyleTransformResolver.h"
+#include "TransformationMatrix.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(RenderSVGTextPath);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderSVGTextPath);
 
-RenderSVGTextPath::RenderSVGTextPath(SVGTextPathElement& element, RenderStyle&& style)
-    : RenderSVGInline(element, WTFMove(style))
+RenderSVGTextPath::RenderSVGTextPath(SVGTextPathElement& element, Style::ComputedStyle&& style)
+    : RenderSVGInline(Type::SVGTextPath, element, WTF::move(style))
 {
+    ASSERT(isRenderSVGTextPath());
 }
+
+RenderSVGTextPath::~RenderSVGTextPath() = default;
 
 SVGTextPathElement& RenderSVGTextPath::textPathElement() const
 {
     return downcast<SVGTextPathElement>(RenderSVGInline::graphicsElement());
 }
 
-SVGGeometryElement* RenderSVGTextPath::targetElement() const
+RefPtr<SVGGeometryElement> RenderSVGTextPath::targetElement() const
 {
-    auto target = SVGURIReference::targetElementFromIRIString(textPathElement().href(), textPathElement().treeScope());
-    if (!is<SVGGeometryElement>(target.element))
-        return nullptr;
-
-    return downcast<SVGGeometryElement>(target.element.get());
+    auto target = SVGURIReference::targetElementFromIRIString(textPathElement().href(), protect(textPathElement())->treeScopeForSVGReferences());
+    return dynamicDowncast<SVGGeometryElement>(WTF::move(target.element));
 }
 
 Path RenderSVGTextPath::layoutPath() const
 {
-    auto element = targetElement();
+    RefPtr element = targetElement();
     if (!is<SVGGeometryElement>(element))
-        return Path();
+        return { };
 
-    Path path = pathFromGraphicsElement(element);
+    auto path = pathFromGraphicsElement(*element);
 
     // Spec:  The transform attribute on the referenced 'path' element represents a
     // supplemental transformation relative to the current user coordinate system for
     // the current 'text' element, including any adjustments to the current user coordinate
     // system due to a possible transform attribute on the current 'text' element.
     // http://www.w3.org/TR/SVG/text.html#TextPathElement
+    if (CheckedPtr shapeRenderer = dynamicDowncast<RenderSVGShape>(element->renderer())) {
+        auto transform = shapeRenderer->computeRendererTransform();
+        if (!transform.isIdentity())
+            path.transform(transform);
+        return path;
+    }
+
     path.transform(element->animatedLocalTransform());
     return path;
 }
@@ -74,16 +93,6 @@ Path RenderSVGTextPath::layoutPath() const
 const SVGLengthValue& RenderSVGTextPath::startOffset() const
 {
     return textPathElement().startOffset();
-}
-
-bool RenderSVGTextPath::exactAlignment() const
-{
-    return textPathElement().spacing() == SVGTextPathSpacingExact;
-}
-
-bool RenderSVGTextPath::stretchMethod() const
-{
-    return textPathElement().method() == SVGTextPathMethodStretch;
 }
 
 }

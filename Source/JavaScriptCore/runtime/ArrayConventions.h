@@ -20,9 +20,11 @@
 
 #pragma once
 
-#include "IndexingHeader.h"
-#include "PureNaN.h"
-#include "WriteBarrier.h"
+#include <JavaScriptCore/IndexingHeader.h>
+#include <JavaScriptCore/PureNaN.h>
+#include <JavaScriptCore/WriteBarrier.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
@@ -73,8 +75,8 @@ namespace JSC {
 static_assert(MIN_SPARSE_ARRAY_INDEX <= MAX_STORAGE_VECTOR_INDEX, "MIN_SPARSE_ARRAY_INDEX must be less than or equal to MAX_STORAGE_VECTOR_INDEX");
 static_assert(MAX_STORAGE_VECTOR_INDEX <= MAX_ARRAY_INDEX, "MAX_STORAGE_VECTOR_INDEX must be less than or equal to MAX_ARRAY_INDEX");
 
-// The value BASE_XXX_VECTOR_LEN is the maximum number of vector elements we'll allocate
-// for an array that was created with a sepcified length (e.g. a = new Array(123))
+// The value BASE_XXX_VECTOR_LEN is the minimum number of vector elements we'll allocate
+// for an array that was created with a specified length (e.g. a = new Array(123))
 #define BASE_CONTIGUOUS_VECTOR_LEN 3U
 #define BASE_CONTIGUOUS_VECTOR_LEN_EMPTY 5U
 #define BASE_CONTIGUOUS_VECTOR_LEN_MIN 3U
@@ -150,3 +152,5 @@ ALWAYS_INLINE void clearArray(double* base, unsigned count)
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

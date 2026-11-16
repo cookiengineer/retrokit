@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004 Apple Inc.  All rights reserved.
+ * Copyright (C) 2004 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,8 +25,6 @@
 
 #pragma once
 
-#include <wtf/EnumTraits.h>
-
 namespace WebCore {
 
 // FIXME: This really should be broken up into more than one concept.
@@ -45,23 +43,3 @@ enum class TextGranularity : uint8_t {
 };
 
 } // namespace WebCore
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::TextGranularity> {
-    using values = EnumValues<
-        WebCore::TextGranularity,
-        WebCore::TextGranularity::CharacterGranularity,
-        WebCore::TextGranularity::WordGranularity,
-        WebCore::TextGranularity::SentenceGranularity,
-        WebCore::TextGranularity::LineGranularity,
-        WebCore::TextGranularity::ParagraphGranularity,
-        WebCore::TextGranularity::DocumentGranularity,
-        WebCore::TextGranularity::SentenceBoundary,
-        WebCore::TextGranularity::LineBoundary,
-        WebCore::TextGranularity::ParagraphBoundary,
-        WebCore::TextGranularity::DocumentBoundary
-    >;
-};
-
-}

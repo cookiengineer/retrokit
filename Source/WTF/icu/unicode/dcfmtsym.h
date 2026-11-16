@@ -28,10 +28,12 @@
 #define DCFMTSYM_H
 
 #include "unicode/utypes.h"
-#include "unicode/uchar.h"
+
+#if U_SHOW_CPLUSPLUS_API
 
 #if !UCONFIG_NO_FORMATTING
 
+#include "unicode/uchar.h"
 #include "unicode/uobject.h"
 #include "unicode/locid.h"
 #include "unicode/numsys.h"
@@ -167,8 +169,14 @@ public:
          * @stable ICU 54
          */
         kExponentMultiplicationSymbol,
+#ifndef U_HIDE_INTERNAL_API
+        /** Approximately sign.
+         * @internal
+         */
+        kApproximatelySignSymbol,
+#endif  /* U_HIDE_INTERNAL_API */
         /** count symbol constants */
-        kFormatSymbolCount = kNineDigitSymbol + 2
+        kFormatSymbolCount = kExponentMultiplicationSymbol + 2
     };
 
     /**
@@ -181,7 +189,6 @@ public:
      */
     DecimalFormatSymbols(const Locale& locale, UErrorCode& status);
 
-#ifndef U_HIDE_DRAFT_API
     /**
      * Creates a DecimalFormatSymbols instance for the given locale with digits and symbols
      * corresponding to the given NumberingSystem.
@@ -196,10 +203,9 @@ public:
      * @param ns        The numbering system.
      * @param status    Input/output parameter, set to success or
      *                  failure code upon return.
-     * @draft ICU 60
+     * @stable ICU 60
      */
     DecimalFormatSymbols(const Locale& locale, const NumberingSystem& ns, UErrorCode& status);
-#endif  /* U_HIDE_DRAFT_API */
 
     /**
      * Create a DecimalFormatSymbols object for the default locale.
@@ -255,7 +261,7 @@ public:
      * @return         true if another object is semantically equal to this one.
      * @stable ICU 2.0
      */
-    UBool operator==(const DecimalFormatSymbols& other) const;
+    bool operator==(const DecimalFormatSymbols& other) const;
 
     /**
      * Return true if another object is semantically unequal to this one.
@@ -264,7 +270,7 @@ public:
      * @return         true if another object is semantically unequal to this one.
      * @stable ICU 2.0
      */
-    UBool operator!=(const DecimalFormatSymbols& other) const { return !operator==(other); }
+    bool operator!=(const DecimalFormatSymbols& other) const { return !operator==(other); }
 
     /**
      * Get one of the format symbols by its enum constant.
@@ -284,12 +290,23 @@ public:
      *
      * @param symbol    Constant to indicate a number format symbol.
      * @param value     value of the format symbol
-     * @param propogateDigits If false, setting the zero digit will not automatically set 1-9.
+     * @param propagateDigits If false, setting the zero digit will not automatically set 1-9.
      *     The default behavior is to automatically set 1-9 if zero is being set and the value
      *     it is being set to corresponds to a known Unicode zero digit.
      * @stable ICU 2.0
      */
-    void setSymbol(ENumberFormatSymbol symbol, const UnicodeString &value, const UBool propogateDigits);
+    void setSymbol(ENumberFormatSymbol symbol, const UnicodeString &value, const UBool propagateDigits);
+
+#ifndef U_HIDE_INTERNAL_API
+    /**
+     * Loads symbols for the specified currency into this instance.
+     *
+     * This method is internal. If you think it should be public, file a ticket.
+     *
+     * @internal
+     */
+    void setCurrency(const char16_t* currency, UErrorCode& status);
+#endif  // U_HIDE_INTERNAL_API
 
     /**
      * Returns the locale for which this object was constructed.
@@ -342,7 +359,7 @@ public:
      *
      * @stable ICU 2.2
      */
-    virtual UClassID getDynamicClassID() const;
+    virtual UClassID getDynamicClassID() const override;
 
     /**
      * ICU "poor man's RTTI", returns a UClassID for this class.
@@ -367,14 +384,12 @@ private:
      *                             back to the locale.
      */
     void initialize(const Locale& locale, UErrorCode& success,
-        UBool useLastResortData = FALSE, const NumberingSystem* ns = nullptr);
+                    UBool useLastResortData = false, const NumberingSystem* ns = nullptr);
 
     /**
      * Initialize the symbols with default values.
      */
     void initialize();
-
-    void setCurrencyForSymbols();
 
 public:
 
@@ -406,11 +421,11 @@ public:
      * returning a const reference to one of the symbol strings.
      * The returned reference becomes invalid when the symbol is changed
      * or when the DecimalFormatSymbols are destroyed.
-     * Note: moved #ifndef U_HIDE_INTERNAL_API after this, since this is needed for inline in DecimalFormat
+     * Note: moved \#ifndef U_HIDE_INTERNAL_API after this, since this is needed for inline in DecimalFormat
      *
      * This is not currently stable API, but if you think it should be stable,
      * post a comment on the following ticket and the ICU team will take a look:
-     * http://bugs.icu-project.org/trac/ticket/13580
+     * https://unicode-org.atlassian.net/browse/ICU-13580
      *
      * @param symbol Constant to indicate a number format symbol.
      * @return the format symbol by the param 'symbol'
@@ -427,7 +442,7 @@ public:
      *
      * This is not currently stable API, but if you think it should be stable,
      * post a comment on the following ticket and the ICU team will take a look:
-     * http://bugs.icu-project.org/trac/ticket/13580
+     * https://unicode-org.atlassian.net/browse/ICU-13580
      *
      * @param digit The digit, an integer between 0 and 9 inclusive.
      *              If outside the range 0 to 9, the zero digit is returned.
@@ -437,10 +452,16 @@ public:
     inline const UnicodeString& getConstDigitSymbol(int32_t digit) const;
 
     /**
-     * Returns that pattern stored in currecy info. Internal API for use by NumberFormat API.
+     * Returns that pattern stored in currency info. Internal API for use by NumberFormat API.
      * @internal
      */
     inline const char16_t* getCurrencyPattern(void) const;
+
+    /**
+     * Returns the numbering system with which this DecimalFormatSymbols was initialized.
+     * @internal
+     */
+    inline const char* getNumberingSystemName(void) const;
 #endif  /* U_HIDE_INTERNAL_API */
 
 private:
@@ -457,13 +478,11 @@ private:
      * to non-resource bundle strings,
      * then regular UnicodeString copies must be used instead of fastCopyFrom().
      *
-     * @internal
      */
     UnicodeString fSymbols[kFormatSymbolCount];
 
     /**
      * Non-symbol variable for getConstSymbol(). Always empty.
-     * @internal
      */
     UnicodeString fNoSymbol;
 
@@ -487,12 +506,13 @@ private:
 
     char actualLocale[ULOC_FULLNAME_CAPACITY];
     char validLocale[ULOC_FULLNAME_CAPACITY];
-    const char16_t* currPattern;
+    const char16_t* currPattern = nullptr;
 
     UnicodeString currencySpcBeforeSym[UNUM_CURRENCY_SPACING_COUNT];
     UnicodeString currencySpcAfterSym[UNUM_CURRENCY_SPACING_COUNT];
     UBool fIsCustomCurrencySymbol;
     UBool fIsCustomIntlCurrencySymbol;
+    char nsName[kInternalNumSysNameCapacity+1] = {};
 };
 
 // -------------------------------------
@@ -531,17 +551,17 @@ inline const UnicodeString& DecimalFormatSymbols::getConstDigitSymbol(int32_t di
     ENumberFormatSymbol key = static_cast<ENumberFormatSymbol>(kOneDigitSymbol + digit - 1);
     return fSymbols[key];
 }
-#endif
+#endif /* U_HIDE_INTERNAL_API */
 
 // -------------------------------------
 
 inline void
-DecimalFormatSymbols::setSymbol(ENumberFormatSymbol symbol, const UnicodeString &value, const UBool propogateDigits = TRUE) {
+DecimalFormatSymbols::setSymbol(ENumberFormatSymbol symbol, const UnicodeString &value, const UBool propagateDigits = true) {
     if (symbol == kCurrencySymbol) {
-        fIsCustomCurrencySymbol = TRUE;
+        fIsCustomCurrencySymbol = true;
     }
     else if (symbol == kIntlCurrencySymbol) {
-        fIsCustomIntlCurrencySymbol = TRUE;
+        fIsCustomIntlCurrencySymbol = true;
     }
     if(symbol<kFormatSymbolCount) {
         fSymbols[symbol]=value;
@@ -552,7 +572,7 @@ DecimalFormatSymbols::setSymbol(ENumberFormatSymbol symbol, const UnicodeString 
     // Also record updates to fCodePointZero. Be conservative if in doubt.
     if (symbol == kZeroDigitSymbol) {
         UChar32 sym = value.char32At(0);
-        if ( propogateDigits && u_charDigitValue(sym) == 0 && value.countChar32() == 1 ) {
+        if ( propagateDigits && u_charDigitValue(sym) == 0 && value.countChar32() == 1 ) {
             fCodePointZero = sym;
             for ( int8_t i = 1 ; i<= 9 ; i++ ) {
                 sym++;
@@ -578,11 +598,17 @@ inline const char16_t*
 DecimalFormatSymbols::getCurrencyPattern() const {
     return currPattern;
 }
+inline const char*
+DecimalFormatSymbols::getNumberingSystemName() const {
+    return nsName;
+}
 #endif /* U_HIDE_INTERNAL_API */
 
 U_NAMESPACE_END
 
 #endif /* #if !UCONFIG_NO_FORMATTING */
+
+#endif /* U_SHOW_CPLUSPLUS_API */
 
 #endif // _DCFMTSYM
 //eof

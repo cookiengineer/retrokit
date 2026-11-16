@@ -25,9 +25,8 @@
 
 #pragma once
 
-#if ENABLE(DATE_AND_TIME_INPUT_TYPES)
-
-#include <wtf/RefCounted.h>
+#include <WebCore/FrameIdentifier.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -38,19 +37,22 @@ namespace WebKit {
 
 class WebPageProxy;
 
-class WebDateTimePicker : public RefCounted<WebDateTimePicker>, public CanMakeWeakPtr<WebDateTimePicker> {
+class WebDateTimePicker : public RefCountedAndCanMakeWeakPtr<WebDateTimePicker> {
 public:
     virtual ~WebDateTimePicker();
 
     virtual void endPicker();
-    virtual void showDateTimePicker(WebCore::DateTimeChooserParameters&&) = 0;
+    void showDateTimePicker(WebCore::DateTimeChooserParameters&&);
+
+    std::optional<WebCore::FrameIdentifier> frameID() const { return m_frameID; }
 
 protected:
     explicit WebDateTimePicker(WebPageProxy&);
 
+    virtual void platformShowDateTimePicker(WebCore::DateTimeChooserParameters&&) = 0;
+
     WeakPtr<WebPageProxy> m_page;
+    std::optional<WebCore::FrameIdentifier> m_frameID;
 };
 
 } // namespace WebKit
-
-#endif // ENABLE(DATE_AND_TIME_INPUT_TYPES)

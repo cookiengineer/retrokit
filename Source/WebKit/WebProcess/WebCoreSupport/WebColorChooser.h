@@ -23,12 +23,12 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WebColorChooser_h
-#define WebColorChooser_h
-
-#if ENABLE(INPUT_TYPE_COLOR)
+#pragma once
 
 #include <WebCore/ColorChooser.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 class Color;
@@ -39,26 +39,32 @@ namespace WebKit {
 
 class WebPage;
 
-class WebColorChooser : public WebCore::ColorChooser {
+class WebColorChooser : public WebCore::ColorChooser, public RefCountedAndCanMakeWeakPtr<WebColorChooser> {
+    WTF_MAKE_TZONE_ALLOCATED(WebColorChooser);
 public:
-    WebColorChooser(WebPage*, WebCore::ColorChooserClient*, const WebCore::Color&);
+    static Ref<WebColorChooser> create(WebPage* page, WebCore::ColorChooserClient* client, const WebCore::Color& initialColor)
+    {
+        return adoptRef(*new WebColorChooser(page, client, initialColor));
+    }
+
     virtual ~WebColorChooser();
+
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
 
     void didChooseColor(const WebCore::Color&);
     void didEndChooser();
-    void disconnectFromPage();
+    void NODELETE disconnectFromPage();
 
     void reattachColorChooser(const WebCore::Color&) override;
     void setSelectedColor(const WebCore::Color&) override;
     void endChooser() override;
 
 private:
-    WebCore::ColorChooserClient* m_colorChooserClient;
-    WebPage* m_page;
+    WebColorChooser(WebPage*, WebCore::ColorChooserClient*, const WebCore::Color&);
+
+    WeakPtr<WebCore::ColorChooserClient> m_colorChooserClient;
+    WeakPtr<WebPage> m_page;
 };
 
 } // namespace WebKit
-
-#endif // ENABLE(INPUT_TYPE_COLOR)
-
-#endif // WebColorChooser_h

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,30 +30,35 @@
 
 #include "FrameInfoData.h"
 #include "GeolocationIdentifier.h"
-#include "WebCoreArgumentCoders.h"
+#include "MessageSenderInlines.h"
 #include "WebFrame.h"
 #include "WebPage.h"
 #include "WebPageProxyMessages.h"
 #include <WebCore/Document.h>
-#include <WebCore/Frame.h>
 #include <WebCore/FrameLoader.h>
 #include <WebCore/Geolocation.h>
+#include <WebCore/LocalFrame.h>
 #include <WebCore/SecurityOrigin.h>
 #include <WebCore/SecurityOriginData.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 using namespace WebCore;
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(GeolocationPermissionRequestManager);
 
 GeolocationPermissionRequestManager::GeolocationPermissionRequestManager(WebPage& page)
     : m_page(page)
 {
 }
 
+GeolocationPermissionRequestManager::~GeolocationPermissionRequestManager() = default;
+
 void GeolocationPermissionRequestManager::startRequestForGeolocation(Geolocation& geolocation)
 {
-    Frame* frame = geolocation.frame();
+    RefPtr frame = geolocation.frame();
 
-    ASSERT_WITH_MESSAGE(frame, "It is not well understood in which cases the Geolocation is alive after its frame goes away. If you hit this assertion, please add a test covering this case.");
+    ASSERT_WITH_MESSAGE(frame.get(), "It is not well understood in which cases the Geolocation is alive after its frame goes away. If you hit this assertion, please add a test covering this case.");
     if (!frame) {
         geolocation.setIsAllowed(false, { });
         return;
@@ -61,36 +66,44 @@ void GeolocationPermissionRequestManager::startRequestForGeolocation(Geolocation
 
     GeolocationIdentifier geolocationID = GeolocationIdentifier::generate();
 
-    m_geolocationToIDMap.set(&geolocation, geolocationID);
-    m_idToGeolocationMap.set(geolocationID, &geolocation);
+    m_geolocationToIDMap.set(geolocation, geolocationID);
+    m_idToGeolocationMap.set(geolocationID, geolocation);
 
-    WebFrame* webFrame = WebFrame::fromCoreFrame(*frame);
+    RefPtr webFrame = WebFrame::fromCoreFrame(*frame);
     ASSERT(webFrame);
 
-    m_page.send(Messages::WebPageProxy::RequestGeolocationPermissionForFrame(geolocationID, webFrame->info()));
+    protect(m_page)->send(Messages::WebPageProxy::RequestGeolocationPermissionForFrame(geolocationID, webFrame->info()));
 }
 
 void GeolocationPermissionRequestManager::revokeAuthorizationToken(const String& authorizationToken)
 {
-    m_page.send(Messages::WebPageProxy::RevokeGeolocationAuthorizationToken(authorizationToken));
+    protect(m_page)->send(Messages::WebPageProxy::RevokeGeolocationAuthorizationToken(authorizationToken));
 }
 
 void GeolocationPermissionRequestManager::cancelRequestForGeolocation(Geolocation& geolocation)
 {
-    GeolocationIdentifier geolocationID = m_geolocationToIDMap.take(&geolocation);
-    if (!geolocationID)
-        return;
-    m_idToGeolocationMap.remove(geolocationID);
+    if (auto geolocationID = m_geolocationToIDMap.takeOptional(geolocation))
+        m_idToGeolocationMap.remove(*geolocationID);
 }
 
 void GeolocationPermissionRequestManager::didReceiveGeolocationPermissionDecision(GeolocationIdentifier geolocationID, const String& authorizationToken)
 {
-    Geolocation* geolocation = m_idToGeolocationMap.take(geolocationID);
+    RefPtr geolocation = m_idToGeolocationMap.take(geolocationID).get();
     if (!geolocation)
         return;
-    m_geolocationToIDMap.remove(geolocation);
+    m_geolocationToIDMap.remove(geolocation.get());
 
     geolocation->setIsAllowed(!authorizationToken.isNull(), authorizationToken);
+}
+
+void GeolocationPermissionRequestManager::ref() const
+{
+    m_page->ref();
+}
+
+void GeolocationPermissionRequestManager::deref() const
+{
+    m_page->deref();
 }
 
 } // namespace WebKit

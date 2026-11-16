@@ -23,28 +23,28 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef NetworkCacheEntry_h
-#define NetworkCacheEntry_h
+#pragma once
 
 #include "NetworkCacheStorage.h"
-#include "ShareableResource.h"
+#include "PrivateRelayed.h"
 #include <WebCore/ResourceRequest.h>
 #include <WebCore/ResourceResponse.h>
+#include <WebCore/ShareableResource.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/Seconds.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
-class SharedBuffer;
+class FragmentedSharedBuffer;
 }
 
-namespace WebKit {
-namespace NetworkCache {
+namespace WebKit::NetworkCache {
 
 class Entry {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(Entry);
 public:
-    Entry(const Key&, const WebCore::ResourceResponse&, RefPtr<WebCore::SharedBuffer>&&, const Vector<std::pair<String, String>>& varyingRequestHeaders);
+    Entry(const Key&, const WebCore::ResourceResponse&, PrivateRelayed, RefPtr<WebCore::FragmentedSharedBuffer>&&, const Vector<std::pair<String, String>>& varyingRequestHeaders);
     Entry(const Key&, const WebCore::ResourceResponse&, const WebCore::ResourceRequest& redirectRequest, const Vector<std::pair<String, String>>& varyingRequestHeaders);
     explicit Entry(const Storage::Record&);
     Entry(const Entry&);
@@ -52,35 +52,31 @@ public:
     Storage::Record encodeAsStorageRecord() const;
     static std::unique_ptr<Entry> decodeStorageRecord(const Storage::Record&);
 
-    const Key& key() const { return m_key; }
+    PrivateRelayed privateRelayed() const { return m_privateRelayed; }
+    const Key& key() const LIFETIME_BOUND { return m_key; }
     WallTime timeStamp() const { return m_timeStamp; }
-    const WebCore::ResourceResponse& response() const { return m_response; }
-    const Vector<std::pair<String, String>>& varyingRequestHeaders() const { return m_varyingRequestHeaders; }
+    const WebCore::ResourceResponse& response() const LIFETIME_BOUND { return m_response; }
+    const Vector<std::pair<String, String>>& varyingRequestHeaders() const LIFETIME_BOUND { return m_varyingRequestHeaders; }
 
-    WebCore::SharedBuffer* buffer() const;
-    const std::optional<WebCore::ResourceRequest>& redirectRequest() const { return m_redirectRequest; }
+    WebCore::FragmentedSharedBuffer* buffer() const;
+    const std::optional<WebCore::ResourceRequest>& redirectRequest() const LIFETIME_BOUND { return m_redirectRequest; }
 
 #if ENABLE(SHAREABLE_RESOURCE)
-    ShareableResource::Handle& shareableResourceHandle() const;
+    std::optional<WebCore::ShareableResource::Handle> shareableResourceHandle() const;
 #endif
 
     bool needsValidation() const;
-    void setNeedsValidation(bool);
+    void NODELETE setNeedsValidation(bool);
 
-    const Storage::Record& sourceStorageRecord() const { return m_sourceStorageRecord; }
+    const Storage::Record& sourceStorageRecord() const LIFETIME_BOUND { return m_sourceStorageRecord; }
 
     void asJSON(StringBuilder&, const Storage::RecordInfo&) const;
 
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
     bool hasReachedPrevalentResourceAgeCap() const;
-    void capMaxAge(const Seconds);
-#endif
+    void NODELETE capMaxAge(const Seconds);
 
 private:
     void initializeBufferFromStorageRecord() const;
-#if ENABLE(SHAREABLE_RESOURCE)
-    void initializeShareableResourceHandleFromStorageRecord() const;
-#endif
 
     Key m_key;
     WallTime m_timeStamp;
@@ -88,17 +84,15 @@ private:
     Vector<std::pair<String, String>> m_varyingRequestHeaders;
 
     std::optional<WebCore::ResourceRequest> m_redirectRequest;
-    mutable RefPtr<WebCore::SharedBuffer> m_buffer;
+    mutable RefPtr<WebCore::FragmentedSharedBuffer> m_buffer;
 #if ENABLE(SHAREABLE_RESOURCE)
-    mutable ShareableResource::Handle m_shareableResourceHandle;
+    mutable RefPtr<WebCore::ShareableResource> m_shareableResource;
 #endif
 
     Storage::Record m_sourceStorageRecord { };
     
     std::optional<Seconds> m_maxAgeCap;
+    PrivateRelayed m_privateRelayed { PrivateRelayed::No };
 };
 
 }
-}
-
-#endif

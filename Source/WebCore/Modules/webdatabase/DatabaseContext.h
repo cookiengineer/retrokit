@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2008 Apple Inc. All Rights Reserved.
- * Copyright (C) 2011 Google, Inc. All Rights Reserved.
+ * Copyright (C) 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2011 Google, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,12 +29,9 @@
 
 #include "ActiveDOMObject.h"
 #include "Document.h"
+#include <wtf/Platform.h>
 #include <wtf/RefPtr.h>
 #include <wtf/ThreadSafeRefCounted.h>
-
-#if PLATFORM(IOS_FAMILY)
-#include <wtf/Threading.h>
-#endif
 
 namespace WebCore {
 
@@ -43,10 +40,14 @@ class DatabaseDetails;
 class DatabaseTaskSynchronizer;
 class DatabaseThread;
 class SecurityOrigin;
-struct SecurityOriginData;
+class SecurityOriginData;
 
 class DatabaseContext final : public ThreadSafeRefCounted<DatabaseContext>, private ActiveDOMObject {
 public:
+    // ActiveDOMObject.
+    void ref() const final { ThreadSafeRefCounted::ref(); }
+    void deref() const final { ThreadSafeRefCounted::deref(); }
+
     virtual ~DatabaseContext();
 
     DatabaseThread* existingDatabaseThread() const { return m_databaseThread.get(); }
@@ -61,7 +62,7 @@ public:
     bool allowDatabaseAccess() const;
     void databaseExceededQuota(const String& name, DatabaseDetails);
 
-    Document* document() const { return downcast<Document>(ActiveDOMObject::scriptExecutionContext()); }
+    Document* NODELETE document() const;
     const SecurityOriginData& securityOrigin() const;
 
     bool isContextThread() const;
@@ -72,10 +73,11 @@ private:
     void stopDatabases() { stopDatabases(nullptr); }
 
     void contextDestroyed() override;
-    void stop() override;
-    const char* activeDOMObjectName() const override { return "DatabaseContext"; }
 
-    RefPtr<DatabaseThread> m_databaseThread;
+    // ActiveDOMObject.
+    void stop() override;
+
+    const RefPtr<DatabaseThread> m_databaseThread;
     bool m_hasOpenDatabases { false }; // This never changes back to false, even after the database thread is closed.
     bool m_hasRequestedTermination { false };
 

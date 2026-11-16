@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,24 +35,21 @@ class JSInjectedScriptHost final : public JSC::JSNonFinalObject {
 public:
     using Base = JSC::JSNonFinalObject;
     static constexpr unsigned StructureFlags = Base::StructureFlags;
-    static constexpr bool needsDestruction = true;
+    static constexpr JSC::DestructionMode needsDestruction = JSC::NeedsDestruction;
 
     template<typename CellType, JSC::SubspaceAccess mode>
-    static JSC::IsoSubspace* subspaceFor(JSC::VM& vm)
+    static JSC::GCClient::IsoSubspace* subspaceFor(JSC::VM& vm)
     {
         return vm.injectedScriptHostSpace<mode>();
     }
 
     DECLARE_INFO;
 
-    static JSC::Structure* createStructure(JSC::VM& vm, JSC::JSGlobalObject* globalObject, JSC::JSValue prototype)
-    {
-        return JSC::Structure::create(vm, globalObject, prototype, JSC::TypeInfo(JSC::ObjectType, StructureFlags), info());
-    }
+    static JSC::Structure* createStructure(JSC::VM&, JSC::JSGlobalObject*, JSC::JSValue);
 
     static JSInjectedScriptHost* create(JSC::VM& vm, JSC::Structure* structure, Ref<InjectedScriptHost>&& impl)
     {
-        JSInjectedScriptHost* instance = new (NotNull, JSC::allocateCell<JSInjectedScriptHost>(vm.heap)) JSInjectedScriptHost(vm, structure, WTFMove(impl));
+        JSInjectedScriptHost* instance = new (NotNull, JSC::allocateCell<JSInjectedScriptHost>(vm)) JSInjectedScriptHost(vm, structure, WTF::move(impl));
         instance->finishCreation(vm);
         return instance;
     }
@@ -73,11 +70,14 @@ public:
     JSC::JSValue isPromiseRejectedWithNativeGetterTypeError(JSC::JSGlobalObject*, JSC::CallFrame*);
     JSC::JSValue subtype(JSC::JSGlobalObject*, JSC::CallFrame*);
     JSC::JSValue functionDetails(JSC::JSGlobalObject*, JSC::CallFrame*);
+    JSC::JSValue getOwnPrivatePropertySymbols(JSC::JSGlobalObject*, JSC::CallFrame*);
+    JSC::JSValue getOwnPrivatePropertyMethods(JSC::JSGlobalObject*, JSC::CallFrame*);
     JSC::JSValue getInternalProperties(JSC::JSGlobalObject*, JSC::CallFrame*);
-    JSC::JSValue proxyTargetValue(JSC::VM&, JSC::CallFrame*);
-    JSC::JSValue weakMapSize(JSC::JSGlobalObject*, JSC::CallFrame*);
+    JSC::JSValue NODELETE proxyTargetValue(JSC::CallFrame*);
+    JSC::JSValue weakRefTargetValue(JSC::JSGlobalObject*, JSC::CallFrame*);
+    JSC::JSValue NODELETE weakMapSize(JSC::JSGlobalObject*, JSC::CallFrame*);
     JSC::JSValue weakMapEntries(JSC::JSGlobalObject*, JSC::CallFrame*);
-    JSC::JSValue weakSetSize(JSC::JSGlobalObject*, JSC::CallFrame*);
+    JSC::JSValue NODELETE weakSetSize(JSC::JSGlobalObject*, JSC::CallFrame*);
     JSC::JSValue weakSetEntries(JSC::JSGlobalObject*, JSC::CallFrame*);
     JSC::JSValue iteratorEntries(JSC::JSGlobalObject*, JSC::CallFrame*);
     JSC::JSValue queryInstances(JSC::JSGlobalObject*, JSC::CallFrame*);
@@ -85,9 +85,9 @@ public:
 
 private:
     JSInjectedScriptHost(JSC::VM&, JSC::Structure*, Ref<InjectedScriptHost>&&);
-    void finishCreation(JSC::VM&);
+    DECLARE_DEFAULT_FINISH_CREATION;
 
-    Ref<InjectedScriptHost> m_wrapped;
+    const Ref<InjectedScriptHost> m_wrapped;
 };
 
 } // namespace Inspector

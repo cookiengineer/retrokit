@@ -33,13 +33,15 @@
 #include <wtf/glib/GUniquePtr.h>
 #include <wtf/glib/WTFGType.h>
 
+#if ENABLE(CONTEXT_MENUS)
 using namespace WebKit;
 using namespace WebCore;
+#endif // ENABLE(CONTEXT_MENUS)
 
 /**
- * SECTION: WebKitContextMenuItem
- * @Short_description: One item of the #WebKitContextMenu
- * @Title: WebKitContextMenuItem
+ * WebKitContextMenuItem:
+ *
+ * One item of a #WebKitContextMenu.
  *
  * The #WebKitContextMenu is composed of #WebKitContextMenuItem<!--
  * -->s. These items can be created from a #GtkAction, from a
@@ -50,6 +52,7 @@ using namespace WebCore;
  */
 
 struct _WebKitContextMenuItemPrivate {
+#if ENABLE(CONTEXT_MENUS)
     ~_WebKitContextMenuItemPrivate()
     {
         if (subMenu)
@@ -58,14 +61,17 @@ struct _WebKitContextMenuItemPrivate {
 
     std::unique_ptr<WebContextMenuItemGlib> menuItem;
     GRefPtr<WebKitContextMenu> subMenu;
+    CString titleUTF8;
+#endif // ENABLE(CONTEXT_MENUS)
 };
 
-WEBKIT_DEFINE_TYPE(WebKitContextMenuItem, webkit_context_menu_item, G_TYPE_INITIALLY_UNOWNED)
+WEBKIT_DEFINE_FINAL_TYPE(WebKitContextMenuItem, webkit_context_menu_item, G_TYPE_INITIALLY_UNOWNED, GInitiallyUnowned)
 
 static void webkit_context_menu_item_class_init(WebKitContextMenuItemClass*)
 {
 }
 
+#if ENABLE(CONTEXT_MENUS)
 static bool checkAndWarnIfMenuHasParentItem(WebKitContextMenu* menu)
 {
     if (menu && webkitContextMenuGetParentItem(menu)) {
@@ -107,7 +113,7 @@ WebContextMenuItemGlib webkitContextMenuItemToWebContextMenuItemGlib(WebKitConte
     if (item->priv->subMenu) {
         Vector<WebContextMenuItemGlib> subMenuItems;
         webkitContextMenuPopulate(item->priv->subMenu.get(), subMenuItems);
-        return WebContextMenuItemGlib(*item->priv->menuItem, WTFMove(subMenuItems));
+        return WebContextMenuItemGlib(*item->priv->menuItem, WTF::move(subMenuItems));
     }
 
     return *item->priv->menuItem;
@@ -118,11 +124,14 @@ WebContextMenuItemData webkitContextMenuItemToWebContextMenuItemData(WebKitConte
     if (item->priv->subMenu) {
         Vector<WebContextMenuItemData> subMenuItems;
         webkitContextMenuPopulate(item->priv->subMenu.get(), subMenuItems);
-        return WebContextMenuItemData(item->priv->menuItem->action(), item->priv->menuItem->title(), item->priv->menuItem->enabled(), subMenuItems);
+        bool checked = false;
+        unsigned indentationLevel = 0;
+        return WebContextMenuItemData(WebCore::ContextMenuItemType::Submenu, item->priv->menuItem->action(), String { item->priv->menuItem->title() }, item->priv->menuItem->enabled(), checked, indentationLevel, WTF::move(subMenuItems));
     }
 
-    return WebContextMenuItemData(item->priv->menuItem->type(), item->priv->menuItem->action(), item->priv->menuItem->title(), item->priv->menuItem->enabled(), item->priv->menuItem->checked());
+    return WebContextMenuItemData(item->priv->menuItem->type(), item->priv->menuItem->action(), String { item->priv->menuItem->title() }, item->priv->menuItem->enabled(), item->priv->menuItem->checked());
 }
+#endif // ENABLE(CONTEXT_MENUS)
 
 #if PLATFORM(GTK) && !USE(GTK4)
 /**
@@ -140,7 +149,9 @@ WebKitContextMenuItem* webkit_context_menu_item_new(GtkAction* action)
     g_return_val_if_fail(GTK_IS_ACTION(action), nullptr);
 
     WebKitContextMenuItem* item = WEBKIT_CONTEXT_MENU_ITEM(g_object_new(WEBKIT_TYPE_CONTEXT_MENU_ITEM, nullptr));
+#if ENABLE(CONTEXT_MENUS)
     item->priv->menuItem = makeUnique<WebContextMenuItemGlib>(action);
+#endif // ENABLE(CONTEXT_MENUS)
 
     return item;
 }
@@ -152,7 +163,9 @@ WebKitContextMenuItem* webkit_context_menu_item_new(GtkAction* action)
  * @label: the menu item label text
  * @target: (allow-none): a #GVariant to use as the action target
  *
- * Creates a new #WebKitContextMenuItem for the given @action and @label. On activation
+ * Creates a new #WebKitContextMenuItem for the given @action and @label.
+ *
+ * On activation
  * @target will be passed as parameter to the callback.
  *
  * Returns: the newly created #WebKitContextMenuItem object.
@@ -167,7 +180,9 @@ WebKitContextMenuItem* webkit_context_menu_item_new_from_gaction(GAction* action
     g_return_val_if_fail(!target || g_variant_is_of_type(target, g_action_get_parameter_type(action)), nullptr);
 
     WebKitContextMenuItem* item = WEBKIT_CONTEXT_MENU_ITEM(g_object_new(WEBKIT_TYPE_CONTEXT_MENU_ITEM, nullptr));
+#if ENABLE(CONTEXT_MENUS)
     item->priv->menuItem = makeUnique<WebContextMenuItemGlib>(action, String::fromUTF8(label), target);
+#endif // ENABLE(CONTEXT_MENUS)
 
     return item;
 }
@@ -177,6 +192,7 @@ WebKitContextMenuItem* webkit_context_menu_item_new_from_gaction(GAction* action
  * @action: a #WebKitContextMenuAction stock action
  *
  * Creates a new #WebKitContextMenuItem for the given stock action.
+ *
  * Stock actions are handled automatically by WebKit so that, for example,
  * when a menu item created with a %WEBKIT_CONTEXT_MENU_ACTION_STOP is
  * activated the action associated will be handled by WebKit and the current
@@ -193,8 +209,10 @@ WebKitContextMenuItem* webkit_context_menu_item_new_from_stock_action(WebKitCont
     g_return_val_if_fail(action > WEBKIT_CONTEXT_MENU_ACTION_NO_ACTION && action < WEBKIT_CONTEXT_MENU_ACTION_CUSTOM, nullptr);
 
     WebKitContextMenuItem* item = WEBKIT_CONTEXT_MENU_ITEM(g_object_new(WEBKIT_TYPE_CONTEXT_MENU_ITEM, nullptr));
-    ContextMenuItemType type = webkitContextMenuActionIsCheckable(action) ? CheckableActionType : ActionType;
+#if ENABLE(CONTEXT_MENUS)
+    ContextMenuItemType type = webkitContextMenuActionIsCheckable(action) ? ContextMenuItemType::CheckableAction : ContextMenuItemType::Action;
     item->priv->menuItem = makeUnique<WebContextMenuItemGlib>(type, webkitContextMenuActionGetActionTag(action), webkitContextMenuActionGetLabel(action));
+#endif // ENABLE(CONTEXT_MENUS)
 
     return item;
 }
@@ -205,6 +223,7 @@ WebKitContextMenuItem* webkit_context_menu_item_new_from_stock_action(WebKitCont
  * @label: a custom label text to use instead of the predefined one
  *
  * Creates a new #WebKitContextMenuItem for the given stock action using the given @label.
+ *
  * Stock actions have a predefined label, this method can be used to create a
  * #WebKitContextMenuItem for a #WebKitContextMenuAction but using a custom label.
  *
@@ -215,8 +234,10 @@ WebKitContextMenuItem* webkit_context_menu_item_new_from_stock_action_with_label
     g_return_val_if_fail(action > WEBKIT_CONTEXT_MENU_ACTION_NO_ACTION && action < WEBKIT_CONTEXT_MENU_ACTION_CUSTOM, nullptr);
 
     WebKitContextMenuItem* item = WEBKIT_CONTEXT_MENU_ITEM(g_object_new(WEBKIT_TYPE_CONTEXT_MENU_ITEM, nullptr));
-    ContextMenuItemType type = webkitContextMenuActionIsCheckable(action) ? CheckableActionType : ActionType;
+#if ENABLE(CONTEXT_MENUS)
+    ContextMenuItemType type = webkitContextMenuActionIsCheckable(action) ? ContextMenuItemType::CheckableAction : ContextMenuItemType::Action;
     item->priv->menuItem = makeUnique<WebContextMenuItemGlib>(type, webkitContextMenuActionGetActionTag(action), String::fromUTF8(label));
+#endif // ENABLE(CONTEXT_MENUS)
 
     return item;
 }
@@ -235,13 +256,17 @@ WebKitContextMenuItem* webkit_context_menu_item_new_with_submenu(const gchar* la
     g_return_val_if_fail(label, nullptr);
     g_return_val_if_fail(WEBKIT_IS_CONTEXT_MENU(submenu), nullptr);
 
+#if ENABLE(CONTEXT_MENUS)
     if (checkAndWarnIfMenuHasParentItem(submenu))
         return nullptr;
+#endif // ENABLE(CONTEXT_MENUS)
 
     WebKitContextMenuItem* item = WEBKIT_CONTEXT_MENU_ITEM(g_object_new(WEBKIT_TYPE_CONTEXT_MENU_ITEM, nullptr));
-    item->priv->menuItem = makeUnique<WebContextMenuItemGlib>(ActionType, ContextMenuItemBaseApplicationTag, String::fromUTF8(label));
+#if ENABLE(CONTEXT_MENUS)
+    item->priv->menuItem = makeUnique<WebContextMenuItemGlib>(ContextMenuItemType::Action, ContextMenuItemBaseApplicationTag, String::fromUTF8(label));
     item->priv->subMenu = submenu;
     webkitContextMenuSetParentItem(submenu, item);
+#endif // ENABLE(CONTEXT_MENUS)
 
     return item;
 }
@@ -256,7 +281,9 @@ WebKitContextMenuItem* webkit_context_menu_item_new_with_submenu(const gchar* la
 WebKitContextMenuItem* webkit_context_menu_item_new_separator(void)
 {
     WebKitContextMenuItem* item = WEBKIT_CONTEXT_MENU_ITEM(g_object_new(WEBKIT_TYPE_CONTEXT_MENU_ITEM, nullptr));
-    item->priv->menuItem = makeUnique<WebContextMenuItemGlib>(SeparatorType, ContextMenuItemTagNoAction, String());
+#if ENABLE(CONTEXT_MENUS)
+    item->priv->menuItem = makeUnique<WebContextMenuItemGlib>(ContextMenuItemType::Separator, ContextMenuItemTagNoAction, String());
+#endif // ENABLE(CONTEXT_MENUS)
 
     return item;
 }
@@ -277,7 +304,11 @@ GtkAction* webkit_context_menu_item_get_action(WebKitContextMenuItem* item)
 {
     g_return_val_if_fail(WEBKIT_IS_CONTEXT_MENU_ITEM(item), nullptr);
 
+#if ENABLE(CONTEXT_MENUS)
     return item->priv->menuItem->gtkAction();
+#else
+    g_assert_not_reached();
+#endif // ENABLE(CONTEXT_MENUS)
 }
 #endif
 
@@ -296,14 +327,43 @@ GAction* webkit_context_menu_item_get_gaction(WebKitContextMenuItem* item)
 {
     g_return_val_if_fail(WEBKIT_IS_CONTEXT_MENU_ITEM(item), nullptr);
 
+#if ENABLE(CONTEXT_MENUS)
     return item->priv->menuItem->gAction();
+#else
+    g_assert_not_reached();
+#endif // ENABLE(CONTEXT_MENUS)
+}
+
+/**
+ * webkit_context_menu_item_get_gaction_target:
+ * @item: a #WebKitContextMenuItem
+ *
+ * Gets the target #GVariant associated with @item.
+ *
+ * Returns: (transfer none) (nullable): the target #GVariant of the #WebKitContextMenuItem,
+ *    or %NULL if @item was not created with webkit_context_menu_item_new_from_gaction()
+ *    or if no target was specified.
+ *
+ * Since: 2.52
+ */
+GVariant* webkit_context_menu_item_get_gaction_target(WebKitContextMenuItem* item)
+{
+    g_return_val_if_fail(WEBKIT_IS_CONTEXT_MENU_ITEM(item), nullptr);
+
+#if ENABLE(CONTEXT_MENUS)
+    return item->priv->menuItem->gActionTarget();
+#else
+    g_assert_not_reached();
+#endif // ENABLE(CONTEXT_MENUS)
 }
 
 /**
  * webkit_context_menu_item_get_stock_action:
  * @item: a #WebKitContextMenuItem
  *
- * Gets the #WebKitContextMenuAction of @item. If the #WebKitContextMenuItem was not
+ * Gets the #WebKitContextMenuAction of @item.
+ *
+ * If the #WebKitContextMenuItem was not
  * created for a stock action %WEBKIT_CONTEXT_MENU_ACTION_CUSTOM will be
  * returned. If the #WebKitContextMenuItem is a separator %WEBKIT_CONTEXT_MENU_ACTION_NO_ACTION
  * will be returned.
@@ -314,7 +374,36 @@ WebKitContextMenuAction webkit_context_menu_item_get_stock_action(WebKitContextM
 {
     g_return_val_if_fail(WEBKIT_IS_CONTEXT_MENU_ITEM(item), WEBKIT_CONTEXT_MENU_ACTION_NO_ACTION);
 
+#if ENABLE(CONTEXT_MENUS)
     return webkitContextMenuActionGetForContextMenuItem(*item->priv->menuItem);
+#else
+    g_assert_not_reached();
+#endif // ENABLE(CONTEXT_MENUS)
+}
+
+/**
+ * webkit_context_menu_item_get_title:
+ * @item: a #WebKitContextMenuItem
+ *
+ * Gets the title of @item.
+ *
+ * Returns: (transfer none): the title of @item, or %NULL if @item is a separator.
+ *
+ * Since: 2.52
+ */
+const gchar* webkit_context_menu_item_get_title(WebKitContextMenuItem* item)
+{
+    g_return_val_if_fail(WEBKIT_IS_CONTEXT_MENU_ITEM(item), nullptr);
+
+#if ENABLE(CONTEXT_MENUS)
+    if (item->priv->menuItem->type() == WebCore::ContextMenuItemType::Separator)
+        return nullptr;
+    if (item->priv->titleUTF8.isNull())
+        item->priv->titleUTF8 = item->priv->menuItem->title().utf8();
+    return item->priv->titleUTF8.data();
+#else
+    g_assert_not_reached();
+#endif // ENABLE(CONTEXT_MENUS)
 }
 
 /**
@@ -329,7 +418,11 @@ gboolean webkit_context_menu_item_is_separator(WebKitContextMenuItem* item)
 {
     g_return_val_if_fail(WEBKIT_IS_CONTEXT_MENU_ITEM(item), FALSE);
 
-    return item->priv->menuItem->type() == SeparatorType;
+#if ENABLE(CONTEXT_MENUS)
+    return item->priv->menuItem->type() == ContextMenuItemType::Separator;
+#else
+    g_assert_not_reached();
+#endif // ENABLE(CONTEXT_MENUS)
 }
 
 /**
@@ -337,17 +430,21 @@ gboolean webkit_context_menu_item_is_separator(WebKitContextMenuItem* item)
  * @item: a #WebKitContextMenuItem
  * @submenu: (allow-none): a #WebKitContextMenu
  *
- * Sets or replaces the @item submenu. If @submenu is %NULL the current
+ * Sets or replaces the @item submenu.
+ *
+ * If @submenu is %NULL the current
  * submenu of @item is removed.
  */
 void webkit_context_menu_item_set_submenu(WebKitContextMenuItem* item, WebKitContextMenu* submenu)
 {
     g_return_if_fail(WEBKIT_IS_CONTEXT_MENU_ITEM(item));
 
+#if ENABLE(CONTEXT_MENUS)
     if (item->priv->subMenu == submenu)
         return;
 
     webkitContextMenuItemSetSubMenu(item, submenu);
+#endif // ENABLE(CONTEXT_MENUS)
 }
 
 /**
@@ -363,6 +460,10 @@ WebKitContextMenu* webkit_context_menu_item_get_submenu(WebKitContextMenuItem* i
 {
     g_return_val_if_fail(WEBKIT_IS_CONTEXT_MENU_ITEM(item), 0);
 
+#if ENABLE(CONTEXT_MENUS)
     return item->priv->subMenu.get();
+#else
+    g_assert_not_reached();
+#endif // ENABLE(CONTEXT_MENUS)
 }
 

@@ -26,14 +26,20 @@
 #pragma once
 
 #include "IDBCursorRecord.h"
+#include "IDBIndexIdentifier.h"
 #include "IDBIndexInfo.h"
 #include "IDBKeyData.h"
 #include "IDBKeyRangeData.h"
+#include "IDBObjectStoreIdentifier.h"
 #include "IDBResourceIdentifier.h"
 #include "IDBValue.h"
+#include "IndexedDB.h"
 #include "SQLiteStatement.h"
+#include <wtf/CheckedPtr.h>
 #include <wtf/Deque.h>
+#include <wtf/Markable.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -44,44 +50,47 @@ namespace IDBServer {
 
 class SQLiteIDBTransaction;
 
-class SQLiteIDBCursor {
-    WTF_MAKE_FAST_ALLOCATED;
+class SQLiteIDBCursor final : public CanMakeThreadSafeCheckedPtr<SQLiteIDBCursor> {
+    WTF_MAKE_TZONE_ALLOCATED(SQLiteIDBCursor);
     WTF_MAKE_NONCOPYABLE(SQLiteIDBCursor);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SQLiteIDBCursor);
 public:
     static std::unique_ptr<SQLiteIDBCursor> maybeCreate(SQLiteIDBTransaction&, const IDBCursorInfo&);
-    static std::unique_ptr<SQLiteIDBCursor> maybeCreateBackingStoreCursor(SQLiteIDBTransaction&, const uint64_t objectStoreIdentifier, const uint64_t indexIdentifier, const IDBKeyRangeData&);
-
-    SQLiteIDBCursor(SQLiteIDBTransaction&, const IDBCursorInfo&);
-    SQLiteIDBCursor(SQLiteIDBTransaction&, uint64_t objectStoreID, uint64_t indexID, const IDBKeyRangeData&);
+    static std::unique_ptr<SQLiteIDBCursor> maybeCreateBackingStoreCursor(SQLiteIDBTransaction&, IDBObjectStoreIdentifier, std::optional<IDBIndexIdentifier>, const IDBKeyRangeData&, IndexedDB::CursorDirection = IndexedDB::CursorDirection::Next);
 
     ~SQLiteIDBCursor();
 
-    const IDBResourceIdentifier& identifier() const { return m_cursorIdentifier; }
-    SQLiteIDBTransaction* transaction() const { return m_transaction; }
+    const IDBResourceIdentifier& identifier() const LIFETIME_BOUND { return m_cursorIdentifier; }
+    SQLiteIDBTransaction* NODELETE transaction() const;
 
-    int64_t objectStoreID() const { return m_objectStoreID; }
-    int64_t currentRecordRowID() const;
+    IDBObjectStoreIdentifier objectStoreID() const { return m_objectStoreID; }
+    int64_t NODELETE currentRecordRowID() const;
 
-    const IDBKeyData& currentKey() const;
-    const IDBKeyData& currentPrimaryKey() const;
-    const IDBValue& currentValue() const;
+    const IDBKeyData& NODELETE currentKey() const;
+    const IDBKeyData& NODELETE currentPrimaryKey() const;
+    const IDBValue& NODELETE currentValue() const;
 
     bool advance(uint64_t count);
     bool iterate(const IDBKeyData& targetKey, const IDBKeyData& targetPrimaryKey);
     bool prefetchOneRecord();
     bool prefetch();
 
-    bool didComplete() const;
-    bool didError() const;
+    bool NODELETE didComplete() const;
+    bool NODELETE didError() const;
 
     void objectStoreRecordsChanged();
 
-    enum class ShouldIncludePrefetchedRecords { No, Yes };
+    enum class ShouldIncludePrefetchedRecords : bool { No, Yes };
     void currentData(IDBGetResult&, const std::optional<IDBKeyPath>&, ShouldIncludePrefetchedRecords = ShouldIncludePrefetchedRecords::No);
 
 private:
+    SQLiteIDBCursor(SQLiteIDBTransaction&, const IDBCursorInfo&);
+    SQLiteIDBCursor(SQLiteIDBTransaction&, IDBObjectStoreIdentifier, std::optional<IDBIndexIdentifier>, const IDBKeyRangeData&, IndexedDB::CursorDirection = IndexedDB::CursorDirection::Next);
+
+    template<typename T, class... Args> friend WTF::UniqueRef<T> WTF::makeUniqueRefWithoutFastMallocCheck(Args&&...);
+
     bool establishStatement();
-    bool createSQLiteStatement(const String& sql);
+    bool createSQLiteStatement(StringView sql);
     bool bindArguments();
 
     bool resetAndRebindPreIndexStatementIfNecessary();
@@ -109,12 +118,14 @@ private:
 
     bool isDirectionNext() const { return m_cursorDirection == IndexedDB::CursorDirection::Next || m_cursorDirection == IndexedDB::CursorDirection::Nextunique; }
 
-    void increaseCountToPrefetch();
+    void NODELETE increaseCountToPrefetch();
 
-    SQLiteIDBTransaction* m_transaction;
+    uint64_t boundIDValue() const;
+
+    CheckedPtr<SQLiteIDBTransaction> m_transaction;
     IDBResourceIdentifier m_cursorIdentifier;
-    int64_t m_objectStoreID;
-    int64_t m_indexID { IDBIndexInfo::InvalidId };
+    IDBObjectStoreIdentifier m_objectStoreID;
+    Markable<IDBIndexIdentifier> m_indexID;
     IndexedDB::CursorDirection m_cursorDirection { IndexedDB::CursorDirection::Next };
     IndexedDB::CursorType m_cursorType;
     IDBKeyRangeData m_keyRange;
@@ -132,7 +143,7 @@ private:
     std::unique_ptr<SQLiteStatement> m_cachedObjectStoreStatement;
 
     bool m_statementNeedsReset { true };
-    int64_t m_boundID { 0 };
+    Variant<IDBObjectStoreIdentifier, IDBIndexIdentifier> m_boundID;
 
     bool m_backingStoreCursor { false };
 

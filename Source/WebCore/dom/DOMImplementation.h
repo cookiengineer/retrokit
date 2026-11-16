@@ -23,30 +23,31 @@
 
 #pragma once
 
-#include "ExceptionOr.h"
-#include "XMLDocument.h"
+#include <WebCore/ScriptExecutionContextIdentifier.h>
+#include <WebCore/XMLDocument.h>
+#include <wtf/WeakRef.h>
 
 namespace WebCore {
 
 class DOMImplementation final : public ScriptWrappable {
-    WTF_MAKE_ISO_ALLOCATED(DOMImplementation);
+    WTF_MAKE_TZONE_ALLOCATED(DOMImplementation);
 public:
     explicit DOMImplementation(Document&);
 
-    void ref() { m_document.ref(); }
-    void deref() { m_document.deref(); }
+    void ref() { m_document->ref(); }
+    void deref() { m_document->deref(); }
     Document& document() { return m_document; }
 
-    WEBCORE_EXPORT ExceptionOr<Ref<DocumentType>> createDocumentType(const String& qualifiedName, const String& publicId, const String& systemId);
-    WEBCORE_EXPORT ExceptionOr<Ref<XMLDocument>> createDocument(const String& namespaceURI, const String& qualifiedName, DocumentType*);
-    WEBCORE_EXPORT Ref<HTMLDocument> createHTMLDocument(const String& title);
+    WEBCORE_EXPORT ExceptionOr<Ref<DocumentType>> createDocumentType(const AtomString& qualifiedName, const String& publicId, const String& systemId);
+    WEBCORE_EXPORT ExceptionOr<Ref<XMLDocument>> createDocument(const AtomString& namespaceURI, const AtomString& qualifiedName, DocumentType*);
+    WEBCORE_EXPORT Ref<HTMLDocument> createHTMLDocument(String&& title);
     static bool hasFeature() { return true; }
     WEBCORE_EXPORT static Ref<CSSStyleSheet> createCSSStyleSheet(const String& title, const String& media);
 
-    static Ref<Document> createDocument(const String& contentType, Frame*, const Settings&, const URL&);
+    static Ref<Document> createDocument(const String& contentType, LocalFrame*, const Settings&, const URL&, std::optional<ScriptExecutionContextIdentifier> = std::nullopt);
 
 private:
-    Document& m_document;
+    WeakRef<Document, WeakPtrImplWithEventTargetData> m_document;
 };
 
 } // namespace WebCore

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,11 +25,12 @@
 
 #pragma once
 
-#include "ExecutableBaseInlines.h"
-#include "FunctionExecutable.h"
-#include "JSCast.h"
-#include "JSFunction.h"
-#include "NativeExecutable.h"
+#include <JavaScriptCore/ExecutableBase.h>
+#include <JavaScriptCore/FunctionExecutable.h>
+#include <JavaScriptCore/JSCast.h>
+#include <JavaScriptCore/JSFunction.h>
+#include <JavaScriptCore/NativeExecutable.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC {
 
@@ -61,7 +62,7 @@ namespace JSC {
 // cannot use WriteBarrier<> here because this gets used inside the compiler.
 
 class CallVariant {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(CallVariant);
 public:
     explicit CallVariant(JSCell* callee = nullptr)
         : m_callee(callee)
@@ -79,7 +80,7 @@ public:
     ALWAYS_INLINE CallVariant despecifiedClosure() const
     {
         if (m_callee->type() == JSFunctionType)
-            return CallVariant(jsCast<JSFunction*>(m_callee)->executable());
+            return CallVariant(uncheckedDowncast<JSFunction>(m_callee)->executable());
         return *this;
     }
     
@@ -87,21 +88,21 @@ public:
     
     InternalFunction* internalFunction() const
     {
-        return jsDynamicCast<InternalFunction*>(m_callee->vm(), m_callee);
+        return dynamicDowncast<InternalFunction>(m_callee);
     }
     
     JSFunction* function() const
     {
-        return jsDynamicCast<JSFunction*>(m_callee->vm(), m_callee);
+        return dynamicDowncast<JSFunction>(m_callee);
     }
     
-    bool isClosureCall() const { return !!jsDynamicCast<ExecutableBase*>(m_callee->vm(), m_callee); }
+    bool isClosureCall() const { return is<ExecutableBase>(m_callee); }
     
     ExecutableBase* executable() const
     {
         if (JSFunction* function = this->function())
             return function->executable();
-        return jsDynamicCast<ExecutableBase*>(m_callee->vm(), m_callee);
+        return dynamicDowncast<ExecutableBase>(m_callee);
     }
     
     JSCell* nonExecutableCallee() const
@@ -110,24 +111,19 @@ public:
         return m_callee;
     }
     
-    Intrinsic intrinsicFor(CodeSpecializationKind kind) const
-    {
-        if (ExecutableBase* executable = this->executable())
-            return executable->intrinsicFor(kind);
-        return NoIntrinsic;
-    }
+    inline Intrinsic intrinsicFor(CodeSpecializationKind) const;
     
     FunctionExecutable* functionExecutable() const
     {
         if (ExecutableBase* executable = this->executable())
-            return jsDynamicCast<FunctionExecutable*>(m_callee->vm(), executable);
+            return dynamicDowncast<FunctionExecutable>(executable);
         return nullptr;
     }
 
     NativeExecutable* nativeExecutable() const
     {
         if (ExecutableBase* executable = this->executable())
-            return jsDynamicCast<NativeExecutable*>(m_callee->vm(), executable);
+            return dynamicDowncast<NativeExecutable>(executable);
         return nullptr;
     }
 
@@ -140,9 +136,9 @@ public:
     
     bool finalize(VM&);
     
-    bool merge(const CallVariant&);
+    bool NODELETE merge(const CallVariant&);
     
-    void filter(VM&, JSValue);
+    void NODELETE filter(JSValue);
     
     void dump(PrintStream& out) const;
     
@@ -150,52 +146,20 @@ public:
     {
         return m_callee == deletedToken();
     }
-    
-    bool operator==(const CallVariant& other) const
-    {
-        return m_callee == other.m_callee;
-    }
-    
-    bool operator!=(const CallVariant& other) const
-    {
-        return !(*this == other);
-    }
-    
-    bool operator<(const CallVariant& other) const
-    {
-        return m_callee < other.m_callee;
-    }
-    
-    bool operator>(const CallVariant& other) const
-    {
-        return other < *this;
-    }
-    
-    bool operator<=(const CallVariant& other) const
-    {
-        return !(*this < other);
-    }
-    
-    bool operator>=(const CallVariant& other) const
-    {
-        return other <= *this;
-    }
+
+    static constexpr bool safeToCompareToHashTableEmptyOrDeletedValue = true;
+
+    friend auto operator<=>(const CallVariant&, const CallVariant&) = default;
     
     unsigned hash() const
     {
         return WTF::PtrHash<JSCell*>::hash(m_callee);
     }
-    
+
 private:
-    static JSCell* deletedToken() { return bitwise_cast<JSCell*>(static_cast<uintptr_t>(1)); }
+    static JSCell* deletedToken() { return std::bit_cast<JSCell*>(static_cast<uintptr_t>(1)); }
     
     JSCell* m_callee;
-};
-
-struct CallVariantHash {
-    static unsigned hash(const CallVariant& key) { return key.hash(); }
-    static bool equal(const CallVariant& a, const CallVariant& b) { return a == b; }
-    static constexpr bool safeToCompareToEmptyOrDeleted = true;
 };
 
 typedef Vector<CallVariant, 1> CallVariantList;
@@ -210,9 +174,6 @@ CallVariantList despecifiedVariantList(const CallVariantList&);
 } // namespace JSC
 
 namespace WTF {
-
-template<typename T> struct DefaultHash;
-template<> struct DefaultHash<JSC::CallVariant> : JSC::CallVariantHash { };
 
 template<typename T> struct HashTraits;
 template<> struct HashTraits<JSC::CallVariant> : SimpleClassHashTraits<JSC::CallVariant> { };

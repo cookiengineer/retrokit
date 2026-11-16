@@ -2,7 +2,7 @@
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
  *           (C) 2001 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2004-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2004-2025 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -23,12 +23,13 @@
 
 #pragma once
 
-#include "ContainerNode.h"
-#include "RuntimeApplicationChecks.h"
+#include <WebCore/ContainerNode.h>
 #include <wtf/MainThread.h>
+#include <wtf/Platform.h>
+#include <wtf/RuntimeApplicationChecks.h>
 
 #if PLATFORM(IOS_FAMILY)
-#include "WebCoreThread.h"
+#include <WebCore/WebCoreThread.h>
 #endif
 
 namespace WebCore {
@@ -61,7 +62,7 @@ public:
         return *this;
     }
 
-    static bool isEventAllowedInMainThread()
+    static bool isScriptAllowedInMainThread()
     {
         return !isInWebProcess() || !isMainThread() || !s_count;
     }
@@ -86,7 +87,7 @@ public:
         static bool isEventDispatchAllowedInSubtree(Node& node)
         {
 #if ASSERT_ENABLED || ENABLE(SECURITY_ASSERTIONS)
-            return !isInWebProcess() || isScriptAllowed() || EventAllowedScope::isAllowedNode(node);
+            return isScriptAllowed() || EventAllowedScope::isAllowedNode(node);
 #else
             UNUSED_PARAM(node);
             return true;
@@ -103,13 +104,13 @@ public:
         {
             ASSERT(isMainThread());
 #if PLATFORM(IOS_FAMILY)
-            return !s_count || webThreadDelegateMessageScopeCount;
+            return !s_count || !isInWebProcess() || webThreadDelegateMessageScopeCount;
 #else
-            return !s_count;
+            return !s_count || !isInWebProcess();
 #endif
         }
     };
-    
+
 #if ASSERT_ENABLED
     class EventAllowedScope {
     public:
@@ -136,7 +137,7 @@ public:
             return m_eventAllowedTreeRoot->contains(&node) || (m_previousScope && m_previousScope->isAllowedNodeInternal(node));
         }
 
-        Ref<ContainerNode> m_eventAllowedTreeRoot;
+        const Ref<ContainerNode> m_eventAllowedTreeRoot;
 
         EventAllowedScope* m_previousScope;
         static EventAllowedScope* s_currentScope;

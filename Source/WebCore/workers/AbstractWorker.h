@@ -31,21 +31,30 @@
 #pragma once
 
 #include "EventTarget.h"
-#include "ExceptionOr.h"
+#include "FetchOptions.h"
 
 namespace WebCore {
 
-class AbstractWorker : public RefCounted<AbstractWorker>, public EventTargetWithInlineData {
-    WTF_MAKE_ISO_ALLOCATED(AbstractWorker);
+class Exception;
+struct FetchOptions;
+struct WorkerOptions;
+template<typename> class ExceptionOr;
+
+class AbstractWorker : public RefCounted<AbstractWorker>, public EventTarget {
+    WTF_MAKE_TZONE_ALLOCATED(AbstractWorker);
 public:
     using RefCounted::ref;
     using RefCounted::deref;
+
+    static FetchOptions workerFetchOptions(const WorkerOptions&, FetchOptions::Destination);
 
 protected:
     AbstractWorker() = default;
 
     // Helper function that converts a URL to an absolute URL and checks the result for validity.
-    ExceptionOr<URL> resolveURL(const String& url, bool shouldBypassMainWorldContentSecurityPolicy);
+    ExceptionOr<URL> resolveURL(const String& url);
+
+    static bool validateURL(ScriptExecutionContext&, const URL&);
 
     intptr_t asID() const { return reinterpret_cast<intptr_t>(this); }
 

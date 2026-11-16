@@ -32,6 +32,7 @@
 
 namespace WebCore {
 
+class RealtimeMediaSource;
 class SpeechRecognitionConnectionClient;
 class SpeechRecognitionUpdate;
 
@@ -47,9 +48,15 @@ class WebSpeechRecognitionConnection final : public WebCore::SpeechRecognitionCo
 public:
     static Ref<WebSpeechRecognitionConnection> create(SpeechRecognitionConnectionIdentifier);
 
+    void ref() const final { WebCore::SpeechRecognitionConnection::ref(); }
+    void deref() const final { WebCore::SpeechRecognitionConnection::deref(); }
+
     void start(WebCore::SpeechRecognitionConnectionClientIdentifier, const String& lang, bool continuous, bool interimResults, uint64_t maxAlternatives, WebCore::ClientOrigin&&, WebCore::FrameIdentifier) final;
     void stop(WebCore::SpeechRecognitionConnectionClientIdentifier) final;
     void abort(WebCore::SpeechRecognitionConnectionClientIdentifier) final;
+#if ENABLE(MEDIA_STREAM)
+    void dispatchCaptureSourceCreated(WebCore::SpeechRecognitionConnectionClientIdentifier, WebCore::RealtimeMediaSource&) final;
+#endif
 
 private:
     explicit WebSpeechRecognitionConnection(SpeechRecognitionConnectionIdentifier);

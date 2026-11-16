@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "ISOBox.h"
+#include <WebCore/ISOBox.h>
 #include <wtf/MediaTime.h>
 #include <wtf/text/WTFString.h>
 
@@ -39,88 +39,34 @@ namespace WebCore {
 // N bytes : CueSettingsBox : box : optional
 // N bytes : CuePayloadBox : box : required
 
-class WEBCORE_EXPORT ISOWebVTTCue final : public ISOBox {
+class ISOWebVTTCue final : public ISOBox {
 public:
     ISOWebVTTCue(const MediaTime& presentationTime, const MediaTime& duration);
-    ISOWebVTTCue(MediaTime&& presentationTime, MediaTime&& duration, String&& sourceID, String&& id, String&& originalStartTime, String&& settings, String&& cueText);
+    WEBCORE_EXPORT ISOWebVTTCue(const MediaTime& presentationTime, const MediaTime& duration, String&& cueID, String&& cueText, String&& settings = { }, String&& sourceID = { }, String&& originalStartTime = { });
+    ISOWebVTTCue(const ISOWebVTTCue&) = default;
+    WEBCORE_EXPORT ISOWebVTTCue();
+    WEBCORE_EXPORT ISOWebVTTCue(ISOWebVTTCue&&);
+    WEBCORE_EXPORT ~ISOWebVTTCue();
 
-    static FourCC boxTypeName() { return "vttc"; }
+    static FourCC boxTypeName() { return std::span { "vttc" }; }
 
-    const MediaTime& presentationTime() const { return m_presentationTime; }
-    const MediaTime& duration() const { return m_duration; }
+    const MediaTime& presentationTime() const LIFETIME_BOUND { return m_presentationTime; }
+    const MediaTime& duration() const LIFETIME_BOUND { return m_duration; }
 
-    const String& sourceID() const { return m_sourceID; }
-    const String& id() const { return m_identifier; }
-    const String& originalStartTime() const { return m_originalStartTime; }
-    const String& settings() const { return m_settings; }
-    const String& cueText() const { return m_cueText; }
+    const String& sourceID() const LIFETIME_BOUND { return m_sourceID; }
+    const String& id() const LIFETIME_BOUND { return m_identifier; }
+    const String& originalStartTime() const LIFETIME_BOUND { return m_originalStartTime; }
+    const String& settings() const LIFETIME_BOUND { return m_settings; }
+    const String& cueText() const LIFETIME_BOUND { return m_cueText; }
 
     String toJSONString() const;
 
-    template<class Encoder>
-    void encode(Encoder& encoder) const
-    {
-        encoder << m_presentationTime;
-        encoder << m_duration;
-        encoder << m_sourceID;
-        encoder << m_identifier;
-        encoder << m_originalStartTime;
-        encoder << m_settings;
-        encoder << m_cueText;
-    }
+    WEBCORE_EXPORT bool parse(JSC::DataView&, unsigned& offset) override;
 
-    template <class Decoder>
-    static std::optional<ISOWebVTTCue> decode(Decoder& decoder)
-    {
-        std::optional<MediaTime> presentationTime;
-        decoder >> presentationTime;
-        if (!presentationTime)
-            return std::nullopt;
-
-        std::optional<MediaTime> duration;
-        decoder >> duration;
-        if (!duration)
-            return std::nullopt;
-
-        std::optional<String> sourceID;
-        decoder >> sourceID;
-        if (!sourceID)
-            return std::nullopt;
-
-        std::optional<String> identifier;
-        decoder >> identifier;
-        if (!identifier)
-            return std::nullopt;
-
-        std::optional<String> originalStartTime;
-        decoder >> originalStartTime;
-        if (!originalStartTime)
-            return std::nullopt;
-
-        std::optional<String> settings;
-        decoder >> settings;
-        if (!settings)
-            return std::nullopt;
-
-        std::optional<String> cueText;
-        decoder >> cueText;
-        if (!cueText)
-            return std::nullopt;
-
-        return {{
-            WTFMove(*presentationTime),
-            WTFMove(*duration),
-            WTFMove(*sourceID),
-            WTFMove(*identifier),
-            WTFMove(*originalStartTime),
-            WTFMove(*settings),
-            WTFMove(*cueText)
-        }};
-    }
+    ISOWebVTTCue isolatedCopy() const &;
+    ISOWebVTTCue isolatedCopy() &&;
 
 private:
-    bool parse(JSC::DataView&, unsigned& offset) override;
-
     MediaTime m_presentationTime;
     MediaTime m_duration;
 

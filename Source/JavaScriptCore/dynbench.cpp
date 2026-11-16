@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,6 +35,8 @@
 #include "VM.h"
 #include <wtf/MainThread.h>
 #include <wtf/text/StringCommon.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 using namespace JSC;
 
@@ -91,15 +93,15 @@ int main(int argc, char** argv) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
     WTF::initializeMainThread();
     JSC::initialize();
 
-    VM& vm = VM::create(LargeHeap).leakRef();
+    VM& vm = VM::create(HeapType::Large).leakRef();
     {
         JSLockHolder locker(vm);
 
         JSGlobalObject* globalObject =
             JSGlobalObject::create(vm, JSGlobalObject::createStructure(vm, jsNull()));
 
-        Identifier identF = Identifier::fromString(vm, "f");
-        Identifier identG = Identifier::fromString(vm, "g");
+        Identifier identF = Identifier::fromString(vm, "f"_s);
+        Identifier identG = Identifier::fromString(vm, "g"_s);
 
         Structure* objectStructure =
             JSFinalObject::createStructure(vm, globalObject, globalObject->objectPrototype(), 2);
@@ -241,3 +243,4 @@ int main(int argc, char** argv) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
     return 0;
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

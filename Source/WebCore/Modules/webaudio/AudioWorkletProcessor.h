@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,52 +30,59 @@
 
 #if ENABLE(WEB_AUDIO)
 #include "AudioArray.h"
-#include "ExceptionOr.h"
 #include "JSValueInWrappedObject.h"
+#include "ScriptWrappable.h"
 #include <wtf/Forward.h>
 #include <wtf/Ref.h>
-#include <wtf/ThreadSafeRefCounted.h>
+#include <wtf/RobinHoodHashMap.h>
+#include <wtf/ThreadSafeWeakPtr.h>
+#include <wtf/WeakPtr.h>
 
 namespace JSC {
 class JSArray;
-class MarkedArgumentBuffer;
+template<size_t> class MarkedArgumentBufferWithSize;
+using MarkedArgumentBuffer = MarkedArgumentBufferWithSize<8>;
 }
 
 namespace WebCore {
 
 class AudioBus;
+class AudioWorkletGlobalScope;
 class AudioWorkletProcessorConstructionData;
 class JSCallbackDataStrong;
 class MessagePort;
 class ScriptExecutionContext;
+class WebCoreOpaqueRoot;
+template<typename> class ExceptionOr;
 
-class AudioWorkletProcessor : public ThreadSafeRefCounted<AudioWorkletProcessor> {
+class AudioWorkletProcessor : public ScriptWrappable, public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<AudioWorkletProcessor> {
+    WTF_MAKE_TZONE_ALLOCATED(AudioWorkletProcessor);
 public:
     static ExceptionOr<Ref<AudioWorkletProcessor>> create(ScriptExecutionContext&);
     ~AudioWorkletProcessor();
 
-    const String& name() const { return m_name; }
-    MessagePort& port() { return m_port.get(); }
+    const String& name() const LIFETIME_BOUND { return m_name; }
+    MessagePort& port() LIFETIME_BOUND { return m_port.get(); }
 
-    bool process(const Vector<RefPtr<AudioBus>>& inputs, Vector<Ref<AudioBus>>& outputs, const HashMap<String, std::unique_ptr<AudioFloatArray>>& paramValuesMap, bool& threwException);
+    bool process(const Vector<RefPtr<AudioBus>>& inputs, Vector<Ref<AudioBus>>& outputs, const MemoryCompactLookupOnlyRobinHoodHashMap<String, std::unique_ptr<AudioFloatArray>>& paramValuesMap, bool& threwException);
 
-    void setProcessCallback(std::unique_ptr<JSCallbackDataStrong>&&);
-
-    JSValueInWrappedObject& jsInputsWrapper() { return m_jsInputs; }
-    JSValueInWrappedObject& jsOutputsWrapper() { return m_jsOutputs; }
-    JSValueInWrappedObject& jsParamValuesWrapper() { return m_jsParamValues; }
+    JSValueInWrappedObject& jsInputsWrapper() LIFETIME_BOUND { return m_jsInputs; }
+    JSValueInWrappedObject& jsOutputsWrapper() LIFETIME_BOUND { return m_jsOutputs; }
+    JSValueInWrappedObject& jsParamValuesWrapper() LIFETIME_BOUND { return m_jsParamValues; }
 
 private:
-    explicit AudioWorkletProcessor(const AudioWorkletProcessorConstructionData&);
-    void buildJSArguments(JSC::VM&, JSC::JSGlobalObject&, JSC::MarkedArgumentBuffer&, const Vector<RefPtr<AudioBus>>& inputs, Vector<Ref<AudioBus>>& outputs, const HashMap<String, std::unique_ptr<AudioFloatArray>>& paramValuesMap);
+    explicit AudioWorkletProcessor(AudioWorkletGlobalScope&, const AudioWorkletProcessorConstructionData&);
+    void buildJSArguments(JSC::VM&, JSC::JSGlobalObject&, JSC::MarkedArgumentBuffer&, const Vector<RefPtr<AudioBus>>& inputs, Vector<Ref<AudioBus>>& outputs, const MemoryCompactLookupOnlyRobinHoodHashMap<String, std::unique_ptr<AudioFloatArray>>& paramValuesMap);
 
+    const Ref<AudioWorkletGlobalScope> m_globalScope;
     String m_name;
-    Ref<MessagePort> m_port;
-    std::unique_ptr<JSCallbackDataStrong> m_processCallback;
+    const Ref<MessagePort> m_port;
     JSValueInWrappedObject m_jsInputs;
     JSValueInWrappedObject m_jsOutputs;
     JSValueInWrappedObject m_jsParamValues;
 };
+
+WebCoreOpaqueRoot NODELETE root(AudioWorkletProcessor*);
 
 } // namespace WebCore
 

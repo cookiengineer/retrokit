@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,13 +25,17 @@
 
 #pragma once
 
-#include "ISOBox.h"
+#include <WebCore/ISOBox.h>
+#include <span>
 
 namespace WebCore {
 
 class WEBCORE_EXPORT ISOTrackEncryptionBox final : public ISOFullBox {
 public:
-    static FourCC boxTypeName() { return "tenc"; }
+    ISOTrackEncryptionBox();
+    ~ISOTrackEncryptionBox();
+
+    static FourCC boxTypeName() { return std::span { "tenc" }; }
 
     std::optional<int8_t> defaultCryptByteBlock() const { return m_defaultCryptByteBlock; }
     std::optional<int8_t> defaultSkipByteBlock() const { return m_defaultSkipByteBlock; }
@@ -40,9 +44,12 @@ public:
     Vector<uint8_t> defaultKID() const { return m_defaultKID; }
     Vector<uint8_t> defaultConstantIV() const { return m_defaultConstantIV; }
 
-private:
+    bool parseWithoutTypeAndSize(std::span<const uint8_t>);
+
     bool parse(JSC::DataView&, unsigned& offset) override;
 
+private:
+    bool parsePayload(JSC::DataView&, unsigned& offset);
     std::optional<int8_t> m_defaultCryptByteBlock;
     std::optional<int8_t> m_defaultSkipByteBlock;
     int8_t m_defaultIsProtected { 0 };

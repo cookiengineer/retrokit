@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,9 +28,9 @@
 
 #if ENABLE(CONTEXT_MENUS)
 
+#include <WebCore/ContextMenuItem.h>
 #include <wtf/Noncopyable.h>
-
-#include "ContextMenuItem.h"
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
@@ -38,12 +38,13 @@ namespace WebCore {
 class ContextMenuController;
 
 class ContextMenu {
-    WTF_MAKE_NONCOPYABLE(ContextMenu); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(ContextMenu);
+    WTF_MAKE_NONCOPYABLE(ContextMenu);
 public:
     ContextMenu();
 
     void setItems(const Vector<ContextMenuItem>& items) { m_items = items; }
-    const Vector<ContextMenuItem>& items() const { return m_items; }
+    const Vector<ContextMenuItem>& items() const LIFETIME_BOUND { return m_items; }
 
     void appendItem(const ContextMenuItem& item) { m_items.append(item); } 
 

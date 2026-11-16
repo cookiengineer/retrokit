@@ -30,14 +30,14 @@ namespace WebKit {
 
 void NetworkSchemeRegistry::registerURLSchemeAsCORSEnabled(String&& scheme)
 {
-    m_corsEnabledSchemes.add(WTFMove(scheme));
+    m_corsEnabledSchemes.add(WTF::move(scheme));
 }
 
 bool NetworkSchemeRegistry::shouldTreatURLSchemeAsCORSEnabled(StringView scheme)
 {
-    if (scheme.startsWith("http"))
+    if (scheme.startsWith("http"_s))
         return scheme.length() == 4 || (scheme.length() == 5 && scheme[4] == 's');
-    return m_corsEnabledSchemes.contains(scheme.toStringWithoutCopying());
+    return m_corsEnabledSchemes.contains<StringViewHashTranslator>(scheme);
 }
 
 } // namespace WebKit

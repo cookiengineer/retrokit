@@ -31,10 +31,17 @@
 
 #pragma once
 
+#include <wtf/Function.h>
+#include <wtf/OrderedHashSet.h>
 #include <wtf/text/StringView.h>
 
 namespace WebCore {
 
+namespace CSS {
+struct SerializationContext;
+}
+
+class Element;
 const int UninitializedDescriptor = -1;
 const float DefaultDensityValue = 1.0;
 
@@ -78,7 +85,7 @@ struct ImageCandidate {
     {
     }
 
-    ImageCandidate(const StringView& source, const DescriptorParsingResult& result, OriginAttribute originAttribute)
+    ImageCandidate(StringViewWithUnderlyingString source, const DescriptorParsingResult& result, OriginAttribute originAttribute)
         : string(source)
         , density(result.hasDensity() ? result.density() : UninitializedDescriptor)
         , resourceWidth(result.hasWidth() ? result.resourceWidth() : UninitializedDescriptor)
@@ -93,17 +100,19 @@ struct ImageCandidate {
     
     bool isEmpty() const
     {
-        return string.isEmpty();
+        return string.view.isEmpty();
     }
 
-    StringView string;
+    StringViewWithUnderlyingString string;
     float density;
     int resourceWidth;
     OriginAttribute originAttribute;
 };
 
-ImageCandidate bestFitSourceForImageAttributes(float deviceScaleFactor, const AtomString& srcAttribute, const AtomString& srcsetAttribute, float sourceSize);
+ImageCandidate bestFitSourceForImageAttributes(float deviceScaleFactor, const String& srcAttribute, StringView srcsetAttribute, std::optional<float> sourceSize, NOESCAPE const Function<bool(const ImageCandidate&)>& shouldIgnoreCandidateCallback = { });
 
 Vector<ImageCandidate> parseImageCandidatesFromSrcsetAttribute(StringView attribute);
+void getURLsFromSrcsetAttribute(const Element&, StringView attribute, OrderedHashSet<URL>&);
+String replaceURLsInSrcsetAttribute(const Element&, StringView attribute, const CSS::SerializationContext&);
 
 } // namespace WebCore

@@ -44,12 +44,12 @@ struct _WebKitDOMXPathNSResolverIface {
 };
 
 
-WEBKIT_DEPRECATED GType webkit_dom_xpath_ns_resolver_get_type(void) G_GNUC_CONST;
+WEBKIT_DEPRECATED GType webkit_dom_xpath_ns_resolver_get_type(void);
 
 /**
  * webkit_dom_xpath_ns_resolver_lookup_namespace_uri:
  * @resolver: A #WebKitDOMXPathNSResolver
- * @prefix: The prefix to lookup
+ * @prefix: The prefix to look up
  *
  * Returns: (transfer full): a #gchar
  *

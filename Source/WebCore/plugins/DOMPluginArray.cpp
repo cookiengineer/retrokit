@@ -1,6 +1,6 @@
 /*
  *  Copyright (C) 2008 Nokia Corporation and/or its subsidiary(-ies)
- *  Copyright (C) 2008, 2015 Apple Inc. All rights reserved.
+ *  Copyright (C) 2008-2025 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -21,24 +21,26 @@
 #include "DOMPluginArray.h"
 
 #include "DOMPlugin.h"
-#include "Frame.h"
+#include "DocumentPage.h"
+#include "LocalFrameInlines.h"
 #include "Page.h"
-#include <wtf/IsoMallocInlines.h>
+#include "ScriptWrappableInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/AtomString.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(DOMPluginArray);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(DOMPluginArray);
 
 Ref<DOMPluginArray> DOMPluginArray::create(Navigator& navigator, Vector<Ref<DOMPlugin>>&& publiclyVisiblePlugins, Vector<Ref<DOMPlugin>>&& additionalWebVisibilePlugins)
 {
-    return adoptRef(*new DOMPluginArray(navigator, WTFMove(publiclyVisiblePlugins), WTFMove(additionalWebVisibilePlugins)));
+    return adoptRef(*new DOMPluginArray(navigator, WTF::move(publiclyVisiblePlugins), WTF::move(additionalWebVisibilePlugins)));
 }
 
 DOMPluginArray::DOMPluginArray(Navigator& navigator, Vector<Ref<DOMPlugin>>&& publiclyVisiblePlugins, Vector<Ref<DOMPlugin>>&& additionalWebVisibilePlugins)
-    : m_navigator(makeWeakPtr(navigator))
-    , m_publiclyVisiblePlugins(WTFMove(publiclyVisiblePlugins))
-    , m_additionalWebVisibilePlugins(WTFMove(additionalWebVisibilePlugins))
+    : m_navigator(navigator)
+    , m_publiclyVisiblePlugins(WTF::move(publiclyVisiblePlugins))
+    , m_additionalWebVisibilePlugins(WTF::move(additionalWebVisibilePlugins))
 {
 }
 
@@ -71,13 +73,17 @@ RefPtr<DOMPlugin> DOMPluginArray::namedItem(const AtomString& propertyName)
     return nullptr;
 }
 
-Vector<AtomString> DOMPluginArray::supportedPropertyNames()
+bool DOMPluginArray::isSupportedPropertyName(const AtomString& propertyName) const
 {
-    Vector<AtomString> result;
-    result.reserveInitialCapacity(m_publiclyVisiblePlugins.size());
-    for (auto& plugin : m_publiclyVisiblePlugins)
-        result.uncheckedAppend(plugin->name());
-    return result;
+    return m_publiclyVisiblePlugins.containsIf([&](auto& plugin) { return plugin->name() == propertyName; })
+        || m_additionalWebVisibilePlugins.containsIf([&](auto& plugin) { return plugin->name() == propertyName; });
+}
+
+Vector<AtomString> DOMPluginArray::supportedPropertyNames() const
+{
+    return m_publiclyVisiblePlugins.map([](auto& plugin) {
+        return AtomString { plugin->name() };
+    });
 }
 
 void DOMPluginArray::refresh(bool reloadPages)
@@ -85,7 +91,7 @@ void DOMPluginArray::refresh(bool reloadPages)
     if (!m_navigator)
         return;
 
-    auto* frame = m_navigator->frame();
+    RefPtr frame = m_navigator->frame();
     if (!frame)
         return;
 

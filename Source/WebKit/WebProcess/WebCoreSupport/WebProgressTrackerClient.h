@@ -27,22 +27,24 @@
 #define WebProgressTrackerClient_h
 
 #include <WebCore/ProgressTrackerClient.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebKit {
 
 class WebPage;
 
 class WebProgressTrackerClient : public WebCore::ProgressTrackerClient {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(WebProgressTrackerClient);
 public:
     explicit WebProgressTrackerClient(WebPage&);
     
 private:
-    void progressStarted(WebCore::Frame& originatingProgressFrame) override;
-    void progressEstimateChanged(WebCore::Frame& originatingProgressFrame) override;
-    void progressFinished(WebCore::Frame& originatingProgressFrame) override;
+    void progressStarted(WebCore::LocalFrame& originatingProgressFrame) override;
+    void progressEstimateChanged(WebCore::LocalFrame& originatingProgressFrame) override;
+    void progressFinished(WebCore::LocalFrame& originatingProgressFrame) override;
 
-    WebPage& m_webPage;
+    WeakPtr<WebPage> m_webPage;
 };
 
 } // namespace WebKit

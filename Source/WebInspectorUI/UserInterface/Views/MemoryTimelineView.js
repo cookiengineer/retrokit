@@ -131,6 +131,8 @@ WI.MemoryTimelineView = class MemoryTimelineView extends WI.TimelineView
     closed()
     {
         this.representedObject.removeEventListener(WI.Timeline.Event.RecordAdded, this._memoryTimelineRecordAdded, this);
+
+        super.closed();
     }
 
     reset()
@@ -467,3 +469,5 @@ WI.MemoryTimelineView = class MemoryTimelineView extends WI.TimelineView
         this._maxSize = Math.max(this._maxSize, memoryTimelineRecord.totalSize);
     }
 };
+
+WI.MemoryTimelineView.ReferencePage = WI.ReferencePage.TimelinesTab.MemoryTimeline;

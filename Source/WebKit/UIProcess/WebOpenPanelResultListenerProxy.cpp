@@ -29,50 +29,50 @@
 #include "APIArray.h"
 #include "APIString.h"
 #include "WebPageProxy.h"
+#include "WebProcessProxy.h"
 #include <wtf/URL.h>
 #include <wtf/Vector.h>
 
 namespace WebKit {
 using namespace WebCore;
 
-WebOpenPanelResultListenerProxy::WebOpenPanelResultListenerProxy(WebPageProxy* page)
+WebOpenPanelResultListenerProxy::WebOpenPanelResultListenerProxy(WebPageProxy* page, WebProcessProxy& process)
     : m_page(page)
+    , m_process(process)
 {
 }
 
-WebOpenPanelResultListenerProxy::~WebOpenPanelResultListenerProxy()
-{
-}
+WebOpenPanelResultListenerProxy::~WebOpenPanelResultListenerProxy() = default;
 
 #if PLATFORM(IOS_FAMILY)
 void WebOpenPanelResultListenerProxy::chooseFiles(const Vector<WTF::String>& filenames, const String& displayString, const API::Data* iconImageData)
 {
-    if (!m_page)
-        return;
-
-    m_page->didChooseFilesForOpenPanelWithDisplayStringAndIcon(filenames, displayString, iconImageData);
+    if (RefPtr page = m_page)
+        page->didChooseFilesForOpenPanelWithDisplayStringAndIcon(filenames, displayString, iconImageData);
 }
 #endif
 
 void WebOpenPanelResultListenerProxy::chooseFiles(const Vector<String>& filenames, const Vector<String>& allowedMIMETypes)
 {
-    if (!m_page)
-        return;
-
-    m_page->didChooseFilesForOpenPanel(filenames, allowedMIMETypes);
+    if (RefPtr page = m_page)
+        page->didChooseFilesForOpenPanel(filenames, allowedMIMETypes);
 }
 
 void WebOpenPanelResultListenerProxy::cancel()
 {
-    if (!m_page)
-        return;
-
-    m_page->didCancelForOpenPanel();
+    if (RefPtr page = m_page)
+        page->didCancelForOpenPanel();
 }
 
 void WebOpenPanelResultListenerProxy::invalidate()
 {
     m_page = nullptr;
+    m_process = nullptr;
+}
+
+WebProcessProxy* WebOpenPanelResultListenerProxy::process() const
+{
+    return m_process.get();
 }
 
 } // namespace WebKit

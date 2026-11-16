@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc.  All rights reserved.
+ * Copyright (C) 2008 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,73 +26,40 @@
 #include "config.h"
 #include "CSSCanvasValue.h"
 
-#include "RenderElement.h"
+#include "StyleCanvasImage.h"
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
-CSSCanvasValue::~CSSCanvasValue()
+CSSCanvasValue::CSSCanvasValue(CSS::CustomIdent&& name)
+    : CSSValue { ClassType::Canvas }
+    , m_name { WTF::move(name) }
 {
-    if (m_element)
-        m_element->removeObserver(m_canvasObserver);
 }
 
-String CSSCanvasValue::customCSSText() const
-{
-    return makeString("-webkit-canvas(", m_name, ')');
-}
+CSSCanvasValue::~CSSCanvasValue() = default;
 
-void CSSCanvasValue::canvasChanged(HTMLCanvasElement&, const std::optional<FloatRect>& changedRect)
+String CSSCanvasValue::customCSSText(const CSS::SerializationContext& context) const
 {
-    if (!changedRect)
-        return;
-
-    auto imageChangeRect = enclosingIntRect(changedRect.value());
-    for (auto it = clients().begin(), end = clients().end(); it != end; ++it)
-        it->key->imageChanged(static_cast<WrappedImagePtr>(this), &imageChangeRect);
-}
-
-void CSSCanvasValue::canvasResized(HTMLCanvasElement&)
-{
-    for (auto it = clients().begin(), end = clients().end(); it != end; ++it)
-        it->key->imageChanged(static_cast<WrappedImagePtr>(this));
-}
-
-void CSSCanvasValue::canvasDestroyed(HTMLCanvasElement& element)
-{
-    ASSERT_UNUSED(&element, &element == m_element);
-    m_element = nullptr;
-}
-
-FloatSize CSSCanvasValue::fixedSize(const RenderElement& renderer)
-{
-    if (HTMLCanvasElement* elt = element(renderer.document()))
-        return FloatSize(elt->width(), elt->height());
-    return { };
-}
-
-HTMLCanvasElement* CSSCanvasValue::element(Document& document)
-{
-     if (!m_element) {
-        m_element = document.getCSSCanvasElement(m_name);
-        if (!m_element)
-            return nullptr;
-        m_element->addObserver(m_canvasObserver);
-    }
-    return m_element;
-}
-
-RefPtr<Image> CSSCanvasValue::image(RenderElement& renderer, const FloatSize& /*size*/)
-{
-    ASSERT(clients().contains(&renderer));
-    HTMLCanvasElement* element = this->element(renderer.document());
-    if (!element || !element->buffer())
-        return nullptr;
-    return element->copiedImage();
+    StringBuilder builder;
+    builder.append("-webkit-canvas("_s);
+    CSS::serializationForCSS(builder, context, m_name);
+    builder.append(')');
+    return builder.toString();
 }
 
 bool CSSCanvasValue::equals(const CSSCanvasValue& other) const
 {
     return m_name == other.m_name;
+}
+
+RefPtr<Style::Image> CSSCanvasValue::createStyleImage(const Style::BuilderState& state) const
+{
+    if (m_cachedStyleImage)
+        return m_cachedStyleImage;
+
+    m_cachedStyleImage = Style::CanvasImage::create(Style::toStyle(m_name, state));
+    return m_cachedStyleImage;
 }
 
 } // namespace WebCore

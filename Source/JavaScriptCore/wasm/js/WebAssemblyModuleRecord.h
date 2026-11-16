@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,11 +25,13 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if ENABLE(WEBASSEMBLY)
 
-#include "AbstractModuleRecord.h"
-#include "WasmCreationMode.h"
-#include "WasmModuleInformation.h"
+#include <JavaScriptCore/CyclicModuleRecord.h>
+#include <JavaScriptCore/WasmCreationMode.h>
+#include <JavaScriptCore/WasmModuleInformation.h>
 
 namespace JSC {
 
@@ -39,38 +41,42 @@ class WebAssemblyFunction;
 
 // Based on the WebAssembly.Instance specification
 // https://github.com/WebAssembly/design/blob/master/JS.md#webassemblyinstance-constructor
-class WebAssemblyModuleRecord final : public AbstractModuleRecord {
+class WebAssemblyModuleRecord final : public CyclicModuleRecord {
     friend class LLIntOffsetsExtractor;
 public:
-    using Base = AbstractModuleRecord;
+    using Base = CyclicModuleRecord;
 
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
     static void destroy(JSCell*);
 
     template<typename CellType, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         return vm.webAssemblyModuleRecordSpace<mode>();
     }
 
     DECLARE_EXPORT_INFO;
 
+    DECLARE_VISIT_CHILDREN;
+
     static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
     static WebAssemblyModuleRecord* create(JSGlobalObject*, VM&, Structure*, const Identifier&, const Wasm::ModuleInformation&);
 
     void prepareLink(VM&, JSWebAssemblyInstance*);
-    Synchronousness link(JSGlobalObject*, JSValue scriptFetcher, JSObject* importObject, Wasm::CreationMode);
+    Synchronousness link(JSGlobalObject*, RefPtr<ScriptFetcher> = nullptr);
+    void initializeImports(JSGlobalObject*, JSObject* importObject, Wasm::CreationMode);
+    void initializeExports(JSGlobalObject*);
     JS_EXPORT_PRIVATE JSValue evaluate(JSGlobalObject*);
 
-    JSObject* exportsObject() const { return m_exportsObject.get(); }
+    JSObject* exportsObject() const LIFETIME_BOUND { return m_exportsObject.get(); }
+
+    static constexpr ptrdiff_t offsetOfExportsObject() { return OBJECT_OFFSETOF(WebAssemblyModuleRecord, m_exportsObject); }
 
 private:
-    void linkImpl(JSGlobalObject*, JSObject* importObject, Wasm::CreationMode);
     WebAssemblyModuleRecord(VM&, Structure*, const Identifier&);
 
     void finishCreation(JSGlobalObject*, VM&, const Wasm::ModuleInformation&);
-
-    DECLARE_VISIT_CHILDREN;
+    JSValue evaluateConstantExpression(JSGlobalObject*, const Wasm::ModuleInformation::ConstantExpressionAndSourceOffset&, const Wasm::ModuleInformation&, Wasm::Type, uint64_t&);
 
     WriteBarrier<JSWebAssemblyInstance> m_instance;
     WriteBarrier<JSObject> m_startFunction;

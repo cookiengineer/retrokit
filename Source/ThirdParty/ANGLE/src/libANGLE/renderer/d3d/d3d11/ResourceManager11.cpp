@@ -9,6 +9,7 @@
 #include "libANGLE/renderer/d3d/d3d11/ResourceManager11.h"
 
 #include "common/debug.h"
+#include "libANGLE/histogram_macros.h"
 #include "libANGLE/renderer/d3d/d3d11/Renderer11.h"
 #include "libANGLE/renderer/d3d/d3d11/formatutils11.h"
 
@@ -124,14 +125,6 @@ HRESULT CreateResource(ID3D11Device *device,
 }
 
 HRESULT CreateResource(ID3D11Device *device,
-                       const ShaderData *desc,
-                       void * /*initData*/,
-                       ID3D11ComputeShader **resourceOut)
-{
-    return device->CreateComputeShader(desc->get(), desc->size(), nullptr, resourceOut);
-}
-
-HRESULT CreateResource(ID3D11Device *device,
                        const D3D11_DEPTH_STENCIL_DESC *desc,
                        void * /*initData*/,
                        ID3D11DepthStencilState **resourceOut)
@@ -178,6 +171,7 @@ HRESULT CreateResource(ID3D11Device *device,
                        void * /*initData*/,
                        ID3D11PixelShader **resourceOut)
 {
+    SCOPED_ANGLE_HISTOGRAM_TIMER_US("GPU.ANGLE.D3D11.CreatePixelShaderUs");
     return device->CreatePixelShader(desc->get(), desc->size(), nullptr, resourceOut);
 }
 
@@ -250,6 +244,7 @@ HRESULT CreateResource(ID3D11Device *device,
                        void * /*initData*/,
                        ID3D11VertexShader **resourceOut)
 {
+    SCOPED_ANGLE_HISTOGRAM_TIMER_US("GPU.ANGLE.D3D11.CreateVertexShaderUs");
     return device->CreateVertexShader(desc->get(), desc->size(), nullptr, resourceOut);
 }
 
@@ -265,6 +260,56 @@ DXGI_FORMAT GetTypedDepthStencilFormat(DXGI_FORMAT dxgiFormat)
             return DXGI_FORMAT_D32_FLOAT;
         case DXGI_FORMAT_R32G8X24_TYPELESS:
             return DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+        default:
+            return dxgiFormat;
+    }
+}
+
+DXGI_FORMAT GetTypedColorFormatForClearing(DXGI_FORMAT dxgiFormat)
+{
+    switch (dxgiFormat)
+    {
+        case DXGI_FORMAT_R32G32B32A32_TYPELESS:
+            return DXGI_FORMAT_R32G32B32A32_FLOAT;
+        case DXGI_FORMAT_R32G32B32_TYPELESS:
+            return DXGI_FORMAT_R32G32B32_FLOAT;
+        case DXGI_FORMAT_R16G16B16A16_TYPELESS:
+            return DXGI_FORMAT_R16G16B16A16_FLOAT;
+        case DXGI_FORMAT_R32G32_TYPELESS:
+            return DXGI_FORMAT_R32G32_FLOAT;
+        case DXGI_FORMAT_R10G10B10A2_TYPELESS:
+            return DXGI_FORMAT_R10G10B10A2_UNORM;
+        case DXGI_FORMAT_R8G8B8A8_TYPELESS:
+            return DXGI_FORMAT_R8G8B8A8_UNORM;
+        case DXGI_FORMAT_R16G16_TYPELESS:
+            return DXGI_FORMAT_R16G16_FLOAT;
+        case DXGI_FORMAT_R32_TYPELESS:
+            return DXGI_FORMAT_R32_FLOAT;
+        case DXGI_FORMAT_R8G8_TYPELESS:
+            return DXGI_FORMAT_R8G8_UNORM;
+        case DXGI_FORMAT_R16_TYPELESS:
+            return DXGI_FORMAT_R16_FLOAT;
+        case DXGI_FORMAT_R8_TYPELESS:
+            return DXGI_FORMAT_R8_UNORM;
+        case DXGI_FORMAT_B8G8R8A8_TYPELESS:
+            return DXGI_FORMAT_B8G8R8A8_UNORM;
+        case DXGI_FORMAT_B8G8R8X8_TYPELESS:
+            return DXGI_FORMAT_B8G8R8X8_UNORM;
+        case DXGI_FORMAT_BC1_TYPELESS:
+        case DXGI_FORMAT_BC2_TYPELESS:
+        case DXGI_FORMAT_BC3_TYPELESS:
+        case DXGI_FORMAT_BC4_TYPELESS:
+        case DXGI_FORMAT_BC5_TYPELESS:
+        case DXGI_FORMAT_BC6H_TYPELESS:
+        case DXGI_FORMAT_BC7_TYPELESS:
+        case DXGI_FORMAT_R32G8X24_TYPELESS:
+        case DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS:
+        case DXGI_FORMAT_X32_TYPELESS_G8X24_UINT:
+        case DXGI_FORMAT_R24G8_TYPELESS:
+        case DXGI_FORMAT_R24_UNORM_X8_TYPELESS:
+        case DXGI_FORMAT_X24_TYPELESS_G8_UINT:
+            UNREACHABLE();
+            return dxgiFormat;
         default:
             return dxgiFormat;
     }
@@ -321,10 +366,37 @@ angle::Result ClearResource(d3d::Context *context,
     else
     {
         ASSERT((desc->BindFlags & D3D11_BIND_RENDER_TARGET) != 0);
-        d3d11::RenderTargetView rtv;
-        ANGLE_TRY(renderer->allocateResourceNoDesc(context, texture, &rtv));
-
-        deviceContext->ClearRenderTargetView(rtv.get(), kDebugColorInitClearValue);
+        DXGI_FORMAT formatForClearing = GetTypedColorFormatForClearing(desc->Format);
+        if (formatForClearing != desc->Format || desc->MipLevels > 1)
+        {
+            D3D11_RENDER_TARGET_VIEW_DESC rtvDesc;
+            rtvDesc.Format = formatForClearing;
+            if (desc->SampleDesc.Count <= 1)
+            {
+                rtvDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+            }
+            else
+            {
+                rtvDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2DMS;
+                ASSERT(desc->MipLevels == 1);
+            }
+            for (UINT mipLevel = 0; mipLevel < desc->MipLevels; ++mipLevel)
+            {
+                d3d11::RenderTargetView rtv;
+                if (rtvDesc.ViewDimension == D3D11_RTV_DIMENSION_TEXTURE2D)
+                {
+                    rtvDesc.Texture2D.MipSlice = mipLevel;
+                }
+                ANGLE_TRY(renderer->allocateResource(context, rtvDesc, texture, &rtv));
+                deviceContext->ClearRenderTargetView(rtv.get(), kDebugColorInitClearValue);
+            }
+        }
+        else
+        {
+            d3d11::RenderTargetView rtv;
+            ANGLE_TRY(renderer->allocateResourceNoDesc(context, texture, &rtv));
+            deviceContext->ClearRenderTargetView(rtv.get(), kDebugColorInitClearValue);
+        }
     }
 
     return angle::Result::Continue;
@@ -341,10 +413,25 @@ angle::Result ClearResource(d3d::Context *context,
     ASSERT((desc->BindFlags & D3D11_BIND_DEPTH_STENCIL) == 0);
     ASSERT((desc->BindFlags & D3D11_BIND_RENDER_TARGET) != 0);
 
-    d3d11::RenderTargetView rtv;
-    ANGLE_TRY(renderer->allocateResourceNoDesc(context, texture, &rtv));
+    DXGI_FORMAT formatForClearing = GetTypedColorFormatForClearing(desc->Format);
+    D3D11_RENDER_TARGET_VIEW_DESC rtvDesc;
+    rtvDesc.Format          = formatForClearing;
+    rtvDesc.ViewDimension   = D3D11_RTV_DIMENSION_TEXTURE3D;
+    rtvDesc.Texture3D.WSize = 1;
+    UINT depth              = desc->Depth;
+    for (UINT mipLevel = 0; mipLevel < desc->MipLevels; ++mipLevel)
+    {
+        rtvDesc.Texture3D.MipSlice = mipLevel;
+        for (UINT w = 0; w < depth; ++w)
+        {
+            rtvDesc.Texture3D.FirstWSlice = w;
+            d3d11::RenderTargetView rtv;
+            ANGLE_TRY(renderer->allocateResource(context, rtvDesc, texture, &rtv));
+            deviceContext->ClearRenderTargetView(rtv.get(), kDebugColorInitClearValue);
+        }
+        depth /= 2;
+    }
 
-    deviceContext->ClearRenderTargetView(rtv.get(), kDebugColorInitClearValue);
     return angle::Result::Continue;
 }
 
@@ -359,7 +446,8 @@ static_assert(kResourceTypeErrors[NumResourceTypes - 1] != nullptr,
 }  // anonymous namespace
 
 // ResourceManager11 Implementation.
-ResourceManager11::ResourceManager11() : mInitializeAllocations(false)
+ResourceManager11::ResourceManager11(Renderer11 *renderer)
+    : mRenderer(renderer), mInitializeAllocations(false)
 {
     for (auto &count : mAllocatedResourceCounts)
     {
@@ -392,7 +480,7 @@ angle::Result ResourceManager11::allocate(d3d::Context *context,
                                           Resource11<T> *resourceOut)
 {
     ID3D11Device *device = renderer->getDevice();
-    T *resource          = nullptr;
+    angle::ComPtr<T> resource;
 
     GetInitDataFromD3D11<T> *shadowInitData = initData;
     if (!shadowInitData && mInitializeAllocations)
@@ -405,12 +493,12 @@ angle::Result ResourceManager11::allocate(d3d::Context *context,
 
     if (!shadowInitData && mInitializeAllocations)
     {
-        ANGLE_TRY(ClearResource(context, renderer, desc, resource));
+        ANGLE_TRY(ClearResource(context, renderer, desc, resource.Get()));
     }
 
     ASSERT(resource);
     incrResource(GetResourceTypeFromD3D11<T>(), ComputeMemoryUsage(desc));
-    *resourceOut = std::move(Resource11<T>(resource, this));
+    *resourceOut = std::move(Resource11<T>(std::move(resource), this));
     return angle::Result::Continue;
 }
 
@@ -439,6 +527,15 @@ void ResourceManager11::decrResource(ResourceType resourceType, uint64_t memoryS
 void ResourceManager11::onReleaseGeneric(ResourceType resourceType, ID3D11DeviceChild *resource)
 {
     ASSERT(resource);
+    // Only Buffer needs to notify StateManager11 here: mCurrentVertexBuffers and mAppliedIB are the
+    // only caches in StateManager11 that store raw COM pointers and re-submit cached slots to D3D11
+    // (via IASetVertexBuffers). Other resource types (textures/views, shaders, input layouts, and
+    // state objects) are tracked via integer serials or value structs and never re-submit cached
+    // pointers to D3D11.
+    if (resourceType == ResourceType::Buffer)
+    {
+        mRenderer->getStateManager()->onReleaseBuffer(static_cast<ID3D11Buffer *>(resource));
+    }
     decrResource(resourceType, ComputeGenericMemoryUsage(resourceType, resource));
 }
 

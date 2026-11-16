@@ -25,46 +25,23 @@
 
 #pragma once
 
-#include <wtf/EnumTraits.h>
 #include <wtf/ObjectIdentifier.h>
 
 namespace WebKit {
 
-enum DrawingAreaType {
-#if PLATFORM(COCOA)
-#if !PLATFORM(IOS_FAMILY)
-    DrawingAreaTypeTiledCoreAnimation,
-#endif
-    DrawingAreaTypeRemoteLayerTree,
-#elif USE(COORDINATED_GRAPHICS) || USE(TEXTURE_MAPPER)
-    DrawingAreaTypeCoordinatedGraphics
-#endif
+#if ENABLE(TILED_CA_DRAWING_AREA)
+enum class DrawingAreaType : bool {
+    TiledCoreAnimation,
+    RemoteLayerTree,
 };
+#endif
     
 enum {
     ActivityStateChangeAsynchronous = 0
 };
-typedef uint64_t ActivityStateChangeID;
+using ActivityStateChangeID = uint64_t;
 
-enum DrawingAreaIdentifierType { };
+struct DrawingAreaIdentifierType;
 using DrawingAreaIdentifier = ObjectIdentifier<DrawingAreaIdentifierType>;
 
 } // namespace WebKit
-
-namespace WTF {
-
-template<> struct EnumTraits<WebKit::DrawingAreaType> {
-    using values = EnumValues<
-        WebKit::DrawingAreaType
-#if PLATFORM(COCOA)
-#if !PLATFORM(IOS_FAMILY)
-        , WebKit::DrawingAreaType::DrawingAreaTypeTiledCoreAnimation
-#endif
-        , WebKit::DrawingAreaType::DrawingAreaTypeRemoteLayerTree
-#elif USE(COORDINATED_GRAPHICS) || USE(TEXTURE_MAPPER)
-        , WebKit::DrawingAreaType::DrawingAreaTypeCoordinatedGraphics
-#endif
-    >;
-};
-
-} // namespace WTF

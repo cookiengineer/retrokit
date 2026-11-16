@@ -28,150 +28,134 @@
 
 #if USE(LIBWEBRTC)
 
-#include "DataReference.h"
+#include "LibWebRTCNetworkManager.h"
 #include "LibWebRTCSocketFactory.h"
 #include "NetworkProcessConnection.h"
 #include "NetworkRTCProviderMessages.h"
 #include "RTCPacketOptions.h"
 #include "WebProcess.h"
+#include <WebCore/ScriptExecutionContextIdentifier.h>
 #include <WebCore/SharedBuffer.h>
 #include <wtf/Function.h>
 #include <wtf/MainThread.h>
+#include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 
-LibWebRTCSocket::LibWebRTCSocket(LibWebRTCSocketFactory& factory, const void* socketGroup, Type type, const rtc::SocketAddress& localAddress, const rtc::SocketAddress& remoteAddress)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(LibWebRTCSocket);
+
+LibWebRTCSocket::LibWebRTCSocket(LibWebRTCSocketFactory& factory, WebCore::ScriptExecutionContextIdentifier contextIdentifier, Type type, const webrtc::SocketAddress& localAddress, const webrtc::SocketAddress& remoteAddress)
     : m_factory(factory)
-    , m_identifier(WebCore::LibWebRTCSocketIdentifier::generate())
     , m_type(type)
     , m_localAddress(localAddress)
     , m_remoteAddress(remoteAddress)
-    , m_socketGroup(socketGroup)
+    , m_contextIdentifier(contextIdentifier)
 {
-    m_factory.addSocket(*this);
+    m_factory->addSocket(*this);
 }
 
 LibWebRTCSocket::~LibWebRTCSocket()
 {
     Close();
-    m_factory.removeSocket(*this);
+    m_factory->removeSocket(*this);
 }
 
-rtc::SocketAddress LibWebRTCSocket::GetLocalAddress() const
+webrtc::SocketAddress LibWebRTCSocket::GetLocalAddress() const
 {
     return m_localAddress;
 }
 
-rtc::SocketAddress LibWebRTCSocket::GetRemoteAddress() const
+webrtc::SocketAddress LibWebRTCSocket::GetRemoteAddress() const
 {
     return m_remoteAddress;
 }
 
-void LibWebRTCSocket::signalAddressReady(const rtc::SocketAddress& address)
+void LibWebRTCSocket::signalAddressReady(const webrtc::SocketAddress& address)
 {
     m_localAddress = address;
     m_state = (m_type == Type::ClientTCP) ? STATE_CONNECTED : STATE_BOUND;
-    SignalAddressReady(this, m_localAddress);
+    NotifyAddressReady(this, m_localAddress);
 }
 
-void LibWebRTCSocket::signalReadPacket(const uint8_t* data, size_t size, rtc::SocketAddress&& address, int64_t timestamp)
+void LibWebRTCSocket::signalReadPacket(std::span<const uint8_t> data, webrtc::SocketAddress&& address, int64_t timestamp, webrtc::EcnMarking ecn)
 {
     if (m_isSuspended)
         return;
 
-    m_remoteAddress = WTFMove(address);
-    SignalReadPacket(this, reinterpret_cast<const char*>(data), size, m_remoteAddress, timestamp);
+    m_remoteAddress = WTF::move(address);
+    std::optional<webrtc::Timestamp> packetTimestamp;
+    if (timestamp)
+        packetTimestamp = webrtc::Timestamp::Micros(timestamp);
+    NotifyPacketReceived({ { data.data(), data.size() }, m_remoteAddress, packetTimestamp, ecn });
 }
 
-void LibWebRTCSocket::signalSentPacket(int rtcPacketID, int64_t sendTimeMs)
+void LibWebRTCSocket::signalSentPacket(int64_t rtcPacketID, int64_t sendTimeMs)
 {
-    if (m_beingSentPacketSizes.isEmpty())
-        return;
-
-    m_availableSendingBytes += m_beingSentPacketSizes.takeFirst();
-    SignalSentPacket(this, rtc::SentPacket(rtcPacketID, sendTimeMs));
-    if (m_shouldSignalReadyToSend) {
-        m_shouldSignalReadyToSend = false;
-        SignalReadyToSend(this);
-    }
+    NotifySentPacket(this, webrtc::SentPacketInfo(rtcPacketID, sendTimeMs));
 }
 
 void LibWebRTCSocket::signalConnect()
 {
     m_state = STATE_CONNECTED;
-    SignalConnect(this);
+    NotifyConnect(this);
 }
 
 void LibWebRTCSocket::signalClose(int error)
 {
     m_state = STATE_CLOSED;
-    SignalClose(this, error);
+    NotifyClosed(error);
 }
 
-void LibWebRTCSocket::signalNewConnection(rtc::AsyncPacketSocket* newConnectionSocket)
+void LibWebRTCSocket::signalUsedInterface(String&& name)
 {
-    ASSERT(m_type == Type::ServerTCP);
-    SignalNewConnection(this, newConnectionSocket);
+    LibWebRTCNetworkManager::signalUsedInterface(m_contextIdentifier, WTF::move(name));
 }
 
-bool LibWebRTCSocket::willSend(size_t size)
+int LibWebRTCSocket::SendTo(const void *value, size_t size, const webrtc::SocketAddress& address, const webrtc::AsyncSocketPacketOptions& options)
 {
-    if (size > m_availableSendingBytes) {
-        m_shouldSignalReadyToSend = true;
-        setError(EWOULDBLOCK);
-        return false;
-    }
-    m_availableSendingBytes -= size;
-    m_beingSentPacketSizes.append(size);
-    return true;
-}
-
-int LibWebRTCSocket::SendTo(const void *value, size_t size, const rtc::SocketAddress& address, const rtc::PacketOptions& options)
-{
-    auto* connection = m_factory.connection();
-    if (!connection || !willSend(size))
+    RefPtr connection = m_factory->connection();
+    if (!connection)
         return -1;
 
     if (m_isSuspended)
         return size;
 
-    IPC::DataReference data(static_cast<const uint8_t*>(value), size);
-    connection->send(Messages::NetworkRTCProvider::SendToSocket { m_identifier, data, RTCNetwork::SocketAddress { address }, RTCPacketOptions { options } }, 0);
+    auto data = unsafeMakeSpan(static_cast<const uint8_t*>(value), size);
+    connection->send(Messages::NetworkRTCProvider::SendToSocket { identifier(), data, RTCNetwork::SocketAddress { address }, RTCPacketOptions { options } }, 0);
 
     return size;
 }
 
 int LibWebRTCSocket::Close()
 {
-    auto* connection = m_factory.connection();
+    RefPtr connection = m_factory->connection();
     if (!connection || m_state == STATE_CLOSED)
         return 0;
 
     m_state = STATE_CLOSED;
 
-    connection->send(Messages::NetworkRTCProvider::CloseSocket { m_identifier }, 0);
+    connection->send(Messages::NetworkRTCProvider::CloseSocket { identifier() }, 0);
 
     return 0;
 }
 
-int LibWebRTCSocket::GetOption(rtc::Socket::Option option, int* value)
+int LibWebRTCSocket::GetOption(webrtc::Socket::Option option, int* value)
 {
-    ASSERT(option < MAX_SOCKET_OPTION);
-    if (auto storedValue = m_options[option]) {
-        *value = *storedValue;
-        return 0;
-    }
-    return -1;
+    auto iterator = m_options.find(option);
+    if (iterator == m_options.end())
+        return -1;
+
+    *value = iterator->second;
+    return 0;
 }
 
-int LibWebRTCSocket::SetOption(rtc::Socket::Option option, int value)
+int LibWebRTCSocket::SetOption(webrtc::Socket::Option option, int value)
 {
-    ASSERT(option < MAX_SOCKET_OPTION);
-
     m_options[option] = value;
 
-    if (auto* connection = m_factory.connection())
-        connection->send(Messages::NetworkRTCProvider::SetSocketOption { m_identifier, option, value }, 0);
+    if (RefPtr connection = m_factory->connection())
+        connection->send(Messages::NetworkRTCProvider::SetSocketOption { identifier(), option, value }, 0);
 
     return 0;
 }
@@ -179,29 +163,18 @@ int LibWebRTCSocket::SetOption(rtc::Socket::Option option, int value)
 void LibWebRTCSocket::resume()
 {
     m_isSuspended = false;
-
-    // On resume, we notify libwebrtc that TCP sockets are errored.
-    // We notify libwebrtc that all pending UDP packets have been sent even though we actually dropped them.
-    if (m_type != Type::UDP) {
-        signalClose(-1);
-        return;
-    }
-
-    auto currentTime = rtc::TimeMillis();
-    while (!m_beingSentPacketSizes.isEmpty())
-        signalSentPacket(-1, currentTime);
 }
 
 void LibWebRTCSocket::suspend()
 {
     m_isSuspended = true;
 
-    // On suspend, we close TCP sockets as we cannot make sure packets are delivered reliably.
-    if (m_type == Type::UDP)
+    if (m_state == STATE_CLOSED)
         return;
 
-    if (auto* connection = m_factory.connection())
-        connection->send(Messages::NetworkRTCProvider::CloseSocket { m_identifier }, 0);
+    signalClose(-1);
+    if (RefPtr connection = m_factory->connection())
+        connection->send(Messages::NetworkRTCProvider::CloseSocket { identifier() }, 0);
 }
 
 } // namespace WebKit

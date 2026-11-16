@@ -26,9 +26,8 @@
 #include "config.h"
 #include "CryptoAlgorithmHMAC.h"
 
-#if ENABLE(WEB_CRYPTO)
-
 #include "CryptoKeyHMAC.h"
+#include "ExceptionOr.h"
 #include "OpenSSLCryptoUniquePtr.h"
 #include "OpenSSLUtilities.h"
 #include <openssl/evp.h>
@@ -38,33 +37,24 @@ namespace WebCore {
 
 static std::optional<Vector<uint8_t>> calculateSignature(const EVP_MD* algorithm, const Vector<uint8_t>& key, const uint8_t* data, size_t dataLength)
 {
-    // Create the Message Digest Context
-    EvpDigestCtxPtr ctx;
-    if (!(ctx = EvpDigestCtxPtr(EVP_MD_CTX_create())))
+    HMACCtxPtr ctx;
+    if (!(ctx = HMACCtxPtr(HMAC_CTX_new())))
         return std::nullopt;
 
-    // Initialize the DigestSign operation
-    EvpPKeyPtr hkey;
-    if (!(hkey = EvpPKeyPtr(EVP_PKEY_new_mac_key(EVP_PKEY_HMAC, nullptr, key.data(), key.size()))))
-        return std::nullopt;
-
-    if (1 != EVP_DigestSignInit(ctx.get(), nullptr, algorithm, nullptr, hkey.get()))
+    if (1 != HMAC_Init_ex(ctx.get(), key.span().data(), key.size(), algorithm, nullptr))
         return std::nullopt;
 
     // Call update with the message
-    if (1 != EVP_DigestSignUpdate(ctx.get(), data, dataLength))
+    if (1 != HMAC_Update(ctx.get(), data, dataLength))
         return std::nullopt;
 
     // Finalize the DigestSign operation
-    size_t len = 0;
-    if (1 != EVP_DigestSignFinal(ctx.get(), nullptr, &len))
+    Vector<uint8_t> cipherText(EVP_MAX_MD_SIZE);
+    unsigned len = 0;
+    if (1 != HMAC_Final(ctx.get(), cipherText.mutableSpan().data(), &len))
         return std::nullopt;
 
-    // Obtain the signature
-    Vector<uint8_t> cipherText(len);
-    if (1 != EVP_DigestSignFinal(ctx.get(), cipherText.data(), &len))
-        return std::nullopt;
-
+    cipherText.shrink(len);
     return cipherText;
 }
 
@@ -72,27 +62,25 @@ ExceptionOr<Vector<uint8_t>> CryptoAlgorithmHMAC::platformSign(const CryptoKeyHM
 {
     auto algorithm = digestAlgorithm(key.hashAlgorithmIdentifier());
     if (!algorithm)
-        return Exception { OperationError };
+        return Exception { ExceptionCode::OperationError };
 
-    auto result = calculateSignature(algorithm, key.key(), data.data(), data.size());
+    auto result = calculateSignature(algorithm, key.key(), data.span().data(), data.size());
     if (!result)
-        return Exception { OperationError };
-    return WTFMove(*result);
+        return Exception { ExceptionCode::OperationError };
+    return WTF::move(*result);
 }
 
 ExceptionOr<bool> CryptoAlgorithmHMAC::platformVerify(const CryptoKeyHMAC& key, const Vector<uint8_t>& signature, const Vector<uint8_t>& data)
 {
     auto algorithm = digestAlgorithm(key.hashAlgorithmIdentifier());
     if (!algorithm)
-        return Exception { OperationError };
+        return Exception { ExceptionCode::OperationError };
 
-    auto expectedSignature = calculateSignature(algorithm, key.key(), data.data(), data.size());
+    auto expectedSignature = calculateSignature(algorithm, key.key(), data.span().data(), data.size());
     if (!expectedSignature)
-        return Exception { OperationError };
+        return Exception { ExceptionCode::OperationError };
     // Using a constant time comparison to prevent timing attacks.
-    return signature.size() == expectedSignature->size() && !constantTimeMemcmp(expectedSignature->data(), signature.data(), expectedSignature->size());
+    return signature.size() == expectedSignature->size() && !constantTimeMemcmp(expectedSignature->span(), signature.span());
 }
 
 } // namespace WebCore
-
-#endif // ENABLE(WEB_CRYPTO)

@@ -25,9 +25,6 @@
 
 #pragma once
 
-#include "IsoSubspace.h"
-#include "MarkedBlock.h"
-#include "MarkedSpace.h"
 #include <wtf/Packed.h>
 
 namespace JSC {

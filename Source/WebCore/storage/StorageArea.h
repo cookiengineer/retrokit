@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,38 +26,40 @@
 #pragma once
 
 #include <wtf/Forward.h>
-#include <wtf/RefCounted.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
-class Frame;
+class LocalFrame;
 class SecurityOrigin;
 class StorageSyncManager;
 
 enum class StorageType : uint8_t;
 
-struct SecurityOriginData;
+class SecurityOriginData;
 
-class StorageArea : public RefCounted<StorageArea> {
+class StorageArea : public RefCountedAndCanMakeWeakPtr<StorageArea> {
 public:
     virtual ~StorageArea() = default;
 
     virtual unsigned length() = 0;
     virtual String key(unsigned index) = 0;
     virtual String item(const String& key) = 0;
-    virtual void setItem(Frame* sourceFrame, const String& key, const String& value, bool& quotaException) = 0;
-    virtual void removeItem(Frame* sourceFrame, const String& key) = 0;
-    virtual void clear(Frame* sourceFrame) = 0;
+    virtual void setItem(LocalFrame& sourceFrame, const String& key, const String& value, bool& quotaException) = 0;
+    virtual void removeItem(LocalFrame& sourceFrame, const String& key) = 0;
+    virtual void clear(LocalFrame& sourceFrame) = 0;
     virtual bool contains(const String& key) = 0;
 
     virtual StorageType storageType() const = 0;
+    virtual bool isWebKit2StorageAreaImpl() const { return false; }
 
     virtual size_t memoryBytesUsedByCache() = 0;
 
     virtual void incrementAccessCount() { }
     virtual void decrementAccessCount() { }
     virtual void closeDatabaseIfIdle() { }
+    virtual void prewarm() { }
 };
 
 } // namespace WebCore

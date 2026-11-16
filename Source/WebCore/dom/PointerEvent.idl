@@ -23,24 +23,33 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
+// https://w3c.github.io/pointerevents/
+
+// FIXME: The specification does not have defaults for tiltX, tiltY, altitudeAngle, and azimuthAngle, but it should.
 dictionary PointerEventInit : MouseEventInit {
     long pointerId = 0;
     double width = 1;
     double height = 1;
     float pressure = 0;
     float tangentialPressure = 0;
-    long tiltX = 0;
-    long tiltY = 0;
+    [ImplementationDefaultValue=0] long tiltX;
+    [ImplementationDefaultValue=0] long tiltY;
     long twist = 0;
+    [EnabledBySetting=AltitudeAngleEnabled, ImplementationDefaultValue=piOverTwoDouble] double altitudeAngle;
+    [EnabledBySetting=AzimuthAngleEnabled, ImplementationDefaultValue=0] double azimuthAngle;
     DOMString pointerType = "";
     boolean isPrimary = false;
+    sequence<PointerEvent> coalescedEvents = [];
+    sequence<PointerEvent> predictedEvents = [];
 };
 
 [
     DisabledByQuirk=shouldDisablePointerEvents,
-    Exposed=Window
+    Exposed=Window,
+    JSGenerateToNativeObject,
+    ExportToWrappedFunction
 ] interface PointerEvent : MouseEvent {
-    constructor(DOMString type, optional PointerEventInit eventInitDict);
+    constructor([AtomString] DOMString type, optional PointerEventInit eventInitDict = {});
 
     readonly attribute long pointerId;
     readonly attribute double width;
@@ -50,7 +59,11 @@ dictionary PointerEventInit : MouseEventInit {
     readonly attribute long tiltX;
     readonly attribute long tiltY;
     readonly attribute long twist;
+    [EnabledBySetting=AltitudeAngleEnabled] readonly attribute double altitudeAngle;
+    [EnabledBySetting=AzimuthAngleEnabled] readonly attribute double azimuthAngle;
     readonly attribute DOMString pointerType;
     readonly attribute boolean isPrimary;
-};
 
+    [SecureContext] sequence<PointerEvent> getCoalescedEvents();
+    sequence<PointerEvent> getPredictedEvents();
+};

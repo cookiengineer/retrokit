@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2014 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,8 +25,9 @@
 
 #pragma once
 
-#include <wtf/HashMethod.h>
-#include <wtf/StdUnorderedMap.h>
+#include <JavaScriptCore/SourceID.h>
+#include <wtf/GenericHashKey.h>
+#include <wtf/HashMap.h>
 #include <wtf/Vector.h>
 
 namespace JSC {
@@ -35,10 +36,7 @@ class FunctionHasExecutedCache {
 public:
     struct FunctionRange {
         FunctionRange() {}
-        bool operator==(const FunctionRange& other) const 
-        {
-            return m_start == other.m_start && m_end == other.m_end;
-        }
+        friend bool operator==(const FunctionRange&, const FunctionRange&) = default;
         unsigned hash() const
         {
             return m_start * m_end;
@@ -48,14 +46,14 @@ public:
         unsigned m_end;
     };
 
-    bool hasExecutedAtOffset(intptr_t id, unsigned offset);
-    void insertUnexecutedRange(intptr_t id, unsigned start, unsigned end);
-    void removeUnexecutedRange(intptr_t id, unsigned start, unsigned end);
-    Vector<std::tuple<bool, unsigned, unsigned>> getFunctionRanges(intptr_t id);
+    bool hasExecutedAtOffset(SourceID, unsigned offset);
+    void insertUnexecutedRange(SourceID, unsigned start, unsigned end);
+    void removeUnexecutedRange(SourceID, unsigned start, unsigned end);
+    Vector<std::tuple<bool, unsigned, unsigned>> getFunctionRanges(SourceID);
 
 private:
-    using RangeMap = StdUnorderedMap<FunctionRange, bool, HashMethod<FunctionRange>>;
-    using SourceIDToRangeMap = StdUnorderedMap<intptr_t, RangeMap>;
+    using RangeMap = UncheckedKeyHashMap<GenericHashKey<FunctionRange>, bool>;
+    using SourceIDToRangeMap = UncheckedKeyHashMap<GenericHashKey<intptr_t>, RangeMap>;
     SourceIDToRangeMap m_rangeMap;
 };
 

@@ -27,13 +27,11 @@
 
 #include "CryptoAlgorithm.h"
 
-#if ENABLE(WEB_CRYPTO)
-
 namespace WebCore {
 
 class CryptoAlgorithmSHA384 final : public CryptoAlgorithm {
 public:
-    static constexpr const char* s_name = "SHA-384";
+    static constexpr ASCIILiteral s_name = "SHA-384"_s;
     static constexpr CryptoAlgorithmIdentifier s_identifier = CryptoAlgorithmIdentifier::SHA_384;
     static Ref<CryptoAlgorithm> create();
 
@@ -44,5 +42,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(WEB_CRYPTO)

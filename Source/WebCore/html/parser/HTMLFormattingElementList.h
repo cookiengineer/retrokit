@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Google, Inc. All Rights Reserved.
+ * Copyright (C) 2010 Google, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -47,8 +47,8 @@ public:
     class Entry {
     public:
         // Inline because they're hot and Vector<T> uses them.
-        explicit Entry(Ref<HTMLStackItem>&& item)
-            : m_item(WTFMove(item))
+        explicit Entry(HTMLStackItem&& item)
+            : m_item(WTF::move(item))
         {
         }
         enum MarkerEntryType { MarkerEntry };
@@ -56,24 +56,21 @@ public:
         {
         }
 
-        bool isMarker() const { return !m_item; }
+        bool isMarker() const { return m_item.isNull(); }
 
-        HTMLStackItem* stackItem() const { return m_item.get(); }
+        const HTMLStackItem& stackItem() const LIFETIME_BOUND { return m_item; }
         Element& element() const
         {
-            // The fact that !m_item == isMarker() is an implementation detail
-            // callers should check isMarker() before calling element().
-            ASSERT(m_item);
-            return m_item->element();
+            // Callers should check isMarker() before calling element().
+            return m_item.element();
         }
-        void replaceElement(Ref<HTMLStackItem>&& item) { m_item = WTFMove(item); }
+        void replaceElement(HTMLStackItem&& item) { m_item = WTF::move(item); }
 
-        // Needed for use with Vector.  These are super-hot and must be inline.
-        bool operator==(Element* element) const { return !m_item ? !element : &m_item->element() == element; }
-        bool operator!=(Element* element) const { return !m_item ? !!element : &m_item->element() != element; }
+        // Needed for use with Vector. This is super-hot and must be inline.
+        bool operator==(Element* element) const { return m_item.elementOrNull() == element; }
 
     private:
-        RefPtr<HTMLStackItem> m_item;
+        HTMLStackItem m_item;
     };
 
     class Bookmark {
@@ -94,6 +91,7 @@ public:
         Entry& mark() const { ASSERT(m_mark); return *m_mark; }
 
     private:
+        friend class HTMLFormattingElementList;
         bool m_hasBeenMoved;
         Entry* m_mark;
     };
@@ -101,33 +99,34 @@ public:
     bool isEmpty() const { return !size(); }
     size_t size() const { return m_entries.size(); }
 
-    Element* closestElementInScopeWithName(const AtomString&);
+    Element* NODELETE closestElementInScopeWithName(ElementName);
 
-    Entry* find(Element&);
+    Entry* find(Element&) LIFETIME_BOUND;
     bool contains(Element&);
-    void append(Ref<HTMLStackItem>&&);
+    void append(HTMLStackItem&&);
     void remove(Element&);
+    void removeUpdatingBookmark(Element&, Bookmark&);
 
     Bookmark bookmarkFor(Element&);
-    void swapTo(Element& oldElement, Ref<HTMLStackItem>&& newItem, const Bookmark&);
+    void swapTo(Ref<Element> oldElement, HTMLStackItem&& newItem, const Bookmark&);
 
     void appendMarker();
     // clearToLastMarker also clears the marker (per the HTML5 spec).
     void clearToLastMarker();
 
-    const Entry& at(size_t i) const { return m_entries[i]; }
-    Entry& at(size_t i) { return m_entries[i]; }
+    const Entry& at(size_t i) const LIFETIME_BOUND { return m_entries[i]; }
+    Entry& at(size_t i) LIFETIME_BOUND { return m_entries[i]; }
 
 #if ENABLE(TREE_DEBUGGING)
     void show();
 #endif
 
 private:
-    Entry& first() { return at(0); }
+    Entry& first() LIFETIME_BOUND { return at(0); }
 
     // http://www.whatwg.org/specs/web-apps/current-work/multipage/parsing.html#list-of-active-formatting-elements
     // These functions enforce the "Noah's Ark" condition, which removes redundant mis-nested elements.
-    void tryToEnsureNoahsArkConditionQuickly(HTMLStackItem&, Vector<HTMLStackItem*>& remainingCandidates);
+    Vector<const HTMLStackItem*> tryToEnsureNoahsArkConditionQuickly(HTMLStackItem&);
     void ensureNoahsArkCondition(HTMLStackItem&);
 
     Vector<Entry> m_entries;

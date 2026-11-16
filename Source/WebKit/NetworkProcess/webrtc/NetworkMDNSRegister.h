@@ -27,12 +27,18 @@
 
 #if ENABLE(WEB_RTC)
 
-#include "MDNSRegisterIdentifier.h"
 #include "RTCNetwork.h"
-#include <WebCore/DocumentIdentifier.h>
+#include "SharedPreferencesForWebProcess.h"
+#include <WebCore/MDNSRegisterError.h>
+#include <WebCore/ProcessQualified.h>
+#include <WebCore/ScriptExecutionContextIdentifier.h>
+#include <pal/SessionID.h>
+#include <wtf/CheckedRef.h>
+#include <wtf/CompletionHandler.h>
 #include <wtf/Expected.h>
 #include <wtf/Forward.h>
 #include <wtf/HashMap.h>
+#include <wtf/HashSet.h>
 
 #if PLATFORM(COCOA) && defined __has_include && __has_include(<dns_sd.h>)
 #define ENABLE_MDNS 1
@@ -44,6 +50,11 @@
 #include <dns_sd.h>
 #endif
 
+#if USE(GLIB)
+#include <gio/gio.h>
+#include <wtf/glib/GRefPtr.h>
+#endif
+
 namespace IPC {
 class Connection;
 class Decoder;
@@ -51,6 +62,10 @@ class Decoder;
 
 namespace PAL {
 class SessionID;
+}
+
+namespace WebCore {
+enum class MDNSRegisterError : uint8_t;
 }
 
 namespace WebKit {
@@ -62,17 +77,54 @@ public:
     NetworkMDNSRegister(NetworkConnectionToWebProcess&);
     ~NetworkMDNSRegister();
 
+    void NODELETE ref() const;
+    void deref() const;
+
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
 
-private:
-    void unregisterMDNSNames(WebCore::DocumentIdentifier);
-    void registerMDNSName(MDNSRegisterIdentifier, WebCore::DocumentIdentifier, const String& ipAddress);
-    
-    PAL::SessionID sessionID() const;
-
-    NetworkConnectionToWebProcess& m_connection;
 #if ENABLE_MDNS
-    HashMap<WebCore::DocumentIdentifier, DNSServiceRef> m_services;
+    void closeAndForgetService(DNSServiceRef);
+#endif
+
+    bool hasRegisteredName(const String&) const;
+
+    std::optional<SharedPreferencesForWebProcess> NODELETE sharedPreferencesForWebProcess() const;
+
+    struct PendingRegistrationRequestIdentifierType { };
+    using PendingRegistrationRequestIdentifier = ObjectIdentifier<PendingRegistrationRequestIdentifierType>;
+
+    struct PendingRegistrationRequest {
+        WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(PendingRegistrationRequest);
+        PendingRegistrationRequest(Ref<NetworkConnectionToWebProcess> &&, String &&name, String address, PAL::SessionID, CompletionHandler<void(const String &, std::optional<WebCore::MDNSRegisterError>)> &&);
+
+        Ref<NetworkConnectionToWebProcess> connection;
+        String name;
+        String address;
+        PAL::SessionID sessionID;
+        CompletionHandler<void(const String &, std::optional<WebCore::MDNSRegisterError>)> completionHandler;
+#if USE(GLIB)
+        GRefPtr<GCancellable> cancellable;
+#endif
+    };
+
+private:
+    void unregisterMDNSNames(WebCore::ScriptExecutionContextIdentifier);
+    void registerMDNSName(WebCore::ScriptExecutionContextIdentifier, const String& ipAddress, CompletionHandler<void(const String&, std::optional<WebCore::MDNSRegisterError>)>&&);
+
+    PAL::SessionID NODELETE sessionID() const;
+
+    WeakRef<NetworkConnectionToWebProcess> m_connection;
+    HashSet<String> m_registeredNames;
+
+    HashMap<WebCore::ScriptExecutionContextIdentifier, Vector<String>> m_perDocumentRegisteredNames;
+
+#if ENABLE_MDNS
+    struct DNSServiceDeallocator;
+    HashMap<WebCore::ScriptExecutionContextIdentifier, std::unique_ptr<_DNSServiceRef_t, DNSServiceDeallocator>> m_services;
+#endif
+#if USE(GLIB)
+    GRefPtr<GCancellable> m_cancellable;
+    GRefPtr<GDBusProxy> m_dbusProxy;
 #endif
 };
 

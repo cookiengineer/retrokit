@@ -28,18 +28,18 @@
 
 #if !USE(GTK4)
 
-#include <WebCore/CairoUtilities.h>
+#include <cairo.h>
 
 namespace WebKit {
 using namespace WebCore;
 
 Ref<ViewSnapshot> ViewSnapshot::create(RefPtr<cairo_surface_t>&& surface)
 {
-    return adoptRef(*new ViewSnapshot(WTFMove(surface)));
+    return adoptRef(*new ViewSnapshot(WTF::move(surface)));
 }
 
 ViewSnapshot::ViewSnapshot(RefPtr<cairo_surface_t>&& surface)
-    : m_surface(WTFMove(surface))
+    : m_surface(WTF::move(surface))
 {
     if (hasImage())
         ViewSnapshotStore::singleton().didAddImageToSnapshot(*this);

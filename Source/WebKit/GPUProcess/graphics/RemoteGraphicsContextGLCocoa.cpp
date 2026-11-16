@@ -29,66 +29,103 @@
 #if ENABLE(GPU_PROCESS) && ENABLE(WEBGL) && PLATFORM(COCOA)
 
 #include "GPUConnectionToWebProcess.h"
-#include <WebCore/GraphicsContextGLIOSurfaceSwapChain.h>
+#include "IPCUtilities.h"
+#include "RemoteSharedResourceCache.h"
+#include <WebCore/ProcessIdentity.h>
+#include <WebCore/SharedMemory.h>
 #include <wtf/MachSendRight.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/TZoneMallocInlines.h>
+
+#if ENABLE(VIDEO)
+#include "RemoteVideoFrameObjectHeap.h"
+#include <WebCore/GraphicsContextGLCV.h>
+#include <WebCore/MediaSampleAVFObjC.h>
+#include <WebCore/VideoFrameCV.h>
+#endif
 
 namespace WebKit {
-using namespace WebCore;
+
+#if ENABLE(VIDEO)
+void RemoteGraphicsContextGL::copyTextureFromVideoFrame(WebKit::SharedVideoFrame&& frame, PlatformGLObject texture, uint32_t target, int32_t level, uint32_t internalFormat, uint32_t format, uint32_t type, bool premultiplyAlpha, bool flipY, CompletionHandler<void(bool)>&& completionHandler)
+{
+    assertIsCurrent(workQueue());
+    RefPtr videoFrame = m_sharedVideoFrameReader.read(WTF::move(frame));
+    if (!videoFrame) {
+        ASSERT_IS_TESTING_IPC();
+        completionHandler(false);
+        return;
+    }
+    if (!m_objectNames.isValidKey(texture)) {
+        ASSERT_IS_TESTING_IPC();
+        return;
+    }
+    texture = m_objectNames.get(texture);
+    bool result = protect(m_context)->copyTextureFromVideoFrame(*videoFrame, texture, target, level, internalFormat, format, type, premultiplyAlpha, flipY);
+    completionHandler(result);
+}
+
+void RemoteGraphicsContextGL::setSharedVideoFrameSemaphore(IPC::Semaphore&& semaphore)
+{
+    m_sharedVideoFrameReader.setSemaphore(WTF::move(semaphore));
+}
+
+void RemoteGraphicsContextGL::setSharedVideoFrameMemory(WebCore::SharedMemory::Handle&& handle)
+{
+    m_sharedVideoFrameReader.setSharedMemory(WTF::move(handle));
+}
+#endif
 
 namespace {
 
 class RemoteGraphicsContextGLCocoa final : public RemoteGraphicsContextGL {
+    WTF_MAKE_TZONE_ALLOCATED(RemoteGraphicsContextGLCocoa);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RemoteGraphicsContextGLCocoa);
+
 public:
-    RemoteGraphicsContextGLCocoa(GPUConnectionToWebProcess&, GraphicsContextGLIdentifier, RemoteRenderingBackend&, IPC::StreamConnectionBuffer&&);
+    RemoteGraphicsContextGLCocoa(GPUConnectionToWebProcess&, RemoteGraphicsContextGLIdentifier, RemoteRenderingBackend&, Ref<IPC::StreamServerConnection>&&);
     ~RemoteGraphicsContextGLCocoa() final = default;
 
     // RemoteGraphicsContextGL overrides.
     void platformWorkQueueInitialize(WebCore::GraphicsContextGLAttributes&&) final;
-    void prepareForDisplay(CompletionHandler<void(WTF::MachSendRight&&)>&&) final;
+    void prepareForDisplay(IPC::Semaphore&&, CompletionHandler<void(WTF::MachSendRight&&)>&&) final;
 private:
-    WebCore::GraphicsContextGLIOSurfaceSwapChain m_swapChain WTF_GUARDED_BY_LOCK(m_streamThread);
-#if HAVE(IOSURFACE_SET_OWNERSHIP_IDENTITY)
-    task_id_token_t m_webProcessIdentityToken;
-#endif
 };
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteGraphicsContextGLCocoa);
 
 }
 
-Ref<RemoteGraphicsContextGL> RemoteGraphicsContextGL::create(GPUConnectionToWebProcess& gpuConnectionToWebProcess, GraphicsContextGLAttributes&& attributes, GraphicsContextGLIdentifier graphicsContextGLIdentifier, RemoteRenderingBackend& renderingBackend, IPC::StreamConnectionBuffer&& stream)
+Ref<RemoteGraphicsContextGL> RemoteGraphicsContextGL::create(GPUConnectionToWebProcess& gpuConnectionToWebProcess, WebCore::GraphicsContextGLAttributes&& attributes, RemoteGraphicsContextGLIdentifier graphicsContextGLIdentifier, RemoteRenderingBackend& renderingBackend, Ref<IPC::StreamServerConnection>&& streamConnection)
 {
-    auto instance = adoptRef(*new RemoteGraphicsContextGLCocoa(gpuConnectionToWebProcess, graphicsContextGLIdentifier, renderingBackend, WTFMove(stream)));
-    instance->initialize(WTFMove(attributes));
+    auto instance = adoptRef(*new RemoteGraphicsContextGLCocoa(gpuConnectionToWebProcess, graphicsContextGLIdentifier, renderingBackend, WTF::move(streamConnection)));
+    instance->initialize(WTF::move(attributes));
     return instance;
 }
 
-RemoteGraphicsContextGLCocoa::RemoteGraphicsContextGLCocoa(GPUConnectionToWebProcess& gpuConnectionToWebProcess, GraphicsContextGLIdentifier graphicsContextGLIdentifier, RemoteRenderingBackend& renderingBackend, IPC::StreamConnectionBuffer&& stream)
-    : RemoteGraphicsContextGL(gpuConnectionToWebProcess, graphicsContextGLIdentifier, renderingBackend, WTFMove(stream))
-#if HAVE(IOSURFACE_SET_OWNERSHIP_IDENTITY)
-    , m_webProcessIdentityToken(gpuConnectionToWebProcess.webProcessIdentityToken())
-#endif
+RemoteGraphicsContextGLCocoa::RemoteGraphicsContextGLCocoa(GPUConnectionToWebProcess& gpuConnectionToWebProcess, RemoteGraphicsContextGLIdentifier graphicsContextGLIdentifier, RemoteRenderingBackend& renderingBackend, Ref<IPC::StreamServerConnection>&& streamConnection)
+    : RemoteGraphicsContextGL(gpuConnectionToWebProcess, graphicsContextGLIdentifier, renderingBackend, WTF::move(streamConnection))
 {
-
 }
 
 void RemoteGraphicsContextGLCocoa::platformWorkQueueInitialize(WebCore::GraphicsContextGLAttributes&& attributes)
 {
-    assertIsCurrent(m_streamThread);
-    m_context = GraphicsContextGLOpenGL::createForGPUProcess(WTFMove(attributes), &m_swapChain);
+    assertIsCurrent(workQueue());
+    m_context = WebCore::GraphicsContextGLCocoa::create(WTF::move(attributes), WebCore::ProcessIdentity { m_sharedResourceCache->resourceOwner() });
 }
 
-void RemoteGraphicsContextGLCocoa::prepareForDisplay(CompletionHandler<void(WTF::MachSendRight&&)>&& completionHandler)
+void RemoteGraphicsContextGLCocoa::prepareForDisplay(IPC::Semaphore&& finishedSemaphore, CompletionHandler<void(WTF::MachSendRight&&)>&& completionHandler)
 {
-    assertIsCurrent(m_streamThread);
-    m_context->prepareForDisplay();
+    assertIsCurrent(workQueue());
+    RefPtr context = m_context;
+
+    context->prepareForDisplayWithFinishedSignal([finishedSemaphore = WTF::move(finishedSemaphore)]() mutable {
+        finishedSemaphore.signal();
+    });
     MachSendRight sendRight;
-    if (auto* surface = m_swapChain.displayBuffer().surface.get()) {
-#if HAVE(IOSURFACE_SET_OWNERSHIP_IDENTITY)
-        // Mark the IOSurface as being owned by the WebProcess even though it was constructed by the GPUProcess so that Jetsam knows which process to kill.
-        surface->setOwnershipIdentity(m_webProcessIdentityToken);
-#endif
+    if (WebCore::IOSurface* surface = context->displayBufferSurface())
         sendRight = surface->createSendRight();
-    }
-    completionHandler(WTFMove(sendRight));
+    completionHandler(WTF::move(sendRight));
 }
 
 }

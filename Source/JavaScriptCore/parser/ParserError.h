@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2013 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,10 +25,13 @@
 
 #pragma once
 
-#include "Error.h"
-#include "ErrorHandlingScope.h"
-#include "ExceptionHelpers.h"
-#include "ParserTokens.h"
+#include <JavaScriptCore/Error.h>
+#include <JavaScriptCore/ErrorHandlingScope.h>
+#include <JavaScriptCore/ErrorInstance.h>
+#include <JavaScriptCore/ExceptionHelpers.h>
+#include <JavaScriptCore/JSGlobalObject.h>
+#include <JavaScriptCore/ParserTokens.h>
+#include <JavaScriptCore/SourceCode.h>
 #include <wtf/text/WTFString.h>
 
 namespace JSC {
@@ -80,8 +83,8 @@ public:
 
     bool isValid() const { return m_type != ErrorNone; }
     SyntaxErrorType syntaxErrorType() const { return m_syntaxErrorType; }
-    const JSToken& token() const { return m_token; }
-    const String& message() const { return m_message; }
+    const JSToken& token() const LIFETIME_BOUND { return m_token; }
+    const String& message() const LIFETIME_BOUND { return m_message; }
     int line() const { return m_line; }
     ErrorType type() const { return m_type; }
 
@@ -90,25 +93,30 @@ public:
         SourceCode source, // Note: We must copy the source here, since the objects that pass in their SourceCode field may be destroyed in addErrorInfo.
         int overrideLineNumber = -1)
     {
+        JSObject* error = nullptr;
         switch (m_type) {
         case ErrorNone:
             return nullptr;
         case SyntaxError:
-            return addErrorInfo(
-                globalObject->vm(), 
-                createSyntaxError(globalObject, m_message), 
+            error = addErrorInfo(
+                globalObject->vm(),
+                createSyntaxError(globalObject, m_message),
                 overrideLineNumber == -1 ? m_line : overrideLineNumber, source);
+            break;
         case EvalError:
-            return createSyntaxError(globalObject, m_message);
+            error = createSyntaxError(globalObject, m_message);
+            break;
         case StackOverflow: {
             ErrorHandlingScope errorScope(getVM(globalObject));
-            return createStackOverflowError(globalObject);
+            error = createStackOverflowError(globalObject);
+            break;
         }
         case OutOfMemory:
-            return createOutOfMemoryError(globalObject);
+            error = createOutOfMemoryError(globalObject);
+            break;
         }
-        CRASH();
-        return nullptr;
+        downcast<ErrorInstance>(*error).setParseError();
+        return error;
     }
 
 private:

@@ -26,14 +26,15 @@
 #ifndef BlobDataFileReference_h
 #define BlobDataFileReference_h
 
+#include <optional>
 #include <wtf/Markable.h>
-#include <wtf/RefCounted.h>
+#include <wtf/ThreadSafeRefCounted.h>
 #include <wtf/WallTime.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
-class WEBCORE_EXPORT BlobDataFileReference : public RefCounted<BlobDataFileReference> {
+class WEBCORE_EXPORT BlobDataFileReference : public ThreadSafeRefCounted<BlobDataFileReference, WTF::DestructionThread::Main> {
 public:
     static Ref<BlobDataFileReference> create(const String& path, const String& replacementPath = { })
     {
@@ -46,7 +47,7 @@ public:
 
     const String& path();
     unsigned long long size();
-    std::optional<WallTime> expectedModificationTime();
+    std::optional<WallTime> NODELETE expectedModificationTime();
 
     virtual void prepareForFileAccess();
     virtual void revokeFileAccess();
@@ -65,7 +66,7 @@ private:
     bool m_replacementShouldBeGenerated { false };
 #endif
     unsigned long long m_size { 0 };
-    Markable<WallTime, WallTime::MarkableTraits> m_expectedModificationTime;
+    Markable<WallTime> m_expectedModificationTime;
 };
 
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Google, Inc. All Rights Reserved.
+ * Copyright (C) 2010 Google, Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,6 +27,7 @@
 #include "DocumentParser.h"
 
 #include "Document.h"
+#include "EventTarget.h"
 #include <wtf/Assertions.h>
 
 namespace WebCore {
@@ -34,7 +35,7 @@ namespace WebCore {
 DocumentParser::DocumentParser(Document& document)
     : m_state(ParserState::Parsing)
     , m_documentWasLoadedAsPartOfNavigation(false)
-    , m_document(makeWeakPtr(document))
+    , m_document(document)
 {
 }
 

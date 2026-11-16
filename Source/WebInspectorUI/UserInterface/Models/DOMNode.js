@@ -32,7 +32,7 @@
 
 WI.DOMNode = class DOMNode extends WI.Object
 {
-    constructor(domManager, doc, isInShadowTree, payload)
+    constructor(domManager, doc, isInShadowTree, payload, {frameTarget} = {})
     {
         super();
 
@@ -40,8 +40,16 @@ WI.DOMNode = class DOMNode extends WI.Object
 
         this._domManager = domManager;
         this._isInShadowTree = isInShadowTree;
+        this._owningTarget = null;
+        this._rawNodeId = null;
 
-        this.id = payload.nodeId;
+        if (frameTarget) {
+            this._rawNodeId = payload.nodeId;
+            this.id = frameTarget.identifier + ":" + payload.nodeId;
+            this._owningTarget = frameTarget;
+        } else
+            this.id = payload.nodeId;
+
         this._domManager._idToDOMNode[this.id] = this;
 
         this._nodeType = payload.nodeType;
@@ -52,7 +60,17 @@ WI.DOMNode = class DOMNode extends WI.Object
         this._shadowRootType = payload.shadowRootType;
         this._computedRole = null;
         this._contentSecurityPolicyHash = payload.contentSecurityPolicyHash;
-        this._layoutContextType = null;
+
+        this._layoutFlags = [];
+        this._layoutOverlayShowing = false;
+        this._layoutOverlayColorSetting = null;
+
+        // FIXME: <https://webkit.org/b/298980> Workaround for missing FrameCSSAgent.
+        // Without this, CSS.nodeLayoutFlagsChanged is never sent for frame-target nodes,
+        // so the Elements panel hides them as "not rendered." Force Rendered until
+        // FrameCSSAgent exists to provide real layout flags.
+        if (this._owningTarget && payload.nodeType === Node.ELEMENT_NODE)
+            this._layoutFlags = [WI.DOMNode.LayoutFlag.Rendered];
 
         if (this._nodeType === Node.DOCUMENT_NODE)
             this.ownerDocument = this;
@@ -61,13 +79,8 @@ WI.DOMNode = class DOMNode extends WI.Object
 
         this._frame = null;
 
-        // COMPATIBILITY (iOS 12.2): DOM.Node.frameId was changed to represent the owner frame, not the content frame.
-        // Since support can't be tested directly, check for Audit (iOS 13.0+).
-        // FIXME: Use explicit version checking once https://webkit.org/b/148680 is fixed.
-        if (InspectorBackend.hasDomain("Audit")) {
-            if (payload.frameId)
-                this._frame = WI.networkManager.frameForIdentifier(payload.frameId);
-        }
+        if (payload.frameId)
+            this._frame = WI.networkManager.frameForIdentifier(payload.frameId);
 
         if (!this._frame && this.ownerDocument)
             this._frame = WI.networkManager.frameForIdentifier(this.ownerDocument.frameIdentifier);
@@ -92,9 +105,10 @@ WI.DOMNode = class DOMNode extends WI.Object
         // we have both shadowRoots and child nodes.
         this._shadowRoots = [];
         if (payload.shadowRoots) {
+            let childOptions = this._owningTarget ? {frameTarget: this._owningTarget} : undefined;
             for (var i = 0; i < payload.shadowRoots.length; ++i) {
                 var root = payload.shadowRoots[i];
-                var node = new WI.DOMNode(this._domManager, this.ownerDocument, true, root);
+                var node = new WI.DOMNode(this._domManager, this.ownerDocument, true, root, childOptions);
                 node.parentNode = this;
                 this._shadowRoots.push(node);
             }
@@ -111,21 +125,24 @@ WI.DOMNode = class DOMNode extends WI.Object
             this._customElementState = null;
 
         if (payload.templateContent) {
-            this._templateContent = new WI.DOMNode(this._domManager, this.ownerDocument, false, payload.templateContent);
+            let childOptions = this._owningTarget ? {frameTarget: this._owningTarget} : undefined;
+            this._templateContent = new WI.DOMNode(this._domManager, this.ownerDocument, false, payload.templateContent, childOptions);
             this._templateContent.parentNode = this;
         }
 
         this._pseudoElements = new Map;
         if (payload.pseudoElements) {
+            let childOptions = this._owningTarget ? {frameTarget: this._owningTarget} : undefined;
             for (var i = 0; i < payload.pseudoElements.length; ++i) {
-                var node = new WI.DOMNode(this._domManager, this.ownerDocument, this._isInShadowTree, payload.pseudoElements[i]);
+                var node = new WI.DOMNode(this._domManager, this.ownerDocument, this._isInShadowTree, payload.pseudoElements[i], childOptions);
                 node.parentNode = this;
                 this._pseudoElements.set(node.pseudoType(), node);
             }
         }
 
         if (payload.contentDocument) {
-            this._contentDocument = new WI.DOMNode(this._domManager, null, false, payload.contentDocument);
+            let childOptions = this._owningTarget ? {frameTarget: this._owningTarget} : undefined;
+            this._contentDocument = new WI.DOMNode(this._domManager, null, false, payload.contentDocument, childOptions);
             this._children = [this._contentDocument];
             this._renumber();
         }
@@ -136,13 +153,12 @@ WI.DOMNode = class DOMNode extends WI.Object
                 this.ownerDocument.documentElement = this;
             if (this.ownerDocument && !this.ownerDocument.body && this._nodeName === "BODY")
                 this.ownerDocument.body = this;
-            if (payload.documentURL)
-                this.documentURL = payload.documentURL;
         } else if (this._nodeType === Node.DOCUMENT_TYPE_NODE) {
             this.publicId = payload.publicId;
             this.systemId = payload.systemId;
         } else if (this._nodeType === Node.DOCUMENT_NODE) {
             this.documentURL = payload.documentURL;
+            this.baseURL = payload.baseURL;
             this.xmlVersion = payload.xmlVersion;
         } else if (this._nodeType === Node.ATTRIBUTE_NODE) {
             this.name = payload.name;
@@ -155,11 +171,33 @@ WI.DOMNode = class DOMNode extends WI.Object
         if (this.isMediaElement())
             WI.DOMNode.addEventListener(WI.DOMNode.Event.DidFireEvent, this._handleDOMNodeDidFireEvent, this);
 
-        // Setting layoutContextType to anything other than null will dispatch an event.
-        this.layoutContextType = payload.layoutContextType;
+        // COMPATIBILITY (macOS 13.0, iOS 16.0): CSS.LayoutContextType was renamed/expanded to CSS.LayoutFlag.
+        // Frame-target nodes don't receive layout flags from the backend (no FrameCSSAgent yet).
+        // Their flags were already set above in the constructor workaround — don't overwrite them.
+        if (!frameTarget) {
+            if (!InspectorBackend.Enum.CSS.LayoutFlag) {
+                let layoutFlags = [WI.DOMNode.LayoutFlag.Rendered];
+                if (payload.layoutContextType)
+                    layoutFlags.push(payload.layoutContextType);
+                this.layoutFlags = layoutFlags;
+            } else
+                this.layoutFlags = payload.layoutFlags;
+        }
     }
 
     // Static
+
+    static get defaultLayoutOverlayColor()
+    {
+        return new WI.Color(WI.Color.Format.HSL, WI.DOMNode._defaultLayoutOverlayConfiguration.colors[0]);
+    }
+
+    static resetDefaultLayoutOverlayConfiguration()
+    {
+        let configuration = WI.DOMNode._defaultLayoutOverlayConfiguration;
+        configuration.nextFlexColorIndex = 0;
+        configuration.nextGridColorIndex = 0;
+    }
 
     static getFullscreenDOMEvents(domEvents)
     {
@@ -193,12 +231,15 @@ WI.DOMNode = class DOMNode extends WI.Object
     // Public
 
     get destroyed() { return this._destroyed; }
-    get frame() { return this._frame; }
+    get frame() { return this._frame || this.parentNode?.frame || null; }
+    get owningTarget() { return this._owningTarget || this.parentNode?.owningTarget || null; }
+    get backendNodeId() { return this._rawNodeId ?? this.id; }
     get nextSibling() { return this._nextSibling; }
     get previousSibling() { return this._previousSibling; }
     get children() { return this._children; }
     get domEvents() { return this._domEvents; }
     get powerEfficientPlaybackRanges() { return this._powerEfficientPlaybackRanges; }
+    get layoutOverlayShowing() { return this._layoutOverlayShowing; }
 
     get attached()
     {
@@ -246,19 +287,53 @@ WI.DOMNode = class DOMNode extends WI.Object
         this._childNodeCount = count;
     }
 
-    get layoutContextType()
+    get layoutFlags()
     {
-        return this._layoutContextType;
+        return this._layoutFlags;
     }
 
-    set layoutContextType(layoutContextType)
+    set layoutFlags(layoutFlags)
     {
-        layoutContextType ||= null;
-        if (layoutContextType === this._layoutContextType)
+        layoutFlags ||= [];
+        console.assert(Array.isArray(layoutFlags), layoutFlags);
+        console.assert(layoutFlags.every((layoutFlag) => Object.values(WI.DOMNode.LayoutFlag).includes(layoutFlag)), layoutFlags);
+        console.assert(layoutFlags.filter((layoutFlag) => WI.DOMNode._LayoutContextTypes.includes(layoutFlag)).length <= 1, layoutFlags);
+        console.assert(!layoutFlags.length || !Array.shallowEqual(layoutFlags, this._layoutFlags), layoutFlags);
+
+        let oldLayoutContextType = this.layoutContextType;
+
+        this._layoutFlags = layoutFlags;
+
+        this.dispatchEventToListeners(WI.DOMNode.Event.LayoutFlagsChanged);
+
+        if (!this._layoutOverlayShowing)
             return;
 
-        this._layoutContextType = layoutContextType;
-        this.dispatchEventToListeners(WI.DOMNode.Event.LayoutContextTypeChanged);
+        // The overlay is automatically hidden on the backend when the context type changes.
+        this._layoutOverlayShowing = false;
+        this.dispatchEventToListeners(WI.DOMNode.Event.LayoutOverlayHidden);
+
+        switch (oldLayoutContextType) {
+        case WI.DOMNode.LayoutFlag.Flex:
+            WI.settings.flexOverlayShowOrderNumbers.removeEventListener(WI.Setting.Event.Changed, this._handleLayoutOverlaySettingChanged, this);
+            break;
+
+        case WI.DOMNode.LayoutFlag.Grid:
+        case WI.DOMNode.LayoutFlag.Subgrid:
+        case WI.DOMNode.LayoutFlag.GridLanes:
+            WI.settings.gridOverlayShowExtendedGridLines.removeEventListener(WI.Setting.Event.Changed, this._handleLayoutOverlaySettingChanged, this);
+            WI.settings.gridOverlayShowLineNames.removeEventListener(WI.Setting.Event.Changed, this._handleLayoutOverlaySettingChanged, this);
+            WI.settings.gridOverlayShowLineNumbers.removeEventListener(WI.Setting.Event.Changed, this._handleLayoutOverlaySettingChanged, this);
+            WI.settings.gridOverlayShowTrackSizes.removeEventListener(WI.Setting.Event.Changed, this._handleLayoutOverlaySettingChanged, this);
+            WI.settings.gridOverlayShowAreaNames.removeEventListener(WI.Setting.Event.Changed, this._handleLayoutOverlaySettingChanged, this);
+            WI.settings.gridOverlayShowOrderNumbers.removeEventListener(WI.Setting.Event.Changed, this._handleLayoutOverlaySettingChanged, this);
+            break;
+        }
+    }
+
+    get layoutContextType()
+    {
+        return this._layoutFlags.find((layoutFlag) => WI.DOMNode._LayoutContextTypes.includes(layoutFlag)) || null;
     }
 
     markDestroyed()
@@ -266,7 +341,7 @@ WI.DOMNode = class DOMNode extends WI.Object
         console.assert(!this._destroyed, this);
         this._destroyed = true;
 
-        this.layoutContextType = null;
+        this.layoutFlags = [];
     }
 
     computedRole()
@@ -369,8 +444,8 @@ WI.DOMNode = class DOMNode extends WI.Object
             return;
         }
 
-        let target = WI.assumingMainTarget();
-        target.DOMAgent.setNodeName(this.id, name, this._makeUndoableCallback(callback));
+        let target = this.owningTarget || WI.assumingMainTarget();
+        target.DOMAgent.setNodeName(this.backendNodeId, name, this._makeUndoableCallback(callback));
     }
 
     localName()
@@ -431,8 +506,8 @@ WI.DOMNode = class DOMNode extends WI.Object
             return;
         }
 
-        let target = WI.assumingMainTarget();
-        target.DOMAgent.setNodeValue(this.id, value, this._makeUndoableCallback(callback));
+        let target = this.owningTarget || WI.assumingMainTarget();
+        target.DOMAgent.setNodeValue(this.backendNodeId, value, this._makeUndoableCallback(callback));
     }
 
     getAttribute(name)
@@ -449,20 +524,30 @@ WI.DOMNode = class DOMNode extends WI.Object
             return;
         }
 
-        let target = WI.assumingMainTarget();
-        target.DOMAgent.setAttributesAsText(this.id, text, name, this._makeUndoableCallback(callback));
+        let target = this.owningTarget || WI.assumingMainTarget();
+        target.DOMAgent.setAttributesAsText(this.backendNodeId, text, name, this._makeUndoableCallback(callback));
     }
 
     setAttributeValue(name, value, callback)
     {
         console.assert(!this._destroyed, this);
         if (this._destroyed) {
+            if (!callback)
+                return Promise.reject("ERROR: node is destroyed");
+
             callback("ERROR: node is destroyed");
             return;
         }
 
-        let target = WI.assumingMainTarget();
-        target.DOMAgent.setAttributeValue(this.id, name, value, this._makeUndoableCallback(callback));
+        let target = this.owningTarget || WI.assumingMainTarget();
+
+        if (!callback) {
+            return target.DOMAgent.setAttributeValue(this.backendNodeId, name, value).then(() => {
+                this._markUndoableState();
+            });
+        }
+
+        target.DOMAgent.setAttributeValue(this.backendNodeId, name, value, this._makeUndoableCallback(callback));
     }
 
     attributes()
@@ -493,8 +578,8 @@ WI.DOMNode = class DOMNode extends WI.Object
             this._makeUndoableCallback(callback)(error);
         }
 
-        let target = WI.assumingMainTarget();
-        target.DOMAgent.removeAttribute(this.id, name, mycallback.bind(this));
+        let target = this.owningTarget || WI.assumingMainTarget();
+        target.DOMAgent.removeAttribute(this.backendNodeId, name, mycallback.bind(this));
     }
 
     toggleClass(className, flag)
@@ -524,12 +609,12 @@ WI.DOMNode = class DOMNode extends WI.Object
     {
         console.assert(!this._destroyed, this);
 
-        let target = WI.assumingMainTarget();
+        let target = this.owningTarget || WI.assumingMainTarget();
 
         if (typeof callback !== "function") {
             if (this._destroyed)
                 return Promise.reject("ERROR: node is destroyed");
-            return target.DOMAgent.querySelector(this.id, selector).then(({nodeId}) => nodeId);
+            return target.DOMAgent.querySelector(this.backendNodeId, selector).then(({nodeId}) => nodeId);
         }
 
         if (this._destroyed) {
@@ -537,19 +622,19 @@ WI.DOMNode = class DOMNode extends WI.Object
             return;
         }
 
-        target.DOMAgent.querySelector(this.id, selector, WI.DOMManager.wrapClientCallback(callback));
+        target.DOMAgent.querySelector(this.backendNodeId, selector, WI.DOMManager.wrapClientCallback(callback));
     }
 
     querySelectorAll(selector, callback)
     {
         console.assert(!this._destroyed, this);
 
-        let target = WI.assumingMainTarget();
+        let target = this.owningTarget || WI.assumingMainTarget();
 
         if (typeof callback !== "function") {
             if (this._destroyed)
                 return Promise.reject("ERROR: node is destroyed");
-            return target.DOMAgent.querySelectorAll(this.id, selector).then(({nodeIds}) => nodeIds);
+            return target.DOMAgent.querySelectorAll(this.backendNodeId, selector).then(({nodeIds}) => nodeIds);
         }
 
         if (this._destroyed) {
@@ -557,12 +642,16 @@ WI.DOMNode = class DOMNode extends WI.Object
             return;
         }
 
-        target.DOMAgent.querySelectorAll(this.id, selector, WI.DOMManager.wrapClientCallback(callback));
+        target.DOMAgent.querySelectorAll(this.backendNodeId, selector, WI.DOMManager.wrapClientCallback(callback));
     }
 
     highlight(mode)
     {
         if (this._destroyed)
+            return;
+
+        // FIXME: <https://webkit.org/b/298980> Highlighting cross-origin frame nodes requires page-level coordination.
+        if (this.owningTarget)
             return;
 
         if (this._hideDOMNodeHighlightTimeout) {
@@ -571,7 +660,151 @@ WI.DOMNode = class DOMNode extends WI.Object
         }
 
         let target = WI.assumingMainTarget();
-        target.DOMAgent.highlightNode(WI.DOMManager.buildHighlightConfig(mode), this.id);
+        target.DOMAgent.highlightNode.invoke({
+            nodeId: this.id,
+            ...WI.DOMManager.buildHighlightConfigs(mode),
+        });
+    }
+
+    showLayoutOverlay({color} = {})
+    {
+        console.assert(!this._destroyed, this);
+        if (this._destroyed)
+            return Promise.reject("ERROR: node is destroyed");
+
+        // FIXME: <https://webkit.org/b/298980> Layout overlays for cross-origin frame nodes are not yet supported.
+        if (this.owningTarget)
+            return Promise.reject("ERROR: not supported on cross-origin frame nodes");
+
+        console.assert(Object.values(WI.DOMNode._LayoutContextTypes).includes(this.layoutContextType), this);
+
+        console.assert(!color || color instanceof WI.Color, color);
+        color ||= this.layoutOverlayColor;
+
+        let target = WI.assumingMainTarget();
+        let agentCommandFunction = null;
+        let agentCommandArguments = {nodeId: this.id};
+
+        switch (this.layoutContextType) {
+        case WI.DOMNode.LayoutFlag.Grid:
+        case WI.DOMNode.LayoutFlag.Subgrid:
+        case WI.DOMNode.LayoutFlag.GridLanes:
+            agentCommandArguments.gridOverlayConfig = {
+                gridColor: color.toProtocol(),
+                showLineNames: WI.settings.gridOverlayShowLineNames.value,
+                showLineNumbers: WI.settings.gridOverlayShowLineNumbers.value,
+                showExtendedGridLines: WI.settings.gridOverlayShowExtendedGridLines.value,
+                showTrackSizes: WI.settings.gridOverlayShowTrackSizes.value,
+                showAreaNames: WI.settings.gridOverlayShowAreaNames.value,
+                showOrderNumbers: WI.settings.gridOverlayShowOrderNumbers.value,
+            };
+
+            // COMPATIBILITY (macOS 13.3, iOS 16.4): DOM.GridOverlayConfig did not exist yet.
+            if (!target.hasCommand("DOM.showGridOverlay", "gridOverlayConfig")) {
+                for (let [key, value] in Object.entries(agentCommandArguments.gridOverlayConfig))
+                    agentCommandArguments[key] = value;
+            }
+
+            agentCommandFunction = target.DOMAgent.showGridOverlay;
+
+            if (!this._layoutOverlayShowing) {
+                WI.settings.gridOverlayShowExtendedGridLines.addEventListener(WI.Setting.Event.Changed, this._handleLayoutOverlaySettingChanged, this);
+                WI.settings.gridOverlayShowLineNames.addEventListener(WI.Setting.Event.Changed, this._handleLayoutOverlaySettingChanged, this);
+                WI.settings.gridOverlayShowLineNumbers.addEventListener(WI.Setting.Event.Changed, this._handleLayoutOverlaySettingChanged, this);
+                WI.settings.gridOverlayShowTrackSizes.addEventListener(WI.Setting.Event.Changed, this._handleLayoutOverlaySettingChanged, this);
+                WI.settings.gridOverlayShowAreaNames.addEventListener(WI.Setting.Event.Changed, this._handleLayoutOverlaySettingChanged, this);
+                WI.settings.gridOverlayShowOrderNumbers.addEventListener(WI.Setting.Event.Changed, this._handleLayoutOverlaySettingChanged, this);
+            }
+            break;
+
+        case WI.DOMNode.LayoutFlag.Flex:
+            agentCommandArguments.flexOverlayConfig = {
+                flexColor: color.toProtocol(),
+                showOrderNumbers: WI.settings.flexOverlayShowOrderNumbers.value,
+            };
+
+            // COMPATIBILITY (macOS 13.3, iOS 16.4): DOM.FlexOverlayConfig did not exist yet.
+            if (!target.hasCommand("DOM.showFlexOverlay", "flexOverlayConfig")) {
+                for (let [key, value] in Object.entries(agentCommandArguments.flexOverlayConfig))
+                    agentCommandArguments[key] = value;
+            }
+
+            agentCommandFunction = target.DOMAgent.showFlexOverlay;
+
+            if (!this._layoutOverlayShowing)
+                WI.settings.flexOverlayShowOrderNumbers.addEventListener(WI.Setting.Event.Changed, this._handleLayoutOverlaySettingChanged, this);
+            break;
+        }
+
+        this._layoutOverlayShowing = true;
+
+        this.dispatchEventToListeners(WI.DOMNode.Event.LayoutOverlayShown);
+
+        console.assert(agentCommandFunction);
+        return agentCommandFunction.invoke(agentCommandArguments);
+    }
+
+    hideLayoutOverlay()
+    {
+        console.assert(!this._destroyed, this);
+        if (this._destroyed)
+            return Promise.reject("ERROR: node is destroyed");
+
+        // FIXME: <https://webkit.org/b/298980> Layout overlays for cross-origin frame nodes are not yet supported.
+        if (this.owningTarget)
+            return Promise.reject("ERROR: not supported on cross-origin frame nodes");
+
+        console.assert(Object.values(WI.DOMNode._LayoutContextTypes).includes(this.layoutContextType), this);
+
+        let target = WI.assumingMainTarget();
+        let agentCommandFunction;
+        let agentCommandArguments = {nodeId: this.id};
+
+        switch (this.layoutContextType) {
+        case WI.DOMNode.LayoutFlag.Grid:
+        case WI.DOMNode.LayoutFlag.Subgrid:
+        case WI.DOMNode.LayoutFlag.GridLanes:
+            WI.settings.gridOverlayShowExtendedGridLines.removeEventListener(WI.Setting.Event.Changed, this._handleLayoutOverlaySettingChanged, this);
+            WI.settings.gridOverlayShowLineNames.removeEventListener(WI.Setting.Event.Changed, this._handleLayoutOverlaySettingChanged, this);
+            WI.settings.gridOverlayShowLineNumbers.removeEventListener(WI.Setting.Event.Changed, this._handleLayoutOverlaySettingChanged, this);
+            WI.settings.gridOverlayShowTrackSizes.removeEventListener(WI.Setting.Event.Changed, this._handleLayoutOverlaySettingChanged, this);
+            WI.settings.gridOverlayShowAreaNames.removeEventListener(WI.Setting.Event.Changed, this._handleLayoutOverlaySettingChanged, this);
+            WI.settings.gridOverlayShowOrderNumbers.removeEventListener(WI.Setting.Event.Changed, this._handleLayoutOverlaySettingChanged, this);
+
+            agentCommandFunction = target.DOMAgent.hideGridOverlay;
+            break;
+
+        case WI.DOMNode.LayoutFlag.Flex:
+            WI.settings.flexOverlayShowOrderNumbers.removeEventListener(WI.Setting.Event.Changed, this._handleLayoutOverlaySettingChanged, this);
+
+            agentCommandFunction = target.DOMAgent.hideFlexOverlay;
+            break;
+        }
+
+        console.assert(this._layoutOverlayShowing, this);
+        this._layoutOverlayShowing = false;
+
+        this.dispatchEventToListeners(WI.DOMNode.Event.LayoutOverlayHidden);
+
+        console.assert(agentCommandFunction);
+        return agentCommandFunction.invoke(agentCommandArguments);
+    }
+
+    get layoutOverlayColor()
+    {
+        this._createLayoutOverlayColorSettingIfNeeded();
+        return new WI.Color(WI.Color.Format.HSL, this._layoutOverlayColorSetting.value);
+    }
+
+    set layoutOverlayColor(color)
+    {
+        console.assert(color instanceof WI.Color, color);
+
+        this._createLayoutOverlayColorSettingIfNeeded();
+        this._layoutOverlayColorSetting.value = color.hsl;
+
+        if (this._layoutOverlayShowing)
+            this.showLayoutOverlay({color});
     }
 
     scrollIntoView()
@@ -604,8 +837,8 @@ WI.DOMNode = class DOMNode extends WI.Object
                 callback(this.children);
         }
 
-        let target = WI.assumingMainTarget();
-        target.DOMAgent.requestChildNodes(this.id, mycallback.bind(this));
+        let target = this.owningTarget || WI.assumingMainTarget();
+        target.DOMAgent.requestChildNodes(this.backendNodeId, mycallback.bind(this));
     }
 
     getSubtree(depth, callback)
@@ -621,20 +854,48 @@ WI.DOMNode = class DOMNode extends WI.Object
                 callback(error ? null : this.children);
         }
 
-        let target = WI.assumingMainTarget();
-        target.DOMAgent.requestChildNodes(this.id, depth, mycallback.bind(this));
+        let target = this.owningTarget || WI.assumingMainTarget();
+        target.DOMAgent.requestChildNodes(this.backendNodeId, depth, mycallback.bind(this));
+    }
+
+    async requestAssignedSlot()
+    {
+        let target = this.owningTarget || WI.assumingMainTarget();
+        let {slotElementId} = await target.DOMAgent.requestAssignedSlot(this.backendNodeId);
+        if (!slotElementId)
+            return null;
+        if (this.owningTarget)
+            return WI.domManager.nodeForIdInFrameTarget(slotElementId, this.owningTarget);
+        return WI.domManager.nodeForId(slotElementId);
+    }
+
+    async requestAssignedNodes()
+    {
+        let target = this.owningTarget || WI.assumingMainTarget();
+        let {assignedNodeIds} = await target.DOMAgent.requestAssignedNodes(this.backendNodeId);
+
+        let assignedNodes = [];
+        for (let assignedNodeId of assignedNodeIds) {
+            let assignedNode = this.owningTarget
+                ? WI.domManager.nodeForIdInFrameTarget(assignedNodeId, this.owningTarget)
+                : WI.domManager.nodeForId(assignedNodeId);
+            console.assert(assignedNode, this, assignedNodeId);
+            if (assignedNode)
+                assignedNodes.push(assignedNode);
+        }
+        return assignedNodes;
     }
 
     getOuterHTML(callback)
     {
         console.assert(!this._destroyed, this);
 
-        let target = WI.assumingMainTarget();
+        let target = this.owningTarget || WI.assumingMainTarget();
 
         if (typeof callback !== "function") {
             if (this._destroyed)
                 return Promise.reject("ERROR: node is destroyed");
-            return target.DOMAgent.getOuterHTML(this.id).then(({outerHTML}) => outerHTML);
+            return target.DOMAgent.getOuterHTML(this.backendNodeId).then(({outerHTML}) => outerHTML);
         }
 
         if (this._destroyed) {
@@ -642,7 +903,7 @@ WI.DOMNode = class DOMNode extends WI.Object
             return;
         }
 
-        target.DOMAgent.getOuterHTML(this.id, callback);
+        target.DOMAgent.getOuterHTML(this.backendNodeId, callback);
     }
 
     setOuterHTML(html, callback)
@@ -653,8 +914,8 @@ WI.DOMNode = class DOMNode extends WI.Object
             return;
         }
 
-        let target = WI.assumingMainTarget();
-        target.DOMAgent.setOuterHTML(this.id, html, this._makeUndoableCallback(callback));
+        let target = this.owningTarget || WI.assumingMainTarget();
+        target.DOMAgent.setOuterHTML(this.backendNodeId, html, this._makeUndoableCallback(callback));
     }
 
     insertAdjacentHTML(position, html)
@@ -666,22 +927,8 @@ WI.DOMNode = class DOMNode extends WI.Object
         if (this.nodeType() !== Node.ELEMENT_NODE)
             return;
 
-        let target = WI.assumingMainTarget();
-
-        // COMPATIBILITY (iOS 11.0): DOM.insertAdjacentHTML did not exist.
-        if (!target.hasCommand("DOM.insertAdjacentHTML")) {
-            WI.RemoteObject.resolveNode(this).then((object) => {
-                function inspectedPage_node_insertAdjacentHTML(position, html) {
-                    this.insertAdjacentHTML(position, html);
-                }
-
-                object.callFunction(inspectedPage_node_insertAdjacentHTML, [position, html]);
-                object.release();
-            });
-            return;
-        }
-
-        target.DOMAgent.insertAdjacentHTML(this.id, position, html, this._makeUndoableCallback());
+        let target = this.owningTarget || WI.assumingMainTarget();
+        target.DOMAgent.insertAdjacentHTML(this.backendNodeId, position, html, this._makeUndoableCallback());
     }
 
     removeNode(callback)
@@ -692,22 +939,25 @@ WI.DOMNode = class DOMNode extends WI.Object
             return;
         }
 
-        let target = WI.assumingMainTarget();
-        target.DOMAgent.removeNode(this.id, this._makeUndoableCallback(callback));
+        let target = this.owningTarget || WI.assumingMainTarget();
+        target.DOMAgent.removeNode(this.backendNodeId, this._makeUndoableCallback(callback));
     }
 
-    getEventListeners(callback)
+    getEventListeners({includeAncestors} = {})
     {
         console.assert(!this._destroyed, this);
-        if (this._destroyed) {
-            callback("ERROR: node is destroyed");
-            return;
-        }
+        if (this._destroyed)
+            return Promise.reject("ERROR: node is destroyed");
 
-        console.assert(WI.domManager.inspectedNode === this);
+        includeAncestors ??= true;
 
-        let target = WI.assumingMainTarget();
-        target.DOMAgent.getEventListenersForNode(this.id, callback);
+        console.assert(WI.domManager.inspectedNode === this || !includeAncestors, this, includeAncestors);
+
+        let target = this.owningTarget || WI.assumingMainTarget();
+        return target.DOMAgent.getEventListenersForNode.invoke({
+            nodeId: this.backendNodeId,
+            includeAncestors,
+        });
     }
 
     accessibilityProperties(callback)
@@ -755,13 +1005,14 @@ WI.DOMNode = class DOMNode extends WI.Object
                     required: accessibilityProperties.required,
                     role: accessibilityProperties.role,
                     selected: accessibilityProperties.selected,
-                    selectedChildNodeIds: accessibilityProperties.selectedChildNodeIds
+                    selectedChildNodeIds: accessibilityProperties.selectedChildNodeIds,
+                    switchState: accessibilityProperties.switchState,
                 });
             }
         }
 
-        let target = WI.assumingMainTarget();
-        target.DOMAgent.getAccessibilityPropertiesForNode(this.id, accessibilityPropertiesCallback.bind(this));
+        let target = this.owningTarget || WI.assumingMainTarget();
+        target.DOMAgent.getAccessibilityPropertiesForNode(this.backendNodeId, accessibilityPropertiesCallback.bind(this));
     }
 
     path()
@@ -908,10 +1159,10 @@ WI.DOMNode = class DOMNode extends WI.Object
         if (event.target === this || !event.target.isAncestor(this))
             return;
 
-        let domEvent = Object.shallowCopy(event.data.domEvent);
-        domEvent.originator = event.target;
-
-        this._addDOMEvent(domEvent);
+        this._addDOMEvent({
+            ...event.data.domEvent,
+            originator: event.target,
+        });
     }
 
     _addDOMEvent(domEvent)
@@ -931,7 +1182,8 @@ WI.DOMNode = class DOMNode extends WI.Object
 
     _insertChild(prev, payload)
     {
-        var node = new WI.DOMNode(this._domManager, this.ownerDocument, this._isInShadowTree, payload);
+        let childOptions = this._owningTarget ? {frameTarget: this._owningTarget} : undefined;
+        var node = new WI.DOMNode(this._domManager, this.ownerDocument, this._isInShadowTree, payload, childOptions);
         if (!prev) {
             if (!this._children) {
                 // First node
@@ -964,8 +1216,9 @@ WI.DOMNode = class DOMNode extends WI.Object
             return;
 
         this._children = this._shadowRoots.slice();
+        let childOptions = this._owningTarget ? {frameTarget: this._owningTarget} : undefined;
         for (var i = 0; i < payloads.length; ++i) {
-            var node = new WI.DOMNode(this._domManager, this.ownerDocument, this._isInShadowTree, payloads[i]);
+            var node = new WI.DOMNode(this._domManager, this.ownerDocument, this._isInShadowTree, payloads[i], childOptions);
             this._children.push(node);
         }
         this._renumber();
@@ -1019,8 +1272,15 @@ WI.DOMNode = class DOMNode extends WI.Object
             return;
         }
 
-        let target = WI.assumingMainTarget();
-        target.DOMAgent.moveTo(this.id, targetNode.id, anchorNode ? anchorNode.id : undefined, this._makeUndoableCallback(callback));
+        // moveTo requires source, target, and anchor to live in the same agent. Cross-target
+        // moves cannot resolve nodeIds across processes; reject up front.
+        if (this.owningTarget !== targetNode.owningTarget || (anchorNode && anchorNode.owningTarget !== this.owningTarget)) {
+            callback("ERROR: cannot move nodes across frame targets");
+            return;
+        }
+
+        let target = this.owningTarget || WI.assumingMainTarget();
+        target.DOMAgent.moveTo(this.backendNodeId, targetNode.backendNodeId, anchorNode ? anchorNode.backendNodeId : undefined, this._makeUndoableCallback(callback));
     }
 
     isXMLNode()
@@ -1052,18 +1312,20 @@ WI.DOMNode = class DOMNode extends WI.Object
                 this.dispatchEventToListeners(WI.DOMNode.Event.EnabledPseudoClassesChanged);
         }
 
-        let target = WI.assumingMainTarget();
-        target.CSSAgent.forcePseudoState(this.id, pseudoClasses, changed.bind(this));
+        let target = this.owningTarget || WI.assumingMainTarget();
+        target.CSSAgent.forcePseudoState(this.backendNodeId, pseudoClasses, changed.bind(this));
+    }
+
+    _markUndoableState()
+    {
+        WI.domUndoCoordinator.markUndoableState(this.owningTarget);
     }
 
     _makeUndoableCallback(callback)
     {
         return (...args) => {
-            if (!args[0]) { // error
-                let target = WI.assumingMainTarget();
-                if (target.hasCommand("DOM.markUndoableState"))
-                    target.DOMAgent.markUndoableState();
-            }
+            if (!args[0]) // error
+                this._markUndoableState();
 
             if (callback)
                 callback.apply(null, args);
@@ -1106,6 +1368,63 @@ WI.DOMNode = class DOMNode extends WI.Object
             return `${selector}.${(shouldEscape ? CSS.escape(className) : className)}`;
         }, "");
     }
+
+    _createLayoutOverlayColorSettingIfNeeded()
+    {
+        if (this._layoutOverlayColorSetting)
+            return;
+
+        let defaultConfiguration = WI.DOMNode._defaultLayoutOverlayConfiguration;
+
+        let url = this.ownerDocument.documentURL || WI.networkManager.mainFrame.url;
+
+        let nextColorIndex;
+        switch (this.layoutContextType) {
+        case WI.DOMNode.LayoutFlag.Grid:
+        case WI.DOMNode.LayoutFlag.Subgrid:
+        case WI.DOMNode.LayoutFlag.GridLanes:
+            nextColorIndex = defaultConfiguration.nextGridColorIndex;
+            defaultConfiguration.nextGridColorIndex = (nextColorIndex + 1) % defaultConfiguration.colors.length;
+            break;
+
+        case WI.DOMNode.LayoutFlag.Flex:
+            nextColorIndex = defaultConfiguration.nextFlexColorIndex;
+            defaultConfiguration.nextFlexColorIndex = (nextColorIndex + 1) % defaultConfiguration.colors.length;
+            break;
+        }
+
+        this._layoutOverlayColorSetting = new WI.Setting(`overlay-color-${url.hash}-${this.path().hash}`, defaultConfiguration.colors[nextColorIndex]);
+    }
+
+    _handleLayoutOverlaySettingChanged(event)
+    {
+        if (this._layoutOverlayShowing)
+            this.showLayoutOverlay();
+    }
+
+    // COMPATIBILITY (macOS 14.4, iOS 17.4): `DOM.getMediaStats` did not exist yet.
+    async getMediaStats()
+    {
+        // FIXME: <https://webkit.org/b/298980> Media stats for cross-origin frame nodes are not yet supported.
+        if (this.owningTarget)
+            return null;
+
+        let target = WI.assumingMainTarget();
+        let {mediaStats} = await target.DOMAgent.getMediaStats(this.id);
+        return mediaStats;
+    }
+};
+
+WI.DOMNode._defaultLayoutOverlayConfiguration = {
+    colors: [
+        [329, 91, 70],
+        [207, 96, 69],
+        [92, 90, 64],
+        [291, 73, 68],
+        [40, 97, 57],
+    ],
+    nextFlexColorIndex: 0,
+    nextGridColorIndex: 0,
 };
 
 WI.DOMNode.Event = {
@@ -1115,7 +1434,9 @@ WI.DOMNode.Event = {
     EventListenersChanged: "dom-node-event-listeners-changed",
     DidFireEvent: "dom-node-did-fire-event",
     PowerEfficientPlaybackStateChanged: "dom-node-power-efficient-playback-state-changed",
-    LayoutContextTypeChanged: "dom-node-layout-context-type-changed",
+    LayoutFlagsChanged: "dom-node-layout-flags-changed",
+    LayoutOverlayShown: "dom-node-layout-overlay-shown",
+    LayoutOverlayHidden: "dom-node-layout-overlay-hidden",
 };
 
 WI.DOMNode.PseudoElementType = {
@@ -1136,7 +1457,24 @@ WI.DOMNode.CustomElementState = {
     Failed: "failed",
 };
 
-// Corresponds to `CSS.LayoutContextType`.
-WI.DOMNode.LayoutContextType = {
+// Corresponds to `CSS.LayoutFlag`.
+WI.DOMNode.LayoutFlag = {
+    Rendered: "rendered",
+    Event: "event",
+    Scrollable: "scrollable",
+    SlotAssigned: "slot-assigned",
+    SlotFilled: "slot-filled",
+
+    // These are mutually exclusive.
+    Flex: "flex",
     Grid: "grid",
+    Subgrid: "subgrid",
+    GridLanes: "grid-lanes",
 };
+
+WI.DOMNode._LayoutContextTypes = [
+    WI.DOMNode.LayoutFlag.Flex,
+    WI.DOMNode.LayoutFlag.Grid,
+    WI.DOMNode.LayoutFlag.Subgrid,
+    WI.DOMNode.LayoutFlag.GridLanes,
+];

@@ -26,12 +26,17 @@
 
 #pragma once
 
-// FIXME: We should probably move to makeing the WebCore/PlatformFooEvents trivial classes so that
+// FIXME: We should probably move to making the WebCore/PlatformFooEvents trivial classes so that
 // we can use them as the event type.
 
-#include <wtf/EnumTraits.h>
+#include "WebEventModifier.h"
+#include "WebEventType.h"
+#include <wtf/CheckedPtr.h>
+#include <wtf/MonotonicTime.h>
 #include <wtf/OptionSet.h>
-#include <wtf/WallTime.h>
+#include <wtf/RefCounted.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/UUID.h>
 #include <wtf/text/WTFString.h>
 
 namespace IPC {
@@ -41,91 +46,49 @@ class Encoder;
 
 namespace WebKit {
 
-class WebEvent {
-    WTF_MAKE_FAST_ALLOCATED;
+enum class WebEventInputSource : uint8_t { UserDriven, Automation };
+
+class WebEvent : public CanMakeThreadSafeCheckedPtr<WebEvent, WTF::DefaultedOperatorEqual::No, WTF::CheckedPtrDeleteCheckException::Yes> {
+    WTF_MAKE_TZONE_ALLOCATED(WebEvent);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WebEvent);
 public:
-    enum Type {
-        NoType = -1,
-        
-        // WebMouseEvent
-        MouseDown,
-        MouseUp,
-        MouseMove,
-        MouseForceChanged,
-        MouseForceDown,
-        MouseForceUp,
-
-        // WebWheelEvent
-        Wheel,
-
-        // WebKeyboardEvent
-        KeyDown,
-        KeyUp,
-        RawKeyDown,
-        Char,
-
-#if ENABLE(TOUCH_EVENTS)
-        // WebTouchEvent
-        TouchStart,
-        TouchMove,
-        TouchEnd,
-        TouchCancel,
+#if PLATFORM(GTK) || PLATFORM(WPE)
+    WebEvent(WebEventType, OptionSet<WebEventModifier>, MonotonicTime timestamp, WTF::UUID authorizationToken, uintptr_t signpostIdentifier);
 #endif
+    WebEvent(WebEventType, OptionSet<WebEventModifier>, MonotonicTime timestamp, WTF::UUID authorizationToken);
+    WebEvent(WebEventType, OptionSet<WebEventModifier>, MonotonicTime timestamp);
 
-#if ENABLE(MAC_GESTURE_EVENTS)
-        GestureStart,
-        GestureChange,
-        GestureEnd,
+    virtual ~WebEvent() = default;
+
+    WebEventType type() const { return m_type; }
+
+    bool shiftKey() const { return m_modifiers.contains(WebEventModifier::ShiftKey); }
+    bool controlKey() const { return m_modifiers.contains(WebEventModifier::ControlKey); }
+    bool altKey() const { return m_modifiers.contains(WebEventModifier::AltKey); }
+    bool metaKey() const { return m_modifiers.contains(WebEventModifier::MetaKey); }
+    bool capsLockKey() const { return m_modifiers.contains(WebEventModifier::CapsLockKey); }
+
+    OptionSet<WebEventModifier> modifiers() const { return m_modifiers; }
+
+    MonotonicTime timestamp() const { return m_timestamp; }
+
+    bool NODELETE isActivationTriggeringEvent() const;
+    WTF::UUID authorizationToken() const { return m_authorizationToken; }
+
+#if PLATFORM(GTK) || PLATFORM(WPE)
+    uintptr_t signpostIdentifier() const { return m_signpostIdentifier; }
 #endif
-    };
-
-    enum class Modifier : uint8_t {
-        ShiftKey    = 1 << 0,
-        ControlKey  = 1 << 1,
-        AltKey      = 1 << 2,
-        MetaKey     = 1 << 3,
-        CapsLockKey = 1 << 4,
-    };
-
-    Type type() const { return static_cast<Type>(m_type); }
-
-    bool shiftKey() const { return m_modifiers.contains(Modifier::ShiftKey); }
-    bool controlKey() const { return m_modifiers.contains(Modifier::ControlKey); }
-    bool altKey() const { return m_modifiers.contains(Modifier::AltKey); }
-    bool metaKey() const { return m_modifiers.contains(Modifier::MetaKey); }
-    bool capsLockKey() const { return m_modifiers.contains(Modifier::CapsLockKey); }
-
-    OptionSet<Modifier> modifiers() const { return m_modifiers; }
-
-    WallTime timestamp() const { return m_timestamp; }
-
-protected:
-    WebEvent();
-
-    WebEvent(Type, OptionSet<Modifier>, WallTime timestamp);
-
-    void encode(IPC::Encoder&) const;
-    static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, WebEvent&);
 
 private:
-    uint32_t m_type;
-    OptionSet<Modifier> m_modifiers;
-    WallTime m_timestamp;
+    WebEventType m_type;
+    OptionSet<WebEventModifier> m_modifiers;
+    MonotonicTime m_timestamp;
+    WTF::UUID m_authorizationToken;
+#if PLATFORM(GTK) || PLATFORM(WPE)
+    uintptr_t m_signpostIdentifier;
+#endif
 };
+
+WTF::TextStream& operator<<(WTF::TextStream&, WebEventType);
 
 } // namespace WebKit
-
-namespace WTF {
-
-template<> struct EnumTraits<WebKit::WebEvent::Modifier> {
-    using values = EnumValues<
-        WebKit::WebEvent::Modifier,
-        WebKit::WebEvent::Modifier::ShiftKey,
-        WebKit::WebEvent::Modifier::ControlKey,
-        WebKit::WebEvent::Modifier::AltKey,
-        WebKit::WebEvent::Modifier::MetaKey,
-        WebKit::WebEvent::Modifier::CapsLockKey
-    >;
-};
-
-} // namespace WTF

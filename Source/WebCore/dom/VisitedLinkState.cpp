@@ -29,28 +29,35 @@
 #include "config.h"
 #include "VisitedLinkState.h"
 
+#include "DocumentPage.h"
 #include "ElementIterator.h"
-#include "Frame.h"
-#include "HTMLAnchorElement.h"
+#include "FrameDestructionObserverInlines.h"
+#include "HTMLAnchorElementInlines.h"
+#include "LocalFrame.h"
 #include "Page.h"
 #include "SVGAElement.h"
+#include "SVGElementTypeHelpers.h"
 #include "SVGNames.h"
+#include "TypedElementDescendantIteratorInlines.h"
 #include "VisitedLinkStore.h"
 #include "XLinkNames.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(VisitedLinkState);
+
 using namespace HTMLNames;
 
-inline static const AtomString* linkAttribute(const Element& element)
+inline static const AtomString linkAttribute(const Element& element)
 {
     if (!element.isLink())
-        return nullptr;
+        return nullAtom();
     if (element.isHTMLElement())
-        return &element.attributeWithoutSynchronization(HTMLNames::hrefAttr);
+        return element.attributeWithoutSynchronization(HTMLNames::hrefAttr);
     if (element.isSVGElement())
-        return &element.getAttribute(SVGNames::hrefAttr, XLinkNames::hrefAttr);
-    return nullptr;
+        return element.getAttribute(SVGNames::hrefAttr, XLinkNames::hrefAttr);
+    return nullAtom();
 }
 
 VisitedLinkState::VisitedLinkState(Document& document)
@@ -62,18 +69,19 @@ void VisitedLinkState::invalidateStyleForAllLinks()
 {
     if (m_linksCheckedForVisitedState.isEmpty())
         return;
-    for (auto& element : descendantsOfType<Element>(m_document)) {
-        if (element.isLink())
-            element.invalidateStyleForSubtree();
+    Ref document = m_document.get();
+    for (Ref element : descendantsOfType<Element>(document.get())) {
+        if (element->isLink())
+            element->invalidateStyleForSubtree();
     }
 }
 
 inline static std::optional<SharedStringHash> linkHashForElement(const Element& element)
 {
-    if (is<HTMLAnchorElement>(element))
-        return downcast<HTMLAnchorElement>(element).visitedLinkHash();
-    if (is<SVGAElement>(element))
-        return downcast<SVGAElement>(element).visitedLinkHash();
+    if (auto anchor = dynamicDowncast<HTMLAnchorElement>(element))
+        return anchor->visitedLinkHash();
+    if (auto anchor = dynamicDowncast<SVGAElement>(element))
+        return anchor->visitedLinkHash();
     return std::nullopt;
 }
 
@@ -81,9 +89,10 @@ void VisitedLinkState::invalidateStyleForLink(SharedStringHash linkHash)
 {
     if (!m_linksCheckedForVisitedState.contains(linkHash))
         return;
-    for (auto& element : descendantsOfType<Element>(m_document)) {
-        if (element.isLink() && linkHashForElement(element) == linkHash)
-            element.invalidateStyleForSubtree();
+    Ref document = m_document.get();
+    for (Ref element : descendantsOfType<Element>(document.get())) {
+        if (element->isLink() && linkHashForElement(element) == linkHash)
+            element->invalidateStyleForSubtree();
     }
 }
 
@@ -91,14 +100,14 @@ InsideLink VisitedLinkState::determineLinkStateSlowCase(const Element& element)
 {
     ASSERT(element.isLink());
 
-    const AtomString* attribute = linkAttribute(element);
-    if (!attribute || attribute->isNull())
+    auto attribute = linkAttribute(element);
+    if (attribute.isNull())
         return InsideLink::NotInside;
 
     auto hashIfFound = linkHashForElement(element);
 
     if (!hashIfFound)
-        return attribute->isEmpty() ? InsideLink::InsideVisited : InsideLink::InsideUnvisited;
+        return attribute.isEmpty() ? InsideLink::InsideVisited : InsideLink::InsideUnvisited;
 
     auto hash = *hashIfFound;
 
@@ -107,17 +116,17 @@ InsideLink VisitedLinkState::determineLinkStateSlowCase(const Element& element)
     if (!hash)
         return InsideLink::InsideVisited;
 
-    Frame* frame = element.document().frame();
+    RefPtr frame = element.document().frame();
     if (!frame)
         return InsideLink::InsideUnvisited;
 
-    Page* page = frame->page();
+    RefPtr page = frame->page();
     if (!page)
         return InsideLink::InsideUnvisited;
 
     m_linksCheckedForVisitedState.add(hash);
 
-    if (!page->visitedLinkStore().isLinkVisited(*page, hash, element.document().baseURL(), *attribute))
+    if (!protect(page->visitedLinkStore())->isLinkVisited(*page, hash, element.document().baseURL(), attribute))
         return InsideLink::InsideUnvisited;
 
     return InsideLink::InsideVisited;

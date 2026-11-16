@@ -29,12 +29,30 @@
 
 #include "XRDeviceIdentifier.h"
 #include "XRDeviceInfo.h"
+#include <WebCore/ExceptionOr.h>
+#include <WebCore/IntSize.h>
 #include <WebCore/PlatformXR.h>
+#include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 #include <wtf/Function.h>
+
+namespace WebCore {
+class SecurityOriginData;
+
+struct XRCanvasConfiguration;
+}
 
 namespace WebKit {
 
 class WebPageProxy;
+
+class PlatformXRCoordinatorSessionEventClient : public AbstractRefCountedAndCanMakeWeakPtr<PlatformXRCoordinatorSessionEventClient> {
+public:
+    virtual ~PlatformXRCoordinatorSessionEventClient() = default;
+
+    virtual void sessionDidEnd(XRDeviceIdentifier) = 0;
+    virtual void sessionDidUpdateVisibilityState(XRDeviceIdentifier, PlatformXR::VisibilityState) = 0;
+    virtual void sessionDidInitializeRendering(XRDeviceIdentifier, uint32_t width, uint32_t height, uint32_t arrayLength) = 0;
+};
 
 class PlatformXRCoordinator {
 public:
@@ -44,16 +62,41 @@ public:
     static PlatformXR::LayerHandle defaultLayerHandle() { return 1; }
 
     using DeviceInfoCallback = Function<void(std::optional<XRDeviceInfo>)>;
-    virtual void getPrimaryDeviceInfo(DeviceInfoCallback&&) = 0;
+    virtual void getPrimaryDeviceInfo(WebPageProxy&, DeviceInfoCallback&&) = 0;
+
+    using FeatureListCallback = CompletionHandler<void(std::optional<PlatformXR::Device::FeatureList>&&)>;
+    virtual void requestPermissionOnSessionFeatures(WebPageProxy&, const WebCore::SecurityOriginData&, PlatformXR::SessionMode, const PlatformXR::Device::FeatureList& granted, const PlatformXR::Device::FeatureList& /* consentRequired */, const PlatformXR::Device::FeatureList& /* consentOptional */, const PlatformXR::Device::FeatureList& /* requiredFeaturesRequested */, const PlatformXR::Device::FeatureList& /* optionalFeaturesRequested */, FeatureListCallback&& completionHandler) { completionHandler(granted); }
+
+#if USE(OPENXR)
+    using CreateLayerProjectionCallback = CompletionHandler<void(std::optional<PlatformXR::LayerInfo>)>;
+    virtual void createLayerProjection(uint32_t width, uint32_t height, bool alpha, CreateLayerProjectionCallback&&) = 0;
+#endif
+
+#if ENABLE(WEBXR_LAYERS)
+    using CreateCompositionLayerCallback = CompletionHandler<void(std::optional<PlatformXR::LayerInfo>)>;
+    virtual void createCompositionLayer(PlatformXR::CompositionLayerType, WebCore::IntSize, PlatformXR::LayerLayout, CreateCompositionLayerCallback&&) = 0;
+#endif
 
     // Session creation/termination.
-    using OnSessionEndCallback = Function<void(XRDeviceIdentifier)>;
-    virtual void startSession(WebPageProxy&, OnSessionEndCallback&&) = 0;
+    virtual void startSession(WebPageProxy&, WeakPtr<PlatformXRCoordinatorSessionEventClient>&&, const WebCore::SecurityOriginData&, PlatformXR::SessionMode, const PlatformXR::Device::FeatureList&, std::optional<WebCore::XRCanvasConfiguration>&&) = 0;
     virtual void endSessionIfExists(WebPageProxy&) = 0;
 
+    virtual void stopWhenIdle() { }
+
     // Session display loop.
-    virtual void scheduleAnimationFrame(WebPageProxy&, PlatformXR::Device::RequestFrameCallback&&) = 0;
+    virtual void scheduleAnimationFrame(WebPageProxy&, std::optional<PlatformXR::RequestData>&&, PlatformXR::Device::RequestFrameCallback&&) = 0;
+#if USE(OPENXR)
+    virtual void submitFrame(WebPageProxy&, Vector<PlatformXR::DeviceLayer>&&) = 0;
+#else
     virtual void submitFrame(WebPageProxy&) { }
+#endif
+
+#if ENABLE(WEBXR_HIT_TEST)
+    virtual void requestHitTestSource(WebPageProxy&, const PlatformXR::HitTestOptions&, CompletionHandler<void(WebCore::ExceptionOr<PlatformXR::HitTestSource>)>&& completionHandler) { completionHandler(WebCore::Exception { WebCore::ExceptionCode::InvalidStateError }); }
+    virtual void deleteHitTestSource(WebPageProxy&, PlatformXR::HitTestSource) { }
+    virtual void requestTransientInputHitTestSource(WebPageProxy&, const PlatformXR::TransientInputHitTestOptions&, CompletionHandler<void(WebCore::ExceptionOr<PlatformXR::TransientInputHitTestSource>)>&& completionHandler) { completionHandler(WebCore::Exception { WebCore::ExceptionCode::InvalidStateError }); }
+    virtual void deleteTransientInputHitTestSource(WebPageProxy&, PlatformXR::TransientInputHitTestSource) { }
+#endif
 };
 
 } // namespace WebKit

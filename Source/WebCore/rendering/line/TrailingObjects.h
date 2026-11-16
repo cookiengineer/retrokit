@@ -24,11 +24,12 @@
 
 #pragma once
 
+#include <wtf/CheckedPtr.h>
 #include <wtf/Vector.h>
 
 namespace WebCore {
 
-class InlineIterator;
+class LegacyInlineIterator;
 class RenderBoxModelObject;
 class RenderText;
 
@@ -38,15 +39,15 @@ struct BidiIsolatedRun;
 template <class Iterator, class Run> class BidiResolver;
 template <class Iterator, class Run, class IsolateRun> class BidiResolverWithIsolate;
 template <class Iterator> class WhitespaceCollapsingState;
-typedef BidiResolverWithIsolate<InlineIterator, BidiRun, BidiIsolatedRun> InlineBidiResolver;
-typedef WhitespaceCollapsingState<InlineIterator> LineWhitespaceCollapsingState;
+typedef BidiResolverWithIsolate<LegacyInlineIterator, BidiRun, BidiIsolatedRun> InlineBidiResolver;
+typedef WhitespaceCollapsingState<LegacyInlineIterator> LineWhitespaceCollapsingState;
 
 class TrailingObjects {
 public:
     void setTrailingWhitespace(RenderText& whitespace) { m_whitespace = &whitespace; }
     void clear()
     {
-        m_whitespace = { };
+        m_whitespace = nullptr;
         m_boxes.shrink(0); // Use shrink(0) instead of clear() to retain our capacity.
     }
 
@@ -56,11 +57,11 @@ public:
             m_boxes.append(box);
     }
 
-    enum class CollapseFirstSpace { No, Yes };
-    void updateWhitespaceCollapsingTransitionsForTrailingBoxes(LineWhitespaceCollapsingState&, const InlineIterator& lBreak, CollapseFirstSpace);
+    enum class CollapseFirstSpace : bool { No, Yes };
+    void updateWhitespaceCollapsingTransitionsForTrailingBoxes(LineWhitespaceCollapsingState&, const LegacyInlineIterator& lBreak, CollapseFirstSpace);
 
 private:
-    RenderText* m_whitespace { nullptr };
+    CheckedPtr<RenderText> m_whitespace;
     Vector<std::reference_wrapper<RenderBoxModelObject>, 4> m_boxes;
 };
 

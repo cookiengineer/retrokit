@@ -38,8 +38,13 @@ public:
 
     virtual ~WorkerEventLoop();
 
+    static const String taskMode();
     // FIXME: This should be removed once MicrotaskQueue is integrated with EventLoopTaskGroup.
     void clearMicrotaskQueue();
+
+    // ContextDestructionObserver.
+    void ref() const final { EventLoop::ref(); }
+    void deref() const final { EventLoop::deref(); }
 
 private:
     explicit WorkerEventLoop(WorkerOrWorkletGlobalScope&);
@@ -48,7 +53,7 @@ private:
     bool isContextThread() const;
     MicrotaskQueue& microtaskQueue() final;
 
-    std::unique_ptr<MicrotaskQueue> m_microtaskQueue;
+    RefPtr<MicrotaskQueue> m_microtaskQueue;
 };
 
 } // namespace WebCore

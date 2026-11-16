@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,7 +27,9 @@
 #include "WebCoreJSClientData.h"
 
 #include "DOMGCOutputConstraint.h"
-#include "DOMIsoSubspaces.h"
+#include "ElementInlines.h"
+#include "ExtendedDOMClientIsoSubspaces.h"
+#include "ExtendedDOMIsoSubspaces.h"
 #include "JSAudioWorkletGlobalScope.h"
 #include "JSDOMBinding.h"
 #include "JSDOMBuiltinConstructorBase.h"
@@ -35,12 +37,15 @@
 #include "JSDOMWindowProperties.h"
 #include "JSDedicatedWorkerGlobalScope.h"
 #include "JSIDBSerializationGlobalObject.h"
+#include "JSObservableArray.h"
 #include "JSPaintWorkletGlobalScope.h"
-#include "JSRemoteDOMWindow.h"
 #include "JSServiceWorkerGlobalScope.h"
+#include "JSShadowRealmGlobalScope.h"
+#include "JSSharedWorkerGlobalScope.h"
 #include "JSWindowProxy.h"
 #include "JSWorkerGlobalScope.h"
 #include "JSWorkletGlobalScope.h"
+#include <JavaScriptCore/CodeBlock.h>
 #include <JavaScriptCore/FastMallocAlignedMemoryAllocator.h>
 #include <JavaScriptCore/HeapInlines.h>
 #include <JavaScriptCore/IsoHeapCellType.h>
@@ -51,46 +56,98 @@
 #include "runtime_array.h"
 #include "runtime_method.h"
 #include "runtime_object.h"
+#include <mutex>
 #include <wtf/MainThread.h>
+#include <wtf/NeverDestroyed.h>
+
+#if PLATFORM(COCOA)
+#include "objc_runtime.h"
+#endif
 
 namespace WebCore {
 using namespace JSC;
 
-JSVMClientData::JSVMClientData(VM& vm)
-    : m_builtinFunctions(vm)
-    , m_builtinNames(vm)
-    , m_runtimeArrayHeapCellType(JSC::IsoHeapCellType::create<RuntimeArray>())
-    , m_runtimeObjectHeapCellType(JSC::IsoHeapCellType::create<JSC::Bindings::RuntimeObject>())
-    , m_windowProxyHeapCellType(JSC::IsoHeapCellType::create<JSWindowProxy>())
-    , m_heapCellTypeForJSDOMWindow(JSC::IsoHeapCellType::create<JSDOMWindow>())
-    , m_heapCellTypeForJSDedicatedWorkerGlobalScope(JSC::IsoHeapCellType::create<JSDedicatedWorkerGlobalScope>())
-    , m_heapCellTypeForJSRemoteDOMWindow(JSC::IsoHeapCellType::create<JSRemoteDOMWindow>())
-    , m_heapCellTypeForJSWorkerGlobalScope(JSC::IsoHeapCellType::create<JSWorkerGlobalScope>())
-#if ENABLE(SERVICE_WORKER)
-    , m_heapCellTypeForJSServiceWorkerGlobalScope(JSC::IsoHeapCellType::create<JSServiceWorkerGlobalScope>())
+DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(JSHeapData);
+
+JSHeapData::JSHeapData(Heap& heap)
+    : m_runtimeArrayHeapCellType(JSC::IsoHeapCellType::Args<RuntimeArray>())
+#if PLATFORM(COCOA)
+    , m_objcFallbackObjectImpHeapCellType(JSC::IsoHeapCellType::Args<JSC::Bindings::ObjcFallbackObjectImp>())
 #endif
-    , m_heapCellTypeForJSWorkletGlobalScope(JSC::IsoHeapCellType::create<JSWorkletGlobalScope>())
-#if ENABLE(CSS_PAINTING_API)
-    , m_heapCellTypeForJSPaintWorkletGlobalScope(JSC::IsoHeapCellType::create<JSPaintWorkletGlobalScope>())
-#endif
+    , m_observableArrayHeapCellType(JSC::IsoHeapCellType::Args<JSObservableArray>())
+    , m_runtimeObjectHeapCellType(JSC::IsoHeapCellType::Args<JSC::Bindings::RuntimeObject>())
+    , m_windowProxyHeapCellType(JSC::IsoHeapCellType::Args<JSWindowProxy>())
+    , m_heapCellTypeForJSDOMWindow(JSC::IsoHeapCellType::Args<JSDOMWindow>())
+    , m_heapCellTypeForJSDedicatedWorkerGlobalScope(JSC::IsoHeapCellType::Args<JSDedicatedWorkerGlobalScope>())
+    , m_heapCellTypeForJSWorkerGlobalScope(JSC::IsoHeapCellType::Args<JSWorkerGlobalScope>())
+    , m_heapCellTypeForJSSharedWorkerGlobalScope(JSC::IsoHeapCellType::Args<JSSharedWorkerGlobalScope>())
+    , m_heapCellTypeForJSShadowRealmGlobalScope(JSC::IsoHeapCellType::Args<JSShadowRealmGlobalScope>())
+    , m_heapCellTypeForJSServiceWorkerGlobalScope(JSC::IsoHeapCellType::Args<JSServiceWorkerGlobalScope>())
+    , m_heapCellTypeForJSWorkletGlobalScope(JSC::IsoHeapCellType::Args<JSWorkletGlobalScope>())
+    , m_heapCellTypeForJSPaintWorkletGlobalScope(JSC::IsoHeapCellType::Args<JSPaintWorkletGlobalScope>())
 #if ENABLE(WEB_AUDIO)
-    , m_heapCellTypeForJSAudioWorkletGlobalScope(JSC::IsoHeapCellType::create<JSAudioWorkletGlobalScope>())
+    , m_heapCellTypeForJSAudioWorkletGlobalScope(JSC::IsoHeapCellType::Args<JSAudioWorkletGlobalScope>())
 #endif
-    , m_heapCellTypeForJSIDBSerializationGlobalObject(JSC::IsoHeapCellType::create<JSIDBSerializationGlobalObject>())
-    , m_domBuiltinConstructorSpace ISO_SUBSPACE_INIT(vm.heap, vm.cellHeapCellType.get(), JSDOMBuiltinConstructorBase)
-    , m_domConstructorSpace ISO_SUBSPACE_INIT(vm.heap, vm.cellHeapCellType.get(), JSDOMConstructorBase)
-    , m_domWindowPropertiesSpace ISO_SUBSPACE_INIT(vm.heap, vm.cellHeapCellType.get(), JSDOMWindowProperties)
-    , m_runtimeArraySpace ISO_SUBSPACE_INIT(vm.heap, m_runtimeArrayHeapCellType.get(), RuntimeArray)
-    , m_runtimeMethodSpace ISO_SUBSPACE_INIT(vm.heap, vm.cellHeapCellType.get(), RuntimeMethod) // Hash:0xf70c4a85
-    , m_runtimeObjectSpace ISO_SUBSPACE_INIT(vm.heap, m_runtimeObjectHeapCellType.get(), JSC::Bindings::RuntimeObject)
-    , m_windowProxySpace ISO_SUBSPACE_INIT(vm.heap, m_windowProxyHeapCellType.get(), JSWindowProxy)
-    , m_idbSerializationSpace ISO_SUBSPACE_INIT(vm.heap, m_heapCellTypeForJSIDBSerializationGlobalObject.get(), JSIDBSerializationGlobalObject)
-    , m_subspaces(makeUnique<DOMIsoSubspaces>())
+    , m_heapCellTypeForJSIDBSerializationGlobalObject(JSC::IsoHeapCellType::Args<JSIDBSerializationGlobalObject>())
+    , m_domBuiltinConstructorSpace ISO_SUBSPACE_INIT(heap, heap.cellHeapCellType, JSDOMBuiltinConstructorBase)
+    , m_domConstructorSpace ISO_SUBSPACE_INIT(heap, heap.cellHeapCellType, JSDOMConstructorBase)
+    , m_domNamespaceObjectSpace ISO_SUBSPACE_INIT(heap, heap.cellHeapCellType, JSDOMObject)
+    , m_domWindowPropertiesSpace ISO_SUBSPACE_INIT(heap, heap.cellHeapCellType, JSDOMWindowProperties)
+    , m_runtimeArraySpace ISO_SUBSPACE_INIT(heap, m_runtimeArrayHeapCellType, RuntimeArray)
+#if PLATFORM(COCOA)
+    , m_objcFallbackObjectImpSpace ISO_SUBSPACE_INIT(heap, m_objcFallbackObjectImpHeapCellType, JSC::Bindings::ObjcFallbackObjectImp)
+#endif
+    , m_observableArraySpace ISO_SUBSPACE_INIT(heap, m_observableArrayHeapCellType, JSObservableArray)
+    , m_runtimeMethodSpace ISO_SUBSPACE_INIT(heap, heap.cellHeapCellType, RuntimeMethod) // Hash:0xf70c4a85
+    , m_runtimeObjectSpace ISO_SUBSPACE_INIT(heap, m_runtimeObjectHeapCellType, JSC::Bindings::RuntimeObject)
+    , m_windowProxySpace ISO_SUBSPACE_INIT(heap, m_windowProxyHeapCellType, JSWindowProxy)
+    , m_idbSerializationSpace ISO_SUBSPACE_INIT(heap, m_heapCellTypeForJSIDBSerializationGlobalObject, JSIDBSerializationGlobalObject)
+    , m_subspaces(makeUniqueRef<ExtendedDOMIsoSubspaces>())
 {
 }
 
+JSHeapData* JSHeapData::ensureHeapData(Heap& heap)
+{
+    if (!Options::useGlobalGC())
+        return new JSHeapData(heap);
+
+    static NeverDestroyed<UniqueRef<JSHeapData>> singleton = makeUniqueRef<JSHeapData>(heap);
+    return singleton.get().ptr();
+}
+
+#define CLIENT_ISO_SUBSPACE_INIT(subspace) subspace(m_heapData->subspace)
+
+DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(JSVMClientData);
+
+JSVMClientData::JSVMClientData(VM& vm)
+    : m_builtinFunctions(vm)
+    , m_builtinNames(vm)
+    , m_heapData(JSHeapData::ensureHeapData(vm.heap))
+    , CLIENT_ISO_SUBSPACE_INIT(m_domBuiltinConstructorSpace)
+    , CLIENT_ISO_SUBSPACE_INIT(m_domConstructorSpace)
+    , CLIENT_ISO_SUBSPACE_INIT(m_domNamespaceObjectSpace)
+    , CLIENT_ISO_SUBSPACE_INIT(m_domWindowPropertiesSpace)
+    , CLIENT_ISO_SUBSPACE_INIT(m_runtimeArraySpace)
+#if PLATFORM(COCOA)
+    , CLIENT_ISO_SUBSPACE_INIT(m_objcFallbackObjectImpSpace)
+#endif
+    , CLIENT_ISO_SUBSPACE_INIT(m_observableArraySpace)
+    , CLIENT_ISO_SUBSPACE_INIT(m_runtimeMethodSpace)
+    , CLIENT_ISO_SUBSPACE_INIT(m_runtimeObjectSpace)
+    , CLIENT_ISO_SUBSPACE_INIT(m_windowProxySpace)
+    , CLIENT_ISO_SUBSPACE_INIT(m_idbSerializationSpace)
+    , m_clientSubspaces(makeUniqueRef<ExtendedDOMClientIsoSubspaces>())
+{
+}
+
+#undef CLIENT_ISO_SUBSPACE_INIT
+
 JSVMClientData::~JSVMClientData()
 {
+    m_clients.forEach([](auto& client) {
+        Ref { client }->willDestroyVM();
+    });
+
     ASSERT(m_worldSet.contains(m_normalWorld.get()));
     ASSERT(m_worldSet.size() == 1);
     ASSERT(m_normalWorld->hasOneRef());
@@ -109,26 +166,26 @@ void JSVMClientData::getAllWorlds(Vector<Ref<DOMWrapperWorld>>& worlds)
     // is ready to start evaluating JavaScript. For example, Web Inspector waits for the main world
     // change to clear any injected scripts and debugger/breakpoint state.
 
-    auto& mainNormalWorld = mainThreadNormalWorld();
+    auto& mainNormalWorld = mainThreadNormalWorldSingleton();
 
     // Add main normal world.
     if (m_worldSet.contains(&mainNormalWorld))
-        worlds.uncheckedAppend(mainNormalWorld);
+        worlds.append(mainNormalWorld);
 
     // Add other normal worlds.
-    for (auto* world : m_worldSet) {
+    for (RefPtr world : m_worldSet) {
         if (world->type() != DOMWrapperWorld::Type::Normal)
             continue;
         if (world == &mainNormalWorld)
             continue;
-        worlds.uncheckedAppend(*world);
+        worlds.append(world.releaseNonNull());
     }
 
     // Add non-normal worlds.
-    for (auto* world : m_worldSet) {
+    for (RefPtr world : m_worldSet) {
         if (world->type() == DOMWrapperWorld::Type::Normal)
             continue;
-        worlds.uncheckedAppend(*world);
+        worlds.append(world.releaseNonNull());
     }
 }
 
@@ -137,10 +194,43 @@ void JSVMClientData::initNormalWorld(VM* vm, WorkerThreadType type)
     JSVMClientData* clientData = new JSVMClientData(*vm);
     vm->clientData = clientData; // ~VM deletes this pointer.
 
-    vm->heap.addMarkingConstraint(makeUnique<DOMGCOutputConstraint>(*vm, *clientData));
+    vm->heap.addMarkingConstraint(makeUnique<DOMGCOutputConstraint>(*vm, clientData->heapData()));
 
     clientData->m_normalWorld = DOMWrapperWorld::create(*vm, DOMWrapperWorld::Type::Normal);
     vm->m_typedArrayController = adoptRef(new WebCoreTypedArrayController(type == WorkerThreadType::DedicatedWorker || type == WorkerThreadType::Worklet));
+}
+
+String unmaskedSourceURLFromException(const JSC::Exception& exception, JSC::VM& vm)
+{
+    for (auto& frame : exception.stack()) {
+        String url = frame.sourceURL(vm, JSC::AllowURLOverride::No);
+        if (!url.isEmpty() && url != "[native code]"_s)
+            return url;
+    }
+
+    return emptyString();
+}
+
+String JSVMClientData::overrideSourceURL(const JSC::StackFrame& frame, const String& originalSourceURL) const
+{
+    if (originalSourceURL.isEmpty())
+        return nullString();
+
+    JSGlobalObject* globalObject = nullptr;
+    if (auto* codeBlock = frame.codeBlock())
+        globalObject = codeBlock->globalObject();
+    else if (auto* callee = dynamicDowncast<JSObject>(frame.callee()))
+        globalObject = callee->realm();
+    RELEASE_ASSERT(globalObject);
+
+    if (!globalObject->inherits<JSDOMWindowBase>())
+        return nullString();
+
+    RefPtr document = downcast<JSDOMWindowBase>(globalObject)->wrapped().documentIfLocal();
+    if (!document)
+        return nullString();
+
+    return document->maskedURLForBindingsIfNeeded(URL(originalSourceURL)).string();
 }
 
 } // namespace WebCore

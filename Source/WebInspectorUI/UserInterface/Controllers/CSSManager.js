@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,8 +23,6 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// FIXME: CSSManager lacks advanced multi-target support. (Stylesheets per-target)
-
 WI.CSSManager = class CSSManager extends WI.Object
 {
     constructor()
@@ -40,14 +38,17 @@ WI.CSSManager = class CSSManager extends WI.Object
         WI.DOMNode.addEventListener(WI.DOMNode.Event.AttributeRemoved, this._nodeAttributesDidChange, this);
         WI.DOMNode.addEventListener(WI.DOMNode.Event.EnabledPseudoClassesChanged, this._nodePseudoClassesDidChange, this);
 
+        WI.targetManager.addEventListener(WI.TargetManager.Event.TargetRemoved, this._handleTargetRemoved, this);
+
         this._colorFormatSetting = new WI.Setting("default-color-format", WI.Color.Format.Original);
 
         this._styleSheetIdentifierMap = new Map;
         this._styleSheetFrameURLMap = new Map;
         this._nodeStylesMap = {};
         this._modifiedStyles = new Map;
-        this._defaultAppearance = null;
-        this._forcedAppearance = null;
+        this._defaultUserPreferences = new Map;
+        this._overriddenUserPreferences = new Map;
+        this._propertyNameCompletions = null;
     }
 
     // Target
@@ -56,6 +57,90 @@ WI.CSSManager = class CSSManager extends WI.Object
     {
         if (target.hasDomain("CSS"))
             target.CSSAgent.enable();
+    }
+
+    initializeCSSPropertyNameCompletions(target)
+    {
+        console.assert(target.hasDomain("CSS"));
+
+        if (this._propertyNameCompletions)
+            return;
+
+        target.CSSAgent.getSupportedCSSProperties((error, cssProperties) => {
+            if (error)
+                return;
+
+            this._propertyNameCompletions = new WI.CSSPropertyNameCompletions(cssProperties);
+
+            WI.CSSKeywordCompletions.addCustomCompletions(cssProperties);
+
+            // CodeMirror is not included by tests so we shouldn't assume it always exists.
+            // If it isn't available we skip MIME type associations.
+            if (!window.CodeMirror)
+                return;
+
+            let propertyNamesForCodeMirror = {};
+            let valueKeywordsForCodeMirror = {"inherit": true, "initial": true, "unset": true, "revert": true, "revert-layer": true, "var": true, "env": true};
+            let colorKeywordsForCodeMirror = {};
+
+            function nameForCodeMirror(name) {
+                // CodeMirror parses the vendor prefix separate from the property or keyword name,
+                // so we need to strip vendor prefixes from our names. Also strip function parenthesis.
+                return name.replace(/^-[^-]+-/, "").replace(/\(\)$/, "").toLowerCase();
+            }
+
+            for (let property of cssProperties) {
+                // Properties can also be value keywords, like when used in a transition.
+                // So we add them to both lists.
+                let codeMirrorPropertyName = nameForCodeMirror(property.name);
+                propertyNamesForCodeMirror[codeMirrorPropertyName] = true;
+                valueKeywordsForCodeMirror[codeMirrorPropertyName] = true;
+            }
+
+            for (let propertyName in WI.CSSKeywordCompletions._propertyKeywordMap) {
+                let keywords = WI.CSSKeywordCompletions._propertyKeywordMap[propertyName];
+                for (let keyword of keywords) {
+                    // Skip numbers, like the ones defined for font-weight.
+                    if (keyword === WI.CSSKeywordCompletions.AllPropertyNamesPlaceholder || !isNaN(Number(keyword)))
+                        continue;
+                    valueKeywordsForCodeMirror[nameForCodeMirror(keyword)] = true;
+                }
+            }
+
+            for (let color of WI.CSSKeywordCompletions._colors)
+                colorKeywordsForCodeMirror[nameForCodeMirror(color)] = true;
+
+            // TODO: Remove these keywords once they are built-in codemirror or once we get values from WebKit itself.
+            valueKeywordsForCodeMirror["conic-gradient"] = true;
+            valueKeywordsForCodeMirror["repeating-conic-gradient"] = true;
+
+            function updateCodeMirrorCSSMode(mimeType) {
+                let modeSpec = CodeMirror.resolveMode(mimeType);
+
+                console.assert(modeSpec.propertyKeywords);
+                console.assert(modeSpec.valueKeywords);
+                console.assert(modeSpec.colorKeywords);
+
+                modeSpec.propertyKeywords = propertyNamesForCodeMirror;
+                modeSpec.valueKeywords = valueKeywordsForCodeMirror;
+                modeSpec.colorKeywords = colorKeywordsForCodeMirror;
+
+                CodeMirror.defineMIME(mimeType, modeSpec);
+            }
+
+            updateCodeMirrorCSSMode("text/css");
+            updateCodeMirrorCSSMode("text/x-scss");
+        });
+
+        if (target.hasCommand("CSS.getSupportedSystemFontFamilyNames")) {
+            target.CSSAgent.getSupportedSystemFontFamilyNames((error, fontFamilyNames) =>{
+                if (error)
+                    return;
+
+                WI.CSSKeywordCompletions.addPropertyCompletionValues("font-family", fontFamilyNames);
+                WI.CSSKeywordCompletions.addPropertyCompletionValues("font", fontFamilyNames);
+            });
+        }
     }
 
     // Static
@@ -104,42 +189,6 @@ WI.CSSManager = class CSSManager extends WI.Object
 
     static displayNameForPseudoId(pseudoId)
     {
-        // Compatibility (iOS 12.2): CSS.PseudoId did not exist.
-        if (!InspectorBackend.Enum.CSS.PseudoId) {
-            switch (pseudoId) {
-            case 1: // PseudoId.FirstLine
-                return WI.unlocalizedString("::first-line");
-            case 2: // PseudoId.FirstLetter
-                return WI.unlocalizedString("::first-letter");
-            case 3: // PseudoId.Marker
-                return WI.unlocalizedString("::marker");
-            case 4: // PseudoId.Before
-                return WI.unlocalizedString("::before");
-            case 5: // PseudoId.After
-                return WI.unlocalizedString("::after");
-            case 6: // PseudoId.Selection
-                return WI.unlocalizedString("::selection");
-            case 7: // PseudoId.Scrollbar
-                return WI.unlocalizedString("::scrollbar");
-            case 8: // PseudoId.ScrollbarThumb
-                return WI.unlocalizedString("::scrollbar-thumb");
-            case 9: // PseudoId.ScrollbarButton
-                return WI.unlocalizedString("::scrollbar-button");
-            case 10: // PseudoId.ScrollbarTrack
-                return WI.unlocalizedString("::scrollbar-track");
-            case 11: // PseudoId.ScrollbarTrackPiece
-                return WI.unlocalizedString("::scrollbar-track-piece");
-            case 12: // PseudoId.ScrollbarCorner
-                return WI.unlocalizedString("::scrollbar-corner");
-            case 13: // PseudoId.Resizer
-                return WI.unlocalizedString("::resizer");
-
-            default:
-                console.error("Unknown pseudo id", pseudoId);
-                return "";
-            }
-        }
-
         switch (pseudoId) {
         case CSSManager.PseudoSelectorNames.FirstLine:
             return WI.unlocalizedString("::first-line");
@@ -147,6 +196,8 @@ WI.CSSManager = class CSSManager extends WI.Object
             return WI.unlocalizedString("::first-letter");
         case CSSManager.PseudoSelectorNames.Highlight:
             return WI.unlocalizedString("::highlight");
+        case CSSManager.PseudoSelectorNames.GrammarError:
+            return WI.unlocalizedString("::grammar-error");
         case CSSManager.PseudoSelectorNames.Marker:
             return WI.unlocalizedString("::marker");
         case CSSManager.PseudoSelectorNames.Before:
@@ -157,20 +208,52 @@ WI.CSSManager = class CSSManager extends WI.Object
             return WI.unlocalizedString("::selection");
         case CSSManager.PseudoSelectorNames.Backdrop:
             return WI.unlocalizedString("::backdrop");
-        case CSSManager.PseudoSelectorNames.Scrollbar:
-            return WI.unlocalizedString("::scrollbar");
-        case CSSManager.PseudoSelectorNames.ScrollbarThumb:
-            return WI.unlocalizedString("::scrollbar-thumb");
-        case CSSManager.PseudoSelectorNames.ScrollbarButton:
-            return WI.unlocalizedString("::scrollbar-button");
-        case CSSManager.PseudoSelectorNames.ScrollbarTrack:
-            return WI.unlocalizedString("::scrollbar-track");
-        case CSSManager.PseudoSelectorNames.ScrollbarTrackPiece:
-            return WI.unlocalizedString("::scrollbar-track-piece");
-        case CSSManager.PseudoSelectorNames.ScrollbarCorner:
-            return WI.unlocalizedString("::scrollbar-corner");
-        case CSSManager.PseudoSelectorNames.Resizer:
-            return WI.unlocalizedString("::resizer");
+        case CSSManager.PseudoSelectorNames.SpellingError:
+            return WI.unlocalizedString("::spelling-error");
+        case CSSManager.PseudoSelectorNames.Checkmark:
+            return WI.unlocalizedString("::checkmark");
+        case CSSManager.PseudoSelectorNames.PickerIcon:
+            return WI.unlocalizedString("::picker-icon");
+        case CSSManager.PseudoSelectorNames.TargetText:
+            return WI.unlocalizedString("::target-text");
+        case CSSManager.PseudoSelectorNames.SliderFill:
+            return WI.unlocalizedString("::slider-fill");
+        case CSSManager.PseudoSelectorNames.SliderThumb:
+            return WI.unlocalizedString("::slider-thumb");
+        case CSSManager.PseudoSelectorNames.SliderTrack:
+            return WI.unlocalizedString("::slider-track");
+        case CSSManager.PseudoSelectorNames.ViewTransition:
+            return WI.unlocalizedString("::view-transition");
+        case CSSManager.PseudoSelectorNames.ViewTransitionGroup:
+            return WI.unlocalizedString("::view-transition-group");
+        case CSSManager.PseudoSelectorNames.ViewTransitionImagePair:
+            return WI.unlocalizedString("::view-transition-image-pair");
+        case CSSManager.PseudoSelectorNames.ViewTransitionNew:
+            return WI.unlocalizedString("::view-transition-new");
+        case CSSManager.PseudoSelectorNames.ViewTransitionOld:
+            return WI.unlocalizedString("::view-transition-old");
+        // COMPATIBILITY (iOS 17.0): PseudoId unprefixed aliases for prefixed protocol names.
+        case CSSManager.PseudoSelectorNames.WebKitResizer:
+        case "resizer":
+            return WI.unlocalizedString("::-webkit-resizer");
+        case CSSManager.PseudoSelectorNames.WebKitScrollbar:
+        case "scrollbar":
+            return WI.unlocalizedString("::-webkit-scrollbar");
+        case CSSManager.PseudoSelectorNames.WebKitScrollbarThumb:
+        case "scrollbar-thumb":
+            return WI.unlocalizedString("::-webkit-scrollbar-thumb");
+        case CSSManager.PseudoSelectorNames.WebKitScrollbarButton:
+        case "scrollbar-button":
+            return WI.unlocalizedString("::-webkit-scrollbar-button");
+        case CSSManager.PseudoSelectorNames.WebKitScrollbarTrack:
+        case "scrollbar-track":
+            return WI.unlocalizedString("::-webkit-scrollbar-track");
+        case CSSManager.PseudoSelectorNames.WebKitScrollbarTrackPiece:
+        case "scrollbar-track-piece":
+            return WI.unlocalizedString("::-webkit-scrollbar-track-piece");
+        case CSSManager.PseudoSelectorNames.WebKitScrollbarCorner:
+        case "scrollbar-corner":
+            return WI.unlocalizedString("::-webkit-scrollbar-corner");
 
         default:
             console.error("Unknown pseudo id", pseudoId);
@@ -178,7 +261,36 @@ WI.CSSManager = class CSSManager extends WI.Object
         }
     }
 
+    static displayNameForForceablePseudoClass(pseudoClass)
+    {
+        switch (pseudoClass) {
+        case WI.CSSManager.ForceablePseudoClass.Active:
+            return WI.unlocalizedString(":active");
+        case WI.CSSManager.ForceablePseudoClass.Focus:
+            return WI.unlocalizedString(":focus");
+        case WI.CSSManager.ForceablePseudoClass.FocusVisible:
+            return WI.unlocalizedString(":focus-visible");
+        case WI.CSSManager.ForceablePseudoClass.FocusWithin:
+            return WI.unlocalizedString(":focus-within");
+        case WI.CSSManager.ForceablePseudoClass.Hover:
+            return WI.unlocalizedString(":hover");
+        case WI.CSSManager.ForceablePseudoClass.Target:
+            return WI.unlocalizedString(":target");
+        case WI.CSSManager.ForceablePseudoClass.Visited:
+            return WI.unlocalizedString(":visited");
+        }
+
+        console.assert(false, "Unknown pseudo class", pseudoClass);
+        return "";
+    }
+
     // Public
+
+    get propertyNameCompletions() { return this._propertyNameCompletions; }
+
+    get overriddenUserPreferences() { return this._overriddenUserPreferences; }
+
+    get defaultUserPreferences() { return this._defaultUserPreferences; }
 
     get preferredColorFormat()
     {
@@ -190,21 +302,23 @@ WI.CSSManager = class CSSManager extends WI.Object
         return Array.from(this._styleSheetIdentifierMap.values());
     }
 
-    get defaultAppearance()
+    get supportsOverrideUserPreference()
     {
-        return this._defaultAppearance;
+        return InspectorBackend.hasCommand("Page.overrideUserPreference") && this._defaultUserPreferences.size;
     }
 
-    get forcedAppearance()
+    get supportsOverrideColorScheme()
     {
-        return this._forcedAppearance;
+        // A backend for a platform that does not support color schemes will not dispatch an initial event (Page.defaultAppearanceDidChange or Page.defaultUserPreferencesDidChange)
+        // with the default value for the color scheme preference which gets stored on the frontend.
+
+        // COMPATIBILITY (macOS 13.0, iOS 16.0): `PrefersColorScheme` value for `Page.UserPreferenceName` did not exist yet.
+        return this._defaultUserPreferences.has(InspectorBackend.Enum.Page.UserPreferenceName?.PrefersColorScheme) || this._defaultUserPreferences.has(WI.CSSManager.ForcedAppearancePreference);
     }
 
-    set forcedAppearance(name)
+    // COMPATIBILITY (macOS 13, iOS 16.0): `Page.setForcedAppearance()` was removed in favor of `Page.overrideUserPreference()`
+    setForcedAppearance(name)
     {
-        if (!this.canForceAppearance())
-            return;
-
         let commandArguments = {};
 
         switch (name) {
@@ -229,32 +343,71 @@ WI.CSSManager = class CSSManager extends WI.Object
             return;
         }
 
-        this._forcedAppearance = name || null;
-
         let target = WI.assumingMainTarget();
-        target.PageAgent.setForcedAppearance.invoke(commandArguments).then(() => {
-            this.mediaQueryResultChanged();
-            this.dispatchEventToListeners(WI.CSSManager.Event.ForcedAppearanceDidChange, {appearance: this._forcedAppearance});
-        });
+        return target.PageAgent.setForcedAppearance.invoke(commandArguments);
     }
 
     set layoutContextTypeChangedMode(layoutContextTypeChangedMode)
     {
         for (let target of WI.targets) {
+            // FIXME <https://webkit.org/b/314148> Use FrameCSSAgent in the frontend.
+            if (target instanceof WI.FrameTarget)
+                continue;
+
             // COMPATIBILITY (iOS 14.5): CSS.setLayoutContextTypeChangedMode did not exist.
             if (target.hasCommand("CSS.setLayoutContextTypeChangedMode"))
                 target.CSSAgent.setLayoutContextTypeChangedMode(layoutContextTypeChangedMode);
         }
     }
 
-    canForceAppearance()
+    canForcePseudoClass(pseudoClass)
     {
-        return InspectorBackend.hasCommand("Page.setForcedAppearance") && this._defaultAppearance;
+        if (!InspectorBackend.hasCommand("CSS.forcePseudoState"))
+            return false;
+
+        if (!pseudoClass)
+            return true;
+
+        switch (pseudoClass) {
+        case WI.CSSManager.ForceablePseudoClass.Active:
+        case WI.CSSManager.ForceablePseudoClass.Focus:
+        case WI.CSSManager.ForceablePseudoClass.Hover:
+        case WI.CSSManager.ForceablePseudoClass.Visited:
+            return true;
+
+        case WI.CSSManager.ForceablePseudoClass.FocusVisible:
+        case WI.CSSManager.ForceablePseudoClass.FocusWithin:
+        case WI.CSSManager.ForceablePseudoClass.Target:
+            // COMPATIBILITY (iOS 15.4): CSS.ForceablePseudoClass did not exist yet.
+            return !!InspectorBackend.Enum.CSS.ForceablePseudoClass;
+        }
+
+        console.assert(false, "Unknown pseudo class", pseudoClass);
+        return false;
     }
 
-    canForcePseudoClasses()
+    overrideUserPreference(preference, value)
     {
-        return InspectorBackend.hasCommand("CSS.forcePseudoState");
+        let promises = [];
+        for (let target of WI.targets) {
+            // COMPATIBILITY (macOS 13.0, iOS 16.0): `Page.overrideUserPreference()` did not exist yet.
+            if (target.hasCommand("Page.overrideUserPreference") && InspectorBackend.Enum.Page.UserPreferenceName[preference])
+                promises.push(target.PageAgent.overrideUserPreference(preference, value));
+
+            // COMPATIBILITY (macOS 13, iOS 16.0): `Page.setForcedAppearance()` was removed in favor of `Page.overrideUserPreference()`
+            if (preference === WI.CSSManager.ForcedAppearancePreference && target.hasCommand("Page.setForcedAppearance"))
+                promises.push(this.setForcedAppearance(value || null));
+        }
+
+        if (value)
+            this._overriddenUserPreferences.set(preference, value);
+        else
+            this._overriddenUserPreferences.delete(preference);
+
+        Promise.allSettled(promises).then(() => {
+            this.mediaQueryResultChanged();
+            this.dispatchEventToListeners(WI.CSSManager.Event.OverriddenUserPreferencesDidChange);
+        })
     }
 
     propertyNameHasOtherVendorPrefix(name)
@@ -283,6 +436,7 @@ WI.CSSManager = class CSSManager extends WI.Object
         if (!name || name.length < 8 || name.charAt(0) !== "-")
             return name;
 
+        // Keep in sync with prefix list from Source/WebInspectorUI/Scripts/update-inspector-css-documentation
         var match = name.match(/^(?:-webkit-|-khtml-|-apple-)(.+)/);
         if (!match)
             return name;
@@ -290,14 +444,15 @@ WI.CSSManager = class CSSManager extends WI.Object
         return match[1];
     }
 
-    styleSheetForIdentifier(id)
+    styleSheetForIdentifier(id, target)
     {
-        let styleSheet = this._styleSheetIdentifierMap.get(id);
+        let key = CSSManager.keyForStyleSheet(id, target);
+        let styleSheet = this._styleSheetIdentifierMap.get(key);
         if (styleSheet)
             return styleSheet;
 
-        styleSheet = new WI.CSSStyleSheet(id);
-        this._styleSheetIdentifierMap.set(id, styleSheet);
+        styleSheet = new WI.CSSStyleSheet(id, target);
+        this._styleSheetIdentifierMap.set(key, styleSheet);
         return styleSheet;
     }
 
@@ -316,7 +471,7 @@ WI.CSSManager = class CSSManager extends WI.Object
         return this.styleSheets.filter((styleSheet) => styleSheet.isInspectorStyleSheet() && styleSheet.parentFrame === frame);
     }
 
-    preferredInspectorStyleSheetForFrame(frame, callback)
+    preferredInspectorStyleSheetForFrame(frame, callback, target)
     {
         var inspectorStyleSheets = this.inspectorStyleSheetsForFrame(frame);
         for (let styleSheet of inspectorStyleSheets) {
@@ -326,15 +481,15 @@ WI.CSSManager = class CSSManager extends WI.Object
             }
         }
 
-        let target = WI.assumingMainTarget();
-        target.CSSAgent.createStyleSheet(frame.id, function(error, styleSheetId) {
+        let agentTarget = target || WI.assumingMainTarget();
+        agentTarget.CSSAgent.createStyleSheet(frame.id, function(error, styleSheetId) {
             if (error || !styleSheetId) {
                 WI.reportInternalError(error || styleSheetId);
                 return;
             }
 
             const url = null;
-            let styleSheet = WI.cssManager.styleSheetForIdentifier(styleSheetId);
+            let styleSheet = WI.cssManager.styleSheetForIdentifier(styleSheetId, target);
             styleSheet.updateInfo(url, frame, styleSheet.origin, styleSheet.isInlineStyleTag(), styleSheet.startLineNumber, styleSheet.startColumnNumber);
             styleSheet[WI.CSSManager.PreferredInspectorStyleSheetSymbol] = true;
             callback(styleSheet);
@@ -373,6 +528,7 @@ WI.CSSManager = class CSSManager extends WI.Object
 
     // PageObserver
 
+    // COMPATIBILITY (macOS 13, iOS 16.0): `Page.defaultAppearanceDidChange` was removed in favor of `Page.defaultUserPreferencesDidChange`
     defaultAppearanceDidChange(protocolName)
     {
         let appearance = null;
@@ -391,11 +547,21 @@ WI.CSSManager = class CSSManager extends WI.Object
             break;
         }
 
-        this._defaultAppearance = appearance;
-
         this.mediaQueryResultChanged();
 
-        this.dispatchEventToListeners(WI.CSSManager.Event.DefaultAppearanceDidChange, {appearance});
+        this._defaultUserPreferences.set(WI.CSSManager.ForcedAppearancePreference, appearance);
+
+        this.dispatchEventToListeners(WI.CSSManager.Event.DefaultUserPreferencesDidChange);
+    }
+
+    defaultUserPreferencesDidChange(userPreferences)
+    {
+        this._defaultUserPreferences.clear();
+
+        for (let userPreference of userPreferences)
+            this._defaultUserPreferences.set(userPreference.name, userPreference.value)
+
+        this.dispatchEventToListeners(WI.CSSManager.Event.DefaultUserPreferencesDidChange);
     }
 
     // CSSObserver
@@ -406,9 +572,9 @@ WI.CSSManager = class CSSManager extends WI.Object
             this._nodeStylesMap[key].mediaQueryResultDidChange();
     }
 
-    styleSheetChanged(styleSheetIdentifier)
+    styleSheetChanged(styleSheetIdentifier, target)
     {
-        var styleSheet = this.styleSheetForIdentifier(styleSheetIdentifier);
+        var styleSheet = this.styleSheetForIdentifier(styleSheetIdentifier, target);
         console.assert(styleSheet);
 
         // Do not observe inline styles
@@ -421,10 +587,13 @@ WI.CSSManager = class CSSManager extends WI.Object
         this._updateResourceContent(styleSheet);
     }
 
-    styleSheetAdded(styleSheetInfo)
+    styleSheetAdded(styleSheetInfo, target)
     {
-        console.assert(!this._styleSheetIdentifierMap.has(styleSheetInfo.styleSheetId), "Attempted to add a CSSStyleSheet but identifier was already in use");
-        let styleSheet = this.styleSheetForIdentifier(styleSheetInfo.styleSheetId);
+        let key = CSSManager.keyForStyleSheet(styleSheetInfo.styleSheetId, target);
+        if (this._styleSheetIdentifierMap.has(key))
+            return;
+
+        let styleSheet = this.styleSheetForIdentifier(styleSheetInfo.styleSheetId, target);
         let parentFrame = WI.networkManager.frameForIdentifier(styleSheetInfo.frameId);
         let origin = WI.CSSManager.protocolStyleSheetOriginToEnum(styleSheetInfo.origin);
         styleSheet.updateInfo(styleSheetInfo.sourceURL, parentFrame, origin, styleSheetInfo.isInline, styleSheetInfo.startLine, styleSheetInfo.startColumn);
@@ -432,19 +601,46 @@ WI.CSSManager = class CSSManager extends WI.Object
         this.dispatchEventToListeners(WI.CSSManager.Event.StyleSheetAdded, {styleSheet});
     }
 
-    styleSheetRemoved(styleSheetIdentifier)
+    styleSheetRemoved(styleSheetIdentifier, target)
     {
-        let styleSheet = this._styleSheetIdentifierMap.get(styleSheetIdentifier);
+        let key = CSSManager.keyForStyleSheet(styleSheetIdentifier, target);
+        let styleSheet = this._styleSheetIdentifierMap.get(key);
         console.assert(styleSheet, "Attempted to remove a CSSStyleSheet that was not tracked");
         if (!styleSheet)
             return;
 
-        this._styleSheetIdentifierMap.delete(styleSheetIdentifier);
+        this._styleSheetIdentifierMap.delete(key);
 
         this.dispatchEventToListeners(WI.CSSManager.Event.StyleSheetRemoved, {styleSheet});
     }
 
     // Private
+
+    static keyForStyleSheet(rawId, target)
+    {
+        if (target instanceof WI.FrameTarget)
+            return `${target.identifier}:${rawId}`;
+        return rawId;
+    }
+
+    _handleTargetRemoved(event)
+    {
+        let {target} = event.data;
+        if (!(target instanceof WI.FrameTarget))
+            return;
+
+        let prefix = target.identifier + ":";
+        let removedKeys = [];
+        for (let key of this._styleSheetIdentifierMap.keys()) {
+            if (typeof key === "string" && key.startsWith(prefix))
+                removedKeys.push(key);
+        }
+        for (let key of removedKeys) {
+            let styleSheet = this._styleSheetIdentifierMap.get(key);
+            this._styleSheetIdentifierMap.delete(key);
+            this.dispatchEventToListeners(WI.CSSManager.Event.StyleSheetRemoved, {styleSheet});
+        }
+    }
 
     _nodePseudoClassesDidChange(event)
     {
@@ -482,7 +678,14 @@ WI.CSSManager = class CSSManager extends WI.Object
         this._styleSheetIdentifierMap.clear();
         this._styleSheetFrameURLMap.clear();
         this._modifiedStyles.clear();
-        this._forcedAppearance = null;
+
+        // COMPATIBILITY (macOS 13.3, iOS 16.4): the `PrefersColorScheme` override used to be cleared on main frame navigation
+        // Since support can't be tested directly, check for the `reason` parameter of `Console.messagesCleared` as that change shipped in the same release.
+        // FIXME: Use explicit version checking once <https://webkit.org/b/148680> is fixed.
+        if (!InspectorBackend.hasEvent("Console.messagesCleared", "reason")) {
+            this._overriddenUserPreferences.delete(InspectorBackend.Enum.Page.UserPreferenceName.PrefersColorScheme);
+            this.dispatchEventToListeners(WI.CSSManager.Event.OverriddenUserPreferencesDidChange);
+        }
 
         this._nodeStylesMap = {};
     }
@@ -515,7 +718,7 @@ WI.CSSManager = class CSSManager extends WI.Object
     {
         // Clear known stylesheets for this URL and frame. This will cause the style sheets to
         // be updated next time _fetchInfoForAllStyleSheets is called.
-        this._styleSheetIdentifierMap.delete(this._frameURLMapKey(resource.parentFrame, resource.url));
+        this._styleSheetFrameURLMap.delete(this._frameURLMapKey(resource.parentFrame, resource.url));
     }
 
     _frameURLMapKey(frame, url)
@@ -679,31 +882,48 @@ WI.CSSManager.Event = {
     StyleSheetAdded: "css-manager-style-sheet-added",
     StyleSheetRemoved: "css-manager-style-sheet-removed",
     ModifiedStylesChanged: "css-manager-modified-styles-changed",
-    DefaultAppearanceDidChange: "css-manager-default-appearance-did-change",
-    ForcedAppearanceDidChange: "css-manager-forced-appearance-did-change",
+    DefaultUserPreferencesDidChange: "css-manager-default-user-preferences-did-change",
+    OverriddenUserPreferencesDidChange: "css-manager-overriden-user-preferences-did-change",
 };
 
+WI.CSSManager.UserPreferenceDefaultValue = "System";
+
+// COMPATIBILITY (macOS 13, iOS 16.0): `Page.setForcedAppearance()` was removed in favor of `Page.overrideUserPreference()`
+WI.CSSManager.ForcedAppearancePreference = "ForcedAppearancePreference";
 WI.CSSManager.Appearance = {
-    Light: Symbol("light"),
-    Dark: Symbol("dark"),
+    Light: "Light",
+    Dark: "Dark",
 };
 
 WI.CSSManager.PseudoSelectorNames = {
     After: "after",
     Before: "before",
     Backdrop: "backdrop",
+    Checkmark: "checkmark",
     FirstLetter: "first-letter",
     FirstLine: "first-line",
     Highlight: "highlight",
+    GrammarError: "grammar-error",
     Marker: "marker",
-    Resizer: "resizer",
-    Scrollbar: "scrollbar",
-    ScrollbarButton: "scrollbar-button",
-    ScrollbarCorner: "scrollbar-corner",
-    ScrollbarThumb: "scrollbar-thumb",
-    ScrollbarTrack: "scrollbar-track",
-    ScrollbarTrackPiece: "scrollbar-track-piece",
+    PickerIcon: "picker-icon",
     Selection: "selection",
+    SpellingError: "spelling-error",
+    TargetText: "target-text",
+    SliderFill: "slider-fill",
+    SliderThumb: "slider-thumb",
+    SliderTrack: "slider-track",
+    ViewTransition: "view-transition",
+    ViewTransitionGroup: "view-transition-group",
+    ViewTransitionImagePair: "view-transition-image-pair",
+    ViewTransitionNew: "view-transition-new",
+    ViewTransitionOld: "view-transition-old",
+    WebKitResizer: "-webkit-resizer",
+    WebKitScrollbar: "-webkit-scrollbar",
+    WebKitScrollbarButton: "-webkit-scrollbar-button",
+    WebKitScrollbarCorner: "-webkit-scrollbar-corner",
+    WebKitScrollbarThumb: "-webkit-scrollbar-thumb",
+    WebKitScrollbarTrack: "-webkit-scrollbar-track",
+    WebKitScrollbarTrackPiece: "-webkit-scrollbar-track-piece",
 };
 
 WI.CSSManager.LayoutContextTypeChangedMode = {
@@ -712,5 +932,15 @@ WI.CSSManager.LayoutContextTypeChangedMode = {
 };
 
 WI.CSSManager.PseudoElementNames = ["before", "after"];
-WI.CSSManager.ForceablePseudoClasses = ["active", "focus", "hover", "visited"];
+
+WI.CSSManager.ForceablePseudoClass = {
+    Active: "active",
+    Focus: "focus",
+    FocusVisible: "focus-visible",
+    FocusWithin: "focus-within",
+    Hover: "hover",
+    Target: "target",
+    Visited: "visited",
+};
+
 WI.CSSManager.PreferredInspectorStyleSheetSymbol = Symbol("css-manager-preferred-inspector-style-sheet");

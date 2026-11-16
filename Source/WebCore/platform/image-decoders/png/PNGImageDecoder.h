@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2006 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Igalia S.L.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,13 +27,11 @@
 #pragma once
 
 #include "ScalableImageDecoder.h"
-#if ENABLE(APNG)
+#include <array>
 #include <png.h>
-#endif
 
 #if USE(LCMS)
-typedef void* cmsHPROFILE;
-typedef void* cmsHTRANSFORM;
+#include "LCMSUniquePtr.h"
 #endif
 
 namespace WebCore {
@@ -51,30 +50,30 @@ namespace WebCore {
 
         // ScalableImageDecoder
         String filenameExtension() const override { return "png"_s; }
-#if ENABLE(APNG)
-        size_t frameCount() const override { return m_frameCount; }
+        size_t decodeIfNeededAndGetFrameCount() const override { return m_frameCount; }
         RepetitionCount repetitionCount() const override;
-#endif
         ScalableImageDecoderFrame* frameBufferAtIndex(size_t index) override;
         // CAUTION: setFailed() deletes |m_reader|.  Be careful to avoid
         // accessing deleted memory, especially when calling this from inside
         // PNGImageReader!
         bool setFailed() override;
 
-        // Callbacks from libpng
+        // Callbacks from libpng. The canvas and each animation frame are decoded by separate
+        // streams, with one set of callbacks registered per stream.
         void headerAvailable();
         void rowAvailable(unsigned char* rowBuffer, unsigned rowIndex, int interlacePass);
         void pngComplete();
-#if ENABLE(APNG)
         void readChunks(png_unknown_chunkp);
         void frameHeader();
+        void frameRowAvailable(unsigned char* rowBuffer, unsigned rowIndex, int interlacePass);
+        void paintFrame();
 
         void init();
-        void clearFrameBufferCache(size_t clearBeforeFrame) override;
-#endif
+        void clearDecodedPixelDataIfNeeded(size_t clearBeforeFrame) override;
 
         bool isComplete() const
         {
+            assertIsHeld(m_lock);
             if (m_frameBufferCache.isEmpty())
                 return false;
 
@@ -88,8 +87,11 @@ namespace WebCore {
 
         bool isCompleteAtIndex(size_t index)
         {
+            assertIsHeld(m_lock);
             return (index < m_frameBufferCache.size() && m_frameBufferCache[index].isComplete());
         }
+
+        ScalableImageDecoderFrame* firstFrameBuffer();
 
     private:
         PNGImageDecoder(AlphaOption, GammaAndColorProfileOption);
@@ -99,20 +101,21 @@ namespace WebCore {
         // calculating the image size.  If decoding fails but there is no more
         // data coming, sets the "decode failure" flag.
         void decode(bool onlySize, unsigned haltAtFrame, bool allDataReceived);
-#if ENABLE(APNG)
+        ScalableImageDecoderFrame* currentFrameBuffer();
+        void ensureInterlaceBuffer();
+        void beginFrame();
         void initFrameBuffer(size_t frameIndex);
+        void updateFrameRect(ScalableImageDecoderFrame&);
         void frameComplete();
         int processingStart(png_unknown_chunkp);
         int processingFinish();
         void fallbackNotAnimated();
-#endif
 
         void clear();
 
         std::unique_ptr<PNGImageReader> m_reader;
         bool m_doNothingOnFailure;
         unsigned m_currentFrame;
-#if ENABLE(APNG)
         png_structp m_png;
         png_infop m_info;
         bool m_isAnimated;
@@ -121,6 +124,7 @@ namespace WebCore {
         bool m_hasInfo;
         int m_gamma;
         size_t m_frameCount;
+        size_t m_decodedPixelCount;
         unsigned m_playCount;
         unsigned m_totalFrames;
         unsigned m_sizePLTE;
@@ -134,13 +138,11 @@ namespace WebCore {
         unsigned m_delayDenominator;
         unsigned m_dispose;
         unsigned m_blend;
-        png_byte m_dataIHDR[12 + 13];
-        png_byte m_dataPLTE[12 + 256 * 3];
-        png_byte m_datatRNS[12 + 256];
-#endif
+        std::array<png_byte, 12 + 13> m_dataIHDR;
+        std::array<png_byte, 12 + 256 * 3> m_dataPLTE;
+        std::array<png_byte, 12 + 256> m_datatRNS;
 #if USE(LCMS)
-        cmsHPROFILE m_iccProfile { nullptr };
-        cmsHTRANSFORM m_iccTransform { nullptr };
+    LCMSTransformPtr m_iccTransform;
 #endif
 
     };

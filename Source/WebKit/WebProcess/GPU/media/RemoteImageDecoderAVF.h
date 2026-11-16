@@ -29,7 +29,6 @@
 
 #include "MessageReceiver.h"
 #include "RemoteImageDecoderAVFManager.h"
-#include "WebCoreArgumentCoders.h"
 #include <WebCore/ImageDecoder.h>
 #include <WebCore/ImageDecoderIdentifier.h>
 #include <wtf/Function.h>
@@ -45,7 +44,7 @@ class RemoteImageDecoderAVF final
     : public WebCore::ImageDecoder
     , public CanMakeWeakPtr<RemoteImageDecoderAVF> {
 public:
-    static Ref<RemoteImageDecoderAVF> create(RemoteImageDecoderAVFManager& manager, const WebCore::ImageDecoderIdentifier& identifier, WebCore::SharedBuffer&, const String& mimeType)
+    static Ref<RemoteImageDecoderAVF> create(RemoteImageDecoderAVFManager& manager, const WebCore::ImageDecoderIdentifier& identifier, WebCore::FragmentedSharedBuffer&, const String& mimeType)
     {
         return adoptRef(*new RemoteImageDecoderAVF(manager, identifier, mimeType));
     }
@@ -70,25 +69,24 @@ public:
 
     WebCore::IntSize frameSizeAtIndex(size_t, WebCore::SubsamplingLevel = WebCore::SubsamplingLevel::Default) const final;
     bool frameIsCompleteAtIndex(size_t) const final;
-    FrameMetadata frameMetadataAtIndex(size_t) const final;
 
     Seconds frameDurationAtIndex(size_t) const final;
     bool frameHasAlphaAtIndex(size_t) const final;
-    bool frameAllowSubsamplingAtIndex(size_t) const final;
-    unsigned frameBytesAtIndex(size_t, WebCore::SubsamplingLevel = WebCore::SubsamplingLevel::Default) const final;
 
     WebCore::PlatformImagePtr createFrameImageAtIndex(size_t, WebCore::SubsamplingLevel = WebCore::SubsamplingLevel::Default, const WebCore::DecodingOptions& = WebCore::DecodingOptions(WebCore::DecodingMode::Synchronous)) final;
 
     void setExpectedContentSize(long long) final;
-    void setData(WebCore::SharedBuffer&, bool allDataReceived) final;
+    void setData(const WebCore::FragmentedSharedBuffer&, bool allDataReceived) final;
     bool isAllDataReceived() const final { return m_isAllDataReceived; }
     void clearFrameBufferCache(size_t) final;
 
     void encodedDataStatusChanged(size_t frameCount, const WebCore::IntSize&, bool hasTrack);
 
 private:
-    WeakPtr<GPUProcessConnection> m_gpuProcessConnection;
-    RemoteImageDecoderAVFManager& m_manager;
+    Ref<RemoteImageDecoderAVFManager> manager() const;
+
+    ThreadSafeWeakPtr<GPUProcessConnection> m_gpuProcessConnection;
+    ThreadSafeWeakRef<RemoteImageDecoderAVFManager> m_manager;
     WebCore::ImageDecoderIdentifier m_identifier;
 
     String m_mimeType;

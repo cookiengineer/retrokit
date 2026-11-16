@@ -34,6 +34,7 @@
 #include "B3DuplicateTails.h"
 #include "B3EliminateCommonSubexpressions.h"
 #include "B3EliminateDeadCode.h"
+#include "B3EliminateWasmGCAllocations.h"
 #include "B3FixSSA.h"
 #include "B3FoldPathConstants.h"
 #include "B3HoistLoopInvariantValues.h"
@@ -46,17 +47,15 @@
 #include "B3OptimizeAssociativeExpressionTrees.h"
 #include "B3Procedure.h"
 #include "B3ReduceDoubleToFloat.h"
-#include "B3ReduceLoopStrength.h"
 #include "B3ReduceStrength.h"
-#include "B3TimingScope.h"
 #include "B3Validate.h"
+#include "CompilerTimingScope.h"
 
 namespace JSC { namespace B3 {
 
 void prepareForGeneration(Procedure& procedure)
 {
-    TimingScope timingScope("prepareForGeneration");
-
+    CompilerTimingScope timingScope("Total B3+Air"_s, "prepareForGeneration"_s);
     generateToAir(procedure);
     Air::prepareForGeneration(procedure.code());
 }
@@ -68,40 +67,48 @@ void generate(Procedure& procedure, CCallHelpers& jit)
 
 void generateToAir(Procedure& procedure)
 {
-    TimingScope timingScope("generateToAir");
+    CompilerTimingScope timingScope("Total B3"_s, "generateToAir"_s);
     
-    if (shouldDumpIR(B3Mode) && !shouldDumpIRAtEachPhase(B3Mode)) {
+    if ((shouldDumpIR(procedure, B3Mode) || Options::dumpGraphAfterParsing()) && !shouldDumpIRAtEachPhase(B3Mode)) {
         dataLog(tierName, "Initial B3:\n");
         dataLog(procedure);
     }
-
     // We don't require the incoming IR to have predecessors computed.
     procedure.resetReachability();
-    
+
+    if (Options::dumpIonGraph()) [[unlikely]]
+        procedure.appendIonGraphPass("InitialCFG"_s);
+
     if (shouldValidateIR())
         validate(procedure);
     
     if (procedure.optLevel() >= 2) {
         reduceDoubleToFloat(procedure);
-        reduceStrength(procedure);
-        // FIXME: Re-enable B3 hoistLoopInvariantValues
-        // https://bugs.webkit.org/show_bug.cgi?id=212651
+        reduceStrength(procedure, ReduceStrengthPass::Initial);
         if (Options::useB3HoistLoopInvariantValues())
             hoistLoopInvariantValues(procedure);
-        if (eliminateCommonSubexpressions(procedure))
-            eliminateCommonSubexpressions(procedure);
+        eliminateCommonSubexpressions(procedure);
         eliminateDeadCode(procedure);
-        inferSwitches(procedure);
-        reduceLoopStrength(procedure);
+
+        // Wasm has br_table instruction, so intent of the switch is already represented
+        // and OMG generates Switch nodes directly.
+        // In JS, switch can involve variables (non-constant values) and bytecode can fail
+        // to be in op_switch. Thus after FTL with type speculation & constant folding,
+        // we can infer a switch from if-else chain.
+        if (!procedure.isWasm())
+            inferSwitches(procedure);
+
         if (Options::useB3TailDup())
             duplicateTails(procedure);
         fixSSA(procedure);
         foldPathConstants(procedure);
+        if (procedure.usesWasmGCStructAllocations() && Options::useB3EliminateWasmGCAllocations())
+            eliminateWasmGCAllocations(procedure);
         // FIXME: Add more optimizations here.
         // https://bugs.webkit.org/show_bug.cgi?id=150507
     } else if (procedure.optLevel() >= 1) {
         // FIXME: Explore better "quick mode" optimizations.
-        reduceStrength(procedure);
+        reduceStrength(procedure, ReduceStrengthPass::Initial);
     }
 
     // This puts the IR in quirks mode.
@@ -109,7 +116,7 @@ void generateToAir(Procedure& procedure)
 
     if (procedure.optLevel() >= 2) {
         optimizeAssociativeExpressionTrees(procedure);
-        reduceStrength(procedure);
+        reduceStrength(procedure, ReduceStrengthPass::Final);
 
         // FIXME: Add more optimizations here.
         // https://bugs.webkit.org/show_bug.cgi?id=150507
@@ -118,9 +125,10 @@ void generateToAir(Procedure& procedure)
     lowerMacrosAfterOptimizations(procedure);
     legalizeMemoryOffsets(procedure);
     moveConstants(procedure);
+    legalizeMemoryOffsets(procedure);
+    eliminateDeadCode(procedure);
     if (Options::useB3CanonicalizePrePostIncrements() && procedure.optLevel() >= 2)
         canonicalizePrePostIncrements(procedure);
-    eliminateDeadCode(procedure);
 
     // FIXME: We should run pureCSE here to clean up some platform specific changes from the previous phases.
     // https://bugs.webkit.org/show_bug.cgi?id=164873
@@ -130,16 +138,17 @@ void generateToAir(Procedure& procedure)
     
     // If we're doing super verbose dumping, the phase scope of any phase will already do a dump.
     // Note that lowerToAir() acts like a phase in this regard.
-    if (shouldDumpIR(B3Mode) && !shouldDumpIRAtEachPhase(B3Mode)) {
+    if (shouldDumpIR(procedure, B3Mode) && !shouldDumpIRAtEachPhase(B3Mode)) {
         dataLog("B3 after ", procedure.lastPhaseName(), ", before generation:\n");
         dataLog(procedure);
     }
 
     lowerToAir(procedure);
+    if (shouldDumpIR(procedure, B3Mode))
+        procedure.setShouldDumpIR();
     procedure.freeUnneededB3ValuesAfterLowering();
 }
 
 } } // namespace JSC::B3
 
 #endif // ENABLE(B3_JIT)
-

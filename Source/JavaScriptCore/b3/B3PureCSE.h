@@ -48,12 +48,14 @@ public:
 
     void clear();
 
-    Value* findMatch(const ValueKey&, BasicBlock*, Dominators&);
+    void remove(const ValueKey&, Value*);
+
+    Value* NODELETE findMatch(const ValueKey&, BasicBlock*, Dominators&);
 
     bool process(Value*, Dominators&);
     
 private:
-    HashMap<ValueKey, Matches> m_map;
+    UncheckedKeyHashMap<ValueKey, Matches> m_map;
 };
 
 bool pureCSE(Procedure&);

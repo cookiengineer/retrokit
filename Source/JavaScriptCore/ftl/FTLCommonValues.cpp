@@ -39,9 +39,7 @@ namespace JSC { namespace FTL {
 
 using namespace B3;
 
-CommonValues::CommonValues()
-{
-}
+CommonValues::CommonValues() = default;
 
 void CommonValues::initializeConstants(B3::Procedure& proc, B3::BasicBlock* block)
 {
@@ -56,6 +54,7 @@ void CommonValues::initializeConstants(B3::Procedure& proc, B3::BasicBlock* bloc
     intPtrThree = block->appendNew<ConstPtrValue>(proc, Origin(), 3);
     intPtrEight = block->appendNew<ConstPtrValue>(proc, Origin(), 8);
     doubleZero = block->appendNew<ConstDoubleValue>(proc, Origin(), 0.);
+    doubleEncodeOffsetAsDouble = block->appendNew<ConstDoubleValue>(proc, Origin(), std::bit_cast<double>(JSValue::DoubleEncodeOffset));
 #if USE(BIGINT32)
     bigInt32Zero = block->appendNew<Const64Value>(proc, Origin(), JSValue::BigInt32Tag);
 #endif

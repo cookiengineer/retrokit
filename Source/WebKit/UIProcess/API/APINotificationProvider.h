@@ -27,25 +27,33 @@
 
 #include <wtf/Forward.h>
 #include <wtf/HashMap.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/StringHash.h>
 
 namespace WebKit {
 class WebNotification;
 class WebNotificationManagerProxy;
 class WebPageProxy;
+
+enum class WebNotificationIdentifierType;
+using WebNotificationIdentifier = ObjectIdentifier<WebNotificationIdentifierType>;
+}
+
+namespace WebCore {
+class NotificationResources;
 }
 
 namespace API {
 
 class NotificationProvider {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_INLINE(NotificationProvider);
 public:
     virtual ~NotificationProvider() = default;
 
-    virtual void show(WebKit::WebPageProxy&, WebKit::WebNotification&) { }
+    virtual bool show(WebKit::WebPageProxy*, WebKit::WebNotification&, RefPtr<WebCore::NotificationResources>&&) { return false; }
     virtual void cancel(WebKit::WebNotification&) { }
     virtual void didDestroyNotification(WebKit::WebNotification&) { }
-    virtual void clearNotifications(const Vector<uint64_t>& /*notificationIDs*/) { }
+    virtual void clearNotifications(const Vector<WebKit::WebNotificationIdentifier>&) { }
 
     virtual void addNotificationManager(WebKit::WebNotificationManagerProxy&) { }
     virtual void removeNotificationManager(WebKit::WebNotificationManagerProxy&) { }

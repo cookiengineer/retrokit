@@ -28,10 +28,16 @@
 #if ENABLE(WEBXR)
 
 #include "XRDeviceIdentifier.h"
+#include <WebCore/IntSize.h>
 #include <WebCore/PlatformXR.h>
 #include <wtf/Ref.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
+
+namespace WebCore {
+class SecurityOriginData;
+struct XRCanvasConfiguration;
+}
 
 namespace WebKit {
 
@@ -45,25 +51,40 @@ public:
     XRDeviceIdentifier identifier() const { return m_identifier; }
 
     void sessionDidEnd();
+    void updateSessionVisibilityState(PlatformXR::VisibilityState);
+    void sessionDidInitializeRendering(uint32_t width, uint32_t height, uint32_t arrayLength);
 
 private:
     XRDeviceProxy(XRDeviceInfo&&, PlatformXRSystemProxy&);
 
     WebCore::IntSize recommendedResolution(PlatformXR::SessionMode) final { return m_recommendedResolution; }
-    void initializeTrackingAndRendering(PlatformXR::SessionMode) final;
+    double minimumNearClipPlane() const final { return m_minimumNearClipPlane; }
+    void initializeTrackingAndRendering(const WebCore::SecurityOriginData&, PlatformXR::SessionMode, const PlatformXR::Device::FeatureList&, std::optional<WebCore::XRCanvasConfiguration>&&) final;
     void shutDownTrackingAndRendering() final;
+    void didCompleteShutdownTriggeredBySystem() final;
     bool supportsSessionShutdownNotification() const final { return true; }
     void initializeReferenceSpace(PlatformXR::ReferenceSpaceType) final { }
     Vector<PlatformXR::Device::ViewData> views(PlatformXR::SessionMode) const final;
-    void requestFrame(PlatformXR::Device::RequestFrameCallback&&) final;
-    std::optional<PlatformXR::LayerHandle> createLayerProjection(uint32_t, uint32_t, bool) final;
+    void requestFrame(std::optional<PlatformXR::RequestData>&&, PlatformXR::Device::RequestFrameCallback&&) final;
+    std::optional<PlatformXR::LayerInfo> createLayerProjection(uint32_t, uint32_t, bool) final;
+#if ENABLE(WEBXR_LAYERS)
+    std::optional<PlatformXR::LayerInfo> createCompositionLayer(PlatformXR::CompositionLayerType, WebCore::IntSize, PlatformXR::LayerLayout) final;
+#endif
     void deleteLayer(PlatformXR::LayerHandle) override { };
-    void submitFrame(Vector<PlatformXR::Device::Layer>&&) final;
+    void submitFrame(Vector<PlatformXR::DeviceLayer>&&) final;
+
+#if ENABLE(WEBXR_HIT_TEST)
+    void requestHitTestSource(const PlatformXR::HitTestOptions&, CompletionHandler<void(WebCore::ExceptionOr<PlatformXR::HitTestSource>)>&&) final;
+    void deleteHitTestSource(PlatformXR::HitTestSource) final;
+    void requestTransientInputHitTestSource(const PlatformXR::TransientInputHitTestOptions&, CompletionHandler<void(WebCore::ExceptionOr<PlatformXR::TransientInputHitTestSource>)>&&) final;
+    void deleteTransientInputHitTestSource(PlatformXR::TransientInputHitTestSource) final;
+#endif
 
     XRDeviceIdentifier m_identifier;
     WeakPtr<PlatformXRSystemProxy> m_xrSystem;
     bool m_supportsStereoRendering { false };
     WebCore::IntSize m_recommendedResolution { 0, 0 };
+    double m_minimumNearClipPlane { 0.1 };
 };
 
 } // namespace WebKit

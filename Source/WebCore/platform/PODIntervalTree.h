@@ -26,8 +26,9 @@
 
 #pragma once
 
-#include "PODInterval.h"
-#include "PODRedBlackTree.h"
+#include <WebCore/PODInterval.h>
+#include <WebCore/PODRedBlackTree.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/Vector.h>
 
 // FIXME: The prefix "POD" here isn't correct; this tree works with non-POD types.
@@ -40,7 +41,7 @@ struct PODIntervalNodeUpdater;
 // supports efficient (O(lg n)) insertion, removal and querying of
 // intervals in the tree.
 template<typename T, typename UserData> class PODIntervalTree final : public PODRedBlackTree<PODInterval<T, UserData>, PODIntervalNodeUpdater> {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_TEMPLATE(PODIntervalTree);
 public:
     using IntervalType = PODInterval<T, UserData>;
     class OverlapsSearchAdapter;
@@ -121,7 +122,7 @@ private:
         if (!(point < node->data().low()))
             return smallestNodeGreaterThanFrom(point, node->right());
 
-        if (auto left = smallestNodeGreaterThanFrom(point, node->right()))
+        if (auto left = smallestNodeGreaterThanFrom(point, node->left()))
             return left;
 
         return node;
@@ -177,6 +178,14 @@ private:
 
 };
 
+#define TZONE_TEMPLATE_PARAMS template<typename T, typename UserData>
+#define TZONE_TYPE PODIntervalTree<T, UserData>
+
+WTF_MAKE_TZONE_ALLOCATED_TEMPLATE_IMPL_WITH_MULTIPLE_OR_SPECIALIZED_PARAMETERS();
+
+#undef TZONE_TEMPLATE_PARAMS
+#undef TZONE_TYPE
+
 template<typename T, typename UserData> class PODIntervalTree<T, UserData>::OverlapsSearchAdapter {
 public:
     using IntervalType = PODInterval<T, UserData>;
@@ -187,8 +196,8 @@ public:
     {
     }
 
-    const T& lowValue() const { return m_interval.low(); }
-    const T& highValue() const { return m_interval.high(); }
+    const T& lowValue() const LIFETIME_BOUND { return m_interval.low(); }
+    const T& highValue() const LIFETIME_BOUND { return m_interval.high(); }
     void collectIfNeeded(const IntervalType& data) const
     {
         if (data.overlaps(m_interval))

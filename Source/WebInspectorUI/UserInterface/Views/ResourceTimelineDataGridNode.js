@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013, 2015 Apple Inc. All rights reserved.
+ * Copyright (C) 2013-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -72,7 +72,7 @@ WI.ResourceTimelineDataGridNode = class ResourceTimelineDataGridNode extends WI.
         this._cachedData.latency = this.resource.latency;
         this._cachedData.protocol = this.resource.protocol;
         this._cachedData.priority = this.resource.priority;
-        this._cachedData.remoteAddress = this.resource.remoteAddress;
+        this._cachedData.remoteAddress = this.resource.displayRemoteAddress;
         this._cachedData.connectionIdentifier = this.resource.connectionIdentifier;
         this._cachedData.initiator = this.resource.initiatorSourceCodeLocation;
         this._cachedData.source = this.resource.initiatorSourceCodeLocation; // Timeline Overview
@@ -178,7 +178,7 @@ WI.ResourceTimelineDataGridNode = class ResourceTimelineDataGridNode extends WI.
 
     appendContextMenuItems(contextMenu)
     {
-        WI.appendContextMenuItemsForSourceCode(contextMenu, this.resource);
+        WI.appendContextMenuItemsForNetworkResource(contextMenu, this.resource);
     }
 
     // Protected

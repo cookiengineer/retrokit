@@ -24,7 +24,7 @@
  */
 
 .sidebar > .panel.details.layer-tree > .content {
-    bottom: var(--console-prompt-min-height);
+    bottom: var(--panel-min-height);
 }
 
 .panel.details.layer-tree .data-grid {
@@ -45,11 +45,11 @@
     content: url(../Images/TypeIcons.svg#PseudoElement-light);
 }
 
-.panel.details.layer-tree .name-column :matches(.pseudo-element, .reflection) {
+.panel.details.layer-tree .name-column :is(.pseudo-element, .reflection) {
     color: hsl(0, 0%, 50%);
 }
 
-.panel.details.layer-tree tr.selected .name-column :matches(.pseudo-element, .reflection) {
+.panel.details.layer-tree tr.selected .name-column :is(.pseudo-element, .reflection) {
     color: hsla(0, 0%, 100%, 0.75);
 }
 
@@ -57,7 +57,7 @@
     position: absolute;
     display: flex;
     bottom: 0;
-    height: var(--console-prompt-min-height);
+    height: var(--panel-min-height);
     width: 100%;
     border-top: 1px solid var(--border-color);
 }

@@ -28,12 +28,20 @@
 
 #if ENABLE(WEB_AUTHN)
 
+#include "Logging.h"
 #include "MockHidConnection.h"
+#include <WebCore/Pin.h>
 #include <wtf/RunLoop.h>
+#include <wtf/text/Base64.h>
 
 namespace WebKit {
 
-MockHidService::MockHidService(Observer& observer, const WebCore::MockWebAuthenticationConfiguration& configuration)
+Ref<MockHidService> MockHidService::create(AuthenticatorTransportServiceObserver& observer, const WebCore::MockWebAuthenticationConfiguration& configuration)
+{
+    return adoptRef(*new MockHidService(observer, configuration));
+}
+
+MockHidService::MockHidService(AuthenticatorTransportServiceObserver& observer, const WebCore::MockWebAuthenticationConfiguration& configuration)
     : HidService(observer)
     , m_configuration(configuration)
 {
@@ -48,11 +56,21 @@ void MockHidService::platformStartDiscovery()
     LOG_ERROR("No hid authenticators is available.");
 }
 
-UniqueRef<HidConnection> MockHidService::createHidConnection(IOHIDDeviceRef device) const
+Ref<HidConnection> MockHidService::createHidConnection(IOHIDDeviceRef device) const
 {
-    return makeUniqueRef<MockHidConnection>(device, m_configuration);
+    Ref connection = MockHidConnection::create(device, m_configuration);
+    m_activeConnection = connection.get();
+    return connection;
+}
+
+void MockHidService::validateExpectedCommandsCompleted()
+{
+    if (RefPtr connection = m_activeConnection.get()) {
+        RELEASE_LOG(WebAuthn, "MockHidService: Found active connection, calling validation");
+        connection->validateExpectedCommandsCompleted();
+    } else
+        RELEASE_LOG(WebAuthn, "MockHidService: No active connection found");
 }
 
 } // namespace WebKit
-
 #endif // ENABLE(WEB_AUTHN)

@@ -26,19 +26,22 @@
 #include "config.h"
 #include "WebDateTimePicker.h"
 
-#if ENABLE(DATE_AND_TIME_INPUT_TYPES)
-
 #include "WebPageProxy.h"
+#include <WebCore/DateTimeChooserParameters.h>
 
 namespace WebKit {
 
 WebDateTimePicker::WebDateTimePicker(WebPageProxy& page)
-    : m_page(makeWeakPtr(page))
+    : m_page(page)
 {
 }
 
-WebDateTimePicker::~WebDateTimePicker()
+WebDateTimePicker::~WebDateTimePicker() = default;
+
+void WebDateTimePicker::showDateTimePicker(WebCore::DateTimeChooserParameters&& params)
 {
+    m_frameID = params.rootFrameID;
+    platformShowDateTimePicker(WTF::move(params));
 }
 
 void WebDateTimePicker::endPicker()
@@ -48,5 +51,3 @@ void WebDateTimePicker::endPicker()
 }
 
 } // namespace WebKit
-
-#endif // ENABLE(DATE_AND_TIME_INPUT_TYPES)

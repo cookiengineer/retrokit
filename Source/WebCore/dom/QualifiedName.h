@@ -21,25 +21,36 @@
 #pragma once
 
 #include <wtf/HashTraits.h>
+#include <wtf/Hasher.h>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/text/AtomString.h>
+#include <wtf/text/AtomStringHash.h>
+#include <wtf/text/MakeString.h>
 
 namespace WebCore {
 
+enum class Namespace : uint8_t;
+enum class NodeName : uint16_t;
+
 struct QualifiedNameComponents {
-    StringImpl* m_prefix;
-    StringImpl* m_localName;
-    StringImpl* m_namespace;
+    RefPtr<AtomStringImpl> m_prefix;
+    RefPtr<AtomStringImpl> m_localName;
+    RefPtr<AtomStringImpl> m_namespaceURI;
 };
+
+inline void add(Hasher& hasher, const QualifiedNameComponents& components)
+{
+    add(hasher, components.m_prefix.get(), components.m_localName.get(), components.m_namespaceURI.get());
+}
 
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(QualifiedName);
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(QualifiedNameQualifiedNameImpl);
 
 class QualifiedName {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(QualifiedName);
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(QualifiedName, QualifiedName);
 public:
     class QualifiedNameImpl : public RefCounted<QualifiedNameImpl> {
-        WTF_MAKE_STRUCT_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(QualifiedNameQualifiedNameImpl);
+        WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(QualifiedNameImpl, QualifiedNameQualifiedNameImpl);
     public:
         static Ref<QualifiedNameImpl> create(const AtomString& prefix, const AtomString& localName, const AtomString& namespaceURI)
         {
@@ -48,56 +59,57 @@ public:
 
         WEBCORE_EXPORT ~QualifiedNameImpl();
 
-        unsigned computeHash() const;
+        WEBCORE_EXPORT unsigned computeHash() const;
 
         mutable unsigned m_existingHash { 0 };
+        Namespace m_namespace;
+        NodeName m_nodeName;
         const AtomString m_prefix;
         const AtomString m_localName;
-        const AtomString m_namespace;
+        const AtomString m_namespaceURI;
+        AtomString m_localNameLower;
         mutable AtomString m_localNameUpper;
 
-#if ENABLE(JIT)
-        static ptrdiff_t localNameMemoryOffset() { return OBJECT_OFFSETOF(QualifiedNameImpl, m_localName); }
-        static ptrdiff_t namespaceMemoryOffset() { return OBJECT_OFFSETOF(QualifiedNameImpl, m_namespace); }
-#endif
+        static constexpr ptrdiff_t namespaceMemoryOffset() { return OBJECT_OFFSETOF(QualifiedNameImpl, m_namespace); }
+        static constexpr ptrdiff_t nodeNameMemoryOffset() { return OBJECT_OFFSETOF(QualifiedNameImpl, m_nodeName); }
+        static constexpr ptrdiff_t localNameMemoryOffset() { return OBJECT_OFFSETOF(QualifiedNameImpl, m_localName); }
+        static constexpr ptrdiff_t namespaceURIMemoryOffset() { return OBJECT_OFFSETOF(QualifiedNameImpl, m_namespaceURI); }
 
     private:
-        QualifiedNameImpl(const AtomString& prefix, const AtomString& localName, const AtomString& namespaceURI)
-            : m_prefix(prefix)
-            , m_localName(localName)
-            , m_namespace(namespaceURI)
-        {
-            ASSERT(!namespaceURI.isEmpty() || namespaceURI.isNull());
-        }        
+        friend class QualifiedName;
+
+        WEBCORE_EXPORT QualifiedNameImpl(const AtomString& prefix, const AtomString& localName, const AtomString& namespaceURI);
     };
 
     WEBCORE_EXPORT QualifiedName(const AtomString& prefix, const AtomString& localName, const AtomString& namespaceURI);
+    WEBCORE_EXPORT QualifiedName(const AtomString& prefix, const AtomString& localName, const AtomString& namespaceURI, Namespace, NodeName);
+    QualifiedName(QualifiedNameImpl& impl) : m_impl(&impl) { }
     explicit QualifiedName(WTF::HashTableDeletedValueType) : m_impl(WTF::HashTableDeletedValue) { }
     bool isHashTableDeletedValue() const { return m_impl.isHashTableDeletedValue(); }
-#ifdef QNAME_DEFAULT_CONSTRUCTOR
-    QualifiedName() { }
-#endif
 
-    bool operator==(const QualifiedName& other) const { return m_impl == other.m_impl; }
-    bool operator!=(const QualifiedName& other) const { return !(*this == other); }
+    friend bool operator==(const QualifiedName&, const QualifiedName&) = default;
 
     bool matches(const QualifiedName& other) const { return m_impl == other.m_impl || (localName() == other.localName() && namespaceURI() == other.namespaceURI()); }
+    bool hasLocalName(const AtomString& other) const { return localName() == other; }
 
     bool hasPrefix() const { return !m_impl->m_prefix.isNull(); }
     void setPrefix(const AtomString& prefix) { *this = QualifiedName(prefix, localName(), namespaceURI()); }
 
-    const AtomString& prefix() const { return m_impl->m_prefix; }
-    const AtomString& localName() const { return m_impl->m_localName; }
-    const AtomString& namespaceURI() const { return m_impl->m_namespace; }
+    const AtomString& prefix() const LIFETIME_BOUND { return m_impl->m_prefix; }
+    const AtomString& localName() const LIFETIME_BOUND { return m_impl->m_localName; }
+    const AtomString& namespaceURI() const LIFETIME_BOUND { return m_impl->m_namespaceURI; }
+    const AtomString& localNameLowercase() const LIFETIME_BOUND { return m_impl->m_localNameLower; }
+    const AtomString& localNameUppercase() const LIFETIME_BOUND;
 
-    // Uppercased localName, cached for efficiency
-    const AtomString& localNameUpper() const;
+    NodeName nodeName() const { return m_impl->m_nodeName; }
+    Namespace nodeNamespace() const { return m_impl->m_namespace; }
 
     String toString() const;
+    AtomString toAtomString() const;
 
     QualifiedNameImpl* impl() const { return m_impl.get(); }
 #if ENABLE(JIT)
-    static ptrdiff_t implMemoryOffset() { return OBJECT_OFFSETOF(QualifiedName, m_impl); }
+    static constexpr ptrdiff_t implMemoryOffset() { return OBJECT_OFFSETOF(QualifiedName, m_impl); }
 #endif
     
     // Init routine for globals
@@ -109,20 +121,21 @@ private:
     RefPtr<QualifiedNameImpl> m_impl;
 };
 
-extern LazyNeverDestroyed<const QualifiedName> anyName;
+inline void add(Hasher& hasher, const QualifiedName::QualifiedNameImpl& impl)
+{
+    add(hasher, impl.m_prefix, impl.m_localName, impl.m_namespaceURI);
+}
+
+inline void add(Hasher& hasher, const QualifiedName& name)
+{
+    add(hasher, std::bit_cast<uintptr_t>(name.impl()));
+}
+
+WEBCORE_EXPORT extern LazyNeverDestroyed<const QualifiedName> anyName;
 inline const QualifiedName& anyQName() { return anyName; }
 
-const QualifiedName& nullQName();
-
-inline bool operator==(const AtomString& a, const QualifiedName& q) { return a == q.localName(); }
-inline bool operator!=(const AtomString& a, const QualifiedName& q) { return a != q.localName(); }
-inline bool operator==(const QualifiedName& q, const AtomString& a) { return a == q.localName(); }
-inline bool operator!=(const QualifiedName& q, const AtomString& a) { return a != q.localName(); }
-
-inline unsigned hashComponents(const QualifiedNameComponents& buf)
-{
-    return StringHasher::hashMemory<sizeof(QualifiedNameComponents)>(&buf);
-}
+WEBCORE_EXPORT extern LazyNeverDestroyed<const QualifiedName> nullName;
+inline const QualifiedName& nullQName() { return nullName; }
 
 struct QualifiedNameHash {
     static unsigned hash(const QualifiedName& name) { return hash(name.impl()); }
@@ -146,7 +159,15 @@ inline String QualifiedName::toString() const
     if (!hasPrefix())
         return localName();
 
-    return prefix().string() + ':' + localName().string();
+    return makeString(prefix().string(), ':', localName().string());
+}
+
+inline AtomString QualifiedName::toAtomString() const
+{
+    if (!hasPrefix())
+        return localName();
+
+    return makeAtomString(prefix(), ':', localName());
 }
 
 } // namespace WebCore

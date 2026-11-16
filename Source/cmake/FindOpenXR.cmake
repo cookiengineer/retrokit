@@ -28,7 +28,7 @@
 # OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
 # ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-find_package(PkgConfig)
+find_package(PkgConfig QUIET)
 pkg_check_modules(PC_OPENXR QUIET openxr)
 
 find_path(OPENXR_INCLUDE_DIRS
@@ -40,6 +40,15 @@ find_library(OPENXR_LIBRARIES
     NAMES openxr_loader
     HINTS ${PC_OPENXR_LIBDIR} ${PC_OPENXR_LIBRARY_DIRS}
 )
+
+if (OPENXR_LIBRARIES AND NOT TARGET OpenXR::openxr_loader)
+    add_library(OpenXR::openxr_loader UNKNOWN IMPORTED GLOBAL)
+    set_target_properties(OpenXR::openxr_loader PROPERTIES
+        IMPORTED_LOCATION "${OPENXR_LIBRARIES}"
+        INTERFACE_COMPILE_OPTIONS "${OPENXR_COMPILE_OPTIONS}"
+        INTERFACE_INCLUDE_DIRECTORIES "${OPENXR_INCLUDE_DIRS}"
+    )
+endif ()
 
 mark_as_advanced(OPENXR_INCLUDE_DIRS OPENXR_LIBRARIES)
 

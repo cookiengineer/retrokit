@@ -43,7 +43,7 @@ static AudioHardwareListener::CreationFunction& audioHardwareListenerCreationFun
 
 void AudioHardwareListener::setCreationFunction(CreationFunction&& function)
 {
-    audioHardwareListenerCreationFunction() = WTFMove(function);
+    audioHardwareListenerCreationFunction() = WTF::move(function);
 }
 
 void AudioHardwareListener::resetCreationFunction()
@@ -52,7 +52,15 @@ void AudioHardwareListener::resetCreationFunction()
 #if PLATFORM(MAC)
         return AudioHardwareListenerMac::create(client);
 #else
-        return adoptRef(*new AudioHardwareListener(client));
+        class RefCountedAudioHardwareListener : public AudioHardwareListener, public RefCounted<RefCountedAudioHardwareListener> {
+        public:
+            void ref() const final { RefCounted::ref(); }
+            void deref() const final { RefCounted::deref(); }
+
+            RefCountedAudioHardwareListener(AudioHardwareListener::Client& client)
+                : AudioHardwareListener(client) { }
+        };
+        return adoptRef(*new RefCountedAudioHardwareListener(client));
 #endif
     };
 }

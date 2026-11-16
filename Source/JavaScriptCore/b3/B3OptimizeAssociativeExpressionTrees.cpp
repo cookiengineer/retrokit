@@ -60,7 +60,7 @@ private:
     static constexpr bool verbose { false };
 };
 
-int64_t OptimizeAssociativeExpressionTrees::neutralElement(Opcode op)
+int64_t NODELETE OptimizeAssociativeExpressionTrees::neutralElement(Opcode op)
 {
     switch (op) {
     case Add:
@@ -76,7 +76,7 @@ int64_t OptimizeAssociativeExpressionTrees::neutralElement(Opcode op)
     }
 }
 
-bool OptimizeAssociativeExpressionTrees::isAbsorbingElement(Opcode op, int64_t constant)
+bool NODELETE OptimizeAssociativeExpressionTrees::isAbsorbingElement(Opcode op, int64_t constant)
 {
     switch (op) {
     case Add:
@@ -92,7 +92,7 @@ bool OptimizeAssociativeExpressionTrees::isAbsorbingElement(Opcode op, int64_t c
     }
 }
 
-void OptimizeAssociativeExpressionTrees::combineConstants(Opcode op, int64_t& const1, int64_t const2)
+void NODELETE OptimizeAssociativeExpressionTrees::combineConstants(Opcode op, int64_t& const1, int64_t const2)
 {
     switch (op) {
     case Add:
@@ -177,6 +177,7 @@ bool OptimizeAssociativeExpressionTrees::optimizeRootedTree(Value* root, Inserti
             leaves.append(val);
         }
     }
+
     if (isAbsorbingElement(op, constant)) {
         Value* newRoot;
         if (root->type() == Int32)
@@ -186,14 +187,84 @@ bool OptimizeAssociativeExpressionTrees::optimizeRootedTree(Value* root, Inserti
         root->replaceWithIdentity(newRoot);
         return true;
     }
-    if (numVisited < 4) {
+
+    // Pair up rotate halves inside XOR / OR trees so the `(x >>> N) ^ (x << (W-N))`
+    // idiom (and its sigma/Sigma chained variants) lowers to a single RotR instead of a
+    // pair of shifts + XOR.
+    bool foldedRotate = false;
+    if ((op == BitXor || op == BitOr) && (root->type() == Int32 || root->type() == Int64) && leaves.size() >= 2) {
+        unsigned width = root->type() == Int32 ? 32 : 64;
+
+        // In the leaf elements of BitOr / BitXor tree, we collect Shl and ZShr.
+        UncheckedKeyHashMap<Value*, Vector<unsigned, 4>> shlIndicesByBase;
+        UncheckedKeyHashMap<Value*, Vector<unsigned, 4>> zshrIndicesByBase;
+        for (unsigned i = 0; i < leaves.size(); ++i) {
+            Value* leaf = leaves[i];
+            if (leaf->opcode() == Shl && leaf->child(1)->hasInt32())
+                shlIndicesByBase.add(leaf->child(0), Vector<unsigned, 4>()).iterator->value.append(i);
+            else if (leaf->opcode() == ZShr && leaf->child(1)->hasInt32())
+                zshrIndicesByBase.add(leaf->child(0), Vector<unsigned, 4>()).iterator->value.append(i);
+        }
+
+        // Then for each Shl, searching for ZShr where,
+        // 1. Both's left child is the same. Shl(value, N) and ZShr(value, M).
+        // 2. N + M = width (32 or 64, depending on type).
+        // Then,
+        //
+        //     Turn this: BitOr(Shl(value, N), ZShr(value, M))
+        //                BitXor(Shl(value, N), ZShr(value, M))
+        //     Into this: RotR(value, M)
+        //
+        // And replace leaf with RotR.
+        for (auto& shlEntry : shlIndicesByBase) {
+            auto zshrIter = zshrIndicesByBase.find(shlEntry.key);
+            if (zshrIter == zshrIndicesByBase.end())
+                continue;
+            Vector<unsigned, 4>& zshrIndices = zshrIter->value;
+
+            for (unsigned shlIdx : shlEntry.value) {
+                Value* shl = leaves[shlIdx];
+                // leaf becomes nullptr when it is already replaced.
+                if (!shl)
+                    continue;
+
+                unsigned n = static_cast<unsigned>(shl->child(1)->asInt32()) & (width - 1);
+                if (!n)
+                    continue;
+
+                for (unsigned k = 0; k < zshrIndices.size(); ++k) {
+                    Value* zshr = leaves[zshrIndices[k]];
+                    // leaf becomes nullptr when it is already replaced.
+                    if (!zshr)
+                        continue;
+
+                    unsigned m = static_cast<unsigned>(zshr->child(1)->asInt32()) & (width - 1);
+                    if (n + m != width)
+                        continue;
+
+                    Value* amount = insertionSet.insert<Const32Value>(indexInBlock, root->origin(), static_cast<int32_t>(m));
+                    Value* rotate = insertionSet.insert<Value>(indexInBlock, RotR, root->origin(), shlEntry.key, amount);
+
+                    leaves[shlIdx] = rotate;
+                    leaves[zshrIndices[k]] = nullptr;
+                    zshrIndices[k] = zshrIndices.last();
+                    zshrIndices.removeLast();
+                    foldedRotate = true;
+                    break;
+                }
+            }
+        }
+
+        if (foldedRotate)
+            leaves.removeAllMatching([](Value* v) { return !v; });
+    }
+
+    if (numVisited < 4 && !foldedRotate) {
         // This is a nearly-trivial expression of size 3. B3ReduceStrength is still able to deal with such expressions competently, and there is no possible win from balancing them.
         return false;
     }
 
-    std::sort(leaves.begin(), leaves.end(), [](Value* x, Value* y) {
-        return x->index() < y->index();
-    });
+    std::ranges::sort(leaves, { }, &Value::index);
     Vector<Value*, 4> optLeaves;
     Value* lastValue = nullptr;
     unsigned numSeen = 0;
@@ -251,9 +322,9 @@ bool OptimizeAssociativeExpressionTrees::run()
 
     m_proc.resetValueOwners();
 
-    Vector<unsigned> useCounts(m_proc.values().size(), 0); // Mapping from Value::m_index to use counts.
-    HashSet<Value*> expressionTreeRoots;
-    HashSet<BasicBlock*> rootOwners;
+    Vector<unsigned> useCounts(FillWith { }, m_proc.values().size(), 0); // Mapping from Value::m_index to use counts.
+    UncheckedKeyHashSet<Value*> expressionTreeRoots;
+    UncheckedKeyHashSet<BasicBlock*> rootOwners;
 
     for (BasicBlock* block : m_proc) {
         for (Value* value : *block) {
@@ -294,7 +365,7 @@ bool OptimizeAssociativeExpressionTrees::run()
 
 bool optimizeAssociativeExpressionTrees(Procedure& proc)
 {
-    PhaseScope phaseScope(proc, "optimizeAssociativeExpressionTrees");
+    PhaseScope phaseScope(proc, "optimizeAssociativeExpressionTrees"_s);
     OptimizeAssociativeExpressionTrees optimizeAssociativeExpressionTrees(proc);
     return optimizeAssociativeExpressionTrees.run();
 }

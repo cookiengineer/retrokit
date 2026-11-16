@@ -22,26 +22,36 @@
 #include "RenderProgress.h"
 
 #include "HTMLProgressElement.h"
+#include "RenderBoxModelObjectInlines.h"
+#include "RenderElementInlines.h"
 #include "RenderTheme.h"
-#include <wtf/IsoMallocInlines.h>
+#include "StyleComputedStyle+GettersInlines.h"
 #include <wtf/RefPtr.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(RenderProgress);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderProgress);
 
-RenderProgress::RenderProgress(HTMLElement& element, RenderStyle&& style)
-    : RenderBlockFlow(element, WTFMove(style))
+RenderProgress::RenderProgress(HTMLElement& element, Style::ComputedStyle&& style)
+    : RenderBlockFlow(Type::Progress, element, WTF::move(style))
     , m_position(HTMLProgressElement::InvalidPosition)
     , m_animationTimer(*this, &RenderProgress::animationTimerFired)
 {
+    ASSERT(isRenderProgress());
 }
 
 RenderProgress::~RenderProgress() = default;
 
+void RenderProgress::willBeDestroyed()
+{
+    m_animationTimer.stop();
+    RenderBlockFlow::willBeDestroyed();
+}
+
 void RenderProgress::updateFromElement()
 {
-    HTMLProgressElement* element = progressElement();
+    RefPtr element = progressElement();
     if (m_position == element->position())
         return;
     m_position = element->position();
@@ -54,20 +64,21 @@ void RenderProgress::updateFromElement()
 RenderBox::LogicalExtentComputedValues RenderProgress::computeLogicalHeight(LayoutUnit logicalHeight, LayoutUnit logicalTop) const
 {
     auto computedValues = RenderBox::computeLogicalHeight(logicalHeight, logicalTop);
-    LayoutRect frame = frameRect();
+    LayoutRect frame = borderBoxRectInContainer();
     if (isHorizontalWritingMode())
-        frame.setHeight(computedValues.m_extent);
+        frame.setHeight(computedValues.extent);
     else
-        frame.setWidth(computedValues.m_extent);
+        frame.setWidth(computedValues.extent);
     IntSize frameSize = theme().progressBarRectForBounds(*this, snappedIntRect(frame)).size();
-    computedValues.m_extent = isHorizontalWritingMode() ? frameSize.height() : frameSize.width();
+    computedValues.extent = isHorizontalWritingMode() ? frameSize.height() : frameSize.width();
     return computedValues;
 }
 
 double RenderProgress::animationProgress() const
 {
-    ASSERT(m_animationDuration > 0_s);
-    return m_animating ? (fmod((MonotonicTime::now() - m_animationStartTime).seconds(), m_animationDuration.seconds()) / m_animationDuration.seconds()) : 0;
+    auto duration = theme().animationDurationForProgressBar();
+    ASSERT(duration > 0_s);
+    return m_animating ? (fmod((MonotonicTime::now() - m_animationStartTime).seconds(), duration.seconds()) / duration.seconds()) : 0;
 }
 
 bool RenderProgress::isDeterminate() const
@@ -78,38 +89,38 @@ bool RenderProgress::isDeterminate() const
 
 void RenderProgress::animationTimerFired()
 {
-    // FIXME: Progress bar animation should be performed as part of the rendering update
-    // lifecycle, to match the display's refresh rate.
+    // FIXME: Ideally obtaining the repeat interval from Page is not RenderTheme-specific, but it
+    // currently is as it also determines whether we animate at all.
+    auto repeatInterval = theme().animationRepeatIntervalForProgressBar(*this);
 
     repaint();
     if (!m_animationTimer.isActive() && m_animating)
-        m_animationTimer.startOneShot(m_animationRepeatInterval);
+        m_animationTimer.startOneShot(repeatInterval);
 }
 
 void RenderProgress::updateAnimationState()
 {
-    m_animationDuration = theme().animationDurationForProgressBar(*this);
-    m_animationRepeatInterval = theme().animationRepeatIntervalForProgressBar(*this);
+    auto repeatInterval = theme().animationRepeatIntervalForProgressBar(*this);
 
-    bool animating = style().hasAppearance() && m_animationRepeatInterval > 0_s && !isDeterminate();
+    bool animating = style().hasUsedAppearance() && repeatInterval > 0_s && !isDeterminate();
     if (animating == m_animating)
         return;
 
     m_animating = animating;
     if (m_animating) {
         m_animationStartTime = MonotonicTime::now();
-        m_animationTimer.startOneShot(m_animationRepeatInterval);
+        m_animationTimer.startOneShot(repeatInterval);
     } else
         m_animationTimer.stop();
 }
 
-HTMLProgressElement* RenderProgress::progressElement() const
+HTMLProgressElement* NODELETE RenderProgress::progressElement() const
 {
     if (!element())
         return nullptr;
 
-    if (is<HTMLProgressElement>(*element()))
-        return downcast<HTMLProgressElement>(element());
+    if (auto* progressElement = dynamicDowncast<HTMLProgressElement>(*element()))
+        return progressElement;
 
     ASSERT(element()->shadowHost());
     return downcast<HTMLProgressElement>(element()->shadowHost());

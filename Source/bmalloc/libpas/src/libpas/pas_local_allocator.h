@@ -26,12 +26,11 @@
 #ifndef PAS_LOCAL_ALLOCATOR_H
 #define PAS_LOCAL_ALLOCATOR_H
 
-#include "pas_allocation_result.h"
 #include "pas_allocator_scavenge_action.h"
 #include "pas_bitfit_allocator.h"
 #include "pas_config.h"
 #include "pas_local_allocator_config_kind.h"
-#include "pas_local_allocator_line.h"
+#include "pas_local_allocator_scavenger_data.h"
 #include "pas_lock.h"
 #include "pas_segregated_page_config.h"
 #include "pas_segregated_view.h"
@@ -50,6 +49,15 @@ typedef struct pas_segregated_heap pas_segregated_heap;
 typedef struct pas_segregated_page pas_segregated_page;
 
 struct pas_local_allocator {
+    pas_local_allocator_scavenger_data scavenger_data;
+    
+    uint8_t alignment_shift;
+    pas_local_allocator_config_kind config_kind : 6;
+    bool current_word_is_valid : 1; /* This is just used by enumeration. */
+    bool is_small : 1; /* Marks that this local allocator is used to allocate small objects. */
+    bool is_profiled; /* Marks that allocations coming out of this local allocator should be profiled. */
+    bool is_mte_tagged; /* Marks that allocations coming out of this local allocator are MTE-tagged. */
+
     /* This has to have a pointer to our index within the view. We can get to the view using
        page_ish. Maybe worth reconsidering that, but then again maybe it's good enough. 
     
@@ -68,20 +76,13 @@ struct pas_local_allocator {
     unsigned current_offset; /* current_offset < end_offset means that we have bits to search. */
     unsigned end_offset;
     uint64_t current_word;
-    pas_segregated_view view; /* points to a partial view if we're in partial mode or the size
-                                 directory otherwise. This will point to a partial view in either
-                                 primordial partial mode or in normal partial mode. */
-    uint16_t num_lines;
-    uint8_t alignment_shift;
-    pas_local_allocator_config_kind config_kind : 8;
-    bool is_in_use;
-    uint8_t should_stop_count;
-    bool dirty;
-    bool current_word_is_valid; /* This is just used by enumeration. */
+    pas_segregated_view view; /* Points to the size directory. */
     uint64_t bits[1];
 };
 
 #define PAS_LOCAL_ALLOCATOR_NULL_INITIALIZER ((pas_local_allocator){ \
+        .scavenger_data = \
+            PAS_LOCAL_ALLOCATOR_SCAVENGER_DATA_INITIALIZER(pas_local_allocator_allocator_kind), \
         .payload_end = 0, \
         .remaining = 0, \
         .object_size = 0, \
@@ -89,10 +90,13 @@ struct pas_local_allocator {
         .current_offset = 0, \
         .end_offset = 0, \
         .view = NULL, \
-        .config_kind = pas_local_allocator_config_kind_normal_null, \
-        .is_in_use = false, \
-        .should_stop_count = 0, \
-        .dirty = false \
+        .alignment_shift = 0, \
+        .current_word_is_valid = false, \
+        .is_small = 0, \
+        .is_profiled = 0, \
+        .is_mte_tagged = 0, \
+        .current_word = 0, \
+        .config_kind = pas_local_allocator_config_kind_null \
     })
 
 #define PAS_LOCAL_ALLOCATOR_SIZE(num_alloc_bits) \
@@ -101,7 +105,17 @@ struct pas_local_allocator {
          sizeof(uint64_t) * PAS_BITVECTOR_NUM_WORDS64(num_alloc_bits), \
          PAS_ROUND_UP_TO_POWER_OF_2(sizeof(pas_bitfit_allocator), sizeof(uint64_t))))
 
-PAS_API extern uint8_t pas_local_allocator_should_stop_count_for_suspend;
+#define PAS_LOCAL_ALLOCATOR_UNSELECTED_SIZE PAS_OFFSETOF(pas_local_allocator, bits)
+#define PAS_LOCAL_ALLOCATOR_UNSELECTED_INDEX 0u
+#define PAS_LOCAL_ALLOCATOR_UNSELECTED_NUM_INDICES (PAS_LOCAL_ALLOCATOR_UNSELECTED_SIZE / 8)
+
+#define PAS_LOCAL_ALLOCATOR_MEASURE_REFILL_EFFICIENCY 0
+
+#if PAS_LOCAL_ALLOCATOR_MEASURE_REFILL_EFFICIENCY
+PAS_API extern double pas_local_allocator_refill_efficiency_sum;
+PAS_API extern double pas_local_allocator_refill_efficiency_n;
+PAS_DECLARE_LOCK(pas_local_allocator_refill_efficiency);
+#endif /* PAS_LOCAL_ALLOCATOR_MEASURE_REFILL_EFFICIENCY */
 
 static inline bool pas_local_allocator_is_null(pas_local_allocator* allocator)
 {
@@ -134,9 +148,9 @@ static inline uintptr_t pas_local_allocator_page_boundary(pas_local_allocator* a
 }
 
 PAS_API void pas_local_allocator_construct(pas_local_allocator* allocator,
-                                           pas_segregated_global_size_directory* directory);
+                                           pas_segregated_size_directory* directory);
 
-PAS_API void pas_local_allocator_destruct(pas_local_allocator* allocator);
+PAS_API void pas_local_allocator_construct_unselected(pas_local_allocator* allocator);
 
 PAS_API void pas_local_allocator_reset(pas_local_allocator* allocator);
 
@@ -151,8 +165,6 @@ PAS_API void pas_local_allocator_move(pas_local_allocator* dst,
 PAS_API bool pas_local_allocator_stop(pas_local_allocator* allocator,
                                       pas_lock_lock_mode page_lock_mode,
                                       pas_lock_hold_mode heap_lock_hold_mode);
-
-PAS_API pas_lock_hold_mode pas_local_allocator_heap_lock_hold_mode(pas_local_allocator* allocator);
 
 /* This is appropriate to call for allocators that are used under a lock and you're holding that
    lock. Allocators associated with TLCs use subtly different logic.

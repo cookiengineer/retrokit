@@ -65,7 +65,9 @@ WebKitDOMMediaList* wrapMediaList(WebCore::MediaList* coreObject)
 
 } // namespace WebKit
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK port
 G_DEFINE_TYPE(WebKitDOMMediaList, webkit_dom_media_list, WEBKIT_DOM_TYPE_OBJECT)
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 enum {
     DOM_MEDIA_LIST_PROP_0,
@@ -214,11 +216,7 @@ void webkit_dom_media_list_set_media_text(WebKitDOMMediaList* self, const gchar*
     g_return_if_fail(!error || !*error);
     WebCore::MediaList* item = WebKit::core(self);
     WTF::String convertedValue = WTF::String::fromUTF8(value);
-    auto result = item->setMediaText(convertedValue);
-    if (result.hasException()) {
-        auto description = WebCore::DOMException::description(result.releaseException().code());
-        g_set_error_literal(error, g_quark_from_string("WEBKIT_DOM"), description.legacyCode, description.name);
-    }
+    item->setMediaText(convertedValue);
 }
 
 gulong webkit_dom_media_list_get_length(WebKitDOMMediaList* self)

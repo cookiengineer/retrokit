@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008, 2009, 2010 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,94 +25,20 @@
 
 #pragma once
 
+#include <WebCore/StyleAppearance.h>
+
 namespace WTF {
 class TextStream;
 }
 
 namespace WebCore {
 
-// Must follow CSSValueKeywords.in order
-enum ControlPart {
-    NoControlPart,
-    CheckboxPart,
-    RadioPart,
-    PushButtonPart,
-    SquareButtonPart,
-    ButtonPart,
-    ButtonBevelPart,
-    DefaultButtonPart,
-    InnerSpinButtonPart,
-    ListboxPart,
-    ListItemPart,
-    MediaControlsBackgroundPart,
-    MediaControlsDarkBarBackgroundPart,
-    MediaControlsFullscreenBackgroundPart,
-    MediaControlsLightBarBackgroundPart,
-    MediaCurrentTimePart,
-    MediaEnterFullscreenButtonPart,
-    MediaExitFullscreenButtonPart,
-    MediaFullScreenVolumeSliderPart,
-    MediaFullScreenVolumeSliderThumbPart,
-    MediaMuteButtonPart,
-    MediaOverlayPlayButtonPart,
-    MediaPlayButtonPart,
-    MediaReturnToRealtimeButtonPart,
-    MediaRewindButtonPart,
-    MediaSeekBackButtonPart,
-    MediaSeekForwardButtonPart,
-    MediaSliderPart,
-    MediaSliderThumbPart,
-    MediaTimeRemainingPart,
-    MediaToggleClosedCaptionsButtonPart,
-    MediaVolumeSliderPart,
-    MediaVolumeSliderContainerPart,
-    MediaVolumeSliderMuteButtonPart,
-    MediaVolumeSliderThumbPart,
-    MenulistPart,
-    MenulistButtonPart,
-    MenulistTextPart,
-    MenulistTextFieldPart,
-    MeterPart,
-    ProgressBarPart,
-    ProgressBarValuePart,
-    SliderHorizontalPart,
-    SliderVerticalPart,
-    SliderThumbHorizontalPart,
-    SliderThumbVerticalPart,
-    CaretPart,
-    SearchFieldPart,
-    SearchFieldDecorationPart,
-    SearchFieldResultsDecorationPart,
-    SearchFieldResultsButtonPart,
-    SearchFieldCancelButtonPart,
-    TextFieldPart,
-    RelevancyLevelIndicatorPart,
-    ContinuousCapacityLevelIndicatorPart,
-    DiscreteCapacityLevelIndicatorPart,
-    RatingLevelIndicatorPart,
-#if ENABLE(APPLE_PAY)
-    ApplePayButtonPart,
-#endif
-#if ENABLE(INPUT_TYPE_COLOR)
-    ColorWellPart,
-#endif
-#if ENABLE(DATALIST_ELEMENT)
-    ListButtonPart,
-#endif
-    TextAreaPart,
-#if ENABLE(ATTACHMENT_ELEMENT)
-    AttachmentPart,
-    BorderlessAttachmentPart,
-#endif
-    CapsLockIndicatorPart
+enum class SelectionPart : bool {
+    Background,
+    Foreground
 };
 
-enum SelectionPart {
-    SelectionBackground,
-    SelectionForeground
-};
-
-enum ThemeFont {
+enum class ThemeFont : uint8_t {
     CaptionFont,
     IconFont,
     MenuFont,
@@ -124,7 +50,7 @@ enum ThemeFont {
     ControlFont
 };
 
-enum ThemeColor {
+enum class ThemeColor : uint8_t {
     ActiveBorderColor,
     ActiveCaptionColor,
     ActiveTextColor,
@@ -163,7 +89,6 @@ enum ThemeColor {
     FocusRingColor
 };
 
-WTF::TextStream& operator<<(WTF::TextStream&, ControlPart);
 WTF::TextStream& operator<<(WTF::TextStream&, SelectionPart);
 WTF::TextStream& operator<<(WTF::TextStream&, ThemeFont);
 WTF::TextStream& operator<<(WTF::TextStream&, ThemeColor);

@@ -29,7 +29,8 @@ class ValidateGlobalInitializerTraverser : public TIntermTraverser
     bool visitBinary(Visit visit, TIntermBinary *node) override;
     bool visitUnary(Visit visit, TIntermUnary *node) override;
 
-    bool isValid() const { return mIsValid && mMaxDepth < mMaxAllowedDepth; }
+    bool isValid() const { return mIsValid; }
+    bool isTooComplex() const { return mMaxDepth >= mMaxAllowedDepth; }
     bool issueWarning() const { return mIssueWarning; }
 
   private:
@@ -97,10 +98,9 @@ void ValidateGlobalInitializerTraverser::visitConstantUnion(TIntermConstantUnion
 bool ValidateGlobalInitializerTraverser::visitAggregate(Visit visit, TIntermAggregate *node)
 {
     // Disallow calls to user-defined functions and texture lookup functions in global variable
-    // initializers.
-    // This is done simply by disabling all function calls - built-in math functions don't use
-    // the function call ops.
-    if (node->isFunctionCall())
+    // initializers.  For simplicity, all non-math built-in calls are disallowed.
+    if (node->isFunctionCall() ||
+        (BuiltInGroup::IsBuiltIn(node->getOp()) && !BuiltInGroup::IsMath(node->getOp())))
     {
         onNonConstInitializerVisit(mExtNonConstGlobalInitializers);
     }
@@ -145,13 +145,15 @@ bool ValidateGlobalInitializer(TIntermTyped *initializer,
                                int shaderVersion,
                                bool isWebGL,
                                bool hasExtNonConstGlobalInitializers,
-                               bool *warning)
+                               bool *warningOut,
+                               bool *tooComplexOut)
 {
     ValidateGlobalInitializerTraverser validate(shaderVersion, isWebGL,
                                                 hasExtNonConstGlobalInitializers);
     initializer->traverse(&validate);
-    ASSERT(warning != nullptr);
-    *warning = validate.issueWarning();
+    ASSERT(warningOut != nullptr && tooComplexOut != nullptr);
+    *warningOut    = validate.issueWarning();
+    *tooComplexOut = validate.isTooComplex();
     return validate.isValid();
 }
 

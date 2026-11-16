@@ -4,6 +4,9 @@
 // found in the LICENSE file.
 //
 
+#include <array>
+
+#include "common/unsafe_buffers.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
@@ -93,9 +96,9 @@ TEST(ConfigSetTest, IDs)
     std::set<EGLint> ids;
 
     std::vector<egl::Config> uniqueConfigs = GenerateUniqueConfigs(16);
-    for (size_t i = 0; i < uniqueConfigs.size(); i++)
+    for (const egl::Config &uniqueConfig : uniqueConfigs)
     {
-        EGLint id = set.add(uniqueConfigs[i]);
+        EGLint id = set.add(uniqueConfig);
 
         // Check that the config that was inserted has the ID that was returned
         // by ConfigSet::add
@@ -112,7 +115,11 @@ TEST(ConfigSetTest, IDs)
     EXPECT_EQ(*std::max_element(ids.begin(), ids.end()), static_cast<EGLint>(set.size()));
 }
 
-TEST(ConfigSetTest, Filtering_BitSizes)
+// Test case to verify filtering of egl::ConfigSet based on bit size attributes
+// (e.g., EGL_RED_SIZE, EGL_GREEN_SIZE, etc.). The test generates configurations
+// with varying bit sizes for each attribute, filters by the attribute, and
+// checks that the number of filtered results matches the expected count.
+TEST(ConfigSetTest, FilteringBitSizes)
 {
     egl::ConfigSet set;
 
@@ -122,29 +129,32 @@ TEST(ConfigSetTest, Filtering_BitSizes)
         EGLint(egl::Config::*ConfigMember);
     };
 
-    VariableConfigBitSize testMembers[] = {
-        {EGL_RED_SIZE, &egl::Config::redSize},     {EGL_GREEN_SIZE, &egl::Config::greenSize},
-        {EGL_BLUE_SIZE, &egl::Config::blueSize},   {EGL_ALPHA_SIZE, &egl::Config::alphaSize},
-        {EGL_DEPTH_SIZE, &egl::Config::depthSize}, {EGL_STENCIL_SIZE, &egl::Config::stencilSize},
-    };
+    std::array<VariableConfigBitSize, 6> testMembers = {{
+        {EGL_RED_SIZE, &egl::Config::redSize},
+        {EGL_GREEN_SIZE, &egl::Config::greenSize},
+        {EGL_BLUE_SIZE, &egl::Config::blueSize},
+        {EGL_ALPHA_SIZE, &egl::Config::alphaSize},
+        {EGL_DEPTH_SIZE, &egl::Config::depthSize},
+        {EGL_STENCIL_SIZE, &egl::Config::stencilSize},
+    }};
 
     // Generate configsPerType configs with varying bit sizes of each type
     size_t configsPerType = 4;
-    for (size_t i = 0; i < ArraySize(testMembers); i++)
+    for (const VariableConfigBitSize &testedMember : testMembers)
     {
         for (size_t j = 0; j < configsPerType; j++)
         {
             egl::Config config = GenerateGenericConfig();
 
             // Set all the other tested members of this config to 0
-            for (size_t k = 0; k < ArraySize(testMembers); k++)
+            for (const VariableConfigBitSize &member : testMembers)
             {
-                config.*(testMembers[k].ConfigMember) = 0;
+                config.*(member.ConfigMember) = 0;
             }
 
-            // Set the tested member of this config to i so it ranges from
+            // Set the tested member of this config so it ranges from
             // [1, configsPerType]
-            config.*(testMembers[i].ConfigMember) = static_cast<EGLint>(j) + 1;
+            config.*(testedMember.ConfigMember) = static_cast<EGLint>(j) + 1;
 
             set.add(config);
         }
@@ -152,13 +162,13 @@ TEST(ConfigSetTest, Filtering_BitSizes)
 
     // for each tested member, filter by it's type and verify that the correct number
     // of results are returned
-    for (size_t i = 0; i < ArraySize(testMembers); i++)
+    for (const VariableConfigBitSize &testedMember : testMembers)
     {
         // Start with a filter of 1 to not grab the other members
         for (EGLint j = 0; j < static_cast<EGLint>(configsPerType); j++)
         {
             egl::AttributeMap filter;
-            filter.insert(testMembers[i].Name, j + 1);
+            filter.insert(testedMember.Name, j + 1);
 
             std::vector<const egl::Config *> filteredConfigs = set.filter(filter);
 
@@ -174,7 +184,7 @@ TEST(ConfigSetTest, Filtering_BitSizes)
 // and EGL_ALPHA_SIZE).If the requested number of bits in attrib list for a
 // particular color component is 0 or EGL_DONT_CARE, then the number of bits
 // for that component is not considered.
-TEST(ConfigSetTest, Sorting_BitSizes)
+TEST(ConfigSetTest, SortingBitSizes)
 {
     egl::ConfigSet set;
     size_t testConfigCount = 64;

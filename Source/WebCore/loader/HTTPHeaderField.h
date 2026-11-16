@@ -33,50 +33,16 @@ class WEBCORE_EXPORT HTTPHeaderField {
 public:
     static std::optional<HTTPHeaderField> create(String&& name, String&& value);
 
-    const String& name() const { return m_name; }
-    const String& value() const { return m_value; }
-
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<HTTPHeaderField> decode(Decoder&);
+    const String& name() const LIFETIME_BOUND { return m_name; }
+    const String& value() const LIFETIME_BOUND { return m_value; }
 
 private:
     HTTPHeaderField(String&& name, String&& value)
-        : m_name(WTFMove(name))
-        , m_value(WTFMove(value))
+        : m_name(WTF::move(name))
+        , m_value(WTF::move(value))
     { }
     String m_name;
     String m_value;
 };
-
-template<class Encoder>
-void HTTPHeaderField::encode(Encoder& encoder) const
-{
-    encoder << m_name;
-    encoder << m_value;
-}
-
-template<class Decoder>
-std::optional<HTTPHeaderField> HTTPHeaderField::decode(Decoder& decoder)
-{
-    std::optional<String> name;
-    decoder >> name;
-    if (!name)
-        return std::nullopt;
-
-    std::optional<String> value;
-    decoder >> value;
-    if (!value)
-        return std::nullopt;
-
-    return {{ WTFMove(*name), WTFMove(*value) }};
-}
-
-namespace RFC7230 {
-bool isTokenCharacter(UChar);
-bool isWhitespace(UChar);
-bool isCommentText(UChar);
-bool isQuotedPairSecondOctet(UChar);
-bool isDelimiter(UChar);
-} // namespace RFC7230
 
 } // namespace WebCore

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006 Apple Inc. All rights reserved.
  * Copyright (C) 2012 Rik Cabanier (cabanier@adobe.com)
  * Copyright (C) 2014 Adobe Systems Incorporated. All rights reserved.
  *
@@ -35,45 +35,45 @@
 
 namespace WebCore {
 
-static const char* const compositeOperatorNames[] = {
-    "clear",
-    "copy",
-    "source-over",
-    "source-in",
-    "source-out",
-    "source-atop",
-    "destination-over",
-    "destination-in",
-    "destination-out",
-    "destination-atop",
-    "xor",
-    "darker",
-    "lighter",
-    "difference"
+static constexpr std::array compositeOperatorNames {
+    "clear"_s,
+    "copy"_s,
+    "source-over"_s,
+    "source-in"_s,
+    "source-out"_s,
+    "source-atop"_s,
+    "destination-over"_s,
+    "destination-in"_s,
+    "destination-out"_s,
+    "destination-atop"_s,
+    "xor"_s,
+    "darker"_s,
+    "lighter"_s,
+    "difference"_s
 };
 
-static const char* const blendOperatorNames[] = {
-    "normal",
-    "multiply",
-    "screen",
-    "darken",
-    "lighten",
-    "overlay",
-    "color-dodge",
-    "color-burn",
-    "hard-light",
-    "soft-light",
-    "difference",
-    "exclusion",
-    "hue",
-    "saturation",
-    "color",
-    "luminosity",
-    "plus-darker",
-    "plus-lighter"
+static constexpr std::array blendOperatorNames {
+    "normal"_s,
+    "multiply"_s,
+    "screen"_s,
+    "darken"_s,
+    "lighten"_s,
+    "overlay"_s,
+    "color-dodge"_s,
+    "color-burn"_s,
+    "hard-light"_s,
+    "soft-light"_s,
+    "difference"_s,
+    "exclusion"_s,
+    "hue"_s,
+    "saturation"_s,
+    "color"_s,
+    "luminosity"_s,
+    "plus-darker"_s,
+    "plus-lighter"_s
 };
-const uint8_t numCompositeOperatorNames = WTF_ARRAY_LENGTH(compositeOperatorNames);
-const uint8_t numBlendOperatorNames = WTF_ARRAY_LENGTH(blendOperatorNames);
+const uint8_t numCompositeOperatorNames = std::size(compositeOperatorNames);
+const uint8_t numBlendOperatorNames = std::size(blendOperatorNames);
 
 bool parseBlendMode(const String& s, BlendMode& blendMode)
 {
@@ -136,14 +136,59 @@ TextStream& operator<<(TextStream& ts, BlendMode blendMode)
     return ts << blendModeName(blendMode);
 }
 
+TextStream& operator<<(TextStream& ts, CompositeMode compositeMode)
+{
+    ts.dumpProperty("composite-operation"_s, compositeMode.operation);
+    ts.dumpProperty("blend-mode"_s, compositeMode.blendMode);
+    return ts;
+}
+
+TextStream& operator<<(TextStream& ts, GradientSpreadMethod spreadMethod)
+{
+    switch (spreadMethod) {
+    case GradientSpreadMethod::Pad:
+        ts << "pad"_s;
+        break;
+    case GradientSpreadMethod::Reflect:
+        ts << "reflect"_s;
+        break;
+    case GradientSpreadMethod::Repeat:
+        ts << "repeat"_s;
+        break;
+    }
+    return ts;
+}
+
+TextStream& operator<<(TextStream& ts, InterpolationQuality interpolationQuality)
+{
+    switch (interpolationQuality) {
+    case InterpolationQuality::Default:
+        ts << "default"_s;
+        break;
+    case InterpolationQuality::DoNotInterpolate:
+        ts << "do-not-interpolate"_s;
+        break;
+    case InterpolationQuality::Low:
+        ts << "low"_s;
+        break;
+    case InterpolationQuality::Medium:
+        ts << "medium"_s;
+        break;
+    case InterpolationQuality::High:
+        ts << "high"_s;
+        break;
+    }
+    return ts;
+}
+
 TextStream& operator<<(TextStream& ts, WindRule rule)
 {
     switch (rule) {
     case WindRule::NonZero:
-        ts << "NON-ZERO";
+        ts << "NON-ZERO"_s;
         break;
     case WindRule::EvenOdd:
-        ts << "EVEN-ODD";
+        ts << "EVEN-ODD"_s;
         break;
     }
 
@@ -153,14 +198,14 @@ TextStream& operator<<(TextStream& ts, WindRule rule)
 TextStream& operator<<(TextStream& ts, LineCap capStyle)
 {
     switch (capStyle) {
-    case ButtCap:
-        ts << "BUTT";
+    case LineCap::Butt:
+        ts << "BUTT"_s;
         break;
-    case RoundCap:
-        ts << "ROUND";
+    case LineCap::Round:
+        ts << "ROUND"_s;
         break;
-    case SquareCap:
-        ts << "SQUARE";
+    case LineCap::Square:
+        ts << "SQUARE"_s;
         break;
     }
     return ts;
@@ -169,14 +214,52 @@ TextStream& operator<<(TextStream& ts, LineCap capStyle)
 TextStream& operator<<(TextStream& ts, LineJoin joinStyle)
 {
     switch (joinStyle) {
-    case MiterJoin:
-        ts << "MITER";
+    case LineJoin::Miter:
+        ts << "MITER"_s;
         break;
-    case RoundJoin:
-        ts << "ROUND";
+    case LineJoin::Round:
+        ts << "ROUND"_s;
         break;
-    case BevelJoin:
-        ts << "BEVEL";
+    case LineJoin::Bevel:
+        ts << "BEVEL"_s;
+        break;
+    }
+    return ts;
+}
+
+TextStream& operator<<(TextStream& ts, StrokeStyle strokeStyle)
+{
+    switch (strokeStyle) {
+    case StrokeStyle::NoStroke:
+        ts << "no-stroke"_s;
+        break;
+    case StrokeStyle::SolidStroke:
+        ts << "solid-stroke"_s;
+        break;
+    case StrokeStyle::DottedStroke:
+        ts << "dotted-stroke"_s;
+        break;
+    case StrokeStyle::DashedStroke:
+        ts << "dashed-stroke"_s;
+        break;
+    case StrokeStyle::DoubleStroke:
+        ts << "double-stroke"_s;
+        break;
+    case StrokeStyle::WavyStroke:
+        ts << "wavy-stroke"_s;
+        break;
+    }
+    return ts;
+}
+
+TextStream& operator<<(TextStream& ts, TextDrawingMode textDrawingMode)
+{
+    switch (textDrawingMode) {
+    case TextDrawingMode::Fill:
+        ts << "fill"_s;
+        break;
+    case TextDrawingMode::Stroke:
+        ts << "stroke"_s;
         break;
     }
     return ts;

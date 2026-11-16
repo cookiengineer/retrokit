@@ -37,8 +37,8 @@ namespace WebCore {
 
 class ApplyBlockElementCommand : public CompositeEditCommand {
 protected:
-    ApplyBlockElementCommand(Document&, const QualifiedName& tagName, const AtomString& inlineStyle);
-    ApplyBlockElementCommand(Document&, const QualifiedName& tagName);
+    ApplyBlockElementCommand(Ref<Document>&&, const QualifiedName& tagName, const AtomString& inlineStyle);
+    ApplyBlockElementCommand(Ref<Document>&&, const QualifiedName& tagName);
 
     virtual void formatSelection(const VisiblePosition& startOfSelection, const VisiblePosition& endOfSelection);
     Ref<HTMLElement> createBlockElement();
@@ -47,7 +47,7 @@ protected:
 private:
     void doApply() override;
     virtual void formatRange(const Position& start, const Position& end, const Position& endOfSelection, RefPtr<Element>&) = 0;
-    const RenderStyle* renderStyleOfEnclosingTextNode(const Position&);
+    CheckedPtr<const Style::ComputedStyle> renderStyleOfEnclosingTextNode(const Position&);
     void rangeForParagraphSplittingTextNodesIfNeeded(const VisiblePosition&, Position&, Position&);
     VisiblePosition endOfNextParagraphSplittingTextNodesIfNeeded(VisiblePosition&, Position&, Position&);
 

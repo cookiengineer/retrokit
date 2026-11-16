@@ -1,207 +1,131 @@
-# List of disabled warnings
-# When adding to the list add a short description and link to the warning's text if available
-#
-# https://bugs.webkit.org/show_bug.cgi?id=221508 is for tracking removal of warnings
-add_compile_options(
-    /wd4018 # 'token' : signed/unsigned mismatch
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-3-c4018
+# WebKit dropped MSVC support. This file is only for clang-cl.
 
-    /wd4060 # switch statement contains no 'case' or 'default' labels
+# Detect Windows cross-compilation from Linux
+if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    set(WEBKIT_WIN_CROSS_COMPILE ON)
+    message(STATUS "Cross-compiling Windows port from Linux host")
 
-    /wd4068 # unknown pragma
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-1-c4068
+    # Define the sysroot location
+    set(WEBKIT_WIN_SYSROOT "${CMAKE_SOURCE_DIR}/WebKitLibraries/windows")
 
-    /wd4100 # 'identifier' : unreferenced formal parameter
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-4-c4100
+    # Verify SDK exists
+    if (NOT EXISTS "${WEBKIT_WIN_SYSROOT}/sdk/include/um/windows.h")
+        message(FATAL_ERROR "Windows SDK not found at ${WEBKIT_WIN_SYSROOT}. "
+                           "Run Tools/Scripts/check-win-cross-build-deps to download it.")
+    endif ()
 
-    /wd4127 # conditional expression is constant
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-4-c4127
+    # Define paths
+    set(WIN_SDK_INC "${WEBKIT_WIN_SYSROOT}/sdk/include")
+    set(WIN_CRT_INC "${WEBKIT_WIN_SYSROOT}/crt/include")
+    set(WIN_SDK_LIB "${WEBKIT_WIN_SYSROOT}/sdk/lib")
+    set(WIN_CRT_LIB "${WEBKIT_WIN_SYSROOT}/crt/lib")
 
-    /wd4146 # unary minus operator applied to unsigned type, result still unsigned
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-2-c4146
+    # Set compiler include flags (-imsvc for clang-cl)
+    string(APPEND CMAKE_C_FLAGS " -imsvc ${WIN_CRT_INC} -imsvc ${WIN_SDK_INC}/ucrt -imsvc ${WIN_SDK_INC}/um -imsvc ${WIN_SDK_INC}/shared -imsvc ${WIN_SDK_INC}/winrt")
+    string(APPEND CMAKE_CXX_FLAGS " -imsvc ${WIN_CRT_INC} -imsvc ${WIN_SDK_INC}/ucrt -imsvc ${WIN_SDK_INC}/um -imsvc ${WIN_SDK_INC}/shared -imsvc ${WIN_SDK_INC}/winrt")
 
-    /wd4189 # 'identifier' : local variable is initialized but not referenced
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-4-c4189
+    # Set linker library path flags
+    if (WTF_CPU_ARM64)
+        set(WIN_LIB_ARCH "arm64")
+    else ()
+        set(WIN_LIB_ARCH "x64")
+    endif ()
+    set(WIN_CROSS_LINK_FLAGS "-libpath:${WIN_CRT_LIB}/${WIN_LIB_ARCH} -libpath:${WIN_SDK_LIB}/ucrt/${WIN_LIB_ARCH} -libpath:${WIN_SDK_LIB}/um/${WIN_LIB_ARCH}")
+    string(APPEND CMAKE_EXE_LINKER_FLAGS " ${WIN_CROSS_LINK_FLAGS}")
+    string(APPEND CMAKE_SHARED_LINKER_FLAGS " ${WIN_CROSS_LINK_FLAGS}")
+    string(APPEND CMAKE_MODULE_LINKER_FLAGS " ${WIN_CROSS_LINK_FLAGS}")
 
-    /wd4201 # nonstandard extension used : nameless struct/union
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-4-c4201
+    # Set RC compiler include flags
+    set(CMAKE_RC_FLAGS "-I ${WIN_SDK_INC}/um -I ${WIN_SDK_INC}/ucrt -I ${WIN_SDK_INC}/shared")
 
-    /wd4244 # 'argument' : conversion from 'type1' to 'type2', possible loss of data
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-2-c4244
+    # Auto-detect LLVM tools (version 20 suffix as installed by deps script)
+    if (NOT CMAKE_AR)
+        find_program(CMAKE_AR NAMES llvm-lib-20 llvm-lib REQUIRED)
+    endif ()
+    if (NOT CMAKE_RC_COMPILER)
+        find_program(CMAKE_RC_COMPILER NAMES llvm-rc-20 llvm-rc REQUIRED)
+    endif ()
+    if (NOT CMAKE_RANLIB)
+        find_program(CMAKE_RANLIB NAMES llvm-ranlib-20 llvm-ranlib REQUIRED)
+    endif ()
 
-    /wd4245 # 'conversion' : conversion from 'type1' to 'type2', signed/unsigned mismatch
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-4-c4245
+    message(STATUS "Cross-compile sysroot: ${WEBKIT_WIN_SYSROOT}")
+    message(STATUS "Cross-compile AR: ${CMAKE_AR}")
+    message(STATUS "Cross-compile RC: ${CMAKE_RC_COMPILER}")
+endif ()
 
-    /wd4251 # 'identifier' : class 'type' needs to have dll-interface to be used by clients of class 'type2'
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-1-c4251
+function(MSVC_ADD_COMPILE_OPTIONS)
+    foreach (_option ${ARGV})
+        add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:${_option}>)
+    endforeach ()
+endfunction()
 
-    /wd4275 # non - DLL-interface class 'class_1' used as base for DLL-interface class 'class_2'
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-2-c4275
-
-    /wd4267 # 'var' : conversion from 'size_t' to 'type', possible loss of data
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-3-c4267
-
-    /wd4305 # 'context' : truncation from 'type1' to 'type2'
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-1-c4305
-
-    /wd4309 # 'conversion' : truncation of constant value
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-2-c4309
-
-    /wd4312 # 'operation' : conversion from 'type1' to 'type2' of greater size
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-1-c4312
-
-    /wd4324 # 'struct_name' : structure was padded due to __declspec(align())
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-4-c4324
-
-    /wd4389 # 'operator' : signed/unsigned mismatch
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-4-c4389
-
-    /wd4456 # declaration of 'identifier' hides previous local declaration
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-4-c4456
-
-    /wd4457 # declaration of 'identifier' hides function parameter
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-4-c4457
-
-    /wd4458 # declaration of 'identifier' hides class member
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-4-c4458
-
-    /wd4459 # declaration of 'identifier' hides global declaration
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-4-c4459
-
-    /wd4505 # 'function' : unreferenced local function has been removed
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-4-c4505
-
-
-    /wd4611 # interaction between 'function' and C++ object destruction is non-portable
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-4-c4611
-
-    /wd4646 # function declared with __declspec(noreturn) has non-void return type
-            # https://docs.microsoft.com/mt-mt/cpp/error-messages/compiler-warnings/compiler-warning-level-3-c4646
-
-    /wd4701 # Potentially uninitialized local variable 'name' used
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-4-c4701
-
-    /wd4702 # unreachable code
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-4-c4702
-
-    /wd4706 # assignment within conditional expression
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-4-c4706
-            # NOTE: Can't fix without changes to style guide
-
-    /wd4715 # 'function' : not all control paths return a value
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-1-c4715
-
-    /wd4722 # 'function' : destructor never returns, potential memory leak
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-1-c4722
-
-    /wd4838 # conversion from 'type_1' to 'type_2' requires a narrowing conversion
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-1-c4838
-
-    /wd4840 # non-portable use of class 'type' as an argument to a variadic function
-            # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-level-4-c4840
-
-    /wd4996 # Your code uses a function, class member, variable, or typedef that's marked deprecated
-
-    /wd5205 # delete of an abstract class 'type-name' that has a non-virtual destructor results in undefined behavior
-)
+# Use AT&T syntax for inline asm
+MSVC_ADD_COMPILE_OPTIONS(/clang:-masm=att)
 
 # Create pdb files for debugging purposes, also for Release builds
-add_compile_options(/Zi /GS)
+MSVC_ADD_COMPILE_OPTIONS(/Zi /GS)
 
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /DEBUG /OPT:ICF /OPT:REF")
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /DEBUG /OPT:ICF /OPT:REF")
+# Disable ICF (identical code folding) optimization,
+# as it makes it unsafe to pointer-compare functions with identical definitions.
+add_link_options(/DEBUG /OPT:NOICF /OPT:REF)
 
 # We do not use exceptions
 add_definitions(-D_HAS_EXCEPTIONS=0)
-add_compile_options(/EHa- /EHc- /EHs- /fp:except-)
+string(REGEX REPLACE "/EH[-a-z]+" "" CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
+MSVC_ADD_COMPILE_OPTIONS(/EHa- /EHc- /EHs- /fp:except-)
+
+# Disable RTTI
+string(REGEX REPLACE "/GR-?" "" CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
+MSVC_ADD_COMPILE_OPTIONS(/GR-)
 
 # We have some very large object files that have to be linked
-add_compile_options(/analyze- /bigobj)
+MSVC_ADD_COMPILE_OPTIONS(/analyze- /bigobj)
 
 # Use CRT security features
 add_definitions(-D_CRT_SECURE_NO_WARNINGS)
-if (NOT COMPILER_IS_CLANG_CL)
-    add_definitions(-D_CRT_SECURE_CPP_OVERLOAD_STANDARD_NAMES=1)
-endif ()
+
+add_definitions(-D_ENABLE_EXTENDED_ALIGNED_STORAGE)
 
 # Specify the source code encoding
-add_compile_options(/utf-8 /validate-charset)
-
-if (${CMAKE_BUILD_TYPE} MATCHES "Debug")
-    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /OPT:NOREF /OPT:NOICF")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /OPT:NOREF /OPT:NOICF")
-
-    # To debug linking time issues, uncomment the following three lines:
-    #add_compile_options(/Bv)
-    #set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /VERBOSE /VERBOSE:INCR /TIME")
-    #set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /VERBOSE /VERBOSE:INCR /TIME")
-elseif (${CMAKE_BUILD_TYPE} MATCHES "Release")
-    add_compile_options(/Oy-)
-endif ()
+MSVC_ADD_COMPILE_OPTIONS(/utf-8 /validate-charset)
 
 if (NOT ${CMAKE_GENERATOR} MATCHES "Ninja")
-    link_directories("${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/${CMAKE_BUILD_TYPE}")
-    add_definitions(/MP)
-endif ()
-if (NOT ${CMAKE_CXX_FLAGS} STREQUAL "")
-    string(REGEX REPLACE "(/EH[a-z]+) " "\\1- " CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS}) # Disable C++ exceptions
-    string(REGEX REPLACE "/EHsc$" "/EHs- /EHc- " CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS}) # Disable C++ exceptions
-    string(REGEX REPLACE "/GR " "/GR- " CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS}) # Disable RTTI
-    # More warnings. /W4 should be specified before -Wno-* options for clang-cl.
-    string(REGEX REPLACE "/W3" "" CMAKE_C_FLAGS ${CMAKE_C_FLAGS})
-    string(REGEX REPLACE "/W3" "" CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
-    WEBKIT_PREPEND_GLOBAL_COMPILER_FLAGS(/W4)
+    MSVC_ADD_COMPILE_OPTIONS(/MP)
 endif ()
 
-if (MSVC_STATIC_RUNTIME)
-    message(STATUS "Using multithreaded, static version of the run-time library")
-    set(MSVC_RUNTIME_COMPILE_FLAG "/MT")
-    set(MSVC_RUNTIME_LINKER_FLAGS "/NODEFAULTLIB:MSVCRT /NODEFAULTLIB:MSVCRTD")
-else ()
-    message(STATUS "Using multithreaded, dynamic version of the run-time library")
-    set(MSVC_RUNTIME_COMPILE_FLAG "/MD")
-    # No linker flags are required
-endif ()
+WEBKIT_APPEND_GLOBAL_COMPILER_FLAGS(/Wmicrosoft-include)
 
-foreach (flag_var
-    CMAKE_C_FLAGS CMAKE_C_FLAGS_DEBUG CMAKE_C_FLAGS_RELEASE
-    CMAKE_C_FLAGS_MINSIZEREL CMAKE_C_FLAGS_RELWITHDEBINFO
-    CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE
-    CMAKE_CXX_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_RELWITHDEBINFO)
-    # Use the multithreaded static runtime library instead of the default DLL runtime.
-    string(REGEX REPLACE "/MD" "${MSVC_RUNTIME_COMPILE_FLAG}" ${flag_var} "${${flag_var}}")
+# More warnings. /W4 should be specified before -Wno-* options for clang-cl.
+string(REGEX REPLACE "/W3" "" CMAKE_C_FLAGS ${CMAKE_C_FLAGS})
+string(REGEX REPLACE "/W3" "" CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
+WEBKIT_PREPEND_GLOBAL_COMPILER_FLAGS(/W4)
 
-    # No debug runtime, even in debug builds.
-    if (NOT DEBUG_SUFFIX)
-        string(REGEX REPLACE "${MSVC_RUNTIME_COMPILE_FLAG}d" "${MSVC_RUNTIME_COMPILE_FLAG}" ${flag_var} "${${flag_var}}")
-        string(REGEX REPLACE "/D_DEBUG" "" ${flag_var} "${${flag_var}}")
-    endif ()
-endforeach ()
+# Not apply class-level dllexport and dllimport attributes to inline member functions
+WEBKIT_PREPEND_GLOBAL_COMPILER_FLAGS(/Zc:dllexportInlines-)
 
 # Make sure incremental linking is turned off, as it creates unacceptably long link times.
-string(REPLACE "INCREMENTAL:YES" "INCREMENTAL:NO" replace_CMAKE_SHARED_LINKER_FLAGS ${CMAKE_SHARED_LINKER_FLAGS})
-set(CMAKE_SHARED_LINKER_FLAGS "${replace_CMAKE_SHARED_LINKER_FLAGS} /INCREMENTAL:NO")
-string(REPLACE "INCREMENTAL:YES" "INCREMENTAL:NO" replace_CMAKE_EXE_LINKER_FLAGS ${CMAKE_EXE_LINKER_FLAGS})
-set(CMAKE_EXE_LINKER_FLAGS "${replace_CMAKE_EXE_LINKER_FLAGS} /INCREMENTAL:NO")
+string(REPLACE "/INCREMENTAL[:A-Z]+" "" CMAKE_EXE_LINKER_FLAGS ${CMAKE_EXE_LINKER_FLAGS})
+string(REPLACE "/INCREMENTAL[:A-Z]+" "" CMAKE_EXE_LINKER_FLAGS_DEBUG ${CMAKE_EXE_LINKER_FLAGS_DEBUG})
+string(REPLACE "/INCREMENTAL[:A-Z]+" "" CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO ${CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO})
+string(REPLACE "/INCREMENTAL[:A-Z]+" "" CMAKE_SHARED_LINKER_FLAGS ${CMAKE_SHARED_LINKER_FLAGS})
+string(REPLACE "/INCREMENTAL[:A-Z]+" "" CMAKE_SHARED_LINKER_FLAGS_DEBUG ${CMAKE_SHARED_LINKER_FLAGS_DEBUG})
+string(REPLACE "/INCREMENTAL[:A-Z]+" "" CMAKE_SHARED_LINKER_FLAGS_RELWITHDEBINFO ${CMAKE_SHARED_LINKER_FLAGS_RELWITHDEBINFO})
+add_link_options(/INCREMENTAL:NO)
 
-string(REPLACE "INCREMENTAL:YES" "INCREMENTAL:NO" replace_CMAKE_SHARED_LINKER_FLAGS_DEBUG ${CMAKE_SHARED_LINKER_FLAGS_DEBUG})
-set(CMAKE_SHARED_LINKER_FLAGS_DEBUG "${replace_CMAKE_SHARED_LINKER_FLAGS_DEBUG} /INCREMENTAL:NO")
-string(REPLACE "INCREMENTAL:YES" "INCREMENTAL:NO" replace_CMAKE_EXE_LINKER_FLAGS_DEBUG ${CMAKE_EXE_LINKER_FLAGS_DEBUG})
-set(CMAKE_EXE_LINKER_FLAGS_DEBUG "${replace_CMAKE_EXE_LINKER_FLAGS_DEBUG} /INCREMENTAL:NO")
-
-string(REPLACE "INCREMENTAL:YES" "INCREMENTAL:NO" replace_CMAKE_SHARED_LINKER_FLAGS_RELWITHDEBINFO ${CMAKE_SHARED_LINKER_FLAGS_RELWITHDEBINFO})
-set(CMAKE_SHARED_LINKER_FLAGS_RELWITHDEBINFO "${replace_CMAKE_SHARED_LINKER_FLAGS_RELWITHDEBINFO} /INCREMENTAL:NO")
-string(REPLACE "INCREMENTAL:YES" "INCREMENTAL:NO" replace_CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO ${CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO})
-set(CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO "${replace_CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO} /INCREMENTAL:NO")
-
-if (COMPILER_IS_CLANG_CL)
-    # FIXME: The clang-cl visual studio integration seemed to set
-    # this to 1900 explicitly even when building in VS2017 with the
-    # newest toolset option, but we want to be versioned to match
-    # VS2017.
-    add_compile_options(-fmsc-version=1911)
-
-    # FIXME: Building with clang-cl seemed to fail with 128 bit int support
-    set(HAVE_INT128_T OFF)
-    list(REMOVE_ITEM _WEBKIT_CONFIG_FILE_VARIABLES HAVE_INT128_T)
+# Link clang runtime builtins library
+string(REGEX MATCH "^[0-9]+" CLANG_CL_MAJOR_VERSION ${CMAKE_CXX_COMPILER_VERSION})
+cmake_path(REMOVE_FILENAME CMAKE_CXX_COMPILER OUTPUT_VARIABLE CLANG_CL_DIR)
+cmake_path(APPEND CLANG_CL_DIR "../lib/clang" ${CLANG_CL_MAJOR_VERSION} "lib/windows")
+if (WTF_CPU_ARM64)
+    set(CLANG_BUILTINS_ARCH "aarch64")
+else ()
+    set(CLANG_BUILTINS_ARCH "x86_64")
 endif ()
+
+find_library(CLANG_BUILTINS_LIBRARY clang_rt.builtins-${CLANG_BUILTINS_ARCH}
+    PATHS ${CLANG_CL_DIR} ${CMAKE_SOURCE_DIR}/WebKitLibraries/windows
+    REQUIRED NO_DEFAULT_PATH)
+link_libraries(${CLANG_BUILTINS_LIBRARY})
+
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /STACK:8388608")

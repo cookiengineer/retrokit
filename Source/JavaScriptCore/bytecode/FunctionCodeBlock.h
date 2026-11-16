@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2022 Apple Inc. All rights reserved.
  * Copyright (C) 2008 Cameron Zwarich <cwzwarich@uwaterloo.ca>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -30,6 +30,7 @@
 #pragma once
 
 #include "CodeBlock.h"
+#include "FunctionExecutable.h"
 #include "UnlinkedFunctionCodeBlock.h"
 
 namespace JSC {
@@ -40,14 +41,14 @@ public:
     DECLARE_INFO;
 
     template<typename, SubspaceAccess>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
-        return &vm.codeBlockSpace.space;
+        return &vm.codeBlockSpace();
     }
 
     static FunctionCodeBlock* create(VM& vm, CopyParsedBlockTag, FunctionCodeBlock& other)
     {
-        FunctionCodeBlock* instance = new (NotNull, allocateCell<FunctionCodeBlock>(vm.heap))
+        FunctionCodeBlock* instance = new (NotNull, allocateCell<FunctionCodeBlock>(vm))
             FunctionCodeBlock(vm, vm.functionCodeBlockStructure.get(), CopyParsedBlock, other);
         instance->finishCreation(vm, CopyParsedBlock, other);
         return instance;
@@ -55,17 +56,14 @@ public:
 
     static FunctionCodeBlock* create(VM& vm, FunctionExecutable* ownerExecutable, UnlinkedFunctionCodeBlock* unlinkedCodeBlock, JSScope* scope)
     {
-        FunctionCodeBlock* instance = new (NotNull, allocateCell<FunctionCodeBlock>(vm.heap))
+        FunctionCodeBlock* instance = new (NotNull, allocateCell<FunctionCodeBlock>(vm))
             FunctionCodeBlock(vm, vm.functionCodeBlockStructure.get(), ownerExecutable, unlinkedCodeBlock, scope);
         if (!instance->finishCreation(vm, ownerExecutable, unlinkedCodeBlock, scope))
             return nullptr;
         return instance;
     }
 
-    static Structure* createStructure(VM& vm, JSGlobalObject* globalObject, JSValue prototype)
-    {
-        return Structure::create(vm, globalObject, prototype, TypeInfo(CodeBlockType, StructureFlags), info());
-    }
+    inline static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
 private:
     FunctionCodeBlock(VM& vm, Structure* structure, CopyParsedBlockTag, FunctionCodeBlock& other)

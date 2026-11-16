@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc.  All rights reserved.
+ * Copyright (C) 2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,21 +25,27 @@
 
 #pragma once
 
+#include <wtf/Compiler.h>
+
 #if USE(CG)
 #include <wtf/RetainPtr.h>
 typedef struct CGImage* CGImageRef;
 #elif USE(CAIRO)
 #include "RefPtrCairo.h"
+#elif USE(SKIA)
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <skia/core/SkImage.h>
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 #endif
 
 namespace WebCore {
 
 #if USE(CG)
 using PlatformImagePtr = RetainPtr<CGImageRef>;
-#elif USE(DIRECT2D)
-using PlatformImagePtr = COMPtr<ID2D1Bitmap>;
 #elif USE(CAIRO)
 using PlatformImagePtr = RefPtr<cairo_surface_t>;
+#elif USE(SKIA)
+using PlatformImagePtr = sk_sp<SkImage>;
 #endif
 
 }

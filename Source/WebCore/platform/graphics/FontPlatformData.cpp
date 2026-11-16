@@ -21,68 +21,99 @@
 #include "config.h"
 #include "FontPlatformData.h"
 
+
+#include "FontCache.h"
+#include "FontCustomPlatformData.h"
+#include "FontDescription.h"
+#include "RenderStyleConstants.h"
+#include "StyleFontSizeFunctions.h"
+
+#include <wtf/SortedArrayMap.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/Vector.h>
+
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(FontPlatformData);
 
 FontPlatformData::FontPlatformData(WTF::HashTableDeletedValueType)
     : m_isHashTableDeletedValue(true)
 {
 }
 
-FontPlatformData::FontPlatformData()
+FontPlatformData::FontPlatformData() = default;
+
+FontPlatformData::FontPlatformData(float size, bool syntheticBold, bool syntheticOblique, FontOrientation orientation, FontWidthVariant widthVariant, TextRenderingMode textRenderingMode, const FontCustomPlatformData* customPlatformData)
+: m_metadata { size, orientation, widthVariant, textRenderingMode, syntheticBold, syntheticOblique }
+, m_customPlatformData(customPlatformData)
 {
 }
 
-template<typename ValueType> static inline std::optional<ValueType> makeOptionalFromPointer(const ValueType* pointer)
+FontPlatformData::FontPlatformData(const FontMetadata& metadata, const FontCustomPlatformData* customPlatformData)
+    : m_metadata(metadata)
+    , m_customPlatformData(customPlatformData)
 {
-    if (!pointer)
-        return std::nullopt;
-    return *pointer;
 }
 
-FontPlatformData::FontPlatformData(float size, bool syntheticBold, bool syntheticOblique, FontOrientation orientation, FontWidthVariant widthVariant, TextRenderingMode textRenderingMode, const CreationData* creationData)
-    : m_size(size)
-    , m_orientation(orientation)
-    , m_widthVariant(widthVariant)
-    , m_textRenderingMode(textRenderingMode)
-    , m_creationData(makeOptionalFromPointer(creationData))
-    , m_syntheticBold(syntheticBold)
-    , m_syntheticOblique(syntheticOblique)
-{
-}
+#if !USE(SKIA)
+FontPlatformData::~FontPlatformData() = default;
+#endif
+
+FontPlatformData::FontPlatformData(const FontPlatformData&) = default;
+FontPlatformData& FontPlatformData::operator=(const FontPlatformData&) = default;
 
 #if !USE(FREETYPE)
 FontPlatformData FontPlatformData::cloneWithOrientation(const FontPlatformData& source, FontOrientation orientation)
 {
     FontPlatformData copy(source);
-    copy.m_orientation = orientation;
+    copy.m_metadata.orientation = orientation;
     return copy;
 }
+#endif
 
-FontPlatformData FontPlatformData::cloneWithSyntheticOblique(const FontPlatformData& source, bool syntheticOblique)
-{
-    FontPlatformData copy(source);
-    copy.m_syntheticOblique = syntheticOblique;
-    return copy;
-}
-
+#if !USE(FREETYPE) && !PLATFORM(COCOA)
+// FIXME: Don't other platforms also need to reinstantiate their copy.m_font for scaled size?
 FontPlatformData FontPlatformData::cloneWithSize(const FontPlatformData& source, float size)
 {
     FontPlatformData copy(source);
-    copy.m_size = size;
+    copy.updateSize(size);
     return copy;
 }
-#endif
 
-#if !USE(CORE_TEXT) && !PLATFORM(WIN)
-String FontPlatformData::familyName() const
+#if !USE(SKIA)
+void FontPlatformData::updateSize(float size)
 {
-    // FIXME: Not implemented yet.
-    return { };
+    m_metadata.pointSize = size;
 }
 #endif
+#endif
 
-#if !PLATFORM(COCOA)
-Vector<FontPlatformData::FontVariationAxis> FontPlatformData::variationAxes() const
+void FontPlatformData::updateSizeWithFontSizeAdjust(const FontSizeAdjust& fontSizeAdjust, float computedSize)
+{
+    if (!fontSizeAdjust.value)
+        return;
+
+    if (!*fontSizeAdjust.value) {
+        updateSize(0);
+        return;
+    }
+
+    auto tmpFont = protect(FontCache::forCurrentThread())->fontForPlatformData(*this);
+    auto adjustedFontSize = Style::adjustedFontSize(computedSize, fontSizeAdjust, tmpFont->fontMetrics());
+
+    if (adjustedFontSize == size())
+        return;
+
+    updateSize(std::min(adjustedFontSize, maximumAllowedFontSize));
+}
+
+const FontPlatformData::CreationData* FontPlatformData::creationData() const
+{
+    return m_customPlatformData ? &m_customPlatformData->creationData : nullptr;
+}
+
+#if !PLATFORM(COCOA) && !USE(FREETYPE) && !USE(SKIA)
+Vector<FontPlatformData::FontVariationAxis> FontPlatformData::variationAxes(ShouldLocalizeAxisNames) const
 {
     // FIXME: <webkit.org/b/219614> Not implemented yet.
     return { };

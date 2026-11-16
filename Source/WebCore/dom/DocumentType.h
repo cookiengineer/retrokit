@@ -23,30 +23,33 @@
 
 #pragma once
 
-#include "Node.h"
+#include <WebCore/Node.h>
 
 namespace WebCore {
 
 class NamedNodeMap;
 
 class DocumentType final : public Node {
-    WTF_MAKE_ISO_ALLOCATED(DocumentType);
+    WTF_MAKE_TZONE_ALLOCATED(DocumentType);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(DocumentType);
 public:
     static Ref<DocumentType> create(Document& document, const String& name, const String& publicId, const String& systemId)
     {
         return adoptRef(*new DocumentType(document, name, publicId, systemId));
     }
 
-    const String& name() const { return m_name; }
-    const String& publicId() const { return m_publicId; }
-    const String& systemId() const { return m_systemId; }
+    const String& name() const LIFETIME_BOUND { return m_name; }
+    const String& publicId() const LIFETIME_BOUND { return m_publicId; }
+    const String& systemId() const LIFETIME_BOUND { return m_systemId; }
 
 private:
     DocumentType(Document&, const String& name, const String& publicId, const String& systemId);
 
     String nodeName() const override;
-    NodeType nodeType() const override;
-    Ref<Node> cloneNodeInternal(Document&, CloningOperation) override;
+    Ref<Node> cloneNodeInternal(Document&, CloningOperation, CustomElementRegistry*) const override;
+    SerializedNode serializeNode(CloningOperation) const override;
+
+    void parentOrShadowHostNode() const = delete; // Call parentNode() instead.
 
     String m_name;
     String m_publicId;
@@ -56,5 +59,5 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::DocumentType)
-    static bool isType(const WebCore::Node& node) { return node.nodeType() == WebCore::Node::DOCUMENT_TYPE_NODE; }
+    static bool isType(const WebCore::Node& node) { return node.nodeType() == WebCore::NodeType::DocumentType; }
 SPECIALIZE_TYPE_TRAITS_END()

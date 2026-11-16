@@ -41,11 +41,10 @@ using namespace WebCore;
 
 struct _WebKitTextSinkPrivate {
     GRefPtr<GstElement> appSink;
-    WeakPtr<MediaPlayerPrivateGStreamer> mediaPlayerPrivate;
-    const char* streamId { nullptr };
+    ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer> mediaPlayerPrivate;
+    std::optional<TrackID> streamId;
 };
 
-#define webkit_text_sink_parent_class parent_class
 WEBKIT_DEFINE_TYPE_WITH_CODE(WebKitTextSink, webkit_text_sink, GST_TYPE_BIN,
     GST_DEBUG_CATEGORY_INIT(webkitTextSinkDebug, "webkittextsink", 0, "webkit text sink"))
 
@@ -53,50 +52,44 @@ static void webkitTextSinkHandleSample(WebKitTextSink* self, GRefPtr<GstSample>&
 {
     auto* priv = self->priv;
     if (!priv->streamId) {
-        auto pad = adoptGRef(gst_element_get_static_pad(priv->appSink.get(), "sink"));
-        auto streamStartEvent = adoptGRef(gst_pad_get_sticky_event(pad.get(), GST_EVENT_STREAM_START, 0));
-
-        if (streamStartEvent)
-            gst_event_parse_stream_start(streamStartEvent.get(), &priv->streamId);
+        GRefPtr pad = adoptGRef(gst_element_get_static_pad(priv->appSink.get(), "sink"));
+        priv->streamId = getStreamIdFromPad(pad.get());
     }
 
-    if (priv->streamId) {
-        // Player private methods that interact with WebCore must run from the main thread. Things can be destroyed before that
-        // code runs, including the text sink and priv, so pass everything in a safe way.
-        callOnMainThread([mediaPlayerPrivate = WeakPtr<MediaPlayerPrivateGStreamer>(priv->mediaPlayerPrivate),
-            streamId = priv->streamId, sample = WTFMove(sample)] {
-            if (!mediaPlayerPrivate)
-                return;
-            mediaPlayerPrivate->handleTextSample(sample.get(), streamId);
-        });
+    if (!priv->streamId) [[unlikely]] {
+        GST_WARNING_OBJECT(self, "Unable to handle sample with no stream start event.");
         return;
     }
-    GST_WARNING_OBJECT(self, "Unable to handle sample with no stream start event.");
+
+    // Player private methods that interact with WebCore must run from the main thread. Things can
+    // be destroyed before that code runs, including the text sink and priv, so pass everything in a
+    // safe way.
+    callOnMainThread([mediaPlayerPrivate = ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>(priv->mediaPlayerPrivate), streamId = priv->streamId.value(), sample = WTF::move(sample)]() mutable {
+        RefPtr player = mediaPlayerPrivate.get();
+        if (!player)
+            return;
+        player->handleTextSample(WTF::move(sample), streamId);
+    });
 }
 
 static void webkitTextSinkConstructed(GObject* object)
 {
-    GST_CALL_PARENT(G_OBJECT_CLASS, constructed, (object));
+    G_OBJECT_CLASS(webkit_text_sink_parent_class)->constructed(object);
 
     auto* sink = WEBKIT_TEXT_SINK(object);
     auto* priv = sink->priv;
 
-    priv->appSink = makeGStreamerElement("appsink", nullptr);
+    priv->appSink = makeGStreamerElement("appsink"_s);
     gst_bin_add(GST_BIN_CAST(sink), priv->appSink.get());
 
-    auto pad = adoptGRef(gst_element_get_static_pad(priv->appSink.get(), "sink"));
+    GRefPtr pad = adoptGRef(gst_element_get_static_pad(priv->appSink.get(), "sink"));
     gst_element_add_pad(GST_ELEMENT_CAST(sink), gst_ghost_pad_new("sink", pad.get()));
 
-    auto textCaps = adoptGRef(gst_caps_new_empty_simple("application/x-subtitle-vtt"));
+    GRefPtr textCaps = adoptGRef(gst_caps_new_empty_simple("application/x-subtitle-vtt"));
     g_object_set(priv->appSink.get(), "emit-signals", TRUE, "enable-last-sample", FALSE, "caps", textCaps.get(), nullptr);
 
     g_signal_connect(priv->appSink.get(), "new-sample", G_CALLBACK(+[](GstElement* appSink, WebKitTextSink* sink) -> GstFlowReturn {
         webkitTextSinkHandleSample(sink, adoptGRef(gst_app_sink_pull_sample(GST_APP_SINK(appSink))));
-        return GST_FLOW_OK;
-    }), sink);
-
-    g_signal_connect(priv->appSink.get(), "new-preroll", G_CALLBACK(+[](GstElement* appSink, WebKitTextSink* sink) -> GstFlowReturn {
-        webkitTextSinkHandleSample(sink, adoptGRef(gst_app_sink_pull_preroll(GST_APP_SINK(appSink))));
         return GST_FLOW_OK;
     }), sink);
 
@@ -113,7 +106,7 @@ static gboolean webkitTextSinkQuery(GstElement* element, GstQuery* query)
         // Ignore duration and position because we don't want the seek bar to be based on where the cues are.
         return false;
     default:
-        return GST_CALL_PARENT_WITH_DEFAULT(GST_ELEMENT_CLASS, query, (element, query), FALSE);
+        return GST_ELEMENT_CLASS(webkit_text_sink_parent_class)->query(element, query);
     }
 }
 
@@ -130,13 +123,15 @@ static void webkit_text_sink_class_init(WebKitTextSinkClass* klass)
     elementClass->query = GST_DEBUG_FUNCPTR(webkitTextSinkQuery);
 }
 
-GstElement* webkitTextSinkNew(WeakPtr<MediaPlayerPrivateGStreamer>&& player)
+GstElement* webkitTextSinkNew(ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&& player)
 {
     auto* element = GST_ELEMENT_CAST(g_object_new(WEBKIT_TYPE_TEXT_SINK, nullptr));
     auto* sink = WEBKIT_TEXT_SINK(element);
     ASSERT(isMainThread());
-    sink->priv->mediaPlayerPrivate = WTFMove(player);
+    sink->priv->mediaPlayerPrivate = WTF::move(player);
     return element;
 }
+
+#undef GST_CAT_DEFAULT
 
 #endif // ENABLE(VIDEO) && USE(GSTREAMER)

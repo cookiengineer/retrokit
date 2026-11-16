@@ -85,8 +85,13 @@ public:
 
     void lock()
     {
-        while (!m_lock.compareExchangeWeak(0, 1, std::memory_order_acquire))
+        while (!m_lock.compareExchangeWeak(0, 1, std::memory_order_acquire)) {
+#if CPU(X86_64)
             asm volatile ("pause");
+#elif CPU(ARM64)
+            asm volatile ("isb sy");
+#endif
+        }
     }
 
     void unlock()
@@ -190,7 +195,7 @@ public:
     
     void lock()
     {
-        if (LIKELY(m_state.compareExchangeWeak(0, isLockedBit, std::memory_order_acquire)))
+        if (m_state.compareExchangeWeak(0, isLockedBit, std::memory_order_acquire)) [[likely]]
             return;
         
         lockSlow();
@@ -198,7 +203,7 @@ public:
     
     void unlock()
     {
-        if (LIKELY(m_state.compareExchangeWeak(isLockedBit, 0, std::memory_order_release)))
+        if (m_state.compareExchangeWeak(isLockedBit, 0, std::memory_order_release)) [[likely]]
             return;
         
         unlockSlow();
@@ -267,7 +272,7 @@ public:
     
     void lock()
     {
-        if (LIKELY(m_state.compareExchangeWeak(Unlocked, Locked, std::memory_order_acquire)))
+        if (m_state.compareExchangeWeak(Unlocked, Locked, std::memory_order_acquire)) [[likely]]
             return;
         
         lockSlow();
@@ -275,7 +280,7 @@ public:
     
     void unlock()
     {
-        if (LIKELY(m_state.compareExchangeWeak(Locked, Unlocked, std::memory_order_release)))
+        if (m_state.compareExchangeWeak(Locked, Unlocked, std::memory_order_release)) [[likely]]
             return;
         
         unlockSlow();
@@ -336,7 +341,7 @@ public:
     
     void lock()
     {
-        if (LIKELY(m_state.compareExchangeWeak(Unlocked, Locked, std::memory_order_acquire)))
+        if (m_state.compareExchangeWeak(Unlocked, Locked, std::memory_order_acquire)) [[likely]]
             return;
         
         lockSlow();
@@ -344,7 +349,7 @@ public:
     
     void unlock()
     {
-        if (LIKELY(m_state.compareExchangeWeak(Locked, Unlocked, std::memory_order_release)))
+        if (m_state.compareExchangeWeak(Locked, Unlocked, std::memory_order_release)) [[likely]]
             return;
         
         unlockSlow();
@@ -406,7 +411,7 @@ public:
     
     void lock()
     {
-        if (LIKELY(m_state.compareExchangeWeak(0, isLockedBit, std::memory_order_acquire)))
+        if (m_state.compareExchangeWeak(0, isLockedBit, std::memory_order_acquire)) [[likely]]
             return;
 
         lockSlow();
@@ -414,7 +419,7 @@ public:
 
     void unlock()
     {
-        if (LIKELY(m_state.compareExchangeWeak(isLockedBit, 0, std::memory_order_release)))
+        if (m_state.compareExchangeWeak(isLockedBit, 0, std::memory_order_release)) [[likely]]
             return;
 
         unlockSlow();

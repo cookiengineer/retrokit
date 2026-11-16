@@ -20,34 +20,48 @@
  * the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
  * Boston, MA 02110-1301, USA.
  */
+
 #include "config.h"
 #include "Attr.h"
 
 #include "AttributeChangeInvalidation.h"
+#include "CSSStyleProperties.h"
+#include "CommonAtomStrings.h"
+#include "Document.h"
+#include "ElementInlines.h"
 #include "Event.h"
+#include "HTMLNames.h"
+#include "MutableStyleProperties.h"
 #include "ScopedEventQueue.h"
-#include "StyleProperties.h"
+#include "SerializedNode.h"
 #include "StyledElement.h"
 #include "TextNodeTraversal.h"
-#include "XMLNSNames.h"
-#include <wtf/IsoMallocInlines.h>
+#include "TreeScopeInlines.h"
+#include "TrustedType.h"
+#include "WebCoreOpaqueRootInlines.h"
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/AtomString.h>
+
+namespace JSC {
+class AbstractSlotVisitor;
+class SlotVisitor;
+}
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(Attr);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(Attr);
 
 using namespace HTMLNames;
 
 Attr::Attr(Element& element, const QualifiedName& name)
-    : Node(element.document(), CreateOther)
-    , m_element(&element)
+    : Node(element.document(), NodeType::Attribute, { })
+    , m_element(element)
     , m_name(name)
 {
 }
 
 Attr::Attr(Document& document, const QualifiedName& name, const AtomString& standaloneValue)
-    : Node(document, CreateOther)
+    : Node(document, NodeType::Attribute, { })
     , m_name(name)
     , m_standaloneValue(standaloneValue)
 {
@@ -67,67 +81,74 @@ Attr::~Attr()
 {
     ASSERT_WITH_SECURITY_IMPLICATION(!isInShadowTree());
     ASSERT_WITH_SECURITY_IMPLICATION(treeScope().rootNode().isDocumentNode());
+
+    // Unable to protect the document here as it may have started destruction.
+    willBeDeletedFrom(document());
 }
 
-ExceptionOr<void> Attr::setPrefix(const AtomString& prefix)
+ExceptionOr<void> Attr::setValue(const AtomString& value)
 {
-    auto result = checkSetPrefix(prefix);
-    if (result.hasException())
-        return result.releaseException();
+    if (RefPtr element = m_element.get()) {
+        auto verifiedValue = value;
+        if (protect(document())->contextDocument().requiresTrustedTypes()) {
+            auto type = trustedTypeForAttribute(element->nodeName(), qualifiedName().localName(),
+                element->namespaceURI(), qualifiedName().namespaceURI());
+            if (!type.attributeType.isNull()) {
+                auto compliantValue = trustedTypesCompliantAttributeValue(protect(protect(document())->contextDocument()), type.attributeType, value,
+                    type.sink);
+                if (compliantValue.hasException())
+                    return compliantValue.releaseException();
 
-    if ((prefix == xmlnsAtom() && namespaceURI() != XMLNSNames::xmlnsNamespaceURI) || qualifiedName() == xmlnsAtom())
-        return Exception { NamespaceError };
+                verifiedValue = compliantValue.releaseReturnValue();
 
-    const AtomString& newPrefix = prefix.isEmpty() ? nullAtom() : prefix;
-    if (m_element)
-        elementAttribute().setPrefix(newPrefix);
-    m_name.setPrefix(newPrefix);
+                element = m_element.get();
+                if (!element) {
+                    m_standaloneValue = WTF::move(verifiedValue);
+                    return { };
+                }
+            }
+        }
+
+        element->setAttribute(qualifiedName(), verifiedValue);
+    } else
+        m_standaloneValue = value;
 
     return { };
-}
-
-void Attr::setValue(const AtomString& value)
-{
-    if (m_element)
-        m_element->setAttribute(qualifiedName(), value);
-    else
-        m_standaloneValue = value;
 }
 
 ExceptionOr<void> Attr::setNodeValue(const String& value)
 {
-    setValue(value);
-    return { };
+    return setValue(value.isNull() ? emptyAtom() : AtomString(value));
 }
 
-Ref<Node> Attr::cloneNodeInternal(Document& targetDocument, CloningOperation)
+Ref<Node> Attr::cloneNodeInternal(Document& document, CloningOperation, CustomElementRegistry*) const
 {
-    return adoptRef(*new Attr(targetDocument, qualifiedName(), value()));
+    return adoptRef(*new Attr(document, qualifiedName(), value()));
 }
 
-CSSStyleDeclaration* Attr::style()
+SerializedNode Attr::serializeNode(CloningOperation) const
+{
+    return { SerializedNode::Attr { { m_name }, value() } };
+}
+
+CSSStyleProperties* Attr::style()
 {
     // This is not part of the DOM API, and therefore not available to webpages. However, WebKit SPI
     // lets clients use this via the Objective-C and JavaScript bindings.
-    if (!is<StyledElement>(m_element))
+    RefPtr styledElement = dynamicDowncast<StyledElement>(m_element.get());
+    if (!styledElement)
         return nullptr;
-    m_style = MutableStyleProperties::create();
-    downcast<StyledElement>(*m_element).collectPresentationalHintsForAttribute(qualifiedName(), value(), *m_style);
-    return &m_style->ensureCSSStyleDeclaration();
+    Ref style = MutableStyleProperties::create();
+    m_style = style.copyRef();
+    styledElement->collectPresentationalHintsForAttribute(qualifiedName(), value(), style);
+    return &style->ensureCSSStyleProperties();
 }
 
-const AtomString& Attr::value() const
+AtomString Attr::value() const
 {
-    if (m_element)
-        return m_element->getAttribute(qualifiedName());
+    if (RefPtr element = m_element.get())
+        return element->getAttributeForBindings(qualifiedName());
     return m_standaloneValue;
-}
-
-Attribute& Attr::elementAttribute()
-{
-    ASSERT(m_element);
-    ASSERT(m_element->elementData());
-    return *m_element->ensureUniqueElementData().findAttributeByName(qualifiedName());
 }
 
 void Attr::detachFromElementWithValue(const AtomString& value)
@@ -135,16 +156,33 @@ void Attr::detachFromElementWithValue(const AtomString& value)
     ASSERT(m_element);
     ASSERT(m_standaloneValue.isNull());
     m_standaloneValue = value;
-    m_element = nullptr;
-    setTreeScopeRecursively(document());
+    {
+        Locker locker { m_elementLockForGC };
+        m_element = nullptr;
+    }
+    setTreeScopeRecursively(Ref<Document> { document() });
 }
 
 void Attr::attachToElement(Element& element)
 {
     ASSERT(!m_element);
-    m_element = &element;
+    {
+        Locker locker { m_elementLockForGC };
+        m_element = &element;
+    }
     m_standaloneValue = nullAtom();
-    setTreeScopeRecursively(element.treeScope());
+    setTreeScopeRecursively(protect(element)->treeScope());
 }
+
+template<typename Visitor>
+void Attr::visitOwnerElementInGCThread(Visitor& visitor)
+{
+    Locker locker { m_elementLockForGC };
+    if (m_element)
+        addWebCoreOpaqueRoot(visitor, *m_element);
+}
+
+template void Attr::visitOwnerElementInGCThread(JSC::AbstractSlotVisitor&);
+template void Attr::visitOwnerElementInGCThread(JSC::SlotVisitor&);
 
 }

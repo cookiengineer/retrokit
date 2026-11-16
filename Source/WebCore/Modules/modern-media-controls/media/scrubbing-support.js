@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -51,11 +51,19 @@ class ScrubbingSupport extends MediaControllerSupport
     controlValueDidChange(control)
     {
         const media = this.mediaController.media;
-        media.fastSeek(control.value * media.duration);
+        const seekTime = control.value * media.duration;
+        this._targetSeekTime = seekTime;
+        media.fastSeek(seekTime);
+        this.mediaController.controls.timeControl.currentTime = seekTime;
     }
 
     controlValueDidStopChanging(control)
     {
+        const media = this.mediaController.media;
+        if (this._targetSeekTime && media.currentTime != this._targetSeekTime)
+            media.currentTime = this._targetSeekTime;
+        delete this._targetSeekTime;
+
         if (!this._wasPausedWhenScrubbingStarted)
             this.mediaController.media.play();
 
@@ -68,11 +76,22 @@ class ScrubbingSupport extends MediaControllerSupport
         if (isNaN(media.duration))
             return;
 
-        let buffered = 0;
-        for (let i = 0, count = media.buffered.length; i < count; ++i)
-            buffered = Math.max(media.buffered.end(i), buffered);
+        // Let's find the buffered time range containing the current time and
+        // set the scrubber's secondary value to the end of that range.
+        const endTimeForBufferedRangeContainingCurrentTime = () => {
+            const ranges = media.buffered;
+            const currentTime = media.currentTime;
+            for (let i = 0; i < ranges.length; ++i) {
+                if (currentTime < ranges.start(i))
+                    continue;
+                const end = ranges.end(i);
+                if (currentTime <= end)
+                    return end;
+            }
+            return 0;
+        }
 
-        this.control.secondaryValue = buffered / media.duration;
+        this.control.secondaryValue = endTimeForBufferedRangeContainingCurrentTime() / media.duration;
     }
 
 }

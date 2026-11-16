@@ -25,8 +25,6 @@
 
 #pragma once
 
-#include <wtf/Forward.h>
-
 namespace JSC {
 
 enum class MessageSource : uint8_t {
@@ -35,9 +33,9 @@ enum class MessageSource : uint8_t {
     Network,
     ConsoleAPI,
     Storage,
-    AppCache,
     Rendering,
     CSS,
+    Accessibility,
     Security,
     ContentBlocker,
     Media,
@@ -76,44 +74,5 @@ enum class MessageLevel : uint8_t {
 
 } // namespace JSC
 
-namespace WTF {
-
-template<> struct EnumTraits<JSC::MessageSource> {
-    using values = EnumValues<
-        JSC::MessageSource,
-        JSC::MessageSource::XML,
-        JSC::MessageSource::JS,
-        JSC::MessageSource::Network,
-        JSC::MessageSource::ConsoleAPI,
-        JSC::MessageSource::Storage,
-        JSC::MessageSource::AppCache,
-        JSC::MessageSource::Rendering,
-        JSC::MessageSource::CSS,
-        JSC::MessageSource::Security,
-        JSC::MessageSource::ContentBlocker,
-        JSC::MessageSource::Media,
-        JSC::MessageSource::MediaSource,
-        JSC::MessageSource::WebRTC,
-        JSC::MessageSource::ITPDebug,
-        JSC::MessageSource::PrivateClickMeasurement,
-        JSC::MessageSource::PaymentRequest,
-        JSC::MessageSource::Other
-    >;
-};
-
-template<> struct EnumTraits<JSC::MessageLevel> {
-    using values = EnumValues<
-        JSC::MessageLevel,
-        JSC::MessageLevel::Log,
-        JSC::MessageLevel::Warning,
-        JSC::MessageLevel::Error,
-        JSC::MessageLevel::Debug,
-        JSC::MessageLevel::Info
-    >;
-};
-
-} // namespace WTF
-
 using JSC::MessageSource;
-using JSC::MessageType;
 using JSC::MessageLevel;

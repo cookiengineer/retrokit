@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -31,14 +31,20 @@
 #include "config.h"
 #include "ScriptBuffer.h"
 
+#include <wtf/StdLibExtras.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 
+ScriptBuffer::ScriptBuffer(RefPtr<const FragmentedSharedBuffer>&& buffer)
+{
+    if (buffer)
+        append(*buffer);
+}
+
 ScriptBuffer::ScriptBuffer(const String& string)
 {
-    auto utf8 = string.utf8();
-    m_buffer = SharedBuffer::create(utf8.data(), utf8.length());
+    append(string);
 }
 
 ScriptBuffer ScriptBuffer::empty()
@@ -46,44 +52,37 @@ ScriptBuffer ScriptBuffer::empty()
     return ScriptBuffer { SharedBuffer::create() };
 }
 
-
 String ScriptBuffer::toString() const
 {
     if (!m_buffer)
         return String();
 
     StringBuilder builder;
-    m_buffer->forEachSegment([&](auto& segment) {
-        builder.append(String::fromUTF8(segment.data(), segment.size()));
+    protect(m_buffer.buffer())->forEachSegment([&](auto segment) {
+        builder.append(byteCast<char8_t>(segment));
     });
     return builder.toString();
 }
 
 bool ScriptBuffer::containsSingleFileMappedSegment() const
 {
-    return m_buffer && m_buffer->hasOneSegment() && m_buffer->begin()->segment->containsMappedFileData();
+    return m_buffer.hasOneSegment() && m_buffer.begin()->segment->containsMappedFileData();
 }
 
 void ScriptBuffer::append(const String& string)
 {
-    if (!m_buffer)
-        m_buffer = SharedBuffer::create();
-    auto utf8 = string.utf8();
-    m_buffer->append(utf8.data(), utf8.length());
-}
-
-bool operator==(const ScriptBuffer& a, const ScriptBuffer& b)
-{
-    if (a.buffer() == b.buffer())
+    if (string.isEmpty())
+        return;
+    auto result = string.tryGetUTF8([&](std::span<const char8_t> span) -> bool {
+        m_buffer.append(span);
         return true;
-    if (!a.buffer() || !b.buffer())
-        return false;
-    return *a.buffer() == *b.buffer();
+    });
+    RELEASE_ASSERT(result);
 }
 
-bool operator!=(const ScriptBuffer& a, const ScriptBuffer& b)
+void ScriptBuffer::append(const FragmentedSharedBuffer& buffer)
 {
-    return !(a == b);
+    m_buffer.append(buffer);
 }
 
 } // namespace WebCore

@@ -25,7 +25,8 @@
 
 #pragma once
 
-#include "SourceProviderCacheItem.h"
+#include <JavaScriptCore/ImplementationVisibility.h>
+#include <JavaScriptCore/SourceProviderCacheItem.h>
 #include <wtf/HashMap.h>
 #include <wtf/RefCounted.h>
 
@@ -33,17 +34,17 @@ namespace JSC {
 
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(SourceProviderCache);
 class SourceProviderCache : public RefCounted<SourceProviderCache> {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(SourceProviderCache);
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(SourceProviderCache, SourceProviderCache);
 public:
     SourceProviderCache() { }
     JS_EXPORT_PRIVATE ~SourceProviderCache();
 
     JS_EXPORT_PRIVATE void clear();
     void add(int sourcePosition, std::unique_ptr<SourceProviderCacheItem>);
-    const SourceProviderCacheItem* get(int sourcePosition) const { return m_map.get(sourcePosition); }
+    const SourceProviderCacheItem* get(int sourcePosition) const LIFETIME_BOUND { return m_map.get(sourcePosition); }
 
 private:
-    HashMap<int, std::unique_ptr<SourceProviderCacheItem>, WTF::IntHash<int>, WTF::UnsignedWithZeroKeyHashTraits<int>> m_map;
+    UncheckedKeyHashMap<int, std::unique_ptr<SourceProviderCacheItem>, WTF::IntHash<int>, WTF::UnsignedWithZeroKeyHashTraits<int>> m_map;
 };
 
 } // namespace JSC

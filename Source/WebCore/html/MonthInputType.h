@@ -30,31 +30,37 @@
 
 #pragma once
 
-#if ENABLE(INPUT_TYPE_MONTH)
-
 #include "BaseDateAndTimeInputType.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class MonthInputType final : public BaseDateAndTimeInputType {
-    template<typename DowncastedType> friend bool isInvalidInputType(const InputType&, const String&);
+    WTF_MAKE_TZONE_ALLOCATED(MonthInputType);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(MonthInputType);
 public:
+    static Ref<MonthInputType> create(HTMLInputElement& element)
+    {
+        return adoptRef(*new MonthInputType(element));
+    }
+
+private:
     explicit MonthInputType(HTMLInputElement& element)
         : BaseDateAndTimeInputType(Type::Month, element)
     {
     }
 
-private:
-    const AtomString& formControlType() const override;
-    DateComponentsType dateType() const override;
-    double valueAsDate() const override;
-    String serializeWithMilliseconds(double) const override;
-    Decimal parseToNumber(const String&, const Decimal&) const override;
-    Decimal defaultValueForStepUp() const override;
-    StepRange createStepRange(AnyStepHandling) const override;
-    std::optional<DateComponents> parseToDateComponents(const StringView&) const override;
-    std::optional<DateComponents> setMillisecondToDateComponents(double) const override;
-    void handleDOMActivateEvent(Event&) override;
+    const AtomString& formControlType() const final;
+    DateComponentsType dateType() const final;
+    WallTime valueAsDate() const final;
+    String serializeWithMilliseconds(double) const final;
+    Decimal parseToNumber(StringView, const Decimal&) const final;
+    Decimal defaultValueForStepUp() const final;
+    StepRange createStepRange(AnyStepHandling) const final;
+    std::optional<DateComponents> parseToDateComponents(StringView) const final;
+    std::optional<DateComponents> setMillisecondToDateComponents(double) const final;
+    void handleDOMActivateEvent(Event&) final;
+    void showPicker() final;
 
     bool isValidFormat(OptionSet<DateTimeFormatValidationResults>) const final;
     String formatDateTimeFieldsState(const DateTimeFieldsState&) const final;
@@ -63,4 +69,4 @@ private:
 
 } // namespace WebCore
 
-#endif // ENABLE(INPUT_TYPE_MONTH)
+SPECIALIZE_TYPE_TRAITS_INPUT_TYPE(MonthInputType, Type::Month)

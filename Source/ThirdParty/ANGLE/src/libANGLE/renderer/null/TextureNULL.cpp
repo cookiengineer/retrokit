@@ -89,7 +89,7 @@ angle::Result TextureNULL::copyTexture(const gl::Context *context,
                                        const gl::ImageIndex &index,
                                        GLenum internalFormat,
                                        GLenum type,
-                                       GLint sourceLevel,
+                                       gl::LevelIndex sourceLevel,
                                        bool unpackFlipY,
                                        bool unpackPremultiplyAlpha,
                                        bool unpackUnmultiplyAlpha,
@@ -101,7 +101,7 @@ angle::Result TextureNULL::copyTexture(const gl::Context *context,
 angle::Result TextureNULL::copySubTexture(const gl::Context *context,
                                           const gl::ImageIndex &index,
                                           const gl::Offset &destOffset,
-                                          GLint sourceLevel,
+                                          gl::LevelIndex sourceLevel,
                                           const gl::Box &sourceBox,
                                           bool unpackFlipY,
                                           bool unpackPremultiplyAlpha,
@@ -113,31 +113,28 @@ angle::Result TextureNULL::copySubTexture(const gl::Context *context,
 
 angle::Result TextureNULL::copyRenderbufferSubData(const gl::Context *context,
                                                    const gl::Renderbuffer *srcBuffer,
-                                                   GLint srcLevel,
                                                    GLint srcX,
                                                    GLint srcY,
-                                                   GLint srcZ,
-                                                   GLint dstLevel,
+                                                   gl::LevelIndex dstLevel,
                                                    GLint dstX,
                                                    GLint dstY,
-                                                   GLint dstZ,
+                                                   gl::LayerIndex dstZ,
                                                    GLsizei srcWidth,
-                                                   GLsizei srcHeight,
-                                                   GLsizei srcDepth)
+                                                   GLsizei srcHeight)
 {
     return angle::Result::Continue;
 }
 
 angle::Result TextureNULL::copyTextureSubData(const gl::Context *context,
                                               const gl::Texture *srcTexture,
-                                              GLint srcLevel,
+                                              gl::LevelIndex srcLevel,
                                               GLint srcX,
                                               GLint srcY,
-                                              GLint srcZ,
-                                              GLint dstLevel,
+                                              gl::LayerIndex srcZ,
+                                              gl::LevelIndex dstLevel,
                                               GLint dstX,
                                               GLint dstY,
-                                              GLint dstZ,
+                                              gl::LayerIndex dstZ,
                                               GLsizei srcWidth,
                                               GLsizei srcHeight,
                                               GLsizei srcDepth)
@@ -168,7 +165,8 @@ angle::Result TextureNULL::setStorageExternalMemory(const gl::Context *context,
                                                     gl::MemoryObject *memoryObject,
                                                     GLuint64 offset,
                                                     GLbitfield createFlags,
-                                                    GLbitfield usageFlags)
+                                                    GLbitfield usageFlags,
+                                                    const void *imageCreateInfoPNext)
 {
     return angle::Result::Continue;
 }
@@ -226,6 +224,7 @@ angle::Result TextureNULL::setStorageMultisample(const gl::Context *context,
 }
 
 angle::Result TextureNULL::initializeContents(const gl::Context *context,
+                                              GLenum binding,
                                               const gl::ImageIndex &imageIndex)
 {
     return angle::Result::Continue;

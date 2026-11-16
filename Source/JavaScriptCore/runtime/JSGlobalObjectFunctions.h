@@ -23,8 +23,7 @@
 
 #pragma once
 
-#include "JSCJSValue.h"
-#include <unicode/uchar.h>
+#include <JavaScriptCore/JSCJSValue.h>
 
 namespace JSC {
 
@@ -35,8 +34,8 @@ class JSObject;
 // FIXME: These functions should really be in JSGlobalObject.cpp, but putting them there
 // is a 0.5% reduction.
 
-extern const ASCIILiteral ObjectProtoCalledOnNullOrUndefinedError;
-extern const ASCIILiteral RestrictedPropertyAccessError;
+inline constexpr ASCIILiteral ObjectProtoCalledOnNullOrUndefinedError { "Object.prototype.__proto__ called on null or undefined"_s };
+inline constexpr ASCIILiteral RestrictedPropertyAccessError { "'arguments', 'callee', and 'caller' cannot be accessed in this context."_s };
 
 JSC_DECLARE_HOST_FUNCTION(globalFuncEval);
 JSC_DECLARE_HOST_FUNCTION(globalFuncParseInt);
@@ -54,12 +53,19 @@ JSC_DECLARE_HOST_FUNCTION(globalFuncProtoGetter);
 JSC_DECLARE_HOST_FUNCTION(globalFuncProtoSetter);
 JSC_DECLARE_HOST_FUNCTION(globalFuncSetPrototypeDirect);
 JSC_DECLARE_HOST_FUNCTION(globalFuncSetPrototypeDirectOrThrow);
-JSC_DECLARE_HOST_FUNCTION(globalFuncHostPromiseRejectionTracker);
 JSC_DECLARE_HOST_FUNCTION(globalFuncBuiltinLog);
 JSC_DECLARE_HOST_FUNCTION(globalFuncBuiltinDescribe);
 JSC_DECLARE_HOST_FUNCTION(globalFuncImportModule);
 JSC_DECLARE_HOST_FUNCTION(globalFuncCopyDataProperties);
-JSC_DECLARE_HOST_FUNCTION(globalFuncDateTimeFormat);
+JSC_DECLARE_HOST_FUNCTION(globalFuncCloneObject);
+JSC_DECLARE_HOST_FUNCTION(globalFuncHandleNegativeProxyHasTrapResult);
+JSC_DECLARE_HOST_FUNCTION(globalFuncHandlePositiveProxySetTrapResult);
+JSC_DECLARE_HOST_FUNCTION(globalFuncHandleProxyGetTrapResult);
+JSC_DECLARE_HOST_FUNCTION(globalFuncIsFinite);
+JSC_DECLARE_HOST_FUNCTION(globalFuncIsNaN);
+JSC_DECLARE_HOST_FUNCTION(globalFuncToIntegerOrInfinity);
+JSC_DECLARE_HOST_FUNCTION(globalFuncToLength);
+JSC_DECLARE_HOST_FUNCTION(globalFuncSpeciesGetter);
 
 JS_EXPORT_PRIVATE double jsToNumber(StringView);
 

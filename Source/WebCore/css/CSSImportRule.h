@@ -1,7 +1,7 @@
 /*
  * (C) 1999-2003 Lars Knoll (knoll@kde.org)
  * (C) 2002-2003 Dirk Mueller (mueller@kde.org)
- * Copyright (C) 2002, 2006, 2008, 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2002-2025 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -21,35 +21,53 @@
 
 #pragma once
 
-#include "CSSRule.h"
+#include <WebCore/CSSRule.h>
+#include <wtf/CheckedPtr.h>
 
 namespace WebCore {
 
 class MediaList;
 class StyleRuleImport;
 
-class CSSImportRule final : public CSSRule {
+namespace MQ {
+struct MediaQuery;
+using MediaQueryList = Vector<MediaQuery>;
+}
+
+class CSSImportRule final : public CSSRule, public CanMakeCheckedPtr<CSSImportRule> {
+    WTF_MAKE_TZONE_ALLOCATED(CSSImportRule);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(CSSImportRule);
 public:
     static Ref<CSSImportRule> create(StyleRuleImport& rule, CSSStyleSheet* sheet) { return adoptRef(*new CSSImportRule(rule, sheet)); }
 
     virtual ~CSSImportRule();
 
-    WEBCORE_EXPORT String href() const;
+    WEBCORE_EXPORT String NODELETE href() const;
     WEBCORE_EXPORT MediaList& media() const;
     WEBCORE_EXPORT CSSStyleSheet* styleSheet() const;
+    String layerName() const;
+    String NODELETE supportsText() const;
 
 private:
+    friend class MediaList;
+
     CSSImportRule(StyleRuleImport&, CSSStyleSheet*);
 
-    CSSRule::Type type() const final { return IMPORT_RULE; }
+    StyleRuleType styleRuleType() const final { return StyleRuleType::Import; }
     String cssText() const final;
-    void reattach(StyleRuleBase&) final;
+    String cssText(const CSS::SerializationContext&) const final;
+    void NODELETE reattach(StyleRuleBase&) final;
+    void getChildStyleSheets(HashSet<Ref<CSSStyleSheet>>&) final;
 
-    Ref<StyleRuleImport> m_importRule;
+    String cssTextInternal(const String& urlString, const CSS::SerializationContext&) const;
+    const MQ::MediaQueryList& NODELETE mediaQueries() const;
+    void setMediaQueries(MQ::MediaQueryList&&);
+
+    const Ref<StyleRuleImport> m_importRule;
     mutable RefPtr<MediaList> m_mediaCSSOMWrapper;
     mutable RefPtr<CSSStyleSheet> m_styleSheetCSSOMWrapper;
 };
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_CSS_RULE(CSSImportRule, CSSRule::IMPORT_RULE)
+SPECIALIZE_TYPE_TRAITS_CSS_RULE(CSSImportRule, StyleRuleType::Import)

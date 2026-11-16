@@ -1,6 +1,6 @@
 /*
  *  Copyright (C) 1999-2000 Harri Porten (porten@kde.org)
- *  Copyright (C) 2003-2019 Apple Inc. All Rights Reserved.
+ *  Copyright (C) 2003-2019 Apple Inc. All rights reserved.
  *  Copyright (C) 2009 Torch Mobile, Inc.
  *
  *  This library is free software; you can redistribute it and/or
@@ -22,13 +22,18 @@
 #include "config.h"
 #include "RegExpConstructor.h"
 
+#include "GetterSetter.h"
 #include "JSCInlines.h"
+#include "NumberPrototype.h"
+#include "ParseInt.h"
+#include "RegExpConstructorInlines.h"
 #include "RegExpGlobalDataInlines.h"
 #include "RegExpPrototype.h"
 #include "YarrFlags.h"
 
 namespace JSC {
 
+static JSC_DECLARE_HOST_FUNCTION(regExpConstructorEscape);
 static JSC_DECLARE_CUSTOM_GETTER(regExpConstructorInput);
 static JSC_DECLARE_CUSTOM_GETTER(regExpConstructorMultiline);
 static JSC_DECLARE_CUSTOM_GETTER(regExpConstructorLastMatch);
@@ -45,7 +50,7 @@ static JSC_DECLARE_CUSTOM_SETTER(setRegExpConstructorMultiline);
 
 namespace JSC {
 
-const ClassInfo RegExpConstructor::s_info = { "Function", &InternalFunction::s_info, &regExpConstructorTable, nullptr, CREATE_METHOD_TABLE(RegExpConstructor) };
+const ClassInfo RegExpConstructor::s_info = { "Function"_s, &InternalFunction::s_info, &regExpConstructorTable, nullptr, CREATE_METHOD_TABLE(RegExpConstructor) };
 
 /* Source for RegExpConstructor.lut.h
 @begin regExpConstructorTable
@@ -82,14 +87,98 @@ RegExpConstructor::RegExpConstructor(VM& vm, Structure* structure)
 {
 }
 
-void RegExpConstructor::finishCreation(VM& vm, RegExpPrototype* regExpPrototype, GetterSetter* speciesSymbol)
+void RegExpConstructor::finishCreation(VM& vm, RegExpPrototype* regExpPrototype)
 {
     Base::finishCreation(vm, 2, vm.propertyNames->RegExp.string(), PropertyAdditionMode::WithoutStructureTransition);
-    ASSERT(inherits(vm, info()));
+    ASSERT(inherits(info()));
 
     putDirectWithoutTransition(vm, vm.propertyNames->prototype, regExpPrototype, PropertyAttribute::DontEnum | PropertyAttribute::DontDelete | PropertyAttribute::ReadOnly);
 
-    putDirectNonIndexAccessorWithoutTransition(vm, vm.propertyNames->speciesSymbol, speciesSymbol, PropertyAttribute::Accessor | PropertyAttribute::ReadOnly | PropertyAttribute::DontEnum);
+    JSGlobalObject* globalObject = regExpPrototype->realm();
+
+    JSC_NATIVE_FUNCTION_WITHOUT_TRANSITION("escape"_s, regExpConstructorEscape, static_cast<unsigned>(PropertyAttribute::DontEnum), 1, ImplementationVisibility::Public);
+
+    GetterSetter* speciesGetterSetter = GetterSetter::create(vm, globalObject, JSFunction::create(vm, globalObject, 0, "get [Symbol.species]"_s, globalFuncSpeciesGetter, ImplementationVisibility::Public, SpeciesGetterIntrinsic), nullptr);
+    putDirectNonIndexAccessorWithoutTransition(vm, vm.propertyNames->speciesSymbol, speciesGetterSetter, PropertyAttribute::Accessor | PropertyAttribute::ReadOnly | PropertyAttribute::DontEnum);
+}
+
+JSC_DEFINE_HOST_FUNCTION(regExpConstructorEscape, (JSGlobalObject* globalObject, CallFrame* callFrame))
+{
+    VM& vm = globalObject->vm();
+    auto scope = DECLARE_THROW_SCOPE(vm);
+
+    JSValue value = callFrame->argument(0);
+    if (!value.isString()) [[unlikely]]
+        return throwVMTypeError(globalObject, scope, "RegExp.escape requires a string"_s);
+
+    auto view = asString(value)->view(globalObject);
+    RETURN_IF_EXCEPTION(scope, { });
+
+    StringBuilder builder(OverflowPolicy::RecordOverflow);
+    builder.reserveCapacity(view->length());
+
+    for (unsigned i = 0; i < view->length() && !builder.hasOverflowed();) {
+        char32_t codePoint;
+        if (view->is8Bit())
+            codePoint = view->span8()[i++];
+        else {
+            auto characters = view->span16();
+            U16_NEXT(characters, i, view->length(), codePoint);
+        }
+
+        if (builder.isEmpty() && isASCIIAlphanumeric(codePoint)) {
+            builder.append('\\', 'x', toStringWithRadix(codePoint, 16));
+            continue;
+        }
+
+        if (StringView("^$\\.*+?()[]{}|/"_s).contains(codePoint)) {
+            builder.append('\\', codePoint);
+            continue;
+        }
+
+        switch (codePoint) {
+        case '\t':
+            builder.append('\\', 't');
+            continue;
+        case '\n':
+            builder.append('\\', 'n');
+            continue;
+        case '\v':
+            builder.append('\\', 'v');
+            continue;
+        case '\f':
+            builder.append('\\', 'f');
+            continue;
+        case '\r':
+            builder.append('\\', 'r');
+            continue;
+        default:
+            break;
+        }
+
+        if (StringView(",-=<>#&!%:;@~'`\""_s).contains(codePoint) || isStrWhiteSpace(codePoint) || U16_IS_SURROGATE(codePoint)) {
+            if (isLatin1(codePoint))
+                builder.append('\\', 'x', pad('0', 2, toStringWithRadix(codePoint, 16)));
+            else if (U_IS_BMP(codePoint))
+                builder.append('\\', 'u', pad('0', 4, toStringWithRadix(codePoint, 16)));
+            else {
+                builder.append('\\', 'u', pad('0', 4, toStringWithRadix(U16_LEAD(codePoint), 16)));
+                builder.append('\\', 'u', pad('0', 4, toStringWithRadix(U16_TRAIL(codePoint), 16)));
+            }
+            continue;
+        }
+
+        if (U_IS_BMP(codePoint))
+            builder.append(codePoint);
+        else
+            builder.append(U16_LEAD(codePoint), U16_TRAIL(codePoint));
+    }
+
+    if (builder.hasOverflowed()) {
+        throwOutOfMemoryError(globalObject, scope);
+        return { };
+    }
+    RELEASE_AND_RETURN(scope, JSValue::encode(jsString(vm, builder.toString())));
 }
 
 JSC_DEFINE_CUSTOM_GETTER(regExpConstructorDollar, (JSGlobalObject* globalObject, EncodedJSValue thisValue, PropertyName propertyName))
@@ -187,6 +276,13 @@ JSC_DEFINE_CUSTOM_SETTER(setRegExpConstructorMultiline, (JSGlobalObject* globalO
     return true;
 }
 
+static inline bool NODELETE areLegacyFeaturesEnabled(JSGlobalObject* globalObject, JSValue newTarget)
+{
+    if (!newTarget)
+        return true;
+    return newTarget == globalObject->regExpConstructor();
+}
+
 inline Structure* getRegExpStructure(JSGlobalObject* globalObject, JSValue newTarget)
 {
     if (!newTarget)
@@ -213,10 +309,25 @@ inline OptionSet<Yarr::Flags> toFlags(JSGlobalObject* globalObject, JSValue flag
     return result.value();
 }
 
-static JSObject* regExpCreate(JSGlobalObject* globalObject, JSValue newTarget, JSValue patternArg, JSValue flagsArg)
+RegExpObject* regExpCreate(JSGlobalObject* globalObject, JSValue newTarget, const String& pattern, OptionSet<Yarr::Flags> flags)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
+
+    RegExp* regExp = RegExp::create(vm, pattern, flags);
+    if (!regExp->isValid()) [[unlikely]] {
+        throwException(globalObject, scope, regExp->errorToThrow(globalObject));
+        return nullptr;
+    }
+
+    Structure* structure = getRegExpStructure(globalObject, newTarget);
+    RETURN_IF_EXCEPTION(scope, nullptr);
+    return RegExpObject::create(vm, structure, regExp, areLegacyFeaturesEnabled(globalObject, newTarget));
+}
+
+RegExpObject* regExpCreate(JSGlobalObject* globalObject, JSValue newTarget, JSValue patternArg, JSValue flagsArg)
+{
+    auto scope = DECLARE_THROW_SCOPE(globalObject->vm());
 
     String pattern = patternArg.isUndefined() ? emptyString() : patternArg.toWTFString(globalObject);
     RETURN_IF_EXCEPTION(scope, nullptr);
@@ -224,15 +335,7 @@ static JSObject* regExpCreate(JSGlobalObject* globalObject, JSValue newTarget, J
     auto flags = toFlags(globalObject, flagsArg);
     RETURN_IF_EXCEPTION(scope, nullptr);
 
-    RegExp* regExp = RegExp::create(vm, pattern, flags);
-    if (UNLIKELY(!regExp->isValid())) {
-        throwException(globalObject, scope, regExp->errorToThrow(globalObject));
-        return nullptr;
-    }
-
-    Structure* structure = getRegExpStructure(globalObject, newTarget);
-    RETURN_IF_EXCEPTION(scope, nullptr);
-    return RegExpObject::create(vm, structure, regExp);
+    RELEASE_AND_RETURN(scope, regExpCreate(globalObject, newTarget, pattern, flags));
 }
 
 JSObject* constructRegExp(JSGlobalObject* globalObject, const ArgList& args,  JSObject* callee, JSValue newTarget)
@@ -242,21 +345,21 @@ JSObject* constructRegExp(JSGlobalObject* globalObject, const ArgList& args,  JS
     JSValue patternArg = args.at(0);
     JSValue flagsArg = args.at(1);
 
-    bool isPatternRegExp = patternArg.inherits<RegExpObject>(vm);
-    bool constructAsRegexp = isRegExp(vm, globalObject, patternArg);
+    bool isPatternRegExp = patternArg.inherits<RegExpObject>();
+    bool constructAsRegExp = isRegExp(vm, globalObject, patternArg);
     RETURN_IF_EXCEPTION(scope, nullptr);
 
-    if (!newTarget && constructAsRegexp && flagsArg.isUndefined()) {
+    if (!newTarget && constructAsRegExp && flagsArg.isUndefined()) {
         JSValue constructor = patternArg.get(globalObject, vm.propertyNames->constructor);
         RETURN_IF_EXCEPTION(scope, nullptr);
         if (callee == constructor) {
-            // We know that patternArg is a object otherwise constructAsRegexp would be false.
+            // We know that patternArg is a object otherwise constructAsRegExp would be false.
             return patternArg.getObject();
         }
     }
 
     if (isPatternRegExp) {
-        RegExp* regExp = jsCast<RegExpObject*>(patternArg)->regExp();
+        RegExp* regExp = uncheckedDowncast<RegExpObject>(patternArg)->regExp();
         Structure* structure = getRegExpStructure(globalObject, newTarget);
         RETURN_IF_EXCEPTION(scope, nullptr);
 
@@ -265,16 +368,16 @@ JSObject* constructRegExp(JSGlobalObject* globalObject, const ArgList& args,  JS
             RETURN_IF_EXCEPTION(scope, nullptr);
 
             regExp = RegExp::create(vm, regExp->pattern(), flags);
-            if (UNLIKELY(!regExp->isValid())) {
+            if (!regExp->isValid()) [[unlikely]] {
                 throwException(globalObject, scope, regExp->errorToThrow(globalObject));
                 return nullptr;
             }
         }
 
-        return RegExpObject::create(vm, structure, regExp);
+        return RegExpObject::create(vm, structure, regExp, areLegacyFeaturesEnabled(globalObject, newTarget));
     }
 
-    if (constructAsRegexp) {
+    if (constructAsRegExp) {
         JSValue pattern = patternArg.get(globalObject, vm.propertyNames->source);
         RETURN_IF_EXCEPTION(scope, nullptr);
         if (flagsArg.isUndefined()) {

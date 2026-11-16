@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc.  All rights reserved.
+ * Copyright (C) 2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -39,11 +39,11 @@ template<>
 struct SVGPropertyTraits<SVGZoomAndPanType> {
     static SVGZoomAndPanType initialValue() { return SVGZoomAndPanMagnify; }
     static String toString(SVGZoomAndPanType) { return emptyString(); }
-    static SVGZoomAndPanType fromString(const String& value)
+    static SVGZoomAndPanType fromString(SVGElement&, const String& value)
     {
-        if (value == "disable")
+        if (value == "disable"_s)
             return SVGZoomAndPanDisable;
-        if (value == "magnify")
+        if (value == "magnify"_s)
             return SVGZoomAndPanMagnify;
         return SVGZoomAndPanUnknown;
     }

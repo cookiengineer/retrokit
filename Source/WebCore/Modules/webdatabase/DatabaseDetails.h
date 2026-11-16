@@ -28,8 +28,8 @@
 
 #pragma once
 
+#include <wtf/CurrentThread.h>
 #include <wtf/Markable.h>
-#include <wtf/Threading.h>
 #include <wtf/WallTime.h>
 #include <wtf/text/WTFString.h>
 
@@ -38,33 +38,6 @@ namespace WebCore {
 class DatabaseDetails {
 public:
     DatabaseDetails() = default;
-
-    DatabaseDetails(const DatabaseDetails& details)
-        : m_name(details.m_name)
-        , m_displayName(details.m_displayName)
-        , m_expectedUsage(details.m_expectedUsage)
-        , m_currentUsage(details.m_currentUsage)
-        , m_creationTime(details.m_creationTime)
-        , m_modificationTime(details.m_modificationTime)
-#if ASSERT_ENABLED
-        , m_thread(details.m_thread.copyRef())
-#endif
-    {
-    }
-
-    DatabaseDetails& operator=(const DatabaseDetails& details)
-    {
-        m_name = details.m_name;
-        m_displayName = details.m_displayName;
-        m_expectedUsage = details.m_expectedUsage;
-        m_currentUsage = details.m_currentUsage;
-        m_creationTime = details.m_creationTime;
-        m_modificationTime = details.m_modificationTime;
-#if ASSERT_ENABLED
-        m_thread = details.m_thread.copyRef();
-#endif
-        return *this;
-    }
 
     DatabaseDetails(const String& databaseName, const String& displayName, uint64_t expectedUsage, uint64_t currentUsage, std::optional<WallTime> creationTime, std::optional<WallTime> modificationTime)
         : m_name(databaseName)
@@ -76,14 +49,14 @@ public:
     {
     }
 
-    const String& name() const { return m_name; }
-    const String& displayName() const { return m_displayName; }
+    const String& name() const LIFETIME_BOUND { return m_name; }
+    const String& displayName() const LIFETIME_BOUND { return m_displayName; }
     uint64_t expectedUsage() const { return m_expectedUsage; }
     uint64_t currentUsage() const { return m_currentUsage; }
     std::optional<WallTime> creationTime() const { return m_creationTime; }
     std::optional<WallTime> modificationTime() const { return m_modificationTime; }
 #if ASSERT_ENABLED
-    Thread& thread() const { return m_thread.get(); }
+    uint32_t threadID() const { return m_threadID; }
 #endif
 
 private:
@@ -91,10 +64,10 @@ private:
     String m_displayName;
     uint64_t m_expectedUsage { 0 };
     uint64_t m_currentUsage { 0 };
-    Markable<WallTime, WallTime::MarkableTraits> m_creationTime;
-    Markable<WallTime, WallTime::MarkableTraits> m_modificationTime;
+    Markable<WallTime> m_creationTime;
+    Markable<WallTime> m_modificationTime;
 #if ASSERT_ENABLED
-    Ref<Thread> m_thread { Thread::current() };
+    uint32_t m_threadID { currentThreadID() };
 #endif
 };
 

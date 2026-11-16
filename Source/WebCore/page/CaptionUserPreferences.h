@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,37 +27,46 @@
 
 #if ENABLE(VIDEO)
 
-#include "AudioTrack.h"
-#include "TextTrack.h"
-#include "Timer.h"
+#include <WebCore/AudioTrack.h>
+#include <WebCore/TextTrack.h>
+#include <WebCore/Timer.h>
 #include <wtf/EnumTraits.h>
 #include <wtf/HashSet.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/TZoneMallocInlines.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
+class CaptionUserPreferencesTestingModeToken;
 class HTMLMediaElement;
+class Page;
 class PageGroup;
 class AudioTrackList;
 class TextTrackList;
 struct MediaSelectionOption;
 
-class CaptionUserPreferences {
-    WTF_MAKE_FAST_ALLOCATED;
+enum class CaptionUserPreferencesDisplayMode : uint8_t {
+    Automatic,
+    ForcedOnly,
+    AlwaysOn,
+    Manual,
+};
+
+class CaptionUserPreferences : public RefCountedAndCanMakeWeakPtr<CaptionUserPreferences> {
+    WTF_MAKE_TZONE_ALLOCATED(CaptionUserPreferences);
 public:
-    CaptionUserPreferences(PageGroup&);
+    static Ref<CaptionUserPreferences> create(PageGroup&);
     virtual ~CaptionUserPreferences();
 
-    enum CaptionDisplayMode {
-        Automatic,
-        ForcedOnly,
-        AlwaysOn,
-        Manual,
-    };
+    using CaptionDisplayMode = CaptionUserPreferencesDisplayMode;
     virtual CaptionDisplayMode captionDisplayMode() const;
     virtual void setCaptionDisplayMode(CaptionDisplayMode);
 
-    virtual int textTrackSelectionScore(TextTrack*, HTMLMediaElement*) const;
-    virtual int textTrackLanguageSelectionScore(TextTrack*, const Vector<String>&) const;
+    virtual int textTrackSelectionScore(TextTrack&, CaptionDisplayMode, AudioTrack* enabledAudioTrack = nullptr) const;
+    virtual int textTrackSelectionScore(TextTrack&, HTMLMediaElement&) const;
+    virtual int textTrackLanguageSelectionScore(TextTrack&, const Vector<String>&) const;
 
     virtual bool userPrefersCaptions() const;
     virtual void setUserPrefersCaptions(bool);
@@ -85,42 +94,79 @@ public:
     virtual void setPreferredAudioCharacteristic(const String&);
     virtual Vector<String> preferredAudioCharacteristics() const;
 
-    virtual String displayNameForTrack(TextTrack*) const;
-    MediaSelectionOption mediaSelectionOptionForTrack(TextTrack*) const;
-    virtual Vector<RefPtr<TextTrack>> sortedTrackListForMenu(TextTrackList*, HashSet<TextTrack::Kind>);
+    virtual String displayNameForTrack(const TextTrack&) const;
+    MediaSelectionOption mediaSelectionOptionForTrack(const TextTrack&) const;
+    virtual Vector<Ref<TextTrack>> sortedTrackListForMenu(TextTrackList*, HashSet<TextTrack::Kind>);
 
-    virtual String displayNameForTrack(AudioTrack*) const;
-    MediaSelectionOption mediaSelectionOptionForTrack(AudioTrack*) const;
-    virtual Vector<RefPtr<AudioTrack>> sortedTrackListForMenu(AudioTrackList*);
+    virtual String displayNameForTrack(const AudioTrack&) const;
+    MediaSelectionOption mediaSelectionOptionForTrack(const AudioTrack&) const;
+    virtual Vector<Ref<AudioTrack>> sortedTrackListForMenu(AudioTrackList*);
 
     void setPrimaryAudioTrackLanguageOverride(const String& language) { m_primaryAudioTrackLanguageOverride = language;  }
     String primaryAudioTrackLanguageOverride() const;
 
-    virtual bool testingMode() const { return m_testingMode; }
-    void setTestingMode(bool override) { m_testingMode = override; }
-    
-    PageGroup& pageGroup() const { return m_pageGroup; }
+    void setPreferredAudioCharacteristicsForTesting(const Vector<String>& characteristics) { m_preferredAudioCharacteristicsForTesting = characteristics; }
+    const Vector<String>& preferredAudioCharacteristicsForTesting() const LIFETIME_BOUND { return m_preferredAudioCharacteristicsForTesting; }
+
+    virtual bool testingMode() const { return m_testingModeCount; }
+
+    friend class CaptionUserPreferencesTestingModeToken;
+    WEBCORE_EXPORT UniqueRef<CaptionUserPreferencesTestingModeToken> NODELETE createTestingModeToken();
+
+    virtual String captionPreviewTitle() const;
+    virtual String captionPreviewProfileID() const { return emptyString(); }
+    virtual void setCaptionPreviewProfileID(const String&) { }
+
+    PageGroup& NODELETE pageGroup() const;
 
 protected:
+    explicit CaptionUserPreferences(PageGroup&);
+
     void updateCaptionStyleSheetOverride();
-    void beginBlockingNotifications();
-    void endBlockingNotifications();
+    void NODELETE beginBlockingNotifications();
+    void NODELETE endBlockingNotifications();
 
 private:
+    void incrementTestingModeCount() { ++m_testingModeCount; }
+    void decrementTestingModeCount()
+    {
+        ASSERT(m_testingModeCount);
+        if (m_testingModeCount)
+            --m_testingModeCount;
+    }
+
     void timerFired();
     void notify();
-    Page* currentPage() const;
+    RefPtr<Page> NODELETE currentPage() const;
 
-    PageGroup& m_pageGroup;
+    WeakRef<PageGroup> m_pageGroup;
     mutable CaptionDisplayMode m_displayMode;
     Timer m_timer;
     String m_userPreferredLanguage;
     String m_userPreferredAudioCharacteristic;
     String m_captionsStyleSheetOverride;
     String m_primaryAudioTrackLanguageOverride;
+    Vector<String> m_preferredAudioCharacteristicsForTesting;
     unsigned m_blockNotificationsCounter { 0 };
-    bool m_testingMode { false };
     bool m_havePreferences { false };
+    unsigned m_testingModeCount { 0 };
+};
+
+class CaptionUserPreferencesTestingModeToken {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(CaptionUserPreferencesTestingModeToken, WEBCORE_EXPORT);
+public:
+    explicit CaptionUserPreferencesTestingModeToken(CaptionUserPreferences& parent)
+        : m_parent(parent)
+    {
+        parent.incrementTestingModeCount();
+    }
+    ~CaptionUserPreferencesTestingModeToken()
+    {
+        if (m_parent)
+            m_parent->decrementTestingModeCount();
+    }
+private:
+    WeakPtr<CaptionUserPreferences> m_parent;
 };
     
 }
@@ -128,13 +174,18 @@ private:
 namespace WTF {
 
 template<> struct EnumTraits<WebCore::CaptionUserPreferences::CaptionDisplayMode> {
-    using values = EnumValues<
-        WebCore::CaptionUserPreferences::CaptionDisplayMode,
-        WebCore::CaptionUserPreferences::CaptionDisplayMode::Automatic,
-        WebCore::CaptionUserPreferences::CaptionDisplayMode::ForcedOnly,
-        WebCore::CaptionUserPreferences::CaptionDisplayMode::AlwaysOn,
-        WebCore::CaptionUserPreferences::CaptionDisplayMode::Manual
-    >;
+    static std::optional<WebCore::CaptionUserPreferences::CaptionDisplayMode> fromString(const String& mode)
+    {
+        if (equalLettersIgnoringASCIICase(mode, "forcedonly"_s))
+            return WebCore::CaptionUserPreferences::CaptionDisplayMode::ForcedOnly;
+        if (equalLettersIgnoringASCIICase(mode, "manual"_s))
+            return WebCore::CaptionUserPreferences::CaptionDisplayMode::Manual;
+        if (equalLettersIgnoringASCIICase(mode, "automatic"_s))
+            return WebCore::CaptionUserPreferences::CaptionDisplayMode::Automatic;
+        if (equalLettersIgnoringASCIICase(mode, "alwayson"_s))
+            return WebCore::CaptionUserPreferences::CaptionDisplayMode::AlwaysOn;
+        return std::nullopt;
+    }
 };
 
 } // namespace WTF

@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2007 Nicholas Shanks <contact@nickshanks.com>
- * Copyright (C) 2008, 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,32 +30,44 @@
 #include "config.h"
 #include "FontCascadeDescription.h"
 
+#include "Font.h"
 #include <wtf/text/StringHash.h>
+#include <wtf/text/TextStream.h>
+
+#if USE(CORE_TEXT)
+#include "FontCascade.h"
+#endif
 
 namespace WebCore {
 
 struct SameSizeAsFontCascadeDescription {
     Vector<void*> vector;
     Vector<void*> vector2;
+    FontPalette palette;
+    FontSizeAdjust sizeAdjust;
+    FontVariantAlternates alternates;
     AtomString string;
     AtomString string2;
     int16_t fontSelectionRequest[3];
     float size;
+    float zoom;
+    TextSpacingTrim textSpacingTrim;
+    TextAutospace textAutospace;
     unsigned bitfields1;
     unsigned bitfields2 : 22;
     void* array;
     float size2;
     unsigned bitfields3 : 10;
 };
-
-COMPILE_ASSERT(sizeof(FontCascadeDescription) == sizeof(SameSizeAsFontCascadeDescription), FontCascadeDescription_should_stay_small);
+static_assert(sizeof(FontCascadeDescription) == sizeof(SameSizeAsFontCascadeDescription), "FontCascadeDescription should stay small");
 
 FontCascadeDescription::FontCascadeDescription()
-    : m_isAbsoluteSize(false)
-    , m_kerning(static_cast<unsigned>(Kerning::Auto))
+    : m_families(RefCountedFixedVector<FontFamily>::create(1))
+    , m_isAbsoluteSize(false)
+    , m_kerning(std::to_underlying(Kerning::Auto))
     , m_keywordSize(0)
-    , m_fontSmoothing(static_cast<unsigned>(FontSmoothingMode::AutoSmoothing))
-    , m_isSpecifiedFont(false)
+    , m_fontSmoothing(std::to_underlying(FontSmoothingMode::Auto))
+    , m_hasAuthorSpecifiedNonGenericPrimaryFont(false)
 {
 }
 
@@ -92,7 +104,7 @@ bool FontCascadeDescription::familiesEqualForTextAutoSizing(const FontCascadeDes
         return false;
 
     for (unsigned i = 0; i < thisFamilyCount; ++i) {
-        if (!familyNamesAreEqual(familyAt(i), other.familyAt(i)))
+        if (!familyNamesAreEqual(familyAt(i).name, other.familyAt(i).name))
             return false;
     }
 
@@ -126,6 +138,59 @@ String FontCascadeDescription::foldedFamilyName(const String& family)
         return family;
 #endif
     return family.convertToASCIILowercase();
+}
+
+FontSmoothingMode FontCascadeDescription::usedFontSmoothing() const
+{
+    auto fontSmoothingMode = fontSmoothing();
+#if USE(CORE_TEXT)
+    if (FontCascade::shouldDisableFontSubpixelAntialiasingForTesting() && (fontSmoothingMode == FontSmoothingMode::Auto || fontSmoothingMode == FontSmoothingMode::SubpixelAntialiased))
+        return FontSmoothingMode::Antialiased;
+#endif
+    return fontSmoothingMode;
+}
+
+void FontCascadeDescription::resolveFontSizeAdjustFromFontIfNeeded(const Font& font)
+{
+    const auto& fontSizeAdjust = this->fontSizeAdjust();
+    if (!fontSizeAdjust.shouldResolveFromFont())
+        return;
+
+    auto aspectValue = fontSizeAdjust.resolve(computedSize(), font.fontMetrics());
+    setFontSizeAdjust({ fontSizeAdjust.metric, FontSizeAdjust::ValueType::FromFont, aspectValue });
+}
+
+TextStream& operator<<(TextStream& ts, const FontFamily& family)
+{
+    ts << family.name;
+    if (family.isGeneric())
+        ts << " (generic)"_s;
+    return ts;
+}
+
+TextStream& operator<<(TextStream& ts, const FontCascadeDescription& fontCascadeDescription)
+{
+    bool first = true;
+    for (auto& family : fontCascadeDescription.families()) {
+        if (!first)
+            ts << ", "_s;
+        ts << family;
+        first = false;
+    }
+
+    ts << ", specified size "_s << fontCascadeDescription.specifiedSize();
+    ts << ", computed size "_s << fontCascadeDescription.computedSize();
+    ts << ", is absolute size "_s << fontCascadeDescription.isAbsoluteSize();
+    if (fontCascadeDescription.kerning() != Kerning::Auto)
+        ts << ", kerning "_s << fontCascadeDescription.kerning();
+
+    if (fontCascadeDescription.fontSmoothing() != FontSmoothingMode::Auto)
+        ts << ", font smoothing "_s << fontCascadeDescription.fontSmoothing();
+
+    ts << ", keyword size "_s << fontCascadeDescription.keywordSize();
+    ts << ", has author specified non-generic primary font "_s << fontCascadeDescription.hasAuthorSpecifiedNonGenericPrimaryFont();
+
+    return ts;
 }
 
 } // namespace WebCore

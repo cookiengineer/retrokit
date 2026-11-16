@@ -21,7 +21,7 @@
 
 #include "InputMethodState.h"
 #include <WebCore/CompositionUnderline.h>
-#include <WebCore/IntPoint.h>
+#include <WebCore/IntRect.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/Vector.h>
 #include <wtf/glib/GRefPtr.h>
@@ -37,10 +37,6 @@ typedef union _GdkEvent GdkEvent;
 #elif PLATFORM(WPE)
 struct wpe_input_keyboard_event;
 #endif
-
-namespace WebCore {
-class IntRect;
-}
 
 namespace WebKit {
 
@@ -59,7 +55,11 @@ public:
 #if PLATFORM(GTK)
     using PlatformEventKey = GdkEvent;
 #elif PLATFORM(WPE)
-    using PlatformEventKey = struct wpe_input_keyboard_event;
+    using PlatformEventKey = void;
+
+#if ENABLE(WPE_PLATFORM)
+    void setUseWPEPlatformEvents(bool useWPEPlatformEvents) { m_useWPEPlatformEvents = useWPEPlatformEvents; }
+#endif
 #endif
     struct FilterResult {
         bool handled { false };
@@ -118,13 +118,17 @@ private:
     } m_filteringContext;
 
     String m_compositionResult;
-    WebCore::IntPoint m_cursorLocation;
+    WebCore::IntRect m_cursorRect;
 
     struct {
         String text;
         uint64_t cursorPosition;
         uint64_t selectionPosition;
     } m_surrounding;
+
+#if ENABLE(WPE_PLATFORM)
+    bool m_useWPEPlatformEvents { false };
+#endif
 };
 
 } // namespace WebKit

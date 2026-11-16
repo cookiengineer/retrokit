@@ -25,7 +25,7 @@
 
 [
     Conditional=WEB_RTC,
-    EnabledBySetting=PeerConnection,
+    EnabledBySetting=PeerConnectionEnabled,
     ImplementedAs=RTCIceTransportPolicy
 ] enum RTCIceTransportPolicy {
     "relay",
@@ -34,7 +34,7 @@
 
 [
     Conditional=WEB_RTC,
-    EnabledBySetting=PeerConnection,
+    EnabledBySetting=PeerConnectionEnabled,
     ImplementedAs=RTCBundlePolicy
 ] enum RTCBundlePolicy {
     "balanced",
@@ -44,7 +44,7 @@
 
 [
     Conditional=WEB_RTC,
-    EnabledBySetting=PeerConnection,
+    EnabledBySetting=PeerConnectionEnabled,
     ImplementedAs=RTCPMuxPolicy
 ] enum RTCPMuxPolicy {
     "negotiate",
@@ -53,14 +53,25 @@
 
 [
     Conditional=WEB_RTC,
-    EnabledBySetting=PeerConnection,
-    JSGenerateToJSObject
+    EnabledBySetting=PeerConnectionEnabled
+] enum RTCConfigurationTargetLatency {
+  "lowest",
+  "none"
+};
+
+// https://w3c.github.io/webrtc-pc/#dom-rtcconfiguration
+[
+    Conditional=WEB_RTC,
+    EnabledBySetting=PeerConnectionEnabled,
+    JSGenerateToJSObject,
+    JSGenerateToNativeObject,
 ] dictionary RTCConfiguration {
-    sequence<RTCIceServer> iceServers;
+    sequence<RTCIceServer> iceServers = [];
     RTCIceTransportPolicy iceTransportPolicy = "all";
     RTCBundlePolicy bundlePolicy = "balanced";
     RTCPMuxPolicy rtcpMuxPolicy = "require";
     // FIXME 169662: missing peerIdentity
-    sequence<RTCCertificate> certificates;
+    sequence<RTCCertificate> certificates = [];
     [EnforceRange] octet iceCandidatePoolSize = 0;
+    RTCConfigurationTargetLatency targetLatency = "lowest";
 };

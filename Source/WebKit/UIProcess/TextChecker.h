@@ -32,20 +32,20 @@
 namespace WebKit {
 
 class WebPageProxy;
-struct TextCheckerState;
+enum class TextCheckerState : uint8_t;
 
 using SpellDocumentTag = int64_t;
     
 class TextChecker {
 public:
-    static const TextCheckerState& state();
+    static OptionSet<TextCheckerState> state();
     static bool isContinuousSpellCheckingAllowed();
 
     static bool setContinuousSpellCheckingEnabled(bool);
     static void setGrammarCheckingEnabled(bool);
     
     static void setTestingMode(bool);
-    static bool isTestingMode();
+    static bool NODELETE isTestingMode();
 
 #if PLATFORM(COCOA)
     static void setAutomaticSpellingCorrectionEnabled(bool);
@@ -53,11 +53,13 @@ public:
     static void setAutomaticDashSubstitutionEnabled(bool);
     static void setAutomaticLinkDetectionEnabled(bool);
     static void setAutomaticTextReplacementEnabled(bool);
+    static void setSmartListsEnabled(bool);
 
     static void didChangeAutomaticTextReplacementEnabled();
     static void didChangeAutomaticSpellingCorrectionEnabled();
     static void didChangeAutomaticQuoteSubstitutionEnabled();
     static void didChangeAutomaticDashSubstitutionEnabled();
+    static void didChangeSmartListsEnabled();
 
     static bool isSmartInsertDeleteEnabled();
     static void setSmartInsertDeleteEnabled(bool);
@@ -66,7 +68,7 @@ public:
     static void toggleSubstitutionsPanelIsShowing();
 #endif
 
-#if PLATFORM(GTK)
+#if PLATFORM(GTK) || PLATFORM(WPE)
     static void setSpellCheckingLanguages(const Vector<String>&);
     static Vector<String> loadedSpellCheckingLanguages();
 #endif
@@ -79,8 +81,8 @@ public:
 #if USE(UNIFIED_TEXT_CHECKING)
     static Vector<WebCore::TextCheckingResult> checkTextOfParagraph(SpellDocumentTag, StringView, int32_t insertionPoint, OptionSet<WebCore::TextCheckingType>, bool initialCapitalizationEnabled);
 #endif
-    static void checkSpellingOfString(SpellDocumentTag, StringView text, int32_t& misspellingLocation, int32_t& misspellingLength);
-    static void checkGrammarOfString(SpellDocumentTag, StringView text, Vector<WebCore::GrammarDetail>&, int32_t& badGrammarLocation, int32_t& badGrammarLength);
+    static void NODELETE checkSpellingOfString(SpellDocumentTag, StringView text, int32_t& misspellingLocation, int32_t& misspellingLength);
+    static void NODELETE checkGrammarOfString(SpellDocumentTag, StringView text, Vector<WebCore::GrammarDetail>&, int32_t& badGrammarLocation, int32_t& badGrammarLength);
     static bool spellingUIIsShowing();
     static void toggleSpellingUIIsShowing();
     static void updateSpellingUIWithMisspelledWord(SpellDocumentTag, const String& misspelledWord);
@@ -88,7 +90,8 @@ public:
     static void getGuessesForWord(SpellDocumentTag, const String& word, const String& context, int32_t insertionPoint, Vector<String>& guesses, bool initialCapitalizationEnabled);
     static void learnWord(SpellDocumentTag, const String& word);
     static void ignoreWord(SpellDocumentTag, const String& word);
-    static void requestCheckingOfString(Ref<TextCheckerCompletion>&&, int32_t insertionPoint);
+    static void NODELETE requestCheckingOfString(Ref<TextCheckerCompletion>&&, int32_t insertionPoint);
+    static void requestExtendedCheckingOfString(Ref<TextCheckerCompletion>&&, int32_t insertionPoint);
 };
 
 } // namespace WebKit

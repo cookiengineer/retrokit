@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,7 +27,6 @@
 #include "JITExceptions.h"
 
 #include "CallFrame.h"
-#include "CatchScope.h"
 #include "CodeBlock.h"
 #include "Interpreter.h"
 #include "JSCJSValueInlines.h"
@@ -35,16 +34,17 @@
 #include "LLIntExceptions.h"
 #include "Opcode.h"
 #include "ShadowChicken.h"
+#include "TopExceptionScope.h"
 #include "VMInlines.h"
 
 namespace JSC {
 
 void genericUnwind(VM& vm, CallFrame* callFrame)
 {
-    auto scope = DECLARE_CATCH_SCOPE(vm);
+    auto scope = DECLARE_TOP_EXCEPTION_SCOPE(vm);
     CallFrame* topJSCallFrame = vm.topJSCallFrame();
-    if (UNLIKELY(Options::breakOnThrow())) {
-        CodeBlock* codeBlock = topJSCallFrame->codeBlock();
+    if (Options::breakOnThrow()) [[unlikely]] {
+        CodeBlock* codeBlock = topJSCallFrame->isNativeCalleeFrame() ? nullptr : topJSCallFrame->codeBlock();
         dataLog("In call frame ", RawPointer(topJSCallFrame), " for code block ", codeBlock, "\n");
         WTFBreakpointTrap();
     }
@@ -54,38 +54,46 @@ void genericUnwind(VM& vm, CallFrame* callFrame)
 
     Exception* exception = scope.exception();
     RELEASE_ASSERT(exception);
-    HandlerInfo* handler = vm.interpreter->unwind(vm, callFrame, exception); // This may update callFrame.
+    CatchInfo handler = vm.interpreter.unwind(vm, callFrame, exception); // This may update callFrame.
 
-    void* catchRoutine;
-    const Instruction* catchPCForInterpreter = nullptr;
-    if (handler) {
-        // handler->target is meaningless for getting a code offset when catching
-        // the exception in a DFG/FTL frame. This bytecode target offset could be
-        // something that's in an inlined frame, which means an array access
-        // with this bytecode offset in the machine frame is utterly meaningless
-        // and can cause an overflow. OSR exit properly exits to handler->target
-        // in the proper frame.
-        if (!JITCode::isOptimizingJIT(callFrame->codeBlock()->jitType()))
-            catchPCForInterpreter = callFrame->codeBlock()->instructions().at(handler->target).ptr();
+    void* catchRoutine = nullptr;
+    void* dispatchAndCatchRoutine = nullptr;
+    JSOrWasmInstruction catchPCForInterpreter = { static_cast<JSInstruction*>(nullptr) };
+    uintptr_t catchMetadataPCForInterpreter = 0;
+    uint32_t tryDepthForThrow = 0;
+    if (handler.m_valid) {
+        catchPCForInterpreter = handler.m_catchPCForInterpreter;
+        catchMetadataPCForInterpreter = handler.m_catchMetadataPCForInterpreter;
+        tryDepthForThrow = handler.m_tryDepthForThrow;
 #if ENABLE(JIT)
-        catchRoutine = handler->nativeCode.executableAddress();
+        catchRoutine = handler.m_nativeCode.taggedPtr();
+        if (handler.m_nativeCodeForDispatchAndCatch)
+            dispatchAndCatchRoutine = handler.m_nativeCodeForDispatchAndCatch.taggedPtr();
 #else
-        if (catchPCForInterpreter->isWide32())
-            catchRoutine = LLInt::getWide32CodePtr(catchPCForInterpreter->opcodeID());
-        else if (catchPCForInterpreter->isWide16())
-            catchRoutine = LLInt::getWide16CodePtr(catchPCForInterpreter->opcodeID());
-        else
-            catchRoutine = LLInt::getCodePtr(catchPCForInterpreter->opcodeID());
+        auto getCatchRoutine = [](const auto* pc) {
+            if (pc->isWide32())
+                return LLInt::getWide32CodePtr(pc->opcodeID());
+            if (pc->isWide16())
+                return LLInt::getWide16CodePtr(pc->opcodeID());
+            return LLInt::getCodePtr(pc->opcodeID());
+        };
+
+        ASSERT_WITH_MESSAGE(!std::holds_alternative<uintptr_t>(catchPCForInterpreter), "IPInt does not support no JIT");
+        if (std::holds_alternative<const JSInstruction*>(catchPCForInterpreter))
+            catchRoutine = getCatchRoutine(std::get<const JSInstruction*>(catchPCForInterpreter));
 #endif
     } else
-        catchRoutine = LLInt::handleUncaughtException(vm).code().executableAddress();
+        catchRoutine = LLInt::handleUncaughtException(vm).code().taggedPtr();
 
-    ASSERT(bitwise_cast<uintptr_t>(callFrame) < bitwise_cast<uintptr_t>(vm.topEntryFrame));
+    ASSERT(std::bit_cast<uintptr_t>(callFrame) < std::bit_cast<uintptr_t>(vm.topEntryFrame));
 
     assertIsTaggedWith<ExceptionHandlerPtrTag>(catchRoutine);
     vm.callFrameForCatch = callFrame;
     vm.targetMachinePCForThrow = catchRoutine;
+    vm.targetMachinePCAfterCatch = dispatchAndCatchRoutine;
     vm.targetInterpreterPCForThrow = catchPCForInterpreter;
+    vm.targetInterpreterMetadataPCForThrow = catchMetadataPCForInterpreter;
+    vm.targetTryDepthForThrow = tryDepthForThrow;
     
     RELEASE_ASSERT(catchRoutine);
 }

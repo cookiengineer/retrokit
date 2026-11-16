@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Apple Inc.  All rights reserved.
+ * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -39,7 +39,7 @@ public:
     using Base::property;
     using AnimatedProperty = AnimatedPropertyType;
 
-    bool matches(const OwnerType& owner, const SVGAnimatedProperty& animatedProperty) const override
+    bool matches(const OwnerType& owner, const SVGAnimatedPropertyBase& animatedProperty) const override
     {
         return property(owner).ptr() == &animatedProperty;
     }

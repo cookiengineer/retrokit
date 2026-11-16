@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,34 +27,25 @@
 
 #include "ActiveDOMObject.h"
 #include "CanvasRenderingContext.h"
-#include <wtf/IsoMalloc.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class HTMLCanvasElement;
 
 class GPUBasedCanvasRenderingContext : public CanvasRenderingContext, public ActiveDOMObject {
-    WTF_MAKE_ISO_NONALLOCATABLE(GPUBasedCanvasRenderingContext);
+    WTF_MAKE_TZONE_NON_HEAP_ALLOCATABLE(GPUBasedCanvasRenderingContext);
 public:
+    // ContextDestructionObserver.
+    void ref() const final { CanvasRenderingContext::ref(); }
+    void deref() const final { CanvasRenderingContext::deref(); }
+    USING_CAN_MAKE_WEAKPTR(CanvasRenderingContext);
 
-    bool isGPUBased() const override { return true; }
-
-    bool isAccelerated() const override
-    {
-#if PLATFORM(WIN) && USE(CA)
-        // FIXME: Implement accelerated canvas on Windows.
-        return false;
-#else
-        return true;
-#endif
-    }
-
-    virtual void reshape(int width, int height) = 0;
 protected:
-    explicit GPUBasedCanvasRenderingContext(CanvasBase&);
+    explicit GPUBasedCanvasRenderingContext(CanvasBase&, CanvasRenderingContext::Type);
 
-    HTMLCanvasElement* htmlCanvas() const;
-    void notifyCanvasContentChanged();
+    HTMLCanvasElement* NODELETE htmlCanvas() const;
+    void markCanvasChanged();
 };
     
 } // namespace WebCore

@@ -27,22 +27,25 @@
 
 #if ENABLE(VIDEO)
 
-#include "HTMLVideoElement.h"
-#include "RenderMedia.h"
+#include <WebCore/RenderMedia.h>
 
 namespace WebCore {
 
+class HTMLVideoElement;
+
 class RenderVideo final : public RenderMedia {
-    WTF_MAKE_ISO_ALLOCATED(RenderVideo);
+    WTF_MAKE_TZONE_ALLOCATED(RenderVideo);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderVideo);
 public:
-    RenderVideo(HTMLVideoElement&, RenderStyle&&);
+    RenderVideo(HTMLVideoElement&, Style::ComputedStyle&&);
     virtual ~RenderVideo();
 
-    HTMLVideoElement& videoElement() const;
+    WEBCORE_EXPORT HTMLVideoElement& NODELETE videoElement() const;
 
-    WEBCORE_EXPORT IntRect videoBox() const;
+    IntRect videoBox() const;
+    WEBCORE_EXPORT IntRect videoBoxInRootView() const;
 
-    static IntSize defaultSize();
+    static IntSize NODELETE defaultSize();
 
     bool supportsAcceleratedRendering() const;
     void acceleratedRenderingStateChanged();
@@ -53,52 +56,45 @@ public:
     bool failedToLoadPosterImage() const;
 
     void updateFromElement() final;
+    bool hasVideoMetadata() const;
+    bool hasPosterFrameSize() const;
+    bool hasDefaultObjectSize() const;
 
 private:
     void willBeDestroyed() override;
     void mediaElement() const = delete;
 
     void intrinsicSizeChanged() final;
+    LayoutSize calculateIntrinsicSizeInternal();
     LayoutSize calculateIntrinsicSize();
     bool updateIntrinsicSize();
 
     void imageChanged(WrappedImagePtr, const IntRect*) final;
 
-    const char* renderName() const final { return "RenderVideo"; }
+    ASCIILiteral renderName() const final { return "RenderVideo"_s; }
 
     bool requiresLayer() const final { return true; }
-    bool isVideo() const final { return true; }
 
     void paintReplaced(PaintInfo&, const LayoutPoint&) final;
 
     void layout() final;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle* oldStyle) final;
 
     void visibleInViewportStateChanged() final;
 
-    LayoutUnit computeReplacedLogicalWidth(ShouldComputePreferred  = ComputeActual) const final;
+    LayoutUnit computeReplacedLogicalWidth(IsComputingIntrinsicSize  = IsComputingIntrinsicSize::No) const final;
     LayoutUnit minimumReplacedHeight() const final;
 
-#if ENABLE(FULLSCREEN_API)
-    LayoutUnit offsetLeft() const final;
-    LayoutUnit offsetTop() const final;
-    LayoutUnit offsetWidth() const final;
-    LayoutUnit offsetHeight() const final;
-#endif
-
-    void updatePlayer();
+    bool updatePlayer();
 
     bool foregroundIsKnownToBeOpaqueInRect(const LayoutRect& localRect, unsigned maxDepthToTest) const final;
+    void invalidateLineLayout();
 
     LayoutSize m_cachedImageSize;
 };
 
-inline RenderVideo* HTMLVideoElement::renderer() const
-{
-    return downcast<RenderVideo>(HTMLMediaElement::renderer());
-}
-
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderVideo, isVideo())
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderVideo, isRenderVideo())
 
 #endif // ENABLE(VIDEO)

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010, 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,6 +28,7 @@
 
 #include "DisplayRefreshMonitor.h"
 #include "DisplayRefreshMonitorClient.h"
+#include "DisplayRefreshMonitorFactory.h"
 #include "Logging.h"
 #include <wtf/text/TextStream.h>
 
@@ -41,19 +42,18 @@ DisplayRefreshMonitorManager& DisplayRefreshMonitorManager::sharedManager()
     return manager.get();
 }
 
-DisplayRefreshMonitor* DisplayRefreshMonitorManager::ensureMonitorForDisplayID(PlatformDisplayID displayID, DisplayRefreshMonitorFactory* factory)
+RefPtr<DisplayRefreshMonitor> DisplayRefreshMonitorManager::ensureMonitorForDisplayID(PlatformDisplayID displayID, DisplayRefreshMonitorFactory* factory)
 {
     if (auto* existingMonitor = monitorForDisplayID(displayID))
         return existingMonitor;
 
-    auto monitor = DisplayRefreshMonitor::create(factory, displayID);
+    RefPtr monitor = DisplayRefreshMonitor::create(factory, displayID);
     if (!monitor)
         return nullptr;
 
     LOG_WITH_STREAM(DisplayLink, stream << "[Web] DisplayRefreshMonitorManager::ensureMonitorForDisplayID() - created monitor " << monitor.get() << " for display " << displayID);
-    DisplayRefreshMonitor* result = monitor.get();
-    m_monitors.append({ WTFMove(monitor) });
-    return result;
+    m_monitors.append(DisplayRefreshMonitorWrapper { monitor });
+    return monitor;
 }
 
 void DisplayRefreshMonitorManager::unregisterClient(DisplayRefreshMonitorClient& client)
@@ -72,20 +72,20 @@ void DisplayRefreshMonitorManager::unregisterClient(DisplayRefreshMonitorClient&
 
 void DisplayRefreshMonitorManager::clientPreferredFramesPerSecondChanged(DisplayRefreshMonitorClient& client)
 {
-    if (auto* monitor = monitorForClient(client))
+    if (RefPtr monitor = monitorForClient(client))
         monitor->clientPreferredFramesPerSecondChanged(client);
 }
 
 bool DisplayRefreshMonitorManager::scheduleAnimation(DisplayRefreshMonitorClient& client)
 {
-    if (auto* monitor = monitorForClient(client)) {
+    if (RefPtr monitor = monitorForClient(client)) {
         client.setIsScheduled(true);
         return monitor->requestRefreshCallback();
     }
     return false;
 }
 
-void DisplayRefreshMonitorManager::displayDidRefresh(DisplayRefreshMonitor&)
+void DisplayRefreshMonitorManager::displayMonitorDisplayDidRefresh(DisplayRefreshMonitor&)
 {
     // Maybe we should remove monitors that haven't been active for some time.
 }
@@ -103,33 +103,31 @@ void DisplayRefreshMonitorManager::windowScreenDidChange(PlatformDisplayID displ
 
 std::optional<FramesPerSecond> DisplayRefreshMonitorManager::nominalFramesPerSecondForDisplay(PlatformDisplayID displayID, DisplayRefreshMonitorFactory* factory)
 {
-    auto* monitor = ensureMonitorForDisplayID(displayID, factory);
-    if (monitor)
-        monitor->displayNominalFramesPerSecond();
+    if (RefPtr monitor = ensureMonitorForDisplayID(displayID, factory))
+        return monitor->displayNominalFramesPerSecond();
 
     return std::nullopt;
 }
 
-void DisplayRefreshMonitorManager::displayWasUpdated(PlatformDisplayID displayID, const DisplayUpdate& displayUpdate)
+void DisplayRefreshMonitorManager::displayDidRefresh(PlatformDisplayID displayID, const DisplayUpdate& displayUpdate)
 {
-    auto* monitor = monitorForDisplayID(displayID);
-    if (monitor)
+    if (RefPtr monitor = monitorForDisplayID(displayID))
         monitor->displayLinkFired(displayUpdate);
 }
 
 size_t DisplayRefreshMonitorManager::findMonitorForDisplayID(PlatformDisplayID displayID) const
 {
-    return m_monitors.findMatching([&](auto& monitorWrapper) {
+    return m_monitors.findIf([&](auto& monitorWrapper) {
         return monitorWrapper.monitor->displayID() == displayID;
     });
 }
 
-DisplayRefreshMonitor* DisplayRefreshMonitorManager::monitorForClient(DisplayRefreshMonitorClient& client)
+RefPtr<DisplayRefreshMonitor> DisplayRefreshMonitorManager::monitorForClient(DisplayRefreshMonitorClient& client)
 {
     if (!client.hasDisplayID())
         return nullptr;
 
-    auto* monitor = ensureMonitorForDisplayID(client.displayID(), client.displayRefreshMonitorFactory());
+    RefPtr monitor = ensureMonitorForDisplayID(client.displayID(), client.displayRefreshMonitorFactory());
     if (monitor)
         monitor->addClient(client);
 

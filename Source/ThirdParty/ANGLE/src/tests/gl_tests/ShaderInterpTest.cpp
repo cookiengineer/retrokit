@@ -14,7 +14,7 @@ using namespace angle;
 
 constexpr int kPixelColorThreshhold = 8;
 
-class ShaderInterpTest : public ANGLETest
+class ShaderInterpTest : public ANGLETest<>
 {
   protected:
     ShaderInterpTest() : ANGLETest()
@@ -91,15 +91,12 @@ void main()
 // Test that uninterpolated "Flat" interpolation works correctly
 TEST_P(ShaderInterpTest, Flat)
 {
-    // TODO: anglebug.com/4085
+    // TODO: anglebug.com/42262721
     // No vendors currently support VK_EXT_provoking_vertex, which is necessary for conformant flat
     // shading. SwiftShader does technically support this extension, but as it has not yet been
     // ratified by Khronos, the vulkan validation layers do not recognize the create info struct,
     // causing it to be stripped and thus causing the extension to behave as if it is disabled.
     ANGLE_SKIP_TEST_IF(IsVulkan());
-
-    // http://anglebug.com/5232. Metal doesn't support last provoking vertex yet.
-    ANGLE_SKIP_TEST_IF(IsMetal());
 
     const char *vertSrc = R"(#version 300 es
 precision highp float;
@@ -212,4 +209,5 @@ void main()
     EXPECT_PIXEL_COLOR_EQ(64, 64, smooth_reference);
 }
 
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(ShaderInterpTest);
 ANGLE_INSTANTIATE_TEST_ES3(ShaderInterpTest);

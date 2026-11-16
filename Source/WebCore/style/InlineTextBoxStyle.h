@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2021 Apple Inc.  All rights reserved.
+ * Copyright (C) 2014-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,34 +25,58 @@
 
 #pragma once
 
-#include "FontCascade.h"
-#include "LayoutIntegrationRunIterator.h"
+#include "InlineIteratorInlineBox.h"
+#include "InlineIteratorLineBox.h"
 #include "RenderStyleConstants.h"
+#include "StyleTextUnderlineOffset.h"
 
 namespace WebCore {
-    
-class LegacyInlineTextBox;
-class RenderStyle;
-class TextUnderlineOffset;
+
+namespace Style {
+class ComputedStyle;
+}
 
 inline float wavyOffsetFromDecoration()
 {
-    return 1;
+    return 1.f;
 }
 
 struct WavyStrokeParameters {
     // Distance between decoration's axis and Bezier curve's control points.
     // The height of the curve is based on this distance. Increases the curve's height
     // as fontSize increases to make the curve look better.
-    float controlPointDistance { 0 };
+    float controlPointDistance { 0.f };
 
     // Increment used to form the diamond shape between start point (p1), control
     // points and end point (p2) along the axis of the decoration. The curve gets
     // wider as font size increases.
-    float step { 0 };
+    float step { 0.f };
 };
-WavyStrokeParameters getWavyStrokeParameters(float fontSize);
-GlyphOverflow visualOverflowForDecorations(const RenderStyle& lineStyle, const LayoutIntegration::TextRunIterator&);
-float computeUnderlineOffset(TextUnderlinePosition, TextUnderlineOffset, const FontMetrics&, const LayoutIntegration::TextRunIterator&, float textDecorationThickness);
-    
+WavyStrokeParameters NODELETE wavyStrokeParameters(float fontSize);
+
+struct InkOverflowForDecorations : RectEdges<LayoutUnit> {
+    void extendTop(float extendTo)
+    {
+        top() = std::max(top(), LayoutUnit(ceilf(extendTo)));
+    }
+
+    void extendBottom(float extendTo)
+    {
+        bottom() = std::max(bottom(), LayoutUnit(ceilf(extendTo)));
+    }
+};
+struct TextUnderlinePositionUnder {
+    float textRunLogicalHeight { 0.f };
+    // This offset value is the distance between the current text run's logical bottom and the lowest position of all the text runs
+    // on line that belong to the same decorating box.
+    float textRunOffsetFromBottomMost { 0.f };
+};
+InkOverflowForDecorations inkOverflowForDecorations(const Style::ComputedStyle&);
+InkOverflowForDecorations inkOverflowForDecorations(const Style::ComputedStyle&, TextUnderlinePositionUnder);
+bool NODELETE isAlignedForUnder(const Style::ComputedStyle& decoratingBoxStyle);
+
+float underlineOffsetForTextBoxPainting(const InlineIterator::InlineBox&, const Style::ComputedStyle&, std::optional<Style::TextUnderlineOffset> offsetOverride);
+float overlineOffsetForTextBoxPainting(const InlineIterator::InlineBox&, const Style::ComputedStyle&);
+float textBoxEdgeAdjustmentForUnderline(const Style::ComputedStyle&);
+
 } // namespace WebCore

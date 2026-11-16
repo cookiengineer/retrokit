@@ -22,10 +22,14 @@
 
 #if ENABLE(GPU_PROCESS) && ENABLE(WEBGL)
 
-messages -> RemoteGraphicsContextGLProxy NotRefCounted {
-    void WasCreated(bool didSucceed, IPC::Semaphore streamWakeUpSemaphore, String availableExtensions, String requestableExtensions)
+[
+    DispatchedFrom=GPU,
+    DispatchedTo=WebContent
+]
+messages -> RemoteGraphicsContextGLProxy {
+    void WasCreated(IPC::Semaphore streamWakeUpSemaphore, IPC::Semaphore streamClientWaitSemaphore, struct std::optional<WebKit::RemoteGraphicsContextGLInitializationState> initializationState) CanDispatchOutOfOrder
     void WasLost()
-    void WasChanged()
+    void addDebugMessage(unsigned type, unsigned id, unsigned severity, CString message) CanDispatchOutOfOrder
 }
 
 #endif

@@ -25,6 +25,8 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
+
 #if ENABLE(FTL_JIT)
 
 #include "FTLAbbreviatedTypes.h"
@@ -48,7 +50,7 @@ public:
     LValue begin() const { return m_begin; }
     LValue end() const { return m_end; }
     
-    void decorateInstruction(LValue loadInstruction, unsigned rangeKind) const;
+    void NODELETE decorateInstruction(LValue loadInstruction, unsigned rangeKind) const;
     
 private:
     LValue m_begin;

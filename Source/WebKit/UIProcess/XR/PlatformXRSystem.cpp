@@ -28,41 +28,113 @@
 
 #if ENABLE(WEBXR)
 
-#include "PlatformXRCoordinator.h"
+#include "GPUProcessProxy.h"
+#include "MessageSenderInlines.h"
 #include "PlatformXRSystemMessages.h"
 #include "PlatformXRSystemProxyMessages.h"
 #include "WebPageProxy.h"
 #include "WebProcessProxy.h"
+#include <WebCore/ExceptionData.h>
+#include <WebCore/GPUTextureFormat.h>
+#include <WebCore/SecurityOriginData.h>
+#include <WebCore/XRCanvasConfiguration.h>
+#include <wtf/TZoneMallocInlines.h>
+
+#define MESSAGE_CHECK(assertion, connection) MESSAGE_CHECK_BASE(assertion, connection)
+#define MESSAGE_CHECK_COMPLETION(assertion, connection, completion) MESSAGE_CHECK_COMPLETION_BASE(assertion, connection, completion)
 
 namespace WebKit {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PlatformXRSystem);
 
 PlatformXRSystem::PlatformXRSystem(WebPageProxy& page)
     : m_page(page)
 {
-    m_page.process().addMessageReceiver(Messages::PlatformXRSystem::messageReceiverName(), m_page.webPageID(), *this);
+    protect(page.legacyMainFrameProcess())->addMessageReceiver(Messages::PlatformXRSystem::messageReceiverName(), page.webPageIDInMainFrameProcess(), *this);
 }
 
 PlatformXRSystem::~PlatformXRSystem()
 {
-    m_page.process().removeMessageReceiver(Messages::PlatformXRSystem::messageReceiverName(), m_page.webPageID());
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+
+    protect(page->legacyMainFrameProcess())->removeMessageReceiver(Messages::PlatformXRSystem::messageReceiverName(), page->webPageIDInMainFrameProcess());
 }
 
-void PlatformXRSystem::invalidate()
+std::optional<SharedPreferencesForWebProcess> PlatformXRSystem::sharedPreferencesForWebProcess(IPC::Connection& connection) const
 {
+    return WebProcessProxy::fromConnection(connection)->sharedPreferencesForWebProcess();
+}
+
+void PlatformXRSystem::invalidate(InvalidationReason reason)
+{
+    ASSERT(RunLoop::isMain());
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+
+    // Multi-view case is handled: if two views have enumerated devices (so the coordinator is Idle), when one view is torn down, the
+    // instance would be destroyed for the other view. This is not a problem, as the remaining view will re-create an instance either
+    // in getPrmiaryDeviceInfo() or in startSession().
+    if (m_immersiveSessionState == ImmersiveSessionState::Idle) {
+        if (reason == InvalidationReason::State && xrCoordinator())
+            xrCoordinator()->stopWhenIdle();
+        return;
+    }
+
     if (xrCoordinator())
-        xrCoordinator()->endSessionIfExists(m_page);
+        xrCoordinator()->endSessionIfExists(*page);
+
+    invalidateImmersiveSessionState(reason == InvalidationReason::Client ? ImmersiveSessionState::SessionEndingFromSystem : ImmersiveSessionState::Idle);
+}
+
+bool PlatformXRSystem::hasActiveSession() const
+{
+    return std::holds_alternative<Ref<ProcessActivityGroup>>(m_immersiveSessionActivity)
+        || std::holds_alternative<Ref<ProcessThrottler::ForegroundActivity>>(m_immersiveSessionActivity);
+}
+
+void PlatformXRSystem::ensureImmersiveSessionActivity()
+{
+    ASSERT(RunLoop::isMain());
+
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+
+    const bool siteIsolationEnabled = protect(page->preferences())->siteIsolationEnabled();
+    constexpr ASCIILiteral activityName = "XR immersive session"_s;
+
+    if (siteIsolationEnabled) {
+        if (std::holds_alternative<Ref<ProcessActivityGroup>>(m_immersiveSessionActivity))
+            return;
+        m_immersiveSessionActivity = page->activityGroupContext().foregroundProcessActivityGroup(activityName);
+        return;
+    }
+
+    if (std::holds_alternative<Ref<ProcessThrottler::ForegroundActivity>>(m_immersiveSessionActivity)
+        && std::get<Ref<ProcessThrottler::ForegroundActivity>>(m_immersiveSessionActivity)->isValid())
+        return;
+    m_immersiveSessionActivity = protect(protect(page->legacyMainFrameProcess())->throttler())->foregroundActivity(activityName);
 }
 
 void PlatformXRSystem::enumerateImmersiveXRDevices(CompletionHandler<void(Vector<XRDeviceInfo>&&)>&& completionHandler)
 {
+    RefPtr page = m_page.get();
+    if (!page) {
+        completionHandler({ });
+        return;
+    }
+
     auto* xrCoordinator = PlatformXRSystem::xrCoordinator();
     if (!xrCoordinator) {
         completionHandler({ });
         return;
     }
 
-    xrCoordinator->getPrimaryDeviceInfo([completionHandler = WTFMove(completionHandler)](std::optional<XRDeviceInfo> deviceInfo) mutable {
-        RunLoop::main().dispatch([completionHandler = WTFMove(completionHandler), deviceInfo = WTFMove(deviceInfo)]() mutable {
+    xrCoordinator->getPrimaryDeviceInfo(*page, [completionHandler = WTF::move(completionHandler)](std::optional<XRDeviceInfo> deviceInfo) mutable {
+        RunLoop::mainSingleton().dispatch([completionHandler = WTF::move(completionHandler), deviceInfo = WTF::move(deviceInfo)]() mutable {
             if (!deviceInfo) {
                 completionHandler({ });
                 return;
@@ -73,49 +145,331 @@ void PlatformXRSystem::enumerateImmersiveXRDevices(CompletionHandler<void(Vector
     });
 }
 
-void PlatformXRSystem::initializeTrackingAndRendering()
+static bool checkFeaturesConsent(const std::optional<PlatformXR::Device::FeatureList>& requestedFeatures, const std::optional<PlatformXR::Device::FeatureList>& grantedFeatures)
 {
+    if (!grantedFeatures || !requestedFeatures)
+        return false;
+
+    bool result = true;
+    for (auto requestedFeature : *requestedFeatures) {
+        if (!grantedFeatures->contains(requestedFeature)) {
+            result = false;
+            break;
+        }
+    }
+    return result;
+}
+
+void PlatformXRSystem::requestPermissionOnSessionFeatures(IPC::Connection& connection, const WebCore::SecurityOriginData& securityOriginData, PlatformXR::SessionMode mode, const PlatformXR::Device::FeatureList& granted, const PlatformXR::Device::FeatureList& consentRequired, const PlatformXR::Device::FeatureList& consentOptional, const PlatformXR::Device::FeatureList& requiredFeaturesRequested, const PlatformXR::Device::FeatureList& optionalFeaturesRequested, CompletionHandler<void(std::optional<PlatformXR::Device::FeatureList>&&)>&& completionHandler)
+{
+    ASSERT(RunLoop::isMain());
+
+    RefPtr page = m_page.get();
+    if (!page) {
+        completionHandler(granted);
+        return;
+    }
+
+    if (!PlatformXR::isImmersive(mode)) {
+        completionHandler(granted);
+        return;
+    }
+
+    auto* xrCoordinator = PlatformXRSystem::xrCoordinator();
+    if (!xrCoordinator) {
+        completionHandler(granted);
+        return;
+    }
+
+    MESSAGE_CHECK_COMPLETION(m_immersiveSessionState == ImmersiveSessionState::Idle || m_immersiveSessionState == ImmersiveSessionState::SessionEndingFromWebContent, connection, completionHandler({ }));
+    setImmersiveSessionState(ImmersiveSessionState::RequestingPermissions, [](bool) mutable { });
+    m_immersiveSessionGrantedFeatures = std::nullopt;
+
+    xrCoordinator->requestPermissionOnSessionFeatures(*page, securityOriginData, mode, granted, consentRequired, consentOptional, requiredFeaturesRequested, optionalFeaturesRequested, [weakThis = WeakPtr { *this }, mode, securityOriginData, consentRequired, completionHandler = WTF::move(completionHandler)](std::optional<PlatformXR::Device::FeatureList>&& grantedFeatures) mutable {
+        ASSERT(RunLoop::isMain());
+        auto* rawThis = weakThis.get();
+        if (rawThis && PlatformXR::isImmersive(mode)) {
+            if (checkFeaturesConsent(consentRequired, grantedFeatures)) {
+                rawThis->m_immersiveSessionMode = mode;
+                rawThis->m_immersiveSessionGrantedFeatures = grantedFeatures;
+                rawThis->m_immersiveSessionSecurityOriginData = securityOriginData;
+                rawThis->setImmersiveSessionState(ImmersiveSessionState::PermissionsGranted, [grantedFeatures = WTF::move(grantedFeatures), completionHandler = WTF::move(completionHandler)](bool) mutable {
+                    completionHandler(WTF::move(grantedFeatures));
+                });
+            } else {
+                rawThis->invalidateImmersiveSessionState();
+                completionHandler(WTF::move(grantedFeatures));
+            }
+        } else
+            completionHandler(WTF::move(grantedFeatures));
+    });
+}
+
+void PlatformXRSystem::initializeTrackingAndRendering(IPC::Connection& connection, std::optional<WebCore::WebGPU::TextureFormat> colorFormat, std::optional<WebCore::WebGPU::TextureFormat> depthStencilFormat)
+{
+    ASSERT(RunLoop::isMain());
+    MESSAGE_CHECK(m_immersiveSessionMode, connection);
+    MESSAGE_CHECK(m_immersiveSessionState == ImmersiveSessionState::PermissionsGranted, connection);
+    MESSAGE_CHECK(m_immersiveSessionSecurityOriginData, connection);
+    MESSAGE_CHECK(m_immersiveSessionGrantedFeatures && !m_immersiveSessionGrantedFeatures->isEmpty(), connection);
+
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+
     auto* xrCoordinator = PlatformXRSystem::xrCoordinator();
     if (!xrCoordinator)
         return;
 
-    xrCoordinator->startSession(m_page, [weakThis = makeWeakPtr(*this)](XRDeviceIdentifier deviceIdentifier) {
-        RunLoop::main().dispatch([weakThis, deviceIdentifier]() mutable {
-            if (weakThis)
-                weakThis->m_page.send(Messages::PlatformXRSystemProxy::SessionDidEnd(deviceIdentifier));
-        });
+    setImmersiveSessionState(ImmersiveSessionState::SessionRunning, [](bool) mutable { });
+
+    ensureImmersiveSessionActivity();
+
+    WeakPtr weakThis { *this };
+    std::optional<WebCore::XRCanvasConfiguration> init;
+    if (colorFormat) {
+        init = WebCore::XRCanvasConfiguration();
+        init->colorFormat = colorFormat;
+        init->depthStencilFormat = depthStencilFormat;
+    }
+    xrCoordinator->startSession(*page, weakThis, *m_immersiveSessionSecurityOriginData, *m_immersiveSessionMode, *m_immersiveSessionGrantedFeatures, WTF::move(init));
+}
+
+void PlatformXRSystem::shutDownTrackingAndRendering(IPC::Connection& connection)
+{
+    ASSERT(RunLoop::isMain());
+    MESSAGE_CHECK(m_immersiveSessionState == ImmersiveSessionState::SessionRunning, connection);
+
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+
+    if (auto* xrCoordinator = PlatformXRSystem::xrCoordinator())
+        xrCoordinator->endSessionIfExists(*page);
+    setImmersiveSessionState(ImmersiveSessionState::SessionEndingFromWebContent, [](bool) mutable { });
+}
+
+void PlatformXRSystem::requestFrame(IPC::Connection& connection, std::optional<PlatformXR::RequestData>&& requestData, CompletionHandler<void(PlatformXR::FrameData&&)>&& completionHandler)
+{
+    ASSERT(RunLoop::isMain());
+    MESSAGE_CHECK_COMPLETION(m_immersiveSessionState == ImmersiveSessionState::SessionRunning || m_immersiveSessionState == ImmersiveSessionState::SessionEndingFromSystem, connection, completionHandler({ }));
+    if (m_immersiveSessionState != ImmersiveSessionState::SessionRunning) {
+        completionHandler({ });
+        return;
+    }
+
+    RefPtr page = m_page.get();
+    if (!page) {
+        completionHandler({ });
+        return;
+    }
+
+    if (auto* xrCoordinator = PlatformXRSystem::xrCoordinator())
+        xrCoordinator->scheduleAnimationFrame(*page, WTF::move(requestData), WTF::move(completionHandler));
+    else
+        completionHandler({ });
+}
+
+#if USE(OPENXR)
+void PlatformXRSystem::submitFrame(IPC::Connection& connection, Vector<PlatformXR::DeviceLayer>&& layers)
+#else
+void PlatformXRSystem::submitFrame(IPC::Connection& connection)
+#endif
+{
+    ASSERT(RunLoop::isMain());
+    MESSAGE_CHECK(m_immersiveSessionState == ImmersiveSessionState::SessionRunning || m_immersiveSessionState == ImmersiveSessionState::SessionEndingFromSystem, connection);
+    if (m_immersiveSessionState != ImmersiveSessionState::SessionRunning)
+        return;
+
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+
+    if (auto* xrCoordinator = PlatformXRSystem::xrCoordinator()) {
+#if USE(OPENXR)
+        xrCoordinator->submitFrame(*page, WTF::move(layers));
+#else
+        xrCoordinator->submitFrame(*page);
+#endif
+    }
+}
+
+#if ENABLE(WEBXR_HIT_TEST)
+void PlatformXRSystem::requestHitTestSource(const PlatformXR::HitTestOptions& hitTestOptions, CompletionHandler<void(Expected<PlatformXR::HitTestSource, WebCore::ExceptionData>)>&& passedCompletionHandler)
+{
+    auto completionHandler = [passedCompletionHandler = WTF::move(passedCompletionHandler)](WebCore::ExceptionOr<PlatformXR::HitTestSource> exceptionOrValue) mutable {
+        if (exceptionOrValue.hasException()) {
+            auto exception = exceptionOrValue.releaseException();
+            passedCompletionHandler(makeUnexpected(WebCore::ExceptionData { exception.code(), exception.releaseMessage() }));
+        } else
+            passedCompletionHandler(exceptionOrValue.releaseReturnValue());
+    };
+    RefPtr page = m_page.get();
+    if (!page) {
+        completionHandler(WebCore::Exception { WebCore::ExceptionCode::InvalidStateError });
+        return;
+    }
+    auto* xrCoordinator = PlatformXRSystem::xrCoordinator();
+    if (!xrCoordinator) {
+        completionHandler(WebCore::Exception { WebCore::ExceptionCode::InvalidStateError });
+        return;
+    }
+    xrCoordinator->requestHitTestSource(*page, hitTestOptions, WTF::move(completionHandler));
+}
+
+void PlatformXRSystem::deleteHitTestSource(PlatformXR::HitTestSource source)
+{
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+    if (auto* xrCoordinator = PlatformXRSystem::xrCoordinator())
+        xrCoordinator->deleteHitTestSource(*page, source);
+}
+
+void PlatformXRSystem::requestTransientInputHitTestSource(const PlatformXR::TransientInputHitTestOptions& hitTestOptions, CompletionHandler<void(Expected<PlatformXR::TransientInputHitTestSource, WebCore::ExceptionData>)>&& passedCompletionHandler)
+{
+    auto completionHandler = [passedCompletionHandler = WTF::move(passedCompletionHandler)](WebCore::ExceptionOr<PlatformXR::TransientInputHitTestSource> exceptionOrValue) mutable {
+        if (exceptionOrValue.hasException()) {
+            auto exception = exceptionOrValue.releaseException();
+            passedCompletionHandler(makeUnexpected(WebCore::ExceptionData { exception.code(), exception.releaseMessage() }));
+        } else
+            passedCompletionHandler(exceptionOrValue.releaseReturnValue());
+    };
+    RefPtr page = m_page.get();
+    if (!page) {
+        completionHandler(WebCore::Exception { WebCore::ExceptionCode::InvalidStateError });
+        return;
+    }
+    auto* xrCoordinator = PlatformXRSystem::xrCoordinator();
+    if (!xrCoordinator) {
+        completionHandler(WebCore::Exception { WebCore::ExceptionCode::InvalidStateError });
+        return;
+    }
+    xrCoordinator->requestTransientInputHitTestSource(*page, hitTestOptions, WTF::move(completionHandler));
+}
+
+void PlatformXRSystem::deleteTransientInputHitTestSource(PlatformXR::TransientInputHitTestSource source)
+{
+    RefPtr page = m_page.get();
+    if (!page)
+        return;
+    if (auto* xrCoordinator = PlatformXRSystem::xrCoordinator())
+        xrCoordinator->deleteTransientInputHitTestSource(*page, source);
+}
+#endif
+
+void PlatformXRSystem::didCompleteShutdownTriggeredBySystem(IPC::Connection& connection)
+{
+    ASSERT(RunLoop::isMain());
+    MESSAGE_CHECK(m_immersiveSessionState == ImmersiveSessionState::SessionEndingFromSystem, connection);
+    setImmersiveSessionState(ImmersiveSessionState::Idle, [](bool) mutable { });
+}
+
+void PlatformXRSystem::sessionDidEnd(XRDeviceIdentifier deviceIdentifier)
+{
+    ensureOnMainRunLoop([weakThis = WeakPtr { *this }, deviceIdentifier]() mutable {
+        RefPtr protectedThis = weakThis.get();
+        if (!protectedThis)
+            return;
+
+        RefPtr page = protectedThis->m_page.get();
+        if (!page)
+            return;
+
+        protect(page->legacyMainFrameProcess())->send(Messages::PlatformXRSystemProxy::SessionDidEnd(deviceIdentifier), page->webPageIDInMainFrameProcess());
+        protectedThis->m_immersiveSessionActivity = { };
+        // If this is called when the session is running, the ending of the session is triggered by the system side
+        // and we should set the state to SessionEndingFromSystem. We expect the web process to send a
+        // didCompleteShutdownTriggeredBySystem message later when it has ended the XRSession, which will
+        // reset the session state to Idle.
+        protectedThis->invalidateImmersiveSessionState(protectedThis->m_immersiveSessionState == ImmersiveSessionState::SessionRunning ? ImmersiveSessionState::SessionEndingFromSystem : ImmersiveSessionState::Idle);
     });
 }
 
-void PlatformXRSystem::shutDownTrackingAndRendering()
+void PlatformXRSystem::sessionDidUpdateVisibilityState(XRDeviceIdentifier deviceIdentifier, PlatformXR::VisibilityState visibilityState)
 {
-    if (auto* xrCoordinator = PlatformXRSystem::xrCoordinator())
-        xrCoordinator->endSessionIfExists(m_page);
+    ensureOnMainRunLoop([weakThis = WeakPtr { *this }, deviceIdentifier, visibilityState]() mutable {
+        RefPtr protectedThis = weakThis.get();
+        if (!protectedThis)
+            return;
+
+        RefPtr page = protectedThis->m_page.get();
+        if (!page)
+            return;
+
+        protect(page->legacyMainFrameProcess())->send(Messages::PlatformXRSystemProxy::SessionDidUpdateVisibilityState(deviceIdentifier, visibilityState), page->webPageIDInMainFrameProcess());
+    });
 }
 
-void PlatformXRSystem::requestFrame(CompletionHandler<void(PlatformXR::Device::FrameData&&)>&& completionHandler)
+void PlatformXRSystem::sessionDidInitializeRendering(XRDeviceIdentifier deviceIdentifier, uint32_t width, uint32_t height, uint32_t arrayLength)
 {
-    if (auto* xrCoordinator = PlatformXRSystem::xrCoordinator())
-        xrCoordinator->scheduleAnimationFrame(m_page, WTFMove(completionHandler));
+    ensureOnMainRunLoop([weakThis = WeakPtr { *this }, deviceIdentifier, width, height, arrayLength]() mutable {
+        RefPtr protectedThis = weakThis.get();
+        if (!protectedThis)
+            return;
+
+        RefPtr page = protectedThis->m_page.get();
+        if (!page)
+            return;
+
+        protect(page->legacyMainFrameProcess())->send(Messages::PlatformXRSystemProxy::SessionDidInitializeRendering(deviceIdentifier, width, height, arrayLength), page->webPageIDInMainFrameProcess());
+    });
 }
 
-void PlatformXRSystem::submitFrame()
+void PlatformXRSystem::setImmersiveSessionState(ImmersiveSessionState state, CompletionHandler<void(bool)>&& completion)
 {
-    if (auto* xrCoordinator = PlatformXRSystem::xrCoordinator())
-        xrCoordinator->submitFrame(m_page);
+    m_immersiveSessionState = state;
+#if PLATFORM(COCOA)
+    RefPtr page = m_page.get();
+    if (!page || page->isClosed()) {
+        completion(false);
+        return;
+    }
+
+    switch (state) {
+    case ImmersiveSessionState::Idle:
+    case ImmersiveSessionState::RequestingPermissions:
+        break;
+    case ImmersiveSessionState::PermissionsGranted:
+        return GPUProcessProxy::getOrCreate()->webXRPromptAccepted(page->ensureRunningProcess().processIdentity(), WTF::move(completion));
+    case ImmersiveSessionState::SessionRunning:
+    case ImmersiveSessionState::SessionEndingFromWebContent:
+    case ImmersiveSessionState::SessionEndingFromSystem:
+        break;
+    }
+#endif
+    completion(true);
 }
 
+void PlatformXRSystem::invalidateImmersiveSessionState(ImmersiveSessionState nextSessionState)
+{
+    ASSERT(RunLoop::isMain());
+
+    m_immersiveSessionMode = std::nullopt;
+    m_immersiveSessionSecurityOriginData = std::nullopt;
+    m_immersiveSessionGrantedFeatures = std::nullopt;
+    setImmersiveSessionState(nextSessionState, [](bool) mutable { });
 }
 
-#if !USE(APPLE_INTERNAL_SDK)
-namespace WebKit {
+bool PlatformXRSystem::webXREnabled() const
+{
+    RefPtr page = m_page.get();
+    return page && protect(page->preferences())->webXREnabled();
+}
 
+#if USE(EMPTYXR)
 PlatformXRCoordinator* PlatformXRSystem::xrCoordinator()
 {
     return nullptr;
 }
+#endif // !USE(APPLE_INTERNAL_SDK) && !USE(OPENXR) && !PLATFORM(IOS) && !PLATFORM(VISION)
 
-}
-#endif
+/*
+*/
+
+} // namespace WebKit
+
+#undef MESSAGE_CHECK_COMPLETION
+#undef MESSAGE_CHECK
 
 #endif // ENABLE(WEBXR)

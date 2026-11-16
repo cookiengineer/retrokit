@@ -27,11 +27,12 @@
 #include "ReplaceRangeWithTextCommand.h"
 
 #include "AlternativeTextController.h"
+#include "BoundaryPointInlines.h"
 #include "DataTransfer.h"
 #include "Document.h"
 #include "DocumentFragment.h"
 #include "Editor.h"
-#include "Frame.h"
+#include "LocalFrame.h"
 #include "ReplaceSelectionCommand.h"
 #include "SetSelectionCommand.h"
 #include "StaticRange.h"
@@ -64,7 +65,7 @@ void ReplaceRangeWithTextCommand::doApply()
         return;
 
     applyCommandToComposite(SetSelectionCommand::create(selection, FrameSelection::defaultSetSelectionOptions()));
-    applyCommandToComposite(ReplaceSelectionCommand::create(document(), WTFMove(m_textFragment), ReplaceSelectionCommand::MatchStyle, EditAction::Paste));
+    applyCommandToComposite(ReplaceSelectionCommand::create(document(), m_textFragment.copyRef(), ReplaceSelectionCommand::MatchStyle, EditAction::Paste));
 }
 
 String ReplaceRangeWithTextCommand::inputEventData() const
@@ -78,14 +79,14 @@ String ReplaceRangeWithTextCommand::inputEventData() const
 RefPtr<DataTransfer> ReplaceRangeWithTextCommand::inputEventDataTransfer() const
 {
     if (!isEditingTextAreaOrTextInput())
-        return DataTransfer::createForInputEvent(m_text, serializeFragment(*m_textFragment, SerializedNodes::SubtreeIncludingNode));
+        return DataTransfer::createForInputEvent(m_text, serializeFragment(*protect(m_textFragment), SerializedNodes::SubtreeIncludingNode));
 
     return CompositeEditCommand::inputEventDataTransfer();
 }
 
-Vector<RefPtr<StaticRange>> ReplaceRangeWithTextCommand::targetRanges() const
+Vector<Ref<StaticRange>> ReplaceRangeWithTextCommand::targetRanges() const
 {
-    return { 1, StaticRange::create(m_rangeToBeReplaced) };
+    return { FillWith { }, 1, StaticRange::create(m_rangeToBeReplaced) };
 }
 
 } // namespace WebCore

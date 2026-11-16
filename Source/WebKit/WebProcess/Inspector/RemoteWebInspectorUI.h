@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,10 +27,13 @@
 
 #include "DebuggableInfoData.h"
 #include "MessageReceiver.h"
+#include <WebCore/Color.h>
+#include <WebCore/FrameIdentifier.h>
 #include <WebCore/InspectorFrontendAPIDispatcher.h>
 #include <WebCore/InspectorFrontendClient.h>
 #include <WebCore/InspectorFrontendHost.h>
 #include <wtf/Deque.h>
+#include <wtf/WeakRef.h>
 
 #if ENABLE(INSPECTOR_EXTENSIONS)
 #include "InspectorExtensionTypes.h"
@@ -39,6 +42,7 @@
 namespace WebCore {
 class CertificateInfo;
 class FloatRect;
+struct DiagnosticLoggingDictionary;
 }
 
 namespace WebKit {
@@ -56,15 +60,18 @@ public:
     static Ref<RemoteWebInspectorUI> create(WebPage&);
     ~RemoteWebInspectorUI();
 
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     // Implemented in generated RemoteWebInspectorUIMessageReceiver.cpp
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
 
     // Called by RemoteWebInspectorUI messages
     void initialize(DebuggableInfoData&&, const String& backendCommandsURL);
     void updateFindString(const String&);
-    void didSave(const String& url);
-    void didAppend(const String& url);
     void sendMessageToFrontend(const String&);
+    void showConsole();
+    void showResources();
 
 #if ENABLE(INSPECTOR_TELEMETRY)
     void setDiagnosticLoggingAvailable(bool);
@@ -102,10 +109,17 @@ public:
     void resetState() override;
 
     void openURLExternally(const String& url) override;
-    void save(const String& url, const String& content, bool base64Encoded, bool forceSaveAs) override;
-    void append(const String& url, const String& content) override;
+    void revealFileExternally(const String& path) override;
+    void save(Vector<WebCore::InspectorFrontendClient::SaveData>&&, bool forceSaveAs) override;
+    void load(const String& path, CompletionHandler<void(const String&)>&&) override;
+    void pickColorFromScreen(CompletionHandler<void(const std::optional<WebCore::Color>&)>&&) override;
     void inspectedURLChanged(const String&) override;
     void showCertificate(const WebCore::CertificateInfo&) override;
+    void setInspectorPageDeveloperExtrasEnabled(bool) override;
+
+    void setPageAndTextZoomFactors(double pageZoomFactor, double textZoomFactor) override;
+    double pageZoomFactor() const override;
+
     void sendMessageToBackend(const String&) override;
     WebCore::InspectorFrontendAPIDispatcher& frontendAPIDispatcher() override { return m_frontendAPIDispatcher; }
     WebCore::Page* frontendPage() final;
@@ -113,16 +127,20 @@ public:
 #if ENABLE(INSPECTOR_TELEMETRY)
     bool supportsDiagnosticLogging() override;
     bool diagnosticLoggingAvailable() override { return m_diagnosticLoggingAvailable; }
-    void logDiagnosticEvent(const String& eventName, const WebCore::DiagnosticLoggingClient::ValueDictionary&) override;
+    void logDiagnosticEvent(const String& eventName, const WebCore::DiagnosticLoggingDictionary&) override;
 #endif
         
 #if ENABLE(INSPECTOR_EXTENSIONS)
     bool supportsWebExtensions() override;
-    void didShowExtensionTab(const Inspector::ExtensionID&, const Inspector::ExtensionTabID&) override;
+    void didShowExtensionTab(const Inspector::ExtensionID&, const Inspector::ExtensionTabID&, const WebCore::FrameIdentifier&) override;
     void didHideExtensionTab(const Inspector::ExtensionID&, const Inspector::ExtensionTabID&) override;
+    void didNavigateExtensionTab(const Inspector::ExtensionID&, const Inspector::ExtensionTabID&, const URL&) override;
+    void inspectedPageDidNavigate(const URL&) override;
 #endif
 
-    bool canSave() override { return true; }
+    bool canSave(WebCore::InspectorFrontendClient::SaveMode) override;
+    bool canLoad() override;
+    bool canPickColorFromScreen() override;
     bool isUnderTest() override { return false; }
     unsigned inspectionLevel() const override { return 1; }
     void requestSetDockSide(DockSide) override { }
@@ -132,11 +150,11 @@ public:
 private:
     explicit RemoteWebInspectorUI(WebPage&);
 
-    WebPage& m_page;
-    Ref<WebCore::InspectorFrontendAPIDispatcher> m_frontendAPIDispatcher;
+    WeakRef<WebPage> m_page;
+    const Ref<WebCore::InspectorFrontendAPIDispatcher> m_frontendAPIDispatcher;
     RefPtr<WebCore::InspectorFrontendHost> m_frontendHost;
 #if ENABLE(INSPECTOR_EXTENSIONS)
-    std::unique_ptr<WebInspectorUIExtensionController> m_extensionController;
+    RefPtr<WebInspectorUIExtensionController> m_extensionController;
 #endif
 
     DebuggableInfoData m_debuggableInfo;
@@ -145,6 +163,8 @@ private:
 #if ENABLE(INSPECTOR_TELEMETRY)
     bool m_diagnosticLoggingAvailable { false };
 #endif
+
+    double m_pageZoomFactor { 1.0 };
 };
 
 } // namespace WebKit

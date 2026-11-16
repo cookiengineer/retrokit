@@ -27,9 +27,11 @@
 
 #if ENABLE(SPEECH_SYNTHESIS)
 
+#include "EventTargetInterfaces.h"
 #include "PlatformSpeechSynthesisUtterance.h"
 #include "PlatformSpeechSynthesizer.h"
 #include "SpeechSynthesisClient.h"
+#include "SpeechSynthesisErrorCode.h"
 #include "SpeechSynthesisUtterance.h"
 #include "SpeechSynthesisVoice.h"
 #include <wtf/Deque.h>
@@ -41,73 +43,104 @@ class Document;
 class PlatformSpeechSynthesizerClient;
 class SpeechSynthesisVoice;
 
-class SpeechSynthesis : public PlatformSpeechSynthesizerClient, public SpeechSynthesisClientObserver, public RefCounted<SpeechSynthesis> {
+class SpeechSynthesis : public PlatformSpeechSynthesizerClient, public SpeechSynthesisClientObserver, public RefCounted<SpeechSynthesis>, public ActiveDOMObject, public EventTarget {
+    WTF_MAKE_TZONE_ALLOCATED(SpeechSynthesis);
 public:
-    static Ref<SpeechSynthesis> create(WeakPtr<SpeechSynthesisClient>, Document&);
+    static Ref<SpeechSynthesis> create(ScriptExecutionContext&);
+    virtual ~SpeechSynthesis();
 
-    bool pending() const;
-    bool speaking() const;
-    bool paused() const;
+    // ContextDestructionObserver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+    USING_CAN_MAKE_WEAKPTR(EventTarget);
+
+    bool NODELETE pending() const;
+    bool NODELETE speaking() const;
+    bool NODELETE paused() const;
 
     void speak(SpeechSynthesisUtterance&);
     void cancel();
     void pause();
-    void resume();
+    void resumeSynthesis();
 
     const Vector<Ref<SpeechSynthesisVoice>>& getVoices();
 
     // Used in testing to use a mock platform synthesizer
-    WEBCORE_EXPORT void setPlatformSynthesizer(std::unique_ptr<PlatformSpeechSynthesizer>);
+    WEBCORE_EXPORT void setPlatformSynthesizer(Ref<PlatformSpeechSynthesizer>&&);
+
+    // Restrictions to change default behaviors.
+    enum class BehaviorRestrictionFlags : uint8_t {
+        RequireUserGestureForSpeechStart = 1 << 0,
+    };
+    using BehaviorRestrictions = OptionSet<BehaviorRestrictionFlags>;
+
+    bool userGestureRequiredForSpeechStart() const { return m_restrictions.contains(BehaviorRestrictionFlags::RequireUserGestureForSpeechStart); }
+    void removeBehaviorRestriction(BehaviorRestrictions restriction) { m_restrictions.remove(restriction); }
+    WEBCORE_EXPORT void simulateVoicesListChange();
 
 private:
-    SpeechSynthesis(WeakPtr<SpeechSynthesisClient>, Document&);
+    SpeechSynthesis(ScriptExecutionContext&);
 
-    // PlatformSpeechSynthesizerClient override methods.
+    // PlatformSpeechSynthesizerClient
     void voicesDidChange() override;
     void didStartSpeaking(PlatformSpeechSynthesisUtterance&) override;
     void didPauseSpeaking(PlatformSpeechSynthesisUtterance&) override;
     void didResumeSpeaking(PlatformSpeechSynthesisUtterance&) override;
     void didFinishSpeaking(PlatformSpeechSynthesisUtterance&) override;
     void speakingErrorOccurred(PlatformSpeechSynthesisUtterance&) override;
-    void boundaryEventOccurred(PlatformSpeechSynthesisUtterance&, SpeechBoundary, unsigned charIndex) override;
+    void boundaryEventOccurred(PlatformSpeechSynthesisUtterance&, SpeechBoundary, unsigned charIndex, unsigned charLength) override;
 
-    // SpeechSynthesisClient override methods
+    // SpeechSynthesisClientObserver
     void didStartSpeaking() override;
     void didFinishSpeaking() override;
     void didPauseSpeaking() override;
     void didResumeSpeaking() override;
     void speakingErrorOccurred() override;
-    void boundaryEventOccurred(bool wordBoundary, unsigned charIndex) override;
+    void boundaryEventOccurred(bool wordBoundary, unsigned charIndex, unsigned charLength) override;
     void voicesChanged() override;
-    
+
+    // ActiveDOMObject
+    void suspend(ReasonForSuspension) final;
+    void stop() final;
+    bool NODELETE virtualHasPendingActivity() const final;
+
     void startSpeakingImmediately(SpeechSynthesisUtterance&);
     void handleSpeakingCompleted(SpeechSynthesisUtterance&, bool errorOccurred);
-    void fireEvent(const AtomString& type, SpeechSynthesisUtterance&, unsigned long charIndex, const String& name);
+    void stopPlatformSpeech();
 
-#if PLATFORM(IOS_FAMILY)
-    // Restrictions to change default behaviors.
-    enum BehaviorRestrictionFlags {
-        NoRestrictions = 0,
-        RequireUserGestureForSpeechStartRestriction = 1 << 0,
-    };
-    typedef unsigned BehaviorRestrictions;
+    // EventTarget
+    ScriptExecutionContext* NODELETE scriptExecutionContext() const final;
+    enum EventTargetInterfaceType eventTargetInterface() const final { return EventTargetInterfaceType::SpeechSynthesis; }
+    void refEventTarget() final { ref(); }
+    void derefEventTarget() final { deref(); }
+    void eventListenersDidChange() final;
 
-    bool userGestureRequiredForSpeechStart() const { return m_restrictions & RequireUserGestureForSpeechStartRestriction; }
-    void removeBehaviorRestriction(BehaviorRestrictions restriction) { m_restrictions &= ~restriction; }
-#endif
     PlatformSpeechSynthesizer& ensurePlatformSpeechSynthesizer();
-    
-    std::unique_ptr<PlatformSpeechSynthesizer> m_platformSpeechSynthesizer;
-    Vector<Ref<SpeechSynthesisVoice>> m_voiceList;
-    RefPtr<SpeechSynthesisUtterance> m_currentSpeechUtterance;
+
+    SpeechSynthesisUtterance* NODELETE currentSpeechUtterance();
+
+    RefPtr<PlatformSpeechSynthesizer> m_platformSpeechSynthesizer;
+    std::optional<Vector<Ref<SpeechSynthesisVoice>>> m_voiceList;
+    std::unique_ptr<SpeechSynthesisUtteranceActivity> m_currentSpeechUtterance;
     Deque<Ref<SpeechSynthesisUtterance>> m_utteranceQueue;
     bool m_isPaused;
-#if PLATFORM(IOS_FAMILY)
     BehaviorRestrictions m_restrictions;
-#endif
     WeakPtr<SpeechSynthesisClient> m_speechSynthesisClient;
+    bool m_hasEventListener { false };
 };
 
 } // namespace WebCore
+
+namespace WTF {
+template<> struct EnumTraits<WebCore::SpeechSynthesis::BehaviorRestrictionFlags> {
+    using values = EnumValues<
+        WebCore::SpeechSynthesis::BehaviorRestrictionFlags,
+        WebCore::SpeechSynthesis::BehaviorRestrictionFlags::RequireUserGestureForSpeechStart
+    >;
+};
+
+} // namespace WTF
+
+SPECIALIZE_TYPE_TRAITS_EVENTTARGET(SpeechSynthesis)
 
 #endif // ENABLE(SPEECH_SYNTHESIS)

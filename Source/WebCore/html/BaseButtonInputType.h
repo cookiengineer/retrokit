@@ -31,20 +31,26 @@
 #pragma once
 
 #include "BaseClickableWithKeyInputType.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 // Base of button, file, image, reset, and submit types.
 class BaseButtonInputType : public BaseClickableWithKeyInputType {
+    WTF_MAKE_TZONE_ALLOCATED(BaseButtonInputType);
 protected:
-    explicit BaseButtonInputType(Type type, HTMLInputElement& element) : BaseClickableWithKeyInputType(type, element) { }
+    explicit BaseButtonInputType(Type type, HTMLInputElement& element)
+        : BaseClickableWithKeyInputType(type, element)
+    {
+    }
+    bool dirAutoUsesValue() const override;
 
 private:
-    bool shouldSaveAndRestoreFormControlState() const override;
-    bool appendFormData(DOMFormData&, bool) const override;
-    RenderPtr<RenderElement> createInputRenderer(RenderStyle&&) override;
-    bool storesValueSeparateFromAttribute() override;
-    void setValue(const String&, bool, TextFieldEventBehavior) override;
+    bool shouldSaveAndRestoreFormControlState() const final;
+    bool appendFormData(DOMFormData&) const override;
+    RenderPtr<RenderElement> createInputRenderer(Style::ComputedStyle&&) override;
+    bool storesValueSeparateFromAttribute() final;
+    void setValue(const String&, bool, TextFieldEventBehavior, TextControlSetValueSelection) final;
 };
 
 } // namespace WebCore

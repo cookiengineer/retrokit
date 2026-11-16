@@ -1,5 +1,6 @@
 /*
  * Copyright 2005 Frerich Raabe <raabe@kde.org>
+ * Copyright (C) 2006-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,19 +27,19 @@
 #pragma once
 
 #include "XPathExpressionNode.h"
+#include <wtf/TZoneMalloc.h>
 
-namespace WebCore {
-    namespace XPath {
+namespace WebCore::XPath {
 
-        // Variable references are not used with XPathEvaluator.
-        class VariableReference : public Expression {
-        public:
-            explicit VariableReference(const String& name);
-        private:
-            Value evaluate() const override;
-            Value::Type resultType() const override { ASSERT_NOT_REACHED(); return Value::NumberValue; }
-            String m_name;
-        };
+// Variable references are not used with XPathEvaluator.
+class VariableReference final : public Expression {
+    WTF_MAKE_TZONE_ALLOCATED(VariableReference);
+public:
+    explicit VariableReference(const String& name);
+private:
+    Value evaluate() const final;
+    Value::Type resultType() const final { ASSERT_NOT_REACHED(); return Value::Type::Number; }
+    String m_name;
+};
 
-    } // namespace XPath
-} // namespace WebCore
+} // namespace WebCore::XPath

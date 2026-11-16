@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2021 Tyler Wilcock <twilco.o@protonmail.com>.
+ * Copyright (C) 2023-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,58 +26,61 @@
 
 #pragma once
 
-#include "CSSValue.h"
+#include <WebCore/CSSValue.h>
+#include <wtf/Function.h>
 
 namespace WebCore {
 
-/**
- * Represents a pair of CSS values.
- */
-class CSSValuePair : public CSSValue {
+class CSSValuePair final : public CSSValue {
 public:
-    enum class IdenticalValueEncoding : uint8_t {
-        DoNotCoalesce,
-        Coalesce
-    };
+    static Ref<CSSValuePair> NODELETE create(Ref<CSSValue>, Ref<CSSValue>);
+    static Ref<CSSValuePair> NODELETE createSlashSeparated(Ref<CSSValue>, Ref<CSSValue>);
+    static Ref<CSSValuePair> NODELETE createNoncoalescing(Ref<CSSValue>, Ref<CSSValue>);
 
-    static Ref<CSSValuePair> create(Ref<CSSValue>&& first, Ref<CSSValue>&& second, ValueSeparator separator)
+    const CSSValue& first() const { return m_first; }
+    CSSValue& first() { return m_first; }
+    const CSSValue& second() const { return m_second; }
+    CSSValue& second() { return m_second; }
+
+    String customCSSText(const CSS::SerializationContext&) const;
+    bool equals(const CSSValuePair&) const;
+    bool canBeCoalesced() const;
+
+    IterationStatus customVisitChildren(NOESCAPE const Function<IterationStatus(CSSValue&)>& func) const
     {
-        return adoptRef(*new CSSValuePair(WTFMove(first), WTFMove(second), separator));
-    }
-    static Ref<CSSValuePair> create(Ref<CSSValue>&& first, Ref<CSSValue>&& second, ValueSeparator separator, IdenticalValueEncoding encoding)
-    {
-        return adoptRef(*new CSSValuePair(WTFMove(first), WTFMove(second), separator, encoding));
+        if (func(m_first.get()) == IterationStatus::Done)
+            return IterationStatus::Done;
+        if (func(m_second.get()) == IterationStatus::Done)
+            return IterationStatus::Done;
+        return IterationStatus::Continue;
     }
 
-    Ref<CSSValue> first() const { return m_first; }
-    Ref<CSSValue> second() const { return m_second; }
-
-    String customCSSText() const;
-    bool equals(const CSSValuePair& other) const;
+    Ref<DeprecatedCSSOMValue> customCreateDeprecatedCSSOMWrapper(CSSStyleDeclaration&) const;
 
 private:
-    explicit CSSValuePair(Ref<CSSValue>&& first, Ref<CSSValue>&& second, ValueSeparator separator)
-        : CSSValue(ValuePairClass)
-        , m_first(WTFMove(first))
-        , m_second(WTFMove(second))
-    {
-        m_valueSeparator = separator;
-    }
+    friend bool CSSValue::addHash(Hasher&) const;
 
-    explicit CSSValuePair(Ref<CSSValue>&& first, Ref<CSSValue>&& second, ValueSeparator separator, IdenticalValueEncoding encoding)
-        : CSSValue(ValuePairClass)
-        , m_encoding(encoding)
-        , m_first(WTFMove(first))
-        , m_second(WTFMove(second))
-    {
-        m_valueSeparator = separator;
-    }
+    enum class IdenticalValueSerialization : bool { DoNotCoalesce, Coalesce };
+    CSSValuePair(ValueSeparator, Ref<CSSValue>, Ref<CSSValue>, IdenticalValueSerialization);
 
-    IdenticalValueEncoding m_encoding { IdenticalValueEncoding::Coalesce };
-    Ref<CSSValue> m_first;
-    Ref<CSSValue> m_second;
+    bool addDerivedHash(Hasher&) const;
+
+    // FIXME: Store coalesce bit in CSSValue to cut down on object size.
+    bool m_coalesceIdenticalValues { true };
+    const Ref<CSSValue> m_first;
+    const Ref<CSSValue> m_second;
 };
+
+inline const CSSValue& CSSValue::first() const
+{
+    return downcast<CSSValuePair>(*this).first();
+}
+
+inline const CSSValue& CSSValue::second() const
+{
+    return downcast<CSSValuePair>(*this).second();
+}
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_CSS_VALUE(CSSValuePair, isValuePair())
+SPECIALIZE_TYPE_TRAITS_CSS_VALUE(CSSValuePair, isPair())

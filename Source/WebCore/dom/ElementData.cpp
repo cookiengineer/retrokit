@@ -27,9 +27,14 @@
 #include "ElementData.h"
 
 #include "Attr.h"
+#include "Element.h"
 #include "HTMLNames.h"
+#include "ImmutableStyleProperties.h"
+#include "MutableStyleProperties.h"
 #include "StyleProperties.h"
+#include "StylePropertiesInlines.h"
 #include "XMLNames.h"
+#include <wtf/ZippedRange.h>
 
 namespace WebCore {
 
@@ -38,10 +43,10 @@ DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(ShareableElementData);
 
 void ElementData::destroy()
 {
-    if (is<UniqueElementData>(*this))
-        delete downcast<UniqueElementData>(this);
+    if (auto* uniqueData = dynamicDowncast<UniqueElementData>(*this))
+        delete uniqueData;
     else
-        delete downcast<ShareableElementData>(this);
+        delete uncheckedDowncast<ShareableElementData>(this);
 }
 
 ElementData::ElementData()
@@ -59,14 +64,14 @@ struct SameSizeAsElementData : public RefCounted<SameSizeAsElementData> {
     void* refPtrs[3];
 };
 
-COMPILE_ASSERT(sizeof(ElementData) == sizeof(SameSizeAsElementData), element_attribute_data_should_stay_small);
+static_assert(sizeof(ElementData) == sizeof(SameSizeAsElementData), "element attribute data should stay small");
 
-static size_t sizeForShareableElementDataWithAttributeCount(unsigned count)
+static size_t NODELETE sizeForShareableElementDataWithAttributeCount(unsigned count)
 {
     return sizeof(ShareableElementData) + sizeof(Attribute) * count;
 }
 
-Ref<ShareableElementData> ShareableElementData::createWithAttributes(const Vector<Attribute>& attributes)
+Ref<ShareableElementData> ShareableElementData::createWithAttributes(std::span<const Attribute> attributes)
 {
     void* slot = ShareableElementDataMalloc::malloc(sizeForShareableElementDataWithAttributeCount(attributes.size()));
     return adoptRef(*new (NotNull, slot) ShareableElementData(attributes));
@@ -77,19 +82,17 @@ Ref<UniqueElementData> UniqueElementData::create()
     return adoptRef(*new UniqueElementData);
 }
 
-ShareableElementData::ShareableElementData(const Vector<Attribute>& attributes)
+ShareableElementData::ShareableElementData(std::span<const Attribute> attributes)
     : ElementData(attributes.size())
 {
-    unsigned attributeArraySize = arraySize();
-    for (unsigned i = 0; i < attributeArraySize; ++i)
-        new (NotNull, &m_attributeArray[i]) Attribute(attributes[i]);
+    for (auto [sourceAttribute, destinationAttribute] : zippedRange(attributes, this->attributes()))
+        new (NotNull, &destinationAttribute) Attribute(sourceAttribute);
 }
 
 ShareableElementData::~ShareableElementData()
 {
-    unsigned attributeArraySize = arraySize();
-    for (unsigned i = 0; i < attributeArraySize; ++i)
-        m_attributeArray[i].~Attribute();
+    for (auto& attribute : attributes())
+        attribute.~Attribute();
 }
 
 ShareableElementData::ShareableElementData(const UniqueElementData& other)
@@ -99,12 +102,11 @@ ShareableElementData::ShareableElementData(const UniqueElementData& other)
 
     if (other.m_inlineStyle) {
         ASSERT(!other.m_inlineStyle->hasCSSOMWrapper());
-        m_inlineStyle = other.m_inlineStyle->immutableCopyIfNeeded();
+        m_inlineStyle = protect(other.m_inlineStyle)->immutableCopyIfNeeded();
     }
 
-    unsigned attributeArraySize = arraySize();
-    for (unsigned i = 0; i < attributeArraySize; ++i)
-        new (NotNull, &m_attributeArray[i]) Attribute(other.m_attributeVector.at(i));
+    for (auto [sourceAttribute, destinationAttribute] : zippedRange(other.m_attributeVector.span(), attributes()))
+        new (NotNull, &destinationAttribute) Attribute(sourceAttribute);
 }
 
 inline uint32_t ElementData::arraySizeAndFlagsFromOther(const ElementData& other, bool isUnique)
@@ -125,9 +127,7 @@ ElementData::ElementData(const ElementData& other, bool isUnique)
     // NOTE: The inline style is copied by the subclass copy constructor since we don't know what to do with it here.
 }
 
-UniqueElementData::UniqueElementData()
-{
-}
+UniqueElementData::UniqueElementData() = default;
 
 UniqueElementData::UniqueElementData(const UniqueElementData& other)
     : ElementData(other, true)
@@ -135,27 +135,23 @@ UniqueElementData::UniqueElementData(const UniqueElementData& other)
     , m_attributeVector(other.m_attributeVector)
 {
     if (other.m_inlineStyle)
-        m_inlineStyle = other.m_inlineStyle->mutableCopy();
+        m_inlineStyle = protect(other.m_inlineStyle)->mutableCopy();
 }
 
 UniqueElementData::UniqueElementData(const ShareableElementData& other)
     : ElementData(other, true)
+    , m_attributeVector(other.attributes())
 {
     // An ShareableElementData should never have a mutable inline StyleProperties attached.
     ASSERT(!other.m_inlineStyle || !other.m_inlineStyle->isMutable());
     m_inlineStyle = other.m_inlineStyle;
-
-    unsigned otherLength = other.length();
-    m_attributeVector.reserveCapacity(otherLength);
-    for (unsigned i = 0; i < otherLength; ++i)
-        m_attributeVector.uncheckedAppend(other.m_attributeArray[i]);
 }
 
 Ref<UniqueElementData> ElementData::makeUniqueCopy() const
 {
-    if (isUnique())
-        return adoptRef(*new UniqueElementData(static_cast<const UniqueElementData&>(*this)));
-    return adoptRef(*new UniqueElementData(static_cast<const ShareableElementData&>(*this)));
+    if (auto* uniqueData = dynamicDowncast<const UniqueElementData>(*this))
+        return adoptRef(*new UniqueElementData(*uniqueData));
+    return adoptRef(*new UniqueElementData(downcast<const ShareableElementData>(*this)));
 }
 
 Ref<ShareableElementData> UniqueElementData::makeShareableCopy() const
@@ -172,8 +168,8 @@ bool ElementData::isEquivalent(const ElementData* other) const
     if (length() != other->length())
         return false;
 
-    for (const Attribute& attribute : attributesIterator()) {
-        const Attribute* otherAttr = other->findAttributeByName(attribute.name());
+    for (auto& attribute : attributes()) {
+        auto* otherAttr = other->findAttributeByName(attribute.name());
         if (!otherAttr || attribute.value() != otherAttr->value())
             return false;
     }
@@ -181,7 +177,7 @@ bool ElementData::isEquivalent(const ElementData* other) const
     return true;
 }
 
-Attribute* UniqueElementData::findAttributeByName(const QualifiedName& name)
+Attribute* NODELETE UniqueElementData::findAttributeByName(const QualifiedName& name)
 {
     for (auto& attribute : m_attributeVector) {
         if (attribute.name().matches(name))
@@ -190,24 +186,4 @@ Attribute* UniqueElementData::findAttributeByName(const QualifiedName& name)
     return nullptr;
 }
 
-const Attribute* ElementData::findLanguageAttribute() const
-{
-    ASSERT(XMLNames::langAttr->localName() == HTMLNames::langAttr->localName());
-
-    const Attribute* attributes = attributeBase();
-    // Spec: xml:lang takes precedence over html:lang -- http://www.w3.org/TR/xhtml1/#C_7
-    const Attribute* languageAttribute = nullptr;
-    for (unsigned i = 0, count = length(); i < count; ++i) {
-        const QualifiedName& name = attributes[i].name();
-        if (name.localName() != HTMLNames::langAttr->localName())
-            continue;
-        if (name.namespaceURI() == XMLNames::langAttr->namespaceURI())
-            return &attributes[i];
-        if (name.namespaceURI() == HTMLNames::langAttr->namespaceURI())
-            languageAttribute = &attributes[i];
-    }
-    return languageAttribute;
 }
-
-}
-

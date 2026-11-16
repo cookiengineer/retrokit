@@ -30,8 +30,15 @@
 #include <WebCore/PageOverlay.h>
 #include <WebCore/SimpleRange.h>
 #include <wtf/RetainPtr.h>
+#include <wtf/WeakPtr.h>
 
+#if HAVE(SECURE_ACTION_CONTEXT)
+OBJC_CLASS DDSecureActionContext;
+using WKDDActionContext = DDSecureActionContext;
+#else
 OBJC_CLASS DDActionContext;
+using WKDDActionContext = DDActionContext;
+#endif
 
 namespace WebCore {
 class IntRect;
@@ -42,13 +49,13 @@ namespace WebKit {
 class WebFrame;
 class WebPage;
 
-class WebPageOverlay : public API::ObjectImpl<API::Object::Type::BundlePageOverlay>, private WebCore::PageOverlay::Client {
+class WebPageOverlay : public API::ObjectImpl<API::Object::Type::BundlePageOverlay>, public CanMakeWeakPtr<WebPageOverlay>, private WebCore::PageOverlayClient {
 public:
     struct ActionContext;
 
     class Client {
     public:
-        virtual ~Client() { }
+        virtual ~Client() = default;
 
         virtual void willMoveToPage(WebPageOverlay&, WebPage*) = 0;
         virtual void didMoveToPage(WebPageOverlay&, WebPage*) = 0;
@@ -63,13 +70,15 @@ public:
         virtual void dataDetectorsDidHideUI(WebPageOverlay&) { }
 #endif
 
+        virtual bool isPageOverlayClientImpl() const { return false; }
+
         virtual bool copyAccessibilityAttributeStringValueForPoint(WebPageOverlay&, String /* attribute */, WebCore::FloatPoint /* parameter */, String& /* value */) { return false; }
         virtual bool copyAccessibilityAttributeBoolValueForPoint(WebPageOverlay&, String /* attribute */, WebCore::FloatPoint /* parameter */, bool& /* value */) { return false; }
         virtual Vector<String> copyAccessibilityAttributeNames(WebPageOverlay&, bool /* parameterizedNames */) { return Vector<String>(); }
     };
 
     static Ref<WebPageOverlay> create(std::unique_ptr<Client>, WebCore::PageOverlay::OverlayType = WebCore::PageOverlay::OverlayType::View);
-    static WebPageOverlay* fromCoreOverlay(WebCore::PageOverlay&);
+    static WebPageOverlay* NODELETE fromCoreOverlay(WebCore::PageOverlay&);
     virtual ~WebPageOverlay();
 
     void setNeedsDisplay(const WebCore::IntRect& dirtyRect);
@@ -78,11 +87,11 @@ public:
     void clear();
 
     WebCore::PageOverlay* coreOverlay() const { return m_overlay.get(); }
-    Client& client() const { return *m_client; }
+    Client& client() const LIFETIME_BOUND { return *m_client; }
 
 #if PLATFORM(MAC)
     struct ActionContext {
-        RetainPtr<DDActionContext> context;
+        RetainPtr<WKDDActionContext> context;
         WebCore::SimpleRange range;
     };
     std::optional<ActionContext> actionContextForResultAtPoint(WebCore::FloatPoint);
@@ -94,12 +103,12 @@ public:
 private:
     WebPageOverlay(std::unique_ptr<Client>, WebCore::PageOverlay::OverlayType);
 
-    // WebCore::PageOverlay::Client
+    // WebCore::PageOverlayClient
     void willMoveToPage(WebCore::PageOverlay&, WebCore::Page*) override;
     void didMoveToPage(WebCore::PageOverlay&, WebCore::Page*) override;
     void drawRect(WebCore::PageOverlay&, WebCore::GraphicsContext&, const WebCore::IntRect& dirtyRect) override;
     bool mouseEvent(WebCore::PageOverlay&, const WebCore::PlatformMouseEvent&) override;
-    void didScrollFrame(WebCore::PageOverlay&, WebCore::Frame&) override;
+    void didScrollFrame(WebCore::PageOverlay&, WebCore::LocalFrame&) override;
 
     bool copyAccessibilityAttributeStringValueForPoint(WebCore::PageOverlay&, String /* attribute */, WebCore::FloatPoint /* parameter */, String& value) override;
     bool copyAccessibilityAttributeBoolValueForPoint(WebCore::PageOverlay&, String /* attribute */, WebCore::FloatPoint /* parameter */, bool& value) override;
@@ -110,3 +119,7 @@ private:
 };
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebPageOverlay)
+static bool isType(const API::Object& object) { return object.type() == API::Object::Type::BundlePageOverlay; }
+SPECIALIZE_TYPE_TRAITS_END()

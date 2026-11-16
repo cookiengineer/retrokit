@@ -69,6 +69,14 @@ enum {
 };
 typedef uint32_t WKResourceLimit;
 
+enum {
+    kWKScreenOrientationTypePortraitPrimary,
+    kWKScreenOrientationTypePortraitSecondary,
+    kWKScreenOrientationTypeLandscapePrimary,
+    kWKScreenOrientationTypeLandscapeSecondary,
+};
+typedef uint32_t WKScreenOrientationType;
+
 WK_EXPORT WKTypeID WKPageRunBeforeUnloadConfirmPanelResultListenerGetTypeID(void);
 WK_EXPORT void WKPageRunBeforeUnloadConfirmPanelResultListenerCall(WKPageRunBeforeUnloadConfirmPanelResultListenerRef listener, bool result);
 
@@ -96,6 +104,7 @@ typedef void (*WKPageFocusCallback)(WKPageRef page, const void *clientInfo);
 typedef void (*WKPageUnfocusCallback)(WKPageRef page, const void *clientInfo);
 typedef void (*WKPageSetStatusTextCallback)(WKPageRef page, WKStringRef text, const void *clientInfo);
 typedef void (*WKPageMouseDidMoveOverElementCallback)(WKPageRef page, WKHitTestResultRef hitTestResult, WKEventModifiers modifiers, WKTypeRef userData, const void *clientInfo);
+typedef void (*WKPageTooltipDidChangeCallback)(WKPageRef page, WKStringRef toolTip, const void *clientInfo);
 typedef void (*WKPageDidNotHandleKeyEventCallback)(WKPageRef page, WKNativeEventPtr event, const void *clientInfo);
 typedef void (*WKPageDidNotHandleWheelEventCallback)(WKPageRef page, WKNativeEventPtr event, const void *clientInfo);
 typedef bool (*WKPageGetToolbarsAreVisibleCallback)(WKPageRef page, const void *clientInfo);
@@ -124,21 +133,21 @@ typedef void (*WKPageUnavailablePluginButtonClickedCallback)(WKPageRef page, WKP
 typedef void (*WKPagePinnedStateDidChangeCallback)(WKPageRef page, const void* clientInfo);
 typedef void (*WKPageIsPlayingAudioDidChangeCallback)(WKPageRef page, const void* clientInfo);
 typedef void (*WKPageDecidePolicyForUserMediaPermissionRequestCallback)(WKPageRef page, WKFrameRef frame, WKSecurityOriginRef userMediaDocumentOrigin, WKSecurityOriginRef topLevelDocumentOrigin, WKUserMediaPermissionRequestRef permissionRequest, const void* clientInfo);
-typedef void (*WKCheckUserMediaPermissionCallback)(WKPageRef page, WKFrameRef frame, WKSecurityOriginRef userMediaDocumentOrigin, WKSecurityOriginRef topLevelDocumentOrigin, WKUserMediaPermissionCheckRef devicesRequest, const void *clientInfo);
 typedef void (*WKPageDidClickAutoFillButtonCallback)(WKPageRef page, WKTypeRef userData, const void *clientInfo);
 typedef void (*WKHandleAutoplayEventCallback)(WKPageRef page, WKAutoplayEvent event, WKAutoplayEventFlags flags, const void* clientInfo);
 typedef void (*WKFullscreenMayReturnToInlineCallback)(WKPageRef page, const void* clientInfo);
-typedef void (*WKRequestPointerLockCallback)(WKPageRef page, const void* clientInfo);
+typedef void (*WKRequestPointerLockCallback)(WKPageRef page, WKCompletionListenerRef listener, const void* clientInfo);
 typedef void (*WKDidLosePointerLockCallback)(WKPageRef page, const void* clientInfo);
 typedef void (*WKHasVideoInPictureInPictureDidChangeCallback)(WKPageRef page, bool hasVideoInPictureInPicture, const void* clientInfo);
-typedef void (*WKDidExceedBackgroundResourceLimitWhileInForegroundCallback)(WKPageRef page, WKResourceLimit limit, const void* clientInfo);
 typedef void (*WKPageDidResignInputElementStrongPasswordAppearanceCallback)(WKPageRef page, WKTypeRef userData, const void *clientInfo);
 typedef bool (*WKPageShouldAllowDeviceOrientationAndMotionAccessCallback)(WKPageRef page, WKSecurityOriginRef securityOrigin, WKFrameInfoRef frame, const void *clientInfo);
 
-typedef void (*WKPageRunWebAuthenticationPanelCallback)();
-typedef void (*WKPageDecidePolicyForSpeechRecognitionPermissionRequestCallback)(WKPageRef page, WKSecurityOriginRef topOrigin, WKSpeechRecognitionPermissionCallbackRef callback);
+typedef void (*WKPageRunWebAuthenticationPanelCallback)(void);
 
 typedef void (*WKPageDecidePolicyForMediaKeySystemPermissionRequestCallback)(WKPageRef page, WKSecurityOriginRef topOrigin, WKStringRef keySystem, WKMediaKeySystemPermissionCallbackRef callback);
+typedef void (*WKQueryPermissionCallback)(WKStringRef permissionName, WKSecurityOriginRef topOrigin, WKQueryPermissionResultCallbackRef callback);
+typedef void(*WKLockScreenOrientationCallback)(WKPageRef page, WKScreenOrientationType orientation);
+typedef void(*WKUnlockScreenOrientationCallback)(WKPageRef page);
 
 // Deprecated
 typedef WKPageRef (*WKPageCreateNewPageCallback_deprecatedForUseWithV0)(WKPageRef page, WKDictionaryRef features, WKEventModifiers modifiers, WKEventMouseButton mouseButton, const void* clientInfo);
@@ -153,6 +162,7 @@ typedef void (*WKPageRunJavaScriptAlertCallback_deprecatedForUseWithV5)(WKPageRe
 typedef bool (*WKPageRunJavaScriptConfirmCallback_deprecatedForUseWithV5)(WKPageRef page, WKStringRef message, WKFrameRef frame, WKSecurityOriginRef securityOrigin, const void *clientInfo);
 typedef WKStringRef (*WKPageRunJavaScriptPromptCallback_deprecatedForUseWithV5)(WKPageRef page, WKStringRef message, WKStringRef defaultValue, WKFrameRef frame, WKSecurityOriginRef securityOrigin, const void *clientInfo);
 typedef bool (*WKPageRunBeforeUnloadConfirmPanelCallback_deprecatedForUseWithV6)(WKPageRef page, WKStringRef message, WKFrameRef frame, const void *clientInfo);
+typedef void (*WKPageAddMessageToConsoleCallback)(WKPageRef page, WKStringRef message, const void* clientInfo);
 
 typedef struct WKPageUIClientBase {
     int                                                                 version;
@@ -585,7 +595,7 @@ typedef struct WKPageUIClientV6 {
     WKPageRunJavaScriptAlertCallback                                    runJavaScriptAlert;
     WKPageRunJavaScriptConfirmCallback                                  runJavaScriptConfirm;
     WKPageRunJavaScriptPromptCallback                                   runJavaScriptPrompt;
-    WKCheckUserMediaPermissionCallback                                  checkUserMediaPermissionForOrigin;
+    void*                                                               unused6; // Used to be checkUserMediaPermissionForOrigin.
 } WKPageUIClientV6;
 
 typedef struct WKPageUIClientV7 {
@@ -665,7 +675,7 @@ typedef struct WKPageUIClientV7 {
     WKPageRunJavaScriptAlertCallback                                    runJavaScriptAlert;
     WKPageRunJavaScriptConfirmCallback                                  runJavaScriptConfirm;
     WKPageRunJavaScriptPromptCallback                                   runJavaScriptPrompt;
-    WKCheckUserMediaPermissionCallback                                  checkUserMediaPermissionForOrigin;
+    void*                                                               unused6; // Used to be checkUserMediaPermissionForOrigin.
 
     // Version 7.
     WKPageRunBeforeUnloadConfirmPanelCallback                           runBeforeUnloadConfirmPanel;
@@ -749,8 +759,8 @@ typedef struct WKPageUIClientV8 {
     WKPageRunJavaScriptAlertCallback                                    runJavaScriptAlert;
     WKPageRunJavaScriptConfirmCallback                                  runJavaScriptConfirm;
     WKPageRunJavaScriptPromptCallback                                   runJavaScriptPrompt;
-    WKCheckUserMediaPermissionCallback                                  checkUserMediaPermissionForOrigin;
-    
+    void*                                                               unused6; // Used to be checkUserMediaPermissionForOrigin.
+
     // Version 7.
     WKPageRunBeforeUnloadConfirmPanelCallback                           runBeforeUnloadConfirmPanel;
     WKFullscreenMayReturnToInlineCallback                               fullscreenMayReturnToInline;
@@ -837,7 +847,7 @@ typedef struct WKPageUIClientV9 {
     WKPageRunJavaScriptAlertCallback                                    runJavaScriptAlert;
     WKPageRunJavaScriptConfirmCallback                                  runJavaScriptConfirm;
     WKPageRunJavaScriptPromptCallback                                   runJavaScriptPrompt;
-    WKCheckUserMediaPermissionCallback                                  checkUserMediaPermissionForOrigin;
+    void*                                                               unused6; // Used to be checkUserMediaPermissionForOrigin.
 
     // Version 7.
     WKPageRunBeforeUnloadConfirmPanelCallback                           runBeforeUnloadConfirmPanel;
@@ -928,8 +938,8 @@ typedef struct WKPageUIClientV10 {
     WKPageRunJavaScriptAlertCallback                                    runJavaScriptAlert;
     WKPageRunJavaScriptConfirmCallback                                  runJavaScriptConfirm;
     WKPageRunJavaScriptPromptCallback                                   runJavaScriptPrompt;
-    WKCheckUserMediaPermissionCallback                                  checkUserMediaPermissionForOrigin;
-    
+    void*                                                               unused6; // Used to be checkUserMediaPermissionForOrigin.
+
     // Version 7.
     WKPageRunBeforeUnloadConfirmPanelCallback                           runBeforeUnloadConfirmPanel;
     WKFullscreenMayReturnToInlineCallback                               fullscreenMayReturnToInline;
@@ -943,7 +953,7 @@ typedef struct WKPageUIClientV10 {
     
     // Version 10.
     WKHasVideoInPictureInPictureDidChangeCallback                       hasVideoInPictureInPictureDidChange;
-    WKDidExceedBackgroundResourceLimitWhileInForegroundCallback         didExceedBackgroundResourceLimitWhileInForeground;
+    void*                                                               unused7; // Used to be didExceedBackgroundResourceLimitWhileInForeground
 } WKPageUIClientV10;
 
 typedef struct WKPageUIClientV11 {
@@ -1023,7 +1033,7 @@ typedef struct WKPageUIClientV11 {
     WKPageRunJavaScriptAlertCallback                                    runJavaScriptAlert;
     WKPageRunJavaScriptConfirmCallback                                  runJavaScriptConfirm;
     WKPageRunJavaScriptPromptCallback                                   runJavaScriptPrompt;
-    WKCheckUserMediaPermissionCallback                                  checkUserMediaPermissionForOrigin;
+    void*                                                               unused6; // Used to be checkUserMediaPermissionForOrigin.
 
     // Version 7.
     WKPageRunBeforeUnloadConfirmPanelCallback                           runBeforeUnloadConfirmPanel;
@@ -1038,7 +1048,7 @@ typedef struct WKPageUIClientV11 {
 
     // Version 10.
     WKHasVideoInPictureInPictureDidChangeCallback                       hasVideoInPictureInPictureDidChange;
-    WKDidExceedBackgroundResourceLimitWhileInForegroundCallback         didExceedBackgroundResourceLimitWhileInForeground;
+    void*                                                               unused7; // Used to be didExceedBackgroundResourceLimitWhileInForeground
 
     // Version 11.
     WKPageDidResignInputElementStrongPasswordAppearanceCallback         didResignInputElementStrongPasswordAppearance;
@@ -1121,8 +1131,8 @@ typedef struct WKPageUIClientV12 {
     WKPageRunJavaScriptAlertCallback                                    runJavaScriptAlert;
     WKPageRunJavaScriptConfirmCallback                                  runJavaScriptConfirm;
     WKPageRunJavaScriptPromptCallback                                   runJavaScriptPrompt;
-    WKCheckUserMediaPermissionCallback                                  checkUserMediaPermissionForOrigin;
-    
+    void*                                                               unused6; // Used to be checkUserMediaPermissionForOrigin.
+
     // Version 7.
     WKPageRunBeforeUnloadConfirmPanelCallback                           runBeforeUnloadConfirmPanel;
     WKFullscreenMayReturnToInlineCallback                               fullscreenMayReturnToInline;
@@ -1136,7 +1146,7 @@ typedef struct WKPageUIClientV12 {
     
     // Version 10.
     WKHasVideoInPictureInPictureDidChangeCallback                       hasVideoInPictureInPictureDidChange;
-    WKDidExceedBackgroundResourceLimitWhileInForegroundCallback         didExceedBackgroundResourceLimitWhileInForeground;
+    void*                                                               unused7; // Used to be didExceedBackgroundResourceLimitWhileInForeground
     
     // Version 11.
     WKPageDidResignInputElementStrongPasswordAppearanceCallback         didResignInputElementStrongPasswordAppearance;
@@ -1222,7 +1232,7 @@ typedef struct WKPageUIClientV13 {
     WKPageRunJavaScriptAlertCallback                                    runJavaScriptAlert;
     WKPageRunJavaScriptConfirmCallback                                  runJavaScriptConfirm;
     WKPageRunJavaScriptPromptCallback                                   runJavaScriptPrompt;
-    WKCheckUserMediaPermissionCallback                                  checkUserMediaPermissionForOrigin;
+    void*                                                               unused6; // Used to be checkUserMediaPermissionForOrigin.
 
     // Version 7.
     WKPageRunBeforeUnloadConfirmPanelCallback                           runBeforeUnloadConfirmPanel;
@@ -1237,7 +1247,7 @@ typedef struct WKPageUIClientV13 {
 
     // Version 10.
     WKHasVideoInPictureInPictureDidChangeCallback                       hasVideoInPictureInPictureDidChange;
-    WKDidExceedBackgroundResourceLimitWhileInForegroundCallback         didExceedBackgroundResourceLimitWhileInForeground;
+    void*                                                               unused7; // Used to be didExceedBackgroundResourceLimitWhileInForeground
 
     // Version 11.
     WKPageDidResignInputElementStrongPasswordAppearanceCallback         didResignInputElementStrongPasswordAppearance;
@@ -1326,7 +1336,7 @@ typedef struct WKPageUIClientV14 {
     WKPageRunJavaScriptAlertCallback                                    runJavaScriptAlert;
     WKPageRunJavaScriptConfirmCallback                                  runJavaScriptConfirm;
     WKPageRunJavaScriptPromptCallback                                   runJavaScriptPrompt;
-    WKCheckUserMediaPermissionCallback                                  checkUserMediaPermissionForOrigin;
+    void*                                                               unused6; // Used to be checkUserMediaPermissionForOrigin.
 
     // Version 7.
     WKPageRunBeforeUnloadConfirmPanelCallback                           runBeforeUnloadConfirmPanel;
@@ -1341,7 +1351,7 @@ typedef struct WKPageUIClientV14 {
 
     // Version 10.
     WKHasVideoInPictureInPictureDidChangeCallback                       hasVideoInPictureInPictureDidChange;
-    WKDidExceedBackgroundResourceLimitWhileInForegroundCallback         didExceedBackgroundResourceLimitWhileInForeground;
+    void*                                                               unused7; // Used to be didExceedBackgroundResourceLimitWhileInForeground
 
     // Version 11.
     WKPageDidResignInputElementStrongPasswordAppearanceCallback         didResignInputElementStrongPasswordAppearance;
@@ -1433,7 +1443,7 @@ typedef struct WKPageUIClientV15 {
     WKPageRunJavaScriptAlertCallback                                    runJavaScriptAlert;
     WKPageRunJavaScriptConfirmCallback                                  runJavaScriptConfirm;
     WKPageRunJavaScriptPromptCallback                                   runJavaScriptPrompt;
-    WKCheckUserMediaPermissionCallback                                  checkUserMediaPermissionForOrigin;
+    void*                                                               unused6; // Used to be checkUserMediaPermissionForOrigin.
 
     // Version 7.
     WKPageRunBeforeUnloadConfirmPanelCallback                           runBeforeUnloadConfirmPanel;
@@ -1448,7 +1458,7 @@ typedef struct WKPageUIClientV15 {
 
     // Version 10.
     WKHasVideoInPictureInPictureDidChangeCallback                       hasVideoInPictureInPictureDidChange;
-    WKDidExceedBackgroundResourceLimitWhileInForegroundCallback         didExceedBackgroundResourceLimitWhileInForeground;
+    void*                                                               unused7; // Used to be didExceedBackgroundResourceLimitWhileInForeground
 
     // Version 11.
     WKPageDidResignInputElementStrongPasswordAppearanceCallback         didResignInputElementStrongPasswordAppearance;
@@ -1463,7 +1473,7 @@ typedef struct WKPageUIClientV15 {
     WKPageRunWebAuthenticationPanelCallback                             runWebAuthenticationPanel;
 
     // Version 15.
-    WKPageDecidePolicyForSpeechRecognitionPermissionRequestCallback     decidePolicyForSpeechRecognitionPermissionRequest;
+    void*                                                               unused8; // Used to be decidePolicyForSpeechRecognitionPermissionRequest.
     
 } WKPageUIClientV15;
 
@@ -1544,7 +1554,7 @@ typedef struct WKPageUIClientV16 {
     WKPageRunJavaScriptAlertCallback                                    runJavaScriptAlert;
     WKPageRunJavaScriptConfirmCallback                                  runJavaScriptConfirm;
     WKPageRunJavaScriptPromptCallback                                   runJavaScriptPrompt;
-    WKCheckUserMediaPermissionCallback                                  checkUserMediaPermissionForOrigin;
+    void*                                                               unused6; // Used to be checkUserMediaPermissionForOrigin.
 
     // Version 7.
     WKPageRunBeforeUnloadConfirmPanelCallback                           runBeforeUnloadConfirmPanel;
@@ -1559,7 +1569,7 @@ typedef struct WKPageUIClientV16 {
 
     // Version 10.
     WKHasVideoInPictureInPictureDidChangeCallback                       hasVideoInPictureInPictureDidChange;
-    WKDidExceedBackgroundResourceLimitWhileInForegroundCallback         didExceedBackgroundResourceLimitWhileInForeground;
+    void*                                                               unused7; // Used to be didExceedBackgroundResourceLimitWhileInForeground
 
     // Version 11.
     WKPageDidResignInputElementStrongPasswordAppearanceCallback         didResignInputElementStrongPasswordAppearance;
@@ -1574,13 +1584,365 @@ typedef struct WKPageUIClientV16 {
     WKPageRunWebAuthenticationPanelCallback                             runWebAuthenticationPanel;
 
     // Version 15.
-    WKPageDecidePolicyForSpeechRecognitionPermissionRequestCallback     decidePolicyForSpeechRecognitionPermissionRequest;
+    void*                                                               unused8; // Used to be decidePolicyForSpeechRecognitionPermissionRequest.
 
     // Version 16.
     WKPageDecidePolicyForMediaKeySystemPermissionRequestCallback        decidePolicyForMediaKeySystemPermissionRequest;
 
 } WKPageUIClientV16;
 
+typedef struct WKPageUIClientV17 {
+    WKPageUIClientBase                                                  base;
+
+    // Version 0.
+    WKPageCreateNewPageCallback_deprecatedForUseWithV0                  createNewPage_deprecatedForUseWithV0;
+    WKPageUIClientCallback                                              showPage;
+    WKPageUIClientCallback                                              close;
+    WKPageTakeFocusCallback                                             takeFocus;
+    WKPageFocusCallback                                                 focus;
+    WKPageUnfocusCallback                                               unfocus;
+    WKPageRunJavaScriptAlertCallback_deprecatedForUseWithV0             runJavaScriptAlert_deprecatedForUseWithV0;
+    WKPageRunJavaScriptConfirmCallback_deprecatedForUseWithV0           runJavaScriptConfirm_deprecatedForUseWithV0;
+    WKPageRunJavaScriptPromptCallback_deprecatedForUseWithV0            runJavaScriptPrompt_deprecatedForUseWithV0;
+    WKPageSetStatusTextCallback                                         setStatusText;
+    WKPageMouseDidMoveOverElementCallback_deprecatedForUseWithV0        mouseDidMoveOverElement_deprecatedForUseWithV0;
+    WKPageMissingPluginButtonClickedCallback_deprecatedForUseWithV0     missingPluginButtonClicked_deprecatedForUseWithV0;
+    WKPageDidNotHandleKeyEventCallback                                  didNotHandleKeyEvent;
+    WKPageDidNotHandleWheelEventCallback                                didNotHandleWheelEvent;
+    WKPageGetToolbarsAreVisibleCallback                                 toolbarsAreVisible;
+    WKPageSetToolbarsAreVisibleCallback                                 setToolbarsAreVisible;
+    WKPageGetMenuBarIsVisibleCallback                                   menuBarIsVisible;
+    WKPageSetMenuBarIsVisibleCallback                                   setMenuBarIsVisible;
+    WKPageGetStatusBarIsVisibleCallback                                 statusBarIsVisible;
+    WKPageSetStatusBarIsVisibleCallback                                 setStatusBarIsVisible;
+    WKPageGetIsResizableCallback                                        isResizable;
+    WKPageSetIsResizableCallback                                        setIsResizable;
+    WKPageGetWindowFrameCallback                                        getWindowFrame;
+    WKPageSetWindowFrameCallback                                        setWindowFrame;
+    WKPageRunBeforeUnloadConfirmPanelCallback_deprecatedForUseWithV6    runBeforeUnloadConfirmPanel_deprecatedForUseWithV6;
+    WKPageUIClientCallback                                              didDraw;
+    WKPageUIClientCallback                                              pageDidScroll;
+    WKPageExceededDatabaseQuotaCallback                                 exceededDatabaseQuota;
+    WKPageRunOpenPanelCallback                                          runOpenPanel;
+    WKPageDecidePolicyForGeolocationPermissionRequestCallback           decidePolicyForGeolocationPermissionRequest;
+    WKPageHeaderHeightCallback                                          headerHeight;
+    WKPageFooterHeightCallback                                          footerHeight;
+    WKPageDrawHeaderCallback                                            drawHeader;
+    WKPageDrawFooterCallback                                            drawFooter;
+    WKPagePrintFrameCallback                                            printFrame;
+    WKPageUIClientCallback                                              runModal;
+    void*                                                               unused1; // Used to be didCompleteRubberBandForMainFrame
+    WKPageSaveDataToFileInDownloadsFolderCallback                       saveDataToFileInDownloadsFolder;
+    void*                                                               shouldInterruptJavaScript_unavailable;
+
+    // Version 1.
+    WKPageCreateNewPageCallback_deprecatedForUseWithV1                  createNewPage_deprecatedForUseWithV1;
+    WKPageMouseDidMoveOverElementCallback                               mouseDidMoveOverElement;
+    WKPageDecidePolicyForNotificationPermissionRequestCallback          decidePolicyForNotificationPermissionRequest;
+    WKPageUnavailablePluginButtonClickedCallback_deprecatedForUseWithV1 unavailablePluginButtonClicked_deprecatedForUseWithV1;
+
+    // Version 2.
+    WKPageShowColorPickerCallback                                       showColorPicker;
+    WKPageHideColorPickerCallback                                       hideColorPicker;
+    WKPageUnavailablePluginButtonClickedCallback                        unavailablePluginButtonClicked;
+
+    // Version 3.
+    WKPagePinnedStateDidChangeCallback                                  pinnedStateDidChange;
+
+    // Version 4.
+    void*                                                               unused2; // Used to be didBeginTrackingPotentialLongMousePress.
+    void*                                                               unused3; // Used to be didRecognizeLongMousePress.
+    void*                                                               unused4; // Used to be didCancelTrackingPotentialLongMousePress.
+    WKPageIsPlayingAudioDidChangeCallback                               isPlayingAudioDidChange;
+
+    // Version 5.
+    WKPageDecidePolicyForUserMediaPermissionRequestCallback             decidePolicyForUserMediaPermissionRequest;
+    WKPageDidClickAutoFillButtonCallback                                didClickAutoFillButton;
+    WKPageRunJavaScriptAlertCallback_deprecatedForUseWithV5             runJavaScriptAlert_deprecatedForUseWithV5;
+    WKPageRunJavaScriptConfirmCallback_deprecatedForUseWithV5           runJavaScriptConfirm_deprecatedForUseWithV5;
+    WKPageRunJavaScriptPromptCallback_deprecatedForUseWithV5            runJavaScriptPrompt_deprecatedForUseWithV5;
+    void*                                                               unused5; // Used to be mediaSessionMetadataDidChange.
+
+    // Version 6.
+    WKPageCreateNewPageCallback                                         createNewPage;
+    WKPageRunJavaScriptAlertCallback                                    runJavaScriptAlert;
+    WKPageRunJavaScriptConfirmCallback                                  runJavaScriptConfirm;
+    WKPageRunJavaScriptPromptCallback                                   runJavaScriptPrompt;
+    void*                                                               unused6; // Used to be checkUserMediaPermissionForOrigin.
+
+    // Version 7.
+    WKPageRunBeforeUnloadConfirmPanelCallback                           runBeforeUnloadConfirmPanel;
+    WKFullscreenMayReturnToInlineCallback                               fullscreenMayReturnToInline;
+
+    // Version 8.
+    WKRequestPointerLockCallback                                        requestPointerLock;
+    WKDidLosePointerLockCallback                                        didLosePointerLock;
+
+    // Version 9.
+    WKHandleAutoplayEventCallback                                       handleAutoplayEvent;
+
+    // Version 10.
+    WKHasVideoInPictureInPictureDidChangeCallback                       hasVideoInPictureInPictureDidChange;
+    void*                                                               unused7; // Used to be didExceedBackgroundResourceLimitWhileInForeground
+
+    // Version 11.
+    WKPageDidResignInputElementStrongPasswordAppearanceCallback         didResignInputElementStrongPasswordAppearance;
+
+    // Version 12.
+    WKPageRequestStorageAccessConfirmCallback                           requestStorageAccessConfirm;
+
+    // Version 13.
+    WKPageShouldAllowDeviceOrientationAndMotionAccessCallback           shouldAllowDeviceOrientationAndMotionAccess;
+
+    // Version 14.
+    WKPageRunWebAuthenticationPanelCallback                             runWebAuthenticationPanel;
+
+    // Version 15.
+    void*                                                               unused8; // Used to be decidePolicyForSpeechRecognitionPermissionRequest.
+
+    // Version 16.
+    WKPageDecidePolicyForMediaKeySystemPermissionRequestCallback        decidePolicyForMediaKeySystemPermissionRequest;
+
+} WKPageUIClientV17;
+
+typedef struct WKPageUIClientV18 {
+    WKPageUIClientBase                                                  base;
+
+    // Version 0.
+    WKPageCreateNewPageCallback_deprecatedForUseWithV0                  createNewPage_deprecatedForUseWithV0;
+    WKPageUIClientCallback                                              showPage;
+    WKPageUIClientCallback                                              close;
+    WKPageTakeFocusCallback                                             takeFocus;
+    WKPageFocusCallback                                                 focus;
+    WKPageUnfocusCallback                                               unfocus;
+    WKPageRunJavaScriptAlertCallback_deprecatedForUseWithV0             runJavaScriptAlert_deprecatedForUseWithV0;
+    WKPageRunJavaScriptConfirmCallback_deprecatedForUseWithV0           runJavaScriptConfirm_deprecatedForUseWithV0;
+    WKPageRunJavaScriptPromptCallback_deprecatedForUseWithV0            runJavaScriptPrompt_deprecatedForUseWithV0;
+    WKPageSetStatusTextCallback                                         setStatusText;
+    WKPageMouseDidMoveOverElementCallback_deprecatedForUseWithV0        mouseDidMoveOverElement_deprecatedForUseWithV0;
+    WKPageMissingPluginButtonClickedCallback_deprecatedForUseWithV0     missingPluginButtonClicked_deprecatedForUseWithV0;
+    WKPageDidNotHandleKeyEventCallback                                  didNotHandleKeyEvent;
+    WKPageDidNotHandleWheelEventCallback                                didNotHandleWheelEvent;
+    WKPageGetToolbarsAreVisibleCallback                                 toolbarsAreVisible;
+    WKPageSetToolbarsAreVisibleCallback                                 setToolbarsAreVisible;
+    WKPageGetMenuBarIsVisibleCallback                                   menuBarIsVisible;
+    WKPageSetMenuBarIsVisibleCallback                                   setMenuBarIsVisible;
+    WKPageGetStatusBarIsVisibleCallback                                 statusBarIsVisible;
+    WKPageSetStatusBarIsVisibleCallback                                 setStatusBarIsVisible;
+    WKPageGetIsResizableCallback                                        isResizable;
+    WKPageSetIsResizableCallback                                        setIsResizable;
+    WKPageGetWindowFrameCallback                                        getWindowFrame;
+    WKPageSetWindowFrameCallback                                        setWindowFrame;
+    WKPageRunBeforeUnloadConfirmPanelCallback_deprecatedForUseWithV6    runBeforeUnloadConfirmPanel_deprecatedForUseWithV6;
+    WKPageUIClientCallback                                              didDraw;
+    WKPageUIClientCallback                                              pageDidScroll;
+    WKPageExceededDatabaseQuotaCallback                                 exceededDatabaseQuota;
+    WKPageRunOpenPanelCallback                                          runOpenPanel;
+    WKPageDecidePolicyForGeolocationPermissionRequestCallback           decidePolicyForGeolocationPermissionRequest;
+    WKPageHeaderHeightCallback                                          headerHeight;
+    WKPageFooterHeightCallback                                          footerHeight;
+    WKPageDrawHeaderCallback                                            drawHeader;
+    WKPageDrawFooterCallback                                            drawFooter;
+    WKPagePrintFrameCallback                                            printFrame;
+    WKPageUIClientCallback                                              runModal;
+    void*                                                               unused1; // Used to be didCompleteRubberBandForMainFrame
+    WKPageSaveDataToFileInDownloadsFolderCallback                       saveDataToFileInDownloadsFolder;
+    void*                                                               shouldInterruptJavaScript_unavailable;
+
+    // Version 1.
+    WKPageCreateNewPageCallback_deprecatedForUseWithV1                  createNewPage_deprecatedForUseWithV1;
+    WKPageMouseDidMoveOverElementCallback                               mouseDidMoveOverElement;
+    WKPageDecidePolicyForNotificationPermissionRequestCallback          decidePolicyForNotificationPermissionRequest;
+    WKPageUnavailablePluginButtonClickedCallback_deprecatedForUseWithV1 unavailablePluginButtonClicked_deprecatedForUseWithV1;
+
+    // Version 2.
+    WKPageShowColorPickerCallback                                       showColorPicker;
+    WKPageHideColorPickerCallback                                       hideColorPicker;
+    WKPageUnavailablePluginButtonClickedCallback                        unavailablePluginButtonClicked;
+
+    // Version 3.
+    WKPagePinnedStateDidChangeCallback                                  pinnedStateDidChange;
+
+    // Version 4.
+    void*                                                               unused2; // Used to be didBeginTrackingPotentialLongMousePress.
+    void*                                                               unused3; // Used to be didRecognizeLongMousePress.
+    void*                                                               unused4; // Used to be didCancelTrackingPotentialLongMousePress.
+    WKPageIsPlayingAudioDidChangeCallback                               isPlayingAudioDidChange;
+
+    // Version 5.
+    WKPageDecidePolicyForUserMediaPermissionRequestCallback             decidePolicyForUserMediaPermissionRequest;
+    WKPageDidClickAutoFillButtonCallback                                didClickAutoFillButton;
+    WKPageRunJavaScriptAlertCallback_deprecatedForUseWithV5             runJavaScriptAlert_deprecatedForUseWithV5;
+    WKPageRunJavaScriptConfirmCallback_deprecatedForUseWithV5           runJavaScriptConfirm_deprecatedForUseWithV5;
+    WKPageRunJavaScriptPromptCallback_deprecatedForUseWithV5            runJavaScriptPrompt_deprecatedForUseWithV5;
+    void*                                                               unused5; // Used to be mediaSessionMetadataDidChange.
+
+    // Version 6.
+    WKPageCreateNewPageCallback                                         createNewPage;
+    WKPageRunJavaScriptAlertCallback                                    runJavaScriptAlert;
+    WKPageRunJavaScriptConfirmCallback                                  runJavaScriptConfirm;
+    WKPageRunJavaScriptPromptCallback                                   runJavaScriptPrompt;
+    void*                                                               unused6; // Used to be checkUserMediaPermissionForOrigin.
+
+    // Version 7.
+    WKPageRunBeforeUnloadConfirmPanelCallback                           runBeforeUnloadConfirmPanel;
+    WKFullscreenMayReturnToInlineCallback                               fullscreenMayReturnToInline;
+
+    // Version 8.
+    WKRequestPointerLockCallback                                        requestPointerLock;
+    WKDidLosePointerLockCallback                                        didLosePointerLock;
+
+    // Version 9.
+    WKHandleAutoplayEventCallback                                       handleAutoplayEvent;
+
+    // Version 10.
+    WKHasVideoInPictureInPictureDidChangeCallback                       hasVideoInPictureInPictureDidChange;
+    void*                                                               unused7; // Used to be didExceedBackgroundResourceLimitWhileInForeground
+
+    // Version 11.
+    WKPageDidResignInputElementStrongPasswordAppearanceCallback         didResignInputElementStrongPasswordAppearance;
+
+    // Version 12.
+    WKPageRequestStorageAccessConfirmCallback                           requestStorageAccessConfirm;
+
+    // Version 13.
+    WKPageShouldAllowDeviceOrientationAndMotionAccessCallback           shouldAllowDeviceOrientationAndMotionAccess;
+
+    // Version 14.
+    WKPageRunWebAuthenticationPanelCallback                             runWebAuthenticationPanel;
+
+    // Version 15.
+    void*                                                               unused8; // Used to be decidePolicyForSpeechRecognitionPermissionRequest.
+
+    // Version 16.
+    WKPageDecidePolicyForMediaKeySystemPermissionRequestCallback        decidePolicyForMediaKeySystemPermissionRequest;
+
+    // Version 17.
+    WKQueryPermissionCallback                                           queryPermission;
+} WKPageUIClientV18;
+
+typedef struct WKPageUIClientV19 {
+    WKPageUIClientBase                                                  base;
+
+    // Version 0.
+    WKPageCreateNewPageCallback_deprecatedForUseWithV0                  createNewPage_deprecatedForUseWithV0;
+    WKPageUIClientCallback                                              showPage;
+    WKPageUIClientCallback                                              close;
+    WKPageTakeFocusCallback                                             takeFocus;
+    WKPageFocusCallback                                                 focus;
+    WKPageUnfocusCallback                                               unfocus;
+    WKPageRunJavaScriptAlertCallback_deprecatedForUseWithV0             runJavaScriptAlert_deprecatedForUseWithV0;
+    WKPageRunJavaScriptConfirmCallback_deprecatedForUseWithV0           runJavaScriptConfirm_deprecatedForUseWithV0;
+    WKPageRunJavaScriptPromptCallback_deprecatedForUseWithV0            runJavaScriptPrompt_deprecatedForUseWithV0;
+    WKPageSetStatusTextCallback                                         setStatusText;
+    WKPageMouseDidMoveOverElementCallback_deprecatedForUseWithV0        mouseDidMoveOverElement_deprecatedForUseWithV0;
+    WKPageMissingPluginButtonClickedCallback_deprecatedForUseWithV0     missingPluginButtonClicked_deprecatedForUseWithV0;
+    WKPageDidNotHandleKeyEventCallback                                  didNotHandleKeyEvent;
+    WKPageDidNotHandleWheelEventCallback                                didNotHandleWheelEvent;
+    WKPageGetToolbarsAreVisibleCallback                                 toolbarsAreVisible;
+    WKPageSetToolbarsAreVisibleCallback                                 setToolbarsAreVisible;
+    WKPageGetMenuBarIsVisibleCallback                                   menuBarIsVisible;
+    WKPageSetMenuBarIsVisibleCallback                                   setMenuBarIsVisible;
+    WKPageGetStatusBarIsVisibleCallback                                 statusBarIsVisible;
+    WKPageSetStatusBarIsVisibleCallback                                 setStatusBarIsVisible;
+    WKPageGetIsResizableCallback                                        isResizable;
+    WKPageSetIsResizableCallback                                        setIsResizable;
+    WKPageGetWindowFrameCallback                                        getWindowFrame;
+    WKPageSetWindowFrameCallback                                        setWindowFrame;
+    WKPageRunBeforeUnloadConfirmPanelCallback_deprecatedForUseWithV6    runBeforeUnloadConfirmPanel_deprecatedForUseWithV6;
+    WKPageUIClientCallback                                              didDraw;
+    WKPageUIClientCallback                                              pageDidScroll;
+    WKPageExceededDatabaseQuotaCallback                                 exceededDatabaseQuota;
+    WKPageRunOpenPanelCallback                                          runOpenPanel;
+    WKPageDecidePolicyForGeolocationPermissionRequestCallback           decidePolicyForGeolocationPermissionRequest;
+    WKPageHeaderHeightCallback                                          headerHeight;
+    WKPageFooterHeightCallback                                          footerHeight;
+    WKPageDrawHeaderCallback                                            drawHeader;
+    WKPageDrawFooterCallback                                            drawFooter;
+    WKPagePrintFrameCallback                                            printFrame;
+    WKPageUIClientCallback                                              runModal;
+    void*                                                               unused1; // Used to be didCompleteRubberBandForMainFrame
+    WKPageSaveDataToFileInDownloadsFolderCallback                       saveDataToFileInDownloadsFolder;
+    void*                                                               shouldInterruptJavaScript_unavailable;
+
+    // Version 1.
+    WKPageCreateNewPageCallback_deprecatedForUseWithV1                  createNewPage_deprecatedForUseWithV1;
+    WKPageMouseDidMoveOverElementCallback                               mouseDidMoveOverElement;
+    WKPageDecidePolicyForNotificationPermissionRequestCallback          decidePolicyForNotificationPermissionRequest;
+    WKPageUnavailablePluginButtonClickedCallback_deprecatedForUseWithV1 unavailablePluginButtonClicked_deprecatedForUseWithV1;
+
+    // Version 2.
+    WKPageShowColorPickerCallback                                       showColorPicker;
+    WKPageHideColorPickerCallback                                       hideColorPicker;
+    WKPageUnavailablePluginButtonClickedCallback                        unavailablePluginButtonClicked;
+
+    // Version 3.
+    WKPagePinnedStateDidChangeCallback                                  pinnedStateDidChange;
+
+    // Version 4.
+    void*                                                               unused2; // Used to be didBeginTrackingPotentialLongMousePress.
+    void*                                                               unused3; // Used to be didRecognizeLongMousePress.
+    void*                                                               unused4; // Used to be didCancelTrackingPotentialLongMousePress.
+    WKPageIsPlayingAudioDidChangeCallback                               isPlayingAudioDidChange;
+
+    // Version 5.
+    WKPageDecidePolicyForUserMediaPermissionRequestCallback             decidePolicyForUserMediaPermissionRequest;
+    WKPageDidClickAutoFillButtonCallback                                didClickAutoFillButton;
+    WKPageRunJavaScriptAlertCallback_deprecatedForUseWithV5             runJavaScriptAlert_deprecatedForUseWithV5;
+    WKPageRunJavaScriptConfirmCallback_deprecatedForUseWithV5           runJavaScriptConfirm_deprecatedForUseWithV5;
+    WKPageRunJavaScriptPromptCallback_deprecatedForUseWithV5            runJavaScriptPrompt_deprecatedForUseWithV5;
+    void*                                                               unused5; // Used to be mediaSessionMetadataDidChange.
+
+    // Version 6.
+    WKPageCreateNewPageCallback                                         createNewPage;
+    WKPageRunJavaScriptAlertCallback                                    runJavaScriptAlert;
+    WKPageRunJavaScriptConfirmCallback                                  runJavaScriptConfirm;
+    WKPageRunJavaScriptPromptCallback                                   runJavaScriptPrompt;
+    void*                                                               unused6; // Used to be checkUserMediaPermissionForOrigin.
+
+    // Version 7.
+    WKPageRunBeforeUnloadConfirmPanelCallback                           runBeforeUnloadConfirmPanel;
+    WKFullscreenMayReturnToInlineCallback                               fullscreenMayReturnToInline;
+
+    // Version 8.
+    WKRequestPointerLockCallback                                        requestPointerLock;
+    WKDidLosePointerLockCallback                                        didLosePointerLock;
+
+    // Version 9.
+    WKHandleAutoplayEventCallback                                       handleAutoplayEvent;
+
+    // Version 10.
+    WKHasVideoInPictureInPictureDidChangeCallback                       hasVideoInPictureInPictureDidChange;
+    void*                                                               unused7; // Used to be didExceedBackgroundResourceLimitWhileInForeground
+
+    // Version 11.
+    WKPageDidResignInputElementStrongPasswordAppearanceCallback         didResignInputElementStrongPasswordAppearance;
+
+    // Version 12.
+    WKPageRequestStorageAccessConfirmCallback                           requestStorageAccessConfirm;
+
+    // Version 13.
+    WKPageShouldAllowDeviceOrientationAndMotionAccessCallback           shouldAllowDeviceOrientationAndMotionAccess;
+
+    // Version 14.
+    WKPageRunWebAuthenticationPanelCallback                             runWebAuthenticationPanel;
+
+    // Version 15.
+    void*                                                               unused8; // Used to be decidePolicyForSpeechRecognitionPermissionRequest.
+
+    // Version 16.
+    WKPageDecidePolicyForMediaKeySystemPermissionRequestCallback        decidePolicyForMediaKeySystemPermissionRequest;
+
+    // Version 17.
+    WKQueryPermissionCallback                                           queryPermission;
+
+    // Version 18.
+    WKLockScreenOrientationCallback                                     lockScreenOrientation;
+    WKUnlockScreenOrientationCallback                                   unlockScreenOrientation;
+
+    WKPageAddMessageToConsoleCallback addMessageToConsole;
+    WKPageTooltipDidChangeCallback tooltipDidChange;
+} WKPageUIClientV19;
 
 #ifdef __cplusplus
 }

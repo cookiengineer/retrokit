@@ -45,20 +45,18 @@ struct GLTypeToGLenum<GLboolean>
 template <>
 struct GLTypeToGLenum<GLint64>
 {
-    static constexpr GLenum value = GL_INT_64_ANGLEX;
+    static constexpr GLenum value = GL_INT64;
 };
 template <>
 struct GLTypeToGLenum<GLuint64>
 {
-    static constexpr GLenum value = GL_UINT_64_ANGLEX;
+    static constexpr GLenum value = GL_UNSIGNED_INT64;
 };
 template <>
 struct GLTypeToGLenum<GLfloat>
 {
     static constexpr GLenum value = GL_FLOAT;
 };
-
-GLint CastMaskValue(GLuint value);
 
 template <typename QueryT, typename InternalT>
 QueryT CastFromGLintStateValue(GLenum pname, InternalT value);
@@ -103,6 +101,12 @@ template <typename ParamType>
 GLint ConvertToGLint(ParamType param)
 {
     return CastQueryValueTo<GLint>(GL_NONE, param);
+}
+
+template <typename ParamType>
+GLfloat ConvertToGLfloat(ParamType param)
+{
+    return CastQueryValueTo<GLfloat>(GL_NONE, param);
 }
 
 template <typename ParamType>

@@ -26,19 +26,21 @@
 #include "config.h"
 #include "WebMouseEvent.h"
 
-#include "WebCoreArgumentCoders.h"
+#include "WebEventConversion.h"
+#include <WebCore/MouseEventTypes.h>
+#include <WebCore/NavigationAction.h>
 
 namespace WebKit {
 using namespace WebCore;
 
-WebMouseEvent::WebMouseEvent() = default;
-
 #if PLATFORM(MAC)
-WebMouseEvent::WebMouseEvent(Type type, Button button, unsigned short buttons, const IntPoint& positionInView, const IntPoint& globalPosition, float deltaX, float deltaY, float deltaZ, int clickCount, OptionSet<Modifier> modifiers, WallTime timestamp, double force, SyntheticClickType syntheticClickType, int eventNumber, int menuType, GestureWasCancelled gestureWasCancelled)
+WebMouseEvent::WebMouseEvent(WebEvent&& event, WebMouseEventButton button, unsigned short buttons, const DoublePoint& positionInView, const DoublePoint& globalPosition, float deltaX, float deltaY, float deltaZ, int clickCount, double force, WebEventInputSource inputSource, PlatformMouseEvent::CanInitiateDrag canInitiateDrag, WebMouseEventSyntheticClickType syntheticClickType, int eventNumber, int menuType, GestureWasCancelled gestureWasCancelled, const DoublePoint& unadjustedMovementDelta, const Vector<WebMouseEvent>& coalescedEvents, const Vector<WebMouseEvent>& predictedEvents)
+#elif PLATFORM(GTK)
+WebMouseEvent::WebMouseEvent(WebEvent&& event, WebMouseEventButton button, unsigned short buttons, const DoublePoint& positionInView, const DoublePoint& globalPosition, float deltaX, float deltaY, float deltaZ, int clickCount, double force, WebEventInputSource inputSource, PlatformMouseEvent::CanInitiateDrag canInitiateDrag, WebMouseEventSyntheticClickType syntheticClickType, PlatformMouseEvent::IsTouch isTouchEvent, WebCore::PointerID pointerId, const String& pointerType, GestureWasCancelled gestureWasCancelled, const DoublePoint& unadjustedMovementDelta, const Vector<WebMouseEvent>& coalescedEvents, const Vector<WebMouseEvent>& predictedEvents)
 #else
-WebMouseEvent::WebMouseEvent(Type type, Button button, unsigned short buttons, const IntPoint& positionInView, const IntPoint& globalPosition, float deltaX, float deltaY, float deltaZ, int clickCount, OptionSet<Modifier> modifiers, WallTime timestamp, double force, SyntheticClickType syntheticClickType, WebCore::PointerID pointerId, const String& pointerType, GestureWasCancelled gestureWasCancelled)
+WebMouseEvent::WebMouseEvent(WebEvent&& event, WebMouseEventButton button, unsigned short buttons, const DoublePoint& positionInView, const DoublePoint& globalPosition, float deltaX, float deltaY, float deltaZ, int clickCount, double force, WebEventInputSource inputSource, PlatformMouseEvent::CanInitiateDrag canInitiateDrag, WebMouseEventSyntheticClickType syntheticClickType, WebCore::PointerID pointerId, const String& pointerType, GestureWasCancelled gestureWasCancelled, const DoublePoint& unadjustedMovementDelta, const Vector<WebMouseEvent>& coalescedEvents, const Vector<WebMouseEvent>& predictedEvents)
 #endif
-    : WebEvent(type, modifiers, timestamp)
+    : WebEvent(WTF::move(event))
     , m_button(button)
     , m_buttons(buttons)
     , m_position(positionInView)
@@ -46,90 +48,59 @@ WebMouseEvent::WebMouseEvent(Type type, Button button, unsigned short buttons, c
     , m_deltaX(deltaX)
     , m_deltaY(deltaY)
     , m_deltaZ(deltaZ)
+    , m_unadjustedMovementDelta(unadjustedMovementDelta)
     , m_clickCount(clickCount)
 #if PLATFORM(MAC)
     , m_eventNumber(eventNumber)
     , m_menuTypeForEvent(menuType)
+#elif PLATFORM(GTK)
+    , m_isTouchEvent(isTouchEvent)
 #endif
     , m_force(force)
+    , m_inputSource(inputSource)
+    , m_canInitiateDrag(canInitiateDrag)
     , m_syntheticClickType(syntheticClickType)
 #if !PLATFORM(MAC)
     , m_pointerId(pointerId)
     , m_pointerType(pointerType)
 #endif
     , m_gestureWasCancelled(gestureWasCancelled)
+    , m_coalescedEvents(coalescedEvents)
+    , m_predictedEvents(predictedEvents)
 {
-    ASSERT(isMouseEventType(type));
+    ASSERT(isMouseEventType(type()));
 }
 
-void WebMouseEvent::encode(IPC::Encoder& encoder) const
+bool WebMouseEvent::isMouseEventType(WebEventType type)
 {
-    WebEvent::encode(encoder);
-
-    encoder << m_button;
-    encoder << m_buttons;
-    encoder << m_position;
-    encoder << m_globalPosition;
-    encoder << m_deltaX;
-    encoder << m_deltaY;
-    encoder << m_deltaZ;
-    encoder << m_clickCount;
-#if PLATFORM(MAC)
-    encoder << m_eventNumber;
-    encoder << m_menuTypeForEvent;
-#endif
-    encoder << m_force;
-    encoder << m_syntheticClickType;
-    encoder << m_pointerId;
-    encoder << m_pointerType;
-    encoder << m_gestureWasCancelled;
+    return type == WebEventType::MouseDown || type == WebEventType::MouseUp || type == WebEventType::MouseMove || type == WebEventType::MouseForceUp || type == WebEventType::MouseForceDown || type == WebEventType::MouseForceChanged;
 }
 
-bool WebMouseEvent::decode(IPC::Decoder& decoder, WebMouseEvent& result)
+WebMouseEventButton NODELETE mouseButton(const WebCore::NavigationAction& navigationAction)
 {
-    if (!WebEvent::decode(decoder, result))
-        return false;
-
-    if (!decoder.decode(result.m_button))
-        return false;
-    if (!decoder.decode(result.m_buttons))
-        return false;
-    if (!decoder.decode(result.m_position))
-        return false;
-    if (!decoder.decode(result.m_globalPosition))
-        return false;
-    if (!decoder.decode(result.m_deltaX))
-        return false;
-    if (!decoder.decode(result.m_deltaY))
-        return false;
-    if (!decoder.decode(result.m_deltaZ))
-        return false;
-    if (!decoder.decode(result.m_clickCount))
-        return false;
-#if PLATFORM(MAC)
-    if (!decoder.decode(result.m_eventNumber))
-        return false;
-    if (!decoder.decode(result.m_menuTypeForEvent))
-        return false;
-#endif
-    if (!decoder.decode(result.m_force))
-        return false;
-
-    if (!decoder.decode(result.m_syntheticClickType))
-        return false;
-    if (!decoder.decode(result.m_pointerId))
-        return false;
-    if (!decoder.decode(result.m_pointerType))
-        return false;
-    if (!decoder.decode(result.m_gestureWasCancelled))
-        return false;
-
-    return true;
+    auto& mouseEventData = navigationAction.mouseEventData();
+    if (mouseEventData && mouseEventData->buttonDown && mouseEventData->isTrusted)
+        return kit(mouseEventData->button);
+    return WebMouseEventButton::None;
 }
 
-bool WebMouseEvent::isMouseEventType(Type type)
+WebMouseEventSyntheticClickType syntheticClickType(const WebCore::NavigationAction& navigationAction)
 {
-    return type == MouseDown || type == MouseUp || type == MouseMove || type == MouseForceUp || type == MouseForceDown || type == MouseForceChanged;
+    auto& mouseEventData = navigationAction.mouseEventData();
+    if (mouseEventData && mouseEventData->buttonDown && mouseEventData->isTrusted)
+        return static_cast<WebMouseEventSyntheticClickType>(mouseEventData->syntheticClickType);
+    return WebMouseEventSyntheticClickType::NoTap;
 }
-    
+
+WebCore::SyntheticClickType NODELETE coreSyntheticClickType(WebMouseEventSyntheticClickType type)
+{
+    switch (type) {
+    case WebMouseEventSyntheticClickType::NoTap: return WebCore::SyntheticClickType::NoTap;
+    case WebMouseEventSyntheticClickType::OneFingerTap: return WebCore::SyntheticClickType::OneFingerTap;
+    case WebMouseEventSyntheticClickType::TwoFingerTap: return WebCore::SyntheticClickType::TwoFingerTap;
+    }
+    ASSERT_NOT_REACHED();
+    return WebCore::SyntheticClickType::NoTap;
+}
+
 } // namespace WebKit

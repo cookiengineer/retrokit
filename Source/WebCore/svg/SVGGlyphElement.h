@@ -26,17 +26,15 @@
 namespace WebCore {
 
 class SVGGlyphElement final : public SVGElement {
-    WTF_MAKE_ISO_ALLOCATED(SVGGlyphElement);
+    WTF_MAKE_TZONE_ALLOCATED(SVGGlyphElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGGlyphElement);
 public:
     static Ref<SVGGlyphElement> create(const QualifiedName&, Document&);
-
-    // Helper function used by SVGFont
-    static String querySVGFontLanguage(const SVGElement*);
 
 private:
     SVGGlyphElement(const QualifiedName&, Document&);
 
-    bool rendererIsNeeded(const RenderStyle&) final { return false; }
+    bool rendererIsNeeded(const Style::ComputedStyle&) final { return false; }
 };
 
 } // namespace WebCore

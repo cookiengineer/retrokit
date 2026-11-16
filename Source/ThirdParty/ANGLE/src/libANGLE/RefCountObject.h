@@ -55,6 +55,79 @@ class RefCountObject : angle::NonCopyable
     mutable size_t mRefCount;
 };
 
+// Alternative base class to RefCountObject using atomics to track the reference count.
+// Interchangable with RefCountObject for usage with BindingPointer and other wrappers.
+template <typename ContextT, typename ErrorT>
+class ThreadSafeRefCountObject : angle::NonCopyable
+{
+  public:
+    using ContextType = ContextT;
+    using ErrorType   = ErrorT;
+
+    ThreadSafeRefCountObject() : mRefCount(0) {}
+
+    virtual void onDestroy(const ContextType *context) {}
+
+    void addRef() const { mRefCount.fetch_add(1, std::memory_order_relaxed); }
+
+    ANGLE_INLINE void release(const ContextType *context)
+    {
+        ASSERT(mRefCount > 0);
+        if (mRefCount.fetch_sub(1, std::memory_order_acq_rel) == 1)
+        {
+            onDestroy(context);
+            delete this;
+        }
+    }
+
+    size_t getRefCount() const { return mRefCount; }
+
+  protected:
+    virtual ~ThreadSafeRefCountObject() { ASSERT(mRefCount == 0); }
+
+    mutable std::atomic<size_t> mRefCount;
+};
+
+template <class ObjectType, typename ContextT, typename ErrorT = angle::Result>
+class RefCountObjectReleaser : angle::NonCopyable
+{
+  public:
+    using ContextType = ContextT;
+    using ErrorType   = ErrorT;
+
+    RefCountObjectReleaser() {}
+    RefCountObjectReleaser(const ContextType *context, ObjectType *object)
+        : mContext(context), mObject(object)
+    {}
+
+    RefCountObjectReleaser(RefCountObjectReleaser &&other)
+        : mContext(other.mContext), mObject(other.mObject)
+    {
+        other.mContext = nullptr;
+        other.mObject  = nullptr;
+    }
+
+    RefCountObjectReleaser &operator=(RefCountObjectReleaser &&other)
+    {
+        std::swap(mContext, other.mContext);
+        std::swap(mObject, other.mObject);
+        return *this;
+    }
+
+    ~RefCountObjectReleaser()
+    {
+        if (mObject)
+        {
+            mObject->release(mContext);
+            mObject = nullptr;
+        }
+    }
+
+  private:
+    const ContextType *mContext = nullptr;
+    ObjectType *mObject         = nullptr;
+};
+
 template <class ObjectType, typename ContextT, typename ErrorT = angle::Result>
 class BindingPointer
 {
@@ -93,22 +166,20 @@ class BindingPointer
         ASSERT(mObject == nullptr);
     }
 
-    void set(const ContextType *context, ObjectType *newObject)
+    RefCountObjectReleaser<ObjectType, ContextType, ErrorT> set(const ContextType *context,
+                                                                ObjectType *newObject)
     {
         // addRef first in case newObject == mObject and this is the last reference to it.
         if (newObject != nullptr)
         {
-            reinterpret_cast<RefCountObject<ContextType, ErrorType> *>(newObject)->addRef();
+            newObject->addRef();
         }
 
         // Store the old pointer in a temporary so we can set the pointer before calling release.
         // Otherwise the object could still be referenced when its destructor is called.
         ObjectType *oldObject = mObject;
         mObject               = newObject;
-        if (oldObject != nullptr)
-        {
-            reinterpret_cast<RefCountObject<ContextType, ErrorType> *>(oldObject)->release(context);
-        }
+        return RefCountObjectReleaser<ObjectType, ContextType, ErrorT>(context, oldObject);
     }
 
     void assign(ObjectType *object) { mObject = object; }
@@ -135,15 +206,16 @@ class Context;
 template <class ObjectType>
 class BindingPointer;
 
-using RefCountObjectNoID = angle::RefCountObject<Context, angle::Result>;
+using RefCountObjectNoID           = angle::RefCountObject<Context, angle::Result>;
+using ThreadSafeRefCountObjectNoID = angle::ThreadSafeRefCountObject<Context, angle::Result>;
 
-template <typename IDType>
-class RefCountObject : public gl::RefCountObjectNoID
+template <typename IDType, typename RC = RefCountObjectNoID>
+class RefCountObject : public RC
 {
   public:
-    explicit RefCountObject(rx::Serial serial, IDType id) : mSerial(serial), mId(id) {}
+    explicit RefCountObject(rx::UniqueSerial serial, IDType id) : mSerial(serial), mId(id) {}
 
-    rx::Serial serial() const { return mSerial; }
+    rx::UniqueSerial serial() const { return mSerial; }
     IDType id() const { return mId; }
 
   protected:
@@ -151,9 +223,11 @@ class RefCountObject : public gl::RefCountObjectNoID
 
   private:
     // Unique serials are used to identify resources for frame capture.
-    rx::Serial mSerial;
+    rx::UniqueSerial mSerial;
     IDType mId;
 };
+template <typename IDType>
+using ThreadSafeRefCountObject = RefCountObject<IDType, ThreadSafeRefCountObjectNoID>;
 
 template <class ObjectType>
 class BindingPointer : public angle::BindingPointer<ObjectType, Context>
@@ -187,8 +261,7 @@ class OffsetBindingPointer : public BindingPointer<ObjectType>
     void set(const ContextType *context, ObjectType *newObject, GLintptr offset, GLsizeiptr size)
     {
         set(context, newObject);
-        mOffset = offset;
-        mSize   = size;
+        updateOffsetAndSize(newObject, offset, size);
     }
 
     GLintptr getOffset() const { return mOffset; }
@@ -204,10 +277,22 @@ class OffsetBindingPointer : public BindingPointer<ObjectType>
         return !(*this == other);
     }
 
-    void assign(ObjectType *object, GLintptr offset, GLsizeiptr size)
+    void assign(ObjectType *newObject, GLintptr offset, GLsizeiptr size)
     {
-        assign(object);
-        if (object)
+        assign(newObject);
+        updateOffsetAndSize(newObject, offset, size);
+    }
+
+    void assignOffsetAndSize(GLintptr offset, GLsizeiptr size)
+    {
+        mOffset = offset;
+        mSize   = size;
+    }
+
+  private:
+    ANGLE_INLINE void updateOffsetAndSize(ObjectType *newObject, GLintptr offset, GLsizeiptr size)
+    {
+        if (newObject)
         {
             mOffset = offset;
             mSize   = size;
@@ -219,7 +304,6 @@ class OffsetBindingPointer : public BindingPointer<ObjectType>
         }
     }
 
-  private:
     // Delete the unparameterized functions. This forces an explicit offset and size.
     using BindingPointer<ObjectType>::set;
     using BindingPointer<ObjectType>::assign;
@@ -236,11 +320,16 @@ class SubjectBindingPointer : protected BindingPointer<SubjectT>, public angle::
         : ObserverBindingBase(observer, index)
     {}
     ~SubjectBindingPointer() override {}
-    SubjectBindingPointer(const SubjectBindingPointer &other) = default;
+    SubjectBindingPointer(const SubjectBindingPointer &other)            = default;
     SubjectBindingPointer &operator=(const SubjectBindingPointer &other) = default;
 
     void bind(const Context *context, SubjectT *subject)
     {
+        if (subject == get())
+        {
+            return;
+        }
+
         // AddRef first in case subject == get()
         if (subject)
         {
@@ -268,7 +357,11 @@ namespace egl
 {
 class Display;
 
-using RefCountObject = angle::RefCountObject<Display, Error>;
+using RefCountObject           = angle::RefCountObject<Display, Error>;
+using ThreadSafeRefCountObject = angle::ThreadSafeRefCountObject<Display, Error>;
+
+template <class ObjectType>
+using RefCountObjectReleaser = angle::RefCountObjectReleaser<ObjectType, Display, Error>;
 
 template <class ObjectType>
 using BindingPointer = angle::BindingPointer<ObjectType, Display, Error>;

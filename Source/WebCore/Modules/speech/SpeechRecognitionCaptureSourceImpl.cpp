@@ -29,6 +29,8 @@
 #if ENABLE(MEDIA_STREAM)
 
 #include "SpeechRecognitionUpdate.h"
+#include <wtf/CryptographicallyRandomNumber.h>
+#include <wtf/TZoneMallocInlines.h>
 
 #if PLATFORM(COCOA)
 #include "CAAudioStreamDescription.h"
@@ -38,39 +40,41 @@
 namespace WebCore {
 
 #if !RELEASE_LOG_DISABLED
-static const void* nextLogIdentifier()
+static uint64_t nextLogIdentifier()
 {
-    static uint64_t logIdentifier = cryptographicallyRandomNumber();
-    return reinterpret_cast<const void*>(++logIdentifier);
+    static uint64_t logIdentifier = cryptographicallyRandomNumber<uint32_t>();
+    return ++logIdentifier;
 }
 
-static RefPtr<Logger>& nullLogger()
+static RefPtr<Logger>& NODELETE nullLogger()
 {
     static NeverDestroyed<RefPtr<Logger>> logger;
     return logger;
 }
 #endif
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SpeechRecognitionCaptureSourceImpl);
+
 SpeechRecognitionCaptureSourceImpl::SpeechRecognitionCaptureSourceImpl(SpeechRecognitionConnectionClientIdentifier identifier, DataCallback&& dataCallback, StateUpdateCallback&& stateUpdateCallback, Ref<RealtimeMediaSource>&& source)
     : m_clientIdentifier(identifier)
-    , m_dataCallback(WTFMove(dataCallback))
-    , m_stateUpdateCallback(WTFMove(stateUpdateCallback))
-    , m_source(WTFMove(source))
+    , m_dataCallback(WTF::move(dataCallback))
+    , m_stateUpdateCallback(WTF::move(stateUpdateCallback))
+    , m_source(WTF::move(source))
 {
-    m_source->addAudioSampleObserver(*this);
-    m_source->addObserver(*this);
-    m_source->start();
-
 #if !RELEASE_LOG_DISABLED
     if (!nullLogger().get()) {
         nullLogger() = Logger::create(this);
         nullLogger()->setEnabled(this, false);
     }
 
-    m_source->setLogger(*nullLogger(), nextLogIdentifier());
+    m_source->setLogger(protect(*nullLogger()).get(), nextLogIdentifier());
 #endif
 
-    auto weakThis = makeWeakPtr(this);
+    m_source->addAudioSampleObserver(*this);
+    m_source->addObserver(*this);
+    m_source->start();
+
+    initializeWeakPtrFactory();
 }
 
 SpeechRecognitionCaptureSourceImpl::~SpeechRecognitionCaptureSourceImpl()
@@ -81,69 +85,68 @@ SpeechRecognitionCaptureSourceImpl::~SpeechRecognitionCaptureSourceImpl()
 }
 
 #if PLATFORM(COCOA)
-bool SpeechRecognitionCaptureSourceImpl::updateDataSource(const CAAudioStreamDescription& audioDescription)
-{
-    if (!m_dataSourceLock.tryLock())
-        return false;
-
-    Locker locker { AdoptLock, m_dataSourceLock };
-
-    auto dataSource = AudioSampleDataSource::create(audioDescription.sampleRate() * 1, m_source.get());
-    if (dataSource->setInputFormat(audioDescription)) {
-        callOnMainThread([this, weakThis = makeWeakPtr(this)] {
-            if (weakThis)
-                m_stateUpdateCallback(SpeechRecognitionUpdate::createError(m_clientIdentifier, SpeechRecognitionError { SpeechRecognitionErrorType::AudioCapture, "Unable to set input format" }));
-        });
-        return false;
-    }
-
-    if (dataSource->setOutputFormat(audioDescription)) {
-        callOnMainThread([this, weakThis = makeWeakPtr(this)] {
-            if (weakThis)
-                m_stateUpdateCallback(SpeechRecognitionUpdate::createError(m_clientIdentifier, SpeechRecognitionError { SpeechRecognitionErrorType::AudioCapture, "Unable to set output format" }));
-        });
-        return false;
-    }
-
-    m_dataSource = WTFMove(dataSource);
-    return true;
-}
-
-void SpeechRecognitionCaptureSourceImpl::pullSamplesAndCallDataCallback(const MediaTime& time, const CAAudioStreamDescription& audioDescription, size_t sampleCount)
+void SpeechRecognitionCaptureSourceImpl::pullSamplesAndCallDataCallback(AudioSampleDataSource* inputDataSource, const MediaTime& time, const CAAudioStreamDescription& audioDescription, size_t sampleCount)
 {
     ASSERT(isMainThread());
 
-    auto data = WebAudioBufferList { audioDescription, static_cast<uint32_t>(sampleCount) };
+    auto data = WebAudioBufferList { audioDescription, sampleCount };
     {
         Locker locker { m_dataSourceLock };
-        m_dataSource->pullSamples(*data.list(), sampleCount, time.timeValue(), 0, AudioSampleDataSource::Copy);
+        RefPtr dataSource = m_dataSource;
+        if (dataSource.get() != inputDataSource)
+            return;
+        
+        dataSource->pullSamples(*data.list(), sampleCount, time.timeValue(), 0, AudioSampleDataSource::Copy);
     }
 
     m_dataCallback(time, data, audioDescription, sampleCount);
 }
 #endif
 
-// FIXME: It is unclear why it is safe to use m_dataSource without locking in this function.
-void SpeechRecognitionCaptureSourceImpl::audioSamplesAvailable(const MediaTime& time, const PlatformAudioData& data, const AudioStreamDescription& description, size_t sampleCount) WTF_IGNORES_THREAD_SAFETY_ANALYSIS
+void SpeechRecognitionCaptureSourceImpl::audioSamplesAvailable(const WTF::MediaTime& time, const PlatformAudioData& data, const AudioStreamDescription& description, size_t sampleCount)
 {
-#if PLATFORM(COCOA)
-    DisableMallocRestrictionsForCurrentThreadScope scope;
+    if (isMainThread())
+        return m_dataCallback(time, data, description, sampleCount);
 
+#if PLATFORM(COCOA)
+    // Heap allocations are forbidden on the audio thread for performance reasons so we need to
+    // explicitly allow the following allocation(s).
+    DisableMallocRestrictionsForCurrentThreadScope scope;
     ASSERT(description.platformDescription().type == PlatformDescription::CAAudioStreamBasicType);
+    // Use tryLock() to avoid contention in the real-time audio thread.
+    if (!m_dataSourceLock.tryLock())
+        return;
+
+    Locker locker { AdoptLock, m_dataSourceLock };
+    RefPtr dataSource = m_dataSource;
     auto audioDescription = toCAAudioStreamDescription(description);
-    if (!m_dataSource || !m_dataSource->inputDescription() || *m_dataSource->inputDescription() != description) {
-        if (!updateDataSource(audioDescription))
+    if (!dataSource || !dataSource->inputDescription() || *dataSource->inputDescription() != description) {
+        Ref newDataSource = AudioSampleDataSource::create(audioDescription.sampleRate(), m_source.get());
+        if (newDataSource->setInputFormat(audioDescription)) {
+            callOnMainThread([weakThis = WeakPtr { *this }] {
+                if (CheckedPtr checkedThis = weakThis.get())
+                    checkedThis->m_stateUpdateCallback(SpeechRecognitionUpdate::createError(checkedThis->m_clientIdentifier, SpeechRecognitionError { SpeechRecognitionErrorType::AudioCapture, "Unable to set input format"_s }));
+            });
             return;
+        }
+
+        if (newDataSource->setOutputFormat(audioDescription)) {
+            callOnMainThread([weakThis = WeakPtr { *this }] {
+                if (CheckedPtr checkedThis = weakThis.get())
+                    checkedThis->m_stateUpdateCallback(SpeechRecognitionUpdate::createError(checkedThis->m_clientIdentifier, SpeechRecognitionError { SpeechRecognitionErrorType::AudioCapture, "Unable to set output format"_s }));
+            });
+            return;
+        }
+
+        dataSource = WTF::move(newDataSource);
+        m_dataSource = dataSource.copyRef();
     }
 
-    m_dataSource->pushSamples(time, data, sampleCount);
-
-    callOnMainThread([weakThis = makeWeakPtr(this), time, audioDescription, sampleCount] {
-        if (weakThis)
-            weakThis->pullSamplesAndCallDataCallback(time, audioDescription, sampleCount);
+    dataSource->pushSamples(time, data, sampleCount);
+    callOnMainThread([weakThis = WeakPtr { *this }, dataSource = WTF::move(dataSource), time, audioDescription, sampleCount] {
+        if (CheckedPtr checkedThis = weakThis.get())
+            checkedThis->pullSamplesAndCallDataCallback(dataSource.get(), time, audioDescription, sampleCount);
     });
-#else
-    m_dataCallback(time, data, description, sampleCount);
 #endif
 }
 
@@ -157,13 +160,13 @@ void SpeechRecognitionCaptureSourceImpl::sourceStopped()
 {
     ASSERT(isMainThread());
     ASSERT(m_source->captureDidFail());
-    m_stateUpdateCallback(SpeechRecognitionUpdate::createError(m_clientIdentifier, SpeechRecognitionError { SpeechRecognitionErrorType::AudioCapture, "Source is stopped" }));
+    m_stateUpdateCallback(SpeechRecognitionUpdate::createError(m_clientIdentifier, SpeechRecognitionError { SpeechRecognitionErrorType::AudioCapture, "Source is stopped"_s }));
 }
 
 void SpeechRecognitionCaptureSourceImpl::sourceMutedChanged()
 {
     ASSERT(isMainThread());
-    m_stateUpdateCallback(SpeechRecognitionUpdate::createError(m_clientIdentifier, SpeechRecognitionError { SpeechRecognitionErrorType::AudioCapture, "Source is muted" }));
+    m_stateUpdateCallback(SpeechRecognitionUpdate::createError(m_clientIdentifier, SpeechRecognitionError { SpeechRecognitionErrorType::AudioCapture, "Source is muted"_s }));
 }
 
 void SpeechRecognitionCaptureSourceImpl::mute()

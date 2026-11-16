@@ -12,10 +12,10 @@
 #include "libANGLE/renderer/ShaderImpl.h"
 
 #include <map>
+#include <memory>
 
 namespace angle
 {
-struct CompilerWorkaroundsD3D;
 struct FeaturesD3D;
 }  // namespace angle
 
@@ -30,22 +30,30 @@ class DynamicHLSL;
 class RendererD3D;
 struct D3DUniform;
 
-class ShaderD3D : public ShaderImpl
+// Workarounds attached to each shader. Do not need to expose information about these workarounds so
+// a simple bool struct suffices.
+struct CompilerWorkaroundsD3D
 {
-  public:
-    ShaderD3D(const gl::ShaderState &state,
-              const angle::FeaturesD3D &features,
-              const gl::Extensions &extensions);
-    ~ShaderD3D() override;
+    bool skipOptimization = false;
 
-    std::shared_ptr<WaitableCompileEvent> compile(const gl::Context *context,
-                                                  gl::ShCompilerInstance *compilerInstance,
-                                                  ShCompileOptions options) override;
+    bool useMaxOptimization = false;
 
-    std::string getDebugInfo() const override;
+    // IEEE strictness needs to be enabled for NANs to work.
+    bool enableIEEEStrictness = false;
+};
 
-    // D3D-specific methods
-    void uncompile();
+enum class FragDepthUsage
+{
+    Unused,
+    Any,
+    Greater,
+    Less
+};
+
+struct CompiledShaderStateD3D : angle::NonCopyable
+{
+    CompiledShaderStateD3D();
+    ~CompiledShaderStateD3D();
 
     bool hasUniform(const std::string &name) const;
 
@@ -55,60 +63,67 @@ class ShaderD3D : public ShaderImpl
 
     unsigned int getUniformBlockRegister(const std::string &blockName) const;
     bool shouldUniformBlockUseStructuredBuffer(const std::string &blockName) const;
-    unsigned int getShaderStorageBlockRegister(const std::string &blockName) const;
-    unsigned int getReadonlyImage2DRegisterIndex() const { return mReadonlyImage2DRegisterIndex; }
-    unsigned int getImage2DRegisterIndex() const { return mImage2DRegisterIndex; }
     bool useImage2DFunction(const std::string &functionName) const;
-    void appendDebugInfo(const std::string &info) const { mDebugInfo += info; }
+    const std::set<std::string> &getSlowCompilingUniformBlockSet() const;
+    void appendDebugInfo(const std::string &info) { debugInfo += info; }
 
-    void generateWorkarounds(angle::CompilerWorkaroundsD3D *workarounds) const;
+    void generateWorkarounds(CompilerWorkaroundsD3D *workarounds) const;
 
-    bool usesMultipleRenderTargets() const { return mUsesMultipleRenderTargets; }
-    bool usesFragColor() const { return mUsesFragColor; }
-    bool usesFragData() const { return mUsesFragData; }
-    bool usesSecondaryColor() const { return mUsesSecondaryColor; }
-    bool usesFragCoord() const { return mUsesFragCoord; }
-    bool usesFrontFacing() const { return mUsesFrontFacing; }
-    bool usesHelperInvocation() const { return mUsesHelperInvocation; }
-    bool usesPointSize() const { return mUsesPointSize; }
-    bool usesPointCoord() const { return mUsesPointCoord; }
-    bool usesDepthRange() const { return mUsesDepthRange; }
-    bool usesFragDepth() const { return mUsesFragDepth; }
-    bool usesVertexID() const { return mUsesVertexID; }
-    bool usesViewID() const { return mUsesViewID; }
-    bool hasANGLEMultiviewEnabled() const { return mHasANGLEMultiviewEnabled; }
+    ShShaderOutput compilerOutputType;
 
-    ShShaderOutput getCompilerOutputType() const;
+    bool usesMultipleRenderTargets;
+    bool usesFragColor;
+    bool usesFragData;
+    bool usesSecondaryColor;
+    bool usesFragCoord;
+    bool usesFrontFacing;
+    bool usesPointSize;
+    bool usesPointCoord;
+    bool usesDepthRange;
+    bool usesSampleID;
+    bool usesSamplePosition;
+    bool usesSampleMaskIn;
+    bool usesSampleMask;
+    bool hasMultiviewEnabled;
+    bool usesVertexID;
+    bool usesViewID;
+    bool usesDiscardRewriting;
+    bool usesNestedBreak;
+    bool requiresIEEEStrictCompiling;
+    FragDepthUsage fragDepthUsage;
+    uint8_t clipDistanceSize;
+    uint8_t cullDistanceSize;
+
+    std::string debugInfo;
+    std::map<std::string, unsigned int> uniformRegisterMap;
+    std::map<std::string, unsigned int> uniformBlockRegisterMap;
+    std::map<std::string, bool> uniformBlockUseStructuredBufferMap;
+    std::set<std::string> slowCompilingUniformBlockSet;
+    unsigned int readonlyImage2DRegisterIndex;
+    unsigned int image2DRegisterIndex;
+    std::set<std::string> usedImage2DFunctionNames;
+};
+using SharedCompiledShaderStateD3D = std::shared_ptr<CompiledShaderStateD3D>;
+
+class ShaderD3D : public ShaderImpl
+{
+  public:
+    ShaderD3D(const gl::ShaderState &state, RendererD3D *renderer);
+    ~ShaderD3D() override;
+
+    std::shared_ptr<ShaderTranslateTask> compile(const gl::Context *context,
+                                                 ShCompileOptions *options) override;
+    std::shared_ptr<ShaderTranslateTask> load(const gl::Context *context,
+                                              gl::BinaryInputStream *stream) override;
+
+    std::string getDebugInfo() const override;
+
+    const SharedCompiledShaderStateD3D &getCompiledState() const { return mCompiledState; }
 
   private:
-    bool mUsesMultipleRenderTargets;
-    bool mUsesFragColor;
-    bool mUsesFragData;
-    bool mUsesSecondaryColor;
-    bool mUsesFragCoord;
-    bool mUsesFrontFacing;
-    bool mUsesHelperInvocation;
-    bool mUsesPointSize;
-    bool mUsesPointCoord;
-    bool mUsesDepthRange;
-    bool mUsesFragDepth;
-    bool mHasANGLEMultiviewEnabled;
-    bool mUsesVertexID;
-    bool mUsesViewID;
-    bool mUsesDiscardRewriting;
-    bool mUsesNestedBreak;
-    bool mRequiresIEEEStrictCompiling;
+    RendererD3D *mRenderer;
 
-    ShShaderOutput mCompilerOutputType;
-    mutable std::string mDebugInfo;
-    std::map<std::string, unsigned int> mUniformRegisterMap;
-    std::map<std::string, unsigned int> mUniformBlockRegisterMap;
-    std::map<std::string, bool> mUniformBlockUseStructuredBufferMap;
-    std::map<std::string, unsigned int> mShaderStorageBlockRegisterMap;
-    unsigned int mReadonlyImage2DRegisterIndex;
-    unsigned int mImage2DRegisterIndex;
-    std::set<std::string> mUsedImage2DFunctionNames;
-    ShCompileOptions mAdditionalOptions;
+    SharedCompiledShaderStateD3D mCompiledState;
 };
 }  // namespace rx
 

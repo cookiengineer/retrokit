@@ -23,13 +23,15 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
  */
 
-#ifndef Vector_h
-#define Vector_h
+#pragma once
+
+#ifdef __cplusplus
 
 #include "BInline.h"
 #include "VMAllocate.h"
 #include <cstddef>
 #include <cstring>
+#include <limits>
 
 namespace bmalloc {
 
@@ -234,4 +236,4 @@ void Vector<T>::shrinkToFit()
 
 } // namespace bmalloc
 
-#endif // Vector_h
+#endif // __cplusplus

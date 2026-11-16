@@ -26,13 +26,18 @@
 #ifndef ResponsivenessTimer_h
 #define ResponsivenessTimer_h
 
+#include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
+#include <wtf/FastMalloc.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/RunLoop.h>
+#include <wtf/WeakRef.h>
 
 namespace WebKit {
 
-class ResponsivenessTimer {
+class ResponsivenessTimer : public RefCountedAndCanMakeWeakPtr<ResponsivenessTimer> {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(ResponsivenessTimer);
 public:
-    class Client {
+    class Client : public AbstractRefCountedAndCanMakeWeakPtr<Client> {
     public:
         virtual ~Client() { }
         virtual void didBecomeUnresponsive() = 0;
@@ -42,12 +47,10 @@ public:
         virtual void didChangeIsResponsive() = 0;
 
         virtual bool mayBecomeUnresponsive() = 0;
-
-        virtual void ref() = 0;
-        virtual void deref() = 0;
     };
 
-    explicit ResponsivenessTimer(ResponsivenessTimer::Client&);
+    static constexpr Seconds defaultResponsivenessTimeout = 3_s;
+    static Ref<ResponsivenessTimer> create(ResponsivenessTimer::Client&, Seconds responsivenessTimeout);
     ~ResponsivenessTimer();
 
     void start();
@@ -75,18 +78,21 @@ public:
     void processTerminated();
 
 private:
+    ResponsivenessTimer(ResponsivenessTimer::Client&, Seconds responsivenessTimeout);
+
     void timerFired();
 
     bool mayBecomeUnresponsive() const;
 
-    ResponsivenessTimer::Client& m_client;
+    WeakPtr<ResponsivenessTimer::Client> m_client;
 
-    RunLoop::Timer<ResponsivenessTimer> m_timer;
+    RunLoop::Timer m_timer;
     MonotonicTime m_restartFireTime;
 
     bool m_isResponsive { true };
     bool m_waitingForTimer { false };
     bool m_useLazyStop { false };
+    Seconds m_responsivenessTimeout;
 };
 
 } // namespace WebKit

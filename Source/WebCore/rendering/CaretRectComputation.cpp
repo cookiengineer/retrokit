@@ -27,210 +27,264 @@
 #include "CaretRectComputation.h"
 
 #include "Editing.h"
-#include "LayoutIntegrationLineIterator.h"
-#include "LayoutIntegrationRunIterator.h"
+#include "InlineIteratorBoxInlines.h"
+#include "InlineIteratorLineBox.h"
+#include "InlineIteratorTextBox.h"
+#include "InlineIteratorTextBoxInlines.h"
+#include "InlineIteratorSVGTextBox.h"
+#include "LayoutIntegrationLineLayout.h"
+#include "LineSelection.h"
 #include "RenderBlockFlow.h"
+#include "RenderBoxInlines.h"
+#include "RenderBoxModelObjectInlines.h"
 #include "RenderInline.h"
 #include "RenderLineBreak.h"
+#include "RenderObjectInlines.h"
 #include "RenderSVGInlineText.h"
 #include "RenderText.h"
 
 namespace WebCore {
 
-static LayoutRect computeCaretRectForEmptyElement(const RenderBoxModelObject& renderer, LayoutUnit width, LayoutUnit textIndentOffset, CaretRectMode caretRectMode)
+int caretWidth()
 {
-    ASSERT(!renderer.firstChild());
+#if PLATFORM(IOS_FAMILY)
+    return 2; // This value should be kept in sync with UIKit. See <rdar://problem/15580601>.
+#elif PLATFORM(MAC) && HAVE(REDESIGNED_TEXT_CURSOR)
+    return redesignedTextCursorEnabled() ? 2 : 1;
+#else
+    return 1;
+#endif
+}
+
+static LayoutRect computeCaretRectForEmptyElement(const RenderBoxModelObject& renderer, LayoutUnit logicalWidth, LayoutUnit textIndentOffset, CaretRectMode caretRectMode)
+{
+    ASSERT(!renderer.firstChild() || renderer.firstChild()->isPseudoElement());
 
     // FIXME: This does not take into account either :first-line or :first-letter
     // However, as soon as some content is entered, the line boxes will be
     // constructed and this kludge is not called any more. So only the caret size
     // of an empty :first-line'd block is wrong. I think we can live with that.
-    const RenderStyle& currentStyle = renderer.firstLineStyle();
+    CheckedRef currentStyle = renderer.firstLineStyle();
+    const WritingMode writingMode = currentStyle->writingMode();
 
-    enum CaretAlignment { AlignLeft, AlignRight, AlignCenter };
-
-    CaretAlignment alignment = AlignLeft;
-
-    switch (currentStyle.textAlign()) {
-    case TextAlignMode::Left:
-    case TextAlignMode::WebKitLeft:
+    enum CaretAlignment { AlignLogicalLeft, AlignLogicalRight, AlignCenter };
+    CaretAlignment alignment;
+    switch (currentStyle->textAlign()) {
+    case Style::TextAlign::Left:
+    case Style::TextAlign::WebKitLeft:
+        alignment = writingMode.isLogicalLeftLineLeft()
+            ? AlignLogicalLeft : AlignLogicalRight;
         break;
-    case TextAlignMode::Center:
-    case TextAlignMode::WebKitCenter:
+    case Style::TextAlign::Center:
+    case Style::TextAlign::WebKitCenter:
         alignment = AlignCenter;
         break;
-    case TextAlignMode::Right:
-    case TextAlignMode::WebKitRight:
-        alignment = AlignRight;
+    case Style::TextAlign::Right:
+    case Style::TextAlign::WebKitRight:
+        alignment = writingMode.isLogicalLeftLineLeft()
+            ? AlignLogicalRight : AlignLogicalLeft;
         break;
-    case TextAlignMode::Justify:
-    case TextAlignMode::Start:
-        if (!currentStyle.isLeftToRightDirection())
-            alignment = AlignRight;
+    case Style::TextAlign::Justify:
+    case Style::TextAlign::Start:
+        alignment = writingMode.isLogicalLeftInlineStart()
+            ? AlignLogicalLeft : AlignLogicalRight;
         break;
-    case TextAlignMode::End:
-        if (currentStyle.isLeftToRightDirection())
-            alignment = AlignRight;
+    case Style::TextAlign::End:
+        alignment = writingMode.isLogicalLeftInlineStart()
+            ? AlignLogicalRight : AlignLogicalLeft;
         break;
     }
 
-    LayoutUnit x = renderer.borderLeft() + renderer.paddingLeft();
-    LayoutUnit maxX = width - renderer.borderRight() - renderer.paddingRight();
+    LayoutUnit x = renderer.borderAndPaddingLogicalLeft();
+    LayoutUnit maxX = logicalWidth - renderer.borderAndPaddingLogicalRight();
 
     switch (alignment) {
-    case AlignLeft:
-        if (currentStyle.isLeftToRightDirection())
+    case AlignLogicalLeft:
+        if (writingMode.isLogicalLeftInlineStart())
             x += textIndentOffset;
         break;
     case AlignCenter:
         x = (x + maxX) / 2;
-        if (currentStyle.isLeftToRightDirection())
+        if (writingMode.isLogicalLeftInlineStart())
             x += textIndentOffset / 2;
         else
             x -= textIndentOffset / 2;
         break;
-    case AlignRight:
-        x = maxX - caretWidth;
-        if (!currentStyle.isLeftToRightDirection())
+    case AlignLogicalRight:
+        x = maxX - caretWidth();
+        if (!writingMode.isLogicalLeftInlineStart())
             x -= textIndentOffset;
         break;
     }
-    x = std::min(x, std::max<LayoutUnit>(maxX - caretWidth, 0));
+    x = std::min(x, std::max<LayoutUnit>(maxX - caretWidth(), 0));
 
-    auto lineHeight = renderer.lineHeight(true, currentStyle.isHorizontalWritingMode() ? HorizontalLine : VerticalLine, PositionOfInteriorLineBoxes);
-    auto height = std::min(lineHeight, LayoutUnit { currentStyle.fontMetrics().height() });
-    auto y = renderer.paddingTop() + renderer.borderTop() + (lineHeight > height ? (lineHeight - height) / 2 : LayoutUnit { });
+    auto lineHeight = LayoutUnit::fromFloatCeil(currentStyle->computedLineHeight());
+    auto height = std::min(lineHeight, LayoutUnit { currentStyle->metricsOfPrimaryFont().height() });
+    auto y = renderer.borderAndPaddingBefore() + (lineHeight > height ? (lineHeight - height) / 2 : LayoutUnit { });
 
-    auto rect = LayoutRect(x, y, caretWidth, height);
+    auto rect = LayoutRect(x, y, caretWidth(), height);
 
     if (caretRectMode == CaretRectMode::ExpandToEndOfLine)
-        rect.shiftMaxXEdgeTo(width);
+        rect.shiftMaxXEdgeTo(logicalWidth);
 
-    return currentStyle.isHorizontalWritingMode() ? rect : rect.transposedRect();
+    return writingMode.isHorizontal() ? rect : rect.transposedRect();
 }
 
-static LayoutRect computeCaretRectForLinePosition(const LayoutIntegration::LineIterator& line, float logicalLeftPosition, CaretRectMode caretRectMode)
+static LayoutRect computeCaretRectForLinePosition(const InlineIterator::LineBoxIterator& lineBox, float logicalLeftPosition, CaretRectMode caretRectMode)
 {
-    auto& containingBlock = line->containingBlock();
-    auto lineSelectionRect = line->selectionRect();
+    CheckedRef root = lineBox->formattingContextRoot();
+    auto writingMode = root->writingMode();
+    auto lineSelectionRect = LineSelection::logicalRect(*lineBox);
 
     int height = lineSelectionRect.height();
     int top = lineSelectionRect.y();
 
     // Distribute the caret's width to either side of the offset.
     float left = logicalLeftPosition;
-    int caretWidthLeftOfOffset = caretWidth / 2;
+    int caretWidthLeftOfOffset = caretWidth() / 2;
     left -= caretWidthLeftOfOffset;
-    int caretWidthRightOfOffset = caretWidth - caretWidthLeftOfOffset;
+    int caretWidthRightOfOffset = caretWidth() - caretWidthLeftOfOffset;
     left = roundf(left);
 
     float lineLeft = lineSelectionRect.x();
     float lineRight = lineSelectionRect.maxX();
 
     bool rightAligned = false;
-    switch (containingBlock.style().textAlign()) {
-    case TextAlignMode::Right:
-    case TextAlignMode::WebKitRight:
-        rightAligned = true;
+    switch (root->style().textAlign()) {
+    case Style::TextAlign::Right:
+    case Style::TextAlign::WebKitRight:
+        rightAligned = writingMode.isLogicalLeftLineLeft();
         break;
-    case TextAlignMode::Left:
-    case TextAlignMode::WebKitLeft:
-    case TextAlignMode::Center:
-    case TextAlignMode::WebKitCenter:
+    case Style::TextAlign::Left:
+    case Style::TextAlign::WebKitLeft:
+    case Style::TextAlign::Center:
+    case Style::TextAlign::WebKitCenter:
+        rightAligned = !writingMode.isLogicalLeftLineLeft();
         break;
-    case TextAlignMode::Justify:
-    case TextAlignMode::Start:
-        rightAligned = !containingBlock.style().isLeftToRightDirection();
+    case Style::TextAlign::Justify:
+    case Style::TextAlign::Start:
+        rightAligned = !writingMode.isLogicalLeftInlineStart();
         break;
-    case TextAlignMode::End:
-        rightAligned = containingBlock.style().isLeftToRightDirection();
+    case Style::TextAlign::End:
+        rightAligned = writingMode.isLogicalLeftInlineStart();
         break;
     }
 
     float leftEdge = std::min<float>(0, lineLeft);
-    float rightEdge = std::max<float>(containingBlock.logicalWidth(), lineRight);
+    float rightEdge = std::max<float>(root->logicalWidth(), lineRight);
 
     if (rightAligned) {
         left = std::max(left, leftEdge);
-        left = std::min(left, lineRight - caretWidth);
+        left = std::min(left, lineRight - caretWidth());
     } else {
         left = std::min(left, rightEdge - caretWidthRightOfOffset);
         left = std::max(left, lineLeft);
     }
 
-    auto rect = IntRect(left, top, caretWidth, height);
+    auto rect = IntRect(left, top, caretWidth(), height);
 
     if (caretRectMode == CaretRectMode::ExpandToEndOfLine)
         rect.shiftMaxXEdgeTo(lineRight);
 
-    return containingBlock.style().isHorizontalWritingMode() ? rect : rect.transposedRect();
+    return writingMode.isHorizontal() ? rect : rect.transposedRect();
 }
 
-static LayoutRect computeCaretRectForText(const InlineRunAndOffset& runAndOffset, CaretRectMode caretRectMode)
+static LayoutRect computeCaretRectForText(const InlineBoxAndOffset& boxAndOffset, CaretRectMode caretRectMode)
 {
-    if (!runAndOffset.run)
+    if (!boxAndOffset.box)
         return { };
 
-    auto& textRun = downcast<LayoutIntegration::TextRunIterator>(runAndOffset.run);
-    auto line = textRun.line();
+    auto& textBox = downcast<InlineIterator::TextBoxIterator>(boxAndOffset.box);
 
-    float position = textRun->positionForOffset(runAndOffset.offset);
-    return computeCaretRectForLinePosition(line, position, caretRectMode);
+    auto positionForOffset = [&](auto offset) -> float {
+        ASSERT(offset >= textBox->start());
+        ASSERT(offset <= textBox->end());
+
+        if (textBox->isLineBreak())
+            return 0;
+
+        auto [startOffset, endOffset] = [&] {
+            if (textBox->direction() == TextDirection::RTL)
+                return std::pair { textBox->selectableRange().clamp(offset), textBox->length() };
+            return std::pair { 0u, textBox->selectableRange().clamp(offset) };
+        }();
+
+        LayoutRect selectionRect;
+        // Get logical x coordinate relative to text run.
+        auto textRun = textBox->textRun(InlineIterator::TextRunMode::Editing);
+        textBox->fontCascade().adjustSelectionRectForText(textBox->renderer().canUseSimplifiedTextMeasuring().value_or(false), textRun, selectionRect, startOffset, endOffset);
+        selectionRect.shiftXEdgeTo(selectionRect.maxX());
+
+        // Convert to box coordinates.
+        if (!textBox->writingMode().isLogicalLeftLineLeft())
+            selectionRect.setX(textBox->logicalWidth() - selectionRect.x());
+        selectionRect.move(textBox->logicalLeftIgnoringInlineDirection(), 0);
+
+        // Finally, snap.
+        return snapRectToDevicePixelsWithWritingDirection(selectionRect, textBox->renderer().document().deviceScaleFactor(), textRun.ltr()).x();
+    };
+
+    return computeCaretRectForLinePosition(textBox->lineBox(), positionForOffset(boxAndOffset.offset), caretRectMode);
 }
 
-static LayoutRect computeCaretRectForLineBreak(const InlineRunAndOffset& runAndOffset, CaretRectMode caretRectMode)
+static LayoutRect computeCaretRectForLineBreak(const InlineBoxAndOffset& boxAndOffset, CaretRectMode caretRectMode)
 {
-    ASSERT(!runAndOffset.offset);
+    ASSERT(!boxAndOffset.offset);
 
-    if (!runAndOffset.run)
+    if (!boxAndOffset.box)
         return { };
 
-    auto line = runAndOffset.run.line();
-    return computeCaretRectForLinePosition(line, line->contentLogicalLeft(), caretRectMode);
+    auto lineBox = boxAndOffset.box->lineBox();
+    auto position = boxAndOffset.box->writingMode().isLogicalLeftLineLeft()
+        ? lineBox->contentLogicalLeft()
+        : lineBox->contentLogicalRight();
+    return computeCaretRectForLinePosition(lineBox, position, caretRectMode);
 }
 
-static LayoutRect computeCaretRectForSVGInlineText(const InlineRunAndOffset& runAndOffset, CaretRectMode)
+static LayoutRect computeCaretRectForSVGInlineText(const InlineBoxAndOffset& boxAndOffset, CaretRectMode)
 {
-    auto* box = runAndOffset.run ? runAndOffset.run->legacyInlineBox() : nullptr;
-    auto caretOffset = runAndOffset.offset;
-
-    if (!is<LegacyInlineTextBox>(box))
+    auto box = boxAndOffset.box;
+    auto caretOffset = boxAndOffset.offset;
+    if (!is<InlineIterator::SVGTextBoxIterator>(box))
         return { };
 
-    auto& textBox = downcast<LegacyInlineTextBox>(*box);
-    if (caretOffset < textBox.start() || caretOffset > textBox.start() + textBox.len())
+    auto textBox = downcast<InlineIterator::SVGTextBoxIterator>(box);
+    if (!textBox)
+        return { };
+
+    if (caretOffset < textBox->start() || caretOffset > textBox->start() + textBox->length())
         return { };
 
     // Use the edge of the selection rect to determine the caret rect.
-    if (caretOffset < textBox.start() + textBox.len()) {
-        LayoutRect rect = textBox.localSelectionRect(caretOffset, caretOffset + 1);
-        LayoutUnit x = textBox.isLeftToRightDirection() ? rect.x() : rect.maxX();
-        return LayoutRect(x, rect.y(), caretWidth, rect.height());
+    if (caretOffset < textBox->start() + textBox->length()) {
+        LayoutRect rect = textBox->localSelectionRect(caretOffset, caretOffset + 1);
+        LayoutUnit x = !textBox->isInlineFlipped() ? rect.x() : rect.maxX();
+        return LayoutRect(x, rect.y(), caretWidth(), rect.height());
     }
 
-    LayoutRect rect = textBox.localSelectionRect(caretOffset - 1, caretOffset);
-    LayoutUnit x = textBox.isLeftToRightDirection() ? rect.maxX() : rect.x();
-    return { x, rect.y(), caretWidth, rect.height() };
+    LayoutRect rect = textBox->localSelectionRect(caretOffset - 1, caretOffset);
+    LayoutUnit x = !textBox->isInlineFlipped() ? rect.maxX() : rect.x();
+    return { x, rect.y(), caretWidth(), rect.height() };
 }
 
-static LayoutRect computeCaretRectForBox(const RenderBox& renderer, const InlineRunAndOffset& runAndOffset, CaretRectMode caretRectMode)
+static LayoutRect computeCaretRectForBox(const RenderBox& renderer, const InlineBoxAndOffset& boxAndOffset, CaretRectMode caretRectMode)
 {
     // VisiblePositions at offsets inside containers either a) refer to the positions before/after
     // those containers (tables and select elements) or b) refer to the position inside an empty block.
     // They never refer to children.
     // FIXME: Paint the carets inside empty blocks differently than the carets before/after elements.
 
-    LayoutRect rect(renderer.location(), LayoutSize(caretWidth, renderer.height()));
-    bool ltr = runAndOffset.run ? runAndOffset.run->isLeftToRightDirection() : renderer.style().isLeftToRightDirection();
+    LayoutRect rect(renderer.location(), LayoutSize(caretWidth(), renderer.borderBoxHeight()));
+    auto writingMode = boxAndOffset.box ? boxAndOffset.box->writingMode() : renderer.writingMode();
 
-    if ((!runAndOffset.offset) ^ ltr)
-        rect.move(LayoutSize(renderer.width() - caretWidth, 0_lu));
+    if ((!boxAndOffset.offset) == writingMode.isInlineFlipped())
+        rect.move(LayoutSize(renderer.borderBoxWidth() - caretWidth(), 0_lu));
 
-    if (runAndOffset.run) {
-        auto line = runAndOffset.run.line();
-        LayoutUnit top = line->top();
+    if (boxAndOffset.box) {
+        auto lineBox = boxAndOffset.box->lineBox();
+        auto top = lineBox->contentLogicalTop();
         rect.setY(top);
-        rect.setHeight(line->bottom() - top);
+        rect.setHeight(lineBox->contentLogicalBottom() - top);
     }
 
     // If height of box is smaller than font height, use the latter one,
@@ -241,8 +295,8 @@ static LayoutRect computeCaretRectForBox(const RenderBox& renderer, const Inline
     // <rdar://problem/3777804> Deleting all content in a document can result in giant tall-as-window insertion point
     //
     // FIXME: ignoring :first-line, missing good reason to take care of
-    LayoutUnit fontHeight = renderer.style().fontMetrics().height();
-    if (fontHeight > rect.height() || (!renderer.isReplaced() && !renderer.isTable()))
+    auto fontHeight = renderer.style().metricsOfPrimaryFont().height();
+    if (fontHeight > rect.height() || (!renderer.isBlockLevelReplacedOrAtomicInline() && !renderer.isRenderTable()))
         rect.setHeight(fontHeight);
 
     // Move to local coords
@@ -251,24 +305,24 @@ static LayoutRect computeCaretRectForBox(const RenderBox& renderer, const Inline
     // FIXME: Border/padding should be added for all elements but this workaround
     // is needed because we use offsets inside an "atomic" element to represent
     // positions before and after the element in deprecated editing offsets.
-    if (renderer.element() && !(editingIgnoresContent(*renderer.element()) || isRenderedTable(renderer.element()))) {
+    if (renderer.element() && !(editingIgnoresContent(protect(*renderer.element())) || isRenderedTable(renderer.element()))) {
         rect.setX(rect.x() + renderer.borderLeft() + renderer.paddingLeft());
         rect.setY(rect.y() + renderer.paddingTop() + renderer.borderTop());
     }
 
     if (caretRectMode == CaretRectMode::ExpandToEndOfLine)
-        rect.shiftMaxXEdgeTo(renderer.x() + renderer.width());
+        rect.shiftMaxXEdgeTo(renderer.x() + renderer.borderBoxWidth());
 
-    return renderer.isHorizontalWritingMode() ? rect : rect.transposedRect();
+    return writingMode.isHorizontal() ? rect : rect.transposedRect();
 }
 
-static LayoutRect computeCaretRectForBlock(const RenderBlock& renderer, const InlineRunAndOffset& runAndOffset, CaretRectMode caretRectMode)
+static LayoutRect computeCaretRectForBlock(const RenderBlock& renderer, const InlineBoxAndOffset& boxAndOffset, CaretRectMode caretRectMode)
 {
     // Do the normal calculation in most cases.
-    if (renderer.firstChild())
-        return computeCaretRectForBox(renderer, runAndOffset, caretRectMode);
+    if (renderer.firstChild() && !renderer.firstChild()->isPseudoElement())
+        return computeCaretRectForBox(renderer, boxAndOffset, caretRectMode);
 
-    return computeCaretRectForEmptyElement(renderer, renderer.width(), renderer.textIndentOffset(), caretRectMode);
+    return computeCaretRectForEmptyElement(renderer, renderer.logicalWidth(), renderer.textIndentOffset(), caretRectMode);
 }
 
 static LayoutRect computeCaretRectForInline(const RenderInline& renderer)
@@ -282,33 +336,33 @@ static LayoutRect computeCaretRectForInline(const RenderInline& renderer)
         return { };
     }
 
-    LayoutRect caretRect = computeCaretRectForEmptyElement(renderer, renderer.horizontalBorderAndPaddingExtent(), 0, CaretRectMode::Normal);
+    LayoutRect caretRect = computeCaretRectForEmptyElement(renderer, renderer.borderAndPaddingLogicalWidth(), 0, CaretRectMode::Normal);
 
-    if (LegacyInlineBox* firstBox = renderer.firstLineBox())
-        caretRect.moveBy(LayoutPoint(firstBox->topLeft()));
+    if (auto firstInlineBox = InlineIterator::lineLeftmostInlineBoxFor(renderer))
+        caretRect.moveBy(LayoutPoint { firstInlineBox->visualRectIgnoringBlockDirection().location() });
 
     return caretRect;
 }
 
-LayoutRect computeLocalCaretRect(const RenderObject& renderer, const InlineRunAndOffset& runAndOffset, CaretRectMode caretRectMode)
+LayoutRect computeLocalCaretRect(const RenderObject& renderer, const InlineBoxAndOffset& boxAndOffset, CaretRectMode caretRectMode)
 {
     if (is<RenderSVGInlineText>(renderer))
-        return computeCaretRectForSVGInlineText(runAndOffset, caretRectMode);
+        return computeCaretRectForSVGInlineText(boxAndOffset, caretRectMode);
 
     if (is<RenderText>(renderer))
-        return computeCaretRectForText(runAndOffset, caretRectMode);
+        return computeCaretRectForText(boxAndOffset, caretRectMode);
 
     if (is<RenderLineBreak>(renderer))
-        return computeCaretRectForLineBreak(runAndOffset, caretRectMode);
+        return computeCaretRectForLineBreak(boxAndOffset, caretRectMode);
 
-    if (is<RenderBlock>(renderer))
-        return computeCaretRectForBlock(downcast<RenderBlock>(renderer), runAndOffset, caretRectMode);
+    if (auto* block = dynamicDowncast<RenderBlock>(renderer))
+        return computeCaretRectForBlock(*block, boxAndOffset, caretRectMode);
 
-    if (is<RenderBox>(renderer))
-        return computeCaretRectForBox(downcast<RenderBox>(renderer), runAndOffset, caretRectMode);
+    if (auto* box = dynamicDowncast<RenderBox>(renderer))
+        return computeCaretRectForBox(*box, boxAndOffset, caretRectMode);
 
-    if (is<RenderInline>(renderer))
-        return computeCaretRectForInline(downcast<RenderInline>(renderer));
+    if (auto* renderInline = dynamicDowncast<RenderInline>(renderer))
+        return computeCaretRectForInline(*renderInline);
 
     return { };
 }

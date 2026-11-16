@@ -25,24 +25,22 @@
 
 #pragma once
 
-#include "AbortSignal.h"
-#include "EventListenerOptions.h"
+#include <WebCore/EventListenerOptions.h>
+#include <WebCore/PlatformExportMacros.h>
 #include <optional>
+#include <wtf/RefPtr.h>
 
 namespace WebCore {
 
+class AbortSignal;
+
 struct AddEventListenerOptions : EventListenerOptions {
-    AddEventListenerOptions(bool capture = false, std::optional<bool> passive = std::nullopt, bool once = false, RefPtr<AbortSignal>&& signal = nullptr)
-        : EventListenerOptions(capture)
-        , passive(passive)
-        , once(once)
-        , signal(WTFMove(signal))
-    {
-    }
+    WEBCORE_EXPORT ~AddEventListenerOptions();
 
     std::optional<bool> passive;
     bool once { false };
     RefPtr<AbortSignal> signal;
+    bool webkitTrustedOnly { false };
 };
 
 } // namespace WebCore

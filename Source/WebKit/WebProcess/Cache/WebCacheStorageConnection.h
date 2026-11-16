@@ -26,7 +26,9 @@
 #pragma once
 
 #include <WebCore/CacheStorageConnection.h>
-#include <wtf/HashMap.h>
+#include <WebCore/ClientOrigin.h>
+#include <wtf/HashCountedSet.h>
+#include <wtf/Lock.h>
 
 namespace IPC {
 class Connection;
@@ -40,34 +42,39 @@ class WebCacheStorageProvider;
 
 class WebCacheStorageConnection final : public WebCore::CacheStorageConnection {
 public:
-    static Ref<WebCacheStorageConnection> create(WebCacheStorageProvider& provider) { return adoptRef(*new WebCacheStorageConnection(provider)); }
+    static Ref<WebCacheStorageConnection> create() { return adoptRef(*new WebCacheStorageConnection); }
 
     ~WebCacheStorageConnection();
 
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
+    void networkProcessConnectionClosed();
 
 private:
-    WebCacheStorageConnection(WebCacheStorageProvider&);
+    WebCacheStorageConnection();
 
-    IPC::Connection& connection();
+    struct PromiseConverter;
 
     // WebCore::CacheStorageConnection
-    void open(const WebCore::ClientOrigin&, const String& cacheName, WebCore::DOMCacheEngine::CacheIdentifierCallback&&) final;
-    void remove(uint64_t cacheIdentifier, WebCore::DOMCacheEngine::CacheIdentifierCallback&&) final;
-    void retrieveCaches(const WebCore::ClientOrigin&, uint64_t updateCounter, WebCore::DOMCacheEngine::CacheInfosCallback&&) final;
-
-    void retrieveRecords(uint64_t cacheIdentifier, const WebCore::RetrieveRecordsOptions&, WebCore::DOMCacheEngine::RecordsCallback&&) final;
-    void batchDeleteOperation(uint64_t cacheIdentifier, const WebCore::ResourceRequest&, WebCore::CacheQueryOptions&&, WebCore::DOMCacheEngine::RecordIdentifiersCallback&&) final;
-    void batchPutOperation(uint64_t cacheIdentifier, Vector<WebCore::DOMCacheEngine::Record>&&, WebCore::DOMCacheEngine::RecordIdentifiersCallback&&) final;
-
-    void reference(uint64_t cacheIdentifier) final;
-    void dereference(uint64_t cacheIdentifier) final;
-
-    void clearMemoryRepresentation(const WebCore::ClientOrigin&, WebCore::DOMCacheEngine::CompletionCallback&&) final;
-    void engineRepresentation(CompletionHandler<void(const String&)>&&) final;
+    Ref<OpenPromise> open(const WebCore::ClientOrigin&, const String& cacheName) final;
+    Ref<RemovePromise> remove(WebCore::DOMCacheIdentifier) final;
+    Ref<RetrieveCachesPromise> retrieveCaches(const WebCore::ClientOrigin&, uint64_t)  final;
+    Ref<RetrieveRecordsPromise> retrieveRecords(WebCore::DOMCacheIdentifier, WebCore::RetrieveRecordsOptions&&)  final;
+    Ref<BatchPromise> batchDeleteOperation(WebCore::DOMCacheIdentifier, const WebCore::ResourceRequest&, WebCore::CacheQueryOptions&&)  final;
+    Ref<BatchPromise> batchPutOperation(WebCore::DOMCacheIdentifier, Vector<WebCore::DOMCacheEngine::CrossThreadRecord>&&)  final;
+    void reference(WebCore::DOMCacheIdentifier) final;
+    void dereference(WebCore::DOMCacheIdentifier) final;
+    void lockStorage(const WebCore::ClientOrigin&) final;
+    void unlockStorage(const WebCore::ClientOrigin&) final;
+    Ref<CompletionPromise> clearMemoryRepresentation(const WebCore::ClientOrigin&) final;
+    Ref<EngineRepresentationPromise> engineRepresentation() final;
     void updateQuotaBasedOnSpaceUsage(const WebCore::ClientOrigin&) final;
 
-    WebCacheStorageProvider& m_provider;
+    Ref<IPC::Connection> connection();
+
+    Lock m_connectionLock;
+    RefPtr<IPC::Connection> m_connection WTF_GUARDED_BY_LOCK(m_connectionLock);
+    HashCountedSet<WebCore::DOMCacheIdentifier> m_connectedIdentifierCounters WTF_GUARDED_BY_LOCK(m_connectionLock);
+    HashCountedSet<WebCore::ClientOrigin> m_clientOriginLockRequestCounters WTF_GUARDED_BY_LOCK(m_connectionLock);
 };
 
 }

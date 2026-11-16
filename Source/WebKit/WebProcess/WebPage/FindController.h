@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010-2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,22 +25,25 @@
 
 #pragma once
 
-#include "ShareableBitmap.h"
+#include "FindIndicator.h"
 #include "WebFindOptions.h"
+#include <WebCore/CueMatch.h>
 #include <WebCore/FindOptions.h>
+#include <WebCore/FrameIdentifier.h>
 #include <WebCore/IntRect.h>
 #include <WebCore/PageOverlay.h>
+#include <WebCore/ShareableBitmap.h>
 #include <WebCore/SimpleRange.h>
+#include <WebCore/VisibleSelection.h>
+#include <wtf/CompletionHandler.h>
 #include <wtf/Forward.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/Variant.h>
 #include <wtf/Vector.h>
 
-#if PLATFORM(IOS_FAMILY)
-#include "FindIndicatorOverlayClientIOS.h"
-#endif
-
 namespace WebCore {
-class Frame;
+class LocalFrame;
 class Range;
 enum class DidWrap : bool;
 }
@@ -48,75 +51,86 @@ enum class DidWrap : bool;
 namespace WebKit {
 
 class CallbackID;
+class PluginView;
 class WebPage;
 
-class FindController : private WebCore::PageOverlay::Client {
-    WTF_MAKE_FAST_ALLOCATED;
+#if ENABLE(VIDEO)
+using FindMatch = Variant<WebCore::SimpleRange, WebCore::CueMatch>;
+#else
+using FindMatch = Variant<WebCore::SimpleRange>;
+#endif
+
+class FindController final : private WebCore::PageOverlayClient {
+    WTF_MAKE_TZONE_ALLOCATED(FindController);
     WTF_MAKE_NONCOPYABLE(FindController);
 
 public:
+    enum class TriggerImageAnalysis : bool { No, Yes };
+
     explicit FindController(WebPage*);
     virtual ~FindController();
 
-    void findString(const String&, OptionSet<FindOptions>, unsigned maxMatchCount, CompletionHandler<void(bool)>&&);
-    void findStringMatches(const String&, OptionSet<FindOptions>, unsigned maxMatchCount);
+    void findString(const String&, OptionSet<FindOptions>, unsigned maxMatchCount, CompletionHandler<void(std::optional<WebCore::FrameIdentifier>, Vector<WebCore::IntRect>&&, uint32_t, int32_t, bool)>&&);
+    void selectLastFoundRange(const String&, OptionSet<FindOptions>, unsigned maxMatchCount, CompletionHandler<void(std::optional<WebCore::FrameIdentifier>, Vector<WebCore::IntRect>&&, int32_t, bool)>&&);
+#if ENABLE(IMAGE_ANALYSIS)
+    void findStringIncludingImages(const String&, OptionSet<FindOptions>, unsigned maxMatchCount, CompletionHandler<void(std::optional<WebCore::FrameIdentifier>, Vector<WebCore::IntRect>&&, uint32_t, int32_t, bool)>&&);
+#endif
+    void findStringMatches(const String&, OptionSet<FindOptions>, unsigned maxMatchCount, CompletionHandler<void(Vector<Vector<WebCore::IntRect>>, int32_t)>&&);
     void getImageForFindMatch(uint32_t matchIndex);
     void selectFindMatch(uint32_t matchIndex);
     void indicateFindMatch(uint32_t matchIndex);
     void hideFindUI();
-    void countStringMatches(const String&, OptionSet<FindOptions>, unsigned maxMatchCount);
+    void countStringMatches(const String&, OptionSet<FindOptions>, unsigned maxMatchCount, CompletionHandler<void(uint32_t)>&&);
     uint32_t replaceMatches(const Vector<uint32_t>& matchIndices, const String& replacementText, bool selectionOnly);
-    
+
     void hideFindIndicator();
-    void resetMatchIndex();
+    void NODELETE resetMatchIndex();
     void showFindIndicatorInSelection();
 
-    bool isShowingOverlay() const { return m_isShowingFindIndicator && m_findPageOverlay; }
+    bool isShowingOverlay() const { return m_findIndicator && m_findIndicator->isShowing() && m_findPageOverlay; }
 
     void deviceScaleFactorDidChange();
-    void didInvalidateDocumentMarkerRects();
+    void didInvalidateFindRects();
 
     void redraw();
 
 private:
-    // PageOverlay::Client.
+    // PageOverlayClient.
     void willMoveToPage(WebCore::PageOverlay&, WebCore::Page*) override;
     void didMoveToPage(WebCore::PageOverlay&, WebCore::Page*) override;
     bool mouseEvent(WebCore::PageOverlay&, const WebCore::PlatformMouseEvent&) override;
     void drawRect(WebCore::PageOverlay&, WebCore::GraphicsContext&, const WebCore::IntRect& dirtyRect) override;
 
     Vector<WebCore::FloatRect> rectsForTextMatchesInRect(WebCore::IntRect clipRect);
-    bool updateFindIndicator(WebCore::Frame& selectedFrame, bool isShowingOverlay, bool shouldAnimate = true);
 
-    enum class FindUIOriginator : uint8_t { FindString, FindStringMatches };
-    void updateFindUIAfterPageScroll(bool found, const String&, OptionSet<FindOptions>, unsigned maxMatchCount, WebCore::DidWrap, FindUIOriginator);
+    void updateFindUIAfterFindingAllMatches(bool found, const String&, OptionSet<FindOptions>, unsigned maxMatchCount);
+    void updateFindUIAfterIncrementalFind(bool found, const String&, OptionSet<FindOptions>, unsigned maxMatchCount, unsigned cueMatchCount, WebCore::DidWrap, std::optional<WebCore::FrameIdentifier>, CompletionHandler<void(std::optional<WebCore::FrameIdentifier>, Vector<WebCore::IntRect>&&, uint32_t, int32_t, bool)>&&);
 
-    void willFindString();
-    void didFindString();
-    void didFailToFindString();
-    void didHideFindIndicator();
-    
-    unsigned findIndicatorRadius() const;
-    bool shouldHideFindIndicatorOnScroll() const;
+    enum class ShouldReuseLastFoundRange : bool { No, Yes };
+    void findString(const String&, OptionSet<FindOptions>, unsigned maxMatchCount, ShouldReuseLastFoundRange, CompletionHandler<void(std::optional<WebCore::FrameIdentifier>, Vector<WebCore::IntRect>&&, uint32_t, int32_t, bool)>&&);
+
+    void updateFindPageOverlay(bool shouldShowOverlay);
+    void updateFindIndicatorIfNeeded(bool found, OptionSet<FindOptions>, bool shouldShowOverlay);
+    unsigned markMatches(const String&, OptionSet<FindOptions>, unsigned maxMatchCount, unsigned cueMatchCount);
+    unsigned getMatchCount(const String&, OptionSet<FindOptions>, unsigned maxMatchCount, unsigned cueMatchCount);
+    void NODELETE updateMatchIndex(unsigned matchCount, OptionSet<FindOptions>);
     void didScrollAffectingFindIndicatorPosition();
 
-    WebPage* m_webPage;
-    WebCore::PageOverlay* m_findPageOverlay { nullptr };
+    RefPtr<WebCore::LocalFrame> frameWithSelection(WebCore::Page*);
 
-    // Whether the UI process is showing the find indicator. Note that this can be true even if
-    // the find indicator isn't showing, but it will never be false when it is showing.
-    bool m_isShowingFindIndicator { false };
-    WebCore::IntRect m_findIndicatorRect;
-    Vector<WebCore::SimpleRange> m_findMatches;
-    // Index value is -1 if not found or if number of matches exceeds provided maximum.
-    int m_foundStringMatchIndex { -1 };
+    std::optional<WebCore::FrameIdentifier> applyFindMatch(const FindMatch&, OptionSet<FindOptions>);
 
-#if PLATFORM(IOS_FAMILY)
-    RefPtr<WebCore::PageOverlay> m_findIndicatorOverlay;
-    std::unique_ptr<FindIndicatorOverlayClientIOS> m_findIndicatorOverlayClient;
+#if ENABLE(PDF_PLUGIN)
+    PluginView* mainFramePlugIn();
 #endif
-};
 
-WebCore::FindOptions core(OptionSet<FindOptions>);
+    const WeakPtr<WebPage> m_webPage;
+    WeakPtr<WebCore::PageOverlay> m_findPageOverlay;
+    std::optional<uint32_t> m_foundStringMatchIndex;
+    Vector<WebCore::SimpleRange> m_findMatches;
+    std::optional<FindMatch> m_lastFoundRange;
+    bool m_lastFoundRangeDidWrap { false };
+    std::unique_ptr<FindIndicator> m_findIndicator;
+};
 
 } // namespace WebKit

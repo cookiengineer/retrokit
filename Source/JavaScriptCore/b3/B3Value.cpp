@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2015-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,6 +32,7 @@
 #include "B3AtomicValue.h"
 #include "B3BasicBlockInlines.h"
 #include "B3BottomProvider.h"
+#include "B3BulkMemoryValue.h"
 #include "B3CCallValue.h"
 #include "B3FenceValue.h"
 #include "B3MemoryValue.h"
@@ -40,13 +41,86 @@
 #include "B3SlotBaseValue.h"
 #include "B3ValueInlines.h"
 #include "B3ValueKeyInlines.h"
+#include "B3WasmArrayGetValue.h"
+#include "B3WasmArrayLengthValue.h"
+#include "B3WasmArrayNewValue.h"
+#include "B3WasmArraySetValue.h"
 #include "B3WasmBoundsCheckValue.h"
+#include "B3WasmRefTypeCheckValue.h"
+#include "B3WasmStructGetValue.h"
+#include "B3WasmStructNewValue.h"
+#include "B3WasmStructSetValue.h"
+#include <array>
+#include <optional>
 #include <wtf/CommaPrinter.h>
 #include <wtf/ListDump.h>
+#include <wtf/StackTrace.h>
 #include <wtf/StringPrintStream.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/Vector.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC { namespace B3 {
+
+WTF_MAKE_SEQUESTERED_ARENA_ALLOCATED_IMPL(Value);
+
+#if ASSERT_ENABLED
+namespace B3ValueInternal {
+constexpr bool alwaysDumpConstructionSite = false;
+}
+
+String Value::generateCompilerConstructionSite()
+{
+    StringPrintStream s;
+    static constexpr int framesToShow = 15;
+    static constexpr int framesToSkip = 0;
+    void* samples[framesToShow + framesToSkip];
+    int frames = framesToShow + framesToSkip;
+
+    WTFGetBacktrace(samples, &frames);
+    if (frames > framesToSkip)
+        frames -= framesToSkip;
+    StackTraceSymbolResolver stackTrace({ samples + framesToSkip, static_cast<size_t>(frames) });
+
+    s.print("[");
+    int printed = 0;
+    stackTrace.forEach([&] (unsigned, void*, const char* cName) {
+        if (printed > 10)
+            return;
+        auto name = String::fromUTF8(cName);
+        if (name.contains("JSC::Wasm::OMGIRGenerator::emit"_s)
+            || name.contains("JSC::Wasm::OMGIRGenerator::add"_s)
+            || name.contains("JSC::Wasm::OMGIRGenerator::create"_s)
+            || name.contains("JSC::Wasm::OMGIRGenerator::end"_s)
+            || name.contains("JSC::Wasm::OMGIRGenerator::set"_s)
+            || name.contains("JSC::Wasm::OMGIRGenerator::get"_s)
+            || name.contains("JSC::Wasm::OMGIRGenerator::insert"_s)
+            || name.contains("JSC::Wasm::OMGIRGenerator::constant("_s)
+            || name.contains("JSC::Wasm::OMGIRGenerator::fixup"_s)
+            || name.contains("JSC::Wasm::OMGIRGenerator::load"_s)
+            || name.contains("JSC::Wasm::OMGIRGenerator::store"_s)
+            || name.contains("JSC::Wasm::OMGIRGenerator::atomic"_s)
+            || name.contains("JSC::Wasm::OMGIRGenerator::trunc"_s)
+            || name.contains("JSC::Wasm::OMGIRGenerator::sanitize"_s)
+            || name.contains("JSC::Wasm::OMGIRGenerator::restore"_s)
+            || name.contains("JSC::Wasm::OMGIRGenerator::connect"_s)
+            || name.contains("JSC::Wasm::OMGIRGenerator::prepare"_s)) {
+            if (name.contains(">::add"_s)
+                || name.contains(">::translate"_s)
+                || name.contains(">::inlineEnsure"_s)
+                || name.contains(">::KeyValuePairTraits"_s))
+                return;
+            if (printed)
+                s.print("|");
+            s.print(name.left(name.find('(')));
+            ++printed;
+        }
+    });
+    s.print("]");
+    return s.toString();
+}
+#endif
 
 const char* const Value::dumpPrefix = "b@";
 void DeepValueDump::dump(PrintStream& out) const
@@ -60,7 +134,7 @@ void DeepValueDump::dump(PrintStream& out) const
 Value::~Value()
 {
     if (m_numChildren == VarArgs)
-        bitwise_cast<Vector<Value*, 3> *>(childrenAlloc())->Vector<Value*, 3>::~Vector();
+        std::bit_cast<Vector<Value*, 3> *>(childrenAlloc())->Vector<Value*, 3>::~Vector();
 }
 
 void Value::replaceWithIdentity(Value* value)
@@ -165,6 +239,12 @@ void Value::dump(PrintStream& out) const
         out.print("$", asInt64(), "(");
         isConstant = true;
         break;
+    case Const128: {
+        v128_t vector = asV128();
+        out.print("$", vector.u64x2[0], vector.u64x2[1], "(");
+        isConstant = true;
+        break;
+    }
     case ConstFloat:
         out.print("$", asFloat(), "(");
         isConstant = true;
@@ -191,9 +271,13 @@ void Value::dumpChildren(CommaPrinter& comma, PrintStream& out) const
 
 void Value::deepDump(const Procedure* proc, PrintStream& out) const
 {
-    out.print(m_type, " ", dumpPrefix, m_index, " = ", m_kind);
+    if (proc && m_type.isTuple())
+        out.print(listDump(proc->tupleForType(m_type)));
+    else
+        out.print(m_type);
+    out.print(" "_s, dumpPrefix, m_index, " = "_s, m_kind);
 
-    out.print("(");
+    out.print("("_s);
     CommaPrinter comma;
     dumpChildren(comma, out);
 
@@ -208,7 +292,14 @@ void Value::deepDump(const Procedure* proc, PrintStream& out) const
     if (m_origin)
         out.print(comma, OriginDump(proc, m_origin));
 
-    out.print(")");
+#if ASSERT_ENABLED
+    if constexpr (B3ValueInternal::alwaysDumpConstructionSite) {
+        if (!m_compilerConstructionSite.isEmpty())
+            out.print(comma, compilerConstructionSite());
+    }
+#endif
+
+    out.print(")"_s);
 }
 
 void Value::dumpSuccessors(const BasicBlock* block, PrintStream& out) const
@@ -249,6 +340,16 @@ Value* Value::mulConstant(Procedure&, const Value*) const
     return nullptr;
 }
 
+Value* Value::mulHighConstant(Procedure&, const Value*) const
+{
+    return nullptr;
+}
+
+Value* Value::uMulHighConstant(Procedure&, const Value*) const
+{
+    return nullptr;
+}
+
 Value* Value::checkAddConstant(Procedure&, const Value*) const
 {
     return nullptr;
@@ -285,6 +386,16 @@ Value* Value::modConstant(Procedure&, const Value*) const
 }
 
 Value* Value::uModConstant(Procedure&, const Value*) const
+{
+    return nullptr;
+}
+
+Value* Value::fMinConstant(Procedure&, const Value*) const
+{
+    return nullptr;
+}
+
+Value* Value::fMaxConstant(Procedure&, const Value*) const
 {
     return nullptr;
 }
@@ -369,7 +480,32 @@ Value* Value::floorConstant(Procedure&) const
     return nullptr;
 }
 
+Value* Value::fTruncConstant(Procedure&) const
+{
+    return nullptr;
+}
+
 Value* Value::sqrtConstant(Procedure&) const
+{
+    return nullptr;
+}
+
+Value* Value::purifyNaNConstant(Procedure&) const
+{
+    return nullptr;
+}
+
+Value* Value::vectorAndConstant(Procedure&, const Value*) const
+{
+    return nullptr;
+}
+
+Value* Value::vectorOrConstant(Procedure&, const Value*) const
+{
+    return nullptr;
+}
+
+Value* Value::vectorXorConstant(Procedure&, const Value*) const
 {
     return nullptr;
 }
@@ -446,6 +582,7 @@ bool Value::isRounded() const
     switch (opcode()) {
     case Floor:
     case Ceil:
+    case FTrunc:
     case IToD:
     case IToF:
         return true;
@@ -521,69 +658,128 @@ TriState Value::asTriState() const
     }
 }
 
-Effects Value::effects() const
+namespace {
+
+// Effects for an opcode that don't depend on per-Value data. Effects::invalid() means
+// value-dependent (handled by effectsSlow()). The traps suffix is applied by effects()/effectsSlow(),
+// not here.
+constexpr Effects constantEffectsForOpcode(Opcode opcode)
 {
-    Effects result;
-    switch (opcode()) {
-    case Nop:
-    case Identity:
-    case Opaque:
-    case Const32:
-    case Const64:
-    case ConstDouble:
-    case ConstFloat:
-    case BottomTuple:
-    case SlotBase:
-    case ArgumentReg:
-    case FramePointer:
-    case Add:
-    case Sub:
-    case Mul:
-    case Neg:
-    case BitAnd:
-    case BitOr:
-    case BitXor:
-    case Shl:
-    case SShr:
-    case ZShr:
-    case RotR:
-    case RotL:
-    case Clz:
-    case Abs:
-    case Ceil:
-    case Floor:
-    case Sqrt:
-    case BitwiseCast:
-    case SExt8:
-    case SExt16:
-    case SExt32:
-    case ZExt32:
-    case Trunc:
-    case IToD:
-    case IToF:
-    case FloatToDouble:
-    case DoubleToFloat:
-    case Equal:
-    case NotEqual:
-    case LessThan:
-    case GreaterThan:
-    case LessEqual:
-    case GreaterEqual:
-    case Above:
-    case Below:
-    case AboveEqual:
-    case BelowEqual:
-    case EqualOrUnordered:
-    case Select:
-    case Depend:
-    case Extract:
-        break;
+    Effects result = Effects::none();
+    switch (opcode) {
+    case Load8Z:
+    case Load8S:
+    case Load16Z:
+    case Load16S:
+    case Load:
+    case Store8:
+    case Store16:
+    case Store:
+    case MemoryCopy:
+    case MemoryFill:
+    case AtomicWeakCAS:
+    case AtomicStrongCAS:
+    case AtomicXchgAdd:
+    case AtomicXchgAnd:
+    case AtomicXchgOr:
+    case AtomicXchgSub:
+    case AtomicXchgXor:
+    case AtomicXchg:
+    case Fence:
+    case CCall:
+    case Patchpoint:
+    case WasmBoundsCheck:
+    case WasmStructGet:
+    case WasmStructSet:
+    case WasmArrayGet:
+    case WasmArraySet:
+    case WasmArrayLength:
+        return Effects::invalid();
     case Div:
     case UDiv:
     case Mod:
     case UMod:
         result.controlDependent = true;
         break;
+    case WasmAddress:
+        result.readsPinned = true;
+        break;
+    case CheckAdd:
+    case CheckSub:
+    case CheckMul:
+    case Check:
+        result = Effects::forCheck();
+        break;
+    case WasmStructNew:
+        result.reads = HeapRange::top();
+        result.writes = HeapRange::top();
+        result.exitsSideways = true;
+        break;
+    case WasmArrayNew:
+        result.reads = HeapRange::top();
+        result.writes = HeapRange::top();
+        result.exitsSideways = true;
+        break;
+    case WasmRefCast:
+        result.reads = HeapRange::top();
+        result.controlDependent = true;
+        result.exitsSideways = true;
+        break;
+    case WasmRefTest:
+        result.reads = HeapRange::top();
+        result.controlDependent = true;
+        break;
+    case Upsilon:
+    case Set:
+        result.writesLocalState = true;
+        break;
+    case Phi:
+    case Get:
+        result.readsLocalState = true;
+        break;
+    case Jump:
+    case Branch:
+    case Switch:
+    case Return:
+    case Oops:
+    case EntrySwitch:
+        result.terminal = true;
+        break;
+    default:
+        // Most opcodes (arithmetic, vectors, constants, conversions) have no effects.
+        break;
+    }
+    return result;
+}
+
+// The fast path in Value::effects() returns table entries without the traps suffix, which is only
+// sound if every trapping opcode with constant effects already subsumes it.
+constexpr bool constantEffectsTableIsTrapSafe()
+{
+    for (unsigned i = 0; i < numberOfB3Opcodes; ++i) {
+        Opcode opcode = static_cast<Opcode>(i);
+        Effects entry = constantEffectsForOpcode(opcode);
+        if (entry.isValid() && Kind(opcode).hasTraps() && !(entry.exitsSideways && entry.reads == HeapRange::top()))
+            return false;
+    }
+    return true;
+}
+static_assert(constantEffectsTableIsTrapSafe(),
+    "Trapping opcodes with constant effects must already set exitsSideways and reads=top.");
+
+} // anonymous namespace
+
+const std::array<Effects, numberOfB3Opcodes> constantEffectsTable = ([] {
+    std::array<Effects, numberOfB3Opcodes> table { };
+    for (unsigned i = 0; i < numberOfB3Opcodes; ++i)
+        table[i] = constantEffectsForOpcode(static_cast<Opcode>(i));
+    return table;
+}());
+
+Effects Value::effectsSlow() const
+{
+    Effects result;
+    switch (opcode()) {
     case Load8Z:
     case Load8S:
     case Load16Z:
@@ -595,7 +791,8 @@ Effects Value::effects() const
             result.writes = memory->fenceRange();
             result.fence = true;
         }
-        result.controlDependent = true;
+        result.controlDependent = memory->controlDependent();
+        result.readsMutability = memory->readsMutability();
         break;
     }
     case Store8:
@@ -607,6 +804,19 @@ Effects Value::effects() const
             result.reads = memory->fenceRange();
             result.fence = true;
         }
+        result.controlDependent = memory->controlDependent();
+        break;
+    }
+    case MemoryCopy: {
+        const auto* memory = as<BulkMemoryValue>();
+        result.reads = memory->readRange();
+        result.writes = memory->writeRange();
+        result.controlDependent = true;
+        break;
+    }
+    case MemoryFill: {
+        const auto* memory = as<BulkMemoryValue>();
+        result.writes = memory->writeRange();
         result.controlDependent = true;
         break;
     }
@@ -626,9 +836,6 @@ Effects Value::effects() const
         result.controlDependent = true;
         break;
     }
-    case WasmAddress:
-        result.readsPinned = true;
-        break;
     case Fence: {
         const FenceValue* fence = as<FenceValue>();
         result.reads = fence->read;
@@ -642,12 +849,6 @@ Effects Value::effects() const
     case Patchpoint:
         result = as<PatchpointValue>()->effects;
         break;
-    case CheckAdd:
-    case CheckSub:
-    case CheckMul:
-    case Check:
-        result = Effects::forCheck();
-        break;
     case WasmBoundsCheck:
         switch (as<WasmBoundsCheckValue>()->boundsType()) {
         case WasmBoundsCheckValue::Type::Pinned:
@@ -657,25 +858,46 @@ Effects Value::effects() const
             break;
         }
         result.exitsSideways = true;
+        result.reads = HeapRange::top();
         break;
-    case Upsilon:
-    case Set:
-        result.writesLocalState = true;
-        break;
-    case Phi:
-    case Get:
-        result.readsLocalState = true;
-        break;
-    case Jump:
-    case Branch:
-    case Switch:
-    case Return:
-    case Oops:
-    case EntrySwitch:
-        result.terminal = true;
+    case WasmStructGet: {
+        const auto* derived = as<WasmStructGetValue>();
+        result.reads = derived->range();
+        result.controlDependent = true;
+        result.readsMutability = derived->mutability();
         break;
     }
-    if (traps()) {
+    case WasmStructSet: {
+        const auto* derived = as<WasmStructSetValue>();
+        result.writes = derived->range();
+        result.controlDependent = true;
+        break;
+    }
+    case WasmArrayGet: {
+        const auto* derived = as<WasmArrayGetValue>();
+        result.reads = derived->range();
+        result.controlDependent = true;
+        result.readsMutability = derived->mutability();
+        break;
+    }
+    case WasmArraySet: {
+        const auto* derived = as<WasmArraySetValue>();
+        result.writes = derived->range();
+        result.controlDependent = true;
+        break;
+    }
+    case WasmArrayLength:
+        result.reads = as<WasmArrayLengthValue>()->range();
+        result.controlDependent = true;
+        result.readsMutability = Mutability::Immutable;
+        break;
+    default:
+        RELEASE_ASSERT_NOT_REACHED();
+    }
+
+    // We check hasTraps() first because most Kinds don't trap and we just switched on the
+    // Kind above. So in most cases the compiler won't bother loading the traps() bit.
+    if (kind().hasTraps() && traps()) {
         result.exitsSideways = true;
         result.reads = HeapRange::top();
     }
@@ -694,13 +916,17 @@ ValueKey Value::key() const
     case Abs:
     case Ceil:
     case Floor:
+    case FTrunc:
     case Sqrt:
     case SExt8:
     case SExt16:
+    case SExt8To64:
+    case SExt16To64:
     case SExt32:
     case ZExt32:
     case Clz:
     case Trunc:
+    case TruncHigh:
     case IToD:
     case IToF:
     case FloatToDouble:
@@ -708,15 +934,21 @@ ValueKey Value::key() const
     case Check:
     case BitwiseCast:
     case Neg:
+    case PurifyNaN:
     case Depend:
+    case WasmArrayLength:
         return ValueKey(kind(), type(), child(0));
     case Add:
     case Sub:
     case Mul:
+    case MulHigh:
+    case UMulHigh:
     case Div:
     case UDiv:
     case Mod:
     case UMod:
+    case FMax:
+    case FMin:
     case BitAnd:
     case BitOr:
     case BitXor:
@@ -728,7 +960,9 @@ ValueKey Value::key() const
     case Equal:
     case NotEqual:
     case LessThan:
+    case LessEqual:
     case GreaterThan:
+    case GreaterEqual:
     case Above:
     case Below:
     case AboveEqual:
@@ -737,6 +971,7 @@ ValueKey Value::key() const
     case CheckAdd:
     case CheckSub:
     case CheckMul:
+    case Stitch:
         return ValueKey(kind(), type(), child(0), child(1));
     case Select:
         return ValueKey(kind(), type(), child(0), child(1), child(2));
@@ -744,6 +979,8 @@ ValueKey Value::key() const
         return ValueKey(Const32, type(), static_cast<int64_t>(asInt32()));
     case Const64:
         return ValueKey(Const64, type(), asInt64());
+    case Const128:
+        return ValueKey(Const128, type(), asV128());
     case ConstDouble:
         return ValueKey(ConstDouble, type(), asDouble());
     case ConstFloat:
@@ -758,9 +995,157 @@ ValueKey Value::key() const
         return ValueKey(
             SlotBase, type(),
             static_cast<int64_t>(as<SlotBaseValue>()->slot()->index()));
-    default:
+    case Extract:
+        return ValueKey(kind(), type(), child(0), as<ExtractValue>()->index());
+    case VectorNot:
+    case VectorSplat:
+    case VectorAbs:
+    case VectorNeg:
+    case VectorPopcnt:
+    case VectorCeil:
+    case VectorFloor:
+    case VectorTrunc:
+    case VectorTruncSat:
+    case VectorRelaxedTruncSat:
+    case VectorConvert:
+    case VectorConvertLow:
+    case VectorNearest:
+    case VectorSqrt:
+    case VectorExtendLow:
+    case VectorExtendHigh:
+    case VectorPromote:
+    case VectorDemote:
+    case VectorBitmask:
+    case VectorAnyTrue:
+    case VectorAllTrue:
+    case VectorExtaddPairwise:
+        numChildrenForKind(kind(), 1);
+        return ValueKey(kind(), type(), as<SIMDValue>()->simdInfo(), child(0));
+    case VectorExtractLane:
+    case VectorDupElement:
+    case VectorReverse:
+        numChildrenForKind(kind(), 1);
+        return ValueKey(kind(), type(), as<SIMDValue>()->simdInfo(), child(0), as<SIMDValue>()->immediate());
+    case VectorEqual:
+    case VectorNotEqual:
+    case VectorLessThan:
+    case VectorLessThanOrEqual:
+    case VectorBelow:
+    case VectorBelowOrEqual:
+    case VectorGreaterThan:
+    case VectorGreaterThanOrEqual:
+    case VectorAbove:
+    case VectorAboveOrEqual:
+    case VectorAdd:
+    case VectorSub:
+    case VectorAddSat:
+    case VectorSubSat:
+    case VectorMul:
+    case VectorMulHigh:
+    case VectorMulLow:
+    case VectorDotProduct:
+    case VectorDiv:
+    case VectorMin:
+    case VectorMax:
+    case VectorPmin:
+    case VectorPmax:
+    case VectorNarrow:
+    case VectorAnd:
+    case VectorAndnot:
+    case VectorOr:
+    case VectorXor:
+    case VectorShl:
+    case VectorShr:
+    case VectorMulSat:
+    case VectorAvgRound:
+    case VectorRelaxedSwizzle:
+    case VectorUnzipEven:
+    case VectorUnzipOdd:
+    case VectorZipLower:
+    case VectorZipHigher:
+    case VectorTransposeEven:
+    case VectorTransposeOdd:
+    case VectorRelaxedMin:
+    case VectorRelaxedMax:
+    case VectorRelaxedQ15Mulr:
+    case VectorRelaxedDotI8x16I7x16:
+        numChildrenForKind(kind(), 2);
+        return ValueKey(kind(), type(), as<SIMDValue>()->simdInfo(), child(0), child(1));
+    case VectorReplaceLane:
+    case VectorMulByElement:
+    case VectorExtractPair:
+        numChildrenForKind(kind(), 2);
+        return ValueKey(kind(), type(), as<SIMDValue>()->simdInfo(), child(0), child(1), as<SIMDValue>()->immediate());
+    case VectorRelaxedMAdd:
+    case VectorRelaxedNMAdd:
+    case VectorBitwiseSelect:
+    case VectorRelaxedLaneSelect:
+    case VectorRelaxedDotI8x16I7x16Add:
+        numChildrenForKind(kind(), 3);
+        return ValueKey(kind(), type(), as<SIMDValue>()->simdInfo(), child(0), child(1), child(2));
+    case VectorSwizzle:
+        if (numChildren() == 2)
+            return ValueKey(kind(), type(), as<SIMDValue>()->simdInfo(), child(0), child(1), nullptr);
+        return ValueKey(kind(), type(), as<SIMDValue>()->simdInfo(), child(0), child(1), child(2));
+    case WasmRefCast:
+    case WasmRefTest: {
+        auto* wasmValue = as<WasmRefTypeCheckValue>();
+        OptionSet<WasmRefTypeCheckFlag> flags = wasmValue->flags();
+        Value* child2 = wasmValue->hasTargetStructureID() ? child(1) : nullptr;
+
+        // Check if RTT is present and set HasRTT flag accordingly
+        if (RefPtr targetRTT = wasmValue->targetRTT()) {
+            flags.add(WasmRefTypeCheckFlag::HasRTT);
+            return ValueKey(kind(), type(), child(0), child2, flags.toRaw(), targetRTT.get());
+        }
+
+        // Use targetHeapType when RTT is null (builtin types)
+        return ValueKey(kind(), type(), child(0), child2, flags.toRaw(), wasmValue->targetHeapType());
+    }
+    case Nop:
+    case Set:
+    case Get:
+    case Load:
+    case Load8Z:
+    case Load16Z:
+    case Load8S:
+    case Load16S:
+    case Store:
+    case Store8:
+    case Store16:
+    case AtomicWeakCAS:
+    case AtomicStrongCAS:
+    case AtomicXchgAdd:
+    case AtomicXchgAnd:
+    case AtomicXchgOr:
+    case AtomicXchgSub:
+    case AtomicXchgXor:
+    case AtomicXchg:
+    case WasmAddress:
+    case WasmBoundsCheck:
+    case WasmStructGet:
+    case WasmStructSet:
+    case WasmStructNew:
+    case WasmArrayGet:
+    case WasmArraySet:
+    case WasmArrayNew:
+    case MemoryCopy:
+    case MemoryFill:
+    case Fence:
+    case CCall:
+    case Patchpoint:
+    case Upsilon:
+    case Phi:
+    case Jump:
+    case Branch:
+    case Switch:
+    case EntrySwitch:
+    case Return:
+    case Oops:
         return ValueKey();
     }
+    RELEASE_ASSERT_NOT_REACHED();
+    return ValueKey();
 }
 
 Value* Value::foldIdentity() const
@@ -811,11 +1196,16 @@ Type Value::typeFor(Kind kind, Value* firstChild, Value* secondChild)
     case Add:
     case Sub:
     case Mul:
+    case MulHigh:
+    case UMulHigh:
     case Div:
     case UDiv:
     case Mod:
     case UMod:
+    case FMax:
+    case FMin:
     case Neg:
+    case PurifyNaN:
     case BitAnd:
     case BitOr:
     case BitXor:
@@ -828,6 +1218,7 @@ Type Value::typeFor(Kind kind, Value* firstChild, Value* secondChild)
     case Abs:
     case Ceil:
     case Floor:
+    case FTrunc:
     case Sqrt:
     case CheckAdd:
     case CheckSub:
@@ -849,11 +1240,15 @@ Type Value::typeFor(Kind kind, Value* firstChild, Value* secondChild)
     case AboveEqual:
     case BelowEqual:
     case EqualOrUnordered:
+    case TruncHigh:
         return Int32;
     case Trunc:
         return firstChild->type() == Int64 ? Int32 : Float;
+    case SExt8To64:
+    case SExt16To64:
     case SExt32:
     case ZExt32:
+    case Stitch:
         return Int64;
     case FloatToDouble:
     case IToD:
@@ -873,6 +1268,7 @@ Type Value::typeFor(Kind kind, Value* firstChild, Value* secondChild)
             return Int32;
         case Void:
         case Tuple:
+        case V128:
             ASSERT_NOT_REACHED();
         }
         return Void;
@@ -899,5 +1295,7 @@ void Value::badKind(Kind kind, unsigned numArgs)
 }
 
 } } // namespace JSC::B3
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(B3_JIT)

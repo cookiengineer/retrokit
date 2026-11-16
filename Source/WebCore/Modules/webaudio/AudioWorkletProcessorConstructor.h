@@ -43,7 +43,16 @@ class AudioWorkletProcessorConstructor : public RefCounted<AudioWorkletProcessor
 public:
     using ActiveDOMCallback::ActiveDOMCallback;
 
-    virtual CallbackResult<RefPtr<AudioWorkletProcessor>> handleEvent(JSC::Strong<JSC::JSObject> options) = 0;
+    // ContextDestructionObserver.
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
+    virtual bool isJSAudioWorkletProcessorConstructor() const { return false; }
+    virtual CallbackResult<Ref<AudioWorkletProcessor>> invoke(JSC::Strong<JSC::JSObject> options) = 0;
+    virtual CallbackResult<Ref<AudioWorkletProcessor>> invokeRethrowingException(JSC::Strong<JSC::JSObject> options) = 0;
+
+private:
+    virtual bool hasCallback() const = 0;
 };
 
 } // namespace WebCore

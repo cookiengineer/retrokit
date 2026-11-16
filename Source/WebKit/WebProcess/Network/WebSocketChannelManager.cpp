@@ -26,6 +26,7 @@
 #include "config.h"
 #include "WebSocketChannelManager.h"
 
+#include "Decoder.h"
 #include <WebCore/WebSocketIdentifier.h>
 
 namespace WebKit {
@@ -33,21 +34,21 @@ namespace WebKit {
 void WebSocketChannelManager::addChannel(WebSocketChannel& channel)
 {
     ASSERT(!m_channels.contains(channel.identifier()));
-    m_channels.add(channel.identifier(), makeWeakPtr(channel));
+    m_channels.add(channel.identifier(), channel);
 }
 
 void WebSocketChannelManager::networkProcessCrashed()
 {
-    auto channels = WTFMove(m_channels);
+    auto channels = WTF::move(m_channels);
     for (auto& channel : channels.values())
         channel->networkProcessCrashed();
 }
 
 void WebSocketChannelManager::didReceiveMessage(IPC::Connection& connection, IPC::Decoder& decoder)
 {
-    auto iterator = m_channels.find(makeObjectIdentifier<WebCore::WebSocketIdentifierType>(decoder.destinationID()));
+    auto iterator = m_channels.find(AtomicObjectIdentifier<WebCore::WebSocketIdentifierType>(decoder.destinationID()));
     if (iterator != m_channels.end())
-        iterator->value->didReceiveMessage(connection, decoder);
+        Ref { *iterator->value }->didReceiveMessage(connection, decoder);
 }
 
 } // namespace WebKit

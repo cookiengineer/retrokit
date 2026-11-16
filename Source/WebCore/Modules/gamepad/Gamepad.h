@@ -27,46 +27,56 @@
 
 #if ENABLE(GAMEPAD)
 
+#include "GamepadHapticEffectType.h"
 #include <wtf/MonotonicTime.h>
-#include <wtf/RefCounted.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
+class Document;
 class GamepadButton;
+class GamepadHapticActuator;
 class PlatformGamepad;
 
-class Gamepad: public RefCounted<Gamepad> {
+class Gamepad: public RefCountedAndCanMakeWeakPtr<Gamepad> {
 public:
-    static Ref<Gamepad> create(const PlatformGamepad& platformGamepad)
+    static Ref<Gamepad> create(Document* document, const PlatformGamepad& platformGamepad)
     {
-        return adoptRef(*new Gamepad(platformGamepad));
+        return adoptRef(*new Gamepad(document, platformGamepad));
     }
     ~Gamepad();
 
-    const String& id() const { return m_id; }
+    const String& id() const LIFETIME_BOUND { return m_id; }
     unsigned index() const { return m_index; }
-    const String& mapping() const { return m_mapping; }
+    const String& mapping() const LIFETIME_BOUND { return m_mapping; }
 
     bool connected() const { return m_connected; }
     double timestamp() const { return m_timestamp.secondsSinceEpoch().seconds(); }
-    const Vector<double>& axes() const;
-    const Vector<Ref<GamepadButton>>& buttons() const;
+    const Vector<double>& NODELETE axes() const;
+    const Vector<Ref<GamepadButton>>& NODELETE buttons() const;
+    const GamepadHapticEffectTypeSet& supportedEffectTypes() const LIFETIME_BOUND { return m_supportedEffectTypes; }
 
     void updateFromPlatformGamepad(const PlatformGamepad&);
     void setConnected(bool connected) { m_connected = connected; }
 
+    GamepadHapticActuator* vibrationActuator() { return m_vibrationActuator.get(); }
+
 private:
-    explicit Gamepad(const PlatformGamepad&);
+    Gamepad(Document*, const PlatformGamepad&);
     String m_id;
     unsigned m_index;
     bool m_connected;
     MonotonicTime m_timestamp;
     String m_mapping;
+    GamepadHapticEffectTypeSet m_supportedEffectTypes;
 
     Vector<double> m_axes;
     Vector<Ref<GamepadButton>> m_buttons;
+
+    const RefPtr<GamepadHapticActuator> m_vibrationActuator;
 };
 
 } // namespace WebCore

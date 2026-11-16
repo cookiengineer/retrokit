@@ -41,6 +41,7 @@ bool clobbersExitState(Graph& graph, Node* node)
     switch (node->op()) {
     case InitializeEntrypointArguments:
     case MovHint:
+    case ZombieHint:
     case PutHint:
     case KillStack:
         return true;
@@ -55,12 +56,15 @@ bool clobbersExitState(Graph& graph, Node* node)
     case ArrayifyToStructure:
     case Arrayify:
     case NewObject:
-    case NewGenerator:
-    case NewAsyncGenerator:
     case NewInternalFieldObject:
-    case NewRegexp:
-    case NewSymbol:
+    case NewPromise:
+    case NewRegExp:
+    case NewMap:
+    case NewSet:
+    case NewWeakMap:
+    case NewWeakSet:
     case NewStringObject:
+    case NewBoundFunction:
     case PhantomNewObject:
     case MaterializeNewObject:
     case PhantomNewFunction:
@@ -68,10 +72,11 @@ bool clobbersExitState(Graph& graph, Node* node)
     case PhantomNewAsyncGeneratorFunction:
     case PhantomNewAsyncFunction:
     case PhantomNewInternalFieldObject:
+    case PhantomNewPromise:
     case MaterializeNewInternalFieldObject:
     case PhantomCreateActivation:
     case MaterializeCreateActivation:
-    case PhantomNewRegexp:
+    case PhantomNewRegExp:
     case CountExecution:
     case SuperSamplerBegin:
     case SuperSamplerEnd:
@@ -86,11 +91,13 @@ bool clobbersExitState(Graph& graph, Node* node)
     case FilterDeleteByStatus:
     case FilterCheckPrivateBrandStatus:
     case FilterSetPrivateBrandStatus:
-    case TryGetById:
         // These do clobber memory, but nothing that is observable. It may be nice to separate the
         // heaps into those that are observable and those that aren't, but we don't do that right now.
         // FIXME: https://bugs.webkit.org/show_bug.cgi?id=148440
         return false;
+
+    case NewRegExpUntyped:
+        return !(node->child1().useKind() == StringUse && node->child2().useKind() == StringUse);
 
     case CreateActivation:
         // Like above, but with the activation allocation caveat.
@@ -109,11 +116,11 @@ bool clobbersExitState(Graph& graph, Node* node)
         clobberize(
             graph, node, NoOpClobberize(),
             [&] (const AbstractHeap& heap) {
-                // There shouldn't be such a thing as a strict subtype of SideState. That's what allows
-                // us to use a fast != check, below.
-                ASSERT(!heap.isStrictSubtypeOf(SideState));
+                // There shouldn't be such a thing as a strict subtype of SideState or HeapObjectCount.
+                // That's what allows us to use a fast != check, below.
+                ASSERT(!heap.isStrictSubtypeOf(SideState) && !heap.isStrictSubtypeOf(HeapObjectCount));
 
-                if (heap != SideState)
+                if (heap != SideState && heap != HeapObjectCount)
                     result = true;
             },
             NoOpClobberize());

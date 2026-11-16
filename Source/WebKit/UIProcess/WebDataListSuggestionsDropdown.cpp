@@ -28,25 +28,26 @@
 
 #include "WebPageProxy.h"
 
-#if ENABLE(DATALIST_ELEMENT)
-
 namespace WebKit {
 
 WebDataListSuggestionsDropdown::WebDataListSuggestionsDropdown(WebPageProxy& page)
-    : m_page(makeWeakPtr(page))
+    : m_page(page)
 {
 }
 
-WebDataListSuggestionsDropdown::~WebDataListSuggestionsDropdown()
+WebDataListSuggestionsDropdown::~WebDataListSuggestionsDropdown() = default;
+
+void WebDataListSuggestionsDropdown::show(WebCore::DataListSuggestionInformation&& information)
 {
+    m_targetFrameID = information.rootFrameID;
+    platformShow(WTF::move(information));
 }
 
 void WebDataListSuggestionsDropdown::close()
 {
+    auto targetFrameID = std::exchange(m_targetFrameID, std::nullopt);
     if (auto page = std::exchange(m_page, nullptr))
-        page->didCloseSuggestions();
+        page->didCloseSuggestions(targetFrameID);
 }
 
 } // namespace WebKit
-
-#endif // ENABLE(DATALIST_ELEMENT)

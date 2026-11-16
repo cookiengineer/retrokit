@@ -27,8 +27,14 @@
 
 #if ENABLE(GPU_PROCESS)
 
+#include "AuxiliaryProcessCreationParameters.h"
 #include "SandboxExtension.h"
 #include <wtf/ProcessID.h>
+
+#if USE(GBM)
+#include <WebCore/DRMDevice.h>
+#endif
+
 namespace IPC {
 class Decoder;
 class Encoder;
@@ -37,32 +43,42 @@ class Encoder;
 namespace WebKit {
 
 struct GPUProcessCreationParameters {
-    GPUProcessCreationParameters();
-
+    AuxiliaryProcessCreationParameters auxiliaryProcessParameters;
 #if ENABLE(MEDIA_STREAM)
     bool useMockCaptureDevices { false };
 #if PLATFORM(MAC)
     SandboxExtension::Handle microphoneSandboxExtensionHandle;
+    SandboxExtension::Handle launchServicesExtensionHandle;
 #endif
 #endif
-    ProcessID parentPID;
 
 #if USE(SANDBOX_EXTENSIONS_FOR_CACHE_AND_TEMP_DIRECTORY_ACCESS)
     SandboxExtension::Handle containerCachesDirectoryExtensionHandle;
     SandboxExtension::Handle containerTemporaryDirectoryExtensionHandle;
+    String containerCachesDirectory;
 #endif
-#if PLATFORM(IOS_FAMILY)
-    Vector<SandboxExtension::Handle> compilerServiceExtensionHandles;
-    Vector<SandboxExtension::Handle> dynamicIOKitExtensionHandles;
-    Vector<SandboxExtension::Handle> dynamicMachExtensionHandles;
+    std::optional<SandboxExtension::Handle> mobileGestaltExtensionHandle;
+#if PLATFORM(COCOA) && ENABLE(REMOTE_INSPECTOR)
+    Vector<SandboxExtension::Handle> gpuToolsExtensionHandles;
 #endif
 
-    String wtfLoggingChannels;
-    String webCoreLoggingChannels;
-    String webKitLoggingChannels;
+    String applicationVisibleName;
 
-    void encode(IPC::Encoder&) const;
-    static WARN_UNUSED_RETURN bool decode(IPC::Decoder&, GPUProcessCreationParameters&);
+#if USE(GBM)
+    WebCore::DRMDevice drmDevice;
+#endif
+
+    Vector<String> overrideLanguages;
+#if PLATFORM(COCOA)
+    bool enableMetalDebugDeviceForTesting { false };
+    bool enableMetalShaderValidationForTesting { false };
+#if ENABLE(VP9)
+    std::optional<bool> hasVP9HardwareDecoder;
+#endif
+#if ENABLE(AV1)
+    std::optional<bool> hasAV1HardwareDecoder;
+#endif
+#endif
 };
 
 } // namespace WebKit

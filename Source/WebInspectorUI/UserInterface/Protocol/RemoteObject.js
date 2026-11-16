@@ -37,7 +37,12 @@ WI.RemoteObject = class RemoteObject
         console.assert(!preview || preview instanceof WI.ObjectPreview);
         console.assert(!target || target instanceof WI.Target);
 
-        this._target = target || WI.mainTarget;
+        if (!target || !target.hasDomain("Debugger") || !target.hasDomain("Runtime")) {
+            // FIXME: <https://webkit.org/b/298909> Add Debugger support for FrameTarget.
+            // FIXME: <https://webkit.org/b/298910> Add Runtime support for FrameTarget.
+            target = WI.assumingMainTarget();
+        }
+        this._target = target;
         this._type = type;
         this._subtype = subtype;
 
@@ -128,9 +133,9 @@ WI.RemoteObject = class RemoteObject
         if (node.destroyed)
             return Promise.reject("ERROR: node is destroyed");
 
-        let target = WI.assumingMainTarget();
-        return target.DOMAgent.resolveNode(node.id, objectGroup)
-            .then(({object}) => WI.RemoteObject.fromPayload(object, WI.mainTarget));
+        let target = node.owningTarget || WI.assumingMainTarget();
+        return target.DOMAgent.resolveNode(node.backendNodeId, objectGroup)
+            .then(({object}) => WI.RemoteObject.fromPayload(object, target));
     }
 
     static resolveWebSocket(webSocketResource, objectGroup, callback)
@@ -146,26 +151,17 @@ WI.RemoteObject = class RemoteObject
         });
     }
 
-    static resolveCanvasContext(canvas, objectGroup, callback)
+    static resolveCanvasContext(canvas, objectGroup)
     {
-        console.assert(typeof callback === "function");
-
-        function wrapCallback(error, object) {
-            if (error || !object)
-                callback(null);
-            else
-                callback(WI.RemoteObject.fromPayload(object, WI.mainTarget));
-        }
-
-        let target = WI.assumingMainTarget();
+        let promise = null;
 
         // COMPATIBILITY (iOS 13): Canvas.resolveCanvasContext was renamed to Canvas.resolveContext.
-        if (!target.hasCommand("Canvas.resolveContext")) {
-            target.CanvasAgent.resolveCanvasContext(canvas.identifier, objectGroup, wrapCallback);
-            return;
-        }
+        if (!canvas.target.hasCommand("Canvas.resolveContext"))
+            promise = canvas.target.CanvasAgent.resolveCanvasContext(canvas.identifier, objectGroup);
+        else
+            promise = canvas.target.CanvasAgent.resolveContext(canvas.identifier, objectGroup);
 
-        target.CanvasAgent.resolveContext(canvas.identifier, objectGroup, wrapCallback);
+        return promise.then(({object}) => WI.RemoteObject.fromPayload(object, canvas.target));
     }
 
     static resolveAnimation(animation, objectGroup, callback)
@@ -399,6 +395,11 @@ WI.RemoteObject = class RemoteObject
 
         // COMPATIBILITY (iOS 13): `startIndex` and `numberToFetch` were renamed to `fetchStart` and `fetchCount` (but kept in the same position).
         this._target.RuntimeAgent.getCollectionEntries(this._objectId, objectGroup, fetchStart, fetchCount, (error, entries) => {
+            if (error) {
+                callback(null);
+                return;
+            }
+
             callback(entries.map((x) => WI.CollectionEntry.fromPayload(x, this._target)));
         });
     }
@@ -413,7 +414,7 @@ WI.RemoteObject = class RemoteObject
     pushNodeToFrontend(callback)
     {
         if (this._objectId && InspectorBackend.hasCommand("DOM.requestNode"))
-            WI.domManager.pushNodeToFrontend(this._objectId, callback);
+            WI.domManager.pushNodeToFrontend(this._objectId, callback, this._target);
         else
             callback(0);
     }
@@ -487,14 +488,18 @@ WI.RemoteObject = class RemoteObject
         }
     }
 
-    callFunctionJSON(functionDeclaration, args, callback)
+    callFunctionJSON(functionDeclaration, args, callback = null)
     {
-        function mycallback(error, result, wasThrown)
-        {
-            callback((error || wasThrown) ? null : result.value);
+        if (callback && typeof callback === "function") {
+            this._target.RuntimeAgent.callFunctionOn(this._objectId, appendWebInspectorSourceURL(functionDeclaration.toString()), args, true, true, (error, result, wasThrown) => {
+                callback((error || wasThrown) ? null : result.value);
+            });
+        } else {
+            return this._target.RuntimeAgent.callFunctionOn(this._objectId, appendWebInspectorSourceURL(functionDeclaration.toString()), args, true, true)
+                .then(({result, wasThrown}) => {
+                    return wasThrown ? null : result.value;
+                });
         }
-
-        this._target.RuntimeAgent.callFunctionOn(this._objectId, appendWebInspectorSourceURL(functionDeclaration.toString()), args, true, true, mycallback);
     }
 
     invokeGetter(getterRemoteObject, callback)
@@ -555,34 +560,25 @@ WI.RemoteObject = class RemoteObject
         return WI.RemoteObject.createCallArgument(this);
     }
 
-    findFunctionSourceCodeLocation()
+    async findFunctionSourceCodeLocation()
     {
-        var result = new WI.WrappedPromise;
+        if (!this._isFunction() || !this._objectId)
+            return WI.RemoteObject.SourceCodeLocationPromise.MissingObjectId;
 
-        if (!this._isFunction() || !this._objectId) {
-            result.resolve(WI.RemoteObject.SourceCodeLocationPromise.MissingObjectId);
-            return result.promise;
+        let location;
+        try {
+            let {details} = await this._target.DebuggerAgent.getFunctionDetails(this._objectId);
+            location = details.location;
+        } catch {
+            return WI.RemoteObject.SourceCodeLocationPromise.NoSourceFound;
         }
 
-        this._target.DebuggerAgent.getFunctionDetails(this._objectId, (error, response) => {
-            if (error) {
-                result.resolve(WI.RemoteObject.SourceCodeLocationPromise.NoSourceFound);
-                return;
-            }
+        let sourceCode = WI.debuggerManager.scriptForIdentifier(location.scriptId, this._target);
 
-            var location = response.location;
-            var sourceCode = WI.debuggerManager.scriptForIdentifier(location.scriptId, this._target);
+        if (!sourceCode || (!WI.settings.engineeringShowInternalScripts.value && isWebKitInternalScript(sourceCode.sourceURL)))
+            return WI.RemoteObject.SourceCodeLocationPromise.NoSourceFound
 
-            if (!sourceCode || (!WI.settings.engineeringShowInternalScripts.value && isWebKitInternalScript(sourceCode.sourceURL))) {
-                result.resolve(WI.RemoteObject.SourceCodeLocationPromise.NoSourceFound);
-                return;
-            }
-
-            var sourceCodeLocation = sourceCode.createSourceCodeLocation(location.lineNumber, location.columnNumber || 0);
-            result.resolve(sourceCodeLocation);
-        });
-
-        return result.promise;
+        return sourceCode.createSourceCodeLocation(location.lineNumber, location.columnNumber || 0);
     }
 
     // Private

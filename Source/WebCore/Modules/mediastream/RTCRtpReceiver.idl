@@ -29,17 +29,22 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+typedef double DOMHighResTimeStamp;
+
 [
     Conditional=WEB_RTC,
-    EnabledBySetting=PeerConnection,
+    EnabledBySetting=PeerConnectionEnabled,
     Exposed=Window
 ] interface RTCRtpReceiver {
     readonly attribute MediaStreamTrack track;
     readonly attribute RTCDtlsTransport? transport;
 
-    [CallWith=ScriptExecutionContext] static RTCRtpCapabilities? getCapabilities(DOMString kind);
+    [CallWith=CurrentScriptExecutionContext] static RTCRtpCapabilities? getCapabilities(DOMString kind);
     RTCRtpParameters getParameters();
     sequence<RTCRtpContributingSource> getContributingSources();
     sequence<RTCRtpSynchronizationSource> getSynchronizationSources();
     Promise<RTCStatsReport> getStats();
+    attribute DOMHighResTimeStamp? jitterBufferTarget;
+
+    [CallWith=CurrentScriptExecutionContext, EnabledByQuirk=shouldEnableRTCEncodedStreams] RTCEncodedStreams createEncodedStreams();
 };

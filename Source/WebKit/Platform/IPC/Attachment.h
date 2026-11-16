@@ -26,93 +26,33 @@
 
 #pragma once
 
-#if OS(DARWIN) && !USE(UNIX_DOMAIN_SOCKETS)
-#include <mach/mach_init.h>
-#include <mach/mach_traps.h>
+#if OS(DARWIN)
+#include <wtf/MachSendRight.h>
 #endif
 
-#if OS(WINDOWS)
-#include <windows.h>
+#if OS(ANDROID)
+#include <wtf/Variant.h>
+#include <wtf/android/RefPtrAndroid.h>
 #endif
 
 #if USE(UNIX_DOMAIN_SOCKETS)
-#include <wtf/Function.h>
-#include <wtf/Variant.h>
+#include <wtf/unix/UnixFileDescriptor.h>
 #endif
 
 namespace IPC {
 
-class Decoder;
-class Encoder;
-
-class Attachment {
-public:
-    Attachment();
-
-    enum Type {
-        Uninitialized,
-#if USE(UNIX_DOMAIN_SOCKETS)
-        SocketType,
-        MappedMemoryType,
-        CustomWriterType,
-#elif OS(DARWIN)
-        MachPortType
-#endif
-    };
-
-#if USE(UNIX_DOMAIN_SOCKETS)
-    Attachment(Attachment&&);
-    Attachment& operator=(Attachment&&);
-    Attachment(int fileDescriptor, size_t);
-    Attachment(int fileDescriptor);
-    ~Attachment();
-
-    using SocketDescriptor = int;
-    using CustomWriterFunc = WTF::Function<void(SocketDescriptor)>;
-    using CustomWriter = Variant<CustomWriterFunc, SocketDescriptor>;
-    Attachment(CustomWriter&&);
-#elif OS(DARWIN)
-    Attachment(mach_port_name_t, mach_msg_type_name_t disposition);
+// IPC::Attachment is a type representing objects that cannot be transferred as data,
+// rather they are transferred via operating system cross-process communication primitives.
+#if OS(DARWIN)
+using Attachment = MachSendRight;
 #elif OS(WINDOWS)
-    Attachment(HANDLE handle)
-        : m_handle(handle)
-    { }
+struct Attachment { }; // Windows does not need attachments at the moment.
+#elif OS(ANDROID)
+using Attachment = Variant<UnixFileDescriptor, RefPtr<AHardwareBuffer>>;
+#elif USE(UNIX_DOMAIN_SOCKETS)
+using Attachment = UnixFileDescriptor;
+#else
+#error Unsupported platform
 #endif
-
-    Type type() const { return m_type; }
-
-#if USE(UNIX_DOMAIN_SOCKETS)
-    size_t size() const { return m_size; }
-
-    int releaseFileDescriptor() { int temp = m_fileDescriptor; m_fileDescriptor = -1; return temp; }
-    int fileDescriptor() const { return m_fileDescriptor; }
-    const CustomWriter& customWriter() const { return m_customWriter; }
-#elif OS(DARWIN)
-    void release();
-
-    // MachPortType
-    mach_port_name_t port() const { return m_port; }
-    mach_msg_type_name_t disposition() const { return m_disposition; }
-#elif OS(WINDOWS)
-    HANDLE handle() const { return m_handle; }
-#endif
-
-    void encode(Encoder&) const;
-    static WARN_UNUSED_RETURN bool decode(Decoder&, Attachment&);
-    
-private:
-    Type m_type;
-
-#if USE(UNIX_DOMAIN_SOCKETS)
-    int m_fileDescriptor { -1 };
-    size_t m_size;
-    CustomWriter m_customWriter;
-#elif OS(DARWIN)
-    mach_port_name_t m_port { 0 };
-    mach_msg_type_name_t m_disposition { 0 };
-#elif OS(WINDOWS)
-    HANDLE m_handle { INVALID_HANDLE_VALUE };
-#endif
-};
 
 } // namespace IPC

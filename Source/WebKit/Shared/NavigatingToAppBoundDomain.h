@@ -25,13 +25,6 @@
 
 #pragma once
 
-#include "ArgumentCoder.h"
-#include "ArgumentCoders.h"
-#include "Decoder.h"
-#include "Encoder.h"
-#include <WebCore/RegistrableDomain.h>
-#include <WebCore/ResourceRequest.h>
-
 namespace WebKit {
 
 enum class NavigatingToAppBoundDomain : bool { No, Yes };

@@ -22,6 +22,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// https://w3c.github.io/mediacapture-main/#dom-mediastream
 [
     ActiveDOMObject,
     Conditional=MEDIA_STREAM,
@@ -30,21 +31,22 @@
     PublicIdentifier,
     Exposed=Window
 ] interface MediaStream : EventTarget {
-    [CallWith=Document] constructor();
-    [CallWith=Document] constructor(MediaStream stream);
-    [CallWith=Document] constructor(sequence<MediaStreamTrack> tracks);
+    [CallWith=CurrentDocument] constructor();
+    [CallWith=CurrentDocument] constructor(MediaStream stream);
+    [CallWith=CurrentDocument] constructor(sequence<MediaStreamTrack> tracks);
 
     readonly attribute DOMString id;
 
     sequence<MediaStreamTrack> getAudioTracks();
     sequence<MediaStreamTrack> getVideoTracks();
     [PrivateIdentifier, PublicIdentifier] sequence<MediaStreamTrack> getTracks();
-    MediaStreamTrack getTrackById(DOMString trackId);
+    MediaStreamTrack? getTrackById(DOMString trackId);
 
     undefined addTrack(MediaStreamTrack track);
     undefined removeTrack(MediaStreamTrack track);
 
-    MediaStream clone();
+    // FIXME: `clone` should not return a nullable type.
+    MediaStream? clone();
 
     readonly attribute boolean active;
 

@@ -24,25 +24,27 @@
 
 #pragma once
 
-#include "ExceptionOr.h"
-#include "ScriptWrappable.h"
+#include <WebCore/Element.h>
+#include <WebCore/ScriptWrappable.h>
+#include <wtf/WeakRef.h>
 
 namespace WebCore {
 
 class Attr;
-class Element;
+template<typename> class ExceptionOr;
 
 class NamedNodeMap final : public ScriptWrappable {
-    WTF_MAKE_ISO_ALLOCATED(NamedNodeMap);
+    WTF_MAKE_TZONE_ALLOCATED(NamedNodeMap);
 public:
     explicit NamedNodeMap(Element& element)
         : m_element(element)
     {
     }
 
-    WEBCORE_EXPORT void ref();
+    WEBCORE_EXPORT void NODELETE ref();
     WEBCORE_EXPORT void deref();
 
+    bool isSupportedPropertyIndex(unsigned index) const { return index < length(); }
     WEBCORE_EXPORT unsigned length() const;
     WEBCORE_EXPORT RefPtr<Attr> item(unsigned index) const;
     WEBCORE_EXPORT RefPtr<Attr> getNamedItem(const AtomString&) const;
@@ -50,13 +52,14 @@ public:
     WEBCORE_EXPORT ExceptionOr<RefPtr<Attr>> setNamedItem(Attr&);
     WEBCORE_EXPORT ExceptionOr<Ref<Attr>> removeNamedItem(const AtomString& name);
     WEBCORE_EXPORT ExceptionOr<Ref<Attr>> removeNamedItemNS(const AtomString& namespaceURI, const AtomString& localName);
+    bool isSupportedPropertyName(const AtomString&) const;
 
     Vector<String> supportedPropertyNames() const;
 
-    Element& element() { return m_element; }
+    Element& NODELETE element() const;
 
 private:
-    Element& m_element;
+    WeakRef<Element, WeakPtrImplWithEventTargetData> m_element;
 };
 
 } // namespace WebCore

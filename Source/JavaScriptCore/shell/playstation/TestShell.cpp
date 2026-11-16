@@ -23,7 +23,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "../jsc.cpp"
+#include "../../jsc.cpp"
 
 #include <wtf/Language.h>
 
@@ -50,9 +50,6 @@ extern "C" void setupTestRun()
 
     JSC::initialize();
 
-#if ENABLE(WEBASSEMBLY)
-    JSC::Wasm::enableFastMemory();
-#endif
     Gigacage::forbidDisablingPrimitiveGigacage();
 }
 

@@ -31,22 +31,34 @@
 #pragma once
 
 #include "BaseTextInputType.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class PasswordInputType final : public BaseTextInputType {
-    template<typename DowncastedType> friend bool isInvalidInputType(const InputType&, const String&);
+    WTF_MAKE_TZONE_ALLOCATED(PasswordInputType);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(PasswordInputType);
 public:
-    explicit PasswordInputType(HTMLInputElement& element) : BaseTextInputType(Type::Password, element) { }
+    static Ref<PasswordInputType> create(HTMLInputElement& element)
+    {
+        return adoptRef(*new PasswordInputType(element));
+    }
 
 private:
-    const AtomString& formControlType() const override;
-    bool shouldSaveAndRestoreFormControlState() const override;
-    FormControlState saveFormControlState() const override;
-    void restoreFormControlState(const FormControlState&) override;
-    bool shouldUseInputMethod() const override;
-    bool shouldResetOnDocumentActivation() override;
-    bool shouldRespectListAttribute() override;
+    explicit PasswordInputType(HTMLInputElement& element)
+        : BaseTextInputType(Type::Password, element)
+    {
+    }
+
+    const AtomString& formControlType() const final;
+    bool shouldSaveAndRestoreFormControlState() const final;
+    FormControlState saveFormControlState() const final;
+    void restoreFormControlState(const FormControlState&) final;
+    bool shouldUseInputMethod() const final;
+    bool shouldResetOnDocumentActivation() final;
+    bool shouldRespectListAttribute() final;
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_INPUT_TYPE(PasswordInputType, Type::Password)

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011, 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2011, 2014, 2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,18 +25,42 @@
 
 #include "config.h"
 #include "TextRun.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-struct ExpectedTextRunSize {
+WTF_MAKE_TZONE_ALLOCATED_IMPL(TextRun);
+
+struct ExpectedTextRunSize final : public CanMakeCheckedPtr<ExpectedTextRunSize> {
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(ExpectedTextRunSize);
+    WTF_STRUCT_OVERRIDE_DELETE_FOR_CHECKED_PTR(ExpectedTextRunSize);
+
     String text;
     TabSize tabSize;
     float float1;
     float float2;
     float float3;
-    unsigned bitfields : 9;
+    ExpansionBehavior expansionBehavior;
+    TextSpacing::SpacingState spacingState;
+    unsigned bitfields : 5;
 };
 
-COMPILE_ASSERT(sizeof(TextRun) == sizeof(ExpectedTextRunSize), TextRun_is_not_of_expected_size);
+static_assert(sizeof(TextRun) == sizeof(ExpectedTextRunSize), "TextRun should be small");
+
+TextStream& operator<<(TextStream& ts, const TextRun& textRun)
+{
+    ts.dumpProperty("text"_s, textRun.text());
+    ts.dumpProperty("tab-size"_s, textRun.tabSize());
+    ts.dumpProperty("x-pos"_s, textRun.xPos());
+    ts.dumpProperty("horizontal-glyph-streatch"_s, textRun.horizontalGlyphStretch());
+    ts.dumpProperty("expansion"_s, textRun.expansion());
+    ts.dumpProperty("expansion-behavior"_s, textRun.expansionBehavior());
+    ts.dumpProperty("allow-tabs"_s, textRun.allowTabs());
+    ts.dumpProperty("direction"_s, textRun.direction());
+    ts.dumpProperty("directional-override"_s, textRun.directionalOverride());
+    ts.dumpProperty("character-scan-for-code-path"_s, textRun.characterScanForCodePath());
+    ts.dumpProperty("spacing-disabled"_s, textRun.spacingDisabled());
+    return ts;
+}
 
 }

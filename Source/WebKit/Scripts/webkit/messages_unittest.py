@@ -1,4 +1,4 @@
-# Copyright (C) 2010-2018 Apple Inc. All rights reserved.
+# Copyright (C) 2010-2023 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -21,10 +21,11 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 # Examples of how to run:
-# python Source/WebKit/Scripts/webkit/messages_unittest.py [-r]
-# cd Source/WebKit/Scripts && python -m webkit.messages_unittest
-# cd Source/WebKit/Scripts && python -m unittest discover -p '*_unittest.py'
+# python3 Source/WebKit/Scripts/webkit/messages_unittest.py [-r]
+# cd Source/WebKit/Scripts && python3 -m webkit.messages_unittest
+# cd Source/WebKit/Scripts && python3 -m unittest discover -p '*_unittest.py'
 
+from __future__ import print_function
 import os
 import re
 import sys
@@ -40,15 +41,33 @@ tests_directory = os.path.join(module_directory, 'tests')
 reset_results = False
 
 _test_receiver_names = [
-    'TestWithSuperclass',
-    'TestWithLegacyReceiver',
-    'TestWithoutAttributes',
-    'TestWithIfMessage',
-    'TestWithSemaphore',
-    'TestWithImageData',
-    'TestWithStream',
-    'TestWithStreamBuffer',
     'TestWithCVPixelBuffer',
+    'TestWithDeferSendingOption',
+    'TestWithDispatchedFromAndTo',
+    'TestWithEnabledBy',
+    'TestWithEnabledByAndConjunction',
+    'TestWithEnabledByOrConjunction',
+    'TestWithIfMessage',
+    'TestWithImageData',
+    'TestWithLegacyReceiver',
+    'TestWithMultiLineExtendedAttributes',
+    'TestWithoutAttributes',
+    'TestWithoutUsingIPCConnection',
+    'TestWithSemaphore',
+    'TestWithSpanOfConst',
+    'TestWithStream',
+    'TestWithStreamBatched',
+    'TestWithStreamBuffer',
+    'TestWithStreamServerConnectionHandle',
+    'TestWithSuperclass',
+    'TestWithSuperclassAndWantsAsyncDispatch',
+    'TestWithSuperclassAndWantsDispatch',
+    'TestWithSwift',
+    'TestWithSwiftConditionally',
+    'TestWithValidator',
+    'TestWithWantsAsyncDispatch',
+    'TestWithWantsDispatch',
+    'TestWithWantsDispatchNoSyncMessages',
 ]
 
 
@@ -84,9 +103,9 @@ class GeneratedFileContentsTest(unittest.TestCase):
             expected_line_list = expected_file_contents.splitlines(False)
 
             for index, actual_line in enumerate(actual_line_list):
-                self.assertEquals(actual_line, expected_line_list[index])
+                self.assertEqual(actual_line, expected_line_list[index])
 
-            self.assertEquals(len(actual_line_list), len(expected_line_list))
+            self.assertEqual(len(actual_line_list), len(expected_line_list))
         except Exception:
             sys.stderr.write('In expected file %s\n' % expected_file_name)
             raise
@@ -97,6 +116,9 @@ class GeneratedFileContentsTest(unittest.TestCase):
             self.assertGeneratedFileContentsEqual(header_contents, os.path.join(tests_directory, '{}Messages.h'.format(receiver_name)))
             implementation_contents = messages.generate_message_handler(receiver)
             self.assertGeneratedFileContentsEqual(implementation_contents, os.path.join(tests_directory, '{}MessageReceiver.cpp'.format(receiver_name)))
+            if receiver.swift_receiver or receiver.swift_receiver_build_enabled_by:
+                swift_implementation_contents = messages.generate_swift_message_handler(receiver)
+                self.assertGeneratedFileContentsEqual(swift_implementation_contents, os.path.join(tests_directory, '{}MessageReceiver.swift'.format(receiver_name)))
 
     def test_message_names(self):
         header_contents = messages.generate_message_names_header(self.receivers)
@@ -109,26 +131,6 @@ class GeneratedFileContentsTest(unittest.TestCase):
         implementation_contents = messages.generate_message_argument_description_implementation(self.receivers, receiver_header_files)
         self.assertGeneratedFileContentsEqual(implementation_contents, os.path.join(tests_directory, 'MessageArgumentDescriptions.cpp'))
 
-def add_reset_results_to_unittest_help():
-    script_name = os.path.basename(__file__)
-    reset_results_help = '''
-Custom Options:
-  -r, --reset-results  Reset expected results for {0}
-'''.format(script_name)
-
-    options_regex = re.compile('^Usage:')
-    lines = unittest.TestProgram.USAGE.splitlines(True)
-    index = 0
-    for index, line in enumerate(lines):
-        if options_regex.match(line) and index + 1 < len(lines):
-            lines.insert(index + 1, reset_results_help)
-            break
-
-    if index == (len(lines) - 1):
-        lines.append(reset_results_help)
-
-    unittest.TestProgram.USAGE = ''.join(lines)
-
 
 def parse_sys_argv():
     global reset_results
@@ -138,8 +140,15 @@ def parse_sys_argv():
             del sys.argv[index + 1]
             break
 
+    for index, arg in enumerate(sys.argv[1:]):
+        if arg in ('-h', '--h', '--help') or '--help'.startswith(arg):
+            print('''
+Custom Options:
+  -r, --reset-results  Reset expected results for {script_name}
+'''.format(script_name=os.path.basename(__file__)))
+            break
+
 
 if __name__ == '__main__':
-    add_reset_results_to_unittest_help()
     parse_sys_argv()
     unittest.main()

@@ -25,14 +25,14 @@
 
 #pragma once
 
-#if ENABLE(WIRELESS_PLAYBACK_TARGET)
+#if ENABLE(WIRELESS_PLAYBACK_TARGET_AVAILABILITY_API)
 
 #include "Event.h"
 
 namespace WebCore {
 
 class WebKitPlaybackTargetAvailabilityEvent final : public Event {
-    WTF_MAKE_ISO_ALLOCATED(WebKitPlaybackTargetAvailabilityEvent);
+    WTF_MAKE_TZONE_ALLOCATED(WebKitPlaybackTargetAvailabilityEvent);
 public:
 
     static Ref<WebKitPlaybackTargetAvailabilityEvent> create(const AtomString& eventType, bool available)
@@ -44,22 +44,20 @@ public:
         String availability;
     };
 
-    static Ref<WebKitPlaybackTargetAvailabilityEvent> create(const AtomString& eventType, const Init& initializer, IsTrusted isTrusted = IsTrusted::No)
+    static Ref<WebKitPlaybackTargetAvailabilityEvent> create(const AtomString& eventType, Init&& initializer, IsTrusted isTrusted = IsTrusted::No)
     {
-        return adoptRef(*new WebKitPlaybackTargetAvailabilityEvent(eventType, initializer, isTrusted));
+        return adoptRef(*new WebKitPlaybackTargetAvailabilityEvent(eventType, WTF::move(initializer), isTrusted));
     }
 
     String availability() const { return m_availability; }
 
-    EventInterface eventInterface() const override { return WebKitPlaybackTargetAvailabilityEventInterfaceType; }
-
 private:
     explicit WebKitPlaybackTargetAvailabilityEvent(const AtomString& eventType, bool available);
-    WebKitPlaybackTargetAvailabilityEvent(const AtomString& eventType, const Init&, IsTrusted);
+    WebKitPlaybackTargetAvailabilityEvent(const AtomString& eventType, Init&&, IsTrusted);
 
     String m_availability;
 };
 
 } // namespace WebCore
 
-#endif // ENABLE(WIRELESS_PLAYBACK_TARGET)
+#endif // ENABLE(WIRELESS_PLAYBACK_TARGET_AVAILABILITY_API)

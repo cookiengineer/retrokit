@@ -46,38 +46,47 @@
 
 #include "RenderMarquee.h"
 
-#include "FrameView.h"
 #include "HTMLMarqueeElement.h"
 #include "HTMLNames.h"
+#include "LocalFrameView.h"
+#include "RenderBoxInlines.h"
+#include "RenderBoxModelObjectInlines.h"
+#include "RenderElementInlines.h"
 #include "RenderLayer.h"
 #include "RenderLayerScrollableArea.h"
+#include "RenderObjectInlines.h"
 #include "RenderView.h"
+#include "StyleComputedStyle+GettersInlines.h"
+#include "StylePrimitiveNumericTypes+Evaluation.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderMarquee);
 
 using namespace HTMLNames;
 
 RenderMarquee::RenderMarquee(RenderLayer* layer)
-    : m_layer(layer)
+    : m_layer(*layer)
     , m_timer(*this, &RenderMarquee::timerFired)
 {
     ASSERT(layer);
     ASSERT(layer->scrollableArea());
-    layer->scrollableArea()->setConstrainsScrollingToContentEdge(false);
+    layer->scrollableArea()->setScrollClamping(ScrollClamping::Unclamped);
 }
 
 RenderMarquee::~RenderMarquee() = default;
 
 int RenderMarquee::marqueeSpeed() const
 {
-    int result = m_layer->renderer().style().marqueeSpeed();
-    Element* element = m_layer->renderer().element();
-    if (is<HTMLMarqueeElement>(element))
-        result = std::max(result, downcast<HTMLMarqueeElement>(*element).minimumDelay());
+    CheckedRef layer = m_layer.get();
+    auto result = static_cast<int>(layer->renderer().style().marqueeSpeed().asMilliseconds());
+    if (RefPtr marquee = dynamicDowncast<HTMLMarqueeElement>(layer->renderer().element()))
+        result = std::max(result, marquee->minimumDelay());
     return result;
 }
 
-static MarqueeDirection reverseDirection(MarqueeDirection direction)
+static MarqueeDirection NODELETE reverseDirection(MarqueeDirection direction)
 {
     switch (direction) {
     case MarqueeDirection::Auto:
@@ -102,19 +111,20 @@ MarqueeDirection RenderMarquee::direction() const
 {
     // FIXME: Support the CSS3 "auto" value for determining the direction of the marquee.
     // For now just map MarqueeDirection::Auto to MarqueeDirection::Backward
-    MarqueeDirection result = m_layer->renderer().style().marqueeDirection();
-    TextDirection dir = m_layer->renderer().style().direction();
+    auto& layer = m_layer.get();
+    auto result = layer.renderer().style().marqueeDirection();
+    auto writingMode = layer.renderer().writingMode();
     if (result == MarqueeDirection::Auto)
         result = MarqueeDirection::Backward;
     if (result == MarqueeDirection::Forward)
-        result = (dir == TextDirection::LTR) ? MarqueeDirection::Right : MarqueeDirection::Left;
+        result = (writingMode.isBidiLTR()) ? MarqueeDirection::Right : MarqueeDirection::Left;
     if (result == MarqueeDirection::Backward)
-        result = (dir == TextDirection::LTR) ? MarqueeDirection::Left : MarqueeDirection::Right;
-    
+        result = (writingMode.isBidiLTR()) ? MarqueeDirection::Left : MarqueeDirection::Right;
+
     // Now we have the real direction.  Next we check to see if the increment is negative.
     // If so, then we reverse the direction.
-    Length increment = m_layer->renderer().style().marqueeIncrement();
-    if (increment.isNegative())
+    // FIXME: This will fail for `increment` that uses `calc()`, though this can currently never happen due to the property being internal
+    if (auto& increment = layer.renderer().style().marqueeIncrement(); increment.isKnownNegative())
         result = reverseDirection(result);
     
     return result;
@@ -127,54 +137,55 @@ bool RenderMarquee::isHorizontal() const
 
 int RenderMarquee::computePosition(MarqueeDirection dir, bool stopAtContentEdge)
 {
-    RenderBox* box = m_layer->renderBox();
+    CheckedPtr box = layer().renderBox();
     ASSERT(box);
-    auto& boxStyle = box->style();
+    CheckedRef boxStyle = box->style();
     if (isHorizontal()) {
-        bool ltr = boxStyle.isLeftToRightDirection();
-        LayoutUnit clientWidth = box->clientWidth();
-        LayoutUnit contentWidth = ltr ? box->maxPreferredLogicalWidth() : box->minPreferredLogicalWidth();
+        bool ltr = boxStyle->writingMode().deprecatedIsLeftToRightDirection();
+        LayoutUnit paddingBoxWidth = box->paddingBoxWidth();
+        LayoutUnit contentWidth = ltr ? box->maxContentLogicalWidthContribution() : box->minContentLogicalWidthContribution();
         if (ltr)
             contentWidth += (box->paddingRight() - box->borderLeft());
         else {
-            contentWidth = box->width() - contentWidth;
+            contentWidth = box->borderBoxWidth() - contentWidth;
             contentWidth += (box->paddingLeft() - box->borderRight());
         }
         if (dir == MarqueeDirection::Right) {
             if (stopAtContentEdge)
-                return std::max<LayoutUnit>(0, ltr ? (contentWidth - clientWidth) : (clientWidth - contentWidth));
+                return std::max<LayoutUnit>(0, ltr ? (contentWidth - paddingBoxWidth) : (paddingBoxWidth - contentWidth));
 
-            return ltr ? contentWidth : clientWidth;
+            return ltr ? contentWidth : paddingBoxWidth;
         }
 
         if (stopAtContentEdge)
-            return std::min<LayoutUnit>(0, ltr ? (contentWidth - clientWidth) : (clientWidth - contentWidth));
+            return std::min<LayoutUnit>(0, ltr ? (contentWidth - paddingBoxWidth) : (paddingBoxWidth - contentWidth));
 
-        return ltr ? -clientWidth : -contentWidth;
+        return ltr ? -paddingBoxWidth : -contentWidth;
     }
 
     // Vertical
     int contentHeight = box->layoutOverflowRect().maxY() - box->borderTop() + box->paddingBottom();
-    int clientHeight = roundToInt(box->clientHeight());
+    int paddingBoxHeight = roundToInt(box->paddingBoxHeight());
     if (dir == MarqueeDirection::Up) {
         if (stopAtContentEdge)
-            return std::min(contentHeight - clientHeight, 0);
+            return std::min(contentHeight - paddingBoxHeight, 0);
 
-        return -clientHeight;
+        return -paddingBoxHeight;
     }
 
     if (stopAtContentEdge)
-        return std::max(contentHeight - clientHeight, 0);
+        return std::max(contentHeight - paddingBoxHeight, 0);
 
     return contentHeight;
 }
 
 void RenderMarquee::start()
 {
-    if (m_timer.isActive() || m_layer->renderer().style().marqueeIncrement().isZero())
+    CheckedRef layer = m_layer.get();
+    if (m_timer.isActive() || layer->renderer().style().marqueeIncrement().isKnownZero())
         return;
 
-    auto* scrollableArea = m_layer->scrollableArea();
+    CheckedPtr scrollableArea = layer->scrollableArea();
     ASSERT(scrollableArea);
 
     auto details = ScrollPositionChangeOptions::createProgrammaticUnclamped();
@@ -207,7 +218,7 @@ void RenderMarquee::updateMarqueePosition()
 {
     bool activate = (m_totalLoops <= 0 || m_currentLoop < m_totalLoops);
     if (activate) {
-        MarqueeBehavior behavior = m_layer->renderer().style().marqueeBehavior();
+        MarqueeBehavior behavior = layer().renderer().style().marqueeBehavior();
         m_start = computePosition(direction(), behavior == MarqueeBehavior::Alternate);
         m_end = computePosition(reverseDirection(direction()), behavior == MarqueeBehavior::Alternate || behavior == MarqueeBehavior::Slide);
         if (!m_stopped)
@@ -217,21 +228,32 @@ void RenderMarquee::updateMarqueePosition()
 
 void RenderMarquee::updateMarqueeStyle()
 {
-    auto& style = m_layer->renderer().style();
-    
-    if (m_direction != style.marqueeDirection() || (m_totalLoops != style.marqueeLoopCount() && m_currentLoop >= m_totalLoops))
+    CheckedRef layer = m_layer.get();
+    CheckedRef style = layer->renderer().style();
+
+    auto newDirection = style->marqueeDirection();
+    auto newTotalLoops = WTF::switchOn(style->marqueeRepetition(),
+        [&](const Style::WebkitMarqueeRepetition::Integer& finiteCount) {
+            return finiteCount.value;
+        },
+        [&](const CSS::Keyword::Infinite&) {
+            return -1;
+        }
+    );
+
+    if (m_direction != newDirection || (m_totalLoops != newTotalLoops && m_currentLoop >= m_totalLoops))
         m_currentLoop = 0; // When direction changes or our loopCount is a smaller number than our current loop, reset our loop.
-    
-    m_totalLoops = style.marqueeLoopCount();
-    m_direction = style.marqueeDirection();
-    
-    if (m_layer->renderer().isHTMLMarquee()) {
+
+    m_direction = newDirection;
+    m_totalLoops = newTotalLoops;
+
+    if (layer->renderer().isHTMLMarquee()) {
         // Hack for WinIE.  In WinIE, a value of 0 or lower for the loop count for SLIDE means to only do
         // one loop.
-        if (m_totalLoops <= 0 && style.marqueeBehavior() == MarqueeBehavior::Slide)
+        if (m_totalLoops <= 0 && style->marqueeBehavior() == MarqueeBehavior::Slide)
             m_totalLoops = 1;
     }
-    
+
     if (speed() != marqueeSpeed()) {
         m_speed = marqueeSpeed();
         if (m_timer.isActive())
@@ -241,17 +263,18 @@ void RenderMarquee::updateMarqueeStyle()
     // Check the loop count to see if we should now stop.
     bool activate = (m_totalLoops <= 0 || m_currentLoop < m_totalLoops);
     if (activate && !m_timer.isActive())
-        m_layer->renderer().setNeedsLayout();
+        layer->renderer().setNeedsLayout();
     else if (!activate && m_timer.isActive())
         m_timer.stop();
 }
 
 void RenderMarquee::timerFired()
 {
-    if (m_layer->renderer().view().needsLayout())
+    CheckedRef layer = m_layer.get();
+    if (layer->renderer().view().needsLayout())
         return;
 
-    auto* scrollableArea = m_layer->scrollableArea();
+    CheckedPtr scrollableArea = layer->scrollableArea();
     ASSERT(scrollableArea);
 
     if (m_reset) {
@@ -263,7 +286,8 @@ void RenderMarquee::timerFired()
         return;
     }
     
-    const RenderStyle& style = m_layer->renderer().style();
+    CheckedRef style = layer->renderer().style();
+    CheckedPtr renderBox = layer->renderBox();
     
     int endPoint = m_end;
     int range = m_end - m_start;
@@ -272,7 +296,7 @@ void RenderMarquee::timerFired()
         newPos = m_end;
     else {  
         bool addIncrement = direction() == MarqueeDirection::Up || direction() == MarqueeDirection::Left;
-        bool isReversed = style.marqueeBehavior() == MarqueeBehavior::Alternate && m_currentLoop % 2;
+        bool isReversed = style->marqueeBehavior() == MarqueeBehavior::Alternate && m_currentLoop % 2;
         if (isReversed) {
             // We're going in the reverse direction.
             endPoint = m_start;
@@ -280,8 +304,8 @@ void RenderMarquee::timerFired()
             addIncrement = !addIncrement;
         }
         bool positive = range > 0;
-        int clientSize = (isHorizontal() ? roundToInt(m_layer->renderBox()->clientWidth()) : roundToInt(m_layer->renderBox()->clientHeight()));
-        int increment = abs(intValueForLength(m_layer->renderer().style().marqueeIncrement(), clientSize));
+        int clientSize = (isHorizontal() ? roundToInt(renderBox->paddingBoxWidth()) : roundToInt(renderBox->paddingBoxHeight()));
+        int increment = std::abs(Style::evaluate<float>(layer->renderer().style().marqueeIncrement(), clientSize, layer->renderer().style().usedZoomForLength()));
         int currentPos = (isHorizontal() ? scrollableArea->scrollOffset().x() : scrollableArea->scrollOffset().y());
         newPos =  currentPos + (addIncrement ? increment : -increment);
         if (positive)
@@ -294,7 +318,7 @@ void RenderMarquee::timerFired()
         m_currentLoop++;
         if (m_totalLoops > 0 && m_currentLoop >= m_totalLoops)
             m_timer.stop();
-        else if (style.marqueeBehavior() != MarqueeBehavior::Alternate)
+        else if (style->marqueeBehavior() != MarqueeBehavior::Alternate)
             m_reset = true;
     }
     

@@ -26,17 +26,18 @@ namespace WebCore {
 class CSSValueList;
 
 class SVGFontFaceSrcElement final : public SVGElement {
-    WTF_MAKE_ISO_ALLOCATED(SVGFontFaceSrcElement);
+    WTF_MAKE_TZONE_ALLOCATED(SVGFontFaceSrcElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGFontFaceSrcElement);
 public:
     static Ref<SVGFontFaceSrcElement> create(const QualifiedName&, Document&);
 
-    Ref<CSSValueList> srcValue() const;
+    Ref<CSSValueList> createSrcValue() const;
     
 private:
     SVGFontFaceSrcElement(const QualifiedName&, Document&);
     
     void childrenChanged(const ChildChange&) final;
-    bool rendererIsNeeded(const RenderStyle&) final { return false; }
+    bool rendererIsNeeded(const Style::ComputedStyle&) final { return false; }
 };
 
 } // namespace WebCore

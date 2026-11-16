@@ -23,11 +23,13 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// https://w3c.github.io/payment-request/#paymentvalidationerrors-dictionary
+
 [
     Conditional=PAYMENT_REQUEST,
 ] dictionary PaymentValidationErrors {
-    PayerErrorFields payer;
-    AddressErrors shippingAddress;
+    [ImplementationDefaultValue={}] PayerErrorFields payer;
+    [ImplementationDefaultValue={}] AddressErrors shippingAddress;
     DOMString error;
     object paymentMethod;
 };

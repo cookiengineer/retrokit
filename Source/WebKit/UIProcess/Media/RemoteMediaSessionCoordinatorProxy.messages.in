@@ -24,21 +24,27 @@
 
 #if ENABLE(MEDIA_SESSION_COORDINATOR)
 
-messages -> RemoteMediaSessionCoordinatorProxy NotRefCounted {
+[
+    DispatchedFrom=WebContent,
+    DispatchedTo=UI,
+    SharedPreferencesNeedsConnection,
+    EnabledBy=MediaSessionCoordinatorEnabled
+]
+messages -> RemoteMediaSessionCoordinatorProxy {
 
-    Join() -> (std::optional<WebCore::ExceptionData> error) Async
+    Join() -> (struct std::optional<WebCore::ExceptionData> error)
 
     Leave()
 
-    CoordinateSeekTo(double time) -> (std::optional<WebCore::ExceptionData> error) Async
+    CoordinateSeekTo(double time) -> (struct std::optional<WebCore::ExceptionData> error)
 
-    CoordinatePlay() -> (std::optional<WebCore::ExceptionData> error) Async
+    CoordinatePlay() -> (struct std::optional<WebCore::ExceptionData> error)
 
-    CoordinatePause() -> (std::optional<WebCore::ExceptionData> error) Async
+    CoordinatePause() -> (struct std::optional<WebCore::ExceptionData> error)
 
-    CoordinateSetTrack(String trackIdentifier) -> (std::optional<WebCore::ExceptionData> error) Async
+    CoordinateSetTrack(String trackIdentifier) -> (struct std::optional<WebCore::ExceptionData> error)
 
-    PositionStateChanged(std::optional<WebCore::MediaPositionState> state);
+    PositionStateChanged(struct std::optional<WebCore::MediaPositionState> state);
 
     ReadyStateChanged(enum:uint8_t WebCore::MediaSessionReadyState state);
 

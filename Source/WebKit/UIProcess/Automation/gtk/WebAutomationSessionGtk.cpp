@@ -26,46 +26,51 @@
 #include "config.h"
 #include "WebAutomationSession.h"
 
+#include "GtkUtilities.h"
+#include "GtkVersioning.h"
+#include "ViewSnapshotStore.h"
 #include "WebAutomationSessionMacros.h"
 #include "WebKitWebViewBaseInternal.h"
 #include "WebPageProxy.h"
-#include <WebCore/GtkUtilities.h>
-#include <WebCore/GtkVersioning.h>
 #include <WebCore/Scrollbar.h>
+#include <wtf/glib/GSpanExtras.h>
+#include <wtf/text/Base64.h>
 
 namespace WebKit {
 using namespace WebCore;
 
 #if ENABLE(WEBDRIVER_MOUSE_INTERACTIONS)
-static unsigned modifiersToEventState(OptionSet<WebEvent::Modifier> modifiers)
+static unsigned modifiersToEventState(OptionSet<WebEventModifier> modifiers)
 {
     unsigned state = 0;
-    if (modifiers.contains(WebEvent::Modifier::ControlKey))
+    if (modifiers.contains(WebEventModifier::ControlKey))
         state |= GDK_CONTROL_MASK;
-    if (modifiers.contains(WebEvent::Modifier::ShiftKey))
+    if (modifiers.contains(WebEventModifier::ShiftKey))
         state |= GDK_SHIFT_MASK;
-    if (modifiers.contains(WebEvent::Modifier::AltKey))
+    if (modifiers.contains(WebEventModifier::AltKey))
         state |= GDK_META_MASK;
-    if (modifiers.contains(WebEvent::Modifier::CapsLockKey))
+    if (modifiers.contains(WebEventModifier::CapsLockKey))
         state |= GDK_LOCK_MASK;
     return state;
 }
 
 static unsigned mouseButtonToGdkButton(MouseButton button)
 {
+    // FIXME: Add support for the forward and backward mouse buttons.
+
     switch (button) {
     case MouseButton::None:
     case MouseButton::Left:
         return GDK_BUTTON_PRIMARY;
-    case MouseButton::Middle:
-        return GDK_BUTTON_MIDDLE;
     case MouseButton::Right:
         return GDK_BUTTON_SECONDARY;
+    default:
+        return GDK_BUTTON_MIDDLE;
     }
     return GDK_BUTTON_PRIMARY;
 }
 
-void WebAutomationSession::platformSimulateMouseInteraction(WebPageProxy& page, MouseInteraction interaction, MouseButton button, const WebCore::IntPoint& locationInView, OptionSet<WebEvent::Modifier> keyModifiers, const String& pointerType)
+void WebAutomationSession::platformSimulateMouseInteraction(WebPageProxy& page, MouseInteraction interaction, MouseButton button, const WebCore::IntPoint& locationInView, OptionSet<WebEventModifier> keyModifiers, const String& pointerType)
 {
     unsigned gdkButton = mouseButtonToGdkButton(button);
     auto modifier = stateModifierForGdkButton(gdkButton);
@@ -101,18 +106,18 @@ void WebAutomationSession::platformSimulateMouseInteraction(WebPageProxy& page, 
     }
 }
 
-OptionSet<WebEvent::Modifier> WebAutomationSession::platformWebModifiersFromRaw(unsigned modifiers)
+OptionSet<WebEventModifier> WebAutomationSession::platformWebModifiersFromRaw(WebPageProxy&, unsigned modifiers)
 {
-    OptionSet<WebEvent::Modifier> webModifiers;
+    OptionSet<WebEventModifier> webModifiers;
 
     if (modifiers & GDK_META_MASK)
-        webModifiers.add(WebEvent::Modifier::AltKey);
+        webModifiers.add(WebEventModifier::AltKey);
     if (modifiers & GDK_CONTROL_MASK)
-        webModifiers.add(WebEvent::Modifier::ControlKey);
+        webModifiers.add(WebEventModifier::ControlKey);
     if (modifiers & GDK_SHIFT_MASK)
-        webModifiers.add(WebEvent::Modifier::ShiftKey);
+        webModifiers.add(WebEventModifier::ShiftKey);
     if (modifiers & GDK_LOCK_MASK)
-        webModifiers.add(WebEvent::Modifier::CapsLockKey);
+        webModifiers.add(WebEventModifier::CapsLockKey);
 
     return webModifiers;
 }
@@ -139,6 +144,7 @@ static int keyCodeForVirtualKey(Inspector::Protocol::Automation::VirtualKey key)
     case Inspector::Protocol::Automation::VirtualKey::MetaRight:
         return GDK_KEY_Meta_R;
     case Inspector::Protocol::Automation::VirtualKey::Command:
+    case Inspector::Protocol::Automation::VirtualKey::CommandRight:
         return GDK_KEY_Execute;
     case Inspector::Protocol::Automation::VirtualKey::Help:
         return GDK_KEY_Help;
@@ -285,7 +291,7 @@ static unsigned modifiersForKeyCode(unsigned keyCode)
     return 0;
 }
 
-void WebAutomationSession::platformSimulateKeyboardInteraction(WebPageProxy& page, KeyboardInteraction interaction, WTF::Variant<VirtualKey, CharKey>&& key)
+void WebAutomationSession::platformSimulateKeyboardInteraction(WebPageProxy& page, KeyboardInteraction interaction, Variant<VirtualKey, CharKey>&& key)
 {
     unsigned keyCode;
     WTF::switchOn(key,
@@ -319,13 +325,9 @@ void WebAutomationSession::platformSimulateKeyboardInteraction(WebPageProxy& pag
 
 void WebAutomationSession::platformSimulateKeySequence(WebPageProxy& page, const String& keySequence)
 {
-    CString keySequenceUTF8 = keySequence.utf8();
-    const char* p = keySequenceUTF8.data();
     auto* viewWidget = reinterpret_cast<WebKitWebViewBase*>(page.viewWidget());
-    do {
-        webkitWebViewBaseSynthesizeKeyEvent(viewWidget, KeyEventType::Insert, gdk_unicode_to_keyval(g_utf8_get_char(p)), m_currentModifiers, ShouldTranslateKeyboardState::Yes);
-        p = g_utf8_next_char(p);
-    } while (*p);
+    for (auto codePoint : StringView(keySequence).codePoints())
+        webkitWebViewBaseSynthesizeKeyEvent(viewWidget, KeyEventType::Insert, gdk_unicode_to_keyval(codePoint), m_currentModifiers, ShouldTranslateKeyboardState::Yes);
 }
 #endif // ENABLE(WEBDRIVER_KEYBOARD_INTERACTIONS)
 
@@ -335,8 +337,46 @@ void WebAutomationSession::platformSimulateWheelInteraction(WebPageProxy& page, 
     auto* viewWidget = reinterpret_cast<WebKitWebViewBase*>(page.viewWidget());
     FloatSize scrollDelta(delta);
     scrollDelta.scale(1 / static_cast<float>(Scrollbar::pixelsPerLineStep()));
-    webkitWebViewBaseSynthesizeWheelEvent(viewWidget, -scrollDelta.width(), -scrollDelta.height(), locationInViewport.x(), locationInViewport.y(), WheelEventPhase::NoPhase, WheelEventPhase::NoPhase);
+    webkitWebViewBaseSynthesizeWheelEvent(viewWidget, -scrollDelta.width(), -scrollDelta.height(), locationInViewport.x(), locationInViewport.y(), WheelEventPhase::NoPhase, WheelEventPhase::NoPhase, false);
 }
 #endif // ENABLE(WEBDRIVER_WHEEL_INTERACTIONS)
+
+#if USE(GTK4)
+static std::optional<String> base64EncodedPNGData(GdkTexture* texture)
+{
+    if (!texture)
+        return std::nullopt;
+
+    GRefPtr<GBytes> pngBytes = adoptGRef(gdk_texture_save_to_png_bytes(texture));
+    return base64EncodeToString(span(pngBytes));
+}
+#else
+static std::optional<String> base64EncodedPNGData(cairo_surface_t* surface)
+{
+    if (!surface)
+        return std::nullopt;
+
+    Vector<uint8_t> pngData;
+    cairo_surface_write_to_png_stream(surface, [](void* userData, const unsigned char* data, unsigned length) -> cairo_status_t {
+        auto* pngData = static_cast<Vector<uint8_t>*>(userData);
+        pngData->append(unsafeMakeSpan<const uint8_t>(data, length));
+        return CAIRO_STATUS_SUCCESS;
+    }, &pngData);
+
+    if (pngData.isEmpty())
+        return std::nullopt;
+
+    return base64EncodeToString(pngData);
+}
+#endif // USE(GTK4)
+
+std::optional<String> WebAutomationSession::platformGetBase64EncodedPNGData(const ViewSnapshot& snapshot)
+{
+#if USE(GTK4)
+    return base64EncodedPNGData(snapshot.texture());
+#else
+    return base64EncodedPNGData(snapshot.surface());
+#endif
+}
 
 } // namespace WebKit

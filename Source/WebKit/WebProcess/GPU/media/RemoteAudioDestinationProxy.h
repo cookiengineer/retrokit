@@ -31,52 +31,49 @@
 #include "GPUProcessConnection.h"
 #include "IPCSemaphore.h"
 #include "RemoteAudioDestinationIdentifier.h"
+#include <WebCore/AudioDestinationResampler.h>
 #include <WebCore/AudioIOCallback.h>
 #include <wtf/CrossThreadQueue.h>
 #include <wtf/MediaTime.h>
-#include <wtf/Threading.h>
+
+namespace WTF {
+class Thread;
+}
 
 #if PLATFORM(COCOA)
-#include "SharedRingBufferStorage.h"
-#include <WebCore/AudioDestinationCocoa.h>
-#else
-#include <WebCore/AudioDestinationGStreamer.h>
+#include "SharedCARingBuffer.h"
 #endif
 
+#if PLATFORM(COCOA)
 namespace WebCore {
-class CARingBuffer;
 class WebAudioBufferList;
+struct AudioDestinationCreationOptions;
 }
+#endif
 
 namespace WebKit {
 
-class SharedRingBufferFrameBounds;
-
-class RemoteAudioDestinationProxy final
-#if PLATFORM(COCOA)
-    : public WebCore::AudioDestinationCocoa
-#else
-    : public WebCore::AudioDestinationGStreamer
-#endif
-    , public GPUProcessConnection::Client {
+class RemoteAudioDestinationProxy : public WebCore::AudioDestinationResampler, public GPUProcessConnection::Client, public ThreadSafeRefCountedAndCanMakeThreadSafeWeakPtr<RemoteAudioDestinationProxy, WTF::DestructionThread::MainRunLoop> {
     WTF_MAKE_NONCOPYABLE(RemoteAudioDestinationProxy);
 public:
     using AudioIOCallback = WebCore::AudioIOCallback;
-    using WebCore::AudioDestination::ref;
-    using WebCore::AudioDestination::deref;
 
-    static Ref<AudioDestination> create(AudioIOCallback&, const String& inputDeviceId, unsigned numberOfInputChannels, unsigned numberOfOutputChannels, float sampleRate);
+    using CreationOptions = WebCore::AudioDestinationCreationOptions;
+    static Ref<RemoteAudioDestinationProxy> create(const CreationOptions&);
 
-    RemoteAudioDestinationProxy(AudioIOCallback&, const String& inputDeviceId, unsigned numberOfInputChannels, unsigned numberOfOutputChannels, float sampleRate);
+    RemoteAudioDestinationProxy(const CreationOptions&);
     ~RemoteAudioDestinationProxy();
 
+    WTF_ABSTRACT_THREAD_SAFE_REF_COUNTED_AND_CAN_MAKE_WEAK_PTR_IMPL;
+
 private:
-    void startRendering(CompletionHandler<void(bool)>&&) final;
-    void stopRendering(CompletionHandler<void(bool)>&&) final;
+    void startRendering(CompletionHandler<void(bool)>&&) override;
+    void stopRendering(CompletionHandler<void(bool)>&&) override;
+    MediaTime outputLatency() const final;
 
     void startRenderingThread();
     void stopRenderingThread();
-    void renderQuantum();
+    void renderAudio(unsigned frameCount);
 
     IPC::Connection* connection();
     IPC::Connection* existingConnection();
@@ -84,35 +81,36 @@ private:
     // GPUProcessConnection::Client.
     void gpuProcessConnectionDidClose(GPUProcessConnection&) final;
 
-#if !PLATFORM(COCOA)
-    bool isPlaying() final { return false; }
-    void setIsPlaying(bool) { }
-    float sampleRate() const final { return 0; }
-    unsigned numberOfOutputChannels() const { return m_numberOfOutputChannels; }
+    uint32_t NODELETE totalFrameCount() const;
+
+#if PLATFORM(IOS_FAMILY)
+    void setSceneIdentifier(const String&) final;
 #endif
 
-#if PLATFORM(COCOA)
-    void storageChanged(SharedMemory*, const WebCore::CAAudioStreamDescription& format, size_t frameCount);
-#endif
+    Markable<RemoteAudioDestinationIdentifier> m_destinationID; // Call destinationID() getter to make sure the destinationID is valid.
 
-    RemoteAudioDestinationIdentifier m_destinationID; // Call destinationID() getter to make sure the destinationID is valid.
+    static uint8_t s_realtimeThreadCount;
+    static constexpr uint8_t s_maximumConcurrentRealtimeThreads { 3 };
 
-    WeakPtr<GPUProcessConnection> m_gpuProcessConnection;
+    ThreadSafeWeakPtr<GPUProcessConnection> m_gpuProcessConnection;
 #if PLATFORM(COCOA)
-    uint64_t m_numberOfFrames { 0 };
-    std::unique_ptr<WebCore::CARingBuffer> m_ringBuffer;
+    std::unique_ptr<ProducerSharedCARingBuffer> m_ringBuffer;
     std::unique_ptr<WebCore::WebAudioBufferList> m_audioBufferList;
     uint64_t m_currentFrame { 0 };
-    float m_sampleRate;
-#else
-    unsigned m_numberOfOutputChannels;
 #endif
     IPC::Semaphore m_renderSemaphore;
 
     String m_inputDeviceId;
     unsigned m_numberOfInputChannels;
+    float m_remoteSampleRate;
+    size_t m_audioUnitLatency;
+#if PLATFORM(IOS_FAMILY)
+    String m_sceneIdentifier;
+#endif
 
-    RefPtr<Thread> m_renderThread;
+    RefPtr<WTF::Thread> m_renderThread;
+    RefPtr<WebCore::SharedMemory> m_frameCount;
+    uint32_t m_lastFrameCount { 0 };
     std::atomic<bool> m_shouldStopThread { false };
 };
 

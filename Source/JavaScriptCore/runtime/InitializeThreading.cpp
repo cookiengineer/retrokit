@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,34 +29,67 @@
 #include "config.h"
 #include "InitializeThreading.h"
 
+#include "AssemblyComments.h"
+#include "AssertInvariants.h"
 #include "ExecutableAllocator.h"
+#include "IntlCache.h"
 #include "JITOperationList.h"
 #include "JSCConfig.h"
 #include "JSCPtrTag.h"
 #include "LLIntData.h"
+#include "NativeCalleeRegistry.h"
 #include "Options.h"
-#include "SigillCrashAnalyzer.h"
+#include "StructureAlignedMemoryAllocator.h"
 #include "SuperSampler.h"
+#include "VMManager.h"
 #include "VMTraps.h"
-#include "WasmCalleeRegistry.h"
 #include "WasmCapabilities.h"
+#include "WasmExecutionHandler.h"
 #include "WasmFaultSignalHandler.h"
 #include "WasmThunks.h"
+#include <bmalloc/BPlatform.h>
 #include <mutex>
+#include <wtf/Condition.h>
 #include <wtf/Threading.h>
 #include <wtf/threads/Signals.h>
+
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+
+#if BUSE(LIBPAS)
+#include <bmalloc/pas_scavenger.h>
+#endif
+
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
+
+#if ENABLE(LLVM_PROFILE_GENERATION)
+#if PLATFORM(IOS_FAMILY)
+#include <wtf/LLVMProfilingUtils.h>
+extern "C" char __llvm_profile_filename[] = "%t/WebKitPGO/JavaScriptCore_%m_pid%p%c.profraw";
+#else
+extern "C" char __llvm_profile_filename[] = "/private/tmp/WebKitPGO/JavaScriptCore_%m_pid%p%c.profraw";
+#endif
+#endif
 
 namespace JSC {
 
 static_assert(sizeof(bool) == 1, "LLInt and JIT assume sizeof(bool) is always 1 when touching it directly from assembly code.");
 
+enum class JSCProfileTag { };
+
 void initialize()
+{
+    initialize([] {
+        // No extra options customization needed by default.
+    });
+}
+
+void initializeWithOptionsCustomization(const ScopedLambda<void()>& optionsCustomizationCallback)
 {
     static std::once_flag onceFlag;
 
-    std::call_once(onceFlag, [] {
+    std::call_once(onceFlag, [&] {
         WTF::initialize();
-        Options::initialize();
+        Options::initialize(optionsCustomizationCallback);
 
         initializePtrTagLookup();
 
@@ -70,41 +103,57 @@ void initialize()
             VM::computeCanUseJIT();
             if (!g_jscConfig.vm.canUseJIT) {
                 Options::useJIT() = false;
-                Options::recomputeDependentOptions();
+                Options::notifyOptionsChanged();
+            } else {
+#if CPU(ARM64E) && ENABLE(JIT)
+                g_jscConfig.arm64eHashPins.initializeAtStartup();
+                isARM64E_FPAC(); // Call this to initialize g_jscConfig.canUseFPAC.
+#endif
             }
+            StructureAlignedMemoryAllocator::initializeStructureAddressSpace();
         }
         Options::finalize();
 
+#if BUSE(LIBPAS)
+        if (Options::libpasScavengeContinuously())
+            pas_scavenger_disable_shut_down();
+#endif
+
         JITOperationList::populatePointersInJavaScriptCore();
 
-        if (Options::useSigillCrashAnalyzer())
-            enableSigillCrashAnalyzer();
-
+        AssemblyCommentRegistry::initialize();
         LLInt::initialize();
-        DisallowGC::initialize();
+        AssertNoGC::initialize();
+
+        IntlCache::ensureLanguageChangeObserver();
 
         initializeSuperSampler();
-        Thread& thread = Thread::current();
+        auto& thread = Thread::currentSingleton();
         thread.setSavedLastStackTop(thread.stack().origin());
 
-#if ENABLE(WEBASSEMBLY)
+        NativeCalleeRegistry::initialize();
+#if ENABLE(WEBASSEMBLY) && ENABLE(JIT)
         if (Wasm::isSupported()) {
             Wasm::Thunks::initialize();
-            Wasm::CalleeRegistry::initialize();
         }
 #endif
 
         if (VM::isInMiniMode())
-            WTF::fastEnableMiniMode();
+            WTF::fastEnableMiniMode(Options::forceMiniVMMode());
 
-#if HAVE(MACH_EXCEPTIONS)
-        // JSLock::lock() can call registerThreadForMachExceptionHandling() which crashes if this has not been called first.
-        WTF::startMachExceptionHandlerThread();
+        if (Wasm::isSupported() || !Options::usePollingTraps()) {
+            if (!Options::usePollingTraps())
+                VMTraps::initializeSignals();
+            if (Wasm::isSupported()) {
+                Wasm::prepareSignalingMemory();
+#if ENABLE(WEBASSEMBLY_DEBUGGER)
+                VMManager::setWasmDebuggerOnStop(Wasm::wasmDebuggerOnStopCallback);
+                VMManager::setWasmDebuggerOnResume(Wasm::wasmDebuggerOnResumeCallback);
 #endif
-        VMTraps::initializeSignals();
-#if ENABLE(WEBASSEMBLY)
-        Wasm::prepareFastMemory();
-#endif
+            }
+        }
+
+        assertInvariants();
 
         WTF::compilerFence();
         RELEASE_ASSERT(!g_jscConfig.initializeHasBeenCalled);

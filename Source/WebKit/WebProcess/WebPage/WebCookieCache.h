@@ -25,39 +25,73 @@
 
 #pragma once
 
+#include "WebPageProxyIdentifier.h"
+#include <WebCore/CookieChangeListener.h>
 #include <WebCore/CookieJar.h>
+#include <WebCore/NetworkStorageSession.h>
 #include <WebCore/SameSiteInfo.h>
+#include <wtf/Forward.h>
 #include <wtf/HashSet.h>
+#include <wtf/Ref.h>
+#include <wtf/RefCounted.h>
+#include <wtf/RefCounter.h>
 
 namespace WebCore {
-class NetworkStorageSession;
+struct Cookie;
 enum class ShouldRelaxThirdPartyCookieBlocking : bool;
 }
 
 namespace WebKit {
 
-class WebCookieCache {
+enum PendingCookieUpdateCounterType { };
+using PendingCookieUpdateCounter = RefCounter<PendingCookieUpdateCounterType>;
+
+class WebCookieCache final : public RefCounted<WebCookieCache>, public WebCore::CookieChangeListener {
 public:
-    WebCookieCache() = default;
+    static Ref<WebCookieCache> create()
+    {
+        return adoptRef(*new WebCookieCache);
+    }
 
-    bool isSupported();
+    virtual ~WebCookieCache();
 
-    String cookiesForDOM(const URL& firstParty, const WebCore::SameSiteInfo&, const URL&, WebCore::FrameIdentifier, WebCore::PageIdentifier, WebCore::IncludeSecureCookies);
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
+    bool NODELETE isSupported();
+
+    String cookiesForDOM(const URL& firstParty, const WebCore::SameSiteInfo&, const URL&, WebCore::FrameIdentifier, WebCore::PageIdentifier, WebPageProxyIdentifier, WebCore::IncludeSecureCookies);
     void setCookiesFromDOM(const URL& firstParty, const WebCore::SameSiteInfo&, const URL&, WebCore::FrameIdentifier, WebCore::PageIdentifier, const String& cookieString, WebCore::ShouldRelaxThirdPartyCookieBlocking);
 
-    void cookiesAdded(const String& host, const Vector<WebCore::Cookie>&);
-    void cookiesDeleted(const String& host, const Vector<WebCore::Cookie>&);
+    [[nodiscard]] PendingCookieUpdateCounter::Token willSetCookieFromDOM();
+    void didSetCookieFromDOM(PendingCookieUpdateCounter::Token, const URL& firstParty, const WebCore::SameSiteInfo&, const URL&, WebCore::FrameIdentifier, WebCore::PageIdentifier, const WebCore::Cookie&, WebCore::ShouldRelaxThirdPartyCookieBlocking);
+
     void allCookiesDeleted();
 
     void clear();
     void clearForHost(const String&);
 
+    void setOptInCookiePartitioningEnabled(bool);
+
 private:
+    WebCookieCache() = default;
+
     WebCore::NetworkStorageSession& inMemoryStorageSession();
+
     void pruneCacheIfNecessary();
+    bool NODELETE cacheMayBeOutOfSync() const;
+
+    // CookieChangeListener
+    void cookiesAdded(const String& host, const Vector<WebCore::Cookie>&) final;
+    void cookiesDeleted(const String& host, const Vector<WebCore::Cookie>&) final;
 
     HashSet<String> m_hostsWithInMemoryStorage;
     std::unique_ptr<WebCore::NetworkStorageSession> m_inMemoryStorageSession;
+#if ENABLE(OPT_IN_PARTITIONED_COOKIES)
+    bool m_optInCookiePartitioningEnabled { false };
+#endif
+
+    PendingCookieUpdateCounter m_pendingCookieUpdateCounter;
 };
 
 } // namespace WebKit

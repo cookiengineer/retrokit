@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2020 Apple Inc. All rights reserved.
+ * Copyright (c) 2019-2021 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,6 +33,7 @@
 #include "pas_heap_summary.h"
 #include "pas_large_sharing_pool_epoch_update_mode.h"
 #include "pas_min_heap.h"
+#include "pas_page_flags.h"
 #include "pas_page_sharing_participant.h"
 #include "pas_physical_memory_synchronization_style.h"
 #include "pas_range.h"
@@ -49,12 +50,27 @@ typedef struct pas_physical_memory_transaction pas_physical_memory_transaction;
 
 struct pas_large_sharing_node {
     pas_red_black_tree_node tree_node;
-    
+#if PAS_OS(WINDOWS)
+    /*
+    clang-cl uses ms-style structs, which means the enums are represented using a signed int.
+    This breaks on assignment with "implicit truncation from 'int' to a one-bit wide bit-field changes value from 1 to -1"
+    The struct definitions break on check-webkit-style (runtime/enum_bitfields) as this is a known problem.
+
+    Unfortunately clang-cl doesn't support the gcc_struct annotation so we can override the enum type behaviour.
+    If / when this code uses C23 (requires Clang 20), this can be solved with Enhanced enumerations N3030.
+    Until then - on Windows we'll use unsigned on these types, but add the clang::preferred_type annotation for better debug information
+    */
+
+    [[clang::preferred_type(pas_commit_mode)]] unsigned is_committed : 1;
+    [[clang::preferred_type(pas_physical_memory_synchronization_style)]] unsigned synchronization_style : 1;
+    [[clang::preferred_type(pas_page_flags)]] unsigned page_flags : 2;
+#else
     pas_commit_mode is_committed : 1;
-
     pas_physical_memory_synchronization_style synchronization_style : 1;
+    unsigned page_flags : 2;
+#endif
 
-    unsigned index_in_min_heap : 30; /* it's a one-based index; it's zero to indicate that we're not in
+    unsigned index_in_min_heap : 28; /* it's a one-based index; it's zero to indicate that we're not in
                                         the min_heap. */
     
     pas_range range; /* Has to be a page range. */
@@ -142,19 +158,25 @@ PAS_API extern bool pas_large_sharing_pool_validate_each_splat;
 
 PAS_API extern pas_large_sharing_pool_epoch_update_mode pas_large_sharing_pool_epoch_update_mode_setting;
 
-/* This makes the memory free and also bumps the epoch. */
+/* Registers the range as free in the tracker and bumps the epoch. The range MUST be
+   page-aligned at both ends - the splat needs to carve it into whole-page nodes, and the
+   per-node is_committed bit cannot represent a half-decommitted boundary. */
 PAS_API void pas_large_sharing_pool_boot_free(
     pas_range range,
-    pas_physical_memory_synchronization_style synchronization_style);
+    pas_physical_memory_synchronization_style synchronization_style,
+    pas_page_flags page_flags,
+    pas_commit_mode initial_commit_mode);
 
 PAS_API void pas_large_sharing_pool_free(
     pas_range range,
-    pas_physical_memory_synchronization_style synchronization_style);
+    pas_physical_memory_synchronization_style synchronization_style,
+    pas_page_flags page_flags);
 
 PAS_API bool pas_large_sharing_pool_allocate_and_commit(
     pas_range range,
     pas_physical_memory_transaction* transaction,
-    pas_physical_memory_synchronization_style synchronization_style);
+    pas_physical_memory_synchronization_style synchronization_style,
+    pas_page_flags page_flags);
 
 /* This doesn't actually decommit the memory. It just tells you about what memory to decommit
    using the decommit_log. It's your job to decommit everything in that log, which you can
@@ -191,4 +213,3 @@ PAS_API bool pas_large_sharing_pool_for_each(
 PAS_END_EXTERN_C;
 
 #endif /* PAS_LARGE_SHARING_POOL_H */
-

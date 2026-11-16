@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Apple Inc.  All rights reserved.
+ * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,20 +26,34 @@
 #include "config.h"
 #include "NetworkStorageSession.h"
 
+#include "ClientOrigin.h"
 #include "Cookie.h"
+#include "CookieJar.h"
 #include "HTTPCookieAcceptPolicy.h"
-#include "RuntimeApplicationChecks.h"
+#include "Logging.h"
+#include "NotImplemented.h"
+#include "PublicSuffixStore.h"
+#include "ResourceRequest.h"
+#include "ShouldPartitionCookie.h"
+#include "Site.h"
+#include <algorithm>
 #include <wtf/NeverDestroyed.h>
 #include <wtf/ProcessPrivilege.h>
-
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
-#include "ResourceRequest.h"
-#if ENABLE(PUBLIC_SUFFIX_LIST)
-#include "PublicSuffix.h"
-#endif
-#endif
+#include <wtf/RunLoop.h>
+#include <wtf/RuntimeApplicationChecks.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(NetworkStorageSession);
+
+static HashSet<OrganizationStorageAccessPromptQuirk>& NODELETE updatableStorageAccessPromptQuirks()
+{
+    ASSERT(RunLoop::isMain());
+    // FIXME: Move this isn't an instance of a class, probably as a member of NetworkStorageSession.
+    static MainThreadNeverDestroyed<HashSet<OrganizationStorageAccessPromptQuirk>> set;
+    return set.get();
+}
 
 bool NetworkStorageSession::m_processMayUseCookieAPI = false;
 
@@ -57,41 +71,34 @@ void NetworkStorageSession::permitProcessToUseCookieAPI(bool value)
         removeProcessPrivilege(ProcessPrivilege::CanAccessRawCookies);
 }
 
-#if !PLATFORM(COCOA)
-Vector<Cookie> NetworkStorageSession::domCookiesForHost(const String&)
+#if !PLATFORM(COCOA) && !USE(SOUP)
+Vector<Cookie> NetworkStorageSession::domCookiesForHost(const URL&)
 {
     ASSERT_NOT_IMPLEMENTED_YET();
     return { };
 }
-#endif // !PLATFORM(COCOA)
-
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
+#endif // !PLATFORM(COCOA) && !USE(SOUP)
 
 #if !USE(SOUP)
-void NetworkStorageSession::setResourceLoadStatisticsEnabled(bool enabled)
+void NetworkStorageSession::setTrackingPreventionEnabled(bool enabled)
 {
-    m_isResourceLoadStatisticsEnabled = enabled;
+    m_isTrackingPreventionEnabled = enabled;
 }
 
-bool NetworkStorageSession::resourceLoadStatisticsEnabled() const
+bool NetworkStorageSession::trackingPreventionEnabled() const
 {
-    return m_isResourceLoadStatisticsEnabled;
+    return m_isTrackingPreventionEnabled;
 }
 #endif
 
-void NetworkStorageSession::setResourceLoadStatisticsDebugLoggingEnabled(bool enabled)
+void NetworkStorageSession::setTrackingPreventionDebugLoggingEnabled(bool enabled)
 {
-    m_isResourceLoadStatisticsDebugLoggingEnabled = enabled;
-}
-
-bool NetworkStorageSession::resourceLoadStatisticsDebugLoggingEnabled() const
-{
-    return m_isResourceLoadStatisticsDebugLoggingEnabled;
+    m_isTrackingPreventionDebugLoggingEnabled = enabled;
 }
 
 bool NetworkStorageSession::shouldBlockThirdPartyCookies(const RegistrableDomain& registrableDomain) const
 {
-    if (!m_isResourceLoadStatisticsEnabled || registrableDomain.isEmpty())
+    if (!m_isTrackingPreventionEnabled || registrableDomain.isEmpty())
         return false;
 
     ASSERT(!(m_registrableDomainsToBlockAndDeleteCookiesFor.contains(registrableDomain) && m_registrableDomainsToBlockButKeepCookiesFor.contains(registrableDomain)));
@@ -102,13 +109,26 @@ bool NetworkStorageSession::shouldBlockThirdPartyCookies(const RegistrableDomain
 
 bool NetworkStorageSession::shouldBlockThirdPartyCookiesButKeepFirstPartyCookiesFor(const RegistrableDomain& registrableDomain) const
 {
-    if (!m_isResourceLoadStatisticsEnabled || registrableDomain.isEmpty())
+    if (!m_isTrackingPreventionEnabled || registrableDomain.isEmpty())
         return false;
 
     ASSERT(!(m_registrableDomainsToBlockAndDeleteCookiesFor.contains(registrableDomain) && m_registrableDomainsToBlockButKeepCookiesFor.contains(registrableDomain)));
 
     return m_registrableDomainsToBlockButKeepCookiesFor.contains(registrableDomain);
 }
+
+#if ENABLE(OPT_IN_PARTITIONED_COOKIES)
+void NetworkStorageSession::setCookie(const URL& firstParty, const Cookie& cookie, ShouldPartitionCookie shouldPartitionCookie)
+{
+    if (!isOptInCookiePartitioningEnabled() || shouldPartitionCookie != ShouldPartitionCookie::Yes || !cookie.partitionKey.isEmpty()) {
+        setCookie(cookie);
+        return;
+    }
+    auto partitionedCookie = cookie;
+    partitionedCookie.partitionKey = cookiePartitionIdentifier(firstParty);
+    setCookie(partitionedCookie);
+}
+#endif
 
 #if !PLATFORM(COCOA)
 void NetworkStorageSession::setAllCookiesToSameSiteStrict(const RegistrableDomain&, CompletionHandler<void()>&& completionHandler)
@@ -126,47 +146,91 @@ bool NetworkStorageSession::hasHadUserInteractionAsFirstParty(const RegistrableD
     return m_registrableDomainsWithUserInteractionAsFirstParty.contains(registrableDomain);
 }
 
-bool NetworkStorageSession::shouldBlockCookies(const ResourceRequest& request, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking) const
+ThirdPartyCookieBlockingDecision NetworkStorageSession::thirdPartyCookieBlockingDecisionForRequest(const ResourceRequest& request, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking, IsKnownCrossSiteTracker isKnownCrossSiteTracker, bool isInitiatedByDedicatedWorker, bool navigationLosesFrameSpecificStorageAccess) const
 {
-    return shouldBlockCookies(request.firstPartyForCookies(), request.url(), frameID, pageID, shouldRelaxThirdPartyCookieBlocking);
+    return thirdPartyCookieBlockingDecisionForRequest(request.firstPartyForCookies(), request.url(), frameID, pageID, shouldRelaxThirdPartyCookieBlocking, isKnownCrossSiteTracker, isInitiatedByDedicatedWorker, navigationLosesFrameSpecificStorageAccess);
 }
-    
-bool NetworkStorageSession::shouldBlockCookies(const URL& firstPartyForCookies, const URL& resource, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking) const
+
+ThirdPartyCookieBlockingDecision NetworkStorageSession::thirdPartyCookieBlockingDecisionForRequest(const URL& firstPartyForCookies, const URL& resource, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking, IsKnownCrossSiteTracker isKnownCrossSiteTracker, bool isInitiatedByDedicatedWorker, bool navigationLosesFrameSpecificStorageAccess) const
 {
     if (shouldRelaxThirdPartyCookieBlocking == ShouldRelaxThirdPartyCookieBlocking::Yes)
-        return false;
+        return ThirdPartyCookieBlockingDecision::None;
 
-    if (!m_isResourceLoadStatisticsEnabled)
-        return false;
+    if (!m_isTrackingPreventionEnabled)
+        return ThirdPartyCookieBlockingDecision::None;
+
+    if (!firstPartyForCookies.isValid())
+        return ThirdPartyCookieBlockingDecision::All;
 
     RegistrableDomain firstPartyDomain { firstPartyForCookies };
     if (firstPartyDomain.isEmpty())
-        return false;
+        return ThirdPartyCookieBlockingDecision::None;
+
+    if (!resource.isValid())
+        return ThirdPartyCookieBlockingDecision::All;
 
     RegistrableDomain resourceDomain { resource };
     if (resourceDomain.isEmpty())
-        return false;
+        return ThirdPartyCookieBlockingDecision::None;
 
     if (firstPartyDomain == resourceDomain)
-        return false;
+        return ThirdPartyCookieBlockingDecision::None;
 
-    if (pageID && hasStorageAccess(resourceDomain, firstPartyDomain, frameID, pageID.value()))
-        return false;
+    // A navigation that loses its frame-specific storage access grant must not attach first-party
+    // cookies to its network request.
+    std::optional<FrameIdentifier> grantFrameID = navigationLosesFrameSpecificStorageAccess ? std::nullopt : frameID;
+    if (hasStorageAccess(resourceDomain, firstPartyDomain, grantFrameID, pageID) && !isInitiatedByDedicatedWorker)
+        return ThirdPartyCookieBlockingDecision::None;
+
+#if ENABLE(OPT_IN_PARTITIONED_COOKIES)
+    const auto decideThirdPartyCookieBlocking = [isOptInCookiePartitioningEnabled = isOptInCookiePartitioningEnabled()] (bool shouldAllowUnpartitionedCookies) {
+        if (shouldAllowUnpartitionedCookies)
+            return ThirdPartyCookieBlockingDecision::None;
+        return isOptInCookiePartitioningEnabled ? ThirdPartyCookieBlockingDecision::AllExceptPartitioned : ThirdPartyCookieBlockingDecision::All;
+    };
+#else
+    const auto decideThirdPartyCookieBlocking = [] (bool shouldAllowUnpartitionedCookies) {
+        return shouldAllowUnpartitionedCookies ? ThirdPartyCookieBlockingDecision::None : ThirdPartyCookieBlockingDecision::All;
+    };
+    UNUSED_PARAM(isKnownCrossSiteTracker);
+#endif
 
     switch (m_thirdPartyCookieBlockingMode) {
     case ThirdPartyCookieBlockingMode::All:
-        return true;
+        return ThirdPartyCookieBlockingDecision::All;
     case ThirdPartyCookieBlockingMode::AllExceptBetweenAppBoundDomains:
-        return !shouldExemptDomainPairFromThirdPartyCookieBlocking(firstPartyDomain, resourceDomain);
+        return decideThirdPartyCookieBlocking(shouldExemptDomainPairFromThirdPartyCookieBlocking(firstPartyDomain, resourceDomain));
+    case ThirdPartyCookieBlockingMode::AllExceptManagedDomains:
+        return m_managedDomains.contains(firstPartyDomain) ? ThirdPartyCookieBlockingDecision::None : ThirdPartyCookieBlockingDecision::All;
+#if ENABLE(OPT_IN_PARTITIONED_COOKIES)
+    case ThirdPartyCookieBlockingMode::AllExceptPartitioned:
+        return (isOptInCookiePartitioningEnabled() && isKnownCrossSiteTracker == IsKnownCrossSiteTracker::No) ? ThirdPartyCookieBlockingDecision::AllExceptPartitioned : ThirdPartyCookieBlockingDecision::All;
+#endif
     case ThirdPartyCookieBlockingMode::AllOnSitesWithoutUserInteraction:
         if (!hasHadUserInteractionAsFirstParty(firstPartyDomain))
-            return true;
-        FALLTHROUGH;
+            return decideThirdPartyCookieBlocking(false);
+        [[fallthrough]];
     case ThirdPartyCookieBlockingMode::OnlyAccordingToPerDomainPolicy:
-        return shouldBlockThirdPartyCookies(resourceDomain);
+        return decideThirdPartyCookieBlocking(!shouldBlockThirdPartyCookies(resourceDomain));
     }
+
     ASSERT_NOT_REACHED();
-    return false;
+    return ThirdPartyCookieBlockingDecision::None;
+}
+
+bool NetworkStorageSession::shouldBlockCookies(const URL& firstPartyForCookies, const URL& resource, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking, IsKnownCrossSiteTracker isKnownCrossSiteTracker) const
+{
+    return shouldBlockCookies(thirdPartyCookieBlockingDecisionForRequest(firstPartyForCookies, resource, frameID, pageID, shouldRelaxThirdPartyCookieBlocking, isKnownCrossSiteTracker));
+}
+
+bool NetworkStorageSession::shouldBlockCookies(const ResourceRequest& request, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking, IsKnownCrossSiteTracker isKnownCrossSiteTracker) const
+{
+    return shouldBlockCookies(request.firstPartyForCookies(), request.url(), frameID, pageID, shouldRelaxThirdPartyCookieBlocking, isKnownCrossSiteTracker);
+}
+
+bool NetworkStorageSession::shouldBlockCookies(ThirdPartyCookieBlockingDecision thirdPartyCookieBlockingDecision)
+{
+    return thirdPartyCookieBlockingDecision == ThirdPartyCookieBlockingDecision::All;
 }
 
 bool NetworkStorageSession::shouldExemptDomainPairFromThirdPartyCookieBlocking(const RegistrableDomain& topFrameDomain, const RegistrableDomain& resourceDomain) const
@@ -178,9 +242,25 @@ bool NetworkStorageSession::shouldExemptDomainPairFromThirdPartyCookieBlocking(c
     return topFrameDomain == resourceDomain || (m_appBoundDomains.contains(topFrameDomain) && m_appBoundDomains.contains(resourceDomain));
 }
 
-std::optional<Seconds> NetworkStorageSession::maxAgeCacheCap(const ResourceRequest& request)
+String NetworkStorageSession::cookiePartitionIdentifier(const URL& firstPartyForCookies)
 {
-    if (m_cacheMaxAgeCapForPrevalentResources && shouldBlockCookies(request, std::nullopt, std::nullopt, ShouldRelaxThirdPartyCookieBlocking::No))
+    return Site { firstPartyForCookies }.toString();
+}
+
+String NetworkStorageSession::cookiePartitionIdentifier(const ResourceRequest& request)
+{
+    return cookiePartitionIdentifier(request.firstPartyForCookies());
+}
+
+std::optional<Seconds> NetworkStorageSession::maxAgeCacheCap(const ResourceRequest& request, IsKnownCrossSiteTracker isKnownCrossSiteTracker)
+{
+    auto thirdPartyCookieBlockingDecision = thirdPartyCookieBlockingDecisionForRequest(request, std::nullopt, std::nullopt, ShouldRelaxThirdPartyCookieBlocking::No, isKnownCrossSiteTracker);
+#if ENABLE(OPT_IN_PARTITIONED_COOKIES)
+    bool shouldEnforceMaxAgeCacheCap = thirdPartyCookieBlockingDecision == ThirdPartyCookieBlockingDecision::All || thirdPartyCookieBlockingDecision == ThirdPartyCookieBlockingDecision::AllExceptPartitioned;
+#else
+    bool shouldEnforceMaxAgeCacheCap = thirdPartyCookieBlockingDecision == ThirdPartyCookieBlockingDecision::All;
+#endif
+    if (m_cacheMaxAgeCapForPrevalentResources && shouldEnforceMaxAgeCacheCap)
         return m_cacheMaxAgeCapForPrevalentResources;
     return std::nullopt;
 }
@@ -189,31 +269,43 @@ void NetworkStorageSession::setAgeCapForClientSideCookies(std::optional<Seconds>
 {
     m_ageCapForClientSideCookies = seconds;
     m_ageCapForClientSideCookiesShort = seconds ? Seconds { seconds->seconds() / 7. } : seconds;
+    m_ageCapForClientSideCookiesForScriptTrackingPrivacy = seconds;
+#if ENABLE(JS_COOKIE_CHECKING)
+    m_ageCapForClientSideCookiesForLinkDecorationTargetPage = seconds;
+#endif
 }
 
 void NetworkStorageSession::setPrevalentDomainsToBlockAndDeleteCookiesFor(const Vector<RegistrableDomain>& domains)
 {
     m_registrableDomainsToBlockAndDeleteCookiesFor.clear();
-    m_registrableDomainsToBlockAndDeleteCookiesFor.add(domains.begin(), domains.end());
+    m_registrableDomainsToBlockAndDeleteCookiesFor.addAll(domains);
+    if (m_thirdPartyCookieBlockingMode == ThirdPartyCookieBlockingMode::OnlyAccordingToPerDomainPolicy)
+        cookieEnabledStateMayHaveChanged();
 }
 
 void NetworkStorageSession::setPrevalentDomainsToBlockButKeepCookiesFor(const Vector<RegistrableDomain>& domains)
 {
     m_registrableDomainsToBlockButKeepCookiesFor.clear();
-    m_registrableDomainsToBlockButKeepCookiesFor.add(domains.begin(), domains.end());
+    m_registrableDomainsToBlockButKeepCookiesFor.addAll(domains);
+    if (m_thirdPartyCookieBlockingMode == ThirdPartyCookieBlockingMode::OnlyAccordingToPerDomainPolicy)
+        cookieEnabledStateMayHaveChanged();
 }
 
 void NetworkStorageSession::setDomainsWithUserInteractionAsFirstParty(const Vector<RegistrableDomain>& domains)
 {
     m_registrableDomainsWithUserInteractionAsFirstParty.clear();
-    m_registrableDomainsWithUserInteractionAsFirstParty.add(domains.begin(), domains.end());
+    m_registrableDomainsWithUserInteractionAsFirstParty.addAll(domains);
+    if (m_thirdPartyCookieBlockingMode == ThirdPartyCookieBlockingMode::AllOnSitesWithoutUserInteraction)
+        cookieEnabledStateMayHaveChanged();
 }
 
-void NetworkStorageSession::setDomainsWithCrossPageStorageAccess(const HashMap<TopFrameDomain, SubResourceDomain>& domains)
+void NetworkStorageSession::setDomainsWithCrossPageStorageAccess(const HashMap<TopFrameDomain, Vector<SubResourceDomain>>& domains)
 {
     m_pairsGrantedCrossPageStorageAccess.clear();
-    for (auto& topFrameDomain : domains.keys())
-        grantCrossPageStorageAccess(topFrameDomain, domains.get(topFrameDomain));
+    for (auto& [topDomain, subResourceDomains] : domains) {
+        for (auto&& subResourceDomain : subResourceDomains)
+            grantCrossPageStorageAccess(topDomain, subResourceDomain);
+    }
 }
 
 void NetworkStorageSession::grantCrossPageStorageAccess(const TopFrameDomain& topFrameDomain, const SubResourceDomain& resourceDomain)
@@ -228,10 +320,13 @@ void NetworkStorageSession::grantCrossPageStorageAccess(const TopFrameDomain& to
     }
 }
 
-bool NetworkStorageSession::hasStorageAccess(const RegistrableDomain& resourceDomain, const RegistrableDomain& firstPartyDomain, std::optional<FrameIdentifier> frameID, PageIdentifier pageID) const
+bool NetworkStorageSession::hasStorageAccess(const RegistrableDomain& resourceDomain, const RegistrableDomain& firstPartyDomain, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID) const
 {
+    if (!pageID)
+        return false;
+
     if (frameID) {
-        auto framesGrantedIterator = m_framesGrantedStorageAccess.find(pageID);
+        auto framesGrantedIterator = m_framesGrantedStorageAccess.find(*pageID);
         if (framesGrantedIterator != m_framesGrantedStorageAccess.end()) {
             auto it = framesGrantedIterator->value.find(frameID.value());
             if (it != framesGrantedIterator->value.end() && it->value == resourceDomain)
@@ -240,7 +335,7 @@ bool NetworkStorageSession::hasStorageAccess(const RegistrableDomain& resourceDo
     }
 
     if (!firstPartyDomain.isEmpty()) {
-        auto pagesGrantedIterator = m_pagesGrantedStorageAccess.find(pageID);
+        auto pagesGrantedIterator = m_pagesGrantedStorageAccess.find(*pageID);
         if (pagesGrantedIterator != m_pagesGrantedStorageAccess.end()) {
             auto it = pagesGrantedIterator->value.find(firstPartyDomain);
             if (it != pagesGrantedIterator->value.end() && it->value == resourceDomain)
@@ -354,20 +449,59 @@ void NetworkStorageSession::setThirdPartyCookieBlockingMode(ThirdPartyCookieBloc
     m_thirdPartyCookieBlockingMode = blockingMode;
 }
 
+#if ENABLE(OPT_IN_PARTITIONED_COOKIES) && !PLATFORM(COCOA)
+void NetworkStorageSession::setOptInCookiePartitioningEnabled(bool)
+{
+}
+#endif
+
 #if ENABLE(APP_BOUND_DOMAINS)
 void NetworkStorageSession::setAppBoundDomains(HashSet<RegistrableDomain>&& domains)
 {
-    m_appBoundDomains = WTFMove(domains);
+    m_appBoundDomains = WTF::move(domains);
+    if (m_thirdPartyCookieBlockingMode == ThirdPartyCookieBlockingMode::AllExceptBetweenAppBoundDomains)
+        cookieEnabledStateMayHaveChanged();
 }
 
 void NetworkStorageSession::resetAppBoundDomains()
 {
     m_appBoundDomains.clear();
+    if (m_thirdPartyCookieBlockingMode == ThirdPartyCookieBlockingMode::AllExceptBetweenAppBoundDomains)
+        cookieEnabledStateMayHaveChanged();
 }
 #endif
 
-std::optional<Seconds> NetworkStorageSession::clientSideCookieCap(const RegistrableDomain& firstParty, std::optional<PageIdentifier> pageID) const
+#if ENABLE(MANAGED_DOMAINS)
+void NetworkStorageSession::setManagedDomains(HashSet<RegistrableDomain>&& domains)
 {
+    m_managedDomains = WTF::move(domains);
+    if (m_thirdPartyCookieBlockingMode == ThirdPartyCookieBlockingMode::AllExceptManagedDomains)
+        cookieEnabledStateMayHaveChanged();
+}
+
+void NetworkStorageSession::resetManagedDomains()
+{
+    m_managedDomains.clear();
+    if (m_thirdPartyCookieBlockingMode == ThirdPartyCookieBlockingMode::AllExceptManagedDomains)
+        cookieEnabledStateMayHaveChanged();
+}
+#endif
+
+std::optional<Seconds> NetworkStorageSession::clientSideCookieCap(const RegistrableDomain& firstParty, RequiresScriptTrackingPrivacy requiresScriptTrackingPrivacy, std::optional<PageIdentifier> pageID) const
+{
+    if (requiresScriptTrackingPrivacy == RequiresScriptTrackingPrivacy::Yes)
+        return m_ageCapForClientSideCookiesForScriptTrackingPrivacy;
+
+#if ENABLE(JS_COOKIE_CHECKING)
+    if (!pageID)
+        return std::nullopt;
+
+    auto domainIterator = m_navigatedToWithLinkDecorationByPrevalentResource.find(*pageID);
+    if (domainIterator != m_navigatedToWithLinkDecorationByPrevalentResource.end() && domainIterator->value == firstParty)
+        return m_ageCapForClientSideCookiesForLinkDecorationTargetPage;
+
+    return std::nullopt;
+#else
     if (!m_ageCapForClientSideCookies || !pageID || m_navigatedToWithLinkDecorationByPrevalentResource.isEmpty())
         return m_ageCapForClientSideCookies;
 
@@ -379,34 +513,42 @@ std::optional<Seconds> NetworkStorageSession::clientSideCookieCap(const Registra
         return m_ageCapForClientSideCookiesShort;
 
     return m_ageCapForClientSideCookies;
+#endif
 }
 
 const HashMap<RegistrableDomain, HashSet<RegistrableDomain>>& NetworkStorageSession::storageAccessQuirks()
 {
     static NeverDestroyed<HashMap<RegistrableDomain, HashSet<RegistrableDomain>>> map = [] {
         HashMap<RegistrableDomain, HashSet<RegistrableDomain>> map;
-        map.add(RegistrableDomain::uncheckedCreateFromRegistrableDomainString("microsoft.com"),
+        map.add(RegistrableDomain::uncheckedCreateFromRegistrableDomainString("microsoft.com"_s),
             HashSet { RegistrableDomain::uncheckedCreateFromRegistrableDomainString("microsoftonline.com"_s) });
-        map.add(RegistrableDomain::uncheckedCreateFromRegistrableDomainString("live.com"),
-            HashSet { RegistrableDomain::uncheckedCreateFromRegistrableDomainString("skype.com"_s) });
-        map.add(RegistrableDomain::uncheckedCreateFromRegistrableDomainString("playstation.com"), HashSet {
+        map.add(RegistrableDomain::uncheckedCreateFromRegistrableDomainString("playstation.com"_s), HashSet {
             RegistrableDomain::uncheckedCreateFromRegistrableDomainString("sonyentertainmentnetwork.com"_s),
             RegistrableDomain::uncheckedCreateFromRegistrableDomainString("sony.com"_s) });
-        map.add(RegistrableDomain::uncheckedCreateFromRegistrableDomainString("bbc.co.uk"), HashSet {
+        map.add(RegistrableDomain::uncheckedCreateFromRegistrableDomainString("bbc.co.uk"_s), HashSet {
             RegistrableDomain::uncheckedCreateFromRegistrableDomainString("radioplayer.co.uk"_s) });
         return map;
     }();
     return map.get();
 }
 
+void NetworkStorageSession::updateStorageAccessPromptQuirks(Vector<OrganizationStorageAccessPromptQuirk>&& organizationStorageAccessPromptQuirks)
+{
+    auto& quirks = updatableStorageAccessPromptQuirks();
+    quirks.clear();
+    for (auto&& quirk : organizationStorageAccessPromptQuirks)
+        quirks.add(quirk);
+}
+
 bool NetworkStorageSession::loginDomainMatchesRequestingDomain(const TopFrameDomain& topFrameDomain, const SubResourceDomain& resourceDomain)
 {
-    auto loginDomains = WebCore::NetworkStorageSession::subResourceDomainsInNeedOfStorageAccessForFirstParty(topFrameDomain);
-    return loginDomains && loginDomains.value().contains(resourceDomain);
+    auto loginDomains = NetworkStorageSession::subResourceDomainsInNeedOfStorageAccessForFirstParty(topFrameDomain);
+    return (loginDomains && loginDomains.value().contains(resourceDomain)) || !!storageAccessQuirkForDomainPair(topFrameDomain, resourceDomain);
 }
 
 bool NetworkStorageSession::canRequestStorageAccessForLoginOrCompatibilityPurposesWithoutPriorUserInteraction(const SubResourceDomain& resourceDomain, const TopFrameDomain& topFrameDomain)
 {
+    ASSERT(RunLoop::isMain());
     return loginDomainMatchesRequestingDomain(topFrameDomain, resourceDomain);
 }
 
@@ -429,6 +571,103 @@ std::optional<RegistrableDomain> NetworkStorageSession::findAdditionalLoginDomai
     return std::nullopt;
 }
 
-#endif // ENABLE(RESOURCE_LOAD_STATISTICS)
+Vector<RegistrableDomain> NetworkStorageSession::storageAccessQuirkForTopFrameDomain(const URL& topFrameURL)
+{
+    for (auto&& quirk : updatableStorageAccessPromptQuirks()) {
+        if (!quirk.triggerPages.isEmpty() && !quirk.triggerPages.contains(topFrameURL))
+            continue;
+
+        auto quirkDomains = quirk.quirkDomains;
+        auto entry = quirkDomains.find(RegistrableDomain { topFrameURL });
+        if (entry == quirkDomains.end())
+            continue;
+        return entry->value;
+    }
+    return { };
+}
+
+std::optional<OrganizationStorageAccessPromptQuirk> NetworkStorageSession::storageAccessQuirkForDomainPair(const TopFrameDomain& topDomain, const SubResourceDomain& subDomain)
+{
+    for (auto&& quirk : updatableStorageAccessPromptQuirks()) {
+        auto& quirkDomains = quirk.quirkDomains;
+        auto entry = quirkDomains.find(topDomain);
+        if (entry == quirkDomains.end())
+            continue;
+        if (std::ranges::none_of(entry->value, [&subDomain](auto&& entry) { return entry == subDomain; }))
+            break;
+        return quirk;
+    }
+    return std::nullopt;
+}
+
+void NetworkStorageSession::deleteCookiesForHostnames(std::span<const String> cookieHostNames, CompletionHandler<void()>&& completionHandler)
+{
+    deleteCookiesForHostnames(cookieHostNames, IncludeHttpOnlyCookies::Yes, ScriptWrittenCookiesOnly::No, WTF::move(completionHandler));
+}
+
+#if !PLATFORM(COCOA)
+void NetworkStorageSession::deleteCookies(const ClientOrigin& origin, CompletionHandler<void()>&& completionHandler)
+{
+    // FIXME: Stop ignoring origin.topOrigin.
+    notImplemented();
+
+    auto host = origin.clientOrigin.host();
+    deleteCookiesForHostnames(singleElementSpan(host), WTF::move(completionHandler));
+}
+#endif
+
+bool NetworkStorageSession::cookiesEnabled(const URL& firstParty, const URL& url, std::optional<FrameIdentifier> frameID, std::optional<PageIdentifier> pageID, ShouldRelaxThirdPartyCookieBlocking shouldRelaxThirdPartyCookieBlocking, IsKnownCrossSiteTracker isKnownCrossSiteTracker) const
+{
+    return thirdPartyCookieBlockingDecisionForRequest(firstParty, url, frameID, pageID, shouldRelaxThirdPartyCookieBlocking, isKnownCrossSiteTracker) != ThirdPartyCookieBlockingDecision::All;
+}
+
+void NetworkStorageSession::addCookiesEnabledStateObserver(CookiesEnabledStateObserver& observer)
+{
+    m_cookiesEnabledStateObservers.add(observer);
+}
+
+void NetworkStorageSession::removeCookiesEnabledStateObserver(CookiesEnabledStateObserver& observer)
+{
+    m_cookiesEnabledStateObservers.remove(observer);
+}
+
+void NetworkStorageSession::cookieEnabledStateMayHaveChanged()
+{
+    for (Ref observer : m_cookiesEnabledStateObservers)
+        observer->cookieEnabledStateMayHaveChanged();
+}
+
+void NetworkStorageSession::setCookiesVersion(uint64_t version)
+{
+    // Ensure version always increases.
+    if (version <= m_cookiesVersion)
+        return;
+
+    RELEASE_LOG(Loading, "%p - NetworkStorageSession::setCookiesVersion session=%" PRIu64 ", version=%" PRIu64, this, m_sessionID.toUInt64(), version);
+    m_cookiesVersion = version;
+    auto cookiesVersionChangeCallbacks = std::exchange(m_cookiesVersionChangeCallbacks, { });
+    while (!cookiesVersionChangeCallbacks.isEmpty()) {
+        auto callback = cookiesVersionChangeCallbacks.takeFirst();
+        if (callback.version <= m_cookiesVersion) {
+            callback.callback(CookieVersionChangeCallback::Reason::VersionChange);
+            continue;
+        }
+        m_cookiesVersionChangeCallbacks.append(WTF::move(callback));
+    }
+}
+
+void NetworkStorageSession::addCookiesVersionChangeCallback(CookieVersionChangeCallback&& callback)
+{
+    ASSERT(callback.version < m_cookiesVersion);
+    m_cookiesVersionChangeCallbacks.append(WTF::move(callback));
+}
+
+void NetworkStorageSession::clearCookiesVersionChangeCallbacks()
+{
+    while (!m_cookiesVersionChangeCallbacks.isEmpty()) {
+        auto callback = m_cookiesVersionChangeCallbacks.takeFirst();
+        callback.callback(CookieVersionChangeCallback::Reason::SessionClose);
+    }
+}
 
 }

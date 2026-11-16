@@ -25,10 +25,11 @@
 
 #pragma once
 
-#include "CachedImage.h"
-#include "CachedResourceHandle.h"
-#include "StyleImage.h"
-#include <wtf/IsoMalloc.h>
+#include <WebCore/CachedImage.h>
+#include <WebCore/CachedResourceHandle.h>
+#include <WebCore/StyleImage.h>
+#include <wtf/CheckedPtr.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
@@ -36,43 +37,43 @@ namespace WebCore {
 class CachedImage;
 class RenderElement;
 
-class RenderImageResource {
-    WTF_MAKE_NONCOPYABLE(RenderImageResource); WTF_MAKE_ISO_ALLOCATED(RenderImageResource);
+class RenderImageResource final : public CanMakeCheckedPtr<RenderImageResource> {
+    WTF_MAKE_NONCOPYABLE(RenderImageResource);
+    WTF_MAKE_TZONE_ALLOCATED(RenderImageResource);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderImageResource);
 public:
-    RenderImageResource();
-    virtual ~RenderImageResource() = default;
+    explicit RenderImageResource();
+    explicit RenderImageResource(Style::Image*);
+    ~RenderImageResource();
 
-    virtual void initialize(RenderElement& renderer) { initialize(renderer, nullptr); }
-    virtual void shutdown();
+    void initialize(RenderElement&);
+    void willBeDestroyed();
 
+    void clearCachedImage();
     void setCachedImage(CachedImage*);
-    CachedImage* cachedImage() const { return m_cachedImage.get(); }
+    CachedImage* cachedImage() const { return m_styleImage ? m_styleImage->cachedImage() : nullptr; }
 
     void resetAnimation();
 
-    virtual RefPtr<Image> image(const IntSize& size = { }) const;
-    virtual bool errorOccurred() const { return m_cachedImage && m_cachedImage->errorOccurred(); }
+    Ref<Image> image(const IntSize& size = { }) const;
+    bool currentFrameIsComplete() const;
+    bool errorOccurred() const { return m_styleImage && m_styleImage->errorOccurred(); }
 
-    virtual void setContainerContext(const IntSize&, const URL&);
+    void setContainerContext(const IntSize&, const URL&);
 
-    virtual bool imageHasRelativeWidth() const { return m_cachedImage && m_cachedImage->imageHasRelativeWidth(); }
-    virtual bool imageHasRelativeHeight() const { return m_cachedImage && m_cachedImage->imageHasRelativeHeight(); }
+    bool imageHasRelativeWidth() const { return m_styleImage && m_styleImage->imageHasRelativeWidth(); }
+    bool imageHasRelativeHeight() const { return m_styleImage && m_styleImage->imageHasRelativeHeight(); }
 
     inline LayoutSize imageSize(float multiplier) const { return imageSize(multiplier, CachedImage::UsedSize); }
     inline LayoutSize intrinsicSize(float multiplier) const { return imageSize(multiplier, CachedImage::IntrinsicSize); }
 
-    virtual WrappedImagePtr imagePtr() const { return m_cachedImage.get(); }
+    WrappedImagePtr imagePtr() const { return m_styleImage ? m_styleImage->data() : nullptr; }
 
-protected:
-    RenderElement* renderer() const { return m_renderer.get(); }
-    void initialize(RenderElement&, CachedImage*);
-    
 private:
-    virtual LayoutSize imageSize(float multiplier, CachedImage::SizeType) const;
+    LayoutSize imageSize(float multiplier, CachedImage::SizeType) const;
 
-    WeakPtr<RenderElement> m_renderer;
-    CachedResourceHandle<CachedImage> m_cachedImage;
-    bool m_cachedImageRemoveClientIsNeeded { true };
+    SingleThreadWeakPtr<RenderElement> m_renderer;
+    RefPtr<Style::Image> m_styleImage;
 };
 
 } // namespace WebCore

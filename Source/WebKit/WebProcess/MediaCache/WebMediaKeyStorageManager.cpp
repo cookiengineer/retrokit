@@ -30,19 +30,22 @@
 #include <WebCore/SecurityOrigin.h>
 #include <WebCore/SecurityOriginData.h>
 #include <wtf/FileSystem.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/URL.h>
 
 namespace WebKit {
 using namespace WebCore;
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebMediaKeyStorageManager);
 
 void WebMediaKeyStorageManager::setWebsiteDataStore(const WebProcessDataStoreParameters& parameters)
 {
     m_mediaKeyStorageDirectory = parameters.mediaKeyStorageDirectory;
 }
 
-const char* WebMediaKeyStorageManager::supplementName()
+ASCIILiteral WebMediaKeyStorageManager::supplementName()
 {
-    return "WebMediaKeyStorageManager";
+    return "WebMediaKeyStorageManager"_s;
 }
 
 String WebMediaKeyStorageManager::mediaKeyStorageDirectoryForOrigin(const SecurityOriginData& originData)
@@ -74,7 +77,7 @@ static void removeAllMediaKeyStorageForOriginPath(const String& originPath, Wall
 
     for (const auto& mediaKeyName : mediaKeyNames) {
         auto mediaKeyPath = FileSystem::pathByAppendingComponent(originPath, mediaKeyName);
-        String mediaKeyFile = FileSystem::pathByAppendingComponent(mediaKeyPath, "SecureStop.plist");
+        String mediaKeyFile = FileSystem::pathByAppendingComponent(mediaKeyPath, "SecureStop.plist"_s);
 
         if (!FileSystem::fileExists(mediaKeyFile))
             continue;

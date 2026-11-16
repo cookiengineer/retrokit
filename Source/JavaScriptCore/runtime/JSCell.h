@@ -1,7 +1,7 @@
 /*
  *  Copyright (C) 1999-2001 Harri Porten (porten@kde.org)
  *  Copyright (C) 2001 Peter Kelly (pmk@post.com)
- *  Copyright (C) 2003-2021 Apple Inc. All rights reserved.
+ *  Copyright (C) 2003-2023 Apple Inc. All rights reserved.
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Library General Public
@@ -22,20 +22,21 @@
 
 #pragma once
 
-#include "CallData.h"
-#include "CellState.h"
-#include "ConstructData.h"
-#include "EnumerationMode.h"
-#include "Heap.h"
-#include "HeapCell.h"
-#include "IndexingType.h"
-#include "JSLock.h"
-#include "JSTypeInfo.h"
-#include "SlotVisitor.h"
-#include "SlotVisitorMacros.h"
-#include "SubspaceAccess.h"
-#include "TypedArrayType.h"
-#include "WriteBarrier.h"
+#include <JavaScriptCore/CallData.h>
+#include <JavaScriptCore/CellState.h>
+#include <JavaScriptCore/ConstructData.h>
+#include <JavaScriptCore/DestructionMode.h>
+#include <JavaScriptCore/EnumerationMode.h>
+#include <JavaScriptCore/Heap.h>
+#include <JavaScriptCore/HeapCell.h>
+#include <JavaScriptCore/IndexingType.h>
+#include <JavaScriptCore/JSLock.h>
+#include <JavaScriptCore/JSTypeInfo.h>
+#include <JavaScriptCore/SlotVisitor.h>
+#include <JavaScriptCore/SlotVisitorMacros.h>
+#include <JavaScriptCore/SubspaceAccess.h>
+#include <JavaScriptCore/TypedArrayType.h>
+#include <JavaScriptCore/WriteBarrier.h>
 
 namespace JSC {
 
@@ -50,7 +51,7 @@ class JSGlobalObject;
 class LLIntOffsetsExtractor;
 class PropertyDescriptor;
 class PropertyName;
-class PropertyNameArray;
+class PropertyNameArrayBuilder;
 class Structure;
 class JSCellLock;
 
@@ -59,10 +60,10 @@ enum class GCDeferralContextArgPresense {
     DoesNotHaveArg
 };
 
-template<typename T> void* allocateCell(Heap&, size_t = sizeof(T));
-template<typename T> void* tryAllocateCell(Heap&, size_t = sizeof(T));
-template<typename T> void* allocateCell(Heap&, GCDeferralContext*, size_t = sizeof(T));
-template<typename T> void* tryAllocateCell(Heap&, GCDeferralContext*, size_t = sizeof(T));
+template<typename T> void* allocateCell(VM&, size_t = sizeof(T));
+template<typename T> void* tryAllocateCell(VM&, size_t = sizeof(T));
+template<typename T> void* allocateCell(VM&, GCDeferralContext*, size_t = sizeof(T));
+template<typename T> void* tryAllocateCell(VM&, GCDeferralContext*, size_t = sizeof(T));
 
 #define DECLARE_EXPORT_INFO                                                  \
     protected:                                                               \
@@ -76,7 +77,23 @@ template<typename T> void* tryAllocateCell(Heap&, GCDeferralContext*, size_t = s
     public:                                                                  \
         static constexpr const ::JSC::ClassInfo* info() { return &s_info; }
 
+#if ASSERT_ENABLED
+#define DECLARE_DEFAULT_FINISH_CREATION \
+    ALWAYS_INLINE void finishCreation(JSC::VM& vm) \
+    { \
+        Base::finishCreation(vm); \
+        ASSERT(inheritsSlow(info())); \
+    } \
+    static constexpr int __unusedFooterAfterDefaultFinishCreation = 0
+#else
+#define DECLARE_DEFAULT_FINISH_CREATION \
+    using Base::finishCreation
+#endif
+
 class JSCell : public HeapCell {
+    WTF_ALLOW_COMPACT_POINTERS;
+    WTF_MAKE_NONCOPYABLE(JSCell);
+    WTF_MAKE_NONMOVABLE(JSCell);
     friend class JSValue;
     friend class MarkedBlock;
     template<typename T>
@@ -85,15 +102,21 @@ class JSCell : public HeapCell {
 public:
     static constexpr unsigned StructureFlags = 0;
 
-    static constexpr bool needsDestruction = false;
+    static constexpr DestructionMode needsDestruction = DoesNotNeedDestruction;
 
-    static constexpr uint8_t numberOfLowerTierCells = 8;
+    static constexpr uint8_t numberOfLowerTierPreciseCells = 8;
 
-    static JSCell* seenMultipleCalleeObjects() { return bitwise_cast<JSCell*>(static_cast<uintptr_t>(1)); }
+    static constexpr size_t atomSize = 16; // This needs to be larger or equal to 16.
+
+    static constexpr bool isResizableOrGrowableSharedTypedArray = false;
+
+    static JSCell* seenMultipleCalleeObjects() { return std::bit_cast<JSCell*>(static_cast<uintptr_t>(1)); }
 
     enum CreatingEarlyCellTag { CreatingEarlyCell };
     JSCell(CreatingEarlyCellTag);
-    
+    enum CreatingWellDefinedBuiltinCellTag { CreatingWellDefinedBuiltinCell };
+    JSCell(CreatingWellDefinedBuiltinCellTag, StructureID, uint32_t typeInfoBlob);
+
     JS_EXPORT_PRIVATE static void destroy(JSCell*);
 
 protected:
@@ -101,50 +124,51 @@ protected:
 
 public:
     // Querying the type.
-    bool isString() const;
-    bool isHeapBigInt() const;
-    bool isSymbol() const;
-    bool isObject() const;
-    bool isGetterSetter() const;
-    bool isCustomGetterSetter() const;
-    bool isProxy() const;
-    bool isCallable(VM&);
-    bool isConstructor(VM&);
-    template<Concurrency> TriState isCallableWithConcurrency(VM&);
-    template<Concurrency> TriState isConstructorWithConcurrency(VM&);
-    bool inherits(VM&, const ClassInfo*) const;
-    template<typename Target> bool inherits(VM&) const;
-    JS_EXPORT_PRIVATE bool isValidCallee() const;
-    bool isAPIValueWrapper() const;
+    bool isString() const { return m_type == StringType; }
+    bool isHeapBigInt() const { return m_type == HeapBigIntType; }
+    bool isSymbol() const { return m_type == SymbolType; }
+    JS_EXPORT_PRIVATE bool isObjectSlow() const;
+    bool isObject() const { return TypeInfo::isObject(m_type); }
+    bool isGetterSetter() const { return m_type == GetterSetterType; }
+    bool isCustomGetterSetter() const { return m_type == CustomGetterSetterType; }
+    bool isProxy() const { return m_type == GlobalProxyType || m_type == ProxyObjectType; }
+    bool isCallable();
+    bool isConstructor();
+    template<Concurrency> TriState isCallableWithConcurrency();
+    template<Concurrency> TriState isConstructorWithConcurrency();
+    inline bool inherits(const ClassInfo*) const; // Defined inline in Structure.h
+    JS_EXPORT_PRIVATE bool inheritsSlow(const ClassInfo*) const;
+    template<typename Target> inline bool inherits() const; // Defined inline in Structure.h
+    JS_EXPORT_PRIVATE bool NODELETE isValidCallee() const;
+    bool isAPIValueWrapper() const { return m_type == APIValueWrapperType; }
     
     // Each cell has a built-in lock. Currently it's simply available for use if you need it. It's
     // a full-blown WTF::Lock. Note that this lock is currently used in JSArray and that lock's
-    // ordering with the Structure lock is that the Structure lock must be acquired first.
+    // ordering with the Structure lock is that the cell lock must be acquired first.
 
     // We use this abstraction to make it easier to grep for places where we lock cells.
     // to lock a cell you can just do:
-    // Locker locker { cell->cellLocker() };
-    JSCellLock& cellLock() { return *reinterpret_cast<JSCellLock*>(this); }
+    // Locker locker { cell->cellLock() };
+    JSCellLock& cellLock() const { return *reinterpret_cast<JSCellLock*>(const_cast<JSCell*>(this)); }
     
-    JSType type() const;
-    IndexingType indexingTypeAndMisc() const;
-    IndexingType indexingMode() const;
-    IndexingType indexingType() const;
+    JSType type() const { return m_type; }
+    IndexingType indexingTypeAndMisc() const { return m_indexingTypeAndMisc; }
+    IndexingType indexingMode() const { return indexingTypeAndMisc() & AllArrayTypes; }
+    IndexingType indexingType() const { return indexingTypeAndMisc() & AllWritableArrayTypes; }
     StructureID structureID() const { return m_structureID; }
-    Structure* structure() const;
-    Structure* structure(VM&) const;
+    Structure* structure() const { return m_structureID.decode(); }
     void setStructure(VM&, Structure*);
     void setStructureIDDirectly(StructureID id) { m_structureID = id; }
-    void clearStructure() { m_structureID = 0; }
+    void clearStructure() { m_structureID = StructureID(); }
 
     TypeInfo::InlineTypeFlags inlineTypeFlags() const { return m_flags; }
     
-    const char* className(VM&) const;
+    ASCIILiteral NODELETE className() const;
 
     // Extracting the value.
     JS_EXPORT_PRIVATE bool getString(JSGlobalObject*, String&) const;
     JS_EXPORT_PRIVATE String getString(JSGlobalObject*) const; // null string if not a string
-    JS_EXPORT_PRIVATE JSObject* getObject(); // NULL if not an object
+    JS_EXPORT_PRIVATE JSObject* NODELETE getObject(); // NULL if not an object
     const JSObject* getObject() const; // NULL if not an object
         
     // Returns information about how to call/construct this cell as a function/constructor. May tell
@@ -153,30 +177,34 @@ public:
     // this is an object, then typeof will return "function" instead of "object". These methods
     // cannot change their minds and must be thread-safe. They are sometimes called from compiler
     // threads.
-    JS_EXPORT_PRIVATE static CallData getCallData(JSCell*);
-    JS_EXPORT_PRIVATE static CallData getConstructData(JSCell*);
+    JS_EXPORT_PRIVATE static CallData NODELETE getCallData(JSCell*);
+    JS_EXPORT_PRIVATE static CallData NODELETE getConstructData(JSCell*);
 
     // Basic conversions.
     JS_EXPORT_PRIVATE JSValue toPrimitive(JSGlobalObject*, PreferredPrimitiveType) const;
     bool toBoolean(JSGlobalObject*) const;
-    TriState pureToBoolean() const;
+    inline TriState pureToBoolean() const;
     JS_EXPORT_PRIVATE double toNumber(JSGlobalObject*) const;
     JSObject* toObject(JSGlobalObject*) const;
+
+    JSString* toStringInline(JSGlobalObject*) const;
+    JS_EXPORT_PRIVATE JSString* toStringSlowCase(JSGlobalObject*) const;
 
     void dump(PrintStream&) const;
     JS_EXPORT_PRIVATE static void dumpToStream(const JSCell*, PrintStream&);
 
     size_t estimatedSizeInBytes(VM&) const;
-    JS_EXPORT_PRIVATE static size_t estimatedSize(JSCell*, VM&);
+    JS_EXPORT_PRIVATE static size_t NODELETE estimatedSize(JSCell*, VM&);
 
     DECLARE_VISIT_CHILDREN_WITH_MODIFIER(inline);
     DECLARE_VISIT_OUTPUT_CONSTRAINTS_WITH_MODIFIER(inline);
 
-    JS_EXPORT_PRIVATE static void analyzeHeap(JSCell*, HeapAnalyzer&);
+    JS_EXPORT_PRIVATE static void NODELETE analyzeHeap(JSCell*, HeapAnalyzer&);
 
     // Object operations, with the toObject operation included.
-    const ClassInfo* classInfo(VM&) const;
-    const MethodTable* methodTable(VM&) const;
+    inline const ClassInfo* classInfo() const; // Defined inline in Structure.h
+    JS_EXPORT_PRIVATE bool validateIsNotSweeping() const;
+    const MethodTable* methodTable() const;
     static bool put(JSCell*, JSGlobalObject*, PropertyName, JSValue, PutPropertySlot&);
     static bool putByIndex(JSCell*, JSGlobalObject*, unsigned propertyName, JSValue, bool shouldThrow);
     bool putInline(JSGlobalObject*, PropertyName, JSValue, PutPropertySlot&);
@@ -185,10 +213,8 @@ public:
     JS_EXPORT_PRIVATE static bool deleteProperty(JSCell*, JSGlobalObject*, PropertyName);
     static bool deletePropertyByIndex(JSCell*, JSGlobalObject*, unsigned propertyName);
 
-    static JSValue toThis(JSCell*, JSGlobalObject*, ECMAMode);
-
-    static bool canUseFastGetOwnProperty(const Structure&);
-    JSValue fastGetOwnProperty(VM&, Structure&, PropertyName);
+    static inline bool canUseFastGetOwnProperty(const Structure&);
+    inline JSValue fastGetOwnProperty(VM&, Structure&, PropertyName);
 
     // The recommended idiom for using cellState() is to switch on it or perform an == comparison on it
     // directly. We deliberately avoid helpers for this, because we want transparency about how the various
@@ -207,17 +233,17 @@ public:
         return WTF::atomicCompareExchangeStrong(&m_cellState, oldState, newState);
     }
 
-    static ptrdiff_t structureIDOffset()
+    static constexpr ptrdiff_t structureIDOffset()
     {
         return OBJECT_OFFSETOF(JSCell, m_structureID);
     }
 
-    static ptrdiff_t typeInfoFlagsOffset()
+    static constexpr ptrdiff_t typeInfoFlagsOffset()
     {
         return OBJECT_OFFSETOF(JSCell, m_flags);
     }
 
-    static ptrdiff_t typeInfoTypeOffset()
+    static constexpr ptrdiff_t typeInfoTypeOffset()
     {
         return OBJECT_OFFSETOF(JSCell, m_type);
     }
@@ -225,12 +251,12 @@ public:
     // DO NOT store to this field. Always use a CAS loop, since some bits are flipped using CAS
     // from other threads due to the internal lock. One exception: you don't need the CAS if the
     // object has not escaped yet.
-    static ptrdiff_t indexingTypeAndMiscOffset()
+    static constexpr ptrdiff_t indexingTypeAndMiscOffset()
     {
         return OBJECT_OFFSETOF(JSCell, m_indexingTypeAndMisc);
     }
 
-    static ptrdiff_t cellStateOffset()
+    static constexpr ptrdiff_t cellStateOffset()
     {
         return OBJECT_OFFSETOF(JSCell, m_cellState);
     }
@@ -245,18 +271,18 @@ protected:
     void finishCreation(VM&, Structure*, CreatingEarlyCellTag);
 
     // Dummy implementations of override-able static functions for classes to put in their MethodTable
-    static NO_RETURN_DUE_TO_CRASH void getOwnPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArray&, DontEnumPropertiesMode);
-    static NO_RETURN_DUE_TO_CRASH void getOwnSpecialPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArray&, DontEnumPropertiesMode);
+    static NO_RETURN_DUE_TO_CRASH void NODELETE getOwnPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArrayBuilder&, DontEnumPropertiesMode);
+    static NO_RETURN_DUE_TO_CRASH void NODELETE getOwnSpecialPropertyNames(JSObject*, JSGlobalObject*, PropertyNameArrayBuilder&, DontEnumPropertiesMode);
 
-    static NO_RETURN_DUE_TO_CRASH bool preventExtensions(JSObject*, JSGlobalObject*);
-    static NO_RETURN_DUE_TO_CRASH bool isExtensible(JSObject*, JSGlobalObject*);
-    static NO_RETURN_DUE_TO_CRASH bool setPrototype(JSObject*, JSGlobalObject*, JSValue, bool);
-    static NO_RETURN_DUE_TO_CRASH JSValue getPrototype(JSObject*, JSGlobalObject*);
+    static NO_RETURN_DUE_TO_CRASH bool NODELETE preventExtensions(JSObject*, JSGlobalObject*);
+    static NO_RETURN_DUE_TO_CRASH bool NODELETE isExtensible(JSObject*, JSGlobalObject*);
+    static NO_RETURN_DUE_TO_CRASH bool NODELETE setPrototype(JSObject*, JSGlobalObject*, JSValue, bool);
+    static NO_RETURN_DUE_TO_CRASH JSValue NODELETE getPrototype(JSObject*, JSGlobalObject*);
 
-    JS_EXPORT_PRIVATE static bool customHasInstance(JSObject*, JSGlobalObject*, JSValue);
-    static bool defineOwnProperty(JSObject*, JSGlobalObject*, PropertyName, const PropertyDescriptor&, bool shouldThrow);
-    static bool getOwnPropertySlot(JSObject*, JSGlobalObject*, PropertyName, PropertySlot&);
-    static bool getOwnPropertySlotByIndex(JSObject*, JSGlobalObject*, unsigned propertyName, PropertySlot&);
+    JS_EXPORT_PRIVATE static bool NODELETE customHasInstance(JSObject*, JSGlobalObject*, JSValue);
+    static bool NODELETE defineOwnProperty(JSObject*, JSGlobalObject*, PropertyName, const PropertyDescriptor&, bool shouldThrow);
+    static bool NODELETE getOwnPropertySlot(JSObject*, JSGlobalObject*, PropertyName, PropertySlot&);
+    static bool NODELETE getOwnPropertySlotByIndex(JSObject*, JSGlobalObject*, unsigned propertyName, PropertySlot&);
 
 private:
     friend class LLIntOffsetsExtractor;
@@ -265,18 +291,23 @@ private:
     JS_EXPORT_PRIVATE JSObject* toObjectSlow(JSGlobalObject*) const;
 
     StructureID m_structureID;
-    IndexingType m_indexingTypeAndMisc; // DO NOT store to this field. Always CAS.
-    JSType m_type;
-    TypeInfo::InlineTypeFlags m_flags;
-    CellState m_cellState;
+    union {
+        uint32_t m_blob;
+        struct {
+            IndexingType m_indexingTypeAndMisc; // DO NOT store to this field. Always CAS.
+            JSType m_type;
+            TypeInfo::InlineTypeFlags m_flags;
+            CellState m_cellState;
+        };
+    };
 };
 
 class JSCellLock : public JSCell {
 public:
-    void lock();
-    bool tryLock();
-    void unlock();
-    bool isLocked() const;
+    inline void lock();
+    inline bool tryLock();
+    inline void unlock();
+    inline bool isLocked() const;
 private:
     JS_EXPORT_PRIVATE void lockSlow();
     JS_EXPORT_PRIVATE void unlockSlow();
@@ -297,7 +328,7 @@ inline auto subspaceForConcurrently(VM& vm)
 }
 
 #if CPU(X86_64)
-JS_EXPORT_PRIVATE NEVER_INLINE NO_RETURN_DUE_TO_CRASH NOT_TAIL_CALLED void reportZappedCellAndCrash(Heap&, const JSCell*);
+JS_EXPORT_PRIVATE NEVER_INLINE NO_RETURN_DUE_TO_CRASH NOT_TAIL_CALLED void reportZappedCellAndCrash(const JSCell*);
 #endif
 
 } // namespace JSC

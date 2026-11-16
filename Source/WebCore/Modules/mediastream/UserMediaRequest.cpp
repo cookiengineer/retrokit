@@ -36,157 +36,81 @@
 
 #if ENABLE(MEDIA_STREAM)
 
-#include "Document.h"
-#include "Frame.h"
+#include "AudioSession.h"
+#include "ContextDestructionObserverInlines.h"
+#include "DocumentPage.h"
+#include "ExceptionCode.h"
+#include "JSDOMConvertInterface.h"
 #include "JSDOMPromiseDeferred.h"
 #include "JSMediaStream.h"
 #include "JSOverconstrainedError.h"
+#include "LocalFrame.h"
 #include "Logging.h"
 #include "MediaConstraints.h"
+#include "MediaDevices.h"
+#include "Navigator.h"
+#include "NavigatorMediaDevices.h"
+#include "PermissionsPolicy.h"
 #include "PlatformMediaSessionManager.h"
+#include "RTCController.h"
 #include "RealtimeMediaSourceCenter.h"
 #include "Settings.h"
 #include "UserMediaController.h"
 #include "WindowEventLoop.h"
+#include <JavaScriptCore/ConsoleTypes.h>
+#include <algorithm>
 #include <wtf/Scope.h>
 
 namespace WebCore {
 
-Ref<UserMediaRequest> UserMediaRequest::create(Document& document, MediaStreamRequest&& request, DOMPromiseDeferred<IDLInterface<MediaStream>>&& promise)
+Ref<UserMediaRequest> UserMediaRequest::create(Document& document, MediaStreamRequest&& request, TrackConstraints&& audioConstraints, TrackConstraints&& videoConstraints, DOMPromiseDeferred<IDLInterface<MediaStream>>&& promise)
 {
-    auto result = adoptRef(*new UserMediaRequest(document, WTFMove(request), WTFMove(promise)));
+    auto result = adoptRef(*new UserMediaRequest(document, WTF::move(request), WTF::move(audioConstraints), WTF::move(videoConstraints), WTF::move(promise)));
     result->suspendIfNeeded();
     return result;
 }
 
-UserMediaRequest::UserMediaRequest(Document& document, MediaStreamRequest&& request, DOMPromiseDeferred<IDLInterface<MediaStream>>&& promise)
+UserMediaRequest::UserMediaRequest(Document& document, MediaStreamRequest&& request, TrackConstraints&& audioConstraints, TrackConstraints&& videoConstraints, DOMPromiseDeferred<IDLInterface<MediaStream>>&& promise)
     : ActiveDOMObject(document)
-    , m_identifier(UserMediaRequestIdentifier::generate())
-    , m_promise(makeUniqueRef<DOMPromiseDeferred<IDLInterface<MediaStream>>>(WTFMove(promise)))
-    , m_request(WTFMove(request))
+    , m_promise(makeUniqueRef<DOMPromiseDeferred<IDLInterface<MediaStream>>>(WTF::move(promise)))
+    , m_request(WTF::move(request))
+    , m_audioConstraints(WTF::move(audioConstraints))
+    , m_videoConstraints(WTF::move(videoConstraints))
 {
 }
 
 UserMediaRequest::~UserMediaRequest()
 {
-    if (m_allowCompletionHandler)
-        m_allowCompletionHandler();
+    if (auto completionHandler = std::exchange(m_allowCompletionHandler, { }))
+        completionHandler();
 }
 
 SecurityOrigin* UserMediaRequest::userMediaDocumentOrigin() const
 {
-    if (!m_scriptExecutionContext)
-        return nullptr;
-    return m_scriptExecutionContext->securityOrigin();
+    RefPtr context = scriptExecutionContext();
+    return context ? context->securityOrigin() : nullptr;
 }
 
 SecurityOrigin* UserMediaRequest::topLevelDocumentOrigin() const
 {
-    if (!m_scriptExecutionContext)
-        return nullptr;
-    return &m_scriptExecutionContext->topOrigin();
-}
-
-static bool hasInvalidGetDisplayMediaConstraint(const MediaConstraints& constraints)
-{
-    // https://w3c.github.io/mediacapture-screen-share/#navigator-additions
-    // 1. Let constraints be the method's first argument.
-    // 2. For each member present in constraints whose value, value, is a dictionary, run the following steps:
-    //     1. If value contains a member named advanced, return a promise rejected with a newly created TypeError.
-    //     2. If value contains a member which in turn is a dictionary containing a member named either min or
-    //        exact, return a promise rejected with a newly created TypeError.
-    if (!constraints.isValid)
-        return false;
-
-    if (!constraints.advancedConstraints.isEmpty())
-        return true;
-
-    bool invalid = false;
-    constraints.mandatoryConstraints.filter([&invalid] (const MediaConstraint& constraint) mutable {
-        switch (constraint.constraintType()) {
-        case MediaConstraintType::Width:
-        case MediaConstraintType::Height: {
-            auto& intConstraint = downcast<IntConstraint>(constraint);
-            int value;
-            invalid = intConstraint.getExact(value) || intConstraint.getMin(value);
-            break;
-        }
-
-        case MediaConstraintType::AspectRatio:
-        case MediaConstraintType::FrameRate: {
-            auto& doubleConstraint = downcast<DoubleConstraint>(constraint);
-            double value;
-            invalid = doubleConstraint.getExact(value) || doubleConstraint.getMin(value);
-            break;
-        }
-
-        case MediaConstraintType::DisplaySurface:
-        case MediaConstraintType::LogicalSurface: {
-            auto& boolConstraint = downcast<BooleanConstraint>(constraint);
-            bool value;
-            invalid = boolConstraint.getExact(value);
-            break;
-        }
-
-        case MediaConstraintType::FacingMode:
-        case MediaConstraintType::DeviceId:
-        case MediaConstraintType::GroupId: {
-            auto& stringConstraint = downcast<StringConstraint>(constraint);
-            Vector<String> values;
-            invalid = stringConstraint.getExact(values);
-            break;
-        }
-
-        case MediaConstraintType::SampleRate:
-        case MediaConstraintType::SampleSize:
-        case MediaConstraintType::Volume:
-        case MediaConstraintType::EchoCancellation:
-            // Ignored.
-            break;
-
-        case MediaConstraintType::Unknown:
-            ASSERT_NOT_REACHED();
-            break;
-        }
-
-        return invalid;
-    });
-
-    return invalid;
+    RefPtr context = scriptExecutionContext();
+    return context ? &context->topOrigin() : nullptr;
 }
 
 void UserMediaRequest::start()
 {
-    ASSERT(m_scriptExecutionContext);
-    if (!m_scriptExecutionContext) {
+    RefPtr context = scriptExecutionContext();
+    ASSERT(context);
+    if (!context) {
         deny(MediaAccessDenialReason::UserMediaDisabled);
-        return;
-    }
-
-    if (m_request.type == MediaStreamRequest::Type::DisplayMedia) {
-        if (hasInvalidGetDisplayMediaConstraint(m_request.videoConstraints)) {
-            deny(MediaAccessDenialReason::IllegalConstraint);
-            return;
-        }
-    }
-
-    // https://w3c.github.io/mediacapture-main/getusermedia.html#dom-mediadevices-getusermedia()
-    // 1. Let constraints be the method's first argument.
-    // 2. Let requestedMediaTypes be the set of media types in constraints with either a dictionary
-    //    value or a value of "true".
-    // 3. If requestedMediaTypes is the empty set, return a promise rejected with a TypeError. The word
-    //    "optional" occurs in the WebIDL due to WebIDL rules, but the argument must be supplied in order
-    //    for the call to succeed.
-    if (!m_request.audioConstraints.isValid && !m_request.videoConstraints.isValid) {
-        deny(MediaAccessDenialReason::NoConstraints);
         return;
     }
 
     // 4. If the current settings object's responsible document is NOT allowed to use the feature indicated by
     //    attribute name allowusermedia, return a promise rejected with a DOMException object whose name
     //    attribute has the value SecurityError.
-    auto& document = downcast<Document>(*m_scriptExecutionContext);
-    auto* controller = UserMediaController::from(document.page());
+    Ref document = downcast<Document>(*context);
+    auto* controller = UserMediaController::from(protect(document->page()).get());
     if (!controller) {
         deny(MediaAccessDenialReason::UserMediaDisabled);
         return;
@@ -200,27 +124,27 @@ void UserMediaRequest::start()
 
     switch (m_request.type) {
     case MediaStreamRequest::Type::DisplayMedia:
-        if (!isFeaturePolicyAllowedByDocumentAndAllOwners(FeaturePolicy::Type::DisplayCapture, document)) {
+    case MediaStreamRequest::Type::DisplayMediaWithAudio:
+        if (!PermissionsPolicy::isFeatureEnabled(PermissionsPolicy::Feature::DisplayCapture, document.get())) {
             deny(MediaAccessDenialReason::PermissionDenied);
-            controller->logGetDisplayMediaDenial(document);
+            controller->logGetDisplayMediaDenial(document.get());
             return;
         }
         break;
     case MediaStreamRequest::Type::UserMedia:
-        if (m_request.audioConstraints.isValid && !isFeaturePolicyAllowedByDocumentAndAllOwners(FeaturePolicy::Type::Microphone, document)) {
+        if (m_request.audioConstraints.isValid && !PermissionsPolicy::isFeatureEnabled(PermissionsPolicy::Feature::Microphone, document.get())) {
             deny(MediaAccessDenialReason::PermissionDenied);
-            controller->logGetUserMediaDenial(document);
+            controller->logGetUserMediaDenial(document.get());
             return;
         }
-        if (m_request.videoConstraints.isValid && !isFeaturePolicyAllowedByDocumentAndAllOwners(FeaturePolicy::Type::Camera, document)) {
+        if (m_request.videoConstraints.isValid && !PermissionsPolicy::isFeatureEnabled(PermissionsPolicy::Feature::Camera, document.get())) {
             deny(MediaAccessDenialReason::PermissionDenied);
-            controller->logGetUserMediaDenial(document);
+            controller->logGetUserMediaDenial(document.get());
             return;
         }
         break;
     }
 
-    PlatformMediaSessionManager::sharedManager().prepareToSendUserMediaPermissionRequest();
     controller->requestUserMediaAccess(*this);
 }
 
@@ -229,102 +153,129 @@ static inline bool isMediaStreamCorrectlyStarted(const MediaStream& stream)
     if (stream.getTracks().isEmpty())
         return false;
 
-    return WTF::allOf(stream.getTracks(), [](auto& track) {
+    return std::ranges::all_of(stream.getTracks(), [](auto& track) {
         return !track->source().captureDidFail();
     });
 }
 
-void UserMediaRequest::allow(CaptureDevice&& audioDevice, CaptureDevice&& videoDevice, String&& deviceIdentifierHashSalt, CompletionHandler<void()>&& completionHandler)
+void UserMediaRequest::allow(CaptureDevice&& audioDevice, CaptureDevice&& videoDevice, MediaDeviceHashSalts&& deviceIdentifierHashSalt, CompletionHandler<void()>&& completionHandler)
 {
     RELEASE_LOG(MediaStream, "UserMediaRequest::allow %s %s", audioDevice ? audioDevice.persistentId().utf8().data() : "", videoDevice ? videoDevice.persistentId().utf8().data() : "");
-    m_allowCompletionHandler = WTFMove(completionHandler);
-    queueTaskKeepingObjectAlive(*this, TaskSource::UserInteraction, [this, audioDevice = WTFMove(audioDevice), videoDevice = WTFMove(videoDevice), deviceIdentifierHashSalt = WTFMove(deviceIdentifierHashSalt)]() mutable {
-        auto callback = [this, protector = makePendingActivity(*this)](auto privateStreamOrError) mutable {
-            auto scopeExit = makeScopeExit([completionHandler = WTFMove(m_allowCompletionHandler)]() mutable {
+
+    Ref document = downcast<Document>(*scriptExecutionContext());
+    RefPtr localWindow = document->window();
+    RefPtr mediaDevices = localWindow ? NavigatorMediaDevices::mediaDevices(protect(localWindow->navigator())) : nullptr;
+    if (mediaDevices)
+        mediaDevices->willStartMediaCapture(!!audioDevice, !!videoDevice);
+
+    m_allowCompletionHandler = WTF::move(completionHandler);
+    queueTaskKeepingObjectAlive(*this, TaskSource::UserInteraction, [audioDevice = WTF::move(audioDevice), videoDevice = WTF::move(videoDevice), deviceIdentifierHashSalt = WTF::move(deviceIdentifierHashSalt)](auto& request) mutable {
+        auto callback = [protectedThis = Ref { request }, protector = request.makePendingActivity(request)](auto privateStreamOrError) mutable {
+            auto scopeExit = makeScopeExit([completionHandler = WTF::move(protectedThis->m_allowCompletionHandler)]() mutable {
                 completionHandler();
             });
-            if (isContextStopped())
-                return;
-
-            if (!privateStreamOrError.has_value()) {
-                RELEASE_LOG(MediaStream, "UserMediaRequest::allow failed to create media stream!");
-                scriptExecutionContext()->addConsoleMessage(MessageSource::JS, MessageLevel::Error, privateStreamOrError.error());
-                deny(MediaAccessDenialReason::HardwareError);
+            if (protectedThis->isContextStopped()) {
+                if (!!privateStreamOrError) {
+                    RELEASE_LOG(MediaStream, "UserMediaRequest::allow, context is stopped");
+                    privateStreamOrError.value()->forEachTrack([](auto& track) {
+                        track.endTrack();
+                    });
+                }
                 return;
             }
-            auto privateStream = WTFMove(privateStreamOrError).value();
 
-            auto& document = downcast<Document>(*m_scriptExecutionContext);
+            if (!privateStreamOrError) {
+                RELEASE_LOG(MediaStream, "UserMediaRequest::allow failed to create media stream!");
+                auto error = privateStreamOrError.error();
+                protectedThis->scriptExecutionContext()->addConsoleMessage(MessageSource::JS, MessageLevel::Error, error.errorMessage);
+                protectedThis->deny(error.denialReason, error.errorMessage, error.invalidConstraint);
+                return;
+            }
+            auto privateStream = WTF::move(privateStreamOrError).value();
+
+            auto& document = downcast<Document>(*protectedThis->scriptExecutionContext());
             privateStream->monitorOrientation(document.orientationNotifier());
 
-            auto stream = MediaStream::create(document, WTFMove(privateStream));
+            Ref stream = MediaStream::create(document, WTF::move(privateStream));
             stream->startProducingData();
 
             if (!isMediaStreamCorrectlyStarted(stream)) {
-                deny(MediaAccessDenialReason::HardwareError);
+                protectedThis->deny(MediaAccessDenialReason::HardwareError);
                 return;
             }
 
+            if (RefPtr audioTrack = stream->getFirstAudioTrack()) {
+#if USE(AUDIO_SESSION)
+                AudioSession::singleton().tryToSetActive(true);
+#endif
+                if (std::holds_alternative<MediaTrackConstraints>(protectedThis->m_audioConstraints))
+                    audioTrack->setConstraints(std::get<MediaTrackConstraints>(WTF::move(protectedThis->m_audioConstraints)));
+            }
+            if (RefPtr videoTrack = stream->getFirstVideoTrack()) {
+                if (std::holds_alternative<MediaTrackConstraints>(protectedThis->m_videoConstraints))
+                    videoTrack->setConstraints(std::get<MediaTrackConstraints>(WTF::move(protectedThis->m_videoConstraints)));
+            }
+
             ASSERT(document.isCapturing());
-            stream->document()->setHasCaptureMediaStreamTrack();
-            m_promise->resolve(WTFMove(stream));
+            document.setHasCaptureMediaStreamTrack();
+            protectedThis->m_promise->resolve(WTF::move(stream));
         };
 
-        auto& document = downcast<Document>(*scriptExecutionContext());
-        RealtimeMediaSourceCenter::singleton().createMediaStream(document.logger(), WTFMove(callback), WTFMove(deviceIdentifierHashSalt), WTFMove(audioDevice), WTFMove(videoDevice), m_request);
+        auto& document = downcast<Document>(*request.scriptExecutionContext());
+        RealtimeMediaSourceCenter::singleton().createMediaStream(document.logger(), WTF::move(callback), WTF::move(deviceIdentifierHashSalt), WTF::move(audioDevice), WTF::move(videoDevice), request.m_request);
 
-        if (!m_scriptExecutionContext)
+        if (!request.scriptExecutionContext())
             return;
 
 #if ENABLE(WEB_RTC)
-        if (auto* page = document.page())
+        if (RefPtr page = document.page())
             page->rtcController().disableICECandidateFilteringForDocument(document);
 #endif
     });
 }
 
-void UserMediaRequest::deny(MediaAccessDenialReason reason, const String& message)
+void UserMediaRequest::deny(MediaAccessDenialReason reason, const String& message, MediaConstraintType invalidConstraint)
 {
-    if (!m_scriptExecutionContext)
+    if (!scriptExecutionContext())
         return;
 
     ExceptionCode code;
     switch (reason) {
-    case MediaAccessDenialReason::IllegalConstraint:
-        RELEASE_LOG(MediaStream, "UserMediaRequest::deny - invalid constraints");
-        code = TypeError;
+    case MediaAccessDenialReason::NoReason:
+        ASSERT_NOT_REACHED();
+        code = ExceptionCode::AbortError;
         break;
     case MediaAccessDenialReason::NoConstraints:
         RELEASE_LOG(MediaStream, "UserMediaRequest::deny - no constraints");
-        code = TypeError;
+        code = ExceptionCode::TypeError;
         break;
     case MediaAccessDenialReason::UserMediaDisabled:
         RELEASE_LOG(MediaStream, "UserMediaRequest::deny - user media disabled");
-        code = SecurityError;
+        code = ExceptionCode::SecurityError;
         break;
     case MediaAccessDenialReason::NoCaptureDevices:
         RELEASE_LOG(MediaStream, "UserMediaRequest::deny - no capture devices");
-        code = NotFoundError;
+        code = ExceptionCode::NotFoundError;
         break;
     case MediaAccessDenialReason::InvalidConstraint:
-        RELEASE_LOG(MediaStream, "UserMediaRequest::deny - invalid constraint - %s", message.utf8().data());
-        m_promise->rejectType<IDLInterface<OverconstrainedError>>(OverconstrainedError::create(message, "Invalid constraint"_s).get());
+        RELEASE_LOG(MediaStream, "UserMediaRequest::deny - invalid constraint - %d", (int)invalidConstraint);
+        m_promise->rejectType<IDLInterface<OverconstrainedError>>(OverconstrainedError::create(invalidConstraint, "Invalid constraint"_s).get());
         return;
     case MediaAccessDenialReason::HardwareError:
         RELEASE_LOG(MediaStream, "UserMediaRequest::deny - hardware error");
-        code = NotReadableError;
+        code = ExceptionCode::NotReadableError;
         break;
     case MediaAccessDenialReason::OtherFailure:
         RELEASE_LOG(MediaStream, "UserMediaRequest::deny - other failure");
-        code = AbortError;
+        code = ExceptionCode::AbortError;
         break;
     case MediaAccessDenialReason::PermissionDenied:
         RELEASE_LOG(MediaStream, "UserMediaRequest::deny - permission denied");
-        code = NotAllowedError;
+        code = ExceptionCode::NotAllowedError;
         break;
     case MediaAccessDenialReason::InvalidAccess:
         RELEASE_LOG(MediaStream, "UserMediaRequest::deny - invalid access");
-        code = InvalidAccessError;
+        code = ExceptionCode::InvalidAccessError;
         break;
     }
 
@@ -336,37 +287,14 @@ void UserMediaRequest::deny(MediaAccessDenialReason reason, const String& messag
 
 void UserMediaRequest::stop()
 {
-    auto& document = downcast<Document>(*m_scriptExecutionContext);
-    if (auto* controller = UserMediaController::from(document.page()))
+    Ref document = downcast<Document>(*scriptExecutionContext());
+    if (auto* controller = UserMediaController::from(protect(document->page()).get()))
         controller->cancelUserMediaAccessRequest(*this);
-}
-
-const char* UserMediaRequest::activeDOMObjectName() const
-{
-    return "UserMediaRequest";
 }
 
 Document* UserMediaRequest::document() const
 {
-    return downcast<Document>(m_scriptExecutionContext);
-}
-
-void UserMediaRequest::mediaStreamDidFail(RealtimeMediaSource::Type type)
-{
-    RELEASE_LOG(MediaStream, "UserMediaRequest::mediaStreamDidFail");
-    const char* typeDescription = "";
-    switch (type) {
-    case RealtimeMediaSource::Type::Audio:
-        typeDescription = "audio";
-        break;
-    case RealtimeMediaSource::Type::Video:
-        typeDescription = "video";
-        break;
-    case RealtimeMediaSource::Type::None:
-        typeDescription = "unknown";
-        break;
-    }
-    m_promise->reject(NotReadableError, makeString("Failed starting capture of a "_s, typeDescription, " track"_s));
+    return downcast<Document>(scriptExecutionContext());
 }
 
 } // namespace WebCore

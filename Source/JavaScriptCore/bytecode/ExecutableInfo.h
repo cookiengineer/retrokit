@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2015 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2012-2015 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,18 +25,19 @@
 
 #pragma once
 
-#include "ParserModes.h"
+#include <JavaScriptCore/ConstructorKind.h>
+#include <JavaScriptCore/ParserModes.h>
 
 namespace JSC {
     
 enum class DerivedContextType : uint8_t { None, DerivedConstructorContext, DerivedMethodContext };
 enum class EvalContextType    : uint8_t { None, FunctionEvalContext, InstanceFieldEvalContext };
-enum class NeedsClassFieldInitializer : uint8_t { No, Yes };
+enum class NeedsClassFieldInitializer : bool { No, Yes };
 
 // FIXME: These flags, ParserModes and propagation to XXXCodeBlocks should be reorganized.
 // https://bugs.webkit.org/show_bug.cgi?id=151547
 struct ExecutableInfo {
-    ExecutableInfo(bool isConstructor, PrivateBrandRequirement privateBrandRequirement, bool isBuiltinFunction, ConstructorKind constructorKind, JSParserScriptMode scriptMode, SuperBinding superBinding, SourceParseMode parseMode, DerivedContextType derivedContextType, NeedsClassFieldInitializer needsClassFieldInitializer, bool isArrowFunctionContext, bool isClassContext, EvalContextType evalContextType)
+    ExecutableInfo(bool isConstructor, PrivateBrandRequirement privateBrandRequirement, bool isBuiltinFunction, ConstructorKind constructorKind, JSParserScriptMode scriptMode, SuperBinding superBinding, SourceParseMode parseMode, DerivedContextType derivedContextType, NeedsClassFieldInitializer needsClassFieldInitializer, bool isArrowFunctionContext, bool isClassContext, EvalContextType evalContextType, bool isBuiltinDefaultClassConstructor = false)
         : m_isConstructor(isConstructor)
         , m_privateBrandRequirement(static_cast<unsigned>(privateBrandRequirement))
         , m_isBuiltinFunction(isBuiltinFunction)
@@ -49,6 +50,7 @@ struct ExecutableInfo {
         , m_isArrowFunctionContext(isArrowFunctionContext)
         , m_isClassContext(isClassContext)
         , m_evalContextType(static_cast<unsigned>(evalContextType))
+        , m_isBuiltinDefaultClassConstructor(isBuiltinDefaultClassConstructor)
     {
         ASSERT(m_constructorKind == static_cast<unsigned>(constructorKind));
         ASSERT(m_superBinding == static_cast<unsigned>(superBinding));
@@ -67,6 +69,7 @@ struct ExecutableInfo {
     bool isArrowFunctionContext() const { return m_isArrowFunctionContext; }
     bool isClassContext() const { return m_isClassContext; }
     NeedsClassFieldInitializer needsClassFieldInitializer() const { return static_cast<NeedsClassFieldInitializer>(m_needsClassFieldInitializer); }
+    bool isBuiltinDefaultClassConstructor() const { return m_isBuiltinDefaultClassConstructor; }
 
 private:
     unsigned m_isConstructor : 1;
@@ -81,6 +84,7 @@ private:
     unsigned m_isArrowFunctionContext : 1;
     unsigned m_isClassContext : 1;
     unsigned m_evalContextType : 2;
+    unsigned m_isBuiltinDefaultClassConstructor : 1;
 };
 
 } // namespace JSC

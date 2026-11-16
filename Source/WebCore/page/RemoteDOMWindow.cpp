@@ -26,27 +26,34 @@
 #include "config.h"
 #include "RemoteDOMWindow.h"
 
+#include "Document.h"
+#include "ExceptionOr.h"
+#include "FrameDestructionObserverInlines.h"
+#include "FrameLoader.h"
+#include "LocalDOMWindow.h"
+#include "MessagePort.h"
+#include "NavigationScheduler.h"
+#include "Page.h"
 #include "RemoteFrame.h"
+#include "RemoteFrameClient.h"
+#include "SecurityOrigin.h"
+#include "SerializedScriptValue.h"
+#include "UserGestureIndicator.h"
 #include <JavaScriptCore/JSCJSValue.h>
 #include <JavaScriptCore/JSCJSValueInlines.h>
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(RemoteDOMWindow);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteDOMWindow);
 
-RemoteDOMWindow::RemoteDOMWindow(Ref<RemoteFrame>&& frame, GlobalWindowIdentifier&& identifier)
-    : AbstractDOMWindow(WTFMove(identifier))
-    , m_frame(WTFMove(frame))
+RemoteDOMWindow::RemoteDOMWindow(RemoteFrame& frame, GlobalWindowIdentifier&& identifier)
+    : DOMWindow(WTF::move(identifier), DOMWindowType::Remote)
+    , m_frame(frame)
 {
-    m_frame->setWindow(this);
 }
 
-RemoteDOMWindow::~RemoteDOMWindow()
-{
-    if (m_frame)
-        m_frame->setWindow(nullptr);
-}
+RemoteDOMWindow::~RemoteDOMWindow() = default;
 
 WindowProxy* RemoteDOMWindow::self() const
 {
@@ -55,76 +62,97 @@ WindowProxy* RemoteDOMWindow::self() const
     return &m_frame->windowProxy();
 }
 
-Location* RemoteDOMWindow::location() const
+void RemoteDOMWindow::closePage()
 {
-    // FIXME: Implemented this.
-    return nullptr;
+    if (!m_frame)
+        return;
+    m_frame->client().closePage();
 }
 
-void RemoteDOMWindow::close(Document&)
+void RemoteDOMWindow::frameDetached()
 {
-    // FIXME: Implemented this.
+    m_frame = nullptr;
 }
 
-bool RemoteDOMWindow::closed() const
+void RemoteDOMWindow::focus(LocalDOMWindow&)
 {
-    return !m_frame;
-}
-
-void RemoteDOMWindow::focus(DOMWindow& incumbentWindow)
-{
-    UNUSED_PARAM(incumbentWindow);
-    // FIXME: Implemented this.
+    // FIXME(264713): Add security checks here equivalent to LocalDOMWindow::focus().
+    if (m_frame && m_frame->isMainFrame())
+        m_frame->client().focus();
 }
 
 void RemoteDOMWindow::blur()
 {
-    // FIXME: Implemented this.
+    // FIXME(268121): Add security checks here equivalent to LocalDOMWindow::blur().
+    if (m_frame && m_frame->isMainFrame())
+        m_frame->client().unfocus();
 }
 
 unsigned RemoteDOMWindow::length() const
 {
-    // FIXME: Implemented this.
-    return 0;
-}
-
-WindowProxy* RemoteDOMWindow::top() const
-{
     if (!m_frame)
-        return nullptr;
+        return 0;
 
-    // FIXME: Implemented this.
-    return &m_frame->windowProxy();
+    return m_frame->tree().childCount();
 }
 
-WindowProxy* RemoteDOMWindow::opener() const
+ExceptionOr<void> RemoteDOMWindow::postMessage(JSC::JSGlobalObject& lexicalGlobalObject, LocalDOMWindow& incumbentWindow, JSC::JSValue message, WindowPostMessageOptions&& options)
 {
-    if (!m_frame)
-        return nullptr;
+    RefPtr sourceDocument = incumbentWindow.document();
+    if (!sourceDocument)
+        return { };
 
-    auto* openerFrame = m_frame->opener();
-    if (!openerFrame)
-        return nullptr;
+    RefPtr sourceFrame = incumbentWindow.frame();
+    if (!sourceFrame)
+        return { };
 
-    return &openerFrame->windowProxy();
+    auto targetSecurityOrigin = createTargetOriginForPostMessage(options.targetOrigin, *sourceDocument);
+    if (targetSecurityOrigin.hasException())
+        return targetSecurityOrigin.releaseException();
+
+    std::optional<SecurityOriginData> target;
+    if (auto origin = targetSecurityOrigin.releaseReturnValue())
+        target = origin->data();
+
+    Vector<Ref<MessagePort>> ports;
+    auto messageData = SerializedScriptValue::create(lexicalGlobalObject, message, WTF::move(options.transfer), ports, SerializationForStorage::No);
+    if (messageData.hasException())
+        return messageData.releaseException();
+
+    auto disentangledPorts = MessagePort::disentanglePorts(WTF::move(ports));
+    if (disentangledPorts.hasException())
+        return messageData.releaseException();
+
+    // Capture the source of the message. We need to do this synchronously
+    // in order to capture the source of the message correctly.
+    auto sourceOrigin = sourceDocument->securityOrigin().data();
+
+    RefPtr userGestureToForward = UserGestureIndicator::currentUserGesture();
+
+    MessageWithMessagePorts messageWithPorts { messageData.releaseReturnValue(), disentangledPorts.releaseReturnValue() };
+    if (RefPtr remoteFrame = frame())
+        remoteFrame->client().postMessageToRemote(sourceFrame->frameID(), sourceOrigin, remoteFrame->frameID(), target, messageWithPorts, userGestureToForward ? std::optional(userGestureToForward->data()) : std::nullopt);
+    return { };
 }
 
-WindowProxy* RemoteDOMWindow::parent() const
+void RemoteDOMWindow::setLocation(LocalDOMWindow& activeWindow, const URL& completedURL, NavigationHistoryBehavior historyHandling, SetLocationLocking locking, CanNavigateState navigationState)
 {
-    if (!m_frame)
-        return nullptr;
+    if (!passesSetLocationSecurityChecks(activeWindow, completedURL, navigationState))
+        return;
 
-    // FIXME: Implemented this.
-    return &m_frame->windowProxy();
-}
+    RefPtr activeDocument = activeWindow.document();
+    if (!activeDocument)
+        return;
+    RefPtr frame = this->frame();
 
-void RemoteDOMWindow::postMessage(JSC::JSGlobalObject&, DOMWindow& incumbentWindow, JSC::JSValue message, const String& targetOrigin, Vector<JSC::Strong<JSC::JSObject>>&&)
-{
-    UNUSED_PARAM(incumbentWindow);
-    UNUSED_PARAM(message);
-    UNUSED_PARAM(targetOrigin);
-
-    // FIXME: Implemented this.
+    // We want a new history item if we are processing a user gesture.
+    LockHistory lockHistory = (locking != SetLocationLocking::LockHistoryBasedOnGestureState || !UserGestureIndicator::processingUserGesture()) ? LockHistory::Yes : LockHistory::No;
+    LockBackForwardList lockBackForwardList = (locking != SetLocationLocking::LockHistoryBasedOnGestureState) ? LockBackForwardList::Yes : LockBackForwardList::No;
+    protect(frame->navigationScheduler())->scheduleLocationChange(*activeDocument, protect(activeDocument->securityOrigin()),
+        // FIXME: What if activeDocument()->frame() is 0?
+        completedURL, activeDocument->frame()->loader().outgoingReferrer(),
+        lockHistory, lockBackForwardList,
+        historyHandling);
 }
 
 } // namespace WebCore

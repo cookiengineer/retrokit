@@ -35,6 +35,7 @@ OBJC_CLASS PKContact;
 namespace WebCore {
 
 struct ApplePayPaymentContact;
+struct LocalizedApplePayPaymentContact;
 
 class WEBCORE_EXPORT PaymentContact {
 public:
@@ -43,9 +44,11 @@ public:
     virtual ~PaymentContact();
 
     static PaymentContact fromApplePayPaymentContact(unsigned version, const ApplePayPaymentContact&);
-    virtual ApplePayPaymentContact toApplePayPaymentContact(unsigned version) const;
 
-    PKContact *pkContact() const;
+    virtual ApplePayPaymentContact toApplePayPaymentContact(unsigned version) const;
+    virtual LocalizedApplePayPaymentContact toLocalizedApplePayPaymentContact(unsigned version) const;
+
+    RetainPtr<PKContact> pkContact() const;
 
 private:
     RetainPtr<PKContact> m_pkContact;

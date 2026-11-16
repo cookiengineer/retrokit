@@ -27,57 +27,21 @@
 
 #if ENABLE(GPU_PROCESS)
 
+#include <optional>
+
+#if HAVE(AUDIT_TOKEN)
+#include "CoreIPCAuditToken.h"
+#endif
+
+#include "GPUProcessMediaCodecCapabilities.h"
+
 namespace WebKit {
 
 struct GPUProcessConnectionInfo {
-    IPC::Attachment connection;
 #if HAVE(AUDIT_TOKEN)
-    std::optional<audit_token_t> auditToken;
+    std::optional<CoreIPCAuditToken> auditToken { };
 #endif
-
-    IPC::Connection::Identifier identifier() const
-    {
-#if USE(UNIX_DOMAIN_SOCKETS)
-        return IPC::Connection::Identifier(connection.fileDescriptor());
-#elif OS(DARWIN)
-        return IPC::Connection::Identifier(connection.port());
-#elif OS(WINDOWS)
-        return IPC::Connection::Identifier(connection.handle());
-#else
-        ASSERT_NOT_REACHED();
-        return IPC::Connection::Identifier();
-#endif
-    }
-
-    IPC::Connection::Identifier releaseIdentifier()
-    {
-#if USE(UNIX_DOMAIN_SOCKETS)
-        auto returnValue = IPC::Connection::Identifier(connection.releaseFileDescriptor());
-#else
-        auto returnValue = identifier();
-#endif
-        connection = { };
-        return returnValue;
-    }
-
-    void encode(IPC::Encoder& encoder) const
-    {
-        encoder << connection;
-#if HAVE(AUDIT_TOKEN)
-        encoder << auditToken;
-#endif
-    }
-    
-    static WARN_UNUSED_RETURN bool decode(IPC::Decoder& decoder, GPUProcessConnectionInfo& info)
-    {
-        if (!decoder.decode(info.connection))
-            return false;
-#if HAVE(AUDIT_TOKEN)
-        if (!decoder.decode(info.auditToken))
-            return false;
-#endif
-        return true;
-    }
+    GPUProcessMediaCodecCapabilities mediaCodecCapabilities;
 };
 
 } // namespace WebKit

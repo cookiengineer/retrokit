@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2023 Apple Inc. All rights reserved.
+ * Copyright (C) 2026 Igalia S.L.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,9 +27,36 @@
 #include "config.h"
 #include "IntlCache.h"
 
+#include "IntlDateTimeFormat.h"
+#include "IntlObject.h"
+#include <atomic>
+#include <mutex>
+#include <wtf/Language.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/Vector.h>
 
 namespace JSC {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(IntlCache);
+
+std::atomic<uint64_t> IntlCache::s_languagesEpoch { 1 };
+
+void IntlCache::ensureLanguageChangeObserver()
+{
+    static std::once_flag onceKey;
+    std::call_once(onceKey, [] {
+        WTF::addLanguageChangeObserver(&s_languagesEpoch, [](void*) {
+            s_languagesEpoch.fetch_add(1, std::memory_order_release);
+        });
+    });
+}
+
+IntlCache::IntlCache()
+    : m_lastSeenLanguagesEpoch(s_languagesEpoch.load(std::memory_order_acquire))
+{
+}
+
+IntlCache::~IntlCache() = default;
 
 UDateTimePatternGenerator* IntlCache::cacheSharedPatternGenerator(const CString& locale, UErrorCode& status)
 {
@@ -36,33 +64,55 @@ UDateTimePatternGenerator* IntlCache::cacheSharedPatternGenerator(const CString&
     if (U_FAILURE(status))
         return nullptr;
     m_cachedDateTimePatternGeneratorLocale = locale;
-    m_cachedDateTimePatternGenerator = WTFMove(generator);
+    m_cachedDateTimePatternGenerator = WTF::move(generator);
     return m_cachedDateTimePatternGenerator.get();
 }
 
-Vector<UChar, 32> IntlCache::getBestDateTimePattern(const CString& locale, const UChar* skeleton, unsigned skeletonSize, UErrorCode& status)
+Vector<char16_t, 32> IntlCache::getBestDateTimePattern(const CString& locale, std::span<const char16_t> skeleton, UErrorCode& status)
 {
     // Always use ICU date format generator, rather than our own pattern list and matcher.
     auto sharedGenerator = getSharedPatternGenerator(locale, status);
     if (U_FAILURE(status))
         return { };
-    Vector<UChar, 32> patternBuffer;
-    status = callBufferProducingFunction(udatpg_getBestPatternWithOptions, sharedGenerator, skeleton, skeletonSize, UDATPG_MATCH_HOUR_FIELD_LENGTH, patternBuffer);
+    Vector<char16_t, 32> patternBuffer;
+    status = callBufferProducingFunction(udatpg_getBestPatternWithOptions, sharedGenerator, skeleton.data(), skeleton.size(), UDATPG_MATCH_HOUR_FIELD_LENGTH, patternBuffer);
     if (U_FAILURE(status))
         return { };
     return patternBuffer;
 }
 
-Vector<UChar, 32> IntlCache::getFieldDisplayName(const CString& locale, UDateTimePatternField field, UDateTimePGDisplayWidth width, UErrorCode& status)
+Vector<char16_t, 32> IntlCache::getFieldDisplayName(const CString& locale, UDateTimePatternField field, UDateTimePGDisplayWidth width, UErrorCode& status)
 {
     auto sharedGenerator = getSharedPatternGenerator(locale, status);
     if (U_FAILURE(status))
         return { };
-    Vector<UChar, 32> buffer;
+    Vector<char16_t, 32> buffer;
     status = callBufferProducingFunction(udatpg_getFieldDisplayName, sharedGenerator, field, width, buffer);
     if (U_FAILURE(status))
         return { };
     return buffer;
+}
+
+String IntlCache::canonicalizeUnicodeLocaleID(const String& languageTag)
+{
+    constexpr unsigned maxCachedTagLength = 100;
+    constexpr unsigned maxCacheEntries = 64;
+
+    if (languageTag.isEmpty() || languageTag.length() > maxCachedTagLength || !languageTag.containsOnlyASCII())
+        return JSC::canonicalizeUnicodeLocaleID(languageTag.utf8());
+
+    auto cached = m_cachedCanonicalizedLocaleIDs.find(languageTag);
+    if (cached != m_cachedCanonicalizedLocaleIDs.end())
+        return cached->value;
+
+    String canonicalized = JSC::canonicalizeUnicodeLocaleID(languageTag.ascii());
+    if (canonicalized.isNull())
+        return canonicalized;
+
+    if (m_cachedCanonicalizedLocaleIDs.size() >= maxCacheEntries)
+        m_cachedCanonicalizedLocaleIDs.clear();
+    m_cachedCanonicalizedLocaleIDs.add(languageTag, canonicalized);
+    return canonicalized;
 }
 
 } // namespace JSC

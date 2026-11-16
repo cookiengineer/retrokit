@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Apple Inc. All rights reserved.
+ * Copyright (C) 2012-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,67 +26,98 @@
 #pragma once
 
 #include "Timer.h"
+#include <WebCore/NodeDocument.h>
+#include <wtf/CheckedPtr.h>
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
 
 class Page;
+class WeakPtrImplWithEventTargetData;
 
-template<typename T> class EventSender {
-    WTF_MAKE_NONCOPYABLE(EventSender); WTF_MAKE_FAST_ALLOCATED;
+template<typename T, typename WeakPtrImpl> class EventSender : public CanMakeCheckedPtr<EventSender<T, WeakPtrImpl>> {
+    WTF_MAKE_TZONE_ALLOCATED_TEMPLATE(EventSender);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(EventSender);
+    WTF_MAKE_NONCOPYABLE(EventSender);
 public:
-    explicit EventSender(const AtomString& eventType);
+    EventSender();
 
-    const AtomString& eventType() const { return m_eventType; }
-    void dispatchEventSoon(T&);
+    void dispatchEventSoon(T&, const AtomString& eventType);
     void cancelEvent(T&);
+    void cancelEvent(T&, const AtomString& eventType);
     void dispatchPendingEvents(Page*);
 
 #if ASSERT_ENABLED
     bool hasPendingEvents(T& sender) const
     {
-        return m_dispatchSoonList.find(&sender) != notFound || m_dispatchingList.find(&sender) != notFound;
+        return m_dispatchSoonList.containsIf([&](auto& task) { return task.sender == &sender; })
+            || m_dispatchingList.containsIf([&](auto& task) { return task.sender == &sender; });
     }
 #endif
 
 private:
     void timerFired() { dispatchPendingEvents(nullptr); }
 
-    AtomString m_eventType;
     Timer m_timer;
-    Vector<WeakPtr<T>> m_dispatchSoonList;
-    Vector<WeakPtr<T>> m_dispatchingList;
+    struct DispatchTask {
+        WeakPtr<T, WeakPtrImpl> sender;
+        AtomString eventType;
+    };
+    Vector<DispatchTask> m_dispatchSoonList;
+    Vector<DispatchTask> m_dispatchingList;
 };
 
-template<typename T> EventSender<T>::EventSender(const AtomString& eventType)
-    : m_eventType(eventType)
-    , m_timer(*this, &EventSender::timerFired)
+#define TZONE_TEMPLATE_PARAMS template<typename T, typename WeakPtrImpl>
+#define TZONE_TYPE EventSender<T, WeakPtrImpl>
+
+WTF_MAKE_TZONE_ALLOCATED_TEMPLATE_IMPL_WITH_MULTIPLE_OR_SPECIALIZED_PARAMETERS();
+
+#undef TZONE_TEMPLATE_PARAMS
+#undef TZONE_TYPE
+
+
+template<typename T, typename WeakPtrImpl> EventSender<T, WeakPtrImpl>::EventSender()
+    : m_timer(*this, &EventSender::timerFired)
 {
 }
 
-template<typename T> void EventSender<T>::dispatchEventSoon(T& sender)
+template<typename T, typename WeakPtrImpl> void EventSender<T, WeakPtrImpl>::dispatchEventSoon(T& sender, const AtomString& eventType)
 {
-    m_dispatchSoonList.append(makeWeakPtr(sender));
+    m_dispatchSoonList.append(DispatchTask { sender, eventType });
     if (!m_timer.isActive())
         m_timer.startOneShot(0_s);
 }
 
-template<typename T> void EventSender<T>::cancelEvent(T& sender)
+template<typename T, typename WeakPtrImpl> void EventSender<T, WeakPtrImpl>::cancelEvent(T& senderToCancel)
 {
     // Remove instances of this sender from both lists.
     // Use loops because we allow multiple instances to get into the lists.
-    for (auto& event : m_dispatchSoonList) {
-        if (event == &sender)
-            event = nullptr;
+    for (auto& [sender, eventType] : m_dispatchSoonList) {
+        if (sender == &senderToCancel)
+            sender = nullptr;
     }
-    for (auto& event : m_dispatchingList) {
-        if (event == &sender)
-            event = nullptr;
+    for (auto& [sender, eventType] : m_dispatchingList) {
+        if (sender == &senderToCancel)
+            sender = nullptr;
     }
 }
 
-template<typename T> void EventSender<T>::dispatchPendingEvents(Page* page)
+template<typename T, typename WeakPtrImpl> void EventSender<T, WeakPtrImpl>::cancelEvent(T& senderToCancel, const AtomString& eventTypeToCancel)
+{
+    // Remove instances of this sender from both lists.
+    // Use loops because we allow multiple instances to get into the lists.
+    for (auto& [sender, eventType] : m_dispatchSoonList) {
+        if (sender == &senderToCancel && eventType == eventTypeToCancel)
+            sender = nullptr;
+    }
+    for (auto& [sender, eventType] : m_dispatchingList) {
+        if (sender == &senderToCancel && eventType == eventTypeToCancel)
+            sender = nullptr;
+    }
+}
+
+template<typename T, typename WeakPtrImpl> void EventSender<T, WeakPtrImpl>::dispatchPendingEvents(Page* page)
 {
     // Need to avoid re-entering this function; if new dispatches are
     // scheduled before the parent finishes processing the list, they
@@ -99,14 +130,14 @@ template<typename T> void EventSender<T>::dispatchPendingEvents(Page* page)
     m_dispatchSoonList.checkConsistency();
 
     m_dispatchingList = std::exchange(m_dispatchSoonList, { });
-    for (auto& event : m_dispatchingList) {
-        if (auto sender = event.get()) {
-            event = nullptr;
-            if (!page || sender->document().page() == page)
-                sender->dispatchPendingEvent(this);
-            else
-                dispatchEventSoon(*sender);
-        }
+    for (auto& [weakSender, eventType] : m_dispatchingList) {
+        if (!weakSender)
+            continue;
+        auto sender = std::exchange(weakSender, nullptr);
+        if (!page || sender->document().page() == page)
+            sender->dispatchPendingEvent(this, eventType);
+        else
+            dispatchEventSoon(*sender, eventType);
     }
     m_dispatchingList.clear();
 }

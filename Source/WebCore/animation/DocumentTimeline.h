@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "AnimationFrameRate.h"
 #include "AnimationTimeline.h"
 #include "DocumentTimelineOptions.h"
 #include "Timer.h"
@@ -33,59 +34,74 @@
 
 namespace WebCore {
 
+class AnimationTimelinesController;
 class AnimationEventBase;
-class DocumentTimelinesController;
+class CustomEffectCallback;
+class Document;
+class AnimationTimelinesController;
+class Element;
 class RenderBoxModelObject;
 class RenderElement;
+class WeakPtrImplWithEventTargetData;
+class WebAnimation;
+
+struct CustomAnimationOptions;
 
 class DocumentTimeline final : public AnimationTimeline
 {
 public:
     static Ref<DocumentTimeline> create(Document&);
     static Ref<DocumentTimeline> create(Document&, DocumentTimelineOptions&&);
-    ~DocumentTimeline();
 
-    bool isDocumentTimeline() const final { return true; }
+    virtual ~DocumentTimeline();
 
-    Document* document() const { return m_document.get(); }
+    Document* document() const;
 
-    std::optional<Seconds> currentTime() override;
+    std::optional<WebAnimationTime> currentTime(UseCachedCurrentTime = UseCachedCurrentTime::Yes) override;
+    ExceptionOr<Ref<WebAnimation>> animate(Ref<CustomEffectCallback>&&, Variant<double, CustomAnimationOptions>&&);
 
     void animationTimingDidChange(WebAnimation&) override;
     void removeAnimation(WebAnimation&) override;
-    void transitionDidComplete(RefPtr<CSSTransition>);
+    void transitionDidComplete(Ref<CSSTransition>&&);
 
-    // If possible, compute the visual extent of any transform animation on the given renderer
-    // using the given rect, returning the result in the rect. Return false if there is some
-    // transform animation but we were unable to cheaply compute its effect on the extent.
-    bool computeExtentOfAnimation(RenderElement&, LayoutRect&) const;
-    std::unique_ptr<RenderStyle> animatedStyleForRenderer(RenderElement& renderer);
-    bool isRunningAnimationOnRenderer(RenderElement&, CSSPropertyID) const;
-    bool isRunningAcceleratedAnimationOnRenderer(RenderElement&, CSSPropertyID) const;
     void animationAcceleratedRunningStateDidChange(WebAnimation&);
-    bool runningAnimationsForRendererAreAllAccelerated(const RenderBoxModelObject&) const;
-    void detachFromDocument();
+    void detachFromDocument() override;
 
     void enqueueAnimationEvent(AnimationEventBase&);
+    bool hasPendingAnimationEventForAnimation(const WebAnimation&) const;
     
-    enum class ShouldUpdateAnimationsAndSendEvents : uint8_t { Yes, No };
-    ShouldUpdateAnimationsAndSendEvents documentWillUpdateAnimationsAndSendEvents();
+    ShouldUpdateAnimationsAndSendEvents documentWillUpdateAnimationsAndSendEvents() override;
     void removeReplacedAnimations();
     AnimationEvents prepareForPendingAnimationEventsDispatch();
     void documentDidUpdateAnimationsAndSendEvents();
+    void styleOriginatedAnimationsWereCreated();
+    void pendingStartTimeWasSetOnAnimation();
 
     WEBCORE_EXPORT Seconds animationInterval() const;
-    void suspendAnimations();
-    void resumeAnimations();
-    bool animationsAreSuspended() const;
-    WEBCORE_EXPORT unsigned numberOfActiveAnimationsForTesting() const;
-    WEBCORE_EXPORT Vector<std::pair<String, double>> acceleratedAnimationsForElement(Element&) const;    
-    WEBCORE_EXPORT unsigned numberOfAnimationTimelineInvalidationsForTesting() const;
+    void suspendAnimations() override;
+    void resumeAnimations() override;
+    WEBCORE_EXPORT unsigned NODELETE numberOfActiveAnimationsForTesting() const;
+    WEBCORE_EXPORT unsigned NODELETE numberOfAnimationTimelineInvalidationsForTesting() const;
+
+    Seconds NODELETE convertTimelineTimeToOriginRelativeTime(Seconds) const;
+
+    std::optional<FramesPerSecond> NODELETE maximumFrameRate() const;
+
+#if ENABLE(THREADED_ANIMATIONS)
+    void scheduleAcceleratedEffectStackUpdate();
+#endif
 
 private:
     DocumentTimeline(Document&, Seconds);
 
-    DocumentTimelinesController* controller() const;
+    bool isDocumentTimeline() const final { return true; }
+
+    AnimationTimelinesController* controller() const override;
+#if ENABLE(THREADED_ANIMATIONS)
+    bool canBeAccelerated() const final;
+    Ref<AcceleratedTimeline> createAcceleratedRepresentation() const final;
+#endif
+
     void applyPendingAcceleratedAnimations();
     void scheduleInvalidationTaskIfNeeded();
     void scheduleAnimationResolution();
@@ -96,9 +112,9 @@ private:
     bool shouldRunUpdateAnimationsAndSendEventsIgnoringSuspensionState() const;
 
     Timer m_tickScheduleTimer;
-    HashSet<RefPtr<WebAnimation>> m_acceleratedAnimationsPendingRunningStateChange;
+    HashSet<Ref<WebAnimation>> m_acceleratedAnimationsPendingRunningStateChange;
     AnimationEvents m_pendingAnimationEvents;
-    WeakPtr<Document> m_document;
+    WeakPtr<Document, WeakPtrImplWithEventTargetData> m_document;
     Seconds m_originTime;
     unsigned m_numberOfAnimationTimelineInvalidationsForTesting { 0 };
     bool m_animationResolutionScheduled { false };

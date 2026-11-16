@@ -26,6 +26,8 @@
 #include "config.h"
 #include "TypeofType.h"
 
+#include <wtf/PrintStream.h>
+
 namespace WTF {
 
 using namespace JSC;

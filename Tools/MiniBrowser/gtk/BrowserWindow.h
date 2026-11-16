@@ -26,8 +26,13 @@
 #ifndef BrowserWindow_h
 #define BrowserWindow_h
 
-#include <webkit2/webkit2.h>
 #include <gtk/gtk.h>
+
+#if GTK_CHECK_VERSION(3, 98, 0)
+#include <webkit/webkit.h>
+#else
+#include <webkit2/webkit2.h>
+#endif
 
 G_BEGIN_DECLS
 
@@ -45,9 +50,15 @@ typedef struct _BrowserWindowClass   BrowserWindowClass;
 
 GType browser_window_get_type(void);
 
+#if GTK_CHECK_VERSION(3, 98, 0)
+GtkWidget* browser_window_new(GtkWindow*, WebKitWebContext*, WebKitNetworkSession*);
+WebKitNetworkSession* browser_window_get_network_session(BrowserWindow*);
+#else
 GtkWidget* browser_window_new(GtkWindow*, WebKitWebContext*);
+#endif
 WebKitWebContext* browser_window_get_web_context(BrowserWindow*);
 void browser_window_append_view(BrowserWindow*, WebKitWebView*);
+void browser_window_fullscreen(BrowserWindow*);
 void browser_window_load_uri(BrowserWindow*, const char *uri);
 void browser_window_load_session(BrowserWindow *, const char *sessionFile);
 void browser_window_set_background_color(BrowserWindow*, GdkRGBA*);

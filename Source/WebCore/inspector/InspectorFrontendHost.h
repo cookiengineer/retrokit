@@ -28,21 +28,30 @@
 
 #pragma once
 
-#include "ContextMenu.h"
-#include "ContextMenuProvider.h"
-#include <wtf/RefCounted.h>
+#include <JavaScriptCore/JSCJSValue.h>
+#include <WebCore/ContextMenu.h>
+#include <WebCore/ContextMenuProvider.h>
+#include <WebCore/InspectorFrontendClient.h>
+#include <wtf/RefCountedAndCanMakeWeakPtr.h>
 #include <wtf/Vector.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
 
+class CanvasPath;
+class CanvasRenderingContext2D;
 class DOMWrapperWorld;
+class DeferredPromise;
 class Event;
+class File;
 class FrontendMenuProvider;
-class InspectorFrontendClient;
+class HTMLIFrameElement;
+class OffscreenCanvasRenderingContext2D;
 class Page;
+class Path2D;
+template<typename> class ExceptionOr;
 
-class InspectorFrontendHost : public RefCounted<InspectorFrontendHost> {
+class InspectorFrontendHost : public RefCountedAndCanMakeWeakPtr<InspectorFrontendHost> {
 public:
     static Ref<InspectorFrontendHost> create(InspectorFrontendClient* client, Page* frontendPage)
     {
@@ -62,7 +71,7 @@ public:
     void bringToFront();
     void inspectedURLChanged(const String&);
 
-    bool supportsShowCertificate() const;
+    bool NODELETE supportsShowCertificate() const;
     bool showCertificate(const String& serializedCertificate);
 
     void setZoomFactor(float);
@@ -89,8 +98,7 @@ public:
     unsigned inspectionLevel() const;
 
     String platform() const;
-    String platformVersionName() const;
-    String port() const;
+    String NODELETE platformVersionName() const;
 
     struct DebuggableInfo {
         String debuggableType;
@@ -103,11 +111,20 @@ public:
 
     void copyText(const String& text);
     void killText(const String& text, bool shouldPrependToKillRing, bool shouldStartNewSequence);
+
     void openURLExternally(const String& url);
-    bool canSave();
-    void save(const String& url, const String& content, bool base64Encoded, bool forceSaveAs);
-    void append(const String& url, const String& content);
-    void close(const String& url);
+    void revealFileExternally(const String& path);
+
+    using SaveMode = InspectorFrontendClient::SaveMode;
+    using SaveData = InspectorFrontendClient::SaveData;
+    bool canSave(SaveMode);
+    void save(Vector<SaveData>&&, bool forceSaveAs);
+
+    bool canLoad();
+    void load(const String& path, Ref<DeferredPromise>&&);
+
+    bool canPickColorFromScreen();
+    void pickColorFromScreen(Ref<DeferredPromise>&&);
 
     struct ContextMenuItem {
         String type;
@@ -123,13 +140,14 @@ public:
     void dispatchEventAsContextMenuEvent(Event&);
 
     bool isUnderTest();
-    bool isExperimentalBuild();
     void unbufferedLog(const String& message);
 
     void beep();
     void inspectInspector();
     bool isBeingInspected();
     void setAllowsInspectingInspector(bool);
+
+    bool engineeringSettingsAllowed();
 
     bool supportsDiagnosticLogging();
 #if ENABLE(INSPECTOR_TELEMETRY)
@@ -139,8 +157,27 @@ public:
 
     bool supportsWebExtensions();
 #if ENABLE(INSPECTOR_EXTENSIONS)
-    void didShowExtensionTab(const String& extensionID, const String& extensionTabID);
+    void didShowExtensionTab(const String& extensionID, const String& extensionTabID, HTMLIFrameElement& extensionFrame);
     void didHideExtensionTab(const String& extensionID, const String& extensionTabID);
+    void didNavigateExtensionTab(const String& extensionID, const String& extensionTabID, const String& url);
+    void inspectedPageDidNavigate(const String& url);
+    ExceptionOr<JSC::JSValue> evaluateScriptInExtensionTab(HTMLIFrameElement& extensionFrame, const String& scriptSource);
+#endif
+
+    // IDL extensions.
+
+    String NODELETE getPath(const File&) const;
+
+    float getCurrentX(const CanvasRenderingContext2D&) const;
+    float getCurrentY(const CanvasRenderingContext2D&) const;
+    Ref<Path2D> getPath(const CanvasRenderingContext2D&) const;
+    void setPath(CanvasRenderingContext2D&, Path2D&) const;
+
+#if ENABLE(OFFSCREEN_CANVAS)
+    float getCurrentX(const OffscreenCanvasRenderingContext2D&) const;
+    float getCurrentY(const OffscreenCanvasRenderingContext2D&) const;
+    Ref<Path2D> getPath(const OffscreenCanvasRenderingContext2D&) const;
+    void setPath(OffscreenCanvasRenderingContext2D&, Path2D&) const;
 #endif
 
 private:
@@ -150,9 +187,9 @@ private:
     WEBCORE_EXPORT InspectorFrontendHost(InspectorFrontendClient*, Page* frontendPage);
 
     InspectorFrontendClient* m_client;
-    Page* m_frontendPage;
+    WeakPtr<Page> m_frontendPage;
 #if ENABLE(CONTEXT_MENUS)
-    FrontendMenuProvider* m_menuProvider;
+    WeakPtr<FrontendMenuProvider> m_menuProvider;
 #endif
 };
 

@@ -30,9 +30,12 @@
 #include "pas_bitfit_page.h"
 #include "pas_bitfit_view.h"
 #include "pas_commit_span.h"
+#include "pas_heap_config.h"
+#include "pas_mte.h"
 #include "pas_page_base_inlines.h"
 #include "pas_page_sharing_pool.h"
-#include <pthread.h>
+#include "pas_stats.h"
+#include "pas_thread.h"
 
 PAS_BEGIN_EXTERN_C;
 
@@ -56,7 +59,7 @@ static PAS_ALWAYS_INLINE bool pas_bitfit_page_allocation_satisfies_alignment(
     uintptr_t alignment,
     pas_bitfit_page_config page_config)
 {
-    static const bool verbose = false;
+    static const bool verbose = PAS_SHOULD_LOG(PAS_LOG_BITFIT_HEAPS);
     
     uintptr_t begin_offset;
     uintptr_t end_offset;
@@ -73,7 +76,7 @@ static PAS_ALWAYS_INLINE bool pas_bitfit_page_allocation_satisfies_alignment(
     aligned_offset = PAS_ROUND_UP_TO_POWER_OF_2(begin_offset, alignment);
 
     if (verbose) {
-        pas_log("begin_offset = %lu, end_offset = %lu, size = %lu\n",
+        pas_log("begin_offset = %zu, end_offset = %zu, size = %zu\n",
                 begin_offset, end_offset, size);
     }
 
@@ -146,7 +149,7 @@ static PAS_ALWAYS_INLINE unsigned pas_bitfit_page_allocation_commit_granules_or_
         PAS_ASSERT(view->is_owned);
         pas_lock_assert_held(&view->commit_lock);
         
-        pas_commit_span_construct(&commit_span);
+        pas_commit_span_construct(&commit_span, page_config.base.heap_config_ptr->page_flags);
         
         for (granule_index = index_of_first_granule;
              granule_index <= index_of_last_granule;
@@ -203,9 +206,10 @@ static PAS_ALWAYS_INLINE pas_bitfit_allocation_result pas_bitfit_page_finish_all
     uintptr_t word_index,
     uint64_t fixed_start_bit_index,
     uintptr_t size,
+    pas_allocation_mode allocation_mode,
     pas_bitfit_page_config page_config)
 {
-    static const bool verbose = false;
+    static const bool verbose = PAS_SHOULD_LOG(PAS_LOG_BITFIT_HEAPS);
     
     bool did_overflow;
     uintptr_t offset_in_page;
@@ -232,17 +236,21 @@ static PAS_ALWAYS_INLINE pas_bitfit_allocation_result pas_bitfit_page_finish_all
     begin = (uintptr_t)pas_bitfit_page_boundary(page, page_config) + offset_in_page;
 
     if (verbose) {
-        pas_log("%p: bitfit allocated %p of size %lu in %p\n",
-                pthread_self(), (void*)begin, size, page);
+        pas_log("%p: bitfit allocated %p of size %zu in %p\n",
+                (void*)pthread_self(), (void*)begin, size, page);
     }
 
     if (verbose) {
-        pas_log("Bits after allocating %p (size %lu, offset %lu in %p):\n",
+        pas_log("Bits after allocating %p (size %zu, offset %zu in %p):\n",
                 (void*)begin, size, offset_in_page, page);
         pas_bitfit_page_log_bits(page, offset_in_page, offset_in_page + size);
     }
     
     pas_bitfit_page_testing_verify(page);
+
+    PAS_PROFILE(BITFIT_ALLOCATION, &page_config, begin, size, allocation_mode);
+    PAS_MTE_HANDLE(BITFIT_ALLOCATION, page_config, begin, size, allocation_mode);
+    PAS_RECORD_STAT_MALLOC(pas_stats_heap_type_bitfit, size);
 
     return pas_bitfit_allocation_result_create_success(begin);
 }
@@ -253,11 +261,12 @@ static PAS_ALWAYS_INLINE pas_bitfit_allocation_result pas_bitfit_page_allocate(
     pas_bitfit_view* owner,
     uintptr_t size,
     uintptr_t alignment,
+    pas_allocation_mode allocation_mode,
     pas_bitfit_page_config page_config,
     pas_lock_hold_mode commit_lock_hold_mode,
     size_t* bytes_committed)
 {
-    static const bool verbose = false;
+    static const bool verbose = PAS_SHOULD_LOG(PAS_LOG_BITFIT_HEAPS);
     
     uintptr_t word_index;
     uint64_t* free_words;
@@ -266,13 +275,14 @@ static PAS_ALWAYS_INLINE pas_bitfit_allocation_result pas_bitfit_page_allocate(
     uintptr_t largest_available_bits;
 
     if (verbose)
-        pas_log("In page %p allocating size = %lu, alignment = %lu.\n", page, size, alignment);
+        pas_log("In page %p allocating size = %zu, alignment = %zu.\n", page, size, alignment);
 
     PAS_ASSERT(page_config.base.is_enabled);
     PAS_TESTING_ASSERT(pas_is_aligned(size, pas_page_base_config_min_align(page_config.base)));
 
     pas_lock_testing_assert_held(&owner->ownership_lock);
-    PAS_TESTING_ASSERT(pas_page_base_get_kind(&page->base) == page_config.base.page_kind);
+    PAS_TESTING_ASSERT(pas_page_base_get_kind(&page->base)
+                       == pas_page_kind_for_bitfit_variant(page_config.variant));
     PAS_TESTING_ASSERT(pas_compact_atomic_bitfit_view_ptr_load_non_null(&page->owner) == owner);
 
     pas_bitfit_page_testing_verify(page);
@@ -323,13 +333,13 @@ static PAS_ALWAYS_INLINE pas_bitfit_allocation_result pas_bitfit_page_allocate(
             uintptr_t end_bit_index;
             uintptr_t fixed_start_bit_index;
             
-            start_bit_index = __builtin_ctzll(shifted_free_word);
+            start_bit_index = (uintptr_t)__builtin_ctzll(shifted_free_word);
             fixed_start_bit_index = start_bit_index + num_lost_bits;
 
             remaining_word = ~(shifted_free_word >> start_bit_index);
 
             if (remaining_word)
-                num_available_bits = __builtin_ctzll(remaining_word);
+                num_available_bits = (uintptr_t)__builtin_ctzll(remaining_word);
             else
                 num_available_bits = PAS_BITVECTOR_BITS_PER_WORD64;
 
@@ -358,7 +368,7 @@ static PAS_ALWAYS_INLINE pas_bitfit_allocation_result pas_bitfit_page_allocate(
                 free_words[word_index] =
                     free_word & ~(pas_make_mask64(num_desired_bits) << fixed_start_bit_index);
                 return pas_bitfit_page_finish_allocation(
-                    page, owner, word_index, fixed_start_bit_index, size, page_config);
+                    page, owner, word_index, fixed_start_bit_index, size, allocation_mode, page_config);
             }
 
             if (num_available_bits + fixed_start_bit_index >= PAS_BITVECTOR_BITS_PER_WORD64) {
@@ -369,8 +379,8 @@ static PAS_ALWAYS_INLINE pas_bitfit_allocation_result pas_bitfit_page_allocate(
 
                 if (verbose) {
                     pas_log("Need to do a search starting at word_index = %lu + 1, "
-                            "num_remaining_needed_bits = %lu\n",
-                            word_index, num_remaining_needed_bits);
+                            "num_remaining_needed_bits = %llu\n",
+                            (unsigned long)word_index, (unsigned long long)num_remaining_needed_bits);
                 }
 
                 for (other_word_index = word_index + 1; ; ++other_word_index) {
@@ -383,8 +393,8 @@ static PAS_ALWAYS_INLINE pas_bitfit_allocation_result pas_bitfit_page_allocate(
                     unsigned pages_to_commit_on_reloop;
 
                     if (verbose) {
-                        pas_log("At other_word_index = %lu, num_remaining_needed_bits = %lu\n",
-                                other_word_index, num_remaining_needed_bits);
+                        pas_log("At other_word_index = %lu, num_remaining_needed_bits = %llu\n",
+                                (unsigned long)other_word_index, (unsigned long long)num_remaining_needed_bits);
                     }
 
                     if (other_word_index >= pas_bitfit_page_config_num_alloc_words64(page_config)) {
@@ -403,7 +413,7 @@ static PAS_ALWAYS_INLINE pas_bitfit_allocation_result pas_bitfit_page_allocate(
                     other_alloc_word = ~other_free_word;
 
                     if (other_alloc_word) {
-                        num_available_leading_bits = __builtin_ctzll(other_alloc_word);
+                        num_available_leading_bits = (uint64_t)__builtin_ctzll(other_alloc_word);
                         if (num_available_leading_bits < num_remaining_needed_bits ||
                             !pas_bitfit_page_allocation_satisfies_alignment(
                                 &word_index,
@@ -487,7 +497,7 @@ static PAS_ALWAYS_INLINE pas_bitfit_allocation_result pas_bitfit_page_allocate(
                                   word_index, fixed_start_bit_index, page_config) + size)
                              >> page_config.base.min_align_shift) - 1));
                     return pas_bitfit_page_finish_allocation(
-                        page, owner, word_index, fixed_start_bit_index, size, page_config);
+                        page, owner, word_index, fixed_start_bit_index, size, allocation_mode, page_config);
                 }
 
                 /* NOTE - it's important that if we get here, we've set word_index, free_word,
@@ -524,7 +534,7 @@ static inline const char* pas_bitfit_page_deallocate_with_page_impl_mode_get_str
     case pas_bitfit_page_deallocate_with_page_impl_shrink_mode:
         return "shrink";
     }
-    PAS_ASSERT(!"Should not be reached");
+    PAS_ASSERT_NOT_REACHED();
     return NULL;
 }
 
@@ -536,7 +546,7 @@ static PAS_ALWAYS_INLINE uintptr_t pas_bitfit_page_deallocate_with_page_impl(
     pas_bitfit_page_deallocate_with_page_impl_mode mode,
     size_t new_size)
 {
-    static const bool verbose = false;
+    static const bool verbose = PAS_SHOULD_LOG(PAS_LOG_BITFIT_HEAPS);
     
     uintptr_t offset;
     uintptr_t bit_index;
@@ -559,7 +569,7 @@ static PAS_ALWAYS_INLINE uintptr_t pas_bitfit_page_deallocate_with_page_impl(
     owner = pas_compact_atomic_bitfit_view_ptr_load(&page->owner);
 
     if (verbose) {
-        pas_log("Bits before deallocate_impl (mode = %s) of %p (offset = %lu in %p), "
+        pas_log("Bits before deallocate_impl (mode = %s) of %p (offset = %zu in %p), "
                 "num_live_bits = %u\n",
                 pas_bitfit_page_deallocate_with_page_impl_mode_get_string(mode), (void*)begin, offset,
                 page, page->num_live_bits);
@@ -586,7 +596,7 @@ static PAS_ALWAYS_INLINE uintptr_t pas_bitfit_page_deallocate_with_page_impl(
         }
 
         if (verbose)
-            pas_log("Shrinking to new_size = %lu, new_num_bits = %lu\n", new_size, new_num_bits);
+            pas_log("Shrinking to new_size = %zu, new_num_bits = %zu\n", new_size, new_num_bits);
         
         break;
     }
@@ -599,7 +609,7 @@ static PAS_ALWAYS_INLINE uintptr_t pas_bitfit_page_deallocate_with_page_impl(
         
     case pas_bitfit_page_deallocate_with_page_impl_deallocate_mode:
     case pas_bitfit_page_deallocate_with_page_impl_shrink_mode:
-        pas_bitfit_view_lock_ownership_lock(owner);
+        pas_lock_lock(&owner->ownership_lock);
         
         pas_bitfit_page_testing_verify(page);
 
@@ -636,15 +646,16 @@ static PAS_ALWAYS_INLINE uintptr_t pas_bitfit_page_deallocate_with_page_impl(
 
     object_end_word = object_end_words[word_index];
     shifted_object_end_word = object_end_word >> bit_index_in_word;
+
     if (shifted_object_end_word) {
         uint64_t object_end_bit_index;
 
-        object_end_bit_index = __builtin_ctzll(shifted_object_end_word);
+        object_end_bit_index = (uint64_t)__builtin_ctzll(shifted_object_end_word);
         num_bits = object_end_bit_index + 1;
 
         if (verbose) {
             pas_log("Taking the same-word fast path with object_end_bit_index = %llu\n",
-                    object_end_bit_index);
+                    (unsigned long long)object_end_bit_index);
         }
 
         switch (mode) {
@@ -695,11 +706,11 @@ static PAS_ALWAYS_INLINE uintptr_t pas_bitfit_page_deallocate_with_page_impl(
                 uint64_t object_end_bit_index;
                 uintptr_t intermediate_word_index;
 
-                object_end_bit_index = __builtin_ctzll(object_end_word);
+                object_end_bit_index = (uint64_t)__builtin_ctzll(object_end_word);
 
                 if (verbose) {
                     pas_log("Found end bit word at %lu, bit index %llu\n",
-                            other_word_index, object_end_bit_index);
+                            (unsigned long)other_word_index, (unsigned long long)object_end_bit_index);
                 }
 
                 num_bits =
@@ -745,7 +756,7 @@ static PAS_ALWAYS_INLINE uintptr_t pas_bitfit_page_deallocate_with_page_impl(
                             bit_index_in_word + new_num_bits;
 
                         if (verbose)
-                            pas_log("start_of_free = %lu\n", start_of_free);
+                            pas_log("start_of_free = %zu\n", start_of_free);
 
                         modified_word_index = PAS_BITVECTOR_WORD64_INDEX(start_of_free);
                         modified_bit_index_in_word = PAS_BITVECTOR_BIT_SHIFT64(start_of_free);
@@ -775,7 +786,7 @@ static PAS_ALWAYS_INLINE uintptr_t pas_bitfit_page_deallocate_with_page_impl(
                     }
 
                     default:
-                        PAS_ASSERT(!"Should not be reached");
+                        PAS_ASSERT_NOT_REACHED();
                         /* Tell the compiler to chill out. */
                         modified_word_index = 0;
                         modified_bit_index_in_word = 0;
@@ -796,20 +807,20 @@ static PAS_ALWAYS_INLINE uintptr_t pas_bitfit_page_deallocate_with_page_impl(
                          intermediate_word_index++)
                         free_words[intermediate_word_index] = UINT64_MAX;
                     if (verbose) {
-                        pas_log("object_end_bit_index = %lu, mask = %llu\n",
-                                object_end_bit_index, pas_make_mask64(object_end_bit_index + 1));
+                        pas_log("object_end_bit_index = %llu, mask = %llu\n",
+                                (unsigned long long)object_end_bit_index, (unsigned long long)pas_make_mask64(object_end_bit_index + 1));
                     }
                     break;
                 } }
 
                 if (verbose) {
                     pas_log("word_index = %lu, bit_index_in_word = %lu, other_word_index = %lu, "
-                            "object_end_bit_index = %lu\n",
-                            word_index, bit_index_in_word, other_word_index, object_end_bit_index);
+                            "object_end_bit_index = %llu\n",
+                            (unsigned long)word_index, (unsigned long)bit_index_in_word, (unsigned long)other_word_index, (unsigned long long)object_end_bit_index);
                 }
 
                 if (verbose)
-                    pas_log("num_bits = %lu\n", num_bits);
+                    pas_log("num_bits = %zu\n", num_bits);
                 break;
             }
         }
@@ -830,8 +841,8 @@ static PAS_ALWAYS_INLINE uintptr_t pas_bitfit_page_deallocate_with_page_impl(
         modified_offset = offset + (new_num_bits << page_config.base.min_align_shift);
 
         if (verbose) {
-            pas_log("%p: bitfit deallocated %p of size %lu in %p with modified_offset = %lu\n",
-                    pthread_self(), (void*)begin, size, page, modified_offset);
+            pas_log("%p: bitfit deallocated %p of size %zu in %p with modified_offset = %zu\n",
+                    (void*)pthread_self(), (void*)begin, size, page, modified_offset);
         }
         
         if (page_config.base.page_size > page_config.base.granule_size) {
@@ -849,7 +860,7 @@ static PAS_ALWAYS_INLINE uintptr_t pas_bitfit_page_deallocate_with_page_impl(
                 break;
 
             default:
-                PAS_ASSERT(!"Should not be reached");
+                PAS_ASSERT_NOT_REACHED();
                 range = pas_range_create_empty();
                 break;
             }
@@ -874,10 +885,22 @@ static PAS_ALWAYS_INLINE uintptr_t pas_bitfit_page_deallocate_with_page_impl(
             pas_bitfit_view_note_full_emptiness(owner, page);
         else if (did_find_empty_granule)
             pas_bitfit_view_note_partial_emptiness(owner, page);
+
+        switch (mode) {
+        case pas_bitfit_page_deallocate_with_page_impl_deallocate_mode:
+            PAS_PROFILE(BITFIT_PAGE_DEALLOCATION, page_config, begin, (num_bits << page_config.base.min_align_shift));
+            PAS_MTE_HANDLE(BITFIT_PAGE_DEALLOCATION, page_config, begin, (num_bits << page_config.base.min_align_shift));
+            break;
+        case pas_bitfit_page_deallocate_with_page_impl_shrink_mode:
+            break;
+        default:
+            PAS_ASSERT_NOT_REACHED();
+            break;
+        }
         
         if (verbose) {
-            pas_log("Bits afer deallocate_impl (mode = %s) with size %lu, offset = %lu, "
-                    "modified_offset = %lu in %p\n",
+            pas_log("Bits afer deallocate_impl (mode = %s) with size %zu, offset = %zu, "
+                    "modified_offset = %zu in %p\n",
                     pas_bitfit_page_deallocate_with_page_impl_mode_get_string(mode), size, offset,
                     modified_offset, page);
             pas_bitfit_page_log_bits(

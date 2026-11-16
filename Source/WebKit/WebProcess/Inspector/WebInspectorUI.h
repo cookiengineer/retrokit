@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,6 +28,9 @@
 #include "Connection.h"
 #include "DebuggableInfoData.h"
 #include "WebPageProxyIdentifier.h"
+#include "WebProcess.h"
+#include <WebCore/Color.h>
+#include <WebCore/FrameIdentifier.h>
 #include <WebCore/InspectorDebuggableType.h>
 #include <WebCore/InspectorFrontendAPIDispatcher.h>
 #include <WebCore/InspectorFrontendClient.h>
@@ -37,10 +40,11 @@
 #endif
 
 namespace WebCore {
-class InspectorController;
-class InspectorFrontendHost;
 class CertificateInfo;
 class FloatRect;
+class InspectorFrontendHost;
+class PageInspectorController;
+struct DiagnosticLoggingDictionary;
 }
 
 namespace WebKit {
@@ -54,18 +58,21 @@ class WebInspectorUI final
     : public RefCounted<WebInspectorUI>
     , private IPC::Connection::Client
     , public WebCore::InspectorFrontendClient {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(WebInspectorUI);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WebInspectorUI);
 public:
     static Ref<WebInspectorUI> create(WebPage&);
     virtual ~WebInspectorUI();
 
-    static void enableFrontendFeatures(WebPage&);
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
 
     // Implemented in generated WebInspectorUIMessageReceiver.cpp
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&) override;
 
     // IPC::Connection::Client
     void didClose(IPC::Connection&) override { /* Do nothing, the inspected page process may have crashed and may be getting replaced. */ }
-    void didReceiveInvalidMessage(IPC::Connection&, IPC::MessageName) override { closeWindow(); }
+    void didReceiveInvalidMessage(IPC::Connection&, IPC::MessageName, const Vector<uint32_t>& indicesOfObjectsFailingDecoding) override { closeWindow(); }
 
     // Called by WebInspectorUI messages
     void establishConnection(WebPageProxyIdentifier inspectedPageIdentifier, const DebuggableInfoData&, bool underTest, unsigned inspectionLevel);
@@ -94,15 +101,14 @@ public:
 
     void updateFindString(const String&);
 
-    void didSave(const String& url);
-    void didAppend(const String& url);
-
     void sendMessageToFrontend(const String& message);
     void evaluateInFrontendForTesting(const String& expression);
 
 #if ENABLE(INSPECTOR_TELEMETRY)
     void setDiagnosticLoggingAvailable(bool);
 #endif
+
+    void systemAppearanceDidChange();
 
     // WebCore::InspectorFrontendClient
     void windowObjectCleared() override;
@@ -127,6 +133,7 @@ public:
     void resetState() override;
 
     void setForcedAppearance(WebCore::InspectorFrontendClient::Appearance) override;
+    void effectiveAppearanceDidChange(WebCore::InspectorFrontendClient::Appearance);
 
     WebCore::UserInterfaceLayoutDirection userInterfaceLayoutDirection() const override;
 
@@ -138,24 +145,37 @@ public:
     void changeSheetRect(const WebCore::FloatRect&) override;
 
     void openURLExternally(const String& url) override;
+    void revealFileExternally(const String& path) override;
 
-    bool canSave() override;
-    void save(const WTF::String& url, const WTF::String& content, bool base64Encoded, bool forceSaveAs) override;
-    void append(const WTF::String& url, const WTF::String& content) override;
+    bool canSave(WebCore::InspectorFrontendClient::SaveMode) override;
+    void save(Vector<WebCore::InspectorFrontendClient::SaveData>&&, bool forceSaveAs) override;
+
+    bool canLoad() override;
+    void load(const WTF::String& path, WTF::CompletionHandler<void(const WTF::String&)>&&) override;
+
+    bool canPickColorFromScreen() override;
+    void pickColorFromScreen(WTF::CompletionHandler<void(const std::optional<WebCore::Color>&)>&&) override;
 
     void inspectedURLChanged(const String&) override;
     void showCertificate(const WebCore::CertificateInfo&) override;
 
+    void setInspectorPageDeveloperExtrasEnabled(bool) override;
+
+    void setPageAndTextZoomFactors(double pageZoomFactor, double textZoomFactor) override;
+    double pageZoomFactor() const override;
+
 #if ENABLE(INSPECTOR_TELEMETRY)
     bool supportsDiagnosticLogging() override;
     bool diagnosticLoggingAvailable() override { return m_diagnosticLoggingAvailable; }
-    void logDiagnosticEvent(const WTF::String& eventName, const WebCore::DiagnosticLoggingClient::ValueDictionary&) override;
+    void logDiagnosticEvent(const WTF::String& eventName, const WebCore::DiagnosticLoggingDictionary&) override;
 #endif
         
 #if ENABLE(INSPECTOR_EXTENSIONS)
     bool supportsWebExtensions() override;
-    void didShowExtensionTab(const Inspector::ExtensionID&, const Inspector::ExtensionTabID&) override;
+    void didShowExtensionTab(const Inspector::ExtensionID&, const Inspector::ExtensionTabID&, const WebCore::FrameIdentifier&) override;
     void didHideExtensionTab(const Inspector::ExtensionID&, const Inspector::ExtensionTabID&) override;
+    void didNavigateExtensionTab(const Inspector::ExtensionID&, const Inspector::ExtensionTabID&, const URL&) override;
+    void inspectedPageDidNavigate(const URL&) override;
 #endif
 
     void sendMessageToBackend(const String&) override;
@@ -170,21 +190,35 @@ public:
 private:
     explicit WebInspectorUI(WebPage&);
 
-    WebPage& m_page;
-    Ref<WebCore::InspectorFrontendAPIDispatcher> m_frontendAPIDispatcher;
+    void NODELETE didEstablishConnection();
+
+    template<typename T>
+    IPC::Error sendToParentProcess(T&& message)
+    {
+        return protect(WebProcess::singleton().parentProcessConnection())->send(std::forward<T>(message), m_inspectedPageIdentifier ? m_inspectedPageIdentifier->toUInt64() : 0);
+    }
+
+    template<typename T, typename C>
+    std::optional<IPC::AsyncReplyID> sendToParentProcessWithAsyncReply(T&& message, C&& completionHandler)
+    {
+        return protect(WebProcess::singleton().parentProcessConnection())->sendWithAsyncReply(std::forward<T>(message), std::forward<C>(completionHandler), m_inspectedPageIdentifier ? m_inspectedPageIdentifier->toUInt64() : 0);
+    }
+
+    WeakRef<WebPage> m_page;
+    const Ref<WebCore::InspectorFrontendAPIDispatcher> m_frontendAPIDispatcher;
     RefPtr<WebCore::InspectorFrontendHost> m_frontendHost;
 
     // Keep a pointer to the frontend's inspector controller rather than going through
     // corePage(), since we may need it after the frontend's page has started destruction.
-    WebCore::InspectorController* m_frontendController { nullptr };
+    WeakPtr<WebCore::PageInspectorController> m_frontendController;
 
 #if ENABLE(INSPECTOR_EXTENSIONS)
-    std::unique_ptr<WebInspectorUIExtensionController> m_extensionController;
+    RefPtr<WebInspectorUIExtensionController> m_extensionController;
 #endif
 
     RefPtr<IPC::Connection> m_backendConnection;
 
-    WebPageProxyIdentifier m_inspectedPageIdentifier;
+    Markable<WebPageProxyIdentifier> m_inspectedPageIdentifier;
     bool m_underTest { false };
     DebuggableInfoData m_debuggableInfo;
     bool m_dockingUnavailable { false };
@@ -195,6 +229,7 @@ private:
 
     DockSide m_dockSide { DockSide::Undocked };
     unsigned m_inspectionLevel { 1 };
+    double m_pageZoomFactor { 1.0 };
 };
 
 } // namespace WebKit

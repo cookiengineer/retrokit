@@ -25,19 +25,26 @@
 
 #pragma once
 
-#include "DataReference.h"
 #include "MessageReceiver.h"
 #include "MessageSender.h"
+#include "SharedPreferencesForWebProcess.h"
 #include "WebPageProxyIdentifier.h"
+#include <WebCore/FrameIdentifier.h>
+#include <WebCore/PageIdentifier.h>
 #include <WebCore/Timer.h>
 #include <WebCore/WebSocketIdentifier.h>
 #include <pal/SessionID.h>
 #include <wtf/CompletionHandler.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WeakPtr.h>
 
 namespace WebCore {
+struct ClientOrigin;
+enum class AdvancedPrivacyProtections : uint16_t;
+enum class StoredCredentialsPolicy : uint8_t;
 class ResourceRequest;
 class ResourceResponse;
+enum class IsInitiatedByDedicatedWorker : bool;
 }
 
 namespace IPC {
@@ -52,43 +59,48 @@ class NetworkConnectionToWebProcess;
 class NetworkProcess;
 class NetworkSession;
 
-class NetworkSocketChannel : public IPC::MessageSender, public IPC::MessageReceiver {
-    WTF_MAKE_FAST_ALLOCATED;
+class NetworkSocketChannel : public IPC::MessageSender, public IPC::MessageReceiver, public RefCounted<NetworkSocketChannel> {
+    WTF_MAKE_TZONE_ALLOCATED(NetworkSocketChannel);
 public:
-    static std::unique_ptr<NetworkSocketChannel> create(NetworkConnectionToWebProcess&, PAL::SessionID, const WebCore::ResourceRequest&, const String& protocol, WebCore::WebSocketIdentifier, WebPageProxyIdentifier);
-
-    NetworkSocketChannel(NetworkConnectionToWebProcess&, NetworkSession*, const WebCore::ResourceRequest&, const String& protocol, WebCore::WebSocketIdentifier, WebPageProxyIdentifier);
+    static RefPtr<NetworkSocketChannel> create(NetworkConnectionToWebProcess&, PAL::SessionID, const WebCore::ResourceRequest&, const String& protocol, WebCore::WebSocketIdentifier, WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, const WebCore::ClientOrigin&, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections>, WebCore::StoredCredentialsPolicy, WebCore::IsInitiatedByDedicatedWorker);
     ~NetworkSocketChannel();
 
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     void didReceiveMessage(IPC::Connection&, IPC::Decoder&);
+
+    std::optional<SharedPreferencesForWebProcess> NODELETE sharedPreferencesForWebProcess() const;
 
     friend class WebSocketTask;
 
 private:
+    NetworkSocketChannel(NetworkConnectionToWebProcess&, NetworkSession*, const WebCore::ResourceRequest&, const String& protocol, WebCore::WebSocketIdentifier, WebPageProxyIdentifier, std::optional<WebCore::FrameIdentifier>, std::optional<WebCore::PageIdentifier>, const WebCore::ClientOrigin&, bool hadMainFrameMainResourcePrivateRelayed, bool allowPrivacyProxy, OptionSet<WebCore::AdvancedPrivacyProtections>, WebCore::StoredCredentialsPolicy, WebCore::IsInitiatedByDedicatedWorker);
+
     void didConnect(const String& subprotocol, const String& extensions);
     void didReceiveText(const String&);
-    void didReceiveBinaryData(const uint8_t* data, size_t length);
+    void didReceiveBinaryData(std::span<const uint8_t>);
     void didClose(unsigned short code, const String& reason);
-    void didReceiveMessageError(const String&);
+    void didReceiveMessageError(String&&);
     void didSendHandshakeRequest(WebCore::ResourceRequest&&);
     void didReceiveHandshakeResponse(WebCore::ResourceResponse&&);
 
-    void sendString(const IPC::DataReference&, CompletionHandler<void()>&&);
-    void sendData(const IPC::DataReference&, CompletionHandler<void()>&&);
+    void sendString(std::span<const uint8_t>, CompletionHandler<void()>&&);
+    void sendData(std::span<const uint8_t>, CompletionHandler<void()>&&);
     void close(int32_t code, const String& reason);
     void sendDelayedError();
 
-    NetworkSession* session();
+    NetworkSession* NODELETE session() const;
 
     IPC::Connection* messageSenderConnection() const final;
     uint64_t messageSenderDestinationID() const final { return m_identifier.toUInt64(); }
 
     void finishClosingIfPossible();
 
-    NetworkConnectionToWebProcess& m_connectionToWebProcess;
+    WeakRef<NetworkConnectionToWebProcess> m_connectionToWebProcess;
     WebCore::WebSocketIdentifier m_identifier;
     WeakPtr<NetworkSession> m_session;
-    std::unique_ptr<WebSocketTask> m_socket;
+    RefPtr<WebSocketTask> m_socket;
 
     enum class State { Open, Closing, Closed };
     State m_state { State::Open };

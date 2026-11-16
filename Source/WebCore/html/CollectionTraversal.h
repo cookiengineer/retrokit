@@ -25,10 +25,15 @@
 
 #pragma once
 
-#include "CollectionType.h"
-#include "ElementIterator.h"
+#include <WebCore/CollectionType.h>
+#include <WebCore/ElementChildIterator.h>
+#include <WebCore/TypedElementDescendantIterator.h>
+#include <wtf/WeakPtr.h>
 
 namespace WebCore {
+
+class ContainerNode;
+class WeakPtrImplWithEventTargetData;
 
 template <CollectionTraversalType traversalType>
 struct CollectionTraversal { };
@@ -38,130 +43,51 @@ struct CollectionTraversal<CollectionTraversalType::Descendants> {
     using Iterator = ElementDescendantIterator<Element>;
 
     template <typename CollectionClass>
-    static Iterator begin(const CollectionClass&, ContainerNode& rootNode);
+    static inline Iterator begin(const CollectionClass&, ContainerNode& rootNode);
 
     template <typename CollectionClass>
-    static Iterator last(const CollectionClass&, ContainerNode& rootNode);
+    static inline Iterator last(const CollectionClass&, ContainerNode& rootNode);
 
     template <typename CollectionClass>
-    static void traverseForward(const CollectionClass&, Iterator& current, unsigned count, unsigned& traversedCount);
+    static inline void traverseForward(const CollectionClass&, Iterator& current, unsigned count, unsigned& traversedCount);
 
     template <typename CollectionClass>
-    static void traverseBackward(const CollectionClass&, Iterator& current, unsigned count);
+    static inline void traverseBackward(const CollectionClass&, Iterator& current, unsigned count);
 };
 
-template <typename CollectionClass>
-inline auto CollectionTraversal<CollectionTraversalType::Descendants>::begin(const CollectionClass& collection, ContainerNode& rootNode) -> Iterator
-{
-    auto it = descendantsOfType<Element>(rootNode).begin();
-    while (it && !collection.elementMatches(*it))
-        ++it;
-    // Drop iterator assertions because HTMLCollections / NodeList use a fine-grained invalidation scheme.
-    it.dropAssertions();
-    return it;
-}
+template <>
+struct CollectionTraversal<CollectionTraversalType::WeakPtrDescendants> {
+    using Iterator = WeakPtr<Element, WeakPtrImplWithEventTargetData>;
 
-template <typename CollectionClass>
-inline auto CollectionTraversal<CollectionTraversalType::Descendants>::last(const CollectionClass& collection, ContainerNode& rootNode) -> Iterator
-{
-    Iterator it { rootNode, ElementTraversal::lastWithin(rootNode) };
-    while (it && !collection.elementMatches(*it))
-        --it;
-    // Drop iterator assertions because HTMLCollections / NodeList use a fine-grained invalidation scheme.
-    it.dropAssertions();
-    return it;
-}
+    template <typename CollectionClass>
+    static inline Iterator begin(const CollectionClass&, ContainerNode& rootNode);
 
-template <typename CollectionClass>
-inline void CollectionTraversal<CollectionTraversalType::Descendants>::traverseForward(const CollectionClass& collection, Iterator& current, unsigned count, unsigned& traversedCount)
-{
-    ASSERT(collection.elementMatches(*current));
-    for (traversedCount = 0; traversedCount < count; ++traversedCount) {
-        do {
-            ++current;
-            if (!current)
-                return;
-        } while (!collection.elementMatches(*current));
-    }
-}
+    template <typename CollectionClass>
+    static inline Iterator last(const CollectionClass&, ContainerNode& rootNode);
 
-template <typename CollectionClass>
-inline void CollectionTraversal<CollectionTraversalType::Descendants>::traverseBackward(const CollectionClass& collection, Iterator& current, unsigned count)
-{
-    ASSERT(collection.elementMatches(*current));
-    for (; count; --count) {
-        do {
-            --current;
-            if (!current)
-                return;
-        } while (!collection.elementMatches(*current));
-    }
-}
+    template <typename CollectionClass>
+    static inline void traverseForward(const CollectionClass&, Iterator& current, unsigned count, unsigned& traversedCount);
+
+    template <typename CollectionClass>
+    static inline void traverseBackward(const CollectionClass&, Iterator& current, unsigned count);
+};
 
 template <>
 struct CollectionTraversal<CollectionTraversalType::ChildrenOnly> {
     using Iterator = ElementChildIterator<Element>;
 
     template <typename CollectionClass>
-    static Iterator begin(const CollectionClass&, ContainerNode& rootNode);
+    static inline Iterator begin(const CollectionClass&, ContainerNode& rootNode);
 
     template <typename CollectionClass>
-    static Iterator last(const CollectionClass&, ContainerNode& rootNode);
+    static inline Iterator last(const CollectionClass&, ContainerNode& rootNode);
 
     template <typename CollectionClass>
-    static void traverseForward(const CollectionClass&, Iterator& current, unsigned count, unsigned& traversedCount);
+    static inline void traverseForward(const CollectionClass&, Iterator& current, unsigned count, unsigned& traversedCount);
 
     template <typename CollectionClass>
-    static void traverseBackward(const CollectionClass&, Iterator& current, unsigned count);
+    static inline void traverseBackward(const CollectionClass&, Iterator& current, unsigned count);
 };
-
-template <typename CollectionClass>
-inline auto CollectionTraversal<CollectionTraversalType::ChildrenOnly>::begin(const CollectionClass& collection, ContainerNode& rootNode) -> Iterator
-{
-    auto it = childrenOfType<Element>(rootNode).begin();
-    while (it && !collection.elementMatches(*it))
-        ++it;
-    // Drop iterator assertions because HTMLCollections / NodeList use a fine-grained invalidation scheme.
-    it.dropAssertions();
-    return it;
-}
-
-template <typename CollectionClass>
-inline auto CollectionTraversal<CollectionTraversalType::ChildrenOnly>::last(const CollectionClass& collection, ContainerNode& rootNode) -> Iterator
-{
-    auto it = childrenOfType<Element>(rootNode).begin();
-    while (it && !collection.elementMatches(*it))
-        --it;
-    // Drop iterator assertions because HTMLCollections / NodeList use a fine-grained invalidation scheme.
-    it.dropAssertions();
-    return it;
-}
-
-template <typename CollectionClass>
-inline void CollectionTraversal<CollectionTraversalType::ChildrenOnly>::traverseForward(const CollectionClass& collection, Iterator& current, unsigned count, unsigned& traversedCount)
-{
-    ASSERT(collection.elementMatches(*current));
-    for (traversedCount = 0; traversedCount < count; ++traversedCount) {
-        do {
-            ++current;
-            if (!current)
-                return;
-        } while (!collection.elementMatches(*current));
-    }
-}
-
-template <typename CollectionClass>
-inline void CollectionTraversal<CollectionTraversalType::ChildrenOnly>::traverseBackward(const CollectionClass& collection, Iterator& current, unsigned count)
-{
-    ASSERT(collection.elementMatches(*current));
-    for (; count; --count) {
-        do {
-            --current;
-            if (!current)
-                return;
-        } while (!collection.elementMatches(*current));
-    }
-}
 
 template <>
 struct CollectionTraversal<CollectionTraversalType::CustomForwardOnly> {
@@ -170,50 +96,22 @@ struct CollectionTraversal<CollectionTraversalType::CustomForwardOnly> {
     static constexpr Element* end(ContainerNode&) { return nullptr; }
 
     template <typename CollectionClass>
-    static Element* begin(const CollectionClass&, ContainerNode&);
+    static inline Element* begin(const CollectionClass&, ContainerNode&);
 
     template <typename CollectionClass>
-    static Element* last(const CollectionClass&, ContainerNode&);
+    static inline Element* last(const CollectionClass&, ContainerNode&);
 
     template <typename CollectionClass>
-    static void traverseForward(const CollectionClass&, Element*& current, unsigned count, unsigned& traversedCount);
+    static inline void traverseForward(const CollectionClass&, Element*& current, unsigned count, unsigned& traversedCount);
 
     template <typename CollectionClass>
-    static void traverseBackward(const CollectionClass&, Element*&, unsigned count);
+    static inline void traverseBackward(const CollectionClass&, Element*&, unsigned count);
 };
 
-template <typename CollectionClass>
-inline Element* CollectionTraversal<CollectionTraversalType::CustomForwardOnly>::begin(const CollectionClass& collection, ContainerNode&)
-{
-    return collection.customElementAfter(nullptr);
-}
-
-template <typename CollectionClass>
-inline Element* CollectionTraversal<CollectionTraversalType::CustomForwardOnly>::last(const CollectionClass&, ContainerNode&)
-{
-    ASSERT_NOT_REACHED();
-    return nullptr;
-}
-
-template <typename CollectionClass>
-inline void CollectionTraversal<CollectionTraversalType::CustomForwardOnly>::traverseForward(const CollectionClass& collection, Element*& current, unsigned count, unsigned& traversedCount)
-{
-    Element* element = current;
-    for (traversedCount = 0; traversedCount < count; ++traversedCount) {
-        element = collection.customElementAfter(element);
-        if (!element) {
-            current = nullptr;
-            return;
-        }
-    }
-    current = element;
-}
-
-template <typename CollectionClass>
-inline void CollectionTraversal<CollectionTraversalType::CustomForwardOnly>::traverseBackward(const CollectionClass&, Element*&, unsigned count)
-{
-    UNUSED_PARAM(count);
-    ASSERT_NOT_REACHED();
-}
-
 } // namespace WebCore
+
+namespace std {
+
+template<> struct iterator_traits<WeakPtr<WebCore::Element, WebCore::WeakPtrImplWithEventTargetData>> { using value_type = WebCore::Element; };
+
+}

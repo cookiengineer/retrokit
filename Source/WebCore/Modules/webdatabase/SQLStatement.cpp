@@ -38,6 +38,7 @@
 #include "SQLValue.h"
 #include "SQLiteDatabase.h"
 #include "SQLiteStatement.h"
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/CString.h>
 
 
@@ -47,13 +48,13 @@
 //
 //     At birth (in SQLTransactionBackend::executeSQL()):
 //     =================================================
-//     SQLTransactionBackend           // Deque<RefPtr<SQLStatement>> m_statementQueue points to ...
+//     SQLTransaction           // Deque<std::unique_ptr<SQLStatement>> m_statementQueue points to ...
 //     --> SQLStatement         // std::unique_ptr<SQLStatement> m_frontend points to ...
 //         --> SQLStatement
 //
 //     After grabbing the statement for execution (in SQLTransactionBackend::getNextStatement()):
 //     =========================================================================================
-//     SQLTransactionBackend           // RefPtr<SQLStatement> m_currentStatementBackend points to ...
+//     SQLTransactionBackend    // RefPtr<SQLStatement> m_currentStatementBackend points to ...
 //     --> SQLStatement         // std::unique_ptr<SQLStatement> m_frontend points to ...
 //         --> SQLStatement
 //
@@ -75,11 +76,13 @@
 
 namespace WebCore {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(SQLStatement);
+
 SQLStatement::SQLStatement(Database& database, const String& statement, Vector<SQLValue>&& arguments, RefPtr<SQLStatementCallback>&& callback, RefPtr<SQLStatementErrorCallback>&& errorCallback, int permissions)
     : m_statement(statement.isolatedCopy())
-    , m_arguments(WTFMove(arguments))
-    , m_statementCallbackWrapper(WTFMove(callback), &database.document())
-    , m_statementErrorCallbackWrapper(WTFMove(errorCallback), &database.document())
+    , m_arguments(WTF::move(arguments))
+    , m_statementCallbackWrapper(WTF::move(callback), &database.document())
+    , m_statementErrorCallbackWrapper(WTF::move(errorCallback), &database.document())
     , m_permissions(permissions)
 {
 }
@@ -110,15 +113,15 @@ bool SQLStatement::execute(Database& db)
 
     db.setAuthorizerPermissions(m_permissions);
 
-    SQLiteDatabase& database = db.sqliteDatabase();
+    CheckedRef database = db.sqliteDatabase();
 
-    auto statement = database.prepareStatementSlow(m_statement);
+    auto statement = database->prepareStatementSlow(m_statement);
     if (!statement) {
-        LOG(StorageAPI, "Unable to verify correctness of statement %s - error %i (%s)", m_statement.ascii().data(), statement.error(), database.lastErrorMsg());
-        if (statement.error() == SQLITE_INTERRUPT)
-            m_error = SQLError::create(SQLError::DATABASE_ERR, "could not prepare statement", statement.error(), "interrupted");
+        LOG(StorageAPI, "Unable to verify correctness of statement %s - error %i (%s)", m_statement.ascii().data(), database->lastError(), database->lastErrorMsg());
+        if (database->lastError() == SQLITE_INTERRUPT)
+            m_error = SQLError::create(SQLError::DATABASE_ERR, "could not prepare statement"_s, database->lastError(), "interrupted"_s);
         else
-            m_error = SQLError::create(SQLError::SYNTAX_ERR, "could not prepare statement", statement.error(), database.lastErrorMsg());
+            m_error = SQLError::create(SQLError::SYNTAX_ERR, "could not prepare statement"_s, database->lastError(), database->lastErrorMsg());
         return false;
     }
 
@@ -126,7 +129,7 @@ bool SQLStatement::execute(Database& db)
     // If this is the case, they might be trying to do something fishy or malicious
     if (statement->bindParameterCount() != m_arguments.size()) {
         LOG(StorageAPI, "Bind parameter count doesn't match number of question marks");
-        m_error = SQLError::create(SQLError::SYNTAX_ERR, "number of '?'s in statement string does not match argument count");
+        m_error = SQLError::create(SQLError::SYNTAX_ERR, "number of '?'s in statement string does not match argument count"_s);
         return false;
     }
 
@@ -139,7 +142,7 @@ bool SQLStatement::execute(Database& db)
 
         if (result != SQLITE_OK) {
             LOG(StorageAPI, "Failed to bind value index %i to statement for query '%s'", i + 1, m_statement.ascii().data());
-            m_error = SQLError::create(SQLError::DATABASE_ERR, "could not bind value", result, database.lastErrorMsg());
+            m_error = SQLError::create(SQLError::DATABASE_ERR, "could not bind value"_s, result, database->lastErrorMsg());
             return false;
         }
     }
@@ -164,7 +167,7 @@ bool SQLStatement::execute(Database& db)
         } while (result == SQLITE_ROW);
 
         if (result != SQLITE_DONE) {
-            m_error = SQLError::create(SQLError::DATABASE_ERR, "could not iterate results", result, database.lastErrorMsg());
+            m_error = SQLError::create(SQLError::DATABASE_ERR, "could not iterate results"_s, result, database->lastErrorMsg());
             return false;
         }
         break;
@@ -172,7 +175,7 @@ bool SQLStatement::execute(Database& db)
     case SQLITE_DONE: {
         // Didn't find anything, or was an insert
         if (db.lastActionWasInsert())
-            resultSet->setInsertId(database.lastInsertRowID());
+            resultSet->setInsertId(database->lastInsertRowID());
         break;
     }
     case SQLITE_FULL:
@@ -180,19 +183,19 @@ bool SQLStatement::execute(Database& db)
         setFailureDueToQuota();
         return false;
     case SQLITE_CONSTRAINT:
-        m_error = SQLError::create(SQLError::CONSTRAINT_ERR, "could not execute statement due to a constaint failure", result, database.lastErrorMsg());
+        m_error = SQLError::create(SQLError::CONSTRAINT_ERR, "could not execute statement due to a constaint failure"_s, result, database->lastErrorMsg());
         return false;
     default:
-        m_error = SQLError::create(SQLError::DATABASE_ERR, "could not execute statement", result, database.lastErrorMsg());
+        m_error = SQLError::create(SQLError::DATABASE_ERR, "could not execute statement"_s, result, database->lastErrorMsg());
         return false;
     }
 
     // rowsAffected should be 0 for read only statements (e.g. SELECT statement). However, SQLiteDatabase::lastChanges() returns
     // the number of changes made by the most recent INSERT, UPDATE or DELETE statement.
     if (!statement->isReadOnly())
-        resultSet->setRowsAffected(database.lastChanges());
+        resultSet->setRowsAffected(database->lastChanges());
 
-    m_resultSet = WTFMove(resultSet);
+    m_resultSet = WTF::move(resultSet);
     return true;
 }
 
@@ -201,9 +204,9 @@ bool SQLStatement::performCallback(SQLTransaction& transaction)
     // Call the appropriate statement callback and track if it resulted in an error,
     // because then we need to jump to the transaction error callback.
 
-    if (m_error) {
+    if (RefPtr error = m_error) {
         if (auto errorCallback = m_statementErrorCallbackWrapper.unwrap()) {
-            auto result = errorCallback->handleEvent(transaction, *m_error);
+            auto result = errorCallback->invoke(transaction, *error);
 
             // The spec says:
             // "If the error callback returns false, then move on to the next statement..."
@@ -224,7 +227,7 @@ bool SQLStatement::performCallback(SQLTransaction& transaction)
     if (auto callback = m_statementCallbackWrapper.unwrap()) {
         ASSERT(m_resultSet);
 
-        auto result = callback->handleEvent(transaction, *m_resultSet);
+        auto result = callback->invoke(transaction, Ref { *m_resultSet }.get());
         return result.type() == CallbackResultType::ExceptionThrown;
     }
 
@@ -234,19 +237,19 @@ bool SQLStatement::performCallback(SQLTransaction& transaction)
 void SQLStatement::setDatabaseDeletedError()
 {
     ASSERT(!m_error && !m_resultSet);
-    m_error = SQLError::create(SQLError::UNKNOWN_ERR, "unable to execute statement, because the user deleted the database");
+    m_error = SQLError::create(SQLError::UNKNOWN_ERR, "unable to execute statement, because the user deleted the database"_s);
 }
 
 void SQLStatement::setVersionMismatchedError()
 {
     ASSERT(!m_error && !m_resultSet);
-    m_error = SQLError::create(SQLError::VERSION_ERR, "current version of the database and `oldVersion` argument do not match");
+    m_error = SQLError::create(SQLError::VERSION_ERR, "current version of the database and `oldVersion` argument do not match"_s);
 }
 
 void SQLStatement::setFailureDueToQuota()
 {
     ASSERT(!m_error && !m_resultSet);
-    m_error = SQLError::create(SQLError::QUOTA_ERR, "there was not enough remaining storage space, or the storage quota was reached and the user declined to allow more space");
+    m_error = SQLError::create(SQLError::QUOTA_ERR, "there was not enough remaining storage space, or the storage quota was reached and the user declined to allow more space"_s);
 }
 
 void SQLStatement::clearFailureDueToQuota()

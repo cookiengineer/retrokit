@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,16 +25,21 @@
 
 #pragma once
 
+#include "CacheableIdentifierInlines.h"
 #include "ClassInfo.h"
 #include "Identifier.h"
 #include <wtf/Condition.h>
-#include <wtf/FastMalloc.h>
 #include <wtf/Lock.h>
 #include <wtf/Noncopyable.h>
 #include <wtf/PrintStream.h>
 #include <wtf/Spectrum.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace JSC {
+
+namespace ICStatsInternal {
+static constexpr bool traceHandlerChains = false;
+}
 
 #define FOR_EACH_ICEVENT_KIND(macro) \
     macro(InvalidKind) \
@@ -46,27 +51,30 @@ namespace JSC {
     macro(InReplaceWithGeneric) \
     macro(InstanceOfAddAccessCase) \
     macro(InstanceOfReplaceWithJump) \
-    macro(OperationGetById) \
+    macro(OperationGetByIdGaveUp) \
     macro(OperationGetByIdGeneric) \
     macro(OperationGetByIdBuildList) \
     macro(OperationGetByIdOptimize) \
     macro(OperationGetByValOptimize) \
     macro(OperationGetByIdWithThisOptimize) \
+    macro(OperationGetByIdWithThisGaveUp) \
+    macro(OperationGetByIdWithThisGeneric) \
+    macro(OperationGetByValWithThisOptimize) \
     macro(OperationGenericIn) \
     macro(OperationInByIdGeneric) \
     macro(OperationInByIdOptimize) \
-    macro(OperationPutByIdStrict) \
-    macro(OperationPutByIdNonStrict) \
-    macro(OperationPutByIdDirectStrict) \
-    macro(OperationPutByIdDirectNonStrict) \
+    macro(OperationPutByIdStrictGaveUp) \
+    macro(OperationPutByIdSloppyGaveUp) \
+    macro(OperationPutByIdDirectStrictGaveUp) \
+    macro(OperationPutByIdDirectSloppyGaveUp) \
     macro(OperationPutByIdStrictOptimize) \
-    macro(OperationPutByIdNonStrictOptimize) \
+    macro(OperationPutByIdSloppyOptimize) \
     macro(OperationPutByIdDirectStrictOptimize) \
-    macro(OperationPutByIdDirectNonStrictOptimize) \
+    macro(OperationPutByIdDirectSloppyOptimize) \
     macro(OperationPutByIdStrictBuildList) \
-    macro(OperationPutByIdNonStrictBuildList) \
-    macro(OperationPutByIdDefinePrivateFieldFieldStrictOptimize) \
-    macro(OperationPutByIdPutPrivateFieldFieldStrictOptimize) \
+    macro(OperationPutByIdSloppyBuildList) \
+    macro(OperationPutByIdDefinePrivateFieldStrictOptimize) \
+    macro(OperationPutByIdPutPrivateFieldStrictOptimize) \
     macro(PutByAddAccessCase) \
     macro(PutByReplaceWithJump) \
     macro(PutBySelfPatch) \
@@ -80,7 +88,89 @@ namespace JSC {
     macro(CheckPrivateBrandAddAccessCase) \
     macro(SetPrivateBrandAddAccessCase) \
     macro(CheckPrivateBrandReplaceWithJump) \
-    macro(SetPrivateBrandReplaceWithJump)
+    macro(SetPrivateBrandReplaceWithJump) \
+    macro(OperationPutByIdSetPrivateFieldStrictOptimize) \
+    macro(OperationPutByIdDefinePrivateFieldStrictGaveUp) \
+    macro(OperationPutByIdSetPrivateFieldStrictGaveUp) \
+    macro(OperationGetByValGaveUp) \
+    macro(OperationGetByValGeneric) \
+    macro(OperationGetByValWithThisGaveUp) \
+    macro(OperationGetByValWithThisGeneric) \
+    macro(OperationPutByValStrictGaveUp) \
+    macro(OperationPutByValStrictGeneric) \
+    macro(OperationPutByValSloppyGaveUp) \
+    macro(OperationPutByValSloppyGeneric) \
+    macro(OperationPutByValDefinePrivateFieldGaveUp) \
+    macro(OperationPutByValDefinePrivateFieldGeneric) \
+    macro(OperationPutByValSetPrivateFieldGaveUp) \
+    macro(OperationPutByValSetPrivateFieldGeneric) \
+    /* JIT execution tracing events */ \
+    /* Slow path handlers */ \
+    macro(GetByIdSlowPath) \
+    macro(GetByIdWithThisSlowPath) \
+    macro(GetByValSlowPath) \
+    macro(GetPrivateNameSlowPath) \
+    macro(GetByValWithThisSlowPath) \
+    macro(PutByIdSlowPath) \
+    macro(PutByValSlowPath) \
+    macro(InstanceOfSlowPath) \
+    macro(DeleteByIdSlowPath) \
+    macro(DeleteByValSlowPath) \
+    /* GetById handlers */ \
+    macro(GetByIdLoadOwnPropertyHandler) \
+    macro(GetByIdLoadPrototypePropertyHandler) \
+    macro(GetByIdMissHandler) \
+    macro(GetByIdCustomAccessorHandler) \
+    macro(GetByIdCustomValueHandler) \
+    macro(GetByIdGetterHandler) \
+    macro(GetByIdMegamorphicGetterHandler) \
+    macro(GetByIdProxyObjectLoadHandler) \
+    macro(GetByIdModuleNamespaceLoadHandler) \
+    /* PutById handlers */ \
+    macro(PutByIdReplaceHandler) \
+    macro(PutByIdTransitionHandler) \
+    macro(PutByIdTransitionReallocatingOutOfLineHandler) \
+    macro(PutByIdCustomAccessorHandler) \
+    macro(PutByIdCustomValueHandler) \
+    macro(PutByIdStrictSetterHandler) \
+    macro(PutByIdSloppySetterHandler) \
+    /* InById handlers */ \
+    macro(InByIdHitHandler) \
+    macro(InByIdMissHandler) \
+    /* DeleteById handlers */ \
+    macro(DeleteByIdDeleteHandler) \
+    macro(DeleteByIdMissHandler) \
+    macro(DeleteByIdNonConfigurableHandler) \
+    /* InstanceOf handlers */ \
+    macro(InstanceOfHitHandler) \
+    macro(InstanceOfMissHandler) \
+    /* GetByVal handlers */ \
+    macro(GetByValLoadOwnPropertyHandler) \
+    macro(GetByValLoadPrototypePropertyHandler) \
+    macro(GetByValMissHandler) \
+    macro(GetByValCustomAccessorHandler) \
+    macro(GetByValCustomValueHandler) \
+    macro(GetByValGetterHandler) \
+    /* PutByVal handlers */ \
+    macro(PutByValReplaceHandler) \
+    macro(PutByValTransitionHandler) \
+    macro(PutByValTransitionOutOfLineHandler) \
+    macro(PutByValCustomAccessorHandler) \
+    macro(PutByValCustomValueHandler) \
+    macro(PutByValStrictSetterHandler) \
+    macro(PutByValSloppySetterHandler) \
+    /* InByVal handlers */ \
+    macro(InByValHitHandler) \
+    macro(InByValMissHandler) \
+    /* DeleteByVal handlers */ \
+    macro(DeleteByValDeleteHandler) \
+    macro(DeleteByValMissHandler) \
+    macro(DeleteByValNonConfigurableHandler) \
+    /* Other handlers */ \
+    macro(CheckPrivateBrandHandler) \
+    macro(SetPrivateBrandHandler) \
+    macro(CompiledHandler) \
+    macro(DOMJITHandler)
 
 class ICEvent {
 public:
@@ -96,48 +186,49 @@ public:
         ProtoLookup
     };
 
-    ICEvent()
-    {
-    }
-    
-    ICEvent(Kind kind, const ClassInfo* classInfo, const Identifier propertyName)
+    ICEvent() = default;
+
+    explicit ICEvent(Kind kind)
         : m_kind(kind)
-        , m_classInfo(classInfo)
-        , m_propertyName(propertyName)
         , m_propertyLocation(Unknown)
     {
+        ASSERT(kind != InvalidKind);
     }
 
-    ICEvent(Kind kind, const ClassInfo* classInfo, const Identifier propertyName, bool isBaseProperty)
+    ICEvent(Kind kind, const ClassInfo* classInfo)
         : m_kind(kind)
         , m_classInfo(classInfo)
-        , m_propertyName(propertyName)
+        , m_propertyLocation(Unknown)
+    {
+        ASSERT(kind != InvalidKind);
+    }
+
+    ICEvent(Kind kind, const ClassInfo* classInfo, bool isBaseProperty)
+        : m_kind(kind)
+        , m_classInfo(classInfo)
         , m_propertyLocation(isBaseProperty ? BaseObject : ProtoLookup)
     {
+        ASSERT(kind != InvalidKind);
     }
     
     ICEvent(WTF::HashTableDeletedValueType)
-        : m_kind(OperationGetById)
+        : m_kind(InvalidKind)
+        , m_propertyLocation(BaseObject)
     {
     }
     
-    bool operator==(const ICEvent& other) const
+    bool NODELETE operator==(const ICEvent& other) const
     {
         return m_kind == other.m_kind
             && m_classInfo == other.m_classInfo
-            && m_propertyName == other.m_propertyName;
-    }
-    
-    bool operator!=(const ICEvent& other) const
-    {
-        return !(*this == other);
+            && m_propertyLocation == other.m_propertyLocation;
     }
     
     bool operator<(const ICEvent& other) const;
     bool operator>(const ICEvent& other) const { return other < *this; }
     bool operator<=(const ICEvent& other) const { return !(*this > other); }
     bool operator>=(const ICEvent& other) const { return !(*this < other); }
-    
+
     explicit operator bool() const
     {
         return *this != ICEvent();
@@ -145,20 +236,19 @@ public:
     
     Kind kind() const { return m_kind; }
     const ClassInfo* classInfo() const { return m_classInfo; }
-    const Identifier& propertyName() const { return m_propertyName; }
     
-    unsigned hash() const
+    unsigned NODELETE hash() const
     {
-        if (m_propertyName.isNull())
-            return m_kind + m_propertyLocation + WTF::PtrHash<const ClassInfo*>::hash(m_classInfo);
-        return m_kind + m_propertyLocation + WTF::PtrHash<const ClassInfo*>::hash(m_classInfo) + StringHash::hash(m_propertyName.string());
+        return static_cast<unsigned>(m_kind) + static_cast<unsigned>(m_propertyLocation) + WTF::PtrHash<const ClassInfo*>::hash(m_classInfo);
     }
     
-    bool isHashTableDeletedValue() const
+    bool NODELETE isHashTableDeletedValue() const
     {
         return *this == ICEvent(WTF::HashTableDeletedValue);
     }
-    
+
+    static constexpr bool safeToCompareToHashTableEmptyOrDeletedValue = true;
+
     void dump(PrintStream&) const;
     
     void log() const;
@@ -167,14 +257,7 @@ private:
     
     Kind m_kind { InvalidKind };
     const ClassInfo* m_classInfo { nullptr };
-    Identifier m_propertyName;
-    PropertyLocation m_propertyLocation;
-};
-
-struct ICEventHash {
-    static unsigned hash(const ICEvent& key) { return key.hash(); }
-    static bool equal(const ICEvent& a, const ICEvent& b) { return a == b; }
-    static constexpr bool safeToCompareToEmptyOrDeleted = true;
+    PropertyLocation m_propertyLocation { Unknown };
 };
 
 } // namespace JSC
@@ -182,9 +265,6 @@ struct ICEventHash {
 namespace WTF {
 
 void printInternal(PrintStream&, JSC::ICEvent::Kind);
-
-template<typename T> struct DefaultHash;
-template<> struct DefaultHash<JSC::ICEvent> : JSC::ICEventHash { };
 
 template<typename T> struct HashTraits;
 template<> struct HashTraits<JSC::ICEvent> : SimpleClassHashTraits<JSC::ICEvent> {
@@ -197,15 +277,19 @@ namespace JSC {
 
 class ICStats {
     WTF_MAKE_NONCOPYABLE(ICStats);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(ICStats);
 public:
     ICStats();
     ~ICStats();
     
     void add(const ICEvent& event);
     
-    static ICStats& instance();
-    
+    static ICStats& singleton();
+
+    void startNewChain(unsigned totalNumberOfHandlersInChain);
+    void appendToCurrentChain(ICEvent::Kind);
+    void dumpChains();
+
 private:
 
     Spectrum<ICEvent, uint64_t> m_spectrum;
@@ -213,7 +297,7 @@ private:
     Lock m_lock;
     Condition m_condition;
     bool m_shouldStop { false };
-    
+
     static Atomic<ICStats*> s_instance;
 };
 

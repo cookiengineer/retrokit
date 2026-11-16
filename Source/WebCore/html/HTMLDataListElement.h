@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, Google Inc. All rights reserved.
+ * Copyright (c) 2009 Google Inc. All rights reserved.
  * Copyright (C) 2010-2020 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,17 +31,16 @@
 
 #pragma once
 
-#if ENABLE(DATALIST_ELEMENT)
-
-#include "ElementIterator.h"
-#include "HTMLElement.h"
+#include <WebCore/HTMLElement.h>
+#include <WebCore/TypedElementDescendantIterator.h>
 
 namespace WebCore {
 
 class HTMLCollection;
 
 class HTMLDataListElement final : public HTMLElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLDataListElement);
+    WTF_MAKE_TZONE_ALLOCATED(HTMLDataListElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLDataListElement);
 public:
     static Ref<HTMLDataListElement> create(const QualifiedName&, Document&);
     ~HTMLDataListElement();
@@ -51,14 +50,15 @@ public:
     void optionElementChildrenChanged();
 
     static bool isSuggestion(const HTMLOptionElement& descendant);
-    auto suggestions() const { return filteredDescendants<HTMLOptionElement, isSuggestion>(*this); }
+    using SuggestionRange = FilteredElementDescendantRange<HTMLOptionElement, isSuggestion>;
+    SuggestionRange NODELETE suggestions() const;
 
 private:
     void didMoveToNewDocument(Document& oldDocument, Document& newDocument) final;
+
+    void childrenChanged(const ChildChange&) final;
 
     HTMLDataListElement(const QualifiedName&, Document&);
 };
 
 } // namespace WebCore
-
-#endif // ENABLE(DATALIST_ELEMENT)

@@ -25,12 +25,17 @@
 
 #pragma once
 
-#include "Decoder.h"
-#include "IPCSemaphore.h"
-#include "SharedMemory.h"
+#include <WebCore/SharedMemory.h>
+#include <cstddef>
+#include <span>
 #include <wtf/Atomics.h>
+#include <wtf/MathExtras.h>
+#include <wtf/Ref.h>
+#include <wtf/StdLibExtras.h>
 
 namespace IPC {
+class Decoder;
+class Encoder;
 
 // StreamConnectionBuffer is a shared "bi-partite" circular buffer supporting variable length messages, specific data
 // alignment with mandated minimum size. StreamClientConnection and StreamServerConnection use StreamConnectionBuffer to
@@ -66,18 +71,18 @@ namespace IPC {
 //   FIXME: Maybe would be simpler implementation if it would use the "wrap" flag instead of the hole as the indicator.
 //   This would move the alignedSpan implementation to the StreamConnectionBuffer.
 // * All atomic variable loads are untrusted, so they're clamped. Violations are not reported, though.
-// See SharedDisplayListHandle.
 class StreamConnectionBuffer {
+    WTF_MAKE_NONCOPYABLE(StreamConnectionBuffer);
 public:
-    explicit StreamConnectionBuffer(size_t memorySize);
-    StreamConnectionBuffer(StreamConnectionBuffer&&);
     ~StreamConnectionBuffer();
-    StreamConnectionBuffer& operator=(StreamConnectionBuffer&&);
+
+    using Handle = WebCore::SharedMemory::Handle;
+    Handle createHandle();
 
     size_t wrapOffset(size_t offset) const
     {
         ASSERT(offset <= dataSize());
-        if (offset == dataSize())
+        if (offset >= dataSize())
             return 0;
         return offset;
     }
@@ -107,29 +112,37 @@ public:
 
     Atomic<ClientOffset>& clientOffset() { return header().clientOffset; }
     Atomic<ServerOffset>& serverOffset() { return header().serverOffset; }
-    uint8_t* data() const { return static_cast<uint8_t*>(m_sharedMemory->data()) + headerSize(); }
+    std::span<const uint8_t> span() const LIFETIME_BOUND { return m_sharedMemory->mutableSpan().subspan(headerSize()); }
+    std::span<uint8_t> mutableSpan() LIFETIME_BOUND { return m_sharedMemory->mutableSpan().subspan(headerSize()); }
     size_t dataSize() const { return m_dataSize; }
-    Semaphore& clientWaitSemaphore() { return m_clientWaitSemaphore; }
 
-    static constexpr size_t maximumSize() { return std::min(static_cast<size_t>(ClientOffset::serverIsSleepingTag), static_cast<size_t>(ClientOffset::serverIsSleepingTag)) - 1; }
-    void encode(Encoder&) const;
-    static std::optional<StreamConnectionBuffer> decode(Decoder&);
+    static constexpr size_t maximumSize() { return std::min(static_cast<size_t>(ClientOffset::serverIsSleepingTag), static_cast<size_t>(ServerOffset::clientIsWaitingTag)) - 1; }
 
-private:
-    StreamConnectionBuffer(Ref<WebKit::SharedMemory>&&, size_t memorySize, Semaphore&& clientWaitSemaphore);
+    std::span<uint8_t> NODELETE headerForTesting();
+    std::span<uint8_t> dataForTesting() LIFETIME_BOUND { return mutableSpan(); }
+
+    static constexpr bool sharedMemorySizeIsValid(size_t size) { return headerSize() < size && size <= headerSize() + maximumSize(); }
+
+protected:
+    StreamConnectionBuffer(Ref<WebCore::SharedMemory>&&);
+    StreamConnectionBuffer(StreamConnectionBuffer&&) = default;
+    StreamConnectionBuffer& operator=(StreamConnectionBuffer&&) = default;
 
     struct Header {
         Atomic<ServerOffset> serverOffset;
         // Padding so that the variables mostly accessed by different processes do not share a cache line.
         // This is an attempt to avoid cache-line induced reduction of parallel access.
-        alignas(sizeof(uint64_t[2])) Atomic<ClientOffset> clientOffset;
+        // Use 128 bytes since that's the cache line size on ARM64, and enough to cover other platforms where 64 bytes is common.
+        alignas(128) Atomic<ClientOffset> clientOffset;
     };
-    Header& header() const { return *reinterpret_cast<Header*>(m_sharedMemory->data()); }
+
+#undef HEADER_POINTER_ALIGNMENT
+
+    Header& header() const LIFETIME_BOUND { return reinterpretCastSpanStartTo<Header>(m_sharedMemory->mutableSpan()); }
     static constexpr size_t headerSize() { return roundUpToMultipleOf<alignof(std::max_align_t)>(sizeof(Header)); }
 
     size_t m_dataSize { 0 };
-    Ref<WebKit::SharedMemory> m_sharedMemory;
-    Semaphore m_clientWaitSemaphore;
+    Ref<WebCore::SharedMemory> m_sharedMemory;
 };
 
 }

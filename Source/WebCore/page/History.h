@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007-2018 Apple Inc.  All rights reserved.
+ * Copyright (C) 2007-2018 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,9 +25,10 @@
 
 #pragma once
 
-#include "DOMWindowProperty.h"
 #include "ExceptionOr.h"
+#include "FrameLoaderTypes.h"
 #include "JSValueInWrappedObject.h"
+#include "LocalDOMWindowProperty.h"
 #include "ScriptWrappable.h"
 #include "SerializedScriptValue.h"
 #include <wtf/WallTime.h>
@@ -36,13 +37,15 @@ namespace WebCore {
 
 class Document;
 
-class History final : public ScriptWrappable, public RefCounted<History>, public DOMWindowProperty {
-    WTF_MAKE_ISO_ALLOCATED(History);
+class History final : public ScriptWrappable, public RefCounted<History>, public LocalDOMWindowProperty {
+    WTF_MAKE_TZONE_ALLOCATED(History);
 public:
-    static Ref<History> create(DOMWindow& window) { return adoptRef(*new History(window)); }
+    static Ref<History> create(LocalDOMWindow& window) { return adoptRef(*new History(window)); }
 
-    unsigned length() const;
-    
+    ~History();
+
+    ExceptionOr<unsigned> length() const;
+
     enum class ScrollRestoration {
         Auto,
         Manual
@@ -51,33 +54,34 @@ public:
     ExceptionOr<ScrollRestoration> scrollRestoration() const;
     ExceptionOr<void> setScrollRestoration(ScrollRestoration);
 
-    SerializedScriptValue* state();
-    JSValueInWrappedObject& cachedState();
-    JSValueInWrappedObject& cachedStateForGC() { return m_cachedState; }
+    void setTotalStateObjectPayloadLimitOverride(std::optional<uint32_t> limit) { m_totalStateObjectPayloadLimitOverride = limit; }
 
-    void back();
-    void forward();
-    void go(int);
+    ExceptionOr<SerializedScriptValue*> state();
+    JSValueInWrappedObject& NODELETE cachedState() LIFETIME_BOUND;
+    JSValueInWrappedObject& cachedStateForGC() LIFETIME_BOUND { return m_cachedState; }
 
-    void back(Document&);
-    void forward(Document&);
-    void go(Document&, int);
+    ExceptionOr<void> back();
+    ExceptionOr<void> forward();
+    ExceptionOr<void> go(int);
 
-    bool isSameAsCurrentState(SerializedScriptValue*) const;
+    ExceptionOr<void> back(Document&);
+    ExceptionOr<void> forward(Document&);
+    ExceptionOr<void> go(Document&, int);
 
-    ExceptionOr<void> pushState(RefPtr<SerializedScriptValue>&& data, const String& title, const String& urlString);
-    ExceptionOr<void> replaceState(RefPtr<SerializedScriptValue>&& data, const String& title, const String& urlString);
+    bool NODELETE isSameAsCurrentState(SerializedScriptValue*) const;
+
+    ExceptionOr<void> pushState(RefPtr<SerializedScriptValue>&& data, const String&, const String& urlString);
+    ExceptionOr<void> replaceState(RefPtr<SerializedScriptValue>&& data, const String&, const String& urlString);
 
 private:
-    explicit History(DOMWindow&);
+    explicit History(LocalDOMWindow&);
 
-    enum class StateObjectType { Push, Replace };
-    ExceptionOr<void> stateObjectAdded(RefPtr<SerializedScriptValue>&&, const String& title, const String& url, StateObjectType);
-    bool stateChanged() const;
+    ExceptionOr<void> stateObjectAdded(RefPtr<SerializedScriptValue>&&, const String& url, NavigationHistoryBehavior);
+    ExceptionOr<void> updateAndCheckStateObjectQuota(const URL&, SerializedScriptValue*, NavigationHistoryBehavior);
+    bool NODELETE stateChanged() const;
 
-    URL urlForState(const String& url);
-
-    SerializedScriptValue* stateInternal() const;
+    SerializedScriptValue* NODELETE stateInternal() const;
+    uint32_t NODELETE totalStateObjectPayloadLimit() const;
 
     RefPtr<SerializedScriptValue> m_lastStateObjectRequested;
     JSValueInWrappedObject m_cachedState;
@@ -87,19 +91,20 @@ private:
 
     // For the main frame's History object to keep track of all state object usage.
     uint64_t m_totalStateObjectUsage { 0 };
+    std::optional<uint32_t> m_totalStateObjectPayloadLimitOverride;
 
     // For each individual History object to keep track of the most recent state object added.
     uint64_t m_mostRecentStateObjectUsage { 0 };
 };
 
-inline ExceptionOr<void> History::pushState(RefPtr<SerializedScriptValue>&& data, const String& title, const String& urlString)
+inline ExceptionOr<void> History::pushState(RefPtr<SerializedScriptValue>&& data, const String&, const String& urlString)
 {
-    return stateObjectAdded(WTFMove(data), title, urlString, StateObjectType::Push);
+    return stateObjectAdded(WTF::move(data), urlString, NavigationHistoryBehavior::Push);
 }
 
-inline ExceptionOr<void> History::replaceState(RefPtr<SerializedScriptValue>&& data, const String& title, const String& urlString)
+inline ExceptionOr<void> History::replaceState(RefPtr<SerializedScriptValue>&& data, const String&, const String& urlString)
 {
-    return stateObjectAdded(WTFMove(data), title, urlString, StateObjectType::Replace);
+    return stateObjectAdded(WTF::move(data), urlString, NavigationHistoryBehavior::Replace);
 }
 
 } // namespace WebCore

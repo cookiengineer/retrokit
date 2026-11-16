@@ -2,6 +2,7 @@
  * Copyright (C) 2004, 2005, 2006, 2007 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005 Rob Buis <buis@kde.org>
  * Copyright (C) 2005 Eric Seidel <eric@webkit.org>
+ * Copyright (C) 2021-2023 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -21,28 +22,30 @@
 
 #pragma once
 
-#include "FilterEffect.h"
-#include "Filter.h"
+#include <WebCore/FilterEffect.h>
 
 namespace WebCore {
     
-class FETile : public FilterEffect {
+class FETile final : public FilterEffect {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(FETile);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(FETile);
 public:
-    static Ref<FETile> create(Filter&);
+    WEBCORE_EXPORT static Ref<FETile> create(DestinationColorSpace = DestinationColorSpace::SRGB());
 
 private:
-    FETile(Filter&);
+    explicit FETile(DestinationColorSpace);
 
-    const char* filterName() const final { return "FETile"; }
+    FloatRect calculateImageRect(const Filter&, std::span<const FloatRect> inputImageRects, const FloatRect& primitiveSubregion) const override;
 
-    FilterEffectType filterEffectType() const override { return FilterEffectTypeTile; }
+    bool resultIsAlphaImage(std::span<const Ref<FilterImage>> inputs) const override;
 
-    void platformApplySoftware() override;
+    OptionSet<FilterRenderingMode> supportedFilterRenderingModes(OptionSet<FilterRenderingMode>) const override;
+    std::unique_ptr<FilterEffectApplier> createAcceleratedApplier() const override;
+    std::unique_ptr<FilterEffectApplier> createSoftwareApplier() const override;
 
-    void determineAbsolutePaintRect() override { setAbsolutePaintRect(enclosingIntRect(maxEffectRect())); }
-
-    WTF::TextStream& externalRepresentation(WTF::TextStream&, RepresentationType) const override;
+    WTF::TextStream& externalRepresentation(WTF::TextStream&, FilterRepresentation) const override;
 };
 
 } // namespace WebCore
 
+SPECIALIZE_TYPE_TRAITS_FILTER_FUNCTION(FETile)

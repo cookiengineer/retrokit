@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2016-2019 Apple Inc. All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -26,107 +26,30 @@
 #include "config.h"
 #include "PixelBufferConformerCV.h"
 
+#include "CVUtilities.h"
 #include "GraphicsContextCG.h"
-#include "ImageBufferUtilitiesCG.h"
-#include "Logging.h"
+#include "ImageUtilities.h"
+#include <pal/spi/cg/CoreGraphicsSPI.h>
+#include <wtf/TZoneMallocInlines.h>
 
 #include "CoreVideoSoftLink.h"
 #include "VideoToolboxSoftLink.h"
 
 namespace WebCore {
 
-PixelBufferConformerCV::PixelBufferConformerCV(CFDictionaryRef attributes)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PixelBufferConformerCV);
+
+RetainPtr<VTPixelBufferConformerRef> PixelBufferConformerCV::createPixelConformer(CFDictionaryRef attributes)
 {
     VTPixelBufferConformerRef conformer = nullptr;
     VTPixelBufferConformerCreateWithAttributes(kCFAllocatorDefault, attributes, &conformer);
     ASSERT(conformer);
-    m_pixelConformer = adoptCF(conformer);
+    return adoptCF(conformer);
 }
 
-struct CVPixelBufferInfo {
-    RetainPtr<CVPixelBufferRef> pixelBuffer;
-    int lockCount { 0 };
-};
-
-static const void* CVPixelBufferGetBytePointerCallback(void* refcon)
+PixelBufferConformerCV::PixelBufferConformerCV(CFDictionaryRef attributes)
+    : m_pixelConformer(createPixelConformer(attributes))
 {
-    ASSERT(refcon);
-    if (!refcon) {
-        RELEASE_LOG_ERROR(Media, "CVPixelBufferGetBytePointerCallback() called with NULL refcon");
-        RELEASE_LOG_STACKTRACE(Media);
-        return nullptr;
-    }
-    auto info = static_cast<CVPixelBufferInfo*>(refcon);
-
-    CVReturn result = CVPixelBufferLockBaseAddress(info->pixelBuffer.get(), kCVPixelBufferLock_ReadOnly);
-
-    ASSERT(result == kCVReturnSuccess);
-    if (result != kCVReturnSuccess) {
-        RELEASE_LOG_ERROR(Media, "CVPixelBufferLockBaseAddress() returned error code %d", result);
-        RELEASE_LOG_STACKTRACE(Media);
-        return nullptr;
-    }
-
-    ++info->lockCount;
-    void* address = CVPixelBufferGetBaseAddress(info->pixelBuffer.get());
-    size_t byteLength = CVPixelBufferGetBytesPerRow(info->pixelBuffer.get()) * CVPixelBufferGetHeight(info->pixelBuffer.get());
-
-    verifyImageBufferIsBigEnough(address, byteLength);
-    RELEASE_LOG_INFO(Media, "CVPixelBufferGetBytePointerCallback() returning bytePointer: %p, size: %zu", address, byteLength);
-    return address;
-}
-
-static void CVPixelBufferReleaseBytePointerCallback(void* refcon, const void*)
-{
-    ASSERT(refcon);
-    if (!refcon) {
-        RELEASE_LOG_ERROR(Media, "CVPixelBufferReleaseBytePointerCallback() called with NULL refcon");
-        RELEASE_LOG_STACKTRACE(Media);
-        return;
-    }
-    auto info = static_cast<CVPixelBufferInfo*>(refcon);
-
-    CVReturn result = CVPixelBufferUnlockBaseAddress(info->pixelBuffer.get(), kCVPixelBufferLock_ReadOnly);
-    ASSERT(result == kCVReturnSuccess);
-    if (result != kCVReturnSuccess) {
-        RELEASE_LOG_ERROR(Media, "CVPixelBufferLockBaseAddress() returned error code %d", result);
-        RELEASE_LOG_STACKTRACE(Media);
-        return;
-    }
-
-    ASSERT(info->lockCount);
-    if (!info->lockCount) {
-        RELEASE_LOG_ERROR(Media, "CVPixelBufferReleaseBytePointerCallback() called without matching CVPixelBufferGetBytePointerCallback()");
-        RELEASE_LOG_STACKTRACE(Media);
-    }
-    --info->lockCount;
-}
-
-static void CVPixelBufferReleaseInfoCallback(void* refcon)
-{
-    ASSERT(refcon);
-    if (!refcon) {
-        RELEASE_LOG_ERROR(Media, "CVPixelBufferReleaseInfoCallback() called with NULL refcon");
-        RELEASE_LOG_STACKTRACE(Media);
-        return;
-    }
-    auto info = static_cast<CVPixelBufferInfo*>(refcon);
-
-    ASSERT(!info->lockCount);
-    if (info->lockCount) {
-        RELEASE_LOG_ERROR(Media, "CVPixelBufferReleaseInfoCallback() called with a non-zero lockCount: %d", info->lockCount);
-        RELEASE_LOG_STACKTRACE(Media);
-
-        CVReturn result = CVPixelBufferUnlockBaseAddress(info->pixelBuffer.get(), kCVPixelBufferLock_ReadOnly);
-        ASSERT(result == kCVReturnSuccess);
-        if (result != kCVReturnSuccess) {
-            RELEASE_LOG_ERROR(Media, "CVPixelBufferLockBaseAddress() returned error code %d", result);
-            RELEASE_LOG_STACKTRACE(Media);
-        }
-    }
-
-    info->pixelBuffer = nullptr;
-    delete info;
 }
 
 RetainPtr<CVPixelBufferRef> PixelBufferConformerCV::convert(CVPixelBufferRef rawBuffer)
@@ -145,9 +68,8 @@ RetainPtr<CVPixelBufferRef> PixelBufferConformerCV::convert(CVPixelBufferRef raw
 
 RetainPtr<CGImageRef> PixelBufferConformerCV::createImageFromPixelBuffer(CVPixelBufferRef rawBuffer)
 {
-    RetainPtr<CVPixelBufferRef> buffer { rawBuffer };
-    size_t width = CVPixelBufferGetWidth(buffer.get());
-    size_t height = CVPixelBufferGetHeight(buffer.get());
+    RetainPtr buffer { rawBuffer };
+    RetainPtr colorSpace = createCGColorSpaceForCVPixelBuffer(buffer.get());
 
     if (!VTPixelBufferConformerIsConformantPixelBuffer(m_pixelConformer.get(), buffer.get())) {
         CVPixelBufferRef outputBuffer = nullptr;
@@ -157,22 +79,7 @@ RetainPtr<CGImageRef> PixelBufferConformerCV::createImageFromPixelBuffer(CVPixel
         buffer = adoptCF(outputBuffer);
     }
 
-    CGBitmapInfo bitmapInfo = kCGBitmapByteOrder32Little | kCGImageAlphaFirst;
-    size_t bytesPerRow = CVPixelBufferGetBytesPerRow(buffer.get());
-    size_t byteLength = bytesPerRow * height;
-
-    ASSERT(byteLength);
-    if (!byteLength)
-        return nullptr;
-
-    CVPixelBufferInfo* info = new CVPixelBufferInfo();
-    info->pixelBuffer = WTFMove(buffer);
-    info->lockCount = 0;
-
-    CGDataProviderDirectCallbacks providerCallbacks = { 0, CVPixelBufferGetBytePointerCallback, CVPixelBufferReleaseBytePointerCallback, 0, CVPixelBufferReleaseInfoCallback };
-    RetainPtr<CGDataProviderRef> provider = adoptCF(CGDataProviderCreateDirect(info, byteLength, &providerCallbacks));
-
-    return adoptCF(CGImageCreate(width, height, 8, 32, bytesPerRow, sRGBColorSpaceRef(), bitmapInfo, provider.get(), nullptr, false, kCGRenderingIntentDefault));
+    return createImageFrom32BGRAPixelBuffer(WTF::move(buffer), colorSpace.get());
 }
 
 }

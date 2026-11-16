@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -38,11 +38,13 @@
 #include "VMInlines.h"
 #include <wtf/CommaPrinter.h>
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC { namespace DFG {
 
 void OSREntryData::dumpInContext(PrintStream& out, DumpContext* context) const
 {
-    out.print(m_bytecodeIndex, ", machine code = ", RawPointer(m_machineCode.executableAddress()));
+    out.print(m_bytecodeIndex, ", machine code = ", RawPointer(m_machineCode.taggedPtr()));
     out.print(", stack rules = [");
     
     auto printOperand = [&] (VirtualRegister reg) {
@@ -75,15 +77,15 @@ void OSREntryData::dumpInContext(PrintStream& out, DumpContext* context) const
     
     CommaPrinter comma;
     for (size_t argumentIndex = m_expectedValues.numberOfArguments(); argumentIndex--;) {
-        out.print(comma, "arg", argumentIndex, ":");
+        out.print(comma, "arg"_s, argumentIndex, ":"_s);
         printOperand(virtualRegisterForArgumentIncludingThis(argumentIndex));
     }
     for (size_t localIndex = 0; localIndex < m_expectedValues.numberOfLocals(); ++localIndex) {
-        out.print(comma, "loc", localIndex, ":");
+        out.print(comma, "loc"_s, localIndex, ":"_s);
         printOperand(virtualRegisterForLocal(localIndex));
     }
     
-    out.print("], machine stack used = ", m_machineStackUsed);
+    out.print("], machine stack used = "_s, m_machineStackUsed);
 }
 
 void OSREntryData::dump(PrintStream& out) const
@@ -94,11 +96,11 @@ void OSREntryData::dump(PrintStream& out) const
 SUPPRESS_ASAN
 void* prepareOSREntry(VM& vm, CallFrame* callFrame, CodeBlock* codeBlock, BytecodeIndex bytecodeIndex)
 {
-    ASSERT(JITCode::isOptimizingJIT(codeBlock->jitType()));
+    ASSERT(JSC::JITCode::isOptimizingJIT(codeBlock->jitType()));
     ASSERT(codeBlock->alternative());
     ASSERT(codeBlock->alternative()->jitType() == JITType::BaselineJIT);
-    ASSERT(!codeBlock->jitCodeMap());
-    ASSERT(codeBlock->jitCode()->dfgCommon()->isStillValid);
+    ASSERT(codeBlock->jitCode()->dfgCommon()->isStillValid());
+    ASSERT(!codeBlock->isJettisoned());
 
     if (!Options::useOSREntryToDFG())
         return nullptr;
@@ -171,12 +173,7 @@ void* prepareOSREntry(VM& vm, CallFrame* callFrame, CodeBlock* codeBlock, Byteco
     //    OSR at this time.
     
     for (size_t argument = 0; argument < entry->m_expectedValues.numberOfArguments(); ++argument) {
-        JSValue value;
-        if (!argument)
-            value = callFrame->thisValue();
-        else
-            value = callFrame->argument(argument - 1);
-        
+        JSValue value = callFrame->r(virtualRegisterForArgumentIncludingThis(argument)).asanUnsafeJSValue();
         if (!entry->m_expectedValues.argument(argument).validateOSREntryValue(value, FlushedJSValue)) {
             dataLogLnIf(Options::verboseOSR(),
                 "    OSR failed because argument ", argument, " is ", value,
@@ -188,36 +185,36 @@ void* prepareOSREntry(VM& vm, CallFrame* callFrame, CodeBlock* codeBlock, Byteco
     for (size_t local = 0; local < entry->m_expectedValues.numberOfLocals(); ++local) {
         int localOffset = virtualRegisterForLocal(local).offset();
         JSValue value = callFrame->registers()[localOffset].asanUnsafeJSValue();
+        auto& abstractValue = entry->m_expectedValues.local(local);
         FlushFormat format = FlushedJSValue;
 
         if (entry->m_localsForcedAnyInt.get(local)) {
             if (!value.isAnyInt()) {
-                dataLogLnIf(Options::verboseOSR(),
-                    "    OSR failed because variable ", localOffset, " is ",
-                    value, ", expected ",
-                    "machine int.");
+                dataLogLnIf(Options::verboseOSR(), "    OSR failed because variable ", localOffset, " is ", value, ", expected machine int.");
                 return nullptr;
             }
             value = jsDoubleNumber(value.asAnyInt());
             format = FlushedInt52;
-        }
-
-        if (entry->m_localsForcedDouble.get(local)) {
+        } else if (entry->m_localsForcedDouble.get(local)) {
             if (!value.isNumber()) {
-                dataLogLnIf(Options::verboseOSR(),
-                    "    OSR failed because variable ", localOffset, " is ",
-                    value, ", expected number.");
+                dataLogLnIf(Options::verboseOSR(), "    OSR failed because variable ", localOffset, " is ", value, ", expected number.");
                 return nullptr;
             }
             value = jsDoubleNumber(value.asNumber());
             format = FlushedDouble;
+        } else {
+            if (value.isDouble() && abstractValue.isType(SpecInt32Only)) {
+                if (!value.isInt32AsAnyInt()) {
+                    dataLogLnIf(Options::verboseOSR(), "    OSR failed because variable ", localOffset, " is ", value, ", expected int32.");
+                    return nullptr;
+                }
+                value = jsNumber(value.asInt32AsAnyInt());
+            }
         }
 
-        if (!entry->m_expectedValues.local(local).validateOSREntryValue(value, format)) {
+        if (!abstractValue.validateOSREntryValue(value, format)) {
             dataLogLnIf(Options::verboseOSR(),
-                "    OSR failed because variable ", VirtualRegister(localOffset), " is ",
-                value, ", expected ",
-                entry->m_expectedValues.local(local), ".");
+                "    OSR failed because variable ", VirtualRegister(localOffset), " is ", value, ", with format ", format, ", expected ", entry->m_expectedValues.local(local), ".");
             return nullptr;
         }
     }
@@ -230,7 +227,7 @@ void* prepareOSREntry(VM& vm, CallFrame* callFrame, CodeBlock* codeBlock, Byteco
     //    would have otherwise just kept running albeit less quickly.
     
     unsigned frameSizeForCheck = jitCode->common.requiredRegisterCountForExecutionAndExit();
-    if (UNLIKELY(!vm.ensureStackCapacityFor(&callFrame->registers()[virtualRegisterForLocal(frameSizeForCheck - 1).offset()]))) {
+    if (!vm.ensureJSStackCapacityFor(&callFrame->registers()[virtualRegisterForLocal(frameSizeForCheck - 1).offset()])) [[unlikely]] {
         dataLogLnIf(Options::verboseOSR(), "    OSR failed because stack growth failed.");
         return nullptr;
     }
@@ -248,34 +245,41 @@ void* prepareOSREntry(VM& vm, CallFrame* callFrame, CodeBlock* codeBlock, Byteco
     unsigned baselineFrameSize = entry->m_expectedValues.numberOfLocals();
     unsigned maxFrameSize = std::max(frameSize, baselineFrameSize);
 
-    Register* scratch = bitwise_cast<Register*>(vm.scratchBufferForSize(sizeof(Register) * (2 + CallFrame::headerSizeInRegisters + maxFrameSize))->dataBuffer());
+    Register* scratch = std::bit_cast<Register*>(vm.scratchBufferForSize(sizeof(Register) * (2 + CallFrame::headerSizeInRegisters + maxFrameSize))->dataBuffer());
     
-    *bitwise_cast<size_t*>(scratch + 0) = frameSize;
+    *std::bit_cast<size_t*>(scratch + 0) = frameSize;
     
-    void* targetPC = entry->m_machineCode.executableAddress();
-    RELEASE_ASSERT(codeBlock->jitCode()->contains(entry->m_machineCode.untaggedExecutableAddress()));
+    void* targetPC = entry->m_machineCode.taggedPtr();
+    RELEASE_ASSERT(codeBlock->jitCode()->contains(entry->m_machineCode.untaggedPtr()));
     dataLogLnIf(Options::verboseOSR(), "    OSR using target PC ", RawPointer(targetPC));
     RELEASE_ASSERT(targetPC);
-    *bitwise_cast<void**>(scratch + 1) = tagCodePtrWithStackPointerForJITCall(untagCodePtr<OSREntryPtrTag>(targetPC), callFrame);
+    *std::bit_cast<void**>(scratch + 1) = tagCodePtrWithStackPointerForJITCall(untagCodePtr<OSREntryPtrTag>(targetPC), callFrame);
 
     Register* pivot = scratch + 2 + CallFrame::headerSizeInRegisters;
     
     for (int index = -CallFrame::headerSizeInRegisters; index < static_cast<int>(baselineFrameSize); ++index) {
         VirtualRegister reg(-1 - index);
+        JSValue value = callFrame->registers()[reg.offset()].asanUnsafeJSValue();
         
         if (reg.isLocal()) {
             if (entry->m_localsForcedDouble.get(reg.toLocal())) {
-                *bitwise_cast<double*>(pivot + index) = callFrame->registers()[reg.offset()].asanUnsafeJSValue().asNumber();
+                *std::bit_cast<double*>(pivot + index) = value.asNumber();
                 continue;
             }
             
             if (entry->m_localsForcedAnyInt.get(reg.toLocal())) {
-                *bitwise_cast<int64_t*>(pivot + index) = callFrame->registers()[reg.offset()].asanUnsafeJSValue().asAnyInt() << JSValue::int52ShiftAmount;
+                *std::bit_cast<int64_t*>(pivot + index) = value.asAnyInt() << JSValue::int52ShiftAmount;
+                continue;
+            }
+
+            auto& abstractValue = entry->m_expectedValues.local(reg.toLocal());
+            if (value.isDouble() && abstractValue.isType(SpecInt32Only)) {
+                pivot[index] = jsNumber(value.asInt32AsAnyInt());
                 continue;
             }
         }
         
-        pivot[index] = callFrame->registers()[reg.offset()].asanUnsafeJSValue();
+        pivot[index] = value;
     }
     
     // 4) Reshuffle those registers that need reshuffling.
@@ -295,21 +299,22 @@ void* prepareOSREntry(VM& vm, CallFrame* callFrame, CodeBlock* codeBlock, Byteco
 
     // 6) Copy our callee saves to buffer.
 #if NUMBER_OF_CALLEE_SAVES_REGISTERS > 0
-    const RegisterAtOffsetList* registerSaveLocations = codeBlock->calleeSaveRegisters();
+    const RegisterAtOffsetList* registerSaveLocations = codeBlock->jitCode()->calleeSaveRegisters();
     RegisterAtOffsetList* allCalleeSaves = RegisterSet::vmCalleeSaveRegisterOffsets();
-    RegisterSet dontSaveRegisters = RegisterSet(RegisterSet::stackRegisters());
+    auto dontSaveRegisters = RegisterSet::stackRegisters();
 
-    unsigned registerCount = registerSaveLocations->size();
+    unsigned registerCount = registerSaveLocations->registerCount();
     VMEntryRecord* record = vmEntryRecord(vm.topEntryFrame);
     for (unsigned i = 0; i < registerCount; i++) {
         RegisterAtOffset currentEntry = registerSaveLocations->at(i);
-        if (dontSaveRegisters.get(currentEntry.reg()))
+        ASSERT(dontSaveRegisters.contains(currentEntry.reg(), IgnoreVectors) == dontSaveRegisters.contains(currentEntry.reg(), Width128));
+        if (dontSaveRegisters.contains(currentEntry.reg(), IgnoreVectors))
             continue;
         RELEASE_ASSERT(currentEntry.reg().isGPR());
         RegisterAtOffset* calleeSavesEntry = allCalleeSaves->find(currentEntry.reg());
         
         if constexpr (CallerFrameAndPC::sizeInRegisters == 2)
-            *(bitwise_cast<intptr_t*>(pivot - 1) - currentEntry.offsetAsIndex()) = record->calleeSaveRegistersBuffer[calleeSavesEntry->offsetAsIndex()];
+            *(std::bit_cast<intptr_t*>(pivot - 1) - currentEntry.offsetAsIndex()) = record->calleeSaveRegistersBuffer[calleeSavesEntry->offsetAsIndex()];
         else {
             // We need to adjust 4-bytes on 32-bits, otherwise we will clobber some parts of
             // pivot[-1] when currentEntry.offsetAsIndex() returns -1. This region contains
@@ -331,23 +336,24 @@ void* prepareOSREntry(VM& vm, CallFrame* callFrame, CodeBlock* codeBlock, Byteco
 
             int offsetAsIndex = currentEntry.offsetAsIndex();
             int properIndex = offsetAsIndex % 2 ? offsetAsIndex - 1 : offsetAsIndex + 1;
-            *(bitwise_cast<intptr_t*>(pivot - 1) + 1 - properIndex) = record->calleeSaveRegistersBuffer[calleeSavesEntry->offsetAsIndex()];
+            *(std::bit_cast<intptr_t*>(pivot - 1) + 1 - properIndex) = record->calleeSaveRegistersBuffer[calleeSavesEntry->offsetAsIndex()];
         }
     }
 #endif
-    
+
     // 7) Fix the call frame to have the right code block.
-    
-    *bitwise_cast<CodeBlock**>(pivot - (CallFrameSlot::codeBlock + 1)) = codeBlock;
+
+    *std::bit_cast<CodeBlock**>(pivot - (CallFrameSlot::codeBlock + 1)) = codeBlock;
     
     dataLogLnIf(Options::verboseOSR(), "    OSR returning data buffer ", RawPointer(scratch));
     return scratch;
 }
 
-MacroAssemblerCodePtr<ExceptionHandlerPtrTag> prepareCatchOSREntry(VM& vm, CallFrame* callFrame, CodeBlock* baselineCodeBlock, CodeBlock* optimizedCodeBlock, BytecodeIndex bytecodeIndex)
+CodePtr<ExceptionHandlerPtrTag> prepareCatchOSREntry(VM& vm, CallFrame* callFrame, CodeBlock* baselineCodeBlock, CodeBlock* optimizedCodeBlock, BytecodeIndex bytecodeIndex)
 {
     ASSERT(optimizedCodeBlock->jitType() == JITType::DFGJIT || optimizedCodeBlock->jitType() == JITType::FTLJIT);
-    ASSERT(optimizedCodeBlock->jitCode()->dfgCommon()->isStillValid);
+    ASSERT(optimizedCodeBlock->jitCode()->dfgCommon()->isStillValid());
+    ASSERT(!optimizedCodeBlock->isJettisoned());
 
     if (!Options::useOSREntryToDFG() && optimizedCodeBlock->jitCode()->jitType() == JITType::DFGJIT)
         return nullptr;
@@ -392,7 +398,7 @@ MacroAssemblerCodePtr<ExceptionHandlerPtrTag> prepareCatchOSREntry(VM& vm, CallF
     }
 
     unsigned frameSizeForCheck = dfgCommon->requiredRegisterCountForExecutionAndExit();
-    if (UNLIKELY(!vm.ensureStackCapacityFor(&callFrame->registers()[virtualRegisterForLocal(frameSizeForCheck).offset()])))
+    if (!vm.ensureJSStackCapacityFor(&callFrame->registers()[virtualRegisterForLocal(frameSizeForCheck).offset()])) [[unlikely]]
         return nullptr;
 
     auto instruction = baselineCodeBlock->instructions().at(callFrame->bytecodeIndex());
@@ -409,9 +415,16 @@ MacroAssemblerCodePtr<ExceptionHandlerPtrTag> prepareCatchOSREntry(VM& vm, CallF
 
     // The active length of catchOSREntryBuffer will be zeroed by ClearCatchLocals node.
     dfgCommon->catchOSREntryBuffer->setActiveLength(sizeof(JSValue) * index);
+    vm.requestEntryScopeService(VM::EntryScopeService::ClearScratchBuffers);
+
+    // At this point, we're committed to triggering an OSR entry immediately after we return. Hence, it is safe to modify stack here.
+    callFrame->setCodeBlock(optimizedCodeBlock);
+
     return catchEntrypoint->machineCode;
 }
 
 } } // namespace JSC::DFG
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 #endif // ENABLE(DFG_JIT)

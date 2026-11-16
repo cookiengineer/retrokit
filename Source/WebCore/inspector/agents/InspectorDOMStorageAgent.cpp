@@ -32,12 +32,13 @@
 #include "InspectorDOMStorageAgent.h"
 
 #include "DOMException.h"
-#include "DOMWindow.h"
 #include "Database.h"
 #include "Document.h"
-#include "Frame.h"
-#include "InspectorPageAgent.h"
+#include "InspectorResourceUtilities.h"
 #include "InstrumentingAgents.h"
+#include "LocalDOMWindow.h"
+#include "LocalFrame.h"
+#include "LocalFrameInlines.h"
 #include "Page.h"
 #include "SecurityOrigin.h"
 #include "SecurityOriginData.h"
@@ -48,15 +49,18 @@
 #include "VoidCallback.h"
 #include <JavaScriptCore/InspectorFrontendDispatchers.h>
 #include <wtf/JSONValues.h>
+#include <wtf/TZoneMallocInlines.h>
 
 
 namespace WebCore {
 
 using namespace Inspector;
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(InspectorDOMStorageAgent);
+
 InspectorDOMStorageAgent::InspectorDOMStorageAgent(PageAgentContext& context)
     : InspectorAgentBase("DOMStorage"_s, context)
-    , m_frontendDispatcher(makeUnique<Inspector::DOMStorageFrontendDispatcher>(context.frontendRouter))
+    , m_frontendDispatcher(makeUniqueRef<Inspector::DOMStorageFrontendDispatcher>(context.frontendRouter))
     , m_backendDispatcher(Inspector::DOMStorageBackendDispatcher::create(context.backendDispatcher, this))
     , m_inspectedPage(context.inspectedPage)
 {
@@ -64,41 +68,43 @@ InspectorDOMStorageAgent::InspectorDOMStorageAgent(PageAgentContext& context)
 
 InspectorDOMStorageAgent::~InspectorDOMStorageAgent() = default;
 
-void InspectorDOMStorageAgent::didCreateFrontendAndBackend(Inspector::FrontendRouter*, Inspector::BackendDispatcher*)
+void InspectorDOMStorageAgent::didCreateFrontendAndBackend()
 {
 }
 
 void InspectorDOMStorageAgent::willDestroyFrontendAndBackend(Inspector::DisconnectReason)
 {
-    disable();
+    std::ignore = disable();
 }
 
-Protocol::ErrorStringOr<void> InspectorDOMStorageAgent::enable()
+Inspector::Protocol::ErrorStringOr<void> InspectorDOMStorageAgent::enable()
 {
-    if (m_instrumentingAgents.enabledDOMStorageAgent() == this)
+    Ref agents = m_instrumentingAgents.get();
+    if (agents->enabledDOMStorageAgent() == this)
         return makeUnexpected("DOMStorage domain already enabled"_s);
 
-    m_instrumentingAgents.setEnabledDOMStorageAgent(this);
+    agents->setEnabledDOMStorageAgent(this);
 
     return { };
 }
 
-Protocol::ErrorStringOr<void> InspectorDOMStorageAgent::disable()
+Inspector::Protocol::ErrorStringOr<void> InspectorDOMStorageAgent::disable()
 {
-    if (m_instrumentingAgents.enabledDOMStorageAgent() != this)
+    Ref agents = m_instrumentingAgents.get();
+    if (agents->enabledDOMStorageAgent() != this)
         return makeUnexpected("DOMStorage domain already disabled"_s);
 
-    m_instrumentingAgents.setEnabledDOMStorageAgent(nullptr);
+    agents->setEnabledDOMStorageAgent(nullptr);
 
     return { };
 }
 
-Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Protocol::DOMStorage::Item>>> InspectorDOMStorageAgent::getDOMStorageItems(Ref<JSON::Object>&& storageId)
+Inspector::Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Inspector::Protocol::DOMStorage::Item>>> InspectorDOMStorageAgent::getDOMStorageItems(Ref<JSON::Object>&& storageId)
 {
-    Protocol::ErrorString errorString;
+    Inspector::Protocol::ErrorString errorString;
 
-    Frame* frame;
-    RefPtr<StorageArea> storageArea = findStorageArea(errorString, WTFMove(storageId), frame);
+    LocalFrame* frame;
+    RefPtr<StorageArea> storageArea = findStorageArea(errorString, WTF::move(storageId), frame);
     if (!storageArea)
         return makeUnexpected(errorString);
 
@@ -110,112 +116,113 @@ Protocol::ErrorStringOr<Ref<JSON::ArrayOf<Protocol::DOMStorage::Item>>> Inspecto
         auto entry = JSON::ArrayOf<String>::create();
         entry->addItem(key);
         entry->addItem(value);
-        storageItems->addItem(WTFMove(entry));
+        storageItems->addItem(WTF::move(entry));
     }
     return storageItems;
 }
 
-Protocol::ErrorStringOr<void> InspectorDOMStorageAgent::setDOMStorageItem(Ref<JSON::Object>&& storageId, const String& key, const String& value)
+Inspector::Protocol::ErrorStringOr<void> InspectorDOMStorageAgent::setDOMStorageItem(Ref<JSON::Object>&& storageId, const String& key, const String& value)
 {
-    Protocol::ErrorString errorString;
+    Inspector::Protocol::ErrorString errorString;
 
-    Frame* frame;
-    RefPtr<StorageArea> storageArea = findStorageArea(errorString, WTFMove(storageId), frame);
+    LocalFrame* frame;
+    RefPtr<StorageArea> storageArea = findStorageArea(errorString, WTF::move(storageId), frame);
     if (!storageArea)
         return makeUnexpected(errorString);
 
     bool quotaException = false;
-    storageArea->setItem(frame, key, value, quotaException);
+    storageArea->setItem(*frame, key, value, quotaException);
     if (quotaException)
-        return makeUnexpected(DOMException::name(QuotaExceededError));
+        return makeUnexpected(DOMException::name(ExceptionCode::QuotaExceededError));
 
     return { };
 }
 
-Protocol::ErrorStringOr<void> InspectorDOMStorageAgent::removeDOMStorageItem(Ref<JSON::Object>&& storageId, const String& key)
+Inspector::Protocol::ErrorStringOr<void> InspectorDOMStorageAgent::removeDOMStorageItem(Ref<JSON::Object>&& storageId, const String& key)
 {
-    Protocol::ErrorString errorString;
+    Inspector::Protocol::ErrorString errorString;
 
-    Frame* frame;
-    RefPtr<StorageArea> storageArea = findStorageArea(errorString, WTFMove(storageId), frame);
+    LocalFrame* frame;
+    RefPtr<StorageArea> storageArea = findStorageArea(errorString, WTF::move(storageId), frame);
     if (!storageArea)
         return makeUnexpected(errorString);
 
-    storageArea->removeItem(frame, key);
+    storageArea->removeItem(*frame, key);
 
     return { };
 }
 
-Protocol::ErrorStringOr<void> InspectorDOMStorageAgent::clearDOMStorageItems(Ref<JSON::Object>&& storageId)
+Inspector::Protocol::ErrorStringOr<void> InspectorDOMStorageAgent::clearDOMStorageItems(Ref<JSON::Object>&& storageId)
 {
-    Protocol::ErrorString errorString;
+    Inspector::Protocol::ErrorString errorString;
 
-    Frame* frame;
-    auto storageArea = findStorageArea(errorString, WTFMove(storageId), frame);
+    LocalFrame* frame;
+    auto storageArea = findStorageArea(errorString, WTF::move(storageId), frame);
     if (!storageArea)
         return makeUnexpected(errorString);
 
-    storageArea->clear(frame);
+    storageArea->clear(*frame);
 
     return { };
 }
 
 String InspectorDOMStorageAgent::storageId(Storage& storage)
 {
-    Document* document = storage.frame()->document();
+    RefPtr document = storage.frame()->document();
     ASSERT(document);
-    DOMWindow* window = document->domWindow();
+    RefPtr window = document->window();
     ASSERT(window);
-    Ref<SecurityOrigin> securityOrigin = document->securityOrigin();
+    Ref securityOrigin = document->securityOrigin();
     bool isLocalStorage = window->optionalLocalStorage() == &storage;
-    return InspectorDOMStorageAgent::storageId(securityOrigin.ptr(), isLocalStorage)->toJSONString();
+    return InspectorDOMStorageAgent::storageId(securityOrigin, isLocalStorage)->toJSONString();
 }
 
-Ref<Protocol::DOMStorage::StorageId> InspectorDOMStorageAgent::storageId(SecurityOrigin* securityOrigin, bool isLocalStorage)
+Ref<Inspector::Protocol::DOMStorage::StorageId> InspectorDOMStorageAgent::storageId(const SecurityOrigin& securityOrigin, bool isLocalStorage)
 {
-    return Protocol::DOMStorage::StorageId::create()
-        .setSecurityOrigin(securityOrigin->toRawString())
+    return Inspector::Protocol::DOMStorage::StorageId::create()
+        .setSecurityOrigin(securityOrigin.toRawString())
         .setIsLocalStorage(isLocalStorage)
         .release();
 }
 
-void InspectorDOMStorageAgent::didDispatchDOMStorageEvent(const String& key, const String& oldValue, const String& newValue, StorageType storageType, SecurityOrigin* securityOrigin)
+void InspectorDOMStorageAgent::didDispatchDOMStorageEvent(const String& key, const String& oldValue, const String& newValue, StorageType storageType, const SecurityOrigin& securityOrigin)
 {
     auto id = InspectorDOMStorageAgent::storageId(securityOrigin, storageType == StorageType::Local);
 
     if (key.isNull())
-        m_frontendDispatcher->domStorageItemsCleared(WTFMove(id));
+        m_frontendDispatcher->domStorageItemsCleared(WTF::move(id));
     else if (newValue.isNull())
-        m_frontendDispatcher->domStorageItemRemoved(WTFMove(id), key);
+        m_frontendDispatcher->domStorageItemRemoved(WTF::move(id), key);
     else if (oldValue.isNull())
-        m_frontendDispatcher->domStorageItemAdded(WTFMove(id), key, newValue);
+        m_frontendDispatcher->domStorageItemAdded(WTF::move(id), key, newValue);
     else
-        m_frontendDispatcher->domStorageItemUpdated(WTFMove(id), key, oldValue, newValue);
+        m_frontendDispatcher->domStorageItemUpdated(WTF::move(id), key, oldValue, newValue);
 }
 
-RefPtr<StorageArea> InspectorDOMStorageAgent::findStorageArea(Protocol::ErrorString& errorString, Ref<JSON::Object>&& storageId, Frame*& targetFrame)
+RefPtr<StorageArea> InspectorDOMStorageAgent::findStorageArea(Inspector::Protocol::ErrorString& errorString, Ref<JSON::Object>&& storageId, LocalFrame*& targetFrame)
 {
-    auto securityOrigin = storageId->getString(Protocol::DOMStorage::StorageId::securityOriginKey);
+    auto securityOrigin = storageId->getString("securityOrigin"_s);
     if (!securityOrigin) {
-        errorString = "Missing securityOrigin in given storageId";
+        errorString = "Missing securityOrigin in given storageId"_s;
         return nullptr;
     }
 
-    auto isLocalStorage = storageId->getBoolean(Protocol::DOMStorage::StorageId::isLocalStorageKey);
+    auto isLocalStorage = storageId->getBoolean("isLocalStorage"_s);
     if (!isLocalStorage) {
-        errorString = "Missing isLocalStorage in given storageId";
+        errorString = "Missing isLocalStorage in given storageId"_s;
         return nullptr;
     }
 
-    targetFrame = InspectorPageAgent::findFrameWithSecurityOrigin(m_inspectedPage, securityOrigin);
+    targetFrame = ResourceUtilities::findFrameWithSecurityOrigin(m_inspectedPage, securityOrigin);
     if (!targetFrame) {
         errorString = "Missing frame for given securityOrigin"_s;
         return nullptr;
     }
 
+    Ref document = *targetFrame->document();
     if (!*isLocalStorage)
-        return m_inspectedPage.sessionStorage()->storageArea(targetFrame->document()->securityOrigin().data());
-    return m_inspectedPage.storageNamespaceProvider().localStorageArea(*targetFrame->document());
+        return m_inspectedPage->storageNamespaceProvider().sessionStorageArea(document);
+    return m_inspectedPage->storageNamespaceProvider().localStorageArea(document);
 }
 
 } // namespace WebCore

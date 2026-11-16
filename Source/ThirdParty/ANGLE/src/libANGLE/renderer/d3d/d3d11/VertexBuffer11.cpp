@@ -7,7 +7,11 @@
 // VertexBuffer11.cpp: Defines the D3D11 VertexBuffer implementation.
 
 #include "libANGLE/renderer/d3d/d3d11/VertexBuffer11.h"
+#include "common/unsafe_buffers.h"
 
+#include <cstddef>
+
+#include "common/mathutil.h"
 #include "libANGLE/Buffer.h"
 #include "libANGLE/Context.h"
 #include "libANGLE/VertexAttribute.h"
@@ -39,6 +43,7 @@ angle::Result VertexBuffer11::initialize(const gl::Context *context,
                                          bool dynamicUsage)
 {
     mBuffer.reset();
+    mBufferSize = 0;
     updateSerial();
 
     if (size > 0)
@@ -55,11 +60,11 @@ angle::Result VertexBuffer11::initialize(const gl::Context *context,
 
         if (dynamicUsage)
         {
-            mBuffer.setDebugName("VertexBuffer11 (dynamic)");
+            mBuffer.setInternalName("VertexBuffer11(dynamic)");
         }
         else
         {
-            mBuffer.setDebugName("VertexBuffer11 (static)");
+            mBuffer.setInternalName("VertexBuffer11(static)");
         }
     }
 
@@ -99,7 +104,7 @@ angle::Result VertexBuffer11::storeVertexAttributes(const gl::Context *context,
                                                     const gl::VertexAttribute &attrib,
                                                     const gl::VertexBinding &binding,
                                                     gl::VertexAttribType currentValueType,
-                                                    GLint start,
+                                                    size_t start,
                                                     size_t count,
                                                     GLsizei instances,
                                                     unsigned int offset,
@@ -107,25 +112,42 @@ angle::Result VertexBuffer11::storeVertexAttributes(const gl::Context *context,
 {
     ASSERT(mBuffer.valid());
 
-    int inputStride = static_cast<int>(ComputeVertexAttributeStride(attrib, binding));
+    size_t inputStride = ComputeVertexAttributeStride(attrib, binding);
 
     // This will map the resource if it isn't already mapped.
     ANGLE_TRY(mapResource(context));
 
-    uint8_t *output = mMappedResourceData + offset;
+    angle::CheckedNumeric<ptrdiff_t> checkedOffset(static_cast<ptrdiff_t>(offset));
+    ANGLE_CHECK_GL_MATH(GetImplAs<Context11>(context), checkedOffset.IsValid());
+
+    uint8_t *output =
+        ANGLE_UNSAFE_TODO(mMappedResourceData + static_cast<ptrdiff_t>(checkedOffset.ValueOrDie()));
 
     const uint8_t *input = sourceData;
 
     if (instances == 0 || binding.getDivisor() == 0)
     {
-        input += inputStride * start;
+        angle::CheckedNumeric<ptrdiff_t> checkedInputOffset(static_cast<ptrdiff_t>(start));
+        checkedInputOffset *= static_cast<ptrdiff_t>(inputStride);
+        ANGLE_CHECK_GL_MATH(GetImplAs<Context11>(context), checkedInputOffset.IsValid());
+        ANGLE_UNSAFE_TODO(input += static_cast<ptrdiff_t>(checkedInputOffset.ValueOrDie()));
     }
 
     angle::FormatID vertexFormatID       = gl::GetVertexFormatID(attrib, currentValueType);
     const D3D_FEATURE_LEVEL featureLevel = mRenderer->getRenderer11DeviceCaps().featureLevel;
     const d3d11::VertexFormat &vertexFormatInfo =
         d3d11::GetVertexFormatInfo(vertexFormatID, featureLevel);
-    ASSERT(vertexFormatInfo.copyFunction != nullptr);
+    const d3d11::DXGIFormatSize &dxgiFormatInfo =
+        d3d11::GetDXGIFormatSizeInfo(vertexFormatInfo.nativeFormat);
+    unsigned int elementSize = dxgiFormatInfo.pixelBytes;
+
+    angle::CheckedNumeric<size_t> checkedSpaceRequired = count;
+    checkedSpaceRequired *= elementSize;
+    checkedSpaceRequired += offset;
+    ANGLE_CHECK_GL_ALLOC(
+        GetImplAs<Context11>(context),
+        checkedSpaceRequired.IsValid() && checkedSpaceRequired.ValueOrDie() <= mBufferSize);
+
     vertexFormatInfo.copyFunction(input, inputStride, count, output);
 
     return angle::Result::Continue;

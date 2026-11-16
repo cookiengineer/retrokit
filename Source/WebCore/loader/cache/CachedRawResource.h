@@ -2,7 +2,7 @@
     Copyright (C) 1998 Lars Knoll (knoll@mpi-hd.mpg.de)
     Copyright (C) 2001 Dirk Mueller <mueller@kde.org>
     Copyright (C) 2006 Samuel Weinig (sam.weinig@gmail.com)
-    Copyright (C) 2004, 2005, 2006, 2007 Apple Inc. All rights reserved.
+    Copyright (C) 2004-2025 Apple Inc. All rights reserved.
 
     This library is free software; you can redistribute it and/or
     modify it under the terms of the GNU Library General Public
@@ -22,12 +22,13 @@
 
 #pragma once
 
-#include "CachedResource.h"
+#include <WebCore/CachedResource.h>
 
 namespace WebCore {
 
 class CachedResourceClient;
 class ResourceTiming;
+class SharedBuffer;
 class SharedBufferDataView;
 
 class CachedRawResource final : public CachedResource {
@@ -36,10 +37,10 @@ public:
 
     void setDefersLoading(bool);
 
-    void setDataBufferingPolicy(DataBufferingPolicy);
+    void NODELETE setDataBufferingPolicy(DataBufferingPolicy);
 
     // FIXME: This is exposed for the InspectorInstrumentation for preflights in DocumentThreadableLoader. It's also really lame.
-    unsigned long identifier() const { return m_identifier; }
+    std::optional<ResourceLoaderIdentifier> resourceLoaderIdentifier() const { return m_resourceLoaderIdentifier; }
 
     void clear();
 
@@ -51,31 +52,29 @@ public:
 
 private:
     void didAddClient(CachedResourceClient&) final;
-    void updateBuffer(SharedBuffer&) final;
-    void updateData(const uint8_t* data, unsigned length) final;
-    void finishLoading(SharedBuffer*, const NetworkLoadMetrics&) final;
+    void updateBuffer(const FragmentedSharedBuffer&) final;
+    void updateData(const SharedBuffer&) final;
+    void finishLoading(const FragmentedSharedBuffer*, const NetworkLoadMetrics&) final;
 
     bool shouldIgnoreHTTPStatusCodeErrors() const override { return true; }
     void allClientsRemoved() override;
 
     void redirectReceived(ResourceRequest&&, const ResourceResponse&, CompletionHandler<void(ResourceRequest&&)>&&) override;
-    void responseReceived(const ResourceResponse&) override;
+    void responseReceived(ResourceResponse&&) override;
     bool shouldCacheResponse(const ResourceResponse&) override;
     void didSendData(unsigned long long bytesSent, unsigned long long totalBytesToBeSent) override;
 
     void switchClientsToRevalidatedResource() override;
     bool mayTryReplaceEncodedData() const override { return m_allowEncodedDataReplacement; }
 
-    std::optional<SharedBufferDataView> calculateIncrementalDataChunk(const SharedBuffer*) const;
-    void notifyClientsDataWasReceived(const uint8_t* data, unsigned length);
+    std::optional<SharedBufferDataView> calculateIncrementalDataChunk(const FragmentedSharedBuffer&) const;
+    void notifyClientsDataWasReceived(const SharedBuffer&);
     
 #if USE(QUICK_LOOK)
-    void previewResponseReceived(const ResourceResponse&) final;
+    void previewResponseReceived(ResourceResponse&&) final;
 #endif
 
-    unsigned long m_identifier;
-    bool m_allowEncodedDataReplacement;
-    bool m_inIncrementalDataNotify { false };
+    Markable<ResourceLoaderIdentifier> m_resourceLoaderIdentifier;
 
     struct RedirectPair {
     public:
@@ -92,9 +91,12 @@ private:
     Vector<RedirectPair, 0, CrashOnOverflow, 0> m_redirectChain;
 
     struct DelayedFinishLoading {
-        RefPtr<SharedBuffer> buffer;
+        RefPtr<const FragmentedSharedBuffer> buffer;
     };
     std::optional<DelayedFinishLoading> m_delayedFinishLoading;
+
+    bool m_allowEncodedDataReplacement { true };
+    bool m_inIncrementalDataNotify { false };
 };
 
 } // namespace WebCore

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,6 +28,10 @@
 
 #if ENABLE(WEB_AUTHN)
 
+#include "AuthenticatorCoordinator.h"
+#include "DocumentPage.h"
+#include "JSDOMPromiseDeferred.h"
+
 namespace WebCore {
 
 BasicCredential::BasicCredential(const String& id, Type type, Discovery discovery)
@@ -42,12 +46,23 @@ BasicCredential::~BasicCredential() = default;
 String BasicCredential::type() const
 {
     switch (m_type) {
+    case Type::DigitalCredential:
+        return "digital"_s;
+
     case Type::PublicKey:
         return "public-key"_s;
     }
 
     ASSERT_NOT_REACHED();
     return emptyString();
+}
+
+void BasicCredential::isConditionalMediationAvailable(Document& document, DOMPromiseDeferred<IDLBoolean>&& promise)
+{
+    if (RefPtr page = document.page())
+        page->authenticatorCoordinator().isConditionalMediationAvailable(document, WTF::move(promise));
+    else
+        promise.reject(Exception { ExceptionCode::InvalidStateError });
 }
 
 } // namespace WebCore

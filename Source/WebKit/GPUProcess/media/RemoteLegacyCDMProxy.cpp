@@ -36,61 +36,63 @@ namespace WebKit {
 
 using namespace WebCore;
 
-std::unique_ptr<RemoteLegacyCDMProxy> RemoteLegacyCDMProxy::create(WeakPtr<RemoteLegacyCDMFactoryProxy> factory, MediaPlayerIdentifier&& playerId, std::unique_ptr<WebCore::LegacyCDM>&& cdm)
+Ref<RemoteLegacyCDMProxy> RemoteLegacyCDMProxy::create(WeakPtr<RemoteLegacyCDMFactoryProxy> factory, std::optional<MediaPlayerIdentifier> playerId, Ref<WebCore::LegacyCDM>&& cdm)
 {
-    return std::unique_ptr<RemoteLegacyCDMProxy>(new RemoteLegacyCDMProxy(WTFMove(factory), WTFMove(playerId), WTFMove(cdm)));
+    return adoptRef(*new RemoteLegacyCDMProxy(WTF::move(factory), playerId, WTF::move(cdm)));
 }
 
-RemoteLegacyCDMProxy::RemoteLegacyCDMProxy(WeakPtr<RemoteLegacyCDMFactoryProxy>&& factory, MediaPlayerIdentifier&& playerId, std::unique_ptr<WebCore::LegacyCDM>&& cdm)
-    : m_factory(WTFMove(factory))
-    , m_playerId(WTFMove(playerId))
-    , m_cdm(WTFMove(cdm))
+RemoteLegacyCDMProxy::RemoteLegacyCDMProxy(WeakPtr<RemoteLegacyCDMFactoryProxy>&& factory, std::optional<MediaPlayerIdentifier> playerId, Ref<WebCore::LegacyCDM>&& cdm)
+    : m_factory(WTF::move(factory))
+    , m_playerId(playerId)
+    , m_cdm(WTF::move(cdm))
 {
     m_cdm->setClient(this);
 }
 
-RemoteLegacyCDMProxy::~RemoteLegacyCDMProxy() = default;
+RemoteLegacyCDMProxy::~RemoteLegacyCDMProxy()
+{
+    m_cdm->setClient(nullptr);
+}
 
 void RemoteLegacyCDMProxy::supportsMIMEType(const String& mimeType, SupportsMIMETypeCallback&& callback)
 {
-    if (!m_cdm) {
-        callback(false);
+    callback(protect(m_cdm)->supportsMIMEType(mimeType));
+}
+
+void RemoteLegacyCDMProxy::createSession(uint64_t logIdentifier, CreateSessionCallback&& callback)
+{
+    RefPtr factory = m_factory.get();
+    if (!factory) {
+        callback(std::nullopt);
         return;
     }
 
-    callback(m_cdm->supportsMIMEType(mimeType));
-}
-
-void RemoteLegacyCDMProxy::createSession(const String& keySystem, CreateSessionCallback&& callback)
-{
-    if (!m_cdm || !m_factory) {
-        callback({ });
-        return;
-    }
-
-    auto identifier = RemoteLegacyCDMSessionIdentifier::generate();
-    auto session = RemoteLegacyCDMSessionProxy::create(makeWeakPtr(m_factory.get()), identifier, *m_cdm);
-    m_factory->addSession(identifier, WTFMove(session));
-    callback(WTFMove(identifier));
-}
-
-void RemoteLegacyCDMProxy::setPlayerId(std::optional<MediaPlayerIdentifier>&& playerId)
-{
-    if (!playerId)
-        m_playerId = { };
-    m_playerId = WTFMove(*playerId);
+    auto sessionIdentifier = RemoteLegacyCDMSessionIdentifier::generate();
+    Ref session = RemoteLegacyCDMSessionProxy::create(*factory, logIdentifier, sessionIdentifier, protect(m_cdm));
+    factory->addSession(sessionIdentifier, WTF::move(session));
+    callback(WTF::move(sessionIdentifier));
 }
 
 RefPtr<MediaPlayer> RemoteLegacyCDMProxy::cdmMediaPlayer(const LegacyCDM*) const
 {
-    if (!m_playerId || !m_factory)
+    RefPtr factory = m_factory.get();
+    if (!m_playerId || !factory)
         return nullptr;
 
-    auto* gpuConnectionToWebProcess = m_factory->gpuConnectionToWebProcess();
+    RefPtr gpuConnectionToWebProcess = factory->gpuConnectionToWebProcess();
     if (!gpuConnectionToWebProcess)
         return nullptr;
 
-    return gpuConnectionToWebProcess->remoteMediaPlayerManagerProxy().mediaPlayer(m_playerId);
+    return protect(gpuConnectionToWebProcess->remoteMediaPlayerManagerProxy())->mediaPlayer(*m_playerId);
+}
+
+std::optional<SharedPreferencesForWebProcess> RemoteLegacyCDMProxy::sharedPreferencesForWebProcess() const
+{
+    auto* factory = m_factory.get();
+    if (!factory)
+        return std::nullopt;
+
+    return factory->sharedPreferencesForWebProcess();
 }
 
 }

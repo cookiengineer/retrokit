@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,27 +25,34 @@
 
 #pragma once
 
-#include "CryptoAlgorithmParameters.h"
 #include <JavaScriptCore/Uint8Array.h>
+#include <WebCore/CryptoAlgorithmParameters.h>
+#include <WebCore/CryptoAlgorithmRsaKeyGenParamsInit.h>
 #include <wtf/Vector.h>
-
-#if ENABLE(WEB_CRYPTO)
 
 namespace WebCore {
 
 class CryptoAlgorithmRsaKeyGenParams : public CryptoAlgorithmParameters {
+    WTF_MAKE_TZONE_ALLOCATED(CryptoAlgorithmRsaKeyGenParams);
 public:
     size_t modulusLength;
     RefPtr<Uint8Array> publicExponent;
 
+    CryptoAlgorithmRsaKeyGenParams(CryptoAlgorithmIdentifier identifier, CryptoAlgorithmRsaKeyGenParamsInit init)
+        : CryptoAlgorithmParameters { WTF::move(identifier), WTF::move(init) }
+        , modulusLength { WTF::move(init.modulusLength) }
+        , publicExponent { WTF::move(init.publicExponent) }
+    {
+    }
+
     Class parametersClass() const override { return Class::RsaKeyGenParams; }
 
-    const Vector<uint8_t>& publicExponentVector() const
+    const Vector<uint8_t>& publicExponentVector() const LIFETIME_BOUND
     {
         if (!m_publicExponentVector.isEmpty() || !publicExponent->byteLength())
             return m_publicExponentVector;
 
-        m_publicExponentVector.append(publicExponent->data(), publicExponent->byteLength());
+        m_publicExponentVector.append(publicExponent->span());
         return m_publicExponentVector;
     }
 private:
@@ -55,5 +62,3 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_CRYPTO_ALGORITHM_PARAMETERS(RsaKeyGenParams)
-
-#endif // ENABLE(WEB_CRYPTO)

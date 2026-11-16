@@ -27,6 +27,7 @@
 
 #include <wtf/FastMalloc.h>
 #include <wtf/RefCounted.h>
+#include <wtf/RefPtr.h>
 
 namespace WebCore {
 
@@ -40,8 +41,8 @@ public:
 
 private:
     MallocStatistics()
+        : m_stats(WTF::fastMallocStatistics())
     {
-        m_stats = WTF::fastMallocStatistics();
     }
 
     WTF::FastMallocStatistics m_stats;

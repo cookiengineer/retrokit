@@ -48,18 +48,20 @@
 /* PLATFORM(WIN) */
 #if defined(BUILDING_GTK__)
 #define WTF_PLATFORM_GTK 1
+#elif defined(BUILDING_HAIKU__)
+#define WTF_PLATFORM_HAIKU 1
 #elif defined(BUILDING_WPE__)
 #define WTF_PLATFORM_WPE 1
 #elif defined(BUILDING_JSCONLY__)
 /* JSCOnly does not provide PLATFORM() macro */
-#elif OS(MAC_OS_X)
+#elif OS(MACOS)
 #define WTF_PLATFORM_MAC 1
 #elif OS(IOS_FAMILY)
 #if OS(IOS)
-/* PLATFORM(IOS) - iOS and iPadOS only (iPhone and iPad), not including macCatalyst, not including watchOS, not including tvOS */
+/* PLATFORM(IOS) - iOS and iPadOS only (iPhone and iPad), not including macCatalyst, not including watchOS, not including tvOS, not including visionOS */
 #define WTF_PLATFORM_IOS 1
 #endif
-/* PLATFORM(IOS_FAMILY) - iOS family, including iOS, iPadOS, macCatalyst, tvOS, watchOS */
+/* PLATFORM(IOS_FAMILY) - iOS family, including iOS, iPadOS, macCatalyst, tvOS, watchOS, visionOS */
 #define WTF_PLATFORM_IOS_FAMILY 1
 #if TARGET_OS_SIMULATOR
 #if OS(IOS)
@@ -87,4 +89,9 @@
 /* PLATFORM(WATCHOS) */
 #if defined(TARGET_OS_WATCH) && TARGET_OS_WATCH
 #define WTF_PLATFORM_WATCHOS 1
+#endif
+
+/* PLATFORM(VISION) */
+#if defined(TARGET_OS_VISION) && TARGET_OS_VISION
+#define WTF_PLATFORM_VISION 1
 #endif

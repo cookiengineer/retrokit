@@ -35,23 +35,27 @@ namespace WebCore {
 class MathMLRowElement;
 
 class RenderMathMLRow : public RenderMathMLBlock {
-    WTF_MAKE_ISO_ALLOCATED(RenderMathMLRow);
+    WTF_MAKE_TZONE_ALLOCATED(RenderMathMLRow);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderMathMLRow);
 public:
-    RenderMathMLRow(MathMLRowElement&, RenderStyle&&);
-    MathMLRowElement& element() const;
+    RenderMathMLRow(Type, MathMLRowElement&, Style::ComputedStyle&&);
+    MathMLRowElement& NODELETE element() const;
+    virtual ~RenderMathMLRow();
+
+    RenderMathMLOperator* unembellishedOperator() const override;
 
 protected:
-    void layoutBlock(bool relayoutChildren, LayoutUnit pageLogicalHeight = 0_lu) override;
+    void layoutBlock(RelayoutChildren, LayoutUnit pageLogicalHeight = 0_lu) override;
     std::optional<LayoutUnit> firstLineBaseline() const override;
 
     void stretchVerticalOperatorsAndLayoutChildren();
     void getContentBoundingBox(LayoutUnit& width, LayoutUnit& ascent, LayoutUnit& descent) const;
     void layoutRowItems(LayoutUnit width, LayoutUnit ascent);
-    void computePreferredLogicalWidths() override;
+    LayoutUnit preferredLogicalWidthOfRowItems();
+    void computeIntrinsicLogicalWidthContributions() override;
 
 private:
-    bool isRenderMathMLRow() const final { return true; }
-    const char* renderName() const override { return "RenderMathMLRow"; }
+    ASCIILiteral renderName() const override { return "RenderMathMLRow"_s; }
 };
 
 } // namespace WebCore

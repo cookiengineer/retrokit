@@ -26,8 +26,6 @@
 #ifndef PAS_LARGE_FREE_H
 #define PAS_LARGE_FREE_H
 
-#include "pas_alignment.h"
-#include "pas_allocation_result.h"
 #include "pas_large_free_heap_config.h"
 #include "pas_utils.h"
 

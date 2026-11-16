@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,35 +25,46 @@
 
 #pragma once
 
-#include "FloatRect.h"
-#include "LayoutRect.h"
-#include "LayoutUnit.h"
-#include "ScrollTypes.h"
-#include "StyleScrollSnapPoints.h"
+#include <WebCore/FloatRect.h>
+#include <WebCore/LayoutRect.h>
+#include <WebCore/LayoutUnit.h>
+#include <WebCore/NodeIdentifier.h>
+#include <WebCore/RenderStyleConstants.h>
+#include <WebCore/ScrollTypes.h>
 #include <utility>
 #include <wtf/Vector.h>
 
 namespace WebCore {
 
-class ScrollableArea;
+class Element;
 class RenderBox;
-class RenderStyle;
+class RenderElement;
+class ScrollableArea;
+struct ScrollAlignment;
+
+namespace Style {
+class ComputedStyle;
+}
 
 template <typename T>
 struct SnapOffset {
     T offset;
     ScrollSnapStop stop;
     bool hasSnapAreaLargerThanViewport;
-    Vector<size_t> snapAreaIndices;
+    bool isFocused;
+    bool isTarget;
+    Markable<NodeIdentifier> snapTargetID;
+    Vector<size_t, 1> snapAreaIndices;
 };
 
 template <typename UnitType, typename RectType>
 struct ScrollSnapOffsetsInfo {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED;
-    ScrollSnapStrictness strictness;
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(ScrollSnapOffsetsInfo);
+    std::optional<ScrollSnapStrictness> strictness { };
     Vector<SnapOffset<UnitType>> horizontalSnapOffsets;
     Vector<SnapOffset<UnitType>> verticalSnapOffsets;
     Vector<RectType> snapAreas;
+    Vector<NodeIdentifier> snapAreasIDs;
 
     bool isEqual(const ScrollSnapOffsetsInfo<UnitType, RectType>& other) const
     {
@@ -70,9 +81,15 @@ struct ScrollSnapOffsetsInfo {
         return axis == ScrollEventAxis::Vertical ? verticalSnapOffsets : horizontalSnapOffsets;
     }
 
+    // From https://drafts.csswg.org/css-scroll-snap-1/#snap-overflow: if a snap area is larger than
+    // the snapport in an axis, then any scroll position in which the snap area covers the snapport is
+    // a valid snap position in that axis. Returns true if any of the snap offset's areas is larger
+    // than the snapport and covers it at the given offset.
+    bool snapOffsetCoversSnapport(const SnapOffset<UnitType>&, ScrollEventAxis, UnitType axisOffset, UnitType viewportLength) const;
+
     template<typename OutputType> OutputType convertUnits(float deviceScaleFactor = 0.0) const;
     template<typename SizeType, typename PointType>
-    WEBCORE_EXPORT std::pair<UnitType, std::optional<unsigned>> closestSnapOffset(ScrollEventAxis, const SizeType& viewportSize, PointType scrollDestinationOffset, float velocity, std::optional<UnitType> originalPositionForDirectionalSnapping = std::nullopt) const;
+    WEBCORE_EXPORT std::pair<UnitType, std::optional<unsigned>> closestSnapOffset(ScrollEventAxis, const SizeType& viewportSize, PointType scrollDestinationOffset, float velocity, std::optional<UnitType> originalPositionForDirectionalSnapping = std::nullopt, ScrollSnapPointSelectionMethod = ScrollSnapPointSelectionMethod::Closest) const;
 };
 
 template<typename UnitType> inline bool operator==(const SnapOffset<UnitType>& a, const SnapOffset<UnitType>& b)
@@ -82,28 +99,34 @@ template<typename UnitType> inline bool operator==(const SnapOffset<UnitType>& a
 
 using LayoutScrollSnapOffsetsInfo = ScrollSnapOffsetsInfo<LayoutUnit, LayoutRect>;
 using FloatScrollSnapOffsetsInfo = ScrollSnapOffsetsInfo<float, FloatRect>;
+using FloatSnapOffset = SnapOffset<float>;
 
 template <> template <>
 LayoutScrollSnapOffsetsInfo FloatScrollSnapOffsetsInfo::convertUnits(float /* unusedScaleFactor */) const;
 template <> template <>
-WEBCORE_EXPORT std::pair<float, std::optional<unsigned>> FloatScrollSnapOffsetsInfo::closestSnapOffset(ScrollEventAxis, const FloatSize& viewportSize, FloatPoint scrollDestinationOffset, float velocity, std::optional<float> originalPositionForDirectionalSnapping) const;
+WEBCORE_EXPORT std::pair<float, std::optional<unsigned>> FloatScrollSnapOffsetsInfo::closestSnapOffset(ScrollEventAxis, const FloatSize& viewportSize, FloatPoint scrollDestinationOffset, float velocity, std::optional<float> originalPositionForDirectionalSnapping, ScrollSnapPointSelectionMethod) const;
 
 
 template <> template <>
 FloatScrollSnapOffsetsInfo LayoutScrollSnapOffsetsInfo::convertUnits(float deviceScaleFactor) const;
 template <> template <>
-WEBCORE_EXPORT std::pair<LayoutUnit, std::optional<unsigned>> LayoutScrollSnapOffsetsInfo::closestSnapOffset(ScrollEventAxis, const LayoutSize& viewportSize, LayoutPoint scrollDestinationOffset, float velocity, std::optional<LayoutUnit> originalPositionForDirectionalSnapping) const;
+WEBCORE_EXPORT std::pair<LayoutUnit, std::optional<unsigned>> LayoutScrollSnapOffsetsInfo::closestSnapOffset(ScrollEventAxis, const LayoutSize& viewportSize, LayoutPoint scrollDestinationOffset, float velocity, std::optional<LayoutUnit> originalPositionForDirectionalSnapping, ScrollSnapPointSelectionMethod) const;
 
-// Update the snap offsets for this scrollable area, given the RenderBox of the scroll container, the RenderStyle
+// Update the snap offsets for this scrollable area, given the RenderBox of the scroll container, the StyleComputedStyle
 // which defines the scroll-snap properties, and the viewport rectangle with the origin at the top left of
 // the scrolling container's border box.
-void updateSnapOffsetsForScrollableArea(ScrollableArea&, const RenderBox& scrollingElementBox, const RenderStyle& scrollingElementStyle, LayoutRect viewportRectInBorderBoxCoordinates, WritingMode, TextDirection);
+bool NODELETE mayHaveScrollSnappedBoxes(const RenderBox& scrollingElementBox);
+void updateSnapOffsetsForScrollableArea(ScrollableArea&, const RenderBox& scrollingElementBox, const Style::ComputedStyle& scrollingElementStyle, LayoutRect viewportRectInBorderBoxCoordinates, WritingMode, Element* focusedElement, Element* targetElement);
+// Adjust the scroll-into-view alignment of each axis to honor the target's scroll-snap-align. Only axes
+// without an author-specified alignment (adjustX / adjustY) are adjusted, per the CSSOM View rule that an
+// explicitly requested scrollIntoView() alignment must be used as-is.
+void adjustScrollAlignmentForScrollSnapAlign(const RenderElement&, ScrollAlignment* alignX, ScrollAlignment* alignY);
 
 template <typename T> WTF::TextStream& operator<<(WTF::TextStream& ts, SnapOffset<T> offset)
 {
-    ts << offset.offset;
+    ts << offset.offset << " snapTargetID: "_s <<  offset.snapTargetID << " isFocused: "_s << offset.isFocused << " isTarget: "_s << offset.isTarget << " snapAreaIndices: " << offset.snapAreaIndices;
     if (offset.stop == ScrollSnapStop::Always)
-        ts << " (always)";
+        ts << " (always)"_s;
     return ts;
 }
 

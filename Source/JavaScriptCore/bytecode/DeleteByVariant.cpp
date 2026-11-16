@@ -35,7 +35,7 @@ DeleteByVariant::DeleteByVariant(CacheableIdentifier identifier, bool result, St
     , m_oldStructure(oldStructure)
     , m_newStructure(newStructure)
     , m_offset(offset)
-    , m_identifier(WTFMove(identifier))
+    , m_identifier(WTF::move(identifier))
 {
     ASSERT(oldStructure);
     if (m_offset == invalidOffset)
@@ -44,22 +44,9 @@ DeleteByVariant::DeleteByVariant(CacheableIdentifier identifier, bool result, St
         ASSERT(newStructure);
 }
 
-DeleteByVariant::~DeleteByVariant() { }
-
-DeleteByVariant::DeleteByVariant(const DeleteByVariant& other)
-{
-    *this = other;
-}
-
-DeleteByVariant& DeleteByVariant::operator=(const DeleteByVariant& other)
-{
-    m_identifier = other.m_identifier;
-    m_result = other.m_result;
-    m_oldStructure = other.m_oldStructure;
-    m_newStructure = other.m_newStructure;
-    m_offset = other.m_offset;
-    return *this;
-}
+DeleteByVariant::~DeleteByVariant() = default;
+DeleteByVariant::DeleteByVariant(const DeleteByVariant&) = default;
+DeleteByVariant& DeleteByVariant::operator=(const DeleteByVariant&) = default;
 
 bool DeleteByVariant::attemptToMerge(const DeleteByVariant& other)
 {

@@ -39,67 +39,93 @@ namespace WebKit {
 
 using namespace WebCore;
 
-PreconnectTask::PreconnectTask(NetworkSession& networkSession, NetworkLoadParameters&& parameters, CompletionHandler<void(const ResourceError&)>&& completionHandler)
-    : m_completionHandler(WTFMove(completionHandler))
-    , m_timeoutTimer([this] { didFinish(ResourceError { String(), 0, m_networkLoad->parameters().request.url(), "Preconnection timed out"_s, ResourceError::Type::Timeout }); })
+Ref<PreconnectTask> PreconnectTask::create(NetworkSession& networkSession, NetworkLoadParameters&& parameters)
+{
+    ASSERT(parameters.shouldPreconnectOnly == PreconnectOnly::Yes);
+    ASSERT(!parameters.request.httpBody());
+    parameters.shouldPreconnectOnly = PreconnectOnly::Yes;
+    parameters.request.setHTTPBody(nullptr);
+    return adoptRef(*new PreconnectTask(networkSession, WTF::move(parameters)));
+}
+
+PreconnectTask::PreconnectTask(NetworkSession& networkSession, NetworkLoadParameters&& parameters)
+    : m_networkLoad(NetworkLoad::create(*this, WTF::move(parameters), networkSession))
 {
     RELEASE_LOG(Network, "%p - PreconnectTask::PreconnectTask()", this);
 
-    ASSERT(parameters.shouldPreconnectOnly == PreconnectOnly::Yes);
-    m_networkLoad = makeUnique<NetworkLoad>(*this, nullptr, WTFMove(parameters), networkSession);
-    m_timeoutTimer.startOneShot(60000_s);
+    RELEASE_ASSERT(m_networkLoad->parameters().shouldPreconnectOnly == PreconnectOnly::Yes);
 }
 
 void PreconnectTask::setH2PingCallback(const URL& url, CompletionHandler<void(Expected<WTF::Seconds, WebCore::ResourceError>&&)>&& completionHandler)
 {
-    m_networkLoad->setH2PingCallback(url, WTFMove(completionHandler));
+    m_networkLoad->setH2PingCallback(url, WTF::move(completionHandler));
 }
 
-void PreconnectTask::start()
+void PreconnectTask::start(CompletionHandler<void(const WebCore::ResourceError&, const WebCore::NetworkLoadMetrics&)>&& completionHandler, Seconds timeout)
 {
+    RELEASE_LOG(Network, "%p - PreconnectTask::start() timeout=%g", this, timeout.value());
+    // Keep `this` alive until completion of the network load.
+    m_completionHandler = [protectedThis = Ref { *this }, completionHandler = WTF::move(completionHandler)](const WebCore::ResourceError& error, const WebCore::NetworkLoadMetrics& metrics) mutable {
+        if (completionHandler)
+            completionHandler(error, metrics);
+    };
+    m_timeoutTimer = makeUnique<WebCore::Timer>(*this, &PreconnectTask::didTimeout);
+    m_timeoutTimer->startOneShot(timeout);
     m_networkLoad->start();
 }
 
-PreconnectTask::~PreconnectTask() = default;
-
-void PreconnectTask::willSendRedirectedRequest(ResourceRequest&&, ResourceRequest&& redirectRequest, ResourceResponse&& redirectResponse)
+PreconnectTask::~PreconnectTask()
 {
-    // HSTS redirection may happen here.
+    RELEASE_LOG(Network, "%p - PreconnectTask::~PreconnectTask()", this);
 }
 
-void PreconnectTask::didReceiveResponse(ResourceResponse&& response, ResponseCompletionHandler&& completionHandler)
+void PreconnectTask::willSendRedirectedRequest(ResourceRequest&&, ResourceRequest&& redirectRequest, ResourceResponse&& redirectResponse, CompletionHandler<void(WebCore::ResourceRequest&&)>&& completionHandler)
 {
+    // HSTS "redirection" may happen here.
+#if ASSERT_ENABLED
+    auto url = redirectResponse.url();
+    ASSERT(url.protocol() == "http"_s);
+    url.setProtocol("https"_s);
+    ASSERT(redirectRequest.url() == url);
+#endif
+    completionHandler(WTF::move(redirectRequest));
+}
+
+void PreconnectTask::didReceiveResponse(ResourceResponse&& response, PrivateRelayed, ResponseCompletionHandler&& completionHandler)
+{
+    RELEASE_LOG_ERROR(Network, "%p - PreconnectTask::didReceiveResponse", this);
     ASSERT_NOT_REACHED();
     completionHandler(PolicyAction::Ignore);
 }
 
-void PreconnectTask::didReceiveBuffer(Ref<SharedBuffer>&&, int reportedEncodedDataLength)
+void PreconnectTask::didReceiveBuffer(const FragmentedSharedBuffer&)
 {
+    RELEASE_LOG_ERROR(Network, "%p - PreconnectTask::didReceiveBuffer", this);
     ASSERT_NOT_REACHED();
 }
 
-void PreconnectTask::didFinishLoading(const NetworkLoadMetrics&)
+void PreconnectTask::didFinishLoading(const NetworkLoadMetrics& metrics)
 {
     RELEASE_LOG(Network, "%p - PreconnectTask::didFinishLoading", this);
-    didFinish({ });
+    m_completionHandler({ }, metrics); // Deletes this.
 }
 
 void PreconnectTask::didFailLoading(const ResourceError& error)
 {
     RELEASE_LOG(Network, "%p - PreconnectTask::didFailLoading, error_code=%d", this, error.errorCode());
-    didFinish(error);
+    m_completionHandler(error, NetworkLoadMetrics::emptyMetrics()); // Deletes this.
 }
 
-void PreconnectTask::didSendData(unsigned long long bytesSent, unsigned long long totalBytesToBeSent)
+void PreconnectTask::didTimeout()
+{
+    RELEASE_LOG_ERROR(Network, "%p - PreconnectTask::didTimeout", this);
+    m_networkLoad->cancel();
+    m_completionHandler(ResourceError { String(), 0, m_networkLoad->parameters().request.url(), "Preconnection timed out"_s, ResourceError::Type::Timeout }, { }); // Deletes this.
+}
+
+void PreconnectTask::didSendData(uint64_t bytesSent, uint64_t totalBytesToBeSent)
 {
     ASSERT_NOT_REACHED();
-}
-
-void PreconnectTask::didFinish(const ResourceError& error)
-{
-    if (m_completionHandler)
-        m_completionHandler(error);
-    delete this;
 }
 
 } // namespace WebKit

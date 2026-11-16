@@ -26,59 +26,18 @@ namespace
 {
 const char *kUseAngleArg = "--use-angle=";
 const char *kUseGlArg    = "--use-gl=native";
+}  // anonymous namespace
 
-using DisplayTypeInfo = std::pair<const char *, EGLint>;
-
-const DisplayTypeInfo kDisplayTypes[] = {
-    {"d3d9", EGL_PLATFORM_ANGLE_TYPE_D3D9_ANGLE},
-    {"d3d11", EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE},
-    {"gl", EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE},
-    {"gles", EGL_PLATFORM_ANGLE_TYPE_OPENGLES_ANGLE},
-    {"metal", EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE},
-    {"null", EGL_PLATFORM_ANGLE_TYPE_NULL_ANGLE},
-    {"swiftshader", EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE},
-    {"vulkan", EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE},
-};
-
-EGLint GetDisplayTypeFromArg(const char *displayTypeArg)
-{
-    for (const auto &displayTypeInfo : kDisplayTypes)
-    {
-        if (strcmp(displayTypeInfo.first, displayTypeArg) == 0)
-        {
-            std::cout << "Using ANGLE back-end API: " << displayTypeInfo.first << std::endl;
-            return displayTypeInfo.second;
-        }
-    }
-
-    std::cout << "Unknown ANGLE back-end API: " << displayTypeArg << std::endl;
-    return EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE;
-}
-
-EGLint GetDeviceTypeFromArg(const char *displayTypeArg)
-{
-    if (strcmp(displayTypeArg, "swiftshader") == 0)
-    {
-        return EGL_PLATFORM_ANGLE_DEVICE_TYPE_SWIFTSHADER_ANGLE;
-    }
-    else
-    {
-        return EGL_PLATFORM_ANGLE_DEVICE_TYPE_HARDWARE_ANGLE;
-    }
-}
-
-ANGLE_MAYBE_UNUSED bool IsGLExtensionEnabled(const std::string &extName)
+bool IsGLExtensionEnabled(const std::string &extName)
 {
     return angle::CheckExtensionExists(reinterpret_cast<const char *>(glGetString(GL_EXTENSIONS)),
                                        extName);
 }
-}  // anonymous namespace
 
 SampleApplication::SampleApplication(std::string name,
                                      int argc,
                                      char **argv,
-                                     EGLint glesMajorVersion,
-                                     EGLint glesMinorVersion,
+                                     ClientType clientType,
                                      uint32_t width,
                                      uint32_t height)
     : mName(std::move(name)),
@@ -98,9 +57,11 @@ SampleApplication::SampleApplication(std::string name,
     {
         if (strncmp(argv[argIndex], kUseAngleArg, strlen(kUseAngleArg)) == 0)
         {
-            const char *arg            = argv[argIndex] + strlen(kUseAngleArg);
-            mPlatformParams.renderer   = GetDisplayTypeFromArg(arg);
-            mPlatformParams.deviceType = GetDeviceTypeFromArg(arg);
+            const char *arg = argv[argIndex] + strlen(kUseAngleArg);
+            mPlatformParams.renderer =
+                angle::GetPlatformANGLETypeFromArg(arg, EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE);
+            mPlatformParams.deviceType = angle::GetANGLEDeviceTypeFromArg(
+                arg, EGL_PLATFORM_ANGLE_DEVICE_TYPE_HARDWARE_ANGLE);
         }
 
         if (strncmp(argv[argIndex], kUseGlArg, strlen(kUseGlArg)) == 0)
@@ -109,27 +70,48 @@ SampleApplication::SampleApplication(std::string name,
         }
     }
 
+    EGLint glMajorVersion = 2;
+    EGLint glMinorVersion = 0;
+
+    switch (clientType)
+    {
+        case ClientType::ES1:
+            glMajorVersion = 1;
+            break;
+        case ClientType::ES2:
+            break;
+        case ClientType::ES3_0:
+            glMajorVersion = 3;
+            break;
+        case ClientType::ES3_1:
+            glMajorVersion = 3;
+            glMinorVersion = 1;
+            break;
+        default:
+            UNREACHABLE();
+    }
+
     mOSWindow = OSWindow::New();
 
     // Load EGL library so we can initialize the display.
     if (useNativeGL)
     {
 #if defined(ANGLE_PLATFORM_WINDOWS)
-        mGLWindow = WGLWindow::New(glesMajorVersion, glesMinorVersion);
+        mGLWindow = WGLWindow::New(glMajorVersion, glMinorVersion);
         mEntryPointsLib.reset(angle::OpenSharedLibrary("opengl32", angle::SearchType::SystemDir));
         mDriverType = angle::GLESDriverType::SystemWGL;
 #else
-        mGLWindow = EGLWindow::New(glesMajorVersion, glesMinorVersion);
-        mEntryPointsLib.reset(
-            angle::OpenSharedLibraryWithExtension(angle::GetNativeEGLLibraryNameWithExtension()));
+        mGLWindow = mEGLWindow = EGLWindow::New(glMajorVersion, glMinorVersion);
+        mEntryPointsLib.reset(angle::OpenSharedLibraryWithExtension(
+            angle::GetNativeEGLLibraryNameWithExtension(), angle::SearchType::SystemDir));
         mDriverType = angle::GLESDriverType::SystemEGL;
 #endif  // defined(ANGLE_PLATFORM_WINDOWS)
     }
     else
     {
-        mGLWindow = mEGLWindow = EGLWindow::New(glesMajorVersion, glesMinorVersion);
+        mGLWindow = mEGLWindow = EGLWindow::New(glMajorVersion, glMinorVersion);
         mEntryPointsLib.reset(
-            angle::OpenSharedLibrary(ANGLE_EGL_LIBRARY_NAME, angle::SearchType::ApplicationDir));
+            angle::OpenSharedLibrary(ANGLE_EGL_LIBRARY_NAME, angle::SearchType::ModuleDir));
     }
 }
 
@@ -219,7 +201,7 @@ int SampleApplication::run()
 #if defined(ANGLE_ENABLE_ASSERTS)
     if (IsGLExtensionEnabled("GL_KHR_debug"))
     {
-        EnableDebugCallback(this);
+        EnableDebugCallback(nullptr, nullptr);
     }
 #endif
 
@@ -234,7 +216,7 @@ int SampleApplication::run()
 
     while (mRunning)
     {
-        double elapsedTime = mTimer.getElapsedTime();
+        double elapsedTime = mTimer.getElapsedWallClockTime();
         double deltaTime   = elapsedTime - prevTime;
 
         step(static_cast<float>(deltaTime), elapsedTime);
@@ -277,7 +259,7 @@ int SampleApplication::run()
         if (mFrameCount % 100 == 0)
         {
             printf("Rate: %0.2lf frames / second\n",
-                   static_cast<double>(mFrameCount) / mTimer.getElapsedTime());
+                   static_cast<double>(mFrameCount) / mTimer.getElapsedWallClockTime());
         }
     }
 

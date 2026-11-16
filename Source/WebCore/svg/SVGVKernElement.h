@@ -25,7 +25,8 @@
 namespace WebCore {
 
 class SVGVKernElement final : public SVGElement {
-    WTF_MAKE_ISO_ALLOCATED(SVGVKernElement);
+    WTF_MAKE_TZONE_ALLOCATED(SVGVKernElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGVKernElement);
 public:
     static Ref<SVGVKernElement> create(const QualifiedName&, Document&);
 
@@ -34,7 +35,7 @@ public:
 private:
     SVGVKernElement(const QualifiedName&, Document&);
 
-    bool rendererIsNeeded(const RenderStyle&) final { return false; }
+    bool rendererIsNeeded(const Style::ComputedStyle&) final { return false; }
 };
 
 } // namespace WebCore

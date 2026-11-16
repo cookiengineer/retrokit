@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006 Apple Inc. All rights reserved.
  * Copyright (C) 2009 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,11 +29,11 @@
 
 #include "LocalizedStrings.h"
 #include "Logging.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-const char* const errorDomainWebKitInternal = "WebKitInternal";
-const char* const errorDomainWebKitServiceWorker = "WebKitServiceWorker";
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ResourceErrorBase);
 
 inline const ResourceError& ResourceErrorBase::asResourceError() const
 {
@@ -91,12 +91,25 @@ bool ResourceErrorBase::compare(const ResourceError& a, const ResourceError& b)
     return ResourceError::platformCompare(a, b);
 }
 
-ResourceError internalError(const URL& url)
+bool operator==(const ResourceError& a, const ResourceError& b)
 {
-    RELEASE_LOG_ERROR(Loading, "Internal error called");
-    RELEASE_LOG_STACKTRACE(Loading);
+    return ResourceErrorBase::compare(a, b);
+}
+
+ResourceError internalError(const URL& url, std::source_location location)
+{
+    // Always print internal errors to stderr so we have some chance to figure out what went wrong
+    // when an internal error occurs unexpectedly. Release logging is insufficient because internal
+    // errors occur unexpectedly and we don't want to require manual logging configuration in order
+    // to record them.
+    WTFReportError(location.file_name(), location.line(), location.function_name(), "WebKit encountered an internal error. This is a WebKit bug.");
 
     return ResourceError("WebKitErrorDomain"_s, 300, url, WEB_UI_STRING("WebKit encountered an internal error", "WebKitErrorInternal description"));
+}
+
+ResourceError badResponseHeadersError(const URL& url)
+{
+    return { errorDomainWebKitInternal, 0, url, "Response contained invalid HTTP headers"_s, ResourceError::Type::General };
 }
 
 } // namespace WebCore

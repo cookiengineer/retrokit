@@ -50,59 +50,103 @@ class PlatformTimeRanges;
 class MediaSourcePrivateGStreamer final : public MediaSourcePrivate
 #if !RELEASE_LOG_DISABLED
     , private LoggerHelper
+#ifndef GST_DISABLE_GST_DEBUG
+    , public Logger::MessageHandlerObserver
+#endif
 #endif
 {
 public:
     static Ref<MediaSourcePrivateGStreamer> open(MediaSourcePrivateClient&, MediaPlayerPrivateGStreamerMSE&);
     virtual ~MediaSourcePrivateGStreamer();
 
-    AddStatus addSourceBuffer(const ContentType&, bool, RefPtr<SourceBufferPrivate>&) override;
-    void removeSourceBuffer(SourceBufferPrivate*);
+    void setPlayer(MediaPlayerPrivateInterface*) final;
+    RefPtr<MediaPlayerPrivateInterface> player() const final;
+
+    constexpr MediaPlatformType platformType() const final { return MediaPlatformType::GStreamer; }
+
+    AddStatus addSourceBuffer(const ContentType&, const MediaSourceConfiguration&, RefPtr<SourceBufferPrivate>&) override;
 
     void durationChanged(const MediaTime&) override;
     void markEndOfStream(EndOfStreamStatus) override;
     void unmarkEndOfStream() override;
-    bool isEnded() const override { return m_isEnded; }
 
-    MediaPlayer::ReadyState readyState() const override;
-    void setReadyState(MediaPlayer::ReadyState) override;
+    void notifyActiveSourceBuffersChanged() final;
 
-    void waitForSeekCompleted() override { }
-    void seekCompleted() override;
-
-    MediaTime duration() const;
-    MediaTime currentMediaTime() const;
-
-    void sourceBufferPrivateDidChangeActiveState(SourceBufferPrivateGStreamer*, bool);
     void startPlaybackIfHasAllTracks();
+    bool hasAllTracks() const { return m_hasAllTracks; }
 
-    std::unique_ptr<PlatformTimeRanges> buffered();
+    void detach();
+
+    // Similar to WebCore::GStreamerTrackType, but with a new value (Invalid) for when the codec is
+    // not supported on this system, which should result in ParsingFailed error being thrown in SourceBuffer.
+    enum StreamType { Audio, Video, Text, Unknown, Invalid };
+
+    struct RegisteredTrack {
+        WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(RegisteredTrack);
+    public:
+
+        RegisteredTrack()
+            : id(0)
+            , index(0)
+            , streamType(Invalid)
+        { }
+
+        RegisteredTrack(TrackID id, size_t index, StreamType streamType)
+            : id(id)
+            , index(index)
+            , streamType(streamType)
+        { }
+
+        TrackID id;
+        size_t index;
+        StreamType streamType;
+    };
+
+    RegisteredTrack registerTrack(TrackID, StreamType);
+    void unregisterTrack(TrackID);
 
 #if !RELEASE_LOG_DISABLED
     const Logger& logger() const final { return m_logger; }
-    const char* logClassName() const override { return "MediaSourcePrivateGStreamer"; }
-    const void* logIdentifier() const final { return m_logIdentifier; }
+    ASCIILiteral logClassName() const override { return "MediaSourcePrivateGStreamer"_s; }
+    uint64_t logIdentifier() const final { return m_logIdentifier; }
     WTFLogChannel& logChannel() const final;
 
-    const void* nextSourceBufferLogIdentifier() { return childLogIdentifier(m_logIdentifier, ++m_nextSourceBufferID); }
+    uint64_t nextSourceBufferLogIdentifier() { return childLogIdentifier(m_logIdentifier, ++m_nextSourceBufferID); }
+#ifndef GST_DISABLE_GST_DEBUG
+    void handleLogMessage(const WTFLogChannel&, WTFLogLevel, std::optional<WTFLogLocation>, const Vector<JSONLogValue>&) final;
+#endif
 #endif
 
 private:
     MediaSourcePrivateGStreamer(MediaSourcePrivateClient&, MediaPlayerPrivateGStreamerMSE&);
+    RefPtr<MediaPlayerPrivateGStreamerMSE> platformPlayer() const;
 
-    HashSet<RefPtr<SourceBufferPrivateGStreamer>> m_sourceBuffers;
-    HashSet<SourceBufferPrivateGStreamer*> m_activeSourceBuffers;
-    Ref<MediaSourcePrivateClient> m_mediaSource;
-    MediaPlayerPrivateGStreamerMSE& m_playerPrivate;
-    bool m_isEnded { false };
+    ThreadSafeWeakPtr<MediaPlayerPrivateGStreamerMSE> m_playerPrivate;
     bool m_hasAllTracks { false };
 #if !RELEASE_LOG_DISABLED
-    Ref<const Logger> m_logger;
-    const void* m_logIdentifier;
+    const Ref<const Logger> m_logger;
+    const uint64_t m_logIdentifier;
     uint64_t m_nextSourceBufferID { 0 };
 #endif
+
+    // Stores info on known tracks, so we can:
+    // 1) Work around collision in track ID between multiple source buffers.
+    //    The registry is placed here to enforce ID uniqueness specifically by player, not by process,
+    //    since it's not an issue if multiple players use the same ID, and we want to preserve IDs as much as possible.
+    // 2) Assign indices sequentially by track type.
+    //    This means the first track of a type will always have index 0,
+    //    the next of the same type will be assigned 1, and so on, which:
+    //    - matches how MediaPlayerPrivateGStreamer assigns indices
+    //    - how {Audio,Video,Text}TrackList stores its tracks
+    //    - prevents a potential out-of-bounds crash in TextTrackList
+    //    Just like for IDs, we store known indices here to enforce uniqueness by player.
+    HashMap<TrackID, RegisteredTrack, WTF::IntHash<TrackID>, WTF::UnsignedWithZeroKeyHashTraits<TrackID>> m_trackRegistry;
 };
 
-}
+} // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::MediaSourcePrivateGStreamer)
+static bool isType(const WebCore::MediaSourcePrivate& mediaSource) { return mediaSource.platformType() == WebCore::MediaPlatformType::GStreamer; }
+SPECIALIZE_TYPE_TRAITS_END()
 
 #endif

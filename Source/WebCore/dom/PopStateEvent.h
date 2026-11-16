@@ -35,35 +35,37 @@ class History;
 class SerializedScriptValue;
 
 class PopStateEvent final : public Event {
-    WTF_MAKE_ISO_ALLOCATED(PopStateEvent);
+    WTF_MAKE_TZONE_ALLOCATED(PopStateEvent);
 public:
     virtual ~PopStateEvent();
     static Ref<PopStateEvent> create(RefPtr<SerializedScriptValue>&&, History*);
 
     struct Init : EventInit {
         JSC::JSValue state;
+        bool hasUAVisualTransition { false };
     };
 
-    static Ref<PopStateEvent> create(const AtomString&, const Init&, IsTrusted = IsTrusted::No);
+    static Ref<PopStateEvent> create(JSC::JSGlobalObject&, const AtomString&, const Init&, IsTrusted = IsTrusted::No);
     static Ref<PopStateEvent> createForBindings();
 
-    const JSValueInWrappedObject& state() const { return m_state; }
+    const JSValueInWrappedObject& state() const LIFETIME_BOUND { return m_state; }
+    JSValueInWrappedObject& cachedState() LIFETIME_BOUND { return m_cachedState; }
     SerializedScriptValue* serializedState() const { return m_serializedState.get(); }
 
-    RefPtr<SerializedScriptValue> trySerializeState(JSC::JSGlobalObject&);
-    
     History* history() const { return m_history.get(); }
 
+    bool hasUAVisualTransition() const { return m_hasUAVisualTransition; }
+    void setHasUAVisualTransition(bool hasUAVisualTransition) { m_hasUAVisualTransition = hasUAVisualTransition; }
+
 private:
-    PopStateEvent() = default;
-    PopStateEvent(const AtomString&, const Init&, IsTrusted);
+    PopStateEvent();
+    PopStateEvent(JSC::JSGlobalObject&, const AtomString&, const Init&, IsTrusted);
     PopStateEvent(RefPtr<SerializedScriptValue>&&, History*);
 
-    EventInterface eventInterface() const final;
-
     JSValueInWrappedObject m_state;
+    JSValueInWrappedObject m_cachedState;
     RefPtr<SerializedScriptValue> m_serializedState;
-    bool m_triedToSerialize { false };
+    bool m_hasUAVisualTransition { false };
     RefPtr<History> m_history;
 };
 

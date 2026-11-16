@@ -37,7 +37,6 @@
 
 namespace WebCore {
 
-static const Seconds connectionDelayInterval { 500_ms };
 static const Seconds inputNotificationDelay { 50_ms };
 
 ManetteGamepadProvider& ManetteGamepadProvider::singleton()
@@ -58,8 +57,7 @@ static void onDeviceDisconnected(ManetteMonitor*, ManetteDevice* device, Manette
 
 ManetteGamepadProvider::ManetteGamepadProvider()
     : m_monitor(adoptGRef(manette_monitor_new()))
-    , m_initialGamepadsConnectedTimer(RunLoop::current(), this, &ManetteGamepadProvider::initialGamepadsConnectedTimerFired)
-    , m_inputNotificationTimer(RunLoop::current(), this, &ManetteGamepadProvider::inputNotificationTimerFired)
+    , m_inputNotificationTimer(RunLoop::currentSingleton(), "ManetteGamepadProvider::InputNotificationTimer"_s, this, &ManetteGamepadProvider::inputNotificationTimerFired)
 {
     g_signal_connect(m_monitor.get(), "device-connected", G_CALLBACK(onDeviceConnected), this);
     g_signal_connect(m_monitor.get(), "device-disconnected", G_CALLBACK(onDeviceDisconnected), this);
@@ -72,10 +70,10 @@ ManetteGamepadProvider::~ManetteGamepadProvider()
 
 void ManetteGamepadProvider::startMonitoringGamepads(GamepadProviderClient& client)
 {
-    bool shouldOpenAndScheduleManager = m_clients.isEmpty();
+    bool shouldOpenAndScheduleManager = m_clients.isEmptyIgnoringNullReferences();
 
-    ASSERT(!m_clients.contains(&client));
-    m_clients.add(&client);
+    ASSERT(!m_clients.contains(client));
+    m_clients.add(client);
 
     if (!shouldOpenAndScheduleManager)
         return;
@@ -85,25 +83,22 @@ void ManetteGamepadProvider::startMonitoringGamepads(GamepadProviderClient& clie
 
     m_initialGamepadsConnected = false;
 
-    // Any connections we are notified of within the connectionDelayInterval of listening likely represent
-    // devices that were already connected, so we suppress notifying clients of these.
-    m_initialGamepadsConnectedTimer.startOneShot(connectionDelayInterval);
-
     ManetteDevice* device;
     GUniquePtr<ManetteMonitorIter> iter(manette_monitor_iterate(m_monitor.get()));
     while (manette_monitor_iter_next(iter.get(), &device))
         deviceConnected(device);
+
+    m_initialGamepadsConnected = true;
 }
 
 void ManetteGamepadProvider::stopMonitoringGamepads(GamepadProviderClient& client)
 {
-    ASSERT(m_clients.contains(&client));
+    ASSERT(m_clients.contains(client));
 
-    bool shouldCloseAndUnscheduleManager = m_clients.remove(&client) && m_clients.isEmpty();
+    bool shouldCloseAndUnscheduleManager = m_clients.remove(client) && m_clients.isEmptyIgnoringNullReferences();
     if (shouldCloseAndUnscheduleManager) {
         m_gamepadVector.clear();
         m_gamepadMap.clear();
-        m_initialGamepadsConnectedTimer.stop();
     }
 }
 
@@ -129,21 +124,11 @@ void ManetteGamepadProvider::deviceConnected(ManetteDevice* device)
         m_gamepadVector.grow(index + 1);
 
     m_gamepadVector[index] = gamepad.get();
-    m_gamepadMap.set(device, WTFMove(gamepad));
-
-    if (!m_initialGamepadsConnected) {
-        // This added device is the result of us starting to monitor gamepads.
-        // We'll get notified of all connected devices during this current spin of the runloop
-        // and the client should be told they were already connected.
-        // The m_initialGamepadsConnectedTimer fires in a subsequent spin of the runloop after which
-        // any connection events are actual new devices and can trigger gamepad visibility.
-        if (!m_initialGamepadsConnectedTimer.isActive())
-            m_initialGamepadsConnectedTimer.startOneShot(0_s);
-    }
+    m_gamepadMap.set(device, WTF::move(gamepad));
 
     auto eventVisibility = m_initialGamepadsConnected ? EventMakesGamepadsVisible::Yes : EventMakesGamepadsVisible::No;
     for (auto& client : m_clients)
-        client->platformGamepadConnected(*m_gamepadVector[index], eventVisibility);
+        client.platformGamepadConnected(*m_gamepadVector[index], eventVisibility);
 }
 
 void ManetteGamepadProvider::deviceDisconnected(ManetteDevice* device)
@@ -154,7 +139,7 @@ void ManetteGamepadProvider::deviceDisconnected(ManetteDevice* device)
     ASSERT(removedGamepad);
 
     for (auto& client : m_clients)
-        client->platformGamepadDisconnected(*removedGamepad);
+        client.platformGamepadDisconnected(*removedGamepad);
 }
 
 unsigned ManetteGamepadProvider::indexForNewlyConnectedDevice()
@@ -188,10 +173,35 @@ std::unique_ptr<ManetteGamepad> ManetteGamepadProvider::removeGamepadForDevice(M
     ASSERT(result);
 
     auto index = m_gamepadVector.find(result.get());
-    if (index != notFound)
+    if (index != notFound) {
+        auto gamepad = m_gamepadVector[index];
+        gamepad->stopEffects({ });
         m_gamepadVector[index] = nullptr;
+    }
 
     return result;
+}
+
+void ManetteGamepadProvider::playEffect(unsigned gamepadIndex, const String& gamepadID, GamepadHapticEffectType type, const GamepadEffectParameters& parameters, CompletionHandler<void(bool)>&& completionHandler)
+{
+    if (gamepadIndex >= m_gamepadVector.size())
+        return completionHandler(false);
+    auto gamepad = m_gamepadVector[gamepadIndex];
+    if (!gamepad || gamepad->id() != gamepadID)
+        return completionHandler(false);
+
+    gamepad->playEffect(type, parameters, WTF::move(completionHandler));
+}
+
+void ManetteGamepadProvider::stopEffects(unsigned gamepadIndex, const String& gamepadID, CompletionHandler<void()>&& completionHandler)
+{
+    if (gamepadIndex >= m_gamepadVector.size())
+        return completionHandler();
+    auto gamepad = m_gamepadVector[gamepadIndex];
+    if (!gamepad || gamepad->id() != gamepadID)
+        return completionHandler();
+
+    gamepad->stopEffects(WTF::move(completionHandler));
 }
 
 } // namespace WebCore

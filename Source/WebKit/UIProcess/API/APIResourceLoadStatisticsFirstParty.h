@@ -26,14 +26,15 @@
 #pragma once
 
 #include "APIObject.h"
-#include "WebResourceLoadStatisticsStore.h"
+#include "ITPThirdPartyDataForSpecificFirstParty.h"
+#include <wtf/RunLoop.h>
 #include <wtf/text/WTFString.h>
 
 namespace API {
 
 class ResourceLoadStatisticsFirstParty final : public ObjectImpl<Object::Type::ResourceLoadStatisticsFirstParty> {
 public:
-    static Ref<ResourceLoadStatisticsFirstParty> create(const WebKit::WebResourceLoadStatisticsStore::ThirdPartyDataForSpecificFirstParty& firstPartyData)
+    static Ref<ResourceLoadStatisticsFirstParty> create(const WebKit::ITPThirdPartyDataForSpecificFirstParty& firstPartyData)
     {
         RELEASE_ASSERT(RunLoop::isMain());
         return adoptRef(*new ResourceLoadStatisticsFirstParty(firstPartyData));
@@ -44,17 +45,19 @@ public:
         RELEASE_ASSERT(RunLoop::isMain());
     }
 
-    const WTF::String& firstPartyDomain() const { return m_firstPartyData.firstPartyDomain.string(); }
+    const WTF::String& firstPartyDomain() const LIFETIME_BOUND { return m_firstPartyData.firstPartyDomain.string(); }
     bool storageAccess() const { return m_firstPartyData.storageAccessGranted; }
     double timeLastUpdated() const { return m_firstPartyData.timeLastUpdated.value(); }
 
 private:
-    explicit ResourceLoadStatisticsFirstParty(const WebKit::WebResourceLoadStatisticsStore::ThirdPartyDataForSpecificFirstParty& firstPartyData)
+    explicit ResourceLoadStatisticsFirstParty(const WebKit::ITPThirdPartyDataForSpecificFirstParty& firstPartyData)
         : m_firstPartyData(firstPartyData)
     {
     }
 
-    const WebKit::WebResourceLoadStatisticsStore::ThirdPartyDataForSpecificFirstParty m_firstPartyData;
+    const WebKit::ITPThirdPartyDataForSpecificFirstParty m_firstPartyData;
 };
 
 } // namespace API
+
+SPECIALIZE_TYPE_TRAITS_API_OBJECT(ResourceLoadStatisticsFirstParty);

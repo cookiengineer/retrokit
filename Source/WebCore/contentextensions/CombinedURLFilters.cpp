@@ -43,10 +43,10 @@ struct PrefixTreeEdge {
     std::unique_ptr<PrefixTreeVertex> child;
 };
     
-typedef Vector<PrefixTreeEdge, 0, WTF::CrashOnOverflow, 1> PrefixTreeEdges;
+typedef Vector<PrefixTreeEdge, 0, CrashOnOverflow, 1> PrefixTreeEdges;
 
 struct PrefixTreeVertex {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(PrefixTreeVertex);
 
     PrefixTreeEdges edges;
 };
@@ -56,13 +56,13 @@ struct ReverseSuffixTreeEdge {
     const Term* term;
     std::unique_ptr<ReverseSuffixTreeVertex> child;
 };
-typedef Vector<ReverseSuffixTreeEdge, 0, WTF::CrashOnOverflow, 1> ReverseSuffixTreeEdges;
+typedef Vector<ReverseSuffixTreeEdge, 0, CrashOnOverflow, 1> ReverseSuffixTreeEdges;
 
 struct ReverseSuffixTreeVertex {
     ReverseSuffixTreeEdges edges;
     uint32_t nodeId;
 };
-typedef HashMap<HashableActionList, ReverseSuffixTreeVertex, HashableActionListHash, HashableActionListHashTraits> ReverseSuffixTreeRoots;
+using ReverseSuffixTreeRoots = HashMap<HashableActionList, ReverseSuffixTreeVertex, HashableActionListHash, HashableActionListHashTraits>;
 
 #if CONTENT_EXTENSIONS_PERFORMANCE_REPORTING
 static size_t recursiveMemoryUsed(const PrefixTreeVertex& vertex)
@@ -78,15 +78,13 @@ static size_t recursiveMemoryUsed(const PrefixTreeVertex& vertex)
 
 size_t CombinedURLFilters::memoryUsed() const
 {
-    ASSERT(m_prefixTreeRoot);
-
     size_t actionsSize = 0;
     for (const auto& slot : m_actions)
         actionsSize += slot.value.capacity() * sizeof(uint64_t);
 
     return sizeof(CombinedURLFilters)
         + m_alphabet.memoryUsed()
-        + recursiveMemoryUsed(*m_prefixTreeRoot.get())
+        + recursiveMemoryUsed(m_prefixTreeRoot)
         + sizeof(HashMap<PrefixTreeVertex*, ActionList>)
         + m_actions.capacity() * (sizeof(PrefixTreeVertex*) + sizeof(ActionList))
         + actionsSize;
@@ -98,8 +96,8 @@ static String prefixTreeVertexToString(const PrefixTreeVertex& vertex, const Has
 {
     StringBuilder builder;
     while (depth--)
-        builder.append("  ");
-    builder.append("vertex actions: ");
+        builder.append("  "_s);
+    builder.append("vertex actions: "_s);
 
     auto actionsSlot = actions.find(&vertex);
     if (actionsSlot != actions.end()) {
@@ -117,7 +115,7 @@ static void recursivePrint(const PrefixTreeVertex& vertex, const HashMap<const P
         StringBuilder builder;
         for (unsigned i = 0; i < depth * 2; ++i)
             builder.append(' ');
-        builder.append("vertex edge: ", edge.term->toString(), '\n');
+        builder.append("vertex edge: "_s, edge.term->toString(), '\n');
         dataLogF("%s", builder.toString().utf8().data());
         ASSERT(edge.child);
         recursivePrint(*edge.child.get(), actions, depth + 1);
@@ -126,12 +124,12 @@ static void recursivePrint(const PrefixTreeVertex& vertex, const HashMap<const P
 
 void CombinedURLFilters::print() const
 {
-    recursivePrint(*m_prefixTreeRoot.get(), m_actions, 0);
+    recursivePrint(m_prefixTreeRoot, m_actions, 0);
 }
 #endif
 
 CombinedURLFilters::CombinedURLFilters()
-    : m_prefixTreeRoot(makeUnique<PrefixTreeVertex>())
+    : m_prefixTreeRoot(makeUniqueRef<PrefixTreeVertex>())
 {
 }
 
@@ -142,48 +140,6 @@ bool CombinedURLFilters::isEmpty() const
     return m_prefixTreeRoot->edges.isEmpty();
 }
 
-void CombinedURLFilters::addDomain(uint64_t actionId, const String& domain)
-{
-    unsigned domainLength = domain.length();
-    if (domainLength && domain[0] == '*') {
-        // If domain starts with a '*' then it means match domain and its subdomains, like (^|.)domain$
-        // This way a domain of "*webkit.org" will match "bugs.webkit.org" and "webkit.org".
-        Vector<Term> prependDot;
-        Vector<Term> prependBeginningOfLine;
-        prependDot.reserveInitialCapacity(domainLength + 2);
-        prependBeginningOfLine.reserveInitialCapacity(domainLength); // This is just no .* at the beginning.
-        
-        Term canonicalDotStar(Term::UniversalTransition);
-        canonicalDotStar.quantify(AtomQuantifier::ZeroOrMore);
-        prependDot.uncheckedAppend(canonicalDotStar);
-        prependDot.uncheckedAppend(Term('.', true));
-        
-        for (unsigned i = 1; i < domainLength; i++) {
-            ASSERT(isASCII(domain[i]));
-            ASSERT(!isASCIIUpper(domain[i]));
-            prependDot.uncheckedAppend(Term(domain[i], true));
-            prependBeginningOfLine.uncheckedAppend(Term(domain[i], true));
-        }
-        prependDot.uncheckedAppend(Term::EndOfLineAssertionTerm);
-        prependBeginningOfLine.uncheckedAppend(Term::EndOfLineAssertionTerm);
-        
-        addPattern(actionId, prependDot);
-        addPattern(actionId, prependBeginningOfLine);
-    } else {
-        // This is like adding ^domain$, but interpreting domain as a series of characters, not a regular expression.
-        // "webkit.org" will match "webkit.org" but not "bugs.webkit.org".
-        Vector<Term> prependBeginningOfLine;
-        prependBeginningOfLine.reserveInitialCapacity(domainLength + 1); // This is just no .* at the beginning.
-        for (unsigned i = 0; i < domainLength; i++) {
-            ASSERT(isASCII(domain[i]));
-            ASSERT(!isASCIIUpper(domain[i]));
-            prependBeginningOfLine.uncheckedAppend(Term(domain[i], true));
-        }
-        prependBeginningOfLine.uncheckedAppend(Term::EndOfLineAssertionTerm);
-        addPattern(actionId, prependBeginningOfLine);
-    }
-}
-
 void CombinedURLFilters::addPattern(uint64_t actionId, const Vector<Term>& pattern)
 {
     ASSERT_WITH_MESSAGE(!pattern.isEmpty(), "The parser should have excluded empty patterns before reaching CombinedURLFilters.");
@@ -192,17 +148,17 @@ void CombinedURLFilters::addPattern(uint64_t actionId, const Vector<Term>& patte
         return;
 
     // Extend the prefix tree with the new pattern.
-    PrefixTreeVertex* lastPrefixTree = m_prefixTreeRoot.get();
+    auto* lastPrefixTree = m_prefixTreeRoot.ptr();
 
     for (const Term& term : pattern) {
-        size_t nextEntryIndex = WTF::notFound;
+        size_t nextEntryIndex = notFound;
         for (size_t i = 0; i < lastPrefixTree->edges.size(); ++i) {
             if (*lastPrefixTree->edges[i].term == term) {
                 nextEntryIndex = i;
                 break;
             }
         }
-        if (nextEntryIndex != WTF::notFound)
+        if (nextEntryIndex != notFound)
             lastPrefixTree = lastPrefixTree->edges[nextEntryIndex].child.get();
         else {
             lastPrefixTree->edges.append(PrefixTreeEdge({m_alphabet.interned(term), makeUnique<PrefixTreeVertex>()}));
@@ -212,14 +168,14 @@ void CombinedURLFilters::addPattern(uint64_t actionId, const Vector<Term>& patte
 
     auto addResult = m_actions.add(lastPrefixTree, ActionList());
     ActionList& actions = addResult.iterator->value;
-    if (actions.find(actionId) == WTF::notFound)
+    if (actions.find(actionId) == notFound)
         actions.append(actionId);
 }
 
 struct ActiveSubtree {
     ActiveSubtree(PrefixTreeVertex& vertex, ImmutableCharNFANodeBuilder&& nfaNode, unsigned edgeIndex)
         : vertex(vertex)
-        , nfaNode(WTFMove(nfaNode))
+        , nfaNode(WTF::move(nfaNode))
         , edgeIndex(edgeIndex)
     {
     }
@@ -296,7 +252,7 @@ static void generateSuffixWithReverseSuffixTree(NFA& nfa, Vector<ActiveSubtree>&
     auto rootAddResult = reverseSuffixTreeRoots.add(hashableActionList, ReverseSuffixTreeVertex());
     if (rootAddResult.isNewEntry) {
         ImmutableCharNFANodeBuilder newNode(nfa);
-        newNode.setActions(actionList.begin(), actionList.end());
+        newNode.setActions(WTF::move(actionList));
         rootAddResult.iterator->value.nodeId = newNode.nodeId();
     }
 
@@ -340,7 +296,7 @@ static void generateSuffixWithReverseSuffixTree(NFA& nfa, Vector<ActiveSubtree>&
             newVertex->nodeId = newNode.nodeId();
 
             ReverseSuffixTreeVertex* newVertexAddress = newVertex.get();
-            activeReverseSuffixTreeVertex->edges.append(ReverseSuffixTreeEdge({ edge.term, WTFMove(newVertex) }));
+            activeReverseSuffixTreeVertex->edges.append(ReverseSuffixTreeEdge({ edge.term, WTF::move(newVertex) }));
             activeReverseSuffixTreeVertex = newVertexAddress;
         }
         destinationNodeId = activeReverseSuffixTreeVertex->nodeId;
@@ -384,7 +340,7 @@ static void generateNFAForSubtree(NFA& nfa, ImmutableCharNFANodeBuilder&& subtre
     ReverseSuffixTreeRoots reverseSuffixTreeRoots;
     Vector<ActiveSubtree> stack;
     if (!root.edges.isEmpty())
-        stack.append(ActiveSubtree(root, WTFMove(subtreeRoot), 0));
+        stack.append(ActiveSubtree(root, WTF::move(subtreeRoot), 0));
 
     bool nfaTooBig = false;
     
@@ -410,7 +366,7 @@ static void generateNFAForSubtree(NFA& nfa, ImmutableCharNFANodeBuilder&& subtre
 
             ASSERT(edge.child.get());
             ImmutableCharNFANodeBuilder emptyBuilder;
-            stack.append(ActiveSubtree(*edge.child.get(), WTFMove(emptyBuilder), 0));
+            stack.append(ActiveSubtree(*edge.child.get(), WTF::move(emptyBuilder), 0));
         } else {
             bool isLeaf = vertex.edges.isEmpty();
 
@@ -450,7 +406,7 @@ bool CombinedURLFilters::processNFAs(size_t maxNFASize, Function<bool(NFA&&)>&& 
     while (true) {
         // Traverse out to a leaf.
         Vector<PrefixTreeVertex*, 128> stack;
-        PrefixTreeVertex* vertex = m_prefixTreeRoot.get();
+        auto* vertex = m_prefixTreeRoot.ptr();
         while (true) {
             ASSERT(vertex);
             stack.append(vertex);
@@ -478,15 +434,15 @@ bool CombinedURLFilters::processNFAs(size_t maxNFASize, Function<bool(NFA&&)>&& 
             for (unsigned i = 0; i < stack.size() - 1; ++i) {
                 const PrefixTreeEdge& edge = stack[i]->edges.last();
                 ImmutableCharNFANodeBuilder newNode = edge.term->generateGraph(nfa, lastNode, m_actions.get(edge.child.get()));
-                lastNode = WTFMove(newNode);
+                lastNode = WTF::move(newNode);
             }
 
             // Put the non-quantified vertices in the subtree into the NFA and delete them.
             ASSERT(stack.last());
-            generateNFAForSubtree(nfa, WTFMove(lastNode), *stack.last(), m_actions, maxNFASize);
+            generateNFAForSubtree(nfa, WTF::move(lastNode), *stack.last(), m_actions, maxNFASize);
         }
 
-        if (!handler(WTFMove(nfa)))
+        if (!handler(WTF::move(nfa)))
             return false;
 
         // Clean up any processed leaf nodes.

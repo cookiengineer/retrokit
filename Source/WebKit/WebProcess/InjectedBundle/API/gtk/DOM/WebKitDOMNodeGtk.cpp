@@ -32,11 +32,12 @@
 #include <WebCore/CSSImportRule.h>
 #include <WebCore/DOMException.h>
 #include <WebCore/Document.h>
+#include <WebCore/ElementInlines.h>
 #include <WebCore/JSExecState.h>
 #include <WebCore/JSNode.h>
-#include <WebCore/SVGTests.h>
 #include <wtf/GetPtr.h>
 #include <wtf/RefPtr.h>
+#include <wtf/StdLibExtras.h>
 
 G_GNUC_BEGIN_IGNORE_DEPRECATIONS;
 
@@ -405,9 +406,7 @@ gboolean webkit_dom_node_is_supported(WebKitDOMNode* self, const gchar* feature,
     g_return_val_if_fail(WEBKIT_DOM_IS_NODE(self), FALSE);
     g_return_val_if_fail(feature, FALSE);
     g_return_val_if_fail(version, FALSE);
-    WTF::String convertedFeature = WTF::String::fromUTF8(feature);
-    WTF::String convertedVersion = WTF::String::fromUTF8(version);
-    return WebCore::SVGTests::hasFeatureForLegacyBindings(convertedFeature, convertedVersion);
+    return TRUE;
 }
 
 gboolean webkit_dom_node_is_same_node(WebKitDOMNode* self, WebKitDOMNode* other)
@@ -438,8 +437,7 @@ gchar* webkit_dom_node_lookup_prefix(WebKitDOMNode* self, const gchar* namespace
     g_return_val_if_fail(WEBKIT_DOM_IS_NODE(self), 0);
     g_return_val_if_fail(namespaceURI, 0);
     WebCore::Node* item = WebKit::core(self);
-    WTF::String convertedNamespaceURI = WTF::String::fromUTF8(namespaceURI);
-    gchar* result = convertToUTF8String(item->lookupPrefix(convertedNamespaceURI));
+    gchar* result = convertToUTF8String(item->lookupPrefix(WTF::AtomString::fromUTF8(namespaceURI)));
     return result;
 }
 
@@ -449,8 +447,7 @@ gchar* webkit_dom_node_lookup_namespace_uri(WebKitDOMNode* self, const gchar* pr
     g_return_val_if_fail(WEBKIT_DOM_IS_NODE(self), 0);
     g_return_val_if_fail(prefix, 0);
     WebCore::Node* item = WebKit::core(self);
-    WTF::String convertedPrefix = WTF::String::fromUTF8(prefix);
-    gchar* result = convertToUTF8String(item->lookupNamespaceURI(convertedPrefix));
+    gchar* result = convertToUTF8String(item->lookupNamespaceURI(WTF::AtomString::fromUTF8(prefix)));
     return result;
 }
 
@@ -460,8 +457,7 @@ gboolean webkit_dom_node_is_default_namespace(WebKitDOMNode* self, const gchar* 
     g_return_val_if_fail(WEBKIT_DOM_IS_NODE(self), FALSE);
     g_return_val_if_fail(namespaceURI, FALSE);
     WebCore::Node* item = WebKit::core(self);
-    WTF::String convertedNamespaceURI = WTF::String::fromUTF8(namespaceURI);
-    gboolean result = item->isDefaultNamespace(convertedNamespaceURI);
+    gboolean result = item->isDefaultNamespace(WTF::AtomString::fromUTF8(namespaceURI));
     return result;
 }
 
@@ -513,11 +509,7 @@ void webkit_dom_node_set_node_value(WebKitDOMNode* self, const gchar* value, GEr
     g_return_if_fail(!error || !*error);
     WebCore::Node* item = WebKit::core(self);
     WTF::String convertedValue = WTF::String::fromUTF8(value);
-    auto result = item->setNodeValue(convertedValue);
-    if (result.hasException()) {
-        auto description = WebCore::DOMException::description(result.releaseException().code());
-        g_set_error_literal(error, g_quark_from_string("WEBKIT_DOM"), description.legacyCode, description.name);
-    }
+    item->setNodeValue(convertedValue);
 }
 
 gushort webkit_dom_node_get_node_type(WebKitDOMNode* self)
@@ -525,7 +517,7 @@ gushort webkit_dom_node_get_node_type(WebKitDOMNode* self)
     WebCore::JSMainThreadNullState state;
     g_return_val_if_fail(WEBKIT_DOM_IS_NODE(self), 0);
     WebCore::Node* item = WebKit::core(self);
-    gushort result = item->nodeType();
+    gushort result = std::to_underlying(item->nodeType());
     return result;
 }
 
@@ -617,12 +609,7 @@ void webkit_dom_node_set_text_content(WebKitDOMNode* self, const gchar* value, G
     g_return_if_fail(value);
     g_return_if_fail(!error || !*error);
     WebCore::Node* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    auto result = item->setTextContent(convertedValue);
-    if (result.hasException()) {
-        auto description = WebCore::DOMException::description(result.releaseException().code());
-        g_set_error_literal(error, g_quark_from_string("WEBKIT_DOM"), description.legacyCode, description.name);
-    }
+    item->setTextContent(WTF::String::fromUTF8(value));
 }
 
 WebKitDOMElement* webkit_dom_node_get_parent_element(WebKitDOMNode* self)

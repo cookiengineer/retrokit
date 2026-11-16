@@ -32,8 +32,8 @@
 #include "config.h"
 #include "JSPopStateEvent.h"
 
-#include "DOMWrapperWorld.h"
 #include "JSHistory.h"
+#include "JSValueInWrappedObjectInlines.h"
 #include <JavaScriptCore/HeapInlines.h>
 #include <JavaScriptCore/JSCJSValueInlines.h>
 
@@ -42,61 +42,34 @@ using namespace JSC;
 
 JSValue JSPopStateEvent::state(JSGlobalObject& lexicalGlobalObject) const
 {
-    if (m_state) {
-        // We cannot use a cached object if we are in a different world than the one it was created in.
-        if (isWorldCompatible(lexicalGlobalObject, m_state.get()))
-            return m_state.get();
-        ASSERT_NOT_REACHED();
-    }
+    auto throwScope = DECLARE_THROW_SCOPE(lexicalGlobalObject.vm());
+    return cachedPropertyValue(throwScope, lexicalGlobalObject, *this, wrapped().cachedState(), [this, &lexicalGlobalObject](ThrowScope&) {
+        Ref event = wrapped();
 
-    // Save the lexicalGlobalObject value to the m_state member of a JSPopStateEvent, and return it, for convenience.
-    auto cacheState = [&lexicalGlobalObject, this] (JSC::JSValue eventState) {
-        m_state.set(lexicalGlobalObject.vm(), this, eventState);
-        return eventState;
-    };
+        if (event->state())
+            return event->state().getValue(jsNull());
 
-    PopStateEvent& event = wrapped();
+        RefPtr history = event->history();
+        if (!history || !event->serializedState())
+            return jsNull();
 
-    if (JSC::JSValue eventState = event.state()) {
-        // We need to make sure a PopStateEvent does not leak objects in its lexicalGlobalObject property across isolated DOM worlds.
-        // Ideally, we would check that the worlds have different privileges but that's not possible yet.
-        if (!isWorldCompatible(lexicalGlobalObject, eventState)) {
-            if (auto serializedValue = event.trySerializeState(lexicalGlobalObject))
-                eventState = serializedValue->deserialize(lexicalGlobalObject, globalObject());
-            else
-                eventState = jsNull();
+        // Share the same deserialization with history.state when the state is the current one.
+        if (history->isSameAsCurrentState(event->serializedState())) {
+            auto* jsHistory = downcast<JSHistory>(toJS(&lexicalGlobalObject, realm(), *history).asCell());
+            return jsHistory->state(lexicalGlobalObject);
         }
-        return cacheState(eventState);
-    }
-    
-    History* history = event.history();
-    if (!history || !event.serializedState())
-        return cacheState(jsNull());
 
-    // There's no cached value from a previous invocation, nor a lexicalGlobalObject value was provided by the
-    // event, but there is a history object, so first we need to see if the lexicalGlobalObject object has been
-    // deserialized through the history object already.
-    // The current history lexicalGlobalObject object might've changed in the meantime, so we need to take care
-    // of using the correct one, and always share the same deserialization with history.lexicalGlobalObject.
-
-    bool isSameState = history->isSameAsCurrentState(event.serializedState());
-    JSValue result;
-
-    if (isSameState) {
-        JSHistory* jsHistory = jsCast<JSHistory*>(toJS(&lexicalGlobalObject, globalObject(), *history).asCell());
-        result = jsHistory->state(lexicalGlobalObject);
-    } else
-        result = event.serializedState()->deserialize(lexicalGlobalObject, globalObject());
-
-    return cacheState(result);
+        return event->serializedState()->deserialize(lexicalGlobalObject, realm());
+    });
 }
 
 template<typename Visitor>
-void JSPopStateEvent::visitAdditionalChildren(Visitor& visitor)
+void JSPopStateEvent::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    wrapped().state().visit(visitor);
+    wrapped().state().visitInGCThread(visitor);
+    wrapped().cachedState().visitInGCThread(visitor);
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSPopStateEvent);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSPopStateEvent);
 
 } // namespace WebCore

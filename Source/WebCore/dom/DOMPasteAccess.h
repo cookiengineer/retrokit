@@ -25,9 +25,12 @@
 
 #pragma once
 
-#include <wtf/Forward.h>
-
 namespace WebCore {
+
+enum class DOMPasteAccessCategory : uint8_t {
+    General,
+    Fonts,
+};
 
 enum class DOMPasteAccessPolicy : uint8_t {
     NotRequestedYet,
@@ -41,17 +44,9 @@ enum class DOMPasteAccessResponse : uint8_t {
     GrantedForGesture
 };
 
-} // namespace WebCore
-
-namespace WTF {
-
-template<> struct EnumTraits<WebCore::DOMPasteAccessResponse> {
-    using values = EnumValues<
-        WebCore::DOMPasteAccessResponse,
-        WebCore::DOMPasteAccessResponse::DeniedForGesture,
-        WebCore::DOMPasteAccessResponse::GrantedForCommand,
-        WebCore::DOMPasteAccessResponse::GrantedForGesture
-    >;
+enum class DOMPasteRequiresInteraction : bool {
+    No,
+    Yes
 };
 
-} // namespace WTF
+} // namespace WebCore

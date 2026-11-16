@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include <wtf/text/StringView.h>
 #include <wtf/text/WTFString.h>
 
 // Helper functions for converting from CSSValues to text.
@@ -29,10 +30,15 @@
 namespace WebCore {
 
 // Common serializing methods. See: http://dev.w3.org/csswg/cssom/#common-serializing-idioms
-void serializeIdentifier(const String& identifier, StringBuilder& appendTo, bool skipStartChecks = false);
-void serializeString(const String&, StringBuilder& appendTo);
-String serializeString(const String&);
-String serializeURL(const String&);
+enum class ShouldSkipStartChecks : bool { No, Yes };
+void serializeIdentifier(StringBuilder&, StringView identifier, ShouldSkipStartChecks = ShouldSkipStartChecks::No);
+
+void serializeString(StringBuilder&, StringView);
+String serializeString(StringView);
+
+void serializeURLTokenValue(StringBuilder&, StringView);
+
+void serializeFontFamily(StringBuilder&, StringView);
 String serializeFontFamily(const String&);
 
 } // namespace WebCore

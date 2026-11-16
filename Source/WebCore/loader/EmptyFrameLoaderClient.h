@@ -25,183 +25,185 @@
 
 #pragma once
 
-#include "FrameLoaderClient.h"
+#include <WebCore/LocalFrameLoaderClient.h>
+#include <wtf/Platform.h>
 
 namespace WebCore {
 
-class WEBCORE_EXPORT EmptyFrameLoaderClient : public FrameLoaderClient {
+class WEBCORE_EXPORT EmptyFrameLoaderClient : public LocalFrameLoaderClient {
+public:
+    explicit EmptyFrameLoaderClient(FrameLoader& frameLoader)
+        : LocalFrameLoaderClient(frameLoader)
+    { }
+
 private:
-    Ref<DocumentLoader> createDocumentLoader(const ResourceRequest&, const SubstituteData&) override;
+    Ref<DocumentLoader> createDocumentLoader(ResourceRequest&&, SubstituteData&&, ResourceRequest&&) override;
+    Ref<DocumentLoader> createDocumentLoader(ResourceRequest&&, SubstituteData&&) override;
 
-    std::optional<FrameIdentifier> frameID() const override;
-    std::optional<PageIdentifier> pageID() const override;
+    bool NODELETE hasWebView() const final;
 
-    bool hasWebView() const final;
-
-    void makeRepresentation(DocumentLoader*) final;
+    void NODELETE makeRepresentation(DocumentLoader*) final;
 
 #if PLATFORM(IOS_FAMILY)
     bool forceLayoutOnRestoreFromBackForwardCache() final;
 #endif
 
-    void forceLayoutForNonHTML() final;
+    void NODELETE forceLayoutForNonHTML() final;
 
-    void setCopiesOnScroll() final;
+    void NODELETE setCopiesOnScroll() final;
 
-    void detachedFromParent2() final;
-    void detachedFromParent3() final;
+    void NODELETE detachedFromParent2() final;
+    void NODELETE detachedFromParent3() final;
 
-    void convertMainResourceLoadToDownload(DocumentLoader*, const ResourceRequest&, const ResourceResponse&) final;
+    void NODELETE convertMainResourceLoadToDownload(DocumentLoader*, const ResourceRequest&, const ResourceResponse&) final;
 
-    void assignIdentifierToInitialRequest(unsigned long, DocumentLoader*, const ResourceRequest&) final;
-    bool shouldUseCredentialStorage(DocumentLoader*, unsigned long) override;
-    void dispatchWillSendRequest(DocumentLoader*, unsigned long, ResourceRequest&, const ResourceResponse&) final;
-    void dispatchDidReceiveAuthenticationChallenge(DocumentLoader*, unsigned long, const AuthenticationChallenge&) final;
+    void NODELETE assignIdentifierToInitialRequest(ResourceLoaderIdentifier, DocumentLoader*, const ResourceRequest&) final;
+    bool NODELETE shouldUseCredentialStorage(DocumentLoader*, ResourceLoaderIdentifier) override;
+    void NODELETE dispatchWillSendRequest(DocumentLoader*, ResourceLoaderIdentifier, ResourceRequest&, const ResourceResponse&) final;
+    void NODELETE dispatchDidReceiveAuthenticationChallenge(DocumentLoader*, ResourceLoaderIdentifier, const AuthenticationChallenge&) final;
 #if USE(PROTECTION_SPACE_AUTH_CALLBACK)
-    bool canAuthenticateAgainstProtectionSpace(DocumentLoader*, unsigned long, const ProtectionSpace&) final;
+    bool NODELETE canAuthenticateAgainstProtectionSpace(DocumentLoader*, ResourceLoaderIdentifier, const ProtectionSpace&) final;
 #endif
 
 #if PLATFORM(IOS_FAMILY)
-    RetainPtr<CFDictionaryRef> connectionProperties(DocumentLoader*, unsigned long) final;
+    RetainPtr<CFDictionaryRef> connectionProperties(DocumentLoader*, ResourceLoaderIdentifier) final;
 #endif
 
-    void dispatchDidReceiveResponse(DocumentLoader*, unsigned long, const ResourceResponse&) final;
-    void dispatchDidReceiveContentLength(DocumentLoader*, unsigned long, int) final;
-    void dispatchDidFinishLoading(DocumentLoader*, unsigned long) final;
+    void NODELETE dispatchDidReceiveResponse(DocumentLoader*, ResourceLoaderIdentifier, const ResourceResponse&) final;
+    void NODELETE dispatchDidReceiveContentLength(DocumentLoader*, ResourceLoaderIdentifier, int) final;
+    void NODELETE dispatchDidFinishLoading(DocumentLoader*, ResourceLoaderIdentifier) final;
 #if ENABLE(DATA_DETECTION)
-    void dispatchDidFinishDataDetection(NSArray *) final;
+    void NODELETE dispatchDidFinishDataDetection(NSArray *) final;
 #endif
-    void dispatchDidFailLoading(DocumentLoader*, unsigned long, const ResourceError&) final;
-    bool dispatchDidLoadResourceFromMemoryCache(DocumentLoader*, const ResourceRequest&, const ResourceResponse&, int) final;
+    void NODELETE dispatchDidFailLoading(DocumentLoader*, ResourceLoaderIdentifier, const ResourceError&) final;
+    bool NODELETE dispatchDidLoadResourceFromMemoryCache(DocumentLoader*, const ResourceRequest&, const ResourceResponse&, int) final;
 
-    void dispatchDidDispatchOnloadEvents() final;
-    void dispatchDidReceiveServerRedirectForProvisionalLoad() final;
-    void dispatchDidCancelClientRedirect() final;
+    void NODELETE dispatchDidDispatchOnloadEvents() final;
+    void NODELETE dispatchDidReceiveServerRedirectForProvisionalLoad() final;
+    void NODELETE dispatchDidCancelClientRedirect() final;
     void dispatchWillPerformClientRedirect(const URL&, double, WallTime, LockBackForwardList) final;
-    void dispatchDidChangeLocationWithinPage() final;
-    void dispatchDidPushStateWithinPage() final;
-    void dispatchDidReplaceStateWithinPage() final;
-    void dispatchDidPopStateWithinPage() final;
-    void dispatchWillClose() final;
-    void dispatchDidStartProvisionalLoad() final;
-    void dispatchDidReceiveTitle(const StringWithDirection&) final;
-    void dispatchDidCommitLoad(std::optional<HasInsecureContent>, std::optional<UsedLegacyTLS>) final;
-    void dispatchDidFailProvisionalLoad(const ResourceError&, WillContinueLoading) final;
-    void dispatchDidFailLoad(const ResourceError&) final;
-    void dispatchDidFinishDocumentLoad() final;
-    void dispatchDidFinishLoad() final;
-    void dispatchDidReachLayoutMilestone(OptionSet<LayoutMilestone>) final;
-    void dispatchDidReachVisuallyNonEmptyState() final;
+    void NODELETE dispatchDidChangeLocationWithinPage() final;
+    void NODELETE dispatchDidPushStateWithinPage() final;
+    void NODELETE dispatchDidReplaceStateWithinPage() final;
+    void NODELETE dispatchDidPopStateWithinPage() final;
+    void NODELETE dispatchWillClose() final;
+    void NODELETE dispatchDidStartProvisionalLoad() final;
+    void NODELETE dispatchDidReceiveTitle(const StringWithDirection&) final;
+    void NODELETE dispatchDidCommitLoad(std::optional<HasInsecureContent>, std::optional<UsedLegacyTLS>, std::optional<WasPrivateRelayed>) final;
+    void NODELETE dispatchDidFailProvisionalLoad(const ResourceError&, WillContinueLoading, WillInternallyHandleFailure) final;
+    void NODELETE dispatchDidFailLoad(const ResourceError&) final;
+    void NODELETE dispatchDidFinishDocumentLoad() final;
+    void NODELETE dispatchDidFinishLoad() final;
+    void NODELETE dispatchDidReachLayoutMilestone(OptionSet<LayoutMilestone>) final;
+    void NODELETE dispatchDidReachVisuallyNonEmptyState() final;
 
-    Frame* dispatchCreatePage(const NavigationAction&, NewFrameOpenerPolicy) final;
-    void dispatchShow() final;
+    LocalFrame* NODELETE dispatchCreatePage(const NavigationAction&, NewFrameOpenerPolicy, const String&) final;
+    void NODELETE dispatchShow() final;
 
-    void dispatchDecidePolicyForResponse(const ResourceResponse&, const ResourceRequest&, PolicyCheckIdentifier, const String&, BrowsingContextGroupSwitchDecision, FramePolicyFunction&&) final;
-    void dispatchDecidePolicyForNewWindowAction(const NavigationAction&, const ResourceRequest&, FormState*, const String&, PolicyCheckIdentifier, FramePolicyFunction&&) final;
-    void dispatchDecidePolicyForNavigationAction(const NavigationAction&, const ResourceRequest&, const ResourceResponse& redirectResponse, FormState*, PolicyDecisionMode, PolicyCheckIdentifier, FramePolicyFunction&&) final;
-    void cancelPolicyCheck() final;
+    void NODELETE dispatchDecidePolicyForResponse(const ResourceResponse&, const ResourceRequest&, const String&, FramePolicyFunction&&) final;
+    void NODELETE dispatchDecidePolicyForNewWindowAction(const NavigationAction&, const ResourceRequest&, FormState*, const String&, std::optional<HitTestResult>&&, FramePolicyFunction&&) final;
+    void NODELETE dispatchDecidePolicyForNavigationAction(const NavigationAction&, const ResourceRequest&, const ResourceResponse& redirectResponse, FormState*, const String&, std::optional<NavigationIdentifier>, std::optional<HitTestResult>&&, bool, NavigationUpgradeToHTTPSBehavior, SandboxFlags, PolicyDecisionMode, FramePolicyFunction&&) final;
+    void NODELETE updateSandboxFlags(SandboxFlags) final;
+    void NODELETE updateOpener(std::optional<FrameIdentifier>) final;
+    void setPrinting(bool, FloatSize, FloatSize, float, AdjustViewSize) final;
+    void NODELETE cancelPolicyCheck() final;
 
-    void dispatchUnableToImplementPolicy(const ResourceError&) final;
+    void NODELETE dispatchUnableToImplementPolicy(const ResourceError&) final;
 
-    void dispatchWillSendSubmitEvent(Ref<FormState>&&) final;
-    void dispatchWillSubmitForm(FormState&, CompletionHandler<void()>&&) final;
+    void NODELETE dispatchWillSendSubmitEvent(Ref<FormState>&&) final;
+    void dispatchWillSubmitForm(FormState&, URL&& requestURL, String&& method, CompletionHandler<void()>&&) final;
 
-    void revertToProvisionalState(DocumentLoader*) final;
-    void setMainDocumentError(DocumentLoader*, const ResourceError&) final;
+    void NODELETE revertToProvisionalState(DocumentLoader*) final;
+    void NODELETE setMainDocumentError(DocumentLoader*, const ResourceError&) final;
 
-    void setMainFrameDocumentReady(bool) final;
+    void NODELETE setMainFrameDocumentReady(bool) final;
 
-    void startDownload(const ResourceRequest&, const String&) final;
+    void NODELETE startDownload(const ResourceRequest&, const String&, FromDownloadAttribute = FromDownloadAttribute::No) final;
 
-    void willChangeTitle(DocumentLoader*) final;
-    void didChangeTitle(DocumentLoader*) final;
+    void NODELETE willChangeTitle(DocumentLoader*) final;
+    void NODELETE didChangeTitle(DocumentLoader*) final;
 
-    void willReplaceMultipartContent() final;
-    void didReplaceMultipartContent() final;
+    void NODELETE willReplaceMultipartContent() final;
+    void NODELETE didReplaceMultipartContent() final;
 
-    void committedLoad(DocumentLoader*, const uint8_t*, int) final;
-    void finishedLoading(DocumentLoader*) final;
+    void NODELETE committedLoad(DocumentLoader*, const SharedBuffer&) final;
+    void NODELETE finishedLoading(DocumentLoader*) final;
 
-    ResourceError cancelledError(const ResourceRequest&) const final;
-    ResourceError blockedError(const ResourceRequest&) const final;
-    ResourceError blockedByContentBlockerError(const ResourceRequest&) const final;
-    ResourceError cannotShowURLError(const ResourceRequest&) const final;
-    ResourceError interruptedForPolicyChangeError(const ResourceRequest&) const final;
-#if ENABLE(CONTENT_FILTERING)
-    ResourceError blockedByContentFilterError(const ResourceRequest&) const final;
-#endif
+    void NODELETE loadStorageAccessQuirksIfNeeded() final;
 
-    ResourceError cannotShowMIMETypeError(const ResourceResponse&) const final;
-    ResourceError fileDoesNotExistError(const ResourceResponse&) const final;
-    ResourceError pluginWillHandleLoadError(const ResourceResponse&) const final;
+    bool NODELETE shouldFallBack(const ResourceError&) const final;
 
-    bool shouldFallBack(const ResourceError&) const final;
+    bool NODELETE canHandleRequest(const ResourceRequest&) const final;
+    bool NODELETE canShowMIMEType(const String&) const final;
+    bool NODELETE canShowMIMETypeAsHTML(const String&) const final;
+    bool NODELETE representationExistsForURLScheme(StringView) const final;
+    String NODELETE generatedMIMETypeForURLScheme(StringView) const final;
 
-    bool canHandleRequest(const ResourceRequest&) const final;
-    bool canShowMIMEType(const String&) const final;
-    bool canShowMIMETypeAsHTML(const String&) const final;
-    bool representationExistsForURLScheme(const String&) const final;
-    String generatedMIMETypeForURLScheme(const String&) const final;
+    void NODELETE frameLoadCompleted() final;
+    void NODELETE restoreViewState() final;
+    void NODELETE provisionalLoadStarted() final;
+    void NODELETE didFinishLoad() final;
+    void NODELETE prepareForDataSourceReplacement() final;
 
-    void frameLoadCompleted() final;
-    void restoreViewState() final;
-    void provisionalLoadStarted() final;
-    void didFinishLoad() final;
-    void prepareForDataSourceReplacement() final;
+    void NODELETE updateCachedDocumentLoader(DocumentLoader&) final;
+    void NODELETE setTitle(const StringWithDirection&, const URL&) final;
 
-    void updateCachedDocumentLoader(DocumentLoader&) final;
-    void setTitle(const StringWithDirection&, const URL&) final;
+    String NODELETE userAgent(const URL&) const override;
 
-    String userAgent(const URL&) const override;
-
-    void savePlatformDataToCachedFrame(CachedFrame*) final;
-    void transitionToCommittedFromCachedFrame(CachedFrame*) final;
+    void NODELETE savePlatformDataToCachedFrame(CachedFrame*) final;
+    void NODELETE transitionToCommittedFromCachedFrame(CachedFrame*) final;
 #if PLATFORM(IOS_FAMILY)
     void didRestoreFrameHierarchyForCachedFrame() final;
 #endif
-    void transitionToCommittedForNewPage() final;
+    void NODELETE transitionToCommittedForNewPage(InitializingIframe) final;
 
-    void didRestoreFromBackForwardCache() final;
+    void NODELETE didRestoreFromBackForwardCache() final;
 
-    void updateGlobalHistory() final;
-    void updateGlobalHistoryRedirectLinks() final;
-    bool shouldGoToHistoryItem(HistoryItem&) const final;
-    void saveViewStateToItem(HistoryItem&) final;
-    bool canCachePage() const final;
-    void didDisplayInsecureContent() final;
-    void didRunInsecureContent(SecurityOrigin&, const URL&) final;
-    void didDetectXSS(const URL&, bool) final;
-    RefPtr<Frame> createFrame(const String&, HTMLFrameOwnerElement&) final;
-    RefPtr<Widget> createPlugin(const IntSize&, HTMLPlugInElement&, const URL&, const Vector<String>&, const Vector<String>&, const String&, bool) final;
+    void NODELETE updateGlobalHistory() final;
+    void NODELETE updateGlobalHistoryRedirectLinks() final;
+    ShouldGoToHistoryItem NODELETE shouldGoToHistoryItem(HistoryItem&, IsSameDocumentNavigation) const final;
+    bool NODELETE supportsAsyncShouldGoToHistoryItem() const final;
+    void NODELETE shouldGoToHistoryItemAsync(HistoryItem&, CompletionHandler<void(ShouldGoToHistoryItem)>&&) const final;
+    void NODELETE dispatchGoToBackForwardItemAtIndex(int steps) final;
+    void NODELETE dispatchEnqueueHistoryTraversalDelta(int delta) final;
 
-    ObjectContentType objectContentType(const URL&, const String&) final;
-    String overrideMediaType() const final;
+    void NODELETE saveViewStateToItem(HistoryItem&) final;
+    bool NODELETE canCachePage() const final;
+    RefPtr<LocalFrame> createFrame(const AtomString&, HTMLFrameOwnerElement&) final;
+    RefPtr<Widget> createPlugin(HTMLPlugInElement&, const URL&, const Vector<AtomString>&, const Vector<AtomString>&, const String&, bool) final;
 
-    void redirectDataToPlugin(Widget&) final;
-    void dispatchDidClearWindowObjectInWorld(DOMWrapperWorld&) final;
+    ObjectContentType NODELETE objectContentType(const URL&, const String&) final;
+    AtomString NODELETE overrideMediaType() const final;
+
+    void NODELETE redirectDataToPlugin(Widget&) final;
+    void NODELETE dispatchDidClearWindowObjectInWorld(DOMWrapperWorld&) final;
 
 #if PLATFORM(COCOA)
-    RemoteAXObjectRef accessibilityRemoteObject() final;
-    void willCacheResponse(DocumentLoader*, unsigned long, NSCachedURLResponse *, CompletionHandler<void(NSCachedURLResponse *)>&&) const final;
+    RemoteAXObjectRef NODELETE accessibilityRemoteObject() final;
+    IntPoint NODELETE accessibilityRemoteFrameOffset() final;
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+    void NODELETE setIsolatedTree(Ref<WebCore::AXIsolatedTree>&&) final;
+    RefPtr<WebCore::AXIsolatedTree> isolatedTree() const final;
 #endif
-
-#if USE(CFURLCONNECTION)
-    bool shouldCacheResponse(DocumentLoader*, unsigned long, const ResourceResponse&, const unsigned char*, unsigned long long) final;
+    void willCacheResponse(DocumentLoader*, ResourceLoaderIdentifier, NSCachedURLResponse *, CompletionHandler<void(NSCachedURLResponse *)>&&) const final;
 #endif
 
     Ref<FrameNetworkingContext> createNetworkingContext() final;
 
-    bool isEmptyFrameLoaderClient() const override;
-    void prefetchDNS(const String&) final;
+    bool NODELETE isEmptyFrameLoaderClient() const override;
+    void NODELETE prefetchDNS(const String&) final;
     void sendH2Ping(const URL&, CompletionHandler<void(Expected<Seconds, ResourceError>&&)>&&) final;
 
 #if USE(QUICK_LOOK)
     RefPtr<LegacyPreviewLoaderClient> createPreviewLoaderClient(const String&, const String&) final;
 #endif
 
-#if ENABLE(RESOURCE_LOAD_STATISTICS)
-    bool hasFrameSpecificStorageAccess() final;
-#endif
+    bool NODELETE hasFrameSpecificStorageAccess() final;
+    void NODELETE revokeFrameSpecificStorageAccess() final;
+
+    void NODELETE dispatchLoadEventToOwnerElementInAnotherProcess() final;
+
+    RefPtr<HistoryItem> createHistoryItemTree(bool, BackForwardItemIdentifier) const final;
 };
 
 } // namespace WebCore

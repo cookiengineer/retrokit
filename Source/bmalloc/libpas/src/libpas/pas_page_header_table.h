@@ -27,6 +27,7 @@
 #define PAS_PAGE_HEADER_TABLE_H
 
 #include "pas_lock_free_read_ptr_ptr_hashtable.h"
+#include "pas_mte.h"
 
 PAS_BEGIN_EXTERN_C;
 
@@ -45,10 +46,10 @@ struct pas_page_header_table {
 };
 
 #define PAS_PAGE_HEADER_TABLE_INITIALIZER(passed_page_size) \
-    ((pas_page_header_table){ \
+    { \
          .page_size = (passed_page_size), \
          .hashtable = PAS_LOCK_FREE_READ_PTR_PTR_HASHTABLE_INITIALIZER \
-     })
+    }
 
 static inline unsigned pas_page_header_table_hash(const void* key, void* arg)
 {
@@ -56,7 +57,7 @@ static inline unsigned pas_page_header_table_hash(const void* key, void* arg)
 
     page_size = (size_t)arg;
 
-    return (unsigned)((uintptr_t)key / page_size);
+    return pas_hash32((unsigned)((uintptr_t)key / page_size));
 }
 
 PAS_API pas_page_base* pas_page_header_table_add(pas_page_header_table* table,
@@ -74,7 +75,7 @@ static PAS_ALWAYS_INLINE void** pas_page_header_table_get_boundary_ptr(pas_page_
 {
     PAS_TESTING_ASSERT(page_size == table->page_size);
 
-    return ((void**)page_base) - 1;
+    return ((void**)page_base) - 2;
 }
 
 static PAS_ALWAYS_INLINE void* pas_page_header_table_get_boundary(pas_page_header_table* table,
@@ -89,10 +90,15 @@ pas_page_header_table_get_for_boundary(pas_page_header_table* table,
                                        size_t page_size,
                                        void* boundary)
 {
-    PAS_TESTING_ASSERT(page_size == table->page_size);
-    PAS_TESTING_ASSERT(pas_round_down_to_power_of_2((uintptr_t)boundary, page_size)
-                       == (uintptr_t)boundary);
+    uintptr_t begin = (uintptr_t)boundary;
 
+    PAS_TESTING_ASSERT(page_size == table->page_size);
+    PAS_TESTING_ASSERT(pas_round_down_to_power_of_2(begin, page_size)
+                       == begin);
+
+    PAS_PROFILE(PAGE_HEADER_TABLE_GET, begin);
+    PAS_MTE_HANDLE(PAGE_HEADER_TABLE_GET, begin);
+    boundary = (void*)begin;
     return (pas_page_base*)pas_lock_free_read_ptr_ptr_hashtable_find(
         &table->hashtable, pas_page_header_table_hash, (void*)page_size, boundary);
 }

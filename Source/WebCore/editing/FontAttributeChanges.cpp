@@ -27,15 +27,26 @@
 #include "FontAttributeChanges.h"
 
 #include "CSSPropertyNames.h"
-#include "CSSShadowValue.h"
+#include "CSSTextShadowPropertyValue.h"
 #include "CSSValueKeywords.h"
-#include "CSSValueList.h"
 #include "CSSValuePool.h"
 #include "EditAction.h"
 #include "EditingStyle.h"
+#include "MutableStyleProperties.h"
 #include "StyleProperties.h"
 
 namespace WebCore {
+
+FontChanges::FontChanges(String&& fontName, String&& fontFamily, std::optional<double>&& fontSize, std::optional<double>&& fontSizeDelta, std::optional<bool>&& bold, std::optional<bool>&& italic)
+    : m_fontName(WTF::move(fontName))
+    , m_fontFamily(WTF::move(fontFamily))
+    , m_fontSize(WTF::move(fontSize))
+    , m_fontSizeDelta(WTF::move(fontSizeDelta))
+    , m_bold(WTF::move(bold))
+    , m_italic(WTF::move(italic))
+{
+    ASSERT(!m_fontSize || !m_fontSizeDelta);
+}
 
 #if !PLATFORM(COCOA)
 
@@ -54,15 +65,13 @@ Ref<EditingStyle> FontChanges::createEditingStyle() const
 
 Ref<MutableStyleProperties> FontChanges::createStyleProperties() const
 {
-    String familyNameForCSS;
-    if (!!m_fontFamily)
-        familyNameForCSS = platformFontFamilyNameForCSS();
-
     auto style = MutableStyleProperties::create();
-    auto& cssValuePool = CSSValuePool::singleton();
 
-    if (!!familyNameForCSS)
-        style->setProperty(CSSPropertyFontFamily, cssValuePool.createFontFamilyValue(familyNameForCSS));
+    if (!m_fontFamily.isNull()) {
+        AtomString familyNameForCSS { platformFontFamilyNameForCSS() };
+        if (!familyNameForCSS.isNull())
+            style->setProperty(CSSPropertyFontFamily, CSSValuePool::singleton().createFontFamilyNameValue(familyNameForCSS));
+    }
 
     if (m_italic)
         style->setProperty(CSSPropertyFontStyle, *m_italic ? CSSValueItalic : CSSValueNormal);
@@ -71,27 +80,44 @@ Ref<MutableStyleProperties> FontChanges::createStyleProperties() const
         style->setProperty(CSSPropertyFontWeight, *m_bold ? CSSValueBold : CSSValueNormal);
 
     if (m_fontSize)
-        style->setProperty(CSSPropertyFontSize, cssValuePool.createValue(*m_fontSize, CSSUnitType::CSS_PX));
+        style->setProperty(CSSPropertyFontSize, CSSPrimitiveValue::create(*m_fontSize, CSSUnitType::CSS_PX));
 
     if (m_fontSizeDelta)
-        style->setProperty(CSSPropertyWebkitFontSizeDelta, cssValuePool.createValue(*m_fontSizeDelta, CSSUnitType::CSS_PX));
+        style->setProperty(CSSPropertyWebkitFontSizeDelta, CSSPrimitiveValue::create(*m_fontSizeDelta, CSSUnitType::CSS_PX));
 
     return style;
 }
 
-static RefPtr<CSSValueList> cssValueListForShadow(const FontShadow& shadow)
+static RefPtr<CSSValue> cssValueForTextShadow(const FontShadow& shadow)
 {
     if (shadow.offset.isZero() && !shadow.blurRadius)
         return nullptr;
 
-    auto list = CSSValueList::createCommaSeparated();
-    auto& cssValuePool = CSSValuePool::singleton();
-    auto width = cssValuePool.createValue(shadow.offset.width(), CSSUnitType::CSS_PX);
-    auto height = cssValuePool.createValue(shadow.offset.height(), CSSUnitType::CSS_PX);
-    auto blurRadius = cssValuePool.createValue(shadow.blurRadius, CSSUnitType::CSS_PX);
-    auto color = cssValuePool.createValue(shadow.color);
-    list->prepend(CSSShadowValue::create(WTFMove(width), WTFMove(height), WTFMove(blurRadius), { }, { }, WTFMove(color)));
-    return list.ptr();
+    auto color = CSS::Color { CSS::ResolvedColor { shadow.color } };
+    auto width = CSS::Length<CSS::AllUnzoomed> { CSS::LengthUnit::Px, shadow.offset.width() };
+    auto height = CSS::Length<CSS::AllUnzoomed> { CSS::LengthUnit::Px, shadow.offset.height() };
+    auto blur = CSS::Length<CSS::NonnegativeUnzoomed> { CSS::LengthUnit::Px, shadow.blurRadius };
+
+    CSS::TextShadowProperty::List list {
+        CSS::TextShadow {
+            .color = WTF::move(color),
+            .location = { WTF::move(width), WTF::move(height) },
+            .blur = WTF::move(blur),
+        }
+    };
+
+    return CSSTextShadowPropertyValue::create(CSS::TextShadowProperty { WTF::move(list) });
+}
+
+FontAttributeChanges::FontAttributeChanges(std::optional<VerticalAlignChange>&& verticalAlign, std::optional<Color>&& backgroundColor, std::optional<Color>&& foregroundColor, std::optional<FontShadow>&& shadow, std::optional<bool>&& strikeThrough, std::optional<bool>&& underline, FontChanges&& fontChanges)
+    : m_verticalAlign(WTF::move(verticalAlign))
+    , m_backgroundColor(WTF::move(backgroundColor))
+    , m_foregroundColor(WTF::move(foregroundColor))
+    , m_shadow(WTF::move(shadow))
+    , m_strikeThrough(WTF::move(strikeThrough))
+    , m_underline(WTF::move(underline))
+    , m_fontChanges(WTF::move(fontChanges))
+{
 }
 
 EditAction FontAttributeChanges::editAction() const
@@ -112,14 +138,14 @@ Ref<EditingStyle> FontAttributeChanges::createEditingStyle() const
     auto& cssValuePool = CSSValuePool::singleton();
 
     if (m_backgroundColor)
-        style->setProperty(CSSPropertyBackgroundColor, cssValuePool.createValue(*m_backgroundColor));
+        style->setProperty(CSSPropertyBackgroundColor, cssValuePool.createColorValue(*m_backgroundColor));
 
     if (m_foregroundColor)
-        style->setProperty(CSSPropertyColor, cssValuePool.createValue(*m_foregroundColor));
+        style->setProperty(CSSPropertyColor, cssValuePool.createColorValue(*m_foregroundColor));
 
     if (m_shadow) {
-        if (auto shadowValue = cssValueListForShadow(*m_shadow))
-            style->setProperty(CSSPropertyTextShadow, WTFMove(shadowValue));
+        if (auto shadowValue = cssValueForTextShadow(*m_shadow))
+            style->setProperty(CSSPropertyTextShadow, shadowValue.releaseNonNull());
         else
             style->setProperty(CSSPropertyTextShadow, CSSValueNone);
     }

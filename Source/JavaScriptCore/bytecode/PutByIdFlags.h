@@ -25,8 +25,7 @@
 
 #pragma once
 
-#include "ECMAMode.h"
-#include "StructureIDTable.h"
+#include <JavaScriptCore/ECMAMode.h>
 
 namespace JSC {
 

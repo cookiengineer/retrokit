@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011, 2012 Apple Inc.  All rights reserved.
+ * Copyright (C) 2011, 2012 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,52 +29,69 @@
 
 #include "TrackListBase.h"
 
+#include "ContextDestructionObserverInlines.h"
 #include "EventNames.h"
-#include "HTMLMediaElement.h"
 #include "ScriptExecutionContext.h"
 #include "TrackEvent.h"
-#include <wtf/IsoMallocInlines.h>
+#include "TrackOpaqueRoot.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(TrackListBase);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(TrackListBase);
 
-TrackListBase::TrackListBase(WeakPtr<HTMLMediaElement> element, ScriptExecutionContext* context)
+TrackListBase::TrackListBase(ScriptExecutionContext* context)
     : ActiveDOMObject(context)
-    , m_element(element)
 {
-    ASSERT(!context || is<Document>(context));
 }
 
-TrackListBase::~TrackListBase()
+TrackListBase::~TrackListBase() = default;
+
+ScriptExecutionContext* TrackListBase::scriptExecutionContext() const
 {
-    clearElement();
+    return ContextDestructionObserver::scriptExecutionContext();
 }
 
-void TrackListBase::clearElement()
+void TrackListBase::didMoveToNewDocument(Document& newDocument)
 {
-    m_element = nullptr;
-    for (auto& track : m_inbandTracks) {
-        track->setMediaElement(nullptr);
-        track->clearClient();
-    }
+    ActiveDOMObject::didMoveToNewDocument(newDocument);
+    for (Ref track : m_inbandTracks)
+        track->didMoveToNewDocument(newDocument);
 }
 
-Element* TrackListBase::element() const
+void TrackListBase::setOpaqueRoot(TrackOpaqueRoot& trackOpaqueRoot)
 {
-    return m_element.get();
+    m_trackOpaqueRoot = &trackOpaqueRoot;
+    for (Ref track : m_inbandTracks)
+        track->setOpaqueRoot(trackOpaqueRoot);
 }
 
-void* TrackListBase::opaqueRoot() const
+WebCoreOpaqueRoot TrackListBase::opaqueRoot() const
 {
-    if (auto* associatedElement = element())
-        return associatedElement->opaqueRoot();
-    return nullptr;
+    if (RefPtr trackOpaqueRoot = m_trackOpaqueRoot)
+        return trackOpaqueRoot->opaqueRoot();
+    return WebCoreOpaqueRoot { const_cast<TrackListBase*>(this) };
 }
 
 unsigned TrackListBase::length() const
 {
     return m_inbandTracks.size();
+}
+
+RefPtr<TrackBase> TrackListBase::find(TrackID trackID) const
+{
+    size_t index = m_inbandTracks.findIf([&](auto& value) {
+        return value->trackId() == trackID;
+    });
+    if (index == notFound)
+        return nullptr;
+    return m_inbandTracks[index].copyRef();
+}
+
+void TrackListBase::remove(TrackID trackID, bool scheduleEvent)
+{
+    if (RefPtr track = find(trackID))
+        remove(*track, scheduleEvent);
 }
 
 void TrackListBase::remove(TrackBase& track, bool scheduleEvent)
@@ -83,27 +100,30 @@ void TrackListBase::remove(TrackBase& track, bool scheduleEvent)
     if (index == notFound)
         return;
 
-    if (track.mediaElement()) {
-        ASSERT(track.mediaElement() == m_element);
-        track.setMediaElement(nullptr);
-    }
+    if (track.trackList() == this)
+        track.clearTrackList();
 
-    Ref<TrackBase> trackRef = *m_inbandTracks[index];
+    Ref trackRef = m_inbandTracks[index];
 
-    m_inbandTracks.remove(index);
+    m_inbandTracks.removeAt(index);
 
     if (scheduleEvent)
-        scheduleRemoveTrackEvent(WTFMove(trackRef));
+        scheduleRemoveTrackEvent(WTF::move(trackRef));
 }
 
 bool TrackListBase::contains(TrackBase& track) const
 {
-    return m_inbandTracks.find(&track) != notFound;
+    return m_inbandTracks.contains(&track);
+}
+
+bool TrackListBase::contains(TrackID trackID) const
+{
+    return find(trackID);
 }
 
 void TrackListBase::scheduleTrackEvent(const AtomString& eventName, Ref<TrackBase>&& track)
 {
-    queueTaskToDispatchEvent(*this, TaskSource::MediaElement, TrackEvent::create(eventName, Event::CanBubble::No, Event::IsCancelable::No, WTFMove(track)));
+    queueTaskToDispatchEvent(*this, TaskSource::MediaElement, TrackEvent::create(eventName, Event::CanBubble::No, Event::IsCancelable::No, WTF::move(track)));
 }
 
 void TrackListBase::scheduleAddTrackEvent(Ref<TrackBase>&& track)
@@ -126,7 +146,7 @@ void TrackListBase::scheduleAddTrackEvent(Ref<TrackBase>&& track)
     // bubble and is not cancelable, and that uses the TrackEvent interface, with
     // the track attribute initialized to the text track's TextTrack object, at
     // the media element's textTracks attribute's TextTrackList object.
-    scheduleTrackEvent(eventNames().addtrackEvent, WTFMove(track));
+    scheduleTrackEvent(eventNames().addtrackEvent, WTF::move(track));
 }
 
 void TrackListBase::scheduleRemoveTrackEvent(Ref<TrackBase>&& track)
@@ -153,7 +173,7 @@ void TrackListBase::scheduleRemoveTrackEvent(Ref<TrackBase>&& track)
     // interface, with the track attribute initialized to the text track's
     // TextTrack object, at the media element's textTracks attribute's
     // TextTrackList object.
-    scheduleTrackEvent(eventNames().removetrackEvent, WTFMove(track));
+    scheduleTrackEvent(eventNames().removetrackEvent, WTF::move(track));
 }
 
 void TrackListBase::scheduleChangeEvent()
@@ -167,9 +187,11 @@ void TrackListBase::scheduleChangeEvent()
     // selected, the user agent must queue a task to fire a simple event named
     // change at the VideoTrackList object.
     m_isChangeEventScheduled = true;
-    queueTaskKeepingObjectAlive(*this, TaskSource::MediaElement, [this] {
-        m_isChangeEventScheduled = false;
-        dispatchEvent(Event::create(eventNames().changeEvent, Event::CanBubble::No, Event::IsCancelable::No));
+    queueTaskKeepingObjectAlive(*this, TaskSource::MediaElement, [](auto& trackList) {
+        if (trackList.isContextStopped())
+            return;
+        trackList.m_isChangeEventScheduled = false;
+        trackList.dispatchEvent(Event::create(eventNames().changeEvent, Event::CanBubble::No, Event::IsCancelable::No));
     });
 }
 

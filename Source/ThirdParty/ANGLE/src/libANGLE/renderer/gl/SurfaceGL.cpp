@@ -22,32 +22,47 @@ SurfaceGL::SurfaceGL(const egl::SurfaceState &state) : SurfaceImpl(state) {}
 
 SurfaceGL::~SurfaceGL() {}
 
-FramebufferImpl *SurfaceGL::createDefaultFramebuffer(const gl::Context *context,
-                                                     const gl::FramebufferState &data)
-{
-    return new FramebufferGL(data, 0, true, false);
-}
-
 egl::Error SurfaceGL::getSyncValues(EGLuint64KHR *ust, EGLuint64KHR *msc, EGLuint64KHR *sbc)
 {
     UNREACHABLE();
-    return egl::EglBadSurface();
+    return egl::Error(EGL_BAD_SURFACE);
 }
 
 egl::Error SurfaceGL::getMscRate(EGLint *numerator, EGLint *denominator)
 {
     UNIMPLEMENTED();
-    return egl::EglBadAccess();
+    return egl::Error(EGL_BAD_ACCESS);
 }
 
 angle::Result SurfaceGL::initializeContents(const gl::Context *context,
+                                            GLenum binding,
                                             const gl::ImageIndex &imageIndex)
 {
     FramebufferGL *framebufferGL = GetImplAs<FramebufferGL>(context->getFramebuffer({0}));
     ASSERT(framebufferGL->isDefault());
 
     BlitGL *blitter = GetBlitGL(context);
-    ANGLE_TRY(blitter->clearFramebuffer(context, framebufferGL));
+
+    switch (binding)
+    {
+        case GL_BACK:
+        {
+            gl::DrawBufferMask colorAttachments{0};
+            ANGLE_TRY(
+                blitter->clearFramebuffer(context, colorAttachments, false, false, framebufferGL));
+        }
+        break;
+
+        case GL_DEPTH:
+        case GL_STENCIL:
+            ANGLE_TRY(blitter->clearFramebuffer(context, gl::DrawBufferMask(), true, true,
+                                                framebufferGL));
+            break;
+
+        default:
+            UNREACHABLE();
+            break;
+    }
 
     return angle::Result::Continue;
 }

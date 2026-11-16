@@ -26,7 +26,14 @@
 
 #pragma once
 
-#include "ExceptionOr.h"
+#include <wtf/Ref.h>
+#include <wtf/RefCounted.h>
+
+namespace WTF {
+
+class String;
+
+} // namespace WTF
 
 namespace WebCore {
 
@@ -34,6 +41,7 @@ class Node;
 class XPathExpression;
 class XPathNSResolver;
 class XPathResult;
+template<typename> class ExceptionOr;
 
 class XPathEvaluator : public RefCounted<XPathEvaluator> {
 public:
@@ -41,6 +49,7 @@ public:
 
     ExceptionOr<Ref<XPathExpression>> createExpression(const String& expression, RefPtr<XPathNSResolver>&&);
     Ref<XPathNSResolver> createNSResolver(Node& nodeResolver);
+    static void createNSResolverForBindings(Node&) { } // Legacy.
     ExceptionOr<Ref<XPathResult>> evaluate(const String& expression, Node& contextNode, RefPtr<XPathNSResolver>&&, unsigned short type, XPathResult*);
 
 private:

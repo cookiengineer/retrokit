@@ -316,7 +316,7 @@ WI.TimelineDataGrid = class TimelineDataGrid extends WI.DataGrid
         }
 
         var record = this.selectedNode.record;
-        if (!record || !record.callFrames || !record.callFrames.length) {
+        if (!record || !record.stackTrace?.callFrames.length) {
             this._hidePopover();
             return;
         }
@@ -395,14 +395,12 @@ WI.TimelineDataGrid = class TimelineDataGrid extends WI.DataGrid
             this._popoverCallStackTreeOutline.disclosureButtons = false;
             this._popoverCallStackTreeOutline.element.classList.add("timeline-data-grid");
             this._popoverCallStackTreeOutline.addEventListener(WI.TreeOutline.Event.SelectionDidChange, this._popoverCallStackTreeSelectionDidChange, this);
+            this._popoverCallStackTreeOutline.addEventListener(WI.TreeOutline.Event.ElementRemoved, this._popoverCallStackTreeElementRemoved, this);
         } else
             this._popoverCallStackTreeOutline.removeChildren();
 
-        var callFrames = this.selectedNode.record.callFrames;
-        for (var i = 0; i < callFrames.length; ++i) {
-            var callFrameTreeElement = new WI.CallFrameTreeElement(callFrames[i]);
-            this._popoverCallStackTreeOutline.appendChild(callFrameTreeElement);
-        }
+        if (this.selectedNode.record.stackTrace)
+            WI.StackTraceTreeController.groupBlackboxedStackTrace(this._popoverCallStackTreeOutline, this.selectedNode.record.stackTrace);
 
         let content = document.createElement("div");
         content.appendChild(this._popoverCallStackTreeOutline.element);
@@ -426,6 +424,12 @@ WI.TimelineDataGrid = class TimelineDataGrid extends WI.DataGrid
             ignoreNetworkTab: true,
             ignoreSearchTab: true,
         });
+    }
+
+    _popoverCallStackTreeElementRemoved(event)
+    {
+        if (event.data.element instanceof WI.BlackboxedGroupTreeElement)
+            this._popover?.update();
     }
 };
 

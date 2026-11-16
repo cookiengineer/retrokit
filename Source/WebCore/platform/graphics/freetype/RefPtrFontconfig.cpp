@@ -25,27 +25,29 @@
 
 namespace WTF {
 
-void DefaultRefDerefTraits<FcPattern>::refIfNotNull(FcPattern* ptr)
+FcPattern* DefaultRefDerefTraits<FcPattern>::refIfNotNull(FcPattern* ptr)
 {
-    if (LIKELY(ptr))
+    if (ptr) [[likely]]
         FcPatternReference(ptr);
+    return ptr;
 }
 
 void DefaultRefDerefTraits<FcPattern>::derefIfNotNull(FcPattern* ptr)
 {
-    if (LIKELY(ptr))
+    if (ptr) [[likely]]
         FcPatternDestroy(ptr);
 }
 
-void DefaultRefDerefTraits<FcConfig>::refIfNotNull(FcConfig* ptr)
+FcConfig* DefaultRefDerefTraits<FcConfig>::refIfNotNull(FcConfig* ptr)
 {
-    if (LIKELY(ptr))
+    if (ptr) [[likely]]
         FcConfigReference(ptr);
+    return ptr;
 }
 
 void DefaultRefDerefTraits<FcConfig>::derefIfNotNull(FcConfig* ptr)
 {
-    if (LIKELY(ptr))
+    if (ptr) [[likely]]
         FcConfigDestroy(ptr);
 }
 

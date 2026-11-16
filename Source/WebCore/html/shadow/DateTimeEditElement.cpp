@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2012 Google Inc. All rights reserved.
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,24 +27,38 @@
 #include "config.h"
 #include "DateTimeEditElement.h"
 
-#if ENABLE(DATE_AND_TIME_INPUT_TYPES)
-
+#include "ContainerNodeInlines.h"
+#include "CSSPropertyNames.h"
 #include "DateComponents.h"
 #include "DateTimeFieldElements.h"
 #include "DateTimeFieldsState.h"
 #include "DateTimeFormat.h"
 #include "DateTimeSymbolicFieldElement.h"
+#include "Document.h"
+#include "ExceptionOr.h"
 #include "HTMLNames.h"
+#include "KeyboardEvent.h"
+#include "NodeDocument.h"
 #include "PlatformLocale.h"
+#include "RenderElement.h"
+#include "ScriptDisallowedScope.h"
 #include "Text.h"
-#include <wtf/IsoMallocInlines.h>
+#include "UserAgentParts.h"
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/StringBuilder.h>
 
 namespace WebCore {
 
 using namespace HTMLNames;
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(DateTimeEditElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(DateTimeEditElement);
+
+DateTimeEditElement::LayoutParameters::LayoutParameters(Locale& locale)
+    : locale(locale)
+{
+}
+
+DateTimeEditElement::LayoutParameters::~LayoutParameters() = default;
 
 class DateTimeEditBuilder final : private DateTimeFormat::TokenHandler {
     WTF_MAKE_NONCOPYABLE(DateTimeEditBuilder);
@@ -59,7 +73,7 @@ private:
     void visitField(DateTimeFormat::FieldType, int);
     void visitLiteral(const String&);
 
-    DateTimeEditElement& m_editElement;
+    const Ref<DateTimeEditElement> m_editElement;
     const DateTimeEditElement::LayoutParameters& m_parameters;
 };
 
@@ -71,47 +85,47 @@ DateTimeEditBuilder::DateTimeEditBuilder(DateTimeEditElement& element, const Dat
 
 bool DateTimeEditBuilder::build(const String& formatString)
 {
-    m_editElement.resetFields();
+    m_editElement->resetFields();
     return DateTimeFormat::parse(formatString, *this);
 }
 
 void DateTimeEditBuilder::visitField(DateTimeFormat::FieldType fieldType, int count)
 {
-    Document& document = m_editElement.document();
+    Ref document = m_editElement->document();
 
     switch (fieldType) {
     case DateTimeFormat::FieldTypeDayOfMonth: {
-        m_editElement.addField(DateTimeDayFieldElement::create(document, m_editElement));
+        m_editElement->addField(DateTimeDayFieldElement::create(document.get(), m_editElement));
         return;
     }
 
     case DateTimeFormat::FieldTypeFractionalSecond: {
-        m_editElement.addField(DateTimeMillisecondFieldElement::create(document, m_editElement));
+        m_editElement->addField(DateTimeMillisecondFieldElement::create(document.get(), m_editElement));
         return;
     }
 
     case DateTimeFormat::FieldTypeHour11: {
-        m_editElement.addField(DateTimeHourFieldElement::create(document, m_editElement, 0, 11));
+        m_editElement->addField(DateTimeHourFieldElement::create(document.get(), m_editElement, 0, 11));
         return;
     }
 
     case DateTimeFormat::FieldTypeHour12: {
-        m_editElement.addField(DateTimeHourFieldElement::create(document, m_editElement, 1, 12));
+        m_editElement->addField(DateTimeHourFieldElement::create(document.get(), m_editElement, 1, 12));
         return;
     }
 
     case DateTimeFormat::FieldTypeHour23: {
-        m_editElement.addField(DateTimeHourFieldElement::create(document, m_editElement, 0, 23));
+        m_editElement->addField(DateTimeHourFieldElement::create(document.get(), m_editElement, 0, 23));
         return;
     }
 
     case DateTimeFormat::FieldTypeHour24: {
-        m_editElement.addField(DateTimeHourFieldElement::create(document, m_editElement, 1, 24));
+        m_editElement->addField(DateTimeHourFieldElement::create(document.get(), m_editElement, 1, 24));
         return;
     }
 
     case DateTimeFormat::FieldTypeMinute: {
-        m_editElement.addField(DateTimeMinuteFieldElement::create(document, m_editElement));
+        m_editElement->addField(DateTimeMinuteFieldElement::create(document.get(), m_editElement));
         return;
     }
 
@@ -124,38 +138,38 @@ void DateTimeEditBuilder::visitField(DateTimeFormat::FieldType fieldType, int co
         switch (count) {
         case countForNarrowMonth:
         case countForAbbreviatedMonth: {
-            auto field = DateTimeSymbolicMonthFieldElement::create(document, m_editElement, fieldType == DateTimeFormat::FieldTypeMonth ? m_parameters.locale.shortMonthLabels() : m_parameters.locale.shortStandAloneMonthLabels());
-            m_editElement.addField(field);
+            Ref field = DateTimeSymbolicMonthFieldElement::create(document.get(), m_editElement, fieldType == DateTimeFormat::FieldTypeMonth ? m_parameters.locale->shortMonthLabels() : m_parameters.locale->shortStandAloneMonthLabels());
+            m_editElement->addField(field);
             return;
         }
         case countForFullMonth: {
-            auto field = DateTimeSymbolicMonthFieldElement::create(document, m_editElement, fieldType == DateTimeFormat::FieldTypeMonth ? m_parameters.locale.monthLabels() : m_parameters.locale.standAloneMonthLabels());
-            m_editElement.addField(field);
+            Ref field = DateTimeSymbolicMonthFieldElement::create(document.get(), m_editElement, fieldType == DateTimeFormat::FieldTypeMonth ? m_parameters.locale->monthLabels() : m_parameters.locale->standAloneMonthLabels());
+            m_editElement->addField(field);
             return;
         }
         default:
-            m_editElement.addField(DateTimeMonthFieldElement::create(document, m_editElement));
+            m_editElement->addField(DateTimeMonthFieldElement::create(document.get(), m_editElement));
             return;
         }
     }
 
     case DateTimeFormat::FieldTypePeriod: {
-        m_editElement.addField(DateTimeMeridiemFieldElement::create(document, m_editElement, m_parameters.locale.timeAMPMLabels()));
+        m_editElement->addField(DateTimeMeridiemFieldElement::create(document.get(), m_editElement, m_parameters.locale->timeAMPMLabels()));
         return;
     }
 
     case DateTimeFormat::FieldTypeSecond: {
-        m_editElement.addField(DateTimeSecondFieldElement::create(document, m_editElement));
+        m_editElement->addField(DateTimeSecondFieldElement::create(document.get(), m_editElement));
 
         if (m_parameters.shouldHaveMillisecondField) {
-            visitLiteral(m_parameters.locale.localizedDecimalSeparator());
+            visitLiteral(m_parameters.locale->localizedDecimalSeparator());
             visitField(DateTimeFormat::FieldTypeFractionalSecond, 3);
         }
         return;
     }
 
     case DateTimeFormat::FieldTypeYear: {
-        m_editElement.addField(DateTimeYearFieldElement::create(document, m_editElement));
+        m_editElement->addField(DateTimeYearFieldElement::create(document.get(), m_editElement));
         return;
     }
 
@@ -167,9 +181,11 @@ void DateTimeEditBuilder::visitField(DateTimeFormat::FieldType fieldType, int co
 void DateTimeEditBuilder::visitLiteral(const String& text)
 {
     ASSERT(text.length());
-    static MainThreadNeverDestroyed<const AtomString> textPseudoId("-webkit-datetime-edit-text", AtomString::ConstructFromLiteral);
-    auto element = HTMLDivElement::create(m_editElement.document());
-    element->setPseudo(textPseudoId);
+
+    Ref document = m_editElement->document();
+    Ref element = HTMLDivElement::create(document.get());
+    ScriptDisallowedScope::EventAllowedScope eventAllowedScope { element };
+    element->setUserAgentPart(UserAgentParts::webkitDatetimeEditText());
 
     // If the literal begins/ends with a space, the gap between two fields will appear
     // exaggerated due to the presence of a 1px padding around each field. This can
@@ -181,15 +197,15 @@ void DateTimeEditBuilder::visitLiteral(const String& text)
     if (text.endsWith(' '))
         element->setInlineStyleProperty(CSSPropertyMarginInlineEnd, -1, CSSUnitType::CSS_PX);
 
-    element->appendChild(Text::create(m_editElement.document(), text));
-    m_editElement.fieldsWrapperElement().appendChild(element);
+    element->appendChild(Text::create(document.get(), String { text }));
+    protect(m_editElement->fieldsWrapperElement())->appendChild(element);
 }
 
-DateTimeEditElement::EditControlOwner::~EditControlOwner() = default;
+DateTimeEditElementEditControlOwner::~DateTimeEditElementEditControlOwner() = default;
 
-DateTimeEditElement::DateTimeEditElement(Document& document, EditControlOwner& editControlOwner)
-    : HTMLDivElement(divTag, document)
-    , m_editControlOwner(makeWeakPtr(editControlOwner))
+DateTimeEditElement::DateTimeEditElement(Document& document, DateTimeEditElementEditControlOwner& editControlOwner)
+    : HTMLDivElement(document)
+    , m_editControlOwner(editControlOwner)
 {
     m_placeholderDate.setToCurrentLocalTime();
 }
@@ -207,21 +223,37 @@ void DateTimeEditElement::addField(Ref<DateTimeFieldElement> field)
     if (m_fields.size() == m_fields.capacity())
         return;
     m_fields.append(field);
-    fieldsWrapperElement().appendChild(field);
+    protect(fieldsWrapperElement())->appendChild(field);
 }
 
 size_t DateTimeEditElement::fieldIndexOf(const DateTimeFieldElement& fieldToFind) const
 {
-    return m_fields.findMatching([&] (auto& field) {
+    return m_fields.findIf([&] (auto& field) {
         return field.ptr() == &fieldToFind;
     });
 }
 
+void DateTimeEditElement::defaultEventHandler(Event& event)
+{
+    if (RefPtr keyboardEvent = dynamicDowncast<KeyboardEvent>(event)) {
+        RefPtr editControlOwner = m_editControlOwner;
+        if (editControlOwner && keyboardEvent->keyIdentifier() == "U+0020"_s) {
+            // Forward space keypresses to the owner to activate the date picker.
+            editControlOwner->didReceiveSpaceKeyFromControl();
+            // We want to mark the event as handled to avoid scrolling the page.
+            event.setDefaultHandled();
+            return;
+        }
+    }
+
+    HTMLDivElement::defaultEventHandler(event);
+}
+
 DateTimeFieldElement* DateTimeEditElement::focusedFieldElement() const
 {
-    auto* focusedElement = document().focusedElement();
-    auto fieldIndex = m_fields.findMatching([&] (auto& field) {
-        return field.ptr() == focusedElement;
+    RefPtr focusedElement = document().focusedElement();
+    auto fieldIndex = m_fields.findIf([&] (auto& field) {
+        return field.ptr() == focusedElement.get();
     });
 
     if (fieldIndex == notFound)
@@ -230,40 +262,38 @@ DateTimeFieldElement* DateTimeEditElement::focusedFieldElement() const
     return m_fields[fieldIndex].ptr();
 }
 
-Ref<DateTimeEditElement> DateTimeEditElement::create(Document& document, EditControlOwner& editControlOwner)
+Ref<DateTimeEditElement> DateTimeEditElement::create(Document& document, DateTimeEditElementEditControlOwner& editControlOwner)
 {
-    auto element = adoptRef(*new DateTimeEditElement(document, editControlOwner));
-    static MainThreadNeverDestroyed<const AtomString> dateTimeEditPseudoId("-webkit-datetime-edit", AtomString::ConstructFromLiteral);
-    element->setPseudo(dateTimeEditPseudoId);
+    Ref element = adoptRef(*new DateTimeEditElement(document, editControlOwner));
+    ScriptDisallowedScope::EventAllowedScope eventAllowedScope { element };
+    element->setUserAgentPart(UserAgentParts::webkitDatetimeEdit());
     return element;
 }
 
 void DateTimeEditElement::layout(const LayoutParameters& layoutParameters)
 {
-    static MainThreadNeverDestroyed<const AtomString> fieldsWrapperPseudoId("-webkit-datetime-edit-fields-wrapper", AtomString::ConstructFromLiteral);
-
     if (!firstChild()) {
-        auto element = HTMLDivElement::create(document());
-        element->setPseudo(fieldsWrapperPseudoId);
+        Ref element = HTMLDivElement::create(protect(document()).get());
         appendChild(element);
+        element->setUserAgentPart(UserAgentParts::webkitDatetimeEditFieldsWrapper());
     }
 
-    Element& fieldsWrapper = fieldsWrapperElement();
-    auto* focusedField = focusedFieldElement();
+    Ref fieldsWrapper = fieldsWrapperElement();
+    RefPtr focusedField = focusedFieldElement();
 
     DateTimeEditBuilder builder(*this, layoutParameters);
-    Node* lastChildToBeRemoved = fieldsWrapper.lastChild();
+    RefPtr lastChildToBeRemoved = fieldsWrapper->lastChild();
     if (!builder.build(layoutParameters.dateTimeFormat) || m_fields.isEmpty()) {
-        lastChildToBeRemoved = fieldsWrapper.lastChild();
+        lastChildToBeRemoved = fieldsWrapper->lastChild();
         builder.build(layoutParameters.fallbackDateTimeFormat);
     }
 
     if (focusedField) {
-        auto& focusedFieldId = focusedField->shadowPseudoId();
+        auto& focusedFieldId = focusedField->userAgentPart();
 
         auto foundFieldToFocus = false;
         for (auto& field : m_fields) {
-            if (field->shadowPseudoId() == focusedFieldId) {
+            if (field->userAgentPart() == focusedFieldId) {
                 foundFieldToFocus = true;
                 field->focus();
                 break;
@@ -275,8 +305,8 @@ void DateTimeEditElement::layout(const LayoutParameters& layoutParameters)
     }
 
     if (lastChildToBeRemoved) {
-        while (auto* childNode = fieldsWrapper.firstChild()) {
-            fieldsWrapper.removeChild(*childNode);
+        while (RefPtr childNode = fieldsWrapper->firstChild()) {
+            fieldsWrapper->removeChild(*childNode);
             if (childNode == lastChildToBeRemoved)
                 break;
         }
@@ -285,32 +315,34 @@ void DateTimeEditElement::layout(const LayoutParameters& layoutParameters)
 
 void DateTimeEditElement::didBlurFromField(Event& event)
 {
-    if (!m_editControlOwner)
+    RefPtr editControlOwner = m_editControlOwner;
+    if (!editControlOwner)
         return;
 
-    if (auto* newFocusedElement = event.relatedTarget()) {
-        bool didFocusSiblingField = notFound != m_fields.findMatching([&] (auto& field) {
-            return field.ptr() == newFocusedElement;
+    if (RefPtr newFocusedElement = event.relatedTarget()) {
+        bool didFocusSiblingField = notFound != m_fields.findIf([&] (auto& field) {
+            return field.ptr() == newFocusedElement.get();
         });
 
         if (didFocusSiblingField)
             return;
     }
 
-    m_editControlOwner->didBlurFromControl();
+    editControlOwner->didBlurFromControl();
 }
 
 void DateTimeEditElement::fieldValueChanged()
 {
-    if (m_editControlOwner)
-        m_editControlOwner->didChangeValueFromControl();
+    if (RefPtr editControlOwner = m_editControlOwner)
+        editControlOwner->didChangeValueFromControl();
 }
 
 bool DateTimeEditElement::focusOnNextFocusableField(size_t startIndex)
 {
     for (size_t i = startIndex; i < m_fields.size(); ++i) {
-        if (m_fields[i]->isFocusable()) {
-            m_fields[i]->focus();
+        Ref field = m_fields[i];
+        if (field->isFocusable()) {
+            field->focus();
             return true;
         }
     }
@@ -340,8 +372,9 @@ bool DateTimeEditElement::focusOnPreviousField(const DateTimeFieldElement& field
     auto fieldIndex = startFieldIndex;
     while (fieldIndex > 0) {
         --fieldIndex;
-        if (m_fields[fieldIndex]->isFocusable()) {
-            m_fields[fieldIndex]->focus();
+        Ref field = m_fields[fieldIndex];
+        if (field->isFocusable()) {
+            field->focus();
             return true;
         }
     }
@@ -351,17 +384,43 @@ bool DateTimeEditElement::focusOnPreviousField(const DateTimeFieldElement& field
 
 bool DateTimeEditElement::isFieldOwnerDisabled() const
 {
-    return m_editControlOwner && m_editControlOwner->isEditControlOwnerDisabled();
+    if (RefPtr editControlOwner = m_editControlOwner)
+        return editControlOwner->isEditControlOwnerDisabled();
+    return false;
 }
 
 bool DateTimeEditElement::isFieldOwnerReadOnly() const
 {
-    return m_editControlOwner && m_editControlOwner->isEditControlOwnerReadOnly();
+    if (RefPtr editControlOwner = m_editControlOwner)
+        return editControlOwner->isEditControlOwnerReadOnly();
+    return false;
+}
+
+bool DateTimeEditElement::isFieldOwnerHorizontal() const
+{
+    if (auto* renderer = fieldsWrapperElement().renderer())
+        return renderer->isHorizontalWritingMode();
+    return true;
+}
+
+bool DateTimeEditElement::didFieldOwnerTransferFocusToPicker()
+{
+    if (RefPtr editControlOwner = m_editControlOwner)
+        return editControlOwner->didEditControlOwnerTransferFocusToPicker();
+    return false;
+}
+
+void DateTimeEditElement::didSuppressBlurDueToPickerFocusTransfer()
+{
+    if (RefPtr editControlOwner = m_editControlOwner)
+        editControlOwner->didSuppressBlurDueToPickerFocusTransfer();
 }
 
 AtomString DateTimeEditElement::localeIdentifier() const
 {
-    return m_editControlOwner ? m_editControlOwner->localeIdentifier() : nullAtom();
+    if (RefPtr editControlOwner = m_editControlOwner)
+        return editControlOwner->localeIdentifier();
+    return nullAtom();
 }
 
 const GregorianDateTime& DateTimeEditElement::placeholderDate() const
@@ -390,17 +449,33 @@ void DateTimeEditElement::setEmptyValue(const LayoutParameters& layoutParameters
 
 String DateTimeEditElement::value() const
 {
-    return m_editControlOwner ? m_editControlOwner->formatDateTimeFieldsState(valueAsDateTimeFieldsState()) : emptyString();
+    if (RefPtr editControlOwner = m_editControlOwner)
+        return editControlOwner->formatDateTimeFieldsState(valueAsDateTimeFieldsState());
+    return emptyString();
 }
 
-DateTimeFieldsState DateTimeEditElement::valueAsDateTimeFieldsState() const
+String DateTimeEditElement::placeholderValue() const
+{
+    if (RefPtr editControlOwner = m_editControlOwner)
+        return editControlOwner->formatDateTimeFieldsState(valueAsDateTimeFieldsState(DateTimePlaceholderIfNoValue::Yes));
+    return emptyString();
+}
+
+DateTimeFieldsState DateTimeEditElement::valueAsDateTimeFieldsState(DateTimePlaceholderIfNoValue placeholderIfNoValue) const
 {
     DateTimeFieldsState dateTimeFieldsState;
     for (auto& field : m_fields)
-        field->populateDateTimeFieldsState(dateTimeFieldsState);
+        field->populateDateTimeFieldsState(dateTimeFieldsState, placeholderIfNoValue);
     return dateTimeFieldsState;
 }
 
-} // namespace WebCore
+bool DateTimeEditElement::editableFieldsHaveValues() const
+{
+    for (auto& field : m_fields) {
+        if (field->hasValue())
+            return true;
+    }
+    return false;
+}
 
-#endif // ENABLE(DATE_AND_TIME_INPUT_TYPES)
+} // namespace WebCore

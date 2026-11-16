@@ -24,18 +24,21 @@
 #include "RenderTextFragment.h"
 
 #include "RenderBlock.h"
+#include "RenderInline.h"
 #include "RenderIterator.h"
+#include "RenderObjectInlines.h"
 #include "RenderMultiColumnFlow.h"
 #include "RenderTreeBuilder.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "Text.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(RenderTextFragment);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RenderTextFragment);
 
 RenderTextFragment::RenderTextFragment(Text& textNode, const String& text, int startOffset, int length)
-    : RenderText(textNode, text.substring(startOffset, length))
+    : RenderText(Type::TextFragment, textNode, text.substring(startOffset, length))
     , m_start(startOffset)
     , m_end(length)
     , m_firstLetter(nullptr)
@@ -43,7 +46,7 @@ RenderTextFragment::RenderTextFragment(Text& textNode, const String& text, int s
 }
 
 RenderTextFragment::RenderTextFragment(Document& document, const String& text, int startOffset, int length)
-    : RenderText(document, text.substring(startOffset, length))
+    : RenderText(Type::TextFragment, document, text.substring(startOffset, length))
     , m_start(startOffset)
     , m_end(length)
     , m_firstLetter(nullptr)
@@ -51,7 +54,7 @@ RenderTextFragment::RenderTextFragment(Document& document, const String& text, i
 }
 
 RenderTextFragment::RenderTextFragment(Document& textNode, const String& text)
-    : RenderText(textNode, text)
+    : RenderText(Type::TextFragment, textNode, text)
     , m_start(0)
     , m_end(text.length())
     , m_contentString(text)
@@ -66,20 +69,20 @@ RenderTextFragment::~RenderTextFragment()
 
 bool RenderTextFragment::canBeSelectionLeaf() const
 {
-    return textNode() && textNode()->hasEditableStyle();
+    if (RefPtr textNode = this->textNode()) {
+        // Remaining (trailing) text fragments with first-letter are always selectable,
+        // matching the base RenderText::canBeSelectionLeaf() behavior.
+        return firstLetter() || textNode->hasEditableStyle();
+    }
+    // First-letter is always selectable.
+    CheckedPtr anonymousInlineWrapper = dynamicDowncast<RenderInline>(this->parent());
+    return anonymousInlineWrapper && anonymousInlineWrapper->firstLetterRemainingText();
 }
 
-void RenderTextFragment::styleDidChange(StyleDifference diff, const RenderStyle* oldStyle)
+void RenderTextFragment::setTextInternal(const String& newText, bool force)
 {
-    RenderText::styleDidChange(diff, oldStyle);
+    RenderText::setTextInternal(newText, force);
 
-    if (RenderBlock* block = blockForAccompanyingFirstLetter())
-        block->mutableStyle().removeCachedPseudoStyle(PseudoId::FirstLetter);
-}
-
-void RenderTextFragment::setText(const String& newText, bool force)
-{
-    RenderText::setText(newText, force);
     m_start = 0;
     m_end = text().length();
     if (!m_firstLetter)
@@ -92,26 +95,48 @@ void RenderTextFragment::setText(const String& newText, bool force)
     ASSERT(!textNode() || textNode()->renderer() == this);
 }
 
-UChar RenderTextFragment::previousCharacter() const
+void RenderTextFragment::setTextWithOffset(const String& newText, unsigned offset)
+{
+    // Edits within the first-letter range invalidate the first-letter split.
+    // The base class skips the update when the fragment text matches the new
+    // content, but the split is stale and the tree builder needs to recreate it.
+    if (m_firstLetter && offset < m_start)
+        RenderTreeBuilder::current() ? RenderTreeBuilder::current()->destroy(*m_firstLetter) : RenderTreeBuilder(*document().renderView()).destroy(*m_firstLetter);
+    RenderText::setTextWithOffset(newText, offset);
+}
+
+Node* RenderTextFragment::nodeForHitTest() const
+{
+    if (!textNode()) {
+        // The anonymous first-letter text has no DOM node. Resolve to the DOM text
+        // node via the remaining fragment so cursor and selection work.
+        if (auto* parent = dynamicDowncast<RenderBoxModelObject>(this->parent()); parent && parent->isFirstLetter()) {
+            if (auto* remainingText = parent->firstLetterRemainingText())
+                return remainingText->textNode();
+        }
+    }
+    return RenderText::nodeForHitTest();
+}
+
+char32_t RenderTextFragment::previousCharacter() const
 {
     if (start()) {
         String original = textNode() ? textNode()->data() : contentString();
-        if (!original.isNull() && start() <= original.length())
-            return original[start() - 1];
+        if (start() <= original.length())
+            return StringView(original).codePointBefore(start());
     }
-
     return RenderText::previousCharacter();
 }
 
-RenderBlock* RenderTextFragment::blockForAccompanyingFirstLetter()
+CheckedPtr<RenderBlock> RenderTextFragment::blockForAccompanyingFirstLetter()
 {
     if (!m_firstLetter)
         return nullptr;
-    for (auto& block : ancestorsOfType<RenderBlock>(*m_firstLetter)) {
+    for (CheckedRef block : ancestorsOfType<RenderBlock>(*m_firstLetter)) {
         if (is<RenderMultiColumnFlow>(block))
             break;
-        if (block.style().hasPseudoStyle(PseudoId::FirstLetter) && block.canHaveChildren())
-            return &block;
+        if (block->style().hasPseudoStyle(PseudoElementType::FirstLetter) && block->canHaveChildren())
+            return block;
     }
     return nullptr;
 }

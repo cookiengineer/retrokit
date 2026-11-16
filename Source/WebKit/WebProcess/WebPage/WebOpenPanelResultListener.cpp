@@ -33,22 +33,25 @@ namespace WebKit {
 
 Ref<WebOpenPanelResultListener> WebOpenPanelResultListener::create(WebPage& page, Ref<WebCore::FileChooser>&& fileChooser)
 {
-    return adoptRef(*new WebOpenPanelResultListener(page, WTFMove(fileChooser)));
+    return adoptRef(*new WebOpenPanelResultListener(page, WTF::move(fileChooser)));
 }
 
 WebOpenPanelResultListener::WebOpenPanelResultListener(WebPage& page, Ref<WebCore::FileChooser>&& fileChooser)
     : m_page(&page)
-    , m_fileChooser(WTFMove(fileChooser))
+    , m_fileChooser(WTF::move(fileChooser))
 {
 }
 
-WebOpenPanelResultListener::~WebOpenPanelResultListener()
-{
-}
+WebOpenPanelResultListener::~WebOpenPanelResultListener() = default;
 
 void WebOpenPanelResultListener::didChooseFiles(const Vector<String>& files, const Vector<String>& replacementFiles)
 {
     m_fileChooser->chooseFiles(files, replacementFiles);
+}
+
+void WebOpenPanelResultListener::didCancelFileChoosing()
+{
+    m_fileChooser->cancelFileChoosing();
 }
 
 #if PLATFORM(IOS_FAMILY)

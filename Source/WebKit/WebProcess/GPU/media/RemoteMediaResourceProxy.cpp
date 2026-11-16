@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,38 +26,39 @@
 #include "config.h"
 #include "RemoteMediaResourceProxy.h"
 
-#if ENABLE(GPU_PROCESS)
+#if ENABLE(GPU_PROCESS) && ENABLE(VIDEO)
 
-#include "DataReference.h"
-#include "RemoteMediaResourceManagerMessages.h"
-#include "WebCoreArgumentCoders.h"
+#include "RemoteMediaResourceLoaderProxy.h"
+#include "SharedBufferReference.h"
 #include <wtf/CompletionHandler.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 
-RemoteMediaResourceProxy::RemoteMediaResourceProxy(Ref<IPC::Connection>&& connection, WebCore::PlatformMediaResource& platformMediaResource, RemoteMediaResourceIdentifier identifier)
-    : m_connection(WTFMove(connection))
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RemoteMediaResourceProxy);
+
+RemoteMediaResourceProxy::RemoteMediaResourceProxy(Ref<RemoteMediaResourceLoaderProxy>&& loader, WebCore::PlatformMediaResource& platformMediaResource, RemoteMediaResourceIdentifier identifier)
+    : m_loader(WTF::move(loader))
     , m_platformMediaResource(platformMediaResource)
     , m_id(identifier)
 {
 }
 
-RemoteMediaResourceProxy::~RemoteMediaResourceProxy()
+RemoteMediaResourceProxy::~RemoteMediaResourceProxy() = default;
+
+Ref<WebCore::PlatformMediaResource> RemoteMediaResourceProxy::mediaResource() const
 {
+    return m_platformMediaResource.get();
 }
 
 void RemoteMediaResourceProxy::responseReceived(WebCore::PlatformMediaResource&, const WebCore::ResourceResponse& response, CompletionHandler<void(WebCore::ShouldContinuePolicyCheck)>&& completionHandler)
 {
-    m_connection->sendWithAsyncReply(Messages::RemoteMediaResourceManager::ResponseReceived(m_id, response, m_platformMediaResource.didPassAccessControlCheck()), [completionHandler = WTFMove(completionHandler)](auto shouldContinue) mutable {
-        completionHandler(shouldContinue);
-    });
+    m_loader->responseReceived(m_id, response, mediaResource()->didPassAccessControlCheck(), WTF::move(completionHandler));
 }
 
 void RemoteMediaResourceProxy::redirectReceived(WebCore::PlatformMediaResource&, WebCore::ResourceRequest&& request, const WebCore::ResourceResponse& response, CompletionHandler<void(WebCore::ResourceRequest&&)>&& completionHandler)
 {
-    m_connection->sendWithAsyncReply(Messages::RemoteMediaResourceManager::RedirectReceived(m_id, request, response), [completionHandler = WTFMove(completionHandler)](auto&& request) mutable {
-        completionHandler(WTFMove(request));
-    });
+    m_loader->redirectReceived(m_id, WTF::move(request), response, WTF::move(completionHandler));
 }
 
 bool RemoteMediaResourceProxy::shouldCacheResponse(WebCore::PlatformMediaResource&, const WebCore::ResourceResponse&)
@@ -68,29 +69,29 @@ bool RemoteMediaResourceProxy::shouldCacheResponse(WebCore::PlatformMediaResourc
 
 void RemoteMediaResourceProxy::dataSent(WebCore::PlatformMediaResource&, unsigned long long bytesSent, unsigned long long totalBytesToBeSent)
 {
-    m_connection->send(Messages::RemoteMediaResourceManager::DataSent(m_id, bytesSent, totalBytesToBeSent), 0);
+    m_loader->dataSent(m_id, bytesSent, totalBytesToBeSent);
 }
 
-void RemoteMediaResourceProxy::dataReceived(WebCore::PlatformMediaResource&, const uint8_t* data, int length)
+void RemoteMediaResourceProxy::dataReceived(WebCore::PlatformMediaResource&, const WebCore::SharedBuffer& buffer)
 {
-    m_connection->send(Messages::RemoteMediaResourceManager::DataReceived(m_id, IPC::DataReference(data, length)), 0);
+    m_loader->dataReceived(m_id, buffer);
 }
 
 void RemoteMediaResourceProxy::accessControlCheckFailed(WebCore::PlatformMediaResource&, const WebCore::ResourceError& error)
 {
-    m_connection->send(Messages::RemoteMediaResourceManager::AccessControlCheckFailed(m_id, error), 0);
+    m_loader->accessControlCheckFailed(m_id, error);
 }
 
 void RemoteMediaResourceProxy::loadFailed(WebCore::PlatformMediaResource&, const WebCore::ResourceError& error)
 {
-    m_connection->send(Messages::RemoteMediaResourceManager::LoadFailed(m_id, error), 0);
+    m_loader->loadFailed(m_id, error);
 }
 
 void RemoteMediaResourceProxy::loadFinished(WebCore::PlatformMediaResource&, const WebCore::NetworkLoadMetrics& metrics)
 {
-    m_connection->send(Messages::RemoteMediaResourceManager::LoadFinished(m_id, metrics), 0);
+    m_loader->loadFinished(m_id, metrics);
 }
 
 }
 
-#endif
+#endif // ENABLE(GPU_PROCESS) && ENABLE(VIDEO)

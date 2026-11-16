@@ -21,7 +21,7 @@
 #include "config.h"
 #include "HTMLSummaryElement.h"
 
-#include "DetailsMarkerControl.h"
+#include "ElementInlines.h"
 #include "EventNames.h"
 #include "HTMLDetailsElement.h"
 #include "HTMLFormControlElement.h"
@@ -30,31 +30,20 @@
 #include "MouseEvent.h"
 #include "PlatformMouseEvent.h"
 #include "RenderBlockFlow.h"
+#include "SVGAElement.h"
+#include "SVGElementTypeHelpers.h"
 #include "ShadowRoot.h"
-#include "SlotAssignment.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(HTMLSummaryElement);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLSummaryElement);
 
 using namespace HTMLNames;
 
-class SummarySlotElement final : public SlotAssignment {
-private:
-    void hostChildElementDidChange(const Element&, ShadowRoot& shadowRoot) override
-    {
-        didChangeSlot(SlotAssignment::defaultSlotName(), shadowRoot);
-    }
-
-    const AtomString& slotNameForHostChild(const Node&) const override { return SlotAssignment::defaultSlotName(); }
-};
-
 Ref<HTMLSummaryElement> HTMLSummaryElement::create(const QualifiedName& tagName, Document& document)
 {
-    Ref<HTMLSummaryElement> summary = adoptRef(*new HTMLSummaryElement(tagName, document));
-    summary->addShadowRoot(ShadowRoot::create(document, makeUnique<SummarySlotElement>()));
-    return summary;
+    return adoptRef(*new HTMLSummaryElement(tagName, document));
 }
 
 HTMLSummaryElement::HTMLSummaryElement(const QualifiedName& tagName, Document& document)
@@ -63,27 +52,13 @@ HTMLSummaryElement::HTMLSummaryElement(const QualifiedName& tagName, Document& d
     ASSERT(hasTagName(summaryTag));
 }
 
-RenderPtr<RenderElement> HTMLSummaryElement::createElementRenderer(RenderStyle&& style, const RenderTreePosition&)
-{
-    // <summary> elements with display:list-item should not be rendered as list items because they'd end up with two markers before the text (one from summary element and the other as a list item).
-    return RenderElement::createFor(*this, WTFMove(style), { RenderElement::ConstructBlockLevelRendererFor::ListItem, RenderElement::ConstructBlockLevelRendererFor::Inline, RenderElement::ConstructBlockLevelRendererFor::TableOrTablePart });
-}
-
-void HTMLSummaryElement::didAddUserAgentShadowRoot(ShadowRoot& root)
-{
-    root.appendChild(DetailsMarkerControl::create(document()));
-    root.appendChild(HTMLSlotElement::create(slotTag, document()));
-}
-
 RefPtr<HTMLDetailsElement> HTMLSummaryElement::detailsElement() const
 {
-    auto* parent = parentElement();
-    if (parent && is<HTMLDetailsElement>(*parent))
-        return downcast<HTMLDetailsElement>(parent);
+    if (auto* parent = dynamicDowncast<HTMLDetailsElement>(parentElement()))
+        return parent;
     // Fallback summary element is in the shadow tree.
-    auto* host = shadowHost();
-    if (host && is<HTMLDetailsElement>(*host))
-        return downcast<HTMLDetailsElement>(host);
+    if (auto* details = dynamicDowncast<HTMLDetailsElement>(shadowHost()))
+        return details;
     return nullptr;
 }
 
@@ -95,12 +70,14 @@ bool HTMLSummaryElement::isActiveSummary() const
     return details->isActiveSummary(*this);
 }
 
-static bool isClickableControl(EventTarget* target)
+static bool isInSummaryInteractiveContent(EventTarget* target)
 {
-    if (!is<Element>(target))
-        return false;
-    auto& element = downcast<Element>(*target);
-    return is<HTMLFormControlElement>(element) || is<HTMLFormControlElement>(element.shadowHost());
+    for (RefPtr element = dynamicDowncast<Element>(target); element && !is<HTMLSummaryElement>(element); element = element->parentOrShadowHostElement()) {
+        auto* htmlElement = dynamicDowncast<HTMLElement>(*element);
+        if ((htmlElement && htmlElement->isInteractiveContent()) || is<SVGAElement>(element))
+            return true;
+    }
+    return false;
 }
 
 int HTMLSummaryElement::defaultTabIndex() const
@@ -110,42 +87,42 @@ int HTMLSummaryElement::defaultTabIndex() const
 
 bool HTMLSummaryElement::supportsFocus() const
 {
-    return isActiveSummary();
+    return isActiveSummary() || HTMLElement::supportsFocus();
 }
 
 void HTMLSummaryElement::defaultEventHandler(Event& event)
 {
-    if (isActiveSummary() && renderer()) {
-        if (event.type() == eventNames().DOMActivateEvent && !isClickableControl(event.target())) {
+    if (isActiveSummary()) {
+        auto& eventNames = WebCore::eventNames();
+        if (event.type() == eventNames.DOMActivateEvent && !isInSummaryInteractiveContent(protect(event.target()).get())) {
             if (RefPtr<HTMLDetailsElement> details = detailsElement())
                 details->toggleOpen();
             event.setDefaultHandled();
             return;
         }
 
-        if (is<KeyboardEvent>(event)) {
-            KeyboardEvent& keyboardEvent = downcast<KeyboardEvent>(event);
-            if (keyboardEvent.type() == eventNames().keydownEvent && keyboardEvent.keyIdentifier() == "U+0020") {
-                setActive(true, true);
+        if (auto* keyboardEvent = dynamicDowncast<KeyboardEvent>(event)) {
+            if (keyboardEvent->type() == eventNames.keydownEvent && keyboardEvent->keyIdentifier() == "U+0020"_s) {
+                setActive(true);
                 // No setDefaultHandled() - IE dispatches a keypress in this case.
                 return;
             }
-            if (keyboardEvent.type() == eventNames().keypressEvent) {
-                switch (keyboardEvent.charCode()) {
+            if (keyboardEvent->type() == eventNames.keypressEvent) {
+                switch (keyboardEvent->charCode()) {
                 case '\r':
                     dispatchSimulatedClick(&event);
-                    keyboardEvent.setDefaultHandled();
+                    keyboardEvent->setDefaultHandled();
                     return;
                 case ' ':
                     // Prevent scrolling down the page.
-                    keyboardEvent.setDefaultHandled();
+                    keyboardEvent->setDefaultHandled();
                     return;
                 }
             }
-            if (keyboardEvent.type() == eventNames().keyupEvent && keyboardEvent.keyIdentifier() == "U+0020") {
+            if (keyboardEvent->type() == eventNames.keyupEvent && keyboardEvent->keyIdentifier() == "U+0020"_s) {
                 if (active())
                     dispatchSimulatedClick(&event);
-                keyboardEvent.setDefaultHandled();
+                keyboardEvent->setDefaultHandled();
                 return;
             }
         }
@@ -154,12 +131,9 @@ void HTMLSummaryElement::defaultEventHandler(Event& event)
     HTMLElement::defaultEventHandler(event);
 }
 
-bool HTMLSummaryElement::willRespondToMouseClickEvents()
+bool HTMLSummaryElement::willRespondToMouseClickEventsWithEditability(Editability editability) const
 {
-    if (isActiveSummary() && renderer())
-        return true;
-
-    return HTMLElement::willRespondToMouseClickEvents();
+    return isActiveSummary() || HTMLElement::willRespondToMouseClickEventsWithEditability(editability);
 }
 
 }

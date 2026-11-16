@@ -25,7 +25,7 @@
 
 WI.TimelineRecord = class TimelineRecord extends WI.Object
 {
-    constructor(type, startTime, endTime, callFrames, sourceCodeLocation)
+    constructor(type, startTime, endTime, stackTrace, sourceCodeLocation)
     {
         super();
 
@@ -37,7 +37,7 @@ WI.TimelineRecord = class TimelineRecord extends WI.Object
         this._type = type;
         this._startTime = startTime || NaN;
         this._endTime = endTime || NaN;
-        this._callFrames = callFrames || null;
+        this._stackTrace = stackTrace || null;
         this._sourceCodeLocation = sourceCodeLocation || null;
         this._children = [];
     }
@@ -63,6 +63,8 @@ WI.TimelineRecord = class TimelineRecord extends WI.Object
             return WI.HeapAllocationsTimelineRecord.fromJSON(json);
         case WI.TimelineRecord.Type.Media:
             return WI.MediaTimelineRecord.fromJSON(json);
+        case WI.TimelineRecord.Type.Screenshots:
+            return WI.ScreenshotsTimelineRecord.fromJSON(json);
         default:
             console.error("Unknown TimelineRecord.Type: " + json.type, json);
             return null;
@@ -141,18 +143,18 @@ WI.TimelineRecord = class TimelineRecord extends WI.Object
         return false;
     }
 
-    get callFrames()
+    get stackTrace()
     {
-        return this._callFrames;
+        return this._stackTrace;
     }
 
     get initiatorCallFrame()
     {
-        if (!this._callFrames || !this._callFrames.length)
+        if (!this._stackTrace)
             return null;
 
         // Return the first non-native code call frame as the initiator.
-        for (let frame of this._callFrames) {
+        for (let frame of this._stackTrace.callFrames) {
             if (!frame.nativeCode)
                 return frame;
         }
@@ -205,6 +207,7 @@ WI.TimelineRecord.Type = {
     Memory: "timeline-record-type-memory",
     HeapAllocations: "timeline-record-type-heap-allocations",
     Media: "timeline-record-type-media",
+    Screenshots: "timeline-record-type-screenshots",
 };
 
 WI.TimelineRecord.TypeIdentifier = "timeline-record";

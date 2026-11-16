@@ -25,7 +25,8 @@
 namespace WebCore {
 
 class SVGAltGlyphItemElement final : public SVGElement {
-    WTF_MAKE_ISO_ALLOCATED(SVGAltGlyphItemElement);
+    WTF_MAKE_TZONE_ALLOCATED(SVGAltGlyphItemElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGAltGlyphItemElement);
 public:
     static Ref<SVGAltGlyphItemElement> create(const QualifiedName&, Document&);
 
@@ -34,7 +35,7 @@ public:
 private:
     SVGAltGlyphItemElement(const QualifiedName&, Document&);
 
-    bool rendererIsNeeded(const RenderStyle&) final { return false; }
+    bool rendererIsNeeded(const Style::ComputedStyle&) final { return false; }
 };
 
 } // namespace WebCore

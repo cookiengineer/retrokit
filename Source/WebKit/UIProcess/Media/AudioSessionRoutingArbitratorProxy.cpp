@@ -25,15 +25,24 @@
 
 #include "config.h"
 #include "AudioSessionRoutingArbitratorProxy.h"
+#include "Logging.h"
+#include "WebProcessProxy.h"
+#include <wtf/LoggerHelper.h>
+#include <wtf/TZoneMallocInlines.h>
 
-#if ENABLE(ROUTING_ARBITRATION) && !HAVE(AVAUDIO_ROUTING_ARBITER)
+#if ENABLE(ROUTING_ARBITRATION)
 
 #include "AudioSessionRoutingArbitratorProxyMessages.h"
 
 namespace WebKit {
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(AudioSessionRoutingArbitratorProxy);
+
+#if !HAVE(AVAUDIO_ROUTING_ARBITER)
+
 AudioSessionRoutingArbitratorProxy::AudioSessionRoutingArbitratorProxy(WebProcessProxy& proxy)
     : m_process(proxy)
+    , m_logIdentifier(LoggerHelper::uniqueLogIdentifier())
 {
     notImplemented();
 }
@@ -59,6 +68,33 @@ void AudioSessionRoutingArbitratorProxy::endRoutingArbitration()
     notImplemented();
 }
 
+#endif // ENABLE(AVAUDIO_ROUTING_ARBITER)
+
+Logger& AudioSessionRoutingArbitratorProxy::logger()
+{
+    return protect(m_process)->logger();
 }
 
-#endif
+WTFLogChannel& AudioSessionRoutingArbitratorProxy::logChannel() const
+{
+    return WebKit2LogMedia;
+}
+
+void AudioSessionRoutingArbitratorProxy::ref() const
+{
+    return m_process->ref();
+}
+
+void AudioSessionRoutingArbitratorProxy::deref() const
+{
+    return m_process->deref();
+}
+
+std::optional<SharedPreferencesForWebProcess> AudioSessionRoutingArbitratorProxy::sharedPreferencesForWebProcess() const
+{
+    return m_process->sharedPreferencesForWebProcess();
+}
+
+} // namespace WebKit
+
+#endif // ENABLE(ROUTING_ARBITRATION)

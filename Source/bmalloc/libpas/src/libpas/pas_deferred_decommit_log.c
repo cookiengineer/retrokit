@@ -173,7 +173,7 @@ bool pas_deferred_decommit_log_add_maybe_locked(pas_deferred_decommit_log* log,
     case pas_range_is_not_locked:
         return pas_deferred_decommit_log_add(log, range, heap_lock_hold_mode);
     }
-    PAS_ASSERT(!"Should not be reached");
+    PAS_ASSERT_NOT_REACHED();
     return false;
 }
 
@@ -185,10 +185,7 @@ void pas_deferred_decommit_log_unlock_after_aborted_add(pas_deferred_decommit_lo
 
     /* We could support using this with the common lock - but it so happens that nobody would need
        that functionality right now. So we save ourselves the trouble and just assert it won't
-       happen.
-    
-       This won't happen because this function is only used by the shared page directory, which is
-       going to use this to unlock a shared view commit lock. */
+       happen. */
     PAS_ASSERT(lock_ptr != &pas_virtual_range_common_lock);
 
     pas_lock_unlock(lock_ptr);
@@ -218,25 +215,28 @@ static void decommit_all(pas_deferred_decommit_log* log,
                 break;
             
             next_range = *pas_virtual_range_min_heap_get_ptr_by_index(&log->impl, next_index);
-            
+
             PAS_ASSERT(!pas_virtual_range_overlaps(range, next_range));
             PAS_ASSERT(next_range.begin >= range.end);
-            
+
             if (next_range.begin != range.end)
+                break;
+
+            if (next_range.page_flags != range.page_flags)
                 break;
 
             range.end = next_range.end;
             end_index = next_index;
         }
-        
+
         if (for_real) {
             if (verbose) {
                 pas_log("Decommitting %p...%p.\n",
                         (void*)range.begin,
                         (void*)range.end);
             }
-            
-            pas_page_malloc_decommit((void*)range.begin, pas_virtual_range_size(range));
+
+            pas_page_malloc_decommit((void*)range.begin, pas_virtual_range_size(range), range.page_flags);
         }
         
         PAS_ASSERT(end_index);

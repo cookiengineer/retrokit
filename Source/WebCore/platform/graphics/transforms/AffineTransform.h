@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2005-2016 Apple Inc.  All rights reserved.
+ * Copyright (C) 2005-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2014 Google Inc. All rights reserved.
  *               2010 Dirk Schulze <krit@webkit.org>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,18 +27,23 @@
 
 #pragma once
 
+#include <WebCore/CompositeOperation.h>
+#include <WebCore/FloatConversion.h>
+#include <WebCore/FloatPoint.h>
+#include <WebCore/FloatSize.h>
 #include <array>
 #include <optional>
-#include <wtf/FastMalloc.h>
+#include <span>
+#include <wtf/Compiler.h>
 #include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
 
 #if USE(CG)
 typedef struct CGAffineTransform CGAffineTransform;
 #endif
 
-#if PLATFORM(WIN)
-struct D2D_MATRIX_3X2_F;
-typedef D2D_MATRIX_3X2_F D2D1_MATRIX_3X2_F;
+#if USE(SKIA)
+class SkMatrix;
 #endif
 
 namespace WTF {
@@ -57,27 +63,28 @@ class Region;
 class TransformationMatrix;
 
 class AffineTransform {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(AffineTransform);
 public:
-    WEBCORE_EXPORT AffineTransform();
-    WEBCORE_EXPORT AffineTransform(double a, double b, double c, double d, double e, double f);
+    constexpr AffineTransform();
+    constexpr AffineTransform(double a, double b, double c, double d, double e, double f);
+    constexpr AffineTransform(std::span<const double, 6>);
 
 #if USE(CG)
     WEBCORE_EXPORT AffineTransform(const CGAffineTransform&);
 #endif
 
-#if PLATFORM(WIN)
-    AffineTransform(const D2D1_MATRIX_3X2_F&);
+#if USE(SKIA)
+    WEBCORE_EXPORT AffineTransform(const SkMatrix&);
 #endif
 
-    void setMatrix(double a, double b, double c, double d, double e, double f);
+    void NODELETE setMatrix(double a, double b, double c, double d, double e, double f);
 
-    void map(double x, double y, double& x2, double& y2) const;
+    void NODELETE map(double x, double y, double& x2, double& y2) const;
 
     // Rounds the mapped point to the nearest integer value.
     WEBCORE_EXPORT IntPoint mapPoint(const IntPoint&) const;
 
-    WEBCORE_EXPORT FloatPoint mapPoint(const FloatPoint&) const;
+    WEBCORE_EXPORT FloatPoint NODELETE mapPoint(const FloatPoint&) const;
 
     WEBCORE_EXPORT IntSize mapSize(const IntSize&) const;
 
@@ -88,11 +95,11 @@ public:
     WEBCORE_EXPORT IntRect mapRect(const IntRect&) const;
 
     WEBCORE_EXPORT FloatRect mapRect(const FloatRect&) const;
-    WEBCORE_EXPORT FloatQuad mapQuad(const FloatQuad&) const;
+    WEBCORE_EXPORT FloatQuad NODELETE mapQuad(const FloatQuad&) const;
 
     WEBCORE_EXPORT Region mapRegion(const Region&) const;
 
-    WEBCORE_EXPORT bool isIdentity() const;
+    WEBCORE_EXPORT bool NODELETE isIdentity() const;
 
     double a() const { return m_transform[0]; }
     void setA(double a) { m_transform[0] = a; }
@@ -107,21 +114,22 @@ public:
     double f() const { return m_transform[5]; }
     void setF(double f) { m_transform[5] = f; }
 
-    WEBCORE_EXPORT void makeIdentity();
+    WEBCORE_EXPORT void NODELETE makeIdentity();
 
-    WEBCORE_EXPORT AffineTransform& multiply(const AffineTransform& other);
-    WEBCORE_EXPORT AffineTransform& scale(double);
+    WEBCORE_EXPORT AffineTransform& NODELETE multiply(const AffineTransform& other);
+    WEBCORE_EXPORT AffineTransform& NODELETE scale(double);
     WEBCORE_EXPORT AffineTransform& scale(double sx, double sy);
-    WEBCORE_EXPORT AffineTransform& scaleNonUniform(double sx, double sy); // Same as scale(sx, sy).
+    WEBCORE_EXPORT AffineTransform& NODELETE scaleNonUniform(double sx, double sy); // Same as scale(sx, sy).
     WEBCORE_EXPORT AffineTransform& scale(const FloatSize&);
     WEBCORE_EXPORT AffineTransform& rotate(double);
+    WEBCORE_EXPORT AffineTransform& rotateRadians(double);
     AffineTransform& rotateFromVector(double x, double y);
-    WEBCORE_EXPORT AffineTransform& translate(double tx, double ty);
+    WEBCORE_EXPORT AffineTransform& NODELETE translate(double tx, double ty);
     WEBCORE_EXPORT AffineTransform& translate(const FloatPoint&);
     WEBCORE_EXPORT AffineTransform& translate(const FloatSize&);
-    WEBCORE_EXPORT AffineTransform& shear(double sx, double sy);
-    WEBCORE_EXPORT AffineTransform& flipX();
-    WEBCORE_EXPORT AffineTransform& flipY();
+    WEBCORE_EXPORT AffineTransform& NODELETE shear(double sx, double sy);
+    WEBCORE_EXPORT AffineTransform& NODELETE flipX();
+    WEBCORE_EXPORT AffineTransform& NODELETE flipY();
     WEBCORE_EXPORT AffineTransform& skew(double angleX, double angleY);
     AffineTransform& skewX(double angle);
     AffineTransform& skewY(double angle);
@@ -131,12 +139,12 @@ public:
     WEBCORE_EXPORT double xScale() const;
     WEBCORE_EXPORT double yScale() const;
 
-    bool isInvertible() const; // If you call this this, you're probably doing it wrong.
-    WEBCORE_EXPORT std::optional<AffineTransform> inverse() const;
+    bool NODELETE isInvertible() const; // If you call this, you're probably doing it wrong.
+    WEBCORE_EXPORT std::optional<AffineTransform> NODELETE inverse() const;
 
-    WEBCORE_EXPORT void blend(const AffineTransform& from, double progress);
+    WEBCORE_EXPORT void blend(const AffineTransform& from, double progress, CompositeOperation = CompositeOperation::Replace);
 
-    WEBCORE_EXPORT TransformationMatrix toTransformationMatrix() const;
+    WEBCORE_EXPORT TransformationMatrix NODELETE toTransformationMatrix() const;
 
     bool isIdentityOrTranslation() const
     {
@@ -158,17 +166,17 @@ public:
         return (m_transform[1] == 0 && m_transform[2] == 0) || (m_transform[0] == 0 && m_transform[3] == 0);
     }
 
-    bool operator== (const AffineTransform& m2) const
+    bool isEssentiallyEqualToAsFloats(const AffineTransform& m2) const
     {
-        return (m_transform[0] == m2.m_transform[0]
-             && m_transform[1] == m2.m_transform[1]
-             && m_transform[2] == m2.m_transform[2]
-             && m_transform[3] == m2.m_transform[3]
-             && m_transform[4] == m2.m_transform[4]
-             && m_transform[5] == m2.m_transform[5]);
+        return WTF::areEssentiallyEqual(narrowPrecisionToFloat(m_transform[0]), narrowPrecisionToFloat(m2.m_transform[0]))
+            && WTF::areEssentiallyEqual(narrowPrecisionToFloat(m_transform[1]), narrowPrecisionToFloat(m2.m_transform[1]))
+            && WTF::areEssentiallyEqual(narrowPrecisionToFloat(m_transform[2]), narrowPrecisionToFloat(m2.m_transform[2]))
+            && WTF::areEssentiallyEqual(narrowPrecisionToFloat(m_transform[3]), narrowPrecisionToFloat(m2.m_transform[3]))
+            && WTF::areEssentiallyEqual(narrowPrecisionToFloat(m_transform[4]), narrowPrecisionToFloat(m2.m_transform[4]))
+            && WTF::areEssentiallyEqual(narrowPrecisionToFloat(m_transform[5]), narrowPrecisionToFloat(m2.m_transform[5]));
     }
 
-    bool operator!=(const AffineTransform& other) const { return !(*this == other); }
+    friend bool operator==(const AffineTransform&, const AffineTransform&) = default;
 
     // *this = *this * t (i.e., a multRight)
     AffineTransform& operator*=(const AffineTransform& t)
@@ -188,14 +196,24 @@ public:
     WEBCORE_EXPORT operator CGAffineTransform() const;
 #endif
 
-#if PLATFORM(WIN)
-    operator D2D1_MATRIX_3X2_F() const;
+#if USE(SKIA)
+    WEBCORE_EXPORT operator SkMatrix() const;
 #endif
 
-    static AffineTransform translation(double x, double y)
+    constexpr std::span<const double, 6> span() const LIFETIME_BOUND;
+
+    static AffineTransform makeTranslation(FloatSize delta)
     {
-        return AffineTransform(1, 0, 0, 1, x, y);
+        return AffineTransform(1, 0, 0, 1, delta.width(), delta.height());
     }
+
+    static AffineTransform makeScale(FloatSize scale)
+    {
+        return AffineTransform(scale.width(), 0, 0, scale.height(), 0, 0);
+    }
+
+    WEBCORE_EXPORT static AffineTransform makeRotation(double angleInDegrees, FloatPoint center);
+    WEBCORE_EXPORT static AffineTransform makeRotation(double angleInDegrees);
 
     // decompose the matrix into its component parts
     typedef struct {
@@ -212,8 +230,30 @@ private:
     std::array<double, 6> m_transform;
 };
 
-WEBCORE_EXPORT AffineTransform makeMapBetweenRects(const FloatRect& source, const FloatRect& dest);
+WEBCORE_EXPORT AffineTransform NODELETE makeMapBetweenRects(const FloatRect& source, const FloatRect& dest);
 
 WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const AffineTransform&);
+
+constexpr AffineTransform::AffineTransform()
+    : m_transform { { 1, 0, 0, 1, 0, 0 } }
+{
+}
+
+constexpr AffineTransform::AffineTransform(double a, double b, double c, double d, double e, double f)
+    : m_transform { { a, b, c, d, e, f } }
+{
+}
+
+constexpr AffineTransform::AffineTransform(std::span<const double, 6> transform)
+    : m_transform { transform[0], transform[1], transform[2], transform[3], transform[4], transform[5] }
+{
+}
+
+constexpr std::span<const double, 6> AffineTransform::span() const LIFETIME_BOUND
+{
+    return m_transform;
+}
+
+static constexpr inline AffineTransform identity;
 
 }

@@ -27,8 +27,11 @@
 
 #if ENABLE(SERVICE_CONTROLS)
 
+#include <wtf/CheckedRef.h>
 #include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakRef.h>
 
 namespace WebCore {
 
@@ -40,18 +43,19 @@ class RenderView;
 struct GapRects;
 
 class SelectionGeometryGatherer {
+    WTF_MAKE_TZONE_ALLOCATED(SelectionGeometryGatherer);
     WTF_MAKE_NONCOPYABLE(SelectionGeometryGatherer);
 
 public:
     SelectionGeometryGatherer(RenderView&);
 
-    void addQuad(RenderLayerModelObject *repaintContainer, const FloatQuad&);
-    void addGapRects(RenderLayerModelObject *repaintContainer, const GapRects&);
+    void addQuad(const RenderLayerModelObject* repaintContainer, const FloatQuad&);
+    void addGapRects(const RenderLayerModelObject* repaintContainer, const GapRects&);
     void setTextOnly(bool isTextOnly) { m_isTextOnly = isTextOnly; }
     bool isTextOnly() const { return m_isTextOnly; }
 
     class Notifier {
-        WTF_MAKE_FAST_ALLOCATED;
+        WTF_MAKE_TZONE_ALLOCATED(Notifier);
         WTF_MAKE_NONCOPYABLE(Notifier);
     public:
         Notifier(SelectionGeometryGatherer&);
@@ -66,7 +70,7 @@ public:
 private:
     Vector<LayoutRect> boundingRects() const;
 
-    RenderView& m_renderView;
+    SingleThreadWeakRef<RenderView> m_renderView;
 
     // All rects are in RenderView coordinates.
     Vector<FloatQuad> m_quads;

@@ -30,6 +30,7 @@
 #include "APIClient.h"
 #include "APIInjectedBundlePageContextMenuClient.h"
 #include "WKBundlePageContextMenuClient.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace API {
 class Object;
@@ -40,6 +41,7 @@ template<> struct ClientTraits<WKBundlePageContextMenuClientBase> {
 }
 
 namespace WebCore {
+class ContextMenuContext;
 class ContextMenuItem;
 class HitTestResult;
 }
@@ -49,11 +51,12 @@ class WebContextMenuItemData;
 class WebPage;
 
 class InjectedBundlePageContextMenuClient : public API::Client<WKBundlePageContextMenuClientBase>, public API::InjectedBundle::PageContextMenuClient {
+    WTF_MAKE_TZONE_ALLOCATED(InjectedBundlePageContextMenuClient);
 public:
     explicit InjectedBundlePageContextMenuClient(const WKBundlePageContextMenuClientBase*);
 
 private:
-    bool getCustomMenuFromDefaultItems(WebPage&, const WebCore::HitTestResult&, const Vector<WebCore::ContextMenuItem>& defaultMenu, Vector<WebContextMenuItemData>& newMenu, RefPtr<API::Object>& userData) override;
+    bool getCustomMenuFromDefaultItems(WebPage&, const WebCore::HitTestResult&, const Vector<WebCore::ContextMenuItem>& defaultMenu, Vector<WebContextMenuItemData>& newMenu, const WebCore::ContextMenuContext&, RefPtr<API::Object>& userData) override;
     void prepareForImmediateAction(WebPage&, const WebCore::HitTestResult&, RefPtr<API::Object>& userData) override;
 };
 

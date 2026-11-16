@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006 Apple Inc.
+ * Copyright (C) 2006 Apple Inc. All rights reserved.
  * Copyright (C) 2006 Michael Emmel mike.emmel@gmail.com
  * Copyright (C) 2007, 2008 Alp Toker <alp@atoker.com>
  * Copyright (C) 2007 Holger Hans Peter Freyther
@@ -28,16 +28,21 @@
 #include "CairoUniquePtr.h"
 #include "CairoUtilities.h"
 #include "FontCache.h"
+#include "FontCacheFreeType.h"
+#include "FontCustomPlatformData.h"
 #include "SharedBuffer.h"
 #include <cairo-ft.h>
 #include <fontconfig/fcfreetype.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include FT_TRUETYPE_TABLES_H
-#include <hb-ft.h>
-#include <hb-ot.h>
 #include <wtf/MathExtras.h>
 #include <wtf/text/WTFString.h>
+
+#if ENABLE(MATHML) && USE(HARFBUZZ)
+#include <hb-ft.h>
+#include <hb-ot.h>
+#endif
 
 namespace WebCore {
 
@@ -111,10 +116,10 @@ static void setCairoFontOptionsFromFontConfigPattern(cairo_font_options_t* optio
 #endif
 }
 
-FontPlatformData::FontPlatformData(cairo_font_face_t* fontFace, RefPtr<FcPattern>&& pattern, float size, bool fixedWidth, bool syntheticBold, bool syntheticOblique, FontOrientation orientation)
-    : FontPlatformData(size, syntheticBold, syntheticOblique, orientation)
+FontPlatformData::FontPlatformData(cairo_font_face_t* fontFace, RefPtr<FcPattern>&& pattern, float size, bool fixedWidth, bool syntheticBold, bool syntheticOblique, FontOrientation orientation, const FontCustomPlatformData* customPlatformData)
+    : FontPlatformData(size, syntheticBold, syntheticOblique, orientation, FontWidthVariant::RegularWidth, TextRenderingMode::Auto, customPlatformData)
 {
-    m_pattern = WTFMove(pattern);
+    m_pattern = WTF::move(pattern);
     m_fixedWidth = fixedWidth;
 
     buildScaledFont(fontFace);
@@ -129,19 +134,8 @@ FontPlatformData::FontPlatformData(cairo_font_face_t* fontFace, RefPtr<FcPattern
 FontPlatformData FontPlatformData::cloneWithOrientation(const FontPlatformData& source, FontOrientation orientation)
 {
     FontPlatformData copy(source);
-    if (copy.m_scaledFont && copy.m_orientation != orientation) {
-        copy.m_orientation = orientation;
-        copy.buildScaledFont(cairo_scaled_font_get_font_face(copy.m_scaledFont.get()));
-    }
-    return copy;
-}
-
-FontPlatformData FontPlatformData::cloneWithSyntheticOblique(const FontPlatformData& source, bool syntheticOblique)
-{
-    FontPlatformData copy(source);
-    if (copy.m_syntheticOblique != syntheticOblique) {
-        copy.m_syntheticOblique = syntheticOblique;
-        ASSERT(copy.m_scaledFont.get());
+    if (copy.m_scaledFont && copy.m_metadata.orientation != orientation) {
+        copy.m_metadata.orientation = orientation;
         copy.buildScaledFont(cairo_scaled_font_get_font_face(copy.m_scaledFont.get()));
     }
     return copy;
@@ -150,12 +144,17 @@ FontPlatformData FontPlatformData::cloneWithSyntheticOblique(const FontPlatformD
 FontPlatformData FontPlatformData::cloneWithSize(const FontPlatformData& source, float size)
 {
     FontPlatformData copy(source);
-    copy.m_size = size;
+    copy.updateSize(size);
+    return copy;
+}
+
+void FontPlatformData::updateSize(float size)
+{
+    m_metadata.pointSize = size;
     // We need to reinitialize the instance, because the difference in size
     // necessitates a new scaled font instance.
-    ASSERT(copy.m_scaledFont.get());
-    copy.buildScaledFont(cairo_scaled_font_get_font_face(copy.m_scaledFont.get()));
-    return copy;
+    ASSERT(m_scaledFont.get());
+    buildScaledFont(cairo_scaled_font_get_font_face(m_scaledFont.get()));
 }
 
 FcPattern* FontPlatformData::fcPattern() const
@@ -191,6 +190,31 @@ String FontPlatformData::description() const
 }
 #endif
 
+String FontPlatformData::familyName() const
+{
+    FcChar8* family = nullptr;
+    FcPatternGetString(m_pattern.get(), FC_FAMILY, 0, &family);
+    return byteCast<char8_t>(unsafeSpan(byteCast<char>(family)));
+}
+
+Vector<FontPlatformData::FontVariationAxis> FontPlatformData::variationAxes(ShouldLocalizeAxisNames shouldLocalizeAxisNames) const
+{
+#if ENABLE(VARIATION_FONTS)
+    CairoFtFaceLocker cairoFtFaceLocker(m_scaledFont.get());
+    FT_Face ftFace = cairoFtFaceLocker.ftFace();
+    if (!ftFace)
+        return { };
+
+    return WTF::map(defaultVariationValues(ftFace, shouldLocalizeAxisNames), [](auto&& entry) {
+        auto& [tag, values] = entry;
+        return FontPlatformData::FontVariationAxis { values.axisName, String(tag), values.defaultValue, values.minimumValue, values.maximumValue };
+    });
+#else
+    UNUSED_PARAM(shouldLocalizeAxisNames);
+    return { };
+#endif
+}
+
 void FontPlatformData::buildScaledFont(cairo_font_face_t* fontFace)
 {
     ASSERT(m_pattern);
@@ -215,17 +239,17 @@ void FontPlatformData::buildScaledFont(cairo_font_face_t* fontFace)
     // The matrix from FontConfig does not include the scale. Scaling a font with width zero size leads
     // to a failed cairo_scaled_font_t instantiations. Instead we scale the font to a very tiny
     // size and just abort rendering later on.
-    float realSize = m_size ? m_size : 1;
+    float realSize = m_metadata.pointSize ? m_metadata.pointSize : 1;
     cairo_matrix_scale(&fontMatrix, realSize, realSize);
 
     if (syntheticOblique()) {
         static const float syntheticObliqueSkew = -tanf(14 * acosf(0) / 90);
         static const cairo_matrix_t skew = {1, 0, syntheticObliqueSkew, 1, 0, 0};
         static const cairo_matrix_t verticalSkew = {1, -syntheticObliqueSkew, 0, 1, 0, 0};
-        cairo_matrix_multiply(&fontMatrix, m_orientation == FontOrientation::Vertical ? &verticalSkew : &skew, &fontMatrix);
+        cairo_matrix_multiply(&fontMatrix, m_metadata.orientation == FontOrientation::Vertical ? &verticalSkew : &skew, &fontMatrix);
     }
 
-    if (m_orientation == FontOrientation::Vertical) {
+    if (m_metadata.orientation == FontOrientation::Vertical) {
         // The resulting transformation matrix for vertical glyphs (V) is a
         // combination of rotation (R) and translation (T) applied on the
         // horizontal matrix (H). V = H . R . T, where R rotates by -90 degrees
@@ -264,14 +288,14 @@ RefPtr<SharedBuffer> FontPlatformData::openTypeTable(uint32_t table) const
 
     Vector<uint8_t> data(tableSize);
     FT_ULong expectedTableSize = tableSize;
-    FT_Error error = FT_Load_Sfnt_Table(freeTypeFace, tag, 0, reinterpret_cast<FT_Byte*>(data.data()), &tableSize);
+    FT_Error error = FT_Load_Sfnt_Table(freeTypeFace, tag, 0, reinterpret_cast<FT_Byte*>(data.mutableSpan().data()), &tableSize);
     if (error || tableSize != expectedTableSize)
         return nullptr;
 
-    return SharedBuffer::create(WTFMove(data));
+    return SharedBuffer::create(WTF::move(data));
 }
 
-#if USE(HARFBUZZ) && !ENABLE(OPENTYPE_MATH)
+#if ENABLE(MATHML) && USE(HARFBUZZ)
 HbUniquePtr<hb_font_t> FontPlatformData::createOpenTypeMathHarfBuzzFont() const
 {
     CairoFtFaceLocker cairoFtFaceLocker(m_scaledFont.get());
@@ -286,5 +310,54 @@ HbUniquePtr<hb_font_t> FontPlatformData::createOpenTypeMathHarfBuzzFont() const
     return HbUniquePtr<hb_font_t>(hb_font_create(face.get()));
 }
 #endif
+
+FontPlatformData FontPlatformData::create(const Attributes& data, const FontCustomPlatformData* custom)
+{
+    static FcPattern* pattern = nullptr;
+    static bool fixedWidth = false;
+
+    RefPtr<cairo_font_face_t> fontFace;
+    if (custom && custom->m_fontFace)
+        fontFace = custom->m_fontFace;
+    else {
+        // Get some generic default settings from fontconfig for web fonts. Strategy
+        // from Behdad Esfahbod in https://code.google.com/p/chromium/issues/detail?id=173207#c35
+        // For web fonts, the hint style is overridden in FontCustomPlatformData::FontCustomPlatformData
+        // so Fontconfig will not affect the hint style, but it may disable hinting completely.
+        static std::once_flag flag;
+        std::call_once(flag, [](FcPattern*) {
+            pattern = FcPatternCreate();
+            FcConfigSubstitute(nullptr, pattern, FcMatchPattern);
+            cairo_ft_font_options_substitute(getDefaultCairoFontOptions(), pattern);
+            FcDefaultSubstitute(pattern);
+            FcPatternDel(pattern, FC_FAMILY);
+            FcConfigSubstitute(nullptr, pattern, FcMatchFont);
+        }, pattern);
+
+        int spacing;
+        if (FcPatternGetInteger(pattern, FC_SPACING, 0, &spacing) == FcResultMatch && spacing == FC_MONO)
+            fixedWidth = true;
+        fontFace = adoptRef(cairo_ft_font_face_create_for_pattern(pattern));
+    }
+
+    return FontPlatformData(fontFace.get(), pattern, data.m_metadata.pointSize, fixedWidth, data.m_metadata.isSyntheticBold, data.m_metadata.isSyntheticOblique, data.m_metadata.orientation, custom);
+}
+
+FontPlatformData::Attributes FontPlatformData::attributes() const
+{
+    return Attributes(m_metadata);
+}
+
+std::optional<FontPlatformData> FontPlatformData::fromIPCData(const FontMetadata&, IPCData&&)
+{
+    ASSERT_NOT_REACHED();
+    return std::nullopt;
+}
+
+FontPlatformData::IPCData FontPlatformData::toIPCData() const
+{
+    ASSERT_NOT_REACHED();
+    return FontPlatformSerializedData { };
+}
 
 } // namespace WebCore

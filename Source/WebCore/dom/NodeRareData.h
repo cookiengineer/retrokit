@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2025 Apple Inc. All rights reserved.
  * Copyright (C) 2008 David Smith <catfish.man@gmail.com>
  *
  * This library is free software; you can redistribute it and/or
@@ -22,12 +22,18 @@
 #pragma once
 
 #include "ChildNodeList.h"
+#include "CommonAtomStrings.h"
 #include "HTMLCollection.h"
+#include "HTMLSlotElement.h"
 #include "MutationObserverRegistration.h"
 #include "QualifiedName.h"
 #include "TagCollection.h"
+#include <new>
 #include <wtf/HashSet.h>
+#include <wtf/NoVirtualDestructorBase.h>
 #include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakHashSet.h>
 
 namespace WebCore {
 
@@ -41,14 +47,14 @@ template<typename ListType> struct NodeListTypeIdentifier;
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(NodeListsNodeData);
 class NodeListsNodeData {
     WTF_MAKE_NONCOPYABLE(NodeListsNodeData);
-    WTF_MAKE_STRUCT_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(NodeListsNodeData);
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(NodeListsNodeData, NodeListsNodeData);
 public:
     NodeListsNodeData() = default;
 
     void clearChildNodeListCache()
     {
-        if (m_childNodeList)
-            m_childNodeList->invalidateCache();
+        if (RefPtr childNodeList = m_childNodeList.get())
+            childNodeList->invalidateCache();
     }
 
     Ref<ChildNodeList> ensureChildNodeList(ContainerNode& node)
@@ -56,7 +62,7 @@ public:
         ASSERT(!m_emptyChildNodeList);
         if (m_childNodeList)
             return *m_childNodeList;
-        auto list = ChildNodeList::create(node);
+        Ref list = ChildNodeList::create(node);
         m_childNodeList = list.ptr();
         return list;
     }
@@ -64,7 +70,8 @@ public:
     void removeChildNodeList(ChildNodeList* list)
     {
         ASSERT(m_childNodeList == list);
-        if (deleteThisAndUpdateNodeRareDataIfAboutToRemoveLastList(list->ownerNode()))
+        Ref ownerNode = list->ownerNode();
+        if (deleteThisAndUpdateNodeRareDataIfAboutToRemoveLastList(ownerNode))
             return;
         m_childNodeList = nullptr;
     }
@@ -74,7 +81,7 @@ public:
         ASSERT(!m_childNodeList);
         if (m_emptyChildNodeList)
             return *m_emptyChildNodeList;
-        auto list = EmptyNodeList::create(node);
+        Ref list = EmptyNodeList::create(node);
         m_emptyChildNodeList = list.ptr();
         return list;
     }
@@ -82,7 +89,8 @@ public:
     void removeEmptyChildNodeList(EmptyNodeList* list)
     {
         ASSERT(m_emptyChildNodeList == list);
-        if (deleteThisAndUpdateNodeRareDataIfAboutToRemoveLastList(list->ownerNode()))
+        Ref ownerNode = list->ownerNode();
+        if (deleteThisAndUpdateNodeRareDataIfAboutToRemoveLastList(ownerNode))
             return;
         m_emptyChildNodeList = nullptr;
     }
@@ -97,7 +105,7 @@ public:
     };
 
     using NodeListCacheMap = HashMap<std::pair<unsigned char, AtomString>, LiveNodeList*, NodeListCacheMapEntryHash>;
-    using CollectionCacheMap = HashMap<std::pair<unsigned char, AtomString>, HTMLCollection*, NodeListCacheMapEntryHash>;
+    using CollectionCacheMap = HashMap<std::pair<std::underlying_type_t<CollectionType>, AtomString>, HTMLCollection*, NodeListCacheMapEntryHash>;
     using TagCollectionNSCache = HashMap<QualifiedName, TagCollectionNS*>;
 
     template<typename T, typename ContainerType>
@@ -105,10 +113,9 @@ public:
     {
         auto result = m_atomNameCaches.fastAdd(namedNodeListKey<T>(name), nullptr);
         if (!result.isNewEntry)
-            return static_cast<T&>(*result.iterator->value);
-
-        auto list = T::create(container, name);
-        result.iterator->value = &list.get();
+            return downcast<T>(*result.iterator->value);
+        Ref list = T::create(container, name);
+        result.iterator->value = list.ptr();
         return list;
     }
 
@@ -118,39 +125,42 @@ public:
         if (!result.isNewEntry)
             return *result.iterator->value;
 
-        auto list = TagCollectionNS::create(node, namespaceURI, localName);
+        Ref list = TagCollectionNS::create(node, namespaceURI, localName);
         result.iterator->value = list.ptr();
         return list;
     }
 
     template<typename T, typename ContainerType>
-    ALWAYS_INLINE Ref<T> addCachedCollection(ContainerType& container, CollectionType collectionType, const AtomString& name)
+    ALWAYS_INLINE Ref<T> addCachedCollection(ContainerType& container, const AtomString& name)
     {
-        auto result = m_cachedCollections.fastAdd(namedCollectionKey(collectionType, name), nullptr);
+        auto result = m_cachedCollections.fastAdd(namedCollectionKey(CollectionClassTraits<T>::collectionType, name), nullptr);
         if (!result.isNewEntry)
-            return static_cast<T&>(*result.iterator->value);
+            return downcast<T>(*result.iterator->value);
 
-        auto list = T::create(container, collectionType, name);
-        result.iterator->value = &list.get();
+        Ref list = T::create(container, CollectionClassTraits<T>::collectionType, name);
+        result.iterator->value = list.ptr();
         return list;
     }
 
     template<typename T, typename ContainerType>
-    ALWAYS_INLINE Ref<T> addCachedCollection(ContainerType& container, CollectionType collectionType)
+    ALWAYS_INLINE Ref<T> addCachedCollection(ContainerType& container)
     {
-        auto result = m_cachedCollections.fastAdd(namedCollectionKey(collectionType, starAtom()), nullptr);
+        auto result = m_cachedCollections.fastAdd(namedCollectionKey(CollectionClassTraits<T>::collectionType, starAtom()), nullptr);
         if (!result.isNewEntry)
-            return static_cast<T&>(*result.iterator->value);
+            return downcast<T>(*result.iterator->value);
 
-        auto list = T::create(container, collectionType);
-        result.iterator->value = &list.get();
+        Ref list = T::create(container, CollectionClassTraits<T>::collectionType);
+        result.iterator->value = list.ptr();
         return list;
     }
 
     template<typename T>
     T* cachedCollection(CollectionType collectionType)
     {
-        return static_cast<T*>(m_cachedCollections.get(namedCollectionKey(collectionType, starAtom())));
+        if constexpr (std::same_as<T, HTMLCollection>)
+            return m_cachedCollections.get(namedCollectionKey(collectionType, starAtom()));
+        else
+            return downcast<T>(m_cachedCollections.get(namedCollectionKey(collectionType, starAtom())));
     }
 
     template<typename NodeListType>
@@ -171,13 +181,7 @@ public:
         m_tagCollectionNSCache.remove(name);
     }
 
-    void removeCachedCollection(HTMLCollection* collection, const AtomString& name = starAtom())
-    {
-        ASSERT(collection == m_cachedCollections.get(namedCollectionKey(collection->type(), name)));
-        if (deleteThisAndUpdateNodeRareDataIfAboutToRemoveLastList(collection->ownerNode()))
-            return;
-        m_cachedCollections.remove(namedCollectionKey(collection->type(), name));
-    }
+    inline void removeCachedCollection(HTMLCollection*, const AtomString& = starAtom());
 
     void invalidateCaches();
     void invalidateCachesForAttribute(const QualifiedName& attrName);
@@ -187,29 +191,12 @@ public:
         invalidateCaches();
     }
 
-    void adoptDocument(Document& oldDocument, Document& newDocument)
-    {
-        if (&oldDocument == &newDocument) {
-            invalidateCaches();
-            return;
-        }
-
-        for (auto& cache : m_atomNameCaches.values())
-            cache->invalidateCacheForDocument(oldDocument);
-
-        for (auto& list : m_tagCollectionNSCache.values()) {
-            ASSERT(!list->isRootedAtDocument());
-            list->invalidateCacheForDocument(oldDocument);
-        }
-
-        for (auto& collection : m_cachedCollections.values())
-            collection->invalidateCacheForDocument(oldDocument);
-    }
+    inline void adoptDocument(Document& oldDocument, Document& newDocument);
 
 private:
-    std::pair<unsigned char, AtomString> namedCollectionKey(CollectionType type, const AtomString& name)
+    std::pair<std::underlying_type_t<CollectionType>, AtomString> namedCollectionKey(CollectionType type, const AtomString& name)
     {
-        return std::pair<unsigned char, AtomString>(type, name);
+        return { std::to_underlying(type), name };
     }
 
     template<typename NodeListType>
@@ -221,8 +208,8 @@ private:
     bool deleteThisAndUpdateNodeRareDataIfAboutToRemoveLastList(Node&);
 
     // These two are currently mutually exclusive and could be unioned. Not very important as this class is large anyway.
-    ChildNodeList* m_childNodeList { nullptr };
-    EmptyNodeList* m_emptyChildNodeList { nullptr };
+    SingleThreadWeakPtr<ChildNodeList> m_childNodeList;
+    SingleThreadWeakPtr<EmptyNodeList> m_emptyChildNodeList;
 
     NodeListCacheMap m_atomNameCaches;
     TagCollectionNSCache m_tagCollectionNSCache;
@@ -230,39 +217,51 @@ private:
 };
 
 class NodeMutationObserverData {
-    WTF_MAKE_NONCOPYABLE(NodeMutationObserverData); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(NodeMutationObserverData);
+    WTF_MAKE_NONCOPYABLE(NodeMutationObserverData);
 public:
-    Vector<std::unique_ptr<MutationObserverRegistration>> registry;
-    HashSet<MutationObserverRegistration*> transientRegistry;
+    Vector<Ref<MutationObserverRegistration>> registry;
+    WeakHashSet<MutationObserverRegistration> transientRegistry;
 
-    NodeMutationObserverData() { }
+    NodeMutationObserverData() = default;
 };
 
-DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(NodeRareData);
-class NodeRareData {
+DECLARE_COMPACT_ALLOCATOR_WITH_HEAP_IDENTIFIER(NodeRareData);
+class NodeRareData : public NoVirtualDestructorBase {
     WTF_MAKE_NONCOPYABLE(NodeRareData);
-    WTF_MAKE_STRUCT_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(NodeRareData);
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_COMPACT_ALLOCATED_WITH_HEAP_IDENTIFIER(NodeRareData, NodeRareData);
 public:
 #if defined(DUMP_NODE_STATISTICS) && DUMP_NODE_STATISTICS
     enum class UseType : uint32_t {
-        NodeList = 1 << 0,
-        MutationObserver = 1 << 1,
-        TabIndex = 1 << 2,
-        MinimumSize = 1 << 3,
-        ScrollingPosition = 1 << 4,
-        ComputedStyle = 1 << 5,
-        Dataset = 1 << 6,
-        ClassList = 1 << 7,
-        ShadowRoot = 1 << 8,
-        CustomElementQueue = 1 << 9,
-        AttributeMap = 1 << 10,
-        InteractionObserver = 1 << 11,
-        ResizeObserver = 1 << 12,
-        Animations = 1 << 13,
-        PseudoElements = 1 << 14,
-        StyleMap = 1 << 15,
-        PartList = 1 << 16,
-        PartNames = 1 << 17,
+        TabIndex = 1 << 0,
+        ChildIndex = 1 << 1,
+        NodeList = 1 << 2,
+        MutationObserver = 1 << 3,
+        ManuallyAssignedSlot = 1 << 4,
+        ScrollingPosition = 1 << 5,
+        ComputedStyle = 1 << 6,
+        EffectiveLang = 1 << 7,
+        Dataset = 1 << 8,
+        ClassList = 1 << 9,
+        CustomElementReactionQueue = 1 << 11,
+        CustomElementDefaultARIA = 1 << 12,
+        FormAssociatedCustomElement = 1 << 13,
+        AttributeMap = 1 << 14,
+        InteractionObserver = 1 << 15,
+        ResizeObserver = 1 << 16,
+        Animations = 1 << 17,
+        PseudoElements = 1 << 18,
+        AttributeStyleMap = 1 << 19,
+        ComputedStyleMap = 1 << 20,
+        PartList = 1 << 21,
+        PartNames = 1 << 22,
+        Nonce = 1 << 23,
+        ExplicitlySetAttrElementsMap = 1 << 24,
+        Popover = 1 << 25,
+        DisplayContentsOrNoneStyle = 1 << 26,
+        CustomStateSet = 1 << 27,
+        UserInfo = 1 << 28,
+        InvokedPopover = 1 << 29,
     };
 #endif
 
@@ -273,24 +272,31 @@ public:
     {
     }
 
-    bool isElementRareData() { return m_isElementRareData; }
+    bool isElementRareData() const { return m_isElementRareData; }
 
     void clearNodeLists() { m_nodeLists = nullptr; }
-    NodeListsNodeData* nodeLists() const { return m_nodeLists.get(); }
-    NodeListsNodeData& ensureNodeLists()
+    NodeListsNodeData* nodeLists() const LIFETIME_BOUND { return m_nodeLists.get(); }
+    NodeListsNodeData& ensureNodeLists() LIFETIME_BOUND
     {
         if (!m_nodeLists)
             m_nodeLists = makeUnique<NodeListsNodeData>();
         return *m_nodeLists;
     }
 
-    NodeMutationObserverData* mutationObserverData() { return m_mutationObserverData.get(); }
-    NodeMutationObserverData& ensureMutationObserverData()
+    NodeMutationObserverData* mutationObserverDataIfExists() const LIFETIME_BOUND { return m_mutationObserverData.get(); }
+    NodeMutationObserverData& mutationObserverData() const LIFETIME_BOUND
     {
         if (!m_mutationObserverData)
-            m_mutationObserverData = makeUnique<NodeMutationObserverData>();
+            lazyInitialize(m_mutationObserverData, makeUnique<NodeMutationObserverData>());
         return *m_mutationObserverData;
     }
+
+    // https://html.spec.whatwg.org/multipage/scripting.html#manually-assigned-nodes
+    HTMLSlotElement* manuallyAssignedSlot() { return m_manuallyAssignedSlot.get(); }
+    void setManuallyAssignedSlot(HTMLSlotElement* slot) { m_manuallyAssignedSlot = slot; }
+
+    bool hasEverPaintedImages() const { return m_hasEverPaintedImages; }
+    void setHasEverPaintedImages(bool hasEverPaintedImages) { m_hasEverPaintedImages = hasEverPaintedImages; }
 
 #if DUMP_NODE_STATISTICS
     OptionSet<UseType> useTypes() const
@@ -300,20 +306,20 @@ public:
             result.add(UseType::NodeList);
         if (m_mutationObserverData)
             result.add(UseType::MutationObserver);
+        if (m_manuallyAssignedSlot)
+            result.add(UseType::ManuallyAssignedSlot);
         return result;
     }
 #endif
 
-protected:
-    // Used by ElementRareData. Defined here for better packing in 64-bit.
-    int m_unusualTabIndex { 0 };
-    unsigned short m_childIndex { 0 };
+    void operator delete(NodeRareData*, std::destroying_delete_t);
 
 private:
-    bool m_isElementRareData;
-
     std::unique_ptr<NodeListsNodeData> m_nodeLists;
-    std::unique_ptr<NodeMutationObserverData> m_mutationObserverData;
+    const std::unique_ptr<NodeMutationObserverData> m_mutationObserverData;
+    WeakPtr<HTMLSlotElement, WeakPtrImplWithEventTargetData> m_manuallyAssignedSlot;
+    bool m_isElementRareData;
+    bool m_hasEverPaintedImages { false }; // Keep last for better bit packing with ElementRareData.
 };
 
 template<> struct NodeListTypeIdentifier<NameNodeList> {

@@ -25,59 +25,24 @@
 
 #pragma once
 
-#include "Attribute.h"
-#include "SpaceSplitString.h"
-#include <wtf/RefCounted.h>
+#include <WebCore/Attribute.h>
+#include <WebCore/SpaceSplitString.h>
+#include <wtf/IndexedRange.h>
+#include <wtf/StdLibExtras.h>
 #include <wtf/TypeCasts.h>
+#include <wtf/Vector.h>
 
 namespace WebCore {
 
 class Attr;
+class ImmutableStyleProperties;
 class ShareableElementData;
 class StyleProperties;
 class UniqueElementData;
 
-class AttributeConstIterator {
-public:
-    AttributeConstIterator(const Attribute* array, unsigned offset)
-        : m_array(array)
-        , m_offset(offset)
-    {
-    }
-
-    const Attribute& operator*() const { return m_array[m_offset]; }
-    const Attribute* operator->() const { return &m_array[m_offset]; }
-    AttributeConstIterator& operator++() { ++m_offset; return *this; }
-
-    bool operator==(const AttributeConstIterator& other) const { return m_offset == other.m_offset; }
-    bool operator!=(const AttributeConstIterator& other) const { return !(*this == other); }
-
-private:
-    const Attribute* m_array;
-    unsigned m_offset;
-};
-
-class AttributeIteratorAccessor {
-public:
-    AttributeIteratorAccessor(const Attribute* array, unsigned size)
-        : m_array(array)
-        , m_size(size)
-    {
-    }
-
-    AttributeConstIterator begin() const { return AttributeConstIterator(m_array, 0); }
-    AttributeConstIterator end() const { return AttributeConstIterator(m_array, m_size); }
-
-    unsigned attributeCount() const { return m_size; }
-
-private:
-    const Attribute* m_array;
-    unsigned m_size;
-};
-
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(ElementData);
 class ElementData : public RefCounted<ElementData> {
-    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(ElementData);
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(ElementData, ElementData);
 public:
     // Override RefCounted's deref() to ensure operator delete is called on
     // the appropriate subclass type.
@@ -85,37 +50,36 @@ public:
 
     static const unsigned attributeNotFound = static_cast<unsigned>(-1);
 
-    void setClassNames(const SpaceSplitString& classNames) const { m_classNames = classNames; }
-    const SpaceSplitString& classNames() const { return m_classNames; }
-    static ptrdiff_t classNamesMemoryOffset() { return OBJECT_OFFSETOF(ElementData, m_classNames); }
+    void setClassNames(SpaceSplitString&& classNames) const { m_classNames = WTF::move(classNames); }
+    const SpaceSplitString& classNames() const LIFETIME_BOUND { return m_classNames; }
+    static constexpr ptrdiff_t classNamesMemoryOffset() { return OBJECT_OFFSETOF(ElementData, m_classNames); }
 
-    const AtomString& idForStyleResolution() const { return m_idForStyleResolution; }
-    static ptrdiff_t idForStyleResolutionMemoryOffset() { return OBJECT_OFFSETOF(ElementData, m_idForStyleResolution); }
+    const AtomString& idForStyleResolution() const LIFETIME_BOUND { return m_idForStyleResolution; }
+    static constexpr ptrdiff_t idForStyleResolutionMemoryOffset() { return OBJECT_OFFSETOF(ElementData, m_idForStyleResolution); }
     void setIdForStyleResolution(const AtomString& newId) const { m_idForStyleResolution = newId; }
 
     const StyleProperties* inlineStyle() const { return m_inlineStyle.get(); }
-    const StyleProperties* presentationalHintStyle() const;
+    const ImmutableStyleProperties* presentationalHintStyle() const;
 
     unsigned length() const;
     bool isEmpty() const { return !length(); }
 
-    AttributeIteratorAccessor attributesIterator() const;
-    const Attribute& attributeAt(unsigned index) const;
-    const Attribute* findAttributeByName(const QualifiedName&) const;
-    unsigned findAttributeIndexByName(const QualifiedName&) const;
-    unsigned findAttributeIndexByName(const AtomString& name, bool shouldIgnoreAttributeCase) const;
-    const Attribute* findLanguageAttribute() const;
+    std::span<const Attribute> NODELETE attributes() const LIFETIME_BOUND;
+    const Attribute& NODELETE attributeAt(unsigned index) const;
+    const Attribute* NODELETE findAttributeByName(const QualifiedName&) const;
+    unsigned NODELETE findAttributeIndexByName(const QualifiedName&) const;
+    unsigned NODELETE findAttributeIndexByName(const AtomString& name, bool shouldIgnoreAttributeCase) const;
 
     bool hasID() const { return !m_idForStyleResolution.isNull(); }
     bool hasClass() const { return !m_classNames.isEmpty(); }
     bool hasName() const { return m_arraySizeAndFlags & s_flagHasNameAttribute; }
 
-    bool isEquivalent(const ElementData* other) const;
+    bool NODELETE isEquivalent(const ElementData* other) const;
 
     bool isUnique() const { return m_arraySizeAndFlags & s_flagIsUnique; }
     static uint32_t isUniqueFlag() { return s_flagIsUnique; }
 
-    static ptrdiff_t arraySizeAndFlagsMemoryOffset() { return OBJECT_OFFSETOF(ElementData, m_arraySizeAndFlags); }
+    static constexpr ptrdiff_t arraySizeAndFlagsMemoryOffset() { return OBJECT_OFFSETOF(ElementData, m_arraySizeAndFlags); }
     static inline uint32_t styleAttributeIsDirtyFlag() { return s_flagStyleAttributeIsDirty; }
     static uint32_t animatedSVGAttributesAreDirtyFlag() { return s_flagAnimatedSVGAttributesAreDirty; }
 
@@ -132,6 +96,7 @@ private:
     static const uint32_t s_flagStyleAttributeIsDirty = 1 << 3;
     static const uint32_t s_flagAnimatedSVGAttributesAreDirty = 1 << 4;
     static const uint32_t s_flagsMask = (1 << s_flagCount) - 1;
+    // FIXME: could the SVG specific flags go to some SVG class?
 
     inline void updateFlag(uint32_t flag, bool set) const
     {
@@ -140,7 +105,7 @@ private:
         else
             m_arraySizeAndFlags &= ~flag;
     }
-    static inline uint32_t arraySizeAndFlagsFromOther(const ElementData& other, bool isUnique);
+    static inline uint32_t NODELETE arraySizeAndFlagsFromOther(const ElementData& other, bool isUnique);
 
 protected:
     ElementData();
@@ -175,34 +140,29 @@ private:
     void destroy();
 
     const Attribute* attributeBase() const;
+    std::span<const Attribute> attributeSpan() const { return unsafeMakeSpan(attributeBase(), length()); }
     const Attribute* findAttributeByName(const AtomString& name, bool shouldIgnoreAttributeCase) const;
 
     Ref<UniqueElementData> makeUniqueCopy() const;
 };
 
-#if COMPILER(MSVC)
-#pragma warning(push)
-#pragma warning(disable: 4200) // Disable "zero-sized array in struct/union" warning
-#endif
-
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(ShareableElementData);
 class ShareableElementData : public ElementData {
-    WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(ShareableElementData);
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(ShareableElementData, ShareableElementData);
 public:
-    static Ref<ShareableElementData> createWithAttributes(const Vector<Attribute>&);
+    static Ref<ShareableElementData> createWithAttributes(std::span<const Attribute>);
 
-    explicit ShareableElementData(const Vector<Attribute>&);
+    explicit ShareableElementData(std::span<const Attribute>);
     explicit ShareableElementData(const UniqueElementData&);
     ~ShareableElementData();
 
-    static ptrdiff_t attributeArrayMemoryOffset() { return OBJECT_OFFSETOF(ShareableElementData, m_attributeArray); }
+    static constexpr ptrdiff_t attributeArrayMemoryOffset() { return OBJECT_OFFSETOF(ShareableElementData, m_attributeArray); }
+
+    std::span<Attribute> NODELETE attributes() { return unsafeMakeSpan(m_attributeArray, arraySize()); }
+    std::span<const Attribute> NODELETE attributes() const { return unsafeMakeSpan(m_attributeArray, arraySize()); }
 
     Attribute m_attributeArray[0];
 };
-
-#if COMPILER(MSVC)
-#pragma warning(pop)
-#endif
 
 class UniqueElementData : public ElementData {
 public:
@@ -211,18 +171,20 @@ public:
 
     // These functions do no error/duplicate checking.
     void addAttribute(const QualifiedName&, const AtomString&);
-    void removeAttribute(unsigned index);
+    void removeAttributeAt(unsigned index);
 
-    Attribute& attributeAt(unsigned index);
-    Attribute* findAttributeByName(const QualifiedName&);
+    Attribute& NODELETE attributeAt(unsigned index);
+    Attribute* NODELETE findAttributeByName(const QualifiedName&);
+
+    std::span<const Attribute> NODELETE attributes() const LIFETIME_BOUND { return m_attributeVector.span(); }
 
     UniqueElementData();
     explicit UniqueElementData(const ShareableElementData&);
     explicit UniqueElementData(const UniqueElementData&);
 
-    static ptrdiff_t attributeVectorMemoryOffset() { return OBJECT_OFFSETOF(UniqueElementData, m_attributeVector); }
+    static constexpr ptrdiff_t attributeVectorMemoryOffset() { return OBJECT_OFFSETOF(UniqueElementData, m_attributeVector); }
 
-    mutable RefPtr<StyleProperties> m_presentationalHintStyle;
+    mutable RefPtr<ImmutableStyleProperties> m_presentationalHintStyle;
     typedef Vector<Attribute, 4> AttributeVector;
     AttributeVector m_attributeVector;
 };
@@ -236,35 +198,33 @@ inline void ElementData::deref()
 
 inline unsigned ElementData::length() const
 {
-    if (is<UniqueElementData>(*this))
-        return downcast<UniqueElementData>(*this).m_attributeVector.size();
+    if (auto* uniqueData = dynamicDowncast<UniqueElementData>(*this))
+        return uniqueData->m_attributeVector.size();
     return arraySize();
 }
 
 inline const Attribute* ElementData::attributeBase() const
 {
-    if (is<UniqueElementData>(*this))
-        return downcast<UniqueElementData>(*this).m_attributeVector.data();
-    return downcast<ShareableElementData>(*this).m_attributeArray;
+    if (auto* uniqueData = dynamicDowncast<UniqueElementData>(*this))
+        return uniqueData->m_attributeVector.span().data();
+    return uncheckedDowncast<ShareableElementData>(*this).m_attributeArray;
 }
 
-inline const StyleProperties* ElementData::presentationalHintStyle() const
+inline const ImmutableStyleProperties* ElementData::presentationalHintStyle() const
 {
-    if (!is<UniqueElementData>(*this))
-        return nullptr;
-    return downcast<UniqueElementData>(*this).m_presentationalHintStyle.get();
+    if (auto* uniqueData = dynamicDowncast<UniqueElementData>(*this))
+        return uniqueData->m_presentationalHintStyle.get();
+    return nullptr;
 }
 
-inline AttributeIteratorAccessor ElementData::attributesIterator() const
+inline std::span<const Attribute> ElementData::attributes() const LIFETIME_BOUND
 {
-    if (is<UniqueElementData>(*this)) {
-        const Vector<Attribute, 4>& attributeVector = downcast<UniqueElementData>(*this).m_attributeVector;
-        return AttributeIteratorAccessor(attributeVector.data(), attributeVector.size());
-    }
-    return AttributeIteratorAccessor(downcast<ShareableElementData>(*this).m_attributeArray, arraySize());
+    if (isUnique())
+        return uncheckedDowncast<UniqueElementData>(*this).attributes();
+    return uncheckedDowncast<ShareableElementData>(*this).attributes();
 }
 
-ALWAYS_INLINE const Attribute* ElementData::findAttributeByName(const AtomString& name, bool shouldIgnoreAttributeCase) const
+ALWAYS_INLINE const Attribute* NODELETE ElementData::findAttributeByName(const AtomString& name, bool shouldIgnoreAttributeCase) const
 {
     unsigned index = findAttributeIndexByName(name, shouldIgnoreAttributeCase);
     if (index != attributeNotFound)
@@ -272,11 +232,11 @@ ALWAYS_INLINE const Attribute* ElementData::findAttributeByName(const AtomString
     return nullptr;
 }
 
-ALWAYS_INLINE unsigned ElementData::findAttributeIndexByName(const QualifiedName& name) const
+SUPPRESS_NODELETE ALWAYS_INLINE unsigned NODELETE ElementData::findAttributeIndexByName(const QualifiedName& name) const
 {
-    const Attribute* attributes = attributeBase();
-    for (unsigned i = 0, count = length(); i < count; ++i) {
-        if (attributes[i].name().matches(name))
+    auto attributes = attributeSpan();
+    for (auto [i, attribute] : indexedRange(attributes)) {
+        if (attribute.name().matches(name))
             return i;
     }
     return attributeNotFound;
@@ -284,46 +244,39 @@ ALWAYS_INLINE unsigned ElementData::findAttributeIndexByName(const QualifiedName
 
 // We use a boolean parameter instead of calling shouldIgnoreAttributeCase so that the caller
 // can tune the behavior (hasAttribute is case sensitive whereas getAttribute is not).
-ALWAYS_INLINE unsigned ElementData::findAttributeIndexByName(const AtomString& name, bool shouldIgnoreAttributeCase) const
+SUPPRESS_NODELETE ALWAYS_INLINE unsigned NODELETE ElementData::findAttributeIndexByName(const AtomString& name, bool shouldIgnoreAttributeCase) const
 {
-    unsigned attributeCount = length();
-    if (!attributeCount)
+    auto attributes = attributeSpan();
+    if (attributes.empty())
         return attributeNotFound;
 
-    const Attribute* attributes = attributeBase();
-    const AtomString& caseAdjustedName = shouldIgnoreAttributeCase ? name.convertToASCIILowercase() : name;
+    auto& caseAdjustedName = shouldIgnoreAttributeCase ? name.convertToASCIILowercase() : name;
 
-    unsigned attributeIndex = 0;
-    do {
-        const Attribute& attribute = attributes[attributeIndex];
+    for (auto [i, attribute] : indexedRange(attributes)) {
         if (!attribute.name().hasPrefix()) {
             if (attribute.localName() == caseAdjustedName)
-                return attributeIndex;
+                return i;
         } else {
             if (attribute.name().toString() == caseAdjustedName)
-                return attributeIndex;
+                return i;
         }
-
-        ++attributeIndex;
-    } while (attributeIndex < attributeCount);
+    }
 
     return attributeNotFound;
 }
 
-ALWAYS_INLINE const Attribute* ElementData::findAttributeByName(const QualifiedName& name) const
+SUPPRESS_NODELETE ALWAYS_INLINE const Attribute* NODELETE ElementData::findAttributeByName(const QualifiedName& name) const
 {
-    const Attribute* attributes = attributeBase();
-    for (unsigned i = 0, count = length(); i < count; ++i) {
-        if (attributes[i].name().matches(name))
-            return &attributes[i];
+    for (auto& attribute : attributeSpan()) {
+        if (attribute.name().matches(name))
+            return &attribute;
     }
-    return 0;
+    return nullptr;
 }
 
-inline const Attribute& ElementData::attributeAt(unsigned index) const
+inline const Attribute& NODELETE ElementData::attributeAt(unsigned index) const
 {
-    RELEASE_ASSERT(index < length());
-    return attributeBase()[index];
+    return attributeSpan()[index];
 }
 
 inline void UniqueElementData::addAttribute(const QualifiedName& attributeName, const AtomString& value)
@@ -331,12 +284,12 @@ inline void UniqueElementData::addAttribute(const QualifiedName& attributeName, 
     m_attributeVector.append(Attribute(attributeName, value));
 }
 
-inline void UniqueElementData::removeAttribute(unsigned index)
+inline void UniqueElementData::removeAttributeAt(unsigned index)
 {
-    m_attributeVector.remove(index);
+    m_attributeVector.removeAt(index);
 }
 
-inline Attribute& UniqueElementData::attributeAt(unsigned index)
+inline Attribute& NODELETE UniqueElementData::attributeAt(unsigned index)
 {
     return m_attributeVector.at(index);
 }

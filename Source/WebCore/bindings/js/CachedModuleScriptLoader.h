@@ -25,15 +25,18 @@
 
 #pragma once
 
-#include "CachedResourceClient.h"
-#include "CachedResourceHandle.h"
-#include "CachedScriptFetcher.h"
-#include "ModuleScriptLoader.h"
+#include <WebCore/CachedResourceClient.h>
+#include <WebCore/CachedResourceHandle.h>
+#include <WebCore/CachedScriptFetcher.h>
+#include <WebCore/ModuleScriptLoader.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
 #include <wtf/RefPtr.h>
 #include <wtf/URL.h>
 
+namespace JSC {
+class ScriptFetchParameters;
+}
 namespace WebCore {
 
 class ModuleScriptLoaderClient;
@@ -41,26 +44,35 @@ class CachedScript;
 class DeferredPromise;
 class Document;
 class JSDOMGlobalObject;
-class ModuleFetchParameters;
 
 class CachedModuleScriptLoader final : public ModuleScriptLoader, private CachedResourceClient {
 public:
-    static Ref<CachedModuleScriptLoader> create(ModuleScriptLoaderClient&, DeferredPromise&, CachedScriptFetcher&, RefPtr<ModuleFetchParameters>&&);
+    static Ref<CachedModuleScriptLoader> create(ModuleScriptLoaderClient&, DeferredPromise&, CachedScriptFetcher&, RefPtr<JSC::ScriptFetchParameters>&&);
 
     virtual ~CachedModuleScriptLoader();
 
-    bool load(Document&, URL&& sourceURL);
+    // CachedResourceClient.
+    void ref() const final { ModuleScriptLoader::ref(); }
+    void deref() const final { ModuleScriptLoader::deref(); }
+
+    bool load(Document&, URL&& sourceURL, std::optional<ServiceWorkersMode>);
 
     CachedScript* cachedScript() { return m_cachedScript.get(); }
     CachedScriptFetcher& scriptFetcher() { return static_cast<CachedScriptFetcher&>(ModuleScriptLoader::scriptFetcher()); }
 
 private:
-    CachedModuleScriptLoader(ModuleScriptLoaderClient&, DeferredPromise&, CachedScriptFetcher&, RefPtr<ModuleFetchParameters>&&);
+    CachedModuleScriptLoader(ModuleScriptLoaderClient&, DeferredPromise&, CachedScriptFetcher&, RefPtr<JSC::ScriptFetchParameters>&&);
 
-    void notifyFinished(CachedResource&, const NetworkLoadMetrics&) final;
+    bool isCachedModuleScriptLoader() const final { return true; }
+
+    void notifyFinished(CachedResource&, const NetworkLoadMetrics&, LoadWillContinueInAnotherProcess) final;
 
     CachedResourceHandle<CachedScript> m_cachedScript;
     URL m_sourceURL;
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::CachedModuleScriptLoader)
+    static bool isType(const WebCore::ModuleScriptLoader& loader) { return loader.isCachedModuleScriptLoader(); }
+SPECIALIZE_TYPE_TRAITS_END()

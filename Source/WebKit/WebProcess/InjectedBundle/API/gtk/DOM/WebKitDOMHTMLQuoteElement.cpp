@@ -93,7 +93,9 @@ static void webkit_dom_html_quote_element_dom_event_target_init(WebKitDOMEventTa
     iface->remove_event_listener = webkit_dom_html_quote_element_remove_event_listener;
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN // GTK port
 G_DEFINE_TYPE_WITH_CODE(WebKitDOMHTMLQuoteElement, webkit_dom_html_quote_element, WEBKIT_DOM_TYPE_HTML_ELEMENT, G_IMPLEMENT_INTERFACE(WEBKIT_DOM_TYPE_EVENT_TARGET, webkit_dom_html_quote_element_dom_event_target_init))
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
 
 enum {
     DOM_HTML_QUOTE_ELEMENT_PROP_0,
@@ -166,8 +168,7 @@ void webkit_dom_html_quote_element_set_cite(WebKitDOMHTMLQuoteElement* self, con
     g_return_if_fail(WEBKIT_DOM_IS_HTML_QUOTE_ELEMENT(self));
     g_return_if_fail(value);
     WebCore::HTMLQuoteElement* item = WebKit::core(self);
-    WTF::String convertedValue = WTF::String::fromUTF8(value);
-    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::citeAttr, convertedValue);
+    item->setAttributeWithoutSynchronization(WebCore::HTMLNames::citeAttr, WTF::AtomString::fromUTF8(value));
 }
 
 G_GNUC_END_IGNORE_DEPRECATIONS;

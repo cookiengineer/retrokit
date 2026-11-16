@@ -31,23 +31,21 @@
 #include "WebPreferencesDefinitions.h"
 #include "WebPreferencesKeys.h"
 #include "WebPreferencesStore.h"
+#include "WebProcess.h"
 #include <WebCore/DeprecatedGlobalSettings.h>
 #include <WebCore/Page.h>
-#include <WebCore/RuntimeEnabledFeatures.h>
 #include <WebCore/Settings.h>
 
 namespace WebKit {
 
-void WebPage::updateSettingsGenerated(const WebPreferencesStore& store)
+void WebPage::updateSettingsGenerated(const WebPreferencesStore& store, WebCore::Settings& settings)
 {
-    WebCore::Settings& settings = m_page->settings();
-
 <%- for @pref in @preferencesBoundToSetting do -%>
 <%- if @pref.condition -%>
 #if <%= @pref.condition %>
 <%- end -%>
 <%- if @pref.exposed -%>
-    settings.set<%= @pref.webcoreNameUpper %>(store.get<%= @pref.typeUpper %>ValueForKey(WebPreferencesKey::<%= @pref.nameLower %>Key()));
+    settings.set<%= @pref.webcoreNameUpper %>(<%= @pref.upcast %>store.get<%= @pref.typeUpper %>ValueForKey(WebPreferencesKey::<%= @pref.nameLower %>Key())<%= ")" if @pref.upcast %>);
 <%- else -%>
     settings.set<%= @pref.webcoreNameUpper %>(DEFAULT_VALUE_FOR_<%= @pref.name %>);
 <%- end -%>
@@ -73,19 +71,8 @@ void WebPage::updatePreferencesGenerated(const WebPreferencesStore& store)
 <%- end -%>
 <%- end -%>
 
-<%- for @pref in @preferencesBoundToRuntimeEnabledFeatures do -%>
-<%- if @pref.condition -%>
-#if <%= @pref.condition %>
-<%- end -%>
-<%- if @pref.exposed -%>
-    WebCore::RuntimeEnabledFeatures::sharedFeatures().set<%= @pref.webcoreNameUpper %>(store.get<%= @pref.typeUpper %>ValueForKey(WebPreferencesKey::<%= @pref.nameLower %>Key()));
-<%- else -%>
-    WebCore::RuntimeEnabledFeatures::sharedFeatures().set<%= @pref.webcoreNameUpper %>(DEFAULT_VALUE_FOR_<%= @pref.name %>);
-<%- end -%>
-<%- if @pref.condition -%>
-#endif
-<%- end -%>
-<%- end -%>
+    if (store.getBoolValueForKey(WebPreferencesKey::mediaPlaybackEnabledKey()))
+        WebProcess::singleton().enableMediaPlayback();
 }
 
 }

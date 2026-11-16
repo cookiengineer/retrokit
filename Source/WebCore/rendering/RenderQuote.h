@@ -27,20 +27,20 @@
 namespace WebCore {
 
 class RenderQuote final : public RenderInline {
-    WTF_MAKE_ISO_ALLOCATED(RenderQuote);
+    WTF_MAKE_TZONE_ALLOCATED(RenderQuote);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderQuote);
 public:
-    RenderQuote(Document&, RenderStyle&&, QuoteType);
+    RenderQuote(Document&, Style::ComputedStyle&&, QuoteType);
     virtual ~RenderQuote();
 
     void updateRenderer(RenderTreeBuilder&, RenderQuote* previousQuote);
 
 private:
-    const char* renderName() const override { return "RenderQuote"; }
-    bool isQuote() const override { return true; }
-    bool isOpen() const;
-    void styleDidChange(StyleDifference, const RenderStyle*) override;
-    void insertedIntoTree(IsInternalMove) override;
-    void willBeRemovedFromTree(IsInternalMove) override;
+    ASCIILiteral renderName() const override { return "RenderQuote"_s; }
+    bool NODELETE isOpen() const;
+    void styleDidChange(Style::Difference, const Style::ComputedStyle*) override;
+    void insertedIntoTree() override;
+    void willBeRemovedFromTree() override;
 
     String computeText() const;
     void updateTextRenderer(RenderTreeBuilder&);
@@ -54,4 +54,4 @@ private:
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderQuote, isQuote())
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderQuote, isRenderQuote())

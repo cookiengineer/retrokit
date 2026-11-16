@@ -34,6 +34,10 @@
 #include <dlfcn.h>
 #endif
 
+#if BOS(UNIX)
+#include "valgrind.h"
+#endif
+
 #if BPLATFORM(IOS_FAMILY) && !BPLATFORM(MACCATALYST) && !BPLATFORM(IOS_FAMILY_SIMULATOR)
 #define BUSE_CHECK_NANO_MALLOC 1
 #else
@@ -49,9 +53,19 @@ int malloc_engaged_nano(void);
 }
 #endif
 
+#if BUSE(LIBPAS)
+#include "pas_status_reporter.h"
+#endif
+
 namespace bmalloc {
 
-static bool isMallocEnvironmentVariableSet()
+static bool isWebKitMallocForceEnabled()
+{
+    const char* value = getenv("WebKitMallocForceEnabled");
+    return value ? atoi(value) : false;
+}
+
+static bool isMallocEnvironmentVariableImplyingSystemMallocSet()
 {
     const char* list[] = {
         "Malloc",
@@ -59,9 +73,6 @@ static bool isMallocEnvironmentVariableSet()
         "MallocGuardEdges",
         "MallocDoNotProtectPrelude",
         "MallocDoNotProtectPostlude",
-        "MallocStackLogging",
-        "MallocStackLoggingNoCompact",
-        "MallocStackLoggingDirectory",
         "MallocScribble",
         "MallocCheckHeapStart",
         "MallocCheckHeapEach",
@@ -77,6 +88,11 @@ static bool isMallocEnvironmentVariableSet()
         if (getenv(list[i]))
             return true;
     }
+
+    // FIXME: Remove this once lite logging works with memgraph capture (rdar://109283870).
+    const char* mallocStackLogging = getenv("MallocStackLogging");
+    if (mallocStackLogging && !strcmp(mallocStackLogging, "lite"))
+        return true;
 
     return false;
 }
@@ -123,6 +139,34 @@ static bool isSanitizerEnabled()
 #endif
 }
 
+static bool isRunningOnValgrind()
+{
+#if BOS(UNIX)
+    if (RUNNING_ON_VALGRIND)
+        return true;
+#endif
+    return false;
+}
+
+static bool isLibpasOrMimallocBuilt()
+{
+#if BUSE(SYSTEM_MALLOC)
+    return false;
+#else
+    return true;
+#endif
+}
+
+static bool isSystemHeapForceDisabled()
+{
+#if BUSE(SYSTEM_MALLOC)
+    return false;
+#else
+    const char* value = getenv("WebKitSystemHeapOverrideEnablement");
+    return value ? !atoi(value) : false;
+#endif
+}
+
 #if BUSE(CHECK_NANO_MALLOC)
 static bool isNanoMallocEnabled()
 {
@@ -134,17 +178,40 @@ static bool isNanoMallocEnabled()
 DEFINE_STATIC_PER_PROCESS_STORAGE(Environment);
 
 Environment::Environment(const LockHolder&)
-    : m_isDebugHeapEnabled(computeIsDebugHeapEnabled())
+    : m_isSystemHeapEnabled(computeIsSystemHeapEnabled())
+    , m_shouldBmallocAllocateThroughSystemHeap(computeShouldBmallocAllocateThroughSystemHeap())
 {
+#if BUSE(LIBPAS)
+    const char* statusReporter = getenv("WebKitPasStatusReporter");
+    if (statusReporter) {
+        unsigned enabled;
+        if (sscanf(statusReporter, "%u", &enabled) == 1)
+            pas_status_reporter_enabled = enabled;
+    }
+#endif
+    BASSERT(!m_shouldBmallocAllocateThroughSystemHeap || m_isSystemHeapEnabled);
 }
 
-bool Environment::computeIsDebugHeapEnabled()
+bool Environment::computeIsSystemHeapEnabled()
 {
-    if (isMallocEnvironmentVariableSet())
+    return !isSystemHeapForceDisabled();
+}
+
+bool Environment::computeShouldBmallocAllocateThroughSystemHeap()
+{
+    if (!isLibpasOrMimallocBuilt())
+        return true;
+    if (isSystemHeapForceDisabled())
+        return false;
+    if (isWebKitMallocForceEnabled())
+        return false;
+    if (isMallocEnvironmentVariableImplyingSystemMallocSet())
         return true;
     if (isLibgmallocEnabled())
         return true;
     if (isSanitizerEnabled())
+        return true;
+    if (isRunningOnValgrind())
         return true;
 
 #if BUSE(CHECK_NANO_MALLOC)

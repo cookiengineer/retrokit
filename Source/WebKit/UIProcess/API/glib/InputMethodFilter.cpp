@@ -23,8 +23,11 @@
 #include "WebKitInputMethodContextPrivate.h"
 #include "WebKitWebViewPrivate.h"
 #include "WebPageProxy.h"
-#include <WebCore/PlatformDisplay.h>
 #include <wtf/SetForScope.h>
+
+#if PLATFORM(GTK)
+#include "Display.h"
+#endif
 
 namespace WebKit {
 using namespace WebCore;
@@ -67,6 +70,8 @@ void InputMethodFilter::setContext(WebKitInputMethodContext* context)
     }
 
     m_context = context;
+    m_cursorRect = { };
+    m_surrounding = { };
     if (!m_context)
         return;
 
@@ -89,7 +94,7 @@ void InputMethodFilter::setState(std::optional<InputMethodState>&& state)
     if (focusChanged && !state)
         notifyFocusedOut();
 
-    m_state = WTFMove(state);
+    m_state = WTF::move(state);
     notifyContentType();
 
     if (focusChanged && isEnabled() && isViewFocused())
@@ -101,7 +106,7 @@ InputMethodFilter::FilterResult InputMethodFilter::filterKeyEvent(PlatformEventK
     if (!isEnabled() || !m_context)
         return { };
 
-    SetForScope<bool> filteringContextIsAcive(m_filteringContext.isActive, true);
+    SetForScope filteringContextIsAcive(m_filteringContext.isActive, true);
     m_filteringContext.preeditChanged = false;
     m_compositionResult = { };
 
@@ -115,7 +120,7 @@ InputMethodFilter::FilterResult InputMethodFilter::filterKeyEvent(PlatformEventK
 
     // Simple input methods work such that even normal keystrokes fire the commit signal without any preedit change.
     if (!m_filteringContext.preeditChanged && m_compositionResult.length() == 1)
-        return { false, WTFMove(m_compositionResult) };
+        return { false, WTF::move(m_compositionResult) };
 
     if (!platformEventKeyIsKeyPress(keyEvent))
         return { };
@@ -128,10 +133,10 @@ bool InputMethodFilter::isViewFocused() const
     if (!isEnabled() || !m_context)
         return false;
 
-#if ENABLE(DEVELOPER_MODE) && PLATFORM(X11)
+#if ENABLE(DEVELOPER_MODE) && PLATFORM(GTK)
     // Xvfb doesn't support toplevel focus, so the WebView is never focused. We simply assume the WebView is focused
     // since it's the only application running.
-    if (PlatformDisplay::sharedDisplay().type() == PlatformDisplay::Type::X11) {
+    if (Display::singleton().isX11()) {
         if (!g_strcmp0(g_getenv("UNDER_XVFB"), "yes"))
             return true;
     }
@@ -159,6 +164,8 @@ static WebKitInputPurpose toWebKitPurpose(InputMethodState::Purpose purpose)
         return WEBKIT_INPUT_PURPOSE_EMAIL;
     case InputMethodState::Purpose::Password:
         return WEBKIT_INPUT_PURPOSE_PASSWORD;
+    case InputMethodState::Purpose::Search:
+        return WEBKIT_INPUT_PURPOSE_SEARCH;
     }
 
     RELEASE_ASSERT_NOT_REACHED();
@@ -207,6 +214,8 @@ void InputMethodFilter::notifyFocusedOut()
         return;
 
     cancelComposition();
+    m_cursorRect = { };
+    m_surrounding = { };
     webkit_input_method_context_notify_focus_out(m_context.get());
 }
 
@@ -215,14 +224,14 @@ void InputMethodFilter::notifyCursorRect(const IntRect& cursorRect)
     if (!isEnabled() || !m_context)
         return;
 
-    // Don't move the window unless the cursor actually moves more than 10
-    // pixels. This prevents us from making the window flash during minor
-    // cursor adjustments.
-    static const int windowMovementThreshold = 10 * 10;
-    if (cursorRect.location().distanceSquaredToPoint(m_cursorLocation) < windowMovementThreshold)
+    // Don't notify cursor area when cursorRect is default-initialized (location and size are all 0).
+    if (!cursorRect.x() && !cursorRect.y() && !cursorRect.width() && !cursorRect.height())
         return;
 
-    m_cursorLocation = cursorRect.location();
+    if (cursorRect == m_cursorRect)
+        return;
+
+    m_cursorRect = cursorRect;
     auto translatedRect = platformTransformCursorRectToViewCoordinates(cursorRect);
     webkit_input_method_context_notify_cursor_area(m_context.get(), translatedRect.x(), translatedRect.y(), translatedRect.width(), translatedRect.height());
 }
@@ -240,10 +249,10 @@ void InputMethodFilter::notifySurrounding(const String& text, uint64_t cursorPos
     m_surrounding.selectionPosition = selectionPosition;
 
     auto textUTF8 = m_surrounding.text.utf8();
-    auto cursorPositionUTF8 = cursorPosition != text.length() ? text.substring(0, cursorPosition).utf8().length() : textUTF8.length();
+    auto cursorPositionUTF8 = cursorPosition != text.length() ? StringView(text).left(cursorPosition).utf8().length() : textUTF8.length();
     auto selectionPositionUTF8 = cursorPositionUTF8;
     if (cursorPosition != selectionPosition)
-        selectionPositionUTF8 = selectionPosition != text.length() ? text.substring(0, selectionPosition).utf8().length() : textUTF8.length();
+        selectionPositionUTF8 = selectionPosition != text.length() ? StringView(text).left(selectionPosition).utf8().length() : textUTF8.length();
     webkit_input_method_context_notify_surrounding(m_context.get(), textUTF8.data(), textUTF8.length(), cursorPositionUTF8, selectionPositionUTF8);
 }
 
@@ -278,6 +287,7 @@ void InputMethodFilter::preeditChanged()
 
     m_preedit.text = String::fromUTF8(newPreedit.get());
     m_preedit.cursorOffset = std::min(cursorOffset, m_preedit.text.length());
+    m_preedit.underlines.clear();
     if (underlines) {
         for (auto* it = underlines; it; it = g_list_next(it)) {
             auto* underline = static_cast<WebKitInputMethodUnderline*>(it->data);
@@ -289,7 +299,7 @@ void InputMethodFilter::preeditChanged()
 
     auto* webView = webkitInputMethodContextGetWebView(m_context.get());
     ASSERT(webView);
-    webkitWebViewSetComposition(webView, m_preedit.text, m_preedit.underlines, EditingRange(m_preedit.cursorOffset, 1));
+    webkitWebViewSetComposition(webView, m_preedit.text, m_preedit.underlines, EditingRange(m_preedit.cursorOffset, 0));
 }
 
 void InputMethodFilter::preeditFinished()
@@ -308,7 +318,7 @@ void InputMethodFilter::preeditFinished()
 
     auto* webView = webkitInputMethodContextGetWebView(m_context.get());
     ASSERT(webView);
-    webkitWebViewSetComposition(webView, { }, { }, EditingRange(0, 1));
+    webkitWebViewSetComposition(webView, { }, { }, EditingRange(0, 0));
 }
 
 void InputMethodFilter::committed(const char* compositionString)

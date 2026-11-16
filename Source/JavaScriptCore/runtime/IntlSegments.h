@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
- * Copyright (C) 2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -34,7 +33,7 @@ class IntlSegments final : public JSNonFinalObject {
 public:
     using Base = JSNonFinalObject;
 
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
 
     static void destroy(JSCell* cell)
     {
@@ -42,12 +41,12 @@ public:
     }
 
     template<typename CellType, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         return vm.intlSegmentsSpace<mode>();
     }
 
-    static IntlSegments* create(VM&, Structure*, std::unique_ptr<UBreakIterator, UBreakIteratorDeleter>&&, Box<Vector<UChar>>&&, JSString*, IntlSegmenter::Granularity);
+    static IntlSegments* create(VM&, Structure*, std::unique_ptr<UBreakIterator, UBreakIteratorDeleter>&&, Box<Vector<char16_t>>&&, JSString*, IntlSegmenter::Granularity);
     static Structure* createStructure(VM&, JSGlobalObject*, JSValue);
 
     DECLARE_INFO;
@@ -58,11 +57,12 @@ public:
     DECLARE_VISIT_CHILDREN;
 
 private:
-    IntlSegments(VM&, Structure*, std::unique_ptr<UBreakIterator, UBreakIteratorDeleter>&&, Box<Vector<UChar>>&&, IntlSegmenter::Granularity);
-    void finishCreation(VM&, JSString*);
+    IntlSegments(VM&, Structure*, std::unique_ptr<UBreakIterator, UBreakIteratorDeleter>&&, Box<Vector<char16_t>>&&, IntlSegmenter::Granularity, JSString*);
+
+    DECLARE_DEFAULT_FINISH_CREATION;
 
     std::unique_ptr<UBreakIterator, UBreakIteratorDeleter> m_segmenter;
-    Box<Vector<UChar>> m_buffer;
+    Box<Vector<char16_t>> m_buffer;
     WriteBarrier<JSString> m_string;
     IntlSegmenter::Granularity m_granularity;
 };

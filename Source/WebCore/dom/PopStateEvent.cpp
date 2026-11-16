@@ -29,22 +29,29 @@
 
 #include "EventNames.h"
 #include "History.h"
+#include "JSValueInWrappedObjectInlines.h"
 #include <JavaScriptCore/JSCInlines.h>
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(PopStateEvent);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(PopStateEvent);
 
-PopStateEvent::PopStateEvent(const AtomString& type, const Init& initializer, IsTrusted isTrusted)
-    : Event(type, initializer, isTrusted)
-    , m_state(initializer.state)
+PopStateEvent::PopStateEvent()
+    : Event(EventInterfaceType::PopStateEvent)
+{
+}
+
+PopStateEvent::PopStateEvent(JSC::JSGlobalObject& globalObject, const AtomString& type, const Init& initializer, IsTrusted isTrusted)
+    : Event(EventInterfaceType::PopStateEvent, type, initializer, isTrusted)
+    , m_state(globalObject, initializer.state)
+    , m_hasUAVisualTransition(initializer.hasUAVisualTransition)
 {
 }
 
 PopStateEvent::PopStateEvent(RefPtr<SerializedScriptValue>&& serializedState, History* history)
-    : Event(eventNames().popstateEvent, CanBubble::No, IsCancelable::No)
-    , m_serializedState(WTFMove(serializedState))
+    : Event(EventInterfaceType::PopStateEvent, eventNames().popstateEvent, CanBubble::No, IsCancelable::No)
+    , m_serializedState(WTF::move(serializedState))
     , m_history(history)
 {
 }
@@ -53,34 +60,17 @@ PopStateEvent::~PopStateEvent() = default;
 
 Ref<PopStateEvent> PopStateEvent::create(RefPtr<SerializedScriptValue>&& serializedState, History* history)
 {
-    return adoptRef(*new PopStateEvent(WTFMove(serializedState), history));
+    return adoptRef(*new PopStateEvent(WTF::move(serializedState), history));
 }
 
-Ref<PopStateEvent> PopStateEvent::create(const AtomString& type, const Init& initializer, IsTrusted isTrusted)
+Ref<PopStateEvent> PopStateEvent::create(JSC::JSGlobalObject& globalObject, const AtomString& type, const Init& initializer, IsTrusted isTrusted)
 {
-    return adoptRef(*new PopStateEvent(type, initializer, isTrusted));
+    return adoptRef(*new PopStateEvent(globalObject, type, initializer, isTrusted));
 }
 
 Ref<PopStateEvent> PopStateEvent::createForBindings()
 {
     return adoptRef(*new PopStateEvent);
-}
-
-RefPtr<SerializedScriptValue> PopStateEvent::trySerializeState(JSC::JSGlobalObject& executionState)
-{
-    ASSERT(m_state);
-    
-    if (!m_serializedState && !m_triedToSerialize) {
-        m_serializedState = SerializedScriptValue::create(executionState, m_state, SerializationErrorMode::NonThrowing);
-        m_triedToSerialize = true;
-    }
-    
-    return m_serializedState;
-}
-
-EventInterface PopStateEvent::eventInterface() const
-{
-    return PopStateEventInterfaceType;
 }
 
 } // namespace WebCore

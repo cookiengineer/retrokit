@@ -8,8 +8,11 @@
 //
 
 #include "matrix_utils.h"
+#include <array>
+#include "common/unsafe_buffers.h"
 
-#include <gtest/gtest.h>
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 
 using namespace angle;
 
@@ -46,7 +49,7 @@ struct FrustumArgs
     float f;
 };
 
-void CheckMat4ExactlyEq(const Matrix<float> &a, const Matrix<float> &b)
+void CheckMat4ExactlyEq(const Mat4 &a, const Mat4 &b)
 {
     for (unsigned int i = 0; i < 4; i++)
     {
@@ -64,7 +67,7 @@ void CheckMatrixCloseToGolden(float *golden, const Mat4 &m)
     const auto &checkElts           = m.elements();
     for (size_t i = 0; i < checkElts.size(); i++)
     {
-        EXPECT_NEAR(golden[i], checkElts[i], floatFaultTolarance);
+        ANGLE_UNSAFE_TODO(EXPECT_NEAR(golden[i], checkElts[i], floatFaultTolarance));
     }
 }
 
@@ -95,7 +98,8 @@ TEST(MatrixUtilsTest, MatrixConstructorTest)
             Matrix<float> m(std::vector<float>(numElements, 1.0f), i, j);
             EXPECT_EQ(m.rows(), i);
             EXPECT_EQ(m.columns(), j);
-            EXPECT_EQ(m.elements(), std::vector<float>(numElements, 1.0f));
+            EXPECT_EQ(m.elements().size(), numElements);
+            EXPECT_THAT(m.elements(), testing::Each(testing::Eq(1.0f)));
         }
     }
 
@@ -105,7 +109,8 @@ TEST(MatrixUtilsTest, MatrixConstructorTest)
         Matrix<float> m(std::vector<float>(numElements, 1.0f), i);
         EXPECT_EQ(m.size(), i);
         EXPECT_EQ(m.columns(), m.columns());
-        EXPECT_EQ(m.elements(), std::vector<float>(numElements, 1.0f));
+        EXPECT_EQ(m.elements().size(), numElements);
+        EXPECT_THAT(m.elements(), testing::Each(testing::Eq(1.0f)));
     }
 }
 
@@ -115,10 +120,10 @@ TEST(MatrixUtilsTest, MatrixCompMultTest)
     {
         unsigned int numElements = i * i;
         Matrix<float> m1(std::vector<float>(numElements, 2.0f), i);
-        Matrix<float> actualResult              = m1.compMult(m1);
-        std::vector<float> actualResultElements = actualResult.elements();
-        std::vector<float> expectedResultElements(numElements, 4.0f);
-        EXPECT_EQ(expectedResultElements, actualResultElements);
+        Matrix<float> actualResult                    = m1.compMult(m1);
+        angle::Span<const float> actualResultElements = actualResult.elements();
+        EXPECT_EQ(actualResultElements.size(), numElements);
+        EXPECT_THAT(actualResultElements, testing::Each(testing::Eq(4.0f)));
     }
 }
 
@@ -134,9 +139,9 @@ TEST(MatrixUtilsTest, MatrixOuterProductTest)
             Matrix<float> actualResult = m1.outerProduct(m2);
             EXPECT_EQ(actualResult.rows(), i);
             EXPECT_EQ(actualResult.columns(), j);
-            std::vector<float> actualResultElements = actualResult.elements();
-            std::vector<float> expectedResultElements(numElements, 4.0f);
-            EXPECT_EQ(expectedResultElements, actualResultElements);
+            angle::Span<const float> actualResultElements = actualResult.elements();
+            EXPECT_EQ(actualResultElements.size(), numElements);
+            EXPECT_THAT(actualResultElements, testing::Each(testing::Eq(4.0f)));
         }
     }
 }
@@ -174,51 +179,46 @@ TEST(MatrixUtilsTest, MatrixDeterminantTest)
 
 TEST(MatrixUtilsTest, 2x2MatrixInverseTest)
 {
-    float inputElements[]    = {2.0f, 5.0f, 3.0f, 7.0f};
-    unsigned int numElements = 4;
-    std::vector<float> input(inputElements, inputElements + numElements);
-    Matrix<float> inputMatrix(input, 2);
-    float identityElements[] = {1.0f, 0.0f, 0.0f, 1.0f};
-    std::vector<float> identityMatrix(identityElements, identityElements + numElements);
+    Matrix<float> inputMatrix({2.0f, 5.0f, 3.0f, 7.0f}, 2);
+    constexpr std::array identityElements = {1.0f, 0.0f, 0.0f, 1.0f};
     // A * inverse(A) = I, where I is identity matrix.
     Matrix<float> result = inputMatrix * inputMatrix.inverse();
-    EXPECT_EQ(identityMatrix, result.elements());
+    EXPECT_THAT(result.elements(), testing::ElementsAreArray(identityElements));
 }
 
 TEST(MatrixUtilsTest, 3x3MatrixInverseTest)
 {
-    float inputElements[]    = {11.0f, 23.0f, 37.0f, 13.0f, 29.0f, 41.0f, 19.0f, 31.0f, 43.0f};
-    unsigned int numElements = 9;
-    std::vector<float> input(inputElements, inputElements + numElements);
-    Matrix<float> inputMatrix(input, 3);
-    float identityElements[] = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
-    std::vector<float> identityMatrix(identityElements, identityElements + numElements);
+    Matrix<float> inputMatrix({11.0f, 23.0f, 37.0f, 13.0f, 29.0f, 41.0f, 19.0f, 31.0f, 43.0f}, 3);
+    constexpr std::array identityElements = {
+        1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f,
+    };
     // A * inverse(A) = I, where I is identity matrix.
-    Matrix<float> result              = inputMatrix * inputMatrix.inverse();
-    std::vector<float> resultElements = result.elements();
-    const float floatFaultTolarance   = 0.000001f;
-    for (size_t i = 0; i < numElements; i++)
-        EXPECT_NEAR(resultElements[i], identityMatrix[i], floatFaultTolarance);
+    Matrix<float> result                    = inputMatrix * inputMatrix.inverse();
+    angle::Span<const float> resultElements = result.elements();
+    const float floatFaultTolarance         = 0.000001f;
+    for (size_t i = 0; i < identityElements.size(); i++)
+    {
+        EXPECT_NEAR(resultElements[i], identityElements[i], floatFaultTolarance);
+    }
 }
 
 TEST(MatrixUtilsTest, 4x4MatrixInverseTest)
 {
-    float inputElements[]    = {29.0f, 43.0f, 61.0f, 79.0f, 31.0f, 47.0f, 67.0f, 83.0f,
-                             37.0f, 53.0f, 71.0f, 89.0f, 41.0f, 59.0f, 73.0f, 97.0f};
-    unsigned int numElements = 16;
-    std::vector<float> input(inputElements, inputElements + numElements);
-    Matrix<float> inputMatrix(input, 4);
-    float identityElements[] = {
+    Matrix<float> inputMatrix({29.0f, 43.0f, 61.0f, 79.0f, 31.0f, 47.0f, 67.0f, 83.0f, 37.0f, 53.0f,
+                               71.0f, 89.0f, 41.0f, 59.0f, 73.0f, 97.0f},
+                              4);
+    constexpr std::array identityElements = {
         1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
         0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f,
     };
-    std::vector<float> identityMatrix(identityElements, identityElements + numElements);
     // A * inverse(A) = I, where I is identity matrix.
-    Matrix<float> result              = inputMatrix * inputMatrix.inverse();
-    std::vector<float> resultElements = result.elements();
-    const float floatFaultTolarance   = 0.00001f;
-    for (unsigned int i = 0; i < numElements; i++)
-        EXPECT_NEAR(resultElements[i], identityMatrix[i], floatFaultTolarance);
+    Matrix<float> result                    = inputMatrix * inputMatrix.inverse();
+    angle::Span<const float> resultElements = result.elements();
+    const float floatFaultTolarance         = 0.00001f;
+    for (size_t i = 0; i < identityElements.size(); i++)
+    {
+        EXPECT_NEAR(resultElements[i], identityElements[i], floatFaultTolarance);
+    }
 }
 
 // Tests constructors for mat4; using raw float*, std::vector<float>,
@@ -233,7 +233,7 @@ TEST(MatrixUtilsTest, Mat4Construction)
     std::vector<float> elementsVector(16, 0);
     for (int i = 0; i < 16; i++)
     {
-        elementsVector[i] = elements[i];
+        elementsVector[i] = ANGLE_UNSAFE_TODO(elements[i]);
     }
 
     Matrix<float> a(elements, 4);
@@ -269,7 +269,7 @@ TEST(MatrixUtilsTest, Mat4Rotate)
     std::vector<float> elementsExpectedVector(16, 0);
     for (int i = 0; i < 16; i++)
     {
-        elementsExpectedVector[i] = elementsExpected[i];
+        elementsExpectedVector[i] = ANGLE_UNSAFE_TODO(elementsExpected[i]);
     }
 
     Mat4 r = Mat4::Rotate(0.f, Vector3(0.f, 0.f, 1.f));
@@ -723,7 +723,7 @@ TEST(MatrixUtilsTest, Mat4Translate)
     std::vector<float> elementsExpectedVector(16, 0);
     for (int i = 0; i < 16; i++)
     {
-        elementsExpectedVector[i] = elementsExpected[i];
+        elementsExpectedVector[i] = ANGLE_UNSAFE_TODO(elementsExpected[i]);
     }
 
     Mat4 r = Mat4::Translate(Vector3(0.f, 0.f, 0.f));
@@ -767,7 +767,7 @@ TEST(MatrixUtilsTest, Mat4Scale)
     std::vector<float> elementsExpectedVector(16, 0);
     for (int i = 0; i < 16; i++)
     {
-        elementsExpectedVector[i] = elementsExpected[i];
+        elementsExpectedVector[i] = ANGLE_UNSAFE_TODO(elementsExpected[i]);
     }
 
     Mat4 r = Mat4::Scale(Vector3(1.f, 1.f, 1.f));
@@ -2410,9 +2410,10 @@ TEST(MatrixUtilsTest, Mat4Mult)
 // Tests exact equality.
 TEST(MatrixUtilsTest, ExactEquality)
 {
-    Mat4 a, b;
+    Matrix<float> a(std::vector<float>(16), 4, 4);
+    Matrix<float> b(std::vector<float>(16), 4, 4);
     EXPECT_EQ(a, b);
-    Mat4 c;
+    Matrix<float> c(std::vector<float>(16), 4, 4);
     c(0, 0) += 0.000001f;
     EXPECT_NE(a, c);
 }
@@ -2420,19 +2421,20 @@ TEST(MatrixUtilsTest, ExactEquality)
 // Tests near equality.
 TEST(MatrixUtilsTest, NearEquality)
 {
-    Mat4 a, b;
+    Matrix<float> a(std::vector<float>(16), 4, 4);
+    Matrix<float> b(std::vector<float>(16), 4, 4);
 
     float *bData = b.data();
     for (int i = 0; i < 16; i++)
     {
-        bData[i] += 0.09f;
+        ANGLE_UNSAFE_TODO(bData[i]) += 0.09f;
     }
 
     EXPECT_TRUE(a.nearlyEqual(0.1f, b));
 
     for (int i = 0; i < 16; i++)
     {
-        bData[i] -= 2 * 0.09f;
+        ANGLE_UNSAFE_TODO(bData[i]) -= 2 * 0.09f;
     }
 
     EXPECT_TRUE(a.nearlyEqual(0.1f, b));

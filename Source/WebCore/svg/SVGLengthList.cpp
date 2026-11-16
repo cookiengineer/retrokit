@@ -35,7 +35,7 @@ bool SVGLengthList::parse(StringView value)
 {
     clearItems();
 
-    return readCharactersForParsing(value, [&](auto buffer) {
+    bool parsingSucceeded = readCharactersForParsing(value, [&](auto buffer) {
         skipOptionalSVGSpaces(buffer);
 
         while (buffer.hasCharactersRemaining()) {
@@ -46,18 +46,20 @@ bool SVGLengthList::parse(StringView value)
             if (buffer.position() == start)
                 break;
 
-            auto value = SVGLengthValue::construct(m_lengthMode, StringView(start, buffer.position() - start));
-            if (!value)
-                break;
+            SVGParsingError parseError;
+            auto length = SVGLengthValue::construct(m_lengthMode, std::span(start, buffer.position() - start), parseError);
+            if (parseError != SVGParsingError::None)
+                return false;
 
-            append(SVGLength::create(WTFMove(*value)));
+            append(SVGLength::create(WTF::move(length)));
             skipOptionalSVGSpacesOrDelimiter(buffer);
         }
 
-        // FIXME: Should this clearItems() on failure like SVGTransformList does?
-
         return buffer.atEnd();
     });
+    if (!parsingSucceeded)
+        clearItems();
+    return parsingSucceeded;
 }
 
 String SVGLengthList::valueAsString() const

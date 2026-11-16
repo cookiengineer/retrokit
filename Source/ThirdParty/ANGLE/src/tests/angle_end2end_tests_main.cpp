@@ -4,8 +4,10 @@
 // found in the LICENSE file.
 //
 
+#include "common/unsafe_buffers.h"
 #include "gtest/gtest.h"
 #include "test_utils/runner/TestSuite.h"
+#include "util/OSWindow.h"
 
 void ANGLEProcessTestArgs(int *argc, char *argv[]);
 
@@ -18,10 +20,59 @@ void ANGLEProcessTestArgs(int *argc, char *argv[]);
 // likely specialize more register functions more like dEQP instead of relying on static init.
 void RegisterContextCompatibilityTests();
 
+namespace
+{
+bool HasArg(int argc, char **argv, const char *arg)
+{
+    for (int i = 1; i < argc; ++i)
+    {
+        if (ANGLE_UNSAFE_TODO(strstr(argv[i], arg)) != nullptr)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+}  // namespace
+
 int main(int argc, char **argv)
 {
-    angle::TestSuite testSuite(&argc, argv);
+    if (!HasArg(argc, argv, "--list-tests") && !HasArg(argc, argv, "--gtest_list_tests") &&
+        HasArg(argc, argv, "--use-gl"))
+    {
+        std::cerr << "--use-gl isn't supported by end2end tests - use the GN arg instead: "
+                     "angle_test_enable_system_egl=true\n";
+        return EXIT_FAILURE;
+    }
+
     ANGLEProcessTestArgs(&argc, argv);
-    RegisterContextCompatibilityTests();
+
+    auto registerTestsCallback = [] {
+        if (!IsTSan())
+        {
+            RegisterContextCompatibilityTests();
+        }
+    };
+    angle::TestSuite testSuite(&argc, argv, registerTestsCallback);
+
+    constexpr char kTestExpectationsPath[] = "src/tests/angle_end2end_tests_expectations.txt";
+    constexpr size_t kMaxPath = 512;
+    std::array<char, kMaxPath> foundDataPath;
+    if (!angle::FindTestDataPath(kTestExpectationsPath, foundDataPath.data(), foundDataPath.size()))
+    {
+        std::cerr << "Unable to find test expectations path (" << kTestExpectationsPath << ")\n";
+        return EXIT_FAILURE;
+    }
+
+    // end2end test expectations only allow SKIP, TIMEOUT, and PASS at the moment.
+    testSuite.setTestExpectationsAllowMask(angle::GPUTestExpectationsParser::kGpuTestSkip |
+                                           angle::GPUTestExpectationsParser::kGpuTestTimeout |
+                                           angle::GPUTestExpectationsParser::kGpuTestPass);
+
+    if (!testSuite.loadAllTestExpectationsFromFile(std::string(foundDataPath.data())))
+    {
+        return EXIT_FAILURE;
+    }
+
     return testSuite.run();
 }

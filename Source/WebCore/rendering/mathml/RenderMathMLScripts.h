@@ -30,26 +30,29 @@
 #if ENABLE(MATHML)
 
 #include "MathMLScriptsElement.h"
-#include "RenderMathMLBlock.h"
+#include "RenderMathMLRow.h"
 
 namespace WebCore {
 
 // Render a base with scripts.
-class RenderMathMLScripts : public RenderMathMLBlock {
-    WTF_MAKE_ISO_ALLOCATED(RenderMathMLScripts);
+class RenderMathMLScripts : public RenderMathMLRow {
+    WTF_MAKE_TZONE_ALLOCATED(RenderMathMLScripts);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderMathMLScripts);
 public:
-    RenderMathMLScripts(MathMLScriptsElement&, RenderStyle&&);
+    RenderMathMLScripts(Type, MathMLScriptsElement&, Style::ComputedStyle&&);
+    virtual ~RenderMathMLScripts();
+
     RenderMathMLOperator* unembellishedOperator() const final;
 
 protected:
     bool isRenderMathMLScripts() const override { return true; }
-    const char* renderName() const override { return "RenderMathMLScripts"; }
-    MathMLScriptsElement::ScriptType scriptType() const;
-    void computePreferredLogicalWidths() override;
-    void layoutBlock(bool relayoutChildren, LayoutUnit pageLogicalHeight = 0_lu) override;
+    ASCIILiteral renderName() const override { return "RenderMathMLScripts"_s; }
+    MathMLScriptsElement::ScriptType NODELETE scriptType() const;
+    void computeIntrinsicLogicalWidthContributions() override;
+    void layoutBlock(RelayoutChildren, LayoutUnit pageLogicalHeight = 0_lu) override;
 
 private:
-    MathMLScriptsElement& element() const;
+    MathMLScriptsElement& NODELETE element() const;
     std::optional<LayoutUnit> firstLineBaseline() const final;
     struct ReferenceChildren {
         RenderBox* base;
@@ -57,7 +60,7 @@ private:
         RenderBox* firstPostScript;
         RenderBox* firstPreScript;
     };
-    std::optional<ReferenceChildren> validateAndGetReferenceChildren();
+    std::optional<ReferenceChildren> validateAndGetReferenceChildren() const;
     LayoutUnit spaceAfterScript();
     LayoutUnit italicCorrection(const ReferenceChildren&);
     struct VerticalParameters {

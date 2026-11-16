@@ -29,41 +29,133 @@
 
 #include "AudioTrackPrivateGStreamer.h"
 
+#include "GStreamerCommon.h"
 #include "MediaPlayerPrivateGStreamer.h"
+#include <gst/pbutils/pbutils.h>
+#include <wtf/Scope.h>
+#include <wtf/glib/GMallocString.h>
+#include <wtf/text/StringToIntegerConversion.h>
 
 namespace WebCore {
 
-AudioTrackPrivateGStreamer::AudioTrackPrivateGStreamer(WeakPtr<MediaPlayerPrivateGStreamer> player, unsigned index, GRefPtr<GstPad>&& pad, bool shouldHandleStreamStartEvent)
-    : TrackPrivateBaseGStreamer(TrackPrivateBaseGStreamer::TrackType::Audio, this, index, WTFMove(pad), shouldHandleStreamStartEvent)
-    , m_player(player)
+GST_DEBUG_CATEGORY(webkit_audio_track_debug);
+#define GST_CAT_DEFAULT webkit_audio_track_debug
+
+static void ensureDebugCategoryInitialized()
 {
+    static std::once_flag debugRegisteredFlag;
+    std::call_once(debugRegisteredFlag, [] {
+        GST_DEBUG_CATEGORY_INIT(webkit_audio_track_debug, "webkitaudiotrack", 0, "WebKit Audio Track");
+    });
 }
 
-AudioTrackPrivateGStreamer::AudioTrackPrivateGStreamer(WeakPtr<MediaPlayerPrivateGStreamer> player, unsigned index, GRefPtr<GstStream>&& stream)
-    : TrackPrivateBaseGStreamer(TrackPrivateBaseGStreamer::TrackType::Audio, this, index, WTFMove(stream))
-    , m_player(player)
+AudioTrackPrivateGStreamer::AudioTrackPrivateGStreamer(ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&& player, unsigned index, GRefPtr<GstPad>&& pad, bool shouldHandleStreamStartEvent)
+    : TrackPrivateBaseGStreamer(WTF::move(player), GStreamerTrackType::Audio, this, index, WTF::move(pad), shouldHandleStreamStartEvent)
 {
-    int kind;
-    auto tags = adoptGRef(gst_stream_get_tags(m_stream.get()));
+    ensureDebugCategoryInitialized();
+}
 
-    if (tags && gst_tag_list_get_int(tags.get(), "webkit-media-stream-kind", &kind) && kind == static_cast<int>(AudioTrackPrivate::Kind::Main)) {
-        auto streamFlags = gst_stream_get_stream_flags(m_stream.get());
-        gst_stream_set_stream_flags(m_stream.get(), static_cast<GstStreamFlags>(streamFlags | GST_STREAM_FLAG_SELECT));
+AudioTrackPrivateGStreamer::AudioTrackPrivateGStreamer(ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&& player, unsigned index, GRefPtr<GstPad>&& pad, TrackID trackId)
+    : TrackPrivateBaseGStreamer(WTF::move(player), GStreamerTrackType::Audio, this, index, WTF::move(pad), trackId)
+{
+    ensureDebugCategoryInitialized();
+}
+
+AudioTrackPrivateGStreamer::AudioTrackPrivateGStreamer(ThreadSafeWeakPtr<MediaPlayerPrivateGStreamer>&& player, unsigned index, GRefPtr<GstStream>&& stream)
+    : TrackPrivateBaseGStreamer(WTF::move(player), GStreamerTrackType::Audio, this, index, WTF::move(stream))
+{
+    ensureDebugCategoryInitialized();
+
+    GRefPtr caps = adoptGRef(gst_stream_get_caps(m_data->m_stream.get()));
+    updateConfigurationFromCaps(WTF::move(caps));
+
+    GRefPtr tags = adoptGRef(gst_stream_get_tags(m_data->m_stream.get()));
+    updateConfigurationFromTags(WTF::move(tags));
+}
+
+void AudioTrackPrivateGStreamer::capsChanged(TrackID streamId, GRefPtr<GstCaps>&& caps)
+{
+    ASSERT(isMainThread());
+    updateConfigurationFromCaps(WTF::move(caps));
+
+    RefPtr player = m_data->m_player.get();
+    if (!player)
+        return;
+
+    auto codec = player->codecForStreamId(streamId);
+    if (codec.isEmpty())
+        return;
+
+    GST_DEBUG_OBJECT(m_data->objectForLogging(), "Setting codec to %s", codec.ascii().data());
+    auto configuration = this->configuration();
+    configuration.codec = WTF::move(codec);
+    setConfiguration(WTF::move(configuration));
+}
+
+void AudioTrackPrivateGStreamer::updateConfigurationFromTags(GRefPtr<GstTagList>&& tags)
+{
+    ASSERT(isMainThread());
+    if (!tags)
+        return;
+
+    GST_DEBUG_OBJECT(m_data->objectForLogging(), "Updating audio configuration from %" GST_PTR_FORMAT, tags.get());
+    if (m_data->updateTrackIDFromTags(tags)) {
+        GST_DEBUG_OBJECT(m_data->objectForLogging(), "Audio track ID set from container-specific-track-id tag %" G_GUINT64_FORMAT, *m_data->m_trackID);
+        notifyClients([trackID = *m_data->m_trackID](auto& client) {
+            client.idChanged(trackID);
+        });
+    }
+
+    unsigned bitrate;
+    if (!gst_tag_list_get_uint(tags.get(), GST_TAG_BITRATE, &bitrate))
+        return;
+
+    GST_DEBUG_OBJECT(m_data->objectForLogging(), "Setting bitrate to %u", bitrate);
+    auto configuration = this->configuration();
+    configuration.bitrate = bitrate;
+    setConfiguration(WTF::move(configuration));
+}
+
+void AudioTrackPrivateGStreamer::updateConfigurationFromCaps(GRefPtr<GstCaps>&& caps)
+{
+    ASSERT(isMainThread());
+    if (!caps || !gst_caps_is_fixed(caps.get()))
+        return;
+
+    GST_DEBUG_OBJECT(m_data->objectForLogging(), "Updating audio configuration from %" GST_PTR_FORMAT, caps.get());
+    auto configuration = this->configuration();
+    auto scopeExit = makeScopeExit([&] {
+        setConfiguration(WTF::move(configuration));
+    });
+
+#if GST_CHECK_VERSION(1, 20, 0)
+    auto mimeCodec = GMallocString::unsafeAdoptFromUTF8(gst_codec_utils_caps_get_mime_codec(caps.get()));
+    if (mimeCodec)
+        configuration.codec = mimeCodec.span();
+#endif
+
+    if (areEncryptedCaps(caps.get())) {
+        const auto* structure = gst_caps_get_structure(caps.get(), 0);
+        if (auto sampleRate = gstStructureGet<int>(structure, "rate"_s))
+            configuration.sampleRate = *sampleRate;
+        if (auto numberOfChannels = gstStructureGet<int>(structure, "channels"_s))
+            configuration.numberOfChannels = *numberOfChannels;
+        return;
+    }
+
+    GstAudioInfo info;
+    if (gst_audio_info_from_caps(&info, caps.get())) {
+        configuration.sampleRate = GST_AUDIO_INFO_RATE(&info);
+        configuration.numberOfChannels = GST_AUDIO_INFO_CHANNELS(&info);
     }
 }
 
 AudioTrackPrivate::Kind AudioTrackPrivateGStreamer::kind() const
 {
-    if (m_stream.get() && gst_stream_get_stream_flags(m_stream.get()) & GST_STREAM_FLAG_SELECT)
+    if (m_data->m_stream && gst_stream_get_stream_flags(m_data->m_stream.get()) & GST_STREAM_FLAG_SELECT)
         return AudioTrackPrivate::Kind::Main;
 
     return AudioTrackPrivate::kind();
-}
-
-void AudioTrackPrivateGStreamer::disconnect()
-{
-    m_player = nullptr;
-    TrackPrivateBaseGStreamer::disconnect();
 }
 
 void AudioTrackPrivateGStreamer::setEnabled(bool enabled)
@@ -72,9 +164,41 @@ void AudioTrackPrivateGStreamer::setEnabled(bool enabled)
         return;
     AudioTrackPrivate::setEnabled(enabled);
 
-    if (m_player)
-        m_player->updateEnabledAudioTrack();
+    RefPtr player = m_data->m_player.get();
+    if (player)
+        player->updateEnabledAudioTrack();
 }
+
+int AudioTrackPrivateGStreamer::trackIndex() const
+{
+    return m_data->m_index;
+}
+
+TrackID AudioTrackPrivateGStreamer::id() const
+{
+    return m_data->m_trackID.value_or(m_data->m_id);
+}
+
+std::optional<String> AudioTrackPrivateGStreamer::trackUID() const
+{
+    auto player = m_data->m_player.get();
+    if (!player || !player->isMediaStreamPlayer())
+        return std::nullopt;
+
+    return m_data->m_gstStreamId;
+}
+
+String AudioTrackPrivateGStreamer::label() const
+{
+    return m_data->m_label;
+}
+
+String AudioTrackPrivateGStreamer::language() const
+{
+    return m_data->m_language;
+}
+
+#undef GST_CAT_DEFAULT
 
 } // namespace WebCore
 

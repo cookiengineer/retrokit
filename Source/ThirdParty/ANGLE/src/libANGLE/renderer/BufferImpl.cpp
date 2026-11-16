@@ -22,12 +22,21 @@ angle::Result BufferImpl::getSubData(const gl::Context *context,
 
 angle::Result BufferImpl::setDataWithUsageFlags(const gl::Context *context,
                                                 gl::BufferBinding target,
+                                                GLeglClientBufferEXT clientBuffer,
                                                 const void *data,
                                                 size_t size,
                                                 gl::BufferUsage usage,
-                                                GLbitfield flags)
+                                                GLbitfield flags,
+                                                gl::BufferStorage bufferStorage,
+                                                BufferFeedback *feedback,
+                                                gl::ZeroFillRequired zeroFillRequired)
 {
-    return setData(context, target, data, size, usage);
+    return setData(context, target, data, size, usage, feedback, zeroFillRequired);
+}
+
+angle::Result BufferImpl::onLabelUpdate(const gl::Context *context)
+{
+    return angle::Result::Continue;
 }
 
 }  // namespace rx

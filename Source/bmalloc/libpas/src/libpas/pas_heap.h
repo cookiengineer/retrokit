@@ -35,40 +35,46 @@ PAS_BEGIN_EXTERN_C;
 
 struct pas_heap;
 struct pas_heap_ref;
-struct pas_segregated_global_size_directory;
+struct pas_segregated_size_directory;
 struct pas_segregated_page;
 typedef struct pas_heap pas_heap;
 typedef struct pas_heap_ref pas_heap_ref;
-typedef struct pas_segregated_global_size_directory pas_segregated_global_size_directory;
+typedef struct pas_segregated_size_directory pas_segregated_size_directory;
 typedef struct pas_segregated_page pas_segregated_page;
 
 struct pas_heap {
     pas_segregated_heap segregated_heap;
+    pas_large_heap megapage_large_heap;
     pas_large_heap large_heap;
-    pas_heap_type* type;
+    const pas_heap_type* type;
     pas_heap_ref* heap_ref;
     pas_compact_heap_ptr next_heap;
-    pas_heap_config_kind config_kind : 8;
+    pas_heap_config_kind config_kind : 5;
     pas_heap_ref_kind heap_ref_kind : 2;
+    bool is_non_compact_heap : 1;
 };
 
 PAS_API pas_heap* pas_heap_create(pas_heap_ref* heap_ref,
                                   pas_heap_ref_kind heap_ref_kind,
-                                  pas_heap_config* config,
+                                  const pas_heap_config* config,
                                   pas_heap_runtime_config* runtime_config);
 
 /* Returns 1 for NULL heap. */
 PAS_API size_t pas_heap_get_type_size(pas_heap* heap);
+PAS_API size_t pas_heap_get_type_alignment(pas_heap* heap);
 
-/* The large heap belongs to the heap in such a way that given a large heap, we can find the
+/* All large heaps belong to the heap in such a way that given a large heap, we can find the
    heap. */
 static inline pas_heap* pas_heap_for_large_heap(pas_large_heap* large_heap)
 {
-    return (pas_heap*)((uintptr_t)large_heap - PAS_OFFSETOF(pas_heap, large_heap));
+    size_t offset = large_heap->is_megapage_heap
+        ? PAS_OFFSETOF(pas_heap, megapage_large_heap)
+        : PAS_OFFSETOF(pas_heap, large_heap);
+    return (pas_heap*)((uintptr_t)large_heap - offset);
 }
 
-/* The large heap belongs to the heap in such a way that given a large heap, we can find the
-   heap. */
+/* FIXME: It would be so much simpler if every segregated_heap belong to a heap, or if they were just
+   merged into a single data structure. */
 static inline pas_heap* pas_heap_for_segregated_heap(pas_segregated_heap* segregated_heap)
 {
     if (!segregated_heap->runtime_config->is_part_of_heap)
@@ -92,6 +98,8 @@ PAS_API pas_heap_summary pas_heap_compute_summary(pas_heap* heap,
                                                   pas_lock_hold_mode heap_lock_hold_mode);
 
 PAS_API void pas_heap_reset_heap_ref(pas_heap* heap);
+
+PAS_API bool pas_check_pgm_entry_exists(void *ptr);
 
 PAS_END_EXTERN_C;
 

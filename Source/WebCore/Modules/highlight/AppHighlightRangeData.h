@@ -27,6 +27,7 @@
 
 #include <wtf/Forward.h>
 #include <wtf/OptionSet.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
@@ -36,7 +37,7 @@ namespace WebCore {
 class SharedBuffer;
 
 class AppHighlightRangeData {
-WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(AppHighlightRangeData, WEBCORE_EXPORT);
 public:
     WEBCORE_EXPORT static std::optional<AppHighlightRangeData> create(const SharedBuffer&);
     struct NodePathComponent {
@@ -46,9 +47,9 @@ public:
         uint32_t pathIndex { 0 };
 
         NodePathComponent(String&& elementIdentifier, String&& name, String&& data, uint32_t index)
-            : identifier(WTFMove(elementIdentifier))
-            , nodeName(WTFMove(name))
-            , textData(WTFMove(data))
+            : identifier(WTF::move(elementIdentifier))
+            , nodeName(WTF::move(name))
+            , textData(WTF::move(data))
             , pathIndex(index)
         {
         }
@@ -61,18 +62,7 @@ public:
         {
         }
 
-        bool operator==(const NodePathComponent& other) const
-        {
-            return identifier == other.identifier && nodeName == other.nodeName && textData == other.textData && pathIndex == other.pathIndex;
-        }
-
-        bool operator!=(const NodePathComponent& other) const
-        {
-            return !(*this == other);
-        }
-
-        template<class Encoder> void encode(Encoder&) const;
-        template<class Decoder> static std::optional<NodePathComponent> decode(Decoder&);
+        friend bool operator==(const NodePathComponent&, const NodePathComponent&) = default;
     };
 
     using NodePath = Vector<NodePathComponent>;
@@ -80,11 +70,11 @@ public:
     AppHighlightRangeData(const AppHighlightRangeData&) = default;
     AppHighlightRangeData() = default;
     AppHighlightRangeData(String&& identifier, String&& text, NodePath&& startContainer, uint64_t startOffset, NodePath&& endContainer, uint64_t endOffset)
-        : m_identifier(WTFMove(identifier))
-        , m_text(WTFMove(text))
-        , m_startContainer(WTFMove(startContainer))
+        : m_identifier(WTF::move(identifier))
+        , m_text(WTF::move(text))
+        , m_startContainer(WTF::move(startContainer))
         , m_startOffset(startOffset)
-        , m_endContainer(WTFMove(endContainer))
+        , m_endContainer(WTF::move(endContainer))
         , m_endOffset(endOffset)
     {
     }
@@ -99,15 +89,14 @@ public:
     {
     }
 
-    const String& identifier() const { return m_identifier; }
-    const String& text() const { return m_text; }
-    const NodePath& startContainer() const { return m_startContainer; }
-    uint32_t startOffset() const { return m_startOffset; }
-    const NodePath& endContainer() const { return m_endContainer; }
-    uint32_t endOffset() const { return m_endOffset; }
+    AppHighlightRangeData& operator=(const AppHighlightRangeData&) = default;
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<AppHighlightRangeData> decode(Decoder&);
+    const String& identifier() const LIFETIME_BOUND { return m_identifier; }
+    const String& text() const LIFETIME_BOUND { return m_text; }
+    const NodePath& startContainer() const LIFETIME_BOUND { return m_startContainer; }
+    uint32_t startOffset() const { return m_startOffset; }
+    const NodePath& endContainer() const LIFETIME_BOUND { return m_endContainer; }
+    uint32_t endOffset() const { return m_endOffset; }
 
     Ref<SharedBuffer> toSharedBuffer() const;
 

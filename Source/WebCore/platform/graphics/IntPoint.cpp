@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Apple Inc.  All rights reserved.
+ * Copyright (C) 2013 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,13 +27,14 @@
 #include "IntPoint.h"
 
 #include "FloatPoint.h"
+#include "IntRect.h"
 #include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
 IntPoint::IntPoint(const FloatPoint& p)
-    : m_x(clampToInteger(p.x()))
-    , m_y(clampToInteger(p.y()))
+    : m_x(clampTo<int>(p.x()))
+    , m_y(clampTo<int>(p.y()))
 {
 }
 
@@ -45,9 +46,14 @@ IntPoint IntPoint::constrainedBetween(const IntPoint& min, const IntPoint& max) 
     };
 }
 
+IntPoint IntPoint::constrainedWithin(const IntRect& rect) const
+{
+    return constrainedBetween(rect.minXMinYCorner(), rect.maxXMaxYCorner());
+}
+
 TextStream& operator<<(TextStream& ts, const IntPoint& p)
 {
-    return ts << "(" << p.x() << "," << p.y() << ")";
+    return ts << '(' << p.x() << ',' << p.y() << ')';
 }
 
 }

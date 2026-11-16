@@ -28,7 +28,10 @@
 
 #include <mutex>
 #include <optional>
+#include <wtf/glib/GSpanExtras.h>
 #include <wtf/glib/GUniquePtr.h>
+#include <wtf/text/CStringView.h>
+#include <wtf/text/StringCommon.h>
 
 namespace WTF {
 
@@ -43,15 +46,17 @@ static std::optional<ChassisType> readMachineInfoChassisType()
     }
 
     GUniquePtr<char*> split(g_strsplit(buffer.get(), "\n", -1));
-    for (int i = 0; split.get()[i]; ++i) {
-        if (g_str_has_prefix(split.get()[i], "CHASSIS=")) {
-            char* chassis = split.get()[i] + 8;
+    for (const auto* line : span(split)) {
+        auto lineView = CStringView::unsafeFromUTF8(line);
+        if (startsWith(lineView.span(), "CHASSIS="_s)) {
+            const auto chassis = CStringView::fromUTF8(lineView.spanIncludingNullTerminator().subspan(8));
 
-            GUniquePtr<char> unquoted(g_shell_unquote(chassis, &error.outPtr()));
+            GUniquePtr<char> unquoted(g_shell_unquote(chassis.utf8(), &error.outPtr()));
             if (error)
-                g_warning("Could not unquote chassis type %s: %s", chassis, error->message);
+                g_warning("Could not unquote chassis type %s: %s", chassis.utf8(), error->message);
 
-            if (!strcmp(unquoted.get(), "tablet") || !strcmp(unquoted.get(), "handset"))
+            auto unquotedView = CStringView::unsafeFromUTF8(unquoted.get());
+            if (unquotedView == "tablet"_s || unquotedView == "handset"_s)
                 return ChassisType::Mobile;
 
             return ChassisType::Desktop;
@@ -66,7 +71,9 @@ static std::optional<ChassisType> readDMIChassisType()
     GUniqueOutPtr<char> buffer;
     GUniqueOutPtr<GError> error;
     if (g_file_get_contents("/sys/class/dmi/id/chassis_type", &buffer.outPtr(), nullptr, &error.outPtr())) {
+        IGNORE_CLANG_WARNINGS_BEGIN("unsafe-buffer-usage-in-libc-call")
         int type = strtol(buffer.get(), nullptr, 10);
+        IGNORE_CLANG_WARNINGS_END
 
         // See the SMBIOS Specification 3.0 section 7.4.1 for details about the values listed here:
         // https://www.dmtf.org/sites/default/files/standards/documents/DSP0134_3.0.0.pdf
@@ -101,7 +108,9 @@ static std::optional<ChassisType> readACPIChassisType()
     GUniqueOutPtr<char> buffer;
     GUniqueOutPtr<GError> error;
     if (g_file_get_contents("/sys/firmware/acpi/pm_profile", &buffer.outPtr(), nullptr, &error.outPtr())) {
+        IGNORE_CLANG_WARNINGS_BEGIN("unsafe-buffer-usage-in-libc-call")
         int type = strtol(buffer.get(), nullptr, 10);
+        IGNORE_CLANG_WARNINGS_END
 
         // See the ACPI 5.0 Spec Section 5.2.9.1 for details:
         // http://www.acpi.info/DOWNLOADS/ACPIspec50.pdf

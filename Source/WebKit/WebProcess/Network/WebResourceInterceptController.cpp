@@ -28,35 +28,35 @@
 
 namespace WebKit {
 
-bool WebResourceInterceptController::isIntercepting(unsigned long identifier) const
+bool WebResourceInterceptController::isIntercepting(WebCore::ResourceLoaderIdentifier identifier) const
 {
     return m_interceptedResponseQueue.contains(identifier);
 }
 
-void WebResourceInterceptController::beginInterceptingResponse(unsigned long identifier)
+void WebResourceInterceptController::beginInterceptingResponse(WebCore::ResourceLoaderIdentifier identifier)
 {
     m_interceptedResponseQueue.set(identifier, Deque<Function<void()>>());
 }
 
-void WebResourceInterceptController::continueResponse(unsigned long identifier)
+void WebResourceInterceptController::continueResponse(WebCore::ResourceLoaderIdentifier identifier)
 {
     auto queue = m_interceptedResponseQueue.take(identifier);
     for (auto& callback : queue)
         callback();
 }
 
-void WebResourceInterceptController::interceptedResponse(unsigned long identifier)
+void WebResourceInterceptController::interceptedResponse(WebCore::ResourceLoaderIdentifier identifier)
 {
     m_interceptedResponseQueue.remove(identifier);
 }
 
-void WebResourceInterceptController::defer(unsigned long identifier, Function<void()>&& function)
+void WebResourceInterceptController::defer(WebCore::ResourceLoaderIdentifier identifier, Function<void()>&& function)
 {
     ASSERT(isIntercepting(identifier));
 
     auto iterator = m_interceptedResponseQueue.find(identifier);
     if (iterator != m_interceptedResponseQueue.end())
-        iterator->value.append(WTFMove(function));
+        iterator->value.append(WTF::move(function));
 }
 
 } // namespace WebKit

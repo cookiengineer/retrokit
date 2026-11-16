@@ -25,16 +25,18 @@
 
 #pragma once
 
-#include "Color.h"
+#include <WebCore/Color.h>
+#include <wtf/Platform.h>
 
 namespace WebCore {
 
 struct CompositionHighlight {
     CompositionHighlight() = default;
-    CompositionHighlight(unsigned startOffset, unsigned endOffset, const Color& c)
+    CompositionHighlight(unsigned startOffset, unsigned endOffset, const std::optional<Color>& backgroundColor, const std::optional<Color>& foregroundColor)
         : startOffset(startOffset)
         , endOffset(endOffset)
-        , color(c)
+        , backgroundColor(backgroundColor)
+        , foregroundColor(foregroundColor)
     {
     }
 
@@ -46,39 +48,15 @@ struct CompositionHighlight {
 
     unsigned startOffset { 0 };
     unsigned endOffset { 0 };
-    Color color { defaultCompositionFillColor };
+    std::optional<Color> backgroundColor;
+    std::optional<Color> foregroundColor;
 
-    template<class Encoder> void encode(Encoder&) const;
-    template<class Decoder> static std::optional<CompositionHighlight> decode(Decoder&);
+    friend std::strong_ordering operator<=>(const CompositionHighlight& a, const CompositionHighlight& b)
+    {
+        return std::make_pair(a.startOffset, a.endOffset) <=> std::make_pair(b.startOffset, b.endOffset);
+    }
+
+    friend bool operator==(const CompositionHighlight&, const CompositionHighlight&) = default;
 };
-
-template<class Encoder>
-void CompositionHighlight::encode(Encoder& encoder) const
-{
-    encoder << startOffset;
-    encoder << endOffset;
-    encoder << color;
-}
-
-template<class Decoder>
-std::optional<CompositionHighlight> CompositionHighlight::decode(Decoder& decoder)
-{
-    std::optional<unsigned> startOffset;
-    decoder >> startOffset;
-    if (!startOffset)
-        return std::nullopt;
-
-    std::optional<unsigned> endOffset;
-    decoder >> endOffset;
-    if (!endOffset)
-        return std::nullopt;
-
-    std::optional<Color> color;
-    decoder >> color;
-    if (!color)
-        return std::nullopt;
-
-    return {{ *startOffset, *endOffset, *color }};
-}
 
 } // namespace WebCore

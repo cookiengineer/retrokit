@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 Google Inc.  All rights reserved.
+ * Copyright (C) 2011 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,14 +25,15 @@
 
 #pragma once
 
+#include <JavaScriptCore/JSExportMacros.h>
 #include <wtf/text/WTFString.h>
 
 namespace Inspector {
 
-class JS_EXPORT_PRIVATE IdentifiersFactory {
+class IdentifiersFactory {
 public:
-    static String createIdentifier();
-    static String requestId(unsigned long identifier);
+    JS_EXPORT_PRIVATE static String createIdentifier();
+    JS_EXPORT_PRIVATE static String requestId(unsigned long identifier);
 };
 
 } // namespace Inspector

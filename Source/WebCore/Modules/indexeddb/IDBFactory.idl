@@ -23,18 +23,21 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// https://w3c.github.io/IndexedDB/#idbfactory
 [
+    EnabledBySetting=IndexedDBAPIEnabled,
     SkipVTableValidation,
     Exposed=(Window,Worker)
 ] interface IDBFactory {
-    [NewObject, CallWith=ScriptExecutionContext] IDBOpenDBRequest open(DOMString name, optional [EnforceRange] unsigned long long version);
-    [NewObject, CallWith=ScriptExecutionContext] IDBOpenDBRequest deleteDatabase(DOMString name);
+    [NewObject, CallWith=RelevantScriptExecutionContext] IDBOpenDBRequest open(DOMString name, optional [EnforceRange] unsigned long long version);
+    [NewObject, CallWith=RelevantScriptExecutionContext] IDBOpenDBRequest deleteDatabase(DOMString name);
     
-    [CallWith=ScriptExecutionContext] Promise<sequence<IDBDatabaseInfo>> databases();
+    [CallWith=RelevantScriptExecutionContext] Promise<sequence<IDBDatabaseInfo>> databases();
     
-    [CallWith=GlobalObject] short cmp(any first, any second);
+    [CallWith=CurrentGlobalObject] short cmp(any first, any second);
 };
 
+// https://w3c.github.io/IndexedDB/#dictdef-idbdatabaseinfo
 [
     JSGenerateToJSObject,
 ] dictionary IDBDatabaseInfo {

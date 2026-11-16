@@ -5,19 +5,48 @@
 //
 
 #include "test_utils/angle_test_configs.h"
+#include "common/unsafe_buffers.h"
 
+#include "common/debug.h"
 #include "common/platform.h"
+#include "common/string_utils.h"
 #include "util/util_gl.h"
+
+#include <algorithm>
+#include <cctype>
 
 namespace angle
 {
+namespace
+{
+void AppendCapitalizedFeature(std::ostream &stream, Feature feature)
+{
+    const char *name = GetFeatureName(feature);
 
-PlatformParameters::PlatformParameters() : PlatformParameters(2, 0, GLESDriverType::AngleEGL) {}
+    if (name == nullptr)
+    {
+        stream << "InternalError";
+        return;
+    }
+
+    const std::string camelCase = angle::ToCamelCase(name);
+
+    stream << static_cast<char>(std::toupper(camelCase[0]))
+           << (ANGLE_UNSAFE_TODO(camelCase.c_str() + 1));
+}
+
+bool HasFeatureOverride(const std::vector<Feature> &overrides, Feature feature)
+{
+    return std::find(overrides.begin(), overrides.end(), feature) != overrides.end();
+}
+}  // namespace
+
+PlatformParameters::PlatformParameters() : PlatformParameters(2, 0, kDefaultGLESDriver) {}
 
 PlatformParameters::PlatformParameters(EGLint majorVersion,
                                        EGLint minorVersion,
                                        const EGLPlatformParameters &eglPlatformParameters)
-    : driver(GLESDriverType::AngleEGL),
+    : driver(kDefaultGLESDriver),
       noFixture(false),
       eglParameters(eglPlatformParameters),
       majorVersion(majorVersion),
@@ -49,10 +78,40 @@ bool PlatformParameters::isSwiftshader() const
     return eglParameters.deviceType == EGL_PLATFORM_ANGLE_DEVICE_TYPE_SWIFTSHADER_ANGLE;
 }
 
+bool PlatformParameters::isMetal() const
+{
+    return eglParameters.renderer == EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE;
+}
+
+bool PlatformParameters::isVulkan() const
+{
+    return eglParameters.renderer == EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE;
+}
+
+bool PlatformParameters::isWebGPU() const
+{
+    return eglParameters.renderer == EGL_PLATFORM_ANGLE_TYPE_WEBGPU_ANGLE;
+}
+
+bool PlatformParameters::isANGLE() const
+{
+    return driver == GLESDriverType::AngleEGL;
+}
+
 void PlatformParameters::initDefaultParameters()
 {
     // Default debug layers to enabled in tests.
     eglParameters.debugLayersEnabled = EGL_TRUE;
+}
+
+bool PlatformParameters::isEnableRequested(Feature feature) const
+{
+    return HasFeatureOverride(eglParameters.enabledFeatureOverrides, feature);
+}
+
+bool PlatformParameters::isDisableRequested(Feature feature) const
+{
+    return HasFeatureOverride(eglParameters.disabledFeatureOverrides, feature);
 }
 
 bool operator<(const PlatformParameters &a, const PlatformParameters &b)
@@ -76,8 +135,6 @@ const char *GetRendererName(EGLint renderer)
     {
         case EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE:
             return "Default";
-        case EGL_PLATFORM_ANGLE_TYPE_D3D9_ANGLE:
-            return "D3D9";
         case EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE:
             return "D3D11";
         case EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE:
@@ -90,6 +147,8 @@ const char *GetRendererName(EGLint renderer)
             return "OpenGLES";
         case EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE:
             return "Vulkan";
+        case EGL_PLATFORM_ANGLE_TYPE_WEBGPU_ANGLE:
+            return "WebGPU";
         default:
             return "Undefined";
     }
@@ -108,11 +167,18 @@ std::ostream &operator<<(std::ostream &stream, const PlatformParameters &pp)
         case GLESDriverType::AngleEGL:
             stream << GetRendererName(pp.eglParameters.renderer);
             break;
+        case GLESDriverType::AngleVulkanSecondariesEGL:
+            ASSERT(pp.eglParameters.renderer == EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE);
+            stream << "ANGLE_Vulkan_Secondaries";
+            break;
         case GLESDriverType::SystemWGL:
             stream << "WGL";
             break;
         case GLESDriverType::SystemEGL:
-            stream << "EGL";
+            stream << GetRendererName(pp.eglParameters.renderer);
+            break;
+        case GLESDriverType::ZinkEGL:
+            stream << "Zink";
             break;
         default:
             stream << "Error";
@@ -181,77 +247,25 @@ std::ostream &operator<<(std::ostream &stream, const PlatformParameters &pp)
         stream << "_NoFixture";
     }
 
-    if (pp.eglParameters.contextVirtualization == EGL_FALSE)
+    if (pp.eglParameters.displayPowerPreference == EGL_LOW_POWER_ANGLE)
     {
-        stream << "_NoVirtual";
+        stream << "_LowPowerGPU";
     }
 
-    if (pp.eglParameters.transformFeedbackFeature == EGL_FALSE)
+    if (pp.eglParameters.displayPowerPreference == EGL_HIGH_POWER_ANGLE)
     {
-        stream << "_NoTransformFeedback";
-    }
-    else if (pp.eglParameters.transformFeedbackFeature == EGL_TRUE)
-    {
-        stream << "_TransformFeedback";
+        stream << "_HighPowerGPU";
     }
 
-    if (pp.eglParameters.allocateNonZeroMemoryFeature == EGL_FALSE)
+    for (Feature feature : pp.eglParameters.enabledFeatureOverrides)
     {
-        stream << "_NoAllocateNonZeroMemory";
+        stream << "_";
+        AppendCapitalizedFeature(stream, feature);
     }
-    else if (pp.eglParameters.allocateNonZeroMemoryFeature == EGL_TRUE)
+    for (Feature feature : pp.eglParameters.disabledFeatureOverrides)
     {
-        stream << "_AllocateNonZeroMemory";
-    }
-
-    if (pp.eglParameters.emulateCopyTexImage2DFromRenderbuffers == EGL_TRUE)
-    {
-        stream << "_EmulateCopyTexImage2DFromRenderbuffers";
-    }
-
-    if (pp.eglParameters.shaderStencilOutputFeature == EGL_FALSE)
-    {
-        stream << "_NoStencilOutput";
-    }
-
-    if (pp.eglParameters.genMultipleMipsPerPassFeature == EGL_FALSE)
-    {
-        stream << "_NoGenMultipleMipsPerPass";
-    }
-
-    switch (pp.eglParameters.emulatedPrerotation)
-    {
-        case 90:
-            stream << "_PreRotate90";
-            break;
-        case 180:
-            stream << "_PreRotate180";
-            break;
-        case 270:
-            stream << "_PreRotate270";
-            break;
-        default:
-            break;
-    }
-
-    if (pp.eglParameters.asyncCommandQueueFeatureVulkan == EGL_TRUE)
-    {
-        stream << "_AsyncQueue";
-    }
-
-    if (pp.eglParameters.hasExplicitMemBarrierFeatureMtl == EGL_FALSE)
-    {
-        stream << "_NoMetalExplicitMemoryBarrier";
-    }
-
-    if (pp.eglParameters.hasCheapRenderPassFeatureMtl == EGL_FALSE)
-    {
-        stream << "_NoMetalCheapRenderPass";
-    }
-
-    if (pp.eglParameters.forceBufferGPUStorageFeatureMtl == EGL_TRUE)
-    {
-        stream << "_ForceMetalBufferGPUStorage";
+        stream << "_No";
+        AppendCapitalizedFeature(stream, feature);
     }
 
     return stream;
@@ -270,24 +284,6 @@ EGLPlatformParameters DEFAULT_NULL()
 {
     return EGLPlatformParameters(EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE, EGL_DONT_CARE,
                                  EGL_DONT_CARE, EGL_PLATFORM_ANGLE_DEVICE_TYPE_NULL_ANGLE);
-}
-
-EGLPlatformParameters D3D9()
-{
-    return EGLPlatformParameters(EGL_PLATFORM_ANGLE_TYPE_D3D9_ANGLE, EGL_DONT_CARE, EGL_DONT_CARE,
-                                 EGL_PLATFORM_ANGLE_DEVICE_TYPE_HARDWARE_ANGLE);
-}
-
-EGLPlatformParameters D3D9_NULL()
-{
-    return EGLPlatformParameters(EGL_PLATFORM_ANGLE_TYPE_D3D9_ANGLE, EGL_DONT_CARE, EGL_DONT_CARE,
-                                 EGL_PLATFORM_ANGLE_DEVICE_TYPE_NULL_ANGLE);
-}
-
-EGLPlatformParameters D3D9_REFERENCE()
-{
-    return EGLPlatformParameters(EGL_PLATFORM_ANGLE_TYPE_D3D9_ANGLE, EGL_DONT_CARE, EGL_DONT_CARE,
-                                 EGL_PLATFORM_ANGLE_DEVICE_TYPE_D3D_REFERENCE_ANGLE);
 }
 
 EGLPlatformParameters D3D11()
@@ -327,12 +323,6 @@ EGLPlatformParameters D3D11_FL10_0()
                                  EGL_PLATFORM_ANGLE_DEVICE_TYPE_HARDWARE_ANGLE);
 }
 
-EGLPlatformParameters D3D11_FL9_3()
-{
-    return EGLPlatformParameters(EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE, 9, 3,
-                                 EGL_PLATFORM_ANGLE_DEVICE_TYPE_HARDWARE_ANGLE);
-}
-
 EGLPlatformParameters D3D11_NULL()
 {
     return EGLPlatformParameters(EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE, EGL_DONT_CARE, EGL_DONT_CARE,
@@ -369,12 +359,6 @@ EGLPlatformParameters D3D11_FL10_0_WARP()
                                  EGL_PLATFORM_ANGLE_DEVICE_TYPE_D3D_WARP_ANGLE);
 }
 
-EGLPlatformParameters D3D11_FL9_3_WARP()
-{
-    return EGLPlatformParameters(EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE, 9, 3,
-                                 EGL_PLATFORM_ANGLE_DEVICE_TYPE_D3D_WARP_ANGLE);
-}
-
 EGLPlatformParameters D3D11_REFERENCE()
 {
     return EGLPlatformParameters(EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE, EGL_DONT_CARE, EGL_DONT_CARE,
@@ -405,12 +389,6 @@ EGLPlatformParameters D3D11_FL10_0_REFERENCE()
                                  EGL_PLATFORM_ANGLE_DEVICE_TYPE_D3D_REFERENCE_ANGLE);
 }
 
-EGLPlatformParameters D3D11_FL9_3_REFERENCE()
-{
-    return EGLPlatformParameters(EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE, 9, 3,
-                                 EGL_PLATFORM_ANGLE_DEVICE_TYPE_D3D_REFERENCE_ANGLE);
-}
-
 EGLPlatformParameters OPENGL()
 {
     return EGLPlatformParameters(EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE);
@@ -419,12 +397,6 @@ EGLPlatformParameters OPENGL()
 EGLPlatformParameters OPENGL(EGLint major, EGLint minor)
 {
     return EGLPlatformParameters(EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE, major, minor, EGL_DONT_CARE);
-}
-
-EGLPlatformParameters OPENGL_NULL()
-{
-    return EGLPlatformParameters(EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE, EGL_DONT_CARE, EGL_DONT_CARE,
-                                 EGL_PLATFORM_ANGLE_DEVICE_TYPE_NULL_ANGLE);
 }
 
 EGLPlatformParameters OPENGLES()
@@ -436,12 +408,6 @@ EGLPlatformParameters OPENGLES(EGLint major, EGLint minor)
 {
     return EGLPlatformParameters(EGL_PLATFORM_ANGLE_TYPE_OPENGLES_ANGLE, major, minor,
                                  EGL_DONT_CARE);
-}
-
-EGLPlatformParameters OPENGLES_NULL()
-{
-    return EGLPlatformParameters(EGL_PLATFORM_ANGLE_TYPE_OPENGLES_ANGLE, EGL_DONT_CARE,
-                                 EGL_DONT_CARE, EGL_PLATFORM_ANGLE_DEVICE_TYPE_NULL_ANGLE);
 }
 
 EGLPlatformParameters OPENGL_OR_GLES()
@@ -459,15 +425,6 @@ EGLPlatformParameters OPENGL_OR_GLES(EGLint major, EGLint minor)
     return OPENGLES(major, minor);
 #else
     return OPENGL(major, minor);
-#endif
-}
-
-EGLPlatformParameters OPENGL_OR_GLES_NULL()
-{
-#if defined(ANGLE_PLATFORM_ANDROID)
-    return OPENGLES_NULL();
-#else
-    return OPENGL_NULL();
 #endif
 }
 
@@ -492,19 +449,14 @@ EGLPlatformParameters METAL()
     return EGLPlatformParameters(EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE);
 }
 
+EGLPlatformParameters WEBGPU()
+{
+    return EGLPlatformParameters(EGL_PLATFORM_ANGLE_TYPE_WEBGPU_ANGLE);
+}
+
 }  // namespace egl_platform
 
 // ANGLE tests platforms
-PlatformParameters ES1_D3D9()
-{
-    return PlatformParameters(1, 0, egl_platform::D3D9());
-}
-
-PlatformParameters ES2_D3D9()
-{
-    return PlatformParameters(2, 0, egl_platform::D3D9());
-}
-
 PlatformParameters ES1_D3D11()
 {
     return PlatformParameters(1, 0, egl_platform::D3D11());
@@ -535,11 +487,6 @@ PlatformParameters ES2_D3D11_FL10_0()
     return PlatformParameters(2, 0, egl_platform::D3D11_FL10_0());
 }
 
-PlatformParameters ES2_D3D11_FL9_3()
-{
-    return PlatformParameters(2, 0, egl_platform::D3D11_FL9_3());
-}
-
 PlatformParameters ES2_D3D11_WARP()
 {
     return PlatformParameters(2, 0, egl_platform::D3D11_WARP());
@@ -558,11 +505,6 @@ PlatformParameters ES2_D3D11_FL10_1_WARP()
 PlatformParameters ES2_D3D11_FL10_0_WARP()
 {
     return PlatformParameters(2, 0, egl_platform::D3D11_FL10_0_WARP());
-}
-
-PlatformParameters ES2_D3D11_FL9_3_WARP()
-{
-    return PlatformParameters(2, 0, egl_platform::D3D11_FL9_3_WARP());
 }
 
 PlatformParameters ES2_D3D11_REFERENCE()
@@ -585,11 +527,6 @@ PlatformParameters ES2_D3D11_FL10_0_REFERENCE()
     return PlatformParameters(2, 0, egl_platform::D3D11_FL10_0_REFERENCE());
 }
 
-PlatformParameters ES2_D3D11_FL9_3_REFERENCE()
-{
-    return PlatformParameters(2, 0, egl_platform::D3D11_FL9_3_REFERENCE());
-}
-
 PlatformParameters ES3_D3D11()
 {
     return PlatformParameters(3, 0, egl_platform::D3D11());
@@ -608,21 +545,6 @@ PlatformParameters ES3_D3D11_FL11_0()
 PlatformParameters ES3_D3D11_FL10_1()
 {
     return PlatformParameters(3, 0, egl_platform::D3D11_FL10_1());
-}
-
-PlatformParameters ES31_D3D11()
-{
-    return PlatformParameters(3, 1, egl_platform::D3D11());
-}
-
-PlatformParameters ES31_D3D11_FL11_1()
-{
-    return PlatformParameters(3, 1, egl_platform::D3D11_FL11_1());
-}
-
-PlatformParameters ES31_D3D11_FL11_0()
-{
-    return PlatformParameters(3, 1, egl_platform::D3D11_FL11_0());
 }
 
 PlatformParameters ES3_D3D11_WARP()
@@ -795,6 +717,21 @@ PlatformParameters ES31_VULKAN_SWIFTSHADER()
     return PlatformParameters(3, 1, egl_platform::VULKAN_SWIFTSHADER());
 }
 
+PlatformParameters ES32_VULKAN()
+{
+    return PlatformParameters(3, 2, egl_platform::VULKAN());
+}
+
+PlatformParameters ES32_VULKAN_NULL()
+{
+    return PlatformParameters(3, 2, egl_platform::VULKAN_NULL());
+}
+
+PlatformParameters ES32_VULKAN_SWIFTSHADER()
+{
+    return PlatformParameters(3, 2, egl_platform::VULKAN_SWIFTSHADER());
+}
+
 PlatformParameters ES1_METAL()
 {
     return PlatformParameters(1, 0, egl_platform::METAL());
@@ -820,13 +757,64 @@ PlatformParameters ES3_WGL()
     return PlatformParameters(3, 0, GLESDriverType::SystemWGL);
 }
 
-PlatformParameters ES2_EGL()
+PlatformParameters ES1_ANGLE_Vulkan_Secondaries()
 {
-    return PlatformParameters(2, 0, GLESDriverType::SystemEGL);
+    return WithVulkanSecondaries(ES1_VULKAN());
 }
 
-PlatformParameters ES3_EGL()
+PlatformParameters ES2_ANGLE_Vulkan_Secondaries()
 {
-    return PlatformParameters(3, 0, GLESDriverType::SystemEGL);
+    return WithVulkanSecondaries(ES2_VULKAN());
 }
+
+PlatformParameters ES3_ANGLE_Vulkan_Secondaries()
+{
+    return WithVulkanSecondaries(ES3_VULKAN());
+}
+
+PlatformParameters ES31_ANGLE_Vulkan_Secondaries()
+{
+    return WithVulkanSecondaries(ES31_VULKAN());
+}
+
+PlatformParameters ES32_ANGLE_Vulkan_Secondaries()
+{
+    return WithVulkanSecondaries(ES32_VULKAN());
+}
+
+PlatformParameters ES2_WEBGPU()
+{
+    return PlatformParameters(2, 0, egl_platform::WEBGPU());
+}
+
+PlatformParameters ES3_WEBGPU()
+{
+    return PlatformParameters(3, 0, egl_platform::WEBGPU());
+}
+
+PlatformParameters ES1_Zink()
+{
+    return PlatformParameters(1, 0, GLESDriverType::ZinkEGL);
+}
+
+PlatformParameters ES2_Zink()
+{
+    return PlatformParameters(2, 0, GLESDriverType::ZinkEGL);
+}
+
+PlatformParameters ES3_Zink()
+{
+    return PlatformParameters(3, 0, GLESDriverType::ZinkEGL);
+}
+
+PlatformParameters ES31_Zink()
+{
+    return PlatformParameters(3, 1, GLESDriverType::ZinkEGL);
+}
+
+PlatformParameters ES32_Zink()
+{
+    return PlatformParameters(3, 2, GLESDriverType::ZinkEGL);
+}
+
 }  // namespace angle

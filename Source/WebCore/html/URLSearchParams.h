@@ -24,8 +24,7 @@
 
 #pragma once
 
-#include "ExceptionOr.h"
-#include <wtf/Variant.h>
+#include "ScriptExecutionContext.h"
 #include <wtf/Vector.h>
 #include <wtf/WeakPtr.h>
 #include <wtf/text/WTFString.h>
@@ -33,20 +32,26 @@
 namespace WebCore {
 
 class DOMURL;
+class ScriptExecutionContext;
+template<typename> class ExceptionOr;
 
 class URLSearchParams : public RefCounted<URLSearchParams> {
 public:
-    static ExceptionOr<Ref<URLSearchParams>> create(Variant<Vector<Vector<String>>, Vector<WTF::KeyValuePair<String, String>>, String>&&);
+    ~URLSearchParams();
+
+    static ExceptionOr<Ref<URLSearchParams>> create(Variant<Vector<Vector<String>>, Vector<KeyValuePair<String, String>>, String>&&);
     static Ref<URLSearchParams> create(const String& string, DOMURL* associatedURL)
     {
         return adoptRef(*new URLSearchParams(string, associatedURL));
     }
 
+    size_t size() const { return m_pairs.size(); }
+
     void append(const String& name, const String& value);
-    void remove(const String& name);
-    String get(const String& name) const;
+    void remove(const String& name, const String& value = { });
+    String NODELETE get(const String& name) const;
     Vector<String> getAll(const String& name) const;
-    bool has(const String& name) const;
+    bool NODELETE has(const String& name, const String& value = { }) const;
     void set(const String& name, const String& value);
     String toString() const;
     void updateFromAssociatedURL();
@@ -55,22 +60,23 @@ public:
     class Iterator {
     public:
         explicit Iterator(URLSearchParams&);
-        std::optional<WTF::KeyValuePair<String, String>> next();
+        std::optional<KeyValuePair<String, String>> NODELETE next();
 
     private:
-        Ref<URLSearchParams> m_target;
+        const Ref<URLSearchParams> m_target;
         size_t m_index { 0 };
     };
-    Iterator createIterator() { return Iterator { *this }; }
+    Iterator createIterator(ScriptExecutionContext*) { return Iterator { *this }; }
 
 private:
-    const Vector<WTF::KeyValuePair<String, String>>& pairs() const { return m_pairs; }
+    const Vector<KeyValuePair<String, String>>& pairs() const LIFETIME_BOUND { return m_pairs; }
     URLSearchParams(const String&, DOMURL*);
-    URLSearchParams(const Vector<WTF::KeyValuePair<String, String>>&);
+    URLSearchParams(const Vector<KeyValuePair<String, String>>&);
     void updateURL();
 
     WeakPtr<DOMURL> m_associatedURL;
-    Vector<WTF::KeyValuePair<String, String>> m_pairs;
+    using PairType = KeyValuePair<String, String>;
+    Vector<PairType> m_pairs;
 };
 
 } // namespace WebCore

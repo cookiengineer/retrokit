@@ -19,10 +19,12 @@ PersistentCommandPool::PersistentCommandPool() {}
 
 PersistentCommandPool::~PersistentCommandPool()
 {
-    ASSERT(!mCommandPool.valid() && mFreeBuffers.empty());
+    ASSERT(!mCommandPool.valid() && mFreeBuffers.empty() && mFreeBuffersNeedReset.empty());
 }
 
-angle::Result PersistentCommandPool::init(vk::Context *context, uint32_t queueFamilyIndex)
+angle::Result PersistentCommandPool::init(ErrorContext *context,
+                                          ProtectionType protectionType,
+                                          uint32_t queueFamilyIndex)
 {
     ASSERT(!mCommandPool.valid());
 
@@ -33,6 +35,12 @@ angle::Result PersistentCommandPool::init(vk::Context *context, uint32_t queueFa
     //  command buffers from this pool. Alternatively we could reset the entire command pool.
     commandPoolInfo.flags =
         VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+    ASSERT(protectionType == ProtectionType::Unprotected ||
+           protectionType == ProtectionType::Protected);
+    if (protectionType == ProtectionType::Protected)
+    {
+        commandPoolInfo.flags |= VK_COMMAND_POOL_CREATE_PROTECTED_BIT;
+    }
     commandPoolInfo.queueFamilyIndex = queueFamilyIndex;
 
     ANGLE_VK_TRY(context, mCommandPool.init(context->getDevice(), commandPoolInfo));
@@ -52,18 +60,31 @@ void PersistentCommandPool::destroy(VkDevice device)
 
     ASSERT(mCommandPool.valid());
 
-    for (vk::PrimaryCommandBuffer &cmdBuf : mFreeBuffers)
+    while (!mFreeBuffers.empty())
     {
-        cmdBuf.destroy(device, mCommandPool);
+        mFreeBuffers.back().destroy(device, mCommandPool);
+        mFreeBuffers.pop_back();
     }
-    mFreeBuffers.clear();
+
+    while (!mFreeBuffersNeedReset.empty())
+    {
+        mFreeBuffersNeedReset.back().destroy(device, mCommandPool);
+        mFreeBuffersNeedReset.pop_back();
+    }
 
     mCommandPool.destroy(device);
 }
 
-angle::Result PersistentCommandPool::allocate(vk::Context *context,
-                                              vk::PrimaryCommandBuffer *commandBufferOut)
+angle::Result PersistentCommandPool::allocate(ErrorContext *context,
+                                              PrimaryCommandBuffer *commandBufferOut)
 {
+    while (!mFreeBuffersNeedReset.empty())
+    {
+        mFreeBuffersNeedReset.front().reset();
+        mFreeBuffers.emplace_back(std::move(mFreeBuffersNeedReset.front()));
+        mFreeBuffersNeedReset.pop_front();
+    }
+
     if (mFreeBuffers.empty())
     {
         ANGLE_TRY(allocateCommandBuffer(context));
@@ -76,20 +97,27 @@ angle::Result PersistentCommandPool::allocate(vk::Context *context,
     return angle::Result::Continue;
 }
 
-angle::Result PersistentCommandPool::collect(vk::Context *context,
-                                             vk::PrimaryCommandBuffer &&buffer)
+angle::Result PersistentCommandPool::collect(ErrorContext *context,
+                                             PrimaryCommandBuffer &&buffer,
+                                             WhenToResetCommandBuffer whenToReset)
 {
-    // VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT NOT set, The CommandBuffer
-    // can still hold the memory resource
-    ANGLE_VK_TRY(context, vkResetCommandBuffer(buffer.getHandle(), 0));
-
-    mFreeBuffers.emplace_back(std::move(buffer));
+    if (whenToReset == WhenToResetCommandBuffer::Now)
+    {
+        // VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT NOT set, The CommandBuffer
+        // can still hold the memory resource
+        ANGLE_VK_TRY(context, buffer.reset());
+        mFreeBuffers.emplace_back(std::move(buffer));
+    }
+    else
+    {
+        mFreeBuffersNeedReset.emplace_back(std::move(buffer));
+    }
     return angle::Result::Continue;
 }
 
-angle::Result PersistentCommandPool::allocateCommandBuffer(vk::Context *context)
+angle::Result PersistentCommandPool::allocateCommandBuffer(ErrorContext *context)
 {
-    vk::PrimaryCommandBuffer commandBuffer;
+    PrimaryCommandBuffer commandBuffer;
     {
         // Only used for primary CommandBuffer allocation
         VkCommandBufferAllocateInfo commandBufferInfo = {};

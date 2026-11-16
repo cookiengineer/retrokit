@@ -8,28 +8,40 @@
 
 #include "util/Timer.h"
 
+#include "common/debug.h"
 #include "common/system_utils.h"
 
-Timer::Timer() : mRunning(false), mStartTime(0), mStopTime(0) {}
+Timer::Timer()
+    : mRunning(false), mStartTime(0.0), mStopTime(0.0), mStartCpuTime(0.0), mStopCpuTime(0.0)
+{}
 
 void Timer::start()
 {
-    mStartTime = angle::GetCurrentTime();
-    mRunning   = true;
+    ASSERT(!mRunning);
+    restart();
+}
+
+void Timer::restart()
+{
+    mStartTime    = angle::GetCurrentSystemTime();
+    mStartCpuTime = angle::GetCurrentProcessCpuTime();
+    mRunning      = true;
 }
 
 void Timer::stop()
 {
-    mStopTime = angle::GetCurrentTime();
-    mRunning  = false;
+    ASSERT(mRunning);
+    mStopTime    = angle::GetCurrentSystemTime();
+    mStopCpuTime = angle::GetCurrentProcessCpuTime();
+    mRunning     = false;
 }
 
-double Timer::getElapsedTime() const
+double Timer::getElapsedWallClockTime() const
 {
     double endTime;
     if (mRunning)
     {
-        endTime = angle::GetCurrentTime();
+        endTime = angle::GetCurrentSystemTime();
     }
     else
     {
@@ -37,4 +49,19 @@ double Timer::getElapsedTime() const
     }
 
     return endTime - mStartTime;
+}
+
+double Timer::getElapsedCpuTime() const
+{
+    double endTime;
+    if (mRunning)
+    {
+        endTime = angle::GetCurrentProcessCpuTime();
+    }
+    else
+    {
+        endTime = mStopCpuTime;
+    }
+
+    return endTime - mStartCpuTime;
 }

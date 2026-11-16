@@ -37,30 +37,30 @@ BlockInsertionSet::BlockInsertionSet(Graph& graph)
 {
 }
 
-BlockInsertionSet::~BlockInsertionSet() { }
+BlockInsertionSet::~BlockInsertionSet() = default;
 
-void BlockInsertionSet::insert(const BlockInsertion& insertion)
+void BlockInsertionSet::insert(BlockInsertion&& insertion)
 {
-    m_insertions.append(insertion);
+    m_insertions.append(WTF::move(insertion));
 }
 
-void BlockInsertionSet::insert(size_t index, Ref<BasicBlock>&& block)
+void BlockInsertionSet::insert(size_t index, std::unique_ptr<BasicBlock>&& block)
 {
-    insert(BlockInsertion(index, WTFMove(block)));
+    insert(BlockInsertion(index, WTF::move(block)));
 }
 
 BasicBlock* BlockInsertionSet::insert(size_t index, float executionCount)
 {
-    Ref<BasicBlock> block = adoptRef(*new BasicBlock(BytecodeIndex(), m_graph.block(0)->variablesAtHead.numberOfArguments(), m_graph.block(0)->variablesAtHead.numberOfLocals(), m_graph.block(0)->variablesAtHead.numberOfTmps(), executionCount));
+    auto block = makeUnique<BasicBlock>(BytecodeIndex(), m_graph.block(0)->variablesAtHead.numberOfArguments(), m_graph.block(0)->variablesAtHead.numberOfLocals(), m_graph.block(0)->variablesAtHead.numberOfTmps(), executionCount);
     block->isReachable = true;
-    auto* result = block.ptr();
-    insert(index, WTFMove(block));
+    auto* result = block.get();
+    insert(index, WTF::move(block));
     return result;
 }
 
 BasicBlock* BlockInsertionSet::insertBefore(BasicBlock* before, float executionCount)
 {
-    return insert(before->index, executionCount);
+    return insert(before->index(), executionCount);
 }
 
 bool BlockInsertionSet::execute()
@@ -79,16 +79,16 @@ bool BlockInsertionSet::execute()
     // healthy to keep the block list from growing.
     unsigned targetIndex = 0;
     for (unsigned sourceIndex = 0; sourceIndex < m_graph.m_blocks.size();) {
-        RefPtr<BasicBlock> block = m_graph.m_blocks[sourceIndex++];
+        auto block = WTF::move(m_graph.m_blocks[sourceIndex++]);
         if (!block)
             continue;
-        m_graph.m_blocks[targetIndex++] = block;
+        m_graph.m_blocks[targetIndex++] = WTF::move(block);
     }
     m_graph.m_blocks.shrink(targetIndex);
     
     // Make sure that the blocks know their new indices.
     for (unsigned i = 0; i < m_graph.m_blocks.size(); ++i)
-        m_graph.m_blocks[i]->index = i;
+        m_graph.m_blocks[i]->setIndex(i);
     
     // And finally, invalidate all analyses that rely on the CFG.
     m_graph.invalidateCFG();

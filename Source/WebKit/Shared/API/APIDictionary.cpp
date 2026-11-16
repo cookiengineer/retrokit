@@ -36,43 +36,45 @@ Ref<Dictionary> Dictionary::create()
     return create({ });
 }
 
-Ref<Dictionary> Dictionary::create(MapType map)
+Ref<Dictionary> Dictionary::createWithCapacity(size_t capacity)
 {
-    return adoptRef(*new Dictionary(WTFMove(map)));
+    auto dictionary = create();
+    dictionary->m_map.reserveInitialCapacity(capacity);
+    return dictionary;
 }
 
-Dictionary::Dictionary(MapType map)
-    : m_map(WTFMove(map))
+Ref<Dictionary> Dictionary::create(MapType&& map)
+{
+    return adoptRef(*new Dictionary(WTF::move(map)));
+}
+
+Dictionary::Dictionary(MapType&& map)
+    : m_map(WTF::move(map))
 {
 }
 
-Dictionary::~Dictionary()
-{
-}
+Dictionary::~Dictionary() = default;
 
 Ref<Array> Dictionary::keys() const
 {
     if (m_map.isEmpty())
         return API::Array::create();
 
-    Vector<RefPtr<API::Object>> keys;
-    keys.reserveInitialCapacity(m_map.size());
-
-    for (const auto& key : m_map.keys())
-        keys.uncheckedAppend(API::String::create(key));
-
-    return API::Array::create(WTFMove(keys));
+    auto keys = WTF::map(m_map, [](auto& entry) -> RefPtr<API::Object> {
+        return API::String::create(entry.key);
+    });
+    return API::Array::create(WTF::move(keys));
 }
 
 bool Dictionary::add(const WTF::String& key, RefPtr<API::Object>&& item)
 {
-    MapType::AddResult result = m_map.add(key, WTFMove(item));
+    MapType::AddResult result = m_map.add(key, WTF::move(item));
     return result.isNewEntry;
 }
 
 bool Dictionary::set(const WTF::String& key, RefPtr<API::Object>&& item)
 {
-    MapType::AddResult result = m_map.set(key, WTFMove(item));
+    MapType::AddResult result = m_map.set(key, WTF::move(item));
     return result.isNewEntry;
 }
 

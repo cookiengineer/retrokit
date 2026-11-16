@@ -28,22 +28,16 @@
 #include "config.h"
 #include "LinkHeader.h"
 
-#include "ParsingUtilities.h"
+#include <wtf/text/ParsingUtilities.h>
 
 namespace WebCore {
 
-// LWSP definition in https://www.ietf.org/rfc/rfc0822.txt
-template<typename CharacterType> static bool isSpaceOrTab(CharacterType character)
-{
-    return character == ' ' || character == '\t';
-}
-
-template<typename CharacterType> static bool isNotURLTerminatingChar(CharacterType character)
+template<typename CharacterType> static bool NODELETE isNotURLTerminatingChar(CharacterType character)
 {
     return character != '>';
 }
 
-template<typename CharacterType> static bool isValidParameterNameChar(CharacterType character)
+template<typename CharacterType> static bool NODELETE isValidParameterNameChar(CharacterType character)
 {
     // A separator, CTL or '%', '*' or '\'' means the char is not valid.
     // Definition as attr-char at https://tools.ietf.org/html/rfc5987
@@ -54,18 +48,18 @@ template<typename CharacterType> static bool isValidParameterNameChar(CharacterT
     return false;
 }
 
-template<typename CharacterType> static bool isParameterValueEnd(CharacterType character)
+template<typename CharacterType> static bool NODELETE isParameterValueEnd(CharacterType character)
 {
     return character == ';' || character == ',';
 }
 
-template<typename CharacterType> static bool isParameterValueChar(CharacterType character)
+template<typename CharacterType> static bool NODELETE isParameterValueChar(CharacterType character)
 {
-    return !isSpaceOrTab(character) && !isParameterValueEnd(character);
+    return !isTabOrSpace(character) && !isParameterValueEnd(character);
 }
 
 // Verify that the parameter is a link-extension which according to spec doesn't have to have a value.
-static bool isExtensionParameter(LinkHeader::LinkParameterName name)
+static bool NODELETE isExtensionParameter(LinkHeader::LinkParameterName name)
 {
     return name >= LinkHeader::LinkParameterUnknown;
 }
@@ -83,27 +77,27 @@ static bool isExtensionParameter(LinkHeader::LinkParameterName name)
 //          position     end
 template<typename CharacterType> static std::optional<String> findURLBoundaries(StringParsingBuffer<CharacterType>& buffer)
 {
-    skipWhile<isSpaceOrTab>(buffer);
+    skipWhile<isTabOrSpace>(buffer);
     if (!skipExactly(buffer, '<'))
         return std::nullopt;
-    skipWhile<isSpaceOrTab>(buffer);
+    skipWhile<isTabOrSpace>(buffer);
 
-    auto urlStart = buffer.position();
+    auto urlStart = buffer.span();
     skipWhile<isNotURLTerminatingChar>(buffer);
     auto urlEnd = buffer.position();
     skipUntil(buffer, '>');
     if (!skipExactly(buffer, '>'))
         return std::nullopt;
 
-    return String(urlStart, urlEnd - urlStart);
+    return String(urlStart.first(urlEnd - urlStart.data()));
 }
 
-template<typename CharacterType> static bool invalidParameterDelimiter(StringParsingBuffer<CharacterType>& buffer)
+template<typename CharacterType> static bool NODELETE invalidParameterDelimiter(StringParsingBuffer<CharacterType>& buffer)
 {
     return !skipExactly(buffer, ';') && buffer.hasCharactersRemaining() && *buffer != ',';
 }
 
-template<typename CharacterType> static bool validFieldEnd(StringParsingBuffer<CharacterType>& buffer)
+template<typename CharacterType> static bool NODELETE validFieldEnd(StringParsingBuffer<CharacterType>& buffer)
 {
     return buffer.atEnd() || *buffer == ',';
 }
@@ -119,44 +113,50 @@ template<typename CharacterType> static bool validFieldEnd(StringParsingBuffer<C
 // <cat.jpg>; rel=preload
 //            ^          ^
 //            position  end
-template<typename CharacterType> static bool parseParameterDelimiter(StringParsingBuffer<CharacterType>& buffer, bool& isValid)
+template<typename CharacterType> static bool NODELETE parseParameterDelimiter(StringParsingBuffer<CharacterType>& buffer, bool& isValid)
 {
     isValid = true;
-    skipWhile<isSpaceOrTab>(buffer);
+    skipWhile<isTabOrSpace>(buffer);
     if (invalidParameterDelimiter(buffer)) {
         isValid = false;
         return false;
     }
-    skipWhile<isSpaceOrTab>(buffer);
+    skipWhile<isTabOrSpace>(buffer);
     if (validFieldEnd(buffer))
         return false;
     return true;
 }
 
-static LinkHeader::LinkParameterName paramterNameFromString(StringView name)
+static LinkHeader::LinkParameterName parameterNameFromString(StringView name)
 {
-    if (equalLettersIgnoringASCIICase(name, "rel"))
+    if (equalLettersIgnoringASCIICase(name, "rel"_s))
         return LinkHeader::LinkParameterRel;
-    if (equalLettersIgnoringASCIICase(name, "anchor"))
+    if (equalLettersIgnoringASCIICase(name, "anchor"_s))
         return LinkHeader::LinkParameterAnchor;
-    if (equalLettersIgnoringASCIICase(name, "crossorigin"))
+    if (equalLettersIgnoringASCIICase(name, "crossorigin"_s))
         return LinkHeader::LinkParameterCrossOrigin;
-    if (equalLettersIgnoringASCIICase(name, "title"))
+    if (equalLettersIgnoringASCIICase(name, "title"_s))
         return LinkHeader::LinkParameterTitle;
-    if (equalLettersIgnoringASCIICase(name, "media"))
+    if (equalLettersIgnoringASCIICase(name, "media"_s))
         return LinkHeader::LinkParameterMedia;
-    if (equalLettersIgnoringASCIICase(name, "type"))
+    if (equalLettersIgnoringASCIICase(name, "type"_s))
         return LinkHeader::LinkParameterType;
-    if (equalLettersIgnoringASCIICase(name, "rev"))
+    if (equalLettersIgnoringASCIICase(name, "rev"_s))
         return LinkHeader::LinkParameterRev;
-    if (equalLettersIgnoringASCIICase(name, "hreflang"))
+    if (equalLettersIgnoringASCIICase(name, "hreflang"_s))
         return LinkHeader::LinkParameterHreflang;
-    if (equalLettersIgnoringASCIICase(name, "as"))
+    if (equalLettersIgnoringASCIICase(name, "as"_s))
         return LinkHeader::LinkParameterAs;
-    if (equalLettersIgnoringASCIICase(name, "imagesrcset"))
+    if (equalLettersIgnoringASCIICase(name, "imagesrcset"_s))
         return LinkHeader::LinkParameterImageSrcSet;
-    if (equalLettersIgnoringASCIICase(name, "imagesizes"))
+    if (equalLettersIgnoringASCIICase(name, "imagesizes"_s))
         return LinkHeader::LinkParameterImageSizes;
+    if (equalLettersIgnoringASCIICase(name, "nonce"_s))
+        return LinkHeader::LinkParameterNonce;
+    if (equalLettersIgnoringASCIICase(name, "referrerpolicy"_s))
+        return LinkHeader::LinkParameterReferrerPolicy;
+    if (equalLettersIgnoringASCIICase(name, "fetchpriority"_s))
+        return LinkHeader::LinkParameterFetchPriority;
     return LinkHeader::LinkParameterUnknown;
 }
 
@@ -173,13 +173,13 @@ static LinkHeader::LinkParameterName paramterNameFromString(StringView name)
 //            position  end
 template<typename CharacterType> static std::optional<LinkHeader::LinkParameterName> parseParameterName(StringParsingBuffer<CharacterType>& buffer)
 {
-    auto nameStart = buffer.position();
+    auto nameStart = buffer.span();
     skipWhile<isValidParameterNameChar>(buffer);
     auto nameEnd = buffer.position();
-    skipWhile<isSpaceOrTab>(buffer);
+    skipWhile<isTabOrSpace>(buffer);
     bool hasEqual = skipExactly(buffer, '=');
-    skipWhile<isSpaceOrTab>(buffer);
-    auto name = paramterNameFromString(StringView { nameStart, static_cast<unsigned>(nameEnd - nameStart) });
+    skipWhile<isTabOrSpace>(buffer);
+    auto name = parameterNameFromString(nameStart.first(static_cast<size_t>(nameEnd - nameStart.data())));
     if (hasEqual)
         return name;
     bool validParameterValueEnd = buffer.atEnd() || isParameterValueEnd(*buffer);
@@ -199,8 +199,9 @@ template<typename CharacterType> static std::optional<LinkHeader::LinkParameterN
 // <cat.jpg>; rel="preload"; type="image/jpeg";
 //                         ^                   ^
 //                     position               end
-template<typename CharacterType> static bool skipQuotesIfNeeded(StringParsingBuffer<CharacterType>& buffer, bool& completeQuotes)
+template<typename CharacterType> static bool NODELETE skipQuotesIfNeeded(StringParsingBuffer<CharacterType>& buffer, bool& completeQuotes)
 {
+    auto startSpan = buffer.span();
     unsigned char quote;
     if (skipExactly(buffer, '\''))
         quote = '\'';
@@ -211,7 +212,7 @@ template<typename CharacterType> static bool skipQuotesIfNeeded(StringParsingBuf
 
     while (!completeQuotes && buffer.hasCharactersRemaining()) {
         skipUntil(buffer, static_cast<CharacterType>(quote));
-        if (*(buffer.position() - 1) != '\\')
+        if (startSpan[buffer.position() - startSpan.data() - 1] != '\\')
             completeQuotes = true;
         completeQuotes = skipExactly(buffer, static_cast<CharacterType>(quote)) && completeQuotes;
     }
@@ -231,24 +232,28 @@ template<typename CharacterType> static bool skipQuotesIfNeeded(StringParsingBuf
 //                   position     end
 template<typename CharacterType> static bool parseParameterValue(StringParsingBuffer<CharacterType>& buffer, String& value)
 {
-    auto valueStart = buffer.position();
-    auto valueEnd = buffer.position();
+    auto valueStart = buffer.span();
+    size_t valueLength = 0;
     bool completeQuotes = false;
     bool hasQuotes = skipQuotesIfNeeded(buffer, completeQuotes);
     if (!hasQuotes)
         skipWhile<isParameterValueChar>(buffer);
-    valueEnd = buffer.position();
-    skipWhile<isSpaceOrTab>(buffer);
-    if ((!completeQuotes && valueStart == valueEnd) || (!buffer.atEnd() && !isParameterValueEnd(*buffer))) {
+    valueLength = buffer.position() - valueStart.data();
+    skipWhile<isTabOrSpace>(buffer);
+    if ((!completeQuotes && !valueLength) || (!buffer.atEnd() && !isParameterValueEnd(*buffer))) {
         value = emptyString();
         return false;
     }
-    if (hasQuotes)
-        ++valueStart;
-    if (completeQuotes)
-        --valueEnd;
-    ASSERT(valueEnd >= valueStart);
-    value = String(valueStart, valueEnd - valueStart);
+    if (hasQuotes) {
+        skip(valueStart, 1);
+        ASSERT(valueLength);
+        --valueLength;
+    }
+    if (completeQuotes) {
+        ASSERT(valueLength);
+        --valueLength;
+    }
+    value = String(valueStart.first(valueLength));
     return !hasQuotes || completeQuotes;
 }
 
@@ -257,28 +262,37 @@ void LinkHeader::setValue(LinkParameterName name, String&& value)
     switch (name) {
     case LinkParameterRel:
         if (!m_rel)
-            m_rel = WTFMove(value);
+            m_rel = WTF::move(value);
         break;
     case LinkParameterAnchor:
         m_isValid = false;
         break;
     case LinkParameterCrossOrigin:
-        m_crossOrigin = WTFMove(value);
+        m_crossOrigin = WTF::move(value);
         break;
     case LinkParameterAs:
-        m_as = WTFMove(value);
+        m_as = WTF::move(value);
         break;
     case LinkParameterType:
-        m_mimeType = WTFMove(value);
+        m_mimeType = WTF::move(value);
         break;
     case LinkParameterMedia:
-        m_media = WTFMove(value);
+        m_media = WTF::move(value);
         break;
     case LinkParameterImageSrcSet:
-        m_imageSrcSet = WTFMove(value);
+        m_imageSrcSet = WTF::move(value);
         break;
     case LinkParameterImageSizes:
-        m_imageSizes = WTFMove(value);
+        m_imageSizes = WTF::move(value);
+        break;
+    case LinkParameterNonce:
+        m_nonce = WTF::move(value);
+        break;
+    case LinkParameterReferrerPolicy:
+        m_referrerPolicy = WTF::move(value);
+        break;
+    case LinkParameterFetchPriority:
+        m_fetchPriority = WTF::move(value);
         break;
     case LinkParameterTitle:
     case LinkParameterRev:
@@ -290,7 +304,7 @@ void LinkHeader::setValue(LinkParameterName name, String&& value)
     // FIXME: Add support for more header parameters as neccessary.
 }
 
-template<typename CharacterType> static void findNextHeader(StringParsingBuffer<CharacterType>& buffer)
+template<typename CharacterType> static void NODELETE findNextHeader(StringParsingBuffer<CharacterType>& buffer)
 {
     skipUntil(buffer, ',');
     skipExactly(buffer, ',');
@@ -326,7 +340,7 @@ template<typename CharacterType> LinkHeader::LinkHeader(StringParsingBuffer<Char
             return;
         }
 
-        setValue(*parameterName, WTFMove(parameterValue));
+        setValue(*parameterName, WTF::move(parameterValue));
     }
     findNextHeader(buffer);
 }
@@ -340,4 +354,3 @@ LinkHeaderSet::LinkHeaderSet(const String& header)
 }
 
 } // namespace WebCore
-

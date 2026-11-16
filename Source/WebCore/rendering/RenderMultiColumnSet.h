@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Apple Inc.  All rights reserved.
+ * Copyright (C) 2012 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -43,12 +43,14 @@ namespace WebCore {
 // Column spans result in the creation of new column sets as well, since a spanning fragment has to be placed in between the column sets that
 // come before and after the span.
 class RenderMultiColumnSet final : public RenderFragmentContainerSet {
-    WTF_MAKE_ISO_ALLOCATED(RenderMultiColumnSet);
+    WTF_MAKE_TZONE_ALLOCATED(RenderMultiColumnSet);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderMultiColumnSet);
 public:
-    RenderMultiColumnSet(RenderFragmentedFlow&, RenderStyle&&);
+    RenderMultiColumnSet(RenderFragmentedFlow&, Style::ComputedStyle&&);
+    virtual ~RenderMultiColumnSet();
 
     RenderBlockFlow* multiColumnBlockFlow() const { return downcast<RenderBlockFlow>(parent()); }
-    RenderMultiColumnFlow* multiColumnFlow() const { return static_cast<RenderMultiColumnFlow*>(fragmentedFlow()); }
+    RenderMultiColumnFlow* multiColumnFlow() const { return downcast<RenderMultiColumnFlow>(fragmentedFlow()); }
 
     RenderMultiColumnSet* nextSiblingMultiColumnSet() const;
     RenderMultiColumnSet* previousSiblingMultiColumnSet() const;
@@ -61,7 +63,7 @@ public:
     // Return true if the specified renderer (descendant of the flow thread) is inside this column set.
     bool containsRendererInFragmentedFlow(const RenderObject&) const;
 
-    void setLogicalTopInFragmentedFlow(LayoutUnit);
+    void NODELETE setLogicalTopInFragmentedFlow(LayoutUnit);
     LayoutUnit logicalTopInFragmentedFlow() const { return isHorizontalWritingMode() ? fragmentedFlowPortionRect().y() : fragmentedFlowPortionRect().x(); }
     void setLogicalBottomInFragmentedFlow(LayoutUnit);
     LayoutUnit logicalBottomInFragmentedFlow() const { return isHorizontalWritingMode() ? fragmentedFlowPortionRect().maxY() : fragmentedFlowPortionRect().maxX(); }
@@ -107,7 +109,7 @@ public:
     // element from being moved to the next column) at a column break. The smallest amount of space
     // shortage we find is the amount with which we will stretch the column height, if it turns out
     // after layout that the columns weren't tall enough.
-    void recordSpaceShortage(LayoutUnit spaceShortage);
+    void NODELETE recordSpaceShortage(LayoutUnit spaceShortage);
 
     void updateLogicalWidth() override;
 
@@ -133,17 +135,16 @@ public:
     };
     LayoutPoint translateFragmentPointToFragmentedFlow(const LayoutPoint & logicalPoint, ColumnHitTestTranslationMode = DoNotClampHitTestTranslationToColumns) const;
 
-    void updateHitTestResult(HitTestResult&, const LayoutPoint&) override;
+    void updateHitTestResult(HitTestResult&, const LayoutPoint&) const override;
     
     LayoutRect columnRectAt(unsigned index) const;
-    unsigned columnCount() const;
+    unsigned NODELETE columnCount() const;
 
     LayoutUnit columnGap() const;
 
 private:
-    void addOverflowFromChildren() override;
-    
-    bool isRenderMultiColumnSet() const override { return true; }
+    void addOverflowFromInFlowChildren(OptionSet<ComputeOverflowOptions> = { }) override;
+
     void layout() override;
 
     Node* nodeForHitTest() const override;
@@ -159,25 +160,24 @@ private:
 
     LayoutUnit logicalHeightOfAllFragmentedFlowContent() const override { return logicalHeightInFragmentedFlow(); }
 
-    void repaintFragmentedFlowContent(const LayoutRect& repaintRect) override;
+    void repaintFragmentedFlowContent(const LayoutRect& repaintRect) const override;
 
-    void collectLayerFragments(LayerFragments&, const LayoutRect& layerBoundingBox, const LayoutRect& dirtyRect) override;
+    void collectLayerFragments(LayerFragments&, const LayoutRect& layerBoundingBox, const LayoutRect& dirtyRect) const override;
 
-    void adjustFragmentBoundsFromFragmentedFlowPortionRect(LayoutRect& fragmentBounds) const override;
+    Vector<LayoutRect> fragmentRectsForFlowContentRect(const LayoutRect&) const final;
+    bool contentRectSpansFragments(const LayoutRect&) const final;
 
-    Vector<LayoutRect> fragmentRectsForFlowContentRect(const LayoutRect&) final;
+    PositionWithAffinity positionForPoint(const LayoutPoint&, HitTestSource, const RenderFragmentContainer*) override;
 
-    VisiblePosition positionForPoint(const LayoutPoint&, const RenderFragmentContainer*) override;
-
-    const char* renderName() const override;
+    ASCIILiteral renderName() const override;
 
     LayoutUnit calculateMaxColumnHeight() const;
 
     LayoutUnit columnLogicalLeft(unsigned) const;
     LayoutUnit columnLogicalTop(unsigned) const;
 
-    LayoutRect fragmentedFlowPortionRectAt(unsigned index) const;
-    LayoutRect fragmentedFlowPortionOverflowRect(const LayoutRect& fragmentedFlowPortion, unsigned index, unsigned colCount, LayoutUnit colGap);
+    LayoutRect NODELETE fragmentedFlowPortionRectAt(unsigned index) const;
+    LayoutRect fragmentedFlowPortionOverflowRect(const LayoutRect& fragmentedFlowPortion, unsigned index, unsigned colCount, LayoutUnit colGap) const;
 
     LayoutUnit initialBlockOffsetForPainting() const;
 
@@ -185,11 +185,11 @@ private:
         ClampToExistingColumns, // Stay within the range of already existing columns.
         AssumeNewColumns // Allow column indices outside the range of already existing columns.
     };
-    unsigned columnIndexAtOffset(LayoutUnit, ColumnIndexCalculationMode = ClampToExistingColumns) const;
+    unsigned NODELETE columnIndexAtOffset(LayoutUnit, ColumnIndexCalculationMode = ClampToExistingColumns) const;
 
     std::pair<unsigned, unsigned> firstAndLastColumnsFromOffsets(LayoutUnit topOffset, LayoutUnit bottomOffset) const;
 
-    void setAndConstrainColumnHeight(LayoutUnit);
+    void NODELETE setAndConstrainColumnHeight(LayoutUnit);
 
     // Return the index of the content run with the currently tallest columns, taking all implicit
     // breaks assumed so far into account.

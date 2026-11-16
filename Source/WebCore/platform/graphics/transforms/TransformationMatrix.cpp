@@ -1,5 +1,6 @@
 /*
- * Copyright (C) 2005, 2006, 2013 Apple Inc.  All rights reserved.
+ * Copyright (C) 2005-2025 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2020 Google Inc. All rights reserved.
  * Copyright (C) 2009 Torch Mobile, Inc.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -33,8 +34,11 @@
 #include "IntRect.h"
 #include "LayoutRect.h"
 #include <cmath>
+#include <float.h>
 #include <wtf/Assertions.h>
 #include <wtf/MathExtras.h>
+#include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMallocInlines.h>
 #include <wtf/text/TextStream.h>
 
 #if CPU(X86_64)
@@ -65,10 +69,10 @@ namespace WebCore {
 // | m_matrix[0][2] m_matrix[1][2] m_matrix[2][2] m_matrix[3][2] |
 // | m_matrix[0][3] m_matrix[1][3] m_matrix[2][3] m_matrix[3][3] |
 
-typedef double Vector4[4];
-typedef double Vector3[3];
+WTF_MAKE_TZONE_ALLOCATED_IMPL(TransformationMatrix);
 
-const double SMALL_NUMBER = 1.e-8;
+using Vector4 = std::array<double, 4>;
+using Vector3 = std::array<double, 3>;
 
 const TransformationMatrix TransformationMatrix::identity { };
 
@@ -84,7 +88,7 @@ const TransformationMatrix TransformationMatrix::identity { };
 //
 //  calculate the determinant of a 2x2 matrix.
 
-static double determinant2x2(double a, double b, double c, double d)
+static double NODELETE determinant2x2(double a, double b, double c, double d)
 {
     return a * d - b * c;
 }
@@ -98,7 +102,7 @@ static double determinant2x2(double a, double b, double c, double d)
 //      | a2,  b2,  c2 |
 //      | a3,  b3,  c3 |
 
-static double determinant3x3(double a1, double a2, double a3, double b1, double b2, double b3, double c1, double c2, double c3)
+static double NODELETE determinant3x3(double a1, double a2, double a3, double b1, double b2, double b3, double c1, double c2, double c3)
 {
     return a1 * determinant2x2(b2, b3, c2, c3)
          - b1 * determinant2x2(a2, a3, c2, c3)
@@ -109,7 +113,7 @@ static double determinant3x3(double a1, double a2, double a3, double b1, double 
 //
 //  calculate the determinant of a 4x4 matrix.
 
-static double determinant4x4(const TransformationMatrix::Matrix4& m)
+static double NODELETE determinant4x4(const TransformationMatrix::Matrix4& m)
 {
     // Assign to individual variable names to aid selecting
     // correct elements
@@ -140,6 +144,7 @@ static double determinant4x4(const TransformationMatrix::Matrix4& m)
          - d1 * determinant3x3(a2, a3, a4, b2, b3, b4, c2, c3, c4);
 }
 
+#if !CPU(ARM64) || !CPU(ADDRESS64)
 // adjoint( original_matrix, inverse_matrix )
 //
 //   calculate the adjoint of a 4x4 matrix
@@ -156,7 +161,7 @@ static double determinant4x4(const TransformationMatrix::Matrix4& m)
 //  The matrix B = (b  ) is the adjoint of A
 //                   ij
 
-static void adjoint(const TransformationMatrix::Matrix4& matrix, TransformationMatrix::Matrix4& result)
+[[maybe_unused]] static inline void NODELETE adjoint(const TransformationMatrix::Matrix4& matrix, TransformationMatrix::Matrix4& result)
 {
     // Assign to individual variable names to aid
     // selecting correct values
@@ -201,27 +206,143 @@ static void adjoint(const TransformationMatrix::Matrix4& matrix, TransformationM
     result[2][3]  = - determinant3x3(a1, a2, a3, b1, b2, b3, d1, d2, d3);
     result[3][3]  =   determinant3x3(a1, a2, a3, b1, b2, b3, c1, c2, c3);
 }
+#endif
 
 // Returns false if the matrix is not invertible
 static bool inverse(const TransformationMatrix::Matrix4& matrix, TransformationMatrix::Matrix4& result)
 {
-    // Calculate the adjoint matrix
-    adjoint(matrix, result);
-
     // Calculate the 4x4 determinant
     // If the determinant is zero,
     // then the inverse matrix is not unique.
-    double det = determinant4x4(matrix);
-
-    if (fabs(det) < SMALL_NUMBER)
+    double determinant = determinant4x4(matrix);
+    if (!std::isnormal(determinant))
         return false;
 
     // Scale the adjoint matrix to get the inverse
+    double inverseDeterminant = 1 / determinant;
+
+#if CPU(ARM64) && CPU(ADDRESS64)
+    const double* mat = &(matrix[0][0]);
+    double* pr = &(result[0][0]);
+    asm volatile(
+        // mat: v16 - v23
+        // m11, m12, m13, m14
+        // m21, m22, m23, m24
+        // m31, m32, m33, m34
+        // m41, m42, m43, m44
+        "ld1 {v16.2d - v19.2d}, [%[mat]], 64  \n\t"
+        "ld1 {v20.2d - v23.2d}, [%[mat]]      \n\t"
+        "ins v30.d[0], %[inverseDeterminant]         \n\t"
+        // Determinant: right mat2x2
+        "trn1 v0.2d, v17.2d, v21.2d    \n\t"
+        "trn2 v1.2d, v19.2d, v23.2d    \n\t"
+        "trn2 v2.2d, v17.2d, v21.2d    \n\t"
+        "trn1 v3.2d, v19.2d, v23.2d    \n\t"
+        "trn2 v5.2d, v21.2d, v23.2d    \n\t"
+        "trn1 v4.2d, v17.2d, v19.2d    \n\t"
+        "trn2 v6.2d, v17.2d, v19.2d    \n\t"
+        "trn1 v7.2d, v21.2d, v23.2d    \n\t"
+        "trn2 v25.2d, v23.2d, v21.2d   \n\t"
+        "trn1 v27.2d, v23.2d, v21.2d   \n\t"
+        "fmul v0.2d, v0.2d, v1.2d      \n\t"
+        "fmul v1.2d, v4.2d, v5.2d      \n\t"
+        "fmls v0.2d, v2.2d, v3.2d      \n\t"
+        "fmul v2.2d, v4.2d, v25.2d     \n\t"
+        "fmls v1.2d, v6.2d, v7.2d      \n\t"
+        "fmls v2.2d, v6.2d, v27.2d     \n\t"
+        // Adjoint:
+        // v24: A11A12, v25: A13A14
+        // v26: A21A22, v27: A23A24
+        "fmul v3.2d, v18.2d, v0.d[1]   \n\t"
+        "fmul v4.2d, v16.2d, v0.d[1]   \n\t"
+        "fmul v5.2d, v16.2d, v1.d[1]   \n\t"
+        "fmul v6.2d, v16.2d, v2.d[1]   \n\t"
+        "fmls v3.2d, v20.2d, v1.d[1]   \n\t"
+        "fmls v4.2d, v20.2d, v2.d[0]   \n\t"
+        "fmls v5.2d, v18.2d, v2.d[0]   \n\t"
+        "fmls v6.2d, v18.2d, v1.d[0]   \n\t"
+        "fmla v3.2d, v22.2d, v2.d[1]   \n\t"
+        "fmla v4.2d, v22.2d, v1.d[0]   \n\t"
+        "fmla v5.2d, v22.2d, v0.d[0]   \n\t"
+        "fmla v6.2d, v20.2d, v0.d[0]   \n\t"
+        "fneg v3.2d, v3.2d             \n\t"
+        "fneg v5.2d, v5.2d             \n\t"
+        "trn1 v26.2d, v3.2d, v4.2d     \n\t"
+        "trn1 v27.2d, v5.2d, v6.2d     \n\t"
+        "trn2 v24.2d, v3.2d, v4.2d     \n\t"
+        "trn2 v25.2d, v5.2d, v6.2d     \n\t"
+        "fneg v24.2d, v24.2d           \n\t"
+        "fneg v25.2d, v25.2d           \n\t"
+        // Inverse
+        // v24: I11I12, v25: I13I14
+        // v26: I21I22, v27: I23I24
+        "fmul v24.2d, v24.2d, v30.d[0] \n\t"
+        "fmul v25.2d, v25.2d, v30.d[0] \n\t"
+        "fmul v26.2d, v26.2d, v30.d[0] \n\t"
+        "fmul v27.2d, v27.2d, v30.d[0] \n\t"
+        "st1 {v24.2d - v27.2d}, [%[pr]], 64 \n\t"
+        // Determinant: left mat2x2
+        "trn1 v0.2d, v16.2d, v20.2d    \n\t"
+        "trn2 v1.2d, v18.2d, v22.2d    \n\t"
+        "trn2 v2.2d, v16.2d, v20.2d    \n\t"
+        "trn1 v3.2d, v18.2d, v22.2d    \n\t"
+        "trn2 v5.2d, v20.2d, v22.2d    \n\t"
+        "trn1 v4.2d, v16.2d, v18.2d    \n\t"
+        "trn2 v6.2d, v16.2d, v18.2d    \n\t"
+        "trn1 v7.2d, v20.2d, v22.2d    \n\t"
+        "trn2 v25.2d, v22.2d, v20.2d   \n\t"
+        "trn1 v27.2d, v22.2d, v20.2d   \n\t"
+        "fmul v0.2d, v0.2d, v1.2d      \n\t"
+        "fmul v1.2d, v4.2d, v5.2d      \n\t"
+        "fmls v0.2d, v2.2d, v3.2d      \n\t"
+        "fmul v2.2d, v4.2d, v25.2d     \n\t"
+        "fmls v1.2d, v6.2d, v7.2d      \n\t"
+        "fmls v2.2d, v6.2d, v27.2d     \n\t"
+        // Adjoint:
+        // v24: A31A32, v25: A33A34
+        // v26: A41A42, v27: A43A44
+        "fmul v3.2d, v19.2d, v0.d[1]   \n\t"
+        "fmul v4.2d, v17.2d, v0.d[1]   \n\t"
+        "fmul v5.2d, v17.2d, v1.d[1]   \n\t"
+        "fmul v6.2d, v17.2d, v2.d[1]   \n\t"
+        "fmls v3.2d, v21.2d, v1.d[1]   \n\t"
+        "fmls v4.2d, v21.2d, v2.d[0]   \n\t"
+        "fmls v5.2d, v19.2d, v2.d[0]   \n\t"
+        "fmls v6.2d, v19.2d, v1.d[0]   \n\t"
+        "fmla v3.2d, v23.2d, v2.d[1]   \n\t"
+        "fmla v4.2d, v23.2d, v1.d[0]   \n\t"
+        "fmla v5.2d, v23.2d, v0.d[0]   \n\t"
+        "fmla v6.2d, v21.2d, v0.d[0]   \n\t"
+        "fneg v3.2d, v3.2d             \n\t"
+        "fneg v5.2d, v5.2d             \n\t"
+        "trn1 v26.2d, v3.2d, v4.2d     \n\t"
+        "trn1 v27.2d, v5.2d, v6.2d     \n\t"
+        "trn2 v24.2d, v3.2d, v4.2d     \n\t"
+        "trn2 v25.2d, v5.2d, v6.2d     \n\t"
+        "fneg v24.2d, v24.2d           \n\t"
+        "fneg v25.2d, v25.2d           \n\t"
+        // Inverse
+        // v24: I31I32, v25: I33I34
+        // v26: I41I42, v27: I43I44
+        "fmul v24.2d, v24.2d, v30.d[0] \n\t"
+        "fmul v25.2d, v25.2d, v30.d[0] \n\t"
+        "fmul v26.2d, v26.2d, v30.d[0] \n\t"
+        "fmul v27.2d, v27.2d, v30.d[0] \n\t"
+        "st1 {v24.2d - v27.2d}, [%[pr]] \n\t"
+        : [mat]"+r"(mat), [pr]"+r"(pr)
+        : [inverseDeterminant]"r"(inverseDeterminant)
+        : "memory", "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v16", "v17", "v18",
+        "v19", "v20", "v21", "v22", "v23", "v24", "v25", "v26", "v27", "v28", "v29", "v30"
+    );
+#else
+    // Calculate the adjoint matrix
+    adjoint(matrix, result);
 
     for (int i = 0; i < 4; i++)
         for (int j = 0; j < 4; j++)
-            result[i][j] = result[i][j] / det;
+            result[i][j] = result[i][j] * inverseDeterminant;
 
+#endif
     return true;
 }
 
@@ -231,7 +352,7 @@ static bool inverse(const TransformationMatrix::Matrix4& matrix, TransformationM
 // From Graphics Gems: unmatrix.c
 
 // Transpose rotation portion of matrix a, return b
-static void transposeMatrix4(const TransformationMatrix::Matrix4& a, TransformationMatrix::Matrix4& b)
+static void NODELETE transposeMatrix4(const TransformationMatrix::Matrix4& a, TransformationMatrix::Matrix4& b)
 {
     for (int i = 0; i < 4; i++)
         for (int j = 0; j < 4; j++)
@@ -239,7 +360,7 @@ static void transposeMatrix4(const TransformationMatrix::Matrix4& a, Transformat
 }
 
 // Multiply a homogeneous point by a matrix and return the transformed point
-static void v4MulPointByMatrix(const Vector4 p, const TransformationMatrix::Matrix4& m, Vector4 result)
+static void NODELETE v4MulPointByMatrix(const Vector4& p, const TransformationMatrix::Matrix4& m, Vector4& result)
 {
     result[0] = (p[0] * m[0][0]) + (p[1] * m[1][0]) +
                 (p[2] * m[2][0]) + (p[3] * m[3][0]);
@@ -251,12 +372,12 @@ static void v4MulPointByMatrix(const Vector4 p, const TransformationMatrix::Matr
                 (p[2] * m[2][3]) + (p[3] * m[3][3]);
 }
 
-static double v3Length(Vector3 a)
+static double NODELETE v3Length(const Vector3& a)
 {
     return std::hypot(a[0], a[1], a[2]);
 }
 
-static void v3Scale(Vector3 v, double desiredLength)
+static void NODELETE v3Scale(Vector3& v, double desiredLength)
 {
     double len = v3Length(v);
     if (len != 0) {
@@ -267,14 +388,14 @@ static void v3Scale(Vector3 v, double desiredLength)
     }
 }
 
-static double v3Dot(const Vector3 a, const Vector3 b)
+static double NODELETE v3Dot(const Vector3& a, const Vector3& b)
 {
     return (a[0] * b[0]) + (a[1] * b[1]) + (a[2] * b[2]);
 }
 
 // Make a linear combination of two vectors and return the result.
 // result = (a * ascl) + (b * bscl)
-static void v3Combine(const Vector3 a, const Vector3 b, Vector3 result, double ascl, double bscl)
+static void NODELETE v3Combine(const Vector3& a, const Vector3& b, Vector3& result, double ascl, double bscl)
 {
     result[0] = (ascl * a[0]) + (bscl * b[0]);
     result[1] = (ascl * a[1]) + (bscl * b[1]);
@@ -282,7 +403,7 @@ static void v3Combine(const Vector3 a, const Vector3 b, Vector3 result, double a
 }
 
 // Return the cross product result = a cross b */
-static void v3Cross(const Vector3 a, const Vector3 b, Vector3 result)
+static void NODELETE v3Cross(const Vector3& a, const Vector3& b, Vector3& result)
 {
     result[0] = (a[1] * b[2]) - (a[2] * b[1]);
     result[1] = (a[2] * b[0]) - (a[0] * b[2]);
@@ -354,7 +475,7 @@ static bool decompose2(const TransformationMatrix::Matrix4& matrix, Transformati
 static bool decompose4(const TransformationMatrix::Matrix4& mat, TransformationMatrix::Decomposed4Type& result)
 {
     TransformationMatrix::Matrix4 localMatrix;
-    memcpy(localMatrix, mat, sizeof(TransformationMatrix::Matrix4));
+    memcpySpan(std::span { localMatrix }, std::span { mat });
 
     // Normalize the matrix.
     if (localMatrix[3][3] == 0)
@@ -368,12 +489,12 @@ static bool decompose4(const TransformationMatrix::Matrix4& mat, TransformationM
     // perspectiveMatrix is used to solve for perspective, but it also provides
     // an easy way to test for singularity of the upper 3x3 component.
     TransformationMatrix::Matrix4 perspectiveMatrix;
-    memcpy(perspectiveMatrix, localMatrix, sizeof(TransformationMatrix::Matrix4));
+    memcpySpan(std::span { perspectiveMatrix }, std::span { localMatrix });
     for (i = 0; i < 3; i++)
         perspectiveMatrix[i][3] = 0;
     perspectiveMatrix[3][3] = 1;
 
-    if (determinant4x4(perspectiveMatrix) == 0)
+    if (!std::isnormal(determinant4x4(perspectiveMatrix)))
         return false;
 
     // First, isolate perspective. This is the messiest.
@@ -389,7 +510,8 @@ static bool decompose4(const TransformationMatrix::Matrix4& mat, TransformationM
         // rightHandSide by the inverse. (This is the easiest way, not
         // necessarily the best.)
         TransformationMatrix::Matrix4 inversePerspectiveMatrix, transposedInversePerspectiveMatrix;
-        inverse(perspectiveMatrix, inversePerspectiveMatrix);
+        if (!inverse(perspectiveMatrix, inversePerspectiveMatrix))
+            return false;
         transposeMatrix4(inversePerspectiveMatrix, transposedInversePerspectiveMatrix);
 
         Vector4 perspectivePoint;
@@ -417,159 +539,140 @@ static bool decompose4(const TransformationMatrix::Matrix4& mat, TransformationM
     result.translateZ = localMatrix[3][2];
     localMatrix[3][2] = 0;
 
-    // Vector4 type and functions need to be added to the common set.
-    Vector3 row[3], pdum3;
+    // Note: Deviating from the spec in terms of variable naming. The matrix is
+    // stored on column major order and not row major. Using the variable 'row'
+    // instead of 'column' in the spec pseudocode has been the source of
+    // confusion, specifically in sorting out rotations.
+    std::array<Vector3, 3> column;
+    Vector3 pdum3;
 
     // Now get scale and shear.
     for (i = 0; i < 3; i++) {
-        row[i][0] = localMatrix[i][0];
-        row[i][1] = localMatrix[i][1];
-        row[i][2] = localMatrix[i][2];
+        column[i][0] = localMatrix[i][0];
+        column[i][1] = localMatrix[i][1];
+        column[i][2] = localMatrix[i][2];
     }
 
-    // Compute X scale factor and normalize first row.
-    result.scaleX = v3Length(row[0]);
-    v3Scale(row[0], 1.0);
+    // Compute X scale factor and normalize the first column.
+    result.scaleX = v3Length(column[0]);
+    v3Scale(column[0], 1.0);
 
-    // Compute XY shear factor and make 2nd row orthogonal to 1st.
-    result.skewXY = v3Dot(row[0], row[1]);
-    v3Combine(row[1], row[0], row[1], 1.0, -result.skewXY);
+    // Compute XY shear factor and make 2nd column orthogonal to 1st.
+    result.skewXY = v3Dot(column[0], column[1]);
+    v3Combine(column[1], column[0], column[1], 1.0, -result.skewXY);
 
-    // Now, compute Y scale and normalize 2nd row.
-    result.scaleY = v3Length(row[1]);
-    v3Scale(row[1], 1.0);
+    // Now, compute Y scale and normalize 2nd column.
+    result.scaleY = v3Length(column[1]);
+    v3Scale(column[1], 1.0);
     result.skewXY /= result.scaleY;
 
-    // Compute XZ and YZ shears, orthogonalize 3rd row.
-    result.skewXZ = v3Dot(row[0], row[2]);
-    v3Combine(row[2], row[0], row[2], 1.0, -result.skewXZ);
-    result.skewYZ = v3Dot(row[1], row[2]);
-    v3Combine(row[2], row[1], row[2], 1.0, -result.skewYZ);
+    // Compute XZ and YZ shears, orthogonalize 3rd column.
+    result.skewXZ = v3Dot(column[0], column[2]);
+    v3Combine(column[2], column[0], column[2], 1.0, -result.skewXZ);
+    result.skewYZ = v3Dot(column[1], column[2]);
+    v3Combine(column[2], column[1], column[2], 1.0, -result.skewYZ);
 
-    // Next, get Z scale and normalize 3rd row.
-    result.scaleZ = v3Length(row[2]);
-    v3Scale(row[2], 1.0);
+    // Next, get Z scale and normalize 3rd column.
+    result.scaleZ = v3Length(column[2]);
+    v3Scale(column[2], 1.0);
     result.skewXZ /= result.scaleZ;
     result.skewYZ /= result.scaleZ;
 
-    // At this point, the matrix (in rows[]) is orthonormal.
+    // At this point, the matrix (in column[]) is orthonormal.
     // Check for a coordinate system flip. If the determinant
     // is -1, then negate the matrix and the scaling factors.
-    v3Cross(row[1], row[2], pdum3);
-    if (v3Dot(row[0], pdum3) < 0) {
+    v3Cross(column[1], column[2], pdum3);
+    if (v3Dot(column[0], pdum3) < 0) {
 
         result.scaleX *= -1;
         result.scaleY *= -1;
         result.scaleZ *= -1;
 
         for (i = 0; i < 3; i++) {
-            row[i][0] *= -1;
-            row[i][1] *= -1;
-            row[i][2] *= -1;
+            column[i][0] *= -1;
+            column[i][1] *= -1;
+            column[i][2] *= -1;
         }
     }
 
-    // Now, get the rotations out, as described in the gem.
+    // Lastly, compute the quaternions.
+    // See https://en.wikipedia.org/wiki/Rotation_matrix#Quaternion.
+    // Note: deviating from spec (http://www.w3.org/TR/css3-transforms/)
+    // which has a degenerate case when the trace (t) of the orthonormal matrix
+    // (Q) approaches -1. In the Wikipedia article, Q_ij is indexing on row then
+    // column. Thus, Q_ij = column[j][i].
 
-    // FIXME - Add the ability to return either quaternions (which are
-    // easier to recompose with) or Euler angles (rx, ry, rz), which
-    // are easier for authors to deal with. The latter will only be useful
-    // when we fix https://bugs.webkit.org/show_bug.cgi?id=23799, so I
-    // will leave the Euler angle code here for now.
+    // The following are equivalent represnetations of the rotation matrix:
+    //
+    // Axis-angle form:
+    //
+    //      [ c+(1-c)x^2  (1-c)xy-sz  (1-c)xz+sy ]    c = cos theta
+    // R =  [ (1-c)xy+sz  c+(1-c)y^2  (1-c)yz-sx ]    s = sin theta
+    //      [ (1-c)xz-sy  (1-c)yz+sx  c+(1-c)z^2 ]    [x,y,z] = axis or rotation
+    //
+    // The sum of the diagonal elements (trace) is a simple function of the cosine
+    // of the angle. The w component of the quaternion is cos(theta/2), and we
+    // make use of the double angle formula to directly compute w from the
+    // trace. Differences between pairs of skew symmetric elements in this matrix
+    // isolate the remaining components. Since w can be zero (also numerically
+    // unstable if near zero), we cannot rely solely on this approach to compute
+    // the quaternion components.
+    //
+    // Quaternion form:
+    //
+    //       [ 1-2(y^2+z^2)    2(xy-zw)      2(xz+yw)   ]
+    //  r =  [   2(xy+zw)    1-2(x^2+z^2)    2(yz-xw)   ]    q = (x,y,y,w)
+    //       [   2(xz-yw)      2(yz+xw)    1-2(x^2+y^2) ]
+    //
+    // Different linear combinations of the diagonal elements isolates x, y or z.
+    // Sums or differences between skew symmetric elements isolate the remainder.
 
-    // ret.rotateY = asin(-row[0][2]);
-    // if (cos(ret.rotateY) != 0) {
-    //     ret.rotateX = atan2(row[1][2], row[2][2]);
-    //     ret.rotateZ = atan2(row[0][1], row[0][0]);
-    // } else {
-    //     ret.rotateX = atan2(-row[2][0], row[1][1]);
-    //     ret.rotateZ = 0;
-    // }
+    double r, s, t, x, y, z, w;
 
-    double s, t, x, y, z, w;
+    t = column[0][0] + column[1][1] + column[2][2];
 
-    t = row[0][0] + row[1][1] + row[2][2] + 1.0;
-
-    if (t > 1e-4) {
-        s = 0.5 / sqrt(t);
-        w = 0.25 / s;
-        x = (row[2][1] - row[1][2]) * s;
-        y = (row[0][2] - row[2][0]) * s;
-        z = (row[1][0] - row[0][1]) * s;
-    } else if (row[0][0] > row[1][1] && row[0][0] > row[2][2]) {
-        s = sqrt(1.0 + row[0][0] - row[1][1] - row[2][2]) * 2.0; // S = 4 * qx.
-        x = 0.25 * s;
-        y = (row[0][1] + row[1][0]) / s;
-        z = (row[0][2] + row[2][0]) / s;
-        w = (row[2][1] - row[1][2]) / s;
-    } else if (row[1][1] > row[2][2]) {
-        s = sqrt(1.0 + row[1][1] - row[0][0] - row[2][2]) * 2.0; // S = 4 * qy.
-        x = (row[0][1] + row[1][0]) / s;
-        y = 0.25 * s;
-        z = (row[1][2] + row[2][1]) / s;
-        w = (row[0][2] - row[2][0]) / s;
+    // https://en.wikipedia.org/wiki/Rotation_matrix#Quaternion
+    if (1 + t > 0.001) {
+        // Numerically stable as long as 1+t is not close to zero. Otherwise use the
+        // diagonal element with the greatest value to compute the quaternions.
+        r = std::sqrt(1.0 + t);
+        s = 0.5 / r;
+        w = 0.5 * r;
+        x = (column[1][2] - column[2][1]) * s;
+        y = (column[2][0] - column[0][2]) * s;
+        z = (column[0][1] - column[1][0]) * s;
+    } else if (column[0][0] > column[1][1] && column[0][0] > column[2][2]) {
+        // Q_xx is largest.
+        r = std::sqrt(1.0 + column[0][0] - column[1][1] - column[2][2]);
+        s = 0.5 / r;
+        x = 0.5 * r;
+        y = (column[1][0] + column[0][1]) * s;
+        z = (column[2][0] + column[0][2]) * s;
+        w = (column[1][2] - column[2][1]) * s;
+    } else if (column[1][1] > column[2][2]) {
+        // Q_yy is largest.
+        r = std::sqrt(1.0 - column[0][0] + column[1][1] - column[2][2]);
+        s = 0.5 / r;
+        x = (column[1][0] + column[0][1]) * s;
+        y = 0.5 * r;
+        z = (column[2][1] + column[1][2]) * s;
+        w = (column[2][0] - column[0][2]) * s;
     } else {
-        s = sqrt(1.0 + row[2][2] - row[0][0] - row[1][1]) * 2.0; // S = 4 * qz.
-        x = (row[0][2] + row[2][0]) / s;
-        y = (row[1][2] + row[2][1]) / s;
-        z = 0.25 * s;
-        w = (row[1][0] - row[0][1]) / s;
+        // Q_zz is largest.
+        r = std::sqrt(1.0 - column[0][0] - column[1][1] + column[2][2]);
+        s = 0.5 / r;
+        x = (column[2][0] + column[0][2]) * s;
+        y = (column[2][1] + column[1][2]) * s;
+        z = 0.5 * r;
+        w = (column[0][1] - column[1][0]) * s;
     }
 
-    result.quaternionX = x;
-    result.quaternionY = y;
-    result.quaternionZ = z;
-    result.quaternionW = w;
+    result.quaternion.x = x;
+    result.quaternion.y = y;
+    result.quaternion.z = z;
+    result.quaternion.w = w;
 
     return true;
-}
-
-// Perform a spherical linear interpolation between the two
-// passed quaternions with 0 <= t <= 1.
-static void slerp(double qa[4], const double qb[4], double t)
-{
-    double ax, ay, az, aw;
-    double bx, by, bz, bw;
-    double cx, cy, cz, cw;
-    double angle;
-    double th, invth, scale, invscale;
-
-    ax = qa[0]; ay = qa[1]; az = qa[2]; aw = qa[3];
-    bx = qb[0]; by = qb[1]; bz = qb[2]; bw = qb[3];
-
-    angle = ax * bx + ay * by + az * bz + aw * bw;
-
-    if (angle < 0.0) {
-        ax = -ax; ay = -ay;
-        az = -az; aw = -aw;
-        angle = -angle;
-    }
-
-    if (angle + 1.0 > .05) {
-        if (1.0 - angle >= .05) {
-            th = acos (angle);
-            invth = 1.0 / sin (th);
-            scale = sin (th * (1.0 - t)) * invth;
-            invscale = sin (th * t) * invth;
-        } else {
-            scale = 1.0 - t;
-            invscale = t;
-        }
-    } else {
-        bx = -ay;
-        by = ax;
-        bz = -aw;
-        bw = az;
-        scale = sin(piDouble * (.5 - t));
-        invscale = sin (piDouble * t);
-    }
-
-    cx = ax * scale + bx * invscale;
-    cy = ay * scale + by * invscale;
-    cz = az * scale + bz * invscale;
-    cw = aw * scale + bw * invscale;
-
-    qa[0] = cx; qa[1] = cy; qa[2] = cz; qa[3] = cw;
 }
 
 // End of Supporting Math Functions
@@ -579,19 +682,17 @@ TransformationMatrix::TransformationMatrix(const AffineTransform& t)
     setMatrix(t.a(), t.b(), t.c(), t.d(), t.e(), t.f());
 }
 
-
-// FIXME: Once https://bugs.webkit.org/show_bug.cgi?id=220856 is addressed we can reuse this function in TransformationMatrix::recompose4().
-TransformationMatrix TransformationMatrix::fromQuaternion(double qx, double qy, double qz, double qw)
+TransformationMatrix TransformationMatrix::fromQuaternion(const Quaternion& q)
 {
-    double xx = qx * qx;
-    double yy = qy * qy;
-    double zz = qz * qz;
-    double xz = qx * qz;
-    double xy = qx * qy; 
-    double yz = qy * qz;
-    double xw = qw * qx;
-    double yw = qw * qy;
-    double zw = qw * qz;
+    double xx = q.x * q.x;
+    double yy = q.y * q.y;
+    double zz = q.z * q.z;
+    double xz = q.x * q.z;
+    double xy = q.x * q.y;
+    double yz = q.y * q.z;
+    double xw = q.w * q.x;
+    double yw = q.w * q.y;
+    double zw = q.w * q.z;
 
     return TransformationMatrix(1 - 2 * (yy + zz), 2 * (xy + zw), 2 * (xz - yw), 0,
         2 * (xy - zw), 1 - 2 * (xx + zz), 2 * (yz + xw), 0,
@@ -634,7 +735,7 @@ TransformationMatrix& TransformationMatrix::scale(double s)
 
 TransformationMatrix& TransformationMatrix::rotateFromVector(double x, double y)
 {
-    return rotate(rad2deg(atan2(y, x)));
+    return rotateRadians(atan2(y, x));
 }
 
 TransformationMatrix& TransformationMatrix::flipX()
@@ -907,7 +1008,14 @@ TransformationMatrix& TransformationMatrix::scale3d(double sx, double sy, double
     return *this;
 }
 
-TransformationMatrix& TransformationMatrix::rotate3d(double x, double y, double z, double angle)
+static double NODELETE roundEpsilonToZero(double val)
+{
+    if (-DBL_EPSILON < val && val < DBL_EPSILON)
+        return 0.0;
+    return val;
+}
+
+TransformationMatrix& TransformationMatrix::rotate3d(double x, double y, double z, double angle, RotationSnapping snapping)
 {
     // Normalize the axis of rotation
     double length = std::hypot(x, y, z);
@@ -923,13 +1031,15 @@ TransformationMatrix& TransformationMatrix::rotate3d(double x, double y, double 
     // Angles are in degrees. Switch to radians.
     angle = deg2rad(angle);
 
-    double sinTheta = sin(angle);
-    double cosTheta = cos(angle);
+    double sinTheta = snapping == RotationSnapping::Snap90degRotations ? roundEpsilonToZero(sin(angle)) : sin(angle);
+    double cosTheta = snapping == RotationSnapping::Snap90degRotations ? roundEpsilonToZero(cos(angle)) : cos(angle);
 
     TransformationMatrix mat;
 
     // Optimize cases where the axis is along a major axis
-    if (x == 1.0 && y == 0.0 && z == 0.0) {
+    // Since we've already normalized the vector we don't need to check that the
+    // other two dimensions are zero
+    if (x == 1.0) {
         mat.m_matrix[0][0] = 1.0;
         mat.m_matrix[0][1] = 0.0;
         mat.m_matrix[0][2] = 0.0;
@@ -942,7 +1052,7 @@ TransformationMatrix& TransformationMatrix::rotate3d(double x, double y, double 
         mat.m_matrix[0][3] = mat.m_matrix[1][3] = mat.m_matrix[2][3] = 0.0;
         mat.m_matrix[3][0] = mat.m_matrix[3][1] = mat.m_matrix[3][2] = 0.0;
         mat.m_matrix[3][3] = 1.0;
-    } else if (x == 0.0 && y == 1.0 && z == 0.0) {
+    } else if (y == 1.0) {
         mat.m_matrix[0][0] = cosTheta;
         mat.m_matrix[0][1] = 0.0;
         mat.m_matrix[0][2] = -sinTheta;
@@ -955,7 +1065,7 @@ TransformationMatrix& TransformationMatrix::rotate3d(double x, double y, double 
         mat.m_matrix[0][3] = mat.m_matrix[1][3] = mat.m_matrix[2][3] = 0.0;
         mat.m_matrix[3][0] = mat.m_matrix[3][1] = mat.m_matrix[3][2] = 0.0;
         mat.m_matrix[3][3] = 1.0;
-    } else if (x == 0.0 && y == 0.0 && z == 1.0) {
+    } else if (z == 1.0) {
         mat.m_matrix[0][0] = cosTheta;
         mat.m_matrix[0][1] = sinTheta;
         mat.m_matrix[0][2] = 0.0;
@@ -994,19 +1104,23 @@ TransformationMatrix& TransformationMatrix::rotate3d(double x, double y, double 
     return *this;
 }
 
-TransformationMatrix& TransformationMatrix::rotate(double angle)
+TransformationMatrix& TransformationMatrix::rotate(double angle, RotationSnapping snapping)
 {
     if (!std::fmod(angle, 360))
         return *this;
 
-    angle = deg2rad(angle);
-    double sinZ = sin(angle);
-    double cosZ = cos(angle);
+    return rotateRadians(deg2rad(angle), snapping);
+}
+
+TransformationMatrix& TransformationMatrix::rotateRadians(double angle, RotationSnapping snapping)
+{
+    double sinZ = snapping == RotationSnapping::Snap90degRotations ? roundEpsilonToZero(sin(angle)) : sin(angle);
+    double cosZ = snapping == RotationSnapping::Snap90degRotations ? roundEpsilonToZero(cos(angle)) : cos(angle);
     multiply({ cosZ, sinZ, -sinZ, cosZ, 0, 0 });
     return *this;
 }
 
-TransformationMatrix& TransformationMatrix::rotate3d(double rx, double ry, double rz)
+TransformationMatrix& TransformationMatrix::rotate3d(double rx, double ry, double rz, RotationSnapping snapping)
 {
     // Angles are in degrees. Switch to radians.
     rx = deg2rad(rx);
@@ -1015,8 +1129,8 @@ TransformationMatrix& TransformationMatrix::rotate3d(double rx, double ry, doubl
 
     TransformationMatrix mat;
 
-    double sinTheta = sin(rz);
-    double cosTheta = cos(rz);
+    double sinTheta = snapping == RotationSnapping::Snap90degRotations ? roundEpsilonToZero(sin(rz)) : sin(rz);
+    double cosTheta = snapping == RotationSnapping::Snap90degRotations ? roundEpsilonToZero(cos(rz)) : cos(rz);
 
     mat.m_matrix[0][0] = cosTheta;
     mat.m_matrix[0][1] = sinTheta;
@@ -1033,8 +1147,8 @@ TransformationMatrix& TransformationMatrix::rotate3d(double rx, double ry, doubl
 
     TransformationMatrix rmat(mat);
 
-    sinTheta = sin(ry);
-    cosTheta = cos(ry);
+    sinTheta = snapping == RotationSnapping::Snap90degRotations ? roundEpsilonToZero(sin(ry)) : sin(ry);
+    cosTheta = snapping == RotationSnapping::Snap90degRotations ? roundEpsilonToZero(cos(ry)) : cos(ry);
 
     mat.m_matrix[0][0] = cosTheta;
     mat.m_matrix[0][1] = 0.0;
@@ -1051,8 +1165,8 @@ TransformationMatrix& TransformationMatrix::rotate3d(double rx, double ry, doubl
 
     rmat.multiply(mat);
 
-    sinTheta = sin(rx);
-    cosTheta = cos(rx);
+    sinTheta = snapping == RotationSnapping::Snap90degRotations ? roundEpsilonToZero(sin(rx)) : sin(rx);
+    cosTheta = snapping == RotationSnapping::Snap90degRotations ? roundEpsilonToZero(cos(rx)) : cos(rx);
 
     mat.m_matrix[0][0] = 1.0;
     mat.m_matrix[0][1] = 0.0;
@@ -1157,10 +1271,32 @@ TransformationMatrix TransformationMatrix::rectToRect(const FloatRect& from, con
                                 to.y() - from.y());
 }
 
+TransformationMatrix& TransformationMatrix::zoom(double zoomFactor)
+{
+    m_matrix[0][3] /= zoomFactor;
+    m_matrix[1][3] /= zoomFactor;
+    m_matrix[2][3] /= zoomFactor;
+    m_matrix[3][0] *= zoomFactor;
+    m_matrix[3][1] *= zoomFactor;
+    m_matrix[3][2] *= zoomFactor;
+    return *this;
+}
+
+TransformationMatrix& TransformationMatrix::unzoom(double zoomFactor)
+{
+    m_matrix[0][3] *= zoomFactor;
+    m_matrix[1][3] *= zoomFactor;
+    m_matrix[2][3] *= zoomFactor;
+    m_matrix[3][0] /= zoomFactor;
+    m_matrix[3][1] /= zoomFactor;
+    m_matrix[3][2] /= zoomFactor;
+    return *this;
+}
+
 // this = mat * this.
 TransformationMatrix& TransformationMatrix::multiply(const TransformationMatrix& mat)
 {
-#if CPU(ARM64) && defined(_LP64)
+#if CPU(ARM64) && CPU(ADDRESS64)
     double* leftMatrix = &(m_matrix[0][0]);
     const double* rightMatrix = &(mat.m_matrix[0][0]);
     asm volatile (
@@ -1528,9 +1664,20 @@ TransformationMatrix& TransformationMatrix::multiply(const TransformationMatrix&
     tmp[3][3] = (mat.m_matrix[3][0] * m_matrix[0][3] + mat.m_matrix[3][1] * m_matrix[1][3]
                + mat.m_matrix[3][2] * m_matrix[2][3] + mat.m_matrix[3][3] * m_matrix[3][3]);
 
-    memcpy(&m_matrix[0][0], &tmp[0][0], sizeof(Matrix4));
+    memcpySpan(std::span { m_matrix }, std::span { tmp });
 #endif
     return *this;
+}
+
+TransformationMatrix& TransformationMatrix::multiplyAffineTransform(const AffineTransform& matrix)
+{
+    if (matrix.isIdentity())
+        return *this;
+
+    if (matrix.isIdentityOrTranslation())
+        return translate(matrix.e(), matrix.f());
+
+    return multiply(matrix.toTransformationMatrix());
 }
 
 void TransformationMatrix::multVecMatrix(double x, double y, double& resultX, double& resultY) const
@@ -1563,7 +1710,7 @@ bool TransformationMatrix::isInvertible() const
     if (type == Type::IdentityOrTranslation)
         return true;
 
-    return fabs(type == Type::Affine ? (m11() * m22() - m12() * m21()) : WebCore::determinant4x4(m_matrix)) >= SMALL_NUMBER;
+    return std::isnormal(type == Type::Affine ? (m11() * m22() - m12() * m21()) : WebCore::determinant4x4(m_matrix));
 }
 
 std::optional<TransformationMatrix> TransformationMatrix::inverse() const
@@ -1589,7 +1736,7 @@ std::optional<TransformationMatrix> TransformationMatrix::inverse() const
         double e = m41();
         double f = m42();
         double determinant = a * d - b * c;
-        if (fabs(determinant) < SMALL_NUMBER)
+        if (!std::isnormal(determinant))
             return std::nullopt;
 
         double inverseDeterminant = 1 / determinant;
@@ -1629,19 +1776,44 @@ void TransformationMatrix::makeAffine()
     m_matrix[3][3] = 1;
 }
 
+void TransformationMatrix::flatten()
+{
+    m_matrix[0][2] = 0;
+
+    m_matrix[1][2] = 0;
+
+    m_matrix[2][0] = 0;
+    m_matrix[2][1] = 0;
+    m_matrix[2][2] = 1;
+    m_matrix[2][3] = 0;
+
+    m_matrix[3][2] = 0;
+}
+
 AffineTransform TransformationMatrix::toAffineTransform() const
 {
     return AffineTransform(m_matrix[0][0], m_matrix[0][1], m_matrix[1][0],
                            m_matrix[1][1], m_matrix[3][0], m_matrix[3][1]);
 }
 
-static inline void blendFloat(double& from, double to, double progress)
+static inline void NODELETE blendFloat(double& from, double to, double progress, CompositeOperation compositeOperation)
 {
-    if (from != to)
+    switch (compositeOperation) {
+    case CompositeOperation::Replace:
         from = from + (to - from) * progress;
+        break;
+    case CompositeOperation::Accumulate:
+        ASSERT(progress == 1.0);
+        from += to - 1;
+        break;
+    case CompositeOperation::Add:
+        ASSERT(progress == 1.0);
+        from += to;
+        break;
+    }
 }
 
-void TransformationMatrix::blend2(const TransformationMatrix& from, double progress)
+void TransformationMatrix::blend2(const TransformationMatrix& from, double progress, CompositeOperation compositeOperation)
 {
     Decomposed2Type fromDecomp;
     Decomposed2Type toDecomp;
@@ -1664,27 +1836,29 @@ void TransformationMatrix::blend2(const TransformationMatrix& from, double progr
     if (!toDecomp.angle)
         toDecomp.angle = 360;
 
-    if (fabs(fromDecomp.angle - toDecomp.angle) > 180) {
+    if (std::abs(fromDecomp.angle - toDecomp.angle) > 180) {
         if (fromDecomp.angle > toDecomp.angle)
             fromDecomp.angle -= 360;
         else
             toDecomp.angle -= 360;
     }
-
-    blendFloat(fromDecomp.m11, toDecomp.m11, progress);
-    blendFloat(fromDecomp.m12, toDecomp.m12, progress);
-    blendFloat(fromDecomp.m21, toDecomp.m21, progress);
-    blendFloat(fromDecomp.m22, toDecomp.m22, progress);
-    blendFloat(fromDecomp.translateX, toDecomp.translateX, progress);
-    blendFloat(fromDecomp.translateY, toDecomp.translateY, progress);
-    blendFloat(fromDecomp.scaleX, toDecomp.scaleX, progress);
-    blendFloat(fromDecomp.scaleY, toDecomp.scaleY, progress);
-    blendFloat(fromDecomp.angle, toDecomp.angle, progress);
-
+    
+    // When compositeOperation is accumulate, if the decomposed function is a 1-based value (for affine matrix these properties are
+    // m11, m22, scaleX and scaleY), use one based accumulation. Otherwise, use behavior for add.
+    auto operationForNonOneBasedValues = compositeOperation == CompositeOperation::Accumulate ? CompositeOperation::Add : compositeOperation;
+    blendFloat(fromDecomp.m11, toDecomp.m11, progress, compositeOperation);
+    blendFloat(fromDecomp.m12, toDecomp.m12, progress, operationForNonOneBasedValues);
+    blendFloat(fromDecomp.m21, toDecomp.m21, progress, operationForNonOneBasedValues);
+    blendFloat(fromDecomp.m22, toDecomp.m22, progress, compositeOperation);
+    blendFloat(fromDecomp.translateX, toDecomp.translateX, progress, operationForNonOneBasedValues);
+    blendFloat(fromDecomp.translateY, toDecomp.translateY, progress, operationForNonOneBasedValues);
+    blendFloat(fromDecomp.scaleX, toDecomp.scaleX, progress, compositeOperation);
+    blendFloat(fromDecomp.scaleY, toDecomp.scaleY, progress, compositeOperation);
+    blendFloat(fromDecomp.angle, toDecomp.angle, progress, operationForNonOneBasedValues);
     recompose2(fromDecomp);
 }
 
-void TransformationMatrix::blend4(const TransformationMatrix& from, double progress)
+void TransformationMatrix::blend4(const TransformationMatrix& from, double progress, CompositeOperation compositeOperation)
 {
     Decomposed4Type fromDecomp;
     Decomposed4Type toDecomp;
@@ -1693,49 +1867,53 @@ void TransformationMatrix::blend4(const TransformationMatrix& from, double progr
             *this = from;
         return;
     }
+    
+    // When compositeOperation is accumulate, if the decomposed function is a 1-based value (for non-affine matrix these properties are
+    // scaleX, scaleY, scaleZ, and perspectiveW), use one based accumulation. Otherwise, use behavior for add.
+    auto operationForNonOneBasedValues = compositeOperation == CompositeOperation::Accumulate ? CompositeOperation::Add : compositeOperation;
 
-    blendFloat(fromDecomp.scaleX, toDecomp.scaleX, progress);
-    blendFloat(fromDecomp.scaleY, toDecomp.scaleY, progress);
-    blendFloat(fromDecomp.scaleZ, toDecomp.scaleZ, progress);
-    blendFloat(fromDecomp.skewXY, toDecomp.skewXY, progress);
-    blendFloat(fromDecomp.skewXZ, toDecomp.skewXZ, progress);
-    blendFloat(fromDecomp.skewYZ, toDecomp.skewYZ, progress);
-    blendFloat(fromDecomp.translateX, toDecomp.translateX, progress);
-    blendFloat(fromDecomp.translateY, toDecomp.translateY, progress);
-    blendFloat(fromDecomp.translateZ, toDecomp.translateZ, progress);
-    blendFloat(fromDecomp.perspectiveX, toDecomp.perspectiveX, progress);
-    blendFloat(fromDecomp.perspectiveY, toDecomp.perspectiveY, progress);
-    blendFloat(fromDecomp.perspectiveZ, toDecomp.perspectiveZ, progress);
-    blendFloat(fromDecomp.perspectiveW, toDecomp.perspectiveW, progress);
-
-    slerp(&fromDecomp.quaternionX, &toDecomp.quaternionX, progress);
+    blendFloat(fromDecomp.scaleX, toDecomp.scaleX, progress, compositeOperation);
+    blendFloat(fromDecomp.scaleY, toDecomp.scaleY, progress, compositeOperation);
+    blendFloat(fromDecomp.scaleZ, toDecomp.scaleZ, progress, compositeOperation);
+    blendFloat(fromDecomp.skewXY, toDecomp.skewXY, progress, operationForNonOneBasedValues);
+    blendFloat(fromDecomp.skewXZ, toDecomp.skewXZ, progress, operationForNonOneBasedValues);
+    blendFloat(fromDecomp.skewYZ, toDecomp.skewYZ, progress, operationForNonOneBasedValues);
+    blendFloat(fromDecomp.translateX, toDecomp.translateX, progress, operationForNonOneBasedValues);
+    blendFloat(fromDecomp.translateY, toDecomp.translateY, progress, operationForNonOneBasedValues);
+    blendFloat(fromDecomp.translateZ, toDecomp.translateZ, progress, operationForNonOneBasedValues);
+    blendFloat(fromDecomp.perspectiveX, toDecomp.perspectiveX, progress, operationForNonOneBasedValues);
+    blendFloat(fromDecomp.perspectiveY, toDecomp.perspectiveY, progress, operationForNonOneBasedValues);
+    blendFloat(fromDecomp.perspectiveZ, toDecomp.perspectiveZ, progress, operationForNonOneBasedValues);
+    blendFloat(fromDecomp.perspectiveW, toDecomp.perspectiveW, progress, compositeOperation);
+    fromDecomp.quaternion = fromDecomp.quaternion.interpolate(toDecomp.quaternion, progress, compositeOperation);
 
     recompose4(fromDecomp);
 }
 
-void TransformationMatrix::blend(const TransformationMatrix& from, double progress)
+void TransformationMatrix::blend(const TransformationMatrix& from, double progress, CompositeOperation compositeOperation)
 {
-    if (!progress) {
+    
+    if (!progress && compositeOperation == CompositeOperation::Replace) {
         *this = from;
         return;
     }
 
-    if (progress == 1)
+    if (progress == 1 && compositeOperation == CompositeOperation::Replace)
         return;
 
     if (from.isIdentity() && isIdentity())
         return;
 
     if (from.isAffine() && isAffine())
-        blend2(from, progress);
+        blend2(from, progress, compositeOperation);
     else
-        blend4(from, progress);
+        blend4(from, progress, compositeOperation);
 }
 
 bool TransformationMatrix::decompose2(Decomposed2Type& decomp) const
 {
     if (isIdentity()) {
-        memset(&decomp, 0, sizeof(decomp));
+        zeroBytes(decomp);
         decomp.scaleX = 1;
         decomp.scaleY = 1;
         decomp.m11 = 1;
@@ -1749,11 +1927,12 @@ bool TransformationMatrix::decompose2(Decomposed2Type& decomp) const
 bool TransformationMatrix::decompose4(Decomposed4Type& decomp) const
 {
     if (isIdentity()) {
-        memset(&decomp, 0, sizeof(decomp));
+        zeroBytes(decomp);
         decomp.perspectiveW = 1;
         decomp.scaleX = 1;
         decomp.scaleY = 1;
         decomp.scaleZ = 1;
+        decomp.quaternion.w = 1;
         return true;
     }
 
@@ -1769,7 +1948,7 @@ void TransformationMatrix::recompose2(const Decomposed2Type& decomp)
     m_matrix[1][0] = decomp.m21;
     m_matrix[1][1] = decomp.m22;
 
-    translate3d(decomp.translateX, decomp.translateY, 0);
+    translateRight(decomp.translateX, decomp.translateY);
     rotate(decomp.angle);
     scale3d(decomp.scaleX, decomp.scaleY, 1);
 }
@@ -1788,21 +1967,7 @@ void TransformationMatrix::recompose4(const Decomposed4Type& decomp)
     translate3d(decomp.translateX, decomp.translateY, decomp.translateZ);
 
     // Apply rotation.
-    double xx = decomp.quaternionX * decomp.quaternionX;
-    double xy = decomp.quaternionX * decomp.quaternionY;
-    double xz = decomp.quaternionX * decomp.quaternionZ;
-    double xw = decomp.quaternionX * decomp.quaternionW;
-    double yy = decomp.quaternionY * decomp.quaternionY;
-    double yz = decomp.quaternionY * decomp.quaternionZ;
-    double yw = decomp.quaternionY * decomp.quaternionW;
-    double zz = decomp.quaternionZ * decomp.quaternionZ;
-    double zw = decomp.quaternionZ * decomp.quaternionW;
-
-    // Construct a composite rotation matrix from the quaternion values.
-    TransformationMatrix rotationMatrix(1 - 2 * (yy + zz), 2 * (xy - zw), 2 * (xz + yw), 0,
-                           2 * (xy + zw), 1 - 2 * (xx + zz), 2 * (yz - xw), 0,
-                           2 * (xz - yw), 2 * (yz + xw), 1 - 2 * (xx + yy), 0,
-                           0, 0, 0, 1);
+    TransformationMatrix rotationMatrix = TransformationMatrix::fromQuaternion(decomp.quaternion);
 
     multiply(rotationMatrix);
 
@@ -1889,7 +2054,7 @@ bool TransformationMatrix::isBackFaceVisible() const
     double determinant = WebCore::determinant4x4(m_matrix);
 
     // If the matrix is not invertible, then we assume its backface is not visible.
-    if (fabs(determinant) < SMALL_NUMBER)
+    if (!std::isnormal(determinant))
         return false;
 
     double cofactor33 = determinant3x3(m11(), m12(), m14(), m21(), m22(), m24(), m41(), m42(), m44());
@@ -1898,14 +2063,21 @@ bool TransformationMatrix::isBackFaceVisible() const
     return zComponentOfTransformedNormal < 0;
 }
 
+TransformationMatrix TransformationMatrix::transpose() const
+{
+    TransformationMatrix transpose;
+    transposeMatrix4(m_matrix, transpose.m_matrix);
+    return transpose;
+}
+
 TextStream& operator<<(TextStream& ts, const TransformationMatrix& transform)
 {
     TextStream::IndentScope indentScope(ts);
-    ts << "\n";
-    ts << indent << "[" << transform.m11() << " " << transform.m12() << " " << transform.m13() << " " << transform.m14() << "]\n";
-    ts << indent << "[" << transform.m21() << " " << transform.m22() << " " << transform.m23() << " " << transform.m24() << "]\n";
-    ts << indent << "[" << transform.m31() << " " << transform.m32() << " " << transform.m33() << " " << transform.m34() << "]\n";
-    ts << indent << "[" << transform.m41() << " " << transform.m42() << " " << transform.m43() << " " << transform.m44() << "]";
+    ts << '\n';
+    ts << indent << '[' << transform.m11() << ' ' << transform.m12() << ' ' << transform.m13() << ' ' << transform.m14() << "]\n"_s;
+    ts << indent << '[' << transform.m21() << ' ' << transform.m22() << ' ' << transform.m23() << ' ' << transform.m24() << "]\n"_s;
+    ts << indent << '[' << transform.m31() << ' ' << transform.m32() << ' ' << transform.m33() << ' ' << transform.m34() << "]\n"_s;
+    ts << indent << '[' << transform.m41() << ' ' << transform.m42() << ' ' << transform.m43() << ' ' << transform.m44() << ']';
     return ts;
 }
 

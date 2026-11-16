@@ -22,24 +22,29 @@
 #include "UserMediaCaptureManagerMessages.h"
 #include "WebPageProxy.h"
 #include "WebProcessProxy.h"
+#include <WebCore/CaptureDeviceWithCapabilities.h>
+#include <WebCore/ContextDestructionObserverInlines.h>
+#include <WebCore/MediaConstraintType.h>
 #include <WebCore/UserMediaRequest.h>
+
+namespace IPC {
+class Decoder;
+template<> struct ArgumentCoder<WebCore::RealtimeMediaSourceCenter::ValidDevices> {
+    static std::optional<WebCore::RealtimeMediaSourceCenter::ValidDevices> decode(Decoder&);
+};
+}
 
 namespace WebKit {
 using namespace WebCore;
 
-void UserMediaPermissionRequestManagerProxy::platformValidateUserMediaRequestConstraints(RealtimeMediaSourceCenter::ValidConstraintsHandler&& validHandler, RealtimeMediaSourceCenter::InvalidConstraintsHandler&& invalidHandler, String&& deviceIDHashSalt)
+void UserMediaPermissionRequestManagerProxy::validateUserMediaRequestConstraints(RealtimeMediaSourceCenter::ValidateHandler&& validateHandler, WebCore::MediaDeviceHashSalts&& deviceIDHashSalts)
 {
-    m_page.process().connection()->sendWithAsyncReply(Messages::UserMediaCaptureManager::ValidateUserMediaRequestConstraints(m_currentUserMediaRequest->userRequest(), deviceIDHashSalt), [validHandler = WTFMove(validHandler), invalidHandler = WTFMove(invalidHandler)](std::optional<String> invalidConstraint, Vector<WebCore::CaptureDevice> audioDevices, Vector<WebCore::CaptureDevice> videoDevices, std::optional<String> deviceIdentifierHashSalt) mutable {
-        if (invalidConstraint)
-            invalidHandler(*invalidConstraint);
-        else
-            validHandler(WTFMove(audioDevices), WTFMove(videoDevices), WTFMove(*deviceIdentifierHashSalt));
-    });
+    protect(m_page->legacyMainFrameProcess().connection())->sendWithAsyncReply(Messages::UserMediaCaptureManager::ValidateUserMediaRequestConstraints(m_currentUserMediaRequest->userRequest(), WTF::move(deviceIDHashSalts)), WTF::move(validateHandler));
 }
 
-void UserMediaPermissionRequestManagerProxy::platformGetMediaStreamDevices(CompletionHandler<void(Vector<CaptureDevice>&&)>&& completionHandler)
+void UserMediaPermissionRequestManagerProxy::platformGetMediaStreamDevices(bool revealIdsAndLabels, CompletionHandler<void(Vector<CaptureDeviceWithCapabilities>&&)>&& completionHandler)
 {
-    m_page.process().connection()->sendWithAsyncReply(Messages::UserMediaCaptureManager::GetMediaStreamDevices(), WTFMove(completionHandler));
+    protect(m_page->legacyMainFrameProcess().connection())->sendWithAsyncReply(Messages::UserMediaCaptureManager::GetMediaStreamDevices(revealIdsAndLabels), WTF::move(completionHandler));
 }
 
 } // namespace WebKit

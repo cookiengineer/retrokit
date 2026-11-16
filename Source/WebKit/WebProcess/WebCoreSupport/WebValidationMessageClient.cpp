@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,14 +26,20 @@
 #include "config.h"
 #include "WebValidationMessageClient.h"
 
-#include "WebCoreArgumentCoders.h"
+#include "MessageSenderInlines.h"
 #include "WebPage.h"
 #include "WebPageProxyMessages.h"
+#include <WebCore/DocumentView.h>
 #include <WebCore/Element.h>
-#include <WebCore/Frame.h>
+#include <WebCore/LocalFrame.h>
+#include <WebCore/LocalFrameView.h>
+#include <WebCore/NodeDocument.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebKit {
 using namespace WebCore;
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WebValidationMessageClient);
 
 WebValidationMessageClient::WebValidationMessageClient(WebPage& page)
     : m_page(page)
@@ -42,46 +48,54 @@ WebValidationMessageClient::WebValidationMessageClient(WebPage& page)
 
 WebValidationMessageClient::~WebValidationMessageClient()
 {
-    if (m_currentAnchor)
-        hideValidationMessage(*m_currentAnchor);
+    if (RefPtr anchor = m_currentAnchor.get())
+        hideValidationMessage(*anchor);
 }
 
 void WebValidationMessageClient::documentDetached(Document& document)
 {
-    if (!m_currentAnchor)
+    RefPtr anchor = m_currentAnchor.get();
+    if (!anchor)
         return;
-    if (&m_currentAnchor->document() == &document)
-        hideValidationMessage(*m_currentAnchor);
+    if (&anchor->document() == &document)
+        hideValidationMessage(*anchor);
 }
 
-void WebValidationMessageClient::showValidationMessage(const Element& anchor, const String& message)
+void WebValidationMessageClient::showValidationMessage(const Element& anchor, String&& message)
 {
-    if (m_currentAnchor)
-        hideValidationMessage(*m_currentAnchor);
+    if (RefPtr currentAnchor = m_currentAnchor.get())
+        hideValidationMessage(*currentAnchor);
 
-    m_currentAnchor = &anchor;
+    m_currentAnchor = anchor;
     m_currentAnchorRect = anchor.boundingBoxInRootViewCoordinates();
-    m_page.send(Messages::WebPageProxy::ShowValidationMessage(m_currentAnchorRect, message));
+
+    std::optional<FrameIdentifier> rootFrameID;
+    if (RefPtr view = anchor.document().view())
+        rootFrameID = view->rootFrameID();
+
+    Ref { *m_page }->send(Messages::WebPageProxy::ShowValidationMessage(m_currentAnchorRect, WTF::move(message), rootFrameID));
 }
 
 void WebValidationMessageClient::hideValidationMessage(const Element& anchor)
 {
-    if (!isValidationMessageVisible(anchor))
+    RefPtr page = m_page.get();
+    if (!isValidationMessageVisible(anchor) || !page)
         return;
 
     m_currentAnchor = nullptr;
     m_currentAnchorRect = { };
-    m_page.send(Messages::WebPageProxy::HideValidationMessage());
+    page->send(Messages::WebPageProxy::HideValidationMessage());
 }
 
 void WebValidationMessageClient::hideAnyValidationMessage()
 {
-    if (!m_currentAnchor)
+    RefPtr page = m_page.get();
+    if (!m_currentAnchor || !page)
         return;
 
     m_currentAnchor = nullptr;
     m_currentAnchorRect = { };
-    m_page.send(Messages::WebPageProxy::HideValidationMessage());
+    page->send(Messages::WebPageProxy::HideValidationMessage());
 }
 
 bool WebValidationMessageClient::isValidationMessageVisible(const Element& anchor)
@@ -91,13 +105,14 @@ bool WebValidationMessageClient::isValidationMessageVisible(const Element& ancho
 
 void WebValidationMessageClient::updateValidationBubbleStateIfNeeded()
 {
-    if (!m_currentAnchor)
+    RefPtr anchor = m_currentAnchor.get();
+    if (!anchor)
         return;
 
     // We currently hide the validation bubble if its position is outdated instead of trying
     // to update its position.
-    if (m_currentAnchorRect != m_currentAnchor->boundingBoxInRootViewCoordinates())
-        hideValidationMessage(*m_currentAnchor);
+    if (m_currentAnchorRect != anchor->boundingBoxInRootViewCoordinates())
+        hideValidationMessage(*anchor);
 }
 
 } // namespace WebKit

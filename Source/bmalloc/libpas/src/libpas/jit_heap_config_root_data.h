@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021 Apple Inc. All rights reserved.
+ * Copyright (c) 2021-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,9 +35,15 @@ struct pas_page_header_table;
 typedef struct jit_heap_config_root_data jit_heap_config_root_data;
 typedef struct pas_page_header_table pas_page_header_table;
 
+/* If the layout of this structure is changed, the value of
+ * pas_crash_report_version in pas_root.h should be incremented.
+ */
 struct jit_heap_config_root_data {
-    pas_page_header_table* small_bitfit_page_header_table;
-    pas_page_header_table* medium_bitfit_page_header_table;
+    pas_page_header_table* small_page_header_table;
+    /* The JIT heap does not have a medium-segregated heap,
+     * so unlike basic-heaps it does not need a second
+     * medium-page-header-table. */
+    pas_page_header_table* medium_page_header_table;
 };
 
 PAS_END_EXTERN_C;

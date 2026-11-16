@@ -29,44 +29,38 @@
 namespace JSC {
 
 CacheUpdate::CacheUpdate(GlobalUpdate&& update)
-    : m_update(WTFMove(update))
+    : m_update(WTF::move(update))
 {
 }
 
 CacheUpdate::CacheUpdate(FunctionUpdate&& update)
-    : m_update(WTFMove(update))
+    : m_update(WTF::move(update))
 {
 }
 
-CacheUpdate::CacheUpdate(CacheUpdate&& other)
-{
-    if (WTF::holds_alternative<GlobalUpdate>(other.m_update))
-        new (this) CacheUpdate(WTFMove(WTF::get<GlobalUpdate>(other.m_update)));
-    else
-        new (this) CacheUpdate(WTFMove(WTF::get<FunctionUpdate>(other.m_update)));
-}
+CacheUpdate::CacheUpdate(CacheUpdate&&) = default;
 
 CacheUpdate& CacheUpdate::operator=(CacheUpdate&& other)
 {
     this->~CacheUpdate();
-    return *new (this) CacheUpdate(WTFMove(other));
+    return *new (this) CacheUpdate(WTF::move(other));
 }
 
 bool CacheUpdate::isGlobal() const
 {
-    return WTF::holds_alternative<GlobalUpdate>(m_update);
+    return std::holds_alternative<GlobalUpdate>(m_update);
 }
 
 const CacheUpdate::GlobalUpdate& CacheUpdate::asGlobal() const
 {
     ASSERT(isGlobal());
-    return WTF::get<GlobalUpdate>(m_update);
+    return std::get<GlobalUpdate>(m_update);
 }
 
 const CacheUpdate::FunctionUpdate& CacheUpdate::asFunction() const
 {
     ASSERT(!isGlobal());
-    return WTF::get<FunctionUpdate>(m_update);
+    return std::get<FunctionUpdate>(m_update);
 }
 
 } // namespace JSC

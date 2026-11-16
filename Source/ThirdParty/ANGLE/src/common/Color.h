@@ -10,6 +10,10 @@
 #define COMMON_COLOR_H_
 
 #include <cstdint>
+#include <cstring>
+#include "common/unsafe_buffers.h"
+
+#include "common/debug.h"
 
 namespace angle
 {
@@ -23,13 +27,18 @@ struct Color
     const T *data() const { return &red; }
     T *ptr() { return &red; }
 
-    static Color fromData(const T *data) { return Color(data[0], data[1], data[2], data[3]); }
+    static Color fromData(const T *data)
+    {
+        return ANGLE_UNSAFE_TODO(Color(data[0], data[1], data[2], data[3]));
+    }
     void writeData(T *data) const
     {
         data[0] = red;
-        data[1] = green;
-        data[2] = blue;
-        data[3] = alpha;
+        ANGLE_UNSAFE_TODO({
+            data[1] = green;
+            data[2] = blue;
+            data[3] = alpha;
+        })
     }
 
     T red;
@@ -44,10 +53,14 @@ bool operator==(const Color<T> &a, const Color<T> &b);
 template <typename T>
 bool operator!=(const Color<T> &a, const Color<T> &b);
 
+template <typename T>
+std::ostream &operator<<(std::ostream &os, const Color<T> &rect);
+
 typedef Color<float> ColorF;
 typedef Color<int> ColorI;
 typedef Color<unsigned int> ColorUI;
 
+ANGLE_ENABLE_STRUCT_PADDING_WARNINGS
 struct ColorGeneric
 {
     inline ColorGeneric();
@@ -55,7 +68,7 @@ struct ColorGeneric
     inline ColorGeneric(const ColorI &color);
     inline ColorGeneric(const ColorUI &color);
 
-    enum class Type : uint8_t
+    enum class Type : uint32_t
     {
         Float = 0,
         Int   = 1,
@@ -71,6 +84,7 @@ struct ColorGeneric
 
     Type type;
 };
+ANGLE_DISABLE_STRUCT_PADDING_WARNINGS
 
 inline bool operator==(const ColorGeneric &a, const ColorGeneric &b);
 

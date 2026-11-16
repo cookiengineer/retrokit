@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2008, 2013 Apple Inc. All Rights Reserved.
- * Copyright (C) 2010 Google Inc. All Rights Reserved.
+ * Copyright (C) 2008, 2013 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2020 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -40,7 +40,7 @@ public:
 
     void reset();
 
-    void scan(const HTMLToken::DataVector&, PreloadRequestStream&);
+    void scan(const HTMLToken::DataVector&, PreloadRequestStream&, const URL& predictedBaseElementURL = URL());
 
 private:
     enum State {
@@ -53,18 +53,22 @@ private:
         AfterRule,
         RuleValue,
         AfterRuleValue,
+        RuleConditions,
         DoneParsingImportRules,
     };
 
-    inline void tokenize(UChar);
+    inline void tokenize(char16_t);
     void emitRule();
+    bool NODELETE hasFinishedRuleValue() const;
 
     State m_state;
-    Vector<UChar> m_rule;
-    Vector<UChar> m_ruleValue;
+    Vector<char16_t> m_rule;
+    Vector<char16_t> m_ruleValue;
+    Vector<char16_t> m_ruleConditions;
 
     // Only non-zero during scan()
     PreloadRequestStream* m_requests;
+    URL m_predictedBaseElementURL;
 };
 
 } // namespace WebCore

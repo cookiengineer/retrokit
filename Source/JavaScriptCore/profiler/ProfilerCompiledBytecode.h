@@ -25,8 +25,8 @@
 
 #pragma once
 
-#include "JSCJSValue.h"
-#include "ProfilerOriginStack.h"
+#include <JavaScriptCore/JSCJSValue.h>
+#include <JavaScriptCore/ProfilerOriginStack.h>
 #include <wtf/text/CString.h>
 
 namespace JSC { namespace Profiler {
@@ -38,11 +38,11 @@ public:
     CompiledBytecode(const OriginStack&, const CString& description);
     ~CompiledBytecode();
     
-    const OriginStack& originStack() const { return m_origin; }
-    const CString& description() const { return m_description; }
-    
-    JSValue toJS(JSGlobalObject*) const;
-    
+    const OriginStack& originStack() const LIFETIME_BOUND { return m_origin; }
+    const CString& description() const LIFETIME_BOUND { return m_description; }
+
+    Ref<JSON::Value> toJSON(Dumper&) const;
+
 private:
     OriginStack m_origin;
     CString m_description;

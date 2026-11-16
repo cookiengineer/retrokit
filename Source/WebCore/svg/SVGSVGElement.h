@@ -25,6 +25,7 @@
 #include "SVGFitToViewBox.h"
 #include "SVGGraphicsElement.h"
 #include "SVGZoomAndPan.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
@@ -40,7 +41,8 @@ class SVGViewElement;
 class SVGViewSpec;
 
 class SVGSVGElement final : public SVGGraphicsElement, public SVGFitToViewBox, public SVGZoomAndPan {
-    WTF_MAKE_ISO_ALLOCATED(SVGSVGElement);
+    WTF_MAKE_TZONE_ALLOCATED(SVGSVGElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGSVGElement);
 public: // DOM
     float currentScale() const;
     void setCurrentScale(float);
@@ -67,16 +69,17 @@ public: // DOM
     static Ref<SVGTransform> createSVGTransform();
     static Ref<SVGTransform> createSVGTransformFromMatrix(DOMMatrix2DInit&&);
 
-    Element* getElementById(const AtomString&);
+    RefPtr<Element> getElementById(const AtomString&);
 
     void pauseAnimations();
     void unpauseAnimations();
-    bool animationsPaused() const;
-    bool hasActiveAnimation() const;
+    bool resumePausedAnimationsIfNeeded(const IntRect&);
+    bool NODELETE animationsPaused() const;
+    bool NODELETE hasActiveAnimation() const;
     float getCurrentTime() const;
     void setCurrentTime(float);
     
-    unsigned suspendRedraw(unsigned) { return 0; }
+    unsigned suspendRedraw(unsigned) { return 1; }
     void unsuspendRedraw(unsigned) { }
     void unsuspendRedrawAll() { }
     void forceRedraw() { }
@@ -87,28 +90,35 @@ public:
     bool scrollToFragment(StringView fragmentIdentifier);
     void resetScrollAnchor();
 
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGSVGElement, SVGGraphicsElement, SVGFitToViewBox>;
     using SVGGraphicsElement::ref;
     using SVGGraphicsElement::deref;
 
     SMILTimeContainer& timeContainer() { return m_timeContainer.get(); }
+    const SMILTimeContainer& timeContainer() const { return m_timeContainer.get(); }
 
     void setCurrentTranslate(const FloatPoint&); // Used to pan.
     void updateCurrentTranslate();
 
     bool hasIntrinsicWidth() const;
     bool hasIntrinsicHeight() const;
-    Length intrinsicWidth() const;
-    Length intrinsicHeight() const;
+    float intrinsicWidth() const;
+    float intrinsicHeight() const;
 
-    FloatSize currentViewportSize() const;
+    bool hasIntrinsicDimensions() const;
+
+    FloatSize currentViewportSizeExcludingZoom() const;
+    void invalidateCachedViewportSizeExcludingZoom() const { m_cachedViewportSizeExcludingZoom = std::nullopt; }
+
     FloatRect currentViewBoxRect() const;
 
     AffineTransform viewBoxToViewTransform(float viewWidth, float viewHeight) const;
+    bool hasTransformRelatedAttributes() const final;
 
-    const SVGLengthValue& x() const { return m_x->currentValue(); }
-    const SVGLengthValue& y() const { return m_y->currentValue(); }
-    const SVGLengthValue& width() const { return m_width->currentValue(); }
-    const SVGLengthValue& height() const { return m_height->currentValue(); }
+    const SVGLengthValue& x() const LIFETIME_BOUND { return m_x->currentValue(); }
+    const SVGLengthValue& y() const LIFETIME_BOUND { return m_y->currentValue(); }
+    const SVGLengthValue& width() const LIFETIME_BOUND { return m_width->currentValue(); }
+    const SVGLengthValue& height() const LIFETIME_BOUND { return m_height->currentValue(); }
 
     SVGAnimatedLength& xAnimated() { return m_x; }
     SVGAnimatedLength& yAnimated() { return m_y; }
@@ -121,43 +131,44 @@ private:
     SVGSVGElement(const QualifiedName&, Document&);
     virtual ~SVGSVGElement();
 
-    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGSVGElement, SVGGraphicsElement, SVGFitToViewBox>;
-    const SVGPropertyRegistry& propertyRegistry() const final { return m_propertyRegistry; }
-    
-    void parseAttribute(const QualifiedName&, const AtomString&) override;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
     void svgAttributeChanged(const QualifiedName&) override;
     bool selfHasRelativeLengths() const override;
     bool isValid() const override;
 
-    bool rendererIsNeeded(const RenderStyle&) override;
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) override;
-    void removedFromAncestor(RemovalType, ContainerNode&) override;
+    bool rendererIsNeeded(const Style::ComputedStyle&) override;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) override;
+    bool isReplaced(const Style::ComputedStyle* = nullptr) const final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) override;
+    void removingSteps(RemovalType, ContainerNode&) override;
     void prepareForDocumentSuspension() override;
     void resumeFromDocumentSuspension() override;
     void didMoveToNewDocument(Document& oldDocument, Document& newDocument) override;
 
-    AffineTransform localCoordinateSpaceTransform(SVGLocatable::CTMScope) const override;
-    RefPtr<Frame> frameForCurrentScale() const;
+    AffineTransform localCoordinateSpaceTransform(CTMScope) const override;
+    RefPtr<LocalFrame> frameForCurrentScale() const;
     Ref<NodeList> collectIntersectionOrEnclosureList(SVGRect&, SVGElement*, bool (*checkFunction)(SVGElement&, SVGRect&));
 
-    SVGViewElement* findViewAnchor(StringView fragmentIdentifier) const;
-    SVGSVGElement* findRootAnchor(const SVGViewElement*) const;
+    FloatSize computeCurrentViewportSizeExcludingZoom() const;
+
+    RefPtr<SVGViewElement> findViewAnchor(StringView fragmentIdentifier) const;
+    SVGSVGElement* NODELETE findRootAnchor(const SVGViewElement*) const;
     SVGSVGElement* findRootAnchor(StringView) const;
 
     bool m_useCurrentView { false };
-    Ref<SMILTimeContainer> m_timeContainer;
+    const Ref<SMILTimeContainer> m_timeContainer;
     RefPtr<SVGViewSpec> m_viewSpec;
     RefPtr<SVGViewElement> m_currentViewElement;
     String m_currentViewFragmentIdentifier;
 
     Ref<SVGPoint> m_currentTranslate { SVGPoint::create() };
 
-    PropertyRegistry m_propertyRegistry { *this };
-    Ref<SVGAnimatedLength> m_x { SVGAnimatedLength::create(this, SVGLengthMode::Width) };
-    Ref<SVGAnimatedLength> m_y { SVGAnimatedLength::create(this, SVGLengthMode::Height) };
-    Ref<SVGAnimatedLength> m_width { SVGAnimatedLength::create(this, SVGLengthMode::Width, "100%"_s) };
-    Ref<SVGAnimatedLength> m_height { SVGAnimatedLength::create(this, SVGLengthMode::Height, "100%"_s) };
+    mutable std::optional<FloatSize> m_cachedViewportSizeExcludingZoom;
+
+    const Ref<SVGAnimatedLength> m_x { SVGAnimatedLength::create(this, SVGLengthMode::Width) };
+    const Ref<SVGAnimatedLength> m_y { SVGAnimatedLength::create(this, SVGLengthMode::Height) };
+    const Ref<SVGAnimatedLength> m_width { SVGAnimatedLength::create(this, SVGLengthMode::Width, "100%"_s) };
+    const Ref<SVGAnimatedLength> m_height { SVGAnimatedLength::create(this, SVGLengthMode::Height, "100%"_s) };
 };
 
 } // namespace WebCore

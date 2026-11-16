@@ -27,13 +27,12 @@
 
 #if ENABLE(ENCRYPTED_MEDIA)
 
+#include <WebCore/CDMTypesForward.h>
 #include <wtf/Function.h>
-#include <wtf/HashMap.h>
 #include <wtf/Ref.h>
 #include <wtf/RefPtr.h>
+#include <wtf/RobinHoodHashMap.h>
 #include <wtf/Vector.h>
-#include <wtf/text/AtomString.h>
-#include <wtf/text/AtomStringHash.h>
 
 namespace WebCore {
 
@@ -42,34 +41,43 @@ class SharedBuffer;
 
 class InitDataRegistry {
 public:
-    WEBCORE_EXPORT static InitDataRegistry& shared();
+    WEBCORE_EXPORT static InitDataRegistry& singleton();
     friend class NeverDestroyed<InitDataRegistry>;
 
-    RefPtr<SharedBuffer> sanitizeInitData(const AtomString& initDataType, const SharedBuffer&);
-    WEBCORE_EXPORT std::optional<Vector<Ref<SharedBuffer>>> extractKeyIDs(const AtomString& initDataType, const SharedBuffer&);
+    RefPtr<SharedBuffer> sanitizeInitData(const String& initDataType, const SharedBuffer&);
+    WEBCORE_EXPORT std::optional<CDMKeyIDs> extractKeyIDs(const String& initDataType, const SharedBuffer&);
 
     struct InitDataTypeCallbacks {
         using SanitizeInitDataCallback = Function<RefPtr<SharedBuffer>(const SharedBuffer&)>;
-        using ExtractKeyIDsCallback = Function<std::optional<Vector<Ref<SharedBuffer>>>(const SharedBuffer&)>;
+        using ExtractKeyIDsCallback = Function<std::optional<CDMKeyIDs>(const SharedBuffer&)>;
 
         SanitizeInitDataCallback sanitizeInitData;
         ExtractKeyIDsCallback extractKeyIDs;
     };
-    void registerInitDataType(const AtomString& initDataType, InitDataTypeCallbacks&&);
+    void registerInitDataType(const String& initDataType, InitDataTypeCallbacks&&);
 
-    static const AtomString& cencName();
-    static const AtomString& keyidsName();
-    static const AtomString& webmName();
+    static const String& cencName();
+    static const String& keyidsName();
+    static const String& webmName();
 
     static std::optional<Vector<std::unique_ptr<ISOProtectionSystemSpecificHeaderBox>>> extractPsshBoxesFromCenc(const SharedBuffer&);
-    static std::optional<Vector<Ref<SharedBuffer>>> extractKeyIDsCenc(const SharedBuffer&);
+    static std::optional<CDMKeyIDs> extractKeyIDsCenc(const SharedBuffer&);
     static RefPtr<SharedBuffer> sanitizeCenc(const SharedBuffer&);
+
+#if HAVE(FAIRPLAYSTREAMING_CENC_INITDATA)
+    // Walks the PSSH atoms in a cenc init data buffer and returns the bytes of the first
+    // PSSH whose SystemID matches FairPlay's, or std::nullopt if none is present.
+    // AVFoundation's PSSH parser only inspects the first PSSH atom in the supplied data
+    // and rejects the entire blob if its SystemID isn't FairPlay's, so callers must
+    // filter to a FairPlay-only buffer before forwarding to AVContentKeySession.
+    static RefPtr<SharedBuffer> extractFairPlayPsshFromCenc(const SharedBuffer&);
+#endif
 
 private:
     InitDataRegistry();
     ~InitDataRegistry();
 
-    HashMap<AtomString, InitDataTypeCallbacks> m_types;
+    MemoryCompactRobinHoodHashMap<String, InitDataTypeCallbacks> m_types;
 };
 
 }

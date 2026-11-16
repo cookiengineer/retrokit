@@ -25,6 +25,7 @@
 
 typedef (ArrayBuffer or ArrayBufferView) BinaryData;
 
+// https://drafts.csswg.org/css-font-loading/#enumdef-fontfaceloadstatus
 enum FontFaceLoadStatus {
     "unloaded",
     "loading",
@@ -32,28 +33,51 @@ enum FontFaceLoadStatus {
     "error"
 };
 
+// https://drafts.csswg.org/css-font-loading/#dictdef-fontfacedescriptors
 dictionary FontFaceDescriptors {
+    // FIXME: `style` should be of type `CSSOMString`.
     DOMString style = "normal";
+    // FIXME: `weight` should be of type `CSSOMString`.
     DOMString weight = "normal";
-    DOMString stretch = "normal";
+    // FIXME: `stretch` should be of type `CSSOMString`.
+    [ImplementedAs=width] DOMString stretch = "normal";
+    // FIXME: `unicodeRange` should be of type `CSSOMString`.
     DOMString unicodeRange = "U+0-10FFFF";
+    // FIXME: `featureSettings` should be of type `CSSOMString`.
     DOMString featureSettings = "normal";
+    // FIXME: Add support for `variationSettings`.
+    // CSSOMString variationSettings = "normal";
+    // FIXME: `display` should be of type `CSSOMString`.
     DOMString display = "auto";
+    // FIXME: `ascentOverride` should be of type `CSSOMString`.
+    [EnabledBySetting=CSSFontFaceMetricOverrideDescriptorsEnabled] DOMString ascentOverride = "normal";
+    // FIXME: `descentOverride` should be of type `CSSOMString`.
+    [EnabledBySetting=CSSFontFaceMetricOverrideDescriptorsEnabled] DOMString descentOverride = "normal";
+    // FIXME: `lineGapOverride` should be of type `CSSOMString`.
+    [EnabledBySetting=CSSFontFaceMetricOverrideDescriptorsEnabled] DOMString lineGapOverride = "normal";
+    // FIXME: `sizeAdjust` should be of type `CSSOMString`.
+    DOMString sizeAdjust = "100%";
 };
 
+// https://drafts.csswg.org/css-font-loading/#fontface
 [
     ActiveDOMObject,
     Exposed=(Window,Worker)
 ] interface FontFace {
-    [CallWith=ScriptExecutionContext] constructor(DOMString family, (DOMString or BinaryData) source, optional FontFaceDescriptors descriptors);
+    [CallWith=CurrentScriptExecutionContext] constructor([AtomString] DOMString family, (DOMString or BinaryData) source, optional FontFaceDescriptors descriptors = {});
 
-    [SetterCallWith=ScriptExecutionContext] attribute DOMString family;
-    [SetterCallWith=ScriptExecutionContext] attribute DOMString style;
-    [SetterCallWith=ScriptExecutionContext] attribute DOMString weight;
-    [SetterCallWith=ScriptExecutionContext] attribute DOMString stretch;
-    [SetterCallWith=ScriptExecutionContext] attribute DOMString unicodeRange;
-    [SetterCallWith=ScriptExecutionContext] attribute DOMString featureSettings;
-    [CallWith=ScriptExecutionContext] attribute DOMString display;
+    [SetterCallWith=CurrentScriptExecutionContext] attribute [AtomString] DOMString family;
+    [SetterCallWith=CurrentScriptExecutionContext] attribute DOMString style;
+    [SetterCallWith=CurrentScriptExecutionContext] attribute DOMString weight;
+    [SetterCallWith=CurrentScriptExecutionContext] attribute DOMString width;
+    [ImplementedAs=width, SetterCallWith=CurrentScriptExecutionContext] attribute DOMString stretch;
+    [SetterCallWith=CurrentScriptExecutionContext] attribute DOMString unicodeRange;
+    [SetterCallWith=CurrentScriptExecutionContext] attribute DOMString featureSettings;
+    [SetterCallWith=CurrentScriptExecutionContext] attribute DOMString display;
+    [EnabledBySetting=CSSFontFaceMetricOverrideDescriptorsEnabled, SetterCallWith=CurrentScriptExecutionContext] attribute DOMString ascentOverride;
+    [EnabledBySetting=CSSFontFaceMetricOverrideDescriptorsEnabled, SetterCallWith=CurrentScriptExecutionContext] attribute DOMString descentOverride;
+    [EnabledBySetting=CSSFontFaceMetricOverrideDescriptorsEnabled, SetterCallWith=CurrentScriptExecutionContext] attribute DOMString lineGapOverride;
+    [SetterCallWith=CurrentScriptExecutionContext] attribute DOMString sizeAdjust;
 
     readonly attribute FontFaceLoadStatus status;
 

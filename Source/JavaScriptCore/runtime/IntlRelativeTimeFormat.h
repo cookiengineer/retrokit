@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2020 Sony Interactive Entertainment Inc.
- * Copyright (C) 2020-2021 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,6 +27,7 @@
 #pragma once
 
 #include "JSObject.h"
+#include <unicode/uformattedvalue.h>
 #include <unicode/ureldatefmt.h>
 #include <wtf/unicode/icu/ICUHelpers.h>
 
@@ -38,7 +39,7 @@ class IntlRelativeTimeFormat final : public JSNonFinalObject {
 public:
     using Base = JSNonFinalObject;
 
-    static constexpr bool needsDestruction = true;
+    static constexpr DestructionMode needsDestruction = NeedsDestruction;
 
     static void destroy(JSCell* cell)
     {
@@ -46,7 +47,7 @@ public:
     }
 
     template<typename CellType, SubspaceAccess mode>
-    static IsoSubspace* subspaceFor(VM& vm)
+    static GCClient::IsoSubspace* subspaceFor(VM& vm)
     {
         return vm.intlRelativeTimeFormatSpace<mode>();
     }
@@ -56,6 +57,8 @@ public:
 
     DECLARE_INFO;
 
+    DECLARE_VISIT_CHILDREN;
+
     void initializeRelativeTimeFormat(JSGlobalObject*, JSValue locales, JSValue options);
     JSValue format(JSGlobalObject*, double, StringView unitString) const;
     JSValue formatToParts(JSGlobalObject*, double, StringView unitString) const;
@@ -63,8 +66,7 @@ public:
 
 private:
     IntlRelativeTimeFormat(VM&, Structure*);
-    void finishCreation(VM&);
-    DECLARE_VISIT_CHILDREN;
+    DECLARE_DEFAULT_FINISH_CREATION;
 
     static Vector<String> localeData(const String&, RelevantExtensionKey);
 
@@ -73,15 +75,16 @@ private:
     enum class Style : uint8_t { Long, Short, Narrow };
 
     using URelativeDateTimeFormatterDeleter = ICUDeleter<ureldatefmt_close>;
-    using UNumberFormatDeleter = ICUDeleter<unum_close>;
 
     static ASCIILiteral styleString(Style);
 
     std::unique_ptr<URelativeDateTimeFormatter, URelativeDateTimeFormatterDeleter> m_relativeDateTimeFormatter;
-    std::unique_ptr<UNumberFormat, UNumberFormatDeleter> m_numberFormat;
+    mutable std::unique_ptr<UFormattedRelativeDateTime, ICUDeleter<ureldatefmt_closeResult>> m_formattedResult;
+    mutable std::unique_ptr<UConstrainedFieldPosition, ICUDeleter<ucfpos_close>> m_cfpos;
 
     String m_locale;
-    String m_numberingSystem;
+    String m_dataLocale;
+    mutable String m_numberingSystem;
     Style m_style { Style::Long };
     bool m_numeric { true };
 };

@@ -28,6 +28,8 @@
 #include "JSCInlines.h"
 #include "JSDateMath.h"
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+
 namespace JSC {
 
 static JSC_DECLARE_HOST_FUNCTION(dateParse);
@@ -40,13 +42,13 @@ static JSC_DECLARE_HOST_FUNCTION(dateNow);
 
 namespace JSC {
 
-const ClassInfo DateConstructor::s_info = { "Function", &InternalFunction::s_info, &dateConstructorTable, nullptr, CREATE_METHOD_TABLE(DateConstructor) };
+const ClassInfo DateConstructor::s_info = { "Function"_s, &InternalFunction::s_info, &dateConstructorTable, nullptr, CREATE_METHOD_TABLE(DateConstructor) };
 
 /* Source for DateConstructor.lut.h
 @begin dateConstructorTable
   parse     dateParse   DontEnum|Function 1
   UTC       dateUTC     DontEnum|Function 7
-  now       dateNow     DontEnum|Function 0
+  now       dateNow     DontEnum|Function 0 DateNowIntrinsic
 @end
 */
 
@@ -66,7 +68,7 @@ void DateConstructor::finishCreation(VM& vm, DatePrototype* datePrototype)
     putDirectWithoutTransition(vm, vm.propertyNames->prototype, datePrototype, PropertyAttribute::DontEnum | PropertyAttribute::DontDelete | PropertyAttribute::ReadOnly);
 }
 
-static double millisecondsFromComponents(JSGlobalObject* globalObject, const ArgList& args, WTF::TimeType timeType)
+static double millisecondsFromComponents(JSGlobalObject* globalObject, const ArgList& args, TimeType timeType)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
@@ -75,26 +77,24 @@ static double millisecondsFromComponents(JSGlobalObject* globalObject, const Arg
     double doubleArguments[7] {
         0, 0, 1, 0, 0, 0, 0
     };
+    bool hasNonFinite = false;
     unsigned numberOfUsedArguments = std::max(std::min<unsigned>(7U, args.size()), 1U);
     for (unsigned i = 0; i < numberOfUsedArguments; ++i) {
         doubleArguments[i] = args.at(i).toNumber(globalObject);
         RETURN_IF_EXCEPTION(scope, 0);
-    }
-    for (unsigned i = 0; i < numberOfUsedArguments; ++i) {
-        if (!std::isfinite(doubleArguments[i]) || (doubleArguments[i] > INT_MAX) || (doubleArguments[i] < INT_MIN))
-            return PNaN;
+
+        hasNonFinite |= !std::isfinite(doubleArguments[i]);
+        doubleArguments[i] = std::trunc(doubleArguments[i] + 0.0);
     }
 
-    GregorianDateTime t;
-    int year = JSC::toInt32(doubleArguments[0]);
-    t.setYear((year >= 0 && year <= 99) ? (year + 1900) : year);
-    t.setMonth(JSC::toInt32(doubleArguments[1]));
-    t.setMonthDay(JSC::toInt32(doubleArguments[2]));
-    t.setHour(JSC::toInt32(doubleArguments[3]));
-    t.setMinute(JSC::toInt32(doubleArguments[4]));
-    t.setSecond(JSC::toInt32(doubleArguments[5]));
-    t.setIsDST(-1);
-    return vm.dateCache.gregorianDateTimeToMS(t, doubleArguments[6], timeType);
+    if (hasNonFinite)
+        return PNaN;
+
+    if (0 <= doubleArguments[0] && doubleArguments[0] <= 99)
+        doubleArguments[0] += 1900;
+
+    double time = makeDate(makeDay(doubleArguments[0], doubleArguments[1], doubleArguments[2]), makeTime(doubleArguments[3], doubleArguments[4], doubleArguments[5], doubleArguments[6]));
+    return timeClip(vm.dateCache.localTimeToMS(time, timeType));
 }
 
 // ECMA 15.9.3
@@ -110,22 +110,25 @@ JSObject* constructDate(JSGlobalObject* globalObject, JSValue newTarget, const A
         value = jsCurrentTime();
     else if (numArgs == 1) {
         JSValue arg0 = args.at(0);
-        if (auto* dateInstance = jsDynamicCast<DateInstance*>(vm, arg0))
+        if (auto* dateInstance = dynamicDowncast<DateInstance>(arg0))
             value = dateInstance->internalNumber();
         else {
             JSValue primitive = arg0.toPrimitive(globalObject);
             RETURN_IF_EXCEPTION(scope, nullptr);
             if (primitive.isString()) {
-                String primitiveString = asString(primitive)->value(globalObject);
+                auto primitiveString = asString(primitive)->value(globalObject);
                 RETURN_IF_EXCEPTION(scope, nullptr);
                 value = vm.dateCache.parseDate(globalObject, vm, primitiveString);
                 RETURN_IF_EXCEPTION(scope, nullptr);
-            } else
+            } else {
                 value = primitive.toNumber(globalObject);
+                RETURN_IF_EXCEPTION(scope, nullptr);
+            }
         }
-    } else
-        value = millisecondsFromComponents(globalObject, args, WTF::LocalTime);
-    RETURN_IF_EXCEPTION(scope, nullptr);
+    } else {
+        value = millisecondsFromComponents(globalObject, args, TimeType::LocalTime);
+        RETURN_IF_EXCEPTION(scope, nullptr);
+    }
 
     Structure* dateStructure = nullptr;
     if (!newTarget)
@@ -149,8 +152,8 @@ JSC_DEFINE_HOST_FUNCTION(callDate, (JSGlobalObject* globalObject, CallFrame*))
 {
     VM& vm = globalObject->vm();
     GregorianDateTime ts;
-    vm.dateCache.msToGregorianDateTime(WallTime::now().secondsSinceEpoch().milliseconds(), WTF::LocalTime, ts);
-    return JSValue::encode(jsNontrivialString(vm, formatDateTime(ts, DateTimeFormatDateAndTime, false)));
+    vm.dateCache.msToGregorianDateTime(WallTime::now().secondsSinceEpoch().milliseconds(), TimeType::LocalTime, ts);
+    return JSValue::encode(jsNontrivialString(vm, formatDateTime(ts, DateTimeFormat::DateAndTime, false, vm.dateCache)));
 }
 
 JSC_DEFINE_HOST_FUNCTION(dateParse, (JSGlobalObject* globalObject, CallFrame* callFrame))
@@ -159,7 +162,7 @@ JSC_DEFINE_HOST_FUNCTION(dateParse, (JSGlobalObject* globalObject, CallFrame* ca
     auto scope = DECLARE_THROW_SCOPE(vm);
     String dateStr = callFrame->argument(0).toWTFString(globalObject);
     RETURN_IF_EXCEPTION(scope, encodedJSValue());
-    RELEASE_AND_RETURN(scope, JSValue::encode(jsNumber(vm.dateCache.parseDate(globalObject, vm, dateStr))));
+    RELEASE_AND_RETURN(scope, JSValue::encode(jsNumber(timeClip(vm.dateCache.parseDate(globalObject, vm, dateStr)))));
 }
 
 JSValue dateNowImpl()
@@ -174,8 +177,10 @@ JSC_DEFINE_HOST_FUNCTION(dateNow, (JSGlobalObject*, CallFrame*))
 
 JSC_DEFINE_HOST_FUNCTION(dateUTC, (JSGlobalObject* globalObject, CallFrame* callFrame))
 {
-    double ms = millisecondsFromComponents(globalObject, ArgList(callFrame), WTF::UTCTime);
-    return JSValue::encode(jsNumber(timeClip(ms)));
+    double ms = millisecondsFromComponents(globalObject, ArgList(callFrame), TimeType::UTCTime);
+    return JSValue::encode(jsNumber(ms));
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

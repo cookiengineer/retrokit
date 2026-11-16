@@ -26,10 +26,32 @@
 #include "config.h"
 #include "NodeList.h"
 
-#include <wtf/IsoMallocInlines.h>
+#include "JSNode.h"
+#include "ScriptWrappableInlines.h"
+#include <JavaScriptCore/JSCInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
+using namespace JSC;
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(NodeList);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(NodeList);
+
+NodeList::~NodeList() = default;
+
+int64_t NodeList::fastIndexOf(JSGlobalObject* globalObject, JSValue searchElement, uint64_t startIndex, uint64_t length)
+{
+    auto& vm = getVM(globalObject);
+    SUPPRESS_UNCOUNTED_LOCAL auto* unwrappedSearchElement = JSNode::toWrapped(vm, searchElement);
+    if (!unwrappedSearchElement)
+        return -1;
+    unsigned collectionLength = this->length();
+    unsigned end = length < collectionLength ? length : collectionLength;
+    unsigned start = startIndex < end ? startIndex : end;
+    for (unsigned i = start; i < end; ++i) {
+        if (item(i) == unwrappedSearchElement)
+            return i;
+    }
+    return -1;
+}
 
 } // namespace WebCore

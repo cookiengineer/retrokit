@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2012, 2013 Google Inc. All rights reserved.
+ * Copyright (C) 2013-2026 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -38,21 +39,32 @@ class DocumentFragment;
 class TemplateContentDocumentFragment;
 
 class HTMLTemplateElement final : public HTMLElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLTemplateElement);
+    WTF_MAKE_TZONE_ALLOCATED(HTMLTemplateElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLTemplateElement);
 public:
     static Ref<HTMLTemplateElement> create(const QualifiedName&, Document&);
     virtual ~HTMLTemplateElement();
 
+    DocumentFragment& fragmentForInsertion() const;
     DocumentFragment& content() const;
-    DocumentFragment* contentIfAvailable() const;
+    DocumentFragment* NODELETE contentIfAvailable() const;
+
+    const AtomString& shadowRootMode() const;
+    const AtomString& shadowRootSlotAssignment() const;
+
+    void setDeclarativeShadowRoot(ShadowRoot&);
+
+    void adoptDeserializedContent(Ref<TemplateContentDocumentFragment>&&);
 
 private:
     HTMLTemplateElement(const QualifiedName&, Document&);
 
-    Ref<Node> cloneNodeInternal(Document&, CloningOperation) final;
+    Ref<Node> cloneNodeInternal(Document&, CloningOperation, CustomElementRegistry*) const final;
+    SerializedNode serializeNode(CloningOperation) const final;
     void didMoveToNewDocument(Document& oldDocument, Document& newDocument) final;
 
-    mutable RefPtr<TemplateContentDocumentFragment> m_content;
+    const RefPtr<TemplateContentDocumentFragment> m_content;
+    WeakPtr<ShadowRoot, WeakPtrImplWithEventTargetData> m_declarativeShadowRoot;
 };
 
 } // namespace WebCore

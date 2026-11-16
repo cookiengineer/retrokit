@@ -27,6 +27,7 @@
 
 #include <wtf/CheckedArithmetic.h>
 #include <wtf/FastMalloc.h>
+#include <wtf/MallocSpan.h>
 #include <wtf/Vector.h>
 
 namespace WTF {
@@ -38,7 +39,7 @@ template<bool isTriviallyDestructible, typename T> struct UniqueArrayMaker;
 
 template<typename T>
 struct UniqueArrayFree {
-    static_assert(std::is_trivially_destructible<T>::value, "");
+    static_assert(std::is_trivially_destructible<T>::value);
 
     void operator()(T* pointer) const
     {
@@ -48,7 +49,7 @@ struct UniqueArrayFree {
 
 template<typename T>
 struct UniqueArrayFree<T[]> {
-    static_assert(std::is_trivially_destructible<T>::value, "");
+    static_assert(std::is_trivially_destructible<T>::value);
 
     void operator()(T* pointer) const
     {
@@ -68,14 +69,14 @@ struct UniqueArrayMaker<true, T> {
         // If it is acceptable, we can just use Vector<T> instead. So this UniqueArray<T> only
         // accepts the type T which has a trivial destructor. This allows us to skip calling
         // destructors for N elements. And this allows UniqueArray<T> not to store its N size.
-        static_assert(std::is_trivially_destructible<T>::value, "");
+        static_assert(std::is_trivially_destructible<T>::value);
 
         // Do not use placement new like `new (storage) T[size]()`. `new T[size]()` requires
         // larger storage than the `sizeof(T) * size` storage since it want to store `size`
         // to somewhere.
-        T* storage = static_cast<T*>(UniqueArrayMalloc::malloc(Checked<size_t>(sizeof(T)) * size));
-        VectorTypeOperations<T>::initialize(storage, storage + size);
-        return ResultType(storage);
+        auto storage = MallocSpan<T, UniqueArrayMalloc>::malloc(Checked<size_t>(sizeof(T)) * size);
+        VectorTypeOperations<T>::initialize(storage.mutableSpan().data(), storage.mutableSpan().subspan(size).data());
+        return ResultType(storage.leakSpan().data());
     }
 };
 
@@ -86,12 +87,12 @@ struct UniqueArrayMaker<false, T> {
     // UniqueArrayElement has new [] and delete [] operators for FastMalloc. We allocate UniqueArrayElement[] and cast
     // it to T[]. When deleting, the custom deleter casts T[] to UniqueArrayElement[] and deletes it.
     class UniqueArrayElement {
-        WTF_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(UniqueArrayElement);
+        WTF_DEPRECATED_MAKE_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(UniqueArrayElement, UniqueArrayElement);
     public:
         struct Deleter {
             void operator()(T* pointer)
             {
-                delete [] bitwise_cast<UniqueArrayElement*>(pointer);
+                delete [] std::bit_cast<UniqueArrayElement*>(pointer);
             };
         };
 
@@ -99,13 +100,13 @@ struct UniqueArrayMaker<false, T> {
 
         T value { };
     };
-    static_assert(sizeof(T) == sizeof(UniqueArrayElement), "");
+    static_assert(sizeof(T) == sizeof(UniqueArrayElement));
 
     using ResultType = typename std::unique_ptr<T[], typename UniqueArrayElement::Deleter>;
 
     static ResultType make(size_t size)
     {
-        return ResultType(bitwise_cast<T*>(new UniqueArrayElement[size]()));
+        return ResultType(std::bit_cast<T*>(new UniqueArrayElement[size]()));
     }
 };
 
@@ -113,9 +114,9 @@ template<typename T>
 using UniqueArray = typename UniqueArrayMaker<std::is_trivially_destructible<T>::value, T>::ResultType;
 
 template<typename T>
-UniqueArray<T> makeUniqueArray(size_t size)
+[[nodiscard]] UniqueArray<T> makeUniqueArray(size_t size)
 {
-    static_assert(std::is_same<typename std::remove_extent<T>::type, T>::value, "");
+    static_assert(std::is_same<typename std::remove_extent<T>::type, T>::value);
     return UniqueArrayMaker<std::is_trivially_destructible<T>::value, T>::make(size);
 }
 

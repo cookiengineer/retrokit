@@ -7,6 +7,7 @@
 // Framebuffer11.cpp: Implements the Framebuffer11 class.
 
 #include "libANGLE/renderer/d3d/d3d11/Framebuffer11.h"
+#include "common/unsafe_buffers.h"
 
 #include "common/bitset_utils.h"
 #include "common/debug.h"
@@ -54,6 +55,17 @@ angle::Result MarkAttachmentsDirty(const gl::Context *context,
 
     return angle::Result::Continue;
 }
+
+UINT GetAttachmentLayer(const gl::FramebufferAttachment *attachment)
+{
+    if (attachment->type() == GL_TEXTURE &&
+        attachment->getTexture()->getType() == gl::TextureType::_3D)
+    {
+        return attachment->layer();
+    }
+    return 0;
+}
+
 }  // anonymous namespace
 
 Framebuffer11::Framebuffer11(const gl::FramebufferState &data, Renderer11 *renderer)
@@ -144,7 +156,7 @@ angle::Result Framebuffer11::invalidateBase(const gl::Context *context,
 
     for (size_t i = 0; i < count; ++i)
     {
-        switch (attachments[i])
+        switch (ANGLE_UNSAFE_TODO(attachments[i]))
         {
             // Handle depth and stencil attachments. Defer discarding until later.
             case GL_DEPTH_STENCIL_ATTACHMENT:
@@ -162,12 +174,14 @@ angle::Result Framebuffer11::invalidateBase(const gl::Context *context,
             default:
             {
                 // Handle color attachments
-                ASSERT((attachments[i] >= GL_COLOR_ATTACHMENT0 &&
-                        attachments[i] <= GL_COLOR_ATTACHMENT15) ||
-                       (attachments[i] == GL_COLOR));
+                ASSERT((ANGLE_UNSAFE_TODO(attachments[i]) >= GL_COLOR_ATTACHMENT0 &&
+                        ANGLE_UNSAFE_TODO(attachments[i]) <= GL_COLOR_ATTACHMENT15) ||
+                       (ANGLE_UNSAFE_TODO(attachments[i]) == GL_COLOR));
 
                 size_t colorIndex =
-                    (attachments[i] == GL_COLOR ? 0u : (attachments[i] - GL_COLOR_ATTACHMENT0));
+                    (ANGLE_UNSAFE_TODO(attachments[i]) == GL_COLOR
+                         ? 0u
+                         : (ANGLE_UNSAFE_TODO(attachments[i]) - GL_COLOR_ATTACHMENT0));
                 const gl::FramebufferAttachment *colorAttachment =
                     mState.getColorAttachment(colorIndex);
                 if (colorAttachment)
@@ -236,14 +250,26 @@ angle::Result Framebuffer11::invalidateAttachment(const gl::Context *context,
 
     RenderTarget11 *renderTarget = nullptr;
     ANGLE_TRY(attachment->getRenderTarget(context, 0, &renderTarget));
-    const auto &rtv = renderTarget->getRenderTargetView();
-
-    if (rtv.valid())
+    if (attachment->getDepthSize() > 0 || attachment->getStencilSize() > 0)
     {
-        deviceContext1->DiscardView(rtv.get());
+        const auto &dsv = renderTarget->getDepthStencilView();
+        if (dsv.valid())
+        {
+            deviceContext1->DiscardView(dsv.get());
+        }
+        return angle::Result::Continue;
     }
+    else
+    {
+        const auto &rtv = renderTarget->getRenderTargetView();
 
-    return angle::Result::Continue;
+        if (rtv.valid())
+        {
+            deviceContext1->DiscardView(rtv.get());
+        }
+
+        return angle::Result::Continue;
+    }
 }
 
 angle::Result Framebuffer11::readPixelsImpl(const gl::Context *context,
@@ -266,7 +292,10 @@ angle::Result Framebuffer11::readPixelsImpl(const gl::Context *context,
                                     pack.reverseRowOrder, packBuffer,
                                     reinterpret_cast<ptrdiff_t>(pixels));
 
-        return packBufferStorage->packPixels(context, *readAttachment, packParams);
+        BufferFeedback feedback;
+        ANGLE_TRY(packBufferStorage->packPixels(context, *readAttachment, packParams, &feedback));
+        packBuffer->applyImplFeedback(context, feedback);
+        return angle::Result::Continue;
     }
 
     return mRenderer->readFromAttachment(context, *readAttachment, area, format, type,
@@ -294,6 +323,7 @@ angle::Result Framebuffer11::blitImpl(const gl::Context *context,
 
         const auto &colorAttachments = mState.getColorAttachments();
         const auto &drawBufferStates = mState.getDrawBufferStates();
+        UINT readLayer               = GetAttachmentLayer(readBuffer);
 
         for (size_t colorAttachment = 0; colorAttachment < colorAttachments.size();
              colorAttachment++)
@@ -303,8 +333,7 @@ angle::Result Framebuffer11::blitImpl(const gl::Context *context,
             if (drawBuffer.isAttached() && drawBufferStates[colorAttachment] != GL_NONE)
             {
                 RenderTargetD3D *drawRenderTarget = nullptr;
-                ANGLE_TRY(drawBuffer.getRenderTarget(
-                    context, drawBuffer.getRenderToTextureSamples(), &drawRenderTarget));
+                ANGLE_TRY(drawBuffer.getRenderTarget(context, 0, &drawRenderTarget));
                 ASSERT(drawRenderTarget);
 
                 const bool invertColorSource   = UsePresentPathFast(mRenderer, readBuffer);
@@ -318,6 +347,7 @@ angle::Result Framebuffer11::blitImpl(const gl::Context *context,
 
                 const bool invertColorDest   = UsePresentPathFast(mRenderer, &drawBuffer);
                 gl::Rectangle actualDestArea = destArea;
+                UINT drawLayer               = GetAttachmentLayer(&drawBuffer);
 
                 const auto &surfaceTextureOffset = mState.getSurfaceTextureOffset();
                 actualDestArea.x                 = actualDestArea.x + surfaceTextureOffset.x;
@@ -330,9 +360,10 @@ angle::Result Framebuffer11::blitImpl(const gl::Context *context,
                     actualDestArea.height = -destArea.height;
                 }
 
-                ANGLE_TRY(mRenderer->blitRenderbufferRect(
-                    context, actualSourceArea, actualDestArea, readRenderTarget, drawRenderTarget,
-                    filter, scissor, blitRenderTarget, false, false));
+                ANGLE_TRY(mRenderer->blitRenderbufferRect(context, actualSourceArea, actualDestArea,
+                                                          readLayer, drawLayer, readRenderTarget,
+                                                          drawRenderTarget, filter, scissor,
+                                                          blitRenderTarget, false, false));
             }
         }
     }
@@ -358,8 +389,7 @@ angle::Result Framebuffer11::blitImpl(const gl::Context *context,
         const gl::FramebufferAttachment *drawBuffer = mState.getDepthOrStencilAttachment();
         ASSERT(drawBuffer);
         RenderTargetD3D *drawRenderTarget = nullptr;
-        ANGLE_TRY(drawBuffer->getRenderTarget(context, drawBuffer->getRenderToTextureSamples(),
-                                              &drawRenderTarget));
+        ANGLE_TRY(drawBuffer->getRenderTarget(context, 0, &drawRenderTarget));
         ASSERT(drawRenderTarget);
 
         bool invertDest              = UsePresentPathFast(mRenderer, drawBuffer);
@@ -371,7 +401,7 @@ angle::Result Framebuffer11::blitImpl(const gl::Context *context,
             actualDestArea.height              = -destArea.height;
         }
 
-        ANGLE_TRY(mRenderer->blitRenderbufferRect(context, actualSourceArea, actualDestArea,
+        ANGLE_TRY(mRenderer->blitRenderbufferRect(context, actualSourceArea, actualDestArea, 0, 0,
                                                   readRenderTarget, drawRenderTarget, filter,
                                                   scissor, false, blitDepth, blitStencil));
     }
@@ -417,6 +447,8 @@ angle::Result Framebuffer11::getSamplePosition(const gl::Context *context,
     const gl::FramebufferAttachment *attachment = mState.getFirstNonNullAttachment();
     ASSERT(attachment);
     GLsizei sampleCount = attachment->getSamples();
+    // GL_OVR_multiview_multisampled_render_to_texture is not supported on D3D backend
+    ASSERT(!(attachment->isRenderToTexture() && attachment->isMultiview()));
 
     rx::GetSamplePosition(sampleCount, index, xy);
     return angle::Result::Continue;

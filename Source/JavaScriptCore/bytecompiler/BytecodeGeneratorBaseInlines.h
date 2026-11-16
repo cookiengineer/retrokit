@@ -27,6 +27,7 @@
 
 #include "BytecodeGeneratorBase.h"
 
+#include "Fits.h"
 #include "RegisterID.h"
 #include "StackAlignment.h"
 
@@ -41,7 +42,7 @@ static inline void shrinkToFit(T& segmentedVector)
 
 template<typename Traits>
 BytecodeGeneratorBase<Traits>::BytecodeGeneratorBase(typename Traits::CodeBlock codeBlock, uint32_t virtualRegisterCountForCalleeSaves)
-    : m_codeBlock(WTFMove(codeBlock))
+    : m_codeBlock(WTF::move(codeBlock))
 {
     allocateCalleeSaveSpace(virtualRegisterCountForCalleeSaves);
 }
@@ -93,7 +94,7 @@ void BytecodeGeneratorBase<Traits>::emitLabel(GenericLabel<Traits>& label)
 template<typename Traits>
 void BytecodeGeneratorBase<Traits>::recordOpcode(typename Traits::OpcodeID opcodeID)
 {
-    ASSERT(m_lastOpcodeID == Traits::opcodeForDisablingOptimizations || (m_lastOpcodeID == m_lastInstruction->opcodeID<typename Traits::OpcodeTraits>() && m_writer.position() == m_lastInstruction.offset() + m_lastInstruction->size<typename Traits::OpcodeTraits>()));
+    ASSERT(m_lastOpcodeID == Traits::opcodeForDisablingOptimizations || (m_lastOpcodeID == m_lastInstruction->opcodeID() && m_writer.position() == m_lastInstruction.offset() + m_lastInstruction->size()));
     m_lastInstruction = m_writer.ref();
     m_lastOpcodeID = opcodeID;
 }
@@ -102,6 +103,7 @@ template<typename Traits>
 void BytecodeGeneratorBase<Traits>::alignWideOpcode16()
 {
 #if CPU(NEEDS_ALIGNED_ACCESS)
+    static_assert(Traits::OpcodeTraits::maxOpcodeIDWidth == OpcodeSize::Narrow);
     size_t opcodeSize = 1;
     size_t prefixAndOpcodeSize = opcodeSize + PaddingBySize<OpcodeSize::Wide16>::value;
     while ((m_writer.position() + prefixAndOpcodeSize) % OpcodeSize::Wide16)
@@ -113,48 +115,36 @@ template<typename Traits>
 void BytecodeGeneratorBase<Traits>::alignWideOpcode32()
 {
 #if CPU(NEEDS_ALIGNED_ACCESS)
+    static_assert(Traits::OpcodeTraits::maxOpcodeIDWidth == OpcodeSize::Narrow);
     size_t opcodeSize = 1;
-    size_t prefixAndOpcodeSize = opcodeSize + PaddingBySize<OpcodeSize::Wide16>::value;
+    size_t prefixAndOpcodeSize = opcodeSize + PaddingBySize<OpcodeSize::Wide32>::value;
     while ((m_writer.position() + prefixAndOpcodeSize) % OpcodeSize::Wide32)
         Traits::OpNop::template emit<OpcodeSize::Narrow>(this);
 #endif
 }
 
 template<typename Traits>
-void BytecodeGeneratorBase<Traits>::write(uint8_t b)
+template<OpcodeSize size, typename... Ops>
+void BytecodeGeneratorBase<Traits>::writeOpcode(typename Traits::OpcodeTraits::OpcodeID opcodeID, Ops... ops)
 {
-    m_writer.write(b);
-}
-
-
-template<typename Traits>
-void BytecodeGeneratorBase<Traits>::write(uint16_t h)
-{
-    m_writer.write(h);
-}
-
-template<typename Traits>
-void BytecodeGeneratorBase<Traits>::write(uint32_t i)
-{
-    m_writer.write(i);
-}
-
-template<typename Traits>
-void BytecodeGeneratorBase<Traits>::write(int8_t b)
-{
-    m_writer.write(static_cast<uint8_t>(b));
-}
-
-template<typename Traits>
-void BytecodeGeneratorBase<Traits>::write(int16_t h)
-{
-    m_writer.write(static_cast<uint16_t>(h));
-}
-
-template<typename Traits>
-void BytecodeGeneratorBase<Traits>::write(int32_t i)
-{
-    m_writer.write(static_cast<uint32_t>(i));
+    using OpcodeTraits = typename Traits::OpcodeTraits;
+    using OpcodeIDType = typename OpcodeTraits::OpcodeID;
+    constexpr auto opcodeIDSize = OpcodeIDWidthBySize<OpcodeTraits, size>::opcodeIDSize;
+    if constexpr (size == OpcodeSize::Wide16) {
+        m_writer.write(
+            Fits<OpcodeIDType, OpcodeSize::Narrow>::convert(OpcodeTraits::wide16),
+            Fits<OpcodeIDType, opcodeIDSize>::convert(opcodeID),
+            Fits<Ops, size>::convert(ops)...);
+    } else if constexpr (size == OpcodeSize::Wide32) {
+        m_writer.write(
+            Fits<OpcodeIDType, OpcodeSize::Narrow>::convert(OpcodeTraits::wide32),
+            Fits<OpcodeIDType, opcodeIDSize>::convert(opcodeID),
+            Fits<Ops, size>::convert(ops)...);
+    } else {
+        m_writer.write(
+            Fits<OpcodeIDType, opcodeIDSize>::convert(opcodeID),
+            Fits<Ops, size>::convert(ops)...);
+    }
 }
 
 template<typename Traits>
@@ -176,6 +166,18 @@ RegisterID* BytecodeGeneratorBase<Traits>::newTemporary()
     RegisterID* result = newRegister();
     result->setTemporary();
     return result;
+}
+
+template<typename Traits>
+template<typename Functor>
+void BytecodeGeneratorBase<Traits>::newTemporaries(size_t count, const Functor& func)
+{
+    reclaimFreeRegisters();
+    for (size_t index = 0; index < count; ++index) {
+        RegisterID* result = newRegister();
+        result->setTemporary();
+        func(result);
+    }
 }
 
 // Adds an anonymous local var slot. To give this slot a name, add it to symbolTable().

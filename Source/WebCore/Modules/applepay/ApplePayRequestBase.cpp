@@ -28,16 +28,15 @@
 
 #if ENABLE(APPLE_PAY)
 
+#include "Document.h"
 #include "PaymentCoordinator.h"
-#include <wtf/text/StringConcatenateNumbers.h>
-
-#if USE(APPLE_INTERNAL_SDK)
-#include <WebKitAdditions/ApplePayRequestBaseAdditions.cpp>
-#endif
+#include <JavaScriptCore/ConsoleTypes.h>
+#include <wtf/text/MakeString.h>
+#include <wtf/text/TextStream.h>
 
 namespace WebCore {
 
-static bool requiresSupportedNetworks(unsigned version, const ApplePayRequestBase& request)
+static bool NODELETE requiresSupportedNetworks(unsigned version, const ApplePayRequestBase& request)
 {
 #if ENABLE(APPLE_PAY_INSTALLMENTS)
     return version < 8 || !request.installmentConfiguration;
@@ -48,24 +47,20 @@ static bool requiresSupportedNetworks(unsigned version, const ApplePayRequestBas
 #endif
 }
 
-static ExceptionOr<Vector<String>> convertAndValidate(Document& document, unsigned version, const Vector<String>& supportedNetworks, const PaymentCoordinator& paymentCoordinator)
+static Vector<String> convertAndValidate(Document& document, unsigned version, const Vector<String>& supportedNetworks, const PaymentCoordinator& paymentCoordinator)
 {
-    Vector<String> result;
-    result.reserveInitialCapacity(supportedNetworks.size());
-    for (auto& supportedNetwork : supportedNetworks) {
-        auto validatedNetwork = paymentCoordinator.validatedPaymentNetwork(document, version, supportedNetwork);
+    return WTF::compactMap(supportedNetworks, [document = protect(document), paymentCoordinator = protect(paymentCoordinator), version](const auto& supportedNetwork) {
+        auto validatedNetwork = paymentCoordinator->validatedPaymentNetwork(document, version, supportedNetwork);
         if (!validatedNetwork)
-            return Exception { TypeError, makeString("\"", supportedNetwork, "\" is not a valid payment network.") };
-        result.uncheckedAppend(*validatedNetwork);
-    }
-
-    return WTFMove(result);
+            document->addConsoleMessage(MessageSource::PaymentRequest, MessageLevel::Warning, makeString("'"_s, supportedNetwork, "' is not a valid payment network."_s));
+        return validatedNetwork;
+    });
 }
 
-ExceptionOr<ApplePaySessionPaymentRequest> convertAndValidate(Document& document, unsigned version, ApplePayRequestBase& request, const PaymentCoordinator& paymentCoordinator)
+ExceptionOr<ApplePaySessionPaymentRequest> convertAndValidate(Document& document, unsigned version, const ApplePayRequestBase& request, const PaymentCoordinator& paymentCoordinator)
 {
     if (!version || !paymentCoordinator.supportsVersion(document, version))
-        return Exception { InvalidAccessError, makeString('"', version, "\" is not a supported version.") };
+        return Exception { ExceptionCode::InvalidAccessError, makeString('"', version, "\" is not a supported version."_s) };
 
     ApplePaySessionPaymentRequest result;
     result.setVersion(version);
@@ -76,13 +71,10 @@ ExceptionOr<ApplePaySessionPaymentRequest> convertAndValidate(Document& document
         return merchantCapabilities.releaseException();
     result.setMerchantCapabilities(merchantCapabilities.releaseReturnValue());
 
-    if (requiresSupportedNetworks(version, request) && request.supportedNetworks.isEmpty())
-        return Exception { TypeError, "At least one supported network must be provided." };
-
     auto supportedNetworks = convertAndValidate(document, version, request.supportedNetworks, paymentCoordinator);
-    if (supportedNetworks.hasException())
-        return supportedNetworks.releaseException();
-    result.setSupportedNetworks(supportedNetworks.releaseReturnValue());
+    if (requiresSupportedNetworks(version, request) && supportedNetworks.isEmpty())
+        return Exception { ExceptionCode::TypeError, "At least one supported network must be provided."_s };
+    result.setSupportedNetworks(WTF::move(supportedNetworks));
 
     if (request.requiredBillingContactFields) {
         auto requiredBillingContactFields = convertAndValidate(version, *request.requiredBillingContactFields);
@@ -107,7 +99,7 @@ ExceptionOr<ApplePaySessionPaymentRequest> convertAndValidate(Document& document
     result.setApplicationData(request.applicationData);
 
     if (version >= 3)
-        result.setSupportedCountries(WTFMove(request.supportedCountries));
+        result.setSupportedCountries(Vector { request.supportedCountries });
 
 #if ENABLE(APPLE_PAY_INSTALLMENTS)
     if (request.installmentConfiguration) {
@@ -127,11 +119,19 @@ ExceptionOr<ApplePaySessionPaymentRequest> convertAndValidate(Document& document
     result.setShippingContactEditingMode(request.shippingContactEditingMode);
 #endif
 
-#if defined(ApplePayRequestBaseAdditions_convertAndValidate_request)
-    ApplePayRequestBaseAdditions_convertAndValidate_request
+#if ENABLE(APPLE_PAY_LATER_AVAILABILITY)
+    result.setApplePayLaterAvailability(request.applePayLaterAvailability);
 #endif
 
-    return WTFMove(result);
+#if ENABLE(APPLE_PAY_MERCHANT_CATEGORY_CODE)
+    result.setMerchantCategoryCode(request.merchantCategoryCode);
+#endif
+
+#if ENABLE(APPLE_PAY_DELEGATED_REQUEST)
+    result.setIsDelegatedRequest(request.isDelegatedRequest);
+#endif
+
+    return WTF::move(result);
 }
 
 } // namespace WebCore

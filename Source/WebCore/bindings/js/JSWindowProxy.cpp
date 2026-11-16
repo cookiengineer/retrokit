@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,106 +29,106 @@
 #include "config.h"
 #include "JSWindowProxy.h"
 
-#include "AbstractFrame.h"
 #include "CommonVM.h"
-#include "GCController.h"
+#include "Document.h"
+#include "Frame.h"
+#include "GarbageCollectionController.h"
 #include "JSDOMWindow.h"
 #include "JSDOMWindowProperties.h"
 #include "JSEventTarget.h"
-#include "JSRemoteDOMWindow.h"
 #include "ScriptController.h"
 #include "WebCoreJSClientData.h"
 #include <JavaScriptCore/Debugger.h>
 #include <JavaScriptCore/JSObject.h>
 #include <JavaScriptCore/StrongInlines.h>
+#include <JavaScriptCore/StructureInlines.h>
+#include <wtf/text/MakeString.h>
 
 #if PLATFORM(COCOA)
-#include "VersionChecks.h"
+#include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
 #endif
 
 namespace WebCore {
 
 using namespace JSC;
 
-const ClassInfo JSWindowProxy::s_info = { "JSWindowProxy", &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSWindowProxy) };
+const ClassInfo JSWindowProxy::s_info = { "JSWindowProxy"_s, &Base::s_info, nullptr, nullptr, CREATE_METHOD_TABLE(JSWindowProxy) };
 
 inline JSWindowProxy::JSWindowProxy(VM& vm, Structure& structure, DOMWrapperWorld& world)
-    : Base(vm, &structure)
+    : Base(vm, &structure, nullptr)
     , m_world(world)
 {
 }
 
-void JSWindowProxy::finishCreation(VM& vm, AbstractDOMWindow& window)
+JSWindowProxy::~JSWindowProxy() = default;
+
+void JSWindowProxy::finishCreation(VM& vm, DOMWindow& window)
 {
     Base::finishCreation(vm);
-    ASSERT(inherits(vm, info()));
+    ASSERT(inherits(info()));
     setWindow(window);
 }
 
-JSWindowProxy& JSWindowProxy::create(VM& vm, AbstractDOMWindow& window, DOMWrapperWorld& world)
+JSWindowProxy& JSWindowProxy::create(VM& vm, DOMWindow& window, DOMWrapperWorld& world)
 {
-    auto& structure = *Structure::create(vm, 0, jsNull(), TypeInfo(PureForwardingProxyType, StructureFlags), info());
-    auto& proxy = *new (NotNull, allocateCell<JSWindowProxy>(vm.heap)) JSWindowProxy(vm, structure, world);
+    auto& structure = *Structure::create(vm, 0, jsNull(), TypeInfo(GlobalProxyType, StructureFlags), info());
+    auto& proxy = *new (NotNull, JSC::allocateCell<JSWindowProxy>(vm)) JSWindowProxy(vm, structure, world);
     proxy.finishCreation(vm, window);
     return proxy;
 }
 
 void JSWindowProxy::destroy(JSCell* cell)
 {
-    static_cast<JSWindowProxy*>(cell)->JSWindowProxy::~JSWindowProxy();
+    // We cannot rely on jsCast() during JSObject destruction.
+    SUPPRESS_MEMORY_UNSAFE_CAST static_cast<JSWindowProxy*>(cell)->JSWindowProxy::~JSWindowProxy();
 }
 
 void JSWindowProxy::setWindow(VM& vm, JSDOMGlobalObject& window)
 {
-    ASSERT(window.classInfo(vm) == JSDOMWindow::info() || window.classInfo(vm) == JSRemoteDOMWindow::info());
+    ASSERT(window.classInfo() == JSDOMWindow::info());
     setTarget(vm, &window);
-    structure(vm)->setGlobalObject(vm, &window);
-    GCController::singleton().garbageCollectSoon();
+    GarbageCollectionController::singleton().garbageCollectSoon();
 }
 
-void JSWindowProxy::setWindow(AbstractDOMWindow& domWindow)
+void JSWindowProxy::setWindow(DOMWindow& domWindow)
 {
-    // Replacing JSDOMWindow via telling JSWindowProxy to use the same DOMWindow it already uses makes no sense,
+    // Replacing JSDOMWindow via telling JSWindowProxy to use the same LocalDOMWindow it already uses makes no sense,
     // so we'd better never try to.
     ASSERT(!window() || &domWindow != &wrapped());
 
-    bool isRemoteDOMWindow = is<RemoteDOMWindow>(domWindow);
+    auto* localWindow = dynamicDowncast<LocalDOMWindow>(domWindow);
 
     VM& vm = commonVM();
-    auto& prototypeStructure = isRemoteDOMWindow ? *JSRemoteDOMWindowPrototype::createStructure(vm, nullptr, jsNull()) : *JSDOMWindowPrototype::createStructure(vm, nullptr, jsNull());
+    auto& prototypeStructure = *JSDOMWindowPrototype::createStructure(vm, nullptr, jsNull());
 
     // Explicitly protect the prototype so it isn't collected when we allocate the global object.
     // (Once the global object is fully constructed, it will mark its own prototype.)
-    JSNonFinalObject* prototype = isRemoteDOMWindow ? static_cast<JSNonFinalObject*>(JSRemoteDOMWindowPrototype::create(vm, nullptr, &prototypeStructure)) : static_cast<JSNonFinalObject*>(JSDOMWindowPrototype::create(vm, nullptr, &prototypeStructure));
+    JSNonFinalObject* prototype = static_cast<JSNonFinalObject*>(JSDOMWindowPrototype::create(vm, nullptr, &prototypeStructure));
     JSC::EnsureStillAliveScope protectedPrototype(prototype);
 
     JSDOMGlobalObject* window = nullptr;
-    if (isRemoteDOMWindow) {
-        auto& windowStructure = *JSRemoteDOMWindow::createStructure(vm, nullptr, prototype);
-        window = JSRemoteDOMWindow::create(vm, &windowStructure, downcast<RemoteDOMWindow>(domWindow), this);
-    } else {
-        auto& localWindow = downcast<DOMWindow>(domWindow);
-        auto& windowStructure = *JSDOMWindow::createStructure(vm, nullptr, prototype);
-        window = JSDOMWindow::create(vm, &windowStructure, localWindow, this);
+    auto& windowStructure = *JSDOMWindow::createStructure(vm, nullptr, prototype);
+    window = JSDOMWindow::create(vm, &windowStructure, domWindow, this);
+    if (localWindow) {
         bool linkedWithNewSDK = true;
 #if PLATFORM(COCOA)
-        linkedWithNewSDK = linkedOnOrAfter(SDKVersion::FirstWithDOMWindowReuseRestriction);
+        linkedWithNewSDK = linkedOnOrAfterSDKWithBehavior(SDKAlignedBehavior::DOMWindowReuseRestriction);
 #endif
-        if (!localWindow.document()->haveInitializedSecurityOrigin() && linkedWithNewSDK)
-            localWindow.setAsWrappedWithoutInitializedSecurityOrigin();
+        if (!localWindow->document()->haveInitializedSecurityOrigin() && linkedWithNewSDK)
+            localWindow->setAsWrappedWithoutInitializedSecurityOrigin();
     }
 
-    prototype->structure(vm)->setGlobalObject(vm, window);
+    prototype->structure()->setRealm(vm, window);
 
     auto& propertiesStructure = *JSDOMWindowProperties::createStructure(vm, window, JSEventTarget::prototype(vm, *window));
     auto& properties = *JSDOMWindowProperties::create(&propertiesStructure, *window);
-    properties.didBecomePrototype();
-    prototype->structure(vm)->setPrototypeWithoutTransition(vm, &properties);
+    properties.didBecomePrototype(vm);
+    prototype->structure()->setPrototypeWithoutTransition(vm, &properties);
 
     setWindow(vm, *window);
 
-    ASSERT(window->globalObject() == window);
-    ASSERT(prototype->globalObject() == window);
+    ASSERT(window->realm() == window);
+    ASSERT(prototype->realm() == window);
 }
 
 WindowProxy* JSWindowProxy::windowProxy() const
@@ -148,17 +148,15 @@ void JSWindowProxy::attachDebugger(JSC::Debugger* debugger)
         currentDebugger->detach(globalObject, JSC::Debugger::TerminatingDebuggingSession);
 }
 
-AbstractDOMWindow& JSWindowProxy::wrapped() const
+DOMWindow& JSWindowProxy::wrapped() const
 {
     auto* window = this->window();
-    if (auto* jsWindow = jsDynamicCast<JSRemoteDOMWindowBase*>(window->vm(), window))
-        return jsWindow->wrapped();
-    return jsCast<JSDOMWindowBase*>(window)->wrapped();
+    return downcast<JSDOMWindowBase>(window)->wrapped();
 }
 
 JSValue toJS(JSGlobalObject* lexicalGlobalObject, WindowProxy& windowProxy)
 {
-    auto* jsWindowProxy = windowProxy.jsWindowProxy(currentWorld(*lexicalGlobalObject));
+    auto* jsWindowProxy = windowProxy.jsWindowProxy(protect(currentWorld(*lexicalGlobalObject)));
     return jsWindowProxy ? JSValue(jsWindowProxy) : jsNull();
 }
 
@@ -167,19 +165,19 @@ JSWindowProxy* toJSWindowProxy(WindowProxy& windowProxy, DOMWrapperWorld& world)
     return windowProxy.jsWindowProxy(world);
 }
 
-WindowProxy* JSWindowProxy::toWrapped(VM& vm, JSValue value)
+WindowProxy* JSWindowProxy::toWrapped(VM&, JSValue value)
 {
     if (!value.isObject())
         return nullptr;
     JSObject* object = asObject(value);
-    if (object->inherits<JSWindowProxy>(vm))
-        return jsCast<JSWindowProxy*>(object)->windowProxy();
+    if (auto* windowProxy = dynamicDowncast<JSWindowProxy>(*object))
+        return windowProxy->windowProxy();
     return nullptr;
 }
 
-JSC::IsoSubspace* JSWindowProxy::subspaceForImpl(JSC::VM& vm)
+JSC::GCClient::IsoSubspace* JSWindowProxy::subspaceForImpl(JSC::VM& vm)
 {
-    return &static_cast<JSVMClientData*>(vm.clientData)->windowProxySpace();
+    return &downcast<JSVMClientData>(vm.clientData)->windowProxySpace();
 }
 
 } // namespace WebCore

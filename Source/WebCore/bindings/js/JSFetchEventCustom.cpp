@@ -26,18 +26,17 @@
 #include "config.h"
 #include "JSFetchEvent.h"
 
-#if ENABLE(SERVICE_WORKER)
+#include "FetchRequest.h"
+#include "WebCoreOpaqueRootInlines.h"
 
 namespace WebCore {
 
 template<typename Visitor>
-void JSFetchEvent::visitAdditionalChildren(Visitor& visitor)
+void JSFetchEvent::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    visitor.addOpaqueRoot(&wrapped().request());
+    addWebCoreOpaqueRoot(visitor, wrapped().request());
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSFetchEvent);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSFetchEvent);
 
 } // namespace WebCore
-
-#endif

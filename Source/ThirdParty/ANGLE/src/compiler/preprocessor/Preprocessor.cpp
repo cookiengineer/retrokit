@@ -41,6 +41,7 @@ struct PreprocessorImpl
 Preprocessor::Preprocessor(Diagnostics *diagnostics,
                            DirectiveHandler *directiveHandler,
                            const PreprocessorSettings &settings)
+    : mForceEOF(false)
 {
     mImpl = new PreprocessorImpl(diagnostics, directiveHandler, settings);
 }
@@ -52,12 +53,9 @@ Preprocessor::~Preprocessor()
 
 bool Preprocessor::init(size_t count, const char *const string[], const int length[])
 {
-    static const int kDefaultGLSLVersion = 100;
-
     // Add standard pre-defined macros.
     predefineMacro("__LINE__", 0);
     predefineMacro("__FILE__", 0);
-    predefineMacro("__VERSION__", kDefaultGLSLVersion);
     predefineMacro("GL_ES", 1);
 
     return mImpl->tokenizer.init(count, string, length);
@@ -70,6 +68,12 @@ void Preprocessor::predefineMacro(const char *name, int value)
 
 void Preprocessor::lex(Token *token)
 {
+    if (mForceEOF)
+    {
+        token->type = Token::LAST;
+        token->text.clear();
+        return;
+    }
     bool validToken = false;
     while (!validToken)
     {
@@ -95,6 +99,11 @@ void Preprocessor::lex(Token *token)
                 break;
         }
     }
+}
+
+void Preprocessor::forceEOF()
+{
+    mForceEOF = true;
 }
 
 void Preprocessor::setMaxTokenSize(size_t maxTokenSize)

@@ -26,10 +26,13 @@
 #pragma once
 
 #include <WebCore/MediaStrategy.h>
+#include <atomic>
 
 namespace WebKit {
 
-class WebMediaStrategy : public WebCore::MediaStrategy {
+class WebMediaStrategy final : public WebCore::MediaStrategy {
+    WTF_MAKE_TZONE_ALLOCATED(WebMediaStrategy);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WebMediaStrategy);
 public:
     virtual ~WebMediaStrategy();
 
@@ -38,15 +41,32 @@ public:
 #endif
 
 private:
+    bool isWebMediaStrategy() const final { return true; }
+
 #if ENABLE(WEB_AUDIO)
-    Ref<WebCore::AudioDestination> createAudioDestination(WebCore::AudioIOCallback&,
-        const String& inputDeviceId, unsigned numberOfInputChannels, unsigned numberOfOutputChannels, float sampleRate) override;
+    Ref<WebCore::AudioDestination> createAudioDestination(const WebCore::AudioDestinationCreationOptions&) override;
+#endif
+#if ENABLE(VIDEO) && ENABLE(GPU_PROCESS)
+    RefPtr<WebCore::AudioVideoRenderer> createAudioVideoRenderer(LoggerHelper*, WebCore::HTMLMediaElementIdentifier, WebCore::MediaPlayerIdentifier) const final;
+    bool canDecodeExtendedType(WebCore::PlatformMediaDecodingType, const WebCore::ContentType&) final;
+    void ensureCodecsSupportChecksInitialized() final;
 #endif
     std::unique_ptr<WebCore::NowPlayingManager> createNowPlayingManager() const final;
+    bool hasThreadSafeMediaSourceSupport() const final;
+#if ENABLE(MEDIA_SOURCE)
+    void enableMockMediaSource() final;
+#endif
+#if PLATFORM(COCOA) && ENABLE(VIDEO)
+    void nativeImageFromVideoFrame(const WebCore::VideoFrame&, CompletionHandler<void(std::optional<RefPtr<WebCore::NativeImage>>&&)>&&) final;
+#endif
 
 #if ENABLE(GPU_PROCESS)
-    bool m_useGPUProcess { false };
+    std::atomic<bool> m_useGPUProcess { false };
 #endif
 };
 
 } // namespace WebKit
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebKit::WebMediaStrategy) \
+    static bool isType(const WebCore::MediaStrategy& strategy) { return strategy.isWebMediaStrategy(); } \
+SPECIALIZE_TYPE_TRAITS_END()

@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2004, 2005, 2006 Apple Inc.  All rights reserved.
- * Copyright (C) 2008 Collabora, Ltd.  All rights reserved.
+ * Copyright (C) 2004, 2005, 2006 Apple Inc. All rights reserved.
+ * Copyright (C) 2008 Collabora, Ltd. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,9 +26,11 @@
 
 #pragma once
 
-#include "CompositionUnderline.h"
-#include "KeypressCommand.h"
-#include "PlatformEvent.h"
+#include <WebCore/CompositionUnderline.h>
+#include <WebCore/KeypressCommand.h>
+#include <WebCore/PlatformEvent.h>
+#include <wtf/Platform.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/WindowsExtras.h>
 #include <wtf/text/WTFString.h>
 
@@ -44,15 +46,17 @@ OBJC_CLASS WebEvent;
 namespace WebCore {
 
     class PlatformKeyboardEvent : public PlatformEvent {
-        WTF_MAKE_FAST_ALLOCATED;
+        WTF_MAKE_TZONE_ALLOCATED(PlatformKeyboardEvent);
     public:
         PlatformKeyboardEvent()
-            : PlatformEvent(PlatformEvent::KeyDown)
+            : PlatformEvent(PlatformEvent::Type::KeyDown)
         {
         }
 
+        static std::optional<PlatformKeyboardEvent> syntheticEventFromText(Type, const String&);
+
         PlatformKeyboardEvent(Type type, const String& text, const String& unmodifiedText, const String& key, const String& code,
-        const String& keyIdentifier, int windowsVirtualKeyCode, bool isAutoRepeat, bool isKeypad, bool isSystemKey, OptionSet<Modifier> modifiers, WallTime timestamp)
+        const String& keyIdentifier, int windowsVirtualKeyCode, bool isAutoRepeat, bool isKeypad, bool isSystemKey, OptionSet<Modifier> modifiers, MonotonicTime timestamp)
             : PlatformEvent(type, modifiers, timestamp)
             , m_autoRepeat(isAutoRepeat)
             , m_isKeypad(isKeypad)
@@ -82,26 +86,27 @@ namespace WebCore {
         String unmodifiedText() const { return m_unmodifiedText; }
 
         String keyIdentifier() const { return m_keyIdentifier; }
-        const String& key() const { return m_key; }
-        const String& code() const { return m_code; }
+        const String& key() const LIFETIME_BOUND { return m_key; }
+        const String& code() const LIFETIME_BOUND { return m_code; }
 
         // Most compatible Windows virtual key code associated with the event.
         // Zero for Char events.
-        int windowsVirtualKeyCode() const { return m_windowsVirtualKeyCode; }
+        int windowsVirtualKeyCode() const { return m_type != Type::Char ? m_windowsVirtualKeyCode : 0; }
         void setWindowsVirtualKeyCode(int code) { m_windowsVirtualKeyCode = code; }
+        int windowsVirtualKeyCodeWithoutKeyPressOverride() const { return m_windowsVirtualKeyCode; }
 
-#if USE(APPKIT) || PLATFORM(IOS_FAMILY) || PLATFORM(GTK) || USE(LIBWPE)
+#if USE(APPKIT) || PLATFORM(IOS_FAMILY) || PLATFORM(GTK) || USE(LIBWPE) || ENABLE(WPE_PLATFORM)
         bool handledByInputMethod() const { return m_handledByInputMethod; }
 #endif
-#if PLATFORM(GTK) || USE(LIBWPE)
-        const std::optional<Vector<WebCore::CompositionUnderline>>& preeditUnderlines() const { return m_preeditUnderlines; }
-        const std::optional<uint64_t>& preeditSelectionRangeStart() const { return m_preeditSelectionRangeStart; }
-        const std::optional<uint64_t>& preeditSelectionRangeLength() const { return m_preeditSelectionRangeLength; }
+#if PLATFORM(GTK) || USE(LIBWPE) || ENABLE(WPE_PLATFORM)
+        const std::optional<Vector<WebCore::CompositionUnderline>>& preeditUnderlines() const LIFETIME_BOUND { return m_preeditUnderlines; }
+        const std::optional<uint64_t>& preeditSelectionRangeStart() const LIFETIME_BOUND { return m_preeditSelectionRangeStart; }
+        const std::optional<uint64_t>& preeditSelectionRangeLength() const LIFETIME_BOUND { return m_preeditSelectionRangeLength; }
 #endif
 #if USE(APPKIT)
-        const Vector<KeypressCommand>& commands() const { return m_commands; }
+        const Vector<KeypressCommand>& commands() const LIFETIME_BOUND { return m_commands; }
 #elif PLATFORM(GTK)
-        const Vector<String>& commands() const { return m_commands; }
+        const Vector<String>& commands() const LIFETIME_BOUND { return m_commands; }
 #endif
 
         bool isAutoRepeat() const { return m_autoRepeat; }
@@ -113,7 +118,7 @@ namespace WebCore {
 
         WEBCORE_EXPORT static bool currentCapsLockState();
         WEBCORE_EXPORT static void getCurrentModifierState(bool& shiftKey, bool& ctrlKey, bool& altKey, bool& metaKey);
-        WEBCORE_EXPORT static void setCurrentModifierState(OptionSet<Modifier>);
+        WEBCORE_EXPORT static void NODELETE setCurrentModifierState(OptionSet<Modifier>);
         WEBCORE_EXPORT static OptionSet<Modifier> currentStateOfModifierKeys();
 
 #if PLATFORM(COCOA)
@@ -122,20 +127,6 @@ namespace WebCore {
 #else
         ::WebEvent *event() const { return m_Event.get(); }
 #endif
-#endif
-
-#if PLATFORM(WIN)
-        PlatformKeyboardEvent(HWND, WPARAM, LPARAM, Type, bool);
-#endif
-
-#if PLATFORM(GTK)
-        // Used by WebKit2
-        static String keyValueForGdkKeyCode(unsigned);
-        static String keyCodeForHardwareKeyCode(unsigned);
-        static String keyIdentifierForGdkKeyCode(unsigned);
-        static int windowsKeyCodeForGdkKeyCode(unsigned);
-        static String singleCharacterString(unsigned);
-        static bool modifiersContainCapsLock(unsigned);
 #endif
 
 #if USE(LIBWPE)
@@ -159,10 +150,10 @@ namespace WebCore {
         int m_windowsVirtualKeyCode { 0 };
 
         bool m_isSyntheticEvent { false };
-#if USE(APPKIT) || PLATFORM(IOS_FAMILY) || PLATFORM(GTK) || USE(LIBWPE)
+#if USE(APPKIT) || PLATFORM(IOS_FAMILY) || PLATFORM(GTK) || USE(LIBWPE) || ENABLE(WPE_PLATFORM)
         bool m_handledByInputMethod { false };
 #endif
-#if PLATFORM(GTK) || USE(LIBWPE)
+#if PLATFORM(GTK) || USE(LIBWPE) || ENABLE(WPE_PLATFORM)
         std::optional<Vector<WebCore::CompositionUnderline>> m_preeditUnderlines;
         std::optional<uint64_t> m_preeditSelectionRangeStart;
         std::optional<uint64_t> m_preeditSelectionRangeLength;

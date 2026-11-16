@@ -24,10 +24,12 @@
 #include "CachedImage.h"
 #include "Event.h"
 #include "EventNames.h"
-#include "HTMLParserIdioms.h"
+#include "SVGElementTypeHelpers.h"
 #include "SVGImageElement.h"
 
 namespace WebCore {
+
+DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(SVGImageLoader);
 
 SVGImageLoader::SVGImageLoader(SVGImageElement& element)
     : ImageLoader(element)
@@ -39,17 +41,9 @@ SVGImageLoader::~SVGImageLoader() = default;
 void SVGImageLoader::dispatchLoadEvent()
 {
     if (image()->errorOccurred())
-        element().dispatchEvent(Event::create(eventNames().errorEvent, Event::CanBubble::No, Event::IsCancelable::No));
+        protect(element())->dispatchEvent(Event::create(eventNames().errorEvent, Event::CanBubble::No, Event::IsCancelable::No));
     else
-        downcast<SVGImageElement>(ImageLoader::element()).sendLoadEventIfPossible();
-}
-
-String SVGImageLoader::sourceURI(const AtomString& attribute) const
-{
-    URL base = element().baseURI();
-    if (base != aboutBlankURL())
-        return URL(base, stripLeadingAndTrailingHTMLSpaces(attribute)).string();
-    return element().document().completeURL(stripLeadingAndTrailingHTMLSpaces(attribute)).string();
+        protect(element())->dispatchEvent(Event::create(eventNames().loadEvent, Event::CanBubble::No, Event::IsCancelable::No));
 }
 
 }

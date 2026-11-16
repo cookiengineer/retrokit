@@ -30,8 +30,8 @@
 
 #pragma once
 
-#include "MessageWithMessagePorts.h"
-#include "WorkerReportingProxy.h"
+#include <WebCore/MessageWithMessagePorts.h>
+#include <WebCore/WorkerReportingProxy.h>
 
 #include <memory>
 #include <wtf/Function.h>
@@ -42,12 +42,11 @@ class Worker;
 
 // A proxy to talk to the worker object.
 class WorkerObjectProxy : public WorkerReportingProxy {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(WorkerObjectProxy);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(WorkerObjectProxy);
 public:
     virtual void postMessageToWorkerObject(MessageWithMessagePorts&&) = 0;
-    virtual void postTaskToWorkerObject(Function<void(Worker&)>&&) { };
-
-    virtual void confirmMessageFromWorkerObject(bool hasPendingActivity) = 0;
-    virtual void reportPendingActivity(bool hasPendingActivity) = 0;
+    virtual void postTaskToWorkerObject(Function<void(Worker&)>&&) { }
 
     // No need to notify the parent page context when dedicated workers are closing.
     void workerGlobalScopeClosed() override { }

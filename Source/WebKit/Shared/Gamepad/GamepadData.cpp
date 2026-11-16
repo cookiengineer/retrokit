@@ -35,53 +35,26 @@ using WebCore::SharedGamepadValue;
 
 namespace WebKit {
 
-GamepadData::GamepadData(unsigned index, const String& id, const String& mapping, const Vector<SharedGamepadValue>& axisValues, const Vector<SharedGamepadValue>& buttonValues, MonotonicTime lastUpdateTime)
+GamepadData::GamepadData(unsigned index, const String& id, const String& mapping, const Vector<SharedGamepadValue>& axisValues, const Vector<SharedGamepadValue>& buttonValues, MonotonicTime lastUpdateTime, const WebCore::GamepadHapticEffectTypeSet& supportedEffectTypes)
     : m_index(index)
     , m_id(id)
     , m_mapping(mapping)
     , m_axisValues(WTF::map(axisValues, [](const auto& value) { return value.value(); }))
     , m_buttonValues(WTF::map(buttonValues, [](const auto& value) { return value.value(); }))
     , m_lastUpdateTime(lastUpdateTime)
+    , m_supportedEffectTypes(supportedEffectTypes)
 {
 }
 
-void GamepadData::encode(IPC::Encoder& encoder) const
+GamepadData::GamepadData(unsigned index, String&& id, String&& mapping, Vector<double>&& axisValues, Vector<double>&& buttonValues, MonotonicTime lastUpdateTime, WebCore::GamepadHapticEffectTypeSet&& supportedEffectTypes)
+    : m_index(index)
+    , m_id(WTF::move(id))
+    , m_mapping(WTF::move(mapping))
+    , m_axisValues(WTF::move(axisValues))
+    , m_buttonValues(WTF::move(buttonValues))
+    , m_lastUpdateTime(lastUpdateTime)
+    , m_supportedEffectTypes(WTF::move(supportedEffectTypes))
 {
-    encoder << m_isNull;
-    if (m_isNull)
-        return;
-
-    encoder << m_index << m_id << m_mapping << m_axisValues << m_buttonValues << m_lastUpdateTime;
-}
-
-std::optional<GamepadData> GamepadData::decode(IPC::Decoder& decoder)
-{
-    GamepadData data;
-    if (!decoder.decode(data.m_isNull))
-        return std::nullopt;
-
-    if (data.m_isNull)
-        return data;
-
-    if (!decoder.decode(data.m_index))
-        return std::nullopt;
-
-    if (!decoder.decode(data.m_id))
-        return std::nullopt;
-
-    if (!decoder.decode(data.m_mapping))
-        return std::nullopt;
-
-    if (!decoder.decode(data.m_axisValues))
-        return std::nullopt;
-
-    if (!decoder.decode(data.m_buttonValues))
-        return std::nullopt;
-
-    if (!decoder.decode(data.m_lastUpdateTime))
-        return std::nullopt;
-
-    return data;
 }
 
 #if !LOG_DISABLED
@@ -90,15 +63,15 @@ String GamepadData::loggingString() const
 {
     StringBuilder builder;
 
-    builder.append(m_axisValues.size(), " axes, ", m_buttonValues.size(), " buttons\n");
+    builder.append(m_axisValues.size(), " axes, "_s, m_buttonValues.size(), " buttons\n"_s);
 
     for (size_t i = 0; i < m_axisValues.size(); ++i)
-        builder.append(" Axis ", i, ": ", m_axisValues[i]);
+        builder.append(" Axis "_s, i, ": "_s, m_axisValues[i]);
 
     builder.append('\n');
 
     for (size_t i = 0; i < m_buttonValues.size(); ++i)
-        builder.append(" Button ", i, ": ", FormattedNumber::fixedPrecision(m_buttonValues[i]));
+        builder.append(" Button "_s, i, ": "_s, FormattedNumber::fixedPrecision(m_buttonValues[i]));
 
     return builder.toString();
 }

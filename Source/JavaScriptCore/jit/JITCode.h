@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2008-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,14 +25,19 @@
 
 #pragma once
 
-#include "ArityCheckMode.h"
-#include "CallFrame.h"
-#include "CodeOrigin.h"
-#include "JSCJSValue.h"
-#include "MacroAssemblerCodeRef.h"
-#include "RegisterSet.h"
+#include <JavaScriptCore/ArityCheckMode.h>
+#include <JavaScriptCore/CallFrame.h>
+#include <JavaScriptCore/CodeOrigin.h>
+#include <JavaScriptCore/Intrinsic.h>
+#include <JavaScriptCore/JSCJSValue.h>
+#include <JavaScriptCore/MacroAssemblerCodeRef.h>
+#include <JavaScriptCore/RegisterAtOffsetList.h>
+#include <JavaScriptCore/RegisterSet.h>
+
 
 namespace JSC {
+
+class PCToCodeOriginMap;
 
 namespace DFG {
 class CommonData;
@@ -46,9 +51,16 @@ namespace DOMJIT {
 class Signature;
 }
 
-struct ProtoCallFrame;
 class TrackedReferences;
 class VM;
+
+struct PropertyInlineCacheIndex {
+    explicit PropertyInlineCacheIndex(unsigned index)
+        : m_index(index)
+    { }
+
+    unsigned m_index { 0 };
+};
 
 enum class JITType : uint8_t {
     None = 0b000,
@@ -59,14 +71,80 @@ enum class JITType : uint8_t {
     FTLJIT = 0b101,
 };
 static constexpr unsigned widthOfJITType = 3;
-static_assert(WTF::getMSBSetConstexpr(static_cast<std::underlying_type_t<JITType>>(JITType::FTLJIT)) + 1 == widthOfJITType);
+static_assert(WTF::getMSBSet(static_cast<std::underlying_type_t<JITType>>(JITType::FTLJIT)) + 1 == widthOfJITType);
 
-class JITCode : public ThreadSafeRefCounted<JITCode> {
+#if CPU(ADDRESS64)
+template<typename ByteSizedEnumType>
+class JITConstant {
+    static_assert(sizeof(ByteSizedEnumType) == 1);
+    static constexpr uint64_t typeShift = 48;
+    static constexpr uint64_t typeMask = 0xffull << typeShift;
+    uint64_t m_encodedPointer;
+
+    inline uint64_t encode(void* pointer, ByteSizedEnumType type)
+    {
+        uint64_t pointerBits = std::bit_cast<uint64_t>(pointer);
+        return pointerBits | static_cast<uint64_t>(type) << 48;
+    }
 public:
-    template<PtrTag tag> using CodePtr = MacroAssemblerCodePtr<tag>;
+    inline JITConstant()
+        : m_encodedPointer(0)
+    { }
+
+    inline JITConstant(void* pointer, ByteSizedEnumType type)
+        : m_encodedPointer(encode(pointer, type))
+    { }
+
+    template<typename OtherPointerType>
+    JITConstant(CompactPointerTuple<OtherPointerType, ByteSizedEnumType> other)
+        : m_encodedPointer(encode(other.pointer(), other.type()))
+    { }
+
+    inline uint32_t hash() const { return computeHash(m_encodedPointer); }
+    inline void* pointer() const { return std::bit_cast<void*>(m_encodedPointer & ~typeMask); }
+    void setPointer(void* pointer) { m_encodedPointer = encode(pointer, type()); }
+    inline ByteSizedEnumType type() const { return static_cast<ByteSizedEnumType>((m_encodedPointer & typeMask) >> typeShift); }
+    void setType(ByteSizedEnumType type) { m_encodedPointer = encode(pointer(), type); }
+
+    friend bool operator==(const JITConstant&, const JITConstant&) = default;
+};
+#else
+template<typename ByteSizedEnumType>
+class JITConstant {
+    void* m_pointer;
+    ByteSizedEnumType m_type;
+public:
+    inline JITConstant()
+        : m_pointer(nullptr)
+    { }
+
+    inline JITConstant(void* pointer, ByteSizedEnumType type)
+        : m_pointer(pointer)
+        , m_type(type)
+    { }
+
+    template<typename OtherPointerType>
+    JITConstant(CompactPointerTuple<OtherPointerType, ByteSizedEnumType> other)
+        : m_pointer(other.pointer())
+        , m_type(other.type())
+    { }
+
+    inline uint32_t hash() const { return computeHash(m_pointer) * 31 + computeHash((unsigned)m_type); }
+    inline void* pointer() const { return m_pointer; }
+    void setPointer(void* pointer) { m_pointer = pointer; }
+    inline ByteSizedEnumType type() const { return m_type; }
+    void setType(ByteSizedEnumType type) { m_type = type; }
+
+    friend bool operator==(const JITConstant&, const JITConstant&) = default;
+};
+#endif
+
+
+class JITCode : public ThreadSafeRefCounted<JSC::JITCode> {
+public:
     template<PtrTag tag> using CodeRef = MacroAssemblerCodeRef<tag>;
 
-    static const char* typeName(JITType);
+    static ASCIILiteral typeName(JITType);
 
     static JITType bottomTierJIT()
     {
@@ -125,7 +203,7 @@ public:
         }
     }
 
-    static bool isLowerTier(JITType expectedLower, JITType expectedHigher)
+    static bool isLowerTierPrecise(JITType expectedLower, JITType expectedHigher)
     {
         RELEASE_ASSERT(isExecutableScript(expectedLower));
         RELEASE_ASSERT(isExecutableScript(expectedHigher));
@@ -134,7 +212,7 @@ public:
     
     static bool isHigherTier(JITType expectedHigher, JITType expectedLower)
     {
-        return isLowerTier(expectedLower, expectedHigher);
+        return isLowerTierPrecise(expectedLower, expectedHigher);
     }
     
     static bool isLowerOrSameTier(JITType expectedLower, JITType expectedHigher)
@@ -157,16 +235,13 @@ public:
         return jitType == JITType::InterpreterThunk || jitType == JITType::BaselineJIT;
     }
 
-    static bool useDataIC(JITType jitType)
-    {
-        if (!Options::useDataIC())
-            return false;
-        if (JITCode::isBaselineCode(jitType))
-            return true;
-        return Options::useDataICInOptimizingJIT();
-    }
-
     virtual const DOMJIT::Signature* signature() const { return nullptr; }
+
+    virtual bool canSwapCodeRefForDebugger() const { return false; }
+    virtual CodeRef<JSEntryPtrTag> swapCodeRefForDebugger(CodeRef<JSEntryPtrTag>);
+
+    virtual bool canSwapCodePtrWithArityCheckForDebugger() const { return false; }
+    virtual CodePtr<JSEntryPtrTag> swapCodePtrWithArityCheckForDebugger(CodePtr<JSEntryPtrTag>);
     
     enum class ShareAttribute : uint8_t {
         NotShared,
@@ -174,7 +249,7 @@ public:
     };
 
 protected:
-    JITCode(JITType, JITCode::ShareAttribute = JITCode::ShareAttribute::NotShared);
+    JITCode(JITType, CodePtr<JSEntryPtrTag> = nullptr, JITCode::ShareAttribute = JITCode::ShareAttribute::NotShared);
     
 public:
     virtual ~JITCode();
@@ -183,6 +258,8 @@ public:
     {
         return m_jitType;
     }
+
+    bool NODELETE isUnlinked() const;
     
     template<typename PointerType>
     static JITType jitTypeFor(PointerType jitCode)
@@ -191,7 +268,9 @@ public:
             return JITType::None;
         return jitCode->jitType();
     }
-    
+
+    void* addressForCall() const { return m_addressForCall.taggedPtr(); }
+
     virtual CodePtr<JSEntryPtrTag> addressForCall(ArityCheckMode) = 0;
     virtual void* executableAddressAtOffset(size_t offset) = 0;
     void* executableAddress() { return executableAddressAtOffset(0); }
@@ -199,14 +278,13 @@ public:
     virtual unsigned offsetOf(void* pointerIntoCode) = 0;
     
     virtual DFG::CommonData* dfgCommon();
+    virtual const DFG::CommonData* dfgCommon() const;
     virtual DFG::JITCode* dfg();
     virtual FTL::JITCode* ftl();
     virtual FTL::ForOSREntryJITCode* ftlForOSREntry();
-    virtual void shrinkToFit(const ConcurrentJSLocker&);
+    virtual void shrinkToFit();
     
     virtual void validateReferences(const TrackedReferences&);
-    
-    JSValue execute(VM*, ProtoCallFrame*);
     
     void* start() { return dataAddressAtOffset(0); }
     virtual size_t size() = 0;
@@ -223,14 +301,21 @@ public:
 
     bool isShared() const { return m_shareAttribute == ShareAttribute::Shared; }
 
+    virtual PCToCodeOriginMap* pcToCodeOriginMap() { return nullptr; }
+
+    const RegisterAtOffsetList* calleeSaveRegisters() const;
+
+    static constexpr ptrdiff_t offsetOfJITType() { return OBJECT_OFFSETOF(JSC::JITCode, m_jitType); }
+
 private:
-    JITType m_jitType;
-    ShareAttribute m_shareAttribute;
+    const JITType m_jitType;
+    const ShareAttribute m_shareAttribute;
 protected:
     Intrinsic m_intrinsic { NoIntrinsic }; // Effective only in NativeExecutable.
+    CodePtr<JSEntryPtrTag> m_addressForCall;
 };
 
-class JITCodeWithCodeRef : public JITCode {
+class JITCodeWithCodeRef : public JSC::JITCode {
 protected:
     JITCodeWithCodeRef(JITType);
     JITCodeWithCodeRef(CodeRef<JSEntryPtrTag>, JITType, JITCode::ShareAttribute);
@@ -244,13 +329,15 @@ public:
     size_t size() override;
     bool contains(void*) override;
 
+    CodeRef<JSEntryPtrTag> swapCodeRefForDebugger(CodeRef<JSEntryPtrTag>) override;
+
 protected:
-    CodeRef<JSEntryPtrTag> m_ref;
+    RefPtr<ExecutableMemoryHandle> m_executableMemory;
 };
 
 DECLARE_ALLOCATOR_WITH_HEAP_IDENTIFIER(DirectJITCode);
 class DirectJITCode : public JITCodeWithCodeRef {
-    WTF_MAKE_STRUCT_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(DirectJITCode);
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED_WITH_HEAP_IDENTIFIER(DirectJITCode, DirectJITCode);
 public:
     DirectJITCode(JITType);
     DirectJITCode(CodeRef<JSEntryPtrTag>, CodePtr<JSEntryPtrTag> withArityCheck, JITType, JITCode::ShareAttribute = JITCode::ShareAttribute::NotShared);
@@ -258,6 +345,10 @@ public:
     ~DirectJITCode() override;
     
     CodePtr<JSEntryPtrTag> addressForCall(ArityCheckMode) override;
+
+    bool canSwapCodeRefForDebugger() const override { return jitType() == JITType::HostCallThunk; }
+    bool canSwapCodePtrWithArityCheckForDebugger() const override { return jitType() == JITType::HostCallThunk; }
+    CodePtr<JSEntryPtrTag> swapCodePtrWithArityCheckForDebugger(CodePtr<JSEntryPtrTag>) override;
 
 protected:
     void initializeCodeRefForDFG(CodeRef<JSEntryPtrTag>, CodePtr<JSEntryPtrTag> withArityCheck);
@@ -273,6 +364,8 @@ public:
     ~NativeJITCode() override;
 
     CodePtr<JSEntryPtrTag> addressForCall(ArityCheckMode) override;
+
+    bool canSwapCodeRefForDebugger() const override { return true; }
 };
 
 class NativeDOMJITCode final : public NativeJITCode {

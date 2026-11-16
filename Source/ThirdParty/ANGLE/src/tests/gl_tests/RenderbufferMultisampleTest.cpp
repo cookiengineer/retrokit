@@ -14,7 +14,7 @@ using namespace angle;
 namespace
 {
 
-class RenderbufferMultisampleTest : public ANGLETest
+class RenderbufferMultisampleTest : public ANGLETest<>
 {
   protected:
     RenderbufferMultisampleTest()
@@ -25,6 +25,7 @@ class RenderbufferMultisampleTest : public ANGLETest
         setConfigGreenBits(8);
         setConfigBlueBits(8);
         setConfigAlphaBits(8);
+        setExtensionsEnabled(false);
     }
 
     void testSetUp() override
@@ -43,6 +44,9 @@ class RenderbufferMultisampleTest : public ANGLETest
     GLuint mRenderbuffer = 0;
 };
 
+class RenderbufferMultisampleTestES31 : public RenderbufferMultisampleTest
+{};
+
 // In GLES 3.0, if internalformat is integer (signed or unsigned), to allocate multisample
 // renderbuffer storage for that internalformat is not supported. An INVALID_OPERATION is
 // generated. In GLES 3.1, it is OK to allocate multisample renderbuffer storage for interger
@@ -58,6 +62,13 @@ TEST_P(RenderbufferMultisampleTest, IntegerInternalformat)
     if (getClientMajorVersion() < 3 || getClientMinorVersion() < 1)
     {
         ASSERT_GL_ERROR(GL_INVALID_OPERATION);
+
+        // Check that NUM_SAMPLE_COUNTS is zero
+        GLint numSampleCounts = 0;
+        glGetInternalformativ(GL_RENDERBUFFER, GL_RGBA8I, GL_NUM_SAMPLE_COUNTS, 1,
+                              &numSampleCounts);
+        ASSERT_GL_NO_ERROR();
+        EXPECT_EQ(numSampleCounts, 0);
     }
     else
     {
@@ -123,5 +134,110 @@ TEST_P(RenderbufferMultisampleTest, OddSampleCount)
     }
 }
 
+// Test that when glBlend GL_COLORBURN_KHR is emulated with framebuffer fetch, and the framebuffer
+// is multisampled, the emulation works fine. This simulates the deqp test:
+// dEQP-GLES31.functional.blend_equation_advanced.msaa.colorburn.
+TEST_P(RenderbufferMultisampleTestES31, ColorBurnBlend)
+{
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_KHR_blend_equation_advanced"));
+    constexpr char kVS[] = R"(#version 310 es
+in highp vec4 a_position;
+in mediump vec4 a_color;
+out mediump vec4 v_color;
+void main()
+{
+gl_Position = a_position;
+v_color = a_color;
+})";
+
+    constexpr char kFS[] = R"(#version 310 es
+#extension GL_KHR_blend_equation_advanced : require
+in mediump vec4 v_color;
+layout (blend_support_colorburn) out;
+layout (location = 0) out mediump vec4 o_color;
+void main()
+{
+o_color = v_color;
+})";
+
+    ANGLE_GL_PROGRAM(program, kVS, kFS);
+
+    // Create vertex data and buffers
+    // Create vertex position data
+    std::array<Vector2, 4> quadPos = {
+        Vector2(-1.0f, -1.0f),
+        Vector2(-1.0f, 1.0f),
+        Vector2(1.0f, -1.0f),
+        Vector2(1.0f, 1.0f),
+    };
+
+    // Create vertex color data
+    std::array<Vector4, 4> quadColor = {
+        Vector4(1.0f, 0.0f, 0.0f, 1.0f), Vector4(1.0f, 0.0f, 0.0f, 1.0f),
+        Vector4(1.0f, 0.0f, 0.0f, 1.0f), Vector4(1.0f, 0.0f, 0.0f, 1.0f)};
+
+    std::array<uint16_t, 6> quadIndices = {0, 2, 1, 1, 2, 3};
+
+    GLBuffer indexBuffer;
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(quadIndices), quadIndices.data(), GL_STATIC_DRAW);
+
+    GLBuffer posBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, posBuffer);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(quadPos), quadPos.data(), GL_STATIC_DRAW);
+    const int posLoc = glGetAttribLocation(program, "a_position");
+    glEnableVertexAttribArray(posLoc);
+    glVertexAttribPointer(posLoc, 2, GL_FLOAT, GL_FALSE, 0, 0);
+
+    GLBuffer colorBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, colorBuffer);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(quadColor), quadColor.data(), GL_STATIC_DRAW);
+    const int colorLoc = glGetAttribLocation(program, "a_color");
+    glEnableVertexAttribArray(colorLoc);
+    glVertexAttribPointer(colorLoc, 4, GL_FLOAT, GL_FALSE, 0, 0);
+
+    // Create a multisampled render buffer and attach it to frame buffer color attachment
+    GLRenderbuffer rbo;
+    glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+    glRenderbufferStorageMultisample(GL_RENDERBUFFER, 4, GL_RGBA8, getWindowWidth(),
+                                     getWindowHeight());
+    GLFramebuffer fbo;
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rbo);
+
+    // Create a singlesampled render buffer and attach it to frame buffer color attachment
+    GLRenderbuffer resolvedRbo;
+    glBindRenderbuffer(GL_RENDERBUFFER, resolvedRbo);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, getWindowWidth(), getWindowHeight());
+    GLFramebuffer resolvedFbo;
+    glBindFramebuffer(GL_FRAMEBUFFER, resolvedFbo);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, resolvedRbo);
+
+    glUseProgram(program);
+    glBlendEquation(GL_COLORBURN_KHR);
+
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbo);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    glDisable(GL_BLEND);
+    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0);  // Validation error
+    EXPECT_GL_NO_ERROR();
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, resolvedFbo);
+    glBlitFramebuffer(0, 0, getWindowWidth(), getWindowHeight(), 0, 0, getWindowWidth(),
+                      getWindowHeight(), GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    EXPECT_GL_NO_ERROR();  // Validation error
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, resolvedFbo);
+    EXPECT_PIXEL_COLOR_EQ(getWindowWidth() / 4, getWindowHeight() / 4,
+                          GLColor::red);  // Validation error
+}
+
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(RenderbufferMultisampleTest);
 ANGLE_INSTANTIATE_TEST_ES3_AND_ES31(RenderbufferMultisampleTest);
+
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(RenderbufferMultisampleTestES31);
+ANGLE_INSTANTIATE_TEST_ES31(RenderbufferMultisampleTestES31);
 }  // namespace

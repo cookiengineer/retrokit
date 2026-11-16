@@ -29,6 +29,8 @@
 #ifndef Distance_h
 #define Distance_h
 
+#include <wtf/TZoneMalloc.h>
+
 namespace WebCore {
 
 // Distance models are defined according to the OpenAL specification:
@@ -41,12 +43,12 @@ enum class DistanceModelType {
 };
 
 class DistanceEffect final {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(DistanceEffect);
 public:
     DistanceEffect();
 
     // Returns scalar gain for the given distance the current distance model is used
-    double gain(double distance);
+    double gain(double distance) const;
 
     DistanceModelType model() const { return m_model; }
 
@@ -66,9 +68,9 @@ public:
     double rolloffFactor() const { return m_rolloffFactor; }
 
 protected:
-    double linearGain(double distance);
-    double inverseGain(double distance);
-    double exponentialGain(double distance);
+    double linearGain(double distance) const;
+    double NODELETE inverseGain(double distance) const;
+    double exponentialGain(double distance) const;
 
     DistanceModelType m_model { DistanceModelType::Inverse };
     bool m_isClamped { true };

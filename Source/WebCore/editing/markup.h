@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004 Apple Inc.  All rights reserved.
+ * Copyright (C) 2004-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,10 +25,14 @@
 
 #pragma once
 
-#include "ExceptionOr.h"
-#include "FloatSize.h"
-#include "FragmentScriptingPermission.h"
-#include "HTMLInterchange.h"
+#include <WebCore/CSSStyleSheet.h>
+#include <WebCore/Element.h>
+#include <WebCore/FloatSize.h>
+#include <WebCore/HTMLInterchange.h>
+#include <WebCore/MarkupExclusionRule.h>
+#include <WebCore/PageConfiguration.h>
+#include <WebCore/ParserContentPolicy.h>
+#include <WebCore/ShadowRoot.h>
 #include <wtf/Forward.h>
 #include <wtf/Function.h>
 #include <wtf/HashMap.h>
@@ -37,11 +41,12 @@ namespace WebCore {
 
 class ArchiveResource;
 class ContainerNode;
+class CustomElementRegistry;
 class Document;
 class DocumentFragment;
 class Element;
-class Frame;
 class HTMLElement;
+class LocalFrame;
 class Node;
 class Page;
 class QualifiedName;
@@ -50,35 +55,61 @@ class VisibleSelection;
 struct PresentationSize;
 struct SimpleRange;
 
-void replaceSubresourceURLs(Ref<DocumentFragment>&&, HashMap<AtomString, AtomString>&&);
-void removeSubresourceURLAttributes(Ref<DocumentFragment>&&, WTF::Function<bool(const URL&)> shouldRemoveURL);
+template<typename> class ExceptionOr;
 
-std::unique_ptr<Page> createPageForSanitizingWebContent();
+void replaceSubresourceURLs(Ref<DocumentFragment>&&, HashMap<AtomString, AtomString>&&);
+void removeSubresourceURLAttributes(Ref<DocumentFragment>&&, Function<bool(const URL&)> shouldRemoveURL);
+
+Ref<Page> createPageForSanitizingWebContent(Document* destinationDocument, std::optional<PageConfiguration>&& = { });
 enum class MSOListQuirks : bool { CheckIfNeeded, Disabled };
-String sanitizeMarkup(const String&, MSOListQuirks = MSOListQuirks::Disabled, std::optional<WTF::Function<void(DocumentFragment&)>> fragmentSanitizer = std::nullopt);
-String sanitizedMarkupForFragmentInDocument(Ref<DocumentFragment>&&, Document&, MSOListQuirks, const String& originalMarkup);
+String sanitizeMarkup(const String&, Document* destinationDocument, MSOListQuirks = MSOListQuirks::Disabled, NOESCAPE const Function<void(DocumentFragment&)>& fragmentSanitizer = nullptr, NOESCAPE const Function<void(Element& stagingBody)>& postLayoutSanitizer = nullptr);
+WEBCORE_EXPORT String sanitizeSVG(const String& svg, Document* destinationDocument);
+String sanitizedMarkupForFragmentInDocument(Ref<DocumentFragment>&&, Document&, MSOListQuirks, const String& originalMarkup, NOESCAPE const Function<void(Element& stagingBody)>& postLayoutSanitizer = nullptr);
+
+class UserSelectNoneStateCache {
+public:
+    explicit UserSelectNoneStateCache(TreeType);
+
+    bool nodeOnlyContainsUserSelectNone(Node& node) { return computeState(node) == State::OnlyUserSelectNone; }
+
+private:
+    ContainerNode* NODELETE parentNode(Node&);
+    Node* firstChild(Node&);
+    Node* nextSibling(Node&);
+
+    enum class State : uint8_t { NotUserSelectNone, Mixed, OnlyUserSelectNone };
+    State computeState(Node&);
+
+    HashMap<Ref<Node>, State> m_cache;
+    bool m_useComposedTree;
+};
 
 WEBCORE_EXPORT Ref<DocumentFragment> createFragmentFromText(const SimpleRange& context, const String& text);
-WEBCORE_EXPORT Ref<DocumentFragment> createFragmentFromMarkup(Document&, const String& markup, const String& baseURL, ParserContentPolicy = AllowScriptingContent);
-ExceptionOr<Ref<DocumentFragment>> createFragmentForInnerOuterHTML(Element&, const String& markup, ParserContentPolicy);
-RefPtr<DocumentFragment> createFragmentForTransformToFragment(Document&, const String& sourceString, const String& sourceMIMEType);
+WEBCORE_EXPORT Ref<DocumentFragment> createFragmentFromMarkup(Document&, const String& markup, const String& baseURL, OptionSet<ParserContentPolicy> = { ParserContentPolicy::AllowScriptingContent });
+ExceptionOr<Ref<DocumentFragment>> createFragmentForInnerOuterHTML(Element&, const String& markup, OptionSet<ParserContentPolicy>, CustomElementRegistry*, Element::CustomElementRegistryKind = Element::CustomElementRegistryKind::Window);
+RefPtr<DocumentFragment> createFragmentForTransformToFragment(Document&, String&& sourceString, const String& sourceMIMEType);
 Ref<DocumentFragment> createFragmentForImageAndURL(Document&, const String&, PresentationSize preferredSize);
-ExceptionOr<Ref<DocumentFragment>> createContextualFragment(Element&, const String& markup, ParserContentPolicy);
+ExceptionOr<Ref<DocumentFragment>> createContextualFragment(Element&, const String& markup, OptionSet<ParserContentPolicy>);
 
 bool isPlainTextMarkup(Node*);
 
 // These methods are used by HTMLElement & ShadowRoot to replace the children with respected fragment/text.
 ExceptionOr<void> replaceChildrenWithFragment(ContainerNode&, Ref<DocumentFragment>&&);
 
-enum class ResolveURLs : uint8_t { No, Yes, YesExcludingLocalFileURLsForPrivacy };
-enum class ConvertBlocksToInlines : uint8_t { No, Yes };
-enum class SerializeComposedTree : uint8_t { No, Yes };
-WEBCORE_EXPORT String serializePreservingVisualAppearance(const SimpleRange&, Vector<Node*>* = nullptr, AnnotateForInterchange = AnnotateForInterchange::No, ConvertBlocksToInlines = ConvertBlocksToInlines::No, ResolveURLs = ResolveURLs::No);
-String serializePreservingVisualAppearance(const VisibleSelection&, ResolveURLs = ResolveURLs::No, SerializeComposedTree = SerializeComposedTree::No, Vector<Node*>* = nullptr);
+enum class ConvertBlocksToInlines : bool { No, Yes };
+enum class SerializeComposedTree : bool { No, Yes };
+enum class IgnoreUserSelectNone : bool { No, Yes };
+enum class PreserveBaseElement : bool { No, Yes };
+enum class PreserveDirectionForInlineText : bool { No, Yes };
+WEBCORE_EXPORT String serializePreservingVisualAppearance(const SimpleRange&, Vector<Ref<Node>>* = nullptr, AnnotateForInterchange = AnnotateForInterchange::No, ConvertBlocksToInlines = ConvertBlocksToInlines::No, ResolveURLs = ResolveURLs::NoExcludingURLsForPrivacy);
+String serializePreservingVisualAppearance(const VisibleSelection&, ResolveURLs = ResolveURLs::NoExcludingURLsForPrivacy, SerializeComposedTree = SerializeComposedTree::No,
+    IgnoreUserSelectNone = IgnoreUserSelectNone::Yes, PreserveBaseElement = PreserveBaseElement::No, PreserveDirectionForInlineText = PreserveDirectionForInlineText::No, Vector<Ref<Node>>* = nullptr);
 
 enum class SerializedNodes : uint8_t { SubtreeIncludingNode, SubtreesOfChildren };
-enum class SerializationSyntax : uint8_t { HTML, XML };
-WEBCORE_EXPORT String serializeFragment(const Node&, SerializedNodes, Vector<Node*>* = nullptr, ResolveURLs = ResolveURLs::No, Vector<QualifiedName>* tagNamesToSkip = nullptr, SerializationSyntax = SerializationSyntax::HTML);
+enum class SerializationSyntax : bool { HTML, XML };
+enum class SerializeShadowRoots : uint8_t { Explicit, Serializable, AllForInterchange };
+WEBCORE_EXPORT String serializeFragment(const Node&, SerializedNodes, Vector<Ref<Node>>* = nullptr, ResolveURLs = ResolveURLs::NoExcludingURLsForPrivacy, std::optional<SerializationSyntax> = std::nullopt, SerializeShadowRoots = SerializeShadowRoots::Explicit, Vector<Ref<ShadowRoot>>&& explicitShadowRoots = { }, const Vector<MarkupExclusionRule>& exclusionRules = { });
+WEBCORE_EXPORT String serializeFragmentWithURLReplacement(const Node&, SerializedNodes, Vector<Ref<Node>>*, ResolveURLs, std::optional<SerializationSyntax>, HashMap<String, String>&& replacementURLStrings, HashMap<Ref<CSSStyleSheet>, String>&& replacementURLStringsForCSSStyleSheet, SerializeShadowRoots = SerializeShadowRoots::Explicit, Vector<Ref<ShadowRoot>>&& explicitShadowRoots = { }, const Vector<MarkupExclusionRule>& exclusionRules = { });
 
 String urlToMarkup(const URL&, const String& title);
 

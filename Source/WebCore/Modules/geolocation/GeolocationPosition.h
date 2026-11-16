@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,8 +25,8 @@
 
 #pragma once
 
-#include "DOMTimeStamp.h"
-#include "GeolocationCoordinates.h"
+#include <WebCore/EpochTimeStamp.h>
+#include <WebCore/GeolocationCoordinates.h>
 #include <wtf/RefCounted.h>
 #include <wtf/text/WTFString.h>
 
@@ -34,9 +34,9 @@ namespace WebCore {
 
 class GeolocationPosition : public RefCounted<GeolocationPosition> {
 public:
-    static Ref<GeolocationPosition> create(Ref<GeolocationCoordinates>&& coordinates, DOMTimeStamp timestamp)
+    static Ref<GeolocationPosition> create(Ref<GeolocationCoordinates>&& coordinates, EpochTimeStamp timestamp)
     {
-        return adoptRef(*new GeolocationPosition(WTFMove(coordinates), timestamp));
+        return adoptRef(*new GeolocationPosition(WTF::move(coordinates), timestamp));
     }
 
     Ref<GeolocationPosition> isolatedCopy() const
@@ -44,18 +44,18 @@ public:
         return create(m_coordinates->isolatedCopy(), m_timestamp);
     }
 
-    DOMTimeStamp timestamp() const { return m_timestamp; }
+    EpochTimeStamp timestamp() const { return m_timestamp; }
     const GeolocationCoordinates& coords() const { return m_coordinates.get(); }
     
 private:
-    GeolocationPosition(Ref<GeolocationCoordinates>&& coordinates, DOMTimeStamp timestamp)
-        : m_coordinates(WTFMove(coordinates))
+    GeolocationPosition(Ref<GeolocationCoordinates>&& coordinates, EpochTimeStamp timestamp)
+        : m_coordinates(WTF::move(coordinates))
         , m_timestamp(timestamp)
     {
     }
 
-    Ref<GeolocationCoordinates> m_coordinates;
-    DOMTimeStamp m_timestamp;
+    const Ref<GeolocationCoordinates> m_coordinates;
+    EpochTimeStamp m_timestamp;
 };
     
 } // namespace WebCore

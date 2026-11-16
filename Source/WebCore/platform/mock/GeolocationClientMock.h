@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2010 Google Inc. All rights reserved.
- * Copyright (C) 2012 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2012 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -35,6 +35,8 @@
 #include "GeolocationPositionData.h"
 #include "Timer.h"
 #include <wtf/HashSet.h>
+#include <wtf/Ref.h>
+#include <wtf/RefCounted.h>
 #include <wtf/RefPtr.h>
 #include <wtf/text/WTFString.h>
 
@@ -44,22 +46,26 @@ class GeolocationController;
 
 // FIXME: this should not be in WebCore. It should be moved to WebKit.
 // Provides a mock object for the geolocation client.
-class GeolocationClientMock : public GeolocationClient {
+class GeolocationClientMock : public GeolocationClient, public RefCounted<GeolocationClientMock> {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(GeolocationClientMock);
 public:
-    GeolocationClientMock();
+    static Ref<GeolocationClientMock> create() { return adoptRef(*new GeolocationClientMock); }
     virtual ~GeolocationClientMock();
 
+    void ref() const final { RefCounted::ref(); }
+    void deref() const final { RefCounted::deref(); }
+
     void reset();
-    void setController(GeolocationController*);
+    void NODELETE setController(GeolocationController*);
 
     void setPosition(GeolocationPositionData&&);
     void setPositionUnavailableError(const String& errorMessage);
     void setPermission(bool allowed);
-    int numberOfPendingPermissionRequests() const;
+    int NODELETE numberOfPendingPermissionRequests() const;
 
     // GeolocationClient
     void geolocationDestroyed() override;
-    void startUpdating(const String& authorizationToken) override;
+    void startUpdating(const String& authorizationToken, bool enableHighAccuracy) override;
     void stopUpdating() override;
     void setEnableHighAccuracy(bool) override;
     std::optional<GeolocationPositionData> lastPosition() override;
@@ -67,6 +73,8 @@ public:
     void cancelPermissionRequest(Geolocation&) override;
 
 private:
+    GeolocationClientMock();
+
     void asyncUpdateController();
     void controllerTimerFired();
 
@@ -75,20 +83,21 @@ private:
 
     void clearError();
 
-    GeolocationController* m_controller;
+    WeakPtr<GeolocationController> m_controller;
     std::optional<GeolocationPositionData> m_lastPosition;
-    bool m_hasError;
+    bool m_hasError { false };
     String m_errorMessage;
     Timer m_controllerTimer;
     Timer m_permissionTimer;
-    bool m_isActive;
+    bool m_isActive { false };
 
     enum PermissionState {
         PermissionStateUnset,
         PermissionStateAllowed,
         PermissionStateDenied,
-    } m_permissionState;
-    typedef WTF::HashSet<RefPtr<Geolocation> > GeolocationSet;
+    } m_permissionState { PermissionStateUnset };
+
+    using GeolocationSet = HashSet<Ref<Geolocation>>;
     GeolocationSet m_pendingPermission;
 };
 

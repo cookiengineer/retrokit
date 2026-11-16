@@ -10,7 +10,7 @@
 
 #include "test_utils/ANGLETest.h"
 
-#include "platform/FeaturesVk.h"
+#include "test_utils/angle_test_configs.h"
 #include "test_utils/gl_raii.h"
 
 using namespace angle;
@@ -18,7 +18,7 @@ using namespace angle;
 namespace
 {
 
-class DepthStencilTest : public ANGLETest
+class DepthStencilTest : public ANGLETest<>
 {
   protected:
     DepthStencilTest()
@@ -82,13 +82,6 @@ class DepthStencilTest : public ANGLETest
         mHasStencil = false;
     }
 
-    // Override a feature to force emulation of stencil-only and depth-only formats with a packed
-    // depth/stencil format
-    void overrideFeaturesVk(FeaturesVk *featuresVk) override
-    {
-        featuresVk->overrideFeatures({"force_fallback_format"}, true);
-    }
-
     void prepareSingleEmulatedWithPacked();
     void ensureColor(GLColor color);
     void ensureDepthUnaffected();
@@ -106,7 +99,12 @@ class DepthStencilTest : public ANGLETest
 };
 
 class DepthStencilTestES3 : public DepthStencilTest
-{};
+{
+  protected:
+    void compareDepth(uint32_t expected);
+    void clearAndCompareDepth(GLfloat depth, uint32_t expected);
+    void drawAndCompareDepth(GLProgram &program, GLfloat depth, uint32_t expected);
+};
 
 void DepthStencilTest::ensureColor(GLColor color)
 {
@@ -247,11 +245,247 @@ TEST_P(DepthStencilTest, DepthOnlyEmulatedWithPacked)
 // Tests that clearing or rendering into a stencil-only format doesn't affect depth.
 TEST_P(DepthStencilTest, StencilOnlyEmulatedWithPacked)
 {
-    // http://anglebug.com/4092
-    ANGLE_SKIP_TEST_IF(IsWindows() && IsD3D9());
     bindColorStencilFBO();
     prepareSingleEmulatedWithPacked();
     ensureDepthUnaffected();
+}
+
+// Tests that drawing into stencil buffer along multiple render passes works.
+TEST_P(DepthStencilTest, StencilOnlyDrawThenCopyThenDraw)
+{
+    ANGLE_GL_PROGRAM(drawColor, essl1_shaders::vs::Simple(), essl1_shaders::fs::UniformColor());
+    glUseProgram(drawColor);
+    GLint colorUniformLocation =
+        glGetUniformLocation(drawColor, angle::essl1_shaders::ColorUniform());
+    ASSERT_NE(colorUniformLocation, -1);
+
+    bindColorStencilFBO();
+
+    // Draw red once
+    glEnable(GL_STENCIL_TEST);
+    glStencilFunc(GL_ALWAYS, 0x55, 0xFF);
+    glStencilOp(GL_REPLACE, GL_REPLACE, GL_REPLACE);
+    glStencilMask(0xFF);
+
+    glUniform4f(colorUniformLocation, 1.0f, 0.0f, 0.0f, 1.0f);
+    drawQuad(drawColor, essl1_shaders::PositionAttrib(), 1.0f);
+    ASSERT_GL_NO_ERROR();
+
+    // Create a texture and copy color into it, this breaks the render pass.
+    GLTexture texture;
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 0, 0, getWindowWidth(), getWindowHeight(), 0);
+
+    // Draw green, expecting correct stencil.
+    glStencilFunc(GL_EQUAL, 0x55, 0xFF);
+    glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+
+    glUniform4f(colorUniformLocation, 0.0f, 1.0f, 0.0f, 1.0f);
+    drawQuad(drawColor, essl1_shaders::PositionAttrib(), 1.0f);
+    ASSERT_GL_NO_ERROR();
+
+    // Verify that the texture is now green
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+
+    // For completeness, also verify that the copy texture is red
+    GLFramebuffer fbo;
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+
+    ASSERT_GL_NO_ERROR();
+}
+
+// Tests that stencil ref values work correctly.
+TEST_P(DepthStencilTest, StencilRef)
+{
+    ANGLE_GL_PROGRAM(drawRed, essl1_shaders::vs::Simple(), essl1_shaders::fs::Red());
+    ANGLE_GL_PROGRAM(drawGreen, essl1_shaders::vs::Simple(), essl1_shaders::fs::Green());
+    ANGLE_GL_PROGRAM(drawBlue, essl1_shaders::vs::Simple(), essl1_shaders::fs::Blue());
+
+    bindColorStencilFBO();
+
+    // Clear color to black and stencil to 1
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClearStencil(1);
+    glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+    ASSERT_GL_NO_ERROR();
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::black);
+
+    // Draw red quad with stencil test that should pass
+    glEnable(GL_STENCIL_TEST);
+    glStencilFunc(GL_EQUAL, 1, 0xFF);
+    glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+    drawQuad(drawRed, essl1_shaders::PositionAttrib(), 0.0f);
+    ASSERT_GL_NO_ERROR();
+
+    // The color should now be red
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+
+    // Draw blue quad with stencil test that should fail
+    glStencilFunc(GL_EQUAL, 2, 0xFF);
+    drawQuad(drawBlue, essl1_shaders::PositionAttrib(), 0.0f);
+    ASSERT_GL_NO_ERROR();
+
+    // The color should still be red
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+
+    // Draw green quad with stencil test that should still pass
+    glStencilFunc(GL_EQUAL, 1, 0xFF);
+    drawQuad(drawGreen, essl1_shaders::PositionAttrib(), 0.0f);
+    ASSERT_GL_NO_ERROR();
+
+    // The color should be green now
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+
+    glDisable(GL_STENCIL_TEST);
+}
+
+// Tests replacing the stencil value.
+TEST_P(DepthStencilTest, StencilReplace)
+{
+    ANGLE_GL_PROGRAM(drawRed, essl1_shaders::vs::Simple(), essl1_shaders::fs::Red());
+    ANGLE_GL_PROGRAM(drawGreen, essl1_shaders::vs::Simple(), essl1_shaders::fs::Green());
+
+    bindColorStencilFBO();
+
+    // Clear color to black and stencil to 1.
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClearStencil(1);
+    glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+    ASSERT_GL_NO_ERROR();
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::black);
+
+    // Draw a red quad, replacing the stencil value from 1 to 5.
+    glEnable(GL_STENCIL_TEST);
+    glStencilFunc(GL_ALWAYS, 5, 0xFF);
+    glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+    drawQuad(drawRed, essl1_shaders::PositionAttrib(), 0.0f);
+    ASSERT_GL_NO_ERROR();
+
+    // The color should now be red.
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+
+    // Draw a green quad, but only where the stencil value is 5.
+    glStencilFunc(GL_EQUAL, 5, 0xFF);
+    glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+    drawQuad(drawGreen, essl1_shaders::PositionAttrib(), 0.0f);
+    ASSERT_GL_NO_ERROR();
+
+    // The color should now be green, proving the stencil was replaced.
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+
+    glDisable(GL_STENCIL_TEST);
+}
+
+// Tests that disabling GL_STENCIL_TEST prevents the stencil values from changing.
+TEST_P(DepthStencilTest, StencilDisable)
+{
+    ANGLE_GL_PROGRAM(drawRed, essl1_shaders::vs::Simple(), essl1_shaders::fs::Red());
+    ANGLE_GL_PROGRAM(drawGreen, essl1_shaders::vs::Simple(), essl1_shaders::fs::Green());
+    ANGLE_GL_PROGRAM(drawBlue, essl1_shaders::vs::Simple(), essl1_shaders::fs::Blue());
+
+    bindColorStencilFBO();
+
+    // Clear color to black and stencil to 1.
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClearStencil(1);
+    glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+    ASSERT_GL_NO_ERROR();
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::black);
+
+    // Always increment the stencil value.
+    glStencilOp(GL_INCR, GL_INCR, GL_INCR);
+
+    // Draw a red quad because all stencil values should be 1.
+    glEnable(GL_STENCIL_TEST);
+    glStencilFunc(GL_EQUAL, 1, 0xFF);
+    drawQuad(drawRed, essl1_shaders::PositionAttrib(), 0.0f);
+    ASSERT_GL_NO_ERROR();
+
+    // The color should now be red.
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+
+    // Draw a green quad, but only where the stencil value is 2, which should be everywhere because
+    // the stencil value should have been incrmeented.
+    glStencilFunc(GL_EQUAL, 2, 0xFF);
+    drawQuad(drawGreen, essl1_shaders::PositionAttrib(), 0.0f);
+    ASSERT_GL_NO_ERROR();
+
+    // The color should now be green, proving the stencil was incremented correctly.
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+
+    // Disable the stencil test.
+    glDisable(GL_STENCIL_TEST);
+
+    // Draw without stencil
+    drawQuad(drawBlue, essl1_shaders::PositionAttrib(), 0.0f);
+    ASSERT_GL_NO_ERROR();
+
+    // We drew without stencil, so the color should have changed. Stencil values should NOT have
+    // changed since stencil testing was disabled. We'll test this next.
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::blue);
+
+    // Re-enable the stencil test to prove the stencil values haven't changed.
+    glEnable(GL_STENCIL_TEST);
+
+    // Should be 3 (because it was incremented after drawing green with the stencil test enabled.)
+    glStencilFunc(GL_EQUAL, 3, 0xFF);
+    drawQuad(drawRed, essl1_shaders::PositionAttrib(), 0.0f);
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+
+    // Finish
+    glDisable(GL_STENCIL_TEST);
+}
+
+// Tests that stencil ref values work correctly with a scissor.
+TEST_P(DepthStencilTest, StencilRefWithScissor)
+{
+    ANGLE_GL_PROGRAM(drawRed, essl1_shaders::vs::Simple(), essl1_shaders::fs::Red());
+    ANGLE_GL_PROGRAM(drawGreen, essl1_shaders::vs::Simple(), essl1_shaders::fs::Green());
+
+    bindColorStencilFBO();
+
+    // Clear color to black and stencil to 0
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClearStencil(0);
+    glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+    ASSERT_GL_NO_ERROR();
+
+    // Set scissor to the left half of the window.
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(0, 0, getWindowWidth() / 2, getWindowHeight());
+
+    // In the scissored area, set stencil to 1 and draw red.
+    glEnable(GL_STENCIL_TEST);
+    glStencilFunc(GL_ALWAYS, 1, 0xFF);
+    glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+    drawQuad(drawRed, essl1_shaders::PositionAttrib(), 0.0f);
+    ASSERT_GL_NO_ERROR();
+
+    // The left half should be red, the right half should be black.
+    EXPECT_PIXEL_COLOR_EQ(getWindowWidth() / 4, getWindowHeight() / 2, GLColor::red);
+    EXPECT_PIXEL_COLOR_EQ(getWindowWidth() * 3 / 4, getWindowHeight() / 2, GLColor::black);
+
+    // Disable the scissor to show that the stencil test alone is responsible for the masking.
+    glDisable(GL_SCISSOR_TEST);
+
+    // Now, with scissor still enabled, draw a green quad where stencil is 1. This should
+    // succeed in the left half, turning it green.
+    glStencilFunc(GL_EQUAL, 1, 0xFF);
+    glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+    drawQuad(drawGreen, essl1_shaders::PositionAttrib(), 0.0f);
+    ASSERT_GL_NO_ERROR();
+
+    // The left half should be green, the right half should still be black.
+    EXPECT_PIXEL_COLOR_EQ(getWindowWidth() / 4, getWindowHeight() / 2, GLColor::green);
+    EXPECT_PIXEL_COLOR_EQ(getWindowWidth() * 3 / 4, getWindowHeight() / 2, GLColor::black);
+
+    glDisable(GL_STENCIL_TEST);
 }
 
 // Tests that clearing depth/stencil followed by draw works when the depth/stencil attachment is a
@@ -309,7 +543,397 @@ TEST_P(DepthStencilTestES3, ClearThenDraw)
     EXPECT_PIXEL_COLOR_EQ(kSize - 1, kSize - 1, GLColor::red);
 }
 
-ANGLE_INSTANTIATE_TEST_ES2_AND_ES3(DepthStencilTest);
-ANGLE_INSTANTIATE_TEST_ES3(DepthStencilTestES3);
+// Test that VK_EXT_load_op_none is working properly when
+// one of the depth / stencil load op is none.
+// This reproduces a deqp failure on ARM: http://anglebug.com/42265841
+TEST_P(DepthStencilTestES3, LoadStoreOpNoneExtension)
+{
+    GLFramebuffer fbo;
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+    GLRenderbuffer colorRbo;
+    glBindRenderbuffer(GL_RENDERBUFFER, colorRbo);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, getWindowWidth(), getWindowHeight());
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, colorRbo);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    GLRenderbuffer depthStencilBuffer;
+    glBindRenderbuffer(GL_RENDERBUFFER, depthStencilBuffer);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, getWindowWidth(),
+                          getWindowHeight());
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER,
+                              depthStencilBuffer);
+
+    ASSERT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
+    ASSERT_GL_NO_ERROR();
+
+    glClearDepthf(1.0f);
+    glClear(GL_DEPTH_BUFFER_BIT);
+    glClearStencil(0.0f);
+    glClear(GL_STENCIL_BUFFER_BIT);
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::black);
+
+    // Draw a red quad, stencil enabled, depth disabled
+    // Depth Load Op: None. Depth Store Op: None.
+    // Stencil Load Op: Load. Stencil Store Op: Store.
+    ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), essl1_shaders::fs::UniformColor());
+    GLint colorLocation = glGetUniformLocation(program, angle::essl1_shaders::ColorUniform());
+    ASSERT_NE(-1, colorLocation);
+
+    glDisable(GL_BLEND);
+    glEnable(GL_STENCIL_TEST);
+    glStencilFunc(GL_LEQUAL, 0, ~0u);
+    glStencilOp(GL_KEEP, GL_INCR, GL_INCR);
+    glDisable(GL_DITHER);
+    glDisable(GL_DEPTH_TEST);
+
+    glUseProgram(program);
+    glUniform4f(colorLocation, 1.0f, 0.0f, 0.0f, 1.0f);
+    drawQuad(program, "a_position", 0.5f);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+
+    // Draw a green quad, stencil enabled, depth enabled.
+    // Depth Load Op: Load. Depth Store Op: Store.
+    // Stencil Load Op: Load. Stencil Store Op: Store.
+    glUniform4f(colorLocation, 0.0f, 1.0f, 0.0f, 1.0f);
+    glEnable(GL_DEPTH_TEST);
+    drawQuad(program, "a_position", 0.5f);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+}
+
+void DepthStencilTestES3::compareDepth(uint32_t expected)
+{
+    uint32_t pixel;
+    glReadPixels(0, 0, 1, 1, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, &pixel);
+    ASSERT_GL_NO_ERROR();
+
+    // Right shift by 8 bits to only compare 24 depth bits
+    // and ignore 8 undefined bits.
+    pixel = pixel >> 8;
+
+    EXPECT_NEAR(pixel, expected, 1);
+}
+
+void DepthStencilTestES3::clearAndCompareDepth(GLfloat depth, uint32_t expected)
+{
+    glClearDepthf(depth);
+    glClear(GL_DEPTH_BUFFER_BIT);
+    compareDepth(expected);
+}
+
+void DepthStencilTestES3::drawAndCompareDepth(GLProgram &program,
+                                              GLfloat positionZ,
+                                              uint32_t expected)
+{
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_ALWAYS);
+    drawQuad(program, essl3_shaders::PositionAttrib(), positionZ, 1.0f);
+    glDisable(GL_DEPTH_TEST);
+    compareDepth(expected);
+}
+
+TEST_P(DepthStencilTestES3, ReadPixelsDepth24)
+{
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_OES_depth24") ||
+                       !IsGLExtensionEnabled("GL_NV_read_depth"));
+
+    // The test fails on native GLES on Android in glReadPixels
+    // with GL_INVALID_OPERATION due to the format/type combination
+    // not being supported.
+    ANGLE_SKIP_TEST_IF(IsAndroid() && IsOpenGLES());
+
+    // Create GL_DEPTH_COMPONENT24 texture
+    GLTexture depthTexture;
+    glBindTexture(GL_TEXTURE_2D, depthTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, getWindowWidth(), getWindowHeight(), 0,
+                 GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, nullptr);
+
+    // Set up framebuffer
+    GLFramebuffer depthFBO;
+    GLRenderbuffer depthRenderbuffer;
+
+    glBindFramebuffer(GL_FRAMEBUFFER, depthFBO);
+
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthTexture, 0);
+    glBindRenderbuffer(GL_RENDERBUFFER, depthRenderbuffer);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, getWindowWidth(),
+                          getWindowHeight());
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER,
+                              depthRenderbuffer);
+
+    ASSERT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
+    ASSERT_GL_NO_ERROR();
+
+    // Test clear
+    clearAndCompareDepth(0.0f, 0x0);
+    clearAndCompareDepth(0.125f, 0x200000);
+    clearAndCompareDepth(0.5f, 0x800000);
+    clearAndCompareDepth(1.0f, 0xffffff);
+
+    // Test draw
+    ANGLE_GL_PROGRAM(depthTestProgram, essl3_shaders::vs::Simple(), essl3_shaders::fs::Green());
+    drawAndCompareDepth(depthTestProgram, 0.0f, 0x800000);
+    drawAndCompareDepth(depthTestProgram, 0.125f, 0x8fffff);
+    drawAndCompareDepth(depthTestProgram, 0.5f, 0xbfffff);
+    drawAndCompareDepth(depthTestProgram, 1.0f, 0xffffff);
+
+    ASSERT_GL_NO_ERROR();
+}
+
+// Tests that the stencil test is correctly handled when a framebuffer is cleared before that
+// framebuffer's stencil attachment has been configured.
+TEST_P(DepthStencilTestES3, FramebufferClearThenStencilAttachedThenStencilTestState)
+{
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_NV_read_stencil"));
+
+    GLFramebuffer fbo;
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+    GLRenderbuffer colorRbo;
+    glBindRenderbuffer(GL_RENDERBUFFER, colorRbo);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, getWindowWidth(), getWindowHeight());
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, colorRbo);
+    glClearColor(0.f, 0.f, 0.f, 0.f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    GLRenderbuffer stencilRbo;
+    glBindRenderbuffer(GL_RENDERBUFFER, stencilRbo);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_STENCIL_INDEX8, getWindowWidth(), getWindowHeight());
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, stencilRbo);
+    glClearStencil(2);
+    glClear(GL_STENCIL_BUFFER_BIT);
+
+    ASSERT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
+    ASSERT_GL_NO_ERROR();
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::transparentBlack);
+    EXPECT_PIXEL_STENCIL_EQ(0, 0, 2);
+
+    ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), essl1_shaders::fs::UniformColor());
+
+    GLint colorLocation = glGetUniformLocation(program, angle::essl1_shaders::ColorUniform());
+    ASSERT_NE(-1, colorLocation);
+
+    glUseProgram(program);
+    glUniform4f(colorLocation, 1.0f, 0.0f, 0.0f, 1.0f);
+
+    glEnable(GL_STENCIL_TEST);
+    glStencilFunc(GL_ALWAYS, 0, 0xFF);
+    glStencilOp(GL_KEEP, GL_INCR, GL_INCR);
+    drawQuad(program, "a_position", 0.5f);
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+    EXPECT_PIXEL_STENCIL_EQ(0, 0, 3);
+}
+
+// Tests that the stencil test is correctly handled when both the stencil test state is configured
+// and a framebuffer is cleared before that framebuffer's stencil attachment has been configured.
+TEST_P(DepthStencilTestES3, StencilTestStateThenFramebufferClearThenStencilAttached)
+{
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_NV_read_stencil"));
+
+    glEnable(GL_STENCIL_TEST);
+    glStencilFunc(GL_ALWAYS, 0, 0xFF);
+    glStencilOp(GL_KEEP, GL_INCR, GL_INCR);
+
+    GLFramebuffer fbo;
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+    GLRenderbuffer colorRbo;
+    glBindRenderbuffer(GL_RENDERBUFFER, colorRbo);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, getWindowWidth(), getWindowHeight());
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, colorRbo);
+    glClearColor(0.f, 0.f, 0.f, 0.f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    GLRenderbuffer stencilRbo;
+    glBindRenderbuffer(GL_RENDERBUFFER, stencilRbo);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_STENCIL_INDEX8, getWindowWidth(), getWindowHeight());
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, stencilRbo);
+    glClearStencil(2);
+    glClear(GL_STENCIL_BUFFER_BIT);
+
+    ASSERT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
+    ASSERT_GL_NO_ERROR();
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::transparentBlack);
+    EXPECT_PIXEL_STENCIL_EQ(0, 0, 2);
+
+    ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), essl1_shaders::fs::UniformColor());
+
+    GLint colorLocation = glGetUniformLocation(program, angle::essl1_shaders::ColorUniform());
+    ASSERT_NE(-1, colorLocation);
+
+    glUseProgram(program);
+    glUniform4f(colorLocation, 1.0f, 0.0f, 0.0f, 1.0f);
+
+    drawQuad(program, "a_position", 0.5f);
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+    EXPECT_PIXEL_STENCIL_EQ(0, 0, 3);
+}
+
+// Tests that the stencil test is correctly handled when a framebuffer is cleared before that
+// framebuffer's stencil attachment has been configured and the stencil test state is configured
+// during framebuffer setup.
+TEST_P(DepthStencilTestES3, FramebufferClearThenStencilTestStateThenStencilAttached)
+{
+    ANGLE_SKIP_TEST_IF(!IsGLExtensionEnabled("GL_NV_read_stencil"));
+
+    GLFramebuffer fbo;
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+    GLRenderbuffer colorRbo;
+    glBindRenderbuffer(GL_RENDERBUFFER, colorRbo);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, getWindowWidth(), getWindowHeight());
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, colorRbo);
+    glClearColor(0.f, 0.f, 0.f, 0.f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    glEnable(GL_STENCIL_TEST);
+    glStencilFunc(GL_ALWAYS, 0, 0xFF);
+    glStencilOp(GL_KEEP, GL_INCR, GL_INCR);
+
+    GLRenderbuffer stencilRbo;
+    glBindRenderbuffer(GL_RENDERBUFFER, stencilRbo);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_STENCIL_INDEX8, getWindowWidth(), getWindowHeight());
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, stencilRbo);
+    glClearStencil(2);
+    glClear(GL_STENCIL_BUFFER_BIT);
+
+    ASSERT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
+    ASSERT_GL_NO_ERROR();
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::transparentBlack);
+    EXPECT_PIXEL_STENCIL_EQ(0, 0, 2);
+
+    ANGLE_GL_PROGRAM(program, essl1_shaders::vs::Simple(), essl1_shaders::fs::UniformColor());
+
+    GLint colorLocation = glGetUniformLocation(program, angle::essl1_shaders::ColorUniform());
+    ASSERT_NE(-1, colorLocation);
+
+    glUseProgram(program);
+    glUniform4f(colorLocation, 1.0f, 0.0f, 0.0f, 1.0f);
+
+    drawQuad(program, "a_position", 0.5f);
+
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+    EXPECT_PIXEL_STENCIL_EQ(0, 0, 3);
+}
+
+// Tests that drawing with read-only depth/stencil followed by depth/stencil output (in two render
+// passes) works.  Regression test for a synchronization bug in the Vulkan backend, caught by
+// syncval VVL.
+TEST_P(DepthStencilTestES3, ReadOnlyDepthStencilThenOutputDepthStencil)
+{
+    constexpr GLsizei kSize = 64;
+
+    // Create FBO with color, depth and stencil
+    GLTexture texture;
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, kSize, kSize, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+
+    GLRenderbuffer renderbuffer;
+    glBindRenderbuffer(GL_RENDERBUFFER, renderbuffer);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, kSize, kSize);
+
+    GLFramebuffer framebuffer;
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER,
+                              renderbuffer);
+    ASSERT_GL_FRAMEBUFFER_COMPLETE(GL_FRAMEBUFFER);
+    ASSERT_GL_NO_ERROR();
+
+    // Initialize depth/stencil
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_ALWAYS);
+
+    glEnable(GL_STENCIL_TEST);
+    glStencilFunc(GL_ALWAYS, 0xAA, 0xFF);
+    glStencilOp(GL_REPLACE, GL_REPLACE, GL_REPLACE);
+    glStencilMask(0xFF);
+
+    ANGLE_GL_PROGRAM(drawColor, essl1_shaders::vs::Simple(), essl1_shaders::fs::UniformColor());
+    glUseProgram(drawColor);
+    GLint colorUniformLocation =
+        glGetUniformLocation(drawColor, angle::essl1_shaders::ColorUniform());
+    ASSERT_NE(colorUniformLocation, -1);
+
+    // Draw red with depth = 1 and stencil = 0xAA
+    glUniform4f(colorUniformLocation, 1.0f, 0.0f, 0.0f, 1.0f);
+    drawQuad(drawColor, essl1_shaders::PositionAttrib(), 1);
+    ASSERT_GL_NO_ERROR();
+
+    // Break the render pass by making a copy of the color texture.
+    GLTexture copyTex;
+    glBindTexture(GL_TEXTURE_2D, copyTex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, kSize, kSize, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, kSize / 2, kSize / 2);
+    ASSERT_GL_NO_ERROR();
+
+    // Disable depth/stencil output and issue a draw call that's expected to pass depth/stencil.
+    glDepthFunc(GL_LESS);
+    glDepthMask(GL_FALSE);
+    glStencilFunc(GL_EQUAL, 0xAA, 0xFF);
+    glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+
+    // Draw green
+    glUniform4f(colorUniformLocation, 0.0f, 1.0f, 0.0f, 1.0f);
+    drawQuad(drawColor, essl1_shaders::PositionAttrib(), 0.95);
+    ASSERT_GL_NO_ERROR();
+
+    // Break the render pass
+    glCopyTexSubImage2D(GL_TEXTURE_2D, 0, kSize / 2, 0, 0, 0, kSize / 2, kSize / 2);
+    ASSERT_GL_NO_ERROR();
+
+    // Draw again to start another render pass still with depth/stencil read-only
+    glUniform4f(colorUniformLocation, 0.0f, 0.0f, 1.0f, 1.0f);
+    drawQuad(drawColor, essl1_shaders::PositionAttrib(), 0.95);
+    ASSERT_GL_NO_ERROR();
+
+    // Break the render pass
+    glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, kSize / 2, 0, 0, kSize / 2, kSize / 2);
+    ASSERT_GL_NO_ERROR();
+
+    // Re-enable depth/stencil output and issue a draw call that's expected to pass depth/stencil.
+    glDepthMask(GL_TRUE);
+    glStencilFunc(GL_EQUAL, 0xAB, 0xF0);
+    glStencilOp(GL_REPLACE, GL_REPLACE, GL_REPLACE);
+
+    // Draw yellow
+    glUniform4f(colorUniformLocation, 1.0f, 1.0f, 0.0f, 1.0f);
+    drawQuad(drawColor, essl1_shaders::PositionAttrib(), 0.95);
+    ASSERT_GL_NO_ERROR();
+
+    // Break the render pass
+    glCopyTexSubImage2D(GL_TEXTURE_2D, 0, kSize / 2, kSize / 2, 0, 0, kSize / 2, kSize / 2);
+    ASSERT_GL_NO_ERROR();
+
+    GLFramebuffer readFramebuffer;
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, readFramebuffer);
+    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, copyTex, 0);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+    EXPECT_PIXEL_COLOR_EQ(kSize / 2, 0, GLColor::green);
+    EXPECT_PIXEL_COLOR_EQ(0, kSize / 2, GLColor::blue);
+    EXPECT_PIXEL_COLOR_EQ(kSize / 2, kSize / 2, GLColor::yellow);
+}
+
+ANGLE_INSTANTIATE_TEST_ES2_AND_ES3_AND(
+    DepthStencilTest,
+    ES2_VULKAN().enable(Feature::ForceFallbackFormat),
+    ES2_VULKAN_SWIFTSHADER().enable(Feature::ForceFallbackFormat),
+    ES3_VULKAN().enable(Feature::ForceFallbackFormat),
+    ES3_VULKAN_SWIFTSHADER().enable(Feature::ForceFallbackFormat));
+
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(DepthStencilTestES3);
+ANGLE_INSTANTIATE_TEST_ES3_AND(
+    DepthStencilTestES3,
+    ES3_VULKAN().enable(Feature::ForceFallbackFormat),
+    ES3_VULKAN().enable(Feature::DisallowMixedDepthStencilLoadOpNoneAndLoad),
+    ES3_VULKAN_SWIFTSHADER().enable(Feature::ForceFallbackFormat),
+    ES3_WEBGPU());
 
 }  // anonymous namespace

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2008, Google Inc. All rights reserved.
- * Copyright (C) 2008 Apple Inc. All Rights Reserved.
+ * Copyright (c) 2008 Google Inc. All rights reserved.
+ * Copyright (C) 2008 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -33,31 +33,35 @@
 #include "ScriptCachedFrameData.h"
 
 #include "CommonVM.h"
-#include "Document.h"
-#include "Frame.h"
-#include "GCController.h"
-#include "Page.h"
-#include "PageConsoleClient.h"
+#include "DocumentPage.h"
+#include "FrameConsoleClient.h"
+#include "GarbageCollectionController.h"
+#include "JSDOMWindow.h"
+#include "LocalFrameInlines.h"
 #include "PageGroup.h"
 #include "ScriptController.h"
+#include <JavaScriptCore/JSGlobalObjectInlines.h>
 #include <JavaScriptCore/JSLock.h>
 #include <JavaScriptCore/StrongInlines.h>
 #include <JavaScriptCore/WeakGCMapInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 using namespace JSC;
 
-ScriptCachedFrameData::ScriptCachedFrameData(Frame& frame)
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ScriptCachedFrameData);
+
+ScriptCachedFrameData::ScriptCachedFrameData(LocalFrame& frame)
 {
     JSLockHolder lock(commonVM());
 
-    for (auto windowProxy : frame.windowProxy().jsWindowProxiesAsVector()) {
-        auto* window = jsCast<JSDOMWindow*>(windowProxy->window());
-        m_windows.add(&windowProxy->world(), Strong<JSDOMWindow>(window->vm(), window));
+    for (auto windowProxy : protect(frame.windowProxy())->jsWindowProxiesAsVector()) {
+        auto* window = downcast<JSDOMWindow>(windowProxy->window());
+        m_windows.add(windowProxy->world(), Strong<JSDOMWindow>(window->vm(), window));
         window->setConsoleClient(nullptr);
     }
 
-    frame.windowProxy().attachDebugger(nullptr);
+    protect(frame.windowProxy())->attachDebugger(nullptr);
 }
 
 ScriptCachedFrameData::~ScriptCachedFrameData()
@@ -65,21 +69,21 @@ ScriptCachedFrameData::~ScriptCachedFrameData()
     clear();
 }
 
-void ScriptCachedFrameData::restore(Frame& frame)
+void ScriptCachedFrameData::restore(LocalFrame& frame)
 {
     JSLockHolder lock(commonVM());
 
-    Page* page = frame.page();
+    RefPtr page = frame.page();
 
-    for (auto windowProxy : frame.windowProxy().jsWindowProxiesAsVector()) {
+    for (auto windowProxy : protect(frame.windowProxy())->jsWindowProxiesAsVector()) {
         auto* world = &windowProxy->world();
 
         if (auto* window = m_windows.get(world).get())
             windowProxy->setWindow(window->vm(), *window);
         else {
-            ASSERT(frame.document()->domWindow());
-            auto& domWindow = *frame.document()->domWindow();
-            if (&windowProxy->wrapped() == &domWindow)
+            ASSERT(frame.document()->window());
+            Ref domWindow = *frame.document()->window();
+            if (&windowProxy->wrapped() == domWindow.ptr())
                 continue;
 
             windowProxy->setWindow(domWindow);
@@ -90,8 +94,7 @@ void ScriptCachedFrameData::restore(Frame& frame)
             }
         }
 
-        if (page)
-            windowProxy->window()->setConsoleClient(makeWeakPtr(page->console()));
+        windowProxy->window()->setConsoleClient(frame.console());
     }
 }
 
@@ -102,7 +105,7 @@ void ScriptCachedFrameData::clear()
 
     JSLockHolder lock(commonVM());
     m_windows.clear();
-    GCController::singleton().garbageCollectSoon();
+    GarbageCollectionController::singleton().garbageCollectSoon();
 }
 
 } // namespace WebCore

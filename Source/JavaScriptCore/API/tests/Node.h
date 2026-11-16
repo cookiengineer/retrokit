@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -40,7 +40,7 @@ struct __Node {
 };
 
 extern Node* Node_new(void);
-extern void Node_ref(Node* node);
+extern void NODELETE Node_ref(Node* node);
 extern void Node_deref(Node* node);
 extern void Node_appendChild(Node* node, Node* child);
 extern void Node_removeChild(Node* node, Node* child);

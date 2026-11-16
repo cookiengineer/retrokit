@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,20 +27,23 @@
 #include "InspectorTargetAgent.h"
 
 #include "InspectorTarget.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace Inspector {
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(InspectorTargetAgent);
 
 InspectorTargetAgent::InspectorTargetAgent(FrontendRouter& frontendRouter, BackendDispatcher& backendDispatcher)
     : InspectorAgentBase("Target"_s)
     , m_router(frontendRouter)
-    , m_frontendDispatcher(makeUnique<TargetFrontendDispatcher>(frontendRouter))
+    , m_frontendDispatcher(makeUniqueRef<TargetFrontendDispatcher>(frontendRouter))
     , m_backendDispatcher(TargetBackendDispatcher::create(backendDispatcher, this))
 {
 }
 
 InspectorTargetAgent::~InspectorTargetAgent() = default;
 
-void InspectorTargetAgent::didCreateFrontendAndBackend(FrontendRouter*, BackendDispatcher*)
+void InspectorTargetAgent::didCreateFrontendAndBackend()
 {
     m_isConnected = true;
 
@@ -64,7 +67,7 @@ Protocol::ErrorStringOr<void> InspectorTargetAgent::setPauseOnStart(bool pauseOn
 
 Protocol::ErrorStringOr<void> InspectorTargetAgent::resume(const String& targetId)
 {
-    auto* target = m_targets.get(targetId);
+    CheckedPtr target = m_targets.get(targetId);
     if (!target)
         return makeUnexpected("Missing target for given targetId"_s);
 
@@ -78,7 +81,7 @@ Protocol::ErrorStringOr<void> InspectorTargetAgent::resume(const String& targetI
 
 Protocol::ErrorStringOr<void> InspectorTargetAgent::sendMessageToTarget(const String& targetId, const String& message)
 {
-    InspectorTarget* target = m_targets.get(targetId);
+    CheckedPtr target = m_targets.get(targetId);
     if (!target)
         return makeUnexpected("Missing target for given targetId"_s);
 
@@ -89,16 +92,16 @@ Protocol::ErrorStringOr<void> InspectorTargetAgent::sendMessageToTarget(const St
 
 void InspectorTargetAgent::sendMessageFromTargetToFrontend(const String& targetId, const String& message)
 {
-    ASSERT_WITH_MESSAGE(m_targets.get(targetId), "Sending a message from an untracked target to the frontend.");
-
     m_frontendDispatcher->dispatchMessageFromTarget(targetId, message);
 }
 
-static Protocol::Target::TargetInfo::Type targetTypeToProtocolType(InspectorTargetType type)
+static Protocol::Target::TargetInfo::Type NODELETE targetTypeToProtocolType(InspectorTargetType type)
 {
     switch (type) {
     case InspectorTargetType::Page:
         return Protocol::Target::TargetInfo::Type::Page;
+    case InspectorTargetType::Frame:
+        return Protocol::Target::TargetInfo::Type::Frame;
     case InspectorTargetType::DedicatedWorker:
         return Protocol::Target::TargetInfo::Type::Worker;
     case InspectorTargetType::ServiceWorker:
@@ -152,8 +155,7 @@ void InspectorTargetAgent::didCommitProvisionalTarget(const String& oldTargetID,
     if (!m_isConnected)
         return;
 
-    auto* target = m_targets.get(committedTargetID);
-    if (!target)
+    if (!m_targets.contains(committedTargetID))
         return;
 
     m_frontendDispatcher->didCommitProvisionalTarget(oldTargetID, committedTargetID);
@@ -161,12 +163,12 @@ void InspectorTargetAgent::didCommitProvisionalTarget(const String& oldTargetID,
 
 FrontendChannel::ConnectionType InspectorTargetAgent::connectionType() const
 {
-    return m_router.hasLocalFrontend() ? Inspector::FrontendChannel::ConnectionType::Local : Inspector::FrontendChannel::ConnectionType::Remote;
+    return m_router->hasLocalFrontend() ? Inspector::FrontendChannel::ConnectionType::Local : Inspector::FrontendChannel::ConnectionType::Remote;
 }
 
 void InspectorTargetAgent::connectToTargets()
 {
-    for (InspectorTarget* target : m_targets.values()) {
+    for (CheckedPtr target : m_targets.values()) {
         target->connect(connectionType());
         m_frontendDispatcher->targetCreated(buildTargetInfoObject(*target));
     }
@@ -174,7 +176,7 @@ void InspectorTargetAgent::connectToTargets()
 
 void InspectorTargetAgent::disconnectFromTargets()
 {
-    for (InspectorTarget* target : m_targets.values())
+    for (CheckedPtr target : m_targets.values())
         target->disconnect();
 }
 

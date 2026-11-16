@@ -27,8 +27,15 @@
 #include "VariableWriteFireDetail.h"
 
 #include "JSCJSValueInlines.h"
+#include "VariableWriteFireDetailInlines.h"
 
 namespace JSC {
+
+VariableWriteFireDetail::VariableWriteFireDetail(ClangVTableWorkaroundTag, const PropertyName& name)
+    : m_object(nullptr)
+    , m_name(name)
+{
+}
 
 void VariableWriteFireDetail::dump(PrintStream& out) const
 {

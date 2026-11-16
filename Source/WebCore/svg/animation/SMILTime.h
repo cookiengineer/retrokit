@@ -73,7 +73,7 @@ public:
     {
     }
 
-    const SMILTime& time() const { return m_time; }
+    const SMILTime& time() const LIFETIME_BOUND { return m_time; }
     bool originIsScript() const { return m_origin == ScriptOrigin; }
 
 private:
@@ -83,16 +83,12 @@ private:
 
 inline bool operator==(const SMILTime& a, const SMILTime& b) { return a.isFinite() && a.value() == b.value(); }
 inline bool operator!(const SMILTime& a) { return !a.isFinite() || !a.value(); }
-inline bool operator!=(const SMILTime& a, const SMILTime& b) { return !operator==(a, b); }
-inline bool operator>(const SMILTime& a, const SMILTime& b) { return a.value() > b.value(); }
-inline bool operator<(const SMILTime& a, const SMILTime& b) { return a.value() < b.value(); }
-inline bool operator>=(const SMILTime& a, const SMILTime& b) { return a.value() > b.value() || operator==(a, b); }
-inline bool operator<=(const SMILTime& a, const SMILTime& b) { return a.value() < b.value() || operator==(a, b); }
-inline bool operator<(const SMILTimeWithOrigin& a, const SMILTimeWithOrigin& b) { return a.time() < b.time(); }
+inline auto operator<=>(const SMILTime& a, const SMILTime& b) { return a.value() <=> b.value(); }
+inline auto operator<=>(const SMILTimeWithOrigin& a, const SMILTimeWithOrigin& b) { return a.time() <=> b.time(); }
 
-SMILTime operator+(const SMILTime&, const SMILTime&);
-SMILTime operator-(const SMILTime&, const SMILTime&);
+SMILTime NODELETE operator+(const SMILTime&, const SMILTime&);
+SMILTime NODELETE operator-(const SMILTime&, const SMILTime&);
 // So multiplying times does not make too much sense but SMIL defines it for duration * repeatCount
-SMILTime operator*(const SMILTime&, const SMILTime&);
+SMILTime NODELETE operator*(const SMILTime&, const SMILTime&);
 
 } // namespace WebCore

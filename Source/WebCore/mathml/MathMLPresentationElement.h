@@ -34,34 +34,32 @@
 namespace WebCore {
 
 class MathMLPresentationElement : public MathMLElement {
-    WTF_MAKE_ISO_ALLOCATED(MathMLPresentationElement);
+    WTF_MAKE_TZONE_ALLOCATED(MathMLPresentationElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(MathMLPresentationElement);
 public:
     static Ref<MathMLPresentationElement> create(const QualifiedName& tagName, Document&);
 
 protected:
-    MathMLPresentationElement(const QualifiedName& tagName, Document&);
-    void parseAttribute(const QualifiedName&, const AtomString&) override;
-
-    static bool isPhrasingContent(const Node&);
-    static bool isFlowContent(const Node&);
+    MathMLPresentationElement(const QualifiedName& tagName, Document&, OptionSet<TypeFlag> = { });
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
 
     static std::optional<bool> toOptionalBool(const BooleanValue& value) { return value == BooleanValue::Default ? std::nullopt : std::optional<bool>(value == BooleanValue::True); }
-    const BooleanValue& cachedBooleanAttribute(const QualifiedName&, std::optional<BooleanValue>&);
+    const BooleanValue& NODELETE cachedBooleanAttribute(const QualifiedName&, std::optional<BooleanValue>&);
 
-    static Length parseMathMLLength(const String&);
+    static Length parseMathMLLength(const String&, bool acceptLegacyMathMLLengths);
     const Length& cachedMathMLLength(const QualifiedName&, std::optional<Length>&);
 
-    virtual bool acceptsMathVariantAttribute() { return false; }
+    virtual bool acceptsLegacyMathVariantAttribute() { return false; }
     std::optional<MathVariant> specifiedMathVariant() final;
 
     std::optional<MathVariant> m_mathVariant;
 
 private:
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) override;
-    bool isPresentationMathML() const final { return true; }
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) override;
+    bool isPresentationMathML() const override { return true; }
 
-    static Length parseNumberAndUnit(const StringView&);
-    static Length parseNamedSpace(const StringView&);
+    static Length parseNumberAndUnit(StringView, bool acceptLegacyMathMLLengths);
+    static Length parseNamedSpace(StringView);
     static MathVariant parseMathVariantAttribute(const AtomString& attributeValue);
 };
 

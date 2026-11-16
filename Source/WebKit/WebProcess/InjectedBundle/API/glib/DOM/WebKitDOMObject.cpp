@@ -2,7 +2,7 @@
  * Copyright (C) 2008 Luke Kenneth Casson Leighton <lkcl@lkcl.net>
  * Copyright (C) 2008 Martin Soto <soto@freedesktop.org>
  * Copyright (C) 2008 Alp Toker <alp@atoker.com>
- * Copyright (C) 2008 Apple Inc.
+ * Copyright (C) 2008 Apple Inc. All rights reserved.
  * Copyright (C) 2009 Igalia S.L.
  */
 #include "config.h"
@@ -15,7 +15,11 @@ enum {
 };
 #endif
 
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS;
+
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN // GTK/WPE port
 G_DEFINE_TYPE(WebKitDOMObject, webkit_dom_object, G_TYPE_OBJECT)
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 
 static void webkit_dom_object_init(WebKitDOMObject*)
 {
@@ -46,8 +50,9 @@ static void webkit_dom_object_class_init(WebKitDOMObjectClass* klass)
         PROP_CORE_OBJECT,
         g_param_spec_pointer(
             "core-object",
-            "Core Object",
-            "The WebCore object the WebKitDOMObject wraps",
+            nullptr, nullptr,
             static_cast<GParamFlags>(G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_NAME | G_PARAM_STATIC_NICK | G_PARAM_STATIC_BLURB)));
 #endif
 }
+
+G_GNUC_END_IGNORE_DEPRECATIONS;

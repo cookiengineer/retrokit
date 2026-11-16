@@ -20,18 +20,23 @@
 
 #pragma once
 
-#include "ExceptionOr.h"
-#include "SVGPropertyTraits.h"
+#include <WebCore/SVGPropertyTraits.h>
+#include <wtf/TZoneMalloc.h>
+
+namespace IPC {
+template<typename> struct ArgumentCoder;
+}
 
 namespace WebCore {
 
 class AffineTransform;
 class FloatRect;
+template<typename> class ExceptionOr;
 
 class SVGPreserveAspectRatioValue {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(SVGPreserveAspectRatioValue);
 public:
-    enum SVGPreserveAspectRatioType {
+    enum SVGPreserveAspectRatioType : uint8_t {
         SVG_PRESERVEASPECTRATIO_UNKNOWN = 0,
         SVG_PRESERVEASPECTRATIO_NONE = 1,
         SVG_PRESERVEASPECTRATIO_XMINYMIN = 2,
@@ -45,14 +50,17 @@ public:
         SVG_PRESERVEASPECTRATIO_XMAXYMAX = 10
     };
 
-    enum SVGMeetOrSliceType {
+    enum SVGMeetOrSliceType : uint8_t {
         SVG_MEETORSLICE_UNKNOWN = 0,
         SVG_MEETORSLICE_MEET = 1,
         SVG_MEETORSLICE_SLICE = 2
     };
 
-    SVGPreserveAspectRatioValue();
+    SVGPreserveAspectRatioValue() = default;
     SVGPreserveAspectRatioValue(StringView);
+    WEBCORE_EXPORT SVGPreserveAspectRatioValue(SVGPreserveAspectRatioType, SVGMeetOrSliceType);
+
+    bool operator==(const SVGPreserveAspectRatioValue&) const = default;
 
     ExceptionOr<void> setAlign(unsigned short);
     unsigned short align() const { return m_align; }
@@ -60,19 +68,20 @@ public:
     ExceptionOr<void> setMeetOrSlice(unsigned short);
     unsigned short meetOrSlice() const { return m_meetOrSlice; }
 
-    void transformRect(FloatRect& destRect, FloatRect& srcRect) const;
+    void NODELETE transformRect(FloatRect& destRect, FloatRect& srcRect) const;
 
     AffineTransform getCTM(float logicalX, float logicalY, float logicalWidth, float logicalHeight, float physicalWidth, float physicalHeight) const;
 
     bool parse(StringView);
-    bool parse(StringParsingBuffer<LChar>&, bool validate);
-    bool parse(StringParsingBuffer<UChar>&, bool validate);
+    bool parse(StringParsingBuffer<Latin1Character>&, bool validate);
+    bool parse(StringParsingBuffer<char16_t>&, bool validate);
 
     String valueAsString() const;
 
 private:
-    SVGPreserveAspectRatioType m_align;
-    SVGMeetOrSliceType m_meetOrSlice;
+    friend struct IPC::ArgumentCoder<SVGPreserveAspectRatioValue>;
+    SVGPreserveAspectRatioType m_align { SVGPreserveAspectRatioValue::SVG_PRESERVEASPECTRATIO_XMIDYMID };
+    SVGMeetOrSliceType m_meetOrSlice { SVGPreserveAspectRatioValue::SVG_MEETORSLICE_MEET };
 
     template<typename CharacterType> bool parseInternal(StringParsingBuffer<CharacterType>&, bool validate);
 };

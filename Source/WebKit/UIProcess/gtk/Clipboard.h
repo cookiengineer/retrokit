@@ -27,6 +27,7 @@
 
 #include <wtf/CompletionHandler.h>
 #include <wtf/Forward.h>
+#include <wtf/TZoneMalloc.h>
 
 #if USE(GTK4)
 typedef struct _GdkClipboard GdkClipboard;
@@ -44,20 +45,27 @@ namespace WebKit {
 class WebFrameProxy;
 
 class Clipboard {
-    WTF_MAKE_NONCOPYABLE(Clipboard); WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(Clipboard);
+    WTF_MAKE_NONCOPYABLE(Clipboard);
 public:
     static Clipboard& get(const String& name);
 
     enum class Type { Clipboard, Primary };
     explicit Clipboard(Type);
+    ~Clipboard();
+
+    enum class ReadMode : uint8_t { Asynchronous, Synchronous };
 
     Type type() const;
     void formats(CompletionHandler<void(Vector<String>&&)>&&);
-    void readText(CompletionHandler<void(String&&)>&&);
-    void readFilePaths(CompletionHandler<void(Vector<String>&&)>&&);
-    void readBuffer(const char*, CompletionHandler<void(Ref<WebCore::SharedBuffer>&&)>&&);
-    void write(WebCore::SelectionData&&);
+    void readText(CompletionHandler<void(String&&)>&&, ReadMode = ReadMode::Asynchronous);
+    void readFilePaths(CompletionHandler<void(Vector<String>&&)>&&, ReadMode = ReadMode::Asynchronous);
+    void readURL(CompletionHandler<void(String&& url, String&& title)>&&, ReadMode = ReadMode::Asynchronous);
+    void readBuffer(const char*, CompletionHandler<void(Ref<WebCore::SharedBuffer>&&)>&&, ReadMode = ReadMode::Asynchronous);
+    void write(WebCore::SelectionData&&, CompletionHandler<void(int64_t)>&&);
     void clear();
+
+    int64_t changeCount() const { return m_changeCount; }
 
 private:
 #if USE(GTK4)
@@ -66,6 +74,7 @@ private:
     GtkClipboard* m_clipboard { nullptr };
     WebFrameProxy* m_frameWritingToClipboard { nullptr };
 #endif
+    int64_t m_changeCount { 0 };
 };
 
 } // namespace WebKit

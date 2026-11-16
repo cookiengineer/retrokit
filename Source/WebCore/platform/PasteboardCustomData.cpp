@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,11 +35,11 @@ namespace WebCore {
 
 static Variant<String, Ref<SharedBuffer>> copyPlatformData(const Variant<String, Ref<SharedBuffer>>& other)
 {
-    if (WTF::holds_alternative<String>(other))
-        return { WTF::get<String>(other) };
+    if (std::holds_alternative<String>(other))
+        return { std::get<String>(other) };
 
-    if (WTF::holds_alternative<Ref<SharedBuffer>>(other))
-        return { WTF::get<Ref<SharedBuffer>>(other).copyRef() };
+    if (std::holds_alternative<Ref<SharedBuffer>>(other))
+        return { std::get<Ref<SharedBuffer>>(other).copyRef() };
 
     return { };
 }
@@ -59,6 +59,13 @@ PasteboardCustomData::Entry::Entry(const String& dataType)
 PasteboardCustomData::Entry::Entry() = default;
 PasteboardCustomData::Entry::Entry(Entry&&) = default;
 
+PasteboardCustomData::Entry::Entry(const String& type, const String& customData, const Variant<String, Ref<WebCore::SharedBuffer>>& platformData)
+    : type(type)
+    , customData(customData)
+    , platformData(platformData)
+{
+}
+
 PasteboardCustomData::Entry& PasteboardCustomData::Entry::operator=(const Entry& entry)
 {
     type = entry.type;
@@ -75,8 +82,8 @@ PasteboardCustomData::PasteboardCustomData(PasteboardCustomData&&) = default;
 PasteboardCustomData::~PasteboardCustomData() = default;
 
 PasteboardCustomData::PasteboardCustomData(String&& origin, Vector<Entry>&& data)
-    : m_origin(WTFMove(origin))
-    , m_data(WTFMove(data))
+    : m_origin(WTF::move(origin))
+    , m_data(WTF::move(data))
 {
 }
 
@@ -89,7 +96,7 @@ Ref<SharedBuffer> PasteboardCustomData::createSharedBuffer() const
     encoder << m_origin;
     encoder << sameOriginCustomStringData();
     encoder << orderedTypes();
-    return SharedBuffer::create(encoder.buffer(), encoder.bufferSize());
+    return SharedBuffer::create(encoder.span());
 }
 
 PasteboardCustomData PasteboardCustomData::fromPersistenceDecoder(WTF::Persistence::Decoder&& decoder)
@@ -106,7 +113,7 @@ PasteboardCustomData PasteboardCustomData::fromPersistenceDecoder(WTF::Persisten
     decoder >> origin;
     if (!origin)
         return { };
-    result.m_origin = WTFMove(*origin);
+    result.m_origin = WTF::move(*origin);
 
     std::optional<HashMap<String, String>> sameOriginCustomStringData;
     decoder >> sameOriginCustomStringData;
@@ -136,7 +143,7 @@ void PasteboardCustomData::writeString(const String& type, const String& value)
 
 void PasteboardCustomData::writeData(const String& type, Ref<SharedBuffer>&& data)
 {
-    addOrMoveEntryToEnd(type).platformData = { WTFMove(data) };
+    addOrMoveEntryToEnd(type).platformData = { WTF::move(data) };
 }
 
 void PasteboardCustomData::writeStringInCustomData(const String& type, const String& value)
@@ -146,13 +153,13 @@ void PasteboardCustomData::writeStringInCustomData(const String& type, const Str
 
 PasteboardCustomData::Entry& PasteboardCustomData::addOrMoveEntryToEnd(const String& type)
 {
-    auto index = m_data.findMatching([&] (auto& entry) {
+    auto index = m_data.findIf([&] (auto& entry) {
         return entry.type == type;
     });
     auto entry = index == notFound ? Entry(type) : m_data[index];
     if (index != notFound)
-        m_data.remove(index);
-    m_data.append(WTFMove(entry));
+        m_data.removeAt(index);
+    m_data.append(WTF::move(entry));
     return m_data.last();
 }
 
@@ -168,12 +175,7 @@ void PasteboardCustomData::clear(const String& type)
     });
 }
 
-PasteboardCustomData& PasteboardCustomData::operator=(const PasteboardCustomData& other)
-{
-    m_origin = other.origin();
-    m_data = other.m_data;
-    return *this;
-}
+PasteboardCustomData& PasteboardCustomData::operator=(const PasteboardCustomData&) = default;
 
 Vector<String> PasteboardCustomData::orderedTypes() const
 {
@@ -189,7 +191,7 @@ bool PasteboardCustomData::hasData() const
 
 bool PasteboardCustomData::hasSameOriginCustomData() const
 {
-    return notFound != m_data.findMatching([&] (auto& entry) {
+    return notFound != m_data.findIf([&] (auto& entry) {
         return !entry.customData.isNull();
     });
 }
@@ -208,8 +210,8 @@ RefPtr<SharedBuffer> PasteboardCustomData::readBuffer(const String& type) const
         if (entry.type != type)
             continue;
 
-        if (WTF::holds_alternative<Ref<SharedBuffer>>(entry.platformData))
-            return makeRefPtr(WTF::get<Ref<SharedBuffer>>(entry.platformData).get());
+        if (std::holds_alternative<Ref<SharedBuffer>>(entry.platformData))
+            return std::get<Ref<SharedBuffer>>(entry.platformData).copyRef();
 
         return nullptr;
     }
@@ -222,8 +224,8 @@ String PasteboardCustomData::readString(const String& type) const
         if (entry.type != type)
             continue;
 
-        if (WTF::holds_alternative<String>(entry.platformData))
-            return WTF::get<String>(entry.platformData);
+        if (std::holds_alternative<String>(entry.platformData))
+            return std::get<String>(entry.platformData);
 
         return { };
     }
@@ -239,25 +241,25 @@ String PasteboardCustomData::readStringInCustomData(const String& type) const
     return { };
 }
 
-void PasteboardCustomData::forEachType(Function<void(const String&)>&& function) const
+void PasteboardCustomData::forEachType(NOESCAPE const Function<void(const String&)>& function) const
 {
     for (auto& entry : m_data)
         function(entry.type);
 }
 
-void PasteboardCustomData::forEachPlatformString(Function<void(const String& type, const String& data)>&& function) const
+void PasteboardCustomData::forEachPlatformString(NOESCAPE const Function<void(const String& type, const String& data)>& function) const
 {
     for (auto& entry : m_data) {
-        if (!WTF::holds_alternative<String>(entry.platformData))
+        if (!std::holds_alternative<String>(entry.platformData))
             continue;
 
-        auto string = WTF::get<String>(entry.platformData);
+        auto string = std::get<String>(entry.platformData);
         if (!string.isNull())
             function(entry.type, string);
     }
 }
 
-void PasteboardCustomData::forEachCustomString(Function<void(const String& type, const String& data)>&& function) const
+void PasteboardCustomData::forEachCustomString(NOESCAPE const Function<void(const String& type, const String& data)>& function) const
 {
     for (auto& entry : m_data) {
         if (!entry.customData.isNull())
@@ -265,11 +267,11 @@ void PasteboardCustomData::forEachCustomString(Function<void(const String& type,
     }
 }
 
-void PasteboardCustomData::forEachPlatformStringOrBuffer(Function<void(const String& type, const Variant<String, Ref<SharedBuffer>>& data)>&& function) const
+void PasteboardCustomData::forEachPlatformStringOrBuffer(NOESCAPE const Function<void(const String& type, const Variant<String, Ref<SharedBuffer>>& data)>& function) const
 {
     for (auto& entry : m_data) {
         auto& data = entry.platformData;
-        if ((WTF::holds_alternative<String>(data) && !WTF::get<String>(data).isNull()) || WTF::holds_alternative<Ref<SharedBuffer>>(data))
+        if ((std::holds_alternative<String>(data) && !std::get<String>(data).isNull()) || std::holds_alternative<Ref<SharedBuffer>>(data))
             function(entry.type, data);
     }
 }

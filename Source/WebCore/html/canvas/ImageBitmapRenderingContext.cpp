@@ -30,21 +30,16 @@
 #include "ImageBitmap.h"
 #include "ImageBuffer.h"
 #include "InspectorInstrumentation.h"
-#include <wtf/IsoMallocInlines.h>
+#include "OffscreenCanvas.h"
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(ImageBitmapRenderingContext);
-
-#if USE(IOSURFACE_CANVAS_BACKING_STORE)
-static RenderingMode bufferRenderingMode = RenderingMode::Accelerated;
-#else
-static RenderingMode bufferRenderingMode = RenderingMode::Unaccelerated;
-#endif
+WTF_MAKE_TZONE_ALLOCATED_IMPL(ImageBitmapRenderingContext);
 
 std::unique_ptr<ImageBitmapRenderingContext> ImageBitmapRenderingContext::create(CanvasBase& canvas, ImageBitmapRenderingContextSettings&& settings)
 {
-    auto renderingContext = std::unique_ptr<ImageBitmapRenderingContext>(new ImageBitmapRenderingContext(canvas, WTFMove(settings)));
+    auto renderingContext = std::unique_ptr<ImageBitmapRenderingContext>(new ImageBitmapRenderingContext(canvas, WTF::move(settings)));
 
     InspectorInstrumentation::didCreateCanvasRenderingContext(*renderingContext);
 
@@ -52,112 +47,76 @@ std::unique_ptr<ImageBitmapRenderingContext> ImageBitmapRenderingContext::create
 }
 
 ImageBitmapRenderingContext::ImageBitmapRenderingContext(CanvasBase& canvas, ImageBitmapRenderingContextSettings&& settings)
-    : CanvasRenderingContext(canvas)
-    , m_settings(WTFMove(settings))
+    : CanvasRenderingContext(canvas, Type::BitmapRenderer)
+    , m_settings(WTF::move(settings))
 {
-    setOutputBitmap(nullptr);
 }
 
 ImageBitmapRenderingContext::~ImageBitmapRenderingContext() = default;
 
-HTMLCanvasElement* ImageBitmapRenderingContext::canvas() const
+ImageBitmapCanvas ImageBitmapRenderingContext::canvas()
 {
-    auto& base = canvasBase();
-    if (!is<HTMLCanvasElement>(base))
-        return nullptr;
-    return &downcast<HTMLCanvasElement>(base);
-}
-
-bool ImageBitmapRenderingContext::isAccelerated() const
-{
-    return bufferRenderingMode == RenderingMode::Accelerated;
-}
-
-void ImageBitmapRenderingContext::setOutputBitmap(RefPtr<ImageBitmap> imageBitmap)
-{
-    // 1. If a bitmap argument was not provided, then:
-
-    if (!imageBitmap) {
-
-        // 1.1. Set context's bitmap mode to blank.
-
-        m_bitmapMode = BitmapMode::Blank;
-
-        // 1.2. Let canvas be the canvas element to which context is bound.
-
-        // 1.3. Set context's output bitmap to be transparent black with an
-        //      intrinsic width equal to the numeric value of canvas's width attribute
-        //      and an intrinsic height equal to the numeric value of canvas's height
-        //      attribute, those values being interpreted in CSS pixels.
-
-        // FIXME: What is the point of creating a full size transparent buffer that
-        // can never be changed? Wouldn't a 1x1 buffer give the same rendering? The
-        // only reason I can think of is toDataURL(), but that doesn't seem like
-        // a good enough argument to waste memory.
-
-        canvas()->setImageBufferAndMarkDirty(ImageBuffer::create(FloatSize(canvas()->width(), canvas()->height()), bufferRenderingMode, 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8));
-
-        // 1.4. Set the output bitmap's origin-clean flag to true.
-
-        canvas()->setOriginClean();
-        return;
-    }
-
-    // 2. If a bitmap argument was provided, then:
-
-    // 2.1. Set context's bitmap mode to valid.
-
-    m_bitmapMode = BitmapMode::Valid;
-
-    // 2.2. Set context's output bitmap to refer to the same underlying
-    //      bitmap data as bitmap, without making a copy.
-    //      Note: the origin-clean flag of bitmap is included in the
-    //      bitmap data to be referenced by context's output bitmap.
-
-    if (imageBitmap->originClean())
-        canvas()->setOriginClean();
-    else
-        canvas()->setOriginTainted();
-    canvas()->setImageBufferAndMarkDirty(imageBitmap->takeImageBuffer());
+    WeakRef base = canvasBase();
+#if ENABLE(OFFSCREEN_CANVAS)
+    if (RefPtr offscreenCanvas = dynamicDowncast<OffscreenCanvas>(base.get()))
+        return offscreenCanvas.releaseNonNull();
+#endif
+    return downcast<HTMLCanvasElement>(base.get());
 }
 
 ExceptionOr<void> ImageBitmapRenderingContext::transferFromImageBitmap(RefPtr<ImageBitmap> imageBitmap)
 {
-    // 1. Let bitmapContext be the ImageBitmapRenderingContext object on which
-    //    the transferFromImageBitmap() method was called.
-
-    // 2. If imageBitmap is null, then run the steps to set an ImageBitmapRenderingContext's
-    //    output bitmap, with bitmapContext as the context argument and no bitmap argument,
-    //    then abort these steps.
-
-    if (!imageBitmap) {
-        setOutputBitmap(nullptr);
+    RefPtr<ImageBuffer> newBuffer;
+    bool originClean = true;
+    if (imageBitmap) {
+        if (imageBitmap->isDetached())
+            return Exception { ExceptionCode::InvalidStateError };
+        originClean = imageBitmap->originClean();
+        newBuffer = imageBitmap->takeImageBuffer();
+    } else if (!m_buffer)
         return { };
+
+    Ref canvasBase = this->canvasBase();
+    if (originClean)
+        canvasBase->setOriginClean();
+    else
+        canvasBase->setOriginTainted();
+    if (newBuffer) {
+        IntSize newSize = newBuffer->truncatedLogicalSize();
+        updateMemoryCost(newBuffer->memoryCost());
+        m_buffer = newBuffer.releaseNonNull();
+        canvasBase->setSizeForControllingContext(newSize);
+    } else {
+        m_buffer = nullptr;
+        updateMemoryCost(0);
     }
-
-    // 3. If the value of imageBitmap's [[Detached]] internal slot is set to true,
-    //    then throw an "InvalidStateError" DOMException and abort these steps.
-
-    if (imageBitmap->isDetached())
-        return Exception { InvalidStateError };
-
-    // 4. Run the steps to set an ImageBitmapRenderingContext's output bitmap,
-    //    with the context argument equal to bitmapContext, and the bitmap
-    //    argument referring to imageBitmap's underlying bitmap data.
-
-    setOutputBitmap(imageBitmap);
-
-    // 5. Set the value of imageBitmap's [[Detached]] internal slot to true.
-    // 6. Unset imageBitmap's bitmap data.
-
-    // Note that the algorithm in the specification is currently a bit
-    // muddy here. The setOutputBitmap step above had to transfer ownership
-    // from the imageBitmap to this object, which requires a detach and unset,
-    // so this step isn't necessary, but we'll do it anyway.
-
-    imageBitmap->close();
-
+    canvasBase->didDraw(FloatRect { { }, canvasBase->size() });
     return { };
+}
+
+RefPtr<ImageBuffer> ImageBitmapRenderingContext::transferToImageBuffer()
+{
+    Ref canvasBase = this->canvasBase();
+    auto size = canvasBase->size();
+    if (!m_buffer)
+        return ImageBuffer::create(size, RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
+    RefPtr result = std::exchange(m_buffer, { });
+    updateMemoryCost(0);
+    canvasBase->setOriginClean();
+    canvasBase->didDraw(FloatRect { { }, size });
+    return result;
+}
+
+RefPtr<ImageBuffer> ImageBitmapRenderingContext::surfaceBufferToImageBuffer(SurfaceBuffer)
+{
+    if (!m_buffer) {
+        RefPtr buffer = ImageBuffer::create(canvasBase().size(), RenderingMode::Unaccelerated, RenderingPurpose::Unspecified, 1, DestinationColorSpace::SRGB(), PixelFormat::BGRA8);
+        if (buffer) {
+            updateMemoryCost(buffer->memoryCost());
+            m_buffer = WTF::move(buffer);
+        }
+    }
+    return m_buffer;
 }
 
 }

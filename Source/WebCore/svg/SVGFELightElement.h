@@ -2,7 +2,7 @@
  * Copyright (C) 2004, 2005 Nikolas Zimmermann <zimmermann@kde.org>
  * Copyright (C) 2004, 2005, 2006 Rob Buis <buis@kde.org>
  * Copyright (C) 2005 Oliver Hunt <oliver@nerget.com>
- * Copyright (C) 2018-2019 Apple Inc. All rights reserved.
+ * Copyright (C) 2018-2022 Apple Inc. All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -23,17 +23,18 @@
 #pragma once
 
 #include "LightSource.h"
+#include "SVGAnimatedPropertyImpl.h"
 #include "SVGElement.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
-class SVGFilterBuilder;
-
 class SVGFELightElement : public SVGElement {
-    WTF_MAKE_ISO_ALLOCATED(SVGFELightElement);
+    WTF_MAKE_TZONE_ALLOCATED(SVGFELightElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(SVGFELightElement);
 public:
-    virtual Ref<LightSource> lightSource(SVGFilterBuilder&) const = 0;
-    static SVGFELightElement* findLightElement(const SVGElement*);
+    virtual Ref<LightSource> lightSource() const = 0;
+    static SVGFELightElement* NODELETE findLightElement(const SVGElement*);
 
     float azimuth() const { return m_azimuth->currentValue(); }
     float elevation() const { return m_elevation->currentValue(); }
@@ -57,30 +58,37 @@ public:
     SVGAnimatedNumber& specularExponentAnimated() { return m_specularExponent; }
     SVGAnimatedNumber& limitingConeAngleAnimated() { return m_limitingConeAngle; }
 
+    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGFELightElement, SVGElement>;
+
 protected:
     SVGFELightElement(const QualifiedName&, Document&);
 
-    bool rendererIsNeeded(const RenderStyle&) override { return false; }
+    bool rendererIsNeeded(const Style::ComputedStyle&) override { return false; }
 
 private:
-    using PropertyRegistry = SVGPropertyOwnerRegistry<SVGFELightElement, SVGElement>;
-    const SVGPropertyRegistry& propertyRegistry() const final { return m_propertyRegistry; }
-
-    void parseAttribute(const QualifiedName&, const AtomString&) override;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) override;
     void svgAttributeChanged(const QualifiedName&) override;
     void childrenChanged(const ChildChange&) override;
 
-    PropertyRegistry m_propertyRegistry { *this };
-    Ref<SVGAnimatedNumber> m_azimuth { SVGAnimatedNumber::create(this) };
-    Ref<SVGAnimatedNumber> m_elevation { SVGAnimatedNumber::create(this) };
-    Ref<SVGAnimatedNumber> m_x { SVGAnimatedNumber::create(this) };
-    Ref<SVGAnimatedNumber> m_y { SVGAnimatedNumber::create(this) };
-    Ref<SVGAnimatedNumber> m_z { SVGAnimatedNumber::create(this) };
-    Ref<SVGAnimatedNumber> m_pointsAtX { SVGAnimatedNumber::create(this) };
-    Ref<SVGAnimatedNumber> m_pointsAtY { SVGAnimatedNumber::create(this) };
-    Ref<SVGAnimatedNumber> m_pointsAtZ { SVGAnimatedNumber::create(this) };
-    Ref<SVGAnimatedNumber> m_specularExponent { SVGAnimatedNumber::create(this, 1) };
-    Ref<SVGAnimatedNumber> m_limitingConeAngle { SVGAnimatedNumber::create(this) };
+    const Ref<SVGAnimatedNumber> m_azimuth { SVGAnimatedNumber::create(this) };
+    const Ref<SVGAnimatedNumber> m_elevation { SVGAnimatedNumber::create(this) };
+    const Ref<SVGAnimatedNumber> m_x { SVGAnimatedNumber::create(this) };
+    const Ref<SVGAnimatedNumber> m_y { SVGAnimatedNumber::create(this) };
+    const Ref<SVGAnimatedNumber> m_z { SVGAnimatedNumber::create(this) };
+    const Ref<SVGAnimatedNumber> m_pointsAtX { SVGAnimatedNumber::create(this) };
+    const Ref<SVGAnimatedNumber> m_pointsAtY { SVGAnimatedNumber::create(this) };
+    const Ref<SVGAnimatedNumber> m_pointsAtZ { SVGAnimatedNumber::create(this) };
+    const Ref<SVGAnimatedNumber> m_specularExponent { SVGAnimatedNumber::create(this, 1) };
+    const Ref<SVGAnimatedNumber> m_limitingConeAngle { SVGAnimatedNumber::create(this) };
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::SVGFELightElement)
+    static bool isType(const WebCore::SVGElement& element)
+    {
+        return element.hasTagName(WebCore::SVGNames::feDistantLightTag)
+            || element.hasTagName(WebCore::SVGNames::fePointLightTag)
+            || element.hasTagName(WebCore::SVGNames::feSpotLightTag);
+    }
+SPECIALIZE_TYPE_TRAITS_END()

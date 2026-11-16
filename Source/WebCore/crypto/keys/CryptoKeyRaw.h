@@ -27,25 +27,23 @@
 
 #include "CryptoKey.h"
 
-#if ENABLE(WEB_CRYPTO)
-
 namespace WebCore {
 
 class CryptoKeyRaw final : public CryptoKey {
 public:
     static Ref<CryptoKeyRaw> create(CryptoAlgorithmIdentifier identifier, Vector<uint8_t>&& keyData, CryptoKeyUsageBitmap usages)
     {
-        return adoptRef(*new CryptoKeyRaw(identifier, WTFMove(keyData), usages));
+        return adoptRef(*new CryptoKeyRaw(identifier, WTF::move(keyData), usages));
     }
 
-    const Vector<uint8_t>& key() const { return m_key; }
+    const Vector<uint8_t>& key() const LIFETIME_BOUND { return m_key; }
 
 private:
     CryptoKeyRaw(CryptoAlgorithmIdentifier, Vector<uint8_t>&& keyData, CryptoKeyUsageBitmap);
 
     CryptoKeyClass keyClass() const final { return CryptoKeyClass::Raw; }
-
     KeyAlgorithm algorithm() const final;
+    CryptoKey::Data data() const final;
 
     Vector<uint8_t> m_key;
 };
@@ -53,5 +51,3 @@ private:
 } // namespace WebCore
 
 SPECIALIZE_TYPE_TRAITS_CRYPTO_KEY(CryptoKeyRaw, CryptoKeyClass::Raw)
-
-#endif // ENABLE(WEB_CRYPTO)

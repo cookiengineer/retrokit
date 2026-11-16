@@ -31,10 +31,12 @@
 
 #pragma once
 
-#include "BlobData.h"
-#include "BlobRegistry.h"
+#include <WebCore/BlobData.h>
+#include <WebCore/BlobRegistry.h>
+#include <WebCore/SecurityOriginData.h>
 #include <wtf/HashCountedSet.h>
-#include <wtf/HashMap.h>
+#include <wtf/RobinHoodHashMap.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/URLHash.h>
 #include <wtf/text/StringHash.h>
 #include <wtf/text/WTFString.h>
@@ -49,44 +51,56 @@ struct PolicyContainer;
 
 // BlobRegistryImpl is not thread-safe. It should only be called from main thread.
 class WEBCORE_EXPORT BlobRegistryImpl {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(BlobRegistryImpl, WEBCORE_EXPORT);
 public:
     virtual ~BlobRegistryImpl();
 
-    BlobData* getBlobDataFromURL(const URL&) const;
+    BlobData* blobDataFromURL(const URL&, const std::optional<SecurityOriginData>& topOrigin = std::nullopt) const;
 
     Ref<ResourceHandle> createResourceHandle(const ResourceRequest&, ResourceHandleClient*);
-    void writeBlobToFilePath(const URL& blobURL, const String& path, Function<void(bool success)>&& completionHandler);
 
     void appendStorageItems(BlobData*, const BlobDataItemList&, long long offset, long long length);
 
-    void registerFileBlobURL(const URL&, Ref<BlobDataFileReference>&&, const String& contentType);
-    void registerBlobURL(const URL&, Vector<BlobPart>&&, const String& contentType);
-    void registerBlobURL(const URL&, const URL& srcURL, const PolicyContainer&);
-    void registerBlobURLOptionallyFileBacked(const URL&, const URL& srcURL, RefPtr<BlobDataFileReference>&&, const String& contentType, const PolicyContainer&);
-    void registerBlobURLForSlice(const URL&, const URL& srcURL, long long start, long long end, const String& contentType);
-    void unregisterBlobURL(const URL&);
+    void registerInternalFileBlobURL(const URL&, Ref<BlobDataFileReference>&&, const String& contentType);
+    void registerInternalBlobURL(const URL&, Vector<BlobPart>&&, const String& contentType);
+    void registerBlobURL(const URL&, const URL& srcURL, const PolicyContainer&, const std::optional<SecurityOriginData>& topOrigin);
+    void registerInternalBlobURLOptionallyFileBacked(const URL&, const URL& srcURL, RefPtr<BlobDataFileReference>&&, const String& contentType, const PolicyContainer&);
+    void registerInternalBlobURLForSlice(const URL&, const URL& srcURL, long long start, long long end, const String& contentType);
+    void unregisterBlobURL(const URL&, const std::optional<WebCore::SecurityOriginData>& topOrigin);
 
-    void registerBlobURLHandle(const URL&);
-    void unregisterBlobURLHandle(const URL&);
+    void registerBlobURLHandle(const URL&, const std::optional<WebCore::SecurityOriginData>& topOrigin);
+    void unregisterBlobURLHandle(const URL&, const std::optional<WebCore::SecurityOriginData>& topOrigin);
 
+    String blobType(const URL&);
     unsigned long long blobSize(const URL&);
 
-    void writeBlobsToTemporaryFiles(const Vector<String>& blobURLs, CompletionHandler<void(Vector<String>&& filePaths)>&&);
+    void writeBlobsToTemporaryFilesForIndexedDB(const Vector<String>& blobURLs, CompletionHandler<void(Vector<String>&& filePaths)>&&);
 
-    struct BlobForFileWriting {
-        String blobURL;
-        Vector<std::pair<String, ThreadSafeDataBuffer>> filePathsOrDataBuffers;
-    };
+    Vector<Ref<BlobDataFileReference>> filesInBlob(const URL&, const std::optional<WebCore::SecurityOriginData>& topOrigin = std::nullopt) const;
 
-    bool populateBlobsForFileWriting(const Vector<String>& blobURLs, Vector<BlobForFileWriting>&);
-    Vector<RefPtr<BlobDataFileReference>> filesInBlob(const URL&) const;
+    void setFileDirectory(String&&);
 
 private:
-    void addBlobData(const String& url, RefPtr<BlobData>&&);
+    struct BlobForFileWriting {
+        String blobURL;
+        Vector<Variant<String, Ref<DataSegment>>> filePathsOrDataBuffers;
+    };
+
+    void registerBlobURLOptionallyFileBacked(const URL&, const URL& srcURL, RefPtr<BlobDataFileReference>&&, const String& contentType, const PolicyContainer&, const std::optional<SecurityOriginData>& topOrigin = std::nullopt);
+    void addBlobData(const String& url, Ref<BlobData>&&, const std::optional<WebCore::SecurityOriginData>& topOrigin = std::nullopt);
+    Ref<DataSegment> createDataSegment(Vector<uint8_t>&&, BlobData&);
+    bool populateBlobsForFileWriting(const Vector<String>& blobURLs, Vector<BlobForFileWriting>&);
 
     HashCountedSet<String> m_blobReferences;
-    HashMap<String, RefPtr<BlobData>> m_blobs;
+    MemoryCompactRobinHoodHashMap<String, Ref<BlobData>> m_blobs;
+    using URLToTopOriginHashMap = MemoryCompactRobinHoodHashMap<String, WebCore::SecurityOriginData>;
+    URLToTopOriginHashMap m_allowedBlobURLTopOrigins;
+    String m_fileDirectory;
 };
+
+inline void BlobRegistryImpl::setFileDirectory(String&& filePath)
+{
+    m_fileDirectory = WTF::move(filePath);
+}
 
 } // namespace WebCore

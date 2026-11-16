@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2020-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,16 +25,16 @@
 
 #pragma once
 
-#include "ArgumentCoders.h"
 #include "NetworkResourceLoadIdentifier.h"
 #include <WebCore/FrameIdentifier.h>
+#include <wtf/Markable.h>
 #include <wtf/URL.h>
+#include <wtf/UUID.h>
 #include <wtf/WallTime.h>
 
 namespace WebKit {
 
 struct ResourceLoadInfo {
-
     enum class Type : uint8_t {
         ApplicationManifest,
         Beacon,
@@ -52,106 +52,16 @@ struct ResourceLoadInfo {
         XMLHTTPRequest,
         XSLT
     };
-    
+
     NetworkResourceLoadIdentifier resourceLoadID;
     std::optional<WebCore::FrameIdentifier> frameID;
     std::optional<WebCore::FrameIdentifier> parentFrameID;
+    Markable<WTF::UUID> documentID;
     URL originalURL;
     String originalHTTPMethod;
     WallTime eventTimestamp;
     bool loadedFromCache { false };
     Type type { Type::Other };
-
-    void encode(IPC::Encoder& encoder) const
-    {
-        encoder << resourceLoadID;
-        encoder << frameID;
-        encoder << parentFrameID;
-        encoder << originalURL;
-        encoder << originalHTTPMethod;
-        encoder << eventTimestamp;
-        encoder << loadedFromCache;
-        encoder << type;
-    }
-
-    static std::optional<ResourceLoadInfo> decode(IPC::Decoder& decoder)
-    {
-        std::optional<NetworkResourceLoadIdentifier> resourceLoadID;
-        decoder >> resourceLoadID;
-        if (!resourceLoadID)
-            return std::nullopt;
-
-        std::optional<std::optional<WebCore::FrameIdentifier>> frameID;
-        decoder >> frameID;
-        if (!frameID)
-            return std::nullopt;
-
-        std::optional<std::optional<WebCore::FrameIdentifier>> parentFrameID;
-        decoder >> parentFrameID;
-        if (!parentFrameID)
-            return std::nullopt;
-
-        std::optional<URL> originalURL;
-        decoder >> originalURL;
-        if (!originalURL)
-            return std::nullopt;
-
-        std::optional<String> originalHTTPMethod;
-        decoder >> originalHTTPMethod;
-        if (!originalHTTPMethod)
-            return std::nullopt;
-
-        std::optional<WallTime> eventTimestamp;
-        decoder >> eventTimestamp;
-        if (!eventTimestamp)
-            return std::nullopt;
-
-        std::optional<bool> loadedFromCache;
-        decoder >> loadedFromCache;
-        if (!loadedFromCache)
-            return std::nullopt;
-
-        std::optional<Type> type;
-        decoder >> type;
-        if (!type)
-            return std::nullopt;
-
-        return {{
-            WTFMove(*resourceLoadID),
-            WTFMove(*frameID),
-            WTFMove(*parentFrameID),
-            WTFMove(*originalURL),
-            WTFMove(*originalHTTPMethod),
-            WTFMove(*eventTimestamp),
-            WTFMove(*loadedFromCache),
-            WTFMove(*type),
-        }};
-    }
 };
 
 } // namespace WebKit
-
-namespace WTF {
-
-template<> struct EnumTraits<WebKit::ResourceLoadInfo::Type> {
-    using values = EnumValues<
-        WebKit::ResourceLoadInfo::Type,
-        WebKit::ResourceLoadInfo::Type::ApplicationManifest,
-        WebKit::ResourceLoadInfo::Type::Beacon,
-        WebKit::ResourceLoadInfo::Type::CSPReport,
-        WebKit::ResourceLoadInfo::Type::Document,
-        WebKit::ResourceLoadInfo::Type::Fetch,
-        WebKit::ResourceLoadInfo::Type::Font,
-        WebKit::ResourceLoadInfo::Type::Image,
-        WebKit::ResourceLoadInfo::Type::Media,
-        WebKit::ResourceLoadInfo::Type::Object,
-        WebKit::ResourceLoadInfo::Type::Other,
-        WebKit::ResourceLoadInfo::Type::Ping,
-        WebKit::ResourceLoadInfo::Type::Script,
-        WebKit::ResourceLoadInfo::Type::Stylesheet,
-        WebKit::ResourceLoadInfo::Type::XMLHTTPRequest,
-        WebKit::ResourceLoadInfo::Type::XSLT
-    >;
-};
-
-} // namespace WTF

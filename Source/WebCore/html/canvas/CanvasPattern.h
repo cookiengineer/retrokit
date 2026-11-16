@@ -25,20 +25,20 @@
 
 #pragma once
 
-#include "ExceptionOr.h"
 #include <wtf/Forward.h>
 #include <wtf/Ref.h>
 #include <wtf/RefCounted.h>
 
 namespace WebCore {
 
-class NativeImage;
 class Pattern;
+class SourceImage;
 struct DOMMatrix2DInit;
+template<typename> class ExceptionOr;
 
 class CanvasPattern : public RefCounted<CanvasPattern> {
 public:
-    static Ref<CanvasPattern> create(Ref<NativeImage>&&, bool repeatX, bool repeatY, bool originClean);
+    static Ref<CanvasPattern> create(SourceImage&&, bool repeatX, bool repeatY, bool originClean);
     ~CanvasPattern();
 
     static bool parseRepetitionType(const String&, bool& repeatX, bool& repeatY);
@@ -51,9 +51,9 @@ public:
     ExceptionOr<void> setTransform(DOMMatrix2DInit&&);
 
 private:
-    CanvasPattern(Ref<NativeImage>&&, bool repeatX, bool repeatY, bool originClean);
+    CanvasPattern(SourceImage&&, bool repeatX, bool repeatY, bool originClean);
 
-    Ref<Pattern> m_pattern;
+    const Ref<Pattern> m_pattern;
     bool m_originClean;
 };
 

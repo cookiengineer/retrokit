@@ -60,8 +60,8 @@ angle::Result EGLImageD3D::getRenderTarget(const gl::Context *context,
     {
         ASSERT(!mRenderTarget);
         FramebufferAttachmentRenderTarget *rt = nullptr;
-        ANGLE_TRY(
-            mState.source->getAttachmentRenderTarget(context, GL_NONE, mState.imageIndex, 0, &rt));
+        ANGLE_TRY(mState.source->getAttachmentRenderTarget(context, GL_NONE,
+                                                           mState.imageIndex.get(), 0, &rt));
         *outRT = static_cast<RenderTargetD3D *>(rt);
         return angle::Result::Continue;
     }
@@ -79,10 +79,13 @@ angle::Result EGLImageD3D::copyToLocalRendertarget(const gl::Context *context)
     RenderTargetD3D *curRenderTarget = nullptr;
     ANGLE_TRY(getRenderTarget(context, &curRenderTarget));
 
-    // Invalidate FBOs with this Image attached. Only currently applies to D3D11.
-    for (egl::ImageSibling *target : mState.targets)
     {
-        target->onStateChange(angle::SubjectMessage::SubjectChanged);
+        std::unique_lock lock(mState.targetsLock);
+        // Invalidate FBOs with this Image attached. Only currently applies to D3D11.
+        for (egl::ImageSibling *target : mState.targets)
+        {
+            target->onStateChange(angle::SubjectMessage::SubjectChanged);
+        }
     }
 
     return mRenderer->createRenderTargetCopy(context, curRenderTarget, &mRenderTarget);

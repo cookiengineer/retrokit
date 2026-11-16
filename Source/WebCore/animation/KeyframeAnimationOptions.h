@@ -25,12 +25,21 @@
 
 #pragma once
 
-#include "KeyframeEffectOptions.h"
+#include <WebCore/AnimationFrameRate.h>
+#include "AnimationFrameRatePreset.h"
+#include <WebCore/AnimationTimeline.h>
+#include <WebCore/CSSOMKeywordValue.h>
+#include <WebCore/KeyframeEffectOptions.h>
+#include <WebCore/TimelineRangeValue.h>
 
 namespace WebCore {
 
 struct KeyframeAnimationOptions : KeyframeEffectOptions {
     String id;
+    std::optional<RefPtr<AnimationTimeline>> timeline;
+    Variant<FramesPerSecond, AnimationFrameRatePreset> frameRate;
+    TimelineRangeValue rangeStart;
+    TimelineRangeValue rangeEnd;
 };
 
 } // namespace WebCore

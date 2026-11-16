@@ -60,15 +60,20 @@ StandardQueryGL::StandardQueryGL(gl::QueryType type,
                                  const FunctionsGL *functions,
                                  StateManagerGL *stateManager)
     : QueryGL(type),
-      mType(type),
       mFunctions(functions),
       mStateManager(stateManager),
       mActiveQuery(0),
       mPendingQueries(),
-      mResultSum(0)
+      mResultSum(0),
+      mDeferredBufferDeletionSerial(0)
 {}
 
 StandardQueryGL::~StandardQueryGL()
+{
+    clearInternalQueries();
+}
+
+void StandardQueryGL::clearInternalQueries()
 {
     if (mActiveQuery != 0)
     {
@@ -87,7 +92,9 @@ StandardQueryGL::~StandardQueryGL()
 
 angle::Result StandardQueryGL::begin(const gl::Context *context)
 {
-    mResultSum = 0;
+    clearInternalQueries();
+    mResultSum                    = 0;
+    mDeferredBufferDeletionSerial = mStateManager->onBeginQuery();
     return resume(context);
 }
 
@@ -182,6 +189,9 @@ angle::Result StandardQueryGL::resume(const gl::Context *context)
 
         mFunctions->genQueries(1, &mActiveQuery);
         mStateManager->beginQuery(mType, this, mActiveQuery);
+
+        ContextGL *contextGL = GetImplAs<ContextGL>(context);
+        contextGL->markWorkSubmitted();
     }
 
     return angle::Result::Continue;
@@ -223,195 +233,11 @@ angle::Result StandardQueryGL::flush(const gl::Context *context, bool force)
         mPendingQueries.pop_front();
     }
 
-    return angle::Result::Continue;
-}
-
-class SyncProviderGL
-{
-  public:
-    virtual ~SyncProviderGL() {}
-    virtual angle::Result init(const gl::Context *context, gl::QueryType queryType)
+    if (mActiveQuery == 0 && mDeferredBufferDeletionSerial > 0)
     {
-        return angle::Result::Continue;
-    }
-    virtual angle::Result flush(const gl::Context *context, bool force, bool *finished) = 0;
-};
-
-class SyncProviderGLSync : public SyncProviderGL
-{
-  public:
-    SyncProviderGLSync(const FunctionsGL *functions) : mFunctions(functions), mSync(nullptr)
-    {
-        mSync = mFunctions->fenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+        mStateManager->onSerialCompleted(mDeferredBufferDeletionSerial);
     }
 
-    ~SyncProviderGLSync() override { mFunctions->deleteSync(mSync); }
-
-    angle::Result flush(const gl::Context *context, bool force, bool *finished) override
-    {
-        if (force)
-        {
-            mFunctions->clientWaitSync(mSync, 0, 0);
-            *finished = true;
-        }
-        else
-        {
-            GLint value = 0;
-            mFunctions->getSynciv(mSync, GL_SYNC_STATUS, 1, nullptr, &value);
-            *finished = (value == GL_SIGNALED);
-        }
-
-        return angle::Result::Continue;
-    }
-
-  private:
-    const FunctionsGL *mFunctions;
-    GLsync mSync;
-};
-
-class SyncProviderGLQuery : public SyncProviderGL
-{
-  public:
-    SyncProviderGLQuery(const FunctionsGL *functions) : mFunctions(functions), mQuery(0) {}
-
-    angle::Result init(const gl::Context *context, gl::QueryType type) override
-    {
-        StateManagerGL *stateManager = GetStateManagerGL(context);
-
-        mFunctions->genQueries(1, &mQuery);
-        ANGLE_TRY(stateManager->pauseQuery(context, type));
-        mFunctions->beginQuery(ToGLenum(type), mQuery);
-        mFunctions->endQuery(ToGLenum(type));
-        return stateManager->resumeQuery(context, type);
-    }
-
-    ~SyncProviderGLQuery() override { mFunctions->deleteQueries(1, &mQuery); }
-
-    angle::Result flush(const gl::Context *context, bool force, bool *finished) override
-    {
-        if (force)
-        {
-            GLint result = 0;
-            mFunctions->getQueryObjectiv(mQuery, GL_QUERY_RESULT, &result);
-            *finished = true;
-        }
-        else
-        {
-            GLint available = 0;
-            mFunctions->getQueryObjectiv(mQuery, GL_QUERY_RESULT_AVAILABLE, &available);
-            *finished = (available == GL_TRUE);
-        }
-
-        return angle::Result::Continue;
-    }
-
-  private:
-    const FunctionsGL *mFunctions;
-    GLuint mQuery;
-};
-
-SyncQueryGL::SyncQueryGL(gl::QueryType type, const FunctionsGL *functions)
-    : QueryGL(type), mFunctions(functions), mSyncProvider(nullptr), mFinished(false)
-{
-    ASSERT(IsSupported(mFunctions));
-    ASSERT(type == gl::QueryType::CommandsCompleted);
-}
-
-SyncQueryGL::~SyncQueryGL() {}
-
-bool SyncQueryGL::IsSupported(const FunctionsGL *functions)
-{
-    return nativegl::SupportsFenceSync(functions) || nativegl::SupportsOcclusionQueries(functions);
-}
-
-angle::Result SyncQueryGL::begin(const gl::Context *context)
-{
-    return angle::Result::Continue;
-}
-
-angle::Result SyncQueryGL::end(const gl::Context *context)
-{
-    if (nativegl::SupportsFenceSync(mFunctions))
-    {
-        mSyncProvider.reset(new SyncProviderGLSync(mFunctions));
-    }
-    else if (nativegl::SupportsOcclusionQueries(mFunctions))
-    {
-        mSyncProvider.reset(new SyncProviderGLQuery(mFunctions));
-        ANGLE_TRY(mSyncProvider->init(context, gl::QueryType::AnySamples));
-    }
-    else
-    {
-        ANGLE_GL_UNREACHABLE(GetImplAs<ContextGL>(context));
-    }
-    return angle::Result::Continue;
-}
-
-angle::Result SyncQueryGL::queryCounter(const gl::Context *context)
-{
-    UNREACHABLE();
-    return angle::Result::Continue;
-}
-
-angle::Result SyncQueryGL::getResult(const gl::Context *context, GLint *params)
-{
-    return getResultBase(context, params);
-}
-
-angle::Result SyncQueryGL::getResult(const gl::Context *context, GLuint *params)
-{
-    return getResultBase(context, params);
-}
-
-angle::Result SyncQueryGL::getResult(const gl::Context *context, GLint64 *params)
-{
-    return getResultBase(context, params);
-}
-
-angle::Result SyncQueryGL::getResult(const gl::Context *context, GLuint64 *params)
-{
-    return getResultBase(context, params);
-}
-
-angle::Result SyncQueryGL::isResultAvailable(const gl::Context *context, bool *available)
-{
-    ANGLE_TRY(flush(context, false));
-    *available = mFinished;
-    return angle::Result::Continue;
-}
-
-angle::Result SyncQueryGL::pause(const gl::Context *context)
-{
-    return angle::Result::Continue;
-}
-
-angle::Result SyncQueryGL::resume(const gl::Context *context)
-{
-    return angle::Result::Continue;
-}
-
-angle::Result SyncQueryGL::flush(const gl::Context *context, bool force)
-{
-    if (mSyncProvider == nullptr)
-    {
-        ASSERT(mFinished);
-        return angle::Result::Continue;
-    }
-
-    ANGLE_TRY(mSyncProvider->flush(context, force, &mFinished));
-    if (mFinished)
-    {
-        mSyncProvider.reset();
-    }
-
-    return angle::Result::Continue;
-}
-
-template <typename T>
-angle::Result SyncQueryGL::getResultBase(const gl::Context *context, T *params)
-{
-    ANGLE_TRY(flush(context, true));
-    *params = static_cast<T>(mFinished ? GL_TRUE : GL_FALSE);
     return angle::Result::Continue;
 }
 }  // namespace rx

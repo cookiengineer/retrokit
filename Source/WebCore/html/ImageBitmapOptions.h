@@ -25,22 +25,28 @@
 
 #pragma once
 
+#include "ImageOrientation.h"
 #include <optional>
 
 namespace WebCore {
 
 struct ImageBitmapOptions {
-    enum class Orientation { None, FlipY };
+    enum class Orientation { FromImage, FlipY,  None };
     enum class PremultiplyAlpha { None, Premultiply, Default };
     enum class ColorSpaceConversion { None, Default };
     enum class ResizeQuality { Pixelated, Low, Medium, High };
 
-    Orientation imageOrientation { Orientation::None };
+    Orientation orientation { Orientation::FromImage };
     PremultiplyAlpha premultiplyAlpha { PremultiplyAlpha::Default };
     ColorSpaceConversion colorSpaceConversion { ColorSpaceConversion::Default };
     std::optional<unsigned> resizeWidth;
     std::optional<unsigned> resizeHeight;
     ResizeQuality resizeQuality { ResizeQuality::Low };
+
+    ImageOrientation resolvedImageOrientation(ImageOrientation imageOrientation) const
+    {
+        return orientation == Orientation::FlipY ? imageOrientation.withFlippedY() : imageOrientation;
+    }
 };
 
 }

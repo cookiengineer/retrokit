@@ -21,6 +21,8 @@
 #include "config.h"
 #include "GStreamerEMEUtilities.h"
 
+#include <wtf/StdLibExtras.h>
+#include <wtf/glib/GSpanExtras.h>
 #include <wtf/text/Base64.h>
 
 #if ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)
@@ -30,6 +32,22 @@ GST_DEBUG_CATEGORY_EXTERN(webkit_media_common_encryption_decrypt_debug_category)
 
 namespace WebCore {
 
+ProtectionSystemEvents::ProtectionSystemEvents(GstMessage* message)
+{
+    const GstStructure* structure = gst_message_get_structure(message);
+
+    const GValue* streamEncryptionEventsList = gst_structure_get_value(structure, "stream-encryption-events");
+    ASSERT(streamEncryptionEventsList && GST_VALUE_HOLDS_LIST(streamEncryptionEventsList));
+    unsigned numEvents = gst_value_list_get_size(streamEncryptionEventsList);
+    m_events.reserveInitialCapacity(numEvents);
+    for (unsigned i = 0; i < numEvents; ++i)
+        m_events.append(GRefPtr<GstEvent>(GST_EVENT_CAST(g_value_get_boxed(gst_value_list_get_value(streamEncryptionEventsList, i)))));
+    const GValue* streamEncryptionAllowedSystemsValue = gst_structure_get_value(structure, "available-stream-encryption-systems");
+    auto systemsArray = g_value_get_boxed(streamEncryptionAllowedSystemsValue);
+    for (const auto system : span(static_cast<char**>(systemsArray)))
+        m_availableSystems.append(String::fromLatin1(system));
+}
+
 struct GMarkupParseContextUserData {
     bool isParsingPssh { false };
     RefPtr<SharedBuffer> pssh;
@@ -38,14 +56,16 @@ struct GMarkupParseContextUserData {
 static void markupStartElement(GMarkupParseContext*, const gchar* elementName, const gchar**, const gchar**, gpointer userDataPtr, GError**)
 {
     GMarkupParseContextUserData* userData = static_cast<GMarkupParseContextUserData*>(userDataPtr);
-    if (g_str_has_suffix(elementName, "pssh"))
+    auto nameView = StringView::fromLatin1(elementName);
+    if (nameView.endsWith("pssh"_s))
         userData->isParsingPssh = true;
 }
 
 static void markupEndElement(GMarkupParseContext*, const gchar* elementName, gpointer userDataPtr, GError**)
 {
     GMarkupParseContextUserData* userData = static_cast<GMarkupParseContextUserData*>(userDataPtr);
-    if (g_str_has_suffix(elementName, "pssh")) {
+    auto nameView = StringView::fromLatin1(elementName);
+    if (nameView.endsWith("pssh"_s)) {
         ASSERT(userData->isParsingPssh);
         userData->isParsingPssh = false;
     }
@@ -55,9 +75,10 @@ static void markupText(GMarkupParseContext*, const gchar* text, gsize textLength
 {
     GMarkupParseContextUserData* userData = static_cast<GMarkupParseContextUserData*>(userDataPtr);
     if (userData->isParsingPssh) {
-        std::optional<Vector<uint8_t>> pssh = base64Decode(text, textLength);
+        auto data = unsafeMakeSpan(reinterpret_cast<const uint8_t*>(text), textLength);
+        auto pssh = base64Decode(data);
         if (pssh.has_value())
-            userData->pssh = SharedBuffer::create(WTFMove(*pssh));
+            userData->pssh = SharedBuffer::create(WTF::move(*pssh));
     }
 }
 
@@ -73,16 +94,17 @@ static GMarkupParser markupParser { markupStartElement, markupEndElement, markup
 
 RefPtr<SharedBuffer> InitData::extractCencIfNeeded(RefPtr<SharedBuffer>&& unparsedPayload)
 {
-    RefPtr<SharedBuffer> payload = WTFMove(unparsedPayload);
+    RefPtr<SharedBuffer> payload = WTF::move(unparsedPayload);
     if (!payload || !payload->size())
         return payload;
 
     GMarkupParseContextUserData userData;
     GUniquePtr<GMarkupParseContext> markupParseContext(g_markup_parse_context_new(&markupParser, (GMarkupParseFlags) 0, &userData, nullptr));
 
-    if (g_markup_parse_context_parse(markupParseContext.get(), payload->dataAsCharPtr(), payload->size(), nullptr)) {
+    auto payloadData = spanReinterpretCast<const char>(payload->span());
+    if (g_markup_parse_context_parse(markupParseContext.get(), payloadData.data(), payloadData.size(), nullptr)) {
         if (userData.pssh)
-            payload = WTFMove(userData.pssh);
+            payload = WTF::move(userData.pssh);
         else
             GST_WARNING("XML was parsed but we could not find a viable base64 encoded pssh box");
     }
@@ -90,5 +112,8 @@ RefPtr<SharedBuffer> InitData::extractCencIfNeeded(RefPtr<SharedBuffer>&& unpars
     return payload;
 }
 
-}
+#undef GST_CAT_DEFAULT
+
+} // namespace WebCore
+
 #endif // ENABLE(ENCRYPTED_MEDIA) && USE(GSTREAMER)

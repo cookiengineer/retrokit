@@ -26,19 +26,21 @@
 #include "config.h"
 #include "GigacageAlignedMemoryAllocator.h"
 
+#if ENABLE(MALLOC_HEAP_BREAKDOWN)
+#include <wtf/text/MakeString.h>
+#endif
+
 namespace JSC {
 
 GigacageAlignedMemoryAllocator::GigacageAlignedMemoryAllocator(Gigacage::Kind kind)
     : m_kind(kind)
 #if ENABLE(MALLOC_HEAP_BREAKDOWN)
-    , m_heap(makeString("WebKit GigacageAlignedMemoryAllocator ", Gigacage::name(m_kind)).utf8().data())
+    , m_heap(makeString("GigacageAlignedMemoryAllocator "_s, m_kind).utf8().data())
 #endif
 {
 }
 
-GigacageAlignedMemoryAllocator::~GigacageAlignedMemoryAllocator()
-{
-}
+GigacageAlignedMemoryAllocator::~GigacageAlignedMemoryAllocator() = default;
 
 void* GigacageAlignedMemoryAllocator::tryAllocateAlignedMemory(size_t alignment, size_t size)
 {
@@ -54,13 +56,13 @@ void GigacageAlignedMemoryAllocator::freeAlignedMemory(void* basePtr)
 #if ENABLE(MALLOC_HEAP_BREAKDOWN)
     return m_heap.free(basePtr);
 #else
-    Gigacage::alignedFree(m_kind, basePtr);
+    Gigacage::free(m_kind, basePtr);
 #endif
 }
 
 void GigacageAlignedMemoryAllocator::dump(PrintStream& out) const
 {
-    out.print(Gigacage::name(m_kind), "Gigacage");
+    out.print(m_kind, "Gigacage");
 }
 
 void* GigacageAlignedMemoryAllocator::tryAllocateMemory(size_t size)

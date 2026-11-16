@@ -29,15 +29,15 @@
 
 #include "FidoAuthenticator.h"
 #include <WebCore/AuthenticatorGetInfoResponse.h>
+#include <WebCore/CryptoKeyEC.h>
+#include <WebCore/Pin.h>
+#include <WebCore/PublicKeyCredentialDescriptor.h>
 
 namespace fido {
 namespace pin {
 class TokenRequest;
 }
-}
-
-namespace WebCore {
-class CryptoKeyEC;
+struct HmacSecretParameters;
 }
 
 namespace WebKit {
@@ -46,17 +46,20 @@ class CtapDriver;
 
 class CtapAuthenticator final : public FidoAuthenticator {
 public:
-    static Ref<CtapAuthenticator> create(std::unique_ptr<CtapDriver>&& driver, fido::AuthenticatorGetInfoResponse&& info)
+    static Ref<CtapAuthenticator> create(Ref<CtapDriver>&& driver, fido::AuthenticatorGetInfoResponse&& info)
     {
-        return adoptRef(*new CtapAuthenticator(WTFMove(driver), WTFMove(info)));
+        return adoptRef(*new CtapAuthenticator(WTF::move(driver), WTF::move(info)));
     }
 
 private:
-    explicit CtapAuthenticator(std::unique_ptr<CtapDriver>&&, fido::AuthenticatorGetInfoResponse&&);
+    explicit CtapAuthenticator(Ref<CtapDriver>&&, fido::AuthenticatorGetInfoResponse&&);
 
     void makeCredential() final;
     void continueMakeCredentialAfterResponseReceived(Vector<uint8_t>&&);
+    void continueMakeCredentialAfterCheckExcludedCredentials(bool includeCurrentBatch = false);
     void getAssertion() final;
+    void continueSilentlyCheckCredentials(Vector<uint8_t>&&, Function<void(bool)>&&);
+    void continueGetAssertionAfterCheckAllowCredentials();
     void continueGetAssertionAfterResponseReceived(Vector<uint8_t>&&);
     void continueGetNextAssertionAfterResponseReceived(Vector<uint8_t>&&);
 
@@ -67,14 +70,33 @@ private:
     void continueRequestAfterGetPinToken(Vector<uint8_t>&&, const fido::pin::TokenRequest&);
     bool tryRestartPin(const fido::CtapDeviceResponseCode&);
 
+    std::optional<fido::HmacSecretParameters> prepareHmacSecretParameters(const WebCore::AuthenticationExtensionsClientInputs::PRFInputs&, const std::optional<Vector<uint8_t>>& credentialId);
+
+    bool canDowngradeToU2f() const;
     bool tryDowngrade();
-    bool processGoogleLegacyAppIdSupportExtension();
+
+    Vector<WebCore::AuthenticatorTransport> transports() const;
+
+    String aaguidForDebugging() const;
+
+    fido::PINUVAuthProtocol selectPinProtocol() const;
+    bool NODELETE isUVSetup() const;
+
+    void continueSetupPinAfterCommand(Vector<uint8_t>&&, const String& pin, Ref<WebCore::CryptoKeyEC> peerKey);
+    void continueSetupPinAfterGetKeyAgreement(Vector<uint8_t>&&, const String& pin);
+    void performAuthenticatorSelectionForSetupPin();
+    void setupPin();
 
     fido::AuthenticatorGetInfoResponse m_info;
     bool m_isDowngraded { false };
+    bool m_isKeyStoreFull { false };
     size_t m_remainingAssertionResponses { 0 };
+    size_t m_currentBatch { 0 };
     Vector<Ref<WebCore::AuthenticatorAssertionResponse>> m_assertionResponses;
+    Vector<Vector<WebCore::PublicKeyCredentialDescriptor>> m_batches;
     Vector<uint8_t> m_pinAuth;
+    std::optional<fido::pin::HmacSecretRequest> m_hmacSecretRequest;
+    RefPtr<WebCore::CryptoKeyEC> m_cachedPeerKey;
 };
 
 } // namespace WebKit

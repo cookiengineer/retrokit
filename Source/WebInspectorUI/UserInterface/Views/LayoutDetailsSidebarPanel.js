@@ -29,46 +29,9 @@ WI.LayoutDetailsSidebarPanel = class LayoutDetailsSidebarPanel extends WI.DOMDet
     {
         super("layout-details", WI.UIString("Layout", "Layout @ Styles Sidebar", "Title of the CSS style panel."));
 
-        this._gridNodeSet = new Set;
-        this._nodeStyles = null;
+        this._flexNodeSet = null;
+        this._gridNodeSet = null;
         this.element.classList.add("layout-panel");
-    }
-
-    // Public
-
-    inspect(objects)
-    {
-        // Layout panel doesn't show when hasDOMNode is false.
-        let hasDOMNode = super.inspect(objects);
-        if (!hasDOMNode)
-            return false;
-
-        let stylesForNode = WI.cssManager.stylesForNode(this.domNode);
-        stylesForNode.refreshIfNeeded().then((nodeStyles) => {
-            if (nodeStyles === this._nodeStyles)
-                return;
-
-            if (this._nodeStyles) {
-                this._nodeStyles.removeEventListener(WI.DOMNodeStyles.Event.Refreshed, this._nodeStylesRefreshed, this);
-                this._nodeStyles.removeEventListener(WI.DOMNodeStyles.Event.NeedsRefresh, this._nodeStylesNeedsRefreshed, this);
-            }
-
-            this._nodeStyles = nodeStyles;
-
-            if (this._nodeStyles) {
-                this._nodeStyles.addEventListener(WI.DOMNodeStyles.Event.Refreshed, this._nodeStylesRefreshed, this);
-                this._nodeStyles.addEventListener(WI.DOMNodeStyles.Event.NeedsRefresh, this._nodeStylesNeedsRefreshed, this);
-            }
-
-            this.needsLayout();
-        });
-
-        return hasDOMNode;
-    }
-
-    supportsDOMNode(nodeToInspect)
-    {
-        return nodeToInspect.nodeType() === Node.ELEMENT_NODE;
     }
 
     // Protected
@@ -77,19 +40,25 @@ WI.LayoutDetailsSidebarPanel = class LayoutDetailsSidebarPanel extends WI.DOMDet
     {
         super.attached();
 
-        WI.DOMNode.addEventListener(WI.DOMNode.Event.LayoutContextTypeChanged, this._handleLayoutContextTypeChanged, this);
+        WI.domManager.addEventListener(WI.DOMManager.Event.NodeInserted, this._handleNodeInserted, this);
+        WI.domManager.addEventListener(WI.DOMManager.Event.NodeRemoved, this._handleNodeRemoved, this);
+
+        WI.DOMNode.addEventListener(WI.DOMNode.Event.LayoutFlagsChanged, this._handleLayoutFlagsChanged, this);
         WI.Frame.addEventListener(WI.Frame.Event.MainResourceDidChange, this._mainResourceDidChange, this);
 
         WI.cssManager.layoutContextTypeChangedMode = WI.CSSManager.LayoutContextTypeChangedMode.All;
 
-        this._refreshGridNodeSet();
+        this._invalidateNodeSets();
     }
 
     detached()
     {
         WI.cssManager.layoutContextTypeChangedMode = WI.CSSManager.LayoutContextTypeChangedMode.Observed;
 
-        WI.DOMNode.removeEventListener(WI.DOMNode.Event.LayoutContextTypeChanged, this._handleLayoutContextTypeChanged, this);
+        WI.domManager.removeEventListener(WI.DOMManager.Event.NodeInserted, this._handleNodeInserted, this);
+        WI.domManager.removeEventListener(WI.DOMManager.Event.NodeRemoved, this._handleNodeRemoved, this);
+
+        WI.DOMNode.removeEventListener(WI.DOMNode.Event.LayoutFlagsChanged, this._handleLayoutFlagsChanged, this);
         WI.Frame.removeEventListener(WI.Frame.Event.MainResourceDidChange, this._mainResourceDidChange, this);
 
         super.detached();
@@ -97,44 +66,105 @@ WI.LayoutDetailsSidebarPanel = class LayoutDetailsSidebarPanel extends WI.DOMDet
 
     initialLayout()
     {
-        this._gridDetailsSectionRow = new WI.DetailsSectionRow(WI.UIString("No CSS Grid Contexts", "No CSS Grid Contexts @ Layout Details Sidebar Panel", "Message shown when there are no CSS Grid contexts on the inspected page."));
-        let gridGroup = new WI.DetailsSectionGroup([this._gridDetailsSectionRow]);
-        let gridDetailsSection = new WI.DetailsSection("layout-css-grid", WI.UIString("Grid", "Grid @ Elements details sidebar", "CSS Grid layout section name"), [gridGroup]);
+        this._gridOptionsDetailsSectionRow = new WI.DetailsSectionRow;
+
+        let gridSettingsGroup = new WI.SettingsGroup(WI.UIString("Page Overlay Options", "Page Overlay Options @ Layout Panel Grid Section Header", "Heading for list of grid overlay options"));
+        gridSettingsGroup.addSetting(WI.settings.gridOverlayShowTrackSizes, WI.UIString("Track Sizes", "Track sizes @ Layout Panel Overlay Options", "Label for option to toggle the track sizes setting for CSS grid overlays"));
+        gridSettingsGroup.addSetting(WI.settings.gridOverlayShowLineNumbers, WI.UIString("Line Numbers", "Line numbers @ Layout Panel Overlay Options", "Label for option to toggle the line numbers setting for CSS grid overlays"));
+        gridSettingsGroup.addSetting(WI.settings.gridOverlayShowLineNames, WI.UIString("Line Names", "Line names @ Layout Panel Overlay Options", "Label for option to toggle the line names setting for CSS grid overlays"));
+        gridSettingsGroup.addSetting(WI.settings.gridOverlayShowAreaNames, WI.UIString("Area Names", "Area names @ Layout Panel Overlay Options", "Label for option to toggle the area names setting for CSS grid overlays"));
+        gridSettingsGroup.addSetting(WI.settings.gridOverlayShowExtendedGridLines, WI.UIString("Extended Grid Lines", "Show extended lines @ Layout Panel Overlay Options", "Label for option to toggle the extended lines setting for CSS grid overlays"));
+
+        // COMPATIBILITY (macOS 26.2, iOS 26.2): `DOM.GridOverlayConfig.showOrderNumbers` did not exist yet.
+        // Since support can't be tested directly, check for if the `Page.navigate` command has been removed.
+        // FIXME: Use explicit version checking once https://webkit.org/b/148680 is fixed.
+        if (!InspectorBackend.hasCommand("Page.navigate"))
+            gridSettingsGroup.addSetting(WI.settings.gridOverlayShowOrderNumbers, WI.UIString("Order Numbers", "Order Numbers @ Layout Panel Overlay Options", "Label for option to toggle the order numbers setting for CSS grid overlays"));
+
+        this._gridOptionsDetailsSectionRow.element.append(gridSettingsGroup.element);
+
+        this._gridNodesDetailsSectionRow = new WI.DetailsSectionRow(WI.UIString("No CSS Grid Containers", "No CSS Grid Containers @ Layout Details Sidebar Panel", "Message shown when there are no CSS Grid containers on the inspected page."));
+
+        this._gridNodesSection = new WI.NodeOverlayListSection("grid", WI.UIString("Grid Overlays", "Page Overlays @ Layout Sidebar Section Header", "Heading for list of grid nodes"));
+
+        let gridDetailsSection = new WI.DetailsSection("layout-css-grid", WI.UIString("Grid", "Grid @ Elements details sidebar", "CSS Grid layout section name"), [
+            new WI.DetailsSectionGroup([this._gridOptionsDetailsSectionRow]),
+            new WI.DetailsSectionGroup([this._gridNodesDetailsSectionRow]),
+        ]);
         this.contentView.element.appendChild(gridDetailsSection.element);
 
-        this._gridSection = new WI.CSSGridSection;
+        this._flexOptionsDetailsSectionRow = new WI.DetailsSectionRow;
+
+        let flexSettingsGroup = new WI.SettingsGroup(WI.UIString("Page Overlay Options", "Page Overlay Options @ Layout Panel Flex Section Header", "Heading for list of flex overlay options"));
+        flexSettingsGroup.addSetting(WI.settings.flexOverlayShowOrderNumbers, WI.UIString("Order Numbers", "Order Numbers @ Layout Panel Overlay Options", "Label for option to toggle the order numbers setting for CSS flex overlays"));
+        this._flexOptionsDetailsSectionRow.element.append(flexSettingsGroup.element);
+
+        this._flexNodesDetailsSectionRow = new WI.DetailsSectionRow(WI.UIString("No CSS Flex Containers", "No CSS Flex Containers @ Layout Details Sidebar Panel", "Message shown when there are no CSS Flex containers on the inspected page."));
+
+        this._flexNodesSection = new WI.NodeOverlayListSection("flex", WI.UIString("Flexbox Overlays", "Page Overlays for Flex containers @ Layout Sidebar Section Header", "Heading for list of flex container nodes"));
+
+        let flexDetailsSection = new WI.DetailsSection("layout-css-flexbox", WI.UIString("Flexbox", "Flexbox @ Elements details sidebar", "Flexbox layout section name"), [
+            new WI.DetailsSectionGroup([this._flexOptionsDetailsSectionRow]),
+            new WI.DetailsSectionGroup([this._flexNodesDetailsSectionRow]),
+        ]);
+        this.contentView.element.appendChild(flexDetailsSection.element);
+
     }
 
     layout()
     {
         super.layout();
 
-        if (!this._gridNodeSet.size) {
-            this._gridDetailsSectionRow.showEmptyMessage();
+        if (!this._gridNodeSet || !this._flexNodeSet)
+            this._refreshNodeSets();
 
-            if (this._gridSection.isAttached)
-                this.removeSubview(this._gridSection);
+        let showSectionIfNotEmpty = (section, row, nodeSet) => {
+            if (nodeSet.size) {
+                row.hideEmptyMessage();
+                row.element.appendChild(section.element);
 
-        } else {
-            this._gridDetailsSectionRow.hideEmptyMessage();
-            this._gridDetailsSectionRow.element.appendChild(this._gridSection.element);
+                if (!section.isAttached)
+                    this.addSubview(section);
 
-            if (!this._gridSection.isAttached)
-                this.addSubview(this._gridSection);
+                section.nodeSet = nodeSet;
+            } else {
+                row.showEmptyMessage();
 
-            this._gridSection.gridNodeSet = this._gridNodeSet;
-        }
+                if (section.isAttached)
+                    this.removeSubview(section);
+            }
+        };
+        showSectionIfNotEmpty(this._gridNodesSection, this._gridNodesDetailsSectionRow, this._gridNodeSet);
+        showSectionIfNotEmpty(this._flexNodesSection, this._flexNodesDetailsSectionRow, this._flexNodeSet);
+    }
+
+    supportsDOMNode(nodeToInspect)
+    {
+        return nodeToInspect.nodeType() === Node.ELEMENT_NODE && super.supportsDOMNode(nodeToInspect);
     }
 
     // Private
 
-    _handleLayoutContextTypeChanged(event)
+    _handleNodeInserted(event)
+    {
+        this._invalidateNodeSets();
+        this.needsLayout();
+    }
+
+    _handleNodeRemoved(event)
+    {
+        let domNode = event.target.node;
+        this._removeNodeFromNodeSets(domNode);
+        this.needsLayout();
+    }
+
+    _handleLayoutFlagsChanged(event)
     {
         let domNode = event.target;
-        if (domNode.layoutContextType === WI.DOMNode.LayoutContextType.Grid)
-            this._gridNodeSet.add(domNode);
+        if (domNode.layoutContextType)
+            this._invalidateNodeSets();
         else
-            this._gridNodeSet.delete(domNode);
+            this._removeNodeFromNodeSets(domNode);
 
         this.needsLayout();
     }
@@ -147,20 +177,39 @@ WI.LayoutDetailsSidebarPanel = class LayoutDetailsSidebarPanel extends WI.DOMDet
         this.needsLayout();
     }
 
-    _nodeStylesRefreshed()
+    _removeNodeFromNodeSets(domNode)
     {
-        if (this.isAttached)
-            this.needsLayout();
+        this._flexNodeSet?.delete(domNode);
+        this._gridNodeSet?.delete(domNode);
     }
 
-    _nodeStylesNeedsRefreshed()
+    _invalidateNodeSets()
     {
-        if (this.isAttached)
-            this._nodeStyles?.refresh();
+        this._flexNodeSet = null;
+        this._gridNodeSet = null;
     }
 
-    _refreshGridNodeSet()
+    _refreshNodeSets()
     {
-        this._gridNodeSet = new Set(WI.domManager.nodesWithLayoutContextType(WI.DOMNode.LayoutContextType.Grid));
+        this._gridNodeSet = new Set;
+        this._flexNodeSet = new Set;
+
+        for (let node of WI.domManager.attachedNodes({filter: (node) => node.layoutContextType})) {
+            switch (node.layoutContextType) {
+            case WI.DOMNode.LayoutFlag.Grid:
+            case WI.DOMNode.LayoutFlag.Subgrid:
+            case WI.DOMNode.LayoutFlag.GridLanes:
+                this._gridNodeSet.add(node);
+                break;
+
+            case WI.DOMNode.LayoutFlag.Flex:
+                this._flexNodeSet.add(node);
+                break;
+
+            default:
+                console.assert(false, this.representedObject.layoutContextType);
+                break;
+            }
+        }
     }
 };

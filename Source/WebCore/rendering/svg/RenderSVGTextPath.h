@@ -20,34 +20,34 @@
 
 #pragma once
 
+#include "Path.h"
 #include "RenderSVGInline.h"
 
 namespace WebCore {
 
 class SVGGeometryElement;
+class SVGLengthValue;
+class SVGTextPathElement;
 
 class RenderSVGTextPath final : public RenderSVGInline {
-    WTF_MAKE_ISO_ALLOCATED(RenderSVGTextPath);
+    WTF_MAKE_TZONE_ALLOCATED(RenderSVGTextPath);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderSVGTextPath);
 public:
-    RenderSVGTextPath(SVGTextPathElement&, RenderStyle&&);
+    RenderSVGTextPath(SVGTextPathElement&, Style::ComputedStyle&&);
+    virtual ~RenderSVGTextPath();
 
-    SVGTextPathElement& textPathElement() const;
-    SVGGeometryElement* targetElement() const;
+    SVGTextPathElement& NODELETE textPathElement() const;
+    RefPtr<SVGGeometryElement> targetElement() const;
 
     Path layoutPath() const;
-    const SVGLengthValue& startOffset() const;
-    bool exactAlignment() const;
-    bool stretchMethod() const;
+    const SVGLengthValue& NODELETE startOffset() const LIFETIME_BOUND;
 
 private:
     void graphicsElement() const = delete;
 
-    bool isSVGTextPath() const override { return true; }
-    const char* renderName() const override { return "RenderSVGTextPath"; }
-
-    Path m_layoutPath;
+    ASCIILiteral renderName() const override { return "RenderSVGTextPath"_s; }
 };
 
 } // namespace WebCore
 
-SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderSVGTextPath, isSVGTextPath())
+SPECIALIZE_TYPE_TRAITS_RENDER_OBJECT(RenderSVGTextPath, isRenderSVGTextPath())

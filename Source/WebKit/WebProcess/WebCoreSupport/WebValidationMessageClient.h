@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2016-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,27 +27,37 @@
 
 #include <WebCore/IntRect.h>
 #include <WebCore/ValidationMessageClient.h>
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakPtr.h>
+
+namespace WebCore {
+
+class Element;
+class WeakPtrImplWithEventTargetData;
+
+}
 
 namespace WebKit {
 
 class WebPage;
 
 class WebValidationMessageClient final : public WebCore::ValidationMessageClient {
+    WTF_MAKE_TZONE_ALLOCATED(WebValidationMessageClient);
 public:
     explicit WebValidationMessageClient(WebPage&);
     ~WebValidationMessageClient();
 
     // ValidationMessageClient API.
     void documentDetached(WebCore::Document&) final;
-    void showValidationMessage(const WebCore::Element& anchor, const String& message) final;
+    void showValidationMessage(const WebCore::Element& anchor, String&& message) final;
     void hideValidationMessage(const WebCore::Element& anchor) final;
     void hideAnyValidationMessage() final;
     bool isValidationMessageVisible(const WebCore::Element& anchor) final;
     void updateValidationBubbleStateIfNeeded() final;
 
 private:
-    WebPage& m_page;
-    const WebCore::Element* m_currentAnchor { nullptr };
+    WeakPtr<WebPage> m_page;
+    WeakPtr<const WebCore::Element, WebCore::WeakPtrImplWithEventTargetData> m_currentAnchor;
     WebCore::IntRect m_currentAnchorRect;
 };
 

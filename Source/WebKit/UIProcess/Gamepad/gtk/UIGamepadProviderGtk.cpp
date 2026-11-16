@@ -27,10 +27,10 @@
 #include "UIGamepadProvider.h"
 
 #if ENABLE(GAMEPAD)
-
+#include "Display.h"
+#include "GtkUtilities.h"
 #include "WebKitWebViewBasePrivate.h"
 #include "WebPageProxy.h"
-#include <WebCore/GtkUtilities.h>
 #include <wtf/ProcessPrivilege.h>
 #include <wtf/glib/GRefPtr.h>
 
@@ -68,22 +68,34 @@ static WebPageProxy* getWebPageProxy(GtkWidget* widget)
     return nullptr;
 }
 
+static bool windowHasTopLevelFocus(GtkWindow* window)
+{
+#if ENABLE(DEVELOPER_MODE)
+    // Xvfb doesn't support toplevel focus, so we consider toplevel window to be always active since it's the only one.
+    if (Display::singleton().isX11()) {
+        static const char* underXvfb = g_getenv("UNDER_XVFB");
+        if (!g_strcmp0(underXvfb, "yes"))
+            return true;
+    }
+#endif
+
+#if USE(GTK4)
+    return gtk_window_is_active(window);
+#else
+    return gtk_window_has_toplevel_focus(window);
+#endif
+}
+
 WebPageProxy* UIGamepadProvider::platformWebPageProxyForGamepadInput()
 {
     GUniquePtr<GList> toplevels(gtk_window_list_toplevels());
     for (GList* iter = toplevels.get(); iter; iter = g_list_next(iter)) {
-        if (!WebCore::widgetIsOnscreenToplevelWindow(GTK_WIDGET(iter->data)))
+        if (!WebKit::widgetIsOnscreenToplevelWindow(GTK_WIDGET(iter->data)))
             continue;
 
-#if USE(GTK4)
-        GtkWidget* window = GTK_WIDGET(iter->data);
-        if (!gtk_widget_has_focus(window))
+        auto* window = GTK_WINDOW(iter->data);
+        if (!windowHasTopLevelFocus(window))
             continue;
-#else
-        GtkWindow* window = GTK_WINDOW(iter->data);
-        if (!gtk_window_has_toplevel_focus(window))
-            continue;
-#endif // USE(GTK4)
 
         if (WebPageProxy* proxy = getWebPageProxy(GTK_WIDGET(window)))
             return proxy;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2019 Apple Inc. All Rights Reserved.
+ * Copyright (C) 2008-2023 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -33,18 +33,18 @@
 
 namespace JSC {
 
-JSObject* construct(JSGlobalObject* globalObject, JSValue constructorObject, const ArgList& args, const char* errorMessage)
+JSObject* construct(JSGlobalObject* globalObject, const JSValue& constructorObject, const ArgList& args, ASCIILiteral errorMessage)
 {
     return construct(globalObject, constructorObject, constructorObject, args, errorMessage);
 }
 
-JSObject* construct(JSGlobalObject* globalObject, JSValue constructorObject, JSValue newTarget, const ArgList& args, const char* errorMessage)
+JSObject* construct(JSGlobalObject* globalObject, const JSValue& constructorObject, const JSValue& newTarget, const ArgList& args, ASCIILiteral errorMessage)
 {
     VM& vm = globalObject->vm();
     auto scope = DECLARE_THROW_SCOPE(vm);
 
-    auto constructData = getConstructData(vm, constructorObject);
-    if (UNLIKELY(constructData.type == CallData::Type::None)) {
+    auto constructData = JSC::getConstructDataInline(constructorObject);
+    if (constructData.type == CallData::Type::None) [[unlikely]] {
         throwTypeError(globalObject, scope, errorMessage);
         return nullptr;
     }
@@ -52,14 +52,14 @@ JSObject* construct(JSGlobalObject* globalObject, JSValue constructorObject, JSV
     RELEASE_AND_RETURN(scope, construct(globalObject, constructorObject, constructData, args, newTarget));
 }
 
-JSObject* construct(JSGlobalObject* globalObject, JSValue constructorObject, const CallData& constructData, const ArgList& args, JSValue newTarget)
+JSObject* construct(JSGlobalObject* globalObject, const JSValue& constructorObject, const CallData& constructData, const ArgList& args, const JSValue& newTarget)
 {
     VM& vm = globalObject->vm();
     ASSERT(constructData.type == CallData::Type::JS || constructData.type == CallData::Type::Native);
-    return vm.interpreter->executeConstruct(globalObject, asObject(constructorObject), constructData, args, newTarget);
+    return vm.interpreter.executeConstruct(asObject(constructorObject), constructData, args, newTarget);
 }
 
-JSObject* profiledConstruct(JSGlobalObject* globalObject, ProfilingReason reason, JSValue constructorObject, const CallData& constructData, const ArgList& args, JSValue newTarget)
+JSObject* profiledConstruct(JSGlobalObject* globalObject, ProfilingReason reason, const JSValue& constructorObject, const CallData& constructData, const ArgList& args, const JSValue& newTarget)
 {
     VM& vm = globalObject->vm();
     ScriptProfilingScope profilingScope(vm.deprecatedVMEntryGlobalObject(globalObject), reason);

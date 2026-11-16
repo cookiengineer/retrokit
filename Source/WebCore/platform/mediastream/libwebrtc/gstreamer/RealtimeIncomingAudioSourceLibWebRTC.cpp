@@ -30,31 +30,49 @@
 #if USE(LIBWEBRTC) && USE(GSTREAMER)
 #include "RealtimeIncomingAudioSourceLibWebRTC.h"
 
+#include "GStreamerAudioData.h"
+#include "GStreamerAudioStreamDescription.h"
 #include "LibWebRTCAudioFormat.h"
-#include "gstreamer/GStreamerAudioData.h"
-#include "gstreamer/GStreamerAudioStreamDescription.h"
 
 namespace WebCore {
 
-Ref<RealtimeIncomingAudioSource> RealtimeIncomingAudioSource::create(rtc::scoped_refptr<webrtc::AudioTrackInterface>&& audioTrack, String&& audioTrackId)
+GST_DEBUG_CATEGORY(webkit_libwebrtc_incoming_audio_debug);
+#define GST_CAT_DEFAULT webkit_libwebrtc_incoming_audio_debug
+
+Ref<RealtimeIncomingAudioSource> RealtimeIncomingAudioSource::create(Ref<webrtc::AudioTrackInterface>&& audioTrack, String&& audioTrackId)
 {
-    auto source = RealtimeIncomingAudioSourceLibWebRTC::create(WTFMove(audioTrack), WTFMove(audioTrackId));
+    auto source = RealtimeIncomingAudioSourceLibWebRTC::create(WTF::move(audioTrack), WTF::move(audioTrackId));
     source->start();
     return source;
 }
 
-Ref<RealtimeIncomingAudioSourceLibWebRTC> RealtimeIncomingAudioSourceLibWebRTC::create(rtc::scoped_refptr<webrtc::AudioTrackInterface>&& audioTrack, String&& audioTrackId)
+Ref<RealtimeIncomingAudioSourceLibWebRTC> RealtimeIncomingAudioSourceLibWebRTC::create(Ref<webrtc::AudioTrackInterface>&& audioTrack, String&& audioTrackId)
 {
-    return adoptRef(*new RealtimeIncomingAudioSourceLibWebRTC(WTFMove(audioTrack), WTFMove(audioTrackId)));
+    return adoptRef(*new RealtimeIncomingAudioSourceLibWebRTC(WTF::move(audioTrack), WTF::move(audioTrackId)));
 }
 
-RealtimeIncomingAudioSourceLibWebRTC::RealtimeIncomingAudioSourceLibWebRTC(rtc::scoped_refptr<webrtc::AudioTrackInterface>&& audioTrack, String&& audioTrackId)
-    : RealtimeIncomingAudioSource(WTFMove(audioTrack), WTFMove(audioTrackId))
+RealtimeIncomingAudioSourceLibWebRTC::RealtimeIncomingAudioSourceLibWebRTC(Ref<webrtc::AudioTrackInterface>&& audioTrack, String&& audioTrackId)
+    : RealtimeIncomingAudioSource(WTF::move(audioTrack), WTF::move(audioTrackId))
 {
+    static std::once_flag onceFlag;
+    std::call_once(onceFlag, [] {
+        GST_DEBUG_CATEGORY_INIT(webkit_libwebrtc_incoming_audio_debug, "webkitlibwebrtcaudioincoming", 0, "WebKit LibWebRTC incoming audio source");
+    });
+    GST_DEBUG("Created incoming audio source with ID: %s", persistentID().utf8().data());
+}
+
+RealtimeIncomingAudioSourceLibWebRTC::~RealtimeIncomingAudioSourceLibWebRTC()
+{
+    stop();
 }
 
 void RealtimeIncomingAudioSourceLibWebRTC::OnData(const void* audioData, int, int sampleRate, size_t numberOfChannels, size_t numberOfFrames)
 {
+#if GST_CHECK_VERSION(1, 22, 0)
+    GST_TRACE_ID(persistentID().utf8().data(), "Handling %zu incoming audio frames", numberOfFrames);
+#else
+    GST_TRACE("Handling %zu incoming audio frames", numberOfFrames);
+#endif
     GstAudioInfo info;
     GstAudioFormat format = gst_audio_format_build_integer(
         LibWebRTCAudioFormat::isSigned,
@@ -65,15 +83,25 @@ void RealtimeIncomingAudioSourceLibWebRTC::OnData(const void* audioData, int, in
     gst_audio_info_set_format(&info, format, sampleRate, numberOfChannels, NULL);
 
     auto bufferSize = GST_AUDIO_INFO_BPF(&info) * numberOfFrames;
-    auto buffer = adoptGRef(gst_buffer_new_wrapped_full(GST_MEMORY_FLAG_READONLY, const_cast<gpointer>(audioData), bufferSize, 0, bufferSize, nullptr, nullptr));
-    auto caps = adoptGRef(gst_audio_info_to_caps(&info));
-    auto sample = adoptGRef(gst_sample_new(buffer.get(), caps.get(), nullptr, nullptr));
-    GStreamerAudioData data(WTFMove(sample), info);
-    MediaTime mediaTime((m_numberOfFrames * G_USEC_PER_SEC) / sampleRate, G_USEC_PER_SEC);
+    GRefPtr buffer = adoptGRef(gst_buffer_new_memdup(const_cast<gpointer>(audioData), bufferSize));
+    gst_buffer_add_audio_meta(buffer.get(), &info, numberOfFrames, nullptr);
+    GRefPtr caps = adoptGRef(gst_audio_info_to_caps(&info));
+
+    if (m_baseTime == MediaTime::invalidTime())
+        m_baseTime = MediaTime::createWithSeconds(MonotonicTime::now().secondsSinceEpoch());
+
+    MediaTime mediaTime = m_baseTime + MediaTime((m_numberOfFrames * G_USEC_PER_SEC) / sampleRate, G_USEC_PER_SEC);
+    GST_BUFFER_PTS(buffer.get()) = toGstUnsigned64Time(mediaTime);
+
+    GRefPtr sample = adoptGRef(gst_sample_new(buffer.get(), caps.get(), nullptr, nullptr));
+    GStreamerAudioData data(WTF::move(sample), info);
     audioSamplesAvailable(mediaTime, data, GStreamerAudioStreamDescription(info), numberOfFrames);
 
     m_numberOfFrames += numberOfFrames;
 }
-}
 
-#endif // USE(LIBWEBRTC)
+#undef GST_CAT_DEFAULT
+
+} // namespace WebCore
+
+#endif // USE(LIBWEBRTC) && USE(GSTREAMER)

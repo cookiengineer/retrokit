@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 #
-# Copyright (C) 2011 Google Inc.  All rights reserved.
-# Copyright (C) 2020 Apple Inc.  All rights reserved.
+# Copyright (C) 2011 Google Inc. All rights reserved.
+# Copyright (C) 2020-2022 Apple Inc. All rights reserved.
 #
 # This library is free software; you can redistribute it and/or
 # modify it under the terms of the GNU Library General Public
@@ -30,22 +30,24 @@ use Getopt::Long;
 use Cwd;
 use Config;
 use Class::Struct;
-use JSON::PP;
+BEGIN { eval { require JSON::XS; JSON::XS->import(); 1 } or do { require JSON::PP; JSON::PP->import() } }
 use Data::Dumper;
 
 use IDLParser;
 
 my $defines;
-my $preprocessor;
 my $idlFileNamesList;
 my $testGlobalContextName;
 my $supplementalDependencyFile;
 my $isoSubspacesHeaderFile;
+my $clientISOSubspacesHeaderFile;
 my $constructorsHeaderFile;
 my $windowConstructorsFile;
 my $workerGlobalScopeConstructorsFile;
+my $shadowRealmGlobalScopeConstructorsFile;
 my $dedicatedWorkerGlobalScopeConstructorsFile;
 my $serviceWorkerGlobalScopeConstructorsFile;
+my $sharedWorkerGlobalScopeConstructorsFile;
 my $workletGlobalScopeConstructorsFile;
 my $paintWorkletGlobalScopeConstructorsFile;
 my $audioWorkletGlobalScopeConstructorsFile;
@@ -54,22 +56,39 @@ my $supplementalMakefileDeps;
 my $idlAttributesFile;
 my $verbose = 0;
 
+# List of contexts with the [Global] extended attribute.
+#
+# Must not contain partial interfaces used by other interfaces in the list,
+# in order to prevent the same attributes/interfaces being installed multiple
+# times when [Exposed=*] is used.
+my @supportedGlobalContexts = (
+    "Window",
+    "DedicatedWorker",
+    "ServiceWorker",
+    "SharedWorker",
+    "PaintWorklet",
+    "AudioWorklet",
+    "ShadowRealm",
+);
+
 # Toggle this to validate that the fast regular expression based "parsing" used
 # in this file produces the same results as the slower results produced by the
 # complete IDLParser.
 my $validateAgainstParser = 0;
 
 GetOptions('defines=s' => \$defines,
-           'preprocessor=s' => \$preprocessor,
            'idlFileNamesList=s' => \$idlFileNamesList,
            'testGlobalContextName=s' => \$testGlobalContextName,
            'supplementalDependencyFile=s' => \$supplementalDependencyFile,
            'isoSubspacesHeaderFile=s' => \$isoSubspacesHeaderFile,
+           'clientISOSubspacesHeaderFile=s' => \$clientISOSubspacesHeaderFile,
            'constructorsHeaderFile=s' => \$constructorsHeaderFile,
            'windowConstructorsFile=s' => \$windowConstructorsFile,
            'workerGlobalScopeConstructorsFile=s' => \$workerGlobalScopeConstructorsFile,
+           'shadowRealmGlobalScopeConstructorsFile=s' => \$shadowRealmGlobalScopeConstructorsFile,
            'dedicatedWorkerGlobalScopeConstructorsFile=s' => \$dedicatedWorkerGlobalScopeConstructorsFile,
            'serviceWorkerGlobalScopeConstructorsFile=s' => \$serviceWorkerGlobalScopeConstructorsFile,
+           'sharedWorkerGlobalScopeConstructorsFile=s' => \$sharedWorkerGlobalScopeConstructorsFile,
            'workletGlobalScopeConstructorsFile=s' => \$workletGlobalScopeConstructorsFile,
            'paintWorkletGlobalScopeConstructorsFile=s' => \$paintWorkletGlobalScopeConstructorsFile,
            'audioWorkletGlobalScopeConstructorsFile=s' => \$audioWorkletGlobalScopeConstructorsFile,
@@ -83,8 +102,10 @@ die('Must specify #define macros using --defines.') unless defined($defines);
 die('Must specify an output file using --supplementalDependencyFile.') unless defined($supplementalDependencyFile);
 die('Must specify an output file using --windowConstructorsFile.') unless defined($windowConstructorsFile);
 die('Must specify an output file using --workerGlobalScopeConstructorsFile.') unless defined($workerGlobalScopeConstructorsFile);
+die('Must specify an output file using --shadowRealmGlobalScopeConstructorsFile.') unless defined($shadowRealmGlobalScopeConstructorsFile);
 die('Must specify an output file using --dedicatedWorkerGlobalScopeConstructorsFile.') unless defined($dedicatedWorkerGlobalScopeConstructorsFile);
 die('Must specify an output file using --serviceWorkerGlobalScopeConstructorsFile.') unless defined($serviceWorkerGlobalScopeConstructorsFile);
+die('Must specify an output file using --sharedWorkerGlobalScopeConstructorsFile.') unless defined($sharedWorkerGlobalScopeConstructorsFile);
 die('Must specify an output file using --workletGlobalScopeConstructorsFile.') unless defined($workletGlobalScopeConstructorsFile);
 die('Must specify an output file using --paintWorkletGlobalScopeConstructorsFile.') unless defined($paintWorkletGlobalScopeConstructorsFile);
 die('Must specify an output file using --audioWorkletGlobalScopeConstructorsFile.') unless defined($audioWorkletGlobalScopeConstructorsFile);
@@ -94,9 +115,11 @@ die('Must specify IDL attributes file using --idlAttributesFile.') unless define
 
 $supplementalDependencyFile = CygwinPathIfNeeded($supplementalDependencyFile);
 $isoSubspacesHeaderFile = CygwinPathIfNeeded($isoSubspacesHeaderFile);
+$clientISOSubspacesHeaderFile = CygwinPathIfNeeded($clientISOSubspacesHeaderFile);
 $constructorsHeaderFile = CygwinPathIfNeeded($constructorsHeaderFile);
 $windowConstructorsFile = CygwinPathIfNeeded($windowConstructorsFile);
 $workerGlobalScopeConstructorsFile = CygwinPathIfNeeded($workerGlobalScopeConstructorsFile);
+$shadowRealmGlobalScopeConstructorsFile = CygwinPathIfNeeded($shadowRealmGlobalScopeConstructorsFile);
 $dedicatedWorkerGlobalScopeConstructorsFile = CygwinPathIfNeeded($dedicatedWorkerGlobalScopeConstructorsFile);
 $serviceWorkerGlobalScopeConstructorsFile = CygwinPathIfNeeded($serviceWorkerGlobalScopeConstructorsFile);
 $workletGlobalScopeConstructorsFile = CygwinPathIfNeeded($workletGlobalScopeConstructorsFile);
@@ -119,7 +142,7 @@ if ($validateAgainstParser) {
         close(JSON);
     }
 
-    my $jsonDecoder = JSON::PP->new->utf8;
+    my $jsonDecoder = (eval { JSON::XS->new->utf8 } or JSON::PP->new->utf8);
     my $jsonHashRef = $jsonDecoder->decode($input);
     $idlAttributes = $jsonHashRef->{attributes};
 }
@@ -138,8 +161,10 @@ my %dictionaryDependencies;
 my %supplementals;
 my $windowConstructorsCode = "";
 my $workerGlobalScopeConstructorsCode = "";
+my $shadowRealmGlobalScopeConstructorsCode = "";
 my $dedicatedWorkerGlobalScopeConstructorsCode = "";
 my $serviceWorkerGlobalScopeConstructorsCode = "";
+my $sharedWorkerGlobalScopeConstructorsCode = "";
 my $workletGlobalScopeConstructorsCode = "";
 my $paintWorkletGlobalScopeConstructorsCode = "";
 my $audioWorkletGlobalScopeConstructorsCode = "";
@@ -152,19 +177,36 @@ my $isoSubspacesHeaderCode = <<END;
 #pragma once
 
 namespace WebCore {
+using namespace JSC;
 
 class DOMIsoSubspaces {
     WTF_MAKE_NONCOPYABLE(DOMIsoSubspaces);
-    WTF_MAKE_FAST_ALLOCATED(DOMIsoSubspaces);
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(DOMIsoSubspaces);
 public:
     DOMIsoSubspaces() = default;
+END
+
+my $clientISOSubspacesHeaderCode = <<END;
+#include <wtf/FastMalloc.h>
+#include <wtf/Noncopyable.h>
+
+#pragma once
+
+namespace WebCore {
+using namespace JSC;
+
+class DOMClientIsoSubspaces {
+    WTF_MAKE_NONCOPYABLE(DOMClientIsoSubspaces);
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(DOMClientIsoSubspaces);
+public:
+    DOMClientIsoSubspaces() = default;
 END
 
 my @constructors = ();
 my $constructorsHeaderCode = <<END;
 #include <wtf/FastMalloc.h>
 #include <wtf/Noncopyable.h>
-#include <JavaScriptCore/JSCInlines.h>
+#include <JavaScriptCore/WriteBarrier.h>
 
 #pragma once
 
@@ -225,9 +267,11 @@ foreach my $idlFileName (sort keys %idlFileNameHash) {
 
     my $isCallbackInterface = isCallbackInterfaceFromIDL($idlFile);
     if (!$isCallbackInterface) {
-        $isoSubspacesHeaderCode .= "    std::unique_ptr<JSC::IsoSubspace> m_subspaceFor${interfaceName};\n";
+        $isoSubspacesHeaderCode .= "    std::unique_ptr<IsoSubspace> m_subspaceFor${interfaceName};\n";
+        $clientISOSubspacesHeaderCode .= "    std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceFor${interfaceName};\n";
         if (containsIterableInterfaceFromIDL($idlFile)) {
-            $isoSubspacesHeaderCode .= "    std::unique_ptr<JSC::IsoSubspace> m_subspaceFor${interfaceName}Iterator;\n";
+            $isoSubspacesHeaderCode .= "    std::unique_ptr<IsoSubspace> m_subspaceFor${interfaceName}Iterator;\n";
+            $clientISOSubspacesHeaderCode .= "    std::unique_ptr<GCClient::IsoSubspace> m_clientSubspaceFor${interfaceName}Iterator;\n";
         }
     }
 
@@ -235,26 +279,46 @@ foreach my $idlFileName (sort keys %idlFileNameHash) {
     # - is a callback interface that has constants declared on it, or
     # - is a non-callback interface that is not declared with the [LegacyNoInterfaceObject] extended attribute, a corresponding
     #   property must exist on the ECMAScript environment's global object.
-    # See https://heycam.github.io/webidl/#es-interfaces
+    # See https://webidl.spec.whatwg.org/#es-interfaces
     my $extendedAttributes = getInterfaceExtendedAttributesFromIDL($idlFile);
     if (!$extendedAttributes->{"LegacyNoInterfaceObject"} && (!$isCallbackInterface || containsInterfaceWithConstantsFromIDL($idlFile))) {
         my $exposedAttribute = $extendedAttributes->{"Exposed"};
         if (!$exposedAttribute) {
             die "ERROR: No [Exposed] extended attribute specified for interface in $idlFileName";
         }
+        if ($exposedAttribute eq "*") {
+            $exposedAttribute = "(" . join(',', @supportedGlobalContexts) . ")";
+        }
         $exposedAttribute = substr($exposedAttribute, 1, -1) if substr($exposedAttribute, 0, 1) eq "(";
+
+        my %exposedEnabledBySetting;
+        if (my $exposedSetting = $extendedAttributes->{"ExposedEnabledBySetting"}) {
+            if ($exposedSetting =~ /^(\w+)\|(\w+)$/) {
+                $exposedEnabledBySetting{$1} = $2;
+            }
+        }
+
         my @globalContexts = split(",", $exposedAttribute);
         foreach my $globalContext (@globalContexts) {
-            my ($attributeCode, $windowAliases) = GenerateConstructorAttributes($interfaceName, $extendedAttributes, $globalContext);
+            my %contextExtendedAttributes = %{$extendedAttributes};
+            if (my $setting = $exposedEnabledBySetting{$globalContext}) {
+                my $existing = $contextExtendedAttributes{"EnabledBySetting"};
+                $contextExtendedAttributes{"EnabledBySetting"} = $existing ? "$setting&$existing" : $setting;
+            }
+            my ($attributeCode, $windowAliases) = GenerateConstructorAttributes($interfaceName, \%contextExtendedAttributes, $globalContext);
             if ($globalContext eq "Window") {
                 $windowConstructorsCode .= $attributeCode;
                 $windowConstructorsCode .= $windowAliases if $windowAliases;
             } elsif ($globalContext eq "Worker") {
                 $workerGlobalScopeConstructorsCode .= $attributeCode;
+            } elsif ($globalContext eq "ShadowRealm") {
+                $shadowRealmGlobalScopeConstructorsCode .= $attributeCode;
             } elsif ($globalContext eq "DedicatedWorker") {
                 $dedicatedWorkerGlobalScopeConstructorsCode .= $attributeCode;
             } elsif ($globalContext eq "ServiceWorker") {
                 $serviceWorkerGlobalScopeConstructorsCode .= $attributeCode;
+            } elsif ($globalContext eq "SharedWorker") {
+                $sharedWorkerGlobalScopeConstructorsCode .= $attributeCode;
             } elsif ($globalContext eq "Worklet") {
                 $workletGlobalScopeConstructorsCode .= $attributeCode;
             } elsif ($globalContext eq "PaintWorklet") {
@@ -280,8 +344,10 @@ foreach my $idlFileName (sort keys %idlFileNameHash) {
 # Generate partial interfaces for Constructors.
 GeneratePartialInterface("DOMWindow", $windowConstructorsCode, $windowConstructorsFile);
 GeneratePartialInterface("WorkerGlobalScope", $workerGlobalScopeConstructorsCode, $workerGlobalScopeConstructorsFile);
+GeneratePartialInterface("ShadowRealmGlobalScope", $shadowRealmGlobalScopeConstructorsCode, $shadowRealmGlobalScopeConstructorsFile);
 GeneratePartialInterface("DedicatedWorkerGlobalScope", $dedicatedWorkerGlobalScopeConstructorsCode, $dedicatedWorkerGlobalScopeConstructorsFile);
 GeneratePartialInterface("ServiceWorkerGlobalScope", $serviceWorkerGlobalScopeConstructorsCode, $serviceWorkerGlobalScopeConstructorsFile);
+GeneratePartialInterface("SharedWorkerGlobalScope", $sharedWorkerGlobalScopeConstructorsCode, $sharedWorkerGlobalScopeConstructorsFile);
 GeneratePartialInterface("WorkletGlobalScope", $workletGlobalScopeConstructorsCode, $workletGlobalScopeConstructorsFile);
 GeneratePartialInterface("PaintWorkletGlobalScope", $paintWorkletGlobalScopeConstructorsCode, $paintWorkletGlobalScopeConstructorsFile);
 GeneratePartialInterface("AudioWorkletGlobalScope", $audioWorkletGlobalScopeConstructorsCode, $audioWorkletGlobalScopeConstructorsFile);
@@ -293,6 +359,12 @@ if ($isoSubspacesHeaderFile) {
     WriteFileIfChanged($isoSubspacesHeaderFile, $isoSubspacesHeaderCode);
 }
 
+if ($clientISOSubspacesHeaderFile) {
+    $clientISOSubspacesHeaderCode .= "};\n";
+    $clientISOSubspacesHeaderCode .= "} // namespace WebCore\n";
+    WriteFileIfChanged($clientISOSubspacesHeaderFile, $clientISOSubspacesHeaderCode);
+}
+
 if ($constructorsHeaderFile) {
     my $constructorsLength = @constructors;
     $constructorsHeaderCode .= "};\n";
@@ -301,7 +373,7 @@ if ($constructorsHeaderFile) {
     $constructorsHeaderCode .= "\n";
     $constructorsHeaderCode .= "class DOMConstructors {\n";
     $constructorsHeaderCode .= "    WTF_MAKE_NONCOPYABLE(DOMConstructors);\n";
-    $constructorsHeaderCode .= "    WTF_MAKE_FAST_ALLOCATED(DOMConstructors);\n";
+    $constructorsHeaderCode .= "    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(DOMConstructors);\n";
     $constructorsHeaderCode .= "public:\n";
     $constructorsHeaderCode .= "    using ConstructorArray = std::array<JSC::WriteBarrier<JSC::JSObject>, numberOfDOMConstructors>;\n";
     $constructorsHeaderCode .= "    DOMConstructors() = default;\n";
@@ -371,8 +443,6 @@ if ($supplementalMakefileDeps) {
         my @dependencies = sort(keys %{{ map{$_=>1}@dependencyList}});
 
         $makefileDeps .= "JS${basename}.h: @{dependencies}\n";
-        $makefileDeps .= "DOM${basename}.h: @{dependencies}\n";
-        $makefileDeps .= "WebDOM${basename}.h: @{dependencies}\n";
         foreach my $dependency (@dependencies) {
             $makefileDeps .= "${dependency}:\n";
         }
@@ -430,7 +500,7 @@ sub GenerateConstructorAttributes
     my $globalContext = shift;
 
     # FIXME: Rather than being ConditionalForWorker=FOO, we need a syntax like ConditionalForContext=(Worker:FOO).
-    if ($extendedAttributes->{"ConditionalForWorker"} && $globalContext eq "Worker") {
+    if ($extendedAttributes->{"ConditionalForWorker"} && ($globalContext eq "Worker" || $globalContext eq "DedicatedWorker" )) {
       my $conditionalForWorker = $extendedAttributes->{"ConditionalForWorker"};
       my $existingConditional = $extendedAttributes->{"Conditional"};
       if ($existingConditional) {
@@ -441,13 +511,22 @@ sub GenerateConstructorAttributes
       $extendedAttributes->{"Conditional"} = $existingConditional;
     }
 
+    if ($globalContext eq "ShadowRealm" && $extendedAttributes->{"Exposed"} eq "*") {
+        my $enabledBySetting = "WebAPIsInShadowRealmEnabled";
+        my $existingEnabledBySetting = $extendedAttributes->{"EnabledBySetting"};
+        if ($existingEnabledBySetting) {
+            $enabledBySetting .= "&" . $existingEnabledBySetting;
+        }
+        $extendedAttributes->{"EnabledBySetting"} = $enabledBySetting;
+    }
+
     my $code = "    ";
     my @extendedAttributesList;
     foreach my $attributeName (sort keys %{$extendedAttributes}) {
-      next unless ($attributeName eq "Conditional" || $attributeName eq "EnabledAtRuntime" || $attributeName eq "EnabledForWorld"
+      next unless ($attributeName eq "Conditional" || $attributeName eq "EnabledByDeprecatedGlobalSetting" || $attributeName eq "EnabledForWorld" || $attributeName eq "EnabledForGlobalObject"
         || $attributeName eq "EnabledBySetting" || $attributeName eq "SecureContext" || $attributeName eq "PrivateIdentifier"
         || $attributeName eq "PublicIdentifier" || $attributeName eq "DisabledByQuirk" || $attributeName eq "EnabledByQuirk"
-        || $attributeName eq "EnabledForContext" || $attributeName eq "CustomEnabled") || $attributeName eq "LegacyFactoryFunctionEnabledBySetting";
+        || $attributeName eq "EnabledForContext") || $attributeName eq "LegacyFactoryFunctionEnabledBySetting";
       my $extendedAttribute = $attributeName;
       
       $extendedAttribute .= "=" . $extendedAttributes->{$attributeName} unless $extendedAttributes->{$attributeName} eq "VALUE_IS_MISSING";
@@ -536,7 +615,7 @@ sub processIDL
 
     if ($validateAgainstParser) {
         my $parser = IDLParser->new(1);
-        $idlFile->parsedDocument($parser->Parse($filePath, $defines, $preprocessor, $idlAttributes));
+        $idlFile->parsedDocument($parser->Parse($filePath, $defines, $idlAttributes));
     }
 
     return $idlFile;
@@ -587,7 +666,7 @@ sub getPartialNamesFromIDL
 }
 
 # identifier-A includes identifier-B;
-# https://heycam.github.io/webidl/#includes-statement
+# https://webidl.spec.whatwg.org/#includes-statement
 sub getIncludedInterfacesFromIDL
 {
     my $idlFile = shift;
@@ -690,7 +769,7 @@ sub containsIterableInterfaceFromIDL
 
         my $containsIterableInterfaceFromParsedDocument = 0;
         foreach my $interface (@{$idlFile->parsedDocument->interfaces}) {
-            if ($interface->iterable) {
+            if ($interface->iterable or $interface->asyncIterable) {
                 $containsIterableInterfaceFromParsedDocument = 1;
                 last;
             }

@@ -35,6 +35,8 @@
     --foreground-lightness: 0%;
 
     --text-color: black;
+    --text-color-transparent: hsla(0, 0%, 0%, 0.4);
+
     --text-color-active: black;
 
     --text-color-secondary: hsl(0, 0%, 50%);
@@ -91,6 +93,7 @@
 
     --panel-background-color: hsl(0, 0%, 93%);
     --panel-background-color-light: hsl(0, 0%, 96%);
+    --panel-min-height: 30px;
 
     --warning-color: hsl(50, 100%, 94%);
     --warning-background-color: hsl(43, 97%, 84%);
@@ -193,7 +196,6 @@
     /* Invert colors yet preserve the hue */
     --filter-invert: invert(100%) hue-rotate(180deg);
 
-    --undocked-title-area-height: 0px;
     --tab-bar-height: var(--navigation-bar-height);
     --navigation-bar-height: 29px;
 
@@ -216,53 +218,28 @@
 
     --image-button-navigation-item-width: 26px;
 
-    --blackboxed-tree-item-opacity: 0.5;
-}
+    --blackboxed-opacity: 0.5;
 
-body.window-inactive {
-    /* FIXME: Use CSS4 color blend functions once they're available. */
-    --selected-background-color: hsla(212, 92%, 54%, 0.5);
+    --slider-height: 20px;
+    --slider-thumb-background: white;
+    --slider-thumb-background-active: hsl(0, 0%, 94%);
+    --slider-thumb-box-shadow: 0px 0 2px 0 hsl(0, 0%, 55%);
+    --slider-thumb-height: var(--slider-height);
+    --slider-thumb-width: 8px;
+    --slider-track-background: hsl(0, 0%, 88%);
+    --slider-track-box-shadow: inset 0 0 3px hsl(0, 0%, 70%);
+    --slider-track-tick-background: hsl(0, 0%, 70%);
+    --slider-track-tick-height: 8px;
+    --slider-track-tick-width: 2px;
 
-    --glyph-color: hsla(0, 0%, 30%, 0.65);
-    --glyph-color-disabled: hsla(0, 0%, 30%, 0.35);
-    --glyph-opacity: 0.6;
-
-    --border-color: hsl(0, 0%, 85%);
-}
-
-body:is(.mac-platform.monterey, .mac-platform.big-sur) {
-    --text-color: hsl(0, 0%, 15%);
-
-    --background-color-intermediate: hsl(0, 0%, 98.5%);
-
-    --panel-background-color: hsl(0, 0%, 96%);
-    --panel-background-color-light: hsl(0, 0%, 98%);
-
-    --separator-color: hsla(0, 0%, var(--foreground-lightness), 0.1);
-
-    --border-color: hsl(0, 0%, 87%);
-    --border-color-secondary: hsl(0, 0%, 91%);
-
-    --sorted-header-font-weight: 700;
-}
-
-body:not(.mac-platform.monterey, .mac-platform.big-sur):not(.docked) {
-    /* keep in sync with `WI.undockedTitleAreaHeight` */
-    --undocked-title-area-height: calc(22px / var(--zoom-factor));
-}
-
-body:is(.mac-platform.monterey, .mac-platform.big-sur):not(.docked) {
-    /* keep in sync with `WI.undockedTitleAreaHeight` */
-    --undocked-title-area-height: calc(27px / var(--zoom-factor));
-}
-
-@media (prefers-color-scheme: dark) {
-    :root {
+    @media (prefers-color-scheme: dark) {
         color: var(--text-color);
 
         --foreground-lightness: 100%;
 
         --text-color: hsl(0, 0%, 88%);
+        --text-color-transparent: hsla(0, 0%, 88%, 0.4);
+
         --text-color-active: white;
         --text-color-secondary: hsl(0, 0%, 65%);
 
@@ -354,7 +331,6 @@ body:is(.mac-platform.monterey, .mac-platform.big-sur):not(.docked) {
         --network-error-color: hsl(0, 54%, 55%);
 
         --cpu-overlay-color: hsl(35, 88%, 45%);
-
         --cpu-low-color: hsl(110, 52%, 56%);
         --cpu-medium-color: hsl(46, 91%, 62%);
         --cpu-high-color: hsl(6, 79%, 57%);
@@ -382,47 +358,81 @@ body:is(.mac-platform.monterey, .mac-platform.big-sur):not(.docked) {
         --diff-addition-background-color: hsl(90, 40%, 19%);
         --diff-deletion-text-color: hsl(0, 84%, 75%);
         --diff-deletion-background-color: hsl(5, 40%, 28%);
-    }
 
-
-    body.window-inactive {
-        --border-color: hsl(0, 0%, 33%);
-
-        --selected-background-color: hsla(212, 92%, 64%, 0.5);
-
-        --glyph-color: hsl(0, 0%, 52%);
-        --glyph-color-disabled: hsla(0, 0%, 52%, 0.4);
-    }
-
-    body:is(.mac-platform.monterey, .mac-platform.big-sur) {
-        --text-color: hsl(0, 0%, 85%);
-
-        --background-color: hsl(0, 0%, 20%);
-        --background-color-secondary: hsl(0, 0%, 23%);
-        --background-color-tertiary: hsl(0, 0%, 27%);
-
-        --background-color-content: hsl(0, 0%, 17%);
-        --background-color-intermediate: hsl(0, 0%, 19%);
-
-        --glyph-color: hsl(0, 0%, 69%);
-        --glyph-color-pressed: hsl(0, 0%, 100%);
-
-        --panel-background-color: hsl(0, 0%, 20%);
-        --panel-background-color-light: hsl(0, 0%, 25%);
-
-        --border-color: hsl(0, 0%, 30%);
-        --border-color-secondary: hsl(0, 0%, 24%);
+        --slider-thumb-background: hsl(0, 0%, 60%);
+        --slider-thumb-background-active: hsl(0, 0%, 70%);
+        --slider-thumb-box-shadow: 0px 0 2px 0 hsl(0, 0%, 10%);
+        --slider-track-background: hsl(0, 0%, 35%);
+        --slider-track-box-shadow: inset 0 0 3px hsl(0, 0%, 20%);
+        --slider-track-tick-background: hsl(0, 0%, 55%);
     }
 }
 
-body.mac-platform {
-    --selected-foreground-color: -apple-system-alternate-selected-text;
-    --selected-background-color: -apple-system-selected-content-background;
-    --selected-text-background-color: -apple-system-selected-text-background;
+body {
+    &.window-inactive {
+        /* FIXME: Use CSS4 color blend functions once they're available. */
+        --selected-background-color: hsla(212, 92%, 54%, 0.5);
+        --glyph-color: hsla(0, 0%, 30%, 0.65);
+        --glyph-color-disabled: hsla(0, 0%, 30%, 0.35);
+        --glyph-opacity: 0.6;
+        --border-color: hsl(0, 0%, 85%);
 
-    --breakpoint-color: -apple-system-control-accent;
-    --breakpoint-color-disabled: -apple-system-selected-text-background;
+        @media (prefers-color-scheme: dark) {
+            --border-color: hsl(0, 0%, 33%);
+            --selected-background-color: hsla(212, 92%, 64%, 0.5);
 
-    --glyph-color-active: -apple-system-control-accent;
-    --glyph-color-active-pressed: -apple-system-control-accent;
+            --glyph-color: hsl(0, 0%, 52%);
+            --glyph-color-disabled: hsla(0, 0%, 52%, 0.4);
+        }
+    }
+
+    &.mac-platform {
+        --system-accent-color: -apple-system-control-accent;
+
+        --text-color: hsl(0, 0%, 15%);
+        --text-color-transparent: hsla(0, 0%, 15%, 0.4);
+
+        --background-color-intermediate: hsl(0, 0%, 98.5%);
+
+        --panel-background-color: hsl(0, 0%, 96%);
+        --panel-background-color-light: hsl(0, 0%, 98%);
+
+        --separator-color: hsla(0, 0%, var(--foreground-lightness), 0.1);
+
+        --border-color: hsl(0, 0%, 87%);
+        --border-color-secondary: hsl(0, 0%, 91%);
+
+        --sorted-header-font-weight: 700;
+
+        --selected-foreground-color: -apple-system-alternate-selected-text;
+        --selected-background-color: -apple-system-selected-content-background;
+        --selected-text-background-color: -apple-system-selected-text-background;
+
+        --breakpoint-color: var(--system-accent-color);
+        --breakpoint-color-disabled: -apple-system-selected-text-background;
+
+        --glyph-color-active: var(--system-accent-color);
+        --glyph-color-active-pressed: var(--system-accent-color);
+
+        @media (prefers-color-scheme: dark) {
+            --text-color: hsl(0, 0%, 85%);
+            --text-color-transparent: hsla(0, 0%, 85%, 0.4);
+
+            --background-color: hsl(0, 0%, 20%);
+            --background-color-secondary: hsl(0, 0%, 23%);
+            --background-color-tertiary: hsl(0, 0%, 27%);
+
+            --background-color-content: hsl(0, 0%, 17%);
+            --background-color-intermediate: hsl(0, 0%, 19%);
+
+            --glyph-color: hsl(0, 0%, 69%);
+            --glyph-color-pressed: hsl(0, 0%, 100%);
+
+            --panel-background-color: hsl(0, 0%, 20%);
+            --panel-background-color-light: hsl(0, 0%, 25%);
+
+            --border-color: hsl(0, 0%, 30%);
+            --border-color-secondary: hsl(0, 0%, 24%);
+        }
+    }
 }

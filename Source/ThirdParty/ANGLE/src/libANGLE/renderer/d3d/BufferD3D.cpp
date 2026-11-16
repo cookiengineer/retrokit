@@ -7,6 +7,7 @@
 // BufferD3D.cpp Defines common functionality between the Buffer9 and Buffer11 classes.
 
 #include "libANGLE/renderer/d3d/BufferD3D.h"
+#include "common/unsafe_buffers.h"
 
 #include "common/mathutil.h"
 #include "common/utilities.h"
@@ -47,7 +48,9 @@ void BufferD3D::updateSerial()
     mSerial = mNextSerial++;
 }
 
-void BufferD3D::updateD3DBufferUsage(const gl::Context *context, gl::BufferUsage usage)
+void BufferD3D::updateD3DBufferUsage(const gl::Context *context,
+                                     gl::BufferUsage usage,
+                                     BufferFeedback *feedback)
 {
     switch (usage)
     {
@@ -59,7 +62,7 @@ void BufferD3D::updateD3DBufferUsage(const gl::Context *context, gl::BufferUsage
         case gl::BufferUsage::StreamCopy:
         case gl::BufferUsage::StreamRead:
             mUsage = D3DBufferUsage::STATIC;
-            initializeStaticData(context);
+            initializeStaticData(context, feedback);
             break;
 
         case gl::BufferUsage::DynamicDraw:
@@ -71,7 +74,7 @@ void BufferD3D::updateD3DBufferUsage(const gl::Context *context, gl::BufferUsage
     }
 }
 
-void BufferD3D::initializeStaticData(const gl::Context *context)
+void BufferD3D::initializeStaticData(const gl::Context *context, BufferFeedback *feedback)
 {
     if (mStaticVertexBuffers.empty())
     {
@@ -140,7 +143,7 @@ StaticVertexBufferInterface *BufferD3D::getStaticVertexBuffer(const gl::VertexAt
     return newStaticBuffer;
 }
 
-void BufferD3D::invalidateStaticData(const gl::Context *context)
+void BufferD3D::invalidateStaticData(const gl::Context *context, BufferFeedback *feedback)
 {
     emptyStaticBufferCache();
 
@@ -153,14 +156,16 @@ void BufferD3D::invalidateStaticData(const gl::Context *context)
     // buffers so that they are populated the next time we use this buffer.
     if (mUsage == D3DBufferUsage::STATIC)
     {
-        initializeStaticData(context);
+        initializeStaticData(context, feedback);
     }
 
     mUnmodifiedDataUse = 0;
 }
 
 // Creates static buffers if sufficient used data has been left unmodified
-void BufferD3D::promoteStaticUsage(const gl::Context *context, size_t dataSize)
+void BufferD3D::promoteStaticUsage(const gl::Context *context,
+                                   size_t dataSize,
+                                   BufferFeedback *feedback)
 {
     if (mUsage == D3DBufferUsage::DYNAMIC)
     {
@@ -169,7 +174,7 @@ void BufferD3D::promoteStaticUsage(const gl::Context *context, size_t dataSize)
 
         if (mUnmodifiedDataUse > 3 * getSize())
         {
-            updateD3DBufferUsage(context, gl::BufferUsage::StaticDraw);
+            updateD3DBufferUsage(context, gl::BufferUsage::StaticDraw, feedback);
         }
     }
 }
@@ -184,7 +189,8 @@ angle::Result BufferD3D::getIndexRange(const gl::Context *context,
     const uint8_t *data = nullptr;
     ANGLE_TRY(getData(context, &data));
 
-    *outRange = gl::ComputeIndexRange(type, data + offset, count, primitiveRestartEnabled);
+    *outRange = gl::ComputeIndexRange(type, ANGLE_UNSAFE_TODO(data + offset), count,
+                                      primitiveRestartEnabled);
     return angle::Result::Continue;
 }
 

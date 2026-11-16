@@ -19,6 +19,7 @@
 
 #pragma once
 
+#include "InlineIteratorSVGTextBox.h"
 #include "Path.h"
 #include "SVGTextChunkBuilder.h"
 #include "SVGTextFragment.h"
@@ -27,12 +28,14 @@
 namespace WebCore {
 
 class RenderObject;
-class RenderStyle;
 class RenderSVGInlineText;
 class RenderSVGTextPath;
 class SVGElement;
 class SVGInlineTextBox;
-class SVGRenderStyle;
+
+namespace Style {
+class ComputedStyle;
+}
 
 // SVGTextLayoutEngine performs the second layout phase for SVG text.
 //
@@ -43,64 +46,73 @@ class SVGRenderStyle;
 // which are stored in the SVGInlineTextBox objects.
 
 class SVGTextLayoutEngine {
-    WTF_MAKE_NONCOPYABLE(SVGTextLayoutEngine);
 public:
     SVGTextLayoutEngine(Vector<SVGTextLayoutAttributes*>&);
+    SVGTextLayoutEngine(SVGTextLayoutEngine&&) = default;
+    SVGTextLayoutEngine(const SVGTextLayoutEngine&) = delete;
 
-    Vector<SVGTextLayoutAttributes*>& layoutAttributes() { return m_layoutAttributes; }
-    SVGTextChunkBuilder& chunkLayoutBuilder() { return m_chunkLayoutBuilder; }
+    Vector<SVGTextLayoutAttributes*>& layoutAttributes() LIFETIME_BOUND { return m_layoutAttributes; }
 
-    void beginTextPathLayout(RenderSVGTextPath&, SVGTextLayoutEngine& lineLayout);
+    void beginTextPathLayout(const RenderSVGTextPath&, SVGTextLayoutEngine& lineLayout);
     void endTextPathLayout();
 
-    void layoutInlineTextBox(SVGInlineTextBox&);
-    void finishLayout();
+    void layoutInlineTextBox(InlineIterator::SVGTextBoxIterator);
+
+    SVGTextFragmentMap finishLayout();
 
 private:
-    void updateCharacerPositionIfNeeded(float& x, float& y);
-    void updateCurrentTextPosition(float x, float y, float glyphAdvance);
-    void updateRelativePositionAdjustmentsIfNeeded(float dx, float dy);
+    void NODELETE updateCharacterPositionIfNeeded(float& x, float& y);
+    void NODELETE updateCurrentTextPosition(float x, float y, float glyphAdvance);
+    void NODELETE updateRelativePositionAdjustmentsIfNeeded(float dx, float dy);
 
-    void recordTextFragment(SVGInlineTextBox&, Vector<SVGTextMetrics>&);
+    void recordTextFragment(InlineIterator::SVGTextBoxIterator, const Vector<SVGTextMetrics>&);
     bool parentDefinesTextLength(RenderObject*) const;
 
-    void layoutTextOnLineOrPath(SVGInlineTextBox&, RenderSVGInlineText&, const RenderStyle&);
-    void finalizeTransformMatrices(Vector<SVGInlineTextBox*>&);
+    void layoutTextOnLineOrPath(InlineIterator::SVGTextBoxIterator, const RenderSVGInlineText&, const Style::ComputedStyle&);
+    void finalizeTransformMatrices(Vector<InlineIterator::SVGTextBoxIterator>&);
 
-    bool currentLogicalCharacterAttributes(SVGTextLayoutAttributes*&);
-    bool currentLogicalCharacterMetrics(SVGTextLayoutAttributes*&, SVGTextMetrics&);
-    bool currentVisualCharacterMetrics(const SVGInlineTextBox&, Vector<SVGTextMetrics>&, SVGTextMetrics&);
+    bool NODELETE currentLogicalCharacterAttributes(SVGTextLayoutAttributes*&);
+    bool NODELETE currentLogicalCharacterMetrics(SVGTextLayoutAttributes*&, SVGTextMetrics&);
+    bool currentVisualCharacterMetrics(const InlineIterator::SVGTextBox&, const Vector<SVGTextMetrics>&, SVGTextMetrics&);
 
-    void advanceToNextLogicalCharacter(const SVGTextMetrics&);
-    void advanceToNextVisualCharacter(const SVGTextMetrics&);
+    void NODELETE advanceToNextLogicalCharacter(const SVGTextMetrics&);
+    void NODELETE advanceToNextVisualCharacter(const SVGTextMetrics&);
 
 private:
     Vector<SVGTextLayoutAttributes*>& m_layoutAttributes;
 
-    Vector<SVGInlineTextBox*> m_lineLayoutBoxes;
-    Vector<SVGInlineTextBox*> m_pathLayoutBoxes;
+    Vector<InlineIterator::SVGTextBoxIterator> m_lineLayoutBoxes;
+    Vector<InlineIterator::SVGTextBoxIterator> m_pathLayoutBoxes;
+
+    // Output.
+    HashMap<InlineIterator::SVGTextBox::Key, Vector<SVGTextFragment>> m_fragmentMap;
+
     SVGTextChunkBuilder m_chunkLayoutBuilder;
+    HashSet<InlineIterator::SVGTextBox::Key> m_lineLayoutChunkStarts;
 
     SVGTextFragment m_currentTextFragment;
-    unsigned m_layoutAttributesPosition;
-    unsigned m_logicalCharacterOffset;
-    unsigned m_logicalMetricsListOffset;
-    unsigned m_visualCharacterOffset;
-    unsigned m_visualMetricsListOffset;
-    float m_x;
-    float m_y;
-    float m_dx;
-    float m_dy;
-    bool m_isVerticalText;
-    bool m_inPathLayout;
+    unsigned m_layoutAttributesPosition { 0 };
+    unsigned m_logicalCharacterOffset { 0 };
+    unsigned m_logicalMetricsListOffset { 0 };
+    unsigned m_visualCharacterOffset { 0 };
+    unsigned m_visualMetricsListOffset { 0 };
+    float m_x { 0.0f };
+    float m_y { 0.0f };
+    float m_dx { 0.0f };
+    float m_dy { 0.0f };
+    float m_lastChunkStartPosition { 0.0f };
+    bool m_lastChunkHasTextLength { false };
+    bool m_lastChunkIsVerticalText { false };
+    bool m_isVerticalText { false };
+    bool m_inPathLayout { false };
 
     // Text on path layout
     Path m_textPath;
-    float m_textPathLength;
-    float m_textPathStartOffset;
-    float m_textPathCurrentOffset;
-    float m_textPathSpacing;
-    float m_textPathScaling;
+    float m_textPathLength { 0.0f };
+    float m_textPathStartOffset { 0.0f };
+    float m_textPathCurrentOffset { 0.0f };
+    float m_textPathSpacing { 0.0f };
+    float m_textPathScaling { 1.0f };
 };
 
 } // namespace WebCore

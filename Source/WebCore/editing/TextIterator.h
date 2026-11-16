@@ -25,12 +25,15 @@
 
 #pragma once
 
-#include "CharacterRange.h"
-#include "FindOptions.h"
-#include "LayoutIntegrationRunIterator.h"
-#include "SimpleRange.h"
-#include "TextIteratorBehavior.h"
+#include <WebCore/CharacterRange.h>
+#include <WebCore/FindOptions.h>
+#include <WebCore/InlineIteratorLogicalOrderTraversal.h>
+#include <WebCore/InlineIteratorTextBox.h>
+#include <WebCore/SimpleRange.h>
+#include <WebCore/TextIteratorBehavior.h>
+#include <wtf/TZoneMalloc.h>
 #include <wtf/Vector.h>
+#include <wtf/text/StringCommon.h>
 
 namespace WebCore {
 
@@ -45,25 +48,27 @@ WEBCORE_EXPORT SimpleRange resolveCharacterRange(const SimpleRange& scope, Chara
 
 // Text from the text iterator.
 WEBCORE_EXPORT String plainText(const SimpleRange&, TextIteratorBehaviors = { }, bool isDisplayString = false);
-WEBCORE_EXPORT bool hasAnyPlainText(const SimpleRange&, TextIteratorBehaviors = { });
+
+enum class IgnoreCollapsedRanges : bool { No, Yes };
+WEBCORE_EXPORT bool hasAnyPlainText(const SimpleRange&, TextIteratorBehaviors = { }, IgnoreCollapsedRanges = IgnoreCollapsedRanges::No);
 WEBCORE_EXPORT String plainTextReplacingNoBreakSpace(const SimpleRange&, TextIteratorBehaviors = { }, bool isDisplayString = false);
 
 // Find within the document, based on the text from the text iterator.
-SimpleRange findPlainText(const SimpleRange&, const String&, FindOptions);
+WEBCORE_EXPORT SimpleRange findPlainText(const SimpleRange&, const String&, FindOptions);
 WEBCORE_EXPORT SimpleRange findClosestPlainText(const SimpleRange&, const String&, FindOptions, uint64_t targetCharacterOffset);
-bool containsPlainText(const String& document, const String&, FindOptions); // Lets us use the search algorithm on a string.
-WEBCORE_EXPORT String foldQuoteMarks(const String&);
+WEBCORE_EXPORT Vector<SimpleRange> findAllPlainText(const SimpleRange&, const String&, FindOptions, unsigned limit);
+WEBCORE_EXPORT bool containsPlainText(const String& document, const String&, FindOptions); // Lets us use the search algorithm on a string.
 
 // FIXME: Move this somewhere else in the editing directory. It doesn't belong in the header with TextIterator.
-bool isRendererReplacedElement(RenderObject*);
+bool isRendererReplacedElement(RenderObject*, TextIteratorBehaviors = { });
 
 // FIXME: Move each iterator class into a separate header file.
 
 class BitStack {
 public:
     void push(bool);
-    void pop();
-    bool top() const;
+    void NODELETE pop();
+    bool NODELETE top() const;
 
 private:
     unsigned m_size { 0 };
@@ -72,16 +77,16 @@ private:
 
 class TextIteratorCopyableText {
 public:
-    StringView text() const { return m_singleCharacter ? StringView(&m_singleCharacter, 1) : StringView(m_string).substring(m_offset, m_length); }
+    StringView text() const LIFETIME_BOUND { return m_singleCharacter ? StringView(WTF::span(m_singleCharacter)) : StringView(m_string).substring(m_offset, m_length); }
     void appendToStringBuilder(StringBuilder&) const;
 
     void reset();
     void set(String&&);
     void set(String&&, unsigned offset, unsigned length);
-    void set(UChar);
+    void set(char16_t);
 
 private:
-    UChar m_singleCharacter { 0 };
+    char16_t m_singleCharacter { 0 };
     String m_string;
     unsigned m_offset { 0 };
     unsigned m_length { 0 };
@@ -91,8 +96,10 @@ private:
 // at points where replaced elements break up the text flow. The text is delivered in
 // the chunks it's already stored in, to avoid copying any text.
 
+bool NODELETE shouldEmitNewlinesBeforeAndAfterNode(Node&, bool emitsNewlinesPerInnerTextSpec = false);
+
 class TextIterator {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(TextIterator, WEBCORE_EXPORT);
 public:
     WEBCORE_EXPORT explicit TextIterator(const SimpleRange&, TextIteratorBehaviors = { });
     WEBCORE_EXPORT ~TextIterator();
@@ -100,70 +107,89 @@ public:
     bool atEnd() const { return !m_positionNode; }
     WEBCORE_EXPORT void advance();
 
-    StringView text() const { ASSERT(!atEnd()); return m_text; }
+    StringView text() const LIFETIME_BOUND { ASSERT(!atEnd()); return m_text; }
     WEBCORE_EXPORT SimpleRange range() const;
     WEBCORE_EXPORT Node* node() const;
 
-    const TextIteratorCopyableText& copyableText() const { ASSERT(!atEnd()); return m_copyableText; }
+    // Returns true when the current output is a newline emitted from exiting
+    // a block-level element, as opposed to text content or <br> newlines.
+    bool isBlockNewline() const { return m_isBlockNewline; }
+
+    const TextIteratorCopyableText& copyableText() const LIFETIME_BOUND { ASSERT(!atEnd()); return m_copyableText; }
     void appendTextToStringBuilder(StringBuilder& builder) const { copyableText().appendToStringBuilder(builder); }
+
+#if ENABLE(TREE_DEBUGGING)
+    void showTreeForThis() const;
+#endif
+    String rendererTextForBehavior(RenderText& renderer) const { return m_behaviors.contains(TextIteratorBehavior::EmitsOriginalText) ? renderer.originalText() : renderer.text(); }
 
 private:
     void init();
     void exitNode(Node*);
     bool shouldRepresentNodeOffsetZero();
-    bool shouldEmitSpaceBeforeAndAfterNode(Node&);
+    bool NODELETE shouldEmitSpaceBeforeAndAfterNode(Node&);
     void representNodeOffsetZero();
     bool handleTextNode();
     bool handleReplacedElement();
     bool handleNonTextNode();
     void handleTextRun();
     void handleTextNodeFirstLetter(RenderTextFragment&);
-    void emitCharacter(UChar, Node& characterNode, Node* offsetBaseNode, int textStartOffset, int textEndOffset);
+    void emitCharacter(char16_t, RefPtr<Node>&& characterNode, RefPtr<Node>&& offsetBaseNode, int textStartOffset, int textEndOffset);
     void emitText(Text& textNode, RenderText&, int textStartOffset, int textEndOffset);
+    void revertToRemainingTextRun();
 
     Node* baseNodeForEmittingNewLine() const;
 
     const TextIteratorBehaviors m_behaviors;
 
     // Current position, not necessarily of the text being returned, but position as we walk through the DOM tree.
-    Node* m_node { nullptr };
+    RefPtr<Node> m_currentNode;
     int m_offset { 0 };
     bool m_handledNode { false };
     bool m_handledChildren { false };
     BitStack m_fullyClippedStack;
 
     // The range.
-    Node* m_startContainer { nullptr };
+    RefPtr<Node> m_startContainer;
     int m_startOffset { 0 };
-    Node* m_endContainer { nullptr };
+    RefPtr<Node> m_endContainer;
     int m_endOffset { 0 };
-    Node* m_pastEndNode { nullptr };
+    RefPtr<Node> m_pastEndNode;
 
     // The current text and its position, in the form to be returned from the iterator.
-    Node* m_positionNode { nullptr };
-    mutable Node* m_positionOffsetBaseNode { nullptr };
+    RefPtr<Node> m_positionNode;
+    mutable RefPtr<Node> m_positionOffsetBaseNode;
     mutable int m_positionStartOffset { 0 };
     mutable int m_positionEndOffset { 0 };
     TextIteratorCopyableText m_copyableText;
     StringView m_text;
 
     // Used when there is still some pending text from the current node; when these are false and null, we go back to normal iterating.
-    Node* m_nodeForAdditionalNewline { nullptr };
-    LayoutIntegration::TextRunIterator m_textRun;
+    RefPtr<Node> m_nodeForAdditionalNewline;
+    InlineIterator::TextBoxIterator m_textRun;
+    InlineIterator::TextLogicalOrderCache m_textRunLogicalOrderCache;
 
     // Used when iterating over :first-letter text to save pointer to remaining text box.
-    LayoutIntegration::TextRunIterator m_remainingTextRun;
+    InlineIterator::TextBoxIterator m_remainingTextRun;
+    InlineIterator::TextLogicalOrderCache m_remainingTextRunLogicalOrderCache;
 
     // Used to point to RenderText object for :first-letter.
-    RenderText* m_firstLetterText { nullptr };
+    SingleThreadWeakPtr<RenderText> m_firstLetterText;
 
     // Used to do the whitespace collapsing logic.
-    Text* m_lastTextNode { nullptr };
+    RefPtr<Text> m_lastTextNode;
     bool m_lastTextNodeEndedWithCollapsedSpace { false };
-    UChar m_lastCharacter { 0 };
+    char16_t m_lastCharacter { 0 };
+    unsigned m_consecutiveNewlineCount { 0 };
 
     // Used when deciding whether to emit a "positioning" (e.g. newline) before any other content
     bool m_hasEmitted { false };
+    bool m_isBlockNewline { false };
+
+    // Tracks the last <tr> for which we emitted a row-exit '\n', so consecutive
+    // empty/effectively-empty rows can each contribute their own line break per the
+    // innerText spec, while preventing the same row from emitting twice.
+    WeakPtr<Node, WeakPtrImplWithEventTargetData> m_lastTableRowEmittedExitNewlineFor;
 
     // Used when deciding text fragment created by :first-letter should be looked into.
     bool m_handledFirstLetter { false };
@@ -179,44 +205,44 @@ public:
     bool atEnd() const { return !m_positionNode; }
     WEBCORE_EXPORT void advance();
 
-    StringView text() const { ASSERT(!atEnd()); return m_text; }
+    StringView text() const LIFETIME_BOUND { ASSERT(!atEnd()); return m_text; }
     WEBCORE_EXPORT SimpleRange range() const;
-    Node* node() const { ASSERT(!atEnd()); return m_node; }
+    Node* node() const { ASSERT(!atEnd()); return m_node.get(); }
 
 private:
     void exitNode();
     bool handleTextNode();
-    RenderText* handleFirstLetter(int& startOffset, int& offsetInNode);
+    CheckedPtr<RenderText> handleFirstLetter(int& startOffset, int& offsetInNode);
     bool handleReplacedElement();
     bool handleNonTextNode();
-    void emitCharacter(UChar, Node&, int startOffset, int endOffset);
+    void emitCharacter(char16_t, RefPtr<Node>&&, int startOffset, int endOffset);
     bool advanceRespectingRange(Node*);
 
     const TextIteratorBehaviors m_behaviors;
 
     // Current position, not necessarily of the text being returned, but position as we walk through the DOM tree.
-    Node* m_node { nullptr };
+    RefPtr<Node> m_node;
     int m_offset { 0 };
     bool m_handledNode { false };
     bool m_handledChildren { false };
     BitStack m_fullyClippedStack;
 
     // The range.
-    Node* m_startContainer { nullptr };
+    RefPtr<Node> m_startContainer;
     int m_startOffset { 0 };
-    Node* m_endContainer { nullptr };
+    RefPtr<Node> m_endContainer;
     int m_endOffset { 0 };
     
     // The current text and its position, in the form to be returned from the iterator.
-    Node* m_positionNode { nullptr };
+    RefPtr<Node> m_positionNode;
     int m_positionStartOffset { 0 };
     int m_positionEndOffset { 0 };
     TextIteratorCopyableText m_copyableText;
     StringView m_text;
 
     // Used to do the whitespace logic.
-    Text* m_lastTextNode { nullptr };
-    UChar m_lastCharacter { 0 };
+    RefPtr<Text> m_lastTextNode;
+    char16_t m_lastCharacter { 0 };
 
     // Whether m_node has advanced beyond the iteration range (i.e. m_startContainer).
     bool m_havePassedStartContainer { false };
@@ -234,10 +260,10 @@ public:
     bool atEnd() const { return m_underlyingIterator.atEnd(); }
     WEBCORE_EXPORT void advance(int numCharacters);
     
-    StringView text() const { return m_underlyingIterator.text().substring(m_runOffset); }
+    StringView text() const LIFETIME_BOUND { return m_underlyingIterator.text().substring(m_runOffset); }
     WEBCORE_EXPORT SimpleRange range() const;
 
-    bool atBreak() const { return m_atBreak; }
+    bool NODELETE atBreak() const { return m_atBreak; }
     unsigned characterOffset() const { return m_offset; }
 
 private:
@@ -255,6 +281,7 @@ public:
     bool atEnd() const { return m_underlyingIterator.atEnd(); }
     void advance(int numCharacters);
 
+    StringView text() const LIFETIME_BOUND { return m_underlyingIterator.text().left(m_underlyingIterator.text().length() - m_runOffset); }
     SimpleRange range() const;
 
 private:
@@ -274,7 +301,7 @@ public:
     bool atEnd() const { return !m_didLookAhead && m_underlyingIterator.atEnd(); }
     void advance();
 
-    StringView text() const;
+    StringView NODELETE text() const LIFETIME_BOUND;
 
 private:
     TextIterator m_underlyingIterator;
@@ -283,11 +310,24 @@ private:
     TextIteratorCopyableText m_previousText;
 
     // Many chunks from text iterator concatenated.
-    Vector<UChar> m_buffer;
+    Vector<char16_t> m_buffer;
 
     // Did we have to look ahead in the text iterator to confirm the current chunk?
     bool m_didLookAhead { true };
 };
+
+constexpr TextIteratorBehaviors findIteratorOptions(FindOptions options = { })
+{
+    TextIteratorBehaviors iteratorOptions {
+        TextIteratorBehavior::EntersTextControls,
+        TextIteratorBehavior::ClipsToFrameAncestors,
+        TextIteratorBehavior::EntersImageOverlays,
+        TextIteratorBehavior::EntersSkippedContentRelevantToUser
+    };
+    if (!options.contains(FindOption::DoNotTraverseFlatTree))
+        iteratorOptions.add(TextIteratorBehavior::TraversesFlatTree);
+    return iteratorOptions;
+}
 
 inline CharacterRange characterRange(const BoundaryPoint& start, const SimpleRange& range, TextIteratorBehaviors behaviors)
 {
@@ -305,3 +345,9 @@ inline BoundaryPoint resolveCharacterLocation(const SimpleRange& scope, uint64_t
 }
 
 } // namespace WebCore
+
+#if ENABLE(TREE_DEBUGGING)
+// Outside the WebCore namespace for ease of invocation from the debugger.
+void showTree(const WebCore::TextIterator&);
+void showTree(const WebCore::TextIterator*);
+#endif

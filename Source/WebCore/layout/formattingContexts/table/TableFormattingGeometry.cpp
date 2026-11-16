@@ -26,13 +26,11 @@
 #include "config.h"
 #include "TableFormattingGeometry.h"
 
-#if ENABLE(LAYOUT_FORMATTING_CONTEXT)
-
-#include "InlineFormattingState.h"
 #include "LayoutBoxGeometry.h"
 #include "LayoutContext.h"
 #include "LayoutDescendantIterator.h"
 #include "LayoutInitialContainingBlock.h"
+#include "StyleComputedStyle+GettersInlines.h"
 #include "TableFormattingContext.h"
 #include "TableFormattingQuirks.h"
 
@@ -44,28 +42,28 @@ TableFormattingGeometry::TableFormattingGeometry(const TableFormattingContext& t
 {
 }
 
-LayoutUnit TableFormattingGeometry::cellBoxContentHeight(const ContainerBox& cellBox) const
+LayoutUnit TableFormattingGeometry::cellBoxContentHeight(const ElementBox& cellBox) const
 {
     ASSERT(cellBox.isInFlow());
     if (layoutState().inQuirksMode() && TableFormattingQuirks::shouldIgnoreChildContentVerticalMargin(cellBox)) {
         ASSERT(cellBox.firstInFlowChild());
         auto formattingContext = this->formattingContext();
-        auto& firstInFlowChild = *cellBox.firstInFlowChild();
-        auto& lastInFlowChild = *cellBox.lastInFlowChild();
+        CheckedRef firstInFlowChild = *cellBox.firstInFlowChild();
+        CheckedRef lastInFlowChild = *cellBox.lastInFlowChild();
         auto& firstInFlowChildGeometry = formattingContext.geometryForBox(firstInFlowChild, FormattingContext::EscapeReason::TableQuirkNeedsGeometryFromEstablishedFormattingContext);
         auto& lastInFlowChildGeometry = formattingContext.geometryForBox(lastInFlowChild, FormattingContext::EscapeReason::TableQuirkNeedsGeometryFromEstablishedFormattingContext);
 
-        auto top = firstInFlowChild.style().hasMarginBeforeQuirk() ? BoxGeometry::borderBoxRect(firstInFlowChildGeometry).top() : BoxGeometry::marginBoxRect(firstInFlowChildGeometry).top();
-        auto bottom = lastInFlowChild.style().hasMarginAfterQuirk() ? BoxGeometry::borderBoxRect(lastInFlowChildGeometry).bottom() : BoxGeometry::marginBoxRect(lastInFlowChildGeometry).bottom();
+        auto top = firstInFlowChild->style().marginBefore().hasQuirk() ? BoxGeometry::borderBoxRect(firstInFlowChildGeometry).top() : BoxGeometry::marginBoxRect(firstInFlowChildGeometry).top();
+        auto bottom = lastInFlowChild->style().marginAfter().hasQuirk() ? BoxGeometry::borderBoxRect(lastInFlowChildGeometry).bottom() : BoxGeometry::marginBoxRect(lastInFlowChildGeometry).bottom();
         return bottom - top;
     }
     return contentHeightForFormattingContextRoot(cellBox);
 }
 
-Edges TableFormattingGeometry::computedCellBorder(const TableGrid::Cell& cell) const
+BoxGeometry::Edges TableFormattingGeometry::computedCellBorder(const TableGridCell& cell) const
 {
     auto& grid = formattingContext().formattingState().tableGrid();
-    auto& cellBox = cell.box();
+    CheckedRef cellBox = cell.box();
     auto border = computedBorder(cellBox);
     auto collapsedBorder = grid.collapsedBorder();
     if (!collapsedBorder)
@@ -75,41 +73,41 @@ Edges TableFormattingGeometry::computedCellBorder(const TableGrid::Cell& cell) c
     auto cellPosition = cell.position();
     // Collapsed border left from table and adjacent cells.
     if (!cellPosition.column)
-        border.horizontal.left = collapsedBorder->horizontal.left / 2;
+        border.horizontal.start = collapsedBorder->horizontal.start / 2;
     else {
-        auto adjacentBorderRight = computedBorder(grid.slot({ cellPosition.column - 1, cellPosition.row })->cell().box()).horizontal.right;
-        border.horizontal.left = std::max(border.horizontal.left, adjacentBorderRight) / 2;
+        auto adjacentBorderRight = computedBorder(grid.slot({ cellPosition.column - 1, cellPosition.row })->cell().box()).horizontal.end;
+        border.horizontal.start = std::max(border.horizontal.start, adjacentBorderRight) / 2;
     }
     // Collapsed border right from table and adjacent cells.
     if (cellPosition.column == grid.columns().size() - 1)
-        border.horizontal.right = collapsedBorder->horizontal.right / 2;
+        border.horizontal.end = collapsedBorder->horizontal.end / 2;
     else {
-        auto adjacentBorderLeft = computedBorder(grid.slot({ cellPosition.column + 1, cellPosition.row })->cell().box()).horizontal.left;
-        border.horizontal.right = std::max(border.horizontal.right, adjacentBorderLeft) / 2;
+        auto adjacentBorderLeft = computedBorder(grid.slot({ cellPosition.column + 1, cellPosition.row })->cell().box()).horizontal.start;
+        border.horizontal.end = std::max(border.horizontal.end, adjacentBorderLeft) / 2;
     }
     // Collapsed border top from table, row and adjacent cells.
     auto& rows = grid.rows().list();
     if (!cellPosition.row)
-        border.vertical.top = collapsedBorder->vertical.top / 2;
+        border.vertical.before = collapsedBorder->vertical.before / 2;
     else {
-        auto adjacentBorderBottom = computedBorder(grid.slot({ cellPosition.column, cellPosition.row - 1 })->cell().box()).vertical.bottom;
-        auto adjacentRowBottom = computedBorder(rows[cellPosition.row - 1].box()).vertical.bottom;
+        auto adjacentBorderBottom = computedBorder(grid.slot({ cellPosition.column, cellPosition.row - 1 })->cell().box()).vertical.after;
+        auto adjacentRowBottom = computedBorder(rows[cellPosition.row - 1].box()).vertical.after;
         auto adjacentCollapsedBorder = std::max(adjacentBorderBottom, adjacentRowBottom);
-        border.vertical.top = std::max(border.vertical.top, adjacentCollapsedBorder) / 2;
+        border.vertical.before = std::max(border.vertical.before, adjacentCollapsedBorder) / 2;
     }
     // Collapsed border bottom from table, row and adjacent cells.
     if (cellPosition.row == grid.rows().size() - 1)
-        border.vertical.bottom = collapsedBorder->vertical.bottom / 2;
+        border.vertical.after = collapsedBorder->vertical.after / 2;
     else {
-        auto adjacentBorderTop = computedBorder(grid.slot({ cellPosition.column, cellPosition.row + 1 })->cell().box()).vertical.top;
-        auto adjacentRowTop = computedBorder(rows[cellPosition.row + 1].box()).vertical.top;
+        auto adjacentBorderTop = computedBorder(grid.slot({ cellPosition.column, cellPosition.row + 1 })->cell().box()).vertical.before;
+        auto adjacentRowTop = computedBorder(rows[cellPosition.row + 1].box()).vertical.before;
         auto adjacentCollapsedBorder = std::max(adjacentBorderTop, adjacentRowTop);
-        border.vertical.bottom = std::max(border.vertical.bottom, adjacentCollapsedBorder) / 2;
+        border.vertical.after = std::max(border.vertical.after, adjacentCollapsedBorder) / 2;
     }
     return border;
 }
 
-std::optional<LayoutUnit> TableFormattingGeometry::computedColumnWidth(const ContainerBox& columnBox) const
+std::optional<LayoutUnit> TableFormattingGeometry::computedColumnWidth(const ElementBox& columnBox) const
 {
     // Check both style and <col>'s width attribute.
     // FIXME: Figure out what to do with calculated values, like <col style="width: 10%">.
@@ -118,35 +116,38 @@ std::optional<LayoutUnit> TableFormattingGeometry::computedColumnWidth(const Con
     return columnBox.columnWidth();
 }
 
-IntrinsicWidthConstraints TableFormattingGeometry::intrinsicWidthConstraintsForCellContent(const TableGrid::Cell& cell) const
+IntrinsicWidthConstraints TableFormattingGeometry::intrinsicWidthConstraintsForCellContent(const TableGridCell& cell) const
 {
-    auto& cellBox = cell.box();
-    if (!cellBox.hasInFlowOrFloatingChild())
+    CheckedRef cellBox = cell.box();
+    if (!cellBox->hasInFlowOrFloatingChild())
         return { };
-    auto& layoutState = this->layoutState();
-    return LayoutContext::createFormattingContext(cellBox, const_cast<LayoutState&>(layoutState))->computedIntrinsicWidthConstraints();
+    CheckedRef layoutState = this->layoutState();
+    return LayoutContext::createFormattingContext(cellBox, const_cast<LayoutState&>(layoutState.get()))->computedIntrinsicWidthConstraints();
 }
 
-InlineLayoutUnit TableFormattingGeometry::usedBaselineForCell(const ContainerBox& cellBox) const
+InlineLayoutUnit TableFormattingGeometry::usedBaselineForCell(const ElementBox& cellBox) const
 {
     // The baseline of a cell is defined as the baseline of the first in-flow line box in the cell,
     // or the first in-flow table-row in the cell, whichever comes first.
     // If there is no such line box, the baseline is the bottom of content edge of the cell box.
-    if (cellBox.establishesInlineFormattingContext())
-        return layoutState().establishedInlineFormattingState(cellBox).lines()[0].baseline();
-    for (auto& cellDescendant : descendantsOfType<ContainerBox>(cellBox)) {
+    if (cellBox.establishesInlineFormattingContext()) {
+        // FIXME: Check for baseline value based on display content.
+        ASSERT_NOT_IMPLEMENTED_YET();
+        return { };
+    }
+    for (auto& cellDescendant : descendantsOfType<ElementBox>(cellBox)) {
         if (cellDescendant.establishesInlineFormattingContext()) {
-            auto& inlineFormattingStateForCell = layoutState().establishedInlineFormattingState(cellDescendant);
-            if (!inlineFormattingStateForCell.lines().isEmpty())
-                return inlineFormattingStateForCell.lines()[0].baseline();
+            // FIXME: Check for baseline value based on display content.
+            ASSERT_NOT_IMPLEMENTED_YET();
+            return { };
         }
         if (cellDescendant.establishesTableFormattingContext())
-            return layoutState().establishedTableFormattingState(cellDescendant).tableGrid().rows().list()[0].baseline();
+            return layoutState().formattingStateForTableFormattingContext(cellDescendant).tableGrid().rows().list()[0].baseline();
     }
     return formattingContext().geometryForBox(cellBox).contentBoxBottom();
 }
 
-LayoutUnit TableFormattingGeometry::horizontalSpaceForCellContent(const TableGrid::Cell& cell) const
+LayoutUnit TableFormattingGeometry::horizontalSpaceForCellContent(const TableGridCell& cell) const
 {
     auto& grid = formattingContext().formattingState().tableGrid();
     auto& columnList = grid.columns().list();
@@ -156,21 +157,21 @@ LayoutUnit TableFormattingGeometry::horizontalSpaceForCellContent(const TableGri
     // No column spacing when spanning.
     logicalWidth += (cell.columnSpan() - 1) * grid.horizontalSpacing();
     auto& cellBoxGeometry = formattingContext().geometryForBox(cell.box());
-    logicalWidth -= (cellBoxGeometry.horizontalBorder() + cellBoxGeometry.horizontalPadding().value_or(0));
+    logicalWidth -= cellBoxGeometry.horizontalBorderAndPadding();
     return logicalWidth;
 }
 
-LayoutUnit TableFormattingGeometry::verticalSpaceForCellContent(const TableGrid::Cell& cell, std::optional<LayoutUnit> availableVerticalSpace) const
+LayoutUnit TableFormattingGeometry::verticalSpaceForCellContent(const TableGridCell& cell, std::optional<LayoutUnit> availableVerticalSpace) const
 {
-    auto& cellBox = cell.box();
+    CheckedRef cellBox = cell.box();
     auto contentHeight = cellBoxContentHeight(cellBox);
     auto computedHeight = this->computedHeight(cellBox, availableVerticalSpace);
     if (!computedHeight)
         return contentHeight;
-    auto heightUsesBorderBox = layoutState().inQuirksMode() || cellBox.style().boxSizing() == BoxSizing::BorderBox;
+    auto heightUsesBorderBox = layoutState().inQuirksMode() || cellBox->style().boxSizing() == BoxSizing::BorderBox;
     if (heightUsesBorderBox) {
         auto& cellBoxGeometry = formattingContext().geometryForBox(cell.box());
-        *computedHeight -= (cellBoxGeometry.verticalBorder() + cellBoxGeometry.verticalPadding().value_or(0));
+        *computedHeight -= cellBoxGeometry.verticalBorderAndPadding();
     }
     return std::max(contentHeight, *computedHeight);
 }
@@ -178,4 +179,3 @@ LayoutUnit TableFormattingGeometry::verticalSpaceForCellContent(const TableGrid:
 }
 }
 
-#endif

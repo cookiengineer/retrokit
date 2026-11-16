@@ -31,7 +31,7 @@
 
 namespace WebKit {
 
-enum RemoteCDMInstanceSessionIdentifierType { };
+struct RemoteCDMInstanceSessionIdentifierType;
 using RemoteCDMInstanceSessionIdentifier = ObjectIdentifier<RemoteCDMInstanceSessionIdentifierType>;
 
 } // namespace WebKit

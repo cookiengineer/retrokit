@@ -75,6 +75,9 @@ WI.TimelineOverviewGraph = class TimelineOverviewGraph extends WI.View
         if (timelineType === WI.TimelineRecord.Type.Media)
             return new WI.MediaTimelineOverviewGraph(timeline, timelineOverview);
 
+        if (timelineType === WI.TimelineRecord.Type.Screenshots)
+            return new WI.ScreenshotsTimelineOverviewGraph(timeline, timelineOverview);
+
         throw new Error("Can't make a graph for an unknown timeline.");
     }
 
@@ -259,9 +262,9 @@ WI.TimelineOverviewGraph = class TimelineOverviewGraph extends WI.View
 
     // TimelineRecordBar delegate
 
-    timelineRecordBarClicked(timelineRecordBar)
+    timelineRecordBarClicked(timelineRecord)
     {
-        this.selectedRecord = timelineRecordBar.records[0];
+        this.selectedRecord = timelineRecord;
     }
 
     // Protected
@@ -269,6 +272,20 @@ WI.TimelineOverviewGraph = class TimelineOverviewGraph extends WI.View
     updateSelectedRecord()
     {
         // Implemented by sub-classes if needed.
+    }
+
+    updateSelectedRecordBar(recordBarsList)
+    {
+        for (let recordBars of recordBarsList) {
+            for (let recordBar of recordBars) {
+                if (recordBar.records.includes(this.selectedRecord)) {
+                    this.selectedRecordBar = recordBar;
+                    return;
+                }
+            }
+        }
+
+        this.selectedRecordBar = null;
     }
 
     // Private

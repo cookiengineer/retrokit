@@ -14,6 +14,7 @@
 #include "libANGLE/renderer/metal/BufferMtl.h"
 #include "libANGLE/renderer/metal/mtl_buffer_pool.h"
 #include "libANGLE/renderer/metal/mtl_command_buffer.h"
+#include "libANGLE/renderer/metal/mtl_context_device.h"
 #include "libANGLE/renderer/metal/mtl_format_utils.h"
 #include "libANGLE/renderer/metal/mtl_resources.h"
 
@@ -24,7 +25,9 @@ class ContextMtl;
 class VertexArrayMtl : public VertexArrayImpl
 {
   public:
-    VertexArrayMtl(const gl::VertexArrayState &state, ContextMtl *context);
+    VertexArrayMtl(const gl::VertexArrayState &state,
+                   const gl::VertexArrayBuffers &vertexArrayBuffers,
+                   ContextMtl *context);
     ~VertexArrayMtl() override;
 
     void destroy(const gl::Context *context) override;
@@ -39,6 +42,7 @@ class VertexArrayMtl : public VertexArrayImpl
                                       GLint firstVertex,
                                       GLsizei vertexOrIndexCount,
                                       GLsizei instanceCount,
+                                      GLuint baseInstance,
                                       gl::DrawElementsType indexTypeOrInvalid,
                                       const void *indices);
 
@@ -51,39 +55,20 @@ class VertexArrayMtl : public VertexArrayImpl
                             bool *vertexDescChanged,
                             mtl::VertexDesc *vertexDescOut);
 
-    angle::Result getIndexBuffer(const gl::Context *glContext,
-                                 gl::DrawElementsType indexType,
-                                 size_t indexCount,
-                                 const void *sourcePointer,
-                                 mtl::BufferRef *idxBufferOut,
-                                 size_t *idxBufferOffsetOut,
-                                 gl::DrawElementsType *indexTypeOut);
-    
-    
-    std::vector<DrawCommandRange> getDrawIndices(const gl::Context *glContext,
-                                                 gl::DrawElementsType originalIndexType,
-                                                 gl::DrawElementsType indexType,
-                                                 gl::PrimitiveMode primitiveMode,
-                                                 uint32_t indexCount,
-                                                 size_t offset);
-    
-    // Use to emulate instanced draw for instance <instanceId>.
-    // The typical call sequence for emulated instance draw is:
-    // - setupDraw()
-    // - draw.
-    // - emulateInstanceDrawStep(1)
-    // - draw.
-    // - emulateInstanceDrawStep(n)
-    // - draw.
-    // - emulateInstanceDrawStep(0)
-    void emulateInstanceDrawStep(mtl::RenderCommandEncoder *cmdEncoder, uint32_t instanceId);
+    angle::Result resolveDrawElementsDraw(const gl::Context *glContext,
+                                          gl::PrimitiveMode mode,
+                                          gl::DrawElementsType type,
+                                          GLsizei count,
+                                          const void *indices,
+                                          bool rewriteProvokingVertex,
+                                          bool isPrimitiveRestartEnabled,
+                                          gl::PrimitiveMode *outNewMode,
+                                          std::vector<DrawCommandRange> *outDrawCommands,
+                                          mtl::BufferSlice *outIndexBuffer,
+                                          gl::DrawElementsType *outIndexBufferType);
 
   private:
     void reset(ContextMtl *context);
-
-    void getVertexAttribFormatAndArraySize(const sh::ShaderVariable &var,
-                                           MTLVertexFormat *formatOut,
-                                           uint32_t *arraySizeOut);
 
     angle::Result syncDirtyAttrib(const gl::Context *glContext,
                                   const gl::VertexAttribute &attrib,
@@ -93,21 +78,12 @@ class VertexArrayMtl : public VertexArrayImpl
     angle::Result convertIndexBuffer(const gl::Context *glContext,
                                      gl::DrawElementsType indexType,
                                      size_t offset,
-                                     mtl::BufferRef *idxBufferOut,
-                                     size_t *idxBufferOffsetOut);
+                                     mtl::BufferSlice *outIdxBuffer);
     angle::Result streamIndexBufferFromClient(const gl::Context *glContext,
                                               gl::DrawElementsType indexType,
                                               size_t indexCount,
                                               const void *sourcePointer,
-                                              mtl::BufferRef *idxBufferOut,
-                                              size_t *idxBufferOffsetOut);
-
-    angle::Result convertIndexBufferGPU(const gl::Context *glContext,
-                                        gl::DrawElementsType indexType,
-                                        BufferMtl *idxBuffer,
-                                        size_t offset,
-                                        size_t indexCount,
-                                        IndexConversionBufferMtl *conversion);
+                                              mtl::BufferSlice *outIdxBuffer);
 
     angle::Result convertVertexBuffer(const gl::Context *glContext,
                                       BufferMtl *srcBuffer,
@@ -132,7 +108,7 @@ class VertexArrayMtl : public VertexArrayImpl
                                          size_t vertexCount,
                                          bool isExpandingComponents,
                                          ConversionBufferMtl *conversion);
-    
+
     // These can point to real BufferMtl or converted buffer in mConvertedArrayBufferHolders
     gl::AttribArray<BufferHolderMtl *> mCurrentArrayBuffers;
     gl::AttribArray<SimpleWeakBufferHolderMtl> mConvertedArrayBufferHolders;
@@ -154,8 +130,6 @@ class VertexArrayMtl : public VertexArrayImpl
     gl::AttribArray<const mtl::VertexFormat *> mCurrentArrayBufferFormats;
 
     const mtl::VertexFormat &mDefaultFloatVertexFormat;
-    const mtl::VertexFormat &mDefaultIntVertexFormat;
-    const mtl::VertexFormat &mDefaultUIntVertexFormat;
 
     mtl::BufferPool mDynamicVertexData;
     mtl::BufferPool mDynamicIndexData;
@@ -163,7 +137,18 @@ class VertexArrayMtl : public VertexArrayImpl
     std::vector<uint32_t> mEmulatedInstanceAttribs;
 
     bool mVertexArrayDirty = true;
+    bool mVertexDataDirty  = true;
 };
+// Free function for computing draw command ranges from draw index ranges.
+// Exposed for unit testing.
+void AppendSimpleDrawCommandRanges(std::vector<DrawCommandRange> &drawCommands,
+                                   gl::PrimitiveMode mode,
+                                   uint32_t count,
+                                   size_t firstIndex,
+                                   const std::vector<DrawIndexRange> &drawIndexRanges,
+                                   gl::PrimitiveMode drawMode,
+                                   gl::DrawElementsType indexBufferType);
+
 }  // namespace rx
 
 #endif /* LIBANGLE_RENDERER_METAL_VERTEXARRAYMTL_H_ */

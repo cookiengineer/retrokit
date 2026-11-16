@@ -28,23 +28,34 @@
 namespace WebCore {
 
 enum class TaskSource : uint8_t {
+    Clipboard,
     DOMManipulation,
     DatabaseAccess,
     FileReading,
     FontLoading,
+    Gamepad,
     Geolocation,
     IdleTask,
+    ImageCapture,
     IndexedDB,
     MediaElement,
     Microtask,
+    ModelElement,
     Networking,
+    Payment,
     PerformanceTimeline,
     Permission,
     PostedMessageQueue,
+    Reporting,
+    ScreenWakelock,
     Speech,
+    SpeculationRules,
+    Timer,
     UserInteraction,
     WebGL,
+    WebGPU,
     WebXR,
+    WebSocket,
 
     // Internal to WebCore
     InternalAsyncTask, // Safe to re-order or delay.

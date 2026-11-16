@@ -27,8 +27,9 @@
 
 #if ENABLE(VIDEO)
 
-#include "SerializedPlatformDataCueValue.h"
-#include <JavaScriptCore/JSCInlines.h>
+#include <JavaScriptCore/ArrayBuffer.h>
+#include <JavaScriptCore/JSCJSValue.h>
+#include <WebCore/SerializedPlatformDataCueValue.h>
 #include <wtf/RefCounted.h>
 
 namespace WebCore {
@@ -43,10 +44,7 @@ public:
     virtual RefPtr<JSC::ArrayBuffer> data() const { return { }; }
     virtual bool isEqual(const SerializedPlatformDataCue&) const { return false; }
 
-    enum class PlatformType {
-        None,
-        ObjC,
-    };
+    enum class PlatformType : bool { None, ObjC };
     virtual PlatformType platformType() const { return PlatformType::None; }
 
     virtual bool encodingRequiresPlatformData() const { return false; }

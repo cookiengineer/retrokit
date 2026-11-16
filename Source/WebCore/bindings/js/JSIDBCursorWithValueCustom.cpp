@@ -28,6 +28,7 @@
 
 #include "IDBBindingUtilities.h"
 #include "IDBCursorWithValue.h"
+#include "JSValueInWrappedObjectInlines.h"
 #include <JavaScriptCore/JSCInlines.h>
 
 namespace WebCore {
@@ -35,19 +36,20 @@ using namespace JSC;
 
 JSC::JSValue JSIDBCursorWithValue::value(JSC::JSGlobalObject& lexicalGlobalObject) const
 {
-    return cachedPropertyValue(lexicalGlobalObject, *this, wrapped().valueWrapper(), [&] {
-        auto result = deserializeIDBValueWithKeyInjection(lexicalGlobalObject, wrapped().value(), wrapped().primaryKey(), wrapped().primaryKeyPath());
+    auto throwScope = DECLARE_THROW_SCOPE(lexicalGlobalObject.vm());
+    return cachedPropertyValue(throwScope, lexicalGlobalObject, *this, wrapped().valueWrapper(), [&](JSC::ThrowScope&) {
+        auto result = deserializeIDBValueWithKeyInjection(lexicalGlobalObject, protect(wrapped())->value(), wrapped().primaryKey(), wrapped().primaryKeyPath());
         return result ? result.value() : jsNull();
     });
 }
 
 template<typename Visitor>
-void JSIDBCursorWithValue::visitAdditionalChildren(Visitor& visitor)
+void JSIDBCursorWithValue::visitAdditionalChildrenInGCThread(Visitor& visitor)
 {
-    JSIDBCursor::visitAdditionalChildren(visitor);
-    wrapped().valueWrapper().visit(visitor);
+    JSIDBCursor::visitAdditionalChildrenInGCThread(visitor);
+    wrapped().valueWrapper().visitInGCThread(visitor);
 }
 
-DEFINE_VISIT_ADDITIONAL_CHILDREN(JSIDBCursorWithValue);
+DEFINE_VISIT_ADDITIONAL_CHILDREN_IN_GC_THREAD(JSIDBCursorWithValue);
 
 } // namespace WebCore

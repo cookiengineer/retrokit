@@ -20,7 +20,7 @@
  * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
  * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #ifndef PAS_SEGMENTED_VECTOR_H
@@ -30,6 +30,7 @@
 #include "pas_found_index.h"
 #include "pas_immortal_heap.h"
 #include "pas_utils.h"
+#include "pas_zero_memory.h"
 #include <stdalign.h>
 
 PAS_BEGIN_EXTERN_C;
@@ -107,7 +108,7 @@ PAS_BEGIN_EXTERN_C;
             PAS_ASSERT(!segment_index); \
             \
             segment = (type*)pas_immortal_heap_allocate_with_alignment_and_heap_lock_hold_mode( \
-                (segment_size) * sizeof(type), alignof(type), \
+                (segment_size) * sizeof(type), PAS_ALIGNOF(type), \
                 #name "/segment", pas_object_allocation, \
                 heap_lock_hold_mode); \
             pas_zero_memory(segment, (segment_size) * sizeof(type)); \
@@ -284,4 +285,3 @@ PAS_BEGIN_EXTERN_C;
 PAS_END_EXTERN_C;
 
 #endif /* PAS_SEGMENTED_VECTOR_H */
-

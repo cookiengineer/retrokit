@@ -10,6 +10,7 @@
 
 #include "compiler/translator/tree_ops/RemoveUnreferencedVariables.h"
 
+#include "common/hash_containers.h"
 #include "compiler/translator/SymbolTable.h"
 #include "compiler/translator/tree_util/IntermTraverse.h"
 
@@ -24,7 +25,7 @@ class CollectVariableRefCountsTraverser : public TIntermTraverser
   public:
     CollectVariableRefCountsTraverser();
 
-    using RefCountMap = std::unordered_map<int, unsigned int>;
+    using RefCountMap = angle::HashMap<int, unsigned int>;
     RefCountMap &getSymbolIdRefCounts() { return mSymbolIdRefCounts; }
     RefCountMap &getStructIdRefCounts() { return mStructIdRefCounts; }
 
@@ -175,7 +176,7 @@ void RemoveUnreferencedVariablesTraverser::decrementStructTypeRefCount(const TTy
 void RemoveUnreferencedVariablesTraverser::removeVariableDeclaration(TIntermDeclaration *node,
                                                                      TIntermTyped *declarator)
 {
-    if (declarator->getType().isStructSpecifier() && !declarator->getType().isNamelessStruct())
+    if (declarator->getType().isStructSpecifier())
     {
         unsigned int structId = declarator->getType().getStruct()->uniqueId().get();
         unsigned int structRefCountInThisDeclarator = 1u;
@@ -190,7 +191,7 @@ void RemoveUnreferencedVariablesTraverser::removeVariableDeclaration(TIntermDecl
         }
         if ((*mStructIdRefCounts)[structId] > structRefCountInThisDeclarator)
         {
-            // If this declaration declares a named struct type that is used elsewhere, we need to
+            // If this declaration declares a struct type that is used elsewhere, we need to
             // keep it. We can still change the declarator though so that it doesn't declare an
             // unreferenced variable.
 
@@ -216,8 +217,8 @@ void RemoveUnreferencedVariablesTraverser::removeVariableDeclaration(TIntermDecl
     if (getParentNode()->getAsBlock())
     {
         TIntermSequence emptyReplacement;
-        mMultiReplacements.push_back(
-            NodeReplaceWithMultipleEntry(getParentNode()->getAsBlock(), node, emptyReplacement));
+        mMultiReplacements.emplace_back(getParentNode()->getAsBlock(), node,
+                                        std::move(emptyReplacement));
     }
     else
     {
@@ -345,8 +346,7 @@ void RemoveUnreferencedVariablesTraverser::traverseLoop(TIntermLoop *node)
         ASSERT(node->getCondition() == nullptr ||
                node->getCondition()->getAsDeclarationNode() == nullptr);
 
-        if (node->getBody())
-            node->getBody()->traverse(this);
+        node->getBody()->traverse(this);
 
         if (node->getInit())
             node->getInit()->traverse(this);

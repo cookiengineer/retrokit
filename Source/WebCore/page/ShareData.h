@@ -24,28 +24,32 @@
  */
 
 #pragma once
-#include "File.h"
-#include "SharedBuffer.h"
+
+#include <WebCore/File.h>
+#include <WebCore/SharedBuffer.h>
 #include <wtf/URL.h>
 
 namespace WebCore {
+
+enum class ShareDataOriginator : bool { Web, User };
     
 struct ShareData {
     String title;
     String text;
     String url;
-    Vector<RefPtr<File>> files;
+    Vector<Ref<File>> files { };
 };
 
 struct RawFile {
     String fileName;
     RefPtr<SharedBuffer> fileData;
 };
-    
+
 struct ShareDataWithParsedURL {
     ShareData shareData;
     std::optional<URL> url;
     Vector<RawFile> files;
+    ShareDataOriginator originator;
 };
     
-}
+} // namespace WebCore

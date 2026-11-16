@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2019-2022 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include "AirCCallingConvention.h"
 #include "AirCode.h"
 #include "AirInstInlines.h"
 #include "AirStackSlot.h"
@@ -50,7 +51,6 @@
 #include "B3MoveConstants.h"
 #include "B3NativeTraits.h"
 #include "B3Procedure.h"
-#include "B3ReduceLoopStrength.h"
 #include "B3ReduceStrength.h"
 #include "B3SlotBaseValue.h"
 #include "B3StackmapGenerationParams.h"
@@ -69,8 +69,10 @@
 #include "JITCompilation.h"
 #include "JSCInlines.h"
 #include "LinkBuffer.h"
+#include "OperationResult.h"
 #include "PureNaN.h"
 #include <cmath>
+#include <numbers>
 #include <regex>
 #include <string>
 #include <wtf/FastTLS.h>
@@ -80,6 +82,7 @@
 #include <wtf/NumberOfCores.h>
 #include <wtf/StdList.h>
 #include <wtf/Threading.h>
+#include <wtf/WTFProcess.h>
 #include <wtf/text/StringCommon.h>
 
 // We don't have a NO_RETURN_DUE_TO_EXIT, nor should we. That's ridiculous.
@@ -89,17 +92,19 @@ inline void usage()
 {
     dataLog("Usage: testb3 [<filter>]\n");
     if (hiddenTruthBecauseNoReturnIsStupid())
-        exit(1);
+        exitProcess(1);
 }
 
 #if ENABLE(B3_JIT)
 
+using JSC::B3::Air::cCallArgumentValues;
+
 using namespace JSC;
 using namespace JSC::B3;
 
-inline bool shouldBeVerbose()
+inline bool shouldBeVerbose(Procedure& procedure)
 {
-    return shouldDumpIR(B3Mode);
+    return shouldDumpIR(procedure, B3Mode);
 }
 
 extern Lock crashLock;
@@ -125,22 +130,24 @@ extern Lock crashLock;
 
 #define PREFIX "O", Options::defaultB3OptLevel(), ": "
 
-#define RUN(test) do {                             \
-    if (!shouldRun(filter, #test))                 \
-        break;                                     \
-    tasks.append(                                  \
-        createSharedTask<void()>(                  \
-            [&] () {                               \
-                dataLog(PREFIX #test "...\n");     \
-                test;                              \
-                dataLog(PREFIX #test ": OK!\n");   \
-            }));                                   \
+#define RUN(test)                                           \
+    do {                                                    \
+        CString testStr = toCString(PREFIX #test);          \
+        if (!shouldRun(config, testStr.data()))             \
+            break;                                          \
+        tasks.append(                                       \
+            createSharedTask<void()>(                       \
+                [=]() {                                     \
+                    dataLog(toCString(testStr, "...\n"));   \
+                    test;                                   \
+                    dataLog(toCString(testStr, ": OK!\n")); \
+                }));                                        \
     } while (false);
 
 #define RUN_UNARY(test, values) \
     for (auto a : values) {                             \
         CString testStr = toCString(PREFIX #test, "(", a.name, ")"); \
-        if (!shouldRun(filter, testStr.data()))         \
+        if (!shouldRun(config, testStr.data()))         \
             continue;                                   \
         tasks.append(createSharedTask<void()>(          \
             [=] () {                                    \
@@ -150,11 +157,21 @@ extern Lock crashLock;
             }));                                        \
     }
 
+#if USE(PROTECTED_JIT)
+// Must be constructed before we allocate anything using SequesteredArenaMalloc
+#define B3_TEST_ARENA_LIFETIME ArenaLifetime b3TestArenaLifetime;
+#else
+#define B3_TEST_ARENA_LIFETIME
+#endif
+
 #define RUN_NOW(test) do {                      \
-        if (!shouldRun(filter, #test))          \
+        if (!shouldRun(config, #test))          \
             break;                              \
         dataLog(PREFIX #test "...\n");          \
-        test;                                   \
+        {                                       \
+            B3_TEST_ARENA_LIFETIME              \
+            test;                               \
+        }                                       \
         dataLog(PREFIX #test ": OK!\n");        \
     } while (false)
 
@@ -162,7 +179,7 @@ extern Lock crashLock;
     for (auto a : valuesA) {                                \
         for (auto b : valuesB) {                            \
             CString testStr = toCString(PREFIX #test, "(", a.name, ", ", b.name, ")"); \
-            if (!shouldRun(filter, testStr.data()))         \
+            if (!shouldRun(config, testStr.data()))         \
                 continue;                                   \
             tasks.append(createSharedTask<void()>(          \
                 [=] () {                                    \
@@ -176,8 +193,8 @@ extern Lock crashLock;
     for (auto a : valuesA) {                                    \
         for (auto b : valuesB) {                                \
             for (auto c : valuesC) {                            \
-                CString testStr = toCString(#test, "(", a.name, ", ", b.name, ",", c.name, ")"); \
-                if (!shouldRun(filter, testStr.data()))         \
+                CString testStr = toCString(PREFIX #test, "(", a.name, ", ", b.name, ",", c.name, ")"); \
+                if (!shouldRun(config, testStr.data()))         \
                     continue;                                   \
                 tasks.append(createSharedTask<void()>(          \
                     [=] () {                                    \
@@ -190,18 +207,68 @@ extern Lock crashLock;
     }
 
 
+extern bool g_dumpB3AfterGeneration;
+
 inline std::unique_ptr<Compilation> compileProc(Procedure& procedure, unsigned optLevel = Options::defaultB3OptLevel())
 {
     procedure.setOptLevel(optLevel);
+    if (g_dumpB3AfterGeneration)
+        procedure.setShouldDumpIR();
     return makeUnique<Compilation>(B3::compile(procedure));
 }
 
+template<typename T>
+struct ArgumentTweaker {
+    using Result = T;
+    static Result tweak(T t)
+    {
+        return t;
+    }
+};
+
+#if CPU(ARM_THUMB2)
+
+// Air and B3 (rightly) use the register names d0-d15 to refer to FPRs--this is
+// a useful simplification since any FPR in JSC will typically hold a
+// double-precision float.
+//
+// However, in the context of testb3, we do sometimes want to talk about
+// single-precision floats and, notably, to pass them as arguments between C and
+// the JITted code.
+//
+// This presents a problem since C will use the odd-numberd s1-s31 without
+// batting an eye; we need to prevent this from happening.
+//
+// To achieve this, we pass nominally `float` arguments as a `FrakenFloat`
+// instead--on armv7, this ensures that an argument `float x` will go into an
+// even-numbered FPR and the odd-numbered FPR will be occupied by the
+// `unusedUnaddressable` field of the FrankenFloat.
+
+struct FrankenFloat {
+    float real;
+    float unusedUnaddressable;
+};
+
+template<>
+struct ArgumentTweaker<float> {
+    using Result = FrankenFloat;
+    static Result tweak(float f)
+    {
+        return FrankenFloat { f, 0.0f };
+    }
+};
+
+#endif
+
+template <typename T>
+using TweakedArgument = typename ArgumentTweaker<T>::Result;
+
 template<typename T, typename... Arguments>
-T invoke(MacroAssemblerCodePtr<JITCompilationPtrTag> ptr, Arguments... arguments)
+T invoke(CodePtr<JITCompilationPtrTag> ptr, Arguments... arguments)
 {
-    void* executableAddress = untagCFunctionPtr<JITCompilationPtrTag>(ptr.executableAddress());
-    T (*function)(Arguments...) = bitwise_cast<T(*)(Arguments...)>(executableAddress);
-    return function(arguments...);
+    void* executableAddress = untagCFunctionPtr<JITCompilationPtrTag>(ptr.taggedPtr());
+    T (SYSV_ABI *function)(TweakedArgument<Arguments>...) = std::bit_cast<T(SYSV_ABI *)(TweakedArgument<Arguments>...)>(executableAddress);
+    return function(ArgumentTweaker<Arguments>::tweak(arguments)...);
 }
 
 template<typename T, typename... Arguments>
@@ -220,13 +287,13 @@ inline void lowerToAirForTesting(Procedure& proc)
 {
     proc.resetReachability();
     
-    if (shouldBeVerbose())
+    if (shouldBeVerbose(proc))
         dataLog("B3 before lowering:\n", proc);
     
     validate(proc);
     lowerToAir(proc);
     
-    if (shouldBeVerbose())
+    if (shouldBeVerbose(proc))
         dataLog("Air after lowering:\n", proc.code());
     
     Air::validate(proc.code());
@@ -244,6 +311,8 @@ void checkDisassembly(Compilation& compilation, const Func& func, const CString&
     dataLog(disassembly);
     CRASH();
 }
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 inline void checkUsesInstruction(Compilation& compilation, const char* text, bool regex = false)
 {
@@ -267,12 +336,15 @@ inline void checkDoesNotUseInstruction(Compilation& compilation, const char* tex
         toCString("Did not expected to find ", text, " but it's there!"));
 }
 
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+
 template<typename Type>
 struct B3Operand {
     const char* name;
     Type value;
 };
 
+typedef B3Operand<v128_t> V128Operand;
 typedef B3Operand<int64_t> Int64Operand;
 typedef B3Operand<int32_t> Int32Operand;
 typedef B3Operand<int16_t> Int16Operand;
@@ -297,8 +369,8 @@ void populateWithInterestingValues(Vector<B3Operand<FloatType>>& operands)
     operands.append({ "-1.1", static_cast<FloatType>(-1.1) });
     operands.append({ "2.", static_cast<FloatType>(2.) });
     operands.append({ "-2.", static_cast<FloatType>(-2.) });
-    operands.append({ "M_PI", static_cast<FloatType>(M_PI) });
-    operands.append({ "-M_PI", static_cast<FloatType>(-M_PI) });
+    operands.append({ "M_PI", static_cast<FloatType>(std::numbers::pi) });
+    operands.append({ "-M_PI", static_cast<FloatType>(-std::numbers::pi) });
     operands.append({ "min", std::numeric_limits<FloatType>::min() });
     operands.append({ "max", std::numeric_limits<FloatType>::max() });
     operands.append({ "lowest", std::numeric_limits<FloatType>::lowest() });
@@ -316,29 +388,86 @@ Vector<B3Operand<FloatType>> floatingPointOperands()
     return operands;
 };
 
+inline Vector<V128Operand> v128Operands()
+{
+    return {
+        { "0,0", v128_t { 0, 0 } },
+        { "1,0", v128_t { 1, 0 } },
+        { "0,1", v128_t { 0, 1 } },
+        { "42,0", v128_t { 42, 0 } },
+        { "0,42", v128_t { 0, 42 } },
+        { "42,42", v128_t { 42, 42 } },
+        { "-42,-42", v128_t { static_cast<uint64_t>(-42), static_cast<uint64_t>(-42) } },
+        { "0,-42", v128_t { 0, static_cast<uint64_t>(-42) } },
+        { "-42,0", v128_t { static_cast<uint64_t>(-42), 0 } },
+        { "int64-max,int64-max", v128_t { static_cast<uint64_t>(std::numeric_limits<int64_t>::max()), static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) } },
+        { "int64-min,int64-min", v128_t { static_cast<uint64_t>(std::numeric_limits<int64_t>::min()), static_cast<uint64_t>(std::numeric_limits<int64_t>::min()) } },
+        { "int32-max,int32-max", v128_t { static_cast<uint64_t>(std::numeric_limits<int32_t>::max()), static_cast<uint64_t>(std::numeric_limits<int32_t>::max()) } },
+        { "int32-min,int32-min", v128_t { static_cast<uint64_t>(std::numeric_limits<int32_t>::min()), static_cast<uint64_t>(std::numeric_limits<int32_t>::min()) } },
+        { "uint64-max,uint64-max", v128_t { static_cast<uint64_t>(std::numeric_limits<uint64_t>::max()), static_cast<uint64_t>(std::numeric_limits<uint64_t>::max()) } },
+        { "uint64-min,uint64-min", v128_t { static_cast<uint64_t>(std::numeric_limits<uint64_t>::min()), static_cast<uint64_t>(std::numeric_limits<uint64_t>::min()) } },
+        { "uint32-max,uint32-max", v128_t { static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()), static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) } },
+        { "uint32-min,uint32-min", v128_t { static_cast<uint64_t>(std::numeric_limits<uint32_t>::min()), static_cast<uint64_t>(std::numeric_limits<uint32_t>::min()) } },
+    };
+}
+
 inline Vector<Int64Operand> int64Operands()
 {
-    Vector<Int64Operand> operands;
-    operands.append({ "0", 0 });
-    operands.append({ "1", 1 });
-    operands.append({ "-1", -1 });
-    operands.append({ "42", 42 });
-    operands.append({ "-42", -42 });
-    operands.append({ "int64-max", std::numeric_limits<int64_t>::max() });
-    operands.append({ "int64-min", std::numeric_limits<int64_t>::min() });
-    operands.append({ "int32-max", std::numeric_limits<int32_t>::max() });
-    operands.append({ "int32-min", std::numeric_limits<int32_t>::min() });
-    operands.append({ "uint64-max", static_cast<int64_t>(std::numeric_limits<uint64_t>::max()) });
-    operands.append({ "uint64-min", static_cast<int64_t>(std::numeric_limits<uint64_t>::min()) });
-    operands.append({ "uint32-max", static_cast<int64_t>(std::numeric_limits<uint32_t>::max()) });
-    operands.append({ "uint32-min", static_cast<int64_t>(std::numeric_limits<uint32_t>::min()) });
-    
-    return operands;
+    return {
+        { "0", 0 },
+        { "1", 1 },
+        { "-1", -1 },
+        { "42", 42 },
+        { "-42", -42 },
+        { "int64-max", std::numeric_limits<int64_t>::max() },
+        { "int64-min", std::numeric_limits<int64_t>::min() },
+        { "int32-max", std::numeric_limits<int32_t>::max() },
+        { "int32-min", std::numeric_limits<int32_t>::min() },
+        { "uint64-max", static_cast<int64_t>(std::numeric_limits<uint64_t>::max()) },
+        { "uint64-min", static_cast<int64_t>(std::numeric_limits<uint64_t>::min()) },
+        { "uint32-max", static_cast<int64_t>(std::numeric_limits<uint32_t>::max()) },
+        { "uint32-min", static_cast<int64_t>(std::numeric_limits<uint32_t>::min()) },
+    };
+}
+
+inline Vector<Int64Operand> int64OperandsMore()
+{
+    return {
+        { "0", 0 },
+        { "1", 1 },
+        { "2", 2 },
+        { "2", 3 },
+        { "4", 4 },
+        { "24", 24 },
+        { "42", 42 },
+        { "15887", 15887 },
+        { "65534", 65534 },
+        { "65535", 65535 },
+        { "65536", 65536 },
+        { "-1", -1 },
+        { "-2", -2 },
+        { "-3", -3 },
+        { "-4", -4 },
+        { "-24", -24 },
+        { "-42", -42 },
+        { "-15887", -15887 },
+        { "-65534", -65534 },
+        { "-65535", -65535 },
+        { "-65536", -65536 },
+        { "int64-max", std::numeric_limits<int64_t>::max() },
+        { "int64-min", std::numeric_limits<int64_t>::min() },
+        { "int32-max", std::numeric_limits<int32_t>::max() },
+        { "int32-min", std::numeric_limits<int32_t>::min() },
+        { "uint64-max", static_cast<int64_t>(std::numeric_limits<uint64_t>::max()) },
+        { "uint64-min", static_cast<int64_t>(std::numeric_limits<uint64_t>::min()) },
+        { "uint32-max", static_cast<int64_t>(std::numeric_limits<uint32_t>::max()) },
+        { "uint32-min", static_cast<int64_t>(std::numeric_limits<uint32_t>::min()) },
+    };
 }
 
 inline Vector<Int32Operand> int32Operands()
 {
-    Vector<Int32Operand> operands({
+    return {
         { "0", 0 },
         { "1", 1 },
         { "-1", -1 },
@@ -348,13 +477,43 @@ inline Vector<Int32Operand> int32Operands()
         { "int32-min", std::numeric_limits<int32_t>::min() },
         { "uint32-max", static_cast<int32_t>(std::numeric_limits<uint32_t>::max()) },
         { "uint32-min", static_cast<int32_t>(std::numeric_limits<uint32_t>::min()) }
-    });
-    return operands;
+    };
+}
+
+inline Vector<Int32Operand> int32OperandsMore()
+{
+    return {
+        { "0", 0 },
+        { "1", 1 },
+        { "2", 2 },
+        { "2", 3 },
+        { "4", 4 },
+        { "24", 24 },
+        { "42", 42 },
+        { "15887", 15887 },
+        { "65534", 65534 },
+        { "65535", 65535 },
+        { "65536", 65536 },
+        { "-1", -1 },
+        { "-2", -2 },
+        { "-3", -3 },
+        { "-4", -4 },
+        { "-24", -24 },
+        { "-42", -42 },
+        { "-15887", -15887 },
+        { "-65534", -65534 },
+        { "-65535", -65535 },
+        { "-65536", -65536 },
+        { "int32-max", std::numeric_limits<int32_t>::max() },
+        { "int32-min", std::numeric_limits<int32_t>::min() },
+        { "uint32-max", static_cast<int32_t>(std::numeric_limits<uint32_t>::max()) },
+        { "uint32-min", static_cast<int32_t>(std::numeric_limits<uint32_t>::min()) }
+    };
 }
 
 inline Vector<Int16Operand> int16Operands()
 {
-    Vector<Int16Operand> operands({
+    return {
         { "0", 0 },
         { "1", 1 },
         { "-1", -1 },
@@ -364,13 +523,12 @@ inline Vector<Int16Operand> int16Operands()
         { "int16-min", std::numeric_limits<int16_t>::min() },
         { "uint16-max", static_cast<int16_t>(std::numeric_limits<uint16_t>::max()) },
         { "uint16-min", static_cast<int16_t>(std::numeric_limits<uint16_t>::min()) }
-    });
-    return operands;
+    };
 }
 
 inline Vector<Int8Operand> int8Operands()
 {
-    Vector<Int8Operand> operands({
+    return {
         { "0", 0 },
         { "1", 1 },
         { "-1", -1 },
@@ -380,8 +538,7 @@ inline Vector<Int8Operand> int8Operands()
         { "int8-min", std::numeric_limits<int8_t>::min() },
         { "uint8-max", static_cast<int8_t>(std::numeric_limits<uint8_t>::max()) },
         { "uint8-min", static_cast<int8_t>(std::numeric_limits<uint8_t>::min()) }
-    });
-    return operands;
+    };
 }
 
 inline void add32(CCallHelpers& jit, GPRReg src1, GPRReg src2, GPRReg dest)
@@ -406,9 +563,7 @@ EffectiveType modelLoad(EffectiveType value)
     } u;
     
     u.original = value;
-    if (std::is_signed<LoadedType>::value)
-        return static_cast<EffectiveType>(u.loaded);
-    return static_cast<EffectiveType>(static_cast<typename std::make_unsigned<EffectiveType>::type>(u.loaded));
+    return static_cast<EffectiveType>(static_cast<std::make_unsigned_t<EffectiveType>>(u.loaded));
 }
 
 template<>
@@ -417,12 +572,38 @@ inline float modelLoad<float, float>(float value) { return value; }
 template<>
 inline double modelLoad<double, double>(double value) { return value; }
 
-void run(const char* filter);
+inline std::string toHex(uint32_t number)
+{
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
+    static constexpr std::array<char, 16> hexDigits { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f' };
+    std::array<char, 128> buffer;
+    size_t startIndex = buffer.size();
+    do {
+        buffer[--startIndex] = hexDigits[number & 0xF];
+        number >>= 4;
+    } while (number);
+    return std::string(buffer.data() + startIndex, buffer.data() + buffer.size());
+    WTF_ALLOW_UNSAFE_BUFFER_USAGE_END
+}
+
+struct TestConfig {
+    enum class Mode {
+        ListTests,
+        RunTests,
+    } mode { Mode::RunTests };
+    char* filter { nullptr };
+    unsigned workerThreadCount { 1 };
+};
+
+void run(const TestConfig* filter);
+
 void testBitAndSExt32(int32_t value, int64_t mask);
 void testUbfx32ShiftAnd();
 void testUbfx32AndShift();
 void testUbfx64ShiftAnd();
 void testUbfx64AndShift();
+void testUbfx32ArithmeticShiftAnd();
+void testUbfx64ArithmeticShiftAnd();
 void testUbfiz32AndShiftValueMask();
 void testUbfiz32AndShiftMaskValue();
 void testUbfiz32ShiftAnd();
@@ -455,6 +636,8 @@ void testInsertSignedBitfieldInZero32();
 void testInsertSignedBitfieldInZero64();
 void testExtractSignedBitfield32();
 void testExtractSignedBitfield64();
+void testExtractSignedBitfieldNonCanonical32();
+void testExtractSignedBitfieldNonCanonical64();
 void testBitAndZeroShiftRightArgImmMask32();
 void testBitAndZeroShiftRightArgImmMask64();
 void testBasicSelect();
@@ -471,6 +654,8 @@ void testSubWithUnsignedRightShift32();
 void testSubWithLeftShift64();
 void testSubWithRightShift64();
 void testSubWithUnsignedRightShift64();
+void testAddZeroExtend64();
+void testAddSignExtend64();
 
 void testAndLeftShift32();
 void testAndRightShift32();
@@ -504,10 +689,15 @@ void testSelectFloatCompareFloat(float, float);
 void testSelectDoubleCompareDoubleWithAliasing();
 void testSelectFloatCompareFloatWithAliasing();
 void testSelectFold(intptr_t value);
+void testSelectInt32WithZeroElse();
+void testSelectInt64WithZeroElse();
+void testSelectInt32ImmWithZeroElse();
+void testSelectTestWithZeroElse();
 void testSelectInvert();
 void testCheckSelect();
 void testCheckSelectCheckSelect();
 void testCheckSelectAndCSE();
+void testCheckSelectAndDeadCheckCSE();
 void testPowDoubleByIntegerLoop(double xOperand, int32_t yOperand);
 double b3Pow(double x, int y);
 void testTruncOrHigh();
@@ -532,7 +722,7 @@ void testPatchpointDoubleRegs();
 void testSpillDefSmallerThanUse();
 void testSpillUseLargerThanDef();
 void testLateRegister();
-void interpreterPrint(Vector<intptr_t>* stream, intptr_t value);
+extern "C" void SYSV_ABI interpreterPrint(Vector<intptr_t>* stream, intptr_t value);
 void testInterpreter();
 void testReduceStrengthCheckBottomUseInAnotherBlock();
 void testResetReachabilityDanglingReference();
@@ -555,6 +745,8 @@ void testTrappingLoadAddStore();
 void testTrappingLoadDCE();
 void testTrappingStoreElimination();
 void testMoveConstants();
+void testMoveConstantsWithLargeOffsets();
+void testMoveConstantsSIMD();
 void testPCOriginMapDoesntInsertNops();
 void testBitOrBitOrArgImmImm32(int, int, int c);
 void testBitOrImmBitOrArgImm32(int, int, int c);
@@ -593,8 +785,8 @@ void testBitNotMem(int64_t);
 void testBitNotArg32(int32_t);
 void testBitNotImm32(int32_t);
 void testBitNotMem32(int32_t);
-void testNotOnBooleanAndBranch32(int64_t, int64_t);
-void testBitNotOnBooleanAndBranch32(int64_t, int64_t);
+void testNotOnBooleanAndBranch32(int32_t, int32_t);
+void testBitNotOnBooleanAndBranch32(int32_t, int32_t);
 void testShlArgs(int64_t, int64_t);
 void testShlImms(int64_t, int64_t);
 void testShlArgImm(int64_t, int64_t);
@@ -652,6 +844,12 @@ void testFloorFloorArg(float);
 void testCeilFloorArg(float);
 void testFloorArgWithUselessDoubleConversion(float);
 void testFloorArgWithEffectfulDoubleConversion(float);
+void testFTruncArg(double);
+void testFTruncImm(double);
+void testFTruncMem(double);
+void testFTruncArg(float);
+void testFTruncImm(float);
+void testFTruncMem(float);
 double correctSqrt(double value);
 void testSqrtArg(double);
 void testSqrtImm(double);
@@ -661,6 +859,7 @@ void testSqrtImm(float);
 void testSqrtMem(float);
 void testSqrtArgWithUselessDoubleConversion(float);
 void testSqrtArgWithEffectfulDoubleConversion(float);
+void testPurifyNaN();
 void testCompareTwoFloatToDouble(float, float);
 void testCompareOneFloatToDouble(float, double);
 void testCompareFloatToDoubleThroughPhi(float, float);
@@ -701,6 +900,8 @@ void testIToD64Arg();
 void testIToF64Arg();
 void testIToD32Arg();
 void testIToF32Arg();
+void testIToDU32Arg();
+void testIToFU32Arg();
 void testIToD64Mem();
 void testIToF64Mem();
 void testIToD32Mem();
@@ -712,7 +913,7 @@ void testIToF32Imm(int32_t value);
 void testIToDReducedToIToF64Arg();
 void testIToDReducedToIToF32Arg();
 void testStoreZeroReg();
-void testStore32(int value);
+void testStore32(int32_t value);
 void testStoreConstant(int value);
 void testStoreConstantPtr(intptr_t value);
 void testStore8Arg();
@@ -725,8 +926,8 @@ void testAdd1(int value);
 void testAdd1Ptr(intptr_t value);
 void testNeg32(int32_t value);
 void testNegPtr(intptr_t value);
-void testStoreAddLoad32(int amount);
-void testStoreRelAddLoadAcq32(int amount);
+void testStoreAddLoad32(int32_t amount);
+void testStoreRelAddLoadAcq32(int32_t amount);
 void testStoreAddLoadImm32(int amount);
 void testStoreAddLoad8(int amount, B3::Opcode loadOpcode);
 void testStoreRelAddLoadAcq8(int amount, B3::Opcode loadOpcode);
@@ -763,7 +964,10 @@ void testOverrideFramePointer();
 void testStackSlot();
 void testLoadFromFramePointer();
 void testStoreLoadStackSlot(int value);
+void testStoreDouble(double input);
+void testStoreDoubleConstant(double input);
 void testStoreFloat(double input);
+void testStoreFloatConstant(double input);
 void testStoreDoubleConstantAsFloat(double input);
 void testSpillGP();
 void testSpillFP();
@@ -838,6 +1042,7 @@ void testCheckAddImmCommute();
 void testCheckAddImmSomeRegister();
 void testCheckAdd();
 void testCheckAdd64();
+void testCheckAdd64Range();
 void testCheckAddFold(int, int);
 void testCheckAddFoldFail(int, int);
 void test42();
@@ -853,17 +1058,17 @@ void testLoadOffsetScaledUnsignedImm12Max();
 void testLoadOffsetScaledUnsignedOverImm12Max();
 void testAddTreeArg32(int32_t);
 void testMulTreeArg32(int32_t);
-void testArg(int argument);
+void testArg(int64_t argument);
 void testReturnConst64(int64_t value);
 void testReturnVoid();
 void testLoadZeroExtendIndexAddress();
 void testLoadSignExtendIndexAddress();
 void testStoreZeroExtendIndexAddress();
 void testStoreSignExtendIndexAddress();
-void testAddArg(int);
-void testAddArgs(int, int);
-void testAddArgImm(int, int);
-void testAddImmArg(int, int);
+void testAddArg(int64_t);
+void testAddArgs(int64_t, int64_t);
+void testAddArgImm(int64_t, int64_t);
+void testAddImmArg(int64_t, int64_t);
 void testAddArgMem(int64_t, int64_t);
 void testAddMemArg(int64_t, int64_t);
 void testAddImmMem(int64_t, int64_t);
@@ -872,8 +1077,8 @@ void testAddArgs32(int, int);
 void testAddArgMem32(int32_t, int32_t);
 void testAddMemArg32(int32_t, int32_t);
 void testAddImmMem32(int32_t, int32_t);
-void testAddNeg1(int, int);
-void testAddNeg2(int, int);
+void testAddNeg1(int64_t, int64_t);
+void testAddNeg2(int64_t, int64_t);
 void testAddArgZeroImmZDef();
 void testAddLoadTwice();
 void testAddArgDouble(double);
@@ -915,11 +1120,11 @@ void testAddArgFloatWithUselessDoubleConversion(float);
 void testAddArgsFloatWithUselessDoubleConversion(float, float);
 void testAddArgsFloatWithEffectfulDoubleConversion(float, float);
 void testAddMulMulArgs(int64_t, int64_t, int64_t c);
-void testMulArg(int);
-void testMulArgStore(int);
-void testMulAddArg(int);
-void testMulArgs(int, int);
-void testMulArgNegArg(int, int);
+void testMulArg(int32_t);
+void testMulArgStore(int32_t);
+void testMulAddArg(int32_t);
+void testMulArgs(int64_t, int64_t);
+void testMulArgNegArg(int64_t, int64_t);
 void testCheckMulArgumentAliasing64();
 void testCheckMulArgumentAliasing32();
 void testCheckMul64SShr();
@@ -933,11 +1138,13 @@ void testCallSimplePure(int, int);
 void testCallFunctionWithHellaArguments();
 void testCallFunctionWithHellaArguments2();
 void testCallFunctionWithHellaArguments3();
+void testCallPairResult(int, int);
+void testCallPairResultRare(int, int);
 void testReturnDouble(double value);
 void testReturnFloat(float value);
-void testMulNegArgArg(int, int);
+void testMulNegArgArg(int64_t, int64_t);
 void testMulArgImm(int64_t, int64_t);
-void testMulImmArg(int, int);
+void testMulImmArg(int64_t, int64_t);
 void testMulArgs32(int, int);
 void testMulArgs32SignExtend();
 void testMulArgs32ZeroExtend();
@@ -963,11 +1170,13 @@ void testMulNegSignExtend32();
 void testMulNegZeroExtend32();
 void testMulArgDouble(double);
 void testMulArgsDouble(double, double);
+void testMulNegArgsDouble();
+void testMulNegArgsFloat();
 void testCallSimpleDouble(double, double);
 void testCallSimpleFloat(float, float);
 void testCallFunctionWithHellaDoubleArguments();
 void testCallFunctionWithHellaFloatArguments();
-void testLinearScanWithCalleeOnStack();
+void testForcedSpillCalleeOnStack();
 void testChillDiv(int num, int den, int res);
 void testChillDivTwice(int num1, int den1, int num2, int den2, int res);
 void testChillDiv64(int64_t num, int64_t den, int64_t res);
@@ -985,6 +1194,16 @@ void testMulImmsFloat(float, float);
 void testMulArgFloatWithUselessDoubleConversion(float);
 void testMulArgsFloatWithUselessDoubleConversion(float, float);
 void testMulArgsFloatWithEffectfulDoubleConversion(float, float);
+void testMulDoubleByTwo(double);
+void testMulFloatByTwo(float);
+void testMulDoubleByNegOne(double);
+void testMulFloatByNegOne(float);
+void testMulDoubleByNegTwo(double);
+void testMulFloatByNegTwo(float);
+void testDivDoubleByNegOne(double);
+void testDivFloatByNegOne(float);
+void testDivDoubleByPowerOfTwo(double);
+void testDivFloatByPowerOfTwo(float);
 void testDivArgDouble(double);
 void testDivArgsDouble(double, double);
 void testDivArgImmDouble(double, double);
@@ -1028,6 +1247,30 @@ void testAddShl32();
 void testAddShl64();
 void testAddShl65();
 void testReduceStrengthReassociation(bool flip);
+void testReduceStrengthTruncInt64Constant(int64_t filler, int32_t value);
+void testReduceStrengthTruncDoubleConstant(double filler, float value);
+void testReduceStrengthMulDoubleByTwo();
+void testReduceStrengthMulFloatByTwo();
+void testReduceStrengthMulDoubleByNegOne();
+void testReduceStrengthMulFloatByNegOne();
+void testReduceStrengthMulDoubleByNegTwo();
+void testReduceStrengthMulFloatByNegTwo();
+void testReduceStrengthDivDoubleByNegOne();
+void testReduceStrengthDivFloatByNegOne();
+void testReduceStrengthDivDoubleByTwo();
+void testReduceStrengthDivFloatByTwo();
+void testReduceStrengthDivDoubleByFour();
+void testReduceStrengthDivFloatByFour();
+void testReduceStrengthDivDoubleByNegTwo();
+void testReduceStrengthDivFloatByNegTwo();
+void testReduceStrengthBelowEqualZeroInt32();
+void testReduceStrengthBelowEqualZeroInt64();
+void testReduceStrengthBelowOneInt32();
+void testReduceStrengthBelowOneInt64();
+void testReduceStrengthAboveEqualOneInt32();
+void testReduceStrengthAboveEqualOneInt64();
+void testReduceStrengthAboveZeroInt32();
+void testReduceStrengthAboveZeroInt64();
 void testLoadBaseIndexShift2();
 void testLoadBaseIndexShift32();
 void testOptimizeMaterialization();
@@ -1081,6 +1324,7 @@ void testShuffleDoesntTrashCalleeSaves();
 void testDemotePatchpointTerminal();
 void testReportUsedRegistersLateUseFollowedByEarlyDefDoesNotMarkUseAsDead();
 void testInfiniteLoopDoesntCauseBadHoisting();
+void testBackwardsDominatorsWithMultipleBackEdges();
 void testDivImmArgFloat(float, float);
 void testDivImmsFloat(float, float);
 void testModArgDouble(double);
@@ -1100,30 +1344,36 @@ void testUDivArgsInt32(uint32_t, uint32_t);
 void testUDivArgsInt64(uint64_t, uint64_t);
 void testUModArgsInt32(uint32_t, uint32_t);
 void testUModArgsInt64(uint64_t, uint64_t);
-void testSubArg(int);
-void testSubArgs(int, int);
+void testUDivByConstantInt32(uint32_t, uint32_t);
+void testUDivByConstantInt32PowerOf2(uint32_t);
+void testUDivByConstantInt32NonPowerOf2(uint32_t);
+void testUDivByConstantInt32EvenDivisors(uint32_t);
+void testUDivByConstantInt32EdgeCases(uint32_t);
+void testUDivByConstantInt32With33BitMagic(uint32_t);
+void testSubArg(int64_t);
+void testSubArgs(int64_t, int64_t);
 void testSubArgImm(int64_t, int64_t);
-void testSubNeg(int, int);
-void testNegSub(int, int);
-void testNegValueSubOne(int);
-void testSubSub(int, int, int c);
-void testSubSub2(int, int, int c);
-void testSubAdd(int, int, int c);
-void testSubFirstNeg(int, int);
-void testSubImmArg(int, int);
+void testSubNeg(int64_t, int64_t);
+void testNegSub(int64_t, int64_t);
+void testNegValueSubOne(int64_t);
+void testSubSub(intptr_t, intptr_t, intptr_t c);
+void testSubSub2(intptr_t, intptr_t, intptr_t c);
+void testSubAdd(int64_t, int64_t, int64_t c);
+void testSubFirstNeg(int64_t, int64_t);
+void testSubImmArg(int64_t, int64_t);
 void testSubArgMem(int64_t, int64_t);
 void testSubMemArg(int64_t, int64_t);
 void testSubImmMem(int64_t, int64_t);
 void testSubMemImm(int64_t, int64_t);
 void testSubArgs32(int, int);
 void testSubArgs32ZeroExtend(int, int);
-void testSubArgImm32(int, int);
-void testSubImmArg32(int, int);
+void testSubArgImm32(int32_t, int32_t);
+void testSubImmArg32(int32_t, int32_t);
 void testSubMemArg32(int32_t, int32_t);
 void testSubArgMem32(int32_t, int32_t);
 void testSubImmMem32(int32_t, int32_t);
 void testSubMemImm32(int32_t, int32_t);
-void testNegValueSubOne32(int);
+void testNegValueSubOne32(int32_t);
 void testNegMulArgImm(int64_t, int64_t);
 void testSubMulMulArgs(int64_t, int64_t, int64_t c);
 void testSubArgDouble(double);
@@ -1143,34 +1393,211 @@ void testTernarySubInstructionSelection(B3::Opcode valueModifier, Type valueType
 void testNegDouble(double);
 void testNegFloat(float);
 void testNegFloatWithUselessDoubleConversion(float);
+void testImpureNaN();
 
-void addArgTests(const char* filter, Deque<RefPtr<SharedTask<void()>>>&);
-void addBitTests(const char* filter, Deque<RefPtr<SharedTask<void()>>>&);
-void addCallTests(const char* filter, Deque<RefPtr<SharedTask<void()>>>&);
-void addSExtTests(const char* filter, Deque<RefPtr<SharedTask<void()>>>&);
-void addSShrShTests(const char* filter, Deque<RefPtr<SharedTask<void()>>>&);
-void addShrTests(const char* filter, Deque<RefPtr<SharedTask<void()>>>&);
-void addAtomicTests(const char* filter, Deque<RefPtr<SharedTask<void()>>>&);
-void addLoadTests(const char* filter, Deque<RefPtr<SharedTask<void()>>>&);
-void addTupleTests(const char* filter, Deque<RefPtr<SharedTask<void()>>>&);
+void addArgTests(const TestConfig*, Deque<RefPtr<SharedTask<void()>>>&);
+void addBitTests(const TestConfig*, Deque<RefPtr<SharedTask<void()>>>&);
+void addCallTests(const TestConfig*, Deque<RefPtr<SharedTask<void()>>>&);
+void addSExtTests(const TestConfig*, Deque<RefPtr<SharedTask<void()>>>&);
+void addSShrShTests(const TestConfig*, Deque<RefPtr<SharedTask<void()>>>&);
+void addShrTests(const TestConfig*, Deque<RefPtr<SharedTask<void()>>>&);
+void addAtomicTests(const TestConfig*, Deque<RefPtr<SharedTask<void()>>>&);
+void addLoadTests(const TestConfig*, Deque<RefPtr<SharedTask<void()>>>&);
+void addTupleTests(const TestConfig*, Deque<RefPtr<SharedTask<void()>>>&);
 
-void testFastForwardCopy32();
-void testByteCopyLoop();
-void testByteCopyLoopStartIsLoopDependent();
-void testByteCopyLoopBoundIsLoopDependent();
+void testCSEStoreWithLoop();
+void testCSELoadAfterStoreDiamond(bool flag);
+void testCSELoadAcrossLoopBackEdge(unsigned count);
+void testCSELoopHeaderLoadFromBackEdgeStore(unsigned count);
 
-void addCopyTests(const char* filter, Deque<RefPtr<SharedTask<void()>>>&);
-
-bool shouldRun(const char* filter, const char* testName);
+bool shouldRun(const TestConfig*, const char* testName);
 
 void testLoadPreIndex32();
 void testLoadPreIndex64();
 void testLoadPostIndex32();
 void testLoadPostIndex64();
+void testLoadPreIndex32WithStore();
 
 void testStorePreIndex32();
 void testStorePreIndex64();
 void testStorePostIndex32();
 void testStorePostIndex64();
+
+void testFloatMaxMin();
+void testDoubleMaxMin();
+
+void testWasmAddressDoesNotCSE();
+void testWasmAddressWithOffset();
+void testStoreAfterClobberExitsSideways();
+void testStoreAfterClobberDifferentWidth();
+void testStoreAfterClobberDifferentWidthSuccessor();
+void testStoreAfterClobberExitsSidewaysSuccessor();
+void testNarrowLoad();
+void testNarrowLoadClobber();
+void testNarrowLoadClobberNarrow();
+void testNarrowLoadNotClobber();
+void testNarrowLoadUpper();
+
+void testVectorOrConstants(v128_t, v128_t);
+void testVectorAndConstants(v128_t, v128_t);
+void testVectorXorConstants(v128_t, v128_t);
+void testVectorOrSelf();
+void testVectorAndSelf();
+void testVectorXorSelf();
+void testVectorXorOrAllOnesToVectorAndXor();
+void testVectorXorAndAllOnesToVectorOrXor();
+void testVectorXorOrAllOnesConstantToVectorAndXor(v128_t);
+void testVectorXorAndAllOnesConstantToVectorOrXor(v128_t);
+void testVectorAndConstantConstant(v128_t, v128_t);
+void testVectorFmulByElementFloat();
+void testVectorFmulByElementDouble();
+void testVectorExtractLane0Float();
+void testVectorExtractLane0Double();
+void testVectorMulHigh();
+void testVectorMulLow();
+void testVectorMulAddLowSimple();
+void testVectorMulAddLowDoubled();
+void testVectorMulAddLowTwoMuls();
+void testVectorMulAddLowBlaMka();
+void testVectorMulAddHighSimple();
+void testVectorMulAddHighDoubled();
+void testVectorMulAddHighTwoMuls();
+void testVectorMulAddMixedLowHigh();
+void testVectorRelaxedMinMax();
+void testVectorRelaxedQ15Mulr();
+void testVectorRelaxedDotI8x16I7x16();
+void testVectorRelaxedDotI8x16I7x16Add();
+
+void testConstDoubleMove();
+void testConstFloatMove();
+
+void testConstDoubleZero();
+void testConstDoubleNegativeZero();
+void testConstFloatZero();
+void testConstFloatNegativeZero();
+void testConstDoubleAddZero();
+void testConstFloatAddZero();
+void testConstDoubleCompareZero();
+void testConstFloatCompareZero();
+void testConstDoubleSelectZero();
+void testConstFloatSelectZero();
+void testConstDoubleMultipleZeroUses();
+void testConstFloatMultipleZeroUses();
+
+void testSShrCompare32(int32_t);
+void testSShrCompare64(int64_t);
+
+void testInt52RoundTripUnary(int32_t);
+void testInt52RoundTripBinary();
+void testTruncSShrAddUnalignedConstant();
+
+void testMulHigh32();
+void testMulHigh64();
+void testUMulHigh32();
+void testUMulHigh64();
+
+void testMemoryCopy();
+void testMemoryCopyConstant();
+void testMemoryFill();
+void testMemoryFillConstant();
+
+void testLoadImmutable();
+
+// ARM64 conditional compare (ccmp) tests
+void testCCmpAnd32(int32_t, int32_t, int32_t, int32_t);
+void testCCmpAnd64(int64_t, int64_t, int64_t, int64_t);
+void testCCmpOr32(int32_t, int32_t, int32_t, int32_t);
+void testCCmpOr64(int64_t, int64_t, int64_t, int64_t);
+// 3-comparison chain tests
+void testCCmpAndAnd32(int32_t, int32_t, int32_t, int32_t, int32_t, int32_t);
+void testCCmpOrOr32(int32_t, int32_t, int32_t, int32_t, int32_t, int32_t);
+void testCCmpAndOr32(int32_t, int32_t, int32_t, int32_t, int32_t, int32_t);
+// Tests for ccmn (negative immediates) and large immediates
+void testCCmnAnd32WithNegativeImm(int32_t, int32_t);
+void testCCmnAnd64WithNegativeImm(int64_t, int64_t);
+void testCCmpWithLargePositiveImm(int32_t, int32_t);
+void testCCmpWithLargeNegativeImm(int32_t, int32_t);
+// Tests for ccmp optimizations
+void testCCmpSmartOperandOrdering32(int32_t, int32_t);
+void testCCmpSmartOperandOrdering64(int64_t, int64_t);
+void testCCmpOperandCommutation32(int32_t, int32_t);
+void testCCmpOperandCommutation64(int64_t, int64_t);
+void testCCmpCombinedOptimizations(int32_t, int32_t);
+void testCCmpZeroRegisterOptimization32(int32_t, int32_t);
+void testCCmpZeroRegisterOptimization64(int64_t, int64_t);
+void testCCmpMixedAndOr32(int32_t, int32_t, int32_t);
+void testCCmpMixedOrAnd32(int32_t, int32_t, int32_t);
+void testCCmpNegatedAnd32(int32_t, int32_t);
+void testCCmpNegatedOr32(int32_t, int32_t);
+void testCCmpMixedWidth32And64(int32_t, int64_t, int32_t);
+void testCCmpMixedWidth64And32(int64_t, int32_t);
+void testCCmpChainRollback(int32_t, int32_t, int32_t, int32_t, int32_t, int32_t);
+
+// ARM64 fccmp tests (floating-point conditional compare)
+void testFCCmpAndDouble(double, double, double, double);
+void testFCCmpOrDouble(double, double, double, double);
+void testFCCmpAndFloat(float, float, float, float);
+void testFCCmpOrFloat(float, float, float, float);
+void testFCCmpAndAndDouble(double, double, double, double, double, double);
+void testFCCmpMixedIntDouble(int32_t, int32_t, double, double);
+void testFCCmpMixedDoubleInt(double, double, int32_t, int32_t);
+void testFCCmpLessThanAndDouble(double, double, double, double);
+void testFCCmpGreaterEqualOrDouble(double, double, double, double);
+void testFCCmpNaN(double, double, double, double);
+void testFCCmpNegatedAndDouble(double, double, double, double);
+
+// SIMD XOR+rotate pattern matching
+void testVectorXorRotateRight64();
+void testVectorXor3();
+void testVectorDotProductSplatOne();
+void testVectorShrZipToExtend();
+void testVectorShrZipToExtendI32();
+void testVectorShrZipToExtendI64();
+
+// SIMD VectorUnzip/Zip/Transpose/Reverse B3 opcodes
+void testVectorUnzipEven();
+void testVectorUnzipOdd();
+void testVectorZipLower();
+void testVectorZipHigher();
+void testVectorTransposeEven();
+void testVectorTransposeOdd();
+void testVectorReverse();
+
+// SIMD strength reduction: shift-by-1 → add
+void testVectorShlByOne();
+
+// SIMD vector shift by immediate
+void testVectorShlImmediate();
+void testVectorShrImmediate();
+
+// SIMD shuffle → canonical instruction strength reduction
+void testVectorSwizzleToUnzipEven();
+void testVectorSwizzleBinaryToUnzipOdd();
+void testVectorSwizzleBinaryCanonical();
+void testVectorSwizzleUnaryCanonical();
+void testVectorExtractPair();
+void testVectorSwizzleBinaryToEXT();
+void testVectorSwizzleUnaryToEXT();
+void testVectorCanonicalSameInputFolding();
+void testVectorSwizzleToDupElement();
+void testVectorSwizzleComposition();
+void testVectorSwizzleUnaryComposition();
+void testVectorSwizzleCompositionMultiUse();
+void testVectorSwizzleCompositionRightImmOuter();
+void testVectorSwizzleBinaryOnlyOneSideSide0();
+void testVectorSwizzleBinaryOnlyOneSideSide1();
+void testVectorSwizzleBinaryOnlyOneSideSide0WithOOB();
+void testVectorSwizzleBinaryOnlyOneSideSide1WithOOB();
+void testVectorSwizzleBinaryOnlyOneSideAllOOB();
+void testVectorSwizzleBinaryOnlyOneSideMixed();
+void testVectorSwizzleBinaryOnlyOneSideSide1Scattered();
+
+void testRotRFromShiftXorChainSHA256Sigma1_32(int32_t);
+void testRotRFromShiftXorChainSHA512Sigma1_64(int64_t);
+void testRotRFromShiftXorChainSHA256sigma0_32(int32_t);
+void testRotRFromShiftOrChainSHA256Sigma1_32(int32_t);
+void testRotRFromShiftXorChainSharedShiftOperand(int32_t);
+void testShiftOrDifferentBasesNoRotate(int32_t, int32_t, int32_t);
+void testShiftOrMismatchedAmountsNoRotate(int32_t);
 
 #endif // ENABLE(B3_JIT)

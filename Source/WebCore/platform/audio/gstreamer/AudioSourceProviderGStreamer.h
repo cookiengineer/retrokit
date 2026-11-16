@@ -24,6 +24,8 @@
 #include "AudioSourceProviderClient.h"
 #include "GRefPtrGStreamer.h"
 #include "MainThreadNotifier.h"
+#include "WebAudioSourceProvider.h"
+#include <atomic>
 #include <gst/gst.h>
 #include <wtf/Forward.h>
 #include <wtf/Lock.h>
@@ -32,7 +34,6 @@
 #if ENABLE(MEDIA_STREAM)
 #include "GStreamerAudioStreamDescription.h"
 #include "MediaStreamTrackPrivate.h"
-#include "WebAudioSourceProvider.h"
 #endif
 
 typedef struct _GstAdapter GstAdapter;
@@ -40,39 +41,46 @@ typedef struct _GstAppSink GstAppSink;
 
 namespace WebCore {
 
-#if ENABLE(MEDIA_STREAM)
 class AudioSourceProviderGStreamer final : public WebAudioSourceProvider {
 public:
+    static Ref<AudioSourceProviderGStreamer> create()
+    {
+        return adoptRef(*new AudioSourceProviderGStreamer());
+    }
+
+#if ENABLE(MEDIA_STREAM)
     static Ref<AudioSourceProviderGStreamer> create(MediaStreamTrackPrivate& source)
     {
         return adoptRef(*new AudioSourceProviderGStreamer(source));
     }
     AudioSourceProviderGStreamer(MediaStreamTrackPrivate&);
-#else
-class AudioSourceProviderGStreamer : public AudioSourceProvider {
-    WTF_MAKE_FAST_ALLOCATED;
-    WTF_MAKE_NONCOPYABLE(AudioSourceProviderGStreamer);
-public:
 #endif
-
-    AudioSourceProviderGStreamer();
-    ~AudioSourceProviderGStreamer();
 
     void configureAudioBin(GstElement* audioBin, GstElement* audioSink);
 
-    void provideInput(AudioBus*, size_t framesToProcess) override;
-    void setClient(AudioSourceProviderClient*) override;
+    void provideInput(AudioBus&, size_t framesToProcess) override;
+    void setClient(WeakPtr<AudioSourceProviderClient>&&) override;
     const AudioSourceProviderClient* client() const { return m_client.get(); }
 
     void handleNewDeinterleavePad(GstPad*);
-    void deinterleavePadsConfigured();
     void handleRemovedDeinterleavePad(GstPad*);
 
-    GstFlowReturn handleSample(GstAppSink*, bool isPreroll);
+    GstFlowReturn handleSample(GstAppSink*);
     void clearAdapters();
 
 private:
+    AudioSourceProviderGStreamer();
+    ~AudioSourceProviderGStreamer();
+
+    void initialize();
+    void copyGStreamerBuffersToAudioChannel(GstAdapter*, AudioBus&, int, size_t);
+    void provideLiveCaptureInput(AudioBus&, size_t framesToProcess) WTF_REQUIRES_LOCK(m_adapterLock);
+
+    void determineSampleRate(const GstCaps*);
+
 #if ENABLE(MEDIA_STREAM)
+    WeakPtr<MediaStreamTrackPrivate> m_captureSource;
+    RefPtr<MediaStreamPrivate> m_streamPrivate;
     GRefPtr<GstElement> m_pipeline;
 #endif
     enum MainThreadNotification {
@@ -82,11 +90,16 @@ private:
     GRefPtr<GstElement> m_audioSinkBin;
     WeakPtr<AudioSourceProviderClient> m_client;
     int m_deinterleaveSourcePads { 0 };
+    int m_deinterleaveConfiguredSourcePads { 0 };
     HashMap<int, GRefPtr<GstAdapter>> m_adapters WTF_GUARDED_BY_LOCK(m_adapterLock);
     unsigned long m_deinterleavePadAddedHandlerId { 0 };
-    unsigned long m_deinterleaveNoMorePadsHandlerId { 0 };
     unsigned long m_deinterleavePadRemovedHandlerId { 0 };
     Lock m_adapterLock;
+    CString m_providerId;
+
+    bool m_isLiveCapture { false };
+    std::atomic<int> m_sampleRate { 0 };
+    bool m_isBuffering WTF_GUARDED_BY_LOCK(m_adapterLock) { true };
 };
 
 }

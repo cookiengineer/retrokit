@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2005-2016 Apple Inc.  All rights reserved.
+ * Copyright (C) 2005-2016 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,19 +25,28 @@
 
 #pragma once
 
-#include "FloatPoint.h"
-#include "FloatPoint3D.h"
-#include "IntPoint.h"
+#include <WebCore/CompositeOperation.h>
+#include <WebCore/FloatPoint.h>
+#include <WebCore/FloatPoint3D.h>
+#include <WebCore/IntPoint.h>
+#include <WebCore/Quaternion.h>
 #include <array>
 #include <string.h> //for memcpy
-#include <wtf/FastMalloc.h>
 #include <wtf/Forward.h>
+#include <wtf/Platform.h>
+#include <wtf/TZoneMalloc.h>
 
 #if USE(CA)
 typedef struct CATransform3D CATransform3D;
 #endif
 #if USE(CG)
 typedef struct CGAffineTransform CGAffineTransform;
+#endif
+#if PLATFORM(COCOA)
+#include <simd/simd.h>
+#endif
+#if USE(SKIA)
+class SkM44;
 #endif
 
 #if PLATFORM(WIN) || (PLATFORM(GTK) && OS(WINDOWS))
@@ -46,11 +55,6 @@ typedef struct _XFORM XFORM;
 #else
 typedef struct tagXFORM XFORM;
 #endif
-#endif
-
-#if PLATFORM(WIN)
-struct D2D_MATRIX_3X2_F;
-typedef D2D_MATRIX_3X2_F D2D1_MATRIX_3X2_F;
 #endif
 
 namespace WTF {
@@ -70,36 +74,42 @@ class FloatQuad;
 #endif
 
 class TransformationMatrix {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(TransformationMatrix, WEBCORE_EXPORT);
 public:
 
 #if (PLATFORM(IOS_FAMILY) && CPU(ARM_THUMB2)) || defined(TRANSFORMATION_MATRIX_USE_X86_64_SSE2)
-#if COMPILER(MSVC)
-    __declspec(align(16)) typedef double Matrix4[4][4];
+    typedef std::array<std::array<double, 4>, 4> Matrix4 __attribute__((aligned (16)));
 #else
-    typedef double Matrix4[4][4] __attribute__((aligned (16)));
-#endif
-#else
-    typedef double Matrix4[4][4];
+    typedef std::array<std::array<double, 4>, 4> Matrix4;
 #endif
 
     constexpr TransformationMatrix()
-        : m_matrix {
+        : m_matrix { {
             { 1, 0, 0, 0 },
             { 0, 1, 0, 0 },
             { 0, 0, 1, 0 },
             { 0, 0, 0, 1 },
-        }
+        } }
     {
     }
 
     constexpr TransformationMatrix(double a, double b, double c, double d, double e, double f)
-        : m_matrix {
+        : m_matrix { {
             { a, b, 0, 0 },
             { c, d, 0, 0 },
             { 0, 0, 1, 0 },
             { e, f, 0, 1 },
-        }
+        } }
+    {
+    }
+
+    constexpr TransformationMatrix(double tx, double ty)
+        : m_matrix { {
+            { 1, 0, 0, 0 },
+            { 0, 1, 0, 0 },
+            { 0, 0, 1, 0 },
+            { tx, ty, 0, 1 },
+        } }
     {
     }
 
@@ -108,24 +118,24 @@ public:
         double m21, double m22, double m23, double m24,
         double m31, double m32, double m33, double m34,
         double m41, double m42, double m43, double m44)
-        : m_matrix {
+        : m_matrix { {
             { m11, m12, m13, m14 },
             { m21, m22, m23, m24 },
             { m31, m32, m33, m34 },
             { m41, m42, m43, m44 },
-        }
+        } }
     {
     }
 
     WEBCORE_EXPORT TransformationMatrix(const AffineTransform&);
 
-    static TransformationMatrix fromQuaternion(double qx, double qy, double qz, double qw);
+    WEBCORE_EXPORT static TransformationMatrix NODELETE fromQuaternion(const Quaternion&);
 
     // Field of view in radians
     static TransformationMatrix fromProjection(double fovUp, double fovDown, double fovLeft, double fovRight, double depthNear, double depthFar);
     static TransformationMatrix fromProjection(double fovy, double aspect, double depthNear, double depthFar);
 
-    static const TransformationMatrix identity;
+    WEBCORE_EXPORT static const TransformationMatrix identity;
 
     void setMatrix(double a, double b, double c, double d, double e, double f)
     {
@@ -162,10 +172,10 @@ public:
 
     // This form preserves the double math from input to output.
     void map(double x, double y, double& x2, double& y2) const { multVecMatrix(x, y, x2, y2); }
-    void map4ComponentPoint(double& x, double& y, double& z, double& w) const;
+    void NODELETE map4ComponentPoint(double& x, double& y, double& z, double& w) const;
 
     // Maps a 3D point through the transform, returning a 3D point.
-    FloatPoint3D mapPoint(const FloatPoint3D&) const;
+    WEBCORE_EXPORT FloatPoint3D NODELETE mapPoint(const FloatPoint3D&) const;
 
     // Maps a 2D point through the transform, returning a 2D point.
     // Note that this ignores the z component, effectively projecting the point into the z=0 plane.
@@ -188,14 +198,14 @@ public:
 
     // If the matrix has 3D components, the z component of the result is
     // dropped, effectively projecting the quad into the z=0 plane.
-    WEBCORE_EXPORT FloatQuad mapQuad(const FloatQuad&) const;
+    WEBCORE_EXPORT FloatQuad NODELETE mapQuad(const FloatQuad&) const;
 
     // Maps a point on the z=0 plane into a point on the plane with with the transform applied, by
     // extending a ray perpendicular to the source plane and computing the local x,y position of
     // the point where that ray intersects with the destination plane.
-    FloatPoint projectPoint(const FloatPoint&, bool* clamped = 0) const;
+    FloatPoint NODELETE projectPoint(const FloatPoint&, bool* clamped = nullptr) const;
     // Projects the four corners of the quad.
-    FloatQuad projectQuad(const FloatQuad&,  bool* clamped = 0) const;
+    FloatQuad NODELETE projectQuad(const FloatQuad&,  bool* clamped = nullptr) const;
     // Projects the four corners of the quad and takes a bounding box,
     // while sanitizing values created when the w component is negative.
     LayoutRect clampedBoundsOfProjectedQuad(const FloatQuad&) const;
@@ -253,39 +263,58 @@ public:
 
     // this = mat * this.
     WEBCORE_EXPORT TransformationMatrix& multiply(const TransformationMatrix&);
+    // Identical to multiply(TransformationMatrix&), but saving a AffineTransform -> TransformationMatrix roundtrip for identity or translation matrices.
+    TransformationMatrix& multiplyAffineTransform(const AffineTransform&);
 
-    WEBCORE_EXPORT TransformationMatrix& scale(double);
-    WEBCORE_EXPORT TransformationMatrix& scaleNonUniform(double sx, double sy);
-    TransformationMatrix& scale3d(double sx, double sy, double sz);
+    WEBCORE_EXPORT TransformationMatrix& NODELETE scale(double);
+    WEBCORE_EXPORT TransformationMatrix& NODELETE scaleNonUniform(double sx, double sy);
+    TransformationMatrix& NODELETE scale3d(double sx, double sy, double sz);
+
+    enum class RotationSnapping {
+        None,
+        Snap90degRotations,
+    };
 
     // Angle is in degrees.
-    WEBCORE_EXPORT TransformationMatrix& rotate(double);
+    WEBCORE_EXPORT TransformationMatrix& rotate(double, RotationSnapping = RotationSnapping::Snap90degRotations);
+    WEBCORE_EXPORT TransformationMatrix& rotateRadians(double, RotationSnapping = RotationSnapping::Snap90degRotations);
     TransformationMatrix& rotateFromVector(double x, double y);
-    WEBCORE_EXPORT TransformationMatrix& rotate3d(double rx, double ry, double rz);
-    
+    WEBCORE_EXPORT TransformationMatrix& rotate3d(double rx, double ry, double rz, RotationSnapping = RotationSnapping::Snap90degRotations);
+
     // The vector (x,y,z) is normalized if it's not already. A vector of (0,0,0) uses a vector of (0,0,1).
-    TransformationMatrix& rotate3d(double x, double y, double z, double angle);
-    
-    WEBCORE_EXPORT TransformationMatrix& translate(double tx, double ty);
-    TransformationMatrix& translate3d(double tx, double ty, double tz);
+    TransformationMatrix& rotate3d(double x, double y, double z, double angle, RotationSnapping = RotationSnapping::Snap90degRotations);
+
+    WEBCORE_EXPORT TransformationMatrix& NODELETE translate(double tx, double ty);
+    WEBCORE_EXPORT TransformationMatrix& NODELETE translate3d(double tx, double ty, double tz);
 
     // translation added with a post-multiply
-    TransformationMatrix& translateRight(double tx, double ty);
-    TransformationMatrix& translateRight3d(double tx, double ty, double tz);
+    TransformationMatrix& NODELETE translateRight(double tx, double ty);
+    WEBCORE_EXPORT TransformationMatrix& NODELETE translateRight3d(double tx, double ty, double tz);
     
-    WEBCORE_EXPORT TransformationMatrix& flipX();
-    WEBCORE_EXPORT TransformationMatrix& flipY();
+    WEBCORE_EXPORT TransformationMatrix& NODELETE flipX();
+    WEBCORE_EXPORT TransformationMatrix& NODELETE flipY();
     WEBCORE_EXPORT TransformationMatrix& skew(double angleX, double angleY);
     TransformationMatrix& skewX(double angle) { return skew(angle, 0); }
     TransformationMatrix& skewY(double angle) { return skew(0, angle); }
 
     TransformationMatrix& applyPerspective(double p);
-    bool hasPerspective() const { return m_matrix[2][3] != 0.0f; }
+    bool hasPerspective() const { return m_matrix[0][3] != 0.0f || m_matrix[1][3] != 0.0f || m_matrix[2][3] != 0.0f || m_matrix[3][3] != 1.0f; }
 
     // Returns a transformation that maps a rect to a rect.
-    WEBCORE_EXPORT static TransformationMatrix rectToRect(const FloatRect&, const FloatRect&);
+    WEBCORE_EXPORT static TransformationMatrix NODELETE rectToRect(const FloatRect&, const FloatRect&);
 
-    WEBCORE_EXPORT bool isInvertible() const;
+    // Changes the transform to:
+    //
+    //     scale3d(z, z, z) * mat * scale3d(1/z, 1/z, 1/z)
+    //
+    // Useful for mapping zoomed points to their zoomed transformed result:
+    //
+    //     new_mat * (scale3d(z, z, z) * x) == scale3d(z, z, z) * (mat * x)
+    //
+    TransformationMatrix& NODELETE zoom(double zoomFactor);
+    TransformationMatrix& NODELETE unzoom(double zoomFactor);
+
+    WEBCORE_EXPORT bool NODELETE isInvertible() const;
     WEBCORE_EXPORT std::optional<TransformationMatrix> inverse() const;
 
     // Decompose the matrix into its component parts.
@@ -295,41 +324,28 @@ public:
         double angle;
         double m11, m12, m21, m22;
         
-        bool operator==(const Decomposed2Type& other) const
-        {
-            return scaleX == other.scaleX && scaleY == other.scaleY
-                && translateX == other.translateX && translateY == other.translateY
-                && angle == other.angle
-                && m11 == other.m11 && m12 == other.m12 && m21 == other.m21 && m22 == other.m22;
-        }
+        friend bool operator==(const Decomposed2Type&, const Decomposed2Type&) = default;
     };
 
     struct Decomposed4Type {
         double scaleX, scaleY, scaleZ;
         double skewXY, skewXZ, skewYZ;
-        double quaternionX, quaternionY, quaternionZ, quaternionW;
+        Quaternion quaternion;
         double translateX, translateY, translateZ;
         double perspectiveX, perspectiveY, perspectiveZ, perspectiveW;
 
-        bool operator==(const Decomposed4Type& other) const
-        {
-            return scaleX == other.scaleX && scaleY == other.scaleY && scaleZ == other.scaleZ
-                && skewXY == other.skewXY && skewXZ == other.skewXZ && skewYZ == other.skewYZ
-                && quaternionX == other.quaternionX && quaternionY == other.quaternionY && quaternionZ == other.quaternionZ && quaternionW == other.quaternionW
-                && translateX == other.translateX && translateY == other.translateY && translateZ == other.translateZ
-                && perspectiveX == other.perspectiveX && perspectiveY == other.perspectiveY && perspectiveZ == other.perspectiveZ && perspectiveW == other.perspectiveW;
-        }
+        friend bool operator==(const Decomposed4Type&, const Decomposed4Type&) = default;
     };
     
-    bool decompose2(Decomposed2Type&) const;
+    [[nodiscard]] bool decompose2(Decomposed2Type&) const;
     void recompose2(const Decomposed2Type&);
 
-    bool decompose4(Decomposed4Type&) const;
+    [[nodiscard]] WEBCORE_EXPORT bool decompose4(Decomposed4Type&) const;
     void recompose4(const Decomposed4Type&);
 
-    WEBCORE_EXPORT void blend(const TransformationMatrix& from, double progress);
-    WEBCORE_EXPORT void blend2(const TransformationMatrix& from, double progress);
-    WEBCORE_EXPORT void blend4(const TransformationMatrix& from, double progress);
+    WEBCORE_EXPORT void blend(const TransformationMatrix& from, double progress, CompositeOperation = CompositeOperation::Replace);
+    WEBCORE_EXPORT void blend2(const TransformationMatrix& from, double progress, CompositeOperation = CompositeOperation::Replace);
+    WEBCORE_EXPORT void blend4(const TransformationMatrix& from, double progress, CompositeOperation = CompositeOperation::Replace);
 
     bool isAffine() const
     {
@@ -338,9 +354,14 @@ public:
     }
 
     // Throw away the non-affine parts of the matrix (lossy!).
-    WEBCORE_EXPORT void makeAffine();
+    WEBCORE_EXPORT void NODELETE makeAffine();
 
-    WEBCORE_EXPORT AffineTransform toAffineTransform() const;
+    // Sets the 3rd row and column to (0, 0, 1, 0).
+    // Should produce the same results as mapping points into 2d before
+    // applying the next matrix.
+    WEBCORE_EXPORT void NODELETE flatten();
+
+    WEBCORE_EXPORT AffineTransform NODELETE toAffineTransform() const;
 
     bool operator==(const TransformationMatrix& m2) const
     {
@@ -361,8 +382,6 @@ public:
                 m_matrix[3][2] == m2.m_matrix[3][2] &&
                 m_matrix[3][3] == m2.m_matrix[3][3]);
     }
-
-    bool operator!=(const TransformationMatrix& other) const { return !(*this == other); }
 
     // *this = *this * t
     TransformationMatrix& operator*=(const TransformationMatrix& t)
@@ -386,14 +405,19 @@ public:
     WEBCORE_EXPORT TransformationMatrix(const CGAffineTransform&);
     WEBCORE_EXPORT operator CGAffineTransform() const;
 #endif
+#if PLATFORM(COCOA)
+    WEBCORE_EXPORT TransformationMatrix(const simd_float4x4&);
+    WEBCORE_EXPORT operator simd_float4x4() const;
 
-#if PLATFORM(WIN) || (PLATFORM(GTK) && OS(WINDOWS))
-    operator XFORM() const;
+    WEBCORE_EXPORT static TransformationMatrix makeLookAt(simd_float3, simd_float3);
+#endif
+#if USE(SKIA)
+    WEBCORE_EXPORT TransformationMatrix(const SkM44&);
+    WEBCORE_EXPORT operator SkM44() const;
 #endif
 
-#if PLATFORM(WIN)
-    TransformationMatrix(const D2D1_MATRIX_3X2_F&);
-    operator D2D1_MATRIX_3X2_F() const;
+#if PLATFORM(WIN) || (PLATFORM(GTK) && OS(WINDOWS))
+    WEBCORE_EXPORT operator XFORM() const;
 #endif
 
     bool isIdentityOrTranslation() const
@@ -404,25 +428,27 @@ public:
             && m_matrix[3][3] == 1;
     }
 
-    bool isIntegerTranslation() const;
+    bool NODELETE isIntegerTranslation() const;
 
-    bool containsOnlyFiniteValues() const;
+    bool NODELETE containsOnlyFiniteValues() const;
 
     // Returns the matrix without 3D components.
-    TransformationMatrix to2dTransform() const;
+    TransformationMatrix NODELETE to2dTransform() const;
     
     using FloatMatrix4 = std::array<float, 16>;
-    FloatMatrix4 toColumnMajorFloatArray() const;
+    WEBCORE_EXPORT FloatMatrix4 NODELETE toColumnMajorFloatArray() const;
 
     // A local-space layer is implicitly defined at the z = 0 plane, with its front side
     // facing the positive z-axis (i.e. a camera looking along the negative z-axis sees
     // the front side of the layer). This function checks if the transformed layer's back
     // face would be visible to a camera looking along the negative z-axis in the target space.
-    bool isBackFaceVisible() const;
+    bool NODELETE isBackFaceVisible() const;
+
+    TransformationMatrix NODELETE transpose() const;
 
 private:
     // multiply passed 2D point by matrix (assume z=0)
-    void multVecMatrix(double x, double y, double& dstX, double& dstY) const;
+    WEBCORE_EXPORT void NODELETE multVecMatrix(double x, double y, double& dstX, double& dstY) const;
     FloatPoint internalMapPoint(const FloatPoint& sourcePoint) const
     {
         double resultX;
@@ -431,7 +457,7 @@ private:
         return FloatPoint(static_cast<float>(resultX), static_cast<float>(resultY));
     }
 
-    void multVecMatrix(double x, double y, double z, double& dstX, double& dstY, double& dstZ) const;
+    WEBCORE_EXPORT void multVecMatrix(double x, double y, double z, double& dstX, double& dstY, double& dstZ) const;
     FloatPoint3D internalMapPoint(const FloatPoint3D& sourcePoint) const
     {
         double resultX;

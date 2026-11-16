@@ -34,12 +34,17 @@ OBJC_CLASS NSEvent;
 #endif
 
 #if PLATFORM(GTK)
-#include <WebCore/GUniquePtrGtk.h>
+#include "GRefPtrGtk.h"
+#include "GUniquePtrGtk.h"
 #if USE(GTK4)
 typedef struct _GdkEvent GdkEvent;
 #else
 typedef union _GdkEvent GdkEvent;
 #endif
+#endif
+
+#if PLATFORM(WPE) && ENABLE(WPE_PLATFORM)
+typedef struct _WPEEvent WPEEvent;
 #endif
 
 #if USE(LIBWPE)
@@ -56,16 +61,22 @@ class NativeWebWheelEvent : public WebWheelEvent {
 public:
 #if USE(APPKIT)
     NativeWebWheelEvent(NSEvent *, NSView *);
+    explicit NativeWebWheelEvent(const WebWheelEvent&);
 #elif PLATFORM(GTK)
     NativeWebWheelEvent(const NativeWebWheelEvent&);
-    NativeWebWheelEvent(GdkEvent*);
-    NativeWebWheelEvent(GdkEvent*, WebWheelEvent::Phase, WebWheelEvent::Phase momentumPhase);
-    NativeWebWheelEvent(GdkEvent*, const WebCore::IntPoint&, const WebCore::FloatSize& wheelTicks);
-    NativeWebWheelEvent(GdkEvent*, const WebCore::IntPoint& position, const WebCore::IntPoint& globalPosition, const WebCore::FloatSize& delta, const WebCore::FloatSize& wheelTicks, WebWheelEvent::Phase, WebWheelEvent::Phase momentumPhase);
-#elif USE(LIBWPE)
+    NativeWebWheelEvent(GdkEvent*, const WebCore::IntPoint& position, const WebCore::IntPoint& globalPosition, const WebCore::FloatSize& delta, const WebCore::FloatSize& wheelTicks, WebWheelEvent::Phase, WebWheelEvent::Phase momentumPhase, bool hasPreciseDeltas = false);
+#elif PLATFORM(WPE)
+#if USE(LIBWPE)
+    NativeWebWheelEvent(struct wpe_input_axis_event*, float deviceScaleFactor, WebWheelEvent::Phase, WebWheelEvent::Phase momentumPhase);
+#endif
+#if ENABLE(WPE_PLATFORM)
+    explicit NativeWebWheelEvent(WPEEvent*);
+    NativeWebWheelEvent(WPEEvent*, WebWheelEvent::Phase);
+#endif
+#elif PLATFORM(PLAYSTATION)
     NativeWebWheelEvent(struct wpe_input_axis_event*, float deviceScaleFactor, WebWheelEvent::Phase, WebWheelEvent::Phase momentumPhase);
 #elif PLATFORM(WIN)
-    NativeWebWheelEvent(HWND, UINT message, WPARAM, LPARAM);
+    NativeWebWheelEvent(HWND, UINT message, WPARAM, LPARAM, float deviceScaleFactor);
 #endif
 
 #if USE(APPKIT)
@@ -73,7 +84,7 @@ public:
 #elif PLATFORM(GTK)
     GdkEvent* nativeEvent() const { return m_nativeEvent.get(); }
 #elif PLATFORM(WIN)
-    const MSG* nativeEvent() const { return &m_nativeEvent; }
+    const MSG* nativeEvent() const LIFETIME_BOUND { return &m_nativeEvent; }
 #else
     const void* nativeEvent() const { return nullptr; }
 #endif
@@ -81,6 +92,8 @@ public:
 private:
 #if USE(APPKIT)
     RetainPtr<NSEvent> m_nativeEvent;
+#elif PLATFORM(GTK) && USE(GTK4)
+    GRefPtr<GdkEvent> m_nativeEvent;
 #elif PLATFORM(GTK)
     GUniquePtr<GdkEvent> m_nativeEvent;
 #elif PLATFORM(WIN)

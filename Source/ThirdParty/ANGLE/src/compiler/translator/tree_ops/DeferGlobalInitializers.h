@@ -25,12 +25,12 @@ class TCompiler;
 class TIntermBlock;
 class TSymbolTable;
 
-ANGLE_NO_DISCARD bool DeferGlobalInitializers(TCompiler *compiler,
-                                              TIntermBlock *root,
-                                              bool initializeUninitializedGlobals,
-                                              bool canUseLoopsToInitialize,
-                                              bool highPrecisionSupported,
-                                              TSymbolTable *symbolTable);
+[[nodiscard]] bool DeferGlobalInitializers(TCompiler *compiler,
+                                           TIntermBlock *root,
+                                           bool initializeUninitializedGlobals,
+                                           bool canUseLoopsToInitialize,
+                                           bool forceDeferNonConstGlobalInitializers,
+                                           TSymbolTable *symbolTable);
 
 }  // namespace sh
 

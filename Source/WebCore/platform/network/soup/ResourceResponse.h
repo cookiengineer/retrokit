@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006 Apple Inc.  All rights reserved.
+ * Copyright (C) 2006 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "ResourceResponseBase.h"
+#include <WebCore/ResourceResponseBase.h>
 
 #include <libsoup/soup.h>
 #include <wtf/glib/GRefPtr.h>
@@ -37,8 +37,13 @@ class ResourceResponse : public ResourceResponseBase {
 public:
     ResourceResponse() = default;
 
-    ResourceResponse(const URL& url, const String& mimeType, long long expectedLength, const String& textEncodingName)
-        : ResourceResponseBase(url, mimeType, expectedLength, textEncodingName)
+    ResourceResponse(URL&& url, String&& mimeType, long long expectedLength, String&& textEncodingName)
+        : ResourceResponseBase(WTF::move(url), WTF::move(mimeType), expectedLength, WTF::move(textEncodingName))
+    {
+    }
+
+    ResourceResponse(ResourceResponseBase&& base)
+        : ResourceResponseBase(WTF::move(base))
     {
     }
 
@@ -59,7 +64,7 @@ private:
 
     void doUpdateResourceResponse() { }
     String platformSuggestedFilename() const;
-    CertificateInfo platformCertificateInfo() const;
+    CertificateInfo platformCertificateInfo(std::span<const std::byte>) const;
 };
 
 } // namespace WebCore

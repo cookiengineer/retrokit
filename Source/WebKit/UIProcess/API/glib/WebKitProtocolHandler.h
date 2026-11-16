@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2,1 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -21,18 +21,19 @@
 
 #include "WebKitURISchemeRequest.h"
 #include "WebKitWebContext.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebKit {
+struct RenderProcessInfo;
 
 class WebKitProtocolHandler {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(WebKitProtocolHandler);
 public:
     explicit WebKitProtocolHandler(WebKitWebContext*);
-    ~WebKitProtocolHandler() = default;
 
 private:
     void handleRequest(WebKitURISchemeRequest*);
-    void handleGPU(WebKitURISchemeRequest*);
+    void handleGPU(WebKitURISchemeRequest*, RenderProcessInfo&&);
 };
 
 } // namespace WebKit

@@ -32,7 +32,7 @@
 
 namespace WebKit {
 
-bool InjectedBundle::initialize(const WebProcessCreationParameters& parameters, API::Object* initializationUserData)
+bool InjectedBundle::initialize(const WebProcessCreationParameters& parameters, RefPtr<API::Object>&& initializationUserData)
 {
     auto bundle = LibraryBundle::create(m_path.utf8().data());
     m_platformBundle = bundle;
@@ -45,16 +45,16 @@ bool InjectedBundle::initialize(const WebProcessCreationParameters& parameters, 
         printf("PlayStation::Bundle::resolve failed\n");
         return false;
     }
-    initializeFunction(toAPI(this), toAPI(initializationUserData));
+    initializeFunction(toAPI(this), toAPI(initializationUserData.get()));
     return true;
 }
 
-void InjectedBundle::setBundleParameter(WTF::String const&, IPC::DataReference const&)
+void InjectedBundle::setBundleParameter(WTF::String const&, std::span<const uint8_t>)
 {
 
 }
 
-void InjectedBundle::setBundleParameters(const IPC::DataReference&)
+void InjectedBundle::setBundleParameters(std::span<const uint8_t>)
 {
 }
 

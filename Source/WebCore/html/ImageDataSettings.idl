@@ -25,5 +25,6 @@
 
 // https://html.spec.whatwg.org/multipage/canvas.html#imagedatasettings
 dictionary ImageDataSettings {
-    [EnabledBySetting=CanvasColorSpace] PredefinedColorSpace colorSpace;
+    [EnabledBySetting=CanvasColorSpaceEnabled] PredefinedColorSpace colorSpace;
+    [EnabledBySetting=CanvasColorTypeEnabled] ImageDataPixelFormat pixelFormat = "rgba-unorm8";
 };

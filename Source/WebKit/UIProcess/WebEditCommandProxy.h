@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2010-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -38,11 +38,11 @@ namespace WebKit {
 
 class WebPageProxy;
 
-class WebEditCommandProxy : public API::ObjectImpl<API::Object::Type::EditCommandProxy> {
+class WebEditCommandProxy : public API::ObjectImpl<API::Object::Type::EditCommandProxy>, public CanMakeWeakPtr<WebEditCommandProxy> {
 public:
-    static Ref<WebEditCommandProxy> create(WebUndoStepID commandID, const String& label, WebPageProxy& page)
+    static Ref<WebEditCommandProxy> create(WebUndoStepID commandID, String&& label, WebPageProxy& page)
     {
-        return adoptRef(*new WebEditCommandProxy(commandID, label, page));
+        return adoptRef(*new WebEditCommandProxy(commandID, WTF::move(label), page));
     }
     ~WebEditCommandProxy();
 
@@ -55,7 +55,7 @@ public:
     void reapply();
 
 private:
-    WebEditCommandProxy(WebUndoStepID commandID, const String& label, WebPageProxy&);
+    WebEditCommandProxy(WebUndoStepID commandID, String&& label, WebPageProxy&);
 
     WebUndoStepID m_commandID;
     String m_label;

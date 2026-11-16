@@ -25,22 +25,22 @@
 
 #pragma once
 
-#if ENABLE(JIT)
-
-#include "ExecutableAllocator.h"
-#include "MacroAssemblerCodeRef.h"
+#include <JavaScriptCore/ExecutableAllocator.h>
+#include <JavaScriptCore/MacroAssemblerCodeRef.h>
+#include <JavaScriptCore/StructureID.h>
 
 namespace JSC {
 
 class JITStubRoutineSet;
+class Structure;
 class VM;
-
-#if USE(JSVALUE64)
-using StructureID = uint32_t;
-#else
-using StructureID = Structure*;
-#endif
-
+class GCAwareJITStubRoutine;
+class GCAwareJITStubRoutineWithExceptionHandler;
+class PolymorphicAccessJITStubRoutine;
+class PolymorphicCallStubRoutine;
+class MarkingGCAwareJITStubRoutine;
+class CallLinkInfo;
+class ConcurrentJSLocker;
 class AccessCase;
 
 // This is a base-class for JIT stub routines, and also the class you want
@@ -55,33 +55,50 @@ class AccessCase;
 // See GCAwareJITStubRoutine.h for the other stub routines.
 class JITStubRoutine {
     WTF_MAKE_NONCOPYABLE(JITStubRoutine);
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(JITStubRoutine);
 public:
-    JITStubRoutine(const MacroAssemblerCodeRef<JITStubRoutinePtrTag>& code)
+    enum class Type : uint8_t {
+        JITStubRoutineType,
+        GCAwareJITStubRoutineType,
+        PolymorphicCallStubRoutineType,
+#if ENABLE(JIT)
+        PolymorphicAccessJITStubRoutineType,
+        MarkingGCAwareJITStubRoutineType,
+        GCAwareJITStubRoutineWithExceptionHandlerType,
+#endif
+    };
+
+    friend class GCAwareJITStubRoutine;
+    friend class PolymorphicAccessJITStubRoutine;
+    friend class PolymorphicCallStubRoutine;
+    friend class MarkingGCAwareJITStubRoutine;
+    friend class GCAwareJITStubRoutineWithExceptionHandler;
+
+    JITStubRoutine(Type type, const MacroAssemblerCodeRef<JITStubRoutinePtrTag>& code)
         : m_code(code)
         , m_refCount(1)
+        , m_type(type)
     {
     }
     
     // Use this if you want to pass a CodePtr to someone who insists on taking
     // a RefPtr<JITStubRoutine>.
-    static Ref<JITStubRoutine> createSelfManagedRoutine(
-        MacroAssemblerCodePtr<JITStubRoutinePtrTag> rawCodePointer)
+    static Ref<JITStubRoutine> createSelfManagedRoutine(CodePtr<JITStubRoutinePtrTag> rawCodePointer)
     {
-        return adoptRef(*new JITStubRoutine(MacroAssemblerCodeRef<JITStubRoutinePtrTag>::createSelfManagedCodeRef(rawCodePointer)));
+        return adoptRef(*new JITStubRoutine(Type::JITStubRoutineType, MacroAssemblerCodeRef<JITStubRoutinePtrTag>::createSelfManagedCodeRef(rawCodePointer)));
     }
     
-    virtual ~JITStubRoutine();
-    virtual void aboutToDie() { }
+    void aboutToDie();
+    void observeZeroRefCount();
     
     // MacroAssemblerCodeRef is copyable, but at the cost of reference
     // counting churn. Returning a reference is a good way of reducing
     // the churn.
-    const MacroAssemblerCodeRef<JITStubRoutinePtrTag>& code() const { return m_code; }
+    const MacroAssemblerCodeRef<JITStubRoutinePtrTag>& code() const LIFETIME_BOUND { return m_code; }
     
-    static MacroAssemblerCodePtr<JITStubRoutinePtrTag> asCodePtr(Ref<JITStubRoutine>&& stubRoutine)
+    static CodePtr<JITStubRoutinePtrTag> asCodePtr(Ref<JITStubRoutine>&& stubRoutine)
     {
-        MacroAssemblerCodePtr<JITStubRoutinePtrTag> result = stubRoutine->code().code();
+        CodePtr<JITStubRoutinePtrTag> result = stubRoutine->code().code();
         ASSERT(!!result);
         return result;
     }
@@ -106,26 +123,46 @@ public:
     
     static bool passesFilter(uintptr_t address)
     {
-        return isJITPC(bitwise_cast<void*>(address));
+        return isJITPC(std::bit_cast<void*>(address));
     }
     
+    bool visitWeak(VM&);
+    CallLinkInfo* callLinkInfoAt(const ConcurrentJSLocker&, unsigned);
+    void markRequiredObjects(AbstractSlotVisitor&);
+    void markRequiredObjects(SlotVisitor&);
+
+    void operator delete(JITStubRoutine*, std::destroying_delete_t);
+
+protected:
+    ALWAYS_INLINE void observeZeroRefCountImpl();
+    ALWAYS_INLINE void aboutToDieImpl() { }
+    ALWAYS_INLINE void markRequiredObjectsImpl(AbstractSlotVisitor&) { }
+    ALWAYS_INLINE void markRequiredObjectsImpl(SlotVisitor&) { }
+
+    template<typename Derived>
+    static void destroy(Derived* derived)
+    {
+        std::destroy_at(derived);
+        std::decay_t<decltype(*derived)>::freeAfterDestruction(derived);
+    }
+
     // Return true if you are still valid after. Return false if you are now invalid. If you return
     // false, you will usually not do any clearing because the idea is that you will simply be
     // destroyed.
-    virtual bool visitWeak(VM&);
+    ALWAYS_INLINE bool visitWeakImpl(VM&) { return true; }
+    ALWAYS_INLINE CallLinkInfo* callLinkInfoAtImpl(const ConcurrentJSLocker&, unsigned) { return nullptr; }
 
-protected:
-    virtual void observeZeroRefCount();
+    template<typename Func>
+    ALWAYS_INLINE void NODELETE runWithDowncast(const Func& function);
 
     MacroAssemblerCodeRef<JITStubRoutinePtrTag> m_code;
     unsigned m_refCount;
     mutable unsigned m_hash { 0 };
+    Type m_type;
 };
 
 // Helper for the creation of simple stub routines that need no help from the GC.
-#define FINALIZE_CODE_FOR_STUB(codeBlock, patchBuffer, resultPtrTag, ...) \
-    (adoptRef(new JITStubRoutine(FINALIZE_CODE_FOR((codeBlock), (patchBuffer), (resultPtrTag), __VA_ARGS__))))
+#define FINALIZE_CODE_FOR_STUB(codeBlock, patchBuffer, resultPtrTag, simpleName, ...) \
+    (adoptRef(new JITStubRoutine(FINALIZE_CODE_FOR((codeBlock), (patchBuffer), (resultPtrTag), (simpleName), __VA_ARGS__))))
 
 } // namespace JSC
-
-#endif // ENABLE(JIT)

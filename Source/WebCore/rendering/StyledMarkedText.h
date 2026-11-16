@@ -26,7 +26,7 @@
 #pragma once
 
 #include "MarkedText.h"
-#include "ShadowData.h"
+#include "StyleTextShadow.h"
 #include "TextDecorationPainter.h"
 #include "TextPaintStyle.h"
 
@@ -35,19 +35,32 @@ namespace WebCore {
 class RenderText;
 class RenderedDocumentMarker;
 
-struct StyledMarkedText : MarkedText {
-    StyledMarkedText(const MarkedText& marker)
-        : MarkedText { marker }
-    {
-    }
+namespace Style {
+class ComputedStyle;
+}
+
+struct StyledMarkedText final : MarkedText {
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(StyledMarkedText);
+    WTF_STRUCT_OVERRIDE_DELETE_FOR_CHECKED_PTR(StyledMarkedText);
 
     struct Style {
         Color backgroundColor;
         TextPaintStyle textStyles;
         TextDecorationPainter::Styles textDecorationStyles;
-        std::optional<ShadowData> textShadow;
-        float alpha;
+        WebCore::Style::TextShadows textShadow { CSS::Keyword::None { } };
+        float alpha { 1 };
     };
+
+    StyledMarkedText(const MarkedText& marker)
+        : MarkedText { marker }
+    {
+    }
+
+    StyledMarkedText(const MarkedText& marker, Style style)
+        : MarkedText { marker }
+        , style(style)
+    {
+    }
 
     Style style;
 
@@ -55,6 +68,7 @@ struct StyledMarkedText : MarkedText {
     static Vector<StyledMarkedText> coalesceAdjacentWithEqualBackground(const Vector<StyledMarkedText>&);
     static Vector<StyledMarkedText> coalesceAdjacentWithEqualForeground(const Vector<StyledMarkedText>&);
     static Vector<StyledMarkedText> coalesceAdjacentWithEqualDecorations(const Vector<StyledMarkedText>&);
+    static Style computeStyleForUnmarkedMarkedText(const RenderText&, const WebCore::Style::ComputedStyle&, bool isFirstLine, const PaintInfo&);
 };
 
 }

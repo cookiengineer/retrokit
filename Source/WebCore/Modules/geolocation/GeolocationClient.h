@@ -26,6 +26,7 @@
 #pragma once
 
 #include <optional>
+#include <wtf/AbstractRefCountedAndCanMakeWeakPtr.h>
 #include <wtf/Forward.h>
 
 namespace WebCore {
@@ -34,11 +35,12 @@ class Geolocation;
 class GeolocationPositionData;
 class Page;
 
-class GeolocationClient {
+class GeolocationClient : public AbstractRefCountedAndCanMakeWeakPtr<GeolocationClient> {
+    WTF_DEPRECATED_MAKE_FAST_ALLOCATED(GeolocationClient);
 public:
     virtual void geolocationDestroyed() = 0;
 
-    virtual void startUpdating(const String& authorizationToken) = 0;
+    virtual void startUpdating(const String& authorizationToken, bool needsHighAccuracy) = 0;
     virtual void stopUpdating() = 0;
     virtual void revokeAuthorizationToken(const String&) { }
 

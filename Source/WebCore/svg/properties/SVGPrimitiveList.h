@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 Apple Inc.  All rights reserved.
+ * Copyright (C) 2019 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "SVGList.h"
+#include <WebCore/SVGList.h>
 
 namespace WebCore {
 
@@ -43,31 +43,31 @@ protected:
         return m_items.at(index);
     }
 
-    PropertyType insert(unsigned index, PropertyType&& newItem) override
+    PropertyType insertAt(unsigned index, PropertyType&& newItem) override
     {
         ASSERT(index <= size());
-        m_items.insert(index, WTFMove(newItem));
+        m_items.insert(index, WTF::move(newItem));
         return at(index);
     }
 
-    PropertyType replace(unsigned index, PropertyType&& newItem) override
+    PropertyType replaceAt(unsigned index, PropertyType&& newItem) override
     {
         ASSERT(index < size());
-        m_items.at(index) = WTFMove(newItem);
+        m_items.at(index) = WTF::move(newItem);
         return at(index);
     }
 
-    PropertyType remove(unsigned index) override
+    PropertyType removeAt(unsigned index) override
     {
         ASSERT(index < size());
         PropertyType item = at(index);
-        m_items.remove(index);
+        m_items.removeAt(index);
         return item;
     }
 
     PropertyType append(PropertyType&& newItem) override
     {
-        m_items.append(WTFMove(newItem));
+        m_items.append(WTF::move(newItem));
         return at(size() - 1);
     }
 };

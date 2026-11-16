@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, Google Inc. All rights reserved.
+ * Copyright (c) 2012-2013 Google Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -30,9 +30,9 @@
 
 #pragma once
 
-#include "FloatSize.h"
-#include "IntSize.h"
-#include "LayoutUnit.h"
+#include <WebCore/FloatSize.h>
+#include <WebCore/IntSize.h>
+#include <WebCore/LayoutUnit.h>
 
 namespace WTF {
 class TextStream;
@@ -49,19 +49,22 @@ enum AspectRatioFit {
 
 class LayoutSize {
 public:
-    LayoutSize() : m_width(0), m_height(0) { }
+    LayoutSize() = default;
     LayoutSize(const IntSize& size) : m_width(size.width()), m_height(size.height()) { }
-    template<typename T, typename U> LayoutSize(T width, U height) : m_width(width), m_height(height) { }
+    template<typename T, typename U> constexpr LayoutSize(T width, U height) : m_width(width), m_height(height) { }
 
     explicit LayoutSize(const FloatSize& size) : m_width(size.width()), m_height(size.height()) { }
     
     LayoutUnit width() const { return m_width; }
     LayoutUnit height() const { return m_height; }
 
+    LayoutUnit minDimension() const { return std::min(m_width, m_height); }
+    LayoutUnit maxDimension() const { return std::max(m_width, m_height); }
+
     template<typename T> void setWidth(T width) { m_width = width; }
     template<typename T> void setHeight(T height) { m_height = height; }
 
-    bool isEmpty() const { return m_width <= 0 || m_height <= 0; }
+    bool isEmpty() const { return m_width.rawValue() <= 0 || m_height.rawValue() <= 0; }
     bool isZero() const { return !m_width && !m_height; }
 
     float aspectRatio() const { return static_cast<float>(m_width) / static_cast<float>(m_height); }
@@ -91,8 +94,8 @@ public:
         m_height *= heightScale;
     }
 
-    LayoutSize constrainedBetween(const LayoutSize& min, const LayoutSize& max) const;
-    
+    WEBCORE_EXPORT LayoutSize constrainedBetween(const LayoutSize& min, const LayoutSize& max) const;
+
     LayoutSize expandedTo(const LayoutSize& other) const
     {
         return LayoutSize(m_width > other.m_width ? m_width : other.m_width,
@@ -141,6 +144,7 @@ public:
         return m_width.mightBeSaturated() || m_height.mightBeSaturated();
     }
 
+    friend bool operator==(const LayoutSize&, const LayoutSize&) = default;
 private:
     LayoutUnit m_width;
     LayoutUnit m_height;
@@ -175,16 +179,6 @@ inline LayoutSize operator-(const LayoutSize& size)
     return LayoutSize(-size.width(), -size.height());
 }
 
-inline bool operator==(const LayoutSize& a, const LayoutSize& b)
-{
-    return a.width() == b.width() && a.height() == b.height();
-}
-
-inline bool operator!=(const LayoutSize& a, const LayoutSize& b)
-{
-    return a.width() != b.width() || a.height() != b.height();
-}
-
 inline IntSize flooredIntSize(const LayoutSize& s)
 {
     return IntSize(s.width().floor(), s.height().floor());
@@ -212,5 +206,12 @@ inline FloatSize roundSizeToDevicePixels(const LayoutSize& size, float pixelSnap
 
 WEBCORE_EXPORT WTF::TextStream& operator<<(WTF::TextStream&, const LayoutSize&);
 
-} // namespace WebCore
+struct LayoutSizeLimits {
+    LayoutSize m_min;
+    LayoutSize m_max;
+    LayoutSize clamp(const LayoutSize& size) { return size.constrainedBetween(m_min, m_max); }
+    bool fits(const LayoutSize& size) { return size == clamp(size); }
+    LayoutSize distance(const LayoutSize& size) { return size - clamp(size); }
+};
 
+} // namespace WebCore

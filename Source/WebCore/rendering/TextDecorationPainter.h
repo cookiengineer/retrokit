@@ -24,66 +24,86 @@
 
 #include "Color.h"
 #include "FloatPoint.h"
-#include "LayoutIntegrationRunIterator.h"
+#include "GraphicsContext.h"
+#include "InlineTextBoxStyle.h"
 #include "RenderStyleConstants.h"
+#include "StyleTextDecorationInset.h"
+#include "StyleTextDecorationThickness.h"
+#include "StyleTextUnderlineOffset.h"
 #include <wtf/OptionSet.h>
 
 namespace WebCore {
 
-class FilterOperations;
 class FontCascade;
-class FloatRect;
-class GraphicsContext;
-class LegacyInlineTextBox;
 class RenderObject;
-class RenderStyle;
-class RenderText;
-class ShadowData;
 class TextRun;
-    
+
+namespace Style {
+class ComputedStyle;
+}
+
 class TextDecorationPainter {
 public:
-    struct Styles;
-    TextDecorationPainter(GraphicsContext&, OptionSet<TextDecoration> decorations, const RenderText&, bool isFirstLine, const FontCascade&, std::optional<Styles> = std::nullopt);
-    
-    void setTextRunIterator(LayoutIntegration::TextRunIterator textRun) { m_textRun = textRun; }
-    void setIsHorizontal(bool isHorizontal) { m_isHorizontal = isHorizontal; }
-    void setWidth(float width) { m_width = width; }
-    void setTextShadow(const ShadowData* textShadow) { m_shadow = textShadow; }
-    void setShadowColorFilter(const FilterOperations* colorFilter) { m_shadowColorFilter = colorFilter; }
-
-    void paintTextDecoration(const TextRun&, const FloatPoint& textOrigin, const FloatPoint& boxOrigin);
+    TextDecorationPainter(GraphicsContext&, const FontCascade&, const Style::TextShadows&, const Style::AppleColorFilter&, bool isPrinting, WritingMode);
 
     struct Styles {
-        bool operator==(const Styles&) const;
-        bool operator!=(const Styles& other) const { return !(*this == other); }
+        bool NODELETE operator==(const Styles&) const;
 
-        Color underlineColor;
-        Color overlineColor;
-        Color linethroughColor;
-        TextDecorationStyle underlineStyle;
-        TextDecorationStyle overlineStyle;
-        TextDecorationStyle linethroughStyle;
+        struct DecorationStyleAndColor {
+            Color color;
+            TextDecorationStyle decorationStyle { TextDecorationStyle::Solid };
+            // The originating box's text-decoration-thickness, kept unresolved so each painting box can resolve it
+            // against its own font size and zoom. Empty when this Styles has no originator (e.g. a default-constructed
+            // override on a marked text that does not set a decoration); the painter then resolves auto against the
+            // painting box.
+            std::optional<Style::TextDecorationThickness> thickness;
+
+            bool operator==(const DecorationStyleAndColor&) const = default;
+        };
+        DecorationStyleAndColor underline;
+        DecorationStyleAndColor overline;
+        DecorationStyleAndColor linethrough;
+
+        std::optional<Style::TextUnderlineOffset> underlineOffset;
+
+        std::optional<Style::TextDecorationInset> inset;
+        BoxDecorationBreak boxDecorationBreak { BoxDecorationBreak::Slice };
     };
-    static Color decorationColor(const RenderStyle&);
-    static OptionSet<TextDecoration> textDecorationsInEffectForStyle(const Styles&);
-    static Styles stylesForRenderer(const RenderObject&, OptionSet<TextDecoration> requestedDecorations, bool firstLineStyle = false, PseudoId = PseudoId::None);
+    struct BackgroundDecorationGeometry {
+        FloatPoint textOrigin;
+        FloatPoint boxOrigin;
+        float width { 0.f };
+        float textDecorationThickness { 0.f };
+        float underlineOffset { 0.f };
+        float overlineOffset { 0.f };
+        float linethroughCenter { 0.f };
+        float clippingOffset { 0.f };
+        WavyStrokeParameters wavyStrokeParameters;
+    };
+    void paintBackgroundDecorations(const Style::ComputedStyle&, const TextRun&, const BackgroundDecorationGeometry&, Style::TextDecorationLine, const Styles&, float deviceScaleFactor);
+
+    struct ForegroundDecorationGeometry {
+        FloatPoint boxOrigin;
+        float textBoxWidth { 0.f };
+        float textDecorationThickness { 0.f };
+        float linethroughCenter { 0.f };
+        WavyStrokeParameters wavyStrokeParameters;
+    };
+    void paintForegroundDecorations(const ForegroundDecorationGeometry&, const Styles&);
+
+    static Color decorationColor(const Style::ComputedStyle&, OptionSet<PaintBehavior> paintBehavior = { });
+    static Styles stylesForRenderer(const RenderObject&, Style::TextDecorationLine requestedDecorations, bool firstLineStyle = false, OptionSet<PaintBehavior> paintBehavior = { }, std::optional<PseudoElementType> = { });
+    static Style::TextDecorationLine NODELETE textDecorationsInEffectForStyle(const TextDecorationPainter::Styles&);
 
 private:
-    GraphicsContext& m_context;
-    OptionSet<TextDecoration> m_decorations;
-    float m_wavyOffset;
-    float m_width { 0 };
-    FloatPoint m_boxOrigin;
-    bool m_isPrinting;
-    bool m_isHorizontal { true };
-    const ShadowData* m_shadow { nullptr };
-    const FilterOperations* m_shadowColorFilter { nullptr };
-    LayoutIntegration::TextRunIterator m_textRun;
-    const FontCascade& m_font;
+    void paintLineThrough(const ForegroundDecorationGeometry&, const Color&, const Styles&);
 
-    Styles m_styles;
-    const RenderStyle& m_lineStyle;
+    GraphicsContext& m_context;
+    bool m_isPrinting { false };
+    WritingMode m_writingMode;
+    SUPPRESS_FORWARD_DECL_MEMBER const Style::TextShadows& m_shadow;
+    SUPPRESS_FORWARD_DECL_MEMBER const Style::AppleColorFilter& m_shadowColorFilter;
+    const FontCascade& m_font;
 };
-    
+
 } // namespace WebCore

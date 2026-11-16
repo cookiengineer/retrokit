@@ -27,76 +27,38 @@
 #include "UserMessage.h"
 
 #include "ArgumentCodersGLib.h"
-#include "Attachment.h"
-#include "DataReference.h"
-#include <gio/gunixfdlist.h>
 
 namespace WebKit {
 
-void UserMessage::encode(IPC::Encoder& encoder) const
+UserMessage::IPCData UserMessage::toIPCData() const
 {
-    encoder << type;
-    if (type == Type::Null)
-        return;
-
-    encoder << name;
-    if (type == Type::Error) {
-        encoder << errorCode;
-        return;
+    switch (type) {
+    case Type::Null:
+        return NullMessage { };
+    case Type::Error:
+        return ErrorMessage { name, errorCode };
+    case Type::Message:
+        return DataMessage { name, parameters, fileDescriptors };
     }
 
-    encoder << parameters;
+    ASSERT_NOT_REACHED();
 
-    Vector<IPC::Attachment> attachments;
-    if (fileDescriptors) {
-        int length = g_unix_fd_list_get_length(fileDescriptors.get());
-        for (int i = 0; i < length; ++i)
-            attachments.append(IPC::Attachment(g_unix_fd_list_get(fileDescriptors.get(), i, nullptr)));
-    }
-    encoder << attachments;
+    return NullMessage { };
 }
 
-std::optional<UserMessage> UserMessage::decode(IPC::Decoder& decoder)
+UserMessage UserMessage::fromIPCData(UserMessage::IPCData&& ipcData)
 {
-    UserMessage result;
-    if (!decoder.decode(result.type))
-        return std::nullopt;
-
-    if (result.type == Type::Null)
-        return result;
-
-    if (!decoder.decode(result.name))
-        return std::nullopt;
-
-    if (result.type == Type::Error) {
-        std::optional<uint32_t> errorCode;
-        decoder >> errorCode;
-        if (!errorCode)
-            return std::nullopt;
-
-        result.errorCode = errorCode.value();
-        return result;
-    }
-
-    std::optional<GRefPtr<GVariant>> parameters;
-    decoder >> parameters;
-    if (!parameters)
-        return std::nullopt;
-    result.parameters = WTFMove(*parameters);
-
-    std::optional<Vector<IPC::Attachment>> attachments;
-    decoder >> attachments;
-    if (!attachments)
-        return std::nullopt;
-    if (!attachments->isEmpty()) {
-        result.fileDescriptors = adoptGRef(g_unix_fd_list_new());
-        for (auto& attachment : *attachments) {
-            if (g_unix_fd_list_append(result.fileDescriptors.get(), attachment.releaseFileDescriptor(), nullptr) == -1)
-                return std::nullopt;
+    return WTF::switchOn(WTF::move(ipcData),
+        [&] (NullMessage&&) {
+            return UserMessage { };
+        },
+        [&] (ErrorMessage&& message) {
+            return UserMessage { message.name, message.errorCode };
+        },
+        [&] (DataMessage&& message) {
+            return UserMessage { message.name, message.parameters, message.fileDescriptors };
         }
-    }
-
-    return result;
+    );
 }
 
 }

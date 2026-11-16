@@ -30,6 +30,7 @@
 
 #include "WebPageProxy.h"
 #include <WebCore/SharedBuffer.h>
+#include <wtf/CompletionHandler.h>
 #include <wtf/text/WTFString.h>
 
 namespace API {
@@ -41,27 +42,27 @@ Ref<Attachment> Attachment::create(const WTF::String& identifier, WebKit::WebPag
 
 Attachment::Attachment(const WTF::String& identifier, WebKit::WebPageProxy& webPage)
     : m_identifier(identifier)
-    , m_webPage(makeWeakPtr(webPage))
+    , m_webPage(webPage)
 {
 }
 
-Attachment::~Attachment()
-{
-}
+Attachment::~Attachment() = default;
 
 void Attachment::updateAttributes(CompletionHandler<void()>&& callback)
 {
-    if (!m_webPage) {
+    RefPtr webPage = m_webPage.get();
+
+    if (!webPage) {
         callback();
         return;
     }
 
-    if (m_webPage->willUpdateAttachmentAttributes(*this) == WebKit::WebPageProxy::ShouldUpdateAttachmentAttributes::No) {
+    if (webPage->willUpdateAttachmentAttributes(*this) == WebKit::WebPageProxy::ShouldUpdateAttachmentAttributes::No) {
         callback();
         return;
     }
 
-    m_webPage->updateAttachmentAttributes(*this, WTFMove(callback));
+    webPage->updateAttachmentAttributes(*this, WTF::move(callback));
 }
 
 void Attachment::invalidate()
@@ -70,10 +71,11 @@ void Attachment::invalidate()
     m_filePath = { };
     m_contentType = { };
     m_webPage.clear();
+    m_insertionState = InsertionState::NotInserted;
 #if PLATFORM(COCOA)
+    Locker locker { m_fileWrapperLock };
     m_fileWrapper.clear();
 #endif
-    m_insertionState = InsertionState::NotInserted;
 }
 
 #if !PLATFORM(COCOA)
@@ -98,7 +100,7 @@ std::optional<uint64_t> Attachment::fileSizeForDisplay() const
     return std::nullopt;
 }
 
-RefPtr<WebCore::SharedBuffer> Attachment::enclosingImageData() const
+RefPtr<WebCore::FragmentedSharedBuffer> Attachment::associatedElementData() const
 {
     return nullptr;
 }

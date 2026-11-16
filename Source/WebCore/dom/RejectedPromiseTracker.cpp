@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2025 Apple Inc. All rights reserved.
  * Copyright (C) 2017 Yusuke Suzuki <utatane.tea@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,10 +29,13 @@
 
 #include "EventNames.h"
 #include "EventTarget.h"
+#include "EventTargetInlines.h"
 #include "JSDOMGlobalObject.h"
 #include "JSDOMPromise.h"
+#include "Node.h"
 #include "PromiseRejectionEvent.h"
 #include "ScriptExecutionContext.h"
+#include "WebCoreJSClientData.h"
 #include <JavaScriptCore/Exception.h>
 #include <JavaScriptCore/HeapInlines.h>
 #include <JavaScriptCore/JSCJSValueInlines.h>
@@ -45,35 +48,42 @@
 #include <JavaScriptCore/Weak.h>
 #include <JavaScriptCore/WeakGCMapInlines.h>
 #include <JavaScriptCore/WeakInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 using namespace JSC;
 using namespace Inspector;
 
+WTF_MAKE_TZONE_ALLOCATED_IMPL(RejectedPromiseTracker);
+
 class UnhandledPromise {
     WTF_MAKE_NONCOPYABLE(UnhandledPromise);
 public:
-    UnhandledPromise(JSDOMGlobalObject& globalObject, JSPromise& promise, RefPtr<ScriptCallStack>&& stack)
+    UnhandledPromise(JSDOMGlobalObject& globalObject, JSPromise& promise, RefPtr<ScriptCallStack>&& stack, String&& unmaskedSourceURL)
         : m_promise(DOMPromise::create(globalObject, promise))
-        , m_stack(WTFMove(stack))
+        , m_stack(WTF::move(stack))
+        , m_unmaskedSourceURL(WTF::move(unmaskedSourceURL))
     {
     }
 
     UnhandledPromise(UnhandledPromise&&) = default;
 
-    ScriptCallStack* callStack()
+    ScriptCallStack* NODELETE callStack()
     {
         return m_stack.get();
     }
 
-    DOMPromise& promise()
+    DOMPromise& NODELETE promise()
     {
         return m_promise.get();
     }
 
+    const String& unmaskedSourceURL() const { return m_unmaskedSourceURL; }
+
 private:
-    Ref<DOMPromise> m_promise;
-    RefPtr<ScriptCallStack> m_stack;
+    const Ref<DOMPromise> m_promise;
+    const RefPtr<ScriptCallStack> m_stack;
+    String m_unmaskedSourceURL;
 };
 
 
@@ -87,10 +97,8 @@ RejectedPromiseTracker::~RejectedPromiseTracker() = default;
 
 static RefPtr<ScriptCallStack> createScriptCallStackFromReason(JSGlobalObject& lexicalGlobalObject, JSValue reason)
 {
-    VM& vm = lexicalGlobalObject.vm();
-
     // Always capture a stack from the exception if this rejection was an exception.
-    if (auto* exception = vm.lastException()) {
+    if (auto* exception = lexicalGlobalObject.vm().lastException()) {
         if (exception->value() == reason)
             return createScriptCallStackFromException(&lexicalGlobalObject, exception);
     }
@@ -106,8 +114,18 @@ void RejectedPromiseTracker::promiseRejected(JSDOMGlobalObject& globalObject, JS
 {
     // https://html.spec.whatwg.org/multipage/webappapis.html#the-hostpromiserejectiontracker-implementation
 
-    JSValue reason = promise.result(globalObject.vm());
-    m_aboutToBeNotifiedRejectedPromises.append(UnhandledPromise { globalObject, promise, createScriptCallStackFromReason(globalObject, reason) });
+    JSValue reason = promise.result();
+
+    String unmaskedURL;
+    if (globalObject.hasScriptErrorCallbacks()) {
+        // Capture the unmasked source URL now while vm.lastException() is still set.
+        // The JSC::Exception is not kept alive past this point, so it won't be available
+        // when reportUnhandledRejections runs asynchronously via a posted task.
+        if (auto* exception = globalObject.vm().lastException(); exception && exception->value() == reason)
+            unmaskedURL = unmaskedSourceURLFromException(*exception, globalObject.vm());
+    }
+
+    m_aboutToBeNotifiedRejectedPromises.append(UnhandledPromise { globalObject, promise, createScriptCallStackFromReason(globalObject, reason), WTF::move(unmaskedURL) });
 }
 
 void RejectedPromiseTracker::promiseHandled(JSDOMGlobalObject& globalObject, JSPromise& promise)
@@ -126,8 +144,8 @@ void RejectedPromiseTracker::promiseHandled(JSDOMGlobalObject& globalObject, JSP
     if (!m_outstandingRejectedPromises.remove(&promise))
         return;
 
-    m_context.postTask([this, rejectedPromise = DOMPromise::create(globalObject, promise)] (ScriptExecutionContext&) mutable {
-        reportRejectionHandled(WTFMove(rejectedPromise));
+    m_context->postTask([this, rejectedPromise = DOMPromise::create(globalObject, promise)] (ScriptExecutionContext&) mutable {
+        reportRejectionHandled(WTF::move(rejectedPromise));
     });
 }
 
@@ -138,9 +156,9 @@ void RejectedPromiseTracker::processQueueSoon()
     if (m_aboutToBeNotifiedRejectedPromises.isEmpty())
         return;
 
-    Vector<UnhandledPromise> items = WTFMove(m_aboutToBeNotifiedRejectedPromises);
-    m_context.postTask([this, items = WTFMove(items)] (ScriptExecutionContext&) mutable {
-        reportUnhandledRejections(WTFMove(items));
+    Vector<UnhandledPromise> items = WTF::move(m_aboutToBeNotifiedRejectedPromises);
+    m_context->postTask([this, items = WTF::move(items)] (ScriptExecutionContext&) mutable {
+        reportUnhandledRejections(WTF::move(items));
     });
 }
 
@@ -148,32 +166,32 @@ void RejectedPromiseTracker::reportUnhandledRejections(Vector<UnhandledPromise>&
 {
     // https://html.spec.whatwg.org/multipage/webappapis.html#unhandled-promise-rejections
 
-    VM& vm = m_context.vm();
+    Ref vm = m_context->vm();
     JSC::JSLockHolder lock(vm);
 
     for (auto& unhandledPromise : unhandledPromises) {
-        auto& domPromise = unhandledPromise.promise();
-        if (domPromise.isSuspended())
+        Ref domPromise = unhandledPromise.promise();
+        if (domPromise->isSuspended())
             continue;
-        auto& lexicalGlobalObject = *domPromise.globalObject();
-        auto& promise = *domPromise.promise();
+        auto& lexicalGlobalObject = *domPromise->globalObject();
+        auto& promise = *domPromise->promise();
 
-        if (promise.isHandled(vm))
+        if (promise.isHandled())
             continue;
 
-        PromiseRejectionEvent::Init initializer;
-        initializer.cancelable = true;
-        initializer.promise = &domPromise;
-        initializer.reason = promise.result(vm);
-
-        auto event = PromiseRejectionEvent::create(eventNames().unhandledrejectionEvent, initializer);
-        auto target = m_context.errorEventTarget();
+        auto initializer = PromiseRejectionEvent::Init {
+            { false, true, false },
+            WTF::move(domPromise),
+            promise.result(),
+        };
+        Ref event = PromiseRejectionEvent::create(lexicalGlobalObject, eventNames().unhandledrejectionEvent, WTF::move(initializer));
+        RefPtr target = m_context->errorEventTarget();
         target->dispatchEvent(event);
 
         if (!event->defaultPrevented())
-            m_context.reportUnhandledPromiseRejection(lexicalGlobalObject, promise, unhandledPromise.callStack());
+            m_context->reportUnhandledPromiseRejection(lexicalGlobalObject, promise, unhandledPromise.callStack(), unhandledPromise.unmaskedSourceURL());
 
-        if (!promise.isHandled(vm))
+        if (!promise.isHandled())
             m_outstandingRejectedPromises.set(&promise, &promise);
     }
 }
@@ -182,20 +200,25 @@ void RejectedPromiseTracker::reportRejectionHandled(Ref<DOMPromise>&& rejectedPr
 {
     // https://html.spec.whatwg.org/multipage/webappapis.html#the-hostpromiserejectiontracker-implementation
 
-    VM& vm = m_context.vm();
+    Ref vm = m_context->vm();
     JSC::JSLockHolder lock(vm);
 
     if (rejectedPromise->isSuspended())
         return;
 
+    auto* globalObject = rejectedPromise->globalObject();
+    if (!globalObject)
+        return;
+
     auto& promise = *rejectedPromise->promise();
 
-    PromiseRejectionEvent::Init initializer;
-    initializer.promise = rejectedPromise.ptr();
-    initializer.reason = promise.result(vm);
-
-    auto event = PromiseRejectionEvent::create(eventNames().rejectionhandledEvent, initializer);
-    auto target = m_context.errorEventTarget();
+    auto initializer = PromiseRejectionEvent::Init {
+        { false, false, false },
+        WTF::move(rejectedPromise),
+        promise.result(),
+    };
+    Ref event = PromiseRejectionEvent::create(*globalObject, eventNames().rejectionhandledEvent, WTF::move(initializer));
+    RefPtr target = m_context->errorEventTarget();
     target->dispatchEvent(event);
 }
 

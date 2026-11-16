@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2011 Google Inc. All rights reserved.
- * Copyright (C) 2011-2020 Apple Inc. All rights reserved.
+ * Copyright (C) 2011-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,79 +29,80 @@
 #if ENABLE(VIDEO)
 
 #include "TrackBase.h"
-#include "VideoTrackPrivate.h"
+#include "VideoTrackPrivateClient.h"
+#include <wtf/TZoneMalloc.h>
+#include <wtf/WeakHashSet.h>
 
 namespace WebCore {
 
 class MediaDescription;
 class VideoTrack;
-
-class VideoTrackClient {
-public:
-    virtual ~VideoTrackClient() = default;
-    virtual void videoTrackSelectedChanged(VideoTrack&) = 0;
-};
+class VideoTrackClient;
+class VideoTrackConfiguration;
+class VideoTrackPrivate;
 
 class VideoTrack final : public MediaTrackBase, private VideoTrackPrivateClient {
+    WTF_MAKE_TZONE_ALLOCATED(VideoTrack);
 public:
-    static Ref<VideoTrack> create(VideoTrackClient& client, VideoTrackPrivate& trackPrivate)
+    static Ref<VideoTrack> create(ScriptExecutionContext* context, VideoTrackPrivate& trackPrivate)
     {
-        return adoptRef(*new VideoTrack(client, trackPrivate));
+        return adoptRef(*new VideoTrack(context, trackPrivate));
     }
     virtual ~VideoTrack();
 
-    static const AtomString& alternativeKeyword();
-    static const AtomString& captionsKeyword();
-    static const AtomString& mainKeyword();
+    // VideoTrackPrivateClient.
+    void ref() const final { MediaTrackBase::ref(); }
+    void deref() const final { MediaTrackBase::deref(); }
+
     static const AtomString& signKeyword();
-    static const AtomString& subtitlesKeyword();
-    static const AtomString& commentaryKeyword();
 
     bool selected() const { return m_selected; }
-    virtual void setSelected(const bool);
+    void setSelected(const bool);
 
-    void clearClient() final { m_client = nullptr; }
-    VideoTrackClient* client() const { return m_client; }
+    void addClient(VideoTrackClient&);
+    void clearClient(VideoTrackClient&);
 
     size_t inbandTrackIndex();
 
-#if ENABLE(MEDIA_SOURCE)
     void setKind(const AtomString&) final;
     void setLanguage(const AtomString&) final;
-#endif
 
     const MediaDescription& description() const;
 
+    VideoTrackConfiguration& configuration() const { return m_configuration; }
+
     void setPrivate(VideoTrackPrivate&);
-    void setMediaElement(WeakPtr<HTMLMediaElement>) override;
 #if !RELEASE_LOG_DISABLED
-    void setLogger(const Logger&, const void*) final;
+    void setLogger(const Logger&, uint64_t) final;
 #endif
 
 private:
-    VideoTrack(VideoTrackClient&, VideoTrackPrivate&);
+    VideoTrack(ScriptExecutionContext*, VideoTrackPrivate&);
 
     bool isValidKind(const AtomString&) const final;
 
     // VideoTrackPrivateClient
     void selectedChanged(bool) final;
+    void configurationChanged(const PlatformVideoTrackConfiguration&) final;
 
     // TrackPrivateBaseClient
-    void idChanged(const AtomString&) final;
-    void labelChanged(const AtomString&) final;
-    void languageChanged(const AtomString&) final;
+    void idChanged(TrackID) final;
+    void labelChanged(const String&) final;
+    void languageChanged(const String&) final;
     void willRemove() final;
 
     bool enabled() const final { return selected(); }
 
     void updateKindFromPrivate();
+    void updateConfigurationFromPrivate();
 
 #if !RELEASE_LOG_DISABLED
-    const char* logClassName() const final { return "VideoTrack"; }
+    ASCIILiteral logClassName() const final { return "VideoTrack"_s; }
 #endif
 
-    VideoTrackClient* m_client { nullptr };
+    WeakHashSet<VideoTrackClient> m_clients;
     Ref<VideoTrackPrivate> m_private;
+    const Ref<VideoTrackConfiguration> m_configuration;
     bool m_selected { false };
 };
 

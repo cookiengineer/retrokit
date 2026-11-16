@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Apple Inc. All rights reserved.
+ * Copyright (C) 2017-2025 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,9 +29,15 @@
 
 #include <WebCore/LibWebRTCProvider.h>
 #include <WebCore/LibWebRTCSocketIdentifier.h>
-#include <webrtc/rtc_base/async_packet_socket.h>
-#include <wtf/Deque.h>
+#include <wtf/CheckedRef.h>
 #include <wtf/Forward.h>
+#include <wtf/Identified.h>
+#include <wtf/StdMap.h>
+#include <wtf/TZoneMalloc.h>
+
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_BEGIN
+#include <webrtc/rtc_base/async_packet_socket.h>
+WTF_IGNORE_WARNINGS_IN_THIRD_PARTY_CODE_END
 
 namespace IPC {
 class Connection;
@@ -42,65 +48,60 @@ namespace WebKit {
 
 class LibWebRTCSocketFactory;
 
-class LibWebRTCSocket final : public rtc::AsyncPacketSocket {
-    WTF_MAKE_FAST_ALLOCATED;
+class LibWebRTCSocket final : public webrtc::AsyncPacketSocket, public CanMakeCheckedPtr<LibWebRTCSocket>, public Identified<WebCore::LibWebRTCSocketIdentifier> {
+    WTF_MAKE_TZONE_ALLOCATED(LibWebRTCSocket);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(LibWebRTCSocket);
 public:
-    enum class Type { UDP, ServerTCP, ClientTCP, ServerConnectionTCP };
+    enum class Type { UDP, ClientTCP, ServerConnectionTCP };
 
-    LibWebRTCSocket(LibWebRTCSocketFactory&, const void* socketGroup, Type, const rtc::SocketAddress& localAddress, const rtc::SocketAddress& remoteAddress);
+    LibWebRTCSocket(LibWebRTCSocketFactory&, WebCore::ScriptExecutionContextIdentifier, Type, const webrtc::SocketAddress& localAddress, const webrtc::SocketAddress& remoteAddress);
     ~LibWebRTCSocket();
 
-    const void* socketGroup() const { return m_socketGroup; }
-    WebCore::LibWebRTCSocketIdentifier identifier() const { return m_identifier; }
-    const rtc::SocketAddress& localAddress() const { return m_localAddress; }
-    const rtc::SocketAddress& remoteAddress() const { return m_remoteAddress; }
+    WebCore::ScriptExecutionContextIdentifier contextIdentifier() const { return m_contextIdentifier; }
+    const webrtc::SocketAddress& localAddress() const LIFETIME_BOUND { return m_localAddress; }
+    const webrtc::SocketAddress& remoteAddress() const LIFETIME_BOUND { return m_remoteAddress; }
 
     void setError(int error) { m_error = error; }
     void setState(State state) { m_state = state; }
 
     void suspend();
-    void resume();
+    void NODELETE resume();
 
 private:
     bool willSend(size_t);
 
     friend class LibWebRTCNetwork;
-    void signalReadPacket(const uint8_t*, size_t, rtc::SocketAddress&&, int64_t);
-    void signalSentPacket(int, int64_t);
-    void signalAddressReady(const rtc::SocketAddress&);
+    void signalReadPacket(std::span<const uint8_t>, webrtc::SocketAddress&&, int64_t, webrtc::EcnMarking);
+    void signalSentPacket(int64_t, int64_t);
+    void signalAddressReady(const webrtc::SocketAddress&);
     void signalConnect();
     void signalClose(int);
-    void signalNewConnection(rtc::AsyncPacketSocket*);
+    void signalUsedInterface(String&&);
 
     // AsyncPacketSocket API
     int GetError() const final { return m_error; }
     void SetError(int error) final { setError(error); }
-    rtc::SocketAddress GetLocalAddress() const final;
-    rtc::SocketAddress GetRemoteAddress() const final;
-    int Send(const void *pv, size_t cb, const rtc::PacketOptions& options) final { return SendTo(pv, cb, m_remoteAddress, options); }
-    int SendTo(const void *, size_t, const rtc::SocketAddress&, const rtc::PacketOptions&) final;
+    webrtc::SocketAddress GetLocalAddress() const final;
+    webrtc::SocketAddress GetRemoteAddress() const final;
+    int Send(const void *pv, size_t cb, const webrtc::AsyncSocketPacketOptions& options) final { return SendTo(pv, cb, m_remoteAddress, options); }
+    int SendTo(const void *, size_t, const webrtc::SocketAddress&, const webrtc::AsyncSocketPacketOptions&) final;
     int Close() final;
     State GetState() const final { return m_state; }
-    int GetOption(rtc::Socket::Option, int*) final;
-    int SetOption(rtc::Socket::Option, int) final;
+    int GetOption(webrtc::Socket::Option, int*) final;
+    int SetOption(webrtc::Socket::Option, int) final;
 
-    LibWebRTCSocketFactory& m_factory;
-    WebCore::LibWebRTCSocketIdentifier m_identifier;
+    const CheckedRef<LibWebRTCSocketFactory> m_factory;
     Type m_type;
-    rtc::SocketAddress m_localAddress;
-    rtc::SocketAddress m_remoteAddress;
+    webrtc::SocketAddress m_localAddress;
+    webrtc::SocketAddress m_remoteAddress;
 
     int m_error { 0 };
     State m_state { STATE_BINDING };
 
-    static const unsigned MAX_SOCKET_OPTION { rtc::Socket::OPT_RTP_SENDTIME_EXTN_ID + 1 };
-    std::optional<int> m_options[MAX_SOCKET_OPTION];
+    StdMap<webrtc::Socket::Option, int> m_options;
 
-    Deque<size_t> m_beingSentPacketSizes;
-    size_t m_availableSendingBytes { 65536 };
-    bool m_shouldSignalReadyToSend { false };
     bool m_isSuspended { false };
-    const void* m_socketGroup { nullptr };
+    WebCore::ScriptExecutionContextIdentifier m_contextIdentifier;
 };
 
 } // namespace WebKit

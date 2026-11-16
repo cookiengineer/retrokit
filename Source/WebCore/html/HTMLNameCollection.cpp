@@ -28,37 +28,42 @@
 #include "HTMLFormElement.h"
 #include "HTMLIFrameElement.h"
 #include "HTMLImageElement.h"
+#include "HTMLNameCollectionInlines.h"
 #include "HTMLNames.h"
 #include "HTMLObjectElement.h"
 #include "NodeRareData.h"
 #include "NodeTraversal.h"
-#include <wtf/IsoMallocInlines.h>
+#include <wtf/TZoneMallocInlines.h>
 
 namespace WebCore {
 
 using namespace HTMLNames;
 
-WTF_MAKE_ISO_ALLOCATED_IMPL(WindowNameCollection);
-WTF_MAKE_ISO_ALLOCATED_IMPL(DocumentNameCollection);
+template HTMLNameCollection<WindowNameCollection>::~HTMLNameCollection();
+template HTMLNameCollection<DocumentNameCollection>::~HTMLNameCollection();
+
+WTF_MAKE_TZONE_ALLOCATED_IMPL(WindowNameCollection);
+WTF_MAKE_TZONE_ALLOCATED_IMPL(DocumentNameCollection);
 
 bool WindowNameCollection::elementMatchesIfNameAttributeMatch(const Element& element)
 {
-    return is<HTMLEmbedElement>(element)
-        || is<HTMLFormElement>(element)
-        || is<HTMLImageElement>(element)
-        || is<HTMLObjectElement>(element);
+    return isAnyOf<HTMLEmbedElement, HTMLFormElement, HTMLImageElement, HTMLObjectElement>(element);
 }
 
-bool WindowNameCollection::elementMatches(const Element& element, const AtomStringImpl* name)
+bool WindowNameCollection::elementMatches(const Element& element, const AtomString& name)
 {
     // Find only images, forms, applets, embeds and objects by name, but anything by id.
-    return (elementMatchesIfNameAttributeMatch(element) && element.getNameAttribute().impl() == name)
+    return (elementMatchesIfNameAttributeMatch(element) && element.getNameAttribute() == name)
         || element.getIdAttribute() == name;
 }
 
-static inline bool isObjectElementForDocumentNameCollection(const Element& element)
+static inline bool NODELETE isObjectElementForDocumentNameCollection(const Element& element)
 {
-    return is<HTMLObjectElement>(element) && downcast<HTMLObjectElement>(element).isExposed();
+    // This is used for supportedPropertyNames enumeration. All object elements
+    // are included unconditionally to match other browsers' behavior.
+    // The isExposed() check is applied later in elementMatches() when resolving
+    // a specific name to actual elements.
+    return is<HTMLObjectElement>(element);
 }
 
 bool DocumentNameCollection::elementMatchesIfIdAttributeMatch(const Element& element)
@@ -71,18 +76,26 @@ bool DocumentNameCollection::elementMatchesIfIdAttributeMatch(const Element& ele
 bool DocumentNameCollection::elementMatchesIfNameAttributeMatch(const Element& element)
 {
     return isObjectElementForDocumentNameCollection(element)
-        || is<HTMLEmbedElement>(element)
-        || is<HTMLFormElement>(element)
-        || is<HTMLIFrameElement>(element)
-        || is<HTMLImageElement>(element);
+        || isAnyOf<HTMLEmbedElement, HTMLFormElement, HTMLIFrameElement, HTMLImageElement>(element);
 }
 
-bool DocumentNameCollection::elementMatches(const Element& element, const AtomStringImpl* name)
+bool DocumentNameCollection::elementMatches(const Element& element, const AtomString& name)
 {
-    // Find images, forms, applets, embeds, objects and iframes by name, applets and object by id, and images by id
-    // but only if they have a name attribute (this very strange rule matches IE).
-    return (elementMatchesIfNameAttributeMatch(element) && element.getNameAttribute().impl() == name)
-        || (elementMatchesIfIdAttributeMatch(element) && element.getIdAttribute().impl() == name);
+    // https://html.spec.whatwg.org/multipage/dom.html#dom-document-nameditem
+    // Only exposed object/embed elements should match when resolving a name.
+    // Note: elementMatchesIfNameAttributeMatch/elementMatchesIfIdAttributeMatch intentionally
+    // do not check isExposed() because they are used for supportedPropertyNames enumeration,
+    // where browsers include all object elements unconditionally.
+    if (auto* object = dynamicDowncast<HTMLObjectElement>(element))
+        return object->isExposed() && (element.getNameAttribute() == name || element.getIdAttribute() == name);
+    if (auto* embed = dynamicDowncast<HTMLEmbedElement>(element))
+        return embed->isExposed() && element.getNameAttribute() == name;
+
+    if (is<HTMLImageElement>(element)) {
+        const auto& nameValue = element.getNameAttribute();
+        return nameValue == name || (element.getIdAttribute() == name && !nameValue.isEmpty());
+    }
+    return isAnyOf<HTMLFormElement, HTMLIFrameElement>(element) && element.getNameAttribute() == name;
 }
 
 }

@@ -31,9 +31,14 @@
 
 namespace WTF {
 
-MonotonicTime WallTime::approximateMonotonicTime() const
+WallTime WallTime::fromSecondsSinceEpoch(Seconds seconds)
 {
-    return *this - now() + MonotonicTime::now();
+    return WallTime { seconds.value() };
+}
+
+Seconds WallTime::secondsSinceEpoch() const
+{
+    return Seconds { m_value };
 }
 
 void WallTime::dump(PrintStream& out) const

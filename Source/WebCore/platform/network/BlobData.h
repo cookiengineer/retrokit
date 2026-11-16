@@ -28,14 +28,14 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef BlobData_h
-#define BlobData_h
+#pragma once
 
-#include "BlobDataFileReference.h"
-#include "PolicyContainer.h"
-#include "ThreadSafeDataBuffer.h"
+#include <WebCore/BlobDataFileReference.h>
+#include <WebCore/PolicyContainer.h>
+#include <WebCore/SharedBuffer.h>
 #include <wtf/Forward.h>
 #include <wtf/ThreadSafeRefCounted.h>
+#include <wtf/Variant.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
@@ -44,18 +44,22 @@ class BlobDataItem {
 public:
     WEBCORE_EXPORT static const long long toEndOfFile;
 
-    enum class Type {
-        Data,
-        File
-    };
-
-    Type type() const { return m_type; }
-
-    // For Data type.
-    const ThreadSafeDataBuffer& data() const { return m_data; }
-
-    // For File type.
-    BlobDataFileReference* file() const { return m_file.get(); }
+#if PLATFORM(COCOA)
+    template<typename... F> constexpr decltype(auto) switchOn(NOESCAPE F&&... f) const
+#else
+    template<typename... F> constexpr decltype(auto) switchOn(F&&... f) const
+#endif
+    {
+        auto visitor = WTF::makeVisitor(std::forward<F>(f)...);
+        return WTF::switchOn(m_data,
+            [&](const Ref<DataSegment>& data) {
+                return visitor(data.get());
+            },
+            [&](const Ref<BlobDataFileReference>& file) {
+                return visitor(file.get());
+            }
+        );
+    }
 
     long long offset() const { return m_offset; }
     WEBCORE_EXPORT long long length() const; // Computes file length if it's not known yet.
@@ -64,65 +68,59 @@ private:
     friend class BlobData;
 
     explicit BlobDataItem(Ref<BlobDataFileReference>&& file)
-        : m_type(Type::File)
-        , m_file(WTFMove(file))
+        : m_data(WTF::move(file))
         , m_offset(0)
         , m_length(toEndOfFile)
     {
     }
 
-    BlobDataItem(ThreadSafeDataBuffer data, long long offset, long long length)
-        : m_type(Type::Data)
-        , m_data(data)
+    BlobDataItem(Ref<DataSegment>&& data, long long offset, long long length)
+        : m_data(WTF::move(data))
         , m_offset(offset)
         , m_length(length)
     {
     }
 
-    BlobDataItem(BlobDataFileReference* file, long long offset, long long length)
-        : m_type(Type::File)
-        , m_file(file)
+    BlobDataItem(Ref<BlobDataFileReference>&& file, long long offset, long long length)
+        : m_data(WTF::move(file))
         , m_offset(offset)
         , m_length(length)
     {
     }
 
-    Type m_type;
-    ThreadSafeDataBuffer m_data;
-    RefPtr<BlobDataFileReference> m_file;
-
+    Variant<Ref<DataSegment>, Ref<BlobDataFileReference>> m_data;
     long long m_offset;
     long long m_length;
 };
 
 typedef Vector<BlobDataItem> BlobDataItemList;
 
-class BlobData : public ThreadSafeRefCounted<BlobData> {
+class BlobData : public ThreadSafeRefCounted<BlobData, WTF::DestructionThread::Main> {
 public:
     static Ref<BlobData> create(const String& contentType)
     {
         return adoptRef(*new BlobData(contentType));
     }
 
-    const String& contentType() const { return m_contentType; }
+    const String& contentType() const LIFETIME_BOUND { return m_contentType; }
 
-    const PolicyContainer& policyContainer() const { return m_policyContainer; }
+    const PolicyContainer& policyContainer() const LIFETIME_BOUND { return m_policyContainer; }
     void setPolicyContainer(const PolicyContainer& policyContainer) { m_policyContainer = policyContainer; }
 
-    const BlobDataItemList& items() const { return m_items; }
-    void swapItems(BlobDataItemList&);
+    const BlobDataItemList& items() const LIFETIME_BOUND { return m_items; }
 
-    void appendData(const ThreadSafeDataBuffer&);
+    void replaceData(const DataSegment& oldData, Ref<DataSegment>&& newData);
+    void appendData(Ref<DataSegment>&&);
     void appendFile(Ref<BlobDataFileReference>&&);
 
     Ref<BlobData> clone() const;
 
 private:
     friend class BlobRegistryImpl;
-    BlobData(const String& contentType);
+    WEBCORE_EXPORT BlobData(const String& contentType);
 
-    void appendData(const ThreadSafeDataBuffer&, long long offset, long long length);
-    void appendFile(BlobDataFileReference*, long long offset, long long length);
+    void appendData(Ref<DataSegment>&&, long long offset, long long length);
+    void appendFile(Ref<BlobDataFileReference>&&, long long offset, long long length);
 
     String m_contentType;
     PolicyContainer m_policyContainer;
@@ -130,5 +128,3 @@ private:
 };
 
 } // namespace WebCore
-
-#endif // BlobData_h

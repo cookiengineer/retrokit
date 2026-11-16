@@ -13,7 +13,7 @@
 namespace angle
 {
 
-class GPUTestConfigTest : public ANGLETest
+class GPUTestConfigTest : public ANGLETest<>
 {
   protected:
     GPUTestConfigTest() {}
@@ -23,7 +23,8 @@ class GPUTestConfigTest : public ANGLETest
     void validateConfigBase(const GPUTestConfig &config)
     {
         EXPECT_EQ(IsWindows(), config.getConditions()[GPUTestConfig::kConditionWin]);
-        EXPECT_EQ(IsOSX(), config.getConditions()[GPUTestConfig::kConditionMac]);
+        EXPECT_EQ(IsMac(), config.getConditions()[GPUTestConfig::kConditionMac]);
+        EXPECT_EQ(IsIOS(), config.getConditions()[GPUTestConfig::kConditionIOS]);
         EXPECT_EQ(IsLinux(), config.getConditions()[GPUTestConfig::kConditionLinux]);
         EXPECT_EQ(IsAndroid(), config.getConditions()[GPUTestConfig::kConditionAndroid]);
         EXPECT_EQ(IsNexus5X(), config.getConditions()[GPUTestConfig::kConditionNexus5X]);
@@ -34,23 +35,23 @@ class GPUTestConfigTest : public ANGLETest
         EXPECT_EQ(IsNVIDIA(), config.getConditions()[GPUTestConfig::kConditionNVIDIA]);
         EXPECT_EQ(IsDebug(), config.getConditions()[GPUTestConfig::kConditionDebug]);
         EXPECT_EQ(IsRelease(), config.getConditions()[GPUTestConfig::kConditionRelease]);
+        EXPECT_EQ(IsASan(), config.getConditions()[GPUTestConfig::kConditionASan]);
+        EXPECT_EQ(IsTSan(), config.getConditions()[GPUTestConfig::kConditionTSan]);
+        EXPECT_EQ(IsUBSan(), config.getConditions()[GPUTestConfig::kConditionUBSan]);
     }
 
     void validateConfigAPI(const GPUTestConfig &config,
                            const GPUTestConfig::API &api,
                            uint32_t preRotation)
     {
-        bool D3D9      = false;
         bool D3D11     = false;
         bool GLDesktop = false;
         bool GLES      = false;
         bool Vulkan    = false;
         bool Metal     = false;
+        bool Wgpu      = false;
         switch (api)
         {
-            case GPUTestConfig::kAPID3D9:
-                D3D9 = true;
-                break;
             case GPUTestConfig::kAPID3D11:
                 D3D11 = true;
                 break;
@@ -66,16 +67,19 @@ class GPUTestConfigTest : public ANGLETest
             case GPUTestConfig::kAPIMetal:
                 Metal = true;
                 break;
+            case GPUTestConfig::kAPIWgpu:
+                Wgpu = true;
+                break;
             case GPUTestConfig::kAPIUnknown:
             default:
                 break;
         }
-        EXPECT_EQ(D3D9, config.getConditions()[GPUTestConfig::kConditionD3D9]);
         EXPECT_EQ(D3D11, config.getConditions()[GPUTestConfig::kConditionD3D11]);
         EXPECT_EQ(GLDesktop, config.getConditions()[GPUTestConfig::kConditionGLDesktop]);
         EXPECT_EQ(GLES, config.getConditions()[GPUTestConfig::kConditionGLES]);
         EXPECT_EQ(Vulkan, config.getConditions()[GPUTestConfig::kConditionVulkan]);
         EXPECT_EQ(Metal, config.getConditions()[GPUTestConfig::kConditionMetal]);
+        EXPECT_EQ(Wgpu, config.getConditions()[GPUTestConfig::kConditionWgpu]);
 
         switch (preRotation)
         {
@@ -117,12 +121,6 @@ TEST_P(GPUTestConfigTest, GPUTestConfigConditions)
 
 // Create a new GPUTestConfig with each backend specified and validate the
 // condition flags are set correctly.
-TEST_P(GPUTestConfigTest, GPUTestConfigConditions_D3D9)
-{
-    GPUTestConfig config(GPUTestConfig::kAPID3D9, 0);
-    validateConfigAPI(config, GPUTestConfig::kAPID3D9, 0);
-}
-
 TEST_P(GPUTestConfigTest, GPUTestConfigConditions_D3D11)
 {
     GPUTestConfig config(GPUTestConfig::kAPID3D11, 0);
@@ -133,6 +131,14 @@ TEST_P(GPUTestConfigTest, GPUTestConfigConditions_Metal)
 {
     GPUTestConfig config(GPUTestConfig::kAPIMetal, 0);
     validateConfigAPI(config, GPUTestConfig::kAPIMetal, 0);
+}
+
+// Create a new GPUTestConfig with webgpu and validate the
+// condition flags are set correctly.
+TEST_P(GPUTestConfigTest, GPUTestConfigConditions_Wgpu)
+{
+    GPUTestConfig config(GPUTestConfig::kAPIWgpu, 0);
+    validateConfigAPI(config, GPUTestConfig::kAPIWgpu, 0);
 }
 
 TEST_P(GPUTestConfigTest, GPUTestConfigConditions_GLDesktop)

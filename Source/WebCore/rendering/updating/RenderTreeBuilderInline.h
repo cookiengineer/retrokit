@@ -26,25 +26,18 @@
 #pragma once
 
 #include "RenderTreeBuilder.h"
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 class RenderTreeBuilder::Inline {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(Inline);
 public:
     Inline(RenderTreeBuilder&);
 
     void attach(RenderInline& parent, RenderPtr<RenderObject> child, RenderObject* beforeChild);
-    void attachIgnoringContinuation(RenderInline& parent, RenderPtr<RenderObject> child, RenderObject* beforeChild);
-
-    // Make this private once all the mutation code is in RenderTreeBuilder.
-    void childBecameNonInline(RenderInline& parent, RenderElement& child);
 
 private:
-    void insertChildToContinuation(RenderInline& parent, RenderPtr<RenderObject> child, RenderObject* beforeChild);
-    void splitInlines(RenderInline& parent, RenderBlock* fromBlock, RenderBlock* toBlock, RenderBlock* middleBlock, RenderObject* beforeChild, RenderBoxModelObject* oldCont);
-    bool newChildIsInline(const RenderInline& parent, const RenderObject& child);
-    void splitFlow(RenderInline& parent, RenderObject* beforeChild, RenderPtr<RenderBlock> newBlockBox, RenderPtr<RenderObject> child, RenderBoxModelObject* oldCont);
 
     RenderTreeBuilder& m_builder;
 };

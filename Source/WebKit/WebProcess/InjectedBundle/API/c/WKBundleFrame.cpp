@@ -38,12 +38,18 @@
 #include "WKData.h"
 #include "WebFrame.h"
 #include "WebPage.h"
-#include <WebCore/Document.h>
+#include "WebProcess.h"
+#include <WebCore/AXIsolatedObject.h>
+#include <WebCore/AXIsolatedTree.h>
+#include <WebCore/AXObjectCache.h>
+#include <WebCore/DocumentInlines.h>
+#include <WebCore/DocumentPage.h>
+#include <WebCore/DocumentSecurityOrigin.h>
 #include <WebCore/FocusController.h>
-#include <WebCore/Frame.h>
 #include <WebCore/FrameLoader.h>
-#include <WebCore/FrameView.h>
-#include <WebCore/Page.h>
+#include <WebCore/LocalFrameInlines.h>
+#include <WebCore/LocalFrameView.h>
+#include <WebCore/ReportingScope.h>
 
 WKTypeID WKBundleFrameGetTypeID()
 {
@@ -52,27 +58,27 @@ WKTypeID WKBundleFrameGetTypeID()
 
 bool WKBundleFrameIsMainFrame(WKBundleFrameRef frameRef)
 {
-    return WebKit::toImpl(frameRef)->isMainFrame();
+    return protect(WebKit::toImpl(frameRef))->isMainFrame();
 }
 
 WKBundleFrameRef WKBundleFrameGetParentFrame(WKBundleFrameRef frameRef)
 {
-    return toAPI(WebKit::toImpl(frameRef)->parentFrame());
+    return toAPI(protect(WebKit::toImpl(frameRef))->parentFrame().get());
 }
 
 WKURLRef WKBundleFrameCopyURL(WKBundleFrameRef frameRef)
 {
-    return WebKit::toCopiedURLAPI(WebKit::toImpl(frameRef)->url());
+    return WebKit::toCopiedURLAPI(protect(WebKit::toImpl(frameRef))->url());
 }
 
 WKURLRef WKBundleFrameCopyProvisionalURL(WKBundleFrameRef frameRef)
 {
-    return WebKit::toCopiedURLAPI(WebKit::toImpl(frameRef)->provisionalURL());
+    return WebKit::toCopiedURLAPI(protect(WebKit::toImpl(frameRef))->provisionalURL());
 }
 
 WKFrameLoadState WKBundleFrameGetFrameLoadState(WKBundleFrameRef frameRef)
 {
-    WebCore::Frame* coreFrame = WebKit::toImpl(frameRef)->coreFrame();
+    RefPtr coreFrame = WebKit::toImpl(frameRef)->coreLocalFrame();
     if (!coreFrame)
         return kWKFrameLoadStateFinished;
 
@@ -91,37 +97,37 @@ WKFrameLoadState WKBundleFrameGetFrameLoadState(WKBundleFrameRef frameRef)
 
 WKArrayRef WKBundleFrameCopyChildFrames(WKBundleFrameRef frameRef)
 {
-    return WebKit::toAPI(&WebKit::toImpl(frameRef)->childFrames().leakRef());    
+    return WebKit::toAPILeakingRef(protect(WebKit::toImpl(frameRef))->childFrames());
 }
 
 JSGlobalContextRef WKBundleFrameGetJavaScriptContext(WKBundleFrameRef frameRef)
 {
-    return WebKit::toImpl(frameRef)->jsContext();
+    return protect(WebKit::toImpl(frameRef))->jsContext();
 }
 
 WKBundleFrameRef WKBundleFrameForJavaScriptContext(JSContextRef context)
 {
-    return toAPI(WebKit::WebFrame::frameForContext(context));
+    return toAPI(WebKit::WebFrame::frameForContext(context).get());
 }
 
 JSGlobalContextRef WKBundleFrameGetJavaScriptContextForWorld(WKBundleFrameRef frameRef, WKBundleScriptWorldRef worldRef)
 {
-    return WebKit::toImpl(frameRef)->jsContextForWorld(WebKit::toImpl(worldRef));
+    return protect(WebKit::toImpl(frameRef))->jsContextForWorld(protect(WebKit::toImpl(worldRef)).get());
 }
 
 JSValueRef WKBundleFrameGetJavaScriptWrapperForNodeForWorld(WKBundleFrameRef frameRef, WKBundleNodeHandleRef nodeHandleRef, WKBundleScriptWorldRef worldRef)
 {
-    return WebKit::toImpl(frameRef)->jsWrapperForWorld(WebKit::toImpl(nodeHandleRef), WebKit::toImpl(worldRef));
+    return protect(WebKit::toImpl(frameRef))->jsWrapperForWorld(protect(WebKit::toImpl(nodeHandleRef)).get(), protect(WebKit::toImpl(worldRef)).get());
 }
 
 JSValueRef WKBundleFrameGetJavaScriptWrapperForRangeForWorld(WKBundleFrameRef frameRef, WKBundleRangeHandleRef rangeHandleRef, WKBundleScriptWorldRef worldRef)
 {
-    return WebKit::toImpl(frameRef)->jsWrapperForWorld(WebKit::toImpl(rangeHandleRef), WebKit::toImpl(worldRef));
+    return protect(WebKit::toImpl(frameRef))->jsWrapperForWorld(protect(WebKit::toImpl(rangeHandleRef)).get(), protect(WebKit::toImpl(worldRef)).get());
 }
 
 WKStringRef WKBundleFrameCopyName(WKBundleFrameRef frameRef)
 {
-    return WebKit::toCopiedAPI(WebKit::toImpl(frameRef)->name());
+    return WebKit::toCopiedAPI(protect(WebKit::toImpl(frameRef))->name());
 }
 
 WKStringRef WKBundleFrameCopyCounterValue(WKBundleFrameRef frameRef, JSObjectRef element)
@@ -129,111 +135,106 @@ WKStringRef WKBundleFrameCopyCounterValue(WKBundleFrameRef frameRef, JSObjectRef
     return WebKit::toCopiedAPI(WebKit::toImpl(frameRef)->counterValue(element));
 }
 
-WKStringRef WKBundleFrameCopyInnerText(WKBundleFrameRef frameRef)
-{
-    return WebKit::toCopiedAPI(WebKit::toImpl(frameRef)->innerText());
-}
-
 unsigned WKBundleFrameGetPendingUnloadCount(WKBundleFrameRef frameRef)
 {
-    return WebKit::toImpl(frameRef)->pendingUnloadCount();
+    return protect(WebKit::toImpl(frameRef))->pendingUnloadCount();
 }
 
 WKBundlePageRef WKBundleFrameGetPage(WKBundleFrameRef frameRef)
 {
-    return toAPI(WebKit::toImpl(frameRef)->page());
-}
-
-void WKBundleFrameClearOpener(WKBundleFrameRef frameRef)
-{
-    WebCore::Frame* coreFrame = WebKit::toImpl(frameRef)->coreFrame();
-    if (coreFrame)
-        coreFrame->loader().setOpener(0);
+    return toAPI(protect(protect(WebKit::toImpl(frameRef))->page()).get());
 }
 
 void WKBundleFrameStopLoading(WKBundleFrameRef frameRef)
 {
-    WebKit::toImpl(frameRef)->stopLoading();
+    protect(WebKit::toImpl(frameRef))->stopLoading();
 }
 
 WKStringRef WKBundleFrameCopyLayerTreeAsText(WKBundleFrameRef frameRef)
 {
-    return WebKit::toCopiedAPI(WebKit::toImpl(frameRef)->layerTreeAsText());
+    return WebKit::toCopiedAPI(protect(WebKit::toImpl(frameRef))->layerTreeAsText());
 }
 
 bool WKBundleFrameAllowsFollowingLink(WKBundleFrameRef frameRef, WKURLRef urlRef)
 {
-    return WebKit::toImpl(frameRef)->allowsFollowingLink(URL(URL(), WebKit::toWTFString(urlRef)));
+    return protect(WebKit::toImpl(frameRef))->allowsFollowingLink(URL { WebKit::toWTFString(urlRef) });
 }
 
-bool WKBundleFrameHandlesPageScaleGesture(WKBundleFrameRef frameRef)
+bool WKBundleFrameHandlesPageScaleGesture(WKBundleFrameRef)
 {
-    return WebKit::toImpl(frameRef)->handlesPageScaleGesture();
+    // Deprecated, always returns false, but result is not meaningful.
+    return false;
 }
 
 WKRect WKBundleFrameGetContentBounds(WKBundleFrameRef frameRef)
 {
-    return WebKit::toAPI(WebKit::toImpl(frameRef)->contentBounds());
+    return WebKit::toAPI(protect(WebKit::toImpl(frameRef))->contentBounds());
 }
 
 WKRect WKBundleFrameGetVisibleContentBounds(WKBundleFrameRef frameRef)
 {
-    return WebKit::toAPI(WebKit::toImpl(frameRef)->visibleContentBounds());
+    return WebKit::toAPI(protect(WebKit::toImpl(frameRef))->visibleContentBounds());
 }
 
 WKRect WKBundleFrameGetVisibleContentBoundsExcludingScrollbars(WKBundleFrameRef frameRef)
 {
-    return WebKit::toAPI(WebKit::toImpl(frameRef)->visibleContentBoundsExcludingScrollbars());
+    return WebKit::toAPI(protect(WebKit::toImpl(frameRef))->visibleContentBoundsExcludingScrollbars());
 }
 
 WKSize WKBundleFrameGetScrollOffset(WKBundleFrameRef frameRef)
 {
-    return WebKit::toAPI(WebKit::toImpl(frameRef)->scrollOffset());
+    return WebKit::toAPI(protect(WebKit::toImpl(frameRef))->scrollOffset());
 }
 
 bool WKBundleFrameHasHorizontalScrollbar(WKBundleFrameRef frameRef)
 {
-    return WebKit::toImpl(frameRef)->hasHorizontalScrollbar();
+    return protect(WebKit::toImpl(frameRef))->hasHorizontalScrollbar();
 }
 
 bool WKBundleFrameHasVerticalScrollbar(WKBundleFrameRef frameRef)
 {
-    return WebKit::toImpl(frameRef)->hasVerticalScrollbar();
+    return protect(WebKit::toImpl(frameRef))->hasVerticalScrollbar();
 }
 
 bool WKBundleFrameGetDocumentBackgroundColor(WKBundleFrameRef frameRef, double* red, double* green, double* blue, double* alpha)
 {
-    return WebKit::toImpl(frameRef)->getDocumentBackgroundColor(red, green, blue, alpha);
+    return protect(WebKit::toImpl(frameRef))->getDocumentBackgroundColor(red, green, blue, alpha);
 }
 
 WKStringRef WKBundleFrameCopySuggestedFilenameForResourceWithURL(WKBundleFrameRef frameRef, WKURLRef urlRef)
 {
-    return WebKit::toCopiedAPI(WebKit::toImpl(frameRef)->suggestedFilenameForResourceWithURL(URL(URL(), WebKit::toWTFString(urlRef))));
+    return WebKit::toCopiedAPI(protect(WebKit::toImpl(frameRef))->suggestedFilenameForResourceWithURL(URL { WebKit::toWTFString(urlRef) }));
 }
 
 WKStringRef WKBundleFrameCopyMIMETypeForResourceWithURL(WKBundleFrameRef frameRef, WKURLRef urlRef)
 {
-    return WebKit::toCopiedAPI(WebKit::toImpl(frameRef)->mimeTypeForResourceWithURL(URL(URL(), WebKit::toWTFString(urlRef))));
+    return WebKit::toCopiedAPI(protect(WebKit::toImpl(frameRef))->mimeTypeForResourceWithURL(URL { WebKit::toWTFString(urlRef) }));
 }
 
 bool WKBundleFrameContainsAnyFormElements(WKBundleFrameRef frameRef)
 {
-    return WebKit::toImpl(frameRef)->containsAnyFormElements();
+    return protect(WebKit::toImpl(frameRef))->containsAnyFormElements();
 }
 
 bool WKBundleFrameContainsAnyFormControls(WKBundleFrameRef frameRef)
 {
-    return WebKit::toImpl(frameRef)->containsAnyFormControls();
+    return protect(WebKit::toImpl(frameRef))->containsAnyFormControls();
 }
 
 void WKBundleFrameSetTextDirection(WKBundleFrameRef frameRef, WKStringRef directionRef)
 {
-    WebKit::toImpl(frameRef)->setTextDirection(WebKit::toWTFString(directionRef));
+    if (!frameRef)
+        return;
+
+    protect(WebKit::toImpl(frameRef))->setTextDirection(WebKit::toWTFString(directionRef));
 }
 
 void WKBundleFrameSetAccessibleName(WKBundleFrameRef frameRef, WKStringRef accessibleNameRef)
 {
-    WebKit::toImpl(frameRef)->setAccessibleName(WebKit::toWTFString(accessibleNameRef));
+    if (!frameRef)
+        return;
+
+    protect(WebKit::toImpl(frameRef))->setAccessibleName(AtomString { WebKit::toWTFString(accessibleNameRef) });
 }
 
 WKDataRef WKBundleFrameCopyWebArchive(WKBundleFrameRef frameRef)
@@ -244,7 +245,7 @@ WKDataRef WKBundleFrameCopyWebArchive(WKBundleFrameRef frameRef)
 WKDataRef WKBundleFrameCopyWebArchiveFilteringSubframes(WKBundleFrameRef frameRef, WKBundleFrameFrameFilterCallback frameFilterCallback, void* context)
 {
 #if PLATFORM(COCOA)
-    RetainPtr<CFDataRef> data = WebKit::toImpl(frameRef)->webArchiveData(frameFilterCallback, context);
+    RetainPtr<CFDataRef> data = protect(WebKit::toImpl(frameRef))->webArchiveData(frameFilterCallback, context);
     if (data)
         return WKDataCreate(CFDataGetBytePtr(data.get()), CFDataGetLength(data.get()));
 #else
@@ -253,12 +254,15 @@ WKDataRef WKBundleFrameCopyWebArchiveFilteringSubframes(WKBundleFrameRef frameRe
     UNUSED_PARAM(context);
 #endif
     
-    return 0;
+    return nullptr;
 }
 
 bool WKBundleFrameCallShouldCloseOnWebView(WKBundleFrameRef frameRef)
 {
-    WebCore::Frame* coreFrame = WebKit::toImpl(frameRef)->coreFrame();
+    if (!frameRef)
+        return true;
+
+    RefPtr coreFrame = WebKit::toImpl(frameRef)->coreLocalFrame();
     if (!coreFrame)
         return true;
 
@@ -267,23 +271,84 @@ bool WKBundleFrameCallShouldCloseOnWebView(WKBundleFrameRef frameRef)
 
 WKBundleHitTestResultRef WKBundleFrameCreateHitTestResult(WKBundleFrameRef frameRef, WKPoint point)
 {
-    return WebKit::toAPI(WebKit::toImpl(frameRef)->hitTest(WebKit::toIntPoint(point)).leakRef());
+    ASSERT(frameRef);
+    return WebKit::toAPILeakingRef(protect(WebKit::toImpl(frameRef))->hitTest(WebKit::toIntPoint(point)));
 }
 
 WKSecurityOriginRef WKBundleFrameCopySecurityOrigin(WKBundleFrameRef frameRef)
 {
-    WebCore::Frame* coreFrame = WebKit::toImpl(frameRef)->coreFrame();
+    RefPtr coreFrame = WebKit::toImpl(frameRef)->coreLocalFrame();
     if (!coreFrame)
         return 0;
 
-    return WebKit::toCopiedAPI(&coreFrame->document()->securityOrigin());
+    return WebKit::toCopiedAPI(protect(protect(coreFrame->document())->securityOrigin()).ptr());
 }
 
 void WKBundleFrameFocus(WKBundleFrameRef frameRef)
 {
-    WebCore::Frame* coreFrame = WebKit::toImpl(frameRef)->coreFrame();
+    RefPtr coreFrame = WebKit::toImpl(frameRef)->coreLocalFrame();
     if (!coreFrame)
         return;
 
-    coreFrame->page()->focusController().setFocusedFrame(coreFrame);
+    coreFrame->page()->focusController().setFocusedFrame(coreFrame.get());
+}
+
+void _WKBundleFrameGenerateTestReport(WKBundleFrameRef frameRef, WKStringRef message, WKStringRef group)
+{
+    if (!frameRef)
+        return;
+
+    RefPtr coreFrame = WebKit::toImpl(frameRef)->coreLocalFrame();
+    if (!coreFrame)
+        return;
+
+    if (RefPtr document = coreFrame->document())
+        protect(document->reportingScope())->generateTestReport(WebKit::toWTFString(message), WebKit::toWTFString(group));
+}
+
+void* _WKAccessibilityRootObjectForTesting(WKBundleFrameRef frameRef)
+{
+    if (!frameRef)
+        return nullptr;
+
+    auto getAXObjectCache = [&frameRef] () -> CheckedPtr<WebCore::AXObjectCache> {
+        WebCore::AXObjectCache::enableAccessibility();
+
+        RefPtr frame = WebKit::toImpl(frameRef)->coreLocalFrame();
+        RefPtr document = frame ? frame->rootFrame().document() : nullptr;
+        return document ? document->axObjectCache() : nullptr;
+    };
+
+    WebCore::AXObjectCache::enableAccessibility();
+
+#if ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+    if (!isMainRunLoop()) {
+        // AXIsolatedTree is threadsafe ref-counted, so it's OK to hold a reference here.
+        RefPtr<WebCore::AXIsolatedTree> tree;
+        // However, to get the tree, we need to use the AXObjectCache, which must be used on the main-thread only.
+        callOnMainRunLoopAndWait([&] {
+            CheckedPtr cache = getAXObjectCache();
+            tree = cache ? cache->getOrCreateIsolatedTree() : nullptr;
+        });
+
+        if (!tree)
+            return nullptr;
+        // AXIsolatedTree::rootNode and applyPendingChanges are safe to call off the main-thread (in fact,
+        // they're only safe to call off the main-thread).
+        tree->applyPendingChanges();
+        RefPtr root = tree ? tree->rootNode() : nullptr;
+        return root ? root->wrapper() : nullptr;
+    }
+#endif // ENABLE(ACCESSIBILITY_ISOLATED_TREE)
+
+    CheckedPtr cache = getAXObjectCache();
+    RefPtr root = cache ? cache->rootObjectForFrame(*protect(protect(WebKit::toImpl(frameRef))->coreLocalFrame())) : nullptr;
+    return root ? root->wrapper() : nullptr;
+}
+
+void _WKAccessibilityAllowAuthenticationForTesting(bool allow)
+{
+#if PLATFORM(MAC) || PLATFORM(MACCATALYST)
+    WebKit::WebProcess::setAllowAXAuthenticationForTesting(allow);
+#endif
 }

@@ -47,33 +47,42 @@
     color: hsl(0, 0%, 34%);
 }
 
+.popover .local-resource-override-popover-content > table > tr.options > th {
+    line-height: 17px;
+}
+
 .popover .local-resource-override-popover-content > table > tr > td {
     padding-left: 4px;
+}
+
+.popover .local-resource-override-popover-content > table > tr.options > td > label:not([hidden]) {
+    display: block;
 }
 
 .popover .local-resource-override-popover-content .editor {
     display: inline-block;
     width: 100%;
     padding: 4px 0 2px;
-    -webkit-appearance: unset;
-    border: 1px solid hsl(0, 0%, 78%);
+    appearance: unset;
+    border: 1px solid var(--text-color-quaternary);
     background: var(--background-color-content);
-    border-color: var(--text-color-quaternary);
 }
 
 .popover .local-resource-override-popover-content .editor > .CodeMirror {
     height: auto;
 }
 
-.popover .local-resource-override-popover-content.request .editor:is(.url, .redirect) {
+.popover .local-resource-override-popover-content.request .editor:is(.url, .redirect),
+.popover .local-resource-override-popover-content.response-mapped-directory :is(.editor:is(.url, .mapped-directory-subpath), .mapped-directory-path) {
     width: 344px;
 }
 
-.popover .local-resource-override-popover-content.response .editor.url {
+.popover .local-resource-override-popover-content.block .editor.url,
+.popover .local-resource-override-popover-content.response :is(.editor.url, .mapped-file-path) {
     width: 330px;
 }
 
-.popover .local-resource-override-popover-content label:matches(.is-case-sensitive, .is-regex) {
+.popover .local-resource-override-popover-content label:is(.is-case-sensitive, .is-regex) {
     display: inline-block;
 }
 
@@ -94,16 +103,26 @@
     margin-inline-start: 12px;
 }
 
+.popover .local-resource-override-popover-content :is(.mapped-directory-path, .mapped-file-path) {
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+}
+
+.popover .local-resource-override-popover-content :is(.mapped-directory-path, .mapped-file-path) > .value:not(:empty) + .placeholder {
+    display: none;
+}
+
+.popover .local-resource-override-popover-content :is(.mapped-directory-path, .mapped-file-path) > button {
+    margin-inline-end: 4px;
+}
+
 .popover .local-resource-override-popover-content .data-grid {
     margin-bottom: 6px;
 }
 
-.popover .local-resource-override-popover-content .data-grid tr.header-content-type > :matches(.name-column, .value-column) {
+.popover .local-resource-override-popover-content .data-grid tr.header-content-type > :is(.name-column, .value-column) {
     opacity: 0.5;
-}
-
-.popover .local-resource-override-popover-content .options td {
-    vertical-align: bottom;
 }
 
 .popover .local-resource-override-popover-content .reference-page-link-container {

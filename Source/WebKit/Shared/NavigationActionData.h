@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2016 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,44 +25,77 @@
 
 #pragma once
 
+#include "FrameInfoData.h"
+#include "WebHitTestResultData.h"
 #include "WebMouseEvent.h"
+#include "WebPageProxyIdentifier.h"
+#include <WebCore/AdvancedPrivacyProtections.h>
+#include <WebCore/BackForwardFrameItemIdentifier.h>
 #include <WebCore/BackForwardItemIdentifier.h>
 #include <WebCore/FloatPoint.h>
 #include <WebCore/FrameLoaderTypes.h>
+#include <WebCore/NavigationIdentifier.h>
+#include <WebCore/NavigationRequester.h>
+#include <WebCore/OwnerPermissionsPolicyData.h>
 #include <WebCore/PrivateClickMeasurement.h>
+#include <WebCore/ReferrerPolicy.h>
+#include <WebCore/ResourceRequest.h>
+#include <WebCore/ResourceResponse.h>
+#include <WebCore/SandboxFlags.h>
 #include <WebCore/SecurityOriginData.h>
-
-namespace IPC {
-class Decoder;
-class Encoder;
-}
+#include <WebCore/UserGestureTokenIdentifier.h>
 
 namespace WebKit {
 
 struct NavigationActionData {
-    void encode(IPC::Encoder&) const;
-    static std::optional<NavigationActionData> decode(IPC::Decoder&);
+    WTF_DEPRECATED_MAKE_STRUCT_FAST_ALLOCATED(NavigationActionData);
 
     WebCore::NavigationType navigationType { WebCore::NavigationType::Other };
-    OptionSet<WebEvent::Modifier> modifiers;
-    WebMouseEvent::Button mouseButton { WebMouseEvent::NoButton };
-    WebMouseEvent::SyntheticClickType syntheticClickType { WebMouseEvent::NoTap };
-    uint64_t userGestureTokenIdentifier { 0 };
+    OptionSet<WebEventModifier> modifiers;
+    WebMouseEventButton mouseButton { WebMouseEventButton::None };
+    WebMouseEventSyntheticClickType syntheticClickType { WebMouseEventSyntheticClickType::NoTap };
+    std::optional<WebCore::UserGestureTokenIdentifier> userGestureTokenIdentifier;
+    std::optional<WTF::UUID> userGestureAuthorizationToken;
     bool canHandleRequest { false };
     WebCore::ShouldOpenExternalURLsPolicy shouldOpenExternalURLsPolicy { WebCore::ShouldOpenExternalURLsPolicy::ShouldNotAllow };
     WTF::String downloadAttribute;
     WebCore::FloatPoint clickLocationInRootViewCoordinates;
-    bool isRedirect { false };
-    bool treatAsSameOriginNavigation { false };
+    WebCore::ResourceResponse redirectResponse;
+    bool isRequestFromClientOrUserInput { false };
     bool hasOpenedFrames { false };
     bool openedByDOMWithOpener { false };
-    WebCore::SecurityOriginData requesterOrigin;
+    bool hasOpener { false };
+    WebCore::NavigationUpgradeToHTTPSBehavior navigationUpgradeToHTTPSBehavior { WebCore::NavigationUpgradeToHTTPSBehavior::BasedOnPolicy };
+    bool isInitialFrameSrcLoad { false };
+    bool isContentRuleListRedirect { false };
+    String openedMainFrameName;
     std::optional<WebCore::BackForwardItemIdentifier> targetBackForwardItemIdentifier;
     std::optional<WebCore::BackForwardItemIdentifier> sourceBackForwardItemIdentifier;
     WebCore::LockHistory lockHistory { WebCore::LockHistory::No };
     WebCore::LockBackForwardList lockBackForwardList { WebCore::LockBackForwardList::No };
     WTF::String clientRedirectSourceForHistory;
+    WebCore::SandboxFlags effectiveSandboxFlags;
+    WebCore::ReferrerPolicy effectiveReferrerPolicy { WebCore::ReferrerPolicy::EmptyString };
+    std::optional<WebCore::OwnerPermissionsPolicyData> ownerPermissionsPolicy;
     std::optional<WebCore::PrivateClickMeasurement> privateClickMeasurement;
+    OptionSet<WebCore::AdvancedPrivacyProtections> advancedPrivacyProtections;
+    std::optional<OptionSet<WebCore::AdvancedPrivacyProtections>> originatorAdvancedPrivacyProtections;
+#if PLATFORM(MAC) || HAVE(UIKIT_WITH_MOUSE_SUPPORT)
+    std::optional<WebKit::WebHitTestResultData> webHitTestResultData;
+#endif
+    FrameInfoData originatingFrameInfoData;
+    std::optional<WebPageProxyIdentifier> originatingPageID;
+    FrameInfoData frameInfo;
+    std::optional<WebCore::NavigationIdentifier> navigationID;
+    // Sent as nullopt when equal to `request`, to avoid serializing and re-parsing a potentially
+    // very large URL twice. Resolve via originalRequestOrFallback() / fall back to `request`.
+    std::optional<WebCore::ResourceRequest> originalRequest;
+    WebCore::ResourceRequest request;
+    String invalidURLString;
+    std::optional<WebCore::NavigationRequester> requester;
+
+    // `originalRequest` is sent as nullopt when it equals `request`; resolve it here.
+    const WebCore::ResourceRequest& originalRequestOrFallback() const { return originalRequest ? *originalRequest : request; }
 };
 
 }

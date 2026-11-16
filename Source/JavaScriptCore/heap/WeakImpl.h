@@ -25,7 +25,10 @@
 
 #pragma once
 
-#include "JSCJSValue.h"
+#include <JavaScriptCore/JSCJSValue.h>
+#include <JavaScriptCore/Weak.h>
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_BEGIN
 
 namespace JSC {
 
@@ -49,11 +52,12 @@ public:
 
     State state();
     void setState(State);
+    void clear();
 
     const JSValue& jsValue();
-    static ptrdiff_t offsetOfJSValue() { return OBJECT_OFFSETOF(WeakImpl, m_jsValue); }
+    static constexpr ptrdiff_t offsetOfJSValue() { return OBJECT_OFFSETOF(WeakImpl, m_jsValue); }
     WeakHandleOwner* weakHandleOwner();
-    static ptrdiff_t offsetOfWeakHandleOwner() { return OBJECT_OFFSETOF(WeakImpl, m_weakHandleOwner); }
+    static constexpr ptrdiff_t offsetOfWeakHandleOwner() { return OBJECT_OFFSETOF(WeakImpl, m_weakHandleOwner); }
     void* context();
 
     static WeakImpl* asWeakImpl(JSValue*);
@@ -61,14 +65,18 @@ public:
 private:
     const JSValue m_jsValue;
     WeakHandleOwner* m_weakHandleOwner;
-    void* m_context;
+    void* m_context { nullptr };
 };
 
 inline WeakImpl::WeakImpl()
-    : m_weakHandleOwner(nullptr)
-    , m_context(nullptr)
+    : m_weakHandleOwner(std::bit_cast<WeakHandleOwner*>(static_cast<uintptr_t>(Deallocated)))
 {
-    setState(Deallocated);
+}
+
+inline void WeakImpl::clear()
+{
+    ASSERT(Deallocated >= this->state());
+    m_weakHandleOwner = std::bit_cast<WeakHandleOwner*>(static_cast<uintptr_t>(Deallocated));
 }
 
 inline WeakImpl::WeakImpl(JSValue jsValue, WeakHandleOwner* weakHandleOwner, void* context)
@@ -112,3 +120,5 @@ inline WeakImpl* WeakImpl::asWeakImpl(JSValue* slot)
 }
 
 } // namespace JSC
+
+WTF_ALLOW_UNSAFE_BUFFER_USAGE_END

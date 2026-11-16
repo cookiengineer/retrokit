@@ -28,26 +28,28 @@
 
 #if ENABLE(VIDEO)
 
+#include "HTMLTrackElement.h"
 #include "TextTrack.h"
 #include "TextTrackLoader.h"
 
 namespace WebCore {
 
-class HTMLTrackElement;
-
 class LoadableTextTrack final : public TextTrack, private TextTrackLoaderClient {
-    WTF_MAKE_ISO_ALLOCATED(LoadableTextTrack);
+    WTF_MAKE_TZONE_ALLOCATED(LoadableTextTrack);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(LoadableTextTrack);
 public:
-    static Ref<LoadableTextTrack> create(HTMLTrackElement&, const String& kind, const String& label, const String& language);
+    static Ref<LoadableTextTrack> create(HTMLTrackElement&, const AtomString& kind, const AtomString& label, const AtomString& language);
 
     void scheduleLoad(const URL&);
 
-    size_t trackElementIndex();
-    HTMLTrackElement* trackElement() const { return m_trackElement; }
-    void clearElement() { m_trackElement = nullptr; }
+    size_t NODELETE trackElementIndex();
+    HTMLTrackElement* trackElement() const { return m_trackElement.get(); }
+
+    void ref() const final { TextTrack::ref(); }
+    void deref() const final { TextTrack::deref(); }
 
 private:
-    LoadableTextTrack(HTMLTrackElement&, const String& kind, const String& label, const String& language);
+    LoadableTextTrack(HTMLTrackElement&, const AtomString& kind, const AtomString& label, const AtomString& language);
 
     void newCuesAvailable(TextTrackLoader&) final;
     void cueLoadingCompleted(TextTrackLoader&, bool loadingFailed) final;
@@ -56,16 +58,13 @@ private:
 
     AtomString id() const final;
     bool isDefault() const final;
-    Element* element() final;
-
-    void loadTimerFired();
 
 #if !RELEASE_LOG_DISABLED
-    const char* logClassName() const override { return "LoadableTextTrack"; }
+    ASCIILiteral logClassName() const override { return "LoadableTextTrack"_s; }
 #endif
 
-    HTMLTrackElement* m_trackElement;
-    std::unique_ptr<TextTrackLoader> m_loader;
+    WeakPtr<HTMLTrackElement, WeakPtrImplWithEventTargetData> m_trackElement;
+    RefPtr<TextTrackLoader> m_loader;
     URL m_url;
     bool m_loadPending { false };
 };

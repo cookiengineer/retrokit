@@ -27,6 +27,11 @@
     position: relative;
     width: 13px;
     height: 13px;
+    color: var(--glyph-color);
+}
+
+.sidebar > .panel.dom-node-details .details-section.dom-node-event-listeners > .header > .filter:active {
+    color: var(--glyph-color-pressed);
 }
 
 body[dir=ltr] .sidebar > .panel.dom-node-details .details-section.dom-node-event-listeners > .header > .filter {
@@ -43,16 +48,6 @@ body[dir=rtl] .sidebar > .panel.dom-node-details .details-section.dom-node-event
 
 .sidebar > .panel.dom-node-details .details-section.dom-node-event-listeners > .header > .filter:active {
     filter: brightness(0.5);
-}
-
-.sidebar > .panel.dom-node-details .details-section.dom-node-event-listeners .details-section.event-listener-section > .header > .event-listener-options {
-    display: none;
-    width: 15px;
-    height: 15px;
-}
-
-.sidebar > .panel.dom-node-details .details-section.dom-node-event-listeners .details-section.event-listener-section:hover > .header > .event-listener-options {
-    display: block;
 }
 
 @media (prefers-color-scheme: dark) {

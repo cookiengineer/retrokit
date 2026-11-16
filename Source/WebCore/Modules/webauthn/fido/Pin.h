@@ -35,8 +35,9 @@
 
 #if ENABLE(WEB_AUTHN)
 
-#include "CBORValue.h"
-#include "FidoConstants.h"
+#include <WebCore/CBORValue.h>
+#include <WebCore/CryptoKeyAES.h>
+#include <WebCore/FidoConstants.h>
 
 namespace WebCore {
 class CryptoKeyAES;
@@ -84,9 +85,6 @@ constexpr int64_t kProtocolVersion = 1;
 // encodeCOSEPublicKey takes a raw ECDH256 public key and returns it as a COSE structure.
 WEBCORE_EXPORT cbor::CBORValue::MapValue encodeCOSEPublicKey(const Vector<uint8_t>& key);
 
-// encodeRawPublicKey takes X & Y and returns them as a 0x04 || X || Y byte array.
-WEBCORE_EXPORT Vector<uint8_t> encodeRawPublicKey(const Vector<uint8_t>& X, const Vector<uint8_t>& Y);
-
 // validateAndConvertToUTF8 convert the input to a UTF8 CString if it is a syntactically valid PIN.
 WEBCORE_EXPORT std::optional<CString> validateAndConvertToUTF8(const String& pin);
 
@@ -102,6 +100,7 @@ constexpr size_t kMaxBytes = 63;
 // RetriesRequest asks an authenticator for the number of remaining PIN attempts
 // before the device is locked.
 struct RetriesRequest {
+    PINUVAuthProtocol protocol;
 };
 
 // RetriesResponse reflects an authenticator's response to a |RetriesRequest|.
@@ -119,6 +118,7 @@ private:
 // KeyAgreementRequest asks an authenticator for an ephemeral ECDH key for
 // encrypting PIN material in future requests.
 struct KeyAgreementRequest {
+    PINUVAuthProtocol protocol;
 };
 
 // KeyAgreementResponse reflects an authenticator's response to a
@@ -129,9 +129,29 @@ struct KeyAgreementResponse {
     WEBCORE_EXPORT static std::optional<KeyAgreementResponse> parseFromCOSE(const cbor::CBORValue::MapValue&);
 
     Ref<WebCore::CryptoKeyEC> peerKey;
-
+    WEBCORE_EXPORT ~KeyAgreementResponse();
+    WEBCORE_EXPORT KeyAgreementResponse(KeyAgreementResponse&&);
+    WEBCORE_EXPORT KeyAgreementResponse& operator=(KeyAgreementResponse&&);
 private:
     explicit KeyAgreementResponse(Ref<WebCore::CryptoKeyEC>&&);
+};
+
+struct SetPinRequest {
+public:
+    const WebCore::CryptoKeyAES& sharedKey() const { return m_sharedKey.get(); }
+    WEBCORE_EXPORT static std::optional<SetPinRequest> tryCreate(PINUVAuthProtocol, const String& newPin, const WebCore::CryptoKeyEC&);
+    WEBCORE_EXPORT const Vector<uint8_t>& NODELETE pinAuth() const;
+
+    friend Vector<uint8_t> encodeAsCBOR(const SetPinRequest&);
+
+private:
+    const Ref<WebCore::CryptoKeyAES> m_sharedKey;
+    mutable cbor::CBORValue::MapValue m_coseKey;
+    Vector<uint8_t> m_newPinEnc;
+    Vector<uint8_t> m_pinUvAuthParam;
+    PINUVAuthProtocol m_protocol;
+
+    SetPinRequest(Ref<WebCore::CryptoKeyAES>&& sharedKey, cbor::CBORValue::MapValue&& coseKey, Vector<uint8_t>&& m_newPinEnc, Vector<uint8_t>&& m_pinUvAuthParam, PINUVAuthProtocol);
 };
 
 // TokenRequest requests a pin-token from an authenticator. These tokens can be
@@ -140,21 +160,22 @@ private:
 class TokenRequest {
     WTF_MAKE_NONCOPYABLE(TokenRequest);
 public:
-    WEBCORE_EXPORT static std::optional<TokenRequest> tryCreate(const CString& pin, const WebCore::CryptoKeyEC&);
+    WEBCORE_EXPORT static std::optional<TokenRequest> tryCreate(PINUVAuthProtocol, const CString& pin, const WebCore::CryptoKeyEC&);
     TokenRequest(TokenRequest&&) = default;
 
     // sharedKey returns the shared ECDH key that was used to encrypt the PIN.
     // This is needed to decrypt the response.
-    WEBCORE_EXPORT const WebCore::CryptoKeyAES& sharedKey() const;
+    const WebCore::CryptoKeyAES& sharedKey() const { return m_sharedKey.get(); }
 
     friend Vector<uint8_t> encodeAsCBOR(const TokenRequest&);
 
 private:
-    TokenRequest(Ref<WebCore::CryptoKeyAES>&& sharedKey, cbor::CBORValue::MapValue&& coseKey, Vector<uint8_t>&& pinHash);
+    TokenRequest(Ref<WebCore::CryptoKeyAES>&& sharedKey, cbor::CBORValue::MapValue&& coseKey, Vector<uint8_t>&& pinHash, PINUVAuthProtocol);
 
-    Ref<WebCore::CryptoKeyAES> m_sharedKey;
+    const Ref<WebCore::CryptoKeyAES> m_sharedKey;
     mutable cbor::CBORValue::MapValue m_coseKey;
     Vector<uint8_t> m_pinHash; // Only the left 16 bytes are kept.
+    PINUVAuthProtocol m_protocol;
 };
 
 // TokenResponse represents the response to a pin-token request. In order to
@@ -163,13 +184,13 @@ private:
 // needed to show user-verification in future operations.
 class TokenResponse {
 public:
-    WEBCORE_EXPORT static std::optional<TokenResponse> parse(const WebCore::CryptoKeyAES& sharedKey, const Vector<uint8_t>& inBuffer);
+    WEBCORE_EXPORT static std::optional<TokenResponse> parse(PINUVAuthProtocol, const WebCore::CryptoKeyAES& sharedKey, const Vector<uint8_t>& inBuffer);
 
     // pinAuth returns a pinAuth parameter for a request that will use the given
     // client-data hash.
-    WEBCORE_EXPORT Vector<uint8_t> pinAuth(const Vector<uint8_t>& clientDataHash) const;
+    WEBCORE_EXPORT Vector<uint8_t> pinAuth(PINUVAuthProtocol, const Vector<uint8_t>& clientDataHash) const;
 
-    WEBCORE_EXPORT const Vector<uint8_t>& token() const;
+    WEBCORE_EXPORT const Vector<uint8_t>& NODELETE token() const;
 
 private:
     explicit TokenResponse(Ref<WebCore::CryptoKeyHMAC>&&);
@@ -177,9 +198,51 @@ private:
     Ref<WebCore::CryptoKeyHMAC> m_token;
 };
 
+// HmacSecretRequest prepares parameters for hmac-secret extension.
+// It performs key agreement and encrypts the provided salts.
+class HmacSecretRequest {
+    WTF_MAKE_NONCOPYABLE(HmacSecretRequest);
+public:
+    WEBCORE_EXPORT static std::optional<HmacSecretRequest> create(PINUVAuthProtocol, const Vector<uint8_t>& salt1, const std::optional<Vector<uint8_t>>& salt2, RefPtr<WebCore::CryptoKeyEC>&& peerKey);
+    HmacSecretRequest(HmacSecretRequest&&) = default;
+    HmacSecretRequest& operator=(HmacSecretRequest&&) = default;
+
+    const WebCore::CryptoKeyAES& sharedKey() const { return m_sharedKey.get(); }
+
+    const cbor::CBORValue::MapValue& coseKey() const LIFETIME_BOUND { return m_coseKey; }
+
+    const Vector<uint8_t>& saltEnc() const LIFETIME_BOUND { return m_saltEnc; }
+
+    const Vector<uint8_t>& saltAuth() const LIFETIME_BOUND { return m_saltAuth; }
+
+    PINUVAuthProtocol protocol() const { return m_protocol; }
+
+private:
+    HmacSecretRequest(Ref<WebCore::CryptoKeyAES>&& sharedKey, cbor::CBORValue::MapValue&& coseKey, Vector<uint8_t>&& saltEnc, Vector<uint8_t>&& saltAuth, PINUVAuthProtocol);
+
+    Ref<WebCore::CryptoKeyAES> m_sharedKey;
+    cbor::CBORValue::MapValue m_coseKey;
+    Vector<uint8_t> m_saltEnc;
+    Vector<uint8_t> m_saltAuth;
+    PINUVAuthProtocol m_protocol;
+};
+
+class HmacSecretResponse {
+public:
+    WEBCORE_EXPORT static std::optional<HmacSecretResponse> parse(PINUVAuthProtocol, const WebCore::CryptoKeyAES& sharedKey, const Vector<uint8_t>& encryptedOutput);
+
+    WEBCORE_EXPORT const Vector<uint8_t>& NODELETE output() const;
+
+private:
+    explicit HmacSecretResponse(Vector<uint8_t>&& decryptedOutput);
+
+    Vector<uint8_t> m_output;
+};
+
 WEBCORE_EXPORT Vector<uint8_t> encodeAsCBOR(const RetriesRequest&);
 WEBCORE_EXPORT Vector<uint8_t> encodeAsCBOR(const KeyAgreementRequest&);
 WEBCORE_EXPORT Vector<uint8_t> encodeAsCBOR(const TokenRequest&);
+WEBCORE_EXPORT Vector<uint8_t> encodeAsCBOR(const SetPinRequest&);
 
 } // namespace pin
 } // namespace fido

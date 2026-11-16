@@ -25,8 +25,8 @@
 
 #pragma once
 
-#include "ProfilerBytecodeSequence.h"
-#include "ProfilerBytecodes.h"
+#include <JavaScriptCore/ProfilerBytecodeSequence.h>
+#include <JavaScriptCore/ProfilerBytecodes.h>
 
 namespace JSC { namespace Profiler {
 
@@ -37,7 +37,7 @@ public:
     
     const Bytecodes* bytecodes() const { return m_bytecodes; }
     
-    JSValue toJS(JSGlobalObject*) const;
+    Ref<JSON::Value> toJSON(Dumper&) const;
 
 private:
     Bytecodes* m_bytecodes;

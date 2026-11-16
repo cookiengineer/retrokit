@@ -25,22 +25,22 @@
 
 #pragma once
 
-#if ENABLE(WEBGL)
-
 #include "WebGLExtension.h"
+#include "WebGLRenderingContextBase.h"
+#include <wtf/Noncopyable.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
-class WebGLCompressedTextureETC final : public WebGLExtension {
-    WTF_MAKE_ISO_ALLOCATED(WebGLCompressedTextureETC);
+class WebGLCompressedTextureETC final : public WebGLExtension<WebGLRenderingContextBase> {
+    WTF_MAKE_TZONE_ALLOCATED(WebGLCompressedTextureETC);
 public:
     explicit WebGLCompressedTextureETC(WebGLRenderingContextBase&);
-    virtual ~WebGLCompressedTextureETC();
+    ~WebGLCompressedTextureETC();
 
-    static bool supported(WebGLRenderingContextBase&);
-    ExtensionName getName() const override;
+    static bool supported(GraphicsContextGL&);
 };
 
 } // namespace WebCore
 
-#endif
+SPECIALIZE_TYPE_TRAITS_WEBGL_EXTENSION(WebGLCompressedTextureETC)

@@ -29,8 +29,8 @@
 
 #include <WebCore/GamepadProvider.h>
 #include <wtf/Forward.h>
-#include <wtf/HashSet.h>
 #include <wtf/Vector.h>
+#include <wtf/WeakHashSet.h>
 
 namespace WebCore {
 enum class EventMakesGamepadsVisible : bool;
@@ -38,20 +38,19 @@ enum class EventMakesGamepadsVisible : bool;
 
 namespace WebKit {
 
-class SharedMemory;
 class WebGamepad;
 
 class GamepadData;
 
 class WebGamepadProvider final : public WebCore::GamepadProvider {
 public:
-    static WebGamepadProvider& singleton();
+    static WebGamepadProvider& NODELETE singleton();
 
     void gamepadConnected(const GamepadData&, WebCore::EventMakesGamepadsVisible);
     void gamepadDisconnected(unsigned index);
-    void gamepadActivity(const Vector<GamepadData>&, WebCore::EventMakesGamepadsVisible);
+    void gamepadActivity(const Vector<std::optional<GamepadData>>&, WebCore::EventMakesGamepadsVisible);
 
-    void setInitialGamepads(const Vector<GamepadData>&);
+    void setInitialGamepads(const Vector<std::optional<GamepadData>>&);
 
 private:
     friend NeverDestroyed<WebGamepadProvider>;
@@ -60,12 +59,14 @@ private:
     
     void startMonitoringGamepads(WebCore::GamepadProviderClient&) final;
     void stopMonitoringGamepads(WebCore::GamepadProviderClient&) final;
-    const Vector<WebCore::PlatformGamepad*>& platformGamepads() final;
+    const Vector<WeakPtr<WebCore::PlatformGamepad>>& platformGamepads() final;
+    void playEffect(unsigned gamepadIndex, const String& gamepadID, WebCore::GamepadHapticEffectType, const WebCore::GamepadEffectParameters&, CompletionHandler<void(bool)>&&) final;
+    void stopEffects(unsigned gamepadIndex, const String& gamepadID, CompletionHandler<void()>&&) final;
 
-    HashSet<WebCore::GamepadProviderClient*> m_clients;
+    WeakHashSet<WebCore::GamepadProviderClient> m_clients;
 
     Vector<std::unique_ptr<WebGamepad>> m_gamepads;
-    Vector<WebCore::PlatformGamepad*> m_rawGamepads;
+    Vector<WeakPtr<WebCore::PlatformGamepad>> m_rawGamepads;
 };
 
 } // namespace WebKit

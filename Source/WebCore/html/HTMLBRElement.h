@@ -23,12 +23,13 @@
 
 #pragma once
 
-#include "HTMLElement.h"
+#include <WebCore/HTMLElement.h>
 
 namespace WebCore {
 
 class HTMLBRElement final : public HTMLElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLBRElement);
+    WTF_MAKE_TZONE_ALLOCATED(HTMLBRElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLBRElement);
 public:
     static Ref<HTMLBRElement> create(Document&);
     static Ref<HTMLBRElement> create(const QualifiedName&, Document&);
@@ -41,7 +42,7 @@ private:
     bool hasPresentationalHintsForAttribute(const QualifiedName&) const final;
     void collectPresentationalHintsForAttribute(const QualifiedName&, const AtomString&, MutableStyleProperties&) final;
 
-    RenderPtr<RenderElement> createElementRenderer(RenderStyle&&, const RenderTreePosition&) final;
+    RenderPtr<RenderElement> createElementRenderer(Style::ComputedStyle&&, const RenderTreePosition&) final;
 };
 
 } // namespace

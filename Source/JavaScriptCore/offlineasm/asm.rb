@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 
-# Copyright (C) 2011, 2016 Apple Inc. All rights reserved.
+# Copyright (C) 2011-2022 Apple Inc. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -33,6 +33,7 @@ require 'optparse'
 require "parser"
 require "self_hash"
 require "settings"
+require "shellwords"
 require "transform"
 
 class Assembler
@@ -43,53 +44,46 @@ class Assembler
     end
 
     def resetAsm
-        @commentState = :none
         @comment = nil
         @internalComment = nil
         @annotation = nil
         @codeOrigin = nil
         @numLocalLabels = 0
         @numGlobalLabels = 0
-        @deferredActions = []
+        @deferredOSDarwinActions = []
         @deferredNextLabelActions = []
         @count = 0
+        @debugAnnotationStr = nil
+        @lastDebugAnnotationStr = nil
 
         @newlineSpacerState = :none
         @lastlabel = ""
     end
 
     def enterAsm
-        @outp.puts "OFFLINE_ASM_BEGIN" if !$emitWinAsm
+        @outp.puts ""
+        putStr "OFFLINE_ASM_BEGIN"
 
-        if !$emitWinAsm
-            @outp.puts "OFFLINE_ASM_GLOBAL_LABEL(llintPCRangeStart)"
-        else
-            putsProc("llintPCRangeStart", "")
-            putsProcEndIfNeeded
-        end
         @state = :asm
         SourceFile.outputDotFileList(@outp) if $enableDebugAnnotations
     end
     
     def leaveAsm
-        putsProcEndIfNeeded if $emitWinAsm
-        if !$emitWinAsm
-            @outp.puts "OFFLINE_ASM_GLOBAL_LABEL(llintPCRangeEnd)"
-        else
-            putsProc("llintPCRangeEnd", "")
-            putsProcEndIfNeeded
-        end
         putsLastComment
-        (@deferredNextLabelActions + @deferredActions).each {
-            | action |
-            action.call()
-        }
-        @outp.puts "OFFLINE_ASM_END" if !$emitWinAsm
+        if not @deferredOSDarwinActions.size.zero?
+            putStr("#if OS(DARWIN)")
+            (@deferredNextLabelActions + @deferredOSDarwinActions).each {
+                | action |
+                action.call()
+            }
+            putStr("#endif // OS(DARWIN)")
+        end
+        putStr "OFFLINE_ASM_END"
         @state = :cpp
     end
     
-    def deferAction(&proc)
-        @deferredActions << proc
+    def deferOSDarwinAction(&proc)
+        @deferredOSDarwinActions << proc
     end
 
     def deferNextLabelAction(&proc)
@@ -121,16 +115,16 @@ class Assembler
             result += separator if result != ""
             result += "#{@internalComment}"
         end
-        if @codeOrigin and $enableCodeOriginComments
+        if $enableCodeOriginComments and @codeOrigin and @codeOrigin != @lastCodeOrigin
+            @lastCodeOrigin = @codeOrigin
             result += separator if result != ""
             result += "#{@codeOrigin}"
         end
         if result != ""
-            result = $commentPrefix + " " + result
+            result = "// " + result
         end
 
         # Reset all the components that we've just sent to be dumped.
-        @commentState = :none
         @comment = nil
         @annotation = nil
         @codeOrigin = nil
@@ -145,11 +139,22 @@ class Assembler
     end
     
     def formatDump(dumpStr, comment, commentColumns=$preferredCommentStartColumn)
+        result = ""
         if comment.length > 0
-            "%-#{commentColumns}s %s" % [dumpStr, comment]
+            result = "%-#{commentColumns}s %s" % [dumpStr, comment]
         else
-            dumpStr
+            result = dumpStr
         end
+        if $enableDebugAnnotations
+            if @debugAnnotationStr and @debugAnnotationStr != @lastDebugAnnotationStr
+                result = "%-#{$preferredDebugAnnotationColumns}s%s" % [@debugAnnotationStr, result]
+            else
+                result = "%-#{$preferredDebugAnnotationColumns}s%s" % ["", result]
+            end
+            @lastDebugAnnotationStr = @debugAnnotationStr
+            @debugAnnotationStr = nil
+        end
+        result
     end
 
     # private method for internal use only.
@@ -176,14 +181,18 @@ class Assembler
             @outp.puts comment
         end
     end
-    
+
+    def putStr(str)
+        if $enableDebugAnnotations
+            @outp.puts "%-#{$preferredDebugAnnotationColumns}s%s" % ["", str]
+        else
+            @outp.puts str
+        end
+    end
+
     def puts(*line)
         raise unless @state == :asm
-        if !$emitWinAsm
-            @outp.puts(formatDump("    \"\\t" + line.join('') + "\\n\"", lastComment))
-        else
-            @outp.puts(formatDump("    " + line.join(''), lastComment))
-        end
+        @outp.puts(formatDump("    \"" + line.join('') + " \\n\"", lastComment))
     end
     
     def print(line)
@@ -198,21 +207,7 @@ class Assembler
         end
     end
 
-    def putsProc(label, comment)
-        raise unless $emitWinAsm
-        @outp.puts(formatDump("#{label} PROC PUBLIC", comment))
-        @lastlabel = label
-    end
-
-    def putsProcEndIfNeeded
-        raise unless $emitWinAsm
-        if @lastlabel != ""
-            @outp.puts("#{@lastlabel} ENDP")
-        end
-        @lastlabel = ""
-    end
-
-    def putsLabel(labelName, isGlobal)
+    def putsLabel(labelName, isGlobal, isExport, isAligned, alignTo)
         raise unless @state == :asm
         @deferredNextLabelActions.each {
             | action |
@@ -220,28 +215,37 @@ class Assembler
         }
         @deferredNextLabelActions = []
         @numGlobalLabels += 1
-        putsProcEndIfNeeded if $emitWinAsm and isGlobal
         putsNewlineSpacerIfAppropriate(:global)
         @internalComment = $enableLabelCountComments ? "Global Label #{@numGlobalLabels}" : nil
         if isGlobal
-            if !$emitWinAsm
-                @outp.puts(formatDump("OFFLINE_ASM_GLOBAL_LABEL(#{labelName})", lastComment))
+            if isAligned
+                if isExport
+                    @outp.puts(formatDump("OFFLINE_ASM_GLOBAL_EXPORT_LABEL(#{labelName})", lastComment))
+                elsif alignTo
+                    @outp.puts(formatDump("OFFLINE_ASM_ALIGNED_GLOBAL_LABEL(#{labelName}, #{alignTo})", lastComment))
+                else
+                    @outp.puts(formatDump("OFFLINE_ASM_GLOBAL_LABEL(#{labelName})", lastComment))
+                end
             else
-                putsProc(labelName, lastComment)
-            end            
-        elsif /\Allint_op_/.match(labelName)
-            if !$emitWinAsm
-                @outp.puts(formatDump("OFFLINE_ASM_OPCODE_LABEL(op_#{$~.post_match})", lastComment))
-            else
-                label = "llint_" + "op_#{$~.post_match}"
-                @outp.puts(formatDump("  _#{label}:", lastComment))
-            end            
-        else
-            if !$emitWinAsm
-                @outp.puts(formatDump("OFFLINE_ASM_GLUE_LABEL(#{labelName})", lastComment))
-            else
-                @outp.puts(formatDump("  _#{labelName}:", lastComment))
+                if isExport
+                    @outp.puts(formatDump("OFFLINE_ASM_UNALIGNED_GLOBAL_EXPORT_LABEL(#{labelName})", lastComment))
+                else
+                    @outp.puts(formatDump("OFFLINE_ASM_UNALIGNED_GLOBAL_LABEL(#{labelName})", lastComment))
+                end
             end
+        elsif /\Allint_op_/.match(labelName)
+            @outp.puts(formatDump("OFFLINE_ASM_OPCODE_LABEL(op_#{$~.post_match})", lastComment))
+        else
+            if alignTo
+                @outp.puts(formatDump("OFFLINE_ASM_ALIGN_TRAP(#{alignTo})", lastComment))
+            end
+            @outp.puts(formatDump("OFFLINE_ASM_GLUE_LABEL(#{labelName})", lastComment))
+        end
+        if $emitELFDebugDirectives
+            deferNextLabelAction {
+                putStr("    \".size #{labelName} , . - #{labelName} \\n\"")
+                putStr("    \".type #{labelName} , function \\n\"")
+            }
         end
         @newlineSpacerState = :none # After a global label, we can use another spacer.
     end
@@ -251,35 +255,15 @@ class Assembler
         @numLocalLabels += 1
         @outp.puts("\n")
         @internalComment = $enableLabelCountComments ? "Local Label #{@numLocalLabels}" : nil
-        if !$emitWinAsm
-            @outp.puts(formatDump("  OFFLINE_ASM_LOCAL_LABEL(#{labelName})", lastComment))
-        else
-            @outp.puts(formatDump("  #{labelName}:", lastComment))
-        end
+        @outp.puts(formatDump("  OFFLINE_ASM_LOCAL_LABEL(#{labelName})", lastComment))
     end
 
-    def self.externLabelReference(labelName)
-        if !$emitWinAsm
-            "\" LOCAL_REFERENCE(#{labelName}) \""
-        else
-            "#{labelName}"
-        end
+    def self.externOrGlobalLabelReference(labelName)
+        "\" LABEL_REFERENCE(#{labelName}) \""
     end
 
-    def self.labelReference(labelName)
-        if !$emitWinAsm
-            "\" LOCAL_LABEL_STRING(#{labelName}) \""
-        else
-            "_#{labelName}"
-        end
-    end
-    
     def self.localLabelReference(labelName)
-        if !$emitWinAsm
-            "\" LOCAL_LABEL_STRING(#{labelName}) \""
-        else
-            "#{labelName}"
-        end
+        "\" LOCAL_LABEL_STRING(#{labelName}) \""
     end
     
     def self.cLabelReference(labelName)
@@ -295,22 +279,7 @@ class Assembler
     end
     
     def codeOrigin(text)
-        case @commentState
-        when :none
-            @codeOrigin = text
-            @commentState = :one
-        when :one
-            if $enableCodeOriginComments
-                @outp.puts "    " + $commentPrefix + " #{@codeOrigin}"
-                @outp.puts "    " + $commentPrefix + " #{text}"
-            end
-            @codeOrigin = nil
-            @commentState = :many
-        when :many
-            @outp.puts $commentPrefix + " #{text}" if $enableCodeOriginComments
-        else
-            raise
-        end
+        @codeOrigin = text
     end
 
     def comment(text)
@@ -322,7 +291,7 @@ class Assembler
     end
 
     def debugAnnotation(text)
-        @outp.puts text
+        @debugAnnotationStr = text
     end
 end
 
@@ -335,35 +304,39 @@ variants = ARGV.shift.split(/[,\s]+/)
 
 $options = {}
 OptionParser.new do |opts|
-    opts.banner = "Usage: asm.rb asmFile offsetsFile outputFileName [--assembler=<ASM>]"
-    # This option is currently only used to specify the masm assembler
-    opts.on("--assembler=[ASM]", "Specify an assembler to use.") do |assembler|
-        $options[:assembler] = assembler
+    opts.banner = "Usage: asm.rb asmFile offsetsFile outputFileName [--platform=<OS>] [--webkit-additions-path=<path>] [--binary-format=<format>] [--depfile=<depfile>]"
+    # This option is currently only used to specify Windows for label lowering
+    opts.on("--platform=[Windows]", "Specify a specific platform for lowering.") do |platform|
+        $options[:platform] = platform
+    end
+    opts.on("--webkit-additions-path=PATH", "WebKitAdditions path.") do |path|
+        $options[:webkit_additions_path] = path
+    end
+    opts.on("--binary-format=FORMAT", "Specify the binary format used by the target system.") do |format|
+        $options[:binary_format] = format
+    end
+    opts.on("--depfile=DEPFILE", "Path to write Makefile-style discovered dependencies to.") do |path|
+        $options[:depfile] = path
     end
 end.parse!
 
 begin
     configurationList = offsetsAndConfigurationIndexForVariants(offsetsFile, variants)
 rescue MissingMagicValuesException
-    $stderr.puts "offlineasm: No magic values found. Skipping assembly file generation."
+    $stderr.puts "offlineasm: No magic values found in #{offsetsFile}. Skipping assembly file generation."
     exit 1
 end
 
-# The MS compiler doesn't accept DWARF2 debug annotations.
-if isMSVC
-    $enableDebugAnnotations = false
-end
-
-$emitWinAsm = isMSVC ? outputFlnm.index(".asm") != nil : false
-$commentPrefix = $emitWinAsm ? ";" : "//"
+# We want this in all ELF systems we support, except for C_LOOP (we'll disable it later on if we are building cloop)
+$emitELFDebugDirectives = $options.has_key?(:binary_format) && $options[:binary_format] == "ELF"
 
 inputHash =
-    $commentPrefix + " offlineasm input hash: " + parseHash(asmFile) +
+    "// offlineasm input hash: " + parseHash(asmFile, $options) +
     " " + Digest::SHA1.hexdigest(configurationList.map{|v| (v[0] + [v[1]]).join(' ')}.join(' ')) +
     " " + selfHash +
-    " " + Digest::SHA1.hexdigest($options.has_key?(:assembler) ? $options[:assembler] : "")
+    " " + Digest::SHA1.hexdigest($options.has_key?(:platform) ? $options[:platform] : "")
 
-if FileTest.exist? outputFlnm
+if FileTest.exist?(outputFlnm) and (not $options[:depfile] or FileTest.exist?($options[:depfile]))
     lastLine = nil
     File.open(outputFlnm, "r") {
         | file |
@@ -386,9 +359,16 @@ File.open(outputFlnm, "w") {
     $output = outp
 
     $asm = Assembler.new($output)
-    
-    ast = parse(asmFile)
+
+    sources = Set.new
+    ast = parse(asmFile, $options, sources)
     settingsCombinations = computeSettingsCombinations(ast)
+    
+    if $options[:depfile]
+        depfile = File.open($options[:depfile], "w")
+        depfile.print(Shellwords.escape(outputFlnm), ": ")
+        depfile.puts(Shellwords.join(sources.sort))
+    end
 
     configurationList.each {
         | configuration |
@@ -400,12 +380,15 @@ File.open(outputFlnm, "w") {
             # There could be multiple backends we are generating for, but the C_LOOP is
             # always by itself so this check to turn off $enableDebugAnnotations won't
             # affect the generation for any other backend.
-            if backend == "C_LOOP" || backend == "C_LOOP_WIN"
+            if backend == "C_LOOP"
                 $enableDebugAnnotations = false
+                $preferredCommentStartColumn = 60
+                $emitELFDebugDirectives = false
             end
 
             lowLevelAST = lowLevelAST.demacroify({})
-            lowLevelAST = lowLevelAST.resolve(buildOffsetsMap(lowLevelAST, offsetsList))
+            mapping = buildOffsetsMap(lowLevelAST, offsetsList)
+            lowLevelAST = lowLevelAST.resolve(mapping)
             lowLevelAST.validate
             emitCodeInConfiguration(concreteSettings, lowLevelAST, backend) {
                 $currentSettings = concreteSettings

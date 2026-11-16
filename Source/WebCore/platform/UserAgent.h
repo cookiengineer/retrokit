@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2012, 2014, 2016 Igalia S.L.
- * Copyright (C) 2014 Apple Inc.
+ * Copyright (C) 2014 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -26,6 +26,7 @@
 
 #pragma once
 
+#include <wtf/Platform.h>
 #include <wtf/text/WTFString.h>
 
 namespace WebCore {
@@ -34,7 +35,7 @@ namespace WebCore {
 enum class UserAgentType { Default, Desktop };
 WEBCORE_EXPORT String standardUserAgentWithApplicationName(const String& applicationName, const String& userAgentOSVersion = emptyString(), UserAgentType = UserAgentType::Default);
 
-WEBCORE_EXPORT String osNameForUserAgent();
+WEBCORE_EXPORT ASCIILiteral osNameForUserAgent();
 WEBCORE_EXPORT String systemMarketingVersionForUserAgentString();
 #else
 

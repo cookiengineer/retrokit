@@ -31,6 +31,7 @@
 #include "GCDeferralContext.h"
 #include "LocalAllocatorInlines.h"
 #include "Options.h"
+#include "ResourceExhaustion.h"
 #include "SuperSampler.h"
 
 namespace JSC {
@@ -109,7 +110,7 @@ void LocalAllocator::stopAllocatingForGood()
     reset();
 }
 
-void* LocalAllocator::allocateSlowCase(Heap& heap, GCDeferralContext* deferralContext, AllocationFailureMode failureMode)
+void* LocalAllocator::allocateSlowCase(JSC::Heap& heap, size_t cellSize, GCDeferralContext* deferralContext, AllocationFailureMode failureMode)
 {
     SuperSamplerScope superSamplerScope(false);
     ASSERT(heap.vm().currentThreadIsHoldingAPILock());
@@ -126,29 +127,31 @@ void* LocalAllocator::allocateSlowCase(Heap& heap, GCDeferralContext* deferralCo
     
     // Goofy corner case: the GC called a callback and now this directory has a currentBlock. This only
     // happens when running WebKit tests, which inject a callback into the GC's finalization.
-    if (UNLIKELY(m_currentBlock))
-        return allocate(heap, deferralContext, failureMode);
+    if (m_currentBlock) [[unlikely]]
+        return allocate(heap, cellSize, deferralContext, failureMode);
     
-    void* result = tryAllocateWithoutCollecting();
+    void* result = tryAllocateWithoutCollecting(cellSize);
     
-    if (LIKELY(result != nullptr))
+    if (result) [[likely]]
         return result;
+
+    // FIXME GlobalGC: Need to synchronize here to when allocating from the BlockDirectory in the server.
 
     Subspace* subspace = m_directory->m_subspace;
     if (subspace->isIsoSubspace()) {
-        if (void* result = static_cast<IsoSubspace*>(subspace)->tryAllocateFromLowerTier())
+        if (void* result = static_cast<IsoSubspace*>(subspace)->tryAllocateLowerTierPrecise(cellSize))
             return result;
     }
-    
+
+    ASSERT(!subspace->isPreciseOnly());
+    ASSERT_WITH_MESSAGE(cellSize == m_directory->cellSize(), "non-preciseOnly allocations should match allocator's the size class");
     MarkedBlock::Handle* block = m_directory->tryAllocateBlock(heap);
-    if (!block) {
-        if (failureMode == AllocationFailureMode::Assert)
-            RELEASE_ASSERT_NOT_REACHED();
-        else
-            return nullptr;
+    if (!block) [[unlikely]] {
+        RELEASE_ASSERT_RESOURCE_AVAILABLE(failureMode != AllocationFailureMode::Assert, MemoryExhaustion, "Crash intentionally because memory is exhausted.");
+        return nullptr;
     }
     m_directory->addBlock(block);
-    result = allocateIn(block);
+    result = allocateIn(block, cellSize);
     ASSERT(result);
     return result;
 }
@@ -162,8 +165,9 @@ void LocalAllocator::didConsumeFreeList()
     m_currentBlock = nullptr;
 }
 
-void* LocalAllocator::tryAllocateWithoutCollecting()
+void* LocalAllocator::tryAllocateWithoutCollecting(size_t cellSize)
 {
+    // FIXME: GlobalGC
     // FIXME: If we wanted this to be used for real multi-threaded allocations then we would have to
     // come up with some concurrency protocol here. That protocol would need to be able to handle:
     //
@@ -188,7 +192,7 @@ void* LocalAllocator::tryAllocateWithoutCollecting()
         if (!block)
             break;
 
-        if (void* result = tryAllocateIn(block))
+        if (void* result = tryAllocateIn(block, cellSize))
             return result;
     }
     
@@ -198,29 +202,28 @@ void* LocalAllocator::tryAllocateWithoutCollecting()
             
             block->sweep(nullptr);
             
-            // It's good that this clears canAllocateButNotEmpty as well as all other bits,
-            // because there is a remote chance that a block may have both canAllocateButNotEmpty
-            // and empty set at the same time.
             block->removeFromDirectory();
             m_directory->addBlock(block);
-            return allocateIn(block);
+            return allocateIn(block, cellSize);
         }
     }
     
     return nullptr;
 }
 
-void* LocalAllocator::allocateIn(MarkedBlock::Handle* block)
+void* LocalAllocator::allocateIn(MarkedBlock::Handle* block, size_t cellSize)
 {
-    void* result = tryAllocateIn(block);
+    void* result = tryAllocateIn(block, cellSize);
     RELEASE_ASSERT(result);
     return result;
 }
 
-void* LocalAllocator::tryAllocateIn(MarkedBlock::Handle* block)
+void* LocalAllocator::tryAllocateIn(MarkedBlock::Handle* block, size_t cellSize)
 {
     ASSERT(block);
     ASSERT(!block->isFreeListed());
+    m_directory->assertIsMutatorOrMutatorIsStopped();
+    ASSERT(m_directory->isInUse(block));
     
     block->sweep(&m_freeList);
     
@@ -230,26 +233,28 @@ void* LocalAllocator::tryAllocateIn(MarkedBlock::Handle* block)
         ASSERT(block->isFreeListed());
         block->unsweepWithNoNewlyAllocated();
         ASSERT(!block->isFreeListed());
-        ASSERT(!m_directory->isEmpty(NoLockingNecessary, block));
-        ASSERT(!m_directory->isCanAllocateButNotEmpty(NoLockingNecessary, block));
+        ASSERT(!m_directory->isEmpty(block));
+        ASSERT(!m_directory->isCanAllocate(block));
         return nullptr;
     }
     
     m_currentBlock = block;
     
-    void* result = m_freeList.allocate(
-        [] () -> HeapCell* {
+    void* result = m_freeList.allocateWithCellSize(
+        []() -> HeapCell* {
             RELEASE_ASSERT_NOT_REACHED();
             return nullptr;
-        });
-    m_directory->setIsEden(NoLockingNecessary, m_currentBlock, true);
+        }, cellSize);
+
+    // FIXME: We should make this work with thread safety analysis.
+    m_directory->m_bits.setIsEden(m_currentBlock->index(), true);
     m_directory->markedSpace().didAllocateInBlock(m_currentBlock);
     return result;
 }
 
-void LocalAllocator::doTestCollectionsIfNeeded(Heap& heap, GCDeferralContext* deferralContext)
+void LocalAllocator::doTestCollectionsIfNeeded(JSC::Heap& heap, GCDeferralContext* deferralContext)
 {
-    if (!Options::slowPathAllocsBetweenGCs())
+    if (!Options::slowPathAllocsBetweenGCs()) [[likely]]
         return;
 
     static unsigned allocationCount = 0;
@@ -263,16 +268,6 @@ void LocalAllocator::doTestCollectionsIfNeeded(Heap& heap, GCDeferralContext* de
     }
     if (++allocationCount >= Options::slowPathAllocsBetweenGCs())
         allocationCount = 0;
-}
-
-bool LocalAllocator::isFreeListedCell(const void* target) const
-{
-    // This abomination exists to detect when an object is in the dead-but-not-destructed state.
-    // Therefore, it's not even clear that this needs to do anything beyond returning "false", since
-    // if we know that the block owning the object is free-listed, then it's impossible for any
-    // objects to be in the dead-but-not-destructed state.
-    // FIXME: Get rid of this abomination. https://bugs.webkit.org/show_bug.cgi?id=181655
-    return m_freeList.contains(bitwise_cast<HeapCell*>(target));
 }
 
 } // namespace JSC

@@ -35,9 +35,11 @@
 namespace WebCore {
 
 class RenderMultiColumnSpannerPlaceholder final : public RenderBox {
-    WTF_MAKE_ISO_ALLOCATED(RenderMultiColumnSpannerPlaceholder);
+    WTF_MAKE_TZONE_ALLOCATED(RenderMultiColumnSpannerPlaceholder);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(RenderMultiColumnSpannerPlaceholder);
 public:
-    static RenderPtr<RenderMultiColumnSpannerPlaceholder> createAnonymous(RenderMultiColumnFlow&, RenderBox& spanner, const RenderStyle& parentStyle);
+    static RenderPtr<RenderMultiColumnSpannerPlaceholder> createAnonymous(RenderMultiColumnFlow&, RenderBox& spanner, const Style::ComputedStyle& parentStyle);
+    virtual ~RenderMultiColumnSpannerPlaceholder();
 
     RenderBox* spanner() const { return m_spanner.get(); }
     RenderMultiColumnFlow* fragmentedFlow() const { return m_fragmentedFlow.get(); }
@@ -45,15 +47,15 @@ public:
 private:
     template<class T, class... Args> friend RenderPtr<T> createRenderer(Args&&...);
 
-    RenderMultiColumnSpannerPlaceholder(RenderMultiColumnFlow&, RenderBox& spanner, RenderStyle&&);
-    bool isRenderMultiColumnSpannerPlaceholder() const override { return true; }
+    RenderMultiColumnSpannerPlaceholder(RenderMultiColumnFlow&, RenderBox& spanner, Style::ComputedStyle&&);
+    std::pair<LayoutUnit, LayoutUnit> computeIntrinsicLogicalWidths() const override { ASSERT_NOT_REACHED(); return { }; }
 
     bool canHaveChildren() const override { return false; }
     void paint(PaintInfo&, const LayoutPoint&) override { }
-    const char* renderName() const override;
+    ASCIILiteral renderName() const override;
 
-    WeakPtr<RenderBox> m_spanner;
-    WeakPtr<RenderMultiColumnFlow> m_fragmentedFlow;
+    SingleThreadWeakPtr<RenderBox> m_spanner;
+    SingleThreadWeakPtr<RenderMultiColumnFlow> m_fragmentedFlow;
 };
 
 } // namespace WebCore

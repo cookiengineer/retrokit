@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <WebCore/PlatformExportMacros.h>
 #include <wtf/OptionSet.h>
 #include <wtf/Seconds.h>
 
@@ -41,6 +42,8 @@ enum class ThrottlingReason : uint8_t {
     OutsideViewport                 = 1 << 1,
     LowPowerMode                    = 1 << 2,
     NonInteractedCrossOriginFrame   = 1 << 3,
+    ThermalMitigation               = 1 << 4,
+    AggressiveThermalMitigation     = 1 << 5,
 };
 
 // Allow a little more than 60fps to make sure we can at least hit that frame rate.
@@ -53,12 +56,12 @@ constexpr const int IntervalThrottlingFactor { 2 };
 constexpr const FramesPerSecond FullSpeedFramesPerSecond = 60;
 constexpr const FramesPerSecond HalfSpeedThrottlingFramesPerSecond = 30;
 
-WEBCORE_EXPORT FramesPerSecond framesPerSecondNearestFullSpeed(FramesPerSecond);
+WEBCORE_EXPORT FramesPerSecond NODELETE framesPerSecondNearestFullSpeed(FramesPerSecond);
 
 // This will return std::nullopt if throttling results in a frequency < 1fps.
-WEBCORE_EXPORT std::optional<FramesPerSecond> preferredFramesPerSecond(OptionSet<ThrottlingReason>, std::optional<FramesPerSecond> nominalFramesPerSecond, bool preferFrameRatesNear60FPS);
+WEBCORE_EXPORT std::optional<FramesPerSecond> NODELETE preferredFramesPerSecond(OptionSet<ThrottlingReason>, std::optional<FramesPerSecond> nominalFramesPerSecond, bool preferFrameRatesNear60FPS);
 
-WEBCORE_EXPORT Seconds preferredFrameInterval(OptionSet<ThrottlingReason>, std::optional<FramesPerSecond> nominalFramesPerSecond, bool preferFrameRatesNear60FPS);
+WEBCORE_EXPORT Seconds NODELETE preferredFrameInterval(OptionSet<ThrottlingReason>, std::optional<FramesPerSecond> nominalFramesPerSecond, bool preferFrameRatesNear60FPS);
 
 WEBCORE_EXPORT FramesPerSecond preferredFramesPerSecondFromInterval(Seconds);
 

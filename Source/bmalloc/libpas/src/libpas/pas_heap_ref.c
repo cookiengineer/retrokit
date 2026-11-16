@@ -36,17 +36,20 @@
 
 pas_heap* pas_ensure_heap_slow(pas_heap_ref* heap_ref,
                                pas_heap_ref_kind heap_ref_kind,
-                               pas_heap_config* config,
+                               const pas_heap_config* config,
                                pas_heap_runtime_config* runtime_config)
 {
     pas_heap* heap;
 
     PAS_ASSERT(heap_ref_kind != pas_fake_heap_ref_kind);
+    PAS_PROFILE(ENSURE_HEAP_SLOW, heap, heap_ref, heap_ref_kind, config, runtime_config);
+    PAS_MTE_HANDLE(ENSURE_HEAP_SLOW, heap, heap_ref, heap_ref_kind, config, runtime_config);
 
     pas_heap_lock_lock();
     heap = heap_ref->heap;
     if (!heap) {
         heap = pas_heap_create(heap_ref, heap_ref_kind, config, runtime_config);
+        pas_store_store_fence();
         heap_ref->heap = heap;
     }
     pas_heap_lock_unlock();

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Apple Inc. All rights reserved.
+ * Copyright (C) 2014-2024 Apple Inc. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -25,25 +25,24 @@
 
 #pragma once
 
+#include <pal/ExportMacros.h>
 #include <wtf/RunLoop.h>
 #include <wtf/Seconds.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace PAL {
 
-static const Seconds defaultHysteresisDuration { 5_s };
+static constexpr Seconds defaultHysteresisDuration { 5_s };
 
-enum class HysteresisState {
-    Started,
-    Stopped
-};
+enum class HysteresisState : bool { Started, Stopped };
 
 class HysteresisActivity {
+    WTF_MAKE_TZONE_ALLOCATED_EXPORT(HysteresisActivity, PAL_EXPORT);
 public:
-    explicit HysteresisActivity(WTF::Function<void(HysteresisState)>&& callback = [](HysteresisState) { }, Seconds hysteresisSeconds = defaultHysteresisDuration)
-        : m_callback(WTFMove(callback))
+    explicit HysteresisActivity(Function<void(HysteresisState)>&& callback = [](HysteresisState) { }, Seconds hysteresisSeconds = defaultHysteresisDuration)
+        : m_callback(WTF::move(callback))
         , m_hysteresisSeconds(hysteresisSeconds)
-        , m_active(false)
-        , m_timer(RunLoop::main(), this, &HysteresisActivity::hysteresisTimerFired)
+        , m_timer(RunLoop::mainSingleton(), "HysteresisActivity::Timer"_s, [this] { m_callback(HysteresisState::Stopped); })
     {
     }
 
@@ -51,6 +50,7 @@ public:
     {
         if (m_active)
             return;
+
         m_active = true;
 
         if (m_timer.isActive())
@@ -63,17 +63,30 @@ public:
     {
         if (!m_active)
             return;
-        m_active = false;
 
+        m_active = false;
         m_timer.startOneShot(m_hysteresisSeconds);
+    }
+
+    void cancel()
+    {
+        m_active = false;
+        if (m_timer.isActive())
+            m_timer.stop();
     }
 
     void impulse()
     {
-        if (!m_active) {
-            start();
-            stop();
+        if (m_active)
+            return;
+
+        if (state() == HysteresisState::Stopped) {
+            m_active = true;
+            m_callback(HysteresisState::Started);
+            m_active = false;
         }
+
+        m_timer.startOneShot(m_hysteresisSeconds);
     }
 
     HysteresisState state() const
@@ -82,16 +95,10 @@ public:
     }
     
 private:
-    void hysteresisTimerFired()
-    {
-        m_timer.stop();
-        m_callback(HysteresisState::Stopped);
-    }
-
-    WTF::Function<void(HysteresisState)> m_callback;
+    Function<void(HysteresisState)> m_callback;
     Seconds m_hysteresisSeconds;
-    bool m_active;
-    RunLoop::Timer<HysteresisActivity> m_timer;
+    RunLoop::Timer m_timer;
+    bool m_active { false };
 };
 
 } // namespace PAL

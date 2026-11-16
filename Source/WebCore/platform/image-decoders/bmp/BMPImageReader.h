@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2009, Google Inc. All rights reserved.
+ * Copyright (c) 2008-2015 Google Inc. All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -32,30 +32,32 @@
 
 #include "ScalableImageDecoder.h"
 #include <stdint.h>
+#include <wtf/StdLibExtras.h>
+#include <wtf/TZoneMalloc.h>
 
 namespace WebCore {
 
 // This class decodes a BMP image. It is used in the BMP and ICO decoders,
 // which wrap it in the appropriate code to read file headers, etc.
 class BMPImageReader {
-    WTF_MAKE_FAST_ALLOCATED;
+    WTF_MAKE_TZONE_ALLOCATED(BMPImageReader);
 public:
     // Read a value from |data[offset]|, converting from little to native
     // endianness.
-    static inline uint16_t readUint16(const SharedBuffer::DataSegment& data, int offset)
+    static inline uint16_t readUint16(const SharedBuffer& data, int offset)
     {
         uint16_t result;
-        memcpy(&result, &data.data()[offset], 2);
+        memcpySpan(asMutableByteSpan(result), data.span().subspan(offset, 2));
 #if CPU(BIG_ENDIAN)
         result = ((result & 0xff) << 8) | ((result & 0xff00) >> 8);
 #endif
         return result;
     }
 
-    static inline uint32_t readUint32(const SharedBuffer::DataSegment& data, int offset)
+    static inline uint32_t readUint32(const SharedBuffer& data, int offset)
     {
         uint32_t result;
-        memcpy(&result, &data.data()[offset], 4);
+        memcpySpan(asMutableByteSpan(result), data.span().subspan(offset, 4));
 #if CPU(BIG_ENDIAN)
         result = ((result & 0xff) << 24) | ((result & 0xff00) << 8) | ((result & 0xff0000) >> 8) | ((result & 0xff000000) >> 24);
 #endif
@@ -69,7 +71,7 @@ public:
     BMPImageReader(ScalableImageDecoder* parent, size_t decodedAndHeaderOffset, size_t imgDataOffset, bool usesAndMask);
 
     void setBuffer(ScalableImageDecoderFrame* buffer) { m_buffer = buffer; }
-    void setData(SharedBuffer::DataSegment& data) { m_data = &data; }
+    void setData(const SharedBuffer& data) { m_data = &data; }
 
     // Does the actual decoding. If |onlySize| is true, decoding only
     // progresses as far as necessary to get the image size. Returns
@@ -187,39 +189,6 @@ private:
         return m_isTopDown ? ((m_coord.y() + numRows) >= m_parent->size().height()) : ((m_coord.y() - numRows) < 0);
     }
 
-    // Returns the pixel data for the current X coordinate in a uint32_t.
-    // Assumes m_decodedOffset has been set to the beginning of the current
-    // row.
-    // NOTE: Only as many bytes of the return value as are needed to hold
-    // the pixel data will actually be set.
-    inline uint32_t readCurrentPixel(int bytesPerPixel) const
-    {
-        const int offset = m_coord.x() * bytesPerPixel;
-        switch (bytesPerPixel) {
-        case 2:
-            return readUint16(offset);
-
-        case 3: {
-            // It doesn't matter that we never set the most significant byte
-            // of the return value here in little-endian mode, the caller
-            // won't read it.
-            uint32_t pixel;
-            memcpy(&pixel, &m_data->data()[m_decodedOffset + offset], 3);
-#if CPU(BIG_ENDIAN)
-            pixel = ((pixel & 0xff00) << 8) | ((pixel & 0xff0000) >> 8) | ((pixel & 0xff000000) >> 24);
-#endif
-            return pixel;
-        }
-
-        case 4:
-            return readUint32(offset);
-
-        default:
-            ASSERT_NOT_REACHED();
-            return 0;
-        }
-    }
-
     // Returns the value of the desired component (0, 1, 2, 3 == R, G, B, A)
     // in the given pixel data.
     inline unsigned getComponent(uint32_t pixel, int component) const
@@ -272,7 +241,7 @@ private:
     ScalableImageDecoderFrame* m_buffer;
 
     // The file to decode.
-    RefPtr<SharedBuffer::DataSegment> m_data;
+    RefPtr<const SharedBuffer> m_data;
 
     // An index into |m_data| representing how much we've already decoded.
     size_t m_decodedOffset;
@@ -320,12 +289,11 @@ private:
     // just combine these into one shift value because the net shift amount
     // could go either direction. (If only "<< -x" were equivalent to
     // ">> x"...)
-    uint32_t m_bitMasks[4];
-    int m_bitShiftsRight[4];
-    int m_bitShiftsLeft[4];
+    std::array<uint32_t, 4> m_bitMasks;
+    std::array<int, 4> m_bitShiftsRight;
+    std::array<int, 4> m_bitShiftsLeft;
 
     // The color palette, for paletted formats.
-    size_t m_tableSizeInBytes;
     Vector<RGBTriple> m_colorTable;
 
     // The coordinate to which we've decoded the image.

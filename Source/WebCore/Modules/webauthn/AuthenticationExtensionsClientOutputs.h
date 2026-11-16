@@ -27,12 +27,41 @@
 
 #if ENABLE(WEB_AUTHN)
 
+#include <JavaScriptCore/ArrayBuffer.h>
+#include <WebCore/AuthenticationExtensionsClientOutputsJSON.h>
+#include <WebCore/CBORReader.h>
+#include <WebCore/CBORWriter.h>
+#include <WebCore/CredentialPropertiesOutput.h>
 #include <optional>
 
 namespace WebCore {
+struct CredentialPropertiesOutput;
 
 struct AuthenticationExtensionsClientOutputs {
+    struct LargeBlobOutputs {
+        std::optional<bool> supported;
+        RefPtr<ArrayBuffer> blob;
+        std::optional<bool> written;
+    };
+
+    struct PRFValues {
+        Ref<ArrayBuffer> first;
+        RefPtr<ArrayBuffer> second;
+    };
+
+    struct PRFOutputs {
+        std::optional<bool> enabled;
+        std::optional<AuthenticationExtensionsClientOutputs::PRFValues> results;
+    };
+
     std::optional<bool> appid;
+    std::optional<CredentialPropertiesOutput> credProps;
+    std::optional<LargeBlobOutputs> largeBlob;
+    std::optional<PRFOutputs> prf;
+
+    WEBCORE_EXPORT Vector<uint8_t> toCBOR() const;
+    AuthenticationExtensionsClientOutputsJSON toJSON() const;
+    WEBCORE_EXPORT static std::optional<AuthenticationExtensionsClientOutputs> fromCBOR(const Vector<uint8_t>&);
 };
 
 } // namespace WebCore

@@ -22,8 +22,8 @@
 
 #pragma once
 
-#include "HTMLElement.h"
-#include "InlineStyleSheetOwner.h"
+#include <WebCore/HTMLElement.h>
+#include <WebCore/InlineStyleSheetOwner.h>
 
 namespace WebCore {
 
@@ -31,12 +31,13 @@ class HTMLStyleElement;
 class Page;
 class StyleSheet;
 
-template<typename T> class EventSender;
+template<typename T, typename Counter> class EventSender;
 
-using StyleEventSender = EventSender<HTMLStyleElement>;
+using StyleEventSender = EventSender<HTMLStyleElement, WeakPtrImplWithEventTargetData>;
 
 class HTMLStyleElement final : public HTMLElement {
-    WTF_MAKE_ISO_ALLOCATED(HTMLStyleElement);
+    WTF_MAKE_TZONE_ALLOCATED(HTMLStyleElement);
+    WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR(HTMLStyleElement);
 public:
     static Ref<HTMLStyleElement> create(Document&);
     static Ref<HTMLStyleElement> create(const QualifiedName&, Document&, bool createdByParser);
@@ -47,17 +48,19 @@ public:
     WEBCORE_EXPORT bool disabled() const;
     WEBCORE_EXPORT void setDisabled(bool);
 
-    void dispatchPendingEvent(StyleEventSender*);
+    void dispatchPendingEvent(StyleEventSender*, const AtomString& eventType);
     static void dispatchPendingLoadEvents(Page*);
 
     void finishParsingChildren() final;
 
+    WEBCORE_EXPORT DOMTokenList& blocking();
+
 private:
     HTMLStyleElement(const QualifiedName&, Document&, bool createdByParser);
 
-    void parseAttribute(const QualifiedName&, const AtomString&) final;
-    InsertedIntoAncestorResult insertedIntoAncestor(InsertionType, ContainerNode&) final;
-    void removedFromAncestor(RemovalType, ContainerNode&) final;
+    void attributeChanged(const QualifiedName&, const AtomString& oldValue, const AtomString& newValue, AttributeModificationReason) final;
+    NeedsPostConnectionSteps insertionSteps(InsertionType, ContainerNode&) final;
+    void removingSteps(RemovalType, ContainerNode&) final;
     void childrenChanged(const ChildChange&) final;
 
     bool isLoading() const { return m_styleSheetOwner.isLoading(); }
@@ -65,9 +68,10 @@ private:
     void notifyLoadedSheetAndAllCriticalSubresources(bool errorOccurred) final;
     void startLoadingDynamicSheet() final { m_styleSheetOwner.startLoadingDynamicSheet(*this); }
 
-    void addSubresourceAttributeURLs(ListHashSet<URL>&) const final;
+    void addSubresourceAttributeURLs(OrderedHashSet<URL>&) const final;
 
     InlineStyleSheetOwner m_styleSheetOwner;
+    const std::unique_ptr<DOMTokenList> m_blockingList;
     bool m_loadedSheet { false };
 };
 

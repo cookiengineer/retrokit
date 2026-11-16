@@ -40,24 +40,30 @@ class BaseAudioContext;
 class AudioWorkletMessagingProxy;
 
 class AudioWorklet final : public Worklet {
-    WTF_MAKE_ISO_ALLOCATED(AudioWorklet);
+    WTF_MAKE_TZONE_ALLOCATED(AudioWorklet);
 public:
     static Ref<AudioWorklet> create(BaseAudioContext&);
 
-    AudioWorkletMessagingProxy* proxy() const;
-    BaseAudioContext* audioContext() const;
+    AudioWorkletMessagingProxy* NODELETE proxy() const;
+    BaseAudioContext* NODELETE audioContext() const;
 
     void createProcessor(const String& name, TransferredMessagePort, Ref<SerializedScriptValue>&&, AudioWorkletNode&);
 
 private:
     explicit AudioWorklet(BaseAudioContext&);
 
+    bool isAudioWorklet() const final { return true; }
+
     // Worklet.
     Vector<Ref<WorkletGlobalScopeProxy>> createGlobalScopes() final;
 
-    WeakPtr<BaseAudioContext> m_audioContext;
+    WeakPtr<BaseAudioContext, WeakPtrImplWithEventTargetData> m_audioContext;
 };
 
 } // namespace WebCore
+
+SPECIALIZE_TYPE_TRAITS_BEGIN(WebCore::AudioWorklet)
+    static bool isType(const WebCore::Worklet& worklet) { return worklet.isAudioWorklet(); }
+SPECIALIZE_TYPE_TRAITS_END()
 
 #endif // ENABLE(WEB_AUDIO)
